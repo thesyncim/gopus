@@ -10,29 +10,29 @@ See: .planning/PROJECT.md (updated 2026-01-21)
 ## Current Position
 
 Phase: 2 of 12 (SILK Decoder)
-Plan: 1 of 3 in current phase
+Plan: 2 of 3 in current phase
 Status: In progress
-Last activity: 2026-01-21 - Completed 02-01-PLAN.md (SILK Foundation)
+Last activity: 2026-01-21 - Completed 02-02-PLAN.md (SILK Parameter Decoding)
 
-Progress: [████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] ~11% (4/36 plans)
+Progress: [██████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░] ~14% (5/36 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
+- Total plans completed: 5
 - Average duration: ~9 minutes
-- Total execution time: ~37 minutes
+- Total execution time: ~45 minutes
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-foundation | 3/3 | ~29m | ~10m |
-| 02-silk-decoder | 1/3 | ~8m | ~8m |
+| 02-silk-decoder | 2/3 | ~16m | ~8m |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (~4m), 01-03 (~4m), 01-02 (~21m), 02-01 (~8m)
-- Trend: 02-01 completed efficiently with table transcription
+- Last 5 plans: 01-03 (~4m), 01-02 (~21m), 02-01 (~8m), 02-02 (~8m)
+- Trend: SILK plans executing efficiently
 
 *Updated after each plan completion*
 
@@ -52,10 +52,11 @@ Recent decisions affecting current work:
 | D01-03-02 | ParseFrameLength as internal helper | 01-03 | Two-byte encoding reused in Code 2 and Code 3 |
 | D02-01-01 | ICDF tables use uint16 (256 overflows uint8) | 02-01 | Added DecodeICDF16 to range decoder |
 | D02-01-02 | Export ICDF tables with uppercase names | 02-01 | Package access for parameter decoding |
+| D02-02-01 | Direct polynomial method for LSF-to-LPC | 02-02 | Clearer than Chebyshev recursion |
 
 ### Pending Todos
 
-- Complete Phase 02 (SILK Decoder): 02-02 (parameter decoding), 02-03 (synthesis)
+- Complete Phase 02 (SILK Decoder): 02-03 (synthesis)
 
 ### Known Gaps
 
@@ -67,9 +68,9 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-01-21 20:23 UTC
-Stopped at: Completed 02-01-PLAN.md (SILK Foundation)
-Resume file: N/A - ready for 02-02-PLAN.md
+Last session: 2026-01-21
+Stopped at: Completed 02-02-PLAN.md (SILK Parameter Decoding)
+Resume file: N/A - ready for 02-03-PLAN.md
 
 ## Phase 01 Summary
 
@@ -94,8 +95,23 @@ Resume file: N/A - ready for 02-02-PLAN.md
 - Bandwidth config: NB (8kHz), MB (12kHz), WB (16kHz) with LPC orders
 - Decoder struct: State management for frame persistence
 
+**02-02 SILK Parameter Decoding complete:**
+- FrameParams struct: holds all decoded frame parameters
+- Frame type decoding: signal type (inactive/unvoiced/voiced) + quant offset
+- Gain decoding: Q16 gains with delta coding between subframes
+- LSF decoding: two-stage VQ with interpolation and stabilization
+- LSF-to-LPC: Chebyshev polynomial conversion to Q12 LPC coefficients
+- Pitch lag decoding: per-subframe lags with contour deltas
+- LTP coefficient decoding: 5-tap Q7 filters by periodicity
+- Unit tests: 10 tests covering tables, structs, and state
+
 **Key artifacts:**
 - `internal/silk/tables.go` - ICDF tables (uint16)
 - `internal/silk/codebook.go` - LSF and LTP codebooks
 - `internal/silk/bandwidth.go` - Bandwidth configuration
 - `internal/silk/decoder.go` - Decoder struct with state
+- `internal/silk/decode_params.go` - FrameParams, DecodeFrameType
+- `internal/silk/gain.go` - Gain decoding
+- `internal/silk/lsf.go` - LSF decoding and LSF-to-LPC
+- `internal/silk/pitch.go` - Pitch and LTP decoding
+- `internal/silk/decode_params_test.go` - Parameter decoding tests
