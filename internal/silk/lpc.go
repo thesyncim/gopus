@@ -91,7 +91,8 @@ func (d *Decoder) updateLPCState(samples []float32, order int) {
 // The function modifies the LPC coefficients in place.
 func limitLPCFilterGain(lpc []int16) {
 	// Maximum iterations to prevent infinite loop
-	const maxIterations = 16
+	// Per RFC 6716, up to 16 rounds of bandwidth expansion may be needed
+	const maxIterations = 30
 
 	// Gain threshold in Q24 format
 	// This corresponds to a maximum filter gain that keeps poles
@@ -113,9 +114,10 @@ func limitLPCFilterGain(lpc []int16) {
 		}
 
 		// Apply bandwidth expansion: a[k] *= chirp^k
-		// Using chirp = 0.99 in Q15 = 32440
+		// Using chirp = 0.96 in Q15 = 31457
 		// This pushes poles toward origin, increasing stability margin
-		applyBandwidthExpansion(lpc, 32440)
+		// More aggressive chirp (0.96 vs 0.99) ensures faster convergence
+		applyBandwidthExpansion(lpc, 31457)
 	}
 }
 
