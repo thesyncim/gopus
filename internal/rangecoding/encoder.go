@@ -157,26 +157,45 @@ func (e *Encoder) EncodeBit(val int, logp uint) {
 
 // Done finalizes the encoding and returns the encoded bytes.
 // After calling Done, the encoder should not be used without re-initializing.
+// This follows libopus ec_enc_done exactly.
 func (e *Encoder) Done() []byte {
-	// Flush remaining state
-	// We need to output enough bits to uniquely identify the final interval
+	// Compute the number of bits of information we need to output
+	// to uniquely identify the final interval.
+	l := ilog(e.rng)
 
-	// First, determine how many bits we need to output
-	// We need val + (minimal distinguishing bits) to fall within [val, val+rng)
-
-	// Compute the number of bits needed
-	var l int
-	if e.rng > 0 {
-		l = ilog(e.rng)
+	// Compute the mask for the bits we don't need
+	// and the final value to output
+	var msk uint32 = EC_CODE_TOP - 1
+	if l < EC_CODE_BITS {
+		msk = msk >> l
+	} else {
+		msk = 0
 	}
 
-	// Compute the mask and final value to output
-	var m uint32 = EC_CODE_TOP - 1
-	var end uint32 = e.val + m&^(m >> l)
+	end := (e.val + msk) & ^msk
 
-	// If end went past EC_CODE_TOP, we have a carry
-	if end&EC_CODE_TOP != 0 {
-		// Propagate carry
+	// Check if we need to propagate a carry
+	if (end | msk) >= e.val+e.rng {
+		// We need fewer bits - recalculate
+		l++
+		if l < EC_CODE_BITS {
+			msk = (EC_CODE_TOP - 1) >> l
+		} else {
+			msk = 0
+		}
+		end = (e.val + msk) & ^msk
+	}
+
+	// Output any buffered bytes plus the final value
+	// First flush remaining buffered bytes with appropriate carry handling
+	for e.offs+e.endOffs+e.ext+1 >= e.storage {
+		// Buffer overflow - just output what we can
+		break
+	}
+
+	// If there's a carry needed (end wrapped around)
+	if end > EC_CODE_TOP-1 {
+		// Propagate carry through buffered bytes
 		if e.rem >= 0 {
 			e.writeByte(byte(e.rem + 1))
 			for e.ext > 0 {
@@ -185,14 +204,10 @@ func (e *Encoder) Done() []byte {
 			}
 		}
 		e.rem = 0
+		end &= EC_CODE_TOP - 1
 	}
 
-	// Output remaining bytes from end value
-	// Shift end to get the bytes we need
-	end = (end >> (EC_CODE_BITS - l - 1)) << 1
-	nBytes := (EC_CODE_BITS - l + EC_SYM_BITS - 1) / EC_SYM_BITS
-
-	// Output rem first if we haven't already
+	// Output the buffered byte and extension bytes
 	if e.rem >= 0 {
 		e.writeByte(byte(e.rem))
 		for e.ext > 0 {
@@ -201,7 +216,28 @@ func (e *Encoder) Done() []byte {
 		}
 	}
 
-	// Output the final value bytes
+	// Output remaining bytes from end value, MSB first
+	// Number of bytes needed = ceil((EC_CODE_BITS - l) / EC_SYM_BITS)
+	// But we need at least 1 byte of output
+	if l >= EC_CODE_BITS {
+		// No additional bytes needed
+		return e.buf[:e.offs]
+	}
+
+	nBits := EC_CODE_BITS - l
+	nBytes := (nBits + EC_SYM_BITS - 1) / EC_SYM_BITS
+	if nBytes <= 0 {
+		nBytes = 1
+	}
+
+	// Shift end to align the bits we need at the top
+	shiftAmount := EC_CODE_BITS - 1 - l
+	if shiftAmount < 0 {
+		shiftAmount = 0
+	}
+	end = (end >> shiftAmount) << 1
+
+	// Output bytes MSB first
 	for i := nBytes - 1; i >= 0; i-- {
 		b := byte((end >> (i * EC_SYM_BITS)) & EC_SYM_MAX)
 		e.writeByte(b)
