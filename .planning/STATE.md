@@ -10,28 +10,29 @@ See: .planning/PROJECT.md (updated 2026-01-21)
 ## Current Position
 
 Phase: 2 of 12 (SILK Decoder)
-Plan: 0 of 3 in current phase (not yet planned)
-Status: Ready to plan
-Last activity: 2026-01-21 - Completed Phase 1: Foundation (verified)
+Plan: 1 of 3 in current phase
+Status: In progress
+Last activity: 2026-01-21 - Completed 02-01-PLAN.md (SILK Foundation)
 
-Progress: [██████████] ~8% (3/36 plans)
+Progress: [████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] ~11% (4/36 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 3
-- Average duration: ~10 minutes
-- Total execution time: ~29 minutes
+- Total plans completed: 4
+- Average duration: ~9 minutes
+- Total execution time: ~37 minutes
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-foundation | 3/3 | ~29m | ~10m |
+| 02-silk-decoder | 1/3 | ~8m | ~8m |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (~4m), 01-03 (~4m), 01-02 (~21m)
-- Trend: 01-02 took longer due to encoder-decoder format investigation
+- Last 5 plans: 01-01 (~4m), 01-03 (~4m), 01-02 (~21m), 02-01 (~8m)
+- Trend: 02-01 completed efficiently with table transcription
 
 *Updated after each plan completion*
 
@@ -49,10 +50,12 @@ Recent decisions affecting current work:
 | D01-02-02 | Round-trip verification deferred | 01-02 | Known gap, tracked |
 | D01-03-01 | Config table as fixed [32]configEntry array | 01-03 | O(1) lookup by config index |
 | D01-03-02 | ParseFrameLength as internal helper | 01-03 | Two-byte encoding reused in Code 2 and Code 3 |
+| D02-01-01 | ICDF tables use uint16 (256 overflows uint8) | 02-01 | Added DecodeICDF16 to range decoder |
+| D02-01-02 | Export ICDF tables with uppercase names | 02-01 | Package access for parameter decoding |
 
 ### Pending Todos
 
-- Phase 01 complete - ready for Phase 02 (SILK Layer)
+- Complete Phase 02 (SILK Decoder): 02-02 (parameter decoding), 02-03 (synthesis)
 
 ### Known Gaps
 
@@ -64,9 +67,9 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-01-21 19:23 UTC
-Stopped at: Completed 01-02-PLAN.md (Range Encoder) - Phase 01 Foundation complete
-Resume file: N/A - ready for /gsd:discuss-phase 2 or /gsd:plan-phase 2
+Last session: 2026-01-21 20:23 UTC
+Stopped at: Completed 02-01-PLAN.md (SILK Foundation)
+Resume file: N/A - ready for 02-02-PLAN.md
 
 ## Phase 01 Summary
 
@@ -82,3 +85,17 @@ Resume file: N/A - ready for /gsd:discuss-phase 2 or /gsd:plan-phase 2
 - `internal/rangecoding/constants.go` - EC_CODE_* constants
 - `internal/packet/toc.go` - TOC parsing
 - `internal/packet/packet.go` - Packet structure and parsing
+
+## Phase 02 Progress
+
+**02-01 SILK Foundation complete:**
+- ICDF probability tables: 47 tables for entropy decoding
+- Codebook tables: 20+ tables for LSF/LTP reconstruction
+- Bandwidth config: NB (8kHz), MB (12kHz), WB (16kHz) with LPC orders
+- Decoder struct: State management for frame persistence
+
+**Key artifacts:**
+- `internal/silk/tables.go` - ICDF tables (uint16)
+- `internal/silk/codebook.go` - LSF and LTP codebooks
+- `internal/silk/bandwidth.go` - Bandwidth configuration
+- `internal/silk/decoder.go` - Decoder struct with state
