@@ -69,11 +69,9 @@ func initMDCTTwiddles(n int) *mdctTwiddleSet {
 // Input: n frequency bins (spectrum)
 // Output: 2*n time samples
 //
-// The IMDCT is computed using a length n/2 complex FFT:
-// 1. Pre-twiddle: multiply input by complex exponentials
-// 2. FFT: compute n/2-point complex FFT
-// 3. Post-twiddle: multiply by complex exponentials
-// 4. Unfold: expand n/2 complex values to 2*n real samples using MDCT symmetry
+// For power-of-2 sizes, uses FFT-based approach for O(n log n) complexity.
+// For other sizes (like CELT's 120, 240, 480, 960), uses direct computation
+// which is O(n^2) but handles any size correctly.
 //
 // Reference: RFC 6716 Section 4.3.5, libopus celt/mdct.c
 func IMDCT(spectrum []float64) []float64 {
@@ -94,6 +92,22 @@ func IMDCT(spectrum []float64) []float64 {
 		return out
 	}
 
+	// Check if n4 is a power of 2 for FFT-based IMDCT
+	if isPowerOfTwo(n4) {
+		return imdctFFT(spectrum, n, n2, n4)
+	}
+
+	// Fall back to direct computation for non-power-of-2 sizes
+	return IMDCTDirect(spectrum)
+}
+
+// isPowerOfTwo returns true if n is a power of 2.
+func isPowerOfTwo(n int) bool {
+	return n > 0 && (n&(n-1)) == 0
+}
+
+// imdctFFT computes IMDCT using FFT for power-of-2 sizes.
+func imdctFFT(spectrum []float64, n, n2, n4 int) []float64 {
 	// Get or compute twiddles
 	tw := initMDCTTwiddles(n)
 
