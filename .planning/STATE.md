@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 2: SILK Decoder - COMPLETE (all 5 plans)
+**Current focus:** Phase 3: CELT Decoder - IN PROGRESS (1/5 plans complete)
 
 ## Current Position
 
-Phase: 2 of 12 (SILK Decoder)
-Plan: 5 of 5 in current phase - PHASE COMPLETE
-Status: Phase complete
-Last activity: 2026-01-21 - Completed 02-05-PLAN.md (SILK Public API and Integration Tests)
+Phase: 3 of 12 (CELT Decoder)
+Plan: 1 of 5 in current phase
+Status: In progress
+Last activity: 2026-01-21 - Completed 03-01-PLAN.md (CELT Foundation)
 
-Progress: [████████████████████░░░░░░░░░░░░░░░░░░░░░] ~22% (8/37 plans)
+Progress: [████████████████████████░░░░░░░░░░░░░░░░░] ~24% (9/37 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 8
-- Average duration: ~8 minutes
-- Total execution time: ~60 minutes
+- Total plans completed: 9
+- Average duration: ~7 minutes
+- Total execution time: ~64 minutes
 
 **By Phase:**
 
@@ -29,10 +29,11 @@ Progress: [████████████████████░░░
 |-------|-------|-------|----------|
 | 01-foundation | 3/3 | ~29m | ~10m |
 | 02-silk-decoder | 5/5 | ~31m | ~6m |
+| 03-celt-decoder | 1/5 | ~4m | ~4m |
 
 **Recent Trend:**
-- Last 5 plans: 02-02 (~8m), 02-03 (~5m), 02-04 (~7m), 02-05 (~3m)
-- Trend: SILK plans executing efficiently, plan 05 was fastest
+- Last 5 plans: 02-03 (~5m), 02-04 (~7m), 02-05 (~3m), 03-01 (~4m)
+- Trend: Plans executing efficiently, averaging ~5min
 
 *Updated after each plan completion*
 
@@ -59,10 +60,13 @@ Recent decisions affecting current work:
 | D02-04-02 | 40/60ms frames as multiple 20ms sub-blocks | 02-04 | Simplified decode logic |
 | D02-05-01 | Linear interpolation for upsampling | 02-05 | Sufficient for v1; polyphase deferred |
 | D02-05-02 | Float32 intermediate format for Decode API | 02-05 | int16 via wrapper |
+| D03-01-01 | Initialize prevEnergy to -28dB | 03-01 | Low but finite starting energy |
+| D03-01-02 | RNG seed 22222 | 03-01 | Matches libopus convention |
+| D03-01-03 | Linear energy array indexing | 03-01 | channel*MaxBands + band layout |
 
 ### Pending Todos
 
-- Begin Phase 03 (CELT Decoder)
+- Continue Phase 03 plans 02-05 (CELT Decoder)
 
 ### Known Gaps
 
@@ -75,8 +79,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-21
-Stopped at: Completed 02-05-PLAN.md (SILK Public API and Integration Tests) - Phase 02 COMPLETE
-Resume file: N/A - ready for Phase 03
+Stopped at: Completed 03-01-PLAN.md (CELT Foundation)
+Resume file: .planning/phases/03-celt-decoder/03-02-PLAN.md
 
 ## Phase 01 Summary
 
@@ -161,3 +165,21 @@ Resume file: N/A - ready for Phase 03
 - `internal/silk/decode_params_test.go` - Parameter decoding tests
 - `internal/silk/excitation_test.go` - Synthesis tests
 - `internal/silk/stereo_test.go` - Stereo and frame tests
+
+## Phase 03 Progress - IN PROGRESS
+
+**CELT Decoder phase started:**
+- 1 of 5 plans complete
+
+**03-01 CELT Foundation complete:**
+- Static tables: eBands[22], AlphaCoef[4], BetaCoef[4], LogN[21], SmallDiv[129]
+- Mode configuration: ModeConfig struct for 120/240/480/960 sample frames
+- Decoder struct: Energy, overlap, postfilter state with proper sizing
+- CELTBandwidth enum: NB/MB/WB/SWB/FB with band count mapping
+- Unit tests: 6 tests for modes, bandwidth, decoder, and tables
+
+**Key artifacts:**
+- `internal/celt/tables.go` - eBands, energy coefficients, logN, smallDiv
+- `internal/celt/modes.go` - ModeConfig, GetModeConfig, CELTBandwidth
+- `internal/celt/decoder.go` - Stateful decoder with energy/overlap buffers
+- `internal/celt/modes_test.go` - Unit tests
