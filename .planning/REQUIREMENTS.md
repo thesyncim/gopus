@@ -10,18 +10,18 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Decoder - Core
 
 - [x] **DEC-01**: Implement bit-exact range decoder per RFC 6716 Section 4.1
-- [ ] **DEC-02**: Decode SILK mode frames (NB/MB/WB bandwidths)
+- [x] **DEC-02**: Decode SILK mode frames (NB/MB/WB bandwidths)
 - [ ] **DEC-03**: Decode CELT mode frames (all bandwidths up to 48kHz)
 - [ ] **DEC-04**: Decode Hybrid mode frames (SILK + CELT combined)
-- [ ] **DEC-05**: Support all SILK frame sizes (10/20/40/60ms)
+- [x] **DEC-05**: Support all SILK frame sizes (10/20/40/60ms)
 - [ ] **DEC-06**: Support all CELT frame sizes (2.5/5/10/20ms)
 - [x] **DEC-07**: Parse TOC byte and handle Code 0-3 packet formats
 - [ ] **DEC-08**: Implement basic packet loss concealment (PLC)
 
 ### Decoder - Channels
 
-- [ ] **DEC-09**: Decode mono streams
-- [ ] **DEC-10**: Decode stereo streams (mid-side SILK, intensity CELT)
+- [x] **DEC-09**: Decode mono streams
+- [x] **DEC-10**: Decode stereo streams (mid-side SILK, intensity CELT)
 - [ ] **DEC-11**: Decode multistream packets (coupled/uncoupled streams)
 
 ### Encoder - Core
@@ -112,15 +112,15 @@ Which phases cover which requirements.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | DEC-01 | Phase 1: Foundation | Complete |
-| DEC-02 | Phase 2: SILK Decoder | Pending |
+| DEC-02 | Phase 2: SILK Decoder | Complete |
 | DEC-03 | Phase 3: CELT Decoder | Pending |
 | DEC-04 | Phase 4: Hybrid Decoder | Pending |
-| DEC-05 | Phase 2: SILK Decoder | Pending |
+| DEC-05 | Phase 2: SILK Decoder | Complete |
 | DEC-06 | Phase 3: CELT Decoder | Pending |
 | DEC-07 | Phase 1: Foundation | Complete |
 | DEC-08 | Phase 4: Hybrid Decoder | Pending |
-| DEC-09 | Phase 2: SILK Decoder | Pending |
-| DEC-10 | Phase 2: SILK Decoder | Pending |
+| DEC-09 | Phase 2: SILK Decoder | Complete |
+| DEC-10 | Phase 2: SILK Decoder | Complete |
 | DEC-11 | Phase 5: Multistream Decoder | Pending |
 | ENC-01 | Phase 1: Foundation | Complete |
 | ENC-02 | Phase 6: SILK Encoder | Pending |
@@ -157,4 +157,4 @@ Which phases cover which requirements.
 
 ---
 *Requirements defined: 2026-01-21*
-*Last updated: 2026-01-21 after roadmap creation*
+*Last updated: 2026-01-21 after Phase 2 SILK Decoder completion*
