@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 3: CELT Decoder - IN PROGRESS (4/5 plans complete)
+**Current focus:** Phase 3: CELT Decoder - COMPLETE
 
 ## Current Position
 
 Phase: 3 of 12 (CELT Decoder)
-Plan: 4 of 5 in current phase
-Status: In progress
-Last activity: 2026-01-21 - Completed 03-04-PLAN.md (PVQ Band Decoding)
+Plan: 5 of 5 in current phase - COMPLETE
+Status: Phase complete
+Last activity: 2026-01-21 - Completed 03-05-PLAN.md (IMDCT Synthesis)
 
-Progress: [█████████████████████████████████░░░░░░░░] ~32% (12/37 plans)
+Progress: [█████████████████████████████████████░░░░] ~35% (13/37 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 12
+- Total plans completed: 13
 - Average duration: ~8 minutes
-- Total execution time: ~100 minutes
+- Total execution time: ~110 minutes
 
 **By Phase:**
 
@@ -29,11 +29,11 @@ Progress: [███████████████████████
 |-------|-------|-------|----------|
 | 01-foundation | 3/3 | ~29m | ~10m |
 | 02-silk-decoder | 5/5 | ~31m | ~6m |
-| 03-celt-decoder | 4/5 | ~40m | ~10m |
+| 03-celt-decoder | 5/5 | ~50m | ~10m |
 
 **Recent Trend:**
-- Last 5 plans: 03-01 (~4m), 03-02 (~12m), 03-03 (~12m), 03-04 (~12m)
-- Trend: CELT plans taking longer due to algorithm complexity (CWRS, bit allocation, PVQ)
+- Last 5 plans: 03-01 (~4m), 03-02 (~12m), 03-03 (~12m), 03-04 (~12m), 03-05 (~10m)
+- Trend: CELT plans taking longer due to algorithm complexity (CWRS, bit allocation, PVQ, IMDCT)
 
 *Updated after each plan completion*
 
@@ -70,10 +70,13 @@ Recent decisions affecting current work:
 | D03-04-02 | bitsToK uses binary search with V(n,k) | 03-04 | Accurate conversion from bit allocation |
 | D03-04-03 | FoldBand uses LCG constants 1664525/1013904223 | 03-04 | Matches libopus for deterministic folding |
 | D03-04-04 | Stereo uses 8-step theta quantization | 03-04 | Balance between precision and bit cost |
+| D03-05-01 | Direct IMDCT for CELT sizes (120,240,480,960) | 03-05 | Non-power-of-2 sizes handled correctly |
+| D03-05-02 | Window computed over 2*overlap samples | 03-05 | Matches CELT's fixed 120-sample overlap |
+| D03-05-03 | De-emphasis filter coefficient 0.85 | 03-05 | Matches libopus PreemphCoef constant |
 
 ### Pending Todos
 
-- Complete Phase 03 plan 03-05 (IMDCT Synthesis)
+- Begin Phase 04 (Hybrid Decoder)
 
 ### Known Gaps
 
@@ -86,8 +89,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-21
-Stopped at: Completed 03-04-PLAN.md (PVQ Band Decoding)
-Resume file: .planning/phases/03-celt-decoder/03-05-PLAN.md
+Stopped at: Completed 03-05-PLAN.md (IMDCT Synthesis) - Phase 03 COMPLETE
+Resume file: .planning/phases/04-hybrid-decoder/04-01-PLAN.md
 
 ## Phase 01 Summary
 
@@ -173,10 +176,12 @@ Resume file: .planning/phases/03-celt-decoder/03-05-PLAN.md
 - `internal/silk/excitation_test.go` - Synthesis tests
 - `internal/silk/stereo_test.go` - Stereo and frame tests
 
-## Phase 03 Progress - IN PROGRESS
+## Phase 03 Summary - COMPLETE
 
-**CELT Decoder phase started:**
-- 4 of 5 plans complete
+**CELT Decoder phase complete:**
+- All 5 plans executed successfully
+- Total duration: ~50 minutes
+- 61 tests passing
 
 **03-01 CELT Foundation complete:**
 - Static tables: eBands[22], AlphaCoef[4], BetaCoef[4], LogN[21], SmallDiv[129]
@@ -208,16 +213,33 @@ Resume file: .planning/phases/03-celt-decoder/03-05-PLAN.md
 - DecodeUniform/DecodeRawBits added to range decoder
 - Unit tests: Normalization, folding, bits-to-K, collapse mask
 
+**03-05 IMDCT Synthesis complete:**
+- IMDCT: Direct computation for CELT non-power-of-2 sizes
+- IMDCTShort: Multiple short MDCTs for transient frames
+- VorbisWindow: Power-complementary windowing
+- OverlapAdd: Seamless frame concatenation
+- Synthesize/SynthesizeStereo: Complete synthesis pipeline
+- MidSideToLR/IntensityStereo: Stereo channel separation
+- DecodeFrame: Complete frame decoding orchestration
+- De-emphasis filter: Natural sound reconstruction
+- Unit tests: 22 new tests, total 61 in CELT package
+
 **Key artifacts:**
 - `internal/celt/tables.go` - eBands, energy coefficients, logN, smallDiv
 - `internal/celt/modes.go` - ModeConfig, GetModeConfig, CELTBandwidth
-- `internal/celt/decoder.go` - Stateful decoder with energy/overlap buffers
+- `internal/celt/decoder.go` - Stateful decoder with DecodeFrame() API
 - `internal/celt/cwrs.go` - PVQ_V, DecodePulses, EncodePulses, memoization
 - `internal/celt/energy.go` - Coarse/fine energy decoding, bit allocation
+- `internal/celt/alloc.go` - Bit allocation computation
 - `internal/celt/pvq.go` - DecodePVQ, NormalizeVector, theta decoding
 - `internal/celt/bands.go` - DecodeBands, bitsToK, denormalization
 - `internal/celt/folding.go` - FoldBand, collapse mask tracking
+- `internal/celt/mdct.go` - IMDCT, IMDCTShort, IMDCTDirect
+- `internal/celt/window.go` - VorbisWindow, precomputed buffers
+- `internal/celt/stereo.go` - MidSideToLR, IntensityStereo, GetStereoMode
+- `internal/celt/synthesis.go` - OverlapAdd, Synthesize, SynthesizeStereo
 - `internal/celt/cwrs_test.go` - Comprehensive CWRS tests
 - `internal/celt/modes_test.go` - Mode and decoder tests
 - `internal/celt/energy_test.go` - Energy and allocation tests
 - `internal/celt/bands_test.go` - Band processing tests
+- `internal/celt/mdct_test.go` - IMDCT, window, synthesis, integration tests
