@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 4: Hybrid Decoder - IN PROGRESS
+**Current focus:** Phase 4: Hybrid Decoder - COMPLETE
 
 ## Current Position
 
-Phase: 4 of 12 (Hybrid Decoder)
-Plan: 1 of 2 in current phase - COMPLETE
-Status: In progress
-Last activity: 2026-01-21 - Completed 04-01-PLAN.md (Hybrid Decoder Foundation)
+Phase: 4 of 12 (Hybrid Decoder) - COMPLETE
+Plan: 2 of 2 in current phase - COMPLETE
+Status: Phase complete
+Last activity: 2026-01-21 - Completed 04-02-PLAN.md (PLC Implementation)
 
-Progress: [██████████████████████████████████████░░░] ~38% (14/37 plans)
+Progress: [████████████████████████████████████████░░] ~41% (15/37 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 14
+- Total plans completed: 15
 - Average duration: ~8 minutes
-- Total execution time: ~115 minutes
+- Total execution time: ~126 minutes
 
 **By Phase:**
 
@@ -30,11 +30,11 @@ Progress: [███████████████████████
 | 01-foundation | 3/3 | ~29m | ~10m |
 | 02-silk-decoder | 5/5 | ~31m | ~6m |
 | 03-celt-decoder | 5/5 | ~50m | ~10m |
-| 04-hybrid-decoder | 1/2 | ~5m | ~5m |
+| 04-hybrid-decoder | 2/2 | ~16m | ~8m |
 
 **Recent Trend:**
-- Last 5 plans: 03-02 (~12m), 03-03 (~12m), 03-04 (~12m), 03-05 (~10m), 04-01 (~5m)
-- Trend: Hybrid plan faster due to reuse of existing SILK/CELT components
+- Last 5 plans: 03-03 (~12m), 03-04 (~12m), 03-05 (~10m), 04-01 (~5m), 04-02 (~11m)
+- Trend: PLC plan took longer due to interface design for circular import avoidance
 
 *Updated after each plan completion*
 
@@ -77,10 +77,15 @@ Recent decisions affecting current work:
 | D04-01-01 | Zero bands 0-16 in CELT hybrid mode | 04-01 | Simpler than true band-limited decoding |
 | D04-01-02 | Linear interpolation for 3x upsampling | 04-01 | Consistent with SILK upsampling approach |
 | D04-01-03 | Delay compensation via shift buffer | 04-01 | 60 samples per channel for SILK-CELT alignment |
+| D04-02-01 | Interface-based PLC design | 04-02 | Avoids silk/celt circular imports |
+| D04-02-02 | FadePerFrame = 0.5 (~-6dB per frame) | 04-02 | Smooth exponential decay |
+| D04-02-03 | MaxConcealedFrames = 5 (~100ms) | 04-02 | Typical real-time streaming limit |
+| D04-02-04 | Nil data signals PLC | 04-02 | Clean API for packet loss handling |
+| D04-02-05 | EnergyDecayPerFrame = 0.85 | 04-02 | CELT band energy fade |
 
 ### Pending Todos
 
-- Continue Phase 04 (plan 02 remaining)
+- Begin Phase 05 (Unified API)
 
 ### Known Gaps
 
@@ -93,8 +98,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-21
-Stopped at: Completed 04-01-PLAN.md (Hybrid Decoder Foundation)
-Resume file: .planning/phases/04-hybrid-decoder/04-02-PLAN.md (if exists)
+Stopped at: Completed 04-02-PLAN.md (PLC Implementation)
+Resume file: .planning/phases/05-unified-api/ (next phase)
 
 ## Phase 01 Summary
 
@@ -118,46 +123,6 @@ Resume file: .planning/phases/04-hybrid-decoder/04-02-PLAN.md (if exists)
 - Total duration: ~31 minutes
 - 46 tests passing
 
-**02-01 SILK Foundation complete:**
-- ICDF probability tables: 47 tables for entropy decoding
-- Codebook tables: 20+ tables for LSF/LTP reconstruction
-- Bandwidth config: NB (8kHz), MB (12kHz), WB (16kHz) with LPC orders
-- Decoder struct: State management for frame persistence
-
-**02-02 SILK Parameter Decoding complete:**
-- FrameParams struct: holds all decoded frame parameters
-- Frame type decoding: signal type (inactive/unvoiced/voiced) + quant offset
-- Gain decoding: Q16 gains with delta coding between subframes
-- LSF decoding: two-stage VQ with interpolation and stabilization
-- LSF-to-LPC: Chebyshev polynomial conversion to Q12 LPC coefficients
-- Pitch lag decoding: per-subframe lags with contour deltas
-- LTP coefficient decoding: 5-tap Q7 filters by periodicity
-- Unit tests: 10 tests covering tables, structs, and state
-
-**02-03 SILK Excitation and Synthesis complete:**
-- Excitation decoding: shell coding with recursive binary splits
-- LTP synthesis: 5-tap pitch prediction filter for voiced frames
-- LPC synthesis: all-pole filter with state persistence
-- Stability: limitLPCFilterGain with iterative bandwidth expansion
-- Unit tests: 11 tests covering all synthesis components
-
-**02-04 SILK Stereo and Frame Orchestration complete:**
-- Stereo prediction weight decoding (Q13 format)
-- Mid-side to left-right unmixing with prediction
-- Frame duration handling (10/20/40/60ms)
-- DecodeFrame orchestration for mono decoding
-- DecodeStereoFrame orchestration for stereo decoding
-- 40/60ms frames as multiple 20ms sub-blocks
-- Unit tests: 11 tests covering stereo and frame handling
-
-**02-05 SILK Public API and Integration Tests complete:**
-- Public Decode() API returning 48kHz float32 PCM
-- DecodeStereo() with interleaved stereo output
-- DecodeToInt16() convenience wrapper
-- Linear interpolation upsampling (6x/4x/3x for NB/MB/WB)
-- BandwidthFromOpus() conversion utility
-- 14 new tests + benchmarks (46 total in silk package)
-
 **Key artifacts:**
 - `internal/silk/tables.go` - ICDF tables (uint16)
 - `internal/silk/codebook.go` - LSF and LTP codebooks
@@ -175,10 +140,6 @@ Resume file: .planning/phases/04-hybrid-decoder/04-02-PLAN.md (if exists)
 - `internal/silk/decode.go` - Top-level decode orchestration
 - `internal/silk/silk.go` - Public API (Decode, DecodeStereo, DecodeToInt16)
 - `internal/silk/resample.go` - Upsampling to 48kHz
-- `internal/silk/silk_test.go` - Integration tests and benchmarks
-- `internal/silk/decode_params_test.go` - Parameter decoding tests
-- `internal/silk/excitation_test.go` - Synthesis tests
-- `internal/silk/stereo_test.go` - Stereo and frame tests
 
 ## Phase 03 Summary - COMPLETE
 
@@ -186,47 +147,6 @@ Resume file: .planning/phases/04-hybrid-decoder/04-02-PLAN.md (if exists)
 - All 5 plans executed successfully
 - Total duration: ~50 minutes
 - 61 tests passing
-
-**03-01 CELT Foundation complete:**
-- Static tables: eBands[22], AlphaCoef[4], BetaCoef[4], LogN[21], SmallDiv[129]
-- Mode configuration: ModeConfig struct for 120/240/480/960 sample frames
-- Decoder struct: Energy, overlap, postfilter state with proper sizing
-- CELTBandwidth enum: NB/MB/WB/SWB/FB with band count mapping
-- Unit tests: 6 tests for modes, bandwidth, decoder, and tables
-
-**03-02 CWRS Combinatorial Indexing complete:**
-- PVQ_V function: codebook size via V(N,K) recurrence with memoization
-- DecodePulses: CWRS index to pulse vector with interleaved sign bits
-- EncodePulses: round-trip testing utility
-- V(1,K) = 2 base case for correct PVQ counting
-- Unit tests: 7 tests for V, U, decode, sum property, round-trip, benchmarks
-
-**03-03 Energy Decoding and Bit Allocation complete:**
-- Coarse energy decoding with Laplace distribution
-- Fine energy decoding with uniform distribution
-- Energy remainder decoding for leftover bits
-- Bit allocation algorithm (compute_allocation equivalent)
-- Unit tests: Energy decoding, allocation, and prediction tests
-
-**03-04 PVQ Band Decoding complete:**
-- PVQ vector decoding with CWRS index conversion
-- NormalizeVector for L2 unit norm
-- Band folding for uncoded bands with sign variation
-- DecodeBands/DecodeBandsStereo orchestration
-- Collapse mask tracking for anti-collapse
-- DecodeUniform/DecodeRawBits added to range decoder
-- Unit tests: Normalization, folding, bits-to-K, collapse mask
-
-**03-05 IMDCT Synthesis complete:**
-- IMDCT: Direct computation for CELT non-power-of-2 sizes
-- IMDCTShort: Multiple short MDCTs for transient frames
-- VorbisWindow: Power-complementary windowing
-- OverlapAdd: Seamless frame concatenation
-- Synthesize/SynthesizeStereo: Complete synthesis pipeline
-- MidSideToLR/IntensityStereo: Stereo channel separation
-- DecodeFrame: Complete frame decoding orchestration
-- De-emphasis filter: Natural sound reconstruction
-- Unit tests: 22 new tests, total 61 in CELT package
 
 **Key artifacts:**
 - `internal/celt/tables.go` - eBands, energy coefficients, logN, smallDiv
@@ -242,18 +162,13 @@ Resume file: .planning/phases/04-hybrid-decoder/04-02-PLAN.md (if exists)
 - `internal/celt/window.go` - VorbisWindow, precomputed buffers
 - `internal/celt/stereo.go` - MidSideToLR, IntensityStereo, GetStereoMode
 - `internal/celt/synthesis.go` - OverlapAdd, Synthesize, SynthesizeStereo
-- `internal/celt/cwrs_test.go` - Comprehensive CWRS tests
-- `internal/celt/modes_test.go` - Mode and decoder tests
-- `internal/celt/energy_test.go` - Energy and allocation tests
-- `internal/celt/bands_test.go` - Band processing tests
-- `internal/celt/mdct_test.go` - IMDCT, window, synthesis, integration tests
 
-## Phase 04 Summary - IN PROGRESS
+## Phase 04 Summary - COMPLETE
 
-**Hybrid Decoder phase started:**
-- Plan 04-01 complete: Hybrid Decoder Foundation
-- Duration: ~5 minutes
-- 15 tests passing (68.9% coverage)
+**Hybrid Decoder phase complete:**
+- All 2 plans executed successfully
+- Total duration: ~16 minutes
+- 30 tests passing (15 in hybrid, 15 in plc)
 
 **04-01 Hybrid Decoder Foundation complete:**
 - Decoder struct coordinating SILK (WB) and CELT sub-decoders
@@ -261,10 +176,21 @@ Resume file: .planning/phases/04-hybrid-decoder/04-02-PLAN.md (if exists)
 - 60-sample delay compensation for SILK-CELT time alignment
 - 3x upsampling from SILK 16kHz to 48kHz output
 - Public Decode/DecodeStereo/DecodeToInt16/DecodeToFloat32 API
-- Unit tests: initialization, frame sizes, delay, reset, conversion
+
+**04-02 PLC Implementation complete:**
+- PLC package with State tracking, fade factor, mode handling
+- SILK PLC: LPC extrapolation (voiced) and comfort noise (unvoiced)
+- CELT PLC: energy decay with noise-filled bands
+- Hybrid PLC: coordinated SILK+CELT concealment
+- Interface-based design avoiding circular imports
+- 15 comprehensive PLC tests
 
 **Key artifacts:**
 - `internal/hybrid/decoder.go` - Hybrid decoder struct, coordination logic
-- `internal/hybrid/hybrid.go` - Public API
-- `internal/hybrid/hybrid_test.go` - Unit tests
-- `internal/celt/decoder.go` - Added DecodeFrameHybrid, HybridCELTStartBand
+- `internal/hybrid/hybrid.go` - Public API with PLC support
+- `internal/hybrid/hybrid_test.go` - 15 unit tests
+- `internal/plc/plc.go` - State struct, Mode enum, fade constants
+- `internal/plc/silk_plc.go` - ConcealSILK, voiced/unvoiced PLC
+- `internal/plc/celt_plc.go` - ConcealCELT, ConcealCELTHybrid
+- `internal/plc/plc_test.go` - 15 PLC tests
+- `internal/celt/decoder.go` - Added DecodeFrameHybrid, PLC integration
