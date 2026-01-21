@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 3: CELT Decoder - COMPLETE
+**Current focus:** Phase 4: Hybrid Decoder - IN PROGRESS
 
 ## Current Position
 
-Phase: 3 of 12 (CELT Decoder)
-Plan: 5 of 5 in current phase - COMPLETE
-Status: Phase complete
-Last activity: 2026-01-21 - Completed 03-05-PLAN.md (IMDCT Synthesis)
+Phase: 4 of 12 (Hybrid Decoder)
+Plan: 1 of 2 in current phase - COMPLETE
+Status: In progress
+Last activity: 2026-01-21 - Completed 04-01-PLAN.md (Hybrid Decoder Foundation)
 
-Progress: [█████████████████████████████████████░░░░] ~35% (13/37 plans)
+Progress: [██████████████████████████████████████░░░] ~38% (14/37 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 13
+- Total plans completed: 14
 - Average duration: ~8 minutes
-- Total execution time: ~110 minutes
+- Total execution time: ~115 minutes
 
 **By Phase:**
 
@@ -30,10 +30,11 @@ Progress: [███████████████████████
 | 01-foundation | 3/3 | ~29m | ~10m |
 | 02-silk-decoder | 5/5 | ~31m | ~6m |
 | 03-celt-decoder | 5/5 | ~50m | ~10m |
+| 04-hybrid-decoder | 1/2 | ~5m | ~5m |
 
 **Recent Trend:**
-- Last 5 plans: 03-01 (~4m), 03-02 (~12m), 03-03 (~12m), 03-04 (~12m), 03-05 (~10m)
-- Trend: CELT plans taking longer due to algorithm complexity (CWRS, bit allocation, PVQ, IMDCT)
+- Last 5 plans: 03-02 (~12m), 03-03 (~12m), 03-04 (~12m), 03-05 (~10m), 04-01 (~5m)
+- Trend: Hybrid plan faster due to reuse of existing SILK/CELT components
 
 *Updated after each plan completion*
 
@@ -73,10 +74,13 @@ Recent decisions affecting current work:
 | D03-05-01 | Direct IMDCT for CELT sizes (120,240,480,960) | 03-05 | Non-power-of-2 sizes handled correctly |
 | D03-05-02 | Window computed over 2*overlap samples | 03-05 | Matches CELT's fixed 120-sample overlap |
 | D03-05-03 | De-emphasis filter coefficient 0.85 | 03-05 | Matches libopus PreemphCoef constant |
+| D04-01-01 | Zero bands 0-16 in CELT hybrid mode | 04-01 | Simpler than true band-limited decoding |
+| D04-01-02 | Linear interpolation for 3x upsampling | 04-01 | Consistent with SILK upsampling approach |
+| D04-01-03 | Delay compensation via shift buffer | 04-01 | 60 samples per channel for SILK-CELT alignment |
 
 ### Pending Todos
 
-- Begin Phase 04 (Hybrid Decoder)
+- Continue Phase 04 (plan 02 remaining)
 
 ### Known Gaps
 
@@ -89,8 +93,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-21
-Stopped at: Completed 03-05-PLAN.md (IMDCT Synthesis) - Phase 03 COMPLETE
-Resume file: .planning/phases/04-hybrid-decoder/04-01-PLAN.md
+Stopped at: Completed 04-01-PLAN.md (Hybrid Decoder Foundation)
+Resume file: .planning/phases/04-hybrid-decoder/04-02-PLAN.md (if exists)
 
 ## Phase 01 Summary
 
@@ -243,3 +247,24 @@ Resume file: .planning/phases/04-hybrid-decoder/04-01-PLAN.md
 - `internal/celt/energy_test.go` - Energy and allocation tests
 - `internal/celt/bands_test.go` - Band processing tests
 - `internal/celt/mdct_test.go` - IMDCT, window, synthesis, integration tests
+
+## Phase 04 Summary - IN PROGRESS
+
+**Hybrid Decoder phase started:**
+- Plan 04-01 complete: Hybrid Decoder Foundation
+- Duration: ~5 minutes
+- 15 tests passing (68.9% coverage)
+
+**04-01 Hybrid Decoder Foundation complete:**
+- Decoder struct coordinating SILK (WB) and CELT sub-decoders
+- DecodeFrameHybrid added to CELT for band-limited decoding (bands 17-21)
+- 60-sample delay compensation for SILK-CELT time alignment
+- 3x upsampling from SILK 16kHz to 48kHz output
+- Public Decode/DecodeStereo/DecodeToInt16/DecodeToFloat32 API
+- Unit tests: initialization, frame sizes, delay, reset, conversion
+
+**Key artifacts:**
+- `internal/hybrid/decoder.go` - Hybrid decoder struct, coordination logic
+- `internal/hybrid/hybrid.go` - Public API
+- `internal/hybrid/hybrid_test.go` - Unit tests
+- `internal/celt/decoder.go` - Added DecodeFrameHybrid, HybridCELTStartBand
