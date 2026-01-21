@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 3: CELT Decoder - IN PROGRESS (1/5 plans complete)
+**Current focus:** Phase 3: CELT Decoder - IN PROGRESS (2/5 plans complete)
 
 ## Current Position
 
 Phase: 3 of 12 (CELT Decoder)
-Plan: 1 of 5 in current phase
+Plan: 2 of 5 in current phase
 Status: In progress
-Last activity: 2026-01-21 - Completed 03-01-PLAN.md (CELT Foundation)
+Last activity: 2026-01-21 - Completed 03-02-PLAN.md (CWRS Combinatorial Indexing)
 
-Progress: [████████████████████████░░░░░░░░░░░░░░░░░] ~24% (9/37 plans)
+Progress: [█████████████████████████░░░░░░░░░░░░░░░░] ~27% (10/37 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 9
-- Average duration: ~7 minutes
-- Total execution time: ~64 minutes
+- Total plans completed: 10
+- Average duration: ~8 minutes
+- Total execution time: ~76 minutes
 
 **By Phase:**
 
@@ -29,11 +29,11 @@ Progress: [███████████████████████
 |-------|-------|-------|----------|
 | 01-foundation | 3/3 | ~29m | ~10m |
 | 02-silk-decoder | 5/5 | ~31m | ~6m |
-| 03-celt-decoder | 1/5 | ~4m | ~4m |
+| 03-celt-decoder | 2/5 | ~16m | ~8m |
 
 **Recent Trend:**
-- Last 5 plans: 02-03 (~5m), 02-04 (~7m), 02-05 (~3m), 03-01 (~4m)
-- Trend: Plans executing efficiently, averaging ~5min
+- Last 5 plans: 02-04 (~7m), 02-05 (~3m), 03-01 (~4m), 03-02 (~12m)
+- Trend: Plans executing efficiently, CWRS slightly longer due to algorithm complexity
 
 *Updated after each plan completion*
 
@@ -63,10 +63,13 @@ Recent decisions affecting current work:
 | D03-01-01 | Initialize prevEnergy to -28dB | 03-01 | Low but finite starting energy |
 | D03-01-02 | RNG seed 22222 | 03-01 | Matches libopus convention |
 | D03-01-03 | Linear energy array indexing | 03-01 | channel*MaxBands + band layout |
+| D03-02-01 | V(1,K) = 2 for K > 0 | 03-02 | Only +K and -K valid for N=1 |
+| D03-02-02 | Map-based V cache with uint64 key | 03-02 | Efficient memoization |
+| D03-02-03 | Interleaved sign bits in decoding | 03-02 | Matches libopus CWRS scheme |
 
 ### Pending Todos
 
-- Continue Phase 03 plans 02-05 (CELT Decoder)
+- Continue Phase 03 plans 03-05 (CELT Decoder)
 
 ### Known Gaps
 
@@ -79,8 +82,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-21
-Stopped at: Completed 03-01-PLAN.md (CELT Foundation)
-Resume file: .planning/phases/03-celt-decoder/03-02-PLAN.md
+Stopped at: Completed 03-02-PLAN.md (CWRS Combinatorial Indexing)
+Resume file: .planning/phases/03-celt-decoder/03-03-PLAN.md
 
 ## Phase 01 Summary
 
@@ -169,7 +172,7 @@ Resume file: .planning/phases/03-celt-decoder/03-02-PLAN.md
 ## Phase 03 Progress - IN PROGRESS
 
 **CELT Decoder phase started:**
-- 1 of 5 plans complete
+- 2 of 5 plans complete
 
 **03-01 CELT Foundation complete:**
 - Static tables: eBands[22], AlphaCoef[4], BetaCoef[4], LogN[21], SmallDiv[129]
@@ -178,8 +181,17 @@ Resume file: .planning/phases/03-celt-decoder/03-02-PLAN.md
 - CELTBandwidth enum: NB/MB/WB/SWB/FB with band count mapping
 - Unit tests: 6 tests for modes, bandwidth, decoder, and tables
 
+**03-02 CWRS Combinatorial Indexing complete:**
+- PVQ_V function: codebook size via V(N,K) recurrence with memoization
+- DecodePulses: CWRS index to pulse vector with interleaved sign bits
+- EncodePulses: round-trip testing utility
+- V(1,K) = 2 base case for correct PVQ counting
+- Unit tests: 7 tests for V, U, decode, sum property, round-trip, benchmarks
+
 **Key artifacts:**
 - `internal/celt/tables.go` - eBands, energy coefficients, logN, smallDiv
 - `internal/celt/modes.go` - ModeConfig, GetModeConfig, CELTBandwidth
 - `internal/celt/decoder.go` - Stateful decoder with energy/overlap buffers
-- `internal/celt/modes_test.go` - Unit tests
+- `internal/celt/cwrs.go` - PVQ_V, DecodePulses, EncodePulses, memoization
+- `internal/celt/cwrs_test.go` - Comprehensive CWRS tests
+- `internal/celt/modes_test.go` - Mode and decoder tests
