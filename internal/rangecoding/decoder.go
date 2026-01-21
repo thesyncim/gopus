@@ -107,6 +107,44 @@ func (d *Decoder) DecodeICDF(icdf []uint8, ftb uint) int {
 	return k
 }
 
+// DecodeICDF16 decodes a symbol using a uint16 ICDF table.
+// This variant is needed because SILK ICDF tables use values 0-256,
+// and 256 doesn't fit in uint8.
+// The icdf table contains values in decreasing order from 256 down to 0.
+// ftb is the number of bits of precision in the table (typically 8).
+// Returns the decoded symbol index.
+func (d *Decoder) DecodeICDF16(icdf []uint16, ftb uint) int {
+	// Scale the range
+	r := d.rng >> ftb
+
+	// Find the symbol - linear search through icdf
+	// icdf values are in decreasing order: icdf[0] is largest, icdf[len-1] = 0
+	k := 0
+	for {
+		threshold := r * uint32(icdf[k])
+		if d.val >= threshold {
+			break
+		}
+		k++
+	}
+
+	// Update decoder state
+	// val = val - r * icdf[k]
+	d.val -= r * uint32(icdf[k])
+
+	// rng = r * (icdf[k-1] - icdf[k]) for k > 0, or rng - r*icdf[0] for k = 0
+	if k > 0 {
+		d.rng = r * uint32(icdf[k-1]-icdf[k])
+	} else {
+		d.rng -= r * uint32(icdf[0])
+	}
+
+	// Renormalize
+	d.normalize()
+
+	return k
+}
+
 // DecodeBit decodes a single bit with the given log probability.
 // logp is the number of bits of probability for a 0 (1 to 15).
 // P(0) = 1 - 1/(2^logp), P(1) = 1/(2^logp)
