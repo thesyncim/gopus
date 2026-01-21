@@ -34,12 +34,13 @@ func (d *Decoder) Init(buf []byte) {
 	d.rem = int(d.readByte())
 	d.val = d.rng - 1 - uint32(d.rem>>(EC_SYM_BITS-EC_CODE_EXTRA))
 
-	// Normalize to fill the range
-	d.normalize()
+	// Set initial bit count BEFORE normalize
+	// Per libopus: nbits_total = EC_CODE_BITS + 1
+	// This accounts for the entropy consumed so far
+	d.nbitsTotal = EC_CODE_BITS + 1
 
-	// Account for initial byte read in bit count
-	// nbitsTotal is set to EC_CODE_BITS + 1 minus remaining bits
-	d.nbitsTotal = EC_CODE_BITS + 1 - ((EC_CODE_BITS - EC_CODE_EXTRA) / EC_SYM_BITS * EC_SYM_BITS)
+	// Normalize to fill the range (this will add more bits to nbitsTotal)
+	d.normalize()
 }
 
 // readByte reads the next byte from the buffer.
@@ -131,17 +132,31 @@ func (d *Decoder) Tell() int {
 }
 
 // TellFrac returns the number of bits consumed with 1/8 bit precision.
-// The value is in 1/8 bits, so multiply by 8 to compare with Tell().
+// The value is in 1/8 bits, so divide by 8 to compare with Tell().
 func (d *Decoder) TellFrac() int {
-	// Number of whole bits
+	// Number of whole bits scaled by 8
 	nbits := d.nbitsTotal << 3
-	// Get leading zeros count for fractional bits
+	// Get the log of range
 	l := ilog(d.rng)
-	r := d.rng >> (l - 16)
-	// Correction factor based on range
-	correction := int((r*r>>13)*(r>>13) + (r >> 13))
-	correction = (correction*29 + 512) >> 10
-	return nbits - l*8 - correction
+
+	// Compute fractional correction
+	// This approximates -log2(rng) * 8 using fixed-point arithmetic
+	var r uint32
+	if l > 16 {
+		r = d.rng >> (l - 16)
+	} else {
+		r = d.rng << (16 - l)
+	}
+	// Correction using small correction table approximation
+	// Based on libopus correction: uses top bits of range
+	correction := int(r>>12) - 8
+	if correction < 0 {
+		correction = 0
+	}
+	if correction > 7 {
+		correction = 7
+	}
+	return nbits - l*8 + correction
 }
 
 // ilog computes the integer log base 2 (position of highest set bit + 1).
