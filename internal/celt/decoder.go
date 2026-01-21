@@ -38,6 +38,9 @@ type Decoder struct {
 
 	// Error recovery / deterministic randomness
 	rng uint32 // RNG state for PLC and folding
+
+	// Band processing state
+	collapseMask uint32 // Tracks which bands received pulses (for anti-collapse)
 }
 
 // NewDecoder creates a new CELT decoder with the given number of channels.
