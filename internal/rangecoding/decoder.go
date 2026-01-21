@@ -198,3 +198,13 @@ func (d *Decoder) Error() int {
 func (d *Decoder) BytesUsed() int {
 	return int(d.offs)
 }
+
+// Range returns the current range value (for testing/debugging).
+func (d *Decoder) Range() uint32 {
+	return d.rng
+}
+
+// Val returns the current val (for testing/debugging).
+func (d *Decoder) Val() uint32 {
+	return d.val
+}
