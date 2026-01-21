@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation** - Range coder, packet parsing, test infrastructure
 - [x] **Phase 2: SILK Decoder** - Decode SILK mode frames (speech)
-- [ ] **Phase 3: CELT Decoder** - Decode CELT mode frames (music/audio)
+- [x] **Phase 3: CELT Decoder** - Decode CELT mode frames (music/audio)
 - [ ] **Phase 4: Hybrid Decoder** - Combined SILK+CELT decoding, PLC
 - [ ] **Phase 5: Multistream Decoder** - Surround sound decoding
 - [ ] **Phase 6: SILK Encoder** - Encode speech to SILK frames
@@ -71,12 +71,14 @@ Plans:
   2. All CELT frame sizes (2.5/5/10/20ms) decode correctly
   3. CELT stereo frames decode with correct intensity stereo handling
   4. Transient frames (short MDCT blocks) decode without artifacts
-**Plans**: TBD
+**Plans**: 5 plans
 
 Plans:
-- [ ] 03-01: TBD (CELT tables, energy decoding)
-- [ ] 03-02: TBD (PVQ decoding, CWRS)
-- [ ] 03-03: TBD (IMDCT, band folding, stereo)
+- [x] 03-01-PLAN.md - CELT foundation (tables, modes, decoder struct)
+- [x] 03-02-PLAN.md - CWRS combinatorial indexing for PVQ
+- [x] 03-03-PLAN.md - Energy decoding and bit allocation
+- [x] 03-04-PLAN.md - PVQ band decoding and folding
+- [x] 03-05-PLAN.md - IMDCT synthesis, windowing, stereo
 
 ### Phase 4: Hybrid Decoder
 **Goal**: Decode Hybrid-mode packets and implement packet loss concealment
@@ -223,7 +225,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | Complete | 2026-01-21 |
 | 2. SILK Decoder | 5/5 | Complete | 2026-01-21 |
-| 3. CELT Decoder | 0/3 | Not started | - |
+| 3. CELT Decoder | 5/5 | Complete | 2026-01-21 |
 | 4. Hybrid Decoder | 0/2 | Not started | - |
 | 5. Multistream Decoder | 0/1 | Not started | - |
 | 6. SILK Encoder | 0/3 | Not started | - |

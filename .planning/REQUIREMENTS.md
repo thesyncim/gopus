@@ -11,10 +11,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **DEC-01**: Implement bit-exact range decoder per RFC 6716 Section 4.1
 - [x] **DEC-02**: Decode SILK mode frames (NB/MB/WB bandwidths)
-- [ ] **DEC-03**: Decode CELT mode frames (all bandwidths up to 48kHz)
+- [x] **DEC-03**: Decode CELT mode frames (all bandwidths up to 48kHz)
 - [ ] **DEC-04**: Decode Hybrid mode frames (SILK + CELT combined)
 - [x] **DEC-05**: Support all SILK frame sizes (10/20/40/60ms)
-- [ ] **DEC-06**: Support all CELT frame sizes (2.5/5/10/20ms)
+- [x] **DEC-06**: Support all CELT frame sizes (2.5/5/10/20ms)
 - [x] **DEC-07**: Parse TOC byte and handle Code 0-3 packet formats
 - [ ] **DEC-08**: Implement basic packet loss concealment (PLC)
 
@@ -113,10 +113,10 @@ Which phases cover which requirements.
 |-------------|-------|--------|
 | DEC-01 | Phase 1: Foundation | Complete |
 | DEC-02 | Phase 2: SILK Decoder | Complete |
-| DEC-03 | Phase 3: CELT Decoder | Pending |
+| DEC-03 | Phase 3: CELT Decoder | Complete |
 | DEC-04 | Phase 4: Hybrid Decoder | Pending |
 | DEC-05 | Phase 2: SILK Decoder | Complete |
-| DEC-06 | Phase 3: CELT Decoder | Pending |
+| DEC-06 | Phase 3: CELT Decoder | Complete |
 | DEC-07 | Phase 1: Foundation | Complete |
 | DEC-08 | Phase 4: Hybrid Decoder | Pending |
 | DEC-09 | Phase 2: SILK Decoder | Complete |
@@ -157,4 +157,4 @@ Which phases cover which requirements.
 
 ---
 *Requirements defined: 2026-01-21*
-*Last updated: 2026-01-21 after Phase 2 SILK Decoder completion*
+*Last updated: 2026-01-21 after Phase 3 CELT Decoder completion*
