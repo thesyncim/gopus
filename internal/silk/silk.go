@@ -3,6 +3,7 @@ package silk
 import (
 	"errors"
 
+	"gopus/internal/plc"
 	"gopus/internal/rangecoding"
 )
 
@@ -12,10 +13,15 @@ var (
 	ErrDecodeFailed     = errors.New("silk: frame decode failed")
 )
 
+// plcState tracks packet loss concealment state for the decoder.
+// Managed internally to provide seamless PLC when data is nil.
+var plcState = plc.NewState()
+
 // Decode decodes a SILK mono frame and returns 48kHz PCM samples.
+// If data is nil, performs Packet Loss Concealment (PLC) instead of decoding.
 //
 // Parameters:
-//   - data: raw SILK frame data (without TOC byte)
+//   - data: raw SILK frame data (without TOC byte), or nil for PLC
 //   - bandwidth: NB, MB, or WB (from TOC)
 //   - frameSizeSamples: frame size in samples at 48kHz (from TOC)
 //   - vadFlag: voice activity flag (from bitstream header)
@@ -30,6 +36,11 @@ func (d *Decoder) Decode(
 	// Validate bandwidth is SILK-compatible (NB, MB, WB only)
 	if bandwidth > BandwidthWideband {
 		return nil, ErrInvalidBandwidth
+	}
+
+	// Handle PLC for nil data (lost packet)
+	if data == nil {
+		return d.decodePLC(bandwidth, frameSizeSamples)
 	}
 
 	// Convert TOC frame size to duration
@@ -49,10 +60,15 @@ func (d *Decoder) Decode(
 	config := GetBandwidthConfig(bandwidth)
 	output := upsampleTo48k(nativeSamples, config.SampleRate)
 
+	// Reset PLC state after successful decode
+	plcState.Reset()
+	plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 1)
+
 	return output, nil
 }
 
 // DecodeStereo decodes a SILK stereo frame and returns 48kHz PCM samples.
+// If data is nil, performs Packet Loss Concealment (PLC) instead of decoding.
 //
 // Returns interleaved stereo samples [L0, R0, L1, R1, ...] at 48kHz.
 func (d *Decoder) DecodeStereo(
@@ -64,6 +80,11 @@ func (d *Decoder) DecodeStereo(
 	// Validate bandwidth is SILK-compatible
 	if bandwidth > BandwidthWideband {
 		return nil, ErrInvalidBandwidth
+	}
+
+	// Handle PLC for nil data (lost packet)
+	if data == nil {
+		return d.decodePLCStereo(bandwidth, frameSizeSamples)
 	}
 
 	// Convert TOC frame size to duration
@@ -90,6 +111,10 @@ func (d *Decoder) DecodeStereo(
 		output[i*2] = left[i]
 		output[i*2+1] = right[i]
 	}
+
+	// Reset PLC state after successful decode
+	plcState.Reset()
+	plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 2)
 
 	return output, nil
 }
@@ -164,4 +189,53 @@ func BandwidthFromOpus(opusBandwidth int) (Bandwidth, bool) {
 	default:
 		return 0, false // SWB/FB not supported in SILK-only mode
 	}
+}
+
+// decodePLC generates concealment audio for a lost mono packet.
+func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float32, error) {
+	// Get fade factor for this loss
+	fadeFactor := plcState.RecordLoss()
+
+	// Get native sample count from 48kHz frame size
+	config := GetBandwidthConfig(bandwidth)
+	nativeSamples := frameSizeSamples * config.SampleRate / 48000
+
+	// Generate concealment at native rate
+	concealed := plc.ConcealSILK(d, nativeSamples, fadeFactor)
+
+	// Upsample to 48kHz
+	output := upsampleTo48k(concealed, config.SampleRate)
+
+	return output, nil
+}
+
+// decodePLCStereo generates concealment audio for a lost stereo packet.
+func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]float32, error) {
+	// Get fade factor for this loss
+	fadeFactor := plcState.RecordLoss()
+
+	// Get native sample count from 48kHz frame size
+	config := GetBandwidthConfig(bandwidth)
+	nativeSamples := frameSizeSamples * config.SampleRate / 48000
+
+	// Generate concealment at native rate for both channels
+	left, right := plc.ConcealSILKStereo(d, nativeSamples, fadeFactor)
+
+	// Upsample to 48kHz
+	leftUp := upsampleTo48k(left, config.SampleRate)
+	rightUp := upsampleTo48k(right, config.SampleRate)
+
+	// Interleave [L0, R0, L1, R1, ...]
+	output := make([]float32, len(leftUp)*2)
+	for i := range leftUp {
+		output[i*2] = leftUp[i]
+		output[i*2+1] = rightUp[i]
+	}
+
+	return output, nil
+}
+
+// PLCState returns the PLC state for external access (e.g., hybrid mode).
+func PLCState() *plc.State {
+	return plcState
 }

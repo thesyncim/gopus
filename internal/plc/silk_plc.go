@@ -1,6 +1,19 @@
 package plc
 
-import "gopus/internal/silk"
+// SILKDecoderState provides access to SILK decoder state needed for PLC.
+// This interface allows PLC to access decoder state without importing the silk package.
+type SILKDecoderState interface {
+	// PrevLPCValues returns the LPC filter state from the last frame.
+	PrevLPCValues() []float32
+	// LPCOrder returns the current LPC order (10 for NB/MB, 16 for WB).
+	LPCOrder() int
+	// IsPreviousFrameVoiced returns true if the last frame was voiced.
+	IsPreviousFrameVoiced() bool
+	// OutputHistory returns the output history buffer for pitch prediction.
+	OutputHistory() []float32
+	// HistoryIndex returns the current position in the history buffer.
+	HistoryIndex() int
+}
 
 // ConcealSILK generates concealment audio for a lost SILK frame.
 //
@@ -14,12 +27,12 @@ import "gopus/internal/silk"
 // the spectral characteristics of the last successfully decoded frame.
 //
 // Parameters:
-//   - dec: SILK decoder with state from last good frame
+//   - dec: SILK decoder state from last good frame
 //   - frameSize: samples to generate at native SILK rate (8/12/16kHz)
 //   - fadeFactor: gain multiplier (0.0 to 1.0)
 //
 // Returns: concealed samples at native SILK rate
-func ConcealSILK(dec *silk.Decoder, frameSize int, fadeFactor float64) []float32 {
+func ConcealSILK(dec SILKDecoderState, frameSize int, fadeFactor float64) []float32 {
 	if dec == nil || frameSize <= 0 {
 		return make([]float32, frameSize)
 	}
@@ -57,7 +70,7 @@ func ConcealSILK(dec *silk.Decoder, frameSize int, fadeFactor float64) []float32
 
 // concealVoicedSILK generates concealment for voiced (pitched) speech.
 // It extrapolates the pitch pattern from previous frames.
-func concealVoicedSILK(dec *silk.Decoder, output []float32, prevLPC []float32, order int, fade float64, rng *uint32) {
+func concealVoicedSILK(dec SILKDecoderState, output []float32, prevLPC []float32, order int, fade float64, rng *uint32) {
 	// Get history for pitch repetition
 	history := dec.OutputHistory()
 	histIdx := dec.HistoryIndex()
@@ -192,12 +205,12 @@ func estimatePitchFromHistory(history []float32, histIdx, histLen int) int {
 // It applies the same PLC algorithm to both channels.
 //
 // Parameters:
-//   - dec: SILK decoder (used for both channels' state)
+//   - dec: SILK decoder state (used for both channels)
 //   - frameSize: samples per channel at native SILK rate
 //   - fadeFactor: gain multiplier (0.0 to 1.0)
 //
 // Returns: left and right channel concealed samples
-func ConcealSILKStereo(dec *silk.Decoder, frameSize int, fadeFactor float64) (left, right []float32) {
+func ConcealSILKStereo(dec SILKDecoderState, frameSize int, fadeFactor float64) (left, right []float32) {
 	// For stereo, apply mono PLC to both channels
 	// A more sophisticated approach would use the stereo prediction weights
 	mono := ConcealSILK(dec, frameSize, fadeFactor)

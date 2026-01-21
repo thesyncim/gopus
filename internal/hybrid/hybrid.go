@@ -1,13 +1,18 @@
 package hybrid
 
 import (
+	"gopus/internal/plc"
 	"gopus/internal/rangecoding"
 )
 
+// hybridPLCState tracks packet loss concealment state for Hybrid decoding.
+var hybridPLCState = plc.NewState()
+
 // Decode decodes a Hybrid mono frame and returns 48kHz PCM samples.
+// If data is nil, performs Packet Loss Concealment (PLC) instead of decoding.
 //
 // Parameters:
-//   - data: raw Opus frame data (without TOC byte)
+//   - data: raw Opus frame data (without TOC byte), or nil for PLC
 //   - frameSize: frame size in samples at 48kHz (480 for 10ms, 960 for 20ms)
 //
 // Returns float64 samples at 48kHz.
@@ -15,6 +20,11 @@ import (
 // Hybrid mode combines SILK (0-8kHz) and CELT (8-20kHz) for high-quality
 // wideband speech at medium bitrates. Only 10ms and 20ms frames are supported.
 func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
+	// Handle PLC for nil data (lost packet)
+	if data == nil {
+		return d.decodePLC(frameSize, false)
+	}
+
 	if len(data) == 0 {
 		return nil, ErrDecodeFailed
 	}
@@ -28,18 +38,33 @@ func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
 	rd.Init(data)
 
 	// Decode frame using shared range decoder
-	return d.decodeFrame(&rd, frameSize, false)
+	samples, err := d.decodeFrame(&rd, frameSize, false)
+	if err != nil {
+		return nil, err
+	}
+
+	// Reset PLC state after successful decode
+	hybridPLCState.Reset()
+	hybridPLCState.SetLastFrameParams(plc.ModeHybrid, frameSize, 1)
+
+	return samples, nil
 }
 
 // DecodeStereo decodes a Hybrid stereo frame and returns 48kHz PCM samples.
+// If data is nil, performs Packet Loss Concealment (PLC) instead of decoding.
 // Returns interleaved stereo samples [L0, R0, L1, R1, ...] at 48kHz.
 //
 // Parameters:
-//   - data: raw Opus frame data (without TOC byte)
+//   - data: raw Opus frame data (without TOC byte), or nil for PLC
 //   - frameSize: frame size in samples at 48kHz (480 for 10ms, 960 for 20ms)
 //
 // Returns interleaved float64 samples at 48kHz.
 func (d *Decoder) DecodeStereo(data []byte, frameSize int) ([]float64, error) {
+	// Handle PLC for nil data (lost packet)
+	if data == nil {
+		return d.decodePLC(frameSize, true)
+	}
+
 	if len(data) == 0 {
 		return nil, ErrDecodeFailed
 	}
@@ -58,7 +83,16 @@ func (d *Decoder) DecodeStereo(data []byte, frameSize int) ([]float64, error) {
 	rd.Init(data)
 
 	// Decode stereo frame using shared range decoder
-	return d.decodeFrame(&rd, frameSize, true)
+	samples, err := d.decodeFrame(&rd, frameSize, true)
+	if err != nil {
+		return nil, err
+	}
+
+	// Reset PLC state after successful decode
+	hybridPLCState.Reset()
+	hybridPLCState.SetLastFrameParams(plc.ModeHybrid, frameSize, 2)
+
+	return samples, nil
 }
 
 // DecodeToInt16 decodes and converts to int16 PCM.
@@ -163,4 +197,94 @@ func float64ToFloat32(samples []float64) []float32 {
 		output[i] = float32(s)
 	}
 	return output
+}
+
+// decodePLC generates concealment audio for a lost Hybrid packet.
+// Coordinates both SILK PLC and CELT PLC for the full hybrid output.
+func (d *Decoder) decodePLC(frameSize int, stereo bool) ([]float64, error) {
+	if !ValidHybridFrameSize(frameSize) {
+		return nil, ErrInvalidFrameSize
+	}
+
+	// Get fade factor for this loss
+	fadeFactor := hybridPLCState.RecordLoss()
+
+	// Total samples for output
+	totalSamples := frameSize * d.channels
+
+	// If fade is exhausted, return silence
+	if fadeFactor < 0.001 {
+		return make([]float64, totalSamples), nil
+	}
+
+	// Generate SILK PLC at 16kHz (WB)
+	silkSamples := frameSize / 3 // 48kHz -> 16kHz
+	var silkConcealed []float32
+	if stereo {
+		left, right := plc.ConcealSILKStereo(d.silkDecoder, silkSamples, fadeFactor)
+		// Interleave
+		silkConcealed = make([]float32, silkSamples*2)
+		for i := range left {
+			silkConcealed[i*2] = left[i]
+			silkConcealed[i*2+1] = right[i]
+		}
+	} else {
+		silkConcealed = plc.ConcealSILK(d.silkDecoder, silkSamples, fadeFactor)
+	}
+
+	// Upsample SILK to 48kHz (3x)
+	var silkUpsampled []float64
+	if stereo {
+		// Deinterleave, upsample, reinterleave
+		silkL := make([]float32, silkSamples)
+		silkR := make([]float32, silkSamples)
+		for i := 0; i < silkSamples; i++ {
+			silkL[i] = silkConcealed[i*2]
+			silkR[i] = silkConcealed[i*2+1]
+		}
+		upL := upsample3x(silkL)
+		upR := upsample3x(silkR)
+		silkUpsampled = make([]float64, len(upL)*2)
+		for i := range upL {
+			silkUpsampled[i*2] = upL[i]
+			silkUpsampled[i*2+1] = upR[i]
+		}
+	} else {
+		silkUpsampled = upsample3x(silkConcealed)
+	}
+
+	// Apply delay compensation to SILK
+	var silkDelayed []float64
+	if stereo {
+		silkDelayed = d.applyDelayStereo(silkUpsampled)
+	} else {
+		silkDelayed = d.applyDelayMono(silkUpsampled)
+	}
+
+	// Generate CELT PLC (bands 17-21 only for hybrid)
+	// Pass celtDecoder as both state and synthesizer (implements both interfaces)
+	celtConcealed := plc.ConcealCELTHybrid(d.celtDecoder, d.celtDecoder, frameSize, fadeFactor)
+
+	// Combine SILK and CELT
+	output := make([]float64, totalSamples)
+	for i := 0; i < totalSamples; i++ {
+		silkSample := float64(0)
+		celtSample := float64(0)
+
+		if i < len(silkDelayed) {
+			silkSample = silkDelayed[i]
+		}
+		if i < len(celtConcealed) {
+			celtSample = celtConcealed[i]
+		}
+
+		output[i] = silkSample + celtSample
+	}
+
+	return output, nil
+}
+
+// HybridPLCState returns the PLC state for external access.
+func HybridPLCState() *plc.State {
+	return hybridPLCState
 }

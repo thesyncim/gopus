@@ -3,6 +3,7 @@ package celt
 import (
 	"errors"
 
+	"gopus/internal/plc"
 	"gopus/internal/rangecoding"
 )
 
@@ -17,6 +18,9 @@ var (
 	// ErrNilDecoder indicates a nil range decoder was passed.
 	ErrNilDecoder = errors.New("celt: nil range decoder")
 )
+
+// celtPLCState tracks packet loss concealment state for CELT decoding.
+var celtPLCState = plc.NewState()
 
 // Decoder decodes CELT frames from an Opus packet.
 // It maintains state across frames for proper audio continuity via overlap-add
@@ -246,7 +250,8 @@ func (d *Decoder) SetEnergy(band, channel int, energy float64) {
 }
 
 // DecodeFrame decodes a complete CELT frame from raw bytes.
-// data: raw CELT frame bytes (without Opus framing)
+// If data is nil, performs Packet Loss Concealment (PLC) instead of decoding.
+// data: raw CELT frame bytes (without Opus framing), or nil for PLC
 // frameSize: expected output samples (120, 240, 480, or 960)
 // Returns: PCM samples as float64 slice, interleaved if stereo
 //
@@ -261,6 +266,11 @@ func (d *Decoder) SetEnergy(band, channel int, energy float64) {
 //
 // Reference: RFC 6716 Section 4.3, libopus celt/celt_decoder.c celt_decode_with_ec()
 func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
+	// Handle PLC for nil data (lost packet)
+	if data == nil {
+		return d.decodePLC(frameSize)
+	}
+
 	if len(data) == 0 {
 		return nil, ErrInvalidFrame
 	}
@@ -369,6 +379,10 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 
 	// Update energy state for next frame
 	d.SetPrevEnergy(energies)
+
+	// Reset PLC state after successful decode
+	celtPLCState.Reset()
+	celtPLCState.SetLastFrameParams(plc.ModeCELT, frameSize, d.channels)
 
 	return samples, nil
 }
@@ -676,4 +690,40 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	d.SetPrevEnergy(energies)
 
 	return samples, nil
+}
+
+// decodePLC generates concealment audio for a lost CELT packet.
+func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
+	if !ValidFrameSize(frameSize) {
+		return nil, ErrInvalidFrameSize
+	}
+
+	// Get fade factor for this loss
+	fadeFactor := celtPLCState.RecordLoss()
+
+	// Generate concealment using PLC module
+	// Pass decoder as both state and synthesizer (it implements both interfaces)
+	samples := plc.ConcealCELT(d, d, frameSize, fadeFactor)
+
+	return samples, nil
+}
+
+// decodePLCHybrid generates concealment for CELT in hybrid mode.
+func (d *Decoder) decodePLCHybrid(frameSize int) ([]float64, error) {
+	if frameSize != 480 && frameSize != 960 {
+		return nil, ErrInvalidFrameSize
+	}
+
+	// Get fade factor for this loss
+	fadeFactor := celtPLCState.RecordLoss()
+
+	// Generate concealment for hybrid bands only (17-21)
+	samples := plc.ConcealCELTHybrid(d, d, frameSize, fadeFactor)
+
+	return samples, nil
+}
+
+// CELTPLCState returns the PLC state for external access (e.g., hybrid mode).
+func CELTPLCState() *plc.State {
+	return celtPLCState
 }

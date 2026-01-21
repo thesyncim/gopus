@@ -2,13 +2,99 @@ package plc
 
 import (
 	"math"
-
-	"gopus/internal/celt"
 )
 
 // EnergyDecayPerFrame is the energy decay factor per lost frame.
 // Applied to band energies to gradually fade concealment.
 const EnergyDecayPerFrame = 0.85
+
+// CELTDecoderState provides access to CELT decoder state needed for PLC.
+// This interface allows PLC to access decoder state without importing the celt package.
+type CELTDecoderState interface {
+	// Channels returns the number of channels (1 or 2).
+	Channels() int
+	// PrevEnergy returns the previous frame's band energies.
+	PrevEnergy() []float64
+	// SetPrevEnergy updates the previous energy state.
+	SetPrevEnergy(energies []float64)
+	// RNG returns the current RNG state.
+	RNG() uint32
+	// SetRNG sets the RNG state.
+	SetRNG(seed uint32)
+	// PreemphState returns the de-emphasis filter state.
+	PreemphState() []float64
+	// OverlapBuffer returns the overlap buffer for synthesis.
+	OverlapBuffer() []float64
+	// SetOverlapBuffer sets the overlap buffer.
+	SetOverlapBuffer(samples []float64)
+}
+
+// CELTBandInfo provides band configuration for CELT PLC.
+type CELTBandInfo struct {
+	// MaxBands is the maximum number of frequency bands.
+	MaxBands int
+	// HybridStartBand is the first band for hybrid mode (bands 17-21).
+	HybridStartBand int
+	// EffBands returns effective bands for a frame size.
+	EffBands func(frameSize int) int
+	// BandStart returns the starting bin for a band at given frame size.
+	BandStart func(band, frameSize int) int
+	// BandEnd returns the ending bin for a band at given frame size.
+	BandEnd func(band, frameSize int) int
+	// ValidFrameSize checks if frame size is valid.
+	ValidFrameSize func(frameSize int) bool
+	// Overlap is the overlap size for synthesis.
+	Overlap int
+}
+
+// DefaultCELTBandInfo provides default CELT band configuration.
+// This should be set by the celt package during initialization.
+var DefaultCELTBandInfo = &CELTBandInfo{
+	MaxBands:        21,
+	HybridStartBand: 17,
+	Overlap:         120,
+	EffBands: func(frameSize int) int {
+		// Default effective bands by frame size
+		switch frameSize {
+		case 120:
+			return 13
+		case 240:
+			return 17
+		case 480:
+			return 19
+		case 960:
+			return 21
+		default:
+			return 21
+		}
+	},
+	BandStart: func(band, frameSize int) int {
+		// Default band start offsets (simplified)
+		eBands := []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 20, 24, 28, 34, 40, 48, 60, 78, 100}
+		if band < 0 || band >= len(eBands) {
+			return 0
+		}
+		return eBands[band] * frameSize / 960
+	},
+	BandEnd: func(band, frameSize int) int {
+		eBands := []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 20, 24, 28, 34, 40, 48, 60, 78, 100}
+		if band < 0 || band >= len(eBands)-1 {
+			return frameSize
+		}
+		return eBands[band+1] * frameSize / 960
+	},
+	ValidFrameSize: func(frameSize int) bool {
+		return frameSize == 120 || frameSize == 240 || frameSize == 480 || frameSize == 960
+	},
+}
+
+// CELTSynthesizer provides synthesis functionality for CELT PLC.
+type CELTSynthesizer interface {
+	// Synthesize performs IMDCT synthesis for mono.
+	Synthesize(coeffs []float64, transient bool, shortBlocks int) []float64
+	// SynthesizeStereo performs IMDCT synthesis for stereo.
+	SynthesizeStereo(coeffsL, coeffsR []float64, transient bool, shortBlocks int) []float64
+}
 
 // ConcealCELT generates concealment audio for a lost CELT frame.
 //
@@ -21,14 +107,15 @@ const EnergyDecayPerFrame = 0.85
 // This maintains the spectral shape of the last frame while fading out.
 //
 // Parameters:
-//   - dec: CELT decoder with state from last good frame
+//   - dec: CELT decoder state from last good frame
+//   - synth: CELT synthesizer for IMDCT
 //   - frameSize: samples to generate at 48kHz (120, 240, 480, or 960)
 //   - fadeFactor: gain multiplier (0.0 to 1.0)
 //
 // Returns: concealed samples at 48kHz
-func ConcealCELT(dec *celt.Decoder, frameSize int, fadeFactor float64) []float64 {
-	if dec == nil || frameSize <= 0 {
-		return make([]float64, frameSize*dec.Channels())
+func ConcealCELT(dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fadeFactor float64) []float64 {
+	if dec == nil {
+		return make([]float64, frameSize)
 	}
 
 	channels := dec.Channels()
@@ -38,9 +125,8 @@ func ConcealCELT(dec *celt.Decoder, frameSize int, fadeFactor float64) []float64
 		return make([]float64, frameSize*channels)
 	}
 
-	// Get mode configuration for this frame size
-	mode := celt.GetModeConfig(frameSize)
-	nbBands := mode.EffBands
+	bandInfo := DefaultCELTBandInfo
+	nbBands := bandInfo.EffBands(frameSize)
 
 	// Get previous frame energy (will be decayed)
 	prevEnergy := dec.PrevEnergy()
@@ -60,19 +146,24 @@ func ConcealCELT(dec *celt.Decoder, frameSize int, fadeFactor float64) []float64
 
 	if channels == 2 {
 		// Stereo: generate coefficients for both channels
-		coeffsL = generateNoiseBands(concealEnergy[:celt.MaxBands], nbBands, frameSize, &rng, fadeFactor)
-		coeffsR = generateNoiseBands(concealEnergy[celt.MaxBands:], nbBands, frameSize, &rng, fadeFactor)
+		coeffsL = generateNoiseBands(concealEnergy[:bandInfo.MaxBands], nbBands, frameSize, &rng, fadeFactor, bandInfo)
+		coeffsR = generateNoiseBands(concealEnergy[bandInfo.MaxBands:], nbBands, frameSize, &rng, fadeFactor, bandInfo)
 	} else {
 		// Mono: single set of coefficients
-		coeffs = generateNoiseBands(concealEnergy, nbBands, frameSize, &rng, fadeFactor)
+		coeffs = generateNoiseBands(concealEnergy, nbBands, frameSize, &rng, fadeFactor, bandInfo)
 	}
 
 	// Synthesize using IMDCT + window + overlap-add
 	var samples []float64
-	if channels == 2 {
-		samples = dec.SynthesizeStereo(coeffsL, coeffsR, false, 1)
+	if synth != nil {
+		if channels == 2 {
+			samples = synth.SynthesizeStereo(coeffsL, coeffsR, false, 1)
+		} else {
+			samples = synth.Synthesize(coeffs, false, 1)
+		}
 	} else {
-		samples = dec.Synthesize(coeffs, false, 1)
+		// No synthesizer available - return zeros
+		samples = make([]float64, frameSize*channels)
 	}
 
 	// Apply de-emphasis to maintain filter state continuity
@@ -87,14 +178,14 @@ func ConcealCELT(dec *celt.Decoder, frameSize int, fadeFactor float64) []float64
 
 // generateNoiseBands creates noise-filled MDCT coefficients scaled by band energies.
 // Each band gets random noise normalized and scaled to the target energy level.
-func generateNoiseBands(energies []float64, nbBands, frameSize int, rng *uint32, fadeFactor float64) []float64 {
+func generateNoiseBands(energies []float64, nbBands, frameSize int, rng *uint32, fadeFactor float64, bandInfo *CELTBandInfo) []float64 {
 	// Number of MDCT bins = frameSize (CELT convention)
 	coeffs := make([]float64, frameSize)
 
 	for band := 0; band < nbBands && band < len(energies); band++ {
 		// Get band boundaries
-		startBin := celt.ScaledBandStart(band, frameSize)
-		endBin := celt.ScaledBandEnd(band, frameSize)
+		startBin := bandInfo.BandStart(band, frameSize)
+		endBin := bandInfo.BandEnd(band, frameSize)
 
 		if startBin >= frameSize {
 			break
@@ -214,18 +305,15 @@ func applyDeemphasisPLC(samples []float64, state []float64, channels int) {
 // Only bands 17-21 are filled with noise (bands 0-16 are handled by SILK).
 //
 // Parameters:
-//   - dec: CELT decoder with state from last good frame
+//   - dec: CELT decoder state from last good frame
+//   - synth: CELT synthesizer for IMDCT
 //   - frameSize: samples to generate at 48kHz (480 or 960 for hybrid)
 //   - fadeFactor: gain multiplier (0.0 to 1.0)
 //
 // Returns: concealed high-frequency samples at 48kHz
-func ConcealCELTHybrid(dec *celt.Decoder, frameSize int, fadeFactor float64) []float64 {
-	if dec == nil || frameSize <= 0 {
-		channels := 1
-		if dec != nil {
-			channels = dec.Channels()
-		}
-		return make([]float64, frameSize*channels)
+func ConcealCELTHybrid(dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fadeFactor float64) []float64 {
+	if dec == nil {
+		return make([]float64, frameSize)
 	}
 
 	channels := dec.Channels()
@@ -235,9 +323,8 @@ func ConcealCELTHybrid(dec *celt.Decoder, frameSize int, fadeFactor float64) []f
 		return make([]float64, frameSize*channels)
 	}
 
-	// Get mode configuration
-	mode := celt.GetModeConfig(frameSize)
-	nbBands := mode.EffBands
+	bandInfo := DefaultCELTBandInfo
+	nbBands := bandInfo.EffBands(frameSize)
 
 	// Get previous frame energy
 	prevEnergy := dec.PrevEnergy()
@@ -255,18 +342,22 @@ func ConcealCELTHybrid(dec *celt.Decoder, frameSize int, fadeFactor float64) []f
 	var coeffsL, coeffsR []float64
 
 	if channels == 2 {
-		coeffsL = generateNoiseHybridBands(concealEnergy[:celt.MaxBands], nbBands, frameSize, &rng, fadeFactor)
-		coeffsR = generateNoiseHybridBands(concealEnergy[celt.MaxBands:], nbBands, frameSize, &rng, fadeFactor)
+		coeffsL = generateNoiseHybridBands(concealEnergy[:bandInfo.MaxBands], nbBands, frameSize, &rng, fadeFactor, bandInfo)
+		coeffsR = generateNoiseHybridBands(concealEnergy[bandInfo.MaxBands:], nbBands, frameSize, &rng, fadeFactor, bandInfo)
 	} else {
-		coeffs = generateNoiseHybridBands(concealEnergy, nbBands, frameSize, &rng, fadeFactor)
+		coeffs = generateNoiseHybridBands(concealEnergy, nbBands, frameSize, &rng, fadeFactor, bandInfo)
 	}
 
 	// Synthesize
 	var samples []float64
-	if channels == 2 {
-		samples = dec.SynthesizeStereo(coeffsL, coeffsR, false, 1)
+	if synth != nil {
+		if channels == 2 {
+			samples = synth.SynthesizeStereo(coeffsL, coeffsR, false, 1)
+		} else {
+			samples = synth.Synthesize(coeffs, false, 1)
+		}
 	} else {
-		samples = dec.Synthesize(coeffs, false, 1)
+		samples = make([]float64, frameSize*channels)
 	}
 
 	// Apply de-emphasis
@@ -280,15 +371,15 @@ func ConcealCELTHybrid(dec *celt.Decoder, frameSize int, fadeFactor float64) []f
 }
 
 // generateNoiseHybridBands generates noise for hybrid mode (bands 17-21 only).
-func generateNoiseHybridBands(energies []float64, nbBands, frameSize int, rng *uint32, fadeFactor float64) []float64 {
+func generateNoiseHybridBands(energies []float64, nbBands, frameSize int, rng *uint32, fadeFactor float64, bandInfo *CELTBandInfo) []float64 {
 	coeffs := make([]float64, frameSize)
 
-	// Start at band 17 (HybridCELTStartBand)
-	startBand := celt.HybridCELTStartBand
+	// Start at hybrid start band (17)
+	startBand := bandInfo.HybridStartBand
 
 	for band := startBand; band < nbBands && band < len(energies); band++ {
-		startBin := celt.ScaledBandStart(band, frameSize)
-		endBin := celt.ScaledBandEnd(band, frameSize)
+		startBin := bandInfo.BandStart(band, frameSize)
+		endBin := bandInfo.BandEnd(band, frameSize)
 
 		if startBin >= frameSize {
 			break
