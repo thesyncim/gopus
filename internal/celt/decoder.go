@@ -555,3 +555,125 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 
 	return samples, nil
 }
+
+// HybridCELTStartBand is the first CELT band decoded in hybrid mode.
+// Bands 0-16 are covered by SILK; CELT only decodes bands 17-21.
+const HybridCELTStartBand = 17
+
+// DecodeFrameHybrid decodes a CELT frame for hybrid mode.
+// In hybrid mode, CELT only decodes bands 17-21 (frequencies above ~8kHz).
+// The range decoder should already have been partially consumed by SILK.
+//
+// Parameters:
+//   - rd: Range decoder (SILK has already consumed its portion)
+//   - frameSize: Expected output samples (480 or 960 for hybrid 10ms/20ms)
+//
+// Returns: PCM samples as float64 slice at 48kHz
+//
+// Implementation approach:
+// - Decode all bands as usual but zero out bands 0-16 before synthesis
+// - This ensures correct operation with the existing synthesis pipeline
+// - Only bands 17-21 contribute to the output (high frequencies for hybrid)
+//
+// Reference: RFC 6716 Section 3.2 (Hybrid mode), libopus celt/celt_decoder.c
+func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]float64, error) {
+	if rd == nil {
+		return nil, ErrNilDecoder
+	}
+
+	// Hybrid only supports 10ms (480) and 20ms (960) frames
+	if frameSize != 480 && frameSize != 960 {
+		return nil, ErrInvalidFrameSize
+	}
+
+	d.SetRangeDecoder(rd)
+
+	// Get mode configuration
+	mode := GetModeConfig(frameSize)
+	nbBands := mode.EffBands // Full band count for this frame size
+	lm := mode.LM
+
+	// Decode frame header flags
+	silence := d.decodeSilenceFlag()
+	if silence {
+		return d.decodeSilenceFrame(frameSize), nil
+	}
+
+	transient := d.decodeTransientFlag(lm)
+	intra := d.decodeIntraFlag()
+
+	shortBlocks := 1
+	if transient {
+		shortBlocks = mode.ShortBlocks
+	}
+
+	// Decode coarse energy for all bands
+	// In hybrid mode, we decode all bands but only use bands >= HybridCELTStartBand
+	energies := d.DecodeCoarseEnergy(nbBands, intra, lm)
+
+	// Compute bit allocation
+	totalBits := 256 - rd.Tell()
+	if totalBits < 0 {
+		totalBits = 64
+	}
+
+	allocResult := ComputeAllocation(totalBits, nbBands, nil, nil, 0, -1, false, lm)
+
+	// Decode fine energy
+	d.DecodeFineEnergy(energies, nbBands, allocResult.FineBits)
+
+	// Decode bands using PVQ
+	var coeffs []float64
+	var coeffsL, coeffsR []float64
+
+	if d.channels == 2 {
+		energiesL := energies[:nbBands]
+		energiesR := make([]float64, nbBands)
+		if len(energies) > nbBands {
+			copy(energiesR, energies[nbBands:])
+		} else {
+			copy(energiesR, energiesL)
+		}
+		coeffsL, coeffsR = d.DecodeBandsStereo(energiesL, energiesR, allocResult.BandBits, nbBands, frameSize, -1)
+	} else {
+		coeffs = d.DecodeBands(energies, allocResult.BandBits, nbBands, false, frameSize)
+	}
+
+	// Zero out bands 0-16 (SILK handles low frequencies)
+	// Calculate the bin offset where band 17 starts
+	hybridBinStart := ScaledBandStart(HybridCELTStartBand, frameSize)
+
+	if d.channels == 2 {
+		// Zero lower bands for both channels
+		for i := 0; i < hybridBinStart && i < len(coeffsL); i++ {
+			coeffsL[i] = 0
+		}
+		for i := 0; i < hybridBinStart && i < len(coeffsR); i++ {
+			coeffsR[i] = 0
+		}
+	} else {
+		// Zero lower bands for mono
+		for i := 0; i < hybridBinStart && i < len(coeffs); i++ {
+			coeffs[i] = 0
+		}
+	}
+
+	// Decode energy remainder
+	d.DecodeEnergyRemainder(energies, nbBands, allocResult.RemainderBits)
+
+	// Synthesis: IMDCT + window + overlap-add
+	var samples []float64
+	if d.channels == 2 {
+		samples = d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
+	} else {
+		samples = d.Synthesize(coeffs, transient, shortBlocks)
+	}
+
+	// Apply de-emphasis filter
+	d.applyDeemphasis(samples)
+
+	// Update energy state for next frame
+	d.SetPrevEnergy(energies)
+
+	return samples, nil
+}
