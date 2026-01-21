@@ -107,54 +107,54 @@ Explicitly excluded. Documented to prevent scope creep.
 
 ## Traceability
 
-Which phases cover which requirements. Updated during roadmap creation.
+Which phases cover which requirements.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DEC-01 | TBD | Pending |
-| DEC-02 | TBD | Pending |
-| DEC-03 | TBD | Pending |
-| DEC-04 | TBD | Pending |
-| DEC-05 | TBD | Pending |
-| DEC-06 | TBD | Pending |
-| DEC-07 | TBD | Pending |
-| DEC-08 | TBD | Pending |
-| DEC-09 | TBD | Pending |
-| DEC-10 | TBD | Pending |
-| DEC-11 | TBD | Pending |
-| ENC-01 | TBD | Pending |
-| ENC-02 | TBD | Pending |
-| ENC-03 | TBD | Pending |
-| ENC-04 | TBD | Pending |
-| ENC-05 | TBD | Pending |
-| ENC-06 | TBD | Pending |
-| ENC-07 | TBD | Pending |
-| ENC-08 | TBD | Pending |
-| ENC-09 | TBD | Pending |
-| ENC-10 | TBD | Pending |
-| ENC-11 | TBD | Pending |
-| ENC-12 | TBD | Pending |
-| ENC-13 | TBD | Pending |
-| ENC-14 | TBD | Pending |
-| ENC-15 | TBD | Pending |
-| API-01 | TBD | Pending |
-| API-02 | TBD | Pending |
-| API-03 | TBD | Pending |
-| API-04 | TBD | Pending |
-| API-05 | TBD | Pending |
-| API-06 | TBD | Pending |
-| CTR-01 | TBD | Pending |
-| CTR-02 | TBD | Pending |
-| CMP-01 | TBD | Pending |
-| CMP-02 | TBD | Pending |
-| CMP-03 | TBD | Pending |
-| CMP-04 | TBD | Pending |
+| DEC-01 | Phase 1: Foundation | Pending |
+| DEC-02 | Phase 2: SILK Decoder | Pending |
+| DEC-03 | Phase 3: CELT Decoder | Pending |
+| DEC-04 | Phase 4: Hybrid Decoder | Pending |
+| DEC-05 | Phase 2: SILK Decoder | Pending |
+| DEC-06 | Phase 3: CELT Decoder | Pending |
+| DEC-07 | Phase 1: Foundation | Pending |
+| DEC-08 | Phase 4: Hybrid Decoder | Pending |
+| DEC-09 | Phase 2: SILK Decoder | Pending |
+| DEC-10 | Phase 2: SILK Decoder | Pending |
+| DEC-11 | Phase 5: Multistream Decoder | Pending |
+| ENC-01 | Phase 1: Foundation | Pending |
+| ENC-02 | Phase 6: SILK Encoder | Pending |
+| ENC-03 | Phase 7: CELT Encoder | Pending |
+| ENC-04 | Phase 8: Hybrid Encoder & Controls | Pending |
+| ENC-05 | Phase 8: Hybrid Encoder & Controls | Pending |
+| ENC-06 | Phase 8: Hybrid Encoder & Controls | Pending |
+| ENC-07 | Phase 6: SILK Encoder | Pending |
+| ENC-08 | Phase 6: SILK Encoder | Pending |
+| ENC-09 | Phase 9: Multistream Encoder | Pending |
+| ENC-10 | Phase 8: Hybrid Encoder & Controls | Pending |
+| ENC-11 | Phase 8: Hybrid Encoder & Controls | Pending |
+| ENC-12 | Phase 8: Hybrid Encoder & Controls | Pending |
+| ENC-13 | Phase 8: Hybrid Encoder & Controls | Pending |
+| ENC-14 | Phase 8: Hybrid Encoder & Controls | Pending |
+| ENC-15 | Phase 8: Hybrid Encoder & Controls | Pending |
+| API-01 | Phase 10: API Layer | Pending |
+| API-02 | Phase 10: API Layer | Pending |
+| API-03 | Phase 10: API Layer | Pending |
+| API-04 | Phase 10: API Layer | Pending |
+| API-05 | Phase 10: API Layer | Pending |
+| API-06 | Phase 10: API Layer | Pending |
+| CTR-01 | Phase 11: Container | Pending |
+| CTR-02 | Phase 11: Container | Pending |
+| CMP-01 | Phase 12: Compliance & Polish | Pending |
+| CMP-02 | Phase 12: Compliance & Polish | Pending |
+| CMP-03 | Phase 1: Foundation | Pending |
+| CMP-04 | Phase 1: Foundation | Pending |
 
 **Coverage:**
 - v1 requirements: 38 total
-- Mapped to phases: 0
-- Unmapped: 38 ⚠️
+- Mapped to phases: 38
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-01-21*
-*Last updated: 2026-01-21 after initial definition*
+*Last updated: 2026-01-21 after roadmap creation*
