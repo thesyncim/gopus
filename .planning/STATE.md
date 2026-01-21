@@ -5,34 +5,34 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 2: SILK Decoder - COMPLETE
+**Current focus:** Phase 2: SILK Decoder - COMPLETE (including plan 04)
 
 ## Current Position
 
 Phase: 2 of 12 (SILK Decoder)
-Plan: 3 of 3 in current phase - PHASE COMPLETE
+Plan: 4 of 4 in current phase - PHASE COMPLETE
 Status: Phase complete
-Last activity: 2026-01-21 - Completed 02-03-PLAN.md (SILK Excitation and Synthesis)
+Last activity: 2026-01-21 - Completed 02-04-PLAN.md (SILK Stereo and Frame Orchestration)
 
-Progress: [████████████████░░░░░░░░░░░░░░░░░░░░░░░░░] ~17% (6/36 plans)
+Progress: [███████████████████░░░░░░░░░░░░░░░░░░░░░░] ~19% (7/37 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 6
+- Total plans completed: 7
 - Average duration: ~8 minutes
-- Total execution time: ~50 minutes
+- Total execution time: ~57 minutes
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-foundation | 3/3 | ~29m | ~10m |
-| 02-silk-decoder | 3/3 | ~21m | ~7m |
+| 02-silk-decoder | 4/4 | ~28m | ~7m |
 
 **Recent Trend:**
-- Last 5 plans: 01-02 (~21m), 02-01 (~8m), 02-02 (~8m), 02-03 (~5m)
-- Trend: SILK plans executing efficiently, decreasing duration
+- Last 5 plans: 02-01 (~8m), 02-02 (~8m), 02-03 (~5m), 02-04 (~7m)
+- Trend: SILK plans executing efficiently, consistent duration
 
 *Updated after each plan completion*
 
@@ -55,6 +55,8 @@ Recent decisions affecting current work:
 | D02-02-01 | Direct polynomial method for LSF-to-LPC | 02-02 | Clearer than Chebyshev recursion |
 | D02-03-01 | LPC chirp factor 0.96 for aggressive bandwidth expansion | 02-03 | Faster convergence for stability |
 | D02-03-02 | LCG noise fill for zero excitation positions | 02-03 | Comfort noise with deterministic output |
+| D02-04-01 | Stereo prediction weights in Q13 format | 02-04 | Per RFC 6716 Section 4.2.8 |
+| D02-04-02 | 40/60ms frames as multiple 20ms sub-blocks | 02-04 | Simplified decode logic |
 
 ### Pending Todos
 
@@ -71,7 +73,7 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-21
-Stopped at: Completed 02-03-PLAN.md (SILK Excitation and Synthesis) - Phase 02 COMPLETE
+Stopped at: Completed 02-04-PLAN.md (SILK Stereo and Frame Orchestration) - Phase 02 COMPLETE
 Resume file: N/A - ready for Phase 03
 
 ## Phase 01 Summary
@@ -92,9 +94,9 @@ Resume file: N/A - ready for Phase 03
 ## Phase 02 Summary - COMPLETE
 
 **SILK Decoder phase complete:**
-- All 3 plans executed successfully
-- Total duration: ~21 minutes
-- 21 tests passing
+- All 4 plans executed successfully
+- Total duration: ~28 minutes
+- 32 tests passing
 
 **02-01 SILK Foundation complete:**
 - ICDF probability tables: 47 tables for entropy decoding
@@ -119,6 +121,15 @@ Resume file: N/A - ready for Phase 03
 - Stability: limitLPCFilterGain with iterative bandwidth expansion
 - Unit tests: 11 tests covering all synthesis components
 
+**02-04 SILK Stereo and Frame Orchestration complete:**
+- Stereo prediction weight decoding (Q13 format)
+- Mid-side to left-right unmixing with prediction
+- Frame duration handling (10/20/40/60ms)
+- DecodeFrame orchestration for mono decoding
+- DecodeStereoFrame orchestration for stereo decoding
+- 40/60ms frames as multiple 20ms sub-blocks
+- Unit tests: 11 tests covering stereo and frame handling
+
 **Key artifacts:**
 - `internal/silk/tables.go` - ICDF tables (uint16)
 - `internal/silk/codebook.go` - LSF and LTP codebooks
@@ -131,5 +142,9 @@ Resume file: N/A - ready for Phase 03
 - `internal/silk/excitation.go` - Shell-coded excitation decoding
 - `internal/silk/ltp.go` - Long-term prediction synthesis
 - `internal/silk/lpc.go` - LPC synthesis filter
+- `internal/silk/stereo.go` - Stereo prediction and unmixing
+- `internal/silk/frame.go` - Frame duration handling
+- `internal/silk/decode.go` - Top-level decode orchestration
 - `internal/silk/decode_params_test.go` - Parameter decoding tests
 - `internal/silk/excitation_test.go` - Synthesis tests
+- `internal/silk/stereo_test.go` - Stereo and frame tests
