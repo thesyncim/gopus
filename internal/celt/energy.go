@@ -1,0 +1,245 @@
+// Package celt implements the CELT decoder per RFC 6716 Section 4.3.
+package celt
+
+import "gopus/internal/rangecoding"
+
+// Laplace decoding constants per RFC 6716 Section 4.3.2.1
+const (
+	laplaceNMIN   = 16    // Minimum probability for non-zero magnitude
+	laplaceFS     = 32768 // Total frequency space
+	laplaceScale  = laplaceFS - laplaceNMIN
+	laplaceFTBits = 15    // log2(laplaceFS)
+)
+
+// ec_laplace_get_freq1 returns the frequency of the "1" symbol.
+// Reference: libopus celt/laplace.c
+func ec_laplace_get_freq1(fs0 int, decay int) int {
+	// ft = fs0 - decay
+	ft := fs0 - decay
+	if ft < 0 {
+		ft = 0
+	}
+	return ft
+}
+
+// decodeLaplace decodes a Laplace-distributed integer using the range coder.
+// Uses the probability model from RFC 6716 Section 4.3.2.1.
+// Parameters:
+//   - fs: total frequency (typically 32768)
+//   - decay: controls the distribution spread (larger = narrower around 0)
+//
+// Reference: libopus celt/laplace.c ec_laplace_decode()
+func (d *Decoder) decodeLaplace(fs int, decay int) int {
+	rd := d.rangeDecoder
+	if rd == nil {
+		return 0
+	}
+
+	// Probability model:
+	// P(0) is centered, with exponentially decreasing tails
+	// decay controls how fast probabilities decrease for larger |k|
+
+	// Get the current position in the range
+	rng := rd.Range()
+	val := rd.Val()
+
+	// Scale factor
+	s := rng / uint32(fs)
+	if s == 0 {
+		s = 1
+	}
+
+	// Frequency from current state
+	fm := val / s
+	if fm >= uint32(fs) {
+		fm = uint32(fs) - 1
+	}
+
+	// Compute center frequency (probability of value 0)
+	// fs0 is frequency mass for symbol 0
+	fs0 := laplaceNMIN + (laplaceScale*decay)>>15
+	if fs0 > fs-1 {
+		fs0 = fs - 1
+	}
+
+	// Check if fm is in the "0" symbol range
+	// Symbol 0 starts at fl=0, has fs0 frequency mass
+	if int(fm) < fs0 {
+		// Symbol is 0
+		// Update: need to consume the proper range
+		// Range update: rng = s * fs0, val = val - s * 0
+		d.updateRange(0, uint32(fs0), uint32(fs))
+		return 0
+	}
+
+	// Symbol is not 0 - decode positive or negative
+	// The distribution is symmetric: P(k) = P(-k) for k != 0
+
+	// Current cumulative past 0
+	cumFL := fs0
+	k := 1
+	prevFk := fs0
+
+	for {
+		// Frequency for symbol k (and -k)
+		// fk decreases geometrically: fk = prevFk * decay / 32768 approximately
+		// Using the recurrence from libopus
+		fk := (prevFk * decay) >> 15
+		if fk < laplaceNMIN {
+			fk = laplaceNMIN
+		}
+
+		// Check positive k: cumulative range [cumFL, cumFL + fk)
+		if int(fm) >= cumFL && int(fm) < cumFL+fk {
+			// Positive k
+			d.updateRange(uint32(cumFL), uint32(fk), uint32(fs))
+			return k
+		}
+
+		// Check negative k: from the end
+		// Negative symbols are at the top of frequency range
+		negFL := fs - cumFL - fk
+		if negFL < 0 {
+			negFL = 0
+		}
+		if int(fm) >= negFL && int(fm) < negFL+fk {
+			// Negative k
+			d.updateRange(uint32(negFL), uint32(fk), uint32(fs))
+			return -k
+		}
+
+		cumFL += fk
+		k++
+		prevFk = fk
+
+		// Safety: prevent infinite loop
+		if k > 127 || cumFL >= fs/2 {
+			// Default to largest magnitude
+			remaining := fs - 2*cumFL
+			if remaining < laplaceNMIN {
+				remaining = laplaceNMIN
+			}
+			if int(fm) >= cumFL && int(fm) < cumFL+remaining {
+				d.updateRange(uint32(cumFL), uint32(remaining), uint32(fs))
+				return k
+			}
+			d.updateRange(uint32(fs-cumFL-remaining), uint32(remaining), uint32(fs))
+			return -k
+		}
+	}
+}
+
+// updateRange updates the range decoder state after decoding a symbol.
+// fl = cumulative frequency of symbols before this one
+// fh = frequency of this symbol
+// ft = total frequency
+func (d *Decoder) updateRange(fl, fh, ft uint32) {
+	// This mirrors the range decoder update process
+	// For proper implementation, we need to integrate with rangecoding.Decoder
+	// For now, we consume some entropy to advance state
+	rd := d.rangeDecoder
+	if rd == nil {
+		return
+	}
+
+	// The proper way would be to expose an Update method on rangecoding.Decoder
+	// For now, use bit decoding to consume appropriate entropy
+	// Number of bits ≈ -log2(fh/ft)
+	if fh > 0 && ft > 0 {
+		// Approximate bits consumed
+		ratio := float64(ft) / float64(fh)
+		bits := 0
+		for ratio > 2 && bits < 16 {
+			ratio /= 2
+			bits++
+		}
+		// Consume these bits
+		for i := 0; i < bits; i++ {
+			rd.DecodeBit(1)
+		}
+	}
+}
+
+// DecodeCoarseEnergy decodes coarse (6dB step) band energies.
+// intra=true: no inter-frame prediction (first frame or after loss)
+// intra=false: uses alpha prediction from previous frame
+// Reference: RFC 6716 Section 4.3.2, libopus celt/quant_bands.c unquant_coarse_energy()
+func (d *Decoder) DecodeCoarseEnergy(nbBands int, intra bool, lm int) []float64 {
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+	if nbBands < 0 {
+		nbBands = 0
+	}
+	if lm < 0 {
+		lm = 0
+	}
+	if lm > 3 {
+		lm = 3
+	}
+
+	energies := make([]float64, nbBands*d.channels)
+
+	// Get prediction coefficients
+	var alpha, beta float64
+	if intra {
+		// Intra-frame: no inter-frame prediction, only inter-band
+		alpha = 0.0
+		beta = BetaCoef[lm]
+	} else {
+		// Inter-frame: use both alpha (previous frame) and beta (previous band)
+		alpha = AlphaCoef[lm]
+		beta = BetaCoef[lm]
+	}
+
+	// Decay parameter for Laplace model depends on intra/inter mode and LM
+	// Per libopus: different decay values for different modes
+	// Typical values from libopus celt/quant_bands.c
+	decay := 16384 // Default decay (fairly narrow)
+	if !intra {
+		// Inter-frame mode uses wider distribution (smaller decay)
+		decay = 24000
+	}
+
+	// Decode for each channel
+	for c := 0; c < d.channels; c++ {
+		prevBandEnergy := 0.0 // Energy of previous band (for inter-band prediction)
+
+		for band := 0; band < nbBands; band++ {
+			// Decode Laplace-distributed residual
+			qi := d.decodeLaplace(laplaceFS, decay)
+
+			// Apply prediction
+			// pred = alpha * prevEnergy[band] + beta * prevBandEnergy
+			prevFrameEnergy := d.prevEnergy[c*MaxBands+band]
+			pred := alpha*prevFrameEnergy + beta*prevBandEnergy
+
+			// Compute energy: pred + qi * 6.0 (6 dB per step)
+			energy := pred + float64(qi)*DB6
+
+			// Store result
+			energies[c*nbBands+band] = energy
+
+			// Update prev band energy for next band's inter-band prediction
+			prevBandEnergy = energy
+		}
+
+		// Update previous frame energy for next frame's inter-frame prediction
+		for band := 0; band < nbBands; band++ {
+			d.prevEnergy[c*MaxBands+band] = energies[c*nbBands+band]
+		}
+	}
+
+	return energies
+}
+
+// DecodeCoarseEnergyWithDecoder decodes coarse energies using an explicit range decoder.
+// This variant allows passing a range decoder directly rather than using d.rangeDecoder.
+func (d *Decoder) DecodeCoarseEnergyWithDecoder(rd *rangecoding.Decoder, nbBands int, intra bool, lm int) []float64 {
+	// Temporarily set range decoder
+	oldRD := d.rangeDecoder
+	d.rangeDecoder = rd
+	defer func() { d.rangeDecoder = oldRD }()
+
+	return d.DecodeCoarseEnergy(nbBands, intra, lm)
+}
