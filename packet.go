@@ -111,3 +111,158 @@ var (
 	ErrInvalidFrameCount = errors.New("opus: invalid frame count (M > 48)")
 	ErrInvalidPacket     = errors.New("opus: invalid packet structure")
 )
+
+// PacketInfo contains parsed information about an Opus packet.
+type PacketInfo struct {
+	TOC        TOC   // Parsed TOC byte
+	FrameCount int   // Number of frames (1-48 for code 3)
+	FrameSizes []int // Size in bytes of each frame
+	Padding    int   // Padding bytes (code 3 only)
+	TotalSize  int   // Total packet size
+}
+
+// ParsePacket parses an Opus packet and returns information about its structure.
+// It determines the frame boundaries based on the TOC byte's frame code (0-3).
+func ParsePacket(data []byte) (PacketInfo, error) {
+	if len(data) < 1 {
+		return PacketInfo{}, ErrPacketTooShort
+	}
+
+	toc := ParseTOC(data[0])
+	info := PacketInfo{
+		TOC:       toc,
+		TotalSize: len(data),
+	}
+
+	switch toc.FrameCode {
+	case 0:
+		// Code 0: One frame
+		info.FrameCount = 1
+		info.FrameSizes = []int{len(data) - 1}
+
+	case 1:
+		// Code 1: Two equal-sized frames
+		frameDataLen := len(data) - 1
+		if frameDataLen%2 != 0 {
+			return PacketInfo{}, ErrInvalidPacket
+		}
+		frameSize := frameDataLen / 2
+		info.FrameCount = 2
+		info.FrameSizes = []int{frameSize, frameSize}
+
+	case 2:
+		// Code 2: Two frames with different sizes
+		if len(data) < 2 {
+			return PacketInfo{}, ErrPacketTooShort
+		}
+		frame1Len, bytesRead, err := parseFrameLength(data, 1)
+		if err != nil {
+			return PacketInfo{}, err
+		}
+		headerLen := 1 + bytesRead
+		frame2Len := len(data) - headerLen - frame1Len
+		if frame2Len < 0 {
+			return PacketInfo{}, ErrInvalidPacket
+		}
+		info.FrameCount = 2
+		info.FrameSizes = []int{frame1Len, frame2Len}
+
+	case 3:
+		// Code 3: Arbitrary number of frames
+		if len(data) < 2 {
+			return PacketInfo{}, ErrPacketTooShort
+		}
+		frameCountByte := data[1]
+		vbr := (frameCountByte & 0x80) != 0
+		hasPadding := (frameCountByte & 0x40) != 0
+		m := int(frameCountByte & 0x3F)
+
+		if m == 0 || m > 48 {
+			return PacketInfo{}, ErrInvalidFrameCount
+		}
+
+		offset := 2
+		padding := 0
+
+		// Parse padding if present
+		if hasPadding {
+			for {
+				if offset >= len(data) {
+					return PacketInfo{}, ErrPacketTooShort
+				}
+				padByte := int(data[offset])
+				offset++
+				padding += padByte
+				if padByte < 255 {
+					break
+				}
+			}
+		}
+
+		info.FrameCount = m
+		info.Padding = padding
+		info.FrameSizes = make([]int, m)
+
+		if vbr {
+			// VBR: Parse each frame length (except last)
+			totalFrameLen := 0
+			for i := 0; i < m-1; i++ {
+				frameLen, bytesRead, err := parseFrameLength(data, offset)
+				if err != nil {
+					return PacketInfo{}, err
+				}
+				info.FrameSizes[i] = frameLen
+				totalFrameLen += frameLen
+				offset += bytesRead
+			}
+			// Last frame is remainder
+			lastFrameLen := len(data) - offset - padding - totalFrameLen
+			if lastFrameLen < 0 {
+				return PacketInfo{}, ErrInvalidPacket
+			}
+			info.FrameSizes[m-1] = lastFrameLen
+		} else {
+			// CBR: Parse single frame length, all frames are same size
+			if m > 1 {
+				frameLen, bytesRead, err := parseFrameLength(data, offset)
+				if err != nil {
+					return PacketInfo{}, err
+				}
+				offset += bytesRead
+				for i := 0; i < m; i++ {
+					info.FrameSizes[i] = frameLen
+				}
+			} else {
+				// Single frame in CBR mode
+				frameLen := len(data) - offset - padding
+				if frameLen < 0 {
+					return PacketInfo{}, ErrInvalidPacket
+				}
+				info.FrameSizes[0] = frameLen
+			}
+		}
+	}
+
+	return info, nil
+}
+
+// parseFrameLength parses a frame length from the packet data at the given offset.
+// Per RFC 6716 Section 3.2.1, lengths < 252 use one byte, lengths >= 252 use two bytes.
+// Returns the length, number of bytes read, and any error.
+func parseFrameLength(data []byte, offset int) (int, int, error) {
+	if offset >= len(data) {
+		return 0, 0, ErrPacketTooShort
+	}
+
+	firstByte := int(data[offset])
+	if firstByte < 252 {
+		return firstByte, 1, nil
+	}
+
+	// Two-byte encoding: length = 4*secondByte + firstByte
+	if offset+1 >= len(data) {
+		return 0, 0, ErrPacketTooShort
+	}
+	secondByte := int(data[offset+1])
+	return 4*secondByte + firstByte, 2, nil
+}
