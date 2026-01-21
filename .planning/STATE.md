@@ -5,34 +5,34 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 2: SILK Decoder - COMPLETE (including plan 04)
+**Current focus:** Phase 2: SILK Decoder - COMPLETE (all 5 plans)
 
 ## Current Position
 
 Phase: 2 of 12 (SILK Decoder)
-Plan: 4 of 4 in current phase - PHASE COMPLETE
+Plan: 5 of 5 in current phase - PHASE COMPLETE
 Status: Phase complete
-Last activity: 2026-01-21 - Completed 02-04-PLAN.md (SILK Stereo and Frame Orchestration)
+Last activity: 2026-01-21 - Completed 02-05-PLAN.md (SILK Public API and Integration Tests)
 
-Progress: [███████████████████░░░░░░░░░░░░░░░░░░░░░░] ~19% (7/37 plans)
+Progress: [████████████████████░░░░░░░░░░░░░░░░░░░░░] ~22% (8/37 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 7
+- Total plans completed: 8
 - Average duration: ~8 minutes
-- Total execution time: ~57 minutes
+- Total execution time: ~60 minutes
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-foundation | 3/3 | ~29m | ~10m |
-| 02-silk-decoder | 4/4 | ~28m | ~7m |
+| 02-silk-decoder | 5/5 | ~31m | ~6m |
 
 **Recent Trend:**
-- Last 5 plans: 02-01 (~8m), 02-02 (~8m), 02-03 (~5m), 02-04 (~7m)
-- Trend: SILK plans executing efficiently, consistent duration
+- Last 5 plans: 02-02 (~8m), 02-03 (~5m), 02-04 (~7m), 02-05 (~3m)
+- Trend: SILK plans executing efficiently, plan 05 was fastest
 
 *Updated after each plan completion*
 
@@ -57,6 +57,8 @@ Recent decisions affecting current work:
 | D02-03-02 | LCG noise fill for zero excitation positions | 02-03 | Comfort noise with deterministic output |
 | D02-04-01 | Stereo prediction weights in Q13 format | 02-04 | Per RFC 6716 Section 4.2.8 |
 | D02-04-02 | 40/60ms frames as multiple 20ms sub-blocks | 02-04 | Simplified decode logic |
+| D02-05-01 | Linear interpolation for upsampling | 02-05 | Sufficient for v1; polyphase deferred |
+| D02-05-02 | Float32 intermediate format for Decode API | 02-05 | int16 via wrapper |
 
 ### Pending Todos
 
@@ -73,7 +75,7 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-21
-Stopped at: Completed 02-04-PLAN.md (SILK Stereo and Frame Orchestration) - Phase 02 COMPLETE
+Stopped at: Completed 02-05-PLAN.md (SILK Public API and Integration Tests) - Phase 02 COMPLETE
 Resume file: N/A - ready for Phase 03
 
 ## Phase 01 Summary
@@ -94,9 +96,9 @@ Resume file: N/A - ready for Phase 03
 ## Phase 02 Summary - COMPLETE
 
 **SILK Decoder phase complete:**
-- All 4 plans executed successfully
-- Total duration: ~28 minutes
-- 32 tests passing
+- All 5 plans executed successfully
+- Total duration: ~31 minutes
+- 46 tests passing
 
 **02-01 SILK Foundation complete:**
 - ICDF probability tables: 47 tables for entropy decoding
@@ -130,6 +132,14 @@ Resume file: N/A - ready for Phase 03
 - 40/60ms frames as multiple 20ms sub-blocks
 - Unit tests: 11 tests covering stereo and frame handling
 
+**02-05 SILK Public API and Integration Tests complete:**
+- Public Decode() API returning 48kHz float32 PCM
+- DecodeStereo() with interleaved stereo output
+- DecodeToInt16() convenience wrapper
+- Linear interpolation upsampling (6x/4x/3x for NB/MB/WB)
+- BandwidthFromOpus() conversion utility
+- 14 new tests + benchmarks (46 total in silk package)
+
 **Key artifacts:**
 - `internal/silk/tables.go` - ICDF tables (uint16)
 - `internal/silk/codebook.go` - LSF and LTP codebooks
@@ -145,6 +155,9 @@ Resume file: N/A - ready for Phase 03
 - `internal/silk/stereo.go` - Stereo prediction and unmixing
 - `internal/silk/frame.go` - Frame duration handling
 - `internal/silk/decode.go` - Top-level decode orchestration
+- `internal/silk/silk.go` - Public API (Decode, DecodeStereo, DecodeToInt16)
+- `internal/silk/resample.go` - Upsampling to 48kHz
+- `internal/silk/silk_test.go` - Integration tests and benchmarks
 - `internal/silk/decode_params_test.go` - Parameter decoding tests
 - `internal/silk/excitation_test.go` - Synthesis tests
 - `internal/silk/stereo_test.go` - Stereo and frame tests
