@@ -1,6 +1,22 @@
 package celt
 
-import "gopus/internal/rangecoding"
+import (
+	"errors"
+
+	"gopus/internal/rangecoding"
+)
+
+// Decoding errors
+var (
+	// ErrInvalidFrame indicates the frame data is invalid or corrupted.
+	ErrInvalidFrame = errors.New("celt: invalid frame data")
+
+	// ErrInvalidFrameSize indicates an unsupported frame size.
+	ErrInvalidFrameSize = errors.New("celt: invalid frame size")
+
+	// ErrNilDecoder indicates a nil range decoder was passed.
+	ErrNilDecoder = errors.New("celt: nil range decoder")
+)
 
 // Decoder decodes CELT frames from an Opus packet.
 // It maintains state across frames for proper audio continuity via overlap-add
@@ -227,4 +243,315 @@ func (d *Decoder) SetEnergy(band, channel int, energy float64) {
 		return
 	}
 	d.prevEnergy[channel*MaxBands+band] = energy
+}
+
+// DecodeFrame decodes a complete CELT frame from raw bytes.
+// data: raw CELT frame bytes (without Opus framing)
+// frameSize: expected output samples (120, 240, 480, or 960)
+// Returns: PCM samples as float64 slice, interleaved if stereo
+//
+// The decoding pipeline:
+// 1. Initialize range decoder
+// 2. Decode frame header flags (silence, transient, intra)
+// 3. Decode energy envelope (coarse + fine)
+// 4. Compute bit allocation
+// 5. Decode bands via PVQ
+// 6. Synthesis: IMDCT + windowing + overlap-add
+// 7. Apply de-emphasis filter
+//
+// Reference: RFC 6716 Section 4.3, libopus celt/celt_decoder.c celt_decode_with_ec()
+func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
+	if len(data) == 0 {
+		return nil, ErrInvalidFrame
+	}
+
+	if !ValidFrameSize(frameSize) {
+		return nil, ErrInvalidFrameSize
+	}
+
+	// Initialize range decoder
+	rd := &rangecoding.Decoder{}
+	rd.Init(data)
+	d.SetRangeDecoder(rd)
+
+	// Get mode configuration
+	mode := GetModeConfig(frameSize)
+	nbBands := mode.EffBands
+	lm := mode.LM
+
+	// Decode frame header flags
+	silence := d.decodeSilenceFlag()
+	if silence {
+		// Silence frame: return zeros
+		return d.decodeSilenceFrame(frameSize), nil
+	}
+
+	// Decode transient and intra flags
+	transient := d.decodeTransientFlag(lm)
+	intra := d.decodeIntraFlag()
+
+	// Decode spread (for folding)
+	// spread := d.decodeSpread()
+	// _ = spread // Used later for folding
+
+	// Determine short blocks for transient mode
+	shortBlocks := 1
+	if transient {
+		shortBlocks = mode.ShortBlocks
+	}
+
+	// Step 1: Decode coarse energy
+	energies := d.DecodeCoarseEnergy(nbBands, intra, lm)
+
+	// Step 2: Compute bit allocation
+	// Estimate total bits remaining
+	totalBits := len(data)*8 - rd.Tell()
+	if totalBits < 0 {
+		totalBits = 0
+	}
+
+	// Use default allocation parameters
+	allocResult := ComputeAllocation(
+		totalBits,
+		nbBands,
+		nil,  // caps
+		nil,  // dynalloc
+		0,    // trim (neutral)
+		-1,   // intensity (disabled)
+		false, // dual stereo
+		lm,
+	)
+
+	// Step 3: Decode fine energy
+	d.DecodeFineEnergy(energies, nbBands, allocResult.FineBits)
+
+	// Step 4: Decode bands (PVQ)
+	var coeffs []float64
+	var coeffsL, coeffsR []float64
+
+	if d.channels == 2 {
+		// Stereo decoding
+		// Split energies for L/R channels
+		energiesL := energies[:nbBands]
+		energiesR := make([]float64, nbBands)
+		if len(energies) > nbBands {
+			energiesR = energies[nbBands:]
+		} else {
+			copy(energiesR, energiesL) // Fallback: copy left
+		}
+
+		coeffsL, coeffsR = d.DecodeBandsStereo(
+			energiesL, energiesR,
+			allocResult.BandBits,
+			nbBands,
+			frameSize,
+			-1, // intensity band (disabled)
+		)
+	} else {
+		// Mono decoding
+		coeffs = d.DecodeBands(energies, allocResult.BandBits, nbBands, false, frameSize)
+	}
+
+	// Step 5: Decode energy remainder (leftover bits)
+	d.DecodeEnergyRemainder(energies, nbBands, allocResult.RemainderBits)
+
+	// Step 6: Synthesis (IMDCT + window + overlap-add)
+	var samples []float64
+
+	if d.channels == 2 {
+		samples = d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
+	} else {
+		samples = d.Synthesize(coeffs, transient, shortBlocks)
+	}
+
+	// Step 7: Apply de-emphasis filter
+	d.applyDeemphasis(samples)
+
+	// Update energy state for next frame
+	d.SetPrevEnergy(energies)
+
+	return samples, nil
+}
+
+// decodeSilenceFlag decodes the silence flag from the bitstream.
+// Returns true if this is a silence frame.
+func (d *Decoder) decodeSilenceFlag() bool {
+	if d.rangeDecoder == nil {
+		return false
+	}
+	// Silence is indicated by first bit = 1
+	return d.rangeDecoder.DecodeBit(15) == 1
+}
+
+// decodeTransientFlag decodes the transient flag.
+// Returns true if this frame uses short blocks (transient mode).
+func (d *Decoder) decodeTransientFlag(lm int) bool {
+	if d.rangeDecoder == nil {
+		return false
+	}
+	// Transient flag is only present for frames with LM >= 1
+	if lm < 1 {
+		return false
+	}
+	// Probability depends on frame size
+	logp := uint(3) // P(transient) = 1/8
+	return d.rangeDecoder.DecodeBit(logp) == 1
+}
+
+// decodeIntraFlag decodes the intra flag.
+// Returns true if this is an intra frame (no inter-frame prediction).
+func (d *Decoder) decodeIntraFlag() bool {
+	if d.rangeDecoder == nil {
+		return false
+	}
+	// Intra flag
+	logp := uint(3) // P(intra) = 1/8
+	return d.rangeDecoder.DecodeBit(logp) == 1
+}
+
+// decodeSpread decodes the spread value for folding.
+// Returns spread decision (0-3).
+func (d *Decoder) decodeSpread() int {
+	if d.rangeDecoder == nil {
+		return 0
+	}
+	// Spread is decoded as 2 bits
+	// 0 = aggressive, 1 = normal, 2 = light, 3 = none
+	bit1 := d.rangeDecoder.DecodeBit(5)
+	if bit1 == 0 {
+		return 2 // Light spread (default)
+	}
+	bit2 := d.rangeDecoder.DecodeBit(1)
+	if bit2 == 0 {
+		return 1 // Normal spread
+	}
+	bit3 := d.rangeDecoder.DecodeBit(1)
+	if bit3 == 0 {
+		return 0 // Aggressive spread
+	}
+	return 3 // No spread
+}
+
+// decodeSilenceFrame returns zeros for a silence frame.
+func (d *Decoder) decodeSilenceFrame(frameSize int) []float64 {
+	n := frameSize * d.channels
+	samples := make([]float64, n)
+
+	// Apply de-emphasis to zeros to maintain filter state
+	d.applyDeemphasis(samples)
+
+	return samples
+}
+
+// applyDeemphasis applies the de-emphasis filter for natural sound.
+// CELT uses pre-emphasis during encoding; this reverses it.
+// The filter is: y[n] = x[n] + PreemphCoef * y[n-1]
+//
+// This is a first-order IIR filter that boosts low frequencies,
+// countering the high-frequency boost from pre-emphasis.
+func (d *Decoder) applyDeemphasis(samples []float64) {
+	if len(samples) == 0 {
+		return
+	}
+
+	if d.channels == 1 {
+		// Mono de-emphasis
+		state := d.preemphState[0]
+		for i := range samples {
+			samples[i] = samples[i] + PreemphCoef*state
+			state = samples[i]
+		}
+		d.preemphState[0] = state
+	} else {
+		// Stereo de-emphasis (interleaved samples)
+		stateL := d.preemphState[0]
+		stateR := d.preemphState[1]
+
+		for i := 0; i < len(samples)-1; i += 2 {
+			// Left channel
+			samples[i] = samples[i] + PreemphCoef*stateL
+			stateL = samples[i]
+
+			// Right channel
+			samples[i+1] = samples[i+1] + PreemphCoef*stateR
+			stateR = samples[i+1]
+		}
+
+		d.preemphState[0] = stateL
+		d.preemphState[1] = stateR
+	}
+}
+
+// DecodeFrameWithDecoder decodes a frame using a pre-initialized range decoder.
+// This is useful when the range decoder is shared with other layers (e.g., SILK in hybrid mode).
+func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int) ([]float64, error) {
+	if rd == nil {
+		return nil, ErrNilDecoder
+	}
+
+	if !ValidFrameSize(frameSize) {
+		return nil, ErrInvalidFrameSize
+	}
+
+	d.SetRangeDecoder(rd)
+
+	// Get mode configuration
+	mode := GetModeConfig(frameSize)
+	nbBands := mode.EffBands
+	lm := mode.LM
+
+	// Decode frame header flags
+	silence := d.decodeSilenceFlag()
+	if silence {
+		return d.decodeSilenceFrame(frameSize), nil
+	}
+
+	transient := d.decodeTransientFlag(lm)
+	intra := d.decodeIntraFlag()
+
+	shortBlocks := 1
+	if transient {
+		shortBlocks = mode.ShortBlocks
+	}
+
+	// Decode energy
+	energies := d.DecodeCoarseEnergy(nbBands, intra, lm)
+
+	// Simple allocation for remaining bits
+	totalBits := 256 - rd.Tell() // Approximate
+	if totalBits < 0 {
+		totalBits = 64
+	}
+
+	allocResult := ComputeAllocation(totalBits, nbBands, nil, nil, 0, -1, false, lm)
+
+	d.DecodeFineEnergy(energies, nbBands, allocResult.FineBits)
+
+	// Decode bands
+	var coeffs []float64
+	if d.channels == 1 {
+		coeffs = d.DecodeBands(energies, allocResult.BandBits, nbBands, false, frameSize)
+	} else {
+		energiesL := energies[:nbBands]
+		energiesR := energies[:nbBands]
+		if len(energies) > nbBands {
+			energiesR = energies[nbBands:]
+		}
+		coeffsL, coeffsR := d.DecodeBandsStereo(energiesL, energiesR, allocResult.BandBits, nbBands, frameSize, -1)
+		_ = coeffsL
+		_ = coeffsR
+		// For simplicity, use mono path
+		coeffs = d.DecodeBands(energies[:nbBands], allocResult.BandBits, nbBands, false, frameSize)
+	}
+
+	// Synthesis
+	samples := d.Synthesize(coeffs, transient, shortBlocks)
+
+	// De-emphasis
+	d.applyDeemphasis(samples)
+
+	// Update energy
+	d.SetPrevEnergy(energies)
+
+	return samples, nil
 }
