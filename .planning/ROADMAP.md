@@ -13,7 +13,7 @@ This roadmap transforms the gopus project from empty repository to full Opus cod
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation** - Range coder, packet parsing, test infrastructure
-- [ ] **Phase 2: SILK Decoder** - Decode SILK mode frames (speech)
+- [x] **Phase 2: SILK Decoder** - Decode SILK mode frames (speech)
 - [ ] **Phase 3: CELT Decoder** - Decode CELT mode frames (music/audio)
 - [ ] **Phase 4: Hybrid Decoder** - Combined SILK+CELT decoding, PLC
 - [ ] **Phase 5: Multistream Decoder** - Surround sound decoding
@@ -56,11 +56,11 @@ Plans:
 **Plans**: 5 plans
 
 Plans:
-- [ ] 02-01-PLAN.md - SILK tables, codebook, and decoder struct foundation
-- [ ] 02-02-PLAN.md - Parameter decoding (frame type, gains, LSF/LPC, pitch/LTP)
-- [ ] 02-03-PLAN.md - Excitation reconstruction and LPC/LTP synthesis
-- [ ] 02-04-PLAN.md - Stereo decoding and frame orchestration
-- [ ] 02-05-PLAN.md - Public API, resampling to 48kHz, and integration tests
+- [x] 02-01-PLAN.md - SILK tables, codebook, and decoder struct foundation
+- [x] 02-02-PLAN.md - Parameter decoding (frame type, gains, LSF/LPC, pitch/LTP)
+- [x] 02-03-PLAN.md - Excitation reconstruction and LPC/LTP synthesis
+- [x] 02-04-PLAN.md - Stereo decoding and frame orchestration
+- [x] 02-05-PLAN.md - Public API, resampling to 48kHz, and integration tests
 
 ### Phase 3: CELT Decoder
 **Goal**: Decode CELT-mode Opus packets (music and general audio)
@@ -222,7 +222,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | Complete | 2026-01-21 |
-| 2. SILK Decoder | 0/5 | Planned | - |
+| 2. SILK Decoder | 5/5 | Complete | 2026-01-21 |
 | 3. CELT Decoder | 0/3 | Not started | - |
 | 4. Hybrid Decoder | 0/2 | Not started | - |
 | 5. Multistream Decoder | 0/1 | Not started | - |
