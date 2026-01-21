@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 3: CELT Decoder - IN PROGRESS (2/5 plans complete)
+**Current focus:** Phase 3: CELT Decoder - IN PROGRESS (4/5 plans complete)
 
 ## Current Position
 
 Phase: 3 of 12 (CELT Decoder)
-Plan: 2 of 5 in current phase
+Plan: 4 of 5 in current phase
 Status: In progress
-Last activity: 2026-01-21 - Completed 03-02-PLAN.md (CWRS Combinatorial Indexing)
+Last activity: 2026-01-21 - Completed 03-04-PLAN.md (PVQ Band Decoding)
 
-Progress: [█████████████████████████░░░░░░░░░░░░░░░░] ~27% (10/37 plans)
+Progress: [█████████████████████████████████░░░░░░░░] ~32% (12/37 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 10
+- Total plans completed: 12
 - Average duration: ~8 minutes
-- Total execution time: ~76 minutes
+- Total execution time: ~100 minutes
 
 **By Phase:**
 
@@ -29,11 +29,11 @@ Progress: [███████████████████████
 |-------|-------|-------|----------|
 | 01-foundation | 3/3 | ~29m | ~10m |
 | 02-silk-decoder | 5/5 | ~31m | ~6m |
-| 03-celt-decoder | 2/5 | ~16m | ~8m |
+| 03-celt-decoder | 4/5 | ~40m | ~10m |
 
 **Recent Trend:**
-- Last 5 plans: 02-04 (~7m), 02-05 (~3m), 03-01 (~4m), 03-02 (~12m)
-- Trend: Plans executing efficiently, CWRS slightly longer due to algorithm complexity
+- Last 5 plans: 03-01 (~4m), 03-02 (~12m), 03-03 (~12m), 03-04 (~12m)
+- Trend: CELT plans taking longer due to algorithm complexity (CWRS, bit allocation, PVQ)
 
 *Updated after each plan completion*
 
@@ -66,10 +66,14 @@ Recent decisions affecting current work:
 | D03-02-01 | V(1,K) = 2 for K > 0 | 03-02 | Only +K and -K valid for N=1 |
 | D03-02-02 | Map-based V cache with uint64 key | 03-02 | Efficient memoization |
 | D03-02-03 | Interleaved sign bits in decoding | 03-02 | Matches libopus CWRS scheme |
+| D03-04-01 | DecodeUniform added to range decoder | 03-04 | Required for PVQ index decoding |
+| D03-04-02 | bitsToK uses binary search with V(n,k) | 03-04 | Accurate conversion from bit allocation |
+| D03-04-03 | FoldBand uses LCG constants 1664525/1013904223 | 03-04 | Matches libopus for deterministic folding |
+| D03-04-04 | Stereo uses 8-step theta quantization | 03-04 | Balance between precision and bit cost |
 
 ### Pending Todos
 
-- Continue Phase 03 plans 03-05 (CELT Decoder)
+- Complete Phase 03 plan 03-05 (IMDCT Synthesis)
 
 ### Known Gaps
 
@@ -82,8 +86,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-21
-Stopped at: Completed 03-02-PLAN.md (CWRS Combinatorial Indexing)
-Resume file: .planning/phases/03-celt-decoder/03-03-PLAN.md
+Stopped at: Completed 03-04-PLAN.md (PVQ Band Decoding)
+Resume file: .planning/phases/03-celt-decoder/03-05-PLAN.md
 
 ## Phase 01 Summary
 
@@ -172,7 +176,7 @@ Resume file: .planning/phases/03-celt-decoder/03-03-PLAN.md
 ## Phase 03 Progress - IN PROGRESS
 
 **CELT Decoder phase started:**
-- 2 of 5 plans complete
+- 4 of 5 plans complete
 
 **03-01 CELT Foundation complete:**
 - Static tables: eBands[22], AlphaCoef[4], BetaCoef[4], LogN[21], SmallDiv[129]
@@ -188,10 +192,32 @@ Resume file: .planning/phases/03-celt-decoder/03-03-PLAN.md
 - V(1,K) = 2 base case for correct PVQ counting
 - Unit tests: 7 tests for V, U, decode, sum property, round-trip, benchmarks
 
+**03-03 Energy Decoding and Bit Allocation complete:**
+- Coarse energy decoding with Laplace distribution
+- Fine energy decoding with uniform distribution
+- Energy remainder decoding for leftover bits
+- Bit allocation algorithm (compute_allocation equivalent)
+- Unit tests: Energy decoding, allocation, and prediction tests
+
+**03-04 PVQ Band Decoding complete:**
+- PVQ vector decoding with CWRS index conversion
+- NormalizeVector for L2 unit norm
+- Band folding for uncoded bands with sign variation
+- DecodeBands/DecodeBandsStereo orchestration
+- Collapse mask tracking for anti-collapse
+- DecodeUniform/DecodeRawBits added to range decoder
+- Unit tests: Normalization, folding, bits-to-K, collapse mask
+
 **Key artifacts:**
 - `internal/celt/tables.go` - eBands, energy coefficients, logN, smallDiv
 - `internal/celt/modes.go` - ModeConfig, GetModeConfig, CELTBandwidth
 - `internal/celt/decoder.go` - Stateful decoder with energy/overlap buffers
 - `internal/celt/cwrs.go` - PVQ_V, DecodePulses, EncodePulses, memoization
+- `internal/celt/energy.go` - Coarse/fine energy decoding, bit allocation
+- `internal/celt/pvq.go` - DecodePVQ, NormalizeVector, theta decoding
+- `internal/celt/bands.go` - DecodeBands, bitsToK, denormalization
+- `internal/celt/folding.go` - FoldBand, collapse mask tracking
 - `internal/celt/cwrs_test.go` - Comprehensive CWRS tests
 - `internal/celt/modes_test.go` - Mode and decoder tests
+- `internal/celt/energy_test.go` - Energy and allocation tests
+- `internal/celt/bands_test.go` - Band processing tests
