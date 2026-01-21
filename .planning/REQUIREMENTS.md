@@ -9,13 +9,13 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Decoder - Core
 
-- [ ] **DEC-01**: Implement bit-exact range decoder per RFC 6716 Section 4.1
+- [x] **DEC-01**: Implement bit-exact range decoder per RFC 6716 Section 4.1
 - [ ] **DEC-02**: Decode SILK mode frames (NB/MB/WB bandwidths)
 - [ ] **DEC-03**: Decode CELT mode frames (all bandwidths up to 48kHz)
 - [ ] **DEC-04**: Decode Hybrid mode frames (SILK + CELT combined)
 - [ ] **DEC-05**: Support all SILK frame sizes (10/20/40/60ms)
 - [ ] **DEC-06**: Support all CELT frame sizes (2.5/5/10/20ms)
-- [ ] **DEC-07**: Parse TOC byte and handle Code 0-3 packet formats
+- [x] **DEC-07**: Parse TOC byte and handle Code 0-3 packet formats
 - [ ] **DEC-08**: Implement basic packet loss concealment (PLC)
 
 ### Decoder - Channels
@@ -26,7 +26,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Encoder - Core
 
-- [ ] **ENC-01**: Implement range encoder matching decoder
+- [x] **ENC-01**: Implement range encoder matching decoder
 - [ ] **ENC-02**: Encode SILK mode frames (speech)
 - [ ] **ENC-03**: Encode CELT mode frames (audio)
 - [ ] **ENC-04**: Encode Hybrid mode frames
@@ -66,8 +66,8 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [ ] **CMP-01**: Pass official Opus decoder test vectors
 - [ ] **CMP-02**: Produce bitstreams decodable by libopus
-- [ ] **CMP-03**: Zero cgo dependencies
-- [ ] **CMP-04**: Go 1.21+ compatibility
+- [x] **CMP-03**: Zero cgo dependencies
+- [x] **CMP-04**: Go 1.21+ compatibility
 
 ## v2 Requirements
 
@@ -111,18 +111,18 @@ Which phases cover which requirements.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DEC-01 | Phase 1: Foundation | Pending |
+| DEC-01 | Phase 1: Foundation | Complete |
 | DEC-02 | Phase 2: SILK Decoder | Pending |
 | DEC-03 | Phase 3: CELT Decoder | Pending |
 | DEC-04 | Phase 4: Hybrid Decoder | Pending |
 | DEC-05 | Phase 2: SILK Decoder | Pending |
 | DEC-06 | Phase 3: CELT Decoder | Pending |
-| DEC-07 | Phase 1: Foundation | Pending |
+| DEC-07 | Phase 1: Foundation | Complete |
 | DEC-08 | Phase 4: Hybrid Decoder | Pending |
 | DEC-09 | Phase 2: SILK Decoder | Pending |
 | DEC-10 | Phase 2: SILK Decoder | Pending |
 | DEC-11 | Phase 5: Multistream Decoder | Pending |
-| ENC-01 | Phase 1: Foundation | Pending |
+| ENC-01 | Phase 1: Foundation | Complete |
 | ENC-02 | Phase 6: SILK Encoder | Pending |
 | ENC-03 | Phase 7: CELT Encoder | Pending |
 | ENC-04 | Phase 8: Hybrid Encoder & Controls | Pending |
@@ -147,8 +147,8 @@ Which phases cover which requirements.
 | CTR-02 | Phase 11: Container | Pending |
 | CMP-01 | Phase 12: Compliance & Polish | Pending |
 | CMP-02 | Phase 12: Compliance & Polish | Pending |
-| CMP-03 | Phase 1: Foundation | Pending |
-| CMP-04 | Phase 1: Foundation | Pending |
+| CMP-03 | Phase 1: Foundation | Complete |
+| CMP-04 | Phase 1: Foundation | Complete |
 
 **Coverage:**
 - v1 requirements: 38 total

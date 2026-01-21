@@ -12,7 +12,7 @@ This roadmap transforms the gopus project from empty repository to full Opus cod
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Foundation** - Range coder, packet parsing, test infrastructure
+- [x] **Phase 1: Foundation** - Range coder, packet parsing, test infrastructure
 - [ ] **Phase 2: SILK Decoder** - Decode SILK mode frames (speech)
 - [ ] **Phase 3: CELT Decoder** - Decode CELT mode frames (music/audio)
 - [ ] **Phase 4: Hybrid Decoder** - Combined SILK+CELT decoding, PLC
@@ -40,9 +40,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 3 plans
 
 Plans:
-- [ ] 01-01-PLAN.md - Range decoder implementation (RFC 6716 Section 4.1)
-- [ ] 01-02-PLAN.md - Range encoder implementation with round-trip validation
-- [ ] 01-03-PLAN.md - TOC byte and packet frame parsing
+- [x] 01-01-PLAN.md - Range decoder implementation (RFC 6716 Section 4.1)
+- [x] 01-02-PLAN.md - Range encoder implementation with round-trip validation
+- [x] 01-03-PLAN.md - TOC byte and packet frame parsing
 
 ### Phase 2: SILK Decoder
 **Goal**: Decode SILK-mode Opus packets (narrowband to wideband speech)
@@ -219,7 +219,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 0/3 | Planned | - |
+| 1. Foundation | 3/3 | Complete | 2026-01-21 |
 | 2. SILK Decoder | 0/3 | Not started | - |
 | 3. CELT Decoder | 0/3 | Not started | - |
 | 4. Hybrid Decoder | 0/2 | Not started | - |
