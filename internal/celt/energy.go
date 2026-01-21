@@ -243,3 +243,146 @@ func (d *Decoder) DecodeCoarseEnergyWithDecoder(rd *rangecoding.Decoder, nbBands
 
 	return d.DecodeCoarseEnergy(nbBands, intra, lm)
 }
+
+// decodeUniform decodes a value uniformly in [0, ft).
+// Reference: libopus celt/entdec.c ec_dec_uint()
+func (d *Decoder) decodeUniform(ft uint) int {
+	rd := d.rangeDecoder
+	if rd == nil || ft == 0 {
+		return 0
+	}
+
+	// For uniform distribution, all symbols have equal probability
+	// Each symbol has frequency 1, total frequency ft
+
+	if ft == 1 {
+		return 0
+	}
+
+	// Get current range state
+	rng := rd.Range()
+	val := rd.Val()
+
+	// Scale
+	s := rng / uint32(ft)
+	if s == 0 {
+		s = 1
+	}
+
+	// Find symbol
+	k := val / s
+	if k >= uint32(ft) {
+		k = uint32(ft) - 1
+	}
+
+	// Update range decoder state
+	d.updateRange(k, 1, uint32(ft))
+
+	return int(k)
+}
+
+// DecodeFineEnergy adds fine energy precision to coarse values.
+// fineBits[band] specifies bits allocated for refinement (0 = no refinement).
+// Reference: RFC 6716 Section 4.3.2, libopus celt/quant_bands.c unquant_fine_energy()
+func (d *Decoder) DecodeFineEnergy(energies []float64, nbBands int, fineBits []int) {
+	if d.rangeDecoder == nil {
+		return
+	}
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+	if nbBands > len(fineBits) {
+		nbBands = len(fineBits)
+	}
+
+	for c := 0; c < d.channels; c++ {
+		for band := 0; band < nbBands; band++ {
+			bits := fineBits[band]
+			if bits <= 0 {
+				continue
+			}
+
+			// Clamp to reasonable maximum (8 bits max precision)
+			if bits > 8 {
+				bits = 8
+			}
+
+			// Decode fineBits[band] bits uniformly
+			ft := uint(1 << bits)
+			q := d.decodeUniform(ft)
+
+			// Compute offset: (q + 0.5) / (1 << fineBits) - 0.5
+			// This centers the quantization levels
+			offset := (float64(q) + 0.5) / float64(ft) - 0.5
+
+			// Add offset * 6.0 to coarse energy (6 dB range for fine adjustment)
+			idx := c*nbBands + band
+			if idx < len(energies) {
+				energies[idx] += offset * DB6
+			}
+		}
+	}
+}
+
+// DecodeFineEnergyWithDecoder adds fine energy precision using an explicit range decoder.
+func (d *Decoder) DecodeFineEnergyWithDecoder(rd *rangecoding.Decoder, energies []float64, nbBands int, fineBits []int) {
+	oldRD := d.rangeDecoder
+	d.rangeDecoder = rd
+	defer func() { d.rangeDecoder = oldRD }()
+
+	d.DecodeFineEnergy(energies, nbBands, fineBits)
+}
+
+// DecodeEnergyRemainder uses remaining bits for additional energy precision.
+// Called after all PVQ bands decoded, uses leftover bits from bit allocation.
+// Reference: RFC 6716 Section 4.3.2, libopus celt/quant_bands.c unquant_energy_finalise()
+func (d *Decoder) DecodeEnergyRemainder(energies []float64, nbBands int, remainderBits []int) {
+	if d.rangeDecoder == nil {
+		return
+	}
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+	if nbBands > len(remainderBits) {
+		nbBands = len(remainderBits)
+	}
+
+	for c := 0; c < d.channels; c++ {
+		for band := 0; band < nbBands; band++ {
+			bits := remainderBits[band]
+			if bits <= 0 {
+				continue
+			}
+
+			// Remainder bits provide even finer precision
+			// Each bit halves the remaining quantization interval
+
+			// Decode single bit for each remainder bit
+			for i := 0; i < bits && i < 8; i++ {
+				bit := d.rangeDecoder.DecodeBit(1)
+
+				// Each bit provides 6dB / 2^(fineBits+i+1) precision
+				// The precision gets finer with each additional bit
+				precision := DB6 / float64(uint(1)<<(i+2))
+
+				idx := c*nbBands + band
+				if idx < len(energies) {
+					if bit == 1 {
+						energies[idx] += precision
+					} else {
+						energies[idx] -= precision
+					}
+				}
+			}
+		}
+	}
+}
+
+// DecodeEnergyRemainderWithDecoder uses remainder bits with an explicit range decoder.
+func (d *Decoder) DecodeEnergyRemainderWithDecoder(rd *rangecoding.Decoder, energies []float64, nbBands int, remainderBits []int) {
+	oldRD := d.rangeDecoder
+	d.rangeDecoder = rd
+	defer func() { d.rangeDecoder = oldRD }()
+
+	d.DecodeEnergyRemainder(energies, nbBands, remainderBits)
+}
