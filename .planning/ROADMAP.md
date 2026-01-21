@@ -37,12 +37,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. TOC byte parsed correctly to extract mode, bandwidth, frame size, stereo flag
   4. Packet frame count codes 0-3 correctly parsed with frame lengths
   5. Project builds with zero cgo dependencies on Go 1.21+
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 01-01: TBD (range decoder)
-- [ ] 01-02: TBD (range encoder)
-- [ ] 01-03: TBD (packet parsing, project structure)
+- [ ] 01-01-PLAN.md - Range decoder implementation (RFC 6716 Section 4.1)
+- [ ] 01-02-PLAN.md - Range encoder implementation with round-trip validation
+- [ ] 01-03-PLAN.md - TOC byte and packet frame parsing
 
 ### Phase 2: SILK Decoder
 **Goal**: Decode SILK-mode Opus packets (narrowband to wideband speech)
@@ -219,7 +219,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 0/3 | Not started | - |
+| 1. Foundation | 0/3 | Planned | - |
 | 2. SILK Decoder | 0/3 | Not started | - |
 | 3. CELT Decoder | 0/3 | Not started | - |
 | 4. Hybrid Decoder | 0/2 | Not started | - |
@@ -234,4 +234,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 
 ---
 *Roadmap created: 2026-01-21*
+*Phase 1 planned: 2026-01-21*
 *Total phases: 12 | Total plans: ~28 (TBD during planning)*
