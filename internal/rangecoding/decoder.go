@@ -246,3 +246,75 @@ func (d *Decoder) Range() uint32 {
 func (d *Decoder) Val() uint32 {
 	return d.val
 }
+
+// DecodeUniform decodes a uniformly distributed value in the range [0, ft).
+// This is used for fine energy bits and PVQ indices.
+// Reference: libopus celt/entdec.c ec_dec_uint()
+func (d *Decoder) DecodeUniform(ft uint32) uint32 {
+	if ft <= 1 {
+		return 0
+	}
+
+	// Calculate number of bits needed
+	ftb := uint(ilog(ft - 1))
+	if ftb > EC_SYM_BITS {
+		// Multi-byte case: decode high bits with range coder, low bits raw
+		ftb -= EC_SYM_BITS
+		ft1 := (ft - 1) >> ftb
+		s := d.decodeUniformInternal(ft1 + 1)
+		// Read remaining bits raw
+		t := s << ftb
+		t |= d.DecodeRawBits(ftb)
+		if t >= ft {
+			t = ft - 1
+		}
+		return t
+	}
+	// Single-byte case
+	return d.decodeUniformInternal(ft)
+}
+
+// decodeUniformInternal decodes a uniform value when ft <= 256.
+func (d *Decoder) decodeUniformInternal(ft uint32) uint32 {
+	r := d.rng / ft
+	s := d.val / r
+	if s >= ft {
+		s = ft - 1
+	}
+	d.val -= s * r
+	if s+1 < ft {
+		d.rng = r
+	} else {
+		d.rng -= s * r
+	}
+	d.normalize()
+	return s
+}
+
+// DecodeRawBits reads raw bits from the end of the buffer.
+// This is used for fine energy bits and PVQ sign bits.
+// Reference: libopus celt/entdec.c ec_dec_bits()
+func (d *Decoder) DecodeRawBits(bits uint) uint32 {
+	if bits == 0 {
+		return 0
+	}
+
+	// Read from end of buffer
+	for d.nendBits < int(bits) {
+		// Read more bytes from end
+		if d.endOffs < d.storage {
+			d.endOffs++
+			d.endWindow |= uint32(d.buf[d.storage-d.endOffs]) << d.nendBits
+			d.nendBits += 8
+		} else {
+			d.nendBits = int(bits) // Force exit
+		}
+	}
+
+	val := d.endWindow & ((1 << bits) - 1)
+	d.endWindow >>= bits
+	d.nendBits -= int(bits)
+	d.nbitsTotal += int(bits)
+
+	return val
+}
