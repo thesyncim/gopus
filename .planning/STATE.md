@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 11: Container - Ogg page layer foundation complete
+**Current focus:** Phase 11: Container - OggWriter/OggReader complete
 
 ## Current Position
 
 Phase: 11 of 12 (Container)
-Plan: 1 of 3 complete (Ogg page layer foundation)
-Status: Phase 11 in progress with Ogg page layer complete, ready for Writer
-Last activity: 2026-01-22 - Completed 11-01-PLAN.md (Ogg Page Layer Foundation)
+Plan: 2 of 3 complete (OggWriter and OggReader)
+Status: Phase 11 in progress with Writer/Reader complete, ready for final integration
+Last activity: 2026-01-22 - Completed 11-02-PLAN.md (OggWriter and OggReader)
 
-Progress: [█████████████████████████████████████████████████████████████████████████████████░░] ~90% (43/48 plans)
+Progress: [██████████████████████████████████████████████████████████████████████████████████░░] ~92% (44/48 plans)
 
 ## Performance Metrics
 
@@ -37,11 +37,11 @@ Progress: [███████████████████████
 | 08-hybrid-encoder-controls | 6/6 | ~38m | ~6m |
 | 09-multistream-encoder | 4/4 | ~15m | ~4m |
 | 10-api-layer | 2/2 | ~47m | ~24m |
-| 11-container | 1/3 | ~6m | ~6m |
+| 11-container | 2/3 | ~14m | ~7m |
 
 **Recent Trend:**
-- Last 5 plans: 09-04 (~5m), 10-01 (~35m), 10-02 (~12m), 11-01 (~6m)
-- Trend: Phase 11 started with efficient Ogg page layer
+- Last 5 plans: 10-01 (~35m), 10-02 (~12m), 11-01 (~6m), 11-02 (~8m)
+- Trend: Phase 11 progressing efficiently
 
 *Updated after each plan completion*
 
@@ -165,6 +165,10 @@ Recent decisions affecting current work:
 | D11-01-01 | Use polynomial 0x04C11DB7 for Ogg CRC-32 | 11-01 | Ogg spec requires non-IEEE polynomial |
 | D11-01-02 | Segment table handles packets > 255 bytes with continuation | 11-01 | Ogg format splits large packets |
 | D11-01-03 | Mapping family 0 implicit, family 1/255 explicit mapping | 11-01 | Per RFC 7845 mono/stereo has implicit order |
+| D11-02-01 | One packet per page for audio data | 11-02 | Simplest approach per RFC 7845 recommendation |
+| D11-02-02 | Random serial number via math/rand | 11-02 | Standard approach for Ogg stream identification |
+| D11-02-03 | Header pages always have granulePos = 0 | 11-02 | Per RFC 7845 ID and comment headers must have zero granule |
+| D11-02-04 | Empty EOS page on Close() | 11-02 | Signals end of stream per Ogg specification |
 
 ### Pending Todos
 
@@ -185,8 +189,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-22
-Stopped at: Completed 11-01-PLAN.md (Ogg Page Layer Foundation)
-Resume file: .planning/phases/11-container/11-01-SUMMARY.md
+Stopped at: Completed 11-02-PLAN.md (OggWriter and OggReader)
+Resume file: .planning/phases/11-container/11-02-SUMMARY.md
 
 ## Phase 01 Summary
 
@@ -537,3 +541,24 @@ Resume file: .planning/phases/11-container/11-01-SUMMARY.md
 - `0f5dc22` - feat(11-01): add Ogg package foundation with CRC and page structure
 - `6f7f224` - feat(11-01): implement OpusHead and OpusTags headers per RFC 7845
 - `1ad4b40` - test(11-01): add comprehensive CRC verification and continuation tests
+
+**11-02 OggWriter and OggReader complete:**
+- OggWriter wraps io.Writer with granule position tracking
+- OggReader wraps io.Reader with internal buffering
+- Headers (OpusHead + OpusTags) written/parsed automatically
+- One packet per page for simplicity (RFC 7845 recommendation)
+- Integration tests with opusdec validation
+- 116 test runs total
+- Duration: ~8 minutes
+
+**Key artifacts:**
+- `container/ogg/writer.go` - Writer struct, NewWriter, WritePacket, Close
+- `container/ogg/writer_test.go` - 32 writer tests
+- `container/ogg/reader.go` - Reader struct, NewReader, ReadPacket
+- `container/ogg/reader_test.go` - 36 reader tests
+- `container/ogg/integration_test.go` - opusdec validation tests
+
+**Commits:**
+- `f748351` - feat(11-02): implement OggWriter for creating Ogg Opus files
+- `57a070b` - feat(11-02): implement OggReader for parsing Ogg Opus files
+- `61fdb9b` - test(11-02): add integration tests with opusdec and round-trip validation
