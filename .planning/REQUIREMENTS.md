@@ -27,7 +27,7 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Encoder - Core
 
 - [x] **ENC-01**: Implement range encoder matching decoder
-- [ ] **ENC-02**: Encode SILK mode frames (speech)
+- [x] **ENC-02**: Encode SILK mode frames (speech)
 - [ ] **ENC-03**: Encode CELT mode frames (audio)
 - [ ] **ENC-04**: Encode Hybrid mode frames
 - [ ] **ENC-05**: Support all frame sizes matching decoder
@@ -35,8 +35,8 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Encoder - Channels
 
-- [ ] **ENC-07**: Encode mono streams
-- [ ] **ENC-08**: Encode stereo streams
+- [x] **ENC-07**: Encode mono streams
+- [x] **ENC-08**: Encode stereo streams
 - [ ] **ENC-09**: Encode multistream packets
 
 ### Encoder - Controls
@@ -123,13 +123,13 @@ Which phases cover which requirements.
 | DEC-10 | Phase 2: SILK Decoder | Complete |
 | DEC-11 | Phase 5: Multistream Decoder | Complete |
 | ENC-01 | Phase 1: Foundation | Complete |
-| ENC-02 | Phase 6: SILK Encoder | Pending |
+| ENC-02 | Phase 6: SILK Encoder | Complete |
 | ENC-03 | Phase 7: CELT Encoder | Pending |
 | ENC-04 | Phase 8: Hybrid Encoder & Controls | Pending |
 | ENC-05 | Phase 8: Hybrid Encoder & Controls | Pending |
 | ENC-06 | Phase 8: Hybrid Encoder & Controls | Pending |
-| ENC-07 | Phase 6: SILK Encoder | Pending |
-| ENC-08 | Phase 6: SILK Encoder | Pending |
+| ENC-07 | Phase 6: SILK Encoder | Complete |
+| ENC-08 | Phase 6: SILK Encoder | Complete |
 | ENC-09 | Phase 9: Multistream Encoder | Pending |
 | ENC-10 | Phase 8: Hybrid Encoder & Controls | Pending |
 | ENC-11 | Phase 8: Hybrid Encoder & Controls | Pending |
