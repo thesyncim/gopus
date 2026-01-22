@@ -7,10 +7,14 @@
 package multistream
 
 import (
+	"errors"
 	"fmt"
 
 	"gopus/internal/encoder"
 )
+
+// ErrInvalidInput indicates the input samples have incorrect length.
+var ErrInvalidInput = errors.New("multistream: invalid input length")
 
 // Encoder encodes multi-channel audio into Opus multistream packets.
 // Each elementary stream is encoded independently using a Phase 8 unified Encoder,
@@ -324,4 +328,132 @@ func assembleMultistreamPacket(streamPackets [][]byte) []byte {
 	copy(output[offset:], streamPackets[len(streamPackets)-1])
 
 	return output
+}
+
+// Encode encodes multi-channel PCM samples to an Opus multistream packet.
+//
+// Parameters:
+//   - pcm: input samples as float64, sample-interleaved [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ...]
+//   - frameSize: number of samples per channel (must be valid for Opus: 120, 240, 480, 960, 1920, 2880)
+//
+// Returns:
+//   - The encoded multistream packet (N-1 length-prefixed streams + 1 standard stream)
+//   - nil, nil if DTX suppresses all frames (silence detected in all streams)
+//   - error if encoding fails
+//
+// The encoding process:
+//  1. Routes input channels to stream buffers via mapping table
+//  2. Encodes each stream independently using the unified encoder
+//  3. Assembles packets with self-delimiting framing per RFC 6716 Appendix B
+//
+// Reference: RFC 6716 Appendix B, RFC 7845 Section 5.1.1
+func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
+	// Validate input length
+	expectedLen := frameSize * e.inputChannels
+	if len(pcm) != expectedLen {
+		return nil, fmt.Errorf("%w: got %d samples, expected %d (frameSize=%d, channels=%d)",
+			ErrInvalidInput, len(pcm), expectedLen, frameSize, e.inputChannels)
+	}
+
+	// Route input channels to stream buffers
+	streamBuffers := routeChannelsToStreams(pcm, e.mapping, e.coupledStreams, frameSize, e.inputChannels, e.streams)
+
+	// Encode each stream
+	streamPackets := make([][]byte, e.streams)
+	allNil := true
+
+	for i := 0; i < e.streams; i++ {
+		chans := streamChannels(i, e.coupledStreams)
+		packet, err := e.encoders[i].Encode(streamBuffers[i], frameSize)
+		if err != nil {
+			return nil, fmt.Errorf("stream %d encode failed: %w", i, err)
+		}
+
+		// Handle DTX case (nil packet means silence suppressed)
+		if packet == nil {
+			// For DTX, we need to signal silence with a minimal packet
+			// Use a zero-length indicator or skip based on RFC 6716
+			// For now, treat as empty packet - decoder handles this
+			streamPackets[i] = []byte{}
+		} else {
+			streamPackets[i] = packet
+			allNil = false
+		}
+
+		_ = chans // Used only for buffer sizing in routeChannelsToStreams
+	}
+
+	// If all streams returned nil (DTX), return nil to signal silence
+	if allNil {
+		return nil, nil
+	}
+
+	// Assemble multistream packet with self-delimiting framing
+	return assembleMultistreamPacket(streamPackets), nil
+}
+
+// SetComplexity sets encoder complexity (0-10) for all stream encoders.
+// Higher values use more CPU for better quality.
+// Default is 10 (maximum quality).
+func (e *Encoder) SetComplexity(complexity int) {
+	for _, enc := range e.encoders {
+		enc.SetComplexity(complexity)
+	}
+}
+
+// Complexity returns the complexity setting of the first encoder.
+// All stream encoders use the same complexity.
+func (e *Encoder) Complexity() int {
+	if len(e.encoders) > 0 {
+		return e.encoders[0].Complexity()
+	}
+	return 10 // Default
+}
+
+// SetFEC enables or disables in-band Forward Error Correction for all streams.
+// When enabled, encoders include LBRR data for loss recovery.
+func (e *Encoder) SetFEC(enabled bool) {
+	for _, enc := range e.encoders {
+		enc.SetFEC(enabled)
+	}
+}
+
+// FECEnabled returns whether FEC is enabled (from first encoder).
+func (e *Encoder) FECEnabled() bool {
+	if len(e.encoders) > 0 {
+		return e.encoders[0].FECEnabled()
+	}
+	return false
+}
+
+// SetPacketLoss sets the expected packet loss percentage (0-100) for all streams.
+// This affects FEC behavior and bitrate allocation.
+func (e *Encoder) SetPacketLoss(lossPercent int) {
+	for _, enc := range e.encoders {
+		enc.SetPacketLoss(lossPercent)
+	}
+}
+
+// PacketLoss returns the expected packet loss percentage (from first encoder).
+func (e *Encoder) PacketLoss() int {
+	if len(e.encoders) > 0 {
+		return e.encoders[0].PacketLoss()
+	}
+	return 0
+}
+
+// SetDTX enables or disables Discontinuous Transmission for all streams.
+// When enabled, packets are suppressed during silence.
+func (e *Encoder) SetDTX(enabled bool) {
+	for _, enc := range e.encoders {
+		enc.SetDTX(enabled)
+	}
+}
+
+// DTXEnabled returns whether DTX is enabled (from first encoder).
+func (e *Encoder) DTXEnabled() bool {
+	if len(e.encoders) > 0 {
+		return e.encoders[0].DTXEnabled()
+	}
+	return false
 }

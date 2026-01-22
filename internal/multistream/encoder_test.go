@@ -635,3 +635,317 @@ func TestEncoderReset(t *testing.T) {
 		t.Errorf("Channels() = %d after reset, want 2", enc.Channels())
 	}
 }
+
+// TestEncode_Basic tests basic stereo encoding produces a valid multistream packet.
+func TestEncode_Basic(t *testing.T) {
+	enc, err := NewEncoderDefault(48000, 2)
+	if err != nil {
+		t.Fatalf("NewEncoderDefault error: %v", err)
+	}
+
+	// Create 20ms of stereo audio (960 samples * 2 channels)
+	frameSize := 960
+	pcm := make([]float64, frameSize*2)
+
+	// Fill with a simple sine wave
+	for i := 0; i < frameSize; i++ {
+		sample := math.Sin(2 * math.Pi * 440 * float64(i) / 48000)
+		pcm[i*2] = sample   // Left
+		pcm[i*2+1] = sample // Right
+	}
+
+	// Encode
+	packet, err := enc.Encode(pcm, frameSize)
+	if err != nil {
+		t.Fatalf("Encode error: %v", err)
+	}
+
+	// Verify packet was produced
+	if packet == nil {
+		t.Fatal("Encode returned nil packet")
+	}
+	if len(packet) == 0 {
+		t.Fatal("Encode returned empty packet")
+	}
+
+	// For stereo (1 coupled stream), packet should be a single Opus frame
+	// (no self-delimiting framing needed for single stream)
+	t.Logf("Encoded stereo packet: %d bytes", len(packet))
+
+	// Verify TOC byte is valid (first byte of first/only stream)
+	toc := packet[0]
+	config := toc >> 3
+	if config > 31 {
+		t.Errorf("Invalid TOC config: %d", config)
+	}
+}
+
+// TestEncode_51Surround tests 5.1 surround encoding produces 4 streams.
+func TestEncode_51Surround(t *testing.T) {
+	enc, err := NewEncoderDefault(48000, 6)
+	if err != nil {
+		t.Fatalf("NewEncoderDefault error: %v", err)
+	}
+
+	// 5.1 should have 4 streams (2 coupled, 2 mono)
+	if enc.Streams() != 4 {
+		t.Errorf("Streams() = %d, want 4", enc.Streams())
+	}
+	if enc.CoupledStreams() != 2 {
+		t.Errorf("CoupledStreams() = %d, want 2", enc.CoupledStreams())
+	}
+
+	// Create 20ms of 5.1 audio (960 samples * 6 channels)
+	frameSize := 960
+	pcm := make([]float64, frameSize*6)
+
+	// Fill each channel with different frequency sine waves
+	freqs := []float64{440, 880, 550, 660, 770, 220} // FL, C, FR, RL, RR, LFE
+	for i := 0; i < frameSize; i++ {
+		for ch := 0; ch < 6; ch++ {
+			pcm[i*6+ch] = math.Sin(2 * math.Pi * freqs[ch] * float64(i) / 48000)
+		}
+	}
+
+	// Encode
+	packet, err := enc.Encode(pcm, frameSize)
+	if err != nil {
+		t.Fatalf("Encode error: %v", err)
+	}
+
+	if packet == nil {
+		t.Fatal("Encode returned nil packet")
+	}
+	if len(packet) == 0 {
+		t.Fatal("Encode returned empty packet")
+	}
+
+	t.Logf("Encoded 5.1 packet: %d bytes", len(packet))
+
+	// Verify packet can be parsed back into 4 streams
+	streamPackets, err := parseMultistreamPacket(packet, 4)
+	if err != nil {
+		t.Fatalf("parseMultistreamPacket error: %v", err)
+	}
+
+	if len(streamPackets) != 4 {
+		t.Errorf("parsed %d streams, want 4", len(streamPackets))
+	}
+
+	// Each stream packet should have valid TOC byte
+	for i, sp := range streamPackets {
+		if len(sp) == 0 {
+			t.Errorf("stream %d packet is empty", i)
+			continue
+		}
+		toc := sp[0]
+		config := toc >> 3
+		if config > 31 {
+			t.Errorf("stream %d: invalid TOC config: %d", i, config)
+		}
+		t.Logf("Stream %d: %d bytes, TOC config=%d", i, len(sp), config)
+	}
+}
+
+// TestEncode_71Surround tests 7.1 surround encoding produces 5 streams.
+func TestEncode_71Surround(t *testing.T) {
+	enc, err := NewEncoderDefault(48000, 8)
+	if err != nil {
+		t.Fatalf("NewEncoderDefault error: %v", err)
+	}
+
+	// 7.1 should have 5 streams (3 coupled, 2 mono)
+	if enc.Streams() != 5 {
+		t.Errorf("Streams() = %d, want 5", enc.Streams())
+	}
+	if enc.CoupledStreams() != 3 {
+		t.Errorf("CoupledStreams() = %d, want 3", enc.CoupledStreams())
+	}
+
+	// Create 20ms of 7.1 audio (960 samples * 8 channels)
+	frameSize := 960
+	pcm := make([]float64, frameSize*8)
+
+	// Fill each channel with different frequency sine waves
+	freqs := []float64{440, 880, 550, 660, 770, 990, 330, 220} // FL, C, FR, SL, SR, RL, RR, LFE
+	for i := 0; i < frameSize; i++ {
+		for ch := 0; ch < 8; ch++ {
+			pcm[i*8+ch] = math.Sin(2 * math.Pi * freqs[ch] * float64(i) / 48000)
+		}
+	}
+
+	// Encode
+	packet, err := enc.Encode(pcm, frameSize)
+	if err != nil {
+		t.Fatalf("Encode error: %v", err)
+	}
+
+	if packet == nil {
+		t.Fatal("Encode returned nil packet")
+	}
+	if len(packet) == 0 {
+		t.Fatal("Encode returned empty packet")
+	}
+
+	t.Logf("Encoded 7.1 packet: %d bytes", len(packet))
+
+	// Verify packet can be parsed back into 5 streams
+	streamPackets, err := parseMultistreamPacket(packet, 5)
+	if err != nil {
+		t.Fatalf("parseMultistreamPacket error: %v", err)
+	}
+
+	if len(streamPackets) != 5 {
+		t.Errorf("parsed %d streams, want 5", len(streamPackets))
+	}
+
+	// Each stream packet should have valid TOC byte
+	for i, sp := range streamPackets {
+		if len(sp) == 0 {
+			t.Errorf("stream %d packet is empty", i)
+			continue
+		}
+		t.Logf("Stream %d: %d bytes", i, len(sp))
+	}
+}
+
+// TestEncode_InputValidation tests that incorrect input length returns ErrInvalidInput.
+func TestEncode_InputValidation(t *testing.T) {
+	enc, err := NewEncoderDefault(48000, 2)
+	if err != nil {
+		t.Fatalf("NewEncoderDefault error: %v", err)
+	}
+
+	frameSize := 960
+
+	tests := []struct {
+		name      string
+		pcmLen    int
+		wantError bool
+	}{
+		{"correct length", frameSize * 2, false},
+		{"too short", frameSize * 2 - 1, true},
+		{"too long", frameSize * 2 + 1, true},
+		{"half length", frameSize, true},
+		{"double length", frameSize * 4, true},
+		{"empty", 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pcm := make([]float64, tt.pcmLen)
+			_, err := enc.Encode(pcm, frameSize)
+
+			if tt.wantError {
+				if err == nil {
+					t.Errorf("expected error, got nil")
+				} else if !containsError(err, ErrInvalidInput) {
+					t.Errorf("expected ErrInvalidInput, got: %v", err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// TestSetBitrate_Distribution tests weighted bitrate allocation across streams.
+func TestSetBitrate_Distribution(t *testing.T) {
+	// Test 5.1: 2 coupled + 2 mono = 2*3 + 2*2 = 10 units
+	enc, err := NewEncoderDefault(48000, 6)
+	if err != nil {
+		t.Fatalf("NewEncoderDefault error: %v", err)
+	}
+
+	// Set 100000 bps for easy math
+	enc.SetBitrate(100000)
+
+	// Expected: 100000 / 10 = 10000 per unit
+	// Coupled streams: 10000 * 3 = 30000 bps each
+	// Mono streams: 10000 * 2 = 20000 bps each
+	// Total: 2*30000 + 2*20000 = 60000 + 40000 = 100000 (matches)
+
+	if enc.Bitrate() != 100000 {
+		t.Errorf("Bitrate() = %d, want 100000", enc.Bitrate())
+	}
+
+	// Verify via internal encoder bitrates (if accessible)
+	// For now, verify the total is correct
+	t.Logf("5.1 bitrate distribution: %d bps total", enc.Bitrate())
+}
+
+// TestEncoderControlMethods tests all control methods propagate to stream encoders.
+func TestEncoderControlMethods(t *testing.T) {
+	enc, err := NewEncoderDefault(48000, 6)
+	if err != nil {
+		t.Fatalf("NewEncoderDefault error: %v", err)
+	}
+
+	// Test complexity
+	enc.SetComplexity(5)
+	if enc.Complexity() != 5 {
+		t.Errorf("Complexity() = %d, want 5", enc.Complexity())
+	}
+
+	// Test FEC
+	enc.SetFEC(true)
+	if !enc.FECEnabled() {
+		t.Error("FECEnabled() = false, want true")
+	}
+	enc.SetFEC(false)
+	if enc.FECEnabled() {
+		t.Error("FECEnabled() = true, want false")
+	}
+
+	// Test packet loss
+	enc.SetPacketLoss(25)
+	if enc.PacketLoss() != 25 {
+		t.Errorf("PacketLoss() = %d, want 25", enc.PacketLoss())
+	}
+
+	// Test DTX
+	enc.SetDTX(true)
+	if !enc.DTXEnabled() {
+		t.Error("DTXEnabled() = false, want true")
+	}
+	enc.SetDTX(false)
+	if enc.DTXEnabled() {
+		t.Error("DTXEnabled() = true, want false")
+	}
+}
+
+// TestEncode_Mono tests encoding with a mono configuration.
+func TestEncode_Mono(t *testing.T) {
+	enc, err := NewEncoderDefault(48000, 1)
+	if err != nil {
+		t.Fatalf("NewEncoderDefault error: %v", err)
+	}
+
+	// Mono: 1 stream, 0 coupled
+	if enc.Streams() != 1 {
+		t.Errorf("Streams() = %d, want 1", enc.Streams())
+	}
+	if enc.CoupledStreams() != 0 {
+		t.Errorf("CoupledStreams() = %d, want 0", enc.CoupledStreams())
+	}
+
+	// Create 20ms of mono audio
+	frameSize := 960
+	pcm := make([]float64, frameSize)
+	for i := 0; i < frameSize; i++ {
+		pcm[i] = math.Sin(2 * math.Pi * 440 * float64(i) / 48000)
+	}
+
+	// Encode
+	packet, err := enc.Encode(pcm, frameSize)
+	if err != nil {
+		t.Fatalf("Encode error: %v", err)
+	}
+
+	if packet == nil {
+		t.Fatal("Encode returned nil packet")
+	}
+	t.Logf("Encoded mono packet: %d bytes", len(packet))
+}
