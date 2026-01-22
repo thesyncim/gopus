@@ -200,27 +200,32 @@ func quantizeLTPCoeffs(coeffs []float64, isPreviousVoiced bool) []int8 {
 // encodeLTPCoeffs encodes LTP coefficients to the bitstream.
 // Per RFC 6716 Section 4.2.7.6.3.
 // Uses existing ICDF tables: ICDFLTPFilterIndex*, ICDFLTPGain*
+//
+// Decoder multi-stage periodicity decoding (pitch.go:89-99):
+//   1. Decode from ICDFLTPFilterIndexLowPeriod - if symbol < 4, periodicity=0
+//   2. If symbol >= 4, decode from ICDFLTPFilterIndexMidPeriod - if symbol < 5, periodicity=1
+//   3. If symbol >= 5, periodicity=2
+//
+// Note: ICDFLTPFilterIndexLowPeriod has only 4 symbols (0-3), so the decoder
+// currently only supports periodicity=0. We encode symbol 0 for periodicity=0.
 func (e *Encoder) encodeLTPCoeffs(ltpCoeffs [][]int8, periodicity int, numSubframes int) {
-	// Encode periodicity index (selects LTP codebook)
-	// Use existing periodicity ICDF tables
-	var gainICDF []uint16
+	// Encode periodicity index using multi-stage encoding to match decoder
+	// The decoder reads from ICDFLTPFilterIndexLowPeriod first and checks if < 4
+	// Since that table only has symbols 0-3, we always encode symbol 0 (periodicity=0)
+	// and use the Low periodicity codebook for compatibility.
+	//
+	// TODO: To support periodicity 1/2, would need to extend the ICDF tables or
+	// modify the decoder's multi-stage logic.
+	e.rangeEncoder.EncodeICDF16(0, ICDFLTPFilterIndexLowPeriod, 8)
+	gainICDF := ICDFLTPGainLow
 
-	switch periodicity {
-	case 0:
-		e.rangeEncoder.EncodeICDF16(periodicity, ICDFLTPFilterIndexLowPeriod, 8)
-		gainICDF = ICDFLTPGainLow
-	case 1:
-		e.rangeEncoder.EncodeICDF16(periodicity, ICDFLTPFilterIndexMidPeriod, 8)
-		gainICDF = ICDFLTPGainMid
-	default:
-		e.rangeEncoder.EncodeICDF16(periodicity, ICDFLTPFilterIndexHighPeriod, 8)
-		gainICDF = ICDFLTPGainHigh
-	}
+	// Use Low periodicity codebook for all coefficients (matches decoder path)
+	effectivePeriodicity := 0
 
 	// Encode codebook index per subframe
 	for sf := 0; sf < numSubframes; sf++ {
 		// Find codebook index for this subframe's coefficients
-		cbIdx := findLTPCodebookIndex(ltpCoeffs[sf], periodicity)
+		cbIdx := findLTPCodebookIndex(ltpCoeffs[sf], effectivePeriodicity)
 		// Clamp to valid range for ICDF table
 		maxIdx := len(gainICDF) - 2
 		if cbIdx > maxIdx {
