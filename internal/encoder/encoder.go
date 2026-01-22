@@ -174,6 +174,48 @@ func (e *Encoder) Reset() {
 	}
 }
 
+// SetBitrateMode sets the bitrate mode (VBR, CVBR, or CBR).
+func (e *Encoder) SetBitrateMode(mode BitrateMode) {
+	e.bitrateMode = mode
+}
+
+// BitrateMode returns the current bitrate mode.
+func (e *Encoder) GetBitrateMode() BitrateMode {
+	return e.bitrateMode
+}
+
+// SetBitrate sets the target bitrate in bits per second.
+// Valid range is 6000-510000 (6 kbps to 510 kbps).
+// Values outside this range are clamped.
+func (e *Encoder) SetBitrate(bitrate int) {
+	e.bitrate = ClampBitrate(bitrate)
+}
+
+// Bitrate returns the current target bitrate.
+func (e *Encoder) Bitrate() int {
+	return e.bitrate
+}
+
+// computePacketSize determines target packet size based on mode.
+func (e *Encoder) computePacketSize(frameSize int) int {
+	target := targetBytesForBitrate(e.bitrate, frameSize)
+
+	switch e.bitrateMode {
+	case ModeVBR:
+		// No size constraint
+		return 0 // 0 means unlimited
+
+	case ModeCVBR:
+		// Return target as hint; actual size can vary by CVBRTolerance
+		return target
+
+	case ModeCBR:
+		// Return exact target
+		return target
+	}
+	return 0
+}
+
 // Encode encodes PCM samples to an Opus frame.
 // pcm: input samples as float64 (interleaved if stereo)
 // frameSize: number of samples per channel (must match configured frame size)
@@ -193,16 +235,35 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	actualMode := e.selectMode(frameSize)
 
 	// Route to appropriate encoder
+	var packet []byte
+	var err error
 	switch actualMode {
 	case ModeSILK:
-		return e.encodeSILKFrame(pcm, frameSize)
+		packet, err = e.encodeSILKFrame(pcm, frameSize)
 	case ModeHybrid:
-		return e.encodeHybridFrame(pcm, frameSize)
+		packet, err = e.encodeHybridFrame(pcm, frameSize)
 	case ModeCELT:
-		return e.encodeCELTFrame(pcm, frameSize)
+		packet, err = e.encodeCELTFrame(pcm, frameSize)
 	default:
 		return nil, ErrEncodingFailed
 	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply bitrate mode constraints
+	switch e.bitrateMode {
+	case ModeCVBR:
+		target := targetBytesForBitrate(e.bitrate, frameSize)
+		packet = constrainSize(packet, target, CVBRTolerance)
+	case ModeCBR:
+		target := targetBytesForBitrate(e.bitrate, frameSize)
+		packet = padToSize(packet, target)
+	}
+	// ModeVBR: no constraint applied
+
+	return packet, nil
 }
 
 // selectMode determines the actual encoding mode based on settings and content.
