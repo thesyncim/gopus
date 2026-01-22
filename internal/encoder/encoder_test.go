@@ -1155,3 +1155,220 @@ func TestDTXConstants(t *testing.T) {
 		t.Errorf("DTXMinBitrate = %d, want 6000", DTXMinBitrate)
 	}
 }
+
+// TestEncoderPacketFormat tests that Encoder.Encode returns complete packets with TOC byte.
+func TestEncoderPacketFormat(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeHybrid)
+	enc.SetBandwidth(gopus.BandwidthSuperwideband)
+
+	pcm := make([]float64, 960)
+	for i := range pcm {
+		pcm[i] = 0.5 * float64(i) / float64(len(pcm)) // Ramp signal
+	}
+
+	packet, err := enc.Encode(pcm, 960)
+	if err != nil {
+		t.Fatalf("Encode failed: %v", err)
+	}
+
+	if len(packet) == 0 {
+		t.Fatal("Encoded packet is empty")
+	}
+
+	// Packet must have at least TOC byte
+	if len(packet) < 1 {
+		t.Fatal("Packet missing TOC byte")
+	}
+
+	// Parse TOC to verify format
+	toc := gopus.ParseTOC(packet[0])
+	if toc.Mode != gopus.ModeHybrid {
+		t.Errorf("TOC mode = %v, want ModeHybrid", toc.Mode)
+	}
+	if toc.Bandwidth != gopus.BandwidthSuperwideband {
+		t.Errorf("TOC bandwidth = %v, want Superwideband", toc.Bandwidth)
+	}
+	if toc.FrameSize != 960 {
+		t.Errorf("TOC frameSize = %d, want 960", toc.FrameSize)
+	}
+	if toc.Stereo {
+		t.Error("TOC stereo = true, want false")
+	}
+	if toc.FrameCode != 0 {
+		t.Errorf("TOC frameCode = %d, want 0 (single frame)", toc.FrameCode)
+	}
+
+	t.Logf("Hybrid SWB packet: %d bytes, TOC=0x%02X, config=%d", len(packet), packet[0], toc.Config)
+}
+
+// TestEncoderPacketConfigs tests that encoder produces correct TOC configs for all modes.
+func TestEncoderPacketConfigs(t *testing.T) {
+	tests := []struct {
+		mode      Mode
+		bandwidth gopus.Bandwidth
+		frameSize int
+		config    uint8
+	}{
+		// Hybrid configs 12-15
+		{ModeHybrid, gopus.BandwidthSuperwideband, 480, 12},
+		{ModeHybrid, gopus.BandwidthSuperwideband, 960, 13},
+		{ModeHybrid, gopus.BandwidthFullband, 480, 14},
+		{ModeHybrid, gopus.BandwidthFullband, 960, 15},
+		// SILK configs
+		{ModeSILK, gopus.BandwidthNarrowband, 960, 1},
+		{ModeSILK, gopus.BandwidthWideband, 960, 9},
+		// CELT configs
+		{ModeCELT, gopus.BandwidthFullband, 960, 31},
+		{ModeCELT, gopus.BandwidthFullband, 480, 30},
+	}
+
+	for _, tt := range tests {
+		name := modeName(tt.mode) + "_" + bwName(tt.bandwidth) + "_" + frameSizeName(tt.frameSize)
+		t.Run(name, func(t *testing.T) {
+			enc := NewEncoder(48000, 1)
+			enc.SetMode(tt.mode)
+			enc.SetBandwidth(tt.bandwidth)
+
+			pcm := make([]float64, tt.frameSize)
+			for i := range pcm {
+				pcm[i] = 0.3 * float64(i) / float64(len(pcm))
+			}
+
+			packet, err := enc.Encode(pcm, tt.frameSize)
+			if err != nil {
+				t.Fatalf("Encode failed: %v", err)
+			}
+
+			if len(packet) == 0 {
+				t.Fatal("Encoded packet is empty")
+			}
+
+			toc := gopus.ParseTOC(packet[0])
+			if toc.Config != tt.config {
+				t.Errorf("TOC config = %d, want %d", toc.Config, tt.config)
+			}
+
+			t.Logf("%s: config=%d, packet=%d bytes", name, toc.Config, len(packet))
+		})
+	}
+}
+
+// TestEncoderPacketStereo tests that stereo flag is set correctly in TOC.
+func TestEncoderPacketStereo(t *testing.T) {
+	// Mono encoder
+	encMono := NewEncoder(48000, 1)
+	encMono.SetMode(ModeHybrid)
+	encMono.SetBandwidth(gopus.BandwidthSuperwideband)
+
+	pcmMono := make([]float64, 960)
+	packetMono, err := encMono.Encode(pcmMono, 960)
+	if err != nil {
+		t.Fatalf("Mono encode failed: %v", err)
+	}
+
+	tocMono := gopus.ParseTOC(packetMono[0])
+	if tocMono.Stereo {
+		t.Error("Mono packet has stereo=true, want false")
+	}
+
+	// Stereo encoder
+	encStereo := NewEncoder(48000, 2)
+	encStereo.SetMode(ModeHybrid)
+	encStereo.SetBandwidth(gopus.BandwidthSuperwideband)
+
+	pcmStereo := make([]float64, 960*2)
+	packetStereo, err := encStereo.Encode(pcmStereo, 960)
+	if err != nil {
+		t.Fatalf("Stereo encode failed: %v", err)
+	}
+
+	tocStereo := gopus.ParseTOC(packetStereo[0])
+	if !tocStereo.Stereo {
+		t.Error("Stereo packet has stereo=false, want true")
+	}
+}
+
+// TestEncoderPacketParseable tests that encoder output can be fully parsed.
+func TestEncoderPacketParseable(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeHybrid)
+	enc.SetBandwidth(gopus.BandwidthFullband)
+
+	pcm := generateTestSignal(960, 1)
+	packet, err := enc.Encode(pcm, 960)
+	if err != nil {
+		t.Fatalf("Encode failed: %v", err)
+	}
+
+	// Verify packet can be parsed by ParsePacket
+	info, err := gopus.ParsePacket(packet)
+	if err != nil {
+		t.Fatalf("ParsePacket failed: %v", err)
+	}
+
+	if info.FrameCount != 1 {
+		t.Errorf("Frame count = %d, want 1", info.FrameCount)
+	}
+
+	if len(info.FrameSizes) != 1 {
+		t.Fatalf("FrameSizes length = %d, want 1", len(info.FrameSizes))
+	}
+
+	expectedFrameSize := len(packet) - 1 // Total - TOC
+	if info.FrameSizes[0] != expectedFrameSize {
+		t.Errorf("Frame size = %d, want %d", info.FrameSizes[0], expectedFrameSize)
+	}
+
+	t.Logf("Parseable packet: %d bytes, frame=%d bytes", len(packet), info.FrameSizes[0])
+}
+
+// Helper functions for test names
+func modeName(m Mode) string {
+	switch m {
+	case ModeSILK:
+		return "silk"
+	case ModeHybrid:
+		return "hybrid"
+	case ModeCELT:
+		return "celt"
+	default:
+		return "auto"
+	}
+}
+
+func bwName(bw gopus.Bandwidth) string {
+	switch bw {
+	case gopus.BandwidthNarrowband:
+		return "nb"
+	case gopus.BandwidthMediumband:
+		return "mb"
+	case gopus.BandwidthWideband:
+		return "wb"
+	case gopus.BandwidthSuperwideband:
+		return "swb"
+	case gopus.BandwidthFullband:
+		return "fb"
+	default:
+		return "unk"
+	}
+}
+
+func frameSizeName(fs int) string {
+	switch fs {
+	case 120:
+		return "2.5ms"
+	case 240:
+		return "5ms"
+	case 480:
+		return "10ms"
+	case 960:
+		return "20ms"
+	case 1920:
+		return "40ms"
+	case 2880:
+		return "60ms"
+	default:
+		return "unk"
+	}
+}
