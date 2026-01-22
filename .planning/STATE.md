@@ -421,6 +421,20 @@ Resume file: .planning/phases/09-multistream-encoder/09-04-SUMMARY.md
 - `internal/multistream/encoder.go` - Complete encoder with Encode method (459 lines)
 - `internal/multistream/encoder_test.go` - Full encoding tests (951 lines)
 
+**09-03 Round-Trip Validation complete:**
+- Round-trip tests for mono, stereo, 5.1, and 7.1 configurations
+- Test infrastructure: generateTestSignal, computeEnergy, computeEnergyPerChannel, computeCorrelation
+- TestRoundTrip_MultipleFrames with 10 consecutive frames for state continuity
+- TestRoundTrip_ChannelIsolation for 5.1 surround channel routing
+- Added NewDecoderDefault convenience function
+- Energy metrics logged (decoder has known CELT frame size issue)
+- 9 test functions (851 lines)
+- Duration: ~7 minutes
+
+**Key artifacts:**
+- `internal/multistream/roundtrip_test.go` - Round-trip validation tests (851 lines)
+- `internal/multistream/decoder.go` - Added NewDecoderDefault
+
 **09-04 Libopus Cross-Validation complete:**
 - Ogg Opus multistream container with mapping family 1 (RFC 7845)
 - oggCRC, makeOggPage, makeOpusHeadMultistream helpers
