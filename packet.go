@@ -87,6 +87,41 @@ var configTable = [32]configEntry{
 	{ModeCELT, BandwidthFullband, 960}, // 31
 }
 
+// GenerateTOC creates a TOC byte from encoding parameters.
+// config: Configuration index 0-31 (from configTable)
+// stereo: True for stereo, false for mono
+// frameCode: Frame count code 0-3
+//
+//	0: 1 frame
+//	1: 2 equal-sized frames
+//	2: 2 different-sized frames
+//	3: arbitrary number of frames
+func GenerateTOC(config uint8, stereo bool, frameCode uint8) byte {
+	toc := (config & 0x1F) << 3
+	if stereo {
+		toc |= 0x04
+	}
+	toc |= frameCode & 0x03
+	return toc
+}
+
+// ConfigFromParams returns the config index for given mode, bandwidth, and frame size.
+// Returns -1 if the combination is invalid.
+func ConfigFromParams(mode Mode, bandwidth Bandwidth, frameSize int) int {
+	// Search configTable for matching entry
+	for i, entry := range configTable {
+		if entry.Mode == mode && entry.Bandwidth == bandwidth && entry.FrameSize == frameSize {
+			return i
+		}
+	}
+	return -1
+}
+
+// ValidConfig returns true if the configuration index is valid.
+func ValidConfig(config uint8) bool {
+	return config < 32
+}
+
 // ParseTOC parses a TOC byte and returns the decoded fields.
 func ParseTOC(b byte) TOC {
 	config := b >> 3          // Top 5 bits

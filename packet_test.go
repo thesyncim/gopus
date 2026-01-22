@@ -483,3 +483,147 @@ func TestParsePacketCode3ContinuationPadding(t *testing.T) {
 		t.Errorf("FrameCount: got %d, want 2", info.FrameCount)
 	}
 }
+
+func TestGenerateTOC(t *testing.T) {
+	tests := []struct {
+		name      string
+		config    uint8
+		stereo    bool
+		frameCode uint8
+		expected  byte
+	}{
+		// Basic cases
+		{"config0_mono_code0", 0, false, 0, 0x00},
+		{"config0_stereo_code0", 0, true, 0, 0x04},
+		{"config0_mono_code1", 0, false, 1, 0x01},
+		{"config0_mono_code2", 0, false, 2, 0x02},
+		{"config0_mono_code3", 0, false, 3, 0x03},
+		{"config0_stereo_code3", 0, true, 3, 0x07},
+
+		// Hybrid configs (12-15)
+		{"hybrid_swb_10ms", 12, false, 0, 0x60},
+		{"hybrid_swb_20ms", 13, false, 0, 0x68},
+		{"hybrid_fb_10ms", 14, false, 0, 0x70},
+		{"hybrid_fb_20ms", 15, false, 0, 0x78},
+
+		// CELT FB config 31
+		{"celt_fb_20ms", 31, false, 0, 0xF8},
+		{"celt_fb_20ms_stereo", 31, true, 0, 0xFC},
+		{"celt_fb_20ms_code3", 31, true, 3, 0xFF},
+
+		// Verify masking works for out-of-range values
+		{"config_masked", 0x3F, false, 0, 0xF8}, // 0x3F & 0x1F = 0x1F = 31
+		{"frameCode_masked", 0, false, 0x0F, 0x03}, // 0x0F & 0x03 = 3
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GenerateTOC(tt.config, tt.stereo, tt.frameCode)
+			if got != tt.expected {
+				t.Errorf("GenerateTOC(%d, %v, %d) = 0x%02X, want 0x%02X",
+					tt.config, tt.stereo, tt.frameCode, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGenerateTOCRoundTrip(t *testing.T) {
+	// Test round-trip for all 32 configs with all stereo/frameCode combinations
+	for config := uint8(0); config < 32; config++ {
+		for _, stereo := range []bool{false, true} {
+			for frameCode := uint8(0); frameCode < 4; frameCode++ {
+				toc := GenerateTOC(config, stereo, frameCode)
+				parsed := ParseTOC(toc)
+
+				if parsed.Config != config {
+					t.Errorf("config=%d stereo=%v code=%d: Config mismatch: got %d",
+						config, stereo, frameCode, parsed.Config)
+				}
+				if parsed.Stereo != stereo {
+					t.Errorf("config=%d stereo=%v code=%d: Stereo mismatch: got %v",
+						config, stereo, frameCode, parsed.Stereo)
+				}
+				if parsed.FrameCode != frameCode {
+					t.Errorf("config=%d stereo=%v code=%d: FrameCode mismatch: got %d",
+						config, stereo, frameCode, parsed.FrameCode)
+				}
+			}
+		}
+	}
+}
+
+func TestConfigFromParams(t *testing.T) {
+	tests := []struct {
+		name      string
+		mode      Mode
+		bandwidth Bandwidth
+		frameSize int
+		expected  int
+	}{
+		// SILK NB
+		{"silk_nb_10ms", ModeSILK, BandwidthNarrowband, 480, 0},
+		{"silk_nb_20ms", ModeSILK, BandwidthNarrowband, 960, 1},
+		{"silk_nb_40ms", ModeSILK, BandwidthNarrowband, 1920, 2},
+		{"silk_nb_60ms", ModeSILK, BandwidthNarrowband, 2880, 3},
+
+		// SILK MB
+		{"silk_mb_10ms", ModeSILK, BandwidthMediumband, 480, 4},
+		{"silk_mb_20ms", ModeSILK, BandwidthMediumband, 960, 5},
+
+		// SILK WB
+		{"silk_wb_10ms", ModeSILK, BandwidthWideband, 480, 8},
+		{"silk_wb_20ms", ModeSILK, BandwidthWideband, 960, 9},
+
+		// Hybrid SWB (configs 12-13)
+		{"hybrid_swb_10ms", ModeHybrid, BandwidthSuperwideband, 480, 12},
+		{"hybrid_swb_20ms", ModeHybrid, BandwidthSuperwideband, 960, 13},
+
+		// Hybrid FB (configs 14-15)
+		{"hybrid_fb_10ms", ModeHybrid, BandwidthFullband, 480, 14},
+		{"hybrid_fb_20ms", ModeHybrid, BandwidthFullband, 960, 15},
+
+		// CELT NB
+		{"celt_nb_2.5ms", ModeCELT, BandwidthNarrowband, 120, 16},
+		{"celt_nb_5ms", ModeCELT, BandwidthNarrowband, 240, 17},
+		{"celt_nb_10ms", ModeCELT, BandwidthNarrowband, 480, 18},
+		{"celt_nb_20ms", ModeCELT, BandwidthNarrowband, 960, 19},
+
+		// CELT FB
+		{"celt_fb_2.5ms", ModeCELT, BandwidthFullband, 120, 28},
+		{"celt_fb_5ms", ModeCELT, BandwidthFullband, 240, 29},
+		{"celt_fb_10ms", ModeCELT, BandwidthFullband, 480, 30},
+		{"celt_fb_20ms", ModeCELT, BandwidthFullband, 960, 31},
+
+		// Invalid combinations
+		{"invalid_hybrid_wb", ModeHybrid, BandwidthWideband, 960, -1},
+		{"invalid_silk_fb", ModeSILK, BandwidthFullband, 960, -1},
+		{"invalid_celt_40ms", ModeCELT, BandwidthFullband, 1920, -1},
+		{"invalid_framesize", ModeSILK, BandwidthNarrowband, 100, -1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ConfigFromParams(tt.mode, tt.bandwidth, tt.frameSize)
+			if got != tt.expected {
+				t.Errorf("ConfigFromParams(%v, %v, %d) = %d, want %d",
+					tt.mode, tt.bandwidth, tt.frameSize, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestValidConfig(t *testing.T) {
+	// Valid configs 0-31
+	for i := uint8(0); i < 32; i++ {
+		if !ValidConfig(i) {
+			t.Errorf("ValidConfig(%d) = false, want true", i)
+		}
+	}
+
+	// Invalid configs 32+
+	for i := uint8(32); i < 255; i++ {
+		if ValidConfig(i) {
+			t.Errorf("ValidConfig(%d) = true, want false", i)
+		}
+	}
+}
