@@ -317,7 +317,7 @@ func (e *Encoder) computePacketSize(frameSize int) int {
 // pcm: input samples as float64 (interleaved if stereo)
 // frameSize: number of samples per channel (must match configured frame size)
 //
-// Returns the encoded Opus frame data (without TOC byte - that's added in Plan 2).
+// Returns the encoded Opus packet with TOC byte (complete packet ready for transmission).
 // Returns nil, nil if DTX suppresses the frame (silence detected).
 //
 // For hybrid mode, SILK encodes first (0-8kHz), then CELT encodes second (8-20kHz),
@@ -342,20 +342,27 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	// Determine actual mode to use
 	actualMode := e.selectMode(frameSize)
 
-	// Route to appropriate encoder
-	var packet []byte
+	// Route to appropriate encoder (returns raw frame data without TOC)
+	var frameData []byte
 	var err error
 	switch actualMode {
 	case ModeSILK:
-		packet, err = e.encodeSILKFrame(pcm, frameSize)
+		frameData, err = e.encodeSILKFrame(pcm, frameSize)
 	case ModeHybrid:
-		packet, err = e.encodeHybridFrame(pcm, frameSize)
+		frameData, err = e.encodeHybridFrame(pcm, frameSize)
 	case ModeCELT:
-		packet, err = e.encodeCELTFrame(pcm, frameSize)
+		frameData, err = e.encodeCELTFrame(pcm, frameSize)
 	default:
 		return nil, ErrEncodingFailed
 	}
 
+	if err != nil {
+		return nil, err
+	}
+
+	// Build complete packet with TOC byte
+	stereo := e.channels == 2
+	packet, err := BuildPacket(frameData, modeToGopus(actualMode), e.bandwidth, frameSize, stereo)
 	if err != nil {
 		return nil, err
 	}
@@ -372,6 +379,20 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	// ModeVBR: no constraint applied
 
 	return packet, nil
+}
+
+// modeToGopus converts internal encoder Mode to gopus.Mode.
+func modeToGopus(m Mode) gopus.Mode {
+	switch m {
+	case ModeSILK:
+		return gopus.ModeSILK
+	case ModeHybrid:
+		return gopus.ModeHybrid
+	case ModeCELT:
+		return gopus.ModeCELT
+	default:
+		return gopus.ModeCELT // ModeAuto already resolved
+	}
 }
 
 // selectMode determines the actual encoding mode based on settings and content.

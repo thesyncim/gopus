@@ -899,3 +899,259 @@ func TestFECConstants(t *testing.T) {
 		t.Errorf("MinSILKBitrate = %d, want 6000", MinSILKBitrate)
 	}
 }
+
+// TestDTXEnabled tests DTX enable/disable functionality.
+func TestDTXEnabled(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+
+	// Verify default
+	if enc.DTXEnabled() {
+		t.Error("DTX should be disabled by default")
+	}
+
+	// Enable DTX
+	enc.SetDTX(true)
+	if !enc.DTXEnabled() {
+		t.Error("DTX should be enabled after SetDTX(true)")
+	}
+
+	// Disable DTX
+	enc.SetDTX(false)
+	if enc.DTXEnabled() {
+		t.Error("DTX should be disabled after SetDTX(false)")
+	}
+}
+
+// TestDTXSuppressesSilence tests that DTX suppresses packets after silence threshold.
+func TestDTXSuppressesSilence(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeSILK)
+	enc.SetBandwidth(gopus.BandwidthWideband)
+	enc.SetDTX(true)
+
+	// Generate silence
+	silence := make([]float64, 960)
+
+	// First few frames should still encode (building up silence count)
+	for i := 0; i < DTXFrameThreshold-1; i++ {
+		packet, err := enc.Encode(silence, 960)
+		if err != nil {
+			t.Fatalf("Frame %d encode failed: %v", i, err)
+		}
+		if packet == nil {
+			t.Errorf("Frame %d should encode before threshold", i)
+		}
+	}
+
+	// After threshold, frames should be suppressed
+	packet, err := enc.Encode(silence, 960)
+	if err != nil {
+		t.Fatalf("Frame after threshold encode failed: %v", err)
+	}
+	if packet != nil {
+		t.Error("Frame after threshold should be suppressed (nil)")
+	}
+}
+
+// TestDTXComfortNoise tests that comfort noise frames are sent periodically during DTX.
+func TestDTXComfortNoise(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeSILK)
+	enc.SetBandwidth(gopus.BandwidthWideband)
+	enc.SetDTX(true)
+
+	silence := make([]float64, 960)
+	framesPerInterval := DTXComfortNoiseIntervalMs / 20
+
+	// Encode enough frames to enter DTX and reach comfort noise interval
+	var comfortNoiseCount int
+	totalFrames := DTXFrameThreshold + framesPerInterval + 5
+	for i := 0; i < totalFrames; i++ {
+		packet, _ := enc.Encode(silence, 960)
+		if i >= DTXFrameThreshold && packet != nil {
+			comfortNoiseCount++
+		}
+	}
+
+	if comfortNoiseCount < 1 {
+		t.Errorf("Should send at least one comfort noise packet, got %d", comfortNoiseCount)
+	}
+	t.Logf("Sent %d comfort noise packets over %d frames", comfortNoiseCount, totalFrames)
+}
+
+// TestDTXExitOnSpeech tests that speech exits DTX mode immediately.
+func TestDTXExitOnSpeech(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeSILK)
+	enc.SetBandwidth(gopus.BandwidthWideband)
+	enc.SetDTX(true)
+
+	silence := make([]float64, 960)
+	speech := generateTestSignal(960, 1)
+
+	// Enter DTX mode
+	for i := 0; i < DTXFrameThreshold+5; i++ {
+		enc.Encode(silence, 960)
+	}
+
+	// Verify in DTX mode
+	packet, _ := enc.Encode(silence, 960)
+	if packet != nil {
+		t.Log("Warning: Expected nil packet in DTX mode")
+	}
+
+	// Send speech - should exit DTX and produce packet
+	packet, err := enc.Encode(speech, 960)
+	if err != nil {
+		t.Fatalf("Encode speech failed: %v", err)
+	}
+	if packet == nil {
+		t.Error("Speech should exit DTX mode and produce a packet")
+	}
+}
+
+// TestComplexitySetting tests complexity getter/setter with clamping.
+func TestComplexitySetting(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+
+	// Verify default is 10 (maximum quality)
+	if enc.Complexity() != 10 {
+		t.Errorf("Default complexity = %d, want 10", enc.Complexity())
+	}
+
+	// Test valid range
+	enc.SetComplexity(5)
+	if enc.Complexity() != 5 {
+		t.Errorf("SetComplexity(5): got %d, want 5", enc.Complexity())
+	}
+
+	// Test clamping below 0
+	enc.SetComplexity(-1)
+	if enc.Complexity() != 0 {
+		t.Errorf("SetComplexity(-1): got %d, want 0", enc.Complexity())
+	}
+
+	// Test clamping above 10
+	enc.SetComplexity(15)
+	if enc.Complexity() != 10 {
+		t.Errorf("SetComplexity(15): got %d, want 10", enc.Complexity())
+	}
+
+	// Test all valid values
+	for i := 0; i <= 10; i++ {
+		enc.SetComplexity(i)
+		if enc.Complexity() != i {
+			t.Errorf("SetComplexity(%d): got %d", i, enc.Complexity())
+		}
+	}
+}
+
+// TestComplexityAffectsQuality tests that encoding works at all complexity levels.
+func TestComplexityAffectsQuality(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeHybrid)
+	enc.SetBandwidth(gopus.BandwidthSuperwideband)
+
+	for complexity := 0; complexity <= 10; complexity++ {
+		enc.SetComplexity(complexity)
+
+		pcm := generateTestSignal(960, 1)
+		packet, err := enc.Encode(pcm, 960)
+		if err != nil {
+			t.Fatalf("Complexity %d: encode failed: %v", complexity, err)
+		}
+		if len(packet) == 0 {
+			t.Errorf("Complexity %d: should produce output", complexity)
+		}
+		t.Logf("Complexity %d: %d bytes", complexity, len(packet))
+	}
+}
+
+// TestDTXResetOnEncoderReset tests that DTX state resets with encoder reset.
+func TestDTXResetOnEncoderReset(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeSILK)
+	enc.SetBandwidth(gopus.BandwidthWideband)
+	enc.SetDTX(true)
+
+	silence := make([]float64, 960)
+
+	// Enter DTX mode
+	for i := 0; i < DTXFrameThreshold+5; i++ {
+		enc.Encode(silence, 960)
+	}
+
+	// Verify in DTX mode
+	packet, _ := enc.Encode(silence, 960)
+	if packet != nil {
+		t.Log("Warning: Expected nil packet in DTX mode")
+	}
+
+	// Reset encoder
+	enc.Reset()
+
+	// After reset, should no longer be in DTX mode - frames should encode
+	packet, err := enc.Encode(silence, 960)
+	if err != nil {
+		t.Fatalf("After reset encode failed: %v", err)
+	}
+	if packet == nil {
+		t.Error("After reset, silent frame should encode (not suppressed)")
+	}
+}
+
+// TestClassifySignal tests the signal classification function.
+func TestClassifySignal(t *testing.T) {
+	// Test silence detection
+	silence := make([]float32, 960)
+	signalType, energy := classifySignal(silence)
+	if signalType != 0 {
+		t.Errorf("Silence: signalType = %d, want 0 (inactive)", signalType)
+	}
+	if energy > 0.0001 {
+		t.Errorf("Silence: energy = %f, want < 0.0001", energy)
+	}
+
+	// Test active signal detection
+	active := make([]float32, 960)
+	for i := range active {
+		active[i] = 0.5 * float32(math.Sin(2*math.Pi*440*float64(i)/48000))
+	}
+	signalType, energy = classifySignal(active)
+	if signalType == 0 {
+		t.Error("Active signal: should not be classified as inactive")
+	}
+	if energy < 0.0001 {
+		t.Errorf("Active signal: energy = %f, should be > 0.0001", energy)
+	}
+	t.Logf("Active signal: type=%d, energy=%f", signalType, energy)
+
+	// Test empty input
+	signalType, energy = classifySignal(nil)
+	if signalType != 0 || energy != 0 {
+		t.Errorf("Empty input: signalType=%d, energy=%f, want 0, 0", signalType, energy)
+	}
+}
+
+// TestDTXConstants verifies DTX constants are set correctly.
+func TestDTXConstants(t *testing.T) {
+	if DTXComfortNoiseIntervalMs != 400 {
+		t.Errorf("DTXComfortNoiseIntervalMs = %d, want 400", DTXComfortNoiseIntervalMs)
+	}
+
+	if DTXFrameThreshold != 20 {
+		t.Errorf("DTXFrameThreshold = %d, want 20", DTXFrameThreshold)
+	}
+
+	if DTXFadeInMs != 10 {
+		t.Errorf("DTXFadeInMs = %d, want 10", DTXFadeInMs)
+	}
+
+	if DTXFadeOutMs != 10 {
+		t.Errorf("DTXFadeOutMs = %d, want 10", DTXFadeOutMs)
+	}
+
+	if DTXMinBitrate != 6000 {
+		t.Errorf("DTXMinBitrate = %d, want 6000", DTXMinBitrate)
+	}
+}
