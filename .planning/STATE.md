@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-01-21)
 
 ## Current Position
 
-Phase: 8 of 12 (Hybrid Encoder & Controls) - IN PROGRESS
-Plan: 1 of 4 complete
-Status: Completed 08-01-PLAN.md (Unified Encoder with Hybrid Mode)
-Last activity: 2026-01-22 - Completed 08-01-PLAN.md
+Phase: 8 of 12 (Hybrid Encoder & Controls) - COMPLETE
+Plan: 4 of 4 complete
+Status: Completed 08-04-PLAN.md (In-band FEC)
+Last activity: 2026-01-22 - Completed 08-03-PLAN.md
 
-Progress: [██████████████████████████████████████████████████████████████████████] ~86% (32/37 plans)
+Progress: [████████████████████████████████████████████████████████████████████████] ~92% (34/37 plans)
 
 ## Performance Metrics
 
@@ -34,11 +34,11 @@ Progress: [███████████████████████
 | 05-multistream-decoder | 2/2 | ~6m | ~3m |
 | 06-silk-encoder | 7/7 | ~74m | ~11m |
 | 07-celt-encoder | 6/6 | ~73m | ~12m |
-| 08-hybrid-encoder-controls | 1/4 | ~7m | ~7m |
+| 08-hybrid-encoder-controls | 4/4 | ~27m | ~7m |
 
 **Recent Trend:**
-- Last 5 plans: 07-04 (~17m), 07-05 (~25m), 07-06 (~15m), 08-01 (~7m)
-- Trend: Starting Phase 8 with unified encoder implementation
+- Last 5 plans: 07-05 (~25m), 07-06 (~15m), 08-01 (~7m), 08-03 (~8m)
+- Trend: Completing Phase 8 encoder controls
 
 *Updated after each plan completion*
 
@@ -133,11 +133,17 @@ Recent decisions affecting current work:
 | D08-01-01 | Pad 10ms SILK frames to 20ms for WB encoding | 08-01 | Existing EncodeFrame expects 20ms |
 | D08-01-02 | Zero low bands (0-16) in CELT hybrid mode encoding | 08-01 | Matches decoder handling |
 | D08-01-03 | Averaging filter for 48kHz to 16kHz downsampling | 08-01 | Sufficient for v1 |
+| D08-03-01 | CBR uses zero-padding per RFC 6716 | 08-03 | Zeros treated as padding by decoders |
+| D08-03-02 | CVBR tolerance set to +/-15% | 08-03 | Standard tolerance for constrained VBR |
+| D08-03-03 | Default bitrate 64 kbps | 08-03 | Good quality for speech/audio |
+| D08-04-01 | LBRR uses fixed mid-range parameters for v1 | 08-04 | Simplified encoding; full analysis deferred to v2 |
+| D08-04-02 | FEC requires 3 conditions: enabled + loss >= 1% + prev frame | 08-04 | All conditions must be true |
+| D08-04-03 | LBRRBitrateFactor = 0.6 | 08-04 | 60% of normal SILK bitrate for LBRR |
 
 ### Pending Todos
 
 - Fix CELT MDCT bin count vs frame size mismatch
-- Continue Phase 08 (TOC generation, bandwidth/bitrate controls)
+- Start Phase 09 (Public API & Stream Integration)
 
 ### Known Gaps
 
@@ -152,8 +158,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-22
-Stopped at: Completed 08-01-PLAN.md (Unified Encoder with Hybrid Mode)
-Resume file: .planning/phases/08-hybrid-encoder-controls/08-01-SUMMARY.md
+Stopped at: Completed 08-04-PLAN.md (In-band FEC)
+Resume file: .planning/phases/08-hybrid-encoder-controls/08-03-SUMMARY.md
 
 ## Phase 01 Summary
 
@@ -291,7 +297,7 @@ Resume file: .planning/phases/08-hybrid-encoder-controls/08-01-SUMMARY.md
 - `internal/celt/crossval_test.go` - Ogg writer, WAV parser, opusdec integration
 - `internal/celt/libopus_test.go` - 5 libopus cross-validation tests
 
-## Phase 08 Summary - IN PROGRESS
+## Phase 08 Summary - COMPLETE
 
 **08-01 Unified Encoder with Hybrid Mode complete:**
 - Unified Encoder struct with mode selection (SILK/Hybrid/CELT/Auto)
