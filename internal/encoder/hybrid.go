@@ -131,32 +131,62 @@ func (e *Encoder) encodeSILKHybrid(pcm []float32, frameSize int) {
 	// For hybrid mode, SILK always operates at WB (16kHz)
 	// The input is already downsampled to 16kHz
 
-	// Determine frame samples at 16kHz
-	silkSamples := frameSize / 3 // 48kHz -> 16kHz
-	if len(pcm) < silkSamples*e.channels {
-		silkSamples = len(pcm) / e.channels
-	}
+	// WB SILK expects 320 samples (20ms at 16kHz) - 4 subframes of 80 samples each
+	// For 10ms frames (160 samples), we need to either:
+	// 1. Pad to 320 samples
+	// 2. Or encode with fewer subframes
+	//
+	// The SILK EncodeFrame expects 20ms frames (numSubframes=4), so we pad
+	// 10ms frames with zeros to match the expected format.
+	silkSamples := frameSize / 3 // 48kHz -> 16kHz (160 for 10ms, 320 for 20ms)
 
-	// Use SILK's frame encoding
-	// Extract the appropriate samples
+	// SILK at WB needs 320 samples per frame
+	const silkWBSamples = 320
+
+	// Create the SILK input buffer
 	var silkPCM []float32
 	if e.channels == 1 {
-		silkPCM = pcm[:silkSamples]
+		if silkSamples < silkWBSamples {
+			// Pad 10ms frame to 20ms
+			silkPCM = make([]float32, silkWBSamples)
+			copy(silkPCM, pcm[:min(len(pcm), silkSamples)])
+		} else {
+			silkPCM = pcm[:silkSamples]
+		}
 	} else {
-		// For stereo, need to deinterleave and encode mid channel
-		silkPCM = make([]float32, silkSamples)
-		for i := 0; i < silkSamples; i++ {
+		// For stereo, deinterleave and encode mid channel
+		actualSamples := len(pcm) / 2
+		if actualSamples < silkSamples {
+			silkSamples = actualSamples
+		}
+
+		targetSamples := silkSamples
+		if targetSamples < silkWBSamples {
+			targetSamples = silkWBSamples // Pad to 20ms
+		}
+
+		silkPCM = make([]float32, targetSamples)
+		for i := 0; i < silkSamples && i*2+1 < len(pcm); i++ {
 			// Mid channel = (L + R) / 2
 			left := pcm[i*2]
 			right := pcm[i*2+1]
 			silkPCM[i] = (left + right) / 2
 		}
+		// Rest is zero-padded
 	}
 
 	// Encode the SILK frame
 	// Note: EncodeFrame creates its own range encoder if none is set,
 	// but we've already set one via SetRangeEncoder
 	_ = e.silkEncoder.EncodeFrame(silkPCM, true)
+}
+
+// min returns the smaller of two ints.
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // encodeCELTHybrid encodes CELT data for hybrid mode.
