@@ -18,7 +18,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 4: Hybrid Decoder** - Combined SILK+CELT decoding, PLC
 - [x] **Phase 5: Multistream Decoder** - Surround sound decoding
 - [x] **Phase 6: SILK Encoder** - Encode speech to SILK frames
-- [ ] **Phase 7: CELT Encoder** - Encode audio to CELT frames (gap closure in progress)
+- [x] **Phase 7: CELT Encoder** - Encode audio to CELT frames
 - [ ] **Phase 8: Hybrid Encoder & Controls** - Full encoder with bitrate/VBR/FEC/DTX
 - [ ] **Phase 9: Multistream Encoder** - Surround sound encoding
 - [ ] **Phase 10: API Layer** - Frame-based API and io.Reader/Writer wrappers
@@ -147,8 +147,8 @@ Plans:
 - [x] 07-02-PLAN.md — Band energy computation, coarse/fine energy encoding
 - [x] 07-03-PLAN.md — PVQ band encoding (normalization, vectorToPulses, CWRS)
 - [x] 07-04-PLAN.md — Complete frame pipeline, transient detection, stereo, round-trip tests
-- [ ] 07-05-PLAN.md — Gap closure: Fix range encoder byte format for round-trip compatibility
-- [ ] 07-06-PLAN.md — Gap closure: Add libopus cross-validation tests
+- [x] 07-05-PLAN.md — Gap closure: Fix range encoder byte format for round-trip compatibility
+- [x] 07-06-PLAN.md — Gap closure: Add libopus cross-validation tests
 
 ### Phase 8: Hybrid Encoder & Controls
 **Goal**: Complete encoder with hybrid mode and all encoder controls
@@ -238,7 +238,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 4. Hybrid Decoder | 3/3 | Complete | 2026-01-22 |
 | 5. Multistream Decoder | 2/2 | Complete | 2026-01-22 |
 | 6. SILK Encoder | 7/7 | Complete | 2026-01-22 |
-| 7. CELT Encoder | 4/6 | Gap closure | 2026-01-22 |
+| 7. CELT Encoder | 6/6 | Complete | 2026-01-22 |
 | 8. Hybrid Encoder & Controls | 0/3 | Not started | - |
 | 9. Multistream Encoder | 0/1 | Not started | - |
 | 10. API Layer | 0/2 | Not started | - |
@@ -258,4 +258,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 *Phase 7 planned: 2026-01-22*
 *Phase 7 executed: 2026-01-22 (gaps found: libopus cross-validation, range coder signal quality)*
 *Phase 7 gap closure planned: 2026-01-22*
+*Phase 7 complete: 2026-01-22*
 *Total phases: 12 | Total plans: ~42*

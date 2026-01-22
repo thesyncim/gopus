@@ -5,7 +5,7 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 7: CELT Encoder - Gap closure in progress
+**Current focus:** Phase 8: Hybrid Encoder & Controls - Ready to plan
 
 ## Current Position
 
