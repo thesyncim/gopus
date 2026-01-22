@@ -300,3 +300,58 @@ func (e *Encoder) EncodeBandPVQ(shape []float64, n, k int) {
 	// Encode index uniformly
 	e.rangeEncoder.EncodeUniform(index, vSize)
 }
+
+// EncodeBands encodes all bands using PVQ.
+// shapes: normalized band shapes from NormalizeBands
+// bandBits: bit allocation per band from ComputeAllocation
+// nbBands: number of bands
+// frameSize: frame size in samples (120, 240, 480, 960)
+//
+// For each band:
+// - If bits <= 0: skip (band will be folded by decoder)
+// - Otherwise: compute k from bits and encode via EncodeBandPVQ
+//
+// Reference: libopus celt/bands.c quant_all_bands()
+func (e *Encoder) EncodeBands(shapes [][]float64, bandBits []int, nbBands, frameSize int) {
+	if e.rangeEncoder == nil {
+		return
+	}
+	if nbBands <= 0 || nbBands > MaxBands {
+		return
+	}
+	if len(shapes) < nbBands || len(bandBits) < nbBands {
+		return
+	}
+
+	for band := 0; band < nbBands; band++ {
+		bits := bandBits[band]
+
+		// If no bits allocated, skip this band (decoder will fold from other bands)
+		if bits <= 0 {
+			continue
+		}
+
+		// Get band width
+		n := ScaledBandWidth(band, frameSize)
+		if n <= 0 {
+			continue
+		}
+
+		// Convert bits to pulse count
+		k := bitsToKEncode(bits, n)
+		if k <= 0 {
+			// Not enough bits for any pulses
+			continue
+		}
+
+		// Get shape for this band
+		shape := shapes[band]
+		if len(shape) == 0 {
+			// No shape data - skip
+			continue
+		}
+
+		// Encode the band using PVQ
+		e.EncodeBandPVQ(shape, n, k)
+	}
+}
