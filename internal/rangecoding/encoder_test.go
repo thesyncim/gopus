@@ -1,6 +1,9 @@
 package rangecoding
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 // TestEncoderInit tests encoder initialization.
 func TestEncoderInit(t *testing.T) {
@@ -292,6 +295,123 @@ func TestEncoderRangeInvariant(t *testing.T) {
 		// After normalize, rng should be > EC_CODE_BOT
 		if enc.rng <= EC_CODE_BOT {
 			t.Errorf("after iteration %d: rng=%#x <= EC_CODE_BOT=%#x", i, enc.rng, EC_CODE_BOT)
+		}
+	}
+}
+
+// TestEncodeICDF16 tests that EncodeICDF16 can encode symbols without panicking
+// and produces non-empty output. Full round-trip verification is deferred pending
+// encoder-decoder byte format alignment (tracked in STATE.md as known gap).
+//
+// Note: Symbol 0 in SILK tables starting with 256 has effectively zero probability
+// (icdf[0]=256 means fh=ft-256=0), so we test symbols 1+ which have valid ranges.
+func TestEncodeICDF16(t *testing.T) {
+	// Use SILK-style ICDF table: ICDFFrameTypeVADActive = [256, 230, 166, 128, 0]
+	// This has 4 valid symbols (indices 0-3), but symbol 0 has ~0 probability
+	icdf := []uint16{256, 230, 166, 128, 0}
+
+	// Test symbols 1-3 (skipping 0 which has zero probability in this table)
+	for sym := 1; sym <= 3; sym++ {
+		t.Run(fmt.Sprintf("symbol_%d", sym), func(t *testing.T) {
+			buf := make([]byte, 256)
+			enc := &Encoder{}
+			enc.Init(buf)
+
+			enc.EncodeICDF16(sym, icdf, 8)
+			encoded := enc.Done()
+
+			// Verify non-empty output
+			if len(encoded) == 0 {
+				t.Errorf("symbol %d: empty encoded output", sym)
+			}
+
+			// Verify range invariant maintained
+			if enc.Range() <= EC_CODE_BOT {
+				t.Errorf("symbol %d: range invariant violated after encode", sym)
+			}
+		})
+	}
+}
+
+// TestEncodeICDF16NonSilkTable tests with a table that doesn't start with 256.
+func TestEncodeICDF16NonSilkTable(t *testing.T) {
+	// Table like uint8 version where all symbols are valid
+	icdf := []uint16{192, 128, 64, 0}
+
+	for sym := 0; sym <= 3; sym++ {
+		t.Run(fmt.Sprintf("symbol_%d", sym), func(t *testing.T) {
+			buf := make([]byte, 256)
+			enc := &Encoder{}
+			enc.Init(buf)
+
+			enc.EncodeICDF16(sym, icdf, 8)
+			encoded := enc.Done()
+
+			if len(encoded) == 0 {
+				t.Errorf("symbol %d: empty encoded output", sym)
+			}
+		})
+	}
+}
+
+// TestEncodeICDF16MultipleSymbols tests encoding multiple symbols in sequence.
+func TestEncodeICDF16MultipleSymbols(t *testing.T) {
+	// Use a table where all symbols have reasonable probability
+	// ICDFGainLSB = [256, 224, 192, 160, 128, 96, 64, 32, 0] - 8 uniform symbols
+	icdf := []uint16{256, 224, 192, 160, 128, 96, 64, 32, 0}
+
+	// Test symbols 1-7
+	symbols := []int{1, 2, 3, 4, 5, 6, 7, 1, 3, 5, 7, 2, 4, 6}
+
+	buf := make([]byte, 256)
+	enc := &Encoder{}
+	enc.Init(buf)
+
+	for _, sym := range symbols {
+		enc.EncodeICDF16(sym, icdf, 8)
+	}
+	encoded := enc.Done()
+
+	// Verify output is produced
+	if len(encoded) == 0 {
+		t.Error("empty encoded output")
+	}
+
+	// Basic size sanity check: 14 symbols should produce reasonable output
+	// With 8-bit precision, expect roughly 3-4 bits per symbol average
+	if len(encoded) < 5 || len(encoded) > 50 {
+		t.Errorf("encoded size %d seems unreasonable for 14 symbols", len(encoded))
+	}
+}
+
+// TestEncodeICDF16Determinism verifies encoding is deterministic.
+func TestEncodeICDF16Determinism(t *testing.T) {
+	// Use a table without symbol 0 issues (doesn't start with 256)
+	icdf := []uint16{192, 128, 64, 0}
+	symbols := []int{0, 1, 2, 3, 1, 2, 0, 3}
+
+	encode := func() []byte {
+		buf := make([]byte, 256)
+		enc := &Encoder{}
+		enc.Init(buf)
+		for _, sym := range symbols {
+			enc.EncodeICDF16(sym, icdf, 8)
+		}
+		result := enc.Done()
+		out := make([]byte, len(result))
+		copy(out, result)
+		return out
+	}
+
+	result1 := encode()
+	result2 := encode()
+
+	if len(result1) != len(result2) {
+		t.Fatalf("non-deterministic lengths: %d vs %d", len(result1), len(result2))
+	}
+	for i := range result1 {
+		if result1[i] != result2[i] {
+			t.Errorf("non-deterministic byte %d: %d vs %d", i, result1[i], result2[i])
 		}
 	}
 }

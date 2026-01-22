@@ -105,6 +105,19 @@ func (e *Encoder) EncodeICDF(s int, icdf []uint8, ftb uint) {
 	e.Encode(fl, fh, ft)
 }
 
+// EncodeICDF16 encodes a symbol using a uint16 ICDF table.
+// Required because SILK tables use uint16 (256 doesn't fit in uint8).
+// Per RFC 6716 Section 4.1.
+func (e *Encoder) EncodeICDF16(s int, icdf []uint16, ftb uint) {
+	ft := uint32(1) << ftb
+	var fl, fh uint32
+	if s > 0 {
+		fl = ft - uint32(icdf[s-1])
+	}
+	fh = ft - uint32(icdf[s])
+	e.Encode(fl, fh, ft)
+}
+
 // EncodeBit encodes a single bit with the given log probability.
 // val is the bit to encode (0 or 1).
 // logp is the log probability: P(0) = 1 - 1/(2^logp), P(1) = 1/(2^logp).
