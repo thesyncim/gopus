@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 12: Compliance & Polish - CGO-free builds verified, examples added
+**Current focus:** Phase 12: Compliance & Polish - All plans complete
 
 ## Current Position
 
 Phase: 12 of 12 (Compliance & Polish)
-Plan: 2 of 3 complete (Build verification and examples)
-Status: In progress
-Last activity: 2026-01-22 - Completed 12-03-PLAN.md (Build verification and examples)
+Plan: 3 of 3 complete (Compliance testing infrastructure)
+Status: Phase complete
+Last activity: 2026-01-22 - Completed 12-02-PLAN.md (RFC 8251 test vector compliance)
 
-Progress: [████████████████████████████████████████████████████████████████████████████████████████░░] ~98% (47/48 plans)
+Progress: [████████████████████████████████████████████████████████████████████████████████████████████] 100% (48/48 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 47
+- Total plans completed: 48
 - Average duration: ~8 minutes
-- Total execution time: ~357 minutes
+- Total execution time: ~364 minutes
 
 **By Phase:**
 
@@ -38,11 +38,11 @@ Progress: [███████████████████████
 | 09-multistream-encoder | 4/4 | ~15m | ~4m |
 | 10-api-layer | 2/2 | ~47m | ~24m |
 | 11-container | 2/2 | ~14m | ~7m |
-| 12-compliance-polish | 2/3 | ~18m | ~9m |
+| 12-compliance-polish | 3/3 | ~25m | ~8m |
 
 **Recent Trend:**
-- Last 5 plans: 11-01 (~6m), 11-02 (~8m), 12-01 (~16m), 12-03 (~2m)
-- Trend: Phase 12 progressing, build verification and examples complete
+- Last 5 plans: 11-02 (~8m), 12-01 (~16m), 12-03 (~2m), 12-02 (~7m)
+- Trend: Phase 12 complete, all compliance infrastructure in place
 
 *Updated after each plan completion*
 
@@ -174,6 +174,9 @@ Recent decisions affecting current work:
 | D12-01-02 | Export unexported functions via export_test.go | 12-01 | Test-only exports for internal function testing |
 | D12-03-01 | CGO-free build tests for all 10 packages | 12-03 | Comprehensive verification ensures no cgo dependencies |
 | D12-03-02 | Testable examples with deterministic output | 12-03 | Examples with // Output: comments validated by go test |
+| D12-02-01 | Use big-endian for opus_demo .bit file parsing | 12-02 | Parser correctly reads official RFC 8251 test vectors |
+| D12-02-02 | Simplified SNR-based quality metric | 12-02 | Q=0 at 48dB threshold, sufficient for initial compliance |
+| D12-02-03 | Check both .dec and m.dec references | 12-02 | Pass if either matches per RFC 8251 |
 
 ### Pending Todos
 
@@ -194,8 +197,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-22
-Stopped at: Completed 12-03-PLAN.md (Build verification and examples)
-Resume file: .planning/phases/12-compliance-polish/12-03-SUMMARY.md
+Stopped at: Completed 12-02-PLAN.md (RFC 8251 compliance tests)
+Resume file: .planning/phases/12-compliance-polish/12-02-SUMMARY.md
 
 ## Phase 01 Summary
 
@@ -607,3 +610,31 @@ Resume file: .planning/phases/12-compliance-polish/12-03-SUMMARY.md
 - `6811dd5` - test(12-03): add CGO-free build verification tests
 - `acd0db7` - test(12-03): add testable examples for core API
 - `346e344` - test(12-03): add testable examples for Ogg container
+
+**12-02 RFC 8251 Test Vector Compliance complete:**
+- opus_demo .bit file parser with big-endian (network byte order) support
+- SNR-based quality metric computation (Q=0 at 48dB threshold)
+- Automatic test vector download from opus-codec.org
+- Compliance tests comparing against both .dec and m.dec references
+- Test infrastructure validates all 12 RFC 8251 test vectors
+- Duration: ~7 minutes
+
+**Key artifacts:**
+- `internal/testvectors/parser.go` - opus_demo .bit file parser
+- `internal/testvectors/parser_test.go` - Parser unit tests
+- `internal/testvectors/quality.go` - Quality metric computation
+- `internal/testvectors/quality_test.go` - Quality metric tests
+- `internal/testvectors/compliance_test.go` - RFC 8251 compliance tests
+
+**Commits:**
+- `9f2653b` - feat(12-02): implement opus_demo bitstream parser
+- `f0a96ed` - feat(12-02): implement quality metric computation
+- `8952bad` - feat(12-02): implement RFC 8251 decoder compliance tests
+
+**Phase 12 COMPLETE:**
+- Import cycle fixed with external test package pattern
+- CGO-free build verification for all packages
+- Testable examples for core API and Ogg container
+- RFC 8251 test vector parsing and compliance infrastructure
+- Quality metric computation (SNR-based, Q >= 0 threshold)
+- All 48 plans executed successfully
