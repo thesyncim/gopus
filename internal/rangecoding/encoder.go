@@ -184,18 +184,23 @@ func (e *Encoder) EncodeICDF16(s int, icdf []uint16, ftb uint) {
 // EncodeBit encodes a single bit with the given log probability.
 // val is the bit to encode (0 or 1).
 // logp is the log probability: P(0) = 1 - 1/(2^logp), P(1) = 1/(2^logp).
-// This follows libopus ec_enc_bit_logp exactly.
+//
+// This matches the decoder's interval assignment:
+// - Decoder bit=0: val in [0, r) where r = rng >> logp
+// - Decoder bit=1: val in [r, rng)
+//
+// So encoder must:
+// - bit=0: use interval [0, r), rng = r, val unchanged
+// - bit=1: use interval [r, rng), val += r, rng = rng - r
 func (e *Encoder) EncodeBit(val int, logp uint) {
-	// s = probability of bit=1 (the smaller range)
-	s := e.rng >> logp
-	// r = probability of bit=0 (the larger range)
-	r := e.rng - s
+	// r = threshold for bit=0/1 decision
+	r := e.rng >> logp
 	if val != 0 {
-		// Encode 1: move past the bit=0 range, use bit=1 range
+		// Encode 1: use interval [r, rng)
 		e.val += r
-		e.rng = s
+		e.rng -= r
 	} else {
-		// Encode 0: stay at current position, use bit=0 range
+		// Encode 0: use interval [0, r)
 		e.rng = r
 	}
 	e.normalize()
