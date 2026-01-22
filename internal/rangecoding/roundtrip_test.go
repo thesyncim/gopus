@@ -5,11 +5,8 @@ import (
 	"testing"
 )
 
-// Note: The current encoder implementation follows the libopus structure but has
-// byte-level differences in output format that affect round-trip compatibility
-// with the decoder. The encoder produces valid range-coded output and maintains
-// correct internal state. Full round-trip verification requires matching the
-// exact libopus output format, which is tracked for future work.
+// Range coder round-trip tests verify that encode->decode produces identical values.
+// These tests prove the encoder and decoder are symmetric inverses.
 
 // TestEncoderDecoderOutputSize verifies encoder produces reasonable output sizes.
 func TestEncoderDecoderOutputSize(t *testing.T) {
@@ -254,8 +251,7 @@ func TestEncoderMixedBitsAndICDF(t *testing.T) {
 }
 
 // TestEncodeUniformProducesOutput verifies EncodeUniform produces non-empty output.
-// Note: Full round-trip verification is deferred pending encoder-decoder byte format
-// alignment (tracked in STATE.md as known gap D01-02-02).
+// Full round-trip is verified in TestEncodeDecodeUniformRoundTrip.
 func TestEncodeUniformProducesOutput(t *testing.T) {
 	tests := []struct {
 		name string
@@ -379,9 +375,199 @@ func TestEncodeUniformDeterminism(t *testing.T) {
 	}
 }
 
+// TestEncodeDecodeBitRoundTrip verifies single bit encode->decode round-trip.
+func TestEncodeDecodeBitRoundTrip(t *testing.T) {
+	for _, logp := range []uint{1, 2, 4, 8} {
+		for _, bitVal := range []int{0, 1} {
+			buf := make([]byte, 64)
+			enc := &Encoder{}
+			enc.Init(buf)
+			enc.EncodeBit(bitVal, logp)
+			encoded := enc.Done()
+
+			dec := &Decoder{}
+			dec.Init(encoded)
+			decoded := dec.DecodeBit(logp)
+
+			if decoded != bitVal {
+				t.Errorf("bit=%d logp=%d -> decoded=%d (bytes: %x)", bitVal, logp, decoded, encoded)
+			}
+		}
+	}
+}
+
+// TestEncodeDecodeICDFRoundTrip verifies ICDF symbol encode->decode round-trip.
+func TestEncodeDecodeICDFRoundTrip(t *testing.T) {
+	icdf := []uint8{192, 128, 64, 0}
+	for sym := 0; sym < 4; sym++ {
+		buf := make([]byte, 64)
+		enc := &Encoder{}
+		enc.Init(buf)
+		enc.EncodeICDF(sym, icdf, 8)
+		encoded := enc.Done()
+
+		dec := &Decoder{}
+		dec.Init(encoded)
+		decoded := dec.DecodeICDF(icdf, 8)
+
+		if decoded != sym {
+			t.Errorf("ICDF sym=%d -> decoded=%d (bytes: %x)", sym, decoded, encoded)
+		}
+	}
+}
+
+// TestEncodeDecodeUniformRoundTrip verifies uniform value encode->decode round-trip.
+func TestEncodeDecodeUniformRoundTrip(t *testing.T) {
+	for _, ft := range []uint32{8, 16, 100, 256} {
+		for _, val := range []uint32{0, 1, ft / 2, ft - 1} {
+			if val >= ft {
+				continue
+			}
+			buf := make([]byte, 64)
+			enc := &Encoder{}
+			enc.Init(buf)
+			enc.EncodeUniform(val, ft)
+			encoded := enc.Done()
+
+			dec := &Decoder{}
+			dec.Init(encoded)
+			decoded := dec.DecodeUniform(ft)
+
+			if decoded != val {
+				t.Errorf("Uniform val=%d ft=%d -> decoded=%d (bytes: %x)", val, ft, decoded, encoded)
+			}
+		}
+	}
+}
+
+// TestEncodeDecodeMultipleBitsRoundTrip verifies multiple bits sequence round-trip.
+func TestEncodeDecodeMultipleBitsRoundTrip(t *testing.T) {
+	bits := []int{1, 0, 1, 1, 0, 0, 1, 0}
+	buf := make([]byte, 64)
+	enc := &Encoder{}
+	enc.Init(buf)
+	for _, b := range bits {
+		enc.EncodeBit(b, 1)
+	}
+	encoded := enc.Done()
+
+	dec := &Decoder{}
+	dec.Init(encoded)
+	for i, want := range bits {
+		got := dec.DecodeBit(1)
+		if got != want {
+			t.Errorf("bit %d: got %d, want %d", i, got, want)
+		}
+	}
+}
+
+// TestEncodeDecodeMixedRoundTrip verifies mixed operations round-trip.
+func TestEncodeDecodeMixedRoundTrip(t *testing.T) {
+	// Test various combinations of operations
+	t.Run("bit_then_icdf", func(t *testing.T) {
+		icdf := []uint8{192, 128, 64, 0}
+		buf := make([]byte, 64)
+		enc := &Encoder{}
+		enc.Init(buf)
+		enc.EncodeBit(1, 2)
+		enc.EncodeICDF(2, icdf, 8)
+		encoded := enc.Done()
+
+		dec := &Decoder{}
+		dec.Init(encoded)
+		bit := dec.DecodeBit(2)
+		sym := dec.DecodeICDF(icdf, 8)
+
+		if bit != 1 {
+			t.Errorf("bit: got %d, want 1", bit)
+		}
+		if sym != 2 {
+			t.Errorf("sym: got %d, want 2", sym)
+		}
+	})
+
+	t.Run("icdf_then_bit", func(t *testing.T) {
+		icdf := []uint8{192, 128, 64, 0}
+		buf := make([]byte, 64)
+		enc := &Encoder{}
+		enc.Init(buf)
+		enc.EncodeICDF(1, icdf, 8)
+		enc.EncodeBit(0, 4)
+		encoded := enc.Done()
+
+		dec := &Decoder{}
+		dec.Init(encoded)
+		sym := dec.DecodeICDF(icdf, 8)
+		bit := dec.DecodeBit(4)
+
+		if sym != 1 {
+			t.Errorf("sym: got %d, want 1", sym)
+		}
+		if bit != 0 {
+			t.Errorf("bit: got %d, want 0", bit)
+		}
+	})
+
+	t.Run("uniform_then_icdf", func(t *testing.T) {
+		icdf := []uint8{192, 128, 64, 0}
+		buf := make([]byte, 64)
+		enc := &Encoder{}
+		enc.Init(buf)
+		enc.EncodeUniform(5, 16)
+		enc.EncodeICDF(3, icdf, 8)
+		encoded := enc.Done()
+
+		dec := &Decoder{}
+		dec.Init(encoded)
+		val := dec.DecodeUniform(16)
+		sym := dec.DecodeICDF(icdf, 8)
+
+		if val != 5 {
+			t.Errorf("uniform: got %d, want 5", val)
+		}
+		if sym != 3 {
+			t.Errorf("sym: got %d, want 3", sym)
+		}
+	})
+}
+
+// TestEncodeDecodeRawBitsRoundTrip verifies raw bits round-trip.
+func TestEncodeDecodeRawBitsRoundTrip(t *testing.T) {
+	tests := []struct {
+		name string
+		val  uint32
+		bits uint
+	}{
+		{"4_bits", 0xA, 4},
+		{"8_bits", 0xAB, 8},
+		{"12_bits", 0xABC, 12},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buf := make([]byte, 64)
+			enc := &Encoder{}
+			enc.Init(buf)
+			enc.EncodeBit(1, 2) // Encode something via range coder first
+			enc.EncodeRawBits(tt.val, tt.bits)
+			encoded := enc.Done()
+
+			dec := &Decoder{}
+			dec.Init(encoded)
+			bit := dec.DecodeBit(2)
+			raw := dec.DecodeRawBits(tt.bits)
+
+			if bit != 1 {
+				t.Errorf("bit: got %d, want 1", bit)
+			}
+			if raw != tt.val {
+				t.Errorf("raw: got %#x, want %#x", raw, tt.val)
+			}
+		})
+	}
+}
+
 // TestEncodeRawBitsProducesOutput verifies EncodeRawBits produces output in the buffer.
-// Note: Full round-trip verification is deferred pending encoder-decoder byte format
-// alignment (tracked in STATE.md as known gap D01-02-02).
 func TestEncodeRawBitsProducesOutput(t *testing.T) {
 	tests := []struct {
 		name string
