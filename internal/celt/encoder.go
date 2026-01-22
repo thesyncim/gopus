@@ -42,6 +42,9 @@ type Encoder struct {
 	// Analysis buffers (encoder-specific)
 	inputBuffer []float64 // Input sample lookahead buffer
 	mdctBuffer  []float64 // MDCT output working buffer
+
+	// Frame counting for intra mode decisions
+	frameCount int // Number of frames encoded (0 = first frame uses intra mode)
 }
 
 // NewEncoder creates a new CELT encoder with the given number of channels.
@@ -120,6 +123,9 @@ func (e *Encoder) Reset() {
 	// Clear analysis buffers
 	e.inputBuffer = e.inputBuffer[:0]
 	e.mdctBuffer = e.mdctBuffer[:0]
+
+	// Reset frame counter
+	e.frameCount = 0
 }
 
 // SetRangeEncoder sets the range encoder for the current frame.
