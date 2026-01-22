@@ -243,3 +243,195 @@ func (r *Reader) Reset() {
 	r.offset = 0
 	r.eof = false
 }
+
+// Writer encodes PCM samples to an Opus stream, implementing io.Writer.
+// Input is PCM samples in the configured format.
+//
+// The Writer buffers input samples until a complete frame is accumulated,
+// then encodes and sends the packet to the sink.
+//
+// Example:
+//
+//	writer, err := gopus.NewWriter(48000, 2, sink, gopus.FormatFloat32LE, gopus.ApplicationAudio)
+//	io.Copy(writer, audioInput)
+//	writer.Flush() // encode any remaining buffered samples
+type Writer struct {
+	enc    *Encoder
+	sink   PacketSink
+	format SampleFormat // Input sample format
+
+	sampleBuf  []byte // Buffered input bytes
+	frameBytes int    // Bytes needed for one frame
+
+	packetBuf []byte // Buffer for encoded packet (4000 bytes)
+}
+
+// NewWriter creates a streaming encoder.
+//
+// Parameters:
+//   - sampleRate: input sample rate (8000, 12000, 16000, 24000, or 48000)
+//   - channels: number of audio channels (1 or 2)
+//   - sink: receives encoded Opus packets
+//   - format: input sample format (FormatFloat32LE or FormatInt16LE)
+//   - application: encoder application hint
+func NewWriter(sampleRate, channels int, sink PacketSink, format SampleFormat, application Application) (*Writer, error) {
+	enc, err := NewEncoder(sampleRate, channels, application)
+	if err != nil {
+		return nil, err
+	}
+
+	// Default frame size is 960 samples (20ms at 48kHz)
+	frameSize := enc.FrameSize()
+	bytesPerSample := format.BytesPerSample()
+	frameBytes := frameSize * channels * bytesPerSample
+
+	return &Writer{
+		enc:        enc,
+		sink:       sink,
+		format:     format,
+		sampleBuf:  make([]byte, 0, frameBytes*2), // Pre-allocate for 2 frames
+		frameBytes: frameBytes,
+		packetBuf:  make([]byte, 4000),
+	}, nil
+}
+
+// Write implements io.Writer, encoding PCM bytes to Opus packets.
+//
+// The Writer buffers input samples until a complete frame is accumulated,
+// then encodes and sends the packet to the sink.
+func (w *Writer) Write(p []byte) (int, error) {
+	// Append input to buffer
+	w.sampleBuf = append(w.sampleBuf, p...)
+
+	// Process complete frames
+	for len(w.sampleBuf) >= w.frameBytes {
+		// Extract one frame of bytes
+		frameData := w.sampleBuf[:w.frameBytes]
+
+		// Convert bytes to float32 PCM
+		pcm := w.bytesToPCM(frameData)
+
+		// Encode the frame
+		n, err := w.enc.Encode(pcm, w.packetBuf)
+		if err != nil {
+			return 0, err
+		}
+
+		// If n > 0, send packet to sink (n == 0 means DTX suppressed)
+		if n > 0 {
+			_, err = w.sink.WritePacket(w.packetBuf[:n])
+			if err != nil {
+				return 0, err
+			}
+		}
+
+		// Remove consumed bytes from buffer
+		w.sampleBuf = w.sampleBuf[w.frameBytes:]
+	}
+
+	return len(p), nil
+}
+
+// bytesToPCM converts bytes to float32 PCM samples based on the format.
+func (w *Writer) bytesToPCM(data []byte) []float32 {
+	switch w.format {
+	case FormatFloat32LE:
+		numSamples := len(data) / 4
+		pcm := make([]float32, numSamples)
+		for i := 0; i < numSamples; i++ {
+			bits := binary.LittleEndian.Uint32(data[i*4:])
+			pcm[i] = math.Float32frombits(bits)
+		}
+		return pcm
+	case FormatInt16LE:
+		numSamples := len(data) / 2
+		pcm := make([]float32, numSamples)
+		for i := 0; i < numSamples; i++ {
+			sample := int16(binary.LittleEndian.Uint16(data[i*2:]))
+			pcm[i] = float32(sample) / 32768.0
+		}
+		return pcm
+	default:
+		// Default to float32
+		numSamples := len(data) / 4
+		pcm := make([]float32, numSamples)
+		for i := 0; i < numSamples; i++ {
+			bits := binary.LittleEndian.Uint32(data[i*4:])
+			pcm[i] = math.Float32frombits(bits)
+		}
+		return pcm
+	}
+}
+
+// Flush encodes any buffered samples.
+// If samples don't fill a complete frame, they are zero-padded.
+// Call Flush before closing the stream to ensure all audio is encoded.
+func (w *Writer) Flush() error {
+	if len(w.sampleBuf) == 0 {
+		return nil
+	}
+
+	// Zero-pad to complete frame
+	padded := make([]byte, w.frameBytes)
+	copy(padded, w.sampleBuf)
+	// Rest of padded is already zero
+
+	// Convert bytes to float32 PCM
+	pcm := w.bytesToPCM(padded)
+
+	// Encode the frame
+	n, err := w.enc.Encode(pcm, w.packetBuf)
+	if err != nil {
+		return err
+	}
+
+	// If n > 0, send packet to sink
+	if n > 0 {
+		_, err = w.sink.WritePacket(w.packetBuf[:n])
+		if err != nil {
+			return err
+		}
+	}
+
+	// Clear buffer
+	w.sampleBuf = w.sampleBuf[:0]
+
+	return nil
+}
+
+// SetBitrate sets the target bitrate in bits per second.
+// Valid range is 6000 to 510000 (6 kbps to 510 kbps).
+func (w *Writer) SetBitrate(bitrate int) error {
+	return w.enc.SetBitrate(bitrate)
+}
+
+// SetComplexity sets the encoder's computational complexity (0-10).
+func (w *Writer) SetComplexity(complexity int) error {
+	return w.enc.SetComplexity(complexity)
+}
+
+// SetFEC enables or disables in-band Forward Error Correction.
+func (w *Writer) SetFEC(enabled bool) {
+	w.enc.SetFEC(enabled)
+}
+
+// SetDTX enables or disables Discontinuous Transmission.
+func (w *Writer) SetDTX(enabled bool) {
+	w.enc.SetDTX(enabled)
+}
+
+// Reset clears buffers and encoder state for a new stream.
+func (w *Writer) Reset() {
+	w.enc.Reset()
+	w.sampleBuf = w.sampleBuf[:0]
+}
+
+// SampleRate returns the sample rate in Hz.
+func (w *Writer) SampleRate() int {
+	return w.enc.SampleRate()
+}
+
+// Channels returns the number of audio channels (1 or 2).
+func (w *Writer) Channels() int {
+	return w.enc.Channels()
+}

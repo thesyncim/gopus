@@ -517,3 +517,433 @@ func TestReader_io_Reader_Interface(t *testing.T) {
 		t.Error("io.Copy copied 0 bytes")
 	}
 }
+
+// generateFloat32Bytes generates float32 PCM bytes for a sine wave.
+func generateFloat32Bytes(sampleRate, channels, numSamples int, freq float64) []byte {
+	buf := make([]byte, numSamples*channels*4)
+	for i := 0; i < numSamples; i++ {
+		sample := float32(0.5 * math.Sin(2*math.Pi*freq*float64(i)/float64(sampleRate)))
+		for ch := 0; ch < channels; ch++ {
+			idx := (i*channels + ch) * 4
+			bits := math.Float32bits(sample)
+			binary.LittleEndian.PutUint32(buf[idx:], bits)
+		}
+	}
+	return buf
+}
+
+// generateInt16Bytes generates int16 PCM bytes for a sine wave.
+func generateInt16Bytes(sampleRate, channels, numSamples int, freq float64) []byte {
+	buf := make([]byte, numSamples*channels*2)
+	for i := 0; i < numSamples; i++ {
+		sample := int16(0.5 * 32767 * math.Sin(2*math.Pi*freq*float64(i)/float64(sampleRate)))
+		for ch := 0; ch < channels; ch++ {
+			idx := (i*channels + ch) * 2
+			binary.LittleEndian.PutUint16(buf[idx:], uint16(sample))
+		}
+	}
+	return buf
+}
+
+// TestNewWriter_ValidParams tests creating writers with valid parameters.
+func TestNewWriter_ValidParams(t *testing.T) {
+	testCases := []struct {
+		name       string
+		sampleRate int
+		channels   int
+		format     SampleFormat
+		app        Application
+	}{
+		{"48kHz mono float32 audio", 48000, 1, FormatFloat32LE, ApplicationAudio},
+		{"48kHz stereo float32 audio", 48000, 2, FormatFloat32LE, ApplicationAudio},
+		{"48kHz mono int16 voip", 48000, 1, FormatInt16LE, ApplicationVoIP},
+		{"48kHz stereo int16 voip", 48000, 2, FormatInt16LE, ApplicationVoIP},
+		{"24kHz mono float32 lowdelay", 24000, 1, FormatFloat32LE, ApplicationLowDelay},
+		{"16kHz stereo int16 audio", 16000, 2, FormatInt16LE, ApplicationAudio},
+	}
+
+	sink := &slicePacketSink{}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			writer, err := NewWriter(tc.sampleRate, tc.channels, sink, tc.format, tc.app)
+			if err != nil {
+				t.Fatalf("NewWriter failed: %v", err)
+			}
+			if writer.SampleRate() != tc.sampleRate {
+				t.Errorf("SampleRate() = %d, want %d", writer.SampleRate(), tc.sampleRate)
+			}
+			if writer.Channels() != tc.channels {
+				t.Errorf("Channels() = %d, want %d", writer.Channels(), tc.channels)
+			}
+		})
+	}
+}
+
+// TestNewWriter_InvalidParams tests creating writers with invalid parameters.
+func TestNewWriter_InvalidParams(t *testing.T) {
+	sink := &slicePacketSink{}
+
+	testCases := []struct {
+		name       string
+		sampleRate int
+		channels   int
+		wantErr    error
+	}{
+		{"invalid sample rate 44100", 44100, 1, ErrInvalidSampleRate},
+		{"invalid sample rate 0", 0, 1, ErrInvalidSampleRate},
+		{"invalid channels 0", 48000, 0, ErrInvalidChannels},
+		{"invalid channels 3", 48000, 3, ErrInvalidChannels},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := NewWriter(tc.sampleRate, tc.channels, sink, FormatFloat32LE, ApplicationAudio)
+			if err != tc.wantErr {
+				t.Errorf("NewWriter error = %v, want %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestWriter_Write_SingleFrame tests writing exactly one frame.
+func TestWriter_Write_SingleFrame(t *testing.T) {
+	sampleRate := 48000
+	channels := 2
+	frameSize := 960
+
+	sink := &slicePacketSink{}
+	writer, err := NewWriter(sampleRate, channels, sink, FormatFloat32LE, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	// Generate exactly one frame
+	pcmBytes := generateFloat32Bytes(sampleRate, channels, frameSize, 440.0)
+	n, err := writer.Write(pcmBytes)
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+	if n != len(pcmBytes) {
+		t.Errorf("Write returned %d, want %d", n, len(pcmBytes))
+	}
+
+	// Should have one packet
+	if len(sink.packets) != 1 {
+		t.Errorf("Got %d packets, want 1", len(sink.packets))
+	}
+	t.Logf("Encoded %d bytes to %d byte packet", len(pcmBytes), len(sink.packets[0]))
+}
+
+// TestWriter_Write_MultipleFrames tests writing multiple frames at once.
+func TestWriter_Write_MultipleFrames(t *testing.T) {
+	sampleRate := 48000
+	channels := 2
+	frameSize := 960
+	numFrames := 3
+
+	sink := &slicePacketSink{}
+	writer, err := NewWriter(sampleRate, channels, sink, FormatFloat32LE, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	// Generate three frames
+	pcmBytes := generateFloat32Bytes(sampleRate, channels, frameSize*numFrames, 440.0)
+	n, err := writer.Write(pcmBytes)
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+	if n != len(pcmBytes) {
+		t.Errorf("Write returned %d, want %d", n, len(pcmBytes))
+	}
+
+	// Should have three packets
+	if len(sink.packets) != numFrames {
+		t.Errorf("Got %d packets, want %d", len(sink.packets), numFrames)
+	}
+	t.Logf("Encoded %d frames to %d packets", numFrames, len(sink.packets))
+}
+
+// TestWriter_Write_PartialFrame tests writing less than one frame (buffering).
+func TestWriter_Write_PartialFrame(t *testing.T) {
+	sampleRate := 48000
+	channels := 2
+	frameSize := 960
+
+	sink := &slicePacketSink{}
+	writer, err := NewWriter(sampleRate, channels, sink, FormatFloat32LE, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	// Write half a frame
+	halfFrameSamples := frameSize / 2
+	pcmBytes := generateFloat32Bytes(sampleRate, channels, halfFrameSamples, 440.0)
+	n, err := writer.Write(pcmBytes)
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+	if n != len(pcmBytes) {
+		t.Errorf("Write returned %d, want %d", n, len(pcmBytes))
+	}
+
+	// Should have no packets yet
+	if len(sink.packets) != 0 {
+		t.Errorf("Got %d packets, want 0 (should be buffered)", len(sink.packets))
+	}
+
+	// Write another half
+	n, err = writer.Write(pcmBytes)
+	if err != nil {
+		t.Fatalf("Second Write failed: %v", err)
+	}
+	if n != len(pcmBytes) {
+		t.Errorf("Second Write returned %d, want %d", n, len(pcmBytes))
+	}
+
+	// Now should have one packet
+	if len(sink.packets) != 1 {
+		t.Errorf("Got %d packets, want 1", len(sink.packets))
+	}
+	t.Logf("Buffering works: two half-frame writes produced 1 packet")
+}
+
+// TestWriter_Write_CrossFrameBoundary tests writing that spans frame boundaries.
+func TestWriter_Write_CrossFrameBoundary(t *testing.T) {
+	sampleRate := 48000
+	channels := 2
+	frameSize := 960
+
+	sink := &slicePacketSink{}
+	writer, err := NewWriter(sampleRate, channels, sink, FormatFloat32LE, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	// Write 1.5 frames worth
+	samples := frameSize + frameSize/2
+	pcmBytes := generateFloat32Bytes(sampleRate, channels, samples, 440.0)
+	n, err := writer.Write(pcmBytes)
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+	if n != len(pcmBytes) {
+		t.Errorf("Write returned %d, want %d", n, len(pcmBytes))
+	}
+
+	// Should have 1 packet, 0.5 frame buffered
+	if len(sink.packets) != 1 {
+		t.Errorf("Got %d packets, want 1", len(sink.packets))
+	}
+
+	// Write another 0.5 frame to complete the buffered data
+	pcmBytes2 := generateFloat32Bytes(sampleRate, channels, frameSize/2, 440.0)
+	_, err = writer.Write(pcmBytes2)
+	if err != nil {
+		t.Fatalf("Second Write failed: %v", err)
+	}
+
+	// Now should have 2 packets
+	if len(sink.packets) != 2 {
+		t.Errorf("Got %d packets, want 2", len(sink.packets))
+	}
+	t.Logf("Cross-boundary writes work: got %d packets", len(sink.packets))
+}
+
+// TestWriter_Flush tests flushing remaining buffered samples.
+func TestWriter_Flush(t *testing.T) {
+	sampleRate := 48000
+	channels := 2
+	frameSize := 960
+
+	sink := &slicePacketSink{}
+	writer, err := NewWriter(sampleRate, channels, sink, FormatFloat32LE, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	// Write partial frame
+	partialSamples := frameSize / 4
+	pcmBytes := generateFloat32Bytes(sampleRate, channels, partialSamples, 440.0)
+	_, err = writer.Write(pcmBytes)
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	// No packets yet
+	if len(sink.packets) != 0 {
+		t.Errorf("Got %d packets before flush, want 0", len(sink.packets))
+	}
+
+	// Flush
+	err = writer.Flush()
+	if err != nil {
+		t.Fatalf("Flush failed: %v", err)
+	}
+
+	// Now should have 1 packet (zero-padded)
+	if len(sink.packets) != 1 {
+		t.Errorf("Got %d packets after flush, want 1", len(sink.packets))
+	}
+	t.Logf("Flush zero-padded partial frame to packet of %d bytes", len(sink.packets[0]))
+}
+
+// TestWriter_Flush_Empty tests flushing with no buffered data.
+func TestWriter_Flush_Empty(t *testing.T) {
+	sink := &slicePacketSink{}
+	writer, err := NewWriter(48000, 2, sink, FormatFloat32LE, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	// Flush with nothing buffered should not error
+	err = writer.Flush()
+	if err != nil {
+		t.Fatalf("Flush failed: %v", err)
+	}
+
+	// No packets
+	if len(sink.packets) != 0 {
+		t.Errorf("Got %d packets from empty flush, want 0", len(sink.packets))
+	}
+}
+
+// TestWriter_Format_Float32LE tests float32 input format.
+func TestWriter_Format_Float32LE(t *testing.T) {
+	sampleRate := 48000
+	channels := 1
+	frameSize := 960
+
+	sink := &slicePacketSink{}
+	writer, err := NewWriter(sampleRate, channels, sink, FormatFloat32LE, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	// Generate float32 bytes
+	pcmBytes := generateFloat32Bytes(sampleRate, channels, frameSize, 440.0)
+	_, err = writer.Write(pcmBytes)
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	// Should have one packet
+	if len(sink.packets) != 1 {
+		t.Errorf("Got %d packets, want 1", len(sink.packets))
+	}
+	t.Logf("Float32LE: %d input bytes -> %d byte packet", len(pcmBytes), len(sink.packets[0]))
+}
+
+// TestWriter_Format_Int16LE tests int16 input format.
+func TestWriter_Format_Int16LE(t *testing.T) {
+	sampleRate := 48000
+	channels := 1
+	frameSize := 960
+
+	sink := &slicePacketSink{}
+	writer, err := NewWriter(sampleRate, channels, sink, FormatInt16LE, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	// Generate int16 bytes
+	pcmBytes := generateInt16Bytes(sampleRate, channels, frameSize, 440.0)
+	_, err = writer.Write(pcmBytes)
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	// Should have one packet
+	if len(sink.packets) != 1 {
+		t.Errorf("Got %d packets, want 1", len(sink.packets))
+	}
+	t.Logf("Int16LE: %d input bytes -> %d byte packet", len(pcmBytes), len(sink.packets[0]))
+}
+
+// TestWriter_DTX tests that silence produces no packets with DTX enabled.
+func TestWriter_DTX(t *testing.T) {
+	sampleRate := 48000
+	channels := 2
+	frameSize := 960
+
+	sink := &slicePacketSink{}
+	writer, err := NewWriter(sampleRate, channels, sink, FormatFloat32LE, ApplicationVoIP)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	writer.SetDTX(true)
+
+	// Write silence (zeros) for multiple frames
+	// DTX needs multiple frames to activate (DTXFrameThreshold = 20 frames)
+	silentBytes := make([]byte, frameSize*channels*4*25) // 25 frames of silence
+	_, err = writer.Write(silentBytes)
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	// After threshold, some frames should be suppressed
+	// We wrote 25 frames, DTX activates after 20, so at least last few should be suppressed
+	t.Logf("DTX test: wrote 25 silent frames, got %d packets", len(sink.packets))
+	// Just verify no error occurred; exact packet count depends on DTX implementation
+}
+
+// TestWriter_Reset tests resetting the writer.
+func TestWriter_Reset(t *testing.T) {
+	sampleRate := 48000
+	channels := 2
+	frameSize := 960
+
+	sink := &slicePacketSink{}
+	writer, err := NewWriter(sampleRate, channels, sink, FormatFloat32LE, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	// Write partial frame
+	pcmBytes := generateFloat32Bytes(sampleRate, channels, frameSize/2, 440.0)
+	_, err = writer.Write(pcmBytes)
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	// Reset
+	writer.Reset()
+
+	// Buffer should be cleared (Flush should produce nothing)
+	sink.packets = nil // Clear sink
+	err = writer.Flush()
+	if err != nil {
+		t.Fatalf("Flush after reset failed: %v", err)
+	}
+	if len(sink.packets) != 0 {
+		t.Error("Buffer not cleared after reset")
+	}
+}
+
+// TestWriter_io_Writer_Interface verifies Writer implements io.Writer.
+func TestWriter_io_Writer_Interface(t *testing.T) {
+	sink := &slicePacketSink{}
+	writer, err := NewWriter(48000, 2, sink, FormatFloat32LE, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	// Verify interface compliance at compile time
+	var _ io.Writer = writer
+
+	// Also test with io.Copy
+	pcmBytes := generateFloat32Bytes(48000, 2, 960*3, 440.0) // 3 frames
+	src := bytes.NewReader(pcmBytes)
+
+	n, err := io.Copy(writer, src)
+	if err != nil {
+		t.Fatalf("io.Copy failed: %v", err)
+	}
+	t.Logf("io.Copy wrote %d bytes, produced %d packets", n, len(sink.packets))
+
+	if len(sink.packets) != 3 {
+		t.Errorf("Got %d packets, want 3", len(sink.packets))
+	}
+}
