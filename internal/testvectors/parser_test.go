@@ -8,21 +8,22 @@ import (
 )
 
 // createTestBitstream creates a synthetic .bit format byte slice
+// Uses big-endian (network byte order) as per opus_demo format
 func createTestBitstream(packets [][]byte, finalRanges []uint32) []byte {
 	var data []byte
 	for i, pkt := range packets {
-		// Write packet length (4 bytes, little-endian)
+		// Write packet length (4 bytes, big-endian)
 		lenBytes := make([]byte, 4)
-		binary.LittleEndian.PutUint32(lenBytes, uint32(len(pkt)))
+		binary.BigEndian.PutUint32(lenBytes, uint32(len(pkt)))
 		data = append(data, lenBytes...)
 
-		// Write final range (4 bytes, little-endian)
+		// Write final range (4 bytes, big-endian)
 		rangeBytes := make([]byte, 4)
 		fr := uint32(0)
 		if i < len(finalRanges) {
 			fr = finalRanges[i]
 		}
-		binary.LittleEndian.PutUint32(rangeBytes, fr)
+		binary.BigEndian.PutUint32(rangeBytes, fr)
 		data = append(data, rangeBytes...)
 
 		// Write packet data
@@ -150,8 +151,8 @@ func TestParseOpusDemoBitstream_TruncatedHeader(t *testing.T) {
 func TestParseOpusDemoBitstream_TruncatedPacketData(t *testing.T) {
 	// Header says 100 bytes, but only provide 10
 	data := make([]byte, 8+10)
-	binary.LittleEndian.PutUint32(data[0:], 100) // packet length = 100
-	binary.LittleEndian.PutUint32(data[4:], 0)   // final range
+	binary.BigEndian.PutUint32(data[0:], 100) // packet length = 100
+	binary.BigEndian.PutUint32(data[4:], 0)   // final range
 
 	_, err := ParseOpusDemoBitstream(data)
 	if err == nil {

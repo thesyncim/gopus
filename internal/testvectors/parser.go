@@ -40,9 +40,9 @@ type Packet struct {
 
 // ParseOpusDemoBitstream reads opus_demo .bit file format from a byte slice.
 //
-// The format per packet is:
-//   - uint32_le: packet_length (4 bytes)
-//   - uint32_le: enc_final_range (4 bytes, range coder verification)
+// The format per packet is (big-endian, network byte order):
+//   - uint32_be: packet_length (4 bytes)
+//   - uint32_be: enc_final_range (4 bytes, range coder verification)
 //   - byte[packet_length]: opus_packet_data
 //
 // Returns all packets in the bitstream, or an error if the format is invalid.
@@ -61,12 +61,12 @@ func ParseOpusDemoBitstream(data []byte) ([]Packet, error) {
 				ErrTruncatedHeader, offset, len(data)-offset)
 		}
 
-		// Read packet length (4 bytes, little-endian)
-		packetLen := binary.LittleEndian.Uint32(data[offset:])
+		// Read packet length (4 bytes, big-endian / network byte order)
+		packetLen := binary.BigEndian.Uint32(data[offset:])
 		offset += 4
 
-		// Read enc_final_range (4 bytes, little-endian)
-		finalRange := binary.LittleEndian.Uint32(data[offset:])
+		// Read enc_final_range (4 bytes, big-endian / network byte order)
+		finalRange := binary.BigEndian.Uint32(data[offset:])
 		offset += 4
 
 		// Validate packet length
