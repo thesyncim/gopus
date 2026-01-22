@@ -1,6 +1,6 @@
-// Package encoder libopus cross-validation tests.
+// Package encoder_test libopus cross-validation tests.
 // Validates that gopus encoder output can be decoded by the reference libopus implementation.
-package encoder
+package encoder_test
 
 import (
 	"bytes"
@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"gopus"
+	"gopus/internal/encoder"
+	"gopus/internal/types"
 )
 
 // TestLibopusHybridDecode verifies libopus can decode hybrid packets.
@@ -22,18 +24,18 @@ func TestLibopusHybridDecode(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		bandwidth gopus.Bandwidth
+		bandwidth types.Bandwidth
 		frameSize int
 		channels  int
 	}{
-		{"SWB-20ms-mono", gopus.BandwidthSuperwideband, 960, 1},
-		{"FB-20ms-mono", gopus.BandwidthFullband, 960, 1},
-		{"SWB-20ms-stereo", gopus.BandwidthSuperwideband, 960, 2},
+		{"SWB-20ms-mono", types.BandwidthSuperwideband, 960, 1},
+		{"FB-20ms-mono", types.BandwidthFullband, 960, 1},
+		{"SWB-20ms-stereo", types.BandwidthSuperwideband, 960, 2},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			testLibopusDecode(t, ModeHybrid, tc.bandwidth, tc.frameSize, tc.channels)
+			testLibopusDecode(t, encoder.ModeHybrid, tc.bandwidth, tc.frameSize, tc.channels)
 		})
 	}
 }
@@ -46,18 +48,18 @@ func TestLibopusSILKDecode(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		bandwidth gopus.Bandwidth
+		bandwidth types.Bandwidth
 		frameSize int
 		channels  int
 	}{
-		{"NB-20ms-mono", gopus.BandwidthNarrowband, 960, 1},
-		{"WB-20ms-mono", gopus.BandwidthWideband, 960, 1},
-		{"WB-20ms-stereo", gopus.BandwidthWideband, 960, 2},
+		{"NB-20ms-mono", types.BandwidthNarrowband, 960, 1},
+		{"WB-20ms-mono", types.BandwidthWideband, 960, 1},
+		{"WB-20ms-stereo", types.BandwidthWideband, 960, 2},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			testLibopusDecode(t, ModeSILK, tc.bandwidth, tc.frameSize, tc.channels)
+			testLibopusDecode(t, encoder.ModeSILK, tc.bandwidth, tc.frameSize, tc.channels)
 		})
 	}
 }
@@ -70,25 +72,25 @@ func TestLibopusCELTDecode(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		bandwidth gopus.Bandwidth
+		bandwidth types.Bandwidth
 		frameSize int
 		channels  int
 	}{
-		{"FB-20ms-mono", gopus.BandwidthFullband, 960, 1},
-		{"FB-10ms-mono", gopus.BandwidthFullband, 480, 1},
-		{"FB-20ms-stereo", gopus.BandwidthFullband, 960, 2},
+		{"FB-20ms-mono", types.BandwidthFullband, 960, 1},
+		{"FB-10ms-mono", types.BandwidthFullband, 480, 1},
+		{"FB-20ms-stereo", types.BandwidthFullband, 960, 2},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			testLibopusDecode(t, ModeCELT, tc.bandwidth, tc.frameSize, tc.channels)
+			testLibopusDecode(t, encoder.ModeCELT, tc.bandwidth, tc.frameSize, tc.channels)
 		})
 	}
 }
 
-func testLibopusDecode(t *testing.T, mode Mode, bandwidth gopus.Bandwidth, frameSize, channels int) {
+func testLibopusDecode(t *testing.T, mode encoder.Mode, bandwidth types.Bandwidth, frameSize, channels int) {
 	// Create encoder
-	enc := NewEncoder(48000, channels)
+	enc := encoder.NewEncoder(48000, channels)
 	enc.SetMode(mode)
 	enc.SetBandwidth(bandwidth)
 
@@ -451,19 +453,19 @@ func TestLibopusCrossValidationInfo(t *testing.T) {
 func TestLibopusPacketValidation(t *testing.T) {
 	modes := []struct {
 		name      string
-		mode      Mode
-		bandwidth gopus.Bandwidth
+		mode      encoder.Mode
+		bandwidth types.Bandwidth
 	}{
-		{"Hybrid-SWB", ModeHybrid, gopus.BandwidthSuperwideband},
-		{"Hybrid-FB", ModeHybrid, gopus.BandwidthFullband},
-		{"SILK-NB", ModeSILK, gopus.BandwidthNarrowband},
-		{"SILK-WB", ModeSILK, gopus.BandwidthWideband},
-		{"CELT-FB", ModeCELT, gopus.BandwidthFullband},
+		{"Hybrid-SWB", encoder.ModeHybrid, types.BandwidthSuperwideband},
+		{"Hybrid-FB", encoder.ModeHybrid, types.BandwidthFullband},
+		{"SILK-NB", encoder.ModeSILK, types.BandwidthNarrowband},
+		{"SILK-WB", encoder.ModeSILK, types.BandwidthWideband},
+		{"CELT-FB", encoder.ModeCELT, types.BandwidthFullband},
 	}
 
 	for _, tc := range modes {
 		t.Run(tc.name, func(t *testing.T) {
-			enc := NewEncoder(48000, 1)
+			enc := encoder.NewEncoder(48000, 1)
 			enc.SetMode(tc.mode)
 			enc.SetBandwidth(tc.bandwidth)
 
@@ -477,7 +479,7 @@ func TestLibopusPacketValidation(t *testing.T) {
 			toc := gopus.ParseTOC(packet[0])
 
 			// Verify TOC matches expected mode
-			expectedMode := modeToGopus(tc.mode)
+			expectedMode := modeToGopusLibopus(tc.mode)
 			if toc.Mode != expectedMode {
 				t.Errorf("TOC mode = %v, want %v", toc.Mode, expectedMode)
 			}
@@ -511,9 +513,9 @@ func TestLibopusPacketValidation(t *testing.T) {
 // TestLibopusContainerFormat tests Ogg Opus container generation.
 func TestLibopusContainerFormat(t *testing.T) {
 	// Generate a simple packet
-	enc := NewEncoder(48000, 1)
-	enc.SetMode(ModeCELT)
-	enc.SetBandwidth(gopus.BandwidthFullband)
+	enc := encoder.NewEncoder(48000, 1)
+	enc.SetMode(encoder.ModeCELT)
+	enc.SetBandwidth(types.BandwidthFullband)
 
 	pcm := generateLibopusTestSignal(960, 440, 0.5)
 	packet, err := enc.Encode(pcm, 960)
@@ -569,9 +571,9 @@ func TestLibopusEnergyPreservation(t *testing.T) {
 	}
 
 	// Test with a known signal
-	enc := NewEncoder(48000, 1)
-	enc.SetMode(ModeCELT)
-	enc.SetBandwidth(gopus.BandwidthFullband)
+	enc := encoder.NewEncoder(48000, 1)
+	enc.SetMode(encoder.ModeCELT)
+	enc.SetBandwidth(types.BandwidthFullband)
 	enc.SetBitrate(64000)
 
 	// Generate 10 frames
@@ -654,5 +656,19 @@ func TestLibopusEnergyPreservation(t *testing.T) {
 		// Don't fail - this test is informational
 		// CELT encoder may need further tuning for full signal preservation
 		t.Logf("INFO: Energy ratio below threshold - CELT encoder may need tuning")
+	}
+}
+
+// modeToGopusLibopus converts encoder.Mode to gopus.Mode
+func modeToGopusLibopus(m encoder.Mode) gopus.Mode {
+	switch m {
+	case encoder.ModeSILK:
+		return gopus.ModeSILK
+	case encoder.ModeHybrid:
+		return gopus.ModeHybrid
+	case encoder.ModeCELT:
+		return gopus.ModeCELT
+	default:
+		return gopus.ModeSILK
 	}
 }

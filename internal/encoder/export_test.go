@@ -25,3 +25,6 @@ func (e *Encoder) ShouldUseFEC() bool {
 func (e *Encoder) UpdateFECState(pcm []float32, vadFlag bool) {
 	e.updateFECState(pcm, vadFlag)
 }
+
+// WriteFrameLength exports writeFrameLength for testing.
+var WriteFrameLength = writeFrameLength

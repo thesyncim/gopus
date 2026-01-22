@@ -1,17 +1,20 @@
-package encoder
+// Package encoder_test tests for packet building functions.
+package encoder_test
 
 import (
 	"testing"
 
 	"gopus"
+	"gopus/internal/encoder"
+	"gopus/internal/types"
 )
 
 func TestBuildPacket(t *testing.T) {
 	tests := []struct {
 		name      string
 		frameData []byte
-		mode      gopus.Mode
-		bandwidth gopus.Bandwidth
+		mode      types.Mode
+		bandwidth types.Bandwidth
 		frameSize int
 		stereo    bool
 		wantTOC   byte
@@ -20,8 +23,8 @@ func TestBuildPacket(t *testing.T) {
 		{
 			name:      "hybrid_swb_10ms_mono",
 			frameData: make([]byte, 50),
-			mode:      gopus.ModeHybrid,
-			bandwidth: gopus.BandwidthSuperwideband,
+			mode:      types.ModeHybrid,
+			bandwidth: types.BandwidthSuperwideband,
 			frameSize: 480,
 			stereo:    false,
 			wantTOC:   0x60, // Config 12, mono, code 0
@@ -30,8 +33,8 @@ func TestBuildPacket(t *testing.T) {
 		{
 			name:      "hybrid_swb_20ms_stereo",
 			frameData: make([]byte, 100),
-			mode:      gopus.ModeHybrid,
-			bandwidth: gopus.BandwidthSuperwideband,
+			mode:      types.ModeHybrid,
+			bandwidth: types.BandwidthSuperwideband,
 			frameSize: 960,
 			stereo:    true,
 			wantTOC:   0x6C, // Config 13, stereo, code 0
@@ -40,8 +43,8 @@ func TestBuildPacket(t *testing.T) {
 		{
 			name:      "hybrid_fb_10ms",
 			frameData: make([]byte, 60),
-			mode:      gopus.ModeHybrid,
-			bandwidth: gopus.BandwidthFullband,
+			mode:      types.ModeHybrid,
+			bandwidth: types.BandwidthFullband,
 			frameSize: 480,
 			stereo:    false,
 			wantTOC:   0x70, // Config 14, mono, code 0
@@ -50,8 +53,8 @@ func TestBuildPacket(t *testing.T) {
 		{
 			name:      "hybrid_fb_20ms",
 			frameData: make([]byte, 80),
-			mode:      gopus.ModeHybrid,
-			bandwidth: gopus.BandwidthFullband,
+			mode:      types.ModeHybrid,
+			bandwidth: types.BandwidthFullband,
 			frameSize: 960,
 			stereo:    false,
 			wantTOC:   0x78, // Config 15, mono, code 0
@@ -60,8 +63,8 @@ func TestBuildPacket(t *testing.T) {
 		{
 			name:      "celt_fb_20ms",
 			frameData: make([]byte, 120),
-			mode:      gopus.ModeCELT,
-			bandwidth: gopus.BandwidthFullband,
+			mode:      types.ModeCELT,
+			bandwidth: types.BandwidthFullband,
 			frameSize: 960,
 			stereo:    false,
 			wantTOC:   0xF8, // Config 31, mono, code 0
@@ -70,8 +73,8 @@ func TestBuildPacket(t *testing.T) {
 		{
 			name:      "silk_nb_20ms",
 			frameData: make([]byte, 30),
-			mode:      gopus.ModeSILK,
-			bandwidth: gopus.BandwidthNarrowband,
+			mode:      types.ModeSILK,
+			bandwidth: types.BandwidthNarrowband,
 			frameSize: 960,
 			stereo:    false,
 			wantTOC:   0x08, // Config 1, mono, code 0
@@ -80,8 +83,8 @@ func TestBuildPacket(t *testing.T) {
 		{
 			name:      "empty_frame",
 			frameData: []byte{},
-			mode:      gopus.ModeHybrid,
-			bandwidth: gopus.BandwidthSuperwideband,
+			mode:      types.ModeHybrid,
+			bandwidth: types.BandwidthSuperwideband,
 			frameSize: 960,
 			stereo:    false,
 			wantTOC:   0x68,
@@ -91,7 +94,7 @@ func TestBuildPacket(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			packet, err := BuildPacket(tt.frameData, tt.mode, tt.bandwidth, tt.frameSize, tt.stereo)
+			packet, err := encoder.BuildPacket(tt.frameData, tt.mode, tt.bandwidth, tt.frameSize, tt.stereo)
 			if err != nil {
 				t.Fatalf("BuildPacket failed: %v", err)
 			}
@@ -112,12 +115,12 @@ func TestBuildPacket(t *testing.T) {
 				}
 			}
 
-			// Verify TOC parses correctly
+			// Verify TOC parses correctly (cast types to gopus types for comparison)
 			toc := gopus.ParseTOC(packet[0])
-			if toc.Mode != tt.mode {
+			if toc.Mode != gopus.Mode(tt.mode) {
 				t.Errorf("parsed mode = %v, want %v", toc.Mode, tt.mode)
 			}
-			if toc.Bandwidth != tt.bandwidth {
+			if toc.Bandwidth != gopus.Bandwidth(tt.bandwidth) {
 				t.Errorf("parsed bandwidth = %v, want %v", toc.Bandwidth, tt.bandwidth)
 			}
 			if toc.FrameSize != tt.frameSize {
@@ -137,20 +140,20 @@ func TestBuildPacketInvalidConfig(t *testing.T) {
 	// Test invalid mode/bandwidth/frameSize combinations
 	tests := []struct {
 		name      string
-		mode      gopus.Mode
-		bandwidth gopus.Bandwidth
+		mode      types.Mode
+		bandwidth types.Bandwidth
 		frameSize int
 	}{
-		{"hybrid_wb", gopus.ModeHybrid, gopus.BandwidthWideband, 960},
-		{"silk_fb", gopus.ModeSILK, gopus.BandwidthFullband, 960},
-		{"celt_40ms", gopus.ModeCELT, gopus.BandwidthFullband, 1920},
-		{"invalid_framesize", gopus.ModeSILK, gopus.BandwidthNarrowband, 100},
+		{"hybrid_wb", types.ModeHybrid, types.BandwidthWideband, 960},
+		{"silk_fb", types.ModeSILK, types.BandwidthFullband, 960},
+		{"celt_40ms", types.ModeCELT, types.BandwidthFullband, 1920},
+		{"invalid_framesize", types.ModeSILK, types.BandwidthNarrowband, 100},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := BuildPacket([]byte{}, tt.mode, tt.bandwidth, tt.frameSize, false)
-			if err != ErrInvalidConfig {
+			_, err := encoder.BuildPacket([]byte{}, tt.mode, tt.bandwidth, tt.frameSize, false)
+			if err != encoder.ErrInvalidConfig {
 				t.Errorf("expected ErrInvalidConfig, got %v", err)
 			}
 		})
@@ -161,8 +164,8 @@ func TestBuildMultiFramePacket(t *testing.T) {
 	tests := []struct {
 		name       string
 		frames     [][]byte
-		mode       gopus.Mode
-		bandwidth  gopus.Bandwidth
+		mode       types.Mode
+		bandwidth  types.Bandwidth
 		frameSize  int
 		stereo     bool
 		vbr        bool
@@ -173,8 +176,8 @@ func TestBuildMultiFramePacket(t *testing.T) {
 		{
 			name:       "cbr_2_frames",
 			frames:     [][]byte{make([]byte, 50), make([]byte, 50)},
-			mode:       gopus.ModeHybrid,
-			bandwidth:  gopus.BandwidthSuperwideband,
+			mode:       types.ModeHybrid,
+			bandwidth:  types.BandwidthSuperwideband,
 			frameSize:  960,
 			stereo:     false,
 			vbr:        false,
@@ -185,8 +188,8 @@ func TestBuildMultiFramePacket(t *testing.T) {
 		{
 			name:       "vbr_2_frames",
 			frames:     [][]byte{make([]byte, 30), make([]byte, 50)},
-			mode:       gopus.ModeHybrid,
-			bandwidth:  gopus.BandwidthSuperwideband,
+			mode:       types.ModeHybrid,
+			bandwidth:  types.BandwidthSuperwideband,
 			frameSize:  960,
 			stereo:     false,
 			vbr:        true,
@@ -197,8 +200,8 @@ func TestBuildMultiFramePacket(t *testing.T) {
 		{
 			name:       "vbr_3_frames",
 			frames:     [][]byte{make([]byte, 20), make([]byte, 30), make([]byte, 40)},
-			mode:       gopus.ModeCELT,
-			bandwidth:  gopus.BandwidthFullband,
+			mode:       types.ModeCELT,
+			bandwidth:  types.BandwidthFullband,
 			frameSize:  960,
 			stereo:     true,
 			vbr:        true,
@@ -209,8 +212,8 @@ func TestBuildMultiFramePacket(t *testing.T) {
 		{
 			name:       "single_frame_code3",
 			frames:     [][]byte{make([]byte, 100)},
-			mode:       gopus.ModeHybrid,
-			bandwidth:  gopus.BandwidthFullband,
+			mode:       types.ModeHybrid,
+			bandwidth:  types.BandwidthFullband,
 			frameSize:  480,
 			stereo:     false,
 			vbr:        false,
@@ -222,7 +225,7 @@ func TestBuildMultiFramePacket(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			packet, err := BuildMultiFramePacket(tt.frames, tt.mode, tt.bandwidth, tt.frameSize, tt.stereo, tt.vbr)
+			packet, err := encoder.BuildMultiFramePacket(tt.frames, tt.mode, tt.bandwidth, tt.frameSize, tt.stereo, tt.vbr)
 			if err != nil {
 				t.Fatalf("BuildMultiFramePacket failed: %v", err)
 			}
@@ -262,40 +265,40 @@ func TestBuildMultiFramePacketErrors(t *testing.T) {
 	tests := []struct {
 		name      string
 		frames    [][]byte
-		mode      gopus.Mode
-		bandwidth gopus.Bandwidth
+		mode      types.Mode
+		bandwidth types.Bandwidth
 		frameSize int
 		wantErr   error
 	}{
 		{
 			name:      "empty_frames",
 			frames:    [][]byte{},
-			mode:      gopus.ModeHybrid,
-			bandwidth: gopus.BandwidthSuperwideband,
+			mode:      types.ModeHybrid,
+			bandwidth: types.BandwidthSuperwideband,
 			frameSize: 960,
-			wantErr:   ErrInvalidFrameCount,
+			wantErr:   encoder.ErrInvalidFrameCount,
 		},
 		{
 			name:      "too_many_frames",
 			frames:    make([][]byte, 49), // Max is 48
-			mode:      gopus.ModeHybrid,
-			bandwidth: gopus.BandwidthSuperwideband,
+			mode:      types.ModeHybrid,
+			bandwidth: types.BandwidthSuperwideband,
 			frameSize: 960,
-			wantErr:   ErrInvalidFrameCount,
+			wantErr:   encoder.ErrInvalidFrameCount,
 		},
 		{
 			name:      "invalid_config",
 			frames:    [][]byte{make([]byte, 50)},
-			mode:      gopus.ModeHybrid,
-			bandwidth: gopus.BandwidthWideband,
+			mode:      types.ModeHybrid,
+			bandwidth: types.BandwidthWideband,
 			frameSize: 960,
-			wantErr:   ErrInvalidConfig,
+			wantErr:   encoder.ErrInvalidConfig,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := BuildMultiFramePacket(tt.frames, tt.mode, tt.bandwidth, tt.frameSize, false, false)
+			_, err := encoder.BuildMultiFramePacket(tt.frames, tt.mode, tt.bandwidth, tt.frameSize, false, false)
 			if err != tt.wantErr {
 				t.Errorf("got error %v, want %v", err, tt.wantErr)
 			}
@@ -310,7 +313,7 @@ func TestBuildMultiFramePacketVBRTwoByteLength(t *testing.T) {
 		make([]byte, 100),
 	}
 
-	packet, err := BuildMultiFramePacket(frames, gopus.ModeHybrid, gopus.BandwidthSuperwideband, 960, false, true)
+	packet, err := encoder.BuildMultiFramePacket(frames, types.ModeHybrid, types.BandwidthSuperwideband, 960, false, true)
 	if err != nil {
 		t.Fatalf("BuildMultiFramePacket failed: %v", err)
 	}
@@ -344,18 +347,18 @@ func TestWriteFrameLength(t *testing.T) {
 		{0, 1, 0, 0},
 		{100, 1, 100, 0},
 		{251, 1, 251, 0},
-		{252, 2, 252, 0},     // 252 + 4*0 = 252
-		{253, 2, 253, 0},     // 253 + 4*0 = 253
-		{255, 2, 255, 0},     // 255 + 4*0 = 255
-		{256, 2, 252, 1},     // 252 + 4*1 = 256
-		{300, 2, 252, 12},    // 252 + 4*12 = 300
-		{1020, 2, 252, 192},  // 252 + 4*192 = 1020
-		{1275, 2, 255, 255},  // 255 + 4*255 = 1275 (max two-byte)
+		{252, 2, 252, 0},    // 252 + 4*0 = 252
+		{253, 2, 253, 0},    // 253 + 4*0 = 253
+		{255, 2, 255, 0},    // 255 + 4*0 = 255
+		{256, 2, 252, 1},    // 252 + 4*1 = 256
+		{300, 2, 252, 12},   // 252 + 4*12 = 300
+		{1020, 2, 252, 192}, // 252 + 4*192 = 1020
+		{1275, 2, 255, 255}, // 255 + 4*255 = 1275 (max two-byte)
 	}
 
 	for _, tt := range tests {
 		buf := make([]byte, 2)
-		n := writeFrameLength(buf, tt.length)
+		n := encoder.WriteFrameLength(buf, tt.length)
 
 		if n != tt.wantBytes {
 			t.Errorf("writeFrameLength(%d) = %d bytes, want %d", tt.length, n, tt.wantBytes)

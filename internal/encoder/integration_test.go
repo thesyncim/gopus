@@ -1,7 +1,7 @@
-// Package encoder integration tests for all encoding modes and configurations.
+// Package encoder_test integration tests for all encoding modes and configurations.
 // Validates that the unified encoder produces correct Opus packets by round-tripping
 // with internal decoders and verifying signal preservation.
-package encoder
+package encoder_test
 
 import (
 	"fmt"
@@ -10,37 +10,39 @@ import (
 
 	"gopus"
 	"gopus/internal/celt"
+	"gopus/internal/encoder"
 	"gopus/internal/hybrid"
 	"gopus/internal/rangecoding"
+	"gopus/internal/types"
 )
 
 // Test configuration combinations covering all modes
 var testConfigs = []struct {
 	name      string
-	mode      Mode
-	bandwidth gopus.Bandwidth
+	mode      encoder.Mode
+	bandwidth types.Bandwidth
 	frameSize int
 	stereo    bool
 }{
 	// Hybrid mode (Phase 8 focus)
-	{"Hybrid-SWB-10ms-mono", ModeHybrid, gopus.BandwidthSuperwideband, 480, false},
-	{"Hybrid-SWB-20ms-mono", ModeHybrid, gopus.BandwidthSuperwideband, 960, false},
-	{"Hybrid-FB-10ms-mono", ModeHybrid, gopus.BandwidthFullband, 480, false},
-	{"Hybrid-FB-20ms-mono", ModeHybrid, gopus.BandwidthFullband, 960, false},
-	{"Hybrid-SWB-20ms-stereo", ModeHybrid, gopus.BandwidthSuperwideband, 960, true},
-	{"Hybrid-FB-20ms-stereo", ModeHybrid, gopus.BandwidthFullband, 960, true},
+	{"Hybrid-SWB-10ms-mono", encoder.ModeHybrid, types.BandwidthSuperwideband, 480, false},
+	{"Hybrid-SWB-20ms-mono", encoder.ModeHybrid, types.BandwidthSuperwideband, 960, false},
+	{"Hybrid-FB-10ms-mono", encoder.ModeHybrid, types.BandwidthFullband, 480, false},
+	{"Hybrid-FB-20ms-mono", encoder.ModeHybrid, types.BandwidthFullband, 960, false},
+	{"Hybrid-SWB-20ms-stereo", encoder.ModeHybrid, types.BandwidthSuperwideband, 960, true},
+	{"Hybrid-FB-20ms-stereo", encoder.ModeHybrid, types.BandwidthFullband, 960, true},
 
 	// SILK mode
-	{"SILK-NB-20ms-mono", ModeSILK, gopus.BandwidthNarrowband, 960, false},
-	{"SILK-MB-20ms-mono", ModeSILK, gopus.BandwidthMediumband, 960, false},
-	{"SILK-WB-20ms-mono", ModeSILK, gopus.BandwidthWideband, 960, false},
-	{"SILK-WB-20ms-stereo", ModeSILK, gopus.BandwidthWideband, 960, true},
+	{"SILK-NB-20ms-mono", encoder.ModeSILK, types.BandwidthNarrowband, 960, false},
+	{"SILK-MB-20ms-mono", encoder.ModeSILK, types.BandwidthMediumband, 960, false},
+	{"SILK-WB-20ms-mono", encoder.ModeSILK, types.BandwidthWideband, 960, false},
+	{"SILK-WB-20ms-stereo", encoder.ModeSILK, types.BandwidthWideband, 960, true},
 
 	// CELT mode
-	{"CELT-NB-20ms-mono", ModeCELT, gopus.BandwidthNarrowband, 960, false},
-	{"CELT-WB-20ms-mono", ModeCELT, gopus.BandwidthWideband, 960, false},
-	{"CELT-FB-20ms-mono", ModeCELT, gopus.BandwidthFullband, 960, false},
-	{"CELT-FB-20ms-stereo", ModeCELT, gopus.BandwidthFullband, 960, true},
+	{"CELT-NB-20ms-mono", encoder.ModeCELT, types.BandwidthNarrowband, 960, false},
+	{"CELT-WB-20ms-mono", encoder.ModeCELT, types.BandwidthWideband, 960, false},
+	{"CELT-FB-20ms-mono", encoder.ModeCELT, types.BandwidthFullband, 960, false},
+	{"CELT-FB-20ms-stereo", encoder.ModeCELT, types.BandwidthFullband, 960, true},
 }
 
 // TestEncoderAllModes tests encoding across all mode/bandwidth/stereo combinations.
@@ -52,7 +54,7 @@ func TestEncoderAllModes(t *testing.T) {
 				channels = 2
 			}
 
-			enc := NewEncoder(48000, channels)
+			enc := encoder.NewEncoder(48000, channels)
 			enc.SetMode(tc.mode)
 			enc.SetBandwidth(tc.bandwidth)
 
@@ -72,13 +74,13 @@ func TestEncoderAllModes(t *testing.T) {
 			toc := gopus.ParseTOC(packet[0])
 
 			// Verify mode matches (convert internal mode to gopus mode)
-			expectedMode := modeToGopus(tc.mode)
+			expectedMode := modeToGopusIntegration(tc.mode)
 			if toc.Mode != expectedMode {
 				t.Errorf("TOC mode = %v, want %v", toc.Mode, expectedMode)
 			}
 
-			// Verify bandwidth matches
-			if toc.Bandwidth != tc.bandwidth {
+			// Verify bandwidth matches (convert types.Bandwidth to gopus.Bandwidth for comparison)
+			if toc.Bandwidth != gopus.Bandwidth(tc.bandwidth) {
 				t.Errorf("TOC bandwidth = %v, want %v", toc.Bandwidth, tc.bandwidth)
 			}
 
@@ -98,22 +100,22 @@ func TestEncoderAllModes(t *testing.T) {
 func TestEncoderHybridRoundTrip(t *testing.T) {
 	tests := []struct {
 		name      string
-		bandwidth gopus.Bandwidth
+		bandwidth types.Bandwidth
 		frameSize int
 		channels  int
 	}{
-		{"SWB-10ms-mono", gopus.BandwidthSuperwideband, 480, 1},
-		{"SWB-20ms-mono", gopus.BandwidthSuperwideband, 960, 1},
-		{"FB-10ms-mono", gopus.BandwidthFullband, 480, 1},
-		{"FB-20ms-mono", gopus.BandwidthFullband, 960, 1},
-		{"SWB-20ms-stereo", gopus.BandwidthSuperwideband, 960, 2},
-		{"FB-20ms-stereo", gopus.BandwidthFullband, 960, 2},
+		{"SWB-10ms-mono", types.BandwidthSuperwideband, 480, 1},
+		{"SWB-20ms-mono", types.BandwidthSuperwideband, 960, 1},
+		{"FB-10ms-mono", types.BandwidthFullband, 480, 1},
+		{"FB-20ms-mono", types.BandwidthFullband, 960, 1},
+		{"SWB-20ms-stereo", types.BandwidthSuperwideband, 960, 2},
+		{"FB-20ms-stereo", types.BandwidthFullband, 960, 2},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			enc := NewEncoder(48000, tc.channels)
-			enc.SetMode(ModeHybrid)
+			enc := encoder.NewEncoder(48000, tc.channels)
+			enc.SetMode(encoder.ModeHybrid)
 			enc.SetBandwidth(tc.bandwidth)
 
 			dec := hybrid.NewDecoder(tc.channels)
@@ -198,9 +200,9 @@ func TestEncoderCELTRoundTrip(t *testing.T) {
 				}
 			}()
 
-			enc := NewEncoder(48000, tc.channels)
-			enc.SetMode(ModeCELT)
-			enc.SetBandwidth(gopus.BandwidthFullband)
+			enc := encoder.NewEncoder(48000, tc.channels)
+			enc.SetMode(encoder.ModeCELT)
+			enc.SetBandwidth(types.BandwidthFullband)
 
 			dec := celt.NewDecoder(tc.channels)
 
@@ -264,9 +266,9 @@ func TestEncoderCELTRoundTrip(t *testing.T) {
 // TestEncoderMultipleFrames tests encoding multiple consecutive frames.
 // Validates encoder state management across frames.
 func TestEncoderMultipleFrames(t *testing.T) {
-	enc := NewEncoder(48000, 1)
-	enc.SetMode(ModeHybrid)
-	enc.SetBandwidth(gopus.BandwidthSuperwideband)
+	enc := encoder.NewEncoder(48000, 1)
+	enc.SetMode(encoder.ModeHybrid)
+	enc.SetBandwidth(types.BandwidthSuperwideband)
 
 	// Encode 10 consecutive frames - validates encoder state management
 	numFrames := 10
@@ -299,11 +301,11 @@ func TestEncoderBitrateRange(t *testing.T) {
 
 	for _, bitrate := range bitrates {
 		t.Run(fmt.Sprintf("%dkbps", bitrate/1000), func(t *testing.T) {
-			enc := NewEncoder(48000, 1)
-			enc.SetMode(ModeHybrid)
-			enc.SetBandwidth(gopus.BandwidthSuperwideband)
+			enc := encoder.NewEncoder(48000, 1)
+			enc.SetMode(encoder.ModeHybrid)
+			enc.SetBandwidth(types.BandwidthSuperwideband)
 			enc.SetBitrate(bitrate)
-			enc.SetBitrateMode(ModeCBR)
+			enc.SetBitrateMode(encoder.ModeCBR)
 
 			pcm := generateIntegrationTestPCM(960)
 			packet, err := enc.Encode(pcm, 960)
@@ -335,35 +337,35 @@ func TestEncoderBitrateRange(t *testing.T) {
 func TestEncoderAllFrameSizes(t *testing.T) {
 	frameSizes := []struct {
 		size int
-		mode Mode
+		mode encoder.Mode
 	}{
 		// SILK frame sizes
-		{480, ModeSILK},  // 10ms
-		{960, ModeSILK},  // 20ms
-		{1920, ModeSILK}, // 40ms
-		{2880, ModeSILK}, // 60ms
+		{480, encoder.ModeSILK},  // 10ms
+		{960, encoder.ModeSILK},  // 20ms
+		{1920, encoder.ModeSILK}, // 40ms
+		{2880, encoder.ModeSILK}, // 60ms
 
 		// Hybrid frame sizes (only 10ms and 20ms)
-		{480, ModeHybrid}, // 10ms
-		{960, ModeHybrid}, // 20ms
+		{480, encoder.ModeHybrid}, // 10ms
+		{960, encoder.ModeHybrid}, // 20ms
 
 		// CELT frame sizes
-		{120, ModeCELT}, // 2.5ms
-		{240, ModeCELT}, // 5ms
-		{480, ModeCELT}, // 10ms
-		{960, ModeCELT}, // 20ms
+		{120, encoder.ModeCELT}, // 2.5ms
+		{240, encoder.ModeCELT}, // 5ms
+		{480, encoder.ModeCELT}, // 10ms
+		{960, encoder.ModeCELT}, // 20ms
 	}
 
 	for _, tc := range frameSizes {
-		name := fmt.Sprintf("%s-%dms", modeName(tc.mode), tc.size*1000/48000)
+		name := fmt.Sprintf("%s-%dms", modeNameIntegration(tc.mode), tc.size*1000/48000)
 		t.Run(name, func(t *testing.T) {
-			enc := NewEncoder(48000, 1)
+			enc := encoder.NewEncoder(48000, 1)
 			enc.SetMode(tc.mode)
 			// Hybrid requires SWB or FB bandwidth
-			if tc.mode == ModeHybrid {
-				enc.SetBandwidth(gopus.BandwidthSuperwideband)
+			if tc.mode == encoder.ModeHybrid {
+				enc.SetBandwidth(types.BandwidthSuperwideband)
 			} else {
-				enc.SetBandwidth(gopus.BandwidthWideband)
+				enc.SetBandwidth(types.BandwidthWideband)
 			}
 
 			pcm := generateIntegrationTestPCM(tc.size)
@@ -382,9 +384,9 @@ func TestEncoderAllFrameSizes(t *testing.T) {
 
 // TestEncoderSignalQuality tests encoding with different signal types.
 func TestEncoderSignalQuality(t *testing.T) {
-	enc := NewEncoder(48000, 1)
-	enc.SetMode(ModeHybrid)
-	enc.SetBandwidth(gopus.BandwidthSuperwideband)
+	enc := encoder.NewEncoder(48000, 1)
+	enc.SetMode(encoder.ModeHybrid)
+	enc.SetBandwidth(types.BandwidthSuperwideband)
 	enc.SetBitrate(64000)
 
 	// Test with different signal types
@@ -437,11 +439,11 @@ func TestEncoderBitrateQuality(t *testing.T) {
 
 	for _, bitrate := range bitrates {
 		t.Run(fmt.Sprintf("%dkbps", bitrate/1000), func(t *testing.T) {
-			enc := NewEncoder(48000, 1)
-			enc.SetMode(ModeHybrid)
-			enc.SetBandwidth(gopus.BandwidthSuperwideband)
+			enc := encoder.NewEncoder(48000, 1)
+			enc.SetMode(encoder.ModeHybrid)
+			enc.SetBandwidth(types.BandwidthSuperwideband)
 			enc.SetBitrate(bitrate)
-			enc.SetBitrateMode(ModeCBR)
+			enc.SetBitrateMode(encoder.ModeCBR)
 
 			pcm := generateMixedSignalIntegration(960)
 
@@ -463,9 +465,9 @@ func TestEncoderBitrateQuality(t *testing.T) {
 
 // TestEncoderNoClipping tests that full-scale signals are handled correctly.
 func TestEncoderNoClipping(t *testing.T) {
-	enc := NewEncoder(48000, 1)
-	enc.SetMode(ModeHybrid)
-	enc.SetBandwidth(gopus.BandwidthSuperwideband)
+	enc := encoder.NewEncoder(48000, 1)
+	enc.SetMode(encoder.ModeHybrid)
+	enc.SetBandwidth(types.BandwidthSuperwideband)
 
 	// Test with full-scale signal
 	pcm := generateSineWaveIntegration(960, 440, 1.0)
@@ -498,9 +500,9 @@ func TestEncoderNoClipping(t *testing.T) {
 
 // TestEncoderSignalTypes tests encoding various signal types.
 func TestEncoderSignalTypes(t *testing.T) {
-	enc := NewEncoder(48000, 1)
-	enc.SetMode(ModeHybrid)
-	enc.SetBandwidth(gopus.BandwidthSuperwideband)
+	enc := encoder.NewEncoder(48000, 1)
+	enc.SetMode(encoder.ModeHybrid)
+	enc.SetBandwidth(types.BandwidthSuperwideband)
 
 	// Test silence
 	t.Run("silence", func(t *testing.T) {
@@ -550,9 +552,9 @@ func TestEncoderSignalTypes(t *testing.T) {
 // TestEncoderCorrelation tests signal correlation preservation.
 func TestEncoderCorrelation(t *testing.T) {
 	// This test validates that multi-frame encoding maintains consistency
-	enc := NewEncoder(48000, 1)
-	enc.SetMode(ModeHybrid)
-	enc.SetBandwidth(gopus.BandwidthSuperwideband)
+	enc := encoder.NewEncoder(48000, 1)
+	enc.SetMode(encoder.ModeHybrid)
+	enc.SetBandwidth(types.BandwidthSuperwideband)
 
 	// Encode same signal multiple times
 	pcm := generateSineWaveIntegration(960, 440, 0.5)
@@ -683,4 +685,32 @@ func generateNoiseIntegration(n int, amp float64) []float64 {
 		pcm[i] = amp * (float64(seed)/float64(1<<32)*2 - 1)
 	}
 	return pcm
+}
+
+// modeToGopusIntegration converts encoder.Mode to gopus.Mode
+func modeToGopusIntegration(m encoder.Mode) gopus.Mode {
+	switch m {
+	case encoder.ModeSILK:
+		return gopus.ModeSILK
+	case encoder.ModeHybrid:
+		return gopus.ModeHybrid
+	case encoder.ModeCELT:
+		return gopus.ModeCELT
+	default:
+		return gopus.ModeSILK // Auto defaults to SILK
+	}
+}
+
+// modeNameIntegration returns a string name for the mode
+func modeNameIntegration(m encoder.Mode) string {
+	switch m {
+	case encoder.ModeSILK:
+		return "silk"
+	case encoder.ModeHybrid:
+		return "hybrid"
+	case encoder.ModeCELT:
+		return "celt"
+	default:
+		return "auto"
+	}
 }
