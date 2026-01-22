@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 7: CELT Encoder - Plan 01 complete
+**Current focus:** Phase 7: CELT Encoder - Plan 03 complete
 
 ## Current Position
 
 Phase: 7 of 12 (CELT Encoder)
-Plan: 1 of 4 in current phase
+Plan: 3 of 4 in current phase
 Status: In progress
-Last activity: 2026-01-22 - Completed 07-01-PLAN.md (CELT Encoder Foundation)
+Last activity: 2026-01-22 - Completed 07-03-PLAN.md (PVQ Band Encoding)
 
-Progress: [█████████████████████████████████████████████████████░] ~70% (26/37 plans)
+Progress: [█████████████████████████████████████████████████████████░] ~76% (28/37 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 26
+- Total plans completed: 28
 - Average duration: ~8 minutes
-- Total execution time: ~195 minutes
+- Total execution time: ~211 minutes
 
 **By Phase:**
 
@@ -33,11 +33,11 @@ Progress: [███████████████████████
 | 04-hybrid-decoder | 3/3 | ~22m | ~7m |
 | 05-multistream-decoder | 2/2 | ~6m | ~3m |
 | 06-silk-encoder | 7/7 | ~74m | ~11m |
-| 07-celt-encoder | 1/4 | ~8m | ~8m |
+| 07-celt-encoder | 3/4 | ~16m | ~5m |
 
 **Recent Trend:**
-- Last 5 plans: 06-05 (~25m), 06-06 (~7m), 06-07 (~3m), 07-01 (~8m)
-- Trend: CELT encoder foundation on track
+- Last 5 plans: 06-07 (~3m), 07-01 (~8m), 07-02 (parallel), 07-03 (~8m)
+- Trend: CELT encoder progressing smoothly
 
 *Updated after each plan completion*
 
@@ -116,14 +116,16 @@ Recent decisions affecting current work:
 | D07-01-02 | MDCT uses direct computation O(n^2) | 07-01 | Correctness first, optimize later |
 | D07-01-03 | Pre-emphasis coefficient 0.85 | 07-01 | Matches decoder de-emphasis |
 | D07-01-04 | Round-trip verification deferred for EncodeUniform | 07-01 | Known encoder gap extends to uniform |
+| D07-03-01 | Tests focus on L1/L2 norm properties due to CWRS asymmetry | 07-03 | Known CWRS encode/decode asymmetry (D03-02-03) |
 
 ### Pending Todos
 
-- Continue Phase 07 (CELT Encoder) - Plan 02 next
+- Continue Phase 07 (CELT Encoder) - Plan 04 next
 
 ### Known Gaps
 
 - **Signal quality tuning:** Encoder-decoder round-trip works without panic but decoded signal has low energy. Quality tuning needed for better signal recovery.
+- **Energy encoding round-trip:** Pre-existing test failures in energy_encode_test.go (coarse/fine energy round-trip issues)
 
 ### Blockers/Concerns
 
@@ -132,8 +134,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-22
-Stopped at: Completed 07-01-PLAN.md (CELT Encoder Foundation)
-Resume file: .planning/phases/07-celt-encoder/07-02-PLAN.md
+Stopped at: Completed 07-03-PLAN.md (PVQ Band Encoding)
+Resume file: .planning/phases/07-celt-encoder/07-04-PLAN.md
 
 ## Phase 01 Summary
 
@@ -346,9 +348,9 @@ Resume file: .planning/phases/07-celt-encoder/07-02-PLAN.md
 
 ## Phase 07 Summary - IN PROGRESS
 
-**CELT Encoder phase started:**
-- Plan 1 of 4 complete
-- Total duration so far: ~8 minutes
+**CELT Encoder phase in progress:**
+- Plan 3 of 4 complete
+- Total duration so far: ~16 minutes
 
 **07-01 CELT Encoder Foundation complete:**
 - EncodeUniform and EncodeRawBits added to range encoder
@@ -358,9 +360,22 @@ Resume file: .planning/phases/07-celt-encoder/07-02-PLAN.md
 - MDCT->IMDCT and pre-emphasis->de-emphasis round-trips verified
 - Duration: ~8 minutes
 
+**07-02 Energy Encoding (parallel with 07-03):**
+- Completed in parallel session
+
+**07-03 PVQ Band Encoding complete:**
+- NormalizeBands: divides MDCT coefficients by energy to produce unit-norm shapes
+- vectorToPulses: quantizes normalized float vectors to integer pulses with exact L1 norm k
+- EncodeBandPVQ: encodes shape via CWRS index using existing EncodePulses
+- EncodeBands: encodes all bands, skipping unallocated bands
+- 10 comprehensive tests verifying key properties (L1 norm, L2 norm, all frame sizes)
+- Duration: ~8 minutes
+
 **Key artifacts:**
 - `internal/rangecoding/encoder.go` - EncodeUniform, EncodeRawBits, writeEndByte
 - `internal/celt/encoder.go` - CELT Encoder struct
 - `internal/celt/mdct_encode.go` - Forward MDCT (MDCT, MDCTShort)
 - `internal/celt/preemph.go` - Pre-emphasis filter
 - `internal/celt/encoder_test.go` - Encoder tests
+- `internal/celt/bands_encode.go` - NormalizeBands, vectorToPulses, EncodeBandPVQ, EncodeBands
+- `internal/celt/bands_encode_test.go` - 10 comprehensive tests
