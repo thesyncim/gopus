@@ -9,9 +9,9 @@ package encoder
 import (
 	"errors"
 
-	"gopus"
 	"gopus/internal/celt"
 	"gopus/internal/silk"
+	"gopus/internal/types"
 )
 
 // Mode represents the encoding mode.
@@ -60,7 +60,7 @@ type Encoder struct {
 
 	// Configuration
 	mode       Mode
-	bandwidth  gopus.Bandwidth
+	bandwidth  types.Bandwidth
 	sampleRate int
 	channels   int
 	frameSize  int // In samples at 48kHz
@@ -112,7 +112,7 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 
 	return &Encoder{
 		mode:        ModeAuto,
-		bandwidth:   gopus.BandwidthFullband,
+		bandwidth:   types.BandwidthFullband,
 		sampleRate:  sampleRate,
 		channels:    channels,
 		frameSize:   960,       // Default 20ms
@@ -142,12 +142,12 @@ func (e *Encoder) Mode() Mode {
 
 // SetBandwidth sets the target audio bandwidth.
 // The bandwidth affects mode selection in ModeAuto.
-func (e *Encoder) SetBandwidth(bandwidth gopus.Bandwidth) {
+func (e *Encoder) SetBandwidth(bandwidth types.Bandwidth) {
 	e.bandwidth = bandwidth
 }
 
 // Bandwidth returns the current bandwidth setting.
-func (e *Encoder) Bandwidth() gopus.Bandwidth {
+func (e *Encoder) Bandwidth() types.Bandwidth {
 	return e.bandwidth
 }
 
@@ -362,7 +362,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 
 	// Build complete packet with TOC byte
 	stereo := e.channels == 2
-	packet, err := BuildPacket(frameData, modeToGopus(actualMode), e.bandwidth, frameSize, stereo)
+	packet, err := BuildPacket(frameData, modeToTypes(actualMode), e.bandwidth, frameSize, stereo)
 	if err != nil {
 		return nil, err
 	}
@@ -381,17 +381,17 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	return packet, nil
 }
 
-// modeToGopus converts internal encoder Mode to gopus.Mode.
-func modeToGopus(m Mode) gopus.Mode {
+// modeToTypes converts internal encoder Mode to types.Mode.
+func modeToTypes(m Mode) types.Mode {
 	switch m {
 	case ModeSILK:
-		return gopus.ModeSILK
+		return types.ModeSILK
 	case ModeHybrid:
-		return gopus.ModeHybrid
+		return types.ModeHybrid
 	case ModeCELT:
-		return gopus.ModeCELT
+		return types.ModeCELT
 	default:
-		return gopus.ModeCELT // ModeAuto already resolved
+		return types.ModeCELT // ModeAuto already resolved
 	}
 }
 
@@ -404,10 +404,10 @@ func (e *Encoder) selectMode(frameSize int) Mode {
 
 	// Auto mode selection based on bandwidth and frame size
 	switch e.bandwidth {
-	case gopus.BandwidthNarrowband, gopus.BandwidthMediumband, gopus.BandwidthWideband:
+	case types.BandwidthNarrowband, types.BandwidthMediumband, types.BandwidthWideband:
 		// Lower bandwidths: use SILK
 		return ModeSILK
-	case gopus.BandwidthSuperwideband, gopus.BandwidthFullband:
+	case types.BandwidthSuperwideband, types.BandwidthFullband:
 		// Higher bandwidths: use Hybrid for speech-like frames
 		// Only if frame size is compatible with hybrid (10ms or 20ms)
 		if frameSize == 480 || frameSize == 960 {
@@ -475,13 +475,13 @@ func (e *Encoder) ensureCELTEncoder() {
 // silkBandwidth converts the Opus bandwidth to SILK bandwidth.
 func (e *Encoder) silkBandwidth() silk.Bandwidth {
 	switch e.bandwidth {
-	case gopus.BandwidthNarrowband:
+	case types.BandwidthNarrowband:
 		return silk.BandwidthNarrowband
-	case gopus.BandwidthMediumband:
+	case types.BandwidthMediumband:
 		return silk.BandwidthMediumband
-	case gopus.BandwidthWideband:
+	case types.BandwidthWideband:
 		return silk.BandwidthWideband
-	case gopus.BandwidthSuperwideband, gopus.BandwidthFullband:
+	case types.BandwidthSuperwideband, types.BandwidthFullband:
 		// Hybrid mode uses WB for SILK layer
 		return silk.BandwidthWideband
 	default:
