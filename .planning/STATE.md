@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 8: Hybrid Encoder & Controls - Ready to plan
+**Current focus:** Phase 8: Hybrid Encoder & Controls - Executing
 
 ## Current Position
 
-Phase: 7 of 12 (CELT Encoder) - COMPLETE
-Plan: 6 of 6 complete (4 original + 2 gap closure)
-Status: CELT encoder complete with cross-validation tests
-Last activity: 2026-01-22 - Completed 07-06-PLAN.md (libopus cross-validation)
+Phase: 8 of 12 (Hybrid Encoder & Controls) - IN PROGRESS
+Plan: 1 of 4 complete
+Status: Completed 08-01-PLAN.md (Unified Encoder with Hybrid Mode)
+Last activity: 2026-01-22 - Completed 08-01-PLAN.md
 
-Progress: [█████████████████████████████████████████████████████████████████] ~84% (31/37 plans)
+Progress: [██████████████████████████████████████████████████████████████████████] ~86% (32/37 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 31
+- Total plans completed: 32
 - Average duration: ~9 minutes
-- Total execution time: ~268 minutes
+- Total execution time: ~275 minutes
 
 **By Phase:**
 
@@ -34,10 +34,11 @@ Progress: [███████████████████████
 | 05-multistream-decoder | 2/2 | ~6m | ~3m |
 | 06-silk-encoder | 7/7 | ~74m | ~11m |
 | 07-celt-encoder | 6/6 | ~73m | ~12m |
+| 08-hybrid-encoder-controls | 1/4 | ~7m | ~7m |
 
 **Recent Trend:**
-- Last 5 plans: 07-03 (~8m), 07-04 (~17m), 07-05 (~25m), 07-06 (~15m)
-- Trend: CELT encoder phase complete with libopus cross-validation
+- Last 5 plans: 07-04 (~17m), 07-05 (~25m), 07-06 (~15m), 08-01 (~7m)
+- Trend: Starting Phase 8 with unified encoder implementation
 
 *Updated after each plan completion*
 
@@ -129,11 +130,14 @@ Recent decisions affecting current work:
 | D07-06-01 | File-based opusdec invocation for macOS compatibility | 07-06 | Pipe-based I/O fails due to provenance xattr |
 | D07-06-02 | Graceful test skipping for macOS provenance restrictions | 07-06 | Allow tests to pass in sandboxed environments |
 | D07-06-03 | Energy ratio threshold >10% for quality validation | 07-06 | Per plan requirement for signal quality |
+| D08-01-01 | Pad 10ms SILK frames to 20ms for WB encoding | 08-01 | Existing EncodeFrame expects 20ms |
+| D08-01-02 | Zero low bands (0-16) in CELT hybrid mode encoding | 08-01 | Matches decoder handling |
+| D08-01-03 | Averaging filter for 48kHz to 16kHz downsampling | 08-01 | Sufficient for v1 |
 
 ### Pending Todos
 
 - Fix CELT MDCT bin count vs frame size mismatch
-- Begin Phase 08 (Hybrid Encoder)
+- Continue Phase 08 (TOC generation, bandwidth/bitrate controls)
 
 ### Known Gaps
 
@@ -148,8 +152,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-22
-Stopped at: Completed 07-06-PLAN.md (libopus cross-validation)
-Resume file: .planning/phases/07-celt-encoder/07-06-SUMMARY.md
+Stopped at: Completed 08-01-PLAN.md (Unified Encoder with Hybrid Mode)
+Resume file: .planning/phases/08-hybrid-encoder-controls/08-01-SUMMARY.md
 
 ## Phase 01 Summary
 
@@ -220,21 +224,6 @@ Resume file: .planning/phases/07-celt-encoder/07-06-SUMMARY.md
 - Total duration: ~22 minutes
 - 37 tests passing (22 in hybrid, 15 in plc)
 
-**04-01 Hybrid Decoder Foundation complete:**
-- Decoder struct coordinating SILK (WB) and CELT sub-decoders
-- DecodeFrameHybrid added to CELT for band-limited decoding (bands 17-21)
-- 60-sample delay compensation for SILK-CELT time alignment
-- 3x upsampling from SILK 16kHz to 48kHz output
-- Public Decode/DecodeStereo/DecodeToInt16/DecodeToFloat32 API
-
-**04-02 PLC Implementation complete:**
-- PLC package with State tracking, fade factor, mode handling
-- SILK PLC: LPC extrapolation (voiced) and comfort noise (unvoiced)
-- CELT PLC: energy decay with noise-filled bands
-- Hybrid PLC: coordinated SILK+CELT concealment
-- Interface-based design avoiding circular imports
-- 15 comprehensive PLC tests
-
 **Key artifacts:**
 - `internal/hybrid/decoder.go` - Hybrid decoder struct, coordination logic
 - `internal/hybrid/hybrid.go` - Public API with PLC support
@@ -245,39 +234,12 @@ Resume file: .planning/phases/07-celt-encoder/07-06-SUMMARY.md
 - `internal/plc/plc_test.go` - 15 PLC tests
 - `internal/celt/decoder.go` - Added DecodeFrameHybrid, PLC integration
 
-**04-03 Gap Closure: Integration Tests complete:**
-- Packet construction helpers using range encoder
-- 7 new integration tests with real range-coded packets
-- Corrupted bitstream robustness fixes in SILK decoder
-- Verified hybrid decoder processes real SILK+CELT bitstreams
-- 22 total hybrid tests (15 original + 7 new)
-
-**Additional artifacts:**
-- `internal/hybrid/testdata_test.go` - Packet construction helpers
-- `internal/silk/excitation.go` - Bounds checking fixes
-- `internal/silk/stereo.go` - Bounds checking fixes
-
 ## Phase 05 Summary - COMPLETE
 
 **Multistream Decoder phase complete:**
 - All 2 plans executed successfully
 - Total duration: ~6 minutes
 - 18 test functions (81 test runs including subtests)
-
-**05-01 Multistream Foundation complete:**
-- MultistreamDecoder struct with comprehensive parameter validation
-- Vorbis channel mapping tables for 1-8 channels (mono through 7.1 surround)
-- Self-delimiting packet parser per RFC 6716 Appendix B
-- streamDecoder interface for uniform decoder handling
-- Duration: ~2 minutes
-
-**05-02 Multistream Decode Methods complete:**
-- Decode method with channel mapping application
-- applyChannelMapping for routing streams to output channels
-- PLC support coordinating per-stream concealment
-- DecodeToInt16 and DecodeToFloat32 convenience wrappers
-- Comprehensive test suite (18 test functions, 697 lines)
-- Duration: ~4 minutes
 
 **Key artifacts:**
 - `internal/multistream/decoder.go` - Decoder struct, NewDecoder, validation
@@ -289,58 +251,9 @@ Resume file: .planning/phases/07-celt-encoder/07-06-SUMMARY.md
 ## Phase 06 Summary - COMPLETE
 
 **SILK Encoder phase complete:**
-- All 6 plans executed successfully (including gap closure)
-- Total duration: ~71 minutes
+- All 7 plans executed successfully (including gap closure)
+- Total duration: ~74 minutes
 - 100+ tests passing in silk package
-
-**06-01 SILK Encoder Foundation complete:**
-- EncodeICDF16 added to range encoder for uint16 ICDF tables
-- SILK Encoder struct with state mirroring decoder
-- Voice activity detection (VAD) for frame classification
-- Duration: ~15 minutes
-
-**06-02 LPC Analysis & LSF Encoding complete:**
-- Burg's method for numerically stable LPC coefficient estimation
-- LPC-to-LSF conversion via Chebyshev polynomial root-finding
-- Bandwidth expansion for filter stability (chirp factor)
-- 17 comprehensive tests
-- Duration: ~12 minutes
-
-**06-03 Pitch Detection & LTP Analysis complete:**
-- Three-stage coarse-to-fine pitch detection (4kHz, 8kHz, full rate)
-- LTP coefficient analysis via least-squares minimization
-- LTP codebook quantization using existing LTPFilter tables
-- 15 comprehensive tests
-- Duration: ~7 minutes
-
-**06-04 Gain & LSF Quantization complete:**
-- Gain quantization via GainDequantTable lookup with first-frame limiting
-- Two-stage LSF VQ with rate-distortion optimization
-- Perceptual weighting for LSF coefficients
-- 12 comprehensive tests
-- Duration: ~5 minutes
-
-**06-05 Complete SILK Encoder:**
-- Shell-coded excitation encoder mirroring decoder
-- Full stereo mid-side encoding with linear regression weights
-- Complete frame encoding pipeline
-- Public Encode/EncodeStereo API
-- 10+ comprehensive tests
-- Duration: ~25 minutes
-
-**06-06 Gap Closure - Round-trip Compatibility:**
-- Fixed pitch lag encoding (ICDFPitchLowBitsQ2 with divisor=4 for all bandwidths)
-- Fixed LTP periodicity encoding (matches decoder multi-stage logic)
-- Added decoder bounds checking for corrupted bitstreams
-- 6 comprehensive round-trip tests for all bandwidths
-- Duration: ~7 minutes
-
-**06-07 Stereo Round-Trip Tests:**
-- Documented stereo packet format compatibility (encoder vs decoder)
-- Added 5 stereo round-trip tests using DecodeStereoEncoded
-- All stereo tests pass without panics for all bandwidths
-- Stereo prediction weights verified in valid Q13 range
-- Duration: ~3 minutes
 
 **Key artifacts:**
 - `internal/rangecoding/encoder.go` - EncodeICDF16 with zero-prob symbol handling
@@ -349,16 +262,13 @@ Resume file: .planning/phases/07-celt-encoder/07-06-SUMMARY.md
 - `internal/silk/lpc_analysis.go` - Burg's method LPC analysis
 - `internal/silk/lsf_encode.go` - LPC-to-LSF conversion
 - `internal/silk/pitch_detect.go` - Three-stage pitch detection, fixed encoding
-- `internal/silk/ltp_encode.go` - LTP analysis and codebook quantization, fixed encoding
+- `internal/silk/ltp_encode.go` - LTP analysis and codebook quantization
 - `internal/silk/gain_encode.go` - Gain quantization with delta coding
 - `internal/silk/lsf_quantize.go` - Two-stage LSF quantization
 - `internal/silk/excitation_encode.go` - Shell-coded excitation encoder
 - `internal/silk/stereo_encode.go` - Mid-side stereo encoding
 - `internal/silk/encode_frame.go` - Frame encoding pipeline
 - `internal/silk/silk_encode.go` - Public Encode/EncodeStereo API
-- `internal/silk/encode_test.go` - Encoding test suite
-- `internal/silk/roundtrip_test.go` - Round-trip tests
-- `internal/silk/pitch.go` - Decoder with bounds checking fixes
 
 ## Phase 07 Summary - COMPLETE
 
@@ -367,65 +277,32 @@ Resume file: .planning/phases/07-celt-encoder/07-06-SUMMARY.md
 - Total duration: ~73 minutes
 - 85+ tests passing in celt package
 
-**07-01 CELT Encoder Foundation complete:**
-- EncodeUniform and EncodeRawBits added to range encoder
-- CELT Encoder struct with state mirroring decoder exactly
-- Forward MDCT transform (MDCT, MDCTShort)
-- Pre-emphasis filter for audio analysis
-- MDCT->IMDCT and pre-emphasis->de-emphasis round-trips verified
-- Duration: ~8 minutes
-
-**07-02 Energy Encoding complete:**
-- ComputeBandEnergies extracts log2-scale energy from MDCT coefficients
-- EncodeCoarseEnergy uses Laplace distribution with same prediction as decoder
-- EncodeFineEnergy and EncodeEnergyRemainder add precision bits
-- Comprehensive test suite (553 lines) verifying encoder output and quantization
-- Duration: ~10 minutes
-
-**07-03 PVQ Band Encoding complete:**
-- NormalizeBands: divides MDCT coefficients by energy to produce unit-norm shapes
-- vectorToPulses: quantizes normalized float vectors to integer pulses with exact L1 norm k
-- EncodeBandPVQ: encodes shape via CWRS index using existing EncodePulses
-- EncodeBands: encodes all bands, skipping unallocated bands
-- 10 comprehensive tests verifying key properties (L1 norm, L2 norm, all frame sizes)
-- Duration: ~8 minutes
-
-**07-04 Frame Encoding and Round-Trip complete:**
-- DetectTransient for identifying frames needing short MDCT blocks (6dB threshold)
-- EncodeStereoParams for mid-side stereo mode (dual_stereo=0, intensity=nbBands)
-- EncodeFrame with complete pipeline mirroring decoder
-- Public Encode/EncodeStereo API with package-level encoder instances
-- 16 comprehensive round-trip tests verifying encode->decode without panics
-- Mid-side conversion round-trip verified with float precision
-- Duration: ~17 minutes
-
-**07-05 Gap Closure - Range Encoder Fix:**
-- Fixed EncodeBit interval assignment to match decoder
-- Fixed range encoder byte format for decoder compatibility
-- All round-trip tests now verify signal energy (has_output=true)
-- Duration: ~25 minutes
-
-**07-06 Gap Closure - Libopus Cross-Validation:**
-- Minimal Ogg Opus container writer (RFC 7845)
-- Cross-validation tests with opusdec (mono, stereo, silence, multiple frames)
-- Signal quality metrics (energy ratio >10%, SNR, peak detection)
-- macOS compatibility with graceful test skipping for provenance restrictions
-- Duration: ~15 minutes
-
 **Key artifacts:**
 - `internal/rangecoding/encoder.go` - EncodeUniform, EncodeRawBits, writeEndByte
 - `internal/celt/encoder.go` - CELT Encoder struct with frameCount
 - `internal/celt/mdct_encode.go` - Forward MDCT (MDCT, MDCTShort)
 - `internal/celt/preemph.go` - Pre-emphasis filter
-- `internal/celt/encoder_test.go` - Encoder tests
 - `internal/celt/energy_encode.go` - ComputeBandEnergies, EncodeCoarseEnergy, EncodeFineEnergy
-- `internal/celt/energy_encode_test.go` - Energy encoding tests (553 lines)
 - `internal/celt/bands_encode.go` - NormalizeBands, vectorToPulses, EncodeBandPVQ, EncodeBands
-- `internal/celt/bands_encode_test.go` - 10 comprehensive tests
 - `internal/celt/transient.go` - DetectTransient, ComputeSubBlockEnergies
 - `internal/celt/stereo_encode.go` - EncodeStereoParams, ConvertToMidSide
 - `internal/celt/encode_frame.go` - EncodeFrame pipeline
 - `internal/celt/celt_encode.go` - Public Encode/EncodeStereo API
-- `internal/celt/roundtrip_test.go` - 16 round-trip tests
 - `internal/celt/crossval_test.go` - Ogg writer, WAV parser, opusdec integration
 - `internal/celt/libopus_test.go` - 5 libopus cross-validation tests
+
+## Phase 08 Summary - IN PROGRESS
+
+**08-01 Unified Encoder with Hybrid Mode complete:**
+- Unified Encoder struct with mode selection (SILK/Hybrid/CELT/Auto)
+- Hybrid mode encoding with SILK first, CELT second (RFC 6716 order)
+- 130-sample delay compensation for CELT alignment
+- 48kHz to 16kHz downsampling for SILK layer
+- 15 test functions (465 lines)
+- Duration: ~7 minutes
+
+**Key artifacts:**
+- `internal/encoder/encoder.go` - Unified Encoder struct with mode selection
+- `internal/encoder/hybrid.go` - Hybrid mode encoding with SILK+CELT coordination
+- `internal/encoder/encoder_test.go` - 15 test functions
+- `internal/celt/encoder.go` - Added IsIntraFrame, IncrementFrameCount exports
