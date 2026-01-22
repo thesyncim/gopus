@@ -210,11 +210,11 @@ Plans:
   1. Ogg Opus files created by FFmpeg/libopus can be read and decoded
   2. Encoded audio can be written to Ogg Opus files playable by standard players
   3. OpusHead and OpusTags headers correctly parsed/written per RFC 7845
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 11-01: TBD (Ogg page parsing)
-- [ ] 11-02: TBD (Opus headers, Ogg writing)
+- [ ] 11-01-PLAN.md — Ogg page foundation (CRC, page structure, OpusHead/OpusTags headers)
+- [ ] 11-02-PLAN.md — OggWriter and OggReader with opusdec integration tests
 
 ### Phase 12: Compliance & Polish
 **Goal**: Validate against official test vectors and finalize for release
@@ -248,7 +248,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 8. Hybrid Encoder & Controls | 6/6 | Complete | 2026-01-22 |
 | 9. Multistream Encoder | 4/4 | Complete | 2026-01-22 |
 | 10. API Layer | 2/2 | Complete | 2026-01-22 |
-| 11. Container | 0/2 | Not started | - |
+| 11. Container | 0/2 | Planned | - |
 | 12. Compliance & Polish | 0/2 | Not started | - |
 
 ---
@@ -271,4 +271,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 *Phase 9 complete: 2026-01-22*
 *Phase 10 planned: 2026-01-22*
 *Phase 10 complete: 2026-01-22*
-*Total phases: 12 | Total plans: ~46*
+*Phase 11 planned: 2026-01-22*
+*Total phases: 12 | Total plans: ~48*
