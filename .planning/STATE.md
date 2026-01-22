@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-01-21)
 
 ## Current Position
 
-Phase: 8 of 12 (Hybrid Encoder & Controls) - COMPLETE
-Plan: 4 of 4 complete
-Status: Completed 08-04-PLAN.md (In-band FEC)
-Last activity: 2026-01-22 - Completed 08-03-PLAN.md
+Phase: 8 of 12 (Hybrid Encoder & Controls) - IN PROGRESS
+Plan: 5 of 6 complete
+Status: Completed 08-05-PLAN.md (DTX and Complexity)
+Last activity: 2026-01-22 - Completed 08-05-PLAN.md
 
-Progress: [████████████████████████████████████████████████████████████████████████] ~92% (34/37 plans)
+Progress: [████████████████████████████████████████████████████████████████████████] ~95% (35/37 plans)
 
 ## Performance Metrics
 
@@ -139,11 +139,15 @@ Recent decisions affecting current work:
 | D08-04-01 | LBRR uses fixed mid-range parameters for v1 | 08-04 | Simplified encoding; full analysis deferred to v2 |
 | D08-04-02 | FEC requires 3 conditions: enabled + loss >= 1% + prev frame | 08-04 | All conditions must be true |
 | D08-04-03 | LBRRBitrateFactor = 0.6 | 08-04 | 60% of normal SILK bitrate for LBRR |
+| D08-05-01 | DTXFrameThreshold = 20 frames (400ms) | 08-05 | Per Opus convention before DTX activates |
+| D08-05-02 | Comfort noise every 400ms | 08-05 | Standard interval for natural silence |
+| D08-05-03 | Energy threshold 0.0001 (~-40 dBFS) | 08-05 | Typical silence threshold |
+| D08-05-04 | Default complexity 10 | 08-05 | Maximum quality by default |
 
 ### Pending Todos
 
 - Fix CELT MDCT bin count vs frame size mismatch
-- Start Phase 09 (Public API & Stream Integration)
+- Complete Phase 08 Plan 06 (libopus cross-validation)
 
 ### Known Gaps
 
@@ -158,8 +162,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-22
-Stopped at: Completed 08-04-PLAN.md (In-band FEC) - Phase 08 COMPLETE
-Resume file: .planning/phases/08-hybrid-encoder-controls/08-04-SUMMARY.md
+Stopped at: Completed 08-05-PLAN.md (DTX and Complexity)
+Resume file: .planning/phases/08-hybrid-encoder-controls/08-05-SUMMARY.md
 
 ## Phase 01 Summary
 
@@ -297,7 +301,7 @@ Resume file: .planning/phases/08-hybrid-encoder-controls/08-04-SUMMARY.md
 - `internal/celt/crossval_test.go` - Ogg writer, WAV parser, opusdec integration
 - `internal/celt/libopus_test.go` - 5 libopus cross-validation tests
 
-## Phase 08 Summary - COMPLETE
+## Phase 08 Summary - IN PROGRESS
 
 **08-01 Unified Encoder with Hybrid Mode complete:**
 - Unified Encoder struct with mode selection (SILK/Hybrid/CELT/Auto)
@@ -325,3 +329,16 @@ Resume file: .planning/phases/08-hybrid-encoder-controls/08-04-SUMMARY.md
 - `internal/encoder/fec.go` - FEC constants, types, LBRR encoding, state management
 - `internal/encoder/encoder.go` - FEC fields and control methods
 - `internal/encoder/encoder_test.go` - 7 FEC tests added
+
+**08-05 DTX and Complexity complete:**
+- DTX (Discontinuous Transmission) for bandwidth savings during silence
+- Energy-based silence detection at -40 dBFS threshold
+- Comfort noise frames sent every 400ms during DTX
+- Complexity control (0-10) for quality/speed tradeoff
+- 9 comprehensive DTX and complexity tests
+- Duration: ~12 minutes
+
+**Key artifacts:**
+- `internal/encoder/dtx.go` - DTX constants, state, silence detection, comfort noise
+- `internal/encoder/encoder.go` - DTX/complexity fields and control methods
+- `internal/encoder/encoder_test.go` - 9 DTX/complexity tests added
