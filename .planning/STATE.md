@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 7: CELT Encoder - Plans 02 and 03 complete
+**Current focus:** Phase 7: CELT Encoder - COMPLETE (all 4 plans)
 
 ## Current Position
 
-Phase: 7 of 12 (CELT Encoder)
-Plan: 3 of 4 in current phase
-Status: In progress
-Last activity: 2026-01-22 - Completed 07-02-PLAN.md (Energy Encoding) and 07-03-PLAN.md (PVQ Band Encoding)
+Phase: 7 of 12 (CELT Encoder) - COMPLETE
+Plan: 4 of 4 in current phase
+Status: Phase complete
+Last activity: 2026-01-22 - Completed 07-04-PLAN.md (Frame Encoding and Round-Trip)
 
-Progress: [█████████████████████████████████████████████████████████░] ~76% (28/37 plans)
+Progress: [████████████████████████████████████████████████████████████] ~78% (29/37 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 28
+- Total plans completed: 29
 - Average duration: ~8 minutes
-- Total execution time: ~211 minutes
+- Total execution time: ~228 minutes
 
 **By Phase:**
 
@@ -33,11 +33,11 @@ Progress: [███████████████████████
 | 04-hybrid-decoder | 3/3 | ~22m | ~7m |
 | 05-multistream-decoder | 2/2 | ~6m | ~3m |
 | 06-silk-encoder | 7/7 | ~74m | ~11m |
-| 07-celt-encoder | 3/4 | ~16m | ~5m |
+| 07-celt-encoder | 4/4 | ~33m | ~8m |
 
 **Recent Trend:**
-- Last 5 plans: 06-07 (~3m), 07-01 (~8m), 07-02 (parallel), 07-03 (~8m)
-- Trend: CELT encoder progressing smoothly
+- Last 5 plans: 07-01 (~8m), 07-02 (parallel), 07-03 (~8m), 07-04 (~17m)
+- Trend: CELT encoder complete; Phase 07 done
 
 *Updated after each plan completion*
 
@@ -120,10 +120,14 @@ Recent decisions affecting current work:
 | D07-02-02 | Quantization error bounded to 3dB (half of 6dB step) | 07-02 | Expected from quantization formula |
 | D07-02-03 | Fine energy uses uniform quantization via EncodeUniform | 07-02 | Matches decoder's decodeUniform |
 | D07-03-01 | Tests focus on L1/L2 norm properties due to CWRS asymmetry | 07-03 | Known CWRS encode/decode asymmetry (D03-02-03) |
+| D07-04-01 | Transient threshold 4.0 (6dB) with 8 sub-blocks | 07-04 | Matches libopus transient_analysis approach |
+| D07-04-02 | Mid-side stereo only (intensity=-1, dual_stereo=0) | 07-04 | Most common mode; intensity/dual stereo deferred |
+| D07-04-03 | Round-trip tests verify completion without signal quality check | 07-04 | Known range coding asymmetry (D07-01-04) |
+| D07-04-04 | Package-level encoder instances with mutex | 07-04 | Thread-safe simple API |
 
 ### Pending Todos
 
-- Continue Phase 07 (CELT Encoder) - Plan 04 next
+- Begin Phase 08 (Hybrid Encoder)
 
 ### Known Gaps
 
@@ -137,8 +141,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-22
-Stopped at: Completed 07-03-PLAN.md (PVQ Band Encoding)
-Resume file: .planning/phases/07-celt-encoder/07-04-PLAN.md
+Stopped at: Completed 07-04-PLAN.md (Frame Encoding and Round-Trip)
+Resume file: .planning/phases/08-hybrid-encoder/ (Phase 08 ready to begin)
 
 ## Phase 01 Summary
 
@@ -349,11 +353,12 @@ Resume file: .planning/phases/07-celt-encoder/07-04-PLAN.md
 - `internal/silk/roundtrip_test.go` - Round-trip tests
 - `internal/silk/pitch.go` - Decoder with bounds checking fixes
 
-## Phase 07 Summary - IN PROGRESS
+## Phase 07 Summary - COMPLETE
 
-**CELT Encoder phase in progress:**
-- Plan 3 of 4 complete
-- Total duration so far: ~16 minutes
+**CELT Encoder phase complete:**
+- All 4 plans executed successfully
+- Total duration: ~33 minutes
+- 80+ tests passing in celt package
 
 **07-01 CELT Encoder Foundation complete:**
 - EncodeUniform and EncodeRawBits added to range encoder
@@ -378,9 +383,18 @@ Resume file: .planning/phases/07-celt-encoder/07-04-PLAN.md
 - 10 comprehensive tests verifying key properties (L1 norm, L2 norm, all frame sizes)
 - Duration: ~8 minutes
 
+**07-04 Frame Encoding and Round-Trip complete:**
+- DetectTransient for identifying frames needing short MDCT blocks (6dB threshold)
+- EncodeStereoParams for mid-side stereo mode (dual_stereo=0, intensity=nbBands)
+- EncodeFrame with complete pipeline mirroring decoder
+- Public Encode/EncodeStereo API with package-level encoder instances
+- 16 comprehensive round-trip tests verifying encode->decode without panics
+- Mid-side conversion round-trip verified with float precision
+- Duration: ~17 minutes
+
 **Key artifacts:**
 - `internal/rangecoding/encoder.go` - EncodeUniform, EncodeRawBits, writeEndByte
-- `internal/celt/encoder.go` - CELT Encoder struct
+- `internal/celt/encoder.go` - CELT Encoder struct with frameCount
 - `internal/celt/mdct_encode.go` - Forward MDCT (MDCT, MDCTShort)
 - `internal/celt/preemph.go` - Pre-emphasis filter
 - `internal/celt/encoder_test.go` - Encoder tests
@@ -388,3 +402,8 @@ Resume file: .planning/phases/07-celt-encoder/07-04-PLAN.md
 - `internal/celt/energy_encode_test.go` - Energy encoding tests (553 lines)
 - `internal/celt/bands_encode.go` - NormalizeBands, vectorToPulses, EncodeBandPVQ, EncodeBands
 - `internal/celt/bands_encode_test.go` - 10 comprehensive tests
+- `internal/celt/transient.go` - DetectTransient, ComputeSubBlockEnergies
+- `internal/celt/stereo_encode.go` - EncodeStereoParams, ConvertToMidSide
+- `internal/celt/encode_frame.go` - EncodeFrame pipeline
+- `internal/celt/celt_encode.go` - Public Encode/EncodeStereo API
+- `internal/celt/roundtrip_test.go` - 16 round-trip tests
