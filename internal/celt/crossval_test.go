@@ -1,0 +1,465 @@
+// Package celt cross-validation test helpers for libopus interoperability.
+// This file provides helpers to verify gopus CELT encoder output is decodable by libopus.
+
+package celt
+
+import (
+	"bytes"
+	"encoding/binary"
+	"hash/crc32"
+	"io"
+	"math"
+	"os"
+	"os/exec"
+	"path/filepath"
+)
+
+// checkOpusdecAvailable checks if opusdec is available in PATH.
+// Tests should skip if opusdec is not available.
+func checkOpusdecAvailable() bool {
+	// Try common installation paths
+	paths := []string{
+		"/opt/homebrew/bin/opusdec",
+		"/usr/local/bin/opusdec",
+		"/usr/bin/opusdec",
+	}
+
+	// Check PATH first
+	if _, err := exec.LookPath("opusdec"); err == nil {
+		return true
+	}
+
+	// Check common paths
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			return true
+		}
+	}
+
+	return false
+}
+
+// getOpusdecPath returns the path to opusdec binary.
+func getOpusdecPath() string {
+	// Try PATH first
+	if path, err := exec.LookPath("opusdec"); err == nil {
+		return path
+	}
+
+	// Try common paths
+	paths := []string{
+		"/opt/homebrew/bin/opusdec",
+		"/usr/local/bin/opusdec",
+		"/usr/bin/opusdec",
+	}
+
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+
+	return "opusdec"
+}
+
+// Ogg CRC-32 polynomial (RFC 3533)
+// Note: Ogg uses a reflected CRC-32 with polynomial 0x04C11DB7
+var oggCRCTable = crc32.MakeTable(0x04C11DB7)
+
+// computeOggCRC computes the CRC-32 checksum for an Ogg page.
+// The CRC field in the page header is set to 0 for computation.
+func computeOggCRC(data []byte) uint32 {
+	// Ogg uses CRC-32 with polynomial 0x04C11DB7
+	// Direct algorithm (not using crc32 package table since Ogg uses non-standard polynomial)
+	var crc uint32 = 0
+	for _, b := range data {
+		crc = (crc << 8) ^ oggCRCLookup[((crc>>24)&0xff)^uint32(b)]
+	}
+	return crc
+}
+
+// Pre-computed lookup table for Ogg CRC-32
+var oggCRCLookup [256]uint32
+
+func init() {
+	// Initialize Ogg CRC lookup table
+	// Polynomial: 0x04C11DB7 (CRC-32)
+	poly := uint32(0x04C11DB7)
+	for i := 0; i < 256; i++ {
+		crc := uint32(i) << 24
+		for j := 0; j < 8; j++ {
+			if crc&0x80000000 != 0 {
+				crc = (crc << 1) ^ poly
+			} else {
+				crc <<= 1
+			}
+		}
+		oggCRCLookup[i] = crc
+	}
+}
+
+// writeOggPage writes a single Ogg page to the writer.
+// pageSeq: page sequence number
+// headerType: 0x00 for normal, 0x02 for BOS (beginning of stream), 0x04 for EOS (end of stream)
+// granulePos: granule position (-1 for headers)
+// serial: bitstream serial number
+// data: page payload
+func writeOggPage(w io.Writer, pageSeq uint32, headerType byte, granulePos int64, serial uint32, data []byte) error {
+	// Build page without CRC first
+	var page bytes.Buffer
+
+	// Ogg page header (27 bytes + segment table)
+	page.WriteString("OggS")                                // capture pattern
+	page.WriteByte(0)                                       // stream structure version
+	page.WriteByte(headerType)                              // header type flag
+	binary.Write(&page, binary.LittleEndian, granulePos)    // granule position
+	binary.Write(&page, binary.LittleEndian, serial)        // bitstream serial
+	binary.Write(&page, binary.LittleEndian, pageSeq)       // page sequence
+	binary.Write(&page, binary.LittleEndian, uint32(0))     // CRC placeholder
+	page.WriteByte(byte(1))                                 // number of segments
+
+	// Segment table: one segment with payload length
+	// For packets larger than 255 bytes, we'd need multiple segments
+	if len(data) > 255 {
+		// Split into multiple segments
+		numSegs := (len(data) + 254) / 255
+		page.Truncate(page.Len() - 1) // Remove the "1" we just wrote
+		page.WriteByte(byte(numSegs))
+		remaining := len(data)
+		for remaining > 0 {
+			segLen := remaining
+			if segLen > 255 {
+				segLen = 255
+			}
+			page.WriteByte(byte(segLen))
+			remaining -= segLen
+		}
+	} else {
+		page.WriteByte(byte(len(data)))
+	}
+
+	// Payload
+	page.Write(data)
+
+	// Compute CRC over the entire page (with CRC field set to 0)
+	pageData := page.Bytes()
+	crc := computeOggCRC(pageData)
+
+	// Insert CRC at offset 22
+	pageData[22] = byte(crc)
+	pageData[23] = byte(crc >> 8)
+	pageData[24] = byte(crc >> 16)
+	pageData[25] = byte(crc >> 24)
+
+	_, err := w.Write(pageData)
+	return err
+}
+
+// writeOggOpus writes a minimal Ogg Opus file containing the given packets.
+// This is a simplified implementation for test purposes only:
+// - Single-frame or few-frame test cases
+// - One packet per Ogg page (no segment aggregation)
+// - Fixed OpusHead and OpusTags headers
+//
+// Reference: RFC 7845 (Ogg Encapsulation for the Opus Audio Codec)
+func writeOggOpus(w io.Writer, packets [][]byte, sampleRate, channels int) error {
+	serial := uint32(0x12345678) // Arbitrary serial number
+	pageSeq := uint32(0)
+
+	// OpusHead header (19 bytes)
+	// Reference: RFC 7845 Section 5.1
+	var opusHead bytes.Buffer
+	opusHead.WriteString("OpusHead")                               // magic (8 bytes)
+	opusHead.WriteByte(1)                                          // version
+	opusHead.WriteByte(byte(channels))                             // channel count
+	binary.Write(&opusHead, binary.LittleEndian, uint16(0))        // pre-skip (0 for simplicity)
+	binary.Write(&opusHead, binary.LittleEndian, uint32(sampleRate)) // input sample rate
+	binary.Write(&opusHead, binary.LittleEndian, int16(0))         // output gain (0 dB)
+	opusHead.WriteByte(0)                                          // channel mapping family (0 = mono/stereo)
+
+	// Write OpusHead page (BOS = beginning of stream)
+	if err := writeOggPage(w, pageSeq, 0x02, -1, serial, opusHead.Bytes()); err != nil {
+		return err
+	}
+	pageSeq++
+
+	// OpusTags header (minimal)
+	// Reference: RFC 7845 Section 5.2
+	var opusTags bytes.Buffer
+	opusTags.WriteString("OpusTags")                                // magic (8 bytes)
+	vendorStr := "gopus"
+	binary.Write(&opusTags, binary.LittleEndian, uint32(len(vendorStr))) // vendor string length
+	opusTags.WriteString(vendorStr)                                 // vendor string
+	binary.Write(&opusTags, binary.LittleEndian, uint32(0))         // user comment list length
+
+	// Write OpusTags page
+	if err := writeOggPage(w, pageSeq, 0x00, -1, serial, opusTags.Bytes()); err != nil {
+		return err
+	}
+	pageSeq++
+
+	// Calculate samples per frame (assume 48kHz, 20ms = 960 samples)
+	// This is used for granule position tracking
+	samplesPerFrame := 960
+	if len(packets) > 0 && len(packets[0]) > 0 {
+		// Try to determine frame size from first packet TOC
+		// TOC byte config bits indicate frame size
+		toc := packets[0][0]
+		config := (toc >> 3) & 0x1F
+		if config >= 16 {
+			// CELT-only mode
+			switch config & 0x03 {
+			case 0:
+				samplesPerFrame = 120 // 2.5ms
+			case 1:
+				samplesPerFrame = 240 // 5ms
+			case 2:
+				samplesPerFrame = 480 // 10ms
+			case 3:
+				samplesPerFrame = 960 // 20ms
+			}
+		}
+	}
+
+	// Write audio packets
+	granulePos := int64(0)
+	for i, packet := range packets {
+		granulePos += int64(samplesPerFrame)
+
+		// Determine header type
+		headerType := byte(0x00)
+		if i == len(packets)-1 {
+			headerType = 0x04 // EOS = end of stream
+		}
+
+		if err := writeOggPage(w, pageSeq, headerType, granulePos, serial, packet); err != nil {
+			return err
+		}
+		pageSeq++
+	}
+
+	return nil
+}
+
+// decodeWithOpusdec decodes Ogg Opus data using the opusdec command-line tool.
+// Returns decoded samples as float32.
+func decodeWithOpusdec(oggData []byte) ([]float32, error) {
+	// Create temp directory for files
+	tempDir, err := os.MkdirTemp("", "gopus-test-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Write input Ogg file
+	inputPath := filepath.Join(tempDir, "input.opus")
+	if err := os.WriteFile(inputPath, oggData, 0644); err != nil {
+		return nil, err
+	}
+
+	// Output WAV file
+	outputPath := filepath.Join(tempDir, "output.wav")
+
+	// Run opusdec
+	opusdec := getOpusdecPath()
+	cmd := exec.Command(opusdec, "--float", inputPath, outputPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, &OpusdecError{Output: string(output), Err: err}
+	}
+
+	// Read output WAV
+	wavData, err := os.ReadFile(outputPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse WAV to get samples
+	samples, _, _, err := parseWAV(wavData)
+	return samples, err
+}
+
+// OpusdecError represents an error from running opusdec.
+type OpusdecError struct {
+	Output string
+	Err    error
+}
+
+func (e *OpusdecError) Error() string {
+	return "opusdec failed: " + e.Err.Error() + ": " + e.Output
+}
+
+// parseWAV parses a WAV file and returns samples as float32.
+// Returns: samples, sampleRate, channels, error
+func parseWAV(data []byte) ([]float32, int, int, error) {
+	if len(data) < 44 {
+		return nil, 0, 0, &WAVError{Msg: "WAV file too short"}
+	}
+
+	// Check RIFF header
+	if string(data[0:4]) != "RIFF" {
+		return nil, 0, 0, &WAVError{Msg: "not a RIFF file"}
+	}
+
+	// Check WAVE format
+	if string(data[8:12]) != "WAVE" {
+		return nil, 0, 0, &WAVError{Msg: "not a WAVE file"}
+	}
+
+	// Find fmt chunk
+	offset := 12
+	var audioFormat uint16
+	var numChannels uint16
+	var sampleRate uint32
+	var bitsPerSample uint16
+
+	for offset < len(data)-8 {
+		chunkID := string(data[offset : offset+4])
+		chunkSize := binary.LittleEndian.Uint32(data[offset+4 : offset+8])
+
+		if chunkID == "fmt " {
+			if chunkSize < 16 || offset+8+int(chunkSize) > len(data) {
+				return nil, 0, 0, &WAVError{Msg: "invalid fmt chunk"}
+			}
+			audioFormat = binary.LittleEndian.Uint16(data[offset+8 : offset+10])
+			numChannels = binary.LittleEndian.Uint16(data[offset+10 : offset+12])
+			sampleRate = binary.LittleEndian.Uint32(data[offset+12 : offset+16])
+			bitsPerSample = binary.LittleEndian.Uint16(data[offset+22 : offset+24])
+		} else if chunkID == "data" {
+			// Found data chunk
+			dataStart := offset + 8
+			dataLen := int(chunkSize)
+			if dataStart+dataLen > len(data) {
+				dataLen = len(data) - dataStart
+			}
+
+			pcmData := data[dataStart : dataStart+dataLen]
+
+			// Convert based on format
+			var samples []float32
+
+			if audioFormat == 3 { // IEEE float
+				if bitsPerSample == 32 {
+					numSamples := len(pcmData) / 4
+					samples = make([]float32, numSamples)
+					for i := 0; i < numSamples; i++ {
+						bits := binary.LittleEndian.Uint32(pcmData[i*4 : i*4+4])
+						samples[i] = math.Float32frombits(bits)
+					}
+				}
+			} else if audioFormat == 1 { // PCM
+				if bitsPerSample == 16 {
+					numSamples := len(pcmData) / 2
+					samples = make([]float32, numSamples)
+					for i := 0; i < numSamples; i++ {
+						val := int16(binary.LittleEndian.Uint16(pcmData[i*2 : i*2+2]))
+						samples[i] = float32(val) / 32768.0
+					}
+				} else if bitsPerSample == 24 {
+					numSamples := len(pcmData) / 3
+					samples = make([]float32, numSamples)
+					for i := 0; i < numSamples; i++ {
+						b0 := pcmData[i*3]
+						b1 := pcmData[i*3+1]
+						b2 := pcmData[i*3+2]
+						// Sign extend 24-bit to 32-bit
+						val := int32(b0) | int32(b1)<<8 | int32(b2)<<16
+						if val&0x800000 != 0 {
+							val |= 0xFF000000 // sign extend
+						}
+						samples[i] = float32(val) / 8388608.0
+					}
+				}
+			}
+
+			if samples == nil {
+				return nil, 0, 0, &WAVError{Msg: "unsupported WAV format"}
+			}
+
+			return samples, int(sampleRate), int(numChannels), nil
+		}
+
+		offset += 8 + int(chunkSize)
+		// Word align
+		if chunkSize%2 != 0 {
+			offset++
+		}
+	}
+
+	return nil, 0, 0, &WAVError{Msg: "no data chunk found"}
+}
+
+// WAVError represents a WAV parsing error.
+type WAVError struct {
+	Msg string
+}
+
+func (e *WAVError) Error() string {
+	return "WAV parse error: " + e.Msg
+}
+
+// computeEnergy computes the RMS energy of samples.
+// Returns sqrt(sum(s^2) / len(s))
+func computeEnergy(samples []float32) float64 {
+	if len(samples) == 0 {
+		return 0
+	}
+
+	var sumSquares float64
+	for _, s := range samples {
+		sumSquares += float64(s) * float64(s)
+	}
+
+	return math.Sqrt(sumSquares / float64(len(samples)))
+}
+
+// computeSNR computes Signal-to-Noise Ratio in dB.
+// SNR = 10 * log10(signal_power / noise_power)
+// where noise = decoded - original
+func computeSNR(original, decoded []float32) float64 {
+	// Use the shorter length
+	n := len(original)
+	if len(decoded) < n {
+		n = len(decoded)
+	}
+	if n == 0 {
+		return 0
+	}
+
+	var signalPower, noisePower float64
+	for i := 0; i < n; i++ {
+		signalPower += float64(original[i]) * float64(original[i])
+		noise := float64(decoded[i]) - float64(original[i])
+		noisePower += noise * noise
+	}
+
+	if noisePower == 0 {
+		return 100 // Perfect match (capped)
+	}
+	if signalPower == 0 {
+		return -100 // No signal
+	}
+
+	return 10 * math.Log10(signalPower/noisePower)
+}
+
+// float32Slice converts float64 slice to float32.
+func float32Slice(f64 []float64) []float32 {
+	f32 := make([]float32, len(f64))
+	for i, v := range f64 {
+		f32[i] = float32(v)
+	}
+	return f32
+}
+
+// findPeak finds the maximum absolute value in samples.
+func findPeak(samples []float32) float32 {
+	var peak float32
+	for _, s := range samples {
+		abs := float32(math.Abs(float64(s)))
+		if abs > peak {
+			peak = abs
+		}
+	}
+	return peak
+}
