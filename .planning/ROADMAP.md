@@ -105,10 +105,11 @@ Plans:
   2. Multistream packets with uncoupled mono streams decode correctly
   3. Channel mapping table correctly routes streams to output channels
   4. All streams in packet decoded with consistent timing
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 05-01: TBD (multistream parsing, channel mapping)
+- [ ] 05-01-PLAN.md — Multistream foundation (decoder struct, channel mapping, packet parser)
+- [ ] 05-02-PLAN.md — Decode implementation with channel routing and tests
 
 ### Phase 6: SILK Encoder
 **Goal**: Encode PCM audio to SILK-mode Opus packets
@@ -228,7 +229,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 2. SILK Decoder | 5/5 | Complete | 2026-01-21 |
 | 3. CELT Decoder | 5/5 | Complete | 2026-01-21 |
 | 4. Hybrid Decoder | 3/3 | Complete | 2026-01-22 |
-| 5. Multistream Decoder | 0/1 | Not started | - |
+| 5. Multistream Decoder | 0/2 | Planned | - |
 | 6. SILK Encoder | 0/3 | Not started | - |
 | 7. CELT Encoder | 0/3 | Not started | - |
 | 8. Hybrid Encoder & Controls | 0/3 | Not started | - |
@@ -243,4 +244,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 *Phase 2 planned: 2026-01-21*
 *Phase 4 planned: 2026-01-21*
 *Phase 4 gap closure: 2026-01-22*
-*Total phases: 12 | Total plans: ~31*
+*Phase 5 planned: 2026-01-22*
+*Total phases: 12 | Total plans: ~33*
