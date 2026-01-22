@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 10: API Layer - COMPLETE (frame-based and streaming APIs verified)
+**Current focus:** Phase 11: Container - Ogg page layer foundation complete
 
 ## Current Position
 
-Phase: 10 of 12 (API Layer) - COMPLETE
-Plan: 2 of 2 complete (frame-based API + streaming API)
-Status: Phase 10 complete with production-ready public API, ready for Phase 11
-Last activity: 2026-01-22 - Completed and verified Phase 10 API Layer
+Phase: 11 of 12 (Container)
+Plan: 1 of 3 complete (Ogg page layer foundation)
+Status: Phase 11 in progress with Ogg page layer complete, ready for Writer
+Last activity: 2026-01-22 - Completed 11-01-PLAN.md (Ogg Page Layer Foundation)
 
-Progress: [████████████████████████████████████████████████████████████████████████████████░░] ~88% (42/48 plans)
+Progress: [█████████████████████████████████████████████████████████████████████████████████░░] ~90% (43/48 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 39
+- Total plans completed: 43
 - Average duration: ~8 minutes
-- Total execution time: ~319 minutes
+- Total execution time: ~325 minutes
 
 **By Phase:**
 
@@ -36,11 +36,12 @@ Progress: [███████████████████████
 | 07-celt-encoder | 6/6 | ~73m | ~12m |
 | 08-hybrid-encoder-controls | 6/6 | ~38m | ~6m |
 | 09-multistream-encoder | 4/4 | ~15m | ~4m |
-| 10-api-layer | 2/N | ~47m | ~24m |
+| 10-api-layer | 2/2 | ~47m | ~24m |
+| 11-container | 1/3 | ~6m | ~6m |
 
 **Recent Trend:**
-- Last 5 plans: 09-02 (~4m), 09-03 (~7m), 09-04 (~5m), 10-01 (~35m), 10-02 (~12m)
-- Trend: Phase 10 progressing with streaming API
+- Last 5 plans: 09-04 (~5m), 10-01 (~35m), 10-02 (~12m), 11-01 (~6m)
+- Trend: Phase 11 started with efficient Ogg page layer
 
 *Updated after each plan completion*
 
@@ -161,6 +162,9 @@ Recent decisions affecting current work:
 | D10-02-01 | PacketSource returns nil for PLC | 10-02 | Consistent with decoder API pattern |
 | D10-02-02 | Internal frame buffering for Reader/Writer | 10-02 | Handles frame boundaries transparently |
 | D10-02-03 | Writer.Flush zero-pads partial frames | 10-02 | Ensures all input audio is encoded |
+| D11-01-01 | Use polynomial 0x04C11DB7 for Ogg CRC-32 | 11-01 | Ogg spec requires non-IEEE polynomial |
+| D11-01-02 | Segment table handles packets > 255 bytes with continuation | 11-01 | Ogg format splits large packets |
+| D11-01-03 | Mapping family 0 implicit, family 1/255 explicit mapping | 11-01 | Per RFC 7845 mono/stereo has implicit order |
 
 ### Pending Todos
 
@@ -181,8 +185,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-22
-Stopped at: Completed 10-02-PLAN.md (Streaming Reader/Writer API)
-Resume file: .planning/phases/10-api-layer/10-02-SUMMARY.md
+Stopped at: Completed 11-01-PLAN.md (Ogg Page Layer Foundation)
+Resume file: .planning/phases/11-container/11-01-SUMMARY.md
 
 ## Phase 01 Summary
 
@@ -509,3 +513,27 @@ Resume file: .planning/phases/10-api-layer/10-02-SUMMARY.md
 - `54e5fec` - feat(10-02): implement PacketSource/PacketSink interfaces and Reader
 - `a3f279b` - feat(10-02): implement Writer for streaming encode
 - `c3d7226` - test(10-02): add integration tests for streaming API
+
+## Phase 11 Summary - IN PROGRESS
+
+**11-01 Ogg Page Layer Foundation complete:**
+- Ogg CRC-32 with polynomial 0x04C11DB7 (not IEEE)
+- Page struct with segment table handling
+- Page.Encode() with proper CRC, ParsePage() with CRC verification
+- OpusHead for mono/stereo (family 0) and surround (family 1/255)
+- OpusTags with vendor string and comments
+- 27 test functions with 50 subtests
+- Duration: ~6 minutes
+
+**Key artifacts:**
+- `container/ogg/doc.go` - Package documentation (RFC 7845, RFC 3533)
+- `container/ogg/crc.go` - Ogg-specific CRC-32 calculation
+- `container/ogg/page.go` - Page struct, BuildSegmentTable, ParseSegmentTable
+- `container/ogg/header.go` - OpusHead, OpusTags, parsing/encoding
+- `container/ogg/errors.go` - ErrInvalidPage, ErrBadCRC, etc.
+- `container/ogg/ogg_test.go` - Comprehensive tests
+
+**Commits:**
+- `0f5dc22` - feat(11-01): add Ogg package foundation with CRC and page structure
+- `6f7f224` - feat(11-01): implement OpusHead and OpusTags headers per RFC 7845
+- `1ad4b40` - test(11-01): add comprehensive CRC verification and continuation tests
