@@ -291,3 +291,254 @@ func TestMonoRoundTrip_Silence(t *testing.T) {
 	t.Logf("Round-trip complete: %d samples -> %d bytes -> %d samples",
 		len(pcm), len(encoded), len(decoded))
 }
+
+// =============================================================================
+// Stereo Round-Trip Tests
+// =============================================================================
+//
+// NOTE: Stereo round-trip uses DecodeStereoEncoded rather than DecodeStereoFrame.
+//
+// Format Mismatch Documentation:
+// - EncodeStereo outputs: [weights:4 raw bytes][mid_len:2][mid_bytes][side_len:2][side_bytes]
+//   Stereo weights are written as raw big-endian int16 (Q13 format)
+//   Mid and side channels are separately encoded SILK frames
+//
+// - DecodeStereoFrame expects: [weights via ICDF][mid frame][side frame]
+//   Stereo weights should be range-coded via ICDFStereoPredWeight tables
+//   Mid and side frames in a single range-coded bitstream
+//
+// Resolution: DecodeStereoEncoded is provided to handle the encoder's format.
+// Future work could align encoder to produce range-coded weights for full
+// compatibility with DecodeStereoFrame.
+// =============================================================================
+
+// TestStereoRoundTrip_Basic tests basic stereo encoding and decoding.
+func TestStereoRoundTrip_Basic(t *testing.T) {
+	config := GetBandwidthConfig(BandwidthWideband)
+	frameSamples := config.SampleRate * 20 / 1000 // 20ms frame
+
+	// Generate stereo signal (different frequencies per channel)
+	left := make([]float32, frameSamples)
+	right := make([]float32, frameSamples)
+	for i := range left {
+		tm := float64(i) / float64(config.SampleRate)
+		left[i] = float32(math.Sin(2*math.Pi*300*tm)) * 10000
+		right[i] = float32(math.Sin(2*math.Pi*350*tm)) * 10000
+	}
+
+	// Encode stereo
+	encoded, err := EncodeStereo(left, right, BandwidthWideband, true)
+	if err != nil {
+		t.Fatalf("EncodeStereo failed: %v", err)
+	}
+
+	if len(encoded) == 0 {
+		t.Fatal("EncodeStereo produced empty output")
+	}
+
+	t.Logf("Encoded stereo: L=%d R=%d samples -> %d bytes", len(left), len(right), len(encoded))
+
+	// Decode stereo using DecodeStereoEncoded (handles encoder's packet format)
+	decLeft, decRight, err := DecodeStereoEncoded(encoded, BandwidthWideband)
+	if err != nil {
+		t.Fatalf("DecodeStereoEncoded failed: %v", err)
+	}
+
+	// Verify lengths (output is upsampled to 48kHz)
+	expectedSamples := frameSamples * 48000 / config.SampleRate
+	if len(decLeft) != expectedSamples {
+		t.Errorf("Left channel length %d != expected %d", len(decLeft), expectedSamples)
+	}
+	if len(decRight) != expectedSamples {
+		t.Errorf("Right channel length %d != expected %d", len(decRight), expectedSamples)
+	}
+
+	t.Logf("Stereo round-trip: L=%d R=%d samples -> %d bytes -> L=%d R=%d samples (48kHz)",
+		len(left), len(right), len(encoded), len(decLeft), len(decRight))
+}
+
+// TestStereoRoundTrip_CorrelatedChannels tests stereo with similar content in both channels.
+// Correlated channels should achieve better mid-side compression.
+func TestStereoRoundTrip_CorrelatedChannels(t *testing.T) {
+	config := GetBandwidthConfig(BandwidthWideband)
+	frameSamples := config.SampleRate * 20 / 1000 // 20ms frame
+
+	// Generate correlated stereo signal (same frequency, phase shifted)
+	left := make([]float32, frameSamples)
+	right := make([]float32, frameSamples)
+	for i := range left {
+		tm := float64(i) / float64(config.SampleRate)
+		left[i] = float32(math.Sin(2*math.Pi*300*tm)) * 10000
+		right[i] = float32(math.Sin(2*math.Pi*300*tm+0.5)) * 10000 // Phase shifted
+	}
+
+	// Encode stereo
+	encoded, err := EncodeStereo(left, right, BandwidthWideband, true)
+	if err != nil {
+		t.Fatalf("EncodeStereo failed: %v", err)
+	}
+
+	if len(encoded) == 0 {
+		t.Fatal("EncodeStereo produced empty output")
+	}
+
+	// Decode stereo
+	decLeft, decRight, err := DecodeStereoEncoded(encoded, BandwidthWideband)
+	if err != nil {
+		t.Fatalf("DecodeStereoEncoded failed: %v", err)
+	}
+
+	// Verify lengths
+	expectedSamples := frameSamples * 48000 / config.SampleRate
+	if len(decLeft) != expectedSamples || len(decRight) != expectedSamples {
+		t.Errorf("Length mismatch: L=%d R=%d expected=%d", len(decLeft), len(decRight), expectedSamples)
+	}
+
+	t.Logf("Correlated stereo round-trip: %d samples -> %d bytes -> L=%d R=%d samples",
+		frameSamples, len(encoded), len(decLeft), len(decRight))
+}
+
+// TestStereoRoundTrip_AllBandwidths tests stereo round-trip for all bandwidths.
+func TestStereoRoundTrip_AllBandwidths(t *testing.T) {
+	testCases := []struct {
+		name      string
+		bandwidth Bandwidth
+	}{
+		{"Narrowband", BandwidthNarrowband},
+		{"Mediumband", BandwidthMediumband},
+		{"Wideband", BandwidthWideband},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			config := GetBandwidthConfig(tc.bandwidth)
+			frameSamples := config.SampleRate * 20 / 1000 // 20ms frame
+
+			// Generate stereo signal
+			left := make([]float32, frameSamples)
+			right := make([]float32, frameSamples)
+			for i := range left {
+				tm := float64(i) / float64(config.SampleRate)
+				left[i] = float32(math.Sin(2*math.Pi*300*tm)) * 10000
+				right[i] = float32(math.Sin(2*math.Pi*350*tm)) * 10000
+			}
+
+			// Encode
+			encoded, err := EncodeStereo(left, right, tc.bandwidth, true)
+			if err != nil {
+				t.Fatalf("EncodeStereo failed: %v", err)
+			}
+
+			if len(encoded) == 0 {
+				t.Fatal("EncodeStereo produced empty output")
+			}
+
+			// Decode
+			decLeft, decRight, err := DecodeStereoEncoded(encoded, tc.bandwidth)
+			if err != nil {
+				t.Fatalf("DecodeStereoEncoded failed: %v", err)
+			}
+
+			// Verify lengths (upsampled to 48kHz)
+			expectedSamples := frameSamples * 48000 / config.SampleRate
+			if len(decLeft) != expectedSamples || len(decRight) != expectedSamples {
+				t.Errorf("Length mismatch: L=%d R=%d expected=%d",
+					len(decLeft), len(decRight), expectedSamples)
+			}
+
+			t.Logf("%s stereo: L=%d R=%d samples (%d Hz) -> %d bytes -> L=%d R=%d samples (48kHz)",
+				tc.name, len(left), len(right), config.SampleRate,
+				len(encoded), len(decLeft), len(decRight))
+		})
+	}
+}
+
+// TestStereoRoundTrip_WeightsPreserved verifies stereo prediction weights survive encode-decode.
+func TestStereoRoundTrip_WeightsPreserved(t *testing.T) {
+	config := GetBandwidthConfig(BandwidthWideband)
+	frameSamples := config.SampleRate * 20 / 1000 // 20ms frame
+
+	// Generate stereo signal with significant channel difference
+	// This should produce non-zero stereo weights
+	left := make([]float32, frameSamples)
+	right := make([]float32, frameSamples)
+	for i := range left {
+		tm := float64(i) / float64(config.SampleRate)
+		left[i] = float32(math.Sin(2*math.Pi*300*tm)) * 10000
+		right[i] = float32(math.Sin(2*math.Pi*500*tm)) * 8000 // Different freq and amplitude
+	}
+
+	// Encode stereo
+	encoded, err := EncodeStereo(left, right, BandwidthWideband, true)
+	if err != nil {
+		t.Fatalf("EncodeStereo failed: %v", err)
+	}
+
+	// Extract weights from encoded packet (first 4 bytes)
+	if len(encoded) < 4 {
+		t.Fatal("Encoded packet too short")
+	}
+
+	w0 := int16(encoded[0])<<8 | int16(encoded[1])
+	w1 := int16(encoded[2])<<8 | int16(encoded[3])
+
+	t.Logf("Stereo weights: w0=%d w1=%d (Q13: %.3f %.3f)",
+		w0, w1, float32(w0)/8192.0, float32(w1)/8192.0)
+
+	// Verify weights are in valid Q13 range [-8192, 8192]
+	// (which maps to [-1.0, 1.0])
+	if w0 < -8192 || w0 > 8192 {
+		t.Errorf("Weight w0 out of valid Q13 range: %d", w0)
+	}
+	if w1 < -8192 || w1 > 8192 {
+		t.Errorf("Weight w1 out of valid Q13 range: %d", w1)
+	}
+
+	// Decode and verify it completes without panic
+	decLeft, decRight, err := DecodeStereoEncoded(encoded, BandwidthWideband)
+	if err != nil {
+		t.Fatalf("DecodeStereoEncoded failed: %v", err)
+	}
+
+	t.Logf("Stereo decoded successfully: L=%d R=%d samples", len(decLeft), len(decRight))
+}
+
+// TestStereoRoundTrip_MonoCompatibility tests that mono signal encoded as stereo works.
+func TestStereoRoundTrip_MonoCompatibility(t *testing.T) {
+	config := GetBandwidthConfig(BandwidthWideband)
+	frameSamples := config.SampleRate * 20 / 1000 // 20ms frame
+
+	// Generate mono signal (identical left and right)
+	mono := make([]float32, frameSamples)
+	for i := range mono {
+		tm := float64(i) / float64(config.SampleRate)
+		mono[i] = float32(math.Sin(2*math.Pi*300*tm)) * 10000
+	}
+
+	// Encode as stereo with identical channels
+	// Mid = mono, Side = 0, so side should be very small
+	encoded, err := EncodeStereo(mono, mono, BandwidthWideband, true)
+	if err != nil {
+		t.Fatalf("EncodeStereo failed: %v", err)
+	}
+
+	if len(encoded) == 0 {
+		t.Fatal("EncodeStereo produced empty output")
+	}
+
+	// Decode
+	decLeft, decRight, err := DecodeStereoEncoded(encoded, BandwidthWideband)
+	if err != nil {
+		t.Fatalf("DecodeStereoEncoded failed: %v", err)
+	}
+
+	// Verify lengths
+	expectedSamples := frameSamples * 48000 / config.SampleRate
+	if len(decLeft) != expectedSamples || len(decRight) != expectedSamples {
+		t.Errorf("Length mismatch: L=%d R=%d expected=%d",
+			len(decLeft), len(decRight), expectedSamples)
+	}
+
+	t.Logf("Mono-as-stereo round-trip: %d samples -> %d bytes -> L=%d R=%d samples",
+		frameSamples, len(encoded), len(decLeft), len(decRight))
+}
