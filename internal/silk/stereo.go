@@ -28,6 +28,14 @@ func (d *Decoder) decodeStereoWeights() (w0, w1 int16) {
 		predIdx = d.rangeDecoder.DecodeICDF16(ICDFStereoPredWeight, 8)
 	}
 
+	// Clamp predIdx to valid range [0, 7] to guard against corrupted bitstream
+	if predIdx < 0 {
+		predIdx = 0
+	}
+	if predIdx > 7 {
+		predIdx = 7
+	}
+
 	// Look up weights from table (Q13)
 	// Weights control how much mid predicts side
 	// Per RFC 6716 Section 4.2.8:

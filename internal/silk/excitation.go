@@ -67,7 +67,19 @@ func (d *Decoder) decodeExcitation(subframeSamples int, signalType, quantOffset 
 				if signIdx > 5 {
 					signIdx = 5
 				}
-				signICDF := ICDFExcitationSign[signalType][quantOffset][signIdx]
+				if signIdx < 0 {
+					signIdx = 0
+				}
+				// Guard against invalid signalType/quantOffset (corrupted bitstream)
+				safeSignalType := signalType
+				if safeSignalType < 0 || safeSignalType > 2 {
+					safeSignalType = 0 // Default to inactive
+				}
+				safeQuantOffset := quantOffset
+				if safeQuantOffset < 0 || safeQuantOffset > 1 {
+					safeQuantOffset = 0
+				}
+				signICDF := ICDFExcitationSign[safeSignalType][safeQuantOffset][signIdx]
 				sign := d.rangeDecoder.DecodeICDF16(signICDF, 8)
 				if sign == 1 {
 					shellPulses[i] = -shellPulses[i]
@@ -122,7 +134,15 @@ func (d *Decoder) decodeSplit(pulses []int, start, end, count int) {
 		return
 	}
 
+	// Guard against invalid count (could happen with corrupted bitstream)
+	if count < 0 {
+		return
+	}
+
 	length := end - start
+	if length <= 0 {
+		return
+	}
 	if length == 1 {
 		// Base case: all remaining pulses go to this position
 		pulses[start] = count
@@ -141,6 +161,15 @@ func (d *Decoder) decodeSplit(pulses []int, start, end, count int) {
 	icdf := ICDFExcitationSplit[tableIdx]
 
 	leftCount := d.rangeDecoder.DecodeICDF16(icdf, 8)
+
+	// Clamp leftCount to valid range [0, count]
+	// This guards against corrupted bitstream causing invalid splits
+	if leftCount < 0 {
+		leftCount = 0
+	}
+	if leftCount > count {
+		leftCount = count
+	}
 	rightCount := count - leftCount
 
 	// Recurse on both halves
