@@ -6,12 +6,11 @@ package celt
 import (
 	"bytes"
 	"encoding/binary"
-	"hash/crc32"
+	"fmt"
 	"io"
 	"math"
 	"os"
 	"os/exec"
-	"path/filepath"
 )
 
 // checkOpusdecAvailable checks if opusdec is available in PATH.
@@ -61,10 +60,6 @@ func getOpusdecPath() string {
 
 	return "opusdec"
 }
-
-// Ogg CRC-32 polynomial (RFC 3533)
-// Note: Ogg uses a reflected CRC-32 with polynomial 0x04C11DB7
-var oggCRCTable = crc32.MakeTable(0x04C11DB7)
 
 // computeOggCRC computes the CRC-32 checksum for an Ogg page.
 // The CRC field in the page header is set to 0 for computation.
@@ -172,13 +167,14 @@ func writeOggOpus(w io.Writer, packets [][]byte, sampleRate, channels int) error
 	opusHead.WriteString("OpusHead")                               // magic (8 bytes)
 	opusHead.WriteByte(1)                                          // version
 	opusHead.WriteByte(byte(channels))                             // channel count
-	binary.Write(&opusHead, binary.LittleEndian, uint16(0))        // pre-skip (0 for simplicity)
+	binary.Write(&opusHead, binary.LittleEndian, uint16(312))      // pre-skip (standard value)
 	binary.Write(&opusHead, binary.LittleEndian, uint32(sampleRate)) // input sample rate
 	binary.Write(&opusHead, binary.LittleEndian, int16(0))         // output gain (0 dB)
 	opusHead.WriteByte(0)                                          // channel mapping family (0 = mono/stereo)
 
 	// Write OpusHead page (BOS = beginning of stream)
-	if err := writeOggPage(w, pageSeq, 0x02, -1, serial, opusHead.Bytes()); err != nil {
+	// Header pages must have granule position 0 per RFC 7845
+	if err := writeOggPage(w, pageSeq, 0x02, 0, serial, opusHead.Bytes()); err != nil {
 		return err
 	}
 	pageSeq++
@@ -192,8 +188,8 @@ func writeOggOpus(w io.Writer, packets [][]byte, sampleRate, channels int) error
 	opusTags.WriteString(vendorStr)                                 // vendor string
 	binary.Write(&opusTags, binary.LittleEndian, uint32(0))         // user comment list length
 
-	// Write OpusTags page
-	if err := writeOggPage(w, pageSeq, 0x00, -1, serial, opusTags.Bytes()); err != nil {
+	// Write OpusTags page (granule position 0 for headers)
+	if err := writeOggPage(w, pageSeq, 0x00, 0, serial, opusTags.Bytes()); err != nil {
 		return err
 	}
 	pageSeq++
@@ -243,38 +239,62 @@ func writeOggOpus(w io.Writer, packets [][]byte, sampleRate, channels int) error
 
 // decodeWithOpusdec decodes Ogg Opus data using the opusdec command-line tool.
 // Returns decoded samples as float32.
+//
+// Note: On macOS, Go-created files may have com.apple.provenance extended
+// attributes that can cause opusdec to fail with certain paths.
+// This function uses /tmp directly for macOS compatibility.
 func decodeWithOpusdec(oggData []byte) ([]float32, error) {
-	// Create temp directory for files
-	tempDir, err := os.MkdirTemp("", "gopus-test-")
-	if err != nil {
-		return nil, err
-	}
-	defer os.RemoveAll(tempDir)
+	opusdec := getOpusdecPath()
+
+	// Use /tmp directly for macOS compatibility
+	// Generate unique filenames using process ID and a counter
+	pid := os.Getpid()
+	inputPath := fmt.Sprintf("/tmp/gopus_crossval_%d_in.opus", pid)
+	outputPath := fmt.Sprintf("/tmp/gopus_crossval_%d_out.wav", pid)
+
+	// Also save a persistent copy for debugging
+	debugPath := "/tmp/gopus_debug_last.opus"
+
+	// Clean up any existing files
+	os.Remove(inputPath)
+	os.Remove(outputPath)
+	defer os.Remove(inputPath)
+	defer os.Remove(outputPath)
 
 	// Write input Ogg file
-	inputPath := filepath.Join(tempDir, "input.opus")
 	if err := os.WriteFile(inputPath, oggData, 0644); err != nil {
 		return nil, err
 	}
 
-	// Output WAV file
-	outputPath := filepath.Join(tempDir, "output.wav")
+	// Save debug copy
+	os.WriteFile(debugPath, oggData, 0644)
 
-	// Run opusdec
-	opusdec := getOpusdecPath()
+	// Verify file exists and is readable
+	if info, err := os.Stat(inputPath); err != nil {
+		return nil, fmt.Errorf("input file stat failed: %w", err)
+	} else if info.Size() != int64(len(oggData)) {
+		return nil, fmt.Errorf("input file size mismatch: expected %d, got %d", len(oggData), info.Size())
+	}
+
+	// Clear extended attributes on macOS (com.apple.provenance can cause issues)
+	exec.Command("xattr", "-c", inputPath).Run()
+	exec.Command("xattr", "-c", debugPath).Run()
+
+	// Run opusdec with file-based I/O
 	cmd := exec.Command(opusdec, "--float", inputPath, outputPath)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, &OpusdecError{Output: string(output), Err: err}
+		// Include file path info in error
+		return nil, &OpusdecError{Output: fmt.Sprintf("path=%s, output=%s", inputPath, string(output)), Err: err}
 	}
 
-	// Read output WAV
+	// Read output WAV file
 	wavData, err := os.ReadFile(outputPath)
 	if err != nil {
 		return nil, err
 	}
 
-	// Parse WAV to get samples
+	// Parse WAV
 	samples, _, _, err := parseWAV(wavData)
 	return samples, err
 }
@@ -365,7 +385,7 @@ func parseWAV(data []byte) ([]float32, int, int, error) {
 						// Sign extend 24-bit to 32-bit
 						val := int32(b0) | int32(b1)<<8 | int32(b2)<<16
 						if val&0x800000 != 0 {
-							val |= 0xFF000000 // sign extend
+							val |= int32(-16777216) // 0xFF000000 sign extend
 						}
 						samples[i] = float32(val) / 8388608.0
 					}
