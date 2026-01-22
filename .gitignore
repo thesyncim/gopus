@@ -1,2 +1,3 @@
 .idea
 .goland-state.json
+*.test

@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 11: Container - COMPLETE (Ogg Opus read/write verified)
+**Current focus:** Phase 12: Compliance & Polish - Import cycle fixed, test infrastructure improved
 
 ## Current Position
 
-Phase: 11 of 12 (Container) - COMPLETE
-Plan: 2 of 2 complete (Ogg page foundation + OggWriter/OggReader)
-Status: Phase 11 complete with Ogg Opus read/write verified, ready for Phase 12
-Last activity: 2026-01-22 - Completed and verified Phase 11 Container
+Phase: 12 of 12 (Compliance & Polish)
+Plan: 1 of 3 complete (Import cycle fix)
+Status: In progress
+Last activity: 2026-01-22 - Completed 12-01-PLAN.md (Fix import cycle)
 
-Progress: [██████████████████████████████████████████████████████████████████████████████████████░░] ~94% (45/48 plans)
+Progress: [███████████████████████████████████████████████████████████████████████████████████████░░] ~96% (46/48 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 45
+- Total plans completed: 46
 - Average duration: ~8 minutes
-- Total execution time: ~339 minutes
+- Total execution time: ~355 minutes
 
 **By Phase:**
 
@@ -38,10 +38,11 @@ Progress: [███████████████████████
 | 09-multistream-encoder | 4/4 | ~15m | ~4m |
 | 10-api-layer | 2/2 | ~47m | ~24m |
 | 11-container | 2/2 | ~14m | ~7m |
+| 12-compliance-polish | 1/3 | ~16m | ~16m |
 
 **Recent Trend:**
-- Last 5 plans: 10-01 (~35m), 10-02 (~12m), 11-01 (~6m), 11-02 (~8m)
-- Trend: Phase 11 complete, efficient execution
+- Last 5 plans: 10-02 (~12m), 11-01 (~6m), 11-02 (~8m), 12-01 (~16m)
+- Trend: Phase 12 started, import cycle fixed
 
 *Updated after each plan completion*
 
@@ -169,6 +170,8 @@ Recent decisions affecting current work:
 | D11-02-02 | Random serial number via math/rand | 11-02 | Standard approach for Ogg stream identification |
 | D11-02-03 | Header pages always have granulePos = 0 | 11-02 | Per RFC 7845 ID and comment headers must have zero granule |
 | D11-02-04 | Empty EOS page on Close() | 11-02 | Signals end of stream per Ogg specification |
+| D12-01-01 | External test package pattern for import cycle fix | 12-01 | package encoder_test imports encoder via module path |
+| D12-01-02 | Export unexported functions via export_test.go | 12-01 | Test-only exports for internal function testing |
 
 ### Pending Todos
 
@@ -180,7 +183,7 @@ Recent decisions affecting current work:
 - **RESOLVED: Range coder signal quality (D01-02-02, D07-01-04):** Fixed in 07-05. Encoder now produces bytes correctly decodable by decoder. Signal passes through CELT codec chain (has_output=true in all tests).
 - **RESOLVED: Libopus cross-validation (07-06):** Test infrastructure added. Tests skip on macOS due to provenance restrictions but will run on Linux/CI. Ogg Opus container, opusdec integration, quality metrics implemented.
 - **CELT frame size mismatch:** Decoder produces more samples than expected (1480 vs 960 for 20ms). Root cause: MDCT bin count (800) doesn't match frame size (960). Tracked for future fix.
-- **Internal encoder test import cycle:** Test files in internal/encoder import both gopus and internal/encoder, creating cycle in `go test ./...`. Tests work individually but fail in batch mode. Architectural cleanup needed.
+- **RESOLVED: Internal encoder test import cycle (12-01):** Fixed by converting test files to external test package pattern. `go test ./...` now passes without import cycle errors.
 
 ### Blockers/Concerns
 
@@ -189,8 +192,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-22
-Stopped at: Completed 11-02-PLAN.md (OggWriter and OggReader)
-Resume file: .planning/phases/11-container/11-02-SUMMARY.md
+Stopped at: Completed 12-01-PLAN.md (Fix import cycle)
+Resume file: .planning/phases/12-compliance-polish/12-01-SUMMARY.md
 
 ## Phase 01 Summary
 
@@ -562,3 +565,26 @@ Resume file: .planning/phases/11-container/11-02-SUMMARY.md
 - `f748351` - feat(11-02): implement OggWriter for creating Ogg Opus files
 - `57a070b` - feat(11-02): implement OggReader for parsing Ogg Opus files
 - `61fdb9b` - test(11-02): add integration tests with opusdec and round-trip validation
+
+## Phase 12 Summary - IN PROGRESS
+
+**12-01 Fix Import Cycle complete:**
+- Converted internal/encoder test files to external test package pattern
+- Created export_test.go to expose unexported functions for testing
+- Fixed type mismatches between gopus and internal/types packages
+- `go test ./...` now passes without import cycle errors
+- All packages report ok status
+- Duration: ~16 minutes
+
+**Key artifacts:**
+- `internal/encoder/export_test.go` - Exports for testing (created)
+- `internal/encoder/encoder_test.go` - package encoder_test (modified)
+- `internal/encoder/integration_test.go` - package encoder_test (modified)
+- `internal/encoder/libopus_test.go` - package encoder_test (modified)
+- `internal/encoder/packet_test.go` - package encoder_test (modified)
+- `.gitignore` - Added *.test pattern
+
+**Commits:**
+- `6024e1b` - refactor(12-01): convert encoder_test.go to external test package
+- `87ecd16` - refactor(12-01): convert remaining test files to external test package
+- `c2e3083` - test(12-01): verify full test suite passes
