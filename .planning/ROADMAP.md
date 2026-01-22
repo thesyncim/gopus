@@ -89,11 +89,12 @@ Plans:
   2. Hybrid 10ms and 20ms frames decode correctly (only supported sizes)
   3. SILK output correctly upsampled and summed with CELT output
   4. Packet loss concealment produces reasonable audio when packet is NULL
-**Plans**: 2 plans
+**Plans**: 3 plans
 
 Plans:
-- [ ] 04-01-PLAN.md - Hybrid decoder foundation and SILK+CELT coordination
-- [ ] 04-02-PLAN.md - Packet loss concealment (SILK PLC, CELT PLC, Hybrid PLC)
+- [x] 04-01-PLAN.md - Hybrid decoder foundation and SILK+CELT coordination
+- [x] 04-02-PLAN.md - Packet loss concealment (SILK PLC, CELT PLC, Hybrid PLC)
+- [ ] 04-03-PLAN.md - Gap closure: real hybrid packet integration test (verification gap)
 
 ### Phase 5: Multistream Decoder
 **Goal**: Decode multistream packets for surround sound configurations
@@ -226,7 +227,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 1. Foundation | 3/3 | Complete | 2026-01-21 |
 | 2. SILK Decoder | 5/5 | Complete | 2026-01-21 |
 | 3. CELT Decoder | 5/5 | Complete | 2026-01-21 |
-| 4. Hybrid Decoder | 0/2 | Planned | - |
+| 4. Hybrid Decoder | 2/3 | Gap closure | - |
 | 5. Multistream Decoder | 0/1 | Not started | - |
 | 6. SILK Encoder | 0/3 | Not started | - |
 | 7. CELT Encoder | 0/3 | Not started | - |
@@ -241,4 +242,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 *Phase 1 planned: 2026-01-21*
 *Phase 2 planned: 2026-01-21*
 *Phase 4 planned: 2026-01-21*
-*Total phases: 12 | Total plans: ~30*
+*Phase 4 gap closure: 2026-01-22*
+*Total phases: 12 | Total plans: ~31*
