@@ -22,7 +22,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 8: Hybrid Encoder & Controls** - Full encoder with bitrate/VBR/FEC/DTX
 - [x] **Phase 9: Multistream Encoder** - Surround sound encoding
 - [x] **Phase 10: API Layer** - Frame-based API and io.Reader/Writer wrappers
-- [ ] **Phase 11: Container** - Ogg Opus file read/write
+- [x] **Phase 11: Container** - Ogg Opus file read/write
 - [ ] **Phase 12: Compliance & Polish** - Test vectors, cross-validation, documentation
 
 ## Phase Details
@@ -213,8 +213,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 11-01-PLAN.md — Ogg page foundation (CRC, page structure, OpusHead/OpusTags headers)
-- [ ] 11-02-PLAN.md — OggWriter and OggReader with opusdec integration tests
+- [x] 11-01-PLAN.md — Ogg page foundation (CRC, page structure, OpusHead/OpusTags headers)
+- [x] 11-02-PLAN.md — OggWriter and OggReader with opusdec integration tests
 
 ### Phase 12: Compliance & Polish
 **Goal**: Validate against official test vectors and finalize for release
@@ -248,7 +248,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 8. Hybrid Encoder & Controls | 6/6 | Complete | 2026-01-22 |
 | 9. Multistream Encoder | 4/4 | Complete | 2026-01-22 |
 | 10. API Layer | 2/2 | Complete | 2026-01-22 |
-| 11. Container | 0/2 | Planned | - |
+| 11. Container | 2/2 | Complete | 2026-01-22 |
 | 12. Compliance & Polish | 0/2 | Not started | - |
 
 ---
@@ -272,4 +272,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 *Phase 10 planned: 2026-01-22*
 *Phase 10 complete: 2026-01-22*
 *Phase 11 planned: 2026-01-22*
+*Phase 11 complete: 2026-01-22*
 *Total phases: 12 | Total plans: ~48*

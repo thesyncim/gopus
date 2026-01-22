@@ -28,39 +28,39 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **ENC-01**: Implement range encoder matching decoder
 - [x] **ENC-02**: Encode SILK mode frames (speech)
-- [ ] **ENC-03**: Encode CELT mode frames (audio)
-- [ ] **ENC-04**: Encode Hybrid mode frames
-- [ ] **ENC-05**: Support all frame sizes matching decoder
-- [ ] **ENC-06**: Support all bandwidths (NB through FB)
+- [x] **ENC-03**: Encode CELT mode frames (audio)
+- [x] **ENC-04**: Encode Hybrid mode frames
+- [x] **ENC-05**: Support all frame sizes matching decoder
+- [x] **ENC-06**: Support all bandwidths (NB through FB)
 
 ### Encoder - Channels
 
 - [x] **ENC-07**: Encode mono streams
 - [x] **ENC-08**: Encode stereo streams
-- [ ] **ENC-09**: Encode multistream packets
+- [x] **ENC-09**: Encode multistream packets
 
 ### Encoder - Controls
 
-- [ ] **ENC-10**: VBR mode (default)
-- [ ] **ENC-11**: CBR mode option
-- [ ] **ENC-12**: Bitrate control (6-510 kbps range)
-- [ ] **ENC-13**: Complexity setting (0-10)
-- [ ] **ENC-14**: In-band FEC encoding
-- [ ] **ENC-15**: DTX (discontinuous transmission)
+- [x] **ENC-10**: VBR mode (default)
+- [x] **ENC-11**: CBR mode option
+- [x] **ENC-12**: Bitrate control (6-510 kbps range)
+- [x] **ENC-13**: Complexity setting (0-10)
+- [x] **ENC-14**: In-band FEC encoding
+- [x] **ENC-15**: DTX (discontinuous transmission)
 
 ### API
 
-- [ ] **API-01**: Frame-based Encoder type with Encode() method
-- [ ] **API-02**: Frame-based Decoder type with Decode() method
-- [ ] **API-03**: io.Writer wrapper for streaming encode
-- [ ] **API-04**: io.Reader wrapper for streaming decode
-- [ ] **API-05**: int16 PCM sample format support
-- [ ] **API-06**: float32 PCM sample format support
+- [x] **API-01**: Frame-based Encoder type with Encode() method
+- [x] **API-02**: Frame-based Decoder type with Decode() method
+- [x] **API-03**: io.Writer wrapper for streaming encode
+- [x] **API-04**: io.Reader wrapper for streaming decode
+- [x] **API-05**: int16 PCM sample format support
+- [x] **API-06**: float32 PCM sample format support
 
 ### Container
 
-- [ ] **CTR-01**: Ogg Opus file reader
-- [ ] **CTR-02**: Ogg Opus file writer
+- [x] **CTR-01**: Ogg Opus file reader
+- [x] **CTR-02**: Ogg Opus file writer
 
 ### Compliance
 
@@ -124,27 +124,27 @@ Which phases cover which requirements.
 | DEC-11 | Phase 5: Multistream Decoder | Complete |
 | ENC-01 | Phase 1: Foundation | Complete |
 | ENC-02 | Phase 6: SILK Encoder | Complete |
-| ENC-03 | Phase 7: CELT Encoder | Pending |
-| ENC-04 | Phase 8: Hybrid Encoder & Controls | Pending |
-| ENC-05 | Phase 8: Hybrid Encoder & Controls | Pending |
-| ENC-06 | Phase 8: Hybrid Encoder & Controls | Pending |
+| ENC-03 | Phase 7: CELT Encoder | Complete |
+| ENC-04 | Phase 8: Hybrid Encoder & Controls | Complete |
+| ENC-05 | Phase 8: Hybrid Encoder & Controls | Complete |
+| ENC-06 | Phase 8: Hybrid Encoder & Controls | Complete |
 | ENC-07 | Phase 6: SILK Encoder | Complete |
 | ENC-08 | Phase 6: SILK Encoder | Complete |
-| ENC-09 | Phase 9: Multistream Encoder | Pending |
-| ENC-10 | Phase 8: Hybrid Encoder & Controls | Pending |
-| ENC-11 | Phase 8: Hybrid Encoder & Controls | Pending |
-| ENC-12 | Phase 8: Hybrid Encoder & Controls | Pending |
-| ENC-13 | Phase 8: Hybrid Encoder & Controls | Pending |
-| ENC-14 | Phase 8: Hybrid Encoder & Controls | Pending |
-| ENC-15 | Phase 8: Hybrid Encoder & Controls | Pending |
-| API-01 | Phase 10: API Layer | Pending |
-| API-02 | Phase 10: API Layer | Pending |
-| API-03 | Phase 10: API Layer | Pending |
-| API-04 | Phase 10: API Layer | Pending |
-| API-05 | Phase 10: API Layer | Pending |
-| API-06 | Phase 10: API Layer | Pending |
-| CTR-01 | Phase 11: Container | Pending |
-| CTR-02 | Phase 11: Container | Pending |
+| ENC-09 | Phase 9: Multistream Encoder | Complete |
+| ENC-10 | Phase 8: Hybrid Encoder & Controls | Complete |
+| ENC-11 | Phase 8: Hybrid Encoder & Controls | Complete |
+| ENC-12 | Phase 8: Hybrid Encoder & Controls | Complete |
+| ENC-13 | Phase 8: Hybrid Encoder & Controls | Complete |
+| ENC-14 | Phase 8: Hybrid Encoder & Controls | Complete |
+| ENC-15 | Phase 8: Hybrid Encoder & Controls | Complete |
+| API-01 | Phase 10: API Layer | Complete |
+| API-02 | Phase 10: API Layer | Complete |
+| API-03 | Phase 10: API Layer | Complete |
+| API-04 | Phase 10: API Layer | Complete |
+| API-05 | Phase 10: API Layer | Complete |
+| API-06 | Phase 10: API Layer | Complete |
+| CTR-01 | Phase 11: Container | Complete |
+| CTR-02 | Phase 11: Container | Complete |
 | CMP-01 | Phase 12: Compliance & Polish | Pending |
 | CMP-02 | Phase 12: Compliance & Polish | Pending |
 | CMP-03 | Phase 1: Foundation | Complete |
@@ -157,4 +157,4 @@ Which phases cover which requirements.
 
 ---
 *Requirements defined: 2026-01-21*
-*Last updated: 2026-01-22 after Phase 5 Multistream Decoder completion*
+*Last updated: 2026-01-22 after Phase 11 Container completion*
