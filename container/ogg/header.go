@@ -1,0 +1,351 @@
+package ogg
+
+import (
+	"encoding/binary"
+)
+
+// Opus header constants per RFC 7845.
+const (
+	// DefaultPreSkip is the standard Opus encoder lookahead at 48kHz.
+	// This is the number of samples to discard at the beginning of decode.
+	DefaultPreSkip = 312
+
+	// opusHeadMagic is the magic signature for the OpusHead header.
+	opusHeadMagic = "OpusHead"
+
+	// opusTagsMagic is the magic signature for the OpusTags header.
+	opusTagsMagic = "OpusTags"
+
+	// opusHeadMinSize is the minimum size of an OpusHead packet (mapping family 0).
+	opusHeadMinSize = 19
+
+	// opusHeadVersion is the required version number for OpusHead.
+	opusHeadVersion = 1
+)
+
+// MappingFamily values per RFC 7845.
+const (
+	// MappingFamilyRTP is for mono/stereo with implicit channel order (RTP).
+	MappingFamilyRTP = 0
+
+	// MappingFamilyVorbis is for 1-8 channels with Vorbis channel order.
+	MappingFamilyVorbis = 1
+
+	// MappingFamilyDiscrete is for N channels with no defined relationship.
+	MappingFamilyDiscrete = 255
+)
+
+// OpusHead is the identification header for Opus in Ogg.
+// This appears in the first Ogg page (BOS) and describes the stream format.
+type OpusHead struct {
+	// Version is the format version (must be 1).
+	Version uint8
+
+	// Channels is the output channel count (1-255).
+	Channels uint8
+
+	// PreSkip is the number of samples to discard at the start (at 48kHz).
+	// Typically 312 for standard Opus encoder lookahead.
+	PreSkip uint16
+
+	// SampleRate is the original input sample rate (informational only).
+	// Opus always operates at 48kHz internally.
+	SampleRate uint32
+
+	// OutputGain is the gain to apply in Q7.8 dB format.
+	// Positive values amplify, negative values attenuate.
+	OutputGain int16
+
+	// MappingFamily specifies the channel mapping:
+	//   0: Mono/stereo (implicit order)
+	//   1: Surround 1-8 channels (Vorbis order)
+	//   255: Discrete (no defined relationship)
+	MappingFamily uint8
+
+	// Extended fields for mapping family 1 and 255:
+
+	// StreamCount is the number of Opus streams in the packet.
+	StreamCount uint8
+
+	// CoupledCount is the number of coupled (stereo) streams.
+	CoupledCount uint8
+
+	// ChannelMapping maps output channels to decoder channels.
+	// For mapping family 0, this is implicit (not stored).
+	// For family 1/255, length equals Channels.
+	ChannelMapping []byte
+}
+
+// Encode serializes the OpusHead to bytes.
+// For mapping family 0: 19 bytes.
+// For mapping family 1/255: 21 + Channels bytes.
+func (h *OpusHead) Encode() []byte {
+	if h.MappingFamily == 0 {
+		// Mapping family 0: 19 bytes total.
+		data := make([]byte, 19)
+		copy(data[0:8], opusHeadMagic)
+		data[8] = h.Version
+		data[9] = h.Channels
+		binary.LittleEndian.PutUint16(data[10:12], h.PreSkip)
+		binary.LittleEndian.PutUint32(data[12:16], h.SampleRate)
+		binary.LittleEndian.PutUint16(data[16:18], uint16(h.OutputGain))
+		data[18] = h.MappingFamily
+		return data
+	}
+
+	// Mapping family 1 or 255: 21 + Channels bytes.
+	size := 21 + int(h.Channels)
+	data := make([]byte, size)
+	copy(data[0:8], opusHeadMagic)
+	data[8] = h.Version
+	data[9] = h.Channels
+	binary.LittleEndian.PutUint16(data[10:12], h.PreSkip)
+	binary.LittleEndian.PutUint32(data[12:16], h.SampleRate)
+	binary.LittleEndian.PutUint16(data[16:18], uint16(h.OutputGain))
+	data[18] = h.MappingFamily
+	data[19] = h.StreamCount
+	data[20] = h.CoupledCount
+	copy(data[21:], h.ChannelMapping)
+	return data
+}
+
+// ParseOpusHead parses an OpusHead from bytes.
+// Returns ErrInvalidHeader if the data is malformed.
+func ParseOpusHead(data []byte) (*OpusHead, error) {
+	if len(data) < opusHeadMinSize {
+		return nil, ErrInvalidHeader
+	}
+
+	// Verify magic signature.
+	if string(data[0:8]) != opusHeadMagic {
+		return nil, ErrInvalidHeader
+	}
+
+	// Verify version.
+	version := data[8]
+	if version != opusHeadVersion {
+		return nil, ErrInvalidHeader
+	}
+
+	h := &OpusHead{
+		Version:       version,
+		Channels:      data[9],
+		PreSkip:       binary.LittleEndian.Uint16(data[10:12]),
+		SampleRate:    binary.LittleEndian.Uint32(data[12:16]),
+		OutputGain:    int16(binary.LittleEndian.Uint16(data[16:18])),
+		MappingFamily: data[18],
+	}
+
+	// Validate channel count.
+	if h.Channels == 0 {
+		return nil, ErrInvalidHeader
+	}
+
+	// Parse extended fields for mapping family 1 and 255.
+	if h.MappingFamily != 0 {
+		// Need at least 21 + Channels bytes.
+		minSize := 21 + int(h.Channels)
+		if len(data) < minSize {
+			return nil, ErrInvalidHeader
+		}
+
+		h.StreamCount = data[19]
+		h.CoupledCount = data[20]
+
+		// Validate stream counts.
+		if h.StreamCount == 0 {
+			return nil, ErrInvalidHeader
+		}
+		if int(h.CoupledCount) > int(h.StreamCount) {
+			return nil, ErrInvalidHeader
+		}
+
+		// Parse channel mapping table.
+		h.ChannelMapping = make([]byte, h.Channels)
+		copy(h.ChannelMapping, data[21:21+int(h.Channels)])
+
+		// Validate mapping values.
+		maxStream := h.StreamCount + h.CoupledCount
+		for _, m := range h.ChannelMapping {
+			if m >= maxStream && m != 255 { // 255 = silence
+				return nil, ErrInvalidHeader
+			}
+		}
+	} else {
+		// Mapping family 0: implicit mapping.
+		if h.Channels > 2 {
+			return nil, ErrInvalidHeader
+		}
+		h.StreamCount = 1
+		h.CoupledCount = 0
+		if h.Channels == 2 {
+			h.CoupledCount = 1
+		}
+	}
+
+	return h, nil
+}
+
+// OpusTags is the comment header for Opus in Ogg.
+// This appears in the second Ogg page and contains metadata.
+type OpusTags struct {
+	// Vendor is the encoder name (e.g., "gopus").
+	Vendor string
+
+	// Comments is a map of user comments (key=value pairs).
+	// Common keys: TITLE, ARTIST, ALBUM, DATE, TRACKNUMBER, etc.
+	Comments map[string]string
+}
+
+// Encode serializes the OpusTags to bytes.
+func (t *OpusTags) Encode() []byte {
+	// Calculate size.
+	// 8 bytes: "OpusTags"
+	// 4 bytes: vendor string length
+	// N bytes: vendor string
+	// 4 bytes: comment count
+	// For each comment:
+	//   4 bytes: comment length
+	//   N bytes: comment string ("KEY=value")
+
+	size := 8 + 4 + len(t.Vendor) + 4
+	for k, v := range t.Comments {
+		size += 4 + len(k) + 1 + len(v) // "KEY=value"
+	}
+
+	data := make([]byte, size)
+	offset := 0
+
+	// Write magic.
+	copy(data[offset:offset+8], opusTagsMagic)
+	offset += 8
+
+	// Write vendor string.
+	binary.LittleEndian.PutUint32(data[offset:offset+4], uint32(len(t.Vendor)))
+	offset += 4
+	copy(data[offset:offset+len(t.Vendor)], t.Vendor)
+	offset += len(t.Vendor)
+
+	// Write comment count.
+	binary.LittleEndian.PutUint32(data[offset:offset+4], uint32(len(t.Comments)))
+	offset += 4
+
+	// Write comments.
+	for k, v := range t.Comments {
+		comment := k + "=" + v
+		binary.LittleEndian.PutUint32(data[offset:offset+4], uint32(len(comment)))
+		offset += 4
+		copy(data[offset:offset+len(comment)], comment)
+		offset += len(comment)
+	}
+
+	return data
+}
+
+// ParseOpusTags parses an OpusTags from bytes.
+// Returns ErrInvalidHeader if the data is malformed.
+func ParseOpusTags(data []byte) (*OpusTags, error) {
+	// Minimum size: 8 (magic) + 4 (vendor len) + 4 (comment count) = 16
+	if len(data) < 16 {
+		return nil, ErrInvalidHeader
+	}
+
+	// Verify magic signature.
+	if string(data[0:8]) != opusTagsMagic {
+		return nil, ErrInvalidHeader
+	}
+
+	offset := 8
+
+	// Read vendor string length.
+	vendorLen := binary.LittleEndian.Uint32(data[offset : offset+4])
+	offset += 4
+
+	if offset+int(vendorLen) > len(data) {
+		return nil, ErrInvalidHeader
+	}
+
+	t := &OpusTags{
+		Vendor:   string(data[offset : offset+int(vendorLen)]),
+		Comments: make(map[string]string),
+	}
+	offset += int(vendorLen)
+
+	// Read comment count.
+	if offset+4 > len(data) {
+		return nil, ErrInvalidHeader
+	}
+	commentCount := binary.LittleEndian.Uint32(data[offset : offset+4])
+	offset += 4
+
+	// Read comments.
+	for i := uint32(0); i < commentCount; i++ {
+		if offset+4 > len(data) {
+			return nil, ErrInvalidHeader
+		}
+		commentLen := binary.LittleEndian.Uint32(data[offset : offset+4])
+		offset += 4
+
+		if offset+int(commentLen) > len(data) {
+			return nil, ErrInvalidHeader
+		}
+		comment := string(data[offset : offset+int(commentLen)])
+		offset += int(commentLen)
+
+		// Split on first '=' to get key=value.
+		for j := 0; j < len(comment); j++ {
+			if comment[j] == '=' {
+				key := comment[:j]
+				value := comment[j+1:]
+				t.Comments[key] = value
+				break
+			}
+		}
+	}
+
+	return t, nil
+}
+
+// DefaultOpusHead returns an OpusHead with standard settings.
+// sampleRate is the original input sample rate (informational).
+// channels is 1 for mono, 2 for stereo.
+func DefaultOpusHead(sampleRate uint32, channels uint8) *OpusHead {
+	h := &OpusHead{
+		Version:       opusHeadVersion,
+		Channels:      channels,
+		PreSkip:       DefaultPreSkip,
+		SampleRate:    sampleRate,
+		OutputGain:    0,
+		MappingFamily: 0,
+		StreamCount:   1,
+		CoupledCount:  0,
+	}
+	if channels == 2 {
+		h.CoupledCount = 1
+	}
+	return h
+}
+
+// DefaultOpusHeadMultistream returns an OpusHead for multistream with mapping family 1.
+// This is for surround configurations (1-8 channels).
+func DefaultOpusHeadMultistream(sampleRate uint32, channels uint8, streams, coupled uint8, mapping []byte) *OpusHead {
+	return &OpusHead{
+		Version:        opusHeadVersion,
+		Channels:       channels,
+		PreSkip:        DefaultPreSkip,
+		SampleRate:     sampleRate,
+		OutputGain:     0,
+		MappingFamily:  MappingFamilyVorbis,
+		StreamCount:    streams,
+		CoupledCount:   coupled,
+		ChannelMapping: mapping,
+	}
+}
+
+// DefaultOpusTags returns an OpusTags with gopus vendor string.
+func DefaultOpusTags() *OpusTags {
+	return &OpusTags{
+		Vendor:   "gopus",
+		Comments: make(map[string]string),
+	}
+}

@@ -441,3 +441,398 @@ func TestPageFlags(t *testing.T) {
 		t.Error("combined flags not working")
 	}
 }
+
+// TestOpusHeadFamily0_Mono tests OpusHead encoding/parsing for mono.
+func TestOpusHeadFamily0_Mono(t *testing.T) {
+	h := DefaultOpusHead(48000, 1)
+
+	if h.Version != 1 {
+		t.Errorf("Version = %d, want 1", h.Version)
+	}
+	if h.Channels != 1 {
+		t.Errorf("Channels = %d, want 1", h.Channels)
+	}
+	if h.PreSkip != DefaultPreSkip {
+		t.Errorf("PreSkip = %d, want %d", h.PreSkip, DefaultPreSkip)
+	}
+	if h.MappingFamily != 0 {
+		t.Errorf("MappingFamily = %d, want 0", h.MappingFamily)
+	}
+
+	// Encode and verify size.
+	encoded := h.Encode()
+	if len(encoded) != 19 {
+		t.Errorf("encoded len = %d, want 19", len(encoded))
+	}
+
+	// Verify magic.
+	if string(encoded[0:8]) != "OpusHead" {
+		t.Errorf("missing OpusHead magic")
+	}
+
+	// Parse back.
+	parsed, err := ParseOpusHead(encoded)
+	if err != nil {
+		t.Fatalf("ParseOpusHead failed: %v", err)
+	}
+
+	if parsed.Version != h.Version {
+		t.Errorf("parsed Version = %d, want %d", parsed.Version, h.Version)
+	}
+	if parsed.Channels != h.Channels {
+		t.Errorf("parsed Channels = %d, want %d", parsed.Channels, h.Channels)
+	}
+	if parsed.PreSkip != h.PreSkip {
+		t.Errorf("parsed PreSkip = %d, want %d", parsed.PreSkip, h.PreSkip)
+	}
+	if parsed.SampleRate != h.SampleRate {
+		t.Errorf("parsed SampleRate = %d, want %d", parsed.SampleRate, h.SampleRate)
+	}
+	if parsed.MappingFamily != h.MappingFamily {
+		t.Errorf("parsed MappingFamily = %d, want %d", parsed.MappingFamily, h.MappingFamily)
+	}
+}
+
+// TestOpusHeadFamily0_Stereo tests OpusHead encoding/parsing for stereo.
+func TestOpusHeadFamily0_Stereo(t *testing.T) {
+	h := DefaultOpusHead(48000, 2)
+
+	if h.Channels != 2 {
+		t.Errorf("Channels = %d, want 2", h.Channels)
+	}
+	if h.CoupledCount != 1 {
+		t.Errorf("CoupledCount = %d, want 1", h.CoupledCount)
+	}
+
+	encoded := h.Encode()
+	if len(encoded) != 19 {
+		t.Errorf("encoded len = %d, want 19", len(encoded))
+	}
+
+	parsed, err := ParseOpusHead(encoded)
+	if err != nil {
+		t.Fatalf("ParseOpusHead failed: %v", err)
+	}
+
+	if parsed.Channels != 2 {
+		t.Errorf("parsed Channels = %d, want 2", parsed.Channels)
+	}
+	if parsed.CoupledCount != 1 {
+		t.Errorf("parsed CoupledCount = %d, want 1", parsed.CoupledCount)
+	}
+}
+
+// TestOpusHeadFamily1 tests OpusHead for surround configurations.
+func TestOpusHeadFamily1(t *testing.T) {
+	tests := []struct {
+		name     string
+		channels uint8
+		streams  uint8
+		coupled  uint8
+		mapping  []byte
+	}{
+		{
+			name:     "5.1 surround",
+			channels: 6,
+			streams:  4,
+			coupled:  2,
+			mapping:  []byte{0, 4, 1, 2, 3, 5}, // FL, FR, C, LFE, BL, BR
+		},
+		{
+			name:     "7.1 surround",
+			channels: 8,
+			streams:  5,
+			coupled:  3,
+			mapping:  []byte{0, 6, 1, 2, 3, 4, 5, 7}, // FL, FR, C, LFE, BL, BR, SL, SR
+		},
+		{
+			name:     "quad",
+			channels: 4,
+			streams:  2,
+			coupled:  2,
+			mapping:  []byte{0, 1, 2, 3},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h := DefaultOpusHeadMultistream(48000, tc.channels, tc.streams, tc.coupled, tc.mapping)
+
+			if h.MappingFamily != MappingFamilyVorbis {
+				t.Errorf("MappingFamily = %d, want %d", h.MappingFamily, MappingFamilyVorbis)
+			}
+			if h.StreamCount != tc.streams {
+				t.Errorf("StreamCount = %d, want %d", h.StreamCount, tc.streams)
+			}
+			if h.CoupledCount != tc.coupled {
+				t.Errorf("CoupledCount = %d, want %d", h.CoupledCount, tc.coupled)
+			}
+
+			// Encode and verify size (21 + channels).
+			encoded := h.Encode()
+			expectedLen := 21 + int(tc.channels)
+			if len(encoded) != expectedLen {
+				t.Errorf("encoded len = %d, want %d", len(encoded), expectedLen)
+			}
+
+			// Parse back.
+			parsed, err := ParseOpusHead(encoded)
+			if err != nil {
+				t.Fatalf("ParseOpusHead failed: %v", err)
+			}
+
+			if parsed.Channels != tc.channels {
+				t.Errorf("parsed Channels = %d, want %d", parsed.Channels, tc.channels)
+			}
+			if parsed.MappingFamily != MappingFamilyVorbis {
+				t.Errorf("parsed MappingFamily = %d, want %d", parsed.MappingFamily, MappingFamilyVorbis)
+			}
+			if parsed.StreamCount != tc.streams {
+				t.Errorf("parsed StreamCount = %d, want %d", parsed.StreamCount, tc.streams)
+			}
+			if parsed.CoupledCount != tc.coupled {
+				t.Errorf("parsed CoupledCount = %d, want %d", parsed.CoupledCount, tc.coupled)
+			}
+			if len(parsed.ChannelMapping) != len(tc.mapping) {
+				t.Errorf("parsed ChannelMapping len = %d, want %d", len(parsed.ChannelMapping), len(tc.mapping))
+				return
+			}
+			for i := range parsed.ChannelMapping {
+				if parsed.ChannelMapping[i] != tc.mapping[i] {
+					t.Errorf("parsed ChannelMapping[%d] = %d, want %d", i, parsed.ChannelMapping[i], tc.mapping[i])
+				}
+			}
+		})
+	}
+}
+
+// TestOpusHeadRoundTrip verifies encode then parse produces same values.
+func TestOpusHeadRoundTrip(t *testing.T) {
+	tests := []struct {
+		name string
+		head *OpusHead
+	}{
+		{
+			name: "mono basic",
+			head: &OpusHead{
+				Version:       1,
+				Channels:      1,
+				PreSkip:       100,
+				SampleRate:    44100,
+				OutputGain:    256, // +1 dB
+				MappingFamily: 0,
+				StreamCount:   1,
+				CoupledCount:  0,
+			},
+		},
+		{
+			name: "stereo with gain",
+			head: &OpusHead{
+				Version:       1,
+				Channels:      2,
+				PreSkip:       312,
+				SampleRate:    48000,
+				OutputGain:    -512, // -2 dB
+				MappingFamily: 0,
+				StreamCount:   1,
+				CoupledCount:  1,
+			},
+		},
+		{
+			name: "5.1 surround",
+			head: DefaultOpusHeadMultistream(48000, 6, 4, 2, []byte{0, 4, 1, 2, 3, 5}),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded := tc.head.Encode()
+			parsed, err := ParseOpusHead(encoded)
+			if err != nil {
+				t.Fatalf("ParseOpusHead failed: %v", err)
+			}
+
+			if parsed.Version != tc.head.Version {
+				t.Errorf("Version mismatch")
+			}
+			if parsed.Channels != tc.head.Channels {
+				t.Errorf("Channels mismatch: %d vs %d", parsed.Channels, tc.head.Channels)
+			}
+			if parsed.PreSkip != tc.head.PreSkip {
+				t.Errorf("PreSkip mismatch: %d vs %d", parsed.PreSkip, tc.head.PreSkip)
+			}
+			if parsed.SampleRate != tc.head.SampleRate {
+				t.Errorf("SampleRate mismatch: %d vs %d", parsed.SampleRate, tc.head.SampleRate)
+			}
+			if parsed.OutputGain != tc.head.OutputGain {
+				t.Errorf("OutputGain mismatch: %d vs %d", parsed.OutputGain, tc.head.OutputGain)
+			}
+			if parsed.MappingFamily != tc.head.MappingFamily {
+				t.Errorf("MappingFamily mismatch")
+			}
+		})
+	}
+}
+
+// TestOpusTags tests OpusTags encoding and parsing.
+func TestOpusTags(t *testing.T) {
+	t.Run("default", func(t *testing.T) {
+		tags := DefaultOpusTags()
+		if tags.Vendor != "gopus" {
+			t.Errorf("Vendor = %q, want %q", tags.Vendor, "gopus")
+		}
+
+		encoded := tags.Encode()
+
+		// Verify magic.
+		if string(encoded[0:8]) != "OpusTags" {
+			t.Error("missing OpusTags magic")
+		}
+
+		parsed, err := ParseOpusTags(encoded)
+		if err != nil {
+			t.Fatalf("ParseOpusTags failed: %v", err)
+		}
+
+		if parsed.Vendor != tags.Vendor {
+			t.Errorf("parsed Vendor = %q, want %q", parsed.Vendor, tags.Vendor)
+		}
+		if len(parsed.Comments) != 0 {
+			t.Errorf("parsed Comments len = %d, want 0", len(parsed.Comments))
+		}
+	})
+
+	t.Run("with comments", func(t *testing.T) {
+		tags := &OpusTags{
+			Vendor: "gopus 1.0",
+			Comments: map[string]string{
+				"TITLE":  "Test Song",
+				"ARTIST": "Test Artist",
+			},
+		}
+
+		encoded := tags.Encode()
+		parsed, err := ParseOpusTags(encoded)
+		if err != nil {
+			t.Fatalf("ParseOpusTags failed: %v", err)
+		}
+
+		if parsed.Vendor != tags.Vendor {
+			t.Errorf("parsed Vendor = %q, want %q", parsed.Vendor, tags.Vendor)
+		}
+		if len(parsed.Comments) != len(tags.Comments) {
+			t.Errorf("parsed Comments len = %d, want %d", len(parsed.Comments), len(tags.Comments))
+		}
+		for k, v := range tags.Comments {
+			if parsed.Comments[k] != v {
+				t.Errorf("parsed Comments[%q] = %q, want %q", k, parsed.Comments[k], v)
+			}
+		}
+	})
+
+	t.Run("empty vendor", func(t *testing.T) {
+		tags := &OpusTags{
+			Vendor:   "",
+			Comments: make(map[string]string),
+		}
+
+		encoded := tags.Encode()
+		parsed, err := ParseOpusTags(encoded)
+		if err != nil {
+			t.Fatalf("ParseOpusTags failed: %v", err)
+		}
+
+		if parsed.Vendor != "" {
+			t.Errorf("parsed Vendor = %q, want empty", parsed.Vendor)
+		}
+	})
+}
+
+// TestOpusHeadErrors tests error cases for ParseOpusHead.
+func TestOpusHeadErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{
+			name: "too short",
+			data: []byte("OpusHead"),
+		},
+		{
+			name: "wrong magic",
+			data: []byte("NotOpusHead12345678"),
+		},
+		{
+			name: "wrong version",
+			data: func() []byte {
+				h := DefaultOpusHead(48000, 1)
+				d := h.Encode()
+				d[8] = 2 // Invalid version
+				return d
+			}(),
+		},
+		{
+			name: "zero channels",
+			data: func() []byte {
+				h := DefaultOpusHead(48000, 1)
+				d := h.Encode()
+				d[9] = 0 // Zero channels
+				return d
+			}(),
+		},
+		{
+			name: "family 0 with 3 channels",
+			data: func() []byte {
+				d := make([]byte, 19)
+				copy(d, "OpusHead")
+				d[8] = 1 // Version
+				d[9] = 3 // 3 channels (invalid for family 0)
+				return d
+			}(),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseOpusHead(tc.data)
+			if err != ErrInvalidHeader {
+				t.Errorf("ParseOpusHead: got error %v, want ErrInvalidHeader", err)
+			}
+		})
+	}
+}
+
+// TestOpusTagsErrors tests error cases for ParseOpusTags.
+func TestOpusTagsErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{
+			name: "too short",
+			data: []byte("OpusTags"),
+		},
+		{
+			name: "wrong magic",
+			data: []byte("NotOpusTags12345678"),
+		},
+		{
+			name: "truncated vendor",
+			data: func() []byte {
+				d := make([]byte, 16)
+				copy(d, "OpusTags")
+				d[8] = 100 // Vendor length 100 but not enough data
+				return d
+			}(),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseOpusTags(tc.data)
+			if err != ErrInvalidHeader {
+				t.Errorf("ParseOpusTags: got error %v, want ErrInvalidHeader", err)
+			}
+		})
+	}
+}
