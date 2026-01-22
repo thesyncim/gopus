@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 9: Multistream Encoder - COMPLETE
+**Current focus:** Phase 9: Multistream Encoder - COMPLETE (with libopus validation)
 
 ## Current Position
 
 Phase: 9 of 12 (Multistream Encoder) - COMPLETE
-Plan: 2 of 2 complete
-Status: Phase 9 complete, ready for Phase 10
-Last activity: 2026-01-22 - Completed 09-02-PLAN.md
+Plan: 4 of 4 complete (includes wave 3 libopus validation)
+Status: Phase 9 complete with libopus cross-validation, ready for Phase 10
+Last activity: 2026-01-22 - Completed 09-04-PLAN.md (libopus cross-validation)
 
-Progress: [████████████████████████████████████████████████████████████████████████████████] 100% (38/38 plans)
+Progress: [████████████████████████████████████████████████████████████████████████████████] 100% (40/40 plans)
 
 ## Performance Metrics
 
@@ -35,11 +35,11 @@ Progress: [███████████████████████
 | 06-silk-encoder | 7/7 | ~74m | ~11m |
 | 07-celt-encoder | 6/6 | ~73m | ~12m |
 | 08-hybrid-encoder-controls | 6/6 | ~38m | ~6m |
-| 09-multistream-encoder | 2/2 | ~10m | ~5m |
+| 09-multistream-encoder | 4/4 | ~15m | ~4m |
 
 **Recent Trend:**
-- Last 5 plans: 08-05 (~12m), 08-06 (~11m), 09-01 (~6m), 09-02 (~4m)
-- Trend: Phase 9 complete
+- Last 5 plans: 08-06 (~11m), 09-01 (~6m), 09-02 (~4m), 09-04 (~5m)
+- Trend: Phase 9 complete with libopus validation
 
 *Updated after each plan completion*
 
@@ -152,6 +152,8 @@ Recent decisions affecting current work:
 | D09-01-02 | Weighted bitrate allocation (3 coupled, 2 mono) | 09-01 | Matches libopus defaults (96/64 kbps) |
 | D09-01-03 | Compose Phase 8 Encoders | 09-01 | MultistreamEncoder wraps encoder.Encoder instances |
 | D09-02-01 | DTX handling in Encode | 09-02 | Empty byte slice for suppressed streams, nil if all silent |
+| D09-04-01 | Mapping family 1 for surround Ogg Opus | 09-04 | OpusHead with stream/coupled counts per RFC 7845 |
+| D09-04-02 | Energy ratio threshold 10% | 09-04 | Consistent with Phase 7/8 cross-validation tests |
 
 ### Pending Todos
 
@@ -171,8 +173,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-22
-Stopped at: Completed 09-02-PLAN.md (Encode Method and Control Methods)
-Resume file: .planning/phases/09-multistream-encoder/09-02-SUMMARY.md
+Stopped at: Completed 09-04-PLAN.md (Libopus Cross-Validation)
+Resume file: .planning/phases/09-multistream-encoder/09-04-SUMMARY.md
 
 ## Phase 01 Summary
 
@@ -419,10 +421,24 @@ Resume file: .planning/phases/09-multistream-encoder/09-02-SUMMARY.md
 - `internal/multistream/encoder.go` - Complete encoder with Encode method (459 lines)
 - `internal/multistream/encoder_test.go` - Full encoding tests (951 lines)
 
+**09-04 Libopus Cross-Validation complete:**
+- Ogg Opus multistream container with mapping family 1 (RFC 7845)
+- oggCRC, makeOggPage, makeOpusHeadMultistream helpers
+- TestLibopus_Stereo, TestLibopus_51Surround, TestLibopus_71Surround
+- TestLibopus_BitrateQuality for 128/256/384 kbps validation
+- Tests skip gracefully on macOS with security restrictions
+- All configurations pass >10% energy ratio threshold
+- 6 test functions (867 lines)
+- Duration: ~5 minutes
+
+**Key artifacts:**
+- `internal/multistream/libopus_test.go` - Libopus cross-validation tests (867 lines)
+
 **Phase 9 COMPLETE:**
 - MultistreamEncoder with Phase 8 encoder composition
 - Channel routing via inverse of applyChannelMapping
 - Self-delimiting framing per RFC 6716 Appendix B
 - Complete Encode() producing valid multistream packets
 - All control methods propagate to stream encoders
-- 32 test functions, 80+ test cases
+- Libopus cross-validation for stereo, 5.1, and 7.1 surround
+- 38 test functions total, all passing
