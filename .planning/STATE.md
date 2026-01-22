@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 9: Multistream Encoder - IN PROGRESS
+**Current focus:** Phase 9: Multistream Encoder - COMPLETE
 
 ## Current Position
 
-Phase: 9 of 12 (Multistream Encoder) - IN PROGRESS
-Plan: 1 of 2 complete
-Status: Completed 09-01-PLAN.md (MultistreamEncoder Foundation)
-Last activity: 2026-01-22 - Completed 09-01-PLAN.md
+Phase: 9 of 12 (Multistream Encoder) - COMPLETE
+Plan: 2 of 2 complete
+Status: Phase 9 complete, ready for Phase 10
+Last activity: 2026-01-22 - Completed 09-02-PLAN.md
 
-Progress: [█████████████████████████████████████████████████████████████████████████████] ~97% (37/38 plans)
+Progress: [████████████████████████████████████████████████████████████████████████████████] 100% (38/38 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 37
+- Total plans completed: 38
 - Average duration: ~8 minutes
-- Total execution time: ~303 minutes
+- Total execution time: ~307 minutes
 
 **By Phase:**
 
@@ -35,11 +35,11 @@ Progress: [███████████████████████
 | 06-silk-encoder | 7/7 | ~74m | ~11m |
 | 07-celt-encoder | 6/6 | ~73m | ~12m |
 | 08-hybrid-encoder-controls | 6/6 | ~38m | ~6m |
-| 09-multistream-encoder | 1/2 | ~6m | ~6m |
+| 09-multistream-encoder | 2/2 | ~10m | ~5m |
 
 **Recent Trend:**
-- Last 5 plans: 08-04 (~12m), 08-05 (~12m), 08-06 (~11m), 09-01 (~6m)
-- Trend: Phase 9 in progress
+- Last 5 plans: 08-05 (~12m), 08-06 (~11m), 09-01 (~6m), 09-02 (~4m)
+- Trend: Phase 9 complete
 
 *Updated after each plan completion*
 
@@ -151,6 +151,7 @@ Recent decisions affecting current work:
 | D09-01-01 | NewEncoder validation identical to NewDecoder | 09-01 | Ensures encoder/decoder symmetry |
 | D09-01-02 | Weighted bitrate allocation (3 coupled, 2 mono) | 09-01 | Matches libopus defaults (96/64 kbps) |
 | D09-01-03 | Compose Phase 8 Encoders | 09-01 | MultistreamEncoder wraps encoder.Encoder instances |
+| D09-02-01 | DTX handling in Encode | 09-02 | Empty byte slice for suppressed streams, nil if all silent |
 
 ### Pending Todos
 
@@ -170,8 +171,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-22
-Stopped at: Completed 09-01-PLAN.md (MultistreamEncoder Foundation)
-Resume file: .planning/phases/09-multistream-encoder/09-01-SUMMARY.md
+Stopped at: Completed 09-02-PLAN.md (Encode Method and Control Methods)
+Resume file: .planning/phases/09-multistream-encoder/09-02-SUMMARY.md
 
 ## Phase 01 Summary
 
@@ -393,7 +394,7 @@ Resume file: .planning/phases/09-multistream-encoder/09-01-SUMMARY.md
 - Complexity control (0-10)
 - Comprehensive test coverage with libopus validation
 
-## Phase 09 Summary - IN PROGRESS
+## Phase 09 Summary - COMPLETE
 
 **09-01 MultistreamEncoder Foundation complete:**
 - Encoder struct mirrors Decoder with sampleRate, inputChannels, streams, coupledStreams, mapping
@@ -405,6 +406,23 @@ Resume file: .planning/phases/09-multistream-encoder/09-01-SUMMARY.md
 - 8 test functions, 40+ test cases
 - Duration: ~6 minutes
 
+**09-02 Encode Method and Control Methods complete:**
+- Encode() method with channel routing, per-stream encoding, packet assembly
+- ErrInvalidInput for input length validation
+- Control methods: SetComplexity, SetFEC, SetPacketLoss, SetDTX
+- Getter methods: Complexity, FECEnabled, PacketLoss, DTXEnabled
+- DTX handling: empty byte slice for suppressed streams, nil if all silent
+- 9 new test functions for encoding
+- Duration: ~4 minutes
+
 **Key artifacts:**
-- `internal/multistream/encoder.go` - Encoder struct, NewEncoder, routing, framing (327 lines)
-- `internal/multistream/encoder_test.go` - Creation and routing tests (637 lines)
+- `internal/multistream/encoder.go` - Complete encoder with Encode method (459 lines)
+- `internal/multistream/encoder_test.go` - Full encoding tests (951 lines)
+
+**Phase 9 COMPLETE:**
+- MultistreamEncoder with Phase 8 encoder composition
+- Channel routing via inverse of applyChannelMapping
+- Self-delimiting framing per RFC 6716 Appendix B
+- Complete Encode() producing valid multistream packets
+- All control methods propagate to stream encoders
+- 32 test functions, 80+ test cases
