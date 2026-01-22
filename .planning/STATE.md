@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 4: Hybrid Decoder - COMPLETE
+**Current focus:** Phase 4: Hybrid Decoder - COMPLETE (with verification gap closure)
 
 ## Current Position
 
 Phase: 4 of 12 (Hybrid Decoder) - COMPLETE
-Plan: 2 of 2 in current phase - COMPLETE
-Status: Phase complete
-Last activity: 2026-01-21 - Completed 04-02-PLAN.md (PLC Implementation)
+Plan: 3 of 3 in current phase - COMPLETE (includes gap closure)
+Status: Phase complete with verification
+Last activity: 2026-01-22 - Completed 04-03-PLAN.md (Gap Closure: Integration Tests)
 
-Progress: [████████████████████████████████████████░░] ~41% (15/37 plans)
+Progress: [████████████████████████████████████████░░] ~43% (16/37 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 15
+- Total plans completed: 16
 - Average duration: ~8 minutes
-- Total execution time: ~126 minutes
+- Total execution time: ~132 minutes
 
 **By Phase:**
 
@@ -30,11 +30,11 @@ Progress: [███████████████████████
 | 01-foundation | 3/3 | ~29m | ~10m |
 | 02-silk-decoder | 5/5 | ~31m | ~6m |
 | 03-celt-decoder | 5/5 | ~50m | ~10m |
-| 04-hybrid-decoder | 2/2 | ~16m | ~8m |
+| 04-hybrid-decoder | 3/3 | ~22m | ~7m |
 
 **Recent Trend:**
-- Last 5 plans: 03-03 (~12m), 03-04 (~12m), 03-05 (~10m), 04-01 (~5m), 04-02 (~11m)
-- Trend: PLC plan took longer due to interface design for circular import avoidance
+- Last 5 plans: 03-04 (~12m), 03-05 (~10m), 04-01 (~5m), 04-02 (~11m), 04-03 (~6m)
+- Trend: Gap closure plan fast due to focused scope (integration tests only)
 
 *Updated after each plan completion*
 
@@ -82,6 +82,8 @@ Recent decisions affecting current work:
 | D04-02-03 | MaxConcealedFrames = 5 (~100ms) | 04-02 | Typical real-time streaming limit |
 | D04-02-04 | Nil data signals PLC | 04-02 | Clean API for packet loss handling |
 | D04-02-05 | EnergyDecayPerFrame = 0.85 | 04-02 | CELT band energy fade |
+| D04-03-01 | Hardcoded packets for reliable testing | 04-03 | Programmatic encoding too complex |
+| D04-03-02 | Add bounds checking for corrupted bitstream | 04-03 | Graceful degradation vs panics |
 
 ### Pending Todos
 
@@ -97,8 +99,8 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-01-21
-Stopped at: Completed 04-02-PLAN.md (PLC Implementation)
+Last session: 2026-01-22
+Stopped at: Completed 04-03-PLAN.md (Gap Closure: Integration Tests)
 Resume file: .planning/phases/05-unified-api/ (next phase)
 
 ## Phase 01 Summary
@@ -166,9 +168,9 @@ Resume file: .planning/phases/05-unified-api/ (next phase)
 ## Phase 04 Summary - COMPLETE
 
 **Hybrid Decoder phase complete:**
-- All 2 plans executed successfully
-- Total duration: ~16 minutes
-- 30 tests passing (15 in hybrid, 15 in plc)
+- All 3 plans executed successfully (including gap closure)
+- Total duration: ~22 minutes
+- 37 tests passing (22 in hybrid, 15 in plc)
 
 **04-01 Hybrid Decoder Foundation complete:**
 - Decoder struct coordinating SILK (WB) and CELT sub-decoders
@@ -194,3 +196,15 @@ Resume file: .planning/phases/05-unified-api/ (next phase)
 - `internal/plc/celt_plc.go` - ConcealCELT, ConcealCELTHybrid
 - `internal/plc/plc_test.go` - 15 PLC tests
 - `internal/celt/decoder.go` - Added DecodeFrameHybrid, PLC integration
+
+**04-03 Gap Closure: Integration Tests complete:**
+- Packet construction helpers using range encoder
+- 7 new integration tests with real range-coded packets
+- Corrupted bitstream robustness fixes in SILK decoder
+- Verified hybrid decoder processes real SILK+CELT bitstreams
+- 22 total hybrid tests (15 original + 7 new)
+
+**Additional artifacts:**
+- `internal/hybrid/testdata_test.go` - Packet construction helpers
+- `internal/silk/excitation.go` - Bounds checking fixes
+- `internal/silk/stereo.go` - Bounds checking fixes
