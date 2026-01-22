@@ -1,3 +1,6 @@
 .idea
 .goland-state.json
 *.test
+
+# Test vector cache (downloaded at runtime)
+internal/testvectors/testdata/
