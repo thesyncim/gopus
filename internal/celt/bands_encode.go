@@ -99,3 +99,204 @@ func (e *Encoder) NormalizeBands(mdctCoeffs []float64, energies []float64, nbBan
 
 	return shapes
 }
+
+// vectorToPulses converts a normalized float vector to an integer pulse vector.
+// The result has L1 norm (sum of absolute values) equal to k.
+// This is the encoder's inverse of decoder's pulse-to-vector reconstruction.
+//
+// Parameters:
+//   - shape: normalized float vector (should have unit L2 norm)
+//   - k: target L1 norm (number of pulses)
+//
+// Returns: integer pulse vector where sum(|pulses[i]|) == k
+//
+// Algorithm:
+// 1. Compute L1 norm of shape
+// 2. Scale shape so L1 norm = k
+// 3. Round each component to nearest integer
+// 4. Distribute remaining pulses to minimize distortion
+//
+// Reference: libopus celt/vq.c alg_quant()
+func vectorToPulses(shape []float64, k int) []int {
+	n := len(shape)
+	if n == 0 || k <= 0 {
+		return make([]int, n)
+	}
+
+	pulses := make([]int, n)
+
+	// Compute L1 norm of shape
+	var l1norm float64
+	for _, x := range shape {
+		l1norm += math.Abs(x)
+	}
+
+	// Handle degenerate case
+	if l1norm < 1e-15 {
+		// Put all pulses in first position
+		pulses[0] = k
+		return pulses
+	}
+
+	// Scale factor to make L1 norm = k
+	scale := float64(k) / l1norm
+
+	// Scaled values and track rounding errors
+	type errorEntry struct {
+		idx   int
+		error float64 // Error from rounding (positive = rounded down too much)
+		sign  int     // Sign of the original value
+	}
+	errors := make([]errorEntry, n)
+
+	currentL1 := 0
+	for i, x := range shape {
+		scaled := x * scale
+		sign := 1
+		if scaled < 0 {
+			sign = -1
+			scaled = -scaled
+		}
+
+		// Round to nearest integer
+		rounded := int(math.Floor(scaled + 0.5))
+		if rounded < 0 {
+			rounded = 0
+		}
+
+		pulses[i] = sign * rounded
+		currentL1 += rounded
+
+		// Track error: how much we lost by rounding
+		// Positive error = we rounded down (want to add pulse)
+		// Negative error = we rounded up (want to remove pulse)
+		error := scaled - float64(rounded)
+		errors[i] = errorEntry{idx: i, error: error, sign: sign}
+	}
+
+	// Distribute remaining pulses to minimize distortion
+	remaining := k - currentL1
+
+	// While we need to add pulses
+	for remaining > 0 {
+		// Find position with largest positive error (rounded down the most)
+		bestIdx := -1
+		bestError := -1.0
+		for i, e := range errors {
+			if e.error > bestError {
+				bestError = e.error
+				bestIdx = i
+			}
+		}
+
+		if bestIdx < 0 {
+			// No good candidate, just add to first position
+			bestIdx = 0
+		}
+
+		// Add pulse with correct sign
+		if pulses[bestIdx] >= 0 {
+			pulses[bestIdx]++
+		} else {
+			pulses[bestIdx]--
+		}
+		errors[bestIdx].error -= 1.0
+		remaining--
+	}
+
+	// While we need to remove pulses
+	for remaining < 0 {
+		// Find position with most negative error (rounded up the most)
+		bestIdx := -1
+		bestError := 1.0
+		for i, e := range errors {
+			absPulse := pulses[i]
+			if absPulse < 0 {
+				absPulse = -absPulse
+			}
+			if absPulse > 0 && e.error < bestError {
+				bestError = e.error
+				bestIdx = i
+			}
+		}
+
+		if bestIdx < 0 {
+			// Find any position with pulses
+			for i := 0; i < n; i++ {
+				if pulses[i] != 0 {
+					bestIdx = i
+					break
+				}
+			}
+		}
+
+		if bestIdx < 0 {
+			break // No pulses to remove
+		}
+
+		// Remove pulse with correct sign
+		if pulses[bestIdx] > 0 {
+			pulses[bestIdx]--
+		} else if pulses[bestIdx] < 0 {
+			pulses[bestIdx]++
+		}
+		errors[bestIdx].error += 1.0
+		remaining++
+	}
+
+	return pulses
+}
+
+// bitsToKEncode converts allocated bits to pulse count for encoding.
+// This mirrors the decoder's bitsToK function.
+//
+// Parameters:
+//   - bits: number of bits allocated to this band
+//   - n: band width (number of MDCT bins)
+//
+// Returns: number of pulses K for PVQ coding.
+func bitsToKEncode(bits, n int) int {
+	// Use the same algorithm as decoder's bitsToK
+	return bitsToK(bits, n)
+}
+
+// EncodeBandPVQ encodes a normalized band shape using PVQ.
+// k is the number of pulses (determined by bit allocation via bitsToKEncode).
+//
+// Parameters:
+//   - shape: normalized band shape (unit L2 norm)
+//   - n: band width (number of MDCT bins)
+//   - k: number of pulses
+//
+// The encoded data consists of a single PVQ index encoded uniformly
+// with V(n,k) possible values.
+//
+// Reference: libopus celt/bands.c quant_band()
+func (e *Encoder) EncodeBandPVQ(shape []float64, n, k int) {
+	if e.rangeEncoder == nil || k <= 0 || n <= 0 {
+		return
+	}
+
+	// Ensure shape has correct length
+	if len(shape) != n {
+		// Pad or truncate
+		newShape := make([]float64, n)
+		copy(newShape, shape)
+		shape = newShape
+	}
+
+	// Convert shape to pulses
+	pulses := vectorToPulses(shape, k)
+
+	// Encode to CWRS index using existing EncodePulses function
+	index := EncodePulses(pulses, n, k)
+
+	// Get the number of possible codewords
+	vSize := PVQ_V(n, k)
+	if vSize == 0 {
+		return
+	}
+
+	// Encode index uniformly
+	e.rangeEncoder.EncodeUniform(index, vSize)
+}
