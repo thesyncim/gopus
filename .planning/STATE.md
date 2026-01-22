@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 6: SILK Encoder - COMPLETE (including gap closure)
+**Current focus:** Phase 6: SILK Encoder - COMPLETE (including stereo round-trip)
 
 ## Current Position
 
 Phase: 6 of 12 (SILK Encoder)
-Plan: 6 of 6 in current phase - COMPLETE (gap closure plan)
-Status: Phase 6 COMPLETE (all plans including gap closure)
-Last activity: 2026-01-22 - Completed 06-06-PLAN.md (Gap Closure - Round-trip Compatibility)
+Plan: 7 of 7 in current phase - COMPLETE (stereo round-trip tests)
+Status: Phase 6 COMPLETE (all plans including stereo round-trip)
+Last activity: 2026-01-22 - Completed 06-07-PLAN.md (Stereo Round-Trip Tests)
 
-Progress: [███████████████████████████████████████████████████░] ~65% (24/37 plans)
+Progress: [████████████████████████████████████████████████████░] ~68% (25/37 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 24
+- Total plans completed: 25
 - Average duration: ~8 minutes
-- Total execution time: ~184 minutes
+- Total execution time: ~187 minutes
 
 **By Phase:**
 
@@ -32,11 +32,11 @@ Progress: [███████████████████████
 | 03-celt-decoder | 5/5 | ~50m | ~10m |
 | 04-hybrid-decoder | 3/3 | ~22m | ~7m |
 | 05-multistream-decoder | 2/2 | ~6m | ~3m |
-| 06-silk-encoder | 6/6 | ~71m | ~12m |
+| 06-silk-encoder | 7/7 | ~74m | ~11m |
 
 **Recent Trend:**
-- Last 5 plans: 06-02 (~12m), 06-03 (~7m), 06-04 (~5m), 06-05 (~25m), 06-06 (~7m)
-- Trend: Gap closure plan completed efficiently
+- Last 5 plans: 06-03 (~7m), 06-04 (~5m), 06-05 (~25m), 06-06 (~7m), 06-07 (~3m)
+- Trend: Stereo round-trip tests completed efficiently
 
 *Updated after each plan completion*
 
@@ -110,6 +110,7 @@ Recent decisions affecting current work:
 | D06-06-01 | Pitch lag low bits always Q2 (4 values) | 06-06 | Per RFC 6716 Section 4.2.7.6.1 |
 | D06-06-02 | LTP periodicity encoded as symbol 0 | 06-06 | Matches decoder multi-stage logic |
 | D06-06-03 | Decoder bounds checking for corrupted bitstreams | 06-06 | Prevents panics on misaligned data |
+| D06-07-01 | Use DecodeStereoEncoded for stereo round-trip | 06-07 | Handles encoder's custom format |
 
 ### Pending Todos
 
@@ -126,7 +127,7 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-22
-Stopped at: Completed 06-06-PLAN.md (Gap Closure - Round-trip Compatibility)
+Stopped at: Completed 06-07-PLAN.md (Stereo Round-Trip Tests)
 Resume file: Next phase is 07-celt-encoder
 
 ## Phase 01 Summary
@@ -312,6 +313,13 @@ Resume file: Next phase is 07-celt-encoder
 - Added decoder bounds checking for corrupted bitstreams
 - 6 comprehensive round-trip tests for all bandwidths
 - Duration: ~7 minutes
+
+**06-07 Stereo Round-Trip Tests:**
+- Documented stereo packet format compatibility (encoder vs decoder)
+- Added 5 stereo round-trip tests using DecodeStereoEncoded
+- All stereo tests pass without panics for all bandwidths
+- Stereo prediction weights verified in valid Q13 range
+- Duration: ~3 minutes
 
 **Key artifacts:**
 - `internal/rangecoding/encoder.go` - EncodeICDF16 with zero-prob symbol handling
