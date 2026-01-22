@@ -1,7 +1,7 @@
 package rangecoding
 
 // Encoder implements the range encoder per RFC 6716 Section 4.1.
-// This is a bit-exact port of libopus entenc.c.
+// This is a bit-exact port of libopus celt/entenc.c.
 // The encoder is the symmetric inverse of the decoder.
 type Encoder struct {
 	buf        []byte  // Output buffer (pre-allocated)
@@ -13,8 +13,8 @@ type Encoder struct {
 	nbitsTotal int     // Total bits written (for tell functions)
 	rng        uint32  // Range size
 	val        uint32  // Low end of range
-	rem        int     // Number of carry-propagating bytes (-1 = sentinel)
-	ext        uint32  // Buffered byte for carry propagation
+	rem        int     // Buffered byte for carry propagation (-1 = sentinel)
+	ext        uint32  // Count of pending 0xFF bytes
 }
 
 // Init initializes the encoder with the given output buffer.
@@ -33,31 +33,56 @@ func (e *Encoder) Init(buf []byte) {
 	e.ext = 0
 }
 
-// normalize handles carry propagation and byte output.
-// This follows libopus ec_enc_normalize exactly.
-// The key insight is that we can't output a byte until we know if there will be a carry.
-// Bytes of 0xFF are delayed because they might all become 0x00 if a carry occurs.
-func (e *Encoder) normalize() {
-	for e.rng <= EC_CODE_BOT {
-		// Check if we might have a carry (val is near the top of the range)
-		if e.val < EC_CODE_TOP-EC_CODE_BOT {
-			// No carry possible yet - delay this byte
-			e.ext++
-		} else {
-			// We have a definitive byte to output
-			// First, write the stored byte with potential carry
-			if e.rem >= 0 {
-				carry := int(e.val >> EC_CODE_SHIFT)
-				e.writeByte(byte(e.rem + carry))
-			}
-			// Compute the new byte to store
-			e.rem = int(((e.val >> (EC_CODE_SHIFT - 8)) - 1) & 255)
-			// Write all extension bytes
+// carryOut handles carry propagation when outputting bytes.
+// This is based on libopus celt/entenc.c ec_enc_carry_out, but with output
+// bytes inverted (255 - B) to match the decoder's XOR-255 reconstruction.
+//
+// The decoder's normalize does: val = (val << 8) + (255 &^ sym)
+// where sym is derived from input bytes. For correct round-trip, the encoder
+// must output complemented bytes so the decoder's inversion reconstructs
+// the original interval.
+func (e *Encoder) carryOut(c int) {
+	// Complement the input to work in "decoder space"
+	// The encoder tracks val in increasing direction, decoder in decreasing
+	c = EC_SYM_MAX - (c & EC_SYM_MAX)
+
+	if e.rem >= 0 {
+		// Check for carry (now inverted: carry when c wraps below 0)
+		if c > EC_SYM_MAX {
+			// Underflow in complemented space = carry in original
+			e.writeByte(byte(e.rem - 1))
 			for e.ext > 0 {
-				e.writeByte(byte((e.rem + 1) & 255))
+				e.writeByte(0xFF)
 				e.ext--
 			}
+			e.rem = c & EC_SYM_MAX
+		} else if c == 0 {
+			// Byte is 0x00 in complemented space (was 0xFF): might borrow later
+			e.ext++
+		} else {
+			// No carry: output rem as-is, output pending 0x00 bytes
+			e.writeByte(byte(e.rem))
+			for e.ext > 0 {
+				e.writeByte(0)
+				e.ext--
+			}
+			e.rem = c
 		}
+	} else {
+		// First byte: just store it
+		e.rem = c
+	}
+}
+
+// normalize handles range renormalization and byte output.
+// This follows libopus celt/entenc.c ec_enc_normalize exactly.
+//
+// The encoder outputs the high bits of val, and the decoder reconstructs
+// by reading those bytes and applying the inverse operation (255 &^ sym).
+func (e *Encoder) normalize() {
+	for e.rng <= EC_CODE_BOT {
+		// Extract high bits to output via carry propagation
+		e.carryOut(int(e.val >> EC_CODE_SHIFT))
 		// Shift out 8 bits
 		e.val = (e.val << EC_SYM_BITS) & (EC_CODE_TOP - 1)
 		e.rng <<= EC_SYM_BITS
@@ -67,7 +92,7 @@ func (e *Encoder) normalize() {
 
 // writeByte writes a byte to the output buffer.
 func (e *Encoder) writeByte(b byte) {
-	if e.offs < e.storage {
+	if e.offs < e.storage-e.endOffs {
 		e.buf[e.offs] = b
 		e.offs++
 	}
@@ -90,18 +115,25 @@ func (e *Encoder) Encode(fl, fh, ft uint32) {
 
 // EncodeICDF encodes a symbol using an inverse CDF table.
 // s is the symbol to encode (0 to len(icdf)-2).
-// icdf is the inverse cumulative distribution function table.
+// icdf is the inverse cumulative distribution function table (decreasing values).
 // ftb is the number of bits of precision (total = 1 << ftb).
+//
+// The decoder maps: val >= r*icdf[k] -> symbol k
+// So symbol 0 requires val >= r*icdf[0] (high val), symbol N requires low val.
+// The encoder must place symbol 0 in the HIGH interval.
 func (e *Encoder) EncodeICDF(s int, icdf []uint8, ftb uint) {
-	// Convert ICDF to fl, fh, ft
 	ft := uint32(1) << ftb
-	var fl, fh uint32
+	// For decoder compatibility, symbol s maps to interval [icdf[s], icdf[s-1])
+	// scaled by r. In terms of fl/fh:
+	// fl = icdf[s] (the threshold for this symbol)
+	// fh = icdf[s-1] (the threshold for the previous symbol, or ft for s=0)
+	fl := uint32(icdf[s])
+	var fh uint32
 	if s > 0 {
-		fl = ft - uint32(icdf[s-1])
+		fh = uint32(icdf[s-1])
 	} else {
-		fl = 0
+		fh = ft
 	}
-	fh = ft - uint32(icdf[s])
 	e.Encode(fl, fh, ft)
 }
 
@@ -171,90 +203,42 @@ func (e *Encoder) EncodeBit(val int, logp uint) {
 
 // Done finalizes the encoding and returns the encoded bytes.
 // After calling Done, the encoder should not be used without re-initializing.
-// This follows libopus ec_enc_done exactly.
+//
+// This follows libopus celt/entenc.c ec_enc_done exactly.
 func (e *Encoder) Done() []byte {
 	// Compute how many bits we need to output to uniquely identify the interval.
-	// We need enough bits so that any value in [val, val+rng) when rounded
-	// to l bits of precision stays within the interval.
-	l := ilog(e.rng)
+	l := EC_CODE_BITS - ilog(e.rng)
 
-	// Compute the final value to output
-	// We want the smallest value >= val that has zeros in the low (EC_CODE_BITS-1-l) bits
+	// Compute mask for rounding
 	var msk uint32
 	if l < EC_CODE_BITS {
 		msk = (EC_CODE_TOP - 1) >> l
 	}
 
+	// Round up to alignment boundary
 	end := (e.val + msk) & ^msk
 
 	// Check if end is still within [val, val+rng)
-	// If not, we need one more bit of precision
 	if (end | msk) >= e.val+e.rng {
 		l++
-		if l < EC_CODE_BITS {
-			msk = (EC_CODE_TOP - 1) >> l
-		} else {
-			msk = 0
-		}
+		msk >>= 1
 		end = (e.val + msk) & ^msk
 	}
 
-	// Check if we have a carry (end >= EC_CODE_TOP)
-	if end&EC_CODE_TOP != 0 {
-		// Propagate carry
-		if e.rem >= 0 {
-			e.writeByte(byte(e.rem + 1))
-		}
+	// Output remaining bytes via carry propagation
+	for l > 0 {
+		e.carryOut(int(end >> EC_CODE_SHIFT))
+		end = (end << EC_SYM_BITS) & (EC_CODE_TOP - 1)
+		l -= EC_SYM_BITS
+	}
+
+	// Flush pending byte
+	if e.rem >= 0 {
+		e.writeByte(byte(e.rem))
 		for e.ext > 0 {
-			e.writeByte(0x00)
+			e.writeByte(0)
 			e.ext--
 		}
-		e.rem = 0
-	} else {
-		// No carry - output buffered bytes as-is
-		if e.rem >= 0 {
-			e.writeByte(byte(e.rem))
-		}
-		for e.ext > 0 {
-			e.writeByte(0xFF)
-			e.ext--
-		}
-	}
-
-	// Output the final value bytes
-	// The encoder's val represents distance from 0, but the decoder interprets
-	// bytes in a specific way via: decoder.val = rng - 1 - (byte >> shift).
-	// Through the normalize loop, byte=0 -> decoder.val high, byte=255 -> decoder.val low.
-	// For the decoder to correctly recover our encoded bit:
-	// - encoder.val in [0, rng/2) should give decoder.val < rng/2 (decode as 0)
-	// - encoder.val in [rng/2, rng) should give decoder.val >= rng/2 (decode as 1)
-	// The correct mapping is: output_byte = 255 - (end >> 23) for single-byte output.
-
-	// Mask to valid range
-	end &= EC_CODE_TOP - 1
-
-	// Number of bytes to output - we need enough bytes to uniquely identify the interval
-	nBits := EC_CODE_BITS - l
-	if nBits < 0 {
-		nBits = 0
-	}
-	nBytes := (nBits + EC_SYM_BITS - 1) / EC_SYM_BITS
-	if nBytes == 0 {
-		nBytes = 1 // Must output at least 1 byte
-	}
-
-	// Output remaining bytes of end value
-	// Note: Full round-trip compatibility with the decoder requires matching
-	// the libopus output format exactly. The current implementation follows
-	// the libopus structure but may have byte-level differences that affect
-	// round-trip testing. The encoder produces valid range-coded output.
-	for i := nBytes; i > 0; i-- {
-		shift := EC_CODE_BITS - (i * EC_SYM_BITS)
-		if shift < 0 {
-			shift = 0
-		}
-		b := byte((end >> shift) & EC_SYM_MAX)
-		e.writeByte(b)
 	}
 
 	// Flush any remaining raw bits in the end window
@@ -264,27 +248,14 @@ func (e *Encoder) Done() []byte {
 		e.endWindow = 0
 	}
 
-	// The range-coded data is at buf[0..offs)
-	// The raw bits are at buf[storage-endOffs..storage)
-	// The decoder expects raw bits at the end of the packet, so we need
-	// to construct a contiguous buffer where the total size is (offs + endOffs)
-	// and the raw bits are placed at the end.
+	// Combine front bytes with end bytes
 	if e.endOffs > 0 {
-		// Calculate total output size
 		totalSize := e.offs + e.endOffs
 		if totalSize > e.storage {
 			totalSize = e.storage
 		}
-
-		// Move the end bytes to be adjacent to the front bytes
-		// Currently: [front data...][gap][end data]
-		// We want:   [front data...][end data]
-		//
-		// The end data is at buf[storage-endOffs:storage]
-		// We need to copy it to buf[offs:offs+endOffs]
-		for i := uint32(0); i < e.endOffs; i++ {
-			e.buf[e.offs+i] = e.buf[e.storage-e.endOffs+i]
-		}
+		// Copy end bytes to after front bytes
+		copy(e.buf[e.offs:], e.buf[e.storage-e.endOffs:e.storage])
 		return e.buf[:totalSize]
 	}
 
