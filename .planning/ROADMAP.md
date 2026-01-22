@@ -20,7 +20,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 6: SILK Encoder** - Encode speech to SILK frames
 - [x] **Phase 7: CELT Encoder** - Encode audio to CELT frames
 - [x] **Phase 8: Hybrid Encoder & Controls** - Full encoder with bitrate/VBR/FEC/DTX
-- [ ] **Phase 9: Multistream Encoder** - Surround sound encoding
+- [x] **Phase 9: Multistream Encoder** - Surround sound encoding
 - [ ] **Phase 10: API Layer** - Frame-based API and io.Reader/Writer wrappers
 - [ ] **Phase 11: Container** - Ogg Opus file read/write
 - [ ] **Phase 12: Compliance & Polish** - Test vectors, cross-validation, documentation
@@ -181,10 +181,10 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 09-01-PLAN.md — Encoder struct, creation, and channel routing (inverse of decoder)
-- [ ] 09-02-PLAN.md — Self-delimiting packet assembly and Encode method
-- [ ] 09-03-PLAN.md — Round-trip validation with Phase 5 decoder
-- [ ] 09-04-PLAN.md — Libopus cross-validation tests
+- [x] 09-01-PLAN.md — Encoder struct, creation, and channel routing (inverse of decoder)
+- [x] 09-02-PLAN.md — Self-delimiting packet assembly and Encode method
+- [x] 09-03-PLAN.md — Round-trip validation with Phase 5 decoder
+- [x] 09-04-PLAN.md — Libopus cross-validation tests
 
 ### Phase 10: API Layer
 **Goal**: Production-ready Go API with frame-based and streaming interfaces
@@ -246,7 +246,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 6. SILK Encoder | 7/7 | Complete | 2026-01-22 |
 | 7. CELT Encoder | 6/6 | Complete | 2026-01-22 |
 | 8. Hybrid Encoder & Controls | 6/6 | Complete | 2026-01-22 |
-| 9. Multistream Encoder | 0/4 | Planned | - |
+| 9. Multistream Encoder | 4/4 | Complete | 2026-01-22 |
 | 10. API Layer | 0/2 | Not started | - |
 | 11. Container | 0/2 | Not started | - |
 | 12. Compliance & Polish | 0/2 | Not started | - |
@@ -268,4 +268,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 *Phase 8 planned: 2026-01-22*
 *Phase 8 complete: 2026-01-22*
 *Phase 9 planned: 2026-01-22*
+*Phase 9 complete: 2026-01-22*
 *Total phases: 12 | Total plans: ~44*
