@@ -74,6 +74,14 @@ type Encoder struct {
 	packetLoss int // Expected packet loss percentage (0-100)
 	fec        *fecState
 
+	// DTX (Discontinuous Transmission) controls
+	dtxEnabled bool
+	dtx        *dtxState
+	rng        uint32 // RNG for comfort noise
+
+	// Complexity control (0-10, higher = better quality but slower)
+	complexity int
+
 	// Encoder state for CELT delay compensation
 	// The 2.7ms delay (130 samples at 48kHz) aligns SILK and CELT
 	prevSamples []float64
@@ -107,9 +115,16 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		bandwidth:   gopus.BandwidthFullband,
 		sampleRate:  sampleRate,
 		channels:    channels,
-		frameSize:   960, // Default 20ms
-		bitrateMode: ModeVBR,  // VBR is default
-		bitrate:     64000,    // 64 kbps default
+		frameSize:   960,       // Default 20ms
+		bitrateMode: ModeVBR,   // VBR is default
+		bitrate:     64000,     // 64 kbps default
+		fecEnabled:  false,     // FEC disabled by default
+		packetLoss:  0,         // 0% packet loss expected
+		fec:         newFECState(),
+		dtxEnabled:  false,
+		dtx:         newDTXState(),
+		rng:         22222,     // Match libopus seed
+		complexity:  10,        // Default: highest quality
 		prevSamples: make([]float64, 130*channels), // CELT delay compensation buffer
 	}
 }
@@ -172,6 +187,88 @@ func (e *Encoder) Reset() {
 	if e.celtEncoder != nil {
 		e.celtEncoder.Reset()
 	}
+
+	// Reset FEC state
+	e.resetFECState()
+
+	// Reset DTX state
+	if e.dtx != nil {
+		e.dtx.reset()
+	}
+}
+
+// SetFEC enables or disables in-band Forward Error Correction.
+// When enabled, the encoder includes LBRR data for loss recovery.
+func (e *Encoder) SetFEC(enabled bool) {
+	e.fecEnabled = enabled
+	if enabled && e.fec == nil {
+		e.fec = newFECState()
+	}
+}
+
+// FECEnabled returns whether FEC is enabled.
+func (e *Encoder) FECEnabled() bool {
+	return e.fecEnabled
+}
+
+// SetPacketLoss sets the expected packet loss percentage (0-100).
+// This affects FEC behavior and bitrate allocation.
+func (e *Encoder) SetPacketLoss(lossPercent int) {
+	if lossPercent < 0 {
+		lossPercent = 0
+	}
+	if lossPercent > 100 {
+		lossPercent = 100
+	}
+	e.packetLoss = lossPercent
+}
+
+// PacketLoss returns the expected packet loss percentage.
+func (e *Encoder) PacketLoss() int {
+	return e.packetLoss
+}
+
+// SetDTX enables or disables Discontinuous Transmission.
+// When enabled, packets are suppressed during silence.
+func (e *Encoder) SetDTX(enabled bool) {
+	e.dtxEnabled = enabled
+	if enabled && e.dtx == nil {
+		e.dtx = newDTXState()
+	}
+}
+
+// DTXEnabled returns whether DTX is enabled.
+func (e *Encoder) DTXEnabled() bool {
+	return e.dtxEnabled
+}
+
+// SetComplexity sets encoder complexity (0-10).
+// Higher values use more CPU for better quality.
+// Default is 10 (maximum quality).
+//
+// Guidelines:
+//
+//	0-1: Minimal processing, fastest encoding
+//	2-4: Basic analysis, good for real-time with limited CPU
+//	5-7: Moderate analysis, balanced quality/speed
+//	8-10: Thorough analysis, highest quality
+func (e *Encoder) SetComplexity(complexity int) {
+	if complexity < 0 {
+		complexity = 0
+	}
+	if complexity > 10 {
+		complexity = 10
+	}
+	e.complexity = complexity
+
+	// Apply complexity to sub-encoders
+	// For v1, this affects decision thresholds only
+	// Future: affect MDCT precision, pitch search resolution, etc.
+}
+
+// Complexity returns the current complexity setting.
+func (e *Encoder) Complexity() int {
+	return e.complexity
 }
 
 // SetBitrateMode sets the bitrate mode (VBR, CVBR, or CBR).
@@ -221,6 +318,7 @@ func (e *Encoder) computePacketSize(frameSize int) int {
 // frameSize: number of samples per channel (must match configured frame size)
 //
 // Returns the encoded Opus frame data (without TOC byte - that's added in Plan 2).
+// Returns nil, nil if DTX suppresses the frame (silence detected).
 //
 // For hybrid mode, SILK encodes first (0-8kHz), then CELT encodes second (8-20kHz),
 // both using a shared range encoder per RFC 6716 Section 3.2.1.
@@ -229,6 +327,16 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	expectedLen := frameSize * e.channels
 	if len(pcm) != expectedLen {
 		return nil, ErrInvalidFrameSize
+	}
+
+	// Check DTX mode - suppress frames during silence
+	suppressFrame, sendComfortNoise := e.shouldUseDTX(pcm)
+	if suppressFrame {
+		if sendComfortNoise {
+			return e.encodeComfortNoise(frameSize)
+		}
+		// Return nil to indicate frame suppression
+		return nil, nil
 	}
 
 	// Determine actual mode to use
@@ -377,4 +485,20 @@ func ValidFrameSize(frameSize int, mode Mode) bool {
 		return frameSize == 120 || frameSize == 240 || frameSize == 480 ||
 			frameSize == 960 || frameSize == 1920 || frameSize == 2880
 	}
+}
+
+// shouldUseDTX checks if DTX should suppress this frame.
+// DTX (Discontinuous Transmission) suppresses frames during silence to save bandwidth.
+// Returns (suppressFrame, sendComfortNoise).
+// For now, DTX is disabled by default - will be fully implemented in 08-04.
+func (e *Encoder) shouldUseDTX(pcm []float64) (bool, bool) {
+	// DTX disabled for now
+	return false, false
+}
+
+// encodeComfortNoise generates a comfort noise frame for DTX.
+// Will be fully implemented in 08-04.
+func (e *Encoder) encodeComfortNoise(frameSize int) ([]byte, error) {
+	// Not implemented yet - return nil to indicate no comfort noise
+	return nil, nil
 }
