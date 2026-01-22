@@ -140,12 +140,13 @@ Plans:
   2. CELT encoder produces packets decodable by libopus (cross-validation)
   3. Encoded audio is perceptually acceptable at target bitrates
   4. Transient detection triggers short MDCT blocks when appropriate
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
-- [ ] 07-01: TBD (MDCT analysis, energy quantization)
-- [ ] 07-02: TBD (PVQ encoding, bit allocation)
-- [ ] 07-03: TBD (transient detection, stereo)
+- [ ] 07-01-PLAN.md — Encoder struct, forward MDCT, pre-emphasis filter
+- [ ] 07-02-PLAN.md — Band energy computation, coarse/fine energy encoding
+- [ ] 07-03-PLAN.md — PVQ band encoding (normalization, vectorToPulses, CWRS)
+- [ ] 07-04-PLAN.md — Complete frame pipeline, transient detection, stereo, round-trip tests
 
 ### Phase 8: Hybrid Encoder & Controls
 **Goal**: Complete encoder with hybrid mode and all encoder controls
@@ -235,7 +236,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 4. Hybrid Decoder | 3/3 | Complete | 2026-01-22 |
 | 5. Multistream Decoder | 2/2 | Complete | 2026-01-22 |
 | 6. SILK Encoder | 7/7 | Complete | 2026-01-22 |
-| 7. CELT Encoder | 0/3 | Not started | - |
+| 7. CELT Encoder | 0/4 | Planned | - |
 | 8. Hybrid Encoder & Controls | 0/3 | Not started | - |
 | 9. Multistream Encoder | 0/1 | Not started | - |
 | 10. API Layer | 0/2 | Not started | - |
@@ -252,4 +253,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 *Phase 6 planned: 2026-01-22*
 *Phase 6 gap closure: 2026-01-22*
 *Phase 6 verified: 2026-01-22*
-*Total phases: 12 | Total plans: ~39*
+*Phase 7 planned: 2026-01-22*
+*Total phases: 12 | Total plans: ~40*
