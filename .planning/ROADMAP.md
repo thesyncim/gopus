@@ -21,7 +21,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 7: CELT Encoder** - Encode audio to CELT frames
 - [x] **Phase 8: Hybrid Encoder & Controls** - Full encoder with bitrate/VBR/FEC/DTX
 - [x] **Phase 9: Multistream Encoder** - Surround sound encoding
-- [ ] **Phase 10: API Layer** - Frame-based API and io.Reader/Writer wrappers
+- [x] **Phase 10: API Layer** - Frame-based API and io.Reader/Writer wrappers
 - [ ] **Phase 11: Container** - Ogg Opus file read/write
 - [ ] **Phase 12: Compliance & Polish** - Test vectors, cross-validation, documentation
 
@@ -199,8 +199,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 10-01-PLAN.md — Frame-based Encoder/Decoder public API with int16/float32 support
-- [ ] 10-02-PLAN.md — io.Reader/Writer streaming wrappers with frame buffering
+- [x] 10-01-PLAN.md — Frame-based Encoder/Decoder public API with int16/float32 support
+- [x] 10-02-PLAN.md — io.Reader/Writer streaming wrappers with frame buffering
 
 ### Phase 11: Container
 **Goal**: Read and write Ogg Opus container format
@@ -247,7 +247,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 7. CELT Encoder | 6/6 | Complete | 2026-01-22 |
 | 8. Hybrid Encoder & Controls | 6/6 | Complete | 2026-01-22 |
 | 9. Multistream Encoder | 4/4 | Complete | 2026-01-22 |
-| 10. API Layer | 0/2 | Planned | - |
+| 10. API Layer | 2/2 | Complete | 2026-01-22 |
 | 11. Container | 0/2 | Not started | - |
 | 12. Compliance & Polish | 0/2 | Not started | - |
 
@@ -270,4 +270,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 *Phase 9 planned: 2026-01-22*
 *Phase 9 complete: 2026-01-22*
 *Phase 10 planned: 2026-01-22*
+*Phase 10 complete: 2026-01-22*
 *Total phases: 12 | Total plans: ~46*

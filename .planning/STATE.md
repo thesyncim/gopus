@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 10: API Layer - Plan 02 complete (Streaming Reader/Writer API)
+**Current focus:** Phase 10: API Layer - COMPLETE (frame-based and streaming APIs verified)
 
 ## Current Position
 
-Phase: 10 of 12 (API Layer)
-Plan: 2 of N complete (Streaming Reader/Writer API)
-Status: Plan 10-02 complete, io.Reader/Writer streaming API available
-Last activity: 2026-01-22 - Completed 10-02-PLAN.md (Streaming Reader/Writer API)
+Phase: 10 of 12 (API Layer) - COMPLETE
+Plan: 2 of 2 complete (frame-based API + streaming API)
+Status: Phase 10 complete with production-ready public API, ready for Phase 11
+Last activity: 2026-01-22 - Completed and verified Phase 10 API Layer
 
-Progress: [████████████████████████████████████████████████████████████████████████████████░░] ~96% (42/~43 plans)
+Progress: [████████████████████████████████████████████████████████████████████████████████░░] ~88% (42/48 plans)
 
 ## Performance Metrics
 
@@ -465,7 +465,7 @@ Resume file: .planning/phases/10-api-layer/10-02-SUMMARY.md
 - Libopus cross-validation for stereo, 5.1, and 7.1 surround
 - 38 test functions total, all passing
 
-## Phase 10 Summary - IN PROGRESS
+## Phase 10 Summary - COMPLETE
 
 **10-01 Frame-based Encoder/Decoder API complete:**
 - Public Encoder wrapping internal/encoder with Application hints (VoIP, Audio, LowDelay)
