@@ -160,12 +160,15 @@ Plans:
   3. CBR mode produces consistent packet sizes within tolerance
   4. Bitrate control respects target (6-510 kbps range)
   5. In-band FEC encodes redundant data for loss recovery
-**Plans**: TBD
+**Plans**: 6 plans
 
 Plans:
-- [ ] 08-01: TBD (hybrid encoder coordination)
-- [ ] 08-02: TBD (VBR/CBR, bitrate control)
-- [ ] 08-03: TBD (FEC, DTX, complexity)
+- [ ] 08-01-PLAN.md — Unified encoder struct with hybrid mode coordination (SILK+CELT)
+- [ ] 08-02-PLAN.md — TOC byte generation and packet assembly
+- [ ] 08-03-PLAN.md — VBR/CBR mode and bitrate control
+- [ ] 08-04-PLAN.md — In-band FEC (LBRR) encoding
+- [ ] 08-05-PLAN.md — DTX and complexity settings
+- [ ] 08-06-PLAN.md — Integration tests and libopus cross-validation
 
 ### Phase 9: Multistream Encoder
 **Goal**: Encode surround sound to multistream packets
@@ -239,7 +242,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 5. Multistream Decoder | 2/2 | Complete | 2026-01-22 |
 | 6. SILK Encoder | 7/7 | Complete | 2026-01-22 |
 | 7. CELT Encoder | 6/6 | Complete | 2026-01-22 |
-| 8. Hybrid Encoder & Controls | 0/3 | Not started | - |
+| 8. Hybrid Encoder & Controls | 0/6 | Planned | - |
 | 9. Multistream Encoder | 0/1 | Not started | - |
 | 10. API Layer | 0/2 | Not started | - |
 | 11. Container | 0/2 | Not started | - |
@@ -259,4 +262,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 *Phase 7 executed: 2026-01-22 (gaps found: libopus cross-validation, range coder signal quality)*
 *Phase 7 gap closure planned: 2026-01-22*
 *Phase 7 complete: 2026-01-22*
-*Total phases: 12 | Total plans: ~42*
+*Phase 8 planned: 2026-01-22*
+*Total phases: 12 | Total plans: ~44*
