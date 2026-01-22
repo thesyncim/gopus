@@ -337,12 +337,3 @@ func TestPitchMinMax(t *testing.T) {
 		t.Error("pitchMax(10, 5) should be 10")
 	}
 }
-
-// absInt returns the absolute value of x.
-// Used by multiple test files in this package.
-func absInt(x int) int {
-	if x < 0 {
-		return -x
-	}
-	return x
-}
