@@ -133,6 +133,8 @@ Recent decisions affecting current work:
 | D08-01-01 | Pad 10ms SILK frames to 20ms for WB encoding | 08-01 | Existing EncodeFrame expects 20ms |
 | D08-01-02 | Zero low bands (0-16) in CELT hybrid mode encoding | 08-01 | Matches decoder handling |
 | D08-01-03 | Averaging filter for 48kHz to 16kHz downsampling | 08-01 | Sufficient for v1 |
+| D08-02-01 | TOC generation as inverse of ParseTOC | 08-02 | Ensures encoder/decoder symmetry |
+| D08-02-02 | ConfigFromParams searches configTable linearly | 08-02 | Simple O(32) search; configTable is fixed |
 | D08-03-01 | CBR uses zero-padding per RFC 6716 | 08-03 | Zeros treated as padding by decoders |
 | D08-03-02 | CVBR tolerance set to +/-15% | 08-03 | Standard tolerance for constrained VBR |
 | D08-03-03 | Default bitrate 64 kbps | 08-03 | Good quality for speech/audio |
@@ -316,6 +318,21 @@ Resume file: .planning/phases/08-hybrid-encoder-controls/08-05-SUMMARY.md
 - `internal/encoder/hybrid.go` - Hybrid mode encoding with SILK+CELT coordination
 - `internal/encoder/encoder_test.go` - 15 test functions
 - `internal/celt/encoder.go` - Added IsIntraFrame, IncrementFrameCount exports
+
+**08-02 TOC Byte Generation and Packet Assembly complete:**
+- GenerateTOC, ConfigFromParams, ValidConfig functions in packet.go
+- BuildPacket, BuildMultiFramePacket in internal/encoder/packet.go
+- Encoder.Encode() now returns complete Opus packets with TOC byte
+- TOC round-trip verified for all 32 configs
+- Hybrid configs 12-15 validated per RFC 6716
+- 14 new test functions
+- Duration: ~12 minutes
+
+**Key artifacts:**
+- `packet.go` - GenerateTOC, ConfigFromParams, ValidConfig
+- `internal/encoder/packet.go` - BuildPacket, BuildMultiFramePacket
+- `internal/encoder/packet_test.go` - 6 packet assembly tests
+- `packet_test.go` - 4 TOC generation tests
 
 **08-04 In-band FEC complete:**
 - FEC types and constants (LBRRBitrateFactor=0.6, MinPacketLossForFEC=1%)
