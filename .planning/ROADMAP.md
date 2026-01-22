@@ -225,11 +225,12 @@ Plans:
   2. Encoder output is decodable by libopus without errors
   3. Zero cgo dependencies verified in final build
   4. API documentation complete with examples
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 12-01: TBD (test vector validation)
-- [ ] 12-02: TBD (cross-implementation testing, documentation)
+- [ ] 12-01-PLAN.md — Fix import cycle in internal/encoder tests
+- [ ] 12-02-PLAN.md — RFC 8251 test vector parsing and decoder compliance tests
+- [ ] 12-03-PLAN.md — CGO-free build verification and testable documentation examples
 
 ## Progress
 
@@ -249,7 +250,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 9. Multistream Encoder | 4/4 | Complete | 2026-01-22 |
 | 10. API Layer | 2/2 | Complete | 2026-01-22 |
 | 11. Container | 2/2 | Complete | 2026-01-22 |
-| 12. Compliance & Polish | 0/2 | Not started | - |
+| 12. Compliance & Polish | 0/3 | Not started | - |
 
 ---
 *Roadmap created: 2026-01-21*
@@ -273,4 +274,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 *Phase 10 complete: 2026-01-22*
 *Phase 11 planned: 2026-01-22*
 *Phase 11 complete: 2026-01-22*
-*Total phases: 12 | Total plans: ~48*
+*Phase 12 planned: 2026-01-22*
+*Total phases: 12 | Total plans: 48*
