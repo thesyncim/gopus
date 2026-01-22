@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 6: SILK Encoder - In Progress
+**Current focus:** Phase 6: SILK Encoder - COMPLETE (including gap closure)
 
 ## Current Position
 
 Phase: 6 of 12 (SILK Encoder)
-Plan: 5 of 5 in current phase - COMPLETE
-Status: Phase 6 COMPLETE
-Last activity: 2026-01-22 - Completed 06-05-PLAN.md (Complete SILK Encoder)
+Plan: 6 of 6 in current phase - COMPLETE (gap closure plan)
+Status: Phase 6 COMPLETE (all plans including gap closure)
+Last activity: 2026-01-22 - Completed 06-06-PLAN.md (Gap Closure - Round-trip Compatibility)
 
-Progress: [██████████████████████████████████████████████████░] ~62% (23/37 plans)
+Progress: [███████████████████████████████████████████████████░] ~65% (24/37 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 22
+- Total plans completed: 24
 - Average duration: ~8 minutes
-- Total execution time: ~177 minutes
+- Total execution time: ~184 minutes
 
 **By Phase:**
 
@@ -32,11 +32,11 @@ Progress: [███████████████████████
 | 03-celt-decoder | 5/5 | ~50m | ~10m |
 | 04-hybrid-decoder | 3/3 | ~22m | ~7m |
 | 05-multistream-decoder | 2/2 | ~6m | ~3m |
-| 06-silk-encoder | 5/5 | ~64m | ~13m |
+| 06-silk-encoder | 6/6 | ~71m | ~12m |
 
 **Recent Trend:**
-- Last 5 plans: 06-01 (~15m), 06-02 (~12m), 06-03 (~7m), 06-04 (~5m), 06-05 (~25m)
-- Trend: Final integration plan took longer due to bug fixes
+- Last 5 plans: 06-02 (~12m), 06-03 (~7m), 06-04 (~5m), 06-05 (~25m), 06-06 (~7m)
+- Trend: Gap closure plan completed efficiently
 
 *Updated after each plan completion*
 
@@ -107,6 +107,9 @@ Recent decisions affecting current work:
 | D06-05-01 | ICDF symbol 0 clamping in encoder | 06-05 | Prevents infinite loop for zero-prob symbols |
 | D06-05-02 | Stereo weights at packet start | 06-05 | Immediate decoder access during reconstruction |
 | D06-05-03 | Shell coding binary split tree | 06-05 | Mirrors decoder structure exactly |
+| D06-06-01 | Pitch lag low bits always Q2 (4 values) | 06-06 | Per RFC 6716 Section 4.2.7.6.1 |
+| D06-06-02 | LTP periodicity encoded as symbol 0 | 06-06 | Matches decoder multi-stage logic |
+| D06-06-03 | Decoder bounds checking for corrupted bitstreams | 06-06 | Prevents panics on misaligned data |
 
 ### Pending Todos
 
@@ -114,7 +117,7 @@ Recent decisions affecting current work:
 
 ### Known Gaps
 
-- **Encoder-decoder round-trip:** Encoder produces valid output but exact byte format matching with decoder needs additional work. Does not block SILK/CELT implementation.
+- **Signal quality tuning:** Encoder-decoder round-trip works without panic but decoded signal has low energy. Quality tuning needed for better signal recovery.
 
 ### Blockers/Concerns
 
@@ -123,8 +126,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-22
-Stopped at: Completed 06-05-PLAN.md (Phase 6 complete)
-Resume file: Next phase is 07-opus-encoder
+Stopped at: Completed 06-06-PLAN.md (Gap Closure - Round-trip Compatibility)
+Resume file: Next phase is 07-celt-encoder
 
 ## Phase 01 Summary
 
@@ -264,9 +267,9 @@ Resume file: Next phase is 07-opus-encoder
 ## Phase 06 Summary - COMPLETE
 
 **SILK Encoder phase complete:**
-- All 5 plans executed successfully
-- Total duration: ~64 minutes
-- 97+ tests passing in silk package
+- All 6 plans executed successfully (including gap closure)
+- Total duration: ~71 minutes
+- 100+ tests passing in silk package
 
 **06-01 SILK Encoder Foundation complete:**
 - EncodeICDF16 added to range encoder for uint16 ICDF tables
@@ -303,14 +306,21 @@ Resume file: Next phase is 07-opus-encoder
 - 10+ comprehensive tests
 - Duration: ~25 minutes
 
+**06-06 Gap Closure - Round-trip Compatibility:**
+- Fixed pitch lag encoding (ICDFPitchLowBitsQ2 with divisor=4 for all bandwidths)
+- Fixed LTP periodicity encoding (matches decoder multi-stage logic)
+- Added decoder bounds checking for corrupted bitstreams
+- 6 comprehensive round-trip tests for all bandwidths
+- Duration: ~7 minutes
+
 **Key artifacts:**
 - `internal/rangecoding/encoder.go` - EncodeICDF16 with zero-prob symbol handling
 - `internal/silk/encoder.go` - Encoder struct, NewEncoder, Reset
 - `internal/silk/vad.go` - classifyFrame, computePeriodicity
 - `internal/silk/lpc_analysis.go` - Burg's method LPC analysis
 - `internal/silk/lsf_encode.go` - LPC-to-LSF conversion
-- `internal/silk/pitch_detect.go` - Three-stage pitch detection
-- `internal/silk/ltp_encode.go` - LTP analysis and codebook quantization
+- `internal/silk/pitch_detect.go` - Three-stage pitch detection, fixed encoding
+- `internal/silk/ltp_encode.go` - LTP analysis and codebook quantization, fixed encoding
 - `internal/silk/gain_encode.go` - Gain quantization with delta coding
 - `internal/silk/lsf_quantize.go` - Two-stage LSF quantization
 - `internal/silk/excitation_encode.go` - Shell-coded excitation encoder
@@ -318,3 +328,5 @@ Resume file: Next phase is 07-opus-encoder
 - `internal/silk/encode_frame.go` - Frame encoding pipeline
 - `internal/silk/silk_encode.go` - Public Encode/EncodeStereo API
 - `internal/silk/encode_test.go` - Encoding test suite
+- `internal/silk/roundtrip_test.go` - Round-trip tests
+- `internal/silk/pitch.go` - Decoder with bounds checking fixes
