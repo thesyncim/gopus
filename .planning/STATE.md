@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 5: Multistream Decoder - In Progress
+**Current focus:** Phase 5: Multistream Decoder - COMPLETE
 
 ## Current Position
 
-Phase: 5 of 12 (Multistream Decoder)
-Plan: 1 of 2 in current phase - COMPLETE
-Status: In progress
-Last activity: 2026-01-22 - Completed 05-01-PLAN.md (Multistream Foundation)
+Phase: 5 of 12 (Multistream Decoder) - COMPLETE
+Plan: 2 of 2 in current phase - COMPLETE
+Status: Phase complete
+Last activity: 2026-01-22 - Completed 05-02-PLAN.md (Multistream Decode Methods)
 
-Progress: [██████████████████████████████████████████░░] ~46% (17/37 plans)
+Progress: [███████████████████████████████████████████░░] ~49% (18/37 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 17
+- Total plans completed: 18
 - Average duration: ~8 minutes
-- Total execution time: ~134 minutes
+- Total execution time: ~138 minutes
 
 **By Phase:**
 
@@ -31,11 +31,11 @@ Progress: [███████████████████████
 | 02-silk-decoder | 5/5 | ~31m | ~6m |
 | 03-celt-decoder | 5/5 | ~50m | ~10m |
 | 04-hybrid-decoder | 3/3 | ~22m | ~7m |
-| 05-multistream-decoder | 1/2 | ~2m | ~2m |
+| 05-multistream-decoder | 2/2 | ~6m | ~3m |
 
 **Recent Trend:**
-- Last 5 plans: 03-05 (~10m), 04-01 (~5m), 04-02 (~11m), 04-03 (~6m), 05-01 (~2m)
-- Trend: Foundation plan fast due to focused scope (struct/validation only)
+- Last 5 plans: 04-01 (~5m), 04-02 (~11m), 04-03 (~6m), 05-01 (~2m), 05-02 (~4m)
+- Trend: Multistream phase fast due to building on established patterns
 
 *Updated after each plan completion*
 
@@ -88,10 +88,12 @@ Recent decisions affecting current work:
 | D05-01-01 | Use hybrid.Decoder for all streams | 05-01 | Handles mode detection via TOC |
 | D05-01-02 | streamDecoder interface wraps concrete decoders | 05-01 | Uniform decoder management |
 | D05-01-03 | Validate mapping values against streams+coupledStreams | 05-01 | Prevents invalid channel routing |
+| D05-02-01 | Sample-interleaved output format | 05-02 | Standard format for audio APIs |
+| D05-02-02 | Per-stream PLC with global fade | 05-02 | Each stream handles PLC; fade factor shared |
 
 ### Pending Todos
 
-- Complete Phase 05 Plan 02 (Decode method and channel routing)
+- None for Phase 05
 
 ### Known Gaps
 
@@ -104,8 +106,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-22
-Stopped at: Completed 05-01-PLAN.md (Multistream Foundation)
-Resume file: .planning/phases/05-multistream-decoder/05-02-PLAN.md
+Stopped at: Completed 05-02-PLAN.md (Multistream Decode Methods)
+Resume file: None - Phase 05 complete
 
 ## Phase 01 Summary
 
@@ -213,7 +215,12 @@ Resume file: .planning/phases/05-multistream-decoder/05-02-PLAN.md
 - `internal/silk/excitation.go` - Bounds checking fixes
 - `internal/silk/stereo.go` - Bounds checking fixes
 
-## Phase 05 Summary - In Progress
+## Phase 05 Summary - COMPLETE
+
+**Multistream Decoder phase complete:**
+- All 2 plans executed successfully
+- Total duration: ~6 minutes
+- 18 test functions (81 test runs including subtests)
 
 **05-01 Multistream Foundation complete:**
 - MultistreamDecoder struct with comprehensive parameter validation
@@ -222,7 +229,17 @@ Resume file: .planning/phases/05-multistream-decoder/05-02-PLAN.md
 - streamDecoder interface for uniform decoder handling
 - Duration: ~2 minutes
 
+**05-02 Multistream Decode Methods complete:**
+- Decode method with channel mapping application
+- applyChannelMapping for routing streams to output channels
+- PLC support coordinating per-stream concealment
+- DecodeToInt16 and DecodeToFloat32 convenience wrappers
+- Comprehensive test suite (18 test functions, 697 lines)
+- Duration: ~4 minutes
+
 **Key artifacts:**
 - `internal/multistream/decoder.go` - Decoder struct, NewDecoder, validation
 - `internal/multistream/mapping.go` - DefaultMapping, resolveMapping, vorbisChannelOrder
 - `internal/multistream/stream.go` - parseMultistreamPacket, parseSelfDelimitedLength
+- `internal/multistream/multistream.go` - Decode, DecodeToInt16, DecodeToFloat32, applyChannelMapping
+- `internal/multistream/multistream_test.go` - 18 test functions, comprehensive coverage
