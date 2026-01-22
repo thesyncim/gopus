@@ -257,6 +257,37 @@ func (e *Encoder) Done() []byte {
 		e.writeByte(b)
 	}
 
+	// Flush any remaining raw bits in the end window
+	if e.nendBits > 0 {
+		e.writeEndByte(byte(e.endWindow))
+		e.nendBits = 0
+		e.endWindow = 0
+	}
+
+	// The range-coded data is at buf[0..offs)
+	// The raw bits are at buf[storage-endOffs..storage)
+	// The decoder expects raw bits at the end of the packet, so we need
+	// to construct a contiguous buffer where the total size is (offs + endOffs)
+	// and the raw bits are placed at the end.
+	if e.endOffs > 0 {
+		// Calculate total output size
+		totalSize := e.offs + e.endOffs
+		if totalSize > e.storage {
+			totalSize = e.storage
+		}
+
+		// Move the end bytes to be adjacent to the front bytes
+		// Currently: [front data...][gap][end data]
+		// We want:   [front data...][end data]
+		//
+		// The end data is at buf[storage-endOffs:storage]
+		// We need to copy it to buf[offs:offs+endOffs]
+		for i := uint32(0); i < e.endOffs; i++ {
+			e.buf[e.offs+i] = e.buf[e.storage-e.endOffs+i]
+		}
+		return e.buf[:totalSize]
+	}
+
 	return e.buf[:e.offs]
 }
 
@@ -309,4 +340,66 @@ func (e *Encoder) Rem() int {
 // Ext returns the extension count (for testing/debugging).
 func (e *Encoder) Ext() uint32 {
 	return e.ext
+}
+
+// EncodeUniform encodes a uniformly distributed value in the range [0, ft).
+// This is used for fine energy bits and PVQ indices.
+// Reference: libopus celt/entenc.c ec_enc_uint()
+func (e *Encoder) EncodeUniform(val uint32, ft uint32) {
+	if ft <= 1 {
+		return // Only one possible value, nothing to encode
+	}
+
+	// Calculate number of bits needed
+	ftb := uint(ilog(ft - 1))
+	if ftb > EC_SYM_BITS {
+		// Multi-byte case: encode high bits with range coder, low bits raw
+		ftb -= EC_SYM_BITS
+		ft1 := (ft - 1) >> ftb
+		e.encodeUniformInternal(val>>ftb, ft1+1)
+		// Encode low bits raw
+		e.EncodeRawBits(val&((1<<ftb)-1), ftb)
+	} else {
+		// Single-byte case
+		e.encodeUniformInternal(val, ft)
+	}
+}
+
+// encodeUniformInternal encodes a uniform value when ft <= 256.
+// Uses the same approach as Encode() for uniformly distributed values.
+func (e *Encoder) encodeUniformInternal(val uint32, ft uint32) {
+	// For uniform distribution, fl=val, fh=val+1
+	// Using the Encode formula adapted for uniform case
+	r := e.rng / ft
+	if val > 0 {
+		e.val += e.rng - r*(ft-val)
+		e.rng = r
+	} else {
+		// val == 0: stay at current position
+		e.rng -= r * (ft - 1)
+	}
+	e.normalize()
+}
+
+// EncodeRawBits writes raw bits to the end of the buffer.
+// This is the inverse of DecodeRawBits.
+func (e *Encoder) EncodeRawBits(val uint32, bits uint) {
+	if bits == 0 {
+		return
+	}
+	e.endWindow |= val << e.nendBits
+	e.nendBits += int(bits)
+	for e.nendBits >= 8 {
+		e.writeEndByte(byte(e.endWindow))
+		e.endWindow >>= 8
+		e.nendBits -= 8
+	}
+}
+
+// writeEndByte writes a byte to the end of the buffer (growing backwards).
+func (e *Encoder) writeEndByte(b byte) {
+	e.endOffs++
+	if e.endOffs <= e.storage-e.offs {
+		e.buf[e.storage-e.endOffs] = b
+	}
 }

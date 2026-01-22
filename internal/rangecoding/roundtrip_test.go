@@ -252,3 +252,164 @@ func TestEncoderMixedBitsAndICDF(t *testing.T) {
 		t.Error("expected non-empty output")
 	}
 }
+
+// TestEncodeUniformProducesOutput verifies EncodeUniform produces non-empty output.
+// Note: Full round-trip verification is deferred pending encoder-decoder byte format
+// alignment (tracked in STATE.md as known gap D01-02-02).
+func TestEncodeUniformProducesOutput(t *testing.T) {
+	tests := []struct {
+		name string
+		val  uint32
+		ft   uint32
+	}{
+		{"simple_small", 5, 16},
+		{"zero_value", 0, 100},
+		{"max_value", 99, 100},
+		{"power_of_2", 7, 8},
+		{"large_ft", 1000, 4096},
+		{"single_value", 0, 1}, // Edge case: only one possible value
+		{"edge_ft_256", 100, 256},
+		{"multi_byte_ft_500", 300, 500},
+		{"multi_byte_ft_1000", 500, 1000},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buf := make([]byte, 256)
+			enc := &Encoder{}
+			enc.Init(buf)
+
+			enc.EncodeUniform(tt.val, tt.ft)
+			encoded := enc.Done()
+
+			// For ft > 1, should produce some output
+			if len(encoded) == 0 && tt.ft > 1 {
+				t.Errorf("empty encoded output for val=%d, ft=%d", tt.val, tt.ft)
+			}
+
+			// Verify range invariant maintained
+			if enc.Range() <= EC_CODE_BOT {
+				t.Errorf("range invariant violated after EncodeUniform(%d, %d)", tt.val, tt.ft)
+			}
+		})
+	}
+}
+
+// TestEncodeUniformMultipleValues verifies encoding multiple uniform values produces output.
+func TestEncodeUniformMultipleValues(t *testing.T) {
+	// Encode multiple values
+	values := []struct{ val, ft uint32 }{
+		{5, 16},
+		{100, 256},
+		{7, 8},
+		{50, 100},
+	}
+
+	buf := make([]byte, 256)
+	enc := &Encoder{}
+	enc.Init(buf)
+
+	for _, v := range values {
+		enc.EncodeUniform(v.val, v.ft)
+	}
+	encoded := enc.Done()
+
+	// Should produce non-empty output
+	if len(encoded) == 0 {
+		t.Error("empty encoded output for multiple uniform values")
+	}
+
+	// Output size should be reasonable
+	if len(encoded) > 50 {
+		t.Errorf("encoded size %d seems too large for 4 values", len(encoded))
+	}
+}
+
+// TestEncodeUniformRangeInvariant verifies range stays valid after EncodeUniform.
+func TestEncodeUniformRangeInvariant(t *testing.T) {
+	buf := make([]byte, 1024)
+	enc := &Encoder{}
+	enc.Init(buf)
+
+	rng := rand.New(rand.NewSource(42))
+
+	for i := 0; i < 100; i++ {
+		ft := uint32(2 + rng.Intn(1000))
+		val := uint32(rng.Intn(int(ft)))
+		enc.EncodeUniform(val, ft)
+
+		if enc.Range() <= EC_CODE_BOT {
+			t.Errorf("range invariant violated at iteration %d: rng=%#x", i, enc.Range())
+		}
+	}
+}
+
+// TestEncodeUniformDeterminism verifies EncodeUniform is deterministic.
+func TestEncodeUniformDeterminism(t *testing.T) {
+	values := []struct{ val, ft uint32 }{
+		{5, 16},
+		{100, 256},
+		{7, 8},
+		{250, 500},
+	}
+
+	encode := func() []byte {
+		buf := make([]byte, 256)
+		enc := &Encoder{}
+		enc.Init(buf)
+		for _, v := range values {
+			enc.EncodeUniform(v.val, v.ft)
+		}
+		result := enc.Done()
+		out := make([]byte, len(result))
+		copy(out, result)
+		return out
+	}
+
+	result1 := encode()
+	result2 := encode()
+
+	if len(result1) != len(result2) {
+		t.Fatalf("non-deterministic lengths: %d vs %d", len(result1), len(result2))
+	}
+	for i := range result1 {
+		if result1[i] != result2[i] {
+			t.Errorf("non-deterministic byte %d: %d vs %d", i, result1[i], result2[i])
+		}
+	}
+}
+
+// TestEncodeRawBitsProducesOutput verifies EncodeRawBits produces output in the buffer.
+// Note: Full round-trip verification is deferred pending encoder-decoder byte format
+// alignment (tracked in STATE.md as known gap D01-02-02).
+func TestEncodeRawBitsProducesOutput(t *testing.T) {
+	tests := []struct {
+		name string
+		val  uint32
+		bits uint
+	}{
+		{"1_bit", 1, 1},
+		{"4_bits", 0xA, 4},
+		{"8_bits", 0xAB, 8},
+		{"12_bits", 0xABC, 12},
+		{"16_bits", 0xABCD, 16},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buf := make([]byte, 256)
+			enc := &Encoder{}
+			enc.Init(buf)
+
+			// Also encode some regular data to test mixing
+			enc.EncodeBit(1, 1)
+			enc.EncodeRawBits(tt.val, tt.bits)
+			encoded := enc.Done()
+
+			// Should produce non-empty output
+			if len(encoded) == 0 {
+				t.Errorf("empty encoded output for val=%#x, bits=%d", tt.val, tt.bits)
+			}
+		})
+	}
+}
