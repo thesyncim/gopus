@@ -19,7 +19,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 5: Multistream Decoder** - Surround sound decoding
 - [x] **Phase 6: SILK Encoder** - Encode speech to SILK frames
 - [x] **Phase 7: CELT Encoder** - Encode audio to CELT frames
-- [ ] **Phase 8: Hybrid Encoder & Controls** - Full encoder with bitrate/VBR/FEC/DTX
+- [x] **Phase 8: Hybrid Encoder & Controls** - Full encoder with bitrate/VBR/FEC/DTX
 - [ ] **Phase 9: Multistream Encoder** - Surround sound encoding
 - [ ] **Phase 10: API Layer** - Frame-based API and io.Reader/Writer wrappers
 - [ ] **Phase 11: Container** - Ogg Opus file read/write
@@ -163,12 +163,12 @@ Plans:
 **Plans**: 6 plans
 
 Plans:
-- [ ] 08-01-PLAN.md — Unified encoder struct with hybrid mode coordination (SILK+CELT)
-- [ ] 08-02-PLAN.md — TOC byte generation and packet assembly
-- [ ] 08-03-PLAN.md — VBR/CBR mode and bitrate control
-- [ ] 08-04-PLAN.md — In-band FEC (LBRR) encoding
-- [ ] 08-05-PLAN.md — DTX and complexity settings
-- [ ] 08-06-PLAN.md — Integration tests and libopus cross-validation
+- [x] 08-01-PLAN.md — Unified encoder struct with hybrid mode coordination (SILK+CELT)
+- [x] 08-02-PLAN.md — TOC byte generation and packet assembly
+- [x] 08-03-PLAN.md — VBR/CBR mode and bitrate control
+- [x] 08-04-PLAN.md — In-band FEC (LBRR) encoding
+- [x] 08-05-PLAN.md — DTX and complexity settings
+- [x] 08-06-PLAN.md — Integration tests and libopus cross-validation
 
 ### Phase 9: Multistream Encoder
 **Goal**: Encode surround sound to multistream packets
@@ -178,10 +178,13 @@ Plans:
   1. Multistream encoder produces packets decodable by Phase 5 decoder
   2. Coupled stereo streams share appropriate cross-channel information
   3. Channel mapping correctly routes input channels to streams
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
-- [ ] 09-01: TBD (multistream encoding, channel coupling)
+- [ ] 09-01-PLAN.md — Encoder struct, creation, and channel routing (inverse of decoder)
+- [ ] 09-02-PLAN.md — Self-delimiting packet assembly and Encode method
+- [ ] 09-03-PLAN.md — Round-trip validation with Phase 5 decoder
+- [ ] 09-04-PLAN.md — Libopus cross-validation tests
 
 ### Phase 10: API Layer
 **Goal**: Production-ready Go API with frame-based and streaming interfaces
@@ -242,8 +245,8 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 5. Multistream Decoder | 2/2 | Complete | 2026-01-22 |
 | 6. SILK Encoder | 7/7 | Complete | 2026-01-22 |
 | 7. CELT Encoder | 6/6 | Complete | 2026-01-22 |
-| 8. Hybrid Encoder & Controls | 0/6 | Planned | - |
-| 9. Multistream Encoder | 0/1 | Not started | - |
+| 8. Hybrid Encoder & Controls | 6/6 | Complete | 2026-01-22 |
+| 9. Multistream Encoder | 0/4 | Planned | - |
 | 10. API Layer | 0/2 | Not started | - |
 | 11. Container | 0/2 | Not started | - |
 | 12. Compliance & Polish | 0/2 | Not started | - |
@@ -263,4 +266,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 *Phase 7 gap closure planned: 2026-01-22*
 *Phase 7 complete: 2026-01-22*
 *Phase 8 planned: 2026-01-22*
+*Phase 8 complete: 2026-01-22*
+*Phase 9 planned: 2026-01-22*
 *Total phases: 12 | Total plans: ~44*
