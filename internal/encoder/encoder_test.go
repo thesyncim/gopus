@@ -2,6 +2,7 @@ package encoder
 
 import (
 	"math"
+	"math/rand"
 	"testing"
 
 	"gopus"
@@ -506,5 +507,395 @@ func TestBitrateLimits(t *testing.T) {
 		if got != tt.expected {
 			t.Errorf("ClampBitrate(%d) = %d, want %d", tt.input, got, tt.expected)
 		}
+	}
+}
+
+// TestBitrateModeVBR tests VBR mode encoding with different content types.
+func TestBitrateModeVBR(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeHybrid)
+	enc.SetBandwidth(gopus.BandwidthSuperwideband)
+	enc.SetBitrateMode(ModeVBR)
+
+	// Encode different content types
+	silence := make([]float64, 960)
+	complex := generateComplexSignal(960)
+
+	silentPacket, err := enc.Encode(silence, 960)
+	if err != nil {
+		t.Fatalf("Encode silence failed: %v", err)
+	}
+
+	complexPacket, err := enc.Encode(complex, 960)
+	if err != nil {
+		t.Fatalf("Encode complex failed: %v", err)
+	}
+
+	// VBR: complex content should produce larger packets
+	t.Logf("Silent packet: %d bytes, Complex packet: %d bytes",
+		len(silentPacket), len(complexPacket))
+	// Note: Exact ratio depends on encoder, so just verify both work
+	if len(silentPacket) == 0 {
+		t.Error("Silent packet is empty")
+	}
+	if len(complexPacket) == 0 {
+		t.Error("Complex packet is empty")
+	}
+}
+
+// TestBitrateModeCBR tests CBR mode produces consistent packet sizes.
+func TestBitrateModeCBR(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeHybrid)
+	enc.SetBandwidth(gopus.BandwidthSuperwideband)
+	enc.SetBitrateMode(ModeCBR)
+	enc.SetBitrate(64000) // 64 kbps
+
+	// Target size: 64000 * 20 / 8000 = 160 bytes for 20ms
+	expectedSize := 160
+
+	// Encode multiple frames
+	for i := 0; i < 5; i++ {
+		pcm := generateTestSignal(960, 1)
+		packet, err := enc.Encode(pcm, 960)
+		if err != nil {
+			t.Fatalf("Encode frame %d failed: %v", i, err)
+		}
+
+		// CBR: all packets should be exactly target size
+		if len(packet) != expectedSize {
+			t.Errorf("CBR packet %d: got %d bytes, want %d bytes", i, len(packet), expectedSize)
+		}
+	}
+}
+
+// TestBitrateModeCVBR tests CVBR mode constrains packet sizes within tolerance.
+func TestBitrateModeCVBR(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeHybrid)
+	enc.SetBandwidth(gopus.BandwidthSuperwideband)
+	enc.SetBitrateMode(ModeCVBR)
+	enc.SetBitrate(64000)
+
+	target := 160 // bytes for 20ms at 64kbps
+	minSize := int(float64(target) * (1 - CVBRTolerance))
+	maxSize := int(float64(target) * (1 + CVBRTolerance))
+
+	// Encode multiple frames
+	for i := 0; i < 10; i++ {
+		pcm := generateVariableSignal(960, i)
+		packet, err := enc.Encode(pcm, 960)
+		if err != nil {
+			t.Fatalf("Encode frame %d failed: %v", i, err)
+		}
+
+		// CVBR: packets within tolerance
+		if len(packet) < minSize {
+			t.Errorf("CVBR packet %d: %d bytes < min %d bytes", i, len(packet), minSize)
+		}
+		if len(packet) > maxSize {
+			t.Errorf("CVBR packet %d: %d bytes > max %d bytes", i, len(packet), maxSize)
+		}
+	}
+}
+
+// TestBitrateRange tests bitrate clamping via SetBitrate.
+func TestBitrateRange(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+
+	// Test minimum bitrate
+	enc.SetBitrate(MinBitrate - 1000)
+	if enc.Bitrate() != MinBitrate {
+		t.Errorf("SetBitrate(%d) = %d, want %d", MinBitrate-1000, enc.Bitrate(), MinBitrate)
+	}
+
+	// Test maximum bitrate
+	enc.SetBitrate(MaxBitrate + 100000)
+	if enc.Bitrate() != MaxBitrate {
+		t.Errorf("SetBitrate(%d) = %d, want %d", MaxBitrate+100000, enc.Bitrate(), MaxBitrate)
+	}
+
+	// Test valid bitrate
+	enc.SetBitrate(64000)
+	if enc.Bitrate() != 64000 {
+		t.Errorf("SetBitrate(64000) = %d, want 64000", enc.Bitrate())
+	}
+}
+
+// TestTargetBytesForBitrate tests the bitrate to bytes conversion.
+func TestTargetBytesForBitrate(t *testing.T) {
+	tests := []struct {
+		bitrate   int
+		frameSize int
+		expected  int
+	}{
+		{64000, 960, 160},  // 64kbps, 20ms = 160 bytes
+		{64000, 480, 80},   // 64kbps, 10ms = 80 bytes
+		{128000, 960, 320}, // 128kbps, 20ms = 320 bytes
+		{6000, 960, 15},    // 6kbps (min), 20ms = 15 bytes
+	}
+
+	for _, tt := range tests {
+		got := targetBytesForBitrate(tt.bitrate, tt.frameSize)
+		if got != tt.expected {
+			t.Errorf("targetBytesForBitrate(%d, %d) = %d, want %d",
+				tt.bitrate, tt.frameSize, got, tt.expected)
+		}
+	}
+}
+
+// TestBitrateModeGetSet tests SetBitrateMode and GetBitrateMode.
+func TestBitrateModeGetSet(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+
+	// Default should be VBR
+	if enc.GetBitrateMode() != ModeVBR {
+		t.Errorf("Default bitrate mode = %d, want ModeVBR (%d)", enc.GetBitrateMode(), ModeVBR)
+	}
+
+	modes := []BitrateMode{ModeVBR, ModeCVBR, ModeCBR}
+	for _, mode := range modes {
+		enc.SetBitrateMode(mode)
+		if enc.GetBitrateMode() != mode {
+			t.Errorf("SetBitrateMode(%d): GetBitrateMode() = %d", mode, enc.GetBitrateMode())
+		}
+	}
+}
+
+// TestCBRDifferentBitrates tests CBR at various target bitrates.
+func TestCBRDifferentBitrates(t *testing.T) {
+	bitrates := []int{32000, 64000, 96000, 128000}
+
+	for _, bitrate := range bitrates {
+		t.Run(string(rune(bitrate/1000+'0')), func(t *testing.T) {
+			enc := NewEncoder(48000, 1)
+			enc.SetMode(ModeHybrid)
+			enc.SetBandwidth(gopus.BandwidthSuperwideband)
+			enc.SetBitrateMode(ModeCBR)
+			enc.SetBitrate(bitrate)
+
+			expectedSize := targetBytesForBitrate(bitrate, 960)
+
+			pcm := generateTestSignal(960, 1)
+			packet, err := enc.Encode(pcm, 960)
+			if err != nil {
+				t.Fatalf("Encode failed: %v", err)
+			}
+
+			if len(packet) != expectedSize {
+				t.Errorf("CBR at %d kbps: got %d bytes, want %d bytes",
+					bitrate/1000, len(packet), expectedSize)
+			}
+		})
+	}
+}
+
+// generateComplexSignal generates a complex signal with multiple frequencies + noise.
+func generateComplexSignal(n int) []float64 {
+	pcm := make([]float64, n)
+	for i := range pcm {
+		// Multiple frequencies + noise
+		t := float64(i) / 48000.0
+		pcm[i] = 0.3*math.Sin(2*math.Pi*440*t) +
+			0.2*math.Sin(2*math.Pi*880*t) +
+			0.1*math.Sin(2*math.Pi*1320*t) +
+			0.1*(rand.Float64()-0.5)
+	}
+	return pcm
+}
+
+// generateVariableSignal generates a signal with varying characteristics based on seed.
+func generateVariableSignal(n, seed int) []float64 {
+	pcm := make([]float64, n)
+	freq := float64(200 + seed*100)
+	amp := 0.3 + float64(seed%5)*0.1
+	for i := range pcm {
+		t := float64(i) / 48000.0
+		pcm[i] = amp * math.Sin(2*math.Pi*freq*t)
+	}
+	return pcm
+}
+
+// generateTestSignalFloat32 generates a test signal as float32 for FEC tests.
+func generateTestSignalFloat32(samples int) []float32 {
+	pcm := make([]float32, samples)
+	freq := float32(440.0)
+	sampleRate := float32(48000.0)
+
+	for i := 0; i < samples; i++ {
+		t := float32(i) / sampleRate
+		sample := float32(0.5 * math.Sin(float64(2*math.Pi*freq*t)))
+		sample += float32(0.25 * math.Sin(float64(2*math.Pi*freq*2*t)))
+		pcm[i] = sample
+	}
+	return pcm
+}
+
+// TestFECEnabled verifies FEC enable/disable works correctly.
+func TestFECEnabled(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeHybrid)
+	enc.SetBandwidth(gopus.BandwidthSuperwideband)
+
+	// Verify default (disabled)
+	if enc.FECEnabled() {
+		t.Error("FEC should be disabled by default")
+	}
+
+	// Enable FEC
+	enc.SetFEC(true)
+	if !enc.FECEnabled() {
+		t.Error("FEC should be enabled after SetFEC(true)")
+	}
+
+	// Disable FEC
+	enc.SetFEC(false)
+	if enc.FECEnabled() {
+		t.Error("FEC should be disabled after SetFEC(false)")
+	}
+}
+
+// TestFECPacketLoss verifies packet loss percentage setting works correctly.
+func TestFECPacketLoss(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+
+	// Verify default (0%)
+	if enc.PacketLoss() != 0 {
+		t.Errorf("Packet loss should be 0 by default, got %d", enc.PacketLoss())
+	}
+
+	// Test clamping at lower bound
+	enc.SetPacketLoss(-10)
+	if enc.PacketLoss() != 0 {
+		t.Errorf("SetPacketLoss(-10) should clamp to 0, got %d", enc.PacketLoss())
+	}
+
+	// Test clamping at upper bound
+	enc.SetPacketLoss(150)
+	if enc.PacketLoss() != 100 {
+		t.Errorf("SetPacketLoss(150) should clamp to 100, got %d", enc.PacketLoss())
+	}
+
+	// Test valid value
+	enc.SetPacketLoss(20)
+	if enc.PacketLoss() != 20 {
+		t.Errorf("SetPacketLoss(20) = %d, want 20", enc.PacketLoss())
+	}
+}
+
+// TestFECOnlyWithPreviousFrame verifies FEC needs a previous frame.
+func TestFECOnlyWithPreviousFrame(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeSILK)
+	enc.SetBandwidth(gopus.BandwidthWideband)
+	enc.SetFEC(true)
+	enc.SetPacketLoss(10)
+
+	// First frame - no FEC possible (no previous frame)
+	if enc.shouldUseFEC() {
+		t.Error("shouldUseFEC() should return false for first frame (no previous frame)")
+	}
+
+	// Encode first frame to populate state
+	pcm := generateTestSignal(960, 1)
+	_, err := enc.Encode(pcm, 960)
+	if err != nil {
+		t.Fatalf("First encode failed: %v", err)
+	}
+
+	// Simulate having a previous frame by calling updateFECState
+	pcm32 := generateTestSignalFloat32(320) // 16kHz sample rate for SILK
+	enc.updateFECState(pcm32, true)
+
+	// Second frame - FEC should be possible now
+	if !enc.shouldUseFEC() {
+		t.Error("shouldUseFEC() should return true after previous frame is stored")
+	}
+}
+
+// TestFECDisabledWithLowPacketLoss verifies FEC deactivates below threshold.
+func TestFECDisabledWithLowPacketLoss(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeSILK)
+	enc.SetFEC(true)
+	enc.SetPacketLoss(0) // Below MinPacketLossForFEC
+
+	// Store a previous frame
+	pcm32 := generateTestSignalFloat32(320)
+	enc.updateFECState(pcm32, true)
+
+	// FEC should not activate with 0% packet loss
+	if enc.shouldUseFEC() {
+		t.Error("shouldUseFEC() should return false when packet loss is 0%")
+	}
+
+	// Set packet loss above threshold
+	enc.SetPacketLoss(5)
+	if !enc.shouldUseFEC() {
+		t.Error("shouldUseFEC() should return true when packet loss >= MinPacketLossForFEC")
+	}
+}
+
+// TestFECStateReset verifies FEC state is reset properly.
+func TestFECStateReset(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetFEC(true)
+	enc.SetPacketLoss(10)
+
+	// Store a previous frame
+	pcm32 := generateTestSignalFloat32(320)
+	enc.updateFECState(pcm32, true)
+
+	// Verify FEC is ready
+	if !enc.shouldUseFEC() {
+		t.Error("shouldUseFEC() should be true before reset")
+	}
+
+	// Reset encoder
+	enc.Reset()
+
+	// After reset, shouldUseFEC should be false (no previous frame)
+	if enc.shouldUseFEC() {
+		t.Error("shouldUseFEC() should be false after reset")
+	}
+}
+
+// TestComputeLBRRBitrate verifies LBRR bitrate calculation.
+func TestComputeLBRRBitrate(t *testing.T) {
+	tests := []struct {
+		normalBitrate int
+		expected      int
+	}{
+		{20000, 12000}, // 20000 * 0.6 = 12000
+		{10000, 6000},  // 10000 * 0.6 = 6000 (exactly MinSILKBitrate)
+		{8000, 6000},   // 8000 * 0.6 = 4800, clamped to MinSILKBitrate
+		{100000, 60000}, // 100000 * 0.6 = 60000
+	}
+
+	for _, tt := range tests {
+		got := computeLBRRBitrate(tt.normalBitrate)
+		if got != tt.expected {
+			t.Errorf("computeLBRRBitrate(%d) = %d, want %d",
+				tt.normalBitrate, got, tt.expected)
+		}
+	}
+}
+
+// TestFECConstants verifies FEC constants are set correctly.
+func TestFECConstants(t *testing.T) {
+	if LBRRBitrateFactor != 0.6 {
+		t.Errorf("LBRRBitrateFactor = %f, want 0.6", LBRRBitrateFactor)
+	}
+
+	if MinPacketLossForFEC != 1 {
+		t.Errorf("MinPacketLossForFEC = %d, want 1", MinPacketLossForFEC)
+	}
+
+	if MaxPacketLossForFEC != 50 {
+		t.Errorf("MaxPacketLossForFEC = %d, want 50", MaxPacketLossForFEC)
+	}
+
+	if MinSILKBitrate != 6000 {
+		t.Errorf("MinSILKBitrate = %d, want 6000", MinSILKBitrate)
 	}
 }
