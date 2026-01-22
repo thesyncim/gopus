@@ -487,18 +487,3 @@ func ValidFrameSize(frameSize int, mode Mode) bool {
 	}
 }
 
-// shouldUseDTX checks if DTX should suppress this frame.
-// DTX (Discontinuous Transmission) suppresses frames during silence to save bandwidth.
-// Returns (suppressFrame, sendComfortNoise).
-// For now, DTX is disabled by default - will be fully implemented in 08-04.
-func (e *Encoder) shouldUseDTX(pcm []float64) (bool, bool) {
-	// DTX disabled for now
-	return false, false
-}
-
-// encodeComfortNoise generates a comfort noise frame for DTX.
-// Will be fully implemented in 08-04.
-func (e *Encoder) encodeComfortNoise(frameSize int) ([]byte, error) {
-	// Not implemented yet - return nil to indicate no comfort noise
-	return nil, nil
-}
