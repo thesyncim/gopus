@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 10: API Layer - Plan 01 complete (Frame-based Encoder/Decoder API)
+**Current focus:** Phase 10: API Layer - Plan 02 complete (Streaming Reader/Writer API)
 
 ## Current Position
 
 Phase: 10 of 12 (API Layer)
-Plan: 1 of N complete (Frame-based Encoder/Decoder API)
-Status: Plan 10-01 complete, public API available
-Last activity: 2026-01-22 - Completed 10-01-PLAN.md (Frame-based Encoder/Decoder API)
+Plan: 2 of N complete (Streaming Reader/Writer API)
+Status: Plan 10-02 complete, io.Reader/Writer streaming API available
+Last activity: 2026-01-22 - Completed 10-02-PLAN.md (Streaming Reader/Writer API)
 
-Progress: [████████████████████████████████████████████████████████████████████████████████░░] ~95% (41/~43 plans)
+Progress: [████████████████████████████████████████████████████████████████████████████████░░] ~96% (42/~43 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 38
+- Total plans completed: 39
 - Average duration: ~8 minutes
-- Total execution time: ~307 minutes
+- Total execution time: ~319 minutes
 
 **By Phase:**
 
@@ -36,11 +36,11 @@ Progress: [███████████████████████
 | 07-celt-encoder | 6/6 | ~73m | ~12m |
 | 08-hybrid-encoder-controls | 6/6 | ~38m | ~6m |
 | 09-multistream-encoder | 4/4 | ~15m | ~4m |
-| 10-api-layer | 1/N | ~35m | ~35m |
+| 10-api-layer | 2/N | ~47m | ~24m |
 
 **Recent Trend:**
-- Last 5 plans: 09-01 (~6m), 09-02 (~4m), 09-03 (~7m), 09-04 (~5m), 10-01 (~35m)
-- Trend: Phase 10 started with public API
+- Last 5 plans: 09-02 (~4m), 09-03 (~7m), 09-04 (~5m), 10-01 (~35m), 10-02 (~12m)
+- Trend: Phase 10 progressing with streaming API
 
 *Updated after each plan completion*
 
@@ -158,6 +158,9 @@ Recent decisions affecting current work:
 | D10-01-01 | Created internal/types package to break import cycle | 10-01 | Shared types between gopus and internal/encoder |
 | D10-01-02 | Application hints (VoIP, Audio, LowDelay) for mode selection | 10-01 | User-friendly encoder configuration |
 | D10-01-03 | PLC via nil data to Decode methods | 10-01 | Consistent with libopus API pattern |
+| D10-02-01 | PacketSource returns nil for PLC | 10-02 | Consistent with decoder API pattern |
+| D10-02-02 | Internal frame buffering for Reader/Writer | 10-02 | Handles frame boundaries transparently |
+| D10-02-03 | Writer.Flush zero-pads partial frames | 10-02 | Ensures all input audio is encoded |
 
 ### Pending Todos
 
@@ -178,8 +181,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-22
-Stopped at: Completed 10-01-PLAN.md (Frame-based Encoder/Decoder API)
-Resume file: .planning/phases/10-api-layer/10-01-SUMMARY.md
+Stopped at: Completed 10-02-PLAN.md (Streaming Reader/Writer API)
+Resume file: .planning/phases/10-api-layer/10-02-SUMMARY.md
 
 ## Phase 01 Summary
 
@@ -487,3 +490,22 @@ Resume file: .planning/phases/10-api-layer/10-01-SUMMARY.md
 - `3d90d4c` - feat(10-01): add public Decoder API with error types
 - `d200397` - feat(10-01): add public Encoder API with types refactor
 - `4917ec3` - test(10-01): add integration tests and complete documentation
+
+**10-02 Streaming Reader/Writer API complete:**
+- Reader implementing io.Reader for streaming decode of Opus packet sequences
+- Writer implementing io.Writer for streaming encode to Opus packet sequences
+- PacketSource/PacketSink interfaces for packet I/O abstraction
+- SampleFormat type with FormatFloat32LE and FormatInt16LE support
+- Frame boundaries handled internally with buffering
+- Writer.Flush for encoding partial frames with zero-padding
+- Comprehensive integration tests (round-trip, pipe, large transfer)
+- Duration: ~12 minutes
+
+**Key artifacts:**
+- `stream.go` - Reader, Writer, PacketSource, PacketSink, SampleFormat
+- `stream_test.go` - 30 test functions covering all streaming scenarios
+
+**Commits:**
+- `54e5fec` - feat(10-02): implement PacketSource/PacketSink interfaces and Reader
+- `a3f279b` - feat(10-02): implement Writer for streaming encode
+- `c3d7226` - test(10-02): add integration tests for streaming API
