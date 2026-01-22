@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 12: Compliance & Polish - Import cycle fixed, test infrastructure improved
+**Current focus:** Phase 12: Compliance & Polish - CGO-free builds verified, examples added
 
 ## Current Position
 
 Phase: 12 of 12 (Compliance & Polish)
-Plan: 1 of 3 complete (Import cycle fix)
+Plan: 2 of 3 complete (Build verification and examples)
 Status: In progress
-Last activity: 2026-01-22 - Completed 12-01-PLAN.md (Fix import cycle)
+Last activity: 2026-01-22 - Completed 12-03-PLAN.md (Build verification and examples)
 
-Progress: [███████████████████████████████████████████████████████████████████████████████████████░░] ~96% (46/48 plans)
+Progress: [████████████████████████████████████████████████████████████████████████████████████████░░] ~98% (47/48 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 46
+- Total plans completed: 47
 - Average duration: ~8 minutes
-- Total execution time: ~355 minutes
+- Total execution time: ~357 minutes
 
 **By Phase:**
 
@@ -38,11 +38,11 @@ Progress: [███████████████████████
 | 09-multistream-encoder | 4/4 | ~15m | ~4m |
 | 10-api-layer | 2/2 | ~47m | ~24m |
 | 11-container | 2/2 | ~14m | ~7m |
-| 12-compliance-polish | 1/3 | ~16m | ~16m |
+| 12-compliance-polish | 2/3 | ~18m | ~9m |
 
 **Recent Trend:**
-- Last 5 plans: 10-02 (~12m), 11-01 (~6m), 11-02 (~8m), 12-01 (~16m)
-- Trend: Phase 12 started, import cycle fixed
+- Last 5 plans: 11-01 (~6m), 11-02 (~8m), 12-01 (~16m), 12-03 (~2m)
+- Trend: Phase 12 progressing, build verification and examples complete
 
 *Updated after each plan completion*
 
@@ -172,6 +172,8 @@ Recent decisions affecting current work:
 | D11-02-04 | Empty EOS page on Close() | 11-02 | Signals end of stream per Ogg specification |
 | D12-01-01 | External test package pattern for import cycle fix | 12-01 | package encoder_test imports encoder via module path |
 | D12-01-02 | Export unexported functions via export_test.go | 12-01 | Test-only exports for internal function testing |
+| D12-03-01 | CGO-free build tests for all 10 packages | 12-03 | Comprehensive verification ensures no cgo dependencies |
+| D12-03-02 | Testable examples with deterministic output | 12-03 | Examples with // Output: comments validated by go test |
 
 ### Pending Todos
 
@@ -192,8 +194,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-22
-Stopped at: Completed 12-01-PLAN.md (Fix import cycle)
-Resume file: .planning/phases/12-compliance-polish/12-01-SUMMARY.md
+Stopped at: Completed 12-03-PLAN.md (Build verification and examples)
+Resume file: .planning/phases/12-compliance-polish/12-03-SUMMARY.md
 
 ## Phase 01 Summary
 
@@ -588,3 +590,20 @@ Resume file: .planning/phases/12-compliance-polish/12-01-SUMMARY.md
 - `6024e1b` - refactor(12-01): convert encoder_test.go to external test package
 - `87ecd16` - refactor(12-01): convert remaining test files to external test package
 - `c2e3083` - test(12-01): verify full test suite passes
+
+**12-03 Build Verification and Examples complete:**
+- CGO-free build verification for all 10 packages
+- 10 testable examples for core API (encoder/decoder)
+- 8 testable examples for Ogg container API
+- All examples validated by `go test -run Example`
+- Duration: ~2 minutes
+
+**Key artifacts:**
+- `build_test.go` - CGO-free build verification tests
+- `example_test.go` - Core API examples
+- `container/ogg/example_test.go` - Ogg container examples
+
+**Commits:**
+- `6811dd5` - test(12-03): add CGO-free build verification tests
+- `acd0db7` - test(12-03): add testable examples for core API
+- `346e344` - test(12-03): add testable examples for Ogg container
