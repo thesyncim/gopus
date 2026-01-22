@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-01-21)
 ## Current Position
 
 Phase: 6 of 12 (SILK Encoder)
-Plan: 3 of 5 in current phase - COMPLETE (06-01, 06-02, 06-03)
+Plan: 4 of 5 in current phase - COMPLETE (06-01, 06-02, 06-03, 06-04)
 Status: In progress
-Last activity: 2026-01-22 - Completed 06-02-PLAN.md (LPC Analysis & LSF Encoding)
+Last activity: 2026-01-22 - Completed 06-04-PLAN.md (Gain & LSF Quantization)
 
-Progress: [███████████████████████████████████████████████░] ~57% (21/37 plans)
+Progress: [████████████████████████████████████████████████░] ~59% (22/37 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 21
+- Total plans completed: 22
 - Average duration: ~8 minutes
-- Total execution time: ~172 minutes
+- Total execution time: ~177 minutes
 
 **By Phase:**
 
@@ -32,10 +32,10 @@ Progress: [███████████████████████
 | 03-celt-decoder | 5/5 | ~50m | ~10m |
 | 04-hybrid-decoder | 3/3 | ~22m | ~7m |
 | 05-multistream-decoder | 2/2 | ~6m | ~3m |
-| 06-silk-encoder | 3/5 | ~34m | ~11m |
+| 06-silk-encoder | 4/5 | ~39m | ~10m |
 
 **Recent Trend:**
-- Last 5 plans: 05-02 (~4m), 06-01 (~15m), 06-02 (~12m), 06-03 (~7m)
+- Last 5 plans: 06-01 (~15m), 06-02 (~12m), 06-03 (~7m), 06-04 (~5m)
 - Trend: Encoder plans vary based on algorithm complexity
 
 *Updated after each plan completion*
@@ -100,10 +100,14 @@ Recent decisions affecting current work:
 | D06-03-01 | Lag bias 0.001 for octave error prevention | 06-03 | Prevents harmonic detection errors |
 | D06-03-02 | Gaussian elimination with partial pivoting | 06-03 | Stable LTP coefficient solver |
 | D06-03-03 | Periodicity thresholds 0.5/0.8 | 06-03 | Low/mid/high classification |
+| D06-04-01 | Gain index via linear search through GainDequantTable | 06-04 | Simple O(64) search |
+| D06-04-02 | First-frame limiter reversal | 06-04 | Encoder finds gainIndex matching decoder |
+| D06-04-03 | Rate cost from ICDF via log2 | 06-04 | Bit cost for rate-distortion optimization |
+| D06-04-04 | Perceptual LSF weighting in mid-range | 06-04 | Higher weight at formant frequencies |
 
 ### Pending Todos
 
-- Continue Phase 06 (plans 04-05 remaining)
+- Continue Phase 06 (plan 05 remaining)
 
 ### Known Gaps
 
@@ -116,8 +120,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-22
-Stopped at: Completed 06-02-PLAN.md
-Resume file: .planning/phases/06-silk-encoder/06-04-PLAN.md (next plan)
+Stopped at: Completed 06-04-PLAN.md
+Resume file: .planning/phases/06-silk-encoder/06-05-PLAN.md (next plan)
 
 ## Phase 01 Summary
 
@@ -257,8 +261,8 @@ Resume file: .planning/phases/06-silk-encoder/06-04-PLAN.md (next plan)
 ## Phase 06 Summary - IN PROGRESS
 
 **SILK Encoder phase in progress:**
-- 3 of 5 plans executed successfully
-- Total duration so far: ~34 minutes
+- 4 of 5 plans executed successfully
+- Total duration so far: ~39 minutes
 
 **06-01 SILK Encoder Foundation complete:**
 - EncodeICDF16 added to range encoder for uint16 ICDF tables
@@ -280,6 +284,13 @@ Resume file: .planning/phases/06-silk-encoder/06-04-PLAN.md (next plan)
 - 15 comprehensive tests
 - Duration: ~7 minutes
 
+**06-04 Gain & LSF Quantization complete:**
+- Gain quantization via GainDequantTable lookup with first-frame limiting
+- Two-stage LSF VQ with rate-distortion optimization
+- Perceptual weighting for LSF coefficients
+- 12 comprehensive tests
+- Duration: ~5 minutes
+
 **Key artifacts:**
 - `internal/rangecoding/encoder.go` - Added EncodeICDF16
 - `internal/silk/encoder.go` - Encoder struct, NewEncoder, Reset
@@ -291,3 +302,6 @@ Resume file: .planning/phases/06-silk-encoder/06-04-PLAN.md (next plan)
 - `internal/silk/pitch_detect.go` - Three-stage pitch detection
 - `internal/silk/ltp_encode.go` - LTP analysis and codebook quantization
 - `internal/silk/pitch_detect_test.go` - Pitch and LTP tests
+- `internal/silk/gain_encode.go` - Gain quantization with delta coding
+- `internal/silk/lsf_quantize.go` - Two-stage LSF quantization
+- `internal/silk/gain_encode_test.go` - Gain and LSF quantization tests
