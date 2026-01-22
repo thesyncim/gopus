@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 7: CELT Encoder - COMPLETE (all 4 plans)
+**Current focus:** Phase 7: CELT Encoder - COMPLETE (gaps found: libopus cross-validation, signal quality)
 
 ## Current Position
 
-Phase: 7 of 12 (CELT Encoder) - COMPLETE
-Plan: 4 of 4 in current phase
-Status: Phase complete
-Last activity: 2026-01-22 - Completed 07-04-PLAN.md (Frame Encoding and Round-Trip)
+Phase: 7 of 12 (CELT Encoder) - GAPS FOUND
+Plan: 4 of 4 complete, 2 gaps identified
+Status: Verified with gaps - needs gap closure planning
+Last activity: 2026-01-22 - Verified phase, gaps found
 
 Progress: [████████████████████████████████████████████████████████████] ~78% (29/37 plans)
 
@@ -127,12 +127,14 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-- Begin Phase 08 (Hybrid Encoder)
+- Plan gap closure for Phase 07 (libopus cross-validation, range coder signal quality)
+- Then begin Phase 08 (Hybrid Encoder)
 
 ### Known Gaps
 
-- **Signal quality tuning:** Encoder-decoder round-trip works without panic but decoded signal has low energy. Quality tuning needed for better signal recovery.
-- **Energy encoding round-trip:** Decoder's decodeLaplace uses approximate updateRange (DecodeBit calls) that doesn't properly sync with encoder. Tests verify encoder output validity instead of strict round-trip.
+- **Range coder signal quality (D01-02-02, D07-01-04):** Encoder produces valid packet structure but decoded audio has low/zero energy. Root cause: range encoder byte-format alignment differs from decoder expectations.
+- **No libopus cross-validation:** CELT encoder only validated against gopus decoder. Need cross-validation with libopus reference.
+- **Energy encoding round-trip:** Decoder's decodeLaplace uses approximate updateRange that doesn't properly sync with encoder.
 
 ### Blockers/Concerns
 
@@ -141,8 +143,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-22
-Stopped at: Completed 07-04-PLAN.md (Frame Encoding and Round-Trip)
-Resume file: .planning/phases/08-hybrid-encoder/ (Phase 08 ready to begin)
+Stopped at: Phase 7 verified with gaps
+Resume file: .planning/phases/07-celt-encoder/07-VERIFICATION.md (gap closure needed)
 
 ## Phase 01 Summary
 
