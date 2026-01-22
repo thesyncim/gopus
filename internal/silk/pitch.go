@@ -29,30 +29,50 @@ func (d *Decoder) decodePitchLag(bandwidth Bandwidth, numSubframes int) []int {
 	pitchLags[0] = baseLag
 
 	// Decode contour (delta per subframe)
+	// Note: bounds checking is applied because corrupted bitstreams may decode
+	// indices beyond the valid contour table size
 	var contour []int8
 	switch bandwidth {
 	case BandwidthNarrowband:
 		if numSubframes == 4 {
 			contourIdx := d.rangeDecoder.DecodeICDF16(ICDFPitchContourNB, 8)
+			if contourIdx >= len(PitchContourNB20ms) {
+				contourIdx = len(PitchContourNB20ms) - 1
+			}
 			contour = PitchContourNB20ms[contourIdx][:]
 		} else {
 			contourIdx := d.rangeDecoder.DecodeICDF16(ICDFPitchContourNB, 8)
+			if contourIdx >= len(PitchContourNB10ms) {
+				contourIdx = len(PitchContourNB10ms) - 1
+			}
 			contour = PitchContourNB10ms[contourIdx][:]
 		}
 	case BandwidthMediumband:
 		if numSubframes == 4 {
 			contourIdx := d.rangeDecoder.DecodeICDF16(ICDFPitchContourMB, 8)
+			if contourIdx >= len(PitchContourMB20ms) {
+				contourIdx = len(PitchContourMB20ms) - 1
+			}
 			contour = PitchContourMB20ms[contourIdx][:]
 		} else {
 			contourIdx := d.rangeDecoder.DecodeICDF16(ICDFPitchContourMB, 8)
+			if contourIdx >= len(PitchContourMB10ms) {
+				contourIdx = len(PitchContourMB10ms) - 1
+			}
 			contour = PitchContourMB10ms[contourIdx][:]
 		}
 	case BandwidthWideband:
 		if numSubframes == 4 {
 			contourIdx := d.rangeDecoder.DecodeICDF16(ICDFPitchContourWB, 8)
+			if contourIdx >= len(PitchContourWB20ms) {
+				contourIdx = len(PitchContourWB20ms) - 1
+			}
 			contour = PitchContourWB20ms[contourIdx][:]
 		} else {
 			contourIdx := d.rangeDecoder.DecodeICDF16(ICDFPitchContourWB, 8)
+			if contourIdx >= len(PitchContourWB10ms) {
+				contourIdx = len(PitchContourWB10ms) - 1
+			}
 			contour = PitchContourWB10ms[contourIdx][:]
 		}
 	}
