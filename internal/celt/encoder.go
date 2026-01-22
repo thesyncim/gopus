@@ -220,3 +220,20 @@ func (e *Encoder) SetEnergy(band, channel int, energy float64) {
 	}
 	e.prevEnergy[channel*MaxBands+band] = energy
 }
+
+// IsIntraFrame returns true if this frame should use intra mode.
+// Intra mode is used for the first frame or after a reset.
+func (e *Encoder) IsIntraFrame() bool {
+	return e.frameCount == 0
+}
+
+// IncrementFrameCount increments the frame counter.
+// Call this after successfully encoding a frame.
+func (e *Encoder) IncrementFrameCount() {
+	e.frameCount++
+}
+
+// FrameCount returns the number of frames encoded.
+func (e *Encoder) FrameCount() int {
+	return e.frameCount
+}
