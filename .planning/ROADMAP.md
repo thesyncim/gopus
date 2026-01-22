@@ -120,14 +120,16 @@ Plans:
   2. SILK encoder produces packets decodable by libopus (cross-validation)
   3. Encoded speech is intelligible at target bitrates
   4. Mono and stereo encoding both produce valid output
-**Plans**: 5 plans
+**Plans**: 7 plans
 
 Plans:
-- [ ] 06-01-PLAN.md — Range encoder extension (EncodeICDF16), encoder struct, VAD
-- [ ] 06-02-PLAN.md — LPC analysis (Burg's method), LPC-to-LSF conversion
-- [ ] 06-03-PLAN.md — Pitch detection (three-stage), LTP analysis
-- [ ] 06-04-PLAN.md — Gain quantization, LSF quantization (two-stage VQ)
-- [ ] 06-05-PLAN.md — Excitation encoding, stereo encoding, frame pipeline
+- [x] 06-01-PLAN.md — Range encoder extension (EncodeICDF16), encoder struct, VAD
+- [x] 06-02-PLAN.md — LPC analysis (Burg's method), LPC-to-LSF conversion
+- [x] 06-03-PLAN.md — Pitch detection (three-stage), LTP analysis
+- [x] 06-04-PLAN.md — Gain quantization, LSF quantization (two-stage VQ)
+- [x] 06-05-PLAN.md — Excitation encoding, stereo encoding, frame pipeline
+- [ ] 06-06-PLAN.md — Gap closure: Fix pitch lag encoding, add mono round-trip tests
+- [ ] 06-07-PLAN.md — Gap closure: Add stereo round-trip tests
 
 ### Phase 7: CELT Encoder
 **Goal**: Encode PCM audio to CELT-mode Opus packets
@@ -232,7 +234,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 3. CELT Decoder | 5/5 | Complete | 2026-01-21 |
 | 4. Hybrid Decoder | 3/3 | Complete | 2026-01-22 |
 | 5. Multistream Decoder | 2/2 | Complete | 2026-01-22 |
-| 6. SILK Encoder | 0/5 | Planned | - |
+| 6. SILK Encoder | 5/7 | Gap Closure | - |
 | 7. CELT Encoder | 0/3 | Not started | - |
 | 8. Hybrid Encoder & Controls | 0/3 | Not started | - |
 | 9. Multistream Encoder | 0/1 | Not started | - |
@@ -248,4 +250,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 *Phase 4 gap closure: 2026-01-22*
 *Phase 5 planned: 2026-01-22*
 *Phase 6 planned: 2026-01-22*
-*Total phases: 12 | Total plans: ~37*
+*Phase 6 gap closure: 2026-01-22*
+*Total phases: 12 | Total plans: ~39*
