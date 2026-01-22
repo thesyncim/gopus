@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Foundation** - Range coder, packet parsing, test infrastructure
 - [x] **Phase 2: SILK Decoder** - Decode SILK mode frames (speech)
 - [x] **Phase 3: CELT Decoder** - Decode CELT mode frames (music/audio)
-- [ ] **Phase 4: Hybrid Decoder** - Combined SILK+CELT decoding, PLC
+- [x] **Phase 4: Hybrid Decoder** - Combined SILK+CELT decoding, PLC
 - [ ] **Phase 5: Multistream Decoder** - Surround sound decoding
 - [ ] **Phase 6: SILK Encoder** - Encode speech to SILK frames
 - [ ] **Phase 7: CELT Encoder** - Encode audio to CELT frames
@@ -94,7 +94,7 @@ Plans:
 Plans:
 - [x] 04-01-PLAN.md - Hybrid decoder foundation and SILK+CELT coordination
 - [x] 04-02-PLAN.md - Packet loss concealment (SILK PLC, CELT PLC, Hybrid PLC)
-- [ ] 04-03-PLAN.md - Gap closure: real hybrid packet integration test (verification gap)
+- [x] 04-03-PLAN.md - Gap closure: real hybrid packet integration test (verification gap)
 
 ### Phase 5: Multistream Decoder
 **Goal**: Decode multistream packets for surround sound configurations
@@ -227,7 +227,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 1. Foundation | 3/3 | Complete | 2026-01-21 |
 | 2. SILK Decoder | 5/5 | Complete | 2026-01-21 |
 | 3. CELT Decoder | 5/5 | Complete | 2026-01-21 |
-| 4. Hybrid Decoder | 2/3 | Gap closure | - |
+| 4. Hybrid Decoder | 3/3 | Complete | 2026-01-22 |
 | 5. Multistream Decoder | 0/1 | Not started | - |
 | 6. SILK Encoder | 0/3 | Not started | - |
 | 7. CELT Encoder | 0/3 | Not started | - |
