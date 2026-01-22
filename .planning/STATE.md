@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 9: Multistream Encoder - COMPLETE (with libopus validation)
+**Current focus:** Phase 10: API Layer - Plan 01 complete (Frame-based Encoder/Decoder API)
 
 ## Current Position
 
-Phase: 9 of 12 (Multistream Encoder) - COMPLETE
-Plan: 4 of 4 complete (includes wave 3 libopus validation)
-Status: Phase 9 complete with libopus cross-validation, ready for Phase 10
-Last activity: 2026-01-22 - Completed 09-04-PLAN.md (libopus cross-validation)
+Phase: 10 of 12 (API Layer)
+Plan: 1 of N complete (Frame-based Encoder/Decoder API)
+Status: Plan 10-01 complete, public API available
+Last activity: 2026-01-22 - Completed 10-01-PLAN.md (Frame-based Encoder/Decoder API)
 
-Progress: [████████████████████████████████████████████████████████████████████████████████] 100% (40/40 plans)
+Progress: [████████████████████████████████████████████████████████████████████████████████░░] ~95% (41/~43 plans)
 
 ## Performance Metrics
 
@@ -36,10 +36,11 @@ Progress: [███████████████████████
 | 07-celt-encoder | 6/6 | ~73m | ~12m |
 | 08-hybrid-encoder-controls | 6/6 | ~38m | ~6m |
 | 09-multistream-encoder | 4/4 | ~15m | ~4m |
+| 10-api-layer | 1/N | ~35m | ~35m |
 
 **Recent Trend:**
-- Last 5 plans: 08-06 (~11m), 09-01 (~6m), 09-02 (~4m), 09-04 (~5m)
-- Trend: Phase 9 complete with libopus validation
+- Last 5 plans: 09-01 (~6m), 09-02 (~4m), 09-03 (~7m), 09-04 (~5m), 10-01 (~35m)
+- Trend: Phase 10 started with public API
 
 *Updated after each plan completion*
 
@@ -154,6 +155,9 @@ Recent decisions affecting current work:
 | D09-02-01 | DTX handling in Encode | 09-02 | Empty byte slice for suppressed streams, nil if all silent |
 | D09-04-01 | Mapping family 1 for surround Ogg Opus | 09-04 | OpusHead with stream/coupled counts per RFC 7845 |
 | D09-04-02 | Energy ratio threshold 10% | 09-04 | Consistent with Phase 7/8 cross-validation tests |
+| D10-01-01 | Created internal/types package to break import cycle | 10-01 | Shared types between gopus and internal/encoder |
+| D10-01-02 | Application hints (VoIP, Audio, LowDelay) for mode selection | 10-01 | User-friendly encoder configuration |
+| D10-01-03 | PLC via nil data to Decode methods | 10-01 | Consistent with libopus API pattern |
 
 ### Pending Todos
 
@@ -165,6 +169,7 @@ Recent decisions affecting current work:
 - **RESOLVED: Range coder signal quality (D01-02-02, D07-01-04):** Fixed in 07-05. Encoder now produces bytes correctly decodable by decoder. Signal passes through CELT codec chain (has_output=true in all tests).
 - **RESOLVED: Libopus cross-validation (07-06):** Test infrastructure added. Tests skip on macOS due to provenance restrictions but will run on Linux/CI. Ogg Opus container, opusdec integration, quality metrics implemented.
 - **CELT frame size mismatch:** Decoder produces more samples than expected (1480 vs 960 for 20ms). Root cause: MDCT bin count (800) doesn't match frame size (960). Tracked for future fix.
+- **Internal encoder test import cycle:** Test files in internal/encoder import both gopus and internal/encoder, creating cycle in `go test ./...`. Tests work individually but fail in batch mode. Architectural cleanup needed.
 
 ### Blockers/Concerns
 
@@ -173,8 +178,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-22
-Stopped at: Completed 09-04-PLAN.md (Libopus Cross-Validation)
-Resume file: .planning/phases/09-multistream-encoder/09-04-SUMMARY.md
+Stopped at: Completed 10-01-PLAN.md (Frame-based Encoder/Decoder API)
+Resume file: .planning/phases/10-api-layer/10-01-SUMMARY.md
 
 ## Phase 01 Summary
 
@@ -456,3 +461,29 @@ Resume file: .planning/phases/09-multistream-encoder/09-04-SUMMARY.md
 - All control methods propagate to stream encoders
 - Libopus cross-validation for stereo, 5.1, and 7.1 surround
 - 38 test functions total, all passing
+
+## Phase 10 Summary - IN PROGRESS
+
+**10-01 Frame-based Encoder/Decoder API complete:**
+- Public Encoder wrapping internal/encoder with Application hints (VoIP, Audio, LowDelay)
+- Public Decoder wrapping internal/hybrid with PLC support (nil data triggers PLC)
+- Both int16 and float32 PCM formats supported
+- Created internal/types package to break import cycle between gopus and internal/encoder
+- Comprehensive integration tests (12 test functions)
+- Complete package documentation with Quick Start examples
+- Duration: ~35 minutes
+
+**Key artifacts:**
+- `encoder.go` - Public Encoder API with NewEncoder, Encode, EncodeFloat32, EncodeInt16
+- `decoder.go` - Public Decoder API with NewDecoder, Decode, DecodeFloat32, DecodeInt16
+- `errors.go` - Public error types (ErrInvalidSampleRate, ErrInvalidChannels, etc.)
+- `encoder_test.go` - 15 encoder tests including DTX and FEC
+- `decoder_test.go` - 12 decoder tests including PLC
+- `api_test.go` - 12 integration tests for round-trip encoding/decoding
+- `internal/types/types.go` - Shared Mode and Bandwidth types
+- `doc.go` - Updated with comprehensive documentation and examples
+
+**Commits:**
+- `3d90d4c` - feat(10-01): add public Decoder API with error types
+- `d200397` - feat(10-01): add public Encoder API with types refactor
+- `4917ec3` - test(10-01): add integration tests and complete documentation
