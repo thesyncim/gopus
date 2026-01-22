@@ -108,13 +108,44 @@ func (e *Encoder) EncodeICDF(s int, icdf []uint8, ftb uint) {
 // EncodeICDF16 encodes a symbol using a uint16 ICDF table.
 // Required because SILK tables use uint16 (256 doesn't fit in uint8).
 // Per RFC 6716 Section 4.1.
+//
+// Note: SILK ICDF tables typically have icdf[0] = 256, meaning symbol 0
+// has zero probability and cannot be encoded. If s=0 is passed with such
+// a table, this function clamps s to 1 to avoid infinite loops.
 func (e *Encoder) EncodeICDF16(s int, icdf []uint16, ftb uint) {
+	// Clamp symbol to valid range
+	if s < 0 {
+		s = 0
+	}
+	maxSymbol := len(icdf) - 1
+	if s > maxSymbol {
+		s = maxSymbol
+	}
+
 	ft := uint32(1) << ftb
 	var fl, fh uint32
 	if s > 0 {
 		fl = ft - uint32(icdf[s-1])
 	}
 	fh = ft - uint32(icdf[s])
+
+	// Check for zero-probability symbol (would cause infinite loop)
+	// If fl >= fh, the symbol has zero or negative probability
+	if fl >= fh {
+		// Skip to next valid symbol
+		for s < maxSymbol && fl >= fh {
+			s++
+			fl = ft - uint32(icdf[s-1])
+			fh = ft - uint32(icdf[s])
+		}
+		// If still invalid, clamp to last symbol
+		if fl >= fh {
+			s = maxSymbol
+			fl = ft - uint32(icdf[s-1])
+			fh = ft - uint32(icdf[s])
+		}
+	}
+
 	e.Encode(fl, fh, ft)
 }
 

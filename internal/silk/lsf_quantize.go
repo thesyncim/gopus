@@ -50,15 +50,21 @@ func (e *Encoder) searchStage1Codebook(lsfQ15 []int16, isWideband, isVoiced bool
 	}
 
 	// Limit search to valid ICDF range (symbol count = len(icdf) - 1)
-	maxIdx := len(icdf) - 1
-	if numCodewords > maxIdx {
-		numCodewords = maxIdx
+	// Valid symbols are 0 to len(icdf)-2
+	maxSymbol := len(icdf) - 2
+	if maxSymbol < 0 {
+		maxSymbol = 0
+	}
+	if numCodewords > maxSymbol+1 {
+		numCodewords = maxSymbol + 1
 	}
 
-	bestIdx := 0
+	// Start from symbol 1 because symbol 0 has zero probability in SILK ICDF tables
+	// (icdf[0] = 256 means probability 0)
+	bestIdx := 1
 	var bestCost int64 = math.MaxInt64
 
-	for idx := 0; idx < numCodewords; idx++ {
+	for idx := 1; idx < numCodewords; idx++ {
 		// Compute weighted distortion
 		var dist int64
 		for i := 0; i < lpcOrder; i++ {
@@ -218,10 +224,33 @@ func (e *Encoder) computeInterpolationIndex(lsfQ15 []int16, order int) int {
 
 // encodeLSF encodes quantized LSF to bitstream.
 // Uses existing ICDF tables from tables.go
+// Per RFC 6716 Section 4.2.7.5.2, encode stage1 index,
+// then stage2 residual indices (one per order dimension mapping).
 func (e *Encoder) encodeLSF(stage1Idx int, residuals []int, interpIdx int, bandwidth Bandwidth, signalType int) {
 	isWideband := bandwidth == BandwidthWideband
 	isVoiced := signalType == 2
-	lpcOrder := len(residuals)
+
+	// Clamp stage1 index to valid range for ICDF tables
+	var maxStage1 int
+	if isWideband {
+		if isVoiced {
+			maxStage1 = len(ICDFLSFStage1WBVoiced) - 2
+		} else {
+			maxStage1 = len(ICDFLSFStage1WBUnvoiced) - 2
+		}
+	} else {
+		if isVoiced {
+			maxStage1 = len(ICDFLSFStage1NBMBVoiced) - 2
+		} else {
+			maxStage1 = len(ICDFLSFStage1NBMBUnvoiced) - 2
+		}
+	}
+	if stage1Idx < 0 {
+		stage1Idx = 0
+	}
+	if stage1Idx > maxStage1 {
+		stage1Idx = maxStage1
+	}
 
 	// Encode stage 1 index using appropriate ICDF
 	if isWideband {
@@ -239,28 +268,52 @@ func (e *Encoder) encodeLSF(stage1Idx int, residuals []int, interpIdx int, bandw
 	}
 
 	// Encode stage 2 residuals using ICDFLSFStage2* tables
+	// Per RFC 6716, we encode a few residual symbols (not one per coefficient)
+	// The residuals slice contains indices into the stage2 codebook
 	mapIdx := stage1Idx >> 2
 	if mapIdx > 7 {
 		mapIdx = 7
 	}
-	for i := 0; i < lpcOrder; i++ {
+	if mapIdx < 0 {
+		mapIdx = 0
+	}
+
+	// Encode only a limited number of stage 2 residuals
+	// The ICDF tables have 6 symbols (entries - 1)
+	numResiduals := 3 // Typical for SILK stage 2
+	if len(residuals) < numResiduals {
+		numResiduals = len(residuals)
+	}
+
+	for i := 0; i < numResiduals; i++ {
 		var icdf []uint16
 		if isWideband {
 			icdf = ICDFLSFStage2WB[mapIdx]
 		} else {
 			icdf = ICDFLSFStage2NBMB[mapIdx]
 		}
-		// Clamp residual index to valid range
+		// Clamp residual index to valid range [0, len-2]
 		resIdx := residuals[i]
 		if resIdx < 0 {
 			resIdx = 0
 		}
-		if resIdx >= len(icdf)-1 {
-			resIdx = len(icdf) - 2
+		maxResIdx := len(icdf) - 2
+		if maxResIdx < 0 {
+			maxResIdx = 0
+		}
+		if resIdx > maxResIdx {
+			resIdx = maxResIdx
 		}
 		e.rangeEncoder.EncodeICDF16(resIdx, icdf, 8)
 	}
 
-	// Encode interpolation index
+	// Encode interpolation index (clamped to valid range)
+	maxInterpIdx := len(ICDFLSFInterpolation) - 2
+	if interpIdx < 0 {
+		interpIdx = 0
+	}
+	if interpIdx > maxInterpIdx {
+		interpIdx = maxInterpIdx
+	}
 	e.rangeEncoder.EncodeICDF16(interpIdx, ICDFLSFInterpolation, 8)
 }
