@@ -463,3 +463,48 @@ func TestMultipleFramesHybrid(t *testing.T) {
 		t.Logf("Frame %d: %d bytes", i, len(encoded))
 	}
 }
+
+// TestBitrateLimits tests ValidBitrate and ClampBitrate functions.
+func TestBitrateLimits(t *testing.T) {
+	// Test ValidBitrate
+	tests := []struct {
+		bitrate int
+		valid   bool
+	}{
+		{MinBitrate - 1, false},
+		{MinBitrate, true},
+		{64000, true},
+		{MaxBitrate, true},
+		{MaxBitrate + 1, false},
+		{0, false},
+		{-1, false},
+	}
+
+	for _, tt := range tests {
+		got := ValidBitrate(tt.bitrate)
+		if got != tt.valid {
+			t.Errorf("ValidBitrate(%d) = %v, want %v", tt.bitrate, got, tt.valid)
+		}
+	}
+
+	// Test ClampBitrate
+	clampTests := []struct {
+		input    int
+		expected int
+	}{
+		{MinBitrate - 1000, MinBitrate},
+		{MinBitrate, MinBitrate},
+		{64000, 64000},
+		{MaxBitrate, MaxBitrate},
+		{MaxBitrate + 100000, MaxBitrate},
+		{0, MinBitrate},
+		{-1, MinBitrate},
+	}
+
+	for _, tt := range clampTests {
+		got := ClampBitrate(tt.input)
+		if got != tt.expected {
+			t.Errorf("ClampBitrate(%d) = %d, want %d", tt.input, got, tt.expected)
+		}
+	}
+}

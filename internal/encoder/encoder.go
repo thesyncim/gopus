@@ -65,6 +65,15 @@ type Encoder struct {
 	channels   int
 	frameSize  int // In samples at 48kHz
 
+	// Bitrate controls
+	bitrateMode BitrateMode
+	bitrate     int // Target bits per second
+
+	// FEC controls (08-04)
+	fecEnabled bool
+	packetLoss int // Expected packet loss percentage (0-100)
+	fec        *fecState
+
 	// Encoder state for CELT delay compensation
 	// The 2.7ms delay (130 samples at 48kHz) aligns SILK and CELT
 	prevSamples []float64
@@ -99,6 +108,8 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		sampleRate:  sampleRate,
 		channels:    channels,
 		frameSize:   960, // Default 20ms
+		bitrateMode: ModeVBR,  // VBR is default
+		bitrate:     64000,    // 64 kbps default
 		prevSamples: make([]float64, 130*channels), // CELT delay compensation buffer
 	}
 }
