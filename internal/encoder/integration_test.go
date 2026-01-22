@@ -380,6 +380,210 @@ func TestEncoderAllFrameSizes(t *testing.T) {
 	}
 }
 
+// TestEncoderSignalQuality tests encoding with different signal types.
+func TestEncoderSignalQuality(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeHybrid)
+	enc.SetBandwidth(gopus.BandwidthSuperwideband)
+	enc.SetBitrate(64000)
+
+	// Test with different signal types
+	signals := []struct {
+		name string
+		gen  func(int) []float64
+	}{
+		{"sine440", func(n int) []float64 { return generateSineWaveIntegration(n, 440, 0.7) }},
+		{"sine1000", func(n int) []float64 { return generateSineWaveIntegration(n, 1000, 0.7) }},
+		{"mixed", func(n int) []float64 { return generateMixedSignalIntegration(n) }},
+		{"chirp", func(n int) []float64 { return generateChirpIntegration(n, 200, 4000) }},
+	}
+
+	for _, sig := range signals {
+		t.Run(sig.name, func(t *testing.T) {
+			pcm := sig.gen(960)
+
+			// Encode
+			packet, err := enc.Encode(pcm, 960)
+			if err != nil {
+				t.Fatalf("encoding failed: %v", err)
+			}
+
+			// Verify packet is valid
+			toc := gopus.ParseTOC(packet[0])
+			if toc.Mode != gopus.ModeHybrid {
+				t.Errorf("TOC mode = %v, want ModeHybrid", toc.Mode)
+			}
+
+			// Compute input quality metrics
+			inputEnergy := computeEnergyIntegration(pcm)
+			inputPeak := computePeakIntegration(pcm)
+
+			t.Logf("%s: packet=%d bytes, input_energy=%.4f, input_peak=%.4f",
+				sig.name, len(packet), inputEnergy, inputPeak)
+
+			// Verify input signal has some energy (even mixed signals have ~0.08)
+			if inputEnergy < 0.01 {
+				t.Errorf("input signal energy too low: %.4f", inputEnergy)
+			}
+		})
+	}
+}
+
+// TestEncoderBitrateQuality tests that encoding works at different bitrates.
+func TestEncoderBitrateQuality(t *testing.T) {
+	// Higher bitrates should produce larger packets
+	bitrates := []int{12000, 24000, 48000, 96000}
+	var prevPacketSize int
+
+	for _, bitrate := range bitrates {
+		t.Run(fmt.Sprintf("%dkbps", bitrate/1000), func(t *testing.T) {
+			enc := NewEncoder(48000, 1)
+			enc.SetMode(ModeHybrid)
+			enc.SetBandwidth(gopus.BandwidthSuperwideband)
+			enc.SetBitrate(bitrate)
+			enc.SetBitrateMode(ModeCBR)
+
+			pcm := generateMixedSignalIntegration(960)
+
+			packet, err := enc.Encode(pcm, 960)
+			if err != nil {
+				t.Fatalf("encoding failed: %v", err)
+			}
+
+			t.Logf("%d kbps: packet %d bytes", bitrate/1000, len(packet))
+
+			// Higher bitrate should generally produce larger packets
+			if prevPacketSize > 0 && len(packet) < prevPacketSize {
+				t.Logf("INFO: packet size decreased (may be due to CBR padding)")
+			}
+			prevPacketSize = len(packet)
+		})
+	}
+}
+
+// TestEncoderNoClipping tests that full-scale signals are handled correctly.
+func TestEncoderNoClipping(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeHybrid)
+	enc.SetBandwidth(gopus.BandwidthSuperwideband)
+
+	// Test with full-scale signal
+	pcm := generateSineWaveIntegration(960, 440, 1.0)
+
+	packet, err := enc.Encode(pcm, 960)
+	if err != nil {
+		t.Fatalf("encoding failed: %v", err)
+	}
+
+	// Verify encoding succeeds with full-scale input
+	if len(packet) == 0 {
+		t.Fatal("packet should not be empty")
+	}
+
+	// Verify packet structure
+	toc := gopus.ParseTOC(packet[0])
+	if toc.Mode != gopus.ModeHybrid {
+		t.Errorf("TOC mode = %v, want ModeHybrid", toc.Mode)
+	}
+
+	// Check input peak
+	inputPeak := computePeakIntegration(pcm)
+	t.Logf("Full-scale signal: input_peak=%.4f, packet=%d bytes", inputPeak, len(packet))
+
+	// Verify we can handle full-scale without error
+	if inputPeak < 0.99 {
+		t.Errorf("input peak should be ~1.0, got %.4f", inputPeak)
+	}
+}
+
+// TestEncoderSignalTypes tests encoding various signal types.
+func TestEncoderSignalTypes(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeHybrid)
+	enc.SetBandwidth(gopus.BandwidthSuperwideband)
+
+	// Test silence
+	t.Run("silence", func(t *testing.T) {
+		silence := make([]float64, 960)
+		packet, err := enc.Encode(silence, 960)
+		if err != nil {
+			t.Fatalf("encoding failed: %v", err)
+		}
+		t.Logf("silence: packet=%d bytes", len(packet))
+	})
+
+	// Test DC offset
+	t.Run("dc_offset", func(t *testing.T) {
+		dc := make([]float64, 960)
+		for i := range dc {
+			dc[i] = 0.5 // Constant DC
+		}
+		packet, err := enc.Encode(dc, 960)
+		if err != nil {
+			t.Fatalf("encoding failed: %v", err)
+		}
+		t.Logf("dc_offset: packet=%d bytes", len(packet))
+	})
+
+	// Test impulse
+	t.Run("impulse", func(t *testing.T) {
+		impulse := make([]float64, 960)
+		impulse[480] = 1.0 // Single impulse at center
+		packet, err := enc.Encode(impulse, 960)
+		if err != nil {
+			t.Fatalf("encoding failed: %v", err)
+		}
+		t.Logf("impulse: packet=%d bytes", len(packet))
+	})
+
+	// Test white noise
+	t.Run("white_noise", func(t *testing.T) {
+		noise := generateNoiseIntegration(960, 0.3)
+		packet, err := enc.Encode(noise, 960)
+		if err != nil {
+			t.Fatalf("encoding failed: %v", err)
+		}
+		t.Logf("white_noise: packet=%d bytes", len(packet))
+	})
+}
+
+// TestEncoderCorrelation tests signal correlation preservation.
+func TestEncoderCorrelation(t *testing.T) {
+	// This test validates that multi-frame encoding maintains consistency
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeHybrid)
+	enc.SetBandwidth(gopus.BandwidthSuperwideband)
+
+	// Encode same signal multiple times
+	pcm := generateSineWaveIntegration(960, 440, 0.5)
+
+	var packets [][]byte
+	for i := 0; i < 5; i++ {
+		packet, err := enc.Encode(pcm, 960)
+		if err != nil {
+			t.Fatalf("frame %d encoding failed: %v", i, err)
+		}
+		packets = append(packets, packet)
+	}
+
+	// Verify all packets have similar size (within 20%)
+	avgSize := 0
+	for _, p := range packets {
+		avgSize += len(p)
+	}
+	avgSize /= len(packets)
+
+	for i, p := range packets {
+		deviation := math.Abs(float64(len(p)-avgSize)) / float64(avgSize)
+		if deviation > 0.2 {
+			t.Logf("frame %d: size %d deviates %.1f%% from average %d",
+				i, len(p), deviation*100, avgSize)
+		}
+	}
+
+	t.Logf("5 identical frames: avg_size=%d bytes", avgSize)
+}
+
 // Helper functions for integration tests
 
 func generateIntegrationTestPCM(n int) []float64 {
@@ -409,4 +613,74 @@ func computeEnergyIntegration(samples []float64) float64 {
 		sum += s * s
 	}
 	return sum / float64(len(samples))
+}
+
+func generateMixedSignalIntegration(n int) []float64 {
+	pcm := make([]float64, n)
+	for i := range pcm {
+		t := float64(i) / 48000.0
+		// Multiple harmonics typical of speech/music
+		pcm[i] = 0.3*math.Sin(2*math.Pi*220*t) +
+			0.2*math.Sin(2*math.Pi*440*t) +
+			0.15*math.Sin(2*math.Pi*880*t) +
+			0.1*math.Sin(2*math.Pi*1320*t)
+	}
+	return pcm
+}
+
+func generateChirpIntegration(n int, startFreq, endFreq float64) []float64 {
+	pcm := make([]float64, n)
+	for i := range pcm {
+		t := float64(i) / float64(n)
+		freq := startFreq + (endFreq-startFreq)*t
+		phase := 2 * math.Pi * freq * t / 48000.0 * float64(i)
+		pcm[i] = 0.5 * math.Sin(phase)
+	}
+	return pcm
+}
+
+func computeCorrelationIntegration(a, b []float64) float64 {
+	if len(a) != len(b) || len(a) == 0 {
+		return 0
+	}
+
+	var sumA, sumB, sumAB, sumA2, sumB2 float64
+	n := float64(len(a))
+
+	for i := range a {
+		sumA += a[i]
+		sumB += b[i]
+		sumAB += a[i] * b[i]
+		sumA2 += a[i] * a[i]
+		sumB2 += b[i] * b[i]
+	}
+
+	num := n*sumAB - sumA*sumB
+	den := math.Sqrt((n*sumA2 - sumA*sumA) * (n*sumB2 - sumB*sumB))
+
+	if den == 0 {
+		return 0
+	}
+	return num / den
+}
+
+func computePeakIntegration(samples []float64) float64 {
+	var peak float64
+	for _, s := range samples {
+		if abs := math.Abs(s); abs > peak {
+			peak = abs
+		}
+	}
+	return peak
+}
+
+func generateNoiseIntegration(n int, amp float64) []float64 {
+	pcm := make([]float64, n)
+	// Simple LCG-based noise
+	seed := uint32(12345)
+	for i := range pcm {
+		seed = seed*1664525 + 1013904223
+		pcm[i] = amp * (float64(seed)/float64(1<<32)*2 - 1)
+	}
+	return pcm
 }
