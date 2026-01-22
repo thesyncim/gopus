@@ -158,8 +158,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-22
-Stopped at: Completed 08-04-PLAN.md (In-band FEC)
-Resume file: .planning/phases/08-hybrid-encoder-controls/08-03-SUMMARY.md
+Stopped at: Completed 08-04-PLAN.md (In-band FEC) - Phase 08 COMPLETE
+Resume file: .planning/phases/08-hybrid-encoder-controls/08-04-SUMMARY.md
 
 ## Phase 01 Summary
 
@@ -312,3 +312,16 @@ Resume file: .planning/phases/08-hybrid-encoder-controls/08-03-SUMMARY.md
 - `internal/encoder/hybrid.go` - Hybrid mode encoding with SILK+CELT coordination
 - `internal/encoder/encoder_test.go` - 15 test functions
 - `internal/celt/encoder.go` - Added IsIntraFrame, IncrementFrameCount exports
+
+**08-04 In-band FEC complete:**
+- FEC types and constants (LBRRBitrateFactor=0.6, MinPacketLossForFEC=1%)
+- LBRR encoding functions using SILK ICDF tables
+- FEC control methods (SetFEC, FECEnabled, SetPacketLoss, PacketLoss)
+- Proper FEC state management with reset on encoder reset
+- 7 comprehensive FEC tests
+- Duration: ~12 minutes
+
+**Key artifacts:**
+- `internal/encoder/fec.go` - FEC constants, types, LBRR encoding, state management
+- `internal/encoder/encoder.go` - FEC fields and control methods
+- `internal/encoder/encoder_test.go` - 7 FEC tests added
