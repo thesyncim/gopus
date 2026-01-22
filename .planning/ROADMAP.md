@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: SILK Decoder** - Decode SILK mode frames (speech)
 - [x] **Phase 3: CELT Decoder** - Decode CELT mode frames (music/audio)
 - [x] **Phase 4: Hybrid Decoder** - Combined SILK+CELT decoding, PLC
-- [ ] **Phase 5: Multistream Decoder** - Surround sound decoding
+- [x] **Phase 5: Multistream Decoder** - Surround sound decoding
 - [ ] **Phase 6: SILK Encoder** - Encode speech to SILK frames
 - [ ] **Phase 7: CELT Encoder** - Encode audio to CELT frames
 - [ ] **Phase 8: Hybrid Encoder & Controls** - Full encoder with bitrate/VBR/FEC/DTX
@@ -108,8 +108,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — Multistream foundation (decoder struct, channel mapping, packet parser)
-- [ ] 05-02-PLAN.md — Decode implementation with channel routing and tests
+- [x] 05-01-PLAN.md — Multistream foundation (decoder struct, channel mapping, packet parser)
+- [x] 05-02-PLAN.md — Decode implementation with channel routing and tests
 
 ### Phase 6: SILK Encoder
 **Goal**: Encode PCM audio to SILK-mode Opus packets
@@ -229,7 +229,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 2. SILK Decoder | 5/5 | Complete | 2026-01-21 |
 | 3. CELT Decoder | 5/5 | Complete | 2026-01-21 |
 | 4. Hybrid Decoder | 3/3 | Complete | 2026-01-22 |
-| 5. Multistream Decoder | 0/2 | Planned | - |
+| 5. Multistream Decoder | 2/2 | Complete | 2026-01-22 |
 | 6. SILK Encoder | 0/3 | Not started | - |
 | 7. CELT Encoder | 0/3 | Not started | - |
 | 8. Hybrid Encoder & Controls | 0/3 | Not started | - |

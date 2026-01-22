@@ -22,7 +22,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **DEC-09**: Decode mono streams
 - [x] **DEC-10**: Decode stereo streams (mid-side SILK, intensity CELT)
-- [ ] **DEC-11**: Decode multistream packets (coupled/uncoupled streams)
+- [x] **DEC-11**: Decode multistream packets (coupled/uncoupled streams)
 
 ### Encoder - Core
 
@@ -121,7 +121,7 @@ Which phases cover which requirements.
 | DEC-08 | Phase 4: Hybrid Decoder | Complete |
 | DEC-09 | Phase 2: SILK Decoder | Complete |
 | DEC-10 | Phase 2: SILK Decoder | Complete |
-| DEC-11 | Phase 5: Multistream Decoder | Pending |
+| DEC-11 | Phase 5: Multistream Decoder | Complete |
 | ENC-01 | Phase 1: Foundation | Complete |
 | ENC-02 | Phase 6: SILK Encoder | Pending |
 | ENC-03 | Phase 7: CELT Encoder | Pending |
@@ -157,4 +157,4 @@ Which phases cover which requirements.
 
 ---
 *Requirements defined: 2026-01-21*
-*Last updated: 2026-01-22 after Phase 4 Hybrid Decoder completion*
+*Last updated: 2026-01-22 after Phase 5 Multistream Decoder completion*
