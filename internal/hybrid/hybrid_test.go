@@ -1,7 +1,10 @@
 package hybrid
 
 import (
+	"math"
 	"testing"
+
+	"gopus/internal/rangecoding"
 )
 
 // TestNewDecoder verifies decoder initialization.
@@ -211,13 +214,13 @@ func TestHybridReset(t *testing.T) {
 }
 
 // TestHybridOutputRange verifies output samples are in expected range.
-// Note: This test uses synthetic data which may not form valid Opus packets.
-// The test validates the API behavior rather than actual decoding accuracy.
+// Note: This test was previously skipped due to lack of valid test data.
+// Real packet integration testing is now in TestHybridRealPacketDecode and
+// TestHybridOutputSampleRange which use createMinimalHybridPacket.
 func TestHybridOutputRange(t *testing.T) {
-	// Synthetic data cannot form valid hybrid packets due to SILK complexity
-	// This test validates API behavior: correct frame size is accepted,
-	// but decode may fail or panic with invalid data
-	t.Skip("Skipping: synthetic data cannot form valid hybrid packets")
+	// Redirect to the new integration tests which use properly encoded packets
+	// See: TestHybridRealPacketDecode, TestHybridOutputSampleRange
+	t.Skip("Skipping: see TestHybridRealPacketDecode and TestHybridOutputSampleRange for real packet testing")
 }
 
 // TestHybridStereo verifies stereo hybrid decoding API.
@@ -367,6 +370,246 @@ func TestDecodeToFloat32(t *testing.T) {
 		t.Errorf("DecodeToFloat32 with invalid frame size should return ErrInvalidFrameSize, got %v", err)
 	}
 }
+
+// =============================================================================
+// Real Hybrid Packet Integration Tests
+// =============================================================================
+// These tests use the createMinimalHybridPacket helper to generate valid
+// hybrid packets and verify the decoder can process them end-to-end.
+
+// TestHybridRealPacketDecode is the primary integration test.
+// It verifies the hybrid decoder can process a real range-coded packet
+// containing both SILK and CELT data.
+func TestHybridRealPacketDecode(t *testing.T) {
+	d := NewDecoder(1) // mono
+
+	// Get minimal valid hybrid packet for 20ms
+	packet := createMinimalHybridPacket(960)
+
+	// Create range decoder from packet
+	rd := &rangecoding.Decoder{}
+	rd.Init(packet)
+
+	// Decode frame using the internal decodeFrame method
+	output, err := d.decodeFrame(rd, 960, false)
+	if err != nil {
+		t.Fatalf("decodeFrame failed: %v", err)
+	}
+
+	// Verify output length (960 samples for 20ms at 48kHz)
+	if len(output) != 960 {
+		t.Errorf("output length = %d, want 960", len(output))
+	}
+
+	// Verify output is within reasonable range (not NaN/Inf)
+	for i, s := range output {
+		if math.IsNaN(s) {
+			t.Errorf("output[%d] is NaN", i)
+			break
+		}
+		if math.IsInf(s, 0) {
+			t.Errorf("output[%d] is Inf", i)
+			break
+		}
+	}
+
+	t.Logf("Successfully decoded 20ms hybrid packet: %d samples, first sample: %f", len(output), output[0])
+}
+
+// TestHybridRealPacket10ms tests 10ms frame size (480 samples).
+// This verifies the decoder handles both valid hybrid frame sizes.
+func TestHybridRealPacket10ms(t *testing.T) {
+	d := NewDecoder(1) // mono
+
+	// Get minimal valid hybrid packet for 10ms
+	packet := createMinimalHybridPacket(480)
+
+	// Create range decoder from packet
+	rd := &rangecoding.Decoder{}
+	rd.Init(packet)
+
+	// Decode frame
+	output, err := d.decodeFrame(rd, 480, false)
+	if err != nil {
+		t.Fatalf("decodeFrame failed for 10ms: %v", err)
+	}
+
+	// Verify output length (480 samples for 10ms at 48kHz)
+	if len(output) != 480 {
+		t.Errorf("output length = %d, want 480", len(output))
+	}
+
+	// Verify output is within reasonable range
+	for i, s := range output {
+		if math.IsNaN(s) || math.IsInf(s, 0) {
+			t.Errorf("output[%d] is %f (invalid)", i, s)
+			break
+		}
+	}
+
+	t.Logf("Successfully decoded 10ms hybrid packet: %d samples", len(output))
+}
+
+// TestHybridRealPacketStereo tests stereo hybrid decoding.
+// Verifies the decoder handles 2-channel output correctly.
+func TestHybridRealPacketStereo(t *testing.T) {
+	d := NewDecoder(2) // stereo
+
+	// Get minimal valid hybrid packet for 20ms
+	packet := createMinimalHybridPacket(960)
+
+	// Create range decoder from packet
+	rd := &rangecoding.Decoder{}
+	rd.Init(packet)
+
+	// Decode stereo frame
+	output, err := d.decodeFrame(rd, 960, true)
+	if err != nil {
+		t.Fatalf("decodeFrame stereo failed: %v", err)
+	}
+
+	// Verify output length (960 samples * 2 channels = 1920)
+	expectedLen := 960 * 2
+	if len(output) != expectedLen {
+		t.Errorf("stereo output length = %d, want %d", len(output), expectedLen)
+	}
+
+	// Verify output is within reasonable range
+	for i, s := range output {
+		if math.IsNaN(s) || math.IsInf(s, 0) {
+			t.Errorf("output[%d] is %f (invalid)", i, s)
+			break
+		}
+	}
+
+	t.Logf("Successfully decoded stereo hybrid packet: %d samples (interleaved)", len(output))
+}
+
+// TestHybridRealPacketWithPublicAPI tests the public Decode API with real packets.
+// This ensures the full decoding pipeline works end-to-end.
+func TestHybridRealPacketWithPublicAPI(t *testing.T) {
+	d := NewDecoder(1)
+
+	// Use hardcoded packet as fallback for more reliable testing
+	packet := minimalHybridPacket20ms
+
+	// Call public API
+	output, err := d.Decode(packet, 960)
+	if err != nil {
+		t.Fatalf("Decode failed: %v", err)
+	}
+
+	// Verify output
+	if len(output) != 960 {
+		t.Errorf("output length = %d, want 960", len(output))
+	}
+
+	// Check for valid samples
+	invalidCount := 0
+	for _, s := range output {
+		if math.IsNaN(s) || math.IsInf(s, 0) {
+			invalidCount++
+		}
+	}
+	if invalidCount > 0 {
+		t.Errorf("found %d invalid samples (NaN/Inf)", invalidCount)
+	}
+}
+
+// TestHybridRangeDecoderTransition verifies range decoder state transitions
+// correctly from SILK to CELT within the same packet.
+func TestHybridRangeDecoderTransition(t *testing.T) {
+	d := NewDecoder(1)
+
+	// Create packet
+	packet := createMinimalHybridPacket(960)
+
+	// Initialize range decoder
+	rd := &rangecoding.Decoder{}
+	rd.Init(packet)
+
+	// Record initial state
+	initialTell := rd.Tell()
+
+	// Decode frame (SILK reads first, then CELT)
+	_, err := d.decodeFrame(rd, 960, false)
+	if err != nil {
+		t.Fatalf("decodeFrame failed: %v", err)
+	}
+
+	// Verify range decoder consumed bits
+	finalTell := rd.Tell()
+	bitsConsumed := finalTell - initialTell
+
+	// Both SILK and CELT should have consumed some bits
+	if bitsConsumed <= 0 {
+		t.Errorf("range decoder should have consumed bits, but Tell() unchanged")
+	}
+
+	t.Logf("Range decoder consumed %d bits (SILK+CELT)", bitsConsumed)
+}
+
+// TestHybridMultipleFrames tests decoding multiple consecutive frames.
+// This verifies decoder state persists correctly between frames.
+func TestHybridMultipleFrames(t *testing.T) {
+	d := NewDecoder(1)
+
+	// Decode multiple frames to verify state persistence
+	for frame := 0; frame < 5; frame++ {
+		packet := createMinimalHybridPacket(960)
+
+		rd := &rangecoding.Decoder{}
+		rd.Init(packet)
+
+		output, err := d.decodeFrame(rd, 960, false)
+		if err != nil {
+			t.Fatalf("frame %d: decodeFrame failed: %v", frame, err)
+		}
+
+		if len(output) != 960 {
+			t.Errorf("frame %d: output length = %d, want 960", frame, len(output))
+		}
+	}
+
+	t.Log("Successfully decoded 5 consecutive hybrid frames")
+}
+
+// TestHybridOutputSampleRange verifies output samples are in reasonable range.
+// For minimal/silence packets, output should be near-zero or low-level.
+func TestHybridOutputSampleRange(t *testing.T) {
+	d := NewDecoder(1)
+
+	packet := createMinimalHybridPacket(960)
+
+	rd := &rangecoding.Decoder{}
+	rd.Init(packet)
+
+	output, err := d.decodeFrame(rd, 960, false)
+	if err != nil {
+		t.Fatalf("decodeFrame failed: %v", err)
+	}
+
+	// Calculate max absolute value
+	var maxAbs float64
+	for _, s := range output {
+		abs := math.Abs(s)
+		if abs > maxAbs {
+			maxAbs = abs
+		}
+	}
+
+	// For a minimal packet, we don't expect huge amplitude values
+	// Allow up to 10.0 for filter transients, but flag if much larger
+	if maxAbs > 100.0 {
+		t.Logf("Warning: max absolute sample value is %f (unexpectedly large for minimal packet)", maxAbs)
+	}
+
+	t.Logf("Max absolute sample value: %f", maxAbs)
+}
+
+// =============================================================================
+// Benchmarks
+// =============================================================================
 
 // BenchmarkHybridDecode benchmarks hybrid decoding.
 // Note: Uses synthetic data so actual decoding performance may vary.

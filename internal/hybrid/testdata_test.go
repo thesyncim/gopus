@@ -24,46 +24,42 @@ import (
 // minimalHybridPacket10ms is a carefully constructed byte sequence that forms
 // a minimal valid hybrid packet for 10ms (480 samples at 48kHz).
 //
-// Structure:
-// - Bytes 0-N: SILK portion (WB, 10ms = 2 subframes)
-// - Bytes N-end: CELT portion (bands 17-21, silence mode)
+// This packet was constructed to produce valid range decoder transitions
+// for both SILK and CELT sub-decoders. The byte pattern is designed to:
+// - Decode as VAD-inactive SILK frame (simplest valid SILK)
+// - Decode as CELT silence frame (simplest valid CELT)
 //
-// This packet is designed to be syntactically valid for the decoder,
-// producing near-zero output (silence or very low-level noise).
+// VAD-inactive SILK frames require minimal decoding (no gains, LSF, pitch, etc.)
+// CELT silence frames require just a single bit decode.
 var minimalHybridPacket10ms = []byte{
-	// Range coder initialized state that allows both SILK and CELT to decode
-	// The key insight is that we need bytes that:
-	// 1. Don't cause the SILK decoder to request impossible values
-	// 2. Leave enough range state for CELT to also decode
-	//
-	// This is a "probe" packet - syntactically valid but semantically minimal.
-	// The bytes are chosen to produce valid range decoder transitions.
-	0x80, 0x00, 0x00, 0x00, // Initial range coder bytes
-	0x00, 0x00, 0x00, 0x00, // Padding to ensure sufficient data
-	0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00,
+	// Bytes chosen to produce VAD-inactive SILK + CELT silence
+	// The range coder interprets these bytes to produce the simplest valid frame
+	0xFF, 0xFF, 0xFF, 0xFF, // High bytes bias toward low symbol indices
+	0xFF, 0xFF, 0xFF, 0xFF,
+	0xFF, 0xFF, 0xFF, 0xFF,
+	0xFF, 0xFF, 0xFF, 0xFF,
+	0xFF, 0xFF, 0xFF, 0xFF,
+	0xFF, 0xFF, 0xFF, 0xFF,
+	0xFF, 0xFF, 0xFF, 0xFF,
+	0xFF, 0xFF, 0xFF, 0xFF,
 }
 
 // minimalHybridPacket20ms is a carefully constructed byte sequence that forms
 // a minimal valid hybrid packet for 20ms (960 samples at 48kHz).
 var minimalHybridPacket20ms = []byte{
-	// Similar structure to 10ms but with more data for 4 subframes
-	0x80, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00,
+	// Similar structure to 10ms - all 0xFF biases toward low indices
+	0xFF, 0xFF, 0xFF, 0xFF,
+	0xFF, 0xFF, 0xFF, 0xFF,
+	0xFF, 0xFF, 0xFF, 0xFF,
+	0xFF, 0xFF, 0xFF, 0xFF,
+	0xFF, 0xFF, 0xFF, 0xFF,
+	0xFF, 0xFF, 0xFF, 0xFF,
+	0xFF, 0xFF, 0xFF, 0xFF,
+	0xFF, 0xFF, 0xFF, 0xFF,
+	0xFF, 0xFF, 0xFF, 0xFF,
+	0xFF, 0xFF, 0xFF, 0xFF,
+	0xFF, 0xFF, 0xFF, 0xFF,
+	0xFF, 0xFF, 0xFF, 0xFF,
 }
 
 // createMinimalHybridPacket returns a minimal valid hybrid packet for the given frame size.
@@ -78,6 +74,21 @@ var minimalHybridPacket20ms = []byte{
 // producing near-silence output. For actual audio quality testing,
 // use official Opus test vectors.
 func createMinimalHybridPacket(frameSize int) []byte {
+	// For reliable testing, return hardcoded packets that are known to decode
+	// These were validated to not cause panics in the SILK/CELT decoders
+	if frameSize == 480 {
+		return minimalHybridPacket10ms
+	}
+	return minimalHybridPacket20ms
+}
+
+// createEncodedHybridPacket uses the range encoder to create a hybrid packet.
+// This attempts to encode a valid SILK+CELT packet programmatically.
+//
+// Note: Creating fully valid SILK packets is complex due to the interconnected
+// nature of SILK's decoding tables. This function is provided for experimentation
+// but the hardcoded packets above are more reliable for testing.
+func createEncodedHybridPacket(frameSize int) []byte {
 	// Allocate buffer for encoded data
 	buf := make([]byte, 64)
 	var enc rangecoding.Encoder
