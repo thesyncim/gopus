@@ -232,23 +232,20 @@ func (e *Encoder) encodePitchLags(pitchLags []int, numSubframes int) {
 
 	// Encode lag high bits (MSB) - use bandwidth-specific ICDF
 	var lagHighICDF []uint16
-	var lagLowICDF []uint16
-	var divisor int
 
 	switch e.bandwidth {
 	case BandwidthNarrowband:
 		lagHighICDF = ICDFPitchLagNB
-		lagLowICDF = ICDFPitchLowBitsQ2
-		divisor = 4
 	case BandwidthMediumband:
 		lagHighICDF = ICDFPitchLagMB
-		lagLowICDF = ICDFPitchLowBitsQ3
-		divisor = 8
 	default: // Wideband
 		lagHighICDF = ICDFPitchLagWB
-		lagLowICDF = ICDFPitchLowBitsQ4
-		divisor = 16
 	}
+
+	// Low bits are ALWAYS 2 bits (Q2) per RFC 6716 Section 4.2.7.6.1
+	// lag = min_lag + high * 4 + low (low is always 0-3)
+	lagLowICDF := ICDFPitchLowBitsQ2
+	divisor := 4
 
 	lagHigh := lagIdx / divisor
 	lagLow := lagIdx % divisor
