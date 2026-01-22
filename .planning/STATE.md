@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 4: Hybrid Decoder - VERIFIED ✓
+**Current focus:** Phase 5: Multistream Decoder - In Progress
 
 ## Current Position
 
-Phase: 4 of 12 (Hybrid Decoder) - VERIFIED ✓
-Plan: 3 of 3 in current phase - COMPLETE
-Status: Phase verified, ready for Phase 5
-Last activity: 2026-01-22 - Completed 04-03-PLAN.md (Gap Closure: Integration Tests)
+Phase: 5 of 12 (Multistream Decoder)
+Plan: 1 of 2 in current phase - COMPLETE
+Status: In progress
+Last activity: 2026-01-22 - Completed 05-01-PLAN.md (Multistream Foundation)
 
-Progress: [████████████████████████████████████████░░] ~43% (16/37 plans)
+Progress: [██████████████████████████████████████████░░] ~46% (17/37 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 16
+- Total plans completed: 17
 - Average duration: ~8 minutes
-- Total execution time: ~132 minutes
+- Total execution time: ~134 minutes
 
 **By Phase:**
 
@@ -31,10 +31,11 @@ Progress: [███████████████████████
 | 02-silk-decoder | 5/5 | ~31m | ~6m |
 | 03-celt-decoder | 5/5 | ~50m | ~10m |
 | 04-hybrid-decoder | 3/3 | ~22m | ~7m |
+| 05-multistream-decoder | 1/2 | ~2m | ~2m |
 
 **Recent Trend:**
-- Last 5 plans: 03-04 (~12m), 03-05 (~10m), 04-01 (~5m), 04-02 (~11m), 04-03 (~6m)
-- Trend: Gap closure plan fast due to focused scope (integration tests only)
+- Last 5 plans: 03-05 (~10m), 04-01 (~5m), 04-02 (~11m), 04-03 (~6m), 05-01 (~2m)
+- Trend: Foundation plan fast due to focused scope (struct/validation only)
 
 *Updated after each plan completion*
 
@@ -84,10 +85,13 @@ Recent decisions affecting current work:
 | D04-02-05 | EnergyDecayPerFrame = 0.85 | 04-02 | CELT band energy fade |
 | D04-03-01 | Hardcoded packets for reliable testing | 04-03 | Programmatic encoding too complex |
 | D04-03-02 | Add bounds checking for corrupted bitstream | 04-03 | Graceful degradation vs panics |
+| D05-01-01 | Use hybrid.Decoder for all streams | 05-01 | Handles mode detection via TOC |
+| D05-01-02 | streamDecoder interface wraps concrete decoders | 05-01 | Uniform decoder management |
+| D05-01-03 | Validate mapping values against streams+coupledStreams | 05-01 | Prevents invalid channel routing |
 
 ### Pending Todos
 
-- Begin Phase 05 (Unified API)
+- Complete Phase 05 Plan 02 (Decode method and channel routing)
 
 ### Known Gaps
 
@@ -100,8 +104,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-22
-Stopped at: Completed 04-03-PLAN.md (Gap Closure: Integration Tests)
-Resume file: .planning/phases/05-unified-api/ (next phase)
+Stopped at: Completed 05-01-PLAN.md (Multistream Foundation)
+Resume file: .planning/phases/05-multistream-decoder/05-02-PLAN.md
 
 ## Phase 01 Summary
 
@@ -208,3 +212,17 @@ Resume file: .planning/phases/05-unified-api/ (next phase)
 - `internal/hybrid/testdata_test.go` - Packet construction helpers
 - `internal/silk/excitation.go` - Bounds checking fixes
 - `internal/silk/stereo.go` - Bounds checking fixes
+
+## Phase 05 Summary - In Progress
+
+**05-01 Multistream Foundation complete:**
+- MultistreamDecoder struct with comprehensive parameter validation
+- Vorbis channel mapping tables for 1-8 channels (mono through 7.1 surround)
+- Self-delimiting packet parser per RFC 6716 Appendix B
+- streamDecoder interface for uniform decoder handling
+- Duration: ~2 minutes
+
+**Key artifacts:**
+- `internal/multistream/decoder.go` - Decoder struct, NewDecoder, validation
+- `internal/multistream/mapping.go` - DefaultMapping, resolveMapping, vorbisChannelOrder
+- `internal/multistream/stream.go` - parseMultistreamPacket, parseSelfDelimitedLength
