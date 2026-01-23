@@ -240,3 +240,248 @@ func BenchmarkDecodePulsesLarge(b *testing.B) {
 		DecodePulses(123456, 32, 16)
 	}
 }
+
+// TestDecodePulsesKnownVectors verifies DecodePulses against mathematically derived reference values.
+// These are derived from CWRS combinatorial structure as specified in RFC 6716 Section 4.3.4.1.
+func TestDecodePulsesKnownVectors(t *testing.T) {
+	tests := []struct {
+		name  string
+		index uint32
+		n, k  int
+		want  []int
+	}{
+		// V(n=2, k=1) = 4 codewords
+		// Ordering: first V(1,1)=2 codewords have 0 pulses at position 0
+		// Then 2*V(1,0)=2 codewords have 1 pulse at position 0 (positive/negative)
+		{"n2k1_idx0", 0, 2, 1, []int{0, 1}},
+		{"n2k1_idx1", 1, 2, 1, []int{0, -1}},
+		{"n2k1_idx2", 2, 2, 1, []int{1, 0}},
+		{"n2k1_idx3", 3, 2, 1, []int{-1, 0}},
+
+		// V(n=3, k=1) = 6 codewords
+		// First V(2,1)=4 codewords have 0 pulses at position 0, distribute 1 pulse in [1:2]
+		// Then 2*V(2,0)=2 codewords have 1 pulse at position 0
+		{"n3k1_idx0", 0, 3, 1, []int{0, 0, 1}},
+		{"n3k1_idx1", 1, 3, 1, []int{0, 0, -1}},
+		{"n3k1_idx2", 2, 3, 1, []int{0, 1, 0}},
+		{"n3k1_idx3", 3, 3, 1, []int{0, -1, 0}},
+		{"n3k1_idx4", 4, 3, 1, []int{1, 0, 0}},
+		{"n3k1_idx5", 5, 3, 1, []int{-1, 0, 0}},
+
+		// V(n=1, k=2) = 2 codewords: +2, -2
+		{"n1k2_idx0", 0, 1, 2, []int{2}},
+		{"n1k2_idx1", 1, 1, 2, []int{-2}},
+
+		// V(n=1, k=5) = 2 codewords: +5, -5
+		{"n1k5_idx0", 0, 1, 5, []int{5}},
+		{"n1k5_idx1", 1, 1, 5, []int{-5}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := DecodePulses(tc.index, tc.n, tc.k)
+			if got == nil {
+				t.Fatalf("DecodePulses(%d, %d, %d) returned nil", tc.index, tc.n, tc.k)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("DecodePulses(%d, %d, %d) length = %d, want %d", tc.index, tc.n, tc.k, len(got), len(tc.want))
+			}
+			for i, v := range tc.want {
+				if got[i] != v {
+					t.Errorf("DecodePulses(%d, %d, %d)[%d] = %d, want %d (got %v)", tc.index, tc.n, tc.k, i, got[i], v, got)
+					break
+				}
+			}
+		})
+	}
+}
+
+// TestDecodePulsesSymmetry verifies CWRS symmetry properties.
+// For any valid pulse vector y with sum(|y|)=k:
+// 1. sum(|y|) == k for all codewords
+// 2. Sign patterns are correctly handled
+func TestDecodePulsesSymmetry(t *testing.T) {
+	// Enumerate all codewords for small (n, k) and verify properties
+	testCases := []struct {
+		n, k int
+	}{
+		{2, 1}, // 4 codewords
+		{2, 2}, // 8 codewords
+		{3, 1}, // 6 codewords
+		{3, 2}, // 18 codewords
+		{4, 2}, // 32 codewords
+	}
+
+	for _, tc := range testCases {
+		t.Run("", func(t *testing.T) {
+			vCount := PVQ_V(tc.n, tc.k)
+			seen := make(map[string]bool)
+
+			for idx := uint32(0); idx < vCount; idx++ {
+				y := DecodePulses(idx, tc.n, tc.k)
+				if y == nil {
+					t.Errorf("DecodePulses(%d, %d, %d) returned nil", idx, tc.n, tc.k)
+					continue
+				}
+
+				// Verify L1 norm equals k
+				sum := 0
+				for _, v := range y {
+					if v < 0 {
+						sum -= v
+					} else {
+						sum += v
+					}
+				}
+				if sum != tc.k {
+					t.Errorf("DecodePulses(%d, %d, %d) = %v has L1 norm %d, want %d", idx, tc.n, tc.k, y, sum, tc.k)
+				}
+
+				// Verify uniqueness - each index should produce a unique vector
+				key := ""
+				for _, v := range y {
+					key += string(rune(v + 128)) // Simple encoding for uniqueness check
+				}
+				if seen[key] {
+					t.Errorf("Duplicate vector for idx=%d: %v", idx, y)
+				}
+				seen[key] = true
+			}
+
+			// Verify we got exactly V(n,k) unique vectors
+			if len(seen) != int(vCount) {
+				t.Errorf("Expected %d unique vectors, got %d", vCount, len(seen))
+			}
+		})
+	}
+}
+
+// TestEncodePulsesRoundtripExhaustive tests round-trip for all codewords in small (n, k).
+func TestEncodePulsesRoundtripExhaustive(t *testing.T) {
+	testCases := []struct {
+		n, k int
+	}{
+		{2, 1},
+		{2, 2},
+		{2, 3},
+		{3, 1},
+		{3, 2},
+		{4, 1},
+		{4, 2},
+	}
+
+	for _, tc := range testCases {
+		t.Run("", func(t *testing.T) {
+			vCount := PVQ_V(tc.n, tc.k)
+
+			for idx := uint32(0); idx < vCount; idx++ {
+				// Decode
+				y := DecodePulses(idx, tc.n, tc.k)
+				if y == nil {
+					t.Errorf("DecodePulses(%d, %d, %d) returned nil", idx, tc.n, tc.k)
+					continue
+				}
+
+				// Encode back
+				encoded := EncodePulses(y, tc.n, tc.k)
+
+				// Verify round-trip
+				if encoded != idx {
+					t.Errorf("Round-trip failed: DecodePulses(%d, %d, %d) = %v, EncodePulses = %d",
+						idx, tc.n, tc.k, y, encoded)
+				}
+			}
+		})
+	}
+}
+
+// TestPVQ_VRecurrence verifies the V(n,k) recurrence relation.
+// V(N, K) = V(N-1, K) + V(N, K-1) + V(N-1, K-1) for N > 1, K > 0
+// Boundary conditions:
+//   - V(N, 0) = 1 for any N >= 0 (only the zero vector)
+//   - V(0, K) = 0 for K > 0 (no dimensions, can't have pulses)
+//   - V(1, K) = 2 for K > 0 (only +K and -K)
+func TestPVQ_VRecurrence(t *testing.T) {
+	// Test boundary conditions
+	t.Run("boundary_V_n_0", func(t *testing.T) {
+		// V(n, 0) = 1 for any n >= 0
+		for n := 0; n <= 10; n++ {
+			v := PVQ_V(n, 0)
+			if v != 1 {
+				t.Errorf("V(%d, 0) = %d, want 1", n, v)
+			}
+		}
+	})
+
+	t.Run("boundary_V_0_k", func(t *testing.T) {
+		// V(0, k) = 0 for k > 0
+		for k := 1; k <= 10; k++ {
+			v := PVQ_V(0, k)
+			if v != 0 {
+				t.Errorf("V(0, %d) = %d, want 0", k, v)
+			}
+		}
+	})
+
+	t.Run("boundary_V_1_k", func(t *testing.T) {
+		// V(1, k) = 2 for k > 0
+		for k := 1; k <= 10; k++ {
+			v := PVQ_V(1, k)
+			if v != 2 {
+				t.Errorf("V(1, %d) = %d, want 2", k, v)
+			}
+		}
+	})
+
+	// Test recurrence: V(n,k) = V(n-1,k) + V(n,k-1) + V(n-1,k-1)
+	t.Run("recurrence", func(t *testing.T) {
+		for n := 2; n <= 10; n++ {
+			for k := 1; k <= 10; k++ {
+				v := PVQ_V(n, k)
+				expected := PVQ_V(n-1, k) + PVQ_V(n, k-1) + PVQ_V(n-1, k-1)
+				if v != expected {
+					t.Errorf("V(%d, %d) = %d, but V(%d,%d)+V(%d,%d)+V(%d,%d) = %d+%d+%d = %d",
+						n, k, v,
+						n-1, k, n, k-1, n-1, k-1,
+						PVQ_V(n-1, k), PVQ_V(n, k-1), PVQ_V(n-1, k-1), expected)
+				}
+			}
+		}
+	})
+
+	// Verify some known values computed by hand
+	t.Run("known_values", func(t *testing.T) {
+		knownValues := []struct {
+			n, k int
+			v    uint32
+		}{
+			// Base cases
+			{0, 0, 1},
+			{1, 0, 1},
+			{2, 0, 1},
+			{0, 1, 0},
+			{1, 1, 2},
+			{1, 2, 2},
+
+			// V(2,1) = V(1,1) + V(2,0) + V(1,0) = 2 + 1 + 1 = 4
+			{2, 1, 4},
+			// V(2,2) = V(1,2) + V(2,1) + V(1,1) = 2 + 4 + 2 = 8
+			{2, 2, 8},
+			// V(3,1) = V(2,1) + V(3,0) + V(2,0) = 4 + 1 + 1 = 6
+			{3, 1, 6},
+			// V(3,2) = V(2,2) + V(3,1) + V(2,1) = 8 + 6 + 4 = 18
+			{3, 2, 18},
+			// V(4,1) = V(3,1) + V(4,0) + V(3,0) = 6 + 1 + 1 = 8
+			{4, 1, 8},
+			// V(4,2) = V(3,2) + V(4,1) + V(3,1) = 18 + 8 + 6 = 32
+			{4, 2, 32},
+		}
+
+		for _, kv := range knownValues {
+			v := PVQ_V(kv.n, kv.k)
+			if v != kv.v {
+				t.Errorf("V(%d, %d) = %d, want %d", kv.n, kv.k, v, kv.v)
+			}
+		}
+	})
+}
