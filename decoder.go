@@ -3,7 +3,9 @@
 package gopus
 
 import (
+	"gopus/internal/celt"
 	"gopus/internal/hybrid"
+	"gopus/internal/silk"
 )
 
 // Decoder decodes Opus packets into PCM audio samples.
@@ -14,10 +16,13 @@ import (
 // The decoder supports all Opus modes (SILK, Hybrid, CELT) and automatically
 // detects the mode from the TOC byte in each packet.
 type Decoder struct {
-	dec           *hybrid.Decoder
+	silkDecoder   *silk.Decoder   // SILK-only mode decoder
+	celtDecoder   *celt.Decoder   // CELT-only mode decoder
+	hybridDecoder *hybrid.Decoder // Hybrid mode decoder
 	sampleRate    int
 	channels      int
 	lastFrameSize int
+	lastMode      Mode // Track last mode for PLC
 }
 
 // NewDecoder creates a new Opus decoder.
@@ -35,10 +40,13 @@ func NewDecoder(sampleRate, channels int) (*Decoder, error) {
 	}
 
 	return &Decoder{
-		dec:           hybrid.NewDecoder(channels),
+		silkDecoder:   silk.NewDecoder(),
+		celtDecoder:   celt.NewDecoder(channels),
+		hybridDecoder: hybrid.NewDecoder(channels),
 		sampleRate:    sampleRate,
 		channels:      channels,
-		lastFrameSize: 960, // Default 20ms at 48kHz
+		lastFrameSize: 960,        // Default 20ms at 48kHz
+		lastMode:      ModeHybrid, // Default for PLC
 	}, nil
 }
 
@@ -56,13 +64,18 @@ func NewDecoder(sampleRate, channels int) (*Decoder, error) {
 // Buffer sizing: For 60ms frames at 48kHz stereo, pcm must have at least
 // 2880 * 2 = 5760 elements.
 func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
-	// Determine frame size from TOC or use last frame size for PLC
+	var toc TOC
 	var frameSize int
+	var mode Mode
+
 	if data != nil && len(data) > 0 {
-		toc := ParseTOC(data[0])
+		toc = ParseTOC(data[0])
 		frameSize = toc.FrameSize
+		mode = toc.Mode
 	} else {
+		// PLC: use last frame parameters
 		frameSize = d.lastFrameSize
+		mode = d.lastMode
 	}
 
 	// Validate output buffer size
@@ -71,37 +84,34 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		return 0, ErrBufferTooSmall
 	}
 
-	// Decode using internal hybrid decoder
 	var samples []float32
 	var err error
 
+	// Extract frame data (skip TOC byte) for normal decode
+	var frameData []byte
 	if data != nil && len(data) > 0 {
-		// Extract frame data (skip TOC byte)
-		frameData := data[1:]
+		frameData = data[1:]
+	}
 
-		if d.channels == 2 {
-			samples, err = d.dec.DecodeStereoToFloat32(frameData, frameSize)
-		} else {
-			samples, err = d.dec.DecodeToFloat32(frameData, frameSize)
-		}
-	} else {
-		// PLC: pass nil to internal decoder
-		if d.channels == 2 {
-			samples, err = d.dec.DecodeStereoToFloat32(nil, frameSize)
-		} else {
-			samples, err = d.dec.DecodeToFloat32(nil, frameSize)
-		}
+	// Route based on mode
+	switch mode {
+	case ModeSILK:
+		samples, err = d.decodeSILK(frameData, toc, frameSize)
+	case ModeCELT:
+		samples, err = d.decodeCELT(frameData, frameSize)
+	case ModeHybrid:
+		samples, err = d.decodeHybrid(frameData, frameSize)
+	default:
+		return 0, ErrInvalidMode
 	}
 
 	if err != nil {
 		return 0, err
 	}
 
-	// Copy to output buffer
 	copy(pcm, samples)
-
-	// Store frame size for PLC
 	d.lastFrameSize = frameSize
+	d.lastMode = mode
 
 	return frameSize, nil
 }
@@ -213,8 +223,11 @@ func (d *Decoder) DecodeInt16Slice(data []byte) ([]int16, error) {
 // Reset clears the decoder state for a new stream.
 // Call this when starting to decode a new audio stream.
 func (d *Decoder) Reset() {
-	d.dec.Reset()
+	d.silkDecoder.Reset()
+	d.celtDecoder.Reset()
+	d.hybridDecoder.Reset()
 	d.lastFrameSize = 960
+	d.lastMode = ModeHybrid
 }
 
 // Channels returns the number of audio channels (1 or 2).
@@ -225,4 +238,40 @@ func (d *Decoder) Channels() int {
 // SampleRate returns the sample rate in Hz.
 func (d *Decoder) SampleRate() int {
 	return d.sampleRate
+}
+
+// decodeSILK routes to SILK decoder for SILK-only mode packets.
+func (d *Decoder) decodeSILK(data []byte, toc TOC, frameSize int) ([]float32, error) {
+	// Map TOC bandwidth to SILK bandwidth
+	silkBW, ok := silk.BandwidthFromOpus(int(toc.Bandwidth))
+	if !ok {
+		return nil, ErrInvalidBandwidth
+	}
+
+	if d.channels == 2 {
+		return d.silkDecoder.DecodeStereo(data, silkBW, frameSize, true)
+	}
+	return d.silkDecoder.Decode(data, silkBW, frameSize, true)
+}
+
+// decodeCELT routes to CELT decoder for CELT-only mode packets.
+func (d *Decoder) decodeCELT(data []byte, frameSize int) ([]float32, error) {
+	samples, err := d.celtDecoder.DecodeFrame(data, frameSize)
+	if err != nil {
+		return nil, err
+	}
+	// Convert float64 to float32
+	result := make([]float32, len(samples))
+	for i, s := range samples {
+		result[i] = float32(s)
+	}
+	return result, nil
+}
+
+// decodeHybrid routes to Hybrid decoder for Hybrid mode packets.
+func (d *Decoder) decodeHybrid(data []byte, frameSize int) ([]float32, error) {
+	if d.channels == 2 {
+		return d.hybridDecoder.DecodeStereoToFloat32(data, frameSize)
+	}
+	return d.hybridDecoder.DecodeToFloat32(data, frameSize)
 }

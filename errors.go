@@ -41,6 +41,13 @@ var (
 	// ErrInvalidMapping indicates an invalid channel mapping table.
 	// The mapping table length must equal the channel count.
 	ErrInvalidMapping = errors.New("gopus: invalid mapping table")
+
+	// ErrInvalidMode indicates an invalid or unsupported Opus mode in packet.
+	ErrInvalidMode = errors.New("gopus: invalid mode in packet")
+
+	// ErrInvalidBandwidth indicates an invalid bandwidth for the current mode.
+	// For SILK-only mode, only NB, MB, and WB are valid (not SWB or FB).
+	ErrInvalidBandwidth = errors.New("gopus: invalid bandwidth for mode")
 )
 
 // validSampleRate returns true if the sample rate is valid for Opus.
