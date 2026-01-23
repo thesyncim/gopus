@@ -260,7 +260,13 @@ Plans:
   3. Hybrid decoder coordinates extended frame sizes correctly
   4. RFC 8251 test vectors pass with Q >= 0 threshold
   5. CELT MDCT bin count matches frame size (fixes 1480 vs 960 mismatch)
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 14-01-PLAN.md — Fix CELT MDCT bin count mismatch (DecodeBands returns frameSize coefficients)
+- [ ] 14-02-PLAN.md — Enable CELT 2.5ms/5ms frame decoding with correct overlap-add
+- [ ] 14-03-PLAN.md — Verify SILK 40ms/60ms sub-block decoding
+- [ ] 14-04-PLAN.md — RFC 8251 compliance validation with frame size logging
 
 ## Progress
 
@@ -282,7 +288,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 11. Container | 2/2 | Complete | 2026-01-22 |
 | 12. Compliance & Polish | 3/3 | Complete | 2026-01-22 |
 | 13. Multistream Public API | 1/1 | Complete | 2026-01-23 |
-| 14. Extended Frame Size Support | 0/TBD | Pending | — |
+| 14. Extended Frame Size Support | 0/4 | Planned | — |
 
 ---
 *Roadmap created: 2026-01-21*
@@ -311,4 +317,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 *Gap closure phases 13-14 added: 2026-01-23*
 *Phase 13 planned: 2026-01-23*
 *Phase 13 complete: 2026-01-23*
-*Total phases: 14 | Total plans: 50*
+*Phase 14 planned: 2026-01-23*
+*Total phases: 14 | Total plans: 53*
