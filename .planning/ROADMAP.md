@@ -244,7 +244,10 @@ Plans:
   2. gopus.MultistreamDecoder wraps internal/multistream.Decoder
   3. NewMultistreamEncoder/NewMultistreamDecoder with default configurations
   4. Round-trip tests pass for 5.1 and 7.1 channel layouts
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [ ] 13-01-PLAN.md — MultistreamEncoder and MultistreamDecoder wrappers with round-trip tests
 
 ### Phase 14: Extended Frame Size Support
 **Goal**: Support all Opus frame sizes (2.5/5/10/20/40/60ms) for RFC 8251 test vector compliance
@@ -278,7 +281,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 10. API Layer | 2/2 | Complete | 2026-01-22 |
 | 11. Container | 2/2 | Complete | 2026-01-22 |
 | 12. Compliance & Polish | 3/3 | Complete | 2026-01-22 |
-| 13. Multistream Public API | 0/TBD | Pending | — |
+| 13. Multistream Public API | 0/1 | Planned | — |
 | 14. Extended Frame Size Support | 0/TBD | Pending | — |
 
 ---
@@ -306,4 +309,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 *Phase 12 planned: 2026-01-22*
 *Phase 12 complete: 2026-01-22*
 *Gap closure phases 13-14 added: 2026-01-23*
-*Total phases: 14 | Total plans: 48 + TBD*
+*Phase 13 planned: 2026-01-23*
+*Total phases: 14 | Total plans: 49*
