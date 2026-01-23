@@ -135,11 +135,11 @@ Plans (gap closure round 1 - investigating Q=-100, complete):
 - [x] 15-09-PLAN.md — Fix multi-frame packet handling (sample counts now match)
 
 Plans (gap closure round 2 - root cause investigation):
-- [ ] 15-10-PLAN.md — Fix mono CELT sample count discrepancy (testvector07)
-- [ ] 15-11-PLAN.md — Bitstream divergence analysis (identify exact divergence point)
+- [x] 15-10-PLAN.md — Fix mono CELT sample count discrepancy (testvector07)
+- [x] 15-11-PLAN.md — Bitstream divergence analysis (ROOT CAUSE FOUND: DecodeBit fix)
 
 #### Phase 16: SILK Decoder Quality
-**Goal**: Fix SILK decoder algorithm issues to achieve reference-matching output
+**Goal**: Verify SILK decoder quality after DecodeBit fix and address any remaining issues
 **Depends on**: Phase 15
 **Requirements**: DEQ-01
 **Success Criteria** (what must be TRUE):
@@ -147,11 +147,13 @@ Plans (gap closure round 2 - root cause investigation):
   2. SILK LPC synthesis produces stable, non-exploding output
   3. SILK excitation reconstruction matches reference signal characteristics
   4. SILK-only test vectors achieve Q >= 0 threshold
-**Plans**: TBD
+**Plans**: 1 plan (baseline verification, may expand if gaps found)
 
 Plans:
-- [ ] 16-01: TBD
-- [ ] 16-02: TBD
+- [ ] 16-01-PLAN.md — Establish post-DecodeBit baseline and gap analysis
+
+Note: DecodeBit fix (commit 1eceab2) affects all decoders. Plan 16-01 verifies if this fix
+resolves SILK issues or if additional SILK-specific work is needed.
 
 #### Phase 17: Hybrid Decoder & Compliance
 **Goal**: Fix Hybrid decoder coordination and achieve full RFC 8251 compliance
@@ -205,8 +207,8 @@ Phases execute in numeric order: 1 -> 2 -> ... -> 14 -> 15 -> 16 -> 17 -> 18
 | 12. Compliance & Polish | v1.0 | 3/3 | Complete | 2026-01-22 |
 | 13. Multistream Public API | v1.0 | 1/1 | Complete | 2026-01-23 |
 | 14. Extended Frame Size Support | v1.0 | 5/5 | Complete | 2026-01-23 |
-| 15. CELT Decoder Quality | v1.1 | 9/11 | Gap Closure | - |
-| 16. SILK Decoder Quality | v1.1 | 0/? | Not started | - |
+| 15. CELT Decoder Quality | v1.1 | 11/11 | Complete | 2026-01-23 |
+| 16. SILK Decoder Quality | v1.1 | 0/1 | In Progress | - |
 | 17. Hybrid Decoder & Compliance | v1.1 | 0/? | Not started | - |
 | 18. Encoder Quality | v1.1 | 0/? | Not started | - |
 
