@@ -25,6 +25,37 @@ func TestGetModeConfig(t *testing.T) {
 	}
 }
 
+// TestModeConfigShortFrames verifies mode configuration for 2.5ms and 5ms frames.
+// These short frames have reduced effective bands:
+// - 2.5ms (120 samples): LM=0, EffBands=13, ShortBlocks=1
+// - 5ms (240 samples): LM=1, EffBands=17, ShortBlocks=2
+// Reference: RFC 8251, libopus celt/modes.c
+func TestModeConfigShortFrames(t *testing.T) {
+	// Test 2.5ms frame configuration
+	cfg120 := GetModeConfig(120)
+	if cfg120.EffBands != 13 || cfg120.LM != 0 {
+		t.Errorf("120 samples: got EffBands=%d LM=%d, want 13, 0", cfg120.EffBands, cfg120.LM)
+	}
+	if cfg120.ShortBlocks != 1 {
+		t.Errorf("120 samples: got ShortBlocks=%d, want 1", cfg120.ShortBlocks)
+	}
+	if cfg120.MDCTSize != 120 {
+		t.Errorf("120 samples: got MDCTSize=%d, want 120", cfg120.MDCTSize)
+	}
+
+	// Test 5ms frame configuration
+	cfg240 := GetModeConfig(240)
+	if cfg240.EffBands != 17 || cfg240.LM != 1 {
+		t.Errorf("240 samples: got EffBands=%d LM=%d, want 17, 1", cfg240.EffBands, cfg240.LM)
+	}
+	if cfg240.ShortBlocks != 2 {
+		t.Errorf("240 samples: got ShortBlocks=%d, want 2", cfg240.ShortBlocks)
+	}
+	if cfg240.MDCTSize != 240 {
+		t.Errorf("240 samples: got MDCTSize=%d, want 240", cfg240.MDCTSize)
+	}
+}
+
 func TestBandwidth(t *testing.T) {
 	if CELTFullband.EffectiveBands() != 21 {
 		t.Errorf("CELTFullband.EffectiveBands() = %d, want 21", CELTFullband.EffectiveBands())
