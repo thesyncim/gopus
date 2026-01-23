@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-01-23)
 ## Current Position
 
 Phase: 15 of 18 (CELT Decoder Quality)
-Plan: 3 of 5 in current phase
+Plan: 4 of 5 in current phase
 Status: In progress
-Last activity: 2026-01-23 - Completed 15-03-PLAN.md (Verify denormalization formula)
+Last activity: 2026-01-23 - Completed 15-04-PLAN.md (Verify IMDCT synthesis)
 
-Progress: [#################                                                                                 ] 17% (57/~62 plans)
+Progress: [##################                                                                                ] 18% (58/~62 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 57
+- Total plans completed: 58
 - Average duration: ~7 minutes
-- Total execution time: ~407 minutes
+- Total execution time: ~412 minutes
 
 **By Phase (v1.0):**
 
@@ -46,11 +46,11 @@ Progress: [#################                                                    
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 15-celt-decoder-quality | 3/5 | ~12m | ~4m |
+| 15-celt-decoder-quality | 4/5 | ~17m | ~4m |
 
 **Recent Trend:**
 - v1.0 complete with 14 phases, 54 plans
-- v1.1 phase 15 in progress (3/5 plans complete)
+- v1.1 phase 15 in progress (4/5 plans complete)
 
 *Updated after each plan completion*
 
@@ -73,6 +73,8 @@ Recent decisions affecting current work:
 | D15-02-02 | Last symbol uses remaining range to avoid precision loss | 15-02 | rng -= s * fl for last symbol |
 | D15-03-01 | Use math.Exp2(energy) for denormalization | 15-03 | Clearer than math.Exp(e * ln2) |
 | D15-03-02 | Clamp energy values > 32 to prevent overflow | 15-03 | Matches libopus, 2^32 max gain |
+| D15-04-01 | IMDCTDirect already correct per RFC 6716 | 15-04 | Only documentation update needed |
+| D15-04-02 | CELT sizes use IMDCTDirect, not FFT path | 15-04 | Non-power-of-2 sizes (120,240,480,960) |
 
 ### Pending Todos
 
@@ -102,6 +104,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-01-23T10:51:00Z
-Stopped at: Completed 15-03-PLAN.md
-Resume file: None - ready for 15-04-PLAN.md
+Last session: 2026-01-23T11:05:00Z
+Stopped at: Completed 15-04-PLAN.md
+Resume file: None - ready for 15-05-PLAN.md
