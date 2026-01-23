@@ -377,6 +377,93 @@ func TestDecodeBandsOutputLength(t *testing.T) {
 	}
 }
 
+// TestDecodeBands_OutputSize verifies DecodeBands returns frameSize coefficients.
+// This test confirms the fix for MDCT bin count mismatch (14-01).
+// Before the fix, DecodeBands returned totalBins (800 for 20ms), causing IMDCT
+// to produce wrong sample counts. After the fix, it returns frameSize (960).
+func TestDecodeBands_OutputSize(t *testing.T) {
+	testCases := []struct {
+		name      string
+		frameSize int
+		nbBands   int
+		totalBins int // sum of scaled band widths (smaller than frameSize)
+	}{
+		// totalBins = sum(ScaledBandWidth(band, frameSize) for band in 0..nbBands-1)
+		// These are calculated from EBands table with scaling
+		{"2.5ms", 120, 13, 20},   // EffBands=13, bands sum to 20
+		{"5ms", 240, 17, 80},     // EffBands=17, bands sum to 80
+		{"10ms", 480, 19, 240},   // EffBands=19, bands sum to 240
+		{"20ms", 960, 21, 800},   // EffBands=21, bands sum to 800
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := NewDecoder(1)
+
+			// Create mock energies and bandBits
+			energies := make([]float64, tc.nbBands)
+			bandBits := make([]int, tc.nbBands)
+
+			// Call DecodeBands
+			coeffs := d.DecodeBands(energies, bandBits, tc.nbBands, false, tc.frameSize)
+
+			// Verify output length equals frameSize, not totalBins
+			if len(coeffs) != tc.frameSize {
+				t.Errorf("DecodeBands returned %d coeffs, want %d (frameSize)", len(coeffs), tc.frameSize)
+			}
+
+			// Verify totalBins calculation is as expected
+			actualTotalBins := 0
+			for band := 0; band < tc.nbBands; band++ {
+				actualTotalBins += ScaledBandWidth(band, tc.frameSize)
+			}
+			if actualTotalBins != tc.totalBins {
+				t.Errorf("totalBins = %d, expected %d", actualTotalBins, tc.totalBins)
+			}
+
+			// Log the key insight: frameSize > totalBins
+			t.Logf("frameSize=%d, totalBins=%d, diff=%d (upper bins zero-padded)",
+				tc.frameSize, tc.totalBins, tc.frameSize-tc.totalBins)
+		})
+	}
+}
+
+// TestDecodeBandsStereo_OutputSize verifies stereo DecodeBands returns frameSize per channel.
+func TestDecodeBandsStereo_OutputSize(t *testing.T) {
+	testCases := []struct {
+		name      string
+		frameSize int
+		nbBands   int
+	}{
+		{"2.5ms", 120, 13},
+		{"5ms", 240, 17},
+		{"10ms", 480, 19},
+		{"20ms", 960, 21},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := NewDecoder(2) // Stereo
+
+			// Create mock energies and bandBits
+			energiesL := make([]float64, tc.nbBands)
+			energiesR := make([]float64, tc.nbBands)
+			bandBits := make([]int, tc.nbBands)
+
+			// Call DecodeBandsStereo
+			left, right := d.DecodeBandsStereo(energiesL, energiesR, bandBits, tc.nbBands, tc.frameSize, -1)
+
+			// Verify both channels have frameSize coefficients
+			if len(left) != tc.frameSize {
+				t.Errorf("Left channel: got %d coeffs, want %d", len(left), tc.frameSize)
+			}
+			if len(right) != tc.frameSize {
+				t.Errorf("Right channel: got %d coeffs, want %d", len(right), tc.frameSize)
+			}
+		})
+	}
+}
+
 // TestDenormalizeBand verifies energy scaling.
 func TestDenormalizeBand(t *testing.T) {
 	// Unit vector
