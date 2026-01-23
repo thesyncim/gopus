@@ -399,3 +399,198 @@ func TestReadReferenceFiles(t *testing.T) {
 		})
 	}
 }
+
+// vectorResult holds structured results from running a single test vector.
+type vectorResult struct {
+	name              string
+	packets           int
+	frameSizes        []int    // unique frame sizes in samples
+	modes             []string // unique modes
+	hasExtendedHybrid bool     // true if extended frame size appears in Hybrid mode
+	q1                float64  // quality vs .dec
+	q2                float64  // quality vs m.dec
+	passed            bool
+	decodeErrors      int // total decode errors
+	err               error
+}
+
+// TestComplianceSummary runs all vectors and prints a summary table.
+// This provides an overview of compliance status and verifies the hybrid mode assumption.
+func TestComplianceSummary(t *testing.T) {
+	if err := ensureTestVectors(t); err != nil {
+		t.Skipf("Skipping: %v", err)
+		return
+	}
+
+	var results []vectorResult
+
+	for _, name := range testVectorNames {
+		r := runVectorSilent(t, name)
+		results = append(results, r)
+	}
+
+	// Print summary table
+	t.Log("")
+	t.Log("=== RFC 8251 Compliance Summary ===")
+	t.Log("")
+	t.Logf("%-14s | %7s | %-11s | %-18s | %7s | %8s | %s",
+		"Vector", "Packets", "Modes", "Frame Sizes", "Q(.dec)", "Q(m.dec)", "Status")
+	t.Log("---------------|---------|-------------|--------------------|---------|---------|---------")
+
+	passed := 0
+	hybridExtendedCount := 0
+	for _, r := range results {
+		status := "FAIL"
+		if r.passed {
+			status = "PASS"
+			passed++
+		}
+		fsStr := formatFrameSizes(r.frameSizes)
+		modesStr := strings.Join(r.modes, ",")
+		t.Logf("%-14s | %7d | %-11s | %-18s | %7.2f | %8.2f | %s",
+			r.name, r.packets, modesStr, fsStr, r.q1, r.q2, status)
+		if r.hasExtendedHybrid {
+			hybridExtendedCount++
+		}
+	}
+
+	t.Log("")
+	t.Logf("Overall: %d/%d passed", passed, len(results))
+
+	// Report on hybrid mode verification
+	t.Log("")
+	if hybridExtendedCount == 0 {
+		t.Log("Hybrid mode verification: CONFIRMED - no extended frame sizes in Hybrid mode")
+		t.Log("  Extended sizes (2.5/5/40/60ms) appear only in SILK or CELT modes as expected per RFC 6716")
+	} else {
+		t.Logf("Hybrid mode verification: UNEXPECTED - %d vectors have extended frame sizes in Hybrid mode", hybridExtendedCount)
+	}
+
+	if passed < len(results) {
+		t.Log("")
+		t.Log("Note: Q >= 0 required for compliance per RFC 8251")
+	}
+}
+
+// formatFrameSizes converts sample counts to millisecond string.
+func formatFrameSizes(sizes []int) string {
+	if len(sizes) == 0 {
+		return "-"
+	}
+	// Convert to ms and format
+	var ms []string
+	for _, s := range sizes {
+		ms = append(ms, fmt.Sprintf("%.1f", float64(s)/48.0))
+	}
+	return strings.Join(ms, ",") + "ms"
+}
+
+// runVectorSilent runs a test vector and returns structured results without verbose logging.
+func runVectorSilent(t *testing.T, name string) vectorResult {
+	result := vectorResult{name: name}
+
+	bitFile := filepath.Join(testVectorDir, name+".bit")
+	decFile := filepath.Join(testVectorDir, name+".dec")
+	mdecFile := filepath.Join(testVectorDir, name+"m.dec")
+
+	// 1. Parse .bit file
+	packets, err := ReadBitstreamFile(bitFile)
+	if err != nil {
+		result.err = err
+		return result
+	}
+
+	if len(packets) == 0 {
+		result.err = fmt.Errorf("no packets in %s", bitFile)
+		return result
+	}
+
+	result.packets = len(packets)
+
+	// Track frame sizes and modes encountered
+	frameSizeSet := make(map[int]bool)
+	modeSet := make(map[string]bool)
+
+	for _, pkt := range packets {
+		if len(pkt.Data) > 0 {
+			tocByte := pkt.Data[0]
+			cfg := tocByte >> 3
+			fs := getFrameSizeFromConfig(cfg)
+			mode := getModeFromConfig(cfg)
+
+			frameSizeSet[fs] = true
+			modeSet[mode] = true
+
+			// Check for extended frame size in Hybrid mode
+			isExtended := fs == 120 || fs == 240 || fs == 1920 || fs == 2880
+			if isExtended && mode == "Hybrid" {
+				result.hasExtendedHybrid = true
+			}
+		}
+	}
+
+	// Convert sets to slices
+	for fs := range frameSizeSet {
+		result.frameSizes = append(result.frameSizes, fs)
+	}
+	for mode := range modeSet {
+		result.modes = append(result.modes, mode)
+	}
+
+	// 2. Determine decoder parameters from first packet TOC
+	toc := packets[0].Data[0]
+	config := toc >> 3
+	stereo := (toc & 0x04) != 0
+	channels := 1
+	if stereo {
+		channels = 2
+	}
+	frameSize := getFrameSizeFromConfig(config)
+
+	// 3. Create decoder
+	dec, err := gopus.NewDecoder(48000, channels)
+	if err != nil {
+		result.err = err
+		return result
+	}
+
+	// 4. Decode all packets
+	var allDecoded []int16
+	for _, pkt := range packets {
+		// Determine frame size for this specific packet
+		pktFrameSize := frameSize
+		if len(pkt.Data) > 0 {
+			pktCfg := pkt.Data[0] >> 3
+			pktFrameSize = getFrameSizeFromConfig(pktCfg)
+		}
+
+		pcm := make([]int16, pktFrameSize*channels)
+		n, err := dec.DecodeInt16(pkt.Data, pcm)
+		if err != nil {
+			result.decodeErrors++
+			allDecoded = append(allDecoded, pcm[:pktFrameSize*channels]...)
+			continue
+		}
+		allDecoded = append(allDecoded, pcm[:n*channels]...)
+	}
+
+	// 5. Read reference files
+	reference, err := readPCMFile(decFile)
+	if err != nil {
+		result.err = err
+		return result
+	}
+
+	referenceAlt, _ := readPCMFile(mdecFile)
+
+	// 6. Compute quality metrics
+	result.q1 = ComputeQuality(allDecoded, reference, 48000)
+	if referenceAlt != nil {
+		result.q2 = ComputeQuality(allDecoded, referenceAlt, 48000)
+	}
+
+	// 7. Pass if either Q >= 0
+	result.passed = QualityPasses(result.q1) || (referenceAlt != nil && QualityPasses(result.q2))
+
+	return result
+}
