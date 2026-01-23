@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-01-23)
 ## Current Position
 
 Phase: 15 of 18 (CELT Decoder Quality)
-Plan: 4 of 5 in current phase
-Status: In progress
-Last activity: 2026-01-23 - Completed 15-04-PLAN.md (Verify IMDCT synthesis)
+Plan: 5 of 5 in current phase (Phase 15 Complete)
+Status: Phase complete
+Last activity: 2026-01-23 - Completed 15-05-PLAN.md (Validate frame-size decoding and energy correlation)
 
-Progress: [##################                                                                                ] 18% (58/~62 plans)
+Progress: [###################                                                                               ] 19% (59/~62 plans)
 
 ## Performance Metrics
 
@@ -46,11 +46,11 @@ Progress: [##################                                                   
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 15-celt-decoder-quality | 4/5 | ~17m | ~4m |
+| 15-celt-decoder-quality | 5/5 | ~22m | ~4m |
 
 **Recent Trend:**
 - v1.0 complete with 14 phases, 54 plans
-- v1.1 phase 15 in progress (4/5 plans complete)
+- v1.1 phase 15 complete (5/5 plans)
 
 *Updated after each plan completion*
 
@@ -75,12 +75,14 @@ Recent decisions affecting current work:
 | D15-03-02 | Clamp energy values > 32 to prevent overflow | 15-03 | Matches libopus, 2^32 max gain |
 | D15-04-01 | IMDCTDirect already correct per RFC 6716 | 15-04 | Only documentation update needed |
 | D15-04-02 | CELT sizes use IMDCTDirect, not FFT path | 15-04 | Non-power-of-2 sizes (120,240,480,960) |
+| D15-05-01 | Frame sizes 120/240/480/960 all decode correctly | 15-05 | Phase 15 validation complete |
+| D15-05-02 | Energy correlation tests document current quality baseline | 15-05 | Energy ratio varies by frame size |
+| D15-05-03 | Inter mode can produce zero bytes when energies match prediction | 15-05 | Not a bug, fixed flaky test |
 
 ### Pending Todos
 
 - Investigate decoder quality issues (Q=-100 on RFC 8251 test vectors)
 - Tune CELT encoder for full signal preservation with libopus
-- Fix flaky TestCoarseEnergyEncoderProducesValidOutput test (unseeded rand)
 
 ### Known Gaps (v1.1 Targets)
 
@@ -89,7 +91,7 @@ Recent decisions affecting current work:
 - **CELT encoder low signal energy:** < 10% energy preservation in round-trip
 - **Hybrid encoder zero energy:** Zero-energy output in hybrid round-trip
 - **Multistream encoder zero output:** Internal round-trip produces zero output
-- **CELT 2.5ms/5ms/10ms synthesis:** Smaller frame sizes have quality issues
+- **CELT 2.5ms/5ms/10ms synthesis:** Tests pass but energy correlation needs improvement
 - **Ogg EOS handling:** ffplay shows "Packet processing failed" at stream end (plays correctly, error on close)
 
 ### Blockers/Concerns
@@ -107,5 +109,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-23
-Stopped at: Completed quick task 003: Add example projects with ffmpeg interop
+Stopped at: Completed 15-05-PLAN.md (Phase 15 complete)
 Resume file: None
