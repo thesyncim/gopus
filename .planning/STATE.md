@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-01-23)
 ## Current Position
 
 Phase: 15 of 18 (CELT Decoder Quality)
-Plan: 5 of 5 in current phase (Phase 15 Complete)
-Status: Phase complete
-Last activity: 2026-01-23 - Completed 15-05-PLAN.md (Validate frame-size decoding and energy correlation)
+Plan: 6 of 6 in current phase
+Status: In progress
+Last activity: 2026-01-23 - Completed 15-06-PLAN.md (Add debug tracing to CELT decoder)
 
-Progress: [###################                                                                               ] 19% (59/~62 plans)
+Progress: [####################                                                                              ] 20% (60/~62 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 58
+- Total plans completed: 60
 - Average duration: ~7 minutes
-- Total execution time: ~412 minutes
+- Total execution time: ~420 minutes
 
 **By Phase (v1.0):**
 
@@ -46,11 +46,11 @@ Progress: [###################                                                  
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 15-celt-decoder-quality | 5/5 | ~22m | ~4m |
+| 15-celt-decoder-quality | 6/6 | ~30m | ~5m |
 
 **Recent Trend:**
 - v1.0 complete with 14 phases, 54 plans
-- v1.1 phase 15 complete (5/5 plans)
+- v1.1 phase 15 in progress (6/6 plans)
 
 *Updated after each plan completion*
 
@@ -63,9 +63,6 @@ Recent decisions affecting current work:
 
 | ID | Decision | Phase | Impact |
 |----|----------|-------|--------|
-| D14-05-01 | Track lastMode for PLC to use correct decoder | 14-05 | PLC continues with SILK/CELT mode |
-| D14-05-02 | Add three decoder fields (silkDecoder, celtDecoder, hybridDecoder) | 14-05 | Each mode has dedicated decoder |
-| D14-05-03 | Route based on toc.Mode from ParseTOC | 14-05 | switch routes to decodeSILK, decodeCELT, decodeHybrid |
 | D15-01-01 | BetaCoefInter uses LM-dependent values from libopus | 15-01 | 0.92, 0.68, 0.37, 0.20 by LM |
 | D15-01-02 | BetaIntra fixed at 0.15 for intra-frame mode | 15-01 | No inter-frame prediction in intra mode |
 | D15-01-03 | Inter-band predictor uses filtered accumulator formula | 15-01 | prev = prev + q - beta*q |
@@ -78,10 +75,14 @@ Recent decisions affecting current work:
 | D15-05-01 | Frame sizes 120/240/480/960 all decode correctly | 15-05 | Phase 15 validation complete |
 | D15-05-02 | Energy correlation tests document current quality baseline | 15-05 | Energy ratio varies by frame size |
 | D15-05-03 | Inter mode can produce zero bytes when energies match prediction | 15-05 | Not a bug, fixed flaky test |
+| D15-06-01 | Use global DefaultTracer with SetTracer() for runtime control | 15-06 | Test isolation and zero-overhead production |
+| D15-06-02 | Trace format [CELT:stage] key=value | 15-06 | Easy to grep/parse for libopus comparison |
+| D15-06-03 | Truncate arrays at 8 elements with '...' suffix | 15-06 | Balances detail with readability |
+| D15-06-04 | Added DecodePVQWithTrace variant | 15-06 | Allows band index context for TracePVQ |
 
 ### Pending Todos
 
-- Investigate decoder quality issues (Q=-100 on RFC 8251 test vectors)
+- Investigate decoder quality issues (Q=-100 on RFC 8251 test vectors) using new trace infrastructure
 - Tune CELT encoder for full signal preservation with libopus
 
 ### Known Gaps (v1.1 Targets)
@@ -109,5 +110,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-23
-Stopped at: Completed 15-05-PLAN.md (Phase 15 complete)
+Stopped at: Completed 15-06-PLAN.md (Add debug tracing to CELT decoder)
 Resume file: None
