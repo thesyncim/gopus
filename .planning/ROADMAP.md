@@ -119,7 +119,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. CELT 5ms frames synthesize without audible artifacts
   4. CELT 10ms frames synthesize without audible artifacts
   5. CELT-only test vectors achieve Q >= 0 threshold
-**Plans**: 9 plans (5 structural + 4 gap closure)
+**Plans**: 11 plans (5 structural + 6 gap closure)
 
 Plans (structural - complete):
 - [x] 15-01-PLAN.md — Fix coarse energy prediction coefficients (BetaCoef)
@@ -128,11 +128,15 @@ Plans (structural - complete):
 - [x] 15-04-PLAN.md — Verify IMDCT synthesis for all CELT frame sizes
 - [x] 15-05-PLAN.md — Frame-size-specific testing and quality validation
 
-Plans (gap closure - investigating Q=-100):
-- [ ] 15-06-PLAN.md — Add debug tracing to CELT decoder pipeline
-- [ ] 15-07-PLAN.md — Verify PVQ/CWRS decoding correctness
-- [ ] 15-08-PLAN.md — Verify bit allocation and trace test vectors
-- [ ] 15-09-PLAN.md — Fix root cause based on diagnostic evidence
+Plans (gap closure round 1 - investigating Q=-100, complete):
+- [x] 15-06-PLAN.md — Add debug tracing to CELT decoder pipeline
+- [x] 15-07-PLAN.md — Verify PVQ/CWRS decoding correctness
+- [x] 15-08-PLAN.md — Verify bit allocation and trace test vectors
+- [x] 15-09-PLAN.md — Fix multi-frame packet handling (sample counts now match)
+
+Plans (gap closure round 2 - root cause investigation):
+- [ ] 15-10-PLAN.md — Fix mono CELT sample count discrepancy (testvector07)
+- [ ] 15-11-PLAN.md — Bitstream divergence analysis (identify exact divergence point)
 
 #### Phase 16: SILK Decoder Quality
 **Goal**: Fix SILK decoder algorithm issues to achieve reference-matching output
@@ -201,7 +205,7 @@ Phases execute in numeric order: 1 -> 2 -> ... -> 14 -> 15 -> 16 -> 17 -> 18
 | 12. Compliance & Polish | v1.0 | 3/3 | Complete | 2026-01-22 |
 | 13. Multistream Public API | v1.0 | 1/1 | Complete | 2026-01-23 |
 | 14. Extended Frame Size Support | v1.0 | 5/5 | Complete | 2026-01-23 |
-| 15. CELT Decoder Quality | v1.1 | 5/9 | Gap Closure | - |
+| 15. CELT Decoder Quality | v1.1 | 9/11 | Gap Closure | - |
 | 16. SILK Decoder Quality | v1.1 | 0/? | Not started | - |
 | 17. Hybrid Decoder & Compliance | v1.1 | 0/? | Not started | - |
 | 18. Encoder Quality | v1.1 | 0/? | Not started | - |
