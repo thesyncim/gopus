@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-01-23)
 ## Current Position
 
 Phase: 15 of 18 (CELT Decoder Quality)
-Plan: 9 of 9 in current phase
-Status: Phase 15 complete
-Last activity: 2026-01-23 - Completed 15-09-PLAN.md (Fix Q=-100 root cause)
+Plan: 10 of 11 in current phase
+Status: In progress
+Last activity: 2026-01-23 - Completed 15-10-PLAN.md (Fix mono CELT sample count)
 
-Progress: [#####################                                                                             ] 21% (63/~63 plans)
+Progress: [######################                                                                            ] 22% (64/~64 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 63
+- Total plans completed: 64
 - Average duration: ~7 minutes
-- Total execution time: ~441 minutes
+- Total execution time: ~446 minutes
 
 **By Phase (v1.0):**
 
@@ -46,11 +46,11 @@ Progress: [#####################                                                
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 15-celt-decoder-quality | 9/9 | ~51m | ~6m |
+| 15-celt-decoder-quality | 10/11 | ~56m | ~6m |
 
 **Recent Trend:**
 - v1.0 complete with 14 phases, 54 plans
-- v1.1 phase 15 complete (9/9 plans)
+- v1.1 phase 15 in progress (10/11 plans)
 
 *Updated after each plan completion*
 
@@ -88,6 +88,9 @@ Recent decisions affecting current work:
 | D15-09-01 | Multi-frame packets were the root cause of sample count mismatch | 15-09 | 39% sample ratio matched packet/frame ratio |
 | D15-09-02 | Frame data extraction uses end-of-packet calculation | 15-09 | frameDataStart = len - padding - totalFrameBytes |
 | D15-09-03 | Quality Q=-100 remains after fix - underlying CELT decoder issue | 15-09 | Sample counts correct, audio content wrong |
+| D15-10-01 | libopus opus_demo always outputs stereo PCM for all sources | 15-10 | Mono sources duplicated to L=R |
+| D15-10-02 | Mono-to-stereo conversion in compliance test, not decoder API | 15-10 | Keeps decoder API clean |
+| D15-10-03 | Sample count verification added to TestComplianceSummary | 15-10 | All 12 vectors now match (12/12) |
 
 ### Pending Todos
 
@@ -120,5 +123,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-23
-Stopped at: Completed 15-09-PLAN.md (Fix Q=-100 root cause - multi-frame handling)
+Stopped at: Completed 15-10-PLAN.md (Fix mono CELT sample count)
 Resume file: None
