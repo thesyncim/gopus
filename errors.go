@@ -29,6 +29,18 @@ var (
 	// ErrInvalidComplexity indicates the complexity is out of valid range.
 	// Valid complexity values are 0 to 10.
 	ErrInvalidComplexity = errors.New("gopus: invalid complexity (must be 0-10)")
+
+	// ErrInvalidStreams indicates an invalid stream count for multistream encoding/decoding.
+	// Valid stream counts are 1 to 255.
+	ErrInvalidStreams = errors.New("gopus: invalid stream count (must be 1-255)")
+
+	// ErrInvalidCoupledStreams indicates an invalid coupled streams count.
+	// Coupled streams must be between 0 and total streams.
+	ErrInvalidCoupledStreams = errors.New("gopus: invalid coupled streams (must be 0 to streams)")
+
+	// ErrInvalidMapping indicates an invalid channel mapping table.
+	// The mapping table length must equal the channel count.
+	ErrInvalidMapping = errors.New("gopus: invalid mapping table")
 )
 
 // validSampleRate returns true if the sample rate is valid for Opus.
