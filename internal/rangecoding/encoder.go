@@ -4,17 +4,17 @@ package rangecoding
 // This is a bit-exact port of libopus celt/entenc.c.
 // The encoder is the symmetric inverse of the decoder.
 type Encoder struct {
-	buf        []byte  // Output buffer (pre-allocated)
-	storage    uint32  // Buffer capacity
-	offs       uint32  // Current write offset
-	endOffs    uint32  // End offset for raw bits (writes from end)
-	endWindow  uint32  // Window for raw bits at end
-	nendBits   int     // Bits in end window
-	nbitsTotal int     // Total bits written (for tell functions)
-	rng        uint32  // Range size
-	val        uint32  // Low end of range
-	rem        int     // Buffered byte for carry propagation (-1 = sentinel)
-	ext        uint32  // Count of pending 0xFF bytes
+	buf        []byte // Output buffer (pre-allocated)
+	storage    uint32 // Buffer capacity
+	offs       uint32 // Current write offset
+	endOffs    uint32 // End offset for raw bits (writes from end)
+	endWindow  uint32 // Window for raw bits at end
+	nendBits   int    // Bits in end window
+	nbitsTotal int    // Total bits written (for tell functions)
+	rng        uint32 // Range size
+	val        uint32 // Low end of range
+	rem        int    // Buffered byte for carry propagation (-1 = sentinel)
+	ext        uint32 // Count of pending 0xFF bytes
 }
 
 // Init initializes the encoder with the given output buffer.
@@ -185,23 +185,25 @@ func (e *Encoder) EncodeICDF16(s int, icdf []uint16, ftb uint) {
 // val is the bit to encode (0 or 1).
 // logp is the log probability: P(0) = 1 - 1/(2^logp), P(1) = 1/(2^logp).
 //
-// This matches the decoder's interval assignment:
-// - Decoder bit=0: val in [0, r) where r = rng >> logp
-// - Decoder bit=1: val in [r, rng)
+// Per RFC 6716 Section 4.1, the probability regions are:
+// - [0, rng-r): bit = 0, probability = (2^logp - 1) / 2^logp
+// - [rng-r, rng): bit = 1, probability = 1 / 2^logp
 //
-// So encoder must:
-// - bit=0: use interval [0, r), rng = r, val unchanged
-// - bit=1: use interval [r, rng), val += r, rng = rng - r
+// For silence flag (logp=15): P(silence=1) = 1/32768, which is very rare.
+//
+// Encoder interval assignment (symmetric with decoder):
+// - bit=0: use interval [0, threshold), rng = threshold, val unchanged
+// - bit=1: use interval [threshold, rng), val += threshold, rng = r
 func (e *Encoder) EncodeBit(val int, logp uint) {
-	// r = threshold for bit=0/1 decision
 	r := e.rng >> logp
+	threshold := e.rng - r // '1' probability region is at TOP of range
 	if val != 0 {
-		// Encode 1: use interval [r, rng)
-		e.val += r
-		e.rng -= r
-	} else {
-		// Encode 0: use interval [0, r)
+		// Encode 1: use interval [threshold, rng)
+		e.val += threshold
 		e.rng = r
+	} else {
+		// Encode 0: use interval [0, threshold)
+		e.rng = threshold
 	}
 	e.normalize()
 }
