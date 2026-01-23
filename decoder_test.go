@@ -2,6 +2,7 @@ package gopus
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -340,5 +341,144 @@ func TestDecoder_TOCParsing(t *testing.T) {
 				t.Errorf("TOC %02X: FrameSize = %d, want %d", tt.toc, toc.FrameSize, tt.frameSize)
 			}
 		})
+	}
+}
+
+// TestDecode_ModeRouting verifies that packets are routed to the correct decoder
+// based on their TOC mode field.
+func TestDecode_ModeRouting(t *testing.T) {
+	tests := []struct {
+		name      string
+		config    uint8 // TOC config (0-31)
+		frameSize int   // Expected frame size at 48kHz
+		mode      Mode  // Expected mode
+	}{
+		// SILK-only (configs 0-11)
+		{"SILK NB 10ms", 0, 480, ModeSILK},
+		{"SILK NB 20ms", 1, 960, ModeSILK},
+		{"SILK NB 40ms", 2, 1920, ModeSILK},
+		{"SILK NB 60ms", 3, 2880, ModeSILK},
+		{"SILK MB 20ms", 5, 960, ModeSILK},
+		{"SILK WB 20ms", 9, 960, ModeSILK},
+		{"SILK WB 40ms", 10, 1920, ModeSILK},
+		{"SILK WB 60ms", 11, 2880, ModeSILK},
+
+		// Hybrid (configs 12-15)
+		{"Hybrid SWB 10ms", 12, 480, ModeHybrid},
+		{"Hybrid SWB 20ms", 13, 960, ModeHybrid},
+		{"Hybrid FB 10ms", 14, 480, ModeHybrid},
+		{"Hybrid FB 20ms", 15, 960, ModeHybrid},
+
+		// CELT-only (configs 16-31)
+		{"CELT NB 2.5ms", 16, 120, ModeCELT},
+		{"CELT NB 5ms", 17, 240, ModeCELT},
+		{"CELT NB 10ms", 18, 480, ModeCELT},
+		{"CELT NB 20ms", 19, 960, ModeCELT},
+		{"CELT FB 2.5ms", 28, 120, ModeCELT},
+		{"CELT FB 5ms", 29, 240, ModeCELT},
+		{"CELT FB 10ms", 30, 480, ModeCELT},
+		{"CELT FB 20ms", 31, 960, ModeCELT},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Verify TOC parsing
+			toc := ParseTOC(GenerateTOC(tt.config, false, 0))
+
+			if toc.Mode != tt.mode {
+				t.Errorf("Mode mismatch: got %v, want %v", toc.Mode, tt.mode)
+			}
+			if toc.FrameSize != tt.frameSize {
+				t.Errorf("FrameSize mismatch: got %d, want %d", toc.FrameSize, tt.frameSize)
+			}
+
+			// Test decoder accepts the packet (may fail on decode but should not fail on routing)
+			dec, err := NewDecoder(48000, 1)
+			if err != nil {
+				t.Fatalf("NewDecoder failed: %v", err)
+			}
+
+			// Create minimal valid packet (TOC + some data)
+			packet := make([]byte, 100)
+			packet[0] = GenerateTOC(tt.config, false, 0)
+			// Fill with minimal valid data for range decoder
+			for i := 1; i < len(packet); i++ {
+				packet[i] = byte(i)
+			}
+
+			// Decode should not panic and should not return "hybrid: invalid frame size"
+			pcm := make([]float32, tt.frameSize*2) // Extra buffer
+			_, err = dec.Decode(packet, pcm)
+
+			// For extended frame sizes, we expect decode to succeed (no routing error)
+			// The decode may still fail for other reasons (invalid bitstream) but
+			// should NOT fail with "hybrid: invalid frame size"
+			if err != nil {
+				errStr := err.Error()
+				if strings.Contains(errStr, "hybrid: invalid frame size") {
+					t.Errorf("Mode routing failed: SILK/CELT packet incorrectly routed to hybrid decoder: %v", err)
+				}
+				// Log other errors but don't fail - bitstream content may be invalid
+				t.Logf("Decode error (non-routing): %v", err)
+			}
+		})
+	}
+}
+
+// TestDecode_ExtendedFrameSizes verifies that extended frame sizes (CELT 2.5/5ms,
+// SILK 40/60ms) are accepted without being rejected by the hybrid decoder.
+func TestDecode_ExtendedFrameSizes(t *testing.T) {
+	// Test that extended frame sizes don't trigger hybrid validation error
+	extendedConfigs := []struct {
+		name      string
+		config    uint8
+		frameSize int
+	}{
+		{"CELT 2.5ms", 28, 120},  // CELT FB 2.5ms
+		{"CELT 5ms", 29, 240},    // CELT FB 5ms
+		{"SILK 40ms", 10, 1920},  // SILK WB 40ms
+		{"SILK 60ms", 11, 2880},  // SILK WB 60ms
+	}
+
+	for _, tt := range extendedConfigs {
+		t.Run(tt.name, func(t *testing.T) {
+			dec, _ := NewDecoder(48000, 1)
+
+			packet := make([]byte, 100)
+			packet[0] = GenerateTOC(tt.config, false, 0)
+			for i := 1; i < len(packet); i++ {
+				packet[i] = byte(i * 7) // Different pattern
+			}
+
+			pcm := make([]float32, tt.frameSize*2)
+			_, err := dec.Decode(packet, pcm)
+
+			// Critical: should NOT fail with hybrid frame size error
+			if err != nil && strings.Contains(err.Error(), "hybrid: invalid frame size") {
+				t.Errorf("Extended frame size incorrectly rejected as hybrid: %v", err)
+			}
+		})
+	}
+}
+
+// TestDecode_PLC_ModeTracking verifies that PLC uses the last decoded mode,
+// not defaulting to Hybrid mode.
+func TestDecode_PLC_ModeTracking(t *testing.T) {
+	dec, _ := NewDecoder(48000, 1)
+
+	// First: decode a SILK packet to set mode
+	silkPacket := make([]byte, 50)
+	silkPacket[0] = GenerateTOC(9, false, 0) // SILK WB 20ms
+	for i := 1; i < len(silkPacket); i++ {
+		silkPacket[i] = byte(i)
+	}
+
+	pcm := make([]float32, 960*2)
+	_, _ = dec.Decode(silkPacket, pcm)
+
+	// PLC should use last mode (SILK)
+	_, err := dec.Decode(nil, pcm)
+	if err != nil && strings.Contains(err.Error(), "hybrid") {
+		t.Errorf("PLC should use SILK mode, not hybrid: %v", err)
 	}
 }
