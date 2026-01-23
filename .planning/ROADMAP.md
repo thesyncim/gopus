@@ -25,7 +25,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 11: Container** - Ogg Opus file read/write
 - [x] **Phase 12: Compliance & Polish** - Test vectors, cross-validation, documentation
 - [x] **Phase 13: Multistream Public API** - Expose multistream encoder/decoder to users (Gap Closure)
-- [ ] **Phase 14: Extended Frame Size Support** - Add 2.5/5/40/60ms frame support for RFC 8251 compliance (Gap Closure)
+- [x] **Phase 14: Extended Frame Size Support** - Add 2.5/5/40/60ms frame support for RFC 8251 compliance (Gap Closure)
 
 ## Phase Details
 
@@ -267,7 +267,7 @@ Plans:
 - [x] 14-02-PLAN.md — Enable CELT 2.5ms/5ms frame decoding with correct overlap-add
 - [x] 14-03-PLAN.md — Verify SILK 40ms/60ms sub-block decoding
 - [x] 14-04-PLAN.md — RFC 8251 compliance validation with frame size and mode logging
-- [ ] 14-05-PLAN.md — Gap closure: Mode routing in decoder (SILK/CELT/Hybrid packet routing)
+- [x] 14-05-PLAN.md — Gap closure: Mode routing in decoder (SILK/CELT/Hybrid packet routing)
 
 ## Progress
 
@@ -289,7 +289,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 11. Container | 2/2 | Complete | 2026-01-22 |
 | 12. Compliance & Polish | 3/3 | Complete | 2026-01-22 |
 | 13. Multistream Public API | 1/1 | Complete | 2026-01-23 |
-| 14. Extended Frame Size Support | 4/5 | Gap Closure | 2026-01-23 |
+| 14. Extended Frame Size Support | 5/5 | Complete | 2026-01-23 |
 
 ---
 *Roadmap created: 2026-01-21*
@@ -322,4 +322,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 *Phase 14 revised: 2026-01-23 (clarified hybrid mode success criteria)*
 *Phase 14 executed: 2026-01-23 (4/5 criteria met, gaps found: mode routing architecture)*
 *Phase 14 gap closure planned: 2026-01-23*
+*Phase 14 complete: 2026-01-23*
 *Total phases: 14 | Total plans: 54*
