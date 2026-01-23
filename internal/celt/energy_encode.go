@@ -151,11 +151,11 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 	if intra {
 		// Intra-frame: no inter-frame prediction, only inter-band
 		alpha = 0.0
-		beta = BetaCoef[lm]
+		beta = BetaIntra // Fixed 0.15 for intra mode
 	} else {
 		// Inter-frame: use both alpha (previous frame) and beta (previous band)
 		alpha = AlphaCoef[lm]
-		beta = BetaCoef[lm]
+		beta = BetaCoefInter[lm] // LM-dependent for inter mode
 	}
 
 	// Decay parameter for Laplace model (same as decoder)
@@ -198,7 +198,10 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 			quantizedEnergies[idx] = quantizedEnergy
 
 			// Update prev band energy for next band's inter-band prediction
-			prevBandEnergy = quantizedEnergy
+			// Per libopus: prevBandEnergy accumulates a filtered version of quantized deltas
+			// Formula: prev = prev + q - beta*q, where q = qi*DB6
+			q := float64(qi) * DB6
+			prevBandEnergy = prevBandEnergy + q - beta*q
 		}
 
 		// Update previous frame energy for next frame's inter-frame prediction

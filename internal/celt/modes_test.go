@@ -162,12 +162,12 @@ func TestTables(t *testing.T) {
 		}
 	}
 
-	// Verify AlphaCoef and BetaCoef lengths
+	// Verify AlphaCoef and BetaCoefInter lengths
 	if len(AlphaCoef) != 4 {
 		t.Errorf("len(AlphaCoef) = %d, want 4", len(AlphaCoef))
 	}
-	if len(BetaCoef) != 4 {
-		t.Errorf("len(BetaCoef) = %d, want 4", len(BetaCoef))
+	if len(BetaCoefInter) != 4 {
+		t.Errorf("len(BetaCoefInter) = %d, want 4", len(BetaCoefInter))
 	}
 
 	// Verify LogN length

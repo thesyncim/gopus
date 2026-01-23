@@ -52,17 +52,18 @@ var AlphaCoef = [4]float64{
 	16384.0 / 32768.0, // LM=3 (20ms):  0.5
 }
 
-// BetaCoef contains inter-band energy prediction coefficients by LM.
-// Used for coarse energy decoding to predict energy from previous band.
-// Index corresponds to LM: 0=2.5ms, 1=5ms, 2=10ms, 3=20ms
-//
-// Source: RFC 6716 Section 4.3.2, libopus celt/quant_bands.c
-var BetaCoef = [4]float64{
-	1.0 - 4915.0/32768.0, // LM=0 (2.5ms): 0.85
-	1.0 - 4915.0/32768.0, // LM=1 (5ms):   0.85
-	1.0 - 4915.0/32768.0, // LM=2 (10ms):  0.85
-	1.0 - 4915.0/32768.0, // LM=3 (20ms):  0.85
+// BetaCoefInter contains inter-band energy prediction coefficients for INTER-frame mode.
+// Values vary by LM (log mode / frame size). Source: libopus celt/quant_bands.c
+var BetaCoefInter = [4]float64{
+	30147.0 / 32768.0, // LM=0 (2.5ms): 0.9200744...
+	22282.0 / 32768.0, // LM=1 (5ms):   0.6800537...
+	12124.0 / 32768.0, // LM=2 (10ms):  0.3700561...
+	6554.0 / 32768.0,  // LM=3 (20ms):  0.2000122...
 }
+
+// BetaIntra is the inter-band prediction coefficient for INTRA-frame mode.
+// No inter-frame prediction, only inter-band. Source: libopus celt/quant_bands.c
+const BetaIntra = 4915.0 / 32768.0 // 0.15
 
 // LogN contains log2 of band widths (in Q8 fixed-point) for bit allocation.
 // This is used in the bit allocation algorithm to weight bands.
