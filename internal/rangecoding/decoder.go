@@ -149,17 +149,24 @@ func (d *Decoder) DecodeICDF16(icdf []uint16, ftb uint) int {
 // logp is the number of bits of probability for a 0 (1 to 15).
 // P(0) = 1 - 1/(2^logp), P(1) = 1/(2^logp)
 // Returns 0 or 1.
+//
+// Per RFC 6716 Section 4.1, the probability regions are:
+// - [0, rng-r): bit = 0, probability = (2^logp - 1) / 2^logp
+// - [rng-r, rng): bit = 1, probability = 1 / 2^logp
+//
+// For silence flag (logp=15): P(silence=1) = 1/32768, which is very rare.
 func (d *Decoder) DecodeBit(logp uint) int {
 	r := d.rng >> logp
-	if d.val >= r {
-		// Bit is 1
-		d.val -= r
-		d.rng -= r
+	threshold := d.rng - r // '1' probability region is at TOP of range
+	if d.val >= threshold {
+		// Bit is 1 (rare case - val is in top 1/2^logp of range)
+		d.val -= threshold
+		d.rng = r
 		d.normalize()
 		return 1
 	}
-	// Bit is 0
-	d.rng = r
+	// Bit is 0 (common case - val is in bottom (2^logp - 1)/2^logp of range)
+	d.rng = threshold
 	d.normalize()
 	return 0
 }
