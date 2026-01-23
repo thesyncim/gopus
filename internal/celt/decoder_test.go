@@ -157,3 +157,94 @@ func TestDecoder_ResetState(t *testing.T) {
 		}
 	}
 }
+
+// TestDecodeFrame_ShortFrames verifies CELT can decode 2.5ms and 5ms frame sizes.
+// RFC 8251 test vectors include short frames. This test confirms the decoder
+// handles them correctly with proper sample output counts.
+func TestDecodeFrame_ShortFrames(t *testing.T) {
+	// Test 2.5ms and 5ms frames with actual CELT data
+	testCases := []struct {
+		name      string
+		frameSize int
+		wantLen   int // Expected output sample count
+	}{
+		{"2.5ms_mono", 120, 120},
+		{"5ms_mono", 240, 240},
+		{"10ms_mono", 480, 480},
+		{"20ms_mono", 960, 960},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := NewDecoder(1)
+
+			// Create a minimal valid CELT frame
+			// Silence frame is simplest: first bit = 1 (probability 15/32 = 0x80)
+			silenceFrame := []byte{0x80} // Silence flag set
+
+			samples, err := d.DecodeFrame(silenceFrame, tc.frameSize)
+			if err != nil {
+				t.Fatalf("DecodeFrame failed: %v", err)
+			}
+
+			// Verify we get exactly frameSize samples
+			if len(samples) != tc.wantLen {
+				t.Errorf("got %d samples, want %d", len(samples), tc.wantLen)
+			}
+		})
+	}
+}
+
+// TestDecodeFrame_ShortFrameStereo verifies stereo short frame decoding.
+func TestDecodeFrame_ShortFrameStereo(t *testing.T) {
+	testCases := []struct {
+		frameSize int
+		wantLen   int // samples per channel * 2 (interleaved)
+	}{
+		{120, 240}, // 2.5ms stereo: 120*2
+		{240, 480}, // 5ms stereo: 240*2
+		{480, 960}, // 10ms stereo: 480*2
+		{960, 1920}, // 20ms stereo: 960*2
+	}
+
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("%d_stereo", tc.frameSize), func(t *testing.T) {
+			d := NewDecoder(2)
+			silenceFrame := []byte{0x80}
+
+			samples, err := d.DecodeFrame(silenceFrame, tc.frameSize)
+			if err != nil {
+				t.Fatalf("DecodeFrame failed: %v", err)
+			}
+
+			if len(samples) != tc.wantLen {
+				t.Errorf("got %d samples, want %d", len(samples), tc.wantLen)
+			}
+		})
+	}
+}
+
+// TestDecodeFrame_ShortFrameConsecutive verifies consecutive short frame decoding
+// produces consistent sample counts with proper overlap-add state maintenance.
+func TestDecodeFrame_ShortFrameConsecutive(t *testing.T) {
+	testCases := []int{120, 240} // 2.5ms and 5ms
+
+	for _, frameSize := range testCases {
+		t.Run(fmt.Sprintf("%d", frameSize), func(t *testing.T) {
+			d := NewDecoder(1)
+			silenceFrame := []byte{0x80}
+
+			// Decode 5 consecutive frames
+			for i := 0; i < 5; i++ {
+				samples, err := d.DecodeFrame(silenceFrame, frameSize)
+				if err != nil {
+					t.Fatalf("Frame %d: DecodeFrame failed: %v", i, err)
+				}
+
+				if len(samples) != frameSize {
+					t.Errorf("Frame %d: got %d samples, want %d", i, len(samples), frameSize)
+				}
+			}
+		})
+	}
+}
