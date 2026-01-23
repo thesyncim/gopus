@@ -134,19 +134,14 @@ func runTestVector(t *testing.T, name string) {
 	}
 
 	// 4. Decode all packets
+	// Note: Opus packets can contain multiple frames (code 1/2/3 in TOC byte).
+	// The decoder returns all frames combined, so we use DecodeInt16Slice
+	// which allocates the correct buffer size based on packet structure.
 	var allDecoded []int16
 	decodeErrors := make(map[string]int) // Track error types
 	for i, pkt := range packets {
-		// Determine frame size for this specific packet
-		pktFrameSize := frameSize
-		if len(pkt.Data) > 0 {
-			pktCfg := pkt.Data[0] >> 3
-			pktFrameSize = getFrameSizeFromConfig(pktCfg)
-		}
-
-		// Decode the packet
-		pcm := make([]int16, pktFrameSize*channels)
-		n, err := dec.DecodeInt16(pkt.Data, pcm)
+		// Decode the packet using auto-allocating method for multi-frame support
+		pcm, err := dec.DecodeInt16Slice(pkt.Data)
 		if err != nil {
 			// Log more detail about the failure
 			errKey := err.Error()
@@ -159,12 +154,18 @@ func runTestVector(t *testing.T, name string) {
 				t.Logf("  Packet %d decode error: %v (config=%d, mode=%s, frameSize=%d)",
 					i, err, cfg, mode, fs)
 			}
-			// Use zeros for failed packets (PLC would be better but this is for testing)
-			allDecoded = append(allDecoded, pcm[:pktFrameSize*channels]...)
+			// Use zeros for failed packets (based on single frame size)
+			pktFrameSize := frameSize
+			if len(pkt.Data) > 0 {
+				pktCfg := pkt.Data[0] >> 3
+				pktFrameSize = getFrameSizeFromConfig(pktCfg)
+			}
+			zeros := make([]int16, pktFrameSize*channels)
+			allDecoded = append(allDecoded, zeros...)
 			continue
 		}
 
-		allDecoded = append(allDecoded, pcm[:n*channels]...)
+		allDecoded = append(allDecoded, pcm...)
 	}
 
 	// Report decode error summary
@@ -554,24 +555,23 @@ func runVectorSilent(t *testing.T, name string) vectorResult {
 		return result
 	}
 
-	// 4. Decode all packets
+	// 4. Decode all packets (using auto-allocating method for multi-frame support)
 	var allDecoded []int16
 	for _, pkt := range packets {
-		// Determine frame size for this specific packet
-		pktFrameSize := frameSize
-		if len(pkt.Data) > 0 {
-			pktCfg := pkt.Data[0] >> 3
-			pktFrameSize = getFrameSizeFromConfig(pktCfg)
-		}
-
-		pcm := make([]int16, pktFrameSize*channels)
-		n, err := dec.DecodeInt16(pkt.Data, pcm)
+		pcm, err := dec.DecodeInt16Slice(pkt.Data)
 		if err != nil {
 			result.decodeErrors++
-			allDecoded = append(allDecoded, pcm[:pktFrameSize*channels]...)
+			// Use zeros for failed packets
+			pktFrameSize := frameSize
+			if len(pkt.Data) > 0 {
+				pktCfg := pkt.Data[0] >> 3
+				pktFrameSize = getFrameSizeFromConfig(pktCfg)
+			}
+			zeros := make([]int16, pktFrameSize*channels)
+			allDecoded = append(allDecoded, zeros...)
 			continue
 		}
-		allDecoded = append(allDecoded, pcm[:n*channels]...)
+		allDecoded = append(allDecoded, pcm...)
 	}
 
 	// 5. Read reference files

@@ -54,7 +54,8 @@ func NewDecoder(sampleRate, channels int) (*Decoder, error) {
 //
 // data: Opus packet data, or nil for Packet Loss Concealment (PLC).
 // pcm: Output buffer for decoded samples. Must be large enough to hold
-// frameSize * channels samples, where frameSize is determined from the packet TOC.
+// frameSize * frameCount * channels samples, where frameSize and frameCount
+// are determined from the packet TOC and frame code.
 //
 // Returns the number of samples per channel decoded, or an error.
 //
@@ -62,7 +63,14 @@ func NewDecoder(sampleRate, channels int) (*Decoder, error) {
 // the last successfully decoded frame parameters.
 //
 // Buffer sizing: For 60ms frames at 48kHz stereo, pcm must have at least
-// 2880 * 2 = 5760 elements.
+// 2880 * 2 = 5760 elements. For multi-frame packets (code 1/2/3), the buffer
+// must be large enough for all frames combined.
+//
+// Multi-frame packets (RFC 6716 Section 3.2):
+//   - Code 0: 1 frame (most common)
+//   - Code 1: 2 equal-sized frames
+//   - Code 2: 2 different-sized frames
+//   - Code 3: Arbitrary number of frames (1-48)
 func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 	var toc TOC
 	var frameSize int
@@ -78,64 +86,148 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		mode = d.lastMode
 	}
 
-	// Validate output buffer size
-	needed := frameSize * d.channels
-	if len(pcm) < needed {
-		return 0, ErrBufferTooSmall
+	// For PLC, decode a single frame
+	if data == nil || len(data) == 0 {
+		needed := frameSize * d.channels
+		if len(pcm) < needed {
+			return 0, ErrBufferTooSmall
+		}
+
+		samples, err := d.decodeSingleFrame(nil, toc, mode, frameSize)
+		if err != nil {
+			return 0, err
+		}
+
+		copy(pcm, samples)
+		d.lastFrameSize = frameSize
+		d.lastMode = mode
+		return frameSize, nil
 	}
 
-	var samples []float32
-	var err error
-
-	// Extract frame data (skip TOC byte) for normal decode
-	var frameData []byte
-	if data != nil && len(data) > 0 {
-		frameData = data[1:]
-	}
-
-	// Route based on mode
-	switch mode {
-	case ModeSILK:
-		samples, err = d.decodeSILK(frameData, toc, frameSize)
-	case ModeCELT:
-		samples, err = d.decodeCELT(frameData, frameSize)
-	case ModeHybrid:
-		samples, err = d.decodeHybrid(frameData, frameSize)
-	default:
-		return 0, ErrInvalidMode
-	}
-
+	// Parse packet to extract all frame data per RFC 6716 Section 3.2
+	// This handles all frame codes: 0 (1 frame), 1 (2 equal), 2 (2 different), 3 (M frames)
+	pktInfo, err := ParsePacket(data)
 	if err != nil {
 		return 0, err
 	}
 
-	copy(pcm, samples)
+	frameCount := pktInfo.FrameCount
+	totalSamples := frameSize * frameCount
+
+	// Validate output buffer size for all frames
+	needed := totalSamples * d.channels
+	if len(pcm) < needed {
+		return 0, ErrBufferTooSmall
+	}
+
+	// Extract frame data from packet
+	frameDataSlices := extractFrameData(data, pktInfo)
+
+	// Decode each frame and concatenate output
+	var allSamples []float32
+	for i := 0; i < frameCount; i++ {
+		frameData := frameDataSlices[i]
+
+		samples, err := d.decodeSingleFrame(frameData, toc, mode, frameSize)
+		if err != nil {
+			return 0, err
+		}
+
+		allSamples = append(allSamples, samples...)
+	}
+
+	copy(pcm, allSamples)
 	d.lastFrameSize = frameSize
 	d.lastMode = mode
 
-	return frameSize, nil
+	return totalSamples, nil
+}
+
+// decodeSingleFrame decodes a single frame of the given mode.
+// frameData is the raw frame bytes (without TOC or length headers).
+func (d *Decoder) decodeSingleFrame(frameData []byte, toc TOC, mode Mode, frameSize int) ([]float32, error) {
+	switch mode {
+	case ModeSILK:
+		return d.decodeSILK(frameData, toc, frameSize)
+	case ModeCELT:
+		return d.decodeCELT(frameData, frameSize)
+	case ModeHybrid:
+		return d.decodeHybrid(frameData, frameSize)
+	default:
+		return nil, ErrInvalidMode
+	}
+}
+
+// extractFrameData extracts individual frame data slices from a packet.
+// Returns a slice of byte slices, one per frame.
+//
+// This function calculates the header size and then extracts frame data
+// based on the frame sizes determined by ParsePacket.
+func extractFrameData(data []byte, info PacketInfo) [][]byte {
+	frames := make([][]byte, info.FrameCount)
+
+	// Calculate the total size of all frames
+	var totalFrameBytes int
+	for _, size := range info.FrameSizes {
+		totalFrameBytes += size
+	}
+
+	// The frame data starts at: packet_size - padding - total_frame_bytes
+	// This works for all frame codes because ParsePacket already validated the structure
+	frameDataStart := len(data) - info.Padding - totalFrameBytes
+
+	// Safety check: ensure we have valid bounds
+	if frameDataStart < 1 {
+		// At minimum, skip TOC byte (first byte)
+		frameDataStart = 1
+	}
+
+	// Calculate usable data end (excluding padding)
+	dataEnd := len(data) - info.Padding
+	if dataEnd < frameDataStart {
+		dataEnd = frameDataStart
+	}
+
+	// Extract each frame
+	offset := frameDataStart
+	for i := 0; i < info.FrameCount; i++ {
+		frameLen := info.FrameSizes[i]
+		endOffset := offset + frameLen
+
+		// Clamp to available data
+		if endOffset > dataEnd {
+			endOffset = dataEnd
+		}
+		if offset >= dataEnd {
+			// No data available for this frame
+			frames[i] = nil
+		} else {
+			frames[i] = data[offset:endOffset]
+		}
+		offset = endOffset
+	}
+
+	return frames
 }
 
 // DecodeInt16 decodes an Opus packet into int16 PCM samples.
 //
 // data: Opus packet data, or nil for PLC.
-// pcm: Output buffer for decoded samples.
+// pcm: Output buffer for decoded samples. Must be large enough to hold all frames
+// in multi-frame packets (frameSize * frameCount * channels samples).
 //
 // Returns the number of samples per channel decoded, or an error.
 //
 // The samples are converted from float32 with proper clamping to [-32768, 32767].
 func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
-	// Determine frame size from TOC or use last frame size for PLC
-	var frameSize int
-	if data != nil && len(data) > 0 {
-		toc := ParseTOC(data[0])
-		frameSize = toc.FrameSize
-	} else {
-		frameSize = d.lastFrameSize
+	// Determine total samples needed from TOC or use last frame size for PLC
+	totalSamples, err := d.getTotalSamples(data)
+	if err != nil {
+		return 0, err
 	}
 
 	// Validate output buffer size
-	needed := frameSize * d.channels
+	needed := totalSamples * d.channels
 	if len(pcm) < needed {
 		return 0, ErrBufferTooSmall
 	}
@@ -171,17 +263,14 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 //
 // Returns the decoded samples or an error.
 func (d *Decoder) DecodeFloat32(data []byte) ([]float32, error) {
-	// Determine frame size from TOC or use last frame size for PLC
-	var frameSize int
-	if data != nil && len(data) > 0 {
-		toc := ParseTOC(data[0])
-		frameSize = toc.FrameSize
-	} else {
-		frameSize = d.lastFrameSize
+	// Determine total samples needed from TOC or use last frame size for PLC
+	totalSamples, err := d.getTotalSamples(data)
+	if err != nil {
+		return nil, err
 	}
 
 	// Allocate buffer
-	pcm := make([]float32, frameSize*d.channels)
+	pcm := make([]float32, totalSamples*d.channels)
 
 	n, err := d.Decode(data, pcm)
 	if err != nil {
@@ -200,17 +289,14 @@ func (d *Decoder) DecodeFloat32(data []byte) ([]float32, error) {
 //
 // Returns the decoded samples or an error.
 func (d *Decoder) DecodeInt16Slice(data []byte) ([]int16, error) {
-	// Determine frame size from TOC or use last frame size for PLC
-	var frameSize int
-	if data != nil && len(data) > 0 {
-		toc := ParseTOC(data[0])
-		frameSize = toc.FrameSize
-	} else {
-		frameSize = d.lastFrameSize
+	// Determine total samples needed from TOC or use last frame size for PLC
+	totalSamples, err := d.getTotalSamples(data)
+	if err != nil {
+		return nil, err
 	}
 
 	// Allocate buffer
-	pcm := make([]int16, frameSize*d.channels)
+	pcm := make([]int16, totalSamples*d.channels)
 
 	n, err := d.DecodeInt16(data, pcm)
 	if err != nil {
@@ -218,6 +304,26 @@ func (d *Decoder) DecodeInt16Slice(data []byte) ([]int16, error) {
 	}
 
 	return pcm[:n*d.channels], nil
+}
+
+// getTotalSamples calculates the total samples per channel for a packet,
+// accounting for multi-frame packets.
+func (d *Decoder) getTotalSamples(data []byte) (int, error) {
+	if data == nil || len(data) == 0 {
+		// PLC: use last frame size
+		return d.lastFrameSize, nil
+	}
+
+	toc := ParseTOC(data[0])
+	frameSize := toc.FrameSize
+
+	// Parse packet to get frame count for multi-frame packets
+	pktInfo, err := ParsePacket(data)
+	if err != nil {
+		return 0, err
+	}
+
+	return frameSize * pktInfo.FrameCount, nil
 }
 
 // Reset clears the decoder state for a new stream.
