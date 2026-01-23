@@ -135,18 +135,44 @@ func runTestVector(t *testing.T, name string) {
 
 	// 4. Decode all packets
 	var allDecoded []int16
+	decodeErrors := make(map[string]int) // Track error types
 	for i, pkt := range packets {
+		// Determine frame size for this specific packet
+		pktFrameSize := frameSize
+		if len(pkt.Data) > 0 {
+			pktCfg := pkt.Data[0] >> 3
+			pktFrameSize = getFrameSizeFromConfig(pktCfg)
+		}
+
 		// Decode the packet
-		pcm := make([]int16, frameSize*channels)
+		pcm := make([]int16, pktFrameSize*channels)
 		n, err := dec.DecodeInt16(pkt.Data, pcm)
 		if err != nil {
-			t.Logf("  Packet %d decode error (non-fatal): %v", i, err)
+			// Log more detail about the failure
+			errKey := err.Error()
+			decodeErrors[errKey]++
+			if decodeErrors[errKey] <= 3 { // Only log first 3 occurrences of each error type
+				tocByte := pkt.Data[0]
+				cfg := tocByte >> 3
+				fs := getFrameSizeFromConfig(cfg)
+				mode := getModeFromConfig(cfg)
+				t.Logf("  Packet %d decode error: %v (config=%d, mode=%s, frameSize=%d)",
+					i, err, cfg, mode, fs)
+			}
 			// Use zeros for failed packets (PLC would be better but this is for testing)
-			allDecoded = append(allDecoded, pcm[:frameSize*channels]...)
+			allDecoded = append(allDecoded, pcm[:pktFrameSize*channels]...)
 			continue
 		}
 
 		allDecoded = append(allDecoded, pcm[:n*channels]...)
+	}
+
+	// Report decode error summary
+	if len(decodeErrors) > 0 {
+		t.Logf("  Decode error summary:")
+		for errType, count := range decodeErrors {
+			t.Logf("    %q: %d packets", errType, count)
+		}
 	}
 
 	t.Logf("  Decoded: %d samples (%d per channel)", len(allDecoded), len(allDecoded)/channels)
