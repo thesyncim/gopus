@@ -263,10 +263,10 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 14-01-PLAN.md — Fix CELT MDCT bin count mismatch (DecodeBands returns frameSize coefficients)
-- [ ] 14-02-PLAN.md — Enable CELT 2.5ms/5ms frame decoding with correct overlap-add
-- [ ] 14-03-PLAN.md — Verify SILK 40ms/60ms sub-block decoding
-- [ ] 14-04-PLAN.md — RFC 8251 compliance validation with frame size and mode logging
+- [x] 14-01-PLAN.md — Fix CELT MDCT bin count mismatch (DecodeBands returns frameSize coefficients)
+- [x] 14-02-PLAN.md — Enable CELT 2.5ms/5ms frame decoding with correct overlap-add
+- [x] 14-03-PLAN.md — Verify SILK 40ms/60ms sub-block decoding
+- [x] 14-04-PLAN.md — RFC 8251 compliance validation with frame size and mode logging
 
 ## Progress
 
@@ -288,7 +288,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 11. Container | 2/2 | Complete | 2026-01-22 |
 | 12. Compliance & Polish | 3/3 | Complete | 2026-01-22 |
 | 13. Multistream Public API | 1/1 | Complete | 2026-01-23 |
-| 14. Extended Frame Size Support | 0/4 | Planned | — |
+| 14. Extended Frame Size Support | 4/4 | Gaps Found | 2026-01-23 |
 
 ---
 *Roadmap created: 2026-01-21*
@@ -319,4 +319,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 *Phase 13 complete: 2026-01-23*
 *Phase 14 planned: 2026-01-23*
 *Phase 14 revised: 2026-01-23 (clarified hybrid mode success criteria)*
+*Phase 14 executed: 2026-01-23 (4/5 criteria met, gaps found: mode routing architecture)*
 *Total phases: 14 | Total plans: 53*
