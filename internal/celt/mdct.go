@@ -317,9 +317,14 @@ func reverseBits(x, bits int) int {
 	return result
 }
 
-// IMDCTDirect computes IMDCT using direct formula (for testing/reference).
-// This is O(n^2) but mathematically exact.
-// y[n] = sum_{k=0}^{N-1} X[k] * cos(pi/N * (n + 0.5 + N/2) * (k + 0.5))
+// IMDCTDirect computes IMDCT per RFC 6716 Section 4.3.5.
+// Formula: y[n] = sum_{k=0}^{N-1} X[k] * cos(pi/N * (n + 0.5 + N/2) * (k + 0.5))
+// Input: N frequency coefficients
+// Output: 2*N time samples
+// Normalization: 2/N factor applied for proper amplitude
+//
+// This is O(n^2) but mathematically exact and handles non-power-of-2 sizes
+// (like CELT's 120, 240, 480, 960) that the FFT-based approach cannot.
 func IMDCTDirect(spectrum []float64) []float64 {
 	N := len(spectrum)
 	if N <= 0 {
