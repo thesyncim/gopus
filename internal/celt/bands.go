@@ -90,9 +90,14 @@ func (d *Decoder) DecodeBands(
 		bandVectors[band] = shape
 
 		// Denormalize: scale shape by energy
-		// Energy is in dB-like units; convert to linear gain
-		// gain = 2^(energy) = exp(energy * ln(2))
-		gain := math.Exp(energies[band] * 0.6931471805599453) // ln(2)
+		// Energy is in log2 scale (not dB): gain = 2^energy
+		// This matches libopus celt/bands.c denormalise_bands()
+		// Clamp energy to prevent overflow (libopus clamps to 32)
+		e := energies[band]
+		if e > 32 {
+			e = 32
+		}
+		gain := math.Exp2(e)
 
 		// Apply gain to shape and write to output
 		for i := 0; i < n && i < len(shape); i++ {
@@ -229,8 +234,18 @@ func (d *Decoder) DecodeBandsStereo(
 		bandVectorsR[band] = shapeR
 
 		// Denormalize: scale by energy
-		gainL := math.Exp(energiesL[band] * 0.6931471805599453)
-		gainR := math.Exp(energiesR[band] * 0.6931471805599453)
+		// Energy is in log2 scale: gain = 2^energy
+		// Clamp energy to prevent overflow (libopus clamps to 32)
+		eL := energiesL[band]
+		if eL > 32 {
+			eL = 32
+		}
+		eR := energiesR[band]
+		if eR > 32 {
+			eR = 32
+		}
+		gainL := math.Exp2(eL)
+		gainR := math.Exp2(eR)
 
 		for i := 0; i < n && i < len(shapeL); i++ {
 			left[offset+i] = shapeL[i] * gainL
@@ -339,14 +354,21 @@ func ilog2(x int) int {
 
 // DenormalizeBand scales a normalized band vector by its energy.
 // shape: normalized vector (unit L2 norm)
-// energy: band energy in dB-like units
+// energy: band energy in log2 scale (gain = 2^energy)
 // Returns: denormalized MDCT coefficients.
+//
+// This matches libopus celt/bands.c denormalise_bands().
 func DenormalizeBand(shape []float64, energy float64) []float64 {
 	if len(shape) == 0 {
 		return nil
 	}
 
-	gain := math.Exp(energy * 0.6931471805599453) // 2^energy = exp(energy*ln2)
+	// Clamp energy to prevent overflow (libopus clamps to 32)
+	e := energy
+	if e > 32 {
+		e = 32
+	}
+	gain := math.Exp2(e)
 	result := make([]float64, len(shape))
 	for i, x := range shape {
 		result[i] = x * gain
