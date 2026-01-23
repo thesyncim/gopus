@@ -23,7 +23,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 9: Multistream Encoder** - Surround sound encoding
 - [x] **Phase 10: API Layer** - Frame-based API and io.Reader/Writer wrappers
 - [x] **Phase 11: Container** - Ogg Opus file read/write
-- [ ] **Phase 12: Compliance & Polish** - Test vectors, cross-validation, documentation
+- [x] **Phase 12: Compliance & Polish** - Test vectors, cross-validation, documentation
 
 ## Phase Details
 
@@ -228,9 +228,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 12-01-PLAN.md — Fix import cycle in internal/encoder tests
-- [ ] 12-02-PLAN.md — RFC 8251 test vector parsing and decoder compliance tests
-- [ ] 12-03-PLAN.md — CGO-free build verification and testable documentation examples
+- [x] 12-01-PLAN.md — Fix import cycle in internal/encoder tests
+- [x] 12-02-PLAN.md — RFC 8251 test vector parsing and decoder compliance tests
+- [x] 12-03-PLAN.md — CGO-free build verification and testable documentation examples
 
 ## Progress
 
@@ -250,7 +250,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 9. Multistream Encoder | 4/4 | Complete | 2026-01-22 |
 | 10. API Layer | 2/2 | Complete | 2026-01-22 |
 | 11. Container | 2/2 | Complete | 2026-01-22 |
-| 12. Compliance & Polish | 0/3 | Not started | - |
+| 12. Compliance & Polish | 3/3 | Complete | 2026-01-22 |
 
 ---
 *Roadmap created: 2026-01-21*
@@ -275,4 +275,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 *Phase 11 planned: 2026-01-22*
 *Phase 11 complete: 2026-01-22*
 *Phase 12 planned: 2026-01-22*
+*Phase 12 complete: 2026-01-22*
 *Total phases: 12 | Total plans: 48*

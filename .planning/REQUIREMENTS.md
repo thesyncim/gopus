@@ -65,7 +65,7 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Compliance
 
 - [ ] **CMP-01**: Pass official Opus decoder test vectors
-- [ ] **CMP-02**: Produce bitstreams decodable by libopus
+- [x] **CMP-02**: Produce bitstreams decodable by libopus
 - [x] **CMP-03**: Zero cgo dependencies
 - [x] **CMP-04**: Go 1.21+ compatibility
 
