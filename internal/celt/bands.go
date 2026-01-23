@@ -15,10 +15,12 @@ import "math"
 // nbBands: number of bands to decode
 // stereo: true if stereo mode
 // frameSize: frame size in samples (120, 240, 480, 960)
-// Returns: MDCT coefficients (denormalized) for all bands.
+// Returns: MDCT coefficients (denormalized) of length frameSize.
 //
-// The output length equals the total MDCT bins across all bands:
-// sum(ScaledBandWidth(i, frameSize) for i in 0..nbBands-1)
+// The output is zero-padded to frameSize. Band coefficients fill bins 0 to totalBins-1,
+// where totalBins = sum(ScaledBandWidth(i, frameSize) for i in 0..nbBands-1).
+// Upper bins (totalBins to frameSize-1) remain zero, representing highest frequencies.
+// This ensures IMDCT receives exactly frameSize coefficients, producing correct sample count.
 func (d *Decoder) DecodeBands(
 	energies []float64,
 	bandBits []int,
@@ -36,7 +38,7 @@ func (d *Decoder) DecodeBands(
 		return nil
 	}
 
-	// Calculate total output size
+	// Calculate total bins from bands (for band processing)
 	totalBins := 0
 	for band := 0; band < nbBands; band++ {
 		totalBins += ScaledBandWidth(band, frameSize)
@@ -46,9 +48,12 @@ func (d *Decoder) DecodeBands(
 		return nil
 	}
 
-	coeffs := make([]float64, totalBins)
+	// Allocate frameSize for MDCT, not totalBins
+	// Upper bins (totalBins to frameSize-1) stay zero (highest frequencies)
+	// This ensures IMDCT(frameSize) produces 2*frameSize samples
+	coeffs := make([]float64, frameSize)
 	if stereo {
-		coeffs = make([]float64, totalBins*2) // Double for stereo
+		coeffs = make([]float64, frameSize*2) // Double for stereo
 	}
 
 	// Track coded bands for folding
@@ -109,12 +114,14 @@ func (d *Decoder) DecodeBands(
 // nbBands: number of bands
 // frameSize: frame size in samples
 // intensity: intensity stereo start band (-1 if not used)
-// Returns: left and right channel MDCT coefficients.
+// Returns: left and right channel MDCT coefficients, each of length frameSize.
 //
 // In stereo mode, bands can use:
 // 1. Dual stereo: separate PVQ vectors for L and R
 // 2. Mid-side: decode mid/side and rotate to L/R
 // 3. Intensity: copy mono to both with sign flag
+//
+// Output is zero-padded to frameSize per channel for correct IMDCT operation.
 //
 // Reference: libopus celt/bands.c quant_all_bands() stereo path
 func (d *Decoder) DecodeBandsStereo(
@@ -128,7 +135,7 @@ func (d *Decoder) DecodeBandsStereo(
 		return nil, nil
 	}
 
-	// Calculate total output size
+	// Calculate total bins from bands (for band processing)
 	totalBins := 0
 	for band := 0; band < nbBands; band++ {
 		totalBins += ScaledBandWidth(band, frameSize)
@@ -138,8 +145,10 @@ func (d *Decoder) DecodeBandsStereo(
 		return nil, nil
 	}
 
-	left = make([]float64, totalBins)
-	right = make([]float64, totalBins)
+	// Allocate frameSize for MDCT, not totalBins
+	// Upper bins (totalBins to frameSize-1) stay zero (highest frequencies)
+	left = make([]float64, frameSize)
+	right = make([]float64, frameSize)
 
 	// Track coded bands for folding
 	var collapseMask uint32
