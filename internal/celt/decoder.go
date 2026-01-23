@@ -300,6 +300,9 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	transient := d.decodeTransientFlag(lm)
 	intra := d.decodeIntraFlag()
 
+	// Trace frame header
+	DefaultTracer.TraceHeader(frameSize, d.channels, lm, boolToInt(intra), boolToInt(transient))
+
 	// Decode spread (for folding)
 	// spread := d.decodeSpread()
 	// _ = spread // Used later for folding
@@ -376,6 +379,13 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 
 	// Step 7: Apply de-emphasis filter
 	d.applyDeemphasis(samples)
+
+	// Trace final synthesis output
+	traceLen := len(samples)
+	if traceLen > 16 {
+		traceLen = 16
+	}
+	DefaultTracer.TraceSynthesis("final", samples[:traceLen])
 
 	// Update energy state for next frame
 	d.SetPrevEnergy(energies)

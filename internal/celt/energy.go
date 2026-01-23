@@ -198,6 +198,9 @@ func (d *Decoder) DecodeCoarseEnergy(nbBands int, intra bool, lm int) []float64 
 			// Compute energy: pred + qi * 6.0 (6 dB per step)
 			energy := pred + float64(qi)*DB6
 
+			// Trace coarse energy (coarse=pred, fine=qi*DB6, total=energy)
+			DefaultTracer.TraceEnergy(band, pred, float64(qi)*DB6, energy)
+
 			// Store result
 			energies[c*nbBands+band] = energy
 

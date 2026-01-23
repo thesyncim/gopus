@@ -37,6 +37,38 @@ func (d *Decoder) DecodePVQ(n, k int) []float64 {
 	return NormalizeVector(intToFloat(pulses))
 }
 
+// DecodePVQWithTrace decodes a PVQ codeword and traces the result.
+// band: the band index (for tracing purposes)
+// n: band width (number of MDCT bins)
+// k: number of pulses (from bit allocation)
+// Returns: normalized float64 vector of length n with unit L2 norm.
+//
+// This is identical to DecodePVQ but also calls DefaultTracer.TracePVQ.
+func (d *Decoder) DecodePVQWithTrace(band, n, k int) []float64 {
+	if k == 0 || n <= 0 {
+		// No pulses - return zero vector (will be folded)
+		return make([]float64, n)
+	}
+
+	// Read CWRS index from range coder
+	// Index has V(n,k) possible values
+	vSize := PVQ_V(n, k)
+	if vSize == 0 {
+		return make([]float64, n)
+	}
+
+	index := d.rangeDecoder.DecodeUniform(vSize)
+
+	// Convert index to pulse vector using CWRS
+	pulses := DecodePulses(index, n, k)
+
+	// Trace PVQ decode
+	DefaultTracer.TracePVQ(band, index, k, n, pulses)
+
+	// Normalize to unit L2 energy
+	return NormalizeVector(intToFloat(pulses))
+}
+
 // NormalizeVector scales vector to unit L2 norm.
 // If the input vector has zero energy, returns the input unchanged.
 func NormalizeVector(v []float64) []float64 {

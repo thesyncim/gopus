@@ -70,10 +70,13 @@ func (d *Decoder) DecodeBands(
 		// Convert bits to pulse count
 		k := bitsToK(bandBits[band], n)
 
+		// Trace allocation
+		DefaultTracer.TraceAllocation(band, bandBits[band], k)
+
 		var shape []float64
 		if k > 0 {
-			// Decode PVQ vector for this band
-			shape = d.DecodePVQ(n, k)
+			// Decode PVQ vector for this band (with tracing)
+			shape = d.DecodePVQWithTrace(band, n, k)
 			UpdateCollapseMask(&collapseMask, band)
 		} else {
 			// No pulses - fold from lower band
@@ -103,6 +106,13 @@ func (d *Decoder) DecodeBands(
 		for i := 0; i < n && i < len(shape); i++ {
 			coeffs[offset+i] = shape[i] * gain
 		}
+
+		// Trace denormalized coefficients
+		traceEnd := offset + n
+		if traceEnd > len(coeffs) {
+			traceEnd = len(coeffs)
+		}
+		DefaultTracer.TraceCoeffs(band, coeffs[offset:traceEnd])
 
 		offset += n
 	}
