@@ -178,6 +178,15 @@ func runTestVector(t *testing.T, name string) {
 
 	t.Logf("  Decoded: %d samples (%d per channel)", len(allDecoded), len(allDecoded)/channels)
 
+	// 4a. Convert mono output to stereo format if needed
+	// opus_demo always outputs stereo (2 channels), even for mono sources.
+	// For mono packets, L and R are identical. We must match this format.
+	if channels == 1 {
+		t.Logf("  Converting mono output to stereo (duplicating samples)")
+		allDecoded = duplicateMonoToStereo(allDecoded)
+		t.Logf("  After conversion: %d samples (stereo)", len(allDecoded))
+	}
+
 	// 5. Read reference files
 	reference, err := readPCMFile(decFile)
 	if err != nil {
@@ -231,6 +240,19 @@ func readPCMFile(filename string) ([]int16, error) {
 	}
 
 	return samples, nil
+}
+
+// duplicateMonoToStereo converts mono PCM samples to stereo by duplicating each sample.
+// This matches opus_demo behavior which always outputs stereo (L=R for mono sources).
+// Input:  [S0, S1, S2, ...]
+// Output: [S0, S0, S1, S1, S2, S2, ...]
+func duplicateMonoToStereo(mono []int16) []int16 {
+	stereo := make([]int16, len(mono)*2)
+	for i, s := range mono {
+		stereo[i*2] = s   // Left
+		stereo[i*2+1] = s // Right (duplicate)
+	}
+	return stereo
 }
 
 // ensureTestVectors downloads and extracts test vectors if needed.
@@ -690,6 +712,12 @@ func runVectorSilent(t *testing.T, name string) vectorResult {
 			continue
 		}
 		allDecoded = append(allDecoded, pcm...)
+	}
+
+	// 4a. Convert mono output to stereo format if needed
+	// opus_demo always outputs stereo (2 channels), even for mono sources.
+	if channels == 1 {
+		allDecoded = duplicateMonoToStereo(allDecoded)
 	}
 
 	// 5. Read reference files
