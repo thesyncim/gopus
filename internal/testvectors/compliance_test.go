@@ -486,6 +486,124 @@ func formatFrameSizes(sizes []int) string {
 	return strings.Join(ms, ",") + "ms"
 }
 
+// TestMonoCELTReferenceFormat investigates the format of testvector07 reference file.
+// This test diagnoses whether the 2x sample count difference is because libopus
+// outputs stereo even for mono sources.
+func TestMonoCELTReferenceFormat(t *testing.T) {
+	if err := ensureTestVectors(t); err != nil {
+		t.Skipf("Skipping: %v", err)
+		return
+	}
+
+	name := "testvector07"
+	bitFile := filepath.Join(testVectorDir, name+".bit")
+	decFile := filepath.Join(testVectorDir, name+".dec")
+
+	// 1. Parse .bit file to get packet info
+	packets, err := ReadBitstreamFile(bitFile)
+	if err != nil {
+		t.Fatalf("Failed to parse %s: %v", bitFile, err)
+	}
+
+	t.Logf("Total packets: %d", len(packets))
+
+	// Check TOC byte of first packet for stereo flag
+	if len(packets) > 0 && len(packets[0].Data) > 0 {
+		tocByte := packets[0].Data[0]
+		stereo := (tocByte & 0x04) != 0
+		config := tocByte >> 3
+		mode := getModeFromConfig(config)
+		t.Logf("First packet TOC: config=%d, mode=%s, stereo=%v", config, mode, stereo)
+		if stereo {
+			t.Logf("  TOC indicates stereo source")
+		} else {
+			t.Logf("  TOC indicates MONO source (stereo flag = 0)")
+		}
+	}
+
+	// 2. Calculate expected decoded samples (sum of frameSize * frameCount per packet)
+	var expectedSamples int
+	for _, pkt := range packets {
+		if len(pkt.Data) == 0 {
+			continue
+		}
+		tocByte := pkt.Data[0]
+		config := tocByte >> 3
+		frameCode := tocByte & 0x03
+		frameSize := getFrameSizeFromConfig(config)
+
+		// Calculate frame count from frame code
+		frameCount := 1
+		switch frameCode {
+		case 0:
+			frameCount = 1
+		case 1, 2:
+			frameCount = 2
+		case 3:
+			// Variable frame count - need to parse byte at offset 1
+			if len(pkt.Data) > 1 {
+				frameCount = int(pkt.Data[1] & 0x3F)
+				if frameCount == 0 {
+					frameCount = 1
+				}
+			}
+		}
+
+		expectedSamples += frameSize * frameCount
+	}
+	t.Logf("Expected decoded samples (sum of frameSize*frameCount): %d", expectedSamples)
+
+	// 3. Read reference file and count samples
+	reference, err := readPCMFile(decFile)
+	if err != nil {
+		t.Fatalf("Failed to read reference %s: %v", decFile, err)
+	}
+	t.Logf("Reference file samples: %d", len(reference))
+
+	// 4. Analyze the ratio
+	ratio := float64(len(reference)) / float64(expectedSamples)
+	t.Logf("Reference / Expected ratio: %.4f", ratio)
+
+	if ratio >= 1.95 && ratio <= 2.05 {
+		t.Logf("DIAGNOSIS: Reference file contains STEREO output for MONO source")
+		t.Logf("  This is expected libopus behavior: opus_demo outputs 2-channel stereo")
+		t.Logf("  even when input is mono (L and R are identical).")
+	} else if ratio >= 0.95 && ratio <= 1.05 {
+		t.Logf("DIAGNOSIS: Reference has mono samples, decoder may have a bug")
+	} else {
+		t.Logf("DIAGNOSIS: Unexpected ratio - further investigation needed")
+	}
+
+	// 5. Check if first few reference samples appear to be stereo-from-mono (L==R)
+	t.Logf("\nReference sample analysis (first 20 samples as L/R pairs):")
+	identicalPairs := 0
+	pairsToCheck := 10
+	if len(reference) >= pairsToCheck*2 {
+		for i := 0; i < pairsToCheck; i++ {
+			L := reference[i*2]
+			R := reference[i*2+1]
+			if L == R {
+				identicalPairs++
+			}
+			t.Logf("  Pair %d: L=%6d, R=%6d, identical=%v", i, L, R, L == R)
+		}
+		t.Logf("Identical L/R pairs: %d/%d", identicalPairs, pairsToCheck)
+		if identicalPairs >= pairsToCheck-1 {
+			t.Logf("CONCLUSION: Reference is stereo-from-mono (L==R for all pairs)")
+			t.Logf("  To match reference, decoder must output mono duplicated to stereo")
+		}
+	}
+
+	// Output diagnostic summary
+	t.Logf("\n=== SUMMARY ===")
+	t.Logf("Reference sample count: %d", len(reference))
+	t.Logf("Expected decoded (mono): %d", expectedSamples)
+	t.Logf("Ratio (reference/expected): %.4f", ratio)
+	if ratio >= 1.95 && ratio <= 2.05 {
+		t.Logf("Reference appears to be: STEREO-from-MONO (2 channels, L==R)")
+	}
+}
+
 // runVectorSilent runs a test vector and returns structured results without verbose logging.
 func runVectorSilent(t *testing.T, name string) vectorResult {
 	result := vectorResult{name: name}
