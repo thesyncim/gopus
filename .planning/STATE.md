@@ -12,7 +12,7 @@ See: .planning/PROJECT.md (updated 2026-01-23)
 Phase: 15 of 18 (CELT Decoder Quality)
 Plan: 0 of ? in current phase
 Status: Ready to plan
-Last activity: 2026-01-23 - v1.1 roadmap created
+Last activity: 2026-01-23 - Completed quick task 001: Add state-of-the-art README
 
 Progress: [##############                                                                                    ] 14% (54/~62 plans)
 
@@ -78,6 +78,12 @@ Recent decisions affecting current work:
 ### Blockers/Concerns
 
 None.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 001 | Add state-of-the-art README | 2026-01-23 | 09cc4c2 | [001-add-state-of-the-art-readme](./quick/001-add-state-of-the-art-readme/) |
 
 ## Session Continuity
 
