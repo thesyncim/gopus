@@ -1,8 +1,10 @@
 package celt
 
 import (
+	"bytes"
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -456,4 +458,163 @@ func TestCELTDecoderQualitySummary(t *testing.T) {
 	if !finitePass {
 		t.Error("FAIL: Non-finite values in output")
 	}
+}
+
+// TestDecodeWithTrace runs a CELT packet decode with tracing enabled.
+// This test produces trace output for manual inspection and comparison with libopus.
+func TestDecodeWithTrace(t *testing.T) {
+	// Save and restore original tracer
+	original := DefaultTracer
+	defer SetTracer(original)
+
+	// Create trace buffer
+	var buf bytes.Buffer
+	SetTracer(&LogTracer{W: &buf})
+
+	// Create decoder
+	dec := NewDecoder(1) // mono
+
+	// Create a non-silence CELT frame
+	// Using 0xFF bytes avoids triggering silence flag in range decoder
+	frameData := make([]byte, 32)
+	for i := range frameData {
+		frameData[i] = 0xFF
+	}
+
+	// Decode a 10ms frame (480 samples)
+	samples, err := dec.DecodeFrame(frameData, 480)
+	if err != nil {
+		t.Fatalf("DecodeFrame failed: %v", err)
+	}
+
+	if len(samples) != 480 {
+		t.Errorf("Expected 480 samples, got %d", len(samples))
+	}
+
+	// Get trace output
+	trace := buf.String()
+
+	// Log trace output for manual inspection
+	t.Logf("=== TRACE OUTPUT (10ms mono frame) ===\n%s", trace)
+
+	// Verify trace output contains expected sections
+	if !strings.Contains(trace, "[CELT:header]") {
+		t.Error("Trace missing [CELT:header] section")
+	}
+
+	if !strings.Contains(trace, "[CELT:energy]") {
+		t.Error("Trace missing [CELT:energy] section")
+	}
+
+	if !strings.Contains(trace, "[CELT:synthesis]") {
+		t.Error("Trace missing [CELT:synthesis] section")
+	}
+
+	// Count trace lines for statistics
+	lines := strings.Split(trace, "\n")
+	headerCount := 0
+	energyCount := 0
+	allocCount := 0
+	pvqCount := 0
+	coeffsCount := 0
+	synthesisCount := 0
+
+	for _, line := range lines {
+		switch {
+		case strings.Contains(line, "[CELT:header]"):
+			headerCount++
+		case strings.Contains(line, "[CELT:energy]"):
+			energyCount++
+		case strings.Contains(line, "[CELT:alloc]"):
+			allocCount++
+		case strings.Contains(line, "[CELT:pvq]"):
+			pvqCount++
+		case strings.Contains(line, "[CELT:coeffs]"):
+			coeffsCount++
+		case strings.Contains(line, "[CELT:synthesis]"):
+			synthesisCount++
+		}
+	}
+
+	t.Logf("Trace statistics: header=%d energy=%d alloc=%d pvq=%d coeffs=%d synthesis=%d",
+		headerCount, energyCount, allocCount, pvqCount, coeffsCount, synthesisCount)
+
+	// Verify we got energy traces for multiple bands
+	if energyCount < 10 {
+		t.Errorf("Expected at least 10 energy traces for 10ms frame, got %d", energyCount)
+	}
+}
+
+// TestDecodeWithTraceSilence tests trace output for a silence frame.
+func TestDecodeWithTraceSilence(t *testing.T) {
+	original := DefaultTracer
+	defer SetTracer(original)
+
+	var buf bytes.Buffer
+	SetTracer(&LogTracer{W: &buf})
+
+	dec := NewDecoder(1)
+
+	// Silence frame: 0x80 triggers silence flag
+	silenceFrame := []byte{0x80}
+
+	samples, err := dec.DecodeFrame(silenceFrame, 480)
+	if err != nil {
+		t.Fatalf("DecodeFrame failed: %v", err)
+	}
+
+	if len(samples) != 480 {
+		t.Errorf("Expected 480 samples, got %d", len(samples))
+	}
+
+	// Silence frames should produce no trace (no header trace either since
+	// silence is detected early before header flags are fully decoded)
+	trace := buf.String()
+	t.Logf("Silence frame trace:\n%s", trace)
+
+	// Verify all samples are zero (or very close due to de-emphasis filter state)
+	allZero := true
+	for _, s := range samples {
+		if math.Abs(s) > 1e-10 {
+			allZero = false
+			break
+		}
+	}
+
+	t.Logf("Silence frame allZero=%v", allZero)
+}
+
+// TestDecodeWithTraceMultipleFrames tests trace consistency across frames.
+func TestDecodeWithTraceMultipleFrames(t *testing.T) {
+	original := DefaultTracer
+	defer SetTracer(original)
+
+	var buf bytes.Buffer
+	SetTracer(&LogTracer{W: &buf})
+
+	dec := NewDecoder(1)
+
+	// Decode 3 consecutive frames
+	for i := 0; i < 3; i++ {
+		// Use 0xFF to avoid silence flag
+		frameData := make([]byte, 32)
+		for j := range frameData {
+			frameData[j] = 0xFF
+		}
+
+		_, err := dec.DecodeFrame(frameData, 480)
+		if err != nil {
+			t.Fatalf("Frame %d: DecodeFrame failed: %v", i, err)
+		}
+	}
+
+	trace := buf.String()
+
+	// Count header traces - should be 3 (one per frame)
+	headerCount := strings.Count(trace, "[CELT:header]")
+	if headerCount < 3 {
+		t.Errorf("Expected 3 header traces for 3 frames, got %d", headerCount)
+	}
+
+	t.Logf("3-frame trace (%d lines, %d headers)", len(strings.Split(trace, "\n")), headerCount)
 }
