@@ -90,6 +90,7 @@ Recent decisions affecting current work:
 - **Hybrid encoder zero energy:** Zero-energy output in hybrid round-trip
 - **Multistream encoder zero output:** Internal round-trip produces zero output
 - **CELT 2.5ms/5ms/10ms synthesis:** Smaller frame sizes have quality issues
+- **Ogg EOS handling:** ffplay shows "Packet processing failed" at stream end (plays correctly, error on close)
 
 ### Blockers/Concerns
 
@@ -101,9 +102,10 @@ None.
 |---|-------------|------|--------|-----------|
 | 001 | Add state-of-the-art README | 2026-01-23 | 09cc4c2 | [001-add-state-of-the-art-readme](./quick/001-add-state-of-the-art-readme/) |
 | 002 | Update module path to github.com/thesyncim/gopus | 2026-01-23 | c84619f | - |
+| 003 | Add example projects with ffmpeg interop | 2026-01-23 | 3aaf2f2 | [002-add-example-projects-with-ffmpeg-interop](./quick/002-add-example-projects-with-ffmpeg-interop/) |
 
 ## Session Continuity
 
-Last session: 2026-01-23T11:05:00Z
-Stopped at: Completed 15-04-PLAN.md
-Resume file: None - ready for 15-05-PLAN.md
+Last session: 2026-01-23
+Stopped at: Completed quick task 003: Add example projects with ffmpeg interop
+Resume file: None
