@@ -291,6 +291,38 @@ func (d *Decoder) decodeUniformInternal(ft uint32) uint32 {
 	return s
 }
 
+// DecodeSymbol decodes a symbol given cumulative frequencies and updates state.
+// fl: cumulative frequency of symbols before this one
+// fh: frequency of this symbol (fl + fh <= ft)
+// ft: total frequency (sum of all symbol frequencies)
+//
+// This implements the range decoder update: rng = s * fh, val = val - s * fl
+// where s = rng / ft (the scale factor).
+//
+// Reference: libopus celt/entdec.c ec_dec_update()
+func (d *Decoder) DecodeSymbol(fl, fh, ft uint32) {
+	if ft == 0 {
+		return
+	}
+
+	// Scale factor
+	s := d.rng / ft
+
+	// Update val: subtract cumulative frequency of symbols before this one
+	d.val -= s * fl
+
+	// Update range: new range is s * fh (the frequency of this symbol)
+	if fl+fh >= ft {
+		// Last symbol: use remaining range to avoid precision loss
+		d.rng -= s * fl
+	} else {
+		d.rng = s * fh
+	}
+
+	// Renormalize if needed
+	d.normalize()
+}
+
 // DecodeRawBits reads raw bits from the end of the buffer.
 // This is used for fine energy bits and PVQ sign bits.
 // Reference: libopus celt/entdec.c ec_dec_bits()
