@@ -433,7 +433,11 @@ type vectorResult struct {
 	q1                float64  // quality vs .dec
 	q2                float64  // quality vs m.dec
 	passed            bool
-	decodeErrors      int // total decode errors
+	decodeErrors      int  // total decode errors
+	decodedSamples    int  // decoded sample count (after stereo conversion)
+	referenceSamples  int  // reference sample count
+	sampleCountMatch  bool // true if decoded == reference sample count
+	isMono            bool // true if TOC indicates mono
 	err               error
 }
 
@@ -479,6 +483,30 @@ func TestComplianceSummary(t *testing.T) {
 
 	t.Log("")
 	t.Logf("Overall: %d/%d passed", passed, len(results))
+
+	// Report sample count verification
+	t.Log("")
+	t.Log("=== Sample Count Verification ===")
+	t.Log("")
+	t.Logf("%-14s | %-5s | %10s | %10s | %s",
+		"Vector", "Mono", "Decoded", "Reference", "Match")
+	t.Log("---------------|-------|------------|------------|-------")
+	sampleCountMatches := 0
+	for _, r := range results {
+		monoStr := "No"
+		if r.isMono {
+			monoStr = "Yes"
+		}
+		matchStr := "NO"
+		if r.sampleCountMatch {
+			matchStr = "YES"
+			sampleCountMatches++
+		}
+		t.Logf("%-14s | %-5s | %10d | %10d | %s",
+			r.name, monoStr, r.decodedSamples, r.referenceSamples, matchStr)
+	}
+	t.Log("")
+	t.Logf("Sample count matches: %d/%d", sampleCountMatches, len(results))
 
 	// Report on hybrid mode verification
 	t.Log("")
@@ -714,6 +742,9 @@ func runVectorSilent(t *testing.T, name string) vectorResult {
 		allDecoded = append(allDecoded, pcm...)
 	}
 
+	// Track mono status
+	result.isMono = !stereo
+
 	// 4a. Convert mono output to stereo format if needed
 	// opus_demo always outputs stereo (2 channels), even for mono sources.
 	if channels == 1 {
@@ -728,6 +759,11 @@ func runVectorSilent(t *testing.T, name string) vectorResult {
 	}
 
 	referenceAlt, _ := readPCMFile(mdecFile)
+
+	// Track sample counts
+	result.decodedSamples = len(allDecoded)
+	result.referenceSamples = len(reference)
+	result.sampleCountMatch = result.decodedSamples == result.referenceSamples
 
 	// 6. Compute quality metrics
 	result.q1 = ComputeQuality(allDecoded, reference, 48000)
