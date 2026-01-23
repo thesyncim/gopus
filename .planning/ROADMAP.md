@@ -24,7 +24,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 10: API Layer** - Frame-based API and io.Reader/Writer wrappers
 - [x] **Phase 11: Container** - Ogg Opus file read/write
 - [x] **Phase 12: Compliance & Polish** - Test vectors, cross-validation, documentation
-- [ ] **Phase 13: Multistream Public API** - Expose multistream encoder/decoder to users (Gap Closure)
+- [x] **Phase 13: Multistream Public API** - Expose multistream encoder/decoder to users (Gap Closure)
 - [ ] **Phase 14: Extended Frame Size Support** - Add 2.5/5/40/60ms frame support for RFC 8251 compliance (Gap Closure)
 
 ## Phase Details
@@ -247,7 +247,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 13-01-PLAN.md — MultistreamEncoder and MultistreamDecoder wrappers with round-trip tests
+- [x] 13-01-PLAN.md — MultistreamEncoder and MultistreamDecoder wrappers with round-trip tests
 
 ### Phase 14: Extended Frame Size Support
 **Goal**: Support all Opus frame sizes (2.5/5/10/20/40/60ms) for RFC 8251 test vector compliance
@@ -281,7 +281,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 10. API Layer | 2/2 | Complete | 2026-01-22 |
 | 11. Container | 2/2 | Complete | 2026-01-22 |
 | 12. Compliance & Polish | 3/3 | Complete | 2026-01-22 |
-| 13. Multistream Public API | 0/1 | Planned | — |
+| 13. Multistream Public API | 1/1 | Complete | 2026-01-23 |
 | 14. Extended Frame Size Support | 0/TBD | Pending | — |
 
 ---
@@ -310,4 +310,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 *Phase 12 complete: 2026-01-22*
 *Gap closure phases 13-14 added: 2026-01-23*
 *Phase 13 planned: 2026-01-23*
-*Total phases: 14 | Total plans: 49*
+*Phase 13 complete: 2026-01-23*
+*Total phases: 14 | Total plans: 50*
