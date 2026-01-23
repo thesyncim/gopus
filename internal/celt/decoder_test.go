@@ -6,6 +6,8 @@ import (
 	"math"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // TestDecodeFrame_SampleCount verifies DecodeFrame produces correct sample counts.
@@ -617,4 +619,281 @@ func TestDecodeWithTraceMultipleFrames(t *testing.T) {
 	}
 
 	t.Logf("3-frame trace (%d lines, %d headers)", len(strings.Split(trace, "\n")), headerCount)
+}
+
+// ============================================================================
+// Phase 15-08: Range decoder bit consumption tracking tests
+// These tests track how many bits the range decoder consumes at each stage.
+// ============================================================================
+
+// TestRangeDecoderBitConsumption tracks bits consumed at each decode stage.
+// Creates a known CELT packet and tracks rd.Tell() at key points.
+func TestRangeDecoderBitConsumption(t *testing.T) {
+	testCases := []struct {
+		name      string
+		frameSize int
+		dataLen   int
+	}{
+		{"20ms_64bytes", 960, 64},
+		{"20ms_32bytes", 960, 32},
+		{"10ms_32bytes", 480, 32},
+		{"5ms_16bytes", 240, 16},
+		{"2.5ms_8bytes", 120, 8},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create test frame data
+			frameData := make([]byte, tc.dataLen)
+			// Use pattern that won't trigger silence flag
+			for i := range frameData {
+				frameData[i] = byte(0xAA ^ byte(i))
+			}
+
+			d := NewDecoder(1)
+
+			// Decode and track bit consumption
+			samples, err := d.DecodeFrame(frameData, tc.frameSize)
+			if err != nil {
+				t.Logf("Decode error (may be expected for test data): %v", err)
+			}
+
+			// Log results
+			totalBits := tc.dataLen * 8
+			t.Logf("Packet: %d bytes = %d bits", tc.dataLen, totalBits)
+			t.Logf("Frame size: %d samples", tc.frameSize)
+			if samples != nil {
+				t.Logf("Output: %d samples", len(samples))
+			}
+
+			// Check range decoder state if available
+			rd := d.RangeDecoder()
+			if rd != nil {
+				bitsUsed := rd.Tell()
+				t.Logf("Bits consumed (Tell): %d", bitsUsed)
+				t.Logf("Consumption ratio: %.1f%%", 100*float64(bitsUsed)/float64(totalBits))
+			}
+		})
+	}
+}
+
+// TestRangeDecoderBitConsumptionByStage tracks bits consumed at each major stage.
+// This test manually steps through decode stages to measure consumption.
+func TestRangeDecoderBitConsumptionByStage(t *testing.T) {
+	// Create a test packet
+	frameData := make([]byte, 64)
+	for i := range frameData {
+		frameData[i] = byte(0x55 ^ byte(i*3))
+	}
+
+	frameSize := 960
+	mode := GetModeConfig(frameSize)
+
+	// Create decoder and range decoder
+	d := NewDecoder(1)
+
+	// Manually decode stages to track bit consumption
+	// Note: This creates a fresh range decoder for inspection
+	rd := &rangecoding.Decoder{}
+	rd.Init(frameData)
+	d.SetRangeDecoder(rd)
+
+	t.Logf("=== Bit Consumption by Stage ===")
+	t.Logf("Packet: %d bytes = %d bits", len(frameData), len(frameData)*8)
+
+	// Stage 0: Initial state
+	bitsAfterInit := rd.Tell()
+	t.Logf("After init: %d bits", bitsAfterInit)
+
+	// Stage 1: Decode silence flag
+	silence := rd.DecodeBit(15) == 1
+	bitsAfterSilence := rd.Tell()
+	t.Logf("After silence flag: %d bits (+%d for silence=%v)",
+		bitsAfterSilence, bitsAfterSilence-bitsAfterInit, silence)
+
+	if !silence {
+		// Stage 2: Decode transient flag (if LM >= 1)
+		var transient bool
+		if mode.LM >= 1 {
+			transient = rd.DecodeBit(3) == 1
+		}
+		bitsAfterTransient := rd.Tell()
+		t.Logf("After transient flag: %d bits (+%d for transient=%v)",
+			bitsAfterTransient, bitsAfterTransient-bitsAfterSilence, transient)
+
+		// Stage 3: Decode intra flag
+		intra := rd.DecodeBit(3) == 1
+		bitsAfterIntra := rd.Tell()
+		t.Logf("After intra flag: %d bits (+%d for intra=%v)",
+			bitsAfterIntra, bitsAfterIntra-bitsAfterTransient, intra)
+
+		// Stage 4: Coarse energy would be decoded here
+		// We can measure how much the full decode consumes
+		bitsBeforeCoarse := rd.Tell()
+
+		// Decode coarse energy for all bands
+		energies := d.DecodeCoarseEnergy(mode.EffBands, intra, mode.LM)
+		bitsAfterCoarse := rd.Tell()
+		t.Logf("After coarse energy: %d bits (+%d for %d bands)",
+			bitsAfterCoarse, bitsAfterCoarse-bitsBeforeCoarse, mode.EffBands)
+
+		// Log energy values
+		t.Logf("Coarse energies (first 5 bands):")
+		for i := 0; i < 5 && i < len(energies); i++ {
+			t.Logf("  Band %d: %.2f", i, energies[i])
+		}
+
+		// Remaining bits for allocation
+		remainingBits := len(frameData)*8 - bitsAfterCoarse
+		if remainingBits < 0 {
+			remainingBits = 0
+		}
+		t.Logf("Remaining bits for PVQ/fine energy: %d", remainingBits)
+
+		// Compute expected allocation
+		allocResult := ComputeAllocation(
+			remainingBits,
+			mode.EffBands,
+			nil,   // caps
+			nil,   // dynalloc
+			0,     // trim
+			-1,    // intensity
+			false, // dual stereo
+			mode.LM,
+		)
+
+		t.Logf("Allocation total: %d bits", allocResult.Total)
+		t.Logf("Allocation breakdown (first 5 bands):")
+		for i := 0; i < 5 && i < len(allocResult.BandBits); i++ {
+			t.Logf("  Band %d: bandBits=%d, fineBits=%d",
+				i, allocResult.BandBits[i], allocResult.FineBits[i])
+		}
+	}
+}
+
+// TestBitConsumptionVsAllocation compares expected allocation with actual consumption.
+func TestBitConsumptionVsAllocation(t *testing.T) {
+	testCases := []struct {
+		name      string
+		frameSize int
+		dataLen   int
+	}{
+		{"960_samples_48bytes", 960, 48},
+		{"960_samples_96bytes", 960, 96},
+		{"480_samples_32bytes", 480, 32},
+		{"240_samples_16bytes", 240, 16},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create test frame
+			frameData := make([]byte, tc.dataLen)
+			for i := range frameData {
+				frameData[i] = byte(0x33 ^ byte(i*7))
+			}
+
+			mode := GetModeConfig(tc.frameSize)
+			totalBits := tc.dataLen * 8
+
+			// Compute expected allocation
+			// Estimate bits available after header (~10 bits for flags)
+			headerOverhead := 10
+			availableBits := totalBits - headerOverhead
+			if availableBits < 0 {
+				availableBits = 0
+			}
+
+			allocResult := ComputeAllocation(
+				availableBits,
+				mode.EffBands,
+				nil,   // caps
+				nil,   // dynalloc
+				0,     // trim
+				-1,    // intensity
+				false, // dual stereo
+				mode.LM,
+			)
+
+			t.Logf("=== %s ===", tc.name)
+			t.Logf("Total packet bits: %d", totalBits)
+			t.Logf("Header overhead estimate: %d bits", headerOverhead)
+			t.Logf("Available for allocation: %d bits", availableBits)
+			t.Logf("Allocation computed: %d bits", allocResult.Total)
+
+			// Check allocation doesn't exceed available
+			if allocResult.Total > availableBits {
+				t.Errorf("Allocation (%d) exceeds available bits (%d)",
+					allocResult.Total, availableBits)
+			}
+
+			// Decode the frame to see actual consumption
+			d := NewDecoder(1)
+			samples, err := d.DecodeFrame(frameData, tc.frameSize)
+			if err != nil {
+				t.Logf("Decode error (test data): %v", err)
+			}
+
+			if samples != nil {
+				t.Logf("Decoded: %d samples", len(samples))
+			}
+
+			// Check final range decoder state
+			rd := d.RangeDecoder()
+			if rd != nil {
+				consumed := rd.Tell()
+				t.Logf("Actual bits consumed: %d (%.1f%% of packet)",
+					consumed, 100*float64(consumed)/float64(totalBits))
+
+				// Significant mismatch could indicate desync
+				expected := allocResult.Total + headerOverhead
+				delta := consumed - expected
+				if delta < 0 {
+					delta = -delta
+				}
+				if delta > totalBits/4 {
+					t.Logf("Note: Large delta between expected (%d) and actual (%d): %d bits",
+						expected, consumed, delta)
+				}
+			}
+		})
+	}
+}
+
+// TestRangeDecoderBitBudgetValidation validates bit budget tracking.
+func TestRangeDecoderBitBudgetValidation(t *testing.T) {
+	// Create a controlled test case
+	frameData := make([]byte, 32)
+	for i := range frameData {
+		frameData[i] = byte(0xCC ^ byte(i))
+	}
+
+	frameSize := 960
+	totalBits := len(frameData) * 8
+
+	d := NewDecoder(1)
+	_, err := d.DecodeFrame(frameData, frameSize)
+	if err != nil {
+		t.Logf("Decode error (expected for test data): %v", err)
+	}
+
+	rd := d.RangeDecoder()
+	if rd == nil {
+		t.Log("No range decoder available after decode")
+		return
+	}
+
+	consumed := rd.Tell()
+	t.Logf("Budget validation:")
+	t.Logf("  Packet size: %d bits", totalBits)
+	t.Logf("  Bits consumed: %d", consumed)
+	t.Logf("  Consumption: %.1f%%", 100*float64(consumed)/float64(totalBits))
+
+	// Consumption should not exceed packet size significantly
+	// (some overread is possible due to range coder normalization)
+	maxAllowed := totalBits + 32 // Allow some overread margin
+	if consumed > maxAllowed {
+		t.Errorf("Consumed %d bits exceeds max allowed %d", consumed, maxAllowed)
+	} else {
+		t.Logf("  Within budget: OK")
+	}
 }
