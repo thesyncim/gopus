@@ -8,16 +8,16 @@ import (
 // TestDecodeFrame_SampleCount verifies DecodeFrame produces correct sample counts.
 // This is an integration test confirming the full decode pipeline
 // (DecodeBands -> Synthesize -> output) produces the expected sample count
-// after the 14-01 fix.
+// after the 14-01 (MDCT bin count) and 14-02 (overlap-add) fixes.
 func TestDecodeFrame_SampleCount(t *testing.T) {
 	testCases := []struct {
 		frameSize       int
-		expectedSamples int // After overlap-add: 2*frameSize - Overlap
+		expectedSamples int // After 14-02 fix: exactly frameSize samples
 	}{
-		{120, 120},   // 2.5ms: 2*120 - 120 = 120
-		{240, 360},   // 5ms: 2*240 - 120 = 360
-		{480, 840},   // 10ms: 2*480 - 120 = 840
-		{960, 1800},  // 20ms: 2*960 - 120 = 1800
+		{120, 120},   // 2.5ms: 120 samples
+		{240, 240},   // 5ms: 240 samples
+		{480, 480},   // 10ms: 480 samples
+		{960, 960},   // 20ms: 960 samples
 	}
 
 	for _, tc := range testCases {
@@ -39,15 +39,16 @@ func TestDecodeFrame_SampleCount(t *testing.T) {
 }
 
 // TestDecodeFrame_SampleCount_Stereo verifies stereo DecodeFrame produces correct counts.
+// After 14-02 fix, stereo produces 2*frameSize interleaved samples.
 func TestDecodeFrame_SampleCount_Stereo(t *testing.T) {
 	testCases := []struct {
 		frameSize       int
-		expectedSamples int // Stereo interleaved: 2 * (2*frameSize - Overlap)
+		expectedSamples int // Stereo interleaved: 2 * frameSize
 	}{
 		{120, 240},   // 2.5ms: 2 * 120 = 240
-		{240, 720},   // 5ms: 2 * 360 = 720
-		{480, 1680},  // 10ms: 2 * 840 = 1680
-		{960, 3600},  // 20ms: 2 * 1800 = 3600
+		{240, 480},   // 5ms: 2 * 240 = 480
+		{480, 960},   // 10ms: 2 * 480 = 960
+		{960, 1920},  // 20ms: 2 * 960 = 1920
 	}
 
 	for _, tc := range testCases {
@@ -84,31 +85,22 @@ func TestDecodeFrame_InvalidFrameSizeRejected(t *testing.T) {
 }
 
 // TestDecodeFrame_ConsecutiveFrames verifies sample counts remain consistent across frames.
-// Note: PLC (Packet Loss Concealment) has two modes:
-// - Active concealment: returns 2*frameSize - Overlap samples (via Synthesize)
-// - Faded out (after many losses): returns frameSize samples (silence)
+// After 14-02 fix, DecodeFrame consistently returns frameSize samples.
 func TestDecodeFrame_ConsecutiveFrames(t *testing.T) {
 	d := NewDecoder(1)
 	d.Reset() // Ensure clean state
 	frameSize := 960
 
 	// Decode multiple consecutive frames (PLC mode)
-	// After many losses, PLC fades out and returns simpler output
 	for i := 0; i < 5; i++ {
 		samples, err := d.DecodeFrame(nil, frameSize)
 		if err != nil {
 			t.Fatalf("Frame %d: DecodeFrame error: %v", i, err)
 		}
 
-		// PLC returns either:
-		// - 2*frameSize - Overlap (active concealment via Synthesize)
-		// - frameSize (faded silence, early return)
-		// Both are valid depending on PLC state
-		validLen1 := 2*frameSize - Overlap // 1800 for active concealment
-		validLen2 := frameSize              // 960 for faded silence
-
-		if len(samples) != validLen1 && len(samples) != validLen2 {
-			t.Errorf("Frame %d: got %d samples, want %d or %d", i, len(samples), validLen1, validLen2)
+		// After 14-02 fix, output is consistently frameSize samples
+		if len(samples) != frameSize {
+			t.Errorf("Frame %d: got %d samples, want %d", i, len(samples), frameSize)
 		}
 	}
 }

@@ -11,52 +11,59 @@ package celt
 // This is the core operation for continuous audio reconstruction in CELT.
 //
 // Parameters:
-//   - current: windowed IMDCT output for current frame
+//   - current: windowed IMDCT output for current frame (2*frameSize samples)
 //   - prevOverlap: tail samples from previous frame (overlap region)
 //   - overlap: number of overlap samples (typically 120 for CELT)
 //
 // Returns:
-//   - output: reconstructed samples (len = len(current) - overlap)
+//   - output: reconstructed samples (frameSize = len(current)/2)
 //   - newOverlap: tail to save for next frame's overlap-add
 //
-// The overlap-add operation:
-// 1. First 'overlap' samples: sum current + prevOverlap
-// 2. Middle samples: copy directly from current
-// 3. Save last 'overlap' samples for next frame
+// The MDCT/IMDCT overlap-add operation per RFC 6716:
+// - IMDCT of N coefficients produces 2N windowed samples
+// - Output per frame is N samples (frameSize)
+// - First 'overlap' samples: sum current[0:overlap] + prevOverlap
+// - Middle samples: copy from current[overlap:frameSize]
+// - Save current[frameSize:frameSize+overlap] for next frame
 func OverlapAdd(current, prevOverlap []float64, overlap int) (output, newOverlap []float64) {
-	n := len(current)
-	if n <= overlap {
-		// Edge case: frame too short
+	n := len(current) // 2*frameSize samples from IMDCT
+	if n <= 2*overlap {
+		// Edge case: frame too short for proper overlap
 		if n == 0 {
 			return nil, prevOverlap
 		}
-		output = make([]float64, n)
-		for i := 0; i < n && i < len(prevOverlap); i++ {
+		// For very short frames, output what we can
+		frameSize := n / 2
+		if frameSize < 1 {
+			frameSize = 1
+		}
+		output = make([]float64, frameSize)
+		for i := 0; i < frameSize && i < len(prevOverlap); i++ {
 			output[i] = prevOverlap[i] + current[i]
 		}
 		newOverlap = make([]float64, overlap)
 		return output, newOverlap
 	}
 
-	// Normal case: frame longer than overlap
-	outputLen := n - overlap
-	output = make([]float64, outputLen)
+	// Output is frameSize = n/2 samples
+	frameSize := n / 2
+	output = make([]float64, frameSize)
 
-	// First 'overlap' samples: sum with previous frame's tail
-	for i := 0; i < overlap; i++ {
-		prev := 0.0
-		if i < len(prevOverlap) {
-			prev = prevOverlap[i]
-		}
-		output[i] = prev + current[i]
+	// First 'overlap' samples: sum with previous frame's saved tail
+	for i := 0; i < overlap && i < len(prevOverlap); i++ {
+		output[i] = prevOverlap[i] + current[i]
+	}
+	// If overlap exceeds prevOverlap length, just copy from current
+	for i := len(prevOverlap); i < overlap; i++ {
+		output[i] = current[i]
 	}
 
-	// Middle samples (overlap to n-overlap): copy directly
-	copy(output[overlap:], current[overlap:n-overlap])
+	// Middle samples: direct copy from current[overlap : frameSize]
+	copy(output[overlap:], current[overlap:frameSize])
 
-	// Save new overlap: last 'overlap' samples of current
+	// Save new overlap: current[frameSize : frameSize+overlap]
 	newOverlap = make([]float64, overlap)
-	copy(newOverlap, current[n-overlap:])
+	copy(newOverlap, current[frameSize:frameSize+overlap])
 
 	return output, newOverlap
 }
@@ -66,24 +73,25 @@ func OverlapAdd(current, prevOverlap []float64, overlap int) (output, newOverlap
 //
 // Returns: output samples only (prevOverlap is modified to contain new overlap)
 func OverlapAddInPlace(current []float64, prevOverlap []float64, overlap int) []float64 {
-	n := len(current)
-	if n <= overlap || len(prevOverlap) < overlap {
+	n := len(current) // 2*frameSize from IMDCT
+	if n <= 2*overlap || len(prevOverlap) < overlap {
 		return current
 	}
 
-	outputLen := n - overlap
-	output := make([]float64, outputLen)
+	// Output is frameSize = n/2 samples
+	frameSize := n / 2
+	output := make([]float64, frameSize)
 
 	// First 'overlap' samples: sum with previous
 	for i := 0; i < overlap; i++ {
 		output[i] = prevOverlap[i] + current[i]
 	}
 
-	// Middle samples
-	copy(output[overlap:], current[overlap:n-overlap])
+	// Middle samples: direct copy from current[overlap : frameSize]
+	copy(output[overlap:], current[overlap:frameSize])
 
-	// Update prevOverlap with new tail
-	copy(prevOverlap, current[n-overlap:])
+	// Update prevOverlap with new tail: current[frameSize : frameSize+overlap]
+	copy(prevOverlap, current[frameSize:frameSize+overlap])
 
 	return output
 }
