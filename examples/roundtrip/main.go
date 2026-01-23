@@ -66,6 +66,12 @@ func main() {
 	printQualityReport(original, decoded)
 }
 
+// Quality thresholds for pass/fail determination.
+const (
+	snrThreshold  = 10.0 // dB - minimum acceptable SNR
+	corrThreshold = 0.9  // minimum acceptable correlation
+)
+
 // runAllTests runs a matrix of test configurations.
 func runAllTests(duration float64) {
 	configs := []TestConfig{
@@ -80,16 +86,21 @@ func runAllTests(duration float64) {
 	signals := []string{"sine", "sweep", "noise"}
 
 	fmt.Printf("=== Roundtrip Quality Tests (%.1fs) ===\n\n", duration)
-	fmt.Printf("%-25s %-10s %10s %10s %10s\n",
-		"Config", "Signal", "SNR (dB)", "Corr", "Peak Err")
-	fmt.Println(string(make([]byte, 70)))
+	fmt.Printf("Thresholds: SNR > %.0f dB, Correlation > %.1f\n\n", snrThreshold, corrThreshold)
+	fmt.Printf("%-25s %-8s %9s %8s %10s %6s\n",
+		"Config", "Signal", "SNR (dB)", "Corr", "Peak Err", "Status")
+	fmt.Println(string(make([]byte, 75)))
+
+	passed, failed := 0, 0
 
 	for _, config := range configs {
 		for _, sig := range signals {
 			original := generateSignal(sig, duration, config.Channels)
 			decoded, err := roundtrip(original, config)
 			if err != nil {
-				fmt.Printf("%-25s %-10s %10s\n", config.Name, sig, "ERROR")
+				fmt.Printf("%-25s %-8s %9s %8s %10s %6s\n",
+					config.Name, sig, "-", "-", "-", "ERROR")
+				failed++
 				continue
 			}
 
@@ -97,13 +108,30 @@ func runAllTests(duration float64) {
 			corr := calculateCorrelation(original, decoded)
 			peakErr := calculatePeakError(original, decoded)
 
-			fmt.Printf("%-25s %-10s %10.2f %10.4f %10.6f\n",
-				config.Name, sig, snr, corr, peakErr)
+			// Determine pass/fail
+			status := "FAIL"
+			if snr > snrThreshold && math.Abs(corr) > corrThreshold {
+				status = "PASS"
+				passed++
+			} else {
+				failed++
+			}
+
+			fmt.Printf("%-25s %-8s %9.2f %8.4f %10.6f %6s\n",
+				config.Name, sig, snr, corr, peakErr, status)
 		}
 	}
 
-	fmt.Println()
-	fmt.Println("Note: gopus is in development; quality metrics will improve.")
+	// Summary
+	fmt.Println(string(make([]byte, 75)))
+	fmt.Printf("\nSummary: %d/%d tests passed (%.0f%%)\n",
+		passed, passed+failed, 100*float64(passed)/float64(passed+failed))
+
+	if failed > 0 {
+		fmt.Println("\n[!] Known issue: gopus decoder quality is in development.")
+		fmt.Println("    See: .planning/STATE.md 'Known Gaps' section")
+		fmt.Println("    Track: github.com/thesyncim/gopus/issues")
+	}
 }
 
 // generateSignal creates a test signal.
