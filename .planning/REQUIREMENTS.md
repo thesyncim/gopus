@@ -139,6 +139,8 @@ Explicitly excluded. Documented to prevent scope creep.
 
 Which phases cover which requirements.
 
+### v1.0 Requirements
+
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | DEC-01 | Phase 1: Foundation | Complete |
@@ -175,10 +177,26 @@ Which phases cover which requirements.
 | API-06 | Phase 10: API Layer | Complete |
 | CTR-01 | Phase 11: Container | Complete |
 | CTR-02 | Phase 11: Container | Complete |
-| CMP-01 | Phase 12: Compliance & Polish | Pending |
-| CMP-02 | Phase 12: Compliance & Polish | Pending |
+| CMP-01 | Phase 12/17: Compliance | Pending |
+| CMP-02 | Phase 12: Compliance & Polish | Complete |
 | CMP-03 | Phase 1: Foundation | Complete |
 | CMP-04 | Phase 1: Foundation | Complete |
+
+### v1.1 Requirements
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| DEQ-01 | Phase 16: SILK Decoder Quality | Pending |
+| DEQ-02 | Phase 15: CELT Decoder Quality | Pending |
+| DEQ-03 | Phase 17: Hybrid Decoder & Compliance | Pending |
+| DEQ-04 | Phase 17: Hybrid Decoder & Compliance | Pending |
+| ENQ-01 | Phase 18: Encoder Quality | Pending |
+| ENQ-02 | Phase 18: Encoder Quality | Pending |
+| ENQ-03 | Phase 18: Encoder Quality | Pending |
+| ENQ-04 | Phase 18: Encoder Quality | Pending |
+| FRM-01 | Phase 15: CELT Decoder Quality | Pending |
+| FRM-02 | Phase 15: CELT Decoder Quality | Pending |
+| FRM-03 | Phase 15: CELT Decoder Quality | Pending |
 
 **v1.0 Coverage:**
 - v1.0 requirements: 38 total
@@ -188,8 +206,11 @@ Which phases cover which requirements.
 
 **v1.1 Coverage:**
 - v1.1 requirements: 11 total (tech debt closure)
-- Mapped to phases: TBD (roadmap pending)
+- Mapped to phases: 11
+- Complete: 0
+- Pending: 11
 
 ---
 *Requirements defined: 2026-01-21*
 *v1.1 requirements added: 2026-01-23*
+*v1.1 traceability added: 2026-01-23*

@@ -4,6 +4,11 @@
 
 This roadmap transforms the gopus project from empty repository to full Opus codec implementation in pure Go. The journey starts with the foundational range coder (shared by all modes), builds decoders first (normative per RFC 6716, testable with official vectors), then encoders (non-normative, 2-3x more complex), and finishes with streaming API and container support. Each phase delivers a coherent, independently testable capability.
 
+## Milestones
+
+- ✅ **v1.0 MVP** - Phases 1-14 (shipped 2026-01-23)
+- 🚧 **v1.1 Quality & Tech Debt Closure** - Phases 15-18 (in progress)
+
 ## Phases
 
 **Phase Numbering:**
@@ -12,315 +17,187 @@ This roadmap transforms the gopus project from empty repository to full Opus cod
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [x] **Phase 1: Foundation** - Range coder, packet parsing, test infrastructure
-- [x] **Phase 2: SILK Decoder** - Decode SILK mode frames (speech)
-- [x] **Phase 3: CELT Decoder** - Decode CELT mode frames (music/audio)
-- [x] **Phase 4: Hybrid Decoder** - Combined SILK+CELT decoding, PLC
-- [x] **Phase 5: Multistream Decoder** - Surround sound decoding
-- [x] **Phase 6: SILK Encoder** - Encode speech to SILK frames
-- [x] **Phase 7: CELT Encoder** - Encode audio to CELT frames
-- [x] **Phase 8: Hybrid Encoder & Controls** - Full encoder with bitrate/VBR/FEC/DTX
-- [x] **Phase 9: Multistream Encoder** - Surround sound encoding
-- [x] **Phase 10: API Layer** - Frame-based API and io.Reader/Writer wrappers
-- [x] **Phase 11: Container** - Ogg Opus file read/write
-- [x] **Phase 12: Compliance & Polish** - Test vectors, cross-validation, documentation
-- [x] **Phase 13: Multistream Public API** - Expose multistream encoder/decoder to users (Gap Closure)
-- [x] **Phase 14: Extended Frame Size Support** - Add 2.5/5/40/60ms frame support for RFC 8251 compliance (Gap Closure)
-
-## Phase Details
+<details>
+<summary>✅ v1.0 MVP (Phases 1-14) - SHIPPED 2026-01-23</summary>
 
 ### Phase 1: Foundation
 **Goal**: Establish the entropy coding foundation that all Opus modes depend on
 **Depends on**: Nothing (first phase)
 **Requirements**: DEC-01, DEC-07, ENC-01, CMP-03, CMP-04
-**Success Criteria** (what must be TRUE):
-  1. Range decoder correctly decodes symbols using probability tables
-  2. Range encoder produces output decodable by range decoder (round-trip)
-  3. TOC byte parsed correctly to extract mode, bandwidth, frame size, stereo flag
-  4. Packet frame count codes 0-3 correctly parsed with frame lengths
-  5. Project builds with zero cgo dependencies on Go 1.21+
-**Plans**: 3 plans
-
-Plans:
-- [x] 01-01-PLAN.md - Range decoder implementation (RFC 6716 Section 4.1)
-- [x] 01-02-PLAN.md - Range encoder implementation with round-trip validation
-- [x] 01-03-PLAN.md - TOC byte and packet frame parsing
+**Plans**: 3/3 complete
 
 ### Phase 2: SILK Decoder
 **Goal**: Decode SILK-mode Opus packets (narrowband to wideband speech)
 **Depends on**: Phase 1
 **Requirements**: DEC-02, DEC-05, DEC-09, DEC-10
-**Success Criteria** (what must be TRUE):
-  1. SILK mono frames decode to audible speech at NB/MB/WB bandwidths
-  2. All SILK frame sizes (10/20/40/60ms) decode correctly
-  3. SILK stereo frames decode with correct mid-side unmixing
-  4. SILK decoder state persists correctly across frames (no artifacts at boundaries)
-**Plans**: 5 plans
-
-Plans:
-- [x] 02-01-PLAN.md - SILK tables, codebook, and decoder struct foundation
-- [x] 02-02-PLAN.md - Parameter decoding (frame type, gains, LSF/LPC, pitch/LTP)
-- [x] 02-03-PLAN.md - Excitation reconstruction and LPC/LTP synthesis
-- [x] 02-04-PLAN.md - Stereo decoding and frame orchestration
-- [x] 02-05-PLAN.md - Public API, resampling to 48kHz, and integration tests
+**Plans**: 5/5 complete
 
 ### Phase 3: CELT Decoder
 **Goal**: Decode CELT-mode Opus packets (music and general audio)
 **Depends on**: Phase 1
 **Requirements**: DEC-03, DEC-06
-**Success Criteria** (what must be TRUE):
-  1. CELT mono frames decode to audible audio at all bandwidths (NB to FB)
-  2. All CELT frame sizes (2.5/5/10/20ms) decode correctly
-  3. CELT stereo frames decode with correct intensity stereo handling
-  4. Transient frames (short MDCT blocks) decode without artifacts
-**Plans**: 5 plans
-
-Plans:
-- [x] 03-01-PLAN.md - CELT foundation (tables, modes, decoder struct)
-- [x] 03-02-PLAN.md - CWRS combinatorial indexing for PVQ
-- [x] 03-03-PLAN.md - Energy decoding and bit allocation
-- [x] 03-04-PLAN.md - PVQ band decoding and folding
-- [x] 03-05-PLAN.md - IMDCT synthesis, windowing, stereo
+**Plans**: 5/5 complete
 
 ### Phase 4: Hybrid Decoder
 **Goal**: Decode Hybrid-mode packets and implement packet loss concealment
 **Depends on**: Phase 2, Phase 3
 **Requirements**: DEC-04, DEC-08
-**Success Criteria** (what must be TRUE):
-  1. Hybrid mode frames decode with combined SILK (0-8kHz) and CELT (8-20kHz) output
-  2. Hybrid 10ms and 20ms frames decode correctly (only supported sizes)
-  3. SILK output correctly upsampled and summed with CELT output
-  4. Packet loss concealment produces reasonable audio when packet is NULL
-**Plans**: 3 plans
-
-Plans:
-- [x] 04-01-PLAN.md - Hybrid decoder foundation and SILK+CELT coordination
-- [x] 04-02-PLAN.md - Packet loss concealment (SILK PLC, CELT PLC, Hybrid PLC)
-- [x] 04-03-PLAN.md - Gap closure: real hybrid packet integration test (verification gap)
+**Plans**: 3/3 complete
 
 ### Phase 5: Multistream Decoder
 **Goal**: Decode multistream packets for surround sound configurations
 **Depends on**: Phase 4
 **Requirements**: DEC-11
-**Success Criteria** (what must be TRUE):
-  1. Multistream packets with coupled stereo streams decode correctly
-  2. Multistream packets with uncoupled mono streams decode correctly
-  3. Channel mapping table correctly routes streams to output channels
-  4. All streams in packet decoded with consistent timing
-**Plans**: 2 plans
-
-Plans:
-- [x] 05-01-PLAN.md — Multistream foundation (decoder struct, channel mapping, packet parser)
-- [x] 05-02-PLAN.md — Decode implementation with channel routing and tests
+**Plans**: 2/2 complete
 
 ### Phase 6: SILK Encoder
 **Goal**: Encode PCM audio to SILK-mode Opus packets
 **Depends on**: Phase 2
 **Requirements**: ENC-02, ENC-07, ENC-08
-**Success Criteria** (what must be TRUE):
-  1. SILK encoder produces packets decodable by Phase 2 SILK decoder
-  2. SILK encoder produces packets decodable by libopus (cross-validation)
-  3. Encoded speech is intelligible at target bitrates
-  4. Mono and stereo encoding both produce valid output
-**Plans**: 7 plans
-
-Plans:
-- [x] 06-01-PLAN.md — Range encoder extension (EncodeICDF16), encoder struct, VAD
-- [x] 06-02-PLAN.md — LPC analysis (Burg's method), LPC-to-LSF conversion
-- [x] 06-03-PLAN.md — Pitch detection (three-stage), LTP analysis
-- [x] 06-04-PLAN.md — Gain quantization, LSF quantization (two-stage VQ)
-- [x] 06-05-PLAN.md — Excitation encoding, stereo encoding, frame pipeline
-- [x] 06-06-PLAN.md — Gap closure: Fix pitch lag encoding, add mono round-trip tests
-- [x] 06-07-PLAN.md — Gap closure: Add stereo round-trip tests
+**Plans**: 7/7 complete
 
 ### Phase 7: CELT Encoder
 **Goal**: Encode PCM audio to CELT-mode Opus packets
 **Depends on**: Phase 3
 **Requirements**: ENC-03, CMP-02
-**Success Criteria** (what must be TRUE):
-  1. CELT encoder produces packets decodable by Phase 3 CELT decoder
-  2. CELT encoder produces packets decodable by libopus (cross-validation)
-  3. Encoded audio is perceptually acceptable at target bitrates
-  4. Transient detection triggers short MDCT blocks when appropriate
-**Plans**: 6 plans
-
-Plans:
-- [x] 07-01-PLAN.md — Encoder struct, forward MDCT, pre-emphasis filter
-- [x] 07-02-PLAN.md — Band energy computation, coarse/fine energy encoding
-- [x] 07-03-PLAN.md — PVQ band encoding (normalization, vectorToPulses, CWRS)
-- [x] 07-04-PLAN.md — Complete frame pipeline, transient detection, stereo, round-trip tests
-- [x] 07-05-PLAN.md — Gap closure: Fix range encoder byte format for round-trip compatibility
-- [x] 07-06-PLAN.md — Gap closure: Add libopus cross-validation tests
+**Plans**: 6/6 complete
 
 ### Phase 8: Hybrid Encoder & Controls
 **Goal**: Complete encoder with hybrid mode and all encoder controls
 **Depends on**: Phase 6, Phase 7
 **Requirements**: ENC-04, ENC-05, ENC-06, ENC-10, ENC-11, ENC-12, ENC-13, ENC-14, ENC-15
-**Success Criteria** (what must be TRUE):
-  1. Hybrid mode encoder produces valid SWB/FB speech packets
-  2. VBR mode produces variable-size packets based on content complexity
-  3. CBR mode produces consistent packet sizes within tolerance
-  4. Bitrate control respects target (6-510 kbps range)
-  5. In-band FEC encodes redundant data for loss recovery
-**Plans**: 6 plans
-
-Plans:
-- [x] 08-01-PLAN.md — Unified encoder struct with hybrid mode coordination (SILK+CELT)
-- [x] 08-02-PLAN.md — TOC byte generation and packet assembly
-- [x] 08-03-PLAN.md — VBR/CBR mode and bitrate control
-- [x] 08-04-PLAN.md — In-band FEC (LBRR) encoding
-- [x] 08-05-PLAN.md — DTX and complexity settings
-- [x] 08-06-PLAN.md — Integration tests and libopus cross-validation
+**Plans**: 6/6 complete
 
 ### Phase 9: Multistream Encoder
 **Goal**: Encode surround sound to multistream packets
 **Depends on**: Phase 8
 **Requirements**: ENC-09
-**Success Criteria** (what must be TRUE):
-  1. Multistream encoder produces packets decodable by Phase 5 decoder
-  2. Coupled stereo streams share appropriate cross-channel information
-  3. Channel mapping correctly routes input channels to streams
-**Plans**: 4 plans
-
-Plans:
-- [x] 09-01-PLAN.md — Encoder struct, creation, and channel routing (inverse of decoder)
-- [x] 09-02-PLAN.md — Self-delimiting packet assembly and Encode method
-- [x] 09-03-PLAN.md — Round-trip validation with Phase 5 decoder
-- [x] 09-04-PLAN.md — Libopus cross-validation tests
+**Plans**: 4/4 complete
 
 ### Phase 10: API Layer
 **Goal**: Production-ready Go API with frame-based and streaming interfaces
 **Depends on**: Phase 5, Phase 9
 **Requirements**: API-01, API-02, API-03, API-04, API-05, API-06
-**Success Criteria** (what must be TRUE):
-  1. Decoder.Decode() accepts packet bytes and returns PCM samples
-  2. Encoder.Encode() accepts PCM samples and returns packet bytes
-  3. io.Reader wraps decoder for streaming decode of packet sequences
-  4. io.Writer wraps encoder for streaming encode to packet sequences
-  5. Both int16 and float32 sample formats work correctly
-**Plans**: 2 plans
-
-Plans:
-- [x] 10-01-PLAN.md — Frame-based Encoder/Decoder public API with int16/float32 support
-- [x] 10-02-PLAN.md — io.Reader/Writer streaming wrappers with frame buffering
+**Plans**: 2/2 complete
 
 ### Phase 11: Container
 **Goal**: Read and write Ogg Opus container format
 **Depends on**: Phase 10
 **Requirements**: CTR-01, CTR-02
-**Success Criteria** (what must be TRUE):
-  1. Ogg Opus files created by FFmpeg/libopus can be read and decoded
-  2. Encoded audio can be written to Ogg Opus files playable by standard players
-  3. OpusHead and OpusTags headers correctly parsed/written per RFC 7845
-**Plans**: 2 plans
-
-Plans:
-- [x] 11-01-PLAN.md — Ogg page foundation (CRC, page structure, OpusHead/OpusTags headers)
-- [x] 11-02-PLAN.md — OggWriter and OggReader with opusdec integration tests
+**Plans**: 2/2 complete
 
 ### Phase 12: Compliance & Polish
 **Goal**: Validate against official test vectors and finalize for release
 **Depends on**: Phase 11
 **Requirements**: CMP-01, CMP-02
-**Success Criteria** (what must be TRUE):
-  1. Decoder passes all official RFC 8251 test vectors
-  2. Encoder output is decodable by libopus without errors
-  3. Zero cgo dependencies verified in final build
-  4. API documentation complete with examples
-**Plans**: 3 plans
-
-Plans:
-- [x] 12-01-PLAN.md — Fix import cycle in internal/encoder tests
-- [x] 12-02-PLAN.md — RFC 8251 test vector parsing and decoder compliance tests
-- [x] 12-03-PLAN.md — CGO-free build verification and testable documentation examples
+**Plans**: 3/3 complete
 
 ### Phase 13: Multistream Public API
 **Goal**: Expose multistream encoder/decoder for surround sound (5.1, 7.1) support
 **Depends on**: Phase 10
-**Requirements**: (Integration gap closure)
-**Gap Closure**: Closes audit gap - internal/multistream → gopus public API
-**Success Criteria** (what must be TRUE):
-  1. gopus.MultistreamEncoder wraps internal/multistream.Encoder
-  2. gopus.MultistreamDecoder wraps internal/multistream.Decoder
-  3. NewMultistreamEncoder/NewMultistreamDecoder with default configurations
-  4. Round-trip tests pass for 5.1 and 7.1 channel layouts
-**Plans**: 1 plan
-
-Plans:
-- [x] 13-01-PLAN.md — MultistreamEncoder and MultistreamDecoder wrappers with round-trip tests
+**Plans**: 1/1 complete
 
 ### Phase 14: Extended Frame Size Support
 **Goal**: Support all Opus frame sizes (2.5/5/10/20/40/60ms) for RFC 8251 test vector compliance
 **Depends on**: Phase 3, Phase 4
 **Requirements**: CMP-01
-**Gap Closure**: Closes audit gap - CMP-01 unsatisfied
+**Plans**: 5/5 complete
+
+</details>
+
+### 🚧 v1.1 Quality & Tech Debt Closure (In Progress)
+
+**Milestone Goal:** Achieve RFC 8251 compliance (Q >= 0) by fixing decoder algorithm quality and encoder signal energy issues.
+
+#### Phase 15: CELT Decoder Quality
+**Goal**: Fix CELT decoder algorithm issues to achieve reference-matching output
+**Depends on**: Phase 14
+**Requirements**: DEQ-02, FRM-01, FRM-02, FRM-03
 **Success Criteria** (what must be TRUE):
-  1. CELT decoder supports 2.5ms and 5ms frame sizes
-  2. SILK decoder supports 40ms and 60ms frame sizes
-  3. Extended frame sizes verified to appear only in SILK-only or CELT-only modes (not Hybrid per RFC 6716)
-  4. RFC 8251 test vectors pass with Q >= 0 threshold
-  5. CELT MDCT bin count matches frame size (fixes 1480 vs 960 mismatch)
-**Plans**: 5 plans
+  1. CELT decoder output correlates with reference audio (energy ratio > 50%)
+  2. CELT 2.5ms frames synthesize without audible artifacts
+  3. CELT 5ms frames synthesize without audible artifacts
+  4. CELT 10ms frames synthesize without audible artifacts
+  5. CELT-only test vectors achieve Q >= 0 threshold
+**Plans**: TBD
 
 Plans:
-- [x] 14-01-PLAN.md — Fix CELT MDCT bin count mismatch (DecodeBands returns frameSize coefficients)
-- [x] 14-02-PLAN.md — Enable CELT 2.5ms/5ms frame decoding with correct overlap-add
-- [x] 14-03-PLAN.md — Verify SILK 40ms/60ms sub-block decoding
-- [x] 14-04-PLAN.md — RFC 8251 compliance validation with frame size and mode logging
-- [x] 14-05-PLAN.md — Gap closure: Mode routing in decoder (SILK/CELT/Hybrid packet routing)
+- [ ] 15-01: TBD
+- [ ] 15-02: TBD
+
+#### Phase 16: SILK Decoder Quality
+**Goal**: Fix SILK decoder algorithm issues to achieve reference-matching output
+**Depends on**: Phase 15
+**Requirements**: DEQ-01
+**Success Criteria** (what must be TRUE):
+  1. SILK decoder output correlates with reference audio (energy ratio > 50%)
+  2. SILK LPC synthesis produces stable, non-exploding output
+  3. SILK excitation reconstruction matches reference signal characteristics
+  4. SILK-only test vectors achieve Q >= 0 threshold
+**Plans**: TBD
+
+Plans:
+- [ ] 16-01: TBD
+- [ ] 16-02: TBD
+
+#### Phase 17: Hybrid Decoder & Compliance
+**Goal**: Fix Hybrid decoder coordination and achieve full RFC 8251 compliance
+**Depends on**: Phase 15, Phase 16
+**Requirements**: DEQ-03, DEQ-04
+**Success Criteria** (what must be TRUE):
+  1. Hybrid decoder correctly combines SILK and CELT outputs at crossover frequency
+  2. Hybrid SILK-CELT timing alignment produces no phase artifacts
+  3. All 12 RFC 8251 test vectors pass with Q >= 0 threshold
+  4. No regression in SILK-only or CELT-only vector results
+**Plans**: TBD
+
+Plans:
+- [ ] 17-01: TBD
+- [ ] 17-02: TBD
+
+#### Phase 18: Encoder Quality
+**Goal**: Fix encoder signal energy preservation for round-trip testing
+**Depends on**: Phase 17
+**Requirements**: ENQ-01, ENQ-02, ENQ-03, ENQ-04
+**Success Criteria** (what must be TRUE):
+  1. SILK encoder round-trip preserves >10% signal energy
+  2. CELT encoder round-trip preserves >10% signal energy
+  3. Hybrid encoder round-trip produces non-zero output
+  4. Multistream encoder internal round-trip produces non-zero output
+  5. Encoded audio decoded by libopus produces >10% energy ratio
+**Plans**: TBD
+
+Plans:
+- [ ] 18-01: TBD
+- [ ] 18-02: TBD
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12 -> 13 -> 14
+Phases execute in numeric order: 1 -> 2 -> ... -> 14 -> 15 -> 16 -> 17 -> 18
 
-| Phase | Plans Complete | Status | Completed |
-|-------|----------------|--------|-----------|
-| 1. Foundation | 3/3 | Complete | 2026-01-21 |
-| 2. SILK Decoder | 5/5 | Complete | 2026-01-21 |
-| 3. CELT Decoder | 5/5 | Complete | 2026-01-21 |
-| 4. Hybrid Decoder | 3/3 | Complete | 2026-01-22 |
-| 5. Multistream Decoder | 2/2 | Complete | 2026-01-22 |
-| 6. SILK Encoder | 7/7 | Complete | 2026-01-22 |
-| 7. CELT Encoder | 6/6 | Complete | 2026-01-22 |
-| 8. Hybrid Encoder & Controls | 6/6 | Complete | 2026-01-22 |
-| 9. Multistream Encoder | 4/4 | Complete | 2026-01-22 |
-| 10. API Layer | 2/2 | Complete | 2026-01-22 |
-| 11. Container | 2/2 | Complete | 2026-01-22 |
-| 12. Compliance & Polish | 3/3 | Complete | 2026-01-22 |
-| 13. Multistream Public API | 1/1 | Complete | 2026-01-23 |
-| 14. Extended Frame Size Support | 5/5 | Complete | 2026-01-23 |
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|----------------|--------|-----------|
+| 1. Foundation | v1.0 | 3/3 | Complete | 2026-01-21 |
+| 2. SILK Decoder | v1.0 | 5/5 | Complete | 2026-01-21 |
+| 3. CELT Decoder | v1.0 | 5/5 | Complete | 2026-01-21 |
+| 4. Hybrid Decoder | v1.0 | 3/3 | Complete | 2026-01-22 |
+| 5. Multistream Decoder | v1.0 | 2/2 | Complete | 2026-01-22 |
+| 6. SILK Encoder | v1.0 | 7/7 | Complete | 2026-01-22 |
+| 7. CELT Encoder | v1.0 | 6/6 | Complete | 2026-01-22 |
+| 8. Hybrid Encoder & Controls | v1.0 | 6/6 | Complete | 2026-01-22 |
+| 9. Multistream Encoder | v1.0 | 4/4 | Complete | 2026-01-22 |
+| 10. API Layer | v1.0 | 2/2 | Complete | 2026-01-22 |
+| 11. Container | v1.0 | 2/2 | Complete | 2026-01-22 |
+| 12. Compliance & Polish | v1.0 | 3/3 | Complete | 2026-01-22 |
+| 13. Multistream Public API | v1.0 | 1/1 | Complete | 2026-01-23 |
+| 14. Extended Frame Size Support | v1.0 | 5/5 | Complete | 2026-01-23 |
+| 15. CELT Decoder Quality | v1.1 | 0/? | Not started | - |
+| 16. SILK Decoder Quality | v1.1 | 0/? | Not started | - |
+| 17. Hybrid Decoder & Compliance | v1.1 | 0/? | Not started | - |
+| 18. Encoder Quality | v1.1 | 0/? | Not started | - |
 
 ---
 *Roadmap created: 2026-01-21*
-*Phase 1 planned: 2026-01-21*
-*Phase 2 planned: 2026-01-21*
-*Phase 4 planned: 2026-01-21*
-*Phase 4 gap closure: 2026-01-22*
-*Phase 5 planned: 2026-01-22*
-*Phase 6 planned: 2026-01-22*
-*Phase 6 gap closure: 2026-01-22*
-*Phase 6 verified: 2026-01-22*
-*Phase 7 planned: 2026-01-22*
-*Phase 7 executed: 2026-01-22 (gaps found: libopus cross-validation, range coder signal quality)*
-*Phase 7 gap closure planned: 2026-01-22*
-*Phase 7 complete: 2026-01-22*
-*Phase 8 planned: 2026-01-22*
-*Phase 8 complete: 2026-01-22*
-*Phase 9 planned: 2026-01-22*
-*Phase 9 complete: 2026-01-22*
-*Phase 10 planned: 2026-01-22*
-*Phase 10 complete: 2026-01-22*
-*Phase 11 planned: 2026-01-22*
-*Phase 11 complete: 2026-01-22*
-*Phase 12 planned: 2026-01-22*
-*Phase 12 complete: 2026-01-22*
-*Gap closure phases 13-14 added: 2026-01-23*
-*Phase 13 planned: 2026-01-23*
-*Phase 13 complete: 2026-01-23*
-*Phase 14 planned: 2026-01-23*
-*Phase 14 revised: 2026-01-23 (clarified hybrid mode success criteria)*
-*Phase 14 executed: 2026-01-23 (4/5 criteria met, gaps found: mode routing architecture)*
-*Phase 14 gap closure planned: 2026-01-23*
-*Phase 14 complete: 2026-01-23*
-*Total phases: 14 | Total plans: 54*
+*v1.0 shipped: 2026-01-23 (14 phases, 54 plans)*
+*v1.1 roadmap added: 2026-01-23 (4 phases, TBD plans)*
