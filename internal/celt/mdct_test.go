@@ -1,6 +1,7 @@
 package celt
 
 import (
+	"fmt"
 	"math"
 	"testing"
 )
@@ -76,6 +77,141 @@ func TestIMDCT_KnownValues(t *testing.T) {
 		if maxAbs < 1e-10 {
 			t.Errorf("IMDCT(%d) with DC input produced all zeros", n)
 		}
+	}
+}
+
+// TestIMDCTEnergyConservation verifies energy is conserved through IMDCT.
+// Parseval's theorem: energy should be conserved (within factor determined by normalization).
+func TestIMDCTEnergyConservation(t *testing.T) {
+	// CELT frame sizes: 120 (2.5ms), 240 (5ms), 480 (10ms), 960 (20ms)
+	sizes := []int{120, 240, 480, 960}
+
+	for _, n := range sizes {
+		t.Run(fmt.Sprintf("N=%d", n), func(t *testing.T) {
+			// Create deterministic test spectrum with varying amplitudes
+			spectrum := make([]float64, n)
+			for i := range spectrum {
+				spectrum[i] = math.Sin(float64(i) * 0.1)
+			}
+
+			// Input energy (frequency domain)
+			inputEnergy := 0.0
+			for _, x := range spectrum {
+				inputEnergy += x * x
+			}
+
+			output := IMDCT(spectrum)
+
+			// Output energy (time domain)
+			outputEnergy := 0.0
+			for _, x := range output {
+				outputEnergy += x * x
+			}
+
+			// Ratio should be approximately constant (depends on normalization)
+			// For proper IMDCT with 2/N normalization, ratio ~ 4/N
+			ratio := outputEnergy / inputEnergy
+			expectedRatio := 4.0 / float64(n)
+
+			// Allow 50% tolerance due to normalization conventions
+			if ratio < expectedRatio*0.5 || ratio > expectedRatio*2.0 {
+				t.Errorf("Energy ratio %f outside expected range [%f, %f]",
+					ratio, expectedRatio*0.5, expectedRatio*2.0)
+			}
+		})
+	}
+}
+
+// TestIMDCTDCComponent verifies IMDCT produces non-zero output for DC input.
+// A DC component (spectrum[0]=1, rest 0) should produce specific pattern.
+func TestIMDCTDCComponent(t *testing.T) {
+	// CELT frame sizes: 120 (2.5ms), 240 (5ms), 480 (10ms), 960 (20ms)
+	sizes := []int{120, 240, 480, 960}
+
+	for _, n := range sizes {
+		t.Run(fmt.Sprintf("N=%d", n), func(t *testing.T) {
+			spectrum := make([]float64, n)
+			spectrum[0] = 1.0
+
+			output := IMDCT(spectrum)
+
+			// DC component should produce non-zero output
+			hasNonZero := false
+			for _, x := range output {
+				if math.Abs(x) > 1e-10 {
+					hasNonZero = true
+					break
+				}
+			}
+
+			if !hasNonZero {
+				t.Error("IMDCT of DC component produced all zeros")
+			}
+		})
+	}
+}
+
+// TestIMDCTDirectOutputLength verifies IMDCTDirect produces correct output length.
+// This specifically tests the direct implementation used for CELT's non-power-of-2 sizes.
+func TestIMDCTDirectOutputLength(t *testing.T) {
+	// Test with power-of-2 size
+	n := 256
+
+	spectrum := make([]float64, n)
+	for i := range spectrum {
+		spectrum[i] = math.Sin(float64(i) * 0.1)
+	}
+
+	directOut := IMDCTDirect(spectrum)
+
+	if len(directOut) != 2*n {
+		t.Errorf("IMDCTDirect produced %d samples, want %d", len(directOut), 2*n)
+	}
+
+	// Verify output has non-zero values
+	hasNonZero := false
+	for _, x := range directOut {
+		if math.Abs(x) > 1e-10 {
+			hasNonZero = true
+			break
+		}
+	}
+	if !hasNonZero {
+		t.Error("IMDCTDirect produced all zeros")
+	}
+}
+
+// TestIMDCTDirectCELTSizes verifies IMDCTDirect handles all CELT frame sizes.
+// CELT uses non-power-of-2 sizes (120, 240, 480, 960) where IMDCTDirect is required.
+func TestIMDCTDirectCELTSizes(t *testing.T) {
+	sizes := []int{120, 240, 480, 960}
+
+	for _, n := range sizes {
+		t.Run(fmt.Sprintf("N=%d", n), func(t *testing.T) {
+			spectrum := make([]float64, n)
+			for i := range spectrum {
+				spectrum[i] = math.Cos(float64(i) * 0.05)
+			}
+
+			output := IMDCTDirect(spectrum)
+
+			// Verify output length
+			if len(output) != 2*n {
+				t.Errorf("IMDCTDirect(%d) produced %d samples, want %d", n, len(output), 2*n)
+			}
+
+			// Verify output has expected properties (not all zeros)
+			hasNonZero := false
+			for _, x := range output {
+				if math.Abs(x) > 1e-10 {
+					hasNonZero = true
+					break
+				}
+			}
+			if !hasNonZero {
+				t.Errorf("IMDCTDirect(%d) produced all zeros", n)
+			}
+		})
 	}
 }
 
