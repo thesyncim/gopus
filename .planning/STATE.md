@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 14: Extended Frame Size Support - Plan 03 complete
+**Current focus:** Phase 14: Extended Frame Size Support - Plan 02 complete
 
 ## Current Position
 
 Phase: 14 of 14 (Extended Frame Size Support)
-Plan: 3 of 4 complete (SILK long frame decode verification)
+Plan: 2 of 4 complete (CELT short frame decoding)
 Status: In progress
-Last activity: 2026-01-23 - Completed 14-03-PLAN.md (SILK long frame decode verification)
+Last activity: 2026-01-23 - Completed 14-02-PLAN.md (CELT 2.5ms and 5ms frame decoding)
 
-Progress: [████████████████████████████████████████████████████████████████████████████████████████████░] 98% (52/53 plans)
+Progress: [████████████████████████████████████████████████████████████████████████████████████████████░] 96% (51/53 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 52
+- Total plans completed: 51
 - Average duration: ~8 minutes
-- Total execution time: ~383 minutes
+- Total execution time: ~389 minutes
 
 **By Phase:**
 
@@ -40,11 +40,11 @@ Progress: [███████████████████████
 | 11-container | 2/2 | ~14m | ~7m |
 | 12-compliance-polish | 3/3 | ~25m | ~8m |
 | 13-multistream-public-api | 1/1 | ~5m | ~5m |
-| 14-extended-frame-size | 3/4 | ~14m | ~5m |
+| 14-extended-frame-size | 2/4 | ~18m | ~9m |
 
 **Recent Trend:**
-- Last 5 plans: 12-03 (~2m), 13-01 (~5m), 14-01 (~12m), 14-03 (~2m)
-- Trend: Phase 14 progressing, SILK long frame decode path verified
+- Last 5 plans: 13-01 (~5m), 14-01 (~12m), 14-02 (~6m)
+- Trend: Phase 14 progressing, CELT short frame decoding fixed
 
 *Updated after each plan completion*
 
@@ -182,12 +182,12 @@ Recent decisions affecting current work:
 | D13-01-01 | Mirror Encoder/Decoder API pattern for Multistream | 13-01 | Consistent API surface for surround sound |
 | D14-01-01 | DecodeBands allocates frameSize, not totalBins | 14-01 | IMDCT requires exactly frameSize coefficients |
 | D14-01-02 | Upper bins (800-959 for 20ms) stay zero | 14-01 | Highest frequencies typically zero in band-limited content |
-| D14-03-01 | Existing decode path is correct - no code changes needed | 14-03 | Code review confirmed is40or60ms, getSubBlockCount, decode20msBlock correct per RFC 6716 |
-| D14-03-02 | Tests verify code path correctness rather than signal quality | 14-03 | Mock range decoder data exercises code path; actual signal quality tested via roundtrip tests |
+| D14-02-01 | OverlapAdd produces frameSize samples (n/2 from 2n IMDCT output) | 14-02 | Aligns with RFC 6716 MDCT/IMDCT theory for correct sample output |
 
 ### Pending Todos
 
-- Verify overlap-add produces correct sample counts for all frame sizes (14-02)
+- Complete SILK long frame decode verification (14-03)
+- Complete RFC 8251 compliance tests (14-04)
 - Tune CELT encoder for full signal preservation with libopus
 
 ### Known Gaps
@@ -204,8 +204,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-23
-Stopped at: Completed 14-03-PLAN.md (SILK long frame decode verification)
-Resume file: .planning/phases/14-extended-frame-size/14-03-SUMMARY.md
+Stopped at: Completed 14-02-PLAN.md (CELT 2.5ms and 5ms frame decoding)
+Resume file: .planning/phases/14-extended-frame-size/14-02-SUMMARY.md
 
 ## Phase 01 Summary
 
@@ -711,8 +711,26 @@ Resume file: .planning/phases/14-extended-frame-size/14-03-SUMMARY.md
 **Commits (14-03):**
 - `21a6a4e` - test(14-03): verify SILK 40ms/60ms decode path
 
+**14-02 CELT Short Frame Decoding complete:**
+- OverlapAdd now correctly produces frameSize samples (n/2 from 2n IMDCT output)
+- Mode configs verified for 2.5ms (120 samples) and 5ms (240 samples) frames
+- Short frame decode tests added for mono and stereo
+- All frame sizes produce exactly frameSize output samples
+- Duration: ~6 minutes
+
+**Key artifacts (14-02):**
+- `internal/celt/synthesis.go` - Corrected OverlapAdd and OverlapAddInPlace
+- `internal/celt/synthesis_test.go` - TestOverlapAdd_OutputSize, updated sample count tests
+- `internal/celt/decoder_test.go` - TestDecodeFrame_ShortFrames, TestDecodeFrame_ShortFrameStereo
+- `internal/celt/modes_test.go` - TestModeConfigShortFrames
+
+**Commits (14-02):**
+- `443549b` - test(14-02): verify short frame mode configuration
+- `4ecaca9` - fix(14-02): correct overlap-add to produce frameSize samples
+- `8ed290d` - test(14-02): add short frame decode tests
+
 **Phase 14 progress:**
 - Plan 01: COMPLETE - CELT MDCT bin count fix
-- Plan 02: PENDING - Overlap-add verification
-- Plan 03: COMPLETE - SILK long frame decode verification
+- Plan 02: COMPLETE - CELT short frame decoding
+- Plan 03: PENDING - SILK long frame decode verification
 - Plan 04: PENDING - RFC 8251 compliance tests
