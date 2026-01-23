@@ -257,7 +257,7 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. CELT decoder supports 2.5ms and 5ms frame sizes
   2. SILK decoder supports 40ms and 60ms frame sizes
-  3. Hybrid decoder coordinates extended frame sizes correctly
+  3. Extended frame sizes verified to appear only in SILK-only or CELT-only modes (not Hybrid per RFC 6716)
   4. RFC 8251 test vectors pass with Q >= 0 threshold
   5. CELT MDCT bin count matches frame size (fixes 1480 vs 960 mismatch)
 **Plans**: 4 plans
@@ -266,7 +266,7 @@ Plans:
 - [ ] 14-01-PLAN.md — Fix CELT MDCT bin count mismatch (DecodeBands returns frameSize coefficients)
 - [ ] 14-02-PLAN.md — Enable CELT 2.5ms/5ms frame decoding with correct overlap-add
 - [ ] 14-03-PLAN.md — Verify SILK 40ms/60ms sub-block decoding
-- [ ] 14-04-PLAN.md — RFC 8251 compliance validation with frame size logging
+- [ ] 14-04-PLAN.md — RFC 8251 compliance validation with frame size and mode logging
 
 ## Progress
 
@@ -318,4 +318,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 *Phase 13 planned: 2026-01-23*
 *Phase 13 complete: 2026-01-23*
 *Phase 14 planned: 2026-01-23*
+*Phase 14 revised: 2026-01-23 (clarified hybrid mode success criteria)*
 *Total phases: 14 | Total plans: 53*
