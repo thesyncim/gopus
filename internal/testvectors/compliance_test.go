@@ -234,8 +234,10 @@ func readPCMFile(filename string) ([]int16, error) {
 
 // ensureTestVectors downloads and extracts test vectors if needed.
 func ensureTestVectors(t *testing.T) error {
-	// Check if test vectors already exist
-	if _, err := os.Stat(filepath.Join(testVectorDir, "testvector01.bit")); err == nil {
+	// Check if test vectors already exist and are complete
+	if ok, err := testVectorsComplete(); err != nil {
+		return err
+	} else if ok {
 		t.Log("Test vectors already downloaded")
 		return nil
 	}
@@ -245,6 +247,10 @@ func ensureTestVectors(t *testing.T) error {
 	// Create testdata directory
 	if err := os.MkdirAll("testdata", 0755); err != nil {
 		return fmt.Errorf("failed to create testdata dir: %w", err)
+	}
+
+	if err := os.RemoveAll(testVectorDir); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove existing test vectors: %w", err)
 	}
 
 	// Download the archive
@@ -263,8 +269,33 @@ func ensureTestVectors(t *testing.T) error {
 		return fmt.Errorf("failed to extract test vectors: %w", err)
 	}
 
+	if ok, err := testVectorsComplete(); err != nil {
+		return err
+	} else if !ok {
+		return fmt.Errorf("downloaded test vectors are incomplete")
+	}
+
 	t.Log("Test vectors downloaded and extracted successfully")
 	return nil
+}
+
+func testVectorsComplete() (bool, error) {
+	for _, name := range testVectorNames {
+		for _, ext := range []string{".bit", ".dec"} {
+			path := filepath.Join(testVectorDir, name+ext)
+			info, err := os.Stat(path)
+			if err != nil {
+				if os.IsNotExist(err) {
+					return false, nil
+				}
+				return false, fmt.Errorf("failed to stat %s: %w", path, err)
+			}
+			if info.Size() == 0 {
+				return false, nil
+			}
+		}
+	}
+	return true, nil
 }
 
 // extractTarGz extracts a .tar.gz archive to testdata/
@@ -304,7 +335,7 @@ func extractTarGz(r io.Reader) error {
 
 		// Only extract .bit, .dec, and m.dec files
 		if !strings.HasSuffix(base, ".bit") &&
-		   !strings.HasSuffix(base, ".dec") {
+			!strings.HasSuffix(base, ".dec") {
 			continue
 		}
 
