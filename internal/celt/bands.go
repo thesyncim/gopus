@@ -92,15 +92,14 @@ func (d *Decoder) DecodeBands(
 		// Store vector for potential folding by later bands
 		bandVectors[band] = shape
 
-		// Denormalize: scale shape by energy
-		// Energy is in log2 scale (not dB): gain = 2^energy
-		// This matches libopus celt/bands.c denormalise_bands()
-		// Clamp energy to prevent overflow (libopus clamps to 32)
+		// Denormalize: scale shape by energy (energy is in dB units).
+		// A 6 dB step corresponds to a 2x gain, so gain = 2^(energy/DB6).
+		// Clamp energy to prevent overflow (libopus clamps to 32).
 		e := energies[band]
 		if e > 32 {
 			e = 32
 		}
-		gain := math.Exp2(e)
+		gain := math.Exp2(e / DB6)
 
 		// Apply gain to shape and write to output
 		for i := 0; i < n && i < len(shape); i++ {
@@ -243,7 +242,7 @@ func (d *Decoder) DecodeBandsStereo(
 		bandVectorsL[band] = shapeL
 		bandVectorsR[band] = shapeR
 
-		// Denormalize: scale by energy
+		// Denormalize: scale by energy (energy is in dB units).
 		// Energy is in log2 scale: gain = 2^energy
 		// Clamp energy to prevent overflow (libopus clamps to 32)
 		eL := energiesL[band]
@@ -254,8 +253,8 @@ func (d *Decoder) DecodeBandsStereo(
 		if eR > 32 {
 			eR = 32
 		}
-		gainL := math.Exp2(eL)
-		gainR := math.Exp2(eR)
+		gainL := math.Exp2(eL / DB6)
+		gainR := math.Exp2(eR / DB6)
 
 		for i := 0; i < n && i < len(shapeL); i++ {
 			left[offset+i] = shapeL[i] * gainL
@@ -364,7 +363,7 @@ func ilog2(x int) int {
 
 // DenormalizeBand scales a normalized band vector by its energy.
 // shape: normalized vector (unit L2 norm)
-// energy: band energy in log2 scale (gain = 2^energy)
+// energy: band energy in dB units (6 dB per doubling)
 // Returns: denormalized MDCT coefficients.
 //
 // This matches libopus celt/bands.c denormalise_bands().
@@ -378,7 +377,7 @@ func DenormalizeBand(shape []float64, energy float64) []float64 {
 	if e > 32 {
 		e = 32
 	}
-	gain := math.Exp2(e)
+	gain := math.Exp2(e / DB6)
 	result := make([]float64, len(shape))
 	for i, x := range shape {
 		result[i] = x * gain
@@ -386,9 +385,9 @@ func DenormalizeBand(shape []float64, energy float64) []float64 {
 	return result
 }
 
-// ComputeBandEnergy computes the L2 energy of a band in dB-like units.
+// ComputeBandEnergy computes the L2 energy of a band in dB units.
 // coeffs: MDCT coefficients for the band
-// Returns: energy = log2(sqrt(sum(x^2))) = 0.5 * log2(sum(x^2))
+// Returns: energy = DB6 * log2(sqrt(sum(x^2)))
 func ComputeBandEnergy(coeffs []float64) float64 {
 	if len(coeffs) == 0 {
 		return -28.0 // Default low energy
@@ -404,7 +403,8 @@ func ComputeBandEnergy(coeffs []float64) float64 {
 	}
 
 	// log2(sqrt(energy)) = 0.5 * log2(energy) = 0.5 * ln(energy) / ln(2)
-	return 0.5 * math.Log(energy) / 0.6931471805599453
+	// Convert to dB units: 6 dB per doubling.
+	return DB6 * (0.5 * math.Log(energy) / 0.6931471805599453)
 }
 
 // InterleaveBands interleaves band coefficients for transient frames.

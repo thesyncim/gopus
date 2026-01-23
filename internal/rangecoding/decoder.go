@@ -3,17 +3,18 @@ package rangecoding
 // Decoder implements the range decoder per RFC 6716 Section 4.1.
 // This is a bit-exact port of libopus entdec.c.
 type Decoder struct {
-	buf       []byte // Input buffer
-	storage   uint32 // Buffer size
-	offs      uint32 // Current read offset
-	endOffs   uint32 // End offset for raw bits
-	endWindow uint32 // Window for raw bits at end
-	nendBits  int    // Number of valid bits in end window
-	nbitsTotal int   // Total bits read (for tell functions)
-	rng       uint32 // Range size (must stay > EC_CODE_BOT after normalize)
-	val       uint32 // Current value in range
-	rem       int    // Buffered partial byte
-	err       int    // Error flag
+	buf        []byte // Input buffer
+	storage    uint32 // Buffer size
+	offs       uint32 // Current read offset
+	endOffs    uint32 // End offset for raw bits
+	endWindow  uint32 // Window for raw bits at end
+	nendBits   int    // Number of valid bits in end window
+	nbitsTotal int    // Total bits read (for tell functions)
+	rng        uint32 // Range size (must stay > EC_CODE_BOT after normalize)
+	val        uint32 // Current value in range
+	ext        uint32 // Saved normalization factor from decode()
+	rem        int    // Buffered partial byte
+	err        int    // Error flag
 }
 
 // Init initializes the decoder with the given byte buffer.
@@ -34,10 +35,11 @@ func (d *Decoder) Init(buf []byte) {
 	d.rem = int(d.readByte())
 	d.val = d.rng - 1 - uint32(d.rem>>(EC_SYM_BITS-EC_CODE_EXTRA))
 
-	// Set initial bit count BEFORE normalize
-	// Per libopus: nbits_total = EC_CODE_BITS + 1
-	// This accounts for the entropy consumed so far
-	d.nbitsTotal = EC_CODE_BITS + 1
+	// Set initial bit count BEFORE normalize (matches libopus ec_dec_init).
+	// This compensates for bits that will be added in normalize().
+	d.nbitsTotal = EC_CODE_BITS + 1 -
+		((EC_CODE_BITS-EC_CODE_EXTRA)/EC_SYM_BITS)*EC_SYM_BITS
+	d.ext = 0
 
 	// Normalize to fill the range (this will add more bits to nbitsTotal)
 	d.normalize()
@@ -76,35 +78,21 @@ func (d *Decoder) normalize() {
 // ftb is the number of bits of precision in the table (typically 8).
 // Returns the decoded symbol index.
 func (d *Decoder) DecodeICDF(icdf []uint8, ftb uint) int {
-	// Scale the range
-	r := d.rng >> ftb
-
-	// Find the symbol - linear search through icdf
-	// icdf values are in decreasing order: icdf[0] is largest, icdf[len-1] = 0
-	k := 0
+	s := d.rng
+	dval := d.val
+	r := s >> ftb
+	ret := -1
 	for {
-		threshold := r * uint32(icdf[k])
-		if d.val >= threshold {
-			break
+		t := s
+		ret++
+		s = r * uint32(icdf[ret])
+		if dval >= s {
+			d.val = dval - s
+			d.rng = t - s
+			d.normalize()
+			return ret
 		}
-		k++
 	}
-
-	// Update decoder state
-	// val = val - r * icdf[k]
-	d.val -= r * uint32(icdf[k])
-
-	// rng = r * (icdf[k-1] - icdf[k]) for k > 0, or rng - r*icdf[0] for k = 0
-	if k > 0 {
-		d.rng = r * uint32(icdf[k-1]-icdf[k])
-	} else {
-		d.rng -= r * uint32(icdf[0])
-	}
-
-	// Renormalize
-	d.normalize()
-
-	return k
 }
 
 // DecodeICDF16 decodes a symbol using a uint16 ICDF table.
@@ -114,35 +102,21 @@ func (d *Decoder) DecodeICDF(icdf []uint8, ftb uint) int {
 // ftb is the number of bits of precision in the table (typically 8).
 // Returns the decoded symbol index.
 func (d *Decoder) DecodeICDF16(icdf []uint16, ftb uint) int {
-	// Scale the range
-	r := d.rng >> ftb
-
-	// Find the symbol - linear search through icdf
-	// icdf values are in decreasing order: icdf[0] is largest, icdf[len-1] = 0
-	k := 0
+	s := d.rng
+	dval := d.val
+	r := s >> ftb
+	ret := -1
 	for {
-		threshold := r * uint32(icdf[k])
-		if d.val >= threshold {
-			break
+		t := s
+		ret++
+		s = r * uint32(icdf[ret])
+		if dval >= s {
+			d.val = dval - s
+			d.rng = t - s
+			d.normalize()
+			return ret
 		}
-		k++
 	}
-
-	// Update decoder state
-	// val = val - r * icdf[k]
-	d.val -= r * uint32(icdf[k])
-
-	// rng = r * (icdf[k-1] - icdf[k]) for k > 0, or rng - r*icdf[0] for k = 0
-	if k > 0 {
-		d.rng = r * uint32(icdf[k-1]-icdf[k])
-	} else {
-		d.rng -= r * uint32(icdf[0])
-	}
-
-	// Renormalize
-	d.normalize()
-
-	return k
 }
 
 // DecodeBit decodes a single bit with the given log probability.
@@ -150,25 +124,32 @@ func (d *Decoder) DecodeICDF16(icdf []uint16, ftb uint) int {
 // P(0) = 1 - 1/(2^logp), P(1) = 1/(2^logp)
 // Returns 0 or 1.
 //
-// Per RFC 6716 Section 4.1, the probability regions are:
-// - [0, rng-r): bit = 0, probability = (2^logp - 1) / 2^logp
-// - [rng-r, rng): bit = 1, probability = 1 / 2^logp
+// Per libopus entdec.c, the probability regions are:
+// - [0, s): bit = 1, probability = 1 / 2^logp (rare, bottom region)
+// - [s, rng): bit = 0, probability = (2^logp - 1) / 2^logp
 //
 // For silence flag (logp=15): P(silence=1) = 1/32768, which is very rare.
 func (d *Decoder) DecodeBit(logp uint) int {
-	r := d.rng >> logp
-	threshold := d.rng - r // '1' probability region is at TOP of range
-	if d.val >= threshold {
-		// Bit is 1 (rare case - val is in top 1/2^logp of range)
-		d.val -= threshold
-		d.rng = r
-		d.normalize()
-		return 1
+	r := d.rng
+	dval := d.val
+	s := r >> logp
+
+	// Per libopus: bit is 1 when dval < s (bottom region).
+	ret := 0
+	if dval < s {
+		ret = 1
+	} else {
+		d.val = dval - s
 	}
-	// Bit is 0 (common case - val is in bottom (2^logp - 1)/2^logp of range)
-	d.rng = threshold
+
+	if ret == 1 {
+		d.rng = s
+	} else {
+		d.rng = r - s
+	}
+
 	d.normalize()
-	return 0
+	return ret
 }
 
 // Tell returns the number of bits consumed so far.
@@ -262,45 +243,52 @@ func (d *Decoder) DecodeUniform(ft uint32) uint32 {
 		return 0
 	}
 
-	// Calculate number of bits needed
-	ftb := uint(ilog(ft - 1))
-	if ftb > EC_SYM_BITS {
-		// Multi-byte case: decode high bits with range coder, low bits raw
-		ftb -= EC_SYM_BITS
-		ft1 := (ft - 1) >> ftb
-		s := d.decodeUniformInternal(ft1 + 1)
-		// Read remaining bits raw
-		t := s << ftb
-		t |= d.DecodeRawBits(ftb)
-		if t >= ft {
-			t = ft - 1
+	ft--
+	ftb := ilog(ft)
+
+	if ftb > EC_UINT_BITS {
+		ftb -= EC_UINT_BITS
+		ft1 := (ft >> uint(ftb)) + 1
+		s := d.decode(ft1)
+		d.update(s, s+1, ft1)
+
+		t := (s << uint(ftb)) | d.DecodeRawBits(uint(ftb))
+		if t <= ft {
+			return t
 		}
-		return t
+		d.err = 1
+		return ft
 	}
-	// Single-byte case
-	return d.decodeUniformInternal(ft)
+
+	ft++
+	s := d.decode(ft)
+	d.update(s, s+1, ft)
+	return s
 }
 
-// decodeUniformInternal decodes a uniform value when ft <= 256.
-func (d *Decoder) decodeUniformInternal(ft uint32) uint32 {
-	r := d.rng / ft
-	s := d.val / r
-	if s >= ft {
+func (d *Decoder) decode(ft uint32) uint32 {
+	d.ext = d.rng / ft
+	s := d.val / d.ext
+	if s+1 > ft {
 		s = ft - 1
 	}
-	d.val -= s * r
-	if s+1 < ft {
-		d.rng = r
+	return ft - (s + 1)
+}
+
+func (d *Decoder) update(fl, fh, ft uint32) {
+	s := d.ext * (ft - fh)
+	d.val -= s
+	if fl > 0 {
+		d.rng = d.ext * (fh - fl)
 	} else {
-		d.rng -= s * r
+		d.rng -= s
 	}
 	d.normalize()
-	return s
 }
 
 // DecodeSymbol decodes a symbol given cumulative frequencies and updates state.
 // fl: cumulative frequency of symbols before this one
-// fh: frequency of this symbol (fl + fh <= ft)
+// fh: cumulative frequency up to and including this symbol
 // ft: total frequency (sum of all symbol frequencies)
 //
 // This implements the range decoder update: rng = s * fh, val = val - s * fl
@@ -311,23 +299,8 @@ func (d *Decoder) DecodeSymbol(fl, fh, ft uint32) {
 	if ft == 0 {
 		return
 	}
-
-	// Scale factor
-	s := d.rng / ft
-
-	// Update val: subtract cumulative frequency of symbols before this one
-	d.val -= s * fl
-
-	// Update range: new range is s * fh (the frequency of this symbol)
-	if fl+fh >= ft {
-		// Last symbol: use remaining range to avoid precision loss
-		d.rng -= s * fl
-	} else {
-		d.rng = s * fh
-	}
-
-	// Renormalize if needed
-	d.normalize()
+	d.ext = d.rng / ft
+	d.update(fl, fh, ft)
 }
 
 // DecodeRawBits reads raw bits from the end of the buffer.

@@ -20,6 +20,8 @@ import (
 func TestCELTDivergenceDiagnosis(t *testing.T) {
 	t.Logf("=== Divergence Diagnosis ===")
 	t.Logf("")
+	t.Logf("NOTE: DecodeBit now follows libopus (bit=1 when val < s).")
+	t.Logf("      The analysis below is retained for historical context.")
 
 	// Observation 1: Output is all zeros
 	t.Logf("OBSERVATION 1: Decoder output is all zeros")
@@ -186,20 +188,18 @@ func TestDecodeBitBehavior(t *testing.T) {
 			// Check what the current implementation returns
 			bit := rd.DecodeBit(15)
 
-			// The expected behavior: with logp=15, most values should give 0
-			// Only values in the top 1/32768 of the range should give 1
-			threshold := rng - r
+			// The expected behavior: with logp=15, most values should give 0.
+			// Only values in the bottom 1/32768 of the range should give 1 (libopus).
 			expectedCorrect := 0
-			if val >= threshold {
+			if val < r {
 				expectedCorrect = 1
 			}
 
 			t.Logf("Data: %v", tc.data)
-			t.Logf("  val=0x%08X, rng=0x%08X, r=0x%08X, threshold=0x%08X", val, rng, r, threshold)
+			t.Logf("  val=0x%08X, rng=0x%08X, r=0x%08X", val, rng, r)
 			t.Logf("  Current result: %d", bit)
 			t.Logf("  Expected (correct): %d", expectedCorrect)
-			t.Logf("  val >= r: %v (current comparison)", val >= r)
-			t.Logf("  val >= threshold: %v (correct comparison)", val >= threshold)
+			t.Logf("  val < r: %v (correct comparison)", val < r)
 
 			if bit != expectedCorrect {
 				t.Logf("  ** MISMATCH: Current implementation returns %d but should be %d **", bit, expectedCorrect)

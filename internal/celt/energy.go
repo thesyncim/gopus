@@ -8,7 +8,7 @@ const (
 	laplaceNMIN   = 16    // Minimum probability for non-zero magnitude
 	laplaceFS     = 32768 // Total frequency space
 	laplaceScale  = laplaceFS - laplaceNMIN
-	laplaceFTBits = 15    // log2(laplaceFS)
+	laplaceFTBits = 15 // log2(laplaceFS)
 )
 
 // ec_laplace_get_freq1 returns the frequency of the "1" symbol.
@@ -92,7 +92,7 @@ func (d *Decoder) decodeLaplace(fs int, decay int) int {
 		// Check positive k: cumulative range [cumFL, cumFL + fk)
 		if int(fm) >= cumFL && int(fm) < cumFL+fk {
 			// Positive k
-			d.updateRange(uint32(cumFL), uint32(fk), uint32(fs))
+			d.updateRange(uint32(cumFL), uint32(cumFL+fk), uint32(fs))
 			return k
 		}
 
@@ -104,7 +104,7 @@ func (d *Decoder) decodeLaplace(fs int, decay int) int {
 		}
 		if int(fm) >= negFL && int(fm) < negFL+fk {
 			// Negative k
-			d.updateRange(uint32(negFL), uint32(fk), uint32(fs))
+			d.updateRange(uint32(negFL), uint32(negFL+fk), uint32(fs))
 			return -k
 		}
 
@@ -120,10 +120,11 @@ func (d *Decoder) decodeLaplace(fs int, decay int) int {
 				remaining = laplaceNMIN
 			}
 			if int(fm) >= cumFL && int(fm) < cumFL+remaining {
-				d.updateRange(uint32(cumFL), uint32(remaining), uint32(fs))
+				d.updateRange(uint32(cumFL), uint32(cumFL+remaining), uint32(fs))
 				return k
 			}
-			d.updateRange(uint32(fs-cumFL-remaining), uint32(remaining), uint32(fs))
+			low := fs - cumFL - remaining
+			d.updateRange(uint32(low), uint32(low+remaining), uint32(fs))
 			return -k
 		}
 	}
@@ -131,7 +132,7 @@ func (d *Decoder) decodeLaplace(fs int, decay int) int {
 
 // updateRange updates the range decoder state after decoding a symbol.
 // fl: cumulative frequency of symbols before this one
-// fh: frequency of this symbol
+// fh: cumulative frequency up to and including this symbol
 // ft: total frequency
 func (d *Decoder) updateRange(fl, fh, ft uint32) {
 	rd := d.rangeDecoder
@@ -262,8 +263,8 @@ func (d *Decoder) decodeUniform(ft uint) int {
 		k = uint32(ft) - 1
 	}
 
-	// Update range decoder state
-	d.updateRange(k, 1, uint32(ft))
+	// Update range decoder state (uniform => [k, k+1))
+	d.updateRange(k, k+1, uint32(ft))
 
 	return int(k)
 }
@@ -300,7 +301,7 @@ func (d *Decoder) DecodeFineEnergy(energies []float64, nbBands int, fineBits []i
 
 			// Compute offset: (q + 0.5) / (1 << fineBits) - 0.5
 			// This centers the quantization levels
-			offset := (float64(q) + 0.5) / float64(ft) - 0.5
+			offset := (float64(q)+0.5)/float64(ft) - 0.5
 
 			// Add offset * 6.0 to coarse energy (6 dB range for fine adjustment)
 			idx := c*nbBands + band

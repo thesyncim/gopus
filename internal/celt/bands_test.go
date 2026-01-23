@@ -390,10 +390,10 @@ func TestDecodeBands_OutputSize(t *testing.T) {
 	}{
 		// totalBins = sum(ScaledBandWidth(band, frameSize) for band in 0..nbBands-1)
 		// These are calculated from EBands table with scaling
-		{"2.5ms", 120, 13, 20},   // EffBands=13, bands sum to 20
-		{"5ms", 240, 17, 80},     // EffBands=17, bands sum to 80
-		{"10ms", 480, 19, 240},   // EffBands=19, bands sum to 240
-		{"20ms", 960, 21, 800},   // EffBands=21, bands sum to 800
+		{"2.5ms", 120, 13, 20}, // EffBands=13, bands sum to 20
+		{"5ms", 240, 17, 80},   // EffBands=17, bands sum to 80
+		{"10ms", 480, 19, 240}, // EffBands=19, bands sum to 240
+		{"20ms", 960, 21, 800}, // EffBands=21, bands sum to 800
 	}
 
 	for _, tc := range testCases {
@@ -465,50 +465,50 @@ func TestDecodeBandsStereo_OutputSize(t *testing.T) {
 }
 
 // TestDenormalizeBand verifies energy scaling produces correct amplitudes.
-// Energy is in log2 scale: gain = 2^energy
+// Energy is in dB units: gain = 2^(energy/DB6)
 // This matches libopus celt/bands.c denormalise_bands().
 func TestDenormalizeBand(t *testing.T) {
 	tests := []struct {
 		name     string
 		shape    []float64
 		energy   float64
-		wantGain float64 // Expected gain = 2^energy
+		wantGain float64 // Expected gain = 2^(energy/DB6)
 	}{
 		{
 			name:     "zero energy",
 			shape:    []float64{1.0, 0.0, 0.0},
 			energy:   0.0,
-			wantGain: 1.0, // 2^0 = 1
+			wantGain: 1.0, // 2^(0/DB6) = 1
 		},
 		{
-			name:     "positive energy",
+			name:     "positive energy (6 dB)",
 			shape:    []float64{0.5, 0.5, 0.5, 0.5},
-			energy:   3.0,
-			wantGain: 8.0, // 2^3 = 8
+			energy:   6.0,
+			wantGain: 2.0, // 2^(6/6) = 2
 		},
 		{
-			name:     "negative energy",
+			name:     "negative energy (-6 dB)",
 			shape:    []float64{1.0},
-			energy:   -2.0,
-			wantGain: 0.25, // 2^-2 = 0.25
+			energy:   -6.0,
+			wantGain: 0.5, // 2^(-6/6) = 0.5
 		},
 		{
-			name:     "fractional energy",
+			name:     "fractional energy (9 dB)",
 			shape:    []float64{0.707, 0.707},
-			energy:   1.5,
-			wantGain: 2.828, // 2^1.5 ~= 2.828
+			energy:   9.0,
+			wantGain: 2.828, // 2^(9/6) ~= 2.828
 		},
 		{
-			name:     "energy = 1 (gain = 2)",
+			name:     "energy = 6 (gain = 2)",
 			shape:    []float64{1, 0, 0, 0},
-			energy:   1.0,
-			wantGain: 2.0, // 2^1 = 2
+			energy:   6.0,
+			wantGain: 2.0, // 2^(6/6) = 2
 		},
 		{
-			name:     "energy = -1 (gain = 0.5)",
+			name:     "energy = -6 (gain = 0.5)",
 			shape:    []float64{1, 0, 0, 0},
-			energy:   -1.0,
-			wantGain: 0.5, // 2^-1 = 0.5
+			energy:   -6.0,
+			wantGain: 0.5, // 2^(-6/6) = 0.5
 		},
 	}
 
@@ -544,8 +544,8 @@ func TestDenormalizeEnergyClamping(t *testing.T) {
 	if math.IsInf(resultHigh[0], 0) || math.IsNaN(resultHigh[0]) {
 		t.Error("High energy caused overflow or NaN")
 	}
-	// Expect clamped to 2^32
-	maxGain := math.Exp2(32)
+	// Expect clamped to 2^(32/DB6)
+	maxGain := math.Exp2(32 / DB6)
 	if resultHigh[0] > maxGain*1.001 {
 		t.Errorf("High energy not clamped: got %v, want <= %v", resultHigh[0], maxGain)
 	}
@@ -567,10 +567,10 @@ func TestDenormalizeEnergyClamping(t *testing.T) {
 // TestComputeBandEnergy verifies energy computation.
 func TestComputeBandEnergy(t *testing.T) {
 	// Coefficients with known energy
-	// sum(x^2) = 4, sqrt = 2, log2(2) = 1
+	// sum(x^2) = 4, sqrt = 2, log2(2) = 1, energy = DB6 * 1
 	coeffs := []float64{1, 1, 1, 1}
 	energy := ComputeBandEnergy(coeffs)
-	expected := 0.5 * math.Log(4.0) / 0.6931471805599453 // log2(sqrt(4)) = log2(2) = 1
+	expected := DB6 * (0.5 * math.Log(4.0) / 0.6931471805599453)
 	if math.Abs(energy-expected) > 1e-10 {
 		t.Errorf("ComputeBandEnergy = %v, want %v", energy, expected)
 	}
@@ -677,9 +677,9 @@ func TestThetaToGains(t *testing.T) {
 		midExp  float64
 		sideExp float64
 	}{
-		{itheta: 0, qn: 8, midExp: 1.0, sideExp: 0.0},       // Pure mid
-		{itheta: 8, qn: 8, midExp: 0.0, sideExp: 1.0},       // Pure side
-		{itheta: 4, qn: 8, midExp: 0.707, sideExp: 0.707},   // 45 degrees (approx)
+		{itheta: 0, qn: 8, midExp: 1.0, sideExp: 0.0},     // Pure mid
+		{itheta: 8, qn: 8, midExp: 0.0, sideExp: 1.0},     // Pure side
+		{itheta: 4, qn: 8, midExp: 0.707, sideExp: 0.707}, // 45 degrees (approx)
 	}
 
 	for _, tt := range tests {
@@ -863,11 +863,11 @@ func TestKToBitsValues(t *testing.T) {
 	testCases := []struct {
 		k, n int
 	}{
-		{1, 2},  // V(2,1) = 4
-		{1, 4},  // V(4,1) = 8
-		{1, 8},  // V(8,1) = 16
-		{2, 4},  // V(4,2) = 32
-		{4, 8},  // V(8,4) is large
+		{1, 2}, // V(2,1) = 4
+		{1, 4}, // V(4,1) = 8
+		{1, 8}, // V(8,1) = 16
+		{2, 4}, // V(4,2) = 32
+		{4, 8}, // V(8,4) is large
 	}
 
 	for _, tc := range testCases {

@@ -271,14 +271,14 @@ func (e *Encoder) encodeLaplace(val int, decay int) {
 	// Encode based on sign
 	if val > 0 {
 		// Positive values: cumulative starts at cumFL
-		re.Encode(uint32(cumFL), uint32(fk), uint32(laplaceFS))
+		re.Encode(uint32(cumFL), uint32(cumFL+fk), uint32(laplaceFS))
 	} else {
 		// Negative values: from the end
 		negFL := laplaceFS - cumFL - fk
 		if negFL < 0 {
 			negFL = 0
 		}
-		re.Encode(uint32(negFL), uint32(fk), uint32(laplaceFS))
+		re.Encode(uint32(negFL), uint32(negFL+fk), uint32(laplaceFS))
 	}
 }
 
@@ -331,7 +331,7 @@ func (e *Encoder) EncodeFineEnergy(energies []float64, quantizedCoarse []float64
 			// fine / DB6 + 0.5 = (q + 0.5) / ft
 			// q = (fine / DB6 + 0.5) * ft - 0.5
 			ft := 1 << bits
-			q := int(math.Round((fine/DB6 + 0.5) * float64(ft) - 0.5))
+			q := int(math.Round((fine/DB6+0.5)*float64(ft) - 0.5))
 
 			// Clamp to valid range
 			if q < 0 {
