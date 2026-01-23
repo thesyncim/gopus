@@ -105,7 +105,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 </details>
 
-### 🚧 v1.1 Quality & Tech Debt Closure (In Progress)
+### v1.1 Quality & Tech Debt Closure (In Progress)
 
 **Milestone Goal:** Achieve RFC 8251 compliance (Q >= 0) by fixing decoder algorithm quality and encoder signal energy issues.
 
@@ -119,11 +119,14 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. CELT 5ms frames synthesize without audible artifacts
   4. CELT 10ms frames synthesize without audible artifacts
   5. CELT-only test vectors achieve Q >= 0 threshold
-**Plans**: TBD
+**Plans**: 5 plans
 
 Plans:
-- [ ] 15-01: TBD
-- [ ] 15-02: TBD
+- [ ] 15-01-PLAN.md — Fix coarse energy prediction coefficients (BetaCoef)
+- [ ] 15-02-PLAN.md — Fix range decoder integration for Laplace decoding
+- [ ] 15-03-PLAN.md — Verify and fix denormalization formula
+- [ ] 15-04-PLAN.md — Verify IMDCT synthesis for all CELT frame sizes
+- [ ] 15-05-PLAN.md — Frame-size-specific testing and quality validation
 
 #### Phase 16: SILK Decoder Quality
 **Goal**: Fix SILK decoder algorithm issues to achieve reference-matching output
@@ -192,7 +195,7 @@ Phases execute in numeric order: 1 -> 2 -> ... -> 14 -> 15 -> 16 -> 17 -> 18
 | 12. Compliance & Polish | v1.0 | 3/3 | Complete | 2026-01-22 |
 | 13. Multistream Public API | v1.0 | 1/1 | Complete | 2026-01-23 |
 | 14. Extended Frame Size Support | v1.0 | 5/5 | Complete | 2026-01-23 |
-| 15. CELT Decoder Quality | v1.1 | 0/? | Not started | - |
+| 15. CELT Decoder Quality | v1.1 | 0/5 | Ready | - |
 | 16. SILK Decoder Quality | v1.1 | 0/? | Not started | - |
 | 17. Hybrid Decoder & Compliance | v1.1 | 0/? | Not started | - |
 | 18. Encoder Quality | v1.1 | 0/? | Not started | - |
