@@ -5,7 +5,7 @@ import (
 	"math/rand"
 	"testing"
 
-	"gopus/internal/rangecoding"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // TestVectorToPulses verifies that vectorToPulses converts normalized floats

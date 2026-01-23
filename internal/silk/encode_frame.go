@@ -1,6 +1,6 @@
 package silk
 
-import "gopus/internal/rangecoding"
+import "github.com/thesyncim/gopus/internal/rangecoding"
 
 // EncodeFrame encodes a complete SILK frame to bitstream.
 // Returns encoded bytes.

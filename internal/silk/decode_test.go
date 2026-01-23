@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"gopus/internal/rangecoding"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // ============================================================================

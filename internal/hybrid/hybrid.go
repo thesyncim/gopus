@@ -1,8 +1,8 @@
 package hybrid
 
 import (
-	"gopus/internal/plc"
-	"gopus/internal/rangecoding"
+	"github.com/thesyncim/gopus/internal/plc"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // hybridPLCState tracks packet loss concealment state for Hybrid decoding.

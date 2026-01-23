@@ -2,8 +2,8 @@
 
 **Pure Go implementation of the Opus audio codec**
 
-[![Go Reference](https://pkg.go.dev/badge/gopus.svg)](https://pkg.go.dev/gopus)
-[![Go Report Card](https://goreportcard.com/badge/gopus)](https://goreportcard.com/report/gopus)
+[![Go Reference](https://pkg.go.dev/badge/github.com/thesyncim/gopus.svg)](https://pkg.go.dev/github.com/thesyncim/gopus)
+[![Go Report Card](https://goreportcard.com/badge/github.com/thesyncim/gopus)](https://goreportcard.com/report/github.com/thesyncim/gopus)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
 
 ---
@@ -64,7 +64,7 @@
 ## Installation
 
 ```bash
-go get gopus
+go get github.com/thesyncim/gopus
 ```
 
 **Requirements:** Go 1.18 or later
@@ -80,7 +80,8 @@ package main
 
 import (
     "log"
-    "gopus"
+
+    "github.com/thesyncim/gopus"
 )
 
 func main() {
@@ -111,7 +112,8 @@ package main
 
 import (
     "log"
-    "gopus"
+
+    "github.com/thesyncim/gopus"
 )
 
 func main() {
@@ -201,7 +203,8 @@ package main
 
 import (
     "log"
-    "gopus"
+
+    "github.com/thesyncim/gopus"
 )
 
 func main() {
@@ -245,8 +248,8 @@ import (
     "log"
     "os"
 
-    "gopus"
-    "gopus/container/ogg"
+    "github.com/thesyncim/gopus"
+    "github.com/thesyncim/gopus/container/ogg"
 )
 
 func main() {
@@ -283,8 +286,8 @@ import (
     "log"
     "os"
 
-    "gopus"
-    "gopus/container/ogg"
+    "github.com/thesyncim/gopus"
+    "github.com/thesyncim/gopus/container/ogg"
 )
 
 func main() {
@@ -325,7 +328,8 @@ package main
 import (
     "io"
     "log"
-    "gopus"
+
+    "github.com/thesyncim/gopus"
 )
 
 // PacketSource for decoding
@@ -538,4 +542,4 @@ BSD 3-Clause License. See [LICENSE](LICENSE) for details.
 - [Opus Codec](https://opus-codec.org/) - Official Opus website
 - [RFC 6716](https://tools.ietf.org/html/rfc6716) - Opus codec specification
 - [RFC 7845](https://tools.ietf.org/html/rfc7845) - Ogg Opus encapsulation
-- [pkg.go.dev/gopus](https://pkg.go.dev/gopus) - Go package documentation
+- [pkg.go.dev/github.com/thesyncim/gopus](https://pkg.go.dev/github.com/thesyncim/gopus) - Go package documentation

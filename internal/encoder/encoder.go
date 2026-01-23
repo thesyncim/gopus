@@ -9,9 +9,9 @@ package encoder
 import (
 	"errors"
 
-	"gopus/internal/celt"
-	"gopus/internal/silk"
-	"gopus/internal/types"
+	"github.com/thesyncim/gopus/internal/celt"
+	"github.com/thesyncim/gopus/internal/silk"
+	"github.com/thesyncim/gopus/internal/types"
 )
 
 // Mode represents the encoding mode.

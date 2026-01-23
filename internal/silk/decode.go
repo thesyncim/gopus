@@ -1,7 +1,7 @@
 package silk
 
 import (
-	"gopus/internal/rangecoding"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // DecodeFrame decodes a single SILK mono frame from the bitstream.

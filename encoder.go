@@ -3,8 +3,8 @@
 package gopus
 
 import (
-	"gopus/internal/encoder"
-	"gopus/internal/types"
+	"github.com/thesyncim/gopus/internal/encoder"
+	"github.com/thesyncim/gopus/internal/types"
 )
 
 // Application hints the encoder for optimization.

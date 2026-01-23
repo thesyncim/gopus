@@ -1,6 +1,6 @@
 package silk
 
-import "gopus/internal/rangecoding"
+import "github.com/thesyncim/gopus/internal/rangecoding"
 
 // Decoder decodes SILK frames from an Opus packet.
 // It maintains state across frames for proper speech continuity.

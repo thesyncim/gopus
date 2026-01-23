@@ -18,7 +18,7 @@
 package hybrid
 
 import (
-	"gopus/internal/rangecoding"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // minimalHybridPacket10ms is a carefully constructed byte sequence that forms

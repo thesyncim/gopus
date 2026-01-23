@@ -4,9 +4,9 @@ package encoder_test
 import (
 	"testing"
 
-	"gopus"
-	"gopus/internal/encoder"
-	"gopus/internal/types"
+	"github.com/thesyncim/gopus"
+	"github.com/thesyncim/gopus/internal/encoder"
+	"github.com/thesyncim/gopus/internal/types"
 )
 
 func TestBuildPacket(t *testing.T) {

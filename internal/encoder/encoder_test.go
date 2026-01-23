@@ -5,11 +5,11 @@ import (
 	"math/rand"
 	"testing"
 
-	"gopus"
-	"gopus/internal/encoder"
-	"gopus/internal/hybrid"
-	"gopus/internal/rangecoding"
-	"gopus/internal/types"
+	"github.com/thesyncim/gopus"
+	"github.com/thesyncim/gopus/internal/encoder"
+	"github.com/thesyncim/gopus/internal/hybrid"
+	"github.com/thesyncim/gopus/internal/rangecoding"
+	"github.com/thesyncim/gopus/internal/types"
 )
 
 // TestNewEncoder verifies the encoder constructor creates valid encoder.

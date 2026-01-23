@@ -5,7 +5,7 @@
 package celt
 
 import (
-	"gopus/internal/rangecoding"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // Encoder encodes audio frames using CELT transform coding.

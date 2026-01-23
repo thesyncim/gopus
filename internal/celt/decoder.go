@@ -3,8 +3,8 @@ package celt
 import (
 	"errors"
 
-	"gopus/internal/plc"
-	"gopus/internal/rangecoding"
+	"github.com/thesyncim/gopus/internal/plc"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // Decoding errors

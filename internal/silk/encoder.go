@@ -1,6 +1,6 @@
 package silk
 
-import "gopus/internal/rangecoding"
+import "github.com/thesyncim/gopus/internal/rangecoding"
 
 // Encoder encodes PCM audio to SILK frames.
 // It maintains state across frames that mirrors the decoder for proper

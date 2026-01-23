@@ -1,7 +1,7 @@
 // Package celt implements the CELT decoder per RFC 6716 Section 4.3.
 package celt
 
-import "gopus/internal/rangecoding"
+import "github.com/thesyncim/gopus/internal/rangecoding"
 
 // Laplace decoding constants per RFC 6716 Section 4.3.2.1
 const (

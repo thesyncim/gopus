@@ -12,8 +12,8 @@
 package encoder
 
 import (
-	"gopus/internal/celt"
-	"gopus/internal/rangecoding"
+	"github.com/thesyncim/gopus/internal/celt"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 const (

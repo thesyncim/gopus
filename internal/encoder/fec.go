@@ -8,8 +8,8 @@
 package encoder
 
 import (
-	"gopus/internal/rangecoding"
-	"gopus/internal/silk"
+	"github.com/thesyncim/gopus/internal/rangecoding"
+	"github.com/thesyncim/gopus/internal/silk"
 )
 
 // FEC Constants

@@ -7,7 +7,7 @@ package encoder
 import (
 	"errors"
 
-	"gopus/internal/types"
+	"github.com/thesyncim/gopus/internal/types"
 )
 
 // Packet assembly errors.

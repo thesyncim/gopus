@@ -3,9 +3,9 @@
 package gopus
 
 import (
-	"gopus/internal/celt"
-	"gopus/internal/hybrid"
-	"gopus/internal/silk"
+	"github.com/thesyncim/gopus/internal/celt"
+	"github.com/thesyncim/gopus/internal/hybrid"
+	"github.com/thesyncim/gopus/internal/silk"
 )
 
 // Decoder decodes Opus packets into PCM audio samples.

@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"gopus/internal/rangecoding"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // TestDecodeCoarseEnergy tests coarse energy decoding with mock data.

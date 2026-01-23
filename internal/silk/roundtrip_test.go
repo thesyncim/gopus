@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"gopus/internal/rangecoding"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // TestMonoRoundTrip_Voiced tests encoding and decoding a voiced (periodic) signal.

@@ -6,7 +6,7 @@ package celt
 import (
 	"errors"
 
-	"gopus/internal/rangecoding"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // Encoding errors

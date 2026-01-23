@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"gopus"
+	"github.com/thesyncim/gopus"
 )
 
 // Test vector URLs and paths

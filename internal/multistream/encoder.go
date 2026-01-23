@@ -10,7 +10,7 @@ import (
 	"errors"
 	"fmt"
 
-	"gopus/internal/encoder"
+	"github.com/thesyncim/gopus/internal/encoder"
 )
 
 // ErrInvalidInput indicates the input samples have incorrect length.

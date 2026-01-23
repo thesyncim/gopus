@@ -8,9 +8,9 @@ package hybrid
 import (
 	"errors"
 
-	"gopus/internal/celt"
-	"gopus/internal/rangecoding"
-	"gopus/internal/silk"
+	"github.com/thesyncim/gopus/internal/celt"
+	"github.com/thesyncim/gopus/internal/rangecoding"
+	"github.com/thesyncim/gopus/internal/silk"
 )
 
 // Constants for Hybrid mode

@@ -6,8 +6,8 @@ import (
 	"log"
 	"math"
 
-	"gopus"
-	"gopus/container/ogg"
+	"github.com/thesyncim/gopus"
+	"github.com/thesyncim/gopus/container/ogg"
 )
 
 func ExampleNewWriter() {

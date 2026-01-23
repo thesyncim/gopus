@@ -8,7 +8,7 @@ package multistream
 import (
 	"fmt"
 
-	"gopus/internal/plc"
+	"github.com/thesyncim/gopus/internal/plc"
 )
 
 // multistreamPLCState tracks packet loss concealment state for multistream decoding.

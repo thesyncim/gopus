@@ -6,7 +6,7 @@ package celt
 import (
 	"math"
 
-	"gopus/internal/rangecoding"
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // ComputeBandEnergies computes energy for each frequency band from MDCT coefficients.

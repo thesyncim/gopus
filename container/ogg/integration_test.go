@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"testing"
 
-	gopus "gopus"
+	gopus "github.com/thesyncim/gopus"
 )
 
 // checkOpusdec checks if opusdec is available.

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"gopus/internal/hybrid"
+	"github.com/thesyncim/gopus/internal/hybrid"
 )
 
 // Errors for multistream decoder creation and operation.
