@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 13: Multistream Public API - Plan 01 complete
+**Current focus:** Phase 14: Extended Frame Size Support - Plan 01 complete
 
 ## Current Position
 
-Phase: 13 of 14 (Multistream Public API)
-Plan: 1 of 1 complete (Multistream public API wrappers)
-Status: Phase complete
-Last activity: 2026-01-23 - Completed 13-01-PLAN.md (Multistream public API)
+Phase: 14 of 14 (Extended Frame Size Support)
+Plan: 1 of 4 complete (CELT MDCT bin count fix)
+Status: In progress
+Last activity: 2026-01-23 - Completed 14-01-PLAN.md (CELT MDCT bin count fix)
 
-Progress: [████████████████████████████████████████████████████████████████████████████████████████████░] 98% (49/50 plans)
+Progress: [████████████████████████████████████████████████████████████████████████████████████████████░] 98% (50/53 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 49
+- Total plans completed: 50
 - Average duration: ~8 minutes
-- Total execution time: ~369 minutes
+- Total execution time: ~381 minutes
 
 **By Phase:**
 
@@ -40,10 +40,11 @@ Progress: [███████████████████████
 | 11-container | 2/2 | ~14m | ~7m |
 | 12-compliance-polish | 3/3 | ~25m | ~8m |
 | 13-multistream-public-api | 1/1 | ~5m | ~5m |
+| 14-extended-frame-size | 1/4 | ~12m | ~12m |
 
 **Recent Trend:**
-- Last 5 plans: 12-01 (~16m), 12-03 (~2m), 12-02 (~7m), 13-01 (~5m)
-- Trend: Phase 13 complete, multistream public API exposed
+- Last 5 plans: 12-02 (~7m), 12-03 (~2m), 13-01 (~5m), 14-01 (~12m)
+- Trend: Phase 14 started, CELT MDCT bin count fix complete
 
 *Updated after each plan completion*
 
@@ -179,17 +180,19 @@ Recent decisions affecting current work:
 | D12-02-02 | Simplified SNR-based quality metric | 12-02 | Q=0 at 48dB threshold, sufficient for initial compliance |
 | D12-02-03 | Check both .dec and m.dec references | 12-02 | Pass if either matches per RFC 8251 |
 | D13-01-01 | Mirror Encoder/Decoder API pattern for Multistream | 13-01 | Consistent API surface for surround sound |
+| D14-01-01 | DecodeBands allocates frameSize, not totalBins | 14-01 | IMDCT requires exactly frameSize coefficients |
+| D14-01-02 | Upper bins (800-959 for 20ms) stay zero | 14-01 | Highest frequencies typically zero in band-limited content |
 
 ### Pending Todos
 
-- Fix CELT MDCT bin count vs frame size mismatch
+- Verify overlap-add produces correct sample counts for all frame sizes (14-02)
 - Tune CELT encoder for full signal preservation with libopus
 
 ### Known Gaps
 
 - **RESOLVED: Range coder signal quality (D01-02-02, D07-01-04):** Fixed in 07-05. Encoder now produces bytes correctly decodable by decoder. Signal passes through CELT codec chain (has_output=true in all tests).
 - **RESOLVED: Libopus cross-validation (07-06):** Test infrastructure added. Tests skip on macOS due to provenance restrictions but will run on Linux/CI. Ogg Opus container, opusdec integration, quality metrics implemented.
-- **CELT frame size mismatch:** Decoder produces more samples than expected (1480 vs 960 for 20ms). Root cause: MDCT bin count (800) doesn't match frame size (960). Tracked for future fix.
+- **RESOLVED: CELT MDCT bin count mismatch (14-01):** Fixed DecodeBands to return frameSize coefficients instead of totalBins. Upper bins zero-padded for correct IMDCT input.
 - **RESOLVED: Internal encoder test import cycle (12-01):** Fixed by converting test files to external test package pattern. `go test ./...` now passes without import cycle errors.
 
 ### Blockers/Concerns
@@ -199,8 +202,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-23
-Stopped at: Completed 13-01-PLAN.md (Multistream public API)
-Resume file: .planning/phases/13-multistream-public-api/13-01-SUMMARY.md
+Stopped at: Completed 14-01-PLAN.md (CELT MDCT bin count fix)
+Resume file: .planning/phases/14-extended-frame-size/14-01-SUMMARY.md
 
 ## Phase 01 Summary
 
@@ -670,3 +673,30 @@ Resume file: .planning/phases/13-multistream-public-api/13-01-SUMMARY.md
 - Closes audit gap between internal/multistream and public API
 - All channel configurations 1-8 supported
 - RFC 7845 Vorbis-style mapping for surround sound
+
+## Phase 14 Summary - IN PROGRESS
+
+**14-01 CELT MDCT Bin Count Fix complete:**
+- Root cause of RFC 8251 test vector failures identified and fixed
+- DecodeBands now returns exactly frameSize coefficients (not totalBins)
+- Upper frequency bins (totalBins to frameSize-1) are zero-padded
+- IMDCT receives correct input, producing proper 2*frameSize samples
+- Verified sample counts for all frame sizes: 120, 240, 480, 960
+- Duration: ~12 minutes
+
+**Key artifacts:**
+- `internal/celt/bands.go` - DecodeBands and DecodeBandsStereo return frameSize-length slices
+- `internal/celt/bands_test.go` - TestDecodeBands_OutputSize, TestDecodeBandsStereo_OutputSize
+- `internal/celt/synthesis_test.go` - Synthesis sample count tests (new file)
+- `internal/celt/decoder_test.go` - DecodeFrame integration tests (new file)
+
+**Commits:**
+- `d6afdd3` - fix(14-01): DecodeBands returns frameSize coefficients for correct IMDCT
+- `58635e7` - test(14-01): add unit tests for coefficient and sample counts
+- `99974b0` - test(14-01): add integration tests for DecodeFrame sample counts
+
+**Phase 14 progress:**
+- Plan 01: COMPLETE - CELT MDCT bin count fix
+- Plan 02: PENDING - Overlap-add verification
+- Plan 03: PENDING - Encoder coefficient padding
+- Plan 04: PENDING - RFC 8251 compliance tests
