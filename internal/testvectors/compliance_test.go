@@ -72,7 +72,48 @@ func runTestVector(t *testing.T, name string) {
 		t.Fatalf("No packets in %s", bitFile)
 	}
 
+	// Track frame sizes and modes encountered
+	type frameSizeMode struct {
+		frameSize int
+		mode      string // "SILK", "CELT", or "Hybrid"
+	}
+	frameSizeModes := make(map[frameSizeMode]int)
+
 	t.Logf("Test vector %s: %d packets", name, len(packets))
+
+	// Parse each packet's TOC to extract mode and frame size for tracking
+	for i, pkt := range packets {
+		if len(pkt.Data) > 0 {
+			tocByte := pkt.Data[0]
+			cfg := tocByte >> 3
+			fs := getFrameSizeFromConfig(cfg)
+			mode := getModeFromConfig(cfg)
+
+			key := frameSizeMode{frameSize: fs, mode: mode}
+			frameSizeModes[key]++
+
+			if i == 0 {
+				stereo := (tocByte & 0x04) != 0
+				t.Logf("  First packet: Config=%d, Mode=%s, Stereo=%v, FrameSize=%d (%.1fms)",
+					cfg, mode, stereo, fs, float64(fs)/48.0)
+			}
+		}
+	}
+
+	// Report frame size and mode distribution
+	t.Logf("  Frame sizes by mode:")
+	for fsm, count := range frameSizeModes {
+		t.Logf("    %s %d samples (%.1fms): %d packets",
+			fsm.mode, fsm.frameSize, float64(fsm.frameSize)/48.0, count)
+
+		// Flag if extended frame size appears in Hybrid mode (unexpected per RFC)
+		isExtended := fsm.frameSize == 120 || fsm.frameSize == 240 || // 2.5/5ms
+			fsm.frameSize == 1920 || fsm.frameSize == 2880 // 40/60ms
+		if isExtended && fsm.mode == "Hybrid" {
+			t.Logf("    WARNING: Extended frame size %d in Hybrid mode (unexpected per RFC 6716)",
+				fsm.frameSize)
+		}
+	}
 
 	// 2. Determine decoder parameters from first packet TOC
 	toc := packets[0].Data[0]

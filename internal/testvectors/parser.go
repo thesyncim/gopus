@@ -163,3 +163,25 @@ func getFrameSizeFromConfig(config byte) int {
 		return 960 // Default 20ms
 	}
 }
+
+// getModeFromConfig returns the mode name from TOC config field.
+// RFC 6716 Section 3.1 defines the mapping:
+//   - config 0-3: SILK-only (NB)
+//   - config 4-7: SILK-only (MB)
+//   - config 8-11: SILK-only (WB)
+//   - config 12-13: Hybrid (SWB)
+//   - config 14-15: Hybrid (FB)
+//   - config 16-19: CELT-only (NB)
+//   - config 20-23: CELT-only (WB)
+//   - config 24-27: CELT-only (SWB)
+//   - config 28-31: CELT-only (FB)
+func getModeFromConfig(config byte) string {
+	switch {
+	case config <= 11:
+		return "SILK"
+	case config <= 15:
+		return "Hybrid"
+	default:
+		return "CELT"
+	}
+}
