@@ -69,6 +69,36 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **CMP-03**: Zero cgo dependencies
 - [x] **CMP-04**: Go 1.21+ compatibility
 
+## v1.1 Requirements (Tech Debt Closure)
+
+Requirements for closing tech debt from v1.0 and achieving full RFC 8251 compliance.
+
+### Decoder Quality (DEQ)
+
+Requirements for achieving RFC 8251 test vector compliance (Q >= 0).
+
+- [ ] **DEQ-01**: SILK decoder produces audio matching reference within Q >= 0 threshold
+- [ ] **DEQ-02**: CELT decoder produces audio matching reference within Q >= 0 threshold
+- [ ] **DEQ-03**: Hybrid decoder produces audio matching reference within Q >= 0 threshold
+- [ ] **DEQ-04**: All 12 RFC 8251 test vectors pass with Q >= 0
+
+### Encoder Quality (ENQ)
+
+Requirements for encoder signal energy preservation.
+
+- [ ] **ENQ-01**: SILK encoder round-trip preserves >10% signal energy
+- [ ] **ENQ-02**: CELT encoder round-trip preserves >10% signal energy
+- [ ] **ENQ-03**: Hybrid encoder round-trip produces non-zero output
+- [ ] **ENQ-04**: Multistream encoder internal round-trip produces non-zero output
+
+### Frame Size Support (FRM)
+
+Requirements for CELT short frame synthesis quality.
+
+- [ ] **FRM-01**: CELT 2.5ms frames (120 samples) synthesize with correct quality
+- [ ] **FRM-02**: CELT 5ms frames (240 samples) synthesize with correct quality
+- [ ] **FRM-03**: CELT 10ms frames (480 samples) synthesize with correct quality
+
 ## v2 Requirements
 
 Deferred to future release. Tracked but not in current roadmap.
@@ -150,11 +180,16 @@ Which phases cover which requirements.
 | CMP-03 | Phase 1: Foundation | Complete |
 | CMP-04 | Phase 1: Foundation | Complete |
 
-**Coverage:**
-- v1 requirements: 38 total
+**v1.0 Coverage:**
+- v1.0 requirements: 38 total
 - Mapped to phases: 38
-- Unmapped: 0
+- Complete: 36
+- Pending: 2 (CMP-01, CMP-02)
+
+**v1.1 Coverage:**
+- v1.1 requirements: 11 total (tech debt closure)
+- Mapped to phases: TBD (roadmap pending)
 
 ---
 *Requirements defined: 2026-01-21*
-*Last updated: 2026-01-22 after Phase 11 Container completion*
+*v1.1 requirements added: 2026-01-23*

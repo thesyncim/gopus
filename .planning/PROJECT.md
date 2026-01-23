@@ -8,23 +8,38 @@ A pure Go implementation of the Opus audio codec, providing both encoder and dec
 
 Correct, pure-Go Opus encoding and decoding that passes official test vectors — no cgo, no external dependencies.
 
+## Current Milestone: v1.1 Quality & Tech Debt Closure
+
+**Goal:** Achieve RFC 8251 compliance (Q >= 0) by fixing decoder algorithm quality and encoder signal energy issues.
+
+**Target features:**
+- Decoder algorithm quality improvements to achieve Q >= 0 on test vectors
+- SILK encoder signal energy fixes
+- CELT encoder signal energy fixes
+- Hybrid encoder signal energy fixes
+- CELT 2.5/5/10ms frame synthesis improvements
+
 ## Requirements
 
-### Validated
+### Validated (v1.0)
 
-(None yet — ship to validate)
+- [x] Decode Opus frames to PCM audio (int16 and float32)
+- [x] Encode PCM audio to Opus frames (int16 and float32)
+- [x] Support all three Opus modes: SILK (voice), CELT (audio), Hybrid
+- [x] Support mono, stereo, and multistream channel configurations
+- [x] Frame-based API for encode/decode operations
+- [x] io.Reader/Writer streaming wrappers over frame-based core
+- [x] Go-idiomatic API following standard library patterns
+- [x] Zero cgo dependencies
+- [x] Mode routing for SILK/CELT/Hybrid packets
+- [x] Extended frame size support (2.5/5/10/20/40/60ms)
 
 ### Active
 
-- [ ] Decode Opus frames to PCM audio (int16 and float32)
-- [ ] Encode PCM audio to Opus frames (int16 and float32)
-- [ ] Support all three Opus modes: SILK (voice), CELT (audio), Hybrid
-- [ ] Support mono, stereo, and multistream channel configurations
-- [ ] Frame-based API for encode/decode operations
-- [ ] io.Reader/Writer streaming wrappers over frame-based core
-- [ ] Pass official Opus test vectors
-- [ ] Go-idiomatic API following standard library patterns
-- [ ] Zero cgo dependencies
+- [ ] Pass official Opus test vectors (RFC 8251 compliance, Q >= 0)
+- [ ] Decoder algorithm quality improvements (SILK, CELT, Hybrid)
+- [ ] Encoder signal energy improvements (SILK, CELT, Hybrid)
+- [ ] CELT short frame synthesis (2.5ms, 5ms, 10ms)
 
 ### Out of Scope
 
@@ -64,4 +79,4 @@ Correct, pure-Go Opus encoding and decoding that passes official test vectors �
 | Test vectors as success criteria | Objective, spec-defined correctness measure | — Pending |
 
 ---
-*Last updated: 2026-01-21 after initialization*
+*Last updated: 2026-01-23 — Milestone v1.1 started*

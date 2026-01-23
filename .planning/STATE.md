@@ -2,19 +2,19 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-01-21)
+See: .planning/PROJECT.md (updated 2026-01-23)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 14: Extended Frame Size Support - COMPLETE
+**Current focus:** v1.1 Quality & Tech Debt Closure - Defining requirements
 
 ## Current Position
 
-Phase: 14 of 14 (Extended Frame Size Support)
-Plan: 5 of 5 complete (Mode routing gap closure)
-Status: Phase complete
-Last activity: 2026-01-23 - Completed 14-05-PLAN.md (Mode Routing Gap Closure)
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-01-23 — Milestone v1.1 started
 
-Progress: [█████████████████████████████████████████████████████████████████████████████████████████████] 100% (54/54 plans)
+Progress: [                                                                                              ] 0% (0/? plans)
 
 ## Performance Metrics
 
