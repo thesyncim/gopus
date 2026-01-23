@@ -101,4 +101,50 @@
 //	enc.SetFEC(true)          // Forward error correction
 //	enc.SetDTX(true)          // Discontinuous transmission
 //	enc.SetFrameSize(480)     // Frame size (120-2880 samples)
+//
+// # Multistream (Surround Sound)
+//
+// For surround sound applications (5.1, 7.1, etc.), use MultistreamEncoder
+// and MultistreamDecoder. These support 1-8 channels with standard Vorbis-style
+// channel mapping per RFC 7845.
+//
+// Multistream encoding example (5.1 surround):
+//
+//	enc, err := gopus.NewMultistreamEncoderDefault(48000, 6, gopus.ApplicationAudio)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//
+//	pcm := make([]float32, 960*6) // 20ms of 6-channel audio at 48kHz
+//	// ... fill pcm with interleaved samples: FL, C, FR, RL, RR, LFE ...
+//
+//	packet, err := enc.EncodeFloat32(pcm)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//
+// Multistream decoding example:
+//
+//	dec, err := gopus.NewMultistreamDecoderDefault(48000, 6)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//
+//	pcm, err := dec.DecodeFloat32(packet)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//
+// Supported channel configurations:
+//   - 1: mono (1 stream, 0 coupled)
+//   - 2: stereo (1 stream, 1 coupled)
+//   - 3: 3.0 (2 streams, 1 coupled)
+//   - 4: quad (2 streams, 2 coupled)
+//   - 5: 5.0 (3 streams, 2 coupled)
+//   - 6: 5.1 surround (4 streams, 2 coupled)
+//   - 7: 6.1 surround (5 streams, 2 coupled)
+//   - 8: 7.1 surround (5 streams, 3 coupled)
+//
+// For custom channel mappings, use NewMultistreamEncoder and NewMultistreamDecoder
+// with explicit stream and mapping parameters.
 package gopus
