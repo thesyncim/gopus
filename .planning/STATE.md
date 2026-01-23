@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-01-21)
 ## Current Position
 
 Phase: 14 of 14 (Extended Frame Size Support)
-Plan: 4 of 4 complete (RFC 8251 test vector validation)
+Plan: 5 of 5 complete (Mode routing gap closure)
 Status: Phase complete
-Last activity: 2026-01-23 - Completed 14-04-PLAN.md (Test Vector Validation)
+Last activity: 2026-01-23 - Completed 14-05-PLAN.md (Mode Routing Gap Closure)
 
-Progress: [█████████████████████████████████████████████████████████████████████████████████████████████] 100% (53/53 plans)
+Progress: [█████████████████████████████████████████████████████████████████████████████████████████████] 100% (54/54 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 53
-- Average duration: ~8 minutes
-- Total execution time: ~392 minutes
+- Total plans completed: 54
+- Average duration: ~7 minutes
+- Total execution time: ~395 minutes
 
 **By Phase:**
 
@@ -40,11 +40,11 @@ Progress: [███████████████████████
 | 11-container | 2/2 | ~14m | ~7m |
 | 12-compliance-polish | 3/3 | ~25m | ~8m |
 | 13-multistream-public-api | 1/1 | ~5m | ~5m |
-| 14-extended-frame-size | 4/4 | ~21m | ~5m |
+| 14-extended-frame-size | 5/5 | ~24m | ~5m |
 
 **Recent Trend:**
-- Last 5 plans: 14-01 (~12m), 14-02 (~6m), 14-03 (~2m), 14-04 (~3m)
-- Trend: Phase 14 complete, all 53 plans executed
+- Last 5 plans: 14-02 (~6m), 14-03 (~2m), 14-04 (~3m), 14-05 (~3m)
+- Trend: Phase 14 complete with gap closure, all 54 plans executed
 
 *Updated after each plan completion*
 
@@ -185,10 +185,13 @@ Recent decisions affecting current work:
 | D14-02-01 | OverlapAdd produces frameSize samples (n/2 from 2n IMDCT output) | 14-02 | Aligns with RFC 6716 MDCT/IMDCT theory for correct sample output |
 | D14-04-01 | Extended frame sizes only in SILK/CELT modes, not Hybrid | 14-04 | Verified via test vectors per RFC 6716 |
 | D14-04-02 | Q=-100 indicates decoder bug not frame size issue | 14-04 | CELT/SILK packets incorrectly trigger hybrid validation |
+| D14-05-01 | Track lastMode for PLC to use correct decoder | 14-05 | PLC continues with SILK/CELT mode instead of defaulting to Hybrid |
+| D14-05-02 | Add three decoder fields (silkDecoder, celtDecoder, hybridDecoder) | 14-05 | Each mode has dedicated decoder instance |
+| D14-05-03 | Route based on toc.Mode from ParseTOC | 14-05 | switch statement routes to decodeSILK, decodeCELT, decodeHybrid |
 
 ### Pending Todos
 
-- Investigate decoder hybrid validation triggering for non-hybrid packets
+- Investigate decoder quality issues (Q=-100 on RFC 8251 test vectors)
 - Tune CELT encoder for full signal preservation with libopus
 
 ### Known Gaps
@@ -205,8 +208,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-23
-Stopped at: Completed 14-04-PLAN.md (Test Vector Validation) - Phase 14 COMPLETE
-Resume file: .planning/phases/14-extended-frame-size/14-04-SUMMARY.md
+Stopped at: Completed 14-05-PLAN.md (Mode Routing Gap Closure) - Phase 14 COMPLETE
+Resume file: .planning/phases/14-extended-frame-size/14-05-SUMMARY.md
 
 ## Phase 01 Summary
 
@@ -748,11 +751,31 @@ Resume file: .planning/phases/14-extended-frame-size/14-04-SUMMARY.md
 - `6a41d3e` - feat(14-04): improve error handling and run full compliance suite
 - `7a861d4` - feat(14-04): add TestComplianceSummary with mode verification
 
+**14-05 Mode Routing Gap Closure complete:**
+- Implemented mode routing in Decoder based on TOC mode field
+- SILK-only packets (configs 0-11) route to SILK decoder
+- CELT-only packets (configs 16-31) route to CELT decoder
+- Hybrid packets (configs 12-15) route to Hybrid decoder
+- Added lastMode tracking for PLC to use correct decoder on packet loss
+- All 20 mode routing tests pass, no "hybrid: invalid frame size" errors
+- RFC 8251 test vectors now decode without routing errors (Q metrics pending quality improvements)
+- Duration: ~3 minutes
+
+**Key artifacts (14-05):**
+- `decoder.go` - Added silkDecoder, celtDecoder, hybridDecoder fields; mode routing switch
+- `decoder_test.go` - TestDecode_ModeRouting, TestDecode_ExtendedFrameSizes, TestDecode_PLC_ModeTracking
+- `errors.go` - Added ErrInvalidMode, ErrInvalidBandwidth
+
+**Commits (14-05):**
+- `79d6c40` - feat(14-05): implement mode routing in Decoder for SILK/CELT/Hybrid
+- `63f9d94` - test(14-05): add mode routing and extended frame size tests
+
 **Phase 14 COMPLETE:**
 - Plan 01: COMPLETE - CELT MDCT bin count fix
 - Plan 02: COMPLETE - CELT short frame decoding
 - Plan 03: COMPLETE - SILK long frame decode verification
 - Plan 04: COMPLETE - RFC 8251 test vector validation
+- Plan 05: COMPLETE - Mode routing gap closure
 
-**Blocker for compliance:**
-The decoder incorrectly triggers "hybrid: invalid frame size" error for CELT-only and SILK-only packets. This needs investigation in a future phase to trace why non-hybrid packets are being validated as hybrid mode.
+**Compliance status:**
+The mode routing fix resolves the architectural blocker. Extended frame sizes (CELT 2.5/5ms, SILK 40/60ms) now decode without "hybrid: invalid frame size" errors. RFC 8251 test vectors run to completion with Q=-100 metrics, indicating decoder output quality issues separate from routing. Future work needed on decoder algorithm quality to achieve Q >= 0 compliance.
