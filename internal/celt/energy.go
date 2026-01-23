@@ -130,34 +130,15 @@ func (d *Decoder) decodeLaplace(fs int, decay int) int {
 }
 
 // updateRange updates the range decoder state after decoding a symbol.
-// fl = cumulative frequency of symbols before this one
-// fh = frequency of this symbol
-// ft = total frequency
+// fl: cumulative frequency of symbols before this one
+// fh: frequency of this symbol
+// ft: total frequency
 func (d *Decoder) updateRange(fl, fh, ft uint32) {
-	// This mirrors the range decoder update process
-	// For proper implementation, we need to integrate with rangecoding.Decoder
-	// For now, we consume some entropy to advance state
 	rd := d.rangeDecoder
 	if rd == nil {
 		return
 	}
-
-	// The proper way would be to expose an Update method on rangecoding.Decoder
-	// For now, use bit decoding to consume appropriate entropy
-	// Number of bits ≈ -log2(fh/ft)
-	if fh > 0 && ft > 0 {
-		// Approximate bits consumed
-		ratio := float64(ft) / float64(fh)
-		bits := 0
-		for ratio > 2 && bits < 16 {
-			ratio /= 2
-			bits++
-		}
-		// Consume these bits
-		for i := 0; i < bits; i++ {
-			rd.DecodeBit(1)
-		}
-	}
+	rd.DecodeSymbol(fl, fh, ft)
 }
 
 // DecodeCoarseEnergy decodes coarse (6dB step) band energies.
@@ -185,11 +166,11 @@ func (d *Decoder) DecodeCoarseEnergy(nbBands int, intra bool, lm int) []float64 
 	if intra {
 		// Intra-frame: no inter-frame prediction, only inter-band
 		alpha = 0.0
-		beta = BetaCoef[lm]
+		beta = BetaIntra // Fixed 0.15 for intra mode
 	} else {
 		// Inter-frame: use both alpha (previous frame) and beta (previous band)
 		alpha = AlphaCoef[lm]
-		beta = BetaCoef[lm]
+		beta = BetaCoefInter[lm] // LM-dependent for inter mode
 	}
 
 	// Decay parameter for Laplace model depends on intra/inter mode and LM
@@ -221,7 +202,10 @@ func (d *Decoder) DecodeCoarseEnergy(nbBands int, intra bool, lm int) []float64 
 			energies[c*nbBands+band] = energy
 
 			// Update prev band energy for next band's inter-band prediction
-			prevBandEnergy = energy
+			// Per libopus: prevBandEnergy accumulates a filtered version of quantized deltas
+			// Formula: prev = prev + q - beta*q, where q = qi*DB6
+			q := float64(qi) * DB6
+			prevBandEnergy = prevBandEnergy + q - beta*q
 		}
 
 		// Update previous frame energy for next frame's inter-frame prediction
