@@ -339,6 +339,86 @@ func TestVorbisWindow_PrecomputedBuffer(t *testing.T) {
 	}
 }
 
+// TestVorbisWindow_PerfectReconstruction verifies window satisfies perfect reconstruction.
+// The Vorbis window must satisfy: w[n]^2 + w[overlap-1-n]^2 = 1
+// This ensures overlap-add reconstruction preserves energy.
+func TestVorbisWindow_PerfectReconstruction(t *testing.T) {
+	overlap := 120 // CELT overlap at 48kHz
+
+	// Generate window coefficients (half window, for overlap region)
+	window := make([]float64, overlap)
+	for n := 0; n < overlap; n++ {
+		// Vorbis window formula for half-window (overlap region)
+		inner := math.Pi * (float64(n) + 0.5) / float64(2*overlap)
+		window[n] = math.Sin(math.Pi / 2 * math.Pow(math.Sin(inner), 2))
+	}
+
+	// Verify window properties
+	// 1. Window starts near 0
+	if window[0] > 0.1 {
+		t.Errorf("Window start too high: %f", window[0])
+	}
+
+	// 2. Window ends near 1
+	if window[overlap-1] < 0.9 {
+		t.Errorf("Window end too low: %f", window[overlap-1])
+	}
+
+	// 3. Window is monotonically increasing
+	for n := 1; n < overlap; n++ {
+		if window[n] < window[n-1]-1e-10 { // Allow tiny numerical errors
+			t.Errorf("Window not monotonic at n=%d: %f < %f",
+				n, window[n], window[n-1])
+		}
+	}
+
+	// 4. Window satisfies perfect reconstruction:
+	// w[n]^2 + w[overlap-1-n]^2 = 1
+	for n := 0; n < overlap/2; n++ {
+		sum := window[n]*window[n] + window[overlap-1-n]*window[overlap-1-n]
+		if math.Abs(sum-1.0) > 0.01 {
+			t.Errorf("Window reconstruction failed at n=%d: %f + %f = %f (want 1.0)",
+				n, window[n]*window[n], window[overlap-1-n]*window[overlap-1-n], sum)
+		}
+	}
+}
+
+// TestOverlapAddSampleCount verifies overlap-add produces correct sample count.
+// For each CELT frame size, overlap-add should produce frameSize output samples.
+func TestOverlapAddSampleCount(t *testing.T) {
+	// CELT frame sizes: 120 (2.5ms), 240 (5ms), 480 (10ms), 960 (20ms)
+	frameSizes := []int{120, 240, 480, 960}
+	overlap := 120
+
+	for _, frameSize := range frameSizes {
+		t.Run(fmt.Sprintf("frame=%d", frameSize), func(t *testing.T) {
+			// Simulate IMDCT output (2*frameSize samples)
+			imdctOut := make([]float64, 2*frameSize)
+			for i := range imdctOut {
+				imdctOut[i] = float64(i) * 0.001 // Arbitrary non-zero values
+			}
+
+			// Previous overlap buffer
+			prevOverlap := make([]float64, overlap)
+
+			// Perform overlap-add
+			output, newOverlap := OverlapAdd(imdctOut, prevOverlap, overlap)
+
+			// Output should be frameSize samples
+			if len(output) != frameSize {
+				t.Errorf("OverlapAdd produced %d samples, want %d",
+					len(output), frameSize)
+			}
+
+			// New overlap should be overlap samples
+			if len(newOverlap) != overlap {
+				t.Errorf("New overlap has %d samples, want %d",
+					len(newOverlap), overlap)
+			}
+		})
+	}
+}
+
 // TestOverlapAdd_Continuity verifies overlap-add produces smooth output.
 func TestOverlapAdd_Continuity(t *testing.T) {
 	overlap := 120
