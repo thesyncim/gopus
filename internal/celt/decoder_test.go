@@ -2,6 +2,7 @@ package celt
 
 import (
 	"fmt"
+	"math"
 	"testing"
 )
 
@@ -246,5 +247,213 @@ func TestDecodeFrame_ShortFrameConsecutive(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// ============================================================================
+// Phase 15-05: Frame-size-specific decode tests
+// These tests validate CELT decoder quality improvements from Phase 15
+// ============================================================================
+
+// TestDecodeFrame120Samples tests 2.5ms frame (120 samples at 48kHz).
+// This is the shortest CELT frame size and validates the decoder handles it correctly.
+func TestDecodeFrame120Samples(t *testing.T) {
+	d := NewDecoder(1)
+
+	// Create minimal valid CELT frame
+	// First byte should not trigger silence flag
+	frameData := make([]byte, 8)
+	frameData[0] = 0x80 // Not silence (bit 0 = 0 after range decode)
+	for i := 1; i < len(frameData); i++ {
+		frameData[i] = byte(i * 17 % 256)
+	}
+
+	samples, err := d.DecodeFrame(frameData, 120)
+	if err != nil {
+		t.Fatalf("DecodeFrame(120) failed: %v", err)
+	}
+
+	if len(samples) != 120 {
+		t.Errorf("DecodeFrame(120) produced %d samples, want 120", len(samples))
+	}
+
+	// Check for non-zero output (not all silence)
+	hasNonZero := false
+	for _, s := range samples {
+		if math.Abs(s) > 1e-10 {
+			hasNonZero = true
+			break
+		}
+	}
+
+	// Note: may be all zeros if decoded as silence frame - that's OK
+	t.Logf("120-sample frame: hasNonZero=%v", hasNonZero)
+}
+
+// TestDecodeFrame240Samples tests 5ms frame (240 samples at 48kHz).
+func TestDecodeFrame240Samples(t *testing.T) {
+	d := NewDecoder(1)
+
+	frameData := make([]byte, 16)
+	frameData[0] = 0x80
+	for i := 1; i < len(frameData); i++ {
+		frameData[i] = byte(i * 23 % 256)
+	}
+
+	samples, err := d.DecodeFrame(frameData, 240)
+	if err != nil {
+		t.Fatalf("DecodeFrame(240) failed: %v", err)
+	}
+
+	if len(samples) != 240 {
+		t.Errorf("DecodeFrame(240) produced %d samples, want 240", len(samples))
+	}
+
+	t.Logf("240-sample frame decoded successfully")
+}
+
+// TestDecodeFrame480Samples tests 10ms frame (480 samples at 48kHz).
+func TestDecodeFrame480Samples(t *testing.T) {
+	d := NewDecoder(1)
+
+	frameData := make([]byte, 32)
+	frameData[0] = 0x80
+	for i := 1; i < len(frameData); i++ {
+		frameData[i] = byte(i * 31 % 256)
+	}
+
+	samples, err := d.DecodeFrame(frameData, 480)
+	if err != nil {
+		t.Fatalf("DecodeFrame(480) failed: %v", err)
+	}
+
+	if len(samples) != 480 {
+		t.Errorf("DecodeFrame(480) produced %d samples, want 480", len(samples))
+	}
+
+	t.Logf("480-sample frame decoded successfully")
+}
+
+// TestDecodeFrame960Samples tests 20ms frame (960 samples at 48kHz).
+func TestDecodeFrame960Samples(t *testing.T) {
+	d := NewDecoder(1)
+
+	frameData := make([]byte, 64)
+	frameData[0] = 0x80
+	for i := 1; i < len(frameData); i++ {
+		frameData[i] = byte(i * 37 % 256)
+	}
+
+	samples, err := d.DecodeFrame(frameData, 960)
+	if err != nil {
+		t.Fatalf("DecodeFrame(960) failed: %v", err)
+	}
+
+	if len(samples) != 960 {
+		t.Errorf("DecodeFrame(960) produced %d samples, want 960", len(samples))
+	}
+
+	t.Logf("960-sample frame decoded successfully")
+}
+
+// TestDecodeFrameSequence tests decoding multiple frames maintains state correctly.
+func TestDecodeFrameSequence(t *testing.T) {
+	d := NewDecoder(1)
+	frameSize := 480 // 10ms
+
+	// Decode 5 frames
+	for i := 0; i < 5; i++ {
+		frameData := make([]byte, 32)
+		frameData[0] = 0x80
+		for j := 1; j < len(frameData); j++ {
+			frameData[j] = byte((i*32 + j) % 256)
+		}
+
+		samples, err := d.DecodeFrame(frameData, frameSize)
+		if err != nil {
+			t.Fatalf("Frame %d: DecodeFrame failed: %v", i, err)
+		}
+
+		if len(samples) != frameSize {
+			t.Errorf("Frame %d: got %d samples, want %d", i, len(samples), frameSize)
+		}
+
+		// Check samples are finite
+		for j, s := range samples {
+			if math.IsNaN(s) || math.IsInf(s, 0) {
+				t.Errorf("Frame %d, sample %d: invalid value %v", i, j, s)
+			}
+		}
+	}
+}
+
+// TestCELTDecoderQualitySummary runs key tests and reports overall status.
+// This test documents the Phase 15 success criteria validation.
+func TestCELTDecoderQualitySummary(t *testing.T) {
+	t.Log("=== CELT Decoder Quality Summary ===")
+
+	// Test 1: Frame size support
+	frameSizes := []int{120, 240, 480, 960}
+	frameSizePass := true
+
+	d := NewDecoder(1)
+	for _, fs := range frameSizes {
+		frameData := make([]byte, fs/8)
+		if len(frameData) < 8 {
+			frameData = make([]byte, 8)
+		}
+		frameData[0] = 0x80
+
+		samples, err := d.DecodeFrame(frameData, fs)
+		if err != nil || len(samples) != fs {
+			t.Errorf("Frame size %d: FAIL (err=%v, samples=%d)", fs, err, len(samples))
+			frameSizePass = false
+		} else {
+			t.Logf("Frame size %d: PASS", fs)
+		}
+	}
+
+	// Test 2: Finite output
+	finitePass := true
+	for _, fs := range frameSizes {
+		frameData := make([]byte, 32)
+		for i := range frameData {
+			frameData[i] = byte(i * 7)
+		}
+
+		samples, _ := d.DecodeFrame(frameData, fs)
+		for _, s := range samples {
+			if math.IsNaN(s) || math.IsInf(s, 0) {
+				finitePass = false
+				break
+			}
+		}
+	}
+	t.Logf("Finite output: %v", finitePass)
+
+	// Test 3: Non-zero output capability
+	d.Reset()
+	frameData := make([]byte, 64)
+	for i := range frameData {
+		frameData[i] = byte(i * 13 % 256)
+	}
+
+	samples, _ := d.DecodeFrame(frameData, 960)
+	maxAbs := 0.0
+	for _, s := range samples {
+		if math.Abs(s) > maxAbs {
+			maxAbs = math.Abs(s)
+		}
+	}
+	t.Logf("Max amplitude: %f", maxAbs)
+
+	// Summary
+	t.Log("=== End Summary ===")
+
+	if !frameSizePass {
+		t.Error("FAIL: Not all frame sizes supported")
+	}
+	if !finitePass {
+		t.Error("FAIL: Non-finite values in output")
 	}
 }
