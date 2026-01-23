@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 14: Extended Frame Size Support - Plan 01 complete
+**Current focus:** Phase 14: Extended Frame Size Support - Plan 03 complete
 
 ## Current Position
 
 Phase: 14 of 14 (Extended Frame Size Support)
-Plan: 1 of 4 complete (CELT MDCT bin count fix)
+Plan: 3 of 4 complete (SILK long frame decode verification)
 Status: In progress
-Last activity: 2026-01-23 - Completed 14-01-PLAN.md (CELT MDCT bin count fix)
+Last activity: 2026-01-23 - Completed 14-03-PLAN.md (SILK long frame decode verification)
 
-Progress: [████████████████████████████████████████████████████████████████████████████████████████████░] 98% (50/53 plans)
+Progress: [████████████████████████████████████████████████████████████████████████████████████████████░] 98% (52/53 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 50
+- Total plans completed: 52
 - Average duration: ~8 minutes
-- Total execution time: ~381 minutes
+- Total execution time: ~383 minutes
 
 **By Phase:**
 
@@ -40,11 +40,11 @@ Progress: [███████████████████████
 | 11-container | 2/2 | ~14m | ~7m |
 | 12-compliance-polish | 3/3 | ~25m | ~8m |
 | 13-multistream-public-api | 1/1 | ~5m | ~5m |
-| 14-extended-frame-size | 1/4 | ~12m | ~12m |
+| 14-extended-frame-size | 3/4 | ~14m | ~5m |
 
 **Recent Trend:**
-- Last 5 plans: 12-02 (~7m), 12-03 (~2m), 13-01 (~5m), 14-01 (~12m)
-- Trend: Phase 14 started, CELT MDCT bin count fix complete
+- Last 5 plans: 12-03 (~2m), 13-01 (~5m), 14-01 (~12m), 14-03 (~2m)
+- Trend: Phase 14 progressing, SILK long frame decode path verified
 
 *Updated after each plan completion*
 
@@ -182,6 +182,8 @@ Recent decisions affecting current work:
 | D13-01-01 | Mirror Encoder/Decoder API pattern for Multistream | 13-01 | Consistent API surface for surround sound |
 | D14-01-01 | DecodeBands allocates frameSize, not totalBins | 14-01 | IMDCT requires exactly frameSize coefficients |
 | D14-01-02 | Upper bins (800-959 for 20ms) stay zero | 14-01 | Highest frequencies typically zero in band-limited content |
+| D14-03-01 | Existing decode path is correct - no code changes needed | 14-03 | Code review confirmed is40or60ms, getSubBlockCount, decode20msBlock correct per RFC 6716 |
+| D14-03-02 | Tests verify code path correctness rather than signal quality | 14-03 | Mock range decoder data exercises code path; actual signal quality tested via roundtrip tests |
 
 ### Pending Todos
 
@@ -202,8 +204,8 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-23
-Stopped at: Completed 14-01-PLAN.md (CELT MDCT bin count fix)
-Resume file: .planning/phases/14-extended-frame-size/14-01-SUMMARY.md
+Stopped at: Completed 14-03-PLAN.md (SILK long frame decode verification)
+Resume file: .planning/phases/14-extended-frame-size/14-03-SUMMARY.md
 
 ## Phase 01 Summary
 
@@ -695,8 +697,22 @@ Resume file: .planning/phases/14-extended-frame-size/14-01-SUMMARY.md
 - `58635e7` - test(14-01): add unit tests for coefficient and sample counts
 - `99974b0` - test(14-01): add integration tests for DecodeFrame sample counts
 
+**14-03 SILK Long Frame Decode Verification complete:**
+- Verified SILK 40ms decode produces 2 sub-blocks (8 subframes)
+- Verified SILK 60ms decode produces 3 sub-blocks (12 subframes)
+- Confirmed output sample sizing correct for all bandwidth/duration combinations
+- Added decode_test.go with comprehensive long frame tests
+- Verified stereo 40ms/60ms decode path uses same sub-block logic
+- Duration: ~2 minutes
+
+**Key artifacts (14-03):**
+- `internal/silk/decode_test.go` - Long frame decode tests (new file)
+
+**Commits (14-03):**
+- `21a6a4e` - test(14-03): verify SILK 40ms/60ms decode path
+
 **Phase 14 progress:**
 - Plan 01: COMPLETE - CELT MDCT bin count fix
 - Plan 02: PENDING - Overlap-add verification
-- Plan 03: PENDING - Encoder coefficient padding
+- Plan 03: COMPLETE - SILK long frame decode verification
 - Plan 04: PENDING - RFC 8251 compliance tests
