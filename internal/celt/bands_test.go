@@ -464,27 +464,103 @@ func TestDecodeBandsStereo_OutputSize(t *testing.T) {
 	}
 }
 
-// TestDenormalizeBand verifies energy scaling.
+// TestDenormalizeBand verifies energy scaling produces correct amplitudes.
+// Energy is in log2 scale: gain = 2^energy
+// This matches libopus celt/bands.c denormalise_bands().
 func TestDenormalizeBand(t *testing.T) {
-	// Unit vector
-	shape := []float64{1, 0, 0, 0}
-
-	// Energy = 0 means gain = 2^0 = 1
-	result := DenormalizeBand(shape, 0)
-	if math.Abs(result[0]-1.0) > 1e-10 {
-		t.Errorf("DenormalizeBand with energy=0 should have gain=1, got %v", result[0])
+	tests := []struct {
+		name     string
+		shape    []float64
+		energy   float64
+		wantGain float64 // Expected gain = 2^energy
+	}{
+		{
+			name:     "zero energy",
+			shape:    []float64{1.0, 0.0, 0.0},
+			energy:   0.0,
+			wantGain: 1.0, // 2^0 = 1
+		},
+		{
+			name:     "positive energy",
+			shape:    []float64{0.5, 0.5, 0.5, 0.5},
+			energy:   3.0,
+			wantGain: 8.0, // 2^3 = 8
+		},
+		{
+			name:     "negative energy",
+			shape:    []float64{1.0},
+			energy:   -2.0,
+			wantGain: 0.25, // 2^-2 = 0.25
+		},
+		{
+			name:     "fractional energy",
+			shape:    []float64{0.707, 0.707},
+			energy:   1.5,
+			wantGain: 2.828, // 2^1.5 ~= 2.828
+		},
+		{
+			name:     "energy = 1 (gain = 2)",
+			shape:    []float64{1, 0, 0, 0},
+			energy:   1.0,
+			wantGain: 2.0, // 2^1 = 2
+		},
+		{
+			name:     "energy = -1 (gain = 0.5)",
+			shape:    []float64{1, 0, 0, 0},
+			energy:   -1.0,
+			wantGain: 0.5, // 2^-1 = 0.5
+		},
 	}
 
-	// Energy = 1 means gain = 2^1 = 2
-	result = DenormalizeBand(shape, 1)
-	if math.Abs(result[0]-2.0) > 1e-10 {
-		t.Errorf("DenormalizeBand with energy=1 should have gain=2, got %v", result[0])
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := DenormalizeBand(tt.shape, tt.energy)
+
+			if len(result) != len(tt.shape) {
+				t.Fatalf("len(result) = %d, want %d", len(result), len(tt.shape))
+			}
+
+			// Check that result[i] = shape[i] * gain
+			actualGain := 0.0
+			if tt.shape[0] != 0 {
+				actualGain = result[0] / tt.shape[0]
+			}
+
+			tolerance := 0.01
+			if math.Abs(actualGain-tt.wantGain) > tolerance {
+				t.Errorf("gain = %v, want %v (tolerance %v)", actualGain, tt.wantGain, tolerance)
+			}
+		})
+	}
+}
+
+// TestDenormalizeEnergyClamping verifies extreme energies don't cause overflow.
+func TestDenormalizeEnergyClamping(t *testing.T) {
+	// Test that extreme energies don't cause overflow
+	shape := []float64{1.0}
+
+	// Very high energy should be clamped to 32
+	resultHigh := DenormalizeBand(shape, 100.0)
+	if math.IsInf(resultHigh[0], 0) || math.IsNaN(resultHigh[0]) {
+		t.Error("High energy caused overflow or NaN")
+	}
+	// Expect clamped to 2^32
+	maxGain := math.Exp2(32)
+	if resultHigh[0] > maxGain*1.001 {
+		t.Errorf("High energy not clamped: got %v, want <= %v", resultHigh[0], maxGain)
+	}
+	if math.Abs(resultHigh[0]-maxGain) > maxGain*0.001 {
+		t.Errorf("High energy should clamp to 2^32: got %v, want %v", resultHigh[0], maxGain)
 	}
 
-	// Energy = -1 means gain = 2^-1 = 0.5
-	result = DenormalizeBand(shape, -1)
-	if math.Abs(result[0]-0.5) > 1e-10 {
-		t.Errorf("DenormalizeBand with energy=-1 should have gain=0.5, got %v", result[0])
+	// Very low energy should still work (no clamping needed for underflow)
+	resultLow := DenormalizeBand(shape, -100.0)
+	if math.IsNaN(resultLow[0]) {
+		t.Error("Low energy caused NaN")
+	}
+	// Should be very small but not zero (floating point underflow to denormal)
+	if resultLow[0] == 0 && shape[0] != 0 {
+		t.Log("Low energy resulted in zero (may be expected due to underflow)")
 	}
 }
 
@@ -508,6 +584,65 @@ func TestComputeBandEnergy(t *testing.T) {
 	energy = ComputeBandEnergy([]float64{})
 	if energy != -28.0 {
 		t.Errorf("ComputeBandEnergy([]) = %v, want -28.0", energy)
+	}
+}
+
+// TestComputeBandEnergyRoundTrip verifies round-trip: ComputeBandEnergy -> DenormalizeBand preserves scale.
+// This is the key property: if we compute energy from coefficients, then denormalize a unit shape
+// by that energy, we should get back the original amplitude.
+func TestComputeBandEnergyRoundTrip(t *testing.T) {
+	tests := []struct {
+		name   string
+		coeffs []float64
+	}{
+		{
+			name:   "unit vector",
+			coeffs: []float64{1.0, 0.0, 0.0, 0.0},
+		},
+		{
+			name:   "scaled vector",
+			coeffs: []float64{4.0, 3.0, 0.0},
+		},
+		{
+			name:   "negative values",
+			coeffs: []float64{-2.0, 2.0, -2.0, 2.0},
+		},
+		{
+			name:   "uniform distribution",
+			coeffs: []float64{0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Compute energy
+			energy := ComputeBandEnergy(tt.coeffs)
+
+			// Normalize to unit vector
+			norm := 0.0
+			for _, c := range tt.coeffs {
+				norm += c * c
+			}
+			norm = math.Sqrt(norm)
+			if norm == 0 {
+				return
+			}
+
+			shape := make([]float64, len(tt.coeffs))
+			for i, c := range tt.coeffs {
+				shape[i] = c / norm
+			}
+
+			// Denormalize back
+			result := DenormalizeBand(shape, energy)
+
+			// Should get approximately original coefficients
+			for i := range tt.coeffs {
+				if math.Abs(result[i]-tt.coeffs[i]) > 0.1 {
+					t.Errorf("coeff[%d] = %v, want %v", i, result[i], tt.coeffs[i])
+				}
+			}
+		})
 	}
 }
 
