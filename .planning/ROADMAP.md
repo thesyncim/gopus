@@ -24,6 +24,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 10: API Layer** - Frame-based API and io.Reader/Writer wrappers
 - [x] **Phase 11: Container** - Ogg Opus file read/write
 - [x] **Phase 12: Compliance & Polish** - Test vectors, cross-validation, documentation
+- [ ] **Phase 13: Multistream Public API** - Expose multistream encoder/decoder to users (Gap Closure)
+- [ ] **Phase 14: Extended Frame Size Support** - Add 2.5/5/40/60ms frame support for RFC 8251 compliance (Gap Closure)
 
 ## Phase Details
 
@@ -232,10 +234,35 @@ Plans:
 - [x] 12-02-PLAN.md — RFC 8251 test vector parsing and decoder compliance tests
 - [x] 12-03-PLAN.md — CGO-free build verification and testable documentation examples
 
+### Phase 13: Multistream Public API
+**Goal**: Expose multistream encoder/decoder for surround sound (5.1, 7.1) support
+**Depends on**: Phase 10
+**Requirements**: (Integration gap closure)
+**Gap Closure**: Closes audit gap - internal/multistream → gopus public API
+**Success Criteria** (what must be TRUE):
+  1. gopus.MultistreamEncoder wraps internal/multistream.Encoder
+  2. gopus.MultistreamDecoder wraps internal/multistream.Decoder
+  3. NewMultistreamEncoder/NewMultistreamDecoder with default configurations
+  4. Round-trip tests pass for 5.1 and 7.1 channel layouts
+**Plans**: TBD
+
+### Phase 14: Extended Frame Size Support
+**Goal**: Support all Opus frame sizes (2.5/5/10/20/40/60ms) for RFC 8251 test vector compliance
+**Depends on**: Phase 3, Phase 4
+**Requirements**: CMP-01
+**Gap Closure**: Closes audit gap - CMP-01 unsatisfied
+**Success Criteria** (what must be TRUE):
+  1. CELT decoder supports 2.5ms and 5ms frame sizes
+  2. SILK decoder supports 40ms and 60ms frame sizes
+  3. Hybrid decoder coordinates extended frame sizes correctly
+  4. RFC 8251 test vectors pass with Q >= 0 threshold
+  5. CELT MDCT bin count matches frame size (fixes 1480 vs 960 mismatch)
+**Plans**: TBD
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12 -> 13 -> 14
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -251,6 +278,8 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 10. API Layer | 2/2 | Complete | 2026-01-22 |
 | 11. Container | 2/2 | Complete | 2026-01-22 |
 | 12. Compliance & Polish | 3/3 | Complete | 2026-01-22 |
+| 13. Multistream Public API | 0/TBD | Pending | — |
+| 14. Extended Frame Size Support | 0/TBD | Pending | — |
 
 ---
 *Roadmap created: 2026-01-21*
@@ -276,4 +305,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 *Phase 11 complete: 2026-01-22*
 *Phase 12 planned: 2026-01-22*
 *Phase 12 complete: 2026-01-22*
-*Total phases: 12 | Total plans: 48*
+*Gap closure phases 13-14 added: 2026-01-23*
+*Total phases: 14 | Total plans: 48 + TBD*
