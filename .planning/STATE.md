@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-01-23)
 ## Current Position
 
 Phase: 15 of 18 (CELT Decoder Quality)
-Plan: 0 of ? in current phase
-Status: Ready to plan
-Last activity: 2026-01-23 - Completed quick task 002: Update module path to github.com/thesyncim/gopus
+Plan: 2 of 5 in current phase
+Status: In progress
+Last activity: 2026-01-23 - Completed 15-02-PLAN.md (Range decoder integration for Laplace energy decoding)
 
-Progress: [##############                                                                                    ] 14% (54/~62 plans)
+Progress: [###############                                                                                   ] 15% (55/~62 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 54
+- Total plans completed: 55
 - Average duration: ~7 minutes
-- Total execution time: ~395 minutes
+- Total execution time: ~398 minutes
 
 **By Phase (v1.0):**
 
@@ -42,9 +42,15 @@ Progress: [##############                                                       
 | 13-multistream-public-api | 1/1 | ~5m | ~5m |
 | 14-extended-frame-size | 5/5 | ~24m | ~5m |
 
+**By Phase (v1.1):**
+
+| Phase | Plans | Total | Avg/Plan |
+|-------|-------|-------|----------|
+| 15-celt-decoder-quality | 1/5 | ~3m | ~3m |
+
 **Recent Trend:**
 - v1.0 complete with 14 phases, 54 plans
-- Starting v1.1 tech debt closure
+- v1.1 phase 15 in progress
 
 *Updated after each plan completion*
 
@@ -60,6 +66,8 @@ Recent decisions affecting current work:
 | D14-05-01 | Track lastMode for PLC to use correct decoder | 14-05 | PLC continues with SILK/CELT mode |
 | D14-05-02 | Add three decoder fields (silkDecoder, celtDecoder, hybridDecoder) | 14-05 | Each mode has dedicated decoder |
 | D14-05-03 | Route based on toc.Mode from ParseTOC | 14-05 | switch routes to decodeSILK, decodeCELT, decodeHybrid |
+| D15-02-01 | DecodeSymbol implements libopus ec_dec_update() semantics | 15-02 | Proper range decoder state updates |
+| D15-02-02 | Last symbol uses remaining range to avoid precision loss | 15-02 | rng -= s * fl for last symbol |
 
 ### Pending Todos
 
@@ -88,6 +96,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-01-23
-Stopped at: Created v1.1 roadmap (Phases 15-18)
-Resume file: None - ready to plan Phase 15
+Last session: 2026-01-23T10:41:18Z
+Stopped at: Completed 15-02-PLAN.md
+Resume file: None - ready for 15-03-PLAN.md
