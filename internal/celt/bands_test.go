@@ -752,3 +752,347 @@ func BenchmarkDecodeBands(b *testing.B) {
 		_ = len(bandBits)
 	}
 }
+
+// TestBitsToKBoundaries tests edge cases for bits-to-pulses conversion.
+func TestBitsToKBoundaries(t *testing.T) {
+	// Zero bits should always return zero pulses
+	for n := 1; n <= 32; n++ {
+		k := bitsToK(0, n)
+		if k != 0 {
+			t.Errorf("bitsToK(0, %d) = %d, want 0", n, k)
+		}
+	}
+
+	// Zero dimensions should always return zero pulses
+	for bits := 0; bits <= 100; bits += 10 {
+		k := bitsToK(bits, 0)
+		if k != 0 {
+			t.Errorf("bitsToK(%d, 0) = %d, want 0", bits, k)
+		}
+	}
+
+	// Negative dimensions should return zero
+	k := bitsToK(50, -1)
+	if k != 0 {
+		t.Errorf("bitsToK(50, -1) = %d, want 0", k)
+	}
+
+	// Very few bits (below threshold) should return zero
+	// For n=8, minBits = ilog2(8) + 1 = 4
+	// Bits < 4 should return k=0
+	for bits := 1; bits <= 3; bits++ {
+		k := bitsToK(bits, 8)
+		if k != 0 {
+			t.Errorf("bitsToK(%d, 8) = %d, want 0 (bits below threshold)", bits, k)
+		}
+	}
+
+	// Test minimum bits for k=1 at various n
+	t.Run("min_bits_for_k1", func(t *testing.T) {
+		for n := 2; n <= 16; n++ {
+			// Find minimum bits needed for k=1
+			var minBits int
+			for bits := 1; bits <= 100; bits++ {
+				if bitsToK(bits, n) >= 1 {
+					minBits = bits
+					break
+				}
+			}
+			// Should be approximately log2(V(n,1)) = log2(2n)
+			v1 := PVQ_V(n, 1)
+			expectedMin := ilog2(int(v1 - 1))
+			t.Logf("n=%d: min bits for k=1 is %d, V(%d,1)=%d, ilog2(V-1)=%d",
+				n, minBits, n, v1, expectedMin)
+		}
+	})
+}
+
+// TestBitsToKMonotonic verifies that more bits never result in fewer pulses.
+func TestBitsToKMonotonic(t *testing.T) {
+	dimensions := []int{2, 4, 8, 16, 32}
+
+	for _, n := range dimensions {
+		t.Run("", func(t *testing.T) {
+			prev := 0
+			for bits := 0; bits <= 150; bits++ {
+				k := bitsToK(bits, n)
+				if k < prev {
+					t.Errorf("bitsToK not monotonic at n=%d: bits=%d gave k=%d, but bits=%d gave k=%d",
+						n, bits-1, prev, bits, k)
+				}
+				prev = k
+			}
+		})
+	}
+}
+
+// TestKToBitsRoundtrip verifies the relationship between kToBits and bitsToK.
+// Note: kToBits returns log2(V(n,k)-1) which is a lower bound on bits needed.
+// bitsToK uses binary search with a minimum threshold, so the relationship
+// is: kToBits(k, n) gives bits, bitsToK(bits+margin, n) should return >= k.
+func TestKToBitsRoundtrip(t *testing.T) {
+	// Test that the functions are internally consistent
+	for n := 2; n <= 16; n++ {
+		for k := 1; k <= 8; k++ {
+			bits := kToBits(k, n)
+			v := PVQ_V(n, k)
+
+			// kToBits should return approximately log2(V(n,k))
+			expectedBits := ilog2(int(v - 1))
+			if bits != expectedBits && bits != expectedBits+1 && bits != expectedBits-1 {
+				t.Logf("kToBits(%d, %d) = %d, but ilog2(V(%d,%d)-1) = ilog2(%d-1) = %d",
+					k, n, bits, n, k, v, expectedBits)
+			}
+
+			// With enough extra bits, bitsToK should return at least k
+			// This compensates for the threshold check in bitsToK
+			largeBits := bits + 5
+			kDecoded := bitsToK(largeBits, n)
+			if kDecoded < k {
+				t.Errorf("With %d bits (kToBits + 5), bitsToK(%d, %d) = %d < %d",
+					largeBits, largeBits, n, kDecoded, k)
+			}
+		}
+	}
+}
+
+// TestKToBitsValues verifies kToBits produces reasonable bit counts.
+// kToBits returns ilog2(V(n,k)-1), which is floor(log2(V-1)).
+func TestKToBitsValues(t *testing.T) {
+	// Test that kToBits returns values consistent with V(n,k)
+	testCases := []struct {
+		k, n int
+	}{
+		{1, 2},  // V(2,1) = 4
+		{1, 4},  // V(4,1) = 8
+		{1, 8},  // V(8,1) = 16
+		{2, 4},  // V(4,2) = 32
+		{4, 8},  // V(8,4) is large
+	}
+
+	for _, tc := range testCases {
+		bits := kToBits(tc.k, tc.n)
+		v := PVQ_V(tc.n, tc.k)
+		expectedBits := ilog2(int(v - 1))
+
+		if bits != expectedBits {
+			t.Errorf("kToBits(%d, %d) = %d, but ilog2(V(%d,%d)-1) = ilog2(%d) = %d",
+				tc.k, tc.n, bits, tc.n, tc.k, v-1, expectedBits)
+		}
+
+		// Log the values for visibility
+		t.Logf("kToBits(%d, %d) = %d, V = %d", tc.k, tc.n, bits, v)
+	}
+}
+
+// TestBitsToKWithRealFrameSizes tests bit allocation for actual CELT frame sizes.
+func TestBitsToKWithRealFrameSizes(t *testing.T) {
+	// Test with band widths from actual CELT frames
+	frameSizes := []struct {
+		name      string
+		frameSize int
+		nbBands   int
+	}{
+		{"2.5ms", 120, 13},
+		{"5ms", 240, 17},
+		{"10ms", 480, 19},
+		{"20ms", 960, 21},
+	}
+
+	for _, fs := range frameSizes {
+		t.Run(fs.name, func(t *testing.T) {
+			for band := 0; band < fs.nbBands; band++ {
+				n := ScaledBandWidth(band, fs.frameSize)
+				if n <= 0 {
+					continue
+				}
+
+				// Test various bit allocations
+				for bits := 0; bits <= 200; bits += 20 {
+					k := bitsToK(bits, n)
+
+					// k should be non-negative
+					if k < 0 {
+						t.Errorf("bitsToK(%d, %d) = %d < 0 at band %d", bits, n, k, band)
+					}
+
+					// k should not exceed reasonable bounds
+					if k > bits {
+						t.Errorf("bitsToK(%d, %d) = %d > bits at band %d", bits, n, k, band)
+					}
+
+					// Verify V(n,k) is valid (not zero for k > 0)
+					if k > 0 {
+						v := PVQ_V(n, k)
+						if v == 0 {
+							t.Errorf("V(%d, %d) = 0 for bits=%d at band %d", n, k, bits, band)
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestDecodeBandsAllocationPath verifies the allocation -> k -> PVQ path is correctly wired.
+// This tests that for each band, the bit allocation produces valid pulse counts
+// that can be used with PVQ decoding.
+func TestDecodeBandsAllocationPath(t *testing.T) {
+	testCases := []struct {
+		name      string
+		frameSize int
+		nbBands   int
+	}{
+		{"2.5ms", 120, 13},
+		{"5ms", 240, 17},
+		{"10ms", 480, 19},
+		{"20ms", 960, 21},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			for band := 0; band < tc.nbBands; band++ {
+				n := ScaledBandWidth(band, tc.frameSize)
+				if n <= 0 {
+					continue
+				}
+
+				// Test various bit allocations
+				for bits := 0; bits <= 100; bits += 10 {
+					k := bitsToK(bits, n)
+
+					// If k > 0, verify we can decode all valid indices
+					if k > 0 {
+						vCount := PVQ_V(n, k)
+						if vCount == 0 {
+							t.Errorf("V(%d, %d) = 0 at band %d with %d bits", n, k, band, bits)
+							continue
+						}
+
+						// Test a few indices
+						testIndices := []uint32{0}
+						if vCount > 1 {
+							testIndices = append(testIndices, vCount-1)
+						}
+						if vCount > 2 {
+							testIndices = append(testIndices, vCount/2)
+						}
+
+						for _, idx := range testIndices {
+							pulses := DecodePulses(idx, n, k)
+							if pulses == nil {
+								t.Errorf("DecodePulses(%d, %d, %d) returned nil at band %d", idx, n, k, band)
+								continue
+							}
+
+							// Verify L1 norm
+							sum := 0
+							for _, p := range pulses {
+								if p < 0 {
+									sum -= p
+								} else {
+									sum += p
+								}
+							}
+							if sum != k {
+								t.Errorf("DecodePulses(%d, %d, %d) L1=%d, want %d at band %d",
+									idx, n, k, sum, k, band)
+							}
+
+							// Verify normalization produces unit vector
+							floatPulses := intToFloat(pulses)
+							normalized := NormalizeVector(floatPulses)
+							var norm2 float64
+							for _, x := range normalized {
+								norm2 += x * x
+							}
+							if math.Abs(norm2-1.0) > 1e-6 {
+								t.Errorf("Normalized vector L2^2=%v, want 1.0 at band %d, idx %d",
+									norm2, band, idx)
+							}
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestDenormalizationGainPath verifies the energy -> gain -> coefficient path.
+// This tests that given a normalized shape and energy, we get correctly scaled coefficients.
+func TestDenormalizationGainPath(t *testing.T) {
+	// Test that energy values produce correct gains
+	testCases := []struct {
+		energy float64
+		gain   float64 // expected gain = 2^energy
+	}{
+		{0.0, 1.0},
+		{1.0, 2.0},
+		{-1.0, 0.5},
+		{3.0, 8.0},
+		{-3.0, 0.125},
+		{10.0, 1024.0},
+		{-10.0, 1.0 / 1024.0},
+	}
+
+	shape := []float64{0.6, 0.8} // 3-4-5 triangle, normalized
+
+	for _, tc := range testCases {
+		result := DenormalizeBand(shape, tc.energy)
+
+		// Check gain is correct
+		if shape[0] != 0 {
+			actualGain := result[0] / shape[0]
+			if math.Abs(actualGain-tc.gain) > tc.gain*1e-6 {
+				t.Errorf("energy=%v: gain=%v, want %v", tc.energy, actualGain, tc.gain)
+			}
+		}
+	}
+
+	// Test clamping at high energies
+	t.Run("clamp_high", func(t *testing.T) {
+		// Energy > 32 should be clamped to 32
+		result := DenormalizeBand([]float64{1.0}, 100.0)
+		expectedGain := math.Exp2(32) // Clamped at 32
+		if math.Abs(result[0]-expectedGain) > expectedGain*1e-6 {
+			t.Errorf("High energy: got %v, want ~%v (clamped)", result[0], expectedGain)
+		}
+	})
+
+	// Test very low energies don't produce NaN/Inf
+	t.Run("low_energy", func(t *testing.T) {
+		result := DenormalizeBand([]float64{1.0}, -100.0)
+		if math.IsNaN(result[0]) || math.IsInf(result[0], 0) {
+			t.Errorf("Low energy produced NaN/Inf: %v", result[0])
+		}
+	})
+}
+
+// TestIlog2 verifies the integer log2 function.
+func TestIlog2(t *testing.T) {
+	tests := []struct {
+		x    int
+		want int
+	}{
+		{0, 0},
+		{1, 0},
+		{2, 1},
+		{3, 1},
+		{4, 2},
+		{7, 2},
+		{8, 3},
+		{15, 3},
+		{16, 4},
+		{255, 7},
+		{256, 8},
+		{1023, 9},
+		{1024, 10},
+	}
+
+	for _, tc := range tests {
+		got := ilog2(tc.x)
+		if got != tc.want {
+			t.Errorf("ilog2(%d) = %d, want %d", tc.x, got, tc.want)
+		}
+	}
+}

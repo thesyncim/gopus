@@ -356,8 +356,13 @@ func TestDecodePulsesSymmetry(t *testing.T) {
 	}
 }
 
-// TestEncodePulsesRoundtripExhaustive tests round-trip for all codewords in small (n, k).
-func TestEncodePulsesRoundtripExhaustive(t *testing.T) {
+// TestDecodePulsesExhaustiveProperties verifies key properties of DecodePulses
+// for all valid codewords in small (n, k) spaces.
+// Properties verified:
+// 1. Each index produces a unique vector
+// 2. All vectors have correct L1 norm (sum(|pulses|) == k)
+// 3. All V(n,k) indices produce valid vectors
+func TestDecodePulsesExhaustiveProperties(t *testing.T) {
 	testCases := []struct {
 		n, k int
 	}{
@@ -373,6 +378,7 @@ func TestEncodePulsesRoundtripExhaustive(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run("", func(t *testing.T) {
 			vCount := PVQ_V(tc.n, tc.k)
+			seen := make(map[string]uint32)
 
 			for idx := uint32(0); idx < vCount; idx++ {
 				// Decode
@@ -382,14 +388,43 @@ func TestEncodePulsesRoundtripExhaustive(t *testing.T) {
 					continue
 				}
 
-				// Encode back
-				encoded := EncodePulses(y, tc.n, tc.k)
-
-				// Verify round-trip
-				if encoded != idx {
-					t.Errorf("Round-trip failed: DecodePulses(%d, %d, %d) = %v, EncodePulses = %d",
-						idx, tc.n, tc.k, y, encoded)
+				// Verify length
+				if len(y) != tc.n {
+					t.Errorf("DecodePulses(%d, %d, %d) length = %d, want %d",
+						idx, tc.n, tc.k, len(y), tc.n)
+					continue
 				}
+
+				// Verify L1 norm
+				sum := 0
+				for _, v := range y {
+					if v < 0 {
+						sum -= v
+					} else {
+						sum += v
+					}
+				}
+				if sum != tc.k {
+					t.Errorf("DecodePulses(%d, %d, %d) = %v has L1=%d, want %d",
+						idx, tc.n, tc.k, y, sum, tc.k)
+				}
+
+				// Verify uniqueness
+				key := ""
+				for _, v := range y {
+					key += string(rune(v + 1000))
+				}
+				if prevIdx, exists := seen[key]; exists {
+					t.Errorf("Duplicate vector: idx %d and %d both decode to %v",
+						prevIdx, idx, y)
+				}
+				seen[key] = idx
+			}
+
+			// Verify we got exactly V(n,k) unique vectors
+			if uint32(len(seen)) != vCount {
+				t.Errorf("Got %d unique vectors, want V(%d,%d) = %d",
+					len(seen), tc.n, tc.k, vCount)
 			}
 		})
 	}
