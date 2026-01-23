@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-21)
 
 **Core value:** Correct, pure-Go Opus encoding and decoding that passes official test vectors - no cgo, no external dependencies.
-**Current focus:** Phase 12: Compliance & Polish - All plans complete
+**Current focus:** Phase 13: Multistream Public API - Plan 01 complete
 
 ## Current Position
 
-Phase: 12 of 12 (Compliance & Polish)
-Plan: 3 of 3 complete (Compliance testing infrastructure)
+Phase: 13 of 14 (Multistream Public API)
+Plan: 1 of 1 complete (Multistream public API wrappers)
 Status: Phase complete
-Last activity: 2026-01-22 - Completed 12-02-PLAN.md (RFC 8251 test vector compliance)
+Last activity: 2026-01-23 - Completed 13-01-PLAN.md (Multistream public API)
 
-Progress: [████████████████████████████████████████████████████████████████████████████████████████████] 100% (48/48 plans)
+Progress: [████████████████████████████████████████████████████████████████████████████████████████████░] 98% (49/50 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 48
+- Total plans completed: 49
 - Average duration: ~8 minutes
-- Total execution time: ~364 minutes
+- Total execution time: ~369 minutes
 
 **By Phase:**
 
@@ -39,10 +39,11 @@ Progress: [███████████████████████
 | 10-api-layer | 2/2 | ~47m | ~24m |
 | 11-container | 2/2 | ~14m | ~7m |
 | 12-compliance-polish | 3/3 | ~25m | ~8m |
+| 13-multistream-public-api | 1/1 | ~5m | ~5m |
 
 **Recent Trend:**
-- Last 5 plans: 11-02 (~8m), 12-01 (~16m), 12-03 (~2m), 12-02 (~7m)
-- Trend: Phase 12 complete, all compliance infrastructure in place
+- Last 5 plans: 12-01 (~16m), 12-03 (~2m), 12-02 (~7m), 13-01 (~5m)
+- Trend: Phase 13 complete, multistream public API exposed
 
 *Updated after each plan completion*
 
@@ -177,6 +178,7 @@ Recent decisions affecting current work:
 | D12-02-01 | Use big-endian for opus_demo .bit file parsing | 12-02 | Parser correctly reads official RFC 8251 test vectors |
 | D12-02-02 | Simplified SNR-based quality metric | 12-02 | Q=0 at 48dB threshold, sufficient for initial compliance |
 | D12-02-03 | Check both .dec and m.dec references | 12-02 | Pass if either matches per RFC 8251 |
+| D13-01-01 | Mirror Encoder/Decoder API pattern for Multistream | 13-01 | Consistent API surface for surround sound |
 
 ### Pending Todos
 
@@ -196,9 +198,9 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-01-22
-Stopped at: Completed 12-02-PLAN.md (RFC 8251 compliance tests)
-Resume file: .planning/phases/12-compliance-polish/12-02-SUMMARY.md
+Last session: 2026-01-23
+Stopped at: Completed 13-01-PLAN.md (Multistream public API)
+Resume file: .planning/phases/13-multistream-public-api/13-01-SUMMARY.md
 
 ## Phase 01 Summary
 
@@ -638,3 +640,33 @@ Resume file: .planning/phases/12-compliance-polish/12-02-SUMMARY.md
 - RFC 8251 test vector parsing and compliance infrastructure
 - Quality metric computation (SNR-based, Q >= 0 threshold)
 - All 48 plans executed successfully
+
+## Phase 13 Summary - COMPLETE
+
+**13-01 Multistream Public API complete:**
+- MultistreamEncoder wrapping internal/multistream.Encoder
+- MultistreamDecoder wrapping internal/multistream.Decoder
+- NewMultistreamEncoder/NewMultistreamEncoderDefault constructors
+- NewMultistreamDecoder/NewMultistreamDecoderDefault constructors
+- Full method parity with Encoder/Decoder (Encode, Decode, SetBitrate, etc.)
+- Error types: ErrInvalidStreams, ErrInvalidCoupledStreams, ErrInvalidMapping
+- 15 test functions covering 5.1, 7.1, stereo, mono
+- Documentation updated with multistream examples
+- Duration: ~5 minutes
+
+**Key artifacts:**
+- `multistream.go` - MultistreamEncoder and MultistreamDecoder (563 lines)
+- `multistream_test.go` - Comprehensive tests (772 lines)
+- `errors.go` - Added multistream error types
+- `doc.go` - Added multistream documentation section
+
+**Commits:**
+- `4874680` - feat(13-01): add MultistreamEncoder and MultistreamDecoder public API
+- `1657242` - test(13-01): add comprehensive multistream public API tests
+- `70b1318` - docs(13-01): add multistream API documentation to doc.go
+
+**Phase 13 COMPLETE:**
+- Public multistream API fully exposed
+- Closes audit gap between internal/multistream and public API
+- All channel configurations 1-8 supported
+- RFC 7845 Vorbis-style mapping for surround sound
