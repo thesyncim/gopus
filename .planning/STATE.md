@@ -14,14 +14,14 @@ Plan: 8 of 8 in current phase
 Status: In progress
 Last activity: 2026-01-23 - Completed 15-08-PLAN.md (Bit allocation verification and trace tests)
 
-Progress: [####################                                                                              ] 20% (61/~63 plans)
+Progress: [#####################                                                                             ] 21% (62/~63 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 61
+- Total plans completed: 62
 - Average duration: ~7 minutes
-- Total execution time: ~426 minutes
+- Total execution time: ~432 minutes
 
 **By Phase (v1.0):**
 
@@ -46,7 +46,7 @@ Progress: [####################                                                 
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 15-celt-decoder-quality | 8/8 | ~36m | ~5m |
+| 15-celt-decoder-quality | 8/8 | ~42m | ~5m |
 
 **Recent Trend:**
 - v1.0 complete with 14 phases, 54 plans
@@ -79,6 +79,9 @@ Recent decisions affecting current work:
 | D15-06-02 | Trace format [CELT:stage] key=value | 15-06 | Easy to grep/parse for libopus comparison |
 | D15-06-03 | Truncate arrays at 8 elements with '...' suffix | 15-06 | Balances detail with readability |
 | D15-06-04 | Added DecodePVQWithTrace variant | 15-06 | Allows band index context for TracePVQ |
+| D15-07-01 | DecodePulses produces correct vectors - EncodePulses has limitations | 15-07 | Decoder verified correct for all V(n,k) |
+| D15-07-02 | PVQ normalization always produces unit L2 norm | 15-07 | Verified for all valid inputs |
+| D15-07-03 | bitsToK is monotonic and thresholds correct | 15-07 | Works for all CELT band sizes |
 | D15-08-01 | Tests document allocation behavior rather than enforce specific values | 15-08 | Verify constraints not exact values |
 | D15-08-02 | CELT trace tests log informational notes for gopus.Decoder path | 15-08 | Tracer in place for direct celt.Decoder |
 | D15-08-03 | Bit consumption tracking reveals silence detection in test data | 15-08 | Valuable diagnostic information |
