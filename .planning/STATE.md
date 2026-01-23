@@ -12,16 +12,16 @@ See: .planning/PROJECT.md (updated 2026-01-23)
 Phase: 15 of 18 (CELT Decoder Quality)
 Plan: 2 of 5 in current phase
 Status: In progress
-Last activity: 2026-01-23 - Completed 15-02-PLAN.md (Range decoder integration for Laplace energy decoding)
+Last activity: 2026-01-23 - Completed 15-01-PLAN.md (Fix coarse energy prediction coefficients)
 
-Progress: [###############                                                                                   ] 15% (55/~62 plans)
+Progress: [################                                                                                  ] 16% (56/~62 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 55
+- Total plans completed: 56
 - Average duration: ~7 minutes
-- Total execution time: ~398 minutes
+- Total execution time: ~403 minutes
 
 **By Phase (v1.0):**
 
@@ -46,11 +46,11 @@ Progress: [###############                                                      
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 15-celt-decoder-quality | 1/5 | ~3m | ~3m |
+| 15-celt-decoder-quality | 2/5 | ~8m | ~4m |
 
 **Recent Trend:**
 - v1.0 complete with 14 phases, 54 plans
-- v1.1 phase 15 in progress
+- v1.1 phase 15 in progress (2/5 plans complete)
 
 *Updated after each plan completion*
 
@@ -66,6 +66,9 @@ Recent decisions affecting current work:
 | D14-05-01 | Track lastMode for PLC to use correct decoder | 14-05 | PLC continues with SILK/CELT mode |
 | D14-05-02 | Add three decoder fields (silkDecoder, celtDecoder, hybridDecoder) | 14-05 | Each mode has dedicated decoder |
 | D14-05-03 | Route based on toc.Mode from ParseTOC | 14-05 | switch routes to decodeSILK, decodeCELT, decodeHybrid |
+| D15-01-01 | BetaCoefInter uses LM-dependent values from libopus | 15-01 | 0.92, 0.68, 0.37, 0.20 by LM |
+| D15-01-02 | BetaIntra fixed at 0.15 for intra-frame mode | 15-01 | No inter-frame prediction in intra mode |
+| D15-01-03 | Inter-band predictor uses filtered accumulator formula | 15-01 | prev = prev + q - beta*q |
 | D15-02-01 | DecodeSymbol implements libopus ec_dec_update() semantics | 15-02 | Proper range decoder state updates |
 | D15-02-02 | Last symbol uses remaining range to avoid precision loss | 15-02 | rng -= s * fl for last symbol |
 
@@ -73,6 +76,7 @@ Recent decisions affecting current work:
 
 - Investigate decoder quality issues (Q=-100 on RFC 8251 test vectors)
 - Tune CELT encoder for full signal preservation with libopus
+- Fix flaky TestCoarseEnergyEncoderProducesValidOutput test (unseeded rand)
 
 ### Known Gaps (v1.1 Targets)
 
@@ -96,6 +100,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-01-23T10:41:18Z
-Stopped at: Completed 15-02-PLAN.md
+Last session: 2026-01-23T10:43:54Z
+Stopped at: Completed 15-01-PLAN.md
 Resume file: None - ready for 15-03-PLAN.md
