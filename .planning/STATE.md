@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-01-23)
 ## Current Position
 
 Phase: 15 of 18 (CELT Decoder Quality)
-Plan: 10 of 11 in current phase
-Status: In progress
-Last activity: 2026-01-23 - Completed 15-10-PLAN.md (Fix mono CELT sample count)
+Plan: 11 of 11 in current phase
+Status: Phase 15 gap closure complete
+Last activity: 2026-01-23 - Completed 15-11-PLAN.md (Identify CELT divergence point)
 
-Progress: [######################                                                                            ] 22% (64/~64 plans)
+Progress: [#######################                                                                               ] 23% (65/~65 plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 64
+- Total plans completed: 65
 - Average duration: ~7 minutes
-- Total execution time: ~446 minutes
+- Total execution time: ~451 minutes
 
 **By Phase (v1.0):**
 
@@ -46,11 +46,11 @@ Progress: [######################                                               
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 15-celt-decoder-quality | 10/11 | ~56m | ~6m |
+| 15-celt-decoder-quality | 11/11 | ~61m | ~6m |
 
 **Recent Trend:**
 - v1.0 complete with 14 phases, 54 plans
-- v1.1 phase 15 in progress (10/11 plans)
+- v1.1 phase 15 gap closure complete (11/11 plans)
 
 *Updated after each plan completion*
 
@@ -91,16 +91,19 @@ Recent decisions affecting current work:
 | D15-10-01 | libopus opus_demo always outputs stereo PCM for all sources | 15-10 | Mono sources duplicated to L=R |
 | D15-10-02 | Mono-to-stereo conversion in compliance test, not decoder API | 15-10 | Keeps decoder API clean |
 | D15-10-03 | Sample count verification added to TestComplianceSummary | 15-10 | All 12 vectors now match (12/12) |
+| D15-11-01 | DecodeBit() comparison logic is inverted - root cause of Q=-100 | 15-11 | val >= r should be val >= (rng - r) |
+| D15-11-02 | Silence flag always returns 1 because val >= r is always true | 15-11 | 100% of frames treated as silence |
+| D15-11-03 | Fix requires changing threshold to (rng - r) instead of r | 15-11 | '1' probability region is at TOP of range |
 
 ### Pending Todos
 
-- Investigate underlying CELT decoder quality issues (Q=-100 persists after multi-frame fix)
-- CELT synthesis/reconstruction algorithms may need tracing and comparison with libopus
+- **HIGH PRIORITY:** Fix DecodeBit() in internal/rangecoding/decoder.go (root cause of Q=-100 identified)
+- CELT synthesis/reconstruction algorithms may need further tracing after DecodeBit fix
 - Tune CELT encoder for full signal preservation with libopus
 
 ### Known Gaps (v1.1 Targets)
 
-- **Decoder Q=-100:** Multi-frame handling fixed (correct sample counts), but CELT audio content still wrong
+- **Decoder Q=-100:** ROOT CAUSE FOUND - DecodeBit() logic inverted, fix is straightforward
 - **SILK encoder low signal energy:** Decoded signal has low energy/correlation
 - **CELT encoder low signal energy:** < 10% energy preservation in round-trip
 - **Hybrid encoder zero energy:** Zero-energy output in hybrid round-trip
@@ -123,5 +126,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-01-23
-Stopped at: Completed 15-10-PLAN.md (Fix mono CELT sample count)
+Stopped at: Completed 15-11-PLAN.md (Identify CELT divergence point - DecodeBit bug found)
 Resume file: None
