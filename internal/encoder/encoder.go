@@ -85,6 +85,13 @@ type Encoder struct {
 	// Encoder state for CELT delay compensation
 	// The 2.7ms delay (130 samples at 48kHz) aligns SILK and CELT
 	prevSamples []float64
+
+	// SILK frame buffer for hybrid mode 10ms->20ms frame accumulation
+	// SILK requires 20ms frames (320 samples at 16kHz)
+	// When encoding 10ms hybrid frames, we buffer the first 10ms and encode
+	// when we have the full 20ms
+	silkFrameBuffer  []float32
+	silkBufferFilled int // Number of samples currently buffered
 }
 
 // NewEncoder creates a new unified Opus encoder.
@@ -111,21 +118,23 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 	}
 
 	return &Encoder{
-		mode:        ModeAuto,
-		bandwidth:   types.BandwidthFullband,
-		sampleRate:  sampleRate,
-		channels:    channels,
-		frameSize:   960,       // Default 20ms
-		bitrateMode: ModeVBR,   // VBR is default
-		bitrate:     64000,     // 64 kbps default
-		fecEnabled:  false,     // FEC disabled by default
-		packetLoss:  0,         // 0% packet loss expected
-		fec:         newFECState(),
-		dtxEnabled:  false,
-		dtx:         newDTXState(),
-		rng:         22222,     // Match libopus seed
-		complexity:  10,        // Default: highest quality
-		prevSamples: make([]float64, 130*channels), // CELT delay compensation buffer
+		mode:             ModeAuto,
+		bandwidth:        types.BandwidthFullband,
+		sampleRate:       sampleRate,
+		channels:         channels,
+		frameSize:        960,     // Default 20ms
+		bitrateMode:      ModeVBR, // VBR is default
+		bitrate:          64000,   // 64 kbps default
+		fecEnabled:       false,   // FEC disabled by default
+		packetLoss:       0,       // 0% packet loss expected
+		fec:              newFECState(),
+		dtxEnabled:       false,
+		dtx:              newDTXState(),
+		rng:              22222,                         // Match libopus seed
+		complexity:       10,                            // Default: highest quality
+		prevSamples:      make([]float64, 130*channels), // CELT delay compensation buffer
+		silkFrameBuffer:  make([]float32, 320),          // 20ms at 16kHz for SILK buffering
+		silkBufferFilled: 0,
 	}
 }
 
@@ -507,4 +516,3 @@ func ValidFrameSize(frameSize int, mode Mode) bool {
 			frameSize == 960 || frameSize == 1920 || frameSize == 2880
 	}
 }
-

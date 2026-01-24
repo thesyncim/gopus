@@ -34,43 +34,45 @@ func (e *Encoder) Init(buf []byte) {
 }
 
 // carryOut handles carry propagation when outputting bytes.
-// This is based on libopus celt/entenc.c ec_enc_carry_out, but with output
-// bytes inverted (255 - B) to match the decoder's XOR-255 reconstruction.
+// This is a direct port of libopus celt/entenc.c ec_enc_carry_out.
+// NO byte complementing - the decoder handles that with its (255 &^ sym) formula.
 //
-// The decoder's normalize does: val = (val << 8) + (255 &^ sym)
-// where sym is derived from input bytes. For correct round-trip, the encoder
-// must output complemented bytes so the decoder's inversion reconstructs
-// the original interval.
+// When symbol equals EC_SYM_MAX (0xFF), we increment ext (pending 0xFF bytes)
+// because we can't know yet if there will be a carry from future symbols.
+// When we get a non-0xFF symbol:
+//   - Extract carry from high byte (symbol overflow)
+//   - Write the buffered rem byte plus carry
+//   - Write pending 0xFF bytes as (0xFF + carry) & 0xFF = 0x00 if carry, 0xFF if not
+//   - Buffer the new symbol
+//
+// Reference: libopus celt/entenc.c ec_enc_carry_out
 func (e *Encoder) carryOut(c int) {
-	// Complement the input to work in "decoder space"
-	// The encoder tracks val in increasing direction, decoder in decreasing
-	c = EC_SYM_MAX - (c & EC_SYM_MAX)
+	if c != EC_SYM_MAX {
+		// c is not 0xFF, so we can flush buffered bytes
+		carry := c >> EC_SYM_BITS // Extract carry from potential overflow
 
-	if e.rem >= 0 {
-		// Check for carry (now inverted: carry when c wraps below 0)
-		if c > EC_SYM_MAX {
-			// Underflow in complemented space = carry in original
-			e.writeByte(byte(e.rem - 1))
-			for e.ext > 0 {
-				e.writeByte(0xFF)
-				e.ext--
-			}
-			e.rem = c & EC_SYM_MAX
-		} else if c == 0 {
-			// Byte is 0x00 in complemented space (was 0xFF): might borrow later
-			e.ext++
-		} else {
-			// No carry: output rem as-is, output pending 0x00 bytes
-			e.writeByte(byte(e.rem))
-			for e.ext > 0 {
-				e.writeByte(0)
-				e.ext--
-			}
-			e.rem = c
+		// Write the previously buffered byte plus carry (if any)
+		if e.rem >= 0 {
+			e.writeByte(byte(e.rem + carry))
 		}
+
+		// Write any pending 0xFF bytes, adjusted for carry
+		// This is a SEPARATE if, not inside the rem >= 0 block!
+		// If carry=1: 0xFF + 1 = 0x100, masked to 0x00
+		// If carry=0: 0xFF + 0 = 0xFF
+		if e.ext > 0 {
+			sym := (EC_SYM_MAX + carry) & EC_SYM_MAX
+			for e.ext > 0 {
+				e.writeByte(byte(sym))
+				e.ext--
+			}
+		}
+
+		// Buffer the new symbol (low 8 bits only)
+		e.rem = c & EC_SYM_MAX
 	} else {
-		// First byte: just store it
-		e.rem = c
+		// Symbol is 0xFF - can't flush yet because might need to carry
+		e.ext++
 	}
 }
 
@@ -118,67 +120,47 @@ func (e *Encoder) Encode(fl, fh, ft uint32) {
 // icdf is the inverse cumulative distribution function table (decreasing values).
 // ftb is the number of bits of precision (total = 1 << ftb).
 //
-// The decoder maps: val >= r*icdf[k] -> symbol k
-// So symbol 0 requires val >= r*icdf[0] (high val), symbol N requires low val.
-// The encoder must place symbol 0 in the HIGH interval.
+// This is a direct port of libopus ec_enc_icdf.
 func (e *Encoder) EncodeICDF(s int, icdf []uint8, ftb uint) {
-	ft := uint32(1) << ftb
-	// For decoder compatibility, symbol s maps to interval [icdf[s], icdf[s-1])
-	// scaled by r. In terms of fl/fh:
-	// fl = icdf[s] (the threshold for this symbol)
-	// fh = icdf[s-1] (the threshold for the previous symbol, or ft for s=0)
-	fl := uint32(icdf[s])
-	var fh uint32
+	r := e.rng >> ftb
 	if s > 0 {
-		fh = uint32(icdf[s-1])
+		e.val += e.rng - r*uint32(icdf[s-1])
+		e.rng = r * uint32(icdf[s-1]-icdf[s])
 	} else {
-		fh = ft
+		e.rng -= r * uint32(icdf[s])
 	}
-	e.Encode(fl, fh, ft)
+	e.normalize()
 }
 
 // EncodeICDF16 encodes a symbol using a uint16 ICDF table.
 // Required because SILK tables use uint16 (256 doesn't fit in uint8).
 // Per RFC 6716 Section 4.1.
 //
-// Note: SILK ICDF tables typically have icdf[0] = 256, meaning symbol 0
-// has zero probability and cannot be encoded. If s=0 is passed with such
-// a table, this function clamps s to 1 to avoid infinite loops.
+// This is the uint16 variant of EncodeICDF, matching libopus ec_enc_icdf.
 func (e *Encoder) EncodeICDF16(s int, icdf []uint16, ftb uint) {
 	// Clamp symbol to valid range
 	if s < 0 {
 		s = 0
 	}
-	maxSymbol := len(icdf) - 1
+	maxSymbol := len(icdf) - 2 // Last entry is always 0, not a valid symbol
 	if s > maxSymbol {
 		s = maxSymbol
 	}
 
-	ft := uint32(1) << ftb
-	var fl, fh uint32
+	r := e.rng >> ftb
 	if s > 0 {
-		fl = ft - uint32(icdf[s-1])
-	}
-	fh = ft - uint32(icdf[s])
-
-	// Check for zero-probability symbol (would cause infinite loop)
-	// If fl >= fh, the symbol has zero or negative probability
-	if fl >= fh {
-		// Skip to next valid symbol
-		for s < maxSymbol && fl >= fh {
-			s++
-			fl = ft - uint32(icdf[s-1])
-			fh = ft - uint32(icdf[s])
-		}
-		// If still invalid, clamp to last symbol
-		if fl >= fh {
-			s = maxSymbol
-			fl = ft - uint32(icdf[s-1])
-			fh = ft - uint32(icdf[s])
-		}
+		e.val += e.rng - r*uint32(icdf[s-1])
+		e.rng = r * uint32(icdf[s-1]-icdf[s])
+	} else {
+		e.rng -= r * uint32(icdf[s])
 	}
 
-	e.Encode(fl, fh, ft)
+	// Safety: ensure rng doesn't become 0 (would cause infinite loop)
+	if e.rng == 0 {
+		e.rng = 1
+	}
+
+	e.normalize()
 }
 
 // EncodeBit encodes a single bit with the given log probability.
@@ -239,13 +221,22 @@ func (e *Encoder) Done() []byte {
 		l -= EC_SYM_BITS
 	}
 
-	// Flush pending byte
+	// Force flush if we have any buffered data (matches libopus ec_enc_done).
+	// This handles the case where rem=-1 but ext>0 (buffered 0xFF bytes).
+	// carryOut(0) internally flushes ext when rem>=0, so we may need two calls:
+	// - First call: if rem<0, just sets rem=0 (ext unchanged)
+	// - Second call: if rem>=0 and ext>0, writes rem and all ext bytes
+	if e.rem >= 0 || e.ext > 0 {
+		e.carryOut(0)
+	}
+	// If ext still pending (rem was -1 initially), flush again
+	for e.ext > 0 {
+		e.carryOut(0)
+	}
+
+	// Write the final rem directly
 	if e.rem >= 0 {
 		e.writeByte(byte(e.rem))
-		for e.ext > 0 {
-			e.writeByte(0)
-			e.ext--
-		}
 	}
 
 	// Flush any remaining raw bits in the end window

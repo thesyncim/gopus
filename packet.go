@@ -227,7 +227,11 @@ func ParsePacket(data []byte) (PacketInfo, error) {
 				}
 				padByte := int(data[offset])
 				offset++
-				padding += padByte
+				if padByte == 255 {
+					padding += 254
+				} else {
+					padding += padByte
+				}
 				if padByte < 255 {
 					break
 				}

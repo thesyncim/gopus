@@ -1,5 +1,7 @@
 package silk
 
+import "math"
+
 // encodeExcitation encodes the excitation signal for one subframe.
 // Uses shell coding with binary splits, mirroring decoder exactly.
 // Per RFC 6716 Section 4.2.7.8.
@@ -230,6 +232,11 @@ func (e *Encoder) computeLCGSeed(excitation []int32) int {
 
 // computeExcitation computes the LPC residual (excitation signal).
 // excitation[n] = input[n] - sum(lpc[k] * input[n-k-1])
+//
+// Note: The excitation is computed WITHOUT gain scaling. The gain is encoded
+// separately and applied during decoding. Dividing by gain here would cause
+// the decoder to apply gain twice (once during excitation reconstruction,
+// once during synthesis), resulting in incorrect signal levels.
 func (e *Encoder) computeExcitation(pcm []float32, lpcQ12 []int16, gain float32) []int32 {
 	n := len(pcm)
 	order := len(lpcQ12)
@@ -242,14 +249,12 @@ func (e *Encoder) computeExcitation(pcm []float32, lpcQ12 []int16, gain float32)
 			prediction += float64(lpcQ12[k]) * float64(pcm[i-k-1]) / 4096.0
 		}
 
-		// Residual = input - prediction, scaled by gain
+		// Residual = input - prediction (NO gain scaling here!)
+		// The gain is encoded separately and applied during decoding
 		residual := float64(pcm[i]) - prediction
-		if gain > 0.001 {
-			residual /= float64(gain)
-		}
 
-		// Quantize to integer
-		excitation[i] = int32(residual)
+		// Quantize to integer with rounding
+		excitation[i] = int32(math.Round(residual))
 	}
 
 	return excitation

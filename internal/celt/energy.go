@@ -183,8 +183,8 @@ func (d *Decoder) DecodeCoarseEnergy(nbBands int, intra bool, lm int) []float64 
 			// Store result
 			energies[c*nbBands+band] = energy
 
-			// Update prev band energy for next band's inter-band prediction
-			// Per libopus: prevBandEnergy accumulates a filtered version of quantized deltas
+			// Update prev band energy for next band's inter-band prediction.
+			// Per libopus: prev is filtered by the quantized delta.
 			// Formula: prev = prev + q - beta*q, where q = qi*DB6
 			prevBandEnergy[c] = prevBandEnergy[c] + q - beta*q
 		}
@@ -266,6 +266,9 @@ func (d *Decoder) DecodeFineEnergy(energies []float64, nbBands int, fineBits []i
 	for band := 0; band < nbBands; band++ {
 		extra := fineBits[band]
 		if extra <= 0 {
+			continue
+		}
+		if rd.Tell()+d.channels*extra > rd.StorageBits() {
 			continue
 		}
 

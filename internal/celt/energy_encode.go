@@ -81,8 +81,10 @@ func (e *Encoder) ComputeBandEnergies(mdctCoeffs []float64, nbBands, frameSize i
 	return energies
 }
 
-// computeBandRMS computes the log2-scale energy of coefficients in [start, end).
-// Returns energy = 0.5 * log2(sumSq / width) = log2(RMS)
+// computeBandRMS computes the energy of coefficients in [start, end) in dB units.
+// The decoder expects energy in dB units where 6 dB = 2x amplitude (DB6 = 6.0).
+// Returns energy = DB6 * log2(RMS) where RMS = sqrt(sumSq/width).
+// This matches the decoder's denormalization: gain = 2^(energy / DB6).
 // For zero input, returns -28.0 (minimum energy per D03-01-01).
 func computeBandRMS(coeffs []float64, start, end int) float64 {
 	if end <= start || start < 0 || end > len(coeffs) {
@@ -103,16 +105,18 @@ func computeBandRMS(coeffs []float64, start, end int) float64 {
 	// Compute band width
 	width := float64(end - start)
 
-	// Energy in log2 scale: energy = log2(sqrt(sumSq/width)) = 0.5 * log2(sumSq/width)
-	// Using change of base: log2(x) = ln(x) / ln(2)
-	energy := 0.5 * math.Log2(sumSq/width)
+	// Energy in dB units: energy = DB6 * log2(RMS)
+	// where RMS = sqrt(sumSq/width), so log2(RMS) = 0.5 * log2(sumSq/width)
+	// Therefore: energy = DB6 * 0.5 * log2(sumSq/width)
+	// This matches the decoder's ComputeBandEnergy and denormalization formula.
+	energy := DB6 * 0.5 * math.Log2(sumSq/width)
 
 	// Clamp to valid range
 	if energy < -28.0 {
 		energy = -28.0
 	}
-	if energy > 16.0 {
-		energy = 16.0 // Reasonable upper limit
+	if energy > 32.0 {
+		energy = 32.0 // Matches decoder's clamp (bands.go:99-100)
 	}
 
 	return energy
@@ -200,8 +204,8 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 			quantizedEnergy := pred + float64(qi)*DB6
 			quantizedEnergies[idx] = quantizedEnergy
 
-			// Update prev band energy for next band's inter-band prediction
-			// Per libopus: prevBandEnergy accumulates a filtered version of quantized deltas
+			// Update prev band energy for next band's inter-band prediction.
+			// Per libopus: prev is filtered by the quantized delta.
 			// Formula: prev = prev + q - beta*q, where q = qi*DB6
 			q := float64(qi) * DB6
 			prevBandEnergy[c] = prevBandEnergy[c] + q - beta*q

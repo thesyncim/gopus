@@ -57,26 +57,36 @@ func (e *Encoder) encodeSubframeGains(gains []float32, signalType, numSubframes 
 }
 
 // computeLogGainIndex converts linear gain to log gain index [0, 63].
-// Inverse of GainDequantTable lookup.
-// Uses existing GainDequantTable from tables.go
+// Uses logarithmic quantization matching the decoder's dequantization formula.
+//
+// The decoder's gain dequantization (per RFC 6716 Section 4.2.7.4):
+//
+//	gain = 2^(logGainIndex/8 - 1)
+//
+// Inverting this: logGainIndex = 8 * (log2(gain) + 1)
+//
+// This provides much better accuracy than linear search against GainDequantTable,
+// especially for high gain values where the table has large gaps.
 func computeLogGainIndex(gain float32) int {
-	// GainDequantTable maps [0, 63] to Q16 gain values
-	// We need to find the closest index
-
-	gainQ16 := int32(gain * 65536)
-
-	bestIdx := 0
-	bestDist := int32(math.MaxInt32)
-
-	for idx := 0; idx < 64; idx++ {
-		dist := absInt32(GainDequantTable[idx] - gainQ16)
-		if dist < bestDist {
-			bestDist = dist
-			bestIdx = idx
-		}
+	if gain <= 0 {
+		return 0
 	}
 
-	return bestIdx
+	// Compute log-domain gain index matching decoder's formula
+	// Decoder: gain = 2^((index - 8) / 8) = 2^(index/8 - 1)
+	// Inverse: index = 8 * (log2(gain) + 1)
+	logGain := math.Log2(float64(gain))
+	idx := int(math.Round((logGain + 1.0) * 8.0))
+
+	// Clamp to valid range [0, 63]
+	if idx < 0 {
+		idx = 0
+	}
+	if idx > 63 {
+		idx = 63
+	}
+
+	return idx
 }
 
 // computeFirstFrameGainIndex computes gain index for first frame encoding.

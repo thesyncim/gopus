@@ -88,13 +88,8 @@ func unext(u []uint32, length int, u0 uint32) {
 	if length < 2 {
 		return
 	}
-	const maxUint32 = ^uint32(0)
 	for j := 1; j < length; j++ {
-		sum := uint64(u[j]) + uint64(u[j-1]) + uint64(u0)
-		u1 := uint32(sum)
-		if sum > uint64(maxUint32) {
-			u1 = maxUint32
-		}
+		u1 := u[j] + u[j-1] + u0
 		u[j-1] = u0
 		u0 = u1
 	}
@@ -106,11 +101,7 @@ func uprev(u []uint32, length int, u0 uint32) {
 		return
 	}
 	for j := 1; j < length; j++ {
-		diff := int64(u[j]) - int64(u[j-1]) - int64(u0)
-		u1 := uint32(0)
-		if diff > 0 {
-			u1 = uint32(diff)
-		}
+		u1 := u[j] - u[j-1] - u0
 		u[j-1] = u0
 		u0 = u1
 	}
@@ -131,11 +122,7 @@ func ncwrsUrow(n, k int, u []uint32) uint32 {
 	for j := 2; j < n; j++ {
 		unext(u[1:], k+1, 1)
 	}
-	sum := uint64(u[k]) + uint64(u[k+1])
-	if sum > uint64(^uint32(0)) {
-		return ^uint32(0)
-	}
-	return uint32(sum)
+	return u[k] + u[k+1]
 }
 
 func cwrsi(n, k int, i uint32, y []int, u []uint32) uint32 {

@@ -127,58 +127,59 @@ func (e *Encoder) applyInputDelay(pcm []float64) []float64 {
 
 // encodeSILKHybrid encodes SILK data for hybrid mode.
 // Uses the SILK encoder's EncodeFrame method with a shared range encoder.
+//
+// For 10ms frames (160 samples at 16kHz), this function buffers samples until
+// we have a full 20ms (320 samples) because SILK requires 20ms frames.
+// This avoids the signal attenuation that would occur from zero-padding.
 func (e *Encoder) encodeSILKHybrid(pcm []float32, frameSize int) {
 	// For hybrid mode, SILK always operates at WB (16kHz)
 	// The input is already downsampled to 16kHz
 
-	// WB SILK expects 320 samples (20ms at 16kHz) - 4 subframes of 80 samples each
-	// For 10ms frames (160 samples), we need to either:
-	// 1. Pad to 320 samples
-	// 2. Or encode with fewer subframes
-	//
-	// The SILK EncodeFrame expects 20ms frames (numSubframes=4), so we pad
-	// 10ms frames with zeros to match the expected format.
+	// Calculate samples at 16kHz (input is at 16kHz after downsampling)
 	silkSamples := frameSize / 3 // 48kHz -> 16kHz (160 for 10ms, 320 for 20ms)
 
-	// SILK at WB needs 320 samples per frame
+	// SILK at WB needs 320 samples per frame (20ms)
 	const silkWBSamples = 320
 
-	// Create the SILK input buffer
-	var silkPCM []float32
+	// Extract mono signal for SILK encoding
+	var inputSamples []float32
 	if e.channels == 1 {
-		if silkSamples < silkWBSamples {
-			// Pad 10ms frame to 20ms
-			silkPCM = make([]float32, silkWBSamples)
-			copy(silkPCM, pcm[:min(len(pcm), silkSamples)])
-		} else {
-			silkPCM = pcm[:silkSamples]
-		}
+		inputSamples = pcm[:min(len(pcm), silkSamples)]
 	} else {
-		// For stereo, deinterleave and encode mid channel
+		// For stereo, compute mid channel: (L + R) / 2
 		actualSamples := len(pcm) / 2
 		if actualSamples < silkSamples {
 			silkSamples = actualSamples
 		}
-
-		targetSamples := silkSamples
-		if targetSamples < silkWBSamples {
-			targetSamples = silkWBSamples // Pad to 20ms
-		}
-
-		silkPCM = make([]float32, targetSamples)
+		inputSamples = make([]float32, silkSamples)
 		for i := 0; i < silkSamples && i*2+1 < len(pcm); i++ {
-			// Mid channel = (L + R) / 2
 			left := pcm[i*2]
 			right := pcm[i*2+1]
-			silkPCM[i] = (left + right) / 2
+			inputSamples[i] = (left + right) / 2
 		}
-		// Rest is zero-padded
 	}
 
-	// Encode the SILK frame
+	// Handle 10ms frames by buffering to 20ms
+	if silkSamples < silkWBSamples {
+		// 10ms frame - need to buffer
+		if e.silkBufferFilled == 0 {
+			// First 10ms - store in buffer and wait for second half
+			copy(e.silkFrameBuffer[:silkSamples], inputSamples)
+			e.silkBufferFilled = silkSamples
+			// Don't encode yet - wait for next 10ms
+			return
+		} else {
+			// Second 10ms - combine with buffer and encode full 20ms
+			copy(e.silkFrameBuffer[e.silkBufferFilled:], inputSamples)
+			inputSamples = e.silkFrameBuffer[:silkWBSamples]
+			e.silkBufferFilled = 0 // Reset buffer
+		}
+	}
+
+	// Encode the SILK frame (now have full 20ms worth of samples)
 	// Note: EncodeFrame creates its own range encoder if none is set,
 	// but we've already set one via SetRangeEncoder
-	_ = e.silkEncoder.EncodeFrame(silkPCM, true)
+	_ = e.silkEncoder.EncodeFrame(inputSamples, true)
 }
 
 // min returns the smaller of two ints.

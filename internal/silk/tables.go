@@ -11,14 +11,16 @@ package silk
 // Frame Type Tables (RFC 6716 Section 4.2.7.3)
 // -----------------------------------------------------------------------------
 
-// ICDFFrameTypeVADInactive - frame type for VAD inactive frames.
-// Only one possible outcome (inactive).
-var ICDFFrameTypeVADInactive = []uint16{256, 0}
+// ICDFFrameTypeVADInactive - frame type for VAD inactive frames (no VAD).
+// From libopus silk_type_offset_no_VAD_iCDF = {230, 0}
+// Symbol 0 = inactive with probability 230/256 ≈ 90%
+var ICDFFrameTypeVADInactive = []uint16{230, 0}
 
 // ICDFFrameTypeVADActive - frame type for VAD active frames.
-// Encodes (signalType << 1) | quantOffset with 4 outcomes:
+// From libopus silk_type_offset_VAD_iCDF = {232, 158, 10, 0}
+// Encodes (signalType-1)*2 + quantOffset with 4 outcomes:
 // 0: unvoiced low, 1: unvoiced high, 2: voiced low, 3: voiced high
-var ICDFFrameTypeVADActive = []uint16{256, 230, 166, 128, 0}
+var ICDFFrameTypeVADActive = []uint16{232, 158, 10, 0}
 
 // Gain Tables (RFC 6716 Section 4.2.7.4)
 // -----------------------------------------------------------------------------

@@ -441,16 +441,17 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 		nHalf := n >> 1
 		y := x[nHalf:]
 		lm--
+		B0 := B
 		if B == 1 {
 			fill = (fill & 1) | (fill << 1)
 		}
 		B = (B + 1) >> 1
 
 		sctx := splitCtx{}
-		computeTheta(ctx, &sctx, nHalf, &b, B, B, lm, false, &fill)
+		computeTheta(ctx, &sctx, nHalf, &b, B, B0, lm, false, &fill)
 		mid := float64(sctx.imid) / 32768.0
 		side := float64(sctx.iside) / 32768.0
-		if B > 1 && (sctx.itheta&0x3fff) != 0 {
+		if B0 > 1 && (sctx.itheta&0x3fff) != 0 {
 			if sctx.itheta > 8192 {
 				sctx.delta -= sctx.delta >> (4 - lm)
 			} else {
@@ -479,9 +480,10 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 				sbits += rebalance - (3 << bitRes)
 			}
 			scm, _ := quantPartition(ctx, y, nHalf, sbits, B, lowband2, lm, gain*side, fill>>B)
-			cm |= scm << (B >> 1)
+			cm |= scm << (B0 >> 1)
 		} else {
 			cm, _ = quantPartition(ctx, y, nHalf, sbits, B, lowband2, lm, gain*side, fill>>B)
+			cm <<= B0 >> 1
 			rebalance = sbits - (rebalance - ctx.remainingBits)
 			if rebalance > 3<<bitRes && sctx.itheta != 16384 {
 				mbits += rebalance - (3 << bitRes)

@@ -53,9 +53,10 @@ func (e *Encoder) NormalizeBands(mdctCoeffs []float64, energies []float64, nbBan
 			continue
 		}
 
-		// Compute gain = 2^energy (energy is in log2 scale)
-		// gain = exp(energy * ln(2))
-		gain := math.Exp(energies[band] * 0.6931471805599453) // ln(2)
+		// Compute gain from energy (energy is in dB units, 6 dB per doubling)
+		// This must match decoder's denormalization: gain = 2^(energy / DB6)
+		// Reference: bands.go:102 uses math.Exp2(e / DB6)
+		gain := math.Exp2(energies[band] / DB6)
 
 		// Allocate shape vector
 		shape := make([]float64, n)
@@ -88,10 +89,11 @@ func (e *Encoder) NormalizeBands(mdctCoeffs []float64, energies []float64, nbBan
 			for i := 1; i < n; i++ {
 				shape[i] = 0.0
 			}
-		} else {
-			// Normalize to unit L2 norm using existing NormalizeVector
-			shape = NormalizeVector(shape)
 		}
+		// Note: Do NOT normalize again here. The division by gain already
+		// produces the correct shape. PVQ encoding handles the vector
+		// magnitude through the pulse count K. Double normalization
+		// destroys energy information and causes signal loss.
 
 		shapes[band] = shape
 		offset += n

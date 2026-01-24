@@ -65,6 +65,18 @@ var BetaCoefInter = [4]float64{
 // No inter-frame prediction, only inter-band. Source: libopus celt/quant_bands.c
 const BetaIntra = 4915.0 / 32768.0 // 0.15
 
+// eMeans contains the mean log-energy per band (log2 units).
+// These values are in log2 units (1.0 = 6 dB) and are added during
+// denormalization to reconstruct the absolute band energy.
+// Source: libopus celt/quant_bands.c (float eMeans table).
+var eMeans = [25]float64{
+	6.437500, 6.250000, 5.750000, 5.312500, 5.062500,
+	4.812500, 4.500000, 4.375000, 4.875000, 4.687500,
+	4.562500, 4.437500, 4.875000, 4.625000, 4.312500,
+	4.500000, 4.375000, 4.625000, 4.750000, 4.437500,
+	3.750000, 3.750000, 3.750000, 3.750000, 3.750000,
+}
+
 // eProbModel contains the coarse energy probability model by LM and intra/inter.
 // Values are in Q8: pairs of (probability of zero, decay rate).
 // Source: libopus celt/quant_bands.c e_prob_model table.

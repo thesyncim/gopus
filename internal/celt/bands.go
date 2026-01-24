@@ -93,9 +93,12 @@ func (d *Decoder) DecodeBands(
 		bandVectors[band] = shape
 
 		// Denormalize: scale shape by energy (energy is in dB units).
-		// A 6 dB step corresponds to a 2x gain, so gain = 2^(energy/DB6).
+		// Add per-band mean energy (log2 units) to recover absolute level.
 		// Clamp energy to prevent overflow (libopus clamps to 32).
 		e := energies[band]
+		if band < len(eMeans) {
+			e += eMeans[band] * DB6
+		}
 		if e > 32 {
 			e = 32
 		}
@@ -245,13 +248,19 @@ func (d *Decoder) DecodeBandsStereo(
 		bandVectorsR[band] = shapeR
 
 		// Denormalize: scale by energy (energy is in dB units).
-		// Energy is in log2 scale: gain = 2^energy
-		// Clamp energy to prevent overflow (libopus clamps to 32)
+		// Add per-band mean energy (log2 units) to recover absolute level.
+		// Clamp energy to prevent overflow (libopus clamps to 32).
 		eL := energiesL[band]
+		if band < len(eMeans) {
+			eL += eMeans[band] * DB6
+		}
 		if eL > 32 {
 			eL = 32
 		}
 		eR := energiesR[band]
+		if band < len(eMeans) {
+			eR += eMeans[band] * DB6
+		}
 		if eR > 32 {
 			eR = 32
 		}
@@ -365,7 +374,7 @@ func DenormalizeBand(shape []float64, energy float64) []float64 {
 		return nil
 	}
 
-	// Clamp energy to prevent overflow (libopus clamps to 32)
+	// Clamp energy to prevent overflow (libopus clamps to 32).
 	e := energy
 	if e > 32 {
 		e = 32
@@ -396,6 +405,9 @@ func denormalizeCoeffs(coeffs []float64, energies []float64, nbBands, frameSize 
 			continue
 		}
 		e := energies[band]
+		if band < len(eMeans) {
+			e += eMeans[band] * DB6
+		}
 		if e > 32 {
 			e = 32
 		}
