@@ -27,7 +27,7 @@ package celt
 // - Save current[frameSize:frameSize+overlap] for next frame
 func OverlapAdd(current, prevOverlap []float64, overlap int) (output, newOverlap []float64) {
 	n := len(current) // 2*frameSize samples from IMDCT
-	if n <= 2*overlap {
+	if n < 2*overlap {
 		// Edge case: frame too short for proper overlap
 		if n == 0 {
 			return nil, prevOverlap
@@ -74,7 +74,7 @@ func OverlapAdd(current, prevOverlap []float64, overlap int) (output, newOverlap
 // Returns: output samples only (prevOverlap is modified to contain new overlap)
 func OverlapAddInPlace(current []float64, prevOverlap []float64, overlap int) []float64 {
 	n := len(current) // 2*frameSize from IMDCT
-	if n <= 2*overlap || len(prevOverlap) < overlap {
+	if n < 2*overlap || len(prevOverlap) < overlap {
 		return current
 	}
 
@@ -109,16 +109,11 @@ func (d *Decoder) Synthesize(coeffs []float64, transient bool, shortBlocks int) 
 	if len(coeffs) == 0 {
 		return nil
 	}
-
-	var imdctOut []float64
-
 	if transient && shortBlocks > 1 {
-		// Transient mode: multiple short IMDCTs
-		imdctOut = IMDCTShort(coeffs, shortBlocks)
-	} else {
-		// Normal mode: single long IMDCT
-		imdctOut = IMDCT(coeffs)
+		return d.synthesizeShort(coeffs, shortBlocks)
 	}
+	// Normal mode: single long IMDCT
+	imdctOut := IMDCT(coeffs)
 
 	if len(imdctOut) == 0 {
 		return nil
@@ -149,17 +144,13 @@ func (d *Decoder) SynthesizeStereo(coeffsL, coeffsR []float64, transient bool, s
 	if len(coeffsL) == 0 && len(coeffsR) == 0 {
 		return nil
 	}
+	if transient && shortBlocks > 1 {
+		return d.synthesizeShortStereo(coeffsL, coeffsR, shortBlocks)
+	}
 
 	// IMDCT for both channels
-	var imdctL, imdctR []float64
-
-	if transient && shortBlocks > 1 {
-		imdctL = IMDCTShort(coeffsL, shortBlocks)
-		imdctR = IMDCTShort(coeffsR, shortBlocks)
-	} else {
-		imdctL = IMDCT(coeffsL)
-		imdctR = IMDCT(coeffsR)
-	}
+	imdctL := IMDCT(coeffsL)
+	imdctR := IMDCT(coeffsR)
 
 	// Apply window to both channels
 	ApplyWindow(imdctL, Overlap)
@@ -190,6 +181,122 @@ func (d *Decoder) SynthesizeStereo(coeffsL, coeffsR []float64, transient bool, s
 	}
 
 	return stereo
+}
+
+func (d *Decoder) synthesizeShort(coeffs []float64, shortBlocks int) []float64 {
+	frameSize := len(coeffs)
+	if frameSize == 0 || shortBlocks <= 1 {
+		return nil
+	}
+	shortSize := frameSize / shortBlocks
+	if shortSize <= 0 {
+		return nil
+	}
+
+	overlap := Overlap
+	if overlap > shortSize {
+		overlap = shortSize
+	}
+
+	output := make([]float64, frameSize)
+	prevOverlap := make([]float64, overlap)
+	if len(d.overlapBuffer) >= overlap {
+		copy(prevOverlap, d.overlapBuffer[:overlap])
+	}
+
+	outOffset := 0
+	for b := 0; b < shortBlocks; b++ {
+		shortCoeffs := make([]float64, shortSize)
+		for i := 0; i < shortSize; i++ {
+			idx := b + i*shortBlocks
+			if idx < frameSize {
+				shortCoeffs[i] = coeffs[idx]
+			}
+		}
+
+		blockOut := IMDCT(shortCoeffs)
+		if len(blockOut) == 0 {
+			continue
+		}
+		ApplyWindow(blockOut, overlap)
+
+		blockSamples, newOverlap := OverlapAdd(blockOut, prevOverlap, overlap)
+		copy(output[outOffset:], blockSamples)
+		outOffset += len(blockSamples)
+		prevOverlap = newOverlap
+	}
+
+	if len(d.overlapBuffer) >= overlap {
+		copy(d.overlapBuffer[:overlap], prevOverlap)
+	}
+
+	return output
+}
+
+func (d *Decoder) synthesizeShortStereo(coeffsL, coeffsR []float64, shortBlocks int) []float64 {
+	frameSize := len(coeffsL)
+	if frameSize == 0 || shortBlocks <= 1 {
+		return nil
+	}
+	if len(coeffsR) < frameSize {
+		frameSize = len(coeffsR)
+	}
+	shortSize := frameSize / shortBlocks
+	if shortSize <= 0 {
+		return nil
+	}
+
+	overlap := Overlap
+	if overlap > shortSize {
+		overlap = shortSize
+	}
+
+	output := make([]float64, frameSize*2)
+	prevOverlapL := make([]float64, overlap)
+	prevOverlapR := make([]float64, overlap)
+	if len(d.overlapBuffer) >= Overlap*2 {
+		copy(prevOverlapL, d.overlapBuffer[:overlap])
+		copy(prevOverlapR, d.overlapBuffer[Overlap:Overlap+overlap])
+	}
+
+	for b := 0; b < shortBlocks; b++ {
+		shortCoeffsL := make([]float64, shortSize)
+		shortCoeffsR := make([]float64, shortSize)
+		for i := 0; i < shortSize; i++ {
+			idx := b + i*shortBlocks
+			if idx < frameSize {
+				shortCoeffsL[i] = coeffsL[idx]
+				shortCoeffsR[i] = coeffsR[idx]
+			}
+		}
+
+		blockOutL := IMDCT(shortCoeffsL)
+		blockOutR := IMDCT(shortCoeffsR)
+		if len(blockOutL) == 0 || len(blockOutR) == 0 {
+			continue
+		}
+		ApplyWindow(blockOutL, overlap)
+		ApplyWindow(blockOutR, overlap)
+
+		blockSamplesL, newOverlapL := OverlapAdd(blockOutL, prevOverlapL, overlap)
+		blockSamplesR, newOverlapR := OverlapAdd(blockOutR, prevOverlapR, overlap)
+
+		start := b * shortSize
+		for i := 0; i < shortSize && start+i < frameSize; i++ {
+			output[(start+i)*2] = blockSamplesL[i]
+			output[(start+i)*2+1] = blockSamplesR[i]
+		}
+
+		prevOverlapL = newOverlapL
+		prevOverlapR = newOverlapR
+	}
+
+	if len(d.overlapBuffer) >= Overlap*2 {
+		copy(d.overlapBuffer[:overlap], prevOverlapL)
+		copy(d.overlapBuffer[Overlap:Overlap+overlap], prevOverlapR)
+	}
+
+	return output
 }
 
 // WindowAndOverlap applies Vorbis window and performs overlap-add.

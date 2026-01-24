@@ -54,9 +54,18 @@ func (e *Encoder) NormalizeBands(mdctCoeffs []float64, energies []float64, nbBan
 		}
 
 		// Compute gain from energy (energy is in dB units, 6 dB per doubling)
-		// This must match decoder's denormalization: gain = 2^(energy / DB6)
-		// Reference: bands.go:102 uses math.Exp2(e / DB6)
-		gain := math.Exp2(energies[band] / DB6)
+		// The decoder uses: e = decoded_energy + eMeans*DB6; gain = 2^(e/DB6)
+		// The encoder must use the SAME formula for normalization, using the
+		// quantized energy that was encoded to the bitstream.
+		// This ensures: normalized * decoder_gain = original (up to quantization)
+		e := energies[band]
+		if band < len(eMeans) {
+			e += eMeans[band] * DB6
+		}
+		if e > 32 {
+			e = 32 // Match decoder's clamp (bands.go:102-103)
+		}
+		gain := math.Exp2(e / DB6)
 
 		// Allocate shape vector
 		shape := make([]float64, n)
@@ -89,11 +98,22 @@ func (e *Encoder) NormalizeBands(mdctCoeffs []float64, energies []float64, nbBan
 			for i := 1; i < n; i++ {
 				shape[i] = 0.0
 			}
+		} else {
+			// Normalize to unit L2 norm for PVQ encoding
+			// PVQ expects unit-norm input vectors. The decoder will reconstruct
+			// the shape (also unit-norm) and then scale by gain to get the
+			// original magnitude back.
+			var norm float64
+			for i := 0; i < n; i++ {
+				norm += shape[i] * shape[i]
+			}
+			if norm > 1e-30 {
+				norm = math.Sqrt(norm)
+				for i := 0; i < n; i++ {
+					shape[i] /= norm
+				}
+			}
 		}
-		// Note: Do NOT normalize again here. The division by gain already
-		// produces the correct shape. PVQ encoding handles the vector
-		// magnitude through the pulse count K. Double normalization
-		// destroys energy information and causes signal loss.
 
 		shapes[band] = shape
 		offset += n

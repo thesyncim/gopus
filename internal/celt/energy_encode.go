@@ -10,17 +10,19 @@ import (
 )
 
 // ComputeBandEnergies computes energy for each frequency band from MDCT coefficients.
-// Returns energies in log2 scale (same as decoder expects).
-// energies[c*nbBands + band] = log2(RMS energy of band for channel c)
+// Returns energies in log2 scale, RELATIVE TO MEAN (same as libopus).
+// energies[c*nbBands + band] = log2(RMS energy) - eMeans[band] * DB6
 //
 // The energy computation extracts loudness per frequency band:
 // 1. For each band, sum squares of MDCT coefficients
 // 2. Divide by band width to get average power
 // 3. Convert to log2 scale: energy = 0.5 * log2(sumSq / width)
+// 4. SUBTRACT eMeans to make values mean-relative (like libopus amp2Log2)
 //
-// This mirrors the decoder's denormalization which scales bands by 2^energy.
+// The decoder adds eMeans back during denormalization, recovering the original.
+// This ensures encoder and decoder use matching gain values.
 //
-// Reference: RFC 6716 Section 4.3.2, libopus celt/bands.c
+// Reference: RFC 6716 Section 4.3.2, libopus celt/quant_bands.c amp2Log2()
 func (e *Encoder) ComputeBandEnergies(mdctCoeffs []float64, nbBands, frameSize int) []float64 {
 	if nbBands > MaxBands {
 		nbBands = MaxBands
@@ -72,8 +74,17 @@ func (e *Encoder) ComputeBandEnergies(mdctCoeffs []float64, nbBands, frameSize i
 				continue
 			}
 
-			// Compute RMS energy in log2 scale
+			// Compute RMS energy in log2 scale (raw/absolute)
 			energy := computeBandRMS(channelCoeffs, start, end)
+
+			// Subtract eMeans to make energy mean-relative (like libopus amp2Log2)
+			// The decoder adds eMeans back during denormalization.
+			// This ensures encoder normalization and decoder denormalization use
+			// the same gain: 2^((mean_relative + eMeans*DB6) / DB6) = 2^(raw / DB6)
+			if band < len(eMeans) {
+				energy -= eMeans[band] * DB6
+			}
+
 			energies[c*nbBands+band] = energy
 		}
 	}
@@ -83,8 +94,8 @@ func (e *Encoder) ComputeBandEnergies(mdctCoeffs []float64, nbBands, frameSize i
 
 // computeBandRMS computes the energy of coefficients in [start, end) in dB units.
 // The decoder expects energy in dB units where 6 dB = 2x amplitude (DB6 = 6.0).
-// Returns energy = DB6 * log2(RMS) where RMS = sqrt(sumSq/width).
-// This matches the decoder's denormalization: gain = 2^(energy / DB6).
+// Returns energy = DB6 * log2(sqrt(sumSq)) = DB6 * 0.5 * log2(sumSq).
+// This matches libopus compute_band_energies() which uses sqrt(sum) NOT sqrt(sum/N).
 // For zero input, returns -28.0 (minimum energy per D03-01-01).
 func computeBandRMS(coeffs []float64, start, end int) float64 {
 	if end <= start || start < 0 || end > len(coeffs) {
@@ -102,14 +113,10 @@ func computeBandRMS(coeffs []float64, start, end int) float64 {
 		return -28.0 // Minimum energy (D03-01-01)
 	}
 
-	// Compute band width
-	width := float64(end - start)
-
-	// Energy in dB units: energy = DB6 * log2(RMS)
-	// where RMS = sqrt(sumSq/width), so log2(RMS) = 0.5 * log2(sumSq/width)
-	// Therefore: energy = DB6 * 0.5 * log2(sumSq/width)
-	// This matches the decoder's ComputeBandEnergy and denormalization formula.
-	energy := DB6 * 0.5 * math.Log2(sumSq/width)
+	// Energy in dB units: energy = DB6 * log2(sqrt(sumSq))
+	// Note: libopus uses sqrt(sum) NOT sqrt(sum/N), so we don't divide by width.
+	// log2(sqrt(sumSq)) = 0.5 * log2(sumSq)
+	energy := DB6 * 0.5 * math.Log2(sumSq)
 
 	// Clamp to valid range
 	if energy < -28.0 {

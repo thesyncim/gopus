@@ -92,10 +92,11 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Step 6: Compute band energies
 	energies := e.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
 
-	// Step 7: Normalize bands
-	shapes := e.NormalizeBands(mdctCoeffs, energies, nbBands, frameSize)
+	// Note: NormalizeBands is called later, AFTER encoding coarse+fine energy,
+	// using the quantized energies. This ensures encoder and decoder use the
+	// same gain values for normalization/denormalization.
 
-	// Step 8: Initialize range encoder with bitrate-derived size
+	// Step 7: Initialize range encoder with bitrate-derived size
 	// Compute target bits from bitrate
 	targetBits := e.computeTargetBits(frameSize)
 	bufSize := (targetBits + 7) / 8
@@ -210,7 +211,15 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	)
 
 	// Step 13: Encode fine energy
+	// This updates quantizedEnergies in place with fine precision
 	e.EncodeFineEnergy(energies, quantizedEnergies, nbBands, allocResult.FineBits)
+
+	// Step 13.5: Normalize bands using QUANTIZED energies
+	// This must happen AFTER coarse+fine energy encoding so that encoder
+	// and decoder use the same gain values. The decoder uses quantized
+	// energies for denormalization, so the encoder must use the same
+	// values for normalization.
+	shapes := e.NormalizeBands(mdctCoeffs, quantizedEnergies, nbBands, frameSize)
 
 	// Step 14: Encode bands (PVQ)
 	e.EncodeBands(shapes, allocResult.BandBits, nbBands, frameSize)

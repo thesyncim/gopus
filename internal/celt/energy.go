@@ -268,9 +268,6 @@ func (d *Decoder) DecodeFineEnergy(energies []float64, nbBands int, fineBits []i
 		if extra <= 0 {
 			continue
 		}
-		if rd.Tell()+d.channels*extra > rd.StorageBits() {
-			continue
-		}
 
 		scale := float64(uint(1) << extra)
 		for c := 0; c < d.channels; c++ {

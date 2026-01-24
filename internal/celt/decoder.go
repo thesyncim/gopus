@@ -55,6 +55,12 @@ type Decoder struct {
 	postfilterPeriod int     // Pitch period for comb filter
 	postfilterGain   float64 // Comb filter gain
 	postfilterTapset int     // Filter tap configuration (0, 1, or 2)
+	// Previous postfilter state for overlap cross-fade
+	postfilterPeriodOld int
+	postfilterGainOld   float64
+	postfilterTapsetOld int
+	// Postfilter history buffer (per-channel)
+	postfilterMem []float64
 
 	// Error recovery / deterministic randomness
 	rng uint32 // RNG state for PLC and folding
@@ -92,6 +98,9 @@ func NewDecoder(channels int) *Decoder {
 		// De-emphasis filter state, one per channel
 		preemphState: make([]float64, channels),
 
+		// Postfilter history buffer for comb filter
+		postfilterMem: make([]float64, combFilterHistory*channels),
+
 		// Initialize RNG with non-zero seed
 		rng: 22222,
 
@@ -128,9 +137,7 @@ func (d *Decoder) Reset() {
 	}
 
 	// Reset postfilter
-	d.postfilterPeriod = 0
-	d.postfilterGain = 0
-	d.postfilterTapset = 0
+	d.resetPostfilterState()
 
 	// Reset RNG
 	d.rng = 22222
@@ -457,6 +464,8 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 		samples = d.Synthesize(coeffsL, transient, shortBlocks)
 	}
 
+	d.applyPostfilter(samples, frameSize, mode.LM)
+
 	// Step 7: Apply de-emphasis filter
 	d.applyDeemphasis(samples)
 
@@ -543,6 +552,7 @@ func (d *Decoder) decodeSilenceFrame(frameSize int) []float64 {
 
 	// Apply de-emphasis to zeros to maintain filter state
 	d.applyDeemphasis(samples)
+	d.resetPostfilterState()
 
 	return samples
 }
@@ -839,6 +849,8 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 		}
 		samples = d.Synthesize(coeffsL, transient, shortBlocks)
 	}
+
+	d.applyPostfilter(samples, frameSize, mode.LM)
 
 	d.applyDeemphasis(samples)
 	d.SetPrevEnergy(energies)

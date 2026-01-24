@@ -1,180 +1,115 @@
-// Package testvectors provides analysis of libopus packet structure.
 package testvectors
 
 import (
+	"bytes"
+	"math"
+	"os"
+	"os/exec"
 	"testing"
 
-	"github.com/thesyncim/gopus/internal/rangecoding"
+	"github.com/thesyncim/gopus/internal/celt"
 )
 
-// TestDecodeLibopusFlags decodes the first few symbols from a libopus packet
-// to understand what flags are encoded.
-func TestDecodeLibopusFlags(t *testing.T) {
-	// libopus encoded packet for 440Hz sine, 20ms, mono, 64kbps
-	// First byte is TOC (0xf8), rest is range-coded data
-	packet := []byte{
-		0xf8, 0x3a, 0x50, 0x53, 0x92, 0x29, 0xda, 0xb1,
-		0x30, 0x4a, 0x51, 0xbd, 0x7d, 0x71, 0xb1, 0x92,
+func TestDecodeLibopusPacket(t *testing.T) {
+	// Generate test signal
+	sampleRate := 48000
+	frameSize := 960
+	freq := 440.0
+
+	pcm := make([]float64, frameSize)
+	for i := 0; i < frameSize; i++ {
+		ti := float64(i) / float64(sampleRate)
+		pcm[i] = 0.5 * math.Sin(2*math.Pi*freq*ti)
 	}
 
-	// Skip TOC byte
-	data := packet[1:]
-
-	// Create range decoder
-	rd := &rangecoding.Decoder{}
-	rd.Init(data)
-
-	t.Logf("Decoding libopus packet flags...")
-	t.Logf("Initial range: 0x%08x", rd.Range())
-	t.Logf("Initial val:   0x%08x", rd.Val())
-
-	// Try to decode what libopus encoded
-	// According to libopus, the sequence should be:
-	// 1. Silence flag (logp=15)
-	// 2. Prefilter on/off (logp=1) - if not silence
-	// 3. ... more flags depending on prefilter
-
-	// Decode silence flag
-	silenceVal := rd.Val()
-	silenceRng := rd.Range()
-	silenceR := silenceRng >> 15
-	silenceThreshold := silenceRng - silenceR
-	silence := 0
-	if silenceVal >= silenceThreshold {
-		silence = 1
+	// Save as WAV (convert to float32 for WAV)
+	pcm32 := make([]float32, len(pcm))
+	for i, v := range pcm {
+		pcm32[i] = float32(v)
 	}
-	t.Logf("Silence flag: %d (val=0x%08x, threshold=0x%08x, r=0x%08x)",
-		silence, silenceVal, silenceThreshold, silenceR)
+	saveTestWAV("/tmp/decode_test.wav", pcm32, sampleRate, 1)
 
-	// Manually update range state for silence=0
-	if silence == 0 {
-		rd.DecodeSymbol(0, silenceThreshold, silenceRng)
-	} else {
-		rd.DecodeSymbol(silenceThreshold, silenceRng, silenceRng)
+	// Encode with libopus
+	cmd := exec.Command("opusenc", "--hard-cbr", "--bitrate", "64", "--framesize", "20",
+		"/tmp/decode_test.wav", "/tmp/decode_test_lib.opus")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("opusenc failed: %v", err)
 	}
 
-	t.Logf("After silence: range=0x%08x, val=0x%08x", rd.Range(), rd.Val())
-
-	// Try to decode prefilter flag (logp=1)
-	pfVal := rd.Val()
-	pfRng := rd.Range()
-	pfR := pfRng >> 1
-	pfThreshold := pfRng - pfR
-	prefilter := 0
-	if pfVal >= pfThreshold {
-		prefilter = 1
+	// Extract the raw opus packet from the ogg file
+	packet := extractFirstAudioPacket("/tmp/decode_test_lib.opus")
+	if packet == nil {
+		t.Fatal("Failed to extract audio packet")
 	}
-	t.Logf("Prefilter flag: %d (val=0x%08x, threshold=0x%08x, r=0x%08x)",
-		prefilter, pfVal, pfThreshold, pfR)
+	t.Logf("Libopus packet: %d bytes", len(packet))
+	t.Logf("First 20 bytes: % x", packet[:minInt(20, len(packet))])
 
-	// Update range state
-	if prefilter == 0 {
-		rd.DecodeSymbol(0, pfThreshold, pfRng)
-	} else {
-		rd.DecodeSymbol(pfThreshold, pfRng, pfRng)
+	// Decode with our decoder (skip TOC byte)
+	dec := celt.NewDecoder(1)
+	decoded, err := dec.DecodeFrame(packet[1:], frameSize)
+	if err != nil {
+		t.Fatalf("Decode error: %v", err)
 	}
 
-	t.Logf("After prefilter: range=0x%08x, val=0x%08x", rd.Range(), rd.Val())
-
-	// Try to decode transient flag (logp=3)
-	trVal := rd.Val()
-	trRng := rd.Range()
-	trR := trRng >> 3
-	trThreshold := trRng - trR
-	transient := 0
-	if trVal >= trThreshold {
-		transient = 1
-	}
-	t.Logf("Transient flag: %d (val=0x%08x, threshold=0x%08x, r=0x%08x)",
-		transient, trVal, trThreshold, trR)
-
-	// Update range state
-	if transient == 0 {
-		rd.DecodeSymbol(0, trThreshold, trRng)
-	} else {
-		rd.DecodeSymbol(trThreshold, trRng, trRng)
+	t.Logf("\nFirst 10 decoded samples:")
+	for i := 0; i < 10 && i < len(decoded); i++ {
+		t.Logf("  decoded[%d] = %.4f (orig=%.4f)", i, decoded[i], pcm[i])
 	}
 
-	t.Logf("After transient: range=0x%08x, val=0x%08x", rd.Range(), rd.Val())
-
-	// Try to decode spread (ICDF with 5-bit precision)
-	// spreadICDF = []uint8{25, 23, 2, 0}
-	// This decodes symbol 0-3
-	t.Log("Trying spread decode with ICDF...")
-	spreadVal := rd.Val()
-	spreadRng := rd.Range()
-	// ft = 1 << 5 = 32
-	ft := uint32(32)
-	fl := spreadRng / ft
-	// Symbol is determined by which interval val falls into
-	sym := spreadVal / fl
-	if sym >= ft {
-		sym = ft - 1
-	}
-	// Need to invert because ICDF is decreasing
-	// icdf[s] gives the cumulative probability that symbol >= s
-	icdf := []uint8{25, 23, 2, 0}
-	spread := -1
-	for s := 0; s < len(icdf); s++ {
-		if uint32(icdf[s]) <= sym {
-			spread = s
-			break
+	maxOrig := 0.0
+	maxDec := 0.0
+	for _, v := range pcm {
+		if math.Abs(v) > maxOrig {
+			maxOrig = math.Abs(v)
 		}
 	}
-	t.Logf("Spread decision: %d (val=0x%08x, rng=0x%08x, sym_index=%d)",
-		spread, spreadVal, spreadRng, sym)
+	for _, v := range decoded {
+		if math.Abs(v) > maxDec {
+			maxDec = math.Abs(v)
+		}
+	}
+	t.Logf("\nMax amplitudes: orig=%.4f, decoded=%.4f, ratio=%.2f", maxOrig, maxDec, maxDec/maxOrig)
 }
 
-// TestCompareEncodingSteps compares encoding steps between gopus and libopus.
-func TestCompareEncodingSteps(t *testing.T) {
-	// Create a range encoder and encode our sequence
-	buf := make([]byte, 256)
-	enc := &rangecoding.Encoder{}
-	enc.Init(buf)
+func extractFirstAudioPacket(filename string) []byte {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return nil
+	}
 
-	t.Log("Encoding our sequence...")
-	t.Logf("Initial: rng=0x%08x, val=0x%08x", enc.Range(), enc.Val())
+	// Find Ogg pages
+	pages := findOggPages(data)
+	if len(pages) < 3 {
+		return nil
+	}
 
-	// Encode silence = 0 (logp=15)
-	enc.EncodeBit(0, 15)
-	t.Logf("After silence=0: rng=0x%08x, val=0x%08x, tell=%d",
-		enc.Range(), enc.Val(), enc.Tell())
+	// Third page (index 2) should be first audio packet
+	pageStart := pages[2]
+	nSegments := int(data[pageStart+26])
+	segTable := data[pageStart+27 : pageStart+27+nSegments]
 
-	// Encode transient = 0 (logp=3)
-	enc.EncodeBit(0, 3)
-	t.Logf("After transient=0: rng=0x%08x, val=0x%08x, tell=%d",
-		enc.Range(), enc.Val(), enc.Tell())
+	audioStart := pageStart + 27 + nSegments
+	audioLen := 0
+	for _, s := range segTable {
+		audioLen += int(s)
+	}
 
-	// Encode intra = 1 (logp=3)
-	enc.EncodeBit(1, 3)
-	t.Logf("After intra=1: rng=0x%08x, val=0x%08x, tell=%d",
-		enc.Range(), enc.Val(), enc.Tell())
+	return data[audioStart : audioStart+audioLen]
+}
 
-	// Finalize
-	result := enc.Done()
-	t.Logf("Result: %x (len=%d)", result, len(result))
+func findOggPages(data []byte) []int {
+	var pages []int
+	for i := 0; i < len(data)-4; i++ {
+		if bytes.Equal(data[i:i+4], []byte("OggS")) {
+			pages = append(pages, i)
+		}
+	}
+	return pages
+}
 
-	// Now try with prefilter flag
-	t.Log("\nEncoding with prefilter flag...")
-	enc2 := &rangecoding.Encoder{}
-	enc2.Init(buf)
-
-	// Encode silence = 0 (logp=15)
-	enc2.EncodeBit(0, 15)
-	t.Logf("After silence=0: rng=0x%08x, val=0x%08x", enc2.Range(), enc2.Val())
-
-	// Encode prefilter = 0 (logp=1)
-	enc2.EncodeBit(0, 1)
-	t.Logf("After prefilter=0: rng=0x%08x, val=0x%08x", enc2.Range(), enc2.Val())
-
-	// Encode transient = 0 (logp=3)
-	enc2.EncodeBit(0, 3)
-	t.Logf("After transient=0: rng=0x%08x, val=0x%08x", enc2.Range(), enc2.Val())
-
-	// Encode intra = 1 (logp=3)
-	enc2.EncodeBit(1, 3)
-	t.Logf("After intra=1: rng=0x%08x, val=0x%08x", enc2.Range(), enc2.Val())
-
-	result2 := enc2.Done()
-	t.Logf("Result with prefilter: %x (len=%d)", result2, len(result2))
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
