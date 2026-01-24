@@ -3,23 +3,20 @@ package celt
 
 import "github.com/thesyncim/gopus/internal/rangecoding"
 
-// Laplace decoding constants per RFC 6716 Section 4.3.2.1
+// Laplace decoding constants per libopus celt/laplace.c.
 const (
-	laplaceNMIN   = 16    // Minimum probability for non-zero magnitude
-	laplaceFS     = 32768 // Total frequency space
-	laplaceScale  = laplaceFS - laplaceNMIN
-	laplaceFTBits = 15 // log2(laplaceFS)
+	laplaceLogMinP = 0
+	laplaceMinP    = 1 << laplaceLogMinP
+	laplaceNMin    = 16
+	laplaceFTBits  = 15
+	laplaceFS      = 1 << laplaceFTBits
 )
 
 // ec_laplace_get_freq1 returns the frequency of the "1" symbol.
 // Reference: libopus celt/laplace.c
 func ec_laplace_get_freq1(fs0 int, decay int) int {
-	// ft = fs0 - decay
-	ft := fs0 - decay
-	if ft < 0 {
-		ft = 0
-	}
-	return ft
+	ft := laplaceFS - laplaceMinP*(2*laplaceNMin) - fs0
+	return (ft * (16384 - decay)) >> 15
 }
 
 // decodeLaplace decodes a Laplace-distributed integer using the range coder.
@@ -35,99 +32,57 @@ func (d *Decoder) decodeLaplace(fs int, decay int) int {
 		return 0
 	}
 
-	// Probability model:
-	// P(0) is centered, with exponentially decreasing tails
-	// decay controls how fast probabilities decrease for larger |k|
-
-	// Get the current position in the range
-	rng := rd.Range()
-	val := rd.Val()
-
-	// Scale factor
-	s := rng / uint32(fs)
-	if s == 0 {
-		s = 1
+	fm := int(d.decodeBin(laplaceFTBits))
+	val := 0
+	fl := 0
+	if fm >= fs {
+		val++
+		fl = fs
+		fs = ec_laplace_get_freq1(fs, decay) + laplaceMinP
+		for fs > laplaceMinP && fm >= fl+2*fs {
+			fs *= 2
+			fl += fs
+			fs = ((fs - 2*laplaceMinP) * decay >> 15) + laplaceMinP
+			val++
+		}
+		if fs <= laplaceMinP {
+			di := (fm - fl) >> (laplaceLogMinP + 1)
+			val += di
+			fl += 2 * di * laplaceMinP
+		}
+		if fm < fl+fs {
+			val = -val
+		} else {
+			fl += fs
+		}
 	}
 
-	// Frequency from current state
-	fm := val / s
-	if fm >= uint32(fs) {
-		fm = uint32(fs) - 1
+	fh := fl + fs
+	if fh > laplaceFS {
+		fh = laplaceFS
 	}
+	d.updateRange(uint32(fl), uint32(fh), uint32(laplaceFS))
+	return val
+}
 
-	// Compute center frequency (probability of value 0)
-	// fs0 is frequency mass for symbol 0
-	fs0 := laplaceNMIN + (laplaceScale*decay)>>15
-	if fs0 > fs-1 {
-		fs0 = fs - 1
-	}
-
-	// Check if fm is in the "0" symbol range
-	// Symbol 0 starts at fl=0, has fs0 frequency mass
-	if int(fm) < fs0 {
-		// Symbol is 0
-		// Update: need to consume the proper range
-		// Range update: rng = s * fs0, val = val - s * 0
-		d.updateRange(0, uint32(fs0), uint32(fs))
+// decodeBin mirrors libopus ec_decode_bin() without updating the range coder.
+func (d *Decoder) decodeBin(bits uint) uint32 {
+	rd := d.rangeDecoder
+	if rd == nil || bits == 0 {
 		return 0
 	}
 
-	// Symbol is not 0 - decode positive or negative
-	// The distribution is symmetric: P(k) = P(-k) for k != 0
-
-	// Current cumulative past 0
-	cumFL := fs0
-	k := 1
-	prevFk := fs0
-
-	for {
-		// Frequency for symbol k (and -k)
-		// fk decreases geometrically: fk = prevFk * decay / 32768 approximately
-		// Using the recurrence from libopus
-		fk := (prevFk * decay) >> 15
-		if fk < laplaceNMIN {
-			fk = laplaceNMIN
-		}
-
-		// Check positive k: cumulative range [cumFL, cumFL + fk)
-		if int(fm) >= cumFL && int(fm) < cumFL+fk {
-			// Positive k
-			d.updateRange(uint32(cumFL), uint32(cumFL+fk), uint32(fs))
-			return k
-		}
-
-		// Check negative k: from the end
-		// Negative symbols are at the top of frequency range
-		negFL := fs - cumFL - fk
-		if negFL < 0 {
-			negFL = 0
-		}
-		if int(fm) >= negFL && int(fm) < negFL+fk {
-			// Negative k
-			d.updateRange(uint32(negFL), uint32(negFL+fk), uint32(fs))
-			return -k
-		}
-
-		cumFL += fk
-		k++
-		prevFk = fk
-
-		// Safety: prevent infinite loop
-		if k > 127 || cumFL >= fs/2 {
-			// Default to largest magnitude
-			remaining := fs - 2*cumFL
-			if remaining < laplaceNMIN {
-				remaining = laplaceNMIN
-			}
-			if int(fm) >= cumFL && int(fm) < cumFL+remaining {
-				d.updateRange(uint32(cumFL), uint32(cumFL+remaining), uint32(fs))
-				return k
-			}
-			low := fs - cumFL - remaining
-			d.updateRange(uint32(low), uint32(low+remaining), uint32(fs))
-			return -k
-		}
+	rng := rd.Range()
+	ext := rng >> bits
+	if ext == 0 {
+		ext = 1
 	}
+	s := rd.Val() / ext
+	top := uint32(1) << bits
+	if s+1 > top {
+		s = top - 1
+	}
+	return top - (s + 1)
 }
 
 // updateRange updates the range decoder state after decoding a symbol.
@@ -162,45 +117,68 @@ func (d *Decoder) DecodeCoarseEnergy(nbBands int, intra bool, lm int) []float64 
 
 	energies := make([]float64, nbBands*d.channels)
 
+	rd := d.rangeDecoder
+	if rd == nil {
+		return energies
+	}
+
 	// Get prediction coefficients
 	var alpha, beta float64
 	if intra {
-		// Intra-frame: no inter-frame prediction, only inter-band
 		alpha = 0.0
-		beta = BetaIntra // Fixed 0.15 for intra mode
+		beta = BetaIntra
 	} else {
-		// Inter-frame: use both alpha (previous frame) and beta (previous band)
 		alpha = AlphaCoef[lm]
-		beta = BetaCoefInter[lm] // LM-dependent for inter mode
+		beta = BetaCoefInter[lm]
 	}
 
-	// Decay parameter for Laplace model depends on intra/inter mode and LM
-	// Per libopus: different decay values for different modes
-	// Typical values from libopus celt/quant_bands.c
-	decay := 16384 // Default decay (fairly narrow)
-	if !intra {
-		// Inter-frame mode uses wider distribution (smaller decay)
-		decay = 24000
+	prob := eProbModel[lm][0]
+	if intra {
+		prob = eProbModel[lm][1]
 	}
 
-	// Decode for each channel
-	for c := 0; c < d.channels; c++ {
-		prevBandEnergy := 0.0 // Energy of previous band (for inter-band prediction)
+	budget := rd.StorageBits()
 
-		for band := 0; band < nbBands; band++ {
+	// Decode band-major to match libopus ordering.
+	prevBandEnergy := make([]float64, d.channels)
+	for band := 0; band < nbBands; band++ {
+		for c := 0; c < d.channels; c++ {
 			// Decode Laplace-distributed residual
-			qi := d.decodeLaplace(laplaceFS, decay)
+			tell := rd.Tell()
+			qi := 0
+			remaining := budget - tell
+			if remaining >= 15 {
+				pi := 2 * band
+				if pi > 40 {
+					pi = 40
+				}
+				fs := int(prob[pi]) << 7
+				decay := int(prob[pi+1]) << 6
+				qi = d.decodeLaplace(fs, decay)
+			} else if remaining >= 2 {
+				qi = rd.DecodeICDF(smallEnergyICDF, 2)
+				qi = (qi >> 1) ^ -(qi & 1)
+			} else if remaining >= 1 {
+				qi = -rd.DecodeBit(1)
+			} else {
+				qi = -1
+			}
 
 			// Apply prediction
-			// pred = alpha * prevEnergy[band] + beta * prevBandEnergy
+			// pred = alpha * prevEnergy[band] + prevBandEnergy
 			prevFrameEnergy := d.prevEnergy[c*MaxBands+band]
-			pred := alpha*prevFrameEnergy + beta*prevBandEnergy
+			minEnergy := -9.0 * DB6
+			if prevFrameEnergy < minEnergy {
+				prevFrameEnergy = minEnergy
+			}
+			pred := alpha*prevFrameEnergy + prevBandEnergy[c]
 
 			// Compute energy: pred + qi * 6.0 (6 dB per step)
-			energy := pred + float64(qi)*DB6
+			q := float64(qi) * DB6
+			energy := pred + q
 
 			// Trace coarse energy (coarse=pred, fine=qi*DB6, total=energy)
-			DefaultTracer.TraceEnergy(band, pred, float64(qi)*DB6, energy)
+			DefaultTracer.TraceEnergy(band, pred, q, energy)
 
 			// Store result
 			energies[c*nbBands+band] = energy
@@ -208,11 +186,12 @@ func (d *Decoder) DecodeCoarseEnergy(nbBands int, intra bool, lm int) []float64 
 			// Update prev band energy for next band's inter-band prediction
 			// Per libopus: prevBandEnergy accumulates a filtered version of quantized deltas
 			// Formula: prev = prev + q - beta*q, where q = qi*DB6
-			q := float64(qi) * DB6
-			prevBandEnergy = prevBandEnergy + q - beta*q
+			prevBandEnergy[c] = prevBandEnergy[c] + q - beta*q
 		}
+	}
 
-		// Update previous frame energy for next frame's inter-frame prediction
+	// Update previous frame energy for next frame's inter-frame prediction
+	for c := 0; c < d.channels; c++ {
 		for band := 0; band < nbBands; band++ {
 			d.prevEnergy[c*MaxBands+band] = energies[c*nbBands+band]
 		}
@@ -282,28 +261,19 @@ func (d *Decoder) DecodeFineEnergy(energies []float64, nbBands int, fineBits []i
 	if nbBands > len(fineBits) {
 		nbBands = len(fineBits)
 	}
+	rd := d.rangeDecoder
 
-	for c := 0; c < d.channels; c++ {
-		for band := 0; band < nbBands; band++ {
-			bits := fineBits[band]
-			if bits <= 0 {
-				continue
-			}
+	for band := 0; band < nbBands; band++ {
+		extra := fineBits[band]
+		if extra <= 0 {
+			continue
+		}
 
-			// Clamp to reasonable maximum (8 bits max precision)
-			if bits > 8 {
-				bits = 8
-			}
+		scale := float64(uint(1) << extra)
+		for c := 0; c < d.channels; c++ {
+			q2 := rd.DecodeRawBits(uint(extra))
+			offset := (float64(q2)+0.5)/scale - 0.5
 
-			// Decode fineBits[band] bits uniformly
-			ft := uint(1 << bits)
-			q := d.decodeUniform(ft)
-
-			// Compute offset: (q + 0.5) / (1 << fineBits) - 0.5
-			// This centers the quantization levels
-			offset := (float64(q)+0.5)/float64(ft) - 0.5
-
-			// Add offset * 6.0 to coarse energy (6 dB range for fine adjustment)
 			idx := c*nbBands + band
 			if idx < len(energies) {
 				energies[idx] += offset * DB6
@@ -373,4 +343,38 @@ func (d *Decoder) DecodeEnergyRemainderWithDecoder(rd *rangecoding.Decoder, ener
 	defer func() { d.rangeDecoder = oldRD }()
 
 	d.DecodeEnergyRemainder(energies, nbBands, remainderBits)
+}
+
+// DecodeEnergyFinalise consumes leftover bits for additional energy refinement.
+// This mirrors libopus unquant_energy_finalise().
+func (d *Decoder) DecodeEnergyFinalise(energies []float64, nbBands int, fineQuant []int, finePriority []int, bitsLeft int) {
+	if d.rangeDecoder == nil {
+		return
+	}
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+	if nbBands <= 0 {
+		return
+	}
+	if bitsLeft < 0 {
+		bitsLeft = 0
+	}
+
+	for prio := 0; prio < 2; prio++ {
+		for band := 0; band < nbBands && bitsLeft >= d.channels; band++ {
+			if fineQuant[band] >= maxFineBits || finePriority[band] != prio {
+				continue
+			}
+			for c := 0; c < d.channels; c++ {
+				q2 := d.rangeDecoder.DecodeRawBits(1)
+				offset := (float64(q2) - 0.5) / float64(uint(1)<<(fineQuant[band]+1))
+				idx := c*nbBands + band
+				if idx < len(energies) {
+					energies[idx] += offset * DB6
+				}
+				bitsLeft--
+			}
+		}
+	}
 }

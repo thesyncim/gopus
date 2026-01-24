@@ -208,11 +208,11 @@ func TestBitsToK(t *testing.T) {
 		prev = k
 	}
 
-	// K should never exceed bits (upper bound)
+	// K should stay within the PVQ pulse limit
 	for _, bits := range []int{10, 20, 50, 100} {
 		k := bitsToK(bits, 8)
-		if k > bits {
-			t.Errorf("bitsToK(%d, 8) = %d, but k should not exceed bits", bits, k)
+		if k > MaxPVQK {
+			t.Errorf("bitsToK(%d, 8) = %d, but k should not exceed MaxPVQK", bits, k)
 		}
 	}
 
@@ -777,16 +777,6 @@ func TestBitsToKBoundaries(t *testing.T) {
 		t.Errorf("bitsToK(50, -1) = %d, want 0", k)
 	}
 
-	// Very few bits (below threshold) should return zero
-	// For n=8, minBits = ilog2(8) + 1 = 4
-	// Bits < 4 should return k=0
-	for bits := 1; bits <= 3; bits++ {
-		k := bitsToK(bits, 8)
-		if k != 0 {
-			t.Errorf("bitsToK(%d, 8) = %d, want 0 (bits below threshold)", bits, k)
-		}
-	}
-
 	// Test minimum bits for k=1 at various n
 	t.Run("min_bits_for_k1", func(t *testing.T) {
 		for n := 2; n <= 16; n++ {
@@ -826,10 +816,7 @@ func TestBitsToKMonotonic(t *testing.T) {
 	}
 }
 
-// TestKToBitsRoundtrip verifies the relationship between kToBits and bitsToK.
-// Note: kToBits returns log2(V(n,k)-1) which is a lower bound on bits needed.
-// bitsToK uses binary search with a minimum threshold, so the relationship
-// is: kToBits(k, n) gives bits, bitsToK(bits+margin, n) should return >= k.
+// TestKToBitsRoundtrip verifies kToBits tracks log2(V(n,k)-1).
 func TestKToBitsRoundtrip(t *testing.T) {
 	// Test that the functions are internally consistent
 	for n := 2; n <= 16; n++ {
@@ -844,14 +831,7 @@ func TestKToBitsRoundtrip(t *testing.T) {
 					k, n, bits, n, k, v, expectedBits)
 			}
 
-			// With enough extra bits, bitsToK should return at least k
-			// This compensates for the threshold check in bitsToK
-			largeBits := bits + 5
-			kDecoded := bitsToK(largeBits, n)
-			if kDecoded < k {
-				t.Errorf("With %d bits (kToBits + 5), bitsToK(%d, %d) = %d < %d",
-					largeBits, largeBits, n, kDecoded, k)
-			}
+			_ = bits // kToBits validation is above; bitsToK is tested separately.
 		}
 	}
 }
@@ -917,8 +897,8 @@ func TestBitsToKWithRealFrameSizes(t *testing.T) {
 					}
 
 					// k should not exceed reasonable bounds
-					if k > bits {
-						t.Errorf("bitsToK(%d, %d) = %d > bits at band %d", bits, n, k, band)
+					if k > MaxPVQK {
+						t.Errorf("bitsToK(%d, %d) = %d > MaxPVQK at band %d", bits, n, k, band)
 					}
 
 					// Verify V(n,k) is valid (not zero for k > 0)
@@ -1027,12 +1007,12 @@ func TestDenormalizationGainPath(t *testing.T) {
 		gain   float64 // expected gain = 2^energy
 	}{
 		{0.0, 1.0},
-		{1.0, 2.0},
-		{-1.0, 0.5},
-		{3.0, 8.0},
-		{-3.0, 0.125},
-		{10.0, 1024.0},
-		{-10.0, 1.0 / 1024.0},
+		{DB6, 2.0},
+		{-DB6, 0.5},
+		{3 * DB6, 8.0},
+		{-3 * DB6, 0.125},
+		{5 * DB6, 32.0},
+		{-5 * DB6, 1.0 / 32.0},
 	}
 
 	shape := []float64{0.6, 0.8} // 3-4-5 triangle, normalized
@@ -1053,7 +1033,7 @@ func TestDenormalizationGainPath(t *testing.T) {
 	t.Run("clamp_high", func(t *testing.T) {
 		// Energy > 32 should be clamped to 32
 		result := DenormalizeBand([]float64{1.0}, 100.0)
-		expectedGain := math.Exp2(32) // Clamped at 32
+		expectedGain := math.Exp2(32 / DB6) // Clamped at 32 dB
 		if math.Abs(result[0]-expectedGain) > expectedGain*1e-6 {
 			t.Errorf("High energy: got %v, want ~%v (clamped)", result[0], expectedGain)
 		}

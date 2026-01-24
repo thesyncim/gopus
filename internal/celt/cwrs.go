@@ -29,10 +29,11 @@ func makeCacheKey(n, k int) uint64 {
 // and K pulses (where the sum of absolute values equals K).
 //
 // V(N,K) follows the recurrence:
-//   V(N, K) = V(N-1, K) + V(N, K-1) + V(N-1, K-1) for N > 1, K > 0
-//   V(N, 0) = 1 for any N >= 0 (only the zero vector)
-//   V(0, K) = 0 for K > 0 (no dimensions, can't have pulses)
-//   V(1, K) = 2 for K > 0 (only +K and -K are valid)
+//
+//	V(N, K) = V(N-1, K) + V(N, K-1) + V(N-1, K-1) for N > 1, K > 0
+//	V(N, 0) = 1 for any N >= 0 (only the zero vector)
+//	V(0, K) = 0 for K > 0 (no dimensions, can't have pulses)
+//	V(1, K) = 2 for K > 0 (only +K and -K are valid)
 //
 // Reference: RFC 6716 Section 4.3.4.1, libopus celt/cwrs.c
 func PVQ_V(n, k int) uint32 {
@@ -56,7 +57,18 @@ func PVQ_V(n, k int) uint32 {
 	}
 
 	// Use recurrence: V(N,K) = V(N-1,K) + V(N,K-1) + V(N-1,K-1)
-	result := PVQ_V(n-1, k) + PVQ_V(n, k-1) + PVQ_V(n-1, k-1)
+	v1 := PVQ_V(n-1, k)
+	v2 := PVQ_V(n, k-1)
+	v3 := PVQ_V(n-1, k-1)
+	sum := uint64(v1) + uint64(v2) + uint64(v3)
+
+	const maxUint32 = ^uint32(0)
+	var result uint32
+	if sum > uint64(maxUint32) {
+		result = maxUint32
+	} else {
+		result = uint32(sum)
+	}
 
 	// Cache result
 	pvqVCache[key] = result
@@ -70,6 +82,130 @@ func abs(x int) int {
 		return -x
 	}
 	return x
+}
+
+func unext(u []uint32, length int, u0 uint32) {
+	if length < 2 {
+		return
+	}
+	const maxUint32 = ^uint32(0)
+	for j := 1; j < length; j++ {
+		sum := uint64(u[j]) + uint64(u[j-1]) + uint64(u0)
+		u1 := uint32(sum)
+		if sum > uint64(maxUint32) {
+			u1 = maxUint32
+		}
+		u[j-1] = u0
+		u0 = u1
+	}
+	u[length-1] = u0
+}
+
+func uprev(u []uint32, length int, u0 uint32) {
+	if length < 2 {
+		return
+	}
+	for j := 1; j < length; j++ {
+		diff := int64(u[j]) - int64(u[j-1]) - int64(u0)
+		u1 := uint32(0)
+		if diff > 0 {
+			u1 = uint32(diff)
+		}
+		u[j-1] = u0
+		u0 = u1
+	}
+	u[length-1] = u0
+}
+
+// ncwrsUrow computes V(n,k) and fills u with U(n,0..k+1).
+// u must have length at least k+2.
+func ncwrsUrow(n, k int, u []uint32) uint32 {
+	if n < 2 || k <= 0 || len(u) < k+2 {
+		return 0
+	}
+	u[0] = 0
+	u[1] = 1
+	for j := 2; j < k+2; j++ {
+		u[j] = uint32((j << 1) - 1)
+	}
+	for j := 2; j < n; j++ {
+		unext(u[1:], k+1, 1)
+	}
+	sum := uint64(u[k]) + uint64(u[k+1])
+	if sum > uint64(^uint32(0)) {
+		return ^uint32(0)
+	}
+	return uint32(sum)
+}
+
+func cwrsi(n, k int, i uint32, y []int, u []uint32) uint32 {
+	if n <= 0 || k <= 0 || len(y) < n || len(u) < k+2 {
+		return 0
+	}
+	j := 0
+	var yy uint32
+	for {
+		p := u[k+1]
+		sign := 0
+		if i >= p {
+			sign = -1
+			i -= p
+		}
+		yj := k
+		p = u[k]
+		for p > i {
+			k--
+			p = u[k]
+		}
+		i -= p
+		yj -= k
+		val := yj
+		if sign != 0 {
+			val = -yj
+		}
+		y[j] = val
+		yy += uint32(val * val)
+		uprev(u, k+2, 0)
+		j++
+		if j >= n {
+			break
+		}
+	}
+	return yy
+}
+
+func icwrs1(y int) (uint32, int) {
+	k := abs(y)
+	if y < 0 {
+		return 1, k
+	}
+	return 0, k
+}
+
+func icwrs(n, k int, y []int, u []uint32) (uint32, uint32) {
+	if n < 2 || k <= 0 || len(y) < n || len(u) < k+2 {
+		return 0, 0
+	}
+	u[0] = 0
+	for kk := 1; kk <= k+1; kk++ {
+		u[kk] = uint32((kk << 1) - 1)
+	}
+	i, k1 := icwrs1(y[n-1])
+	j := n - 2
+	i += u[k1]
+	k1 += abs(y[j])
+	if y[j] < 0 {
+		i += u[k1+1]
+	}
+	for j--; j >= 0; j-- {
+		unext(u, k+2, 0)
+		i += u[k1]
+		k1 += abs(y[j])
+		if y[j] < 0 {
+			i += u[k1+1]
+		}
+	}
+	return i, u[k1] + u[k1+1]
 }
 
 // DecodePulses converts a CWRS index to a pulse vector.
@@ -93,73 +229,21 @@ func DecodePulses(index uint32, n, k int) []int {
 	y := make([]int, n)
 
 	if k == 0 {
-		// Zero pulses - return zero vector
 		return y
 	}
 
-	// Special case for n=1
 	if n == 1 {
-		// For n=1, there are only 2 codewords: +K and -K
-		// Index 0 = +K, Index 1 = -K
-		if index == 0 {
-			y[0] = k
-		} else {
+		if index&1 == 1 {
 			y[0] = -k
+		} else {
+			y[0] = k
 		}
 		return y
 	}
 
-	// Work through positions 0 to n-2
-	for i := 0; i < n-1 && k > 0; i++ {
-		// Determine the number of pulses at position i
-		// We find p such that the index falls within the range for p pulses at this position
-		remaining := n - i - 1
-		p := 0
-		var cumulative uint32 = 0
-
-		// First, count codewords with 0 pulses at position i
-		v0 := PVQ_V(remaining, k)
-		if index >= v0 {
-			cumulative = v0
-			p = 1
-
-			// Now count codewords with p >= 1 pulses at position i
-			// Each value of p contributes 2 * V(remaining, k-p) codewords (for +p and -p)
-			for p <= k {
-				vp := PVQ_V(remaining, k-p)
-				contribution := 2 * vp // Both signs
-				if index < cumulative+contribution {
-					break
-				}
-				cumulative += contribution
-				p++
-			}
-		}
-
-		// Subtract cumulative count to get index within the subspace
-		index -= cumulative
-
-		// Extract sign if p > 0
-		if p > 0 {
-			// Sign bit is encoded in the least significant bit
-			if index&1 == 1 {
-				p = -p
-			}
-			index >>= 1
-		}
-
-		y[i] = p
-		k -= abs(p)
-	}
-
-	// Last position gets all remaining pulses
-	if k > 0 {
-		y[n-1] = k
-		// Sign from remaining index bit
-		if index&1 == 1 {
-			y[n-1] = -k
-		}
-	}
+	u := make([]uint32, k+2)
+	ncwrsUrow(n, k, u)
+	_ = cwrsi(n, k, index, y, u)
 
 	return y
 }
@@ -187,47 +271,15 @@ func EncodePulses(y []int, n, k int) uint32 {
 		return 0 // Invalid input
 	}
 
-	// Special case for n=1
 	if n == 1 {
-		// Encode value directly: val -> index = val + k
-		return uint32(y[0] + k)
-	}
-
-	var index uint32 = 0
-	kRemaining := k
-
-	for i := 0; i < n-1 && kRemaining > 0; i++ {
-		p := abs(y[i])
-		remaining := n - i - 1
-
-		// Add cumulative count for all positions with fewer pulses
-		for j := 0; j < p; j++ {
-			pulsesLeft := kRemaining - j
-			if pulsesLeft >= 0 {
-				index += PVQ_V(remaining, pulsesLeft)
-			}
+		if y[0] < 0 {
+			return 1
 		}
-
-		// Encode sign if pulse is non-zero
-		if p > 0 {
-			// Insert sign bit at LSB of remaining index space
-			index <<= 1
-			if y[i] < 0 {
-				index |= 1
-			}
-		}
-
-		kRemaining -= p
+		return 0
 	}
 
-	// Handle sign of last position if it has pulses
-	if kRemaining > 0 && y[n-1] < 0 {
-		index <<= 1
-		index |= 1
-	} else if kRemaining > 0 {
-		index <<= 1
-	}
-
+	u := make([]uint32, k+2)
+	index, _ := icwrs(n, k, y, u)
 	return index
 }
 

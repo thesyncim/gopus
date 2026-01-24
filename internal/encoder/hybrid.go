@@ -247,6 +247,7 @@ func (e *Encoder) encodeCELTHybrid(pcm []float64, frameSize int) {
 	allocResult := celt.ComputeAllocation(
 		totalBits,
 		mode.EffBands,
+		e.channels,
 		nil,   // caps
 		nil,   // dynalloc
 		0,     // trim
@@ -260,9 +261,6 @@ func (e *Encoder) encodeCELTHybrid(pcm []float64, frameSize int) {
 
 	// Encode bands (PVQ)
 	e.celtEncoder.EncodeBands(shapes, allocResult.BandBits, mode.EffBands, frameSize)
-
-	// Encode energy remainder
-	e.celtEncoder.EncodeEnergyRemainder(energies, quantizedEnergies, mode.EffBands, allocResult.RemainderBits)
 
 	// Update state
 	e.celtEncoder.SetPrevEnergy(quantizedEnergies)

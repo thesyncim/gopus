@@ -258,22 +258,21 @@ func ParsePacket(data []byte) (PacketInfo, error) {
 			info.FrameSizes[m-1] = lastFrameLen
 		} else {
 			// CBR: Parse single frame length, all frames are same size
-			if m > 1 {
-				frameLen, bytesRead, err := parseFrameLength(data, offset)
-				if err != nil {
-					return PacketInfo{}, err
-				}
-				offset += bytesRead
-				for i := 0; i < m; i++ {
-					info.FrameSizes[i] = frameLen
-				}
-			} else {
-				// Single frame in CBR mode
-				frameLen := len(data) - offset - padding
-				if frameLen < 0 {
-					return PacketInfo{}, ErrInvalidPacket
-				}
-				info.FrameSizes[0] = frameLen
+			// For CBR, no frame lengths are encoded. All frames share the
+			// remaining bytes (minus padding) equally.
+			frameDataLen := len(data) - offset - padding
+			if frameDataLen < 0 {
+				return PacketInfo{}, ErrInvalidPacket
+			}
+			if m == 0 {
+				return PacketInfo{}, ErrInvalidFrameCount
+			}
+			if frameDataLen%m != 0 {
+				return PacketInfo{}, ErrInvalidPacket
+			}
+			frameLen := frameDataLen / m
+			for i := 0; i < m; i++ {
+				info.FrameSizes[i] = frameLen
 			}
 		}
 	}

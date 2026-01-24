@@ -61,6 +61,9 @@ type Decoder struct {
 
 	// Band processing state
 	collapseMask uint32 // Tracks which bands received pulses (for anti-collapse)
+
+	// Bandwidth (Opus TOC-derived)
+	bandwidth CELTBandwidth
 }
 
 // NewDecoder creates a new CELT decoder with the given number of channels.
@@ -91,6 +94,8 @@ func NewDecoder(channels int) *Decoder {
 
 		// Initialize RNG with non-zero seed
 		rng: 22222,
+
+		bandwidth: CELTFullband,
 	}
 
 	// Initialize energy arrays to reasonable defaults
@@ -132,6 +137,9 @@ func (d *Decoder) Reset() {
 
 	// Clear range decoder reference
 	d.rangeDecoder = nil
+
+	// Reset bandwidth to fullband
+	d.bandwidth = CELTFullband
 }
 
 // SetRangeDecoder sets the range decoder for the current frame.
@@ -148,6 +156,16 @@ func (d *Decoder) RangeDecoder() *rangecoding.Decoder {
 // Channels returns the number of audio channels (1 or 2).
 func (d *Decoder) Channels() int {
 	return d.channels
+}
+
+// SetBandwidth sets the CELT bandwidth derived from the Opus TOC.
+func (d *Decoder) SetBandwidth(bw CELTBandwidth) {
+	d.bandwidth = bw
+}
+
+// Bandwidth returns the current CELT bandwidth setting.
+func (d *Decoder) Bandwidth() CELTBandwidth {
+	return d.bandwidth
 }
 
 // SampleRate returns the output sample rate (always 48000 for CELT).
@@ -286,26 +304,67 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 
 	// Get mode configuration
 	mode := GetModeConfig(frameSize)
-	nbBands := mode.EffBands
 	lm := mode.LM
+	end := EffectiveBandsForFrameSize(d.bandwidth, frameSize)
+	if end > mode.EffBands {
+		end = mode.EffBands
+	}
+	if end < 1 {
+		end = 1
+	}
+	start := 0
 
-	// Decode frame header flags
-	silence := d.decodeSilenceFlag()
+	totalBits := len(data) * 8
+	tell := rd.Tell()
+	silence := false
+	if tell >= totalBits {
+		silence = true
+	} else if tell == 1 {
+		silence = rd.DecodeBit(15) == 1
+	}
 	if silence {
-		// Silence frame: return zeros
-		return d.decodeSilenceFrame(frameSize), nil
+		samples := d.decodeSilenceFrame(frameSize)
+		DefaultTracer.TraceHeader(frameSize, d.channels, lm, 0, 0)
+		DefaultTracer.TraceEnergy(0, 0, 0, 0)
+		traceLen := len(samples)
+		if traceLen > 16 {
+			traceLen = 16
+		}
+		if traceLen > 0 {
+			DefaultTracer.TraceSynthesis("final", samples[:traceLen])
+		}
+		return samples, nil
 	}
 
-	// Decode transient and intra flags
-	transient := d.decodeTransientFlag(lm)
-	intra := d.decodeIntraFlag()
+	postfilterGain := 0.0
+	postfilterPeriod := 0
+	postfilterTapset := 0
+	if start == 0 && tell+16 <= totalBits {
+		if rd.DecodeBit(1) == 1 {
+			octave := int(rd.DecodeUniform(6))
+			postfilterPeriod = (16 << octave) + int(rd.DecodeRawBits(uint(4+octave))) - 1
+			qg := int(rd.DecodeRawBits(3))
+			if rd.Tell()+2 <= totalBits {
+				postfilterTapset = rd.DecodeICDF(tapsetICDF, 2)
+			}
+			postfilterGain = 0.09375 * float64(qg+1)
+		}
+		tell = rd.Tell()
+	}
+	d.SetPostfilter(postfilterPeriod, postfilterGain, postfilterTapset)
+
+	transient := false
+	if lm > 0 && tell+3 <= totalBits {
+		transient = rd.DecodeBit(3) == 1
+		tell = rd.Tell()
+	}
+	intra := false
+	if tell+3 <= totalBits {
+		intra = rd.DecodeBit(3) == 1
+	}
 
 	// Trace frame header
 	DefaultTracer.TraceHeader(frameSize, d.channels, lm, boolToInt(intra), boolToInt(transient))
-
-	// Decode spread (for folding)
-	// spread := d.decodeSpread()
-	// _ = spread // Used later for folding
 
 	// Determine short blocks for transient mode
 	shortBlocks := 1
@@ -314,67 +373,88 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	}
 
 	// Step 1: Decode coarse energy
-	energies := d.DecodeCoarseEnergy(nbBands, intra, lm)
+	energies := d.DecodeCoarseEnergy(end, intra, lm)
 
-	// Step 2: Compute bit allocation
-	// Estimate total bits remaining
-	totalBits := len(data)*8 - rd.Tell()
-	if totalBits < 0 {
-		totalBits = 0
+	tfRes := make([]int, end)
+	tfDecode(start, end, transient, tfRes, lm, rd)
+
+	spread := spreadNormal
+	tell = rd.Tell()
+	if tell+4 <= totalBits {
+		spread = rd.DecodeICDF(spreadICDF, 5)
 	}
 
-	// Use default allocation parameters
-	allocResult := ComputeAllocation(
-		totalBits,
-		nbBands,
-		nil,  // caps
-		nil,  // dynalloc
-		0,    // trim (neutral)
-		-1,   // intensity (disabled)
-		false, // dual stereo
-		lm,
-	)
-
-	// Step 3: Decode fine energy
-	d.DecodeFineEnergy(energies, nbBands, allocResult.FineBits)
-
-	// Step 4: Decode bands (PVQ)
-	var coeffs []float64
-	var coeffsL, coeffsR []float64
-
-	if d.channels == 2 {
-		// Stereo decoding
-		// Split energies for L/R channels
-		energiesL := energies[:nbBands]
-		energiesR := make([]float64, nbBands)
-		if len(energies) > nbBands {
-			energiesR = energies[nbBands:]
-		} else {
-			copy(energiesR, energiesL) // Fallback: copy left
+	cap := initCaps(end, lm, d.channels)
+	offsets := make([]int, end)
+	dynallocLogp := 6
+	totalBitsQ3 := totalBits << bitRes
+	tellFrac := rd.TellFrac()
+	for i := start; i < end; i++ {
+		width := d.channels * (EBands[i+1] - EBands[i]) << lm
+		quanta := minInt(width<<bitRes, maxInt(6<<bitRes, width))
+		dynallocLoopLogp := dynallocLogp
+		boost := 0
+		for tellFrac+(dynallocLoopLogp<<bitRes) < totalBitsQ3 && boost < cap[i] {
+			flag := rd.DecodeBit(uint(dynallocLoopLogp))
+			tellFrac = rd.TellFrac()
+			if flag == 0 {
+				break
+			}
+			boost += quanta
+			totalBitsQ3 -= quanta
+			dynallocLoopLogp = 1
 		}
-
-		coeffsL, coeffsR = d.DecodeBandsStereo(
-			energiesL, energiesR,
-			allocResult.BandBits,
-			nbBands,
-			frameSize,
-			-1, // intensity band (disabled)
-		)
-	} else {
-		// Mono decoding
-		coeffs = d.DecodeBands(energies, allocResult.BandBits, nbBands, false, frameSize)
+		offsets[i] = boost
+		if boost > 0 {
+			dynallocLogp = maxInt(2, dynallocLogp-1)
+		}
 	}
 
-	// Step 5: Decode energy remainder (leftover bits)
-	d.DecodeEnergyRemainder(energies, nbBands, allocResult.RemainderBits)
+	allocTrim := 5
+	if tellFrac+(6<<bitRes) <= totalBitsQ3 {
+		allocTrim = rd.DecodeICDF(trimICDF, 7)
+	}
+
+	bitsQ3 := (totalBits << bitRes) - rd.TellFrac() - 1
+	antiCollapseRsv := 0
+	if transient && lm >= 2 && bitsQ3 >= (lm+2)<<bitRes {
+		antiCollapseRsv = 1 << bitRes
+	}
+	bitsQ3 -= antiCollapseRsv
+
+	pulses := make([]int, end)
+	fineQuant := make([]int, end)
+	finePriority := make([]int, end)
+	intensity := 0
+	dualStereo := 0
+	balance := 0
+	codedBands := cltComputeAllocation(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
+		bitsQ3, &balance, pulses, fineQuant, finePriority, d.channels, lm, rd)
+
+	d.DecodeFineEnergy(energies, end, fineQuant)
+
+	coeffsL, coeffsR, _ := quantAllBandsDecode(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, &d.rng)
+
+	if antiCollapseRsv > 0 {
+		_ = rd.DecodeRawBits(1)
+	}
+
+	bitsLeft := totalBits - rd.Tell()
+	d.DecodeEnergyFinalise(energies, end, fineQuant, finePriority, bitsLeft)
 
 	// Step 6: Synthesis (IMDCT + window + overlap-add)
 	var samples []float64
 
 	if d.channels == 2 {
+		energiesL := energies[:end]
+		energiesR := energies[end:]
+		denormalizeCoeffs(coeffsL, energiesL, end, frameSize)
+		denormalizeCoeffs(coeffsR, energiesR, end, frameSize)
 		samples = d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
 	} else {
-		samples = d.Synthesize(coeffs, transient, shortBlocks)
+		denormalizeCoeffs(coeffsL, energies, end, frameSize)
+		samples = d.Synthesize(coeffsL, transient, shortBlocks)
 	}
 
 	// Step 7: Apply de-emphasis filter
@@ -547,7 +627,7 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 		totalBits = 64
 	}
 
-	allocResult := ComputeAllocation(totalBits, nbBands, nil, nil, 0, -1, false, lm)
+	allocResult := ComputeAllocation(totalBits, nbBands, d.channels, nil, nil, 0, -1, false, lm)
 
 	d.DecodeFineEnergy(energies, nbBands, allocResult.FineBits)
 
@@ -614,89 +694,153 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 
 	// Get mode configuration
 	mode := GetModeConfig(frameSize)
-	nbBands := mode.EffBands // Full band count for this frame size
 	lm := mode.LM
+	end := EffectiveBandsForFrameSize(d.bandwidth, frameSize)
+	if end > mode.EffBands {
+		end = mode.EffBands
+	}
+	if end < 1 {
+		end = 1
+	}
+	start := 0
 
-	// Decode frame header flags
-	silence := d.decodeSilenceFlag()
+	totalBits := rd.StorageBits()
+	tell := rd.Tell()
+	silence := false
+	if tell >= totalBits {
+		silence = true
+	} else if tell == 1 {
+		silence = rd.DecodeBit(15) == 1
+	}
 	if silence {
 		return d.decodeSilenceFrame(frameSize), nil
 	}
 
-	transient := d.decodeTransientFlag(lm)
-	intra := d.decodeIntraFlag()
+	postfilterGain := 0.0
+	postfilterPeriod := 0
+	postfilterTapset := 0
+	if start == 0 && tell+16 <= totalBits {
+		if rd.DecodeBit(1) == 1 {
+			octave := int(rd.DecodeUniform(6))
+			postfilterPeriod = (16 << octave) + int(rd.DecodeRawBits(uint(4+octave))) - 1
+			qg := int(rd.DecodeRawBits(3))
+			if rd.Tell()+2 <= totalBits {
+				postfilterTapset = rd.DecodeICDF(tapsetICDF, 2)
+			}
+			postfilterGain = 0.09375 * float64(qg+1)
+		}
+		tell = rd.Tell()
+	}
+	d.SetPostfilter(postfilterPeriod, postfilterGain, postfilterTapset)
+
+	transient := false
+	if lm > 0 && tell+3 <= totalBits {
+		transient = rd.DecodeBit(3) == 1
+		tell = rd.Tell()
+	}
+	intra := false
+	if tell+3 <= totalBits {
+		intra = rd.DecodeBit(3) == 1
+	}
 
 	shortBlocks := 1
 	if transient {
 		shortBlocks = mode.ShortBlocks
 	}
 
-	// Decode coarse energy for all bands
-	// In hybrid mode, we decode all bands but only use bands >= HybridCELTStartBand
-	energies := d.DecodeCoarseEnergy(nbBands, intra, lm)
+	energies := d.DecodeCoarseEnergy(end, intra, lm)
 
-	// Compute bit allocation
-	totalBits := 256 - rd.Tell()
-	if totalBits < 0 {
-		totalBits = 64
+	tfRes := make([]int, end)
+	tfDecode(start, end, transient, tfRes, lm, rd)
+
+	spread := spreadNormal
+	tell = rd.Tell()
+	if tell+4 <= totalBits {
+		spread = rd.DecodeICDF(spreadICDF, 5)
 	}
 
-	allocResult := ComputeAllocation(totalBits, nbBands, nil, nil, 0, -1, false, lm)
-
-	// Decode fine energy
-	d.DecodeFineEnergy(energies, nbBands, allocResult.FineBits)
-
-	// Decode bands using PVQ
-	var coeffs []float64
-	var coeffsL, coeffsR []float64
-
-	if d.channels == 2 {
-		energiesL := energies[:nbBands]
-		energiesR := make([]float64, nbBands)
-		if len(energies) > nbBands {
-			copy(energiesR, energies[nbBands:])
-		} else {
-			copy(energiesR, energiesL)
+	cap := initCaps(end, lm, d.channels)
+	offsets := make([]int, end)
+	dynallocLogp := 6
+	totalBitsQ3 := totalBits << bitRes
+	tellFrac := rd.TellFrac()
+	for i := start; i < end; i++ {
+		width := d.channels * (EBands[i+1] - EBands[i]) << lm
+		quanta := minInt(width<<bitRes, maxInt(6<<bitRes, width))
+		dynallocLoopLogp := dynallocLogp
+		boost := 0
+		for tellFrac+(dynallocLoopLogp<<bitRes) < totalBitsQ3 && boost < cap[i] {
+			flag := rd.DecodeBit(uint(dynallocLoopLogp))
+			tellFrac = rd.TellFrac()
+			if flag == 0 {
+				break
+			}
+			boost += quanta
+			totalBitsQ3 -= quanta
+			dynallocLoopLogp = 1
 		}
-		coeffsL, coeffsR = d.DecodeBandsStereo(energiesL, energiesR, allocResult.BandBits, nbBands, frameSize, -1)
-	} else {
-		coeffs = d.DecodeBands(energies, allocResult.BandBits, nbBands, false, frameSize)
+		offsets[i] = boost
+		if boost > 0 {
+			dynallocLogp = maxInt(2, dynallocLogp-1)
+		}
 	}
 
-	// Zero out bands 0-16 (SILK handles low frequencies)
-	// Calculate the bin offset where band 17 starts
-	hybridBinStart := ScaledBandStart(HybridCELTStartBand, frameSize)
+	allocTrim := 5
+	if tellFrac+(6<<bitRes) <= totalBitsQ3 {
+		allocTrim = rd.DecodeICDF(trimICDF, 7)
+	}
 
+	bitsQ3 := (totalBits << bitRes) - rd.TellFrac() - 1
+	antiCollapseRsv := 0
+	if transient && lm >= 2 && bitsQ3 >= (lm+2)<<bitRes {
+		antiCollapseRsv = 1 << bitRes
+	}
+	bitsQ3 -= antiCollapseRsv
+
+	pulses := make([]int, end)
+	fineQuant := make([]int, end)
+	finePriority := make([]int, end)
+	intensity := 0
+	dualStereo := 0
+	balance := 0
+	codedBands := cltComputeAllocation(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
+		bitsQ3, &balance, pulses, fineQuant, finePriority, d.channels, lm, rd)
+
+	d.DecodeFineEnergy(energies, end, fineQuant)
+
+	coeffsL, coeffsR, _ := quantAllBandsDecode(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, &d.rng)
+
+	if antiCollapseRsv > 0 {
+		_ = rd.DecodeRawBits(1)
+	}
+
+	bitsLeft := totalBits - rd.Tell()
+	d.DecodeEnergyFinalise(energies, end, fineQuant, finePriority, bitsLeft)
+
+	hybridBinStart := ScaledBandStart(HybridCELTStartBand, frameSize)
+	var samples []float64
 	if d.channels == 2 {
-		// Zero lower bands for both channels
+		energiesL := energies[:end]
+		energiesR := energies[end:]
+		denormalizeCoeffs(coeffsL, energiesL, end, frameSize)
+		denormalizeCoeffs(coeffsR, energiesR, end, frameSize)
 		for i := 0; i < hybridBinStart && i < len(coeffsL); i++ {
 			coeffsL[i] = 0
 		}
 		for i := 0; i < hybridBinStart && i < len(coeffsR); i++ {
 			coeffsR[i] = 0
 		}
-	} else {
-		// Zero lower bands for mono
-		for i := 0; i < hybridBinStart && i < len(coeffs); i++ {
-			coeffs[i] = 0
-		}
-	}
-
-	// Decode energy remainder
-	d.DecodeEnergyRemainder(energies, nbBands, allocResult.RemainderBits)
-
-	// Synthesis: IMDCT + window + overlap-add
-	var samples []float64
-	if d.channels == 2 {
 		samples = d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
 	} else {
-		samples = d.Synthesize(coeffs, transient, shortBlocks)
+		denormalizeCoeffs(coeffsL, energies, end, frameSize)
+		for i := 0; i < hybridBinStart && i < len(coeffsL); i++ {
+			coeffsL[i] = 0
+		}
+		samples = d.Synthesize(coeffsL, transient, shortBlocks)
 	}
 
-	// Apply de-emphasis filter
 	d.applyDeemphasis(samples)
-
-	// Update energy state for next frame
 	d.SetPrevEnergy(energies)
 
 	return samples, nil

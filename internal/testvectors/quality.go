@@ -150,7 +150,7 @@ func NormalizedSNR(signal, noise []int16) float64 {
 		return math.Inf(1) // No noise
 	}
 
-	return 10.0 * math.Log10(signalPower / noisePower)
+	return 10.0 * math.Log10(signalPower/noisePower)
 }
 
 // ComputeNoiseVector computes the difference between decoded and reference samples.
@@ -187,4 +187,85 @@ func QualityFromSNR(snrDB float64) float64 {
 // SNRFromQuality converts a Q quality metric back to SNR (in dB).
 func SNRFromQuality(q float64) float64 {
 	return (q / QualityScale) + TargetSNR
+}
+
+// ComputeQualityFloat32 computes a quality metric between decoded and reference audio.
+// This is the float32 variant of ComputeQuality for use with float32 sample data.
+//
+// Parameters:
+//   - decoded: Decoded PCM samples as float32 (normalized -1.0 to 1.0)
+//   - reference: Reference PCM samples as float32 (normalized -1.0 to 1.0)
+//   - sampleRate: Sample rate in Hz (reserved for future use)
+//
+// Returns: Q value where Q >= 0 indicates passing (48 dB SNR threshold)
+func ComputeQualityFloat32(decoded, reference []float32, sampleRate int) float64 {
+	if len(decoded) == 0 || len(reference) == 0 {
+		return math.Inf(-1) // No samples to compare
+	}
+
+	// Use shorter length if mismatched
+	n := len(decoded)
+	if len(reference) < n {
+		n = len(reference)
+	}
+
+	// Compute signal power and noise power
+	var signalPower, noisePower float64
+
+	for i := 0; i < n; i++ {
+		ref := float64(reference[i])
+		dec := float64(decoded[i])
+
+		signalPower += ref * ref
+		noise := dec - ref
+		noisePower += noise * noise
+	}
+
+	// Normalize by sample count
+	signalPower /= float64(n)
+	noisePower /= float64(n)
+
+	// Handle edge cases
+	if signalPower == 0 {
+		// Silent reference - check if decoded is also silent
+		if noisePower == 0 {
+			return 100.0 // Both silent = perfect match
+		}
+		return math.Inf(-1) // Noise against silence = bad
+	}
+
+	if noisePower == 0 {
+		return 100.0 // Perfect match (no noise)
+	}
+
+	// Compute SNR in dB
+	snr := 10.0 * math.Log10(signalPower/noisePower)
+
+	// Map SNR to Q scale
+	q := (snr - TargetSNR) * QualityScale
+
+	return q
+}
+
+// CompareSamplesFloat32 computes the mean squared error (MSE) between two float32 sample slices.
+// Returns MSE as a float64 value. Lower values indicate better match.
+//
+// If lengths differ, comparison uses the shorter length.
+func CompareSamplesFloat32(a, b []float32) float64 {
+	if len(a) == 0 || len(b) == 0 {
+		return math.Inf(1)
+	}
+
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+
+	var mse float64
+	for i := 0; i < n; i++ {
+		diff := float64(a[i]) - float64(b[i])
+		mse += diff * diff
+	}
+
+	return mse / float64(n)
 }

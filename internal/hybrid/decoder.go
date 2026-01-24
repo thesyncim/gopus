@@ -103,6 +103,11 @@ func (d *Decoder) Channels() int {
 	return d.channels
 }
 
+// SetBandwidth sets the CELT bandwidth for hybrid decoding.
+func (d *Decoder) SetBandwidth(bw celt.CELTBandwidth) {
+	d.celtDecoder.SetBandwidth(bw)
+}
+
 // ValidHybridFrameSize returns true if the frame size is valid for hybrid mode.
 // Hybrid only supports 10ms (480 samples) and 20ms (960 samples) at 48kHz.
 func ValidHybridFrameSize(frameSize int) bool {

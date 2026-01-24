@@ -277,27 +277,16 @@ func (e *Encoder) Tell() int {
 // TellFrac returns the number of bits written with 1/8 bit precision.
 // The value is in 1/8 bits, so divide by 8 to compare with Tell().
 func (e *Encoder) TellFrac() int {
-	// Number of whole bits scaled by 8
-	nbits := e.nbitsTotal << 3
-	// Get the log of range
-	l := ilog(e.rng)
+	correction := [8]uint32{35733, 38967, 42495, 46340, 50535, 55109, 60097, 65535}
 
-	// Compute fractional correction
-	var r uint32
-	if l > 16 {
-		r = e.rng >> (l - 16)
-	} else {
-		r = e.rng << (16 - l)
+	nbits := e.nbitsTotal << 3
+	l := ilog(e.rng)
+	r := e.rng >> (l - 16)
+	b := int((r >> 12) - 8)
+	if r > correction[b] {
+		b++
 	}
-	// Correction using top bits of range
-	correction := int(r>>12) - 8
-	if correction < 0 {
-		correction = 0
-	}
-	if correction > 7 {
-		correction = 7
-	}
-	return nbits - l*8 + correction
+	return nbits - ((l << 3) + b)
 }
 
 // Range returns the current range value (for testing/debugging).
@@ -313,6 +302,11 @@ func (e *Encoder) Val() uint32 {
 // Rem returns the stored remainder byte (for testing/debugging).
 func (e *Encoder) Rem() int {
 	return e.rem
+}
+
+// StorageBits returns the total number of bits in the output buffer.
+func (e *Encoder) StorageBits() int {
+	return int(e.storage * 8)
 }
 
 // Ext returns the extension count (for testing/debugging).

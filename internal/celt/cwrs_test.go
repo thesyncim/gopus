@@ -11,16 +11,16 @@ func TestPVQ_V(t *testing.T) {
 		want uint32
 	}{
 		// Base cases
-		{0, 0, 1},  // No dimensions, no pulses = 1 (zero vector)
-		{0, 1, 0},  // No dimensions with pulses = 0
-		{1, 0, 1},  // One dimension, no pulses = 1 (zero vector)
-		{2, 0, 1},  // Two dimensions, no pulses = 1 (zero vector)
+		{0, 0, 1}, // No dimensions, no pulses = 1 (zero vector)
+		{0, 1, 0}, // No dimensions with pulses = 0
+		{1, 0, 1}, // One dimension, no pulses = 1 (zero vector)
+		{2, 0, 1}, // Two dimensions, no pulses = 1 (zero vector)
 
 		// N=1 cases: V(1,K) = 2 for K > 0 (only +K and -K)
-		{1, 1, 2},  // +1, -1
-		{1, 2, 2},  // +2, -2
-		{1, 3, 2},  // +3, -3
-		{1, 5, 2},  // +5, -5
+		{1, 1, 2}, // +1, -1
+		{1, 2, 2}, // +2, -2
+		{1, 3, 2}, // +3, -3
+		{1, 5, 2}, // +5, -5
 
 		// N=2 cases: computed via recurrence
 		// V(2,1) = V(1,1) + V(2,0) + V(1,0) = 2 + 1 + 1 = 4
@@ -251,21 +251,19 @@ func TestDecodePulsesKnownVectors(t *testing.T) {
 		want  []int
 	}{
 		// V(n=2, k=1) = 4 codewords
-		// Ordering: first V(1,1)=2 codewords have 0 pulses at position 0
-		// Then 2*V(1,0)=2 codewords have 1 pulse at position 0 (positive/negative)
-		{"n2k1_idx0", 0, 2, 1, []int{0, 1}},
-		{"n2k1_idx1", 1, 2, 1, []int{0, -1}},
-		{"n2k1_idx2", 2, 2, 1, []int{1, 0}},
+		// Ordering matches libopus cwrs.c cwrsi().
+		{"n2k1_idx0", 0, 2, 1, []int{1, 0}},
+		{"n2k1_idx1", 1, 2, 1, []int{0, 1}},
+		{"n2k1_idx2", 2, 2, 1, []int{0, -1}},
 		{"n2k1_idx3", 3, 2, 1, []int{-1, 0}},
 
 		// V(n=3, k=1) = 6 codewords
-		// First V(2,1)=4 codewords have 0 pulses at position 0, distribute 1 pulse in [1:2]
-		// Then 2*V(2,0)=2 codewords have 1 pulse at position 0
-		{"n3k1_idx0", 0, 3, 1, []int{0, 0, 1}},
-		{"n3k1_idx1", 1, 3, 1, []int{0, 0, -1}},
-		{"n3k1_idx2", 2, 3, 1, []int{0, 1, 0}},
-		{"n3k1_idx3", 3, 3, 1, []int{0, -1, 0}},
-		{"n3k1_idx4", 4, 3, 1, []int{1, 0, 0}},
+		// Ordering matches libopus cwrs.c cwrsi().
+		{"n3k1_idx0", 0, 3, 1, []int{1, 0, 0}},
+		{"n3k1_idx1", 1, 3, 1, []int{0, 1, 0}},
+		{"n3k1_idx2", 2, 3, 1, []int{0, 0, 1}},
+		{"n3k1_idx3", 3, 3, 1, []int{0, 0, -1}},
+		{"n3k1_idx4", 4, 3, 1, []int{0, -1, 0}},
 		{"n3k1_idx5", 5, 3, 1, []int{-1, 0, 0}},
 
 		// V(n=1, k=2) = 2 codewords: +2, -2

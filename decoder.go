@@ -150,9 +150,9 @@ func (d *Decoder) decodeSingleFrame(frameData []byte, toc TOC, mode Mode, frameS
 	case ModeSILK:
 		return d.decodeSILK(frameData, toc, frameSize)
 	case ModeCELT:
-		return d.decodeCELT(frameData, frameSize)
+		return d.decodeCELT(frameData, toc, frameSize)
 	case ModeHybrid:
-		return d.decodeHybrid(frameData, frameSize)
+		return d.decodeHybrid(frameData, toc, frameSize)
 	default:
 		return nil, ErrInvalidMode
 	}
@@ -361,7 +361,10 @@ func (d *Decoder) decodeSILK(data []byte, toc TOC, frameSize int) ([]float32, er
 }
 
 // decodeCELT routes to CELT decoder for CELT-only mode packets.
-func (d *Decoder) decodeCELT(data []byte, frameSize int) ([]float32, error) {
+func (d *Decoder) decodeCELT(data []byte, toc TOC, frameSize int) ([]float32, error) {
+	if data != nil {
+		d.celtDecoder.SetBandwidth(celt.BandwidthFromOpusConfig(int(toc.Bandwidth)))
+	}
 	samples, err := d.celtDecoder.DecodeFrame(data, frameSize)
 	if err != nil {
 		return nil, err
@@ -375,7 +378,10 @@ func (d *Decoder) decodeCELT(data []byte, frameSize int) ([]float32, error) {
 }
 
 // decodeHybrid routes to Hybrid decoder for Hybrid mode packets.
-func (d *Decoder) decodeHybrid(data []byte, frameSize int) ([]float32, error) {
+func (d *Decoder) decodeHybrid(data []byte, toc TOC, frameSize int) ([]float32, error) {
+	if data != nil {
+		d.hybridDecoder.SetBandwidth(celt.BandwidthFromOpusConfig(int(toc.Bandwidth)))
+	}
 	if d.channels == 2 {
 		return d.hybridDecoder.DecodeStereoToFloat32(data, frameSize)
 	}

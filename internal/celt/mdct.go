@@ -3,6 +3,7 @@ package celt
 import (
 	"math"
 	"math/cmplx"
+	"sync"
 )
 
 // IMDCT (Inverse Modified Discrete Cosine Transform) implementation for CELT.
@@ -21,10 +22,10 @@ var mdctTwiddles = make(map[int]*mdctTwiddleSet)
 
 // mdctTwiddleSet holds precomputed twiddles for a specific IMDCT size.
 type mdctTwiddleSet struct {
-	n        int           // Number of frequency bins
-	preTw    []complex128  // Pre-twiddle factors
-	postTw   []complex128  // Post-twiddle factors
-	fftTw    []complex128  // FFT twiddle factors
+	n      int          // Number of frequency bins
+	preTw  []complex128 // Pre-twiddle factors
+	postTw []complex128 // Post-twiddle factors
+	fftTw  []complex128 // FFT twiddle factors
 }
 
 // initMDCTTwiddles initializes twiddle factors for a given IMDCT size.
@@ -65,6 +66,36 @@ func initMDCTTwiddles(n int) *mdctTwiddleSet {
 	return tw
 }
 
+var (
+	imdctCosMu    sync.Mutex
+	imdctCosCache = map[int][]float64{}
+)
+
+func getIMDCTCosTable(n int) []float64 {
+	imdctCosMu.Lock()
+	defer imdctCosMu.Unlock()
+
+	if table, ok := imdctCosCache[n]; ok {
+		return table
+	}
+
+	n2 := n * 2
+	table := make([]float64, n2*n)
+	base := math.Pi / float64(n)
+	nHalf := float64(n) / 2.0
+	for i := 0; i < n2; i++ {
+		nTerm := float64(i) + 0.5 + nHalf
+		row := table[i*n : (i+1)*n]
+		for k := 0; k < n; k++ {
+			angle := base * nTerm * (float64(k) + 0.5)
+			row[k] = math.Cos(angle)
+		}
+	}
+
+	imdctCosCache[n] = table
+	return table
+}
+
 // IMDCT computes the inverse MDCT of frequency coefficients.
 // Input: n frequency bins (spectrum)
 // Output: 2*n time samples
@@ -80,8 +111,8 @@ func IMDCT(spectrum []float64) []float64 {
 		return nil
 	}
 
-	n2 := n * 2  // Output size
-	n4 := n / 2  // FFT size
+	n2 := n * 2 // Output size
+	n4 := n / 2 // FFT size
 
 	// Handle edge case for very small sizes
 	if n4 < 1 {
@@ -333,14 +364,16 @@ func IMDCTDirect(spectrum []float64) []float64 {
 
 	N2 := N * 2
 	output := make([]float64, N2)
+	table := getIMDCTCosTable(N)
+	scale := 2.0 / float64(N)
 
 	for n := 0; n < N2; n++ {
 		var sum float64
+		row := table[n*N : (n+1)*N]
 		for k := 0; k < N; k++ {
-			angle := math.Pi / float64(N) * (float64(n) + 0.5 + float64(N)/2) * (float64(k) + 0.5)
-			sum += spectrum[k] * math.Cos(angle)
+			sum += spectrum[k] * row[k]
 		}
-		output[n] = sum * 2.0 / float64(N)
+		output[n] = sum * scale
 	}
 
 	return output

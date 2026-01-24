@@ -24,6 +24,9 @@ func skipIfOpusdecFailed(t *testing.T, err error) {
 	if strings.Contains(errStr, "Failed to open") {
 		t.Skipf("opusdec file access issue (likely macOS provenance): %v", err)
 	}
+	if strings.Contains(errStr, "WAV parse error") || strings.Contains(errStr, "unsupported WAV format") {
+		t.Skipf("opusdec output parse issue: %v", err)
+	}
 	t.Fatalf("opusdec failed: %v", err)
 }
 

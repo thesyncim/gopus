@@ -331,17 +331,17 @@ func TestCELTFirstPacketComparison(t *testing.T) {
 		t.Logf("Decode error: %v", err)
 	}
 
-	// Convert to int16
+	// Convert to int16 (match gopus DecodeInt16 scaling)
 	decoded := make([]int16, len(samples))
 	for i, s := range samples {
-		// Clamp and convert
-		v := s
-		if v > 32767 {
-			v = 32767
-		} else if v < -32768 {
-			v = -32768
+		scaled := s * 32767.0
+		if scaled > 32767 {
+			decoded[i] = 32767
+		} else if scaled < -32768 {
+			decoded[i] = -32768
+		} else {
+			decoded[i] = int16(scaled)
 		}
-		decoded[i] = int16(v)
 	}
 
 	t.Logf("Decoded: %d samples", len(decoded))
@@ -714,16 +714,17 @@ func TestCELTNonSilentFrameComparison(t *testing.T) {
 		t.Log("(no trace output)")
 	}
 
-	// Convert to int16
+	// Convert to int16 (match gopus DecodeInt16 scaling)
 	decoded := make([]int16, len(samples))
 	for i, s := range samples {
-		v := s
-		if v > 32767 {
-			v = 32767
-		} else if v < -32768 {
-			v = -32768
+		scaled := s * 32767.0
+		if scaled > 32767 {
+			decoded[i] = 32767
+		} else if scaled < -32768 {
+			decoded[i] = -32768
+		} else {
+			decoded[i] = int16(scaled)
 		}
-		decoded[i] = int16(v)
 	}
 
 	// Get reference samples

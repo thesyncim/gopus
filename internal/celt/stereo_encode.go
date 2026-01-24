@@ -50,7 +50,8 @@ func (e *Encoder) encodeLaplaceIntensity(val int, decay int) {
 	}
 
 	// Compute center frequency (probability of value 0)
-	fs0 := laplaceNMIN + (laplaceScale*decay)>>15
+	laplaceScale := laplaceFS - laplaceNMin
+	fs0 := laplaceNMin + (laplaceScale*decay)>>15
 	if fs0 > laplaceFS-1 {
 		fs0 = laplaceFS - 1
 	}
@@ -67,8 +68,8 @@ func (e *Encoder) encodeLaplaceIntensity(val int, decay int) {
 
 	for k < val {
 		fk := (prevFk * decay) >> 15
-		if fk < laplaceNMIN {
-			fk = laplaceNMIN
+		if fk < laplaceNMin {
+			fk = laplaceNMin
 		}
 		cumFL += fk
 		prevFk = fk
@@ -76,11 +77,11 @@ func (e *Encoder) encodeLaplaceIntensity(val int, decay int) {
 	}
 
 	fk := (prevFk * decay) >> 15
-	if fk < laplaceNMIN {
-		fk = laplaceNMIN
+	if fk < laplaceNMin {
+		fk = laplaceNMin
 	}
 
-	re.Encode(uint32(cumFL), uint32(fk), uint32(laplaceFS))
+	re.Encode(uint32(cumFL), uint32(cumFL+fk), uint32(laplaceFS))
 }
 
 // EncodeStereoParamsWithIntensity encodes stereo params with optional intensity stereo.
@@ -118,8 +119,9 @@ func (e *Encoder) EncodeStereoParamsWithIntensity(nbBands, intensityBand int, du
 // This is the inverse of MidSideToLR.
 //
 // The conversion is:
-//   mid[i] = (left[i] + right[i]) / sqrt(2)
-//   side[i] = (left[i] - right[i]) / sqrt(2)
+//
+//	mid[i] = (left[i] + right[i]) / sqrt(2)
+//	side[i] = (left[i] - right[i]) / sqrt(2)
 //
 // The sqrt(2) normalization preserves energy: |L|^2 + |R|^2 = |M|^2 + |S|^2
 //
@@ -181,8 +183,9 @@ func ConvertToMidSideInPlace(left, right []float64) {
 // This is the inverse of ConvertToMidSide.
 //
 // The conversion is:
-//   left[i] = (mid[i] + side[i]) / sqrt(2)
-//   right[i] = (mid[i] - side[i]) / sqrt(2)
+//
+//	left[i] = (mid[i] + side[i]) / sqrt(2)
+//	right[i] = (mid[i] - side[i]) / sqrt(2)
 //
 // Combined with ConvertToMidSide, this forms an identity transform:
 // L,R -> M,S -> L,R (with floating point precision)

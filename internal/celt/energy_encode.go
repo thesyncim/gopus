@@ -158,11 +158,9 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 		beta = BetaCoefInter[lm] // LM-dependent for inter mode
 	}
 
-	// Decay parameter for Laplace model (same as decoder)
-	decay := 16384 // Default decay (fairly narrow)
-	if !intra {
-		// Inter-frame mode uses wider distribution (smaller decay)
-		decay = 24000
+	prob := eProbModel[lm][0]
+	if intra {
+		prob = eProbModel[lm][1]
 	}
 
 	// Encode for each channel
@@ -171,10 +169,9 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 		channels = 1
 	}
 
-	for c := 0; c < channels; c++ {
-		prevBandEnergy := 0.0 // Energy of previous band (for inter-band prediction)
-
-		for band := 0; band < nbBands; band++ {
+	prevBandEnergy := make([]float64, channels)
+	for band := 0; band < nbBands; band++ {
+		for c := 0; c < channels; c++ {
 			idx := c*nbBands + band
 			if idx >= len(energies) {
 				continue
@@ -184,14 +181,20 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 
 			// Compute prediction (same formula as decoder)
 			prevFrameEnergy := e.prevEnergy[c*MaxBands+band]
-			pred := alpha*prevFrameEnergy + beta*prevBandEnergy
+			pred := alpha*prevFrameEnergy + prevBandEnergy[c]
 
 			// Compute residual and quantize to 6dB steps
 			residual := energy - pred
 			qi := int(math.Round(residual / DB6))
 
 			// Encode with Laplace model
-			e.encodeLaplace(qi, decay)
+			pi := 2 * band
+			if pi > 40 {
+				pi = 40
+			}
+			fs := int(prob[pi]) << 7
+			decay := int(prob[pi+1]) << 6
+			qi = e.encodeLaplace(qi, fs, decay)
 
 			// Compute quantized energy
 			quantizedEnergy := pred + float64(qi)*DB6
@@ -201,10 +204,12 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 			// Per libopus: prevBandEnergy accumulates a filtered version of quantized deltas
 			// Formula: prev = prev + q - beta*q, where q = qi*DB6
 			q := float64(qi) * DB6
-			prevBandEnergy = prevBandEnergy + q - beta*q
+			prevBandEnergy[c] = prevBandEnergy[c] + q - beta*q
 		}
+	}
 
-		// Update previous frame energy for next frame's inter-frame prediction
+	// Update previous frame energy for next frame's inter-frame prediction
+	for c := 0; c < channels; c++ {
 		for band := 0; band < nbBands && band < MaxBands; band++ {
 			idx := c*nbBands + band
 			if idx < len(quantizedEnergies) {
@@ -225,61 +230,55 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 //   - decay: controls the distribution spread
 //
 // Reference: libopus celt/laplace.c ec_laplace_encode()
-func (e *Encoder) encodeLaplace(val int, decay int) {
+func (e *Encoder) encodeLaplace(val int, fs int, decay int) int {
 	re := e.rangeEncoder
 	if re == nil {
-		return
+		return val
 	}
 
-	// Compute center frequency (probability of value 0)
-	// Same formula as decoder: fs0 = laplaceNMIN + (laplaceScale * decay) >> 15
-	fs0 := laplaceNMIN + (laplaceScale*decay)>>15
-	if fs0 > laplaceFS-1 {
-		fs0 = laplaceFS - 1
-	}
-
-	if val == 0 {
-		// Symbol 0 is at [0, fs0)
-		re.Encode(0, uint32(fs0), uint32(laplaceFS))
-		return
-	}
-
-	// For non-zero values, compute cumulative frequencies
-	// The distribution is symmetric: P(k) = P(-k) for k != 0
-
-	k := 1
-	cumFL := fs0
-	prevFk := fs0
-
-	for k < absInt(val) {
-		// Frequency for symbol k (and -k)
-		fk := (prevFk * decay) >> 15
-		if fk < laplaceNMIN {
-			fk = laplaceNMIN
+	fl := 0
+	if val != 0 {
+		s := 0
+		if val < 0 {
+			s = -1
 		}
-		cumFL += fk
-		prevFk = fk
-		k++
-	}
-
-	// Compute frequency for value's magnitude
-	fk := (prevFk * decay) >> 15
-	if fk < laplaceNMIN {
-		fk = laplaceNMIN
-	}
-
-	// Encode based on sign
-	if val > 0 {
-		// Positive values: cumulative starts at cumFL
-		re.Encode(uint32(cumFL), uint32(cumFL+fk), uint32(laplaceFS))
-	} else {
-		// Negative values: from the end
-		negFL := laplaceFS - cumFL - fk
-		if negFL < 0 {
-			negFL = 0
+		absVal := (val + s) ^ s
+		fl = fs
+		fs = ec_laplace_get_freq1(fs, decay)
+		i := 1
+		for fs > 0 && i < absVal {
+			fs *= 2
+			fl += fs + 2*laplaceMinP
+			fs = (fs * decay) >> 15
+			i++
 		}
-		re.Encode(uint32(negFL), uint32(negFL+fk), uint32(laplaceFS))
+		if fs == 0 {
+			ndiMax := (laplaceFS - fl + laplaceMinP - 1) >> laplaceLogMinP
+			ndiMax = (ndiMax - s) >> 1
+			di := absVal - i
+			if di > ndiMax-1 {
+				di = ndiMax - 1
+			}
+			fl += (2*di + 1 + s) * laplaceMinP
+			if laplaceFS-fl < laplaceMinP {
+				fs = laplaceFS - fl
+			} else {
+				fs = laplaceMinP
+			}
+			absVal = i + di
+			val = (absVal + s) ^ s
+		} else {
+			fs += laplaceMinP
+			if s == 0 {
+				fl += fs
+			}
+		}
 	}
+	if fl+fs > laplaceFS {
+		fs = laplaceFS - fl
+	}
+	re.Encode(uint32(fl), uint32(fl+fs), uint32(laplaceFS))
+	return val
 }
 
 // EncodeFineEnergy encodes fine energy refinement bits.
@@ -305,18 +304,17 @@ func (e *Encoder) EncodeFineEnergy(energies []float64, quantizedCoarse []float64
 		channels = 1
 	}
 
-	for c := 0; c < channels; c++ {
-		for band := 0; band < nbBands; band++ {
-			bits := fineBits[band]
-			if bits <= 0 {
-				continue
-			}
+	re := e.rangeEncoder
 
-			// Clamp to reasonable maximum (8 bits max precision)
-			if bits > 8 {
-				bits = 8
-			}
+	for band := 0; band < nbBands; band++ {
+		bits := fineBits[band]
+		if bits <= 0 {
+			continue
+		}
 
+		ft := 1 << bits
+		scale := float64(ft)
+		for c := 0; c < channels; c++ {
 			idx := c*nbBands + band
 			if idx >= len(energies) || idx >= len(quantizedCoarse) {
 				continue
@@ -326,12 +324,7 @@ func (e *Encoder) EncodeFineEnergy(energies []float64, quantizedCoarse []float64
 			fine := energies[idx] - quantizedCoarse[idx]
 
 			// Quantize to fineBits[band] levels
-			// Inverse of decoder: offset = (q + 0.5) / ft - 0.5
-			// So: fine / DB6 = (q + 0.5) / ft - 0.5
-			// fine / DB6 + 0.5 = (q + 0.5) / ft
-			// q = (fine / DB6 + 0.5) * ft - 0.5
-			ft := 1 << bits
-			q := int(math.Round((fine/DB6+0.5)*float64(ft) - 0.5))
+			q := int(math.Floor((fine/DB6+0.5)*scale + 1e-9))
 
 			// Clamp to valid range
 			if q < 0 {
@@ -341,8 +334,12 @@ func (e *Encoder) EncodeFineEnergy(energies []float64, quantizedCoarse []float64
 				q = ft - 1
 			}
 
-			// Encode uniformly
-			e.rangeEncoder.EncodeUniform(uint32(q), uint32(ft))
+			// Encode raw bits to match decoder
+			re.EncodeRawBits(uint32(q), uint(bits))
+
+			// Apply decoded offset to quantized energies for remainder coding
+			offset := (float64(q)+0.5)/scale - 0.5
+			quantizedCoarse[idx] += offset * DB6
 		}
 	}
 }

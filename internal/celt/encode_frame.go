@@ -38,8 +38,7 @@ var (
 // 12. Compute bit allocation
 // 13. Encode fine energy
 // 14. Encode bands (PVQ)
-// 15. Encode energy remainder
-// 16. Finalize and return bytes
+// 15. Finalize and return bytes
 //
 // Reference: RFC 6716 Section 4.3, libopus celt/celt_encoder.c
 func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
@@ -160,6 +159,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	allocResult := ComputeAllocation(
 		totalBits,
 		nbBands,
+		e.channels,
 		nil,       // caps
 		nil,       // dynalloc
 		0,         // trim (neutral)
@@ -174,10 +174,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Step 14: Encode bands (PVQ)
 	e.EncodeBands(shapes, allocResult.BandBits, nbBands, frameSize)
 
-	// Step 15: Encode energy remainder
-	e.EncodeEnergyRemainder(energies, quantizedEnergies, nbBands, allocResult.RemainderBits)
-
-	// Step 16: Finalize and update state
+	// Step 15: Finalize and update state
 	bytes := re.Done()
 
 	// Update previous energy for next frame's inter-frame prediction

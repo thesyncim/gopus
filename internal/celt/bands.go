@@ -178,13 +178,15 @@ func (d *Decoder) DecodeBandsStereo(
 
 		// Convert bits to pulse count
 		k := bitsToK(bandBits[band], n)
+		// Trace allocation
+		DefaultTracer.TraceAllocation(band, bandBits[band], k)
 
 		var shapeL, shapeR []float64
 
 		if band >= intensity && intensity >= 0 {
 			// Intensity stereo: decode mono and duplicate with sign
 			if k > 0 {
-				shapeMid := d.DecodePVQ(n, k)
+				shapeMid := d.DecodePVQWithTrace(band, n, k)
 				shapeL, shapeR = d.DecodeIntensityStereo(shapeMid)
 				UpdateCollapseMask(&collapseMask, band)
 			} else {
@@ -210,10 +212,10 @@ func (d *Decoder) DecodeBandsStereo(
 			}
 			kSide := k - kMid
 
-			shapeMid := d.DecodePVQ(n, kMid)
+			shapeMid := d.DecodePVQWithTrace(band, n, kMid)
 			var shapeSide []float64
 			if kSide > 0 {
-				shapeSide = d.DecodePVQ(n, kSide)
+				shapeSide = d.DecodePVQWithTrace(band, n, kSide)
 			} else {
 				shapeSide = make([]float64, n)
 			}
@@ -276,46 +278,35 @@ func (d *Decoder) DecodeBandsStereo(
 // n: band width (number of MDCT bins)
 // Returns: number of pulses K for PVQ coding.
 //
-// This is the inverse of the encoding rate computation. The relationship
-// between bits and pulses depends on the number of dimensions N and the
-// entropy required to code the PVQ index.
+// This mirrors libopus bits2pulses() and get_pulses() using a cached
+// PVQ rate table for the given band width.
 //
-// Approximate formula: bits ~= N * log2(1 + 2K/N) + K
-// We solve for K given bits and N.
-//
-// Reference: libopus celt/rate.c pulses2bits() / bits2pulses()
+// Reference: libopus celt/rate.h bits2pulses() / get_pulses()
 func bitsToK(bits, n int) int {
 	if bits <= 0 || n <= 0 {
 		return 0
 	}
-
-	// Minimum bits needed for 1 pulse: approximately log2(V(n,1)) = log2(2n)
-	minBits := ilog2(n) + 1
-	if bits < minBits {
+	band, lm, ok := bandFromWidth(n)
+	if !ok {
 		return 0
 	}
+	bitsQ3 := bits << bitRes
+	q := bitsToPulses(band, lm, bitsQ3)
+	return getPulses(q)
+}
 
-	// Binary search for K
-	// V(n,k) = number of codewords = approximately (2k+1)^n / n! for small k
-	// bits ~= log2(V(n,k)) = n*log2(2k/n + 1) + log2(n!)
-	lo := 0
-	hi := bits // Upper bound: can't have more pulses than bits
-
-	if hi > 128 {
-		hi = 128 // Cap at reasonable maximum
+func bandFromWidth(width int) (band int, lm int, ok bool) {
+	if width <= 0 {
+		return 0, 0, false
 	}
-
-	for lo < hi {
-		mid := (lo + hi + 1) / 2
-		b := kToBits(mid, n)
-		if b <= bits {
-			lo = mid
-		} else {
-			hi = mid - 1
+	for lm = 0; lm <= 3; lm++ {
+		for band = 0; band < MaxBands; band++ {
+			if (EBands[band+1]-EBands[band])<<lm == width {
+				return band, lm, true
+			}
 		}
 	}
-
-	return lo
+	return 0, 0, false
 }
 
 // kToBits computes the approximate bits needed to code K pulses in N dimensions.
@@ -332,20 +323,22 @@ func kToBits(k, n int) int {
 		return 0
 	}
 
-	// Approximate using log2(V(n,k))
-	// V(n,k) can be computed but we use approximation for speed
-	// bits ~= n * log2(1 + 2k/n) + k (sign bits)
-
-	// For small k: V(n,k) ~= (2k+1)^n / n!
-	// More accurate: use actual V computation for small values
-
-	v := PVQ_V(n, k)
-	if v <= 1 {
-		return 0
+	// For small values, use exact codebook size.
+	if k <= 8 && n <= 16 {
+		v := PVQ_V(n, k)
+		if v <= 1 {
+			return 0
+		}
+		return ilog2(int(v - 1))
 	}
 
-	// log2(v)
-	return ilog2(int(v - 1))
+	// Approximate for larger values to avoid PVQ_V overflow.
+	// bits ~= n * log2(1 + 2k/n) + k (sign bits)
+	bits := float64(n)*math.Log2(1.0+2.0*float64(k)/float64(n)) + float64(k)
+	if bits < 0 {
+		return 0
+	}
+	return int(bits + 0.5)
 }
 
 // ilog2 returns floor(log2(x)) for x > 0, or 0 for x <= 0.
@@ -383,6 +376,35 @@ func DenormalizeBand(shape []float64, energy float64) []float64 {
 		result[i] = x * gain
 	}
 	return result
+}
+
+func denormalizeCoeffs(coeffs []float64, energies []float64, nbBands, frameSize int) {
+	if len(coeffs) == 0 || len(energies) == 0 || nbBands <= 0 {
+		return
+	}
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+	if len(energies) < nbBands {
+		nbBands = len(energies)
+	}
+
+	offset := 0
+	for band := 0; band < nbBands; band++ {
+		width := ScaledBandWidth(band, frameSize)
+		if width <= 0 {
+			continue
+		}
+		e := energies[band]
+		if e > 32 {
+			e = 32
+		}
+		gain := math.Exp2(e / DB6)
+		for i := 0; i < width && offset+i < len(coeffs); i++ {
+			coeffs[offset+i] *= gain
+		}
+		offset += width
+	}
 }
 
 // ComputeBandEnergy computes the L2 energy of a band in dB units.
