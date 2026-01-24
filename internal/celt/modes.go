@@ -19,21 +19,21 @@ var modeConfigs = map[int]ModeConfig{
 		FrameSize:   120,
 		ShortBlocks: 1,
 		LM:          0,
-		EffBands:    13, // Fewer bands due to shorter window
+		EffBands:    21, // CELT uses full band set for 48kHz mode
 		MDCTSize:    120,
 	},
 	240: { // 5ms frame
 		FrameSize:   240,
 		ShortBlocks: 2,
 		LM:          1,
-		EffBands:    17,
+		EffBands:    21,
 		MDCTSize:    240,
 	},
 	480: { // 10ms frame
 		FrameSize:   480,
 		ShortBlocks: 4,
 		LM:          2,
-		EffBands:    19,
+		EffBands:    21,
 		MDCTSize:    480,
 	},
 	960: { // 20ms frame

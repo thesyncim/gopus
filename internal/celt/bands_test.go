@@ -390,10 +390,10 @@ func TestDecodeBands_OutputSize(t *testing.T) {
 	}{
 		// totalBins = sum(ScaledBandWidth(band, frameSize) for band in 0..nbBands-1)
 		// These are calculated from EBands table with scaling
-		{"2.5ms", 120, 13, 20}, // EffBands=13, bands sum to 20
-		{"5ms", 240, 17, 80},   // EffBands=17, bands sum to 80
-		{"10ms", 480, 19, 240}, // EffBands=19, bands sum to 240
-		{"20ms", 960, 21, 800}, // EffBands=21, bands sum to 800
+		{"2.5ms", 120, 21, 100}, // EffBands=21, bands sum to 100
+		{"5ms", 240, 21, 200},   // EffBands=21, bands sum to 200
+		{"10ms", 480, 21, 400},  // EffBands=21, bands sum to 400
+		{"20ms", 960, 21, 800},  // EffBands=21, bands sum to 800
 	}
 
 	for _, tc := range testCases {

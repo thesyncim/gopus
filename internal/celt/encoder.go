@@ -45,6 +45,9 @@ type Encoder struct {
 
 	// Frame counting for intra mode decisions
 	frameCount int // Number of frames encoded (0 = first frame uses intra mode)
+
+	// Bitrate control
+	targetBitrate int // Target bitrate in bits per second (0 = use buffer size)
 }
 
 // NewEncoder creates a new CELT encoder with the given number of channels.
@@ -236,4 +239,15 @@ func (e *Encoder) IncrementFrameCount() {
 // FrameCount returns the number of frames encoded.
 func (e *Encoder) FrameCount() int {
 	return e.frameCount
+}
+
+// SetBitrate sets the target bitrate in bits per second.
+// This affects bit allocation for frame encoding.
+func (e *Encoder) SetBitrate(bps int) {
+	e.targetBitrate = bps
+}
+
+// Bitrate returns the current target bitrate in bits per second.
+func (e *Encoder) Bitrate() int {
+	return e.targetBitrate
 }

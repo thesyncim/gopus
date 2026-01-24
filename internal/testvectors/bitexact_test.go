@@ -196,6 +196,7 @@ func encodeWithGopus(t *testing.T, pcmF32 []float32, frameSize, channels, bitrat
 	enc.SetMode(encoder.ModeCELT) // CELT only for now
 	enc.SetBandwidth(types.BandwidthFullband)
 	enc.SetBitrate(bitrate)
+	enc.SetBitrateMode(encoder.ModeCBR) // Match libopus --hard-cbr
 
 	var packets [][]byte
 	samplesPerFrame := frameSize * channels

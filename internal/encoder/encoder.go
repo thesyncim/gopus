@@ -461,10 +461,11 @@ func (e *Encoder) encodeCELTFrame(pcm []float64, frameSize int) ([]byte, error) 
 	// Ensure CELT encoder exists
 	e.ensureCELTEncoder()
 
-	if e.channels == 2 {
-		return celt.EncodeStereo(pcm, frameSize)
-	}
-	return celt.Encode(pcm, frameSize)
+	// Set bitrate for proper bit allocation
+	e.celtEncoder.SetBitrate(e.bitrate)
+
+	// Use our encoder instance for stateful encoding with bitrate
+	return e.celtEncoder.EncodeFrame(pcm, frameSize)
 }
 
 // ensureSILKEncoder creates the SILK encoder if it doesn't exist.

@@ -95,9 +95,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Step 7: Normalize bands
 	shapes := e.NormalizeBands(mdctCoeffs, energies, nbBands, frameSize)
 
-	// Step 8: Initialize range encoder
-	// Allocate buffer for output (generous size)
-	bufSize := frameSize / 2 // Typical CELT packet size
+	// Step 8: Initialize range encoder with bitrate-derived size
+	// Compute target bits from bitrate
+	targetBits := e.computeTargetBits(frameSize)
+	bufSize := (targetBits + 7) / 8
 	if bufSize < 256 {
 		bufSize = 256
 	}
@@ -121,13 +122,14 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Encode silence flag = 0 (not silent)
 	re.EncodeBit(0, 15)
 
-	// Note: libopus encodes prefilter flag here, but skipping it produces
-	// matching byte 1. This suggests the libopus packet we're comparing
-	// against might not have the prefilter flag, or the decoder analysis
-	// was incorrect. For now, skip prefilter to maintain byte 1 match.
+	// Note: At complexity 0, libopus might skip the postfilter entirely.
+	// The postfilter flag (start=0 && budget sufficient) adds overhead.
+	// We encode postfilter=0 (disabled) per RFC 6716 Section 4.3.3.1.
+	start := 0
+	re.EncodeBit(0, 1) // Postfilter disabled
 
-	// Encode transient flag (only for LM >= 1)
-	if lm >= 1 {
+	// Encode transient flag (only for LM > 0, per decoder.go:357)
+	if lm > 0 {
 		var transientBit int
 		if transient {
 			transientBit = 1
@@ -154,21 +156,54 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Step 11: Encode coarse energy
 	quantizedEnergies := e.EncodeCoarseEnergy(energies, nbBands, intra, lm)
 
-	// Step 12: Compute bit allocation
-	// Estimate total bits available (conservative estimate)
-	bitsUsed := re.Tell()
-	totalBits := bufSize*8 - bitsUsed
-	if totalBits < 0 {
-		totalBits = 64
+	// Step 11.1: Encode TF (time-frequency) resolution
+	// Per decoder.go:379 - TF encoding happens after coarse energy
+	end := nbBands
+	tfEncode(re, start, end, transient, nil, lm)
+
+	// Step 11.2: Encode spread decision
+	// Per decoder.go:381-385 - spread is encoded using spreadICDF
+	// SPREAD_NORMAL = 1 is the typical value
+	const spreadNormal = 1
+	re.EncodeICDF(spreadNormal, spreadICDF, 5)
+
+	// Step 11.3: Initialize caps for allocation
+	caps := initCaps(nbBands, lm, e.channels)
+
+	// Step 11.4: Encode dynamic allocation (all zeros = no boost)
+	// Per decoder.go:388-411
+	offsets := make([]int, nbBands)
+	dynallocLogp := 6
+	for i := start; i < end; i++ {
+		// Encode dynalloc = 0 (no boost) for this band
+		re.EncodeBit(0, uint(dynallocLogp))
+		// dynallocLogp stays at 6 when no boost is applied
 	}
 
+	// Step 11.5: Encode allocation trim
+	// Per decoder.go:413-416 - trim = 5 is neutral
+	const allocTrim = 5
+	re.EncodeICDF(allocTrim, trimICDF, 7)
+
+	// Step 12: Compute bit allocation
+	// Use bitrate-derived target bits
+	bitsUsed := re.TellFrac()
+	totalBitsQ3 := (targetBits << bitRes) - bitsUsed - 1
+
+	// Reserve anti-collapse bit if needed
+	antiCollapseRsv := 0
+	if transient && lm >= 2 && totalBitsQ3 >= (lm+2)<<bitRes {
+		antiCollapseRsv = 1 << bitRes
+	}
+	totalBitsQ3 -= antiCollapseRsv
+
 	allocResult := ComputeAllocation(
-		totalBits,
+		totalBitsQ3>>bitRes, // Convert Q3 back to bits
 		nbBands,
 		e.channels,
-		nil,       // caps
-		nil,       // dynalloc
-		0,         // trim (neutral)
+		caps,
+		offsets,
+		allocTrim,
 		intensity, // intensity band (-1 = disabled)
 		dualStereo,
 		lm,
@@ -309,4 +344,17 @@ func (e *Encoder) EncodeStereoFrame(left, right []float64, frameSize int) ([]byt
 	// Interleave for standard encoding path
 	interleaved := InterleaveStereo(left, right)
 	return e.EncodeFrame(interleaved, frameSize)
+}
+
+// computeTargetBits computes the target bit budget based on bitrate and frame size.
+// For 64kbps and 20ms frame: 64000 * 20 / 1000 = 1280 bits = 160 bytes
+func (e *Encoder) computeTargetBits(frameSize int) int {
+	if e.targetBitrate <= 0 {
+		// Default fallback: use a reasonable estimate based on frame size
+		return frameSize * 4 // ~32kbps default
+	}
+	// frameDurationMs = frameSize * 1000 / 48000
+	// targetBits = bitrate * frameDuration / 1000
+	// Simplified: targetBits = bitrate * frameSize / 48000
+	return e.targetBitrate * frameSize / 48000
 }
