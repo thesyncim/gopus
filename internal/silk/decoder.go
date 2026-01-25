@@ -36,16 +36,24 @@ type Decoder struct {
 
 	// Stereo state (for stereo unmixing)
 	prevStereoWeights [2]int16 // Previous w0, w1 stereo weights (Q13)
+
+	// libopus-aligned decoder state
+	state                [2]decoderState
+	stereo               stereoDecState
+	prevDecodeOnlyMiddle int
 }
 
 // NewDecoder creates a new SILK decoder with proper initial state.
 // The decoder is ready to process SILK frames after creation.
 func NewDecoder() *Decoder {
-	return &Decoder{
+	d := &Decoder{
 		prevLPCValues: make([]float32, 16),  // Max for WB (d_LPC = 16)
 		prevLSFQ15:    make([]int16, 16),    // Max for WB (d_LPC = 16)
 		outputHistory: make([]float32, 322), // Max pitch lag (288) + LTP taps (5) + margin
 	}
+	resetDecoderState(&d.state[0])
+	resetDecoderState(&d.state[1])
+	return d
 }
 
 // Reset clears decoder state for a new stream.
@@ -74,6 +82,11 @@ func (d *Decoder) Reset() {
 
 	// Clear stereo state
 	d.prevStereoWeights = [2]int16{0, 0}
+
+	resetDecoderState(&d.state[0])
+	resetDecoderState(&d.state[1])
+	d.stereo = stereoDecState{}
+	d.prevDecodeOnlyMiddle = 0
 }
 
 // SetRangeDecoder sets the range decoder for the current frame.

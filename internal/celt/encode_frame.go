@@ -64,8 +64,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		shortBlocks = mode.ShortBlocks
 	}
 
-	// Step 4: Apply pre-emphasis
-	preemph := e.ApplyPreemphasis(pcm)
+	// Step 4: Apply pre-emphasis with signal scaling
+	// Input samples in float range [-1.0, 1.0] are scaled to signal scale (x32768)
+	// This matches libopus CELT_SIG_SCALE. The decoder reverses this with scaleSamples(1/32768).
+	preemph := e.ApplyPreemphasisWithScaling(pcm)
 
 	// Step 5: Compute MDCT with proper overlap handling
 	var mdctCoeffs []float64

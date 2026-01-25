@@ -3,14 +3,21 @@
 
 package celt
 
+// CELTSigScale is the internal signal scale used by CELT.
+// Input samples in float range [-1.0, 1.0] are scaled up by this factor
+// for internal processing, matching libopus CELT_SIG_SCALE.
+const CELTSigScale = 32768.0
+
 // ApplyPreemphasis applies the pre-emphasis filter to PCM input samples.
 // Pre-emphasis boosts high frequencies to improve coding efficiency.
 //
 // The filter equation is:
-//   y[n] = x[n] - PreemphCoef * x[n-1]
+//
+//	y[n] = x[n] - PreemphCoef * x[n-1]
 //
 // This is the inverse of the decoder's de-emphasis filter:
-//   y[n] = x[n] + PreemphCoef * y[n-1]
+//
+//	y[n] = x[n] + PreemphCoef * y[n-1]
 //
 // The filter state is maintained in e.preemphState for frame continuity.
 //
@@ -94,4 +101,51 @@ func (e *Encoder) ApplyPreemphasisInPlace(pcm []float64) {
 		e.preemphState[0] = stateL
 		e.preemphState[1] = stateR
 	}
+}
+
+// ApplyPreemphasisWithScaling applies pre-emphasis with signal scaling.
+// Input samples are first scaled from float range [-1.0, 1.0] to signal scale
+// (multiplied by CELTSigScale = 32768), then the pre-emphasis filter is applied.
+//
+// This matches libopus celt_preemphasis() behavior where samples are scaled
+// and filtered together. The decoder's scaleSamples(1/32768) reverses the scaling.
+func (e *Encoder) ApplyPreemphasisWithScaling(pcm []float64) []float64 {
+	if len(pcm) == 0 {
+		return nil
+	}
+
+	output := make([]float64, len(pcm))
+
+	if e.channels == 1 {
+		// Mono pre-emphasis with scaling
+		state := e.preemphState[0]
+		for i := range pcm {
+			// Scale input to signal scale and apply pre-emphasis
+			scaled := pcm[i] * CELTSigScale
+			output[i] = scaled - PreemphCoef*state
+			state = scaled
+		}
+		e.preemphState[0] = state
+	} else {
+		// Stereo pre-emphasis (interleaved samples) with scaling
+		stateL := e.preemphState[0]
+		stateR := e.preemphState[1]
+
+		for i := 0; i < len(pcm)-1; i += 2 {
+			// Left channel
+			scaledL := pcm[i] * CELTSigScale
+			output[i] = scaledL - PreemphCoef*stateL
+			stateL = scaledL
+
+			// Right channel
+			scaledR := pcm[i+1] * CELTSigScale
+			output[i+1] = scaledR - PreemphCoef*stateR
+			stateR = scaledR
+		}
+
+		e.preemphState[0] = stateL
+		e.preemphState[1] = stateR
+	}
+
+	return output
 }

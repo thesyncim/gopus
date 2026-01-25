@@ -361,11 +361,13 @@ func (d *Decoder) decodeSILK(data []byte, toc TOC, frameSize int) ([]float32, er
 }
 
 // decodeCELT routes to CELT decoder for CELT-only mode packets.
+// It passes the packet's stereo flag to handle mono/stereo conversion.
 func (d *Decoder) decodeCELT(data []byte, toc TOC, frameSize int) ([]float32, error) {
 	if data != nil {
 		d.celtDecoder.SetBandwidth(celt.BandwidthFromOpusConfig(int(toc.Bandwidth)))
 	}
-	samples, err := d.celtDecoder.DecodeFrame(data, frameSize)
+	// Use DecodeFrameWithPacketStereo to handle mono/stereo packet vs decoder mismatch
+	samples, err := d.celtDecoder.DecodeFrameWithPacketStereo(data, frameSize, toc.Stereo)
 	if err != nil {
 		return nil, err
 	}

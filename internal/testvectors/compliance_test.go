@@ -119,29 +119,48 @@ func runTestVector(t *testing.T, name string) {
 	toc := packets[0].Data[0]
 	config := toc >> 3
 	stereo := (toc & 0x04) != 0
-	channels := 1
-	if stereo {
-		channels = 2
-	}
 	frameSize := getFrameSizeFromConfig(config)
 
 	t.Logf("  Config: %d, Stereo: %v, FrameSize: %d samples", config, stereo, frameSize)
 
-	// 3. Create decoder (always use 48kHz for native output)
-	dec, err := gopus.NewDecoder(48000, channels)
+	// 3. Create both mono and stereo decoders
+	// Test vectors may contain both mono and stereo packets mixed in the stream.
+	// Per RFC 8251, output format is always stereo interleaved (duplicate mono to both channels).
+	monoDec, err := gopus.NewDecoder(48000, 1)
 	if err != nil {
-		t.Fatalf("Failed to create decoder: %v", err)
+		t.Fatalf("Failed to create mono decoder: %v", err)
+	}
+	stereoDec, err := gopus.NewDecoder(48000, 2)
+	if err != nil {
+		t.Fatalf("Failed to create stereo decoder: %v", err)
 	}
 
-	// 4. Decode all packets
+	// 4. Decode all packets using appropriate decoder based on TOC stereo bit
 	// Note: Opus packets can contain multiple frames (code 1/2/3 in TOC byte).
 	// The decoder returns all frames combined, so we use DecodeInt16Slice
 	// which allocates the correct buffer size based on packet structure.
 	var allDecoded []int16
 	decodeErrors := make(map[string]int) // Track error types
 	for i, pkt := range packets {
-		// Decode the packet using auto-allocating method for multi-frame support
-		pcm, err := dec.DecodeInt16Slice(pkt.Data)
+		// Check TOC stereo bit to select correct decoder
+		pktTOC := gopus.ParseTOC(pkt.Data[0])
+		var pcm []int16
+		if pktTOC.Stereo {
+			// Stereo packet: use stereo decoder, output is already stereo interleaved
+			pcm, err = stereoDec.DecodeInt16Slice(pkt.Data)
+		} else {
+			// Mono packet: use mono decoder, then duplicate to stereo
+			monoSamples, decErr := monoDec.DecodeInt16Slice(pkt.Data)
+			err = decErr
+			if err == nil {
+				// Duplicate mono to stereo (L=R)
+				pcm = make([]int16, len(monoSamples)*2)
+				for j, s := range monoSamples {
+					pcm[2*j] = s
+					pcm[2*j+1] = s
+				}
+			}
+		}
 		if err != nil {
 			// Log more detail about the failure
 			errKey := err.Error()
@@ -160,7 +179,8 @@ func runTestVector(t *testing.T, name string) {
 				pktCfg := pkt.Data[0] >> 3
 				pktFrameSize = getFrameSizeFromConfig(pktCfg)
 			}
-			zeros := make([]int16, pktFrameSize*channels)
+			// Output is stereo (2 channels)
+			zeros := make([]int16, pktFrameSize*2)
 			allDecoded = append(allDecoded, zeros...)
 			continue
 		}
@@ -176,16 +196,8 @@ func runTestVector(t *testing.T, name string) {
 		}
 	}
 
-	t.Logf("  Decoded: %d samples (%d per channel)", len(allDecoded), len(allDecoded)/channels)
-
-	// 4a. Convert mono output to stereo format if needed
-	// opus_demo always outputs stereo (2 channels), even for mono sources.
-	// For mono packets, L and R are identical. We must match this format.
-	if channels == 1 {
-		t.Logf("  Converting mono output to stereo (duplicating samples)")
-		allDecoded = duplicateMonoToStereo(allDecoded)
-		t.Logf("  After conversion: %d samples (stereo)", len(allDecoded))
-	}
+	// Output is stereo (2 channels)
+	t.Logf("  Decoded: %d samples (%d per channel)", len(allDecoded), len(allDecoded)/2)
 
 	// 5. Read reference files
 	reference, err := readPCMFile(decFile)

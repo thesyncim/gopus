@@ -177,7 +177,9 @@ func lsfToLPC(lsfQ15 []int16) []int16 {
 		frac := int32(lsfQ15[i]&0xFF) << 4 // Scale fraction to Q12
 
 		// Linear interpolation between table entries
-		cos[i] = CosineTable[idx] + ((CosineTable[idx+1]-CosineTable[idx])*frac+2048)>>12
+		tab0 := int32(silk_LSFCosTab_FIX_Q12[idx])
+		tab1 := int32(silk_LSFCosTab_FIX_Q12[idx+1])
+		cos[i] = tab0 + ((tab1-tab0)*frac+2048)>>12
 	}
 
 	// Compute LPC coefficients using Chebyshev polynomial recursion
@@ -194,13 +196,13 @@ func lsfToLPC(lsfQ15 []int16) []int16 {
 
 	// Build polynomials iteratively using Chebyshev recursion
 	for i := 0; i < halfOrder; i++ {
-		cosEven := cos[2*i]   // Even-indexed LSF
-		cosOdd := cos[2*i+1]  // Odd-indexed LSF
+		cosEven := cos[2*i]  // Even-indexed LSF
+		cosOdd := cos[2*i+1] // Odd-indexed LSF
 
 		// Update p polynomial with cos[2*i]
 		// p[k+1] = p[k] - 2*cos*p[k] + p[k-1]
 		for k := i + 1; k >= 1; k-- {
-			p[k] = p[k] - ((cosEven * p[k-1] + 2048) >> 12) + p[k-1]
+			p[k] = p[k] - ((cosEven*p[k-1] + 2048) >> 12) + p[k-1]
 			if k > 1 {
 				p[k] += p[k-2]
 			}
@@ -208,7 +210,7 @@ func lsfToLPC(lsfQ15 []int16) []int16 {
 
 		// Update q polynomial with cos[2*i+1]
 		for k := i + 1; k >= 1; k-- {
-			q[k] = q[k] - ((cosOdd * q[k-1] + 2048) >> 12) + q[k-1]
+			q[k] = q[k] - ((cosOdd*q[k-1] + 2048) >> 12) + q[k-1]
 			if k > 1 {
 				q[k] += q[k-2]
 			}
