@@ -166,9 +166,21 @@ func IMDCTOverlap(spectrum []float64, overlap int) []float64 {
 	return imdctOverlapWithPrev(spectrum, prev, overlap)
 }
 
+// IMDCTOverlapWithPrev computes CELT IMDCT using the provided overlap history.
+// The returned slice includes frameSize+overlap samples.
+func IMDCTOverlapWithPrev(spectrum, prevOverlap []float64, overlap int) []float64 {
+	if len(spectrum) == 0 {
+		return nil
+	}
+	if prevOverlap == nil {
+		prevOverlap = make([]float64, overlap)
+	}
+	return imdctOverlapWithPrev(spectrum, prevOverlap, overlap)
+}
+
 func imdctOverlapWithPrev(spectrum []float64, prevOverlap []float64, overlap int) []float64 {
 	n2 := len(spectrum)
-	if n2 <= 0 {
+	if n2 == 0 {
 		return nil
 	}
 	if overlap < 0 {
@@ -177,8 +189,7 @@ func imdctOverlapWithPrev(spectrum []float64, prevOverlap []float64, overlap int
 
 	n := n2 * 2
 	n4 := n2 / 2
-	outLen := n2 + overlap
-	out := make([]float64, outLen)
+	out := make([]float64, n2+overlap)
 	if overlap > 0 && len(prevOverlap) > 0 {
 		copy(out, prevOverlap[:minInt(len(prevOverlap), overlap)])
 	}
@@ -193,6 +204,7 @@ func imdctOverlapWithPrev(spectrum []float64, prevOverlap []float64, overlap int
 		t1 := trig[n4+i]
 		yr := x2*t0 + x1*t1
 		yi := x1*t0 - x2*t1
+		// Swap real/imag because we use an FFT instead of an IFFT.
 		fftIn[i] = complex(yi, yr)
 	}
 

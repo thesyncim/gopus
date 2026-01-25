@@ -13,23 +13,30 @@ func TestTransformMiddleRegion(t *testing.T) {
 	N := 960
 	overlap := 120
 
-	// Create test signal
-	signal := make([]float64, N)
-	for i := 0; i < N; i++ {
+	// Create multi-frame signal for overlap-add reconstruction.
+	totalFrames := 3
+	totalSamples := totalFrames * N
+	signal := make([]float64, totalSamples)
+	for i := 0; i < totalSamples; i++ {
 		signal[i] = 0.5 * math.Sin(2*math.Pi*float64(i)/float64(N)*10)
 	}
 
+	output := make([]float64, totalSamples)
 	history := make([]float64, overlap)
 	prevOverlap := make([]float64, overlap)
-	coeffs := celt.ComputeMDCTWithHistory(signal, history, 1)
-	imdctOut := celt.IMDCTOverlap(coeffs, overlap)
-	output, _ := celt.OverlapAddShortOverlap(imdctOut, prevOverlap, N, overlap)
+	for frame := 0; frame < totalFrames; frame++ {
+		frameSamples := signal[frame*N : (frame+1)*N]
+		coeffs := celt.ComputeMDCTWithHistory(frameSamples, history, 1)
+		imdctOut := celt.IMDCTOverlapWithPrev(coeffs, prevOverlap, overlap)
+		overlapWrite(output, imdctOut[:N], frame, N, overlap)
+		copy(prevOverlap, imdctOut[N:N+overlap])
+	}
 
 	// Check middle region only (exclude first and last 'overlap' samples)
 	// The short overlap window affects samples [0:overlap] and [N-overlap:N]
 	// Middle region: [overlap : N-overlap]
-	middleStart := overlap
-	middleEnd := N - overlap
+	middleStart := N + overlap
+	middleEnd := 2*N - overlap
 
 	var maxDiff float64
 	var signalPower, noisePower float64
@@ -60,19 +67,10 @@ func TestTransformMiddleRegion(t *testing.T) {
 
 	// Sample comparison in middle
 	t.Log("\nSample comparison in middle region:")
-	mid := N
-	for i := mid - 5; i <= mid+5; i++ {
+	mid := (middleStart + middleEnd) / 2
+	for i := mid - 5; i <= mid+5 && i < len(output); i++ {
 		ratio := output[i] / (signal[i] + 1e-10)
 		t.Logf("  [%d] signal=%.6f, output=%.6f, ratio=%.6f", i, signal[i], output[i], ratio)
-	}
-
-	// Check edge behavior
-	t.Log("\nEdge region samples (should be windowed down):")
-	t.Log("  First edge [0:5]:")
-	for i := 0; i < 5; i++ {
-		window := celt.GetWindowBuffer(overlap)
-		t.Logf("    [%d] signal=%.6f, output=%.6f, window=%.6f, expected=%.6f",
-			i, signal[i], output[i], window[i], signal[i]*window[i]*window[i])
 	}
 
 	// The middle region should have SNR > 100 dB (near-perfect)
@@ -101,10 +99,9 @@ func TestMultiFrameOverlapAdd(t *testing.T) {
 	for frame := 0; frame < totalFrames; frame++ {
 		frameSamples := signal[frame*N : (frame+1)*N]
 		coeffs := celt.ComputeMDCTWithHistory(frameSamples, history, 1)
-		imdctOut := celt.IMDCTOverlap(coeffs, overlap)
-		outFrame, newOverlap := celt.OverlapAddShortOverlap(imdctOut, prevOverlap, N, overlap)
-		copy(output[frame*N:], outFrame)
-		prevOverlap = newOverlap
+		imdctOut := celt.IMDCTOverlapWithPrev(coeffs, prevOverlap, overlap)
+		overlapWrite(output, imdctOut[:N], frame, N, overlap)
+		copy(prevOverlap, imdctOut[N:N+overlap])
 	}
 
 	// Analyze middle frame (frame 1) which has complete overlap-add

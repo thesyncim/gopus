@@ -13,18 +13,29 @@ func TestSynthesisMatch(t *testing.T) {
 	N := 960 // Frame size (MDCT coefficients)
 	overlap := 120
 
-	// Create test signal
-	input := make([]float64, N)
-	for i := 0; i < N; i++ {
+	// Create multi-frame signal for overlap-add reconstruction.
+	totalFrames := 3
+	totalSamples := totalFrames * N
+	input := make([]float64, totalSamples)
+	for i := 0; i < totalSamples; i++ {
 		input[i] = 0.5 * math.Sin(2*math.Pi*float64(i)/float64(N)*10)
 	}
 
-	coeffs := celt.ComputeMDCTWithHistory(input, make([]float64, overlap), 1)
-	imdctOverlap := celt.IMDCTOverlap(coeffs, overlap)
-	output, _ := celt.OverlapAddShortOverlap(imdctOverlap, make([]float64, overlap), N, overlap)
+	output := make([]float64, totalSamples)
+	history := make([]float64, overlap)
+	prevOverlap := make([]float64, overlap)
+	for frame := 0; frame < totalFrames; frame++ {
+		frameSamples := input[frame*N : (frame+1)*N]
+		coeffs := celt.ComputeMDCTWithHistory(frameSamples, history, 1)
+		imdctOut := celt.IMDCTOverlapWithPrev(coeffs, prevOverlap, overlap)
+		overlapWrite(output, imdctOut[:N], frame, N, overlap)
+		copy(prevOverlap, imdctOut[N:N+overlap])
+	}
 
-	corr := correlation(input, output)
-	t.Logf("Overlap IMDCT correlation: %.4f", corr)
+	middleStart := N + overlap
+	middleEnd := 2*N - overlap
+	corr := correlation(input[middleStart:middleEnd], output[middleStart:middleEnd])
+	t.Logf("Overlap IMDCT middle correlation: %.4f", corr)
 	if corr < 0.99 {
 		t.Errorf("Correlation too low: %.4f (expected > 0.99)", corr)
 	}
@@ -50,10 +61,9 @@ func TestEncoderDecoderWithStandardIMDCT(t *testing.T) {
 	for frame := 0; frame < totalFrames; frame++ {
 		frameSamples := input[frame*N : (frame+1)*N]
 		coeffs := celt.ComputeMDCTWithHistory(frameSamples, history, 1)
-		imdctOut := celt.IMDCTOverlap(coeffs, overlap)
-		outFrame, newOverlap := celt.OverlapAddShortOverlap(imdctOut, prevOverlap, N, overlap)
-		copy(output[frame*N:], outFrame)
-		prevOverlap = newOverlap
+		imdctOut := celt.IMDCTOverlapWithPrev(coeffs, prevOverlap, overlap)
+		overlapWrite(output, imdctOut[:N], frame, N, overlap)
+		copy(prevOverlap, imdctOut[N:N+overlap])
 	}
 
 	// Compare middle frame (frame 1) which has complete overlap-add

@@ -28,10 +28,9 @@ func TestMDCTShortOverlapRoundTrip(t *testing.T) {
 	for frame := 0; frame < totalFrames; frame++ {
 		frameSamples := signal[frame*N : (frame+1)*N]
 		coeffs := celt.ComputeMDCTWithHistory(frameSamples, history, 1)
-		imdctOut := celt.IMDCTOverlap(coeffs, overlap)
-		outFrame, newOverlap := celt.OverlapAddShortOverlap(imdctOut, prevOverlap, N, overlap)
-		copy(output[frame*N:], outFrame)
-		prevOverlap = newOverlap
+		imdctOut := celt.IMDCTOverlapWithPrev(coeffs, prevOverlap, overlap)
+		overlapWrite(output, imdctOut[:N], frame, N, overlap)
+		copy(prevOverlap, imdctOut[N:N+overlap])
 	}
 
 	// Analyze middle frame (frame 1) which has complete overlap-add on both sides
