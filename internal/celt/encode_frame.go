@@ -69,24 +69,35 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	// Step 5: Compute MDCT with proper overlap handling
 	var mdctCoeffs []float64
+	var mdctLeft, mdctRight []float64
 	if e.channels == 1 {
 		// Mono: MDCT directly with overlap buffer for continuity
 		mdctCoeffs = e.computeMDCTWithOverlap(preemph, shortBlocks)
 	} else {
-		// Stereo: convert to mid-side, then MDCT each
+		// Stereo: MDCT Left and Right directly
 		left, right := DeinterleaveStereo(preemph)
-		mid, side := ConvertToMidSide(left, right)
+
+		// Ensure overlap buffer is large enough for both channels
+		if len(e.overlapBuffer) < 2*frameSize {
+			newBuf := make([]float64, 2*frameSize)
+			if len(e.overlapBuffer) > 0 {
+				copy(newBuf, e.overlapBuffer)
+			}
+			e.overlapBuffer = newBuf
+		}
+
+		// Split overlap buffer for left and right
+		leftHistory := e.overlapBuffer[:frameSize]
+		rightHistory := e.overlapBuffer[frameSize:]
 
 		// Use overlap-aware MDCT for both channels
-		// Note: For stereo, we'd ideally have separate overlap buffers per channel
-		// For now, use the stateless version which still improves mono path
-		mdctMid := computeMDCTForEncoding(mid, frameSize, shortBlocks)
-		mdctSide := computeMDCTForEncoding(side, frameSize, shortBlocks)
+		mdctLeft = computeMDCTWithHistory(left, leftHistory, shortBlocks)
+		mdctRight = computeMDCTWithHistory(right, rightHistory, shortBlocks)
 
-		// Concatenate: [mid coeffs][side coeffs]
-		mdctCoeffs = make([]float64, len(mdctMid)+len(mdctSide))
-		copy(mdctCoeffs[:len(mdctMid)], mdctMid)
-		copy(mdctCoeffs[len(mdctMid):], mdctSide)
+		// Concatenate: [left coeffs][right coeffs]
+		mdctCoeffs = make([]float64, len(mdctLeft)+len(mdctRight))
+		copy(mdctCoeffs[:len(mdctLeft)], mdctLeft)
+		copy(mdctCoeffs[len(mdctLeft):], mdctRight)
 	}
 
 	// Step 6: Compute band energies
@@ -97,8 +108,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// same gain values for normalization/denormalization.
 
 	// Step 7: Initialize range encoder with bitrate-derived size
-	// Compute target bits from bitrate
+	// ... (no changes here) ...
 	targetBits := e.computeTargetBits(frameSize)
+	e.frameBits = targetBits
+	defer func() { e.frameBits = 0 }()
 	bufSize := (targetBits + 7) / 8
 	if bufSize < 256 {
 		bufSize = 256
@@ -109,43 +122,29 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	e.SetRangeEncoder(re)
 
 	// Step 9: Encode frame flags
-
-	// Check if this is a silence frame
+	// ... (no changes) ...
 	isSilence := isFrameSilent(pcm)
 	if isSilence {
-		// Encode silence flag = 1
-		re.EncodeBit(1, 15) // High probability bit for silence
-		// For silence frames, we just return minimal packet
+		re.EncodeBit(1, 15)
 		bytes := re.Done()
 		return bytes, nil
 	}
-
-	// Encode silence flag = 0 (not silent)
 	re.EncodeBit(0, 15)
-
-	// Note: At complexity 0, libopus might skip the postfilter entirely.
-	// The postfilter flag (start=0 && budget sufficient) adds overhead.
-	// We encode postfilter=0 (disabled) per RFC 6716 Section 4.3.3.1.
 	start := 0
-	re.EncodeBit(0, 1) // Postfilter disabled
-
-	// Encode transient flag (only for LM > 0, per decoder.go:357)
+	re.EncodeBit(0, 1)
 	if lm > 0 {
 		var transientBit int
 		if transient {
 			transientBit = 1
 		}
-		re.EncodeBit(transientBit, 3) // P(transient) = 1/8
+		re.EncodeBit(transientBit, 3)
 	}
-
-	// Encode intra flag
-	// First frame or after reset uses intra mode (no inter-frame prediction)
 	intra := e.isIntraFrame()
 	var intraBit int
 	if intra {
 		intraBit = 1
 	}
-	re.EncodeBit(intraBit, 3) // P(intra) = 1/8
+	re.EncodeBit(intraBit, 3)
 
 	// Step 10: For stereo frames, encode stereo params
 	intensity := -1
@@ -155,43 +154,34 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	}
 
 	// Step 11: Encode coarse energy
+	prev1LogE := append([]float64(nil), e.prevEnergy...)
 	quantizedEnergies := e.EncodeCoarseEnergy(energies, nbBands, intra, lm)
 
 	// Step 11.1: Encode TF (time-frequency) resolution
-	// Per decoder.go:379 - TF encoding happens after coarse energy
 	end := nbBands
 	tfEncode(re, start, end, transient, nil, lm)
 
 	// Step 11.2: Encode spread decision
-	// Per decoder.go:381-385 - spread is encoded using spreadICDF
-	// SPREAD_NORMAL = 1 is the typical value
 	const spreadNormal = 1
 	re.EncodeICDF(spreadNormal, spreadICDF, 5)
 
 	// Step 11.3: Initialize caps for allocation
 	caps := initCaps(nbBands, lm, e.channels)
 
-	// Step 11.4: Encode dynamic allocation (all zeros = no boost)
-	// Per decoder.go:388-411
+	// Step 11.4: Encode dynamic allocation
 	offsets := make([]int, nbBands)
 	dynallocLogp := 6
 	for i := start; i < end; i++ {
-		// Encode dynalloc = 0 (no boost) for this band
 		re.EncodeBit(0, uint(dynallocLogp))
-		// dynallocLogp stays at 6 when no boost is applied
 	}
 
 	// Step 11.5: Encode allocation trim
-	// Per decoder.go:413-416 - trim = 5 is neutral
 	const allocTrim = 5
 	re.EncodeICDF(allocTrim, trimICDF, 7)
 
 	// Step 12: Compute bit allocation
-	// Use bitrate-derived target bits
 	bitsUsed := re.TellFrac()
 	totalBitsQ3 := (targetBits << bitRes) - bitsUsed - 1
-
-	// Reserve anti-collapse bit if needed
 	antiCollapseRsv := 0
 	if transient && lm >= 2 && totalBitsQ3 >= (lm+2)<<bitRes {
 		antiCollapseRsv = 1 << bitRes
@@ -199,38 +189,38 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	totalBitsQ3 -= antiCollapseRsv
 
 	allocResult := ComputeAllocation(
-		totalBitsQ3>>bitRes, // Convert Q3 back to bits
+		totalBitsQ3>>bitRes,
 		nbBands,
 		e.channels,
 		caps,
 		offsets,
 		allocTrim,
-		intensity, // intensity band (-1 = disabled)
+		intensity,
 		dualStereo,
 		lm,
 	)
 
 	// Step 13: Encode fine energy
-	// This updates quantizedEnergies in place with fine precision
 	e.EncodeFineEnergy(energies, quantizedEnergies, nbBands, allocResult.FineBits)
 
 	// Step 13.5: Normalize bands using QUANTIZED energies
-	// This must happen AFTER coarse+fine energy encoding so that encoder
-	// and decoder use the same gain values. The decoder uses quantized
-	// energies for denormalization, so the encoder must use the same
-	// values for normalization.
-	shapes := e.NormalizeBands(mdctCoeffs, quantizedEnergies, nbBands, frameSize)
+	var shapesL, shapesR [][]float64
+	if e.channels == 1 {
+		shapesL = e.NormalizeBands(mdctCoeffs, quantizedEnergies, nbBands, frameSize)
+	} else {
+		// Split energies for L and R
+		energiesL := quantizedEnergies[:nbBands]
+		energiesR := quantizedEnergies[nbBands:]
+		shapesL = e.NormalizeBands(mdctLeft, energiesL, nbBands, frameSize)
+		shapesR = e.NormalizeBands(mdctRight, energiesR, nbBands, frameSize)
+	}
 
 	// Step 14: Encode bands (PVQ)
-	e.EncodeBands(shapes, allocResult.BandBits, nbBands, frameSize)
+	e.EncodeBands(shapesL, shapesR, allocResult.BandBits, nbBands, frameSize)
 
 	// Step 15: Finalize and update state
 	bytes := re.Done()
-
-	// Update previous energy for next frame's inter-frame prediction
-	e.SetPrevEnergy(quantizedEnergies)
-
-	// Mark that we've encoded a frame (for intra flag logic)
+	e.SetPrevEnergyWithPrev(prev1LogE, quantizedEnergies)
 	e.frameCount++
 
 	return bytes, nil
@@ -261,6 +251,23 @@ func computeMDCTForEncoding(samples []float64, frameSize, shortBlocks int) []flo
 // computeMDCTWithOverlap computes MDCT using the encoder's overlap buffer for continuity.
 // This ensures proper MDCT overlap-add analysis across frame boundaries.
 func (e *Encoder) computeMDCTWithOverlap(samples []float64, shortBlocks int) []float64 {
+	// Ensure buffer is large enough for mono frame
+	n := len(samples)
+	if len(e.overlapBuffer) < n {
+		newBuf := make([]float64, n)
+		copy(newBuf, e.overlapBuffer)
+		e.overlapBuffer = newBuf
+	}
+
+	// Use the first n samples of overlap buffer
+	return computeMDCTWithHistory(samples, e.overlapBuffer[:n], shortBlocks)
+}
+
+// computeMDCTWithHistory computes MDCT using a history buffer for overlap.
+// samples: current frame samples
+// history: buffer containing previous frame's tail (will be updated with current frame's tail)
+// shortBlocks: number of short blocks for transient mode
+func computeMDCTWithHistory(samples, history []float64, shortBlocks int) []float64 {
 	if len(samples) == 0 {
 		return nil
 	}
@@ -268,27 +275,23 @@ func (e *Encoder) computeMDCTWithOverlap(samples []float64, shortBlocks int) []f
 	n := len(samples)
 	padded := make([]float64, n*2)
 
-	// First half is previous frame's tail (from overlap buffer)
+	// First half is previous frame's tail (from history buffer)
 	// This ensures MDCT continuity across frames
-	overlapLen := len(e.overlapBuffer)
-	if overlapLen > 0 {
-		if overlapLen > n {
-			// Copy the last n samples from overlap buffer
-			copy(padded[:n], e.overlapBuffer[overlapLen-n:])
+	// Copy history to start of padded buffer
+	if len(history) > 0 {
+		if len(history) >= n {
+			copy(padded[:n], history[len(history)-n:])
 		} else {
-			// Copy all of overlap buffer, offset to align at position n
-			copy(padded[n-overlapLen:n], e.overlapBuffer)
+			copy(padded[n-len(history):n], history)
 		}
 	}
 
 	// Second half is current frame
 	copy(padded[n:], samples)
 
-	// Save current frame's tail for next frame's overlap
-	if len(e.overlapBuffer) < n {
-		e.overlapBuffer = make([]float64, n)
-	}
-	copy(e.overlapBuffer, samples)
+	// Update history buffer with current frame's tail for next frame
+	// We want to store the last n samples of the current input
+	copy(history, samples)
 
 	if shortBlocks > 1 {
 		return MDCTShort(padded, shortBlocks)

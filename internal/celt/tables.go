@@ -11,9 +11,9 @@ const MaxBands = 21
 // This is fixed for all CELT frame sizes.
 const Overlap = 120
 
-// DB6 is the coarse energy quantization step size in decibels.
-// Coarse energy uses 6 dB steps.
-const DB6 = 6.0
+// DB6 is the value corresponding to a 6 dB step in CELT's log2 energy units.
+// In libopus, energies are stored in log2 units, so 6 dB = 1.0.
+const DB6 = 1.0
 
 // PreemphCoef is the de-emphasis filter coefficient.
 // The encoder applies pre-emphasis; decoder applies inverse de-emphasis:

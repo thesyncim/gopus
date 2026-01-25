@@ -143,16 +143,34 @@ func mdctDirect(samples []float64) []float64 {
 }
 
 // applyMDCTWindow applies the Vorbis window to samples for MDCT analysis.
-// The same window is used for both analysis (MDCT) and synthesis (IMDCT).
+// CELT uses short overlap (120 samples) rather than 50% overlap.
+// Only the first and last 'overlap' samples are windowed; middle samples are unmodified.
 func applyMDCTWindow(samples []float64) {
 	n := len(samples)
 	if n <= 0 {
 		return
 	}
 
-	// Apply window to all samples
-	for i := 0; i < n; i++ {
-		w := VorbisWindow(i, n)
-		samples[i] *= w
+	// CELT uses short overlap of 120 samples
+	overlap := Overlap
+	if overlap > n/2 {
+		overlap = n / 2
+	}
+
+	// Get precomputed window for overlap region
+	window := GetWindowBuffer(overlap)
+
+	// Apply window to beginning (rising edge) - first 'overlap' samples
+	for i := 0; i < overlap && i < n; i++ {
+		samples[i] *= window[i]
+	}
+
+	// Middle samples are unmodified (window = 1.0)
+
+	// Apply window to end (falling edge) - last 'overlap' samples
+	for i := 0; i < overlap && n-overlap+i < n; i++ {
+		idx := n - overlap + i
+		// Falling edge uses window in reverse: window[overlap-1-i]
+		samples[idx] *= window[overlap-1-i]
 	}
 }

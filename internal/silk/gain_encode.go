@@ -73,10 +73,11 @@ func computeLogGainIndex(gain float32) int {
 	}
 
 	// Compute log-domain gain index matching decoder's formula
-	// Decoder: gain = 2^((index - 8) / 8) = 2^(index/8 - 1)
-	// Inverse: index = 8 * (log2(gain) + 1)
+	// Decoder: gain_Q16 = 2^(idx/8 + 6.34)
+	// Linear gain = gain_Q16 / 65536 = 2^(idx/8 + 6.34 - 16) = 2^(idx/8 - 9.66)
+	// Inverse: idx = 8 * (log2(gain) + 9.66)
 	logGain := math.Log2(float64(gain))
-	idx := int(math.Round((logGain + 1.0) * 8.0))
+	idx := int(math.Round((logGain + 9.66) * 8.0))
 
 	// Clamp to valid range [0, 63]
 	if idx < 0 {

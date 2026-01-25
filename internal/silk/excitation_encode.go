@@ -249,12 +249,15 @@ func (e *Encoder) computeExcitation(pcm []float32, lpcQ12 []int16, gain float32)
 			prediction += float64(lpcQ12[k]) * float64(pcm[i-k-1]) / 4096.0
 		}
 
-		// Residual = input - prediction (NO gain scaling here!)
-		// The gain is encoded separately and applied during decoding
+		// Residual = input - prediction
 		residual := float64(pcm[i]) - prediction
 
-		// Quantize to integer with rounding
-		excitation[i] = int32(math.Round(residual))
+		// Quantize to integer by dividing by gain
+		if gain > 0 {
+			excitation[i] = int32(math.Round(residual / float64(gain)))
+		} else {
+			excitation[i] = int32(math.Round(residual))
+		}
 	}
 
 	return excitation

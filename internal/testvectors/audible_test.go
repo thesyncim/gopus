@@ -60,6 +60,7 @@ func TestAudioAudibility(t *testing.T) {
 	enc.SetMode(encoder.ModeCELT)
 	enc.SetBandwidth(types.BandwidthFullband)
 	enc.SetBitrate(64000)
+	enc.SetBitrateMode(encoder.ModeCBR) // Use CBR for consistent packet sizes
 
 	frameSize := 960 // 20ms
 	var packets [][]byte

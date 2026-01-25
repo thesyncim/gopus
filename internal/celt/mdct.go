@@ -71,6 +71,30 @@ var (
 	imdctCosCache = map[int][]float64{}
 )
 
+var (
+	mdctTrigMu    sync.Mutex
+	mdctTrigCache = map[int][]float64{}
+)
+
+func getMDCTTrig(n int) []float64 {
+	mdctTrigMu.Lock()
+	defer mdctTrigMu.Unlock()
+
+	if trig, ok := mdctTrigCache[n]; ok {
+		return trig
+	}
+
+	n2 := n / 2
+	trig := make([]float64, n2)
+	for i := 0; i < n2; i++ {
+		angle := 2.0 * math.Pi * (float64(i) + 0.125) / float64(n)
+		trig[i] = math.Cos(angle)
+	}
+
+	mdctTrigCache[n] = trig
+	return trig
+}
+
 func getIMDCTCosTable(n int) []float64 {
 	imdctCosMu.Lock()
 	defer imdctCosMu.Unlock()
@@ -130,6 +154,104 @@ func IMDCT(spectrum []float64) []float64 {
 
 	// Fall back to direct computation for non-power-of-2 sizes
 	return IMDCTDirect(spectrum)
+}
+
+// IMDCTOverlap computes the CELT IMDCT with short overlap using a zero
+// previous overlap buffer. Output length is N + overlap.
+func IMDCTOverlap(spectrum []float64, overlap int) []float64 {
+	if len(spectrum) == 0 {
+		return nil
+	}
+	prev := make([]float64, overlap)
+	return imdctOverlapWithPrev(spectrum, prev, overlap)
+}
+
+func imdctOverlapWithPrev(spectrum []float64, prevOverlap []float64, overlap int) []float64 {
+	n2 := len(spectrum)
+	if n2 <= 0 {
+		return nil
+	}
+	if overlap < 0 {
+		overlap = 0
+	}
+
+	n := n2 * 2
+	n4 := n2 / 2
+	outLen := n2 + overlap
+	out := make([]float64, outLen)
+	if overlap > 0 && len(prevOverlap) > 0 {
+		copy(out, prevOverlap[:minInt(len(prevOverlap), overlap)])
+	}
+
+	trig := getMDCTTrig(n)
+
+	fftIn := make([]complex128, n4)
+	for i := 0; i < n4; i++ {
+		x1 := spectrum[2*i]
+		x2 := spectrum[n2-1-2*i]
+		t0 := trig[i]
+		t1 := trig[n4+i]
+		yr := x2*t0 + x1*t1
+		yi := x1*t0 - x2*t1
+		fftIn[i] = complex(yi, yr)
+	}
+
+	fftOut := dft(fftIn)
+	buf := make([]float64, n2)
+	for i := 0; i < n4; i++ {
+		v := fftOut[i]
+		buf[2*i] = real(v)
+		buf[2*i+1] = imag(v)
+	}
+
+	yp0 := 0
+	yp1 := n2 - 2
+	for i := 0; i < (n4+1)>>1; i++ {
+		re := buf[yp0+1]
+		im := buf[yp0]
+		t0 := trig[i]
+		t1 := trig[n4+i]
+		yr := re*t0 + im*t1
+		yi := re*t1 - im*t0
+		re2 := buf[yp1+1]
+		im2 := buf[yp1]
+		buf[yp0] = yr
+		buf[yp1+1] = yi
+
+		t0 = trig[n4-i-1]
+		t1 = trig[n2-i-1]
+		yr = re2*t0 + im2*t1
+		yi = re2*t1 - im2*t0
+		buf[yp1] = yr
+		buf[yp0+1] = yi
+		yp0 += 2
+		yp1 -= 2
+	}
+
+	start := overlap / 2
+	if start+n2 <= len(out) {
+		copy(out[start:start+n2], buf)
+	}
+
+	if overlap > 0 {
+		window := GetWindowBuffer(overlap)
+		xp1 := overlap - 1
+		yp1 := 0
+		wp1 := 0
+		wp2 := overlap - 1
+		for i := 0; i < overlap/2; i++ {
+			x1 := out[xp1]
+			x2 := out[yp1]
+			out[yp1] = x2*window[wp2] - x1*window[wp1]
+			out[xp1] = x2*window[wp1] + x1*window[wp2]
+			yp1++
+			xp1--
+			wp1++
+			wp2--
+		}
+	}
+
+	return out
 }
 
 // isPowerOfTwo returns true if n is a power of 2.
@@ -320,6 +442,28 @@ func ifft(x []complex128) []complex128 {
 	}
 
 	return result
+}
+
+func dft(x []complex128) []complex128 {
+	n := len(x)
+	if n <= 1 {
+		return x
+	}
+
+	out := make([]complex128, n)
+	twoPi := -2.0 * math.Pi / float64(n)
+	for k := 0; k < n; k++ {
+		angle := twoPi * float64(k)
+		wStep := complex(math.Cos(angle), math.Sin(angle))
+		w := complex(1.0, 0.0)
+		var sum complex128
+		for t := 0; t < n; t++ {
+			sum += x[t] * w
+			w *= wStep
+		}
+		out[k] = sum
+	}
+	return out
 }
 
 // bitReverse performs bit-reversal permutation on the input slice.

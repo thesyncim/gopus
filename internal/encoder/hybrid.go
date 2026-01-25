@@ -261,7 +261,9 @@ func (e *Encoder) encodeCELTHybrid(pcm []float64, frameSize int) {
 	e.celtEncoder.EncodeFineEnergy(energies, quantizedEnergies, mode.EffBands, allocResult.FineBits)
 
 	// Encode bands (PVQ)
-	e.celtEncoder.EncodeBands(shapes, allocResult.BandBits, mode.EffBands, frameSize)
+	// Note: Hybrid stereo encoding is currently incomplete.
+	// We pass shapes as shapesL and nil as shapesR, treating it as mono-like.
+	e.celtEncoder.EncodeBands(shapes, nil, allocResult.BandBits, mode.EffBands, frameSize)
 
 	// Update state
 	e.celtEncoder.SetPrevEnergy(quantizedEnergies)

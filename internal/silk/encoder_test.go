@@ -7,9 +7,9 @@ import (
 
 func TestNewEncoder(t *testing.T) {
 	tests := []struct {
-		name          string
-		bandwidth     Bandwidth
-		wantLPCOrder  int
+		name           string
+		bandwidth      Bandwidth
+		wantLPCOrder   int
 		wantSampleRate int
 	}{
 		{"narrowband", BandwidthNarrowband, 10, 8000},
@@ -139,7 +139,7 @@ func TestClassifyFrame(t *testing.T) {
 	voiced := make([]float32, 320)
 	freq := 200.0 // 200 Hz fundamental
 	for i := range voiced {
-		voiced[i] = float32(math.Sin(2*math.Pi*freq*float64(i)/16000.0)) * 10000
+		voiced[i] = float32(math.Sin(2*math.Pi*freq*float64(i)/16000.0)) * (10000 * int16Scale)
 	}
 	sigType, _ = enc.classifyFrame(voiced)
 	if sigType != 2 {
@@ -169,7 +169,7 @@ func TestClassifyFrameQuantOffset(t *testing.T) {
 	voiced := make([]float32, 320)
 	freq := 150.0 // Strong periodic signal
 	for i := range voiced {
-		voiced[i] = float32(math.Sin(2*math.Pi*freq*float64(i)/16000.0)) * 10000
+		voiced[i] = float32(math.Sin(2*math.Pi*freq*float64(i)/16000.0)) * (10000 * int16Scale)
 	}
 	_, quantOffset := enc.classifyFrame(voiced)
 	if quantOffset != 1 {
@@ -201,7 +201,7 @@ func TestComputePeriodicity(t *testing.T) {
 			math.Sin(float64(i)*0.01*phi) +
 				math.Sin(float64(i)*0.02*phi*phi) +
 				math.Sin(float64(i)*0.03*phi*phi*phi) +
-				math.Sin(float64(i) * 0.05))
+				math.Sin(float64(i)*0.05))
 	}
 	periodicity = enc.computePeriodicity(noise, 32, 288)
 	// Noise should have lower periodicity than voiced speech

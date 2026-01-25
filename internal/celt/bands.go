@@ -92,15 +92,15 @@ func (d *Decoder) DecodeBands(
 		// Store vector for potential folding by later bands
 		bandVectors[band] = shape
 
-		// Denormalize: scale shape by energy (energy is in dB units).
+		// Denormalize: scale shape by energy (log2 units, 1 = 6 dB).
 		// Add per-band mean energy (log2 units) to recover absolute level.
 		// Clamp energy to prevent overflow (libopus clamps to 32).
 		e := energies[band]
 		if band < len(eMeans) {
 			e += eMeans[band] * DB6
 		}
-		if e > 32 {
-			e = 32
+		if e > 32*DB6 {
+			e = 32 * DB6
 		}
 		gain := math.Exp2(e / DB6)
 
@@ -247,22 +247,22 @@ func (d *Decoder) DecodeBandsStereo(
 		bandVectorsL[band] = shapeL
 		bandVectorsR[band] = shapeR
 
-		// Denormalize: scale by energy (energy is in dB units).
+		// Denormalize: scale by energy (log2 units, 1 = 6 dB).
 		// Add per-band mean energy (log2 units) to recover absolute level.
 		// Clamp energy to prevent overflow (libopus clamps to 32).
 		eL := energiesL[band]
 		if band < len(eMeans) {
 			eL += eMeans[band] * DB6
 		}
-		if eL > 32 {
-			eL = 32
+		if eL > 32*DB6 {
+			eL = 32 * DB6
 		}
 		eR := energiesR[band]
 		if band < len(eMeans) {
 			eR += eMeans[band] * DB6
 		}
-		if eR > 32 {
-			eR = 32
+		if eR > 32*DB6 {
+			eR = 32 * DB6
 		}
 		gainL := math.Exp2(eL / DB6)
 		gainR := math.Exp2(eR / DB6)
@@ -283,7 +283,7 @@ func (d *Decoder) DecodeBandsStereo(
 }
 
 // bitsToK computes the number of PVQ pulses from bit allocation.
-// bits: number of bits allocated to this band
+// bits: number of bits allocated to this band in Q3
 // n: band width (number of MDCT bins)
 // Returns: number of pulses K for PVQ coding.
 //
@@ -299,8 +299,7 @@ func bitsToK(bits, n int) int {
 	if !ok {
 		return 0
 	}
-	bitsQ3 := bits << bitRes
-	q := bitsToPulses(band, lm, bitsQ3)
+	q := bitsToPulses(band, lm, bits)
 	return getPulses(q)
 }
 
@@ -365,7 +364,7 @@ func ilog2(x int) int {
 
 // DenormalizeBand scales a normalized band vector by its energy.
 // shape: normalized vector (unit L2 norm)
-// energy: band energy in dB units (6 dB per doubling)
+// energy: band energy in log2 units (1 = 6 dB)
 // Returns: denormalized MDCT coefficients.
 //
 // This matches libopus celt/bands.c denormalise_bands().
@@ -419,26 +418,21 @@ func denormalizeCoeffs(coeffs []float64, energies []float64, nbBands, frameSize 
 	}
 }
 
-// ComputeBandEnergy computes the L2 energy of a band in dB units.
+// ComputeBandEnergy computes the per-band log2 amplitude.
 // coeffs: MDCT coefficients for the band
-// Returns: energy = DB6 * log2(sqrt(sum(x^2)))
+// Returns: log2(sqrt(sum(x^2))) with libopus epsilon
 func ComputeBandEnergy(coeffs []float64) float64 {
 	if len(coeffs) == 0 {
-		return -28.0 // Default low energy
+		return 0.5 * math.Log2(1e-27)
 	}
 
-	var energy float64
+	energy := 1e-27
 	for _, x := range coeffs {
 		energy += x * x
 	}
 
-	if energy < 1e-15 {
-		return -28.0
-	}
-
-	// log2(sqrt(energy)) = 0.5 * log2(energy) = 0.5 * ln(energy) / ln(2)
-	// Convert to dB units: 6 dB per doubling.
-	return DB6 * (0.5 * math.Log(energy) / 0.6931471805599453)
+	// log2(sqrt(energy)) = 0.5 * log2(energy)
+	return 0.5 * math.Log2(energy)
 }
 
 // InterleaveBands interleaves band coefficients for transient frames.

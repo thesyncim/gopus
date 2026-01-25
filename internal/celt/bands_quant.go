@@ -239,8 +239,9 @@ func stereoMerge(x, y []float64, mid float64) {
 		side += y[i] * y[i]
 	}
 	xp *= mid
-	el := mid*mid/8.0 + side - 2.0*xp
-	er := mid*mid/8.0 + side + 2.0*xp
+	mid2 := mid * mid
+	el := mid2 + side - 2.0*xp
+	er := mid2 + side + 2.0*xp
 	if el < 6e-4 || er < 6e-4 {
 		copy(y, x[:n])
 		return
@@ -549,7 +550,7 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 	return fill, x
 }
 
-func quantBandN1(ctx *bandCtx, x, y []float64, lowbandOut []float64) int {
+func quantBandN1(ctx *bandCtx, x, y []float64, b int, lowbandOut []float64) int {
 	stereo := y != nil
 	x0 := x
 	for c := 0; c < 1+boolToInt(stereo); c++ {
@@ -579,7 +580,7 @@ func quantBandN1(ctx *bandCtx, x, y []float64, lowbandOut []float64) int {
 
 func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int, lowbandOut []float64, gain float64, lowbandScratch []float64, fill int) int {
 	if n == 1 {
-		return quantBandN1(ctx, x, nil, lowbandOut)
+		return quantBandN1(ctx, x, nil, b, lowbandOut)
 	}
 
 	N0 := n
@@ -599,7 +600,6 @@ func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int
 
 	if recombine != 0 {
 		for k := 0; k < recombine; k++ {
-			haar1(x, n>>k, 1<<k)
 			if lowband != nil {
 				haar1(lowband, n>>k, 1<<k)
 			}
@@ -611,7 +611,6 @@ func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int
 
 	timeDivide := 0
 	for (N_B&1) == 0 && tfChange < 0 {
-		haar1(x, N_B, B)
 		if lowband != nil {
 			haar1(lowband, N_B, B)
 		}
@@ -625,7 +624,6 @@ func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int
 	N_B0 := N_B
 
 	if B0 > 1 {
-		deinterleaveHadamard(x, N_B>>recombine, B0<<recombine, longBlocks)
 		if lowband != nil {
 			deinterleaveHadamard(lowband, N_B>>recombine, B0<<recombine, longBlocks)
 		}
@@ -664,7 +662,7 @@ func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int
 
 func quantBandStereo(ctx *bandCtx, x, y []float64, n, b, B int, lowband []float64, lm int, lowbandOut []float64, lowbandScratch []float64, fill int) int {
 	if n == 1 {
-		return quantBandN1(ctx, x, y, lowbandOut)
+		return quantBandN1(ctx, x, y, b, lowbandOut)
 	}
 
 	origFill := fill
@@ -828,14 +826,6 @@ func quantAllBandsDecode(rd *rangecoding.Decoder, channels, frameSize, lm int, s
 		}
 
 		ctx.tfChange = tfRes[i]
-		if dualStereo != 0 && i == intensity {
-			dualStereo = 0
-			if ctx.resynth {
-				for j := 0; j < len(norm2) && j < len(norm); j++ {
-					norm[j] = 0.5 * (norm[j] + norm2[j])
-				}
-			}
-		}
 
 		effectiveLowband := -1
 		xCM := 0
@@ -843,14 +833,27 @@ func quantAllBandsDecode(rd *rangecoding.Decoder, channels, frameSize, lm int, s
 		if lowbandOffset != 0 && (spread != spreadAggressive || B > 1 || ctx.tfChange < 0) {
 			effectiveLowband = maxInt(0, M*EBands[lowbandOffset]-normOffset-nBand)
 			foldStart := lowbandOffset
-			for foldStart > start && M*EBands[foldStart-1] > effectiveLowband+normOffset {
+			for {
 				foldStart--
+				if foldStart <= start {
+					foldStart = start
+					break
+				}
+				if M*EBands[foldStart] <= effectiveLowband+normOffset {
+					break
+				}
 			}
 			foldEnd := lowbandOffset - 1
-			for foldEnd+1 < i && M*EBands[foldEnd+1] < effectiveLowband+normOffset+nBand {
+			for {
 				foldEnd++
+				if foldEnd >= i {
+					break
+				}
+				if M*EBands[foldEnd] >= effectiveLowband+normOffset+nBand {
+					break
+				}
 			}
-			for fold := foldStart; fold <= foldEnd; fold++ {
+			for fold := foldStart; fold < foldEnd; fold++ {
 				xCM |= int(collapse[fold*channels])
 				if channels == 2 {
 					yCM |= int(collapse[fold*channels+channels-1])
@@ -859,6 +862,25 @@ func quantAllBandsDecode(rd *rangecoding.Decoder, channels, frameSize, lm int, s
 		} else {
 			xCM = (1 << B) - 1
 			yCM = xCM
+		}
+
+		if dualStereo != 0 && i == intensity {
+			dualStereo = 0
+			if ctx.resynth {
+				mergeLimit := M*EBands[i] - normOffset
+				if mergeLimit < 0 {
+					mergeLimit = 0
+				}
+				if mergeLimit > len(norm) {
+					mergeLimit = len(norm)
+				}
+				if channels == 2 && mergeLimit > len(norm2) {
+					mergeLimit = len(norm2)
+				}
+				for j := 0; j < mergeLimit; j++ {
+					norm[j] = 0.5 * (norm[j] + norm2[j])
+				}
+			}
 		}
 
 		var lowbandX []float64
@@ -903,6 +925,18 @@ func quantAllBandsDecode(rd *rangecoding.Decoder, channels, frameSize, lm int, s
 
 		updateLowband = b > (nBand << bitRes)
 		ctx.avoidSplitNoise = false
+	}
+
+	if shortBlocks > 1 {
+		scale := 1.0 / math.Sqrt(float64(shortBlocks))
+		for i := range left {
+			left[i] *= scale
+		}
+		if channels == 2 {
+			for i := range right {
+				right[i] *= scale
+			}
+		}
 	}
 
 	return left, right, collapse

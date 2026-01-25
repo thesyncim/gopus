@@ -68,6 +68,33 @@ func OverlapAdd(current, prevOverlap []float64, overlap int) (output, newOverlap
 	return output, newOverlap
 }
 
+// OverlapAddShortOverlap combines overlap for CELT short-overlap IMDCT output.
+// current length is frameSize + overlap, output length is frameSize.
+func OverlapAddShortOverlap(current, prevOverlap []float64, frameSize, overlap int) (output, newOverlap []float64) {
+	if frameSize <= 0 || overlap < 0 {
+		return nil, prevOverlap
+	}
+	if len(current) < frameSize+overlap {
+		return nil, prevOverlap
+	}
+
+	output = make([]float64, frameSize)
+
+	for i := 0; i < overlap && i < len(prevOverlap); i++ {
+		output[i] = prevOverlap[i] + current[i]
+	}
+	for i := len(prevOverlap); i < overlap; i++ {
+		output[i] = current[i]
+	}
+
+	copy(output[overlap:], current[overlap:frameSize])
+
+	newOverlap = make([]float64, overlap)
+	copy(newOverlap, current[frameSize:frameSize+overlap])
+
+	return output, newOverlap
+}
+
 // OverlapAddInPlace performs overlap-add modifying prevOverlap in place.
 // This variant avoids allocation for the overlap buffer.
 //
@@ -96,6 +123,73 @@ func OverlapAddInPlace(current []float64, prevOverlap []float64, overlap int) []
 	return output
 }
 
+func synthesizeChannelWithOverlap(coeffs []float64, prevOverlap []float64, overlap int, transient bool, shortBlocks int) (output, newOverlap []float64) {
+	frameSize := len(coeffs)
+	if frameSize == 0 {
+		return nil, prevOverlap
+	}
+	if overlap < 0 {
+		return nil, prevOverlap
+	}
+
+	prev := prevOverlap
+	if len(prev) < overlap {
+		tmp := make([]float64, overlap)
+		copy(tmp, prev)
+		prev = tmp
+	} else if len(prev) > overlap {
+		prev = prev[:overlap]
+	}
+
+	if transient && shortBlocks > 1 {
+		shortSize := frameSize / shortBlocks
+		if shortSize <= 0 {
+			return nil, prevOverlap
+		}
+		out := make([]float64, frameSize+overlap)
+		if overlap > 0 {
+			copy(out, prev)
+		}
+		for b := 0; b < shortBlocks; b++ {
+			shortCoeffs := make([]float64, shortSize)
+			for i := 0; i < shortSize; i++ {
+				idx := b + i*shortBlocks
+				if idx < frameSize {
+					shortCoeffs[i] = coeffs[idx]
+				}
+			}
+
+			blockPrev := out[b*shortSize : b*shortSize+overlap]
+			blockOut := imdctOverlapWithPrev(shortCoeffs, blockPrev, overlap)
+			if len(blockOut) == 0 {
+				continue
+			}
+			copy(out[b*shortSize:], blockOut)
+		}
+		output = out[:frameSize]
+		newOverlap = make([]float64, overlap)
+		if frameSize+overlap <= len(out) {
+			copy(newOverlap, out[frameSize:frameSize+overlap])
+		}
+		return output, newOverlap
+	}
+
+	imdctOut := imdctOverlapWithPrev(coeffs, prev, overlap)
+	if len(imdctOut) < frameSize {
+		return nil, prevOverlap
+	}
+	output = imdctOut[:frameSize]
+	newOverlap = make([]float64, overlap)
+	if overlap > 0 && frameSize < len(imdctOut) {
+		end := frameSize + overlap
+		if end > len(imdctOut) {
+			end = len(imdctOut)
+		}
+		copy(newOverlap, imdctOut[frameSize:end])
+	}
+	return output, newOverlap
+}
+
 // Synthesize performs full IMDCT + windowing + overlap-add for decoded coefficients.
 // This is the main synthesis function called by the decoder.
 //
@@ -109,25 +203,11 @@ func (d *Decoder) Synthesize(coeffs []float64, transient bool, shortBlocks int) 
 	if len(coeffs) == 0 {
 		return nil
 	}
-	if transient && shortBlocks > 1 {
-		return d.synthesizeShort(coeffs, shortBlocks)
-	}
-	// Normal mode: single long IMDCT
-	imdctOut := IMDCT(coeffs)
-
-	if len(imdctOut) == 0 {
+	output, newOverlap := synthesizeChannelWithOverlap(coeffs, d.overlapBuffer, Overlap, transient, shortBlocks)
+	if len(output) == 0 {
 		return nil
 	}
-
-	// Apply Vorbis window
-	ApplyWindow(imdctOut, Overlap)
-
-	// Perform overlap-add with previous frame's tail
-	output, newOverlap := OverlapAdd(imdctOut, d.overlapBuffer, Overlap)
-
-	// Save overlap for next frame
 	d.SetOverlapBuffer(newOverlap)
-
 	return output
 }
 
@@ -144,29 +224,21 @@ func (d *Decoder) SynthesizeStereo(coeffsL, coeffsR []float64, transient bool, s
 	if len(coeffsL) == 0 && len(coeffsR) == 0 {
 		return nil
 	}
-	if transient && shortBlocks > 1 {
-		return d.synthesizeShortStereo(coeffsL, coeffsR, shortBlocks)
+	if len(d.overlapBuffer) < Overlap*2 {
+		d.overlapBuffer = make([]float64, Overlap*2)
 	}
-
-	// IMDCT for both channels
-	imdctL := IMDCT(coeffsL)
-	imdctR := IMDCT(coeffsR)
-
-	// Apply window to both channels
-	ApplyWindow(imdctL, Overlap)
-	ApplyWindow(imdctR, Overlap)
-
-	// Split overlap buffer: first half is left, second half is right
 	overlapL := d.overlapBuffer[:Overlap]
-	overlapR := d.overlapBuffer[Overlap:]
+	overlapR := d.overlapBuffer[Overlap : Overlap*2]
 
-	// Overlap-add for both channels
-	outputL, newOverlapL := OverlapAdd(imdctL, overlapL, Overlap)
-	outputR, newOverlapR := OverlapAdd(imdctR, overlapR, Overlap)
+	outputL, newOverlapL := synthesizeChannelWithOverlap(coeffsL, overlapL, Overlap, transient, shortBlocks)
+	outputR, newOverlapR := synthesizeChannelWithOverlap(coeffsR, overlapR, Overlap, transient, shortBlocks)
 
-	// Update overlap buffer
-	copy(d.overlapBuffer[:Overlap], newOverlapL)
-	copy(d.overlapBuffer[Overlap:], newOverlapR)
+	if len(newOverlapL) >= Overlap {
+		copy(d.overlapBuffer[:Overlap], newOverlapL[:Overlap])
+	}
+	if len(newOverlapR) >= Overlap {
+		copy(d.overlapBuffer[Overlap:Overlap*2], newOverlapR[:Overlap])
+	}
 
 	// Interleave stereo output
 	n := len(outputL)
@@ -184,118 +256,40 @@ func (d *Decoder) SynthesizeStereo(coeffsL, coeffsR []float64, transient bool, s
 }
 
 func (d *Decoder) synthesizeShort(coeffs []float64, shortBlocks int) []float64 {
-	frameSize := len(coeffs)
-	if frameSize == 0 || shortBlocks <= 1 {
+	output, newOverlap := synthesizeChannelWithOverlap(coeffs, d.overlapBuffer, Overlap, true, shortBlocks)
+	if len(output) == 0 {
 		return nil
 	}
-	shortSize := frameSize / shortBlocks
-	if shortSize <= 0 {
-		return nil
-	}
-
-	overlap := Overlap
-	if overlap > shortSize {
-		overlap = shortSize
-	}
-
-	output := make([]float64, frameSize)
-	prevOverlap := make([]float64, overlap)
-	if len(d.overlapBuffer) >= overlap {
-		copy(prevOverlap, d.overlapBuffer[:overlap])
-	}
-
-	outOffset := 0
-	for b := 0; b < shortBlocks; b++ {
-		shortCoeffs := make([]float64, shortSize)
-		for i := 0; i < shortSize; i++ {
-			idx := b + i*shortBlocks
-			if idx < frameSize {
-				shortCoeffs[i] = coeffs[idx]
-			}
-		}
-
-		blockOut := IMDCT(shortCoeffs)
-		if len(blockOut) == 0 {
-			continue
-		}
-		ApplyWindow(blockOut, overlap)
-
-		blockSamples, newOverlap := OverlapAdd(blockOut, prevOverlap, overlap)
-		copy(output[outOffset:], blockSamples)
-		outOffset += len(blockSamples)
-		prevOverlap = newOverlap
-	}
-
-	if len(d.overlapBuffer) >= overlap {
-		copy(d.overlapBuffer[:overlap], prevOverlap)
-	}
-
+	d.SetOverlapBuffer(newOverlap)
 	return output
 }
 
 func (d *Decoder) synthesizeShortStereo(coeffsL, coeffsR []float64, shortBlocks int) []float64 {
-	frameSize := len(coeffsL)
-	if frameSize == 0 || shortBlocks <= 1 {
-		return nil
+	if len(d.overlapBuffer) < Overlap*2 {
+		d.overlapBuffer = make([]float64, Overlap*2)
 	}
-	if len(coeffsR) < frameSize {
-		frameSize = len(coeffsR)
-	}
-	shortSize := frameSize / shortBlocks
-	if shortSize <= 0 {
-		return nil
-	}
+	overlapL := d.overlapBuffer[:Overlap]
+	overlapR := d.overlapBuffer[Overlap : Overlap*2]
 
-	overlap := Overlap
-	if overlap > shortSize {
-		overlap = shortSize
-	}
+	outputL, newOverlapL := synthesizeChannelWithOverlap(coeffsL, overlapL, Overlap, true, shortBlocks)
+	outputR, newOverlapR := synthesizeChannelWithOverlap(coeffsR, overlapR, Overlap, true, shortBlocks)
 
-	output := make([]float64, frameSize*2)
-	prevOverlapL := make([]float64, overlap)
-	prevOverlapR := make([]float64, overlap)
-	if len(d.overlapBuffer) >= Overlap*2 {
-		copy(prevOverlapL, d.overlapBuffer[:overlap])
-		copy(prevOverlapR, d.overlapBuffer[Overlap:Overlap+overlap])
+	if len(newOverlapL) >= Overlap {
+		copy(d.overlapBuffer[:Overlap], newOverlapL[:Overlap])
+	}
+	if len(newOverlapR) >= Overlap {
+		copy(d.overlapBuffer[Overlap:Overlap*2], newOverlapR[:Overlap])
 	}
 
-	for b := 0; b < shortBlocks; b++ {
-		shortCoeffsL := make([]float64, shortSize)
-		shortCoeffsR := make([]float64, shortSize)
-		for i := 0; i < shortSize; i++ {
-			idx := b + i*shortBlocks
-			if idx < frameSize {
-				shortCoeffsL[i] = coeffsL[idx]
-				shortCoeffsR[i] = coeffsR[idx]
-			}
-		}
-
-		blockOutL := IMDCT(shortCoeffsL)
-		blockOutR := IMDCT(shortCoeffsR)
-		if len(blockOutL) == 0 || len(blockOutR) == 0 {
-			continue
-		}
-		ApplyWindow(blockOutL, overlap)
-		ApplyWindow(blockOutR, overlap)
-
-		blockSamplesL, newOverlapL := OverlapAdd(blockOutL, prevOverlapL, overlap)
-		blockSamplesR, newOverlapR := OverlapAdd(blockOutR, prevOverlapR, overlap)
-
-		start := b * shortSize
-		for i := 0; i < shortSize && start+i < frameSize; i++ {
-			output[(start+i)*2] = blockSamplesL[i]
-			output[(start+i)*2+1] = blockSamplesR[i]
-		}
-
-		prevOverlapL = newOverlapL
-		prevOverlapR = newOverlapR
+	n := len(outputL)
+	if len(outputR) < n {
+		n = len(outputR)
 	}
-
-	if len(d.overlapBuffer) >= Overlap*2 {
-		copy(d.overlapBuffer[:overlap], prevOverlapL)
-		copy(d.overlapBuffer[Overlap:Overlap+overlap], prevOverlapR)
+	output := make([]float64, n*2)
+	for i := 0; i < n; i++ {
+		output[2*i] = outputL[i]
+		output[2*i+1] = outputR[i]
 	}
-
 	return output
 }
 
@@ -311,14 +305,15 @@ func (d *Decoder) WindowAndOverlap(imdctOut []float64) []float64 {
 		return nil
 	}
 
-	// Apply window
-	ApplyWindow(imdctOut, Overlap)
+	frameSize := len(imdctOut) - Overlap
+	if frameSize <= 0 {
+		return nil
+	}
 
-	// Overlap-add
-	output, newOverlap := OverlapAdd(imdctOut, d.overlapBuffer, Overlap)
-
-	// Save overlap for next frame
-	d.SetOverlapBuffer(newOverlap)
+	output := imdctOut[:frameSize]
+	if frameSize+Overlap <= len(imdctOut) {
+		d.SetOverlapBuffer(imdctOut[frameSize : frameSize+Overlap])
+	}
 
 	return output
 }
@@ -329,22 +324,5 @@ func SynthesizeWithConfig(coeffs []float64, overlap int, transient bool, shortBl
 	if len(coeffs) == 0 {
 		return nil, prevOverlap
 	}
-
-	var imdctOut []float64
-
-	if transient && shortBlocks > 1 {
-		imdctOut = IMDCTShort(coeffs, shortBlocks)
-	} else {
-		imdctOut = IMDCT(coeffs)
-	}
-
-	if len(imdctOut) == 0 {
-		return nil, prevOverlap
-	}
-
-	// Apply window
-	ApplyWindow(imdctOut, overlap)
-
-	// Overlap-add
-	return OverlapAdd(imdctOut, prevOverlap, overlap)
+	return synthesizeChannelWithOverlap(coeffs, prevOverlap, overlap, transient, shortBlocks)
 }

@@ -48,6 +48,7 @@ type Encoder struct {
 
 	// Bitrate control
 	targetBitrate int // Target bitrate in bits per second (0 = use buffer size)
+	frameBits     int // Per-frame bit budget for coarse energy (set during encoding)
 }
 
 // NewEncoder creates a new CELT encoder with the given number of channels.
@@ -129,6 +130,7 @@ func (e *Encoder) Reset() {
 
 	// Reset frame counter
 	e.frameCount = 0
+	e.frameBits = 0
 }
 
 // SetRangeEncoder sets the range encoder for the current frame.
@@ -171,6 +173,17 @@ func (e *Encoder) SetPrevEnergy(energies []float64) {
 	// Shift: current prev becomes prev2
 	copy(e.prevEnergy2, e.prevEnergy)
 	// Copy new energies to prev
+	copy(e.prevEnergy, energies)
+}
+
+// SetPrevEnergyWithPrev updates prevEnergy using the provided previous state.
+// This avoids losing the prior frame when prevEnergy is updated during encoding.
+func (e *Encoder) SetPrevEnergyWithPrev(prev, energies []float64) {
+	if len(prev) == len(e.prevEnergy2) {
+		copy(e.prevEnergy2, prev)
+	} else {
+		copy(e.prevEnergy2, e.prevEnergy)
+	}
 	copy(e.prevEnergy, energies)
 }
 

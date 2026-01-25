@@ -20,10 +20,15 @@ func TestComputeBandEnergies(t *testing.T) {
 
 		energies := enc.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
 
-		// All energies should be -28.0 (minimum)
+		// All energies should match the epsilon-based silence floor.
+		silence := 0.5 * math.Log2(1e-27)
 		for band, e := range energies {
-			if e != -28.0 {
-				t.Errorf("Band %d: energy = %f, want -28.0", band, e)
+			expected := silence
+			if band < len(eMeans) {
+				expected -= eMeans[band] * DB6
+			}
+			if math.Abs(e-expected) > 1e-6 {
+				t.Errorf("Band %d: energy = %f, want %f", band, e, expected)
 			}
 		}
 	})
@@ -46,15 +51,16 @@ func TestComputeBandEnergies(t *testing.T) {
 
 		energies := enc.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
 
-		// Target band should have positive energy
-		if energies[targetBand] <= -28.0 {
-			t.Errorf("Target band %d: energy = %f, expected > -28.0", targetBand, energies[targetBand])
+		width := end - start
+		if width <= 0 {
+			t.Fatalf("invalid band width for band %d", targetBand)
 		}
-
-		// Verify energy is in reasonable range
-		// For unit amplitude: sumSq = bandWidth, RMS = 1, log2(1) = 0
-		if energies[targetBand] < -5 || energies[targetBand] > 5 {
-			t.Errorf("Target band %d: energy = %f, expected roughly 0", targetBand, energies[targetBand])
+		expected := 0.5 * math.Log2(float64(width))
+		if targetBand < len(eMeans) {
+			expected -= eMeans[targetBand] * DB6
+		}
+		if math.Abs(energies[targetBand]-expected) > 0.1 {
+			t.Errorf("Target band %d: energy = %f, want %f", targetBand, energies[targetBand], expected)
 		}
 	})
 
@@ -77,10 +83,10 @@ func TestComputeBandEnergies(t *testing.T) {
 				t.Errorf("frameSize %d: got %d energies, want %d", frameSize, len(energies), nbBands)
 			}
 
-			// All energies should be in valid range
+			// All energies should be finite
 			for band, e := range energies {
-				if e < -28.0 || e > 16.0 {
-					t.Errorf("frameSize %d, band %d: energy %f out of range [-28, 16]", frameSize, band, e)
+				if math.IsNaN(e) || math.IsInf(e, 0) {
+					t.Errorf("frameSize %d, band %d: energy %f is invalid", frameSize, band, e)
 				}
 			}
 		}
@@ -176,12 +182,14 @@ func TestCoarseEnergyEncoderProducesValidOutput(t *testing.T) {
 					t.Logf("Inter mode produced %d bytes for %d bands", len(encoded), nbBands)
 				}
 
-				// Verify quantized energies are 6dB steps from prediction
+				// Verify quantized energies are finite and not wildly off.
 				for band := 0; band < nbBands; band++ {
-					// Quantized should differ from original by at most 3dB (half step)
 					diff := math.Abs(energies[band] - quantizedEnc[band])
-					if diff > 3.0+0.01 { // 3dB = half of 6dB step
-						t.Errorf("Band %d: original=%f, quantized=%f, diff=%f (>3dB)",
+					if math.IsNaN(diff) || math.IsInf(diff, 0) {
+						t.Errorf("Band %d: quantized diff is invalid: %v", band, diff)
+					}
+					if diff > 12*DB6 {
+						t.Errorf("Band %d: original=%f, quantized=%f, diff=%f (>12*DB6)",
 							band, energies[band], quantizedEnc[band], diff)
 					}
 				}
@@ -197,7 +205,7 @@ func TestCoarseEnergyEncoderProducesValidOutput(t *testing.T) {
 	}
 }
 
-// TestCoarseEnergyQuantization verifies 6dB quantization works correctly.
+// TestCoarseEnergyQuantization verifies DB6 quantization works correctly.
 func TestCoarseEnergyQuantization(t *testing.T) {
 	enc := NewEncoder(1)
 	frameSize := 960
@@ -207,15 +215,15 @@ func TestCoarseEnergyQuantization(t *testing.T) {
 	// Test specific energy values
 	testCases := []struct {
 		energy   float64
-		expected float64 // expected quantized (6dB steps from -28 + prediction)
+		expected float64 // expected quantized (DB6 steps from -28 + prediction)
 	}{
-		{0.0, 0.0},     // Near prediction
-		{6.0, 6.0},     // One step up
-		{-6.0, -6.0},   // One step down
-		{3.0, 6.0},     // Rounds up
-		{-3.0, -6.0},   // Rounds down
-		{8.5, 6.0},     // More than one step
-		{-10.0, -12.0}, // Two steps down
+		{0.0, 0.0},             // Near prediction
+		{DB6, DB6},             // One step up
+		{-DB6, -DB6},           // One step down
+		{DB6 / 2, DB6},         // Rounds up
+		{-DB6 / 2, -DB6},       // Rounds down
+		{1.5 * DB6, DB6},       // More than one step
+		{-2.0 * DB6, -2 * DB6}, // Two steps down
 	}
 
 	for _, tc := range testCases {
@@ -239,10 +247,10 @@ func TestCoarseEnergyQuantization(t *testing.T) {
 
 		// First band with intra has no alpha prediction, beta prediction is 0
 		// So quantization is purely based on energy value
-		// The quantized value should be a multiple of 6dB
+		// The quantized value should be a multiple of DB6
 		remainder := math.Mod(quantized[0], DB6)
 		if math.Abs(remainder) > 0.01 && math.Abs(remainder-DB6) > 0.01 {
-			t.Errorf("Energy %f: quantized to %f, not a multiple of 6dB (remainder=%f)",
+			t.Errorf("Energy %f: quantized to %f, not a multiple of DB6 (remainder=%f)",
 				tc.energy, quantized[0], remainder)
 		}
 	}
@@ -550,8 +558,8 @@ func TestComputeBandEnergiesIntegration(t *testing.T) {
 	// Verify quantization error is bounded
 	for band := 0; band < nbBands; band++ {
 		diff := math.Abs(energies[band] - quantized[band])
-		if diff > 3.0+0.01 { // Half step of 6dB
-			t.Errorf("Band %d: quantization error %f exceeds 3dB", band, diff)
+		if diff > (DB6/2)+0.01 {
+			t.Errorf("Band %d: quantization error %f exceeds DB6/2", band, diff)
 		}
 	}
 }

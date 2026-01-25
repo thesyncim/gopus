@@ -27,14 +27,14 @@ func (e *Encoder) EncodeStereoParams(nbBands int) int {
 		return -1
 	}
 
-	// For mid-side only mode:
-	// intensity = nbBands means "all bands are mid-side" (no intensity stereo)
-	// This is encoded using Laplace coding like coarse energy
+	// For dual stereo mode (simpler, encoding L and R independently):
+	// intensity = nbBands (disabled)
+	// dual_stereo = 1 (enabled)
 	e.encodeLaplaceIntensity(nbBands, IntensityDecay)
 
-	// dual_stereo = 0 means "use mid-side" (not dual stereo)
+	// dual_stereo = 1 means "use dual stereo"
 	// Encoded as a single bit with 50% probability
-	e.rangeEncoder.EncodeBit(0, 1)
+	e.rangeEncoder.EncodeBit(1, 1)
 
 	// Return -1 to indicate intensity stereo is disabled
 	return -1

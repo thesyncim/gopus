@@ -378,8 +378,6 @@ func interpBits2Pulses(start, end, skipStart int, bits1, bits2, thresh, cap []in
 			bits[j] = bit - excess
 			ebits[j] = 0
 			finePriority[j] = 1
-			bal = excess
-			continue
 		}
 
 		if excess > 0 {

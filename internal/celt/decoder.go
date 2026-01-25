@@ -46,6 +46,8 @@ type Decoder struct {
 	// Energy state (persists across frames for inter-frame prediction)
 	prevEnergy  []float64 // Previous frame band energies [MaxBands * channels]
 	prevEnergy2 []float64 // Two frames ago energies (for anti-collapse)
+	prevLogE    []float64 // Previous log energies (for anti-collapse history)
+	prevLogE2   []float64 // Two frames ago log energies (for anti-collapse history)
 
 	// Synthesis state (persists for overlap-add)
 	overlapBuffer []float64 // Previous frame overlap tail [Overlap * channels]
@@ -90,9 +92,10 @@ func NewDecoder(channels int) *Decoder {
 		// Allocate energy arrays for all bands and channels
 		prevEnergy:  make([]float64, MaxBands*channels),
 		prevEnergy2: make([]float64, MaxBands*channels),
+		prevLogE:    make([]float64, MaxBands*channels),
+		prevLogE2:   make([]float64, MaxBands*channels),
 
-		// Overlap buffer for IMDCT overlap-add
-		// Size is Overlap (120) samples per channel
+		// Overlap buffer for CELT (full overlap per channel)
 		overlapBuffer: make([]float64, Overlap*channels),
 
 		// De-emphasis filter state, one per channel
@@ -112,6 +115,8 @@ func NewDecoder(channels int) *Decoder {
 	for i := range d.prevEnergy {
 		d.prevEnergy[i] = -28.0 // Low but finite starting energy
 		d.prevEnergy2[i] = -28.0
+		d.prevLogE[i] = -28.0
+		d.prevLogE2[i] = -28.0
 	}
 
 	return d
@@ -124,6 +129,8 @@ func (d *Decoder) Reset() {
 	for i := range d.prevEnergy {
 		d.prevEnergy[i] = -28.0
 		d.prevEnergy2[i] = -28.0
+		d.prevLogE[i] = -28.0
+		d.prevLogE2[i] = -28.0
 	}
 
 	// Clear overlap buffer
@@ -202,7 +209,52 @@ func (d *Decoder) SetPrevEnergy(energies []float64) {
 	copy(d.prevEnergy, energies)
 }
 
-// OverlapBuffer returns the overlap buffer for IMDCT overlap-add.
+// SetPrevEnergyWithPrev updates prevEnergy using the provided previous state.
+// This avoids losing the prior frame when prevEnergy is updated during decoding.
+func (d *Decoder) SetPrevEnergyWithPrev(prev, energies []float64) {
+	if len(prev) == len(d.prevEnergy2) {
+		copy(d.prevEnergy2, prev)
+	} else {
+		copy(d.prevEnergy2, d.prevEnergy)
+	}
+	copy(d.prevEnergy, energies)
+}
+
+func (d *Decoder) updateLogE(energies []float64, nbBands int, transient bool) {
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+	if nbBands <= 0 {
+		return
+	}
+	if len(energies) < nbBands*d.channels {
+		nbBands = len(energies) / d.channels
+	}
+	if nbBands <= 0 {
+		return
+	}
+
+	if !transient {
+		copy(d.prevLogE2, d.prevLogE)
+	}
+	for c := 0; c < d.channels; c++ {
+		base := c * MaxBands
+		for band := 0; band < nbBands; band++ {
+			src := c*nbBands + band
+			dst := base + band
+			e := energies[src]
+			if transient {
+				if e < d.prevLogE[dst] {
+					d.prevLogE[dst] = e
+				}
+			} else {
+				d.prevLogE[dst] = e
+			}
+		}
+	}
+}
+
+// OverlapBuffer returns the overlap buffer for CELT overlap.
 // Size is Overlap * channels samples.
 func (d *Decoder) OverlapBuffer() []float64 {
 	return d.overlapBuffer
@@ -320,6 +372,9 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 		end = 1
 	}
 	start := 0
+	prev1Energy := append([]float64(nil), d.prevEnergy...)
+	prev1LogE := append([]float64(nil), d.prevLogE...)
+	prev2LogE := append([]float64(nil), d.prevLogE2...)
 
 	totalBits := len(data) * 8
 	tell := rd.Tell()
@@ -330,7 +385,14 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 		silence = rd.DecodeBit(15) == 1
 	}
 	if silence {
+		d.SetPostfilter(0, 0, 0)
 		samples := d.decodeSilenceFrame(frameSize)
+		silenceE := make([]float64, MaxBands*d.channels)
+		for i := range silenceE {
+			silenceE[i] = -28.0
+		}
+		d.updateLogE(silenceE, MaxBands, false)
+		d.SetPrevEnergyWithPrev(prev1Energy, silenceE)
 		DefaultTracer.TraceHeader(frameSize, d.channels, lm, 0, 0)
 		DefaultTracer.TraceEnergy(0, 0, 0, 0)
 		traceLen := len(samples)
@@ -340,6 +402,8 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 		if traceLen > 0 {
 			DefaultTracer.TraceSynthesis("final", samples[:traceLen])
 		}
+		celtPLCState.Reset()
+		celtPLCState.SetLastFrameParams(plc.ModeCELT, frameSize, d.channels)
 		return samples, nil
 	}
 
@@ -440,15 +504,20 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 
 	d.DecodeFineEnergy(energies, end, fineQuant)
 
-	coeffsL, coeffsR, _ := quantAllBandsDecode(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
+	coeffsL, coeffsR, collapse := quantAllBandsDecode(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
 		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, &d.rng)
 
+	antiCollapseOn := false
 	if antiCollapseRsv > 0 {
-		_ = rd.DecodeRawBits(1)
+		antiCollapseOn = rd.DecodeRawBits(1) == 1
 	}
 
 	bitsLeft := totalBits - rd.Tell()
 	d.DecodeEnergyFinalise(energies, end, fineQuant, finePriority, bitsLeft)
+
+	if antiCollapseOn {
+		antiCollapse(coeffsL, coeffsR, collapse, lm, d.channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
+	}
 
 	// Step 6: Synthesis (IMDCT + window + overlap-add)
 	var samples []float64
@@ -468,6 +537,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 
 	// Step 7: Apply de-emphasis filter
 	d.applyDeemphasis(samples)
+	scaleSamples(samples, 1.0/32768.0)
 
 	// Trace final synthesis output
 	traceLen := len(samples)
@@ -477,13 +547,37 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	DefaultTracer.TraceSynthesis("final", samples[:traceLen])
 
 	// Update energy state for next frame
-	d.SetPrevEnergy(energies)
+	d.updateLogE(energies, end, transient)
+	d.SetPrevEnergyWithPrev(prev1Energy, energies)
 
 	// Reset PLC state after successful decode
 	celtPLCState.Reset()
 	celtPLCState.SetLastFrameParams(plc.ModeCELT, frameSize, d.channels)
 
 	return samples, nil
+}
+
+// DecodeStereoParams decodes stereo parameters (intensity and dual stereo).
+// Reference: RFC 6716 Section 4.3.4, libopus celt/celt_decoder.c
+func (d *Decoder) DecodeStereoParams(nbBands int) (intensity, dualStereo int) {
+	if d.rangeDecoder == nil {
+		return -1, 0
+	}
+
+	// IntensityDecay = 16384 (Q15)
+	const decay = 16384
+
+	// Compute fs0 exactly as encoder does
+	// fs0 = laplaceNMin + (laplaceFS - laplaceNMin)*decay >> 15
+	fs0 := laplaceNMin + ((laplaceFS-laplaceNMin)*decay)>>15
+
+	// Decode intensity band index using Laplace distribution
+	intensity = d.decodeLaplace(fs0, decay)
+
+	// Decode dual stereo flag
+	dualStereo = d.rangeDecoder.DecodeBit(1)
+
+	return intensity, dualStereo
 }
 
 // decodeSilenceFlag decodes the silence flag from the bitstream.
@@ -547,12 +641,21 @@ func (d *Decoder) decodeSpread() int {
 
 // decodeSilenceFrame returns zeros for a silence frame.
 func (d *Decoder) decodeSilenceFrame(frameSize int) []float64 {
-	n := frameSize * d.channels
-	samples := make([]float64, n)
+	mode := GetModeConfig(frameSize)
+	zeros := make([]float64, frameSize)
+	var samples []float64
+	if d.channels == 2 {
+		samples = d.SynthesizeStereo(zeros, zeros, false, 1)
+	} else {
+		samples = d.Synthesize(zeros, false, 1)
+	}
+	if len(samples) == 0 {
+		samples = make([]float64, frameSize*d.channels)
+	}
 
-	// Apply de-emphasis to zeros to maintain filter state
+	d.applyPostfilter(samples, frameSize, mode.LM)
 	d.applyDeemphasis(samples)
-	d.resetPostfilterState()
+	scaleSamples(samples, 1.0/32768.0)
 
 	return samples
 }
@@ -596,6 +699,15 @@ func (d *Decoder) applyDeemphasis(samples []float64) {
 	}
 }
 
+func scaleSamples(samples []float64, scale float64) {
+	if scale == 1.0 {
+		return
+	}
+	for i := range samples {
+		samples[i] *= scale
+	}
+}
+
 // DecodeFrameWithDecoder decodes a frame using a pre-initialized range decoder.
 // This is useful when the range decoder is shared with other layers (e.g., SILK in hybrid mode).
 func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int) ([]float64, error) {
@@ -617,7 +729,15 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 	// Decode frame header flags
 	silence := d.decodeSilenceFlag()
 	if silence {
-		return d.decodeSilenceFrame(frameSize), nil
+		d.SetPostfilter(0, 0, 0)
+		samples := d.decodeSilenceFrame(frameSize)
+		silenceE := make([]float64, MaxBands*d.channels)
+		for i := range silenceE {
+			silenceE[i] = -28.0
+		}
+		d.updateLogE(silenceE, MaxBands, false)
+		d.SetPrevEnergyWithPrev(append([]float64(nil), d.prevEnergy...), silenceE)
+		return samples, nil
 	}
 
 	transient := d.decodeTransientFlag(lm)
@@ -629,6 +749,7 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 	}
 
 	// Decode energy
+	prev1Energy := append([]float64(nil), d.prevEnergy...)
 	energies := d.DecodeCoarseEnergy(nbBands, intra, lm)
 
 	// Simple allocation for remaining bits
@@ -663,9 +784,11 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 
 	// De-emphasis
 	d.applyDeemphasis(samples)
+	scaleSamples(samples, 1.0/32768.0)
 
 	// Update energy
-	d.SetPrevEnergy(energies)
+	d.updateLogE(energies, nbBands, transient)
+	d.SetPrevEnergyWithPrev(prev1Energy, energies)
 
 	return samples, nil
 }
@@ -713,6 +836,9 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 		end = 1
 	}
 	start := 0
+	prev1Energy := append([]float64(nil), d.prevEnergy...)
+	prev1LogE := append([]float64(nil), d.prevLogE...)
+	prev2LogE := append([]float64(nil), d.prevLogE2...)
 
 	totalBits := rd.StorageBits()
 	tell := rd.Tell()
@@ -723,7 +849,15 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 		silence = rd.DecodeBit(15) == 1
 	}
 	if silence {
-		return d.decodeSilenceFrame(frameSize), nil
+		d.SetPostfilter(0, 0, 0)
+		samples := d.decodeSilenceFrame(frameSize)
+		silenceE := make([]float64, MaxBands*d.channels)
+		for i := range silenceE {
+			silenceE[i] = -28.0
+		}
+		d.updateLogE(silenceE, MaxBands, false)
+		d.SetPrevEnergyWithPrev(prev1Energy, silenceE)
+		return samples, nil
 	}
 
 	postfilterGain := 0.0
@@ -818,15 +952,20 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 
 	d.DecodeFineEnergy(energies, end, fineQuant)
 
-	coeffsL, coeffsR, _ := quantAllBandsDecode(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
+	coeffsL, coeffsR, collapse := quantAllBandsDecode(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
 		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, &d.rng)
 
+	antiCollapseOn := false
 	if antiCollapseRsv > 0 {
-		_ = rd.DecodeRawBits(1)
+		antiCollapseOn = rd.DecodeRawBits(1) == 1
 	}
 
 	bitsLeft := totalBits - rd.Tell()
 	d.DecodeEnergyFinalise(energies, end, fineQuant, finePriority, bitsLeft)
+
+	if antiCollapseOn {
+		antiCollapse(coeffsL, coeffsR, collapse, lm, d.channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
+	}
 
 	hybridBinStart := ScaledBandStart(HybridCELTStartBand, frameSize)
 	var samples []float64
@@ -853,7 +992,9 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	d.applyPostfilter(samples, frameSize, mode.LM)
 
 	d.applyDeemphasis(samples)
-	d.SetPrevEnergy(energies)
+	scaleSamples(samples, 1.0/32768.0)
+	d.updateLogE(energies, end, transient)
+	d.SetPrevEnergyWithPrev(prev1Energy, energies)
 
 	return samples, nil
 }
@@ -870,6 +1011,7 @@ func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
 	// Generate concealment using PLC module
 	// Pass decoder as both state and synthesizer (it implements both interfaces)
 	samples := plc.ConcealCELT(d, d, frameSize, fadeFactor)
+	scaleSamples(samples, 1.0/32768.0)
 
 	return samples, nil
 }
@@ -885,6 +1027,7 @@ func (d *Decoder) decodePLCHybrid(frameSize int) ([]float64, error) {
 
 	// Generate concealment for hybrid bands only (17-21)
 	samples := plc.ConcealCELTHybrid(d, d, frameSize, fadeFactor)
+	scaleSamples(samples, 1.0/32768.0)
 
 	return samples, nil
 }

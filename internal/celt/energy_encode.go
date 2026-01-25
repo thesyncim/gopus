@@ -11,13 +11,13 @@ import (
 
 // ComputeBandEnergies computes energy for each frequency band from MDCT coefficients.
 // Returns energies in log2 scale, RELATIVE TO MEAN (same as libopus).
-// energies[c*nbBands + band] = log2(RMS energy) - eMeans[band] * DB6
+// energies[c*nbBands + band] = log2(amplitude) - eMeans[band]
 //
 // The energy computation extracts loudness per frequency band:
 // 1. For each band, sum squares of MDCT coefficients
 // 2. Divide by band width to get average power
-// 3. Convert to log2 scale: energy = 0.5 * log2(sumSq / width)
-// 4. SUBTRACT eMeans to make values mean-relative (like libopus amp2Log2)
+// 3. Convert to log2 scale: energy = 0.5 * log2(sumSq)
+// 4. Subtract eMeans to make values mean-relative (like libopus amp2Log2)
 //
 // The decoder adds eMeans back during denormalization, recovering the original.
 // This ensures encoder and decoder use matching gain values.
@@ -45,6 +45,7 @@ func (e *Encoder) ComputeBandEnergies(mdctCoeffs []float64, nbBands, frameSize i
 	}
 
 	energies := make([]float64, nbBands*channels)
+	silence := 0.5 * math.Log2(1e-27)
 
 	for c := 0; c < channels; c++ {
 		// Get coefficients for this channel
@@ -63,24 +64,30 @@ func (e *Encoder) ComputeBandEnergies(mdctCoeffs []float64, nbBands, frameSize i
 
 			// Clamp to available coefficients
 			if start >= len(channelCoeffs) {
-				energies[c*nbBands+band] = -28.0 // Minimum energy (D03-01-01)
+				energy := silence
+				if band < len(eMeans) {
+					energy -= eMeans[band] * DB6
+				}
+				energies[c*nbBands+band] = energy
 				continue
 			}
 			if end > len(channelCoeffs) {
 				end = len(channelCoeffs)
 			}
 			if end <= start {
-				energies[c*nbBands+band] = -28.0
+				energy := silence
+				if band < len(eMeans) {
+					energy -= eMeans[band] * DB6
+				}
+				energies[c*nbBands+band] = energy
 				continue
 			}
 
 			// Compute RMS energy in log2 scale (raw/absolute)
 			energy := computeBandRMS(channelCoeffs, start, end)
 
-			// Subtract eMeans to make energy mean-relative (like libopus amp2Log2)
+			// Subtract eMeans to make energy mean-relative (like libopus amp2Log2).
 			// The decoder adds eMeans back during denormalization.
-			// This ensures encoder normalization and decoder denormalization use
-			// the same gain: 2^((mean_relative + eMeans*DB6) / DB6) = 2^(raw / DB6)
 			if band < len(eMeans) {
 				energy -= eMeans[band] * DB6
 			}
@@ -92,41 +99,22 @@ func (e *Encoder) ComputeBandEnergies(mdctCoeffs []float64, nbBands, frameSize i
 	return energies
 }
 
-// computeBandRMS computes the energy of coefficients in [start, end) in dB units.
-// The decoder expects energy in dB units where 6 dB = 2x amplitude (DB6 = 6.0).
-// Returns energy = DB6 * log2(sqrt(sumSq)) = DB6 * 0.5 * log2(sumSq).
-// This matches libopus compute_band_energies() which uses sqrt(sum) NOT sqrt(sum/N).
-// For zero input, returns -28.0 (minimum energy per D03-01-01).
+// computeBandRMS computes the per-band log2 amplitude from MDCT coefficients.
+// Returns log2(sqrt(sum(x^2))) using the same epsilon as libopus.
+// This matches libopus compute_band_energies() + amp2Log2() (float path).
 func computeBandRMS(coeffs []float64, start, end int) float64 {
 	if end <= start || start < 0 || end > len(coeffs) {
-		return -28.0
+		return 0.5 * math.Log2(1e-27)
 	}
 
-	// Compute sum of squares
-	sumSq := 0.0
+	// Compute sum of squares with libopus epsilon.
+	sumSq := 1e-27
 	for i := start; i < end; i++ {
 		sumSq += coeffs[i] * coeffs[i]
 	}
 
-	// Handle zero energy
-	if sumSq < 1e-30 {
-		return -28.0 // Minimum energy (D03-01-01)
-	}
-
-	// Energy in dB units: energy = DB6 * log2(sqrt(sumSq))
-	// Note: libopus uses sqrt(sum) NOT sqrt(sum/N), so we don't divide by width.
 	// log2(sqrt(sumSq)) = 0.5 * log2(sumSq)
-	energy := DB6 * 0.5 * math.Log2(sumSq)
-
-	// Clamp to valid range
-	if energy < -28.0 {
-		energy = -28.0
-	}
-	if energy > 32.0 {
-		energy = 32.0 // Matches decoder's clamp (bands.go:99-100)
-	}
-
-	return energy
+	return 0.5 * math.Log2(sumSq)
 }
 
 // EncodeCoarseEnergy encodes coarse (6dB step) band energies.
@@ -154,19 +142,21 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 		lm = 3
 	}
 
-	quantizedEnergies := make([]float64, len(energies))
-	copy(quantizedEnergies, energies)
+	channels := e.channels
+	if len(energies) < nbBands*channels {
+		channels = 1
+	}
 
-	// Get prediction coefficients (same as decoder)
-	var alpha, beta float64
+	quantizedEnergies := make([]float64, nbBands*channels)
+
+	// Prediction coefficients (libopus quant_coarse_energy_impl).
+	var coef, beta float64
 	if intra {
-		// Intra-frame: no inter-frame prediction, only inter-band
-		alpha = 0.0
-		beta = BetaIntra // Fixed 0.15 for intra mode
+		coef = 0.0
+		beta = BetaIntra
 	} else {
-		// Inter-frame: use both alpha (previous frame) and beta (previous band)
-		alpha = AlphaCoef[lm]
-		beta = BetaCoefInter[lm] // LM-dependent for inter mode
+		coef = AlphaCoef[lm]
+		beta = BetaCoefInter[lm]
 	}
 
 	prob := eProbModel[lm][0]
@@ -174,10 +164,19 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 		prob = eProbModel[lm][1]
 	}
 
-	// Encode for each channel
-	channels := e.channels
-	if len(energies) < nbBands*channels {
-		channels = 1
+	budget := e.rangeEncoder.StorageBits()
+	if e.frameBits > 0 && e.frameBits < budget {
+		budget = e.frameBits
+	}
+
+	// Max decay bound (libopus uses nbAvailableBytes-based clamp).
+	maxDecay := 16.0 * DB6
+	nbAvailableBytes := budget / 8
+	if nbBands > 10 {
+		limit := 0.125 * float64(nbAvailableBytes) * DB6
+		if limit < maxDecay {
+			maxDecay = limit
+		}
 	}
 
 	prevBandEnergy := make([]float64, channels)
@@ -188,44 +187,80 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 				continue
 			}
 
-			energy := energies[idx]
+			x := energies[idx]
 
-			// Compute prediction (same formula as decoder)
-			prevFrameEnergy := e.prevEnergy[c*MaxBands+band]
-			pred := alpha*prevFrameEnergy + prevBandEnergy[c]
-
-			// Compute residual and quantize to 6dB steps
-			residual := energy - pred
-			qi := int(math.Round(residual / DB6))
-
-			// Encode with Laplace model
-			pi := 2 * band
-			if pi > 40 {
-				pi = 40
+			// Previous frame energy (for prediction and decay bound).
+			oldEBand := e.prevEnergy[c*MaxBands+band]
+			oldE := oldEBand
+			minEnergy := -9.0 * DB6
+			if oldE < minEnergy {
+				oldE = minEnergy
 			}
-			fs := int(prob[pi]) << 7
-			decay := int(prob[pi+1]) << 6
-			qi = e.encodeLaplace(qi, fs, decay)
 
-			// Compute quantized energy
-			quantizedEnergy := pred + float64(qi)*DB6
-			quantizedEnergies[idx] = quantizedEnergy
+			// Prediction residual.
+			f := x - coef*oldE - prevBandEnergy[c]
+			qi := int(math.Floor(f/DB6 + 0.5))
 
-			// Update prev band energy for next band's inter-band prediction.
-			// Per libopus: prev is filtered by the quantized delta.
-			// Formula: prev = prev + q - beta*q, where q = qi*DB6
+			// Prevent energy from decaying too quickly.
+			decayBound := math.Max(-28.0*DB6, oldEBand) - maxDecay
+			if qi < 0 && x < decayBound {
+				adjust := int((decayBound - x) / DB6)
+				qi += adjust
+				if qi > 0 {
+					qi = 0
+				}
+			}
+
+			tell := e.rangeEncoder.Tell()
+			bitsLeft := budget - tell - 3*channels*(nbBands-band)
+			if band != 0 && bitsLeft < 30 {
+				if bitsLeft < 24 && qi > 1 {
+					qi = 1
+				}
+				if bitsLeft < 16 && qi < -1 {
+					qi = -1
+				}
+			}
+
+			// Encode with Laplace or fallback models.
+			if budget-tell >= 15 {
+				pi := 2 * band
+				if pi > 40 {
+					pi = 40
+				}
+				fs := int(prob[pi]) << 7
+				decay := int(prob[pi+1]) << 6
+				qi = e.encodeLaplace(qi, fs, decay)
+			} else if budget-tell >= 2 {
+				if qi > 1 {
+					qi = 1
+				}
+				if qi < -1 {
+					qi = -1
+				}
+				s := absInt(qi) * 2
+				if qi < 0 {
+					s++
+				}
+				e.rangeEncoder.EncodeICDF(s, smallEnergyICDF, 2)
+			} else if budget-tell >= 1 {
+				if qi > 0 {
+					qi = 0
+				}
+				e.rangeEncoder.EncodeBit(-qi, 1)
+			} else {
+				qi = -1
+			}
+
 			q := float64(qi) * DB6
-			prevBandEnergy[c] = prevBandEnergy[c] + q - beta*q
-		}
-	}
-
-	// Update previous frame energy for next frame's inter-frame prediction
-	for c := 0; c < channels; c++ {
-		for band := 0; band < nbBands && band < MaxBands; band++ {
-			idx := c*nbBands + band
-			if idx < len(quantizedEnergies) {
-				e.prevEnergy[c*MaxBands+band] = quantizedEnergies[idx]
+			quantizedEnergy := coef*oldE + prevBandEnergy[c] + q
+			quantizedEnergies[idx] = quantizedEnergy
+			if band < MaxBands {
+				e.prevEnergy[c*MaxBands+band] = quantizedEnergy
 			}
+
+			// Update inter-band predictor.
+			prevBandEnergy[c] = prevBandEnergy[c] + q - beta*q
 		}
 	}
 

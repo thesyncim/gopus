@@ -8,8 +8,15 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	config := GetBandwidthConfig(e.bandwidth)
 	numSubframes := 4 // 20ms frame = 4 subframes
 
-	// Allocate output buffer
-	output := make([]byte, 256) // Max frame size
+	// Allocate output buffer with a simple bitrate heuristic.
+	bufSize := len(pcm) / 3
+	if bufSize < 80 {
+		bufSize = 80
+	}
+	if bufSize > 200 {
+		bufSize = 200
+	}
+	output := make([]byte, bufSize)
 	e.rangeEncoder = &rangecoding.Encoder{}
 	e.rangeEncoder.Init(output)
 

@@ -93,9 +93,13 @@ func TestEncoderTrace(t *testing.T) {
 	result := re.Done()
 	t.Logf("\n=== Output ===")
 	t.Logf("Result: %x (len=%d)", result, len(result))
-	t.Logf("First 8 bytes: %02x %02x %02x %02x %02x %02x %02x %02x",
-		result[0], result[1], result[2], result[3],
-		result[4], result[5], result[6], result[7])
+	if len(result) >= 8 {
+		t.Logf("First 8 bytes: %02x %02x %02x %02x %02x %02x %02x %02x",
+			result[0], result[1], result[2], result[3],
+			result[4], result[5], result[6], result[7])
+	} else {
+		t.Logf("First %d bytes: %x", len(result), result)
+	}
 }
 
 // TestCompareEnergyComputation compares energy computation.

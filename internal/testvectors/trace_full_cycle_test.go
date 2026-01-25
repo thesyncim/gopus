@@ -32,8 +32,10 @@ func TestTraceFullEncodeDecode(t *testing.T) {
 	enc := celt.NewEncoder(1)
 	enc.SetBitrate(64000)
 
-	// Apply pre-emphasis
-	preemph := enc.ApplyPreemphasis(pcm)
+	// Create a separate encoder for analysis to avoid corrupting state
+	encAnalysis := celt.NewEncoder(1)
+	// Apply pre-emphasis for analysis only (doesn't affect enc's state)
+	preemph := encAnalysis.ApplyPreemphasis(pcm)
 	t.Logf("Pre-emphasis applied, max=%.4f", maxAbsF(preemph))
 
 	// Compute MDCT with overlap
@@ -74,6 +76,7 @@ func TestTraceFullEncodeDecode(t *testing.T) {
 		t.Fatalf("Encode error: %v", err)
 	}
 	t.Logf("\nEncoded packet: %d bytes", len(packet))
+	t.Logf("First 10 bytes: %x", packet[:10])
 
 	// === DECODER SIDE ===
 	dec := celt.NewDecoder(1)
@@ -86,6 +89,13 @@ func TestTraceFullEncodeDecode(t *testing.T) {
 	t.Logf("Original max: %.4f", maxAbsF(pcm))
 	t.Logf("Decoded max:  %.4f", maxAbsF(decoded))
 	t.Logf("Ratio: %.2f", maxAbsF(decoded)/maxAbsF(pcm))
+
+	// Print first 20 samples like the other test
+	t.Log("\nFirst 20 samples:")
+	t.Log("  i      original     decoded")
+	for i := 0; i < 20 && i < len(pcm) && i < len(decoded); i++ {
+		t.Logf("%3d  %10.5f  %10.5f", i, pcm[i], decoded[i])
+	}
 }
 
 func maxAbsF(s []float64) float64 {

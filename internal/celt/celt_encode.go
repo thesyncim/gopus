@@ -95,6 +95,18 @@ func ResetStereoEncoder() {
 	}
 }
 
+// SetBitrate updates the bitrate on the package-level encoders.
+func SetBitrate(bitrate int) {
+	encoderMu.Lock()
+	defer encoderMu.Unlock()
+	if monoEncoder != nil {
+		monoEncoder.SetBitrate(bitrate)
+	}
+	if stereoEncoder != nil {
+		stereoEncoder.SetBitrate(bitrate)
+	}
+}
+
 // EncodeFrames encodes multiple consecutive frames.
 // Useful for encoding a stream of audio data.
 // pcmFrames: slice of PCM frames, each with frameSize samples

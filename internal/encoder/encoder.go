@@ -419,7 +419,8 @@ func (e *Encoder) selectMode(frameSize int) Mode {
 	case types.BandwidthSuperwideband, types.BandwidthFullband:
 		// Higher bandwidths: use Hybrid for speech-like frames
 		// Only if frame size is compatible with hybrid (10ms or 20ms)
-		if frameSize == 480 || frameSize == 960 {
+		// TODO: Re-enable Hybrid for stereo once SILK stereo encoding is implemented
+		if (frameSize == 480 || frameSize == 960) && e.channels == 1 {
 			return ModeHybrid
 		}
 		// Otherwise use CELT

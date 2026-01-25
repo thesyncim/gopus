@@ -22,7 +22,7 @@ func TestMonoRoundTrip_Voiced(t *testing.T) {
 			math.Sin(2*math.Pi*300*tm)+
 				0.5*math.Sin(2*math.Pi*600*tm)+
 				0.3*math.Sin(2*math.Pi*900*tm),
-		) * 10000
+		) * (10000 * int16Scale)
 	}
 
 	// Encode
@@ -133,7 +133,7 @@ func TestMonoRoundTrip_AllBandwidths(t *testing.T) {
 			pcm := make([]float32, frameSamples)
 			for i := range pcm {
 				tm := float64(i) / float64(config.SampleRate)
-				pcm[i] = float32(math.Sin(2*math.Pi*300*tm)) * 10000
+				pcm[i] = float32(math.Sin(2*math.Pi*300*tm)) * (10000 * int16Scale)
 			}
 
 			// Encode
@@ -175,7 +175,7 @@ func TestMonoRoundTrip_SignalRecovery(t *testing.T) {
 	for i := range original {
 		tm := float64(i) / float64(config.SampleRate)
 		// Simple sine wave for easier correlation analysis
-		original[i] = float32(math.Sin(2*math.Pi*300*tm)) * 10000
+		original[i] = float32(math.Sin(2*math.Pi*300*tm)) * (10000 * int16Scale)
 	}
 
 	// Encode
@@ -224,7 +224,7 @@ func TestMonoRoundTrip_MultipleFrames(t *testing.T) {
 		freq := 200.0 + float64(frame)*50 // Varying frequency per frame
 		for i := range pcm {
 			tm := float64(i+frame*frameSamples) / float64(config.SampleRate)
-			pcm[i] = float32(math.Sin(2*math.Pi*freq*tm)) * 10000
+			pcm[i] = float32(math.Sin(2*math.Pi*freq*tm)) * (10000 * int16Scale)
 		}
 
 		// Encode using stateful encoder
@@ -322,8 +322,8 @@ func TestStereoRoundTrip_Basic(t *testing.T) {
 	right := make([]float32, frameSamples)
 	for i := range left {
 		tm := float64(i) / float64(config.SampleRate)
-		left[i] = float32(math.Sin(2*math.Pi*300*tm)) * 10000
-		right[i] = float32(math.Sin(2*math.Pi*350*tm)) * 10000
+		left[i] = float32(math.Sin(2*math.Pi*300*tm)) * (10000 * int16Scale)
+		right[i] = float32(math.Sin(2*math.Pi*350*tm)) * (10000 * int16Scale)
 	}
 
 	// Encode stereo
@@ -368,8 +368,8 @@ func TestStereoRoundTrip_CorrelatedChannels(t *testing.T) {
 	right := make([]float32, frameSamples)
 	for i := range left {
 		tm := float64(i) / float64(config.SampleRate)
-		left[i] = float32(math.Sin(2*math.Pi*300*tm)) * 10000
-		right[i] = float32(math.Sin(2*math.Pi*300*tm+0.5)) * 10000 // Phase shifted
+		left[i] = float32(math.Sin(2*math.Pi*300*tm)) * (10000 * int16Scale)
+		right[i] = float32(math.Sin(2*math.Pi*300*tm+0.5)) * (10000 * int16Scale) // Phase shifted
 	}
 
 	// Encode stereo
@@ -419,8 +419,8 @@ func TestStereoRoundTrip_AllBandwidths(t *testing.T) {
 			right := make([]float32, frameSamples)
 			for i := range left {
 				tm := float64(i) / float64(config.SampleRate)
-				left[i] = float32(math.Sin(2*math.Pi*300*tm)) * 10000
-				right[i] = float32(math.Sin(2*math.Pi*350*tm)) * 10000
+				left[i] = float32(math.Sin(2*math.Pi*300*tm)) * (10000 * int16Scale)
+				right[i] = float32(math.Sin(2*math.Pi*350*tm)) * (10000 * int16Scale)
 			}
 
 			// Encode
@@ -464,8 +464,8 @@ func TestStereoRoundTrip_WeightsPreserved(t *testing.T) {
 	right := make([]float32, frameSamples)
 	for i := range left {
 		tm := float64(i) / float64(config.SampleRate)
-		left[i] = float32(math.Sin(2*math.Pi*300*tm)) * 10000
-		right[i] = float32(math.Sin(2*math.Pi*500*tm)) * 8000 // Different freq and amplitude
+		left[i] = float32(math.Sin(2*math.Pi*300*tm)) * (10000 * int16Scale)
+		right[i] = float32(math.Sin(2*math.Pi*500*tm)) * (8000 * int16Scale) // Different freq and amplitude
 	}
 
 	// Encode stereo
@@ -512,7 +512,7 @@ func TestStereoRoundTrip_MonoCompatibility(t *testing.T) {
 	mono := make([]float32, frameSamples)
 	for i := range mono {
 		tm := float64(i) / float64(config.SampleRate)
-		mono[i] = float32(math.Sin(2*math.Pi*300*tm)) * 10000
+		mono[i] = float32(math.Sin(2*math.Pi*300*tm)) * (10000 * int16Scale)
 	}
 
 	// Encode as stereo with identical channels

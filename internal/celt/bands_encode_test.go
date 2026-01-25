@@ -265,11 +265,11 @@ func TestEncodeBandsAllSizes(t *testing.T) {
 			// Allocate bits (simple uniform allocation)
 			bandBits := make([]int, nbBands)
 			for band := 0; band < nbBands; band++ {
-				bandBits[band] = 16 // 16 bits per band
+				bandBits[band] = 16 << bitRes // 16 bits per band (Q3)
 			}
 
 			// This should not panic
-			enc.EncodeBands(shapes, bandBits, nbBands, frameSize)
+			enc.EncodeBands(shapes, nil, bandBits, nbBands, frameSize)
 
 			// Finalize and verify we got some data
 			data := re.Done()
@@ -417,11 +417,11 @@ func TestEncodeBandsWithDecoder(t *testing.T) {
 	// Allocate bits (generous allocation)
 	bandBits := make([]int, nbBands)
 	for band := 0; band < nbBands; band++ {
-		bandBits[band] = 24 // 24 bits per band
+		bandBits[band] = 24 << bitRes // 24 bits per band (Q3)
 	}
 
 	// Encode
-	enc.EncodeBands(shapes, bandBits, nbBands, frameSize)
+	enc.EncodeBands(shapes, nil, bandBits, nbBands, frameSize)
 	data := re.Done()
 
 	if len(data) == 0 {

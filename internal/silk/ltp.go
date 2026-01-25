@@ -21,15 +21,18 @@ func (d *Decoder) ltpSynthesis(excitation []int32, pitchLag int, ltpCoeffs []int
 		return
 	}
 
-	// LTP scale factors (Q14 format)
-	// Per RFC 6716 Section 4.2.7.9.1: 1.0, 0.9375, 0.875
-	ltpScaleFactors := []int32{16384, 15360, 14336}
+	// LTP scale factors (linear).
+	// Per RFC 6716 Section 4.2.7.9.1: 1.0, 0.9375, 0.875.
+	ltpScaleFactors := []float64{1.0, 0.9375, 0.875}
+	if ltpScale < 0 || ltpScale >= len(ltpScaleFactors) {
+		ltpScale = 0
+	}
 	scale := ltpScaleFactors[ltpScale]
 
 	historyLen := len(d.outputHistory)
 
 	for i := range excitation {
-		var pred int64
+		var pred float64
 
 		// 5-tap filter: taps at [-2, -1, 0, +1, +2] relative to pitchLag
 		for k := 0; k < 5; k++ {
@@ -41,18 +44,17 @@ func (d *Decoder) ltpSynthesis(excitation []int32, pitchLag int, ltpCoeffs []int
 			}
 			histIdx = histIdx % historyLen
 
-			// Multiply: Q7 coeff * history value
-			// History is in float32 normalized [-1, 1], convert to Q7 equivalent
-			histVal := int64(d.outputHistory[histIdx] * 128.0) // Scale to Q7
-			pred += int64(ltpCoeffs[k]) * histVal
+			// History is in float32 normalized [-1, 1].
+			histVal := float64(d.outputHistory[histIdx])
+			coeff := float64(ltpCoeffs[k]) / 128.0
+			pred += coeff * histVal
 		}
 
-		// pred is now in Q14 (Q7 * Q7)
-		// Apply LTP scale factor (Q14) -> Q28, then shift down
-		pred = (pred * int64(scale)) >> 21 // Q28 -> Q7, then >> 7 for final
+		// Apply LTP scale factor and convert to PCM units.
+		pred *= scale
 
 		// Add prediction to excitation
-		excitation[i] += int32(pred)
+		excitation[i] += int32(pred * 32768.0)
 	}
 }
 

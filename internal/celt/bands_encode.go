@@ -3,9 +3,7 @@
 
 package celt
 
-import (
-	"math"
-)
+import "math"
 
 // NormalizeBands divides each band's MDCT coefficients by its energy,
 // producing unit-norm shapes ready for PVQ quantization.
@@ -53,19 +51,19 @@ func (e *Encoder) NormalizeBands(mdctCoeffs []float64, energies []float64, nbBan
 			continue
 		}
 
-		// Compute gain from energy (energy is in dB units, 6 dB per doubling)
+		// Compute gain from energy (log2 units, 1 = 6 dB)
 		// The decoder uses: e = decoded_energy + eMeans*DB6; gain = 2^(e/DB6)
 		// The encoder must use the SAME formula for normalization, using the
 		// quantized energy that was encoded to the bitstream.
 		// This ensures: normalized * decoder_gain = original (up to quantization)
-		e := energies[band]
+		e_val := energies[band]
 		if band < len(eMeans) {
-			e += eMeans[band] * DB6
+			e_val += eMeans[band] * DB6
 		}
-		if e > 32 {
-			e = 32 // Match decoder's clamp (bands.go:102-103)
+		if e_val > 32*DB6 {
+			e_val = 32 * DB6 // Match decoder's clamp (bands.go:102-103)
 		}
-		gain := math.Exp2(e / DB6)
+		gain := math.Exp2(e_val / DB6)
 
 		// Allocate shape vector
 		shape := make([]float64, n)
@@ -324,7 +322,7 @@ func (e *Encoder) EncodeBandPVQ(shape []float64, n, k int) {
 }
 
 // EncodeBands encodes all bands using PVQ.
-// shapes: normalized band shapes from NormalizeBands
+// shapesL, shapesR: normalized band shapes for Left/Right (R is nil for mono)
 // bandBits: bit allocation per band from ComputeAllocation
 // nbBands: number of bands
 // frameSize: frame size in samples (120, 240, 480, 960)
@@ -332,18 +330,21 @@ func (e *Encoder) EncodeBandPVQ(shape []float64, n, k int) {
 // For each band:
 // - If bits <= 0: skip (band will be folded by decoder)
 // - Otherwise: compute k from bits and encode via EncodeBandPVQ
+// - For stereo, bits are split between L and R (Dual Stereo)
 //
 // Reference: libopus celt/bands.c quant_all_bands()
-func (e *Encoder) EncodeBands(shapes [][]float64, bandBits []int, nbBands, frameSize int) {
+func (e *Encoder) EncodeBands(shapesL, shapesR [][]float64, bandBits []int, nbBands, frameSize int) {
 	if e.rangeEncoder == nil {
 		return
 	}
 	if nbBands <= 0 || nbBands > MaxBands {
 		return
 	}
-	if len(shapes) < nbBands || len(bandBits) < nbBands {
+	if len(shapesL) < nbBands || len(bandBits) < nbBands {
 		return
 	}
+
+	stereo := shapesR != nil && len(shapesR) >= nbBands
 
 	for band := 0; band < nbBands; band++ {
 		bits := bandBits[band]
@@ -359,21 +360,38 @@ func (e *Encoder) EncodeBands(shapes [][]float64, bandBits []int, nbBands, frame
 			continue
 		}
 
-		// Convert bits to pulse count
-		k := bitsToKEncode(bits, n)
-		if k <= 0 {
-			// Not enough bits for any pulses
-			continue
-		}
+		if stereo {
+			// Dual stereo: split bits
+			// Note: This allocation must match decoder's dual stereo split
+			bitsL := bits / 2
+			bitsR := bits - bitsL
 
-		// Get shape for this band
-		shape := shapes[band]
-		if len(shape) == 0 {
-			// No shape data - skip
-			continue
-		}
+			// Encode Left
+			kL := bitsToKEncode(bitsL, n)
+			if kL > 0 && len(shapesL[band]) > 0 {
+				e.EncodeBandPVQ(shapesL[band], n, kL)
+			}
 
-		// Encode the band using PVQ
-		e.EncodeBandPVQ(shape, n, k)
+			// Encode Right
+			kR := bitsToKEncode(bitsR, n)
+			if kR > 0 && len(shapesR[band]) > 0 {
+				e.EncodeBandPVQ(shapesR[band], n, kR)
+			}
+		} else {
+			// Mono
+			k := bitsToKEncode(bits, n)
+			if k <= 0 {
+				continue
+			}
+
+			// Get shape for this band
+			shape := shapesL[band]
+			if len(shape) == 0 {
+				continue
+			}
+
+			// Encode the band using PVQ
+			e.EncodeBandPVQ(shape, n, k)
+		}
 	}
 }

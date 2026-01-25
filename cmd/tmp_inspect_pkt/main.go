@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/internal/celt"
@@ -16,6 +18,11 @@ func main() {
 		panic(err)
 	}
 	idx := 148
+	if len(os.Args) > 1 {
+		if v, err := strconv.Atoi(os.Args[1]); err == nil {
+			idx = v
+		}
+	}
 	if idx >= len(packets) {
 		fmt.Printf("packet idx %d out of range (%d)\n", idx, len(packets))
 		return

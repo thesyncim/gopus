@@ -97,7 +97,7 @@ func (d *Decoder) updateRange(fl, fh, ft uint32) {
 	rd.DecodeSymbol(fl, fh, ft)
 }
 
-// DecodeCoarseEnergy decodes coarse (6dB step) band energies.
+// DecodeCoarseEnergy decodes coarse band energies in log2 units (1 = 6 dB).
 // intra=true: no inter-frame prediction (first frame or after loss)
 // intra=false: uses alpha prediction from previous frame
 // Reference: RFC 6716 Section 4.3.2, libopus celt/quant_bands.c unquant_coarse_energy()
@@ -173,7 +173,7 @@ func (d *Decoder) DecodeCoarseEnergy(nbBands int, intra bool, lm int) []float64 
 			}
 			pred := alpha*prevFrameEnergy + prevBandEnergy[c]
 
-			// Compute energy: pred + qi * 6.0 (6 dB per step)
+			// Compute energy: pred + qi * DB6 (6 dB per step)
 			q := float64(qi) * DB6
 			energy := pred + q
 
@@ -252,34 +252,7 @@ func (d *Decoder) decodeUniform(ft uint) int {
 // fineBits[band] specifies bits allocated for refinement (0 = no refinement).
 // Reference: RFC 6716 Section 4.3.2, libopus celt/quant_bands.c unquant_fine_energy()
 func (d *Decoder) DecodeFineEnergy(energies []float64, nbBands int, fineBits []int) {
-	if d.rangeDecoder == nil {
-		return
-	}
-	if nbBands > MaxBands {
-		nbBands = MaxBands
-	}
-	if nbBands > len(fineBits) {
-		nbBands = len(fineBits)
-	}
-	rd := d.rangeDecoder
-
-	for band := 0; band < nbBands; band++ {
-		extra := fineBits[band]
-		if extra <= 0 {
-			continue
-		}
-
-		scale := float64(uint(1) << extra)
-		for c := 0; c < d.channels; c++ {
-			q2 := rd.DecodeRawBits(uint(extra))
-			offset := (float64(q2)+0.5)/scale - 0.5
-
-			idx := c*nbBands + band
-			if idx < len(energies) {
-				energies[idx] += offset * DB6
-			}
-		}
-	}
+	d.decodeFineEnergy(energies, nbBands, nil, fineBits)
 }
 
 // DecodeFineEnergyWithDecoder adds fine energy precision using an explicit range decoder.
@@ -288,7 +261,54 @@ func (d *Decoder) DecodeFineEnergyWithDecoder(rd *rangecoding.Decoder, energies 
 	d.rangeDecoder = rd
 	defer func() { d.rangeDecoder = oldRD }()
 
-	d.DecodeFineEnergy(energies, nbBands, fineBits)
+	d.decodeFineEnergy(energies, nbBands, nil, fineBits)
+}
+
+// decodeFineEnergy mirrors libopus unquant_fine_energy() for float builds.
+// prevQuant may be nil; extraQuant provides per-band refinement bits.
+func (d *Decoder) decodeFineEnergy(energies []float64, nbBands int, prevQuant, extraQuant []int) {
+	if d.rangeDecoder == nil {
+		return
+	}
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+	if nbBands > len(extraQuant) {
+		nbBands = len(extraQuant)
+	}
+	if nbBands <= 0 {
+		return
+	}
+
+	rd := d.rangeDecoder
+	for band := 0; band < nbBands; band++ {
+		extra := extraQuant[band]
+		if extra <= 0 {
+			continue
+		}
+		if rd.Tell()+d.channels*extra > rd.StorageBits() {
+			continue
+		}
+
+		prev := 0
+		if prevQuant != nil && band < len(prevQuant) {
+			prev = prevQuant[band]
+		}
+
+		scale := float64(uint(1) << extra)
+		for c := 0; c < d.channels; c++ {
+			q2 := rd.DecodeRawBits(uint(extra))
+			offset := (float64(q2)+0.5)/scale - 0.5
+			if prev > 0 {
+				offset /= float64(uint(1) << prev)
+			}
+
+			idx := c*nbBands + band
+			if idx < len(energies) {
+				energies[idx] += offset * DB6
+			}
+		}
+	}
 }
 
 // DecodeEnergyRemainder uses remaining bits for additional energy precision.

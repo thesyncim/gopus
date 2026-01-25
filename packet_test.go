@@ -195,7 +195,7 @@ func TestParsePacketCode1(t *testing.T) {
 
 func makeCode1Packet(frameDataLen int) []byte {
 	packet := make([]byte, 1+frameDataLen) // TOC + frame data
-	packet[0] = 0x01                        // Code 1
+	packet[0] = 0x01                       // Code 1
 	return packet
 }
 
@@ -272,13 +272,13 @@ func TestParsePacketCode3CBR(t *testing.T) {
 		{
 			"cbr_2_frames",
 			// TOC=0x03, frameCount=0x02 (CBR, no padding, M=2), frameLen=50
-			append([]byte{0x03, 0x02, 50}, make([]byte, 100)...),
+			append([]byte{0x03, 0x02}, make([]byte, 100)...),
 			2, 50, 0,
 		},
 		{
 			"cbr_3_frames",
 			// TOC=0x03, frameCount=0x03 (CBR, no padding, M=3), frameLen=30
-			append([]byte{0x03, 0x03, 30}, make([]byte, 90)...),
+			append([]byte{0x03, 0x03}, make([]byte, 90)...),
 			3, 30, 0,
 		},
 		{
@@ -290,7 +290,7 @@ func TestParsePacketCode3CBR(t *testing.T) {
 		{
 			"cbr_with_padding",
 			// TOC=0x03, frameCount=0x42 (CBR, padding, M=2), padding=10, frameLen=50
-			append([]byte{0x03, 0x42, 10, 50}, make([]byte, 110)...),
+			append([]byte{0x03, 0x42, 10}, make([]byte, 110)...),
 			2, 50, 10,
 		},
 	}
@@ -381,12 +381,12 @@ func TestTwoByteFrameLength(t *testing.T) {
 		{"length_0", []byte{0}, 0, 1},
 		{"length_100", []byte{100}, 100, 1},
 		{"length_251", []byte{251}, 251, 1},
-		{"length_252", []byte{252, 0}, 252, 2},      // 4*0 + 252
-		{"length_255", []byte{255, 0}, 255, 2},      // 4*0 + 255
-		{"length_256", []byte{252, 1}, 256, 2},      // 4*1 + 252
-		{"length_259", []byte{255, 1}, 259, 2},      // 4*1 + 255
-		{"length_1020", []byte{252, 192}, 1020, 2},  // 4*192 + 252
-		{"length_1275", []byte{255, 255}, 1275, 2},  // 4*255 + 255 (max two-byte)
+		{"length_252", []byte{252, 0}, 252, 2},     // 4*0 + 252
+		{"length_255", []byte{255, 0}, 255, 2},     // 4*0 + 255
+		{"length_256", []byte{252, 1}, 256, 2},     // 4*1 + 252
+		{"length_259", []byte{255, 1}, 259, 2},     // 4*1 + 255
+		{"length_1020", []byte{252, 192}, 1020, 2}, // 4*192 + 252
+		{"length_1275", []byte{255, 255}, 1275, 2}, // 4*255 + 255 (max two-byte)
 	}
 
 	for _, tt := range tests {
@@ -461,14 +461,12 @@ func TestParsePacketCode3MaxFrames(t *testing.T) {
 
 func TestParsePacketCode3ContinuationPadding(t *testing.T) {
 	// Test continuation bytes in padding
-	// Padding = 255 + 255 + 10 = 520
+	// Padding = 254 + 254 + 10 = 518 (each 255 adds 254)
 	header := []byte{0x03, 0x42} // CBR, padding, M=2
 	padding := []byte{255, 255, 10}
-	frameLen := []byte{50}
-	frameData := make([]byte, 100+520) // 2*50 frames + 520 padding
+	frameData := make([]byte, 100+518) // 2*50 frames + 518 padding
 
 	packet := append(header, padding...)
-	packet = append(packet, frameLen...)
 	packet = append(packet, frameData...)
 
 	info, err := ParsePacket(packet)
@@ -476,8 +474,8 @@ func TestParsePacketCode3ContinuationPadding(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if info.Padding != 520 {
-		t.Errorf("Padding: got %d, want 520", info.Padding)
+	if info.Padding != 518 {
+		t.Errorf("Padding: got %d, want 518", info.Padding)
 	}
 	if info.FrameCount != 2 {
 		t.Errorf("FrameCount: got %d, want 2", info.FrameCount)
@@ -512,7 +510,7 @@ func TestGenerateTOC(t *testing.T) {
 		{"celt_fb_20ms_code3", 31, true, 3, 0xFF},
 
 		// Verify masking works for out-of-range values
-		{"config_masked", 0x3F, false, 0, 0xF8}, // 0x3F & 0x1F = 0x1F = 31
+		{"config_masked", 0x3F, false, 0, 0xF8},    // 0x3F & 0x1F = 0x1F = 31
 		{"frameCode_masked", 0, false, 0x0F, 0x03}, // 0x0F & 0x03 = 3
 	}
 

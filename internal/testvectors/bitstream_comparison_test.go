@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/rangecoding"
 )
@@ -83,6 +84,7 @@ func TestCELTFirstPacketAnalysis(t *testing.T) {
 		channels = 2
 	}
 	decoder := celt.NewDecoder(channels)
+	setDecoderBandwidth(decoder, toc)
 
 	// Extract frame data (skip TOC byte for frame code 0)
 	// For code 0: single frame, data starts at byte 1
@@ -277,6 +279,42 @@ func extractFirstFrame(data []byte) []byte {
 	return data[1:]
 }
 
+func extractFrames(data []byte, info gopus.PacketInfo) [][]byte {
+	frames := make([][]byte, info.FrameCount)
+	totalFrameBytes := 0
+	for _, size := range info.FrameSizes {
+		totalFrameBytes += size
+	}
+	frameDataStart := len(data) - info.Padding - totalFrameBytes
+	if frameDataStart < 1 {
+		frameDataStart = 1
+	}
+	dataEnd := len(data) - info.Padding
+	if dataEnd < frameDataStart {
+		dataEnd = frameDataStart
+	}
+	offset := frameDataStart
+	for i := 0; i < info.FrameCount; i++ {
+		frameLen := info.FrameSizes[i]
+		endOffset := offset + frameLen
+		if endOffset > dataEnd {
+			endOffset = dataEnd
+		}
+		if offset >= dataEnd {
+			frames[i] = nil
+		} else {
+			frames[i] = data[offset:endOffset]
+		}
+		offset = endOffset
+	}
+	return frames
+}
+
+func setDecoderBandwidth(dec *celt.Decoder, toc byte) {
+	tocInfo := gopus.ParseTOC(toc)
+	dec.SetBandwidth(celt.BandwidthFromOpusConfig(int(tocInfo.Bandwidth)))
+}
+
 // TestCELTFirstPacketComparison compares gopus output with reference for first packet.
 // This test identifies the exact divergence point between gopus and libopus output.
 func TestCELTFirstPacketComparison(t *testing.T) {
@@ -324,6 +362,7 @@ func TestCELTFirstPacketComparison(t *testing.T) {
 
 	// Decode first packet using CELT decoder
 	decoder := celt.NewDecoder(channels)
+	setDecoderBandwidth(decoder, toc)
 	frameData := extractFirstFrame(firstPacket.Data)
 
 	samples, err := decoder.DecodeFrame(frameData, frameSize)
@@ -661,14 +700,22 @@ func TestCELTNonSilentFrameComparison(t *testing.T) {
 		if len(pkt.Data) == 0 {
 			continue
 		}
-		ptoc := pkt.Data[0]
-		pconfig := ptoc >> 3
-		if getModeFromConfig(pconfig) != "CELT" {
+		info, err := gopus.ParsePacket(pkt.Data)
+		if err != nil {
 			continue
 		}
-		pframeSize := getFrameSizeFromConfig(pconfig)
-		frameData := extractFirstFrame(pkt.Data)
-		_, _ = decoder.DecodeFrame(frameData, pframeSize)
+		if info.TOC.Mode != gopus.ModeCELT {
+			continue
+		}
+		pframeSize := info.TOC.FrameSize
+		frames := extractFrames(pkt.Data, info)
+		for _, frame := range frames {
+			if len(frame) == 0 {
+				continue
+			}
+			setDecoderBandwidth(decoder, pkt.Data[0])
+			_, _ = decoder.DecodeFrame(frame, pframeSize)
+		}
 	}
 
 	// Now decode target frame with tracing
@@ -678,6 +725,7 @@ func TestCELTNonSilentFrameComparison(t *testing.T) {
 	defer celt.SetTracer(&celt.NoopTracer{})
 
 	frameData := extractFirstFrame(targetPacket.Data)
+	setDecoderBandwidth(decoder, toc)
 
 	// Debug: check frame data
 	t.Logf("")
