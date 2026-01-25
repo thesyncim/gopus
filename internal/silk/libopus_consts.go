@@ -1,20 +1,22 @@
 package silk
 
 const (
-	maxNbSubfr                = 4
-	subFrameLengthMs          = 5
-	ltpMemLengthMs            = 20
-	maxFsKHz                  = 16
-	maxSubFrameLength         = subFrameLengthMs * maxFsKHz
-	maxFrameLength            = maxSubFrameLength * maxNbSubfr
-	maxLPCOrder               = 16
-	minLPCOrder               = 10
-	ltpOrder                  = 5
-	shellCodecFrameLength     = 16
-	log2ShellCodecFrameLength = 4
-	nRateLevels               = 10
-	silkMaxPulses             = 16
-	maxFramesPerPacket        = 3
+	maxNbSubfr                   = 4
+	subFrameLengthMs             = 5
+	ltpMemLengthMs               = 20
+	maxFsKHz                     = 16
+	maxSubFrameLength            = subFrameLengthMs * maxFsKHz
+	maxFrameLength               = maxSubFrameLength * maxNbSubfr
+	maxLPCOrder                  = 16
+	minLPCOrder                  = 10
+	ltpOrder                     = 5
+	shellCodecFrameLength        = 16
+	log2ShellCodecFrameLength    = 4
+	nRateLevels                  = 10
+	silkMaxPulses                = 16
+	maxFramesPerPacket           = 3
+	maxLPCStabilizeIterations    = 16
+	maxPredictionPowerGainInvQ30 = 107374
 
 	nLevelsQGain        = 64
 	maxDeltaGainQuant   = 36

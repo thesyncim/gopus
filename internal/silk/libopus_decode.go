@@ -285,11 +285,15 @@ func silkDecodePitch(lagIndex int16, contourIndex int8, pitchL []int, fsKHz int,
 }
 
 func silkBwExpander(ar []int16, chirpQ16 int32) {
-	factor := chirpQ16
-	for i := range ar {
-		ar[i] = int16(silkSMULWW(int32(ar[i]), factor))
-		factor = silkSMULWW(factor, chirpQ16)
+	if len(ar) == 0 {
+		return
 	}
+	chirpMinusOneQ16 := chirpQ16 - 65536
+	for i := 0; i < len(ar)-1; i++ {
+		ar[i] = int16(silkRSHIFT_ROUND(silkMUL(chirpQ16, int32(ar[i])), 16))
+		chirpQ16 += silkRSHIFT_ROUND(silkMUL(chirpQ16, chirpMinusOneQ16), 16)
+	}
+	ar[len(ar)-1] = int16(silkRSHIFT_ROUND(silkMUL(chirpQ16, int32(ar[len(ar)-1])), 16))
 }
 
 func silkDecodeParameters(st *decoderState, ctrl *decoderControl, condCoding int) {
@@ -298,8 +302,10 @@ func silkDecodeParameters(st *decoderState, ctrl *decoderControl, condCoding int
 	var nlsfQ15 [maxLPCOrder]int16
 	silkNLSFDecode(nlsfQ15[:], st.indices.NLSFIndices[:], st.nlsfCB)
 
-	lpc1 := lsfToLPC(nlsfQ15[:st.lpcOrder])
-	copy(ctrl.PredCoefQ12[1][:], lpc1)
+	if !silkNLSF2A(ctrl.PredCoefQ12[1][:st.lpcOrder], nlsfQ15[:st.lpcOrder], st.lpcOrder) {
+		lpc1 := lsfToLPCDirect(nlsfQ15[:st.lpcOrder])
+		copy(ctrl.PredCoefQ12[1][:], lpc1)
+	}
 
 	if st.firstFrameAfterReset {
 		st.indices.NLSFInterpCoefQ2 = 4
@@ -310,8 +316,10 @@ func silkDecodeParameters(st *decoderState, ctrl *decoderControl, condCoding int
 			diff := int32(nlsfQ15[i]) - int32(st.prevNLSFQ15[i])
 			nlsf0[i] = int16(int32(st.prevNLSFQ15[i]) + (int32(st.indices.NLSFInterpCoefQ2) * diff >> 2))
 		}
-		lpc0 := lsfToLPC(nlsf0[:st.lpcOrder])
-		copy(ctrl.PredCoefQ12[0][:], lpc0)
+		if !silkNLSF2A(ctrl.PredCoefQ12[0][:st.lpcOrder], nlsf0[:st.lpcOrder], st.lpcOrder) {
+			lpc0 := lsfToLPCDirect(nlsf0[:st.lpcOrder])
+			copy(ctrl.PredCoefQ12[0][:], lpc0)
+		}
 	} else {
 		copy(ctrl.PredCoefQ12[0][:], ctrl.PredCoefQ12[1][:])
 	}
