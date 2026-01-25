@@ -199,8 +199,8 @@ func (e *Encoder) encodeCELTHybrid(pcm []float64, frameSize int) {
 	// Apply pre-emphasis
 	preemph := e.celtEncoder.ApplyPreemphasis(pcm)
 
-	// Compute MDCT
-	mdctCoeffs := computeMDCTForHybrid(preemph, frameSize, e.channels)
+	// Compute MDCT with overlap history
+	mdctCoeffs := computeMDCTForHybrid(preemph, frameSize, e.channels, e.celtEncoder.OverlapBuffer())
 
 	// Compute band energies
 	energies := e.celtEncoder.ComputeBandEnergies(mdctCoeffs, mode.EffBands, frameSize)
@@ -271,30 +271,38 @@ func (e *Encoder) encodeCELTHybrid(pcm []float64, frameSize int) {
 }
 
 // computeMDCTForHybrid computes MDCT for hybrid mode encoding.
-func computeMDCTForHybrid(samples []float64, frameSize, channels int) []float64 {
+func computeMDCTForHybrid(samples []float64, frameSize, channels int, history []float64) []float64 {
 	if len(samples) == 0 {
 		return nil
 	}
 
-	// MDCT expects 2*N samples to produce N coefficients
-	n := len(samples) / channels
+	overlap := celt.Overlap
+	if overlap > frameSize {
+		overlap = frameSize
+	}
+
 	if channels == 1 {
-		padded := make([]float64, n*2)
-		copy(padded[n:], samples)
-		return celt.MDCT(padded)
+		if len(history) >= overlap {
+			return celt.ComputeMDCTWithHistory(samples, history[:overlap], 1)
+		}
+		return celt.MDCT(append(make([]float64, overlap), samples...))
 	}
 
 	// Stereo: convert to mid-side, then MDCT each
 	left, right := celt.DeinterleaveStereo(samples)
 	mid, side := celt.ConvertToMidSide(left, right)
 
-	paddedMid := make([]float64, n*2)
-	paddedSide := make([]float64, n*2)
-	copy(paddedMid[n:], mid)
-	copy(paddedSide[n:], side)
+	if len(history) >= overlap*2 {
+		mdctMid := celt.ComputeMDCTWithHistory(mid, history[:overlap], 1)
+		mdctSide := celt.ComputeMDCTWithHistory(side, history[overlap:overlap*2], 1)
+		result := make([]float64, len(mdctMid)+len(mdctSide))
+		copy(result[:len(mdctMid)], mdctMid)
+		copy(result[len(mdctMid):], mdctSide)
+		return result
+	}
 
-	mdctMid := celt.MDCT(paddedMid)
-	mdctSide := celt.MDCT(paddedSide)
+	mdctMid := celt.MDCT(append(make([]float64, overlap), mid...))
+	mdctSide := celt.MDCT(append(make([]float64, overlap), side...))
 
 	// Concatenate
 	result := make([]float64, len(mdctMid)+len(mdctSide))

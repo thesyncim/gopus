@@ -71,6 +71,9 @@ func (d *Decoder) DecodeFrame(
 		var ctrl decoderControl
 		silkDecodeParameters(st, &ctrl, condCoding)
 		silkDecodeCore(st, &ctrl, frameOut, pulses)
+		silkUpdateOutBuf(st, frameOut)
+		st.lossCnt = 0
+		st.lagPrev = ctrl.pitchL[st.nbSubfr-1]
 		st.prevSignalType = int(st.indices.signalType)
 		st.firstFrameAfterReset = false
 		st.nFramesDecoded++
@@ -253,6 +256,9 @@ func (d *Decoder) DecodeStereoFrame(
 		var ctrlMid decoderControl
 		silkDecodeParameters(stMid, &ctrlMid, condMid)
 		silkDecodeCore(stMid, &ctrlMid, midOut, pulsesMid)
+		silkUpdateOutBuf(stMid, midOut)
+		stMid.lossCnt = 0
+		stMid.lagPrev = ctrlMid.pitchL[stMid.nbSubfr-1]
 		stMid.prevSignalType = int(stMid.indices.signalType)
 		stMid.firstFrameAfterReset = false
 		stMid.nFramesDecoded++
@@ -274,6 +280,9 @@ func (d *Decoder) DecodeStereoFrame(
 			var ctrlSide decoderControl
 			silkDecodeParameters(stSide, &ctrlSide, condSide)
 			silkDecodeCore(stSide, &ctrlSide, sideOut, pulsesSide)
+			silkUpdateOutBuf(stSide, sideOut)
+			stSide.lossCnt = 0
+			stSide.lagPrev = ctrlSide.pitchL[stSide.nbSubfr-1]
 			stSide.prevSignalType = int(stSide.indices.signalType)
 			stSide.firstFrameAfterReset = false
 		} else {

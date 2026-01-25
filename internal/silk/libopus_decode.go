@@ -184,7 +184,7 @@ func silkDecodeSigns(rd *rangecoding.Decoder, pulses []int16, length int, signal
 			for j := 0; j < shellCodecFrameLength; j++ {
 				if pulses[qPtr+j] > 0 {
 					sign := rd.DecodeICDF(icdf, 8)
-					if sign == 1 {
+					if sign == 0 {
 						pulses[qPtr+j] = -pulses[qPtr+j]
 					}
 				}
@@ -488,4 +488,19 @@ func silkDecodeCore(st *decoderState, ctrl *decoderControl, out []int16, pulses 
 
 func silkRand(seed int32) int32 {
 	return seed*196314165 + 907633515
+}
+
+func silkUpdateOutBuf(st *decoderState, frame []int16) {
+	if st.ltpMemLength == 0 || st.frameLength == 0 {
+		return
+	}
+	if st.ltpMemLength < st.frameLength {
+		return
+	}
+	mvLen := st.ltpMemLength - st.frameLength
+	buf := st.outBuf[:]
+	if mvLen > 0 {
+		copy(buf, buf[st.frameLength:st.frameLength+mvLen])
+	}
+	copy(buf[mvLen:mvLen+st.frameLength], frame)
 }

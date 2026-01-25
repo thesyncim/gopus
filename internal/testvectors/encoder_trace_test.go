@@ -35,7 +35,7 @@ func TestEncoderTrace(t *testing.T) {
 	t.Logf("First 5 pre-emphasized samples: %v", preemph[:5])
 
 	// Compute MDCT (simplified - no overlap for first frame)
-	mdct := celt.MDCT(append(make([]float64, 960), preemph...))
+	mdct := celt.MDCT(append(make([]float64, celt.Overlap), preemph...))
 	t.Logf("MDCT length: %d, first 5 coeffs: %v", len(mdct), mdct[:5])
 
 	// Compute band energies
@@ -111,7 +111,7 @@ func TestCompareEnergyComputation(t *testing.T) {
 	}
 
 	// Compute MDCT
-	mdct := celt.MDCT(append(make([]float64, 960), pcm...))
+	mdct := celt.MDCT(append(make([]float64, celt.Overlap), pcm...))
 
 	// Show MDCT statistics
 	var sumSq float64

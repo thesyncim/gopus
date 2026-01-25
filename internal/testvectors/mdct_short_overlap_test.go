@@ -10,8 +10,7 @@ import (
 // TestMDCTShortOverlapRoundTrip tests MDCT/IMDCT with CELT short overlap (120 samples).
 // CELT uses short overlap instead of standard 50% overlap.
 func TestMDCTShortOverlapRoundTrip(t *testing.T) {
-	N := 960    // Frame size (MDCT coefficients)
-	N2 := N * 2 // MDCT input/IMDCT output size
+	N := 960 // Frame size (MDCT coefficients)
 	overlap := 120
 
 	// Create 3 frames of continuous signal
@@ -23,91 +22,16 @@ func TestMDCTShortOverlapRoundTrip(t *testing.T) {
 	}
 
 	output := make([]float64, totalSamples)
-	prevOverlap := make([]float64, N) // Overlap from previous frame's IMDCT second half
-
-	// Get window for short overlap regions
-	window := celt.GetWindowBuffer(overlap)
+	history := make([]float64, overlap)
+	prevOverlap := make([]float64, overlap)
 
 	for frame := 0; frame < totalFrames; frame++ {
-		// Build frame input: previous frame's second half + current frame
-		frameInput := make([]float64, N2)
-
-		if frame == 0 {
-			// First frame: zeros + first frame of signal
-			copy(frameInput[N:], signal[:N])
-		} else {
-			// Previous frame data + current frame data
-			copy(frameInput[:N], signal[(frame-1)*N:frame*N])
-			copy(frameInput[N:], signal[frame*N:(frame+1)*N])
-		}
-
-		// Apply CELT short-overlap window (only first/last 120 samples)
-		for i := 0; i < overlap; i++ {
-			frameInput[i] *= window[i]
-		}
-		for i := 0; i < overlap; i++ {
-			idx := N2 - overlap + i
-			frameInput[idx] *= window[overlap-1-i]
-		}
-
-		// Forward MDCT (no scaling, direct formula)
-		coeffs := make([]float64, N)
-		for k := 0; k < N; k++ {
-			var sum float64
-			kPlus := float64(k) + 0.5
-			for n := 0; n < N2; n++ {
-				nPlus := float64(n) + 0.5 + float64(N)/2
-				angle := math.Pi / float64(N) * nPlus * kPlus
-				sum += frameInput[n] * math.Cos(angle)
-			}
-			coeffs[k] = sum
-		}
-
-		// Inverse MDCT with 2/N scaling
-		imdctOut := make([]float64, N2)
-		scale := 2.0 / float64(N)
-		for n := 0; n < N2; n++ {
-			nPlus := float64(n) + 0.5 + float64(N)/2
-			var sum float64
-			for k := 0; k < N; k++ {
-				kPlus := float64(k) + 0.5
-				angle := math.Pi / float64(N) * nPlus * kPlus
-				sum += coeffs[k] * math.Cos(angle)
-			}
-			imdctOut[n] = sum * scale
-		}
-
-		// Apply window to IMDCT output (same short-overlap window)
-		for i := 0; i < overlap; i++ {
-			imdctOut[i] *= window[i]
-		}
-		for i := 0; i < overlap; i++ {
-			idx := N2 - overlap + i
-			imdctOut[idx] *= window[overlap-1-i]
-		}
-
-		// Overlap-add:
-		// - First 'overlap' samples: add with previous frame's tail
-		// - Middle samples: direct copy from imdctOut[overlap : N]
-		// - Save imdctOut[N : N+overlap] for next frame
-		outStart := frame * N
-
-		// Add overlap region from previous frame
-		for i := 0; i < overlap && i < len(prevOverlap); i++ {
-			if outStart+i < totalSamples {
-				output[outStart+i] = prevOverlap[i] + imdctOut[i]
-			}
-		}
-
-		// Direct copy middle section
-		for i := overlap; i < N; i++ {
-			if outStart+i < totalSamples {
-				output[outStart+i] = imdctOut[i]
-			}
-		}
-
-		// Save tail for next frame's overlap-add
-		copy(prevOverlap, imdctOut[N:N2])
+		frameSamples := signal[frame*N : (frame+1)*N]
+		coeffs := celt.ComputeMDCTWithHistory(frameSamples, history, 1)
+		imdctOut := celt.IMDCTOverlap(coeffs, overlap)
+		outFrame, newOverlap := celt.OverlapAddShortOverlap(imdctOut, prevOverlap, N, overlap)
+		copy(output[frame*N:], outFrame)
+		prevOverlap = newOverlap
 	}
 
 	// Analyze middle frame (frame 1) which has complete overlap-add on both sides

@@ -33,7 +33,7 @@ func TestTraceEncoding(t *testing.T) {
 	t.Logf("Pre-emphasis applied, len=%d, max=%.4f", len(preemph), maxAbs(preemph))
 
 	// Compute MDCT (simplified - no overlap)
-	mdct := celt.MDCT(append(make([]float64, frameSize), preemph...))
+	mdct := celt.MDCT(append(make([]float64, celt.Overlap), preemph...))
 	t.Logf("MDCT computed, len=%d, max=%.4f", len(mdct), maxAbs(mdct))
 
 	// Compute band energies

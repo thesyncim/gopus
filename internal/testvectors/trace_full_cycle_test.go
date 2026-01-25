@@ -39,7 +39,7 @@ func TestTraceFullEncodeDecode(t *testing.T) {
 	t.Logf("Pre-emphasis applied, max=%.4f", maxAbsF(preemph))
 
 	// Compute MDCT with overlap
-	mdct := celt.MDCT(append(make([]float64, frameSize), preemph...))
+	mdct := celt.MDCT(append(make([]float64, celt.Overlap), preemph...))
 	t.Logf("MDCT computed, len=%d, max=%.4f", len(mdct), maxAbsF(mdct))
 
 	// Compute band energies (raw)

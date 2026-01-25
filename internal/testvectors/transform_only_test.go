@@ -11,43 +11,41 @@ import (
 // This isolates the transform from the range coding.
 func TestTransformOnlyRoundTrip(t *testing.T) {
 	N := 960
-	N2 := N * 2
+	overlap := 120
 
-	// Create test signal
-	signal := make([]float64, N2)
-	for i := 0; i < N2; i++ {
+	totalFrames := 3
+	totalSamples := totalFrames * N
+	signal := make([]float64, totalSamples)
+	for i := 0; i < totalSamples; i++ {
 		signal[i] = 0.5 * math.Sin(2*math.Pi*float64(i)/float64(N)*10)
 	}
-	t.Logf("Signal max: %.4f", maxAbsSlice(signal))
 
-	// Forward MDCT using celt.MDCT
-	coeffs := celt.MDCT(signal)
-	t.Logf("MDCT: %d samples → %d coeffs, max=%.4f", N2, len(coeffs), maxAbsSlice(coeffs))
+	output := make([]float64, totalSamples)
+	history := make([]float64, overlap)
+	prevOverlap := make([]float64, overlap)
 
-	// Inverse MDCT using celt.IMDCTDirect
-	imdctOut := celt.IMDCTDirect(coeffs)
-	t.Logf("IMDCTDirect: %d coeffs → %d samples, max=%.4f", len(coeffs), len(imdctOut), maxAbsSlice(imdctOut))
-
-	// Compare signal with IMDCT output
-	corr := correlation(signal, imdctOut)
-	t.Logf("Correlation: %.4f", corr)
-
-	// Energy ratio
-	energyIn := energy(signal)
-	energyOut := energy(imdctOut)
-	t.Logf("Energy ratio (out/in): %.4f", energyOut/energyIn)
-
-	// Sample comparison
-	t.Log("\nSample comparison (middle of frame):")
-	mid := N
-	for i := mid - 5; i <= mid+5; i++ {
-		t.Logf("  [%d] signal=%.4f, imdct=%.4f, ratio=%.4f",
-			i, signal[i], imdctOut[i], imdctOut[i]/(signal[i]+1e-10))
+	for frame := 0; frame < totalFrames; frame++ {
+		frameSamples := signal[frame*N : (frame+1)*N]
+		coeffs := celt.ComputeMDCTWithHistory(frameSamples, history, 1)
+		imdctOut := celt.IMDCTOverlap(coeffs, overlap)
+		outFrame, newOverlap := celt.OverlapAddShortOverlap(imdctOut, prevOverlap, N, overlap)
+		copy(output[frame*N:], outFrame)
+		prevOverlap = newOverlap
 	}
 
-	// Check if IMDCT output matches signal (within scaling factor)
-	if math.Abs(corr) < 0.99 {
-		t.Errorf("Poor correlation: %.4f (expected > 0.99 or < -0.99)", corr)
+	// Analyze middle frame for best overlap-add quality
+	start := N
+	end := 2 * N
+	var signalPower, noisePower float64
+	for i := start; i < end; i++ {
+		signalPower += signal[i] * signal[i]
+		diff := signal[i] - output[i]
+		noisePower += diff * diff
+	}
+	snr := 10 * math.Log10(signalPower/(noisePower+1e-10))
+	t.Logf("SNR (middle frame): %.2f dB", snr)
+	if snr < 40 {
+		t.Errorf("SNR too low: %.2f dB (expected > 40 dB)", snr)
 	}
 }
 
@@ -70,8 +68,9 @@ func TestCELTEncoderBandEnergies(t *testing.T) {
 	preemph := enc.ApplyPreemphasis(signal)
 	t.Logf("Preemph max: %.4f", maxAbsSlice(preemph))
 
-	// MDCT
-	coeffs := celt.MDCT(preemph)
+	// MDCT with zero history overlap
+	history := make([]float64, celt.Overlap)
+	coeffs := celt.ComputeMDCTWithHistory(preemph, history, 1)
 	t.Logf("MDCT coeffs max: %.4f", maxAbsSlice(coeffs))
 
 	// Compute band energies

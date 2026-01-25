@@ -32,7 +32,7 @@ func TestEnergyEncodeDecode(t *testing.T) {
 	preemph := enc.ApplyPreemphasis(pcm)
 
 	// Compute MDCT
-	mdct := celt.MDCT(append(make([]float64, frameSize), preemph...))
+	mdct := celt.MDCT(append(make([]float64, celt.Overlap), preemph...))
 
 	// Compute band energies
 	energies := enc.ComputeBandEnergies(mdct, nbBands, frameSize)

@@ -79,9 +79,14 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		// Stereo: MDCT Left and Right directly
 		left, right := DeinterleaveStereo(preemph)
 
+		overlap := Overlap
+		if overlap > frameSize {
+			overlap = frameSize
+		}
+
 		// Ensure overlap buffer is large enough for both channels
-		if len(e.overlapBuffer) < 2*frameSize {
-			newBuf := make([]float64, 2*frameSize)
+		if len(e.overlapBuffer) < 2*overlap {
+			newBuf := make([]float64, 2*overlap)
 			if len(e.overlapBuffer) > 0 {
 				copy(newBuf, e.overlapBuffer)
 			}
@@ -89,12 +94,12 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		}
 
 		// Split overlap buffer for left and right
-		leftHistory := e.overlapBuffer[:frameSize]
-		rightHistory := e.overlapBuffer[frameSize:]
+		leftHistory := e.overlapBuffer[:overlap]
+		rightHistory := e.overlapBuffer[overlap : 2*overlap]
 
 		// Use overlap-aware MDCT for both channels
-		mdctLeft = computeMDCTWithHistory(left, leftHistory, shortBlocks)
-		mdctRight = computeMDCTWithHistory(right, rightHistory, shortBlocks)
+		mdctLeft = ComputeMDCTWithHistory(left, leftHistory, shortBlocks)
+		mdctRight = ComputeMDCTWithHistory(right, rightHistory, shortBlocks)
 
 		// Concatenate: [left coeffs][right coeffs]
 		mdctCoeffs = make([]float64, len(mdctLeft)+len(mdctRight))
@@ -237,68 +242,76 @@ func computeMDCTForEncoding(samples []float64, frameSize, shortBlocks int) []flo
 		return nil
 	}
 
-	// MDCT expects 2*N samples to produce N coefficients
-	n := len(samples)
-	padded := make([]float64, n*2)
-	// First half is zeros for first frame
-	// Second half is current frame
-	copy(padded[n:], samples)
+	overlap := Overlap
+	if overlap > len(samples) {
+		overlap = len(samples)
+	}
+
+	input := make([]float64, len(samples)+overlap)
+	copy(input[overlap:], samples)
 
 	if shortBlocks > 1 {
-		return MDCTShort(padded, shortBlocks)
+		return MDCTShort(input, shortBlocks)
 	}
-	return MDCT(padded)
+	return MDCT(input)
 }
 
 // computeMDCTWithOverlap computes MDCT using the encoder's overlap buffer for continuity.
 // This ensures proper MDCT overlap-add analysis across frame boundaries.
 func (e *Encoder) computeMDCTWithOverlap(samples []float64, shortBlocks int) []float64 {
-	// Ensure buffer is large enough for mono frame
-	n := len(samples)
-	if len(e.overlapBuffer) < n {
-		newBuf := make([]float64, n)
+	overlap := Overlap
+	if overlap > len(samples) {
+		overlap = len(samples)
+	}
+	if len(e.overlapBuffer) < overlap {
+		newBuf := make([]float64, overlap)
 		copy(newBuf, e.overlapBuffer)
 		e.overlapBuffer = newBuf
 	}
 
-	// Use the first n samples of overlap buffer
-	return computeMDCTWithHistory(samples, e.overlapBuffer[:n], shortBlocks)
+	return ComputeMDCTWithHistory(samples, e.overlapBuffer[:overlap], shortBlocks)
 }
 
-// computeMDCTWithHistory computes MDCT using a history buffer for overlap.
+// ComputeMDCTWithHistory computes MDCT using a history buffer for overlap.
 // samples: current frame samples
 // history: buffer containing previous frame's tail (will be updated with current frame's tail)
 // shortBlocks: number of short blocks for transient mode
-func computeMDCTWithHistory(samples, history []float64, shortBlocks int) []float64 {
+func ComputeMDCTWithHistory(samples, history []float64, shortBlocks int) []float64 {
 	if len(samples) == 0 {
 		return nil
 	}
 
-	n := len(samples)
-	padded := make([]float64, n*2)
+	overlap := Overlap
+	if overlap > len(samples) {
+		overlap = len(samples)
+	}
+	input := make([]float64, len(samples)+overlap)
 
-	// First half is previous frame's tail (from history buffer)
-	// This ensures MDCT continuity across frames
-	// Copy history to start of padded buffer
-	if len(history) > 0 {
-		if len(history) >= n {
-			copy(padded[:n], history[len(history)-n:])
+	// Copy history overlap into the head of the input buffer.
+	if overlap > 0 && len(history) > 0 {
+		if len(history) >= overlap {
+			copy(input[:overlap], history[len(history)-overlap:])
 		} else {
-			copy(padded[n-len(history):n], history)
+			copy(input[overlap-len(history):overlap], history)
 		}
 	}
 
-	// Second half is current frame
-	copy(padded[n:], samples)
+	// Append current frame samples after the overlap.
+	copy(input[overlap:], samples)
 
-	// Update history buffer with current frame's tail for next frame
-	// We want to store the last n samples of the current input
-	copy(history, samples)
+	// Update history with the current frame tail (overlap samples).
+	if overlap > 0 && len(history) > 0 {
+		if len(history) >= overlap {
+			copy(history, samples[len(samples)-overlap:])
+		} else {
+			copy(history, samples[len(samples)-len(history):])
+		}
+	}
 
 	if shortBlocks > 1 {
-		return MDCTShort(padded, shortBlocks)
+		return MDCTShort(input, shortBlocks)
 	}
-	return MDCT(padded)
+	return MDCT(input)
 }
 
 // isFrameSilent checks if all samples are effectively zero.
