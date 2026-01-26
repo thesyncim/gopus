@@ -691,9 +691,10 @@ func interpBits2PulsesEncode(re *rangecoding.Encoder, start, end, skipStart int,
 		bandBits := bits[j] + percoeff*bandWidth + rem
 
 		if bandBits >= maxInt(thresh[j], allocFloor+(1<<bitRes)) {
-			// Encode skip bit = 0 (don't skip, keep this band)
+			// Encode skip bit = 1 (don't skip, keep this band)
+			// Note: 1 = keep band, 0 = skip band (per libopus rate.c)
 			if re != nil {
-				re.EncodeBit(0, 1)
+				re.EncodeBit(1, 1)
 			}
 			break
 		}
