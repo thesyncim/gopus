@@ -8,11 +8,11 @@ import (
 // TestNewDecoder_ValidConfigs tests decoder creation with valid configurations.
 func TestNewDecoder_ValidConfigs(t *testing.T) {
 	tests := []struct {
-		name           string
-		channels       int
-		wantStreams    int
-		wantCoupled    int
-		wantOutputCh   int
+		name         string
+		channels     int
+		wantStreams  int
+		wantCoupled  int
+		wantOutputCh int
 	}{
 		{"mono", 1, 1, 0, 1},
 		{"stereo", 2, 1, 1, 2},
@@ -55,12 +55,12 @@ func TestNewDecoder_ValidConfigs(t *testing.T) {
 // TestNewDecoder_InvalidConfigs tests decoder creation with invalid configurations.
 func TestNewDecoder_InvalidConfigs(t *testing.T) {
 	tests := []struct {
-		name        string
-		channels    int
-		streams     int
-		coupled     int
-		mapping     []byte
-		wantErr     error
+		name     string
+		channels int
+		streams  int
+		coupled  int
+		mapping  []byte
+		wantErr  error
 	}{
 		{
 			name:     "channels < 1",
@@ -141,14 +141,14 @@ func TestDefaultMapping(t *testing.T) {
 		wantCoupled int
 		wantMapLen  int
 	}{
-		{1, 1, 0, 1},  // mono
-		{2, 1, 1, 2},  // stereo
-		{3, 2, 1, 3},  // 3.0
-		{4, 2, 2, 4},  // quad
-		{5, 3, 2, 5},  // 5.0
-		{6, 4, 2, 6},  // 5.1
-		{7, 5, 2, 7},  // 6.1
-		{8, 5, 3, 8},  // 7.1
+		{1, 1, 0, 1}, // mono
+		{2, 1, 1, 2}, // stereo
+		{3, 2, 1, 3}, // 3.0
+		{4, 2, 2, 4}, // quad
+		{5, 3, 2, 5}, // 5.0
+		{6, 4, 2, 6}, // 5.1
+		{7, 5, 2, 7}, // 6.1
+		{8, 5, 3, 8}, // 7.1
 	}
 
 	for _, tc := range tests {
@@ -180,23 +180,23 @@ func TestDefaultMapping(t *testing.T) {
 // TestResolveMapping tests the mapping resolution logic.
 func TestResolveMapping(t *testing.T) {
 	tests := []struct {
-		name         string
-		mappingIdx   byte
-		coupled      int
-		wantStream   int
-		wantChan     int
+		name       string
+		mappingIdx byte
+		coupled    int
+		wantStream int
+		wantChan   int
 	}{
 		// Stereo (1 coupled stream): indices 0,1 are coupled stream 0
 		{"stereo L", 0, 1, 0, 0},
 		{"stereo R", 1, 1, 0, 1},
 
 		// 5.1 (2 coupled streams): indices 0-3 coupled, 4-5 uncoupled
-		{"5.1 FL", 0, 2, 0, 0},      // coupled 0, left
-		{"5.1 FR", 1, 2, 0, 1},      // coupled 0, right
-		{"5.1 RL", 2, 2, 1, 0},      // coupled 1, left
-		{"5.1 RR", 3, 2, 1, 1},      // coupled 1, right
-		{"5.1 C", 4, 2, 2, 0},       // uncoupled 2
-		{"5.1 LFE", 5, 2, 3, 0},     // uncoupled 3
+		{"5.1 FL", 0, 2, 0, 0},  // coupled 0, left
+		{"5.1 FR", 1, 2, 0, 1},  // coupled 0, right
+		{"5.1 RL", 2, 2, 1, 0},  // coupled 1, left
+		{"5.1 RR", 3, 2, 1, 1},  // coupled 1, right
+		{"5.1 C", 4, 2, 2, 0},   // uncoupled 2
+		{"5.1 LFE", 5, 2, 3, 0}, // uncoupled 3
 
 		// 7.1 (3 coupled streams): indices 0-5 coupled, 6-7 uncoupled
 		{"7.1 FL", 0, 3, 0, 0},
@@ -267,7 +267,7 @@ func TestParseSelfDelimitedLength(t *testing.T) {
 		{"single byte small", []byte{100}, 100, 1, false},
 		{"single byte max", []byte{251}, 251, 1, false},
 		{"two byte min", []byte{252, 0}, 252, 2, false},
-		{"two byte", []byte{252, 1}, 256, 2, false},  // 4*1 + 252 = 256
+		{"two byte", []byte{252, 1}, 256, 2, false},         // 4*1 + 252 = 256
 		{"two byte larger", []byte{253, 10}, 293, 2, false}, // 4*10 + 253 = 293
 		{"empty data", []byte{}, 0, 0, true},
 		{"need second byte", []byte{252}, 0, 0, true},
@@ -639,9 +639,9 @@ func TestFloat64ToInt16(t *testing.T) {
 	}{
 		{0.0, 0},
 		{1.0, 32767},
-		{-1.0, -32767},
-		{0.5, 16383}, // 0.5 * 32767 = 16383.5 -> 16383
-		{2.0, 32767}, // Clamped to max
+		{-1.0, -32768},
+		{0.5, 16384},
+		{2.0, 32767},   // Clamped to max
 		{-2.0, -32768}, // Clamped to min
 	}
 

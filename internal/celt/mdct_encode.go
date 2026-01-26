@@ -59,6 +59,9 @@ func MDCTShort(samples []float64, shortBlocks int) []float64 {
 
 // mdctDirect computes MDCT without windowing (assumes pre-windowed input).
 // Used by MDCTShort for individual short blocks.
+// The output is scaled by 4/N2 (or equivalently 2/N) to match libopus normalization.
+// Reference: libopus celt/tests/test_unit_mdct.c check() function
+// Formula: X[k] = sum_{n=0}^{N2-1} x[n] * cos(2*pi*(n+0.5+0.25*N2)*(k+0.5)/N2) / (N2/4)
 func mdctDirect(samples []float64) []float64 {
 	N2 := len(samples)
 	N := N2 / 2
@@ -69,6 +72,10 @@ func mdctDirect(samples []float64) []float64 {
 
 	coeffs := make([]float64, N)
 
+	// Scale factor: 4/N2 = 4/(2*N) = 2/N
+	// This matches libopus's division by N/4 in the test formula
+	scale := 4.0 / float64(N2)
+
 	for k := 0; k < N; k++ {
 		var sum float64
 		kPlus := float64(k) + 0.5
@@ -77,7 +84,7 @@ func mdctDirect(samples []float64) []float64 {
 			angle := math.Pi / float64(N) * nPlus * kPlus
 			sum += samples[n] * math.Cos(angle)
 		}
-		coeffs[k] = sum
+		coeffs[k] = sum * scale
 	}
 
 	return coeffs

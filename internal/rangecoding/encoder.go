@@ -15,6 +15,7 @@ type Encoder struct {
 	val        uint32 // Low end of range
 	rem        int    // Buffered byte for carry propagation (-1 = sentinel)
 	ext        uint32 // Count of pending 0xFF bytes
+	err        int    // Error flag (non-zero on failure)
 }
 
 // Init initializes the encoder with the given output buffer.
@@ -31,6 +32,7 @@ func (e *Encoder) Init(buf []byte) {
 	e.val = 0
 	e.rem = -1 // Sentinel: no bytes buffered yet
 	e.ext = 0
+	e.err = 0
 }
 
 // carryOut handles carry propagation when outputting bytes.
@@ -94,10 +96,12 @@ func (e *Encoder) normalize() {
 
 // writeByte writes a byte to the output buffer.
 func (e *Encoder) writeByte(b byte) {
-	if e.offs < e.storage-e.endOffs {
-		e.buf[e.offs] = b
-		e.offs++
+	if e.offs+e.endOffs >= e.storage {
+		e.err = -1
+		return
 	}
+	e.buf[e.offs] = b
+	e.offs++
 }
 
 // Encode encodes a symbol with cumulative frequencies [fl, fh) out of ft.
@@ -106,6 +110,23 @@ func (e *Encoder) writeByte(b byte) {
 // ft is the total frequency count.
 func (e *Encoder) Encode(fl, fh, ft uint32) {
 	r := e.rng / ft
+	if fl > 0 {
+		e.val += e.rng - r*(ft-fl)
+		e.rng = r * (fh - fl)
+	} else {
+		e.rng -= r * (ft - fh)
+	}
+	e.normalize()
+}
+
+// EncodeBin encodes a symbol with power-of-two total frequency (1<<bits).
+// This mirrors libopus ec_encode_bin.
+func (e *Encoder) EncodeBin(fl, fh uint32, bits uint) {
+	if bits == 0 {
+		return
+	}
+	r := e.rng >> bits
+	ft := uint32(1) << bits
 	if fl > 0 {
 		e.val += e.rng - r*(ft-fl)
 		e.rng = r * (fh - fl)
@@ -221,43 +242,75 @@ func (e *Encoder) Done() []byte {
 		l -= EC_SYM_BITS
 	}
 
-	// Force flush if we have any buffered data (matches libopus ec_enc_done).
-	// This handles the case where rem=-1 but ext>0 (buffered 0xFF bytes).
-	// carryOut(0) internally flushes ext when rem>=0, so we may need two calls:
-	// - First call: if rem<0, just sets rem=0 (ext unchanged)
-	// - Second call: if rem>=0 and ext>0, writes rem and all ext bytes
+	// Flush buffered range coder bytes (matches libopus ec_enc_done).
 	if e.rem >= 0 || e.ext > 0 {
 		e.carryOut(0)
 	}
-	// If ext still pending (rem was -1 initially), flush again
-	for e.ext > 0 {
-		e.carryOut(0)
+
+	// Flush any buffered raw bits as end bytes.
+	window := e.endWindow
+	used := e.nendBits
+	for used >= EC_SYM_BITS {
+		e.writeEndByte(byte(window & EC_SYM_MAX))
+		window >>= EC_SYM_BITS
+		used -= EC_SYM_BITS
 	}
 
-	// Write the final rem directly
-	if e.rem >= 0 {
-		e.writeByte(byte(e.rem))
+	if e.err == 0 {
+		if e.buf != nil {
+			start := int(e.offs)
+			endIdx := int(e.storage - e.endOffs)
+			for i := start; i < endIdx; i++ {
+				e.buf[i] = 0
+			}
+		}
+		if used > 0 {
+			if e.endOffs >= e.storage {
+				e.err = -1
+			} else {
+				l = -l
+				if e.offs+e.endOffs >= e.storage && l < used {
+					window &= (1 << l) - 1
+					e.err = -1
+				}
+				idx := int(e.storage - e.endOffs - 1)
+				if idx >= 0 && idx < len(e.buf) {
+					e.buf[idx] |= byte(window)
+				}
+			}
+		}
 	}
 
-	// Flush any remaining raw bits in the end window
-	if e.nendBits > 0 {
-		e.writeEndByte(byte(e.endWindow))
-		e.nendBits = 0
-		e.endWindow = 0
+	if e.err != 0 {
+		used = 0
+		if int(e.storage) <= len(e.buf) {
+			return e.buf[:e.storage]
+		}
+		return e.buf
 	}
 
 	// Combine front bytes with end bytes
-	if e.endOffs > 0 {
-		totalSize := e.offs + e.endOffs
-		if totalSize > e.storage {
-			totalSize = e.storage
+	padLen := 0
+	if used > 0 {
+		padLen = 1
+		if int(e.offs) < len(e.buf) {
+			e.buf[e.offs] = byte(window)
 		}
-		// Copy end bytes to after front bytes
-		copy(e.buf[e.offs:], e.buf[e.storage-e.endOffs:e.storage])
-		return e.buf[:totalSize]
 	}
 
-	return e.buf[:e.offs]
+	packedSize := int(e.offs + e.endOffs + uint32(padLen))
+	if e.endOffs > 0 {
+		dst := int(e.offs) + padLen
+		copy(e.buf[dst:], e.buf[e.storage-e.endOffs:e.storage])
+	}
+
+	if packedSize < 0 {
+		packedSize = 0
+	}
+	if packedSize > len(e.buf) {
+		packedSize = len(e.buf)
+	}
+	return e.buf[:packedSize]
 }
 
 // Tell returns the number of bits written so far.
@@ -305,6 +358,42 @@ func (e *Encoder) Ext() uint32 {
 	return e.ext
 }
 
+// Error returns the encoder error flag. Non-zero indicates an error.
+func (e *Encoder) Error() int {
+	return e.err
+}
+
+// RangeBytes returns the number of range-coded bytes written.
+// This mirrors libopus ec_range_bytes.
+func (e *Encoder) RangeBytes() int {
+	return int(e.offs)
+}
+
+// PatchInitialBits overwrites the first few bits in the range coder stream.
+// This mirrors libopus ec_enc_patch_initial_bits and is intended for testing.
+func (e *Encoder) PatchInitialBits(val uint32, nbits uint) {
+	if nbits == 0 || nbits > EC_SYM_BITS {
+		e.err = -1
+		return
+	}
+	shift := EC_SYM_BITS - nbits
+	mask := (uint32(1)<<nbits - 1) << shift
+	if e.offs > 0 {
+		e.buf[0] = byte((uint32(e.buf[0]) &^ mask) | (val << shift))
+		return
+	}
+	if e.rem >= 0 {
+		e.rem = int((uint32(e.rem) &^ mask) | (val << shift))
+		return
+	}
+	if e.rng <= (EC_CODE_TOP >> nbits) {
+		shiftedMask := mask << EC_CODE_SHIFT
+		e.val = (e.val &^ shiftedMask) | (val << (EC_CODE_SHIFT + shift))
+		return
+	}
+	e.err = -1
+}
+
 // EncodeUniform encodes a uniformly distributed value in the range [0, ft).
 // This is used for fine energy bits and PVQ indices.
 // Reference: libopus celt/entenc.c ec_enc_uint()
@@ -350,19 +439,28 @@ func (e *Encoder) EncodeRawBits(val uint32, bits uint) {
 	if bits == 0 {
 		return
 	}
-	e.endWindow |= val << e.nendBits
-	e.nendBits += int(bits)
-	for e.nendBits >= 8 {
-		e.writeEndByte(byte(e.endWindow))
-		e.endWindow >>= 8
-		e.nendBits -= 8
+	window := e.endWindow
+	used := e.nendBits
+	if used+int(bits) > EC_WINDOW_SIZE {
+		for used >= EC_SYM_BITS {
+			e.writeEndByte(byte(window & EC_SYM_MAX))
+			window >>= EC_SYM_BITS
+			used -= EC_SYM_BITS
+		}
 	}
+	window |= val << used
+	used += int(bits)
+	e.endWindow = window
+	e.nendBits = used
+	e.nbitsTotal += int(bits)
 }
 
 // writeEndByte writes a byte to the end of the buffer (growing backwards).
 func (e *Encoder) writeEndByte(b byte) {
-	e.endOffs++
-	if e.endOffs <= e.storage-e.offs {
-		e.buf[e.storage-e.endOffs] = b
+	if e.offs+e.endOffs >= e.storage {
+		e.err = -1
+		return
 	}
+	e.endOffs++
+	e.buf[e.storage-e.endOffs] = b
 }

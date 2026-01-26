@@ -3,206 +3,368 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 
 	"github.com/thesyncim/gopus"
-	"github.com/thesyncim/gopus/internal/celt"
-	"github.com/thesyncim/gopus/internal/testvectors"
 )
 
 func main() {
-	bitFile := filepath.Join("internal", "testvectors", "testdata", "opus_testvectors", "testvector01.bit")
-	decFile := filepath.Join("internal", "testvectors", "testdata", "opus_testvectors", "testvector01.dec")
+	vectorPath := "internal/testvectors/testdata/opus_testvectors"
+	bitFile := filepath.Join(vectorPath, "testvector07.bit")
+	decFile := filepath.Join(vectorPath, "testvector07.dec")
 
-	packets, err := testvectors.ReadBitstreamFile(bitFile)
+	packets, err := readBitstreamFile(bitFile)
 	if err != nil {
-		fmt.Printf("read bitstream: %v\n", err)
-		return
+		fmt.Printf("Error reading bit file: %v\n", err)
+		os.Exit(1)
 	}
-	if len(packets) == 0 {
-		fmt.Println("no packets")
-		return
+	fmt.Printf("Read %d packets\n", len(packets))
+
+	reference, err := readPCMFile(decFile)
+	if err != nil {
+		fmt.Printf("Error reading dec file: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Reference has %d samples (stereo format)\n", len(reference))
+
+	// Create both mono and stereo decoders
+	monoDec, err := gopus.NewDecoder(48000, 1)
+	if err != nil {
+		fmt.Printf("Error creating mono decoder: %v\n", err)
+		os.Exit(1)
+	}
+	stereoDec, err := gopus.NewDecoder(48000, 2)
+	if err != nil {
+		fmt.Printf("Error creating stereo decoder: %v\n", err)
+		os.Exit(1)
 	}
 
-	printPacketHeader(packets[0], 0)
-	printPacketHeader(packets[2], 2)
+	// Track per-packet quality
+	var allDecoded []int16
+	offset := 0 // stereo sample offset
 
-	channels := 1
-	if gopus.ParseTOC(packets[0].Data[0]).Stereo {
-		channels = 2
+	fmt.Println("\n=== Per-Packet Quality Analysis ===")
+	fmt.Printf("%-6s %-8s %-8s %-6s %-6s %-8s %-10s %-10s %-10s\n",
+		"Pkt#", "Config", "Mode", "Stereo", "Size", "Samples", "SignalE", "NoiseE", "SNR(dB)")
+
+	type badPacket struct {
+		idx     int
+		offset  int
+		config  int
+		stereo  bool
+		size    int
+		samples int
+		snr     float64
+		signalE float64
+		noiseE  float64
 	}
+	var badPackets []badPacket
 
-	// CELT-only decoder for range compare
-	cdec := celt.NewDecoder(channels)
-
-	// Compare final range per packet
-	mismatchIdx := -1
 	for i, pkt := range packets {
-		if len(pkt.Data) == 0 {
+		if len(pkt) == 0 {
 			continue
 		}
-		ptoc := gopus.ParseTOC(pkt.Data[0])
-		if ptoc.Mode != gopus.ModeCELT {
-			continue
-		}
-		cdec.SetBandwidth(celt.BandwidthFromOpusConfig(int(ptoc.Bandwidth)))
-		info, err := gopus.ParsePacket(pkt.Data)
-		if err != nil {
-			fmt.Printf("packet %d parse error: %v\n", i, err)
-			break
-		}
-		if i == 0 || i == 2 {
-			fmt.Printf("packet %d: size=%d frameCount=%d frameSizes=%v padding=%d frameSize=%d\n", i, len(pkt.Data), info.FrameCount, info.FrameSizes, info.Padding, ptoc.FrameSize)
-		}
-		frames := extractFrames(pkt.Data, info)
-		for fi := 0; fi < len(frames); fi++ {
-			_, _ = cdec.DecodeFrame(frames[fi], ptoc.FrameSize)
-			rd := cdec.RangeDecoder()
-			if i == 0 || i == 2 {
-				fmt.Printf("  packet %d frame %d: bytes=%d bits=%d tell=%d range=0x%08X\n", i, fi, len(frames[fi]), len(frames[fi])*8, rd.Tell(), rd.Range())
+
+		pktTOC := gopus.ParseTOC(pkt[0])
+		config := pkt[0] >> 3
+		stereo := pktTOC.Stereo
+		var pcm []int16
+
+		if stereo {
+			pcm, err = stereoDec.DecodeInt16Slice(pkt)
+			if err != nil {
+				fs := getFrameSize(config)
+				pcm = make([]int16, fs*2)
+			}
+		} else {
+			monoSamples, decErr := monoDec.DecodeInt16Slice(pkt)
+			if decErr != nil {
+				fs := getFrameSize(config)
+				pcm = make([]int16, fs*2)
+			} else {
+				// Duplicate mono to stereo
+				pcm = make([]int16, len(monoSamples)*2)
+				for j, s := range monoSamples {
+					pcm[2*j] = s
+					pcm[2*j+1] = s
+				}
 			}
 		}
-		rd := cdec.RangeDecoder()
-		if rd == nil {
-			fmt.Printf("packet %d: no range decoder\n", i)
-			break
+
+		// Compute per-packet quality
+		n := len(pcm)
+		if offset+n > len(reference) {
+			n = len(reference) - offset
 		}
-		if rd.Range() != pkt.FinalRange {
-			mismatchIdx = i
-			fmt.Printf("first final range mismatch at packet %d: got=0x%08X want=0x%08X\n", i, rd.Range(), pkt.FinalRange)
-			break
+		if n <= 0 {
+			allDecoded = append(allDecoded, pcm...)
+			offset += len(pcm)
+			continue
 		}
-	}
-	if mismatchIdx == -1 {
-		fmt.Println("all packets matched final range")
+
+		var signalE, noiseE float64
+		for j := 0; j < n; j++ {
+			ref := float64(reference[offset+j])
+			dec := float64(pcm[j])
+			signalE += ref * ref
+			noise := dec - ref
+			noiseE += noise * noise
+		}
+
+		snr := -999.0
+		if signalE > 0 && noiseE > 0 {
+			snr = 10.0 * math.Log10(signalE/noiseE)
+		}
+
+		// Track bad packets (low SNR with significant signal)
+		if signalE > 1e6 && snr < 20 {
+			badPackets = append(badPackets, badPacket{
+				idx:     i,
+				offset:  offset,
+				config:  int(config),
+				stereo:  stereo,
+				size:    len(pkt),
+				samples: len(pcm),
+				snr:     snr,
+				signalE: signalE,
+				noiseE:  noiseE,
+			})
+		}
+
+		// Print interesting packets
+		if i < 10 || (signalE > 1e6 && snr < 20) || (i >= len(packets)-10) {
+			mode := "CELT"
+			if config < 12 {
+				mode = "SILK"
+			} else if config < 16 {
+				mode = "Hybrid"
+			}
+			stereoStr := "mono"
+			if stereo {
+				stereoStr = "stereo"
+			}
+			fmt.Printf("%-6d %-8d %-8s %-6s %-6d %-8d %-10.2e %-10.2e %-10.2f\n",
+				i, config, mode, stereoStr, len(pkt), len(pcm), signalE, noiseE, snr)
+		}
+
+		allDecoded = append(allDecoded, pcm...)
+		offset += len(pcm)
 	}
 
-	// Also compute global correlation for reference
-	dec, err := gopus.NewDecoder(48000, channels)
-	if err != nil {
-		fmt.Printf("new decoder: %v\n", err)
-		return
+	fmt.Printf("\n=== BAD PACKETS (SNR < 20 dB with signal > 1e6) ===\n")
+	fmt.Printf("Found %d bad packets\n\n", len(badPackets))
+
+	for _, bp := range badPackets[:minInt(20, len(badPackets))] {
+		mode := "CELT"
+		if bp.config < 12 {
+			mode = "SILK"
+		} else if bp.config < 16 {
+			mode = "Hybrid"
+		}
+		stereoStr := "mono"
+		if bp.stereo {
+			stereoStr = "stereo"
+		}
+		fmt.Printf("Pkt %d: offset=%d, config=%d (%s), %s, size=%d, samples=%d, SNR=%.2f dB\n",
+			bp.idx, bp.offset, bp.config, mode, stereoStr, bp.size, bp.samples, bp.snr)
+
+		// Show sample divergence
+		pkt := packets[bp.idx]
+		var pcm []int16
+		if bp.stereo {
+			pcm, _ = stereoDec.DecodeInt16Slice(pkt)
+		} else {
+			monoSamples, _ := monoDec.DecodeInt16Slice(pkt)
+			if monoSamples != nil {
+				pcm = make([]int16, len(monoSamples)*2)
+				for j, s := range monoSamples {
+					pcm[2*j] = s
+					pcm[2*j+1] = s
+				}
+			}
+		}
+		if pcm != nil && bp.offset+10 < len(reference) {
+			fmt.Printf("  First 5 sample pairs at offset %d:\n", bp.offset)
+			for k := 0; k < 10 && k < len(pcm); k++ {
+				refIdx := bp.offset + k
+				if refIdx < len(reference) {
+					fmt.Printf("    [%d] dec=%6d, ref=%6d, diff=%6d\n", k, pcm[k], reference[refIdx], int(pcm[k])-int(reference[refIdx]))
+				}
+			}
+		}
 	}
 
-	var decoded []int16
+	// Analyze transition points (mono to stereo)
+	fmt.Println("\n=== MONO/STEREO TRANSITIONS ===")
+	prevStereo := false
+	for i, pkt := range packets {
+		if len(pkt) == 0 {
+			continue
+		}
+		pktTOC := gopus.ParseTOC(pkt[0])
+		if pktTOC.Stereo != prevStereo {
+			config := pkt[0] >> 3
+			mode := "CELT"
+			if config < 12 {
+				mode = "SILK"
+			} else if config < 16 {
+				mode = "Hybrid"
+			}
+			fmt.Printf("Packet %d: %s -> %s (config=%d, %s)\n",
+				i, boolStr(prevStereo), boolStr(pktTOC.Stereo), config, mode)
+			prevStereo = pktTOC.Stereo
+		}
+	}
+
+	// Analyze frame size distribution
+	fmt.Println("\n=== FRAME SIZE DISTRIBUTION ===")
+	frameSizeCounts := make(map[int]int)
 	for _, pkt := range packets {
-		pcm, err := dec.DecodeInt16Slice(pkt.Data)
-		if err != nil {
-			pktTOC := gopus.ParseTOC(pkt.Data[0])
-			frameSize := pktTOC.FrameSize
-			info, perr := gopus.ParsePacket(pkt.Data)
-			frameCount := 1
-			if perr == nil {
-				frameCount = info.FrameCount
-			}
-			zeros := make([]int16, frameSize*frameCount*channels)
-			decoded = append(decoded, zeros...)
+		if len(pkt) > 0 {
+			config := pkt[0] >> 3
+			fs := getFrameSize(config)
+			frameSizeCounts[fs]++
+		}
+	}
+	for fs, count := range frameSizeCounts {
+		fmt.Printf("  %d samples (%.1fms): %d packets\n", fs, float64(fs)/48.0, count)
+	}
+
+	// Focus on the stereo transition area (packet 2128 and around)
+	fmt.Println("\n=== STEREO TRANSITION ANALYSIS (packets 2125-2135) ===")
+
+	fmt.Println("\n--- Using SINGLE STEREO DECODER for all packets ---")
+	// Use a single stereo decoder for ALL packets (both mono and stereo)
+	singleDec, _ := gopus.NewDecoder(48000, 2)
+
+	// Decode ALL packets and compute overall quality
+	var allDecoded []int16
+	for _, pkt := range packets {
+		if len(pkt) == 0 {
 			continue
 		}
-		decoded = append(decoded, pcm...)
+		pcm, err := singleDec.DecodeInt16Slice(pkt)
+		if err != nil {
+			config := pkt[0] >> 3
+			fs := getFrameSize(config)
+			pcm = make([]int16, fs*2)
+		}
+		allDecoded = append(allDecoded, pcm...)
 	}
 
-	refData, err := os.ReadFile(decFile)
-	if err != nil {
-		fmt.Printf("read dec: %v\n", err)
-		return
-	}
-	reference := make([]int16, len(refData)/2)
-	for i := 0; i < len(reference); i++ {
-		reference[i] = int16(binary.LittleEndian.Uint16(refData[i*2:]))
-	}
+	fmt.Printf("Total decoded: %d samples, Reference: %d samples\n", len(allDecoded), len(reference))
 
-	n := len(decoded)
+	// Compute overall quality
+	n := len(allDecoded)
 	if len(reference) < n {
 		n = len(reference)
 	}
-	if n == 0 {
-		fmt.Println("no samples to compare")
-		return
-	}
-
-	var sumXY, sumX2, sumY2 float64
+	var signalE, noiseE float64
 	for i := 0; i < n; i++ {
-		x := float64(decoded[i])
-		y := float64(reference[i])
-		sumXY += x * y
-		sumX2 += x * x
-		sumY2 += y * y
+		ref := float64(reference[i])
+		dec := float64(allDecoded[i])
+		signalE += ref * ref
+		noise := dec - ref
+		noiseE += noise * noise
 	}
-
-	alpha := 0.0
-	if sumX2 > 0 {
-		alpha = sumXY / sumX2
-	}
-	corr := 0.0
-	if sumX2 > 0 && sumY2 > 0 {
-		corr = sumXY / (sqrt(sumX2) * sqrt(sumY2))
-	}
-
-	fmt.Printf("samples compared: %d\n", n)
-	fmt.Printf("alpha (best scale): %.6f\n", alpha)
-	fmt.Printf("corr: %.6f\n", corr)
-}
-
-func printPacketHeader(pkt testvectors.Packet, idx int) {
-	if len(pkt.Data) == 0 {
-		fmt.Printf("packet %d: empty\n", idx)
-		return
-	}
-	fmt.Printf("packet %d len=%d finalRange=0x%08X\n", idx, len(pkt.Data), pkt.FinalRange)
-	max := 10
-	if len(pkt.Data) < max {
-		max = len(pkt.Data)
-	}
-	fmt.Printf("packet %d first%d: % X\n", idx, max, pkt.Data[:max])
-	if len(pkt.Data) > 1 {
-		fc := pkt.Data[1]
-		vbr := (fc & 0x80) != 0
-		pad := (fc & 0x40) != 0
-		m := int(fc & 0x3F)
-		fmt.Printf("packet %d framecount byte=0x%02X vbr=%v pad=%v m=%d\n", idx, fc, vbr, pad, m)
-	}
-}
-
-func extractFrames(data []byte, info gopus.PacketInfo) [][]byte {
-	frames := make([][]byte, info.FrameCount)
-	totalFrameBytes := 0
-	for _, size := range info.FrameSizes {
-		totalFrameBytes += size
-	}
-	frameDataStart := len(data) - info.Padding - totalFrameBytes
-	if frameDataStart < 1 {
-		frameDataStart = 1
-	}
-	dataEnd := len(data) - info.Padding
-	if dataEnd < frameDataStart {
-		dataEnd = frameDataStart
-	}
-	offset := frameDataStart
-	for i := 0; i < info.FrameCount; i++ {
-		frameLen := info.FrameSizes[i]
-		endOffset := offset + frameLen
-		if endOffset > dataEnd {
-			endOffset = dataEnd
-		}
-		if offset >= dataEnd {
-			frames[i] = nil
+	if signalE > 0 && noiseE > 0 {
+		snr := 10.0 * math.Log10(signalE/noiseE)
+		q := (snr - 48.0)
+		fmt.Printf("Overall SNR=%.2f dB, Q=%.2f (threshold: Q >= 0)\n", snr, q)
+		if q >= 0 {
+			fmt.Println("PASS: Quality meets RFC 8251 threshold!")
 		} else {
-			frames[i] = data[offset:endOffset]
+			fmt.Println("FAIL: Quality below threshold")
 		}
-		offset = endOffset
 	}
-	return frames
+
+	// Find first 10 samples with significant difference
+	fmt.Println("\nFirst 10 samples with |diff| > 100:")
+	count := 0
+	for i := 0; i < n && count < 10; i++ {
+		diff := int(allDecoded[i]) - int(reference[i])
+		if diff > 100 || diff < -100 {
+			fmt.Printf("  [%d] dec=%6d, ref=%6d, diff=%6d\n", i, allDecoded[i], reference[i], diff)
+			count++
+		}
+	}
 }
 
-func sqrt(v float64) float64 {
-	if v <= 0 {
-		return 0
+func boolStr(b bool) string {
+	if b {
+		return "stereo"
 	}
-	x := v
-	for i := 0; i < 20; i++ {
-		x = 0.5 * (x + v/x)
+	return "mono"
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
 	}
-	return x
+	return b
+}
+
+func getFrameSize(config byte) int {
+	frameSizes := []int{
+		480, 960, 1920, 2880,
+		480, 960, 1920, 2880,
+		480, 960, 1920, 2880,
+		480, 960,
+		480, 960,
+		120, 240, 480, 960,
+		120, 240, 480, 960,
+		120, 240, 480, 960,
+		120, 240, 480, 960,
+	}
+	if int(config) < len(frameSizes) {
+		return frameSizes[config]
+	}
+	return 960
+}
+
+func readPCMFile(filename string) ([]int16, error) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+	samples := make([]int16, len(data)/2)
+	for i := range samples {
+		samples[i] = int16(binary.LittleEndian.Uint16(data[i*2:]))
+	}
+	return samples, nil
+}
+
+// Simple bitstream parser (opus_demo format uses big-endian)
+func readBitstreamFile(filename string) ([][]byte, error) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	var packets [][]byte
+	offset := 0
+	for offset < len(data) {
+		if offset+8 > len(data) {
+			break
+		}
+		// Read packet length (4 bytes big endian)
+		pktLen := int(binary.BigEndian.Uint32(data[offset:]))
+		offset += 4
+
+		// Skip enc_final_range (4 bytes)
+		offset += 4
+
+		// Read packet data
+		if offset+pktLen > len(data) {
+			break
+		}
+		pkt := make([]byte, pktLen)
+		copy(pkt, data[offset:offset+pktLen])
+		packets = append(packets, pkt)
+		offset += pktLen
+	}
+
+	return packets, nil
 }

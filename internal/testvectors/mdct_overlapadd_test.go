@@ -33,13 +33,13 @@ func TestMDCTOverlapAdd(t *testing.T) {
 
 	// Apply window and MDCT
 	for i := 0; i < 2*n; i++ {
-		frame1Input[i] *= celt.VorbisWindow(i, 2*n)
+		frame1Input[i] *= vorbisWindowFull(i, 2*n)
 	}
 	coeffs1 := mdctDirect(frame1Input, n)
 	out1 := celt.IMDCT(coeffs1)
 	// Apply window to IMDCT output
 	for i := 0; i < len(out1); i++ {
-		out1[i] *= celt.VorbisWindow(i, 2*n)
+		out1[i] *= vorbisWindowFull(i, 2*n)
 	}
 
 	// Write first frame output
@@ -52,12 +52,12 @@ func TestMDCTOverlapAdd(t *testing.T) {
 	copy(frame2Input, input[:n])        // First half is frame 1
 	copy(frame2Input[n:], input[n:2*n]) // Second half is frame 2
 	for i := 0; i < 2*n; i++ {
-		frame2Input[i] *= celt.VorbisWindow(i, 2*n)
+		frame2Input[i] *= vorbisWindowFull(i, 2*n)
 	}
 	coeffs2 := mdctDirect(frame2Input, n)
 	out2 := celt.IMDCT(coeffs2)
 	for i := 0; i < len(out2); i++ {
-		out2[i] *= celt.VorbisWindow(i, 2*n)
+		out2[i] *= vorbisWindowFull(i, 2*n)
 	}
 
 	// Overlap-add frame 2 into output
@@ -74,12 +74,12 @@ func TestMDCTOverlapAdd(t *testing.T) {
 	copy(frame3Input, input[n:2*n])
 	copy(frame3Input[n:], input[2*n:3*n])
 	for i := 0; i < 2*n; i++ {
-		frame3Input[i] *= celt.VorbisWindow(i, 2*n)
+		frame3Input[i] *= vorbisWindowFull(i, 2*n)
 	}
 	coeffs3 := mdctDirect(frame3Input, n)
 	out3 := celt.IMDCT(coeffs3)
 	for i := 0; i < len(out3); i++ {
-		out3[i] *= celt.VorbisWindow(i, 2*n)
+		out3[i] *= vorbisWindowFull(i, 2*n)
 	}
 
 	// Overlap-add

@@ -807,14 +807,20 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	}
 	start := 0
 
-	// Save prev energy state - use left channel for mono prediction
+	// Save prev energy/log state for mono prediction.
+	// For mono packets in a stereo stream, libopus uses the max of L/R energies.
 	prev1Energy := make([]float64, MaxBands)
-	prev1LogE := make([]float64, MaxBands)
-	prev2LogE := make([]float64, MaxBands)
+	prev1LogE := append([]float64(nil), d.prevLogE...)
+	prev2LogE := append([]float64(nil), d.prevLogE2...)
 	for i := 0; i < MaxBands; i++ {
-		prev1Energy[i] = d.prevEnergy[i] // Use left channel
-		prev1LogE[i] = d.prevLogE[i]
-		prev2LogE[i] = d.prevLogE2[i]
+		left := d.prevEnergy[i]
+		if origChannels > 1 && len(d.prevEnergy) >= MaxBands*2 {
+			right := d.prevEnergy[MaxBands+i]
+			if right > left {
+				left = right
+			}
+		}
+		prev1Energy[i] = left
 	}
 	// Temporarily adjust prevEnergy for mono decoding
 	origPrevEnergy := d.prevEnergy

@@ -291,13 +291,13 @@ func TestCELTFirstPacketComparison(t *testing.T) {
 	// Convert to int16 (match gopus DecodeInt16 scaling)
 	decoded := make([]int16, len(samples))
 	for i, s := range samples {
-		scaled := s * 32767.0
-		if scaled > 32767 {
+		scaled := s * 32768.0
+		if scaled > 32767.0 {
 			decoded[i] = 32767
-		} else if scaled < -32768 {
+		} else if scaled < -32768.0 {
 			decoded[i] = -32768
 		} else {
-			decoded[i] = int16(scaled)
+			decoded[i] = int16(math.RoundToEven(scaled))
 		}
 	}
 
@@ -683,13 +683,13 @@ func TestCELTNonSilentFrameComparison(t *testing.T) {
 	// Convert to int16 (match gopus DecodeInt16 scaling)
 	decoded := make([]int16, len(samples))
 	for i, s := range samples {
-		scaled := s * 32767.0
-		if scaled > 32767 {
+		scaled := s * 32768.0
+		if scaled > 32767.0 {
 			decoded[i] = 32767
-		} else if scaled < -32768 {
+		} else if scaled < -32768.0 {
 			decoded[i] = -32768
 		} else {
-			decoded[i] = int16(scaled)
+			decoded[i] = int16(math.RoundToEven(scaled))
 		}
 	}
 

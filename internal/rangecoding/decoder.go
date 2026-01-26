@@ -273,6 +273,21 @@ func (d *Decoder) Decode(ft uint32) uint32 {
 	return d.decode(ft)
 }
 
+// DecodeBin decodes a symbol when the total frequency is 1<<bits.
+// This mirrors libopus ec_decode_bin.
+func (d *Decoder) DecodeBin(bits uint) uint32 {
+	if bits == 0 {
+		return 0
+	}
+	ft := uint32(1) << bits
+	d.ext = d.rng >> bits
+	s := d.val / d.ext
+	if s+1 > ft {
+		s = ft - 1
+	}
+	return ft - (s + 1)
+}
+
 func (d *Decoder) update(fl, fh, ft uint32) {
 	s := d.ext * (ft - fh)
 	d.val -= s

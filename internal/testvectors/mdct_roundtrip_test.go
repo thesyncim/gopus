@@ -21,7 +21,7 @@ func TestMDCTRoundTrip(t *testing.T) {
 	// Apply Vorbis window to input (like encoder does)
 	windowed := make([]float64, n2)
 	for i := 0; i < n2; i++ {
-		windowed[i] = input[i] * celt.VorbisWindow(i, n2)
+		windowed[i] = input[i] * vorbisWindowFull(i, n2)
 	}
 
 	// Compute MDCT (using the internal function that also applies window)

@@ -102,7 +102,7 @@ func TestMDCT50PercentOverlapRoundTrip(t *testing.T) {
 
 		// Apply full Vorbis window (50% overlap)
 		for i := 0; i < N2; i++ {
-			frameInput[i] *= celt.VorbisWindow(i, N2)
+			frameInput[i] *= vorbisWindowFull(i, N2)
 		}
 
 		// Forward MDCT
@@ -134,7 +134,7 @@ func TestMDCT50PercentOverlapRoundTrip(t *testing.T) {
 
 		// Apply window to output
 		for i := 0; i < N2; i++ {
-			imdctOut[i] *= celt.VorbisWindow(i, N2)
+			imdctOut[i] *= vorbisWindowFull(i, N2)
 		}
 
 		// 50% overlap-add: add first N samples with previous frame's last N

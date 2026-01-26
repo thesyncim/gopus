@@ -202,16 +202,7 @@ func (r *Reader) pcmToBytes(samples []float32) []byte {
 	case FormatInt16LE:
 		buf := make([]byte, len(samples)*2)
 		for i, s := range samples {
-			// Clamp and convert to int16
-			scaled := s * 32767.0
-			var v int16
-			if scaled > 32767 {
-				v = 32767
-			} else if scaled < -32768 {
-				v = -32768
-			} else {
-				v = int16(scaled)
-			}
+			v := float32ToInt16(s)
 			binary.LittleEndian.PutUint16(buf[i*2:], uint16(v))
 		}
 		return buf

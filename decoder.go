@@ -239,16 +239,9 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 		return 0, err
 	}
 
-	// Convert float32 -> int16 with clamping
+	// Convert float32 -> int16 with libopus-compatible rounding
 	for i := 0; i < n*d.channels; i++ {
-		scaled := pcm32[i] * 32767.0
-		if scaled > 32767 {
-			pcm[i] = 32767
-		} else if scaled < -32768 {
-			pcm[i] = -32768
-		} else {
-			pcm[i] = int16(scaled)
-		}
+		pcm[i] = float32ToInt16(pcm32[i])
 	}
 
 	return n, nil

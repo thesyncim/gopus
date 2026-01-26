@@ -185,7 +185,14 @@ func float32ToInt16(f []float32) []int16 {
 		if v < -1.0 {
 			v = -1.0
 		}
-		s[i] = int16(v * 32767.0)
+		scaled := float64(v) * 32768.0
+		if scaled > 32767.0 {
+			s[i] = 32767
+		} else if scaled < -32768.0 {
+			s[i] = -32768
+		} else {
+			s[i] = int16(math.RoundToEven(scaled))
+		}
 	}
 	return s
 }

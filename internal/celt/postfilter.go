@@ -149,6 +149,16 @@ func combFilter(buf []float64, start int, t0, t1, n int, g0, g1 float64, tapset0
 		return
 	}
 
+	// Clamp periods to valid range, matching libopus:
+	// T0 = IMAX(T0, COMBFILTER_MINPERIOD);
+	// T1 = IMAX(T1, COMBFILTER_MINPERIOD);
+	if t0 < combFilterMinPeriod {
+		t0 = combFilterMinPeriod
+	}
+	if t1 < combFilterMinPeriod {
+		t1 = combFilterMinPeriod
+	}
+
 	if overlap > n {
 		overlap = n
 	}

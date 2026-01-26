@@ -7,6 +7,7 @@ package multistream
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/thesyncim/gopus/internal/plc"
 )
@@ -211,15 +212,16 @@ func (d *Decoder) DecodeToFloat32(data []byte, frameSize int) ([]float32, error)
 func float64ToInt16(samples []float64) []int16 {
 	output := make([]int16, len(samples))
 	for i, s := range samples {
-		// Scale from float64 to int16 range
-		// Assuming input is in roughly [-1, 1] but may exceed
-		scaled := s * 32767.0
-		if scaled > 32767 {
-			scaled = 32767
-		} else if scaled < -32768 {
-			scaled = -32768
+		scaled := s * 32768.0
+		if scaled > 32767.0 {
+			output[i] = 32767
+			continue
 		}
-		output[i] = int16(scaled)
+		if scaled < -32768.0 {
+			output[i] = -32768
+			continue
+		}
+		output[i] = int16(math.RoundToEven(scaled))
 	}
 	return output
 }

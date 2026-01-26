@@ -2,6 +2,7 @@ package silk
 
 import (
 	"errors"
+	"math"
 
 	"github.com/thesyncim/gopus/internal/plc"
 	"github.com/thesyncim/gopus/internal/rangecoding"
@@ -134,14 +135,16 @@ func (d *Decoder) DecodeToInt16(
 
 	output := make([]int16, len(samples))
 	for i, s := range samples {
-		// Convert float32 [-1, 1] to int16 [-32768, 32767]
-		scaled := s * 32767.0
-		if scaled > 32767 {
-			scaled = 32767
-		} else if scaled < -32768 {
-			scaled = -32768
+		scaled := float64(s) * 32768.0
+		if scaled > 32767.0 {
+			output[i] = 32767
+			continue
 		}
-		output[i] = int16(scaled)
+		if scaled < -32768.0 {
+			output[i] = -32768
+			continue
+		}
+		output[i] = int16(math.RoundToEven(scaled))
 	}
 
 	return output, nil
@@ -162,13 +165,16 @@ func (d *Decoder) DecodeStereoToInt16(
 
 	output := make([]int16, len(samples))
 	for i, s := range samples {
-		scaled := s * 32767.0
-		if scaled > 32767 {
-			scaled = 32767
-		} else if scaled < -32768 {
-			scaled = -32768
+		scaled := float64(s) * 32768.0
+		if scaled > 32767.0 {
+			output[i] = 32767
+			continue
 		}
-		output[i] = int16(scaled)
+		if scaled < -32768.0 {
+			output[i] = -32768
+			continue
+		}
+		output[i] = int16(math.RoundToEven(scaled))
 	}
 
 	return output, nil

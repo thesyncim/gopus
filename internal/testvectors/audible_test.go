@@ -170,7 +170,13 @@ func saveTestWAV(filename string, samples []float32, sampleRate, channels int) {
 
 	data := make([]byte, len(samples)*2)
 	for i, s := range samples {
-		val := int16(s * 32767)
+		scaled := float64(s) * 32768.0
+		if scaled > 32767.0 {
+			scaled = 32767.0
+		} else if scaled < -32768.0 {
+			scaled = -32768.0
+		}
+		val := int16(math.RoundToEven(scaled))
 		binary.LittleEndian.PutUint16(data[i*2:], uint16(val))
 	}
 
@@ -209,7 +215,7 @@ func readTestWAV(filename string) []float32 {
 			samples := make([]float32, chunkSize/2)
 			for i := 0; i < len(samples) && offset+2 <= len(data); i++ {
 				val := int16(binary.LittleEndian.Uint16(data[offset : offset+2]))
-				samples[i] = float32(val) / 32767.0
+				samples[i] = float32(val) / 32768.0
 				offset += 2
 			}
 			return samples
