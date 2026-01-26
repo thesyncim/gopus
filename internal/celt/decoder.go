@@ -104,8 +104,8 @@ func NewDecoder(channels int) *Decoder {
 		// Postfilter history buffer for comb filter
 		postfilterMem: make([]float64, combFilterHistory*channels),
 
-		// Initialize RNG with non-zero seed
-		rng: 22222,
+		// RNG state (libopus initializes to zero)
+		rng: 0,
 
 		bandwidth: CELTFullband,
 	}
@@ -140,8 +140,8 @@ func (d *Decoder) Reset() {
 	// Reset postfilter
 	d.resetPostfilterState()
 
-	// Reset RNG
-	d.rng = 22222
+	// Reset RNG (libopus resets to zero)
+	d.rng = 0
 
 	// Clear range decoder reference
 	d.rangeDecoder = nil
@@ -415,6 +415,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 		}
 		celtPLCState.Reset()
 		celtPLCState.SetLastFrameParams(plc.ModeCELT, frameSize, d.channels)
+		d.rng = rd.Range()
 		return samples, nil
 	}
 
@@ -591,6 +592,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	// Update energy state for next frame
 	d.updateLogE(energies, end, transient)
 	d.SetPrevEnergyWithPrev(prev1Energy, energies)
+	d.rng = rd.Range()
 
 	// Reset PLC state after successful decode
 	celtPLCState.Reset()
@@ -865,6 +867,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 		d.updateLogE(silenceE, MaxBands, false)
 		celtPLCState.Reset()
 		celtPLCState.SetLastFrameParams(plc.ModeCELT, frameSize, origChannels)
+		d.rng = rd.Range()
 		return samples, nil
 	}
 
@@ -1034,6 +1037,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 		d.prevEnergy[MaxBands+i] = stereoEnergies[MaxBands+i]
 	}
 
+	d.rng = rd.Range()
 	celtPLCState.Reset()
 	celtPLCState.SetLastFrameParams(plc.ModeCELT, frameSize, origChannels)
 
@@ -1080,6 +1084,7 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 		}
 		d.updateLogE(silenceE, MaxBands, false)
 		d.SetPrevEnergyWithPrev(append([]float64(nil), d.prevEnergy...), silenceE)
+		d.rng = rd.Range()
 		return samples, nil
 	}
 
@@ -1132,6 +1137,7 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 	// Update energy
 	d.updateLogE(energies, nbBands, transient)
 	d.SetPrevEnergyWithPrev(prev1Energy, energies)
+	d.rng = rd.Range()
 
 	return samples, nil
 }
@@ -1199,6 +1205,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 		}
 		d.updateLogE(silenceE, MaxBands, false)
 		d.SetPrevEnergyWithPrev(prev1Energy, silenceE)
+		d.rng = rd.Range()
 		return samples, nil
 	}
 
@@ -1349,6 +1356,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	scaleSamples(samples, 1.0/32768.0)
 	d.updateLogE(energies, end, transient)
 	d.SetPrevEnergyWithPrev(prev1Energy, energies)
+	d.rng = rd.Range()
 
 	return samples, nil
 }

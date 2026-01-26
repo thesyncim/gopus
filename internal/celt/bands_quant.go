@@ -524,7 +524,8 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 			if ctx.seed != nil {
 				for i := range x {
 					*ctx.seed = (*ctx.seed)*1664525 + 1013904223
-					x[i] = float64(int32(*ctx.seed>>20)) / 32768.0
+					// Match libopus: arithmetic shift on signed seed before scaling.
+					x[i] = float64(int32(*ctx.seed) >> 20)
 				}
 			}
 			renormalizeVector(x, gain)
@@ -890,6 +891,9 @@ func quantAllBandsDecode(rd *rangecoding.Decoder, channels, frameSize, lm int, s
 			if channels == 2 && effectiveLowband+nBand <= len(norm2) {
 				lowbandY = norm2[effectiveLowband : effectiveLowband+nBand]
 			}
+		}
+		if effectiveLowband >= 0 && lowbandX != nil {
+			traceLowband(i, lowbandOffset, effectiveLowband, lowbandX)
 		}
 
 		var lowbandOutX []float64

@@ -38,9 +38,9 @@ func TestNewEncoder(t *testing.T) {
 				}
 			}
 
-			// Verify RNG initialized (D03-01-02)
-			if enc.RNG() != 22222 {
-				t.Errorf("RNG() = %d, want 22222", enc.RNG())
+			// Verify RNG initialized to libopus default (0)
+			if enc.RNG() != 0 {
+				t.Errorf("RNG() = %d, want 0", enc.RNG())
 			}
 
 			// Verify overlap buffer
@@ -113,8 +113,8 @@ func TestEncoderReset(t *testing.T) {
 	if enc.GetEnergy(5, 0) != 0 {
 		t.Errorf("GetEnergy(5, 0) after reset = %f, want 0.0", enc.GetEnergy(5, 0))
 	}
-	if enc.RNG() != 22222 {
-		t.Errorf("RNG after reset = %d, want 22222", enc.RNG())
+	if enc.RNG() != 0 {
+		t.Errorf("RNG after reset = %d, want 0", enc.RNG())
 	}
 }
 

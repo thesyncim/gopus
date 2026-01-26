@@ -72,6 +72,11 @@ type FlagTracer interface {
 	TraceFlag(name string, value int)
 }
 
+// LowbandTracer is an optional interface for logging lowband/folding details.
+type LowbandTracer interface {
+	TraceLowband(band int, lowbandOffset int, effectiveLowband int, lowband []float64)
+}
+
 // NoopTracer is a no-operation tracer that does nothing.
 // This is the default tracer to ensure zero overhead in production.
 type NoopTracer struct{}
@@ -250,6 +255,12 @@ func traceRange(stage string, rd *rangecoding.Decoder) {
 func traceFlag(name string, value int) {
 	if tracer, ok := DefaultTracer.(FlagTracer); ok {
 		tracer.TraceFlag(name, value)
+	}
+}
+
+func traceLowband(band int, lowbandOffset int, effectiveLowband int, lowband []float64) {
+	if tracer, ok := DefaultTracer.(LowbandTracer); ok {
+		tracer.TraceLowband(band, lowbandOffset, effectiveLowband, lowband)
 	}
 }
 

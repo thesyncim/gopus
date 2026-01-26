@@ -57,7 +57,7 @@ type Encoder struct {
 //
 // The initialization mirrors libopus encoder reset state:
 // - prevEnergy starts at 0.0 (oldBandE cleared)
-// - RNG seed 22222 (matches libopus convention)
+// - RNG seed 0 (matches libopus initialization)
 func NewEncoder(channels int) *Encoder {
 	if channels < 1 {
 		channels = 1
@@ -81,8 +81,8 @@ func NewEncoder(channels int) *Encoder {
 		// Pre-emphasis filter state, one per channel
 		preemphState: make([]float64, channels),
 
-		// Initialize RNG with non-zero seed (D03-01-02)
-		rng: 22222,
+		// Initialize RNG to zero (libopus default)
+		rng: 0,
 
 		// Analysis buffers
 		inputBuffer: make([]float64, 0),
@@ -113,8 +113,8 @@ func (e *Encoder) Reset() {
 		e.preemphState[i] = 0
 	}
 
-	// Reset RNG
-	e.rng = 22222
+	// Reset RNG to zero (libopus default)
+	e.rng = 0
 
 	// Clear range encoder reference
 	e.rangeEncoder = nil

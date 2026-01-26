@@ -107,8 +107,8 @@ func TestDecoderReset(t *testing.T) {
 	if dec.PostfilterPeriod() != 0 {
 		t.Errorf("after reset, PostfilterPeriod = %d, want 0", dec.PostfilterPeriod())
 	}
-	if dec.RNG() != 22222 {
-		t.Errorf("after reset, RNG = %d, want 22222", dec.RNG())
+	if dec.RNG() != 0 {
+		t.Errorf("after reset, RNG = %d, want 0", dec.RNG())
 	}
 	if dec.OverlapBuffer()[0] != 0 {
 		t.Errorf("after reset, OverlapBuffer[0] = %f, want 0", dec.OverlapBuffer()[0])

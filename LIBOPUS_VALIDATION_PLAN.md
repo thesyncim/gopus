@@ -34,14 +34,9 @@ Legend: [x] validated vs libopus, [!] mismatch/suspect, [ ] pending
 - [x] Tables (bands, allocation, pulse cache) parity vs libopus -> `internal/celt/libopus_tables_test.go`
 
 ## CELT Decoder
-- [!] PVQ band decode / quant_bands for short frames in stereo non-transient
-  (testvector07 SNR is low; likely small-band path such as N==2).
-  - **Root cause identified**: `expRotation()` in bands_quant.go (lines 145-177) computes
-    theta and c/s coefficients incorrectly:
-    - Go uses unbounded floating-point; libopus uses Q15 fixed-point for gain/theta
-    - Go uses `math.Cos(0.5 * math.Pi * theta)`; libopus uses `celt_cos_norm(Q15 theta)`
-    - Missing dynamic range scaling (norm_scaledown/norm_scaleup) in expRotation1
-  - Reference: tmp_check/opus-1.6.1/celt/vq.c lines 104-147
+- [!] PVQ band decode / quant_bands (remaining divergence after RNG fix; see testvector07).
+  - Previous suspicion about `expRotation()` mismatch is not confirmed in float build;
+    revisit only if later traces point to PVQ/rotation.
 - [x] Stereo coupling (intensity + mid/side + sign handling): Code review shows N=2 stereo path
   matches libopus (quantBandStereo lines 674-712 vs bands.c lines 1454-1507).
 - [x] Energy state layout fix: Fixed updateLogE layout mismatch in decodeMonoPacketToStereo
@@ -65,10 +60,10 @@ Legend: [x] validated vs libopus, [!] mismatch/suspect, [ ] pending
 - [x] Decoder init parity: `NewDecoder` now calls `Reset()` to initialize
   prevLogE/prevLogE2 to -28 and clear buffers (matches libopus). This fixes
   early-frame anti-collapse noise injection.
-- [!] Postfilter (comb filter) vs libopus -> `internal/celt/cgo_test/postfilter_libopus_test.go`
-  - CGO test created; exposes differences for shorter periods and higher gains
-  - Passing: Vorbis window, gain table, gain/period computation, impulse response, zero gain
-  - Failing: Most comb filter tests show divergence; increases with gain and decreases with period
+- [x] RNG / uncoded-band noise parity: seed now matches libopus (reset=0, update from range decoder),
+  and noise uses signed shift before renormalization. This fixes early divergence in testvector07.
+- [x] Postfilter (comb filter) vs libopus -> `internal/celt/cgo_test/postfilter_libopus_test.go`
+  - Tests now pass after aligning libopus wrapper to in-place comb_filter usage.
 - [!] Overlap-add synthesis vs libopus:
   - Stereo overlap buffer management issue when transitioning between mono and stereo frames
   - Go uses 240-sample split buffer [0:120] (L) + [120:240] (R)
@@ -99,16 +94,10 @@ Legend: [x] validated vs libopus, [!] mismatch/suspect, [ ] pending
   - Sample counts match 12/12 test vectors
 - [x] `testvector01` PASS (Q=54.53): Pure CELT, stereo, all frame sizes
 - [x] `testvector11` PASS (Q=56.21): Pure CELT, stereo, 20ms frames only
-- [!] `testvector07` FAIL (Q=-119.89): CELT mixed mono/stereo
-  - CGO libopus comparison shows: overall SNR=24.78 dB, 15.3% packets below 40 dB threshold
-  - Bad packets by category: stereo 120 (30.8%), mono 480 (27.5%), mono 960 (14.6%), stereo 240 (13.4%)
-  - Issue is NOT stereo-specific; affects mono frames too (packets 31-35 have 0-5 dB SNR)
-  - Max diff at packet 3287 (stereo 120-sample frame): first sample already wrong (opposite sign)
-  - Divergence starts at sample 68 (within overlap region), not at frame boundaries
-  - **ROOT CAUSES IDENTIFIED**:
-    1. Short-block IMDCT synthesis uses incorrect de-interleaving (synthesis.go:144-175)
-    2. expRotation() coefficient computation mismatch (bands_quant.go:145-177)
-    3. Overlap buffer state corrupted on mono→stereo transitions
+- [!] `testvector07` FAIL (Q=-40.30): CELT mixed mono/stereo
+  - First divergence now at packet 62 (mono, 960-sample frame), SNR ≈ 36.2 dB.
+  - Earlier divergence at packet 4 fixed by RNG/uncoded-band noise parity.
+  - Remaining issues likely in overlap/short-block handling or other CELT synthesis paths.
   - Debug test: `internal/testvectors/packet31_debug_test.go` traces packet 31 pipeline
 - [!] `testvector02/03/04` FAIL (Q~-150): Pure SILK - state management issues
 - [!] `testvector05/06` FAIL (Q~-149): Pure Hybrid - SILK layer issues
@@ -135,7 +124,7 @@ Legend: [x] validated vs libopus, [!] mismatch/suspect, [ ] pending
 - [ ] PVQ (rotation + pulse allocation + resynthesis)
 - [ ] Energy decode (coarse/fine/amp)
 - [ ] Stereo coupling (validate with testvectors, not just code review)
-- [ ] Postfilter/comb filter (in-place behavior, state transitions)
+- [x] Postfilter/comb filter (in-place behavior, state transitions)
 - [ ] Overlap/add buffer management (mono↔stereo transitions)
 - [ ] PLC + loss concealment (both CELT and SILK)
 - [ ] DTX/silence handling (background energy updates)
@@ -200,26 +189,21 @@ Legend: [x] validated vs libopus, [!] mismatch/suspect, [ ] pending
 
 **Previous assumption was wrong**: The validation plan incorrectly stated coefficients were sequential.
 
-### Fix #2: expRotation() Coefficient Computation
+### Fix #2: RNG / Uncoded-Band Noise Parity - DONE
+**Files**: `internal/celt/decoder.go`, `internal/celt/bands_quant.go`
+**Status**: ✓ FIXED
+
+**Details**:
+- Decoder RNG now matches libopus (reset to 0, updated from range decoder state).
+- Uncoded-band noise uses signed shift on seed (matches libopus).
+- Result: packet-4 divergence resolved; band 12+ coefficients now match libopus.
+
+### Fix #3: expRotation() Coefficient Computation - UNCONFIRMED
 **File**: `internal/celt/bands_quant.go` (lines 145-177)
-**Problem**: theta and c/s use incorrect scaling (floating-point vs Q15)
-**Impact**: PVQ vectors rotated with wrong angles
+**Status**: TBD (not confirmed as root cause in float build)
+**Note**: Revisit only if later traces indicate PVQ/rotation mismatch.
 
-**Current (broken)**:
-```go
-theta := 0.5 * gain * gain
-c := math.Cos(0.5 * math.Pi * theta)
-s := math.Sin(0.5 * math.Pi * theta)
-```
-
-**Reference (libopus vq.c:117-119)**:
-```c
-theta = HALF16(MULT16_16_Q15(gain,gain));
-c = celt_cos_norm(EXTEND32(theta));
-s = celt_cos_norm(EXTEND32(SUB16(Q15ONE,theta)));
-```
-
-### Fix #3: Overlap Buffer State Management
+### Fix #4: Overlap Buffer State Management
 **File**: `internal/celt/synthesis.go`, `internal/celt/decoder.go`
 **Problem**: Stereo overlap buffer corrupted on mono→stereo transitions
 **Impact**: Divergence at sample 68 (within overlap region)
