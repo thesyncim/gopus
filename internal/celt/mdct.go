@@ -190,8 +190,13 @@ func imdctOverlapWithPrev(spectrum []float64, prevOverlap []float64, overlap int
 	n := n2 * 2
 	n4 := n2 / 2
 	out := make([]float64, n2+overlap)
+
+	// Copy the full prevOverlap to out[0:overlap].
+	// The IMDCT will overwrite out[overlap/2:...], but the TDAC needs
+	// out[0:overlap/2] from prevOverlap.
 	if overlap > 0 && len(prevOverlap) > 0 {
-		copy(out, prevOverlap[:minInt(len(prevOverlap), overlap)])
+		copyLen := minInt(len(prevOverlap), overlap)
+		copy(out[:copyLen], prevOverlap[:copyLen])
 	}
 
 	trig := getMDCTTrig(n)
@@ -240,11 +245,14 @@ func imdctOverlapWithPrev(spectrum []float64, prevOverlap []float64, overlap int
 		yp1 -= 2
 	}
 
+	// Copy IMDCT output to out, starting at overlap/2.
+	// This leaves out[0:overlap/2] with prevOverlap data for TDAC.
 	start := overlap / 2
 	if start+n2 <= len(out) {
 		copy(out[start:start+n2], buf)
 	}
 
+	// TDAC windowing blends out[0:overlap]
 	if overlap > 0 {
 		window := GetWindowBuffer(overlap)
 		xp1 := overlap - 1
@@ -263,6 +271,16 @@ func imdctOverlapWithPrev(spectrum []float64, prevOverlap []float64, overlap int
 		}
 	}
 
+	// The output now has:
+	// - out[0:overlap] = TDAC windowed region
+	// - out[overlap:n2+overlap/2] = IMDCT output
+	// - out[n2+overlap/2:n2+overlap] = zeros (initialized by make)
+	//
+	// The caller extracts out[n2:n2+overlap] for the next frame's overlap:
+	// - out[n2:n2+overlap/2] = last overlap/2 samples of IMDCT (for next TDAC's prev)
+	// - out[n2+overlap/2:n2+overlap] = zeros (will be overwritten by next IMDCT's first overlap/2)
+	//
+	// This is correct - the zeros will be replaced during the next frame's IMDCT.
 	return out
 }
 

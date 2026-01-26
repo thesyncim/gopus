@@ -181,102 +181,20 @@ func TestCELTFirstPacketAnalysis(t *testing.T) {
 // For frame code 2: 2 frames with explicit first-frame size
 // For frame code 3: M frames (VBR or CBR)
 func extractFirstFrame(data []byte) []byte {
-	if len(data) < 2 {
+	if len(data) < 1 {
 		return data
 	}
 
-	toc := data[0]
-	code := toc & 0x03
-
-	switch code {
-	case 0:
-		// Single frame - skip TOC
-		return data[1:]
-
-	case 1:
-		// Two frames of equal size
-		frameLen := (len(data) - 1) / 2
-		return data[1 : 1+frameLen]
-
-	case 2:
-		// Two frames with explicit sizes
-		// Byte 1 has first frame length in 1-2 bytes (depends on value)
-		if len(data) < 3 {
-			return data[1:]
-		}
-		firstLen := int(data[1])
-		if firstLen >= 252 {
-			// Extended length encoding
-			if len(data) < 4 {
-				return data[2:]
-			}
-			firstLen = 252 + int(data[2]) + (int(data[1])-252)*4
-			return data[3 : 3+firstLen]
-		}
-		return data[2 : 2+firstLen]
-
-	case 3:
-		// Multiple frames (CBR or VBR)
-		// Byte 1: frame count byte
-		if len(data) < 3 {
-			return data[1:]
-		}
-		countByte := data[1]
-		vbr := (countByte & 0x80) != 0
-		frameCount := int(countByte & 0x3F)
-
-		if frameCount == 0 {
-			return nil
-		}
-
-		offset := 2
-		// Skip padding if present
-		if (countByte & 0x40) != 0 {
-			// Padding flag set - read padding length
-			if offset >= len(data) {
-				return nil
-			}
-			paddingLen := int(data[offset])
-			offset++
-			for paddingLen == 255 && offset < len(data) {
-				paddingLen += int(data[offset])
-				offset++
-			}
-		}
-
-		if vbr {
-			// VBR: each frame has explicit size
-			// First frame size follows
-			if offset >= len(data) {
-				return nil
-			}
-			firstLen := int(data[offset])
-			offset++
-			if firstLen >= 252 {
-				if offset >= len(data) {
-					return nil
-				}
-				firstLen = 252 + int(data[offset]) + (firstLen-252)*4
-				offset++
-			}
-			if offset+firstLen > len(data) {
-				return data[offset:]
-			}
-			return data[offset : offset+firstLen]
-		} else {
-			// CBR: all frames equal size
-			// Total frame data = len - header - padding
-			// Frame data starts after header
-			totalFrameBytes := len(data) - offset
-			frameSize := totalFrameBytes / frameCount
-			if frameSize <= 0 {
-				return nil
-			}
-			return data[offset : offset+frameSize]
-		}
+	info, err := gopus.ParsePacket(data)
+	if err != nil {
+		return nil
 	}
 
-	return data[1:]
+	frames := extractFrames(data, info)
+	if len(frames) == 0 {
+		return nil
+	}
+	return frames[0]
 }
 
 func extractFrames(data []byte, info gopus.PacketInfo) [][]byte {

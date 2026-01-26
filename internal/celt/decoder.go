@@ -204,13 +204,31 @@ func (d *Decoder) SetPrevEnergy(energies []float64) {
 
 // SetPrevEnergyWithPrev updates prevEnergy using the provided previous state.
 // This avoids losing the prior frame when prevEnergy is updated during decoding.
+// The energies array uses compact layout [L0..L(n-1), R0..R(n-1)] where n = nbBands.
+// The prevEnergy array uses full layout [L0..L20, R0..R20] where 21 = MaxBands.
 func (d *Decoder) SetPrevEnergyWithPrev(prev, energies []float64) {
 	if len(prev) == len(d.prevEnergy2) {
 		copy(d.prevEnergy2, prev)
 	} else {
 		copy(d.prevEnergy2, d.prevEnergy)
 	}
-	copy(d.prevEnergy, energies)
+
+	// Determine nbBands from the energies array length
+	nbBands := len(energies) / d.channels
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+
+	// Copy with layout conversion: compact [c*nbBands+band] -> full [c*MaxBands+band]
+	for c := 0; c < d.channels; c++ {
+		for band := 0; band < nbBands; band++ {
+			src := c*nbBands + band
+			dst := c*MaxBands + band
+			if src < len(energies) {
+				d.prevEnergy[dst] = energies[src]
+			}
+		}
+	}
 }
 
 func (d *Decoder) updateLogE(energies []float64, nbBands int, transient bool) {
