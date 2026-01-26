@@ -322,16 +322,13 @@ func TestMDCTUnit_GoMDCT(t *testing.T) {
 	}
 }
 
-// TestMDCTUnit_RoundTrip tests that the reference formulas form a consistent pair.
-// Note: This tests the mathematical relationship, not practical reconstruction
-// which requires windowing and overlap-add.
+// TestMDCTUnit_RoundTrip tests round-trip consistency using Go's IMDCTDirect and mdctDirect.
+// Note: This tests that MDCT(IMDCT(x)) = x (with proper normalization).
 func TestMDCTUnit_RoundTrip(t *testing.T) {
 	sizes := []int{120, 240, 480, 960}
 
 	for _, N := range sizes {
 		t.Run("", func(t *testing.T) {
-			nfft := 2 * N
-
 			// Create random MDCT coefficients
 			rng := rand.New(rand.NewSource(42))
 			coeffs := make([]float64, N)
@@ -339,23 +336,21 @@ func TestMDCTUnit_RoundTrip(t *testing.T) {
 				coeffs[i] = float64(rng.Intn(32768) - 16384)
 			}
 
-			// Compute IMDCT using reference formula
-			timeOut := mdctInverseRef(coeffs, nfft)
+			// Compute IMDCT using Go implementation (has 2/N normalization)
+			timeOut := IMDCTDirect(coeffs)
 
-			// Compute MDCT of the result using reference formula
-			coeffsBack := mdctForwardRef(timeOut)
+			// Compute MDCT of the result using Go implementation (has 2/N normalization)
+			coeffsBack := mdctDirect(timeOut)
 
-			// The MDCT(IMDCT(x)) should give back x (up to scaling)
-			// Due to the different normalization in reference functions:
-			// MDCT divides by nfft/4, IMDCT has no scaling
-			// So coeffsBack = coeffs * (nfft/4)
-			// Wait, let's verify: if coeffsBack should equal coeffs * something
+			// IMDCTDirect scales by 2/N, mdctDirect scales by 2/N
+			// So coeffsBack = coeffs * (2/N) * (2/N) = coeffs * 4/N^2
+			// We need to scale coeffsBack by N^2/4 to get back to coeffs
+			scale := float64(N) * float64(N) / 4.0
 
 			var errpow, sigpow float64
 			for i := 0; i < N; i++ {
-				// Check if they match (possibly with scaling)
-				// Since both use same formulas, should match exactly
-				diff := coeffsBack[i] - coeffs[i]
+				scaled := coeffsBack[i] * scale
+				diff := scaled - coeffs[i]
 				errpow += diff * diff
 				sigpow += coeffs[i] * coeffs[i]
 			}
@@ -365,7 +360,7 @@ func TestMDCTUnit_RoundTrip(t *testing.T) {
 			}
 
 			snr := 10 * math.Log10(sigpow/errpow)
-			t.Logf("N=%d MDCT(IMDCT(x)) vs x SNR = %.2f dB", N, snr)
+			t.Logf("N=%d MDCT(IMDCT(x)) round-trip SNR = %.2f dB", N, snr)
 
 			if snr < mdctSNRThreshold {
 				t.Errorf("Poor round-trip SNR for N=%d: %.2f dB (threshold: %.2f dB)",

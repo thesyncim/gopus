@@ -110,11 +110,31 @@ func compareAntiCollapseOutput(t *testing.T, signalGen func(int) []float32, fram
 		t.Fatalf("Failed to write raw PCM: %v", err)
 	}
 
+	// Convert frame size to milliseconds string
+	frameSizeMs := float64(frameSize) / 48.0
+	frameSizeMsStr := "20"
+	switch frameSize {
+	case 120:
+		frameSizeMsStr = "2.5"
+	case 240:
+		frameSizeMsStr = "5"
+	case 480:
+		frameSizeMsStr = "10"
+	case 960:
+		frameSizeMsStr = "20"
+	case 1920:
+		frameSizeMsStr = "40"
+	case 2880:
+		frameSizeMsStr = "60"
+	default:
+		t.Logf("Warning: non-standard frame size %.1f ms, using 20", frameSizeMs)
+	}
+
 	// Encode with libopus using opusenc
 	cmd := exec.Command("opusenc",
 		"--raw", "--raw-rate", "48000", "--raw-chan", "1",
 		"--hard-cbr", "--bitrate", fmt.Sprintf("%d", bitrate/1000),
-		"--framesize", fmt.Sprintf("%.1f", float64(frameSize)/48.0),
+		"--framesize", frameSizeMsStr,
 		rawPath, opusPath)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("opusenc failed: %v\n%s", err, out)

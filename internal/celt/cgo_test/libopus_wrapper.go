@@ -14,6 +14,11 @@ package cgo
 #include "entdec.h"
 #include "laplace.h"
 
+// Stub for opus_debug_range (required by debug builds)
+void opus_debug_range(unsigned int a, unsigned int b, unsigned int c, unsigned int d) {
+    // Debug stub - does nothing
+}
+
 // Test harness to decode a Laplace symbol
 int test_laplace_decode(const unsigned char *data, int data_len, int fs, int decay, int *out_val) {
     ec_dec dec;
@@ -69,6 +74,75 @@ float test_vorbis_window(int i, int overlap) {
     return sinf(0.5f * M_PI * s * s);
 }
 
+// Create an opus decoder
+OpusDecoder* test_decoder_create(int sample_rate, int channels, int *error) {
+    return opus_decoder_create(sample_rate, channels, error);
+}
+
+// Destroy an opus decoder
+void test_decoder_destroy(OpusDecoder* dec) {
+    opus_decoder_destroy(dec);
+}
+
+// Decode a single packet with persistent decoder state
+int test_decode_float(OpusDecoder* dec, const unsigned char *data, int data_len,
+                      float *pcm_out, int max_samples) {
+    return opus_decode_float(dec, data, data_len, pcm_out, max_samples, 0);
+}
+
+// MDCT/IMDCT test functions using internal libopus modes
+#include "modes.h"
+#include "mdct.h"
+
+// Get the static mode for 48kHz / 960 samples
+CELTMode* test_get_celt_mode_48000_960() {
+    return opus_custom_mode_create(48000, 960, NULL);
+}
+
+// Get the window from the mode
+const float* test_get_mode_window(CELTMode* mode) {
+    return mode->window;
+}
+
+// Get overlap from the mode
+int test_get_mode_overlap(CELTMode* mode) {
+    return mode->overlap;
+}
+
+// Get MDCT size for a given shift
+int test_get_mdct_size(CELTMode* mode, int shift) {
+    return mode->mdct.n >> shift;
+}
+
+// Perform IMDCT using libopus clt_mdct_backward
+// Input: N2 frequency coefficients
+// Output: N2 + overlap time samples (windowed overlap-add format)
+// shift: 0=1920, 1=960, 2=480, 3=240 (MDCT size = 1920 >> shift)
+void test_imdct_backward(CELTMode* mode, float* in, float* out, int shift) {
+    int n = mode->mdct.n >> shift;
+    int n2 = n >> 1;
+    int overlap = mode->overlap;
+
+    // Zero output buffer
+    memset(out, 0, (n2 + overlap) * sizeof(float));
+
+    // Call libopus IMDCT
+    clt_mdct_backward(&mode->mdct, in, out, mode->window, overlap, shift, 1, 0);
+}
+
+// Perform MDCT using libopus clt_mdct_forward
+// Input: N2 + overlap time samples
+// Output: N2 frequency coefficients
+// shift: 0=1920, 1=960, 2=480, 3=240 (MDCT size = 1920 >> shift)
+void test_mdct_forward(CELTMode* mode, float* in, float* out, int shift) {
+    int n = mode->mdct.n >> shift;
+    int n2 = n >> 1;
+    int overlap = mode->overlap;
+
+    // Call libopus MDCT
+    clt_mdct_forward(&mode->mdct, in, out, mode->window, overlap, shift, 1, 0);
+}
+
 */
 import "C"
 
@@ -118,11 +192,11 @@ func CombFilter(x []float32, history, T0, T1, n int, g0, g1 float32, tapset0, ta
 	y := make([]float32, len(x))
 	copy(y, x) // libopus comb_filter modifies y in-place
 
-	cX := (*C.float)(unsafe.Pointer(&x[0]))
 	cY := (*C.float)(unsafe.Pointer(&y[0]))
 	cWindow := (*C.float)(unsafe.Pointer(&window[0]))
 
-	C.test_comb_filter(cY, cX, C.int(history), C.int(T0), C.int(T1), C.int(n),
+	// Pass y for both input and output to match the in-place usage in the decoder.
+	C.test_comb_filter(cY, cY, C.int(history), C.int(T0), C.int(T1), C.int(n),
 		C.float(g0), C.float(g1), C.int(tapset0), C.int(tapset1),
 		cWindow, C.int(overlap))
 
@@ -132,4 +206,115 @@ func CombFilter(x []float32, history, T0, T1, n int, g0, g1 float32, tapset0, ta
 // VorbisWindow computes the Vorbis window value using libopus formula.
 func VorbisWindow(i, overlap int) float32 {
 	return float32(C.test_vorbis_window(C.int(i), C.int(overlap)))
+}
+
+// LibopusDecoder wraps an opus decoder for comparison tests.
+type LibopusDecoder struct {
+	dec *C.OpusDecoder
+}
+
+// NewLibopusDecoder creates a new libopus decoder.
+func NewLibopusDecoder(sampleRate, channels int) (*LibopusDecoder, error) {
+	var err C.int
+	dec := C.test_decoder_create(C.int(sampleRate), C.int(channels), &err)
+	if err != 0 || dec == nil {
+		return nil, nil // Return nil to indicate failure
+	}
+	return &LibopusDecoder{dec: dec}, nil
+}
+
+// Destroy frees the decoder resources.
+func (d *LibopusDecoder) Destroy() {
+	if d.dec != nil {
+		C.test_decoder_destroy(d.dec)
+		d.dec = nil
+	}
+}
+
+// DecodeFloat decodes a packet to float32 samples.
+func (d *LibopusDecoder) DecodeFloat(data []byte, maxSamples int) ([]float32, int) {
+	if d.dec == nil || len(data) == 0 {
+		return nil, -1
+	}
+
+	pcm := make([]float32, maxSamples*2) // stereo
+	cData := (*C.uchar)(unsafe.Pointer(&data[0]))
+	cPcm := (*C.float)(unsafe.Pointer(&pcm[0]))
+
+	samples := int(C.test_decode_float(d.dec, cData, C.int(len(data)), cPcm, C.int(maxSamples)))
+	if samples < 0 {
+		return nil, samples
+	}
+	return pcm, samples
+}
+
+// CELTMode wraps a libopus CELT mode for MDCT tests.
+type CELTMode struct {
+	mode *C.CELTMode
+}
+
+// GetCELTMode48000_960 returns the standard CELT mode for 48kHz/960 samples.
+func GetCELTMode48000_960() *CELTMode {
+	mode := C.test_get_celt_mode_48000_960()
+	if mode == nil {
+		return nil
+	}
+	return &CELTMode{mode: mode}
+}
+
+// Overlap returns the overlap size for this mode.
+func (m *CELTMode) Overlap() int {
+	return int(C.test_get_mode_overlap(m.mode))
+}
+
+// MDCTSize returns the MDCT size for a given shift value.
+// shift: 0=1920, 1=960, 2=480, 3=240
+func (m *CELTMode) MDCTSize(shift int) int {
+	return int(C.test_get_mdct_size(m.mode, C.int(shift)))
+}
+
+// MDCTForward computes forward MDCT using libopus.
+// Input: n2 + overlap time samples
+// Output: n2 frequency coefficients
+// shift: 0=1920, 1=960, 2=480, 3=240 (MDCT size = 1920 >> shift)
+func (m *CELTMode) MDCTForward(input []float32, shift int) []float32 {
+	nfft := m.MDCTSize(shift)
+	n2 := nfft / 2
+	output := make([]float32, n2)
+
+	cIn := (*C.float)(unsafe.Pointer(&input[0]))
+	cOut := (*C.float)(unsafe.Pointer(&output[0]))
+	C.test_mdct_forward(m.mode, cIn, cOut, C.int(shift))
+
+	return output
+}
+
+// IMDCTBackward computes inverse MDCT using libopus.
+// Input: n2 frequency coefficients
+// Output: n2 + overlap time samples
+// shift: 0=1920, 1=960, 2=480, 3=240 (MDCT size = 1920 >> shift)
+func (m *CELTMode) IMDCTBackward(input []float32, shift int) []float32 {
+	nfft := m.MDCTSize(shift)
+	n2 := nfft / 2
+	overlap := m.Overlap()
+	output := make([]float32, n2+overlap)
+
+	cIn := (*C.float)(unsafe.Pointer(&input[0]))
+	cOut := (*C.float)(unsafe.Pointer(&output[0]))
+	C.test_imdct_backward(m.mode, cIn, cOut, C.int(shift))
+
+	return output
+}
+
+// GetWindow returns the Vorbis window values for the mode's overlap.
+func (m *CELTMode) GetWindow() []float32 {
+	overlap := m.Overlap()
+	cWindow := C.test_get_mode_window(m.mode)
+
+	window := make([]float32, overlap)
+	for i := 0; i < overlap; i++ {
+		// Access C array directly
+		window[i] = float32(*(*C.float)(unsafe.Pointer(uintptr(unsafe.Pointer(cWindow)) + uintptr(i)*unsafe.Sizeof(*cWindow))))
+	}
+	return window
 }

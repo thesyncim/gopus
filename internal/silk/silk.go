@@ -57,9 +57,32 @@ func (d *Decoder) Decode(
 		return nil, err
 	}
 
-	// Upsample to 48kHz
-	config := GetBandwidthConfig(bandwidth)
-	output := upsampleTo48k(nativeSamples, config.SampleRate)
+	// Apply sMid buffering to match libopus timing exactly
+	// libopus prepends sMid[0:2] to decoded samples, then resamples from index 1
+	// This effectively delays the output by 1 sample and provides filter continuity
+	n := len(nativeSamples)
+	if n > 0 {
+		// Build resampler input: sMid[1] + decoded[0:n-1]
+		// (last decoded sample goes to sMid for next frame)
+		resamplerInput := make([]float32, n)
+		resamplerInput[0] = d.sMid[1]
+		copy(resamplerInput[1:], nativeSamples[:n-1])
+
+		// Save last 2 samples to sMid for next frame
+		if n >= 2 {
+			d.sMid[0] = nativeSamples[n-2]
+			d.sMid[1] = nativeSamples[n-1]
+		} else {
+			d.sMid[0] = d.sMid[1]
+			d.sMid[1] = nativeSamples[n-1]
+		}
+
+		nativeSamples = resamplerInput
+	}
+
+	// Upsample to 48kHz using libopus-compatible resampler
+	resampler := d.GetResampler(bandwidth)
+	output := resampler.Process(nativeSamples)
 
 	// Reset PLC state after successful decode
 	plcState.Reset()
@@ -101,10 +124,12 @@ func (d *Decoder) DecodeStereo(
 		return nil, err
 	}
 
-	// Upsample to 48kHz
-	config := GetBandwidthConfig(bandwidth)
-	left := upsampleTo48k(leftNative, config.SampleRate)
-	right := upsampleTo48k(rightNative, config.SampleRate)
+	// Upsample to 48kHz using libopus-compatible resampler
+	resampler := d.GetResampler(bandwidth)
+	left := resampler.Process(leftNative)
+	// Note: For true stereo we'd need separate resamplers per channel
+	// but the current implementation processes channels identically
+	right := resampler.Process(rightNative)
 
 	// Interleave samples [L0, R0, L1, R1, ...]
 	output := make([]float32, len(left)*2)
@@ -209,8 +234,9 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 	// Generate concealment at native rate
 	concealed := plc.ConcealSILK(d, nativeSamples, fadeFactor)
 
-	// Upsample to 48kHz
-	output := upsampleTo48k(concealed, config.SampleRate)
+	// Upsample to 48kHz using libopus-compatible resampler
+	resampler := d.GetResampler(bandwidth)
+	output := resampler.Process(concealed)
 
 	return output, nil
 }
@@ -227,9 +253,10 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 	// Generate concealment at native rate for both channels
 	left, right := plc.ConcealSILKStereo(d, nativeSamples, fadeFactor)
 
-	// Upsample to 48kHz
-	leftUp := upsampleTo48k(left, config.SampleRate)
-	rightUp := upsampleTo48k(right, config.SampleRate)
+	// Upsample to 48kHz using libopus-compatible resampler
+	resampler := d.GetResampler(bandwidth)
+	leftUp := resampler.Process(left)
+	rightUp := resampler.Process(right)
 
 	// Interleave [L0, R0, L1, R1, ...]
 	output := make([]float32, len(leftUp)*2)

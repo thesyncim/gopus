@@ -41,6 +41,13 @@ type Decoder struct {
 	state                [2]decoderState
 	stereo               stereoDecState
 	prevDecodeOnlyMiddle int
+
+	// Resamplers for each bandwidth (created on demand)
+	resamplers map[Bandwidth]*LibopusResampler
+
+	// sMid buffer for mono resampling timing alignment (matches libopus)
+	// Stores last 2 samples of decoded output for continuity
+	sMid [2]float32
 }
 
 // NewDecoder creates a new SILK decoder with proper initial state.
@@ -177,4 +184,22 @@ func (d *Decoder) PrevStereoWeights() [2]int16 {
 // SetPrevStereoWeights sets the stereo weights for the next frame.
 func (d *Decoder) SetPrevStereoWeights(weights [2]int16) {
 	d.prevStereoWeights = weights
+}
+
+// GetResampler returns the libopus-compatible resampler for the given bandwidth.
+// Creates the resampler on first use and caches it.
+func (d *Decoder) GetResampler(bandwidth Bandwidth) *LibopusResampler {
+	if d.resamplers == nil {
+		d.resamplers = make(map[Bandwidth]*LibopusResampler)
+	}
+
+	if r, ok := d.resamplers[bandwidth]; ok {
+		return r
+	}
+
+	// Create resampler for this bandwidth
+	config := GetBandwidthConfig(bandwidth)
+	r := NewLibopusResampler(config.SampleRate, 48000)
+	d.resamplers[bandwidth] = r
+	return r
 }

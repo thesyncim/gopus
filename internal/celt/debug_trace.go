@@ -67,6 +67,11 @@ type RangeTracer interface {
 	TraceRange(stage string, rng uint32, tell, tellFrac int)
 }
 
+// FlagTracer is an optional interface for logging boolean flags/decisions.
+type FlagTracer interface {
+	TraceFlag(name string, value int)
+}
+
 // NoopTracer is a no-operation tracer that does nothing.
 // This is the default tracer to ensure zero overhead in production.
 type NoopTracer struct{}
@@ -239,6 +244,12 @@ func traceRange(stage string, rd *rangecoding.Decoder) {
 	}
 	if tracer, ok := DefaultTracer.(RangeTracer); ok {
 		tracer.TraceRange(stage, rd.Range(), rd.Tell(), rd.TellFrac())
+	}
+}
+
+func traceFlag(name string, value int) {
+	if tracer, ok := DefaultTracer.(FlagTracer); ok {
+		tracer.TraceFlag(name, value)
 	}
 }
 

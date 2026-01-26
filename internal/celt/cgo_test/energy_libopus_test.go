@@ -37,7 +37,7 @@ func TestLaplaceDecodeVsLibopus(t *testing.T) {
 			rd := &rangecoding.Decoder{}
 			rd.Init(tc.data)
 			d.SetRangeDecoder(rd)
-			gopusVal := d.TestDecodeLaplace(tc.fs, tc.decay)
+			gopusVal := d.DecodeLaplaceTest(tc.fs, tc.decay)
 
 			if gopusVal != libopusVal {
 				t.Errorf("Laplace mismatch: gopus=%d, libopus=%d (fs=%d, decay=%d)",
@@ -166,12 +166,13 @@ func TestCoarseEnergySequenceVsLibopus(t *testing.T) {
 	d.SetRangeDecoder(rd)
 
 	// For LM=3 inter mode, band 0
-	fs := int(celt.EProbModel()[3][0][0]) << 7
-	decay := int(celt.EProbModel()[3][0][1]) << 6
+	probModel := celt.GetEProbModel()
+	fs := int(probModel[3][0][0]) << 7
+	decay := int(probModel[3][0][1]) << 6
 
 	// Decode first value with both implementations
 	libVal := DecodeLaplace(testData, fs, decay)
-	goVal := d.TestDecodeLaplace(fs, decay)
+	goVal := d.DecodeLaplaceTest(fs, decay)
 
 	if goVal != libVal {
 		t.Errorf("First Laplace value mismatch: gopus=%d, libopus=%d", goVal, libVal)

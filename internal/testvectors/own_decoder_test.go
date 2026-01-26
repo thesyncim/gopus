@@ -63,20 +63,34 @@ func TestOwnEncoderDecoder(t *testing.T) {
 	t.Logf("\nMax amplitudes: orig=%.4f, decoded=%.4f", maxOrig, maxDec)
 
 	// Compute SNR
+
 	n := len(pcm)
+
 	if len(decoded) < n {
+
 		n = len(decoded)
+
 	}
+
 	var signalPower, noisePower float64
+
 	for i := 0; i < n; i++ {
+
 		signalPower += pcm[i] * pcm[i]
+
 		noise := pcm[i] - decoded[i]
+
 		noisePower += noise * noise
+
 	}
+
 	snr := 10 * math.Log10(signalPower/(noisePower+1e-10))
+
 	t.Logf("SNR: %.2f dB", snr)
 
 	if snr < 5 {
+
 		t.Errorf("SNR too low: %.2f dB", snr)
+
 	}
 }

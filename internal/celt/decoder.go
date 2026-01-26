@@ -110,7 +110,8 @@ func NewDecoder(channels int) *Decoder {
 		bandwidth: CELTFullband,
 	}
 
-	// Energy arrays default to zero after allocation (matches libopus init).
+	// Match libopus init/reset defaults (oldLogE/oldLogE2 = -28, buffers cleared).
+	d.Reset()
 
 	return d
 }
@@ -542,6 +543,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	if antiCollapseRsv > 0 {
 		antiCollapseOn = rd.DecodeRawBits(1) == 1
 	}
+	traceFlag("anticollapse_on", boolToInt(antiCollapseOn))
 	traceRange("anticollapse", rd)
 
 	bitsLeft := totalBits - rd.Tell()
@@ -566,6 +568,13 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 		samples = d.Synthesize(coeffsL, transient, shortBlocks)
 	}
 
+	// Trace synthesis output before postfilter/de-emphasis for libopus comparison.
+	traceLen := len(samples)
+	if traceLen > 16 {
+		traceLen = 16
+	}
+	DefaultTracer.TraceSynthesis("synth_pre", samples[:traceLen])
+
 	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
 
 	// Step 7: Apply de-emphasis filter
@@ -573,7 +582,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	scaleSamples(samples, 1.0/32768.0)
 
 	// Trace final synthesis output
-	traceLen := len(samples)
+	traceLen = len(samples)
 	if traceLen > 16 {
 		traceLen = 16
 	}
@@ -708,8 +717,9 @@ func (d *Decoder) applyDeemphasis(samples []float64) {
 		// Mono de-emphasis
 		state := d.preemphState[0]
 		for i := range samples {
-			samples[i] = samples[i] + PreemphCoef*state
-			state = samples[i]
+			tmp := samples[i] + state
+			state = PreemphCoef * tmp
+			samples[i] = tmp
 		}
 		d.preemphState[0] = state
 	} else {
@@ -719,12 +729,14 @@ func (d *Decoder) applyDeemphasis(samples []float64) {
 
 		for i := 0; i < len(samples)-1; i += 2 {
 			// Left channel
-			samples[i] = samples[i] + PreemphCoef*stateL
-			stateL = samples[i]
+			tmpL := samples[i] + stateL
+			stateL = PreemphCoef * tmpL
+			samples[i] = tmpL
 
 			// Right channel
-			samples[i+1] = samples[i+1] + PreemphCoef*stateR
-			stateR = samples[i+1]
+			tmpR := samples[i+1] + stateR
+			stateR = PreemphCoef * tmpR
+			samples[i+1] = tmpR
 		}
 
 		d.preemphState[0] = stateL
@@ -967,6 +979,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	if antiCollapseRsv > 0 {
 		antiCollapseOn = rd.DecodeRawBits(1) == 1
 	}
+	traceFlag("anticollapse_on", boolToInt(antiCollapseOn))
 	traceRange("anticollapse", rd)
 
 	bitsLeft := totalBits - rd.Tell()
@@ -991,6 +1004,13 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 
 	// Synthesize as stereo
 	samples := d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
+
+	// Trace synthesis output before postfilter/de-emphasis for libopus comparison.
+	traceLen := len(samples)
+	if traceLen > 16 {
+		traceLen = 16
+	}
+	DefaultTracer.TraceSynthesis("synth_pre", samples[:traceLen])
 
 	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
 	d.applyDeemphasis(samples)
@@ -1290,6 +1310,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	if antiCollapseRsv > 0 {
 		antiCollapseOn = rd.DecodeRawBits(1) == 1
 	}
+	traceFlag("anticollapse_on", boolToInt(antiCollapseOn))
 	traceRange("anticollapse", rd)
 
 	bitsLeft := totalBits - rd.Tell()

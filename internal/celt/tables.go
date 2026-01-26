@@ -11,6 +11,10 @@ const MaxBands = 21
 // This is fixed for all CELT frame sizes.
 const Overlap = 120
 
+// DecodeBufferSize matches libopus DEC_PITCH_BUF_SIZE (decode_mem length without overlap).
+// This buffer is larger than any single frame to preserve history for short blocks.
+const DecodeBufferSize = 2048
+
 // DB6 is the value corresponding to a 6 dB step in CELT's log2 energy units.
 // In libopus, energies are stored in log2 units, so 6 dB = 1.0.
 const DB6 = 1.0
@@ -146,6 +150,11 @@ var eProbModel = [4][2][42]uint8{
 // smallEnergyICDF is used for coarse energy fallback when budget is low.
 // Source: libopus celt/quant_bands.c small_energy_icdf table.
 var smallEnergyICDF = []uint8{2, 1, 0}
+
+// GetEProbModel returns the probability model table for testing.
+func GetEProbModel() [4][2][42]uint8 {
+	return eProbModel
+}
 
 const (
 	bitRes               = 3
