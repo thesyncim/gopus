@@ -27,14 +27,14 @@ func TestNewEncoder(t *testing.T) {
 				t.Errorf("SampleRate() = %d, want 48000", enc.SampleRate())
 			}
 
-			// Verify energy arrays initialized correctly (D03-01-01)
+			// Verify energy arrays initialized correctly (libopus init clears oldBandE).
 			prevEnergy := enc.PrevEnergy()
 			if len(prevEnergy) != MaxBands*tt.channels {
 				t.Errorf("PrevEnergy length = %d, want %d", len(prevEnergy), MaxBands*tt.channels)
 			}
 			for i, e := range prevEnergy {
-				if e != -28.0 {
-					t.Errorf("PrevEnergy[%d] = %f, want -28.0", i, e)
+				if e != 0 {
+					t.Errorf("PrevEnergy[%d] = %f, want 0.0", i, e)
 				}
 			}
 
@@ -110,8 +110,8 @@ func TestEncoderReset(t *testing.T) {
 	enc.Reset()
 
 	// Verify state cleared
-	if enc.GetEnergy(5, 0) != -28.0 {
-		t.Errorf("GetEnergy(5, 0) after reset = %f, want -28.0", enc.GetEnergy(5, 0))
+	if enc.GetEnergy(5, 0) != 0 {
+		t.Errorf("GetEnergy(5, 0) after reset = %f, want 0.0", enc.GetEnergy(5, 0))
 	}
 	if enc.RNG() != 22222 {
 		t.Errorf("RNG after reset = %d, want 22222", enc.RNG())

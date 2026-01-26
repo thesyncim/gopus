@@ -153,11 +153,12 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	}
 	re.EncodeBit(intraBit, 3)
 
-	// Step 10: For stereo frames, encode stereo params
-	intensity := -1
+	// Step 10: Prepare stereo params (will be encoded during allocation)
+	// For dual stereo mode: intensity = nbBands (no intensity stereo), dualStereo = true
+	intensity := nbBands // No intensity stereo - all bands use dual stereo
 	dualStereo := false
 	if e.channels == 2 {
-		intensity = e.EncodeStereoParams(nbBands)
+		dualStereo = true // Use dual stereo mode (encode L and R independently)
 	}
 
 	// Step 11: Encode coarse energy
@@ -195,7 +196,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	}
 	totalBitsQ3 -= antiCollapseRsv
 
-	allocResult := ComputeAllocation(
+	allocResult := ComputeAllocationWithEncoder(
+		re,
 		totalBitsQ3>>bitRes,
 		nbBands,
 		e.channels,

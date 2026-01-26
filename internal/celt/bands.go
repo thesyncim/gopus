@@ -414,6 +414,13 @@ func denormalizeCoeffs(coeffs []float64, energies []float64, nbBands, frameSize 
 		for i := 0; i < width && offset+i < len(coeffs); i++ {
 			coeffs[offset+i] *= gain
 		}
+		traceEnd := offset + width
+		if traceEnd > len(coeffs) {
+			traceEnd = len(coeffs)
+		}
+		if traceEnd > offset {
+			DefaultTracer.TraceCoeffs(band, coeffs[offset:traceEnd])
+		}
 		offset += width
 	}
 }

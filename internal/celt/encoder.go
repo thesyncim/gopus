@@ -55,8 +55,8 @@ type Encoder struct {
 // Valid channel counts are 1 (mono) or 2 (stereo).
 // The encoder is ready to process CELT frames after creation.
 //
-// The initialization mirrors NewDecoder exactly (D03-01-01, D03-01-02):
-// - prevEnergy initialized to -28.0 (low but finite starting energy)
+// The initialization mirrors libopus encoder reset state:
+// - prevEnergy starts at 0.0 (oldBandE cleared)
 // - RNG seed 22222 (matches libopus convention)
 func NewEncoder(channels int) *Encoder {
 	if channels < 1 {
@@ -89,12 +89,7 @@ func NewEncoder(channels int) *Encoder {
 		mdctBuffer:  make([]float64, 0),
 	}
 
-	// Initialize energy arrays to reasonable defaults (D03-01-01)
-	// Using negative infinity would cause issues; use small energy instead
-	for i := range e.prevEnergy {
-		e.prevEnergy[i] = -28.0 // Low but finite starting energy
-		e.prevEnergy2[i] = -28.0
-	}
+	// Energy arrays default to zero after allocation (matches libopus init).
 
 	return e
 }
@@ -102,10 +97,10 @@ func NewEncoder(channels int) *Encoder {
 // Reset clears encoder state for a new stream.
 // Call this when starting to encode a new audio stream.
 func (e *Encoder) Reset() {
-	// Clear energy arrays
+	// Clear energy arrays (match libopus reset: oldBandE=0).
 	for i := range e.prevEnergy {
-		e.prevEnergy[i] = -28.0
-		e.prevEnergy2[i] = -28.0
+		e.prevEnergy[i] = 0
+		e.prevEnergy2[i] = 0
 	}
 
 	// Clear overlap buffer

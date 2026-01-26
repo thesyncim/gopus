@@ -1,8 +1,11 @@
 package main
 
 import (
+	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/internal/celt"
@@ -10,13 +13,20 @@ import (
 )
 
 func main() {
-	bitFile := filepath.Join("internal", "testvectors", "testdata", "opus_testvectors", "testvector01.bit")
-	packets, err := testvectors.ReadBitstreamFile(bitFile)
+	defaultBitFile := filepath.Join("internal", "testvectors", "testdata", "opus_testvectors", "testvector01.bit")
+	bitFile := flag.String("bitfile", defaultBitFile, "path to .bit testvector")
+	packetIdx := flag.Int("pkt", 0, "packet index")
+	flag.Parse()
+
+	packets, err := testvectors.ReadBitstreamFile(*bitFile)
 	if err != nil || len(packets) == 0 {
 		panic("failed to load bitstream")
 	}
 
-	pkt := packets[0]
+	if *packetIdx < 0 || *packetIdx >= len(packets) {
+		panic("packet index out of range")
+	}
+	pkt := packets[*packetIdx]
 	if len(pkt.Data) == 0 {
 		panic("empty packet")
 	}
@@ -42,7 +52,15 @@ func main() {
 		panic("no frames")
 	}
 
-	_, _ = dec.DecodeFrame(frames[0], toc.FrameSize)
+	baseName := strings.TrimSuffix(filepath.Base(*bitFile), filepath.Ext(*bitFile))
+	for i, frame := range frames {
+		if len(frame) == 0 {
+			continue
+		}
+		outPath := filepath.Join("/tmp", fmt.Sprintf("%s_pkt%d_frame%d.bin", baseName, *packetIdx, i))
+		_ = os.WriteFile(outPath, frame, 0o644)
+		_, _ = dec.DecodeFrame(frame, toc.FrameSize)
+	}
 }
 
 func extractFrames(data []byte, info gopus.PacketInfo) [][]byte {

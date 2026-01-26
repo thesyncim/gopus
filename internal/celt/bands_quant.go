@@ -927,17 +927,5 @@ func quantAllBandsDecode(rd *rangecoding.Decoder, channels, frameSize, lm int, s
 		ctx.avoidSplitNoise = false
 	}
 
-	if shortBlocks > 1 {
-		scale := 1.0 / math.Sqrt(float64(shortBlocks))
-		for i := range left {
-			left[i] *= scale
-		}
-		if channels == 2 {
-			for i := range right {
-				right[i] *= scale
-			}
-		}
-	}
-
 	return left, right, collapse
 }

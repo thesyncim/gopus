@@ -25,7 +25,44 @@ func (d *Decoder) resetPostfilterState() {
 	}
 }
 
-func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int) {
+func sanitizePostfilterParams(t0, t1 int, g0, g1 float64, tap0, tap1 int) (int, int, int, int) {
+	if t0 < combFilterMinPeriod || t0 > combFilterMaxPeriod {
+		t0 = t1
+	}
+	if t1 < combFilterMinPeriod || t1 > combFilterMaxPeriod {
+		t1 = t0
+	}
+	if t0 < combFilterMinPeriod {
+		t0 = combFilterMinPeriod
+	}
+	if t1 < combFilterMinPeriod {
+		t1 = combFilterMinPeriod
+	}
+
+	if tap0 < 0 || tap0 >= len(combFilterGains) {
+		tap0 = tap1
+	}
+	if tap1 < 0 || tap1 >= len(combFilterGains) {
+		tap1 = tap0
+	}
+	if tap0 < 0 || tap0 >= len(combFilterGains) {
+		tap0 = 0
+	}
+	if tap1 < 0 || tap1 >= len(combFilterGains) {
+		tap1 = 0
+	}
+
+	if g0 == 0 {
+		t0 = t1
+	}
+	if g1 == 0 {
+		t1 = t0
+	}
+
+	return t0, t1, tap0, tap1
+}
+
+func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPeriod int, newGain float64, newTapset int) {
 	if len(samples) == 0 || frameSize <= 0 {
 		return
 	}
@@ -48,33 +85,12 @@ func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int) {
 	g1 := d.postfilterGain
 	tap0 := d.postfilterTapsetOld
 	tap1 := d.postfilterTapset
+	t2 := newPeriod
+	g2 := newGain
+	tap2 := newTapset
 
-	if t0 < combFilterMinPeriod || t0 > combFilterMaxPeriod {
-		t0 = t1
-	}
-	if t1 < combFilterMinPeriod || t1 > combFilterMaxPeriod {
-		t1 = t0
-	}
-	if t0 < combFilterMinPeriod {
-		t0 = combFilterMinPeriod
-	}
-	if t1 < combFilterMinPeriod {
-		t1 = combFilterMinPeriod
-	}
-
-	if tap0 < 0 || tap0 >= len(combFilterGains) {
-		tap0 = tap1
-	}
-	if tap1 < 0 || tap1 >= len(combFilterGains) {
-		tap1 = tap0
-	}
-
-	if g0 == 0 {
-		t0 = t1
-	}
-	if g1 == 0 {
-		t1 = t0
-	}
+	t0, t1, tap0, tap1 = sanitizePostfilterParams(t0, t1, g0, g1, tap0, tap1)
+	t1b, t2, tap1b, tap2 := sanitizePostfilterParams(t1, t2, g1, g2, tap1, tap2)
 
 	shortMdctSize := frameSize >> uint(lm)
 	if shortMdctSize <= 0 || shortMdctSize > frameSize {
@@ -98,7 +114,7 @@ func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int) {
 
 		combFilter(buf, history, t0, t1, shortMdctSize, g0, g1, tap0, tap1, window, Overlap)
 		if lm != 0 && shortMdctSize < frameSize {
-			combFilter(buf, history+shortMdctSize, t1, t1, frameSize-shortMdctSize, g1, g1, tap1, tap1, window, Overlap)
+			combFilter(buf, history+shortMdctSize, t1b, t2, frameSize-shortMdctSize, g1, g2, tap1b, tap2, window, Overlap)
 		}
 
 		if d.channels == 1 {
@@ -115,6 +131,14 @@ func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int) {
 	d.postfilterPeriodOld = d.postfilterPeriod
 	d.postfilterGainOld = d.postfilterGain
 	d.postfilterTapsetOld = d.postfilterTapset
+	d.postfilterPeriod = newPeriod
+	d.postfilterGain = newGain
+	d.postfilterTapset = newTapset
+	if lm != 0 {
+		d.postfilterPeriodOld = d.postfilterPeriod
+		d.postfilterGainOld = d.postfilterGain
+		d.postfilterTapsetOld = d.postfilterTapset
+	}
 }
 
 func combFilter(buf []float64, start int, t0, t1, n int, g0, g1 float64, tapset0, tapset1 int, window []float64, overlap int) {

@@ -143,16 +143,16 @@ func TestDecoder_ResetState(t *testing.T) {
 	// Reset
 	d.Reset()
 
-	// Verify state is cleared
+	// Verify state is cleared (libopus reset clears oldBandE to 0).
 	for i, e := range d.PrevEnergy() {
-		if e != -28.0 {
-			t.Errorf("PrevEnergy[%d] = %v, want -28.0 after reset", i, e)
+		if e != 0 {
+			t.Errorf("PrevEnergy[%d] = %v, want 0.0 after reset", i, e)
 		}
 	}
 
 	for i, e := range d.PrevEnergy2() {
-		if e != -28.0 {
-			t.Errorf("PrevEnergy2[%d] = %v, want -28.0 after reset", i, e)
+		if e != 0 {
+			t.Errorf("PrevEnergy2[%d] = %v, want 0.0 after reset", i, e)
 		}
 	}
 

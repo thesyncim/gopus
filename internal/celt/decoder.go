@@ -110,14 +110,7 @@ func NewDecoder(channels int) *Decoder {
 		bandwidth: CELTFullband,
 	}
 
-	// Initialize energy arrays to reasonable defaults
-	// Using negative infinity would cause issues; use small energy instead
-	for i := range d.prevEnergy {
-		d.prevEnergy[i] = -28.0 // Low but finite starting energy
-		d.prevEnergy2[i] = -28.0
-		d.prevLogE[i] = -28.0
-		d.prevLogE2[i] = -28.0
-	}
+	// Energy arrays default to zero after allocation (matches libopus init).
 
 	return d
 }
@@ -125,10 +118,10 @@ func NewDecoder(channels int) *Decoder {
 // Reset clears decoder state for a new stream.
 // Call this when starting to decode a new audio stream.
 func (d *Decoder) Reset() {
-	// Clear energy arrays
+	// Clear energy arrays (match libopus reset: oldBandE=0, oldLogE/oldLogE2=-28).
 	for i := range d.prevEnergy {
-		d.prevEnergy[i] = -28.0
-		d.prevEnergy2[i] = -28.0
+		d.prevEnergy[i] = 0
+		d.prevEnergy2[i] = 0
 		d.prevLogE[i] = -28.0
 		d.prevLogE2[i] = -28.0
 	}
@@ -385,8 +378,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 		silence = rd.DecodeBit(15) == 1
 	}
 	if silence {
-		d.SetPostfilter(0, 0, 0)
-		samples := d.decodeSilenceFrame(frameSize)
+		samples := d.decodeSilenceFrame(frameSize, 0, 0, 0)
 		silenceE := make([]float64, MaxBands*d.channels)
 		for i := range silenceE {
 			silenceE[i] = -28.0
@@ -422,7 +414,6 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 		}
 		tell = rd.Tell()
 	}
-	d.SetPostfilter(postfilterPeriod, postfilterGain, postfilterTapset)
 	traceRange("postfilter", rd)
 
 	transient := false
@@ -557,7 +548,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 		samples = d.Synthesize(coeffsL, transient, shortBlocks)
 	}
 
-	d.applyPostfilter(samples, frameSize, mode.LM)
+	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
 
 	// Step 7: Apply de-emphasis filter
 	d.applyDeemphasis(samples)
@@ -664,7 +655,7 @@ func (d *Decoder) decodeSpread() int {
 }
 
 // decodeSilenceFrame returns zeros for a silence frame.
-func (d *Decoder) decodeSilenceFrame(frameSize int) []float64 {
+func (d *Decoder) decodeSilenceFrame(frameSize int, newPeriod int, newGain float64, newTapset int) []float64 {
 	mode := GetModeConfig(frameSize)
 	zeros := make([]float64, frameSize)
 	var samples []float64
@@ -677,7 +668,7 @@ func (d *Decoder) decodeSilenceFrame(frameSize int) []float64 {
 		samples = make([]float64, frameSize*d.channels)
 	}
 
-	d.applyPostfilter(samples, frameSize, mode.LM)
+	d.applyPostfilter(samples, frameSize, mode.LM, newPeriod, newGain, newTapset)
 	d.applyDeemphasis(samples)
 	scaleSamples(samples, 1.0/32768.0)
 
@@ -827,10 +818,9 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	}()
 
 	if silence {
-		d.SetPostfilter(0, 0, 0)
 		// Generate mono silence, then duplicate to stereo
 		d.channels = origChannels // Restore for silence frame
-		samples := d.decodeSilenceFrame(frameSize)
+		samples := d.decodeSilenceFrame(frameSize, 0, 0, 0)
 		silenceE := make([]float64, MaxBands*origChannels)
 		for i := range silenceE {
 			silenceE[i] = -28.0
@@ -857,7 +847,6 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 		}
 		tell = rd.Tell()
 	}
-	d.SetPostfilter(postfilterPeriod, postfilterGain, postfilterTapset)
 	traceRange("postfilter", rd)
 
 	transient := false
@@ -979,7 +968,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	// Synthesize as stereo
 	samples := d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
 
-	d.applyPostfilter(samples, frameSize, mode.LM)
+	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
 	d.applyDeemphasis(samples)
 	scaleSamples(samples, 1.0/32768.0)
 
@@ -1040,8 +1029,7 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 	// Decode frame header flags
 	silence := d.decodeSilenceFlag()
 	if silence {
-		d.SetPostfilter(0, 0, 0)
-		samples := d.decodeSilenceFrame(frameSize)
+		samples := d.decodeSilenceFrame(frameSize, 0, 0, 0)
 		silenceE := make([]float64, MaxBands*d.channels)
 		for i := range silenceE {
 			silenceE[i] = -28.0
@@ -1160,8 +1148,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 		silence = rd.DecodeBit(15) == 1
 	}
 	if silence {
-		d.SetPostfilter(0, 0, 0)
-		samples := d.decodeSilenceFrame(frameSize)
+		samples := d.decodeSilenceFrame(frameSize, 0, 0, 0)
 		silenceE := make([]float64, MaxBands*d.channels)
 		for i := range silenceE {
 			silenceE[i] = -28.0
@@ -1186,7 +1173,6 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 		}
 		tell = rd.Tell()
 	}
-	d.SetPostfilter(postfilterPeriod, postfilterGain, postfilterTapset)
 	traceRange("postfilter", rd)
 
 	transient := false
@@ -1312,7 +1298,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 		samples = d.Synthesize(coeffsL, transient, shortBlocks)
 	}
 
-	d.applyPostfilter(samples, frameSize, mode.LM)
+	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
 
 	d.applyDeemphasis(samples)
 	scaleSamples(samples, 1.0/32768.0)
