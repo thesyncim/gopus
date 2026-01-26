@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // Tracer defines the interface for CELT decoder debug tracing.
@@ -58,6 +60,11 @@ type Tracer interface {
 	// stage: synthesis stage name (e.g., "imdct", "window", "overlap", "final")
 	// samples: output samples at this stage (first N for brevity)
 	TraceSynthesis(stage string, samples []float64)
+}
+
+// RangeTracer is an optional interface for logging range decoder state.
+type RangeTracer interface {
+	TraceRange(stage string, rng uint32, tell, tellFrac int)
 }
 
 // NoopTracer is a no-operation tracer that does nothing.
@@ -129,6 +136,12 @@ func (t *LogTracer) TraceCoeffs(band int, coeffs []float64) {
 func (t *LogTracer) TraceSynthesis(stage string, samples []float64) {
 	sStr := formatFloatSlice(samples, 8)
 	fmt.Fprintf(t.W, "[CELT:synthesis] stage=%s samples=%s\n", stage, sStr)
+}
+
+// TraceRange logs range decoder state with format:
+// [stage] rng=0x%08X tell=%d tell_frac=%d
+func (t *LogTracer) TraceRange(stage string, rng uint32, tell, tellFrac int) {
+	fmt.Fprintf(t.W, "[%s] rng=0x%08X tell=%d tell_frac=%d\n", stage, rng, tell, tellFrac)
 }
 
 // formatIntSlice formats an int slice for tracing.
@@ -217,6 +230,15 @@ func SetTracer(t Tracer) {
 		DefaultTracer = &NoopTracer{}
 	} else {
 		DefaultTracer = t
+	}
+}
+
+func traceRange(stage string, rd *rangecoding.Decoder) {
+	if rd == nil {
+		return
+	}
+	if tracer, ok := DefaultTracer.(RangeTracer); ok {
+		tracer.TraceRange(stage, rd.Range(), rd.Tell(), rd.TellFrac())
 	}
 }
 

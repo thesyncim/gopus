@@ -423,6 +423,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 		tell = rd.Tell()
 	}
 	d.SetPostfilter(postfilterPeriod, postfilterGain, postfilterTapset)
+	traceRange("postfilter", rd)
 
 	transient := false
 	if lm > 0 && tell+3 <= totalBits {
@@ -433,6 +434,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	if tell+3 <= totalBits {
 		intra = rd.DecodeBit(3) == 1
 	}
+	traceRange("intra", rd)
 
 	// Trace frame header
 	DefaultTracer.TraceHeader(frameSize, d.channels, lm, boolToInt(intra), boolToInt(transient))
@@ -445,15 +447,18 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 
 	// Step 1: Decode coarse energy
 	energies := d.DecodeCoarseEnergy(end, intra, lm)
+	traceRange("coarse", rd)
 
 	tfRes := make([]int, end)
 	tfDecode(start, end, transient, tfRes, lm, rd)
+	traceRange("tf", rd)
 
 	spread := spreadNormal
 	tell = rd.Tell()
 	if tell+4 <= totalBits {
 		spread = rd.DecodeICDF(spreadICDF, 5)
 	}
+	traceRange("spread", rd)
 
 	cap := initCaps(end, lm, d.channels)
 	offsets := make([]int, end)
@@ -480,11 +485,13 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 			dynallocLogp = maxInt(2, dynallocLogp-1)
 		}
 	}
+	traceRange("dynalloc", rd)
 
 	allocTrim := 5
 	if tellFrac+(6<<bitRes) <= totalBitsQ3 {
 		allocTrim = rd.DecodeICDF(trimICDF, 7)
 	}
+	traceRange("trim", rd)
 
 	bitsQ3 := (totalBits << bitRes) - rd.TellFrac() - 1
 	antiCollapseRsv := 0
@@ -501,19 +508,36 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	balance := 0
 	codedBands := cltComputeAllocation(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
 		bitsQ3, &balance, pulses, fineQuant, finePriority, d.channels, lm, rd)
+	traceRange("alloc", rd)
+
+	for i := start; i < end; i++ {
+		width := 0
+		if i+1 < len(EBands) {
+			width = (EBands[i+1] - EBands[i]) << lm
+		}
+		k := 0
+		if width > 0 {
+			k = bitsToK(pulses[i], width)
+		}
+		DefaultTracer.TraceAllocation(i, pulses[i], k)
+	}
 
 	d.DecodeFineEnergy(energies, end, fineQuant)
+	traceRange("fine", rd)
 
 	coeffsL, coeffsR, collapse := quantAllBandsDecode(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
 		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, &d.rng)
+	traceRange("pvq", rd)
 
 	antiCollapseOn := false
 	if antiCollapseRsv > 0 {
 		antiCollapseOn = rd.DecodeRawBits(1) == 1
 	}
+	traceRange("anticollapse", rd)
 
 	bitsLeft := totalBits - rd.Tell()
 	d.DecodeEnergyFinalise(energies, end, fineQuant, finePriority, bitsLeft)
+	traceRange("finalise", rd)
 
 	if antiCollapseOn {
 		antiCollapse(coeffsL, coeffsR, collapse, lm, d.channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
@@ -834,6 +858,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 		tell = rd.Tell()
 	}
 	d.SetPostfilter(postfilterPeriod, postfilterGain, postfilterTapset)
+	traceRange("postfilter", rd)
 
 	transient := false
 	if lm > 0 && tell+3 <= totalBits {
@@ -844,6 +869,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	if tell+3 <= totalBits {
 		intra = rd.DecodeBit(3) == 1
 	}
+	traceRange("intra", rd)
 
 	shortBlocks := 1
 	if transient {
@@ -852,15 +878,18 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 
 	// Decode coarse energy for mono (using d.channels=1)
 	monoEnergies := d.DecodeCoarseEnergy(end, intra, lm)
+	traceRange("coarse", rd)
 
 	tfRes := make([]int, end)
 	tfDecode(start, end, transient, tfRes, lm, rd)
+	traceRange("tf", rd)
 
 	spread := spreadNormal
 	tell = rd.Tell()
 	if tell+4 <= totalBits {
 		spread = rd.DecodeICDF(spreadICDF, 5)
 	}
+	traceRange("spread", rd)
 
 	cap := initCaps(end, lm, 1) // mono
 	offsets := make([]int, end)
@@ -887,11 +916,13 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 			dynallocLogp = maxInt(2, dynallocLogp-1)
 		}
 	}
+	traceRange("dynalloc", rd)
 
 	allocTrim := 5
 	if tellFrac+(6<<bitRes) <= totalBitsQ3 {
 		allocTrim = rd.DecodeICDF(trimICDF, 7)
 	}
+	traceRange("trim", rd)
 
 	bitsQ3 := (totalBits << bitRes) - rd.TellFrac() - 1
 	antiCollapseRsv := 0
@@ -908,21 +939,26 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	balance := 0
 	codedBands := cltComputeAllocation(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
 		bitsQ3, &balance, pulses, fineQuant, finePriority, 1, lm, rd) // mono
+	traceRange("alloc", rd)
 
 	// Decode fine energy for mono
 	d.DecodeFineEnergy(monoEnergies, end, fineQuant)
+	traceRange("fine", rd)
 
 	// Decode bands for mono
 	coeffsMono, _, collapse := quantAllBandsDecode(rd, 1, frameSize, lm, start, end, pulses, shortBlocks, spread,
 		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, &d.rng)
+	traceRange("pvq", rd)
 
 	antiCollapseOn := false
 	if antiCollapseRsv > 0 {
 		antiCollapseOn = rd.DecodeRawBits(1) == 1
 	}
+	traceRange("anticollapse", rd)
 
 	bitsLeft := totalBits - rd.Tell()
 	d.DecodeEnergyFinalise(monoEnergies, end, fineQuant, finePriority, bitsLeft)
+	traceRange("finalise", rd)
 
 	if antiCollapseOn {
 		antiCollapse(coeffsMono, nil, collapse, lm, 1, start, end, monoEnergies, prev1LogE, prev2LogE, pulses, d.rng)
@@ -1151,6 +1187,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 		tell = rd.Tell()
 	}
 	d.SetPostfilter(postfilterPeriod, postfilterGain, postfilterTapset)
+	traceRange("postfilter", rd)
 
 	transient := false
 	if lm > 0 && tell+3 <= totalBits {
@@ -1161,6 +1198,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	if tell+3 <= totalBits {
 		intra = rd.DecodeBit(3) == 1
 	}
+	traceRange("intra", rd)
 
 	shortBlocks := 1
 	if transient {
@@ -1168,15 +1206,18 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	}
 
 	energies := d.DecodeCoarseEnergy(end, intra, lm)
+	traceRange("coarse", rd)
 
 	tfRes := make([]int, end)
 	tfDecode(start, end, transient, tfRes, lm, rd)
+	traceRange("tf", rd)
 
 	spread := spreadNormal
 	tell = rd.Tell()
 	if tell+4 <= totalBits {
 		spread = rd.DecodeICDF(spreadICDF, 5)
 	}
+	traceRange("spread", rd)
 
 	cap := initCaps(end, lm, d.channels)
 	offsets := make([]int, end)
@@ -1203,11 +1244,13 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 			dynallocLogp = maxInt(2, dynallocLogp-1)
 		}
 	}
+	traceRange("dynalloc", rd)
 
 	allocTrim := 5
 	if tellFrac+(6<<bitRes) <= totalBitsQ3 {
 		allocTrim = rd.DecodeICDF(trimICDF, 7)
 	}
+	traceRange("trim", rd)
 
 	bitsQ3 := (totalBits << bitRes) - rd.TellFrac() - 1
 	antiCollapseRsv := 0
@@ -1224,19 +1267,24 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	balance := 0
 	codedBands := cltComputeAllocation(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
 		bitsQ3, &balance, pulses, fineQuant, finePriority, d.channels, lm, rd)
+	traceRange("alloc", rd)
 
 	d.DecodeFineEnergy(energies, end, fineQuant)
+	traceRange("fine", rd)
 
 	coeffsL, coeffsR, collapse := quantAllBandsDecode(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
 		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, &d.rng)
+	traceRange("pvq", rd)
 
 	antiCollapseOn := false
 	if antiCollapseRsv > 0 {
 		antiCollapseOn = rd.DecodeRawBits(1) == 1
 	}
+	traceRange("anticollapse", rd)
 
 	bitsLeft := totalBits - rd.Tell()
 	d.DecodeEnergyFinalise(energies, end, fineQuant, finePriority, bitsLeft)
+	traceRange("finalise", rd)
 
 	if antiCollapseOn {
 		antiCollapse(coeffsL, coeffsR, collapse, lm, d.channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)

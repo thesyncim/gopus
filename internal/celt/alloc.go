@@ -367,7 +367,7 @@ func interpBits2Pulses(start, end, skipStart int, bits1, bits2, thresh, cap []in
 
 			ebits[j] = maxInt(0, bits[j]+offset+(den<<(bitRes-1)))
 			ebits[j] = celtUdiv(ebits[j], den) >> bitRes
-			if channels*ebits[j] > (bits[j] >> stereo >> bitRes) {
+			if channels*ebits[j] > (bits[j] >> bitRes) {
 				ebits[j] = bits[j] >> stereo >> bitRes
 			}
 			ebits[j] = minInt(ebits[j], maxFineBits)

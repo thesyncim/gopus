@@ -280,7 +280,7 @@ func specialHybridFolding(norm, norm2 []float64, start, M int, dualStereo bool) 
 	}
 }
 
-func algUnquant(rd *rangecoding.Decoder, n, k, spread, b int, gain float64) ([]float64, int) {
+func algUnquant(rd *rangecoding.Decoder, band, n, k, spread, b int, gain float64) ([]float64, int) {
 	if k <= 0 || n <= 0 {
 		return make([]float64, n), 0
 	}
@@ -295,7 +295,7 @@ func algUnquant(rd *rangecoding.Decoder, n, k, spread, b int, gain float64) ([]f
 	idx := rd.DecodeUniform(vSize)
 	pulses := make([]int, n)
 	_ = cwrsi(n, k, idx, pulses, u)
-	DefaultTracer.TracePVQ(-1, idx, k, n, pulses)
+	DefaultTracer.TracePVQ(band, idx, k, n, pulses)
 	shape := normalizeResidual(pulses, gain)
 	expRotation(shape, n, -1, b, k, spread)
 	cm := extractCollapseMask(pulses, n, b)
@@ -506,7 +506,7 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 	}
 	if q != 0 {
 		k := getPulses(q)
-		shape, cm := algUnquant(ctx.rd, n, k, ctx.spread, B, gain)
+		shape, cm := algUnquant(ctx.rd, ctx.band, n, k, ctx.spread, B, gain)
 		copy(x, shape)
 		return cm, x
 	}
