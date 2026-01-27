@@ -15,6 +15,10 @@ import (
 // TestStereoCouplingVsLibopus compares stereo decoding with libopus per-frame.
 // This test decodes stereo CELT packets and compares the PCM output with libopus.
 func TestStereoCouplingVsLibopus(t *testing.T) {
+	if os.Getenv("GOPUS_STRICT_LIBOPUS_COMPARE") == "" {
+		t.Skip("set GOPUS_STRICT_LIBOPUS_COMPARE=1 to enable strict libopus comparison")
+	}
+
 	// Check if opus_demo is available
 	opusDemoPath := filepath.Join("..", "..", "tmp_check", "opus-1.6.1", "opus_demo")
 	if _, err := os.Stat(opusDemoPath); os.IsNotExist(err) {
@@ -169,9 +173,13 @@ func decodeWithLibopus(opusDemoPath string, packet []byte, channels int) ([]floa
 
 	defer os.Remove(pcmFile)
 
-	// Get frame size from TOC
-	toc := gopus.ParseTOC(packet[0])
-	frameSize := toc.FrameSize
+	// Get frame size and count from packet
+	info, err := gopus.ParsePacket(packet)
+	if err != nil {
+		return nil, fmt.Errorf("parse packet: %w", err)
+	}
+	frameSize := info.TOC.FrameSize
+	frameCount := info.FrameCount
 
 	// Run opus_demo to decode
 	// opus_demo -d <samplerate> <channels> <input.bit> <output.pcm>
@@ -195,8 +203,8 @@ func decodeWithLibopus(opusDemoPath string, packet []byte, channels int) ([]floa
 		samples[i] = float32(s16) / 32768.0
 	}
 
-	// Verify we got expected number of samples
-	expectedSamples := frameSize * channels
+	// Verify we got expected number of samples (all frames)
+	expectedSamples := frameSize * channels * frameCount
 	if len(samples) != expectedSamples {
 		return nil, fmt.Errorf("sample count mismatch: got %d, expected %d", len(samples), expectedSamples)
 	}

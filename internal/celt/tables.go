@@ -322,3 +322,8 @@ func ScaledBandWidth(band, frameSize int) int {
 	scale := frameSize / Overlap
 	return (EBands[band+1] - EBands[band]) * scale
 }
+
+// GetCacheCaps returns the cache caps table for testing.
+func GetCacheCaps() [168]uint8 {
+	return cacheCaps
+}

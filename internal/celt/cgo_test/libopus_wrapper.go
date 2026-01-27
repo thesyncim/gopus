@@ -9,6 +9,7 @@ package cgo
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <stdio.h>
 #include "opus.h"
 #include "celt.h"
 #include "entdec.h"
@@ -854,6 +855,133 @@ int test_silk_decode_nlsf_state(
     return 0;
 }
 
+// ====================================================================
+// Allocation comparison C wrappers
+// ====================================================================
+
+#include "rate.h"
+
+// Cached mode for allocation tests - use the same mode as other tests
+static CELTMode* get_celt_mode_48000_alloc() {
+    static CELTMode *cached_mode = NULL;
+    if (cached_mode == NULL) {
+        cached_mode = opus_custom_mode_create(48000, 960, NULL);
+    }
+    return cached_mode;
+}
+
+// Compute allocation using libopus clt_compute_allocation (decode path - no encoding)
+// Returns coded bands count.
+// pulses, ebits, fine_priority are output arrays (size nbEBands)
+int test_clt_compute_allocation(
+    int start, int end,
+    const int *offsets,
+    const int *cap,
+    int alloc_trim,
+    int *intensity,
+    int *dual_stereo,
+    int total,    // total bits in Q3
+    int *balance, // output balance
+    int *pulses,
+    int *ebits,
+    int *fine_priority,
+    int C,        // channels
+    int LM,       // log mode (0=2.5ms, 1=5ms, 2=10ms, 3=20ms)
+    int prev,
+    int signalBandwidth)
+{
+    CELTMode *mode = get_celt_mode_48000_alloc();
+    if (mode == NULL) {
+        fprintf(stderr, "ERROR: get_celt_mode_48000_alloc returned NULL\n");
+        return -1;
+    }
+
+    opus_int32 bal = 0;
+
+    // Create ec_enc for encoder path - doesn't read from stream
+    unsigned char buf[256];
+    memset(buf, 0, sizeof(buf));
+    ec_enc enc;
+    ec_enc_init(&enc, buf, sizeof(buf));
+
+    // Call with encode=1 for encode path (doesn't need to read skip bits from stream)
+    int codedBands = clt_compute_allocation(mode, start, end, offsets, cap, alloc_trim,
+        intensity, dual_stereo, total, &bal, pulses, ebits, fine_priority, C, LM, (ec_ctx*)&enc, 1, prev, signalBandwidth);
+
+    *balance = (int)bal;
+
+    return codedBands;
+}
+
+// Get eBands array from libopus mode
+void test_get_ebands(int *out, int max_len) {
+    CELTMode *mode = get_celt_mode_48000_alloc();
+    if (mode == NULL) return;
+
+    int n = mode->nbEBands + 1;
+    if (n > max_len) n = max_len;
+    for (int i = 0; i < n; i++) {
+        out[i] = mode->eBands[i];
+    }
+}
+
+// Get logN array from libopus mode
+void test_get_logN(int *out, int max_len) {
+    CELTMode *mode = get_celt_mode_48000_alloc();
+    if (mode == NULL) return;
+
+    int n = mode->nbEBands;
+    if (n > max_len) n = max_len;
+    for (int i = 0; i < n; i++) {
+        out[i] = mode->logN[i];
+    }
+}
+
+// Get cache caps from libopus mode
+void test_get_cache_caps(unsigned char *out, int max_len) {
+    CELTMode *mode = get_celt_mode_48000_alloc();
+    if (mode == NULL) return;
+
+    // caps are organized as [LM+1][C][nbEBands]
+    // Total size = 4 * 2 * nbEBands = 8 * 21 = 168
+    int n = (mode->maxLM + 1) * 2 * mode->nbEBands;
+    if (n > max_len) n = max_len;
+    memcpy(out, mode->cache.caps, n);
+}
+
+// Compute caps for allocation (same as libopus logic)
+void test_compute_caps(int *caps, int nbEBands, int LM, int C) {
+    CELTMode *mode = get_celt_mode_48000_alloc();
+    if (mode == NULL) return;
+
+    int i;
+    for (i = 0; i < nbEBands; i++) {
+        int N = (mode->eBands[i+1] - mode->eBands[i]) << LM;
+        int cap_idx = (2*LM + (C-1)) * mode->nbEBands + i;
+        int cap_val = mode->cache.caps[cap_idx];
+        caps[i] = (cap_val + 64) * C * N >> 2;
+    }
+}
+
+// Get nbAllocVectors from mode
+int test_get_nb_alloc_vectors() {
+    CELTMode *mode = get_celt_mode_48000_alloc();
+    if (mode == NULL) return 0;
+    return mode->nbAllocVectors;
+}
+
+// Get allocVectors from mode
+void test_get_alloc_vectors(int *out, int row, int max_len) {
+    CELTMode *mode = get_celt_mode_48000_alloc();
+    if (mode == NULL) return;
+
+    int n = mode->nbEBands;
+    if (n > max_len) n = max_len;
+    for (int i = 0; i < n; i++) {
+        out[i] = mode->allocVectors[row * mode->nbEBands + i];
+    }
+}
+
 */
 import "C"
 
@@ -1426,4 +1554,127 @@ func GetSilkOutBufState(data []byte, fsKHz, nbSubfr, framesPerPacket, frameIndex
 	}
 
 	return outBuf, sLPCQ14Buf, prevGainQ16, nil
+}
+
+// ====================================================================
+// Allocation comparison CGO wrappers
+// ====================================================================
+
+// LibopusComputeAllocation calls libopus clt_compute_allocation via CGO.
+func LibopusComputeAllocation(
+	start, end int,
+	offsets, cap []int,
+	allocTrim int,
+	intensity, dualStereo int,
+	totalBitsQ3 int,
+	channels, lm int,
+	prev, signalBandwidth int,
+) (codedBands, balance int, pulses, ebits, finePriority []int, intensityOut, dualStereoOut int) {
+	nbBands := end - start
+	if nbBands <= 0 {
+		return 0, 0, nil, nil, nil, 0, 0
+	}
+
+	// Create C arrays
+	cOffsets := make([]C.int, end)
+	cCap := make([]C.int, end)
+	cPulses := make([]C.int, end)
+	cEbits := make([]C.int, end)
+	cFinePriority := make([]C.int, end)
+
+	for i := start; i < end; i++ {
+		if offsets != nil && i < len(offsets) {
+			cOffsets[i] = C.int(offsets[i])
+		}
+		if cap != nil && i < len(cap) {
+			cCap[i] = C.int(cap[i])
+		}
+	}
+
+	var cIntensity C.int = C.int(intensity)
+	var cDualStereo C.int = C.int(dualStereo)
+	var cBalance C.int
+
+	cb := C.test_clt_compute_allocation(
+		C.int(start), C.int(end),
+		(*C.int)(unsafe.Pointer(&cOffsets[0])),
+		(*C.int)(unsafe.Pointer(&cCap[0])),
+		C.int(allocTrim),
+		&cIntensity,
+		&cDualStereo,
+		C.int(totalBitsQ3),
+		&cBalance,
+		(*C.int)(unsafe.Pointer(&cPulses[0])),
+		(*C.int)(unsafe.Pointer(&cEbits[0])),
+		(*C.int)(unsafe.Pointer(&cFinePriority[0])),
+		C.int(channels),
+		C.int(lm),
+		C.int(prev),
+		C.int(signalBandwidth),
+	)
+
+	codedBands = int(cb)
+	balance = int(cBalance)
+	intensityOut = int(cIntensity)
+	dualStereoOut = int(cDualStereo)
+
+	pulses = make([]int, end)
+	ebits = make([]int, end)
+	finePriority = make([]int, end)
+	for i := 0; i < end; i++ {
+		pulses[i] = int(cPulses[i])
+		ebits[i] = int(cEbits[i])
+		finePriority[i] = int(cFinePriority[i])
+	}
+
+	return
+}
+
+// LibopusGetEBands returns the eBands array from libopus mode.
+func LibopusGetEBands() []int {
+	out := make([]C.int, 22)
+	C.test_get_ebands((*C.int)(unsafe.Pointer(&out[0])), C.int(22))
+	result := make([]int, 22)
+	for i := 0; i < 22; i++ {
+		result[i] = int(out[i])
+	}
+	return result
+}
+
+// LibopusGetLogN returns the logN array from libopus mode.
+func LibopusGetLogN() []int {
+	out := make([]C.int, 21)
+	C.test_get_logN((*C.int)(unsafe.Pointer(&out[0])), C.int(21))
+	result := make([]int, 21)
+	for i := 0; i < 21; i++ {
+		result[i] = int(out[i])
+	}
+	return result
+}
+
+// LibopusComputeCaps computes caps using libopus logic.
+func LibopusComputeCaps(nbBands, lm, channels int) []int {
+	out := make([]C.int, nbBands)
+	C.test_compute_caps((*C.int)(unsafe.Pointer(&out[0])), C.int(nbBands), C.int(lm), C.int(channels))
+	result := make([]int, nbBands)
+	for i := 0; i < nbBands; i++ {
+		result[i] = int(out[i])
+	}
+	return result
+}
+
+// LibopusGetAllocVectors returns a single allocation vector row from libopus.
+func LibopusGetAllocVectors(row int) []int {
+	out := make([]C.int, 21)
+	C.test_get_alloc_vectors((*C.int)(unsafe.Pointer(&out[0])), C.int(row), C.int(21))
+	result := make([]int, 21)
+	for i := 0; i < 21; i++ {
+		result[i] = int(out[i])
+	}
+	return result
+}
+
+// LibopusGetNbAllocVectors returns the number of allocation vectors from libopus.
+func LibopusGetNbAllocVectors() int {
+	return int(C.test_get_nb_alloc_vectors())
 }

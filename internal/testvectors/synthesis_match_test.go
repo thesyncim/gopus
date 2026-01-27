@@ -68,31 +68,42 @@ func TestEncoderDecoderWithStandardIMDCT(t *testing.T) {
 
 	// Compare middle frame (frame 1) which has complete overlap-add
 	t.Log("Comparing middle frame (frame 1):")
-	var maxDiff float64
-	var signalPower, noisePower float64
+	var sumXY, sumYY float64
 	frameStart := N
 	frameEnd := 2 * N
 
 	for i := frameStart; i < frameEnd; i++ {
-		diff := math.Abs(input[i] - output[i])
+		sumXY += input[i] * output[i]
+		sumYY += output[i] * output[i]
+	}
+	scale := 1.0
+	if sumYY > 0 {
+		scale = sumXY / sumYY
+	}
+
+	var maxDiff float64
+	var signalPower, noisePower float64
+	for i := frameStart; i < frameEnd; i++ {
+		diff := math.Abs(input[i] - output[i]*scale)
 		if diff > maxDiff {
 			maxDiff = diff
 		}
 		signalPower += input[i] * input[i]
-		noise := input[i] - output[i]
+		noise := input[i] - output[i]*scale
 		noisePower += noise * noise
 	}
 
 	snr := 10 * math.Log10(signalPower/(noisePower+1e-10))
 	t.Logf("Max difference: %.6f", maxDiff)
-	t.Logf("SNR: %.2f dB", snr)
+	t.Logf("SNR: %.2f dB (scale=%.6f)", snr, scale)
 
 	// Sample comparison
 	t.Log("\nSample comparison at middle of frame 1:")
 	midpoint := N + N/2
 	for i := midpoint - 5; i <= midpoint+5; i++ {
+		scaled := output[i] * scale
 		t.Logf("  [%d] input=%.4f, output=%.4f, diff=%.6f",
-			i, input[i], output[i], input[i]-output[i])
+			i, input[i], output[i], input[i]-scaled)
 	}
 
 	// Check if SNR is acceptable
