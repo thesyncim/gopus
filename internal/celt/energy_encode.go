@@ -238,9 +238,15 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 				if qi < -1 {
 					qi = -1
 				}
-				s := absInt(qi) * 2
+				// Encode using zigzag mapping to match decoder's decoding:
+				// Decoder: qi = (s >> 1) ^ -(s & 1)
+				//   s=0 -> qi=0, s=1 -> qi=-1, s=2 -> qi=1
+				// Encoder (inverse): qi=0 -> s=0, qi=-1 -> s=1, qi=1 -> s=2
+				var s int
 				if qi < 0 {
-					s++
+					s = -2*qi - 1 // For qi=-1: s = 2 - 1 = 1
+				} else {
+					s = 2 * qi // For qi=0: s=0, qi=1: s=2
 				}
 				e.rangeEncoder.EncodeICDF(s, smallEnergyICDF, 2)
 			} else if budget-tell >= 1 {
@@ -459,6 +465,60 @@ func (e *Encoder) EncodeEnergyRemainder(energies []float64, quantizedEnergies []
 				} else {
 					residual += precision
 				}
+			}
+		}
+	}
+}
+
+// EncodeEnergyFinalise consumes leftover bits for additional energy refinement.
+// This mirrors decoder's DecodeEnergyFinalise (libopus quant_energy_finalise).
+// energies: original target energies
+// quantizedEnergies: current quantized energies (coarse + fine)
+// fineQuant/finePriority: allocation outputs
+// bitsLeft: remaining whole bits available in the packet
+func (e *Encoder) EncodeEnergyFinalise(energies []float64, quantizedEnergies []float64, nbBands int, fineQuant []int, finePriority []int, bitsLeft int) {
+	if e.rangeEncoder == nil {
+		return
+	}
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+	if nbBands <= 0 {
+		return
+	}
+	if bitsLeft < 0 {
+		bitsLeft = 0
+	}
+
+	channels := e.channels
+	if len(energies) < nbBands*channels || len(quantizedEnergies) < nbBands*channels {
+		channels = 1
+	}
+
+	re := e.rangeEncoder
+
+	for prio := 0; prio < 2; prio++ {
+		for band := 0; band < nbBands && bitsLeft >= channels; band++ {
+			if band >= len(fineQuant) || band >= len(finePriority) {
+				continue
+			}
+			if fineQuant[band] >= maxFineBits || finePriority[band] != prio {
+				continue
+			}
+			for c := 0; c < channels; c++ {
+				idx := c*nbBands + band
+				if idx >= len(energies) || idx >= len(quantizedEnergies) {
+					continue
+				}
+				errorVal := energies[idx] - quantizedEnergies[idx]
+				q2 := 0
+				if errorVal >= 0 {
+					q2 = 1
+				}
+				re.EncodeRawBits(uint32(q2), 1)
+				offset := (float64(q2) - 0.5) / float64(uint(1)<<(fineQuant[band]+1))
+				quantizedEnergies[idx] += offset * DB6
+				bitsLeft--
 			}
 		}
 	}

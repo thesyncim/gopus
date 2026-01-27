@@ -2,6 +2,8 @@ package celt
 
 import (
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // TestComputeAllocationBudget verifies bit allocation respects total budget.
@@ -261,6 +263,67 @@ func TestComputeAllocationByLM(t *testing.T) {
 		t.Logf("Note: LM=3 caps not larger than LM=0 (may be by design)")
 	} else {
 		t.Logf("LM=3 has larger caps than LM=0 for %d/%d bands", largerCapsCount, nbBands)
+	}
+}
+
+// TestAllocationEncodeDecodeRoundTrip ensures allocation encoding/decoding stays in sync.
+func TestAllocationEncodeDecodeRoundTrip(t *testing.T) {
+	nbBands := 21
+	lm := 3
+	channels := 2
+	totalBits := 600
+	intensity := nbBands
+	dualStereo := true
+	trim := 0
+	signalBandwidth := nbBands - 1
+
+	caps := initCaps(nbBands, lm, channels)
+
+	buf := make([]byte, 256)
+	re := &rangecoding.Encoder{}
+	re.Init(buf)
+
+	encResult := ComputeAllocationWithEncoder(
+		re,
+		totalBits,
+		nbBands,
+		channels,
+		caps,
+		nil, // offsets
+		trim,
+		intensity,
+		dualStereo,
+		lm,
+		0, // prev
+		signalBandwidth,
+	)
+	tellEnc := re.TellFrac()
+	data := re.Done()
+
+	rd := &rangecoding.Decoder{}
+	rd.Init(data)
+	decResult := ComputeAllocationWithDecoder(rd, totalBits, nbBands, channels, caps, nil, trim, intensity, dualStereo, lm)
+	tellDec := rd.TellFrac()
+
+	if tellDec != tellEnc {
+		t.Errorf("allocation bit consumption mismatch: enc=%d q3, dec=%d q3", tellEnc, tellDec)
+	}
+	if decResult.CodedBands != encResult.CodedBands {
+		t.Errorf("codedBands mismatch: enc=%d dec=%d", encResult.CodedBands, decResult.CodedBands)
+	}
+	if decResult.Intensity != encResult.Intensity {
+		t.Errorf("intensity mismatch: enc=%d dec=%d", encResult.Intensity, decResult.Intensity)
+	}
+	if decResult.DualStereo != encResult.DualStereo {
+		t.Errorf("dualStereo mismatch: enc=%v dec=%v", encResult.DualStereo, decResult.DualStereo)
+	}
+	for band := 0; band < nbBands; band++ {
+		if decResult.BandBits[band] != encResult.BandBits[band] {
+			t.Fatalf("band %d bits mismatch: enc=%d dec=%d", band, encResult.BandBits[band], decResult.BandBits[band])
+		}
+		if decResult.FineBits[band] != encResult.FineBits[band] {
+			t.Fatalf("band %d fine bits mismatch: enc=%d dec=%d", band, encResult.FineBits[band], decResult.FineBits[band])
+		}
 	}
 }
 

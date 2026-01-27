@@ -36,6 +36,13 @@ var bitDeinterleaveTable = []int{
 
 type bandCtx struct {
 	rd              *rangecoding.Decoder
+	re              *rangecoding.Encoder
+	encode          bool
+	extEnc          *rangecoding.Encoder
+	extraBits       int
+	bandE           []float64
+	nbBands         int
+	channels        int
 	spread          int
 	tfChange        int
 	remainingBits   int
@@ -45,6 +52,12 @@ type bandCtx struct {
 	resynth         bool
 	disableInv      bool
 	avoidSplitNoise bool
+	// thetaRound controls theta quantization biasing for stereo RDO:
+	//   0: normal rounding (default)
+	//  -1: bias toward rounding down (toward 0 or 16384)
+	//   1: bias toward rounding up (toward 8192/equal split)
+	// This is used by theta RDO optimization in quant_all_bands.
+	thetaRound int
 }
 
 type splitCtx struct {
@@ -302,6 +315,84 @@ func algUnquant(rd *rangecoding.Decoder, band, n, k, spread, b int, gain float64
 	return shape, cm
 }
 
+func algQuant(re *rangecoding.Encoder, band int, x []float64, n, k, spread, b int, gain float64, resynth bool, extEnc *rangecoding.Encoder, extraBits int) int {
+	if k <= 0 || n <= 0 {
+		return 0
+	}
+	if re == nil {
+		return 0
+	}
+
+	// Apply the same pre-rotation as the decoder's unquantization path.
+	expRotation(x, n, 1, b, k, spread)
+
+	// Quantize the vector to pulses.
+	var pulses []int
+	var upPulses []int
+	var refine []int
+
+	if extraBits >= 2 && extEnc != nil {
+		if n == 2 {
+			var refineVal int
+			up := (1 << extraBits) - 1
+			pulses, upPulses, refineVal = opPVQSearchN2(x, k, up)
+			index := EncodePulses(pulses, n, k)
+			vSize := PVQ_V(n, k)
+			if vSize == 0 {
+				return 0
+			}
+			re.EncodeUniform(index, vSize)
+			extEnc.EncodeUniform(uint32(refineVal+(up-1)/2), uint32(up))
+		} else {
+			up := (1 << extraBits) - 1
+			pulses, upPulses, refine = opPVQSearchExtra(x, k, up)
+			index := EncodePulses(pulses, n, k)
+			vSize := PVQ_V(n, k)
+			if vSize == 0 {
+				return 0
+			}
+			re.EncodeUniform(index, vSize)
+			useEntropy := (extEnc.StorageBits() - extEnc.Tell()) > (n-1)*(extraBits+3)+1
+			for i := 0; i < n-1; i++ {
+				ecEncRefine(extEnc, refine[i], up, extraBits, useEntropy)
+			}
+			if pulses[n-1] == 0 {
+				sign := 0
+				if upPulses[n-1] < 0 {
+					sign = 1
+				}
+				extEnc.EncodeRawBits(uint32(sign), 1)
+			}
+		}
+	} else {
+		pulses = opPVQSearch(x, k)
+		index := EncodePulses(pulses, n, k)
+		vSize := PVQ_V(n, k)
+		if vSize == 0 {
+			return 0
+		}
+		re.EncodeUniform(index, vSize)
+	}
+
+	cm := 0
+	if len(pulses) > 0 {
+		cm = extractCollapseMask(pulses, n, b)
+	}
+
+	if resynth {
+		if len(upPulses) > 0 {
+			shape := normalizeResidual(upPulses, gain)
+			copy(x, shape)
+		} else {
+			shape := normalizeResidual(pulses, gain)
+			copy(x, shape)
+		}
+		expRotation(x, n, -1, b, k, spread)
+	}
+
+	return cm
+}
+
 func computeQn(n, b, offset, pulseCap int, stereo bool) int {
 	exp2Table := []int{16384, 17866, 19483, 21247, 23170, 25267, 27554, 30048}
 	n2 := 2*n - 1
@@ -322,7 +413,134 @@ func computeQn(n, b, offset, pulseCap int, stereo bool) int {
 	return qn
 }
 
-func computeTheta(ctx *bandCtx, sctx *splitCtx, n int, b *int, B, B0, lm int, stereo bool, fill *int) {
+func stereoItheta(x, y []float64, stereo bool) int {
+	if len(x) == 0 || len(y) == 0 {
+		return 0
+	}
+	n := len(x)
+	if len(y) < n {
+		n = len(y)
+	}
+	if n <= 0 {
+		return 0
+	}
+
+	var emid, eside float64
+	if stereo {
+		for i := 0; i < n; i++ {
+			m := x[i] + y[i]
+			s := y[i] - x[i]
+			emid += m * m
+			eside += s * s
+		}
+	} else {
+		for i := 0; i < n; i++ {
+			emid += x[i] * x[i]
+			eside += y[i] * y[i]
+		}
+	}
+
+	if emid <= 0 && eside <= 0 {
+		return 0
+	}
+	theta := math.Atan2(math.Sqrt(eside), math.Sqrt(emid))
+	itheta := int(math.Floor(theta*(16384.0/(math.Pi/2.0)) + 0.5))
+	if itheta < 0 {
+		itheta = 0
+	}
+	if itheta > 16384 {
+		itheta = 16384
+	}
+	return itheta
+}
+
+func stereoSplit(x, y []float64) {
+	if len(x) == 0 || len(y) == 0 {
+		return
+	}
+	n := len(x)
+	if len(y) < n {
+		n = len(y)
+	}
+	invSqrt2 := 1.0 / math.Sqrt(2.0)
+	for i := 0; i < n; i++ {
+		l := x[i] * invSqrt2
+		r := y[i] * invSqrt2
+		x[i] = l + r
+		y[i] = r - l
+	}
+}
+
+func intensityStereoWeighted(x, y []float64, leftEnergy, rightEnergy float64) {
+	if len(x) == 0 || len(y) == 0 {
+		return
+	}
+	n := len(x)
+	if len(y) < n {
+		n = len(y)
+	}
+	if leftEnergy < 0 {
+		leftEnergy = 0
+	}
+	if rightEnergy < 0 {
+		rightEnergy = 0
+	}
+	norm := math.Sqrt(leftEnergy*leftEnergy + rightEnergy*rightEnergy)
+	if norm <= 0 {
+		return
+	}
+	a1 := leftEnergy / norm
+	a2 := rightEnergy / norm
+	for i := 0; i < n; i++ {
+		x[i] = a1*x[i] + a2*y[i]
+	}
+}
+
+// computeChannelWeights computes channel weights for stereo RDO distortion calculation.
+// This mirrors libopus bands.c compute_channel_weights().
+// The weights account for inter-aural masking effects.
+func computeChannelWeights(ex, ey float64) (w0, w1 float64) {
+	minE := ex
+	if ey < minE {
+		minE = ey
+	}
+	// Adjustment to make the weights a bit more conservative
+	ex = ex + minE/3.0
+	ey = ey + minE/3.0
+	// Normalize the weights
+	total := ex + ey
+	if total < 1e-15 {
+		return 0.5, 0.5
+	}
+	return ex / total, ey / total
+}
+
+// innerProduct computes the inner product of two vectors.
+// Used for distortion measurement in theta RDO.
+func innerProduct(x, y []float64) float64 {
+	n := len(x)
+	if len(y) < n {
+		n = len(y)
+	}
+	sum := 0.0
+	for i := 0; i < n; i++ {
+		sum += x[i] * y[i]
+	}
+	return sum
+}
+
+func (ctx *bandCtx) bandEnergy(channel int) float64 {
+	if ctx.bandE == nil || ctx.nbBands <= 0 || channel < 0 || channel >= ctx.channels {
+		return 0
+	}
+	idx := channel*ctx.nbBands + ctx.band
+	if idx < 0 || idx >= len(ctx.bandE) {
+		return 0
+	}
+	return ctx.bandE[idx]
+}
+
+func computeTheta(ctx *bandCtx, sctx *splitCtx, x, y []float64, n int, b *int, B, B0, lm int, stereo bool, fill *int) {
 	pulseCap := LogN[ctx.band] + lm*(1<<bitRes)
 	offset := (pulseCap >> 1) - qthetaOffset
 	if stereo && n == 2 {
@@ -334,17 +552,77 @@ func computeTheta(ctx *bandCtx, sctx *splitCtx, n int, b *int, B, B0, lm int, st
 	}
 
 	tell := 0
-	if ctx.rd != nil {
+	if ctx.encode {
+		if ctx.re != nil {
+			tell = ctx.re.TellFrac()
+		}
+	} else if ctx.rd != nil {
 		tell = ctx.rd.TellFrac()
 	}
 	itheta := 0
 	inv := 0
 	if qn != 1 {
+		if ctx.encode {
+			itheta = stereoItheta(x, y, stereo)
+			// Apply theta biasing for stereo RDO.
+			// When thetaRound == 0: normal rounding (default)
+			// When thetaRound != 0: bias toward 0/16384 (away from equal split)
+			// Reference: libopus bands.c compute_theta(), lines 787-796
+			if !stereo || ctx.thetaRound == 0 {
+				// Standard rounding
+				itheta = (itheta*qn + 8192) >> 14
+				if !stereo && ctx.avoidSplitNoise && itheta > 0 && itheta < qn {
+					unquantized := celtUdiv(itheta*16384, qn)
+					imid := bitexactCos(unquantized)
+					iside := bitexactCos(16384 - unquantized)
+					delta := fracMul16((n-1)<<7, bitexactLog2tan(iside, imid))
+					if delta > *b {
+						itheta = qn
+					} else if delta < -*b {
+						itheta = 0
+					}
+				}
+			} else {
+				// Stereo theta RDO biasing: bias toward 0 or 16384
+				// (away from equal split at itheta=8192).
+				// bias is positive when itheta > 8192, negative otherwise
+				bias := 0
+				if itheta > 8192 {
+					bias = 32767 / qn
+				} else {
+					bias = -32767 / qn
+				}
+				down := (itheta*qn + bias) >> 14
+				if down < 0 {
+					down = 0
+				}
+				if down > qn-1 {
+					down = qn - 1
+				}
+				if ctx.thetaRound < 0 {
+					itheta = down
+				} else {
+					itheta = down + 1
+				}
+			}
+		}
 		if stereo && n > 2 {
 			p0 := 3
 			x0 := qn / 2
 			ft := p0*(x0+1) + x0
-			if ctx.rd != nil {
+			if ctx.encode {
+				if ctx.re != nil {
+					var fl, fs int
+					if itheta <= x0 {
+						fl = p0 * itheta
+						fs = p0
+					} else {
+						fl = (itheta - 1 - x0) + (x0+1)*p0
+						fs = 1
+					}
+					ctx.re.Encode(uint32(fl), uint32(fl+fs), uint32(ft))
+				}
+			} else if ctx.rd != nil {
 				fm := int(ctx.rd.Decode(uint32(ft)))
 				if fm < (x0+1)*p0 {
 					itheta = fm / p0
@@ -361,12 +639,29 @@ func computeTheta(ctx *bandCtx, sctx *splitCtx, n int, b *int, B, B0, lm int, st
 				}
 			}
 		} else if B0 > 1 || stereo {
-			if ctx.rd != nil {
+			if ctx.encode {
+				if ctx.re != nil {
+					ctx.re.EncodeUniform(uint32(itheta), uint32(qn+1))
+				}
+			} else if ctx.rd != nil {
 				itheta = int(ctx.rd.DecodeUniform(uint32(qn + 1)))
 			}
 		} else {
 			ft := ((qn >> 1) + 1) * ((qn >> 1) + 1)
-			if ctx.rd != nil {
+			if ctx.encode {
+				if ctx.re != nil {
+					fs := 1
+					fl := 0
+					if itheta <= (qn >> 1) {
+						fs = itheta + 1
+						fl = itheta * (itheta + 1) >> 1
+					} else {
+						fs = qn + 1 - itheta
+						fl = ft - ((qn + 1 - itheta) * (qn + 2 - itheta) >> 1)
+					}
+					ctx.re.Encode(uint32(fl), uint32(fl+fs), uint32(ft))
+				}
+			} else if ctx.rd != nil {
 				fm := int(ctx.rd.Decode(uint32(ft)))
 				if fm < ((qn >> 1) * ((qn >> 1) + 1) >> 1) {
 					itheta = int((isqrt32(uint32(8*fm+1)) - 1) >> 1)
@@ -382,20 +677,46 @@ func computeTheta(ctx *bandCtx, sctx *splitCtx, n int, b *int, B, B0, lm int, st
 			}
 		}
 		itheta = celtUdiv(itheta*16384, qn)
+		if ctx.encode && stereo {
+			if itheta == 0 {
+				intensityStereoWeighted(x, y, ctx.bandEnergy(0), ctx.bandEnergy(1))
+			} else {
+				stereoSplit(x, y)
+			}
+		}
 	} else if stereo {
 		if *b > 2<<bitRes && ctx.remainingBits > 2<<bitRes {
-			if ctx.rd != nil {
+			if ctx.encode {
+				if ctx.re != nil {
+					ctx.re.EncodeBit(0, 2)
+				}
+			} else if ctx.rd != nil {
 				inv = ctx.rd.DecodeBit(2)
 			}
 		}
 		if ctx.disableInv {
 			inv = 0
 		}
+		if ctx.encode && stereo && inv != 0 && y != nil {
+			for i := range y {
+				y[i] = -y[i]
+			}
+		}
+		if ctx.encode && stereo {
+			intensityStereoWeighted(x, y, ctx.bandEnergy(0), ctx.bandEnergy(1))
+		}
 		itheta = 0
 	}
 
-	if ctx.rd != nil {
-		qalloc := ctx.rd.TellFrac() - tell
+	qalloc := 0
+	if ctx.encode {
+		if ctx.re != nil {
+			qalloc = ctx.re.TellFrac() - tell
+		}
+	} else if ctx.rd != nil {
+		qalloc = ctx.rd.TellFrac() - tell
+	}
+	if qalloc != 0 {
 		*b -= qalloc
 		sctx.qalloc = qalloc
 	}
@@ -449,7 +770,7 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 		B = (B + 1) >> 1
 
 		sctx := splitCtx{}
-		computeTheta(ctx, &sctx, nHalf, &b, B, B0, lm, false, &fill)
+		computeTheta(ctx, &sctx, x[:nHalf], y, nHalf, &b, B, B0, lm, false, &fill)
 		mid := float64(sctx.imid) / 32768.0
 		side := float64(sctx.iside) / 32768.0
 		if B0 > 1 && (sctx.itheta&0x3fff) != 0 {
@@ -506,6 +827,10 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 	}
 	if q != 0 {
 		k := getPulses(q)
+		if ctx.encode {
+			cm := algQuant(ctx.re, ctx.band, x, n, k, ctx.spread, B, gain, ctx.resynth, ctx.extEnc, ctx.extraBits)
+			return cm, x
+		}
 		shape, cm := algUnquant(ctx.rd, ctx.band, n, k, ctx.spread, B, gain)
 		copy(x, shape)
 		return cm, x
@@ -557,7 +882,14 @@ func quantBandN1(ctx *bandCtx, x, y []float64, b int, lowbandOut []float64) int 
 	for c := 0; c < 1+boolToInt(stereo); c++ {
 		sign := 0
 		if ctx.remainingBits >= 1<<bitRes {
-			if ctx.rd != nil {
+			if ctx.encode {
+				if ctx.re != nil {
+					if x[0] < 0 {
+						sign = 1
+					}
+					ctx.re.EncodeRawBits(uint32(sign), 1)
+				}
+			} else if ctx.rd != nil {
 				sign = int(ctx.rd.DecodeRawBits(1))
 			}
 			ctx.remainingBits -= 1 << bitRes
@@ -601,6 +933,9 @@ func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int
 
 	if recombine != 0 {
 		for k := 0; k < recombine; k++ {
+			if ctx.encode {
+				haar1(x, n>>k, 1<<k)
+			}
 			if lowband != nil {
 				haar1(lowband, n>>k, 1<<k)
 			}
@@ -612,6 +947,9 @@ func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int
 
 	timeDivide := 0
 	for (N_B&1) == 0 && tfChange < 0 {
+		if ctx.encode {
+			haar1(x, N_B, B)
+		}
 		if lowband != nil {
 			haar1(lowband, N_B, B)
 		}
@@ -625,6 +963,9 @@ func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int
 	N_B0 := N_B
 
 	if B0 > 1 {
+		if ctx.encode {
+			deinterleaveHadamard(x, N_B>>recombine, B0<<recombine, longBlocks)
+		}
 		if lowband != nil {
 			deinterleaveHadamard(lowband, N_B>>recombine, B0<<recombine, longBlocks)
 		}
@@ -667,8 +1008,21 @@ func quantBandStereo(ctx *bandCtx, x, y []float64, n, b, B int, lowband []float6
 	}
 
 	origFill := fill
+
+	if ctx.encode && ctx.bandE != nil && ctx.channels == 2 {
+		l := ctx.bandEnergy(0)
+		r := ctx.bandEnergy(1)
+		if l < 1e-10 || r < 1e-10 {
+			if l > r {
+				copy(y, x)
+			} else {
+				copy(x, y)
+			}
+		}
+	}
+
 	sctx := splitCtx{}
-	computeTheta(ctx, &sctx, n, &b, B, B, lm, true, &fill)
+	computeTheta(ctx, &sctx, x, y, n, &b, B, B, lm, true, &fill)
 	mid := float64(sctx.imid) / 32768.0
 	side := float64(sctx.iside) / 32768.0
 
@@ -689,9 +1043,22 @@ func quantBandStereo(ctx *bandCtx, x, y []float64, n, b, B int, lowband []float6
 			y2 = x
 		}
 		sign := 1
-		if sbits > 0 && ctx.rd != nil {
-			if ctx.rd.DecodeRawBits(1) == 1 {
-				sign = -1
+		if sbits > 0 {
+			if ctx.encode {
+				if ctx.re != nil {
+					bit := 0
+					if x2[0]*y2[1]-x2[1]*y2[0] < 0 {
+						bit = 1
+					}
+					ctx.re.EncodeRawBits(uint32(bit), 1)
+					if bit != 0 {
+						sign = -1
+					}
+				}
+			} else if ctx.rd != nil {
+				if ctx.rd.DecodeRawBits(1) == 1 {
+					sign = -1
+				}
 			}
 		}
 		cm := quantBand(ctx, x2, n, mbits, B, lowband, lm, lowbandOut, 1.0, lowbandScratch, origFill)
@@ -750,7 +1117,7 @@ func quantBandStereo(ctx *bandCtx, x, y []float64, n, b, B int, lowband []float6
 
 func quantAllBandsDecode(rd *rangecoding.Decoder, channels, frameSize, lm int, start, end int,
 	pulses []int, shortBlocks int, spread int, dualStereo, intensity int,
-	tfRes []int, totalBitsQ3 int, balance int, codedBands int, seed *uint32) (left, right []float64, collapse []byte) {
+	tfRes []int, totalBitsQ3 int, balance int, codedBands int, disableInv bool, seed *uint32) (left, right []float64, collapse []byte) {
 	M := 1 << lm
 	B := 1
 	if shortBlocks > 1 {
@@ -786,7 +1153,7 @@ func quantAllBandsDecode(rd *rangecoding.Decoder, channels, frameSize, lm int, s
 		intensity:       intensity,
 		seed:            seed,
 		resynth:         true,
-		disableInv:      false,
+		disableInv:      disableInv,
 		avoidSplitNoise: B > 1,
 	}
 
@@ -932,4 +1299,311 @@ func quantAllBandsDecode(rd *rangecoding.Decoder, channels, frameSize, lm int, s
 	}
 
 	return left, right, collapse
+}
+
+func quantAllBandsEncode(re *rangecoding.Encoder, channels, frameSize, lm int, start, end int,
+	x, y []float64, pulses []int, shortBlocks int, spread int, dualStereo, intensity int,
+	tfRes []int, totalBitsQ3 int, balance int, codedBands int, seed *uint32, bandE []float64, extEnc *rangecoding.Encoder, extraBits []int) (collapse []byte) {
+	if re == nil {
+		return nil
+	}
+	if channels < 1 {
+		channels = 1
+	}
+	if channels > 2 {
+		channels = 2
+	}
+	if len(x) < frameSize {
+		return nil
+	}
+
+	M := 1 << lm
+	B := 1
+	if shortBlocks > 1 {
+		B = shortBlocks
+	}
+
+	collapse = make([]byte, channels*MaxBands)
+
+	normOffset := M * EBands[start]
+	normLen := M*EBands[MaxBands-1] - normOffset
+	if normLen < 0 {
+		normLen = 0
+	}
+	norm := make([]float64, channels*normLen)
+	var norm2 []float64
+	if channels == 2 {
+		norm2 = norm[normLen:]
+	}
+
+	maxBand := M * (EBands[end] - EBands[end-1])
+	if maxBand < 0 {
+		maxBand = 0
+	}
+	lowbandScratch := make([]float64, maxBand)
+
+	lowbandOffset := 0
+	updateLowband := true
+	ctx := bandCtx{
+		re:              re,
+		encode:          true,
+		extEnc:          nil,
+		extraBits:       0,
+		bandE:           bandE,
+		nbBands:         end,
+		channels:        channels,
+		spread:          spread,
+		remainingBits:   0,
+		intensity:       intensity,
+		seed:            seed,
+		resynth:         true,
+		disableInv:      false,
+		avoidSplitNoise: B > 1,
+	}
+	if ctx.channels > 0 && ctx.bandE != nil {
+		ctx.nbBands = len(ctx.bandE) / ctx.channels
+	}
+
+	for i := start; i < end; i++ {
+		ctx.band = i
+		ctx.extraBits = 0
+		if extEnc != nil && extraBits != nil && i < len(extraBits) {
+			ctx.extEnc = extEnc
+			ctx.extraBits = extraBits[i]
+		} else {
+			ctx.extEnc = nil
+		}
+		last := i == end-1
+		bandStart := EBands[i] * M
+		bandEnd := EBands[i+1] * M
+		nBand := bandEnd - bandStart
+		if nBand <= 0 {
+			continue
+		}
+
+		xBand := x[bandStart:bandEnd]
+		var yBand []float64
+		if channels == 2 && len(y) >= bandEnd {
+			yBand = y[bandStart:bandEnd]
+		}
+
+		tell := re.TellFrac()
+		if i != start {
+			balance -= tell
+		}
+		remaining := totalBitsQ3 - tell - 1
+		ctx.remainingBits = remaining
+
+		b := 0
+		if i <= codedBands-1 {
+			currBalance := celtSudiv(balance, minInt(3, codedBands-i))
+			b = maxInt(0, minInt(16383, minInt(remaining+1, pulses[i]+currBalance)))
+		}
+
+		if ctx.resynth && (M*EBands[i]-nBand >= M*EBands[start] || i == start+1) && (updateLowband || lowbandOffset == 0) {
+			lowbandOffset = i
+		}
+		if i == start+1 {
+			specialHybridFolding(norm, norm2, start, M, dualStereo != 0)
+		}
+
+		ctx.tfChange = 0
+		if tfRes != nil && i < len(tfRes) {
+			ctx.tfChange = tfRes[i]
+		}
+
+		effectiveLowband := -1
+		xCM := 0
+		yCM := 0
+		if lowbandOffset != 0 && (spread != spreadAggressive || B > 1 || ctx.tfChange < 0) {
+			effectiveLowband = maxInt(0, M*EBands[lowbandOffset]-normOffset-nBand)
+			foldStart := lowbandOffset
+			for {
+				foldStart--
+				if foldStart <= start {
+					foldStart = start
+					break
+				}
+				if M*EBands[foldStart] <= effectiveLowband+normOffset {
+					break
+				}
+			}
+			foldEnd := lowbandOffset - 1
+			for {
+				foldEnd++
+				if foldEnd >= i {
+					break
+				}
+				if M*EBands[foldEnd] >= effectiveLowband+normOffset+nBand {
+					break
+				}
+			}
+			for fold := foldStart; fold < foldEnd; fold++ {
+				xCM |= int(collapse[fold*channels])
+				if channels == 2 {
+					yCM |= int(collapse[fold*channels+channels-1])
+				}
+			}
+		} else {
+			xCM = (1 << B) - 1
+			yCM = xCM
+		}
+
+		if dualStereo != 0 && i == intensity {
+			dualStereo = 0
+			if ctx.resynth {
+				mergeLimit := M*EBands[i] - normOffset
+				if mergeLimit < 0 {
+					mergeLimit = 0
+				}
+				if mergeLimit > len(norm) {
+					mergeLimit = len(norm)
+				}
+				if channels == 2 && mergeLimit > len(norm2) {
+					mergeLimit = len(norm2)
+				}
+				for j := 0; j < mergeLimit; j++ {
+					norm[j] = 0.5 * (norm[j] + norm2[j])
+				}
+			}
+		}
+
+		var lowbandX []float64
+		var lowbandY []float64
+		if effectiveLowband >= 0 && effectiveLowband+nBand <= len(norm) {
+			lowbandX = norm[effectiveLowband : effectiveLowband+nBand]
+			if channels == 2 && effectiveLowband+nBand <= len(norm2) {
+				lowbandY = norm2[effectiveLowband : effectiveLowband+nBand]
+			}
+		}
+
+		var lowbandOutX []float64
+		var lowbandOutY []float64
+		outStart := M*EBands[i] - normOffset
+		if !last && outStart >= 0 && outStart+nBand <= len(norm) {
+			lowbandOutX = norm[outStart : outStart+nBand]
+			if channels == 2 && outStart+nBand <= len(norm2) {
+				lowbandOutY = norm2[outStart : outStart+nBand]
+			}
+		}
+
+		if dualStereo != 0 {
+			xCM = quantBand(&ctx, xBand, nBand, b/2, B, lowbandX, lm, lowbandOutX, 1.0, lowbandScratch, xCM)
+			if channels == 2 && yBand != nil {
+				yCM = quantBand(&ctx, yBand, nBand, b/2, B, lowbandY, lm, lowbandOutY, 1.0, lowbandScratch, yCM)
+			}
+		} else {
+			if channels == 2 && yBand != nil {
+				// Theta RDO: Try both rounding directions and pick the one with lower distortion.
+				// This is enabled for stereo bands below the intensity threshold.
+				// Reference: libopus bands.c quant_all_bands(), theta_rdo logic
+				thetaRDO := i < intensity
+				if thetaRDO {
+					// Compute channel weights for distortion measurement
+					var leftE, rightE float64
+					if bandE != nil && len(bandE) > ctx.nbBands+i {
+						leftE = bandE[i]
+						rightE = bandE[ctx.nbBands+i]
+					}
+					w0, w1 := computeChannelWeights(leftE, rightE)
+
+					// Save original input data
+					xSave := make([]float64, nBand)
+					ySave := make([]float64, nBand)
+					copy(xSave, xBand)
+					copy(ySave, yBand)
+
+					// Save norm data if not last band
+					var normSave []float64
+					if lowbandOutX != nil {
+						normSave = make([]float64, nBand)
+						copy(normSave, lowbandOutX)
+					}
+
+					// Save encoder state
+					ecSave := re.SaveState()
+					ctxSave := ctx
+
+					// Try encoding with theta_round = -1 (bias toward 0/16384)
+					ctx.thetaRound = -1
+					cm := xCM | yCM
+					xCM0 := quantBandStereo(&ctx, xBand, yBand, nBand, b, B, lowbandX, lm, lowbandOutX, lowbandScratch, cm)
+
+					// Compute distortion for first trial
+					dist0 := w0*innerProduct(xSave, xBand) + w1*innerProduct(ySave, yBand)
+
+					// Save the result of first trial
+					xResult0 := make([]float64, nBand)
+					yResult0 := make([]float64, nBand)
+					copy(xResult0, xBand)
+					copy(yResult0, yBand)
+					var normResult0 []float64
+					if lowbandOutX != nil {
+						normResult0 = make([]float64, nBand)
+						copy(normResult0, lowbandOutX)
+					}
+					ecSave0 := re.SaveState()
+					ctxSave0 := ctx
+					cm0 := xCM0
+
+					// Restore state for second trial
+					re.RestoreState(ecSave)
+					ctx = ctxSave
+					copy(xBand, xSave)
+					copy(yBand, ySave)
+					if lowbandOutX != nil && normSave != nil {
+						copy(lowbandOutX, normSave)
+					}
+					// Re-apply special_hybrid_folding if needed
+					if i == start+1 {
+						specialHybridFolding(norm, norm2, start, M, false)
+					}
+
+					// Try encoding with theta_round = +1 (bias toward equal split)
+					ctx.thetaRound = 1
+					xCM1 := quantBandStereo(&ctx, xBand, yBand, nBand, b, B, lowbandX, lm, lowbandOutX, lowbandScratch, cm)
+
+					// Compute distortion for second trial
+					dist1 := w0*innerProduct(xSave, xBand) + w1*innerProduct(ySave, yBand)
+
+					// Pick the trial with lower distortion (higher inner product = lower distortion)
+					if dist0 >= dist1 {
+						// First trial (theta_round = -1) was better
+						xCM = cm0
+						re.RestoreState(ecSave0)
+						ctx = ctxSave0
+						copy(xBand, xResult0)
+						copy(yBand, yResult0)
+						if lowbandOutX != nil && normResult0 != nil {
+							copy(lowbandOutX, normResult0)
+						}
+					} else {
+						// Second trial (theta_round = +1) was better
+						xCM = xCM1
+					}
+					yCM = xCM
+					ctx.thetaRound = 0 // Reset for subsequent bands
+				} else {
+					// No theta RDO: use standard encoding
+					ctx.thetaRound = 0
+					xCM = quantBandStereo(&ctx, xBand, yBand, nBand, b, B, lowbandX, lm, lowbandOutX, lowbandScratch, xCM|yCM)
+					yCM = xCM
+				}
+			} else {
+				xCM = quantBand(&ctx, xBand, nBand, b, B, lowbandX, lm, lowbandOutX, 1.0, lowbandScratch, xCM|yCM)
+				yCM = xCM
+			}
+		}
+
+		collapse[i*channels] = byte(xCM)
+		if channels == 2 {
+			collapse[i*channels+channels-1] = byte(yCM)
+		}
+		balance += pulses[i] + tell
+
+		updateLowband = b > (nBand << bitRes)
+		ctx.avoidSplitNoise = false
+	}
+
+	return collapse
 }

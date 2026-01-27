@@ -145,7 +145,7 @@ func TestPkt31IMDCTCompare(t *testing.T) {
 
 	dec.DecodeFineEnergy(energies, end, fineQuant)
 	coeffsL, _, collapse := quantAllBandsDecode(rd, dec.channels, frameSize, lm, 0, end, pulses, 1, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, &dec.rng)
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, dec.channels == 1, &dec.rng)
 
 	antiCollapseOn := false
 	if antiCollapseRsv > 0 {

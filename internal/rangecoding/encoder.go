@@ -353,6 +353,11 @@ func (e *Encoder) StorageBits() int {
 	return int(e.storage * 8)
 }
 
+// Storage returns the storage capacity in bytes.
+func (e *Encoder) Storage() int {
+	return int(e.storage)
+}
+
 // Ext returns the extension count (for testing/debugging).
 func (e *Encoder) Ext() uint32 {
 	return e.ext
@@ -361,6 +366,72 @@ func (e *Encoder) Ext() uint32 {
 // Error returns the encoder error flag. Non-zero indicates an error.
 func (e *Encoder) Error() int {
 	return e.err
+}
+
+// EncoderState captures the encoder state for save/restore operations.
+// This is used by theta RDO to try different quantization choices.
+type EncoderState struct {
+	offs       uint32
+	endOffs    uint32
+	endWindow  uint32
+	nendBits   int
+	nbitsTotal int
+	rng        uint32
+	val        uint32
+	rem        int
+	ext        uint32
+	err        int
+	// Buffer bytes are saved separately for restoration
+	bufFront []byte // bytes from [0, offs)
+	bufBack  []byte // bytes from [storage-endOffs, storage)
+}
+
+// SaveState captures the current encoder state for later restoration.
+// This allows trying different encoding choices and restoring to try again.
+func (e *Encoder) SaveState() *EncoderState {
+	state := &EncoderState{
+		offs:       e.offs,
+		endOffs:    e.endOffs,
+		endWindow:  e.endWindow,
+		nendBits:   e.nendBits,
+		nbitsTotal: e.nbitsTotal,
+		rng:        e.rng,
+		val:        e.val,
+		rem:        e.rem,
+		ext:        e.ext,
+		err:        e.err,
+	}
+	// Save the bytes that have been written
+	if e.offs > 0 {
+		state.bufFront = make([]byte, e.offs)
+		copy(state.bufFront, e.buf[:e.offs])
+	}
+	if e.endOffs > 0 {
+		state.bufBack = make([]byte, e.endOffs)
+		copy(state.bufBack, e.buf[e.storage-e.endOffs:e.storage])
+	}
+	return state
+}
+
+// RestoreState restores the encoder to a previously saved state.
+func (e *Encoder) RestoreState(state *EncoderState) {
+	e.offs = state.offs
+	e.endOffs = state.endOffs
+	e.endWindow = state.endWindow
+	e.nendBits = state.nendBits
+	e.nbitsTotal = state.nbitsTotal
+	e.rng = state.rng
+	e.val = state.val
+	e.rem = state.rem
+	e.ext = state.ext
+	e.err = state.err
+	// Restore the bytes
+	if len(state.bufFront) > 0 {
+		copy(e.buf[:state.offs], state.bufFront)
+	}
+	if len(state.bufBack) > 0 {
+		copy(e.buf[e.storage-state.endOffs:e.storage], state.bufBack)
+	}
 }
 
 // RangeBytes returns the number of range-coded bytes written.

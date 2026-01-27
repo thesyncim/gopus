@@ -108,10 +108,14 @@ func TestIMDCTEnergyConservation(t *testing.T) {
 				outputEnergy += x * x
 			}
 
-			// Ratio should be approximately constant (depends on normalization)
-			// For proper IMDCT with 2/N normalization, ratio ~ 4/N
+			// Ratio depends on IMDCT normalization:
+			// - FFT path (power-of-two sizes) scales by 2/N, ratio ~ 4/N
+			// - Direct path (CELT sizes) is unscaled, ratio ~ N
 			ratio := outputEnergy / inputEnergy
-			expectedRatio := 4.0 / float64(n)
+			expectedRatio := float64(n)
+			if isPowerOfTwo(n / 2) {
+				expectedRatio = 4.0 / float64(n)
+			}
 
 			// Allow 50% tolerance due to normalization conventions
 			if ratio < expectedRatio*0.5 || ratio > expectedRatio*2.0 {
@@ -641,9 +645,12 @@ func TestDecodeFrame_InvalidFrameSize(t *testing.T) {
 func TestDecodeFrame_EmptyData(t *testing.T) {
 	dec := NewDecoder(1)
 
-	_, err := dec.DecodeFrame([]byte{}, 960)
-	if err == nil {
-		t.Error("Expected error for empty data")
+	samples, err := dec.DecodeFrame([]byte{}, 960)
+	if err != nil {
+		t.Errorf("DecodeFrame(empty) returned error: %v", err)
+	}
+	if len(samples) != 960 {
+		t.Errorf("DecodeFrame(empty) returned %d samples, want %d", len(samples), 960)
 	}
 }
 

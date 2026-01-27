@@ -242,8 +242,7 @@ func TestHybridStereo(t *testing.T) {
 }
 
 // TestHybridEmptyInput verifies empty input handling.
-// Note: nil input now triggers PLC (Packet Loss Concealment), not an error.
-// Only zero-length slice returns ErrDecodeFailed.
+// Note: nil and empty input now trigger PLC (Packet Loss Concealment), not an error.
 func TestHybridEmptyInput(t *testing.T) {
 	d := NewDecoder(1)
 
@@ -256,10 +255,13 @@ func TestHybridEmptyInput(t *testing.T) {
 		t.Errorf("Decode(nil) output length = %d, want 480 (PLC output)", len(samples))
 	}
 
-	// Empty slice (not nil) returns error
-	_, err = d.Decode([]byte{}, 480)
-	if err != ErrDecodeFailed {
-		t.Errorf("Decode([]) error = %v, want %v", err, ErrDecodeFailed)
+	// Empty slice triggers PLC, should succeed
+	samples, err = d.Decode([]byte{}, 480)
+	if err != nil {
+		t.Errorf("Decode([]) error = %v, want nil (PLC mode)", err)
+	}
+	if len(samples) != 480 {
+		t.Errorf("Decode([]) output length = %d, want 480 (PLC output)", len(samples))
 	}
 }
 

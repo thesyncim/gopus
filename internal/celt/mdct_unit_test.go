@@ -342,10 +342,9 @@ func TestMDCTUnit_RoundTrip(t *testing.T) {
 			// Compute MDCT of the result using Go implementation (has 2/N normalization)
 			coeffsBack := mdctDirect(timeOut)
 
-			// IMDCTDirect scales by 2/N, mdctDirect scales by 2/N
-			// So coeffsBack = coeffs * (2/N) * (2/N) = coeffs * 4/N^2
-			// We need to scale coeffsBack by N^2/4 to get back to coeffs
-			scale := float64(N) * float64(N) / 4.0
+			// mdctDirect scales by 2/N, IMDCTDirect is unscaled (per libopus check_inv).
+			// For the MDCT basis used here, MDCT(IMDCT(x)) = 2*x, so scale by 0.5.
+			scale := 0.5
 
 			var errpow, sigpow float64
 			for i := 0; i < N; i++ {

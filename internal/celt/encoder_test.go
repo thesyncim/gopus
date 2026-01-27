@@ -3,6 +3,8 @@ package celt
 import (
 	"math"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // TestNewEncoder verifies encoder initialization matches decoder.
@@ -238,6 +240,46 @@ func TestMDCTShortRoundTrip(t *testing.T) {
 				t.Errorf("MDCTShort->IMDCTShort produced near-zero output, max=%f", maxOutput)
 			}
 		})
+	}
+}
+
+func TestEncoderFrameCountAndIntraFlag(t *testing.T) {
+	enc := NewEncoder(1)
+	frameSize := 960
+	mode := GetModeConfig(frameSize)
+	pcm := generateSineWave(440.0, frameSize)
+
+	for i := 0; i < 5; i++ {
+		expectedIntra := i == 0
+		if enc.IsIntraFrame() != expectedIntra {
+			t.Fatalf("frame %d: IsIntraFrame=%v, want %v", i, enc.IsIntraFrame(), expectedIntra)
+		}
+
+		packet, err := enc.EncodeFrame(pcm, frameSize)
+		if err != nil {
+			t.Fatalf("frame %d: EncodeFrame failed: %v", i, err)
+		}
+		if len(packet) == 0 {
+			t.Fatalf("frame %d: empty packet", i)
+		}
+
+		rd := &rangecoding.Decoder{}
+		rd.Init(packet)
+		if rd.DecodeBit(15) == 1 {
+			t.Fatalf("frame %d: unexpected silence flag", i)
+		}
+		rd.DecodeBit(1) // reserved/start bit
+		if mode.LM > 0 {
+			rd.DecodeBit(3) // transient flag
+		}
+		intra := rd.DecodeBit(3) == 1
+		if intra != expectedIntra {
+			t.Fatalf("frame %d: intra=%v, want %v", i, intra, expectedIntra)
+		}
+
+		if enc.FrameCount() != i+1 {
+			t.Fatalf("frame %d: FrameCount=%d, want %d", i, enc.FrameCount(), i+1)
+		}
 	}
 }
 

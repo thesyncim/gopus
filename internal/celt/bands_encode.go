@@ -120,6 +120,59 @@ func (e *Encoder) NormalizeBands(mdctCoeffs []float64, energies []float64, nbBan
 	return shapes
 }
 
+// NormalizeBandsToArray normalizes bands into a single contiguous array (length = frameSize).
+// This mirrors libopus normalise_bands(): divide by the per-band gain without re-normalizing.
+// The input energies should be the original (unquantized) band energies.
+func (e *Encoder) NormalizeBandsToArray(mdctCoeffs []float64, energies []float64, nbBands, frameSize int) []float64 {
+	if nbBands <= 0 || nbBands > MaxBands {
+		return nil
+	}
+	if len(energies) < nbBands {
+		return nil
+	}
+	if frameSize <= 0 {
+		return nil
+	}
+
+	norm := make([]float64, frameSize)
+	offset := 0
+	for band := 0; band < nbBands; band++ {
+		n := ScaledBandWidth(band, frameSize)
+		if n <= 0 {
+			continue
+		}
+		if offset+n > len(mdctCoeffs) {
+			offset += n
+			continue
+		}
+
+		eVal := energies[band]
+		if band < len(eMeans) {
+			eVal += eMeans[band] * DB6
+		}
+		if eVal > 32*DB6 {
+			eVal = 32 * DB6
+		}
+		gain := math.Exp2(eVal / DB6)
+
+		if gain < 1e-15 {
+			norm[offset] = 1.0
+			for i := 1; i < n; i++ {
+				norm[offset+i] = 0
+			}
+			offset += n
+			continue
+		}
+
+		for i := 0; i < n; i++ {
+			norm[offset+i] = mdctCoeffs[offset+i] / gain
+		}
+		offset += n
+	}
+
+	return norm
+}
+
 // vectorToPulses converts a normalized float vector to an integer pulse vector.
 // The result has L1 norm (sum of absolute values) equal to k.
 // This is the encoder's inverse of decoder's pulse-to-vector reconstruction.

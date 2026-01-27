@@ -46,9 +46,18 @@ type Encoder struct {
 	// Frame counting for intra mode decisions
 	frameCount int // Number of frames encoded (0 = first frame uses intra mode)
 
+	// Allocation history for skip decisions
+	lastCodedBands int // Previous coded band count (0 = uninitialized)
+
 	// Bitrate control
 	targetBitrate int // Target bitrate in bits per second (0 = use buffer size)
 	frameBits     int // Per-frame bit budget for coarse energy (set during encoding)
+
+	// Spread decision state (persistent across frames for hysteresis)
+	spreadDecision int // Current spread decision (0-3)
+	tonalAverage   int // Running average for spread decision hysteresis
+	hfAverage      int // High frequency average for tapset decision
+	tapsetDecision int // Tapset decision (0, 1, or 2)
 }
 
 // NewEncoder creates a new CELT encoder with the given number of channels.
@@ -87,6 +96,12 @@ func NewEncoder(channels int) *Encoder {
 		// Analysis buffers
 		inputBuffer: make([]float64, 0),
 		mdctBuffer:  make([]float64, 0),
+
+		// Initialize spread decision state (libopus defaults to SPREAD_NORMAL)
+		spreadDecision: spreadNormal,
+		tonalAverage:   0,
+		hfAverage:      0,
+		tapsetDecision: 0,
 	}
 
 	// Energy arrays default to zero after allocation (matches libopus init).
@@ -126,6 +141,13 @@ func (e *Encoder) Reset() {
 	// Reset frame counter
 	e.frameCount = 0
 	e.frameBits = 0
+	e.lastCodedBands = 0
+
+	// Reset spread decision state
+	e.spreadDecision = spreadNormal
+	e.tonalAverage = 0
+	e.hfAverage = 0
+	e.tapsetDecision = 0
 }
 
 // SetRangeEncoder sets the range encoder for the current frame.

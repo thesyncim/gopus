@@ -176,27 +176,48 @@ func (d *Decoder) decodeFrame(rd *rangecoding.Decoder, frameSize int, packetSter
 	// SILK reads from the shared range decoder first.
 	var silkUpsampled []float64
 	if packetStereo {
-		silkOutputL, silkOutputR, err := d.silkDecoder.DecodeStereoFrame(
-			rd,
-			silk.BandwidthWideband, // Always WB for hybrid
-			silkDuration,
-			true,
-		)
-		if err != nil {
-			return nil, err
-		}
-		if d.silkResamplerL == nil {
-			d.silkResamplerL = silk.NewLibopusResampler(16000, 48000)
-		}
-		if d.silkResamplerR == nil {
-			d.silkResamplerR = silk.NewLibopusResampler(16000, 48000)
-		}
-		upL := d.silkResamplerL.Process(silkOutputL)
-		upR := d.silkResamplerR.Process(silkOutputR)
-		silkUpsampled = make([]float64, len(upL)*2)
-		for i := range upL {
-			silkUpsampled[i*2] = float64(upL[i])
-			silkUpsampled[i*2+1] = float64(upR[i])
+		if d.channels == 1 {
+			mid, err := d.silkDecoder.DecodeStereoFrameToMono(
+				rd,
+				silk.BandwidthWideband, // Always WB for hybrid
+				silkDuration,
+				true,
+			)
+			if err != nil {
+				return nil, err
+			}
+			if d.silkResamplerL == nil {
+				d.silkResamplerL = silk.NewLibopusResampler(16000, 48000)
+			}
+			resamplerInput := d.silkDecoder.BuildMonoResamplerInput(mid)
+			upL := d.silkResamplerL.Process(resamplerInput)
+			silkUpsampled = make([]float64, len(upL))
+			for i := range upL {
+				silkUpsampled[i] = float64(upL[i])
+			}
+		} else {
+			silkOutputL, silkOutputR, err := d.silkDecoder.DecodeStereoFrame(
+				rd,
+				silk.BandwidthWideband, // Always WB for hybrid
+				silkDuration,
+				true,
+			)
+			if err != nil {
+				return nil, err
+			}
+			if d.silkResamplerL == nil {
+				d.silkResamplerL = silk.NewLibopusResampler(16000, 48000)
+			}
+			if d.silkResamplerR == nil {
+				d.silkResamplerR = silk.NewLibopusResampler(16000, 48000)
+			}
+			upL := d.silkResamplerL.Process(silkOutputL)
+			upR := d.silkResamplerR.Process(silkOutputR)
+			silkUpsampled = make([]float64, len(upL)*2)
+			for i := range upL {
+				silkUpsampled[i*2] = float64(upL[i])
+				silkUpsampled[i*2+1] = float64(upR[i])
+			}
 		}
 	} else {
 		silkOutput, err := d.silkDecoder.DecodeFrame(

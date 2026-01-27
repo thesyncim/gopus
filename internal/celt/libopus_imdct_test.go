@@ -36,53 +36,48 @@ func TestLibopusIMDCT_DCImpulse(t *testing.T) {
 		t.Fatal("Result contains NaN or Inf values")
 	}
 
+	start := overlap / 2
+	end := start + n2
+	if start < 0 {
+		start = 0
+	}
+	if end > len(result) {
+		end = len(result)
+	}
+	signal := result[start:end]
+
 	fmt.Printf("libopusIMDCT DC impulse test:\n")
 	fmt.Printf("  Output length: %d (expected %d)\n", len(result), n2+overlap)
-	fmt.Printf("  First 10: ")
-	for i := 0; i < 10 && i < len(result); i++ {
-		fmt.Printf("%.6f ", result[i])
+	fmt.Printf("  IMDCT region start: %d, len: %d\n", start, len(signal))
+	fmt.Printf("  IMDCT first 10: ")
+	for i := 0; i < 10 && i < len(signal); i++ {
+		fmt.Printf("%.6f ", signal[i])
 	}
-	fmt.Printf("\n  [950:960]: ")
-	for i := 950; i < 960 && i < len(result); i++ {
-		fmt.Printf("%.6f ", result[i])
-	}
-	fmt.Printf("\n  Last 10 (overlap): ")
-	for i := n2; i < n2+10 && i < len(result); i++ {
-		fmt.Printf("%.6f ", result[i])
+	fmt.Printf("\n  IMDCT last 10: ")
+	for i := len(signal) - 10; i < len(signal) && i >= 0; i++ {
+		fmt.Printf("%.6f ", signal[i])
 	}
 	fmt.Printf("\n")
 
-	// Check that values are NOT linearly growing (the bug in old implementation)
-	// For a DC impulse, output should be roughly constant or have periodic structure
-	var maxVal, minVal float64 = result[0], result[0]
-	for _, v := range result[:n2] {
-		if v > maxVal {
-			maxVal = v
+	// Check that values are not perfectly linear across the IMDCT region.
+	// The old broken implementation produced a near-linear ramp.
+	if len(signal) > 2 {
+		first := signal[0]
+		last := signal[len(signal)-1]
+		var errpow, sigpow float64
+		for i := 0; i < len(signal); i++ {
+			lin := first + (last-first)*float64(i)/float64(len(signal)-1)
+			diff := signal[i] - lin
+			errpow += diff * diff
+			sigpow += signal[i] * signal[i]
 		}
-		if v < minVal {
-			minVal = v
+		if sigpow > 0 {
+			linearity := errpow / sigpow
+			fmt.Printf("  Linearity residual ratio: %.6f\n", linearity)
+			if linearity < 1e-4 {
+				t.Errorf("Suspiciously linear output detected (residual ratio=%.6f)", linearity)
+			}
 		}
-	}
-	fmt.Printf("\n  Range in first %d samples: [%.6f, %.6f]\n", n2, minVal, maxVal)
-
-	// The old broken implementation had values from -0.0008 to -1.0 (linear growth)
-	// A correct implementation should NOT have such linear growth
-	// Check if last values are dramatically larger than first values
-	firstAvg := 0.0
-	lastAvg := 0.0
-	for i := 0; i < 10; i++ {
-		firstAvg += math.Abs(result[i])
-		lastAvg += math.Abs(result[n2-10+i])
-	}
-	firstAvg /= 10
-	lastAvg /= 10
-
-	ratio := lastAvg / (firstAvg + 1e-10)
-	fmt.Printf("  Avg magnitude first 10: %.6f, last 10: %.6f, ratio: %.2f\n", firstAvg, lastAvg, ratio)
-
-	// If ratio is extremely high (like 1000x), something is wrong
-	if ratio > 100 {
-		t.Errorf("Suspicious linear growth detected: ratio = %.2f", ratio)
 	}
 }
 

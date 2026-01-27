@@ -543,3 +543,205 @@ func effectiveBandsForLM(lm int) int {
 		return 21
 	}
 }
+
+// TestTFAnalysisBasic tests the TFAnalysis function with basic inputs.
+func TestTFAnalysisBasic(t *testing.T) {
+	tests := []struct {
+		name           string
+		lm             int
+		nbBands        int
+		isTransient    bool
+		effectiveBytes int
+	}{
+		{"LM0_returns_defaults", 0, 21, false, 100},
+		{"LM3_non_transient", 3, 21, false, 160},
+		{"LM3_transient", 3, 21, true, 160},
+		{"LM2_non_transient", 2, 21, false, 80},
+		{"LM1_low_bitrate", 1, 21, false, 10},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create synthetic normalized coefficients
+			// Use different patterns to test analysis
+			N0 := EBands[tc.nbBands] << tc.lm
+			X := make([]float64, N0)
+
+			// Fill with a simple pattern
+			for i := 0; i < N0; i++ {
+				X[i] = float64(i%10-5) / 10.0
+			}
+
+			tfRes, tfSelect := TFAnalysis(X, N0, tc.nbBands, tc.isTransient, tc.lm, 0.5, tc.effectiveBytes, nil)
+
+			// Verify output dimensions
+			if len(tfRes) != tc.nbBands {
+				t.Errorf("TFAnalysis returned %d bands, want %d", len(tfRes), tc.nbBands)
+			}
+
+			// For LM=0, should return all zeros
+			if tc.lm == 0 {
+				for i, v := range tfRes {
+					if v != 0 {
+						t.Errorf("LM=0: tfRes[%d] = %d, want 0", i, v)
+					}
+				}
+				if tfSelect != 0 {
+					t.Errorf("LM=0: tfSelect = %d, want 0", tfSelect)
+				}
+				return
+			}
+
+			// Verify tfRes values are valid (0 or 1 for raw output)
+			for i, v := range tfRes {
+				if v != 0 && v != 1 {
+					t.Errorf("tfRes[%d] = %d, want 0 or 1", i, v)
+				}
+			}
+
+			// Verify tfSelect is valid
+			if tfSelect != 0 && tfSelect != 1 {
+				t.Errorf("tfSelect = %d, want 0 or 1", tfSelect)
+			}
+		})
+	}
+}
+
+// TestTFAnalysisWithTransient tests TF analysis behavior with transient signals.
+func TestTFAnalysisWithTransient(t *testing.T) {
+	lm := 3
+	nbBands := 21
+	N0 := EBands[nbBands] << lm
+	X := make([]float64, N0)
+
+	// Create a transient-like signal: spike at the beginning
+	for i := 0; i < 100; i++ {
+		X[i] = 1.0
+	}
+
+	tfRes, tfSelect := TFAnalysis(X, N0, nbBands, true, lm, 0.2, 160, nil)
+
+	// Just verify we get valid output - the exact values depend on the algorithm
+	if len(tfRes) != nbBands {
+		t.Errorf("TFAnalysis returned %d bands, want %d", len(tfRes), nbBands)
+	}
+
+	t.Logf("Transient analysis: tfSelect=%d, tfRes=%v", tfSelect, tfRes)
+}
+
+// TestTFEncodeWithSelectRoundTrip tests that TFEncodeWithSelect produces decodable output.
+// Note: TFEncodeWithSelect modifies tfRes to contain post-table-lookup values,
+// while tfDecode also does a table lookup. So we compare the final decoded values.
+func TestTFEncodeWithSelectRoundTrip(t *testing.T) {
+	tests := []struct {
+		name        string
+		lm          int
+		isTransient bool
+		tfRes       []int // Pre-table-lookup values (0 or 1)
+		tfSelect    int
+	}{
+		{
+			name:        "all_zeros_lm3",
+			lm:          3,
+			isTransient: false,
+			tfRes:       []int{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			tfSelect:    0,
+		},
+		{
+			name:        "all_zeros_lm3_transient",
+			lm:          3,
+			isTransient: true,
+			tfRes:       []int{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			tfSelect:    0,
+		},
+		{
+			name:        "mixed_lm2",
+			lm:          2,
+			isTransient: false,
+			tfRes:       []int{0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0},
+			tfSelect:    0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create encoder
+			buf := make([]byte, 256)
+			enc := &rangecoding.Encoder{}
+			enc.Init(buf)
+
+			// Make a copy of tfRes since TFEncodeWithSelect modifies it
+			tfResCopy := make([]int, len(tc.tfRes))
+			copy(tfResCopy, tc.tfRes)
+
+			// Encode
+			start := 0
+			end := 21
+			TFEncodeWithSelect(enc, start, end, tc.isTransient, tfResCopy, tc.lm, tc.tfSelect)
+
+			// Finalize and decode
+			encoded := enc.Done()
+
+			dec := &rangecoding.Decoder{}
+			dec.Init(encoded)
+
+			decodedTfRes := make([]int, 21)
+			tfDecode(start, end, tc.isTransient, decodedTfRes, tc.lm, dec)
+
+			// The decoded tfRes should match the encoded tfRes (both have table lookup applied)
+			for i := 0; i < end; i++ {
+				if decodedTfRes[i] != tfResCopy[i] {
+					t.Errorf("band %d: decoded tfRes=%d, encoded tfRes=%d", i, decodedTfRes[i], tfResCopy[i])
+				}
+			}
+		})
+	}
+}
+
+// TestL1Metric tests the l1Metric function.
+func TestL1Metric(t *testing.T) {
+	tests := []struct {
+		name     string
+		tmp      []float64
+		N        int
+		LM       int
+		bias     float64
+		expected float64 // approximate expected value
+	}{
+		{
+			name:     "simple_positive",
+			tmp:      []float64{1.0, 2.0, 3.0, 4.0},
+			N:        4,
+			LM:       0,
+			bias:     0.0,
+			expected: 10.0,
+		},
+		{
+			name:     "mixed_signs",
+			tmp:      []float64{1.0, -2.0, 3.0, -4.0},
+			N:        4,
+			LM:       0,
+			bias:     0.0,
+			expected: 10.0,
+		},
+		{
+			name:     "with_bias",
+			tmp:      []float64{1.0, 2.0, 3.0, 4.0},
+			N:        4,
+			LM:       2,
+			bias:     0.1,
+			expected: 10.0 * (1.0 + 2*0.1), // L1 + LM*bias*L1
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := l1Metric(tc.tmp, tc.N, tc.LM, tc.bias)
+			// Allow small floating point tolerance
+			tolerance := 0.0001
+			if result < tc.expected-tolerance || result > tc.expected+tolerance {
+				t.Errorf("l1Metric() = %f, want ~%f", result, tc.expected)
+			}
+		})
+	}
+}

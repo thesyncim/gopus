@@ -5,6 +5,7 @@ package celt
 
 import (
 	"errors"
+	"math"
 
 	"github.com/thesyncim/gopus/internal/rangecoding"
 )
@@ -109,10 +110,26 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	// Step 6: Compute band energies
 	energies := e.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
+	bandE := make([]float64, nbBands*e.channels)
+	for c := 0; c < e.channels; c++ {
+		for band := 0; band < nbBands; band++ {
+			idx := c*nbBands + band
+			if idx >= len(energies) {
+				continue
+			}
+			eVal := energies[idx]
+			if band < len(eMeans) {
+				eVal += eMeans[band] * DB6
+			}
+			if eVal > 32*DB6 {
+				eVal = 32 * DB6
+			}
+			bandE[idx] = math.Exp2(eVal / DB6)
+		}
+	}
 
-	// Note: NormalizeBands is called later, AFTER encoding coarse+fine energy,
-	// using the quantized energies. This ensures encoder and decoder use the
-	// same gain values for normalization/denormalization.
+	// Note: Band normalization uses the ORIGINAL energies (libopus normalise_bands).
+	// Quantized energies are used only for decoding/denormalization.
 
 	// Step 7: Initialize range encoder with bitrate-derived size
 	// ... (no changes here) ...
@@ -146,46 +163,123 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		}
 		re.EncodeBit(transientBit, 3)
 	}
-	intra := e.isIntraFrame()
+	intra := e.IsIntraFrame()
 	var intraBit int
 	if intra {
 		intraBit = 1
 	}
 	re.EncodeBit(intraBit, 3)
 
-	// Step 10: Prepare stereo params (will be encoded during allocation)
-	// For dual stereo mode: intensity = nbBands (no intensity stereo), dualStereo = true
-	intensity := nbBands // No intensity stereo - all bands use dual stereo
+	// Step 10: Prepare stereo params (encoded during allocation)
+	// Use mid-side stereo by default: dualStereo=false, intensity=nbBands (disabled)
+	intensity := nbBands
 	dualStereo := false
-	if e.channels == 2 {
-		dualStereo = true // Use dual stereo mode (encode L and R independently)
-	}
 
 	// Step 11: Encode coarse energy
 	prev1LogE := append([]float64(nil), e.prevEnergy...)
 	quantizedEnergies := e.EncodeCoarseEnergy(energies, nbBands, intra, lm)
 
-	// Step 11.1: Encode TF (time-frequency) resolution
-	end := nbBands
-	tfEncode(re, start, end, transient, nil, lm)
+	// Step 11.0.5: Normalize bands early for TF analysis
+	// TF analysis needs normalized coefficients to determine optimal time-frequency resolution
+	var normL, normR []float64
+	if e.channels == 1 {
+		normL = e.NormalizeBandsToArray(mdctCoeffs, energies, nbBands, frameSize)
+	} else {
+		energiesL := energies[:nbBands]
+		energiesR := energies[nbBands:]
+		normL = e.NormalizeBandsToArray(mdctLeft, energiesL, nbBands, frameSize)
+		normR = e.NormalizeBandsToArray(mdctRight, energiesR, nbBands, frameSize)
+	}
 
-	// Step 11.2: Encode spread decision
-	const spreadNormal = 1
-	re.EncodeICDF(spreadNormal, spreadICDF, 5)
+	// Step 11.1: Compute and encode TF (time-frequency) resolution
+	end := nbBands
+	effectiveBytes := targetBits / 8
+
+	// Enable TF analysis when we have enough bits, not in hybrid mode, and reasonable complexity
+	// Reference: libopus enable_tf_analysis = effectiveBytes>=15*C && !hybrid && st->complexity>=2 && !st->lfe
+	enableTFAnalysis := effectiveBytes >= 15*e.channels && lm > 0
+
+	var tfRes []int
+	var tfSelect int
+
+	if enableTFAnalysis {
+		// Compute TF estimate based on transient detection
+		// 0.0 = favors time resolution, 1.0 = favors frequency resolution
+		var tfEstimate float64
+		if transient {
+			tfEstimate = 0.2 // Transients favor time resolution
+		} else {
+			tfEstimate = 0.5 // Default balanced
+		}
+
+		// Use the normalized coefficients for TF analysis
+		// For stereo, use the left channel (similar to libopus tf_chan approach)
+		tfRes, tfSelect = TFAnalysis(normL, len(normL), nbBands, transient, lm, tfEstimate, effectiveBytes, nil)
+
+		// Encode TF decisions using the computed values
+		TFEncodeWithSelect(re, start, end, transient, tfRes, lm, tfSelect)
+	} else {
+		// Use default TF settings when analysis is disabled
+		tfRes = make([]int, nbBands)
+		tfSelect = 0
+		if transient {
+			// For transients without analysis, use tf_res=1 (favor time resolution)
+			for i := 0; i < nbBands; i++ {
+				tfRes[i] = 1
+			}
+		}
+		tfEncode(re, start, end, transient, tfRes, lm)
+
+		// Convert tfRes to actual TF change values
+		for i := start; i < end; i++ {
+			idx := 4*boolToInt(transient) + 2*tfSelect + tfRes[i]
+			tfRes[i] = int(tfSelectTable[lm][idx])
+		}
+	}
+
+	// Step 11.2: Compute and encode spread decision
+	// For transient frames (shortBlocks > 1), use SPREAD_NORMAL without analysis
+	// For normal frames, analyze spectral characteristics to decide spread
+	var spread int
+	if shortBlocks > 1 {
+		// Transient mode: use SPREAD_NORMAL (libopus behavior for hybrid/short blocks)
+		spread = spreadNormal
+	} else {
+		// Normal mode: analyze normalized coefficients for spread decision
+		// The normalized coefficients are computed after coarse energy,
+		// but before encoding we need to use pre-normalized coefficients
+		// scaled by the actual energy for proper analysis.
+		// For now, use the normalized array which will be computed.
+		// Note: In libopus, spreading_decision uses normalized X after normalise_bands
+		spread = e.SpreadingDecision(normL, nbBands, e.channels, frameSize, true)
+	}
+	re.EncodeICDF(spread, spreadICDF, 5)
 
 	// Step 11.3: Initialize caps for allocation
 	caps := initCaps(nbBands, lm, e.channels)
 
 	// Step 11.4: Encode dynamic allocation
+	// Match libopus/decoder: check budget before encoding each dynalloc bit.
+	// Since we don't use dynalloc boosts (offsets are all 0), we just encode
+	// one 0-bit per band IF budget allows, matching what decoder expects.
 	offsets := make([]int, nbBands)
 	dynallocLogp := 6
+	totalBitsQ3ForDynalloc := targetBits << bitRes
+	tellFracDynalloc := re.TellFrac()
 	for i := start; i < end; i++ {
-		re.EncodeBit(0, uint(dynallocLogp))
+		// Only encode if budget allows (matching decoder's budget check)
+		if tellFracDynalloc+(dynallocLogp<<bitRes) < totalBitsQ3ForDynalloc {
+			re.EncodeBit(0, uint(dynallocLogp))
+			tellFracDynalloc = re.TellFrac()
+		}
 	}
 
-	// Step 11.5: Encode allocation trim
-	const allocTrim = 5
-	re.EncodeICDF(allocTrim, trimICDF, 7)
+	// Step 11.5: Encode allocation trim (only if budget allows)
+	allocTrim := 5
+	tellForTrim := re.TellFrac()
+	if tellForTrim+(6<<bitRes) <= totalBitsQ3ForDynalloc {
+		re.EncodeICDF(allocTrim, trimICDF, 7)
+	}
 
 	// Step 12: Compute bit allocation
 	bitsUsed := re.TellFrac()
@@ -195,6 +289,11 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		antiCollapseRsv = 1 << bitRes
 	}
 	totalBitsQ3 -= antiCollapseRsv
+
+	signalBandwidth := nbBands - 1
+	if signalBandwidth < 0 {
+		signalBandwidth = 0
+	}
 
 	allocResult := ComputeAllocationWithEncoder(
 		re,
@@ -207,30 +306,67 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		intensity,
 		dualStereo,
 		lm,
+		e.lastCodedBands,
+		signalBandwidth,
 	)
+	if e.lastCodedBands != 0 {
+		e.lastCodedBands = minInt(e.lastCodedBands+1, maxInt(e.lastCodedBands-1, allocResult.CodedBands))
+	} else {
+		e.lastCodedBands = allocResult.CodedBands
+	}
 
 	// Step 13: Encode fine energy
 	e.EncodeFineEnergy(energies, quantizedEnergies, nbBands, allocResult.FineBits)
 
-	// Step 13.5: Normalize bands using QUANTIZED energies
-	var shapesL, shapesR [][]float64
-	if e.channels == 1 {
-		shapesL = e.NormalizeBands(mdctCoeffs, quantizedEnergies, nbBands, frameSize)
-	} else {
-		// Split energies for L and R
-		energiesL := quantizedEnergies[:nbBands]
-		energiesR := quantizedEnergies[nbBands:]
-		shapesL = e.NormalizeBands(mdctLeft, energiesL, nbBands, frameSize)
-		shapesR = e.NormalizeBands(mdctRight, energiesR, nbBands, frameSize)
+	// Note: normL/normR and tfRes were already computed before encoding spread
+	// to ensure the same normalized coefficients are used for analysis and quantization
+
+	// Step 14: Encode bands (quant_all_bands)
+	totalBitsAllQ3 := (targetBits << bitRes) - antiCollapseRsv
+	dualStereoVal := 0
+	if allocResult.DualStereo {
+		dualStereoVal = 1
+	}
+	quantAllBandsEncode(
+		re,
+		e.channels,
+		frameSize,
+		lm,
+		start,
+		end,
+		normL,
+		normR,
+		allocResult.BandBits,
+		shortBlocks,
+		spread, // Use computed spread decision instead of hardcoded spreadNormal
+		dualStereoVal,
+		allocResult.Intensity,
+		tfRes,
+		totalBitsAllQ3,
+		allocResult.Balance,
+		allocResult.CodedBands,
+		&e.rng,
+		bandE,
+		nil,
+		nil,
+	)
+
+	// Step 14.5: Encode anti-collapse flag if reserved
+	if antiCollapseRsv > 0 {
+		re.EncodeRawBits(0, 1)
 	}
 
-	// Step 14: Encode bands (PVQ)
-	e.EncodeBands(shapesL, shapesR, allocResult.BandBits, nbBands, frameSize)
+	// Step 14.6: Encode energy finalization bits (leftover budget)
+	bitsLeft := targetBits - re.Tell()
+	if bitsLeft < 0 {
+		bitsLeft = 0
+	}
+	e.EncodeEnergyFinalise(energies, quantizedEnergies, nbBands, allocResult.FineBits, allocResult.FinePriority, bitsLeft)
 
 	// Step 15: Finalize and update state
 	bytes := re.Done()
 	e.SetPrevEnergyWithPrev(prev1LogE, quantizedEnergies)
-	e.frameCount++
+	e.IncrementFrameCount()
 
 	return bytes, nil
 }
@@ -327,15 +463,6 @@ func isFrameSilent(pcm []float64) bool {
 	}
 	return true
 }
-
-// isIntraFrame returns true if this frame should use intra mode.
-// Intra mode is used for the first frame or after a reset.
-func (e *Encoder) isIntraFrame() bool {
-	return e.frameCount == 0
-}
-
-// frameCount tracks encoded frames for intra mode decisions.
-// Added to Encoder struct implicitly via closure or needs to be added.
 
 // EncodeFrameWithOptions encodes a frame with additional control options.
 func (e *Encoder) EncodeFrameWithOptions(pcm []float64, frameSize int, opts EncodeOptions) ([]byte, error) {

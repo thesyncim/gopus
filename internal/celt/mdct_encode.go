@@ -74,7 +74,7 @@ func mdctDirect(samples []float64) []float64 {
 
 	// Scale factor: 4/N2 = 4/(2*N) = 2/N
 	// This matches libopus's division by N/4 in the test formula
-	scale := 1.0 / float64(N2)
+	scale := 4.0 / float64(N2)
 
 	for k := 0; k < N; k++ {
 		var sum float64

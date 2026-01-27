@@ -146,6 +146,9 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 // decodeSingleFrame decodes a single frame of the given mode.
 // frameData is the raw frame bytes (without TOC or length headers).
 func (d *Decoder) decodeSingleFrame(frameData []byte, toc TOC, mode Mode, frameSize int) ([]float32, error) {
+	if len(frameData) == 0 {
+		frameData = nil
+	}
 	switch mode {
 	case ModeSILK:
 		return d.decodeSILK(frameData, toc, frameSize)

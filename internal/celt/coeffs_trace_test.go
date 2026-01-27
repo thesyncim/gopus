@@ -179,7 +179,7 @@ func TestPacket31CoeffsTrace(t *testing.T) {
 
 		// Decode PVQ coefficients
 		coeffsL, _, collapse := quantAllBandsDecode(rd, dec.channels, frameSize, lm, 0, end, pulses, shortBlocks, spread,
-			dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, &dec.rng)
+			dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, dec.channels == 1, &dec.rng)
 
 		// Process anti-collapse
 		antiCollapseOn := false

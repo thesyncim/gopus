@@ -23,13 +23,9 @@ var hybridPLCState = plc.NewState()
 // Hybrid mode combines SILK (0-8kHz) and CELT (8-20kHz) for high-quality
 // wideband speech at medium bitrates. Only 10ms and 20ms frames are supported.
 func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
-	// Handle PLC for nil data (lost packet)
-	if data == nil {
+	// Handle PLC for nil/empty data (lost packet)
+	if data == nil || len(data) == 0 {
 		return d.decodePLC(frameSize, false)
-	}
-
-	if len(data) == 0 {
-		return nil, ErrDecodeFailed
 	}
 
 	if !ValidHybridFrameSize(frameSize) {
@@ -56,13 +52,9 @@ func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
 // DecodeWithPacketStereo decodes a Hybrid frame and honors the packet stereo flag.
 // This is used when the output channels (decoder configuration) differ from the packet channels.
 func (d *Decoder) DecodeWithPacketStereo(data []byte, frameSize int, packetStereo bool) ([]float64, error) {
-	// Handle PLC for nil data (lost packet)
-	if data == nil {
+	// Handle PLC for nil/empty data (lost packet)
+	if data == nil || len(data) == 0 {
 		return d.decodePLC(frameSize, d.channels == 2)
-	}
-
-	if len(data) == 0 {
-		return nil, ErrDecodeFailed
 	}
 
 	if !ValidHybridFrameSize(frameSize) {
@@ -96,13 +88,9 @@ func (d *Decoder) DecodeWithPacketStereo(data []byte, frameSize int, packetStere
 //
 // Returns interleaved float64 samples at 48kHz.
 func (d *Decoder) DecodeStereo(data []byte, frameSize int) ([]float64, error) {
-	// Handle PLC for nil data (lost packet)
-	if data == nil {
+	// Handle PLC for nil/empty data (lost packet)
+	if data == nil || len(data) == 0 {
 		return d.decodePLC(frameSize, true)
-	}
-
-	if len(data) == 0 {
-		return nil, ErrDecodeFailed
 	}
 
 	if !ValidHybridFrameSize(frameSize) {

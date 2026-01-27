@@ -90,6 +90,25 @@ func (d *Decoder) DecodeFrame(
 	return output, nil
 }
 
+// DecodeStereoFrameToMono decodes a stereo SILK frame and returns the mid channel
+// at native sample rate. The side channel is still decoded to keep the bitstream aligned.
+func (d *Decoder) DecodeStereoFrameToMono(
+	rd *rangecoding.Decoder,
+	bandwidth Bandwidth,
+	duration FrameDuration,
+	vadFlag bool,
+) ([]float32, error) {
+	midNative, _, err := d.decodeStereoMidNative(rd, bandwidth, duration, vadFlag)
+	if err != nil {
+		return nil, err
+	}
+	mid := make([]float32, len(midNative))
+	for i, v := range midNative {
+		mid[i] = float32(v) / 32768.0
+	}
+	return mid, nil
+}
+
 // DecodeFrameWithTrace decodes a SILK frame with tracing callbacks.
 // The callback is called for each subframe with LTP information.
 func (d *Decoder) DecodeFrameWithTrace(

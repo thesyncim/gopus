@@ -180,7 +180,7 @@ func TestCoefficientPipelineTrace(t *testing.T) {
 
 	// Decode PVQ coefficients (shape)
 	coeffsL, _, collapse := quantAllBandsDecode(rd, 1, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, &dec.rng)
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, true, &dec.rng)
 	_ = collapse
 
 	fmt.Printf("\nRaw coefficients (before denormalization):\n")

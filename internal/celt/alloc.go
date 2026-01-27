@@ -442,7 +442,9 @@ func minInt(a, b int) int {
 
 // ComputeAllocationWithEncoder computes bit allocation and encodes the stereo params
 // to the range encoder. This is the encoding counterpart to ComputeAllocationWithDecoder.
-func ComputeAllocationWithEncoder(re *rangecoding.Encoder, totalBits, nbBands, channels int, cap, offsets []int, trim int, intensity int, dualStereo bool, lm int) AllocationResult {
+// prev is the last coded band count used for skip hysteresis (0 = no history).
+// signalBandwidth is the highest band index considered to carry signal (>= start).
+func ComputeAllocationWithEncoder(re *rangecoding.Encoder, totalBits, nbBands, channels int, cap, offsets []int, trim int, intensity int, dualStereo bool, lm int, prev int, signalBandwidth int) AllocationResult {
 	if nbBands > MaxBands {
 		nbBands = MaxBands
 	}
@@ -497,7 +499,7 @@ func ComputeAllocationWithEncoder(re *rangecoding.Encoder, totalBits, nbBands, c
 	finePriority := result.FinePriority
 
 	codedBands := cltComputeAllocationEncode(re, 0, nbBands, offsets, cap, trim, &intensityVal, &dualVal,
-		totalBits<<bitRes, &balance, pulses, fineBits, finePriority, channels, lm)
+		totalBits<<bitRes, &balance, pulses, fineBits, finePriority, channels, lm, prev, signalBandwidth)
 
 	result.CodedBands = codedBands
 	result.Balance = balance
@@ -508,7 +510,7 @@ func ComputeAllocationWithEncoder(re *rangecoding.Encoder, totalBits, nbBands, c
 }
 
 func cltComputeAllocationEncode(re *rangecoding.Encoder, start, end int, offsets, cap []int, allocTrim int, intensity, dualStereo *int,
-	totalBitsQ3 int, balance *int, pulses, ebits, finePriority []int, channels, lm int) int {
+	totalBitsQ3 int, balance *int, pulses, ebits, finePriority []int, channels, lm int, prev int, signalBandwidth int) int {
 	lenBands := MaxBands
 	if end > lenBands {
 		end = lenBands
@@ -619,7 +621,7 @@ func cltComputeAllocationEncode(re *rangecoding.Encoder, start, end int, offsets
 	}
 
 	codedBands := interpBits2PulsesEncode(re, start, end, skipStart, bits1, bits2, thresh, cap, totalBitsQ3, balance,
-		skipRsv, intensity, intensityRsv, dualStereo, dualStereoRsv, pulses, ebits, finePriority, channels, lm)
+		skipRsv, intensity, intensityRsv, dualStereo, dualStereoRsv, pulses, ebits, finePriority, channels, lm, prev, signalBandwidth)
 
 	return codedBands
 }
@@ -627,11 +629,20 @@ func cltComputeAllocationEncode(re *rangecoding.Encoder, start, end int, offsets
 func interpBits2PulsesEncode(re *rangecoding.Encoder, start, end, skipStart int, bits1, bits2, thresh, cap []int,
 	total int, balance *int, skipRsv int, intensity *int, intensityRsv int,
 	dualStereo *int, dualStereoRsv int, bits, ebits, finePriority []int,
-	channels, lm int) int {
+	channels, lm int, prev int, signalBandwidth int) int {
 	allocFloor := channels << bitRes
 	stereo := 0
 	if channels > 1 {
 		stereo = 1
+	}
+	if prev < 0 {
+		prev = 0
+	}
+	if signalBandwidth < start {
+		signalBandwidth = start
+	}
+	if signalBandwidth > end-1 {
+		signalBandwidth = end - 1
 	}
 	logM := lm << bitRes
 	lo := 0
@@ -691,12 +702,37 @@ func interpBits2PulsesEncode(re *rangecoding.Encoder, start, end, skipStart int,
 		bandBits := bits[j] + percoeff*bandWidth + rem
 
 		if bandBits >= maxInt(thresh[j], allocFloor+(1<<bitRes)) {
-			// Encode skip bit = 1 (don't skip, keep this band)
-			// Note: 1 = keep band, 0 = skip band (per libopus rate.c)
+			keepBand := true
 			if re != nil {
-				re.EncodeBit(1, 1)
+				depthThreshold := 0
+				if codedBands > 17 {
+					if j < prev {
+						depthThreshold = 7
+					} else {
+						depthThreshold = 9
+					}
+				}
+				keep := codedBands <= start+2
+				if !keep && depthThreshold > 0 {
+					threshold := (depthThreshold * bandWidth << lm << bitRes) >> 4
+					if bandBits > threshold && j <= signalBandwidth {
+						keep = true
+					}
+				}
+				if keep {
+					// 1 = keep band, 0 = skip band (per libopus rate.c)
+					re.EncodeBit(1, 1)
+					keepBand = true
+				} else {
+					re.EncodeBit(0, 1)
+					keepBand = false
+				}
 			}
-			break
+			if keepBand {
+				break
+			}
+			psum += 1 << bitRes
+			bandBits -= 1 << bitRes
 		}
 
 		psum -= bits[j] + intensityRsv

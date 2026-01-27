@@ -526,7 +526,7 @@ func reverseBits(x, bits int) int {
 // Formula: y[n] = sum_{k=0}^{N-1} X[k] * cos(pi/N * (n + 0.5 + N/2) * (k + 0.5))
 // Input: N frequency coefficients
 // Output: 2*N time samples
-// Normalization: 2/N factor applied for proper amplitude
+// Normalization: matches libopus test_unit_mdct.c inverse (no extra scaling)
 //
 // This is O(n^2) but mathematically exact and handles non-power-of-2 sizes
 // (like CELT's 120, 240, 480, 960) that the FFT-based approach cannot.
@@ -539,15 +539,13 @@ func IMDCTDirect(spectrum []float64) []float64 {
 	N2 := N * 2
 	output := make([]float64, N2)
 	table := getIMDCTCosTable(N)
-	scale := 2.0 / float64(N)
-
 	for n := 0; n < N2; n++ {
 		var sum float64
 		row := table[n*N : (n+1)*N]
 		for k := 0; k < N; k++ {
 			sum += spectrum[k] * row[k]
 		}
-		output[n] = sum * scale
+		output[n] = sum
 	}
 
 	return output
