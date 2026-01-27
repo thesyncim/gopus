@@ -84,6 +84,8 @@ func (d *Decoder) DecodeFrame(
 		output[i] = float32(v) / 32768.0
 	}
 
+	// Mono decode resets mid-only tracking (libopus sets decode_only_middle=0).
+	d.prevDecodeOnlyMiddle = 0
 	d.haveDecoded = true
 	return output, nil
 }

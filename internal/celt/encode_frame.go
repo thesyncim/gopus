@@ -378,12 +378,22 @@ func (e *Encoder) EncodeStereoFrame(left, right []float64, frameSize int) ([]byt
 // computeTargetBits computes the target bit budget based on bitrate and frame size.
 // For 64kbps and 20ms frame: 64000 * 20 / 1000 = 1280 bits = 160 bytes
 func (e *Encoder) computeTargetBits(frameSize int) int {
-	if e.targetBitrate <= 0 {
-		// Default fallback: use a reasonable estimate based on frame size
-		return frameSize * 4 // ~32kbps default
+	bitrate := e.targetBitrate
+	if bitrate <= 0 {
+		if e.channels == 2 {
+			bitrate = 128000
+		} else {
+			bitrate = 64000
+		}
+	}
+	if bitrate < 6000 {
+		bitrate = 6000
+	}
+	if bitrate > 510000 {
+		bitrate = 510000
 	}
 	// frameDurationMs = frameSize * 1000 / 48000
 	// targetBits = bitrate * frameDuration / 1000
 	// Simplified: targetBits = bitrate * frameSize / 48000
-	return e.targetBitrate * frameSize / 48000
+	return bitrate * frameSize / 48000
 }

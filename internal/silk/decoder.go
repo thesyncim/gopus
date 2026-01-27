@@ -261,6 +261,43 @@ func (d *Decoder) getResamplerForChannel(bandwidth Bandwidth, channel int) *Libo
 	return pair.left
 }
 
+// BuildMonoResamplerInput prepares the mono resampler input using libopus-style sMid buffering.
+// It updates the internal sMid state based on the current samples.
+func (d *Decoder) BuildMonoResamplerInput(samples []float32) []float32 {
+	if len(samples) == 0 {
+		return nil
+	}
+
+	resamplerInput := make([]float32, len(samples))
+	resamplerInput[0] = float32(d.stereo.sMid[1]) / 32768.0
+
+	if len(samples) > 1 {
+		copy(resamplerInput[1:], samples[:len(samples)-1])
+		d.stereo.sMid[0] = float32ToInt16(samples[len(samples)-2])
+		d.stereo.sMid[1] = float32ToInt16(samples[len(samples)-1])
+	} else {
+		d.stereo.sMid[0] = d.stereo.sMid[1]
+		d.stereo.sMid[1] = float32ToInt16(samples[0])
+	}
+
+	return resamplerInput
+}
+
+// ResetSideChannel resets the side-channel decoder state and its resampler history.
+// This matches libopus behavior when switching from mono to stereo.
+func (d *Decoder) ResetSideChannel() {
+	resetDecoderState(&d.state[1])
+	if d.resamplers == nil {
+		return
+	}
+	for _, pair := range d.resamplers {
+		if pair == nil || pair.right == nil {
+			continue
+		}
+		pair.right.Reset()
+	}
+}
+
 // TraceInfo contains information about a subframe during decoding.
 // Used for debugging to trace LTP parameters.
 type TraceInfo struct {

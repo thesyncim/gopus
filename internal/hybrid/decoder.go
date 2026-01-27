@@ -7,7 +7,6 @@ package hybrid
 
 import (
 	"errors"
-	"math"
 
 	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/rangecoding"
@@ -59,8 +58,6 @@ type Decoder struct {
 	// Libopus-compatible resamplers for SILK 16k -> 48k
 	silkResamplerL *silk.LibopusResampler
 	silkResamplerR *silk.LibopusResampler
-	// Mono resampler history (matches SILK sMid buffering)
-	silkMid [2]int16
 
 	// Track previous packet stereo flag for transition handling.
 	prevPacketStereo bool
@@ -109,14 +106,13 @@ func (d *Decoder) Reset() {
 		d.silkDelayBuffer[i] = 0
 	}
 
-	// Reset resamplers and mono history
+	// Reset resamplers
 	if d.silkResamplerL != nil {
 		d.silkResamplerL.Reset()
 	}
 	if d.silkResamplerR != nil {
 		d.silkResamplerR.Reset()
 	}
-	d.silkMid = [2]int16{0, 0}
 	d.prevPacketStereo = false
 }
 
@@ -166,11 +162,13 @@ func (d *Decoder) decodeFrame(rd *rangecoding.Decoder, frameSize int, packetSter
 	// 20ms: 320 samples at 16kHz
 	silkSamples := frameSize / 3 // 48kHz -> 16kHz = divide by 3
 
-	// Handle mono<->stereo transitions for resampler/ delay state.
-	if packetStereo && !d.prevPacketStereo {
-		// Transition mono -> stereo: sync right resampler from left.
-		if d.silkResamplerL != nil && d.silkResamplerR != nil {
-			d.silkResamplerR.CopyFrom(d.silkResamplerL)
+	monoToStereo := packetStereo && !d.prevPacketStereo
+	stereoToMono := !packetStereo && d.prevPacketStereo
+	if monoToStereo {
+		// Reset side-channel state to match libopus mono->stereo transition.
+		d.silkDecoder.ResetSideChannel()
+		if d.silkResamplerR != nil {
+			d.silkResamplerR.Reset()
 		}
 	}
 
@@ -213,19 +211,35 @@ func (d *Decoder) decodeFrame(rd *rangecoding.Decoder, frameSize int, packetSter
 		if d.silkResamplerL == nil {
 			d.silkResamplerL = silk.NewLibopusResampler(16000, 48000)
 		}
-		// Libopus-style sMid buffering for mono resampling.
-		up := d.resampleMonoWithMid(silkOutput)
+		resamplerInput := d.silkDecoder.BuildMonoResamplerInput(silkOutput)
+		upL := d.silkResamplerL.Process(resamplerInput)
 		if d.channels == 2 {
-			silkUpsampled = make([]float64, len(up)*2)
-			for i := range up {
-				val := float64(up[i])
-				silkUpsampled[i*2] = val
-				silkUpsampled[i*2+1] = val
+			if stereoToMono {
+				if d.silkResamplerR == nil {
+					d.silkResamplerR = silk.NewLibopusResampler(16000, 48000)
+				}
+				upR := d.silkResamplerR.Process(resamplerInput)
+				n := len(upL)
+				if len(upR) < n {
+					n = len(upR)
+				}
+				silkUpsampled = make([]float64, n*2)
+				for i := 0; i < n; i++ {
+					silkUpsampled[i*2] = float64(upL[i])
+					silkUpsampled[i*2+1] = float64(upR[i])
+				}
+			} else {
+				silkUpsampled = make([]float64, len(upL)*2)
+				for i := range upL {
+					val := float64(upL[i])
+					silkUpsampled[i*2] = val
+					silkUpsampled[i*2+1] = val
+				}
 			}
 		} else {
-			silkUpsampled = make([]float64, len(up))
-			for i := range up {
-				silkUpsampled[i] = float64(up[i])
+			silkUpsampled = make([]float64, len(upL))
+			for i := range upL {
+				silkUpsampled[i] = float64(upL[i])
 			}
 		}
 	}
@@ -241,8 +255,8 @@ func (d *Decoder) decodeFrame(rd *rangecoding.Decoder, frameSize int, packetSter
 	// This compensates for the time alignment difference between SILK and CELT.
 	var silkDelayed []float64
 	if d.channels == 2 {
-		// For mono packets in a stereo stream, keep delay buffer in sync.
-		if !packetStereo {
+		// For steady-state mono packets in a stereo stream, keep delay buffer in sync.
+		if !packetStereo && !stereoToMono {
 			d.syncDelayBufferMono()
 		}
 		silkDelayed = d.applyDelayStereo(silkUpsampled)
@@ -343,29 +357,6 @@ func (d *Decoder) applyDelayStereo(input []float64) []float64 {
 	return output
 }
 
-// resampleMonoWithMid resamples mono SILK output using libopus-style sMid buffering.
-func (d *Decoder) resampleMonoWithMid(samples []float32) []float32 {
-	if len(samples) == 0 {
-		return nil
-	}
-	if d.silkResamplerL == nil {
-		d.silkResamplerL = silk.NewLibopusResampler(16000, 48000)
-	}
-
-	resamplerInput := make([]float32, len(samples))
-	resamplerInput[0] = float32(d.silkMid[1]) / 32768.0
-	if len(samples) > 1 {
-		copy(resamplerInput[1:], samples[:len(samples)-1])
-		d.silkMid[0] = float32ToInt16(samples[len(samples)-2])
-		d.silkMid[1] = float32ToInt16(samples[len(samples)-1])
-	} else {
-		d.silkMid[0] = d.silkMid[1]
-		d.silkMid[1] = float32ToInt16(samples[0])
-	}
-
-	return d.silkResamplerL.Process(resamplerInput)
-}
-
 // syncDelayBufferMono ensures the stereo delay buffer is in mono state.
 func (d *Decoder) syncDelayBufferMono() {
 	if d.channels != 2 || len(d.silkDelayBuffer) < SilkCELTDelay*2 {
@@ -374,17 +365,6 @@ func (d *Decoder) syncDelayBufferMono() {
 	for i := 0; i < SilkCELTDelay; i++ {
 		d.silkDelayBuffer[i*2+1] = d.silkDelayBuffer[i*2]
 	}
-}
-
-func float32ToInt16(v float32) int16 {
-	scaled := float64(v) * 32768.0
-	if scaled > 32767.0 {
-		return 32767
-	}
-	if scaled < -32768.0 {
-		return -32768
-	}
-	return int16(math.RoundToEven(scaled))
 }
 
 // upsample3x upsamples SILK output from 16kHz to 48kHz using linear interpolation.

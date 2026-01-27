@@ -255,12 +255,22 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 			q := float64(qi) * DB6
 			quantizedEnergy := coef*oldE + prevBandEnergy[c] + q
 			quantizedEnergies[idx] = quantizedEnergy
-			if band < MaxBands {
-				e.prevEnergy[c*MaxBands+band] = quantizedEnergy
-			}
 
 			// Update inter-band predictor.
 			prevBandEnergy[c] = prevBandEnergy[c] + q - beta*q
+		}
+	}
+
+	// Update previous-frame energy state after encoding completes.
+	for c := 0; c < channels; c++ {
+		for band := 0; band < nbBands; band++ {
+			idx := c*nbBands + band
+			if idx >= len(quantizedEnergies) {
+				continue
+			}
+			if band < MaxBands {
+				e.prevEnergy[c*MaxBands+band] = quantizedEnergies[idx]
+			}
 		}
 	}
 

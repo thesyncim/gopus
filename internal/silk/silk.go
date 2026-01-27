@@ -80,18 +80,7 @@ func (d *Decoder) Decode(
 		}
 		frame := nativeSamples[start:end]
 
-		// Build resampler input: sMid[1] + frame[0:len-1]
-		resamplerInput := make([]float32, len(frame))
-		resamplerInput[0] = float32(d.stereo.sMid[1]) / 32768.0
-		if len(frame) > 1 {
-			copy(resamplerInput[1:], frame[:len(frame)-1])
-			d.stereo.sMid[0] = float32ToInt16(frame[len(frame)-2])
-			d.stereo.sMid[1] = float32ToInt16(frame[len(frame)-1])
-		} else {
-			d.stereo.sMid[0] = d.stereo.sMid[1]
-			d.stereo.sMid[1] = float32ToInt16(frame[0])
-		}
-
+		resamplerInput := d.BuildMonoResamplerInput(frame)
 		output = append(output, resampler.Process(resamplerInput)...)
 	}
 

@@ -304,7 +304,8 @@ func (d *Decoder) decodePLC(frameSize int, stereo bool) ([]float64, error) {
 		if d.silkResamplerL == nil {
 			d.silkResamplerL = silk.NewLibopusResampler(16000, 48000)
 		}
-		up := d.resampleMonoWithMid(silkConcealed)
+		resamplerInput := d.silkDecoder.BuildMonoResamplerInput(silkConcealed)
+		up := d.silkResamplerL.Process(resamplerInput)
 		if d.channels == 2 {
 			silkUpsampled = make([]float64, len(up)*2)
 			for i := range up {
