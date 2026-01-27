@@ -416,14 +416,17 @@ func (e *Encoder) selectMode(frameSize int) Mode {
 	case types.BandwidthNarrowband, types.BandwidthMediumband, types.BandwidthWideband:
 		// Lower bandwidths: use SILK
 		return ModeSILK
-	case types.BandwidthSuperwideband, types.BandwidthFullband:
-		// Higher bandwidths: use Hybrid for speech-like frames
-		// Only if frame size is compatible with hybrid (10ms or 20ms)
+	case types.BandwidthSuperwideband:
+		// Superwideband: use Hybrid for mono speech (10ms or 20ms frames)
+		// Hybrid combines SILK (0-8kHz) with CELT (8-12kHz) for good speech quality
 		// TODO: Re-enable Hybrid for stereo once SILK stereo encoding is implemented
 		if (frameSize == 480 || frameSize == 960) && e.channels == 1 {
 			return ModeHybrid
 		}
-		// Otherwise use CELT
+		return ModeCELT
+	case types.BandwidthFullband:
+		// Fullband: use CELT for best audio quality
+		// CELT handles the full 0-20kHz range natively, no need for Hybrid
 		return ModeCELT
 	default:
 		return ModeCELT

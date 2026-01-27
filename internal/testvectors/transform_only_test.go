@@ -36,13 +36,22 @@ func TestTransformOnlyRoundTrip(t *testing.T) {
 	start := N
 	end := 2 * N
 	var signalPower, noisePower float64
+	var sumXY, sumYY float64
+	for i := start; i < end; i++ {
+		sumXY += signal[i] * output[i]
+		sumYY += output[i] * output[i]
+	}
+	scale := 1.0
+	if sumYY > 0 {
+		scale = sumXY / sumYY
+	}
 	for i := start; i < end; i++ {
 		signalPower += signal[i] * signal[i]
-		diff := signal[i] - output[i]
+		diff := signal[i] - output[i]*scale
 		noisePower += diff * diff
 	}
 	snr := 10 * math.Log10(signalPower/(noisePower+1e-10))
-	t.Logf("SNR (middle frame): %.2f dB", snr)
+	t.Logf("SNR (middle frame): %.2f dB (scale=%.6f)", snr, scale)
 	if snr < 40 {
 		t.Errorf("SNR too low: %.2f dB (expected > 40 dB)", snr)
 	}

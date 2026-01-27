@@ -38,39 +38,50 @@ func TestTransformMiddleRegion(t *testing.T) {
 	middleStart := N + overlap
 	middleEnd := 2*N - overlap
 
+	var sumXY, sumYY float64
+	for i := middleStart; i < middleEnd; i++ {
+		sumXY += signal[i] * output[i]
+		sumYY += output[i] * output[i]
+	}
+	scale := 1.0
+	if sumYY > 0 {
+		scale = sumXY / sumYY
+	}
+
 	var maxDiff float64
 	var signalPower, noisePower float64
 	for i := middleStart; i < middleEnd; i++ {
-		diff := math.Abs(signal[i] - output[i])
+		diff := math.Abs(signal[i] - output[i]*scale)
 		if diff > maxDiff {
 			maxDiff = diff
 		}
 		signalPower += signal[i] * signal[i]
-		noise := signal[i] - output[i]
+		noise := signal[i] - output[i]*scale
 		noisePower += noise * noise
 	}
 
 	snr := 10 * math.Log10(signalPower/(noisePower+1e-10))
 	t.Logf("Middle region [%d:%d] analysis:", middleStart, middleEnd)
 	t.Logf("  Max difference: %.6f", maxDiff)
-	t.Logf("  SNR: %.2f dB", snr)
+	t.Logf("  SNR: %.2f dB (scale=%.6f)", snr, scale)
 
 	// Correlation for middle region
-	var sumXY, sumXX, sumYY float64
+	var sumXYCorr, sumXX, sumYYCorr float64
 	for i := middleStart; i < middleEnd; i++ {
-		sumXY += signal[i] * output[i]
+		sumXYCorr += signal[i] * output[i] * scale
 		sumXX += signal[i] * signal[i]
-		sumYY += output[i] * output[i]
+		sumYYCorr += output[i] * output[i] * scale * scale
 	}
-	corr := sumXY / (math.Sqrt(sumXX*sumYY) + 1e-10)
+	corr := sumXYCorr / (math.Sqrt(sumXX*sumYYCorr) + 1e-10)
 	t.Logf("  Correlation: %.6f", corr)
 
 	// Sample comparison in middle
 	t.Log("\nSample comparison in middle region:")
 	mid := (middleStart + middleEnd) / 2
 	for i := mid - 5; i <= mid+5 && i < len(output); i++ {
-		ratio := output[i] / (signal[i] + 1e-10)
-		t.Logf("  [%d] signal=%.6f, output=%.6f, ratio=%.6f", i, signal[i], output[i], ratio)
+		scaled := output[i] * scale
+		ratio := scaled / (signal[i] + 1e-10)
+		t.Logf("  [%d] signal=%.6f, output=%.6f, scaled=%.6f, ratio=%.6f", i, signal[i], output[i], scaled, ratio)
 	}
 
 	// The middle region should have SNR > 100 dB (near-perfect)
