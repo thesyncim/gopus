@@ -1220,7 +1220,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	if end < 1 {
 		end = 1
 	}
-	start := 0
+	start := HybridCELTStartBand
 	prev1Energy := append([]float64(nil), d.prevEnergy...)
 	prev1LogE := append([]float64(nil), d.prevLogE...)
 	prev2LogE := append([]float64(nil), d.prevLogE2...)
@@ -1278,7 +1278,14 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 		shortBlocks = mode.ShortBlocks
 	}
 
-	energies := d.DecodeCoarseEnergy(end, intra, lm)
+	// Initialize energies with previous state so bands below start are preserved.
+	energies := make([]float64, end*d.channels)
+	for c := 0; c < d.channels; c++ {
+		for band := 0; band < end; band++ {
+			energies[c*end+band] = d.prevEnergy[c*MaxBands+band]
+		}
+	}
+	d.decodeCoarseEnergyRange(start, end, intra, lm, energies)
 	traceRange("coarse", rd)
 
 	tfRes := make([]int, end)
@@ -1392,6 +1399,289 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	scaleSamples(samples, 1.0/32768.0)
 	d.updateLogE(energies, end, transient)
 	d.SetPrevEnergyWithPrev(prev1Energy, energies)
+	// Mirror libopus: clear energies/logs outside [start,end).
+	for c := 0; c < d.channels; c++ {
+		base := c * MaxBands
+		for band := 0; band < start; band++ {
+			d.prevEnergy[base+band] = 0
+			d.prevLogE[base+band] = -28.0
+			d.prevLogE2[base+band] = -28.0
+		}
+		for band := end; band < MaxBands; band++ {
+			d.prevEnergy[base+band] = 0
+			d.prevLogE[base+band] = -28.0
+			d.prevLogE2[base+band] = -28.0
+		}
+	}
+	d.rng = rd.Range()
+
+	return samples, nil
+}
+
+// DecodeFrameHybridWithPacketStereo decodes a hybrid CELT frame while honoring the packet stereo flag.
+// This mirrors DecodeFrameWithPacketStereo for CELT-only but uses the hybrid start band.
+func (d *Decoder) DecodeFrameHybridWithPacketStereo(rd *rangecoding.Decoder, frameSize int, packetStereo bool) ([]float64, error) {
+	packetChannels := 1
+	if packetStereo {
+		packetChannels = 2
+	}
+
+	// Handle channel transitions for overlap buffer continuity.
+	d.handleChannelTransition(packetChannels)
+
+	if packetChannels == d.channels {
+		return d.DecodeFrameHybrid(rd, frameSize)
+	}
+
+	if packetChannels == 1 && d.channels == 2 {
+		return d.decodeMonoPacketToStereoHybrid(rd, frameSize)
+	}
+
+	// Stereo packet to mono output not implemented.
+	return nil, ErrInvalidFrame
+}
+
+// decodeMonoPacketToStereoHybrid decodes a mono hybrid frame and duplicates to stereo output.
+// Uses the hybrid start band (17) and updates stereo state to match libopus behavior.
+func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameSize int) ([]float64, error) {
+	if rd == nil {
+		return nil, ErrNilDecoder
+	}
+	if frameSize != 480 && frameSize != 960 {
+		return nil, ErrInvalidFrameSize
+	}
+
+	origChannels := d.channels
+	d.channels = 1
+
+	// Save prev state; build mono prevEnergy from max of L/R.
+	prev1Energy := make([]float64, MaxBands)
+	prev1LogE := append([]float64(nil), d.prevLogE...)
+	prev2LogE := append([]float64(nil), d.prevLogE2...)
+	for i := 0; i < MaxBands; i++ {
+		left := d.prevEnergy[i]
+		if origChannels > 1 && len(d.prevEnergy) >= MaxBands*2 {
+			right := d.prevEnergy[MaxBands+i]
+			if right > left {
+				left = right
+			}
+		}
+		prev1Energy[i] = left
+	}
+	origPrevEnergy := d.prevEnergy
+	d.prevEnergy = prev1Energy
+
+	// Ensure decoder state is restored.
+	defer func() {
+		d.channels = origChannels
+		d.prevEnergy = origPrevEnergy
+	}()
+
+	d.SetRangeDecoder(rd)
+
+	mode := GetModeConfig(frameSize)
+	lm := mode.LM
+	end := EffectiveBandsForFrameSize(d.bandwidth, frameSize)
+	if end > mode.EffBands {
+		end = mode.EffBands
+	}
+	if end < 1 {
+		end = 1
+	}
+	start := HybridCELTStartBand
+
+	totalBits := rd.StorageBits()
+	tell := rd.Tell()
+	silence := false
+	if tell >= totalBits {
+		silence = true
+	} else if tell == 1 {
+		silence = rd.DecodeBit(15) == 1
+	}
+	if silence {
+		// Generate mono silence, then duplicate to stereo.
+		d.channels = origChannels
+		samples := d.decodeSilenceFrame(frameSize, 0, 0, 0)
+		silenceE := make([]float64, MaxBands*origChannels)
+		for i := range silenceE {
+			silenceE[i] = -28.0
+		}
+		d.prevEnergy = origPrevEnergy
+		d.updateLogE(silenceE, MaxBands, false)
+		d.rng = rd.Range()
+		return samples, nil
+	}
+
+	postfilterGain := 0.0
+	postfilterPeriod := 0
+	postfilterTapset := 0
+	if start == 0 && tell+16 <= totalBits {
+		if rd.DecodeBit(1) == 1 {
+			octave := int(rd.DecodeUniform(6))
+			postfilterPeriod = (16 << octave) + int(rd.DecodeRawBits(uint(4+octave))) - 1
+			qg := int(rd.DecodeRawBits(3))
+			if rd.Tell()+2 <= totalBits {
+				postfilterTapset = rd.DecodeICDF(tapsetICDF, 2)
+			}
+			postfilterGain = 0.09375 * float64(qg+1)
+		}
+		tell = rd.Tell()
+	}
+	traceRange("postfilter", rd)
+
+	transient := false
+	if lm > 0 && tell+3 <= totalBits {
+		transient = rd.DecodeBit(3) == 1
+		tell = rd.Tell()
+	}
+	intra := false
+	if tell+3 <= totalBits {
+		intra = rd.DecodeBit(3) == 1
+	}
+	traceRange("intra", rd)
+
+	shortBlocks := 1
+	if transient {
+		shortBlocks = mode.ShortBlocks
+	}
+
+	// Initialize energies from previous state and decode only [start,end).
+	monoEnergies := make([]float64, end*d.channels)
+	for band := 0; band < end; band++ {
+		monoEnergies[band] = d.prevEnergy[band]
+	}
+	d.decodeCoarseEnergyRange(start, end, intra, lm, monoEnergies)
+	traceRange("coarse", rd)
+
+	tfRes := make([]int, end)
+	tfDecode(start, end, transient, tfRes, lm, rd)
+	traceRange("tf", rd)
+
+	spread := spreadNormal
+	tell = rd.Tell()
+	if tell+4 <= totalBits {
+		spread = rd.DecodeICDF(spreadICDF, 5)
+	}
+	traceRange("spread", rd)
+
+	cap := initCaps(end, lm, 1)
+	offsets := make([]int, end)
+	dynallocLogp := 6
+	totalBitsQ3 := totalBits << bitRes
+	tellFrac := rd.TellFrac()
+	for i := start; i < end; i++ {
+		width := 1 * (EBands[i+1] - EBands[i]) << lm
+		quanta := minInt(width<<bitRes, maxInt(6<<bitRes, width))
+		dynallocLoopLogp := dynallocLogp
+		boost := 0
+		for tellFrac+(dynallocLoopLogp<<bitRes) < totalBitsQ3 && boost < cap[i] {
+			flag := rd.DecodeBit(uint(dynallocLoopLogp))
+			tellFrac = rd.TellFrac()
+			if flag == 0 {
+				break
+			}
+			boost += quanta
+			totalBitsQ3 -= quanta
+			dynallocLoopLogp = 1
+		}
+		offsets[i] = boost
+		if boost > 0 {
+			dynallocLogp = maxInt(2, dynallocLogp-1)
+		}
+	}
+	traceRange("dynalloc", rd)
+
+	allocTrim := 5
+	if tellFrac+(6<<bitRes) <= totalBitsQ3 {
+		allocTrim = rd.DecodeICDF(trimICDF, 7)
+	}
+	traceRange("trim", rd)
+
+	bitsQ3 := (totalBits << bitRes) - rd.TellFrac() - 1
+	antiCollapseRsv := 0
+	if transient && lm >= 2 && bitsQ3 >= (lm+2)<<bitRes {
+		antiCollapseRsv = 1 << bitRes
+	}
+	bitsQ3 -= antiCollapseRsv
+
+	pulses := make([]int, end)
+	fineQuant := make([]int, end)
+	finePriority := make([]int, end)
+	intensity := 0
+	dualStereo := 0
+	balance := 0
+	codedBands := cltComputeAllocation(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
+		bitsQ3, &balance, pulses, fineQuant, finePriority, 1, lm, rd)
+	traceRange("alloc", rd)
+
+	d.DecodeFineEnergy(monoEnergies, end, fineQuant)
+	traceRange("fine", rd)
+
+	coeffsMono, _, collapse := quantAllBandsDecode(rd, 1, frameSize, lm, start, end, pulses, shortBlocks, spread,
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, &d.rng)
+	traceRange("pvq", rd)
+
+	antiCollapseOn := false
+	if antiCollapseRsv > 0 {
+		antiCollapseOn = rd.DecodeRawBits(1) == 1
+	}
+	traceFlag("anticollapse_on", boolToInt(antiCollapseOn))
+	traceRange("anticollapse", rd)
+
+	bitsLeft := totalBits - rd.Tell()
+	d.DecodeEnergyFinalise(monoEnergies, end, fineQuant, finePriority, bitsLeft)
+	traceRange("finalise", rd)
+
+	if antiCollapseOn {
+		antiCollapse(coeffsMono, nil, collapse, lm, 1, start, end, monoEnergies, prev1LogE, prev2LogE, pulses, d.rng)
+	}
+
+	// Denormalize mono coefficients
+	denormalizeCoeffs(coeffsMono, monoEnergies, end, frameSize)
+
+	// Duplicate mono coefficients to stereo for synthesis
+	coeffsL := coeffsMono
+	coeffsR := make([]float64, len(coeffsMono))
+	copy(coeffsR, coeffsMono)
+
+	// Restore original channels for stereo synthesis
+	d.channels = origChannels
+	d.prevEnergy = origPrevEnergy
+
+	samples := d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
+
+	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
+	d.applyDeemphasis(samples)
+	scaleSamples(samples, 1.0/32768.0)
+
+	// Update stereo energy state by duplicating mono energies
+	stereoEnergies := make([]float64, MaxBands*2)
+	for i := 0; i < end; i++ {
+		stereoEnergies[i] = monoEnergies[i]
+		stereoEnergies[MaxBands+i] = monoEnergies[i]
+	}
+	for i := end; i < MaxBands; i++ {
+		stereoEnergies[i] = -28.0
+		stereoEnergies[MaxBands+i] = -28.0
+	}
+
+	d.updateLogE(stereoEnergies, end, transient)
+	d.SetPrevEnergyWithPrev(prev1Energy, stereoEnergies)
+	// Clear bands outside [start,end).
+	for c := 0; c < origChannels; c++ {
+		base := c * MaxBands
+		for band := 0; band < start; band++ {
+			d.prevEnergy[base+band] = 0
+			d.prevLogE[base+band] = -28.0
+			d.prevLogE2[base+band] = -28.0
+		}
+		for band := end; band < MaxBands; band++ {
+			d.prevEnergy[base+band] = 0
+			d.prevLogE[base+band] = -28.0
+			d.prevLogE2[base+band] = -28.0
+		}
+	}
+
 	d.rng = rd.Range()
 
 	return samples, nil

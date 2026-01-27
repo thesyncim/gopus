@@ -7,6 +7,7 @@ package hybrid
 
 import (
 	"errors"
+	"math"
 
 	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/rangecoding"
@@ -55,6 +56,15 @@ type Decoder struct {
 	// This ensures proper time alignment between SILK and CELT layers.
 	silkDelayBuffer []float64
 
+	// Libopus-compatible resamplers for SILK 16k -> 48k
+	silkResamplerL *silk.LibopusResampler
+	silkResamplerR *silk.LibopusResampler
+	// Mono resampler history (matches SILK sMid buffering)
+	silkMid [2]int16
+
+	// Track previous packet stereo flag for transition handling.
+	prevPacketStereo bool
+
 	// Channel count (1 for mono, 2 for stereo)
 	channels int
 }
@@ -80,6 +90,8 @@ func NewDecoder(channels int) *Decoder {
 
 		// Delay buffer: 60 samples per channel
 		silkDelayBuffer: make([]float64, SilkCELTDelay*channels),
+		silkResamplerL:  silk.NewLibopusResampler(16000, 48000),
+		silkResamplerR:  silk.NewLibopusResampler(16000, 48000),
 
 		channels: channels,
 	}
@@ -96,6 +108,16 @@ func (d *Decoder) Reset() {
 	for i := range d.silkDelayBuffer {
 		d.silkDelayBuffer[i] = 0
 	}
+
+	// Reset resamplers and mono history
+	if d.silkResamplerL != nil {
+		d.silkResamplerL.Reset()
+	}
+	if d.silkResamplerR != nil {
+		d.silkResamplerR.Reset()
+	}
+	d.silkMid = [2]int16{0, 0}
+	d.prevPacketStereo = false
 }
 
 // Channels returns the number of audio channels (1 or 2).
@@ -123,7 +145,7 @@ func ValidHybridFrameSize(frameSize int) bool {
 //   - stereo: True for stereo decoding
 //
 // Returns: PCM samples as float64 slice at 48kHz
-func (d *Decoder) decodeFrame(rd *rangecoding.Decoder, frameSize int, stereo bool) ([]float64, error) {
+func (d *Decoder) decodeFrame(rd *rangecoding.Decoder, frameSize int, packetStereo bool) ([]float64, error) {
 	if rd == nil {
 		return nil, ErrNilDecoder
 	}
@@ -144,24 +166,42 @@ func (d *Decoder) decodeFrame(rd *rangecoding.Decoder, frameSize int, stereo boo
 	// 20ms: 320 samples at 16kHz
 	silkSamples := frameSize / 3 // 48kHz -> 16kHz = divide by 3
 
-	// Step 1: Decode SILK layer (0-8kHz at 16kHz native rate)
-	// SILK reads from the shared range decoder first
-	var silkOutput []float32
-	var silkOutputL, silkOutputR []float32
-	var err error
+	// Handle mono<->stereo transitions for resampler/ delay state.
+	if packetStereo && !d.prevPacketStereo {
+		// Transition mono -> stereo: sync right resampler from left.
+		if d.silkResamplerL != nil && d.silkResamplerR != nil {
+			d.silkResamplerR.CopyFrom(d.silkResamplerL)
+		}
+	}
 
-	if stereo {
-		silkOutputL, silkOutputR, err = d.silkDecoder.DecodeStereoFrame(
+	// Step 1: Decode SILK layer (0-8kHz at 16kHz native rate)
+	// SILK reads from the shared range decoder first.
+	var silkUpsampled []float64
+	if packetStereo {
+		silkOutputL, silkOutputR, err := d.silkDecoder.DecodeStereoFrame(
 			rd,
 			silk.BandwidthWideband, // Always WB for hybrid
 			silkDuration,
-			true, // vadFlag (typically true for hybrid mode)
+			true,
 		)
 		if err != nil {
 			return nil, err
 		}
+		if d.silkResamplerL == nil {
+			d.silkResamplerL = silk.NewLibopusResampler(16000, 48000)
+		}
+		if d.silkResamplerR == nil {
+			d.silkResamplerR = silk.NewLibopusResampler(16000, 48000)
+		}
+		upL := d.silkResamplerL.Process(silkOutputL)
+		upR := d.silkResamplerR.Process(silkOutputR)
+		silkUpsampled = make([]float64, len(upL)*2)
+		for i := range upL {
+			silkUpsampled[i*2] = float64(upL[i])
+			silkUpsampled[i*2+1] = float64(upR[i])
+		}
 	} else {
-		silkOutput, err = d.silkDecoder.DecodeFrame(
+		silkOutput, err := d.silkDecoder.DecodeFrame(
 			rd,
 			silk.BandwidthWideband,
 			silkDuration,
@@ -170,40 +210,47 @@ func (d *Decoder) decodeFrame(rd *rangecoding.Decoder, frameSize int, stereo boo
 		if err != nil {
 			return nil, err
 		}
-	}
-
-	// Step 2: Upsample SILK from 16kHz to 48kHz (3x)
-	var silkUpsampled []float64
-	if stereo {
-		upL := upsample3x(silkOutputL)
-		upR := upsample3x(silkOutputR)
-		// Interleave stereo
-		silkUpsampled = make([]float64, len(upL)*2)
-		for i := range upL {
-			silkUpsampled[i*2] = upL[i]
-			silkUpsampled[i*2+1] = upR[i]
+		if d.silkResamplerL == nil {
+			d.silkResamplerL = silk.NewLibopusResampler(16000, 48000)
 		}
-	} else {
-		silkUpsampled = upsample3x(silkOutput)
+		// Libopus-style sMid buffering for mono resampling.
+		up := d.resampleMonoWithMid(silkOutput)
+		if d.channels == 2 {
+			silkUpsampled = make([]float64, len(up)*2)
+			for i := range up {
+				val := float64(up[i])
+				silkUpsampled[i*2] = val
+				silkUpsampled[i*2+1] = val
+			}
+		} else {
+			silkUpsampled = make([]float64, len(up))
+			for i := range up {
+				silkUpsampled[i] = float64(up[i])
+			}
+		}
 	}
 
-	// Step 3: Decode CELT layer (8-20kHz, bands 17-21 only)
+	// Step 2: Decode CELT layer (8-20kHz, bands 17-21 only)
 	// CELT reads from the same range decoder (SILK already consumed its portion)
-	celtOutput, err := d.celtDecoder.DecodeFrameHybrid(rd, frameSize)
+	celtOutput, err := d.celtDecoder.DecodeFrameHybridWithPacketStereo(rd, frameSize, packetStereo)
 	if err != nil {
 		return nil, err
 	}
 
-	// Step 4: Apply 60-sample delay to SILK output
-	// This compensates for the time alignment difference between SILK and CELT
+	// Step 3: Apply 60-sample delay to SILK output
+	// This compensates for the time alignment difference between SILK and CELT.
 	var silkDelayed []float64
-	if stereo {
+	if d.channels == 2 {
+		// For mono packets in a stereo stream, keep delay buffer in sync.
+		if !packetStereo {
+			d.syncDelayBufferMono()
+		}
 		silkDelayed = d.applyDelayStereo(silkUpsampled)
 	} else {
 		silkDelayed = d.applyDelayMono(silkUpsampled)
 	}
 
-	// Step 5: Sum SILK and CELT outputs
+	// Step 4: Sum SILK and CELT outputs
 	totalSamples := frameSize * d.channels
 	output := make([]float64, totalSamples)
 
@@ -224,6 +271,7 @@ func (d *Decoder) decodeFrame(rd *rangecoding.Decoder, frameSize int, stereo boo
 	// Ensure we used the correct number of SILK samples
 	_ = silkSamples // Used for documentation/debugging
 
+	d.prevPacketStereo = packetStereo
 	return output, nil
 }
 
@@ -295,8 +343,52 @@ func (d *Decoder) applyDelayStereo(input []float64) []float64 {
 	return output
 }
 
+// resampleMonoWithMid resamples mono SILK output using libopus-style sMid buffering.
+func (d *Decoder) resampleMonoWithMid(samples []float32) []float32 {
+	if len(samples) == 0 {
+		return nil
+	}
+	if d.silkResamplerL == nil {
+		d.silkResamplerL = silk.NewLibopusResampler(16000, 48000)
+	}
+
+	resamplerInput := make([]float32, len(samples))
+	resamplerInput[0] = float32(d.silkMid[1]) / 32768.0
+	if len(samples) > 1 {
+		copy(resamplerInput[1:], samples[:len(samples)-1])
+		d.silkMid[0] = float32ToInt16(samples[len(samples)-2])
+		d.silkMid[1] = float32ToInt16(samples[len(samples)-1])
+	} else {
+		d.silkMid[0] = d.silkMid[1]
+		d.silkMid[1] = float32ToInt16(samples[0])
+	}
+
+	return d.silkResamplerL.Process(resamplerInput)
+}
+
+// syncDelayBufferMono ensures the stereo delay buffer is in mono state.
+func (d *Decoder) syncDelayBufferMono() {
+	if d.channels != 2 || len(d.silkDelayBuffer) < SilkCELTDelay*2 {
+		return
+	}
+	for i := 0; i < SilkCELTDelay; i++ {
+		d.silkDelayBuffer[i*2+1] = d.silkDelayBuffer[i*2]
+	}
+}
+
+func float32ToInt16(v float32) int16 {
+	scaled := float64(v) * 32768.0
+	if scaled > 32767.0 {
+		return 32767
+	}
+	if scaled < -32768.0 {
+		return -32768
+	}
+	return int16(math.RoundToEven(scaled))
+}
+
 // upsample3x upsamples SILK output from 16kHz to 48kHz using linear interpolation.
-// This is the same approach as used in the SILK package.
+// Retained for test helpers.
 func upsample3x(samples []float32) []float64 {
 	if len(samples) == 0 {
 		return nil
@@ -310,10 +402,9 @@ func upsample3x(samples []float32) []float64 {
 		if i+1 < len(samples) {
 			next = float64(samples[i+1])
 		} else {
-			next = curr // Hold last sample
+			next = curr
 		}
 
-		// Linear interpolation: 3 output samples per input sample
 		output[i*3+0] = curr
 		output[i*3+1] = curr*2/3 + next*1/3
 		output[i*3+2] = curr*1/3 + next*2/3

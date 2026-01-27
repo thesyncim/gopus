@@ -398,8 +398,5 @@ func (d *Decoder) decodeHybrid(data []byte, toc TOC, frameSize int) ([]float32, 
 	if data != nil {
 		d.hybridDecoder.SetBandwidth(celt.BandwidthFromOpusConfig(int(toc.Bandwidth)))
 	}
-	if d.channels == 2 {
-		return d.hybridDecoder.DecodeStereoToFloat32(data, frameSize)
-	}
-	return d.hybridDecoder.DecodeToFloat32(data, frameSize)
+	return d.hybridDecoder.DecodeToFloat32WithPacketStereo(data, frameSize, toc.Stereo)
 }

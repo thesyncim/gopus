@@ -163,6 +163,31 @@ func (r *LibopusResampler) Reset() {
 	}
 }
 
+// CopyFrom copies state from another resampler.
+// This is used to sync stereo resampler state when switching from mono.
+func (r *LibopusResampler) CopyFrom(src *LibopusResampler) {
+	if r == nil || src == nil {
+		return
+	}
+
+	r.sIIR = src.sIIR
+	r.sFIR = src.sFIR
+	r.invRatioQ16 = src.invRatioQ16
+	r.batchSize = src.batchSize
+	r.inputDelay = src.inputDelay
+	r.fsInKHz = src.fsInKHz
+	r.fsOutKHz = src.fsOutKHz
+
+	if src.delayBuf == nil {
+		r.delayBuf = nil
+		return
+	}
+	if len(r.delayBuf) != len(src.delayBuf) {
+		r.delayBuf = make([]int16, len(src.delayBuf))
+	}
+	copy(r.delayBuf, src.delayBuf)
+}
+
 // Process resamples float32 samples from input rate to output rate.
 // This implements the exact libopus silk_resampler() flow with delay buffer.
 func (r *LibopusResampler) Process(samples []float32) []float32 {

@@ -5,6 +5,7 @@ import (
 
 	"github.com/thesyncim/gopus/internal/plc"
 	"github.com/thesyncim/gopus/internal/rangecoding"
+	"github.com/thesyncim/gopus/internal/silk"
 )
 
 // hybridPLCState tracks packet loss concealment state for Hybrid decoding.
@@ -48,6 +49,39 @@ func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
 	// Reset PLC state after successful decode
 	hybridPLCState.Reset()
 	hybridPLCState.SetLastFrameParams(plc.ModeHybrid, frameSize, 1)
+
+	return samples, nil
+}
+
+// DecodeWithPacketStereo decodes a Hybrid frame and honors the packet stereo flag.
+// This is used when the output channels (decoder configuration) differ from the packet channels.
+func (d *Decoder) DecodeWithPacketStereo(data []byte, frameSize int, packetStereo bool) ([]float64, error) {
+	// Handle PLC for nil data (lost packet)
+	if data == nil {
+		return d.decodePLC(frameSize, d.channels == 2)
+	}
+
+	if len(data) == 0 {
+		return nil, ErrDecodeFailed
+	}
+
+	if !ValidHybridFrameSize(frameSize) {
+		return nil, ErrInvalidFrameSize
+	}
+
+	// Initialize range decoder
+	var rd rangecoding.Decoder
+	rd.Init(data)
+
+	// Decode frame using shared range decoder
+	samples, err := d.decodeFrame(&rd, frameSize, packetStereo)
+	if err != nil {
+		return nil, err
+	}
+
+	// Reset PLC state after successful decode
+	hybridPLCState.Reset()
+	hybridPLCState.SetLastFrameParams(plc.ModeHybrid, frameSize, d.channels)
 
 	return samples, nil
 }
@@ -139,6 +173,15 @@ func (d *Decoder) DecodeToFloat32(data []byte, frameSize int) ([]float32, error)
 		return nil, err
 	}
 
+	return float64ToFloat32(samples), nil
+}
+
+// DecodeToFloat32WithPacketStereo decodes with packet stereo flag and converts to float32.
+func (d *Decoder) DecodeToFloat32WithPacketStereo(data []byte, frameSize int, packetStereo bool) ([]float32, error) {
+	samples, err := d.DecodeWithPacketStereo(data, frameSize, packetStereo)
+	if err != nil {
+		return nil, err
+	}
 	return float64ToFloat32(samples), nil
 }
 
@@ -235,25 +278,46 @@ func (d *Decoder) decodePLC(frameSize int, stereo bool) ([]float64, error) {
 		silkConcealed = plc.ConcealSILK(d.silkDecoder, silkSamples, fadeFactor)
 	}
 
-	// Upsample SILK to 48kHz (3x)
+	// Upsample SILK to 48kHz using libopus-compatible resamplers
 	var silkUpsampled []float64
 	if stereo {
-		// Deinterleave, upsample, reinterleave
 		silkL := make([]float32, silkSamples)
 		silkR := make([]float32, silkSamples)
 		for i := 0; i < silkSamples; i++ {
 			silkL[i] = silkConcealed[i*2]
 			silkR[i] = silkConcealed[i*2+1]
 		}
-		upL := upsample3x(silkL)
-		upR := upsample3x(silkR)
+		if d.silkResamplerL == nil {
+			d.silkResamplerL = silk.NewLibopusResampler(16000, 48000)
+		}
+		if d.silkResamplerR == nil {
+			d.silkResamplerR = silk.NewLibopusResampler(16000, 48000)
+		}
+		upL := d.silkResamplerL.Process(silkL)
+		upR := d.silkResamplerR.Process(silkR)
 		silkUpsampled = make([]float64, len(upL)*2)
 		for i := range upL {
-			silkUpsampled[i*2] = upL[i]
-			silkUpsampled[i*2+1] = upR[i]
+			silkUpsampled[i*2] = float64(upL[i])
+			silkUpsampled[i*2+1] = float64(upR[i])
 		}
 	} else {
-		silkUpsampled = upsample3x(silkConcealed)
+		if d.silkResamplerL == nil {
+			d.silkResamplerL = silk.NewLibopusResampler(16000, 48000)
+		}
+		up := d.resampleMonoWithMid(silkConcealed)
+		if d.channels == 2 {
+			silkUpsampled = make([]float64, len(up)*2)
+			for i := range up {
+				val := float64(up[i])
+				silkUpsampled[i*2] = val
+				silkUpsampled[i*2+1] = val
+			}
+		} else {
+			silkUpsampled = make([]float64, len(up))
+			for i := range up {
+				silkUpsampled[i] = float64(up[i])
+			}
+		}
 	}
 
 	// Apply delay compensation to SILK

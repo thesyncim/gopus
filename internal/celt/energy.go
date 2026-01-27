@@ -206,6 +206,94 @@ func (d *Decoder) DecodeCoarseEnergy(nbBands int, intra bool, lm int) []float64 
 	return energies
 }
 
+// decodeCoarseEnergyRange decodes coarse energies for bands in [start, end).
+// energies must be sized for end bands (compact layout: [c*end+band]).
+// Bands below start are left unchanged (caller should prefill).
+// This mirrors libopus unquant_coarse_energy() with a non-zero start.
+func (d *Decoder) decodeCoarseEnergyRange(start, end int, intra bool, lm int, energies []float64) {
+	if d.rangeDecoder == nil {
+		return
+	}
+	if start < 0 {
+		start = 0
+	}
+	if end > MaxBands {
+		end = MaxBands
+	}
+	if end <= start {
+		return
+	}
+	if lm < 0 {
+		lm = 0
+	}
+	if lm > 3 {
+		lm = 3
+	}
+	if len(energies) < end*d.channels {
+		return
+	}
+
+	rd := d.rangeDecoder
+
+	// Prediction coefficients
+	var alpha, beta float64
+	if intra {
+		alpha = 0.0
+		beta = BetaIntra
+	} else {
+		alpha = AlphaCoef[lm]
+		beta = BetaCoefInter[lm]
+	}
+
+	prob := eProbModel[lm][0]
+	if intra {
+		prob = eProbModel[lm][1]
+	}
+
+	budget := rd.StorageBits()
+
+	// Inter-band prediction state starts at 0 (matches libopus).
+	prevBandEnergy := make([]float64, d.channels)
+	for band := start; band < end; band++ {
+		for c := 0; c < d.channels; c++ {
+			tell := rd.Tell()
+			qi := 0
+			remaining := budget - tell
+			if remaining >= 15 {
+				pi := 2 * band
+				if pi > 40 {
+					pi = 40
+				}
+				fs := int(prob[pi]) << 7
+				decay := int(prob[pi+1]) << 6
+				qi = d.decodeLaplace(fs, decay)
+			} else if remaining >= 2 {
+				qi = rd.DecodeICDF(smallEnergyICDF, 2)
+				qi = (qi >> 1) ^ -(qi & 1)
+			} else if remaining >= 1 {
+				qi = -rd.DecodeBit(1)
+			} else {
+				qi = -1
+			}
+
+			prevFrameEnergy := d.prevEnergy[c*MaxBands+band]
+			minEnergy := -9.0 * DB6
+			if prevFrameEnergy < minEnergy {
+				prevFrameEnergy = minEnergy
+			}
+			pred := alpha*prevFrameEnergy + prevBandEnergy[c]
+
+			q := float64(qi) * DB6
+			energy := pred + q
+
+			DefaultTracer.TraceEnergy(band, pred, q, energy)
+
+			energies[c*end+band] = energy
+			prevBandEnergy[c] = prevBandEnergy[c] + q - beta*q
+		}
+	}
+}
+
 // DecodeCoarseEnergyWithDecoder decodes coarse energies using an explicit range decoder.
 // This variant allows passing a range decoder directly rather than using d.rangeDecoder.
 func (d *Decoder) DecodeCoarseEnergyWithDecoder(rd *rangecoding.Decoder, nbBands int, intra bool, lm int) []float64 {
