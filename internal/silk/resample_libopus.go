@@ -212,9 +212,16 @@ func (r *LibopusResampler) Process(samples []float32) []float32 {
 	// Process delay buffer (1ms = fsInKHz samples)
 	r.resampleIIRFIRSlice(out[:r.fsOutKHz], r.delayBuf[:r.fsInKHz])
 
-	// Process remaining input
+	// Process remaining input (exclude the last inputDelay samples, which are saved for next call)
 	if inLen > r.fsInKHz {
-		r.resampleIIRFIRSlice(out[r.fsOutKHz:], in[nSamples:])
+		end := inLen - r.inputDelay
+		if end < nSamples {
+			end = nSamples
+		}
+		if end > inLen {
+			end = inLen
+		}
+		r.resampleIIRFIRSlice(out[r.fsOutKHz:], in[nSamples:end])
 	}
 
 	// Save last inputDelay samples to delay buffer for next call
