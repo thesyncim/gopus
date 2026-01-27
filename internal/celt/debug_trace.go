@@ -77,6 +77,18 @@ type LowbandTracer interface {
 	TraceLowband(band int, lowbandOffset int, effectiveLowband int, lowband []float64)
 }
 
+// EnergyFineTracer is an optional interface for logging fine energy values.
+// This is emitted after fine energy refinement is applied.
+type EnergyFineTracer interface {
+	TraceEnergyFine(band int, channel int, energy float64)
+}
+
+// EnergyFinalTracer is an optional interface for logging energy finalise values.
+// This is emitted when leftover bits refine band energies.
+type EnergyFinalTracer interface {
+	TraceEnergyFinal(band int, channel int, energy float64)
+}
+
 // NoopTracer is a no-operation tracer that does nothing.
 // This is the default tracer to ensure zero overhead in production.
 type NoopTracer struct{}
@@ -261,6 +273,18 @@ func traceFlag(name string, value int) {
 func traceLowband(band int, lowbandOffset int, effectiveLowband int, lowband []float64) {
 	if tracer, ok := DefaultTracer.(LowbandTracer); ok {
 		tracer.TraceLowband(band, lowbandOffset, effectiveLowband, lowband)
+	}
+}
+
+func traceEnergyFine(band int, channel int, energy float64) {
+	if tracer, ok := DefaultTracer.(EnergyFineTracer); ok {
+		tracer.TraceEnergyFine(band, channel, energy)
+	}
+}
+
+func traceEnergyFinal(band int, channel int, energy float64) {
+	if tracer, ok := DefaultTracer.(EnergyFinalTracer); ok {
+		tracer.TraceEnergyFinal(band, channel, energy)
 	}
 }
 

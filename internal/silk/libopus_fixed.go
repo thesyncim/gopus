@@ -76,7 +76,10 @@ func silkRSHIFT_ROUND(x int32, shift int) int32 {
 	if shift <= 0 {
 		return x
 	}
-	return (x + (1 << (shift - 1))) >> shift
+	if shift == 1 {
+		return (x >> 1) + (x & 1)
+	}
+	return ((x >> (shift - 1)) + 1) >> 1
 }
 
 func silkRSHIFT_ROUND64(x int64, shift int) int64 {

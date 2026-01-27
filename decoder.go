@@ -347,10 +347,31 @@ func (d *Decoder) decodeSILK(data []byte, toc TOC, frameSize int) ([]float32, er
 		return nil, ErrInvalidBandwidth
 	}
 
-	if d.channels == 2 {
+	packetStereo := toc.Stereo
+
+	switch {
+	case packetStereo && d.channels == 2:
+		// Stereo packet, stereo output
 		return d.silkDecoder.DecodeStereo(data, silkBW, frameSize, true)
+	case packetStereo && d.channels == 1:
+		// Stereo packet, mono output: match libopus by decoding mid channel.
+		return d.silkDecoder.DecodeStereoToMono(data, silkBW, frameSize, true)
+	case !packetStereo && d.channels == 2:
+		// Mono packet, stereo output: duplicate mono to both channels.
+		mono, err := d.silkDecoder.Decode(data, silkBW, frameSize, true)
+		if err != nil {
+			return nil, err
+		}
+		stereo := make([]float32, len(mono)*2)
+		for i, v := range mono {
+			stereo[i*2] = v
+			stereo[i*2+1] = v
+		}
+		return stereo, nil
+	default:
+		// Mono packet, mono output
+		return d.silkDecoder.Decode(data, silkBW, frameSize, true)
 	}
-	return d.silkDecoder.Decode(data, silkBW, frameSize, true)
 }
 
 // decodeCELT routes to CELT decoder for CELT-only mode packets.

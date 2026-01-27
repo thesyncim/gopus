@@ -317,46 +317,37 @@ func (r *LibopusResampler) firInterpol(out []int16, outIdx int, buf []int16, max
 
 // smulwb: (a * b[15:0]) >> 16, treating b as signed 16-bit
 func smulwb(a, b int32) int32 {
-	return (a * (b << 16 >> 16)) >> 16
+	return silkSMULWB(a, b)
 }
 
 // smulww: (a * b) >> 16
 func smulww(a, b int32) int32 {
-	return int32((int64(a) * int64(b)) >> 16)
+	return silkSMULWW(a, b)
 }
 
 // smulbb: a[15:0] * b[15:0], both treated as signed 16-bit
 func smulbb(a, b int32) int32 {
-	return (a << 16 >> 16) * (b << 16 >> 16)
+	return silkSMULBB(a, b)
 }
 
 // smlabb: a + smulbb(b, c)
 func smlabb(a, b, c int32) int32 {
-	return a + smulbb(b, c)
+	return silkSMLABB(a, b, c)
 }
 
 // smlawb: a + smulwb(b, c)
 func smlawb(a, b, c int32) int32 {
-	return a + smulwb(b, c)
+	return silkSMLAWB(a, b, c)
 }
 
 // sat16: saturate to 16-bit range
 func sat16(x int32) int16 {
-	if x > 32767 {
-		return 32767
-	}
-	if x < -32768 {
-		return -32768
-	}
-	return int16(x)
+	return silkSAT16(x)
 }
 
 // rshiftRound: (x + (1 << (shift-1))) >> shift with rounding
 func rshiftRound(x int32, shift int) int32 {
-	if shift <= 0 {
-		return x
-	}
-	return (x + (1 << (shift - 1))) >> shift
+	return silkRSHIFT_ROUND(x, shift)
 }
 
 // min32 returns the minimum of two int32 values.

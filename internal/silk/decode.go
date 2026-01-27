@@ -88,6 +88,84 @@ func (d *Decoder) DecodeFrame(
 	return output, nil
 }
 
+// DecodeFrameWithTrace decodes a SILK frame with tracing callbacks.
+// The callback is called for each subframe with LTP information.
+func (d *Decoder) DecodeFrameWithTrace(
+	rd *rangecoding.Decoder,
+	bandwidth Bandwidth,
+	duration FrameDuration,
+	vadFlag bool,
+	trace TraceCallback,
+) ([]float32, error) {
+	_ = vadFlag
+	if rd == nil {
+		return nil, ErrDecodeFailed
+	}
+	d.SetRangeDecoder(rd)
+	config := GetBandwidthConfig(bandwidth)
+	fsKHz := config.SampleRate / 1000
+	st := &d.state[0]
+
+	framesPerPacket, nbSubfr, err := frameParams(duration)
+	if err != nil {
+		return nil, err
+	}
+
+	st.nFramesDecoded = 0
+	st.nFramesPerPacket = framesPerPacket
+	st.nbSubfr = nbSubfr
+	silkDecoderSetFs(st, fsKHz)
+
+	decodeVADAndLBRRFlags(rd, st, framesPerPacket)
+	if st.LBRRFlag != 0 {
+		for i := 0; i < framesPerPacket; i++ {
+			if st.LBRRFlags[i] == 0 {
+				continue
+			}
+			condCoding := codeIndependently
+			if i > 0 && st.LBRRFlags[i-1] != 0 {
+				condCoding = codeConditionally
+			}
+			silkDecodeIndices(st, rd, true, condCoding)
+			pulses := make([]int16, roundUpShellFrame(st.frameLength))
+			silkDecodePulses(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength)
+		}
+	}
+
+	frameLength := st.frameLength
+	outInt16 := make([]int16, framesPerPacket*frameLength)
+	for i := 0; i < framesPerPacket; i++ {
+		frameIndex := st.nFramesDecoded
+		condCoding := codeIndependently
+		if frameIndex > 0 {
+			condCoding = codeConditionally
+		}
+		vad := st.VADFlags[frameIndex] != 0
+		frameOut := outInt16[i*frameLength : (i+1)*frameLength]
+		silkDecodeIndices(st, rd, vad, condCoding)
+		pulses := make([]int16, roundUpShellFrame(st.frameLength))
+		silkDecodePulses(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength)
+		var ctrl decoderControl
+		silkDecodeParameters(st, &ctrl, condCoding)
+		// Use tracing version if callback provided
+		silkDecodeCoreWithTrace(st, &ctrl, frameOut, pulses, i, trace)
+		silkUpdateOutBuf(st, frameOut)
+		st.lossCnt = 0
+		st.lagPrev = ctrl.pitchL[st.nbSubfr-1]
+		st.prevSignalType = int(st.indices.signalType)
+		st.firstFrameAfterReset = false
+		st.nFramesDecoded++
+	}
+
+	output := make([]float32, len(outInt16))
+	for i, v := range outInt16 {
+		output[i] = float32(v) / 32768.0
+	}
+
+	d.haveDecoded = true
+	return output, nil
+}
+
 // decode20msBlock decodes one 20ms sub-block.
 func (d *Decoder) decode20msBlock(
 	bandwidth Bandwidth,
@@ -264,9 +342,8 @@ func (d *Decoder) DecodeStereoFrame(
 		stMid.nFramesDecoded++
 
 		if hasSide {
-			frameIndexSide := frameIndex - 1
 			condSide := codeIndependently
-			if frameIndexSide > 0 {
+			if frameIndex > 0 {
 				if d.prevDecodeOnlyMiddle == 1 {
 					condSide = codeIndependentlyNoLtpScaling
 				} else {
@@ -295,9 +372,11 @@ func (d *Decoder) DecodeStereoFrame(
 		silkStereoMSToLR(&d.stereo, midFrame, sideFrame, predQ13, fsKHz, frameLength)
 		copy(leftNative[i*frameLength:(i+1)*frameLength], midFrame[1:frameLength+1])
 		copy(rightNative[i*frameLength:(i+1)*frameLength], sideFrame[1:frameLength+1])
+
+		// Track mid-only flag per frame (used for side-channel conditioning).
+		d.prevDecodeOnlyMiddle = decodeOnlyMiddle
 	}
 
-	d.prevDecodeOnlyMiddle = decodeOnlyMiddle
 	left = make([]float32, len(leftNative))
 	right = make([]float32, len(rightNative))
 	for i, v := range leftNative {
@@ -309,6 +388,137 @@ func (d *Decoder) DecodeStereoFrame(
 
 	d.haveDecoded = true
 	return left, right, nil
+}
+
+// decodeStereoMidNative decodes a stereo SILK frame but returns only the mid channel
+// at native sample rate. It still decodes the side channel to keep the bitstream aligned.
+func (d *Decoder) decodeStereoMidNative(
+	rd *rangecoding.Decoder,
+	bandwidth Bandwidth,
+	duration FrameDuration,
+	vadFlag bool,
+) (mid []int16, frameLength int, err error) {
+	_ = vadFlag
+	if rd == nil {
+		return nil, 0, ErrDecodeFailed
+	}
+	d.SetRangeDecoder(rd)
+	config := GetBandwidthConfig(bandwidth)
+	fsKHz := config.SampleRate / 1000
+	stMid := &d.state[0]
+	stSide := &d.state[1]
+
+	framesPerPacket, nbSubfr, err := frameParams(duration)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	stMid.nFramesDecoded = 0
+	stSide.nFramesDecoded = 0
+	stMid.nFramesPerPacket = framesPerPacket
+	stSide.nFramesPerPacket = framesPerPacket
+	stMid.nbSubfr = nbSubfr
+	stSide.nbSubfr = nbSubfr
+	silkDecoderSetFs(stMid, fsKHz)
+	silkDecoderSetFs(stSide, fsKHz)
+
+	decodeVADAndLBRRFlags(rd, stMid, framesPerPacket)
+	decodeVADAndLBRRFlags(rd, stSide, framesPerPacket)
+	if stMid.LBRRFlag != 0 || stSide.LBRRFlag != 0 {
+		predQ13 := make([]int32, 2)
+		for i := 0; i < framesPerPacket; i++ {
+			for ch := 0; ch < 2; ch++ {
+				st := &d.state[ch]
+				if st.LBRRFlags[i] == 0 {
+					continue
+				}
+				if ch == 0 {
+					silkStereoDecodePred(rd, predQ13)
+					if stSide.LBRRFlags[i] == 0 {
+						_ = silkStereoDecodeMidOnly(rd)
+					}
+				}
+				condCoding := codeIndependently
+				if i > 0 && st.LBRRFlags[i-1] != 0 {
+					condCoding = codeConditionally
+				}
+				silkDecodeIndices(st, rd, true, condCoding)
+				pulses := make([]int16, roundUpShellFrame(st.frameLength))
+				silkDecodePulses(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength)
+			}
+		}
+	}
+
+	frameLength = stMid.frameLength
+	midNative := make([]int16, framesPerPacket*frameLength)
+	predQ13 := make([]int32, 2)
+	decodeOnlyMiddle := 0
+
+	for i := 0; i < framesPerPacket; i++ {
+		frameIndex := stMid.nFramesDecoded
+		silkStereoDecodePred(rd, predQ13)
+		if stSide.VADFlags[frameIndex] == 0 {
+			decodeOnlyMiddle = silkStereoDecodeMidOnly(rd)
+		} else {
+			decodeOnlyMiddle = 0
+		}
+
+		if decodeOnlyMiddle == 0 && d.prevDecodeOnlyMiddle == 1 {
+			resetSideChannelState(stSide)
+		}
+
+		hasSide := decodeOnlyMiddle == 0
+		midOut := midNative[i*frameLength : (i+1)*frameLength]
+
+		condMid := codeIndependently
+		if frameIndex > 0 {
+			condMid = codeConditionally
+		}
+		vadMid := stMid.VADFlags[frameIndex] != 0
+		silkDecodeIndices(stMid, rd, vadMid, condMid)
+		pulsesMid := make([]int16, roundUpShellFrame(stMid.frameLength))
+		silkDecodePulses(rd, pulsesMid, int(stMid.indices.signalType), int(stMid.indices.quantOffsetType), stMid.frameLength)
+		var ctrlMid decoderControl
+		silkDecodeParameters(stMid, &ctrlMid, condMid)
+		silkDecodeCore(stMid, &ctrlMid, midOut, pulsesMid)
+		silkUpdateOutBuf(stMid, midOut)
+		stMid.lossCnt = 0
+		stMid.lagPrev = ctrlMid.pitchL[stMid.nbSubfr-1]
+		stMid.prevSignalType = int(stMid.indices.signalType)
+		stMid.firstFrameAfterReset = false
+		stMid.nFramesDecoded++
+
+		if hasSide {
+			condSide := codeIndependently
+			if frameIndex > 0 {
+				if d.prevDecodeOnlyMiddle == 1 {
+					condSide = codeIndependentlyNoLtpScaling
+				} else {
+					condSide = codeConditionally
+				}
+			}
+			vadSide := stSide.VADFlags[stSide.nFramesDecoded] != 0
+			silkDecodeIndices(stSide, rd, vadSide, condSide)
+			pulsesSide := make([]int16, roundUpShellFrame(stSide.frameLength))
+			silkDecodePulses(rd, pulsesSide, int(stSide.indices.signalType), int(stSide.indices.quantOffsetType), stSide.frameLength)
+			var ctrlSide decoderControl
+			silkDecodeParameters(stSide, &ctrlSide, condSide)
+			sideOut := make([]int16, frameLength)
+			silkDecodeCore(stSide, &ctrlSide, sideOut, pulsesSide)
+			silkUpdateOutBuf(stSide, sideOut)
+			stSide.lossCnt = 0
+			stSide.lagPrev = ctrlSide.pitchL[stSide.nbSubfr-1]
+			stSide.prevSignalType = int(stSide.indices.signalType)
+			stSide.firstFrameAfterReset = false
+		}
+		stSide.nFramesDecoded++
+
+		// Track mid-only flag per frame (used for side-channel conditioning).
+		d.prevDecodeOnlyMiddle = decodeOnlyMiddle
+	}
+
+	d.haveDecoded = true
+	return midNative, frameLength, nil
 }
 
 // decodeChannel decodes a single channel (used for stereo).

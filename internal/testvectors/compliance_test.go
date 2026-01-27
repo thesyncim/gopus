@@ -123,44 +123,22 @@ func runTestVector(t *testing.T, name string) {
 
 	t.Logf("  Config: %d, Stereo: %v, FrameSize: %d samples", config, stereo, frameSize)
 
-	// 3. Create both mono and stereo decoders
+	// 3. Create a single stereo decoder
 	// Test vectors may contain both mono and stereo packets mixed in the stream.
-	// Per RFC 8251, output format is always stereo interleaved (duplicate mono to both channels).
-	monoDec, err := gopus.NewDecoder(48000, 1)
-	if err != nil {
-		t.Fatalf("Failed to create mono decoder: %v", err)
-	}
-	stereoDec, err := gopus.NewDecoder(48000, 2)
+	// Per RFC 8251, output format is always stereo interleaved.
+	// Use one persistent stereo decoder to preserve state across channel switches.
+	dec, err := gopus.NewDecoder(48000, 2)
 	if err != nil {
 		t.Fatalf("Failed to create stereo decoder: %v", err)
 	}
 
-	// 4. Decode all packets using appropriate decoder based on TOC stereo bit
+	// 4. Decode all packets with a single stereo decoder.
 	// Note: Opus packets can contain multiple frames (code 1/2/3 in TOC byte).
-	// The decoder returns all frames combined, so we use DecodeInt16Slice
-	// which allocates the correct buffer size based on packet structure.
+	// The decoder returns all frames combined, so we use DecodeInt16Slice.
 	var allDecoded []int16
 	decodeErrors := make(map[string]int) // Track error types
 	for i, pkt := range packets {
-		// Check TOC stereo bit to select correct decoder
-		pktTOC := gopus.ParseTOC(pkt.Data[0])
-		var pcm []int16
-		if pktTOC.Stereo {
-			// Stereo packet: use stereo decoder, output is already stereo interleaved
-			pcm, err = stereoDec.DecodeInt16Slice(pkt.Data)
-		} else {
-			// Mono packet: use mono decoder, then duplicate to stereo
-			monoSamples, decErr := monoDec.DecodeInt16Slice(pkt.Data)
-			err = decErr
-			if err == nil {
-				// Duplicate mono to stereo (L=R)
-				pcm = make([]int16, len(monoSamples)*2)
-				for j, s := range monoSamples {
-					pcm[2*j] = s
-					pcm[2*j+1] = s
-				}
-			}
-		}
+		pcm, err := dec.DecodeInt16Slice(pkt.Data)
 		if err != nil {
 			// Log more detail about the failure
 			errKey := err.Error()
@@ -173,14 +151,17 @@ func runTestVector(t *testing.T, name string) {
 				t.Logf("  Packet %d decode error: %v (config=%d, mode=%s, frameSize=%d)",
 					i, err, cfg, mode, fs)
 			}
-			// Use zeros for failed packets (based on single frame size)
+			// Use zeros for failed packets (based on total frames in packet)
 			pktFrameSize := frameSize
+			frameCount := 1
 			if len(pkt.Data) > 0 {
 				pktCfg := pkt.Data[0] >> 3
 				pktFrameSize = getFrameSizeFromConfig(pktCfg)
+				if pktInfo, pktErr := gopus.ParsePacket(pkt.Data); pktErr == nil {
+					frameCount = pktInfo.FrameCount
+				}
 			}
-			// Output is stereo (2 channels)
-			zeros := make([]int16, pktFrameSize*2)
+			zeros := make([]int16, pktFrameSize*frameCount*2)
 			allDecoded = append(allDecoded, zeros...)
 			continue
 		}

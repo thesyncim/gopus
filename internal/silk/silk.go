@@ -57,32 +57,43 @@ func (d *Decoder) Decode(
 		return nil, err
 	}
 
-	// Apply sMid buffering to match libopus timing exactly
-	// libopus prepends sMid[0:2] to decoded samples, then resamples from index 1
-	// This effectively delays the output by 1 sample and provides filter continuity
-	n := len(nativeSamples)
-	if n > 0 {
-		// Build resampler input: sMid[1] + decoded[0:n-1]
-		// (last decoded sample goes to sMid for next frame)
-		resamplerInput := make([]float32, n)
-		resamplerInput[0] = d.sMid[1]
-		copy(resamplerInput[1:], nativeSamples[:n-1])
-
-		// Save last 2 samples to sMid for next frame
-		if n >= 2 {
-			d.sMid[0] = nativeSamples[n-2]
-			d.sMid[1] = nativeSamples[n-1]
-		} else {
-			d.sMid[0] = d.sMid[1]
-			d.sMid[1] = nativeSamples[n-1]
-		}
-
-		nativeSamples = resamplerInput
+	// Apply libopus-style sMid buffering per 20ms frame, then resample.
+	config := GetBandwidthConfig(bandwidth)
+	framesPerPacket, nbSubfr, err := frameParams(duration)
+	if err != nil {
+		return nil, err
+	}
+	fsKHz := config.SampleRate / 1000
+	frameLength := nbSubfr * subFrameLengthMs * fsKHz
+	if framesPerPacket > 0 && frameLength*framesPerPacket != len(nativeSamples) {
+		// Fallback to slice-based length if something is off.
+		frameLength = len(nativeSamples) / framesPerPacket
 	}
 
-	// Upsample to 48kHz using libopus-compatible resampler
 	resampler := d.GetResampler(bandwidth)
-	output := resampler.Process(nativeSamples)
+	output := make([]float32, 0, frameSizeSamples)
+	for f := 0; f < framesPerPacket; f++ {
+		start := f * frameLength
+		end := start + frameLength
+		if start < 0 || end > len(nativeSamples) || frameLength == 0 {
+			break
+		}
+		frame := nativeSamples[start:end]
+
+		// Build resampler input: sMid[1] + frame[0:len-1]
+		resamplerInput := make([]float32, len(frame))
+		resamplerInput[0] = float32(d.stereo.sMid[1]) / 32768.0
+		if len(frame) > 1 {
+			copy(resamplerInput[1:], frame[:len(frame)-1])
+			d.stereo.sMid[0] = float32ToInt16(frame[len(frame)-2])
+			d.stereo.sMid[1] = float32ToInt16(frame[len(frame)-1])
+		} else {
+			d.stereo.sMid[0] = d.stereo.sMid[1]
+			d.stereo.sMid[1] = float32ToInt16(frame[0])
+		}
+
+		output = append(output, resampler.Process(resamplerInput)...)
+	}
 
 	// Reset PLC state after successful decode
 	plcState.Reset()
@@ -125,11 +136,10 @@ func (d *Decoder) DecodeStereo(
 	}
 
 	// Upsample to 48kHz using libopus-compatible resampler
-	resampler := d.GetResampler(bandwidth)
-	left := resampler.Process(leftNative)
-	// Note: For true stereo we'd need separate resamplers per channel
-	// but the current implementation processes channels identically
-	right := resampler.Process(rightNative)
+	leftResampler := d.getResamplerForChannel(bandwidth, 0)
+	rightResampler := d.getResamplerForChannel(bandwidth, 1)
+	left := leftResampler.Process(leftNative)
+	right := rightResampler.Process(rightNative)
 
 	// Interleave samples [L0, R0, L1, R1, ...]
 	output := make([]float32, len(left)*2)
@@ -141,6 +151,75 @@ func (d *Decoder) DecodeStereo(
 	// Reset PLC state after successful decode
 	plcState.Reset()
 	plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 2)
+
+	return output, nil
+}
+
+// DecodeStereoToMono decodes a SILK stereo frame and returns mono 48kHz PCM samples.
+// This matches libopus behavior when the decoder is configured for mono output.
+func (d *Decoder) DecodeStereoToMono(
+	data []byte,
+	bandwidth Bandwidth,
+	frameSizeSamples int,
+	vadFlag bool,
+) ([]float32, error) {
+	// Validate bandwidth is SILK-compatible
+	if bandwidth > BandwidthWideband {
+		return nil, ErrInvalidBandwidth
+	}
+
+	// Handle PLC for nil data (lost packet)
+	if data == nil {
+		return d.decodePLC(bandwidth, frameSizeSamples)
+	}
+
+	// Convert TOC frame size to duration
+	duration := FrameDurationFromTOC(frameSizeSamples)
+
+	// Initialize range decoder
+	var rd rangecoding.Decoder
+	rd.Init(data)
+
+	// Decode mid channel at native rate (side channel decoded for state)
+	midNative, frameLength, err := d.decodeStereoMidNative(&rd, bandwidth, duration, vadFlag)
+	if err != nil {
+		return nil, err
+	}
+
+	// Upsample to 48kHz using libopus-compatible resampler and sMid buffering
+	framesPerPacket := 0
+	if frameLength > 0 {
+		framesPerPacket = len(midNative) / frameLength
+	}
+	resampler := d.getResamplerForChannel(bandwidth, 0)
+	output := make([]float32, 0, frameSizeSamples)
+	for f := 0; f < framesPerPacket; f++ {
+		start := f * frameLength
+		end := start + frameLength
+		if start < 0 || end > len(midNative) || frameLength == 0 {
+			break
+		}
+		frame := midNative[start:end]
+
+		resamplerInput := make([]float32, frameLength)
+		resamplerInput[0] = float32(d.stereo.sMid[1]) / 32768.0
+		if frameLength > 1 {
+			for i := 0; i < frameLength-1; i++ {
+				resamplerInput[i+1] = float32(frame[i]) / 32768.0
+			}
+			d.stereo.sMid[0] = frame[frameLength-2]
+			d.stereo.sMid[1] = frame[frameLength-1]
+		} else {
+			d.stereo.sMid[0] = d.stereo.sMid[1]
+			d.stereo.sMid[1] = frame[0]
+		}
+
+		output = append(output, resampler.Process(resamplerInput)...)
+	}
+
+	// Reset PLC state after successful decode
+	plcState.Reset()
+	plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 1)
 
 	return output, nil
 }
@@ -254,9 +333,10 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 	left, right := plc.ConcealSILKStereo(d, nativeSamples, fadeFactor)
 
 	// Upsample to 48kHz using libopus-compatible resampler
-	resampler := d.GetResampler(bandwidth)
-	leftUp := resampler.Process(left)
-	rightUp := resampler.Process(right)
+	leftResampler := d.getResamplerForChannel(bandwidth, 0)
+	rightResampler := d.getResamplerForChannel(bandwidth, 1)
+	leftUp := leftResampler.Process(left)
+	rightUp := rightResampler.Process(right)
 
 	// Interleave [L0, R0, L1, R1, ...]
 	output := make([]float32, len(leftUp)*2)
@@ -266,6 +346,17 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 	}
 
 	return output, nil
+}
+
+func float32ToInt16(v float32) int16 {
+	scaled := float64(v) * 32768.0
+	if scaled > 32767.0 {
+		return 32767
+	}
+	if scaled < -32768.0 {
+		return -32768
+	}
+	return int16(math.RoundToEven(scaled))
 }
 
 // PLCState returns the PLC state for external access (e.g., hybrid mode).

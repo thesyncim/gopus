@@ -83,8 +83,21 @@ Legend: [x] validated vs libopus, [!] mismatch/suspect, [ ] pending
 - [ ] MDCT forward short-overlap path vs libopus.
 
 ## SILK / Hybrid (if in scope)
-- [!] SILK decoder vs libopus -> Tables and unit tests pass; integration tests fail (Q=-137 to -151).
-  Root cause: state management across frames (LTP buffer, gain state, output buffer persistence).
+- [x] Resampler timing: Fixed and validated (lag=0, correlation=1.0 at all positions).
+  - sMid buffering correctly implemented
+  - First non-zero sample position matches libopus
+- [!] SILK decoder vs libopus -> Tables and unit tests pass; integration tests fail (Q=-137).
+  - **Root cause identified**: Divergence in frame 2 (3rd 20ms frame), subframe k=2, native sample ~111
+  - Packet 0: Perfect match (SNR=+∞)
+  - Packet 1: First 2586/2880 samples match (SNR=999 dB for first 5 windows)
+  - Divergence at sample 2587 (48kHz) = native sample 431 in 60ms packet
+  - Mapping: Frame 2, subframe k=2 (samples 80-119), offset 31
+  - This is exactly at the NLSF interpolation boundary (k=2 && interpFlag)
+  - Potential issues:
+    1. LPC analysis filter rewhitening at k=2
+    2. sLTP_Q15 buffer population after rewhitening
+    3. State accumulated from frames 0-1 not matching libopus
+    4. outBuf state management between frames
 - [ ] SILK encoder vs libopus.
 - [ ] Hybrid switching (CELT <-> SILK) vs libopus.
 
@@ -92,14 +105,16 @@ Legend: [x] validated vs libopus, [!] mismatch/suspect, [ ] pending
 - [x] Test harness fix: Now uses single stereo decoder for all packets (like libopus).
   - Mono->stereo transition at packet 2128 works correctly (SNR=71 dB)
   - Sample counts match 12/12 test vectors
-- [x] `testvector01` PASS (Q=54.53): Pure CELT, stereo, all frame sizes
-- [x] `testvector11` PASS (Q=56.21): Pure CELT, stereo, 20ms frames only
+- [x] `testvector01` PASS (Q=68.44): Pure CELT, stereo, all frame sizes
+- [x] `testvector11` PASS (Q=69.61): Pure CELT, stereo, 20ms frames only
 - [!] `testvector07` FAIL (Q=-40.30): CELT mixed mono/stereo
   - First divergence now at packet 62 (mono, 960-sample frame), SNR ≈ 36.2 dB.
   - Earlier divergence at packet 4 fixed by RNG/uncoded-band noise parity.
   - Remaining issues likely in overlap/short-block handling or other CELT synthesis paths.
   - Debug test: `internal/testvectors/packet31_debug_test.go` traces packet 31 pipeline
-- [!] `testvector02/03/04` FAIL (Q~-150): Pure SILK - state management issues
+- [!] `testvector02/03/04` FAIL (Q~-137): Pure SILK - k=2 interpolation divergence
+  - Divergence at packet 1, sample 2587 (native sample 111 in frame 2, subframe k=2)
+  - LPC state, outBuf management, or LTP buffer population issue
 - [!] `testvector05/06` FAIL (Q~-149): Pure Hybrid - SILK layer issues
 - [!] `testvector08/09` FAIL (Q~-85 to -93): Mixed SILK+CELT
 - [!] `testvector10` FAIL (Q=-119): Mixed CELT+Hybrid
@@ -209,3 +224,39 @@ Legend: [x] validated vs libopus, [!] mismatch/suspect, [ ] pending
 **Impact**: Divergence at sample 68 (within overlap region)
 
 **Fix**: Explicitly manage overlap buffer state transitions when switching channel counts
+
+## Priority Fixes (testvector02/03/04 - SILK)
+
+### Fix #5: SILK Inter-Packet State Reset - ROOT CAUSE IDENTIFIED
+**File**: `internal/silk/libopus_decode.go` (silkDecoderSetFs function, lines 5-56)
+**Status**: Root cause identified, fix pending
+
+**Root Cause**:
+State buffers (`outBuf`, `sLPCQ14Buf`) are only reset when sample rate CHANGES.
+When packet 1 arrives with SAME sample rate as packet 0, buffers retain stale state.
+At frame 2, subframe k=2 rewhitening, stale `outBuf` data causes LTP prediction divergence.
+
+**Evidence**:
+- Packet 0: SNR=999 dB (perfect - buffers zeroed on init)
+- Packet 1: SNR=16.6 dB (divergence - buffers NOT reset)
+- Packet 3: SNR=999 dB (statistical convergence, not correctness)
+
+**The Bug** (libopus_decode.go line 24):
+```go
+if st.fsKHz != fsKHz {  // FALSE when same rate - buffers NOT reset!
+    st.firstFrameAfterReset = true
+    for i := range st.outBuf { st.outBuf[i] = 0 }
+    for i := range st.sLPCQ14Buf { st.sLPCQ14Buf[i] = 0 }
+}
+```
+
+**Fix Required**:
+Investigate libopus `dec_API.c` to understand exact per-packet reset semantics.
+May need to reset `outBuf`/`sLPCQ14Buf` at packet boundaries regardless of fsKHz.
+
+**Full Analysis**: See `SILK_DIVERGENCE_ANALYSIS.md`
+
+**Reference Code**:
+- libopus: `tmp_check/opus-1.6.1/silk/decoder_set_fs.c` lines 72-97
+- libopus: `tmp_check/opus-1.6.1/silk/dec_API.c` (packet handling)
+- Go: `internal/silk/libopus_decode.go` lines 5-56

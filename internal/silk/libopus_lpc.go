@@ -82,7 +82,7 @@ func silkNLSF2A(aQ12 []int16, nlsfQ15 []int16, order int) bool {
 	silkLPCFit(aQ12, a32QA1[:order], 12, nlsf2aQA+1, order)
 
 	for i := 0; silkLPCInversePredGain(aQ12[:order], order) == 0 && i < maxLPCStabilizeIterations; i++ {
-		silkBwExpander32(a32QA1[:order], order, 65536-int32(1<<i))
+		silkBwExpander32(a32QA1[:order], order, 65536-silkLSHIFT(2, i))
 		for k := 0; k < order; k++ {
 			aQ12[k] = int16(silkRSHIFT_ROUND(a32QA1[k], nlsf2aQA+1-12))
 		}

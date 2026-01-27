@@ -428,8 +428,8 @@ func silkDecodeCore(st *decoderState, ctrl *decoderControl, out []int16, pulses 
 			lag := ctrl.pitchL[k]
 			if k == 0 || (k == 2 && interpFlag) {
 				startIdx := st.ltpMemLength - lag - st.lpcOrder - ltpOrder/2
-				if startIdx < 0 {
-					startIdx = 0
+				if startIdx <= 0 {
+					startIdx = 1 // Match libopus assertion: start_idx > 0
 				}
 				if k == 2 {
 					copy(st.outBuf[st.ltpMemLength:], out[:2*st.subfrLength])
@@ -488,6 +488,178 @@ func silkDecodeCore(st *decoderState, ctrl *decoderControl, out []int16, pulses 
 
 func silkRand(seed int32) int32 {
 	return seed*196314165 + 907633515
+}
+
+// silkDecodeCoreWithTrace is like silkDecodeCore but with tracing callbacks.
+func silkDecodeCoreWithTrace(st *decoderState, ctrl *decoderControl, out []int16, pulses []int16, frameIdx int, trace TraceCallback) {
+	offsetQ10 := silk_Quantization_Offsets_Q10[int(st.indices.signalType)>>1][int(st.indices.quantOffsetType)]
+	interpFlag := st.indices.NLSFInterpCoefQ2 < 4
+
+	randSeed := int32(st.indices.Seed)
+	for i := 0; i < st.frameLength; i++ {
+		randSeed = silkRand(randSeed)
+		exc := int32(pulses[i]) << 14
+		if exc > 0 {
+			exc -= quantLevelAdjustQ10 << 4
+		} else if exc < 0 {
+			exc += quantLevelAdjustQ10 << 4
+		}
+		exc += int32(offsetQ10) << 4
+		if randSeed < 0 {
+			exc = -exc
+		}
+		st.excQ14[i] = exc
+		randSeed += int32(pulses[i])
+	}
+
+	sLPC := make([]int32, st.subfrLength+maxLPCOrder)
+	copy(sLPC, st.sLPCQ14Buf[:])
+	pexc := st.excQ14[:]
+	pxq := out
+
+	sLTP := make([]int16, st.ltpMemLength)
+	sLTP_Q15 := make([]int32, st.ltpMemLength+st.frameLength)
+	sLTPBufIdx := st.ltpMemLength
+
+	for k := 0; k < st.nbSubfr; k++ {
+		A_Q12 := ctrl.PredCoefQ12[k>>1][:]
+		B_Q14 := ctrl.LTPCoefQ14[k*ltpOrder : (k+1)*ltpOrder]
+		signalType := int(st.indices.signalType)
+
+		gainQ10 := ctrl.GainsQ16[k] >> 6
+		invGainQ31 := silkInverse32VarQ(ctrl.GainsQ16[k], 47)
+		gainAdjQ16 := int32(1 << 16)
+
+		if ctrl.GainsQ16[k] != st.prevGainQ16 {
+			gainAdjQ16 = silkDiv32VarQ(st.prevGainQ16, ctrl.GainsQ16[k], 16)
+			for i := 0; i < maxLPCOrder; i++ {
+				sLPC[i] = silkSMULWW(gainAdjQ16, sLPC[i])
+			}
+		}
+		st.prevGainQ16 = ctrl.GainsQ16[k]
+
+		if st.lossCnt != 0 && st.prevSignalType == typeVoiced && signalType != typeVoiced && k < maxNbSubfr/2 {
+			for i := 0; i < ltpOrder; i++ {
+				B_Q14[i] = 0
+			}
+			B_Q14[ltpOrder/2] = int16(silkFixConst(0.25, 14))
+			signalType = typeVoiced
+			ctrl.pitchL[k] = st.lagPrev
+		}
+
+		if signalType == typeVoiced {
+			lag := ctrl.pitchL[k]
+			if k == 0 || (k == 2 && interpFlag) {
+				startIdx := st.ltpMemLength - lag - st.lpcOrder - ltpOrder/2
+				if startIdx <= 0 {
+					startIdx = 1 // Match libopus assertion: start_idx > 0
+				}
+				if k == 2 {
+					copy(st.outBuf[st.ltpMemLength:], out[:2*st.subfrLength])
+				}
+				silkLPCAnalysisFilter(sLTP[startIdx:], st.outBuf[startIdx+k*st.subfrLength:], A_Q12, st.ltpMemLength-startIdx, st.lpcOrder)
+				if k == 0 {
+					invGainQ31 = silkLSHIFT(silkSMULWB(invGainQ31, ctrl.LTPScaleQ14), 2)
+				}
+				for i := 0; i < lag+ltpOrder/2; i++ {
+					sLTP_Q15[sLTPBufIdx-i-1] = silkSMULWB(invGainQ31, int32(sLTP[st.ltpMemLength-i-1]))
+				}
+			} else if gainAdjQ16 != int32(1<<16) {
+				for i := 0; i < lag+ltpOrder/2; i++ {
+					sLTP_Q15[sLTPBufIdx-i-1] = silkSMULWW(gainAdjQ16, sLTP_Q15[sLTPBufIdx-i-1])
+				}
+			}
+		}
+
+		var presQ14 []int32
+		var firstSLTPQ15Used [5]int32
+		var firstLTPPredQ13 int32
+		if signalType == typeVoiced {
+			lag := ctrl.pitchL[k]
+			predLagPtr := sLTPBufIdx - lag + ltpOrder/2
+			presQ14 = make([]int32, st.subfrLength)
+			for i := 0; i < st.subfrLength; i++ {
+				ltpPredQ13 := int32(2)
+				ltpPredQ13 = silkSMLAWB(ltpPredQ13, sLTP_Q15[predLagPtr+0], int32(B_Q14[0]))
+				ltpPredQ13 = silkSMLAWB(ltpPredQ13, sLTP_Q15[predLagPtr-1], int32(B_Q14[1]))
+				ltpPredQ13 = silkSMLAWB(ltpPredQ13, sLTP_Q15[predLagPtr-2], int32(B_Q14[2]))
+				ltpPredQ13 = silkSMLAWB(ltpPredQ13, sLTP_Q15[predLagPtr-3], int32(B_Q14[3]))
+				ltpPredQ13 = silkSMLAWB(ltpPredQ13, sLTP_Q15[predLagPtr-4], int32(B_Q14[4]))
+				// Capture trace values for first sample
+				if i == 0 {
+					firstSLTPQ15Used[0] = sLTP_Q15[predLagPtr+0]
+					firstSLTPQ15Used[1] = sLTP_Q15[predLagPtr-1]
+					firstSLTPQ15Used[2] = sLTP_Q15[predLagPtr-2]
+					firstSLTPQ15Used[3] = sLTP_Q15[predLagPtr-3]
+					firstSLTPQ15Used[4] = sLTP_Q15[predLagPtr-4]
+					firstLTPPredQ13 = ltpPredQ13
+				}
+				predLagPtr++
+				presQ14[i] = silkADD_LSHIFT32(pexc[i], ltpPredQ13, 1)
+				sLTP_Q15[sLTPBufIdx] = silkLSHIFT(presQ14[i], 1)
+				sLTPBufIdx++
+			}
+		} else {
+			presQ14 = pexc[:st.subfrLength]
+		}
+
+		var firstLpcPredQ10 int32
+		var firstSLPC int32
+		var sLPCHistoryBefore [16]int32
+		// Capture sLPC history BEFORE the loop
+		for i := 0; i < maxLPCOrder; i++ {
+			sLPCHistoryBefore[i] = sLPC[i]
+		}
+		for i := 0; i < st.subfrLength; i++ {
+			lpcPredQ10 := int32(st.lpcOrder >> 1)
+			for j := 0; j < st.lpcOrder; j++ {
+				lpcPredQ10 = silkSMLAWB(lpcPredQ10, sLPC[maxLPCOrder+i-j-1], int32(A_Q12[j]))
+			}
+			sLPC[maxLPCOrder+i] = silkAddSat32(presQ14[i], silkLShiftSAT32(lpcPredQ10, 4))
+			pxq[i] = silkSAT16(silkRSHIFT_ROUND(silkSMULWW(sLPC[maxLPCOrder+i], gainQ10), 8))
+			if i == 0 {
+				firstLpcPredQ10 = lpcPredQ10
+				firstSLPC = sLPC[maxLPCOrder]
+			}
+		}
+
+		// Trace callback at end of subframe with all computed values
+		if trace != nil {
+			info := TraceInfo{
+				SignalType:      signalType,
+				LtpMemLength:    st.ltpMemLength,
+				LpcOrder:        st.lpcOrder,
+				InvGainQ31:      invGainQ31,
+				GainQ10:         gainQ10,
+				FirstLpcPredQ10: firstLpcPredQ10,
+				FirstSLPC:       firstSLPC,
+				FirstExcQ14:     pexc[0],
+			}
+			// Copy A_Q12 coefficients
+			for i := 0; i < st.lpcOrder && i < 16; i++ {
+				info.A_Q12[i] = A_Q12[i]
+			}
+			// Copy sLPC history (captured BEFORE the LPC synthesis loop)
+			info.SLPCHistory = sLPCHistoryBefore
+			if signalType == typeVoiced {
+				info.PitchLag = ctrl.pitchL[k]
+				copy(info.LTPCoefQ14[:], B_Q14[:5])
+				if len(presQ14) > 0 {
+					info.FirstPresQ14 = presQ14[0]
+				}
+				info.SLTPQ15Used = firstSLTPQ15Used
+				info.FirstLTPPredQ13 = firstLTPPredQ13
+			}
+			info.FirstOutputQ0 = pxq[0]
+			trace(frameIdx, k, info)
+		}
+
+		copy(sLPC, sLPC[st.subfrLength:st.subfrLength+maxLPCOrder])
+		pexc = pexc[st.subfrLength:]
+		pxq = pxq[st.subfrLength:]
+	}
+
+	copy(st.sLPCQ14Buf[:], sLPC[:maxLPCOrder])
 }
 
 func silkUpdateOutBuf(st *decoderState, frame []int16) {

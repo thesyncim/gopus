@@ -94,7 +94,8 @@ func silkNLSFStabilize(nlsfQ15 []int16, deltaMinQ15 []int16, order int) {
 			}
 			maxCenter -= int32(deltaMinQ15[idx]) >> 1
 
-			center := int32(nlsfQ15[idx-1]+nlsfQ15[idx]) >> 1
+			sum := int32(nlsfQ15[idx-1]) + int32(nlsfQ15[idx])
+			center := silkRSHIFT_ROUND(sum, 1)
 			center = silkLimit32(center, minCenter, maxCenter)
 			nlsfQ15[idx-1] = int16(center - (int32(deltaMinQ15[idx]) >> 1))
 			nlsfQ15[idx] = int16(int32(nlsfQ15[idx-1]) + int32(deltaMinQ15[idx]))

@@ -240,7 +240,7 @@ func main() {
 	singleDec, _ := gopus.NewDecoder(48000, 2)
 
 	// Decode ALL packets and compute overall quality
-	var allDecoded []int16
+	allDecoded = nil // Reset for single-decoder test
 	for _, pkt := range packets {
 		if len(pkt) == 0 {
 			continue

@@ -312,6 +312,7 @@ func (d *Decoder) decodeFineEnergy(energies []float64, nbBands int, prevQuant, e
 			idx := c*nbBands + band
 			if idx < len(energies) {
 				energies[idx] += offset * DB6
+				traceEnergyFine(band, c, energies[idx])
 			}
 		}
 	}
@@ -398,6 +399,7 @@ func (d *Decoder) DecodeEnergyFinalise(energies []float64, nbBands int, fineQuan
 				idx := c*nbBands + band
 				if idx < len(energies) {
 					energies[idx] += offset * DB6
+					traceEnergyFinal(band, c, energies[idx])
 				}
 				bitsLeft--
 			}

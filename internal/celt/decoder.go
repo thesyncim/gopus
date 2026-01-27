@@ -72,6 +72,9 @@ type Decoder struct {
 
 	// Bandwidth (Opus TOC-derived)
 	bandwidth CELTBandwidth
+
+	// Channel transition tracking (for mono-to-stereo overlap buffer clearing)
+	prevStreamChannels int // Previous packet's channel count (0 = uninitialized)
 }
 
 // NewDecoder creates a new CELT decoder with the given number of channels.
@@ -148,6 +151,9 @@ func (d *Decoder) Reset() {
 
 	// Reset bandwidth to fullband
 	d.bandwidth = CELTFullband
+
+	// Reset channel transition tracking
+	d.prevStreamChannels = 0
 }
 
 // SetRangeDecoder sets the range decoder for the current frame.
@@ -179,6 +185,30 @@ func (d *Decoder) Bandwidth() CELTBandwidth {
 // SampleRate returns the output sample rate (always 48000 for CELT).
 func (d *Decoder) SampleRate() int {
 	return d.sampleRate
+}
+
+// handleChannelTransition detects and handles mono-to-stereo channel transitions.
+// When transitioning from mono to stereo, the right channel overlap buffer must be
+// cleared to avoid artifacts from stale mono data being used as stereo data.
+// This matches libopus behavior in celt_decode_with_ec().
+//
+// Returns true if a mono-to-stereo transition occurred.
+func (d *Decoder) handleChannelTransition(streamChannels int) bool {
+	prevChannels := d.prevStreamChannels
+	d.prevStreamChannels = streamChannels
+
+	// Detect mono-to-stereo transition: previous was mono (1), current is stereo (2)
+	if prevChannels == 1 && streamChannels == 2 && d.channels == 2 {
+		// Clear right channel overlap buffer to avoid artifacts
+		// Overlap buffer layout: [Left: 0..Overlap-1] [Right: Overlap..2*Overlap-1]
+		if len(d.overlapBuffer) >= Overlap*2 {
+			for i := Overlap; i < Overlap*2; i++ {
+				d.overlapBuffer[i] = 0
+			}
+		}
+		return true
+	}
+	return false
 }
 
 // PrevEnergy returns the previous frame's band energies.
@@ -355,6 +385,9 @@ func (d *Decoder) SetEnergy(band, channel int, energy float64) {
 //
 // Reference: RFC 6716 Section 4.3, libopus celt/celt_decoder.c celt_decode_with_ec()
 func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
+	// Track channel count for transition detection (normal decode uses decoder's channels)
+	d.handleChannelTransition(d.channels)
+
 	// Handle PLC for nil data (lost packet)
 	if data == nil {
 		return d.decodePLC(frameSize)
@@ -769,6 +802,9 @@ func (d *Decoder) DecodeFrameWithPacketStereo(data []byte, frameSize int, packet
 	if packetStereo {
 		packetChannels = 2
 	}
+
+	// Handle channel transition (clear right overlap buffer on mono-to-stereo)
+	d.handleChannelTransition(packetChannels)
 
 	// If packet channels match decoder channels, use normal decoding
 	if packetChannels == d.channels {

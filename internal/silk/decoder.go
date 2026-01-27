@@ -42,12 +42,9 @@ type Decoder struct {
 	stereo               stereoDecState
 	prevDecodeOnlyMiddle int
 
-	// Resamplers for each bandwidth (created on demand)
-	resamplers map[Bandwidth]*LibopusResampler
-
-	// sMid buffer for mono resampling timing alignment (matches libopus)
-	// Stores last 2 samples of decoded output for continuity
-	sMid [2]float32
+	// Resamplers for each bandwidth (created on demand).
+	// Separate resampler state per channel to match libopus.
+	resamplers map[Bandwidth]*resamplerPair
 }
 
 // NewDecoder creates a new SILK decoder with proper initial state.
@@ -94,6 +91,19 @@ func (d *Decoder) Reset() {
 	resetDecoderState(&d.state[1])
 	d.stereo = stereoDecState{}
 	d.prevDecodeOnlyMiddle = 0
+
+	// Reset resampler state for a clean stream start
+	for _, pair := range d.resamplers {
+		if pair == nil {
+			continue
+		}
+		if pair.left != nil {
+			pair.left.Reset()
+		}
+		if pair.right != nil {
+			pair.right.Reset()
+		}
+	}
 }
 
 // SetRangeDecoder sets the range decoder for the current frame.
@@ -186,20 +196,146 @@ func (d *Decoder) SetPrevStereoWeights(weights [2]int16) {
 	d.prevStereoWeights = weights
 }
 
+// GetLastSignalType returns the signal type from the last decoded frame.
+// Returns: 0=inactive, 1=unvoiced, 2=voiced
+func (d *Decoder) GetLastSignalType() int {
+	return int(d.state[0].indices.signalType)
+}
+
+// DebugFrameParams contains decoded frame parameters for debugging.
+type DebugFrameParams struct {
+	NLSFInterpCoefQ2 int
+	LTPScaleIndex    int
+	LagPrev          int
+	GainIndices      []int
+}
+
+// GetLastFrameParams returns the parameters from the last decoded frame.
+func (d *Decoder) GetLastFrameParams() DebugFrameParams {
+	st := &d.state[0]
+	gains := make([]int, st.nbSubfr)
+	for i := 0; i < st.nbSubfr; i++ {
+		gains[i] = int(st.indices.GainsIndices[i])
+	}
+	return DebugFrameParams{
+		NLSFInterpCoefQ2: int(st.indices.NLSFInterpCoefQ2),
+		LTPScaleIndex:    int(st.indices.LTPScaleIndex),
+		LagPrev:          st.lagPrev,
+		GainIndices:      gains,
+	}
+}
+
+type resamplerPair struct {
+	left  *LibopusResampler
+	right *LibopusResampler
+}
+
 // GetResampler returns the libopus-compatible resampler for the given bandwidth.
-// Creates the resampler on first use and caches it.
+// This returns the left/mono resampler.
 func (d *Decoder) GetResampler(bandwidth Bandwidth) *LibopusResampler {
+	return d.getResamplerForChannel(bandwidth, 0)
+}
+
+func (d *Decoder) getResamplerForChannel(bandwidth Bandwidth, channel int) *LibopusResampler {
 	if d.resamplers == nil {
-		d.resamplers = make(map[Bandwidth]*LibopusResampler)
+		d.resamplers = make(map[Bandwidth]*resamplerPair)
 	}
 
-	if r, ok := d.resamplers[bandwidth]; ok {
-		return r
+	pair, ok := d.resamplers[bandwidth]
+	if !ok {
+		pair = &resamplerPair{}
+		d.resamplers[bandwidth] = pair
 	}
 
-	// Create resampler for this bandwidth
 	config := GetBandwidthConfig(bandwidth)
-	r := NewLibopusResampler(config.SampleRate, 48000)
-	d.resamplers[bandwidth] = r
-	return r
+	if channel == 1 {
+		if pair.right == nil {
+			pair.right = NewLibopusResampler(config.SampleRate, 48000)
+		}
+		return pair.right
+	}
+
+	if pair.left == nil {
+		pair.left = NewLibopusResampler(config.SampleRate, 48000)
+	}
+	return pair.left
+}
+
+// TraceInfo contains information about a subframe during decoding.
+// Used for debugging to trace LTP parameters.
+type TraceInfo struct {
+	SignalType   int // 0=inactive, 1=unvoiced, 2=voiced
+	PitchLag     int // Pitch lag for this subframe (voiced only)
+	LtpMemLength int // LTP memory length
+	LpcOrder     int // LPC order
+
+	// Detailed values for debugging (only populated at k=0 or k=2 with interp)
+	InvGainQ31    int32    // Inverse gain used for sLTP_Q15 population
+	GainQ10       int32    // Gain for output scaling
+	LTPCoefQ14    [5]int16 // LTP coefficients for this subframe
+	FirstSLTPQ15  int32    // First sLTP_Q15 value used for LTP prediction
+	FirstPresQ14  int32    // First presQ14 value (excitation + LTP prediction)
+	FirstOutputQ0 int16    // First output sample value (after LPC synthesis)
+
+	// Additional values for detailed debugging
+	FirstLpcPredQ10 int32     // First lpcPredQ10 value
+	FirstSLPC       int32     // First sLPC value (before output scaling)
+	SLPCHistory     [16]int32 // sLPC history at start of subframe
+	A_Q12           [16]int16 // LPC coefficients used for this subframe
+	FirstExcQ14     int32     // First excitation value
+
+	// LTP prediction trace values
+	SLTPQ15Used     [5]int32 // sLTP_Q15 values used for first LTP prediction (indices: predLagPtr+0, -1, -2, -3, -4)
+	FirstLTPPredQ13 int32    // First ltpPredQ13 value (before shifting to Q14)
+}
+
+// TraceCallback is called for each subframe during tracing.
+type TraceCallback func(frame, k int, info TraceInfo)
+
+// DecoderStateSnapshot holds a snapshot of the decoder state for debugging.
+type DecoderStateSnapshot struct {
+	PrevNLSFQ15 []int16 // Previous NLSF values (used for interpolation)
+	LPCOrder    int     // Current LPC order
+	FsKHz       int     // Sample rate in kHz
+	NbSubfr     int     // Number of subframes
+}
+
+// GetDecoderState returns a snapshot of the internal decoder state for debugging.
+func (d *Decoder) GetDecoderState() *DecoderStateSnapshot {
+	st := &d.state[0]
+	snapshot := &DecoderStateSnapshot{
+		PrevNLSFQ15: make([]int16, st.lpcOrder),
+		LPCOrder:    st.lpcOrder,
+		FsKHz:       st.fsKHz,
+		NbSubfr:     st.nbSubfr,
+	}
+	copy(snapshot.PrevNLSFQ15, st.prevNLSFQ15[:st.lpcOrder])
+	return snapshot
+}
+
+// ExportedState holds internal decoder state for debugging/comparison.
+type ExportedState struct {
+	PrevGainQ16 int32
+	SLPCQ14Buf  [16]int32
+	OutBuf      []int16
+	LtpMemLen   int
+	LpcOrder    int
+	FsKHz       int
+}
+
+// ExportState returns internal decoder state for debugging/comparison.
+func (d *Decoder) ExportState() ExportedState {
+	st := &d.state[0]
+	state := ExportedState{
+		PrevGainQ16: st.prevGainQ16,
+		LtpMemLen:   st.ltpMemLength,
+		LpcOrder:    st.lpcOrder,
+		FsKHz:       st.fsKHz,
+	}
+	copy(state.SLPCQ14Buf[:], st.sLPCQ14Buf[:])
+	if st.ltpMemLength > 0 {
+		state.OutBuf = make([]int16, len(st.outBuf))
+		copy(state.OutBuf, st.outBuf[:])
+	}
+	return state
 }

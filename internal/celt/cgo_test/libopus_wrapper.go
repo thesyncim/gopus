@@ -13,6 +13,10 @@ package cgo
 #include "celt.h"
 #include "entdec.h"
 #include "laplace.h"
+#include "silk/main.h"
+#include "silk/structs.h"
+#include "silk/Inlines.h"
+#include "silk/macros.h"
 
 // Stub for opus_debug_range (required by debug builds)
 void opus_debug_range(unsigned int a, unsigned int b, unsigned int c, unsigned int d) {
@@ -47,6 +51,418 @@ int test_decode_icdf(const unsigned char *data, int data_len, const unsigned cha
     ec_dec dec;
     ec_dec_init(&dec, (unsigned char*)data, data_len);
     return ec_dec_icdf(&dec, icdf, ftb);
+}
+
+// Decode NLSF from indices using libopus (NB/MB or WB codebook)
+void test_silk_nlsf_decode(const opus_int8 *indices, int use_wb, opus_int16 *out) {
+    const silk_NLSF_CB_struct *cb = use_wb ? &silk_NLSF_CB_WB : &silk_NLSF_CB_NB_MB;
+    silk_NLSF_decode(out, (opus_int8*)indices, cb);
+}
+
+// Convert NLSF to LPC coefficients using libopus
+void test_silk_nlsf2a(const opus_int16 *nlsf, int order, opus_int16 *out) {
+    silk_NLSF2A(out, nlsf, order, 0);
+}
+
+// Decode SILK core with provided state/control and return output
+void test_silk_decode_core(
+    int fs_kHz, int nb_subfr, int frame_length, int subfr_length, int ltp_mem_length, int lpc_order,
+    opus_int32 prev_gain_Q16, int lossCnt, int prevSignalType,
+    opus_int8 signalType, opus_int8 quantOffsetType, opus_int8 NLSFInterpCoef_Q2, opus_int8 Seed,
+    const opus_int16 *outBuf, const opus_int32 *sLPC_Q14_buf,
+    const opus_int32 *gains_Q16, const opus_int16 *predCoef_Q12, const opus_int16 *ltpCoef_Q14,
+    const int *pitchL, int LTP_scale_Q14,
+    const opus_int16 *pulses, opus_int16 *out)
+{
+    silk_decoder_state st;
+    silk_decoder_control ctrl;
+    memset(&st, 0, sizeof(st));
+    memset(&ctrl, 0, sizeof(ctrl));
+
+    st.fs_kHz = fs_kHz;
+    st.nb_subfr = nb_subfr;
+    st.frame_length = frame_length;
+    st.subfr_length = subfr_length;
+    st.ltp_mem_length = ltp_mem_length;
+    st.LPC_order = lpc_order;
+    st.prev_gain_Q16 = prev_gain_Q16;
+    st.lossCnt = lossCnt;
+    st.prevSignalType = prevSignalType;
+
+    st.indices.signalType = signalType;
+    st.indices.quantOffsetType = quantOffsetType;
+    st.indices.NLSFInterpCoef_Q2 = NLSFInterpCoef_Q2;
+    st.indices.Seed = Seed;
+
+    memcpy(st.outBuf, outBuf, sizeof(st.outBuf));
+    memcpy(st.sLPC_Q14_buf, sLPC_Q14_buf, sizeof(st.sLPC_Q14_buf));
+
+    memcpy(ctrl.Gains_Q16, gains_Q16, sizeof(ctrl.Gains_Q16));
+    memcpy(ctrl.PredCoef_Q12, predCoef_Q12, sizeof(ctrl.PredCoef_Q12));
+    memcpy(ctrl.LTPCoef_Q14, ltpCoef_Q14, sizeof(ctrl.LTPCoef_Q14));
+    memcpy(ctrl.pitchL, pitchL, sizeof(ctrl.pitchL));
+    ctrl.LTP_scale_Q14 = LTP_scale_Q14;
+
+    silk_decode_core(&st, &ctrl, out, pulses, 0);
+}
+
+// Decode SILK indices and pulses for a specific frame in a packet.
+// Returns 0 on success, -1 on failure (e.g., bad frame index).
+int test_silk_decode_indices_pulses(
+    const unsigned char *data, int data_len,
+    int fs_kHz, int nb_subfr, int frames_per_packet, int frame_index,
+    opus_int8 *out_gains, opus_int8 *out_ltp, opus_int8 *out_nlsf,
+    opus_int16 *out_lag, opus_int8 *out_contour, opus_int8 *out_signalType,
+    opus_int8 *out_quantOffset, opus_int8 *out_nlsfInterp, opus_int8 *out_perIndex,
+    opus_int8 *out_ltpScale, opus_int8 *out_seed,
+    opus_int16 *out_pulses, int out_pulses_len)
+{
+    if (frame_index < 0 || frame_index >= frames_per_packet) {
+        return -1;
+    }
+
+    ec_dec dec;
+    silk_decoder_state st;
+    opus_int16 pulses_buf[MAX_FRAME_LENGTH + SHELL_CODEC_FRAME_LENGTH];
+    int i;
+
+    ec_dec_init(&dec, (unsigned char*)data, data_len);
+    silk_init_decoder(&st);
+    st.nb_subfr = nb_subfr;
+    st.nFramesPerPacket = frames_per_packet;
+    silk_decoder_set_fs(&st, fs_kHz, fs_kHz * 1000);
+
+    // Decode VAD flags
+    for (i = 0; i < frames_per_packet; i++) {
+        st.VAD_flags[i] = ec_dec_bit_logp(&dec, 1);
+    }
+    // Decode LBRR flags
+    st.LBRR_flag = ec_dec_bit_logp(&dec, 1);
+    silk_memset(st.LBRR_flags, 0, sizeof(st.LBRR_flags));
+    if (st.LBRR_flag) {
+        if (frames_per_packet == 1) {
+            st.LBRR_flags[0] = 1;
+        } else {
+            opus_int32 LBRR_symbol = ec_dec_icdf(&dec, silk_LBRR_flags_iCDF_ptr[frames_per_packet - 2], 8) + 1;
+            for (i = 0; i < frames_per_packet; i++) {
+                st.LBRR_flags[i] = (LBRR_symbol >> i) & 1;
+            }
+        }
+    }
+
+    // Decode LBRR payload to advance range decoder
+    if (st.LBRR_flag) {
+        for (i = 0; i < frames_per_packet; i++) {
+            if (st.LBRR_flags[i] == 0) {
+                continue;
+            }
+            int condCoding = CODE_INDEPENDENTLY;
+            if (i > 0 && st.LBRR_flags[i - 1]) {
+                condCoding = CODE_CONDITIONALLY;
+            }
+            silk_decode_indices(&st, &dec, i, 1, condCoding);
+            int pulses_len = (st.frame_length + SHELL_CODEC_FRAME_LENGTH - 1) & ~(SHELL_CODEC_FRAME_LENGTH - 1);
+            if (pulses_len > (int)(sizeof(pulses_buf)/sizeof(pulses_buf[0]))) {
+                return -1;
+            }
+            silk_decode_pulses(&dec, pulses_buf, st.indices.signalType, st.indices.quantOffsetType, st.frame_length);
+        }
+    }
+
+    // Decode normal frames
+    for (i = 0; i < frames_per_packet; i++) {
+        int condCoding = (i == 0) ? CODE_INDEPENDENTLY : CODE_CONDITIONALLY;
+        silk_decode_indices(&st, &dec, i, 0, condCoding);
+        int pulses_len = (st.frame_length + SHELL_CODEC_FRAME_LENGTH - 1) & ~(SHELL_CODEC_FRAME_LENGTH - 1);
+        if (pulses_len > (int)(sizeof(pulses_buf)/sizeof(pulses_buf[0]))) {
+            return -1;
+        }
+        silk_decode_pulses(&dec, pulses_buf, st.indices.signalType, st.indices.quantOffsetType, st.frame_length);
+
+        if (i == frame_index) {
+            // Copy indices
+            memcpy(out_gains, st.indices.GainsIndices, MAX_NB_SUBFR * sizeof(opus_int8));
+            memcpy(out_ltp, st.indices.LTPIndex, MAX_NB_SUBFR * sizeof(opus_int8));
+            memcpy(out_nlsf, st.indices.NLSFIndices, (MAX_LPC_ORDER + 1) * sizeof(opus_int8));
+            *out_lag = st.indices.lagIndex;
+            *out_contour = st.indices.contourIndex;
+            *out_signalType = st.indices.signalType;
+            *out_quantOffset = st.indices.quantOffsetType;
+            *out_nlsfInterp = st.indices.NLSFInterpCoef_Q2;
+            *out_perIndex = st.indices.PERIndex;
+            *out_ltpScale = st.indices.LTP_scaleIndex;
+            *out_seed = st.indices.Seed;
+
+            // Copy pulses (frame_length samples)
+            if (out_pulses_len < st.frame_length) {
+                return -1;
+            }
+            memcpy(out_pulses, pulses_buf, st.frame_length * sizeof(opus_int16));
+            return 0;
+        }
+    }
+    return -1;
+}
+
+// Create/destroy a persistent SILK decoder state for native (pre-resampler) decode.
+silk_decoder_state* test_silk_decoder_state_create(void) {
+    silk_decoder_state *st = (silk_decoder_state*)malloc(sizeof(silk_decoder_state));
+    if (st == NULL) {
+        return NULL;
+    }
+    silk_init_decoder(st);
+    return st;
+}
+
+void test_silk_decoder_state_destroy(silk_decoder_state *st) {
+    if (st != NULL) {
+        free(st);
+    }
+}
+
+// Decode a SILK packet to native samples using libopus core path (no PLC/CNG),
+// updating the provided decoder state. Returns 0 on success, -1 on failure.
+int test_silk_decode_packet_native_core_state(
+    silk_decoder_state *st,
+    const unsigned char *data, int data_len,
+    int fs_kHz, int nb_subfr, int frames_per_packet,
+    opus_int16 *out, int out_len)
+{
+    if (st == NULL || data == NULL || out == NULL) {
+        return -1;
+    }
+    ec_dec dec;
+    silk_decoder_control ctrl;
+    opus_int16 pulses_buf[MAX_FRAME_LENGTH + SHELL_CODEC_FRAME_LENGTH];
+    int i;
+
+    ec_dec_init(&dec, (unsigned char*)data, data_len);
+    st->nb_subfr = nb_subfr;
+    st->nFramesPerPacket = frames_per_packet;
+    st->nFramesDecoded = 0;
+    st->arch = 0;
+    silk_decoder_set_fs(st, fs_kHz, fs_kHz * 1000);
+
+    // Decode VAD flags
+    for (i = 0; i < frames_per_packet; i++) {
+        st->VAD_flags[i] = ec_dec_bit_logp(&dec, 1);
+    }
+    // Decode LBRR flags
+    st->LBRR_flag = ec_dec_bit_logp(&dec, 1);
+    silk_memset(st->LBRR_flags, 0, sizeof(st->LBRR_flags));
+    if (st->LBRR_flag) {
+        if (frames_per_packet == 1) {
+            st->LBRR_flags[0] = 1;
+        } else {
+            opus_int32 LBRR_symbol = ec_dec_icdf(&dec, silk_LBRR_flags_iCDF_ptr[frames_per_packet - 2], 8) + 1;
+            for (i = 0; i < frames_per_packet; i++) {
+                st->LBRR_flags[i] = (LBRR_symbol >> i) & 1;
+            }
+        }
+    }
+
+    // Skip LBRR payload to advance range decoder
+    if (st->LBRR_flag) {
+        for (i = 0; i < frames_per_packet; i++) {
+            if (st->LBRR_flags[i] == 0) {
+                continue;
+            }
+            int condCoding = CODE_INDEPENDENTLY;
+            if (i > 0 && st->LBRR_flags[i - 1]) {
+                condCoding = CODE_CONDITIONALLY;
+            }
+            silk_decode_indices(st, &dec, i, 1, condCoding);
+            silk_decode_pulses(&dec, pulses_buf, st->indices.signalType,
+                st->indices.quantOffsetType, st->frame_length);
+        }
+    }
+
+    int frame_length = st->frame_length;
+    if (out_len < frames_per_packet * frame_length) {
+        return -1;
+    }
+
+    for (i = 0; i < frames_per_packet; i++) {
+        int condCoding = (i == 0) ? CODE_INDEPENDENTLY : CODE_CONDITIONALLY;
+        st->nFramesDecoded = i;
+        silk_decode_indices(st, &dec, i, 0, condCoding);
+        silk_decode_pulses(&dec, pulses_buf, st->indices.signalType,
+            st->indices.quantOffsetType, st->frame_length);
+        silk_decode_parameters(st, &ctrl, condCoding);
+        silk_decode_core(st, &ctrl, &out[i * frame_length], pulses_buf, 0);
+
+        // Update output buffer (matches silk_decode_frame)
+        int mv_len = st->ltp_mem_length - st->frame_length;
+        if (mv_len > 0) {
+            silk_memmove(st->outBuf, &st->outBuf[st->frame_length], mv_len * sizeof(opus_int16));
+        }
+        silk_memcpy(&st->outBuf[mv_len], &out[i * frame_length], st->frame_length * sizeof(opus_int16));
+
+        st->lossCnt = 0;
+        st->prevSignalType = st->indices.signalType;
+        st->first_frame_after_reset = 0;
+        st->lagPrev = ctrl.pitchL[ st->nb_subfr - 1 ];
+    }
+
+    return 0;
+}
+
+// Simple post-processing state for resampling + sMid buffering (mono).
+typedef struct {
+    silk_resampler_state_struct resampler;
+    opus_int16 sMid[2];
+    int fs_kHz;
+    int fs_API_Hz;
+    opus_int16 tmp[MAX_FRAME_LENGTH + 2];
+} silk_postproc_state;
+
+silk_postproc_state* test_silk_postproc_create(int fs_kHz, int fs_API_Hz) {
+    silk_postproc_state *st = (silk_postproc_state*)malloc(sizeof(silk_postproc_state));
+    if (st == NULL) {
+        return NULL;
+    }
+    memset(st, 0, sizeof(*st));
+    st->fs_kHz = fs_kHz;
+    st->fs_API_Hz = fs_API_Hz;
+    silk_resampler_init(&st->resampler, fs_kHz * 1000, fs_API_Hz, 0);
+    return st;
+}
+
+void test_silk_postproc_destroy(silk_postproc_state *st) {
+    if (st != NULL) {
+        free(st);
+    }
+}
+
+// Post-process one native frame: apply sMid buffering and resample to API rate.
+// Returns number of output samples on success, -1 on failure.
+int test_silk_postproc_frame(
+    silk_postproc_state *st,
+    const opus_int16 *frame, int frame_len,
+    opus_int16 *out, int out_len)
+{
+    if (st == NULL || frame == NULL || out == NULL || frame_len <= 0) {
+        return -1;
+    }
+    int nSamplesOut = (int)((opus_int64)frame_len * st->fs_API_Hz / (st->fs_kHz * 1000));
+    if (out_len < nSamplesOut) {
+        return -1;
+    }
+    st->tmp[0] = st->sMid[0];
+    st->tmp[1] = st->sMid[1];
+    memcpy(&st->tmp[2], frame, frame_len * sizeof(opus_int16));
+    st->sMid[0] = st->tmp[frame_len];
+    st->sMid[1] = st->tmp[frame_len + 1];
+    silk_resampler(&st->resampler, out, &st->tmp[1], frame_len);
+    return nSamplesOut;
+}
+
+// Per-frame decoded parameters from libopus.
+typedef struct {
+    opus_int32 Gains_Q16[MAX_NB_SUBFR];
+    opus_int16 PredCoef_Q12[2][MAX_LPC_ORDER];
+    opus_int16 LTPCoef_Q14[LTP_ORDER * MAX_NB_SUBFR];
+    opus_int pitchL[MAX_NB_SUBFR];
+    opus_int LTP_scale_Q14;
+    opus_int8 NLSFIndices[MAX_LPC_ORDER + 1];
+    opus_int8 NLSFInterpCoef_Q2;
+} silk_frame_params;
+
+// Decode a packet and return per-frame parameters (Gains, LPC, LTP, pitch).
+// Updates decoder state to match normal decode flow. Returns number of frames decoded or -1 on failure.
+int test_silk_decode_packet_params_state(
+    silk_decoder_state *st,
+    const unsigned char *data, int data_len,
+    int fs_kHz, int nb_subfr, int frames_per_packet,
+    silk_frame_params *out_params, int out_params_len)
+{
+    if (st == NULL || data == NULL || out_params == NULL) {
+        return -1;
+    }
+    if (out_params_len < frames_per_packet) {
+        return -1;
+    }
+    ec_dec dec;
+    silk_decoder_control ctrl;
+    opus_int16 pulses_buf[MAX_FRAME_LENGTH + SHELL_CODEC_FRAME_LENGTH];
+    opus_int16 out_buf[MAX_FRAME_LENGTH];
+    int i;
+
+    ec_dec_init(&dec, (unsigned char*)data, data_len);
+    st->nb_subfr = nb_subfr;
+    st->nFramesPerPacket = frames_per_packet;
+    st->nFramesDecoded = 0;
+    st->arch = 0;
+    silk_decoder_set_fs(st, fs_kHz, fs_kHz * 1000);
+
+    // Decode VAD flags
+    for (i = 0; i < frames_per_packet; i++) {
+        st->VAD_flags[i] = ec_dec_bit_logp(&dec, 1);
+    }
+    // Decode LBRR flags
+    st->LBRR_flag = ec_dec_bit_logp(&dec, 1);
+    silk_memset(st->LBRR_flags, 0, sizeof(st->LBRR_flags));
+    if (st->LBRR_flag) {
+        if (frames_per_packet == 1) {
+            st->LBRR_flags[0] = 1;
+        } else {
+            opus_int32 LBRR_symbol = ec_dec_icdf(&dec, silk_LBRR_flags_iCDF_ptr[frames_per_packet - 2], 8) + 1;
+            for (i = 0; i < frames_per_packet; i++) {
+                st->LBRR_flags[i] = (LBRR_symbol >> i) & 1;
+            }
+        }
+    }
+
+    // Skip LBRR payload
+    if (st->LBRR_flag) {
+        for (i = 0; i < frames_per_packet; i++) {
+            if (st->LBRR_flags[i] == 0) {
+                continue;
+            }
+            int condCoding = CODE_INDEPENDENTLY;
+            if (i > 0 && st->LBRR_flags[i - 1]) {
+                condCoding = CODE_CONDITIONALLY;
+            }
+            silk_decode_indices(st, &dec, i, 1, condCoding);
+            silk_decode_pulses(&dec, pulses_buf, st->indices.signalType,
+                st->indices.quantOffsetType, st->frame_length);
+        }
+    }
+
+    for (i = 0; i < frames_per_packet; i++) {
+        int condCoding = (i == 0) ? CODE_INDEPENDENTLY : CODE_CONDITIONALLY;
+        st->nFramesDecoded = i;
+        silk_decode_indices(st, &dec, i, 0, condCoding);
+        silk_decode_pulses(&dec, pulses_buf, st->indices.signalType,
+            st->indices.quantOffsetType, st->frame_length);
+        silk_decode_parameters(st, &ctrl, condCoding);
+
+        // Copy parameters
+        memcpy(out_params[i].Gains_Q16, ctrl.Gains_Q16, sizeof(ctrl.Gains_Q16));
+        memcpy(out_params[i].PredCoef_Q12, ctrl.PredCoef_Q12, sizeof(ctrl.PredCoef_Q12));
+        memcpy(out_params[i].LTPCoef_Q14, ctrl.LTPCoef_Q14, sizeof(ctrl.LTPCoef_Q14));
+        memcpy(out_params[i].pitchL, ctrl.pitchL, sizeof(ctrl.pitchL));
+        out_params[i].LTP_scale_Q14 = ctrl.LTP_scale_Q14;
+        memcpy(out_params[i].NLSFIndices, st->indices.NLSFIndices, sizeof(st->indices.NLSFIndices));
+        out_params[i].NLSFInterpCoef_Q2 = st->indices.NLSFInterpCoef_Q2;
+
+        // Decode core to advance state
+        silk_decode_core(st, &ctrl, out_buf, pulses_buf, 0);
+
+        // Update output buffer
+        int mv_len = st->ltp_mem_length - st->frame_length;
+        if (mv_len > 0) {
+            silk_memmove(st->outBuf, &st->outBuf[st->frame_length], mv_len * sizeof(opus_int16));
+        }
+        silk_memcpy(&st->outBuf[mv_len], out_buf, st->frame_length * sizeof(opus_int16));
+
+        st->lossCnt = 0;
+        st->prevSignalType = st->indices.signalType;
+        st->first_frame_after_reset = 0;
+        st->lagPrev = ctrl.pitchL[ st->nb_subfr - 1 ];
+    }
+
+    return frames_per_packet;
 }
 
 // Declaration for comb_filter from celt.h
@@ -143,6 +559,301 @@ void test_mdct_forward(CELTMode* mode, float* in, float* out, int shift) {
     clt_mdct_forward(&mode->mdct, in, out, mode->window, overlap, shift, 1, 0);
 }
 
+// Test LPC analysis filter with provided data
+void test_lpc_analysis_filter(
+    opus_int16 *out,
+    const opus_int16 *in,
+    const opus_int16 *B,
+    int len,
+    int order)
+{
+    silk_LPC_analysis_filter(out, in, B, len, order, 0);
+}
+
+// Test specific arithmetic operations
+opus_int32 test_silk_SMLABB(opus_int32 a, opus_int32 b, opus_int32 c) {
+    return silk_SMLABB(a, b, c);
+}
+
+opus_int32 test_silk_SMLABB_ovflw(opus_int32 a, opus_int32 b, opus_int32 c) {
+    return silk_SMLABB_ovflw(a, b, c);
+}
+
+opus_int32 test_silk_ADD32_ovflw(opus_int32 a, opus_int32 b) {
+    return silk_ADD32_ovflw(a, b);
+}
+
+opus_int32 test_silk_SMULBB(opus_int32 a, opus_int32 b) {
+    return silk_SMULBB(a, b);
+}
+
+opus_int32 test_silk_SMULWB(opus_int32 a, opus_int32 b) {
+    return silk_SMULWB(a, b);
+}
+
+opus_int32 test_silk_SMLAWB(opus_int32 a, opus_int32 b, opus_int32 c) {
+    return silk_SMLAWB(a, b, c);
+}
+
+// Test silk_DIV32_varQ
+opus_int32 test_silk_DIV32_varQ(opus_int32 a, opus_int32 b, opus_int Qres) {
+    return silk_DIV32_varQ(a, b, Qres);
+}
+
+// Test silk_INVERSE32_varQ
+opus_int32 test_silk_INVERSE32_varQ(opus_int32 b, opus_int Qres) {
+    return silk_INVERSE32_varQ(b, Qres);
+}
+
+// Test silk_SMULWW
+opus_int32 test_silk_SMULWW(opus_int32 a, opus_int32 b) {
+    return silk_SMULWW(a, b);
+}
+
+// Test silk_SMLAWW
+opus_int32 test_silk_SMLAWW(opus_int32 a, opus_int32 b, opus_int32 c) {
+    return silk_SMLAWW(a, b, c);
+}
+
+// Get outBuf state after decoding frames up to frame_index.
+int test_silk_get_outbuf_state(
+    const unsigned char *data, int data_len,
+    int fs_kHz, int nb_subfr, int frames_per_packet, int frame_index,
+    opus_int16 *out_buf, int out_buf_len,
+    opus_int32 *out_sLPC_Q14_buf, int slpc_buf_len,
+    opus_int32 *out_prev_gain_Q16)
+{
+    if (data == NULL || out_buf == NULL) {
+        return -1;
+    }
+
+    ec_dec dec;
+    silk_decoder_state st;
+    silk_decoder_control ctrl;
+    opus_int16 pulses_buf[MAX_FRAME_LENGTH + SHELL_CODEC_FRAME_LENGTH];
+    opus_int16 frame_out[MAX_FRAME_LENGTH];
+    int i;
+
+    ec_dec_init(&dec, (unsigned char*)data, data_len);
+    silk_init_decoder(&st);
+    st.nb_subfr = nb_subfr;
+    st.nFramesPerPacket = frames_per_packet;
+    st.nFramesDecoded = 0;
+    st.arch = 0;
+    silk_decoder_set_fs(&st, fs_kHz, fs_kHz * 1000);
+
+    // Decode VAD flags
+    for (i = 0; i < frames_per_packet; i++) {
+        st.VAD_flags[i] = ec_dec_bit_logp(&dec, 1);
+    }
+    // Decode LBRR flags
+    st.LBRR_flag = ec_dec_bit_logp(&dec, 1);
+    silk_memset(st.LBRR_flags, 0, sizeof(st.LBRR_flags));
+    if (st.LBRR_flag) {
+        if (frames_per_packet == 1) {
+            st.LBRR_flags[0] = 1;
+        } else {
+            opus_int32 LBRR_symbol = ec_dec_icdf(&dec, silk_LBRR_flags_iCDF_ptr[frames_per_packet - 2], 8) + 1;
+            for (i = 0; i < frames_per_packet; i++) {
+                st.LBRR_flags[i] = (LBRR_symbol >> i) & 1;
+            }
+        }
+    }
+
+    // Skip LBRR payload
+    if (st.LBRR_flag) {
+        for (i = 0; i < frames_per_packet; i++) {
+            if (st.LBRR_flags[i] == 0) {
+                continue;
+            }
+            int condCoding = CODE_INDEPENDENTLY;
+            if (i > 0 && st.LBRR_flags[i - 1]) {
+                condCoding = CODE_CONDITIONALLY;
+            }
+            silk_decode_indices(&st, &dec, i, 1, condCoding);
+            silk_decode_pulses(&dec, pulses_buf, st.indices.signalType,
+                st.indices.quantOffsetType, st.frame_length);
+        }
+    }
+
+    // Decode all frames up to and including frame_index
+    for (i = 0; i <= frame_index && i < frames_per_packet; i++) {
+        int condCoding = (i == 0) ? CODE_INDEPENDENTLY : CODE_CONDITIONALLY;
+        st.nFramesDecoded = i;
+        silk_decode_indices(&st, &dec, i, 0, condCoding);
+        silk_decode_pulses(&dec, pulses_buf, st.indices.signalType,
+            st.indices.quantOffsetType, st.frame_length);
+        silk_decode_parameters(&st, &ctrl, condCoding);
+        silk_decode_core(&st, &ctrl, frame_out, pulses_buf, 0);
+
+        // Update output buffer
+        int mv_len = st.ltp_mem_length - st.frame_length;
+        if (mv_len > 0) {
+            silk_memmove(st.outBuf, &st.outBuf[st.frame_length], mv_len * sizeof(opus_int16));
+        }
+        silk_memcpy(&st.outBuf[mv_len], frame_out, st.frame_length * sizeof(opus_int16));
+
+        st.lossCnt = 0;
+        st.prevSignalType = st.indices.signalType;
+        st.first_frame_after_reset = 0;
+        st.lagPrev = ctrl.pitchL[st.nb_subfr - 1];
+    }
+
+    // Copy output buffer state
+    int copy_len = out_buf_len;
+    if (copy_len > (int)sizeof(st.outBuf)/sizeof(st.outBuf[0])) {
+        copy_len = sizeof(st.outBuf)/sizeof(st.outBuf[0]);
+    }
+    memcpy(out_buf, st.outBuf, copy_len * sizeof(opus_int16));
+
+    // Copy sLPC_Q14_buf
+    if (out_sLPC_Q14_buf != NULL && slpc_buf_len >= MAX_LPC_ORDER) {
+        memcpy(out_sLPC_Q14_buf, st.sLPC_Q14_buf, MAX_LPC_ORDER * sizeof(opus_int32));
+    }
+
+    if (out_prev_gain_Q16 != NULL) {
+        *out_prev_gain_Q16 = st.prev_gain_Q16;
+    }
+
+    return 0;
+}
+
+// Decode SILK packet and return per-frame NLSF/LPC state for debugging.
+// Decodes up to frames_to_decode frames and populates the output arrays.
+// Returns 0 on success, -1 on failure.
+int test_silk_decode_nlsf_state(
+    const unsigned char *data, int data_len,
+    int fs_kHz, int nb_subfr, int frames_per_packet, int frames_to_decode,
+    // Output arrays: [frame_index][lpc_order] for NLSF, [frame_index][2][lpc_order] for LPC
+    opus_int16 *out_prevNLSF_Q15,     // [MAX_FRAMES][MAX_LPC_ORDER]
+    opus_int16 *out_currNLSF_Q15,     // [MAX_FRAMES][MAX_LPC_ORDER]
+    opus_int16 *out_interpNLSF_Q15,   // [MAX_FRAMES][MAX_LPC_ORDER] (nlsf0 when interp)
+    opus_int16 *out_predCoef0_Q12,    // [MAX_FRAMES][MAX_LPC_ORDER] (PredCoef_Q12[0])
+    opus_int16 *out_predCoef1_Q12,    // [MAX_FRAMES][MAX_LPC_ORDER] (PredCoef_Q12[1])
+    opus_int8 *out_nlsfInterpCoef,    // [MAX_FRAMES]
+    int lpc_order)
+{
+    if (data == NULL || frames_to_decode <= 0 || frames_to_decode > frames_per_packet) {
+        return -1;
+    }
+
+    ec_dec dec;
+    silk_decoder_state st;
+    silk_decoder_control ctrl;
+    opus_int16 pulses_buf[MAX_FRAME_LENGTH + SHELL_CODEC_FRAME_LENGTH];
+    opus_int16 frame_out[MAX_FRAME_LENGTH];
+    int i, k;
+
+    ec_dec_init(&dec, (unsigned char*)data, data_len);
+    silk_init_decoder(&st);
+    st.nb_subfr = nb_subfr;
+    st.nFramesPerPacket = frames_per_packet;
+    st.nFramesDecoded = 0;
+    st.arch = 0;
+    silk_decoder_set_fs(&st, fs_kHz, fs_kHz * 1000);
+
+    // Decode VAD flags
+    for (i = 0; i < frames_per_packet; i++) {
+        st.VAD_flags[i] = ec_dec_bit_logp(&dec, 1);
+    }
+    // Decode LBRR flags
+    st.LBRR_flag = ec_dec_bit_logp(&dec, 1);
+    silk_memset(st.LBRR_flags, 0, sizeof(st.LBRR_flags));
+    if (st.LBRR_flag) {
+        if (frames_per_packet == 1) {
+            st.LBRR_flags[0] = 1;
+        } else {
+            opus_int32 LBRR_symbol = ec_dec_icdf(&dec, silk_LBRR_flags_iCDF_ptr[frames_per_packet - 2], 8) + 1;
+            for (i = 0; i < frames_per_packet; i++) {
+                st.LBRR_flags[i] = (LBRR_symbol >> i) & 1;
+            }
+        }
+    }
+
+    // Skip LBRR payload
+    if (st.LBRR_flag) {
+        for (i = 0; i < frames_per_packet; i++) {
+            if (st.LBRR_flags[i] == 0) {
+                continue;
+            }
+            int condCoding = CODE_INDEPENDENTLY;
+            if (i > 0 && st.LBRR_flags[i - 1]) {
+                condCoding = CODE_CONDITIONALLY;
+            }
+            silk_decode_indices(&st, &dec, i, 1, condCoding);
+            silk_decode_pulses(&dec, pulses_buf, st.indices.signalType,
+                st.indices.quantOffsetType, st.frame_length);
+        }
+    }
+
+    // Decode normal frames and capture NLSF state
+    for (i = 0; i < frames_to_decode; i++) {
+        int condCoding = (i == 0) ? CODE_INDEPENDENTLY : CODE_CONDITIONALLY;
+        st.nFramesDecoded = i;
+
+        // Copy prevNLSF before decoding (this is what will be used for interp)
+        for (k = 0; k < lpc_order; k++) {
+            out_prevNLSF_Q15[i * MAX_LPC_ORDER + k] = st.prevNLSF_Q15[k];
+        }
+
+        silk_decode_indices(&st, &dec, i, 0, condCoding);
+        silk_decode_pulses(&dec, pulses_buf, st.indices.signalType,
+            st.indices.quantOffsetType, st.frame_length);
+
+        // Save NLSFInterpCoef
+        out_nlsfInterpCoef[i] = st.indices.NLSFInterpCoef_Q2;
+
+        // Call silk_decode_parameters which does NLSF decode and interp
+        silk_decode_parameters(&st, &ctrl, condCoding);
+
+        // Now extract the values:
+        // currNLSF is now in st.prevNLSF_Q15 (it was copied at end of silk_decode_parameters)
+        for (k = 0; k < lpc_order; k++) {
+            out_currNLSF_Q15[i * MAX_LPC_ORDER + k] = st.prevNLSF_Q15[k];
+        }
+
+        // PredCoef_Q12[0] and [1]
+        for (k = 0; k < lpc_order; k++) {
+            out_predCoef0_Q12[i * MAX_LPC_ORDER + k] = ctrl.PredCoef_Q12[0][k];
+            out_predCoef1_Q12[i * MAX_LPC_ORDER + k] = ctrl.PredCoef_Q12[1][k];
+        }
+
+        // Compute interpolated NLSF if interp is active
+        if (st.indices.NLSFInterpCoef_Q2 < 4) {
+            // Interp was done, so nlsf0 = prevNLSF + (NLSFInterpCoef * (currNLSF - prevNLSF)) >> 2
+            // But prevNLSF was already overwritten, so we recompute from predCoef relationship
+            // Actually, let's just store what was used: the interpolated coefficients are in PredCoef_Q12[0]
+            // We can't easily get nlsf0 back without storing it during decode_parameters
+            // For now, just mark it as unavailable
+            for (k = 0; k < lpc_order; k++) {
+                out_interpNLSF_Q15[i * MAX_LPC_ORDER + k] = -1; // marker
+            }
+        } else {
+            // No interp, nlsf0 = currNLSF
+            for (k = 0; k < lpc_order; k++) {
+                out_interpNLSF_Q15[i * MAX_LPC_ORDER + k] = st.prevNLSF_Q15[k];
+            }
+        }
+
+        // Decode core to update state for next frame
+        silk_decode_core(&st, &ctrl, frame_out, pulses_buf, 0);
+
+        // Update output buffer
+        int mv_len = st.ltp_mem_length - st.frame_length;
+        if (mv_len > 0) {
+            silk_memmove(st.outBuf, &st.outBuf[st.frame_length], mv_len * sizeof(opus_int16));
+        }
+        silk_memcpy(&st.outBuf[mv_len], frame_out, st.frame_length * sizeof(opus_int16));
+
+        st.lossCnt = 0;
+        st.prevSignalType = st.indices.signalType;
+        st.first_frame_after_reset = 0;
+        st.lagPrev = ctrl.pitchL[st.nb_subfr - 1];
+    }
+
+    return 0;
+}
+
 */
 import "C"
 
@@ -177,6 +888,254 @@ func DecodeICDF(data []byte, icdf []byte, ftb int) int {
 	cData := (*C.uchar)(unsafe.Pointer(&data[0]))
 	cICDF := (*C.uchar)(unsafe.Pointer(&icdf[0]))
 	return int(C.test_decode_icdf(cData, C.int(len(data)), cICDF, C.int(ftb)))
+}
+
+// SilkNLSFDecode calls libopus silk_NLSF_decode for NB/MB or WB codebooks.
+func SilkNLSFDecode(indices []int8, useWB bool) []int16 {
+	if len(indices) == 0 {
+		return nil
+	}
+	out := make([]int16, 16)
+	cIdx := (*C.opus_int8)(unsafe.Pointer(&indices[0]))
+	cOut := (*C.opus_int16)(unsafe.Pointer(&out[0]))
+	wb := 0
+	if useWB {
+		wb = 1
+	}
+	C.test_silk_nlsf_decode(cIdx, C.int(wb), cOut)
+	return out
+}
+
+// SilkNLSF2A calls libopus silk_NLSF2A.
+func SilkNLSF2A(nlsf []int16, order int) []int16 {
+	if len(nlsf) < order || order <= 0 {
+		return nil
+	}
+	out := make([]int16, 16)
+	cNLSF := (*C.opus_int16)(unsafe.Pointer(&nlsf[0]))
+	cOut := (*C.opus_int16)(unsafe.Pointer(&out[0]))
+	C.test_silk_nlsf2a(cNLSF, C.int(order), cOut)
+	return out
+}
+
+// SilkDecodeCore calls libopus silk_decode_core with provided state/control.
+func SilkDecodeCore(
+	fsKHz, nbSubfr, frameLength, subfrLength, ltpMemLength, lpcOrder int,
+	prevGainQ16 int32, lossCnt, prevSignalType int,
+	signalType, quantOffsetType, nlsfInterpCoefQ2, seed int8,
+	outBuf []int16, sLPCQ14Buf []int32,
+	gainsQ16 []int32, predCoefQ12 []int16, ltpCoefQ14 []int16, pitchL []int, ltpScaleQ14 int32,
+	pulses []int16,
+) []int16 {
+	if frameLength <= 0 {
+		return nil
+	}
+	out := make([]int16, frameLength)
+	if len(outBuf) == 0 || len(sLPCQ14Buf) == 0 || len(gainsQ16) == 0 || len(predCoefQ12) == 0 || len(ltpCoefQ14) == 0 || len(pitchL) == 0 || len(pulses) == 0 {
+		return out
+	}
+
+	cOutBuf := (*C.opus_int16)(unsafe.Pointer(&outBuf[0]))
+	cSLPC := (*C.opus_int32)(unsafe.Pointer(&sLPCQ14Buf[0]))
+	cGains := (*C.opus_int32)(unsafe.Pointer(&gainsQ16[0]))
+	cPred := (*C.opus_int16)(unsafe.Pointer(&predCoefQ12[0]))
+	cLtp := (*C.opus_int16)(unsafe.Pointer(&ltpCoefQ14[0]))
+	cPulses := (*C.opus_int16)(unsafe.Pointer(&pulses[0]))
+	cOut := (*C.opus_int16)(unsafe.Pointer(&out[0]))
+
+	cPitch := make([]C.int, len(pitchL))
+	for i, v := range pitchL {
+		cPitch[i] = C.int(v)
+	}
+
+	C.test_silk_decode_core(
+		C.int(fsKHz), C.int(nbSubfr), C.int(frameLength), C.int(subfrLength), C.int(ltpMemLength), C.int(lpcOrder),
+		C.opus_int32(prevGainQ16), C.int(lossCnt), C.int(prevSignalType),
+		C.opus_int8(signalType), C.opus_int8(quantOffsetType), C.opus_int8(nlsfInterpCoefQ2), C.opus_int8(seed),
+		cOutBuf, cSLPC,
+		cGains, cPred, cLtp, (*C.int)(unsafe.Pointer(&cPitch[0])), C.int(ltpScaleQ14),
+		cPulses, cOut,
+	)
+	return out
+}
+
+// SilkDecodedFrame holds decoded indices and pulses for a single frame.
+type SilkDecodedFrame struct {
+	GainsIndices    [4]int8
+	LTPIndex        [4]int8
+	NLSFIndices     [17]int8
+	LagIndex        int16
+	ContourIndex    int8
+	SignalType      int8
+	QuantOffsetType int8
+	NLSFInterpCoef  int8
+	PERIndex        int8
+	LTPScaleIndex   int8
+	Seed            int8
+	Pulses          []int16
+}
+
+// SilkDecodeIndicesPulses decodes indices and pulses for a frame using libopus.
+func SilkDecodeIndicesPulses(
+	data []byte,
+	fsKHz, nbSubfr, framesPerPacket, frameIndex, frameLength int,
+) (*SilkDecodedFrame, error) {
+	if len(data) == 0 {
+		return nil, nil
+	}
+	var out SilkDecodedFrame
+	out.Pulses = make([]int16, frameLength)
+
+	cData := (*C.uchar)(unsafe.Pointer(&data[0]))
+	ret := C.test_silk_decode_indices_pulses(
+		cData, C.int(len(data)),
+		C.int(fsKHz), C.int(nbSubfr), C.int(framesPerPacket), C.int(frameIndex),
+		(*C.opus_int8)(unsafe.Pointer(&out.GainsIndices[0])),
+		(*C.opus_int8)(unsafe.Pointer(&out.LTPIndex[0])),
+		(*C.opus_int8)(unsafe.Pointer(&out.NLSFIndices[0])),
+		(*C.opus_int16)(unsafe.Pointer(&out.LagIndex)),
+		(*C.opus_int8)(unsafe.Pointer(&out.ContourIndex)),
+		(*C.opus_int8)(unsafe.Pointer(&out.SignalType)),
+		(*C.opus_int8)(unsafe.Pointer(&out.QuantOffsetType)),
+		(*C.opus_int8)(unsafe.Pointer(&out.NLSFInterpCoef)),
+		(*C.opus_int8)(unsafe.Pointer(&out.PERIndex)),
+		(*C.opus_int8)(unsafe.Pointer(&out.LTPScaleIndex)),
+		(*C.opus_int8)(unsafe.Pointer(&out.Seed)),
+		(*C.opus_int16)(unsafe.Pointer(&out.Pulses[0])),
+		C.int(len(out.Pulses)),
+	)
+	if ret != 0 {
+		return nil, nil
+	}
+	return &out, nil
+}
+
+// SilkDecoderState wraps a persistent libopus silk_decoder_state.
+type SilkDecoderState struct {
+	ptr *C.silk_decoder_state
+}
+
+// NewSilkDecoderState creates a persistent SILK decoder state (libopus).
+func NewSilkDecoderState() *SilkDecoderState {
+	ptr := C.test_silk_decoder_state_create()
+	if ptr == nil {
+		return nil
+	}
+	return &SilkDecoderState{ptr: ptr}
+}
+
+// Free releases the decoder state.
+func (s *SilkDecoderState) Free() {
+	if s == nil || s.ptr == nil {
+		return
+	}
+	C.test_silk_decoder_state_destroy(s.ptr)
+	s.ptr = nil
+}
+
+// DecodePacketNativeCore decodes a packet to native samples using libopus core path.
+// data should be the SILK payload (without TOC).
+func (s *SilkDecoderState) DecodePacketNativeCore(data []byte, fsKHz, nbSubfr, framesPerPacket int) ([]int16, error) {
+	if s == nil || s.ptr == nil || len(data) == 0 {
+		return nil, nil
+	}
+	frameLength := nbSubfr * 5 * fsKHz
+	if frameLength <= 0 {
+		return nil, nil
+	}
+	out := make([]int16, framesPerPacket*frameLength)
+	ret := C.test_silk_decode_packet_native_core_state(
+		s.ptr,
+		(*C.uchar)(unsafe.Pointer(&data[0])),
+		C.int(len(data)),
+		C.int(fsKHz),
+		C.int(nbSubfr),
+		C.int(framesPerPacket),
+		(*C.opus_int16)(unsafe.Pointer(&out[0])),
+		C.int(len(out)),
+	)
+	if ret != 0 {
+		return nil, nil
+	}
+	return out, nil
+}
+
+// SilkPostprocState wraps libopus resampler + sMid buffering for mono.
+type SilkPostprocState struct {
+	ptr *C.silk_postproc_state
+}
+
+// NewSilkPostprocState creates a post-processing state for native->API resampling.
+func NewSilkPostprocState(fsKHz, fsAPIHz int) *SilkPostprocState {
+	ptr := C.test_silk_postproc_create(C.int(fsKHz), C.int(fsAPIHz))
+	if ptr == nil {
+		return nil
+	}
+	return &SilkPostprocState{ptr: ptr}
+}
+
+// Free releases the post-processing state.
+func (s *SilkPostprocState) Free() {
+	if s == nil || s.ptr == nil {
+		return
+	}
+	C.test_silk_postproc_destroy(s.ptr)
+	s.ptr = nil
+}
+
+// ProcessFrame resamples a native frame to API rate using libopus logic.
+func (s *SilkPostprocState) ProcessFrame(frame []int16) ([]int16, int) {
+	if s == nil || s.ptr == nil || len(frame) == 0 {
+		return nil, -1
+	}
+	// Max output length for 48k is 6x for 8k, 4x for 12k, 3x for 16k.
+	// Allocate a generous buffer.
+	out := make([]int16, len(frame)*6+8)
+	n := int(C.test_silk_postproc_frame(
+		s.ptr,
+		(*C.opus_int16)(unsafe.Pointer(&frame[0])),
+		C.int(len(frame)),
+		(*C.opus_int16)(unsafe.Pointer(&out[0])),
+		C.int(len(out)),
+	))
+	if n <= 0 {
+		return nil, n
+	}
+	return out[:n], n
+}
+
+// SilkFrameParams mirrors libopus decoder control parameters for one frame.
+type SilkFrameParams struct {
+	GainsQ16         [4]int32
+	PredCoefQ12      [2][16]int16
+	LTPCoefQ14       [20]int16
+	PitchL           [4]int32
+	LTPScaleQ14      int32
+	NLSFIndices      [17]int8
+	NLSFInterpCoefQ2 int8
+}
+
+// DecodePacketParams decodes a packet and returns per-frame parameters.
+// data should be the SILK payload (without TOC).
+func (s *SilkDecoderState) DecodePacketParams(data []byte, fsKHz, nbSubfr, framesPerPacket int) ([]SilkFrameParams, error) {
+	if s == nil || s.ptr == nil || len(data) == 0 {
+		return nil, nil
+	}
+	out := make([]SilkFrameParams, framesPerPacket)
+	ret := C.test_silk_decode_packet_params_state(
+		s.ptr,
+		(*C.uchar)(unsafe.Pointer(&data[0])),
+		C.int(len(data)),
+		C.int(fsKHz),
+		C.int(nbSubfr),
+		C.int(framesPerPacket),
+		(*C.silk_frame_params)(unsafe.Pointer(&out[0])),
+		C.int(len(out)),
+	)
+	if ret <= 0 {
+		return nil, nil
+	}
+	return out, nil
 }
 
 // CombFilter calls libopus comb_filter function.
@@ -317,4 +1276,154 @@ func (m *CELTMode) GetWindow() []float32 {
 		window[i] = float32(*(*C.float)(unsafe.Pointer(uintptr(unsafe.Pointer(cWindow)) + uintptr(i)*unsafe.Sizeof(*cWindow))))
 	}
 	return window
+}
+
+// SilkLPCAnalysisFilter calls libopus silk_LPC_analysis_filter.
+func SilkLPCAnalysisFilter(in, B []int16, length, order int) []int16 {
+	out := make([]int16, length)
+	cOut := (*C.opus_int16)(unsafe.Pointer(&out[0]))
+	cIn := (*C.opus_int16)(unsafe.Pointer(&in[0]))
+	cB := (*C.opus_int16)(unsafe.Pointer(&B[0]))
+	C.test_lpc_analysis_filter(cOut, cIn, cB, C.int(length), C.int(order))
+	return out
+}
+
+// TestSilkSMLABB calls libopus silk_SMLABB.
+func TestSilkSMLABB(a, b, c int32) int32 {
+	return int32(C.test_silk_SMLABB(C.opus_int32(a), C.opus_int32(b), C.opus_int32(c)))
+}
+
+// TestSilkSMLABBOvflw calls libopus silk_SMLABB_ovflw.
+func TestSilkSMLABBOvflw(a, b, c int32) int32 {
+	return int32(C.test_silk_SMLABB_ovflw(C.opus_int32(a), C.opus_int32(b), C.opus_int32(c)))
+}
+
+// TestSilkADD32Ovflw calls libopus silk_ADD32_ovflw.
+func TestSilkADD32Ovflw(a, b int32) int32 {
+	return int32(C.test_silk_ADD32_ovflw(C.opus_int32(a), C.opus_int32(b)))
+}
+
+// TestSilkSMULBB calls libopus silk_SMULBB.
+func TestSilkSMULBB(a, b int32) int32 {
+	return int32(C.test_silk_SMULBB(C.opus_int32(a), C.opus_int32(b)))
+}
+
+// TestSilkSMULWB calls libopus silk_SMULWB.
+func TestSilkSMULWB(a, b int32) int32 {
+	return int32(C.test_silk_SMULWB(C.opus_int32(a), C.opus_int32(b)))
+}
+
+// TestSilkSMLAWB calls libopus silk_SMLAWB.
+func TestSilkSMLAWB(a, b, c int32) int32 {
+	return int32(C.test_silk_SMLAWB(C.opus_int32(a), C.opus_int32(b), C.opus_int32(c)))
+}
+
+// TestSilkDIV32VarQ calls libopus silk_DIV32_varQ.
+func TestSilkDIV32VarQ(a, b int32, qres int) int32 {
+	return int32(C.test_silk_DIV32_varQ(C.opus_int32(a), C.opus_int32(b), C.int(qres)))
+}
+
+// TestSilkINVERSE32VarQ calls libopus silk_INVERSE32_varQ.
+func TestSilkINVERSE32VarQ(b int32, qres int) int32 {
+	return int32(C.test_silk_INVERSE32_varQ(C.opus_int32(b), C.int(qres)))
+}
+
+// TestSilkSMULWW calls libopus silk_SMULWW.
+func TestSilkSMULWW(a, b int32) int32 {
+	return int32(C.test_silk_SMULWW(C.opus_int32(a), C.opus_int32(b)))
+}
+
+// TestSilkSMLAWW calls libopus silk_SMLAWW.
+func TestSilkSMLAWW(a, b, c int32) int32 {
+	return int32(C.test_silk_SMLAWW(C.opus_int32(a), C.opus_int32(b), C.opus_int32(c)))
+}
+
+// SilkNLSFStateFrame holds NLSF state for one frame from libopus.
+type SilkNLSFStateFrame struct {
+	PrevNLSFQ15      []int16 // prevNLSF_Q15 before this frame's decode
+	CurrNLSFQ15      []int16 // current NLSF (after decode)
+	InterpNLSFQ15    []int16 // interpolated NLSF (if interp active, else same as curr)
+	PredCoef0Q12     []int16 // PredCoef_Q12[0] (used for first half of frame)
+	PredCoef1Q12     []int16 // PredCoef_Q12[1] (used for second half of frame)
+	NLSFInterpCoefQ2 int8    // interpolation coefficient
+}
+
+// SilkDecodeNLSFState decodes a packet and returns per-frame NLSF/LPC state.
+func SilkDecodeNLSFState(data []byte, fsKHz, nbSubfr, framesPerPacket, framesToDecode, lpcOrder int) ([]SilkNLSFStateFrame, error) {
+	if len(data) == 0 || framesToDecode <= 0 || framesToDecode > framesPerPacket {
+		return nil, nil
+	}
+
+	maxLPCOrder := 16
+	maxFrames := 3
+
+	// Allocate output arrays
+	prevNLSF := make([]int16, maxFrames*maxLPCOrder)
+	currNLSF := make([]int16, maxFrames*maxLPCOrder)
+	interpNLSF := make([]int16, maxFrames*maxLPCOrder)
+	predCoef0 := make([]int16, maxFrames*maxLPCOrder)
+	predCoef1 := make([]int16, maxFrames*maxLPCOrder)
+	nlsfInterp := make([]int8, maxFrames)
+
+	cData := (*C.uchar)(unsafe.Pointer(&data[0]))
+	ret := C.test_silk_decode_nlsf_state(
+		cData, C.int(len(data)),
+		C.int(fsKHz), C.int(nbSubfr), C.int(framesPerPacket), C.int(framesToDecode),
+		(*C.opus_int16)(unsafe.Pointer(&prevNLSF[0])),
+		(*C.opus_int16)(unsafe.Pointer(&currNLSF[0])),
+		(*C.opus_int16)(unsafe.Pointer(&interpNLSF[0])),
+		(*C.opus_int16)(unsafe.Pointer(&predCoef0[0])),
+		(*C.opus_int16)(unsafe.Pointer(&predCoef1[0])),
+		(*C.opus_int8)(unsafe.Pointer(&nlsfInterp[0])),
+		C.int(lpcOrder),
+	)
+
+	if ret != 0 {
+		return nil, nil
+	}
+
+	result := make([]SilkNLSFStateFrame, framesToDecode)
+	for i := 0; i < framesToDecode; i++ {
+		off := i * maxLPCOrder
+		result[i] = SilkNLSFStateFrame{
+			PrevNLSFQ15:      make([]int16, lpcOrder),
+			CurrNLSFQ15:      make([]int16, lpcOrder),
+			InterpNLSFQ15:    make([]int16, lpcOrder),
+			PredCoef0Q12:     make([]int16, lpcOrder),
+			PredCoef1Q12:     make([]int16, lpcOrder),
+			NLSFInterpCoefQ2: nlsfInterp[i],
+		}
+		copy(result[i].PrevNLSFQ15, prevNLSF[off:off+lpcOrder])
+		copy(result[i].CurrNLSFQ15, currNLSF[off:off+lpcOrder])
+		copy(result[i].InterpNLSFQ15, interpNLSF[off:off+lpcOrder])
+		copy(result[i].PredCoef0Q12, predCoef0[off:off+lpcOrder])
+		copy(result[i].PredCoef1Q12, predCoef1[off:off+lpcOrder])
+	}
+
+	return result, nil
+}
+
+// GetSilkOutBufState gets outBuf state from libopus after decoding frames.
+func GetSilkOutBufState(data []byte, fsKHz, nbSubfr, framesPerPacket, frameIndex int) ([]int16, []int32, int32, error) {
+	if len(data) == 0 {
+		return nil, nil, 0, nil
+	}
+
+	outBuf := make([]int16, 480) // MAX_DECODER_BUF_LENGTH
+	sLPCQ14Buf := make([]int32, 16)
+	var prevGainQ16 int32
+
+	cData := (*C.uchar)(unsafe.Pointer(&data[0]))
+	ret := C.test_silk_get_outbuf_state(
+		cData, C.int(len(data)),
+		C.int(fsKHz), C.int(nbSubfr), C.int(framesPerPacket), C.int(frameIndex),
+		(*C.opus_int16)(unsafe.Pointer(&outBuf[0])), C.int(len(outBuf)),
+		(*C.opus_int32)(unsafe.Pointer(&sLPCQ14Buf[0])), C.int(len(sLPCQ14Buf)),
+		(*C.opus_int32)(unsafe.Pointer(&prevGainQ16)),
+	)
+	if ret != 0 {
+		return nil, nil, 0, nil
+	}
+
+	return outBuf, sLPCQ14Buf, prevGainQ16, nil
 }
