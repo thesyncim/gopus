@@ -6,6 +6,214 @@ import (
 	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
+// ComputeImportance computes per-band importance weights for TF analysis.
+// Importance weights affect how much each band's TF decision matters in the Viterbi search.
+//
+// The importance is derived from:
+// - Band log energies relative to a spectral follower curve
+// - Noise floor based on band width and quantization depth
+// - Masking effects from neighboring bands
+//
+// Higher importance means the band's TF decision has more perceptual impact.
+// Default value is 13 (when no analysis is performed).
+//
+// Parameters:
+//   - bandLogE: log-domain band energies (mean-relative, from ComputeBandEnergies)
+//   - oldBandE: previous frame band energies (for temporal smoothing)
+//   - nbBands: number of bands
+//   - channels: number of audio channels
+//   - lm: log mode (frame size index)
+//   - lsbDepth: bit depth of input signal (typically 16 or 24)
+//   - effectiveBytes: available bytes for encoding
+//
+// Returns: per-band importance weights (13 = neutral, higher = more important)
+//
+// Reference: libopus celt/celt_encoder.c dynalloc_analysis() importance calculation
+func ComputeImportance(bandLogE, oldBandE []float64, nbBands, channels, lm, lsbDepth, effectiveBytes int) []int {
+	importance := make([]int, nbBands)
+
+	// Default importance when analysis is disabled (low bitrate or complexity)
+	// libopus: if (effectiveBytes < (30 + 5*LM)) importance[i] = 13
+	if effectiveBytes < 30+5*lm {
+		for i := 0; i < nbBands; i++ {
+			importance[i] = 13
+		}
+		return importance
+	}
+
+	// Compute noise floor per band
+	// libopus: noise_floor[i] = 0.0625*logN[i] + 0.5 + (9-lsb_depth) - eMeans[i]/16 + 0.0062*(i+5)^2
+	noiseFloor := make([]float64, nbBands)
+	for i := 0; i < nbBands; i++ {
+		logNVal := 0.0
+		if i < len(LogN) {
+			logNVal = float64(LogN[i]) / 256.0 // LogN is in Q8
+		}
+		eMean := 0.0
+		if i < len(eMeans) {
+			eMean = eMeans[i]
+		}
+		// Noise floor formula from libopus (converted from fixed-point)
+		noiseFloor[i] = 0.0625*logNVal + 0.5 + float64(9-lsbDepth) - eMean/16.0 + 0.0062*float64((i+5)*(i+5))
+	}
+
+	// Compute max depth across all bands and channels
+	maxDepth := -31.9
+	end := nbBands
+	for c := 0; c < channels; c++ {
+		for i := 0; i < end; i++ {
+			idx := c*nbBands + i
+			if idx < len(bandLogE) {
+				depth := bandLogE[idx] - noiseFloor[i]
+				if depth > maxDepth {
+					maxDepth = depth
+				}
+			}
+		}
+	}
+
+	// Compute follower curve (spectral envelope tracker)
+	// This implements a simple masking model
+	follower := make([]float64, nbBands)
+
+	// For each channel, compute follower and combine
+	for c := 0; c < channels; c++ {
+		bandLogE3 := make([]float64, nbBands)
+		f := make([]float64, nbBands)
+
+		// Get band energies for this channel
+		for i := 0; i < nbBands; i++ {
+			idx := c*nbBands + i
+			if idx < len(bandLogE) {
+				bandLogE3[i] = bandLogE[idx]
+			}
+			// For LM=0, use max of current and previous frame energies
+			// (single-bin bands have high variance)
+			if lm == 0 && i < 8 {
+				oldIdx := c*MaxBands + i
+				if oldIdx < len(oldBandE) && oldBandE[oldIdx] > bandLogE3[i] {
+					bandLogE3[i] = oldBandE[oldIdx]
+				}
+			}
+		}
+
+		// Forward pass: follower tracks rising edges with limited slope
+		f[0] = bandLogE3[0]
+		last := 0
+		for i := 1; i < nbBands; i++ {
+			// Track last band significantly higher than previous
+			if bandLogE3[i] > bandLogE3[i-1]+0.5 {
+				last = i
+			}
+			// Follower rises at most 1.5 dB per band
+			if f[i-1]+1.5 < bandLogE3[i] {
+				f[i] = f[i-1] + 1.5
+			} else {
+				f[i] = bandLogE3[i]
+			}
+		}
+
+		// Backward pass: follower tracks falling edges
+		for i := last - 1; i >= 0; i-- {
+			// Follower falls at most 2 dB per band
+			if f[i+1]+2.0 < f[i] {
+				f[i] = f[i+1] + 2.0
+			}
+			if bandLogE3[i] < f[i] {
+				f[i] = bandLogE3[i]
+			}
+		}
+
+		// Clamp follower to noise floor
+		for i := 0; i < nbBands; i++ {
+			if f[i] < noiseFloor[i] {
+				f[i] = noiseFloor[i]
+			}
+		}
+
+		// Compute importance contribution from this channel
+		// follower = max(0, bandLogE - follower)
+		if channels == 2 {
+			// Stereo: combine with cross-talk consideration (24 dB)
+			otherC := 1 - c
+			for i := 0; i < nbBands; i++ {
+				otherIdx := otherC*nbBands + i
+				if otherIdx < len(bandLogE) {
+					// Consider 24 dB cross-talk between channels
+					otherFollower := follower[i] - 4.0 // 4.0 ~ 24 dB
+					if otherFollower > f[i] {
+						f[i] = otherFollower
+					}
+				}
+			}
+		}
+
+		// Store or combine follower values
+		if c == 0 {
+			copy(follower, f)
+		} else {
+			// For stereo, combine the excess energy from both channels
+			for i := 0; i < nbBands; i++ {
+				idx0 := i
+				idx1 := nbBands + i
+				excess0 := 0.0
+				excess1 := 0.0
+				if idx0 < len(bandLogE) {
+					excess0 = bandLogE[idx0] - follower[i]
+					if excess0 < 0 {
+						excess0 = 0
+					}
+				}
+				if idx1 < len(bandLogE) {
+					excess1 = bandLogE[idx1] - f[i]
+					if excess1 < 0 {
+						excess1 = 0
+					}
+				}
+				follower[i] = (excess0 + excess1) / 2.0
+			}
+		}
+	}
+
+	// If mono, compute excess energy
+	if channels == 1 {
+		for i := 0; i < nbBands; i++ {
+			if i < len(bandLogE) {
+				excess := bandLogE[i] - follower[i]
+				if excess < 0 {
+					excess = 0
+				}
+				follower[i] = excess
+			} else {
+				follower[i] = 0
+			}
+		}
+	}
+
+	// Convert follower to importance
+	// libopus: importance[i] = floor(0.5 + 13 * celt_exp2_db(min(follower[i], 4.0)))
+	// celt_exp2_db is just exp2 (2^x) for float builds
+	for i := 0; i < nbBands; i++ {
+		f := follower[i]
+		if f > 4.0 {
+			f = 4.0
+		}
+		// exp2(f) where f is in "dB-like" log2 units
+		// When f=0, importance=13. When f=4, importance=13*16=208
+		imp := 13.0 * math.Pow(2.0, f)
+		importance[i] = int(math.Floor(0.5 + imp))
+		// Clamp to reasonable range
+		if importance[i] < 1 {
+			importance[i] = 1
+		}
+		if importance[i] > 255 {
+			importance[i] = 255
+		}
+	}
+
+	return importance
+}
+
 // l1Metric computes the L1 metric for TF analysis with a bias term.
 // The bias favors frequency resolution when in doubt.
 //
