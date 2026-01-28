@@ -197,6 +197,26 @@ func (d *Decoder) DecodeWithDecoder(rd *rangecoding.Decoder, frameSize int) ([]f
 	return d.decodeFrame(rd, frameSize, false)
 }
 
+// DecodeWithDecoderHook decodes using a pre-initialized range decoder and an optional hook.
+// The hook runs after SILK decode and before CELT decode, allowing Opus-layer parsing.
+func (d *Decoder) DecodeWithDecoderHook(rd *rangecoding.Decoder, frameSize int, packetStereo bool, afterSilk func(*rangecoding.Decoder) error) ([]float64, error) {
+	if rd == nil {
+		return nil, ErrNilDecoder
+	}
+	if !ValidHybridFrameSize(frameSize) {
+		return nil, ErrInvalidFrameSize
+	}
+	samples, err := d.decodeFrameWithHook(rd, frameSize, packetStereo, afterSilk)
+	if err != nil {
+		return nil, err
+	}
+
+	hybridPLCState.Reset()
+	hybridPLCState.SetLastFrameParams(plc.ModeHybrid, frameSize, d.channels)
+
+	return samples, nil
+}
+
 // DecodeStereoWithDecoder decodes stereo using a pre-initialized range decoder.
 func (d *Decoder) DecodeStereoWithDecoder(rd *rangecoding.Decoder, frameSize int) ([]float64, error) {
 	if d.channels != 2 {
@@ -236,7 +256,7 @@ func float64ToFloat32(samples []float64) []float32 {
 // decodePLC generates concealment audio for a lost Hybrid packet.
 // Coordinates both SILK PLC and CELT PLC for the full hybrid output.
 func (d *Decoder) decodePLC(frameSize int, stereo bool) ([]float64, error) {
-	if !ValidHybridFrameSize(frameSize) {
+	if !ValidHybridFrameSize(frameSize) && frameSize != 120 && frameSize != 240 {
 		return nil, ErrInvalidFrameSize
 	}
 
@@ -246,13 +266,19 @@ func (d *Decoder) decodePLC(frameSize int, stereo bool) ([]float64, error) {
 	// Total samples for output
 	totalSamples := frameSize * d.channels
 
+	// SILK PLC cannot produce less than 10ms; use 10ms and trim if needed.
+	plcSilkFrameSize := frameSize
+	if plcSilkFrameSize < 480 {
+		plcSilkFrameSize = 480
+	}
+
 	// If fade is exhausted, return silence
 	if fadeFactor < 0.001 {
 		return make([]float64, totalSamples), nil
 	}
 
 	// Generate SILK PLC at 16kHz (WB)
-	silkSamples := frameSize / 3 // 48kHz -> 16kHz
+	silkSamples := plcSilkFrameSize / 3 // 48kHz -> 16kHz
 	var silkConcealed []float32
 	if stereo {
 		left, right := plc.ConcealSILKStereo(d.silkDecoder, silkSamples, fadeFactor)

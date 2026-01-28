@@ -702,32 +702,35 @@ func interpBits2PulsesEncode(re *rangecoding.Encoder, start, end, skipStart int,
 		bandBits := bits[j] + percoeff*bandWidth + rem
 
 		if bandBits >= maxInt(thresh[j], allocFloor+(1<<bitRes)) {
-			keepBand := true
-			if re != nil {
-				depthThreshold := 0
-				if codedBands > 17 {
-					if j < prev {
-						depthThreshold = 7
-					} else {
-						depthThreshold = 9
-					}
-				}
-				keep := codedBands <= start+2
-				if !keep && depthThreshold > 0 {
-					threshold := (depthThreshold * bandWidth << lm << bitRes) >> 4
-					if bandBits > threshold && j <= signalBandwidth {
-						keep = true
-					}
-				}
-				if keep {
-					// 1 = keep band, 0 = skip band (per libopus rate.c)
-					re.EncodeBit(1, 1)
-					keepBand = true
+			// Compute the skip/keep decision (same logic whether encoding or not)
+			depthThreshold := 0
+			if codedBands > 17 {
+				if j < prev {
+					depthThreshold = 7
 				} else {
-					re.EncodeBit(0, 1)
-					keepBand = false
+					depthThreshold = 9
 				}
 			}
+			// Match libopus: keep = (codedBands<=start+2) || ((band_bits > threshold) && (j<=signalBandwidth))
+			// When depthThreshold==0, threshold becomes 0, so band_bits>0 is always true
+			// (we already know band_bits >= thresh[j] which is > 0)
+			keepBand := codedBands <= start+2
+			if !keepBand && depthThreshold > 0 {
+				threshold := (depthThreshold * bandWidth << lm << bitRes) >> 4
+				if bandBits > threshold && j <= signalBandwidth {
+					keepBand = true
+				}
+			}
+
+			// Encode the decision if we have an encoder
+			if re != nil {
+				if keepBand {
+					re.EncodeBit(1, 1)
+				} else {
+					re.EncodeBit(0, 1)
+				}
+			}
+
 			if keepBand {
 				break
 			}

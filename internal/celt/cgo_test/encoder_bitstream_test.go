@@ -59,7 +59,7 @@ func TestCompareBitstreamWithLibopusEncoder(t *testing.T) {
 	t.Logf("Decoded DC: mean=%.6f (expected %.6f), variance=%.10f", decodedMean, 0.3, decodedVar)
 
 	// Also decode with libopus and see what it produces
-	toc := byte(0x78) // CELT fullband 20ms mono
+	toc := byte(0xF8) // CELT fullband 20ms mono (config 31 = 0x1F, shifted left 3 = 0xF8)
 	packet := append([]byte{toc}, encoded...)
 
 	libDec, err := NewLibopusDecoder(48000, channels)
@@ -127,7 +127,7 @@ func TestSilencePacketComparison(t *testing.T) {
 	t.Logf("Gopus decoded silence energy: %.10f", decodedEnergy)
 
 	// Decode with libopus
-	toc := byte(0x78)
+	toc := byte(0xF8) // CELT fullband 20ms mono (config 31 = 0x1F << 3)
 	packet := append([]byte{toc}, encoded...)
 
 	libDec, err := NewLibopusDecoder(48000, channels)

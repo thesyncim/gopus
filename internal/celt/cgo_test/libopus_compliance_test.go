@@ -6,12 +6,17 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus"
+	"github.com/thesyncim/gopus/internal/celt"
 )
 
 // TestAllVectorsVsLibopus tests that gopus matches libopus across all test vectors.
 // This is the definitive test for decoder correctness - if gopus matches libopus,
 // the implementation is correct regardless of reference file discrepancies.
 func TestAllVectorsVsLibopus(t *testing.T) {
+	originalTracer := celt.DefaultTracer
+	celt.SetTracer(&celt.NoopTracer{})
+	defer celt.SetTracer(originalTracer)
+
 	testVectors := []string{
 		"testvector01", "testvector02", "testvector03", "testvector04",
 		"testvector05", "testvector06", "testvector07", "testvector08",
@@ -44,12 +49,9 @@ func TestAllVectorsVsLibopus(t *testing.T) {
 				return
 			}
 
-			// Determine channels from first packet
-			toc := gopus.ParseTOC(packets[0][0])
-			channels := 1
-			if toc.Stereo {
-				channels = 2
-			}
+			// Always decode to stereo to match opus_demo reference behavior
+			// and to handle mono-to-stereo transitions in the stream.
+			channels := 2
 
 			// Create decoders
 			goDec, err := gopus.NewDecoder(48000, channels)
@@ -80,8 +82,8 @@ func TestAllVectorsVsLibopus(t *testing.T) {
 				}
 
 				// Decode with libopus
-				// Note: opus_decode_float returns samples per channel, not total samples
-				// Use 5760 as max samples (120ms at 48kHz) to handle multi-frame packets
+				// opus_decode_float returns samples per channel, not total samples.
+				// Use 5760 as max samples (120ms at 48kHz) to handle multi-frame packets.
 				libOut, libN := libDec.DecodeFloat(pkt, 5760)
 				if libN <= 0 {
 					zeros := make([]float32, pktTOC.FrameSize*channels)

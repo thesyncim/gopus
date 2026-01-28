@@ -30,6 +30,35 @@ import "math"
 //
 // Reference: libopus celt/bands.c spreading_decision()
 func (e *Encoder) SpreadingDecision(normX []float64, nbBands, channels, frameSize int, updateHF bool) int {
+	// Use uniform weights by default (for backward compatibility)
+	spreadWeight := make([]int, nbBands)
+	for i := 0; i < nbBands; i++ {
+		spreadWeight[i] = 1
+	}
+	return e.SpreadingDecisionWithWeights(normX, nbBands, channels, frameSize, updateHF, spreadWeight)
+}
+
+// SpreadingDecisionWithWeights analyzes the normalized MDCT coefficients to decide the
+// optimal spread parameter for PVQ quantization, using precomputed spread weights.
+//
+// The spread parameter controls how pulses are distributed across the band:
+// - SPREAD_AGGRESSIVE (3): More spreading, better for tonal signals
+// - SPREAD_NORMAL (2): Default spreading
+// - SPREAD_LIGHT (1): Less spreading
+// - SPREAD_NONE (0): No spreading, for very noisy signals
+//
+// Parameters:
+//   - normX: normalized MDCT coefficients (unit-norm per band)
+//   - nbBands: number of bands to analyze
+//   - channels: number of audio channels (1 or 2)
+//   - frameSize: frame size in samples (determines M scaling)
+//   - updateHF: whether to update high-frequency average for tapset decision
+//   - spreadWeight: per-band weights from ComputeSpreadWeights
+//
+// Returns: spread decision (0=SPREAD_NONE, 1=SPREAD_LIGHT, 2=SPREAD_NORMAL, 3=SPREAD_AGGRESSIVE)
+//
+// Reference: libopus celt/bands.c spreading_decision()
+func (e *Encoder) SpreadingDecisionWithWeights(normX []float64, nbBands, channels, frameSize int, updateHF bool, spreadWeight []int) int {
 	if nbBands <= 0 || len(normX) == 0 {
 		return spreadNormal
 	}
@@ -51,11 +80,12 @@ func (e *Encoder) SpreadingDecision(normX []float64, nbBands, channels, frameSiz
 		return spreadNone
 	}
 
-	// Compute spread weights based on band importance
-	// For simplicity, use uniform weights (libopus uses dynamic weights based on masking)
-	spreadWeight := make([]int, nbBands)
-	for i := 0; i < nbBands; i++ {
-		spreadWeight[i] = 1
+	// Ensure spreadWeight is valid
+	if len(spreadWeight) < nbBands {
+		spreadWeight = make([]int, nbBands)
+		for i := 0; i < nbBands; i++ {
+			spreadWeight[i] = 1
+		}
 	}
 
 	sum := 0
@@ -190,17 +220,28 @@ func (e *Encoder) SpreadingDecision(normX []float64, nbBands, channels, frameSiz
 }
 
 // ComputeSpreadWeights computes per-band weights for the spread decision.
-// Higher weights for perceptually important bands.
-// This is a simplified version; libopus uses dynamic weights from dynalloc_analysis.
+// Higher weights for perceptually important bands based on masking analysis.
+//
+// This implements the libopus masking model from dynalloc_analysis():
+// 1. Compute noise floor per band (based on logN, lsb_depth, eMeans, preemphasis)
+// 2. Compute signal as max(bandLogE) - noise floor
+// 3. Apply forward/backward masking propagation
+// 4. Compute SMR (signal-to-mask ratio)
+// 5. Convert SMR to spread weight: 32 >> clamp(-round(smr), 0, 5)
 //
 // Parameters:
-//   - bandLogE: log-domain band energies
-//   - nbBands: number of bands
+//   - bandLogE: log-domain band energies (may contain multiple channels: C*nbBands)
+//   - nbBands: number of bands per channel
+//   - channels: number of audio channels (1 or 2)
+//   - lsbDepth: bit depth of input (typically 16 or 24)
 //
-// Returns: weights per band (higher = more important)
-func ComputeSpreadWeights(bandLogE []float64, nbBands int) []int {
+// Returns: weights per band (higher = more perceptually important)
+//
+// Reference: libopus celt/celt_encoder.c dynalloc_analysis()
+func ComputeSpreadWeights(bandLogE []float64, nbBands, channels, lsbDepth int) []int {
 	weights := make([]int, nbBands)
 
+	// Ensure we have enough band energies
 	if len(bandLogE) < nbBands {
 		// Default to uniform weights
 		for i := 0; i < nbBands; i++ {
@@ -209,30 +250,110 @@ func ComputeSpreadWeights(bandLogE []float64, nbBands int) []int {
 		return weights
 	}
 
-	// Compute average energy
-	var avg float64
+	// Compute noise floor per band
+	// libopus: noise_floor[i] = 0.0625*logN[i] + 0.5 + (9-lsb_depth) - eMeans[i] + 0.0062*(i+5)^2
+	noiseFloor := make([]float64, nbBands)
 	for i := 0; i < nbBands; i++ {
-		avg += bandLogE[i]
+		logNVal := 0.0
+		if i < len(LogN) {
+			logNVal = float64(LogN[i])
+		}
+		eMean := 0.0
+		if i < len(eMeans) {
+			eMean = eMeans[i]
+		}
+		// noise_floor = 0.0625*logN + 0.5 + (9-lsb_depth) - eMeans + 0.0062*(i+5)^2
+		noiseFloor[i] = 0.0625*logNVal + 0.5 + float64(9-lsbDepth) - eMean + 0.0062*float64((i+5)*(i+5))
 	}
-	avg /= float64(nbBands)
 
-	// Weight based on energy relative to average
-	// Bands with higher energy get more weight
+	// Compute maxDepth (maximum signal relative to noise floor across all bands/channels)
+	maxDepth := -31.9
+	for c := 0; c < channels; c++ {
+		for i := 0; i < nbBands; i++ {
+			idx := c*nbBands + i
+			if idx < len(bandLogE) {
+				depth := bandLogE[idx] - noiseFloor[i]
+				if depth > maxDepth {
+					maxDepth = depth
+				}
+			}
+		}
+	}
+
+	// Compute signal mask (max across channels) relative to noise floor
+	mask := make([]float64, nbBands)
+	sig := make([]float64, nbBands)
 	for i := 0; i < nbBands; i++ {
-		smr := bandLogE[i] - avg
-		// Convert SMR to shift (libopus uses floor(0.5 + smr) clamped to [0,5])
-		shift := int(math.Round(smr))
+		mask[i] = bandLogE[i] - noiseFloor[i]
+	}
+	if channels == 2 && len(bandLogE) >= 2*nbBands {
+		for i := 0; i < nbBands; i++ {
+			ch2Val := bandLogE[nbBands+i] - noiseFloor[i]
+			if ch2Val > mask[i] {
+				mask[i] = ch2Val
+			}
+		}
+	}
+	copy(sig, mask)
+
+	// Forward masking propagation (lower bands mask higher bands)
+	// libopus: mask[i] = max(mask[i], mask[i-1] - 2.0)
+	for i := 1; i < nbBands; i++ {
+		if mask[i-1]-2.0 > mask[i] {
+			mask[i] = mask[i-1] - 2.0
+		}
+	}
+
+	// Backward masking propagation (higher bands mask lower bands)
+	// libopus: mask[i] = max(mask[i], mask[i+1] - 3.0)
+	for i := nbBands - 2; i >= 0; i-- {
+		if mask[i+1]-3.0 > mask[i] {
+			mask[i] = mask[i+1] - 3.0
+		}
+	}
+
+	// Compute SMR and spread weight for each band
+	// libopus: smr = sig[i] - max(0, max(maxDepth-12, mask[i]))
+	// spread_weight = 32 >> clamp(-round(smr), 0, 5)
+	for i := 0; i < nbBands; i++ {
+		// Compute masking threshold: never more than 72dB below peak, never below noise floor
+		maskThresh := mask[i]
+		if maxDepth-12.0 > maskThresh {
+			maskThresh = maxDepth - 12.0
+		}
+		if maskThresh < 0 {
+			maskThresh = 0
+		}
+
+		// SMR = signal - mask threshold
+		smr := sig[i] - maskThresh
+
+		// Convert SMR to shift: shift = clamp(-round(smr), 0, 5)
+		shift := int(math.Floor(0.5 - smr))
 		if shift < 0 {
 			shift = 0
 		}
 		if shift > 5 {
 			shift = 5
 		}
+
 		// Weight = 32 >> shift
 		weights[i] = 32 >> shift
 	}
 
 	return weights
+}
+
+// ComputeSpreadWeightsSimple computes spread weights with default parameters.
+// This is a convenience wrapper for the common case of mono audio with 16-bit depth.
+//
+// Parameters:
+//   - bandLogE: log-domain band energies
+//   - nbBands: number of bands
+//
+// Returns: weights per band (higher = more important)
+func ComputeSpreadWeightsSimple(bandLogE []float64, nbBands int) []int {
+	return ComputeSpreadWeights(bandLogE, nbBands, 1, 16)
 }
 
 // SpreadDecisionForShortBlocks returns spread decision for transient frames.

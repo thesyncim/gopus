@@ -15,10 +15,6 @@ import (
 // TestStereoCouplingVsLibopus compares stereo decoding with libopus per-frame.
 // This test decodes stereo CELT packets and compares the PCM output with libopus.
 func TestStereoCouplingVsLibopus(t *testing.T) {
-	if os.Getenv("GOPUS_STRICT_LIBOPUS_COMPARE") == "" {
-		t.Skip("set GOPUS_STRICT_LIBOPUS_COMPARE=1 to enable strict libopus comparison")
-	}
-
 	// Check if opus_demo is available
 	opusDemoPath := filepath.Join("..", "..", "tmp_check", "opus-1.6.1", "opus_demo")
 	if _, err := os.Stat(opusDemoPath); os.IsNotExist(err) {
@@ -51,6 +47,12 @@ func TestStereoCouplingVsLibopus(t *testing.T) {
 
 	t.Logf("Test vector %s: %d packets, stereo=%v", testVector, len(packets), toc.Stereo)
 
+	// Decode entire stream once with libopus to preserve decoder state
+	libSamples, err := decodeBitstreamWithLibopus(opusDemoPath, bitFile, 2)
+	if err != nil {
+		t.Fatalf("libopus decode failed: %v", err)
+	}
+
 	// Create Go decoder
 	goDec, err := gopus.NewDecoder(48000, 2)
 	if err != nil {
@@ -69,6 +71,7 @@ func TestStereoCouplingVsLibopus(t *testing.T) {
 		maxFrames = len(packets)
 	}
 
+	offset := 0
 	for i := 0; i < maxFrames; i++ {
 		pkt := packets[i]
 
@@ -79,29 +82,24 @@ func TestStereoCouplingVsLibopus(t *testing.T) {
 			continue
 		}
 
-		// Decode with libopus using opus_demo
-		libSamples, err := decodeWithLibopus(opusDemoPath, pkt.Data, 2)
-		if err != nil {
-			t.Logf("Frame %d: libopus decode error: %v", i, err)
-			continue
+		// Compare samples against libopus stream output (16-bit PCM)
+		if offset+len(goSamples) > len(libSamples) {
+			t.Logf("Frame %d: libopus PCM too short (need %d, have %d)", i, offset+len(goSamples), len(libSamples))
+			break
 		}
-
-		// Compare samples
-		if len(goSamples) != len(libSamples) {
-			t.Logf("Frame %d: length mismatch: Go=%d, libopus=%d", i, len(goSamples), len(libSamples))
-			continue
-		}
+		libFrame := libSamples[offset : offset+len(goSamples)]
 
 		// Compute max abs diff and SNR
 		frameDiff := 0.0
 		signalPower := 0.0
 		errorPower := 0.0
 		for j := 0; j < len(goSamples); j++ {
-			diff := math.Abs(float64(goSamples[j]) - float64(libSamples[j]))
+			goQ := quantizeTo16(goSamples[j])
+			diff := math.Abs(float64(goQ) - float64(libFrame[j]))
 			if diff > frameDiff {
 				frameDiff = diff
 			}
-			signalPower += float64(libSamples[j]) * float64(libSamples[j])
+			signalPower += float64(libFrame[j]) * float64(libFrame[j])
 			errorPower += diff * diff
 		}
 
@@ -120,7 +118,7 @@ func TestStereoCouplingVsLibopus(t *testing.T) {
 		}
 
 		// Check acceptance criteria
-		if frameDiff <= 1e-6 && snr >= 90 {
+		if frameDiff <= 2.0/32768.0 && snr >= 60 {
 			passedFrames++
 		} else if i < 10 {
 			// Log details for first few failing frames
@@ -130,9 +128,15 @@ func TestStereoCouplingVsLibopus(t *testing.T) {
 			if len(goSamples) < showLen {
 				showLen = len(goSamples)
 			}
-			t.Logf("  Go[0:%d]:     %v", showLen, goSamples[:showLen])
-			t.Logf("  Libopus[0:%d]: %v", showLen, libSamples[:showLen])
+			goPreview := make([]float32, showLen)
+			for k := 0; k < showLen; k++ {
+				goPreview[k] = quantizeTo16(goSamples[k])
+			}
+			t.Logf("  Go[0:%d]:     %v", showLen, goPreview)
+			t.Logf("  Libopus[0:%d]: %v", showLen, libFrame[:showLen])
 		}
+
+		offset += len(goSamples)
 	}
 
 	avgSNR := 0.0
@@ -141,8 +145,8 @@ func TestStereoCouplingVsLibopus(t *testing.T) {
 	}
 
 	t.Logf("Results: %d/%d frames passed (%.1f%%)", passedFrames, totalFrames, 100.0*float64(passedFrames)/float64(totalFrames))
-	t.Logf("Max abs diff: %.2e (threshold: 1e-6)", maxDiff)
-	t.Logf("Average SNR: %.1f dB (threshold: 90 dB)", avgSNR)
+	t.Logf("Max abs diff: %.2e (threshold: %.2e)", maxDiff, 2.0/32768.0)
+	t.Logf("Average SNR: %.1f dB (threshold: 60 dB)", avgSNR)
 
 	// Overall pass/fail
 	if passedFrames < totalFrames {
@@ -150,36 +154,11 @@ func TestStereoCouplingVsLibopus(t *testing.T) {
 	}
 }
 
-// decodeWithLibopus decodes a single Opus packet using opus_demo.
-func decodeWithLibopus(opusDemoPath string, packet []byte, channels int) ([]float32, error) {
-	// Write packet to temp file in opus_demo format
-	tmpDir := os.TempDir()
-	bitFile := filepath.Join(tmpDir, "stereo_test.bit")
-	pcmFile := filepath.Join(tmpDir, "stereo_test.pcm")
-
-	// Create .bit file with single packet
-	f, err := os.Create(bitFile)
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(bitFile)
-
-	// Write packet length (big-ian 32-bit) + final range state (0) + data
-	length := int32(len(packet))
-	binary.Write(f, binary.BigEndian, length)
-	binary.Write(f, binary.BigEndian, uint32(0)) // final range (we don't check it)
-	f.Write(packet)
-	f.Close()
+// decodeBitstreamWithLibopus decodes an entire .bit file using opus_demo.
+func decodeBitstreamWithLibopus(opusDemoPath string, bitFile string, channels int) ([]float32, error) {
+	pcmFile := filepath.Join(os.TempDir(), "stereo_test.pcm")
 
 	defer os.Remove(pcmFile)
-
-	// Get frame size and count from packet
-	info, err := gopus.ParsePacket(packet)
-	if err != nil {
-		return nil, fmt.Errorf("parse packet: %w", err)
-	}
-	frameSize := info.TOC.FrameSize
-	frameCount := info.FrameCount
 
 	// Run opus_demo to decode
 	// opus_demo -d <samplerate> <channels> <input.bit> <output.pcm>
@@ -203,13 +182,23 @@ func decodeWithLibopus(opusDemoPath string, packet []byte, channels int) ([]floa
 		samples[i] = float32(s16) / 32768.0
 	}
 
-	// Verify we got expected number of samples (all frames)
-	expectedSamples := frameSize * channels * frameCount
-	if len(samples) != expectedSamples {
-		return nil, fmt.Errorf("sample count mismatch: got %d, expected %d", len(samples), expectedSamples)
-	}
-
 	return samples, nil
+}
+
+// quantizeTo16 matches opus_demo 16-bit PCM output for comparison.
+func quantizeTo16(x float32) float32 {
+	if x > 1.0 {
+		x = 1.0
+	} else if x < -1.0 {
+		x = -1.0
+	}
+	q := int32(math.Round(float64(x * 32768.0)))
+	if q > 32767 {
+		q = 32767
+	} else if q < -32768 {
+		q = -32768
+	}
+	return float32(int16(q)) / 32768.0
 }
 
 // TestStereoCouplingTestvector07 specifically tests testvector07 which has mixed content.

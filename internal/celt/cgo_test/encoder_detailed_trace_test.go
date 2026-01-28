@@ -202,7 +202,7 @@ func TestDetailedEncoderPath(t *testing.T) {
 
 	// Decode with libopus for comparison
 	t.Log("\n=== STEP 6: DECODE WITH LIBOPUS ===")
-	toc := byte(0x78) // CELT fullband 20ms mono
+	toc := byte(0xF8) // CELT fullband 20ms mono (config 31 = 0x1F << 3)
 	packet := append([]byte{toc}, encoded...)
 
 	libDec, err := NewLibopusDecoder(sampleRate, channels)

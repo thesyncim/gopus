@@ -273,6 +273,9 @@ func (e *Encoder) SetComplexity(complexity int) {
 	// Apply complexity to sub-encoders
 	// For v1, this affects decision thresholds only
 	// Future: affect MDCT precision, pitch search resolution, etc.
+	if e.celtEncoder != nil {
+		e.celtEncoder.SetComplexity(complexity)
+	}
 }
 
 // Complexity returns the current complexity setting.
@@ -483,6 +486,7 @@ func (e *Encoder) ensureSILKEncoder() {
 func (e *Encoder) ensureCELTEncoder() {
 	if e.celtEncoder == nil {
 		e.celtEncoder = celt.NewEncoder(e.channels)
+		e.celtEncoder.SetComplexity(e.complexity)
 	}
 }
 

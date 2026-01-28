@@ -217,6 +217,32 @@ func (d *Decoder) StorageBits() int {
 	return int(d.storage * 8)
 }
 
+// ShrinkStorage reduces the effective input size by the given number of bytes.
+// This is used to exclude trailing redundancy bytes from the range decoder
+// while preserving the current decoding state.
+func (d *Decoder) ShrinkStorage(bytes int) {
+	if bytes <= 0 {
+		return
+	}
+	if uint32(bytes) >= d.storage {
+		d.storage = 0
+		if d.offs > d.storage {
+			d.offs = d.storage
+		}
+		if d.endOffs > d.storage {
+			d.endOffs = d.storage
+		}
+		return
+	}
+	d.storage -= uint32(bytes)
+	if d.offs > d.storage {
+		d.offs = d.storage
+	}
+	if d.endOffs > d.storage {
+		d.endOffs = d.storage
+	}
+}
+
 // Range returns the current range value (for testing/debugging).
 func (d *Decoder) Range() uint32 {
 	return d.rng

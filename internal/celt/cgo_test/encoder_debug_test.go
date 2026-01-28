@@ -214,7 +214,7 @@ func TestEncoderMDCTCoefficientsDebug(t *testing.T) {
 	defer dec.Destroy()
 
 	// Create TOC byte for CELT fullband 20ms mono
-	toc := byte(0x78) // CELT 20ms FB mono
+	toc := byte(0xF8) // CELT 20ms FB mono (config 31 = 0x1F << 3)
 	packet := append([]byte{toc}, encoded...)
 
 	decoded, samplesDecoded := dec.DecodeFloat(packet, frameSize)
@@ -611,8 +611,8 @@ func TestCompareGoDecoderVsLibopusDecoder(t *testing.T) {
 	t.Logf("Go decoded: %d samples", len(goDecoded))
 
 	// Decode with libopus (need to add TOC byte)
-	// CELT fullband 20ms mono = 0x78
-	toc := byte(0x78)
+	// CELT fullband 20ms mono (config 31 = 0x1F << 3 = 0xF8)
+	toc := byte(0xF8)
 	packet := append([]byte{toc}, encoded...)
 
 	libDecoder, err := NewLibopusDecoder(sampleRate, channels)

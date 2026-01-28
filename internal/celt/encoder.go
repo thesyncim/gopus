@@ -53,6 +53,9 @@ type Encoder struct {
 	targetBitrate int // Target bitrate in bits per second (0 = use buffer size)
 	frameBits     int // Per-frame bit budget for coarse energy (set during encoding)
 
+	// Complexity control (0-10)
+	complexity int
+
 	// Spread decision state (persistent across frames for hysteresis)
 	spreadDecision int // Current spread decision (0-3)
 	tonalAverage   int // Running average for spread decision hysteresis
@@ -96,6 +99,9 @@ func NewEncoder(channels int) *Encoder {
 		// Analysis buffers
 		inputBuffer: make([]float64, 0),
 		mdctBuffer:  make([]float64, 0),
+
+		// Complexity defaults to max quality (libopus default)
+		complexity: 10,
 
 		// Initialize spread decision state (libopus defaults to SPREAD_NORMAL)
 		spreadDecision: spreadNormal,
@@ -148,6 +154,23 @@ func (e *Encoder) Reset() {
 	e.tonalAverage = 0
 	e.hfAverage = 0
 	e.tapsetDecision = 0
+}
+
+// SetComplexity sets encoder complexity (0-10).
+// Higher values use more CPU for better quality.
+func (e *Encoder) SetComplexity(complexity int) {
+	if complexity < 0 {
+		complexity = 0
+	}
+	if complexity > 10 {
+		complexity = 10
+	}
+	e.complexity = complexity
+}
+
+// Complexity returns the current complexity setting.
+func (e *Encoder) Complexity() int {
+	return e.complexity
 }
 
 // SetRangeEncoder sets the range encoder for the current frame.
@@ -280,4 +303,33 @@ func (e *Encoder) SetBitrate(bps int) {
 // Bitrate returns the current target bitrate in bits per second.
 func (e *Encoder) Bitrate() int {
 	return e.targetBitrate
+}
+
+// TapsetDecision returns the current tapset decision (0, 1, or 2).
+// The tapset controls the window taper used in the prefilter/postfilter comb filter:
+// - 0: Narrow taper (concentrated energy)
+// - 1: Medium taper (balanced)
+// - 2: Wide taper (spread energy)
+// This is computed during SpreadingDecision when updateHF=true.
+// Reference: libopus celt/bands.c spreading_decision() and celt/celt.c comb_filter()
+func (e *Encoder) TapsetDecision() int {
+	return e.tapsetDecision
+}
+
+// SetTapsetDecision sets the tapset decision value.
+// Valid values are 0, 1, or 2.
+func (e *Encoder) SetTapsetDecision(tapset int) {
+	if tapset < 0 {
+		tapset = 0
+	}
+	if tapset > 2 {
+		tapset = 2
+	}
+	e.tapsetDecision = tapset
+}
+
+// HFAverage returns the high-frequency average used for tapset decision.
+// This is updated during SpreadingDecision when updateHF=true.
+func (e *Encoder) HFAverage() int {
+	return e.hfAverage
 }

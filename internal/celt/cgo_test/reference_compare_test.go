@@ -32,13 +32,13 @@ func TestReferenceFileComparison(t *testing.T) {
 
 	t.Logf("Loaded %d packets, reference has %d samples", len(packets), len(reference))
 
-	// Create decoders - 48kHz mono (testvector02 is SILK mono)
-	goDec, err := gopus.NewDecoder(48000, 1)
+	// Create decoders - always stereo to match opus_demo reference output
+	goDec, err := gopus.NewDecoder(48000, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	libDec, _ := NewLibopusDecoder(48000, 1)
+	libDec, _ := NewLibopusDecoder(48000, 2)
 	if libDec == nil {
 		t.Skip("Could not create libopus decoder")
 	}
@@ -50,28 +50,27 @@ func TestReferenceFileComparison(t *testing.T) {
 	for pktIdx, pkt := range packets {
 		toc := gopus.ParseTOC(pkt[0])
 
-		// Get expected frame size
-		frameSize := toc.FrameSize
-
 		// Decode with Go
 		goOut, err := goDec.DecodeInt16Slice(pkt)
 		if err != nil {
 			t.Logf("Packet %d: Go decode error: %v", pktIdx, err)
 			// Use zeros
-			zeros := make([]int16, frameSize)
+			zeros := make([]int16, toc.FrameSize*2)
 			goSamples = append(goSamples, zeros...)
 		} else {
 			goSamples = append(goSamples, goOut...)
 		}
 
-		// Decode with libopus (float32, then convert to int16)
-		libOutFloat, libN := libDec.DecodeFloat(pkt, frameSize*2)
+		// Decode with libopus (float32, then convert to int16).
+		// Use 5760 as max samples per channel (120ms at 48kHz).
+		libOutFloat, libN := libDec.DecodeFloat(pkt, 5760)
 		if libN < 0 {
 			t.Logf("Packet %d: libopus decode error", pktIdx)
-			zeros := make([]int16, frameSize)
+			zeros := make([]int16, toc.FrameSize*2)
 			libSamples = append(libSamples, zeros...)
 		} else {
-			for i := 0; i < libN; i++ {
+			total := libN * 2
+			for i := 0; i < total; i++ {
 				// Convert float32 [-1, 1] to int16
 				v := libOutFloat[i] * 32768.0
 				if v > 32767 {
@@ -86,20 +85,7 @@ func TestReferenceFileComparison(t *testing.T) {
 
 	t.Logf("Decoded: Go=%d samples, libopus=%d samples", len(goSamples), len(libSamples))
 
-	// Reference file is stereo (L=R for mono), but we decoded as mono
-	// Need to check if reference is stereo format
-	expectedMono := len(goSamples)
-	if len(reference) == expectedMono*2 {
-		t.Log("Reference appears to be stereo format (L=R for mono source)")
-		// Extract just left channel for comparison
-		monoRef := make([]int16, len(reference)/2)
-		for i := range monoRef {
-			monoRef[i] = reference[i*2] // Take left channel
-		}
-		reference = monoRef
-	}
-
-	t.Logf("Reference (after mono extraction): %d samples", len(reference))
+	t.Logf("Reference: %d samples", len(reference))
 
 	// Compare all three
 	minLen := len(goSamples)
@@ -241,12 +227,11 @@ func TestLibopusVsReference(t *testing.T) {
 			var libSamples []int16
 
 			for _, pkt := range packets {
-				toc := gopus.ParseTOC(pkt[0])
-				maxSamples := toc.FrameSize * cfg.channels * 2
-
-				libOutFloat, libN := libDec.DecodeFloat(pkt, maxSamples)
+				// Use 5760 as max samples per channel (120ms at 48kHz).
+				libOutFloat, libN := libDec.DecodeFloat(pkt, 5760)
 				if libN > 0 {
-					for i := 0; i < libN; i++ {
+					total := libN * cfg.channels
+					for i := 0; i < total; i++ {
 						v := libOutFloat[i] * 32768.0
 						if v > 32767 {
 							v = 32767

@@ -94,6 +94,19 @@ func NewDecoder(channels int) *Decoder {
 	}
 }
 
+// NewDecoderWithSharedDecoders creates a Hybrid decoder that reuses external SILK/CELT decoders.
+// This is useful for sharing decoder state across Opus modes.
+func NewDecoderWithSharedDecoders(channels int, silkDec *silk.Decoder, celtDec *celt.Decoder) *Decoder {
+	d := NewDecoder(channels)
+	if silkDec != nil {
+		d.silkDecoder = silkDec
+	}
+	if celtDec != nil {
+		d.celtDecoder = celtDec
+	}
+	return d
+}
+
 // Reset clears decoder state for a new stream.
 // Call this when starting to decode a new audio stream.
 func (d *Decoder) Reset() {
@@ -114,6 +127,12 @@ func (d *Decoder) Reset() {
 		d.silkResamplerR.Reset()
 	}
 	d.prevPacketStereo = false
+}
+
+// SetPrevPacketStereo synchronizes the previous packet stereo flag.
+// This is used when Hybrid decoding is driven by an external Opus decoder.
+func (d *Decoder) SetPrevPacketStereo(stereo bool) {
+	d.prevPacketStereo = stereo
 }
 
 // Channels returns the number of audio channels (1 or 2).
@@ -142,6 +161,11 @@ func ValidHybridFrameSize(frameSize int) bool {
 //
 // Returns: PCM samples as float64 slice at 48kHz
 func (d *Decoder) decodeFrame(rd *rangecoding.Decoder, frameSize int, packetStereo bool) ([]float64, error) {
+	return d.decodeFrameWithHook(rd, frameSize, packetStereo, nil)
+}
+
+// decodeFrameWithHook decodes a single hybrid frame and allows a hook after SILK decode.
+func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, packetStereo bool, afterSilk func(*rangecoding.Decoder) error) ([]float64, error) {
 	if rd == nil {
 		return nil, ErrNilDecoder
 	}
@@ -262,6 +286,12 @@ func (d *Decoder) decodeFrame(rd *rangecoding.Decoder, frameSize int, packetSter
 			for i := range upL {
 				silkUpsampled[i] = float64(upL[i])
 			}
+		}
+	}
+
+	if afterSilk != nil {
+		if err := afterSilk(rd); err != nil {
+			return nil, err
 		}
 	}
 

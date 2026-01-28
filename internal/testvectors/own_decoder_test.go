@@ -62,26 +62,26 @@ func TestOwnEncoderDecoder(t *testing.T) {
 	}
 	t.Logf("\nMax amplitudes: orig=%.4f, decoded=%.4f", maxOrig, maxDec)
 
-	// Compute SNR
+	// Compute SNR (align for CELT overlap delay).
+	// The CELT MDCT/IMDCT pipeline introduces a fixed delay of Overlap samples.
+	delay := celt.Overlap
+	if delay >= len(decoded) {
+		t.Fatalf("Decoded output too short for overlap delay: %d >= %d", delay, len(decoded))
+	}
+	if delay >= len(pcm) {
+		t.Fatalf("Input too short for overlap delay: %d >= %d", delay, len(pcm))
+	}
 
 	n := len(pcm)
-
-	if len(decoded) < n {
-
-		n = len(decoded)
-
+	if len(decoded)-delay < n {
+		n = len(decoded) - delay
 	}
 
 	var signalPower, noisePower float64
-
 	for i := 0; i < n; i++ {
-
 		signalPower += pcm[i] * pcm[i]
-
-		noise := pcm[i] - decoded[i]
-
+		noise := pcm[i] - decoded[i+delay]
 		noisePower += noise * noise
-
 	}
 
 	snr := 10 * math.Log10(signalPower/(noisePower+1e-10))
@@ -89,8 +89,6 @@ func TestOwnEncoderDecoder(t *testing.T) {
 	t.Logf("SNR: %.2f dB", snr)
 
 	if snr < 5 {
-
 		t.Errorf("SNR too low: %.2f dB", snr)
-
 	}
 }

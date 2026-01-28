@@ -69,7 +69,7 @@ func TestCompareEncodedEnergies(t *testing.T) {
 	// The key question: what energies is libopus seeing?
 	// Let's decode with libopus and enable all debug output
 	t.Log("\n=== Decode with libopus ===")
-	toc := byte(0x78) // CELT fullband 20ms mono
+	toc := byte(0xF8) // CELT fullband 20ms mono (config 31 = 0x1F << 3)
 	packet := append([]byte{toc}, encoded...)
 
 	libDec, err := NewLibopusDecoder(48000, channels)

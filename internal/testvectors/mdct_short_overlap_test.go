@@ -39,7 +39,6 @@ func TestMDCTShortOverlapRoundTrip(t *testing.T) {
 	var signalPower, noisePower float64
 	frameStart := N
 	frameEnd := 2 * N
-
 	for i := frameStart; i < frameEnd; i++ {
 		diff := math.Abs(signal[i] - output[i])
 		if diff > maxDiff {

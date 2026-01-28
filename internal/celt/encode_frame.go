@@ -58,8 +58,11 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	nbBands := mode.EffBands
 	lm := mode.LM
 
-	// Step 3: Detect transient
-	transient := e.DetectTransient(pcm, frameSize)
+	// Step 3: Detect transient and compute tf_estimate
+	// Use full transient analysis to get both transient decision and tf_estimate
+	transientResult := e.TransientAnalysis(pcm, frameSize, false /* allowWeakTransients */)
+	transient := transientResult.IsTransient
+	tfEstimate := transientResult.TfEstimate
 	shortBlocks := 1
 	if transient {
 		shortBlocks = mode.ShortBlocks
@@ -195,9 +198,9 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	end := nbBands
 	effectiveBytes := targetBits / 8
 
-	// Enable TF analysis when we have enough bits, not in hybrid mode, and reasonable complexity
+	// Enable TF analysis when we have enough bits and reasonable complexity.
 	// Reference: libopus enable_tf_analysis = effectiveBytes>=15*C && !hybrid && st->complexity>=2 && !st->lfe
-	enableTFAnalysis := effectiveBytes >= 15*e.channels && lm > 0
+	enableTFAnalysis := effectiveBytes >= 15*e.channels && lm > 0 && e.complexity >= 2
 
 	var tfRes []int
 	var tfSelect int
@@ -238,22 +241,34 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	}
 
 	// Step 11.2: Compute and encode spread decision
-	// For transient frames (shortBlocks > 1), use SPREAD_NORMAL without analysis
-	// For normal frames, analyze spectral characteristics to decide spread
+	// Match libopus gating: only encode if there's budget for the decision.
 	var spread int
-	if shortBlocks > 1 {
-		// Transient mode: use SPREAD_NORMAL (libopus behavior for hybrid/short blocks)
-		spread = spreadNormal
+	if re.Tell()+4 <= targetBits {
+		if shortBlocks > 1 || e.complexity < 3 || effectiveBytes < 10*e.channels {
+			if e.complexity == 0 {
+				spread = spreadNone
+			} else {
+				spread = spreadNormal
+			}
+			// Reset tapset decision when spread analysis is skipped
+			// Reference: libopus celt_encoder.c line 2306: st->tapset_decision = 0
+			e.SetTapsetDecision(0)
+		} else {
+			// Analyze normalized coefficients for spread decision.
+			// Note: libopus uses normalized X after normalise_bands.
+			// Enable updateHF when prefilter could be active (non-short blocks).
+			// The tapset decision is used for the prefilter comb filter taper selection.
+			// Reference: libopus celt_encoder.c spreading_decision() call with
+			// pf_on&&!shortBlocks as updateHF condition.
+			// Since we don't have full prefilter yet, we enable HF update
+			// when conditions are met for future prefilter integration.
+			updateHF := shortBlocks == 1
+			spread = e.SpreadingDecision(normL, nbBands, e.channels, frameSize, updateHF)
+		}
+		re.EncodeICDF(spread, spreadICDF, 5)
 	} else {
-		// Normal mode: analyze normalized coefficients for spread decision
-		// The normalized coefficients are computed after coarse energy,
-		// but before encoding we need to use pre-normalized coefficients
-		// scaled by the actual energy for proper analysis.
-		// For now, use the normalized array which will be computed.
-		// Note: In libopus, spreading_decision uses normalized X after normalise_bands
-		spread = e.SpreadingDecision(normL, nbBands, e.channels, frameSize, true)
+		spread = spreadNormal
 	}
-	re.EncodeICDF(spread, spreadICDF, 5)
 
 	// Step 11.3: Initialize caps for allocation
 	caps := initCaps(nbBands, lm, e.channels)
@@ -346,6 +361,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		allocResult.Balance,
 		allocResult.CodedBands,
 		&e.rng,
+		e.complexity,
 		bandE,
 		nil,
 		nil,

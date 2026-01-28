@@ -189,7 +189,7 @@ func mdctForwardOverlap(samples []float64, overlap int) []float64 {
 		wp2 -= 2
 	}
 
-	scale := 0.5 / float64(n4)
+	scale := 1.0 / float64(n4)
 	fftIn := make([]complex128, n4)
 	for i = 0; i < n4; i++ {
 		re := f[2*i]

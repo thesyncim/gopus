@@ -19,9 +19,15 @@ package cgo
 #include "silk/Inlines.h"
 #include "silk/macros.h"
 
-// Stub for opus_debug_range (required by debug builds)
-void opus_debug_range(unsigned int a, unsigned int b, unsigned int c, unsigned int d) {
-    // Debug stub - does nothing
+// Toggle libopus debug range tracing (prints to stderr when enabled)
+int opus_debug_range = 0;
+void opus_set_debug_range(int v) {
+    opus_debug_range = v;
+}
+
+// Flush all stdio streams (useful for trace capture).
+void opus_flush_stdio(void) {
+    fflush(NULL);
 }
 
 // Test harness to decode a Laplace symbol
@@ -982,12 +988,69 @@ void test_get_alloc_vectors(int *out, int row, int max_len) {
     }
 }
 
+// ====================================================================
+// PVQ Search comparison wrappers
+// ====================================================================
+
+#include "vq.h"
+#include "cwrs.h"
+
+// Wrapper to call op_pvq_search with float inputs (matching Go's float path)
+// X: normalized input vector (will be modified - signs removed)
+// iy: output pulse vector
+// K: number of pulses
+// N: vector dimension
+// Returns yy (energy of output)
+float test_op_pvq_search(float *X, int *iy, int K, int N) {
+    return op_pvq_search(X, iy, K, N, 0);
+}
+
+// ====================================================================
+// Range encoder comparison wrappers
+// ====================================================================
+
+#include "entenc.h"
+
+// Test range encoder: encode a sequence of uniform values and return the bytes
+int test_encode_uniform_sequence(unsigned char *out_buf, int max_size,
+                                  unsigned int *vals, unsigned int *fts, int count,
+                                  int *out_len) {
+    ec_enc enc;
+    ec_enc_init(&enc, out_buf, max_size);
+
+    for (int i = 0; i < count; i++) {
+        ec_enc_uint(&enc, vals[i], fts[i]);
+    }
+
+    ec_enc_done(&enc);
+    // Total length is offs + end_offs (range coded data + raw bits)
+    *out_len = enc.offs + enc.end_offs;
+    return enc.error;
+}
+
+// Test encode pulses: encode a pulse vector to bytes
+int test_encode_pulses_to_bytes(unsigned char *out_buf, int max_size,
+                                 int *pulses, int n, int k, int *out_len) {
+    ec_enc enc;
+    ec_enc_init(&enc, out_buf, max_size);
+
+    encode_pulses(pulses, n, k, &enc);
+
+    ec_enc_done(&enc);
+    *out_len = enc.offs + enc.end_offs;
+    return enc.error;
+}
+
 */
 import "C"
 
 import (
 	"unsafe"
 )
+
+func init() {
+	SetLibopusDebugRange(false)
+}
 
 // DecodeLaplace calls libopus ec_laplace_decode
 func DecodeLaplace(data []byte, fs, decay int) int {
@@ -1316,6 +1379,21 @@ func (d *LibopusDecoder) Destroy() {
 		C.test_decoder_destroy(d.dec)
 		d.dec = nil
 	}
+}
+
+// SetLibopusDebugRange toggles libopus internal trace output.
+// When disabled, CELT debug prints are suppressed.
+func SetLibopusDebugRange(enabled bool) {
+	v := C.int(0)
+	if enabled {
+		v = 1
+	}
+	C.opus_set_debug_range(v)
+}
+
+// FlushLibopusTrace flushes stdio streams to ensure trace output is captured.
+func FlushLibopusTrace() {
+	C.opus_flush_stdio()
 }
 
 // DecodeFloat decodes a packet to float32 samples.
@@ -1677,4 +1755,98 @@ func LibopusGetAllocVectors(row int) []int {
 // LibopusGetNbAllocVectors returns the number of allocation vectors from libopus.
 func LibopusGetNbAllocVectors() int {
 	return int(C.test_get_nb_alloc_vectors())
+}
+
+// ====================================================================
+// PVQ Search comparison wrappers
+// ====================================================================
+
+// LibopusEncodeUniformSequence encodes a sequence of uniform values using libopus range encoder.
+// Returns the encoded bytes.
+func LibopusEncodeUniformSequence(vals []uint32, fts []uint32) ([]byte, error) {
+	if len(vals) != len(fts) || len(vals) == 0 {
+		return nil, nil
+	}
+
+	maxSize := 4096
+	outBuf := make([]byte, maxSize)
+	var outLen C.int
+
+	err := C.test_encode_uniform_sequence(
+		(*C.uchar)(unsafe.Pointer(&outBuf[0])),
+		C.int(maxSize),
+		(*C.uint)(unsafe.Pointer(&vals[0])),
+		(*C.uint)(unsafe.Pointer(&fts[0])),
+		C.int(len(vals)),
+		&outLen,
+	)
+
+	if err != 0 {
+		return nil, nil
+	}
+
+	return outBuf[:int(outLen)], nil
+}
+
+// LibopusEncodePulsesToBytes encodes pulses using libopus CWRS encoder.
+// Returns the encoded bytes.
+func LibopusEncodePulsesToBytes(pulses []int, n, k int) ([]byte, error) {
+	if len(pulses) != n || k <= 0 {
+		return nil, nil
+	}
+
+	maxSize := 4096
+	outBuf := make([]byte, maxSize)
+	pulsesInt32 := make([]int32, n)
+	for i, p := range pulses {
+		pulsesInt32[i] = int32(p)
+	}
+
+	var outLen C.int
+
+	err := C.test_encode_pulses_to_bytes(
+		(*C.uchar)(unsafe.Pointer(&outBuf[0])),
+		C.int(maxSize),
+		(*C.int)(unsafe.Pointer(&pulsesInt32[0])),
+		C.int(n),
+		C.int(k),
+		&outLen,
+	)
+
+	if err != 0 {
+		return nil, nil
+	}
+
+	return outBuf[:int(outLen)], nil
+}
+
+// LibopusPVQSearch calls libopus op_pvq_search via CGO.
+// Input x is copied since libopus modifies it (removes signs).
+// Returns the pulse vector and yy (sum of y^2).
+func LibopusPVQSearch(x []float64, k int) ([]int, float64) {
+	n := len(x)
+	if n == 0 || k <= 0 {
+		return make([]int, n), 0
+	}
+
+	// Convert to float32 for C (libopus float path uses float)
+	xCopy := make([]float32, n)
+	for i := range x {
+		xCopy[i] = float32(x[i])
+	}
+
+	iy := make([]int32, n)
+
+	yy := float64(C.test_op_pvq_search(
+		(*C.float)(unsafe.Pointer(&xCopy[0])),
+		(*C.int)(unsafe.Pointer(&iy[0])),
+		C.int(k),
+		C.int(n),
+	))
+
+	result := make([]int, n)
+	for i := range iy {
+		result[i] = int(iy[i])
+	}
+	return result, yy
 }

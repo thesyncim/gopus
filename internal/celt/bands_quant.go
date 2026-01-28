@@ -61,12 +61,13 @@ type bandCtx struct {
 }
 
 type splitCtx struct {
-	inv    int
-	imid   int
-	iside  int
-	delta  int
-	itheta int
-	qalloc int
+	inv       int
+	imid      int
+	iside     int
+	delta     int
+	itheta    int
+	ithetaQ30 int // Extended precision theta in Q30 format (when QEXT enabled)
+	qalloc    int
 }
 
 func orderyForStride(stride int) []int {
@@ -413,7 +414,17 @@ func computeQn(n, b, offset, pulseCap int, stereo bool) int {
 	return qn
 }
 
+// stereoItheta computes the standard 14-bit theta value for stereo encoding.
+// Returns itheta in range [0, 16384].
 func stereoItheta(x, y []float64, stereo bool) int {
+	return stereoIthetaQ30(x, y, stereo) >> 16
+}
+
+// stereoIthetaQ30 computes the extended precision Q30 theta value for stereo encoding.
+// This matches libopus stereo_itheta() which returns itheta in Q30 format.
+// The value represents atan2(side, mid) * 2/pi, scaled to [0, 1<<30].
+// Standard itheta (14-bit) can be obtained by shifting right by 16.
+func stereoIthetaQ30(x, y []float64, stereo bool) int {
 	if len(x) == 0 || len(y) == 0 {
 		return 0
 	}
@@ -443,15 +454,87 @@ func stereoItheta(x, y []float64, stereo bool) int {
 	if emid <= 0 && eside <= 0 {
 		return 0
 	}
-	theta := math.Atan2(math.Sqrt(eside), math.Sqrt(emid))
-	itheta := int(math.Floor(theta*(16384.0/(math.Pi/2.0)) + 0.5))
-	if itheta < 0 {
-		itheta = 0
+
+	// Compute mid and side magnitudes
+	mid := math.Sqrt(emid)
+	side := math.Sqrt(eside)
+
+	// Compute atan2(side, mid) * 2/pi in Q30 format
+	// This matches libopus: itheta = floor(0.5 + 65536 * 16384 * atan2p_norm(side, mid))
+	// where atan2p_norm returns atan2(y,x) * 2/pi
+	atan2pNorm := celtAtan2pNorm(side, mid)
+
+	// Scale to Q30: multiply by 2^30 (1073741824)
+	// libopus float path: itheta = (int)floor(.5f + 65536.f * 16384 * celt_atan2p_norm(side, mid))
+	// 65536 * 16384 = 2^30
+	ithetaQ30 := int(math.Floor(0.5 + 1073741824.0*atan2pNorm))
+	if ithetaQ30 < 0 {
+		ithetaQ30 = 0
 	}
-	if itheta > 16384 {
-		itheta = 16384
+	if ithetaQ30 > 1073741824 { // 1 << 30
+		ithetaQ30 = 1073741824
 	}
-	return itheta
+	return ithetaQ30
+}
+
+// celtAtan2pNorm computes atan2(y, x) * 2/pi for non-negative x, y.
+// Returns a value in [0, 1] representing the angle as a fraction of pi/2.
+func celtAtan2pNorm(y, x float64) float64 {
+	// For very small values, return 0
+	if (x*x + y*y) < 1e-18 {
+		return 0
+	}
+
+	if y < x {
+		return celtAtanNorm(y / x)
+	}
+	return 1.0 - celtAtanNorm(x/y)
+}
+
+// celtAtanNorm computes atan(x) * 2/pi using polynomial approximation.
+// Matches libopus celt_atan_norm() for float path.
+func celtAtanNorm(x float64) float64 {
+	// Coefficients from libopus mathops.h for atan approximation
+	// Using Taylor series: atan(x) ≈ x - x^3/3 + x^5/5 - x^7/7 + ...
+	// Scaled by 2/pi
+	const (
+		a1  = 0.6366197723675814 // 2/pi
+		a3  = -0.2122065907891938
+		a5  = 0.1272767503321694
+		a7  = -0.09090395389159065
+		a9  = 0.06622438065498507
+		a11 = -0.04393921727468699
+		a13 = 0.02173787448476704
+		a15 = -0.005765602298498684
+	)
+
+	xSq := x * x
+	return x * (a1 + xSq*(a3+xSq*(a5+xSq*(a7+xSq*(a9+xSq*(a11+xSq*(a13+xSq*a15)))))))
+}
+
+// celtCosNorm2 computes cos(pi/2 * x) for x in [0, 1].
+// This is used for extended precision mid/side computation from Q30 theta.
+// Matches libopus celt_cos_norm2().
+func celtCosNorm2(x float64) float64 {
+	// Restrict x to [-1, 3] then to [-1, 1]
+	x -= 4 * math.Floor(0.25*(x+1))
+	outputSign := 1.0
+	if x > 1 {
+		outputSign = -1.0
+		x -= 2
+	}
+
+	// Polynomial coefficients from libopus
+	const (
+		cosA0 = 9.999999403953552246093750000000e-01
+		cosA2 = -1.233698248863220214843750000000
+		cosA4 = 2.536507546901702880859375000000e-01
+		cosA6 = -2.08106283098459243774414062500e-02
+		cosA8 = 8.581906440667808055877685546875e-04
+	)
+
+	xSq := x * x
+	return outputSign * (cosA0 + xSq*(cosA2+xSq*(cosA4+xSq*(cosA6+xSq*cosA8))))
 }
 
 func stereoSplit(x, y []float64) {
@@ -504,15 +587,11 @@ func computeChannelWeights(ex, ey float64) (w0, w1 float64) {
 	if ey < minE {
 		minE = ey
 	}
-	// Adjustment to make the weights a bit more conservative
+	// Adjustment to make the weights a bit more conservative.
 	ex = ex + minE/3.0
 	ey = ey + minE/3.0
-	// Normalize the weights
-	total := ex + ey
-	if total < 1e-15 {
-		return 0.5, 0.5
-	}
-	return ex / total, ey / total
+	// Match libopus float path: no normalization, weights are raw adjusted energies.
+	return ex, ey
 }
 
 // innerProduct computes the inner product of two vectors.
@@ -1303,7 +1382,8 @@ func quantAllBandsDecode(rd *rangecoding.Decoder, channels, frameSize, lm int, s
 
 func quantAllBandsEncode(re *rangecoding.Encoder, channels, frameSize, lm int, start, end int,
 	x, y []float64, pulses []int, shortBlocks int, spread int, dualStereo, intensity int,
-	tfRes []int, totalBitsQ3 int, balance int, codedBands int, seed *uint32, bandE []float64, extEnc *rangecoding.Encoder, extraBits []int) (collapse []byte) {
+	tfRes []int, totalBitsQ3 int, balance int, codedBands int, seed *uint32, complexity int,
+	bandE []float64, extEnc *rangecoding.Encoder, extraBits []int) (collapse []byte) {
 	if re == nil {
 		return nil
 	}
@@ -1364,6 +1444,7 @@ func quantAllBandsEncode(re *rangecoding.Encoder, channels, frameSize, lm int, s
 		ctx.nbBands = len(ctx.bandE) / ctx.channels
 	}
 
+	thetaRDOEnabled := channels == 2 && dualStereo == 0 && complexity >= 8
 	for i := start; i < end; i++ {
 		ctx.band = i
 		ctx.extraBits = 0
@@ -1495,9 +1576,9 @@ func quantAllBandsEncode(re *rangecoding.Encoder, channels, frameSize, lm int, s
 		} else {
 			if channels == 2 && yBand != nil {
 				// Theta RDO: Try both rounding directions and pick the one with lower distortion.
-				// This is enabled for stereo bands below the intensity threshold.
+				// Enabled only for high complexity stereo (match libopus theta_rdo).
 				// Reference: libopus bands.c quant_all_bands(), theta_rdo logic
-				thetaRDO := i < intensity
+				thetaRDO := thetaRDOEnabled && i < intensity
 				if thetaRDO {
 					// Compute channel weights for distortion measurement
 					var leftE, rightE float64
