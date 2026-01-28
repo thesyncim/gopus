@@ -2,205 +2,296 @@ package silk
 
 import "math"
 
-// encodeExcitation encodes the excitation signal for one subframe.
-// Uses shell coding with binary splits, mirroring decoder exactly.
+// SHELL_CODEC_FRAME_LENGTH is the shell block size per libopus
+const SHELL_CODEC_FRAME_LENGTH = 16
+
+// SILK_MAX_PULSES is the maximum encodable pulses per shell block
+const SILK_MAX_PULSES = 16
+
+// N_RATE_LEVELS is the number of rate level options
+const N_RATE_LEVELS = 10
+
+// encodePulses encodes quantization indices of excitation for the entire frame.
+// This matches libopus silk_encode_pulses() - encoding ALL pulses at once.
 // Per RFC 6716 Section 4.2.7.8.
-// Uses existing ICDF tables from tables.go
-func (e *Encoder) encodeExcitation(excitation []int32, signalType, quantOffset int) {
-	shellSize := 16
-	numShells := len(excitation) / shellSize
+func (e *Encoder) encodePulses(pulses []int32, signalType, quantOffset int) {
+	frameLength := len(pulses)
 
-	// Compute pulse counts per shell
-	pulseCounts := make([]int, numShells)
-	for shell := 0; shell < numShells; shell++ {
-		offset := shell * shellSize
-		for i := 0; i < shellSize; i++ {
-			pulseCounts[shell] += absInt(int(excitation[offset+i]))
+	// Calculate number of shell blocks (iter)
+	iter := frameLength / SHELL_CODEC_FRAME_LENGTH
+	if iter*SHELL_CODEC_FRAME_LENGTH < frameLength {
+		iter++
+	}
+
+	// Pad pulses if needed
+	paddedPulses := make([]int8, iter*SHELL_CODEC_FRAME_LENGTH)
+	for i := 0; i < frameLength && i < len(paddedPulses); i++ {
+		// Clamp to int8 range
+		p := pulses[i]
+		if p > 127 {
+			p = 127
+		} else if p < -128 {
+			p = -128
+		}
+		paddedPulses[i] = int8(p)
+	}
+
+	// Take absolute value of pulses
+	absPulses := make([]int, iter*SHELL_CODEC_FRAME_LENGTH)
+	for i := 0; i < len(paddedPulses); i++ {
+		absPulses[i] = absInt(int(paddedPulses[i]))
+	}
+
+	// Calculate sum pulses per shell block with overflow handling
+	sumPulses := make([]int, iter)
+	nRshifts := make([]int, iter)
+
+	for i := 0; i < iter; i++ {
+		offset := i * SHELL_CODEC_FRAME_LENGTH
+		nRshifts[i] = 0
+
+		for {
+			// Compute sum for this shell block
+			var sum int
+			for k := 0; k < SHELL_CODEC_FRAME_LENGTH; k++ {
+				sum += absPulses[offset+k]
+			}
+
+			if sum > SILK_MAX_PULSES {
+				// Need to downscale
+				nRshifts[i]++
+				for k := 0; k < SHELL_CODEC_FRAME_LENGTH; k++ {
+					absPulses[offset+k] = absPulses[offset+k] >> 1
+				}
+			} else {
+				sumPulses[i] = sum
+				break
+			}
 		}
 	}
 
-	// Determine rate level (minimize total bits)
-	rateLevel := e.selectRateLevel(pulseCounts, signalType)
+	// Select rate level that minimizes total bits
+	rateLevelIndex := e.selectOptimalRateLevel(sumPulses, nRshifts, signalType)
 
-	// Encode rate level using existing ICDF tables
+	// Encode rate level
 	if signalType == 2 { // Voiced
-		e.rangeEncoder.EncodeICDF16(rateLevel, ICDFRateLevelVoiced, 8)
+		e.rangeEncoder.EncodeICDF16(rateLevelIndex, ICDFRateLevelVoiced, 8)
 	} else {
-		e.rangeEncoder.EncodeICDF16(rateLevel, ICDFRateLevelUnvoiced, 8)
+		e.rangeEncoder.EncodeICDF16(rateLevelIndex, ICDFRateLevelUnvoiced, 8)
 	}
 
-	// Encode pulse counts per shell
-	for shell := 0; shell < numShells; shell++ {
-		count := pulseCounts[shell]
-		if count > 16 {
-			count = 16 // Clamp to max encodable by ICDF table
-		}
-		e.rangeEncoder.EncodeICDF16(count, ICDFExcitationPulseCount, 8)
-	}
-
-	// Encode LSBs for large pulse counts (> 10)
-	lsbCounts := make([]int, numShells)
-	for shell := 0; shell < numShells; shell++ {
-		if pulseCounts[shell] > 10 {
-			// Compute how many LSB bits needed
-			lsbCounts[shell] = (pulseCounts[shell] - 10 + 1) / 2
-			if lsbCounts[shell] > 2 { // ICDFExcitationLSB has 3 entries
-				lsbCounts[shell] = 2
+	// Encode sum-weighted pulses per shell block
+	for i := 0; i < iter; i++ {
+		if nRshifts[i] == 0 {
+			e.rangeEncoder.EncodeICDF16(sumPulses[i], ICDFExcitationPulseCount, 8)
+		} else {
+			// Overflow: encode special marker, then nRshifts-1 markers, then final sum
+			e.rangeEncoder.EncodeICDF16(SILK_MAX_PULSES+1, ICDFExcitationPulseCount, 8)
+			for k := 0; k < nRshifts[i]-1; k++ {
+				e.rangeEncoder.EncodeICDF16(SILK_MAX_PULSES+1, ICDFExcitationPulseCount, 8)
 			}
-			if lsbCounts[shell] < 0 {
-				lsbCounts[shell] = 0
-			}
-			e.rangeEncoder.EncodeICDF16(lsbCounts[shell], ICDFExcitationLSB, 8)
+			e.rangeEncoder.EncodeICDF16(sumPulses[i], ICDFExcitationPulseCount, 8)
 		}
 	}
 
-	// Encode shell structure using binary splits
-	for shell := 0; shell < numShells; shell++ {
-		count := pulseCounts[shell]
-		if count > 16 {
-			count = 16
+	// Shell encoding (binary splits)
+	for i := 0; i < iter; i++ {
+		if sumPulses[i] > 0 {
+			offset := i * SHELL_CODEC_FRAME_LENGTH
+			e.shellEncoder(absPulses[offset : offset+SHELL_CODEC_FRAME_LENGTH])
 		}
-		if count == 0 {
-			continue
-		}
-
-		offset := shell * shellSize
-		shellPulses := make([]int, shellSize)
-		for i := 0; i < shellSize; i++ {
-			shellPulses[i] = absInt(int(excitation[offset+i]))
-		}
-
-		e.encodePulseDistribution(shellPulses, count)
 	}
 
-	// Encode signs for non-zero pulses using ICDFExcitationSign
-	for shell := 0; shell < numShells; shell++ {
-		offset := shell * shellSize
-		for i := 0; i < shellSize; i++ {
-			if excitation[offset+i] != 0 {
-				sign := 0
-				if excitation[offset+i] < 0 {
-					sign = 1
+	// LSB encoding for overflow cases
+	for i := 0; i < iter; i++ {
+		if nRshifts[i] > 0 {
+			offset := i * SHELL_CODEC_FRAME_LENGTH
+			nLS := nRshifts[i] - 1
+			for k := 0; k < SHELL_CODEC_FRAME_LENGTH; k++ {
+				absQ := absInt(int(paddedPulses[offset+k]))
+				for j := nLS; j > 0; j-- {
+					bit := (absQ >> j) & 1
+					e.rangeEncoder.EncodeICDF16(bit, ICDFExcitationLSB, 8)
 				}
-
-				// Sign ICDF indexed by [signalType][quantOffset][min(|pulse|-1, 5)]
-				signIdx := absInt(int(excitation[offset+i])) - 1
-				if signIdx > 5 {
-					signIdx = 5
-				}
-				if signIdx < 0 {
-					signIdx = 0
-				}
-
-				// Guard against invalid signalType/quantOffset
-				safeSignalType := signalType
-				if safeSignalType < 0 || safeSignalType > 2 {
-					safeSignalType = 0
-				}
-				safeQuantOffset := quantOffset
-				if safeQuantOffset < 0 || safeQuantOffset > 1 {
-					safeQuantOffset = 0
-				}
-
-				signICDF := ICDFExcitationSign[safeSignalType][safeQuantOffset][signIdx]
-				e.rangeEncoder.EncodeICDF16(sign, signICDF, 8)
-			}
-		}
-
-		// Encode LSB values if present
-		if lsbCounts[shell] > 0 {
-			for i := 0; i < shellSize; i++ {
-				if excitation[offset+i] != 0 {
-					// Extract LSB from magnitude
-					mag := absInt(int(excitation[offset+i]))
-					lsb := mag & 1
-					e.rangeEncoder.EncodeICDF16(lsb, ICDFExcitationLSB, 8)
-				}
+				bit := absQ & 1
+				e.rangeEncoder.EncodeICDF16(bit, ICDFExcitationLSB, 8)
 			}
 		}
 	}
 
-	// Encode LCG seed for comfort noise
-	seed := e.computeLCGSeed(excitation)
-	e.rangeEncoder.EncodeICDF16(seed, ICDFLCGSeed, 8)
+	// Encode signs
+	e.encodeSigns(paddedPulses, frameLength, signalType, quantOffset, sumPulses)
 }
 
-// encodePulseDistribution encodes the binary split tree.
-// Mirrors decoder's decodePulseDistribution exactly in reverse.
-// Uses ICDFExcitationSplit tables indexed by pulse count
-func (e *Encoder) encodePulseDistribution(pulses []int, totalPulses int) {
-	if totalPulses == 0 || len(pulses) <= 1 {
+// shellEncoder encodes 16 pulses using hierarchical binary splits.
+// Matches libopus silk_shell_encoder().
+func (e *Encoder) shellEncoder(pulses []int) {
+	// Level 4: 16 -> 2x8
+	pulses8_0 := pulses[0] + pulses[1] + pulses[2] + pulses[3] + pulses[4] + pulses[5] + pulses[6] + pulses[7]
+	pulses8_1 := pulses[8] + pulses[9] + pulses[10] + pulses[11] + pulses[12] + pulses[13] + pulses[14] + pulses[15]
+	total := pulses8_0 + pulses8_1
+
+	if total == 0 {
 		return
 	}
 
-	// Recursive binary split
-	e.encodeSplit(pulses, 0, len(pulses), totalPulses)
+	// Encode split at level 4 (16 -> 8+8)
+	e.encodeShellSplit(pulses8_0, total)
+
+	// Level 3: 8 -> 2x4 (first half)
+	if pulses8_0 > 0 {
+		pulses4_0 := pulses[0] + pulses[1] + pulses[2] + pulses[3]
+		e.encodeShellSplit(pulses4_0, pulses8_0)
+
+		// Level 2: 4 -> 2x2 (first quarter)
+		if pulses4_0 > 0 {
+			pulses2_0 := pulses[0] + pulses[1]
+			e.encodeShellSplit(pulses2_0, pulses4_0)
+
+			// Level 1: 2 -> 1+1
+			if pulses2_0 > 0 {
+				e.encodeShellSplit(pulses[0], pulses2_0)
+			}
+
+			pulses2_1 := pulses[2] + pulses[3]
+			if pulses2_1 > 0 {
+				e.encodeShellSplit(pulses[2], pulses2_1)
+			}
+		}
+
+		// Level 2: 4 -> 2x2 (second quarter)
+		pulses4_1 := pulses[4] + pulses[5] + pulses[6] + pulses[7]
+		if pulses4_1 > 0 {
+			pulses2_2 := pulses[4] + pulses[5]
+			e.encodeShellSplit(pulses2_2, pulses4_1)
+
+			if pulses2_2 > 0 {
+				e.encodeShellSplit(pulses[4], pulses2_2)
+			}
+
+			pulses2_3 := pulses[6] + pulses[7]
+			if pulses2_3 > 0 {
+				e.encodeShellSplit(pulses[6], pulses2_3)
+			}
+		}
+	}
+
+	// Level 3: 8 -> 2x4 (second half)
+	if pulses8_1 > 0 {
+		pulses4_2 := pulses[8] + pulses[9] + pulses[10] + pulses[11]
+		e.encodeShellSplit(pulses4_2, pulses8_1)
+
+		if pulses4_2 > 0 {
+			pulses2_4 := pulses[8] + pulses[9]
+			e.encodeShellSplit(pulses2_4, pulses4_2)
+
+			if pulses2_4 > 0 {
+				e.encodeShellSplit(pulses[8], pulses2_4)
+			}
+
+			pulses2_5 := pulses[10] + pulses[11]
+			if pulses2_5 > 0 {
+				e.encodeShellSplit(pulses[10], pulses2_5)
+			}
+		}
+
+		pulses4_3 := pulses[12] + pulses[13] + pulses[14] + pulses[15]
+		if pulses4_3 > 0 {
+			pulses2_6 := pulses[12] + pulses[13]
+			e.encodeShellSplit(pulses2_6, pulses4_3)
+
+			if pulses2_6 > 0 {
+				e.encodeShellSplit(pulses[12], pulses2_6)
+			}
+
+			pulses2_7 := pulses[14] + pulses[15]
+			if pulses2_7 > 0 {
+				e.encodeShellSplit(pulses[14], pulses2_7)
+			}
+		}
+	}
 }
 
-// encodeSplit recursively encodes the binary split of pulses.
-func (e *Encoder) encodeSplit(pulses []int, start, end, count int) {
-	if count == 0 {
+// encodeShellSplit encodes a binary split: leftCount out of total.
+func (e *Encoder) encodeShellSplit(leftCount, total int) {
+	if total <= 0 {
 		return
 	}
-
-	length := end - start
-	if length <= 0 {
-		return
+	if total > len(ICDFExcitationSplit) {
+		total = len(ICDFExcitationSplit)
 	}
-	if length == 1 {
-		// Base case: all remaining pulses go to this position (no encoding needed)
-		return
-	}
-
-	// Compute left count
-	mid := start + length/2
-	var leftCount int
-	for i := start; i < mid; i++ {
-		leftCount += pulses[i]
-	}
-
-	// Get split ICDF table based on pulse count
-	tableIdx := count
-	if tableIdx >= len(ICDFExcitationSplit) {
-		tableIdx = len(ICDFExcitationSplit) - 1
-	}
-	if tableIdx < 0 {
-		tableIdx = 0
-	}
-	icdf := ICDFExcitationSplit[tableIdx]
-
-	// Clamp leftCount to valid range
 	if leftCount < 0 {
 		leftCount = 0
 	}
-	if leftCount > count {
-		leftCount = count
+	if leftCount > total {
+		leftCount = total
 	}
 
-	// Encode left count
+	icdf := ICDFExcitationSplit[total-1] // 0-indexed
 	e.rangeEncoder.EncodeICDF16(leftCount, icdf, 8)
-
-	// Recurse
-	rightCount := count - leftCount
-	e.encodeSplit(pulses, start, mid, leftCount)
-	e.encodeSplit(pulses, mid, end, rightCount)
 }
 
-// selectRateLevel selects the rate level that minimizes bits.
-func (e *Encoder) selectRateLevel(pulseCounts []int, signalType int) int {
-	if len(pulseCounts) == 0 {
+// encodeSigns encodes signs for non-zero pulses.
+// Matches libopus silk_encode_signs().
+func (e *Encoder) encodeSigns(pulses []int8, frameLength, signalType, quantOffset int, sumPulses []int) {
+	iter := len(sumPulses)
+
+	for i := 0; i < iter; i++ {
+		if sumPulses[i] > 0 {
+			offset := i * SHELL_CODEC_FRAME_LENGTH
+			for k := 0; k < SHELL_CODEC_FRAME_LENGTH; k++ {
+				idx := offset + k
+				if idx >= frameLength {
+					break
+				}
+				if pulses[idx] != 0 {
+					sign := 0
+					if pulses[idx] < 0 {
+						sign = 1
+					}
+
+					// Sign ICDF indexed by [signalType][quantOffset][min(|pulse|-1, 5)]
+					signIdx := absInt(int(pulses[idx])) - 1
+					if signIdx > 5 {
+						signIdx = 5
+					}
+					if signIdx < 0 {
+						signIdx = 0
+					}
+
+					// Guard against invalid indices
+					safeSignalType := signalType
+					if safeSignalType < 0 || safeSignalType > 2 {
+						safeSignalType = 0
+					}
+					safeQuantOffset := quantOffset
+					if safeQuantOffset < 0 || safeQuantOffset > 1 {
+						safeQuantOffset = 0
+					}
+
+					signICDF := ICDFExcitationSign[safeSignalType][safeQuantOffset][signIdx]
+					e.rangeEncoder.EncodeICDF16(sign, signICDF, 8)
+				}
+			}
+		}
+	}
+}
+
+// selectOptimalRateLevel selects rate level that minimizes bits.
+func (e *Encoder) selectOptimalRateLevel(sumPulses, nRshifts []int, signalType int) int {
+	// Simple heuristic based on average pulse count
+	var totalPulses int
+	for _, s := range sumPulses {
+		totalPulses += s
+	}
+
+	if len(sumPulses) == 0 {
 		return 0
 	}
 
-	// Simple heuristic: higher rate for higher pulse counts
-	var totalPulses int
-	for _, c := range pulseCounts {
-		totalPulses += c
-	}
+	avgPulses := totalPulses / len(sumPulses)
 
-	avgPulses := totalPulses / len(pulseCounts)
-
-	// Map average pulses to rate level [0, 7]
+	// Map to rate level [0, N_RATE_LEVELS-1]
 	if avgPulses < 2 {
 		return 0
 	} else if avgPulses < 4 {
@@ -215,19 +306,10 @@ func (e *Encoder) selectRateLevel(pulseCounts []int, signalType int) int {
 		return 5
 	} else if avgPulses < 14 {
 		return 6
+	} else if avgPulses < 16 {
+		return 7
 	}
-	return 7
-}
-
-// computeLCGSeed computes seed for comfort noise generation.
-func (e *Encoder) computeLCGSeed(excitation []int32) int {
-	// Use hash of excitation as seed
-	var hash int32
-	for _, v := range excitation {
-		hash ^= v
-		hash = (hash << 5) | (hash >> 27)
-	}
-	return int(hash & 0x3) // 2-bit seed (4 values for ICDFLCGSeed)
+	return 8
 }
 
 // computeExcitation computes the LPC residual (excitation signal).
@@ -252,12 +334,8 @@ func (e *Encoder) computeExcitation(pcm []float32, lpcQ12 []int16, gain float32)
 		// Residual = input - prediction
 		residual := float64(pcm[i]) - prediction
 
-		// Quantize to integer by dividing by gain
-		if gain > 0 {
-			excitation[i] = int32(math.Round(residual / float64(gain)))
-		} else {
-			excitation[i] = int32(math.Round(residual))
-		}
+		// Quantize residual to integer (do NOT divide by gain - decoder applies gain)
+		excitation[i] = int32(math.Round(residual))
 	}
 
 	return excitation

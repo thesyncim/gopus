@@ -10,11 +10,37 @@ import (
 	"github.com/thesyncim/gopus/internal/celt"
 )
 
+// fitsIn32CWRS checks if V(n,k) fits in a 32-bit unsigned integer.
+// This matches the libopus fits_in32() function in rate.c.
+// N and K combinations that don't fit cannot be encoded with 32-bit CWRS.
+func fitsIn32CWRS(n, k int) bool {
+	// libopus fits_in32 tables from rate.c
+	maxN := []int{32767, 32767, 32767, 1476, 283, 109, 60, 40, 29, 24, 20, 18, 16, 14, 13}
+	maxK := []int{32767, 32767, 32767, 32767, 1172, 238, 95, 53, 36, 27, 22, 18, 16, 15, 13}
+
+	if n >= 14 {
+		if k >= 14 {
+			return false
+		}
+		if k < len(maxN) {
+			return n <= maxN[k]
+		}
+		return false
+	}
+	if n < len(maxK) {
+		return k <= maxK[n]
+	}
+	return false
+}
+
 // TestPVQSearchAndEncodeRoundtrip tests that the PVQ search + CWRS encoding is correct.
 // This tests the full encode/decode path in Go without libopus.
+// Note: Only tests (n,k) combinations where V(n,k) fits in 32 bits (as per libopus limits).
 func TestPVQSearchAndEncodeRoundtrip(t *testing.T) {
 	rng := rand.New(rand.NewSource(42))
 
+	// Only test (n,k) combinations that fit in 32-bit CWRS encoding
+	// libopus limits: n=4 k<=128, n=8 k<=36, n=16 k<=12, n=32 k<=7
 	testCases := []struct {
 		n, k int
 	}{
@@ -22,8 +48,11 @@ func TestPVQSearchAndEncodeRoundtrip(t *testing.T) {
 		{4, 4},
 		{8, 4},
 		{8, 8},
+		{8, 16}, // max valid for n=8 is k=36
 		{16, 8},
-		{32, 16},
+		{16, 12}, // max valid for n=16 is k=12
+		{32, 4},
+		{32, 7}, // max valid for n=32 is k=7
 	}
 
 	for _, tc := range testCases {
@@ -151,11 +180,16 @@ func TestPVQSearchVsLibopusWithSameInput(t *testing.T) {
 // 2. CWRS encodes pulses to index
 // 3. Index can be decoded back to pulses
 // 4. Decoded pulses match original
+// Note: Only tests (n,k) combinations where V(n,k) fits in 32 bits.
 func TestPVQEncodingEndToEnd(t *testing.T) {
 	rng := rand.New(rand.NewSource(456))
 
 	for n := 4; n <= 64; n *= 2 {
 		for k := 2; k <= n && k <= 32; k *= 2 {
+			// Skip combinations that overflow 32-bit CWRS
+			if !fitsIn32CWRS(n, k) {
+				continue
+			}
 			t.Run("", func(t *testing.T) {
 				for trial := 0; trial < 10; trial++ {
 					// Generate random unit vector

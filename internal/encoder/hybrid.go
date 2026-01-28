@@ -192,12 +192,20 @@ func min(a, b int) int {
 
 // encodeCELTHybrid encodes CELT data for hybrid mode.
 // In hybrid mode, CELT only encodes high-frequency bands (17-21).
+// Per RFC 6716 Section 3.2:
+// - CELT start_band = 17 (bands 0-16 handled by SILK)
+// - Only bands 17-21 carry signal in the CELT layer
 func (e *Encoder) encodeCELTHybrid(pcm []float64, frameSize int) {
+	// Set hybrid mode flag on CELT encoder
+	// This affects postfilter flag encoding (skipped in hybrid mode)
+	// Reference: libopus celt_encoder.c line 2047-2048
+	e.celtEncoder.SetHybrid(true)
+
 	// Get mode configuration
 	mode := celt.GetModeConfig(frameSize)
 
-	// Apply pre-emphasis
-	preemph := e.celtEncoder.ApplyPreemphasis(pcm)
+	// Apply pre-emphasis with signal scaling to match libopus
+	preemph := e.celtEncoder.ApplyPreemphasisWithScaling(pcm)
 
 	// Compute MDCT with overlap history
 	mdctCoeffs := computeMDCTForHybrid(preemph, frameSize, e.channels, e.celtEncoder.OverlapBuffer())
@@ -205,12 +213,14 @@ func (e *Encoder) encodeCELTHybrid(pcm []float64, frameSize int) {
 	// Compute band energies
 	energies := e.celtEncoder.ComputeBandEnergies(mdctCoeffs, mode.EffBands, frameSize)
 
-	// In hybrid mode, zero out low bands (0-16) - SILK handles these
-	for i := 0; i < 17 && i < len(energies); i++ {
-		energies[i] = -28.0 // Minimal energy for SILK bands
+	// In hybrid mode, set low bands (0-16) to very low energy
+	// These bands are handled by SILK; CELT should not allocate bits to them
+	startBand := celt.HybridCELTStartBand // 17
+	for i := 0; i < startBand && i < len(energies); i++ {
+		energies[i] = -28.0 // Very low energy for SILK bands
 	}
 
-	// Normalize bands
+	// Normalize bands (only high bands will have meaningful shapes)
 	shapes := e.celtEncoder.NormalizeBands(mdctCoeffs, energies, mode.EffBands, frameSize)
 
 	// Get the range encoder
@@ -221,6 +231,11 @@ func (e *Encoder) encodeCELTHybrid(pcm []float64, frameSize int) {
 
 	// Encode silence flag = 0 (not silent)
 	re.EncodeBit(0, 15)
+
+	// In hybrid mode, postfilter flag is SKIPPED entirely (not encoded)
+	// Reference: libopus celt_encoder.c line 2047-2048:
+	// if(!hybrid && tell+16<=total_bits) ec_enc_bit_logp(enc, 0, 1);
+	// Since we're in hybrid mode, we skip encoding the postfilter flag
 
 	// Encode transient flag (only for LM >= 1)
 	if mode.LM >= 1 {
@@ -238,6 +253,9 @@ func (e *Encoder) encodeCELTHybrid(pcm []float64, frameSize int) {
 	// Encode coarse energy
 	quantizedEnergies := e.celtEncoder.EncodeCoarseEnergy(energies, mode.EffBands, intra, mode.LM)
 
+	// Initialize caps for allocation - use hybrid mode caps that zero out low bands
+	caps := celt.InitCapsForHybrid(mode.EffBands, mode.LM, e.channels, startBand)
+
 	// Compute bit allocation
 	bitsUsed := re.Tell()
 	totalBits := maxHybridPacketSize*8 - bitsUsed
@@ -249,10 +267,10 @@ func (e *Encoder) encodeCELTHybrid(pcm []float64, frameSize int) {
 		totalBits,
 		mode.EffBands,
 		e.channels,
-		nil,   // caps
+		caps,  // Use hybrid caps
 		nil,   // dynalloc
-		0,     // trim
-		-1,    // intensity
+		5,     // trim (default)
+		-1,    // intensity (disabled)
 		false, // dualStereo
 		mode.LM,
 	)
@@ -261,8 +279,7 @@ func (e *Encoder) encodeCELTHybrid(pcm []float64, frameSize int) {
 	e.celtEncoder.EncodeFineEnergy(energies, quantizedEnergies, mode.EffBands, allocResult.FineBits)
 
 	// Encode bands (PVQ)
-	// Note: Hybrid stereo encoding is currently incomplete.
-	// We pass shapes as shapesL and nil as shapesR, treating it as mono-like.
+	// With hybrid caps, bands 0-16 will have 0 bits allocated automatically
 	e.celtEncoder.EncodeBands(shapes, nil, allocResult.BandBits, mode.EffBands, frameSize)
 
 	// Update state

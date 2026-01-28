@@ -448,3 +448,71 @@ func (e *Encoder) EncodeBands(shapesL, shapesR [][]float64, bandBits []int, nbBa
 		}
 	}
 }
+
+// EncodeBandsHybrid encodes bands for hybrid mode (starting from startBand).
+// In hybrid mode, bands 0 to startBand-1 are handled by SILK.
+// Only bands from startBand onwards are PVQ encoded.
+//
+// Reference: RFC 6716 Section 3.2 - Hybrid mode uses start_band=17 for CELT
+func (e *Encoder) EncodeBandsHybrid(shapesL, shapesR [][]float64, bandBits []int, nbBands, frameSize, startBand int) {
+	if e.rangeEncoder == nil {
+		return
+	}
+	if nbBands <= 0 || nbBands > MaxBands {
+		return
+	}
+	if len(shapesL) < nbBands || len(bandBits) < nbBands {
+		return
+	}
+
+	stereo := shapesR != nil && len(shapesR) >= nbBands
+
+	// Only encode bands from startBand onwards
+	for band := startBand; band < nbBands; band++ {
+		bits := bandBits[band]
+
+		// If no bits allocated, skip this band (decoder will fold from other bands)
+		if bits <= 0 {
+			continue
+		}
+
+		// Get band width
+		n := ScaledBandWidth(band, frameSize)
+		if n <= 0 {
+			continue
+		}
+
+		if stereo {
+			// Dual stereo: split bits
+			bitsL := bits / 2
+			bitsR := bits - bitsL
+
+			// Encode Left
+			kL := bitsToKEncode(bitsL, n)
+			if kL > 0 && len(shapesL[band]) > 0 {
+				e.EncodeBandPVQ(shapesL[band], n, kL)
+			}
+
+			// Encode Right
+			kR := bitsToKEncode(bitsR, n)
+			if kR > 0 && len(shapesR[band]) > 0 {
+				e.EncodeBandPVQ(shapesR[band], n, kR)
+			}
+		} else {
+			// Mono
+			k := bitsToKEncode(bits, n)
+			if k <= 0 {
+				continue
+			}
+
+			// Get shape for this band
+			shape := shapesL[band]
+			if len(shape) == 0 {
+				continue
+			}
+
+			// Encode the band using PVQ
+			e.EncodeBandPVQ(shape, n, k)
+		}
+	}
+}

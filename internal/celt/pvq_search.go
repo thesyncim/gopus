@@ -8,11 +8,13 @@ import (
 
 // opPVQSearch approximates libopus op_pvq_search() (float path).
 // It finds the signed pulse vector iy (sum abs = K) that best matches X.
-func opPVQSearch(x []float64, k int) []int {
+// Returns the pulse vector and the computed energy yy (sum of squares of pulses).
+// This matches libopus which returns yy from op_pvq_search_c() for use in normalization.
+func opPVQSearch(x []float64, k int) ([]int, float64) {
 	n := len(x)
 	iy := make([]int, n)
 	if n == 0 || k <= 0 {
-		return iy
+		return iy, 0
 	}
 
 	signx := make([]int, n)
@@ -97,7 +99,7 @@ func opPVQSearch(x []float64, k int) []int {
 		}
 	}
 
-	return iy
+	return iy, yy
 }
 
 func opPVQSearchN2(x []float64, k, up int) (iy []int, upIy []int, refine int) {

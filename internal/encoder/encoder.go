@@ -283,6 +283,19 @@ func (e *Encoder) Complexity() int {
 	return e.complexity
 }
 
+// FinalRange returns the final range coder state after encoding.
+// This matches libopus OPUS_GET_FINAL_RANGE and is used for bitstream verification.
+// Must be called after Encode() to get a meaningful value.
+func (e *Encoder) FinalRange() uint32 {
+	// Return the final range from the CELT encoder if it exists
+	// (CELT is used for CELT-only and Hybrid modes)
+	if e.celtEncoder != nil {
+		return e.celtEncoder.FinalRange()
+	}
+	// TODO: SILK encoder final range for SILK-only mode
+	return 0
+}
+
 // SetBitrateMode sets the bitrate mode (VBR, CVBR, or CBR).
 func (e *Encoder) SetBitrateMode(mode BitrateMode) {
 	e.bitrateMode = mode

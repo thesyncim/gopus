@@ -73,11 +73,10 @@ func computeLogGainIndex(gain float32) int {
 	}
 
 	// Compute log-domain gain index matching decoder's formula
-	// Decoder: gain_Q16 = 2^(idx/8 + 6.34)
-	// Linear gain = gain_Q16 / 65536 = 2^(idx/8 + 6.34 - 16) = 2^(idx/8 - 9.66)
-	// Inverse: idx = 8 * (log2(gain) + 9.66)
+	// Decoder (RFC 6716 Section 4.2.7.4): gain = 2^(logGainIndex/8 - 1)
+	// Inverting: logGainIndex = 8 * (log2(gain) + 1)
 	logGain := math.Log2(float64(gain))
-	idx := int(math.Round((logGain + 9.66) * 8.0))
+	idx := int(math.Round((logGain + 1.0) * 8.0))
 
 	// Clamp to valid range [0, 63]
 	if idx < 0 {
@@ -185,6 +184,7 @@ func absInt32(x int32) int32 {
 	return x
 }
 
+// absInt returns the absolute value of an integer.
 func absInt(x int) int {
 	if x < 0 {
 		return -x

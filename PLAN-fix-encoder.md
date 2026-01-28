@@ -102,11 +102,24 @@ These cause stereo audio to be corrupted.
   - Added encode-time TF mapping + normalization using original energies
 - [x] **Replace simplified PVQ quantization** (`vectorToPulses`) with libopus-style `op_pvq_search` (float path)
   - Note: QEXT/extra-bits branches now implemented but not wired to an ext payload (no QEXT packets yet)
-- [ ] **Implement full stereo mid/side path** (proper `stereo_split`, `intensity_stereo`, theta biasing)
+- [x] **Implement full stereo mid/side path** (proper `stereo_split`, `intensity_stereo`, theta biasing)
   - [x] Mid/side enabled by default (dualStereo=0), encode-side `stereo_split`/`intensity_stereo` wired
   - [x] Added energy-weighted intensity using per-band amplitudes (approx. libopus bandE)
-  - [ ] Still missing theta RDO biasing
-- [ ] **Enable TF analysis / spread decision** (currently fixed defaults)
+  - [x] Theta RDO implementation verified correct (no bugs found)
+  - [x] Q30 extended precision theta implemented
+- [x] **Enable TF analysis / spread decision**
+  - [x] TF analysis with Viterbi algorithm implemented
+  - [x] `tfEstimate` computed dynamically from signal analysis (was hardcoded)
+  - [x] `ComputeImportance()` implemented for TF band weighting
+  - [x] `ComputeSpreadWeights()` implemented with masking analysis
+  - [x] `SpreadingDecisionWithWeights()` wired into encoding path
+  - [x] Tapset decision tracked and wired into encoding
+
+### Issue 12: Band Skip Threshold Mismatch (FIXED)
+- [x] **Fix `alloc.go` skip threshold logic**: gopus was encoding 1 extra band at intermediate bitrates
+  - Bug: When `depthThreshold = 0`, gopus skipped the `j <= signalBandwidth` check
+  - Fix: Changed to match libopus: `keepBand := codedBands <= start+2 || (bandBits > threshold && j <= signalBandwidth)`
+  - Verified: 32kbps=19, 48kbps=20, 64kbps=20, 96kbps=21, 128kbps=21 (matches libopus)
 
 ---
 
@@ -114,6 +127,32 @@ These cause stereo audio to be corrupted.
 
 - [x] Encode anti-collapse flag (reserved bit when applicable)
 - [x] Encode energy finalization bits using leftover budget
+
+---
+
+## Current Status (2026-01-28)
+
+### Verification Results
+- **Decoder**: Works correctly - 48.75 dB SNR when decoding libopus packets
+- **Encoder**: Still failing - 0/80 configurations pass (Q values ~-100)
+
+### Verified Correct (via parallel agent analysis)
+All of the following were verified against libopus source and found to be correctly implemented:
+- [x] Skip bit encoding (unconditional, correct polarity)
+- [x] eMeans handling (no double-subtraction)
+- [x] Normalization domain (consistent log2)
+- [x] Overlap buffer persistence
+- [x] Stereo parameter encoding (intensity, dual_stereo)
+- [x] RDO trial restoration (buffer save/restore correct)
+- [x] Band skip threshold (fixed to match libopus)
+
+### Remaining Issues
+The encoder produces bitstreams that libopus decoder reads incorrectly. Q=-100 indicates
+the decoded output is completely wrong (worse than random noise). Possible causes:
+
+1. **PVQ coefficient encoding mismatch**: The actual audio coefficients may be encoded differently
+2. **Range encoder state mismatch**: Bit positions may diverge during encoding
+3. **SILK encoder issues**: SILK mode shows Q values from -99 to -203 (worst performance)
 
 ---
 

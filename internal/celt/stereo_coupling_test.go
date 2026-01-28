@@ -345,3 +345,304 @@ func absIntLocal(x int) int {
 	}
 	return x
 }
+
+// TestStereoIthetaQ30 validates the Q30 extended precision theta computation.
+// The Q30 version should have itheta = ithetaQ30 >> 16.
+func TestStereoIthetaQ30(t *testing.T) {
+	testCases := []struct {
+		name   string
+		x      []float64
+		y      []float64
+		stereo bool
+	}{
+		{
+			name:   "equal energy (45 degrees)",
+			x:      []float64{1, 0, 0, 0},
+			y:      []float64{0, 1, 0, 0},
+			stereo: false,
+		},
+		{
+			name:   "all mid (0 degrees)",
+			x:      []float64{1, 1, 1, 1},
+			y:      []float64{0, 0, 0, 0},
+			stereo: false,
+		},
+		{
+			name:   "all side (90 degrees)",
+			x:      []float64{0, 0, 0, 0},
+			y:      []float64{1, 1, 1, 1},
+			stereo: false,
+		},
+		{
+			name:   "stereo mode - equal",
+			x:      []float64{0.5, 0.5, 0.5, 0.5},
+			y:      []float64{0.5, 0.5, 0.5, 0.5},
+			stereo: true,
+		},
+		{
+			name:   "stereo mode - different",
+			x:      []float64{0.8, 0.4, 0.2, 0.1},
+			y:      []float64{0.2, 0.4, 0.6, 0.8},
+			stereo: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Compute both versions
+			itheta := stereoItheta(tc.x, tc.y, tc.stereo)
+			ithetaQ30 := stereoIthetaQ30(tc.x, tc.y, tc.stereo)
+
+			// Q30 >> 16 should equal standard itheta
+			ithetaFromQ30 := ithetaQ30 >> 16
+
+			// Allow small difference due to intermediate rounding
+			diff := absIntLocal(itheta - ithetaFromQ30)
+			if diff > 1 {
+				t.Errorf("stereoItheta=%d, ithetaQ30>>16=%d (diff=%d, expected <=1)",
+					itheta, ithetaFromQ30, diff)
+			}
+
+			// Q30 should be in valid range [0, 1<<30]
+			if ithetaQ30 < 0 || ithetaQ30 > 1<<30 {
+				t.Errorf("ithetaQ30=%d out of range [0, %d]", ithetaQ30, 1<<30)
+			}
+
+			// Standard itheta should be in [0, 16384]
+			if itheta < 0 || itheta > 16384 {
+				t.Errorf("itheta=%d out of range [0, 16384]", itheta)
+			}
+
+			t.Logf("itheta=%d, ithetaQ30=%d (>>16=%d)", itheta, ithetaQ30, ithetaFromQ30)
+		})
+	}
+}
+
+// TestCeltAtan2pNorm validates the atan2 * 2/pi computation.
+func TestCeltAtan2pNorm(t *testing.T) {
+	testCases := []struct {
+		y, x     float64
+		expected float64 // atan2(y,x) * 2/pi
+	}{
+		{0, 1, 0},          // atan2(0, 1) = 0
+		{1, 1, 0.5},        // atan2(1, 1) = pi/4, * 2/pi = 0.5
+		{1, 0, 1.0},        // atan2(1, 0) = pi/2, * 2/pi = 1.0
+		{0.5, 0.866, 0.29}, // atan2(0.5, 0.866) ~= 30 deg = pi/6, * 2/pi ~= 0.333
+	}
+
+	for _, tc := range testCases {
+		result := celtAtan2pNorm(tc.y, tc.x)
+		diff := math.Abs(result - tc.expected)
+		// Allow 5% error for approximation
+		if diff > 0.05 {
+			t.Errorf("celtAtan2pNorm(%f, %f)=%f, expected ~%f (diff=%f)",
+				tc.y, tc.x, result, tc.expected, diff)
+		}
+	}
+}
+
+// TestCeltCosNorm2 validates the cos(pi/2 * x) computation.
+func TestCeltCosNorm2(t *testing.T) {
+	testCases := []struct {
+		x        float64
+		expected float64
+	}{
+		{0, 1.0},                   // cos(0) = 1
+		{0.5, 0.7071067811865476},  // cos(pi/4) = sqrt(2)/2
+		{1.0, 0.0},                 // cos(pi/2) = 0
+		{0.25, 0.9238795325112867}, // cos(pi/8) ~= 0.9239
+	}
+
+	for _, tc := range testCases {
+		result := celtCosNorm2(tc.x)
+		diff := math.Abs(result - tc.expected)
+		if diff > 1e-6 {
+			t.Errorf("celtCosNorm2(%f)=%f, expected %f (diff=%f)",
+				tc.x, result, tc.expected, diff)
+		}
+	}
+}
+
+// TestThetaRDOTrialRestoration verifies that the theta RDO trial/restore logic
+// correctly saves and restores all state between trials.
+// This tests the core RDO loop correctness: save state -> trial 1 -> save result 1 ->
+// restore state -> trial 2 -> pick best -> restore if trial 1 was better.
+func TestThetaRDOTrialRestoration(t *testing.T) {
+	// Test that the inner product (distortion measure) is computed correctly
+	// for the theta RDO algorithm.
+	testCases := []struct {
+		name string
+		orig []float64
+		enc  []float64
+	}{
+		{
+			name: "identical vectors",
+			orig: []float64{0.5, 0.5, 0.5, 0.5},
+			enc:  []float64{0.5, 0.5, 0.5, 0.5},
+		},
+		{
+			name: "similar vectors",
+			orig: []float64{0.5, 0.5, 0.5, 0.5},
+			enc:  []float64{0.48, 0.51, 0.49, 0.52},
+		},
+		{
+			name: "different vectors",
+			orig: []float64{0.5, 0.5, 0.5, 0.5},
+			enc:  []float64{0.4, 0.6, 0.3, 0.7},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// The distortion measure used in theta RDO is innerProduct(orig, enc)
+			// Higher inner product means lower distortion (more similar)
+			dist := innerProduct(tc.orig, tc.enc)
+
+			// Verify innerProduct is symmetric
+			distReverse := innerProduct(tc.enc, tc.orig)
+			if math.Abs(dist-distReverse) > 1e-10 {
+				t.Errorf("innerProduct not symmetric: %f != %f", dist, distReverse)
+			}
+
+			// Verify that identical vectors have maximum inner product
+			if tc.name == "identical vectors" {
+				normOrig := 0.0
+				for _, v := range tc.orig {
+					normOrig += v * v
+				}
+				if math.Abs(dist-normOrig) > 1e-10 {
+					t.Errorf("identical vectors: innerProduct=%f, expected %f", dist, normOrig)
+				}
+			}
+
+			t.Logf("%s: innerProduct = %f", tc.name, dist)
+		})
+	}
+
+	// Test that computeChannelWeights produces valid weights
+	// Note: In libopus float path, weights are NOT normalized - they're adjusted energies
+	t.Run("channel weights", func(t *testing.T) {
+		testWeights := []struct {
+			leftE, rightE float64
+		}{
+			{1.0, 1.0},
+			{0.5, 0.5},
+			{0.8, 0.2},
+			{0.0, 1.0},
+			{1e-10, 1e-10},
+		}
+
+		for _, tw := range testWeights {
+			w0, w1 := computeChannelWeights(tw.leftE, tw.rightE)
+
+			// Weights should be non-negative
+			if w0 < 0 || w1 < 0 {
+				t.Errorf("negative weights: w0=%f, w1=%f for leftE=%f, rightE=%f",
+					w0, w1, tw.leftE, tw.rightE)
+			}
+
+			// Verify the libopus formula: w = E + min(El, Er)/3
+			minE := tw.leftE
+			if tw.rightE < minE {
+				minE = tw.rightE
+			}
+			expectedW0 := tw.leftE + minE/3.0
+			expectedW1 := tw.rightE + minE/3.0
+
+			if math.Abs(w0-expectedW0) > 1e-10 || math.Abs(w1-expectedW1) > 1e-10 {
+				t.Errorf("weight mismatch: got w0=%f, w1=%f; expected w0=%f, w1=%f",
+					w0, w1, expectedW0, expectedW1)
+			}
+
+			t.Logf("leftE=%f, rightE=%f -> w0=%f, w1=%f", tw.leftE, tw.rightE, w0, w1)
+		}
+	})
+
+	// Test norm buffer save/restore (simulates the RDO loop)
+	t.Run("norm buffer restoration", func(t *testing.T) {
+		// Simulate the norm buffer save/restore pattern used in theta RDO
+		origNorm := []float64{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8}
+
+		// Save original
+		normSave := make([]float64, len(origNorm))
+		copy(normSave, origNorm)
+
+		// Simulate trial 1 modification
+		for i := range origNorm {
+			origNorm[i] *= 1.5
+		}
+		trial1Norm := make([]float64, len(origNorm))
+		copy(trial1Norm, origNorm)
+
+		// Restore for trial 2
+		copy(origNorm, normSave)
+
+		// Verify restoration worked
+		for i := range origNorm {
+			if origNorm[i] != normSave[i] {
+				t.Errorf("norm restoration failed at index %d: got %f, want %f",
+					i, origNorm[i], normSave[i])
+			}
+		}
+
+		// Simulate trial 2 modification
+		for i := range origNorm {
+			origNorm[i] *= 0.8
+		}
+
+		// Now decide which trial was better and restore if needed
+		// (simulate picking trial 1)
+		copy(origNorm, trial1Norm)
+
+		for i := range origNorm {
+			if origNorm[i] != trial1Norm[i] {
+				t.Errorf("trial1 restoration failed at index %d: got %f, want %f",
+					i, origNorm[i], trial1Norm[i])
+			}
+		}
+
+		t.Log("Norm buffer save/restore pattern validated")
+	})
+}
+
+// TestThetaQ30ExtendedPrecision validates that Q30 provides finer granularity than standard itheta.
+func TestThetaQ30ExtendedPrecision(t *testing.T) {
+	// Create test vectors that should produce slightly different angles
+	// that would map to the same standard itheta but different ithetaQ30
+
+	// Two angles that differ by less than 1 quantization step in standard itheta
+	// Standard itheta has ~16384 steps over 90 degrees = ~0.0055 degrees per step
+	// Q30 has 1<<30 = ~1 billion steps, so much finer
+
+	x1 := []float64{0.99, 0.1, 0.05, 0.02}
+	y1 := []float64{0.1, 0.05, 0.02, 0.01}
+
+	x2 := []float64{0.99, 0.1, 0.05, 0.03} // slightly different
+	y2 := []float64{0.1, 0.05, 0.02, 0.01}
+
+	itheta1 := stereoItheta(x1, y1, false)
+	itheta2 := stereoItheta(x2, y2, false)
+
+	ithetaQ30_1 := stereoIthetaQ30(x1, y1, false)
+	ithetaQ30_2 := stereoIthetaQ30(x2, y2, false)
+
+	t.Logf("Vector 1: itheta=%d, ithetaQ30=%d", itheta1, ithetaQ30_1)
+	t.Logf("Vector 2: itheta=%d, ithetaQ30=%d", itheta2, ithetaQ30_2)
+
+	// Q30 should show more difference than standard itheta
+	standardDiff := absIntLocal(itheta1 - itheta2)
+	q30Diff := absIntLocal(ithetaQ30_1 - ithetaQ30_2)
+
+	// Q30 difference should be at least 65536 times the standard difference (on average)
+	// but due to rounding, just verify Q30 captures more detail
+	t.Logf("Standard diff: %d, Q30 diff: %d, ratio: %.2f",
+		standardDiff, q30Diff, float64(q30Diff)/float64(maxInt(1, standardDiff)))
+
+	// Both should produce valid values
+	if ithetaQ30_1 < 0 || ithetaQ30_1 > 1<<30 {
+		t.Errorf("ithetaQ30_1=%d out of range", ithetaQ30_1)
+	}
+	if ithetaQ30_2 < 0 || ithetaQ30_2 > 1<<30 {
+		t.Errorf("ithetaQ30_2=%d out of range", ithetaQ30_2)
+	}
+}

@@ -149,29 +149,72 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	e.SetRangeEncoder(re)
 
 	// Step 9: Encode frame flags
-	// ... (no changes) ...
+	// Match libopus encoding order and budget conditions exactly:
+	// 1. Silence flag (if tell==1, with logp=15)
+	// 2. Postfilter flag (if start==0 && !hybrid && tell+16<=total_bits, with logp=1)
+	// 3. Transient flag (if LM>0 && tell+3<=total_bits, with logp=3)
+	// 4. Intra energy flag (if tell+3<=total_bits, with logp=3)
+	//
+	// Reference: libopus celt_encoder.c lines 1981-1984:
+	//   if (tell==1)
+	//      ec_enc_bit_logp(enc, silence, 15);
+	//   else
+	//      silence=0;
+	// The silence flag is ONLY encoded when tell==1 (the very first bit position).
+	// If tell!=1, silence is forced to 0 without encoding anything.
 	isSilence := isFrameSilent(pcm)
-	if isSilence {
-		re.EncodeBit(1, 15)
-		bytes := re.Done()
-		return bytes, nil
+	tell := re.Tell()
+	if tell == 1 {
+		if isSilence {
+			re.EncodeBit(1, 15)
+			// Capture final range BEFORE Done(), matching libopus celt_encoder.c:2809
+			e.rng = re.Range()
+			bytes := re.Done()
+			return bytes, nil
+		}
+		re.EncodeBit(0, 15)
+	} else {
+		// tell != 1: don't encode silence flag, force silence to false
+		isSilence = false
 	}
-	re.EncodeBit(0, 15)
 	start := 0
-	re.EncodeBit(0, 1)
-	if lm > 0 {
+
+	// Postfilter flag: only encode if start==0, NOT in hybrid mode, and budget allows
+	// Reference: libopus celt_encoder.c line 2047-2048
+	// if(!hybrid && tell+16<=total_bits) ec_enc_bit_logp(enc, 0, 1);
+	if !e.IsHybrid() && start == 0 && re.Tell()+16 <= targetBits {
+		re.EncodeBit(0, 1) // No postfilter (disabled for now)
+	}
+
+	// Transient flag: only encode if LM>0 and budget allows
+	// Reference: libopus celt_encoder.c line 2063-2069
+	// if (LM>0 && ec_tell(enc)+3<=total_bits)
+	if lm > 0 && re.Tell()+3 <= targetBits {
 		var transientBit int
 		if transient {
 			transientBit = 1
 		}
 		re.EncodeBit(transientBit, 3)
+	} else if lm > 0 {
+		// Budget doesn't allow transient flag, force non-transient
+		transient = false
+		shortBlocks = 1
 	}
+
+	// Intra energy flag: only encode if budget allows
+	// Reference: libopus celt_decoder.c line 1377
+	// intra_ener = tell+3<=total_bits ? ec_dec_bit_logp(dec, 3) : 0
 	intra := e.IsIntraFrame()
-	var intraBit int
-	if intra {
-		intraBit = 1
+	if re.Tell()+3 <= targetBits {
+		var intraBit int
+		if intra {
+			intraBit = 1
+		}
+		re.EncodeBit(intraBit, 3)
+	} else {
+		// Budget doesn't allow intra flag, force inter mode
+		intra = false
 	}
-	re.EncodeBit(intraBit, 3)
 
 	// Step 10: Prepare stereo params (encoded during allocation)
 	// Use mid-side stereo by default: dualStereo=false, intensity=nbBands (disabled)
@@ -206,18 +249,24 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	var tfSelect int
 
 	if enableTFAnalysis {
-		// Compute TF estimate based on transient detection
-		// 0.0 = favors time resolution, 1.0 = favors frequency resolution
-		var tfEstimate float64
-		if transient {
-			tfEstimate = 0.2 // Transients favor time resolution
-		} else {
-			tfEstimate = 0.5 // Default balanced
+		// tf_estimate was computed by TransientAnalysis using libopus algorithm
+		// It measures temporal variation: 0.0 = steady (favor freq), 1.0 = transient (favor time)
+		// Note: For forced transient mode (e.g., hybrid weak transients), override to 0.2
+		useTfEstimate := tfEstimate
+		if transient && tfEstimate < 0.2 {
+			// Ensure transient frames have at least minimal time-favoring bias
+			useTfEstimate = 0.2
 		}
+
+		// Compute per-band importance for TF analysis
+		// This weights perceptually important bands higher in the Viterbi search
+		// Reference: libopus celt/celt_encoder.c dynalloc_analysis() -> importance
+		lsbDepth := 16 // Assume 16-bit input; could be made configurable
+		importance := ComputeImportance(energies, e.prevEnergy, nbBands, e.channels, lm, lsbDepth, effectiveBytes)
 
 		// Use the normalized coefficients for TF analysis
 		// For stereo, use the left channel (similar to libopus tf_chan approach)
-		tfRes, tfSelect = TFAnalysis(normL, len(normL), nbBands, transient, lm, tfEstimate, effectiveBytes, nil)
+		tfRes, tfSelect = TFAnalysis(normL, len(normL), nbBands, transient, lm, useTfEstimate, effectiveBytes, importance)
 
 		// Encode TF decisions using the computed values
 		TFEncodeWithSelect(re, start, end, transient, tfRes, lm, tfSelect)
@@ -263,7 +312,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			// Since we don't have full prefilter yet, we enable HF update
 			// when conditions are met for future prefilter integration.
 			updateHF := shortBlocks == 1
-			spread = e.SpreadingDecision(normL, nbBands, e.channels, frameSize, updateHF)
+			// Compute dynamic spread weights based on masking analysis (matches libopus dynalloc_analysis)
+			// Using 16-bit depth assumption (standard audio input)
+			spreadWeights := ComputeSpreadWeights(energies, nbBands, e.channels, 16)
+			spread = e.SpreadingDecisionWithWeights(normL, nbBands, e.channels, frameSize, updateHF, spreadWeights)
 		}
 		re.EncodeICDF(spread, spreadICDF, 5)
 	} else {
@@ -337,11 +389,16 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// to ensure the same normalized coefficients are used for analysis and quantization
 
 	// Step 14: Encode bands (quant_all_bands)
+	// The tapset decision is computed during spreading_decision and used here
+	// for state tracking. While tapset primarily affects the comb filter
+	// (prefilter/postfilter), it's tracked in the quantization context for
+	// encoder state consistency and future prefilter integration.
 	totalBitsAllQ3 := (targetBits << bitRes) - antiCollapseRsv
 	dualStereoVal := 0
 	if allocResult.DualStereo {
 		dualStereoVal = 1
 	}
+	tapset := e.TapsetDecision()
 	quantAllBandsEncode(
 		re,
 		e.channels,
@@ -353,7 +410,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		normR,
 		allocResult.BandBits,
 		shortBlocks,
-		spread, // Use computed spread decision instead of hardcoded spreadNormal
+		spread, // Spreading parameter for PVQ rotation
+		tapset, // Tapset decision for comb filter taper (tracked for state)
 		dualStereoVal,
 		allocResult.Intensity,
 		tfRes,
@@ -380,6 +438,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	e.EncodeEnergyFinalise(energies, quantizedEnergies, nbBands, allocResult.FineBits, allocResult.FinePriority, bitsLeft)
 
 	// Step 15: Finalize and update state
+	// Capture final range BEFORE Done(), matching libopus celt_encoder.c:2809
+	// This is critical for verification - the final range must be captured before
+	// ec_enc_done() flushes the remaining bytes.
+	e.rng = re.Range()
 	bytes := re.Done()
 	e.SetPrevEnergyWithPrev(prev1LogE, quantizedEnergies)
 	e.IncrementFrameCount()
@@ -519,7 +581,13 @@ func (e *Encoder) EncodeStereoFrame(left, right []float64, frameSize int) ([]byt
 }
 
 // computeTargetBits computes the target bit budget based on bitrate and frame size.
-// For 64kbps and 20ms frame: 64000 * 20 / 1000 = 1280 bits = 160 bytes
+// This implements libopus VBR logic from celt_encoder.c compute_vbr().
+//
+// For 64kbps and 20ms frame with VBR:
+// - Base: bitrate * frameSize / 48000 = 1280 bits
+// - VBR can boost up to 2x based on signal characteristics
+//
+// Reference: libopus celt/celt_encoder.c compute_vbr() and VBR computation around line 2435
 func (e *Encoder) computeTargetBits(frameSize int) int {
 	bitrate := e.targetBitrate
 	if bitrate <= 0 {
@@ -535,8 +603,152 @@ func (e *Encoder) computeTargetBits(frameSize int) int {
 	if bitrate > 510000 {
 		bitrate = 510000
 	}
-	// frameDurationMs = frameSize * 1000 / 48000
-	// targetBits = bitrate * frameDuration / 1000
-	// Simplified: targetBits = bitrate * frameSize / 48000
-	return bitrate * frameSize / 48000
+
+	// Compute base bits using libopus bitrate_to_bits formula
+	// bitrate_to_bits(bitrate, Fs, frame_size) = bitrate*6/(6*Fs/frame_size)
+	// For 48kHz: = bitrate * 6 / (6 * 48000 / frameSize)
+	//           = bitrate * frameSize / 48000
+	baseBits := bitrate * frameSize / 48000
+
+	// Convert to Q3 format (8ths of bits) for VBR computation
+	// Reference: libopus celt_encoder.c line 1903
+	vbrRateQ3 := baseBits << bitRes
+
+	// Compute base_target with overhead subtraction
+	// Reference: libopus celt_encoder.c line 2448
+	// base_target = vbr_rate - ((40*C+20)<<BITRES)
+	overheadQ3 := (40*e.channels + 20) << bitRes
+	baseTargetQ3 := vbrRateQ3 - overheadQ3
+	if baseTargetQ3 < 0 {
+		baseTargetQ3 = 0
+	}
+
+	// For VBR mode, apply boost based on signal characteristics
+	// This is a simplified version of libopus compute_vbr()
+	targetQ3 := e.computeVBRTarget(baseTargetQ3, frameSize, bitrate)
+
+	// Convert back from Q3 to bits
+	// Reference: libopus line 2480: nbAvailableBytes = (target+(1<<(BITRES+2)))>>(BITRES+3)
+	// For bits (not bytes): target_bits = (targetQ3 + 4) >> 3
+	targetBits := (targetQ3 + (1 << (bitRes - 1))) >> bitRes
+
+	// Clamp to reasonable bounds
+	// Minimum: 2 bytes (16 bits)
+	// Maximum: 1275 bytes * 8 = 10200 bits (max Opus packet)
+	if targetBits < 16 {
+		targetBits = 16
+	}
+	maxBits := 1275 * 8
+	if e.channels == 1 && frameSize == 960 {
+		// For mono 20ms, cap at ~320 bytes (reasonable VBR max for 64kbps)
+		maxBits = baseBits * 2 // Up to 2x boost
+	}
+	if targetBits > maxBits {
+		targetBits = maxBits
+	}
+
+	return targetBits
+}
+
+// computeVBRTarget applies VBR boosting to the base target.
+// This mirrors libopus compute_vbr() from celt_encoder.c lines 1604-1716.
+//
+// Key boosts applied:
+// - tot_boost: dynalloc analysis boost (we approximate based on signal variance)
+// - tf_estimate: transient boost (from TransientAnalysis)
+// - tonality: tonal signal boost (approximated from spectrum analysis)
+// - floor_depth: signal depth floor
+//
+// All values are in Q3 format (8ths of bits).
+func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize, bitrate int) int {
+	mode := GetModeConfig(frameSize)
+	lm := mode.LM
+	nbBands := mode.EffBands
+
+	// Compute coded_bins: number of MDCT bins being coded
+	// Reference: libopus line 1623: coded_bins = eBands[coded_bands]<<LM
+	codedBands := nbBands
+	if e.lastCodedBands > 0 && e.lastCodedBands < nbBands {
+		codedBands = e.lastCodedBands
+	}
+	codedBins := EBands[codedBands] << lm
+	if e.channels == 2 {
+		// For stereo, add intensity stereo bins
+		// Reference: libopus line 1625: coded_bins += eBands[IMIN(intensity, coded_bands)]<<LM
+		intensityBand := codedBands // Default: no intensity stereo
+		codedBins += EBands[intensityBand] << lm
+	}
+
+	targetQ3 := baseTargetQ3
+
+	// Apply dynalloc boost (tot_boost) minus calibration
+	// Reference: libopus line 1650: target += tot_boost-(19<<LM)
+	// We approximate tot_boost as 0 since we don't have dynalloc analysis yet
+	totBoost := 0
+	calibration := 19 << lm
+	targetQ3 += totBoost - calibration
+	if targetQ3 < 0 {
+		targetQ3 = 0
+	}
+
+	// Apply transient/tf_estimate boost
+	// Reference: libopus line 1652-1653:
+	// tf_calibration = QCONST16(0.044f,14);
+	// target += (opus_int32)SHL32(MULT16_32_Q15(tf_estimate-tf_calibration, target),1);
+	//
+	// tf_estimate is in Q14 format (0.0 to 1.0 scaled by 16384)
+	// For now, use a default tf_estimate of ~0.1 (typical for non-transient audio)
+	tfEstimateQ14 := 1638   // ~0.1 in Q14
+	tfCalibrationQ14 := 721 // 0.044 in Q14
+	tfDiff := tfEstimateQ14 - tfCalibrationQ14
+	// Boost: target *= (1 + 2 * tfDiff / 32768)
+	if tfDiff > 0 {
+		boost := (targetQ3 * tfDiff * 2) >> 15
+		targetQ3 += boost
+	}
+
+	// Apply tonality boost (biggest contributor for tonal signals like sine waves)
+	// Reference: libopus lines 1657-1669
+	// tonal = MAX16(0.f,analysis->tonality-.15f)-0.12f
+	// tonal_target = target + (coded_bins<<BITRES)*1.2f*tonal
+	//
+	// Without full tonality analysis, we estimate based on signal type.
+	// For a typical audio signal, assume moderate tonality (~0.3)
+	// For highly tonal signals (sine waves), tonality can be ~0.9
+	//
+	// We use a heuristic: at moderate bitrates (32-96kbps), assume moderate tonality
+	// This provides VBR headroom for complex signals
+	var tonality float64 = 0.25 // Default moderate tonality
+	if bitrate >= 32000 && bitrate <= 96000 {
+		// In this bitrate range, be more generous with VBR headroom
+		tonality = 0.35
+	}
+	if tonality > 0.15 {
+		tonal := tonality - 0.15 - 0.12 // Apply thresholds from libopus
+		if tonal > 0 {
+			// tonal_boost = coded_bins * BITRES * 1.2 * tonal
+			tonalBoost := int(float64(codedBins<<bitRes) * 1.2 * tonal)
+			targetQ3 += tonalBoost
+		}
+	}
+
+	// Apply floor_depth limit (prevents over-allocation for low-level signals)
+	// Reference: libopus lines 1682-1693
+	// floor_depth = SHR32(MULT16_32_Q15((C*bins<<BITRES),maxDepth), DB_SHIFT-15)
+	//
+	// In libopus, maxDepth is computed from dynalloc_analysis() based on the
+	// signal's actual dynamic range. Without this analysis, we skip the floor
+	// limit and let the 2x base limit (below) handle extreme cases.
+	//
+	// TODO: Implement dynalloc_analysis to compute actual maxDepth
+	_ = nbBands // Avoid unused warning
+
+	// Limit boost to 2x base (libopus line 1713)
+	// target = IMIN(2*base_target, target)
+	maxTarget := 2 * baseTargetQ3
+	if targetQ3 > maxTarget {
+		targetQ3 = maxTarget
+	}
+
+	return targetQ3
 }

@@ -108,8 +108,10 @@ func compareAllocations(t *testing.T, tc AllocationTestCase) {
 			nbBands-1, // signalBandwidth
 		)
 
-	// Call gopus
-	gopusResult := celt.ComputeAllocation(
+	// Call gopus with encoder mode for proper comparison
+	// (libopus is called with encode=1, so we need encoder mode here too)
+	gopusResult := celt.ComputeAllocationWithEncoder(
+		nil,            // no actual encoder, just compute
 		totalBitsQ3>>3, // gopus uses bits, not Q3
 		nbBands,
 		tc.Channels,
@@ -119,6 +121,8 @@ func compareAllocations(t *testing.T, tc AllocationTestCase) {
 		intensity,
 		tc.DualStereo,
 		lm,
+		0,         // prev
+		nbBands-1, // signalBandwidth
 	)
 
 	// Print header
@@ -416,7 +420,7 @@ func TestAllocationCompare_DetailedDump(t *testing.T) {
 	libCodedBands, libBalance, libPulses, libEbits, _, _, _ :=
 		LibopusComputeAllocation(0, nbBands, offsets, libCaps, trim, intensity, 0, totalBitsQ3, channels, lm, 0, nbBands-1)
 
-	gopusResult := celt.ComputeAllocation(totalBitsQ3>>3, nbBands, channels, gopusCaps, offsets, trim, intensity, false, lm)
+	gopusResult := celt.ComputeAllocationWithEncoder(nil, totalBitsQ3>>3, nbBands, channels, gopusCaps, offsets, trim, intensity, false, lm, 0, nbBands-1)
 
 	t.Logf("Results:")
 	t.Logf("  CodedBands: libopus=%d, gopus=%d", libCodedBands, gopusResult.CodedBands)

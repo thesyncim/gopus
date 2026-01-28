@@ -426,6 +426,17 @@ func initCaps(nbBands, lm, channels int) []int {
 	return caps
 }
 
+// InitCapsForHybrid initializes band caps for hybrid mode.
+// In hybrid mode, bands before startBand get zero cap (no bits allocated).
+func InitCapsForHybrid(nbBands, lm, channels, startBand int) []int {
+	caps := initCaps(nbBands, lm, channels)
+	// Zero out caps for bands handled by SILK
+	for i := 0; i < startBand && i < len(caps); i++ {
+		caps[i] = 0
+	}
+	return caps
+}
+
 func maxInt(a, b int) int {
 	if a > b {
 		return a
@@ -499,6 +510,75 @@ func ComputeAllocationWithEncoder(re *rangecoding.Encoder, totalBits, nbBands, c
 	finePriority := result.FinePriority
 
 	codedBands := cltComputeAllocationEncode(re, 0, nbBands, offsets, cap, trim, &intensityVal, &dualVal,
+		totalBits<<bitRes, &balance, pulses, fineBits, finePriority, channels, lm, prev, signalBandwidth)
+
+	result.CodedBands = codedBands
+	result.Balance = balance
+	result.Intensity = intensityVal
+	result.DualStereo = dualVal != 0
+
+	return result
+}
+
+// ComputeAllocationHybrid computes bit allocation for hybrid mode CELT encoding.
+// In hybrid mode, CELT only encodes bands 17-21 (start=HybridCELTStartBand).
+// This properly sets bits for bands 0-16 to 0.
+func ComputeAllocationHybrid(re *rangecoding.Encoder, totalBits, nbBands, channels int, cap, offsets []int, trim int, intensity int, dualStereo bool, lm int, prev int, signalBandwidth int) AllocationResult {
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+	if nbBands < 0 {
+		nbBands = 0
+	}
+	if channels < 1 {
+		channels = 1
+	}
+	if channels > 2 {
+		channels = 2
+	}
+	if lm < 0 {
+		lm = 0
+	}
+	if lm > 3 {
+		lm = 3
+	}
+
+	result := AllocationResult{
+		BandBits:     make([]int, nbBands),
+		FineBits:     make([]int, nbBands),
+		FinePriority: make([]int, nbBands),
+		Caps:         make([]int, nbBands),
+		Balance:      0,
+		CodedBands:   nbBands,
+		Intensity:    0,
+		DualStereo:   false,
+	}
+
+	if nbBands == 0 || totalBits <= 0 {
+		return result
+	}
+
+	if cap == nil || len(cap) < nbBands {
+		cap = initCaps(nbBands, lm, channels)
+	}
+	copy(result.Caps, cap[:nbBands])
+
+	if offsets == nil {
+		offsets = make([]int, nbBands)
+	}
+
+	intensityVal := intensity
+	dualVal := 0
+	if dualStereo {
+		dualVal = 1
+	}
+	balance := 0
+	pulses := result.BandBits
+	fineBits := result.FineBits
+	finePriority := result.FinePriority
+
+	// Use HybridCELTStartBand (17) as the start band for hybrid mode
+	codedBands := cltComputeAllocationEncode(re, HybridCELTStartBand, nbBands, offsets, cap, trim, &intensityVal, &dualVal,
 		totalBits<<bitRes, &balance, pulses, fineBits, finePriority, channels, lm, prev, signalBandwidth)
 
 	result.CodedBands = codedBands
@@ -703,6 +783,12 @@ func interpBits2PulsesEncode(re *rangecoding.Encoder, start, end, skipStart int,
 
 		if bandBits >= maxInt(thresh[j], allocFloor+(1<<bitRes)) {
 			// Compute the skip/keep decision (same logic whether encoding or not)
+			// Match libopus exactly:
+			//   if (codedBands<=start+2 || (band_bits > (depth_threshold*band_width<<LM<<BITRES)>>4 && j<=signalBandwidth))
+			//
+			// When codedBands > 17, depth_threshold is 7 or 9 depending on hysteresis.
+			// When codedBands <= 17, depth_threshold is 0, which makes threshold=0,
+			// so the condition simplifies to: codedBands<=start+2 || j<=signalBandwidth
 			depthThreshold := 0
 			if codedBands > 17 {
 				if j < prev {
@@ -711,16 +797,8 @@ func interpBits2PulsesEncode(re *rangecoding.Encoder, start, end, skipStart int,
 					depthThreshold = 9
 				}
 			}
-			// Match libopus: keep = (codedBands<=start+2) || ((band_bits > threshold) && (j<=signalBandwidth))
-			// When depthThreshold==0, threshold becomes 0, so band_bits>0 is always true
-			// (we already know band_bits >= thresh[j] which is > 0)
-			keepBand := codedBands <= start+2
-			if !keepBand && depthThreshold > 0 {
-				threshold := (depthThreshold * bandWidth << lm << bitRes) >> 4
-				if bandBits > threshold && j <= signalBandwidth {
-					keepBand = true
-				}
-			}
+			threshold := (depthThreshold * bandWidth << lm << bitRes) >> 4
+			keepBand := codedBands <= start+2 || (bandBits > threshold && j <= signalBandwidth)
 
 			// Encode the decision if we have an encoder
 			if re != nil {

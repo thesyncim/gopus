@@ -296,3 +296,10 @@ func (e *Encoder) Channels() int {
 func (e *Encoder) SampleRate() int {
 	return e.sampleRate
 }
+
+// FinalRange returns the final range coder state after encoding.
+// This matches libopus OPUS_GET_FINAL_RANGE and is used for bitstream verification.
+// Must be called after Encode() to get a meaningful value.
+func (e *Encoder) FinalRange() uint32 {
+	return e.enc.FinalRange()
+}

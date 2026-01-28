@@ -13,6 +13,7 @@ package cgo
 #include "opus.h"
 #include "celt.h"
 #include "entdec.h"
+#include "entenc.h"
 #include "laplace.h"
 #include "silk/main.h"
 #include "silk/structs.h"
@@ -36,6 +37,37 @@ int test_laplace_decode(const unsigned char *data, int data_len, int fs, int dec
     ec_dec_init(&dec, (unsigned char*)data, data_len);
     *out_val = ec_laplace_decode(&dec, fs, decay);
     return 0;
+}
+
+// Test harness to encode a Laplace symbol and return the bytes
+// Returns the output length, or -1 on error
+int test_laplace_encode(unsigned char *out_buf, int max_size, int val, unsigned int fs, int decay, int *out_val, int *out_len) {
+    ec_enc enc;
+    ec_enc_init(&enc, out_buf, max_size);
+    int in_val = val;
+    ec_laplace_encode(&enc, &in_val, fs, decay);
+    *out_val = in_val;  // Return the possibly-clamped value
+    ec_enc_done(&enc);
+    *out_len = enc.offs + enc.end_offs;
+    return enc.error;
+}
+
+// Test harness to encode multiple Laplace symbols (for coarse energy)
+int test_laplace_encode_sequence(unsigned char *out_buf, int max_size,
+                                  int *vals, unsigned int *fs_arr, int *decay_arr,
+                                  int count, int *out_vals, int *out_len) {
+    ec_enc enc;
+    ec_enc_init(&enc, out_buf, max_size);
+
+    for (int i = 0; i < count; i++) {
+        int v = vals[i];
+        ec_laplace_encode(&enc, &v, fs_arr[i], decay_arr[i]);
+        out_vals[i] = v;
+    }
+
+    ec_enc_done(&enc);
+    *out_len = enc.offs + enc.end_offs;
+    return enc.error;
 }
 
 // Get range coder state after init
@@ -989,6 +1021,45 @@ void test_get_alloc_vectors(int *out, int row, int max_len) {
 }
 
 // ====================================================================
+// Encoder comparison wrappers
+// ====================================================================
+
+// Create an opus encoder
+OpusEncoder* test_encoder_create(int sample_rate, int channels, int application, int *error) {
+    return opus_encoder_create(sample_rate, channels, application, error);
+}
+
+// Destroy an opus encoder
+void test_encoder_destroy(OpusEncoder* enc) {
+    opus_encoder_destroy(enc);
+}
+
+// Encode float samples
+int test_encode_float(OpusEncoder* enc, const float *pcm, int frame_size, unsigned char *data, int max_data_bytes) {
+    return opus_encode_float(enc, pcm, frame_size, data, max_data_bytes);
+}
+
+// Set encoder int option
+int test_encoder_ctl_set_int(OpusEncoder* enc, int request, int value) {
+    return opus_encoder_ctl(enc, request, value);
+}
+
+// Get encoder int option
+int test_encoder_ctl_get_int(OpusEncoder* enc, int request, int *value) {
+    return opus_encoder_ctl(enc, request, value);
+}
+
+// Reset encoder state
+int test_encoder_reset(OpusEncoder* enc) {
+    return opus_encoder_ctl(enc, OPUS_RESET_STATE);
+}
+
+// Get final range for verification
+int test_encoder_get_final_range(OpusEncoder* enc, opus_uint32 *range) {
+    return opus_encoder_ctl(enc, OPUS_GET_FINAL_RANGE(range));
+}
+
+// ====================================================================
 // PVQ Search comparison wrappers
 // ====================================================================
 
@@ -1058,6 +1129,73 @@ func DecodeLaplace(data []byte, fs, decay int) int {
 	cData := (*C.uchar)(unsafe.Pointer(&data[0]))
 	C.test_laplace_decode(cData, C.int(len(data)), C.int(fs), C.int(decay), &val)
 	return int(val)
+}
+
+// EncodeLaplace calls libopus ec_laplace_encode and returns the encoded bytes and the possibly-clamped value.
+func EncodeLaplace(val, fs, decay int) ([]byte, int, error) {
+	maxSize := 256
+	outBuf := make([]byte, maxSize)
+	var outVal, outLen C.int
+
+	err := C.test_laplace_encode(
+		(*C.uchar)(unsafe.Pointer(&outBuf[0])),
+		C.int(maxSize),
+		C.int(val),
+		C.uint(fs),
+		C.int(decay),
+		&outVal,
+		&outLen,
+	)
+
+	if err != 0 {
+		return nil, 0, nil
+	}
+
+	return outBuf[:int(outLen)], int(outVal), nil
+}
+
+// EncodeLaplaceSequence calls libopus ec_laplace_encode for a sequence of values.
+func EncodeLaplaceSequence(vals []int, fsArr []int, decayArr []int) ([]byte, []int, error) {
+	if len(vals) == 0 || len(vals) != len(fsArr) || len(vals) != len(decayArr) {
+		return nil, nil, nil
+	}
+
+	maxSize := 4096
+	outBuf := make([]byte, maxSize)
+	outVals := make([]C.int, len(vals))
+	cVals := make([]C.int, len(vals))
+	cFs := make([]C.uint, len(vals))
+	cDecay := make([]C.int, len(vals))
+
+	for i := range vals {
+		cVals[i] = C.int(vals[i])
+		cFs[i] = C.uint(fsArr[i])
+		cDecay[i] = C.int(decayArr[i])
+	}
+
+	var outLen C.int
+
+	err := C.test_laplace_encode_sequence(
+		(*C.uchar)(unsafe.Pointer(&outBuf[0])),
+		C.int(maxSize),
+		(*C.int)(unsafe.Pointer(&cVals[0])),
+		(*C.uint)(unsafe.Pointer(&cFs[0])),
+		(*C.int)(unsafe.Pointer(&cDecay[0])),
+		C.int(len(vals)),
+		(*C.int)(unsafe.Pointer(&outVals[0])),
+		&outLen,
+	)
+
+	if err != 0 {
+		return nil, nil, nil
+	}
+
+	result := make([]int, len(vals))
+	for i := range vals {
+		result[i] = int(outVals[i])
+	}
+
+	return outBuf[:int(outLen)], result, nil
 }
 
 // GetRangeState gets the range coder state after initialization
@@ -1849,4 +1987,138 @@ func LibopusPVQSearch(x []float64, k int) ([]int, float64) {
 		result[i] = int(iy[i])
 	}
 	return result, yy
+}
+
+// ====================================================================
+// Encoder CGO wrappers
+// ====================================================================
+
+// Encoder CTL constants
+const (
+	OpusApplicationVoIP            = 2048
+	OpusApplicationAudio           = 2049
+	OpusApplicationRestrictedDelay = 2051
+
+	OpusSetBitrateRequest       = 4002
+	OpusSetComplexityRequest    = 4010
+	OpusSetBandwidthRequest     = 4008
+	OpusSetVBRRequest           = 4006
+	OpusSetSignalRequest        = 4024
+	OpusSetForceChannelsRequest = 4022
+
+	OpusBandwidthNarrowband    = 1101
+	OpusBandwidthMediumband    = 1102
+	OpusBandwidthWideband      = 1103
+	OpusBandwidthSuperwideband = 1104
+	OpusBandwidthFullband      = 1105
+
+	OpusSignalAuto  = -1000
+	OpusSignalVoice = 3001
+	OpusSignalMusic = 3002
+)
+
+// LibopusEncoder wraps a libopus encoder for comparison tests.
+type LibopusEncoder struct {
+	enc *C.OpusEncoder
+}
+
+// NewLibopusEncoder creates a new libopus encoder.
+// application: OpusApplicationVoIP, OpusApplicationAudio, or OpusApplicationRestrictedDelay
+func NewLibopusEncoder(sampleRate, channels, application int) (*LibopusEncoder, error) {
+	var err C.int
+	enc := C.test_encoder_create(C.int(sampleRate), C.int(channels), C.int(application), &err)
+	if err != 0 || enc == nil {
+		return nil, nil
+	}
+	return &LibopusEncoder{enc: enc}, nil
+}
+
+// Destroy frees the encoder resources.
+func (e *LibopusEncoder) Destroy() {
+	if e.enc != nil {
+		C.test_encoder_destroy(e.enc)
+		e.enc = nil
+	}
+}
+
+// Reset resets the encoder state.
+func (e *LibopusEncoder) Reset() {
+	if e.enc != nil {
+		C.test_encoder_reset(e.enc)
+	}
+}
+
+// SetBitrate sets the target bitrate in bits per second.
+func (e *LibopusEncoder) SetBitrate(bitrate int) {
+	if e.enc != nil {
+		C.test_encoder_ctl_set_int(e.enc, C.int(OpusSetBitrateRequest), C.int(bitrate))
+	}
+}
+
+// SetComplexity sets the encoding complexity (0-10).
+func (e *LibopusEncoder) SetComplexity(complexity int) {
+	if e.enc != nil {
+		C.test_encoder_ctl_set_int(e.enc, C.int(OpusSetComplexityRequest), C.int(complexity))
+	}
+}
+
+// SetBandwidth sets the audio bandwidth.
+func (e *LibopusEncoder) SetBandwidth(bandwidth int) {
+	if e.enc != nil {
+		C.test_encoder_ctl_set_int(e.enc, C.int(OpusSetBandwidthRequest), C.int(bandwidth))
+	}
+}
+
+// SetVBR enables or disables VBR.
+func (e *LibopusEncoder) SetVBR(enabled bool) {
+	if e.enc != nil {
+		v := 0
+		if enabled {
+			v = 1
+		}
+		C.test_encoder_ctl_set_int(e.enc, C.int(OpusSetVBRRequest), C.int(v))
+	}
+}
+
+// SetSignal sets the signal type hint.
+func (e *LibopusEncoder) SetSignal(signal int) {
+	if e.enc != nil {
+		C.test_encoder_ctl_set_int(e.enc, C.int(OpusSetSignalRequest), C.int(signal))
+	}
+}
+
+// SetForceChannels forces mono or stereo encoding.
+func (e *LibopusEncoder) SetForceChannels(channels int) {
+	if e.enc != nil {
+		C.test_encoder_ctl_set_int(e.enc, C.int(OpusSetForceChannelsRequest), C.int(channels))
+	}
+}
+
+// GetFinalRange returns the final range coder state for verification.
+func (e *LibopusEncoder) GetFinalRange() uint32 {
+	if e.enc == nil {
+		return 0
+	}
+	var rng C.opus_uint32
+	C.test_encoder_get_final_range(e.enc, &rng)
+	return uint32(rng)
+}
+
+// EncodeFloat encodes float32 samples.
+func (e *LibopusEncoder) EncodeFloat(pcm []float32, frameSize int) ([]byte, int) {
+	if e.enc == nil || len(pcm) == 0 {
+		return nil, -1
+	}
+
+	maxBytes := 1275 // Maximum Opus packet size
+	data := make([]byte, maxBytes)
+	cPcm := (*C.float)(unsafe.Pointer(&pcm[0]))
+	cData := (*C.uchar)(unsafe.Pointer(&data[0]))
+
+	n := int(C.test_encode_float(e.enc, cPcm, C.int(frameSize), cData, C.int(maxBytes)))
+	if n < 0 {
+		return nil, n
+	}
+
+	return data[:n], n
 }

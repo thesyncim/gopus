@@ -61,6 +61,11 @@ type Encoder struct {
 	tonalAverage   int // Running average for spread decision hysteresis
 	hfAverage      int // High frequency average for tapset decision
 	tapsetDecision int // Tapset decision (0, 1, or 2)
+
+	// Hybrid mode flag
+	// When true, postfilter flag encoding is skipped per RFC 6716 Section 3.2
+	// Reference: libopus celt_encoder.c line 2047-2048
+	hybrid bool
 }
 
 // NewEncoder creates a new CELT encoder with the given number of channels.
@@ -245,7 +250,15 @@ func (e *Encoder) PreemphState() []float64 {
 }
 
 // RNG returns the current RNG state.
+// After encoding, this contains the final range coder state for verification.
 func (e *Encoder) RNG() uint32 {
+	return e.rng
+}
+
+// FinalRange returns the final range coder state after encoding.
+// This matches libopus OPUS_GET_FINAL_RANGE and is used for bitstream verification.
+// Must be called after EncodeFrame() to get a meaningful value.
+func (e *Encoder) FinalRange() uint32 {
 	return e.rng
 }
 
@@ -332,4 +345,18 @@ func (e *Encoder) SetTapsetDecision(tapset int) {
 // This is updated during SpreadingDecision when updateHF=true.
 func (e *Encoder) HFAverage() int {
 	return e.hfAverage
+}
+
+// SetHybrid sets the hybrid mode flag.
+// When true, postfilter flag encoding is skipped per RFC 6716 Section 3.2.
+// Reference: libopus celt_encoder.c line 2047-2048:
+//
+//	if(!hybrid && tell+16<=total_bits) ec_enc_bit_logp(enc, 0, 1);
+func (e *Encoder) SetHybrid(hybrid bool) {
+	e.hybrid = hybrid
+}
+
+// IsHybrid returns true if the encoder is in hybrid mode.
+func (e *Encoder) IsHybrid() bool {
+	return e.hybrid
 }

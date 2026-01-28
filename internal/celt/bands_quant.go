@@ -58,6 +58,13 @@ type bandCtx struct {
 	//   1: bias toward rounding up (toward 8192/equal split)
 	// This is used by theta RDO optimization in quant_all_bands.
 	thetaRound int
+	// tapset controls the window taper selection for prefilter/postfilter comb filter.
+	// Values: 0 (narrow), 1 (medium), 2 (wide).
+	// This is set during spreading_decision and used for comb filter taper gains.
+	// While not directly used in PVQ quantization, it's tracked here for
+	// encoder state consistency and future prefilter integration.
+	// Reference: libopus celt/celt.c comb_filter() gains table
+	tapset int
 }
 
 type splitCtx struct {
@@ -208,11 +215,18 @@ func extractCollapseMask(pulses []int, n, b int) int {
 	return mask
 }
 
-func normalizeResidual(pulses []int, gain float64) []float64 {
+// normalizeResidual normalizes the pulse vector to have the specified gain.
+// If yy > 0, it uses the pre-computed energy (sum of squares) from PVQ search.
+// Otherwise, it computes the energy from the pulses.
+// This matches libopus normalise_residual() which receives yy as a parameter.
+func normalizeResidual(pulses []int, gain float64, yy float64) []float64 {
 	out := make([]float64, len(pulses))
-	var energy float64
-	for _, v := range pulses {
-		energy += float64(v * v)
+	energy := yy
+	if energy <= 0 {
+		// Fall back to computing energy from pulses
+		for _, v := range pulses {
+			energy += float64(v * v)
+		}
 	}
 	if energy <= 0 {
 		return out
@@ -310,7 +324,8 @@ func algUnquant(rd *rangecoding.Decoder, band, n, k, spread, b int, gain float64
 	pulses := make([]int, n)
 	_ = cwrsi(n, k, idx, pulses, u)
 	DefaultTracer.TracePVQ(band, idx, k, n, pulses)
-	shape := normalizeResidual(pulses, gain)
+	// Decoder doesn't have search energy, so pass 0 to compute from pulses
+	shape := normalizeResidual(pulses, gain, 0)
 	expRotation(shape, n, -1, b, k, spread)
 	cm := extractCollapseMask(pulses, n, b)
 	return shape, cm
@@ -331,6 +346,7 @@ func algQuant(re *rangecoding.Encoder, band int, x []float64, n, k, spread, b in
 	var pulses []int
 	var upPulses []int
 	var refine []int
+	var yy float64 // Energy computed during PVQ search
 
 	if extraBits >= 2 && extEnc != nil {
 		if n == 2 {
@@ -344,6 +360,8 @@ func algQuant(re *rangecoding.Encoder, band int, x []float64, n, k, spread, b in
 			}
 			re.EncodeUniform(index, vSize)
 			extEnc.EncodeUniform(uint32(refineVal+(up-1)/2), uint32(up))
+			// For extended precision, compute energy from upPulses
+			yy = 0
 		} else {
 			up := (1 << extraBits) - 1
 			pulses, upPulses, refine = opPVQSearchExtra(x, k, up)
@@ -364,9 +382,11 @@ func algQuant(re *rangecoding.Encoder, band int, x []float64, n, k, spread, b in
 				}
 				extEnc.EncodeRawBits(uint32(sign), 1)
 			}
+			// For extended precision, compute energy from upPulses
+			yy = 0
 		}
 	} else {
-		pulses = opPVQSearch(x, k)
+		pulses, yy = opPVQSearch(x, k)
 		index := EncodePulses(pulses, n, k)
 		vSize := PVQ_V(n, k)
 		if vSize == 0 {
@@ -382,10 +402,12 @@ func algQuant(re *rangecoding.Encoder, band int, x []float64, n, k, spread, b in
 
 	if resynth {
 		if len(upPulses) > 0 {
-			shape := normalizeResidual(upPulses, gain)
+			// For extended precision, let normalizeResidual compute energy from upPulses
+			shape := normalizeResidual(upPulses, gain, 0)
 			copy(x, shape)
 		} else {
-			shape := normalizeResidual(pulses, gain)
+			// Use the energy computed during PVQ search
+			shape := normalizeResidual(pulses, gain, yy)
 			copy(x, shape)
 		}
 		expRotation(x, n, -1, b, k, spread)
@@ -619,7 +641,17 @@ func (ctx *bandCtx) bandEnergy(channel int) float64 {
 	return ctx.bandE[idx]
 }
 
+// computeTheta computes and encodes/decodes the stereo theta angle.
+// This is the standard version without extended precision support.
 func computeTheta(ctx *bandCtx, sctx *splitCtx, x, y []float64, n int, b *int, B, B0, lm int, stereo bool, fill *int) {
+	computeThetaExt(ctx, sctx, x, y, n, b, nil, B, B0, lm, stereo, fill)
+}
+
+// computeThetaExt computes and encodes/decodes the stereo theta angle with optional extended precision.
+// When extended precision is available (ctx.extEnc != nil and extB != nil),
+// it also encodes additional Q30 precision bits to the extension bitstream.
+// Reference: libopus bands.c compute_theta() with ENABLE_QEXT path (lines 863-885)
+func computeThetaExt(ctx *bandCtx, sctx *splitCtx, x, y []float64, n int, b *int, extB *int, B, B0, lm int, stereo bool, fill *int) {
 	pulseCap := LogN[ctx.band] + lm*(1<<bitRes)
 	offset := (pulseCap >> 1) - qthetaOffset
 	if stereo && n == 2 {
@@ -639,10 +671,14 @@ func computeTheta(ctx *bandCtx, sctx *splitCtx, x, y []float64, n int, b *int, B
 		tell = ctx.rd.TellFrac()
 	}
 	itheta := 0
+	ithetaQ30 := 0
 	inv := 0
 	if qn != 1 {
 		if ctx.encode {
-			itheta = stereoItheta(x, y, stereo)
+			// Compute Q30 precision theta for extended encoding
+			ithetaQ30 = stereoIthetaQ30(x, y, stereo)
+			itheta = ithetaQ30 >> 16
+
 			// Apply theta biasing for stereo RDO.
 			// When thetaRound == 0: normal rounding (default)
 			// When thetaRound != 0: bias toward 0/16384 (away from equal split)
@@ -755,7 +791,65 @@ func computeTheta(ctx *bandCtx, sctx *splitCtx, x, y []float64, n int, b *int, B
 				}
 			}
 		}
+		// Unquantize itheta to 14-bit range [0, 16384]
 		itheta = celtUdiv(itheta*16384, qn)
+
+		// Extended precision theta encoding (ENABLE_QEXT path in libopus)
+		// Reference: libopus bands.c lines 863-885
+		if stereo && ctx.encode && ctx.extEnc != nil && extB != nil {
+			// Get available extension bits
+			extTotalBits := ctx.extEnc.StorageBits()
+			extTell := ctx.extEnc.TellFrac()
+			availExtBits := extTotalBits - extTell
+
+			// Check if we have enough bits for extended precision
+			// Condition: ext_b >= 2*N<<BITRES && ext_total_bits - ec_tell_frac(ext_ec) - 1 > 2<<BITRES
+			if *extB >= 2*n<<bitRes && availExtBits-1 > 2<<bitRes {
+				extTellBefore := ctx.extEnc.TellFrac()
+
+				// Compute number of extra bits: min(12, max(2, ext_b / ((2*N-1)<<BITRES)))
+				extraBits := celtSudiv(*extB, (2*n-1)<<bitRes)
+				if extraBits < 2 {
+					extraBits = 2
+				}
+				if extraBits > 12 {
+					extraBits = 12
+				}
+
+				// Encode extended precision theta
+				// itheta_q30 = itheta_q30 - (itheta << 16)
+				// This gives the fractional part that wasn't captured in itheta
+				residual := ithetaQ30 - (itheta << 16)
+
+				// Scale to the range of extra bits:
+				// itheta_q30 = (residual * qn * ((1<<extra_bits)-1) + (1<<29)) >> 30
+				scaleFactor := int64(qn) * int64((1<<extraBits)-1)
+				encodedVal := int((int64(residual)*scaleFactor + (1 << 29)) >> 30)
+
+				// Add bias to center the range
+				encodedVal += (1 << (extraBits - 1)) - 1
+
+				// Clamp to valid range [0, (1<<extraBits)-2]
+				if encodedVal < 0 {
+					encodedVal = 0
+				}
+				if encodedVal > (1<<extraBits)-2 {
+					encodedVal = (1 << extraBits) - 2
+				}
+
+				// Encode using uniform distribution
+				ctx.extEnc.EncodeUniform(uint32(encodedVal), uint32((1<<extraBits)-1))
+
+				// Update ext_b with bits consumed
+				*extB -= ctx.extEnc.TellFrac() - extTellBefore
+			}
+		}
+
+		// Set ithetaQ30 for output - use extended precision if computed, else fall back to standard
+		if ithetaQ30 == 0 || !ctx.encode {
+			ithetaQ30 = itheta << 16
+		}
+
 		if ctx.encode && stereo {
 			if itheta == 0 {
 				intensityStereoWeighted(x, y, ctx.bandEnergy(0), ctx.bandEnergy(1))
@@ -785,6 +879,7 @@ func computeTheta(ctx *bandCtx, sctx *splitCtx, x, y []float64, n int, b *int, B
 			intensityStereoWeighted(x, y, ctx.bandEnergy(0), ctx.bandEnergy(1))
 		}
 		itheta = 0
+		ithetaQ30 = 0
 	}
 
 	qalloc := 0
@@ -824,6 +919,7 @@ func computeTheta(ctx *bandCtx, sctx *splitCtx, x, y []float64, n int, b *int, B
 	sctx.iside = iside
 	sctx.delta = delta
 	sctx.itheta = itheta
+	sctx.ithetaQ30 = ithetaQ30
 }
 
 func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int, gain float64, fill int) (int, []float64) {
@@ -1380,8 +1476,33 @@ func quantAllBandsDecode(rd *rangecoding.Decoder, channels, frameSize, lm int, s
 	return left, right, collapse
 }
 
+// quantAllBandsEncode encodes all frequency bands using PVQ quantization.
+// Parameters:
+//   - re: range encoder for the main bitstream
+//   - channels: number of audio channels (1 or 2)
+//   - frameSize: frame size in samples
+//   - lm: log2 of M (time resolution multiplier)
+//   - start, end: band range to encode
+//   - x, y: normalized MDCT coefficients for left/right channels
+//   - pulses: bit allocation per band
+//   - shortBlocks: number of short blocks (1 for long block)
+//   - spread: spreading parameter (0-3)
+//   - tapset: window taper selection for comb filter (0-2), tracked for state consistency
+//   - dualStereo: whether to use dual stereo mode
+//   - intensity: intensity stereo band threshold
+//   - tfRes: time-frequency resolution per band
+//   - totalBitsQ3: total bit budget in Q3 format
+//   - balance: bit balance for allocation
+//   - codedBands: number of bands that will be coded
+//   - seed: RNG seed for noise filling
+//   - complexity: encoder complexity (0-10)
+//   - bandE: band energies for stereo decisions
+//   - extEnc: extended encoder for high-precision mode (can be nil)
+//   - extraBits: extra bits per band for extended mode (can be nil)
+//
+// Reference: libopus celt/bands.c quant_all_bands()
 func quantAllBandsEncode(re *rangecoding.Encoder, channels, frameSize, lm int, start, end int,
-	x, y []float64, pulses []int, shortBlocks int, spread int, dualStereo, intensity int,
+	x, y []float64, pulses []int, shortBlocks int, spread int, tapset int, dualStereo, intensity int,
 	tfRes []int, totalBitsQ3 int, balance int, codedBands int, seed *uint32, complexity int,
 	bandE []float64, extEnc *rangecoding.Encoder, extraBits []int) (collapse []byte) {
 	if re == nil {
@@ -1439,6 +1560,7 @@ func quantAllBandsEncode(re *rangecoding.Encoder, channels, frameSize, lm int, s
 		resynth:         true,
 		disableInv:      false,
 		avoidSplitNoise: B > 1,
+		tapset:          tapset,
 	}
 	if ctx.channels > 0 && ctx.bandE != nil {
 		ctx.nbBands = len(ctx.bandE) / ctx.channels

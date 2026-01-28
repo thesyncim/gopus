@@ -560,3 +560,39 @@ func absInt(x int) int {
 	}
 	return x
 }
+
+// EncodeCoarseEnergyHybrid encodes coarse energies for hybrid mode.
+// Only encodes bands from startBand onwards (typically band 17).
+func (e *Encoder) EncodeCoarseEnergyHybrid(energies []float64, nbBands int, intra bool, lm int, startBand int) []float64 {
+	if e.rangeEncoder == nil || nbBands == 0 {
+		return make([]float64, nbBands*e.channels)
+	}
+
+	// For hybrid mode, simply delegate to the regular encode for the relevant bands
+	// and zero out the lower bands that aren't encoded
+	quantized := e.EncodeCoarseEnergy(energies, nbBands, intra, lm)
+
+	// Zero out bands below startBand (they're handled by SILK)
+	for c := 0; c < e.channels; c++ {
+		for i := 0; i < startBand && i < nbBands; i++ {
+			idx := c*nbBands + i
+			if idx < len(quantized) {
+				quantized[idx] = 0
+			}
+		}
+	}
+
+	return quantized
+}
+
+// EncodeFineEnergyHybrid encodes fine energies for hybrid mode.
+// Only encodes bands from startBand onwards.
+func (e *Encoder) EncodeFineEnergyHybrid(energies []float64, quantizedCoarse []float64, nbBands int, fineBits []int, startBand int) {
+	if e.rangeEncoder == nil || nbBands == 0 {
+		return
+	}
+
+	// For hybrid mode, encode fine bits only for bands from startBand onwards
+	// This delegates to the regular fine energy encoding
+	e.EncodeFineEnergy(energies, quantizedCoarse, nbBands, fineBits)
+}
