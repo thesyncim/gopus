@@ -58,9 +58,37 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	nbBands := mode.EffBands
 	lm := mode.LM
 
-	// Step 3: Detect transient and compute tf_estimate
-	// Use full transient analysis to get both transient decision and tf_estimate
-	transientResult := e.TransientAnalysis(pcm, frameSize, false /* allowWeakTransients */)
+	// Step 3: Apply pre-emphasis with signal scaling FIRST (before transient analysis)
+	// This matches libopus order: celt_preemphasis() is called before transient_analysis()
+	// Reference: libopus celt_encoder.c lines 2015-2030
+	// Input samples in float range [-1.0, 1.0] are scaled to signal scale (x32768)
+	// This matches libopus CELT_SIG_SCALE. The decoder reverses this with scaleSamples(1/32768).
+	preemph := e.ApplyPreemphasisWithScaling(pcm)
+
+	// Step 4: Detect transient and compute tf_estimate using PRE-EMPHASIZED signal
+	// libopus calls transient_analysis(in, N+overlap, ...) where 'in' contains:
+	// - Previous frame's pre-emphasized overlap samples (indices 0 to overlap-1)
+	// - Current frame's pre-emphasized samples (indices overlap to overlap+N-1)
+	// Reference: libopus celt_encoder.c line 2030
+	overlap := Overlap
+	if overlap > frameSize {
+		overlap = frameSize
+	}
+
+	// Ensure preemphBuffer is properly sized
+	preemphBufSize := overlap * e.channels
+	if len(e.preemphBuffer) < preemphBufSize {
+		e.preemphBuffer = make([]float64, preemphBufSize)
+	}
+
+	// Build combined signal for transient analysis: [overlap from previous frame] + [current frame]
+	// Total length: (overlap + frameSize) * channels
+	transientInput := make([]float64, (overlap+frameSize)*e.channels)
+	copy(transientInput[:preemphBufSize], e.preemphBuffer[:preemphBufSize])
+	copy(transientInput[preemphBufSize:], preemph)
+
+	// Call transient analysis with the pre-emphasized signal (N+overlap samples)
+	transientResult := e.TransientAnalysis(transientInput, frameSize+overlap, false /* allowWeakTransients */)
 	transient := transientResult.IsTransient
 	tfEstimate := transientResult.TfEstimate
 	shortBlocks := 1
@@ -68,10 +96,13 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		shortBlocks = mode.ShortBlocks
 	}
 
-	// Step 4: Apply pre-emphasis with signal scaling
-	// Input samples in float range [-1.0, 1.0] are scaled to signal scale (x32768)
-	// This matches libopus CELT_SIG_SCALE. The decoder reverses this with scaleSamples(1/32768).
-	preemph := e.ApplyPreemphasisWithScaling(pcm)
+	// Save current frame's tail (last overlap samples) for next frame's transient analysis
+	// For mono: last 'overlap' samples
+	// For stereo: last 'overlap' interleaved pairs
+	tailStart := len(preemph) - preemphBufSize
+	if tailStart >= 0 {
+		copy(e.preemphBuffer[:preemphBufSize], preemph[tailStart:])
+	}
 
 	// Step 5: Compute MDCT with proper overlap handling
 	var mdctCoeffs []float64
@@ -237,9 +268,37 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		normR = e.NormalizeBandsToArray(mdctRight, energiesR, nbBands, frameSize)
 	}
 
+	// Step 11.0.6: Compute tonality analysis for next frame's VBR decisions
+	// We compute tonality here using Spectral Flatness Measure (SFM) and store it
+	// for use in the next frame's computeVBRTarget (similar to how libopus uses
+	// analysis from the previous frame).
+	e.updateTonalityAnalysis(normL, energies, nbBands, frameSize)
+
 	// Step 11.1: Compute and encode TF (time-frequency) resolution
 	end := nbBands
 	effectiveBytes := targetBits / 8
+
+	// Step 11.0.7: Compute dynalloc analysis for VBR and bit allocation
+	// This computes maxDepth, offsets, importance, and spread_weight.
+	// The results are stored for next frame's VBR target computation.
+	// Reference: libopus celt/celt_encoder.c dynalloc_analysis()
+	lsbDepth := 16 // Assume 16-bit input; could be made configurable
+	logN := make([]int16, nbBands)
+	for i := 0; i < nbBands && i < len(LogN); i++ {
+		logN[i] = int16(LogN[i])
+	}
+	// Determine VBR mode (simplified: assume VBR if targetBitrate is set)
+	isVBR := e.targetBitrate > 0
+	isConstrainedVBR := false // TODO: Add constrained VBR support
+	dynallocResult := DynallocAnalysis(
+		energies, energies, e.prevEnergy,
+		nbBands, start, end, e.channels, lsbDepth, lm,
+		logN,
+		effectiveBytes,
+		transient, isVBR, isConstrainedVBR,
+	)
+	// Store for next frame's VBR computation
+	e.lastDynalloc = dynallocResult
 
 	// Enable TF analysis when we have enough bits and reasonable complexity.
 	// Reference: libopus enable_tf_analysis = effectiveBytes>=15*C && !hybrid && st->complexity>=2 && !st->lfe
@@ -258,11 +317,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			useTfEstimate = 0.2
 		}
 
-		// Compute per-band importance for TF analysis
+		// Use importance from dynalloc analysis for TF decision weighting
 		// This weights perceptually important bands higher in the Viterbi search
 		// Reference: libopus celt/celt_encoder.c dynalloc_analysis() -> importance
-		lsbDepth := 16 // Assume 16-bit input; could be made configurable
-		importance := ComputeImportance(energies, e.prevEnergy, nbBands, e.channels, lm, lsbDepth, effectiveBytes)
+		importance := dynallocResult.Importance
 
 		// Use the normalized coefficients for TF analysis
 		// For stereo, use the left channel (similar to libopus tf_chan approach)
@@ -654,10 +712,10 @@ func (e *Encoder) computeTargetBits(frameSize int) int {
 // This mirrors libopus compute_vbr() from celt_encoder.c lines 1604-1716.
 //
 // Key boosts applied:
-// - tot_boost: dynalloc analysis boost (we approximate based on signal variance)
+// - tot_boost: dynalloc analysis boost from previous frame
 // - tf_estimate: transient boost (from TransientAnalysis)
 // - tonality: tonal signal boost (approximated from spectrum analysis)
-// - floor_depth: signal depth floor
+// - floor_depth: signal depth floor based on maxDepth from dynalloc
 //
 // All values are in Q3 format (8ths of bits).
 func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize, bitrate int) int {
@@ -683,8 +741,15 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize, bitrate int) int {
 
 	// Apply dynalloc boost (tot_boost) minus calibration
 	// Reference: libopus line 1650: target += tot_boost-(19<<LM)
-	// We approximate tot_boost as 0 since we don't have dynalloc analysis yet
-	totBoost := 0
+	//
+	// tot_boost comes from DynallocAnalysis() and represents extra bits
+	// needed for bands with high energy variance.
+	// We use the previous frame's analysis (stored in lastDynalloc).
+	totBoost := e.lastDynalloc.TotBoost
+	if totBoost == 0 {
+		// Fallback for first frame or when dynalloc not computed
+		totBoost = 200 << bitRes // ~200 bits boost (in Q3)
+	}
 	calibration := 19 << lm
 	targetQ3 += totBoost - calibration
 	if targetQ3 < 0 {
@@ -697,8 +762,9 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize, bitrate int) int {
 	// target += (opus_int32)SHL32(MULT16_32_Q15(tf_estimate-tf_calibration, target),1);
 	//
 	// tf_estimate is in Q14 format (0.0 to 1.0 scaled by 16384)
-	// For now, use a default tf_estimate of ~0.1 (typical for non-transient audio)
-	tfEstimateQ14 := 1638   // ~0.1 in Q14
+	// For steady-state audio (non-transient), tf_estimate is typically 0.1-0.3
+	// We use 0.15 as a reasonable default.
+	tfEstimateQ14 := 2458   // ~0.15 in Q14
 	tfCalibrationQ14 := 721 // 0.044 in Q14
 	tfDiff := tfEstimateQ14 - tfCalibrationQ14
 	// Boost: target *= (1 + 2 * tfDiff / 32768)
@@ -712,17 +778,11 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize, bitrate int) int {
 	// tonal = MAX16(0.f,analysis->tonality-.15f)-0.12f
 	// tonal_target = target + (coded_bins<<BITRES)*1.2f*tonal
 	//
-	// Without full tonality analysis, we estimate based on signal type.
-	// For a typical audio signal, assume moderate tonality (~0.3)
-	// For highly tonal signals (sine waves), tonality can be ~0.9
-	//
-	// We use a heuristic: at moderate bitrates (32-96kbps), assume moderate tonality
-	// This provides VBR headroom for complex signals
-	var tonality float64 = 0.25 // Default moderate tonality
-	if bitrate >= 32000 && bitrate <= 96000 {
-		// In this bitrate range, be more generous with VBR headroom
-		tonality = 0.35
-	}
+	// Use stored tonality from previous frame's analysis (via Spectral Flatness Measure).
+	// Libopus similarly uses analysis from the previous frame for current VBR decisions.
+	// The tonality value ranges from 0 (noise) to 1 (pure tone).
+	// For tonal signals (sine waves, pitched instruments), values can reach 0.95+.
+	tonality := e.lastTonality
 	if tonality > 0.15 {
 		tonal := tonality - 0.15 - 0.12 // Apply thresholds from libopus
 		if tonal > 0 {
@@ -736,12 +796,33 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize, bitrate int) int {
 	// Reference: libopus lines 1682-1693
 	// floor_depth = SHR32(MULT16_32_Q15((C*bins<<BITRES),maxDepth), DB_SHIFT-15)
 	//
-	// In libopus, maxDepth is computed from dynalloc_analysis() based on the
-	// signal's actual dynamic range. Without this analysis, we skip the floor
-	// limit and let the 2x base limit (below) handle extreme cases.
-	//
-	// TODO: Implement dynalloc_analysis to compute actual maxDepth
-	_ = nbBands // Avoid unused warning
+	// maxDepth is the maximum signal level relative to noise floor (in dB),
+	// computed by DynallocAnalysis(). It represents the dynamic range of the signal.
+	// For very quiet signals, maxDepth will be low, limiting the bit allocation.
+	maxDepth := e.lastDynalloc.MaxDepth
+	if maxDepth > -31.0 { // Valid maxDepth (not default uninitialized value)
+		// bins = eBands[nbEBands-2] << LM (for floor_depth calculation)
+		bins := EBands[nbBands-2] << lm
+
+		// floor_depth = (C * bins << BITRES) * maxDepth / (1 << DB_SHIFT)
+		// In libopus, DB_SHIFT is 15, representing dB in Q15 fixed-point.
+		// In float, maxDepth is directly in dB, so we scale appropriately.
+		// The formula converts dB to a bit allocation floor.
+		//
+		// Simplified: floor_depth = (channels * bins * 8) * (maxDepth / 32768)
+		// where 32768 = 1 << 15 (DB_SHIFT)
+		floorDepth := int(float64(e.channels*bins<<bitRes) * maxDepth / 32768.0)
+
+		// floor_depth = max(floor_depth, target/4)
+		if floorDepth < targetQ3/4 {
+			floorDepth = targetQ3 / 4
+		}
+
+		// target = min(target, floor_depth)
+		if targetQ3 > floorDepth {
+			targetQ3 = floorDepth
+		}
+	}
 
 	// Limit boost to 2x base (libopus line 1713)
 	// target = IMIN(2*base_target, target)
@@ -751,4 +832,51 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize, bitrate int) int {
 	}
 
 	return targetQ3
+}
+
+// updateTonalityAnalysis computes tonality metrics from the current frame's MDCT coefficients
+// and updates encoder state for use in the next frame's VBR decisions.
+//
+// This uses Spectral Flatness Measure (SFM) to distinguish tonal signals (music, speech)
+// from noisy signals. The analysis is stored for the next frame because VBR target
+// computation happens before MDCT in the encoding pipeline (matching libopus behavior).
+//
+// Parameters:
+//   - normCoeffs: normalized MDCT coefficients (left channel for stereo)
+//   - energies: band energies (log-domain) for spectral flux computation
+//   - nbBands: number of frequency bands
+//   - frameSize: frame size in samples (unused but kept for API consistency)
+func (e *Encoder) updateTonalityAnalysis(normCoeffs, energies []float64, nbBands, frameSize int) {
+	// Compute tonality using Spectral Flatness Measure
+	// ComputeTonality takes coeffs and optional previous coeffs for flux calculation
+	tonalityResult := ComputeTonalityWithBands(normCoeffs, nbBands, frameSize)
+
+	// Compute spectral flux (frame-to-frame change) for smoothing decisions
+	spectralFlux := ComputeSpectralFlux(energies, e.prevBandLogEnergy, nbBands)
+
+	// Update previous band log-energies for next frame's flux computation
+	copy(e.prevBandLogEnergy, energies)
+
+	// Apply smoothing to tonality estimate
+	// High spectral flux (transients) should reduce the smoothing factor
+	// to allow faster adaptation to signal changes.
+	// Low flux (stationary signals) uses more smoothing for stability.
+	//
+	// Smoothing formula: tonality = alpha * new + (1-alpha) * old
+	// where alpha = 0.3 + 0.4 * spectralFlux (range: 0.3 to 0.7)
+	alpha := 0.3 + 0.4*spectralFlux
+	if alpha > 0.7 {
+		alpha = 0.7
+	}
+
+	// Update tonality with smoothing
+	e.lastTonality = alpha*tonalityResult.Tonality + (1-alpha)*e.lastTonality
+
+	// Clamp to valid range
+	if e.lastTonality < 0 {
+		e.lastTonality = 0
+	}
+	if e.lastTonality > 1 {
+		e.lastTonality = 1
+	}
 }

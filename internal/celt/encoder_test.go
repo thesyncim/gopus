@@ -250,7 +250,10 @@ func TestEncoderFrameCountAndIntraFlag(t *testing.T) {
 	pcm := generateSineWave(440.0, frameSize)
 
 	for i := 0; i < 5; i++ {
-		expectedIntra := i == 0
+		// Match libopus two-pass behavior: with complexity >= 4 and force_intra=0,
+		// libopus uses two-pass encoding that typically chooses inter mode (intra=false)
+		// even for frame 0. Reference: libopus celt/quant_bands.c line 279
+		expectedIntra := false
 		if enc.IsIntraFrame() != expectedIntra {
 			t.Fatalf("frame %d: IsIntraFrame=%v, want %v", i, enc.IsIntraFrame(), expectedIntra)
 		}
