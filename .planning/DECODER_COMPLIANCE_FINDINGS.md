@@ -157,29 +157,29 @@ The error accumulates through the short-block overlap-add process:
 
 ## CURRENT STATUS (Updated Jan 29, 2026)
 
-### Passing Tests (6/12)
+### Passing Tests (7/12)
 - testvector01: CELT stereo (Q=115.00)
 - testvector02: SILK mono (Q=1.57)
 - testvector03: SILK mono (Q=44.19)
 - testvector04: SILK mono (Q=28.56)
-- testvector05: Hybrid mono (Q=3.45)
+- testvector05: Hybrid mono (Q=3.50)
+- testvector10: Mixed mode stereo (Q=27.56) - NOW PASSING!
 - testvector11: CELT stereo (Q=116.92)
 
-### Failing Tests (6/12)
+### Failing Tests (5/12)
 - **testvector06:** Hybrid mono, Q=-3.48 (only ~1.7 dB short!)
 - **testvector07:** CELT mono with 2.5ms frames, Q=-40.02
-- **testvector08:** SILK/CELT stereo, Q=-92.46 (regressed from -84.64)
-- **testvector09:** SILK/CELT stereo, Q=-84.64
-- **testvector10:** Mixed mode stereo, Q=-25.26
-- **testvector12:** SILK/Hybrid transitions, Q=-33.91
+- **testvector08:** CELT/SILK stereo, Q=-92.46
+- **testvector09:** CELT/SILK stereo, Q=-84.64
+- **testvector12:** SILK/Hybrid mono, Q=-32.07
 
 ### Key Observations
 1. All SILK mono tests pass perfectly (02, 03, 04)
-2. CELT stereo passes when pure CELT (01, 11) but fails in mixed modes (08)
+2. CELT stereo passes when pure CELT (01, 11) but fails in mixed modes (08, 09)
 3. testvector08 contains mode transitions: SILK→CELT at packet 5
 4. R channel errors appear specifically at packet 14 (CELT), not in SILK packets
 5. Error pattern diff_M = -diff_S proves issue is in SIDE channel stereo prediction
-6. testvector08 Q regressed from -84.64 to -92.46 after recent fixes (investigate!)
+6. testvector10 improved from Q=-25.26 to Q=27.56 with recent fixes
 
 ### Fixes Applied This Session
 1. ✅ Transition audio uses `d.prevMode` (decoder_opus_frame.go:321)
