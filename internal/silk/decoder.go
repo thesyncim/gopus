@@ -272,6 +272,26 @@ func (d *Decoder) GetResamplerForChannel(bandwidth Bandwidth, channel int) *Libo
 	return pair.left
 }
 
+// HandleBandwidthChange checks if bandwidth has changed and resets sMid state if needed.
+// This must be called before BuildMonoResamplerInput when bandwidth may have changed.
+// Returns true if bandwidth changed and state was reset.
+func (d *Decoder) HandleBandwidthChange(bandwidth Bandwidth) bool {
+	if !d.hasPrevBandwidth {
+		d.prevBandwidth = bandwidth
+		d.hasPrevBandwidth = true
+		return false
+	}
+	if d.prevBandwidth != bandwidth {
+		// Bandwidth changed - reset sMid state since sample rates are different.
+		// This matches libopus behavior where the resampler is reinitialized on bandwidth change.
+		d.stereo.sMid[0] = 0
+		d.stereo.sMid[1] = 0
+		d.prevBandwidth = bandwidth
+		return true
+	}
+	return false
+}
+
 // BuildMonoResamplerInput prepares the mono resampler input using libopus-style sMid buffering.
 // It updates the internal sMid state based on the current samples.
 func (d *Decoder) BuildMonoResamplerInput(samples []float32) []float32 {

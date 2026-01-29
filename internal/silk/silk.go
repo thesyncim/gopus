@@ -57,6 +57,10 @@ func (d *Decoder) Decode(
 		return nil, err
 	}
 
+	// Check for bandwidth change and reset sMid state if needed.
+	// This is necessary because sMid contains samples at the previous bandwidth's rate.
+	d.HandleBandwidthChange(bandwidth)
+
 	// Apply libopus-style sMid buffering per 20ms frame, then resample.
 	config := GetBandwidthConfig(bandwidth)
 	framesPerPacket, nbSubfr, err := frameParams(duration)
@@ -243,6 +247,9 @@ func (d *Decoder) DecodeMonoToStereo(
 		return nil, err
 	}
 
+	// Check for bandwidth change and reset sMid state if needed.
+	d.HandleBandwidthChange(bandwidth)
+
 	config := GetBandwidthConfig(bandwidth)
 	framesPerPacket, nbSubfr, err := frameParams(duration)
 	if err != nil {
@@ -320,6 +327,9 @@ func (d *Decoder) DecodeWithDecoder(
 	if err != nil {
 		return nil, err
 	}
+
+	// Check for bandwidth change and reset sMid state if needed.
+	d.HandleBandwidthChange(bandwidth)
 
 	config := GetBandwidthConfig(bandwidth)
 	framesPerPacket, nbSubfr, err := frameParams(duration)
@@ -468,6 +478,9 @@ func (d *Decoder) DecodeMonoToStereoWithDecoder(
 	if err != nil {
 		return nil, err
 	}
+
+	// Check for bandwidth change and reset sMid state if needed.
+	d.HandleBandwidthChange(bandwidth)
 
 	config := GetBandwidthConfig(bandwidth)
 	framesPerPacket, nbSubfr, err := frameParams(duration)

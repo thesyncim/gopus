@@ -48,6 +48,10 @@ func silkDecoderSetFs(st *decoderState, fsKHz int) {
 			for i := range st.sLPCQ14Buf {
 				st.sLPCQ14Buf[i] = 0
 			}
+			// Reset NLSF history when fsKHz changes (matches libopus)
+			for i := range st.prevNLSFQ15 {
+				st.prevNLSFQ15[i] = 0
+			}
 		}
 
 		st.fsKHz = fsKHz
