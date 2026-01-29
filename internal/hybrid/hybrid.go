@@ -292,7 +292,10 @@ func (d *Decoder) decodePLC(frameSize int, stereo bool) ([]float64, error) {
 		silkConcealed = plc.ConcealSILK(d.silkDecoder, silkSamples, fadeFactor)
 	}
 
-	// Upsample SILK to 48kHz using libopus-compatible resamplers
+	// Upsample SILK to 48kHz using SILK decoder's resamplers for state continuity
+	leftResampler := d.silkDecoder.GetResampler(silk.BandwidthWideband)
+	rightResampler := d.silkDecoder.GetResamplerRightChannel(silk.BandwidthWideband)
+
 	var silkUpsampled []float64
 	if stereo {
 		silkL := make([]float32, silkSamples)
@@ -301,25 +304,16 @@ func (d *Decoder) decodePLC(frameSize int, stereo bool) ([]float64, error) {
 			silkL[i] = silkConcealed[i*2]
 			silkR[i] = silkConcealed[i*2+1]
 		}
-		if d.silkResamplerL == nil {
-			d.silkResamplerL = silk.NewLibopusResampler(16000, 48000)
-		}
-		if d.silkResamplerR == nil {
-			d.silkResamplerR = silk.NewLibopusResampler(16000, 48000)
-		}
-		upL := d.silkResamplerL.Process(silkL)
-		upR := d.silkResamplerR.Process(silkR)
+		upL := leftResampler.Process(silkL)
+		upR := rightResampler.Process(silkR)
 		silkUpsampled = make([]float64, len(upL)*2)
 		for i := range upL {
 			silkUpsampled[i*2] = float64(upL[i])
 			silkUpsampled[i*2+1] = float64(upR[i])
 		}
 	} else {
-		if d.silkResamplerL == nil {
-			d.silkResamplerL = silk.NewLibopusResampler(16000, 48000)
-		}
 		resamplerInput := d.silkDecoder.BuildMonoResamplerInput(silkConcealed)
-		up := d.silkResamplerL.Process(resamplerInput)
+		up := leftResampler.Process(resamplerInput)
 		if d.channels == 2 {
 			silkUpsampled = make([]float64, len(up)*2)
 			for i := range up {

@@ -233,10 +233,16 @@ type resamplerPair struct {
 // GetResampler returns the libopus-compatible resampler for the given bandwidth.
 // This returns the left/mono resampler.
 func (d *Decoder) GetResampler(bandwidth Bandwidth) *LibopusResampler {
-	return d.getResamplerForChannel(bandwidth, 0)
+	return d.GetResamplerForChannel(bandwidth, 0)
 }
 
-func (d *Decoder) getResamplerForChannel(bandwidth Bandwidth, channel int) *LibopusResampler {
+// GetResamplerRightChannel returns the right channel resampler for the given bandwidth.
+func (d *Decoder) GetResamplerRightChannel(bandwidth Bandwidth) *LibopusResampler {
+	return d.GetResamplerForChannel(bandwidth, 1)
+}
+
+// GetResamplerForChannel returns the resampler for the specified channel and bandwidth.
+func (d *Decoder) GetResamplerForChannel(bandwidth Bandwidth, channel int) *LibopusResampler {
 	if d.resamplers == nil {
 		d.resamplers = make(map[Bandwidth]*resamplerPair)
 	}

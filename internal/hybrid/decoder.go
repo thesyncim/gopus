@@ -87,8 +87,6 @@ func NewDecoder(channels int) *Decoder {
 
 		// Delay buffer: 60 samples per channel
 		silkDelayBuffer: make([]float64, SilkCELTDelay*channels),
-		silkResamplerL:  silk.NewLibopusResampler(16000, 48000),
-		silkResamplerR:  silk.NewLibopusResampler(16000, 48000),
 
 		channels: channels,
 	}
@@ -119,13 +117,6 @@ func (d *Decoder) Reset() {
 		d.silkDelayBuffer[i] = 0
 	}
 
-	// Reset resamplers
-	if d.silkResamplerL != nil {
-		d.silkResamplerL.Reset()
-	}
-	if d.silkResamplerR != nil {
-		d.silkResamplerR.Reset()
-	}
 	d.prevPacketStereo = false
 }
 
@@ -187,16 +178,26 @@ func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, pa
 	silkSamples := frameSize / 3 // 48kHz -> 16kHz = divide by 3
 
 	monoToStereo := packetStereo && !d.prevPacketStereo
+	stereoToMono := !packetStereo && d.prevPacketStereo
 	if monoToStereo {
 		// Reset side-channel state to match libopus mono->stereo transition.
 		d.silkDecoder.ResetSideChannel()
-		if d.silkResamplerR != nil {
-			d.silkResamplerR.Reset()
+		// Copy left resampler state to right resampler on mono->stereo transition.
+		// This ensures the right channel has proper history for smooth transition.
+		// Resetting would cause zeros at the start of the right channel output.
+		leftResampler := d.silkDecoder.GetResampler(silk.BandwidthWideband)
+		rightResampler := d.silkDecoder.GetResamplerRightChannel(silk.BandwidthWideband)
+		if rightResampler != nil && leftResampler != nil {
+			rightResampler.CopyFrom(leftResampler)
 		}
 	}
 
 	// Step 1: Decode SILK layer (0-8kHz at 16kHz native rate)
 	// SILK reads from the shared range decoder first.
+	// Use SILK decoder's resamplers for state continuity between SILK-only and Hybrid modes.
+	leftResampler := d.silkDecoder.GetResampler(silk.BandwidthWideband)
+	rightResampler := d.silkDecoder.GetResamplerRightChannel(silk.BandwidthWideband)
+
 	var silkUpsampled []float64
 	if packetStereo {
 		if d.channels == 1 {
@@ -209,11 +210,8 @@ func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, pa
 			if err != nil {
 				return nil, err
 			}
-			if d.silkResamplerL == nil {
-				d.silkResamplerL = silk.NewLibopusResampler(16000, 48000)
-			}
 			resamplerInput := d.silkDecoder.BuildMonoResamplerInput(mid)
-			upL := d.silkResamplerL.Process(resamplerInput)
+			upL := leftResampler.Process(resamplerInput)
 			silkUpsampled = make([]float64, len(upL))
 			for i := range upL {
 				silkUpsampled[i] = float64(upL[i])
@@ -228,14 +226,8 @@ func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, pa
 			if err != nil {
 				return nil, err
 			}
-			if d.silkResamplerL == nil {
-				d.silkResamplerL = silk.NewLibopusResampler(16000, 48000)
-			}
-			if d.silkResamplerR == nil {
-				d.silkResamplerR = silk.NewLibopusResampler(16000, 48000)
-			}
-			upL := d.silkResamplerL.Process(silkOutputL)
-			upR := d.silkResamplerR.Process(silkOutputR)
+			upL := leftResampler.Process(silkOutputL)
+			upR := rightResampler.Process(silkOutputR)
 			silkUpsampled = make([]float64, len(upL)*2)
 			for i := range upL {
 				silkUpsampled[i*2] = float64(upL[i])
@@ -252,17 +244,27 @@ func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, pa
 		if err != nil {
 			return nil, err
 		}
-		if d.silkResamplerL == nil {
-			d.silkResamplerL = silk.NewLibopusResampler(16000, 48000)
-		}
 		resamplerInput := d.silkDecoder.BuildMonoResamplerInput(silkOutput)
-		upL := d.silkResamplerL.Process(resamplerInput)
+		upL := leftResampler.Process(resamplerInput)
 		if d.channels == 2 {
-			silkUpsampled = make([]float64, len(upL)*2)
-			for i := range upL {
-				val := float64(upL[i])
-				silkUpsampled[i*2] = val
-				silkUpsampled[i*2+1] = val
+			if stereoToMono {
+				upR := rightResampler.Process(resamplerInput)
+				n := len(upL)
+				if len(upR) < n {
+					n = len(upR)
+				}
+				silkUpsampled = make([]float64, n*2)
+				for i := 0; i < n; i++ {
+					silkUpsampled[i*2] = float64(upL[i])
+					silkUpsampled[i*2+1] = float64(upR[i])
+				}
+			} else {
+				silkUpsampled = make([]float64, len(upL)*2)
+				for i := range upL {
+					val := float64(upL[i])
+					silkUpsampled[i*2] = val
+					silkUpsampled[i*2+1] = val
+				}
 			}
 		} else {
 			silkUpsampled = make([]float64, len(upL))

@@ -1,10 +1,20 @@
 package celt
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/thesyncim/gopus/internal/rangecoding"
 )
+
+// DebugStereoMerge enables tracing of stereoMerge function
+var DebugStereoMerge = false
+
+// DebugDualStereo enables tracing of dual-stereo band decoding
+var DebugDualStereo = false
+
+// Ensure fmt is used even if debug flags are false
+var _ = fmt.Sprint
 
 const (
 	spreadNone       = 0
@@ -262,14 +272,22 @@ func stereoMerge(x, y []float64, mid float64) {
 	}
 	xp := 0.0
 	side := 0.0
+	xNorm := 0.0
 	for i := 0; i < n; i++ {
 		xp += y[i] * x[i]
 		side += y[i] * y[i]
+		xNorm += x[i] * x[i]
 	}
 	xp *= mid
 	mid2 := mid * mid
 	el := mid2 + side - 2.0*xp
 	er := mid2 + side + 2.0*xp
+	if DebugStereoMerge {
+		fmt.Printf("stereoMerge: n=%d, mid=%.6f, ||x||²=%.6f, ||y||²=%.6f, <x,y>=%.6f\n",
+			n, mid, xNorm, side, xp/mid)
+		fmt.Printf("  el=%.6f, er=%.6f, lgain=%.6f, rgain=%.6f\n",
+			el, er, 1.0/math.Sqrt(el), 1.0/math.Sqrt(er))
+	}
 	if el < 6e-4 || er < 6e-4 {
 		copy(y, x[:n])
 		return
@@ -1293,6 +1311,10 @@ func quantBandStereo(ctx *bandCtx, x, y []float64, n, b, B int, lowband []float6
 func quantAllBandsDecode(rd *rangecoding.Decoder, channels, frameSize, lm int, start, end int,
 	pulses []int, shortBlocks int, spread int, dualStereo, intensity int,
 	tfRes []int, totalBitsQ3 int, balance int, codedBands int, disableInv bool, seed *uint32) (left, right []float64, collapse []byte) {
+	if DebugDualStereo {
+		fmt.Printf("quantAllBandsDecode: dualStereo=%d, intensity=%d, channels=%d, start=%d, end=%d\n",
+			dualStereo, intensity, channels, start, end)
+	}
 	M := 1 << lm
 	B := 1
 	if shortBlocks > 1 {
@@ -1449,9 +1471,22 @@ func quantAllBandsDecode(rd *rangecoding.Decoder, channels, frameSize, lm int, s
 		}
 
 		if dualStereo != 0 {
+			if DebugDualStereo {
+				fmt.Printf("DualStereo band %d: n=%d, b=%d, B=%d, tell=%d\n",
+					i, nBand, b, B, ctx.rd.TellFrac())
+				fmt.Printf("  lowbandX nil=%v, lowbandY nil=%v\n", lowbandX == nil, lowbandY == nil)
+			}
 			xCM = quantBand(&ctx, x, nBand, b/2, B, lowbandX, lm, lowbandOutX, 1.0, lowbandScratch, xCM)
+			if DebugDualStereo {
+				fmt.Printf("  After L: tell=%d, first 3 coeffs: %.4f %.4f %.4f\n",
+					ctx.rd.TellFrac(), x[0], x[1], x[2])
+			}
 			if channels == 2 {
 				yCM = quantBand(&ctx, y, nBand, b/2, B, lowbandY, lm, lowbandOutY, 1.0, lowbandScratch, yCM)
+				if DebugDualStereo {
+					fmt.Printf("  After R: tell=%d, first 3 coeffs: %.4f %.4f %.4f\n",
+						ctx.rd.TellFrac(), y[0], y[1], y[2])
+				}
 			}
 		} else {
 			if channels == 2 {

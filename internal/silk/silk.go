@@ -125,8 +125,8 @@ func (d *Decoder) DecodeStereo(
 	}
 
 	// Upsample to 48kHz using libopus-compatible resampler
-	leftResampler := d.getResamplerForChannel(bandwidth, 0)
-	rightResampler := d.getResamplerForChannel(bandwidth, 1)
+	leftResampler := d.GetResamplerForChannel(bandwidth, 0)
+	rightResampler := d.GetResamplerForChannel(bandwidth, 1)
 	left := leftResampler.Process(leftNative)
 	right := rightResampler.Process(rightNative)
 
@@ -180,7 +180,7 @@ func (d *Decoder) DecodeStereoToMono(
 	if frameLength > 0 {
 		framesPerPacket = len(midNative) / frameLength
 	}
-	resampler := d.getResamplerForChannel(bandwidth, 0)
+	resampler := d.GetResamplerForChannel(bandwidth, 0)
 	output := make([]float32, 0, frameSizeSamples)
 	for f := 0; f < framesPerPacket; f++ {
 		start := f * frameLength
@@ -254,8 +254,8 @@ func (d *Decoder) DecodeMonoToStereo(
 		frameLength = len(nativeSamples) / framesPerPacket
 	}
 
-	leftResampler := d.getResamplerForChannel(bandwidth, 0)
-	rightResampler := d.getResamplerForChannel(bandwidth, 1)
+	leftResampler := d.GetResamplerForChannel(bandwidth, 0)
+	rightResampler := d.GetResamplerForChannel(bandwidth, 1)
 
 	leftOut := make([]float32, 0, frameSizeSamples)
 	var rightOut []float32
@@ -372,8 +372,8 @@ func (d *Decoder) DecodeStereoWithDecoder(
 		return nil, err
 	}
 
-	leftResampler := d.getResamplerForChannel(bandwidth, 0)
-	rightResampler := d.getResamplerForChannel(bandwidth, 1)
+	leftResampler := d.GetResamplerForChannel(bandwidth, 0)
+	rightResampler := d.GetResamplerForChannel(bandwidth, 1)
 	left := leftResampler.Process(leftNative)
 	right := rightResampler.Process(rightNative)
 
@@ -414,7 +414,7 @@ func (d *Decoder) DecodeStereoToMonoWithDecoder(
 	if frameLength > 0 {
 		framesPerPacket = len(midNative) / frameLength
 	}
-	resampler := d.getResamplerForChannel(bandwidth, 0)
+	resampler := d.GetResamplerForChannel(bandwidth, 0)
 	output := make([]float32, 0, frameSizeSamples)
 	for f := 0; f < framesPerPacket; f++ {
 		start := f * frameLength
@@ -480,8 +480,8 @@ func (d *Decoder) DecodeMonoToStereoWithDecoder(
 		frameLength = len(nativeSamples) / framesPerPacket
 	}
 
-	leftResampler := d.getResamplerForChannel(bandwidth, 0)
-	rightResampler := d.getResamplerForChannel(bandwidth, 1)
+	leftResampler := d.GetResamplerForChannel(bandwidth, 0)
+	rightResampler := d.GetResamplerForChannel(bandwidth, 1)
 
 	leftOut := make([]float32, 0, frameSizeSamples)
 	var rightOut []float32
@@ -634,8 +634,8 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 	left, right := plc.ConcealSILKStereo(d, nativeSamples, fadeFactor)
 
 	// Upsample to 48kHz using libopus-compatible resampler
-	leftResampler := d.getResamplerForChannel(bandwidth, 0)
-	rightResampler := d.getResamplerForChannel(bandwidth, 1)
+	leftResampler := d.GetResamplerForChannel(bandwidth, 0)
+	rightResampler := d.GetResamplerForChannel(bandwidth, 1)
 	leftUp := leftResampler.Process(left)
 	rightUp := rightResampler.Process(right)
 
