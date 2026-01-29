@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus"
-	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // TestTraceThetaDecode traces the theta/imid/iside values during decoding
@@ -77,62 +76,6 @@ func TestTraceThetaDecode(t *testing.T) {
 	libTheta := math.Atan2(math.Sqrt(libSEnergy), math.Sqrt(libMEnergy)) * 180 / math.Pi
 	goTheta := math.Atan2(math.Sqrt(goSEnergy), math.Sqrt(goMEnergy)) * 180 / math.Pi
 	t.Logf("Lib effective theta: %.2f°, Go effective theta: %.2f°", libTheta, goTheta)
-}
-
-// TestManualPacket14Decode manually decodes packet 14's CELT data
-func TestManualPacket14Decode(t *testing.T) {
-	bitFile := "../../../internal/testvectors/testdata/opus_testvectors/testvector08.bit"
-	data, err := os.ReadFile(bitFile)
-	if err != nil {
-		t.Skipf("Cannot read %s: %v", bitFile, err)
-		return
-	}
-
-	var packets [][]byte
-	offset := 0
-	for offset < len(data)-8 {
-		pktLen := binary.BigEndian.Uint32(data[offset:])
-		offset += 4
-		offset += 4
-		if int(pktLen) <= 0 || offset+int(pktLen) > len(data) {
-			break
-		}
-		packets = append(packets, data[offset:offset+int(pktLen)])
-		offset += int(pktLen)
-	}
-
-	pkt := packets[14]
-	t.Logf("Packet 14: %d bytes", len(pkt))
-
-	// Parse TOC
-	toc := pkt[0]
-	config := int(toc >> 3)
-	stereo := (toc >> 2) & 1
-
-	t.Logf("Config: %d, Stereo: %d", config, stereo)
-
-	// For CELT, data starts at byte 1
-	celtData := pkt[1:]
-
-	// Initialize range decoder
-	rd := rangecoding.NewDecoder(celtData)
-
-	// Read CELT header flags (uncompressed bits)
-	// For 20ms frame at 48kHz: LM=3 (960 samples per frame)
-	_ = 3 // lm = 3 for 20ms
-
-	// Decode silence flag
-	silence := rd.DecodeBit(15)
-	t.Logf("Silence flag: %d", silence)
-
-	if silence == 0 {
-		// Decode post filter
-		postfilter := rd.DecodeBit(1)
-		t.Logf("Postfilter flag: %d", postfilter)
-	}
-
-	// Continue with band energy decoding...
-	// This would need the full CELT decoder to trace properly
 }
 
 // TestCheckStereoMergeFormula verifies the stereoMerge formula against reference
