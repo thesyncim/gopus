@@ -267,32 +267,58 @@ The error accumulates through the short-block overlap-add process:
 
 ## DETAILED ANALYSIS BY TEST VECTOR
 
-### testvector06 (Hybrid mono, Q=-3.48)
-- **Issue**: Many packets have lower SNR (25-45 dB range instead of 80+ dB)
-- **Pattern**: SNR drops are sporadic, not continuous accumulation
-- **Packets affected**: ~20% of packets have SNR < 50 dB
-- **Observation**: Both 10ms and 20ms frames affected
+### testvector06 (Hybrid FB stereo, Q=-3.48)
+- **Issue**: Quality drops concentrated in packets 1497-1502, not uniformly distributed
+- **Pattern**: Quality is good (Q>10) for packets 0-1250, drops at 1250-1700, recovers at 1700+
 - **Only 1.7 dB from passing!**
 
-#### Investigation (Jan 2026)
+#### Detailed Investigation (Jan 2026)
+
+**Stream Structure:**
+- Packets 0-938: MONO (stereo=false), config 14/15 (10ms/20ms Hybrid FB)
+- Packet 939: MONO→STEREO transition (stereo=true starts)
+- Packet 1252: Frame size transition 20ms→10ms (config 15→14) while stereo
+- Packets 1497-1502: Quality drops sharply (Q=-65 at worst)
+- Packets 1700+: Quality recovers to Q>0
+
+**Key Findings:**
+1. **Packets 1497-1502 have 90% amplitude**: RMS ratio of decoded/reference is 0.90-0.95 (should be 1.0)
+2. **L/R errors are highly correlated (0.99)**: Both channels have the SAME error, not opposite sign
+3. **Error is a GAIN issue**: The decoded signal is systematically too quiet, not distorted
+4. **Fresh decoder is WORSE**: Starting fresh at packet 1490 gives Q=-89 vs Q=-50 continuous
+5. **Quality recovers**: The error doesn't accumulate forever, it dissipates after ~200 packets
+
+**What This Means:**
+- The error is NOT in stereo prediction (would cause opposite sign L/R errors)
+- The error is in shared processing: SILK MID channel or CELT energy/gain path
+- The accumulated state from continuous decoding HELPS, so this isn't drift
+- Something about stereo 10ms Hybrid FB specifically causes ~10% gain reduction
 
 **Verified CORRECT:**
 1. CELT start band (17) handling - correctly skips bands 0-16 for CELT in Hybrid
 2. SILK/CELT output summation - `output[i] = silkSample + celtSample` is correct
 3. Resampler architecture - per-channel resamplers matching libopus
 4. Energy state management - multi-band arrays handled correctly
+5. eMeans table values match libopus exactly
 
 **TRIED AND FAILED:**
 - **60-sample SILK-CELT delay** - Made things MUCH worse (Q went to -108)
-- The delay infrastructure exists (`applyDelayMono`/`applyDelayStereo`) but should NOT be used
+- The delay infrastructure exists but should NOT be used
 - libopus handles timing internally via sequential decode order
 
-**Remaining Suspects:**
-1. Energy state handling during SILK→CELT band boundary (band 17)
-2. Mono→stereo or stereo→mono transitions in Hybrid
-3. Resampler state persistence between frames
+**Most Likely Root Causes:**
+1. **CELT energy inter-frame prediction** for bands 17-21 in stereo 10ms mode
+2. **Fine energy decoding** may have subtle precision difference affecting gain
+3. **SILK stereo MID channel** gain in hybrid mode might be slightly off
 
-**Fix complexity**: High - sporadic nature makes debugging difficult
+**Test Files Created:**
+- `tv06_packet_transition_test.go` - Analyzes quality around packet 1497
+- `tv06_stereo_analysis_test.go` - Per-channel L/R error analysis
+- `tv06_framesize_analysis_test.go` - Compares 10ms vs 20ms quality
+- `tv06_packet_content_test.go` - RMS and amplitude analysis
+- `tv06_detailed_1252_test.go` - Detailed cumulative quality tracking
+
+**Fix complexity**: Medium-High - Root cause identified as ~10% gain reduction in stereo 10ms Hybrid FB mode
 
 ### testvector07 (CELT with 2.5ms frames, Q=-40)
 - **Issue**: Most errors come from 2.5ms CELT frames (fs=120), NOT transient frames
