@@ -42,6 +42,11 @@ type Decoder struct {
 	stereo               stereoDecState
 	prevDecodeOnlyMiddle int
 
+	// Track previous bandwidth to detect bandwidth changes.
+	// Used to reset sMid state when sample rate changes.
+	prevBandwidth    Bandwidth
+	hasPrevBandwidth bool
+
 	// Resamplers for each bandwidth (created on demand).
 	// Separate resampler state per channel to match libopus.
 	resamplers map[Bandwidth]*resamplerPair
