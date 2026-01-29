@@ -191,6 +191,16 @@ func (d *Decoder) SampleRate() int {
 // When transitioning from mono to stereo, the right channel overlap buffer must be
 // initialized from the left channel to match libopus behavior.
 // This ensures smooth crossfade during the transition.
+//
+// Additionally, energy history arrays (prevEnergy, prevEnergy2, prevLogE, prevLogE2)
+// must be copied/initialized for the right channel. In libopus, mono frames always
+// copy their energy to the right channel position after decoding:
+//
+//	if (C==1) OPUS_COPY(&oldBandE[nbEBands], oldBandE, nbEBands);
+//
+// This means when transitioning to stereo, the right channel already has valid energy.
+// We replicate this behavior here for transitions.
+//
 // Reference: libopus celt/celt_decoder.c - mono-to-stereo handling
 //
 // Returns true if a mono-to-stereo transition occurred.
@@ -208,8 +218,74 @@ func (d *Decoder) handleChannelTransition(streamChannels int) bool {
 				d.overlapBuffer[Overlap+i] = d.overlapBuffer[i]
 			}
 		}
+
+		// Copy left channel energy state to right channel.
+		// This matches libopus behavior where mono frames always update both channels'
+		// energy history (via OPUS_COPY(&oldBandE[nbEBands], oldBandE, nbEBands)).
+		// Energy arrays layout: [Left: 0..MaxBands-1] [Right: MaxBands..2*MaxBands-1]
+		if len(d.prevEnergy) >= MaxBands*2 {
+			for i := 0; i < MaxBands; i++ {
+				d.prevEnergy[MaxBands+i] = d.prevEnergy[i]
+			}
+		}
+		if len(d.prevEnergy2) >= MaxBands*2 {
+			for i := 0; i < MaxBands; i++ {
+				d.prevEnergy2[MaxBands+i] = d.prevEnergy2[i]
+			}
+		}
+		if len(d.prevLogE) >= MaxBands*2 {
+			for i := 0; i < MaxBands; i++ {
+				d.prevLogE[MaxBands+i] = d.prevLogE[i]
+			}
+		}
+		if len(d.prevLogE2) >= MaxBands*2 {
+			for i := 0; i < MaxBands; i++ {
+				d.prevLogE2[MaxBands+i] = d.prevLogE2[i]
+			}
+		}
+
+		// Copy left channel preemphasis state to right channel for de-emphasis continuity
+		if len(d.preemphState) >= 2 {
+			d.preemphState[1] = d.preemphState[0]
+		}
+
 		return true
 	}
+
+	// Detect stereo-to-mono transition: previous was stereo (2), current is mono (1)
+	// For stereo-to-mono, libopus uses max of L/R for mono prediction, but doesn't
+	// need to copy state since mono decoding will overwrite. However, we should ensure
+	// the mono channel has reasonable values by taking max of L/R energies.
+	if prevChannels == 2 && streamChannels == 1 && d.channels == 2 {
+		// For stereo->mono transition, take max of L/R for energy state
+		// This matches libopus prepareMonoEnergyFromStereo behavior
+		if len(d.prevEnergy) >= MaxBands*2 {
+			for i := 0; i < MaxBands; i++ {
+				right := d.prevEnergy[MaxBands+i]
+				if right > d.prevEnergy[i] {
+					d.prevEnergy[i] = right
+				}
+			}
+		}
+		if len(d.prevLogE) >= MaxBands*2 {
+			for i := 0; i < MaxBands; i++ {
+				right := d.prevLogE[MaxBands+i]
+				if right > d.prevLogE[i] {
+					d.prevLogE[i] = right
+				}
+			}
+		}
+		if len(d.prevLogE2) >= MaxBands*2 {
+			for i := 0; i < MaxBands; i++ {
+				right := d.prevLogE2[MaxBands+i]
+				if right > d.prevLogE2[i] {
+					d.prevLogE2[i] = right
+				}
+			}
+		}
+		return true
+	}
+
 	return false
 }
 
@@ -814,11 +890,15 @@ func (d *Decoder) applyDeemphasis(samples []float64) {
 		return
 	}
 
+	// VERY_SMALL prevents denormal numbers that can cause performance issues.
+	// This matches libopus celt/celt_decoder.c celt_decode_with_ec().
+	const verySmall = 1e-30
+
 	if d.channels == 1 {
 		// Mono de-emphasis
 		state := d.preemphState[0]
 		for i := range samples {
-			tmp := samples[i] + state
+			tmp := samples[i] + verySmall + state
 			state = PreemphCoef * tmp
 			samples[i] = tmp
 		}
@@ -830,12 +910,12 @@ func (d *Decoder) applyDeemphasis(samples []float64) {
 
 		for i := 0; i < len(samples)-1; i += 2 {
 			// Left channel
-			tmpL := samples[i] + stateL
+			tmpL := samples[i] + verySmall + stateL
 			stateL = PreemphCoef * tmpL
 			samples[i] = tmpL
 
 			// Right channel
-			tmpR := samples[i+1] + stateR
+			tmpR := samples[i+1] + verySmall + stateR
 			stateR = PreemphCoef * tmpR
 			samples[i+1] = tmpR
 		}

@@ -187,7 +187,6 @@ func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, pa
 	silkSamples := frameSize / 3 // 48kHz -> 16kHz = divide by 3
 
 	monoToStereo := packetStereo && !d.prevPacketStereo
-	stereoToMono := !packetStereo && d.prevPacketStereo
 	if monoToStereo {
 		// Reset side-channel state to match libopus mono->stereo transition.
 		d.silkDecoder.ResetSideChannel()
@@ -259,27 +258,11 @@ func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, pa
 		resamplerInput := d.silkDecoder.BuildMonoResamplerInput(silkOutput)
 		upL := d.silkResamplerL.Process(resamplerInput)
 		if d.channels == 2 {
-			if stereoToMono {
-				if d.silkResamplerR == nil {
-					d.silkResamplerR = silk.NewLibopusResampler(16000, 48000)
-				}
-				upR := d.silkResamplerR.Process(resamplerInput)
-				n := len(upL)
-				if len(upR) < n {
-					n = len(upR)
-				}
-				silkUpsampled = make([]float64, n*2)
-				for i := 0; i < n; i++ {
-					silkUpsampled[i*2] = float64(upL[i])
-					silkUpsampled[i*2+1] = float64(upR[i])
-				}
-			} else {
-				silkUpsampled = make([]float64, len(upL)*2)
-				for i := range upL {
-					val := float64(upL[i])
-					silkUpsampled[i*2] = val
-					silkUpsampled[i*2+1] = val
-				}
+			silkUpsampled = make([]float64, len(upL)*2)
+			for i := range upL {
+				val := float64(upL[i])
+				silkUpsampled[i*2] = val
+				silkUpsampled[i*2+1] = val
 			}
 		} else {
 			silkUpsampled = make([]float64, len(upL))

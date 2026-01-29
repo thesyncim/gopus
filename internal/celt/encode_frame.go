@@ -336,7 +336,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	// Enable TF analysis when we have enough bits and reasonable complexity.
 	// Reference: libopus enable_tf_analysis = effectiveBytes>=15*C && !hybrid && st->complexity>=2 && !st->lfe
-	enableTFAnalysis := effectiveBytes >= 15*e.channels && lm > 0 && e.complexity >= 2
+	// Note: libopus does NOT have an LM>0 check here - TF analysis runs for all frame sizes including LM=0
+	enableTFAnalysis := effectiveBytes >= 15*e.channels && e.complexity >= 2
 
 	var tfRes []int
 	var tfSelect int

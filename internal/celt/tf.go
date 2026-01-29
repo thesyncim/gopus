@@ -249,10 +249,10 @@ func l1Metric(tmp []float64, N int, LM int, bias float64) float64 {
 func TFAnalysis(X []float64, N0, nbEBands int, isTransient bool, lm int, tfEstimate float64, effectiveBytes int, importance []int) (tfRes []int, tfSelect int) {
 	tfRes = make([]int, nbEBands)
 
-	// For LM=0 (2.5ms frames), always use default TF settings
-	if lm == 0 {
-		return tfRes, 0
-	}
+	// Note: Unlike earlier versions, we do NOT skip TF analysis for LM=0.
+	// libopus runs tf_analysis for all LM values when enable_tf_analysis is true.
+	// For LM=0 (2.5ms frames), the tf_select_table values still allow meaningful
+	// TF changes: when per_band_flag=1, the TF value can be -1 instead of 0.
 
 	// Compute lambda (transition cost) based on available bits
 	// Higher lambda = more expensive to change TF resolution between bands

@@ -87,6 +87,8 @@ func getMDCTTrig(n int) []float64 {
 	n2 := n / 2
 	trig := make([]float64, n2)
 	for i := 0; i < n2; i++ {
+		// Twiddle factor for IMDCT pre/post rotation
+		// Formula: cos(2*π*(i+0.125)/n) where n is the output size (2*N)
 		angle := 2.0 * math.Pi * (float64(i) + 0.125) / float64(n)
 		trig[i] = math.Cos(angle)
 	}
@@ -388,6 +390,11 @@ func imdctInPlace(spectrum []float64, out []float64, blockStart, overlap int) {
 			wp2--
 		}
 	}
+}
+
+// ImdctInPlaceExported exports imdctInPlace for testing
+func ImdctInPlaceExported(spectrum []float64, out []float64, blockStart, overlap int) {
+	imdctInPlace(spectrum, out, blockStart, overlap)
 }
 
 // isPowerOfTwo returns true if n is a power of 2.

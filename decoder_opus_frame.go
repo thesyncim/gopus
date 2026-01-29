@@ -135,7 +135,7 @@ func (d *Decoder) decodeOpusFrame(
 		transition = true
 		if mode == ModeCELT {
 			transSize := minInt(F5, audiosize)
-			trans, transN, err := d.decodeOpusFrame(nil, transSize, packetFrameSize, mode, bandwidth, packetStereoLocal)
+			trans, transN, err := d.decodeOpusFrame(nil, transSize, packetFrameSize, d.prevMode, d.lastBandwidth, packetStereoLocal)
 			if err != nil {
 				return nil, 0, err
 			}
@@ -222,7 +222,7 @@ func (d *Decoder) decodeOpusFrame(
 
 				if transition && !redundancy && len(pcmTransition) == 0 {
 					transSize := minInt(F5, audiosize)
-					trans, transN, err := d.decodeOpusFrame(nil, transSize, packetFrameSize, mode, bandwidth, packetStereoLocal)
+					trans, transN, err := d.decodeOpusFrame(nil, transSize, packetFrameSize, d.prevMode, d.lastBandwidth, packetStereoLocal)
 					if err != nil {
 						return err
 					}
@@ -318,7 +318,7 @@ func (d *Decoder) decodeOpusFrame(
 
 		if transition && !redundancy && len(pcmTransition) == 0 {
 			transSize := minInt(F5, audiosize)
-			trans, transN, err := d.decodeOpusFrame(nil, transSize, packetFrameSize, mode, bandwidth, packetStereoLocal)
+			trans, transN, err := d.decodeOpusFrame(nil, transSize, packetFrameSize, d.prevMode, d.lastBandwidth, packetStereoLocal)
 			if err != nil {
 				return nil, 0, err
 			}

@@ -579,17 +579,11 @@ func TestTFAnalysisBasic(t *testing.T) {
 				t.Errorf("TFAnalysis returned %d bands, want %d", len(tfRes), tc.nbBands)
 			}
 
-			// For LM=0, should return all zeros
-			if tc.lm == 0 {
-				for i, v := range tfRes {
-					if v != 0 {
-						t.Errorf("LM=0: tfRes[%d] = %d, want 0", i, v)
-					}
-				}
-				if tfSelect != 0 {
-					t.Errorf("LM=0: tfSelect = %d, want 0", tfSelect)
-				}
-				return
+			// Note: LM=0 no longer has special handling - TFAnalysis runs the full
+			// Viterbi algorithm for all LM values, matching libopus behavior.
+			// For LM=0, tf_select is always 0 (tfSelectRsv = LM>0 is false).
+			if tc.lm == 0 && tfSelect != 0 {
+				t.Errorf("LM=0: tfSelect = %d, want 0 (tf_select not reserved for LM=0)", tfSelect)
 			}
 
 			// Verify tfRes values are valid (0 or 1 for raw output)
