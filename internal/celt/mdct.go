@@ -284,6 +284,112 @@ func imdctOverlapWithPrev(spectrum []float64, prevOverlap []float64, overlap int
 	return out
 }
 
+// imdctInPlace performs IMDCT directly into a shared output buffer at the given offset.
+// This matches libopus's clt_mdct_backward behavior for short block processing.
+//
+// The function writes to out[blockStart:blockStart+n2+overlap/2], where n2 = len(spectrum).
+// The TDAC windowing blends out[blockStart:blockStart+overlap] with existing data.
+//
+// Parameters:
+//   - spectrum: MDCT coefficients for this short block
+//   - out: shared output buffer that already contains previous block/frame data
+//   - blockStart: starting position in out for this block
+//   - overlap: overlap size (typically 120 for CELT at 48kHz)
+func imdctInPlace(spectrum []float64, out []float64, blockStart, overlap int) {
+	n2 := len(spectrum)
+	if n2 == 0 {
+		return
+	}
+	if overlap < 0 {
+		overlap = 0
+	}
+
+	n := n2 * 2
+	n4 := n2 / 2
+
+	trig := getMDCTTrig(n)
+
+	// Pre-rotate with twiddles
+	fftIn := make([]complex128, n4)
+	for i := 0; i < n4; i++ {
+		x1 := spectrum[2*i]
+		x2 := spectrum[n2-1-2*i]
+		t0 := trig[i]
+		t1 := trig[n4+i]
+		yr := x2*t0 + x1*t1
+		yi := x1*t0 - x2*t1
+		fftIn[i] = complex(yi, yr)
+	}
+
+	// FFT
+	fftOut := dft(fftIn)
+
+	// Post-rotate
+	buf := make([]float64, n2)
+	for i := 0; i < n4; i++ {
+		v := fftOut[i]
+		buf[2*i] = real(v)
+		buf[2*i+1] = imag(v)
+	}
+
+	yp0 := 0
+	yp1 := n2 - 2
+	for i := 0; i < (n4+1)>>1; i++ {
+		re := buf[yp0+1]
+		im := buf[yp0]
+		t0 := trig[i]
+		t1 := trig[n4+i]
+		yr := re*t0 + im*t1
+		yi := re*t1 - im*t0
+		re2 := buf[yp1+1]
+		im2 := buf[yp1]
+		buf[yp0] = yr
+		buf[yp1+1] = yi
+
+		t0 = trig[n4-i-1]
+		t1 = trig[n2-i-1]
+		yr = re2*t0 + im2*t1
+		yi = re2*t1 - im2*t0
+		buf[yp1] = yr
+		buf[yp0+1] = yi
+		yp0 += 2
+		yp1 -= 2
+	}
+
+	// Write IMDCT output to shared buffer starting at blockStart + overlap/2
+	// This is the key difference from imdctOverlapWithPrev - we write directly
+	// to the shared buffer, preserving whatever is in out[blockStart:blockStart+overlap/2]
+	start := blockStart + overlap/2
+	end := start + n2
+	if end > len(out) {
+		end = len(out)
+	}
+	for i := start; i < end; i++ {
+		out[i] = buf[i-start]
+	}
+
+	// TDAC windowing blends out[blockStart:blockStart+overlap]
+	// The first half (out[blockStart:blockStart+overlap/2]) contains previous data
+	// The second half (out[blockStart+overlap/2:blockStart+overlap]) is IMDCT output
+	if overlap > 0 {
+		window := GetWindowBuffer(overlap)
+		xp1 := blockStart + overlap - 1
+		yp1 := blockStart
+		wp1 := 0
+		wp2 := overlap - 1
+		for i := 0; i < overlap/2; i++ {
+			x1 := out[xp1]
+			x2 := out[yp1]
+			out[yp1] = x2*window[wp2] - x1*window[wp1]
+			out[xp1] = x2*window[wp1] + x1*window[wp2]
+			yp1++
+			xp1--
+			wp1++
+			wp2--
+		}
+	}
+}
+
 // isPowerOfTwo returns true if n is a power of 2.
 func isPowerOfTwo(n int) bool {
 	return n > 0 && (n&(n-1)) == 0

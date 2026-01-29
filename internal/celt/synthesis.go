@@ -146,11 +146,28 @@ func synthesizeChannelWithOverlap(coeffs []float64, prevOverlap []float64, overl
 		if shortSize <= 0 {
 			return nil, prevOverlap
 		}
+
+		// For transient mode, perform IMDCT in-place like libopus.
+		// The key insight is that libopus's buffer already contains previous frame data
+		// at ALL positions, not just the first overlap samples.
+		//
+		// For each short block b:
+		// - IMDCT writes to out[b*shortSize + overlap/2 : b*shortSize + overlap/2 + shortSize]
+		// - TDAC blends out[b*shortSize : b*shortSize + overlap] using:
+		//   - First half: previous block's IMDCT tail (or prev frame's overlap for b=0)
+		//   - Second half: current IMDCT's first samples
+		//
+		// Total buffer size = frameSize + overlap
 		out := make([]float64, frameSize+overlap)
-		if overlap > 0 {
-			copy(out, prev)
+
+		// Copy previous frame's overlap to the beginning
+		if overlap > 0 && len(prev) >= overlap {
+			copy(out[:overlap], prev[:overlap])
 		}
+
+		// Process each short block using in-place IMDCT with TDAC
 		for b := 0; b < shortBlocks; b++ {
+			// Extract interleaved coefficients for this short block
 			shortCoeffs := make([]float64, shortSize)
 			for i := 0; i < shortSize; i++ {
 				idx := b + i*shortBlocks
@@ -159,18 +176,16 @@ func synthesizeChannelWithOverlap(coeffs []float64, prevOverlap []float64, overl
 				}
 			}
 
-			blockPrev := out[b*shortSize : b*shortSize+overlap]
-			blockOut := imdctOverlapWithPrev(shortCoeffs, blockPrev, overlap)
-			if len(blockOut) == 0 {
-				continue
-			}
-			copy(out[b*shortSize:], blockOut)
+			blockStart := b * shortSize
+
+			// Perform in-place IMDCT directly on the shared buffer
+			// This matches libopus's clt_mdct_backward behavior
+			imdctInPlace(shortCoeffs, out, blockStart, overlap)
 		}
+
 		output = out[:frameSize]
 		newOverlap = make([]float64, overlap)
-		if frameSize+overlap <= len(out) {
-			copy(newOverlap, out[frameSize:frameSize+overlap])
-		}
+		copy(newOverlap, out[frameSize:frameSize+overlap])
 		return output, newOverlap
 	}
 

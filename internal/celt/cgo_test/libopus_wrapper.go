@@ -31,6 +31,84 @@ void opus_flush_stdio(void) {
     fflush(NULL);
 }
 
+// ============================================================================
+// Internal state access for debugging - mirrors internal libopus structures
+// ============================================================================
+
+// Mirror of OpusDecoder structure from opus_decoder.c (only fields we need)
+typedef struct {
+    int celt_dec_offset;
+    int silk_dec_offset;
+    int channels;
+    opus_int32 Fs;
+    // ... other fields we don't need
+} OpusDecoderInternal;
+
+// Mirror of CELTDecoder structure from celt_decoder.c
+// This must match the layout used by the compiled libopus
+typedef struct {
+    const void *mode;
+    int overlap;
+    int channels;
+    int stream_channels;
+    int downsample;
+    int start, end;
+    int signalling;
+    int disable_inv;
+    int complexity;
+    int arch;
+    // #ifdef ENABLE_QEXT: int qext_scale; - NOT ENABLED in our build
+    opus_uint32 rng;
+    int error;
+    int last_pitch_index;
+    int loss_duration;
+    int plc_duration;
+    int last_frame_type;
+    int skip_plc;
+    int postfilter_period;
+    int postfilter_period_old;
+    opus_val16 postfilter_gain;
+    opus_val16 postfilter_gain_old;
+    int postfilter_tapset;
+    int postfilter_tapset_old;
+    int prefilter_and_fold;
+    celt_sig preemph_memD[2];
+    // ... followed by _decode_mem and other dynamic arrays
+} CELTDecoderInternal;
+
+// Get CELT decoder preemphasis memory state
+void test_get_preemph_state(OpusDecoder* dec, float *mem0, float *mem1) {
+    if (dec == NULL) {
+        *mem0 = 0;
+        *mem1 = 0;
+        return;
+    }
+    OpusDecoderInternal *st = (OpusDecoderInternal*)dec;
+    CELTDecoderInternal *celt_dec = (CELTDecoderInternal*)((char*)dec + st->celt_dec_offset);
+    *mem0 = (float)celt_dec->preemph_memD[0];
+    *mem1 = (float)celt_dec->preemph_memD[1];
+}
+
+// Get CELT decoder overlap (to verify structure alignment)
+int test_get_celt_overlap(OpusDecoder* dec) {
+    if (dec == NULL) return -1;
+    OpusDecoderInternal *st = (OpusDecoderInternal*)dec;
+    CELTDecoderInternal *celt_dec = (CELTDecoderInternal*)((char*)dec + st->celt_dec_offset);
+    return celt_dec->overlap;
+}
+
+// Get CELT decoder channels (to verify structure alignment)
+int test_get_celt_channels(OpusDecoder* dec) {
+    if (dec == NULL) return -1;
+    OpusDecoderInternal *st = (OpusDecoderInternal*)dec;
+    CELTDecoderInternal *celt_dec = (CELTDecoderInternal*)((char*)dec + st->celt_dec_offset);
+    return celt_dec->channels;
+}
+
+// ============================================================================
+// End internal state access
+// ============================================================================
+
 // Test harness to decode a Laplace symbol
 int test_laplace_decode(const unsigned char *data, int data_len, int fs, int decay, int *out_val) {
     ec_dec dec;
@@ -1549,6 +1627,33 @@ func (d *LibopusDecoder) DecodeFloat(data []byte, maxSamples int) ([]float32, in
 		return nil, samples
 	}
 	return pcm, samples
+}
+
+// GetPreemphState returns the de-emphasis filter state (mem0, mem1) from the internal CELT decoder.
+// This is useful for debugging state drift between gopus and libopus.
+func (d *LibopusDecoder) GetPreemphState() (float32, float32) {
+	if d.dec == nil {
+		return 0, 0
+	}
+	var mem0, mem1 C.float
+	C.test_get_preemph_state(d.dec, &mem0, &mem1)
+	return float32(mem0), float32(mem1)
+}
+
+// GetCELTOverlap returns the CELT overlap parameter to verify structure alignment.
+func (d *LibopusDecoder) GetCELTOverlap() int {
+	if d.dec == nil {
+		return -1
+	}
+	return int(C.test_get_celt_overlap(d.dec))
+}
+
+// GetCELTChannels returns the CELT channel count to verify structure alignment.
+func (d *LibopusDecoder) GetCELTChannels() int {
+	if d.dec == nil {
+		return -1
+	}
+	return int(C.test_get_celt_channels(d.dec))
 }
 
 // CELTMode wraps a libopus CELT mode for MDCT tests.

@@ -353,6 +353,12 @@ func (d *Decoder) SampleRate() int {
 	return d.sampleRate
 }
 
+// GetCELTDecoder returns the internal CELT decoder for debugging purposes.
+// This allows access to internal state like preemph_state and overlap_buffer.
+func (d *Decoder) GetCELTDecoder() *celt.Decoder {
+	return d.celtDecoder
+}
+
 // decodeSILK routes to SILK decoder for SILK-only mode packets.
 func (d *Decoder) decodeSILK(data []byte, toc TOC, frameSize int) ([]float32, error) {
 	// Map TOC bandwidth to SILK bandwidth
