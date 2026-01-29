@@ -114,15 +114,17 @@ func (e *Encoder) TransientAnalysis(pcm []float64, frameSize int, allowWeakTrans
 
 		// Forward pass: compute post-echo threshold with forward masking
 		// Group by two to reduce complexity
+		// Note: In libopus FLOAT mode, PSHR32 is a no-op, so no scaling is applied
 		energy := make([]float64, len2)
 		var mean float64
 		mem0 = 0
 		for i := 0; i < len2; i++ {
 			// Energy of pair of samples
+			// libopus FLOAT: x2 = tmp[2*i]² + tmp[2*i+1]² (no PSHR32 scaling)
 			x2 := tmp[2*i]*tmp[2*i] + tmp[2*i+1]*tmp[2*i+1]
-			x2 *= 0.0625 // /16 for scaling
 
-			mean += x2 * 0.000244140625 // /4096 for averaging
+			// libopus FLOAT: mean += x2 (no PSHR32 scaling)
+			mean += x2
 
 			// Forward masking: exponential decay
 			mem0 = x2 + (1.0-forwardDecay)*mem0
@@ -146,8 +148,11 @@ func (e *Encoder) TransientAnalysis(pcm []float64, frameSize int, allowWeakTrans
 		mean = math.Sqrt(mean * maxE * 0.5 * float64(len2))
 
 		// Inverse of mean energy (with epsilon to avoid division by zero)
+		// In libopus FLOAT mode, SHL32 and SHR32 are no-ops, so:
+		// norm = len2 / (EPSILON + mean)
+		// The 64* factor is applied in the loop below
 		epsilon := 1e-15
-		norm := float64(len2) * 64 / (mean*0.5 + epsilon)
+		norm := float64(len2) / (mean + epsilon)
 
 		// Compute harmonic mean using inverse table
 		// Skip unreliable boundaries, sample every 4th point

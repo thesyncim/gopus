@@ -156,6 +156,22 @@ func GetEProbModel() [4][2][42]uint8 {
 	return eProbModel
 }
 
+// GetEMeans returns the eMeans array for testing.
+func GetEMeans() [25]float64 {
+	return eMeans
+}
+
+// GetEBands returns the scaled eBands boundaries for a given LM.
+// LM: 0=2.5ms, 1=5ms, 2=10ms, 3=20ms
+func GetEBands(lm int) []int {
+	scale := 1 << lm
+	result := make([]int, len(EBands))
+	for i, v := range EBands {
+		result[i] = v * scale
+	}
+	return result
+}
+
 const (
 	bitRes               = 3
 	allocSteps           = 6

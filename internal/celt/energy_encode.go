@@ -99,6 +99,64 @@ func (e *Encoder) ComputeBandEnergies(mdctCoeffs []float64, nbBands, frameSize i
 	return energies
 }
 
+// ComputeBandEnergiesRaw computes energy for each frequency band WITHOUT eMeans subtraction.
+// Returns raw energies in log2 scale (log2 of amplitude).
+// Used for testing/debugging to compare with libopus intermediate values.
+func (e *Encoder) ComputeBandEnergiesRaw(mdctCoeffs []float64, nbBands, frameSize int) []float64 {
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+	if nbBands < 0 {
+		nbBands = 0
+	}
+
+	channels := e.channels
+	coeffsPerChannel := frameSize
+	if len(mdctCoeffs) < coeffsPerChannel*channels {
+		if len(mdctCoeffs) < coeffsPerChannel {
+			channels = 1
+			coeffsPerChannel = len(mdctCoeffs)
+		} else {
+			channels = 1
+		}
+	}
+
+	energies := make([]float64, nbBands*channels)
+	silence := 0.5 * math.Log2(1e-27)
+
+	for c := 0; c < channels; c++ {
+		channelStart := c * coeffsPerChannel
+		channelEnd := channelStart + coeffsPerChannel
+		if channelEnd > len(mdctCoeffs) {
+			channelEnd = len(mdctCoeffs)
+		}
+
+		channelCoeffs := mdctCoeffs[channelStart:channelEnd]
+
+		for band := 0; band < nbBands; band++ {
+			start := ScaledBandStart(band, frameSize)
+			end := ScaledBandEnd(band, frameSize)
+
+			if start >= len(channelCoeffs) {
+				energies[c*nbBands+band] = silence
+				continue
+			}
+			if end > len(channelCoeffs) {
+				end = len(channelCoeffs)
+			}
+			if end <= start {
+				energies[c*nbBands+band] = silence
+				continue
+			}
+
+			// Compute RMS energy in log2 scale (raw, no eMeans subtraction)
+			energies[c*nbBands+band] = computeBandRMS(channelCoeffs, start, end)
+		}
+	}
+
+	return energies
+}
+
 // computeBandRMS computes the per-band log2 amplitude from MDCT coefficients.
 // Returns log2(sqrt(sum(x^2))) using the same epsilon as libopus.
 // This matches libopus compute_band_energies() + amp2Log2() (float path).

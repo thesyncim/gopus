@@ -270,8 +270,11 @@ func runEncoderComplianceTest(t *testing.T, mode encoder.Mode, bandwidth types.B
 		compareLen = len(decoded)
 	}
 
-	// Compute quality metric
-	q = ComputeQualityFloat32(decoded[:compareLen], original[:compareLen], 48000)
+	// Compute quality metric with delay compensation
+	// The codec introduces inherent delay (~421 samples for libopus)
+	// We search for optimal alignment to get accurate quality measurement
+	// Use larger search range (1000 samples) to account for multi-frame encoding
+	q, _ = ComputeQualityFloat32WithDelay(decoded[:compareLen], original[:compareLen], 48000, 1000)
 
 	return q, decoded
 }

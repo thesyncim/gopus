@@ -82,6 +82,21 @@ type Encoder struct {
 	// N+overlap samples of pre-emphasized signal.
 	// Reference: libopus celt_encoder.c line 2030
 	preemphBuffer []float64
+
+	// Force transient mode for testing/debugging
+	// When true, the encoder forces short blocks for the next frame
+	forceTransient bool
+
+	// DC rejection filter state (high-pass filter to remove DC offset)
+	// libopus applies this at the Opus encoder level before CELT processing
+	// Reference: libopus src/opus_encoder.c dc_reject()
+	hpMem []float64 // High-pass filter memory [channels]
+
+	// Delay buffer for lookahead compensation (matches libopus delay_compensation)
+	// libopus uses Fs/250 = 192 samples at 48kHz for delay compensation.
+	// This provides a 4ms lookahead that allows for better transient handling.
+	// Reference: libopus src/opus_encoder.c delay_compensation
+	delayBuffer []float64 // Size = delayCompensation * channels
 }
 
 // NewEncoder creates a new CELT encoder with the given number of channels.
@@ -137,6 +152,13 @@ func NewEncoder(channels int) *Encoder {
 		// Pre-emphasized signal buffer for transient analysis overlap
 		// Size is Overlap samples per channel (interleaved for stereo)
 		preemphBuffer: make([]float64, Overlap*channels),
+
+		// DC rejection (high-pass) filter memory, one per channel
+		hpMem: make([]float64, channels),
+
+		// Delay buffer for lookahead (192 samples at 48kHz = 4ms)
+		// This matches libopus delay_compensation
+		delayBuffer: make([]float64, DelayCompensation*channels),
 	}
 
 	// Energy arrays default to zero after allocation (matches libopus init).
@@ -193,6 +215,16 @@ func (e *Encoder) Reset() {
 	// Clear pre-emphasis buffer for transient analysis
 	for i := range e.preemphBuffer {
 		e.preemphBuffer[i] = 0
+	}
+
+	// Clear DC rejection filter state
+	for i := range e.hpMem {
+		e.hpMem[i] = 0
+	}
+
+	// Clear delay buffer
+	for i := range e.delayBuffer {
+		e.delayBuffer[i] = 0
 	}
 }
 
@@ -412,6 +444,13 @@ func (e *Encoder) SetHybrid(hybrid bool) {
 // IsHybrid returns true if the encoder is in hybrid mode.
 func (e *Encoder) IsHybrid() bool {
 	return e.hybrid
+}
+
+// SetForceTransient forces short blocks for testing/debugging.
+// When true, the encoder uses short blocks (transient mode) for the next frame
+// regardless of transient analysis result.
+func (e *Encoder) SetForceTransient(force bool) {
+	e.forceTransient = force
 }
 
 // LastTonality returns the most recently computed tonality estimate.

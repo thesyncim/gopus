@@ -1,7 +1,18 @@
 // Package celt implements the CELT encoder per RFC 6716 Section 4.3.
-// This file provides the pre-emphasis filter for encoding.
+// This file provides the pre-emphasis filter and DC rejection for encoding.
 
 package celt
+
+// DCRejectCutoffHz is the cutoff frequency for the DC rejection high-pass filter.
+// libopus uses 3 Hz at the Opus encoder level.
+// Reference: libopus src/opus_encoder.c line 2008
+const DCRejectCutoffHz = 3
+
+// DelayCompensation is the number of samples of lookahead for CELT.
+// libopus uses Fs/250 = 192 samples at 48kHz (4ms).
+// This provides a lookahead that allows for better transient handling.
+// Reference: libopus src/opus_encoder.c delay_compensation
+const DelayCompensation = 192
 
 // CELTSigScale is the internal signal scale used by CELT.
 // Input samples in float range [-1.0, 1.0] are scaled up by this factor
@@ -145,6 +156,61 @@ func (e *Encoder) ApplyPreemphasisWithScaling(pcm []float64) []float64 {
 
 		e.preemphState[0] = stateL
 		e.preemphState[1] = stateR
+	}
+
+	return output
+}
+
+// ApplyDCReject applies a DC rejection (high-pass) filter to remove DC offset.
+// This matches libopus dc_reject() which is applied before CELT encoding.
+//
+// The filter is a simple first-order high-pass:
+//
+//	coef = 6.3 * cutoffHz / sampleRate
+//	out[i] = x[i] - m
+//	m = coef*x[i] + (1-coef)*m
+//
+// Reference: libopus src/opus_encoder.c dc_reject()
+func (e *Encoder) ApplyDCReject(pcm []float64) []float64 {
+	if len(pcm) == 0 {
+		return nil
+	}
+
+	// Initialize hpMem if not already done
+	if len(e.hpMem) < e.channels {
+		e.hpMem = make([]float64, e.channels)
+	}
+
+	// Coefficients: coef = 6.3 * cutoff / Fs
+	// For 48kHz and 3Hz cutoff: coef = 6.3 * 3 / 48000 = 0.00039375
+	coef := 6.3 * float64(DCRejectCutoffHz) / float64(e.sampleRate)
+	coef2 := 1.0 - coef
+	verySmall := 1e-20 // Matches VERY_SMALL in libopus
+
+	output := make([]float64, len(pcm))
+
+	if e.channels == 1 {
+		m0 := e.hpMem[0]
+		for i := range pcm {
+			x := pcm[i]
+			output[i] = x - m0
+			m0 = coef*x + verySmall + coef2*m0
+		}
+		e.hpMem[0] = m0
+	} else {
+		// Stereo: interleaved samples
+		m0 := e.hpMem[0]
+		m1 := e.hpMem[1]
+		for i := 0; i < len(pcm)-1; i += 2 {
+			x0 := pcm[i]
+			x1 := pcm[i+1]
+			output[i] = x0 - m0
+			output[i+1] = x1 - m1
+			m0 = coef*x0 + verySmall + coef2*m0
+			m1 = coef*x1 + verySmall + coef2*m1
+		}
+		e.hpMem[0] = m0
+		e.hpMem[1] = m1
 	}
 
 	return output

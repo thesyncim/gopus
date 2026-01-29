@@ -302,18 +302,10 @@ func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, pa
 		return nil, err
 	}
 
-	// Step 3: Apply 60-sample delay to SILK output
-	// This compensates for the time alignment difference between SILK and CELT.
-	var silkDelayed []float64
-	if d.channels == 2 {
-		// For steady-state mono packets in a stereo stream, keep delay buffer in sync.
-		if !packetStereo && !stereoToMono {
-			d.syncDelayBufferMono()
-		}
-		silkDelayed = d.applyDelayStereo(silkUpsampled)
-	} else {
-		silkDelayed = d.applyDelayMono(silkUpsampled)
-	}
+	// Step 3: Use SILK output directly
+	// The delay compensation is handled internally by the SILK resampler,
+	// matching libopus behavior where SILK outputs at API rate with proper alignment.
+	silkDelayed := silkUpsampled
 
 	// Step 4: Sum SILK and CELT outputs
 	totalSamples := frameSize * d.channels

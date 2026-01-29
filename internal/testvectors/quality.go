@@ -247,6 +247,59 @@ func ComputeQualityFloat32(decoded, reference []float32, sampleRate int) float64
 	return q
 }
 
+// ComputeQualityFloat32WithDelay computes quality with optimal delay compensation.
+// It searches for the best delay alignment between decoded and reference to account
+// for codec delay. This is important for encoder compliance testing since codecs
+// introduce inherent delays that cause misalignment between input and output.
+//
+// Parameters:
+//   - decoded: Decoded PCM samples as float32 (normalized -1.0 to 1.0)
+//   - reference: Reference PCM samples as float32 (normalized -1.0 to 1.0)
+//   - sampleRate: Sample rate in Hz
+//   - maxDelay: Maximum delay to search (in samples, e.g., 500)
+//
+// Returns: Q value at optimal delay alignment, and the optimal delay found
+func ComputeQualityFloat32WithDelay(decoded, reference []float32, sampleRate int, maxDelay int) (q float64, delay int) {
+	if len(decoded) == 0 || len(reference) == 0 {
+		return math.Inf(-1), 0
+	}
+
+	bestQ := math.Inf(-1)
+	bestDelay := 0
+
+	// Search for optimal delay
+	for d := -maxDelay; d <= maxDelay; d++ {
+		var signalPower, noisePower float64
+		count := 0
+
+		// Skip edges to avoid boundary effects
+		margin := 120
+		for i := margin; i < len(reference)-margin; i++ {
+			decIdx := i + d
+			if decIdx >= margin && decIdx < len(decoded)-margin {
+				ref := float64(reference[i])
+				dec := float64(decoded[decIdx])
+
+				signalPower += ref * ref
+				noise := dec - ref
+				noisePower += noise * noise
+				count++
+			}
+		}
+
+		if count > 0 && signalPower > 0 && noisePower > 0 {
+			snr := 10.0 * math.Log10(signalPower/noisePower)
+			candidateQ := (snr - TargetSNR) * QualityScale
+			if candidateQ > bestQ {
+				bestQ = candidateQ
+				bestDelay = d
+			}
+		}
+	}
+
+	return bestQ, bestDelay
+}
+
 // CompareSamplesFloat32 computes the mean squared error (MSE) between two float32 sample slices.
 // Returns MSE as a float64 value. Lower values indicate better match.
 //

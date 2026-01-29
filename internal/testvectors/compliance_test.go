@@ -734,13 +734,13 @@ func runVectorSilent(t *testing.T, name string) vectorResult {
 	toc := packets[0].Data[0]
 	config := toc >> 3
 	stereo := (toc & 0x04) != 0
-	channels := 1
-	if stereo {
-		channels = 2
-	}
 	frameSize := getFrameSizeFromConfig(config)
 
-	// 3. Create decoder
+	// 3. Create a single stereo decoder
+	// Test vectors may contain both mono and stereo packets mixed in the stream.
+	// Per RFC 8251, output format is always stereo interleaved.
+	// Use one persistent stereo decoder to preserve state across channel switches.
+	channels := 2
 	dec, err := gopus.NewDecoder(48000, channels)
 	if err != nil {
 		result.err = err
@@ -766,14 +766,10 @@ func runVectorSilent(t *testing.T, name string) vectorResult {
 		allDecoded = append(allDecoded, pcm...)
 	}
 
-	// Track mono status
+	// Track mono status (based on first packet, though stream may contain mixed)
 	result.isMono = !stereo
 
-	// 4a. Convert mono output to stereo format if needed
-	// opus_demo always outputs stereo (2 channels), even for mono sources.
-	if channels == 1 {
-		allDecoded = duplicateMonoToStereo(allDecoded)
-	}
+	// No conversion needed - we always use stereo decoder now
 
 	// 5. Read reference files
 	reference, err := readPCMFile(decFile)

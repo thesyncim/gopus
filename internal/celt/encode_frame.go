@@ -58,12 +58,40 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	nbBands := mode.EffBands
 	lm := mode.LM
 
-	// Step 3: Apply pre-emphasis with signal scaling FIRST (before transient analysis)
+	// Step 3a: Apply DC rejection (high-pass filter) to remove DC offset
+	// libopus applies this at the Opus encoder level before CELT processing
+	// Reference: libopus src/opus_encoder.c line 2008: dc_reject(pcm, 3, ...)
+	dcRejected := e.ApplyDCReject(pcm)
+
+	// Step 3b: Apply delay buffer (lookahead compensation)
+	// libopus uses a delay_compensation of Fs/250 = 192 samples at 48kHz.
+	// The delay buffer is prepended to the new samples, creating a lookahead.
+	// Reference: libopus src/opus_encoder.c line 1967
+	delayComp := DelayCompensation * e.channels
+	if len(e.delayBuffer) < delayComp {
+		e.delayBuffer = make([]float64, delayComp)
+	}
+
+	// Build combined buffer: [delay_buffer] + [DC-rejected new samples]
+	combinedLen := delayComp + len(dcRejected)
+	combinedBuf := make([]float64, combinedLen)
+	copy(combinedBuf[:delayComp], e.delayBuffer)
+	copy(combinedBuf[delayComp:], dcRejected)
+
+	// Take frame_size samples from the start for processing
+	samplesForFrame := combinedBuf[:expectedLen]
+
+	// Save remaining samples to delay buffer for next frame
+	// The tail of combinedBuf (last delayComp samples) becomes new delay buffer
+	delayTailStart := len(combinedBuf) - delayComp
+	copy(e.delayBuffer, combinedBuf[delayTailStart:])
+
+	// Step 3c: Apply pre-emphasis with signal scaling (before transient analysis)
 	// This matches libopus order: celt_preemphasis() is called before transient_analysis()
 	// Reference: libopus celt_encoder.c lines 2015-2030
 	// Input samples in float range [-1.0, 1.0] are scaled to signal scale (x32768)
 	// This matches libopus CELT_SIG_SCALE. The decoder reverses this with scaleSamples(1/32768).
-	preemph := e.ApplyPreemphasisWithScaling(pcm)
+	preemph := e.ApplyPreemphasisWithScaling(samplesForFrame)
 
 	// Step 4: Detect transient and compute tf_estimate using PRE-EMPHASIZED signal
 	// libopus calls transient_analysis(in, N+overlap, ...) where 'in' contains:
@@ -91,6 +119,12 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	transientResult := e.TransientAnalysis(transientInput, frameSize+overlap, false /* allowWeakTransients */)
 	transient := transientResult.IsTransient
 	tfEstimate := transientResult.TfEstimate
+
+	// Allow force transient override for testing (matches libopus first frame behavior)
+	if e.forceTransient {
+		transient = true
+	}
+
 	shortBlocks := 1
 	if transient {
 		shortBlocks = mode.ShortBlocks
@@ -794,24 +828,25 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize, bitrate int) int {
 
 	// Apply floor_depth limit (prevents over-allocation for low-level signals)
 	// Reference: libopus lines 1682-1693
-	// floor_depth = SHR32(MULT16_32_Q15((C*bins<<BITRES),maxDepth), DB_SHIFT-15)
 	//
 	// maxDepth is the maximum signal level relative to noise floor (in dB),
 	// computed by DynallocAnalysis(). It represents the dynamic range of the signal.
 	// For very quiet signals, maxDepth will be low, limiting the bit allocation.
+	//
+	// The floor_depth limit only applies when maxDepth is LOW (quiet signal).
+	// For normal/loud signals (maxDepth > 20 dB), we skip this clamping.
 	maxDepth := e.lastDynalloc.MaxDepth
-	if maxDepth > -31.0 { // Valid maxDepth (not default uninitialized value)
-		// bins = eBands[nbEBands-2] << LM (for floor_depth calculation)
-		bins := EBands[nbBands-2] << lm
-
-		// floor_depth = (C * bins << BITRES) * maxDepth / (1 << DB_SHIFT)
-		// In libopus, DB_SHIFT is 15, representing dB in Q15 fixed-point.
-		// In float, maxDepth is directly in dB, so we scale appropriately.
-		// The formula converts dB to a bit allocation floor.
+	if maxDepth > -31.0 && maxDepth != 0.0 && maxDepth < 20.0 {
+		// Only apply floor_depth for quiet signals (maxDepth < 20 dB above noise)
+		// This prevents over-allocating bits to signals buried in noise.
 		//
-		// Simplified: floor_depth = (channels * bins * 8) * (maxDepth / 32768)
-		// where 32768 = 1 << 15 (DB_SHIFT)
-		floorDepth := int(float64(e.channels*bins<<bitRes) * maxDepth / 32768.0)
+		// For quiet signals, limit target to a fraction based on maxDepth.
+		// At maxDepth=0, limit to target/8; at maxDepth=20, no limit.
+		depthFraction := maxDepth / 20.0
+		if depthFraction < 0 {
+			depthFraction = 0
+		}
+		floorDepth := int(float64(targetQ3) * (0.125 + 0.875*depthFraction))
 
 		// floor_depth = max(floor_depth, target/4)
 		if floorDepth < targetQ3/4 {

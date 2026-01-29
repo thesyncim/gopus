@@ -123,6 +123,13 @@ func applyMDCTWindow(samples []float64) {
 	}
 }
 
+// MDCTForwardWithOverlap is the exported version of mdctForwardOverlap for testing.
+// Input: samples with length frameSize+overlap
+// Returns: MDCT coefficients of length frameSize
+func MDCTForwardWithOverlap(samples []float64, overlap int) []float64 {
+	return mdctForwardOverlap(samples, overlap)
+}
+
 // mdctForwardOverlap implements the CELT short-overlap MDCT (libopus clt_mdct_forward)
 // for a single block. Input length must be frameSize+overlap.
 func mdctForwardOverlap(samples []float64, overlap int) []float64 {

@@ -189,8 +189,9 @@ func (d *Decoder) SampleRate() int {
 
 // handleChannelTransition detects and handles mono-to-stereo channel transitions.
 // When transitioning from mono to stereo, the right channel overlap buffer must be
-// cleared to avoid artifacts from stale mono data being used as stereo data.
-// This matches libopus behavior in celt_decode_with_ec().
+// initialized from the left channel to match libopus behavior.
+// This ensures smooth crossfade during the transition.
+// Reference: libopus celt/celt_decoder.c - mono-to-stereo handling
 //
 // Returns true if a mono-to-stereo transition occurred.
 func (d *Decoder) handleChannelTransition(streamChannels int) bool {
@@ -199,11 +200,12 @@ func (d *Decoder) handleChannelTransition(streamChannels int) bool {
 
 	// Detect mono-to-stereo transition: previous was mono (1), current is stereo (2)
 	if prevChannels == 1 && streamChannels == 2 && d.channels == 2 {
-		// Clear right channel overlap buffer to avoid artifacts
+		// Copy left channel overlap buffer to right channel for smooth transition
 		// Overlap buffer layout: [Left: 0..Overlap-1] [Right: Overlap..2*Overlap-1]
+		// This matches libopus which copies decode_mem[0] to decode_mem[1] on transition
 		if len(d.overlapBuffer) >= Overlap*2 {
-			for i := Overlap; i < Overlap*2; i++ {
-				d.overlapBuffer[i] = 0
+			for i := 0; i < Overlap; i++ {
+				d.overlapBuffer[Overlap+i] = d.overlapBuffer[i]
 			}
 		}
 		return true

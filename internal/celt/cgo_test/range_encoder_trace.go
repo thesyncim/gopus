@@ -11,6 +11,7 @@ package cgo
 #include "entenc.h"
 #include "entcode.h"
 #include "mfrngcod.h"
+#include "laplace.h"
 
 // RangeEncoderState holds encoder state for comparison
 typedef struct {
@@ -116,6 +117,69 @@ void range_trace_enc_icdf_sequence(unsigned char *buf, int size,
         states[i+1].offs = enc.offs;
         states[i+1].nbits_total = enc.nbits_total;
         states[i+1].tell = ec_tell(&enc);
+    }
+
+    ec_enc_done(&enc);
+    *out_len = enc.offs + enc.end_offs;
+    if (*out_len > 0) {
+        memcpy(out_bytes, buf, *out_len);
+    }
+}
+
+// Encode header bits (silence, postfilter, transient, intra) followed by Laplace sequence.
+// This matches the exact encoding order used by libopus CELT frame encoding.
+// header_bits and header_logps should have 4 elements each (for the 4 header flags).
+// laplace_vals, laplace_fs, laplace_decay specify the Laplace encoding parameters.
+// states array should have 4 + laplace_count + 1 elements (header states + laplace states + final).
+void range_trace_header_plus_laplace(unsigned char *buf, int size,
+                                      int *header_bits, int *header_logps,
+                                      int *laplace_vals, unsigned int *laplace_fs, int *laplace_decay,
+                                      int laplace_count,
+                                      RangeEncoderState *states,
+                                      int *out_laplace_vals,
+                                      unsigned char *out_bytes, int *out_len) {
+    ec_enc enc;
+    ec_enc_init(&enc, buf, size);
+
+    int state_idx = 0;
+
+    // Record initial state
+    states[state_idx].rng = enc.rng;
+    states[state_idx].val = enc.val;
+    states[state_idx].rem = enc.rem;
+    states[state_idx].ext = enc.ext;
+    states[state_idx].offs = enc.offs;
+    states[state_idx].nbits_total = enc.nbits_total;
+    states[state_idx].tell = ec_tell(&enc);
+    state_idx++;
+
+    // Encode 4 header bits: silence (logp=15), postfilter (logp=1), transient (logp=3), intra (logp=3)
+    for (int i = 0; i < 4; i++) {
+        ec_enc_bit_logp(&enc, header_bits[i], header_logps[i]);
+        states[state_idx].rng = enc.rng;
+        states[state_idx].val = enc.val;
+        states[state_idx].rem = enc.rem;
+        states[state_idx].ext = enc.ext;
+        states[state_idx].offs = enc.offs;
+        states[state_idx].nbits_total = enc.nbits_total;
+        states[state_idx].tell = ec_tell(&enc);
+        state_idx++;
+    }
+
+    // Encode Laplace values
+    for (int i = 0; i < laplace_count; i++) {
+        int val = laplace_vals[i];
+        ec_laplace_encode(&enc, &val, laplace_fs[i], laplace_decay[i]);
+        out_laplace_vals[i] = val;  // Return possibly-clamped value
+
+        states[state_idx].rng = enc.rng;
+        states[state_idx].val = enc.val;
+        states[state_idx].rem = enc.rem;
+        states[state_idx].ext = enc.ext;
+        states[state_idx].offs = enc.offs;
+        states[state_idx].nbits_total = enc.nbits_total;
+        states[state_idx].tell = ec_tell(&enc);
+        state_idx++;
     }
 
     ec_enc_done(&enc);
@@ -279,4 +343,84 @@ func TraceICDFSequence(symbols []int, icdf []byte, ftb uint) (states []RangeEnco
 	outBytes = make([]byte, int(outLen))
 	copy(outBytes, outBuf[:int(outLen)])
 	return states, outBytes
+}
+
+// TraceHeaderPlusLaplace encodes header bits followed by Laplace values using libopus.
+// This matches the exact encoding order: silence (logp=15), postfilter (logp=1),
+// transient (logp=3), intra (logp=3), then Laplace-encoded qi values.
+// headerBits: 4 values (0/1) for [silence, postfilter, transient, intra]
+// headerLogps: 4 logp values [15, 1, 3, 3]
+// laplaceVals: qi values to encode with Laplace
+// laplaceFS: fs parameter for each Laplace encoding
+// laplaceDecay: decay parameter for each Laplace encoding
+// Returns: states after each operation, output Laplace values, output bytes
+func TraceHeaderPlusLaplace(headerBits, headerLogps []int, laplaceVals []int, laplaceFS []int, laplaceDecay []int) (
+	states []RangeEncoderStateSnapshot, outLaplaceVals []int, outBytes []byte) {
+
+	if len(headerBits) != 4 || len(headerLogps) != 4 {
+		return nil, nil, nil
+	}
+	if len(laplaceVals) == 0 || len(laplaceVals) != len(laplaceFS) || len(laplaceVals) != len(laplaceDecay) {
+		return nil, nil, nil
+	}
+
+	laplaceCount := len(laplaceVals)
+	totalStates := 5 + laplaceCount // 1 initial + 4 header + laplaceCount
+	bufSize := 4096
+
+	buf := make([]byte, bufSize)
+
+	cHeaderBits := make([]C.int, 4)
+	cHeaderLogps := make([]C.int, 4)
+	for i := 0; i < 4; i++ {
+		cHeaderBits[i] = C.int(headerBits[i])
+		cHeaderLogps[i] = C.int(headerLogps[i])
+	}
+
+	cLaplaceVals := make([]C.int, laplaceCount)
+	cLaplaceFS := make([]C.uint, laplaceCount)
+	cLaplaceDecay := make([]C.int, laplaceCount)
+	for i := range laplaceVals {
+		cLaplaceVals[i] = C.int(laplaceVals[i])
+		cLaplaceFS[i] = C.uint(laplaceFS[i])
+		cLaplaceDecay[i] = C.int(laplaceDecay[i])
+	}
+
+	cStates := make([]C.RangeEncoderState, totalStates)
+	cOutLaplaceVals := make([]C.int, laplaceCount)
+	outBuf := make([]byte, bufSize)
+	var outLen C.int
+
+	C.range_trace_header_plus_laplace(
+		(*C.uchar)(unsafe.Pointer(&buf[0])), C.int(bufSize),
+		(*C.int)(unsafe.Pointer(&cHeaderBits[0])), (*C.int)(unsafe.Pointer(&cHeaderLogps[0])),
+		(*C.int)(unsafe.Pointer(&cLaplaceVals[0])), (*C.uint)(unsafe.Pointer(&cLaplaceFS[0])),
+		(*C.int)(unsafe.Pointer(&cLaplaceDecay[0])),
+		C.int(laplaceCount),
+		(*C.RangeEncoderState)(unsafe.Pointer(&cStates[0])),
+		(*C.int)(unsafe.Pointer(&cOutLaplaceVals[0])),
+		(*C.uchar)(unsafe.Pointer(&outBuf[0])), &outLen,
+	)
+
+	states = make([]RangeEncoderStateSnapshot, totalStates)
+	for i := 0; i < totalStates; i++ {
+		states[i] = RangeEncoderStateSnapshot{
+			Rng:        uint32(cStates[i].rng),
+			Val:        uint32(cStates[i].val),
+			Rem:        int(cStates[i].rem),
+			Ext:        uint32(cStates[i].ext),
+			Offs:       uint32(cStates[i].offs),
+			NbitsTotal: int(cStates[i].nbits_total),
+			Tell:       int(cStates[i].tell),
+		}
+	}
+
+	outLaplaceVals = make([]int, laplaceCount)
+	for i := 0; i < laplaceCount; i++ {
+		outLaplaceVals[i] = int(cOutLaplaceVals[i])
+	}
+
+	outBytes = make([]byte, int(outLen))
+	copy(outBytes, outBuf[:int(outLen)])
+	return states, outLaplaceVals, outBytes
 }
