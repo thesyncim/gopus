@@ -55,9 +55,11 @@ type Decoder struct {
 	// This ensures proper time alignment between SILK and CELT layers.
 	silkDelayBuffer []float64
 
-	// Libopus-compatible resamplers for SILK 16k -> 48k
-	silkResamplerL *silk.LibopusResampler
-	silkResamplerR *silk.LibopusResampler
+	// Note: Resamplers are NOT stored here. We use the SILK decoder's built-in
+	// resamplers via GetResampler() and GetResamplerRightChannel() to ensure
+	// resampler state persists across SILK-only <-> Hybrid mode transitions.
+	// This matches libopus behavior where the silk_DecControl.resampler_state
+	// is shared across all decoding modes.
 
 	// Track previous packet stereo flag for transition handling.
 	prevPacketStereo bool

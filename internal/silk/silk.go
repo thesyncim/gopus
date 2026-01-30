@@ -39,6 +39,9 @@ func (d *Decoder) Decode(
 		return nil, ErrInvalidBandwidth
 	}
 
+	// Handle bandwidth changes - reset sMid state when sample rate changes
+	d.handleBandwidthChange(bandwidth)
+
 	// Handle PLC for nil data (lost packet)
 	if data == nil {
 		return d.decodePLC(bandwidth, frameSizeSamples)
@@ -110,6 +113,9 @@ func (d *Decoder) DecodeStereo(
 		return nil, ErrInvalidBandwidth
 	}
 
+	// Handle bandwidth changes - reset sMid state when sample rate changes
+	d.handleBandwidthChange(bandwidth)
+
 	// Handle PLC for nil data (lost packet)
 	if data == nil {
 		return d.decodePLCStereo(bandwidth, frameSizeSamples)
@@ -160,6 +166,9 @@ func (d *Decoder) DecodeStereoToMono(
 	if bandwidth > BandwidthWideband {
 		return nil, ErrInvalidBandwidth
 	}
+
+	// Handle bandwidth changes - reset sMid state when sample rate changes
+	d.handleBandwidthChange(bandwidth)
 
 	// Handle PLC for nil data (lost packet)
 	if data == nil {
@@ -231,6 +240,9 @@ func (d *Decoder) DecodeMonoToStereo(
 	if bandwidth > BandwidthWideband {
 		return nil, ErrInvalidBandwidth
 	}
+
+	// Handle bandwidth changes - reset sMid state when sample rate changes
+	d.handleBandwidthChange(bandwidth)
 
 	if data == nil {
 		return d.decodePLCStereo(bandwidth, frameSizeSamples)
@@ -321,6 +333,9 @@ func (d *Decoder) DecodeWithDecoder(
 		return nil, ErrDecodeFailed
 	}
 
+	// Handle bandwidth changes - reset sMid state when sample rate changes
+	d.handleBandwidthChange(bandwidth)
+
 	duration := FrameDurationFromTOC(frameSizeSamples)
 
 	nativeSamples, err := d.DecodeFrame(rd, bandwidth, duration, vadFlag)
@@ -375,6 +390,9 @@ func (d *Decoder) DecodeStereoWithDecoder(
 		return nil, ErrDecodeFailed
 	}
 
+	// Handle bandwidth changes - reset sMid state when sample rate changes
+	d.handleBandwidthChange(bandwidth)
+
 	duration := FrameDurationFromTOC(frameSizeSamples)
 
 	leftNative, rightNative, err := d.DecodeStereoFrame(rd, bandwidth, duration, vadFlag)
@@ -406,6 +424,9 @@ func (d *Decoder) DecodeStereoToMonoWithDecoder(
 	frameSizeSamples int,
 	vadFlag bool,
 ) ([]float32, error) {
+	// Handle bandwidth changes - reset sMid state when sample rate changes
+	d.handleBandwidthChange(bandwidth)
+
 	if bandwidth > BandwidthWideband {
 		return nil, ErrInvalidBandwidth
 	}
@@ -471,6 +492,9 @@ func (d *Decoder) DecodeMonoToStereoWithDecoder(
 	if rd == nil {
 		return nil, ErrDecodeFailed
 	}
+
+	// Handle bandwidth changes - reset sMid state when sample rate changes
+	d.handleBandwidthChange(bandwidth)
 
 	duration := FrameDurationFromTOC(frameSizeSamples)
 

@@ -329,6 +329,34 @@ func (d *Decoder) ResetSideChannel() {
 	}
 }
 
+// handleBandwidthChange detects sample rate changes and resets the appropriate resampler.
+// In libopus, when the internal sample rate changes (NB 8kHz <-> MB 12kHz <-> WB 16kHz),
+// the resampler for the NEW bandwidth needs to be reset to avoid using stale state.
+// The sMid buffer stores samples at the native rate and is used by BuildMonoResamplerInput
+// to provide the first sample for the resampler - this needs to be zeroed when changing rates.
+func (d *Decoder) handleBandwidthChange(bandwidth Bandwidth) {
+	if d.hasPrevBandwidth && d.prevBandwidth != bandwidth {
+		// Sample rate changed - reset sMid state and the new resampler
+		d.stereo.sMid[0] = 0
+		d.stereo.sMid[1] = 0
+		d.stereo.sSide[0] = 0
+		d.stereo.sSide[1] = 0
+
+		// Reset the resampler for the NEW bandwidth to clear any stale state
+		// (in practice, it should be fresh, but this ensures consistency)
+		if pair, ok := d.resamplers[bandwidth]; ok && pair != nil {
+			if pair.left != nil {
+				pair.left.Reset()
+			}
+			if pair.right != nil {
+				pair.right.Reset()
+			}
+		}
+	}
+	d.prevBandwidth = bandwidth
+	d.hasPrevBandwidth = true
+}
+
 // TraceInfo contains information about a subframe during decoding.
 // Used for debugging to trace LTP parameters.
 type TraceInfo struct {
