@@ -1,6 +1,22 @@
 # Decoder Compliance Investigation Findings
 
-## Status: 6/12 test vectors passing, need Q >= 0 (SNR >= 48 dB)
+## Status: 7/12 test vectors passing, need Q >= 0 (SNR >= 48 dB)
+
+### Current Results (2026-01-30):
+| Vector | Mode | Q Value | Status |
+|--------|------|---------|--------|
+| tv01 | SILK mono | 115.00 | ✅ PASS |
+| tv02 | Hybrid mono | 1.57 | ✅ PASS |
+| tv03 | CELT mono | 44.19 | ✅ PASS |
+| tv04 | SILK stereo | 28.56 | ✅ PASS |
+| tv05 | Hybrid stereo | 3.50 | ✅ PASS |
+| tv06 | Hybrid FB stereo | -3.48 | ❌ FAIL (close!) |
+| tv07 | CELT multisize | -40.02 | ❌ FAIL |
+| tv08 | Mixed stereo | -92.46 | ❌ FAIL |
+| tv09 | CELT stereo | -84.64 | ❌ FAIL |
+| tv10 | Mixed stereo | 27.56 | ✅ PASS |
+| tv11 | SILK transitions | 116.92 | ✅ PASS |
+| tv12 | Complex transitions | -32.07 | ❌ FAIL |
 
 ## ⚠️ DO NOT INVESTIGATE AGAIN (Quick Reference)
 
