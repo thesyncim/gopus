@@ -210,6 +210,45 @@ func TestEncodeStreaming(t *testing.T) {
 	}
 }
 
+// TestMultiFrameRangeEncoderLifecycle validates that the rangeEncoder is
+// properly cleared after standalone encoding, allowing subsequent frames
+// to create their own encoder. This was a critical bug where frames 1+
+// would return nil instead of encoded bytes.
+func TestMultiFrameRangeEncoderLifecycle(t *testing.T) {
+	config := GetBandwidthConfig(BandwidthWideband)
+	frameSamples := config.SampleRate * 20 / 1000 // 20ms frame
+
+	// Use the raw Encoder directly (not EncoderState) to validate fix
+	enc := NewEncoder(BandwidthWideband)
+
+	frameSizes := make([]int, 10)
+	for frame := 0; frame < 10; frame++ {
+		pcm := make([]float32, frameSamples)
+		for i := range pcm {
+			tm := float64(i+frame*frameSamples) / float64(config.SampleRate)
+			pcm[i] = float32(math.Sin(2*math.Pi*400*tm)) * (10000 * int16Scale)
+		}
+
+		encoded := enc.EncodeFrame(pcm, true)
+		frameSizes[frame] = len(encoded)
+
+		// Every frame must produce output in standalone mode
+		if len(encoded) == 0 {
+			t.Fatalf("Frame %d produced 0 bytes - rangeEncoder lifecycle bug!", frame)
+		}
+	}
+
+	// Log all frame sizes to validate consistency
+	t.Logf("Frame sizes: %v", frameSizes)
+
+	// Verify all frames produced reasonable output
+	for i, size := range frameSizes {
+		if size < 10 || size > 300 {
+			t.Errorf("Frame %d: unusual size %d bytes", i, size)
+		}
+	}
+}
+
 func TestEncodeDifferentBandwidths(t *testing.T) {
 	testCases := []struct {
 		name      string

@@ -10,6 +10,7 @@ import (
 // It finds the signed pulse vector iy (sum abs = K) that best matches X.
 // Returns the pulse vector and the computed energy yy (sum of squares of pulses).
 // This matches libopus which returns yy from op_pvq_search_c() for use in normalization.
+// NOTE: This function does NOT modify the input x slice.
 func opPVQSearch(x []float64, k int) ([]int, float64) {
 	n := len(x)
 	iy := make([]int, n)
@@ -20,11 +21,15 @@ func opPVQSearch(x []float64, k int) ([]int, float64) {
 	signx := make([]int, n)
 	y := make([]float64, n)
 
-	// Remove sign and initialize.
+	// Make a local copy of absolute values for the search.
+	// We must NOT modify the input x slice.
+	absX := make([]float64, n)
 	for j := 0; j < n; j++ {
 		if x[j] < 0 {
 			signx[j] = 1
-			x[j] = -x[j]
+			absX[j] = -x[j]
+		} else {
+			absX[j] = x[j]
 		}
 	}
 
@@ -36,24 +41,24 @@ func opPVQSearch(x []float64, k int) ([]int, float64) {
 	if k > (n >> 1) {
 		sum := 0.0
 		for j := 0; j < n; j++ {
-			sum += x[j]
+			sum += absX[j]
 		}
 
 		// Guard against tiny/huge/invalid sums.
 		if !(sum > 1e-15 && sum < 64.0) {
-			x[0] = 1.0
+			absX[0] = 1.0
 			for j := 1; j < n; j++ {
-				x[j] = 0.0
+				absX[j] = 0.0
 			}
 			sum = 1.0
 		}
 
 		rcp := (float64(k) + 0.8) / sum
 		for j := 0; j < n; j++ {
-			iy[j] = int(math.Floor(rcp * x[j]))
+			iy[j] = int(math.Floor(rcp * absX[j]))
 			y[j] = float64(iy[j])
 			yy += y[j] * y[j]
-			xy += x[j] * y[j]
+			xy += absX[j] * y[j]
 			y[j] *= 2
 			pulsesLeft -= iy[j]
 		}
@@ -71,13 +76,13 @@ func opPVQSearch(x []float64, k int) ([]int, float64) {
 		bestID := 0
 		yy += 1
 
-		rxy := xy + x[0]
+		rxy := xy + absX[0]
 		ryy := yy + y[0]
 		bestNum := rxy * rxy
 		bestDen := ryy
 
 		for j := 1; j < n; j++ {
-			rxy = xy + x[j]
+			rxy = xy + absX[j]
 			ryy = yy + y[j]
 			num := rxy * rxy
 			if bestDen*num > ryy*bestNum {
@@ -87,7 +92,7 @@ func opPVQSearch(x []float64, k int) ([]int, float64) {
 			}
 		}
 
-		xy += x[bestID]
+		xy += absX[bestID]
 		yy += y[bestID]
 		y[bestID] += 2
 		iy[bestID]++

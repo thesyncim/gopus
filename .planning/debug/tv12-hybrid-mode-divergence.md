@@ -9,10 +9,35 @@ goal: find_and_fix
 
 ## Current Focus
 
-hypothesis: SILK packets have SIGN INVERSIONS mid-frame - decoded signal flips polarity relative to reference
-test: Track down where the polarity inversion originates (LPC/excitation/resampler)
-expecting: Find bug in SILK LPC synthesis or excitation processing that causes polarity flip
-next_action: Investigate SILK decoder LPC and excitation code paths
+hypothesis: Error at bandwidth transitions is isolated to FIRST packet after change, grows through IIR resampler
+test: Compare per-sample error pattern at transition packets
+expecting: Error starts tiny (0.000001) and grows through packet, subsequent packets are perfect
+next_action: Investigate why first packet after BW change has growing error while subsequent packets are perfect
+
+## CRITICAL FINDING (Jan 30, 2026)
+
+**Error pattern at bandwidth transitions:**
+- First sample diff: 0.000001 (essentially correct)
+- Sample 19 diff: 0.001562 (1562x growth)
+- Packet 137 SNR: 6.6 dB
+- Packet 138 SNR: 999.0 dB (PERFECT!)
+
+**This means:**
+1. The error is isolated to the FIRST packet after bandwidth change
+2. The error grows within that packet (IIR accumulation pattern)
+3. Subsequent packets are perfect - the state at END of transition packet is correct
+4. The resampler starts fresh (sIIR=[0,0,0,0,0,0]) at transitions
+
+**Key data at packet 137 (NB→MB):**
+- sMid before decode: [-603, -323]
+- sMid[1] used as first resampler input: -323 (-0.009857 as float)
+- MB resampler sIIR starts at zeros
+- First 48kHz output: -0.007492 (gopus), -0.007493 (libopus) - diff=0.000001
+
+**Root cause candidates:**
+1. sMid sample rate mismatch: sMid[1] is from 8kHz frame, used as 12kHz resampler input
+2. delayBuf handling: MB resampler uses 4 zeros + 8 samples, NB uses 8 samples directly
+3. Subtle fixed-point arithmetic difference in first frame processing
 
 ## Symptoms
 
@@ -23,6 +48,14 @@ reproduction: Run TV12 test vector comparison
 started: Ongoing decoder compliance effort
 
 ## Eliminated
+
+- hypothesis: Resampler causes sign inversions
+  evidence: |
+    1. Fresh vs stateful resampler produces identical output (SNR=999dB, diff=0)
+    2. Native SILK output (BEFORE resampling) already has severe divergence
+    3. At packet 826 native rate: go=+0.000366 lib=-0.019253 (factor of 50x difference BEFORE resampling)
+    4. Earlier claim of "native SILK output matches" was testing with FRESH decoder, not accumulated state
+  timestamp: 2026-01-30T14:00:00Z
 
 ## Evidence
 
@@ -57,6 +90,52 @@ started: Ongoing decoder compliance effort
     Bandwidth mix: NB (826), MB (137, 758), WB (1118)
     All are mono, continuous SILK (no mode transitions)
   implication: Bug likely in SILK LPC synthesis, excitation, or resampler causing polarity flip
+
+- timestamp: 2026-01-30T11:15:00Z
+  checked: Native SILK rate comparison (before resampling) for packet 826
+  found: |
+    At NATIVE SILK rate (8kHz for NB packet 826):
+    - GoSamples=160, LibSamples=160 (both match)
+    - Differences are VERY SMALL (< 0.001)
+    - NO SIGN INVERSIONS at native rate!
+    - Sample [0]: go=0.000366 lib=-0.000173 diff=0.000539
+    - Sample [28]: go=0.000092 lib=0.000098 diff=-0.000006 (nearly identical)
+  implication: SILK core decoding is CORRECT. The sign inversion happens AFTER native decode - likely in RESAMPLER
+
+- timestamp: 2026-01-30T14:00:00Z
+  checked: Native SILK WITH ACCUMULATED STATE (re-verified)
+  found: |
+    CORRECTION: The earlier test used a FRESH decoder. With STATEFUL decoder (packets 0-825 processed):
+    - Packet 826 native (8kHz):
+      - go=+0.000366 lib=-0.019253 (50x difference, OPPOSITE SIGNS)
+      - go=+0.000336 lib=-0.015500
+      - go=+0.000183 lib=-0.014521
+    - Native SNR = -0.2 dB (FAILURE before resampling)
+    - Fresh decoder SNR = 1.5 dB (also poor, but less severe)
+  implication: Bug is in SILK CORE decoder, NOT resampler. State accumulation causes divergence.
+
+- timestamp: 2026-01-30T14:05:00Z
+  checked: Native SNR analysis across bandwidth transitions
+  found: |
+    Packets showing native SNR by bandwidth transition:
+    - Packet 0 (NB): 999.0 dB (perfect at start)
+    - Packet 136 (NB): 6.0 dB (diverging)
+    - Packet 137 (MB): 4.8 dB <-- BW CHANGE NB->MB
+    - Packet 213 (MB): 9.9 dB (partial recovery)
+    - Packet 214 (WB): -3.3 dB <-- BW CHANGE MB->WB, severe failure
+    - Packets 215-300 (WB): -2 to -4 dB (ALL FAIL)
+    - Packet 826 (NB): -0.2 dB (accumulated error)
+  implication: Bandwidth transitions desync SILK decoder state. WB has worst divergence.
+
+- timestamp: 2026-01-30T14:10:00Z
+  checked: Gopus resampler code comparison with libopus
+  found: |
+    Resampler analysis (.planning/debug/tv12-resampler-logic.md):
+    1. Coefficients match exactly (silkResamplerUp2HQ0/1, silkResamplerFracFIR12)
+    2. Fixed-point arithmetic functions match (SMULWB, SMLAWB, SMULBB, etc.)
+    3. Algorithm structure matches (2x IIR upsample + FIR interpolation)
+    4. Fresh vs stateful resampler produces identical output
+  implication: Resampler implementation is CORRECT. Root cause is upstream.
 
 ## Resolution
 

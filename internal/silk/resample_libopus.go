@@ -18,7 +18,20 @@ type LibopusResampler struct {
 
 	// Delay buffer for continuity (size = fsInKHz)
 	delayBuf []int16
+
+	// Debug: capture state at start of Process() call
+	debugEnabled          bool
+	debugProcessCallSIIR  [6]int32
+	debugInputFirst10     [10]float32
+	debugDelayBufFirst8   [8]int16
+	debugProcessCallCount int
+	debugLastProcessID    int // ID captured during Process()
+
+	// Unique ID for tracking
+	debugID int
 }
+
+var debugResamplerNextID int
 
 // resampleIIRFIRSlice processes a slice of input samples and writes to output.
 // This is the core IIR_FIR processing without the delay buffer management.
@@ -147,6 +160,10 @@ func NewLibopusResampler(fsIn, fsOut int) *LibopusResampler {
 	// Initialize delay buffer
 	r.delayBuf = make([]int16, r.fsInKHz)
 
+	// Assign unique ID for debugging
+	debugResamplerNextID++
+	r.debugID = debugResamplerNextID
+
 	return r
 }
 
@@ -193,6 +210,19 @@ func (r *LibopusResampler) CopyFrom(src *LibopusResampler) {
 func (r *LibopusResampler) Process(samples []float32) []float32 {
 	if len(samples) == 0 {
 		return nil
+	}
+
+	// Debug: capture state at start of Process() call
+	if r.debugEnabled {
+		r.debugProcessCallCount++
+		r.debugLastProcessID = r.debugID
+		r.debugProcessCallSIIR = r.sIIR
+		for i := 0; i < 10 && i < len(samples); i++ {
+			r.debugInputFirst10[i] = samples[i]
+		}
+		for i := 0; i < 8 && i < len(r.delayBuf); i++ {
+			r.debugDelayBufFirst8[i] = r.delayBuf[i]
+		}
 	}
 
 	inLen := int32(len(samples))
@@ -389,3 +419,24 @@ func min32(a, b int32) int32 {
 	}
 	return b
 }
+
+// Debug getters for testing
+func (r *LibopusResampler) InputDelay() int        { return int(r.inputDelay) }
+func (r *LibopusResampler) FsInKHz() int           { return int(r.fsInKHz) }
+func (r *LibopusResampler) FsOutKHz() int          { return int(r.fsOutKHz) }
+func (r *LibopusResampler) InvRatioQ16() int       { return int(r.invRatioQ16) }
+func (r *LibopusResampler) BatchSize() int         { return int(r.batchSize) }
+func (r *LibopusResampler) GetSIIR() [6]int32      { return r.sIIR }
+func (r *LibopusResampler) GetSFIR() [8]int16      { return r.sFIR }
+func (r *LibopusResampler) GetDelayBuf() []int16   { return r.delayBuf }
+func (r *LibopusResampler) SetSIIR(state [6]int32) { r.sIIR = state }
+func (r *LibopusResampler) EnableDebug(enable bool) {
+	r.debugEnabled = enable
+	r.debugProcessCallCount = 0
+}
+func (r *LibopusResampler) GetDebugProcessCallSIIR() [6]int32 { return r.debugProcessCallSIIR }
+func (r *LibopusResampler) GetDebugInputFirst10() [10]float32 { return r.debugInputFirst10 }
+func (r *LibopusResampler) GetDebugDelayBufFirst8() [8]int16  { return r.debugDelayBufFirst8 }
+func (r *LibopusResampler) GetDebugProcessCallCount() int     { return r.debugProcessCallCount }
+func (r *LibopusResampler) GetDebugID() int                   { return r.debugID }
+func (r *LibopusResampler) GetDebugLastProcessID() int        { return r.debugLastProcessID }

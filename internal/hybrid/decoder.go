@@ -197,6 +197,13 @@ func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, pa
 	// Step 1: Decode SILK layer (0-8kHz at 16kHz native rate)
 	// SILK reads from the shared range decoder first.
 	// Use SILK decoder's resamplers for state continuity between SILK-only and Hybrid modes.
+	//
+	// IMPORTANT: Notify the SILK decoder that we're using WB bandwidth.
+	// This ensures proper resampler state management when transitioning between
+	// SILK-only (NB/MB/WB) and Hybrid (always WB) modes.
+	// Without this, the prevBandwidth tracking gets out of sync, causing
+	// resamplers to not be reset when returning to SILK-only mode.
+	d.silkDecoder.NotifyBandwidthChange(silk.BandwidthWideband)
 	leftResampler := d.silkDecoder.GetResampler(silk.BandwidthWideband)
 	rightResampler := d.silkDecoder.GetResamplerRightChannel(silk.BandwidthWideband)
 

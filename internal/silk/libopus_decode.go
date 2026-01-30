@@ -48,12 +48,9 @@ func silkDecoderSetFs(st *decoderState, fsKHz int) {
 			for i := range st.sLPCQ14Buf {
 				st.sLPCQ14Buf[i] = 0
 			}
-			// Reset prevNLSFQ15 when bandwidth changes to avoid using
-			// invalid NLSF values from a different LPC order during interpolation.
-			// NB/MB use 10-order LPC, WB uses 16-order LPC.
-			for i := range st.prevNLSFQ15 {
-				st.prevNLSFQ15[i] = 0
-			}
+			// NOTE: libopus does NOT reset prevNLSF_Q15 on bandwidth change.
+			// firstFrameAfterReset=true forces NLSFInterpCoefQ2=4 which disables
+			// NLSF interpolation, so the previous NLSF values aren't used anyway.
 		}
 
 		st.fsKHz = fsKHz

@@ -359,6 +359,12 @@ func (d *Decoder) GetCELTDecoder() *celt.Decoder {
 	return d.celtDecoder
 }
 
+// GetSILKDecoder returns the internal SILK decoder for debugging purposes.
+// This allows access to internal state like resampler state and sMid buffer.
+func (d *Decoder) GetSILKDecoder() *silk.Decoder {
+	return d.silkDecoder
+}
+
 // decodeSILK routes to SILK decoder for SILK-only mode packets.
 func (d *Decoder) decodeSILK(data []byte, toc TOC, frameSize int) ([]float32, error) {
 	// Map TOC bandwidth to SILK bandwidth

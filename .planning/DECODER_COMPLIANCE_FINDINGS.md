@@ -1,8 +1,8 @@
 # Decoder Compliance Investigation Findings
 
-## Status: 9/12 test vectors passing, need Q >= 0 (SNR >= 48 dB)
+## Status: 11/12 test vectors passing, need Q >= 0 (SNR >= 48 dB)
 
-### Current Results (2026-01-30):
+### Current Results (2026-01-30 UPDATED):
 | Vector | Mode | Q Value | Status |
 |--------|------|---------|--------|
 | tv01 | CELT stereo | 115.00 | ✅ PASS |
@@ -12,11 +12,11 @@
 | tv05 | Hybrid mono | 34.14 | ✅ PASS |
 | tv06 | Hybrid FB stereo | 122.32 | ✅ PASS (FIXED!) |
 | tv07 | CELT multisize | 50.76 | ✅ PASS (FIXED!) |
-| tv08 | Mixed stereo | -92.46 | ❌ FAIL |
-| tv09 | CELT stereo | -84.64 | ❌ FAIL |
+| tv08 | Mixed stereo | 32.69 | ✅ PASS (FIXED!) |
+| tv09 | CELT stereo | 36.28 | ✅ PASS (FIXED!) |
 | tv10 | Mixed stereo | 27.59 | ✅ PASS |
 | tv11 | CELT stereo | 116.92 | ✅ PASS |
-| tv12 | Complex transitions | -32.06 | ❌ FAIL |
+| tv12 | Complex transitions | -32.06 | ❌ FAIL (INVESTIGATING) |
 
 ## ⚠️ DO NOT INVESTIGATE AGAIN (Quick Reference)
 
@@ -184,23 +184,23 @@ The error accumulates through the short-block overlap-add process:
 3. **Overlap buffer initialization** - Last 60 samples are zeros vs libopus's residual data
 4. **State accumulation** - De-emphasis state compounds small synthesis errors
 
-## CURRENT STATUS (Updated Jan 29, 2026)
+## CURRENT STATUS (Updated Jan 30, 2026)
 
-### Passing Tests (7/12)
+### Passing Tests (11/12) 🎉
 - testvector01: CELT stereo (Q=115.00)
 - testvector02: SILK mono (Q=1.57)
 - testvector03: SILK mono (Q=44.19)
 - testvector04: SILK mono (Q=28.56)
-- testvector05: Hybrid mono (Q=3.50)
-- testvector10: Mixed mode stereo (Q=27.56) - NOW PASSING!
+- testvector05: Hybrid mono (Q=34.14)
+- testvector06: Hybrid FB stereo (Q=122.32) ✅ FIXED!
+- testvector07: CELT multisize (Q=50.76) ✅ FIXED!
+- testvector08: Mixed stereo (Q=32.69) ✅ FIXED!
+- testvector09: CELT stereo (Q=36.28) ✅ FIXED!
+- testvector10: Mixed mode stereo (Q=27.59)
 - testvector11: CELT stereo (Q=116.92)
 
-### Failing Tests (5/12)
-- **testvector06:** Hybrid mono, Q=-3.48 (only ~1.7 dB short!)
-- **testvector07:** CELT mono with 2.5ms frames, Q=-40.02
-- **testvector08:** CELT/SILK stereo, Q=-92.46
-- **testvector09:** CELT/SILK stereo, Q=-84.64
-- **testvector12:** SILK/Hybrid mono, Q=-32.07
+### Failing Tests (1/12)
+- **testvector12:** SILK/Hybrid mono, Q=-32.06 (ACTIVELY INVESTIGATING)
 
 ### Key Observations
 1. All SILK mono tests pass perfectly (02, 03, 04)
@@ -217,6 +217,35 @@ The error accumulates through the short-block overlap-add process:
 4. ✅ **DecodeEnergyFinaliseRange for Hybrid mode** (internal/celt/energy.go, decoder.go)
 
 ## FIXES APPLIED (Jan 2026)
+
+### 5. Stereo n=2 Band inv Negation Fix ✅ (TV08/TV09 PARTIAL FIX)
+- **File:** `internal/celt/bands_quant.go` line 1273
+- **Issue:** The n==2 stereo band handling returned early without applying `inv` negation
+- **Root Cause:** In libopus, the N==2 case does NOT return early - it falls through to common resynth code that applies `if (inv) for (j=0;j<N;j++) Y[j] = -Y[j];`
+- **Fix:** Added inv negation inside the n==2 resynth block before `return cm`:
+  ```go
+  if sctx.inv != 0 {
+      y[0] = -y[0]
+      y[1] = -y[1]
+  }
+  ```
+- **Impact:** Partial improvement for TV08/TV09
+
+### 6. CELT Silence Frame Energy State Fix ✅ (TV08/TV09 COMPLETE FIX!)
+- **File:** `internal/celt/decoder.go` - `decodeMonoPacketToStereo`
+- **Issue:** When a silence frame (2 bytes `ff fe`) is detected, gopus restored `d.prevEnergy` to original stereo values but did NOT update them to silence values (-28.0)
+- **Root Cause:** In libopus, after a silence frame, `oldBandE` is set to -28.0 for all bands, ensuring subsequent frames use correct energy prediction. gopus was leaving original (high) energy values, causing subsequent frames to use wrong energy prediction.
+- **Scenario:** Packet 208 in TV08 contains Frame 0 (silence) + Frame 1 (normal CELT). After decoding Frame 0 as silence, energy state should be -28.0. But gopus left high values, making Frame 1 decode as garbage.
+- **Fix:** After restoring origPrevEnergy for silence, also update to silence values:
+  ```go
+  d.prevEnergy = origPrevEnergy
+  for i := 0; i < MaxBands*origChannels && i < len(d.prevEnergy); i++ {
+      d.prevEnergy[i] = -28.0
+  }
+  ```
+- **Impact:**
+  - TV08: Q=-92.46 → Q=+32.69 (PASS!)
+  - TV09: Q=-84.64 → Q=+36.28 (PASS!)
 
 ### 4. Hybrid Mode DecodeEnergyFinalise Start Band Fix ✅ (TV06 FIX!)
 - **Files:** `internal/celt/energy.go`, `internal/celt/decoder.go`
@@ -394,13 +423,18 @@ The error accumulates through the short-block overlap-add process:
 
 **Fix complexity**: Medium - need to trace coefficient extraction for 2.5ms frames
 
-### testvector08/09 (SILK stereo, Q=-92.46 / Q=-84.64)
-- **Issue**: Both have similar Q values - indicates consistent stereo bug
+### testvector08/09 (Mixed stereo) - ✅ FIXED!
+- **Root Cause:** Silence frame energy state not updated to -28.0
+- **Fix:** In `decodeMonoPacketToStereo`, after restoring origPrevEnergy for silence path, also set all energy values to -28.0 (matching libopus `oldBandE` behavior)
+- **Result:** TV08: Q=32.69, TV09: Q=36.28 (PASS!)
+- **Also applied:** n=2 band `inv` negation fix in bands_quant.go
+
+**Previous Investigation (kept for reference):**
 - **Pattern**: SILK mono passes (testvector02-04), only stereo fails
 - **Key finding**: testvector08 contains BOTH SILK and CELT packets:
   - Packets 0-4: SILK stereo (config=1, TOC=0x0C)
   - Packets 5+: CELT stereo (config=17, TOC=0x8C)
-  - Error appears at packet 14 which is CELT, not SILK!
+  - Error appeared at packet 208 which has silence + normal CELT frames
 
 #### Detailed Investigation (Jan 2026)
 
@@ -448,31 +482,41 @@ The error accumulates through the short-block overlap-add process:
 - **Likely causes**: Compound issues from CELT transient + stereo handling
 - **Fix complexity**: High - depends on fixing testvector07 and 08/09 first
 
-### testvector12 (SILK/Hybrid transitions, Q=-34)
-- **Issue**: Mode transition handling between SILK and Hybrid modes
-- **Pattern**: Contains both SILK and Hybrid packets with transitions
+### testvector12 (SILK/Hybrid transitions, Q=-32.06) - ❌ LAST REMAINING FAILURE
+- **Issue**: Wideband (16kHz) SILK core decode accuracy
+- **Pattern**: Contains both SILK and Hybrid packets with transitions, multiple bandwidths (NB/MB/WB)
+- **Statistics**: Wideband SILK packets show -2 to -4 dB SNR at NATIVE rate (before resampling)
 
-#### Investigation (Jan 2026)
+#### Latest Investigation (Jan 30 2026) - ROOT CAUSE NARROWED
 
-**Transition Detection - CORRECT:**
-- gopus and libopus both detect: CELT↔SILK/Hybrid transitions
-- Conditions match: `mode != MODE_CELT_ONLY && prev_mode == MODE_CELT_ONLY` etc.
+**Key Finding - Issue is in Wideband SILK Core Decode:**
+- Wideband (16kHz, 16-order LPC) packets consistently show -2 to -4 dB SNR at **native rate**
+- This proves the issue is in `DecodeFrame`, NOT in resampling or state management
+- NB/MB packets generally have good SNR at native rate
 
-**FIXED:**
-1. **Transition audio mode** - Was using current `mode`, now uses `d.prevMode`
-2. **CELT channel transitions** - Now copies energy arrays on mono↔stereo
+**NOT the issue (verified by investigation):**
+- ❌ Resampler state/delay - Opus-level output matches libopus
+- ❌ Bandwidth change handling - resets working correctly
+- ❌ Mode transition detection - verified identical to libopus
+- ❌ CELT reset timing - verified correct in `afterSilk` callback
 
-**Remaining Discrepancies Found:**
-1. **CELT reset timing in Hybrid** - libopus resets before CELT decode, gopus resets after SILK decode via `afterSilk` callback
-2. **Mono→stereo CELT** - gopus only copies overlap buffer, libopus does full reset including energy history (partially fixed)
-3. **Hybrid decoder state** - `silkDelayBuffer` and `prevPacketStereo` persist across mode transitions but shouldn't
+**Root cause candidates:**
+1. **16-order LPC synthesis** - may differ from libopus for WB
+2. **NLSF decoding for WB codebook** - silk_NLSF_CB_WB coefficients
+3. **Excitation/pulse decoding for WB** - different bit allocation
+4. **LTP (Long-Term Prediction) for voiced WB frames**
 
 **Key Files:**
-- `decoder_opus_frame.go` - main transition logic (lines 133-144, 225, 321)
-- `internal/celt/decoder.go` - reset implementation
-- `internal/hybrid/decoder.go` - Hybrid state management
+- `internal/silk/libopus_decode.go` - silkDecodeCore (lines 398-492)
+- `internal/silk/libopus_lpc.go` - LPC coefficient generation
+- `internal/silk/libopus_nlsf.go` - NLSF decoding
 
-**Fix complexity**: Medium - most issues identified, need targeted fixes
+**Fix complexity**: High - requires deep comparison of WB SILK decode algorithm
+
+**Next steps:**
+1. Compare LPC coefficients for a specific failing WB packet (e.g., packet 214)
+2. Trace through silkDecodeCore with both implementations
+3. Verify silk_NLSF_CB_WB matches libopus exactly
 
 ## VERIFIED CORRECT
 
@@ -484,66 +528,87 @@ The error accumulates through the short-block overlap-add process:
 6. Postfilter/comb filter implementation
 7. TDAC windowing math
 
-## RECOMMENDED FIX ORDER
+## REMAINING WORK
 
-1. **testvector08/09** (SILK stereo) - Consistent bug, likely single fix
-2. **testvector07** (CELT transient) - Well-understood mechanism
-3. **testvector12** (Mode transitions) - May resolve with stereo fix
-4. **testvector06** (Hybrid) - Most complex, may partially resolve with other fixes
-5. **testvector10** (Mixed) - Should resolve after 1-3 are fixed
+### Only testvector12 remains!
+All other test vectors are now passing. Focus all effort on TV12 (SILK/Hybrid mode transitions).
+
+**TV12 Investigation Focus:**
+1. Compare SILK decoder state between pure SILK mode and Hybrid mode SILK
+2. Trace energy state propagation across SILK↔Hybrid transitions
+3. Check specific failing packets (137, 213, 214, 386+) for root cause
+4. Verify Hybrid decoder's shared SILK/CELT decoders are properly synchronized
 
 ## SESSION FINDINGS (Jan 30, 2026)
 
-### Attempted Fixes That Did NOT Help
+### Successful Fixes This Session 🎉
 
-1. **quantBandN1 gain multiplication**: Added gain parameter to quantBandN1 for n=1 bands.
-   - Hypothesis: n=1 bands decode as ±1.0 instead of ±gain
-   - Result: No improvement because gain=1.0 at top level (energy applied separately by denormalizeCoeffs)
-   - Reverted
+1. **TV06: DecodeEnergyFinalise start band fix** ✅
+   - Root cause: Hybrid mode was decoding energy bits for bands 0-16 that should be skipped
+   - Fix: Use DecodeEnergyFinaliseRange(start, end, ...) instead of DecodeEnergyFinalise
+   - Impact: TV06 Q=-3.48 → Q=122.32 (PASS!)
 
-2. **Hybrid mono→stereo Reset() vs CopyFrom()**: Changed from CopyFrom(leftResampler) to Reset() on mono→stereo transition.
-   - Result: No improvement
-   - Reverted
+2. **TV08/TV09: Silence frame energy state fix** ✅
+   - Root cause: After silence frame (ff fe), prevEnergy not set to -28.0 (silence value)
+   - Packet 208 contains silence + normal CELT frames; Frame 1 used wrong energy prediction
+   - Fix: After restoring origPrevEnergy for silence path, also set all values to -28.0
+   - Impact: TV08 Q=-92.46 → Q=32.69, TV09 Q=-84.64 → Q=36.28 (BOTH PASS!)
 
-### TV08/TV09 Stereo Issue Deep Dive
+3. **n=2 stereo band inv negation fix** ✅
+   - Root cause: n==2 band handling returned early without applying inv negation
+   - Fix: Added `if sctx.inv != 0 { y[0] = -y[0]; y[1] = -y[1] }` before return
+   - Impact: Partial fix for TV08/TV09 (main fix was silence frame)
 
-**Observation from CGO tests:**
-- L channel matches libopus EXACTLY (diff ~1e-9)
-- R channel is ~40% higher than libopus (diff ~0.004 or ~40% of signal)
-- Error is systematic, not random
+### Previous Fixes Still Working
 
-**Analysis:**
-- stereoMerge debug shows ||y||²=0 for n>2 bands (intensity stereo)
-- For intensity stereo with side=0: L = mid*x, R = mid*x (should be equal)
-- But output shows L ≠ R, meaning n=2 bands may have non-zero SIDE
-- The n=2 band handling is inline (lines 1257-1272 in bands_quant.go)
+- TV07: quantBandN1 lowband output scaling (don't divide by 16.0)
+- CELT channel transitions energy copy
+- Transition audio mode uses d.prevMode
+- TF analysis enabled for LM=0
 
-**Mathematical proof:**
-If L = (mid*x - y)*lgain matches and R = (mid*x + y)*rgain doesn't:
-- From L match: go_x - go_y = lib_x - lib_y
-- From R mismatch: go_x + go_y ≠ lib_x + lib_y
-- This implies both go_x and go_y have a bias in the same direction
+### Current Investigation: TV12
+
+TV12 is the LAST failing test vector. Investigation ongoing:
+- 1332 packets (1068 SILK, 264 Hybrid)
+- Hybrid mode has 12x higher failure rate (9.5% vs 0.8%)
+- Debug agent analyzing specific failing packets
+- Focus: SILK bandwidth transitions (NB→MB→WB→Hybrid→WB→MB→NB)
+
+### TV12 Investigation Details (Jan 30, 2026)
+
+**Root Cause Identified: SILK bandwidth transitions**
+
+The error originates at bandwidth transitions, specifically:
+- Packet 214 (MB→WB): -3.3 dB native SNR (first WB packet, severe failure)
+- Packets 215-300 (WB): -2 to -4 dB (ALL fail due to state contamination)
+- Packet 826 (MB→NB): -0.2 dB (accumulated error)
+
+**What DOESN'T help:**
+1. Modifying redundancy detection in SILK mode
+   - Changed to use `rd.DecodeBit(12)` probability-weighted bit - broke TV08/TV09
+   - Changed to check `prevInvolvesCELT` - broke TV08/TV09
+   - Changed crossfade condition to remove `prevRedundancy` - made TV12 worse (-32→-41 dB)
+   - Reverted all changes, back to 11/12 passing
+
+**What's happening:**
+1. Pure SILK packets falsely trigger redundancy detection (17+ bits remaining after decode)
+2. This sets `celtToSilk` randomly based on garbage bits
+3. `prevRedundancy` cascades through pure SILK sequences
+4. When `celtToSilk=true` randomly, CELT-to-SILK crossfade incorrectly applies
+5. This overwrites valid SILK output with garbage redundantAudio
+
+**But the REAL issue is upstream:**
+- Native SNR fails at -3.3 dB at packet 214 (BEFORE resampling)
+- This means SILK core decode is wrong, not redundancy handling
+- The redundancy handling just adds additional errors on top
 
 **Remaining suspects:**
-1. n=2 band Hadamard rotation at lines 1258-1259
-2. SIDE scaling at line 1263-1264 for n=2 bands
-3. Something in the coefficient pipeline before stereo processing
+1. NLSF codebook switch at MB→WB (NB_MB → WB codebook)
+2. LPC order change at transition (10 → 16)
+3. State handling in `silkDecoderSetFs` - something not being reset correctly
+4. LTP history corruption at bandwidth change
 
-### TV07 2.5ms Frame Issue
-
-**Already verified correct:**
-- DFT precision (60-point has 2.2e-13 error)
-- IMDCT math
-- Window coefficients
-- TF analysis (fix applied for LM=0)
-- dynalloc LM=0 handling
-
-**Remaining suspects:**
-- Something specific to very small band widths (1-4 bins)
-- May require deeper coefficient tracing at LM=0
-
-### Next Steps for Future Investigation
-
-1. Add CGO tracing for n=2 band SIDE coefficients in tv08
-2. Compare PVQ pulse values between gopus and libopus for n=2 stereo bands
-3. Trace the full coefficient pipeline for a single band through quantBandStereo
+**Files to investigate:**
+- `internal/silk/libopus_decode.go` - `silkDecoderSetFs()`, `silkDecodeCore()`
+- `internal/silk/lsf.go` - NLSF to LPC conversion
+- `internal/silk/libopus_nlsf.go` - NLSF decoding with WB codebook

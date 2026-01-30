@@ -1,0 +1,259 @@
+// Package cgo provides CGO tests for energy qi value tracing.
+package cgo
+
+import (
+	"math"
+	"testing"
+
+	"github.com/thesyncim/gopus/internal/celt"
+	"github.com/thesyncim/gopus/internal/rangecoding"
+)
+
+// TestEnergyQiTrace traces qi values during coarse energy encoding
+// and compares with what libopus produces.
+func TestEnergyQiTrace(t *testing.T) {
+	frameSize := 960
+	channels := 1
+	bitrate := 64000
+
+	// Generate test signal - 440 Hz sine
+	pcm32 := make([]float32, frameSize)
+	pcm64 := make([]float64, frameSize)
+	for i := 0; i < frameSize; i++ {
+		pcm64[i] = 0.5 * math.Sin(2*math.Pi*440*float64(i)/48000)
+		pcm32[i] = float32(pcm64[i])
+	}
+
+	// Get the reference output from libopus
+	libEnc, err := NewLibopusEncoder(48000, channels, OpusApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewLibopusEncoder failed: %v", err)
+	}
+	defer libEnc.Destroy()
+	libEnc.SetBitrate(bitrate)
+
+	libPacket, libLen := libEnc.EncodeFloat(pcm32, frameSize)
+	if libLen < 0 {
+		t.Fatalf("libopus encode failed")
+	}
+	libPayload := libPacket[1:libLen]
+
+	t.Log("=== libopus Reference ===")
+	t.Logf("First 10 bytes: %02X", libPayload[:10])
+
+	// Now trace gopus encoding
+	encoder := celt.NewEncoder(channels)
+	encoder.Reset()
+	encoder.SetBitrate(bitrate)
+
+	mode := celt.GetModeConfig(frameSize)
+	nbBands := mode.EffBands
+	lm := mode.LM
+
+	// Step 1: Pre-process input
+	dcRejected := encoder.ApplyDCReject(pcm64)
+	preemph := encoder.ApplyPreemphasisWithScaling(dcRejected)
+
+	// Step 2: MDCT
+	mdct := celt.ComputeMDCTWithHistory(preemph, make([]float64, 120), 1)
+
+	// Step 3: Compute band energies
+	energies := encoder.ComputeBandEnergies(mdct, nbBands, frameSize)
+
+	t.Log("\n=== Band Energies (mean-relative) ===")
+	for i := 0; i < nbBands; i++ {
+		t.Logf("  Band %2d: %.6f", i, energies[i])
+	}
+
+	// Step 4: Initialize range encoder and simulate header encoding
+	buf := make([]byte, 512)
+	re := &rangecoding.Encoder{}
+	re.Init(buf)
+	encoder.SetRangeEncoder(re)
+	encoder.SetFrameBits(bitrate * frameSize / 48000)
+
+	// Encode headers (matching what EncodeFrame does)
+	// Silence flag (tell == 1)
+	re.EncodeBit(0, 15) // Not silence
+
+	// Postfilter flag
+	re.EncodeBit(0, 1) // No postfilter
+
+	// Transient flag (LM > 0)
+	re.EncodeBit(0, 3) // Not transient
+
+	// Intra flag
+	re.EncodeBit(1, 3) // Intra mode (first frame)
+
+	tellBeforeCoarse := re.Tell()
+	t.Logf("\nBits before coarse energy: %d (byte %.1f)", tellBeforeCoarse, float64(tellBeforeCoarse)/8)
+
+	// Now encode coarse energy
+	quantized := encoder.EncodeCoarseEnergy(energies, nbBands, true, lm)
+
+	tellAfterCoarse := re.Tell()
+	t.Logf("Bits after coarse energy: %d (byte %.1f)", tellAfterCoarse, float64(tellAfterCoarse)/8)
+
+	t.Log("\n=== Coarse Energy Quantization ===")
+	for i := 0; i < nbBands; i++ {
+		qi := int(math.Floor((quantized[i] - energies[i]) / 1.0)) // Approximate qi from difference
+		t.Logf("  Band %2d: input=%.4f, quant=%.4f, approx_qi=%d", i, energies[i], quantized[i], qi)
+	}
+
+	// Get the bytes so far
+	bytes := re.Done()
+	t.Logf("\n=== Encoded so far (after coarse energy) ===")
+	t.Logf("Bytes: %02X", bytes[:min9(20, len(bytes))])
+
+	// Compare byte by byte
+	t.Log("\n=== Byte Comparison ===")
+	for i := 0; i < 10 && i < len(bytes) && i < len(libPayload); i++ {
+		match := "MATCH"
+		if bytes[i] != libPayload[i] {
+			match = "DIFFER"
+		}
+		t.Logf("  Byte %d: gopus=0x%02X, libopus=0x%02X [%s]", i, bytes[i], libPayload[i], match)
+	}
+}
+
+// TestSimulateLibopusCoarseEnergy simulates the exact libopus coarse energy encoding.
+func TestSimulateLibopusCoarseEnergy(t *testing.T) {
+	frameSize := 960
+	channels := 1
+
+	// Generate test signal
+	pcm64 := make([]float64, frameSize)
+	for i := 0; i < frameSize; i++ {
+		pcm64[i] = 0.5 * math.Sin(2*math.Pi*440*float64(i)/48000)
+	}
+
+	encoder := celt.NewEncoder(channels)
+	encoder.Reset()
+
+	mode := celt.GetModeConfig(frameSize)
+	nbBands := mode.EffBands
+	lm := mode.LM
+
+	// Pre-process
+	dcRejected := encoder.ApplyDCReject(pcm64)
+	preemph := encoder.ApplyPreemphasisWithScaling(dcRejected)
+	mdct := celt.ComputeMDCTWithHistory(preemph, make([]float64, 120), 1)
+	energies := encoder.ComputeBandEnergies(mdct, nbBands, frameSize)
+
+	// eMeans values from libopus
+	eMeans := []float64{
+		6.437500, 6.250000, 5.750000, 5.312500, 5.062500,
+		4.812500, 4.500000, 4.375000, 4.875000, 4.687500,
+		4.562500, 4.437500, 4.875000, 4.625000, 4.312500,
+		4.500000, 4.375000, 4.625000, 4.750000, 4.437500,
+		3.750000, 3.750000, 3.750000, 3.750000, 3.750000,
+	}
+
+	// Beta coefficients
+	betaIntra := 4915.0 / 32768.0 // 0.15
+
+	t.Logf("=== Simulating libopus quant_coarse_energy_impl ===")
+	t.Logf("nbBands=%d, LM=%d, intra=true", nbBands, lm)
+
+	// Probability model for LM=3, intra
+	prob := celt.GetEProbModel()[lm][1]
+
+	prev := 0.0
+	var qis []int
+	for band := 0; band < nbBands; band++ {
+		// Get input energy (already mean-relative from ComputeBandEnergies)
+		x := energies[band]
+
+		// In intra mode: coef=0, so f = x - coef*oldE - prev = x - prev
+		// (oldE would be the previous frame's energy, but coef=0 for intra)
+		f := x - prev
+
+		// Quantize with rounding
+		qi := int(math.Floor(f + 0.5))
+		qis = append(qis, qi)
+
+		// What would be encoded
+		pi := 2 * band
+		if pi > 40 {
+			pi = 40
+		}
+		fs := int(prob[pi]) << 7
+		decay := int(prob[pi+1]) << 6
+
+		t.Logf("  Band %2d: x=%.4f, prev=%.4f, f=%.4f, qi=%d, fs=%d, decay=%d",
+			band, x, prev, f, qi, fs, decay)
+
+		// Update prev: prev = prev + q - beta*q = prev + q*(1-beta)
+		q := float64(qi)
+		prev = prev + q - betaIntra*q
+	}
+
+	// Compare with the actual gopus qi values
+	t.Log("\n=== Expected qi values ===")
+	t.Logf("qis: %v", qis)
+
+	// Now verify against libopus output
+	t.Log("\n=== Verifying band 0 calculation ===")
+	t.Logf("Energy[0] (mean-relative): %.6f", energies[0])
+	t.Logf("If we add eMeans[0] (%.4f), we get absolute: %.6f", eMeans[0], energies[0]+eMeans[0])
+
+	// Let's also check raw energies
+	rawEnergies := encoder.ComputeBandEnergiesRaw(mdct, nbBands, frameSize)
+	t.Log("\n=== Raw vs Mean-Relative Energies ===")
+	for i := 0; i < 5; i++ {
+		t.Logf("  Band %d: raw=%.6f, mean_rel=%.6f, diff=%.6f (eMeans=%.4f)",
+			i, rawEnergies[i], energies[i], rawEnergies[i]-energies[i], eMeans[i])
+	}
+}
+
+// TestCompareEnergyComputation compares gopus and libopus energy computation.
+func TestCompareEnergyComputation(t *testing.T) {
+	frameSize := 960
+	channels := 1
+
+	// Generate test signal
+	pcm64 := make([]float64, frameSize)
+	pcm32 := make([]float32, frameSize)
+	for i := 0; i < frameSize; i++ {
+		pcm64[i] = 0.5 * math.Sin(2*math.Pi*440*float64(i)/48000)
+		pcm32[i] = float32(pcm64[i])
+	}
+
+	// Compute gopus energies
+	encoder := celt.NewEncoder(channels)
+	encoder.Reset()
+
+	mode := celt.GetModeConfig(frameSize)
+	nbBands := mode.EffBands
+	lm := mode.LM
+
+	dcRejected := encoder.ApplyDCReject(pcm64)
+	preemph := encoder.ApplyPreemphasisWithScaling(dcRejected)
+	mdct := celt.ComputeMDCTWithHistory(preemph, make([]float64, 120), 1)
+	gopusEnergies := encoder.ComputeBandEnergies(mdct, nbBands, frameSize)
+
+	// Compute libopus-style energies using the CGO wrapper
+	mdctF32 := make([]float32, len(mdct))
+	for i := range mdct {
+		mdctF32[i] = float32(mdct[i])
+	}
+	libEnergies := ComputeLibopusBandEnergies(mdctF32, nbBands, frameSize, lm)
+
+	t.Log("=== Energy Comparison (mean-relative) ===")
+	for i := 0; i < nbBands; i++ {
+		diff := float64(libEnergies[i]) - gopusEnergies[i]
+		status := "OK"
+		if math.Abs(diff) > 0.001 {
+			status = "DIFF"
+		}
+		t.Logf("  Band %2d: gopus=%.6f, libopus=%.6f, diff=%+.6f [%s]",
+			i, gopusEnergies[i], libEnergies[i], diff, status)
+	}
+}
+
+func min9(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}

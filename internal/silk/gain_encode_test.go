@@ -22,12 +22,12 @@ func TestComputeLogGainIndex(t *testing.T) {
 func TestComputeLogGainIndexBoundary(t *testing.T) {
 	// Test boundary conditions
 	tests := []struct {
-		name     string
-		gain     float32
-		minIdx   int
-		maxIdx   int
+		name   string
+		gain   float32
+		minIdx int
+		maxIdx int
 	}{
-		{"zero gain", 0.0, 0, 1},          // Should map to lowest index
+		{"zero gain", 0.0, 0, 1}, // Should map to lowest index
 		{"min table gain", float32(GainDequantTable[0]) / 65536.0, 0, 1},
 		{"max table gain", float32(GainDequantTable[63]) / 65536.0, 62, 63},
 		{"mid table gain", float32(GainDequantTable[32]) / 65536.0, 31, 33},
@@ -45,21 +45,21 @@ func TestComputeLogGainIndexBoundary(t *testing.T) {
 
 func TestGainEncodeDecode(t *testing.T) {
 	// Test that encoded gains produce same decoded values
-	// Gains should be in the range of GainDequantTable (Q16 values 81 to 17830)
-	// which maps to float gains of approximately 0.001 to 0.27
+	// GainDequantTable Q16 values range from 81920 (~1.25 float) to 1686110208 (~25729 float)
+	// These represent SILK gain levels, not direct amplitude multipliers
 	enc := NewEncoder(BandwidthWideband)
 	dec := NewDecoder()
 
-	// Test gains using values from the GainDequantTable range
-	// Table has Q16 values, so gain = Q16 / 65536
+	// Test gains using values from the CORRECT GainDequantTable range
+	// Table[0] = 81920 = 1.25 float, Table[63] = 1686110208 = 25729 float
 	testCases := []struct {
 		name       string
 		gains      []float32
 		signalType int
 	}{
-		{"voiced high", []float32{0.15, 0.18, 0.16, 0.17}, 2},   // Voiced (higher gains)
-		{"unvoiced mid", []float32{0.05, 0.06, 0.055, 0.058}, 1}, // Unvoiced (mid gains)
-		{"inactive low", []float32{0.01, 0.01, 0.01, 0.01}, 0},   // Inactive (low gains)
+		{"voiced high", []float32{5000, 6000, 5500, 5800}, 2}, // Voiced (higher gains, mid-range)
+		{"unvoiced mid", []float32{100, 120, 110, 115}, 1},    // Unvoiced (lower gains)
+		{"inactive low", []float32{2.0, 2.0, 2.0, 2.0}, 0},    // Inactive (near minimum)
 	}
 
 	for _, tc := range testCases {
@@ -76,7 +76,7 @@ func TestGainEncodeDecode(t *testing.T) {
 				decodedFloat := float32(decodedQ16) / 65536.0
 
 				// Verify decoded is in same ballpark as original
-				// Allow factor of 2 error due to coarse quantization
+				// Allow factor of 2 error due to coarse quantization (64 levels over large range)
 				ratio := float64(decodedFloat) / float64(tc.gains[i])
 				if ratio < 0.3 || ratio > 3.0 {
 					t.Errorf("sf=%d: input=%.4f, decoded=%.4f, ratio=%.2f",
@@ -281,7 +281,7 @@ func TestInterpolationIndex(t *testing.T) {
 
 	// Very different LSF should give no interpolation
 	for i := range lsfQ15 {
-		lsfQ15[i] = int16(i * 2000 + 10000)
+		lsfQ15[i] = int16(i*2000 + 10000)
 	}
 	interpIdx = enc.computeInterpolationIndex(lsfQ15, config.LPCOrder)
 	if interpIdx < 3 {

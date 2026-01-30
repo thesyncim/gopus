@@ -2,6 +2,17 @@ package silk
 
 import "math"
 
+// Gain quantization constants from libopus silk/gain_quant.c
+// These match the exact fixed-point computation used by libopus.
+const (
+	// gainQuantOffset = (MIN_QGAIN_DB * 128) / 6 + 16 * 128 = (2*128)/6 + 2048 = 42 + 2048 = 2090
+	gainQuantOffset = (minQGainDb*128)/6 + 16*128
+
+	// gainQuantScaleQ16 = 65536 * (N_LEVELS_QGAIN - 1) / (((MAX_QGAIN_DB - MIN_QGAIN_DB) * 128) / 6)
+	// = 65536 * 63 / ((86 * 128) / 6) = 4128768 / 1834 = 2251
+	gainQuantScaleQ16 = (65536 * (nLevelsQGain - 1)) / (((maxQGainDb - minQGainDb) * 128) / 6)
+)
+
 // encodeSubframeGains quantizes and encodes gains for all subframes.
 // First subframe is absolute (MSB + LSB), subsequent are delta-coded.
 // Per RFC 6716 Section 4.2.7.4.
@@ -56,37 +67,59 @@ func (e *Encoder) encodeSubframeGains(gains []float32, signalType, numSubframes 
 	e.previousLogGain = int32(prevLogGain)
 }
 
-// computeLogGainIndex converts linear gain to log gain index [0, 63].
-// Uses logarithmic quantization matching the decoder's dequantization formula.
+// computeLogGainIndex converts linear gain (float32) to log gain index [0, 63].
+// This is a wrapper that converts float to Q16 and calls computeLogGainIndexQ16.
 //
-// The decoder's gain dequantization (per RFC 6716 Section 4.2.7.4):
-//
-//	gain = 2^(logGainIndex/8 - 1)
-//
-// Inverting this: logGainIndex = 8 * (log2(gain) + 1)
-//
-// This provides much better accuracy than linear search against GainDequantTable,
-// especially for high gain values where the table has large gaps.
+// The input gain is a linear gain value (typically from RMS energy computation).
+// It is converted to Q16 format (gain * 65536) for the fixed-point quantization.
 func computeLogGainIndex(gain float32) int {
 	if gain <= 0 {
 		return 0
 	}
 
-	// Compute log-domain gain index matching decoder's formula
-	// Decoder (RFC 6716 Section 4.2.7.4): gain = 2^(logGainIndex/8 - 1)
-	// Inverting: logGainIndex = 8 * (log2(gain) + 1)
-	logGain := math.Log2(float64(gain))
-	idx := int(math.Round((logGain + 1.0) * 8.0))
+	// Convert float gain to Q16 format
+	// Q16 means the value is scaled by 65536 (2^16)
+	gainQ16 := int32(gain * 65536.0)
+	if gainQ16 <= 0 {
+		gainQ16 = 1 // Minimum positive value
+	}
+
+	return computeLogGainIndexQ16(gainQ16)
+}
+
+// computeLogGainIndexQ16 converts Q16 gain to log gain index [0, 63].
+// This matches the libopus silk_gains_quant() implementation exactly.
+//
+// The formula from libopus gain_quant.c:
+//
+//	ind[k] = silk_SMULWB(SCALE_Q16, silk_lin2log(gain_Q16) - OFFSET)
+//
+// Where:
+//   - OFFSET = (MIN_QGAIN_DB * 128) / 6 + 16 * 128 = 2090
+//   - SCALE_Q16 = 65536 * (N_LEVELS_QGAIN - 1) / (((MAX_QGAIN_DB - MIN_QGAIN_DB) * 128) / 6) = 2251
+//   - silk_lin2log computes approximately 128 * log2(input)
+//   - silk_SMULWB(a, b) = (a * int16(b)) >> 16
+func computeLogGainIndexQ16(gainQ16 int32) int {
+	if gainQ16 <= 0 {
+		return 0
+	}
+
+	// Convert to log scale using silk_lin2log (returns ~128 * log2(gainQ16))
+	logVal := silkLin2Log(gainQ16)
+
+	// Apply offset and scale
+	// SMULWB multiplies by the low 16 bits and right-shifts by 16
+	idx := silkSMULWB(gainQuantScaleQ16, logVal-gainQuantOffset)
 
 	// Clamp to valid range [0, 63]
 	if idx < 0 {
 		idx = 0
 	}
-	if idx > 63 {
-		idx = 63
+	if idx > nLevelsQGain-1 {
+		idx = nLevelsQGain - 1
 	}
 
-	return idx
+	return int(idx)
 }
 
 // computeFirstFrameGainIndex computes gain index for first frame encoding.

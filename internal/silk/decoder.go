@@ -50,6 +50,16 @@ type Decoder struct {
 	// Resamplers for each bandwidth (created on demand).
 	// Separate resampler state per channel to match libopus.
 	resamplers map[Bandwidth]*resamplerPair
+
+	// Debug flag to track if reset was called (for testing)
+	debugResetCalled bool
+
+	// Debug: capture resampler state before/after reset
+	debugPreResetSIIR  [6]int32
+	debugPostResetSIIR [6]int32
+
+	// Debug: disable resampler reset on bandwidth change
+	disableResamplerReset bool
 }
 
 // NewDecoder creates a new SILK decoder with proper initial state.
@@ -272,9 +282,12 @@ func (d *Decoder) GetResamplerForChannel(bandwidth Bandwidth, channel int) *Libo
 	return pair.left
 }
 
-// HandleBandwidthChange checks if bandwidth has changed and resets sMid state if needed.
+// HandleBandwidthChange checks if bandwidth has changed.
 // This must be called before BuildMonoResamplerInput when bandwidth may have changed.
-// Returns true if bandwidth changed and state was reset.
+// Returns true if bandwidth changed.
+//
+// Note: libopus does NOT reset sMid on bandwidth change. Only the resampler internal
+// state is zeroed. sMid values from the previous bandwidth are preserved for continuity.
 func (d *Decoder) HandleBandwidthChange(bandwidth Bandwidth) bool {
 	if !d.hasPrevBandwidth {
 		d.prevBandwidth = bandwidth
@@ -282,10 +295,8 @@ func (d *Decoder) HandleBandwidthChange(bandwidth Bandwidth) bool {
 		return false
 	}
 	if d.prevBandwidth != bandwidth {
-		// Bandwidth changed - reset sMid state since sample rates are different.
-		// This matches libopus behavior where the resampler is reinitialized on bandwidth change.
-		d.stereo.sMid[0] = 0
-		d.stereo.sMid[1] = 0
+		// Bandwidth changed - do NOT reset sMid to match libopus behavior.
+		// The resampler internal state is reset in handleBandwidthChange().
 		d.prevBandwidth = bandwidth
 		return true
 	}
@@ -332,24 +343,28 @@ func (d *Decoder) ResetSideChannel() {
 // handleBandwidthChange detects sample rate changes and resets the appropriate resampler.
 // In libopus, when the internal sample rate changes (NB 8kHz <-> MB 12kHz <-> WB 16kHz),
 // the resampler for the NEW bandwidth needs to be reset to avoid using stale state.
-// The sMid buffer stores samples at the native rate and is used by BuildMonoResamplerInput
-// to provide the first sample for the resampler - this needs to be zeroed when changing rates.
+//
+// IMPORTANT: libopus does NOT reset sMid on bandwidth change - it keeps the previous
+// sample values. Only the resampler internal state (sIIR, sFIR, delayBuf) is zeroed via
+// silk_resampler_init(). The sMid values from the previous bandwidth are preserved and
+// used as the first input sample to the new resampler, which causes a small transient
+// but maintains signal continuity at bandwidth transitions.
+//
+// NOTE: This is also called by the Hybrid decoder via NotifyBandwidthChange to ensure
+// proper resampler state management when mixing SILK-only and Hybrid packets.
 func (d *Decoder) handleBandwidthChange(bandwidth Bandwidth) {
 	if d.hasPrevBandwidth && d.prevBandwidth != bandwidth {
-		// Sample rate changed - reset sMid state and the new resampler
-		d.stereo.sMid[0] = 0
-		d.stereo.sMid[1] = 0
-		d.stereo.sSide[0] = 0
-		d.stereo.sSide[1] = 0
-
-		// Reset the resampler for the NEW bandwidth to clear any stale state
-		// (in practice, it should be fresh, but this ensures consistency)
-		if pair, ok := d.resamplers[bandwidth]; ok && pair != nil {
-			if pair.left != nil {
-				pair.left.Reset()
-			}
-			if pair.right != nil {
-				pair.right.Reset()
+		// Sample rate changed - reset the resampler for the NEW bandwidth
+		// but keep sMid values to match libopus behavior.
+		if !d.disableResamplerReset {
+			if pair, ok := d.resamplers[bandwidth]; ok && pair != nil {
+				if pair.left != nil {
+					pair.left.Reset()
+					d.debugResetCalled = true
+				}
+				if pair.right != nil {
+					pair.right.Reset()
+				}
 			}
 		}
 	}
@@ -434,4 +449,42 @@ func (d *Decoder) ExportState() ExportedState {
 		copy(state.OutBuf, st.outBuf[:])
 	}
 	return state
+}
+
+// GetSMid returns the current sMid state for debugging.
+func (d *Decoder) GetSMid() [2]int16 {
+	return d.stereo.sMid
+}
+
+// NotifyBandwidthChange updates bandwidth tracking and resets the resampler if needed.
+// This should be called by the Hybrid decoder before using SILK to ensure proper
+// resampler state when transitioning between SILK-only and Hybrid modes.
+//
+// When Hybrid mode uses SILK at BandwidthWideband, calling this method ensures that:
+// 1. The prevBandwidth is updated to WB
+// 2. If transitioning TO WB, the WB resampler is reset
+// 3. When later transitioning back to SILK NB/MB, the correct resampler will be reset
+func (d *Decoder) NotifyBandwidthChange(bandwidth Bandwidth) {
+	d.handleBandwidthChange(bandwidth)
+}
+
+// DebugResetCalled returns true if the resampler reset was called since last clear.
+func (d *Decoder) DebugResetCalled() bool {
+	return d.debugResetCalled
+}
+
+// DebugClearResetFlag clears the debug reset flag.
+func (d *Decoder) DebugClearResetFlag() {
+	d.debugResetCalled = false
+}
+
+// DebugGetResetStates returns the pre and post reset sIIR states.
+func (d *Decoder) DebugGetResetStates() (pre, post [6]int32) {
+	return d.debugPreResetSIIR, d.debugPostResetSIIR
+}
+
+// SetDisableResamplerReset controls whether the resampler is reset on bandwidth change.
+// This is for testing purposes to compare behavior with/without reset.
+func (d *Decoder) SetDisableResamplerReset(disable bool) {
+	d.disableResamplerReset = disable
 }

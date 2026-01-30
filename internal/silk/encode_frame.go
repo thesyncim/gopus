@@ -111,7 +111,13 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 		// Hybrid mode: caller manages the range encoder, return nil
 		return nil
 	}
-	return e.rangeEncoder.Done()
+	// Standalone mode: finalize and clear the range encoder
+	// CRITICAL: Must clear rangeEncoder so next frame creates a fresh one
+	// Otherwise, subsequent frames will see rangeEncoder != nil and assume
+	// hybrid mode, returning nil instead of encoded bytes
+	result := e.rangeEncoder.Done()
+	e.rangeEncoder = nil
+	return result
 }
 
 // encodeFrameType encodes VAD flag, signal type, and quantization offset.

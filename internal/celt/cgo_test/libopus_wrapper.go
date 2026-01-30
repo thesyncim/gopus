@@ -1190,6 +1190,71 @@ int test_encode_pulses_to_bytes(unsigned char *out_buf, int max_size,
     return enc.error;
 }
 
+// ====================================================================
+// SILK LSF/NLSF Encoding Comparison Wrappers
+// ====================================================================
+
+// Wrapper for silk_A2NLSF (LPC to NLSF conversion)
+// Note: a_Q16 is I/O because it may be modified by bandwidth expansion
+void test_silk_a2nlsf(opus_int32 *a_Q16, int order, opus_int16 *nlsf_out) {
+    silk_A2NLSF(nlsf_out, a_Q16, order);
+}
+
+// Wrapper for silk_NLSF_encode (full NLSF VQ encoding)
+// Returns the RD value in Q25
+opus_int32 test_silk_nlsf_encode(
+    opus_int8 *nlsf_indices,      // Output: indices [LPC_ORDER + 1]
+    opus_int16 *pNLSF_Q15,        // I/O: input NLSF, output quantized NLSF [LPC_ORDER]
+    int use_wb,                    // 0 = NB/MB, 1 = WB
+    const opus_int16 *pW_Q2,      // Weights [LPC_ORDER]
+    int NLSF_mu_Q20,              // Rate weight
+    int nSurvivors,               // Number of survivors
+    int signalType                // Signal type: 0/1/2
+) {
+    const silk_NLSF_CB_struct *cb = use_wb ? &silk_NLSF_CB_WB : &silk_NLSF_CB_NB_MB;
+    return silk_NLSF_encode(nlsf_indices, pNLSF_Q15, cb, pW_Q2, NLSF_mu_Q20, nSurvivors, signalType);
+}
+
+// Wrapper for silk_NLSF_stabilize
+void test_silk_nlsf_stabilize(opus_int16 *NLSF_Q15, int use_wb) {
+    const silk_NLSF_CB_struct *cb = use_wb ? &silk_NLSF_CB_WB : &silk_NLSF_CB_NB_MB;
+    silk_NLSF_stabilize(NLSF_Q15, cb->deltaMin_Q15, cb->order);
+}
+
+// Get silk_LSFCosTab_FIX_Q12 entry
+opus_int16 test_silk_lsf_cos_tab(int idx) {
+    if (idx < 0 || idx > LSF_COS_TAB_SZ_FIX) return 0;
+    return silk_LSFCosTab_FIX_Q12[idx];
+}
+
+// Get LSF_COS_TAB_SZ_FIX
+int test_silk_lsf_cos_tab_size(void) {
+    return LSF_COS_TAB_SZ_FIX;
+}
+
+// Get NLSF codebook parameters
+void test_silk_get_nlsf_cb_params(int use_wb, int *nVectors, int *order, int *quantStepSize_Q16, int *invQuantStepSize_Q6) {
+    const silk_NLSF_CB_struct *cb = use_wb ? &silk_NLSF_CB_WB : &silk_NLSF_CB_NB_MB;
+    *nVectors = cb->nVectors;
+    *order = cb->order;
+    *quantStepSize_Q16 = cb->quantStepSize_Q16;
+    *invQuantStepSize_Q6 = cb->invQuantStepSize_Q6;
+}
+
+// Get NLSF stage 1 codebook entry
+void test_silk_get_nlsf_cb1(int use_wb, int idx, opus_uint8 *out, opus_int16 *wgt_out) {
+    const silk_NLSF_CB_struct *cb = use_wb ? &silk_NLSF_CB_WB : &silk_NLSF_CB_NB_MB;
+    int order = cb->order;
+    memcpy(out, &cb->CB1_NLSF_Q8[idx * order], order);
+    memcpy(wgt_out, &cb->CB1_Wght_Q9[idx * order], order * sizeof(opus_int16));
+}
+
+// Get NLSF deltaMin values
+void test_silk_get_nlsf_delta_min(int use_wb, opus_int16 *out) {
+    const silk_NLSF_CB_struct *cb = use_wb ? &silk_NLSF_CB_WB : &silk_NLSF_CB_NB_MB;
+    memcpy(out, cb->deltaMin_Q15, (cb->order + 1) * sizeof(opus_int16));
+}
+
 */
 import "C"
 
@@ -2226,4 +2291,159 @@ func (e *LibopusEncoder) EncodeFloat(pcm []float32, frameSize int) ([]byte, int)
 	}
 
 	return data[:n], n
+}
+
+// ====================================================================
+// SILK LSF/NLSF Encoding Comparison Go Wrappers
+// ====================================================================
+
+// SilkA2NLSF converts LPC coefficients to NLSF using libopus.
+// Input: lpcQ16 in Q16 format, output: NLSF in Q15 format [0, 32767].
+// Note: lpcQ16 may be modified by bandwidth expansion if roots aren't found.
+func SilkA2NLSF(lpcQ16 []int32, order int) []int16 {
+	if len(lpcQ16) < order || order <= 0 || order > 24 {
+		return nil
+	}
+	// Make a copy since libopus may modify the input
+	lpcCopy := make([]int32, order)
+	copy(lpcCopy, lpcQ16[:order])
+
+	nlsfOut := make([]int16, order)
+	C.test_silk_a2nlsf(
+		(*C.opus_int32)(unsafe.Pointer(&lpcCopy[0])),
+		C.int(order),
+		(*C.opus_int16)(unsafe.Pointer(&nlsfOut[0])),
+	)
+	return nlsfOut
+}
+
+// SilkNLSFEncode performs full NLSF VQ encoding using libopus.
+// Returns indices, quantized NLSF, and RD value.
+func SilkNLSFEncode(nlsfQ15 []int16, useWB bool, weightsQ2 []int16, nlsfMuQ20, nSurvivors, signalType int) ([]int8, []int16, int32) {
+	order := len(nlsfQ15)
+	if order == 0 {
+		return nil, nil, 0
+	}
+
+	// Make copy since libopus modifies pNLSF_Q15
+	nlsfCopy := make([]int16, order)
+	copy(nlsfCopy, nlsfQ15)
+
+	// Ensure weights are provided
+	weights := weightsQ2
+	if len(weights) < order {
+		weights = make([]int16, order)
+		for i := range weights {
+			weights[i] = 256 // Default uniform weight
+		}
+	}
+
+	indices := make([]int8, order+1)
+	wb := 0
+	if useWB {
+		wb = 1
+	}
+
+	rd := C.test_silk_nlsf_encode(
+		(*C.opus_int8)(unsafe.Pointer(&indices[0])),
+		(*C.opus_int16)(unsafe.Pointer(&nlsfCopy[0])),
+		C.int(wb),
+		(*C.opus_int16)(unsafe.Pointer(&weights[0])),
+		C.int(nlsfMuQ20),
+		C.int(nSurvivors),
+		C.int(signalType),
+	)
+
+	return indices, nlsfCopy, int32(rd)
+}
+
+// SilkNLSFStabilize stabilizes NLSF values using libopus.
+func SilkNLSFStabilize(nlsfQ15 []int16, useWB bool) {
+	if len(nlsfQ15) == 0 {
+		return
+	}
+	wb := 0
+	if useWB {
+		wb = 1
+	}
+	C.test_silk_nlsf_stabilize(
+		(*C.opus_int16)(unsafe.Pointer(&nlsfQ15[0])),
+		C.int(wb),
+	)
+}
+
+// SilkLSFCosTab returns the value at the given index from silk_LSFCosTab_FIX_Q12.
+func SilkLSFCosTab(idx int) int16 {
+	return int16(C.test_silk_lsf_cos_tab(C.int(idx)))
+}
+
+// SilkLSFCosTabSize returns the size constant LSF_COS_TAB_SZ_FIX.
+func SilkLSFCosTabSize() int {
+	return int(C.test_silk_lsf_cos_tab_size())
+}
+
+// SilkNLSFCBParams holds NLSF codebook parameters.
+type SilkNLSFCBParams struct {
+	NVectors           int
+	Order              int
+	QuantStepSizeQ16   int
+	InvQuantStepSizeQ6 int
+}
+
+// SilkGetNLSFCBParams returns the NLSF codebook parameters.
+func SilkGetNLSFCBParams(useWB bool) SilkNLSFCBParams {
+	var nVectors, order, quantStepQ16, invQuantStepQ6 C.int
+	wb := 0
+	if useWB {
+		wb = 1
+	}
+	C.test_silk_get_nlsf_cb_params(
+		C.int(wb),
+		&nVectors, &order, &quantStepQ16, &invQuantStepQ6,
+	)
+	return SilkNLSFCBParams{
+		NVectors:           int(nVectors),
+		Order:              int(order),
+		QuantStepSizeQ16:   int(quantStepQ16),
+		InvQuantStepSizeQ6: int(invQuantStepQ6),
+	}
+}
+
+// SilkGetNLSFCB1 returns a stage 1 codebook entry and its weights.
+func SilkGetNLSFCB1(useWB bool, idx int) ([]uint8, []int16) {
+	order := 10
+	if useWB {
+		order = 16
+	}
+	cb1 := make([]uint8, order)
+	wgt := make([]int16, order)
+	wb := 0
+	if useWB {
+		wb = 1
+	}
+	C.test_silk_get_nlsf_cb1(
+		C.int(wb),
+		C.int(idx),
+		(*C.opus_uint8)(unsafe.Pointer(&cb1[0])),
+		(*C.opus_int16)(unsafe.Pointer(&wgt[0])),
+	)
+	return cb1, wgt
+}
+
+// SilkGetNLSFDeltaMin returns the minimum spacing constraints for NLSF.
+func SilkGetNLSFDeltaMin(useWB bool) []int16 {
+	order := 10
+	if useWB {
+		order = 16
+	}
+	deltaMin := make([]int16, order+1)
+	wb := 0
+	if useWB {
+		wb = 1
+	}
+	C.test_silk_get_nlsf_delta_min(
+		C.int(wb),
+		(*C.opus_int16)(unsafe.Pointer(&deltaMin[0])),
+	)
+	return deltaMin
 }
