@@ -35,14 +35,43 @@ void opus_flush_stdio(void) {
 // Internal state access for debugging - mirrors internal libopus structures
 // ============================================================================
 
-// Mirror of OpusDecoder structure from opus_decoder.c (only fields we need)
+// Mirror of OpusDecoder structure from opus_decoder.c
+// Based on https://github.com/xiph/opus/blob/main/src/opus_decoder.c
 typedef struct {
     int celt_dec_offset;
     int silk_dec_offset;
     int channels;
     opus_int32 Fs;
-    // ... other fields we don't need
+    silk_DecControlStruct DecControl;
+    int decode_gain;
+    int complexity;
+    int ignore_extensions;
+    int arch;
+    // OPUS_DECODER_RESET_START - everything after here gets cleared on reset
+    int stream_channels;
+    int bandwidth;
+    int mode;
+    int prev_mode;
+    int frame_size;
+    int prev_redundancy;
+    int last_packet_duration;
+    // Note: softclip_mem[2] exists only in floating point builds
+    opus_uint32 rangeFinal;
 } OpusDecoderInternal;
+
+// Get prev_redundancy state from libopus decoder
+int test_get_prev_redundancy(OpusDecoder* dec) {
+    if (dec == NULL) return -1;
+    OpusDecoderInternal *st = (OpusDecoderInternal*)dec;
+    return st->prev_redundancy;
+}
+
+// Get prev_mode state from libopus decoder
+int test_get_prev_mode(OpusDecoder* dec) {
+    if (dec == NULL) return -1;
+    OpusDecoderInternal *st = (OpusDecoderInternal*)dec;
+    return st->prev_mode;
+}
 
 // Mirror of CELTDecoder structure from celt_decoder.c
 // This must match the layout used by the compiled libopus
@@ -449,6 +478,34 @@ void test_silk_postproc_destroy(silk_postproc_state *st) {
     if (st != NULL) {
         free(st);
     }
+}
+
+// Reset resampler for a new input/output rate while preserving sMid.
+void test_silk_postproc_reset_resampler(silk_postproc_state *st, int fs_kHz, int fs_API_Hz) {
+    if (st == NULL) {
+        return;
+    }
+    st->fs_kHz = fs_kHz;
+    st->fs_API_Hz = fs_API_Hz;
+    silk_resampler_init(&st->resampler, fs_kHz * 1000, fs_API_Hz, 0);
+}
+
+// Set sMid state.
+void test_silk_postproc_set_smid(silk_postproc_state *st, opus_int16 s0, opus_int16 s1) {
+    if (st == NULL) {
+        return;
+    }
+    st->sMid[0] = s0;
+    st->sMid[1] = s1;
+}
+
+// Get sMid state.
+void test_silk_postproc_get_smid(silk_postproc_state *st, opus_int16 *s0, opus_int16 *s1) {
+    if (st == NULL || s0 == NULL || s1 == NULL) {
+        return;
+    }
+    *s0 = st->sMid[0];
+    *s1 = st->sMid[1];
 }
 
 // Post-process one native frame: apply sMid buffering and resample to API rate.
@@ -1555,6 +1612,32 @@ func (s *SilkPostprocState) Free() {
 	s.ptr = nil
 }
 
+// ResetResampler reinitializes the resampler for a new input/output rate while preserving sMid.
+func (s *SilkPostprocState) ResetResampler(fsKHz, fsAPIHz int) {
+	if s == nil || s.ptr == nil {
+		return
+	}
+	C.test_silk_postproc_reset_resampler(s.ptr, C.int(fsKHz), C.int(fsAPIHz))
+}
+
+// SetSMid sets the sMid state in the post-processing chain.
+func (s *SilkPostprocState) SetSMid(s0, s1 int16) {
+	if s == nil || s.ptr == nil {
+		return
+	}
+	C.test_silk_postproc_set_smid(s.ptr, C.opus_int16(s0), C.opus_int16(s1))
+}
+
+// GetSMid returns the current sMid state from the post-processing chain.
+func (s *SilkPostprocState) GetSMid() (int16, int16) {
+	if s == nil || s.ptr == nil {
+		return 0, 0
+	}
+	var s0, s1 C.opus_int16
+	C.test_silk_postproc_get_smid(s.ptr, &s0, &s1)
+	return int16(s0), int16(s1)
+}
+
 // ProcessFrame resamples a native frame to API rate using libopus logic.
 func (s *SilkPostprocState) ProcessFrame(frame []int16) ([]int16, int) {
 	if s == nil || s.ptr == nil || len(frame) == 0 {
@@ -1719,6 +1802,22 @@ func (d *LibopusDecoder) GetCELTChannels() int {
 		return -1
 	}
 	return int(C.test_get_celt_channels(d.dec))
+}
+
+// GetPrevRedundancy returns the prev_redundancy state from libopus.
+func (d *LibopusDecoder) GetPrevRedundancy() int {
+	if d.dec == nil {
+		return -1
+	}
+	return int(C.test_get_prev_redundancy(d.dec))
+}
+
+// GetPrevMode returns the prev_mode state from libopus.
+func (d *LibopusDecoder) GetPrevMode() int {
+	if d.dec == nil {
+		return -1
+	}
+	return int(C.test_get_prev_mode(d.dec))
 }
 
 // CELTMode wraps a libopus CELT mode for MDCT tests.

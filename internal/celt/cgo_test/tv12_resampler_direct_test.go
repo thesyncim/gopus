@@ -40,10 +40,12 @@ func TestResamplerDirectCompare(t *testing.T) {
 	}
 
 	// Generate test input (20ms = 240 samples at 12kHz)
+	// First sample is sMid[1] = -323 (like TV12 packet 137)
 	inLen := 240
 	input := make([]int16, inLen)
-	for i := 0; i < inLen; i++ {
-		// Simple sine wave + some variation
+	input[0] = -323 // sMid[1] from TV12
+	for i := 1; i < inLen; i++ {
+		// Rest is a simple pattern
 		input[i] = int16(1000 * math.Sin(float64(i)*2*math.Pi/40))
 	}
 

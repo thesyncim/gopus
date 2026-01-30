@@ -2,9 +2,9 @@
 
 ## Date: 2026-01-30
 
-## Summary
+## Status: FIXED
 
-**ROOT CAUSE FOUND**: The `GainDequantTable` has incorrect values (~1000x too small).
+**ROOT CAUSE FOUND AND FIXED**: The `GainDequantTable` had incorrect values (~1000x too small) and the encoder quantization formula was wrong.
 
 ## The Bug
 
@@ -98,3 +98,38 @@ go test ./internal/silk/... -run "TestGain|TestComputeLog" -v
 ```
 
 Expected: All 64 gain indices should round-trip correctly.
+
+## Fix Implementation (Completed)
+
+### Changes Made
+
+1. **Fixed `GainDequantTable` in `codebook.go`**
+   - Updated values from wrong (81, 89, ...) to correct (81920, 96256, ...)
+
+2. **Fixed `computeLogGainIndex()` in `gain_encode.go`**
+   - Added Q16 quantization constants matching libopus
+   - Implemented `computeLogGainIndexQ16()` using exact libopus formula
+   - Updated `computeLogGainIndex()` to convert float to Q16 and call the new function
+
+3. **Added exports in `exports.go`**
+   - `SilkLin2LogExport` - for testing silkLin2Log
+   - `SilkLog2LinExport` - for testing silkLog2Lin
+   - `SilkSMULWBExport` - for testing silkSMULWB
+   - `ComputeLogGainIndexQ16Export` - for testing Q16 quantization
+   - `ComputeLogGainIndexExport` - for testing float quantization
+
+### Tests Passing
+
+```bash
+$ go test ./internal/silk/... -run "TestComputeLogGainIndex"
+=== RUN   TestComputeLogGainIndex
+--- PASS: TestComputeLogGainIndex (0.00s)
+=== RUN   TestComputeLogGainIndexBoundary
+--- PASS: TestComputeLogGainIndexBoundary (0.00s)
+```
+
+## Remaining Issue: Gain Magnitude
+
+The encoder's `computeSubframeGains()` computes RMS energy which gives values like 0.1-0.5 (Q16: 6553-32768), while libopus computes LPC prediction error energy which gives values like 81920-1686110208.
+
+This is a separate issue from the quantization formula fix. The quantization now works correctly for the correct Q16 range, but the input gains need to be scaled or computed differently to match libopus behavior.

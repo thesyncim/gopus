@@ -58,7 +58,12 @@ func TestTV12ResamplerState137(t *testing.T) {
 	toc := gopus.ParseTOC(pkt[0])
 	t.Logf("Packet 137: Mode=%v BW=%d", toc.Mode, toc.Bandwidth)
 
-	goDec.DecodeFloat32(pkt)
+	goOut, _ := goDec.DecodeFloat32(pkt)
+	t.Logf("Output samples: %d", len(goOut))
+	t.Log("First 10 output samples:")
+	for i := 0; i < 10 && i < len(goOut); i++ {
+		t.Logf("  [%d] %.6f", i, goOut[i])
+	}
 
 	// Check MB resampler state AFTER packet 137
 	mbRes = silkDec.GetResampler(silk.BandwidthMediumband)

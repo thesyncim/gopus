@@ -176,7 +176,8 @@ func BandwidthFromOpusConfig(opusBandwidth int) CELTBandwidth {
 	case 0:
 		return CELTNarrowband
 	case 1:
-		return CELTMediumband
+		// libopus uses end band 17 for Opus mediumband (treat as wideband for CELT).
+		return CELTWideband
 	case 2:
 		return CELTWideband
 	case 3:

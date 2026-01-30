@@ -2,6 +2,7 @@
 package cgo
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
@@ -9,6 +10,162 @@ import (
 	"github.com/thesyncim/gopus/internal/encoder"
 	"github.com/thesyncim/gopus/internal/types"
 )
+
+// TestToneishnessInEncoder tests that toneishness is correctly computed during encoding
+func TestToneishnessInEncoder(t *testing.T) {
+	frameSize := 960
+	channels := 1
+	sampleRate := 48000
+
+	// Generate continuous 440 Hz sine (multiple frames worth)
+	totalSamples := frameSize * 3
+	pcm64 := make([]float64, totalSamples)
+	for i := 0; i < totalSamples; i++ {
+		pcm64[i] = 0.5 * math.Sin(2*math.Pi*440*float64(i)/float64(sampleRate))
+	}
+
+	enc := celt.NewEncoder(channels)
+	enc.Reset()
+
+	overlap := celt.Overlap
+	delayComp := 192
+
+	// Encode 3 frames to see how toneishness changes
+	for frame := 0; frame < 3; frame++ {
+		framePCM := pcm64[frame*frameSize : (frame+1)*frameSize]
+
+		// Apply same preprocessing as encoding
+		dcRejected := enc.ApplyDCReject(framePCM)
+		combinedBuf := make([]float64, delayComp+len(dcRejected))
+		copy(combinedBuf[delayComp:], dcRejected)
+		samplesForFrame := combinedBuf[:frameSize]
+		preemph := enc.ApplyPreemphasisWithScaling(samplesForFrame)
+
+		// Build transient input (overlap + preemph)
+		transientInput := make([]float64, (overlap+frameSize)*channels)
+		// Copy overlap buffer (has history for non-first frames)
+		copy(transientInput[:overlap*channels], enc.OverlapBuffer()[:overlap*channels])
+		copy(transientInput[overlap*channels:], preemph)
+
+		result := enc.TransientAnalysis(transientInput, frameSize+overlap, false)
+
+		t.Logf("Frame %d:", frame)
+		t.Logf("  IsTransient: %v (MaskMetric: %.2f)", result.IsTransient, result.MaskMetric)
+		t.Logf("  ToneFreq: %.4f rad/sample (%.1f Hz)", result.ToneFreq, result.ToneFreq*float64(sampleRate)/(2*math.Pi))
+		t.Logf("  Toneishness: %.6f -> TF Analysis %s", result.Toneishness,
+			map[bool]string{true: "ENABLED", false: "DISABLED"}[result.Toneishness < 0.98])
+
+		// Update overlap buffer for next frame
+		tailStart := len(preemph) - overlap*channels
+		if tailStart >= 0 {
+			copy(enc.OverlapBuffer()[:overlap*channels], preemph[tailStart:])
+		}
+	}
+}
+
+// TestByteByteComparison does detailed byte comparison to find exact divergence point.
+func TestByteByteComparison(t *testing.T) {
+	frameSize := 960
+	sampleRate := 48000
+	bitrate := 64000
+
+	// Generate 440Hz sine wave
+	pcm64 := make([]float64, frameSize)
+	pcm32 := make([]float32, frameSize)
+	for i := range pcm64 {
+		val := 0.5 * math.Sin(2*math.Pi*440*float64(i)/float64(sampleRate))
+		pcm64[i] = val
+		pcm32[i] = float32(val)
+	}
+
+	t.Log("=== Detailed Byte-by-Byte Comparison ===")
+
+	// Encode with gopus
+	gopusEnc := encoder.NewEncoder(sampleRate, 1)
+	gopusEnc.SetMode(encoder.ModeCELT)
+	gopusEnc.SetBandwidth(types.BandwidthFullband)
+	gopusEnc.SetBitrate(bitrate)
+	gopusPacket, err := gopusEnc.Encode(pcm64, frameSize)
+	if err != nil {
+		t.Fatalf("gopus encode failed: %v", err)
+	}
+
+	// Encode with libopus (matching settings)
+	libEnc, err := NewLibopusEncoder(sampleRate, 1, OpusApplicationAudio)
+	if err != nil {
+		t.Fatalf("libopus encoder creation failed: %v", err)
+	}
+	defer libEnc.Destroy()
+	libEnc.SetBitrate(bitrate)
+	libEnc.SetComplexity(5) // Match gopus default
+	libEnc.SetBandwidth(OpusBandwidthFullband)
+
+	libPacket, libLen := libEnc.EncodeFloat(pcm32, frameSize)
+	if libLen <= 0 {
+		t.Fatalf("libopus encode failed")
+	}
+
+	// Skip TOC byte
+	gopusPayload := gopusPacket[1:]
+	libPayload := libPacket[1:]
+
+	t.Logf("Gopus payload length: %d", len(gopusPayload))
+	t.Logf("Libopus payload length: %d", len(libPayload))
+	t.Log("")
+
+	// Show first 12 bytes with binary and hex
+	t.Log("First 12 bytes comparison:")
+	t.Log("Byte  Gopus(hex) Gopus(bin)     Libopus(hex) Libopus(bin)   Match?")
+	t.Log("----  ---------- -----------    ------------ -----------    ------")
+
+	for i := 0; i < 12; i++ {
+		var gByte, lByte byte
+		var gStr, lStr string
+
+		if i < len(gopusPayload) {
+			gByte = gopusPayload[i]
+			gStr = fmt.Sprintf("0x%02X       %08b", gByte, gByte)
+		} else {
+			gStr = "--         --------"
+		}
+
+		if i < len(libPayload) {
+			lByte = libPayload[i]
+			lStr = fmt.Sprintf("0x%02X         %08b", lByte, lByte)
+		} else {
+			lStr = "--           --------"
+		}
+
+		match := "YES"
+		if gByte != lByte {
+			match = "NO <--"
+		}
+
+		t.Logf("%4d  %s    %s    %s", i, gStr, lStr, match)
+	}
+
+	// Find exact divergence point
+	divergeByte := -1
+	divergeBit := -1
+	for i := 0; i < len(gopusPayload) && i < len(libPayload); i++ {
+		if gopusPayload[i] != libPayload[i] {
+			divergeByte = i
+			xor := gopusPayload[i] ^ libPayload[i]
+			for b := 7; b >= 0; b-- {
+				if (xor>>b)&1 == 1 {
+					divergeBit = 7 - b
+					break
+				}
+			}
+			break
+		}
+	}
+
+	if divergeByte >= 0 {
+		t.Log("")
+		t.Logf("First divergence at byte %d, bit %d (total bit %d)", divergeByte, divergeBit, divergeByte*8+divergeBit)
+	}
+}
 
 // TestTransientFlagImpact compares encoding with and without transient flag.
 func TestTransientFlagImpact(t *testing.T) {

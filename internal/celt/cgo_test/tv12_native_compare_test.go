@@ -1,4 +1,4 @@
-// Package cgo compares native decoded samples before resampling for packet 826.
+// Package cgo compares native SILK output between gopus.Decoder and silk.Decoder
 package cgo
 
 import (
@@ -9,106 +9,127 @@ import (
 	"github.com/thesyncim/gopus/internal/silk"
 )
 
-// TestTV12Packet826NativeRateCompare compares native-rate decoded samples.
-func TestTV12Packet826NativeRateCompare(t *testing.T) {
+// TestTV12NativeCompare compares native SILK decode output (before resampling)
+// between gopus.Decoder and standalone silk.Decoder
+func TestTV12NativeCompare(t *testing.T) {
 	bitFile := "../../../internal/testvectors/testdata/opus_testvectors/testvector12.bit"
 
-	packets, err := loadPacketsSimple(bitFile, 830)
+	packets, err := loadPacketsSimple(bitFile, 145)
 	if err != nil {
 		t.Skip("Could not load packets")
 	}
 
-	// Create gopus SILK decoder
-	silkDec := silk.NewDecoder()
-
-	// Create libopus decoder at NATIVE rate (8kHz for NB packets)
-	// Process all packets to build state
-	libDec8k, _ := NewLibopusDecoder(8000, 1)
-	if libDec8k == nil {
-		t.Skip("Could not create 8kHz libopus decoder")
-	}
-	defer libDec8k.Destroy()
-
-	libDec12k, _ := NewLibopusDecoder(12000, 1)
-	if libDec12k == nil {
-		t.Skip("Could not create 12kHz libopus decoder")
-	}
-	defer libDec12k.Destroy()
-
-	// Process packets 0-825
-	t.Log("Processing packets 0-825...")
-	for i := 0; i <= 825; i++ {
-		pkt := packets[i]
-		toc := gopus.ParseTOC(pkt[0])
-
-		if toc.Mode != gopus.ModeSILK {
-			continue
-		}
-
-		silkBW, ok := silk.BandwidthFromOpus(int(toc.Bandwidth))
-		if !ok {
-			continue
-		}
-
-		// Gopus: full decode
-		silkDec.Decode(pkt[1:], silkBW, toc.FrameSize, true)
-
-		// Libopus: decode at appropriate native rate
-		if silkBW == silk.BandwidthNarrowband {
-			libDec8k.DecodeFloat(pkt, 320)
-		} else {
-			libDec12k.DecodeFloat(pkt, 480)
-		}
-	}
-
-	// Now compare packet 826 (NB)
-	pkt := packets[826]
-	toc := gopus.ParseTOC(pkt[0])
+	pkt137 := packets[137]
+	toc := gopus.ParseTOC(pkt137[0])
 	silkBW, _ := silk.BandwidthFromOpus(int(toc.Bandwidth))
-	duration := silk.FrameDurationFromTOC(toc.FrameSize)
 
-	t.Logf("\n=== Packet 826 (NB) ===")
+	t.Log("=== Comparing native decode (before resampling) at packet 137 ===")
+	t.Logf("TOC: Mode=%v, BW=%d, FrameSize=%d", toc.Mode, toc.Bandwidth, toc.FrameSize)
+	t.Logf("silkBW=%v", silkBW)
 
-	// Get sMid before gopus decode
-	sMid := silkDec.GetSMid()
-	t.Logf("sMid before decode: [%d, %d]", sMid[0], sMid[1])
+	// Path 1: Build state with gopus.Decoder, then decode packet 137 native
+	var nativeGopus []float32
+	var sMidGopusBefore [2]int16
+	{
+		goDec, _ := gopus.NewDecoder(48000, 1)
+		silkDec := goDec.GetSILKDecoder()
 
-	// Gopus: decode at native rate only (no resampling)
-	var rd rangecoding.Decoder
-	rd.Init(pkt[1:])
-	goNative, err := silkDec.DecodeFrame(&rd, silkBW, duration, true)
-	if err != nil {
-		t.Fatalf("Gopus DecodeFrame error: %v", err)
+		// Process packets 0-136 via gopus
+		for i := 0; i < 137; i++ {
+			goDec.DecodeFloat32(packets[i])
+		}
+
+		// Get sMid before decode
+		sMidGopusBefore = silkDec.GetSMid()
+
+		// Decode packet 137 at native rate using DecodeFrame
+		duration := silk.FrameDurationFromTOC(toc.FrameSize)
+		var rd rangecoding.Decoder
+		rd.Init(pkt137[1:])
+		nativeGopus, err = silkDec.DecodeFrame(&rd, silkBW, duration, true)
+		if err != nil {
+			t.Fatalf("gopus DecodeFrame error: %v", err)
+		}
 	}
 
-	// Libopus: decode at 8kHz
-	libNative, libSamples := libDec8k.DecodeFloat(pkt, 320)
-	t.Logf("Gopus native samples: %d, Libopus native samples: %d", len(goNative), libSamples)
+	// Path 2: Build state with standalone silk.Decoder, then decode packet 137 native
+	var nativeSilk []float32
+	var sMidSilkBefore [2]int16
+	{
+		silkDec := silk.NewDecoder()
 
-	// Compare first 20 samples
-	minLen := len(goNative)
-	if libSamples < minLen {
-		minLen = libSamples
+		// Process packets 0-136 via standalone silk
+		for i := 0; i <= 136; i++ {
+			pkt := packets[i]
+			toc := gopus.ParseTOC(pkt[0])
+			if toc.Mode == gopus.ModeSILK {
+				silkBW, ok := silk.BandwidthFromOpus(int(toc.Bandwidth))
+				if ok {
+					silkDec.Decode(pkt[1:], silkBW, toc.FrameSize, true)
+				}
+			}
+		}
+
+		// Get sMid before decode
+		sMidSilkBefore = silkDec.GetSMid()
+
+		// Decode packet 137 at native rate using DecodeFrame
+		duration := silk.FrameDurationFromTOC(toc.FrameSize)
+		var rd rangecoding.Decoder
+		rd.Init(pkt137[1:])
+		nativeSilk, err = silkDec.DecodeFrame(&rd, silkBW, duration, true)
+		if err != nil {
+			t.Fatalf("silk DecodeFrame error: %v", err)
+		}
 	}
 
-	t.Logf("\nNative samples comparison (before resampling):")
+	t.Logf("\n=== sMid state before packet 137 ===")
+	t.Logf("gopus path sMid: [%d, %d]", sMidGopusBefore[0], sMidGopusBefore[1])
+	t.Logf("silk path sMid:  [%d, %d]", sMidSilkBefore[0], sMidSilkBefore[1])
+
+	t.Logf("\n=== Native output comparison ===")
+	t.Logf("gopus native samples: %d", len(nativeGopus))
+	t.Logf("silk native samples:  %d", len(nativeSilk))
+
+	// Compare first 20 native samples
+	t.Log("\nFirst 20 native samples:")
+	minLen := len(nativeGopus)
+	if len(nativeSilk) < minLen {
+		minLen = len(nativeSilk)
+	}
+	maxDiff := float32(0)
+	maxDiffIdx := 0
 	for i := 0; i < 20 && i < minLen; i++ {
-		goInt16 := int16(goNative[i] * 32768.0)
-		libInt16 := int16(libNative[i] * 32768.0)
-		diff := goNative[i] - libNative[i]
-		t.Logf("  [%2d] go=%.6f (%5d) lib=%.6f (%5d) diff=%.6f",
-			i, goNative[i], goInt16, libNative[i], libInt16, diff)
+		diff := nativeGopus[i] - nativeSilk[i]
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff > maxDiff {
+			maxDiff = diff
+			maxDiffIdx = i
+		}
+		t.Logf("  [%2d] gopus=%.6f silk=%.6f diff=%.6f", i, nativeGopus[i], nativeSilk[i], nativeGopus[i]-nativeSilk[i])
 	}
 
-	// Build what the resampler input WOULD be
-	t.Logf("\nResampler input (sMid[1] + native[0:n-1]):")
-	resamplerInput := make([]float32, len(goNative))
-	resamplerInput[0] = float32(sMid[1]) / 32768.0
-	if len(goNative) > 1 {
-		copy(resamplerInput[1:], goNative[:len(goNative)-1])
+	// Check overall difference
+	totalDiff := float32(0)
+	for i := 0; i < minLen; i++ {
+		diff := nativeGopus[i] - nativeSilk[i]
+		if diff < 0 {
+			diff = -diff
+		}
+		totalDiff += diff
+		if diff > maxDiff {
+			maxDiff = diff
+			maxDiffIdx = i
+		}
 	}
-	for i := 0; i < 10 && i < len(resamplerInput); i++ {
-		int16Val := int16(resamplerInput[i] * 32768.0)
-		t.Logf("  [%2d] %.6f (%5d)", i, resamplerInput[i], int16Val)
+	t.Logf("\nMax diff: %.6f at sample %d", maxDiff, maxDiffIdx)
+	t.Logf("Total absolute diff: %.6f", totalDiff)
+
+	if totalDiff > 0.0001 {
+		t.Log("\nNative samples DIFFER between gopus and silk paths!")
+	} else {
+		t.Log("\nNative samples are IDENTICAL between gopus and silk paths")
 	}
 }

@@ -22,6 +22,133 @@ type TransientAnalysisResult struct {
 	TfChannel     int     // Which channel had the strongest transient (0 or 1)
 	MaskMetric    float64 // The raw mask metric value (for debugging)
 	WeakTransient bool    // Whether this is a "weak" transient (for hybrid mode)
+	ToneFreq      float64 // Detected tone frequency in radians/sample (-1 if no tone)
+	Toneishness   float64 // How "pure" the tone is (0.0-1.0, higher = purer)
+}
+
+// toneLPC computes 2nd-order LPC coefficients using forward+backward least-squares fit.
+// This is used to detect pure tones by analyzing the resonant characteristics.
+// Returns (lpc0, lpc1, success) where success=false if the computation fails.
+// Reference: libopus celt/celt_encoder.c tone_lpc()
+func toneLPC(x []float64, delay int) (float64, float64, bool) {
+	len := len(x)
+	if len <= 2*delay {
+		return 0, 0, false
+	}
+
+	// Compute correlations using forward prediction covariance method
+	var r00, r01, r02 float64
+	for i := 0; i < len-2*delay; i++ {
+		r00 += x[i] * x[i]
+		r01 += x[i] * x[i+delay]
+		r02 += x[i] * x[i+2*delay]
+	}
+
+	// Compute edge corrections for r11, r22, r12
+	var edges float64
+	for i := 0; i < delay; i++ {
+		edges += x[len+i-2*delay]*x[len+i-2*delay] - x[i]*x[i]
+	}
+	r11 := r00 + edges
+
+	edges = 0
+	for i := 0; i < delay; i++ {
+		edges += x[len+i-delay]*x[len+i-delay] - x[i+delay]*x[i+delay]
+	}
+	r22 := r11 + edges
+
+	edges = 0
+	for i := 0; i < delay; i++ {
+		edges += x[len+i-2*delay]*x[len+i-delay] - x[i]*x[i+delay]
+	}
+	r12 := r01 + edges
+
+	// Combine forward and backward for symmetric solution
+	R00 := r00 + r22
+	R01 := r01 + r12
+	R11 := 2 * r11
+	R02 := 2 * r02
+	R12 := r12 + r01
+
+	// Solve A*x=b where A=[R00, R01; R01, R11] and b=[R02; R12]
+	den := R00*R11 - R01*R01
+
+	// Check for near-singular matrix (as in libopus: den < 0.001*R00*R11)
+	if den < 0.001*R00*R11 {
+		return 0, 0, false
+	}
+
+	num1 := R02*R11 - R01*R12
+	num0 := R00*R12 - R02*R01
+
+	lpc1 := num1 / den
+	lpc0 := num0 / den
+
+	// Clamp to valid range
+	if lpc1 > 1.0 {
+		lpc1 = 1.0
+	} else if lpc1 < -1.0 {
+		lpc1 = -1.0
+	}
+	if lpc0 > 2.0 {
+		lpc0 = 2.0
+	} else if lpc0 < -2.0 {
+		lpc0 = -2.0
+	}
+
+	return lpc0, lpc1, true
+}
+
+// toneDetect detects pure or nearly pure tones in the input signal.
+// Returns (toneFreq, toneishness) where:
+//   - toneFreq: angular frequency in radians/sample (-1 if no tone detected)
+//   - toneishness: how pure the tone is (0.0-1.0, higher = purer)
+//
+// Reference: libopus celt/celt_encoder.c tone_detect()
+func toneDetect(in []float64, channels int, sampleRate int) (float64, float64) {
+	n := len(in) / channels
+	if n < 4 {
+		return -1, 0
+	}
+
+	// Mix down to mono if stereo (matching libopus behavior)
+	x := make([]float64, n)
+	if channels == 2 {
+		for i := 0; i < n; i++ {
+			x[i] = 0.5 * (in[i*2] + in[i*2+1])
+		}
+	} else {
+		copy(x, in[:n])
+	}
+
+	delay := 1
+	lpc0, lpc1, success := toneLPC(x, delay)
+
+	// If LPC resonates too close to DC, retry with downsampling
+	// (delay <= sampleRate/3000 corresponds to frequencies > ~1500 Hz)
+	maxDelay := sampleRate / 3000
+	if maxDelay < 1 {
+		maxDelay = 1
+	}
+	for delay <= maxDelay && (!success || (lpc0 > 1.0 && lpc1 < 0)) {
+		delay *= 2
+		if 2*delay >= n {
+			break
+		}
+		lpc0, lpc1, success = toneLPC(x, delay)
+	}
+
+	// Check that our filter has complex roots: lpc0^2 + 4*lpc1 < 0
+	// This indicates a resonant (tonal) system
+	if success && lpc0*lpc0+4*lpc1 < 0 {
+		// Toneishness is the squared radius of the poles
+		toneishness := -lpc1
+		// Frequency from the angle of the complex pole
+		freq := math.Acos(0.5*lpc0) / float64(delay)
+		return freq, toneishness
+	}
+
+	return -1, 0
 }
 
 // TransientAnalysis performs full transient analysis matching libopus.
@@ -44,8 +171,10 @@ type TransientAnalysisResult struct {
 // Reference: libopus celt/celt_encoder.c transient_analysis()
 func (e *Encoder) TransientAnalysis(pcm []float64, frameSize int, allowWeakTransients bool) TransientAnalysisResult {
 	result := TransientAnalysisResult{
-		TfEstimate: 0.0,
-		TfChannel:  0,
+		TfEstimate:  0.0,
+		TfChannel:   0,
+		ToneFreq:    -1,
+		Toneishness: 0,
 	}
 
 	if len(pcm) == 0 || frameSize <= 0 {
@@ -57,6 +186,13 @@ func (e *Encoder) TransientAnalysis(pcm []float64, frameSize int, allowWeakTrans
 	if samplesPerChannel < 16 {
 		return result
 	}
+
+	// Detect pure tones before transient analysis
+	// This is used to prevent false transient detection on low-frequency tones
+	// Reference: libopus celt/celt_encoder.c tone_detect() called before transient_analysis()
+	toneFreq, toneishness := toneDetect(pcm, channels, 48000) // Assume 48kHz
+	result.ToneFreq = toneFreq
+	result.Toneishness = toneishness
 
 	// Forward masking decay: 6.7 dB/ms (default) or 3.3 dB/ms (weak transients)
 	// At 48kHz, we process pairs of samples, so decay per pair:
@@ -187,6 +323,15 @@ func (e *Encoder) TransientAnalysis(pcm []float64, frameSize int, allowWeakTrans
 
 	// Transient decision: mask_metric > 200
 	result.IsTransient = maxMaskMetric > 200
+
+	// Prevent the transient detector from confusing the partial cycle of a
+	// very low frequency tone with a transient.
+	// Reference: libopus celt/celt_encoder.c lines 445-451
+	// toneishness > 0.98 AND tone_freq < 0.026 radians/sample (~198 Hz at 48kHz)
+	if result.Toneishness > 0.98 && result.ToneFreq >= 0 && result.ToneFreq < 0.026 {
+		result.IsTransient = false
+		result.MaskMetric = 0
+	}
 
 	// Weak transient handling for hybrid mode
 	if allowWeakTransients && result.IsTransient && maxMaskMetric < 600 {

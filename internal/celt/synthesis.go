@@ -147,25 +147,12 @@ func synthesizeChannelWithOverlap(coeffs []float64, prevOverlap []float64, overl
 			return nil, prevOverlap
 		}
 
-		// For transient mode, perform IMDCT in-place like libopus.
-		// The key insight is that libopus's buffer already contains previous frame data
-		// at ALL positions, not just the first overlap samples.
-		//
-		// For each short block b:
-		// - IMDCT writes to out[b*shortSize + overlap/2 : b*shortSize + overlap/2 + shortSize]
-		// - TDAC blends out[b*shortSize : b*shortSize + overlap] using:
-		//   - First half: previous block's IMDCT tail (or prev frame's overlap for b=0)
-		//   - Second half: current IMDCT's first samples
-		//
-		// Total buffer size = frameSize + overlap
 		out := make([]float64, frameSize+overlap)
-
-		// Copy previous frame's overlap to the beginning
 		if overlap > 0 && len(prev) >= overlap {
 			copy(out[:overlap], prev[:overlap])
 		}
 
-		// Process each short block using in-place IMDCT with TDAC
+		// Process each short block and copy into the shared buffer.
 		for b := 0; b < shortBlocks; b++ {
 			// Extract interleaved coefficients for this short block
 			shortCoeffs := make([]float64, shortSize)
@@ -177,10 +164,9 @@ func synthesizeChannelWithOverlap(coeffs []float64, prevOverlap []float64, overl
 			}
 
 			blockStart := b * shortSize
-
-			// Perform in-place IMDCT directly on the shared buffer
-			// This matches libopus's clt_mdct_backward behavior
-			imdctInPlace(shortCoeffs, out, blockStart, overlap)
+			blockPrev := out[blockStart : blockStart+overlap]
+			blockOut := imdctOverlapWithPrev(shortCoeffs, blockPrev, overlap)
+			copy(out[blockStart:], blockOut)
 		}
 
 		output = out[:frameSize]
@@ -189,18 +175,14 @@ func synthesizeChannelWithOverlap(coeffs []float64, prevOverlap []float64, overl
 		return output, newOverlap
 	}
 
-	imdctOut := imdctOverlapWithPrev(coeffs, prev, overlap)
+	imdctOut := IMDCTOverlapWithPrev(coeffs, prev, overlap)
 	if len(imdctOut) < frameSize {
 		return nil, prevOverlap
 	}
 	output = imdctOut[:frameSize]
 	newOverlap = make([]float64, overlap)
-	if overlap > 0 && frameSize < len(imdctOut) {
-		end := frameSize + overlap
-		if end > len(imdctOut) {
-			end = len(imdctOut)
-		}
-		copy(newOverlap, imdctOut[frameSize:end])
+	if overlap > 0 && frameSize+overlap <= len(imdctOut) {
+		copy(newOverlap, imdctOut[frameSize:frameSize+overlap])
 	}
 	return output, newOverlap
 }
@@ -285,7 +267,6 @@ func (d *Decoder) synthesizeShortStereo(coeffsL, coeffsR []float64, shortBlocks 
 	}
 	overlapL := d.overlapBuffer[:Overlap]
 	overlapR := d.overlapBuffer[Overlap : Overlap*2]
-
 	outputL, newOverlapL := synthesizeChannelWithOverlap(coeffsL, overlapL, Overlap, true, shortBlocks)
 	outputR, newOverlapR := synthesizeChannelWithOverlap(coeffsR, overlapR, Overlap, true, shortBlocks)
 
@@ -339,5 +320,6 @@ func SynthesizeWithConfig(coeffs []float64, overlap int, transient bool, shortBl
 	if len(coeffs) == 0 {
 		return nil, prevOverlap
 	}
-	return synthesizeChannelWithOverlap(coeffs, prevOverlap, overlap, transient, shortBlocks)
+	output, newOverlap = synthesizeChannelWithOverlap(coeffs, prevOverlap, overlap, transient, shortBlocks)
+	return output, newOverlap
 }

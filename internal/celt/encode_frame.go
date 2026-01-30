@@ -119,6 +119,15 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	transientResult := e.TransientAnalysis(transientInput, frameSize+overlap, false /* allowWeakTransients */)
 	transient := transientResult.IsTransient
 	tfEstimate := transientResult.TfEstimate
+	toneishness := transientResult.Toneishness
+
+	// Match libopus line 2033: cap toneishness based on tf_estimate
+	// libopus: toneishness = MIN32(toneishness, QCONST32(1.f, 29)-SHL32(tf_estimate, 15))
+	// In float: toneishness = min(toneishness, 1.0 - tf_estimate)
+	maxToneishness := 1.0 - tfEstimate
+	if toneishness > maxToneishness {
+		toneishness = maxToneishness
+	}
 
 	// Allow force transient override for testing (matches libopus first frame behavior)
 	if e.forceTransient {
@@ -335,9 +344,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	e.lastDynalloc = dynallocResult
 
 	// Enable TF analysis when we have enough bits and reasonable complexity.
-	// Reference: libopus enable_tf_analysis = effectiveBytes>=15*C && !hybrid && st->complexity>=2 && !st->lfe
+	// Reference: libopus enable_tf_analysis = effectiveBytes>=15*C && !hybrid && st->complexity>=2 && !st->lfe && toneishness < QCONST32(.98f, 29)
 	// Note: libopus does NOT have an LM>0 check here - TF analysis runs for all frame sizes including LM=0
-	enableTFAnalysis := effectiveBytes >= 15*e.channels && e.complexity >= 2
+	// CRITICAL: toneishness >= 0.98 disables TF analysis (pure tones use simple fallback)
+	enableTFAnalysis := effectiveBytes >= 15*e.channels && e.complexity >= 2 && toneishness < 0.98
 
 	var tfRes []int
 	var tfSelect int

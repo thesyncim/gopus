@@ -26,6 +26,7 @@ type LibopusResampler struct {
 	debugDelayBufFirst8   [8]int16
 	debugProcessCallCount int
 	debugLastProcessID    int // ID captured during Process()
+	debugOutputFirst10    [10]float32
 
 	// Unique ID for tracking
 	debugID int
@@ -290,6 +291,13 @@ func (r *LibopusResampler) Process(samples []float32) []float32 {
 		result[i] = float32(s) / 32768.0
 	}
 
+	// Debug: capture output first 10 samples
+	if r.debugEnabled {
+		for i := 0; i < 10 && i < len(result); i++ {
+			r.debugOutputFirst10[i] = result[i]
+		}
+	}
+
 	return result
 }
 
@@ -434,9 +442,10 @@ func (r *LibopusResampler) EnableDebug(enable bool) {
 	r.debugEnabled = enable
 	r.debugProcessCallCount = 0
 }
-func (r *LibopusResampler) GetDebugProcessCallSIIR() [6]int32 { return r.debugProcessCallSIIR }
-func (r *LibopusResampler) GetDebugInputFirst10() [10]float32 { return r.debugInputFirst10 }
-func (r *LibopusResampler) GetDebugDelayBufFirst8() [8]int16  { return r.debugDelayBufFirst8 }
-func (r *LibopusResampler) GetDebugProcessCallCount() int     { return r.debugProcessCallCount }
-func (r *LibopusResampler) GetDebugID() int                   { return r.debugID }
-func (r *LibopusResampler) GetDebugLastProcessID() int        { return r.debugLastProcessID }
+func (r *LibopusResampler) GetDebugProcessCallSIIR() [6]int32  { return r.debugProcessCallSIIR }
+func (r *LibopusResampler) GetDebugInputFirst10() [10]float32  { return r.debugInputFirst10 }
+func (r *LibopusResampler) GetDebugDelayBufFirst8() [8]int16   { return r.debugDelayBufFirst8 }
+func (r *LibopusResampler) GetDebugProcessCallCount() int      { return r.debugProcessCallCount }
+func (r *LibopusResampler) GetDebugID() int                    { return r.debugID }
+func (r *LibopusResampler) GetDebugLastProcessID() int         { return r.debugLastProcessID }
+func (r *LibopusResampler) GetDebugOutputFirst10() [10]float32 { return r.debugOutputFirst10 }
