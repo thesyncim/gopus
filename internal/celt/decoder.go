@@ -1043,6 +1043,11 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 			silenceE[i] = -28.0
 		}
 		d.prevEnergy = origPrevEnergy
+		// Update prevEnergy to silence values (matching libopus: oldBandE = -28)
+		// This ensures subsequent frames see correct energy state after silence.
+		for i := 0; i < MaxBands*origChannels && i < len(d.prevEnergy); i++ {
+			d.prevEnergy[i] = -28.0
+		}
 		d.updateLogE(silenceE, MaxBands, false)
 		celtPLCState.Reset()
 		celtPLCState.SetLastFrameParams(plc.ModeCELT, frameSize, origChannels)
