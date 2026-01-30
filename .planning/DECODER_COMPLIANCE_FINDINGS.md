@@ -460,3 +460,59 @@ The error accumulates through the short-block overlap-add process:
 3. **testvector12** (Mode transitions) - May resolve with stereo fix
 4. **testvector06** (Hybrid) - Most complex, may partially resolve with other fixes
 5. **testvector10** (Mixed) - Should resolve after 1-3 are fixed
+
+## SESSION FINDINGS (Jan 30, 2026)
+
+### Attempted Fixes That Did NOT Help
+
+1. **quantBandN1 gain multiplication**: Added gain parameter to quantBandN1 for n=1 bands.
+   - Hypothesis: n=1 bands decode as ±1.0 instead of ±gain
+   - Result: No improvement because gain=1.0 at top level (energy applied separately by denormalizeCoeffs)
+   - Reverted
+
+2. **Hybrid mono→stereo Reset() vs CopyFrom()**: Changed from CopyFrom(leftResampler) to Reset() on mono→stereo transition.
+   - Result: No improvement
+   - Reverted
+
+### TV08/TV09 Stereo Issue Deep Dive
+
+**Observation from CGO tests:**
+- L channel matches libopus EXACTLY (diff ~1e-9)
+- R channel is ~40% higher than libopus (diff ~0.004 or ~40% of signal)
+- Error is systematic, not random
+
+**Analysis:**
+- stereoMerge debug shows ||y||²=0 for n>2 bands (intensity stereo)
+- For intensity stereo with side=0: L = mid*x, R = mid*x (should be equal)
+- But output shows L ≠ R, meaning n=2 bands may have non-zero SIDE
+- The n=2 band handling is inline (lines 1257-1272 in bands_quant.go)
+
+**Mathematical proof:**
+If L = (mid*x - y)*lgain matches and R = (mid*x + y)*rgain doesn't:
+- From L match: go_x - go_y = lib_x - lib_y
+- From R mismatch: go_x + go_y ≠ lib_x + lib_y
+- This implies both go_x and go_y have a bias in the same direction
+
+**Remaining suspects:**
+1. n=2 band Hadamard rotation at lines 1258-1259
+2. SIDE scaling at line 1263-1264 for n=2 bands
+3. Something in the coefficient pipeline before stereo processing
+
+### TV07 2.5ms Frame Issue
+
+**Already verified correct:**
+- DFT precision (60-point has 2.2e-13 error)
+- IMDCT math
+- Window coefficients
+- TF analysis (fix applied for LM=0)
+- dynalloc LM=0 handling
+
+**Remaining suspects:**
+- Something specific to very small band widths (1-4 bins)
+- May require deeper coefficient tracing at LM=0
+
+### Next Steps for Future Investigation
+
+1. Add CGO tracing for n=2 band SIDE coefficients in tv08
+2. Compare PVQ pulse values between gopus and libopus for n=2 stereo bands
+3. Trace the full coefficient pipeline for a single band through quantBandStereo
