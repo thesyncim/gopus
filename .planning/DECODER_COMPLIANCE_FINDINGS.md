@@ -1,22 +1,22 @@
 # Decoder Compliance Investigation Findings
 
-## Status: 7/12 test vectors passing, need Q >= 0 (SNR >= 48 dB)
+## Status: 9/12 test vectors passing, need Q >= 0 (SNR >= 48 dB)
 
 ### Current Results (2026-01-30):
 | Vector | Mode | Q Value | Status |
 |--------|------|---------|--------|
-| tv01 | SILK mono | 115.00 | ✅ PASS |
-| tv02 | Hybrid mono | 1.57 | ✅ PASS |
-| tv03 | CELT mono | 44.19 | ✅ PASS |
-| tv04 | SILK stereo | 28.56 | ✅ PASS |
-| tv05 | Hybrid stereo | 3.50 | ✅ PASS |
-| tv06 | Hybrid FB stereo | -3.48 | ❌ FAIL (close!) |
-| tv07 | CELT multisize | -40.02 | ❌ FAIL |
+| tv01 | CELT stereo | 115.00 | ✅ PASS |
+| tv02 | SILK mono | 1.57 | ✅ PASS |
+| tv03 | SILK mono | 44.19 | ✅ PASS |
+| tv04 | SILK mono | 28.56 | ✅ PASS |
+| tv05 | Hybrid mono | 34.14 | ✅ PASS |
+| tv06 | Hybrid FB stereo | 122.32 | ✅ PASS (FIXED!) |
+| tv07 | CELT multisize | 50.76 | ✅ PASS (FIXED!) |
 | tv08 | Mixed stereo | -92.46 | ❌ FAIL |
 | tv09 | CELT stereo | -84.64 | ❌ FAIL |
-| tv10 | Mixed stereo | 27.56 | ✅ PASS |
-| tv11 | SILK transitions | 116.92 | ✅ PASS |
-| tv12 | Complex transitions | -32.07 | ❌ FAIL |
+| tv10 | Mixed stereo | 27.59 | ✅ PASS |
+| tv11 | CELT stereo | 116.92 | ✅ PASS |
+| tv12 | Complex transitions | -32.06 | ❌ FAIL |
 
 ## ⚠️ DO NOT INVESTIGATE AGAIN (Quick Reference)
 
@@ -90,7 +90,20 @@
 - **gopus:** reads [0,8,16...952] - same set of indices
 - **Conclusion:** Coefficient extraction is correct
 
-## PROVEN TO BE THE ISSUE
+## FIXED ISSUES
+
+### TV07: quantBandN1 Lowband Output Scaling (FIXED 2026-01-30)
+- **Bug:** gopus divided lowbandOut by 16.0 for n=1 bands
+- **Root cause:** Misinterpreted libopus's `SHR32(X[0],4)` - in floating-point mode, `SHR32` is a no-op!
+- **Fix:** Changed `lowbandOut[0] = x0[0] / 16.0` to `lowbandOut[0] = x0[0]`
+- **Impact:** TV07 went from Q=-40.05 to Q=+50.76 (PASS!)
+- **File:** `internal/celt/bands_quant.go` line 1102
+
+This bug affected all frames with n=1 bands (single MDCT bin bands), causing incorrect
+lowband folding for subsequent bands. LM=0 (2.5ms) frames are especially affected since
+bands 0-7 all have width=1 at that frame size.
+
+## PROVEN TO BE THE ISSUE (HISTORICAL)
 
 ### Transient Frame Short Block Synthesis
 - **Packet 60 (normal):** state_err=3.5e-5, SNR=138 dB
@@ -201,8 +214,26 @@ The error accumulates through the short-block overlap-add process:
 1. ✅ Transition audio uses `d.prevMode` (decoder_opus_frame.go:321)
 2. ✅ CELT channel transitions copy energy arrays (internal/celt/decoder.go)
 3. ✅ TF analysis enabled for LM=0 (internal/celt/tf.go, encode_frame.go)
+4. ✅ **DecodeEnergyFinaliseRange for Hybrid mode** (internal/celt/energy.go, decoder.go)
 
 ## FIXES APPLIED (Jan 2026)
+
+### 4. Hybrid Mode DecodeEnergyFinalise Start Band Fix ✅ (TV06 FIX!)
+- **Files:** `internal/celt/energy.go`, `internal/celt/decoder.go`
+- **Issue:** `DecodeEnergyFinalise` looped from band 0, but in Hybrid mode should loop from band 17 (HybridCELTStartBand)
+- **Root Cause:** libopus `unquant_energy_finalise()` takes `start` and `end` parameters: `for (i=start;i<end && bits_left>=C ;i++)`
+- **Problem:** In hybrid mode with start=17:
+  - `fineQuant[0..16] = 0` (never allocated)
+  - `finePriority[0..16] = 0` (never set)
+  - Check `fineQuant[band] >= 8 || finePriority[band] != prio` → `0 >= 8` is FALSE, `0 != 0` is FALSE when prio=0
+  - So bands 0-16 were NOT skipped, causing 17×2 = 34 extra bits decoded (stereo), corrupting range decoder!
+- **Fix:** Added `DecodeEnergyFinaliseRange(start, end, ...)` that loops from `start` to `end`
+- **Impact:**
+  - testvector06: Q=-3.48 → Q=122.32 (+125 dB improvement!)
+  - testvector05: Q=3.50 → Q=34.14 (+30 dB improvement!)
+- **Why it caused ~10% gain:** Corrupted range decoder state affected subsequent PVQ decoding
+
+
 
 ### 1. Transition Audio Mode Fix ✅
 - **File:** `decoder_opus_frame.go` line 321

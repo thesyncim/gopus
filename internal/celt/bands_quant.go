@@ -1099,7 +1099,9 @@ func quantBandN1(ctx *bandCtx, x, y []float64, b int, lowbandOut []float64) int 
 		}
 	}
 	if lowbandOut != nil && len(lowbandOut) > 0 {
-		lowbandOut[0] = x0[0] / 16.0
+		// In floating-point mode, libopus's SHR32(X[0],4) is a no-op,
+		// so we just copy the value directly without any scaling.
+		lowbandOut[0] = x0[0]
 	}
 	return 1
 }
@@ -1268,6 +1270,11 @@ func quantBandStereo(ctx *bandCtx, x, y []float64, n, b, B int, lowband []float6
 			tmp = x[1]
 			x[1] = tmp - y[1]
 			y[1] = tmp + y[1]
+			// Apply inv negation (same as common resynth path)
+			if sctx.inv != 0 {
+				y[0] = -y[0]
+				y[1] = -y[1]
+			}
 		}
 		return cm
 	}

@@ -494,14 +494,25 @@ func (d *Decoder) DecodeEnergyRemainderWithDecoder(rd *rangecoding.Decoder, ener
 
 // DecodeEnergyFinalise consumes leftover bits for additional energy refinement.
 // This mirrors libopus unquant_energy_finalise().
+// For non-hybrid mode, use start=0.
 func (d *Decoder) DecodeEnergyFinalise(energies []float64, nbBands int, fineQuant []int, finePriority []int, bitsLeft int) {
+	d.DecodeEnergyFinaliseRange(0, nbBands, energies, fineQuant, finePriority, bitsLeft)
+}
+
+// DecodeEnergyFinaliseRange consumes leftover bits for energy refinement in range [start, end).
+// This mirrors libopus unquant_energy_finalise() which takes both start and end parameters.
+// For hybrid mode, start should be HybridCELTStartBand (17).
+func (d *Decoder) DecodeEnergyFinaliseRange(start, end int, energies []float64, fineQuant []int, finePriority []int, bitsLeft int) {
 	if d.rangeDecoder == nil {
 		return
 	}
-	if nbBands > MaxBands {
-		nbBands = MaxBands
+	if end > MaxBands {
+		end = MaxBands
 	}
-	if nbBands <= 0 {
+	if start < 0 {
+		start = 0
+	}
+	if end <= start {
 		return
 	}
 	if bitsLeft < 0 {
@@ -509,14 +520,14 @@ func (d *Decoder) DecodeEnergyFinalise(energies []float64, nbBands int, fineQuan
 	}
 
 	for prio := 0; prio < 2; prio++ {
-		for band := 0; band < nbBands && bitsLeft >= d.channels; band++ {
+		for band := start; band < end && bitsLeft >= d.channels; band++ {
 			if fineQuant[band] >= maxFineBits || finePriority[band] != prio {
 				continue
 			}
 			for c := 0; c < d.channels; c++ {
 				q2 := d.rangeDecoder.DecodeRawBits(1)
 				offset := (float64(q2) - 0.5) / float64(uint(1)<<(fineQuant[band]+1))
-				idx := c*nbBands + band
+				idx := c*end + band
 				if idx < len(energies) {
 					energies[idx] += offset * DB6
 					traceEnergyFinal(band, c, energies[idx])

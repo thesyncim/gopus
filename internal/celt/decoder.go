@@ -1754,7 +1754,9 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	traceRange("anticollapse", rd)
 
 	bitsLeft := totalBits - rd.Tell()
-	d.DecodeEnergyFinalise(energies, end, fineQuant, finePriority, bitsLeft)
+	// Use DecodeEnergyFinaliseRange with start=HybridCELTStartBand to match libopus.
+	// libopus unquant_energy_finalise() loops from start to end, not from 0.
+	d.DecodeEnergyFinaliseRange(start, end, energies, fineQuant, finePriority, bitsLeft)
 	traceRange("finalise", rd)
 
 	if antiCollapseOn {
@@ -2019,7 +2021,8 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	traceRange("anticollapse", rd)
 
 	bitsLeft := totalBits - rd.Tell()
-	d.DecodeEnergyFinalise(monoEnergies, end, fineQuant, finePriority, bitsLeft)
+	// Use DecodeEnergyFinaliseRange with start=HybridCELTStartBand to match libopus.
+	d.DecodeEnergyFinaliseRange(start, end, monoEnergies, fineQuant, finePriority, bitsLeft)
 	traceRange("finalise", rd)
 
 	if antiCollapseOn {
@@ -2251,7 +2254,8 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	traceRange("anticollapse", rd)
 
 	bitsLeft := totalBits - rd.Tell()
-	d.DecodeEnergyFinalise(energies, end, fineQuant, finePriority, bitsLeft)
+	// Use DecodeEnergyFinaliseRange with start=HybridCELTStartBand to match libopus.
+	d.DecodeEnergyFinaliseRange(start, end, energies, fineQuant, finePriority, bitsLeft)
 	traceRange("finalise", rd)
 
 	if antiCollapseOn {
