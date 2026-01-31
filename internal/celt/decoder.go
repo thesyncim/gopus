@@ -91,6 +91,13 @@ type Decoder struct {
 	scratchCaps            []int
 	scratchAllocWork       []int
 	scratchBands           bandDecodeScratch
+	scratchIMDCT           imdctScratch
+	scratchSynth           []float64
+	scratchSynthR          []float64
+	scratchStereo          []float64
+	scratchShortCoeffs     []float64
+	postfilterScratch      []float64
+	scratchZeros           []float64
 }
 
 // NewDecoder creates a new CELT decoder with the given number of channels.
@@ -889,7 +896,10 @@ func (d *Decoder) decodeSpread() int {
 // decodeSilenceFrame returns zeros for a silence frame.
 func (d *Decoder) decodeSilenceFrame(frameSize int, newPeriod int, newGain float64, newTapset int) []float64 {
 	mode := GetModeConfig(frameSize)
-	zeros := make([]float64, frameSize)
+	zeros := ensureFloat64Slice(&d.scratchZeros, frameSize)
+	for i := range zeros {
+		zeros[i] = 0
+	}
 	var samples []float64
 	if d.channels == 2 {
 		samples = d.SynthesizeStereo(zeros, zeros, false, 1)
@@ -897,7 +907,7 @@ func (d *Decoder) decodeSilenceFrame(frameSize int, newPeriod int, newGain float
 		samples = d.Synthesize(zeros, false, 1)
 	}
 	if len(samples) == 0 {
-		samples = make([]float64, frameSize*d.channels)
+		return nil
 	}
 
 	d.applyPostfilter(samples, frameSize, mode.LM, newPeriod, newGain, newTapset)

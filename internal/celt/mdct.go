@@ -213,9 +213,30 @@ func imdctOverlapWithPrev(spectrum []float64, prevOverlap []float64, overlap int
 		overlap = 0
 	}
 
+	out := make([]float64, n2+overlap)
+	imdctOverlapWithPrevScratch(out, spectrum, prevOverlap, overlap, nil)
+	return out
+}
+
+func imdctOverlapWithPrevScratch(out []float64, spectrum []float64, prevOverlap []float64, overlap int, scratch *imdctScratch) {
+	n2 := len(spectrum)
+	if n2 == 0 {
+		return
+	}
+	if overlap < 0 {
+		overlap = 0
+	}
+
 	n := n2 * 2
 	n4 := n2 / 2
-	out := make([]float64, n2+overlap)
+	needed := n2 + overlap
+	if len(out) < needed {
+		return
+	}
+	// Clear output; preserves no stale data.
+	for i := 0; i < needed; i++ {
+		out[i] = 0
+	}
 
 	// Copy the full prevOverlap to out[0:overlap].
 	// The IMDCT will overwrite out[overlap/2:...], but the TDAC needs
@@ -227,7 +248,18 @@ func imdctOverlapWithPrev(spectrum []float64, prevOverlap []float64, overlap int
 
 	trig := getMDCTTrig(n)
 
-	fftIn := make([]complex128, n4)
+	var fftIn []complex128
+	var fftOut []complex128
+	var buf []float64
+	if scratch == nil {
+		fftIn = make([]complex128, n4)
+		fftOut = make([]complex128, n4)
+		buf = make([]float64, n2)
+	} else {
+		fftIn = ensureComplexSlice(&scratch.fftIn, n4)
+		fftOut = ensureComplexSlice(&scratch.fftOut, n4)
+		buf = ensureFloat64Slice(&scratch.buf, n2)
+	}
 	for i := 0; i < n4; i++ {
 		x1 := spectrum[2*i]
 		x2 := spectrum[n2-1-2*i]
@@ -239,8 +271,7 @@ func imdctOverlapWithPrev(spectrum []float64, prevOverlap []float64, overlap int
 		fftIn[i] = complex(yi, yr)
 	}
 
-	fftOut := dft(fftIn)
-	buf := make([]float64, n2)
+	dftTo(fftOut, fftIn)
 	for i := 0; i < n4; i++ {
 		v := fftOut[i]
 		buf[2*i] = real(v)
@@ -307,7 +338,7 @@ func imdctOverlapWithPrev(spectrum []float64, prevOverlap []float64, overlap int
 	// - out[n2+overlap/2:n2+overlap] = zeros (will be overwritten by next IMDCT's first overlap/2)
 	//
 	// This is correct - the zeros will be replaced during the next frame's IMDCT.
-	return out
+	// Output is already in out.
 }
 
 // imdctInPlace performs IMDCT directly into a shared output buffer at the given offset.
@@ -322,6 +353,10 @@ func imdctOverlapWithPrev(spectrum []float64, prevOverlap []float64, overlap int
 //   - blockStart: starting position in out for this block
 //   - overlap: overlap size (typically 120 for CELT at 48kHz)
 func imdctInPlace(spectrum []float64, out []float64, blockStart, overlap int) {
+	imdctInPlaceScratch(spectrum, out, blockStart, overlap, nil)
+}
+
+func imdctInPlaceScratch(spectrum []float64, out []float64, blockStart, overlap int, scratch *imdctScratch) {
 	n2 := len(spectrum)
 	if n2 == 0 {
 		return
@@ -336,7 +371,18 @@ func imdctInPlace(spectrum []float64, out []float64, blockStart, overlap int) {
 	trig := getMDCTTrig(n)
 
 	// Pre-rotate with twiddles
-	fftIn := make([]complex128, n4)
+	var fftIn []complex128
+	var fftOut []complex128
+	var buf []float64
+	if scratch == nil {
+		fftIn = make([]complex128, n4)
+		fftOut = make([]complex128, n4)
+		buf = make([]float64, n2)
+	} else {
+		fftIn = ensureComplexSlice(&scratch.fftIn, n4)
+		fftOut = ensureComplexSlice(&scratch.fftOut, n4)
+		buf = ensureFloat64Slice(&scratch.buf, n2)
+	}
 	for i := 0; i < n4; i++ {
 		x1 := spectrum[2*i]
 		x2 := spectrum[n2-1-2*i]
@@ -348,10 +394,9 @@ func imdctInPlace(spectrum []float64, out []float64, blockStart, overlap int) {
 	}
 
 	// FFT
-	fftOut := dft(fftIn)
+	dftTo(fftOut, fftIn)
 
 	// Post-rotate
-	buf := make([]float64, n2)
 	for i := 0; i < n4; i++ {
 		v := fftOut[i]
 		buf[2*i] = real(v)
@@ -618,6 +663,21 @@ func dft(x []complex128) []complex128 {
 	}
 
 	out := make([]complex128, n)
+	dftTo(out, x)
+	return out
+}
+
+func dftTo(out []complex128, x []complex128) {
+	n := len(x)
+	if n <= 1 {
+		if len(out) > 0 && len(x) > 0 {
+			out[0] = x[0]
+		}
+		return
+	}
+	if len(out) < n {
+		return
+	}
 	twoPi := -2.0 * math.Pi / float64(n)
 	for k := 0; k < n; k++ {
 		angle := twoPi * float64(k)
@@ -630,7 +690,6 @@ func dft(x []complex128) []complex128 {
 		}
 		out[k] = sum
 	}
-	return out
 }
 
 func dft32(x []complex64) []complex64 {
