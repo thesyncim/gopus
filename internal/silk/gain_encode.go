@@ -112,6 +112,41 @@ func computeLogGainIndex(gain float32) int {
 	return lo
 }
 
+// computeLogGainIndexQ16 converts Q16 gain directly to log gain index [0, 63].
+// This is a Q16 variant of computeLogGainIndex for fixed-point processing.
+func computeLogGainIndexQ16(gainQ16 int32) int {
+	// Clamp to table range
+	if gainQ16 < GainDequantTable[0] {
+		return 0
+	}
+	if gainQ16 >= GainDequantTable[63] {
+		return 63
+	}
+
+	// Binary search for closest index
+	// GainDequantTable is sorted in increasing order
+	lo, hi := 0, 63
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if GainDequantTable[mid] <= gainQ16 {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+
+	// Check if next index is closer
+	if lo < 63 {
+		diffLo := absInt32(GainDequantTable[lo] - gainQ16)
+		diffHi := absInt32(GainDequantTable[lo+1] - gainQ16)
+		if diffHi < diffLo {
+			return lo + 1
+		}
+	}
+
+	return lo
+}
+
 // computeFirstFrameGainIndex computes gain index for first frame encoding.
 // Reverses the limiter: logGain = max(0, gainIndex - 2*max(0, gainIndex - 16))
 func (e *Encoder) computeFirstFrameGainIndex(targetLogGain int) int {

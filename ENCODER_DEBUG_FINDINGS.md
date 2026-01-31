@@ -769,6 +769,86 @@ Signal correlation improved from -0.1 to +0.30. The encoder now produces usable 
 
 ---
 
+### Dynalloc Offsets Fix (Agent 14)
+
+**Date**: 2026-01-31
+**Worktree**: `/Users/thesyncim/GolandProjects/gopus-worktrees/agent-14`
+**Branch**: `fix-agent-14`
+
+#### Summary
+
+Fixed critical bug where computed dynalloc offsets were being ignored, meaning bands that needed extra bits weren't getting them.
+
+#### Files Modified
+
+1. **`internal/celt/encode_frame.go`** - Dynalloc encoding loop
+   - **Line 436**: Changed `offsets := make([]int, nbBands)` to `offsets := dynallocResult.Offsets`
+   - **Lines 445-492**: Rewrote dynalloc encoding loop to match libopus exactly:
+     - Computes width and quanta per band
+     - Encodes multiple 1-bits (boost) for bands where `j < offsets[i]`
+     - Properly updates `dynallocLogp` when boost is used
+     - Updates offsets with actual boost for allocation computation
+   - **Line 497**: Fixed trim budget check to subtract `totalBoost`
+
+2. **`internal/silk/gain_encode.go`** - Added missing function
+   - Added `computeLogGainIndexQ16()` function (build fix for pre-existing issue)
+
+#### Root Cause Analysis
+
+The encoder was computing dynalloc offsets via `DynallocAnalysis()` at line 336 but then creating a new all-zero `offsets` array at line 435 (old code). This meant:
+
+1. `dynallocResult.Offsets` contained the computed boost values for each band
+2. The encoding loop only ever saw zeros
+3. All bands received only a single 0-bit (no boost)
+4. Bands that needed extra bits (high energy variance) didn't get them
+
+#### libopus Reference
+
+The correct encoding loop from `celt/celt_encoder.c` lines 2360-2389:
+
+```c
+for (i=start;i<end;i++)
+{
+   int width, quanta;
+   int dynalloc_loop_logp;
+   int boost;
+   width = C*(eBands[i+1]-eBands[i])<<LM;
+   quanta = IMIN(width<<BITRES, IMAX(6<<BITRES, width));
+   dynalloc_loop_logp = dynalloc_logp;
+   boost = 0;
+   for (j = 0; tell+(dynalloc_loop_logp<<BITRES) < total_bits-total_boost
+         && boost < cap[i]; j++)
+   {
+      int flag;
+      flag = j<offsets[i];  // <-- Key: uses computed offsets
+      ec_enc_bit_logp(enc, flag, dynalloc_loop_logp);
+      tell = ec_tell_frac(enc);
+      if (!flag)
+         break;
+      boost += quanta;
+      total_boost += quanta;
+      dynalloc_loop_logp = 1;
+   }
+   if (j)
+      dynalloc_logp = IMAX(2, dynalloc_logp-1);
+   offsets[i] = boost;  // Store actual boost back
+}
+```
+
+#### Test Results
+
+All tests pass:
+- `TestBitExactComparison` - PASS
+- `TestAllocationEncodeDecodeRoundTrip` - PASS
+- `TestDynallocEdgeCases` - PASS
+- Core CELT tests - PASS
+
+#### Status: Fix Applied and Verified
+
+The dynalloc encoding now correctly uses the computed offsets from `DynallocAnalysis()`. Bands with high energy variance will now receive extra bits as intended. The bitstream still diverges from libopus at other points due to additional encoder issues (TF analysis, spread decision, etc.), but the dynalloc encoding itself is now correct.
+
+---
+
 ## Merge Protocol
 When a fix is verified:
 1. Ensure all tests pass in the worktree
