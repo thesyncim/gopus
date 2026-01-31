@@ -26,27 +26,40 @@
 ### Components Verified CORRECT (No Bugs Found)
 | Component | Agent | Finding |
 |-----------|-------|---------|
-| Range Coder | 1 | Bit-exact with libopus. All primitive operations match. |
-| CWRS/PVQ | 3 | 329+ tests pass. Algorithms match libopus exactly. |
-| Band Allocation | 4 | Budget respected. Tables match libopus. |
+| Range Coder | 1, 29 | Bit-exact with libopus. All primitive operations match. Large uniform (V>2^24) verified. |
+| CWRS/PVQ | 3, 27 | 329+ tests pass. PVQ search matches exactly. CWRS encoding roundtrips correctly. |
+| Band Allocation | 4, 26 | Budget respected. bits[], fineBits[], finePriority[], pulses all match libopus exactly. |
 | MDCT | 6 | SNR > 138dB vs libopus. Window functions correct. |
-| TF Analysis | 7 | Viterbi algorithm correct. Tables match. |
-| Spread Decision | 8 | Thresholds, hysteresis, ICDF match libopus. |
+| TF Encoding | 7, 20 | Viterbi algorithm correct. Tables match. TF encoding primitive verified. |
+| Spread Decision | 8, 22 | Thresholds, hysteresis, ICDF match libopus. Encoding verified correct. |
 | Pre-emphasis | 8 | Formula correct: y[n] = x[n] - 0.85*x[n-1] |
 | Band Energy | 11 | Formula correct: log2(sqrt(sum(x^2)+eps)). eMeans/EBands match. |
-| Band Allocation | 26 | bits[], fineBits[], finePriority[], pulses all match libopus exactly. |
+| Fine Energy | 21 | Quantization formula matches libopus. All CGO tests pass. |
+| Coarse Energy | 23 | Laplace encoding verified correct. QI values match when same input. |
+| Header Flags | 23 | silence, postfilter, transient, intra all encode correctly. |
+| Bit Budget | 25 | CBR packet size matches (159 bytes). Formulas verified correct. |
+| Normalized Coeffs | 30 | Band normalization for TF analysis matches libopus exactly (0.00% diff). |
 
-### Root Causes Identified
+### Root Causes Identified & Fixed
 1. **SILK ICDF Tables (FIXED)** - Agent 5: Signal correlation improved -0.10 → +0.30
 2. **Laplace Encoding (FIXED)** - Agent 2: Use EncodeBin instead of Encode
 3. **Dynalloc Offsets Not Used (FIXED)** - Agent 17: Fixed boost encoding to use dynallocResult.Offsets
-4. **Allocation Trim Hardcoded** - Agent 9: Always 5 instead of dynamic 0-10
-5. **Transient Detection Mismatch** - Agent 12: Frame 0 transient flag differs from libopus
+4. **Transient Detection (FIXED)** - Agent 16: Added PatchTransientDecision() for Frame 0
+5. **Allocation Trim (FIXED)** - Agent 18: Dynamic allocation trim analysis
+6. **CBR Packet Size (FIXED)** - Agent 24: Added Shrink() to range encoder for consistent CBR sizes
+7. **Test Harness (FIXED)** - Agent 29: Fixed pack_ec_enc() padding byte calculation
 
-### Remaining Investigation
-- Signal path producing different band energies in Frame 0
-- Transient detection threshold tuning
-- Pre-emphasis state initialization for first frame
+### Current Divergence Point
+- **Byte 11 (~bit 88)** in TF encoding region
+- TF encoding primitive is CORRECT
+- TF **analysis** produces different tfRes values
+- Normalized coefficients are CORRECT (Agent 30 verified)
+- Issue likely in TF Viterbi cost computation or importance[] weights
+
+### Under Investigation (Agent 28)
+- tf_estimate calculation comparison
+- importance[] array computation
+- TF Viterbi path selection differences
 
 ## Debug Agents
 
@@ -65,6 +78,21 @@
 | agent-10 | gopus-worktrees/agent-10 | fix-agent-10 | Coarse Energy/State | ✅ Complete |
 | agent-11 | gopus-worktrees/agent-11 | fix-agent-11 | Band Energy | ✅ Complete |
 | agent-12 | gopus-worktrees/agent-12 | fix-agent-12 | Input Normalization | ✅ Complete |
+| agent-16 | gopus-worktrees/agent-16 | fix-agent-16 | Transient Detection | ✅ Complete (FIX) |
+| agent-17 | gopus-worktrees/agent-17 | fix-agent-17 | Dynalloc Offsets | ✅ Complete (FIX) |
+| agent-18 | gopus-worktrees/agent-18 | fix-agent-18 | Allocation Trim | ✅ Complete (FIX) |
+| agent-19 | gopus-worktrees/agent-19 | fix-agent-19 | Byte Analysis | ✅ Complete |
+| agent-20 | gopus-worktrees/agent-20 | fix-agent-20 | TF Encoding | ✅ Complete |
+| agent-21 | gopus-worktrees/agent-21 | fix-agent-21 | Fine Energy | ✅ Complete |
+| agent-22 | gopus-worktrees/agent-22 | fix-agent-22 | Spread Encoding | ✅ Complete |
+| agent-23 | gopus-worktrees/agent-23 | fix-agent-23 | Byte 7-9 Trace | ✅ Complete |
+| agent-24 | gopus-worktrees/agent-24 | fix-agent-24 | VBR/CBR Mode | ✅ Complete (FIX) |
+| agent-25 | gopus-worktrees/agent-25 | fix-agent-25 | Bit Budget | ✅ Complete |
+| agent-26 | gopus-worktrees/agent-26 | fix-agent-26 | Band Allocation | ✅ Complete |
+| agent-27 | gopus-worktrees/agent-27 | fix-agent-27 | PVQ Encoding | ✅ Complete |
+| agent-28 | gopus-worktrees/agent-28 | fix-agent-28 | TF Analysis Inputs | 🔄 Running |
+| agent-29 | gopus-worktrees/agent-29 | fix-agent-29 | Range Encoder Uniform | ✅ Complete (FIX) |
+| agent-30 | gopus-worktrees/agent-30 | fix-agent-30 | Normalized Coeffs | ✅ Complete |
 | agent-25 | gopus-worktrees/agent-25 | fix-agent-25 | Bit Budget Calculations | ✅ Complete |
 
 ---
