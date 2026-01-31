@@ -632,3 +632,9 @@ func tfDecode(start, end int, isTransient bool, tfRes []int, lm int, rd *rangeco
 		}
 	}
 }
+
+// TFDecodeForTest exposes tfDecode for cross-package tests (e.g., CGO comparisons).
+// It should not be used in production code.
+func TFDecodeForTest(start, end int, isTransient bool, tfRes []int, lm int, rd *rangecoding.Decoder) {
+	tfDecode(start, end, isTransient, tfRes, lm, rd)
+}

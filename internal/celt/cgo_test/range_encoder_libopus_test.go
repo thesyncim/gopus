@@ -23,6 +23,7 @@ func TestRangeEncoderUniformMatchesLibopus(t *testing.T) {
 		{"multiple_same", []uint32{1, 2, 3}, []uint32{4, 4, 4}},
 		{"multiple_different", []uint32{1, 3, 7}, []uint32{2, 4, 8}},
 		{"larger_range", []uint32{100}, []uint32{256}},
+		{"pvq_v_8_4", []uint32{220}, []uint32{2816}},
 		{"zero", []uint32{0}, []uint32{4}},
 	}
 

@@ -187,6 +187,48 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	// Step 6: Compute band energies
 	energies := e.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
+
+	// Pre-compute target bits for later budget checks.
+	targetBits := e.computeTargetBits(frameSize)
+
+	// Step 6.5: Patch transient decision based on spectral changes (libopus).
+	// This can flip a non-transient decision to transient and forces short blocks.
+	start := 0
+	if lm > 0 && !transient && e.complexity >= 5 && !e.IsHybrid() && targetBits >= 3 {
+		if patchTransientDecision(energies, e.prevEnergy, nbBands, start, nbBands, e.channels) {
+			transient = true
+			shortBlocks = mode.ShortBlocks
+			// Recompute MDCT with short blocks
+			if e.channels == 1 {
+				mdctCoeffs = e.computeMDCTWithOverlap(preemph, shortBlocks)
+			} else {
+				left, right := DeinterleaveStereo(preemph)
+				overlap := Overlap
+				if overlap > frameSize {
+					overlap = frameSize
+				}
+				if len(e.overlapBuffer) < 2*overlap {
+					newBuf := make([]float64, 2*overlap)
+					if len(e.overlapBuffer) > 0 {
+						copy(newBuf, e.overlapBuffer)
+					}
+					e.overlapBuffer = newBuf
+				}
+				leftHistory := e.overlapBuffer[:overlap]
+				rightHistory := e.overlapBuffer[overlap : 2*overlap]
+				mdctLeft = ComputeMDCTWithHistory(left, leftHistory, shortBlocks)
+				mdctRight = ComputeMDCTWithHistory(right, rightHistory, shortBlocks)
+				mdctCoeffs = make([]float64, len(mdctLeft)+len(mdctRight))
+				copy(mdctCoeffs[:len(mdctLeft)], mdctLeft)
+				copy(mdctCoeffs[len(mdctLeft):], mdctRight)
+			}
+			energies = e.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
+			// Per libopus, use a small transient bias for TF analysis.
+			tfEstimate = 0.2
+		}
+	}
+
+	// Compute linear band energies (for stereo decisions, PVQ resynth).
 	bandE := make([]float64, nbBands*e.channels)
 	for c := 0; c < e.channels; c++ {
 		for band := 0; band < nbBands; band++ {
@@ -210,7 +252,6 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	// Step 7: Initialize range encoder with bitrate-derived size
 	// ... (no changes here) ...
-	targetBits := e.computeTargetBits(frameSize)
 	e.frameBits = targetBits
 	defer func() { e.frameBits = 0 }()
 	bufSize := (targetBits + 7) / 8
@@ -251,8 +292,6 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		// tell != 1: don't encode silence flag, force silence to false
 		isSilence = false
 	}
-	start := 0
-
 	// Postfilter flag: only encode if start==0, NOT in hybrid mode, and budget allows
 	// Reference: libopus celt_encoder.c line 2047-2048
 	// if(!hybrid && tell+16<=total_bits) ec_enc_bit_logp(enc, 0, 1);

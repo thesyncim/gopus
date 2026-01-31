@@ -19,8 +19,11 @@ func SilkSMULWBExport(a, b int32) int32 {
 }
 
 // ComputeLogGainIndexQ16Export exposes the Q16 gain quantization for testing
+// Converts Q16 to float32 and calls computeLogGainIndex which uses binary search
 func ComputeLogGainIndexQ16Export(gainQ16 int32) int {
-	return computeLogGainIndexQ16(gainQ16)
+	// Convert Q16 back to float: gainQ16 / 65536.0
+	gain := float32(gainQ16) / 65536.0
+	return computeLogGainIndex(gain)
 }
 
 // ComputeLogGainIndexExport exposes the float gain quantization for testing

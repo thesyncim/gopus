@@ -26,6 +26,9 @@ void opus_set_debug_range(int v) {
     opus_debug_range = v;
 }
 
+// Forward declaration for packing range encoder output.
+static int pack_ec_enc(ec_enc *enc);
+
 // Flush all stdio streams (useful for trace capture).
 void opus_flush_stdio(void) {
     fflush(NULL);
@@ -155,7 +158,7 @@ int test_laplace_encode(unsigned char *out_buf, int max_size, int val, unsigned 
     ec_laplace_encode(&enc, &in_val, fs, decay);
     *out_val = in_val;  // Return the possibly-clamped value
     ec_enc_done(&enc);
-    *out_len = enc.offs + enc.end_offs;
+    *out_len = pack_ec_enc(&enc);
     return enc.error;
 }
 
@@ -173,7 +176,7 @@ int test_laplace_encode_sequence(unsigned char *out_buf, int max_size,
     }
 
     ec_enc_done(&enc);
-    *out_len = enc.offs + enc.end_offs;
+    *out_len = pack_ec_enc(&enc);
     return enc.error;
 }
 
@@ -1217,6 +1220,31 @@ float test_op_pvq_search(float *X, int *iy, int K, int N) {
 
 #include "entenc.h"
 
+// Pack libopus range-encoder output into a contiguous buffer.
+// This mirrors gopus's Encoder.Done() packing: [range bytes][pad byte if needed][end bytes].
+// Returns the packed length in bytes.
+static int pack_ec_enc(ec_enc *enc) {
+    int used = enc->nend_bits;
+    int pad = used > 0 ? 1 : 0;
+    int offs = (int)enc->offs;
+    int end_offs = (int)enc->end_offs;
+
+    if (pad) {
+        int idx = (int)enc->storage - end_offs - 1;
+        if (idx >= 0 && idx < (int)enc->storage) {
+            enc->buf[offs] = enc->buf[idx];
+        }
+    }
+
+    if (end_offs > 0) {
+        memmove(enc->buf + offs + pad,
+                enc->buf + ((int)enc->storage - end_offs),
+                end_offs);
+    }
+
+    return offs + end_offs + pad;
+}
+
 // Test range encoder: encode a sequence of uniform values and return the bytes
 int test_encode_uniform_sequence(unsigned char *out_buf, int max_size,
                                   unsigned int *vals, unsigned int *fts, int count,
@@ -1229,8 +1257,7 @@ int test_encode_uniform_sequence(unsigned char *out_buf, int max_size,
     }
 
     ec_enc_done(&enc);
-    // Total length is offs + end_offs (range coded data + raw bits)
-    *out_len = enc.offs + enc.end_offs;
+    *out_len = pack_ec_enc(&enc);
     return enc.error;
 }
 
@@ -1243,7 +1270,7 @@ int test_encode_pulses_to_bytes(unsigned char *out_buf, int max_size,
     encode_pulses(pulses, n, k, &enc);
 
     ec_enc_done(&enc);
-    *out_len = enc.offs + enc.end_offs;
+    *out_len = pack_ec_enc(&enc);
     return enc.error;
 }
 

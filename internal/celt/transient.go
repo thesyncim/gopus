@@ -238,7 +238,9 @@ func (e *Encoder) TransientAnalysis(pcm []float64, frameSize int, allowWeakTrans
 			mem00 := mem0
 			mem0 = mem0 - x + 0.5*mem1
 			mem1 = x - mem00
-			tmp[i] = y * 0.25 // SROUND16(y, 2) equivalent
+			// In float builds, SROUND16 is a no-op (see libopus arch.h),
+			// so we should not scale the high-pass output.
+			tmp[i] = y
 		}
 
 		// Clear first few samples (filter warm-up)
@@ -284,12 +286,14 @@ func (e *Encoder) TransientAnalysis(pcm []float64, frameSize int, allowWeakTrans
 		mean = math.Sqrt(mean * maxE * 0.5 * float64(len2))
 
 		// Inverse of mean energy (with epsilon to avoid division by zero)
-		// Match libopus FLOAT scaling:
+		// libopus FLOAT path uses:
 		//   norm = SHL32(len2, 6+14) / (EPSILON + SHR32(mean,1))
-		// which is: norm = len2 * 2^20 / (EPSILON + mean/2)
-		// This scaling is critical; omitting it inflates the mask metric.
+		// but SHL32/SHR32 are no-ops in float builds, so:
+		//   norm = len2 / (EPSILON + mean/2)
+		// Using the fixed-point scaling here would over-normalize and
+		// suppress the mask metric.
 		epsilon := 1e-15
-		norm := (float64(len2) * (1 << 20)) / (mean*0.5 + epsilon)
+		norm := float64(len2) / (mean*0.5 + epsilon)
 
 		// Compute harmonic mean using inverse table
 		// Skip unreliable boundaries, sample every 4th point
@@ -455,6 +459,120 @@ func (e *Encoder) DetectTransient(pcm []float64, frameSize int) bool {
 
 	// Return true if any adjacent block ratio exceeds threshold
 	return maxRatio > TransientThreshold
+}
+
+// patchTransientDecision implements libopus's secondary transient check based on band energies.
+// This is a "last chance" detector that can flip a non-transient decision to transient
+// when spectral changes indicate a sudden attack.
+// Reference: libopus celt_encoder.c patch_transient_decision()
+func patchTransientDecision(newE, oldE []float64, nbBands, start, end, channels int) bool {
+	if nbBands <= 0 || channels <= 0 {
+		return false
+	}
+	if start < 0 {
+		start = 0
+	}
+	if end > nbBands {
+		end = nbBands
+	}
+	if end-start < 3 {
+		return false
+	}
+
+	// Determine old energy stride (gopus stores prev energies in MaxBands stride).
+	oldStride := nbBands
+	if len(oldE) >= MaxBands*channels {
+		oldStride = MaxBands
+	}
+
+	getOld := func(c, band int) float64 {
+		idx := c*oldStride + band
+		if idx >= 0 && idx < len(oldE) {
+			return oldE[idx]
+		}
+		return 0
+	}
+	getNew := func(c, band int) float64 {
+		idx := c*nbBands + band
+		if idx >= 0 && idx < len(newE) {
+			return newE[idx]
+		}
+		return 0
+	}
+
+	// Spread old energies with a -1 dB/Bark slope (aggressive).
+	spreadOld := make([]float64, end)
+	if channels == 1 {
+		spreadOld[start] = getOld(0, start)
+		for i := start + 1; i < end; i++ {
+			prev := spreadOld[i-1] - 1.0
+			val := getOld(0, i)
+			if prev > val {
+				spreadOld[i] = prev
+			} else {
+				spreadOld[i] = val
+			}
+		}
+	} else {
+		base := getOld(0, start)
+		alt := getOld(1, start)
+		if alt > base {
+			base = alt
+		}
+		spreadOld[start] = base
+		for i := start + 1; i < end; i++ {
+			val := getOld(0, i)
+			alt = getOld(1, i)
+			if alt > val {
+				val = alt
+			}
+			prev := spreadOld[i-1] - 1.0
+			if prev > val {
+				spreadOld[i] = prev
+			} else {
+				spreadOld[i] = val
+			}
+		}
+	}
+
+	for i := end - 2; i >= start; i-- {
+		prev := spreadOld[i+1] - 1.0
+		if prev > spreadOld[i] {
+			spreadOld[i] = prev
+		}
+	}
+
+	// Compute mean increase across bands and channels.
+	meanDiff := 0.0
+	count := 0
+	bandStart := start
+	if bandStart < 2 {
+		bandStart = 2
+	}
+	for c := 0; c < channels; c++ {
+		for i := bandStart; i < end-1; i++ {
+			x1 := getNew(c, i)
+			if x1 < 0 {
+				x1 = 0
+			}
+			x2 := spreadOld[i]
+			if x2 < 0 {
+				x2 = 0
+			}
+			diff := x1 - x2
+			if diff < 0 {
+				diff = 0
+			}
+			meanDiff += diff
+			count++
+		}
+	}
+	if count == 0 {
+		return false
+	}
+	meanDiff /= float64(count)
+
+	return meanDiff > 1.0
 }
 
 // DetectTransientWithCustomThreshold detects transients with a custom threshold.
