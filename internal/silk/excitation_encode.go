@@ -266,38 +266,26 @@ func (e *Encoder) selectOptimalRateLevel(sumPulses, nRshifts []int, signalType i
 // computeExcitation computes the LPC residual (excitation signal).
 // excitation[n] = input[n] - sum(lpc[k] * input[n-k-1])
 //
-// IMPORTANT: libopus expects input in Q0 format (int16 range: -32768 to 32767).
-// Since gopus uses normalized float32 [-1, 1], we must scale by 32768 before
-// computing the residual. This ensures the excitation pulses have proper magnitude.
-//
-// The excitation is computed WITHOUT gain scaling. The gain is encoded
-// separately and applied during decoding.
+// Note: The excitation is computed WITHOUT gain scaling. The gain is encoded
+// separately and applied during decoding. Dividing by gain here would cause
+// the decoder to apply gain twice (once during excitation reconstruction,
+// once during synthesis), resulting in incorrect signal levels.
 func (e *Encoder) computeExcitation(pcm []float32, lpcQ12 []int16, gain float32) []int32 {
 	n := len(pcm)
 	order := len(lpcQ12)
 	excitation := make([]int32, n)
 
-	// Scale factor: convert normalized float32 [-1, 1] to Q0 int16 range
-	// libopus operates on Q0 integers (int16), not normalized floats
-	const q0Scale = 32768.0
-
 	for i := 0; i < n; i++ {
-		// Scale input to Q0 range
-		inputQ0 := float64(pcm[i]) * q0Scale
-
-		// Compute LPC prediction in Q0 scale
-		// LPC coefficients are Q12, so: prediction = sum(lpc[k]/4096 * input[n-k-1])
-		// With Q0-scaled input: prediction = sum(lpc[k] * scaledInput[n-k-1]) / 4096
+		// Compute LPC prediction
 		var prediction float64
 		for k := 0; k < order && i-k-1 >= 0; k++ {
-			prevInputQ0 := float64(pcm[i-k-1]) * q0Scale
-			prediction += float64(lpcQ12[k]) * prevInputQ0 / 4096.0
+			prediction += float64(lpcQ12[k]) * float64(pcm[i-k-1]) / 4096.0
 		}
 
-		// Residual = scaled_input - prediction (both in Q0 scale)
-		residual := inputQ0 - prediction
+		// Residual = input - prediction
+		residual := float64(pcm[i]) - prediction
 
-		// Quantize residual to integer
+		// Quantize residual to integer (do NOT divide by gain - decoder applies gain)
 		excitation[i] = int32(math.Round(residual))
 	}
 
