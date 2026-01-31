@@ -34,6 +34,7 @@
 | Spread Decision | 8 | Thresholds, hysteresis, ICDF match libopus. |
 | Pre-emphasis | 8 | Formula correct: y[n] = x[n] - 0.85*x[n-1] |
 | Band Energy | 11 | Formula correct: log2(sqrt(sum(x^2)+eps)). eMeans/EBands match. |
+| Band Allocation | 26 | bits[], fineBits[], finePriority[], pulses all match libopus exactly. |
 
 ### Root Causes Identified
 1. **SILK ICDF Tables (FIXED)** - Agent 5: Signal correlation improved -0.10 → +0.30
@@ -2400,3 +2401,128 @@ These are expected differences when using VBR mode in gopus vs CBR in libopus.
 ### Status: TF ENCODING VERIFIED CORRECT
 
 The TF encoding implementation in gopus is correct. The previous test failures were due to incorrect ICDF tables in the test files. The fixes ensure accurate bitstream comparison going forward.
+
+---
+
+### Band Bit Allocation Investigation (Agent 26)
+
+**Date**: 2026-01-31
+**Worktree**: `/Users/thesyncim/GolandProjects/gopus-worktrees/agent-26`
+**Branch**: `fix-agent-26`
+
+#### Summary
+
+Investigated band bit allocation by comparing gopus `ComputeAllocation()` with libopus `clt_compute_allocation()` via CGO tests. **Found that allocation logic is CORRECT** - all arrays match exactly between implementations.
+
+#### Files Examined
+
+1. **`internal/celt/alloc.go`** - Main allocation logic
+   - `ComputeAllocation()` - base allocation computation
+   - `ComputeAllocationWithEncoder()` - encoding path with skip/intensity/dual-stereo
+   - `cltComputeAllocation()` - core bit allocation algorithm
+   - `interpBits2Pulses()` / `interpBits2PulsesEncode()` - pulse interpolation
+
+2. **`internal/celt/pulse_cache.go`** - Bits-to-pulses conversion
+   - `bitsToPulses()` - binary search on cache
+   - `getPulses()` - pseudo-pulse to actual pulse conversion
+   - `pulsesToBits()` - reverse lookup
+
+3. **`internal/celt/tables.go`** - Static tables
+   - `cacheIndex50` - pulse cache index mapping
+   - `cacheBits50` - pulse cache data
+
+4. **`internal/celt/cgo_test/alloc_libopus_test.go`** - CGO comparison tests
+
+#### Tests Created and Run
+
+1. **`TestBandAllocationComparison`** - Comprehensive allocation comparison
+   - Parameters tested: 20ms/10ms/2.5ms, mono/stereo, 64k/128k bitrates
+   - Compares: bits[], fineBits[], finePriority[], codedBands, balance
+   - **Result: ALL PASS - Exact match**
+
+2. **`TestBits2PulsesComparison`** - bits2pulses conversion verification
+   - Tests various band/lm/bitsQ3 combinations
+   - **Result: ALL PASS**
+
+3. **`TestAllocationCompare_VariousBitrates`** - Bitrate sweep
+   - Bitrates: 32k, 48k, 64k, 96k, 128k, 192k, 256k
+   - **Result: ALL PASS - 0 bands differ**
+
+4. **`TestAllocationCompare_Tables`** - Static table comparison
+   - EBands: 22 entries match
+   - LogN: 21 entries match
+   - BandAlloc: 11 vectors match
+   - cacheCaps: match
+   - **Result: ALL PASS**
+
+#### Key Findings
+
+##### 1. Allocation Arrays Match Exactly
+
+For 20ms mono 64kbps (totalBitsQ3=10240):
+```
+Band  |   lib_bits |    go_bits | lib_fine |  go_fine | lib_fp |  go_fp
+------+------------+------------+----------+----------+--------+--------
+0     |        256 |        256 |        3 |        3 |      0 |      0
+1     |        245 |        245 |        3 |        3 |      0 |      0
+...
+19    |       1371 |       1371 |        3 |        3 |      0 |      0
+20    |          0 |          0 |        1 |        1 |      0 |      0
+```
+CodedBands: libopus=20, gopus=20
+Balance: libopus=0, gopus=0
+
+##### 2. Pulse Conversion Matches
+
+bits2pulses/getPulses conversions produce identical K values:
+```
+Band  |    Width | bits_Q3 |  lib_K |   go_K
+------+----------+---------+--------+--------
+0     |        8 |     256 |      6 |      6
+8     |       16 |     369 |      8 |      8
+12    |       32 |     614 |      8 |      8
+```
+
+##### 3. All Tables Match libopus
+
+- EBands[22] = [0,1,2,3,4,5,6,7,8,10,12,14,16,20,24,28,34,40,48,60,78,100] - MATCH
+- LogN[21] = [0,0,0,0,0,0,0,0,8,8,8,8,16,16,16,21,21,24,29,34,36] - MATCH
+- BandAlloc[11][21] - All 11 allocation vectors match
+- cacheCaps, cacheBits50, cacheIndex50 - All match
+
+#### Root Cause Assessment
+
+**Band allocation is NOT the cause of encoder divergence.**
+
+The allocation logic correctly:
+1. Computes bits per band matching libopus
+2. Converts bits to pulses correctly
+3. Respects caps and budget
+4. Handles skip decisions properly
+
+The remaining encoder quality issues must be in:
+1. **Transient detection** (Agent 12's finding - Frame 0 mismatch)
+2. **Signal analysis** upstream of allocation
+3. **Energy quantization** differences
+
+#### Files Added/Modified
+
+1. **`internal/celt/exports.go`**:
+   - Added `BitsToPulsesExport()` for testing
+   - Added `GetPulsesExport()` for testing
+   - Added `PulsesToBitsExport()` for testing
+
+2. **`internal/celt/cgo_test/band_alloc_compare_test.go`** (NEW):
+   - `TestBandAllocationComparison` - full allocation comparison
+   - `TestBits2PulsesComparison` - pulse conversion test
+   - Helper functions for CGO comparison
+
+#### Status: BAND ALLOCATION VERIFIED CORRECT - No Bugs Found
+
+All allocation arrays (bits[], fineBits[], finePriority[], caps[], balance, codedBands) match libopus exactly across all tested configurations. The issue causing encoder quality problems is upstream of allocation - likely in transient detection or signal analysis stages.
+
+#### Recommended Next Steps
+
+1. Focus on **transient detection** fix (Agent 12's root cause)
+2. Verify MDCT short-block coefficient ordering
+3. Trace pre-emphasis buffer initialization for Frame 0
