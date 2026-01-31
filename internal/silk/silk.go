@@ -2,6 +2,7 @@ package silk
 
 import (
 	"errors"
+	"math"
 
 	"github.com/thesyncim/gopus/internal/plc"
 	"github.com/thesyncim/gopus/internal/rangecoding"
@@ -38,6 +39,24 @@ func (d *Decoder) Decode(
 		return nil, ErrInvalidBandwidth
 	}
 
+	// DEBUG: Check resampler state BEFORE handleBandwidthChange
+	var debugPreResetState [6]int32
+	if nbRes := d.GetResampler(BandwidthNarrowband); nbRes != nil && bandwidth == BandwidthNarrowband {
+		debugPreResetState = nbRes.GetSIIR()
+	}
+
+	// Handle bandwidth changes - reset sMid state when sample rate changes
+	d.handleBandwidthChange(bandwidth)
+
+	// DEBUG: Check resampler state AFTER handleBandwidthChange
+	var debugPostResetState [6]int32
+	if nbRes := d.GetResampler(BandwidthNarrowband); nbRes != nil && bandwidth == BandwidthNarrowband {
+		debugPostResetState = nbRes.GetSIIR()
+		// Store debug info for external access
+		d.debugPreResetSIIR = debugPreResetState
+		d.debugPostResetSIIR = debugPostResetState
+	}
+
 	// Handle PLC for nil data (lost packet)
 	if data == nil {
 		return d.decodePLC(bandwidth, frameSizeSamples)
@@ -56,9 +75,36 @@ func (d *Decoder) Decode(
 		return nil, err
 	}
 
-	// Upsample to 48kHz
+	// Check for bandwidth change and reset sMid state if needed.
+	// This is necessary because sMid contains samples at the previous bandwidth's rate.
+	d.HandleBandwidthChange(bandwidth)
+
+	// Apply libopus-style sMid buffering per 20ms frame, then resample.
 	config := GetBandwidthConfig(bandwidth)
-	output := upsampleTo48k(nativeSamples, config.SampleRate)
+	framesPerPacket, nbSubfr, err := frameParams(duration)
+	if err != nil {
+		return nil, err
+	}
+	fsKHz := config.SampleRate / 1000
+	frameLength := nbSubfr * subFrameLengthMs * fsKHz
+	if framesPerPacket > 0 && frameLength*framesPerPacket != len(nativeSamples) {
+		// Fallback to slice-based length if something is off.
+		frameLength = len(nativeSamples) / framesPerPacket
+	}
+
+	resampler := d.GetResampler(bandwidth)
+	output := make([]float32, 0, frameSizeSamples)
+	for f := 0; f < framesPerPacket; f++ {
+		start := f * frameLength
+		end := start + frameLength
+		if start < 0 || end > len(nativeSamples) || frameLength == 0 {
+			break
+		}
+		frame := nativeSamples[start:end]
+
+		resamplerInput := d.BuildMonoResamplerInput(frame)
+		output = append(output, resampler.Process(resamplerInput)...)
+	}
 
 	// Reset PLC state after successful decode
 	plcState.Reset()
@@ -82,6 +128,9 @@ func (d *Decoder) DecodeStereo(
 		return nil, ErrInvalidBandwidth
 	}
 
+	// Handle bandwidth changes - reset sMid state when sample rate changes
+	d.handleBandwidthChange(bandwidth)
+
 	// Handle PLC for nil data (lost packet)
 	if data == nil {
 		return d.decodePLCStereo(bandwidth, frameSizeSamples)
@@ -100,10 +149,11 @@ func (d *Decoder) DecodeStereo(
 		return nil, err
 	}
 
-	// Upsample to 48kHz
-	config := GetBandwidthConfig(bandwidth)
-	left := upsampleTo48k(leftNative, config.SampleRate)
-	right := upsampleTo48k(rightNative, config.SampleRate)
+	// Upsample to 48kHz using libopus-compatible resampler
+	leftResampler := d.GetResamplerForChannel(bandwidth, 0)
+	rightResampler := d.GetResamplerForChannel(bandwidth, 1)
+	left := leftResampler.Process(leftNative)
+	right := rightResampler.Process(rightNative)
 
 	// Interleave samples [L0, R0, L1, R1, ...]
 	output := make([]float32, len(left)*2)
@@ -117,6 +167,429 @@ func (d *Decoder) DecodeStereo(
 	plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 2)
 
 	return output, nil
+}
+
+// DecodeStereoToMono decodes a SILK stereo frame and returns mono 48kHz PCM samples.
+// This matches libopus behavior when the decoder is configured for mono output.
+func (d *Decoder) DecodeStereoToMono(
+	data []byte,
+	bandwidth Bandwidth,
+	frameSizeSamples int,
+	vadFlag bool,
+) ([]float32, error) {
+	// Validate bandwidth is SILK-compatible
+	if bandwidth > BandwidthWideband {
+		return nil, ErrInvalidBandwidth
+	}
+
+	// Handle bandwidth changes - reset sMid state when sample rate changes
+	d.handleBandwidthChange(bandwidth)
+
+	// Handle PLC for nil data (lost packet)
+	if data == nil {
+		return d.decodePLC(bandwidth, frameSizeSamples)
+	}
+
+	// Convert TOC frame size to duration
+	duration := FrameDurationFromTOC(frameSizeSamples)
+
+	// Initialize range decoder
+	var rd rangecoding.Decoder
+	rd.Init(data)
+
+	// Decode mid channel at native rate (side channel decoded for state)
+	midNative, frameLength, err := d.decodeStereoMidNative(&rd, bandwidth, duration, vadFlag)
+	if err != nil {
+		return nil, err
+	}
+
+	// Upsample to 48kHz using libopus-compatible resampler and sMid buffering
+	framesPerPacket := 0
+	if frameLength > 0 {
+		framesPerPacket = len(midNative) / frameLength
+	}
+	resampler := d.GetResamplerForChannel(bandwidth, 0)
+	output := make([]float32, 0, frameSizeSamples)
+	for f := 0; f < framesPerPacket; f++ {
+		start := f * frameLength
+		end := start + frameLength
+		if start < 0 || end > len(midNative) || frameLength == 0 {
+			break
+		}
+		frame := midNative[start:end]
+
+		resamplerInput := make([]float32, frameLength)
+		resamplerInput[0] = float32(d.stereo.sMid[1]) / 32768.0
+		if frameLength > 1 {
+			for i := 0; i < frameLength-1; i++ {
+				resamplerInput[i+1] = float32(frame[i]) / 32768.0
+			}
+			d.stereo.sMid[0] = frame[frameLength-2]
+			d.stereo.sMid[1] = frame[frameLength-1]
+		} else {
+			d.stereo.sMid[0] = d.stereo.sMid[1]
+			d.stereo.sMid[1] = frame[0]
+		}
+
+		output = append(output, resampler.Process(resamplerInput)...)
+	}
+
+	// Reset PLC state after successful decode
+	plcState.Reset()
+	plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 1)
+
+	return output, nil
+}
+
+// DecodeMonoToStereo decodes a mono SILK frame and returns stereo 48kHz PCM samples.
+// When stereoToMono is true (stereo -> mono transition), the right channel is
+// resampled using its own resampler state instead of simple duplication to
+// match libopus behavior.
+func (d *Decoder) DecodeMonoToStereo(
+	data []byte,
+	bandwidth Bandwidth,
+	frameSizeSamples int,
+	vadFlag bool,
+	stereoToMono bool,
+) ([]float32, error) {
+	if bandwidth > BandwidthWideband {
+		return nil, ErrInvalidBandwidth
+	}
+
+	// Handle bandwidth changes - reset sMid state when sample rate changes
+	d.handleBandwidthChange(bandwidth)
+
+	if data == nil {
+		return d.decodePLCStereo(bandwidth, frameSizeSamples)
+	}
+
+	duration := FrameDurationFromTOC(frameSizeSamples)
+
+	var rd rangecoding.Decoder
+	rd.Init(data)
+
+	// Decode at native rate.
+	nativeSamples, err := d.DecodeFrame(&rd, bandwidth, duration, vadFlag)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check for bandwidth change and reset sMid state if needed.
+	d.HandleBandwidthChange(bandwidth)
+
+	config := GetBandwidthConfig(bandwidth)
+	framesPerPacket, nbSubfr, err := frameParams(duration)
+	if err != nil {
+		return nil, err
+	}
+	fsKHz := config.SampleRate / 1000
+	frameLength := nbSubfr * subFrameLengthMs * fsKHz
+	if framesPerPacket > 0 && frameLength*framesPerPacket != len(nativeSamples) {
+		frameLength = len(nativeSamples) / framesPerPacket
+	}
+
+	leftResampler := d.GetResamplerForChannel(bandwidth, 0)
+	rightResampler := d.GetResamplerForChannel(bandwidth, 1)
+
+	leftOut := make([]float32, 0, frameSizeSamples)
+	var rightOut []float32
+	if stereoToMono {
+		rightOut = make([]float32, 0, frameSizeSamples)
+	}
+
+	for f := 0; f < framesPerPacket; f++ {
+		start := f * frameLength
+		end := start + frameLength
+		if start < 0 || end > len(nativeSamples) || frameLength == 0 {
+			break
+		}
+		frame := nativeSamples[start:end]
+		resamplerInput := d.BuildMonoResamplerInput(frame)
+		left := leftResampler.Process(resamplerInput)
+		leftOut = append(leftOut, left...)
+		if stereoToMono {
+			right := rightResampler.Process(resamplerInput)
+			rightOut = append(rightOut, right...)
+		}
+	}
+
+	out := make([]float32, len(leftOut)*2)
+	for i := range leftOut {
+		out[i*2] = leftOut[i]
+		if stereoToMono {
+			if i < len(rightOut) {
+				out[i*2+1] = rightOut[i]
+			} else {
+				out[i*2+1] = leftOut[i]
+			}
+		} else {
+			out[i*2+1] = leftOut[i]
+		}
+	}
+
+	plcState.Reset()
+	plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 2)
+
+	return out, nil
+}
+
+// DecodeWithDecoder decodes a SILK mono frame using a pre-initialized range decoder.
+// This mirrors Decode() but avoids re-initializing the range decoder.
+func (d *Decoder) DecodeWithDecoder(
+	rd *rangecoding.Decoder,
+	bandwidth Bandwidth,
+	frameSizeSamples int,
+	vadFlag bool,
+) ([]float32, error) {
+	if bandwidth > BandwidthWideband {
+		return nil, ErrInvalidBandwidth
+	}
+	if rd == nil {
+		return nil, ErrDecodeFailed
+	}
+
+	// DEBUG: Check resampler state BEFORE handleBandwidthChange
+	if bandwidth == BandwidthNarrowband {
+		if pair, ok := d.resamplers[BandwidthNarrowband]; ok && pair != nil && pair.left != nil {
+			d.debugPreResetSIIR = pair.left.GetSIIR()
+		}
+	}
+
+	// Handle bandwidth changes - reset sMid state when sample rate changes
+	d.handleBandwidthChange(bandwidth)
+
+	// DEBUG: Check resampler state AFTER handleBandwidthChange
+	if bandwidth == BandwidthNarrowband {
+		if pair, ok := d.resamplers[BandwidthNarrowband]; ok && pair != nil && pair.left != nil {
+			d.debugPostResetSIIR = pair.left.GetSIIR()
+		}
+	}
+
+	duration := FrameDurationFromTOC(frameSizeSamples)
+
+	nativeSamples, err := d.DecodeFrame(rd, bandwidth, duration, vadFlag)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check for bandwidth change and reset sMid state if needed.
+	d.HandleBandwidthChange(bandwidth)
+
+	config := GetBandwidthConfig(bandwidth)
+	framesPerPacket, nbSubfr, err := frameParams(duration)
+	if err != nil {
+		return nil, err
+	}
+	fsKHz := config.SampleRate / 1000
+	frameLength := nbSubfr * subFrameLengthMs * fsKHz
+	if framesPerPacket > 0 && frameLength*framesPerPacket != len(nativeSamples) {
+		frameLength = len(nativeSamples) / framesPerPacket
+	}
+
+	resampler := d.GetResampler(bandwidth)
+	output := make([]float32, 0, frameSizeSamples)
+	for f := 0; f < framesPerPacket; f++ {
+		start := f * frameLength
+		end := start + frameLength
+		if start < 0 || end > len(nativeSamples) || frameLength == 0 {
+			break
+		}
+		frame := nativeSamples[start:end]
+		resamplerInput := d.BuildMonoResamplerInput(frame)
+		processOutput := resampler.Process(resamplerInput)
+		output = append(output, processOutput...)
+	}
+
+	plcState.Reset()
+	plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 1)
+
+	return output, nil
+}
+
+// DecodeStereoWithDecoder decodes a SILK stereo frame using a pre-initialized range decoder.
+func (d *Decoder) DecodeStereoWithDecoder(
+	rd *rangecoding.Decoder,
+	bandwidth Bandwidth,
+	frameSizeSamples int,
+	vadFlag bool,
+) ([]float32, error) {
+	if bandwidth > BandwidthWideband {
+		return nil, ErrInvalidBandwidth
+	}
+	if rd == nil {
+		return nil, ErrDecodeFailed
+	}
+
+	// Handle bandwidth changes - reset sMid state when sample rate changes
+	d.handleBandwidthChange(bandwidth)
+
+	duration := FrameDurationFromTOC(frameSizeSamples)
+
+	leftNative, rightNative, err := d.DecodeStereoFrame(rd, bandwidth, duration, vadFlag)
+	if err != nil {
+		return nil, err
+	}
+
+	leftResampler := d.GetResamplerForChannel(bandwidth, 0)
+	rightResampler := d.GetResamplerForChannel(bandwidth, 1)
+	left := leftResampler.Process(leftNative)
+	right := rightResampler.Process(rightNative)
+
+	output := make([]float32, len(left)*2)
+	for i := range left {
+		output[i*2] = left[i]
+		output[i*2+1] = right[i]
+	}
+
+	plcState.Reset()
+	plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 2)
+
+	return output, nil
+}
+
+// DecodeStereoToMonoWithDecoder decodes a SILK stereo frame to mono using a pre-initialized range decoder.
+func (d *Decoder) DecodeStereoToMonoWithDecoder(
+	rd *rangecoding.Decoder,
+	bandwidth Bandwidth,
+	frameSizeSamples int,
+	vadFlag bool,
+) ([]float32, error) {
+	// Handle bandwidth changes - reset sMid state when sample rate changes
+	d.handleBandwidthChange(bandwidth)
+
+	if bandwidth > BandwidthWideband {
+		return nil, ErrInvalidBandwidth
+	}
+	if rd == nil {
+		return nil, ErrDecodeFailed
+	}
+
+	duration := FrameDurationFromTOC(frameSizeSamples)
+
+	midNative, frameLength, err := d.decodeStereoMidNative(rd, bandwidth, duration, vadFlag)
+	if err != nil {
+		return nil, err
+	}
+
+	framesPerPacket := 0
+	if frameLength > 0 {
+		framesPerPacket = len(midNative) / frameLength
+	}
+	resampler := d.GetResamplerForChannel(bandwidth, 0)
+	output := make([]float32, 0, frameSizeSamples)
+	for f := 0; f < framesPerPacket; f++ {
+		start := f * frameLength
+		end := start + frameLength
+		if start < 0 || end > len(midNative) || frameLength == 0 {
+			break
+		}
+		frame := midNative[start:end]
+
+		resamplerInput := make([]float32, frameLength)
+		resamplerInput[0] = float32(d.stereo.sMid[1]) / 32768.0
+		if frameLength > 1 {
+			for i := 0; i < frameLength-1; i++ {
+				resamplerInput[i+1] = float32(frame[i]) / 32768.0
+			}
+			d.stereo.sMid[0] = frame[frameLength-2]
+			d.stereo.sMid[1] = frame[frameLength-1]
+		} else {
+			d.stereo.sMid[0] = d.stereo.sMid[1]
+			d.stereo.sMid[1] = frame[0]
+		}
+
+		output = append(output, resampler.Process(resamplerInput)...)
+	}
+
+	plcState.Reset()
+	plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 1)
+
+	return output, nil
+}
+
+// DecodeMonoToStereoWithDecoder decodes a mono SILK frame to stereo using a pre-initialized range decoder.
+// stereoToMono mirrors libopus behavior for stereo->mono transitions.
+func (d *Decoder) DecodeMonoToStereoWithDecoder(
+	rd *rangecoding.Decoder,
+	bandwidth Bandwidth,
+	frameSizeSamples int,
+	vadFlag bool,
+	stereoToMono bool,
+) ([]float32, error) {
+	if bandwidth > BandwidthWideband {
+		return nil, ErrInvalidBandwidth
+	}
+	if rd == nil {
+		return nil, ErrDecodeFailed
+	}
+
+	// Handle bandwidth changes - reset sMid state when sample rate changes
+	d.handleBandwidthChange(bandwidth)
+
+	duration := FrameDurationFromTOC(frameSizeSamples)
+
+	nativeSamples, err := d.DecodeFrame(rd, bandwidth, duration, vadFlag)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check for bandwidth change and reset sMid state if needed.
+	d.HandleBandwidthChange(bandwidth)
+
+	config := GetBandwidthConfig(bandwidth)
+	framesPerPacket, nbSubfr, err := frameParams(duration)
+	if err != nil {
+		return nil, err
+	}
+	fsKHz := config.SampleRate / 1000
+	frameLength := nbSubfr * subFrameLengthMs * fsKHz
+	if framesPerPacket > 0 && frameLength*framesPerPacket != len(nativeSamples) {
+		frameLength = len(nativeSamples) / framesPerPacket
+	}
+
+	leftResampler := d.GetResamplerForChannel(bandwidth, 0)
+	rightResampler := d.GetResamplerForChannel(bandwidth, 1)
+
+	leftOut := make([]float32, 0, frameSizeSamples)
+	var rightOut []float32
+	if stereoToMono {
+		rightOut = make([]float32, 0, frameSizeSamples)
+	}
+
+	for f := 0; f < framesPerPacket; f++ {
+		start := f * frameLength
+		end := start + frameLength
+		if start < 0 || end > len(nativeSamples) || frameLength == 0 {
+			break
+		}
+		frame := nativeSamples[start:end]
+		resamplerInput := d.BuildMonoResamplerInput(frame)
+		left := leftResampler.Process(resamplerInput)
+		leftOut = append(leftOut, left...)
+		if stereoToMono {
+			right := rightResampler.Process(resamplerInput)
+			rightOut = append(rightOut, right...)
+		}
+	}
+
+	out := make([]float32, len(leftOut)*2)
+	for i := range leftOut {
+		out[i*2] = leftOut[i]
+		if stereoToMono {
+			if i < len(rightOut) {
+				out[i*2+1] = rightOut[i]
+			} else {
+				out[i*2+1] = leftOut[i]
+			}
+		} else {
+			out[i*2+1] = leftOut[i]
+		}
+	}
+
+	plcState.Reset()
+	plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 2)
+
+	return out, nil
 }
 
 // DecodeToInt16 decodes and converts to int16 PCM.
@@ -134,14 +607,16 @@ func (d *Decoder) DecodeToInt16(
 
 	output := make([]int16, len(samples))
 	for i, s := range samples {
-		// Convert float32 [-1, 1] to int16 [-32768, 32767]
-		scaled := s * 32767.0
-		if scaled > 32767 {
-			scaled = 32767
-		} else if scaled < -32768 {
-			scaled = -32768
+		scaled := float64(s) * 32768.0
+		if scaled > 32767.0 {
+			output[i] = 32767
+			continue
 		}
-		output[i] = int16(scaled)
+		if scaled < -32768.0 {
+			output[i] = -32768
+			continue
+		}
+		output[i] = int16(math.RoundToEven(scaled))
 	}
 
 	return output, nil
@@ -162,13 +637,16 @@ func (d *Decoder) DecodeStereoToInt16(
 
 	output := make([]int16, len(samples))
 	for i, s := range samples {
-		scaled := s * 32767.0
-		if scaled > 32767 {
-			scaled = 32767
-		} else if scaled < -32768 {
-			scaled = -32768
+		scaled := float64(s) * 32768.0
+		if scaled > 32767.0 {
+			output[i] = 32767
+			continue
 		}
-		output[i] = int16(scaled)
+		if scaled < -32768.0 {
+			output[i] = -32768
+			continue
+		}
+		output[i] = int16(math.RoundToEven(scaled))
 	}
 
 	return output, nil
@@ -203,8 +681,9 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 	// Generate concealment at native rate
 	concealed := plc.ConcealSILK(d, nativeSamples, fadeFactor)
 
-	// Upsample to 48kHz
-	output := upsampleTo48k(concealed, config.SampleRate)
+	// Upsample to 48kHz using libopus-compatible resampler
+	resampler := d.GetResampler(bandwidth)
+	output := resampler.Process(concealed)
 
 	return output, nil
 }
@@ -221,9 +700,11 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 	// Generate concealment at native rate for both channels
 	left, right := plc.ConcealSILKStereo(d, nativeSamples, fadeFactor)
 
-	// Upsample to 48kHz
-	leftUp := upsampleTo48k(left, config.SampleRate)
-	rightUp := upsampleTo48k(right, config.SampleRate)
+	// Upsample to 48kHz using libopus-compatible resampler
+	leftResampler := d.GetResamplerForChannel(bandwidth, 0)
+	rightResampler := d.GetResamplerForChannel(bandwidth, 1)
+	leftUp := leftResampler.Process(left)
+	rightUp := rightResampler.Process(right)
 
 	// Interleave [L0, R0, L1, R1, ...]
 	output := make([]float32, len(leftUp)*2)
@@ -233,6 +714,17 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 	}
 
 	return output, nil
+}
+
+func float32ToInt16(v float32) int16 {
+	scaled := float64(v) * 32768.0
+	if scaled > 32767.0 {
+		return 32767
+	}
+	if scaled < -32768.0 {
+		return -32768
+	}
+	return int16(math.RoundToEven(scaled))
 }
 
 // PLCState returns the PLC state for external access (e.g., hybrid mode).

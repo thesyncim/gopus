@@ -2,6 +2,8 @@ package celt
 
 import (
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // TestComputeAllocationBudget verifies bit allocation respects total budget.
@@ -10,6 +12,7 @@ import (
 // - No negative allocations
 // - Caps are respected (no band exceeds cap)
 func TestComputeAllocationBudget(t *testing.T) {
+	channels := 1
 	testCases := []struct {
 		name      string
 		totalBits int
@@ -31,6 +34,7 @@ func TestComputeAllocationBudget(t *testing.T) {
 			result := ComputeAllocation(
 				tc.totalBits,
 				tc.nbBands,
+				channels,
 				nil,   // caps (auto)
 				nil,   // dynalloc
 				0,     // trim (neutral)
@@ -40,14 +44,15 @@ func TestComputeAllocationBudget(t *testing.T) {
 			)
 
 			// Check budget respected
-			totalAllocated := 0
+			totalAllocatedQ3 := 0
 			for band := 0; band < tc.nbBands; band++ {
-				totalAllocated += result.BandBits[band] + result.FineBits[band]
+				totalAllocatedQ3 += bandBitsQ3(result, band, channels)
 			}
 
-			if totalAllocated > tc.totalBits {
-				t.Errorf("Allocation exceeds budget: allocated %d bits, budget %d",
-					totalAllocated, tc.totalBits)
+			budgetQ3 := tc.totalBits << bitRes
+			if totalAllocatedQ3 > budgetQ3 {
+				t.Errorf("Allocation exceeds budget: allocated %d q3, budget %d q3",
+					totalAllocatedQ3, budgetQ3)
 			}
 
 			// Check no negative allocations
@@ -62,20 +67,22 @@ func TestComputeAllocationBudget(t *testing.T) {
 
 			// Check caps respected
 			for band := 0; band < tc.nbBands; band++ {
-				if result.BandBits[band] > result.PulseCaps[band] {
+				if result.BandBits[band] > result.Caps[band] {
 					t.Errorf("Band %d exceeds cap: %d > %d",
-						band, result.BandBits[band], result.PulseCaps[band])
+						band, result.BandBits[band], result.Caps[band])
 				}
 			}
 
 			// Log allocation table for inspection
+			totalAllocatedBits := totalAllocatedQ3 >> bitRes
 			t.Logf("Allocation for totalBits=%d, nbBands=%d, lm=%d:", tc.totalBits, tc.nbBands, tc.lm)
-			t.Logf("  Total allocated: %d/%d bits (%.1f%%)", totalAllocated, tc.totalBits, 100*float64(totalAllocated)/float64(tc.totalBits))
+			t.Logf("  Total allocated: %d/%d bits (%.1f%%)", totalAllocatedBits, tc.totalBits, 100*float64(totalAllocatedBits)/float64(tc.totalBits))
 			for band := 0; band < tc.nbBands; band++ {
 				frameSize := LMToFrameSize(tc.lm)
+				bandBits := result.BandBits[band] >> bitRes
 				t.Logf("  Band %2d: width=%2d, bandBits=%3d, fineBits=%2d, cap=%3d",
-					band, ScaledBandWidth(band, frameSize), result.BandBits[band],
-					result.FineBits[band], result.PulseCaps[band])
+					band, ScaledBandWidth(band, frameSize), bandBits,
+					result.FineBits[band], result.Caps[band])
 			}
 		})
 	}
@@ -85,6 +92,7 @@ func TestComputeAllocationBudget(t *testing.T) {
 // - Higher totalBits -> more bits to high-frequency bands
 // - Lower bands get more bits at low bit rates (perceptually important)
 func TestComputeAllocationDistribution(t *testing.T) {
+	channels := 1
 	nbBands := 21
 	lm := 3 // 20ms frame
 
@@ -92,8 +100,8 @@ func TestComputeAllocationDistribution(t *testing.T) {
 	lowBits := 200
 	highBits := 2000
 
-	lowResult := ComputeAllocation(lowBits, nbBands, nil, nil, 0, -1, false, lm)
-	highResult := ComputeAllocation(highBits, nbBands, nil, nil, 0, -1, false, lm)
+	lowResult := ComputeAllocation(lowBits, nbBands, channels, nil, nil, 0, -1, false, lm)
+	highResult := ComputeAllocation(highBits, nbBands, channels, nil, nil, 0, -1, false, lm)
 
 	// At low bit rate, lower bands should get proportionally more bits
 	// At high bit rate, allocation should be more spread out
@@ -104,11 +112,11 @@ func TestComputeAllocationDistribution(t *testing.T) {
 
 	for band := 0; band < nbBands; band++ {
 		if band <= 10 {
-			lowRateLower += lowResult.BandBits[band] + lowResult.FineBits[band]
-			highRateLower += highResult.BandBits[band] + highResult.FineBits[band]
+			lowRateLower += bandBitsQ3(lowResult, band, channels)
+			highRateLower += bandBitsQ3(highResult, band, channels)
 		} else {
-			lowRateUpper += lowResult.BandBits[band] + lowResult.FineBits[band]
-			highRateUpper += highResult.BandBits[band] + highResult.FineBits[band]
+			lowRateUpper += bandBitsQ3(lowResult, band, channels)
+			highRateUpper += bandBitsQ3(highResult, band, channels)
 		}
 	}
 
@@ -119,8 +127,8 @@ func TestComputeAllocationDistribution(t *testing.T) {
 		// This is not necessarily wrong - depends on allocation algorithm
 	}
 
-	t.Logf("Low rate (%d bits): lower=%d, upper=%d", lowBits, lowRateLower, lowRateUpper)
-	t.Logf("High rate (%d bits): lower=%d, upper=%d", highBits, highRateLower, highRateUpper)
+	t.Logf("Low rate (%d bits): lower=%d, upper=%d", lowBits, lowRateLower>>bitRes, lowRateUpper>>bitRes)
+	t.Logf("High rate (%d bits): lower=%d, upper=%d", highBits, highRateLower>>bitRes, highRateUpper>>bitRes)
 
 	// Basic sanity: high bit rate should allocate more total bits
 	lowTotal := lowRateLower + lowRateUpper
@@ -136,6 +144,7 @@ func TestComputeAllocationDistribution(t *testing.T) {
 // - trim < 0 -> low bands get more bits
 // - trim = 0 -> neutral
 func TestComputeAllocationTrim(t *testing.T) {
+	channels := 1
 	nbBands := 21
 	lm := 3
 	totalBits := 1000
@@ -145,7 +154,7 @@ func TestComputeAllocationTrim(t *testing.T) {
 
 	var results []AllocationResult
 	for _, trim := range trimValues {
-		result := ComputeAllocation(totalBits, nbBands, nil, nil, trim, -1, false, lm)
+		result := ComputeAllocation(totalBits, nbBands, channels, nil, nil, trim, -1, false, lm)
 		results = append(results, result)
 	}
 
@@ -153,7 +162,7 @@ func TestComputeAllocationTrim(t *testing.T) {
 	for i, trim := range trimValues {
 		var lowBandBits, highBandBits int
 		for band := 0; band < nbBands; band++ {
-			bits := results[i].BandBits[band] + results[i].FineBits[band]
+			bits := bandBitsQ3(results[i], band, channels)
 			if band < nbBands/2 {
 				lowBandBits += bits
 			} else {
@@ -165,7 +174,7 @@ func TestComputeAllocationTrim(t *testing.T) {
 		if total > 0 {
 			highRatio = float64(highBandBits) / float64(total)
 		}
-		t.Logf("Trim=%+d: low=%d, high=%d, highRatio=%.2f", trim, lowBandBits, highBandBits, highRatio)
+		t.Logf("Trim=%+d: low=%d, high=%d, highRatio=%.2f", trim, lowBandBits>>bitRes, highBandBits>>bitRes, highRatio)
 	}
 
 	// Verify trim ordering (higher trim should have higher high-band ratio)
@@ -183,9 +192,10 @@ func TestComputeAllocationTrim(t *testing.T) {
 
 // computeHighBandRatio returns the ratio of bits allocated to high bands.
 func computeHighBandRatio(result AllocationResult, nbBands int) float64 {
+	channels := 1
 	var lowBits, highBits int
 	for band := 0; band < nbBands; band++ {
-		bits := result.BandBits[band] + result.FineBits[band]
+		bits := bandBitsQ3(result, band, channels)
 		if band < nbBands/2 {
 			lowBits += bits
 		} else {
@@ -199,43 +209,52 @@ func computeHighBandRatio(result AllocationResult, nbBands int) float64 {
 	return float64(highBits) / float64(total)
 }
 
+func bandBitsQ3(result AllocationResult, band, channels int) int {
+	if band < 0 || band >= len(result.BandBits) || band >= len(result.FineBits) {
+		return 0
+	}
+	return result.BandBits[band] + (result.FineBits[band] * channels << bitRes)
+}
+
 // TestComputeAllocationByLM verifies allocation varies correctly by frame size.
 // - LM=0 (2.5ms) -> different caps than LM=3 (20ms)
 // - Shorter frames have less total capacity
 func TestComputeAllocationByLM(t *testing.T) {
+	channels := 1
 	totalBits := 500
 	nbBands := 13 // Use minimum bands (shared across all LM values)
 
 	for lm := 0; lm <= 3; lm++ {
-		result := ComputeAllocation(totalBits, nbBands, nil, nil, 0, -1, false, lm)
+		result := ComputeAllocation(totalBits, nbBands, channels, nil, nil, 0, -1, false, lm)
 
 		frameSize := LMToFrameSize(lm)
 		var totalAllocated int
 		var maxCap int
 		for band := 0; band < nbBands; band++ {
-			totalAllocated += result.BandBits[band] + result.FineBits[band]
-			if result.PulseCaps[band] > maxCap {
-				maxCap = result.PulseCaps[band]
+			totalAllocated += bandBitsQ3(result, band, channels)
+			if result.Caps[band] > maxCap {
+				maxCap = result.Caps[band]
 			}
 		}
 
+		totalAllocatedBits := totalAllocated >> bitRes
 		t.Logf("LM=%d (%.1fms, %d samples): allocated=%d bits, maxCap=%d",
-			lm, float64(frameSize)/48.0, frameSize, totalAllocated, maxCap)
+			lm, float64(frameSize)/48.0, frameSize, totalAllocatedBits, maxCap)
 
 		// Verify allocation doesn't exceed budget
-		if totalAllocated > totalBits {
-			t.Errorf("LM=%d: allocation %d exceeds budget %d", lm, totalAllocated, totalBits)
+		if totalAllocated > (totalBits << bitRes) {
+			t.Errorf("LM=%d: allocation %d q3 exceeds budget %d q3", lm, totalAllocated, totalBits<<bitRes)
 		}
 	}
 
 	// LM=3 (20ms) should have larger caps than LM=0 (2.5ms)
-	result0 := ComputeAllocation(totalBits, nbBands, nil, nil, 0, -1, false, 0)
-	result3 := ComputeAllocation(totalBits, nbBands, nil, nil, 0, -1, false, 3)
+	result0 := ComputeAllocation(totalBits, nbBands, channels, nil, nil, 0, -1, false, 0)
+	result3 := ComputeAllocation(totalBits, nbBands, channels, nil, nil, 0, -1, false, 3)
 
 	// Check that at least some caps are larger for LM=3
 	largerCapsCount := 0
 	for band := 0; band < nbBands; band++ {
-		if result3.PulseCaps[band] > result0.PulseCaps[band] {
+		if result3.Caps[band] > result0.Caps[band] {
 			largerCapsCount++
 		}
 	}
@@ -244,6 +263,67 @@ func TestComputeAllocationByLM(t *testing.T) {
 		t.Logf("Note: LM=3 caps not larger than LM=0 (may be by design)")
 	} else {
 		t.Logf("LM=3 has larger caps than LM=0 for %d/%d bands", largerCapsCount, nbBands)
+	}
+}
+
+// TestAllocationEncodeDecodeRoundTrip ensures allocation encoding/decoding stays in sync.
+func TestAllocationEncodeDecodeRoundTrip(t *testing.T) {
+	nbBands := 21
+	lm := 3
+	channels := 2
+	totalBits := 600
+	intensity := nbBands
+	dualStereo := true
+	trim := 0
+	signalBandwidth := nbBands - 1
+
+	caps := initCaps(nbBands, lm, channels)
+
+	buf := make([]byte, 256)
+	re := &rangecoding.Encoder{}
+	re.Init(buf)
+
+	encResult := ComputeAllocationWithEncoder(
+		re,
+		totalBits,
+		nbBands,
+		channels,
+		caps,
+		nil, // offsets
+		trim,
+		intensity,
+		dualStereo,
+		lm,
+		0, // prev
+		signalBandwidth,
+	)
+	tellEnc := re.TellFrac()
+	data := re.Done()
+
+	rd := &rangecoding.Decoder{}
+	rd.Init(data)
+	decResult := ComputeAllocationWithDecoder(rd, totalBits, nbBands, channels, caps, nil, trim, intensity, dualStereo, lm)
+	tellDec := rd.TellFrac()
+
+	if tellDec != tellEnc {
+		t.Errorf("allocation bit consumption mismatch: enc=%d q3, dec=%d q3", tellEnc, tellDec)
+	}
+	if decResult.CodedBands != encResult.CodedBands {
+		t.Errorf("codedBands mismatch: enc=%d dec=%d", encResult.CodedBands, decResult.CodedBands)
+	}
+	if decResult.Intensity != encResult.Intensity {
+		t.Errorf("intensity mismatch: enc=%d dec=%d", encResult.Intensity, decResult.Intensity)
+	}
+	if decResult.DualStereo != encResult.DualStereo {
+		t.Errorf("dualStereo mismatch: enc=%v dec=%v", encResult.DualStereo, decResult.DualStereo)
+	}
+	for band := 0; band < nbBands; band++ {
+		if decResult.BandBits[band] != encResult.BandBits[band] {
+			t.Fatalf("band %d bits mismatch: enc=%d dec=%d", band, encResult.BandBits[band], decResult.BandBits[band])
+		}
+		if decResult.FineBits[band] != encResult.FineBits[band] {
+			t.Fatalf("band %d fine bits mismatch: enc=%d dec=%d", band, encResult.FineBits[band], decResult.FineBits[band])
+		}
 	}
 }
 
@@ -262,7 +342,7 @@ func TestPulseCapsReasonable(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(lm_name(tc.lm), func(t *testing.T) {
-			caps := ComputePulseCaps(MaxBands, tc.lm)
+			caps := initCaps(MaxBands, tc.lm, 1)
 
 			t.Logf("Pulse caps for LM=%d (%d samples):", tc.lm, tc.frameSize)
 			for band := 0; band < MaxBands; band++ {
@@ -306,7 +386,7 @@ func lm_name(lm int) string {
 func TestComputeAllocationEdgeCases(t *testing.T) {
 	// Test with zero bits
 	t.Run("zero_bits", func(t *testing.T) {
-		result := ComputeAllocation(0, 21, nil, nil, 0, -1, false, 3)
+		result := ComputeAllocation(0, 21, 1, nil, nil, 0, -1, false, 3)
 		for band := 0; band < 21; band++ {
 			if result.BandBits[band] != 0 || result.FineBits[band] != 0 {
 				t.Errorf("Band %d has bits with zero budget", band)
@@ -316,7 +396,7 @@ func TestComputeAllocationEdgeCases(t *testing.T) {
 
 	// Test with zero bands
 	t.Run("zero_bands", func(t *testing.T) {
-		result := ComputeAllocation(1000, 0, nil, nil, 0, -1, false, 3)
+		result := ComputeAllocation(1000, 0, 1, nil, nil, 0, -1, false, 3)
 		if len(result.BandBits) != 0 {
 			t.Errorf("Expected 0 bands, got %d", len(result.BandBits))
 		}
@@ -324,10 +404,10 @@ func TestComputeAllocationEdgeCases(t *testing.T) {
 
 	// Test with very high bit budget
 	t.Run("high_budget", func(t *testing.T) {
-		result := ComputeAllocation(10000, 21, nil, nil, 0, -1, false, 3)
+		result := ComputeAllocation(10000, 21, 1, nil, nil, 0, -1, false, 3)
 		// Should allocate up to caps
 		for band := 0; band < 21; band++ {
-			if result.BandBits[band] > result.PulseCaps[band] {
+			if result.BandBits[band] > result.Caps[band] {
 				t.Errorf("Band %d exceeds cap even with high budget", band)
 			}
 		}
@@ -336,7 +416,7 @@ func TestComputeAllocationEdgeCases(t *testing.T) {
 	// Test with intensity stereo
 	t.Run("intensity_stereo", func(t *testing.T) {
 		intensity := 15 // Start intensity at band 15
-		result := ComputeAllocation(1000, 21, nil, nil, 0, intensity, false, 3)
+		result := ComputeAllocation(1000, 21, 2, nil, nil, 0, intensity, false, 3)
 
 		// Bands above intensity should have adjusted bits
 		var totalBits int

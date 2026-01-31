@@ -3,22 +3,18 @@ package celt
 import "math"
 
 // Vorbis window implementation for CELT overlap-add synthesis.
-// The Vorbis window is a power-complementary window used in CELT to ensure
-// perfect reconstruction when combining overlapping frames.
+// CELT defines the window over the overlap region (length = overlap):
+//   w[i] = sin(0.5*pi * sin(0.5*pi*(i+0.5)/overlap)^2)
+// for i in [0, overlap). This matches libopus celt/modes.c.
 //
-// The window satisfies: w[i]^2 + w[n-1-i]^2 = 1 (power complementary)
-// This ensures that overlap-add reconstruction preserves energy.
+// The window is power-complementary:
+//   w[i]^2 + w[overlap-1-i]^2 = 1
+// which preserves energy during overlap-add.
 //
-// Reference: RFC 6716 Section 4.3.5, libopus celt/celt.c
+// Reference: RFC 6716 Section 4.3.5, libopus celt/modes.c
 
-// WindowBufferSize is the precomputed window size for CELT overlap.
-// This matches the Overlap constant (120 samples at 48kHz = 2.5ms).
-const WindowBufferSize = 120
-
-// windowBuffer120 contains precomputed Vorbis window values for overlap=120.
-// These are computed for a window of size 240 (2*overlap), and we store
-// the first 120 values since the window is symmetric.
-var windowBuffer120 [WindowBufferSize]float64
+// windowBuffer120 contains precomputed Vorbis window values for overlap=Overlap.
+var windowBuffer120 [Overlap]float64
 
 // windowBuffer240 contains precomputed window for 5ms frames.
 var windowBuffer240 [240]float64
@@ -31,50 +27,50 @@ var windowBuffer960 [960]float64
 
 func init() {
 	// Precompute window buffers for all frame sizes
-	// The window is defined over 2*overlap samples
+	// The window is defined over the overlap region.
 
-	// For overlap=120 (2.5ms base)
-	for i := 0; i < WindowBufferSize; i++ {
-		windowBuffer120[i] = VorbisWindow(i, 2*WindowBufferSize)
+	// For overlap=Overlap (2.5ms at 48kHz)
+	for i := 0; i < Overlap; i++ {
+		windowBuffer120[i] = VorbisWindow(i, Overlap)
 	}
 
-	// For 5ms frames (240 samples, overlap=120)
+	// For overlap=240 (2.5ms at 96kHz)
 	for i := 0; i < 240; i++ {
-		windowBuffer240[i] = VorbisWindow(i, 480)
+		windowBuffer240[i] = VorbisWindow(i, 240)
 	}
 
-	// For 10ms frames (480 samples, overlap=120)
+	// For overlap=480
 	for i := 0; i < 480; i++ {
-		windowBuffer480[i] = VorbisWindow(i, 960)
+		windowBuffer480[i] = VorbisWindow(i, 480)
 	}
 
-	// For 20ms frames (960 samples, overlap=120)
+	// For overlap=960
 	for i := 0; i < 960; i++ {
-		windowBuffer960[i] = VorbisWindow(i, 1920)
+		windowBuffer960[i] = VorbisWindow(i, 960)
 	}
 }
 
-// VorbisWindow computes the Vorbis window value at position i of n.
-// The Vorbis window is defined as:
-//   w(i) = sin(pi/2 * sin^2(pi*(i+0.5)/n))
+// VorbisWindow computes the CELT Vorbis window value at position i for the
+// given overlap length. This matches libopus's window generation.
 //
 // This window is:
-// - Power-complementary: w[i]^2 + w[n-1-i]^2 = 1
+// - Power-complementary: w[i]^2 + w[overlap-1-i]^2 = 1
 // - Smooth: continuous first derivative
 // - Good spectral properties: low sidelobe levels
 //
 // Parameters:
-//   - i: position in window (0 to n-1)
-//   - n: total window size
+//   - i: position in window (0 to overlap-1)
+//   - overlap: window length (overlap region)
 //
 // Returns: window value in [0, 1]
-func VorbisWindow(i, n int) float64 {
-	if n <= 0 {
+func VorbisWindow(i, overlap int) float64 {
+	if overlap <= 0 {
 		return 0
 	}
 	x := float64(i) + 0.5
-	sinArg := math.Pi * x / float64(n)
-	return math.Sin(math.Pi / 2.0 * math.Pow(math.Sin(sinArg), 2))
+	sinArg := 0.5 * math.Pi * x / float64(overlap)
+	s := math.Sin(sinArg)
+	return math.Sin(0.5 * math.Pi * s * s)
 }
 
 // GetWindowBuffer returns the precomputed window buffer for the given overlap size.
@@ -94,7 +90,7 @@ func GetWindowBuffer(overlap int) []float64 {
 		// Compute on the fly for non-standard sizes
 		window := make([]float64, overlap)
 		for i := 0; i < overlap; i++ {
-			window[i] = VorbisWindow(i, 2*overlap)
+			window[i] = VorbisWindow(i, overlap)
 		}
 		return window
 	}
@@ -144,7 +140,7 @@ func ApplyWindowSymmetric(samples []float64, overlap int) {
 func WindowEnergy(overlap int) float64 {
 	var energy float64
 	for i := 0; i < overlap; i++ {
-		w := VorbisWindow(i, 2*overlap)
+		w := VorbisWindow(i, overlap)
 		energy += w * w
 	}
 	// The other half contributes equally

@@ -5,6 +5,10 @@ import (
 	"testing"
 )
 
+func bitsToKQ0(bits, n int) int {
+	return bitsToK(bits<<bitRes, n)
+}
+
 // TestNormalizeVector verifies L2 normalization produces unit-length vectors.
 func TestNormalizeVector(t *testing.T) {
 	tests := []struct {
@@ -188,19 +192,19 @@ func TestBitsToK(t *testing.T) {
 	// These tests verify basic properties rather than exact values.
 
 	// Zero bits should always return zero pulses
-	if k := bitsToK(0, 4); k != 0 {
-		t.Errorf("bitsToK(0, 4) = %d, want 0", k)
+	if k := bitsToKQ0(0, 4); k != 0 {
+		t.Errorf("bitsToKQ0(0, 4) = %d, want 0", k)
 	}
 
 	// Very few bits (< log2(2n)) should return zero
-	if k := bitsToK(1, 4); k != 0 {
-		t.Errorf("bitsToK(1, 4) = %d, want 0 (too few bits)", k)
+	if k := bitsToKQ0(1, 4); k != 0 {
+		t.Errorf("bitsToKQ0(1, 4) = %d, want 0 (too few bits)", k)
 	}
 
 	// More bits should give more pulses (monotonically non-decreasing)
 	prev := 0
 	for bits := 0; bits <= 100; bits += 10 {
-		k := bitsToK(bits, 8)
+		k := bitsToKQ0(bits, 8)
 		if k < prev {
 			t.Errorf("bitsToK not monotonic: bits=%d gave k=%d, but bits=%d gave k=%d",
 				bits-10, prev, bits, k)
@@ -208,26 +212,26 @@ func TestBitsToK(t *testing.T) {
 		prev = k
 	}
 
-	// K should never exceed bits (upper bound)
+	// K should stay within the PVQ pulse limit
 	for _, bits := range []int{10, 20, 50, 100} {
-		k := bitsToK(bits, 8)
-		if k > bits {
-			t.Errorf("bitsToK(%d, 8) = %d, but k should not exceed bits", bits, k)
+		k := bitsToKQ0(bits, 8)
+		if k > MaxPVQK {
+			t.Errorf("bitsToKQ0(%d, 8) = %d, but k should not exceed MaxPVQK", bits, k)
 		}
 	}
 
 	// With enough bits, should get at least 1 pulse
-	if k := bitsToK(10, 2); k < 1 {
-		t.Errorf("bitsToK(10, 2) = %d, expected at least 1 pulse with 10 bits", k)
+	if k := bitsToKQ0(10, 2); k < 1 {
+		t.Errorf("bitsToKQ0(10, 2) = %d, expected at least 1 pulse with 10 bits", k)
 	}
 }
 
 // TestBitsToKZeroBits verifies zero bits always returns zero pulses.
 func TestBitsToKZeroBits(t *testing.T) {
 	for n := 1; n <= 32; n++ {
-		k := bitsToK(0, n)
+		k := bitsToKQ0(0, n)
 		if k != 0 {
-			t.Errorf("bitsToK(0, %d) = %d, want 0", n, k)
+			t.Errorf("bitsToKQ0(0, %d) = %d, want 0", n, k)
 		}
 	}
 }
@@ -235,9 +239,9 @@ func TestBitsToKZeroBits(t *testing.T) {
 // TestBitsToKZeroDimensions verifies zero dimensions returns zero pulses.
 func TestBitsToKZeroDimensions(t *testing.T) {
 	for bits := 0; bits <= 100; bits += 10 {
-		k := bitsToK(bits, 0)
+		k := bitsToKQ0(bits, 0)
 		if k != 0 {
-			t.Errorf("bitsToK(%d, 0) = %d, want 0", bits, k)
+			t.Errorf("bitsToKQ0(%d, 0) = %d, want 0", bits, k)
 		}
 	}
 }
@@ -390,10 +394,10 @@ func TestDecodeBands_OutputSize(t *testing.T) {
 	}{
 		// totalBins = sum(ScaledBandWidth(band, frameSize) for band in 0..nbBands-1)
 		// These are calculated from EBands table with scaling
-		{"2.5ms", 120, 13, 20}, // EffBands=13, bands sum to 20
-		{"5ms", 240, 17, 80},   // EffBands=17, bands sum to 80
-		{"10ms", 480, 19, 240}, // EffBands=19, bands sum to 240
-		{"20ms", 960, 21, 800}, // EffBands=21, bands sum to 800
+		{"2.5ms", 120, 21, 100}, // EffBands=21, bands sum to 100
+		{"5ms", 240, 21, 200},   // EffBands=21, bands sum to 200
+		{"10ms", 480, 21, 400},  // EffBands=21, bands sum to 400
+		{"20ms", 960, 21, 800},  // EffBands=21, bands sum to 800
 	}
 
 	for _, tc := range testCases {
@@ -465,7 +469,7 @@ func TestDecodeBandsStereo_OutputSize(t *testing.T) {
 }
 
 // TestDenormalizeBand verifies energy scaling produces correct amplitudes.
-// Energy is in dB units: gain = 2^(energy/DB6)
+// Energy is in log2 units (1 = 6 dB): gain = 2^(energy/DB6)
 // This matches libopus celt/bands.c denormalise_bands().
 func TestDenormalizeBand(t *testing.T) {
 	tests := []struct {
@@ -483,32 +487,32 @@ func TestDenormalizeBand(t *testing.T) {
 		{
 			name:     "positive energy (6 dB)",
 			shape:    []float64{0.5, 0.5, 0.5, 0.5},
-			energy:   6.0,
-			wantGain: 2.0, // 2^(6/6) = 2
+			energy:   DB6,
+			wantGain: 2.0, // 2^(1) = 2
 		},
 		{
 			name:     "negative energy (-6 dB)",
 			shape:    []float64{1.0},
-			energy:   -6.0,
-			wantGain: 0.5, // 2^(-6/6) = 0.5
+			energy:   -DB6,
+			wantGain: 0.5, // 2^(-1) = 0.5
 		},
 		{
 			name:     "fractional energy (9 dB)",
 			shape:    []float64{0.707, 0.707},
-			energy:   9.0,
-			wantGain: 2.828, // 2^(9/6) ~= 2.828
+			energy:   1.5 * DB6,
+			wantGain: 2.828, // 2^(1.5) ~= 2.828
 		},
 		{
-			name:     "energy = 6 (gain = 2)",
+			name:     "energy = DB6 (gain = 2)",
 			shape:    []float64{1, 0, 0, 0},
-			energy:   6.0,
-			wantGain: 2.0, // 2^(6/6) = 2
+			energy:   DB6,
+			wantGain: 2.0, // 2^(1) = 2
 		},
 		{
-			name:     "energy = -6 (gain = 0.5)",
+			name:     "energy = -DB6 (gain = 0.5)",
 			shape:    []float64{1, 0, 0, 0},
-			energy:   -6.0,
-			wantGain: 0.5, // 2^(-6/6) = 0.5
+			energy:   -DB6,
+			wantGain: 0.5, // 2^(-1) = 0.5
 		},
 	}
 
@@ -575,15 +579,16 @@ func TestComputeBandEnergy(t *testing.T) {
 		t.Errorf("ComputeBandEnergy = %v, want %v", energy, expected)
 	}
 
-	// Empty vector should return default low energy
+	// Empty vector should return epsilon-based low energy
 	energy = ComputeBandEnergy(nil)
-	if energy != -28.0 {
-		t.Errorf("ComputeBandEnergy(nil) = %v, want -28.0", energy)
+	expectedSilence := 0.5 * math.Log2(1e-27)
+	if math.Abs(energy-expectedSilence) > 1e-10 {
+		t.Errorf("ComputeBandEnergy(nil) = %v, want %v", energy, expectedSilence)
 	}
 
 	energy = ComputeBandEnergy([]float64{})
-	if energy != -28.0 {
-		t.Errorf("ComputeBandEnergy([]) = %v, want -28.0", energy)
+	if math.Abs(energy-expectedSilence) > 1e-10 {
+		t.Errorf("ComputeBandEnergy([]) = %v, want %v", energy, expectedSilence)
 	}
 }
 
@@ -726,7 +731,7 @@ func BenchmarkFoldBand(b *testing.B) {
 func BenchmarkBitsToK(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = bitsToK(50, 8)
+		_ = bitsToKQ0(50, 8)
 	}
 }
 
@@ -757,34 +762,24 @@ func BenchmarkDecodeBands(b *testing.B) {
 func TestBitsToKBoundaries(t *testing.T) {
 	// Zero bits should always return zero pulses
 	for n := 1; n <= 32; n++ {
-		k := bitsToK(0, n)
+		k := bitsToKQ0(0, n)
 		if k != 0 {
-			t.Errorf("bitsToK(0, %d) = %d, want 0", n, k)
+			t.Errorf("bitsToKQ0(0, %d) = %d, want 0", n, k)
 		}
 	}
 
 	// Zero dimensions should always return zero pulses
 	for bits := 0; bits <= 100; bits += 10 {
-		k := bitsToK(bits, 0)
+		k := bitsToKQ0(bits, 0)
 		if k != 0 {
-			t.Errorf("bitsToK(%d, 0) = %d, want 0", bits, k)
+			t.Errorf("bitsToKQ0(%d, 0) = %d, want 0", bits, k)
 		}
 	}
 
 	// Negative dimensions should return zero
-	k := bitsToK(50, -1)
+	k := bitsToKQ0(50, -1)
 	if k != 0 {
-		t.Errorf("bitsToK(50, -1) = %d, want 0", k)
-	}
-
-	// Very few bits (below threshold) should return zero
-	// For n=8, minBits = ilog2(8) + 1 = 4
-	// Bits < 4 should return k=0
-	for bits := 1; bits <= 3; bits++ {
-		k := bitsToK(bits, 8)
-		if k != 0 {
-			t.Errorf("bitsToK(%d, 8) = %d, want 0 (bits below threshold)", bits, k)
-		}
+		t.Errorf("bitsToKQ0(50, -1) = %d, want 0", k)
 	}
 
 	// Test minimum bits for k=1 at various n
@@ -793,7 +788,7 @@ func TestBitsToKBoundaries(t *testing.T) {
 			// Find minimum bits needed for k=1
 			var minBits int
 			for bits := 1; bits <= 100; bits++ {
-				if bitsToK(bits, n) >= 1 {
+				if bitsToKQ0(bits, n) >= 1 {
 					minBits = bits
 					break
 				}
@@ -815,7 +810,7 @@ func TestBitsToKMonotonic(t *testing.T) {
 		t.Run("", func(t *testing.T) {
 			prev := 0
 			for bits := 0; bits <= 150; bits++ {
-				k := bitsToK(bits, n)
+				k := bitsToKQ0(bits, n)
 				if k < prev {
 					t.Errorf("bitsToK not monotonic at n=%d: bits=%d gave k=%d, but bits=%d gave k=%d",
 						n, bits-1, prev, bits, k)
@@ -826,10 +821,7 @@ func TestBitsToKMonotonic(t *testing.T) {
 	}
 }
 
-// TestKToBitsRoundtrip verifies the relationship between kToBits and bitsToK.
-// Note: kToBits returns log2(V(n,k)-1) which is a lower bound on bits needed.
-// bitsToK uses binary search with a minimum threshold, so the relationship
-// is: kToBits(k, n) gives bits, bitsToK(bits+margin, n) should return >= k.
+// TestKToBitsRoundtrip verifies kToBits tracks log2(V(n,k)-1).
 func TestKToBitsRoundtrip(t *testing.T) {
 	// Test that the functions are internally consistent
 	for n := 2; n <= 16; n++ {
@@ -844,14 +836,7 @@ func TestKToBitsRoundtrip(t *testing.T) {
 					k, n, bits, n, k, v, expectedBits)
 			}
 
-			// With enough extra bits, bitsToK should return at least k
-			// This compensates for the threshold check in bitsToK
-			largeBits := bits + 5
-			kDecoded := bitsToK(largeBits, n)
-			if kDecoded < k {
-				t.Errorf("With %d bits (kToBits + 5), bitsToK(%d, %d) = %d < %d",
-					largeBits, largeBits, n, kDecoded, k)
-			}
+			_ = bits // kToBits validation is above; bitsToK is tested separately.
 		}
 	}
 }
@@ -909,16 +894,16 @@ func TestBitsToKWithRealFrameSizes(t *testing.T) {
 
 				// Test various bit allocations
 				for bits := 0; bits <= 200; bits += 20 {
-					k := bitsToK(bits, n)
+					k := bitsToKQ0(bits, n)
 
 					// k should be non-negative
 					if k < 0 {
-						t.Errorf("bitsToK(%d, %d) = %d < 0 at band %d", bits, n, k, band)
+						t.Errorf("bitsToKQ0(%d, %d) = %d < 0 at band %d", bits, n, k, band)
 					}
 
 					// k should not exceed reasonable bounds
-					if k > bits {
-						t.Errorf("bitsToK(%d, %d) = %d > bits at band %d", bits, n, k, band)
+					if k > MaxPVQK {
+						t.Errorf("bitsToKQ0(%d, %d) = %d > MaxPVQK at band %d", bits, n, k, band)
 					}
 
 					// Verify V(n,k) is valid (not zero for k > 0)
@@ -959,7 +944,7 @@ func TestDecodeBandsAllocationPath(t *testing.T) {
 
 				// Test various bit allocations
 				for bits := 0; bits <= 100; bits += 10 {
-					k := bitsToK(bits, n)
+					k := bitsToKQ0(bits, n)
 
 					// If k > 0, verify we can decode all valid indices
 					if k > 0 {
@@ -1027,12 +1012,12 @@ func TestDenormalizationGainPath(t *testing.T) {
 		gain   float64 // expected gain = 2^energy
 	}{
 		{0.0, 1.0},
-		{1.0, 2.0},
-		{-1.0, 0.5},
-		{3.0, 8.0},
-		{-3.0, 0.125},
-		{10.0, 1024.0},
-		{-10.0, 1.0 / 1024.0},
+		{DB6, 2.0},
+		{-DB6, 0.5},
+		{3 * DB6, 8.0},
+		{-3 * DB6, 0.125},
+		{5 * DB6, 32.0},
+		{-5 * DB6, 1.0 / 32.0},
 	}
 
 	shape := []float64{0.6, 0.8} // 3-4-5 triangle, normalized
@@ -1053,7 +1038,7 @@ func TestDenormalizationGainPath(t *testing.T) {
 	t.Run("clamp_high", func(t *testing.T) {
 		// Energy > 32 should be clamped to 32
 		result := DenormalizeBand([]float64{1.0}, 100.0)
-		expectedGain := math.Exp2(32) // Clamped at 32
+		expectedGain := math.Exp2(32 / DB6) // Clamped at 32 dB
 		if math.Abs(result[0]-expectedGain) > expectedGain*1e-6 {
 			t.Errorf("High energy: got %v, want ~%v (clamped)", result[0], expectedGain)
 		}

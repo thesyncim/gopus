@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/internal/celt"
 	"github.com/thesyncim/gopus/internal/rangecoding"
 )
@@ -83,6 +84,7 @@ func TestCELTFirstPacketAnalysis(t *testing.T) {
 		channels = 2
 	}
 	decoder := celt.NewDecoder(channels)
+	setDecoderBandwidth(decoder, toc)
 
 	// Extract frame data (skip TOC byte for frame code 0)
 	// For code 0: single frame, data starts at byte 1
@@ -179,102 +181,56 @@ func TestCELTFirstPacketAnalysis(t *testing.T) {
 // For frame code 2: 2 frames with explicit first-frame size
 // For frame code 3: M frames (VBR or CBR)
 func extractFirstFrame(data []byte) []byte {
-	if len(data) < 2 {
+	if len(data) < 1 {
 		return data
 	}
 
-	toc := data[0]
-	code := toc & 0x03
-
-	switch code {
-	case 0:
-		// Single frame - skip TOC
-		return data[1:]
-
-	case 1:
-		// Two frames of equal size
-		frameLen := (len(data) - 1) / 2
-		return data[1 : 1+frameLen]
-
-	case 2:
-		// Two frames with explicit sizes
-		// Byte 1 has first frame length in 1-2 bytes (depends on value)
-		if len(data) < 3 {
-			return data[1:]
-		}
-		firstLen := int(data[1])
-		if firstLen >= 252 {
-			// Extended length encoding
-			if len(data) < 4 {
-				return data[2:]
-			}
-			firstLen = 252 + int(data[2]) + (int(data[1])-252)*4
-			return data[3 : 3+firstLen]
-		}
-		return data[2 : 2+firstLen]
-
-	case 3:
-		// Multiple frames (CBR or VBR)
-		// Byte 1: frame count byte
-		if len(data) < 3 {
-			return data[1:]
-		}
-		countByte := data[1]
-		vbr := (countByte & 0x80) != 0
-		frameCount := int(countByte & 0x3F)
-
-		if frameCount == 0 {
-			return nil
-		}
-
-		offset := 2
-		// Skip padding if present
-		if (countByte & 0x40) != 0 {
-			// Padding flag set - read padding length
-			if offset >= len(data) {
-				return nil
-			}
-			paddingLen := int(data[offset])
-			offset++
-			for paddingLen == 255 && offset < len(data) {
-				paddingLen += int(data[offset])
-				offset++
-			}
-		}
-
-		if vbr {
-			// VBR: each frame has explicit size
-			// First frame size follows
-			if offset >= len(data) {
-				return nil
-			}
-			firstLen := int(data[offset])
-			offset++
-			if firstLen >= 252 {
-				if offset >= len(data) {
-					return nil
-				}
-				firstLen = 252 + int(data[offset]) + (firstLen-252)*4
-				offset++
-			}
-			if offset+firstLen > len(data) {
-				return data[offset:]
-			}
-			return data[offset : offset+firstLen]
-		} else {
-			// CBR: all frames equal size
-			// Total frame data = len - header - padding
-			// Frame data starts after header
-			totalFrameBytes := len(data) - offset
-			frameSize := totalFrameBytes / frameCount
-			if frameSize <= 0 {
-				return nil
-			}
-			return data[offset : offset+frameSize]
-		}
+	info, err := gopus.ParsePacket(data)
+	if err != nil {
+		return nil
 	}
 
-	return data[1:]
+	frames := extractFrames(data, info)
+	if len(frames) == 0 {
+		return nil
+	}
+	return frames[0]
+}
+
+func extractFrames(data []byte, info gopus.PacketInfo) [][]byte {
+	frames := make([][]byte, info.FrameCount)
+	totalFrameBytes := 0
+	for _, size := range info.FrameSizes {
+		totalFrameBytes += size
+	}
+	frameDataStart := len(data) - info.Padding - totalFrameBytes
+	if frameDataStart < 1 {
+		frameDataStart = 1
+	}
+	dataEnd := len(data) - info.Padding
+	if dataEnd < frameDataStart {
+		dataEnd = frameDataStart
+	}
+	offset := frameDataStart
+	for i := 0; i < info.FrameCount; i++ {
+		frameLen := info.FrameSizes[i]
+		endOffset := offset + frameLen
+		if endOffset > dataEnd {
+			endOffset = dataEnd
+		}
+		if offset >= dataEnd {
+			frames[i] = nil
+		} else {
+			frames[i] = data[offset:endOffset]
+		}
+		offset = endOffset
+	}
+	return frames
+}
+
+func setDecoderBandwidth(dec *celt.Decoder, toc byte) {
+	tocInfo := gopus.ParseTOC(toc)
+	dec.SetBandwidth(celt.BandwidthFromOpusConfig(int(tocInfo.Bandwidth)))
 }
 
 // TestCELTFirstPacketComparison compares gopus output with reference for first packet.
@@ -324,6 +280,7 @@ func TestCELTFirstPacketComparison(t *testing.T) {
 
 	// Decode first packet using CELT decoder
 	decoder := celt.NewDecoder(channels)
+	setDecoderBandwidth(decoder, toc)
 	frameData := extractFirstFrame(firstPacket.Data)
 
 	samples, err := decoder.DecodeFrame(frameData, frameSize)
@@ -331,17 +288,17 @@ func TestCELTFirstPacketComparison(t *testing.T) {
 		t.Logf("Decode error: %v", err)
 	}
 
-	// Convert to int16
+	// Convert to int16 (match gopus DecodeInt16 scaling)
 	decoded := make([]int16, len(samples))
 	for i, s := range samples {
-		// Clamp and convert
-		v := s
-		if v > 32767 {
-			v = 32767
-		} else if v < -32768 {
-			v = -32768
+		scaled := s * 32768.0
+		if scaled > 32767.0 {
+			decoded[i] = 32767
+		} else if scaled < -32768.0 {
+			decoded[i] = -32768
+		} else {
+			decoded[i] = int16(math.RoundToEven(scaled))
 		}
-		decoded[i] = int16(v)
 	}
 
 	t.Logf("Decoded: %d samples", len(decoded))
@@ -661,14 +618,22 @@ func TestCELTNonSilentFrameComparison(t *testing.T) {
 		if len(pkt.Data) == 0 {
 			continue
 		}
-		ptoc := pkt.Data[0]
-		pconfig := ptoc >> 3
-		if getModeFromConfig(pconfig) != "CELT" {
+		info, err := gopus.ParsePacket(pkt.Data)
+		if err != nil {
 			continue
 		}
-		pframeSize := getFrameSizeFromConfig(pconfig)
-		frameData := extractFirstFrame(pkt.Data)
-		_, _ = decoder.DecodeFrame(frameData, pframeSize)
+		if info.TOC.Mode != gopus.ModeCELT {
+			continue
+		}
+		pframeSize := info.TOC.FrameSize
+		frames := extractFrames(pkt.Data, info)
+		for _, frame := range frames {
+			if len(frame) == 0 {
+				continue
+			}
+			setDecoderBandwidth(decoder, pkt.Data[0])
+			_, _ = decoder.DecodeFrame(frame, pframeSize)
+		}
 	}
 
 	// Now decode target frame with tracing
@@ -678,6 +643,7 @@ func TestCELTNonSilentFrameComparison(t *testing.T) {
 	defer celt.SetTracer(&celt.NoopTracer{})
 
 	frameData := extractFirstFrame(targetPacket.Data)
+	setDecoderBandwidth(decoder, toc)
 
 	// Debug: check frame data
 	t.Logf("")
@@ -714,16 +680,17 @@ func TestCELTNonSilentFrameComparison(t *testing.T) {
 		t.Log("(no trace output)")
 	}
 
-	// Convert to int16
+	// Convert to int16 (match gopus DecodeInt16 scaling)
 	decoded := make([]int16, len(samples))
 	for i, s := range samples {
-		v := s
-		if v > 32767 {
-			v = 32767
-		} else if v < -32768 {
-			v = -32768
+		scaled := s * 32768.0
+		if scaled > 32767.0 {
+			decoded[i] = 32767
+		} else if scaled < -32768.0 {
+			decoded[i] = -32768
+		} else {
+			decoded[i] = int16(math.RoundToEven(scaled))
 		}
-		decoded[i] = int16(v)
 	}
 
 	// Get reference samples

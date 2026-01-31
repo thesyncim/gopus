@@ -127,58 +127,59 @@ func (e *Encoder) applyInputDelay(pcm []float64) []float64 {
 
 // encodeSILKHybrid encodes SILK data for hybrid mode.
 // Uses the SILK encoder's EncodeFrame method with a shared range encoder.
+//
+// For 10ms frames (160 samples at 16kHz), this function buffers samples until
+// we have a full 20ms (320 samples) because SILK requires 20ms frames.
+// This avoids the signal attenuation that would occur from zero-padding.
 func (e *Encoder) encodeSILKHybrid(pcm []float32, frameSize int) {
 	// For hybrid mode, SILK always operates at WB (16kHz)
 	// The input is already downsampled to 16kHz
 
-	// WB SILK expects 320 samples (20ms at 16kHz) - 4 subframes of 80 samples each
-	// For 10ms frames (160 samples), we need to either:
-	// 1. Pad to 320 samples
-	// 2. Or encode with fewer subframes
-	//
-	// The SILK EncodeFrame expects 20ms frames (numSubframes=4), so we pad
-	// 10ms frames with zeros to match the expected format.
+	// Calculate samples at 16kHz (input is at 16kHz after downsampling)
 	silkSamples := frameSize / 3 // 48kHz -> 16kHz (160 for 10ms, 320 for 20ms)
 
-	// SILK at WB needs 320 samples per frame
+	// SILK at WB needs 320 samples per frame (20ms)
 	const silkWBSamples = 320
 
-	// Create the SILK input buffer
-	var silkPCM []float32
+	// Extract mono signal for SILK encoding
+	var inputSamples []float32
 	if e.channels == 1 {
-		if silkSamples < silkWBSamples {
-			// Pad 10ms frame to 20ms
-			silkPCM = make([]float32, silkWBSamples)
-			copy(silkPCM, pcm[:min(len(pcm), silkSamples)])
-		} else {
-			silkPCM = pcm[:silkSamples]
-		}
+		inputSamples = pcm[:min(len(pcm), silkSamples)]
 	} else {
-		// For stereo, deinterleave and encode mid channel
+		// For stereo, compute mid channel: (L + R) / 2
 		actualSamples := len(pcm) / 2
 		if actualSamples < silkSamples {
 			silkSamples = actualSamples
 		}
-
-		targetSamples := silkSamples
-		if targetSamples < silkWBSamples {
-			targetSamples = silkWBSamples // Pad to 20ms
-		}
-
-		silkPCM = make([]float32, targetSamples)
+		inputSamples = make([]float32, silkSamples)
 		for i := 0; i < silkSamples && i*2+1 < len(pcm); i++ {
-			// Mid channel = (L + R) / 2
 			left := pcm[i*2]
 			right := pcm[i*2+1]
-			silkPCM[i] = (left + right) / 2
+			inputSamples[i] = (left + right) / 2
 		}
-		// Rest is zero-padded
 	}
 
-	// Encode the SILK frame
+	// Handle 10ms frames by buffering to 20ms
+	if silkSamples < silkWBSamples {
+		// 10ms frame - need to buffer
+		if e.silkBufferFilled == 0 {
+			// First 10ms - store in buffer and wait for second half
+			copy(e.silkFrameBuffer[:silkSamples], inputSamples)
+			e.silkBufferFilled = silkSamples
+			// Don't encode yet - wait for next 10ms
+			return
+		} else {
+			// Second 10ms - combine with buffer and encode full 20ms
+			copy(e.silkFrameBuffer[e.silkBufferFilled:], inputSamples)
+			inputSamples = e.silkFrameBuffer[:silkWBSamples]
+			e.silkBufferFilled = 0 // Reset buffer
+		}
+	}
+
+	// Encode the SILK frame (now have full 20ms worth of samples)
 	// Note: EncodeFrame creates its own range encoder if none is set,
 	// but we've already set one via SetRangeEncoder
-	_ = e.silkEncoder.EncodeFrame(silkPCM, true)
+	_ = e.silkEncoder.EncodeFrame(inputSamples, true)
 }
 
 // min returns the smaller of two ints.
@@ -191,25 +192,35 @@ func min(a, b int) int {
 
 // encodeCELTHybrid encodes CELT data for hybrid mode.
 // In hybrid mode, CELT only encodes high-frequency bands (17-21).
+// Per RFC 6716 Section 3.2:
+// - CELT start_band = 17 (bands 0-16 handled by SILK)
+// - Only bands 17-21 carry signal in the CELT layer
 func (e *Encoder) encodeCELTHybrid(pcm []float64, frameSize int) {
+	// Set hybrid mode flag on CELT encoder
+	// This affects postfilter flag encoding (skipped in hybrid mode)
+	// Reference: libopus celt_encoder.c line 2047-2048
+	e.celtEncoder.SetHybrid(true)
+
 	// Get mode configuration
 	mode := celt.GetModeConfig(frameSize)
 
-	// Apply pre-emphasis
-	preemph := e.celtEncoder.ApplyPreemphasis(pcm)
+	// Apply pre-emphasis with signal scaling to match libopus
+	preemph := e.celtEncoder.ApplyPreemphasisWithScaling(pcm)
 
-	// Compute MDCT
-	mdctCoeffs := computeMDCTForHybrid(preemph, frameSize, e.channels)
+	// Compute MDCT with overlap history
+	mdctCoeffs := computeMDCTForHybrid(preemph, frameSize, e.channels, e.celtEncoder.OverlapBuffer())
 
 	// Compute band energies
 	energies := e.celtEncoder.ComputeBandEnergies(mdctCoeffs, mode.EffBands, frameSize)
 
-	// In hybrid mode, zero out low bands (0-16) - SILK handles these
-	for i := 0; i < 17 && i < len(energies); i++ {
-		energies[i] = -28.0 // Minimal energy for SILK bands
+	// In hybrid mode, set low bands (0-16) to very low energy
+	// These bands are handled by SILK; CELT should not allocate bits to them
+	startBand := celt.HybridCELTStartBand // 17
+	for i := 0; i < startBand && i < len(energies); i++ {
+		energies[i] = -28.0 // Very low energy for SILK bands
 	}
 
-	// Normalize bands
+	// Normalize bands (only high bands will have meaningful shapes)
 	shapes := e.celtEncoder.NormalizeBands(mdctCoeffs, energies, mode.EffBands, frameSize)
 
 	// Get the range encoder
@@ -220,6 +231,11 @@ func (e *Encoder) encodeCELTHybrid(pcm []float64, frameSize int) {
 
 	// Encode silence flag = 0 (not silent)
 	re.EncodeBit(0, 15)
+
+	// In hybrid mode, postfilter flag is SKIPPED entirely (not encoded)
+	// Reference: libopus celt_encoder.c line 2047-2048:
+	// if(!hybrid && tell+16<=total_bits) ec_enc_bit_logp(enc, 0, 1);
+	// Since we're in hybrid mode, we skip encoding the postfilter flag
 
 	// Encode transient flag (only for LM >= 1)
 	if mode.LM >= 1 {
@@ -237,6 +253,9 @@ func (e *Encoder) encodeCELTHybrid(pcm []float64, frameSize int) {
 	// Encode coarse energy
 	quantizedEnergies := e.celtEncoder.EncodeCoarseEnergy(energies, mode.EffBands, intra, mode.LM)
 
+	// Initialize caps for allocation - use hybrid mode caps that zero out low bands
+	caps := celt.InitCapsForHybrid(mode.EffBands, mode.LM, e.channels, startBand)
+
 	// Compute bit allocation
 	bitsUsed := re.Tell()
 	totalBits := maxHybridPacketSize*8 - bitsUsed
@@ -247,10 +266,11 @@ func (e *Encoder) encodeCELTHybrid(pcm []float64, frameSize int) {
 	allocResult := celt.ComputeAllocation(
 		totalBits,
 		mode.EffBands,
-		nil,   // caps
+		e.channels,
+		caps,  // Use hybrid caps
 		nil,   // dynalloc
-		0,     // trim
-		-1,    // intensity
+		5,     // trim (default)
+		-1,    // intensity (disabled)
 		false, // dualStereo
 		mode.LM,
 	)
@@ -259,10 +279,8 @@ func (e *Encoder) encodeCELTHybrid(pcm []float64, frameSize int) {
 	e.celtEncoder.EncodeFineEnergy(energies, quantizedEnergies, mode.EffBands, allocResult.FineBits)
 
 	// Encode bands (PVQ)
-	e.celtEncoder.EncodeBands(shapes, allocResult.BandBits, mode.EffBands, frameSize)
-
-	// Encode energy remainder
-	e.celtEncoder.EncodeEnergyRemainder(energies, quantizedEnergies, mode.EffBands, allocResult.RemainderBits)
+	// With hybrid caps, bands 0-16 will have 0 bits allocated automatically
+	e.celtEncoder.EncodeBands(shapes, nil, allocResult.BandBits, mode.EffBands, frameSize)
 
 	// Update state
 	e.celtEncoder.SetPrevEnergy(quantizedEnergies)
@@ -270,30 +288,38 @@ func (e *Encoder) encodeCELTHybrid(pcm []float64, frameSize int) {
 }
 
 // computeMDCTForHybrid computes MDCT for hybrid mode encoding.
-func computeMDCTForHybrid(samples []float64, frameSize, channels int) []float64 {
+func computeMDCTForHybrid(samples []float64, frameSize, channels int, history []float64) []float64 {
 	if len(samples) == 0 {
 		return nil
 	}
 
-	// MDCT expects 2*N samples to produce N coefficients
-	n := len(samples) / channels
+	overlap := celt.Overlap
+	if overlap > frameSize {
+		overlap = frameSize
+	}
+
 	if channels == 1 {
-		padded := make([]float64, n*2)
-		copy(padded[n:], samples)
-		return celt.MDCT(padded)
+		if len(history) >= overlap {
+			return celt.ComputeMDCTWithHistory(samples, history[:overlap], 1)
+		}
+		return celt.MDCT(append(make([]float64, overlap), samples...))
 	}
 
 	// Stereo: convert to mid-side, then MDCT each
 	left, right := celt.DeinterleaveStereo(samples)
 	mid, side := celt.ConvertToMidSide(left, right)
 
-	paddedMid := make([]float64, n*2)
-	paddedSide := make([]float64, n*2)
-	copy(paddedMid[n:], mid)
-	copy(paddedSide[n:], side)
+	if len(history) >= overlap*2 {
+		mdctMid := celt.ComputeMDCTWithHistory(mid, history[:overlap], 1)
+		mdctSide := celt.ComputeMDCTWithHistory(side, history[overlap:overlap*2], 1)
+		result := make([]float64, len(mdctMid)+len(mdctSide))
+		copy(result[:len(mdctMid)], mdctMid)
+		copy(result[len(mdctMid):], mdctSide)
+		return result
+	}
 
-	mdctMid := celt.MDCT(paddedMid)
-	mdctSide := celt.MDCT(paddedSide)
+	mdctMid := celt.MDCT(append(make([]float64, overlap), mid...))
+	mdctSide := celt.MDCT(append(make([]float64, overlap), side...))
 
 	// Concatenate
 	result := make([]float64, len(mdctMid)+len(mdctSide))

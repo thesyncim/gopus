@@ -98,13 +98,13 @@ func TestUpsampleFactors(t *testing.T) {
 func TestUpsampleLength(t *testing.T) {
 	// Test all SILK bandwidths
 	tests := []struct {
-		name       string
-		inputLen   int
-		srcRate    int
-		outputLen  int
-		bandwidth  Bandwidth
+		name      string
+		inputLen  int
+		srcRate   int
+		outputLen int
+		bandwidth Bandwidth
 	}{
-		{"NB 20ms", 160, 8000, 960, BandwidthNarrowband},   // 8kHz 20ms -> 48kHz
+		{"NB 20ms", 160, 8000, 960, BandwidthNarrowband},  // 8kHz 20ms -> 48kHz
 		{"MB 20ms", 240, 12000, 960, BandwidthMediumband}, // 12kHz 20ms -> 48kHz
 		{"WB 20ms", 320, 16000, 960, BandwidthWideband},   // 16kHz 20ms -> 48kHz
 		{"NB 10ms", 80, 8000, 480, BandwidthNarrowband},   // 8kHz 10ms -> 48kHz
@@ -266,24 +266,25 @@ func TestInt16Conversion(t *testing.T) {
 	}{
 		{0.0, 0},
 		{1.0, 32767},
-		{-1.0, -32767},
-		{0.5, 16383},
-		{-0.5, -16383},
+		{-1.0, -32768},
+		{0.5, 16384},
+		{-0.5, -16384},
 		{2.0, 32767},   // Clamp positive
 		{-2.0, -32768}, // Clamp negative
 	}
 
 	for _, tt := range tests {
-		scaled := tt.input * 32767.0
-		if scaled > 32767 {
-			scaled = 32767
-		} else if scaled < -32768 {
-			scaled = -32768
+		scaled := float64(tt.input) * 32768.0
+		var got int16
+		if scaled > 32767.0 {
+			got = 32767
+		} else if scaled < -32768.0 {
+			got = -32768
+		} else {
+			got = int16(math.RoundToEven(scaled))
 		}
-		got := int16(scaled)
-		// Allow small rounding difference
-		if math.Abs(float64(got-tt.expected)) > 1 {
-			t.Errorf("Sample %f -> %d, want ~%d", tt.input, got, tt.expected)
+		if got != tt.expected {
+			t.Errorf("Sample %f -> %d, want %d", tt.input, got, tt.expected)
 		}
 	}
 }

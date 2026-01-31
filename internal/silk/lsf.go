@@ -156,85 +156,14 @@ func stabilizeLSF(lsf []int16, isWideband bool) {
 }
 
 // lsfToLPC converts LSF coefficients to LPC coefficients.
-// Per RFC 6716 Section 4.2.7.5.6 using Chebyshev polynomial recursion.
-//
-// LSF input is in Q15 format [0, 32767].
-// LPC output is in Q12 format.
+// LSF input is in Q15 format [0, 32767]. LPC output is in Q12 format.
 func lsfToLPC(lsfQ15 []int16) []int16 {
 	lpcOrder := len(lsfQ15)
 	lpcQ12 := make([]int16, lpcOrder)
-
-	// Convert LSF to cosines using CosineTable
-	// LSF is in range [0, 32767] representing [0, pi]
-	// Table index = LSF >> 8 (256 entries, but table has 129 for [0, pi])
-	cos := make([]int32, lpcOrder)
-	for i := 0; i < lpcOrder; i++ {
-		// Map Q15 [0, 32767] to table index [0, 128]
-		idx := int(lsfQ15[i]) >> 8
-		if idx > 127 {
-			idx = 127
-		}
-		frac := int32(lsfQ15[i]&0xFF) << 4 // Scale fraction to Q12
-
-		// Linear interpolation between table entries
-		cos[i] = CosineTable[idx] + ((CosineTable[idx+1]-CosineTable[idx])*frac+2048)>>12
+	if silkNLSF2A(lpcQ12, lsfQ15, lpcOrder) {
+		return lpcQ12
 	}
-
-	// Compute LPC coefficients using Chebyshev polynomial recursion
-	// Split into odd and even polynomials
-	halfOrder := lpcOrder / 2
-
-	// Temporary arrays for polynomial coefficients
-	p := make([]int32, halfOrder+1) // Even polynomial
-	q := make([]int32, halfOrder+1) // Odd polynomial
-
-	// Initialize polynomials: p[0] = q[0] = 1.0 in Q12 = 4096
-	p[0] = 4096
-	q[0] = 4096
-
-	// Build polynomials iteratively using Chebyshev recursion
-	for i := 0; i < halfOrder; i++ {
-		cosEven := cos[2*i]   // Even-indexed LSF
-		cosOdd := cos[2*i+1]  // Odd-indexed LSF
-
-		// Update p polynomial with cos[2*i]
-		// p[k+1] = p[k] - 2*cos*p[k] + p[k-1]
-		for k := i + 1; k >= 1; k-- {
-			p[k] = p[k] - ((cosEven * p[k-1] + 2048) >> 12) + p[k-1]
-			if k > 1 {
-				p[k] += p[k-2]
-			}
-		}
-
-		// Update q polynomial with cos[2*i+1]
-		for k := i + 1; k >= 1; k-- {
-			q[k] = q[k] - ((cosOdd * q[k-1] + 2048) >> 12) + q[k-1]
-			if k > 1 {
-				q[k] += q[k-2]
-			}
-		}
-	}
-
-	// Combine P and Q polynomials to get LPC coefficients
-	// a[k] = (p[k] + p[k-1] + q[k] - q[k-1]) / 2
-	for i := 0; i < lpcOrder; i++ {
-		k := i / 2
-		if i%2 == 0 {
-			if k < halfOrder {
-				lpcQ12[i] = int16((p[k+1] + q[k+1]) >> 1)
-			}
-		} else {
-			if k < halfOrder {
-				lpcQ12[i] = int16((p[k+1] - q[k+1]) >> 1)
-			}
-		}
-	}
-
-	// Alternative simplified approach: direct conversion
-	// This is a fallback implementation using the standard algorithm
-	lpcQ12 = lsfToLPCDirect(lsfQ15)
-
-	return lpcQ12
+	return lsfToLPCDirect(lsfQ15)
 }
 
 // lsfToLPCDirect converts LSF to LPC using the direct algorithm.

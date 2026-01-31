@@ -119,28 +119,25 @@ func runTestVector(t *testing.T, name string) {
 	toc := packets[0].Data[0]
 	config := toc >> 3
 	stereo := (toc & 0x04) != 0
-	channels := 1
-	if stereo {
-		channels = 2
-	}
 	frameSize := getFrameSizeFromConfig(config)
 
 	t.Logf("  Config: %d, Stereo: %v, FrameSize: %d samples", config, stereo, frameSize)
 
-	// 3. Create decoder (always use 48kHz for native output)
-	dec, err := gopus.NewDecoder(48000, channels)
+	// 3. Create a single stereo decoder
+	// Test vectors may contain both mono and stereo packets mixed in the stream.
+	// Per RFC 8251, output format is always stereo interleaved.
+	// Use one persistent stereo decoder to preserve state across channel switches.
+	dec, err := gopus.NewDecoder(48000, 2)
 	if err != nil {
-		t.Fatalf("Failed to create decoder: %v", err)
+		t.Fatalf("Failed to create stereo decoder: %v", err)
 	}
 
-	// 4. Decode all packets
+	// 4. Decode all packets with a single stereo decoder.
 	// Note: Opus packets can contain multiple frames (code 1/2/3 in TOC byte).
-	// The decoder returns all frames combined, so we use DecodeInt16Slice
-	// which allocates the correct buffer size based on packet structure.
+	// The decoder returns all frames combined, so we use DecodeInt16Slice.
 	var allDecoded []int16
 	decodeErrors := make(map[string]int) // Track error types
 	for i, pkt := range packets {
-		// Decode the packet using auto-allocating method for multi-frame support
 		pcm, err := dec.DecodeInt16Slice(pkt.Data)
 		if err != nil {
 			// Log more detail about the failure
@@ -154,13 +151,17 @@ func runTestVector(t *testing.T, name string) {
 				t.Logf("  Packet %d decode error: %v (config=%d, mode=%s, frameSize=%d)",
 					i, err, cfg, mode, fs)
 			}
-			// Use zeros for failed packets (based on single frame size)
+			// Use zeros for failed packets (based on total frames in packet)
 			pktFrameSize := frameSize
+			frameCount := 1
 			if len(pkt.Data) > 0 {
 				pktCfg := pkt.Data[0] >> 3
 				pktFrameSize = getFrameSizeFromConfig(pktCfg)
+				if pktInfo, pktErr := gopus.ParsePacket(pkt.Data); pktErr == nil {
+					frameCount = pktInfo.FrameCount
+				}
 			}
-			zeros := make([]int16, pktFrameSize*channels)
+			zeros := make([]int16, pktFrameSize*frameCount*2)
 			allDecoded = append(allDecoded, zeros...)
 			continue
 		}
@@ -176,16 +177,8 @@ func runTestVector(t *testing.T, name string) {
 		}
 	}
 
-	t.Logf("  Decoded: %d samples (%d per channel)", len(allDecoded), len(allDecoded)/channels)
-
-	// 4a. Convert mono output to stereo format if needed
-	// opus_demo always outputs stereo (2 channels), even for mono sources.
-	// For mono packets, L and R are identical. We must match this format.
-	if channels == 1 {
-		t.Logf("  Converting mono output to stereo (duplicating samples)")
-		allDecoded = duplicateMonoToStereo(allDecoded)
-		t.Logf("  After conversion: %d samples (stereo)", len(allDecoded))
-	}
+	// Output is stereo (2 channels)
+	t.Logf("  Decoded: %d samples (%d per channel)", len(allDecoded), len(allDecoded)/2)
 
 	// 5. Read reference files
 	reference, err := readPCMFile(decFile)
@@ -741,13 +734,13 @@ func runVectorSilent(t *testing.T, name string) vectorResult {
 	toc := packets[0].Data[0]
 	config := toc >> 3
 	stereo := (toc & 0x04) != 0
-	channels := 1
-	if stereo {
-		channels = 2
-	}
 	frameSize := getFrameSizeFromConfig(config)
 
-	// 3. Create decoder
+	// 3. Create a single stereo decoder
+	// Test vectors may contain both mono and stereo packets mixed in the stream.
+	// Per RFC 8251, output format is always stereo interleaved.
+	// Use one persistent stereo decoder to preserve state across channel switches.
+	channels := 2
 	dec, err := gopus.NewDecoder(48000, channels)
 	if err != nil {
 		result.err = err
@@ -773,14 +766,10 @@ func runVectorSilent(t *testing.T, name string) vectorResult {
 		allDecoded = append(allDecoded, pcm...)
 	}
 
-	// Track mono status
+	// Track mono status (based on first packet, though stream may contain mixed)
 	result.isMono = !stereo
 
-	// 4a. Convert mono output to stereo format if needed
-	// opus_demo always outputs stereo (2 channels), even for mono sources.
-	if channels == 1 {
-		allDecoded = duplicateMonoToStereo(allDecoded)
-	}
+	// No conversion needed - we always use stereo decoder now
 
 	// 5. Read reference files
 	reference, err := readPCMFile(decFile)

@@ -15,6 +15,8 @@ type Encoder struct {
 	val        uint32 // Low end of range
 	rem        int    // Buffered byte for carry propagation (-1 = sentinel)
 	ext        uint32 // Count of pending 0xFF bytes
+	err        int    // Error flag (non-zero on failure)
+	shrunk     bool   // True if Shrink() was called (for CBR mode)
 }
 
 // Init initializes the encoder with the given output buffer.
@@ -31,46 +33,73 @@ func (e *Encoder) Init(buf []byte) {
 	e.val = 0
 	e.rem = -1 // Sentinel: no bytes buffered yet
 	e.ext = 0
+	e.err = 0
+}
+
+// Shrink reduces the storage size to the given number of bytes.
+// This is used in CBR mode to ensure the output packet is exactly the target size.
+// The raw bits written from the end are moved to the new end position.
+// This is a direct port of libopus celt/entenc.c ec_enc_shrink.
+//
+// After calling Shrink, Done() will return exactly 'size' bytes (padded with zeros).
+func (e *Encoder) Shrink(size uint32) {
+	if e.offs+e.endOffs > size {
+		// Can't shrink to less than already written
+		e.err = -1
+		return
+	}
+	if size > e.storage {
+		// Can't grow the buffer
+		return
+	}
+	if e.endOffs > 0 {
+		// Move end bytes to new position
+		copy(e.buf[size-e.endOffs:size], e.buf[e.storage-e.endOffs:e.storage])
+	}
+	e.storage = size
+	e.shrunk = true
 }
 
 // carryOut handles carry propagation when outputting bytes.
-// This is based on libopus celt/entenc.c ec_enc_carry_out, but with output
-// bytes inverted (255 - B) to match the decoder's XOR-255 reconstruction.
+// This is a direct port of libopus celt/entenc.c ec_enc_carry_out.
+// NO byte complementing - the decoder handles that with its (255 &^ sym) formula.
 //
-// The decoder's normalize does: val = (val << 8) + (255 &^ sym)
-// where sym is derived from input bytes. For correct round-trip, the encoder
-// must output complemented bytes so the decoder's inversion reconstructs
-// the original interval.
+// When symbol equals EC_SYM_MAX (0xFF), we increment ext (pending 0xFF bytes)
+// because we can't know yet if there will be a carry from future symbols.
+// When we get a non-0xFF symbol:
+//   - Extract carry from high byte (symbol overflow)
+//   - Write the buffered rem byte plus carry
+//   - Write pending 0xFF bytes as (0xFF + carry) & 0xFF = 0x00 if carry, 0xFF if not
+//   - Buffer the new symbol
+//
+// Reference: libopus celt/entenc.c ec_enc_carry_out
 func (e *Encoder) carryOut(c int) {
-	// Complement the input to work in "decoder space"
-	// The encoder tracks val in increasing direction, decoder in decreasing
-	c = EC_SYM_MAX - (c & EC_SYM_MAX)
+	if c != EC_SYM_MAX {
+		// c is not 0xFF, so we can flush buffered bytes
+		carry := c >> EC_SYM_BITS // Extract carry from potential overflow
 
-	if e.rem >= 0 {
-		// Check for carry (now inverted: carry when c wraps below 0)
-		if c > EC_SYM_MAX {
-			// Underflow in complemented space = carry in original
-			e.writeByte(byte(e.rem - 1))
-			for e.ext > 0 {
-				e.writeByte(0xFF)
-				e.ext--
-			}
-			e.rem = c & EC_SYM_MAX
-		} else if c == 0 {
-			// Byte is 0x00 in complemented space (was 0xFF): might borrow later
-			e.ext++
-		} else {
-			// No carry: output rem as-is, output pending 0x00 bytes
-			e.writeByte(byte(e.rem))
-			for e.ext > 0 {
-				e.writeByte(0)
-				e.ext--
-			}
-			e.rem = c
+		// Write the previously buffered byte plus carry (if any)
+		if e.rem >= 0 {
+			e.writeByte(byte(e.rem + carry))
 		}
+
+		// Write any pending 0xFF bytes, adjusted for carry
+		// This is a SEPARATE if, not inside the rem >= 0 block!
+		// If carry=1: 0xFF + 1 = 0x100, masked to 0x00
+		// If carry=0: 0xFF + 0 = 0xFF
+		if e.ext > 0 {
+			sym := (EC_SYM_MAX + carry) & EC_SYM_MAX
+			for e.ext > 0 {
+				e.writeByte(byte(sym))
+				e.ext--
+			}
+		}
+
+		// Buffer the new symbol (low 8 bits only)
+		e.rem = c & EC_SYM_MAX
 	} else {
-		// First byte: just store it
-		e.rem = c
+		// Symbol is 0xFF - can't flush yet because might need to carry
+		e.ext++
 	}
 }
 
@@ -92,10 +121,12 @@ func (e *Encoder) normalize() {
 
 // writeByte writes a byte to the output buffer.
 func (e *Encoder) writeByte(b byte) {
-	if e.offs < e.storage-e.endOffs {
-		e.buf[e.offs] = b
-		e.offs++
+	if e.offs+e.endOffs >= e.storage {
+		e.err = -1
+		return
 	}
+	e.buf[e.offs] = b
+	e.offs++
 }
 
 // Encode encodes a symbol with cumulative frequencies [fl, fh) out of ft.
@@ -113,72 +144,69 @@ func (e *Encoder) Encode(fl, fh, ft uint32) {
 	e.normalize()
 }
 
+// EncodeBin encodes a symbol with power-of-two total frequency (1<<bits).
+// This mirrors libopus ec_encode_bin.
+func (e *Encoder) EncodeBin(fl, fh uint32, bits uint) {
+	if bits == 0 {
+		return
+	}
+	r := e.rng >> bits
+	ft := uint32(1) << bits
+	if fl > 0 {
+		e.val += e.rng - r*(ft-fl)
+		e.rng = r * (fh - fl)
+	} else {
+		e.rng -= r * (ft - fh)
+	}
+	e.normalize()
+}
+
 // EncodeICDF encodes a symbol using an inverse CDF table.
 // s is the symbol to encode (0 to len(icdf)-2).
 // icdf is the inverse cumulative distribution function table (decreasing values).
 // ftb is the number of bits of precision (total = 1 << ftb).
 //
-// The decoder maps: val >= r*icdf[k] -> symbol k
-// So symbol 0 requires val >= r*icdf[0] (high val), symbol N requires low val.
-// The encoder must place symbol 0 in the HIGH interval.
+// This is a direct port of libopus ec_enc_icdf.
 func (e *Encoder) EncodeICDF(s int, icdf []uint8, ftb uint) {
-	ft := uint32(1) << ftb
-	// For decoder compatibility, symbol s maps to interval [icdf[s], icdf[s-1])
-	// scaled by r. In terms of fl/fh:
-	// fl = icdf[s] (the threshold for this symbol)
-	// fh = icdf[s-1] (the threshold for the previous symbol, or ft for s=0)
-	fl := uint32(icdf[s])
-	var fh uint32
+	r := e.rng >> ftb
 	if s > 0 {
-		fh = uint32(icdf[s-1])
+		e.val += e.rng - r*uint32(icdf[s-1])
+		e.rng = r * uint32(icdf[s-1]-icdf[s])
 	} else {
-		fh = ft
+		e.rng -= r * uint32(icdf[s])
 	}
-	e.Encode(fl, fh, ft)
+	e.normalize()
 }
 
 // EncodeICDF16 encodes a symbol using a uint16 ICDF table.
 // Required because SILK tables use uint16 (256 doesn't fit in uint8).
 // Per RFC 6716 Section 4.1.
 //
-// Note: SILK ICDF tables typically have icdf[0] = 256, meaning symbol 0
-// has zero probability and cannot be encoded. If s=0 is passed with such
-// a table, this function clamps s to 1 to avoid infinite loops.
+// This is the uint16 variant of EncodeICDF, matching libopus ec_enc_icdf.
 func (e *Encoder) EncodeICDF16(s int, icdf []uint16, ftb uint) {
 	// Clamp symbol to valid range
 	if s < 0 {
 		s = 0
 	}
-	maxSymbol := len(icdf) - 1
+	maxSymbol := len(icdf) - 2 // Last entry is always 0, not a valid symbol
 	if s > maxSymbol {
 		s = maxSymbol
 	}
 
-	ft := uint32(1) << ftb
-	var fl, fh uint32
+	r := e.rng >> ftb
 	if s > 0 {
-		fl = ft - uint32(icdf[s-1])
-	}
-	fh = ft - uint32(icdf[s])
-
-	// Check for zero-probability symbol (would cause infinite loop)
-	// If fl >= fh, the symbol has zero or negative probability
-	if fl >= fh {
-		// Skip to next valid symbol
-		for s < maxSymbol && fl >= fh {
-			s++
-			fl = ft - uint32(icdf[s-1])
-			fh = ft - uint32(icdf[s])
-		}
-		// If still invalid, clamp to last symbol
-		if fl >= fh {
-			s = maxSymbol
-			fl = ft - uint32(icdf[s-1])
-			fh = ft - uint32(icdf[s])
-		}
+		e.val += e.rng - r*uint32(icdf[s-1])
+		e.rng = r * uint32(icdf[s-1]-icdf[s])
+	} else {
+		e.rng -= r * uint32(icdf[s])
 	}
 
-	e.Encode(fl, fh, ft)
+	// Safety: ensure rng doesn't become 0 (would cause infinite loop)
+	if e.rng == 0 {
+		e.rng = 1
+	}
+
+	e.normalize()
 }
 
 // EncodeBit encodes a single bit with the given log probability.
@@ -239,34 +267,84 @@ func (e *Encoder) Done() []byte {
 		l -= EC_SYM_BITS
 	}
 
-	// Flush pending byte
-	if e.rem >= 0 {
-		e.writeByte(byte(e.rem))
-		for e.ext > 0 {
-			e.writeByte(0)
-			e.ext--
+	// Flush buffered range coder bytes (matches libopus ec_enc_done).
+	if e.rem >= 0 || e.ext > 0 {
+		e.carryOut(0)
+	}
+
+	// Flush any buffered raw bits as end bytes.
+	window := e.endWindow
+	used := e.nendBits
+	for used >= EC_SYM_BITS {
+		e.writeEndByte(byte(window & EC_SYM_MAX))
+		window >>= EC_SYM_BITS
+		used -= EC_SYM_BITS
+	}
+
+	if e.err == 0 {
+		if e.buf != nil {
+			start := int(e.offs)
+			endIdx := int(e.storage - e.endOffs)
+			for i := start; i < endIdx; i++ {
+				e.buf[i] = 0
+			}
+		}
+		if used > 0 {
+			if e.endOffs >= e.storage {
+				e.err = -1
+			} else {
+				l = -l
+				if e.offs+e.endOffs >= e.storage && l < used {
+					window &= (1 << l) - 1
+					e.err = -1
+				}
+				idx := int(e.storage - e.endOffs - 1)
+				if idx >= 0 && idx < len(e.buf) {
+					e.buf[idx] |= byte(window)
+				}
+			}
 		}
 	}
 
-	// Flush any remaining raw bits in the end window
-	if e.nendBits > 0 {
-		e.writeEndByte(byte(e.endWindow))
-		e.nendBits = 0
-		e.endWindow = 0
+	if e.err != 0 {
+		used = 0
+		if int(e.storage) <= len(e.buf) {
+			return e.buf[:e.storage]
+		}
+		return e.buf
 	}
 
-	// Combine front bytes with end bytes
+	// For CBR mode (when Shrink was called), return exactly storage bytes.
+	// The buffer is already structured as:
+	//   [front bytes from offs][zeros][end bytes from endOffs]
+	// with storage as the total size.
+	if e.shrunk {
+		return e.buf[:e.storage]
+	}
+
+	// For VBR mode, return actual written bytes (compact the buffer).
+	// Combine front bytes with end bytes.
+	padLen := 0
+	if used > 0 {
+		padLen = 1
+		if int(e.offs) < len(e.buf) {
+			e.buf[e.offs] = byte(window)
+		}
+	}
+
+	packedSize := int(e.offs + e.endOffs + uint32(padLen))
 	if e.endOffs > 0 {
-		totalSize := e.offs + e.endOffs
-		if totalSize > e.storage {
-			totalSize = e.storage
-		}
-		// Copy end bytes to after front bytes
-		copy(e.buf[e.offs:], e.buf[e.storage-e.endOffs:e.storage])
-		return e.buf[:totalSize]
+		dst := int(e.offs) + padLen
+		copy(e.buf[dst:], e.buf[e.storage-e.endOffs:e.storage])
 	}
 
-	return e.buf[:e.offs]
+	if packedSize < 0 {
+		packedSize = 0
+	}
+	if packedSize > len(e.buf) {
+		packedSize = len(e.buf)
+	}
+	return e.buf[:packedSize]
 }
 
 // Tell returns the number of bits written so far.
@@ -277,27 +355,16 @@ func (e *Encoder) Tell() int {
 // TellFrac returns the number of bits written with 1/8 bit precision.
 // The value is in 1/8 bits, so divide by 8 to compare with Tell().
 func (e *Encoder) TellFrac() int {
-	// Number of whole bits scaled by 8
-	nbits := e.nbitsTotal << 3
-	// Get the log of range
-	l := ilog(e.rng)
+	correction := [8]uint32{35733, 38967, 42495, 46340, 50535, 55109, 60097, 65535}
 
-	// Compute fractional correction
-	var r uint32
-	if l > 16 {
-		r = e.rng >> (l - 16)
-	} else {
-		r = e.rng << (16 - l)
+	nbits := e.nbitsTotal << 3
+	l := ilog(e.rng)
+	r := e.rng >> (l - 16)
+	b := int((r >> 12) - 8)
+	if r > correction[b] {
+		b++
 	}
-	// Correction using top bits of range
-	correction := int(r>>12) - 8
-	if correction < 0 {
-		correction = 0
-	}
-	if correction > 7 {
-		correction = 7
-	}
-	return nbits - l*8 + correction
+	return nbits - ((l << 3) + b)
 }
 
 // Range returns the current range value (for testing/debugging).
@@ -315,9 +382,121 @@ func (e *Encoder) Rem() int {
 	return e.rem
 }
 
+// StorageBits returns the total number of bits in the output buffer.
+func (e *Encoder) StorageBits() int {
+	return int(e.storage * 8)
+}
+
+// Storage returns the storage capacity in bytes.
+func (e *Encoder) Storage() int {
+	return int(e.storage)
+}
+
 // Ext returns the extension count (for testing/debugging).
 func (e *Encoder) Ext() uint32 {
 	return e.ext
+}
+
+// Error returns the encoder error flag. Non-zero indicates an error.
+func (e *Encoder) Error() int {
+	return e.err
+}
+
+// EncoderState captures the encoder state for save/restore operations.
+// This is used by theta RDO to try different quantization choices.
+type EncoderState struct {
+	offs       uint32
+	endOffs    uint32
+	endWindow  uint32
+	nendBits   int
+	nbitsTotal int
+	rng        uint32
+	val        uint32
+	rem        int
+	ext        uint32
+	err        int
+	// Buffer bytes are saved separately for restoration
+	bufFront []byte // bytes from [0, offs)
+	bufBack  []byte // bytes from [storage-endOffs, storage)
+}
+
+// SaveState captures the current encoder state for later restoration.
+// This allows trying different encoding choices and restoring to try again.
+func (e *Encoder) SaveState() *EncoderState {
+	state := &EncoderState{
+		offs:       e.offs,
+		endOffs:    e.endOffs,
+		endWindow:  e.endWindow,
+		nendBits:   e.nendBits,
+		nbitsTotal: e.nbitsTotal,
+		rng:        e.rng,
+		val:        e.val,
+		rem:        e.rem,
+		ext:        e.ext,
+		err:        e.err,
+	}
+	// Save the bytes that have been written
+	if e.offs > 0 {
+		state.bufFront = make([]byte, e.offs)
+		copy(state.bufFront, e.buf[:e.offs])
+	}
+	if e.endOffs > 0 {
+		state.bufBack = make([]byte, e.endOffs)
+		copy(state.bufBack, e.buf[e.storage-e.endOffs:e.storage])
+	}
+	return state
+}
+
+// RestoreState restores the encoder to a previously saved state.
+func (e *Encoder) RestoreState(state *EncoderState) {
+	e.offs = state.offs
+	e.endOffs = state.endOffs
+	e.endWindow = state.endWindow
+	e.nendBits = state.nendBits
+	e.nbitsTotal = state.nbitsTotal
+	e.rng = state.rng
+	e.val = state.val
+	e.rem = state.rem
+	e.ext = state.ext
+	e.err = state.err
+	// Restore the bytes
+	if len(state.bufFront) > 0 {
+		copy(e.buf[:state.offs], state.bufFront)
+	}
+	if len(state.bufBack) > 0 {
+		copy(e.buf[e.storage-state.endOffs:e.storage], state.bufBack)
+	}
+}
+
+// RangeBytes returns the number of range-coded bytes written.
+// This mirrors libopus ec_range_bytes.
+func (e *Encoder) RangeBytes() int {
+	return int(e.offs)
+}
+
+// PatchInitialBits overwrites the first few bits in the range coder stream.
+// This mirrors libopus ec_enc_patch_initial_bits and is intended for testing.
+func (e *Encoder) PatchInitialBits(val uint32, nbits uint) {
+	if nbits == 0 || nbits > EC_SYM_BITS {
+		e.err = -1
+		return
+	}
+	shift := EC_SYM_BITS - nbits
+	mask := (uint32(1)<<nbits - 1) << shift
+	if e.offs > 0 {
+		e.buf[0] = byte((uint32(e.buf[0]) &^ mask) | (val << shift))
+		return
+	}
+	if e.rem >= 0 {
+		e.rem = int((uint32(e.rem) &^ mask) | (val << shift))
+		return
+	}
+	if e.rng <= (EC_CODE_TOP >> nbits) {
+		shiftedMask := mask << EC_CODE_SHIFT
+		e.val = (e.val &^ shiftedMask) | (val << (EC_CODE_SHIFT + shift))
+		return
+	}
+	e.err = -1
 }
 
 // EncodeUniform encodes a uniformly distributed value in the range [0, ft).
@@ -365,19 +544,28 @@ func (e *Encoder) EncodeRawBits(val uint32, bits uint) {
 	if bits == 0 {
 		return
 	}
-	e.endWindow |= val << e.nendBits
-	e.nendBits += int(bits)
-	for e.nendBits >= 8 {
-		e.writeEndByte(byte(e.endWindow))
-		e.endWindow >>= 8
-		e.nendBits -= 8
+	window := e.endWindow
+	used := e.nendBits
+	if used+int(bits) > EC_WINDOW_SIZE {
+		for used >= EC_SYM_BITS {
+			e.writeEndByte(byte(window & EC_SYM_MAX))
+			window >>= EC_SYM_BITS
+			used -= EC_SYM_BITS
+		}
 	}
+	window |= val << used
+	used += int(bits)
+	e.endWindow = window
+	e.nendBits = used
+	e.nbitsTotal += int(bits)
 }
 
 // writeEndByte writes a byte to the end of the buffer (growing backwards).
 func (e *Encoder) writeEndByte(b byte) {
-	e.endOffs++
-	if e.endOffs <= e.storage-e.offs {
-		e.buf[e.storage-e.endOffs] = b
+	if e.offs+e.endOffs >= e.storage {
+		e.err = -1
+		return
 	}
+	e.endOffs++
+	e.buf[e.storage-e.endOffs] = b
 }

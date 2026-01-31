@@ -16,13 +16,17 @@ import (
 // The decoder supports all Opus modes (SILK, Hybrid, CELT) and automatically
 // detects the mode from the TOC byte in each packet.
 type Decoder struct {
-	silkDecoder   *silk.Decoder   // SILK-only mode decoder
-	celtDecoder   *celt.Decoder   // CELT-only mode decoder
-	hybridDecoder *hybrid.Decoder // Hybrid mode decoder
-	sampleRate    int
-	channels      int
-	lastFrameSize int
-	lastMode      Mode // Track last mode for PLC
+	silkDecoder      *silk.Decoder   // SILK-only mode decoder
+	celtDecoder      *celt.Decoder   // CELT-only mode decoder
+	hybridDecoder    *hybrid.Decoder // Hybrid mode decoder
+	sampleRate       int
+	channels         int
+	lastFrameSize    int
+	prevMode         Mode // Track last mode for PLC
+	lastBandwidth    Bandwidth
+	prevRedundancy   bool
+	prevPacketStereo bool
+	haveDecoded      bool
 }
 
 // NewDecoder creates a new Opus decoder.
@@ -39,14 +43,19 @@ func NewDecoder(sampleRate, channels int) (*Decoder, error) {
 		return nil, ErrInvalidChannels
 	}
 
+	silkDec := silk.NewDecoder()
+	celtDec := celt.NewDecoder(channels)
+	hybridDec := hybrid.NewDecoderWithSharedDecoders(channels, silkDec, celtDec)
+
 	return &Decoder{
-		silkDecoder:   silk.NewDecoder(),
-		celtDecoder:   celt.NewDecoder(channels),
-		hybridDecoder: hybrid.NewDecoder(channels),
+		silkDecoder:   silkDec,
+		celtDecoder:   celtDec,
+		hybridDecoder: hybridDec,
 		sampleRate:    sampleRate,
 		channels:      channels,
 		lastFrameSize: 960,        // Default 20ms at 48kHz
-		lastMode:      ModeHybrid, // Default for PLC
+		prevMode:      ModeHybrid, // Default for PLC until first decode
+		lastBandwidth: BandwidthFullband,
 	}, nil
 }
 
@@ -72,35 +81,32 @@ func NewDecoder(sampleRate, channels int) (*Decoder, error) {
 //   - Code 2: 2 different-sized frames
 //   - Code 3: Arbitrary number of frames (1-48)
 func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
-	var toc TOC
-	var frameSize int
-	var mode Mode
-
-	if data != nil && len(data) > 0 {
-		toc = ParseTOC(data[0])
-		frameSize = toc.FrameSize
-		mode = toc.Mode
-	} else {
-		// PLC: use last frame parameters
-		frameSize = d.lastFrameSize
-		mode = d.lastMode
-	}
-
-	// For PLC, decode a single frame
 	if data == nil || len(data) == 0 {
+		frameSize := d.lastFrameSize
+		if frameSize <= 0 {
+			frameSize = 960
+		}
 		needed := frameSize * d.channels
 		if len(pcm) < needed {
 			return 0, ErrBufferTooSmall
 		}
 
-		samples, err := d.decodeSingleFrame(nil, toc, mode, frameSize)
-		if err != nil {
-			return 0, err
+		remaining := frameSize
+		offset := 0
+		for remaining > 0 {
+			chunk, n, err := d.decodeOpusFrame(nil, remaining, d.lastFrameSize, d.prevMode, d.lastBandwidth, d.prevPacketStereo)
+			if err != nil {
+				return 0, err
+			}
+			if n == 0 {
+				break
+			}
+			copy(pcm[offset*d.channels:], chunk[:n*d.channels])
+			offset += n
+			remaining -= n
 		}
 
-		copy(pcm, samples)
 		d.lastFrameSize = frameSize
-		d.lastMode = mode
 		return frameSize, nil
 	}
 
@@ -112,6 +118,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 	}
 
 	frameCount := pktInfo.FrameCount
+	frameSize := pktInfo.TOC.FrameSize
 	totalSamples := frameSize * frameCount
 
 	// Validate output buffer size for all frames
@@ -124,21 +131,21 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 	frameDataSlices := extractFrameData(data, pktInfo)
 
 	// Decode each frame and concatenate output
-	var allSamples []float32
+	offset := 0
 	for i := 0; i < frameCount; i++ {
 		frameData := frameDataSlices[i]
 
-		samples, err := d.decodeSingleFrame(frameData, toc, mode, frameSize)
+		samples, n, err := d.decodeOpusFrame(frameData, frameSize, frameSize, pktInfo.TOC.Mode, pktInfo.TOC.Bandwidth, pktInfo.TOC.Stereo)
 		if err != nil {
 			return 0, err
 		}
-
-		allSamples = append(allSamples, samples...)
+		copy(pcm[offset*d.channels:], samples[:n*d.channels])
+		offset += n
 	}
 
-	copy(pcm, allSamples)
 	d.lastFrameSize = frameSize
-	d.lastMode = mode
+	d.lastBandwidth = pktInfo.TOC.Bandwidth
+	d.prevPacketStereo = pktInfo.TOC.Stereo
 
 	return totalSamples, nil
 }
@@ -146,13 +153,16 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 // decodeSingleFrame decodes a single frame of the given mode.
 // frameData is the raw frame bytes (without TOC or length headers).
 func (d *Decoder) decodeSingleFrame(frameData []byte, toc TOC, mode Mode, frameSize int) ([]float32, error) {
+	if len(frameData) == 0 {
+		frameData = nil
+	}
 	switch mode {
 	case ModeSILK:
 		return d.decodeSILK(frameData, toc, frameSize)
 	case ModeCELT:
-		return d.decodeCELT(frameData, frameSize)
+		return d.decodeCELT(frameData, toc, frameSize)
 	case ModeHybrid:
-		return d.decodeHybrid(frameData, frameSize)
+		return d.decodeHybrid(frameData, toc, frameSize)
 	default:
 		return nil, ErrInvalidMode
 	}
@@ -239,16 +249,9 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 		return 0, err
 	}
 
-	// Convert float32 -> int16 with clamping
+	// Convert float32 -> int16 with libopus-compatible rounding
 	for i := 0; i < n*d.channels; i++ {
-		scaled := pcm32[i] * 32767.0
-		if scaled > 32767 {
-			pcm[i] = 32767
-		} else if scaled < -32768 {
-			pcm[i] = -32768
-		} else {
-			pcm[i] = int16(scaled)
-		}
+		pcm[i] = float32ToInt16(pcm32[i])
 	}
 
 	return n, nil
@@ -333,7 +336,11 @@ func (d *Decoder) Reset() {
 	d.celtDecoder.Reset()
 	d.hybridDecoder.Reset()
 	d.lastFrameSize = 960
-	d.lastMode = ModeHybrid
+	d.prevMode = ModeHybrid
+	d.lastBandwidth = BandwidthFullband
+	d.prevRedundancy = false
+	d.prevPacketStereo = false
+	d.haveDecoded = false
 }
 
 // Channels returns the number of audio channels (1 or 2).
@@ -346,6 +353,18 @@ func (d *Decoder) SampleRate() int {
 	return d.sampleRate
 }
 
+// GetCELTDecoder returns the internal CELT decoder for debugging purposes.
+// This allows access to internal state like preemph_state and overlap_buffer.
+func (d *Decoder) GetCELTDecoder() *celt.Decoder {
+	return d.celtDecoder
+}
+
+// GetSILKDecoder returns the internal SILK decoder for debugging purposes.
+// This allows access to internal state like resampler state and sMid buffer.
+func (d *Decoder) GetSILKDecoder() *silk.Decoder {
+	return d.silkDecoder
+}
+
 // decodeSILK routes to SILK decoder for SILK-only mode packets.
 func (d *Decoder) decodeSILK(data []byte, toc TOC, frameSize int) ([]float32, error) {
 	// Map TOC bandwidth to SILK bandwidth
@@ -354,15 +373,35 @@ func (d *Decoder) decodeSILK(data []byte, toc TOC, frameSize int) ([]float32, er
 		return nil, ErrInvalidBandwidth
 	}
 
-	if d.channels == 2 {
+	packetStereo := toc.Stereo
+
+	switch {
+	case packetStereo && d.channels == 2:
+		if !d.prevPacketStereo {
+			d.silkDecoder.ResetSideChannel()
+		}
+		// Stereo packet, stereo output
 		return d.silkDecoder.DecodeStereo(data, silkBW, frameSize, true)
+	case packetStereo && d.channels == 1:
+		// Stereo packet, mono output: match libopus by decoding mid channel.
+		return d.silkDecoder.DecodeStereoToMono(data, silkBW, frameSize, true)
+	case !packetStereo && d.channels == 2:
+		stereoToMono := d.prevPacketStereo
+		return d.silkDecoder.DecodeMonoToStereo(data, silkBW, frameSize, true, stereoToMono)
+	default:
+		// Mono packet, mono output
+		return d.silkDecoder.Decode(data, silkBW, frameSize, true)
 	}
-	return d.silkDecoder.Decode(data, silkBW, frameSize, true)
 }
 
 // decodeCELT routes to CELT decoder for CELT-only mode packets.
-func (d *Decoder) decodeCELT(data []byte, frameSize int) ([]float32, error) {
-	samples, err := d.celtDecoder.DecodeFrame(data, frameSize)
+// It passes the packet's stereo flag to handle mono/stereo conversion.
+func (d *Decoder) decodeCELT(data []byte, toc TOC, frameSize int) ([]float32, error) {
+	if data != nil {
+		d.celtDecoder.SetBandwidth(celt.BandwidthFromOpusConfig(int(toc.Bandwidth)))
+	}
+	// Use DecodeFrameWithPacketStereo to handle mono/stereo packet vs decoder mismatch
+	samples, err := d.celtDecoder.DecodeFrameWithPacketStereo(data, frameSize, toc.Stereo)
 	if err != nil {
 		return nil, err
 	}
@@ -375,9 +414,9 @@ func (d *Decoder) decodeCELT(data []byte, frameSize int) ([]float32, error) {
 }
 
 // decodeHybrid routes to Hybrid decoder for Hybrid mode packets.
-func (d *Decoder) decodeHybrid(data []byte, frameSize int) ([]float32, error) {
-	if d.channels == 2 {
-		return d.hybridDecoder.DecodeStereoToFloat32(data, frameSize)
+func (d *Decoder) decodeHybrid(data []byte, toc TOC, frameSize int) ([]float32, error) {
+	if data != nil {
+		d.hybridDecoder.SetBandwidth(celt.BandwidthFromOpusConfig(int(toc.Bandwidth)))
 	}
-	return d.hybridDecoder.DecodeToFloat32(data, frameSize)
+	return d.hybridDecoder.DecodeToFloat32WithPacketStereo(data, frameSize, toc.Stereo)
 }

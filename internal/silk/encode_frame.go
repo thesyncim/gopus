@@ -3,15 +3,31 @@ package silk
 import "github.com/thesyncim/gopus/internal/rangecoding"
 
 // EncodeFrame encodes a complete SILK frame to bitstream.
-// Returns encoded bytes.
+// Returns encoded bytes. If a range encoder was pre-set via SetRangeEncoder(),
+// it will be used (for hybrid mode) and nil is returned since the caller
+// manages the shared encoder.
 func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	config := GetBandwidthConfig(e.bandwidth)
 	numSubframes := 4 // 20ms frame = 4 subframes
 
-	// Allocate output buffer
-	output := make([]byte, 256) // Max frame size
-	e.rangeEncoder = &rangecoding.Encoder{}
-	e.rangeEncoder.Init(output)
+	// Check if we have a pre-set range encoder (hybrid mode)
+	// Note: rangeEncoder is set externally via SetRangeEncoder() for hybrid mode.
+	// In standalone mode, rangeEncoder should be nil at the start of each frame.
+	useSharedEncoder := e.rangeEncoder != nil
+
+	if !useSharedEncoder {
+		// Standalone SILK mode: create our own range encoder
+		bufSize := len(pcm) / 3
+		if bufSize < 80 {
+			bufSize = 80
+		}
+		if bufSize > 200 {
+			bufSize = 200
+		}
+		output := make([]byte, bufSize)
+		e.rangeEncoder = &rangecoding.Encoder{}
+		e.rangeEncoder.Init(output)
+	}
 
 	// Step 1: Classify frame (VAD)
 	var signalType, quantOffset int
@@ -47,8 +63,22 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 		e.encodeLTPCoeffs(ltpCoeffs, periodicity, numSubframes)
 	}
 
-	// Step 7: Compute and encode excitation per subframe
+	// Step 7: Encode seed (LAST in indices, BEFORE pulses)
+	// Per libopus: seed = frameCounter++ & 3
+	seed := e.frameCounter & 3
+	e.frameCounter++
+	e.rangeEncoder.EncodeICDF16(seed, ICDFLCGSeed, 8)
+
+	// Step 8: Compute excitation for ENTIRE frame (not per-subframe)
+	// Per libopus silk_encode_pulses(), pulses are encoded for full frame_length
 	subframeSamples := config.SubframeSamples
+	frameSamples := numSubframes * subframeSamples
+	if frameSamples > len(pcm) {
+		frameSamples = len(pcm)
+	}
+
+	// Compute excitation for all subframes combined
+	allExcitation := make([]int32, frameSamples)
 	for sf := 0; sf < numSubframes; sf++ {
 		start := sf * subframeSamples
 		end := start + subframeSamples
@@ -57,14 +87,21 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 		}
 		subframe := pcm[start:end]
 
-		// Compute excitation (LPC residual)
+		// Compute excitation (LPC residual) for this subframe
 		var gain float32 = 1.0
 		if sf < len(gains) {
 			gain = gains[sf]
 		}
 		excitation := e.computeExcitation(subframe, lpcQ12, gain)
-		e.encodeExcitation(excitation, signalType, quantOffset)
+
+		// Copy to combined buffer
+		for i := 0; i < len(excitation) && start+i < frameSamples; i++ {
+			allExcitation[start+i] = excitation[i]
+		}
 	}
+
+	// Encode ALL pulses for the entire frame at once
+	e.encodePulses(allExcitation, signalType, quantOffset)
 
 	// Update state for next frame
 	e.isPreviousFrameVoiced = (signalType == 2)
@@ -72,7 +109,16 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	e.MarkEncoded()
 
 	// Finalize encoding
-	return e.rangeEncoder.Done()
+	if useSharedEncoder {
+		// Hybrid mode: caller manages the range encoder, return nil
+		return nil
+	}
+
+	// Standalone mode: get the encoded bytes and clear the range encoder
+	// so the next frame creates a fresh one
+	result := e.rangeEncoder.Done()
+	e.rangeEncoder = nil
+	return result
 }
 
 // encodeFrameType encodes VAD flag, signal type, and quantization offset.

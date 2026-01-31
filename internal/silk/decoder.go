@@ -36,16 +36,43 @@ type Decoder struct {
 
 	// Stereo state (for stereo unmixing)
 	prevStereoWeights [2]int16 // Previous w0, w1 stereo weights (Q13)
+
+	// libopus-aligned decoder state
+	state                [2]decoderState
+	stereo               stereoDecState
+	prevDecodeOnlyMiddle int
+
+	// Track previous bandwidth to detect bandwidth changes.
+	// Used to reset sMid state when sample rate changes.
+	prevBandwidth    Bandwidth
+	hasPrevBandwidth bool
+
+	// Resamplers for each bandwidth (created on demand).
+	// Separate resampler state per channel to match libopus.
+	resamplers map[Bandwidth]*resamplerPair
+
+	// Debug flag to track if reset was called (for testing)
+	debugResetCalled bool
+
+	// Debug: capture resampler state before/after reset
+	debugPreResetSIIR  [6]int32
+	debugPostResetSIIR [6]int32
+
+	// Debug: disable resampler reset on bandwidth change
+	disableResamplerReset bool
 }
 
 // NewDecoder creates a new SILK decoder with proper initial state.
 // The decoder is ready to process SILK frames after creation.
 func NewDecoder() *Decoder {
-	return &Decoder{
+	d := &Decoder{
 		prevLPCValues: make([]float32, 16),  // Max for WB (d_LPC = 16)
 		prevLSFQ15:    make([]int16, 16),    // Max for WB (d_LPC = 16)
 		outputHistory: make([]float32, 322), // Max pitch lag (288) + LTP taps (5) + margin
 	}
+	resetDecoderState(&d.state[0])
+	resetDecoderState(&d.state[1])
+	return d
 }
 
 // Reset clears decoder state for a new stream.
@@ -74,6 +101,24 @@ func (d *Decoder) Reset() {
 
 	// Clear stereo state
 	d.prevStereoWeights = [2]int16{0, 0}
+
+	resetDecoderState(&d.state[0])
+	resetDecoderState(&d.state[1])
+	d.stereo = stereoDecState{}
+	d.prevDecodeOnlyMiddle = 0
+
+	// Reset resampler state for a clean stream start
+	for _, pair := range d.resamplers {
+		if pair == nil {
+			continue
+		}
+		if pair.left != nil {
+			pair.left.Reset()
+		}
+		if pair.right != nil {
+			pair.right.Reset()
+		}
+	}
 }
 
 // SetRangeDecoder sets the range decoder for the current frame.
@@ -164,4 +209,282 @@ func (d *Decoder) PrevStereoWeights() [2]int16 {
 // SetPrevStereoWeights sets the stereo weights for the next frame.
 func (d *Decoder) SetPrevStereoWeights(weights [2]int16) {
 	d.prevStereoWeights = weights
+}
+
+// GetLastSignalType returns the signal type from the last decoded frame.
+// Returns: 0=inactive, 1=unvoiced, 2=voiced
+func (d *Decoder) GetLastSignalType() int {
+	return int(d.state[0].indices.signalType)
+}
+
+// DebugFrameParams contains decoded frame parameters for debugging.
+type DebugFrameParams struct {
+	NLSFInterpCoefQ2 int
+	LTPScaleIndex    int
+	LagPrev          int
+	GainIndices      []int
+}
+
+// GetLastFrameParams returns the parameters from the last decoded frame.
+func (d *Decoder) GetLastFrameParams() DebugFrameParams {
+	st := &d.state[0]
+	gains := make([]int, st.nbSubfr)
+	for i := 0; i < st.nbSubfr; i++ {
+		gains[i] = int(st.indices.GainsIndices[i])
+	}
+	return DebugFrameParams{
+		NLSFInterpCoefQ2: int(st.indices.NLSFInterpCoefQ2),
+		LTPScaleIndex:    int(st.indices.LTPScaleIndex),
+		LagPrev:          st.lagPrev,
+		GainIndices:      gains,
+	}
+}
+
+type resamplerPair struct {
+	left  *LibopusResampler
+	right *LibopusResampler
+}
+
+// GetResampler returns the libopus-compatible resampler for the given bandwidth.
+// This returns the left/mono resampler.
+func (d *Decoder) GetResampler(bandwidth Bandwidth) *LibopusResampler {
+	return d.GetResamplerForChannel(bandwidth, 0)
+}
+
+// GetResamplerRightChannel returns the right channel resampler for the given bandwidth.
+func (d *Decoder) GetResamplerRightChannel(bandwidth Bandwidth) *LibopusResampler {
+	return d.GetResamplerForChannel(bandwidth, 1)
+}
+
+// GetResamplerForChannel returns the resampler for the specified channel and bandwidth.
+func (d *Decoder) GetResamplerForChannel(bandwidth Bandwidth, channel int) *LibopusResampler {
+	if d.resamplers == nil {
+		d.resamplers = make(map[Bandwidth]*resamplerPair)
+	}
+
+	pair, ok := d.resamplers[bandwidth]
+	if !ok {
+		pair = &resamplerPair{}
+		d.resamplers[bandwidth] = pair
+	}
+
+	config := GetBandwidthConfig(bandwidth)
+	if channel == 1 {
+		if pair.right == nil {
+			pair.right = NewLibopusResampler(config.SampleRate, 48000)
+		}
+		return pair.right
+	}
+
+	if pair.left == nil {
+		pair.left = NewLibopusResampler(config.SampleRate, 48000)
+	}
+	return pair.left
+}
+
+// HandleBandwidthChange checks if bandwidth has changed.
+// This must be called before BuildMonoResamplerInput when bandwidth may have changed.
+// Returns true if bandwidth changed.
+//
+// Note: libopus does NOT reset sMid on bandwidth change. Only the resampler internal
+// state is zeroed. sMid values from the previous bandwidth are preserved for continuity.
+func (d *Decoder) HandleBandwidthChange(bandwidth Bandwidth) bool {
+	if !d.hasPrevBandwidth {
+		d.prevBandwidth = bandwidth
+		d.hasPrevBandwidth = true
+		return false
+	}
+	if d.prevBandwidth != bandwidth {
+		// Bandwidth changed - do NOT reset sMid to match libopus behavior.
+		// The resampler internal state is reset in handleBandwidthChange().
+		d.prevBandwidth = bandwidth
+		return true
+	}
+	return false
+}
+
+// BuildMonoResamplerInput prepares the mono resampler input using libopus-style sMid buffering.
+// It updates the internal sMid state based on the current samples.
+func (d *Decoder) BuildMonoResamplerInput(samples []float32) []float32 {
+	if len(samples) == 0 {
+		return nil
+	}
+
+	resamplerInput := make([]float32, len(samples))
+	resamplerInput[0] = float32(d.stereo.sMid[1]) / 32768.0
+
+	if len(samples) > 1 {
+		copy(resamplerInput[1:], samples[:len(samples)-1])
+		d.stereo.sMid[0] = float32ToInt16(samples[len(samples)-2])
+		d.stereo.sMid[1] = float32ToInt16(samples[len(samples)-1])
+	} else {
+		d.stereo.sMid[0] = d.stereo.sMid[1]
+		d.stereo.sMid[1] = float32ToInt16(samples[0])
+	}
+
+	return resamplerInput
+}
+
+// ResetSideChannel resets the side-channel decoder state and its resampler history.
+// This matches libopus behavior when switching from mono to stereo.
+func (d *Decoder) ResetSideChannel() {
+	resetDecoderState(&d.state[1])
+	if d.resamplers == nil {
+		return
+	}
+	for _, pair := range d.resamplers {
+		if pair == nil || pair.right == nil {
+			continue
+		}
+		pair.right.Reset()
+	}
+}
+
+// handleBandwidthChange detects sample rate changes and resets the appropriate resampler.
+// In libopus, when the internal sample rate changes (NB 8kHz <-> MB 12kHz <-> WB 16kHz),
+// the resampler for the NEW bandwidth needs to be reset to avoid using stale state.
+//
+// IMPORTANT: libopus does NOT reset sMid on bandwidth change - it keeps the previous
+// sample values. Only the resampler internal state (sIIR, sFIR, delayBuf) is zeroed via
+// silk_resampler_init(). The sMid values from the previous bandwidth are preserved and
+// used as the first input sample to the new resampler, which causes a small transient
+// but maintains signal continuity at bandwidth transitions.
+//
+// NOTE: This is also called by the Hybrid decoder via NotifyBandwidthChange to ensure
+// proper resampler state management when mixing SILK-only and Hybrid packets.
+func (d *Decoder) handleBandwidthChange(bandwidth Bandwidth) {
+	if d.hasPrevBandwidth && d.prevBandwidth != bandwidth {
+		// Sample rate changed - reset the resampler for the NEW bandwidth
+		// but keep sMid values to match libopus behavior.
+		if !d.disableResamplerReset {
+			if pair, ok := d.resamplers[bandwidth]; ok && pair != nil {
+				if pair.left != nil {
+					pair.left.Reset()
+					d.debugResetCalled = true
+				}
+				if pair.right != nil {
+					pair.right.Reset()
+				}
+			}
+		}
+	}
+	d.prevBandwidth = bandwidth
+	d.hasPrevBandwidth = true
+}
+
+// TraceInfo contains information about a subframe during decoding.
+// Used for debugging to trace LTP parameters.
+type TraceInfo struct {
+	SignalType   int // 0=inactive, 1=unvoiced, 2=voiced
+	PitchLag     int // Pitch lag for this subframe (voiced only)
+	LtpMemLength int // LTP memory length
+	LpcOrder     int // LPC order
+
+	// Detailed values for debugging (only populated at k=0 or k=2 with interp)
+	InvGainQ31    int32    // Inverse gain used for sLTP_Q15 population
+	GainQ10       int32    // Gain for output scaling
+	LTPCoefQ14    [5]int16 // LTP coefficients for this subframe
+	FirstSLTPQ15  int32    // First sLTP_Q15 value used for LTP prediction
+	FirstPresQ14  int32    // First presQ14 value (excitation + LTP prediction)
+	FirstOutputQ0 int16    // First output sample value (after LPC synthesis)
+
+	// Additional values for detailed debugging
+	FirstLpcPredQ10 int32     // First lpcPredQ10 value
+	FirstSLPC       int32     // First sLPC value (before output scaling)
+	SLPCHistory     [16]int32 // sLPC history at start of subframe
+	A_Q12           [16]int16 // LPC coefficients used for this subframe
+	FirstExcQ14     int32     // First excitation value
+
+	// LTP prediction trace values
+	SLTPQ15Used     [5]int32 // sLTP_Q15 values used for first LTP prediction (indices: predLagPtr+0, -1, -2, -3, -4)
+	FirstLTPPredQ13 int32    // First ltpPredQ13 value (before shifting to Q14)
+}
+
+// TraceCallback is called for each subframe during tracing.
+type TraceCallback func(frame, k int, info TraceInfo)
+
+// DecoderStateSnapshot holds a snapshot of the decoder state for debugging.
+type DecoderStateSnapshot struct {
+	PrevNLSFQ15 []int16 // Previous NLSF values (used for interpolation)
+	LPCOrder    int     // Current LPC order
+	FsKHz       int     // Sample rate in kHz
+	NbSubfr     int     // Number of subframes
+}
+
+// GetDecoderState returns a snapshot of the internal decoder state for debugging.
+func (d *Decoder) GetDecoderState() *DecoderStateSnapshot {
+	st := &d.state[0]
+	snapshot := &DecoderStateSnapshot{
+		PrevNLSFQ15: make([]int16, st.lpcOrder),
+		LPCOrder:    st.lpcOrder,
+		FsKHz:       st.fsKHz,
+		NbSubfr:     st.nbSubfr,
+	}
+	copy(snapshot.PrevNLSFQ15, st.prevNLSFQ15[:st.lpcOrder])
+	return snapshot
+}
+
+// ExportedState holds internal decoder state for debugging/comparison.
+type ExportedState struct {
+	PrevGainQ16 int32
+	SLPCQ14Buf  [16]int32
+	OutBuf      []int16
+	LtpMemLen   int
+	LpcOrder    int
+	FsKHz       int
+}
+
+// ExportState returns internal decoder state for debugging/comparison.
+func (d *Decoder) ExportState() ExportedState {
+	st := &d.state[0]
+	state := ExportedState{
+		PrevGainQ16: st.prevGainQ16,
+		LtpMemLen:   st.ltpMemLength,
+		LpcOrder:    st.lpcOrder,
+		FsKHz:       st.fsKHz,
+	}
+	copy(state.SLPCQ14Buf[:], st.sLPCQ14Buf[:])
+	if st.ltpMemLength > 0 {
+		state.OutBuf = make([]int16, len(st.outBuf))
+		copy(state.OutBuf, st.outBuf[:])
+	}
+	return state
+}
+
+// GetSMid returns the current sMid state for debugging.
+func (d *Decoder) GetSMid() [2]int16 {
+	return d.stereo.sMid
+}
+
+// NotifyBandwidthChange updates bandwidth tracking and resets the resampler if needed.
+// This should be called by the Hybrid decoder before using SILK to ensure proper
+// resampler state when transitioning between SILK-only and Hybrid modes.
+//
+// When Hybrid mode uses SILK at BandwidthWideband, calling this method ensures that:
+// 1. The prevBandwidth is updated to WB
+// 2. If transitioning TO WB, the WB resampler is reset
+// 3. When later transitioning back to SILK NB/MB, the correct resampler will be reset
+func (d *Decoder) NotifyBandwidthChange(bandwidth Bandwidth) {
+	d.handleBandwidthChange(bandwidth)
+}
+
+// DebugResetCalled returns true if the resampler reset was called since last clear.
+func (d *Decoder) DebugResetCalled() bool {
+	return d.debugResetCalled
+}
+
+// DebugClearResetFlag clears the debug reset flag.
+func (d *Decoder) DebugClearResetFlag() {
+	d.debugResetCalled = false
+}
+
+// DebugGetResetStates returns the pre and post reset sIIR states.
+func (d *Decoder) DebugGetResetStates() (pre, post [6]int32) {
+	return d.debugPreResetSIIR, d.debugPostResetSIIR
+}
+
+// SetDisableResamplerReset controls whether the resampler is reset on bandwidth change.
+// This is for testing purposes to compare behavior with/without reset.
+func (d *Decoder) SetDisableResamplerReset(disable bool) {
+	d.disableResamplerReset = disable
 }

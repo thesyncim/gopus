@@ -160,29 +160,16 @@ func (d *Decoder) Tell() int {
 // TellFrac returns the number of bits consumed with 1/8 bit precision.
 // The value is in 1/8 bits, so divide by 8 to compare with Tell().
 func (d *Decoder) TellFrac() int {
-	// Number of whole bits scaled by 8
-	nbits := d.nbitsTotal << 3
-	// Get the log of range
-	l := ilog(d.rng)
+	correction := [8]uint32{35733, 38967, 42495, 46340, 50535, 55109, 60097, 65535}
 
-	// Compute fractional correction
-	// This approximates -log2(rng) * 8 using fixed-point arithmetic
-	var r uint32
-	if l > 16 {
-		r = d.rng >> (l - 16)
-	} else {
-		r = d.rng << (16 - l)
+	nbits := d.nbitsTotal << 3
+	l := ilog(d.rng)
+	r := d.rng >> (l - 16)
+	b := int((r >> 12) - 8)
+	if r > correction[b] {
+		b++
 	}
-	// Correction using small correction table approximation
-	// Based on libopus correction: uses top bits of range
-	correction := int(r>>12) - 8
-	if correction < 0 {
-		correction = 0
-	}
-	if correction > 7 {
-		correction = 7
-	}
-	return nbits - l*8 + correction
+	return nbits - ((l << 3) + b)
 }
 
 // ilog computes the integer log base 2 (position of highest set bit + 1).
@@ -223,6 +210,37 @@ func (d *Decoder) Error() int {
 // BytesUsed returns the number of bytes consumed from the buffer.
 func (d *Decoder) BytesUsed() int {
 	return int(d.offs)
+}
+
+// StorageBits returns the total number of bits in the input buffer.
+func (d *Decoder) StorageBits() int {
+	return int(d.storage * 8)
+}
+
+// ShrinkStorage reduces the effective input size by the given number of bytes.
+// This is used to exclude trailing redundancy bytes from the range decoder
+// while preserving the current decoding state.
+func (d *Decoder) ShrinkStorage(bytes int) {
+	if bytes <= 0 {
+		return
+	}
+	if uint32(bytes) >= d.storage {
+		d.storage = 0
+		if d.offs > d.storage {
+			d.offs = d.storage
+		}
+		if d.endOffs > d.storage {
+			d.endOffs = d.storage
+		}
+		return
+	}
+	d.storage -= uint32(bytes)
+	if d.offs > d.storage {
+		d.offs = d.storage
+	}
+	if d.endOffs > d.storage {
+		d.endOffs = d.storage
+	}
 }
 
 // Range returns the current range value (for testing/debugging).
@@ -275,6 +293,27 @@ func (d *Decoder) decode(ft uint32) uint32 {
 	return ft - (s + 1)
 }
 
+// Decode returns the current cumulative frequency value without updating state.
+// This mirrors libopus ec_decode().
+func (d *Decoder) Decode(ft uint32) uint32 {
+	return d.decode(ft)
+}
+
+// DecodeBin decodes a symbol when the total frequency is 1<<bits.
+// This mirrors libopus ec_decode_bin.
+func (d *Decoder) DecodeBin(bits uint) uint32 {
+	if bits == 0 {
+		return 0
+	}
+	ft := uint32(1) << bits
+	d.ext = d.rng >> bits
+	s := d.val / d.ext
+	if s+1 > ft {
+		s = ft - 1
+	}
+	return ft - (s + 1)
+}
+
 func (d *Decoder) update(fl, fh, ft uint32) {
 	s := d.ext * (ft - fh)
 	d.val -= s
@@ -284,6 +323,12 @@ func (d *Decoder) update(fl, fh, ft uint32) {
 		d.rng -= s
 	}
 	d.normalize()
+}
+
+// Update applies the range update using the provided cumulative frequencies.
+// This mirrors libopus ec_dec_update().
+func (d *Decoder) Update(fl, fh, ft uint32) {
+	d.update(fl, fh, ft)
 }
 
 // DecodeSymbol decodes a symbol given cumulative frequencies and updates state.

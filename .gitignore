@@ -4,3 +4,4 @@
 
 # Test vector cache (downloaded at runtime)
 internal/testvectors/testdata/
+tmp_check

@@ -10,14 +10,14 @@ func TestDetectPitchVoicedSignal(t *testing.T) {
 	config := GetBandwidthConfig(BandwidthWideband)
 
 	// Generate voiced signal at 200 Hz (pitch period = 80 samples at 16kHz)
-	pitchPeriod := config.SampleRate / 200 // 80 samples
+	pitchPeriod := config.SampleRate / 200     // 80 samples
 	frameSamples := config.SubframeSamples * 4 // 320 samples for 20ms
 
 	pcm := make([]float32, frameSamples)
 	for i := range pcm {
 		// Sawtooth-like voiced waveform
 		phase := float64(i%pitchPeriod) / float64(pitchPeriod)
-		pcm[i] = float32(1.0-2.0*phase) * 10000
+		pcm[i] = float32(1.0-2.0*phase) * (10000 * int16Scale)
 	}
 
 	// Detect pitch
@@ -47,13 +47,13 @@ func TestDetectPitchNarrowband(t *testing.T) {
 	config := GetBandwidthConfig(BandwidthNarrowband)
 
 	// Generate voiced signal at 150 Hz (pitch period = ~53 samples at 8kHz)
-	pitchPeriod := config.SampleRate / 150 // ~53 samples
+	pitchPeriod := config.SampleRate / 150     // ~53 samples
 	frameSamples := config.SubframeSamples * 4 // 160 samples for 20ms
 
 	pcm := make([]float32, frameSamples)
 	for i := range pcm {
 		phase := float64(i%pitchPeriod) / float64(pitchPeriod)
-		pcm[i] = float32(1.0-2.0*phase) * 10000
+		pcm[i] = float32(1.0-2.0*phase) * (10000 * int16Scale)
 	}
 
 	numSubframes := 4
@@ -220,7 +220,7 @@ func TestAnalyzeLTP(t *testing.T) {
 	pcm := make([]float32, frameSamples)
 	for i := range pcm {
 		phase := float64(i%pitchPeriod) / float64(pitchPeriod)
-		pcm[i] = float32(1.0-2.0*phase) * 10000
+		pcm[i] = float32(1.0-2.0*phase) * (10000 * int16Scale)
 	}
 
 	pitchLags := []int{pitchPeriod, pitchPeriod, pitchPeriod, pitchPeriod}

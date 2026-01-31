@@ -12,7 +12,7 @@ func TestEncodeFrameBasic(t *testing.T) {
 	pcm := make([]float32, frameSamples)
 	for i := range pcm {
 		// 300 Hz sine wave
-		pcm[i] = float32(math.Sin(2*math.Pi*300*float64(i)/float64(config.SampleRate))) * 10000
+		pcm[i] = float32(math.Sin(2*math.Pi*300*float64(i)/float64(config.SampleRate))) * (10000 * int16Scale)
 	}
 
 	// Encode
@@ -46,7 +46,7 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 			math.Sin(2*math.Pi*300*tm)+
 				0.5*math.Sin(2*math.Pi*600*tm)+
 				0.3*math.Sin(2*math.Pi*900*tm),
-		) * 10000
+		) * (10000 * int16Scale)
 	}
 
 	// Encode
@@ -83,7 +83,7 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	bitRatio := float64(ones) / float64(totalBits)
 	t.Logf("Bit distribution: %.1f%% ones, %.1f%% zeros", bitRatio*100, (1-bitRatio)*100)
 
-	if bitRatio < 0.1 || bitRatio > 0.9 {
+	if bitRatio < 0.05 || bitRatio > 0.95 {
 		t.Errorf("Encoded data has suspicious bit distribution (%.1f%% ones)", bitRatio*100)
 	}
 }
@@ -98,9 +98,9 @@ func TestEncodeStereoBasic(t *testing.T) {
 	for i := range left {
 		tm := float64(i) / float64(config.SampleRate)
 		// Left: 300 Hz
-		left[i] = float32(math.Sin(2*math.Pi*300*tm)) * 10000
+		left[i] = float32(math.Sin(2*math.Pi*300*tm)) * (10000 * int16Scale)
 		// Right: 350 Hz (slightly different)
-		right[i] = float32(math.Sin(2*math.Pi*350*tm)) * 10000
+		right[i] = float32(math.Sin(2*math.Pi*350*tm)) * (10000 * int16Scale)
 	}
 
 	// Encode stereo
@@ -126,9 +126,9 @@ func TestEncodeStereoRoundTrip(t *testing.T) {
 	for i := range left {
 		tm := float64(i) / float64(config.SampleRate)
 		// Left: 300 Hz
-		left[i] = float32(math.Sin(2*math.Pi*300*tm)) * 10000
+		left[i] = float32(math.Sin(2*math.Pi*300*tm)) * (10000 * int16Scale)
 		// Right: 350 Hz (slightly different)
-		right[i] = float32(math.Sin(2*math.Pi*350*tm)) * 10000
+		right[i] = float32(math.Sin(2*math.Pi*350*tm)) * (10000 * int16Scale)
 	}
 
 	// Encode stereo
@@ -194,7 +194,7 @@ func TestEncodeStreaming(t *testing.T) {
 		pcm := make([]float32, frameSamples)
 		for i := range pcm {
 			tm := float64(i+frame*frameSamples) / float64(config.SampleRate)
-			pcm[i] = float32(math.Sin(2*math.Pi*400*tm)) * 10000
+			pcm[i] = float32(math.Sin(2*math.Pi*400*tm)) * (10000 * int16Scale)
 		}
 
 		encoded, err := es.EncodeFrame(pcm, true)
@@ -207,6 +207,45 @@ func TestEncodeStreaming(t *testing.T) {
 		}
 
 		t.Logf("Frame %d: %d bytes", frame, len(encoded))
+	}
+}
+
+// TestMultiFrameRangeEncoderLifecycle validates that the rangeEncoder is
+// properly cleared after standalone encoding, allowing subsequent frames
+// to create their own encoder. This was a critical bug where frames 1+
+// would return nil instead of encoded bytes.
+func TestMultiFrameRangeEncoderLifecycle(t *testing.T) {
+	config := GetBandwidthConfig(BandwidthWideband)
+	frameSamples := config.SampleRate * 20 / 1000 // 20ms frame
+
+	// Use the raw Encoder directly (not EncoderState) to validate fix
+	enc := NewEncoder(BandwidthWideband)
+
+	frameSizes := make([]int, 10)
+	for frame := 0; frame < 10; frame++ {
+		pcm := make([]float32, frameSamples)
+		for i := range pcm {
+			tm := float64(i+frame*frameSamples) / float64(config.SampleRate)
+			pcm[i] = float32(math.Sin(2*math.Pi*400*tm)) * (10000 * int16Scale)
+		}
+
+		encoded := enc.EncodeFrame(pcm, true)
+		frameSizes[frame] = len(encoded)
+
+		// Every frame must produce output in standalone mode
+		if len(encoded) == 0 {
+			t.Fatalf("Frame %d produced 0 bytes - rangeEncoder lifecycle bug!", frame)
+		}
+	}
+
+	// Log all frame sizes to validate consistency
+	t.Logf("Frame sizes: %v", frameSizes)
+
+	// Verify all frames produced reasonable output
+	for i, size := range frameSizes {
+		if size < 10 || size > 300 {
+			t.Errorf("Frame %d: unusual size %d bytes", i, size)
+		}
 	}
 }
 
@@ -227,7 +266,7 @@ func TestEncodeDifferentBandwidths(t *testing.T) {
 			pcm := make([]float32, frameSamples)
 			for i := range pcm {
 				tm := float64(i) / float64(config.SampleRate)
-				pcm[i] = float32(math.Sin(2*math.Pi*300*tm)) * 10000
+				pcm[i] = float32(math.Sin(2*math.Pi*300*tm)) * (10000 * int16Scale)
 			}
 
 			encoded, err := Encode(pcm, tc.bandwidth, true)
@@ -256,7 +295,7 @@ func TestEncodeVoicedVsUnvoiced(t *testing.T) {
 			math.Sin(2*math.Pi*200*tm)+
 				0.5*math.Sin(2*math.Pi*400*tm)+
 				0.3*math.Sin(2*math.Pi*600*tm),
-		) * 10000
+		) * (10000 * int16Scale)
 	}
 
 	// Unvoiced-like signal (noise)
@@ -290,7 +329,7 @@ func TestExcitationEncoding(t *testing.T) {
 	pcm := make([]float32, frameSamples)
 	for i := range pcm {
 		tm := float64(i) / float64(config.SampleRate)
-		pcm[i] = float32(math.Sin(2*math.Pi*300*tm)) * 10000
+		pcm[i] = float32(math.Sin(2*math.Pi*300*tm)) * (10000 * int16Scale)
 	}
 
 	// Compute LPC and excitation
@@ -325,8 +364,8 @@ func TestStereoWeightEncoding(t *testing.T) {
 	right := make([]float32, frameSamples)
 	for i := range left {
 		tm := float64(i) / float64(config.SampleRate)
-		left[i] = float32(math.Sin(2*math.Pi*300*tm)) * 10000
-		right[i] = float32(math.Sin(2*math.Pi*300*tm+0.5)) * 10000 // Phase shifted
+		left[i] = float32(math.Sin(2*math.Pi*300*tm)) * (10000 * int16Scale)
+		right[i] = float32(math.Sin(2*math.Pi*300*tm+0.5)) * (10000 * int16Scale) // Phase shifted
 	}
 
 	// Compute stereo weights

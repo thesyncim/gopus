@@ -108,10 +108,14 @@ func TestIMDCTEnergyConservation(t *testing.T) {
 				outputEnergy += x * x
 			}
 
-			// Ratio should be approximately constant (depends on normalization)
-			// For proper IMDCT with 2/N normalization, ratio ~ 4/N
+			// Ratio depends on IMDCT normalization:
+			// - FFT path (power-of-two sizes) scales by 2/N, ratio ~ 4/N
+			// - Direct path (CELT sizes) is unscaled, ratio ~ N
 			ratio := outputEnergy / inputEnergy
-			expectedRatio := 4.0 / float64(n)
+			expectedRatio := float64(n)
+			if isPowerOfTwo(n / 2) {
+				expectedRatio = 4.0 / float64(n)
+			}
 
 			// Allow 50% tolerance due to normalization conventions
 			if ratio < expectedRatio*0.5 || ratio > expectedRatio*2.0 {
@@ -271,31 +275,31 @@ func TestIMDCTShort_SingleBlock(t *testing.T) {
 // TestVorbisWindow_Values verifies Vorbis window produces valid values.
 // The Vorbis window values should be in [0, 1] and form a smooth curve.
 func TestVorbisWindow_Values(t *testing.T) {
-	n := 240 // Standard CELT window size (2 * Overlap)
+	overlap := Overlap
 
 	// Check that all values are in valid range
-	for i := 0; i < n; i++ {
-		w := VorbisWindow(i, n)
+	for i := 0; i < overlap; i++ {
+		w := VorbisWindow(i, overlap)
 		if w < 0 || w > 1 {
 			t.Errorf("Window value out of range at i=%d: %v", i, w)
 		}
 	}
 
-	// Check that window starts near 0 and reaches near 1 at center
-	w0 := VorbisWindow(0, n)
-	wMid := VorbisWindow(n/2-1, n)
+	// Check that window starts near 0 and reaches near 1 at the end
+	w0 := VorbisWindow(0, overlap)
+	wEnd := VorbisWindow(overlap-1, overlap)
 
 	if w0 > 0.01 {
 		t.Errorf("Window should start near 0, got %v", w0)
 	}
-	if wMid < 0.99 {
-		t.Errorf("Window should be near 1 at center, got %v", wMid)
+	if wEnd < 0.99 {
+		t.Errorf("Window should be near 1 at end, got %v", wEnd)
 	}
 
-	// Check monotonicity in first half (rising)
+	// Check monotonicity across overlap (rising)
 	prev := 0.0
-	for i := 0; i < n/2; i++ {
-		w := VorbisWindow(i, n)
+	for i := 0; i < overlap; i++ {
+		w := VorbisWindow(i, overlap)
 		if w < prev-1e-10 { // Allow tiny numerical errors
 			t.Errorf("Window not monotonic at i=%d: prev=%v, curr=%v", i, prev, w)
 		}
@@ -305,19 +309,21 @@ func TestVorbisWindow_Values(t *testing.T) {
 
 // TestVorbisWindow_Symmetry verifies window symmetry.
 func TestVorbisWindow_Symmetry(t *testing.T) {
-	n := 240
-	for i := 0; i < n/2; i++ {
-		w1 := VorbisWindow(i, n)
-		w2 := VorbisWindow(n-1-i, n)
+	overlap := Overlap
+	for i := 0; i < overlap; i++ {
+		w1 := VorbisWindow(i, overlap)
+		w2 := VorbisWindow(overlap-1-i, overlap)
 
-		// For Vorbis window: w[i] should equal w[n-1-i] reflected
-		// Combined they should be power-complementary (tested above)
-		// Also verify individual values are in [0, 1]
+		// For CELT's Vorbis window, the pair must be power-complementary.
 		if w1 < 0 || w1 > 1 {
 			t.Errorf("Window value out of range at i=%d: %v", i, w1)
 		}
 		if w2 < 0 || w2 > 1 {
-			t.Errorf("Window value out of range at i=%d: %v", n-1-i, w2)
+			t.Errorf("Window value out of range at i=%d: %v", overlap-1-i, w2)
+		}
+		sum := w1*w1 + w2*w2
+		if math.Abs(sum-1.0) > 1e-12 {
+			t.Errorf("Power complement mismatch at i=%d: sum=%v", i, sum)
 		}
 	}
 }
@@ -331,7 +337,7 @@ func TestVorbisWindow_PrecomputedBuffer(t *testing.T) {
 	}
 
 	for i := 0; i < 120; i++ {
-		expected := VorbisWindow(i, 240) // 240 = 2*overlap
+		expected := VorbisWindow(i, 120)
 		if math.Abs(buf[i]-expected) > 1e-15 {
 			t.Errorf("Precomputed window mismatch at %d: got %v, want %v",
 				i, buf[i], expected)
@@ -343,14 +349,12 @@ func TestVorbisWindow_PrecomputedBuffer(t *testing.T) {
 // The Vorbis window must satisfy: w[n]^2 + w[overlap-1-n]^2 = 1
 // This ensures overlap-add reconstruction preserves energy.
 func TestVorbisWindow_PerfectReconstruction(t *testing.T) {
-	overlap := 120 // CELT overlap at 48kHz
+	overlap := Overlap
 
 	// Generate window coefficients (half window, for overlap region)
 	window := make([]float64, overlap)
-	for n := 0; n < overlap; n++ {
-		// Vorbis window formula for half-window (overlap region)
-		inner := math.Pi * (float64(n) + 0.5) / float64(2*overlap)
-		window[n] = math.Sin(math.Pi / 2 * math.Pow(math.Sin(inner), 2))
+	for i := 0; i < overlap; i++ {
+		window[i] = VorbisWindow(i, overlap)
 	}
 
 	// Verify window properties
@@ -641,9 +645,12 @@ func TestDecodeFrame_InvalidFrameSize(t *testing.T) {
 func TestDecodeFrame_EmptyData(t *testing.T) {
 	dec := NewDecoder(1)
 
-	_, err := dec.DecodeFrame([]byte{}, 960)
-	if err == nil {
-		t.Error("Expected error for empty data")
+	samples, err := dec.DecodeFrame([]byte{}, 960)
+	if err != nil {
+		t.Errorf("DecodeFrame(empty) returned error: %v", err)
+	}
+	if len(samples) != 960 {
+		t.Errorf("DecodeFrame(empty) returned %d samples, want %d", len(samples), 960)
 	}
 }
 
@@ -784,7 +791,7 @@ func createSilenceFrame() []byte {
 func BenchmarkIMDCT(b *testing.B) {
 	spectrum := make([]float64, 960)
 	for i := range spectrum {
-		spectrum[i] = float64(i % 10) / 10.0
+		spectrum[i] = float64(i%10) / 10.0
 	}
 
 	b.ResetTimer()
@@ -797,7 +804,7 @@ func BenchmarkIMDCT(b *testing.B) {
 func BenchmarkIMDCT_Short(b *testing.B) {
 	spectrum := make([]float64, 120)
 	for i := range spectrum {
-		spectrum[i] = float64(i % 10) / 10.0
+		spectrum[i] = float64(i%10) / 10.0
 	}
 
 	b.ResetTimer()
@@ -810,7 +817,7 @@ func BenchmarkIMDCT_Short(b *testing.B) {
 func BenchmarkIMDCTShort(b *testing.B) {
 	coeffs := make([]float64, 120*8)
 	for i := range coeffs {
-		coeffs[i] = float64(i % 10) / 10.0
+		coeffs[i] = float64(i%10) / 10.0
 	}
 
 	b.ResetTimer()
@@ -823,8 +830,8 @@ func BenchmarkIMDCTShort(b *testing.B) {
 func BenchmarkVorbisWindow(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		for j := 0; j < 240; j++ {
-			VorbisWindow(j, 240)
+		for j := 0; j < Overlap; j++ {
+			VorbisWindow(j, Overlap)
 		}
 	}
 }

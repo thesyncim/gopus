@@ -15,6 +15,7 @@ type Encoder struct {
 	haveEncoded           bool  // True after first frame encoded
 	previousLogGain       int32 // Last subframe gain (for delta coding)
 	isPreviousFrameVoiced bool  // Was previous frame voiced
+	frameCounter          int   // Frame counter for seed generation (seed = frameCounter & 3)
 
 	// LPC state
 	lpcOrder   int     // Current LPC order (10 for NB/MB, 16 for WB)

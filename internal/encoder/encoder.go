@@ -85,6 +85,13 @@ type Encoder struct {
 	// Encoder state for CELT delay compensation
 	// The 2.7ms delay (130 samples at 48kHz) aligns SILK and CELT
 	prevSamples []float64
+
+	// SILK frame buffer for hybrid mode 10ms->20ms frame accumulation
+	// SILK requires 20ms frames (320 samples at 16kHz)
+	// When encoding 10ms hybrid frames, we buffer the first 10ms and encode
+	// when we have the full 20ms
+	silkFrameBuffer  []float32
+	silkBufferFilled int // Number of samples currently buffered
 }
 
 // NewEncoder creates a new unified Opus encoder.
@@ -111,21 +118,23 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 	}
 
 	return &Encoder{
-		mode:        ModeAuto,
-		bandwidth:   types.BandwidthFullband,
-		sampleRate:  sampleRate,
-		channels:    channels,
-		frameSize:   960,       // Default 20ms
-		bitrateMode: ModeVBR,   // VBR is default
-		bitrate:     64000,     // 64 kbps default
-		fecEnabled:  false,     // FEC disabled by default
-		packetLoss:  0,         // 0% packet loss expected
-		fec:         newFECState(),
-		dtxEnabled:  false,
-		dtx:         newDTXState(),
-		rng:         22222,     // Match libopus seed
-		complexity:  10,        // Default: highest quality
-		prevSamples: make([]float64, 130*channels), // CELT delay compensation buffer
+		mode:             ModeAuto,
+		bandwidth:        types.BandwidthFullband,
+		sampleRate:       sampleRate,
+		channels:         channels,
+		frameSize:        960,     // Default 20ms
+		bitrateMode:      ModeVBR, // VBR is default
+		bitrate:          64000,   // 64 kbps default
+		fecEnabled:       false,   // FEC disabled by default
+		packetLoss:       0,       // 0% packet loss expected
+		fec:              newFECState(),
+		dtxEnabled:       false,
+		dtx:              newDTXState(),
+		rng:              22222,                         // Match libopus seed
+		complexity:       10,                            // Default: highest quality
+		prevSamples:      make([]float64, 130*channels), // CELT delay compensation buffer
+		silkFrameBuffer:  make([]float32, 320),          // 20ms at 16kHz for SILK buffering
+		silkBufferFilled: 0,
 	}
 }
 
@@ -264,11 +273,27 @@ func (e *Encoder) SetComplexity(complexity int) {
 	// Apply complexity to sub-encoders
 	// For v1, this affects decision thresholds only
 	// Future: affect MDCT precision, pitch search resolution, etc.
+	if e.celtEncoder != nil {
+		e.celtEncoder.SetComplexity(complexity)
+	}
 }
 
 // Complexity returns the current complexity setting.
 func (e *Encoder) Complexity() int {
 	return e.complexity
+}
+
+// FinalRange returns the final range coder state after encoding.
+// This matches libopus OPUS_GET_FINAL_RANGE and is used for bitstream verification.
+// Must be called after Encode() to get a meaningful value.
+func (e *Encoder) FinalRange() uint32 {
+	// Return the final range from the CELT encoder if it exists
+	// (CELT is used for CELT-only and Hybrid modes)
+	if e.celtEncoder != nil {
+		return e.celtEncoder.FinalRange()
+	}
+	// TODO: SILK encoder final range for SILK-only mode
+	return 0
 }
 
 // SetBitrateMode sets the bitrate mode (VBR, CVBR, or CBR).
@@ -407,13 +432,17 @@ func (e *Encoder) selectMode(frameSize int) Mode {
 	case types.BandwidthNarrowband, types.BandwidthMediumband, types.BandwidthWideband:
 		// Lower bandwidths: use SILK
 		return ModeSILK
-	case types.BandwidthSuperwideband, types.BandwidthFullband:
-		// Higher bandwidths: use Hybrid for speech-like frames
-		// Only if frame size is compatible with hybrid (10ms or 20ms)
-		if frameSize == 480 || frameSize == 960 {
+	case types.BandwidthSuperwideband:
+		// Superwideband: use Hybrid for mono speech (10ms or 20ms frames)
+		// Hybrid combines SILK (0-8kHz) with CELT (8-12kHz) for good speech quality
+		// TODO: Re-enable Hybrid for stereo once SILK stereo encoding is implemented
+		if (frameSize == 480 || frameSize == 960) && e.channels == 1 {
 			return ModeHybrid
 		}
-		// Otherwise use CELT
+		return ModeCELT
+	case types.BandwidthFullband:
+		// Fullband: use CELT for best audio quality
+		// CELT handles the full 0-20kHz range natively, no need for Hybrid
 		return ModeCELT
 	default:
 		return ModeCELT
@@ -452,10 +481,11 @@ func (e *Encoder) encodeCELTFrame(pcm []float64, frameSize int) ([]byte, error) 
 	// Ensure CELT encoder exists
 	e.ensureCELTEncoder()
 
-	if e.channels == 2 {
-		return celt.EncodeStereo(pcm, frameSize)
-	}
-	return celt.Encode(pcm, frameSize)
+	// Set bitrate for proper bit allocation
+	e.celtEncoder.SetBitrate(e.bitrate)
+
+	// Use our encoder instance for stateful encoding with bitrate
+	return e.celtEncoder.EncodeFrame(pcm, frameSize)
 }
 
 // ensureSILKEncoder creates the SILK encoder if it doesn't exist.
@@ -469,6 +499,7 @@ func (e *Encoder) ensureSILKEncoder() {
 func (e *Encoder) ensureCELTEncoder() {
 	if e.celtEncoder == nil {
 		e.celtEncoder = celt.NewEncoder(e.channels)
+		e.celtEncoder.SetComplexity(e.complexity)
 	}
 }
 
@@ -507,4 +538,3 @@ func ValidFrameSize(frameSize int, mode Mode) bool {
 			frameSize == 960 || frameSize == 1920 || frameSize == 2880
 	}
 }
-

@@ -18,8 +18,8 @@ func (e *Encoder) classifyFrame(pcm []float32) (signalType, quantOffset int) {
 	energy /= float64(len(pcm))
 	rmsEnergy := math.Sqrt(energy)
 
-	// Inactive threshold: very low energy
-	const inactiveThreshold = 100.0 // Empirical, tune as needed
+	// Inactive threshold: very low energy (normalized PCM)
+	const inactiveThreshold = 1e-4 // Empirical, tune as needed
 	if rmsEnergy < inactiveThreshold {
 		return 0, 0 // Inactive
 	}

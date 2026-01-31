@@ -3,6 +3,7 @@ package celt
 import (
 	"math"
 	"math/cmplx"
+	"sync"
 )
 
 // IMDCT (Inverse Modified Discrete Cosine Transform) implementation for CELT.
@@ -21,10 +22,10 @@ var mdctTwiddles = make(map[int]*mdctTwiddleSet)
 
 // mdctTwiddleSet holds precomputed twiddles for a specific IMDCT size.
 type mdctTwiddleSet struct {
-	n        int           // Number of frequency bins
-	preTw    []complex128  // Pre-twiddle factors
-	postTw   []complex128  // Post-twiddle factors
-	fftTw    []complex128  // FFT twiddle factors
+	n      int          // Number of frequency bins
+	preTw  []complex128 // Pre-twiddle factors
+	postTw []complex128 // Post-twiddle factors
+	fftTw  []complex128 // FFT twiddle factors
 }
 
 // initMDCTTwiddles initializes twiddle factors for a given IMDCT size.
@@ -65,6 +66,62 @@ func initMDCTTwiddles(n int) *mdctTwiddleSet {
 	return tw
 }
 
+var (
+	imdctCosMu    sync.Mutex
+	imdctCosCache = map[int][]float64{}
+)
+
+var (
+	mdctTrigMu    sync.Mutex
+	mdctTrigCache = map[int][]float64{}
+)
+
+func getMDCTTrig(n int) []float64 {
+	mdctTrigMu.Lock()
+	defer mdctTrigMu.Unlock()
+
+	if trig, ok := mdctTrigCache[n]; ok {
+		return trig
+	}
+
+	n2 := n / 2
+	trig := make([]float64, n2)
+	for i := 0; i < n2; i++ {
+		// Twiddle factor for IMDCT pre/post rotation
+		// Formula: cos(2*π*(i+0.125)/n) where n is the output size (2*N)
+		angle := 2.0 * math.Pi * (float64(i) + 0.125) / float64(n)
+		trig[i] = math.Cos(angle)
+	}
+
+	mdctTrigCache[n] = trig
+	return trig
+}
+
+func getIMDCTCosTable(n int) []float64 {
+	imdctCosMu.Lock()
+	defer imdctCosMu.Unlock()
+
+	if table, ok := imdctCosCache[n]; ok {
+		return table
+	}
+
+	n2 := n * 2
+	table := make([]float64, n2*n)
+	base := math.Pi / float64(n)
+	nHalf := float64(n) / 2.0
+	for i := 0; i < n2; i++ {
+		nTerm := float64(i) + 0.5 + nHalf
+		row := table[i*n : (i+1)*n]
+		for k := 0; k < n; k++ {
+			angle := base * nTerm * (float64(k) + 0.5)
+			row[k] = math.Cos(angle)
+		}
+	}
+
+	imdctCosCache[n] = table
+	return table
+}
+
 // IMDCT computes the inverse MDCT of frequency coefficients.
 // Input: n frequency bins (spectrum)
 // Output: 2*n time samples
@@ -80,8 +137,8 @@ func IMDCT(spectrum []float64) []float64 {
 		return nil
 	}
 
-	n2 := n * 2  // Output size
-	n4 := n / 2  // FFT size
+	n2 := n * 2 // Output size
+	n4 := n / 2 // FFT size
 
 	// Handle edge case for very small sizes
 	if n4 < 1 {
@@ -99,6 +156,245 @@ func IMDCT(spectrum []float64) []float64 {
 
 	// Fall back to direct computation for non-power-of-2 sizes
 	return IMDCTDirect(spectrum)
+}
+
+// IMDCTOverlap computes the CELT IMDCT with short overlap using a zero
+// previous overlap buffer. Output length is N + overlap.
+func IMDCTOverlap(spectrum []float64, overlap int) []float64 {
+	if len(spectrum) == 0 {
+		return nil
+	}
+	prev := make([]float64, overlap)
+	return imdctOverlapWithPrev(spectrum, prev, overlap)
+}
+
+// IMDCTOverlapWithPrev computes CELT IMDCT using the provided overlap history.
+// The returned slice includes frameSize+overlap samples.
+func IMDCTOverlapWithPrev(spectrum, prevOverlap []float64, overlap int) []float64 {
+	if len(spectrum) == 0 {
+		return nil
+	}
+	if prevOverlap == nil {
+		prevOverlap = make([]float64, overlap)
+	}
+	return imdctOverlapWithPrev(spectrum, prevOverlap, overlap)
+}
+
+func imdctOverlapWithPrev(spectrum []float64, prevOverlap []float64, overlap int) []float64 {
+	n2 := len(spectrum)
+	if n2 == 0 {
+		return nil
+	}
+	if overlap < 0 {
+		overlap = 0
+	}
+
+	n := n2 * 2
+	n4 := n2 / 2
+	out := make([]float64, n2+overlap)
+
+	// Copy the full prevOverlap to out[0:overlap].
+	// The IMDCT will overwrite out[overlap/2:...], but the TDAC needs
+	// out[0:overlap/2] from prevOverlap.
+	if overlap > 0 && len(prevOverlap) > 0 {
+		copyLen := minInt(len(prevOverlap), overlap)
+		copy(out[:copyLen], prevOverlap[:copyLen])
+	}
+
+	trig := getMDCTTrig(n)
+
+	fftIn := make([]complex128, n4)
+	for i := 0; i < n4; i++ {
+		x1 := spectrum[2*i]
+		x2 := spectrum[n2-1-2*i]
+		t0 := trig[i]
+		t1 := trig[n4+i]
+		yr := x2*t0 + x1*t1
+		yi := x1*t0 - x2*t1
+		// Swap real/imag because we use an FFT instead of an IFFT.
+		fftIn[i] = complex(yi, yr)
+	}
+
+	fftOut := dft(fftIn)
+	buf := make([]float64, n2)
+	for i := 0; i < n4; i++ {
+		v := fftOut[i]
+		buf[2*i] = real(v)
+		buf[2*i+1] = imag(v)
+	}
+
+	yp0 := 0
+	yp1 := n2 - 2
+	for i := 0; i < (n4+1)>>1; i++ {
+		re := buf[yp0+1]
+		im := buf[yp0]
+		t0 := trig[i]
+		t1 := trig[n4+i]
+		yr := re*t0 + im*t1
+		yi := re*t1 - im*t0
+		re2 := buf[yp1+1]
+		im2 := buf[yp1]
+		buf[yp0] = yr
+		buf[yp1+1] = yi
+
+		t0 = trig[n4-i-1]
+		t1 = trig[n2-i-1]
+		yr = re2*t0 + im2*t1
+		yi = re2*t1 - im2*t0
+		buf[yp1] = yr
+		buf[yp0+1] = yi
+		yp0 += 2
+		yp1 -= 2
+	}
+
+	// Copy IMDCT output to out, starting at overlap/2.
+	// This leaves out[0:overlap/2] with prevOverlap data for TDAC.
+	start := overlap / 2
+	if start+n2 <= len(out) {
+		copy(out[start:start+n2], buf)
+	}
+
+	// TDAC windowing blends out[0:overlap]
+	if overlap > 0 {
+		window := GetWindowBuffer(overlap)
+		xp1 := overlap - 1
+		yp1 := 0
+		wp1 := 0
+		wp2 := overlap - 1
+		for i := 0; i < overlap/2; i++ {
+			x1 := out[xp1]
+			x2 := out[yp1]
+			out[yp1] = x2*window[wp2] - x1*window[wp1]
+			out[xp1] = x2*window[wp1] + x1*window[wp2]
+			yp1++
+			xp1--
+			wp1++
+			wp2--
+		}
+	}
+
+	// The output now has:
+	// - out[0:overlap] = TDAC windowed region
+	// - out[overlap:n2+overlap/2] = IMDCT output
+	// - out[n2+overlap/2:n2+overlap] = zeros (initialized by make)
+	//
+	// The caller extracts out[n2:n2+overlap] for the next frame's overlap:
+	// - out[n2:n2+overlap/2] = last overlap/2 samples of IMDCT (for next TDAC's prev)
+	// - out[n2+overlap/2:n2+overlap] = zeros (will be overwritten by next IMDCT's first overlap/2)
+	//
+	// This is correct - the zeros will be replaced during the next frame's IMDCT.
+	return out
+}
+
+// imdctInPlace performs IMDCT directly into a shared output buffer at the given offset.
+// This matches libopus's clt_mdct_backward behavior for short block processing.
+//
+// The function writes to out[blockStart:blockStart+n2+overlap/2], where n2 = len(spectrum).
+// The TDAC windowing blends out[blockStart:blockStart+overlap] with existing data.
+//
+// Parameters:
+//   - spectrum: MDCT coefficients for this short block
+//   - out: shared output buffer that already contains previous block/frame data
+//   - blockStart: starting position in out for this block
+//   - overlap: overlap size (typically 120 for CELT at 48kHz)
+func imdctInPlace(spectrum []float64, out []float64, blockStart, overlap int) {
+	n2 := len(spectrum)
+	if n2 == 0 {
+		return
+	}
+	if overlap < 0 {
+		overlap = 0
+	}
+
+	n := n2 * 2
+	n4 := n2 / 2
+
+	trig := getMDCTTrig(n)
+
+	// Pre-rotate with twiddles
+	fftIn := make([]complex128, n4)
+	for i := 0; i < n4; i++ {
+		x1 := spectrum[2*i]
+		x2 := spectrum[n2-1-2*i]
+		t0 := trig[i]
+		t1 := trig[n4+i]
+		yr := x2*t0 + x1*t1
+		yi := x1*t0 - x2*t1
+		fftIn[i] = complex(yi, yr)
+	}
+
+	// FFT
+	fftOut := dft(fftIn)
+
+	// Post-rotate
+	buf := make([]float64, n2)
+	for i := 0; i < n4; i++ {
+		v := fftOut[i]
+		buf[2*i] = real(v)
+		buf[2*i+1] = imag(v)
+	}
+
+	yp0 := 0
+	yp1 := n2 - 2
+	for i := 0; i < (n4+1)>>1; i++ {
+		re := buf[yp0+1]
+		im := buf[yp0]
+		t0 := trig[i]
+		t1 := trig[n4+i]
+		yr := re*t0 + im*t1
+		yi := re*t1 - im*t0
+		re2 := buf[yp1+1]
+		im2 := buf[yp1]
+		buf[yp0] = yr
+		buf[yp1+1] = yi
+
+		t0 = trig[n4-i-1]
+		t1 = trig[n2-i-1]
+		yr = re2*t0 + im2*t1
+		yi = re2*t1 - im2*t0
+		buf[yp1] = yr
+		buf[yp0+1] = yi
+		yp0 += 2
+		yp1 -= 2
+	}
+
+	// Write IMDCT output to shared buffer starting at blockStart + overlap/2
+	// This is the key difference from imdctOverlapWithPrev - we write directly
+	// to the shared buffer, preserving whatever is in out[blockStart:blockStart+overlap/2]
+	start := blockStart + overlap/2
+	end := start + n2
+	if end > len(out) {
+		end = len(out)
+	}
+	for i := start; i < end; i++ {
+		out[i] = buf[i-start]
+	}
+
+	// TDAC windowing blends out[blockStart:blockStart+overlap]
+	// The first half (out[blockStart:blockStart+overlap/2]) contains previous data
+	// The second half (out[blockStart+overlap/2:blockStart+overlap]) is IMDCT output
+	if overlap > 0 {
+		window := GetWindowBuffer(overlap)
+		xp1 := blockStart + overlap - 1
+		yp1 := blockStart
+		wp1 := 0
+		wp2 := overlap - 1
+		for i := 0; i < overlap/2; i++ {
+			x1 := out[xp1]
+			x2 := out[yp1]
+			out[yp1] = x2*window[wp2] - x1*window[wp1]
+			out[xp1] = x2*window[wp1] + x1*window[wp2]
+			yp1++
+			xp1--
+			wp1++
+			wp2--
+		}
+	}
+}
+
+// ImdctInPlaceExported exports imdctInPlace for testing
+func ImdctInPlaceExported(spectrum []float64, out []float64, blockStart, overlap int) {
+	imdctInPlace(spectrum, out, blockStart, overlap)
 }
 
 // isPowerOfTwo returns true if n is a power of 2.
@@ -291,6 +587,28 @@ func ifft(x []complex128) []complex128 {
 	return result
 }
 
+func dft(x []complex128) []complex128 {
+	n := len(x)
+	if n <= 1 {
+		return x
+	}
+
+	out := make([]complex128, n)
+	twoPi := -2.0 * math.Pi / float64(n)
+	for k := 0; k < n; k++ {
+		angle := twoPi * float64(k)
+		wStep := complex(math.Cos(angle), math.Sin(angle))
+		w := complex(1.0, 0.0)
+		var sum complex128
+		for t := 0; t < n; t++ {
+			sum += x[t] * w
+			w *= wStep
+		}
+		out[k] = sum
+	}
+	return out
+}
+
 // bitReverse performs bit-reversal permutation on the input slice.
 func bitReverse(x []complex128) {
 	n := len(x)
@@ -321,7 +639,7 @@ func reverseBits(x, bits int) int {
 // Formula: y[n] = sum_{k=0}^{N-1} X[k] * cos(pi/N * (n + 0.5 + N/2) * (k + 0.5))
 // Input: N frequency coefficients
 // Output: 2*N time samples
-// Normalization: 2/N factor applied for proper amplitude
+// Normalization: matches libopus test_unit_mdct.c inverse (no extra scaling)
 //
 // This is O(n^2) but mathematically exact and handles non-power-of-2 sizes
 // (like CELT's 120, 240, 480, 960) that the FFT-based approach cannot.
@@ -333,14 +651,14 @@ func IMDCTDirect(spectrum []float64) []float64 {
 
 	N2 := N * 2
 	output := make([]float64, N2)
-
+	table := getIMDCTCosTable(N)
 	for n := 0; n < N2; n++ {
 		var sum float64
+		row := table[n*N : (n+1)*N]
 		for k := 0; k < N; k++ {
-			angle := math.Pi / float64(N) * (float64(n) + 0.5 + float64(N)/2) * (float64(k) + 0.5)
-			sum += spectrum[k] * math.Cos(angle)
+			sum += spectrum[k] * row[k]
 		}
-		output[n] = sum * 2.0 / float64(N)
+		output[n] = sum
 	}
 
 	return output

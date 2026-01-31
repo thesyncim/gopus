@@ -9,25 +9,25 @@ package silk
 //	out[n] = exc[n] + sum(a[k] * out[n-k-1]) for k=0..order-1
 //
 // Parameters:
-//   - excitation: input excitation signal (already gain-scaled)
+//   - excitation: input excitation signal (already gain-scaled, Q0 PCM units)
 //   - lpcCoeffs: Q12 LPC coefficients
-//   - gain: Q16 subframe gain (for additional scaling if needed)
+//   - gain: Q16 subframe gain (unused; gain already applied to excitation)
 //   - out: output buffer (must be pre-allocated with same length as excitation)
 //
 // The filter maintains state across subframes via d.prevLPCValues.
 func (d *Decoder) lpcSynthesis(excitation []int32, lpcCoeffs []int16, gain int32, out []float32) {
+	_ = gain
+
 	order := len(lpcCoeffs)
 	if order == 0 || len(excitation) == 0 {
 		return
 	}
 
 	for i, exc := range excitation {
-		// Start with excitation value
-		// Apply additional gain scaling here if the excitation wasn't pre-scaled
-		sample := int64(exc)
+		// Convert excitation from Q0 PCM to normalized float.
+		sample := float64(exc) / 32768.0
 
 		// Add LPC prediction from previous outputs
-		// a[k] is Q12, prev samples need scaling
 		for k := 0; k < order; k++ {
 			// Get previous output from current buffer or state
 			var prev float32
@@ -35,34 +35,28 @@ func (d *Decoder) lpcSynthesis(excitation []int32, lpcCoeffs []int16, gain int32
 				prev = out[i-k-1]
 			} else {
 				// Use state from previous frame/subframe
-				stateIdx := len(d.prevLPCValues) + (i - k - 1)
+				stateIdx := order - 1 - (k - i)
 				if stateIdx >= 0 && stateIdx < len(d.prevLPCValues) {
 					prev = d.prevLPCValues[stateIdx]
 				}
 			}
 
-			// Q12 coeff * output (scaled to fixed-point)
-			// prev is in [-1, 1] range, scale to Q12
-			prevQ12 := int64(prev * 4096.0)
-			sample += (int64(lpcCoeffs[k]) * prevQ12) >> 12
+			// Q12 coeff applied to normalized sample.
+			sample += float64(lpcCoeffs[k]) * float64(prev) / 4096.0
 		}
 
-		// Clamp to prevent overflow (16-bit range scaled)
-		const maxVal = 32767 * 256
-		const minVal = -32768 * 256
-		if sample > maxVal {
-			sample = maxVal
+		// Clamp to normalized range.
+		if sample > 1.0 {
+			sample = 1.0
 		}
-		if sample < minVal {
-			sample = minVal
+		if sample < -1.0 {
+			sample = -1.0
 		}
 
-		// Convert to float32 normalized to [-1, 1]
-		out[i] = float32(sample) / float32(maxVal)
+		out[i] = float32(sample)
 	}
 
 	// Update LPC state for next subframe/frame
-	// Copy last 'order' samples to state
 	d.updateLPCState(out, order)
 }
 

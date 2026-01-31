@@ -58,14 +58,16 @@ func burgLPC(signal []float32, order int) []int16 {
 
 		// Update LPC coefficients using Levinson-Durbin recursion
 		// Save old coefficients before updating
-		aOld := make([]float64, m+1)
+		aOld := make([]float64, m+2)
 		for j := 0; j <= m; j++ {
 			aOld[j] = a[j+1]
 		}
 
-		// Update coefficients: a[j] = a[j] + k * a[m+1-j]
+		// Update coefficients: a[j+1] = a[j+1] + k * a[m-j+1]
+		// The symmetric access pattern for Levinson-Durbin uses m-j, not m-1-j
+		// This ensures correct coefficient update at all orders
 		for j := 0; j < m; j++ {
-			a[j+1] = aOld[j] + k*aOld[m-1-j]
+			a[j+1] = aOld[j] + k*aOld[m-j]
 		}
 		a[m+1] = k
 

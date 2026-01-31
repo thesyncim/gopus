@@ -40,7 +40,7 @@ func Encode(pcm []float64, frameSize int) ([]byte, error) {
 // The input should be interleaved: [L0, R0, L1, R1, ...]
 // Total length should be frameSize * 2.
 //
-// This uses mid-side stereo encoding (dual_stereo=0, intensity=-1).
+// This uses mid-side stereo encoding (dual_stereo=0, intensity disabled).
 //
 // Reference: RFC 6716 Section 4.3
 func EncodeStereo(pcm []float64, frameSize int) ([]byte, error) {
@@ -92,6 +92,18 @@ func ResetStereoEncoder() {
 	defer encoderMu.Unlock()
 	if stereoEncoder != nil {
 		stereoEncoder.Reset()
+	}
+}
+
+// SetBitrate updates the bitrate on the package-level encoders.
+func SetBitrate(bitrate int) {
+	encoderMu.Lock()
+	defer encoderMu.Unlock()
+	if monoEncoder != nil {
+		monoEncoder.SetBitrate(bitrate)
+	}
+	if stereoEncoder != nil {
+		stereoEncoder.SetBitrate(bitrate)
 	}
 }
 

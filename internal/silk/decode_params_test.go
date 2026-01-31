@@ -82,12 +82,13 @@ func TestGainDequantTableRange(t *testing.T) {
 		}
 	}
 
-	// First value should be small, last should be large
-	if GainDequantTable[0] < 50 || GainDequantTable[0] > 150 {
-		t.Errorf("GainDequantTable[0] unexpected: %d", GainDequantTable[0])
+	// First value should be around 81920 (Q16 gain ~1.25), last around 1.68 billion (Q16 gain ~25700)
+	// These are Q16 values, so 65536 = gain of 1.0
+	if GainDequantTable[0] < 75000 || GainDequantTable[0] > 90000 {
+		t.Errorf("GainDequantTable[0] unexpected: %d (expected ~81920)", GainDequantTable[0])
 	}
-	if GainDequantTable[63] < 10000 {
-		t.Errorf("GainDequantTable[63] too small: %d", GainDequantTable[63])
+	if GainDequantTable[63] < 1500000000 {
+		t.Errorf("GainDequantTable[63] too small: %d (expected ~1686110208)", GainDequantTable[63])
 	}
 }
 

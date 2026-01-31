@@ -2,20 +2,28 @@ package silk
 
 import "math"
 
-// quantizeLSF quantizes LSF coefficients using two-stage VQ.
-// Returns stage1 index, stage2 residuals, and interpolation index.
+// quantizeLSF quantizes LSF coefficients using two-stage VQ per libopus.
+// Returns stage1 index, stage2 residuals (as NLSFIndices[1:order+1]), and interpolation index.
 // Per RFC 6716 Section 4.2.7.5.
-// Uses existing codebooks from codebook.go and ICDF tables from tables.go
+// Uses libopus tables from libopus_tables.go and libopus_codebook.go
 func (e *Encoder) quantizeLSF(lsfQ15 []int16, bandwidth Bandwidth, signalType int) (int, []int, int) {
 	isWideband := bandwidth == BandwidthWideband
-	isVoiced := signalType == 2
 	lpcOrder := len(lsfQ15)
 
-	// Stage 1: Find best codebook entry with rate-distortion optimization
-	bestStage1, _ := e.searchStage1Codebook(lsfQ15, isWideband, isVoiced, lpcOrder)
+	// Select codebook based on bandwidth
+	var cb *nlsfCB
+	if isWideband {
+		cb = &silk_NLSF_CB_WB
+	} else {
+		cb = &silk_NLSF_CB_NB_MB
+	}
 
-	// Stage 2: Compute and quantize residuals
-	residuals := e.computeStage2Residuals(lsfQ15, bestStage1, isWideband, lpcOrder)
+	// Stage 1: Find best codebook entry
+	stypeBand := signalType >> 1 // 0 for unvoiced/inactive, 1 for voiced
+	bestStage1 := e.searchStage1CodebookLibopus(lsfQ15, cb, stypeBand)
+
+	// Stage 2: Compute residual indices per coefficient
+	residuals := e.computeStage2ResidualsLibopus(lsfQ15, bestStage1, cb)
 
 	// Compute interpolation index (blend with previous frame)
 	interpIdx := e.computeInterpolationIndex(lsfQ15, lpcOrder)
@@ -23,69 +31,38 @@ func (e *Encoder) quantizeLSF(lsfQ15 []int16, bandwidth Bandwidth, signalType in
 	return bestStage1, residuals, interpIdx
 }
 
-// searchStage1Codebook finds the best stage 1 codebook entry.
-// Uses weighted distortion with rate cost.
-// Uses existing ICDF tables for rate calculation
-func (e *Encoder) searchStage1Codebook(lsfQ15 []int16, isWideband, isVoiced bool, lpcOrder int) (int, int64) {
-	// Lambda for rate-distortion tradeoff
-	const lambda = 1.0
+// searchStage1CodebookLibopus finds the best stage 1 codebook entry per libopus.
+// Uses weighted distortion matching silkNLSFDecode's reconstruction.
+func (e *Encoder) searchStage1CodebookLibopus(lsfQ15 []int16, cb *nlsfCB, stypeBand int) int {
+	numCodewords := cb.nVectors
+	order := cb.order
 
-	// Select ICDF for rate calculation (from tables.go)
-	var icdf []uint16
-	var numCodewords int
-	if isWideband {
-		numCodewords = 32
-		if isVoiced {
-			icdf = ICDFLSFStage1WBVoiced
-		} else {
-			icdf = ICDFLSFStage1WBUnvoiced
-		}
-	} else {
-		numCodewords = 32
-		if isVoiced {
-			icdf = ICDFLSFStage1NBMBVoiced
-		} else {
-			icdf = ICDFLSFStage1NBMBUnvoiced
-		}
-	}
+	// ICDF for rate calculation (offset by stypeBand * nVectors for voiced/unvoiced)
+	icdf := cb.cb1ICDF[stypeBand*numCodewords:]
 
-	// Limit search to valid ICDF range (symbol count = len(icdf) - 1)
-	// Valid symbols are 0 to len(icdf)-2
-	maxSymbol := len(icdf) - 2
-	if maxSymbol < 0 {
-		maxSymbol = 0
-	}
-	if numCodewords > maxSymbol+1 {
-		numCodewords = maxSymbol + 1
-	}
-
-	// Start from symbol 1 because symbol 0 has zero probability in SILK ICDF tables
-	// (icdf[0] = 256 means probability 0)
-	bestIdx := 1
+	bestIdx := 0
 	var bestCost int64 = math.MaxInt64
 
-	for idx := 1; idx < numCodewords; idx++ {
+	for idx := 0; idx < numCodewords; idx++ {
 		// Compute weighted distortion
 		var dist int64
-		for i := 0; i < lpcOrder; i++ {
-			target := int64(lsfQ15[i])
-			var cbVal int64
-			if isWideband {
-				cbVal = int64(LSFCodebookWB[idx][i]) << 7 // Scale to Q15
-			} else {
-				cbVal = int64(LSFCodebookNBMB[idx][i]) << 7
-			}
+		baseIdx := idx * order
+		for i := 0; i < order; i++ {
+			// Reconstruct what decoder would produce: base << 7 (Q8 to Q15)
+			cbVal := int64(cb.cb1NLSFQ8[baseIdx+i]) << 7
+			diff := int64(lsfQ15[i]) - cbVal
 
-			diff := target - cbVal
-			// Perceptual weighting (higher weight at formant frequencies)
-			weight := e.computeLSFWeight(i, lpcOrder)
-			dist += (diff * diff * int64(weight)) >> 8
+			// Use codebook weights for perceptual weighting
+			weight := int64(cb.cb1WghtQ9[baseIdx+i])
+			if weight == 0 {
+				weight = 256
+			}
+			dist += (diff * diff) / weight
 		}
 
 		// Add rate cost from ICDF
-		rate := e.computeSymbolRate(idx, icdf)
-
-		totalCost := dist + int64(lambda*float64(rate))
+		rate := e.computeSymbolRate8(idx, icdf)
+		totalCost := dist + int64(rate*64) // Scale rate contribution
 
 		if totalCost < bestCost {
 			bestCost = totalCost
@@ -93,104 +70,130 @@ func (e *Encoder) searchStage1Codebook(lsfQ15 []int16, isWideband, isVoiced bool
 		}
 	}
 
-	return bestIdx, bestCost
+	return bestIdx
 }
 
-// computeStage2Residuals computes stage 2 residual indices.
-// Uses existing LSFStage2Res* codebooks from codebook.go
-func (e *Encoder) computeStage2Residuals(lsfQ15 []int16, stage1Idx int, isWideband bool, lpcOrder int) []int {
-	residuals := make([]int, lpcOrder)
-	mapIdx := stage1Idx >> 2 // Maps 0-31 to 0-7
-	if mapIdx > 7 {
-		mapIdx = 7
-	}
-
-	for i := 0; i < lpcOrder; i++ {
-		var base int
-		if isWideband {
-			base = int(LSFCodebookWB[stage1Idx][i]) << 7
-		} else {
-			base = int(LSFCodebookNBMB[stage1Idx][i]) << 7
-		}
-		target := int(lsfQ15[i]) - base
-
-		// Find best residual quantizer
-		bestRes := 0
-		bestDist := int(math.MaxInt32)
-
-		// Residual codebooks have 9 entries each
-		numResiduals := 9
-		if isWideband {
-			for resIdx := 0; resIdx < numResiduals; resIdx++ {
-				if i >= 16 {
-					continue
-				}
-				resVal := int(LSFStage2ResWB[mapIdx][resIdx][i]) << 7
-				dist := absInt(target - resVal)
-				if dist < bestDist {
-					bestDist = dist
-					bestRes = resIdx
-				}
-			}
-		} else {
-			for resIdx := 0; resIdx < numResiduals; resIdx++ {
-				if i >= 10 {
-					continue
-				}
-				resVal := int(LSFStage2ResNBMB[mapIdx][resIdx][i]) << 7
-				dist := absInt(target - resVal)
-				if dist < bestDist {
-					bestDist = dist
-					bestRes = resIdx
-				}
-			}
-		}
-
-		residuals[i] = bestRes
-	}
-
-	return residuals
-}
-
-// computeLSFWeight computes perceptual weight for LSF coefficient.
-// Higher weight near formant frequencies.
-func (e *Encoder) computeLSFWeight(idx, order int) int {
-	// Simple weighting: higher in mid-range (formant region)
-	midIdx := order / 2
-	dist := absInt(idx - midIdx)
-	weight := 256 - dist*16
-	if weight < 64 {
-		weight = 64
-	}
-	return weight
-}
-
-// computeSymbolRate estimates bit cost from ICDF probabilities.
-func (e *Encoder) computeSymbolRate(symbol int, icdf []uint16) int {
-	if symbol < 0 || symbol >= len(icdf)-1 {
+// computeSymbolRate8 estimates bit cost from uint8 ICDF probabilities.
+func (e *Encoder) computeSymbolRate8(symbol int, icdf []uint8) int {
+	// Invalid symbol check
+	if symbol < 0 {
 		return 256 // Max cost for invalid symbols
 	}
 
-	// Rate ~ -log2(probability)
-	var prob uint16
-	if symbol == 0 {
-		prob = 256 - icdf[0]
-	} else {
-		prob = icdf[symbol-1] - icdf[symbol]
+	// Find end of ICDF (terminated by 0)
+	icdfLen := 0
+	for i := 0; i < len(icdf); i++ {
+		if icdf[i] == 0 {
+			icdfLen = i + 1
+			break
+		}
+	}
+	if icdfLen == 0 || symbol >= icdfLen-1 {
+		return 256 // Max cost for invalid symbols
 	}
 
-	if prob == 0 {
+	// Probability = icdf[symbol] - icdf[symbol+1]
+	var prob int
+	if symbol == 0 {
+		prob = 256 - int(icdf[0])
+	} else {
+		prob = int(icdf[symbol-1]) - int(icdf[symbol])
+	}
+
+	if prob <= 0 {
 		return 256
 	}
 
 	// Approximate -log2(prob/256) * 8 (in 1/8 bits)
-	// log2(256/prob) = 8 - log2(prob)
-	rate := 8*8 - int(math.Log2(float64(prob))*8)
+	rate := 64 - int(math.Log2(float64(prob))*8)
 	if rate < 0 {
 		rate = 0
 	}
 	return rate
 }
+
+// computeStage2ResidualsLibopus computes stage 2 residual indices per libopus.
+// These are the NLSFIndices[1:order+1] values that get encoded.
+// Per libopus silk_NLSF_encode(): residuals are computed per coefficient using
+// prediction and quantization step.
+func (e *Encoder) computeStage2ResidualsLibopus(lsfQ15 []int16, stage1Idx int, cb *nlsfCB) []int {
+	order := cb.order
+	residuals := make([]int, order)
+
+	// Get ecIx and predQ8 for this stage1 index (same as decoder's silkNLSFUnpack)
+	ecIx := make([]int16, order)
+	predQ8 := make([]uint8, order)
+	silkNLSFUnpack(ecIx, predQ8, cb, stage1Idx)
+
+	// Get base values from stage 1 codebook
+	baseIdx := stage1Idx * order
+
+	// Compute target residuals (what decoder needs to reconstruct lsfQ15)
+	// Per libopus silk_NLSF_encode():
+	// resQ10[i] = (lsfQ15[i] - base<<7) * weight / (1<<14) / quantStepSize
+	// Then quantize to get index
+
+	// First convert lsfQ15 to resQ10 (what we want to encode)
+	resQ10 := make([]int16, order)
+	for i := 0; i < order; i++ {
+		// Target NLSF in Q15
+		target := int32(lsfQ15[i])
+
+		// Base from codebook (Q8 scaled to Q15)
+		base := int32(cb.cb1NLSFQ8[baseIdx+i]) << 7
+
+		// Difference in Q15
+		diff := target - base
+
+		// Apply weight (cb1WghtQ9) to get resQ10
+		// Per libopus: resQ10 = diff * wght / (1 << 14)
+		wght := int32(cb.cb1WghtQ9[baseIdx+i])
+		if wght == 0 {
+			wght = 256
+		}
+		resQ10[i] = int16((diff * wght) >> 14)
+	}
+
+	// Quantize residuals using prediction (reverse of silkNLSFResidualDequant)
+	// Per libopus silk_NLSF_residual_quant():
+	// The quantization is done in reverse order with prediction from next coefficient
+	invQuantStepQ6 := cb.invQuantStepSizeQ6
+
+	var outQ10 int32
+	for i := order - 1; i >= 0; i-- {
+		// Prediction from previous output
+		predQ10 := silkRSHIFT(silkSMULBB(outQ10, int32(predQ8[i])), 8)
+
+		// Target after removing prediction
+		targetQ10 := int32(resQ10[i]) - predQ10
+
+		// Quantize: idx = round(targetQ10 * invQuantStepQ6 / (1<<16))
+		// The quantization maps to range [-nlsfQuantMaxAmplitude, +nlsfQuantMaxAmplitude]
+		idx := silkRSHIFT_ROUND(silkSMULBB(targetQ10, int32(invQuantStepQ6)), 16)
+
+		// Clamp to valid range
+		if idx < -nlsfQuantMaxAmplitude {
+			idx = -nlsfQuantMaxAmplitude
+		}
+		if idx > nlsfQuantMaxAmplitude {
+			idx = nlsfQuantMaxAmplitude
+		}
+
+		residuals[i] = int(idx)
+
+		// Reconstruct what decoder will compute (for next iteration's prediction)
+		outQ10 = int32(idx) << 10
+		if outQ10 > 0 {
+			outQ10 -= nlsfQuantLevelAdjQ10
+		} else if outQ10 < 0 {
+			outQ10 += nlsfQuantLevelAdjQ10
+		}
+		outQ10 = silkSMLAWB(predQ10, outQ10, int32(cb.quantStepSizeQ16))
+	}
+
+	return residuals
+}
+
 
 // computeInterpolationIndex determines blend with previous frame LSF.
 // Per RFC 6716 Section 4.2.7.5.3.
@@ -222,98 +225,78 @@ func (e *Encoder) computeInterpolationIndex(lsfQ15 []int16, order int) int {
 	return 4 // No interpolation
 }
 
-// encodeLSF encodes quantized LSF to bitstream.
-// Uses existing ICDF tables from tables.go
-// Per RFC 6716 Section 4.2.7.5.2, encode stage1 index,
-// then stage2 residual indices (one per order dimension mapping).
+// encodeLSF encodes quantized LSF to bitstream per libopus.
+// Uses libopus ICDF tables matching silkDecodeIndices in libopus_decode.go.
+// Per RFC 6716 Section 4.2.7.5.2.
 func (e *Encoder) encodeLSF(stage1Idx int, residuals []int, interpIdx int, bandwidth Bandwidth, signalType int) {
 	isWideband := bandwidth == BandwidthWideband
-	isVoiced := signalType == 2
 
-	// Clamp stage1 index to valid range for ICDF tables
-	var maxStage1 int
+	// Select codebook based on bandwidth
+	var cb *nlsfCB
 	if isWideband {
-		if isVoiced {
-			maxStage1 = len(ICDFLSFStage1WBVoiced) - 2
-		} else {
-			maxStage1 = len(ICDFLSFStage1WBUnvoiced) - 2
-		}
+		cb = &silk_NLSF_CB_WB
 	} else {
-		if isVoiced {
-			maxStage1 = len(ICDFLSFStage1NBMBVoiced) - 2
-		} else {
-			maxStage1 = len(ICDFLSFStage1NBMBUnvoiced) - 2
-		}
+		cb = &silk_NLSF_CB_NB_MB
 	}
+
+	// Signal type band: 0 for inactive/unvoiced, 1 for voiced
+	stypeBand := signalType >> 1
+
+	// Clamp stage1 index to valid range
 	if stage1Idx < 0 {
 		stage1Idx = 0
 	}
-	if stage1Idx > maxStage1 {
-		stage1Idx = maxStage1
+	if stage1Idx >= cb.nVectors {
+		stage1Idx = cb.nVectors - 1
 	}
 
-	// Encode stage 1 index using appropriate ICDF
-	if isWideband {
-		if isVoiced {
-			e.rangeEncoder.EncodeICDF16(stage1Idx, ICDFLSFStage1WBVoiced, 8)
-		} else {
-			e.rangeEncoder.EncodeICDF16(stage1Idx, ICDFLSFStage1WBUnvoiced, 8)
-		}
-	} else {
-		if isVoiced {
-			e.rangeEncoder.EncodeICDF16(stage1Idx, ICDFLSFStage1NBMBVoiced, 8)
-		} else {
-			e.rangeEncoder.EncodeICDF16(stage1Idx, ICDFLSFStage1NBMBUnvoiced, 8)
-		}
-	}
+	// Encode stage 1 index using cb.cb1ICDF[stypeBand*nVectors:]
+	// This matches decoder: rd.DecodeICDF(cb.cb1ICDF[cb1Offset:], 8)
+	cb1Offset := stypeBand * cb.nVectors
+	e.rangeEncoder.EncodeICDF(stage1Idx, cb.cb1ICDF[cb1Offset:], 8)
 
-	// Encode stage 2 residuals using ICDFLSFStage2* tables
-	// Per RFC 6716, we encode a few residual symbols (not one per coefficient)
-	// The residuals slice contains indices into the stage2 codebook
-	mapIdx := stage1Idx >> 2
-	if mapIdx > 7 {
-		mapIdx = 7
-	}
-	if mapIdx < 0 {
-		mapIdx = 0
-	}
+	// Get ecIx for stage 2 encoding (same as silkNLSFUnpack)
+	ecIx := make([]int16, cb.order)
+	predQ8 := make([]uint8, cb.order)
+	silkNLSFUnpack(ecIx, predQ8, cb, stage1Idx)
 
-	// Encode only a limited number of stage 2 residuals
-	// The ICDF tables have 6 symbols (entries - 1)
-	numResiduals := 3 // Typical for SILK stage 2
-	if len(residuals) < numResiduals {
-		numResiduals = len(residuals)
-	}
+	// Encode stage 2 residuals for each coefficient
+	// This matches decoder: rd.DecodeICDF(cb.ecICDF[ecIx[i]:], 8)
+	for i := 0; i < cb.order && i < len(residuals); i++ {
+		// Residual is in range [-nlsfQuantMaxAmplitude, +nlsfQuantMaxAmplitude]
+		// Encode as index in [0, 2*nlsfQuantMaxAmplitude]
+		resIdx := residuals[i] + nlsfQuantMaxAmplitude
 
-	for i := 0; i < numResiduals; i++ {
-		var icdf []uint16
-		if isWideband {
-			icdf = ICDFLSFStage2WB[mapIdx]
-		} else {
-			icdf = ICDFLSFStage2NBMB[mapIdx]
-		}
-		// Clamp residual index to valid range [0, len-2]
-		resIdx := residuals[i]
+		// Check for extension coding (values outside normal range)
 		if resIdx < 0 {
-			resIdx = 0
+			// Encode 0 (underflow marker), then extension
+			e.rangeEncoder.EncodeICDF(0, cb.ecICDF[ecIx[i]:], 8)
+			extVal := -resIdx
+			if extVal > 6 {
+				extVal = 6
+			}
+			e.rangeEncoder.EncodeICDF(extVal, silk_NLSF_EXT_iCDF, 8)
+		} else if resIdx > 2*nlsfQuantMaxAmplitude {
+			// Encode 2*nlsfQuantMaxAmplitude (overflow marker), then extension
+			e.rangeEncoder.EncodeICDF(2*nlsfQuantMaxAmplitude, cb.ecICDF[ecIx[i]:], 8)
+			extVal := resIdx - 2*nlsfQuantMaxAmplitude
+			if extVal > 6 {
+				extVal = 6
+			}
+			e.rangeEncoder.EncodeICDF(extVal, silk_NLSF_EXT_iCDF, 8)
+		} else {
+			// Normal range encoding
+			e.rangeEncoder.EncodeICDF(resIdx, cb.ecICDF[ecIx[i]:], 8)
 		}
-		maxResIdx := len(icdf) - 2
-		if maxResIdx < 0 {
-			maxResIdx = 0
-		}
-		if resIdx > maxResIdx {
-			resIdx = maxResIdx
-		}
-		e.rangeEncoder.EncodeICDF16(resIdx, icdf, 8)
 	}
 
-	// Encode interpolation index (clamped to valid range)
-	maxInterpIdx := len(ICDFLSFInterpolation) - 2
+	// Encode interpolation index using silk_NLSF_interpolation_factor_iCDF
+	// This matches decoder: rd.DecodeICDF(silk_NLSF_interpolation_factor_iCDF, 8)
 	if interpIdx < 0 {
 		interpIdx = 0
 	}
-	if interpIdx > maxInterpIdx {
-		interpIdx = maxInterpIdx
+	if interpIdx > 4 {
+		interpIdx = 4
 	}
-	e.rangeEncoder.EncodeICDF16(interpIdx, ICDFLSFInterpolation, 8)
+	e.rangeEncoder.EncodeICDF(interpIdx, silk_NLSF_interpolation_factor_iCDF, 8)
 }

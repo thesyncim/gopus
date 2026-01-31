@@ -150,7 +150,7 @@ func NormalizedSNR(signal, noise []int16) float64 {
 		return math.Inf(1) // No noise
 	}
 
-	return 10.0 * math.Log10(signalPower / noisePower)
+	return 10.0 * math.Log10(signalPower/noisePower)
 }
 
 // ComputeNoiseVector computes the difference between decoded and reference samples.
@@ -187,4 +187,138 @@ func QualityFromSNR(snrDB float64) float64 {
 // SNRFromQuality converts a Q quality metric back to SNR (in dB).
 func SNRFromQuality(q float64) float64 {
 	return (q / QualityScale) + TargetSNR
+}
+
+// ComputeQualityFloat32 computes a quality metric between decoded and reference audio.
+// This is the float32 variant of ComputeQuality for use with float32 sample data.
+//
+// Parameters:
+//   - decoded: Decoded PCM samples as float32 (normalized -1.0 to 1.0)
+//   - reference: Reference PCM samples as float32 (normalized -1.0 to 1.0)
+//   - sampleRate: Sample rate in Hz (reserved for future use)
+//
+// Returns: Q value where Q >= 0 indicates passing (48 dB SNR threshold)
+func ComputeQualityFloat32(decoded, reference []float32, sampleRate int) float64 {
+	if len(decoded) == 0 || len(reference) == 0 {
+		return math.Inf(-1) // No samples to compare
+	}
+
+	// Use shorter length if mismatched
+	n := len(decoded)
+	if len(reference) < n {
+		n = len(reference)
+	}
+
+	// Compute signal power and noise power
+	var signalPower, noisePower float64
+
+	for i := 0; i < n; i++ {
+		ref := float64(reference[i])
+		dec := float64(decoded[i])
+
+		signalPower += ref * ref
+		noise := dec - ref
+		noisePower += noise * noise
+	}
+
+	// Normalize by sample count
+	signalPower /= float64(n)
+	noisePower /= float64(n)
+
+	// Handle edge cases
+	if signalPower == 0 {
+		// Silent reference - check if decoded is also silent
+		if noisePower == 0 {
+			return 100.0 // Both silent = perfect match
+		}
+		return math.Inf(-1) // Noise against silence = bad
+	}
+
+	if noisePower == 0 {
+		return 100.0 // Perfect match (no noise)
+	}
+
+	// Compute SNR in dB
+	snr := 10.0 * math.Log10(signalPower/noisePower)
+
+	// Map SNR to Q scale
+	q := (snr - TargetSNR) * QualityScale
+
+	return q
+}
+
+// ComputeQualityFloat32WithDelay computes quality with optimal delay compensation.
+// It searches for the best delay alignment between decoded and reference to account
+// for codec delay. This is important for encoder compliance testing since codecs
+// introduce inherent delays that cause misalignment between input and output.
+//
+// Parameters:
+//   - decoded: Decoded PCM samples as float32 (normalized -1.0 to 1.0)
+//   - reference: Reference PCM samples as float32 (normalized -1.0 to 1.0)
+//   - sampleRate: Sample rate in Hz
+//   - maxDelay: Maximum delay to search (in samples, e.g., 500)
+//
+// Returns: Q value at optimal delay alignment, and the optimal delay found
+func ComputeQualityFloat32WithDelay(decoded, reference []float32, sampleRate int, maxDelay int) (q float64, delay int) {
+	if len(decoded) == 0 || len(reference) == 0 {
+		return math.Inf(-1), 0
+	}
+
+	bestQ := math.Inf(-1)
+	bestDelay := 0
+
+	// Search for optimal delay
+	for d := -maxDelay; d <= maxDelay; d++ {
+		var signalPower, noisePower float64
+		count := 0
+
+		// Skip edges to avoid boundary effects
+		margin := 120
+		for i := margin; i < len(reference)-margin; i++ {
+			decIdx := i + d
+			if decIdx >= margin && decIdx < len(decoded)-margin {
+				ref := float64(reference[i])
+				dec := float64(decoded[decIdx])
+
+				signalPower += ref * ref
+				noise := dec - ref
+				noisePower += noise * noise
+				count++
+			}
+		}
+
+		if count > 0 && signalPower > 0 && noisePower > 0 {
+			snr := 10.0 * math.Log10(signalPower/noisePower)
+			candidateQ := (snr - TargetSNR) * QualityScale
+			if candidateQ > bestQ {
+				bestQ = candidateQ
+				bestDelay = d
+			}
+		}
+	}
+
+	return bestQ, bestDelay
+}
+
+// CompareSamplesFloat32 computes the mean squared error (MSE) between two float32 sample slices.
+// Returns MSE as a float64 value. Lower values indicate better match.
+//
+// If lengths differ, comparison uses the shorter length.
+func CompareSamplesFloat32(a, b []float32) float64 {
+	if len(a) == 0 || len(b) == 0 {
+		return math.Inf(1)
+	}
+
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+
+	var mse float64
+	for i := 0; i < n; i++ {
+		diff := float64(a[i]) - float64(b[i])
+		mse += diff * diff
+	}
+
+	return mse / float64(n)
 }

@@ -3,6 +3,8 @@ package celt
 import (
 	"math"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/rangecoding"
 )
 
 // TestNewEncoder verifies encoder initialization matches decoder.
@@ -27,20 +29,20 @@ func TestNewEncoder(t *testing.T) {
 				t.Errorf("SampleRate() = %d, want 48000", enc.SampleRate())
 			}
 
-			// Verify energy arrays initialized correctly (D03-01-01)
+			// Verify energy arrays initialized correctly (libopus init clears oldBandE).
 			prevEnergy := enc.PrevEnergy()
 			if len(prevEnergy) != MaxBands*tt.channels {
 				t.Errorf("PrevEnergy length = %d, want %d", len(prevEnergy), MaxBands*tt.channels)
 			}
 			for i, e := range prevEnergy {
-				if e != -28.0 {
-					t.Errorf("PrevEnergy[%d] = %f, want -28.0", i, e)
+				if e != 0 {
+					t.Errorf("PrevEnergy[%d] = %f, want 0.0", i, e)
 				}
 			}
 
-			// Verify RNG initialized (D03-01-02)
-			if enc.RNG() != 22222 {
-				t.Errorf("RNG() = %d, want 22222", enc.RNG())
+			// Verify RNG initialized to libopus default (0)
+			if enc.RNG() != 0 {
+				t.Errorf("RNG() = %d, want 0", enc.RNG())
 			}
 
 			// Verify overlap buffer
@@ -110,11 +112,11 @@ func TestEncoderReset(t *testing.T) {
 	enc.Reset()
 
 	// Verify state cleared
-	if enc.GetEnergy(5, 0) != -28.0 {
-		t.Errorf("GetEnergy(5, 0) after reset = %f, want -28.0", enc.GetEnergy(5, 0))
+	if enc.GetEnergy(5, 0) != 0 {
+		t.Errorf("GetEnergy(5, 0) after reset = %f, want 0.0", enc.GetEnergy(5, 0))
 	}
-	if enc.RNG() != 22222 {
-		t.Errorf("RNG after reset = %d, want 22222", enc.RNG())
+	if enc.RNG() != 0 {
+		t.Errorf("RNG after reset = %d, want 0", enc.RNG())
 	}
 }
 
@@ -238,6 +240,49 @@ func TestMDCTShortRoundTrip(t *testing.T) {
 				t.Errorf("MDCTShort->IMDCTShort produced near-zero output, max=%f", maxOutput)
 			}
 		})
+	}
+}
+
+func TestEncoderFrameCountAndIntraFlag(t *testing.T) {
+	enc := NewEncoder(1)
+	frameSize := 960
+	mode := GetModeConfig(frameSize)
+	pcm := generateSineWave(440.0, frameSize)
+
+	for i := 0; i < 5; i++ {
+		// Match libopus two-pass behavior: with complexity >= 4 and force_intra=0,
+		// libopus uses two-pass encoding that typically chooses inter mode (intra=false)
+		// even for frame 0. Reference: libopus celt/quant_bands.c line 279
+		expectedIntra := false
+		if enc.IsIntraFrame() != expectedIntra {
+			t.Fatalf("frame %d: IsIntraFrame=%v, want %v", i, enc.IsIntraFrame(), expectedIntra)
+		}
+
+		packet, err := enc.EncodeFrame(pcm, frameSize)
+		if err != nil {
+			t.Fatalf("frame %d: EncodeFrame failed: %v", i, err)
+		}
+		if len(packet) == 0 {
+			t.Fatalf("frame %d: empty packet", i)
+		}
+
+		rd := &rangecoding.Decoder{}
+		rd.Init(packet)
+		if rd.DecodeBit(15) == 1 {
+			t.Fatalf("frame %d: unexpected silence flag", i)
+		}
+		rd.DecodeBit(1) // reserved/start bit
+		if mode.LM > 0 {
+			rd.DecodeBit(3) // transient flag
+		}
+		intra := rd.DecodeBit(3) == 1
+		if intra != expectedIntra {
+			t.Fatalf("frame %d: intra=%v, want %v", i, intra, expectedIntra)
+		}
+
+		if enc.FrameCount() != i+1 {
+			t.Fatalf("frame %d: FrameCount=%d, want %d", i, enc.FrameCount(), i+1)
+		}
 	}
 }
 

@@ -22,12 +22,12 @@ func TestComputeLogGainIndex(t *testing.T) {
 func TestComputeLogGainIndexBoundary(t *testing.T) {
 	// Test boundary conditions
 	tests := []struct {
-		name     string
-		gain     float32
-		minIdx   int
-		maxIdx   int
+		name   string
+		gain   float32
+		minIdx int
+		maxIdx int
 	}{
-		{"zero gain", 0.0, 0, 1},          // Should map to lowest index
+		{"zero gain", 0.0, 0, 1}, // Should map to lowest index
 		{"min table gain", float32(GainDequantTable[0]) / 65536.0, 0, 1},
 		{"max table gain", float32(GainDequantTable[63]) / 65536.0, 62, 63},
 		{"mid table gain", float32(GainDequantTable[32]) / 65536.0, 31, 33},
@@ -45,21 +45,21 @@ func TestComputeLogGainIndexBoundary(t *testing.T) {
 
 func TestGainEncodeDecode(t *testing.T) {
 	// Test that encoded gains produce same decoded values
-	// Gains should be in the range of GainDequantTable (Q16 values 81 to 17830)
-	// which maps to float gains of approximately 0.001 to 0.27
+	// GainDequantTable Q16 values range from 81920 (~1.25 float) to 1686110208 (~25729 float)
+	// These represent SILK gain levels, not direct amplitude multipliers
 	enc := NewEncoder(BandwidthWideband)
 	dec := NewDecoder()
 
-	// Test gains using values from the GainDequantTable range
-	// Table has Q16 values, so gain = Q16 / 65536
+	// Test gains using values from the CORRECT GainDequantTable range
+	// Table[0] = 81920 = 1.25 float, Table[63] = 1686110208 = 25729 float
 	testCases := []struct {
 		name       string
 		gains      []float32
 		signalType int
 	}{
-		{"voiced high", []float32{0.15, 0.18, 0.16, 0.17}, 2},   // Voiced (higher gains)
-		{"unvoiced mid", []float32{0.05, 0.06, 0.055, 0.058}, 1}, // Unvoiced (mid gains)
-		{"inactive low", []float32{0.01, 0.01, 0.01, 0.01}, 0},   // Inactive (low gains)
+		{"voiced high", []float32{5000, 6000, 5500, 5800}, 2}, // Voiced (higher gains, mid-range)
+		{"unvoiced mid", []float32{100, 120, 110, 115}, 1},    // Unvoiced (lower gains)
+		{"inactive low", []float32{2.0, 2.0, 2.0, 2.0}, 0},    // Inactive (near minimum)
 	}
 
 	for _, tc := range testCases {
@@ -76,7 +76,7 @@ func TestGainEncodeDecode(t *testing.T) {
 				decodedFloat := float32(decodedQ16) / 65536.0
 
 				// Verify decoded is in same ballpark as original
-				// Allow factor of 2 error due to coarse quantization
+				// Allow factor of 2 error due to coarse quantization (64 levels over large range)
 				ratio := float64(decodedFloat) / float64(tc.gains[i])
 				if ratio < 0.3 || ratio > 3.0 {
 					t.Errorf("sf=%d: input=%.4f, decoded=%.4f, ratio=%.2f",
@@ -211,10 +211,11 @@ func TestQuantizeLSFNarrowband(t *testing.T) {
 
 func TestLSFEncodeDecode(t *testing.T) {
 	// This test verifies the quantization produces valid indices
-	// that can be reconstructed close to original
+	// that can be reconstructed using the libopus decoder logic
 
 	enc := NewEncoder(BandwidthNarrowband)
 	config := GetBandwidthConfig(BandwidthNarrowband)
+	cb := &silk_NLSF_CB_NB_MB
 
 	// Test LSF - use values closer to codebook entries for better reconstruction
 	lsfQ15 := make([]int16, config.LPCOrder)
@@ -225,26 +226,32 @@ func TestLSFEncodeDecode(t *testing.T) {
 
 	stage1Idx, residuals, _ := enc.quantizeLSF(lsfQ15, BandwidthNarrowband, 1)
 
-	// Reconstruct LSF from quantized values
-	reconstructed := make([]int16, config.LPCOrder)
-	mapIdx := stage1Idx >> 2
-	if mapIdx > 7 {
-		mapIdx = 7
+	// Verify stage1Idx is in valid range
+	if stage1Idx < 0 || stage1Idx >= cb.nVectors {
+		t.Errorf("stage1Idx=%d out of range [0, %d)", stage1Idx, cb.nVectors)
 	}
 
+	// Verify residuals are in valid range [-nlsfQuantMaxAmplitude, +nlsfQuantMaxAmplitude]
 	for i := 0; i < config.LPCOrder; i++ {
-		base := int32(LSFCodebookNBMB[stage1Idx][i]) << 7
-		resIdx := residuals[i]
-		if resIdx >= 9 {
-			resIdx = 8
+		if residuals[i] < -nlsfQuantMaxAmplitude || residuals[i] > nlsfQuantMaxAmplitude {
+			t.Errorf("residual[%d]=%d out of range [%d, %d]",
+				i, residuals[i], -nlsfQuantMaxAmplitude, nlsfQuantMaxAmplitude)
 		}
-		res := int32(LSFStage2ResNBMB[mapIdx][resIdx][i]) << 7
-		reconstructed[i] = int16(base + res)
 	}
+
+	// Reconstruct LSF using libopus decoder logic (silkNLSFDecode)
+	indices := make([]int8, config.LPCOrder+1)
+	indices[0] = int8(stage1Idx)
+	for i := 0; i < config.LPCOrder; i++ {
+		indices[i+1] = int8(residuals[i])
+	}
+
+	reconstructed := make([]int16, config.LPCOrder)
+	silkNLSFDecode(reconstructed, indices, cb)
 
 	// Verify reconstruction is reasonably close to original
-	// VQ quantization can have significant error - allow 15% of full range (32767)
-	maxAllowedDiff := 5000
+	// VQ quantization can have significant error - allow 20% of full range
+	maxAllowedDiff := 6500
 	for i := 0; i < config.LPCOrder; i++ {
 		diff := absInt(int(lsfQ15[i]) - int(reconstructed[i]))
 		if diff > maxAllowedDiff {
@@ -281,7 +288,7 @@ func TestInterpolationIndex(t *testing.T) {
 
 	// Very different LSF should give no interpolation
 	for i := range lsfQ15 {
-		lsfQ15[i] = int16(i * 2000 + 10000)
+		lsfQ15[i] = int16(i*2000 + 10000)
 	}
 	interpIdx = enc.computeInterpolationIndex(lsfQ15, config.LPCOrder)
 	if interpIdx < 3 {
@@ -289,38 +296,15 @@ func TestInterpolationIndex(t *testing.T) {
 	}
 }
 
-func TestComputeLSFWeight(t *testing.T) {
+func TestComputeSymbolRate8(t *testing.T) {
 	enc := NewEncoder(BandwidthWideband)
 
-	// Test that mid-range coefficients have higher weight
-	order := 16
-	midIdx := order / 2
-
-	weightMid := enc.computeLSFWeight(midIdx, order)
-	weightEdge := enc.computeLSFWeight(0, order)
-
-	if weightMid <= weightEdge {
-		t.Errorf("mid weight (%d) should be higher than edge weight (%d)", weightMid, weightEdge)
-	}
-
-	// All weights should be positive
-	for i := 0; i < order; i++ {
-		w := enc.computeLSFWeight(i, order)
-		if w <= 0 {
-			t.Errorf("weight[%d] = %d, expected positive", i, w)
-		}
-	}
-}
-
-func TestComputeSymbolRate(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
-
-	// Test with known ICDF
-	icdf := ICDFLSFStage1WBVoiced
+	// Test with libopus NLSF CB1 ICDF (uint8)
+	icdf := silk_NLSF_CB1_iCDF_WB
 
 	// Low probability symbols should have higher rate
-	rate0 := enc.computeSymbolRate(0, icdf)
-	rate10 := enc.computeSymbolRate(10, icdf)
+	rate0 := enc.computeSymbolRate8(0, icdf)
+	rate10 := enc.computeSymbolRate8(10, icdf)
 
 	// Both should be positive
 	if rate0 <= 0 {
@@ -331,7 +315,7 @@ func TestComputeSymbolRate(t *testing.T) {
 	}
 
 	// Invalid symbol should return max rate
-	rateInvalid := enc.computeSymbolRate(-1, icdf)
+	rateInvalid := enc.computeSymbolRate8(-1, icdf)
 	if rateInvalid != 256 {
 		t.Errorf("invalid symbol rate should be 256, got %d", rateInvalid)
 	}

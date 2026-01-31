@@ -27,14 +27,14 @@ func (e *Encoder) EncodeStereoParams(nbBands int) int {
 		return -1
 	}
 
-	// For mid-side only mode:
-	// intensity = nbBands means "all bands are mid-side" (no intensity stereo)
-	// This is encoded using Laplace coding like coarse energy
+	// For dual stereo mode (simpler, encoding L and R independently):
+	// intensity = nbBands (disabled)
+	// dual_stereo = 1 (enabled)
 	e.encodeLaplaceIntensity(nbBands, IntensityDecay)
 
-	// dual_stereo = 0 means "use mid-side" (not dual stereo)
+	// dual_stereo = 1 means "use dual stereo"
 	// Encoded as a single bit with 50% probability
-	e.rangeEncoder.EncodeBit(0, 1)
+	e.rangeEncoder.EncodeBit(1, 1)
 
 	// Return -1 to indicate intensity stereo is disabled
 	return -1
@@ -50,7 +50,8 @@ func (e *Encoder) encodeLaplaceIntensity(val int, decay int) {
 	}
 
 	// Compute center frequency (probability of value 0)
-	fs0 := laplaceNMIN + (laplaceScale*decay)>>15
+	laplaceScale := laplaceFS - laplaceNMin
+	fs0 := laplaceNMin + (laplaceScale*decay)>>15
 	if fs0 > laplaceFS-1 {
 		fs0 = laplaceFS - 1
 	}
@@ -67,8 +68,8 @@ func (e *Encoder) encodeLaplaceIntensity(val int, decay int) {
 
 	for k < val {
 		fk := (prevFk * decay) >> 15
-		if fk < laplaceNMIN {
-			fk = laplaceNMIN
+		if fk < laplaceNMin {
+			fk = laplaceNMin
 		}
 		cumFL += fk
 		prevFk = fk
@@ -76,11 +77,11 @@ func (e *Encoder) encodeLaplaceIntensity(val int, decay int) {
 	}
 
 	fk := (prevFk * decay) >> 15
-	if fk < laplaceNMIN {
-		fk = laplaceNMIN
+	if fk < laplaceNMin {
+		fk = laplaceNMin
 	}
 
-	re.Encode(uint32(cumFL), uint32(fk), uint32(laplaceFS))
+	re.Encode(uint32(cumFL), uint32(cumFL+fk), uint32(laplaceFS))
 }
 
 // EncodeStereoParamsWithIntensity encodes stereo params with optional intensity stereo.
@@ -118,8 +119,9 @@ func (e *Encoder) EncodeStereoParamsWithIntensity(nbBands, intensityBand int, du
 // This is the inverse of MidSideToLR.
 //
 // The conversion is:
-//   mid[i] = (left[i] + right[i]) / sqrt(2)
-//   side[i] = (left[i] - right[i]) / sqrt(2)
+//
+//	mid[i] = (left[i] + right[i]) / sqrt(2)
+//	side[i] = (left[i] - right[i]) / sqrt(2)
 //
 // The sqrt(2) normalization preserves energy: |L|^2 + |R|^2 = |M|^2 + |S|^2
 //
@@ -181,8 +183,9 @@ func ConvertToMidSideInPlace(left, right []float64) {
 // This is the inverse of ConvertToMidSide.
 //
 // The conversion is:
-//   left[i] = (mid[i] + side[i]) / sqrt(2)
-//   right[i] = (mid[i] - side[i]) / sqrt(2)
+//
+//	left[i] = (mid[i] + side[i]) / sqrt(2)
+//	right[i] = (mid[i] - side[i]) / sqrt(2)
 //
 // Combined with ConvertToMidSide, this forms an identity transform:
 // L,R -> M,S -> L,R (with floating point precision)
