@@ -36,6 +36,8 @@ there is no reliable hybrid decode benchmark yet.
 - Removed `DecodeFloat32` / `DecodeInt16Slice`; callers must pass explicit buffers.
 - Added `DecoderConfig` caps (`MaxPacketSamples`, `MaxPacketBytes`) and streaming
   `PacketReader` plumbing for buffer-based packet reads.
+- CELT `DecodeFrame` now reuses a range decoder scratch to reach 0 allocs/op in
+  `BenchmarkDecodeFrame` and `BenchmarkDecodeFrame_Stereo`.
 
 ## Allocation hotspots (by layer)
 

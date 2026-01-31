@@ -42,6 +42,8 @@ type Decoder struct {
 
 	// Range decoder (set per frame)
 	rangeDecoder *rangecoding.Decoder
+	// rangeDecoderScratch holds a reusable decoder to avoid per-frame allocations.
+	rangeDecoderScratch rangecoding.Decoder
 
 	// Energy state (persists across frames for inter-frame prediction)
 	prevEnergy  []float64 // Previous frame band energies [MaxBands * channels]
@@ -77,27 +79,27 @@ type Decoder struct {
 	prevStreamChannels int // Previous packet's channel count (0 = uninitialized)
 
 	// Scratch buffers to reduce per-frame allocations (decoder is not thread-safe).
-	scratchPrevEnergy      []float64
-	scratchPrevLogE        []float64
-	scratchPrevLogE2       []float64
-	scratchEnergies        []float64
-	scratchTFRes           []int
-	scratchOffsets         []int
-	scratchPulses          []int
-	scratchFineQuant       []int
-	scratchFinePriority    []int
-	scratchPrevBandEnergy  []float64
-	scratchSilenceE        []float64
-	scratchCaps            []int
-	scratchAllocWork       []int
-	scratchBands           bandDecodeScratch
-	scratchIMDCT           imdctScratch
-	scratchSynth           []float64
-	scratchSynthR          []float64
-	scratchStereo          []float64
-	scratchShortCoeffs     []float64
-	postfilterScratch      []float64
-	scratchZeros           []float64
+	scratchPrevEnergy     []float64
+	scratchPrevLogE       []float64
+	scratchPrevLogE2      []float64
+	scratchEnergies       []float64
+	scratchTFRes          []int
+	scratchOffsets        []int
+	scratchPulses         []int
+	scratchFineQuant      []int
+	scratchFinePriority   []int
+	scratchPrevBandEnergy []float64
+	scratchSilenceE       []float64
+	scratchCaps           []int
+	scratchAllocWork      []int
+	scratchBands          bandDecodeScratch
+	scratchIMDCT          imdctScratch
+	scratchSynth          []float64
+	scratchSynthR         []float64
+	scratchStereo         []float64
+	scratchShortCoeffs    []float64
+	postfilterScratch     []float64
+	scratchZeros          []float64
 }
 
 // NewDecoder creates a new CELT decoder with the given number of channels.
@@ -557,7 +559,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	d.prepareMonoEnergyFromStereo()
 
 	// Initialize range decoder
-	rd := &rangecoding.Decoder{}
+	rd := &d.rangeDecoderScratch
 	rd.Init(data)
 	d.SetRangeDecoder(rd)
 
@@ -1022,7 +1024,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	d.channels = 1
 
 	// Initialize range decoder
-	rd := &rangecoding.Decoder{}
+	rd := &d.rangeDecoderScratch
 	rd.Init(data)
 	d.SetRangeDecoder(rd)
 
@@ -1306,7 +1308,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	}()
 
 	// Initialize range decoder
-	rd := &rangecoding.Decoder{}
+	rd := &d.rangeDecoderScratch
 	rd.Init(data)
 	d.SetRangeDecoder(rd)
 
