@@ -397,7 +397,10 @@ func (e *Encoder) encodeLaplace(val int, fs int, decay int) int {
 	if fl+fs > laplaceFS {
 		fs = laplaceFS - fl
 	}
-	re.Encode(uint32(fl), uint32(fl+fs), uint32(laplaceFS))
+	// Use EncodeBin with 15 bits (laplaceFS = 1 << 15 = 32768) to match libopus ec_encode_bin
+	// This is critical for bit-exact encoding since EncodeBin uses shift (rng >> bits)
+	// instead of division (rng / ft) which can give different results.
+	re.EncodeBin(uint32(fl), uint32(fl+fs), laplaceFTBits)
 	return val
 }
 
