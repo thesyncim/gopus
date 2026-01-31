@@ -445,7 +445,25 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	}
 
 	// Step 11.5: Encode allocation trim (only if budget allows)
-	allocTrim := 5
+	// Compute equiv_rate for trim analysis (matches libopus celt_encoder.c line 1925)
+	effectiveBytesForTrim := targetBits / 8
+	equivRate := computeEquivRate(effectiveBytesForTrim, e.channels, lm, e.targetBitrate)
+
+	// Compute allocation trim dynamically based on bitrate and signal characteristics
+	// Reference: libopus alloc_trim_analysis() in celt_encoder.c lines 865-955
+	allocTrim := allocTrimAnalysis(
+		equivRate,
+		e.channels,
+		energies,      // bandLogE in log2 units
+		tfEstimate,    // from transient analysis
+		nbBands,       // end parameter
+		lm,
+		normL,         // normalized coefficients for stereo correlation
+		normR,         // right channel (nil for mono)
+		intensity,     // intensity stereo band
+		0.0,           // surroundTrim (not used for standard stereo)
+	)
+
 	tellForTrim := re.TellFrac()
 	if tellForTrim+(6<<bitRes) <= totalBitsQ3ForDynalloc {
 		re.EncodeICDF(allocTrim, trimICDF, 7)

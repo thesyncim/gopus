@@ -769,6 +769,100 @@ Signal correlation improved from -0.1 to +0.30. The encoder now produces usable 
 
 ---
 
+---
+
+### Allocation Trim Dynamic Computation (Agent 15)
+
+**Date**: 2026-01-31
+**Worktree**: `/Users/thesyncim/GolandProjects/gopus-worktrees/agent-15`
+**Branch**: `fix-agent-15`
+
+#### Summary
+
+Replaced hardcoded `allocTrim := 5` with dynamic computation matching libopus `alloc_trim_analysis()`.
+
+#### Issue
+
+At line 448 in `encode_frame.go`, allocation trim was hardcoded:
+```go
+allocTrim := 5
+```
+
+This ignores:
+- Bitrate adjustments (lower bitrate should reduce trim)
+- Transient factor (tf_estimate)
+- Spectral tilt
+- Stereo correlation
+
+#### Solution
+
+1. **Created `alloc_trim.go`** with two functions:
+   - `allocTrimAnalysis()`: Computes dynamic trim based on libopus algorithm
+   - `computeEquivRate()`: Computes equivalent bitrate for trim analysis
+
+2. **Updated `encode_frame.go`** to call the new function:
+   ```go
+   equivRate := computeEquivRate(effectiveBytesForTrim, e.channels, lm, e.targetBitrate)
+   allocTrim := allocTrimAnalysis(equivRate, e.channels, energies, tfEstimate, nbBands, lm, normL, normR, intensity, 0.0)
+   ```
+
+#### Algorithm Details (matching libopus `alloc_trim_analysis()` lines 865-955)
+
+1. **Bitrate adjustment**:
+   - `equivRate < 64000`: trim = 4.0
+   - `64000 <= equivRate < 80000`: interpolate from 4.0 to 5.0
+   - `equivRate >= 80000`: trim = 5.0
+
+2. **Stereo correlation** (for stereo only):
+   - Compute inter-channel correlation for low bands (0-7)
+   - Find minimum correlation for higher bands (8 to intensity)
+   - Adjust trim based on log-correlation
+
+3. **Spectral tilt**:
+   - Compute weighted sum of band energies
+   - Higher bands getting more weight pushes trim up
+   - Lower bands getting more weight pushes trim down
+   - Clamp adjustment to [-2.0, 2.0]
+
+4. **Transient factor (tf_estimate)**:
+   - trim -= 2 * tfEstimate
+   - Higher transient -> lower trim
+
+5. **Final clamping**: Round and clamp to [0, 10]
+
+#### Tests Added
+
+- `TestAllocTrimAnalysisBitrateAdjustment`: Verifies bitrate-based adjustment
+- `TestAllocTrimAnalysisTfEstimate`: Verifies tf_estimate adjustment
+- `TestAllocTrimAnalysisClamp`: Verifies output is always in [0, 10]
+- `TestComputeEquivRate`: Verifies equivalent rate computation
+- `TestAllocTrimAnalysisIntegration`: Full integration test
+
+All tests pass.
+
+#### Side Fix
+
+Also fixed a pre-existing build issue in `internal/silk/gain_encode.go`:
+- Added missing `computeLogGainIndexQ16()` function that was referenced in `exports.go`
+
+#### Impact
+
+Dynamic trim computation will:
+- Use trim=4 at low bitrates (< 64kbps) for better quality
+- Reduce trim when transients are detected
+- Consider stereo correlation for stereo encoding
+- Match libopus behavior more closely
+
+#### Status: Fixed and Tested
+
+**Files Changed:**
+- `internal/celt/alloc_trim.go` (NEW)
+- `internal/celt/alloc_trim_test.go` (NEW)
+- `internal/celt/encode_frame.go` (MODIFIED)
+- `internal/silk/gain_encode.go` (SIDE FIX)
+
+---
+
 ## Merge Protocol
 When a fix is verified:
 1. Ensure all tests pass in the worktree
