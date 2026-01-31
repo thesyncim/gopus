@@ -240,7 +240,7 @@ func TestRoundTrip_Mono(t *testing.T) {
 		t.Fatalf("NewEncoderDefault failed: %v", err)
 	}
 
-	dec, err := NewDecoderDefault(sampleRate, channels)
+	dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
 	if err != nil {
 		t.Fatalf("NewDecoderDefault failed: %v", err)
 	}
@@ -305,7 +305,7 @@ func TestRoundTrip_Stereo(t *testing.T) {
 		t.Fatalf("NewEncoderDefault failed: %v", err)
 	}
 
-	dec, err := NewDecoderDefault(sampleRate, channels)
+	dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
 	if err != nil {
 		t.Fatalf("NewDecoderDefault failed: %v", err)
 	}
@@ -380,7 +380,7 @@ func TestRoundTrip_51Surround(t *testing.T) {
 		t.Fatalf("NewEncoderDefault failed: %v", err)
 	}
 
-	dec, err := NewDecoderDefault(sampleRate, channels)
+	dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
 	if err != nil {
 		t.Fatalf("NewDecoderDefault failed: %v", err)
 	}
@@ -474,7 +474,7 @@ func TestRoundTrip_71Surround(t *testing.T) {
 		t.Fatalf("NewEncoderDefault failed: %v", err)
 	}
 
-	dec, err := NewDecoderDefault(sampleRate, channels)
+	dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
 	if err != nil {
 		t.Fatalf("NewDecoderDefault failed: %v", err)
 	}
@@ -580,7 +580,7 @@ func TestRoundTrip_MultipleFrames(t *testing.T) {
 				t.Fatalf("NewEncoderDefault failed: %v", err)
 			}
 
-			dec, err := NewDecoderDefault(sampleRate, tc.channels)
+			dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, tc.channels))
 			if err != nil {
 				t.Fatalf("NewDecoderDefault failed: %v", err)
 			}
@@ -700,7 +700,7 @@ func TestRoundTrip_ChannelIsolation(t *testing.T) {
 		t.Fatalf("NewEncoderDefault failed: %v", err)
 	}
 
-	dec, err := NewDecoderDefault(sampleRate, channels)
+	dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
 	if err != nil {
 		t.Fatalf("NewDecoderDefault failed: %v", err)
 	}
@@ -812,7 +812,7 @@ func TestRoundTrip(t *testing.T) {
 				t.Fatalf("NewEncoderDefault failed: %v", err)
 			}
 
-			dec, err := NewDecoderDefault(sampleRate, tc.channels)
+			dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, tc.channels))
 			if err != nil {
 				t.Fatalf("NewDecoderDefault failed: %v", err)
 			}

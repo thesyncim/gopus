@@ -19,7 +19,7 @@ func TestTV12Packet826_48kHz(t *testing.T) {
 	}
 
 	// Create 48kHz mono decoders
-	goDec, err := gopus.NewDecoder(48000, 1)
+	goDec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func TestTV12Packet826_48kHz(t *testing.T) {
 		toc := gopus.ParseTOC(pkt[0])
 
 		// Decode with Go
-		goSamples, err := goDec.DecodeFloat32(pkt)
+		goSamples, err := decodeFloat32(goDec, pkt)
 		if err != nil {
 			t.Logf("Packet %d: Go decode error: %v", pktIdx, err)
 			continue
@@ -150,7 +150,7 @@ func TestTV12WorstPackets48kHz(t *testing.T) {
 	}
 
 	// Create 48kHz mono decoders
-	goDec, err := gopus.NewDecoder(48000, 1)
+	goDec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +171,7 @@ func TestTV12WorstPackets48kHz(t *testing.T) {
 		toc := gopus.ParseTOC(pkt[0])
 
 		// Decode with Go
-		goSamples, err := goDec.DecodeFloat32(pkt)
+		goSamples, err := decodeFloat32(goDec, pkt)
 		if err != nil {
 			continue
 		}

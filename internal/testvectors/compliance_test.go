@@ -127,18 +127,18 @@ func runTestVector(t *testing.T, name string) {
 	// Test vectors may contain both mono and stereo packets mixed in the stream.
 	// Per RFC 8251, output format is always stereo interleaved.
 	// Use one persistent stereo decoder to preserve state across channel switches.
-	dec, err := gopus.NewDecoder(48000, 2)
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	if err != nil {
 		t.Fatalf("Failed to create stereo decoder: %v", err)
 	}
 
 	// 4. Decode all packets with a single stereo decoder.
 	// Note: Opus packets can contain multiple frames (code 1/2/3 in TOC byte).
-	// The decoder returns all frames combined, so we use DecodeInt16Slice.
+	// The decoder returns all frames combined, so we use buffer-based DecodeInt16.
 	var allDecoded []int16
 	decodeErrors := make(map[string]int) // Track error types
 	for i, pkt := range packets {
-		pcm, err := dec.DecodeInt16Slice(pkt.Data)
+		pcm, err := decodeInt16(dec, pkt.Data)
 		if err != nil {
 			// Log more detail about the failure
 			errKey := err.Error()
@@ -741,7 +741,7 @@ func runVectorSilent(t *testing.T, name string) vectorResult {
 	// Per RFC 8251, output format is always stereo interleaved.
 	// Use one persistent stereo decoder to preserve state across channel switches.
 	channels := 2
-	dec, err := gopus.NewDecoder(48000, channels)
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	if err != nil {
 		result.err = err
 		return result
@@ -750,7 +750,7 @@ func runVectorSilent(t *testing.T, name string) vectorResult {
 	// 4. Decode all packets (using auto-allocating method for multi-frame support)
 	var allDecoded []int16
 	for _, pkt := range packets {
-		pcm, err := dec.DecodeInt16Slice(pkt.Data)
+		pcm, err := decodeInt16(dec, pkt.Data)
 		if err != nil {
 			result.decodeErrors++
 			// Use zeros for failed packets

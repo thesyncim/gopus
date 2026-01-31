@@ -33,7 +33,7 @@ func testHybridVector(t *testing.T, name string) {
 	t.Logf("Testing %s: %d packets", name, len(packets))
 
 	// Create persistent decoders for streaming
-	goDec, err := gopus.NewDecoder(48000, channels)
+	goDec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	if err != nil {
 		t.Fatalf("Failed to create gopus decoder: %v", err)
 	}
@@ -53,7 +53,7 @@ func testHybridVector(t *testing.T, name string) {
 		}
 
 		// Decode with gopus
-		goPcm, decErr := goDec.DecodeFloat32(pkt)
+		goPcm, decErr := decodeFloat32(goDec, pkt)
 		if decErr != nil {
 			t.Logf("Packet %d: gopus decode failed: %v", i, decErr)
 			continue
@@ -139,8 +139,8 @@ func TestHybridFirstPacketDetail(t *testing.T) {
 	t.Logf("libopus: %d samples", libSamples)
 
 	// Decode with gopus - fresh decoder
-	goDec, _ := gopus.NewDecoder(48000, channels)
-	goPcm, decErr := goDec.DecodeFloat32(pkt)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
+	goPcm, decErr := decodeFloat32(goDec, pkt)
 	if decErr != nil {
 		t.Fatalf("gopus decode failed: %v", decErr)
 	}
@@ -239,8 +239,8 @@ func TestHybridSilkCeltContributions(t *testing.T) {
 
 	t.Logf("libopus decoded %d samples", libSamples)
 
-	goDec, _ := gopus.NewDecoder(48000, channels)
-	goPcm, _ := goDec.DecodeFloat32(pkt)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
+	goPcm, _ := decodeFloat32(goDec, pkt)
 	goSamples := len(goPcm) / channels
 
 	// Look at different regions of the output

@@ -23,7 +23,7 @@ func TestTV06FrameSizeQuality(t *testing.T) {
 		t.Skipf("Could not read reference: %v", err)
 	}
 
-	dec, _ := gopus.NewDecoder(48000, 2)
+	dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 
 	var q10ms, q20ms []float64
 	var mono10ms, mono20ms, stereo10ms, stereo20ms []float64
@@ -39,7 +39,7 @@ func TestTV06FrameSizeQuality(t *testing.T) {
 		stereo := (toc & 0x04) != 0
 		frameSize := getFrameSizeFromConfig(config)
 
-		pcm, err := dec.DecodeInt16Slice(pkt.Data)
+		pcm, err := decodeInt16(dec, pkt.Data)
 		if err != nil {
 			continue
 		}
@@ -116,7 +116,7 @@ func TestTV06FrameSizeTransitionDetail(t *testing.T) {
 		t.Skipf("Could not read reference: %v", err)
 	}
 
-	dec, _ := gopus.NewDecoder(48000, 2)
+	dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 
 	// Transitions at packets 313, 939, 1252
 	transitions := []int{313, 939, 1252}
@@ -127,7 +127,7 @@ func TestTV06FrameSizeTransitionDetail(t *testing.T) {
 			continue
 		}
 
-		pcm, err := dec.DecodeInt16Slice(pkt.Data)
+		pcm, err := decodeInt16(dec, pkt.Data)
 		if err != nil {
 			continue
 		}
@@ -191,7 +191,7 @@ func TestTV06AfterStereoTransition(t *testing.T) {
 		t.Skipf("Could not read reference: %v", err)
 	}
 
-	dec, _ := gopus.NewDecoder(48000, 2)
+	dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 
 	refOffset := 0
 	for i, pkt := range packets {
@@ -199,7 +199,7 @@ func TestTV06AfterStereoTransition(t *testing.T) {
 			continue
 		}
 
-		pcm, err := dec.DecodeInt16Slice(pkt.Data)
+		pcm, err := decodeInt16(dec, pkt.Data)
 		if err != nil {
 			continue
 		}

@@ -32,7 +32,7 @@ func TestTV12FindFirstDivergingPacket(t *testing.T) {
 	t.Logf("Total packets: %d", len(packets))
 	t.Logf("Reference samples: %d", len(reference))
 
-	dec, err := gopus.NewDecoder(48000, 2)
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	if err != nil {
 		t.Fatalf("Failed to create decoder: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestTV12FindFirstDivergingPacket(t *testing.T) {
 
 		isModeTransition := prevMode != "" && prevMode != mode
 
-		pcm, err := dec.DecodeInt16Slice(pkt.Data)
+		pcm, err := decodeInt16(dec, pkt.Data)
 		if err != nil {
 			t.Logf("Packet %d decode error: %v", i, err)
 			zeros := make([]int16, fs*2)

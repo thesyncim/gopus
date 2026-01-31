@@ -85,7 +85,9 @@ func ExampleReader_ReadPacket() {
 
 	// Read packets back
 	r, _ := ogg.NewReader(bytes.NewReader(buf.Bytes()))
-	dec, _ := gopus.NewDecoder(48000, 1)
+	cfg := gopus.DefaultDecoderConfig(48000, 1)
+	dec, _ := gopus.NewDecoder(cfg)
+	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
 
 	packetCount := 0
 	for {
@@ -93,7 +95,7 @@ func ExampleReader_ReadPacket() {
 		if err != nil {
 			break
 		}
-		_, _ = dec.DecodeFloat32(packet)
+		_, _ = dec.Decode(packet, pcmOut)
 		packetCount++
 	}
 
@@ -171,7 +173,9 @@ func Example_roundTripOgg() {
 
 	// Decode from Ogg
 	r, _ := ogg.NewReader(bytes.NewReader(buf.Bytes()))
-	dec, _ := gopus.NewDecoder(48000, 2)
+	cfg := gopus.DefaultDecoderConfig(48000, 2)
+	dec, _ := gopus.NewDecoder(cfg)
+	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
 
 	totalSamples := 0
 	for {
@@ -179,8 +183,8 @@ func Example_roundTripOgg() {
 		if err != nil {
 			break
 		}
-		pcm, _ := dec.DecodeFloat32(packet)
-		totalSamples += len(pcm) / 2
+		n, _ := dec.Decode(packet, pcmOut)
+		totalSamples += n
 	}
 
 	fmt.Printf("Round-trip: wrote 10 frames, decoded %d samples\n", totalSamples)

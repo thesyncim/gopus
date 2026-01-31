@@ -34,11 +34,11 @@ func TestTV12ResamplerResetComparison(t *testing.T) {
 		libOut826[0], libOut826[1], libOut826[2], libOut826[3], libOut826[4])
 
 	// Create two gopus decoders: one with reset (default), one without
-	goDec1, _ := gopus.NewDecoder(48000, 1) // Will reset (default behavior)
+	goDec1, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1)) // Will reset (default behavior)
 
 	// Process packets 0-825 through gopus
 	for i := 0; i <= 825; i++ {
-		goDec1.DecodeFloat32(packets[i])
+		decodeFloat32(goDec1, packets[i])
 	}
 
 	// Get SILK decoder and NB resampler state BEFORE packet 826
@@ -63,7 +63,7 @@ func TestTV12ResamplerResetComparison(t *testing.T) {
 
 	// Decode packet 826 with default behavior (reset enabled)
 	silkDec.DebugClearResetFlag()
-	goOut1, _ := goDec1.DecodeFloat32(packets[826])
+	goOut1, _ := decodeFloat32(goDec1, packets[826])
 	t.Logf("\nWith reset: first 5 = [%.6f, %.6f, %.6f, %.6f, %.6f]",
 		goOut1[0], goOut1[1], goOut1[2], goOut1[3], goOut1[4])
 
@@ -97,9 +97,9 @@ func TestTV12ResamplerResetComparison(t *testing.T) {
 	t.Logf("Decoder 1 Process() call count: %d, last process ID: %d", nbRes.GetDebugProcessCallCount(), nbRes.GetDebugLastProcessID())
 
 	// Create another decoder and decode WITHOUT reset
-	goDec2, _ := gopus.NewDecoder(48000, 1)
+	goDec2, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	for i := 0; i <= 825; i++ {
-		goDec2.DecodeFloat32(packets[i])
+		decodeFloat32(goDec2, packets[i])
 	}
 
 	// Get the SILK decoder and manually set the resampler state to preserved (pre-reset) state
@@ -124,7 +124,7 @@ func TestTV12ResamplerResetComparison(t *testing.T) {
 	t.Logf("Decoder 2 NB state JUST before decode: sIIR=[%d,%d,%d]",
 		nbRes2.GetSIIR()[0], nbRes2.GetSIIR()[1], nbRes2.GetSIIR()[2])
 
-	goOut2, _ := goDec2.DecodeFloat32(packets[826])
+	goOut2, _ := decodeFloat32(goDec2, packets[826])
 
 	// Check state captured at Process() call time
 	processStartState2 := nbRes2.GetDebugProcessCallSIIR()

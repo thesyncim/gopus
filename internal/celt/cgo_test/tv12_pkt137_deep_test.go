@@ -18,7 +18,7 @@ func TestTV12Packet137Deep(t *testing.T) {
 	}
 
 	// Create gopus decoder at 48kHz
-	goDec, err := gopus.NewDecoder(48000, 1)
+	goDec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestTV12Packet137Deep(t *testing.T) {
 
 	// Process packets before transition
 	for i := 0; i < 135; i++ {
-		goDec.DecodeFloat32(packets[i])
+		decodeFloat32(goDec, packets[i])
 		libDec.DecodeFloat(packets[i], 1920)
 	}
 
@@ -44,7 +44,7 @@ func TestTV12Packet137Deep(t *testing.T) {
 		pkt := packets[i]
 		toc := gopus.ParseTOC(pkt[0])
 
-		goSamples, err := goDec.DecodeFloat32(pkt)
+		goSamples, err := decodeFloat32(goDec, pkt)
 		if err != nil {
 			t.Logf("Packet %d: decode error: %v", i, err)
 			continue
@@ -119,7 +119,7 @@ func TestTV12RunToPacket137(t *testing.T) {
 		t.Skip("Could not load packets")
 	}
 
-	goDec, _ := gopus.NewDecoder(48000, 1)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	libDec, _ := NewLibopusDecoder(48000, 1)
 	if libDec == nil {
 		t.Skip("Could not create libopus decoder")
@@ -134,7 +134,7 @@ func TestTV12RunToPacket137(t *testing.T) {
 		pkt := packets[i]
 		toc := gopus.ParseTOC(pkt[0])
 
-		goSamples, _ := goDec.DecodeFloat32(pkt)
+		goSamples, _ := decodeFloat32(goDec, pkt)
 		libPcm, libN := libDec.DecodeFloat(pkt, len(goSamples)*2)
 
 		minLen := len(goSamples)

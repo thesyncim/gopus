@@ -1318,6 +1318,14 @@ func quantBandStereo(ctx *bandCtx, x, y []float64, n, b, B int, lowband []float6
 func quantAllBandsDecode(rd *rangecoding.Decoder, channels, frameSize, lm int, start, end int,
 	pulses []int, shortBlocks int, spread int, dualStereo, intensity int,
 	tfRes []int, totalBitsQ3 int, balance int, codedBands int, disableInv bool, seed *uint32) (left, right []float64, collapse []byte) {
+	return quantAllBandsDecodeWithScratch(rd, channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
+		dualStereo, intensity, tfRes, totalBitsQ3, balance, codedBands, disableInv, seed, nil)
+}
+
+func quantAllBandsDecodeWithScratch(rd *rangecoding.Decoder, channels, frameSize, lm int, start, end int,
+	pulses []int, shortBlocks int, spread int, dualStereo, intensity int,
+	tfRes []int, totalBitsQ3 int, balance int, codedBands int, disableInv bool, seed *uint32,
+	scratch *bandDecodeScratch) (left, right []float64, collapse []byte) {
 	if DebugDualStereo {
 		fmt.Printf("quantAllBandsDecode: dualStereo=%d, intensity=%d, channels=%d, start=%d, end=%d\n",
 			dualStereo, intensity, channels, start, end)
@@ -1328,25 +1336,58 @@ func quantAllBandsDecode(rd *rangecoding.Decoder, channels, frameSize, lm int, s
 		B = shortBlocks
 	}
 	N := frameSize
-	left = make([]float64, N)
-	if channels == 2 {
-		right = make([]float64, N)
+	if scratch == nil {
+		left = make([]float64, N)
+		if channels == 2 {
+			right = make([]float64, N)
+		}
+		collapse = make([]byte, channels*MaxBands)
+	} else {
+		left = ensureFloat64Slice(&scratch.left, N)
+		for i := range left {
+			left[i] = 0
+		}
+		if channels == 2 {
+			right = ensureFloat64Slice(&scratch.right, N)
+			for i := range right {
+				right[i] = 0
+			}
+		} else if cap(scratch.right) > 0 {
+			scratch.right = scratch.right[:0]
+			right = nil
+		}
+		collapse = ensureByteSlice(&scratch.collapse, channels*MaxBands)
+		for i := range collapse {
+			collapse[i] = 0
+		}
 	}
-	collapse = make([]byte, channels*MaxBands)
 
 	normOffset := M * EBands[start]
 	normLen := M*EBands[MaxBands-1] - normOffset
 	if normLen < 0 {
 		normLen = 0
 	}
-	norm := make([]float64, channels*normLen)
+	var norm []float64
+	if scratch == nil {
+		norm = make([]float64, channels*normLen)
+	} else {
+		norm = ensureFloat64Slice(&scratch.norm, channels*normLen)
+		for i := range norm {
+			norm[i] = 0
+		}
+	}
 	var norm2 []float64
 	if channels == 2 {
 		norm2 = norm[normLen:]
 	}
 
 	maxBand := M * (EBands[end] - EBands[end-1])
-	lowbandScratch := make([]float64, maxBand)
+	var lowbandScratch []float64
+	if scratch == nil {
+		lowbandScratch = make([]float64, maxBand)
+	} else {
+		lowbandScratch = ensureFloat64Slice(&scratch.lowband, maxBand)
+	}
 
 	lowbandOffset := 0
 	updateLowband := true

@@ -33,7 +33,7 @@ func TestSILKBandwidthCompare(t *testing.T) {
 				toc.Mode, toc.Bandwidth, toc.Stereo, toc.FrameSize)
 
 			// Create decoders
-			goDec, _ := gopus.NewDecoder(48000, 1)
+			goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 			libDec, _ := NewLibopusDecoder(48000, 1)
 			if libDec == nil {
 				t.Skip("Could not create libopus decoder")
@@ -42,7 +42,7 @@ func TestSILKBandwidthCompare(t *testing.T) {
 
 			// Decode packet 0
 			pkt := packets[0]
-			goOut, err := goDec.DecodeFloat32(pkt)
+			goOut, err := decodeFloat32(goDec, pkt)
 			if err != nil {
 				t.Fatalf("Go decode error: %v", err)
 			}

@@ -20,7 +20,7 @@ func TestTV12ResamplerIntermediateValues(t *testing.T) {
 	}
 
 	// Create gopus decoder at 48kHz mono
-	goDec, err := gopus.NewDecoder(48000, 1)
+	goDec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		t.Fatalf("Failed to create gopus decoder: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestTV12ResamplerIntermediateValues(t *testing.T) {
 	// Decode packets 0-134 to build state
 	for i := 0; i < 135; i++ {
 		pkt := packets[i]
-		goDec.DecodeFloat32(pkt)
+		decodeFloat32(goDec, pkt)
 		libDec.DecodeFloat(pkt, 1920)
 	}
 
@@ -56,7 +56,7 @@ func TestTV12ResamplerIntermediateValues(t *testing.T) {
 		bwName := []string{"NB 8kHz", "MB 12kHz", "WB 16kHz"}[bw]
 
 		// Decode with gopus
-		goOut, err := goDec.DecodeFloat32(pkt)
+		goOut, err := decodeFloat32(goDec, pkt)
 		if err != nil {
 			t.Logf("Packet %d: gopus decode error: %v", i, err)
 			continue

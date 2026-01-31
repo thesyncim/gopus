@@ -96,7 +96,7 @@ func analyzeVector(t *testing.T, vectorName string) {
 	t.Logf("Analyzing %s: %d packets, %d channels", vectorName, len(packets), channels)
 
 	// Create decoders
-	goDec, _ := gopus.NewDecoder(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec, err := NewLibopusDecoder(48000, channels)
 	if err != nil || libDec == nil {
 		t.Fatalf("Failed to create libopus decoder")
@@ -126,7 +126,7 @@ func analyzeVector(t *testing.T, vectorName string) {
 			modeTransitionCount++
 		}
 
-		goPcm, decErr := goDec.DecodeFloat32(pkt)
+		goPcm, decErr := decodeFloat32(goDec, pkt)
 		if decErr != nil {
 			t.Logf("Packet %d: gopus error: %v", i, decErr)
 			prevMode = toc.Mode
@@ -318,7 +318,7 @@ func TestCompareAroundTransition(t *testing.T) {
 	}
 
 	// Decode with fresh decoders from the beginning
-	goDec, _ := gopus.NewDecoder(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec, _ := NewLibopusDecoder(48000, channels)
 	defer libDec.Destroy()
 
@@ -328,7 +328,7 @@ func TestCompareAroundTransition(t *testing.T) {
 		pkt := packets[i]
 		toc := gopus.ParseTOC(pkt[0])
 
-		goPcm, goErr := goDec.DecodeFloat32(pkt)
+		goPcm, goErr := decodeFloat32(goDec, pkt)
 		libPcm, libSamples := libDec.DecodeFloat(pkt, 5760)
 
 		if i >= start {

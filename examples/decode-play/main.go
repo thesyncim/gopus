@@ -198,10 +198,12 @@ func decodeOggToWav(r io.Reader, outputPath string) (decodeStats, error) {
 		return stats, errors.New("invalid channel count in OpusHead")
 	}
 
-	dec, err := gopus.NewDecoder(sampleRate, channels)
+	cfg := gopus.DefaultDecoderConfig(sampleRate, channels)
+	dec, err := gopus.NewDecoder(cfg)
 	if err != nil {
 		return stats, fmt.Errorf("create decoder: %w", err)
 	}
+	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
 
 	writer, err := newWavWriter(outputPath, sampleRate, channels)
 	if err != nil {
@@ -230,13 +232,14 @@ func decodeOggToWav(r io.Reader, outputPath string) (decodeStats, error) {
 			return stats, fmt.Errorf("read packet: %w", err)
 		}
 
-		samples, err := dec.DecodeFloat32(packet)
+		n, err := dec.Decode(packet, pcmOut)
 		if err != nil {
 			log.Printf("Warning: decode error on packet %d: %v", totalPackets, err)
 			continue
 		}
 
-		frameSamples := len(samples) / channels
+		samples := pcmOut[:n*channels]
+		frameSamples := n
 		if remainingSkip > 0 {
 			if frameSamples <= remainingSkip {
 				remainingSkip -= frameSamples
@@ -296,10 +299,12 @@ func decodeOggToPipe(r io.Reader) (decodeStats, error) {
 		return stats, errors.New("invalid channel count in OpusHead")
 	}
 
-	dec, err := gopus.NewDecoder(sampleRate, channels)
+	cfg := gopus.DefaultDecoderConfig(sampleRate, channels)
+	dec, err := gopus.NewDecoder(cfg)
 	if err != nil {
 		return stats, fmt.Errorf("create decoder: %w", err)
 	}
+	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
 
 	pipe, err := newPCMPlayer(channels)
 	if err != nil {
@@ -322,13 +327,14 @@ func decodeOggToPipe(r io.Reader) (decodeStats, error) {
 			return stats, fmt.Errorf("read packet: %w", err)
 		}
 
-		samples, err := dec.DecodeFloat32(packet)
+		n, err := dec.Decode(packet, pcmOut)
 		if err != nil {
 			log.Printf("Warning: decode error on packet %d: %v", totalPackets, err)
 			continue
 		}
 
-		frameSamples := len(samples) / channels
+		samples := pcmOut[:n*channels]
+		frameSamples := n
 		if remainingSkip > 0 {
 			if frameSamples <= remainingSkip {
 				remainingSkip -= frameSamples

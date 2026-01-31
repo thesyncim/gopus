@@ -33,7 +33,7 @@ func TestIntensityEffect(t *testing.T) {
 	}
 
 	// Decode all packets and track when error appears
-	goDec, _ := gopus.NewDecoder(48000, 2)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	libDec, _ := NewLibopusDecoder(48000, 2)
 	defer libDec.Destroy()
 
@@ -44,7 +44,7 @@ func TestIntensityEffect(t *testing.T) {
 	for pktIdx := 0; pktIdx <= 20 && pktIdx < len(packets); pktIdx++ {
 		pkt := packets[pktIdx]
 
-		goSamplesF32, _ := goDec.DecodeFloat32(pkt)
+		goSamplesF32, _ := decodeFloat32(goDec, pkt)
 		libPcm, libSamples := libDec.DecodeFloat(pkt, 5760)
 
 		maxLErr := 0.0
@@ -103,11 +103,11 @@ func TestDualStereoDecoding(t *testing.T) {
 	t.Logf("Packet 14: len=%d", len(pkt))
 
 	// Decode with fresh decoders
-	freshGo, _ := gopus.NewDecoder(48000, 2)
+	freshGo, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	freshLib, _ := NewLibopusDecoder(48000, 2)
 	defer freshLib.Destroy()
 
-	goSamples, _ := freshGo.DecodeFloat32(pkt)
+	goSamples, _ := decodeFloat32(freshGo, pkt)
 	libPcm, libSamples := freshLib.DecodeFloat(pkt, 5760)
 
 	// Find where the error is largest

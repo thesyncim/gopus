@@ -146,6 +146,20 @@ func (or *Reader) ReadPacket() (packet []byte, granulePos uint64, err error) {
 	}
 }
 
+// ReadPacketInto reads the next Opus packet into dst.
+// Returns the number of bytes copied and the granule position.
+func (or *Reader) ReadPacketInto(dst []byte) (int, uint64, error) {
+	packet, granule, err := or.ReadPacket()
+	if err != nil {
+		return 0, 0, err
+	}
+	if len(packet) > len(dst) {
+		return 0, 0, ErrPacketTooLarge
+	}
+	n := copy(dst, packet)
+	return n, granule, nil
+}
+
 type packetEntry struct {
 	data       []byte
 	granulePos uint64

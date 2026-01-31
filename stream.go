@@ -18,8 +18,8 @@ import (
 //
 // To decode a stream of Opus packets:
 //
-//	source := &MyPacketSource{} // implements PacketSource
-//	reader, err := gopus.NewReader(48000, 2, source, gopus.FormatFloat32LE)
+//	source := &MyPacketReader{} // implements PacketReader
+//	reader, err := gopus.NewReader(gopus.DefaultDecoderConfig(48000, 2), source, gopus.FormatFloat32LE)
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
@@ -89,13 +89,12 @@ func (f SampleFormat) BytesPerSample() int {
 	}
 }
 
-// PacketSource provides Opus packets for streaming decode.
+// PacketReader provides Opus packets for streaming decode.
 // Implementations should return io.EOF when no more packets are available.
-type PacketSource interface {
-	// NextPacket returns the next Opus packet.
-	// Returns io.EOF when stream ends.
-	// Returns nil packet for PLC (packet loss).
-	NextPacket() ([]byte, error)
+type PacketReader interface {
+	// ReadPacketInto fills dst with the next Opus packet and returns the byte count.
+	// Returns io.EOF when stream ends. Return 0, nil to trigger PLC.
+	ReadPacketInto(dst []byte) (int, uint64, error)
 }
 
 // PacketSink receives encoded Opus packets from streaming encode.
@@ -113,16 +112,18 @@ type PacketSink interface {
 //
 // Example:
 //
-//	reader, err := gopus.NewReader(48000, 2, source, gopus.FormatFloat32LE)
+//	reader, err := gopus.NewReader(gopus.DefaultDecoderConfig(48000, 2), source, gopus.FormatFloat32LE)
 //	io.Copy(audioOutput, reader)
 type Reader struct {
 	dec    *Decoder
-	source PacketSource
+	source PacketReader
 	format SampleFormat // Output sample format
 
-	pcmBuf  []float32 // Decoded PCM samples
-	byteBuf []byte    // PCM as bytes
-	offset  int       // Current read position in byteBuf
+	packetBuf []byte
+	pcmFloat  []float32 // Decoded PCM samples
+	pcmInt16  []int16
+	byteBuf   []byte // PCM as bytes
+	offset    int    // Current read position in byteBuf
 
 	eof bool // Source exhausted
 }
@@ -130,23 +131,24 @@ type Reader struct {
 // NewReader creates a streaming decoder.
 //
 // Parameters:
-//   - sampleRate: output sample rate (8000, 12000, 16000, 24000, or 48000)
-//   - channels: number of audio channels (1 or 2)
+//   - cfg: decoder configuration
 //   - source: provides Opus packets for decoding
 //   - format: output sample format (FormatFloat32LE or FormatInt16LE)
-func NewReader(sampleRate, channels int, source PacketSource, format SampleFormat) (*Reader, error) {
-	dec, err := NewDecoder(sampleRate, channels)
+func NewReader(cfg DecoderConfig, source PacketReader, format SampleFormat) (*Reader, error) {
+	dec, err := NewDecoder(cfg)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Reader{
-		dec:    dec,
-		source: source,
-		format: format,
-		pcmBuf: make([]float32, 0),
-		offset: 0,
-		eof:    false,
+		dec:       dec,
+		source:    source,
+		format:    format,
+		packetBuf: make([]byte, dec.maxPacketBytes),
+		pcmFloat:  make([]float32, dec.maxPacketSamples*dec.channels),
+		pcmInt16:  make([]int16, dec.maxPacketSamples*dec.channels),
+		offset:    0,
+		eof:       false,
 	}, nil
 }
 
@@ -162,7 +164,7 @@ func (r *Reader) Read(p []byte) (int, error) {
 		}
 
 		// Fetch next packet from source
-		packet, err := r.source.NextPacket()
+		nPacket, _, err := r.source.ReadPacketInto(r.packetBuf)
 		if err == io.EOF {
 			r.eof = true
 			return 0, io.EOF
@@ -171,14 +173,55 @@ func (r *Reader) Read(p []byte) (int, error) {
 			return 0, err
 		}
 
-		// Decode the packet (nil packet triggers PLC)
-		samples, decErr := r.dec.DecodeFloat32(packet)
-		if decErr != nil {
-			return 0, decErr
+		var packet []byte
+		if nPacket > 0 {
+			packet = r.packetBuf[:nPacket]
 		}
 
-		// Convert PCM to bytes based on format
-		r.byteBuf = r.pcmToBytes(samples)
+		switch r.format {
+		case FormatFloat32LE:
+			nSamples, decErr := r.dec.Decode(packet, r.pcmFloat)
+			if decErr != nil {
+				return 0, decErr
+			}
+			byteLen := nSamples * r.dec.channels * 4
+			if cap(r.byteBuf) < byteLen {
+				r.byteBuf = make([]byte, byteLen)
+			}
+			r.byteBuf = r.byteBuf[:byteLen]
+			for i := 0; i < nSamples*r.dec.channels; i++ {
+				bits := math.Float32bits(r.pcmFloat[i])
+				binary.LittleEndian.PutUint32(r.byteBuf[i*4:], bits)
+			}
+		case FormatInt16LE:
+			nSamples, decErr := r.dec.DecodeInt16(packet, r.pcmInt16)
+			if decErr != nil {
+				return 0, decErr
+			}
+			byteLen := nSamples * r.dec.channels * 2
+			if cap(r.byteBuf) < byteLen {
+				r.byteBuf = make([]byte, byteLen)
+			}
+			r.byteBuf = r.byteBuf[:byteLen]
+			for i := 0; i < nSamples*r.dec.channels; i++ {
+				binary.LittleEndian.PutUint16(r.byteBuf[i*2:], uint16(r.pcmInt16[i]))
+			}
+		default:
+			nSamples, decErr := r.dec.Decode(packet, r.pcmFloat)
+			if decErr != nil {
+				return 0, decErr
+			}
+			byteLen := nSamples * r.dec.channels * 4
+			if cap(r.byteBuf) < byteLen {
+				r.byteBuf = make([]byte, byteLen)
+			}
+			r.byteBuf = r.byteBuf[:byteLen]
+			for i := 0; i < nSamples*r.dec.channels; i++ {
+				bits := math.Float32bits(r.pcmFloat[i])
+				binary.LittleEndian.PutUint32(r.byteBuf[i*4:], bits)
+			}
+		}
+
 		r.offset = 0
 	}
 
@@ -187,34 +230,6 @@ func (r *Reader) Read(p []byte) (int, error) {
 	r.offset += n
 
 	return n, nil
-}
-
-// pcmToBytes converts float32 PCM samples to bytes based on the format.
-func (r *Reader) pcmToBytes(samples []float32) []byte {
-	switch r.format {
-	case FormatFloat32LE:
-		buf := make([]byte, len(samples)*4)
-		for i, s := range samples {
-			bits := math.Float32bits(s)
-			binary.LittleEndian.PutUint32(buf[i*4:], bits)
-		}
-		return buf
-	case FormatInt16LE:
-		buf := make([]byte, len(samples)*2)
-		for i, s := range samples {
-			v := float32ToInt16(s)
-			binary.LittleEndian.PutUint16(buf[i*2:], uint16(v))
-		}
-		return buf
-	default:
-		// Default to float32
-		buf := make([]byte, len(samples)*4)
-		for i, s := range samples {
-			bits := math.Float32bits(s)
-			binary.LittleEndian.PutUint32(buf[i*4:], bits)
-		}
-		return buf
-	}
 }
 
 // SampleRate returns the sample rate in Hz.
@@ -230,7 +245,9 @@ func (r *Reader) Channels() int {
 // Reset clears buffers and decoder state for a new stream.
 func (r *Reader) Reset() {
 	r.dec.Reset()
-	r.byteBuf = nil
+	if r.byteBuf != nil {
+		r.byteBuf = r.byteBuf[:0]
+	}
 	r.offset = 0
 	r.eof = false
 }

@@ -138,7 +138,8 @@ func TestEncoder_Encode_RoundTrip(t *testing.T) {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
 
-	dec, err := NewDecoder(48000, 1)
+	cfg := DefaultDecoderConfig(48000, 1)
+	dec, err := NewDecoder(cfg)
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
@@ -164,19 +165,20 @@ func TestEncoder_Encode_RoundTrip(t *testing.T) {
 	}
 
 	// Decode
-	pcmOut, err := dec.DecodeFloat32(packet)
+	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
+	n, err := dec.Decode(packet, pcmOut)
 	if err != nil {
-		t.Fatalf("DecodeFloat32 error: %v", err)
+		t.Fatalf("Decode error: %v", err)
 	}
 
 	// Calculate output energy
 	var outputEnergy float64
-	for _, s := range pcmOut {
+	for _, s := range pcmOut[:n*cfg.Channels] {
 		outputEnergy += float64(s) * float64(s)
 	}
 
 	t.Logf("Input energy: %f, Output energy: %f", inputEnergy, outputEnergy)
-	t.Logf("Encoded to %d bytes, decoded to %d samples", len(packet), len(pcmOut))
+	t.Logf("Encoded to %d bytes, decoded to %d samples", len(packet), n*cfg.Channels)
 
 	// The output should have some energy (lossy compression but not zero)
 	if outputEnergy == 0 {

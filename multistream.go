@@ -469,63 +469,22 @@ func (d *MultistreamDecoder) DecodeInt16(data []byte, pcm []int16) (int, error) 
 		return 0, ErrBufferTooSmall
 	}
 
-	// Decode to intermediate float32 buffer
-	pcm32 := make([]float32, needed)
-	n, err := d.Decode(data, pcm32)
+	samples, err := d.dec.Decode(data, frameSize)
 	if err != nil {
 		return 0, err
 	}
 
-	// Convert float32 -> int16 with libopus-compatible rounding
-	for i := 0; i < n*d.channels; i++ {
-		pcm[i] = float32ToInt16(pcm32[i])
+	// Convert float64 -> int16 with libopus-compatible rounding
+	for i := 0; i < frameSize*d.channels; i++ {
+		pcm[i] = float64ToInt16(samples[i])
 	}
 
-	return n, nil
-}
-
-// DecodeFloat32 decodes an Opus multistream packet and returns a new float32 slice.
-//
-// This is a convenience method that allocates the output buffer.
-// For performance-critical code, use Decode with a pre-allocated buffer.
-//
-// data: Opus multistream packet data, or nil for PLC.
-//
-// Returns the decoded samples or an error.
-func (d *MultistreamDecoder) DecodeFloat32(data []byte) ([]float32, error) {
-	frameSize := d.lastFrameSize
-
-	// Allocate buffer
-	pcm := make([]float32, frameSize*d.channels)
-
-	n, err := d.Decode(data, pcm)
-	if err != nil {
-		return nil, err
+	// Store frame size for PLC
+	if data != nil && len(data) > 0 {
+		d.lastFrameSize = frameSize
 	}
 
-	return pcm[:n*d.channels], nil
-}
-
-// DecodeInt16Slice decodes an Opus multistream packet and returns a new int16 slice.
-//
-// This is a convenience method that allocates the output buffer.
-// For performance-critical code, use DecodeInt16 with a pre-allocated buffer.
-//
-// data: Opus multistream packet data, or nil for PLC.
-//
-// Returns the decoded samples or an error.
-func (d *MultistreamDecoder) DecodeInt16Slice(data []byte) ([]int16, error) {
-	frameSize := d.lastFrameSize
-
-	// Allocate buffer
-	pcm := make([]int16, frameSize*d.channels)
-
-	n, err := d.DecodeInt16(data, pcm)
-	if err != nil {
-		return nil, err
-	}
-
-	return pcm[:n*d.channels], nil
+	return frameSize, nil
 }
 
 // Reset clears the decoder state for a new stream.

@@ -208,10 +208,13 @@ packet, err := enc.EncodeFloat32(pcmSamples)
 
 ```go
 // Create decoder
-dec, err := gopus.NewDecoder(48000, 2)
+cfg := gopus.DefaultDecoderConfig(48000, 2)
+dec, err := gopus.NewDecoder(cfg)
+pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
 
 // Decode Opus to PCM
-samples, err := dec.DecodeFloat32(packet)
+n, err := dec.Decode(packet, pcmOut)
+samples := pcmOut[:n*cfg.Channels]
 ```
 
 ### Ogg Container

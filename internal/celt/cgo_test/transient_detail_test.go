@@ -37,12 +37,12 @@ func TestTransientSynthesisDetail(t *testing.T) {
 	channels := 2
 
 	// Decode packets 0-60 to build up state
-	goDec, _ := gopus.NewDecoder(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec, _ := NewLibopusDecoder(48000, channels)
 	defer libDec.Destroy()
 
 	for i := 0; i < 61 && i < len(packets); i++ {
-		goDec.DecodeFloat32(packets[i])
+		decodeFloat32(goDec, packets[i])
 		libDec.DecodeFloat(packets[i], 5760)
 	}
 
@@ -103,7 +103,7 @@ func TestTransientSynthesisDetail(t *testing.T) {
 	t.Logf("  silence=%v transient=%v shortBlocks=%d lm=%d", silence, transient, shortBlocks, lm)
 
 	// Decode with both
-	goPcm61, _ := goDec.DecodeFloat32(pkt61)
+	goPcm61, _ := decodeFloat32(goDec, pkt61)
 	libPcm61, libSamples := libDec.DecodeFloat(pkt61, 5760)
 
 	// Compare in sections for transient frames (8 short blocks of 120 samples each for stereo = 240 samples)
@@ -208,13 +208,13 @@ func TestCompareIMDCTOutputShortBlock(t *testing.T) {
 	}
 
 	// Get fresh decoders
-	goDec, _ := gopus.NewDecoder(48000, 2)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	libDec, _ := NewLibopusDecoder(48000, 2)
 	defer libDec.Destroy()
 
 	// Decode all packets before the first transient to sync state
 	for i := 0; i < 61 && i < len(packets); i++ {
-		goDec.DecodeFloat32(packets[i])
+		decodeFloat32(goDec, packets[i])
 		libDec.DecodeFloat(packets[i], 5760)
 	}
 
@@ -232,7 +232,7 @@ func TestCompareIMDCTOutputShortBlock(t *testing.T) {
 	t.Logf("  Lib preemph: [%.10f, %.10f]", libMem0Before, libMem1Before)
 
 	// Decode
-	goPcm, _ := goDec.DecodeFloat32(pkt)
+	goPcm, _ := decodeFloat32(goDec, pkt)
 	libPcm, libN := libDec.DecodeFloat(pkt, 5760)
 
 	// Get state after
@@ -302,11 +302,11 @@ func TestOverlapBufferTransient(t *testing.T) {
 		offset += int(pktLen)
 	}
 
-	goDec, _ := gopus.NewDecoder(48000, 2)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 
 	// Decode up to packet 60
 	for i := 0; i <= 60 && i < len(packets); i++ {
-		goDec.DecodeFloat32(packets[i])
+		decodeFloat32(goDec, packets[i])
 	}
 
 	// Get overlap buffer before packet 61
@@ -325,7 +325,7 @@ func TestOverlapBufferTransient(t *testing.T) {
 	t.Logf("  Energy: %.6f", energyBefore)
 
 	// Decode packet 61
-	goDec.DecodeFloat32(packets[61])
+	decodeFloat32(goDec, packets[61])
 
 	// Get overlap buffer after
 	overlapAfter := goDec.GetCELTDecoder().OverlapBuffer()

@@ -82,7 +82,7 @@ func FuzzLibopusEncodeGopusDecode(f *testing.F) {
 		defer libDec.Destroy()
 
 		// Create gopus decoder
-		gopusDec, err := gopus.NewDecoder(48000, channels)
+		gopusDec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 		if err != nil {
 			t.Fatalf("Failed to create gopus decoder: %v", err)
 		}
@@ -94,7 +94,7 @@ func FuzzLibopusEncodeGopusDecode(f *testing.F) {
 		}
 
 		// Decode with gopus
-		gopusDecoded, err := gopusDec.DecodeFloat32(packet)
+		gopusDecoded, err := decodeFloat32(gopusDec, packet)
 		if err != nil {
 			t.Errorf("gopus decode error: %v (libopus succeeded)", err)
 			return
@@ -270,7 +270,7 @@ func TestLibopusEncodeGopusDecodeVariousConfigs(t *testing.T) {
 			defer libDec.Destroy()
 
 			// Create gopus decoder
-			gopusDec, err := gopus.NewDecoder(48000, tc.channels)
+			gopusDec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, tc.channels))
 			if err != nil {
 				t.Fatalf("Failed to create gopus decoder: %v", err)
 			}
@@ -282,7 +282,7 @@ func TestLibopusEncodeGopusDecodeVariousConfigs(t *testing.T) {
 			}
 
 			// Decode with gopus
-			gopusDecoded, err := gopusDec.DecodeFloat32(packet)
+			gopusDecoded, err := decodeFloat32(gopusDec, packet)
 			if err != nil {
 				t.Fatalf("gopus decode failed: %v", err)
 			}
@@ -347,7 +347,7 @@ func TestLibopusEncodeGopusDecodeMultiFrame(t *testing.T) {
 	libEnc.SetBitrate(64000)
 	libEnc.SetBandwidth(OpusBandwidthFullband)
 
-	gopusDec, err := gopus.NewDecoder(48000, channels)
+	gopusDec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	if err != nil {
 		t.Fatalf("Failed to create gopus decoder: %v", err)
 	}
@@ -372,7 +372,7 @@ func TestLibopusEncodeGopusDecodeMultiFrame(t *testing.T) {
 		}
 
 		// Decode
-		decoded, err := gopusDec.DecodeFloat32(packet)
+		decoded, err := decodeFloat32(gopusDec, packet)
 		if err != nil {
 			t.Fatalf("Frame %d: decode failed: %v", i, err)
 		}
@@ -438,13 +438,13 @@ func TestLibopusEncodeGopusDecodeRandomStress(t *testing.T) {
 		}
 
 		// Create decoder
-		gopusDec, err := gopus.NewDecoder(48000, channels)
+		gopusDec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 		if err != nil {
 			continue
 		}
 
 		// Decode
-		decoded, err := gopusDec.DecodeFloat32(packet)
+		decoded, err := decodeFloat32(gopusDec, packet)
 		if err != nil {
 			t.Logf("Iteration %d: decode error (channels=%d, frameSize=%d, bitrate=%d, bw=%d): %v",
 				i, channels, frameSize, bitrate, bandwidth, err)

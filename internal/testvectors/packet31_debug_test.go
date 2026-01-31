@@ -113,11 +113,11 @@ func TestPacket31GopusDetailedAnalysis(t *testing.T) {
 	}
 
 	// Create decoder and process packets up to target
-	dec, _ := gopus.NewDecoder(48000, channels)
+	dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 
 	// Process packets before target
 	for i := 0; i < targetPacket; i++ {
-		dec.DecodeFloat32(packets[i])
+		decodeFloat32(dec, packets[i])
 	}
 
 	pkt := packets[targetPacket]
@@ -129,7 +129,7 @@ func TestPacket31GopusDetailedAnalysis(t *testing.T) {
 	t.Logf("First 16 bytes (hex): %x", pkt[:minInt16(16, len(pkt))])
 
 	// Decode packet 31
-	pcm, err := dec.DecodeFloat32(pkt)
+	pcm, err := decodeFloat32(dec, pkt)
 	if err != nil {
 		t.Fatalf("gopus decode failed: %v", err)
 	}
@@ -425,16 +425,16 @@ func TestPacket31DivergenceWindow(t *testing.T) {
 	channels := 2
 
 	// Use gopus decoder
-	dec, _ := gopus.NewDecoder(48000, channels)
+	dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 
 	// Process packets up to target
 	for i := 0; i < targetPacket; i++ {
-		dec.DecodeFloat32(packets[i])
+		decodeFloat32(dec, packets[i])
 	}
 
 	pkt := packets[targetPacket]
 	toc := gopus.ParseTOC(pkt[0])
-	pcm, err := dec.DecodeFloat32(pkt)
+	pcm, err := decodeFloat32(dec, pkt)
 	if err != nil {
 		t.Fatalf("decode failed: %v", err)
 	}
@@ -521,7 +521,7 @@ func TestPacket31CompareWithReference(t *testing.T) {
 	channels := 2
 
 	// Create decoder
-	dec, _ := gopus.NewDecoder(48000, channels)
+	dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 
 	// Decode all packets up to and including target, tracking sample position
 	sampleOffset := 0
@@ -529,7 +529,7 @@ func TestPacket31CompareWithReference(t *testing.T) {
 		pkt := packets[i]
 		toc := gopus.ParseTOC(pkt[0])
 
-		pcm, err := dec.DecodeFloat32(pkt)
+		pcm, err := decodeFloat32(dec, pkt)
 		if err != nil {
 			t.Logf("Packet %d decode error: %v", i, err)
 			continue
@@ -612,7 +612,7 @@ func TestPacket31SurroundingPacketSNR(t *testing.T) {
 	}
 
 	channels := 2
-	dec, _ := gopus.NewDecoder(48000, channels)
+	dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 
 	t.Logf("=== SNR Analysis for Packets 25-40 ===")
 	t.Logf("Pkt\tStereo\tFrame\tSNR(dB)\tFirstDiff\tNote")
@@ -622,7 +622,7 @@ func TestPacket31SurroundingPacketSNR(t *testing.T) {
 		pkt := packets[i]
 		toc := gopus.ParseTOC(pkt[0])
 
-		pcm, err := dec.DecodeFloat32(pkt)
+		pcm, err := decodeFloat32(dec, pkt)
 		if err != nil {
 			if i >= 25 {
 				t.Logf("%d\t%v\t%d\tERROR", i, toc.Stereo, toc.FrameSize)

@@ -78,6 +78,13 @@ func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPerio
 	if len(d.postfilterMem) != history*d.channels {
 		d.postfilterMem = make([]float64, history*d.channels)
 	}
+	needed := history + frameSize
+	if needed < 0 {
+		needed = 0
+	}
+	if cap(d.postfilterScratch) < needed {
+		d.postfilterScratch = make([]float64, needed)
+	}
 
 	t0 := d.postfilterPeriodOld
 	t1 := d.postfilterPeriod
@@ -101,7 +108,7 @@ func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPerio
 
 	for ch := 0; ch < d.channels; ch++ {
 		hist := d.postfilterMem[ch*history : (ch+1)*history]
-		buf := make([]float64, history+frameSize)
+		buf := d.postfilterScratch[:needed]
 		copy(buf, hist)
 
 		if d.channels == 1 {

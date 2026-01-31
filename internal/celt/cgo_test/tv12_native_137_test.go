@@ -109,13 +109,13 @@ func TestTV12Native137(t *testing.T) {
 
 	// Quick SNR check on 48kHz output
 	// We need to decode using gopus Opus decoder for fair comparison
-	goDec, _ := gopus.NewDecoder(48000, 1)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	// Process packets 0-136
 	for i := 0; i < 137; i++ {
-		goDec.DecodeFloat32(packets[i])
+		decodeFloat32(goDec, packets[i])
 	}
 	// Now decode packet 137
-	goOut, _ := goDec.DecodeFloat32(pkt)
+	goOut, _ := decodeFloat32(goDec, pkt)
 
 	minLen := len(goOut)
 	if libN < minLen {

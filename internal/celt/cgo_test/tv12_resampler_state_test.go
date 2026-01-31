@@ -18,14 +18,14 @@ func TestTV12ResamplerStateAtTransition(t *testing.T) {
 	}
 
 	// Opus decoder
-	opusDec, _ := gopus.NewDecoder(48000, 1)
+	opusDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	silkDec := opusDec.GetSILKDecoder()
 
 	t.Log("=== Tracing resampler state at MB→NB transition (pkt 825→826) ===")
 
 	// Process up to packet 824
 	for i := 0; i <= 824; i++ {
-		opusDec.DecodeFloat32(packets[i])
+		decodeFloat32(opusDec, packets[i])
 	}
 
 	// Get resampler state BEFORE packet 825 (MB)
@@ -36,7 +36,7 @@ func TestTV12ResamplerStateAtTransition(t *testing.T) {
 	}
 
 	// Decode packet 825 (MB)
-	opusDec.DecodeFloat32(packets[825])
+	decodeFloat32(opusDec, packets[825])
 
 	// Get resampler state AFTER packet 825
 	mbResAfter := silkDec.GetResampler(silk.BandwidthMediumband)
@@ -57,7 +57,7 @@ func TestTV12ResamplerStateAtTransition(t *testing.T) {
 	// Decode packet 826 (NB)
 	// Check debug states
 	silkDec.DebugClearResetFlag()
-	output826, _ := opusDec.DecodeFloat32(packets[826])
+	output826, _ := decodeFloat32(opusDec, packets[826])
 	resetCalled := silkDec.DebugResetCalled()
 	pre, post := silkDec.DebugGetResetStates()
 
@@ -85,12 +85,12 @@ func TestTV12ResamplerStateAtTransition(t *testing.T) {
 	// Let's also check what happens if we DON'T reset the resampler
 	t.Log("\n=== Testing without resampler reset ===")
 
-	opusDec2, _ := gopus.NewDecoder(48000, 1)
+	opusDec2, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	silkDec2 := opusDec2.GetSILKDecoder()
 	silkDec2.SetDisableResamplerReset(true) // Disable reset
 
 	for i := 0; i <= 825; i++ {
-		opusDec2.DecodeFloat32(packets[i])
+		decodeFloat32(opusDec2, packets[i])
 	}
 
 	nbRes2Before := silkDec2.GetResampler(silk.BandwidthNarrowband)
@@ -99,7 +99,7 @@ func TestTV12ResamplerStateAtTransition(t *testing.T) {
 		t.Logf("NB resampler (no reset) BEFORE pkt 826: sIIR=%v", sIIR)
 	}
 
-	output826_2, _ := opusDec2.DecodeFloat32(packets[826])
+	output826_2, _ := decodeFloat32(opusDec2, packets[826])
 
 	nbRes2After := silkDec2.GetResampler(silk.BandwidthNarrowband)
 	if nbRes2After != nil {

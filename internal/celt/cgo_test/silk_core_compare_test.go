@@ -21,7 +21,7 @@ func TestSilkCoreCompare(t *testing.T) {
 	channels := 1
 
 	// Create decoders
-	goDec, _ := gopus.NewDecoder(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec, err := NewLibopusDecoder(48000, channels)
 	if err != nil || libDec == nil {
 		t.Fatalf("Failed to create libopus decoder")
@@ -29,7 +29,7 @@ func TestSilkCoreCompare(t *testing.T) {
 	defer libDec.Destroy()
 
 	// Decode packet 0 to initialize state
-	goDec.DecodeFloat32(packets[0])
+	decodeFloat32(goDec, packets[0])
 	libDec.DecodeFloat(packets[0], 5760)
 
 	// Now focus on packet 1 where divergence starts
@@ -39,7 +39,7 @@ func TestSilkCoreCompare(t *testing.T) {
 		len(pkt), toc.Mode, toc.FrameSize, toc.Bandwidth)
 
 	// Decode with gopus
-	goPcm, goErr := goDec.DecodeFloat32(pkt)
+	goPcm, goErr := decodeFloat32(goDec, pkt)
 	if goErr != nil {
 		t.Fatalf("gopus decode failed: %v", goErr)
 	}
@@ -140,20 +140,20 @@ func TestSilkPacket0vs1(t *testing.T) {
 		t.Logf("\n=== Packet %d ===", pktIdx)
 
 		// Fresh decoders for each packet
-		goDec, _ := gopus.NewDecoder(48000, channels)
+		goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 		libDec, _ := NewLibopusDecoder(48000, channels)
 		defer libDec.Destroy()
 
 		// If testing packet 1, decode packet 0 first
 		if pktIdx == 1 {
-			goDec.DecodeFloat32(packets[0])
+			decodeFloat32(goDec, packets[0])
 			libDec.DecodeFloat(packets[0], 5760)
 		}
 
 		pkt := packets[pktIdx]
 		toc := gopus.ParseTOC(pkt[0])
 
-		goPcm, _ := goDec.DecodeFloat32(pkt)
+		goPcm, _ := decodeFloat32(goDec, pkt)
 		libPcm, libSamples := libDec.DecodeFloat(pkt, 5760)
 
 		// Calculate SNR per internal frame (960 samples at 48kHz)
