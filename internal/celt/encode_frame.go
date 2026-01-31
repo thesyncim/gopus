@@ -428,20 +428,71 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Step 11.3: Initialize caps for allocation
 	caps := initCaps(nbBands, lm, e.channels)
 
-	// Step 11.4: Encode dynamic allocation
-	// Match libopus/decoder: check budget before encoding each dynalloc bit.
-	// Since we don't use dynalloc boosts (offsets are all 0), we just encode
-	// one 0-bit per band IF budget allows, matching what decoder expects.
-	offsets := make([]int, nbBands)
+	// Step 11.4: Encode dynamic allocation (boost bits per band)
+	// Use computed offsets from DynallocAnalysis - these indicate how many
+	// boost quanta each band should receive based on energy variance analysis.
+	// Reference: libopus celt/celt_encoder.c lines 2356-2389
+	offsets := dynallocResult.Offsets
+	if len(offsets) < nbBands {
+		// Fallback if dynalloc wasn't computed (shouldn't happen)
+		offsets = make([]int, nbBands)
+	}
+
 	dynallocLogp := 6
 	totalBitsQ3ForDynalloc := targetBits << bitRes
-	tellFracDynalloc := re.TellFrac()
+	totalBoost := 0
+	tellFrac := re.TellFrac()
+
 	for i := start; i < end; i++ {
-		// Only encode if budget allows (matching decoder's budget check)
-		if tellFracDynalloc+(dynallocLogp<<bitRes) < totalBitsQ3ForDynalloc {
-			re.EncodeBit(0, uint(dynallocLogp))
-			tellFracDynalloc = re.TellFrac()
+		// Compute band width and quanta per libopus:
+		// width = C*(eBands[i+1]-eBands[i])<<LM
+		// quanta = IMIN(width<<BITRES, IMAX(6<<BITRES, width))
+		// Reference: libopus celt/celt_encoder.c lines 2366-2369
+		width := e.channels * (EBands[i+1] - EBands[i]) << lm
+
+		// quanta is 6 bits, but no more than 1 bit/sample
+		// and no less than 1/8 bit/sample
+		// quanta = min(width<<BITRES, max(6<<BITRES, width))
+		maxVal := 6 << bitRes
+		if width > maxVal {
+			maxVal = width
 		}
+		quanta := width << bitRes
+		if quanta > maxVal {
+			quanta = maxVal
+		}
+
+		dynallocLoopLogp := dynallocLogp
+		boost := 0
+
+		// Encode boost bits for this band
+		// j counts how many boost quanta we've encoded
+		for j := 0; tellFrac+(dynallocLoopLogp<<bitRes) < totalBitsQ3ForDynalloc-totalBoost && boost < caps[i]; j++ {
+			// flag=1 if we should encode another boost quantum, 0 to stop
+			flag := 0
+			if j < offsets[i] {
+				flag = 1
+			}
+			re.EncodeBit(flag, uint(dynallocLoopLogp))
+			tellFrac = re.TellFrac()
+			if flag == 0 {
+				break
+			}
+			boost += quanta
+			totalBoost += quanta
+			dynallocLoopLogp = 1 // After first bit, use logp=1 for subsequent bits
+		}
+
+		// Making dynalloc more likely for next band if we used boost
+		if boost > 0 {
+			dynallocLogp--
+			if dynallocLogp < 2 {
+				dynallocLogp = 2
+			}
+		}
+
+		// Replace offset with actual boost value (for use in allocation)
+		offsets[i] = boost
 	}
 
 	// Step 11.5: Encode allocation trim (only if budget allows)
