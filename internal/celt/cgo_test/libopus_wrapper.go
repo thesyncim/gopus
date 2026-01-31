@@ -1032,6 +1032,117 @@ int test_silk_decode_nlsf_state(
 }
 
 // ====================================================================
+// Fine Energy Encoding C wrappers
+// ====================================================================
+
+#include "quant_bands.h"
+
+// Forward declaration (defined later in Allocation section)
+static CELTMode* get_celt_mode_48000_alloc(void);
+
+// Wrapper for quant_fine_energy (libopus float path)
+// oldEBands: I/O - current quantized energies, updated with fine offsets
+// error: I/O - residual energies, updated after encoding
+// extra_quant: fine bits per band (from allocation)
+// Returns 0 on success
+int test_quant_fine_energy(
+    float *oldEBands,     // I/O: quantized energies [C * nbEBands]
+    float *error,         // I/O: residual error [C * nbEBands]
+    int *extra_quant,     // In: fine bits per band [nbEBands]
+    int start, int end, int C,
+    unsigned char *out_buf, int max_size, int *out_len)
+{
+    CELTMode *mode = get_celt_mode_48000_alloc();
+    if (mode == NULL) return -1;
+
+    ec_enc enc;
+    ec_enc_init(&enc, out_buf, max_size);
+
+    // prev_quant is NULL for first pass (no previous fine quantization)
+    quant_fine_energy(mode, start, end, oldEBands, error, NULL, extra_quant, &enc, C);
+
+    ec_enc_done(&enc);
+    *out_len = pack_ec_enc(&enc);
+    return enc.error;
+}
+
+// Wrapper for quant_energy_finalise (libopus float path)
+// oldEBands: I/O - current quantized energies, updated with finalise offsets
+// error: I/O - residual error
+// fine_quant: fine bits already used per band
+// fine_priority: priority flags per band
+// bits_left: remaining bits to use
+// Returns 0 on success
+int test_quant_energy_finalise(
+    float *oldEBands,     // I/O: quantized energies [C * nbEBands]
+    float *error,         // I/O: residual error [C * nbEBands]
+    int *fine_quant,      // In: fine bits per band [nbEBands]
+    int *fine_priority,   // In: priority per band [nbEBands]
+    int bits_left,
+    int start, int end, int C,
+    unsigned char *out_buf, int max_size, int *out_len)
+{
+    CELTMode *mode = get_celt_mode_48000_alloc();
+    if (mode == NULL) return -1;
+
+    ec_enc enc;
+    ec_enc_init(&enc, out_buf, max_size);
+
+    quant_energy_finalise(mode, start, end, oldEBands, error, fine_quant, fine_priority, bits_left, &enc, C);
+
+    ec_enc_done(&enc);
+    *out_len = pack_ec_enc(&enc);
+    return enc.error;
+}
+
+// Combined wrapper: encode coarse, fine, and finalise in sequence
+// Matches the libopus encoder pipeline order
+int test_encode_energy_full(
+    float *eBands,        // In: target band energies [C * nbEBands]
+    float *oldEBands,     // I/O: previous frame's quantized energies, output: updated quantized energies
+    float *error_out,     // Out: final residual error [C * nbEBands]
+    int *fine_quant,      // In: fine bits per band [nbEBands]
+    int *fine_priority,   // In: priority per band [nbEBands]
+    int bits_left_finalise, // In: bits for finalise step
+    int start, int end, int C, int LM, int intra,
+    int nbAvailableBytes,
+    unsigned char *out_buf, int max_size, int *out_len)
+{
+    CELTMode *mode = get_celt_mode_48000_alloc();
+    if (mode == NULL) return -1;
+
+    // Allocate temp error array
+    float error[42*2]; // Max bands * 2 channels
+    memset(error, 0, sizeof(error));
+
+    ec_enc enc;
+    ec_enc_init(&enc, out_buf, max_size);
+
+    // Force intra=1 for first frame (matches the typical test scenario)
+    opus_val32 delayedIntra = 0;
+
+    // Coarse energy encoding
+    quant_coarse_energy(mode, start, end, end,
+        eBands, oldEBands, max_size*8,
+        error, &enc, C, LM, nbAvailableBytes,
+        intra, &delayedIntra, 0, 0, 0);
+
+    // Fine energy encoding
+    quant_fine_energy(mode, start, end, oldEBands, error, NULL, fine_quant, &enc, C);
+
+    // Energy finalise
+    int actual_bits_left = bits_left_finalise;
+    quant_energy_finalise(mode, start, end, oldEBands, error, fine_quant, fine_priority, actual_bits_left, &enc, C);
+
+    // Copy error to output
+    memcpy(error_out, error, C * mode->nbEBands * sizeof(float));
+
+    ec_enc_done(&enc);
+    *out_len = pack_ec_enc(&enc);
+    return enc.error;
+}
+
+// ====================================================================
 // Allocation comparison C wrappers
 // ====================================================================
 
@@ -2572,4 +2683,121 @@ func SilkGetNLSFDeltaMin(useWB bool) []int16 {
 		(*C.opus_int16)(unsafe.Pointer(&deltaMin[0])),
 	)
 	return deltaMin
+}
+
+// ====================================================================
+// Fine Energy Encoding Go wrappers
+// ====================================================================
+
+// FineEnergyResult holds the output from quant_fine_energy.
+type FineEnergyResult struct {
+	EncodedBytes    []byte    // Encoded bits from fine energy
+	UpdatedEnergies []float32 // Updated oldEBands after fine encoding
+	UpdatedError    []float32 // Updated error after fine encoding
+}
+
+// LibopusQuantFineEnergy calls libopus quant_fine_energy and returns the results.
+// oldEBands and error are the current quantized energies and residuals.
+// extraQuant is the fine bits per band (from allocation).
+func LibopusQuantFineEnergy(oldEBands, errorIn []float32, extraQuant []int, start, end, channels int) (*FineEnergyResult, error) {
+	nbBands := end
+	if nbBands > len(extraQuant) {
+		nbBands = len(extraQuant)
+	}
+	if len(oldEBands) < nbBands*channels || len(errorIn) < nbBands*channels {
+		return nil, nil
+	}
+
+	// Make copies since libopus modifies in-place
+	oldECopy := make([]float32, len(oldEBands))
+	copy(oldECopy, oldEBands)
+	errorCopy := make([]float32, len(errorIn))
+	copy(errorCopy, errorIn)
+
+	// Convert extraQuant to C ints
+	extraQuantC := make([]int32, len(extraQuant))
+	for i, v := range extraQuant {
+		extraQuantC[i] = int32(v)
+	}
+
+	maxSize := 4096
+	outBuf := make([]byte, maxSize)
+	var outLen C.int
+
+	ret := C.test_quant_fine_energy(
+		(*C.float)(unsafe.Pointer(&oldECopy[0])),
+		(*C.float)(unsafe.Pointer(&errorCopy[0])),
+		(*C.int)(unsafe.Pointer(&extraQuantC[0])),
+		C.int(start), C.int(end), C.int(channels),
+		(*C.uchar)(unsafe.Pointer(&outBuf[0])),
+		C.int(maxSize),
+		&outLen,
+	)
+
+	if ret != 0 {
+		return nil, nil
+	}
+
+	return &FineEnergyResult{
+		EncodedBytes:    outBuf[:int(outLen)],
+		UpdatedEnergies: oldECopy,
+		UpdatedError:    errorCopy,
+	}, nil
+}
+
+// LibopusQuantEnergyFinalise calls libopus quant_energy_finalise and returns the results.
+// oldEBands and error are the current quantized energies and residuals.
+// fineQuant is the fine bits used per band.
+// finePriority is the priority per band (0 or 1).
+// bitsLeft is the number of remaining bits to use.
+func LibopusQuantEnergyFinalise(oldEBands, errorIn []float32, fineQuant, finePriority []int, bitsLeft, start, end, channels int) (*FineEnergyResult, error) {
+	nbBands := end
+	if nbBands > len(fineQuant) || nbBands > len(finePriority) {
+		return nil, nil
+	}
+	if len(oldEBands) < nbBands*channels || len(errorIn) < nbBands*channels {
+		return nil, nil
+	}
+
+	// Make copies since libopus modifies in-place
+	oldECopy := make([]float32, len(oldEBands))
+	copy(oldECopy, oldEBands)
+	errorCopy := make([]float32, len(errorIn))
+	copy(errorCopy, errorIn)
+
+	// Convert to C ints
+	fineQuantC := make([]int32, len(fineQuant))
+	for i, v := range fineQuant {
+		fineQuantC[i] = int32(v)
+	}
+	finePriorityC := make([]int32, len(finePriority))
+	for i, v := range finePriority {
+		finePriorityC[i] = int32(v)
+	}
+
+	maxSize := 4096
+	outBuf := make([]byte, maxSize)
+	var outLen C.int
+
+	ret := C.test_quant_energy_finalise(
+		(*C.float)(unsafe.Pointer(&oldECopy[0])),
+		(*C.float)(unsafe.Pointer(&errorCopy[0])),
+		(*C.int)(unsafe.Pointer(&fineQuantC[0])),
+		(*C.int)(unsafe.Pointer(&finePriorityC[0])),
+		C.int(bitsLeft),
+		C.int(start), C.int(end), C.int(channels),
+		(*C.uchar)(unsafe.Pointer(&outBuf[0])),
+		C.int(maxSize),
+		&outLen,
+	)
+
+	if ret != 0 {
+		return nil, nil
+	}
+
+	return &FineEnergyResult{
+		EncodedBytes:    outBuf[:int(outLen)],
+		UpdatedEnergies: oldECopy,
+		UpdatedError:    errorCopy,
+	}, nil
 }
