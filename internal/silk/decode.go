@@ -7,6 +7,11 @@ import (
 // DecodeFrame decodes a single SILK mono frame from the bitstream.
 // Returns decoded samples at native SILK sample rate (8/12/16kHz).
 //
+// The output includes libopus-compatible delay compensation:
+// - 1 sample from sMid history buffer prepended before resampler
+// - N samples of resampler input delay (varies by sample rate)
+// This matches libopus's exact output timing for test vector compliance.
+//
 // Parameters:
 //   - rd: Range decoder initialized with the SILK bitstream
 //   - bandwidth: Audio bandwidth (NB/MB/WB)
@@ -79,8 +84,14 @@ func (d *Decoder) DecodeFrame(
 		st.nFramesDecoded++
 	}
 
-	output := make([]float32, len(outInt16))
-	for i, v := range outInt16 {
+	// Apply libopus-compatible mono delay compensation.
+	// This matches the delay introduced by:
+	// 1. sMid[1] prepended before resampler input (1 sample)
+	// 2. Resampler input delay from delay_matrix_dec (varies by rate)
+	delayedInt16 := d.applyMonoDelay(outInt16, fsKHz)
+
+	output := make([]float32, len(delayedInt16))
+	for i, v := range delayedInt16 {
 		output[i] = float32(v) / 32768.0
 	}
 

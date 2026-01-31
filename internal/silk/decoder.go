@@ -60,6 +60,14 @@ type Decoder struct {
 
 	// Debug: disable resampler reset on bandwidth change
 	disableResamplerReset bool
+
+	// Mono output delay buffer to match libopus behavior.
+	// libopus delays mono SILK output by (1 + inputDelay) samples:
+	// - 1 sample from sMid history prepended before resampler input
+	// - inputDelay samples from resampler delay buffer (4 for 8kHz)
+	monoDelayBuf     []int16 // Delay buffer (size = fsKHz)
+	monoInputDelay   int     // Delay compensation (from delay_matrix_dec)
+	monoDelayBufInit bool    // Whether delay buffer has been initialized
 }
 
 // NewDecoder creates a new SILK decoder with proper initial state.
@@ -119,6 +127,100 @@ func (d *Decoder) Reset() {
 			pair.right.Reset()
 		}
 	}
+
+	// Reset mono delay buffer state
+	d.monoDelayBuf = nil
+	d.monoInputDelay = 0
+	d.monoDelayBufInit = false
+}
+
+// applyMonoDelay applies libopus-compatible delay compensation for mono SILK output.
+// This simulates the delay introduced by libopus's sMid buffering and resampler.
+//
+// The total delay is (1 + inputDelay) samples:
+// - 1 sample from sMid[1] prepended before resampler input
+// - inputDelay samples from resampler delay buffer (from delay_matrix_dec)
+//
+// For the same-rate "copy" resampler case, the delay values are:
+// - 8kHz: inputDelay=4, total delay=5 samples
+// - 12kHz: inputDelay=9, total delay=10 samples (but 8kHz->12kHz uses different path)
+// - 16kHz: inputDelay=12, total delay=13 samples
+//
+// For native rate output (API rate = internal rate), we only need the
+// delay from delay_matrix_dec[rateID(in)][rateID(in)].
+func (d *Decoder) applyMonoDelay(decoded []int16, fsKHz int) []int16 {
+	// Get inputDelay from delay_matrix_dec for native rate output
+	// libopus uses rateID to convert Hz to index: 8->0, 12->1, 16->2
+	var inputDelay int
+	switch fsKHz {
+	case 8:
+		inputDelay = 4 // delay_matrix_dec[0][0] for 8kHz->8kHz API
+	case 12:
+		inputDelay = 9 // delay_matrix_dec[1][1] for 12kHz->12kHz API
+	case 16:
+		inputDelay = 12 // delay_matrix_dec[2][2] for 16kHz->16kHz API
+	default:
+		// Unknown rate, return as-is
+		return decoded
+	}
+
+	// Initialize delay buffer if needed
+	if !d.monoDelayBufInit || d.monoInputDelay != inputDelay {
+		d.monoDelayBuf = make([]int16, fsKHz) // Delay buffer size = fsKHz samples (1ms)
+		d.monoInputDelay = inputDelay
+		d.monoDelayBufInit = true
+	}
+
+	// Build the resampler input: [sMid[1], decoded[0:n-1]]
+	// libopus calls resampler with &samplesOut1_tmp[n][1] and nSamplesOutDec
+	// This means the input has sMid[1] at position 0, then decoded[0:nSamplesOutDec-1]
+	// The last decoded sample is NOT in the resampler input.
+	nSamplesOutDec := len(decoded)
+	resamplerIn := make([]int16, nSamplesOutDec)
+	resamplerIn[0] = d.stereo.sMid[1] // sMid[1] from previous frame
+	copy(resamplerIn[1:], decoded[:nSamplesOutDec-1])
+
+	inLen := len(resamplerIn)
+
+	// Output buffer same size as decoded
+	output := make([]int16, len(decoded))
+
+	// Apply the libopus copy-resampler logic exactly:
+	// silk_resampler() for USE_silk_resampler_copy case:
+	//
+	// nSamples = Fs_in_kHz - inputDelay;  // 8 - 4 = 4 for 8kHz
+	// silk_memcpy(&delayBuf[inputDelay], in, nSamples * sizeof(opus_int16));
+	// silk_memcpy(out, delayBuf, Fs_in_kHz * sizeof(opus_int16));
+	// silk_memcpy(&out[Fs_out_kHz], &in[nSamples], (inLen - Fs_in_kHz) * sizeof(opus_int16));
+	// silk_memcpy(delayBuf, &in[inLen - inputDelay], inputDelay * sizeof(opus_int16));
+
+	nSamples := fsKHz - inputDelay
+
+	// Step 1: Copy first nSamples of input to end of delay buffer
+	copy(d.monoDelayBuf[inputDelay:], resamplerIn[:nSamples])
+
+	// Step 2: Copy delay buffer to first fsKHz samples of output
+	copy(output[:fsKHz], d.monoDelayBuf[:])
+
+	// Step 3: Copy remaining input to rest of output
+	// output[fsKHz:] = resamplerIn[nSamples:nSamples+(inLen-fsKHz)]
+	if inLen > fsKHz {
+		copy(output[fsKHz:], resamplerIn[nSamples:nSamples+(inLen-fsKHz)])
+	}
+
+	// Step 4: Save last inputDelay samples of input to start of delay buffer
+	copy(d.monoDelayBuf[:inputDelay], resamplerIn[inLen-inputDelay:])
+
+	// Update sMid with last 2 samples of decoded output (before delay processing)
+	// libopus does: silk_memcpy(psDec->sStereo.sMid, &samplesOut1_tmp[0][nSamplesOutDec], 2)
+	// where samplesOut1_tmp[0][2:] contains decoded samples
+	// So sMid gets the last 2 samples of the decoded (not delayed) output
+	if len(decoded) >= 2 {
+		d.stereo.sMid[0] = decoded[len(decoded)-2]
+		d.stereo.sMid[1] = decoded[len(decoded)-1]
+	}
+
+	return output
 }
 
 // SetRangeDecoder sets the range decoder for the current frame.
