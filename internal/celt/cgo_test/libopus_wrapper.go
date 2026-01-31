@@ -1334,13 +1334,29 @@ float test_op_pvq_search(float *X, int *iy, int K, int N) {
 // Pack libopus range-encoder output into a contiguous buffer.
 // This mirrors gopus's Encoder.Done() packing: [range bytes][pad byte if needed][end bytes].
 // Returns the packed length in bytes.
+//
+// After ec_enc_done(), the buffer contains:
+//   [0..offs-1] : range-coded bytes
+//   [offs..storage-end_offs-1] : zeros (padding)
+//   [storage-end_offs..storage-1] : raw bytes written from end
+//
+// The nend_bits field contains the ORIGINAL number of bits written to raw area,
+// NOT the remaining bits after flushing. We need to compute remaining bits as:
+//   remaining = nend_bits - (end_offs * 8)
+// If remaining > 0, there's a partial byte at storage-end_offs-1 that needs to be
+// included as a pad byte.
 static int pack_ec_enc(ec_enc *enc) {
-    int used = enc->nend_bits;
-    int pad = used > 0 ? 1 : 0;
     int offs = (int)enc->offs;
     int end_offs = (int)enc->end_offs;
 
+    // Compute remaining bits that didn't fill a full byte
+    // These bits were OR'd into buf[storage-end_offs-1] by ec_enc_done
+    int remaining_bits = enc->nend_bits - (end_offs * 8);
+    int pad = (remaining_bits > 0) ? 1 : 0;
+
     if (pad) {
+        // The partial byte is at storage - end_offs - 1
+        // Copy it to position offs (right after range bytes)
         int idx = (int)enc->storage - end_offs - 1;
         if (idx >= 0 && idx < (int)enc->storage) {
             enc->buf[offs] = enc->buf[idx];
@@ -1348,6 +1364,7 @@ static int pack_ec_enc(ec_enc *enc) {
     }
 
     if (end_offs > 0) {
+        // Move raw bytes to right after range bytes (and pad byte if any)
         memmove(enc->buf + offs + pad,
                 enc->buf + ((int)enc->storage - end_offs),
                 end_offs);
@@ -1381,6 +1398,23 @@ int test_encode_pulses_to_bytes(unsigned char *out_buf, int max_size,
     encode_pulses(pulses, n, k, &enc);
 
     ec_enc_done(&enc);
+    *out_len = pack_ec_enc(&enc);
+    return enc.error;
+}
+
+// Test range encoder with detailed state output
+int test_encode_uniform_detailed(unsigned char *out_buf, int max_size,
+                                  unsigned int val, unsigned int ft,
+                                  int *out_len, int *out_offs, int *out_end_offs, int *out_nend_bits) {
+    ec_enc enc;
+    ec_enc_init(&enc, out_buf, max_size);
+
+    ec_enc_uint(&enc, val, ft);
+
+    ec_enc_done(&enc);
+    *out_offs = (int)enc.offs;
+    *out_end_offs = (int)enc.end_offs;
+    *out_nend_bits = enc.nend_bits;
     *out_len = pack_ec_enc(&enc);
     return enc.error;
 }
@@ -2331,6 +2365,31 @@ func LibopusEncodeUniformSequence(vals []uint32, fts []uint32) ([]byte, error) {
 	}
 
 	return outBuf[:int(outLen)], nil
+}
+
+// LibopusEncodeUniformDetailed encodes a single uniform value and returns detailed state.
+// Returns (bytes, offs, end_offs, nend_bits).
+func LibopusEncodeUniformDetailed(val uint32, ft uint32) ([]byte, int, int, int) {
+	maxSize := 4096
+	outBuf := make([]byte, maxSize)
+	var outLen, offs, endOffs, nendBits C.int
+
+	err := C.test_encode_uniform_detailed(
+		(*C.uchar)(unsafe.Pointer(&outBuf[0])),
+		C.int(maxSize),
+		C.uint(val),
+		C.uint(ft),
+		&outLen,
+		&offs,
+		&endOffs,
+		&nendBits,
+	)
+
+	if err != 0 {
+		return nil, 0, 0, 0
+	}
+
+	return outBuf[:int(outLen)], int(offs), int(endOffs), int(nendBits)
 }
 
 // LibopusEncodePulsesToBytes encodes pulses using libopus CWRS encoder.
