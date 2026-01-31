@@ -82,6 +82,15 @@ var eMeans = [25]float64{
 	3.750000, 3.750000, 3.750000, 3.750000, 3.750000,
 }
 
+// GetEMeansBand returns the mean log-energy for a specific band (log2 units).
+// Returns 0 for out-of-range bands. This is a safe accessor for the eMeans table.
+func GetEMeansBand(band int) float64 {
+	if band < 0 || band >= len(eMeans) {
+		return 0
+	}
+	return eMeans[band]
+}
+
 // eProbModel contains the coarse energy probability model by LM and intra/inter.
 // Values are in Q8: pairs of (probability of zero, decay rate).
 // Source: libopus celt/quant_bands.c e_prob_model table.

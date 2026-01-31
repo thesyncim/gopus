@@ -92,6 +92,38 @@ void test_get_ebands_scaled(int LM, int *out_bands, int nbBands) {
     }
 }
 
+// Compute LINEAR band energy (sqrt of sum of squares) like libopus compute_band_energies()
+void test_compute_band_energy_linear(const float *mdct, float *bandE, int N, int nbBands, int LM) {
+    int scale = 1 << LM;
+    for (int band = 0; band < nbBands && band < 21; band++) {
+        int start = eBands_base[band] * scale;
+        int end = eBands_base[band + 1] * scale;
+        if (end > N) end = N;
+
+        float sum = 1e-27f;  // epsilon like libopus
+        for (int i = start; i < end; i++) {
+            sum += mdct[i] * mdct[i];
+        }
+        bandE[band] = sqrtf(sum);  // LINEAR amplitude
+    }
+}
+
+// Normalize bands like libopus normalise_bands() - floating point version
+// X[j] = freq[j] / (epsilon + bandE[i])
+void test_normalise_bands(const float *freq, float *X, const float *bandE, int N, int nbBands, int LM) {
+    int scale = 1 << LM;
+    for (int band = 0; band < nbBands && band < 21; band++) {
+        int start = eBands_base[band] * scale;
+        int end = eBands_base[band + 1] * scale;
+        if (end > N) end = N;
+
+        float g = 1.0f / (1e-27f + bandE[band]);
+        for (int j = start; j < end; j++) {
+            X[j] = freq[j] * g;
+        }
+    }
+}
+
 */
 import "C"
 
@@ -168,4 +200,43 @@ func GetLibopusEBands(LM, nbBands int) []int {
 		result[i] = int(bands[i])
 	}
 	return result
+}
+
+// ComputeLibopusBandEnergyLinear computes LINEAR band energies (sqrt of sum of squares).
+// This matches libopus compute_band_energies() which returns sqrt(sum(x^2)).
+func ComputeLibopusBandEnergyLinear(mdct []float32, nbBands, N, LM int) []float32 {
+	bandE := make([]float32, nbBands)
+	if len(mdct) == 0 {
+		return bandE
+	}
+
+	C.test_compute_band_energy_linear(
+		(*C.float)(unsafe.Pointer(&mdct[0])),
+		(*C.float)(unsafe.Pointer(&bandE[0])),
+		C.int(N),
+		C.int(nbBands),
+		C.int(LM),
+	)
+
+	return bandE
+}
+
+// NormaliseLibopusBands normalizes MDCT coefficients like libopus normalise_bands().
+// X[j] = freq[j] / (epsilon + bandE[i])
+func NormaliseLibopusBands(freq []float32, bandE []float32, N, nbBands, LM int) []float32 {
+	X := make([]float32, N)
+	if len(freq) == 0 || len(bandE) == 0 {
+		return X
+	}
+
+	C.test_normalise_bands(
+		(*C.float)(unsafe.Pointer(&freq[0])),
+		(*C.float)(unsafe.Pointer(&X[0])),
+		(*C.float)(unsafe.Pointer(&bandE[0])),
+		C.int(N),
+		C.int(nbBands),
+		C.int(LM),
+	)
+
+	return X
 }
