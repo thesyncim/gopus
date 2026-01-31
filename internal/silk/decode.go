@@ -101,6 +101,88 @@ func (d *Decoder) DecodeFrame(
 	return output, nil
 }
 
+// DecodeFrameRaw decodes a single SILK mono frame without delay compensation.
+// This is used internally when the output will be resampled to 48kHz, as
+// the resampler handles sMid buffering separately.
+//
+// Returns raw decoded samples at native SILK sample rate (8/12/16kHz).
+func (d *Decoder) DecodeFrameRaw(
+	rd *rangecoding.Decoder,
+	bandwidth Bandwidth,
+	duration FrameDuration,
+	vadFlag bool,
+) ([]float32, error) {
+	_ = vadFlag
+	if rd == nil {
+		return nil, ErrDecodeFailed
+	}
+	d.SetRangeDecoder(rd)
+	config := GetBandwidthConfig(bandwidth)
+	fsKHz := config.SampleRate / 1000
+	st := &d.state[0]
+
+	framesPerPacket, nbSubfr, err := frameParams(duration)
+	if err != nil {
+		return nil, err
+	}
+
+	st.nFramesDecoded = 0
+	st.nFramesPerPacket = framesPerPacket
+	st.nbSubfr = nbSubfr
+	silkDecoderSetFs(st, fsKHz)
+
+	decodeVADAndLBRRFlags(rd, st, framesPerPacket)
+	if st.LBRRFlag != 0 {
+		for i := 0; i < framesPerPacket; i++ {
+			if st.LBRRFlags[i] == 0 {
+				continue
+			}
+			condCoding := codeIndependently
+			if i > 0 && st.LBRRFlags[i-1] != 0 {
+				condCoding = codeConditionally
+			}
+			silkDecodeIndices(st, rd, true, condCoding)
+			pulses := make([]int16, roundUpShellFrame(st.frameLength))
+			silkDecodePulses(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength)
+		}
+	}
+
+	frameLength := st.frameLength
+	outInt16 := make([]int16, framesPerPacket*frameLength)
+	for i := 0; i < framesPerPacket; i++ {
+		frameIndex := st.nFramesDecoded
+		condCoding := codeIndependently
+		if frameIndex > 0 {
+			condCoding = codeConditionally
+		}
+		vad := st.VADFlags[frameIndex] != 0
+		frameOut := outInt16[i*frameLength : (i+1)*frameLength]
+		silkDecodeIndices(st, rd, vad, condCoding)
+		pulses := make([]int16, roundUpShellFrame(st.frameLength))
+		silkDecodePulses(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength)
+		var ctrl decoderControl
+		silkDecodeParameters(st, &ctrl, condCoding)
+		silkDecodeCore(st, &ctrl, frameOut, pulses)
+		silkUpdateOutBuf(st, frameOut)
+		st.lossCnt = 0
+		st.lagPrev = ctrl.pitchL[st.nbSubfr-1]
+		st.prevSignalType = int(st.indices.signalType)
+		st.firstFrameAfterReset = false
+		st.nFramesDecoded++
+	}
+
+	// Convert to float32 without delay compensation
+	output := make([]float32, len(outInt16))
+	for i, v := range outInt16 {
+		output[i] = float32(v) / 32768.0
+	}
+
+	// Mono decode resets mid-only tracking (libopus sets decode_only_middle=0).
+	d.prevDecodeOnlyMiddle = 0
+	d.haveDecoded = true
+	return output, nil
+}
+
 // DecodeStereoFrameToMono decodes a stereo SILK frame and returns the mid channel
 // at native sample rate. The side channel is still decoded to keep the bitstream aligned.
 func (d *Decoder) DecodeStereoFrameToMono(

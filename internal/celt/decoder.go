@@ -244,10 +244,11 @@ func (d *Decoder) handleChannelTransition(streamChannels int) bool {
 			}
 		}
 
-		// Copy left channel preemphasis state to right channel for de-emphasis continuity
-		if len(d.preemphState) >= 2 {
-			d.preemphState[1] = d.preemphState[0]
-		}
+		// NOTE: preemphState is NOT copied during transition.
+		// In libopus, each channel maintains its own independent de-emphasis filter state.
+		// During mono packets on a stereo decoder, both states are updated independently
+		// (with the same input but different state histories). At transition to stereo,
+		// each channel continues with its own state - no copying is done.
 
 		return true
 	}
