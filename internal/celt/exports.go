@@ -5,6 +5,21 @@ func ExportedOpPVQSearch(x []float64, k int) ([]int, float64) {
 	return opPVQSearch(x, k)
 }
 
+// BitsToPulsesExport exposes bitsToPulses for testing.
+func BitsToPulsesExport(band, lm, bitsQ3 int) int {
+	return bitsToPulses(band, lm, bitsQ3)
+}
+
+// GetPulsesExport exposes getPulses for testing.
+func GetPulsesExport(q int) int {
+	return getPulses(q)
+}
+
+// PulsesToBitsExport exposes pulsesToBits for testing.
+func PulsesToBitsExport(band, lm, pulses int) int {
+	return pulsesToBits(band, lm, pulses)
+}
+
 // AllocTrimDebugInfo contains debug information for allocation trim computation.
 type AllocTrimDebugInfo struct {
 	TfEstimate     float64
