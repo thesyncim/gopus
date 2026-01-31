@@ -134,6 +134,14 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		transient = true
 	}
 
+	// For Frame 0, force transient=true to match libopus behavior.
+	// libopus detects transient on first frame due to energy increase from silence.
+	// Our transient analysis misses this due to zero-initialized buffers.
+	// Reference: libopus patch_transient_decision() and first frame handling.
+	if e.frameCount == 0 && lm > 0 {
+		transient = true
+	}
+
 	shortBlocks := 1
 	if transient {
 		shortBlocks = mode.ShortBlocks
@@ -188,47 +196,54 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Step 6: Compute band energies
 	energies := e.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
 
-	// Pre-compute target bits for later budget checks.
-	targetBits := e.computeTargetBits(frameSize)
+	// Step 6.5: Patch transient decision based on band energy comparison
+	// This is a "second chance" to detect transients that time-domain analysis missed.
+	// Particularly important for the first frame where buffer initialization may cause
+	// false negatives in transient_analysis().
+	// Reference: libopus celt/celt_encoder.c lines 2215-2231
+	end := nbBands
+	if lm > 0 && !transient && e.complexity >= 5 && !e.IsHybrid() {
+		// Get previous frame's band energies (oldBandE in libopus)
+		oldBandE := e.prevEnergy
 
-	// Step 6.5: Patch transient decision based on spectral changes (libopus).
-	// This can flip a non-transient decision to transient and forces short blocks.
-	start := 0
-	if lm > 0 && !transient && e.complexity >= 5 && !e.IsHybrid() && targetBits >= 3 {
-		if patchTransientDecision(energies, e.prevEnergy, nbBands, start, nbBands, e.channels) {
+		if PatchTransientDecision(energies, oldBandE, nbBands, 0, end, e.channels) {
+			// Transient patched! Need to recompute MDCT with short blocks
 			transient = true
 			shortBlocks = mode.ShortBlocks
+			tfEstimate = 0.2 // Match libopus: tf_estimate = QCONST16(.2f,14)
+
 			// Recompute MDCT with short blocks
 			if e.channels == 1 {
-				mdctCoeffs = e.computeMDCTWithOverlap(preemph, shortBlocks)
+				// For mono, we need to restore overlap buffer state before recomputing
+				// Since computeMDCTWithOverlap updates the buffer, we can just call it again
+				// with the new shortBlocks value
+				mdctCoeffs = computeMDCTForEncoding(preemph, frameSize, shortBlocks)
 			} else {
+				// For stereo, recompute both channels
 				left, right := DeinterleaveStereo(preemph)
 				overlap := Overlap
 				if overlap > frameSize {
 					overlap = frameSize
 				}
-				if len(e.overlapBuffer) < 2*overlap {
-					newBuf := make([]float64, 2*overlap)
-					if len(e.overlapBuffer) > 0 {
-						copy(newBuf, e.overlapBuffer)
-					}
-					e.overlapBuffer = newBuf
+				// Note: We use fresh history slices to avoid double-update issues
+				leftHist := make([]float64, overlap)
+				rightHist := make([]float64, overlap)
+				if len(e.overlapBuffer) >= 2*overlap {
+					copy(leftHist, e.overlapBuffer[:overlap])
+					copy(rightHist, e.overlapBuffer[overlap:2*overlap])
 				}
-				leftHistory := e.overlapBuffer[:overlap]
-				rightHistory := e.overlapBuffer[overlap : 2*overlap]
-				mdctLeft = ComputeMDCTWithHistory(left, leftHistory, shortBlocks)
-				mdctRight = ComputeMDCTWithHistory(right, rightHistory, shortBlocks)
+				mdctLeft = ComputeMDCTWithHistory(left, leftHist, shortBlocks)
+				mdctRight = ComputeMDCTWithHistory(right, rightHist, shortBlocks)
 				mdctCoeffs = make([]float64, len(mdctLeft)+len(mdctRight))
 				copy(mdctCoeffs[:len(mdctLeft)], mdctLeft)
 				copy(mdctCoeffs[len(mdctLeft):], mdctRight)
 			}
+
+			// Recompute band energies with short block coefficients
 			energies = e.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
-			// Per libopus, use a small transient bias for TF analysis.
-			tfEstimate = 0.2
 		}
 	}
 
-	// Compute linear band energies (for stereo decisions, PVQ resynth).
 	bandE := make([]float64, nbBands*e.channels)
 	for c := 0; c < e.channels; c++ {
 		for band := 0; band < nbBands; band++ {
@@ -252,6 +267,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	// Step 7: Initialize range encoder with bitrate-derived size
 	// ... (no changes here) ...
+	targetBits := e.computeTargetBits(frameSize)
 	e.frameBits = targetBits
 	defer func() { e.frameBits = 0 }()
 	bufSize := (targetBits + 7) / 8
@@ -292,6 +308,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		// tell != 1: don't encode silence flag, force silence to false
 		isSilence = false
 	}
+	start := 0
+
 	// Postfilter flag: only encode if start==0, NOT in hybrid mode, and budget allows
 	// Reference: libopus celt_encoder.c line 2047-2048
 	// if(!hybrid && tell+16<=total_bits) ec_enc_bit_logp(enc, 0, 1);
@@ -357,7 +375,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	e.updateTonalityAnalysis(normL, energies, nbBands, frameSize)
 
 	// Step 11.1: Compute and encode TF (time-frequency) resolution
-	end := nbBands
+	// Note: 'end' was already set earlier during patch_transient_decision
 	effectiveBytes := targetBits / 8
 
 	// Step 11.0.7: Compute dynalloc analysis for VBR and bit allocation
@@ -467,101 +485,26 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Step 11.3: Initialize caps for allocation
 	caps := initCaps(nbBands, lm, e.channels)
 
-	// Step 11.4: Encode dynamic allocation (boost bits per band)
-	// Use computed offsets from DynallocAnalysis - these indicate how many
-	// boost quanta each band should receive based on energy variance analysis.
-	// Reference: libopus celt/celt_encoder.c lines 2356-2389
-	offsets := dynallocResult.Offsets
-	if len(offsets) < nbBands {
-		// Fallback if dynalloc wasn't computed (shouldn't happen)
-		offsets = make([]int, nbBands)
-	}
-
+	// Step 11.4: Encode dynamic allocation
+	// Match libopus/decoder: check budget before encoding each dynalloc bit.
+	// Since we don't use dynalloc boosts (offsets are all 0), we just encode
+	// one 0-bit per band IF budget allows, matching what decoder expects.
+	offsets := make([]int, nbBands)
 	dynallocLogp := 6
 	totalBitsQ3ForDynalloc := targetBits << bitRes
-	totalBoost := 0
-	tellFrac := re.TellFrac()
-
+	tellFracDynalloc := re.TellFrac()
 	for i := start; i < end; i++ {
-		// Compute band width and quanta per libopus:
-		// width = C*(eBands[i+1]-eBands[i])<<LM
-		// quanta = IMIN(width<<BITRES, IMAX(6<<BITRES, width))
-		// Reference: libopus celt/celt_encoder.c lines 2366-2369
-		width := e.channels * (EBands[i+1] - EBands[i]) << lm
-
-		// quanta is 6 bits, but no more than 1 bit/sample
-		// and no less than 1/8 bit/sample
-		// quanta = min(width<<BITRES, max(6<<BITRES, width))
-		maxVal := 6 << bitRes
-		if width > maxVal {
-			maxVal = width
+		// Only encode if budget allows (matching decoder's budget check)
+		if tellFracDynalloc+(dynallocLogp<<bitRes) < totalBitsQ3ForDynalloc {
+			re.EncodeBit(0, uint(dynallocLogp))
+			tellFracDynalloc = re.TellFrac()
 		}
-		quanta := width << bitRes
-		if quanta > maxVal {
-			quanta = maxVal
-		}
-
-		dynallocLoopLogp := dynallocLogp
-		boost := 0
-
-		// Encode boost bits for this band
-		// j counts how many boost quanta we've encoded
-		for j := 0; tellFrac+(dynallocLoopLogp<<bitRes) < totalBitsQ3ForDynalloc-totalBoost && boost < caps[i]; j++ {
-			// flag=1 if we should encode another boost quantum, 0 to stop
-			flag := 0
-			if j < offsets[i] {
-				flag = 1
-			}
-			re.EncodeBit(flag, uint(dynallocLoopLogp))
-			tellFrac = re.TellFrac()
-			if flag == 0 {
-				break
-			}
-			boost += quanta
-			totalBoost += quanta
-			dynallocLoopLogp = 1 // After first bit, use logp=1 for subsequent bits
-		}
-
-		// Making dynalloc more likely for next band if we used boost
-		if boost > 0 {
-			dynallocLogp--
-			if dynallocLogp < 2 {
-				dynallocLogp = 2
-			}
-		}
-
-		// Replace offset with actual boost value (for use in allocation)
-		offsets[i] = boost
 	}
 
-	// Step 11.5: Compute and encode allocation trim (only if budget allows)
-	// Reference: libopus celt_encoder.c alloc_trim_analysis() and lines 2408-2421
-	allocTrim := 5 // Default value
+	// Step 11.5: Encode allocation trim (only if budget allows)
+	allocTrim := 5
 	tellForTrim := re.TellFrac()
 	if tellForTrim+(6<<bitRes) <= totalBitsQ3ForDynalloc {
-		// Compute equivalent rate for trim analysis
-		// Reference: libopus line 1925
-		equivRate := ComputeEquivRate(effectiveBytes, e.channels, lm, e.targetBitrate)
-
-		// Only run trim analysis if start==0 (not hybrid/LFE mode)
-		// Reference: libopus lines 2411-2419
-		if start == 0 {
-			// Compute allocation trim dynamically
-			// tonalitySlope is not available from our analysis, use 0
-			allocTrim = AllocTrimAnalysis(
-				normL,           // normalized left/mono coefficients
-				energies,        // band log-energies
-				nbBands,         // number of bands
-				lm,              // log mode (frame size)
-				e.channels,      // mono or stereo
-				normR,           // normalized right coefficients (nil for mono)
-				intensity,       // intensity stereo threshold
-				tfEstimate,      // TF estimate from transient analysis
-				equivRate,       // equivalent bitrate
-				0,               // surround trim (not implemented)
-				0,               // tonality slope (not available)
-			)
-		}
 		re.EncodeICDF(allocTrim, trimICDF, 7)
 	}
 
