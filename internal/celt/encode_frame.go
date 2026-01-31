@@ -444,10 +444,34 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		}
 	}
 
-	// Step 11.5: Encode allocation trim (only if budget allows)
-	allocTrim := 5
+	// Step 11.5: Compute and encode allocation trim (only if budget allows)
+	// Reference: libopus celt_encoder.c alloc_trim_analysis() and lines 2408-2421
+	allocTrim := 5 // Default value
 	tellForTrim := re.TellFrac()
 	if tellForTrim+(6<<bitRes) <= totalBitsQ3ForDynalloc {
+		// Compute equivalent rate for trim analysis
+		// Reference: libopus line 1925
+		equivRate := ComputeEquivRate(effectiveBytes, e.channels, lm, e.targetBitrate)
+
+		// Only run trim analysis if start==0 (not hybrid/LFE mode)
+		// Reference: libopus lines 2411-2419
+		if start == 0 {
+			// Compute allocation trim dynamically
+			// tonalitySlope is not available from our analysis, use 0
+			allocTrim = AllocTrimAnalysis(
+				normL,           // normalized left/mono coefficients
+				energies,        // band log-energies
+				nbBands,         // number of bands
+				lm,              // log mode (frame size)
+				e.channels,      // mono or stereo
+				normR,           // normalized right coefficients (nil for mono)
+				intensity,       // intensity stereo threshold
+				tfEstimate,      // TF estimate from transient analysis
+				equivRate,       // equivalent bitrate
+				0,               // surround trim (not implemented)
+				0,               // tonality slope (not available)
+			)
+		}
 		re.EncodeICDF(allocTrim, trimICDF, 7)
 	}
 

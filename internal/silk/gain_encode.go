@@ -67,6 +67,50 @@ func (e *Encoder) encodeSubframeGains(gains []float32, signalType, numSubframes 
 }
 
 
+// computeLogGainIndexQ16 converts Q16 linear gain to log gain index [0, 63].
+// Finds the index in GainDequantTable that best matches the input gain.
+//
+// Parameters:
+//   - gainQ16: linear gain in Q16 format
+//
+// Returns: gain index in range [0, 63]
+func computeLogGainIndexQ16(gainQ16 int32) int {
+	if gainQ16 <= 0 {
+		return 0
+	}
+
+	// Clamp to table range
+	if gainQ16 < GainDequantTable[0] {
+		return 0
+	}
+	if gainQ16 >= GainDequantTable[63] {
+		return 63
+	}
+
+	// Binary search for closest index
+	// GainDequantTable is sorted in increasing order
+	lo, hi := 0, 63
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if GainDequantTable[mid] <= gainQ16 {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+
+	// Check if next index is closer
+	if lo < 63 {
+		diffLo := absInt32(GainDequantTable[lo] - gainQ16)
+		diffHi := absInt32(GainDequantTable[lo+1] - gainQ16)
+		if diffHi < diffLo {
+			return lo + 1
+		}
+	}
+
+	return lo
+}
+
 // computeLogGainIndex converts linear gain to log gain index [0, 63].
 // Finds the index in GainDequantTable that best matches the input gain.
 //
