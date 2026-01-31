@@ -329,13 +329,20 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	targetBits := e.computeTargetBits(frameSize)
 	e.frameBits = targetBits
 	defer func() { e.frameBits = 0 }()
-	bufSize := (targetBits + 7) / 8
+	targetBytes := (targetBits + 7) / 8
+	bufSize := targetBytes
 	if bufSize < 256 {
 		bufSize = 256
 	}
 	buf := make([]byte, bufSize)
 	re := &rangecoding.Encoder{}
 	re.Init(buf)
+	// In CBR mode, shrink the encoder to produce exactly targetBytes output.
+	// This matches libopus ec_enc_shrink() behavior for constant bitrate encoding.
+	// Reference: libopus celt_encoder.c line 1920: ec_enc_shrink(enc, nbCompressedBytes)
+	if !e.vbr {
+		re.Shrink(uint32(targetBytes))
+	}
 	e.SetRangeEncoder(re)
 
 	// Step 9: Encode frame flags

@@ -16,6 +16,7 @@ type Encoder struct {
 	rem        int    // Buffered byte for carry propagation (-1 = sentinel)
 	ext        uint32 // Count of pending 0xFF bytes
 	err        int    // Error flag (non-zero on failure)
+	shrunk     bool   // True if Shrink() was called (for CBR mode)
 }
 
 // Init initializes the encoder with the given output buffer.
@@ -33,6 +34,30 @@ func (e *Encoder) Init(buf []byte) {
 	e.rem = -1 // Sentinel: no bytes buffered yet
 	e.ext = 0
 	e.err = 0
+}
+
+// Shrink reduces the storage size to the given number of bytes.
+// This is used in CBR mode to ensure the output packet is exactly the target size.
+// The raw bits written from the end are moved to the new end position.
+// This is a direct port of libopus celt/entenc.c ec_enc_shrink.
+//
+// After calling Shrink, Done() will return exactly 'size' bytes (padded with zeros).
+func (e *Encoder) Shrink(size uint32) {
+	if e.offs+e.endOffs > size {
+		// Can't shrink to less than already written
+		e.err = -1
+		return
+	}
+	if size > e.storage {
+		// Can't grow the buffer
+		return
+	}
+	if e.endOffs > 0 {
+		// Move end bytes to new position
+		copy(e.buf[size-e.endOffs:size], e.buf[e.storage-e.endOffs:e.storage])
+	}
+	e.storage = size
+	e.shrunk = true
 }
 
 // carryOut handles carry propagation when outputting bytes.
@@ -289,7 +314,16 @@ func (e *Encoder) Done() []byte {
 		return e.buf
 	}
 
-	// Combine front bytes with end bytes
+	// For CBR mode (when Shrink was called), return exactly storage bytes.
+	// The buffer is already structured as:
+	//   [front bytes from offs][zeros][end bytes from endOffs]
+	// with storage as the total size.
+	if e.shrunk {
+		return e.buf[:e.storage]
+	}
+
+	// For VBR mode, return actual written bytes (compact the buffer).
+	// Combine front bytes with end bytes.
 	padLen := 0
 	if used > 0 {
 		padLen = 1
