@@ -23,7 +23,7 @@ func TestTV06DetailedAround1252(t *testing.T) {
 		t.Skipf("Could not read reference: %v", err)
 	}
 
-	dec, _ := gopus.NewDecoder(48000, 2)
+	dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 
 	refOffset := 0
 	var cumulativeSigPow, cumulativeNoisePow float64
@@ -33,7 +33,7 @@ func TestTV06DetailedAround1252(t *testing.T) {
 			continue
 		}
 
-		pcm, err := dec.DecodeInt16Slice(pkt.Data)
+		pcm, err := decodeInt16(dec, pkt.Data)
 		if err != nil {
 			continue
 		}
@@ -101,7 +101,7 @@ func TestTV06WorsePeriod(t *testing.T) {
 		t.Skipf("Could not read reference: %v", err)
 	}
 
-	dec, _ := gopus.NewDecoder(48000, 2)
+	dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 
 	refOffset := 0
 	worstQ := 100.0
@@ -113,7 +113,7 @@ func TestTV06WorsePeriod(t *testing.T) {
 			continue
 		}
 
-		pcm, err := dec.DecodeInt16Slice(pkt.Data)
+		pcm, err := decodeInt16(dec, pkt.Data)
 		if err != nil {
 			continue
 		}
@@ -155,14 +155,14 @@ func TestTV06WorsePeriod(t *testing.T) {
 	t.Logf("  Packet %d: Q=%.2f, maxDiff=%.0f", worstPacket, worstQ, worstDiff)
 
 	// Now show detail around that packet
-	dec2, _ := gopus.NewDecoder(48000, 2)
+	dec2, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	refOffset = 0
 	for i, pkt := range packets {
 		if len(pkt.Data) == 0 {
 			continue
 		}
 
-		pcm, err := dec2.DecodeInt16Slice(pkt.Data)
+		pcm, err := decodeInt16(dec2, pkt.Data)
 		if err != nil {
 			continue
 		}
@@ -227,7 +227,7 @@ func TestTV06FreshDecoderAtBadPackets(t *testing.T) {
 	startPoints := []int{1495, 1496, 1497, 1498}
 
 	for _, startPkt := range startPoints {
-		dec, _ := gopus.NewDecoder(48000, 2)
+		dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 
 		// Calculate reference offset
 		refOffset := 0
@@ -265,7 +265,7 @@ func TestTV06FreshDecoderAtBadPackets(t *testing.T) {
 			if len(pkt.Data) == 0 {
 				continue
 			}
-			pcm, err := dec.DecodeInt16Slice(pkt.Data)
+			pcm, err := decodeInt16(dec, pkt.Data)
 			if err != nil {
 				continue
 			}

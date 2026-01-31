@@ -19,7 +19,7 @@ func TestTV12Single48kDecoders(t *testing.T) {
 	}
 
 	// Create single 48kHz decoders
-	goDec, _ := gopus.NewDecoder(48000, 1)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	libDec, _ := NewLibopusDecoder(48000, 1)
 	if libDec == nil {
 		t.Skip("Could not create libopus decoder")
@@ -38,7 +38,7 @@ func TestTV12Single48kDecoders(t *testing.T) {
 			continue
 		}
 
-		goSamples, err := goDec.DecodeFloat32(pkt)
+		goSamples, err := decodeFloat32(goDec, pkt)
 		if err != nil {
 			t.Logf("Packet %d: gopus error: %v", i, err)
 			continue
@@ -112,7 +112,7 @@ func TestTV12BWTransitionPackets(t *testing.T) {
 	t.Logf("Found %d bandwidth transitions", len(transitions))
 
 	// Create decoders
-	goDec, _ := gopus.NewDecoder(48000, 1)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	libDec, _ := NewLibopusDecoder(48000, 1)
 	if libDec == nil {
 		t.Skip("Could not create libopus decoder")
@@ -126,7 +126,7 @@ func TestTV12BWTransitionPackets(t *testing.T) {
 		pkt := packets[i]
 		toc := gopus.ParseTOC(pkt[0])
 
-		goSamples, err := goDec.DecodeFloat32(pkt)
+		goSamples, err := decodeFloat32(goDec, pkt)
 		if err != nil {
 			continue
 		}

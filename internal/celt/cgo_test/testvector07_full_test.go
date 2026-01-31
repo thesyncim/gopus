@@ -33,7 +33,7 @@ func TestTestvector07FullAnalysis(t *testing.T) {
 	}
 
 	channels := 1
-	goDec, _ := gopus.NewDecoder(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec, _ := NewLibopusDecoder(48000, channels)
 	defer libDec.Destroy()
 
@@ -56,7 +56,7 @@ func TestTestvector07FullAnalysis(t *testing.T) {
 		frameSizes[toc.FrameSize]++
 
 		libPcm, libSamples := libDec.DecodeFloat(pkt, 5760)
-		goPcm, _ := goDec.DecodeFloat32(pkt)
+		goPcm, _ := decodeFloat32(goDec, pkt)
 
 		if libSamples <= 0 || len(goPcm) == 0 {
 			continue

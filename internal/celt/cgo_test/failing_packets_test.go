@@ -86,7 +86,7 @@ func TestMultiFramePackets(t *testing.T) {
 		channels = 2
 	}
 
-	goDec, _ := gopus.NewDecoder(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 
 	for _, idx := range failingIndices {
 		if idx >= len(packets) {
@@ -98,7 +98,7 @@ func TestMultiFramePackets(t *testing.T) {
 		t.Logf("\n=== Packet %d (len=%d) ===", idx, len(pkt))
 
 		// Decode with Go
-		goOut, err := goDec.DecodeFloat32(pkt)
+		goOut, err := decodeFloat32(goDec, pkt)
 		if err != nil {
 			t.Logf("Go decode error: %v", err)
 		} else {

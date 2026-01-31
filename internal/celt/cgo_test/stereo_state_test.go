@@ -33,7 +33,7 @@ func TestStereoStateAccumulation(t *testing.T) {
 	}
 
 	// Create decoders
-	goDec, _ := gopus.NewDecoder(48000, 2)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	libDec, _ := NewLibopusDecoder(48000, 2)
 	defer libDec.Destroy()
 
@@ -57,7 +57,7 @@ func TestStereoStateAccumulation(t *testing.T) {
 			mode = "CELT"
 		}
 
-		goSamplesF32, _ := goDec.DecodeFloat32(pkt)
+		goSamplesF32, _ := decodeFloat32(goDec, pkt)
 		libPcm, libSamples := libDec.DecodeFloat(pkt, 5760)
 
 		// Compute L-R RMS for both decoders
@@ -110,8 +110,8 @@ func TestFreshDecoderVsStateful(t *testing.T) {
 	t.Logf("Testing packet 14: len=%d", len(pkt))
 
 	// Fresh decoder - should produce L=R since no previous state
-	freshGo, _ := gopus.NewDecoder(48000, 2)
-	freshSamples, _ := freshGo.DecodeFloat32(pkt)
+	freshGo, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
+	freshSamples, _ := decodeFloat32(freshGo, pkt)
 
 	freshLib, _ := NewLibopusDecoder(48000, 2)
 	freshLibPcm, freshLibSamples := freshLib.DecodeFloat(pkt, 5760)
@@ -132,17 +132,17 @@ func TestFreshDecoderVsStateful(t *testing.T) {
 	t.Logf("Fresh libopus L-R RMS: %.6f", math.Sqrt(freshLibLRSq/float64(freshLibSamples)))
 
 	// Now stateful decoder - decode packets 0-13 first
-	statefulGo, _ := gopus.NewDecoder(48000, 2)
+	statefulGo, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	statefulLib, _ := NewLibopusDecoder(48000, 2)
 	defer statefulLib.Destroy()
 
 	for i := 0; i < 14; i++ {
-		statefulGo.DecodeFloat32(packets[i])
+		decodeFloat32(statefulGo, packets[i])
 		statefulLib.DecodeFloat(packets[i], 5760)
 	}
 
 	// Now decode packet 14
-	statefulSamples, _ := statefulGo.DecodeFloat32(pkt)
+	statefulSamples, _ := decodeFloat32(statefulGo, pkt)
 	statefulLibPcm, statefulLibSamples := statefulLib.DecodeFloat(pkt, 5760)
 
 	var statefulGoLRSq, statefulLibLRSq float64

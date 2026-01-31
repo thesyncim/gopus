@@ -110,7 +110,7 @@ func TestTV12OpusVsSilk(t *testing.T) {
 	}
 
 	// Create full gopus decoder
-	opusDec, err := gopus.NewDecoder(48000, 1)
+	opusDec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		t.Fatalf("Failed to create Opus decoder: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestTV12OpusVsSilk(t *testing.T) {
 		toc := gopus.ParseTOC(pkt[0])
 
 		// Decode with full Opus decoder
-		opusOut, err := opusDec.DecodeFloat32(pkt)
+		opusOut, err := decodeFloat32(opusDec, pkt)
 		if err != nil {
 			t.Logf("Packet %d: opus decode error: %v", i, err)
 			continue

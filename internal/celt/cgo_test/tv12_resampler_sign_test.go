@@ -504,7 +504,7 @@ func TestTV12FullDecoder48kHz(t *testing.T) {
 	}
 
 	// Create 48kHz mono decoders
-	goDec, err := gopus.NewDecoder(48000, 1)
+	goDec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -534,7 +534,7 @@ func TestTV12FullDecoder48kHz(t *testing.T) {
 		toc := gopus.ParseTOC(pkt[0])
 
 		// Decode with Go
-		goSamples, err := goDec.DecodeFloat32(pkt)
+		goSamples, err := decodeFloat32(goDec, pkt)
 		if err != nil {
 			continue
 		}
@@ -630,7 +630,7 @@ func TestTV12FindDivergenceStart(t *testing.T) {
 		t.Skip("Could not load packets")
 	}
 
-	goDec, _ := gopus.NewDecoder(48000, 1)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	libDec, _ := NewLibopusDecoder(48000, 1)
 	if libDec == nil {
 		t.Skip("Could not create libopus decoder")
@@ -646,7 +646,7 @@ func TestTV12FindDivergenceStart(t *testing.T) {
 		pkt := packets[pktIdx]
 		toc := gopus.ParseTOC(pkt[0])
 
-		goSamples, err := goDec.DecodeFloat32(pkt)
+		goSamples, err := decodeFloat32(goDec, pkt)
 		if err != nil {
 			continue
 		}
@@ -720,7 +720,7 @@ func TestTV12Pkt826DetailedCompare(t *testing.T) {
 		t.Skip("Could not load enough packets")
 	}
 
-	goDec, _ := gopus.NewDecoder(48000, 1)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	libDec, _ := NewLibopusDecoder(48000, 1)
 	if libDec == nil {
 		t.Skip("Could not create libopus decoder")
@@ -733,7 +733,7 @@ func TestTV12Pkt826DetailedCompare(t *testing.T) {
 	for i := 0; i <= targetPkt; i++ {
 		pkt := packets[i]
 
-		goSamples, _ := goDec.DecodeFloat32(pkt)
+		goSamples, _ := decodeFloat32(goDec, pkt)
 		libPcm, libSamples := libDec.DecodeFloat(pkt, len(goSamples)*2)
 
 		if i == targetPkt {
@@ -790,7 +790,7 @@ func TestTV12BandwidthTransitions(t *testing.T) {
 		t.Skip("Could not load packets")
 	}
 
-	goDec, _ := gopus.NewDecoder(48000, 1)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	libDec, _ := NewLibopusDecoder(48000, 1)
 	if libDec == nil {
 		t.Skip("Could not create libopus decoder")
@@ -817,7 +817,7 @@ func TestTV12BandwidthTransitions(t *testing.T) {
 			continue
 		}
 
-		goSamples, err := goDec.DecodeFloat32(pkt)
+		goSamples, err := decodeFloat32(goDec, pkt)
 		if err != nil {
 			continue
 		}

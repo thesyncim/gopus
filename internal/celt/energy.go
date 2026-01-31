@@ -118,6 +118,11 @@ func (d *Decoder) updateRange(fl, fh, ft uint32) {
 // intra=false: uses alpha prediction from previous frame
 // Reference: RFC 6716 Section 4.3.2, libopus celt/quant_bands.c unquant_coarse_energy()
 func (d *Decoder) DecodeCoarseEnergy(nbBands int, intra bool, lm int) []float64 {
+	energies := make([]float64, nbBands*d.channels)
+	return d.decodeCoarseEnergyInto(energies, nbBands, intra, lm)
+}
+
+func (d *Decoder) decodeCoarseEnergyInto(dst []float64, nbBands int, intra bool, lm int) []float64 {
 	if nbBands > MaxBands {
 		nbBands = MaxBands
 	}
@@ -131,11 +136,19 @@ func (d *Decoder) DecodeCoarseEnergy(nbBands int, intra bool, lm int) []float64 
 		lm = 3
 	}
 
-	energies := make([]float64, nbBands*d.channels)
+	if nbBands < 0 {
+		nbBands = 0
+	}
+	needed := nbBands * d.channels
+	if len(dst) < needed {
+		dst = make([]float64, needed)
+	} else {
+		dst = dst[:needed]
+	}
 
 	rd := d.rangeDecoder
 	if rd == nil {
-		return energies
+		return dst
 	}
 
 	// Get prediction coefficients
@@ -161,7 +174,10 @@ func (d *Decoder) DecodeCoarseEnergy(nbBands int, intra bool, lm int) []float64 
 	}
 
 	// Decode band-major to match libopus ordering.
-	prevBandEnergy := make([]float64, d.channels)
+	prevBandEnergy := ensureFloat64Slice(&d.scratchPrevBandEnergy, d.channels)
+	for i := range prevBandEnergy {
+		prevBandEnergy[i] = 0
+	}
 	for band := 0; band < nbBands; band++ {
 		for c := 0; c < d.channels; c++ {
 			// Decode Laplace-distributed residual
@@ -219,7 +235,7 @@ func (d *Decoder) DecodeCoarseEnergy(nbBands int, intra bool, lm int) []float64 
 			DefaultTracer.TraceEnergy(band, pred, q, energy)
 
 			// Store result
-			energies[c*nbBands+band] = energy
+			dst[c*nbBands+band] = energy
 
 			// Update prev band energy for next band's inter-band prediction.
 			// Per libopus: prev is filtered by the quantized delta.
@@ -231,11 +247,11 @@ func (d *Decoder) DecodeCoarseEnergy(nbBands int, intra bool, lm int) []float64 
 	// Update previous frame energy for next frame's inter-frame prediction
 	for c := 0; c < d.channels; c++ {
 		for band := 0; band < nbBands; band++ {
-			d.prevEnergy[c*MaxBands+band] = energies[c*nbBands+band]
+			d.prevEnergy[c*MaxBands+band] = dst[c*nbBands+band]
 		}
 	}
 
-	return energies
+	return dst
 }
 
 // decodeCoarseEnergyRange decodes coarse energies for bands in [start, end).
@@ -285,7 +301,10 @@ func (d *Decoder) decodeCoarseEnergyRange(start, end int, intra bool, lm int, en
 	budget := rd.StorageBits()
 
 	// Inter-band prediction state starts at 0 (matches libopus).
-	prevBandEnergy := make([]float64, d.channels)
+	prevBandEnergy := ensureFloat64Slice(&d.scratchPrevBandEnergy, d.channels)
+	for i := range prevBandEnergy {
+		prevBandEnergy[i] = 0
+	}
 	for band := start; band < end; band++ {
 		for c := 0; c < d.channels; c++ {
 			tell := rd.Tell()

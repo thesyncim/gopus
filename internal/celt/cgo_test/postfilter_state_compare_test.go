@@ -32,7 +32,7 @@ func TestPostfilterStateCompare(t *testing.T) {
 		offset += int(pktLen)
 	}
 
-	goDec, _ := gopus.NewDecoder(48000, 2)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	libDec, _ := NewLibopusDecoder(48000, 2)
 	defer libDec.Destroy()
 
@@ -44,7 +44,7 @@ func TestPostfilterStateCompare(t *testing.T) {
 		pkt := packets[i]
 		toc := gopus.ParseTOC(pkt[0])
 
-		goPcm, _ := goDec.DecodeFloat32(pkt)
+		goPcm, _ := decodeFloat32(goDec, pkt)
 		libPcm, libN := libDec.DecodeFloat(pkt, 5760)
 
 		// Compute SNR
@@ -112,12 +112,12 @@ func TestPostfilterMemoryCompare(t *testing.T) {
 
 	// Decode up to packet 58 (before postfilter packets)
 	t.Log("Comparing state before postfilter packets (0-58):")
-	goDec1, _ := gopus.NewDecoder(48000, 2)
+	goDec1, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	libDec1, _ := NewLibopusDecoder(48000, 2)
 	defer libDec1.Destroy()
 
 	for i := 0; i < 58; i++ {
-		goDec1.DecodeFloat32(packets[i])
+		decodeFloat32(goDec1, packets[i])
 		libDec1.DecodeFloat(packets[i], 5760)
 	}
 
@@ -127,7 +127,7 @@ func TestPostfilterMemoryCompare(t *testing.T) {
 		goState58[0], libMem58, math.Abs(goState58[0]-float64(libMem58)))
 
 	// Decode packet 59 (postfilter enabled)
-	goPcm59, _ := goDec1.DecodeFloat32(packets[59])
+	goPcm59, _ := decodeFloat32(goDec1, packets[59])
 	libPcm59, libN59 := libDec1.DecodeFloat(packets[59], 5760)
 
 	n59 := minInt(len(goPcm59), libN59*2)
@@ -146,7 +146,7 @@ func TestPostfilterMemoryCompare(t *testing.T) {
 		goState59[0], libMem59, math.Abs(goState59[0]-float64(libMem59)), snr59)
 
 	// Decode packet 60 (postfilter enabled)
-	goPcm60, _ := goDec1.DecodeFloat32(packets[60])
+	goPcm60, _ := decodeFloat32(goDec1, packets[60])
 	libPcm60, libN60 := libDec1.DecodeFloat(packets[60], 5760)
 
 	n60 := minInt(len(goPcm60), libN60*2)
@@ -165,7 +165,7 @@ func TestPostfilterMemoryCompare(t *testing.T) {
 		goState60[0], libMem60, math.Abs(goState60[0]-float64(libMem60)), snr60)
 
 	// Decode packet 61 (transient)
-	goPcm61, _ := goDec1.DecodeFloat32(packets[61])
+	goPcm61, _ := decodeFloat32(goDec1, packets[61])
 	libPcm61, libN61 := libDec1.DecodeFloat(packets[61], 5760)
 
 	n61 := minInt(len(goPcm61), libN61*2)

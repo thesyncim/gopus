@@ -19,4 +19,7 @@ var (
 	// ErrUnexpectedEOS indicates the stream ended unexpectedly.
 	// This occurs when a page is truncated or data ends mid-packet.
 	ErrUnexpectedEOS = errors.New("ogg: unexpected end of stream")
+
+	// ErrPacketTooLarge indicates the packet does not fit in the provided buffer.
+	ErrPacketTooLarge = errors.New("ogg: packet too large for buffer")
 )

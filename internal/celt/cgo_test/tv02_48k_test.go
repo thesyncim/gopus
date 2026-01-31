@@ -18,7 +18,7 @@ func TestTV02At48kHz(t *testing.T) {
 	}
 
 	// Create gopus decoder at 48kHz
-	goDec, err := gopus.NewDecoder(48000, 1)
+	goDec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func TestTV02At48kHz(t *testing.T) {
 	for i := 0; i < len(packets) && i < 100; i++ {
 		pkt := packets[i]
 
-		goSamples, err := goDec.DecodeFloat32(pkt)
+		goSamples, err := decodeFloat32(goDec, pkt)
 		if err != nil {
 			t.Logf("Packet %d: decode error: %v", i, err)
 			continue

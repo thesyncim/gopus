@@ -21,7 +21,7 @@ func TestSilkSMidBuffering(t *testing.T) {
 	channels := 1
 
 	// Create decoders at 48kHz (both with full resampling)
-	goDec, _ := gopus.NewDecoder(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec, err := NewLibopusDecoder(48000, channels)
 	if err != nil || libDec == nil {
 		t.Fatalf("Failed to create libopus decoder")
@@ -34,7 +34,7 @@ func TestSilkSMidBuffering(t *testing.T) {
 		t.Logf("\n=== Packet %d: %d bytes, frameSize=%d ===", pktIdx, len(pkt), toc.FrameSize)
 
 		// Decode with gopus (full path with sMid buffering and resampling)
-		goPcm, goErr := goDec.DecodeFloat32(pkt)
+		goPcm, goErr := decodeFloat32(goDec, pkt)
 		if goErr != nil {
 			t.Fatalf("gopus decode failed: %v", goErr)
 		}

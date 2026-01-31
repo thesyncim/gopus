@@ -210,10 +210,12 @@ func roundtrip(original []float32, config TestConfig) ([]float32, error) {
 	}
 
 	// Create decoder
-	dec, err := gopus.NewDecoder(sampleRate, config.Channels)
+	cfg := gopus.DefaultDecoderConfig(sampleRate, config.Channels)
+	dec, err := gopus.NewDecoder(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("create decoder: %w", err)
 	}
+	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
 
 	// Process in frames
 	frameSamples := frameSize * config.Channels
@@ -232,12 +234,12 @@ func roundtrip(original []float32, config TestConfig) ([]float32, error) {
 		}
 
 		// Decode
-		samples, err := dec.DecodeFloat32(packet)
+		n, err := dec.Decode(packet, pcmOut)
 		if err != nil {
 			return nil, fmt.Errorf("decode frame %d: %w", i, err)
 		}
 
-		decoded = append(decoded, samples...)
+		decoded = append(decoded, pcmOut[:n*config.Channels]...)
 	}
 
 	return decoded, nil
@@ -305,7 +307,7 @@ func calculateSNR(original, decoded []float32) float64 {
 	if signal == 0 {
 		return math.Inf(-1)
 	}
-	return 10 * math.Log10(signal / noise)
+	return 10 * math.Log10(signal/noise)
 }
 
 // calculateCorrelation computes Pearson correlation coefficient.

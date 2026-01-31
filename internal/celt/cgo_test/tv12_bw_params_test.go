@@ -30,7 +30,7 @@ func TestTV12BWTransitionParams(t *testing.T) {
 	defer libDec.Destroy()
 
 	// Also create a gopus decoder for full Opus-level comparison
-	goDec, _ := gopus.NewDecoder(48000, 1)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	if goDec == nil {
 		t.Fatal("Could not create gopus decoder")
 	}
@@ -48,7 +48,7 @@ func TestTV12BWTransitionParams(t *testing.T) {
 		libPcm, _ := libDec.DecodeFloat(pkt, 1920)
 
 		// Decode with gopus full decoder
-		goPcm, _ := goDec.DecodeFloat32(pkt)
+		goPcm, _ := decodeFloat32(goDec, pkt)
 
 		// Only analyze SILK packets near transition
 		if toc.Mode != gopus.ModeSILK {

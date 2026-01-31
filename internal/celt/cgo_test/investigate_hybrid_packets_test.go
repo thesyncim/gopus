@@ -35,7 +35,7 @@ func TestInvestigateHybridPackets(t *testing.T) {
 	channels := 2
 
 	// Create decoders
-	goDec, _ := gopus.NewDecoder(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec, _ := NewLibopusDecoder(48000, channels)
 	defer libDec.Destroy()
 
@@ -53,7 +53,7 @@ func TestInvestigateHybridPackets(t *testing.T) {
 	// Decode in order to maintain state
 	for i, pkt := range packets {
 		libPcm, libSamples := libDec.DecodeFloat(pkt, 5760)
-		goPcm, _ := goDec.DecodeFloat32(pkt)
+		goPcm, _ := decodeFloat32(goDec, pkt)
 
 		if libSamples <= 0 || len(goPcm) == 0 {
 			continue
@@ -110,18 +110,18 @@ func TestInvestigateHybridPackets(t *testing.T) {
 		t.Logf("\nDetailed analysis of worst packet %d:", w.idx)
 
 		// Decode with fresh decoder to see if state matters
-		goDec2, _ := gopus.NewDecoder(48000, channels)
+		goDec2, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 		libDec2, _ := NewLibopusDecoder(48000, channels)
 		defer libDec2.Destroy()
 
 		// Warm up decoders
 		for i := 0; i < w.idx; i++ {
-			goDec2.DecodeFloat32(packets[i])
+			decodeFloat32(goDec2, packets[i])
 			libDec2.DecodeFloat(packets[i], 5760)
 		}
 
 		// Decode the problematic packet
-		goPcm, _ := goDec2.DecodeFloat32(packets[w.idx])
+		goPcm, _ := decodeFloat32(goDec2, packets[w.idx])
 		libPcm, libSamples := libDec2.DecodeFloat(packets[w.idx], 5760)
 
 		t.Logf("Fresh decode - go samples: %d, lib samples: %d", len(goPcm)/channels, libSamples)
@@ -171,7 +171,7 @@ func TestTrackStateAcrossHybridPackets(t *testing.T) {
 	}
 
 	channels := 2
-	goDec, _ := gopus.NewDecoder(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec, _ := NewLibopusDecoder(48000, channels)
 	defer libDec.Destroy()
 
@@ -181,7 +181,7 @@ func TestTrackStateAcrossHybridPackets(t *testing.T) {
 
 	for i, pkt := range packets {
 		libPcm, libSamples := libDec.DecodeFloat(pkt, 5760)
-		goPcm, _ := goDec.DecodeFloat32(pkt)
+		goPcm, _ := decodeFloat32(goDec, pkt)
 
 		if libSamples <= 0 || len(goPcm) == 0 {
 			continue
