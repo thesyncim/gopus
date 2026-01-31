@@ -54,7 +54,7 @@ func TestStereoCouplingVsLibopus(t *testing.T) {
 	}
 
 	// Create Go decoder
-	goDec, err := gopus.NewDecoderDefault(48000, 2)
+	goDec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	if err != nil {
 		t.Fatalf("Failed to create decoder: %v", err)
 	}
@@ -232,11 +232,11 @@ func TestStereoCouplingTestvector07(t *testing.T) {
 	t.Logf("Reference: %d samples", len(refSamples))
 
 	// Create decoders for mono and stereo
-	monoDec, err := gopus.NewDecoderDefault(48000, 1)
+	monoDec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		t.Fatalf("Failed to create mono decoder: %v", err)
 	}
-	stereoDec, err := gopus.NewDecoderDefault(48000, 2)
+	stereoDec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	if err != nil {
 		t.Fatalf("Failed to create stereo decoder: %v", err)
 	}

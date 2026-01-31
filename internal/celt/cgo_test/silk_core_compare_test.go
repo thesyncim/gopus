@@ -21,7 +21,7 @@ func TestSilkCoreCompare(t *testing.T) {
 	channels := 1
 
 	// Create decoders
-	goDec, _ := gopus.NewDecoderDefault(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec, err := NewLibopusDecoder(48000, channels)
 	if err != nil || libDec == nil {
 		t.Fatalf("Failed to create libopus decoder")
@@ -140,7 +140,7 @@ func TestSilkPacket0vs1(t *testing.T) {
 		t.Logf("\n=== Packet %d ===", pktIdx)
 
 		// Fresh decoders for each packet
-		goDec, _ := gopus.NewDecoderDefault(48000, channels)
+		goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 		libDec, _ := NewLibopusDecoder(48000, channels)
 		defer libDec.Destroy()
 

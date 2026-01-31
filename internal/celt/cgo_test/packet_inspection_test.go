@@ -140,7 +140,7 @@ func TestComparePacket59And60(t *testing.T) {
 
 	// Test A: Skip packet 59, decode 60, then 61
 	t.Log("Testing effect of skipping packet 59:")
-	goDecA, _ := gopus.NewDecoderDefault(48000, 2)
+	goDecA, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	libDecA, _ := NewLibopusDecoder(48000, 2)
 	defer libDecA.Destroy()
 
@@ -170,7 +170,7 @@ func TestComparePacket59And60(t *testing.T) {
 
 	// Test B: Decode 59, skip 60, decode 61
 	t.Log("Testing effect of skipping packet 60:")
-	goDecB, _ := gopus.NewDecoderDefault(48000, 2)
+	goDecB, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	libDecB, _ := NewLibopusDecoder(48000, 2)
 	defer libDecB.Destroy()
 
@@ -197,7 +197,7 @@ func TestComparePacket59And60(t *testing.T) {
 
 	// Test C: Normal decode 59, 60, 61
 	t.Log("Testing normal decode (59, 60, 61):")
-	goDecC, _ := gopus.NewDecoderDefault(48000, 2)
+	goDecC, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	libDecC, _ := NewLibopusDecoder(48000, 2)
 	defer libDecC.Destroy()
 

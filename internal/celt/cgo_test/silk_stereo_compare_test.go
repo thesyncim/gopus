@@ -32,7 +32,7 @@ func TestSilkStereoFirstPacket(t *testing.T) {
 	}
 
 	channels := 2
-	goDec, err := gopus.NewDecoderDefault(48000, channels)
+	goDec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	if err != nil {
 		t.Fatalf("Failed to create gopus decoder: %v", err)
 	}

@@ -42,7 +42,7 @@ func TestTV12AnalyzeWorstSILKPackets(t *testing.T) {
 		}
 	}
 
-	dec, err := gopus.NewDecoderDefault(48000, 2)
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	if err != nil {
 		t.Fatalf("Failed to create decoder: %v", err)
 	}
@@ -176,7 +176,7 @@ func analyzePacketWithFreshDecoder(t *testing.T, packets []Packet, reference []i
 		startIdx = 0
 	}
 
-	dec, err := gopus.NewDecoderDefault(48000, 2)
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	if err != nil {
 		t.Fatalf("Failed to create decoder: %v", err)
 	}
@@ -445,7 +445,7 @@ func TestTV12CompareRangeDecoderState(t *testing.T) {
 	// After decoding, our decoder's range state should match this.
 	// Check if worst packets have range mismatch.
 
-	dec, err := gopus.NewDecoderDefault(48000, 2)
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	if err != nil {
 		t.Fatalf("Failed to create decoder: %v", err)
 	}

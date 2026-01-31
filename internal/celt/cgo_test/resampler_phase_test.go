@@ -29,7 +29,7 @@ func TestResamplerPhaseComparison(t *testing.T) {
 	}
 	defer libDec.Destroy()
 
-	goDec, _ := gopus.NewDecoderDefault(48000, 1)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 
 	libPcm, libSamples := libDec.DecodeFloat(pkt, 5760)
 	if libSamples < 0 {

@@ -158,7 +158,7 @@ func TestTV12AllPacketsSNRComparison(t *testing.T) {
 	defer libDec.Destroy()
 
 	// Create gopus decoder for current approach
-	goDec, err := gopus.NewDecoderDefault(48000, 1)
+	goDec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +174,7 @@ func TestTV12AllPacketsSNRComparison(t *testing.T) {
 
 		// Reset decoders
 		libDec2, _ := NewLibopusDecoder(48000, 1)
-		goDec2, _ := gopus.NewDecoderDefault(48000, 1)
+		goDec2, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 
 		var libOut, goOut []float32
 		var libN int

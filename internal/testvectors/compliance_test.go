@@ -127,7 +127,7 @@ func runTestVector(t *testing.T, name string) {
 	// Test vectors may contain both mono and stereo packets mixed in the stream.
 	// Per RFC 8251, output format is always stereo interleaved.
 	// Use one persistent stereo decoder to preserve state across channel switches.
-	dec, err := gopus.NewDecoderDefault(48000, 2)
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	if err != nil {
 		t.Fatalf("Failed to create stereo decoder: %v", err)
 	}
@@ -741,7 +741,7 @@ func runVectorSilent(t *testing.T, name string) vectorResult {
 	// Per RFC 8251, output format is always stereo interleaved.
 	// Use one persistent stereo decoder to preserve state across channel switches.
 	channels := 2
-	dec, err := gopus.NewDecoderDefault(48000, channels)
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	if err != nil {
 		result.err = err
 		return result

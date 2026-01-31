@@ -43,7 +43,7 @@ func TestStateResetPerPacket(t *testing.T) {
 	// 2. Fresh decoder per packet (no state)
 
 	t.Log("=== Continuous decoding (with state) ===")
-	goContinuous, _ := gopus.NewDecoderDefault(48000, 2)
+	goContinuous, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 
 	for pktIdx := 0; pktIdx < 20 && pktIdx < len(packets); pktIdx++ {
 		goCont, _ := decodeFloat32(goContinuous, packets[pktIdx])
@@ -68,7 +68,7 @@ func TestStateResetPerPacket(t *testing.T) {
 
 	t.Log("\n=== Fresh decoder per packet (no state) ===")
 	for pktIdx := 0; pktIdx < 20 && pktIdx < len(packets); pktIdx++ {
-		goFresh, _ := gopus.NewDecoderDefault(48000, 2)
+		goFresh, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 		// Also create fresh libopus decoder
 		libFresh, _ := NewLibopusDecoder(48000, 2)
 
@@ -92,7 +92,7 @@ func TestStateResetPerPacket(t *testing.T) {
 	// Decode packets 0-13, then reset gopus but not libopus, then compare packet 14
 	libDec.Destroy()
 	libDec, _ = NewLibopusDecoder(48000, 2)
-	goPartial, _ := gopus.NewDecoderDefault(48000, 2)
+	goPartial, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 
 	// Sync both decoders through packets 0-13
 	for i := 0; i < 14; i++ {
@@ -142,7 +142,7 @@ func TestIsolatePacket14Error(t *testing.T) {
 	}
 
 	// Decode packet 14 with fresh decoders (no prior state)
-	goDec, _ := gopus.NewDecoderDefault(48000, 2)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	libDec, _ := NewLibopusDecoder(48000, 2)
 	if libDec == nil {
 		t.Skip("Cannot create libopus decoder")

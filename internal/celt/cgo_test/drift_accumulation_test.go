@@ -40,7 +40,7 @@ func TestDriftAccumulationRate(t *testing.T) {
 
 	for _, histLen := range historyLengths {
 		// Create fresh decoders
-		goDec, _ := gopus.NewDecoderDefault(48000, 2)
+		goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 		libDec, _ := NewLibopusDecoder(48000, 2)
 		defer libDec.Destroy()
 
@@ -99,7 +99,7 @@ func TestOverlapBufferDriftPerFrame(t *testing.T) {
 	}
 
 	// Decode ALL packets with both decoders and track output difference
-	goDec, _ := gopus.NewDecoderDefault(48000, 2)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	libDec, _ := NewLibopusDecoder(48000, 2)
 	defer libDec.Destroy()
 
@@ -164,13 +164,13 @@ func TestCompareOverlapEnergy(t *testing.T) {
 	}
 
 	// Decoder 1: decode packets 0-60
-	goDec1, _ := gopus.NewDecoderDefault(48000, 2)
+	goDec1, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	for i := 0; i <= 60; i++ {
 		decodeFloat32(goDec1, packets[i])
 	}
 
 	// Decoder 2: decode only packets 55-60 (less history)
-	goDec2, _ := gopus.NewDecoderDefault(48000, 2)
+	goDec2, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	for i := 55; i <= 60; i++ {
 		decodeFloat32(goDec2, packets[i])
 	}

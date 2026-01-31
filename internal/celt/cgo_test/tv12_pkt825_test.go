@@ -17,7 +17,7 @@ func TestTV12Packet825(t *testing.T) {
 		t.Skip("Could not load packets")
 	}
 
-	goDec, err := gopus.NewDecoderDefault(48000, 1)
+	goDec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		t.Fatal(err)
 	}

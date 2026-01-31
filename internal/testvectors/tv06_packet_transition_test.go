@@ -25,7 +25,7 @@ func TestTV06PacketTransition1497(t *testing.T) {
 		t.Skipf("Could not read reference: %v", err)
 	}
 
-	dec, _ := gopus.NewDecoderDefault(48000, 2)
+	dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 
 	// Track per-packet stats and look for mode transitions
 	refOffset := 0
@@ -171,7 +171,7 @@ func TestTV06DetailedQuality(t *testing.T) {
 		t.Skipf("Could not read reference: %v", err)
 	}
 
-	dec, _ := gopus.NewDecoderDefault(48000, 2)
+	dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 
 	var allDecoded []int16
 	for _, pkt := range packets {
@@ -215,7 +215,7 @@ func TestTV06RangeDecoderStateDrift(t *testing.T) {
 	testPoints := []int{0, 1000, 1400, 1450, 1490, 1495}
 
 	for _, startPkt := range testPoints {
-		dec, _ := gopus.NewDecoderDefault(48000, 2)
+		dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 
 		// Decode from start point
 		var decoded []int16

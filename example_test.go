@@ -25,7 +25,7 @@ func ExampleNewEncoder() {
 
 func ExampleNewDecoder() {
 	// Create a decoder for 48kHz stereo audio
-	dec, err := gopus.NewDecoderDefault(48000, 2)
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	if err != nil {
 		log.Fatal(err)
 	}

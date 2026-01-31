@@ -113,7 +113,7 @@ func TestPacket31GopusDetailedAnalysis(t *testing.T) {
 	}
 
 	// Create decoder and process packets up to target
-	dec, _ := gopus.NewDecoderDefault(48000, channels)
+	dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 
 	// Process packets before target
 	for i := 0; i < targetPacket; i++ {
@@ -425,7 +425,7 @@ func TestPacket31DivergenceWindow(t *testing.T) {
 	channels := 2
 
 	// Use gopus decoder
-	dec, _ := gopus.NewDecoderDefault(48000, channels)
+	dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 
 	// Process packets up to target
 	for i := 0; i < targetPacket; i++ {
@@ -521,7 +521,7 @@ func TestPacket31CompareWithReference(t *testing.T) {
 	channels := 2
 
 	// Create decoder
-	dec, _ := gopus.NewDecoderDefault(48000, channels)
+	dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 
 	// Decode all packets up to and including target, tracking sample position
 	sampleOffset := 0
@@ -612,7 +612,7 @@ func TestPacket31SurroundingPacketSNR(t *testing.T) {
 	}
 
 	channels := 2
-	dec, _ := gopus.NewDecoderDefault(48000, channels)
+	dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 
 	t.Logf("=== SNR Analysis for Packets 25-40 ===")
 	t.Logf("Pkt\tStereo\tFrame\tSNR(dB)\tFirstDiff\tNote")

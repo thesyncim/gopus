@@ -23,7 +23,7 @@ func TestTV06PacketContentAnalysis(t *testing.T) {
 		t.Skipf("Could not read reference: %v", err)
 	}
 
-	dec, _ := gopus.NewDecoderDefault(48000, 2)
+	dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 
 	refOffset := 0
 	for i, pkt := range packets {
@@ -100,7 +100,7 @@ func TestTV06ErrorDistribution(t *testing.T) {
 		t.Skipf("Could not read reference: %v", err)
 	}
 
-	dec, _ := gopus.NewDecoderDefault(48000, 2)
+	dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 
 	refOffset := 0
 	for i, pkt := range packets {
@@ -171,7 +171,7 @@ func TestTV06LRChannelErrorCorrelation(t *testing.T) {
 		t.Skipf("Could not read reference: %v", err)
 	}
 
-	dec, _ := gopus.NewDecoderDefault(48000, 2)
+	dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 
 	refOffset := 0
 	for i, pkt := range packets {

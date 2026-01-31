@@ -18,7 +18,7 @@ func TestTV12ResamplerState137(t *testing.T) {
 	}
 
 	// Create gopus decoder at 48kHz
-	goDec, _ := gopus.NewDecoderDefault(48000, 1)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	silkDec := goDec.GetSILKDecoder()
 
 	t.Log("=== Tracing resampler state around packet 137 ===")

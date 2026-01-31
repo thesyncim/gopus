@@ -96,7 +96,7 @@ func analyzeVector(t *testing.T, vectorName string) {
 	t.Logf("Analyzing %s: %d packets, %d channels", vectorName, len(packets), channels)
 
 	// Create decoders
-	goDec, _ := gopus.NewDecoderDefault(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec, err := NewLibopusDecoder(48000, channels)
 	if err != nil || libDec == nil {
 		t.Fatalf("Failed to create libopus decoder")
@@ -318,7 +318,7 @@ func TestCompareAroundTransition(t *testing.T) {
 	}
 
 	// Decode with fresh decoders from the beginning
-	goDec, _ := gopus.NewDecoderDefault(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec, _ := NewLibopusDecoder(48000, channels)
 	defer libDec.Destroy()
 

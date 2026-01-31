@@ -33,7 +33,7 @@ func TestAnalyzeStereoErrorPattern(t *testing.T) {
 	}
 
 	// Use synced decoders
-	goDecHL, _ := gopus.NewDecoderDefault(48000, 2)
+	goDecHL, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	libDec, _ := NewLibopusDecoder(48000, 2)
 	defer libDec.Destroy()
 
@@ -158,7 +158,7 @@ func TestComparePacket13vs14(t *testing.T) {
 		t.Logf("\n=== Packet %d (len=%d, TOC=0x%02X) ===", pktIdx, len(pkt), pkt[0])
 
 		// Fresh decoders
-		goDecHL, _ := gopus.NewDecoderDefault(48000, 2)
+		goDecHL, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 		libDec, _ := NewLibopusDecoder(48000, 2)
 
 		goSamplesF32, _ := decodeFloat32(goDecHL, pkt)

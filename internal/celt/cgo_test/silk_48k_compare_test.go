@@ -20,7 +20,7 @@ func TestSilk48kHzComparison(t *testing.T) {
 	}
 
 	// Create persistent decoders at 48kHz
-	goDec, err := gopus.NewDecoderDefault(48000, 1)
+	goDec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		t.Fatal(err)
 	}

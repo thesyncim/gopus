@@ -32,7 +32,7 @@ func TestPostfilterStateCompare(t *testing.T) {
 		offset += int(pktLen)
 	}
 
-	goDec, _ := gopus.NewDecoderDefault(48000, 2)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	libDec, _ := NewLibopusDecoder(48000, 2)
 	defer libDec.Destroy()
 
@@ -112,7 +112,7 @@ func TestPostfilterMemoryCompare(t *testing.T) {
 
 	// Decode up to packet 58 (before postfilter packets)
 	t.Log("Comparing state before postfilter packets (0-58):")
-	goDec1, _ := gopus.NewDecoderDefault(48000, 2)
+	goDec1, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	libDec1, _ := NewLibopusDecoder(48000, 2)
 	defer libDec1.Destroy()
 

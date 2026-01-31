@@ -18,7 +18,7 @@ func TestTV12ResamplerStateAtTransition(t *testing.T) {
 	}
 
 	// Opus decoder
-	opusDec, _ := gopus.NewDecoderDefault(48000, 1)
+	opusDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	silkDec := opusDec.GetSILKDecoder()
 
 	t.Log("=== Tracing resampler state at MB→NB transition (pkt 825→826) ===")
@@ -85,7 +85,7 @@ func TestTV12ResamplerStateAtTransition(t *testing.T) {
 	// Let's also check what happens if we DON'T reset the resampler
 	t.Log("\n=== Testing without resampler reset ===")
 
-	opusDec2, _ := gopus.NewDecoderDefault(48000, 1)
+	opusDec2, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	silkDec2 := opusDec2.GetSILKDecoder()
 	silkDec2.SetDisableResamplerReset(true) // Disable reset
 

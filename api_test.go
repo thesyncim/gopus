@@ -266,7 +266,7 @@ func TestRoundTrip_AllSampleRates(t *testing.T) {
 			cfg := DefaultDecoderConfig(sampleRate, 1)
 			dec, err := NewDecoder(cfg)
 			if err != nil {
-				t.Fatalf("NewDecoderDefault(%d) error: %v", sampleRate, err)
+				t.Fatalf("NewDecoder(%d) error: %v", sampleRate, err)
 			}
 
 			// Frame size at 48kHz is 960 (20ms), scale for other rates

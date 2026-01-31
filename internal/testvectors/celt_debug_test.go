@@ -83,7 +83,7 @@ func TestCELTVectorWithTrace(t *testing.T) {
 			t.Logf("Mode: %s, Stereo: %v, Channels: %d, FrameSize: %d", mode, stereo, channels, frameSize)
 
 			// Create decoder
-			dec, err := gopus.NewDecoderDefault(48000, channels)
+			dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 			if err != nil {
 				t.Fatalf("Failed to create decoder: %v", err)
 			}
@@ -205,7 +205,7 @@ func TestCELTSinglePacketDecode(t *testing.T) {
 	frameSize := getFrameSizeFromConfig(config)
 
 	// Create decoder
-	dec, err := gopus.NewDecoderDefault(48000, channels)
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	if err != nil {
 		t.Fatalf("Failed to create decoder: %v", err)
 	}
@@ -245,7 +245,7 @@ func verifyTraceStructure(t *testing.T, trace string) {
 		minOccur int
 	}{
 		{"[CELT:header]", 1},
-		{"[CELT:energy]", 5},     // At least 5 bands of energy
+		{"[CELT:energy]", 5}, // At least 5 bands of energy
 		{"[CELT:synthesis]", 1},
 	}
 
@@ -306,7 +306,7 @@ func TestCELTEnergyProgression(t *testing.T) {
 	frameSize := getFrameSizeFromConfig(config)
 
 	// Create decoder
-	dec, err := gopus.NewDecoderDefault(48000, channels)
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	if err != nil {
 		t.Fatalf("Failed to create decoder: %v", err)
 	}
@@ -444,7 +444,7 @@ func TestCELTDecodeStageVerification(t *testing.T) {
 	frameSize := getFrameSizeFromConfig(config)
 
 	// Create decoder
-	dec, err := gopus.NewDecoderDefault(48000, channels)
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	if err != nil {
 		t.Fatalf("Failed to create decoder: %v", err)
 	}

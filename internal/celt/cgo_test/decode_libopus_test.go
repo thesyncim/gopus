@@ -38,7 +38,7 @@ func TestDecodePacketVsLibopus(t *testing.T) {
 			}
 
 			// Decode with gopus
-			goDec, _ := gopus.NewDecoderDefault(48000, channels)
+			goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 			goPcm, decErr := decodeFloat32(goDec, pkt)
 			if decErr != nil {
 				t.Errorf("gopus decode failed: %v", decErr)
@@ -85,7 +85,7 @@ func TestDecodeDivergencePoint(t *testing.T) {
 	channels := 2
 
 	// Create persistent decoders
-	goDec, _ := gopus.NewDecoderDefault(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec, err := NewLibopusDecoder(48000, channels)
 	if err != nil || libDec == nil {
 		t.Fatalf("Failed to create libopus decoder")
@@ -176,7 +176,7 @@ func TestDecodeAllPacketsSNR(t *testing.T) {
 
 	channels := 2
 
-	goDec, _ := gopus.NewDecoderDefault(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec, err := NewLibopusDecoder(48000, channels)
 	if err != nil || libDec == nil {
 		t.Fatalf("Failed to create libopus decoder")
@@ -284,7 +284,7 @@ func TestAnalyzeSNRByFrameSize(t *testing.T) {
 
 	channels := 2
 
-	goDec, _ := gopus.NewDecoderDefault(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec, err := NewLibopusDecoder(48000, channels)
 	if err != nil || libDec == nil {
 		t.Fatalf("Failed to create libopus decoder")
@@ -425,7 +425,7 @@ func TestAnalyzeBadMonoPacket(t *testing.T) {
 	targetPacket := 31 // Very bad mono packet (4.8 dB SNR)
 
 	// Create fresh decoders and decode up to target
-	goDec, _ := gopus.NewDecoderDefault(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec, err := NewLibopusDecoder(48000, channels)
 	if err != nil || libDec == nil {
 		t.Fatalf("Failed to create libopus decoder")
@@ -513,7 +513,7 @@ func TestAnalyzeFirstPacket(t *testing.T) {
 	channels := 2
 
 	// Create fresh decoders for packet 0
-	goDec, _ := gopus.NewDecoderDefault(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec, err := NewLibopusDecoder(48000, channels)
 	if err != nil || libDec == nil {
 		t.Fatalf("Failed to create libopus decoder")
@@ -590,7 +590,7 @@ func TestAnalyzeWorstPacket(t *testing.T) {
 	}
 
 	// Decode all packets up to the worst one to establish correct state
-	goDec, _ := gopus.NewDecoderDefault(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec, err := NewLibopusDecoder(48000, channels)
 	if err != nil || libDec == nil {
 		t.Fatalf("Failed to create libopus decoder")
@@ -708,7 +708,7 @@ func TestAnalyzeBadPacketPattern(t *testing.T) {
 
 	channels := 2
 
-	goDec, _ := gopus.NewDecoderDefault(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec, err := NewLibopusDecoder(48000, channels)
 	if err != nil || libDec == nil {
 		t.Fatalf("Failed to create libopus decoder")
@@ -819,7 +819,7 @@ func TestFindFirstBadPacket(t *testing.T) {
 
 	channels := 2
 
-	goDec, _ := gopus.NewDecoderDefault(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec, err := NewLibopusDecoder(48000, channels)
 	if err != nil || libDec == nil {
 		t.Fatalf("Failed to create libopus decoder")

@@ -36,7 +36,7 @@ func TestCompareCoefficients25ms(t *testing.T) {
 
 	// Find the first 2.5ms CELT packet after syncing decoders
 	channels := 1
-	goDec, _ := gopus.NewDecoderDefault(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec, _ := NewLibopusDecoder(48000, channels)
 	defer libDec.Destroy()
 

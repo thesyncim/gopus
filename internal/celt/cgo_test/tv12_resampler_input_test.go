@@ -25,7 +25,7 @@ func TestTV12ResamplerInputCompare(t *testing.T) {
 	var gopusDelayBufBefore [12]int16
 	var gopusDelayBufAfter [12]int16
 	{
-		goDec, _ := gopus.NewDecoderDefault(48000, 1)
+		goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 		silkDec := goDec.GetSILKDecoder()
 
 		// Process packets 0-136

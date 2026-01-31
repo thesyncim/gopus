@@ -34,7 +34,7 @@ func TestTV12ResamplerResetComparison(t *testing.T) {
 		libOut826[0], libOut826[1], libOut826[2], libOut826[3], libOut826[4])
 
 	// Create two gopus decoders: one with reset (default), one without
-	goDec1, _ := gopus.NewDecoderDefault(48000, 1) // Will reset (default behavior)
+	goDec1, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1)) // Will reset (default behavior)
 
 	// Process packets 0-825 through gopus
 	for i := 0; i <= 825; i++ {
@@ -97,7 +97,7 @@ func TestTV12ResamplerResetComparison(t *testing.T) {
 	t.Logf("Decoder 1 Process() call count: %d, last process ID: %d", nbRes.GetDebugProcessCallCount(), nbRes.GetDebugLastProcessID())
 
 	// Create another decoder and decode WITHOUT reset
-	goDec2, _ := gopus.NewDecoderDefault(48000, 1)
+	goDec2, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	for i := 0; i <= 825; i++ {
 		decodeFloat32(goDec2, packets[i])
 	}

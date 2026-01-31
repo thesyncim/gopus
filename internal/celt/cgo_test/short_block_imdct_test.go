@@ -68,7 +68,7 @@ func TestShortBlockSynthesisViaDecoder(t *testing.T) {
 	channels := 1
 
 	// Create decoders
-	goDec, _ := gopus.NewDecoderDefault(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec, _ := NewLibopusDecoder(48000, channels)
 	defer libDec.Destroy()
 
@@ -178,7 +178,7 @@ func TestIsolateTransientFrame(t *testing.T) {
 	channels := 1
 
 	// Decode packets until we find a transient frame (low SNR)
-	goDec, _ := gopus.NewDecoderDefault(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec, _ := NewLibopusDecoder(48000, channels)
 	defer libDec.Destroy()
 
@@ -220,7 +220,7 @@ func TestIsolateTransientFrame(t *testing.T) {
 	}
 
 	// Now create fresh decoders and decode up to and including the problem frame
-	goDec2, _ := gopus.NewDecoderDefault(48000, channels)
+	goDec2, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec2, _ := NewLibopusDecoder(48000, channels)
 	defer libDec2.Destroy()
 

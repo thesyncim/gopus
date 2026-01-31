@@ -33,7 +33,7 @@ func TestPreDeemphSamplesCompare(t *testing.T) {
 	}
 
 	// Create decoders
-	goDec, _ := gopus.NewDecoderDefault(48000, 1)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	libDec, _ := NewLibopusDecoder(48000, 1)
 	defer libDec.Destroy()
 
@@ -136,7 +136,7 @@ func TestFreshDecodeEachPacket(t *testing.T) {
 
 	for i := 996; i < 1005 && i < len(packets); i++ {
 		// Create fresh decoders for each packet
-		goDec, _ := gopus.NewDecoderDefault(48000, 1)
+		goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 		libDec, _ := NewLibopusDecoder(48000, 1)
 
 		pkt := packets[i]
@@ -191,7 +191,7 @@ func TestIsolateFrameSizeTransition(t *testing.T) {
 	t.Log("")
 
 	// Sync decoders to packet 994
-	goDec, _ := gopus.NewDecoderDefault(48000, 1)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	libDec, _ := NewLibopusDecoder(48000, 1)
 	defer libDec.Destroy()
 
@@ -272,7 +272,7 @@ func TestFindFirstDegradedPacket(t *testing.T) {
 		offset += int(pktLen)
 	}
 
-	goDec, _ := gopus.NewDecoderDefault(48000, 1)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	libDec, _ := NewLibopusDecoder(48000, 1)
 	defer libDec.Destroy()
 

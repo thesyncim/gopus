@@ -32,7 +32,7 @@ func TestOverlapBufferAfterTransient(t *testing.T) {
 		offset += int(pktLen)
 	}
 
-	goDec, _ := gopus.NewDecoderDefault(48000, 2)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	libDec, _ := NewLibopusDecoder(48000, 2)
 	defer libDec.Destroy()
 
@@ -101,7 +101,7 @@ func TestDetailedFrameComparison(t *testing.T) {
 		offset += int(pktLen)
 	}
 
-	goDec, _ := gopus.NewDecoderDefault(48000, 2)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	libDec, _ := NewLibopusDecoder(48000, 2)
 	defer libDec.Destroy()
 

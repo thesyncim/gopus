@@ -19,7 +19,7 @@ func TestTV12BandwidthTransition(t *testing.T) {
 	}
 
 	// Create 48kHz mono decoders
-	goDec, err := gopus.NewDecoderDefault(48000, 1)
+	goDec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestTV12AllBandwidthTransitions(t *testing.T) {
 		t.Skip("Could not load packets")
 	}
 
-	goDec, err := gopus.NewDecoderDefault(48000, 1)
+	goDec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -111,11 +111,6 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 	}, nil
 }
 
-// NewDecoderDefault creates a decoder using default caps for the given stream format.
-func NewDecoderDefault(sampleRate, channels int) (*Decoder, error) {
-	return NewDecoder(DefaultDecoderConfig(sampleRate, channels))
-}
-
 // Decode decodes an Opus packet into float32 PCM samples.
 //
 // data: Opus packet data, or nil for Packet Loss Concealment (PLC).

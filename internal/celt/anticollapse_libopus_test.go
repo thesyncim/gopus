@@ -166,7 +166,7 @@ func compareAntiCollapseOutput(t *testing.T, signalGen func(int) []float32, fram
 	}
 
 	// Decode with gopus
-	dec, err := gopus.NewDecoderDefault(48000, 1)
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		t.Fatalf("Failed to create gopus decoder: %v", err)
 	}

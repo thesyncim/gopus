@@ -37,7 +37,7 @@ func TestTransientSynthesisDetail(t *testing.T) {
 	channels := 2
 
 	// Decode packets 0-60 to build up state
-	goDec, _ := gopus.NewDecoderDefault(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec, _ := NewLibopusDecoder(48000, channels)
 	defer libDec.Destroy()
 
@@ -208,7 +208,7 @@ func TestCompareIMDCTOutputShortBlock(t *testing.T) {
 	}
 
 	// Get fresh decoders
-	goDec, _ := gopus.NewDecoderDefault(48000, 2)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	libDec, _ := NewLibopusDecoder(48000, 2)
 	defer libDec.Destroy()
 
@@ -302,7 +302,7 @@ func TestOverlapBufferTransient(t *testing.T) {
 		offset += int(pktLen)
 	}
 
-	goDec, _ := gopus.NewDecoderDefault(48000, 2)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 
 	// Decode up to packet 60
 	for i := 0; i <= 60 && i < len(packets); i++ {

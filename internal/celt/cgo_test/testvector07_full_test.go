@@ -33,7 +33,7 @@ func TestTestvector07FullAnalysis(t *testing.T) {
 	}
 
 	channels := 1
-	goDec, _ := gopus.NewDecoderDefault(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec, _ := NewLibopusDecoder(48000, channels)
 	defer libDec.Destroy()
 

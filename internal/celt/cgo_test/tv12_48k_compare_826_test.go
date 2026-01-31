@@ -18,7 +18,7 @@ func TestTV12_48kCompare826(t *testing.T) {
 	}
 
 	// Create gopus decoder (full Opus path, 48kHz output)
-	goDec, _ := gopus.NewDecoderDefault(48000, 1)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 
 	// Create libopus decoder (48kHz output)
 	libDec, _ := NewLibopusDecoder(48000, 1)

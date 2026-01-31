@@ -55,7 +55,7 @@ func TestShortFrameHandling(t *testing.T) {
 		startIdx = 0
 	}
 
-	goDec, _ := gopus.NewDecoderDefault(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec, _ := NewLibopusDecoder(48000, channels)
 	defer libDec.Destroy()
 
@@ -167,7 +167,7 @@ func TestIsolateWorstPacket(t *testing.T) {
 	// Let's decode up to that point
 	targetIdx := 3307
 
-	goDec, _ := gopus.NewDecoderDefault(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec, _ := NewLibopusDecoder(48000, channels)
 	defer libDec.Destroy()
 
@@ -181,7 +181,7 @@ func TestIsolateWorstPacket(t *testing.T) {
 	t.Logf("\nAnalyzing packets around worst packet %d:", targetIdx)
 
 	// Create fresh decoders and decode up to targetIdx-5
-	goDec2, _ := gopus.NewDecoderDefault(48000, channels)
+	goDec2, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec2, _ := NewLibopusDecoder(48000, channels)
 	defer libDec2.Destroy()
 

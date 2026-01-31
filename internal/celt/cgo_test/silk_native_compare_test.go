@@ -62,7 +62,7 @@ func TestSilkNativeVsUpsampled(t *testing.T) {
 		}
 
 		// Now decode with full resampling and compare
-		goDec, _ := gopus.NewDecoderDefault(48000, 1)
+		goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 		goPcm, decErr := decodeFloat32(goDec, pkt)
 		if decErr != nil {
 			t.Logf("  gopus full decode failed: %v", decErr)
