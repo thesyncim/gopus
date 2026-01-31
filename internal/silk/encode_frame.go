@@ -11,6 +11,8 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	numSubframes := 4 // 20ms frame = 4 subframes
 
 	// Check if we have a pre-set range encoder (hybrid mode)
+	// Note: rangeEncoder is set externally via SetRangeEncoder() for hybrid mode.
+	// In standalone mode, rangeEncoder should be nil at the start of each frame.
 	useSharedEncoder := e.rangeEncoder != nil
 
 	if !useSharedEncoder {
@@ -111,10 +113,9 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 		// Hybrid mode: caller manages the range encoder, return nil
 		return nil
 	}
-	// Standalone mode: finalize and clear the range encoder
-	// CRITICAL: Must clear rangeEncoder so next frame creates a fresh one
-	// Otherwise, subsequent frames will see rangeEncoder != nil and assume
-	// hybrid mode, returning nil instead of encoded bytes
+
+	// Standalone mode: get the encoded bytes and clear the range encoder
+	// so the next frame creates a fresh one
 	result := e.rangeEncoder.Done()
 	e.rangeEncoder = nil
 	return result
