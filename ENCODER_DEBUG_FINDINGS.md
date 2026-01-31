@@ -28,11 +28,12 @@
 ### Agent Worktrees
 | Agent | Worktree Path | Branch | Focus Area | Status |
 |-------|--------------|--------|------------|--------|
-| agent-1 | gopus-worktrees/agent-1 | fix-agent-1 | Range Coder | Active |
-| agent-2 | gopus-worktrees/agent-2 | fix-agent-2 | CELT Energy Encoding | Active |
-| agent-3 | gopus-worktrees/agent-3 | fix-agent-3 | PVQ Encoding | Active |
-| agent-4 | gopus-worktrees/agent-4 | fix-agent-4 | Band Allocation | Active |
-| agent-5 | gopus-worktrees/agent-5 | fix-agent-5 | SILK Encoder | Active |
+| agent-1 | gopus-worktrees/agent-1 | fix-agent-1 | Range Coder | Complete - Verified Correct |
+| agent-2 | gopus-worktrees/agent-2 | fix-agent-2 | CELT Energy Encoding | Complete - Bug Fixed |
+| agent-3 | gopus-worktrees/agent-3 | fix-agent-3 | PVQ Encoding | Complete - Verified Correct |
+| agent-4 | gopus-worktrees/agent-4 | fix-agent-4 | Band Allocation | Complete - Verified Correct |
+| agent-5 | gopus-worktrees/agent-5 | fix-agent-5 | SILK Encoder | Complete - Major Fixes Applied |
+| agent-6 | gopus-worktrees/agent-6 | fix-agent-6 | MDCT Computation | Complete - Verified Correct |
 
 ---
 
@@ -766,6 +767,137 @@ Signal correlation improved from -0.1 to +0.30. The encoder now produces usable 
 **Commits:**
 - `8162eb5`: ICDF table fixes for encoder-decoder compatibility
 - `ddd1e06`: computeLogGainIndex fix using GainDequantTable binary search
+
+---
+
+### MDCT Investigation (Agent 6)
+
+**Date**: 2026-01-31
+**Worktree**: `/Users/thesyncim/GolandProjects/gopus-worktrees/agent-6`
+**Branch**: `fix-agent-6`
+
+#### Summary
+
+Investigated MDCT (Modified Discrete Cosine Transform) computation including forward MDCT, inverse MDCT, pre-emphasis filter, and window function. **MDCT implementation is verified correct and bit-exact with libopus.**
+
+#### Files Examined
+
+1. **`internal/celt/mdct.go`** - IMDCT (Inverse MDCT) implementation
+   - `IMDCT()` - FFT-based inverse MDCT
+   - `IMDCTDirect()` - Direct computation (reference)
+   - `imdctOverlapWithPrev()` - Overlap-add synthesis
+   - Trig table generation for sine/cosine
+
+2. **`internal/celt/mdct_encode.go`** - Forward MDCT implementation
+   - `MDCT()` - FFT-based forward MDCT
+   - `mdctForwardOverlap()` - Overlap handling for encoding
+   - `ComputeMDCTWithHistory()` - Full MDCT with frame history
+
+3. **`internal/celt/preemph.go`** - Pre-emphasis filter
+   - `ApplyPreemphasis()` - y[n] = x[n] - 0.85*x[n-1]
+   - Coefficient matches libopus CELT_PREEMPH = 0.85
+
+4. **`internal/celt/window.go`** - Vorbis window function
+   - `VorbisWindow()` - sin(0.5*pi*sin(0.5*pi*(i+0.5)/overlap)^2)
+   - Pre-computed window coefficients
+
+5. **Reference: `tmp_check/opus-1.6.1/celt/mdct.c`** - libopus MDCT
+   - `clt_mdct_forward()` - Forward MDCT
+   - `clt_mdct_backward()` - Inverse MDCT
+
+#### Tests Run
+
+1. **CGO Comparison Tests Against libopus** - ALL PASS
+   ```
+   TestMDCTForwardVsLibopus - PASS
+     - Forward MDCT: SNR > 138 dB (essentially bit-exact)
+     - All frame sizes tested: 120, 240, 480, 960 samples
+
+   TestMDCTInverseVsLibopus - PASS
+     - Inverse MDCT: SNR > 138 dB
+     - All overlap sizes verified
+
+   TestShortBlockMDCTVsLibopus - PASS
+     - Short block MDCT (8 blocks of 120 samples): SNR > 87 dB per block
+     - Used for transient mode
+
+   TestPreemphasisVsLibopus - PASS
+     - Max difference: ~0.1 in 32768-scaled domain (acceptable float precision)
+
+   TestWindowVsLibopus - PASS
+     - Window coefficients match libopus exactly (<1e-6 difference)
+   ```
+
+2. **Unit Tests** - ALL PASS
+   ```
+   TestMDCT - PASS (forward/inverse roundtrip)
+   TestMDCTDeterminism - PASS
+   TestMDCTEnergy - PASS (Parseval's theorem)
+   TestMDCTShortBlocks - PASS
+   ```
+
+#### Comparison with libopus
+
+| Component | gopus | libopus | Match | SNR |
+|-----------|-------|---------|-------|-----|
+| Forward MDCT | `MDCT()` | `clt_mdct_forward()` | YES | >138 dB |
+| Inverse MDCT | `IMDCT()` | `clt_mdct_backward()` | YES | >138 dB |
+| Short Blocks | `MDCTShortBlock()` | Short block mode | YES | >87 dB |
+| Pre-emphasis | `ApplyPreemphasis()` | Pre-emphasis filter | YES | ~same |
+| Window | `VorbisWindow()` | Vorbis window | YES | exact |
+
+#### Fix Applied
+
+**Issue**: Build failed due to missing `computeLogGainIndexQ16` function in SILK encoder.
+
+**Location**: `internal/silk/exports.go` referenced `computeLogGainIndexQ16` but it was not implemented.
+
+**Fix**: Added the missing function to `internal/silk/gain_encode.go`:
+```go
+// computeLogGainIndexQ16 converts Q16 gain to log gain index [0, 63].
+// This is the Q16 version of computeLogGainIndex for use with fixed-point inputs.
+func computeLogGainIndexQ16(gainQ16 int32) int {
+    if gainQ16 <= 0 {
+        return 0
+    }
+    // Clamp to table range and binary search for closest index
+    // in GainDequantTable
+    ...
+}
+```
+
+**Commit**: `276a1a3` - "fix(silk): add missing computeLogGainIndexQ16 function"
+
+#### Root Cause Assessment
+
+**MDCT is NOT the cause of encoder divergence.**
+
+The MDCT implementation is verified bit-exact with libopus (SNR > 138 dB). The corrupted audio is caused by issues in other encoder stages:
+
+1. **TF Analysis** - Time-frequency analysis decisions may differ
+2. **Spread/Allocation Decisions** - How bits are distributed across bands
+3. **PVQ Encoding** - The actual quantization of normalized coefficients
+4. **Energy Encoding** - Coarse/fine energy quantization (though Agent 2 found this correct)
+
+#### Anti-Collapse Test Results
+
+As additional verification, ran anti-collapse tests which compare against libopus:
+```
+TestAntiCollapseVsLibopus - PASS
+  - transient_20ms_32k: SNR=136.74 dB
+  - transient_10ms_24k: SNR=128.51 dB
+```
+
+#### Status: Investigation Complete - MDCT Verified Correct
+
+The MDCT implementation is verified bit-exact with libopus. The issue causing audio corruption is NOT in the MDCT computation. Investigation should focus on:
+- TF (time-frequency) analysis encoding
+- Spread decision encoding
+- Dynamic allocation (dynalloc) encoding
+- PVQ encoding integration
+
+**Commits:**
+- `276a1a3`: fix(silk): add missing computeLogGainIndexQ16 function
 
 ---
 
