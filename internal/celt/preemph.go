@@ -126,36 +126,38 @@ func (e *Encoder) ApplyPreemphasisWithScaling(pcm []float64) []float64 {
 	}
 
 	output := make([]float64, len(pcm))
+	coef := float32(PreemphCoef)
 
 	if e.channels == 1 {
 		// Mono pre-emphasis with scaling
-		state := e.preemphState[0]
+		state := float32(e.preemphState[0])
 		for i := range pcm {
 			// Scale input to signal scale and apply pre-emphasis
-			scaled := pcm[i] * CELTSigScale
-			output[i] = scaled - PreemphCoef*state
+			// Match libopus float math: cast to float32 before scaling.
+			scaled := float32(pcm[i]) * float32(CELTSigScale)
+			output[i] = float64(scaled - coef*state)
 			state = scaled
 		}
-		e.preemphState[0] = state
+		e.preemphState[0] = float64(state)
 	} else {
 		// Stereo pre-emphasis (interleaved samples) with scaling
-		stateL := e.preemphState[0]
-		stateR := e.preemphState[1]
+		stateL := float32(e.preemphState[0])
+		stateR := float32(e.preemphState[1])
 
 		for i := 0; i < len(pcm)-1; i += 2 {
 			// Left channel
-			scaledL := pcm[i] * CELTSigScale
-			output[i] = scaledL - PreemphCoef*stateL
+			scaledL := float32(pcm[i]) * float32(CELTSigScale)
+			output[i] = float64(scaledL - coef*stateL)
 			stateL = scaledL
 
 			// Right channel
-			scaledR := pcm[i+1] * CELTSigScale
-			output[i+1] = scaledR - PreemphCoef*stateR
+			scaledR := float32(pcm[i+1]) * float32(CELTSigScale)
+			output[i+1] = float64(scaledR - coef*stateR)
 			stateR = scaledR
 		}
 
-		e.preemphState[0] = stateL
-		e.preemphState[1] = stateR
+		e.preemphState[0] = float64(stateL)
+		e.preemphState[1] = float64(stateR)
 	}
 
 	return output

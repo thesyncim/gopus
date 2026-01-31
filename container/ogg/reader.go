@@ -8,16 +8,16 @@ import (
 // It parses the Ogg stream and extracts Opus packets for decoding.
 type Reader struct {
 	r             io.Reader
-	Header        *OpusHead  // Parsed ID header (set after NewReader)
-	Tags          *OpusTags  // Parsed comment header (set after NewReader)
-	granulePos    uint64     // Last granule position seen
-	eos           bool       // End of stream reached
-	partialPacket []byte     // For packets spanning pages
-	serial        uint32     // Stream serial number
-	pageBuffer    []byte     // Buffer for reading pages
-	bufferOffset  int        // Current position in buffer
-	bufferLen     int        // Valid data in buffer
-	pendingPages  []*Page    // Pages read but not yet processed
+	Header        *OpusHead // Parsed ID header (set after NewReader)
+	Tags          *OpusTags // Parsed comment header (set after NewReader)
+	granulePos    uint64    // Last granule position seen
+	eos           bool      // End of stream reached
+	partialPacket []byte    // For packets spanning pages
+	pending       []packetEntry
+	serial        uint32 // Stream serial number
+	pageBuffer    []byte // Buffer for reading pages
+	bufferOffset  int    // Current position in buffer
+	bufferLen     int    // Valid data in buffer
 }
 
 // readerBufferSize is the size of the internal read buffer.
@@ -97,196 +97,85 @@ func NewReader(r io.Reader) (*Reader, error) {
 // Returns the packet data, granule position, and any error.
 // Returns io.EOF when the end of stream is reached.
 func (or *Reader) ReadPacket() (packet []byte, granulePos uint64, err error) {
+	// Drain any pending packets first.
+	if len(or.pending) > 0 {
+		entry := or.pending[0]
+		or.pending = or.pending[1:]
+		return entry.data, entry.granulePos, nil
+	}
+
 	if or.eos {
 		return nil, 0, io.EOF
 	}
 
-	// Handle partial packet from previous page.
-	if len(or.partialPacket) > 0 {
-		return or.readContinuedPacket()
-	}
-
-	// Read next page.
-	page, err := or.readPage()
-	if err != nil {
-		if err == io.EOF {
-			or.eos = true
-		}
-		return nil, 0, err
-	}
-
-	// Verify serial number.
-	if page.SerialNumber != or.serial {
-		// Different stream, skip.
-		return or.ReadPacket()
-	}
-
-	// Check for EOS.
-	if page.IsEOS() {
-		or.eos = true
-	}
-
-	or.granulePos = page.GranulePos
-
-	// Handle continuation.
-	if page.IsContinuation() {
-		// This should have been handled by partialPacket.
-		// If we get here without partial data, discard the first (incomplete) packet.
-		packets := page.Packets()
-		if len(packets) <= 1 {
-			// Only the continuation, nothing else.
-			if len(page.Segments) > 0 && page.Segments[len(page.Segments)-1] == 255 {
-				// Packet continues on next page.
-				or.partialPacket = page.Payload
-			}
-			// Try to get next packet.
-			if or.eos {
-				return nil, 0, io.EOF
-			}
-			return or.ReadPacket()
-		}
-		// Skip first (incomplete) packet, return second.
-		packet = packets[1]
-		// If there are more packets or continuation, handle them.
-		if len(packets) > 2 {
-			// Store remaining packets for later.
-			or.storeRemainingPackets(page, 2)
-		} else if len(page.Segments) > 0 && page.Segments[len(page.Segments)-1] == 255 {
-			// Last packet continues on next page.
-			or.partialPacket = packets[len(packets)-1]
-			if len(packets) > 2 {
-				packet = packets[1]
-			}
-		}
-		return packet, or.granulePos, nil
-	}
-
-	// Normal page with complete packets.
-	packets := page.Packets()
-	if len(packets) == 0 || (len(packets) == 1 && len(packets[0]) == 0) {
-		// Empty page (e.g., EOS with no data or zero-length packet).
-		if or.eos {
-			return nil, 0, io.EOF
-		}
-		return or.ReadPacket()
-	}
-
-	// Return first packet.
-	packet = packets[0]
-
-	// Check if last packet continues on next page.
-	if len(page.Segments) > 0 && page.Segments[len(page.Segments)-1] == 255 {
-		// Last packet is incomplete.
-		if len(packets) == 1 {
-			// The only packet is incomplete.
-			or.partialPacket = packets[0]
-			return or.ReadPacket()
-		}
-		// Save partial packet for later.
-		or.partialPacket = packets[len(packets)-1]
-	}
-
-	// If there are multiple packets, queue remaining for later.
-	if len(packets) > 1 {
-		// For simplicity, we return one packet at a time.
-		// Store remaining packets in a pending structure.
-		or.storePendingPackets(packets[1:], page.GranulePos)
-	}
-
-	return packet, or.granulePos, nil
-}
-
-// readContinuedPacket handles reading a packet that spans pages.
-func (or *Reader) readContinuedPacket() ([]byte, uint64, error) {
-	partial := or.partialPacket
-	or.partialPacket = nil
-
-	// Read continuation pages until packet is complete.
 	for {
-		page, err := or.readPage()
-		if err != nil {
-			return nil, 0, err
+		page, readErr := or.readPage()
+		if readErr != nil {
+			if readErr == io.EOF {
+				or.eos = true
+			}
+			return nil, 0, readErr
 		}
 
 		if page.SerialNumber != or.serial {
+			// Skip unrelated logical streams.
 			continue
 		}
+
+		if !page.IsContinuation() && len(or.partialPacket) > 0 {
+			// Dropped continuation; reset to avoid splicing unrelated packets.
+			or.partialPacket = nil
+		}
+
+		or.granulePos = page.GranulePos
+		or.appendPagePackets(page)
 
 		if page.IsEOS() {
 			or.eos = true
 		}
 
-		or.granulePos = page.GranulePos
-
-		if !page.IsContinuation() {
-			// Unexpected: expected continuation but got new packet.
-			// Discard partial and process this page.
-			return or.processPage(page)
+		if len(or.pending) > 0 {
+			entry := or.pending[0]
+			or.pending = or.pending[1:]
+			return entry.data, entry.granulePos, nil
 		}
 
-		// Append continuation data.
-		partial = append(partial, page.Payload...)
-
-		// Check if packet is complete.
-		if len(page.Segments) > 0 && page.Segments[len(page.Segments)-1] < 255 {
-			// Packet complete.
-			return partial, or.granulePos, nil
-		}
-	}
-}
-
-// processPage extracts packets from a page.
-func (or *Reader) processPage(page *Page) ([]byte, uint64, error) {
-	packets := page.Packets()
-	if len(packets) == 0 {
 		if or.eos {
 			return nil, 0, io.EOF
 		}
-		return or.ReadPacket()
 	}
-
-	packet := packets[0]
-
-	// Handle continuation on last packet.
-	if len(page.Segments) > 0 && page.Segments[len(page.Segments)-1] == 255 {
-		if len(packets) == 1 {
-			or.partialPacket = packets[0]
-			return or.ReadPacket()
-		}
-		or.partialPacket = packets[len(packets)-1]
-	}
-
-	// Queue remaining packets.
-	if len(packets) > 1 {
-		or.storePendingPackets(packets[1:], page.GranulePos)
-	}
-
-	return packet, or.granulePos, nil
 }
 
-// pendingPackets stores packets from multi-packet pages.
-type pendingPackets struct {
-	packets    [][]byte
+type packetEntry struct {
+	data       []byte
 	granulePos uint64
 }
 
-var pendingQueue []pendingPackets
+// appendPagePackets rebuilds packets across page boundaries using the segment table.
+func (or *Reader) appendPagePackets(page *Page) {
+	offset := 0
+	for _, seg := range page.Segments {
+		segLen := int(seg)
+		if offset+segLen > len(page.Payload) {
+			segLen = len(page.Payload) - offset
+		}
 
-// storePendingPackets stores packets for later retrieval.
-func (or *Reader) storePendingPackets(packets [][]byte, granulePos uint64) {
-	// For simplicity, just store in a global queue.
-	// A proper implementation would use a struct field.
-	pendingQueue = append(pendingQueue, pendingPackets{
-		packets:    packets,
-		granulePos: granulePos,
-	})
-}
+		if segLen > 0 {
+			or.partialPacket = append(or.partialPacket, page.Payload[offset:offset+segLen]...)
+			offset += segLen
+		}
 
-// storeRemainingPackets stores remaining packets from a page.
-func (or *Reader) storeRemainingPackets(page *Page, startIdx int) {
-	packets := page.Packets()
-	if startIdx < len(packets) {
-		or.storePendingPackets(packets[startIdx:], page.GranulePos)
+		if seg < 255 {
+			if len(or.partialPacket) > 0 {
+				packetCopy := make([]byte, len(or.partialPacket))
+				copy(packetCopy, or.partialPacket)
+				or.pending = append(or.pending, packetEntry{
+					data:       packetCopy,
+					granulePos: page.GranulePos,
+				})
+			}
+			or.partialPacket = nil
+		}
 	}
 }
 

@@ -124,6 +124,83 @@ void test_normalise_bands(const float *freq, float *X, const float *bandE, int N
     }
 }
 
+// Compute spectral tilt diff like libopus alloc_trim_analysis does
+// Reference: libopus celt/celt_encoder.c lines 922-929
+// In float mode: diff += bandLogE[i+c*nbEBands] * (2 + 2*i - end)
+// diff /= C*(end-1)
+float test_compute_spectral_tilt(const float *bandLogE, int end, int C, int nbEBands) {
+    float diff = 0;
+    for (int c = 0; c < C; c++) {
+        for (int i = 0; i < end-1; i++) {
+            // In libopus float mode, SHR32(bandLogE[i], 5) is just bandLogE[i]
+            diff += bandLogE[i + c*nbEBands] * (float)(2 + 2*i - end);
+        }
+    }
+    diff /= (float)(C * (end - 1));
+    return diff;
+}
+
+// Compute full alloc_trim following libopus logic (float mode)
+// Returns: trim_index in [0, 10], also outputs intermediate values
+int test_compute_alloc_trim(
+    const float *bandLogE,
+    int end,
+    int C,
+    int nbEBands,
+    int equivRate,
+    float tfEstimate,
+    float surroundTrim,
+    float tonalitySlope,
+    float *out_diff,
+    float *out_tiltAdjust,
+    float *out_baseTrim,
+    float *out_tfAdjust)
+{
+    // Base trim
+    float trim = 5.0f;
+    if (equivRate < 64000) {
+        trim = 4.0f;
+    } else if (equivRate < 80000) {
+        float frac = (float)(equivRate - 64000) / 16000.0f;
+        trim = 4.0f + frac;
+    }
+    *out_baseTrim = trim;
+
+    // Spectral tilt
+    float diff = test_compute_spectral_tilt(bandLogE, end, C, nbEBands);
+    *out_diff = diff;
+
+    // Tilt adjust: trim -= max(-2, min(2, (diff+1)/6))
+    float tiltAdjust = (diff + 1.0f) / 6.0f;
+    if (tiltAdjust < -2.0f) tiltAdjust = -2.0f;
+    if (tiltAdjust > 2.0f) tiltAdjust = 2.0f;
+    *out_tiltAdjust = tiltAdjust;
+    trim -= tiltAdjust;
+
+    // Surround trim (no-op for 0)
+    trim -= surroundTrim;
+
+    // TF estimate: trim -= 2*tfEstimate
+    float tfAdjust = 2.0f * tfEstimate;
+    *out_tfAdjust = tfAdjust;
+    trim -= tfAdjust;
+
+    // Tonality slope
+    if (tonalitySlope != 0.0f) {
+        float tonalAdjust = 2.0f * (tonalitySlope + 0.05f);
+        if (tonalAdjust < -2.0f) tonalAdjust = -2.0f;
+        if (tonalAdjust > 2.0f) tonalAdjust = 2.0f;
+        trim -= tonalAdjust;
+    }
+
+    // Final rounding and clamping
+    int trimIndex = (int)floorf(0.5f + trim);
+    if (trimIndex < 0) trimIndex = 0;
+    if (trimIndex > 10) trimIndex = 10;
+
+    return trimIndex;
+}
+
 */
 import "C"
 
@@ -239,4 +316,59 @@ func NormaliseLibopusBands(freq []float32, bandE []float32, N, nbBands, LM int) 
 	)
 
 	return X
+}
+
+// AllocTrimResult holds the results of alloc_trim computation
+type AllocTrimResult struct {
+	TrimIndex  int
+	Diff       float32 // Spectral tilt diff
+	TiltAdjust float32 // Clamped (diff+1)/6
+	BaseTrim   float32 // Base trim from equiv_rate
+	TfAdjust   float32 // 2*tfEstimate
+}
+
+// ComputeLibopusAllocTrim computes allocation trim following libopus logic
+func ComputeLibopusAllocTrim(bandLogE []float32, end, channels, nbEBands, equivRate int, tfEstimate, surroundTrim, tonalitySlope float32) AllocTrimResult {
+	if len(bandLogE) == 0 {
+		return AllocTrimResult{}
+	}
+
+	var outDiff, outTiltAdjust, outBaseTrim, outTfAdjust C.float
+
+	trimIndex := C.test_compute_alloc_trim(
+		(*C.float)(unsafe.Pointer(&bandLogE[0])),
+		C.int(end),
+		C.int(channels),
+		C.int(nbEBands),
+		C.int(equivRate),
+		C.float(tfEstimate),
+		C.float(surroundTrim),
+		C.float(tonalitySlope),
+		&outDiff,
+		&outTiltAdjust,
+		&outBaseTrim,
+		&outTfAdjust,
+	)
+
+	return AllocTrimResult{
+		TrimIndex:  int(trimIndex),
+		Diff:       float32(outDiff),
+		TiltAdjust: float32(outTiltAdjust),
+		BaseTrim:   float32(outBaseTrim),
+		TfAdjust:   float32(outTfAdjust),
+	}
+}
+
+// ComputeLibopusSpectralTilt computes just the spectral tilt diff
+func ComputeLibopusSpectralTilt(bandLogE []float32, end, channels, nbEBands int) float32 {
+	if len(bandLogE) == 0 {
+		return 0
+	}
+
+	return float32(C.test_compute_spectral_tilt(
+		(*C.float)(unsafe.Pointer(&bandLogE[0])),
+		C.int(end),
+		C.int(channels),
+		C.int(nbEBands),
+	))
 }

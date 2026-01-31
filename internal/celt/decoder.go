@@ -692,6 +692,9 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 			k = bitsToK(pulses[i], width)
 		}
 		DefaultTracer.TraceAllocation(i, pulses[i], k)
+		if ft, ok := DefaultTracer.(FineBitsTracer); ok {
+			ft.TraceFineBits(i, fineQuant[i])
+		}
 	}
 
 	d.DecodeFineEnergy(energies, end, fineQuant)

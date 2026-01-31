@@ -137,10 +137,13 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	// For Frame 0, force transient=true to match libopus behavior.
 	// libopus detects transient on first frame due to energy increase from silence.
-	// Our transient analysis misses this due to zero-initialized buffers.
 	// Reference: libopus patch_transient_decision() and first frame handling.
-	// Also set tfEstimate = 0.2 to match libopus (line 2230: tf_estimate = QCONST16(.2f,14))
-	if e.frameCount == 0 && lm > 0 {
+	//
+	// IMPORTANT: Only force transient if transient_analysis didn't already detect one.
+	// If transient_analysis returned is_transient=true, USE ITS tf_estimate.
+	// The tf_estimate=0.2 override in libopus (line 2230) only happens in
+	// patch_transient_decision, which is only called when !isTransient.
+	if e.frameCount == 0 && lm > 0 && !transient {
 		transient = true
 		tfEstimate = 0.2
 	}
@@ -171,6 +174,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			copy(hist, e.overlapBuffer[:overlap])
 			mdctLong := ComputeMDCTWithHistory(preemph, hist, 1)
 			bandLogE2 = e.ComputeBandEnergies(mdctLong, nbBands, frameSize)
+			roundFloat64ToFloat32(bandLogE2)
 		} else {
 			left, right := DeinterleaveStereo(preemph)
 			overlap := Overlap
@@ -194,6 +198,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			copy(mdctLong, mdctLeftLong)
 			copy(mdctLong[len(mdctLeftLong):], mdctRightLong)
 			bandLogE2 = e.ComputeBandEnergies(mdctLong, nbBands, frameSize)
+			roundFloat64ToFloat32(bandLogE2)
 		}
 		if bandLogE2 != nil {
 			offset := 0.5 * float64(lm)
@@ -243,6 +248,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	// Step 6: Compute band energies
 	energies := e.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
+	roundFloat64ToFloat32(energies)
 	if !secondMdct {
 		bandLogE2 = make([]float64, len(energies))
 		copy(bandLogE2, energies)
@@ -293,6 +299,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 			// Recompute band energies with short block coefficients
 			energies = e.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
+			roundFloat64ToFloat32(energies)
 			// Compensate for scaling of short vs long MDCTs (libopus adds 0.5*LM to bandLogE2)
 			if bandLogE2 != nil {
 				offset := 0.5 * float64(lm)

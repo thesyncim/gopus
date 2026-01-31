@@ -15,15 +15,19 @@ import "math"
 
 // windowBuffer120 contains precomputed Vorbis window values for overlap=Overlap.
 var windowBuffer120 [Overlap]float64
+var windowBuffer120F32 [Overlap]float32
 
 // windowBuffer240 contains precomputed window for 5ms frames.
 var windowBuffer240 [240]float64
+var windowBuffer240F32 [240]float32
 
 // windowBuffer480 contains precomputed window for 10ms frames.
 var windowBuffer480 [480]float64
+var windowBuffer480F32 [480]float32
 
 // windowBuffer960 contains precomputed window for 20ms frames.
 var windowBuffer960 [960]float64
+var windowBuffer960F32 [960]float32
 
 func init() {
 	// Precompute window buffers for all frame sizes
@@ -32,21 +36,25 @@ func init() {
 	// For overlap=Overlap (2.5ms at 48kHz)
 	for i := 0; i < Overlap; i++ {
 		windowBuffer120[i] = VorbisWindow(i, Overlap)
+		windowBuffer120F32[i] = float32(windowBuffer120[i])
 	}
 
 	// For overlap=240 (2.5ms at 96kHz)
 	for i := 0; i < 240; i++ {
 		windowBuffer240[i] = VorbisWindow(i, 240)
+		windowBuffer240F32[i] = float32(windowBuffer240[i])
 	}
 
 	// For overlap=480
 	for i := 0; i < 480; i++ {
 		windowBuffer480[i] = VorbisWindow(i, 480)
+		windowBuffer480F32[i] = float32(windowBuffer480[i])
 	}
 
 	// For overlap=960
 	for i := 0; i < 960; i++ {
 		windowBuffer960[i] = VorbisWindow(i, 960)
+		windowBuffer960F32[i] = float32(windowBuffer960[i])
 	}
 }
 
@@ -91,6 +99,27 @@ func GetWindowBuffer(overlap int) []float64 {
 		window := make([]float64, overlap)
 		for i := 0; i < overlap; i++ {
 			window[i] = VorbisWindow(i, overlap)
+		}
+		return window
+	}
+}
+
+// GetWindowBufferF32 returns the precomputed float32 window buffer for the given overlap size.
+// Returns a freshly computed float32 buffer for non-standard sizes.
+func GetWindowBufferF32(overlap int) []float32 {
+	switch overlap {
+	case 120:
+		return windowBuffer120F32[:]
+	case 240:
+		return windowBuffer240F32[:]
+	case 480:
+		return windowBuffer480F32[:]
+	case 960:
+		return windowBuffer960F32[:]
+	default:
+		window := make([]float32, overlap)
+		for i := 0; i < overlap; i++ {
+			window[i] = float32(VorbisWindow(i, overlap))
 		}
 		return window
 	}
