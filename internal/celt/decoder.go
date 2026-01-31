@@ -89,6 +89,7 @@ type Decoder struct {
 	scratchPrevBandEnergy  []float64
 	scratchSilenceE        []float64
 	scratchCaps            []int
+	scratchAllocWork       []int
 }
 
 // NewDecoder creates a new CELT decoder with the given number of channels.
@@ -339,6 +340,10 @@ func (d *Decoder) ensureEnergyState(channels int) {
 		}
 		d.prevLogE2 = prev
 	}
+}
+
+func (d *Decoder) allocationScratch() []int {
+	return ensureIntSlice(&d.scratchAllocWork, MaxBands*4)
 }
 
 // prepareMonoEnergyFromStereo mirrors libopus behavior for mono streams by
@@ -696,8 +701,9 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	intensity := 0
 	dualStereo := 0
 	balance := 0
-	codedBands := cltComputeAllocation(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
-		bitsQ3, &balance, pulses, fineQuant, finePriority, d.channels, lm, rd)
+	allocScratch := d.allocationScratch()
+	codedBands := cltComputeAllocationWithScratch(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
+		bitsQ3, &balance, pulses, fineQuant, finePriority, d.channels, lm, rd, allocScratch)
 	traceRange("alloc", rd)
 
 	for i := start; i < end; i++ {
@@ -1174,8 +1180,9 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	intensity := 0
 	dualStereo := 0
 	balance := 0
-	codedBands := cltComputeAllocation(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
-		bitsQ3, &balance, pulses, fineQuant, finePriority, 1, lm, rd) // mono
+	allocScratch := d.allocationScratch()
+	codedBands := cltComputeAllocationWithScratch(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
+		bitsQ3, &balance, pulses, fineQuant, finePriority, 1, lm, rd, allocScratch) // mono
 	traceRange("alloc", rd)
 
 	// Decode fine energy for mono
@@ -1423,8 +1430,9 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	intensity := 0
 	dualStereo := 0
 	balance := 0
-	codedBands := cltComputeAllocation(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
-		bitsQ3, &balance, pulses, fineQuant, finePriority, d.channels, lm, rd)
+	allocScratch := d.allocationScratch()
+	codedBands := cltComputeAllocationWithScratch(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
+		bitsQ3, &balance, pulses, fineQuant, finePriority, d.channels, lm, rd, allocScratch)
 	traceRange("alloc", rd)
 
 	for i := start; i < end; i++ {
@@ -1765,8 +1773,9 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	intensity := 0
 	dualStereo := 0
 	balance := 0
-	codedBands := cltComputeAllocation(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
-		bitsQ3, &balance, pulses, fineQuant, finePriority, d.channels, lm, rd)
+	allocScratch := d.allocationScratch()
+	codedBands := cltComputeAllocationWithScratch(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
+		bitsQ3, &balance, pulses, fineQuant, finePriority, d.channels, lm, rd, allocScratch)
 	traceRange("alloc", rd)
 
 	d.DecodeFineEnergy(energies, end, fineQuant)
@@ -2032,8 +2041,9 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	intensity := 0
 	dualStereo := 0
 	balance := 0
-	codedBands := cltComputeAllocation(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
-		bitsQ3, &balance, pulses, fineQuant, finePriority, 1, lm, rd)
+	allocScratch := d.allocationScratch()
+	codedBands := cltComputeAllocationWithScratch(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
+		bitsQ3, &balance, pulses, fineQuant, finePriority, 1, lm, rd, allocScratch)
 	traceRange("alloc", rd)
 
 	d.DecodeFineEnergy(monoEnergies, end, fineQuant)
@@ -2265,8 +2275,9 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	intensity := 0
 	dualStereo := 0
 	balance := 0
-	codedBands := cltComputeAllocation(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
-		bitsQ3, &balance, pulses, fineQuant, finePriority, d.channels, lm, rd)
+	allocScratch := d.allocationScratch()
+	codedBands := cltComputeAllocationWithScratch(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
+		bitsQ3, &balance, pulses, fineQuant, finePriority, d.channels, lm, rd, allocScratch)
 	traceRange("alloc", rd)
 
 	d.DecodeFineEnergy(energies, end, fineQuant)

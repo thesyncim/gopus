@@ -105,6 +105,13 @@ func computeAllocation(rd *rangecoding.Decoder, totalBits, nbBands, channels int
 func cltComputeAllocation(start, end int, offsets, cap []int, allocTrim int, intensity, dualStereo *int,
 	totalBitsQ3 int, balance *int, pulses, ebits, finePriority []int, channels, lm int,
 	rd *rangecoding.Decoder) int {
+	return cltComputeAllocationWithScratch(start, end, offsets, cap, allocTrim, intensity, dualStereo,
+		totalBitsQ3, balance, pulses, ebits, finePriority, channels, lm, rd, nil)
+}
+
+func cltComputeAllocationWithScratch(start, end int, offsets, cap []int, allocTrim int, intensity, dualStereo *int,
+	totalBitsQ3 int, balance *int, pulses, ebits, finePriority []int, channels, lm int,
+	rd *rangecoding.Decoder, scratch []int) int {
 	origTotalBits := totalBitsQ3
 	lenBands := MaxBands
 	if end > lenBands {
@@ -144,10 +151,13 @@ func cltComputeAllocation(start, end int, offsets, cap []int, allocTrim int, int
 			start, end, channels, origTotalBits, intensityRsv, dualStereoRsv)
 	}
 
-	bits1 := make([]int, lenBands)
-	bits2 := make([]int, lenBands)
-	thresh := make([]int, lenBands)
-	trimOffset := make([]int, lenBands)
+	if len(scratch) < lenBands*4 {
+		scratch = make([]int, lenBands*4)
+	}
+	bits1 := scratch[:lenBands]
+	bits2 := scratch[lenBands : 2*lenBands]
+	thresh := scratch[2*lenBands : 3*lenBands]
+	trimOffset := scratch[3*lenBands : 4*lenBands]
 
 	for j := start; j < end; j++ {
 		width := EBands[j+1] - EBands[j]
