@@ -77,6 +77,11 @@ type LowbandTracer interface {
 	TraceLowband(band int, lowbandOffset int, effectiveLowband int, lowband []float64)
 }
 
+// FineBitsTracer is an optional interface for logging fine energy bits per band.
+type FineBitsTracer interface {
+	TraceFineBits(band int, bits int)
+}
+
 // EnergyFineTracer is an optional interface for logging fine energy values.
 // This is emitted after fine energy refinement is applied.
 type EnergyFineTracer interface {

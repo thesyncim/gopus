@@ -6,12 +6,21 @@
 1. **Audio Quality**: TestAudioAudibility failing with SNR=-4.39 dB (corrupted audio)
 2. **Bitstream Divergence**: TestBitExactComparison shows divergence from libopus at byte 11
 
-## Divergence Pattern (Agent 25 Update)
-- First 11 bytes (88 bits) match perfectly
-- Divergence at byte 11: gopus=0xE3 (11100011), libopus=0xE1 (11100001)
-- XOR difference: 0x02 (bit 1)
-- Position: ~88 bits into the bitstream = TF encoding region
-- This indicates the divergence is in **TF Analysis values** (not TF encoding itself)
+## Divergence Pattern (Updated 2026-01-31)
+- First 16 bytes (128 bits) now match perfectly!
+- Divergence at byte 16: gopus=0xEB (11101011), libopus=0xEA (11101010)
+- XOR difference: 0x01 (bit 0 - lowest bit)
+- Position: ~128 bits into the bitstream = Fine Energy / PVQ bands boundary
+- Previous byte 11 divergence has been FIXED
+
+### Progress Summary
+| Version | First Divergence | XOR | Component |
+|---------|-----------------|-----|-----------|
+| Earlier | Byte 7 | varies | Coarse energy region |
+| Agent 25 | Byte 11 | 0x02 | TF encoding region |
+| Current | Byte 16 | 0x01 | Fine energy/PVQ boundary |
+
+This represents significant progress: the first 128 bits now match libopus exactly!
 
 ## C Reference
 - Located at: `tmp_check/opus-1.6.1/`
@@ -49,17 +58,22 @@
 6. **CBR Packet Size (FIXED)** - Agent 24: Added Shrink() to range encoder for consistent CBR sizes
 7. **Test Harness (FIXED)** - Agent 29: Fixed pack_ec_enc() padding byte calculation
 
-### Current Divergence Point
-- **Byte 11 (~bit 88)** in TF encoding region
-- TF encoding primitive is CORRECT
-- TF **analysis** produces different tfRes values
-- Normalized coefficients are CORRECT (Agent 30 verified)
-- Issue likely in TF Viterbi cost computation or importance[] weights
+### Current Divergence Point (Updated 2026-01-31)
+- **Byte 16 (~bit 128)** at Fine Energy / PVQ bands boundary
+- Previous byte 11 issue has been RESOLVED
+- All verified CORRECT components:
+  - Range Coder (bit-exact)
+  - TF encoding (matches libopus)
+  - Normalized coefficients (0.00% diff)
+  - Allocation (exact match)
+  - Fine energy quantization (exact match)
+- Remaining divergence is **1 single bit** at byte 16
 
-### Under Investigation (Agent 28)
-- tf_estimate calculation comparison
-- importance[] array computation
-- TF Viterbi path selection differences
+### Recommended Next Steps
+- Trace exact encoding stage at bit 128
+- Compare PVQ band 0 encoding details
+- Check fine energy finalisation encoding
+- Verify anti-collapse bit encoding if applicable
 
 ## Debug Agents
 

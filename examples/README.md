@@ -6,6 +6,7 @@ Practical examples demonstrating gopus usage patterns for real-world application
 
 - Go 1.21+
 - ffmpeg/ffprobe (optional, for interoperability verification)
+- ffplay/afplay/aplay/paplay (optional, for decode-play audio playback)
 
 ## Examples
 
@@ -132,6 +133,47 @@ Creating Ogg Opus file: podcast.opus
   Compression: 31.4:1
 ```
 
+### decode-play
+
+Decodes an Ogg Opus file to WAV with optional playback, or streams raw PCM to ffplay.
+
+**What it does:**
+1. Reads Ogg Opus packets (from a file or URL)
+2. Decodes to float32 PCM with gopus
+3. Drops Opus pre-skip samples
+4. Writes 16-bit PCM WAV (optional)
+5. Plays audio via ffplay (optional, no temp files with `-pipe`)
+
+**Usage:**
+```bash
+cd examples/decode-play
+go build .
+
+# Download the default stereo sample and play via ffplay (no temp files)
+./decode-play -pipe
+
+# Play the source with ffplay first, then the gopus-decoded output
+./decode-play -pipe -ffplay-first
+
+# Decode a local file to WAV
+./decode-play -in input.opus -out output.wav
+
+# Decode and play (uses ffplay/afplay/aplay/paplay if available)
+./decode-play -in input.opus -play
+
+# Stream raw PCM directly to ffplay (no WAV file)
+./decode-play -url https://example.com/file.opus -pipe
+```
+
+**Flags:**
+- `-in`: Input Ogg Opus file (optional if `-url` is used)
+- `-url`: Download Ogg Opus file from URL (overrides `-sample`)
+- `-sample`: Preset sample to download: `stereo` (default) or `speech`
+- `-ffplay-first`: Play the source with ffplay, then the gopus-decoded output
+- `-out`: Output WAV file (defaults to `decoded.wav` if not set)
+- `-play`: Play the decoded WAV with a system player
+- `-pipe`: Stream raw PCM directly to ffplay (no temp files)
+
 ## Building All Examples
 
 ```bash
@@ -139,6 +181,7 @@ Creating Ogg Opus file: podcast.opus
 go build ./examples/ffmpeg-interop
 go build ./examples/roundtrip
 go build ./examples/ogg-file
+go build ./examples/decode-play
 
 # Or build all at once
 go build ./examples/...

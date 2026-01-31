@@ -113,10 +113,34 @@ func TestAllocTrimEncoderTrace(t *testing.T) {
 	t.Logf("  diff = %.6f", diff)
 	t.Logf("  tiltAdjust = %.6f (clamped)", tiltAdjust)
 
+	// Step 7b: Check what transient analysis actually computes
+	// Build the transient input same as encoder does
+	preemphBufSize := overlap
+	transientInputLen := (overlap + frameSize)
+	transientInput := make([]float64, transientInputLen)
+	// For first frame, preemphBuffer is zeros
+	copy(transientInput[preemphBufSize:], preemph)
+
+	transientResult := goEnc.TransientAnalysis(transientInput, frameSize+overlap, false)
+	t.Logf("\nStep 7b: Transient analysis (raw, before override)")
+	t.Logf("  IsTransient = %v", transientResult.IsTransient)
+	t.Logf("  MaskMetric = %.2f", transientResult.MaskMetric)
+	t.Logf("  TfEstimate (computed) = %.4f", transientResult.TfEstimate)
+	t.Logf("  ToneFreq = %.4f", transientResult.ToneFreq)
+	t.Logf("  Toneishness = %.4f", transientResult.Toneishness)
+
 	// Step 8: Trim calculation
 	effectiveBytes := 159 // For 64kbps CBR
 	equivRate := celt.ComputeEquivRate(effectiveBytes, 1, lm, bitrate)
-	tfEstimate := 0.2 // Forced for first frame
+
+	// Use the COMPUTED tfEstimate instead of forced 0.2
+	tfEstimateComputed := transientResult.TfEstimate
+	tfEstimateForced := 0.2
+	t.Logf("\n  Comparing trim with computed vs forced tfEstimate:")
+	t.Logf("    Computed tfEstimate = %.4f", tfEstimateComputed)
+	t.Logf("    Forced tfEstimate = %.4f", tfEstimateForced)
+
+	tfEstimate := 0.2 // Forced for first frame (current behavior)
 
 	baseTrim := 5.0
 	if equivRate < 64000 {

@@ -39,6 +39,39 @@ static int decode_and_get_samples(const unsigned char *pkt, int pkt_len,
 // Get the internal overlap buffer state from libopus (for comparison)
 // This is tricky because it requires access to internal state
 // For now, we'll use a simpler approach - compare frame outputs
+
+// ============================================================================
+// FFT Twiddle computation - matches kiss_fft.c compute_twiddles() float path
+// ============================================================================
+
+// Compute FFT twiddles exactly as libopus does for float builds
+// Reference: kiss_fft.c lines 427-431
+static void compute_fft_twiddles(float *twiddles_r, float *twiddles_i, int nfft) {
+    const double pi = 3.14159265358979323846264338327;
+    for (int i = 0; i < nfft; i++) {
+        double phase = (-2.0 * pi / (double)nfft) * (double)i;
+        twiddles_r[i] = (float)cos(phase);
+        twiddles_i[i] = (float)sin(phase);
+    }
+}
+
+// ============================================================================
+// MDCT trig computation - matches mdct.c clt_mdct_init() float path
+// ============================================================================
+
+// PI constant from celt/mathops.h
+#define LIBOPUS_PI 3.1415926535897931
+
+// Compute MDCT trig table exactly as libopus does for float builds
+// Reference: mdct.c lines 100-101
+// trig[i] = (kiss_twiddle_scalar)cos(2*PI*(i+.125)/N)
+static void compute_mdct_trig(float *trig, int N) {
+    int N2 = N >> 1;
+    for (int i = 0; i < N2; i++) {
+        trig[i] = (float)cos(2.0 * LIBOPUS_PI * ((double)i + 0.125) / (double)N);
+    }
+}
+
 */
 import "C"
 import (
@@ -94,4 +127,30 @@ func CompareWindowCoefficients(overlap int, ourWindow []float64) (maxDiff float6
 		}
 	}
 	return
+}
+
+// ComputeLibopusFFTTwiddles computes FFT twiddles using the same formula as libopus float path.
+// Returns two slices: real parts and imaginary parts.
+func ComputeLibopusFFTTwiddles(nfft int) ([]float32, []float32) {
+	twiddlesR := make([]float32, nfft)
+	twiddlesI := make([]float32, nfft)
+	C.compute_fft_twiddles(
+		(*C.float)(unsafe.Pointer(&twiddlesR[0])),
+		(*C.float)(unsafe.Pointer(&twiddlesI[0])),
+		C.int(nfft),
+	)
+	return twiddlesR, twiddlesI
+}
+
+// ComputeLibopusMDCTTrig computes MDCT trig table using the same formula as libopus float path.
+// N is the MDCT size (e.g., 1920 for 20ms at 48kHz).
+// Returns N/2 trig values.
+func ComputeLibopusMDCTTrig(N int) []float32 {
+	N2 := N / 2
+	trig := make([]float32, N2)
+	C.compute_mdct_trig(
+		(*C.float)(unsafe.Pointer(&trig[0])),
+		C.int(N),
+	)
+	return trig
 }

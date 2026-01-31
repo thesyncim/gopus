@@ -307,7 +307,7 @@ func mdctForwardOverlapF32(samples []float64, overlap int) []float64 {
 		fftIn[i] = complex(yr*scale, yi*scale)
 	}
 
-	fftOut := dft32(fftIn)
+	fftOut := kissFFT32(fftIn)
 	coeffs := make([]float64, n2)
 	for i = 0; i < n4; i++ {
 		re := real(fftOut[i])

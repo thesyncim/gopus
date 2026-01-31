@@ -423,6 +423,12 @@ func interpBits2Pulses(start, end, skipStart int, bits1, bits2, thresh, cap []in
 	return codedBands
 }
 
+// InitCaps initializes band caps for allocation.
+// Exported for testing.
+func InitCaps(nbBands, lm, channels int) []int {
+	return initCaps(nbBands, lm, channels)
+}
+
 func initCaps(nbBands, lm, channels int) []int {
 	caps := make([]int, nbBands)
 	if lm < 0 {

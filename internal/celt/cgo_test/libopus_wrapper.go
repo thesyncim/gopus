@@ -686,6 +686,8 @@ int test_decode_float(OpusDecoder* dec, const unsigned char *data, int data_len,
 // MDCT/IMDCT test functions using internal libopus modes
 #include "modes.h"
 #include "mdct.h"
+#include "kiss_fft.h"
+#include "_kiss_fft_guts.h"
 
 // Get the static mode for 48kHz / 960 samples
 CELTMode* test_get_celt_mode_48000_960() {
@@ -734,6 +736,197 @@ void test_mdct_forward(CELTMode* mode, float* in, float* out, int shift) {
 
     // Call libopus MDCT
     clt_mdct_forward(&mode->mdct, in, out, mode->window, overlap, shift, 1, 0);
+}
+
+// Get the twiddle factors from the CELT mode's MDCT lookup.
+// Returns n2 twiddle values (cos(2*pi*(i+0.125)/n) for i in [0, n2)).
+void test_get_mdct_twiddles(const CELTMode* mode, int shift, float *out) {
+    int n = mode->mdct.n >> shift;
+    int n2 = n >> 1;
+    const kiss_twiddle_scalar *trig = mode->mdct.trig;
+
+    // Advance trig pointer for shift
+    for (int i = 0; i < shift; i++) {
+        trig += (mode->mdct.n >> i) >> 1;
+    }
+
+    for (int i = 0; i < n2; i++) {
+        out[i] = trig[i];
+    }
+}
+
+// Get the FFT bitrev table.
+void test_get_fft_bitrev(const CELTMode* mode, int shift, int16_t *out, int n4) {
+    const kiss_fft_state *st = mode->mdct.kfft[shift];
+    for (int i = 0; i < n4; i++) {
+        out[i] = st->bitrev[i];
+    }
+}
+
+// Get the FFT scale factor.
+float test_get_fft_scale(const CELTMode* mode, int shift) {
+    return mode->mdct.kfft[shift]->scale;
+}
+
+// Get window values from CELT mode
+void test_get_celt_window(const CELTMode* mode, float *out) {
+    int overlap = mode->overlap;
+    for (int i = 0; i < overlap; i++) {
+        out[i] = mode->window[i];
+    }
+}
+
+// Perform MDCT forward and expose intermediate stages.
+// stage 0: window/fold output (f buffer, size n2)
+// stage 1: pre-rotation output in sequential order (before bitrev, size n4*2)
+// stage 2: FFT input in bitrev order (f2 buffer, size n4*2)
+// stage 3: FFT output (f2 buffer after opus_fft_impl, size n4*2)
+// stage 4: final MDCT coefficients (size n2)
+void test_mdct_forward_stages(
+    const CELTMode* mode, const float* in, float* stage_out,
+    int shift, int stage)
+{
+    int n = mode->mdct.n >> shift;
+    int n2 = n >> 1;
+    int n4 = n >> 2;
+    int overlap = mode->overlap;
+    const kiss_fft_state *st = mode->mdct.kfft[shift];
+    const kiss_twiddle_scalar *trig = mode->mdct.trig;
+    float scale = st->scale;
+    int i;
+
+    // Advance trig pointer for shift
+    for (i = 0; i < shift; i++) {
+        trig += (mode->mdct.n >> i) >> 1;
+    }
+
+    // Allocate intermediate buffers
+    float *f = (float*)malloc(n2 * sizeof(float));
+    kiss_fft_cpx *f2 = (kiss_fft_cpx*)malloc(n4 * sizeof(kiss_fft_cpx));
+
+    // Stage 0: Window, shuffle, fold
+    {
+        const float *xp1 = in + (overlap >> 1);
+        const float *xp2 = in + n2 - 1 + (overlap >> 1);
+        float *yp = f;
+        const float *wp1 = mode->window + (overlap >> 1);
+        const float *wp2 = mode->window + (overlap >> 1) - 1;
+
+        for (i = 0; i < ((overlap + 3) >> 2); i++) {
+            *yp++ = xp1[n2] * (*wp2) + (*xp2) * (*wp1);
+            *yp++ = (*xp1) * (*wp1) - xp2[-n2] * (*wp2);
+            xp1 += 2;
+            xp2 -= 2;
+            wp1 += 2;
+            wp2 -= 2;
+        }
+        wp1 = mode->window;
+        wp2 = mode->window + overlap - 1;
+        for (; i < n4 - ((overlap + 3) >> 2); i++) {
+            *yp++ = *xp2;
+            *yp++ = *xp1;
+            xp1 += 2;
+            xp2 -= 2;
+        }
+        for (; i < n4; i++) {
+            *yp++ = -xp1[-n2] * (*wp1) + (*xp2) * (*wp2);
+            *yp++ = (*xp1) * (*wp2) + xp2[n2] * (*wp1);
+            xp1 += 2;
+            xp2 -= 2;
+            wp1 += 2;
+            wp2 -= 2;
+        }
+    }
+
+    if (stage == 0) {
+        memcpy(stage_out, f, n2 * sizeof(float));
+        free(f);
+        free(f2);
+        return;
+    }
+
+    // Stage 1: Pre-rotation (before bitrev storage) - output sequential order
+    if (stage == 1) {
+        float *yp = f;
+        for (i = 0; i < n4; i++) {
+            float t0 = trig[i];
+            float t1 = trig[n4 + i];
+            float re = *yp++;
+            float im = *yp++;
+            float yr = re * t0 - im * t1;
+            float yi = im * t0 + re * t1;
+            stage_out[2*i] = yr * scale;
+            stage_out[2*i+1] = yi * scale;
+        }
+        free(f);
+        free(f2);
+        return;
+    }
+
+    // Store in bitrev order for FFT
+    {
+        float *yp = f;
+        for (i = 0; i < n4; i++) {
+            kiss_fft_cpx yc;
+            float t0 = trig[i];
+            float t1 = trig[n4 + i];
+            float re = *yp++;
+            float im = *yp++;
+            float yr = re * t0 - im * t1;
+            float yi = im * t0 + re * t1;
+            yc.r = yr * scale;
+            yc.i = yi * scale;
+            f2[st->bitrev[i]] = yc;
+        }
+    }
+
+    if (stage == 2) {
+        // Output FFT input (in bitrev order)
+        for (i = 0; i < n4; i++) {
+            stage_out[2*i] = f2[i].r;
+            stage_out[2*i+1] = f2[i].i;
+        }
+        free(f);
+        free(f2);
+        return;
+    }
+
+    // Stage 3: FFT
+    opus_fft_impl(st, f2);
+
+    if (stage == 3) {
+        // Output FFT output
+        for (i = 0; i < n4; i++) {
+            stage_out[2*i] = f2[i].r;
+            stage_out[2*i+1] = f2[i].i;
+        }
+        free(f);
+        free(f2);
+        return;
+    }
+
+    // Stage 4: Post-rotation
+    {
+        const kiss_fft_cpx *fp = f2;
+        float *yp1 = stage_out;
+        float *yp2 = stage_out + n2 - 1;
+
+        for (i = 0; i < n4; i++) {
+            float yr, yi;
+            float t0 = trig[i];
+            float t1 = trig[n4 + i];
+            yr = fp->i * t1 - fp->r * t0;
+            yi = fp->r * t1 + fp->i * t0;
+            *yp1 = yr;
+            *yp2 = yi;
+            fp++;
+            yp1 += 2;
+            yp2 -= 2;
+        }
+    }
+
+    free(f);
+    free(f2);
 }
 
 // Test LPC analysis filter with provided data
@@ -2061,6 +2254,66 @@ func (m *CELTMode) GetWindow() []float32 {
 		window[i] = float32(*(*C.float)(unsafe.Pointer(uintptr(unsafe.Pointer(cWindow)) + uintptr(i)*unsafe.Sizeof(*cWindow))))
 	}
 	return window
+}
+
+// GetMDCTTwiddles returns the twiddle factors for MDCT at the given shift.
+func (m *CELTMode) GetMDCTTwiddles(shift int) []float32 {
+	nfft := m.MDCTSize(shift)
+	n2 := nfft / 2
+	trig := make([]float32, n2)
+	C.test_get_mdct_twiddles(m.mode, C.int(shift), (*C.float)(unsafe.Pointer(&trig[0])))
+	return trig
+}
+
+// GetFFTBitrev returns the FFT bit-reversal table for the given shift.
+func (m *CELTMode) GetFFTBitrev(shift int) []int16 {
+	nfft := m.MDCTSize(shift)
+	n4 := nfft / 4
+	bitrev := make([]int16, n4)
+	C.test_get_fft_bitrev(m.mode, C.int(shift), (*C.int16_t)(unsafe.Pointer(&bitrev[0])), C.int(n4))
+	return bitrev
+}
+
+// GetFFTScale returns the FFT scale factor (1.0/n4 for float).
+func (m *CELTMode) GetFFTScale(shift int) float32 {
+	return float32(C.test_get_fft_scale(m.mode, C.int(shift)))
+}
+
+// GetCELTWindow returns the CELT mode window values.
+func (m *CELTMode) GetCELTWindow() []float32 {
+	overlap := m.Overlap()
+	window := make([]float32, overlap)
+	C.test_get_celt_window(m.mode, (*C.float)(unsafe.Pointer(&window[0])))
+	return window
+}
+
+// MDCTForwardStage computes a specific stage of the MDCT forward transform.
+// Stages:
+//   - 0: window/fold output (size n2)
+//   - 1: pre-rotation output in sequential order (size n4*2)
+//   - 2: FFT input in bitrev order (size n4*2)
+//   - 3: FFT output (size n4*2)
+//   - 4: final MDCT coefficients (size n2)
+func (m *CELTMode) MDCTForwardStage(input []float32, shift int, stage int) []float32 {
+	nfft := m.MDCTSize(shift)
+	n2 := nfft / 2
+	n4 := nfft / 4
+
+	var outputSize int
+	switch stage {
+	case 0, 4:
+		outputSize = n2
+	case 1, 2, 3:
+		outputSize = n4 * 2
+	default:
+		return nil
+	}
+
+	output := make([]float32, outputSize)
+	cIn := (*C.float)(unsafe.Pointer(&input[0]))
+	cOut := (*C.float)(unsafe.Pointer(&output[0]))
+	C.test_mdct_forward_stages(m.mode, cIn, cOut, C.int(shift), C.int(stage))
+	return output
 }
 
 // SilkLPCAnalysisFilter calls libopus silk_LPC_analysis_filter.
