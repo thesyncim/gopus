@@ -27,7 +27,7 @@ func TestStereoPacketByPacket(t *testing.T) {
 	}
 
 	// Create decoders
-	goDec, err := gopus.NewDecoder(48000, channels)
+	goDec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestStereoPacketByPacket(t *testing.T) {
 		pktTOC := gopus.ParseTOC(pkt[0])
 
 		// Decode with Go
-		goOut, err := goDec.DecodeFloat32(pkt)
+		goOut, err := decodeFloat32(goDec, pkt)
 		goLen := 0
 		if err == nil {
 			goLen = len(goOut)
@@ -102,7 +102,7 @@ func TestCELTPacketByPacket(t *testing.T) {
 		channels = 2
 	}
 
-	goDec, _ := gopus.NewDecoder(48000, channels)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 	libDec, _ := NewLibopusDecoder(48000, channels)
 	if libDec == nil {
 		t.Skip("Could not create libopus decoder")
@@ -112,7 +112,7 @@ func TestCELTPacketByPacket(t *testing.T) {
 	for i, pkt := range packets {
 		pktTOC := gopus.ParseTOC(pkt[0])
 
-		goOut, _ := goDec.DecodeFloat32(pkt)
+		goOut, _ := decodeFloat32(goDec, pkt)
 		libOut, libN := libDec.DecodeFloat(pkt, pktTOC.FrameSize*4)
 
 		libTotal := 0

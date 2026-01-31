@@ -18,14 +18,14 @@ func TestTV12ResamplerState137(t *testing.T) {
 	}
 
 	// Create gopus decoder at 48kHz
-	goDec, _ := gopus.NewDecoder(48000, 1)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	silkDec := goDec.GetSILKDecoder()
 
 	t.Log("=== Tracing resampler state around packet 137 ===")
 
 	// Process packets 0-136 to build state
 	for i := 0; i < 137; i++ {
-		goDec.DecodeFloat32(packets[i])
+		decodeFloat32(goDec, packets[i])
 	}
 
 	// Check NB resampler state (should have state from processing)
@@ -58,7 +58,7 @@ func TestTV12ResamplerState137(t *testing.T) {
 	toc := gopus.ParseTOC(pkt[0])
 	t.Logf("Packet 137: Mode=%v BW=%d", toc.Mode, toc.Bandwidth)
 
-	goOut, _ := goDec.DecodeFloat32(pkt)
+	goOut, _ := decodeFloat32(goDec, pkt)
 	t.Logf("Output samples: %d", len(goOut))
 	t.Log("First 10 output samples:")
 	for i := 0; i < 10 && i < len(goOut); i++ {
@@ -76,7 +76,7 @@ func TestTV12ResamplerState137(t *testing.T) {
 	}
 
 	// Decode packet 138 and check state
-	goDec.DecodeFloat32(packets[138])
+	decodeFloat32(goDec, packets[138])
 	mbRes = silkDec.GetResampler(silk.BandwidthMediumband)
 	if mbRes != nil {
 		sIIR := mbRes.GetSIIR()

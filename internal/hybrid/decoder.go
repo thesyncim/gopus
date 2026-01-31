@@ -244,7 +244,8 @@ func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, pa
 			}
 		}
 	} else {
-		silkOutput, err := d.silkDecoder.DecodeFrame(
+		// Use DecodeFrameRaw since we handle sMid buffering in BuildMonoResamplerInput
+		silkOutput, err := d.silkDecoder.DecodeFrameRaw(
 			rd,
 			silk.BandwidthWideband,
 			silkDuration,

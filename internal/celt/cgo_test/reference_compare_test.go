@@ -33,7 +33,7 @@ func TestReferenceFileComparison(t *testing.T) {
 	t.Logf("Loaded %d packets, reference has %d samples", len(packets), len(reference))
 
 	// Create decoders - always stereo to match opus_demo reference output
-	goDec, err := gopus.NewDecoder(48000, 2)
+	goDec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestReferenceFileComparison(t *testing.T) {
 		toc := gopus.ParseTOC(pkt[0])
 
 		// Decode with Go
-		goOut, err := goDec.DecodeInt16Slice(pkt)
+		goOut, err := decodeInt16(goDec, pkt)
 		if err != nil {
 			t.Logf("Packet %d: Go decode error: %v", pktIdx, err)
 			// Use zeros

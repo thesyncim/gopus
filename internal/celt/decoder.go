@@ -42,6 +42,8 @@ type Decoder struct {
 
 	// Range decoder (set per frame)
 	rangeDecoder *rangecoding.Decoder
+	// rangeDecoderScratch holds a reusable decoder to avoid per-frame allocations.
+	rangeDecoderScratch rangecoding.Decoder
 
 	// Energy state (persists across frames for inter-frame prediction)
 	prevEnergy  []float64 // Previous frame band energies [MaxBands * channels]
@@ -75,6 +77,29 @@ type Decoder struct {
 
 	// Channel transition tracking (for mono-to-stereo overlap buffer clearing)
 	prevStreamChannels int // Previous packet's channel count (0 = uninitialized)
+
+	// Scratch buffers to reduce per-frame allocations (decoder is not thread-safe).
+	scratchPrevEnergy     []float64
+	scratchPrevLogE       []float64
+	scratchPrevLogE2      []float64
+	scratchEnergies       []float64
+	scratchTFRes          []int
+	scratchOffsets        []int
+	scratchPulses         []int
+	scratchFineQuant      []int
+	scratchFinePriority   []int
+	scratchPrevBandEnergy []float64
+	scratchSilenceE       []float64
+	scratchCaps           []int
+	scratchAllocWork      []int
+	scratchBands          bandDecodeScratch
+	scratchIMDCT          imdctScratch
+	scratchSynth          []float64
+	scratchSynthR         []float64
+	scratchStereo         []float64
+	scratchShortCoeffs    []float64
+	postfilterScratch     []float64
+	scratchZeros          []float64
 }
 
 // NewDecoder creates a new CELT decoder with the given number of channels.
@@ -244,10 +269,11 @@ func (d *Decoder) handleChannelTransition(streamChannels int) bool {
 			}
 		}
 
-		// Copy left channel preemphasis state to right channel for de-emphasis continuity
-		if len(d.preemphState) >= 2 {
-			d.preemphState[1] = d.preemphState[0]
-		}
+		// NOTE: preemphState is NOT copied during transition.
+		// In libopus, each channel maintains its own independent de-emphasis filter state.
+		// During mono packets on a stereo decoder, both states are updated independently
+		// (with the same input but different state histories). At transition to stereo,
+		// each channel continues with its own state - no copying is done.
 
 		return true
 	}
@@ -325,6 +351,10 @@ func (d *Decoder) ensureEnergyState(channels int) {
 		}
 		d.prevLogE2 = prev
 	}
+}
+
+func (d *Decoder) allocationScratch() []int {
+	return ensureIntSlice(&d.scratchAllocWork, MaxBands*4)
 }
 
 // prepareMonoEnergyFromStereo mirrors libopus behavior for mono streams by
@@ -530,7 +560,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	d.prepareMonoEnergyFromStereo()
 
 	// Initialize range decoder
-	rd := &rangecoding.Decoder{}
+	rd := &d.rangeDecoderScratch
 	rd.Init(data)
 	d.SetRangeDecoder(rd)
 
@@ -545,9 +575,12 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 		end = 1
 	}
 	start := 0
-	prev1Energy := append([]float64(nil), d.prevEnergy...)
-	prev1LogE := append([]float64(nil), d.prevLogE...)
-	prev2LogE := append([]float64(nil), d.prevLogE2...)
+	prev1Energy := ensureFloat64Slice(&d.scratchPrevEnergy, len(d.prevEnergy))
+	copy(prev1Energy, d.prevEnergy)
+	prev1LogE := ensureFloat64Slice(&d.scratchPrevLogE, len(d.prevLogE))
+	copy(prev1LogE, d.prevLogE)
+	prev2LogE := ensureFloat64Slice(&d.scratchPrevLogE2, len(d.prevLogE2))
+	copy(prev2LogE, d.prevLogE2)
 
 	totalBits := len(data) * 8
 	tell := rd.Tell()
@@ -559,7 +592,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	}
 	if silence {
 		samples := d.decodeSilenceFrame(frameSize, 0, 0, 0)
-		silenceE := make([]float64, MaxBands*d.channels)
+		silenceE := ensureFloat64Slice(&d.scratchSilenceE, MaxBands*d.channels)
 		for i := range silenceE {
 			silenceE[i] = -28.0
 		}
@@ -618,10 +651,10 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	}
 
 	// Step 1: Decode coarse energy
-	energies := d.DecodeCoarseEnergy(end, intra, lm)
+	energies := d.decodeCoarseEnergyInto(ensureFloat64Slice(&d.scratchEnergies, end*d.channels), end, intra, lm)
 	traceRange("coarse", rd)
 
-	tfRes := make([]int, end)
+	tfRes := ensureIntSlice(&d.scratchTFRes, end)
 	tfDecode(start, end, transient, tfRes, lm, rd)
 	traceRange("tf", rd)
 
@@ -632,8 +665,9 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	}
 	traceRange("spread", rd)
 
-	cap := initCaps(end, lm, d.channels)
-	offsets := make([]int, end)
+	cap := ensureIntSlice(&d.scratchCaps, end)
+	initCapsInto(cap, end, lm, d.channels)
+	offsets := ensureIntSlice(&d.scratchOffsets, end)
 	dynallocLogp := 6
 	totalBitsQ3 := totalBits << bitRes
 	tellFrac := rd.TellFrac()
@@ -672,14 +706,15 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	}
 	bitsQ3 -= antiCollapseRsv
 
-	pulses := make([]int, end)
-	fineQuant := make([]int, end)
-	finePriority := make([]int, end)
+	pulses := ensureIntSlice(&d.scratchPulses, end)
+	fineQuant := ensureIntSlice(&d.scratchFineQuant, end)
+	finePriority := ensureIntSlice(&d.scratchFinePriority, end)
 	intensity := 0
 	dualStereo := 0
 	balance := 0
-	codedBands := cltComputeAllocation(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
-		bitsQ3, &balance, pulses, fineQuant, finePriority, d.channels, lm, rd)
+	allocScratch := d.allocationScratch()
+	codedBands := cltComputeAllocationWithScratch(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
+		bitsQ3, &balance, pulses, fineQuant, finePriority, d.channels, lm, rd, allocScratch)
 	traceRange("alloc", rd)
 
 	for i := start; i < end; i++ {
@@ -700,8 +735,8 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	d.DecodeFineEnergy(energies, end, fineQuant)
 	traceRange("fine", rd)
 
-	coeffsL, coeffsR, collapse := quantAllBandsDecode(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.channels == 1, &d.rng)
+	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.channels == 1, &d.rng, &d.scratchBands)
 	traceRange("pvq", rd)
 
 	antiCollapseOn := false
@@ -864,7 +899,10 @@ func (d *Decoder) decodeSpread() int {
 // decodeSilenceFrame returns zeros for a silence frame.
 func (d *Decoder) decodeSilenceFrame(frameSize int, newPeriod int, newGain float64, newTapset int) []float64 {
 	mode := GetModeConfig(frameSize)
-	zeros := make([]float64, frameSize)
+	zeros := ensureFloat64Slice(&d.scratchZeros, frameSize)
+	for i := range zeros {
+		zeros[i] = 0
+	}
 	var samples []float64
 	if d.channels == 2 {
 		samples = d.SynthesizeStereo(zeros, zeros, false, 1)
@@ -872,7 +910,7 @@ func (d *Decoder) decodeSilenceFrame(frameSize int, newPeriod int, newGain float
 		samples = d.Synthesize(zeros, false, 1)
 	}
 	if len(samples) == 0 {
-		samples = make([]float64, frameSize*d.channels)
+		return nil
 	}
 
 	d.applyPostfilter(samples, frameSize, mode.LM, newPeriod, newGain, newTapset)
@@ -987,7 +1025,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	d.channels = 1
 
 	// Initialize range decoder
-	rd := &rangecoding.Decoder{}
+	rd := &d.rangeDecoderScratch
 	rd.Init(data)
 	d.SetRangeDecoder(rd)
 
@@ -1005,9 +1043,12 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 
 	// Save prev energy/log state for mono prediction.
 	// For mono packets in a stereo stream, libopus uses the max of L/R energies.
-	prev1Energy := make([]float64, MaxBands)
-	prev1LogE := append([]float64(nil), d.prevLogE...)
-	prev2LogE := append([]float64(nil), d.prevLogE2...)
+	prev1Energy := ensureFloat64Slice(&d.scratchPrevEnergy, MaxBands)
+	prev1Energy = prev1Energy[:MaxBands]
+	prev1LogE := ensureFloat64Slice(&d.scratchPrevLogE, len(d.prevLogE))
+	copy(prev1LogE, d.prevLogE)
+	prev2LogE := ensureFloat64Slice(&d.scratchPrevLogE2, len(d.prevLogE2))
+	copy(prev2LogE, d.prevLogE2)
 	for i := 0; i < MaxBands; i++ {
 		left := d.prevEnergy[i]
 		if origChannels > 1 && len(d.prevEnergy) >= MaxBands*2 {
@@ -1041,7 +1082,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 		// Generate mono silence, then duplicate to stereo
 		d.channels = origChannels // Restore for silence frame
 		samples := d.decodeSilenceFrame(frameSize, 0, 0, 0)
-		silenceE := make([]float64, MaxBands*origChannels)
+		silenceE := ensureFloat64Slice(&d.scratchSilenceE, MaxBands*origChannels)
 		for i := range silenceE {
 			silenceE[i] = -28.0
 		}
@@ -1092,10 +1133,10 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	}
 
 	// Decode coarse energy for mono (using d.channels=1)
-	monoEnergies := d.DecodeCoarseEnergy(end, intra, lm)
+	monoEnergies := d.decodeCoarseEnergyInto(ensureFloat64Slice(&d.scratchEnergies, end*d.channels), end, intra, lm)
 	traceRange("coarse", rd)
 
-	tfRes := make([]int, end)
+	tfRes := ensureIntSlice(&d.scratchTFRes, end)
 	tfDecode(start, end, transient, tfRes, lm, rd)
 	traceRange("tf", rd)
 
@@ -1106,8 +1147,9 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	}
 	traceRange("spread", rd)
 
-	cap := initCaps(end, lm, 1) // mono
-	offsets := make([]int, end)
+	cap := ensureIntSlice(&d.scratchCaps, end)
+	initCapsInto(cap, end, lm, 1) // mono
+	offsets := ensureIntSlice(&d.scratchOffsets, end)
 	dynallocLogp := 6
 	totalBitsQ3 := totalBits << bitRes
 	tellFrac := rd.TellFrac()
@@ -1146,14 +1188,15 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	}
 	bitsQ3 -= antiCollapseRsv
 
-	pulses := make([]int, end)
-	fineQuant := make([]int, end)
-	finePriority := make([]int, end)
+	pulses := ensureIntSlice(&d.scratchPulses, end)
+	fineQuant := ensureIntSlice(&d.scratchFineQuant, end)
+	finePriority := ensureIntSlice(&d.scratchFinePriority, end)
 	intensity := 0
 	dualStereo := 0
 	balance := 0
-	codedBands := cltComputeAllocation(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
-		bitsQ3, &balance, pulses, fineQuant, finePriority, 1, lm, rd) // mono
+	allocScratch := d.allocationScratch()
+	codedBands := cltComputeAllocationWithScratch(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
+		bitsQ3, &balance, pulses, fineQuant, finePriority, 1, lm, rd, allocScratch) // mono
 	traceRange("alloc", rd)
 
 	// Decode fine energy for mono
@@ -1161,8 +1204,8 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	traceRange("fine", rd)
 
 	// Decode bands for mono
-	coeffsMono, _, collapse := quantAllBandsDecode(rd, 1, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, false, &d.rng)
+	coeffsMono, _, collapse := quantAllBandsDecodeWithScratch(rd, 1, frameSize, lm, start, end, pulses, shortBlocks, spread,
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, false, &d.rng, &d.scratchBands)
 	traceRange("pvq", rd)
 
 	antiCollapseOn := false
@@ -1266,7 +1309,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	}()
 
 	// Initialize range decoder
-	rd := &rangecoding.Decoder{}
+	rd := &d.rangeDecoderScratch
 	rd.Init(data)
 	d.SetRangeDecoder(rd)
 
@@ -1401,8 +1444,9 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	intensity := 0
 	dualStereo := 0
 	balance := 0
-	codedBands := cltComputeAllocation(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
-		bitsQ3, &balance, pulses, fineQuant, finePriority, d.channels, lm, rd)
+	allocScratch := d.allocationScratch()
+	codedBands := cltComputeAllocationWithScratch(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
+		bitsQ3, &balance, pulses, fineQuant, finePriority, d.channels, lm, rd, allocScratch)
 	traceRange("alloc", rd)
 
 	for i := start; i < end; i++ {
@@ -1420,8 +1464,8 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	d.DecodeFineEnergy(energies, end, fineQuant)
 	traceRange("fine", rd)
 
-	coeffsL, coeffsR, collapse := quantAllBandsDecode(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, origChannels == 1, &d.rng)
+	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, origChannels == 1, &d.rng, &d.scratchBands)
 	traceRange("pvq", rd)
 
 	antiCollapseOn := false
@@ -1743,15 +1787,16 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	intensity := 0
 	dualStereo := 0
 	balance := 0
-	codedBands := cltComputeAllocation(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
-		bitsQ3, &balance, pulses, fineQuant, finePriority, d.channels, lm, rd)
+	allocScratch := d.allocationScratch()
+	codedBands := cltComputeAllocationWithScratch(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
+		bitsQ3, &balance, pulses, fineQuant, finePriority, d.channels, lm, rd, allocScratch)
 	traceRange("alloc", rd)
 
 	d.DecodeFineEnergy(energies, end, fineQuant)
 	traceRange("fine", rd)
 
-	coeffsL, coeffsR, collapse := quantAllBandsDecode(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.channels == 1, &d.rng)
+	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.channels == 1, &d.rng, &d.scratchBands)
 	traceRange("pvq", rd)
 
 	antiCollapseOn := false
@@ -2010,15 +2055,16 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	intensity := 0
 	dualStereo := 0
 	balance := 0
-	codedBands := cltComputeAllocation(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
-		bitsQ3, &balance, pulses, fineQuant, finePriority, 1, lm, rd)
+	allocScratch := d.allocationScratch()
+	codedBands := cltComputeAllocationWithScratch(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
+		bitsQ3, &balance, pulses, fineQuant, finePriority, 1, lm, rd, allocScratch)
 	traceRange("alloc", rd)
 
 	d.DecodeFineEnergy(monoEnergies, end, fineQuant)
 	traceRange("fine", rd)
 
-	coeffsMono, _, collapse := quantAllBandsDecode(rd, 1, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, false, &d.rng)
+	coeffsMono, _, collapse := quantAllBandsDecodeWithScratch(rd, 1, frameSize, lm, start, end, pulses, shortBlocks, spread,
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, false, &d.rng, &d.scratchBands)
 	traceRange("pvq", rd)
 
 	antiCollapseOn := false
@@ -2243,15 +2289,16 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	intensity := 0
 	dualStereo := 0
 	balance := 0
-	codedBands := cltComputeAllocation(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
-		bitsQ3, &balance, pulses, fineQuant, finePriority, d.channels, lm, rd)
+	allocScratch := d.allocationScratch()
+	codedBands := cltComputeAllocationWithScratch(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
+		bitsQ3, &balance, pulses, fineQuant, finePriority, d.channels, lm, rd, allocScratch)
 	traceRange("alloc", rd)
 
 	d.DecodeFineEnergy(energies, end, fineQuant)
 	traceRange("fine", rd)
 
-	coeffsL, coeffsR, collapse := quantAllBandsDecode(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, origChannels == 1, &d.rng)
+	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, origChannels == 1, &d.rng, &d.scratchBands)
 	traceRange("pvq", rd)
 
 	antiCollapseOn := false

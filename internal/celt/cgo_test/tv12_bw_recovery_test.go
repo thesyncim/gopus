@@ -17,7 +17,7 @@ func TestTV12BWRecovery(t *testing.T) {
 		t.Skip("Could not load packets")
 	}
 
-	goDec, _ := gopus.NewDecoder(48000, 1)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	libDec, _ := NewLibopusDecoder(48000, 1)
 	if libDec == nil {
 		t.Skip("Could not create libopus decoder")
@@ -51,7 +51,7 @@ func TestTV12BWRecovery(t *testing.T) {
 		t.Logf("\n=== Packets %d-%d ===", start, end-1)
 		for i := 0; i < end; i++ {
 			pkt := packets[i]
-			goOut, _ := goDec.DecodeFloat32(pkt)
+			goOut, _ := decodeFloat32(goDec, pkt)
 			libOut, libN := libDec.DecodeFloat(pkt, len(goOut)*2)
 
 			if i >= start {

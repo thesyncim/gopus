@@ -25,7 +25,7 @@ func ExampleNewEncoder() {
 
 func ExampleNewDecoder() {
 	// Create a decoder for 48kHz stereo audio
-	dec, err := gopus.NewDecoder(48000, 2)
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -53,10 +53,12 @@ func ExampleEncoder_EncodeFloat32() {
 	// Output will vary based on encoder state
 }
 
-func ExampleDecoder_DecodeFloat32() {
+func ExampleDecoder_Decode() {
 	// Create encoder and decoder
 	enc, _ := gopus.NewEncoder(48000, 2, gopus.ApplicationAudio)
-	dec, _ := gopus.NewDecoder(48000, 2)
+	cfg := gopus.DefaultDecoderConfig(48000, 2)
+	dec, _ := gopus.NewDecoder(cfg)
+	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
 
 	// Generate and encode a test signal
 	pcm := make([]float32, 960*2)
@@ -67,37 +69,41 @@ func ExampleDecoder_DecodeFloat32() {
 	packet, _ := enc.EncodeFloat32(pcm)
 
 	// Decode the packet
-	decoded, err := dec.DecodeFloat32(packet)
+	n, err := dec.Decode(packet, pcmOut)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("Decoded %d bytes to %d samples\n", len(packet), len(decoded)/2)
+	fmt.Printf("Decoded %d bytes to %d samples\n", len(packet), n)
 }
 
-func ExampleDecoder_DecodeFloat32_packetLoss() {
-	dec, _ := gopus.NewDecoder(48000, 2)
+func ExampleDecoder_Decode_packetLoss() {
+	cfg := gopus.DefaultDecoderConfig(48000, 2)
+	dec, _ := gopus.NewDecoder(cfg)
+	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
 
 	// First, decode a real packet to initialize state
 	enc, _ := gopus.NewEncoder(48000, 2, gopus.ApplicationAudio)
 	pcm := make([]float32, 960*2)
 	packet, _ := enc.EncodeFloat32(pcm)
-	dec.DecodeFloat32(packet)
+	_, _ = dec.Decode(packet, pcmOut)
 
 	// Simulate packet loss by passing nil
 	// Decoder uses PLC to generate concealment audio
-	plcOutput, err := dec.DecodeFloat32(nil)
+	n, err := dec.Decode(nil, pcmOut)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("PLC generated %d samples\n", len(plcOutput)/2)
+	fmt.Printf("PLC generated %d samples\n", n)
 }
 
 func Example_roundTrip() {
 	// Complete encode-decode round trip
 	enc, _ := gopus.NewEncoder(48000, 1, gopus.ApplicationVoIP)
-	dec, _ := gopus.NewDecoder(48000, 1)
+	cfg := gopus.DefaultDecoderConfig(48000, 1)
+	dec, _ := gopus.NewDecoder(cfg)
+	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
 
 	// 20ms of mono audio at 48kHz
 	input := make([]float32, 960)
@@ -109,10 +115,10 @@ func Example_roundTrip() {
 	packet, _ := enc.EncodeFloat32(input)
 
 	// Decode
-	output, _ := dec.DecodeFloat32(packet)
+	n, _ := dec.Decode(packet, pcmOut)
 
 	fmt.Printf("Round trip: %d samples -> %d bytes -> %d samples\n",
-		len(input), len(packet), len(output))
+		len(input), len(packet), n)
 }
 
 func ExampleEncoder_SetBitrate() {

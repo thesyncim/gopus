@@ -69,8 +69,9 @@ func (d *Decoder) Decode(
 	var rd rangecoding.Decoder
 	rd.Init(data)
 
-	// Decode frame at native rate
-	nativeSamples, err := d.DecodeFrame(&rd, bandwidth, duration, vadFlag)
+	// Decode frame at native rate (without delay compensation, since we'll handle
+	// sMid buffering in BuildMonoResamplerInput before resampling to 48kHz)
+	nativeSamples, err := d.DecodeFrameRaw(&rd, bandwidth, duration, vadFlag)
 	if err != nil {
 		return nil, err
 	}
@@ -268,8 +269,8 @@ func (d *Decoder) DecodeMonoToStereo(
 	var rd rangecoding.Decoder
 	rd.Init(data)
 
-	// Decode at native rate.
-	nativeSamples, err := d.DecodeFrame(&rd, bandwidth, duration, vadFlag)
+	// Decode at native rate without delay compensation (sMid buffering happens before resampler)
+	nativeSamples, err := d.DecodeFrameRaw(&rd, bandwidth, duration, vadFlag)
 	if err != nil {
 		return nil, err
 	}
@@ -367,7 +368,8 @@ func (d *Decoder) DecodeWithDecoder(
 
 	duration := FrameDurationFromTOC(frameSizeSamples)
 
-	nativeSamples, err := d.DecodeFrame(rd, bandwidth, duration, vadFlag)
+	// Decode at native rate without delay compensation (sMid buffering happens before resampler)
+	nativeSamples, err := d.DecodeFrameRaw(rd, bandwidth, duration, vadFlag)
 	if err != nil {
 		return nil, err
 	}
@@ -528,7 +530,8 @@ func (d *Decoder) DecodeMonoToStereoWithDecoder(
 
 	duration := FrameDurationFromTOC(frameSizeSamples)
 
-	nativeSamples, err := d.DecodeFrame(rd, bandwidth, duration, vadFlag)
+	// Decode at native rate without delay compensation (sMid buffering happens before resampler)
+	nativeSamples, err := d.DecodeFrameRaw(rd, bandwidth, duration, vadFlag)
 	if err != nil {
 		return nil, err
 	}

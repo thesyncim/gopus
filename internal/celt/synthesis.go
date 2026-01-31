@@ -141,50 +141,78 @@ func synthesizeChannelWithOverlap(coeffs []float64, prevOverlap []float64, overl
 		prev = prev[:overlap]
 	}
 
+	out := make([]float64, frameSize+overlap)
+	var scratch imdctScratch
+	shortCoeffs := make([]float64, frameSize)
+	output = synthesizeChannelWithOverlapScratch(coeffs, prev, overlap, transient, shortBlocks, out, &scratch, shortCoeffs)
+	if len(output) == 0 {
+		return nil, prevOverlap
+	}
+	newOverlap = make([]float64, overlap)
+	if overlap > 0 && frameSize+overlap <= len(out) {
+		copy(newOverlap, out[frameSize:frameSize+overlap])
+	}
+	return output, newOverlap
+}
+
+func synthesizeChannelWithOverlapScratch(coeffs []float64, prevOverlap []float64, overlap int, transient bool, shortBlocks int, out []float64, scratch *imdctScratch, shortCoeffs []float64) (output []float64) {
+	frameSize := len(coeffs)
+	if frameSize == 0 {
+		return nil
+	}
+	if overlap < 0 {
+		return nil
+	}
+
+	if len(prevOverlap) < overlap {
+		return nil
+	}
+	if len(prevOverlap) > overlap {
+		prevOverlap = prevOverlap[:overlap]
+	}
+
+	needed := frameSize + overlap
+	if len(out) < needed {
+		return nil
+	}
+	// Clear output for deterministic TDAC windowing.
+	for i := 0; i < needed; i++ {
+		out[i] = 0
+	}
+	if overlap > 0 {
+		copy(out[:overlap], prevOverlap)
+	}
+
 	if transient && shortBlocks > 1 {
 		shortSize := frameSize / shortBlocks
 		if shortSize <= 0 {
-			return nil, prevOverlap
+			return nil
+		}
+		if len(shortCoeffs) < shortSize {
+			return nil
 		}
 
-		out := make([]float64, frameSize+overlap)
-		if overlap > 0 && len(prev) >= overlap {
-			copy(out[:overlap], prev[:overlap])
-		}
-
-		// Process each short block and copy into the shared buffer.
+		// Process each short block and write into the shared buffer.
 		for b := 0; b < shortBlocks; b++ {
 			// Extract interleaved coefficients for this short block
-			shortCoeffs := make([]float64, shortSize)
 			for i := 0; i < shortSize; i++ {
 				idx := b + i*shortBlocks
 				if idx < frameSize {
 					shortCoeffs[i] = coeffs[idx]
+				} else {
+					shortCoeffs[i] = 0
 				}
 			}
 
 			blockStart := b * shortSize
-			blockPrev := out[blockStart : blockStart+overlap]
-			blockOut := imdctOverlapWithPrev(shortCoeffs, blockPrev, overlap)
-			copy(out[blockStart:], blockOut)
+			imdctInPlaceScratch(shortCoeffs[:shortSize], out, blockStart, overlap, scratch)
 		}
 
-		output = out[:frameSize]
-		newOverlap = make([]float64, overlap)
-		copy(newOverlap, out[frameSize:frameSize+overlap])
-		return output, newOverlap
+		return out[:frameSize]
 	}
 
-	imdctOut := IMDCTOverlapWithPrev(coeffs, prev, overlap)
-	if len(imdctOut) < frameSize {
-		return nil, prevOverlap
-	}
-	output = imdctOut[:frameSize]
-	newOverlap = make([]float64, overlap)
-	if overlap > 0 && frameSize+overlap <= len(imdctOut) {
-		copy(newOverlap, imdctOut[frameSize:frameSize+overlap])
-	}
-	return output, newOverlap
+	imdctOverlapWithPrevScratch(out, coeffs, prevOverlap, overlap, scratch)
+	return out[:frameSize]
 }
 
 // Synthesize performs full IMDCT + windowing + overlap-add for decoded coefficients.
@@ -200,11 +228,15 @@ func (d *Decoder) Synthesize(coeffs []float64, transient bool, shortBlocks int) 
 	if len(coeffs) == 0 {
 		return nil
 	}
-	output, newOverlap := synthesizeChannelWithOverlap(coeffs, d.overlapBuffer, Overlap, transient, shortBlocks)
+	out := ensureFloat64Slice(&d.scratchSynth, len(coeffs)+Overlap)
+	shortCoeffs := ensureFloat64Slice(&d.scratchShortCoeffs, len(coeffs))
+	output := synthesizeChannelWithOverlapScratch(coeffs, d.overlapBuffer, Overlap, transient, shortBlocks, out, &d.scratchIMDCT, shortCoeffs)
 	if len(output) == 0 {
 		return nil
 	}
-	d.SetOverlapBuffer(newOverlap)
+	if Overlap > 0 && len(out) >= len(coeffs)+Overlap {
+		copy(d.overlapBuffer, out[len(coeffs):len(coeffs)+Overlap])
+	}
 	return output
 }
 
@@ -227,14 +259,17 @@ func (d *Decoder) SynthesizeStereo(coeffsL, coeffsR []float64, transient bool, s
 	overlapL := d.overlapBuffer[:Overlap]
 	overlapR := d.overlapBuffer[Overlap : Overlap*2]
 
-	outputL, newOverlapL := synthesizeChannelWithOverlap(coeffsL, overlapL, Overlap, transient, shortBlocks)
-	outputR, newOverlapR := synthesizeChannelWithOverlap(coeffsR, overlapR, Overlap, transient, shortBlocks)
+	outL := ensureFloat64Slice(&d.scratchSynth, len(coeffsL)+Overlap)
+	outR := ensureFloat64Slice(&d.scratchSynthR, len(coeffsR)+Overlap)
+	shortCoeffs := ensureFloat64Slice(&d.scratchShortCoeffs, maxInt(len(coeffsL), len(coeffsR)))
+	outputL := synthesizeChannelWithOverlapScratch(coeffsL, overlapL, Overlap, transient, shortBlocks, outL, &d.scratchIMDCT, shortCoeffs)
+	outputR := synthesizeChannelWithOverlapScratch(coeffsR, overlapR, Overlap, transient, shortBlocks, outR, &d.scratchIMDCT, shortCoeffs)
 
-	if len(newOverlapL) >= Overlap {
-		copy(d.overlapBuffer[:Overlap], newOverlapL[:Overlap])
+	if Overlap > 0 && len(outL) >= len(coeffsL)+Overlap {
+		copy(d.overlapBuffer[:Overlap], outL[len(coeffsL):len(coeffsL)+Overlap])
 	}
-	if len(newOverlapR) >= Overlap {
-		copy(d.overlapBuffer[Overlap:Overlap*2], newOverlapR[:Overlap])
+	if Overlap > 0 && len(outR) >= len(coeffsR)+Overlap {
+		copy(d.overlapBuffer[Overlap:Overlap*2], outR[len(coeffsR):len(coeffsR)+Overlap])
 	}
 
 	// Interleave stereo output
@@ -243,7 +278,7 @@ func (d *Decoder) SynthesizeStereo(coeffsL, coeffsR []float64, transient bool, s
 		n = len(outputR)
 	}
 
-	stereo := make([]float64, n*2)
+	stereo := ensureFloat64Slice(&d.scratchStereo, n*2)
 	for i := 0; i < n; i++ {
 		stereo[2*i] = outputL[i]
 		stereo[2*i+1] = outputR[i]
@@ -253,11 +288,15 @@ func (d *Decoder) SynthesizeStereo(coeffsL, coeffsR []float64, transient bool, s
 }
 
 func (d *Decoder) synthesizeShort(coeffs []float64, shortBlocks int) []float64 {
-	output, newOverlap := synthesizeChannelWithOverlap(coeffs, d.overlapBuffer, Overlap, true, shortBlocks)
+	out := ensureFloat64Slice(&d.scratchSynth, len(coeffs)+Overlap)
+	shortCoeffs := ensureFloat64Slice(&d.scratchShortCoeffs, len(coeffs))
+	output := synthesizeChannelWithOverlapScratch(coeffs, d.overlapBuffer, Overlap, true, shortBlocks, out, &d.scratchIMDCT, shortCoeffs)
 	if len(output) == 0 {
 		return nil
 	}
-	d.SetOverlapBuffer(newOverlap)
+	if Overlap > 0 && len(out) >= len(coeffs)+Overlap {
+		copy(d.overlapBuffer, out[len(coeffs):len(coeffs)+Overlap])
+	}
 	return output
 }
 
@@ -267,21 +306,24 @@ func (d *Decoder) synthesizeShortStereo(coeffsL, coeffsR []float64, shortBlocks 
 	}
 	overlapL := d.overlapBuffer[:Overlap]
 	overlapR := d.overlapBuffer[Overlap : Overlap*2]
-	outputL, newOverlapL := synthesizeChannelWithOverlap(coeffsL, overlapL, Overlap, true, shortBlocks)
-	outputR, newOverlapR := synthesizeChannelWithOverlap(coeffsR, overlapR, Overlap, true, shortBlocks)
+	outL := ensureFloat64Slice(&d.scratchSynth, len(coeffsL)+Overlap)
+	outR := ensureFloat64Slice(&d.scratchSynthR, len(coeffsR)+Overlap)
+	shortCoeffs := ensureFloat64Slice(&d.scratchShortCoeffs, maxInt(len(coeffsL), len(coeffsR)))
+	outputL := synthesizeChannelWithOverlapScratch(coeffsL, overlapL, Overlap, true, shortBlocks, outL, &d.scratchIMDCT, shortCoeffs)
+	outputR := synthesizeChannelWithOverlapScratch(coeffsR, overlapR, Overlap, true, shortBlocks, outR, &d.scratchIMDCT, shortCoeffs)
 
-	if len(newOverlapL) >= Overlap {
-		copy(d.overlapBuffer[:Overlap], newOverlapL[:Overlap])
+	if Overlap > 0 && len(outL) >= len(coeffsL)+Overlap {
+		copy(d.overlapBuffer[:Overlap], outL[len(coeffsL):len(coeffsL)+Overlap])
 	}
-	if len(newOverlapR) >= Overlap {
-		copy(d.overlapBuffer[Overlap:Overlap*2], newOverlapR[:Overlap])
+	if Overlap > 0 && len(outR) >= len(coeffsR)+Overlap {
+		copy(d.overlapBuffer[Overlap:Overlap*2], outR[len(coeffsR):len(coeffsR)+Overlap])
 	}
 
 	n := len(outputL)
 	if len(outputR) < n {
 		n = len(outputR)
 	}
-	output := make([]float64, n*2)
+	output := ensureFloat64Slice(&d.scratchStereo, n*2)
 	for i := 0; i < n; i++ {
 		output[2*i] = outputL[i]
 		output[2*i+1] = outputR[i]

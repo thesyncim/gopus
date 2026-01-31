@@ -10,19 +10,26 @@ import (
 	"testing"
 )
 
-// slicePacketSource implements PacketSource for testing.
+// slicePacketSource implements PacketReader for testing.
 type slicePacketSource struct {
 	packets [][]byte
 	index   int
 }
 
-func (s *slicePacketSource) NextPacket() ([]byte, error) {
+func (s *slicePacketSource) ReadPacketInto(dst []byte) (int, uint64, error) {
 	if s.index >= len(s.packets) {
-		return nil, io.EOF
+		return 0, 0, io.EOF
 	}
 	packet := s.packets[s.index]
 	s.index++
-	return packet, nil
+	if packet == nil {
+		return 0, 0, nil
+	}
+	if len(packet) > len(dst) {
+		return 0, 0, ErrPacketTooLarge
+	}
+	n := copy(dst, packet)
+	return n, 0, nil
 }
 
 // slicePacketSink implements PacketSink for testing.
@@ -80,7 +87,7 @@ func TestNewReader_ValidParams(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			reader, err := NewReader(tc.sampleRate, tc.channels, source, tc.format)
+			reader, err := NewReader(DefaultDecoderConfig(tc.sampleRate, tc.channels), source, tc.format)
 			if err != nil {
 				t.Fatalf("NewReader failed: %v", err)
 			}
@@ -114,7 +121,7 @@ func TestNewReader_InvalidParams(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := NewReader(tc.sampleRate, tc.channels, source, FormatFloat32LE)
+			_, err := NewReader(DefaultDecoderConfig(tc.sampleRate, tc.channels), source, FormatFloat32LE)
 			if err != tc.wantErr {
 				t.Errorf("NewReader error = %v, want %v", err, tc.wantErr)
 			}
@@ -135,7 +142,7 @@ func TestReader_Read_SinglePacket(t *testing.T) {
 	t.Logf("Generated packet: %d bytes", len(packet))
 
 	source := &slicePacketSource{packets: [][]byte{packet}}
-	reader, err := NewReader(sampleRate, channels, source, FormatFloat32LE)
+	reader, err := NewReader(DefaultDecoderConfig(sampleRate, channels), source, FormatFloat32LE)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -180,7 +187,7 @@ func TestReader_Read_MultiplePackets(t *testing.T) {
 	}
 
 	source := &slicePacketSource{packets: packets}
-	reader, err := NewReader(sampleRate, channels, source, FormatFloat32LE)
+	reader, err := NewReader(DefaultDecoderConfig(sampleRate, channels), source, FormatFloat32LE)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -220,7 +227,7 @@ func TestReader_Read_PartialRead(t *testing.T) {
 	}
 
 	source := &slicePacketSource{packets: [][]byte{packet}}
-	reader, err := NewReader(sampleRate, channels, source, FormatFloat32LE)
+	reader, err := NewReader(DefaultDecoderConfig(sampleRate, channels), source, FormatFloat32LE)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -250,7 +257,7 @@ func TestReader_Read_PartialRead(t *testing.T) {
 // TestReader_Read_EOF tests EOF handling.
 func TestReader_Read_EOF(t *testing.T) {
 	source := &slicePacketSource{packets: [][]byte{}} // Empty source
-	reader, err := NewReader(48000, 2, source, FormatFloat32LE)
+	reader, err := NewReader(DefaultDecoderConfig(48000, 2), source, FormatFloat32LE)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -291,7 +298,7 @@ func TestReader_Read_PLC(t *testing.T) {
 	}
 
 	source := &slicePacketSource{packets: [][]byte{packet1, nil, packet3}}
-	reader, err := NewReader(sampleRate, channels, source, FormatFloat32LE)
+	reader, err := NewReader(DefaultDecoderConfig(sampleRate, channels), source, FormatFloat32LE)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -331,7 +338,7 @@ func TestReader_Format_Float32LE(t *testing.T) {
 	}
 
 	source := &slicePacketSource{packets: [][]byte{packet}}
-	reader, err := NewReader(sampleRate, channels, source, FormatFloat32LE)
+	reader, err := NewReader(DefaultDecoderConfig(sampleRate, channels), source, FormatFloat32LE)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -382,7 +389,7 @@ func TestReader_Format_Int16LE(t *testing.T) {
 	}
 
 	source := &slicePacketSource{packets: [][]byte{packet}}
-	reader, err := NewReader(sampleRate, channels, source, FormatInt16LE)
+	reader, err := NewReader(DefaultDecoderConfig(sampleRate, channels), source, FormatInt16LE)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -438,7 +445,7 @@ func TestReader_Reset(t *testing.T) {
 	}
 
 	source := &slicePacketSource{packets: [][]byte{packet}}
-	reader, err := NewReader(sampleRate, channels, source, FormatFloat32LE)
+	reader, err := NewReader(DefaultDecoderConfig(sampleRate, channels), source, FormatFloat32LE)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -460,7 +467,7 @@ func TestReader_Reset(t *testing.T) {
 	if reader.eof {
 		t.Error("eof not reset")
 	}
-	if reader.byteBuf != nil {
+	if len(reader.byteBuf) != 0 {
 		t.Error("byteBuf not reset")
 	}
 }
@@ -487,7 +494,7 @@ func TestSampleFormat_BytesPerSample(t *testing.T) {
 // TestReader_io_Reader_Interface verifies Reader implements io.Reader.
 func TestReader_io_Reader_Interface(t *testing.T) {
 	source := &slicePacketSource{packets: nil}
-	reader, err := NewReader(48000, 2, source, FormatFloat32LE)
+	reader, err := NewReader(DefaultDecoderConfig(48000, 2), source, FormatFloat32LE)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -502,7 +509,7 @@ func TestReader_io_Reader_Interface(t *testing.T) {
 	}
 
 	source2 := &slicePacketSource{packets: [][]byte{packet}}
-	reader2, err := NewReader(48000, 2, source2, FormatFloat32LE)
+	reader2, err := NewReader(DefaultDecoderConfig(48000, 2), source2, FormatFloat32LE)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -964,17 +971,24 @@ func (c *channelPacketSink) WritePacket(packet []byte) (int, error) {
 	return len(packet), nil
 }
 
-// channelPacketSource implements PacketSource using a channel for pipe tests.
+// channelPacketSource implements PacketReader using a channel for pipe tests.
 type channelPacketSource struct {
 	ch chan []byte
 }
 
-func (c *channelPacketSource) NextPacket() ([]byte, error) {
+func (c *channelPacketSource) ReadPacketInto(dst []byte) (int, uint64, error) {
 	packet, ok := <-c.ch
 	if !ok {
-		return nil, io.EOF
+		return 0, 0, io.EOF
 	}
-	return packet, nil
+	if packet == nil {
+		return 0, 0, nil
+	}
+	if len(packet) > len(dst) {
+		return 0, 0, ErrPacketTooLarge
+	}
+	n := copy(dst, packet)
+	return n, 0, nil
 }
 
 // computeSignalEnergy computes the total energy of float32 samples.
@@ -1015,7 +1029,7 @@ func TestStream_RoundTrip_Float32(t *testing.T) {
 
 	// Decode
 	source := &slicePacketSource{packets: sink.packets}
-	reader, err := NewReader(sampleRate, channels, source, FormatFloat32LE)
+	reader, err := NewReader(DefaultDecoderConfig(sampleRate, channels), source, FormatFloat32LE)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -1083,7 +1097,7 @@ func TestStream_RoundTrip_Int16(t *testing.T) {
 
 	// Decode to int16
 	source := &slicePacketSource{packets: sink.packets}
-	reader, err := NewReader(sampleRate, channels, source, FormatInt16LE)
+	reader, err := NewReader(DefaultDecoderConfig(sampleRate, channels), source, FormatInt16LE)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -1153,7 +1167,7 @@ func TestStream_Pipe(t *testing.T) {
 	}()
 
 	// Reader in main goroutine
-	reader, err := NewReader(sampleRate, channels, source, FormatFloat32LE)
+	reader, err := NewReader(DefaultDecoderConfig(sampleRate, channels), source, FormatFloat32LE)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -1221,7 +1235,7 @@ func TestStream_LargeTransfer(t *testing.T) {
 
 	// Decode and verify
 	source := &slicePacketSource{packets: sink.packets}
-	reader, err := NewReader(sampleRate, channels, source, FormatFloat32LE)
+	reader, err := NewReader(DefaultDecoderConfig(sampleRate, channels), source, FormatFloat32LE)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -1267,7 +1281,7 @@ func TestStream_io_Copy(t *testing.T) {
 	}
 
 	source := &slicePacketSource{packets: packets}
-	reader, err := NewReader(sampleRate, channels, source, FormatFloat32LE)
+	reader, err := NewReader(DefaultDecoderConfig(sampleRate, channels), source, FormatFloat32LE)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}
@@ -1313,7 +1327,7 @@ func TestStream_MixedReadWrite(t *testing.T) {
 
 	// Decode first batch
 	source1 := &slicePacketSource{packets: sink1.packets}
-	reader, err := NewReader(sampleRate, channels, source1, FormatFloat32LE)
+	reader, err := NewReader(DefaultDecoderConfig(sampleRate, channels), source1, FormatFloat32LE)
 	if err != nil {
 		t.Fatalf("NewReader failed: %v", err)
 	}

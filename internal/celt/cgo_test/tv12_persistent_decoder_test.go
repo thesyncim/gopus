@@ -19,7 +19,7 @@ func TestTV12PersistentDecoder(t *testing.T) {
 	}
 
 	// Create SINGLE 48kHz decoder that persists across all packets
-	goDec, _ := gopus.NewDecoder(48000, 1)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	libDec, _ := NewLibopusDecoder(48000, 1)
 	if libDec == nil {
 		t.Skip("Could not create libopus decoder")
@@ -47,7 +47,7 @@ func TestTV12PersistentDecoder(t *testing.T) {
 		pkt := packets[i]
 		toc := gopus.ParseTOC(pkt[0])
 
-		goSamples, err := goDec.DecodeFloat32(pkt)
+		goSamples, err := decodeFloat32(goDec, pkt)
 		if err != nil {
 			t.Logf("Packet %d: gopus error: %v", i, err)
 			continue
@@ -108,7 +108,7 @@ func TestTV12FreshVsStateAtBWChange(t *testing.T) {
 	// Test 1: Stateful decoder
 	t.Log("\nStateful decoder (processed 0-825 first):")
 	{
-		goDec, _ := gopus.NewDecoder(48000, 1)
+		goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 		libDec, _ := NewLibopusDecoder(48000, 1)
 		if libDec == nil {
 			t.Skip("Could not create libopus decoder")
@@ -116,12 +116,12 @@ func TestTV12FreshVsStateAtBWChange(t *testing.T) {
 
 		// Build state
 		for i := 0; i < 826; i++ {
-			goDec.DecodeFloat32(packets[i])
+			decodeFloat32(goDec, packets[i])
 			libDec.DecodeFloat(packets[i], 960*2)
 		}
 
 		// Decode 826
-		go826, _ := goDec.DecodeFloat32(packets[826])
+		go826, _ := decodeFloat32(goDec, packets[826])
 		lib826, libN := libDec.DecodeFloat(packets[826], len(go826)*2)
 		libDec.Destroy()
 
@@ -146,13 +146,13 @@ func TestTV12FreshVsStateAtBWChange(t *testing.T) {
 	// Test 2: Fresh decoder (just packet 826)
 	t.Log("\nFresh decoder (only packet 826):")
 	{
-		goDec, _ := gopus.NewDecoder(48000, 1)
+		goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 		libDec, _ := NewLibopusDecoder(48000, 1)
 		if libDec == nil {
 			t.Skip("Could not create libopus decoder")
 		}
 
-		go826, _ := goDec.DecodeFloat32(packets[826])
+		go826, _ := decodeFloat32(goDec, packets[826])
 		lib826, libN := libDec.DecodeFloat(packets[826], len(go826)*2)
 		libDec.Destroy()
 
@@ -177,7 +177,7 @@ func TestTV12FreshVsStateAtBWChange(t *testing.T) {
 	// Test 3: Fresh decoder with state from packets 0-136 (NB) only, skip 137-825 (MB)
 	t.Log("\nDecoder with NB-only state (0-136, skipping MB 137-825):")
 	{
-		goDec, _ := gopus.NewDecoder(48000, 1)
+		goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 		libDec, _ := NewLibopusDecoder(48000, 1)
 		if libDec == nil {
 			t.Skip("Could not create libopus decoder")
@@ -189,11 +189,11 @@ func TestTV12FreshVsStateAtBWChange(t *testing.T) {
 			if toc.Bandwidth != 0 { // Skip non-NB
 				continue
 			}
-			goDec.DecodeFloat32(packets[i])
+			decodeFloat32(goDec, packets[i])
 			libDec.DecodeFloat(packets[i], 960*2)
 		}
 
-		go826, _ := goDec.DecodeFloat32(packets[826])
+		go826, _ := decodeFloat32(goDec, packets[826])
 		lib826, libN := libDec.DecodeFloat(packets[826], len(go826)*2)
 		libDec.Destroy()
 
@@ -218,7 +218,7 @@ func TestTV12FreshVsStateAtBWChange(t *testing.T) {
 	// Test 4: State from packets 0-136 + explicitly reset between 136 and 826
 	t.Log("\nDecoder reset between NB and MB segments:")
 	{
-		goDec, _ := gopus.NewDecoder(48000, 1)
+		goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 		libDec, _ := NewLibopusDecoder(48000, 1)
 		if libDec == nil {
 			t.Skip("Could not create libopus decoder")
@@ -230,7 +230,7 @@ func TestTV12FreshVsStateAtBWChange(t *testing.T) {
 			if toc.Bandwidth != 0 {
 				continue
 			}
-			goDec.DecodeFloat32(packets[i])
+			decodeFloat32(goDec, packets[i])
 			libDec.DecodeFloat(packets[i], 960*2)
 		}
 
@@ -240,12 +240,12 @@ func TestTV12FreshVsStateAtBWChange(t *testing.T) {
 			if toc.Bandwidth != 1 {
 				continue
 			}
-			goDec.DecodeFloat32(packets[i])
+			decodeFloat32(goDec, packets[i])
 			libDec.DecodeFloat(packets[i], 960*2)
 		}
 
 		// Now decode 826
-		go826, _ := goDec.DecodeFloat32(packets[826])
+		go826, _ := decodeFloat32(goDec, packets[826])
 		lib826, libN := libDec.DecodeFloat(packets[826], len(go826)*2)
 		libDec.Destroy()
 

@@ -14,6 +14,15 @@ var (
 	// Valid channel counts are 1 (mono) or 2 (stereo).
 	ErrInvalidChannels = errors.New("gopus: invalid channels (must be 1 or 2)")
 
+	// ErrInvalidMaxPacketSamples indicates an invalid max packet sample cap.
+	ErrInvalidMaxPacketSamples = errors.New("gopus: invalid max packet samples (must be > 0)")
+
+	// ErrInvalidMaxPacketBytes indicates an invalid max packet size cap.
+	ErrInvalidMaxPacketBytes = errors.New("gopus: invalid max packet bytes (must be > 0)")
+
+	// ErrPacketTooLarge indicates the packet exceeds configured limits.
+	ErrPacketTooLarge = errors.New("gopus: packet exceeds configured limits")
+
 	// ErrBufferTooSmall indicates the output buffer is too small for the decoded frame.
 	// The buffer must be at least frameSize * channels samples.
 	ErrBufferTooSmall = errors.New("gopus: output buffer too small")
@@ -41,9 +50,6 @@ var (
 	// ErrInvalidMapping indicates an invalid channel mapping table.
 	// The mapping table length must equal the channel count.
 	ErrInvalidMapping = errors.New("gopus: invalid mapping table")
-
-	// ErrInvalidMode indicates an invalid or unsupported Opus mode in packet.
-	ErrInvalidMode = errors.New("gopus: invalid mode in packet")
 
 	// ErrInvalidBandwidth indicates an invalid bandwidth for the current mode.
 	// For SILK-only mode, only NB, MB, and WB are valid (not SWB or FB).

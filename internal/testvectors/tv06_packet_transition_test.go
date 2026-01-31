@@ -25,7 +25,7 @@ func TestTV06PacketTransition1497(t *testing.T) {
 		t.Skipf("Could not read reference: %v", err)
 	}
 
-	dec, _ := gopus.NewDecoder(48000, 2)
+	dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 
 	// Track per-packet stats and look for mode transitions
 	refOffset := 0
@@ -48,7 +48,7 @@ func TestTV06PacketTransition1497(t *testing.T) {
 			t.Logf("*** CONFIG CHANGE at packet %d: %d (%s) -> %d (%s)", i, prevConfig, prevMode, config, mode)
 		}
 
-		pcm, err := dec.DecodeInt16Slice(pkt.Data)
+		pcm, err := decodeInt16(dec, pkt.Data)
 		if err != nil {
 			t.Logf("Packet %d: decode error: %v", i, err)
 			prevConfig = config
@@ -171,14 +171,14 @@ func TestTV06DetailedQuality(t *testing.T) {
 		t.Skipf("Could not read reference: %v", err)
 	}
 
-	dec, _ := gopus.NewDecoder(48000, 2)
+	dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 
 	var allDecoded []int16
 	for _, pkt := range packets {
 		if len(pkt.Data) == 0 {
 			continue
 		}
-		pcm, _ := dec.DecodeInt16Slice(pkt.Data)
+		pcm, _ := decodeInt16(dec, pkt.Data)
 		allDecoded = append(allDecoded, pcm...)
 	}
 
@@ -215,7 +215,7 @@ func TestTV06RangeDecoderStateDrift(t *testing.T) {
 	testPoints := []int{0, 1000, 1400, 1450, 1490, 1495}
 
 	for _, startPkt := range testPoints {
-		dec, _ := gopus.NewDecoder(48000, 2)
+		dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 
 		// Decode from start point
 		var decoded []int16
@@ -255,7 +255,7 @@ func TestTV06RangeDecoderStateDrift(t *testing.T) {
 			if len(pkt.Data) == 0 {
 				continue
 			}
-			pcm, err := dec.DecodeInt16Slice(pkt.Data)
+			pcm, err := decodeInt16(dec, pkt.Data)
 			if err != nil {
 				continue
 			}

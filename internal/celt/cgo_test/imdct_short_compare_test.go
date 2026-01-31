@@ -34,12 +34,12 @@ func TestShortBlockIMDCTValues(t *testing.T) {
 	}
 
 	// Build up decoder state
-	goDec, _ := gopus.NewDecoder(48000, 2)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	libDec, _ := NewLibopusDecoder(48000, 2)
 	defer libDec.Destroy()
 
 	for i := 0; i < 61; i++ {
-		goDec.DecodeFloat32(packets[i])
+		decodeFloat32(goDec, packets[i])
 		libDec.DecodeFloat(packets[i], 5760)
 	}
 
@@ -50,7 +50,7 @@ func TestShortBlockIMDCTValues(t *testing.T) {
 	t.Logf("Packet 61: frameSize=%d, mode=%d", toc.FrameSize, toc.Mode)
 
 	// Decode with both
-	goPcm, _ := goDec.DecodeFloat32(pkt61)
+	goPcm, _ := decodeFloat32(goDec, pkt61)
 	libPcm, libN := libDec.DecodeFloat(pkt61, 5760)
 
 	// Compare first few output samples after overlap region
@@ -124,13 +124,13 @@ func TestOverlapRegionDetailed(t *testing.T) {
 	}
 
 	// Create fresh decoders
-	goDec, _ := gopus.NewDecoder(48000, 2)
+	goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	libDec, _ := NewLibopusDecoder(48000, 2)
 	defer libDec.Destroy()
 
 	// Decode up to packet 65 to see around transient
 	for i := 0; i < 66 && i < len(packets); i++ {
-		goPcm, _ := goDec.DecodeFloat32(packets[i])
+		goPcm, _ := decodeFloat32(goDec, packets[i])
 		libPcm, libN := libDec.DecodeFloat(packets[i], 5760)
 
 		// Show overlap buffer energy after each frame

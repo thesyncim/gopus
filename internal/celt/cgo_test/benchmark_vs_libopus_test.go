@@ -71,7 +71,7 @@ func BenchmarkDecodeGopus(b *testing.B) {
 				channels = 2
 			}
 
-			dec, _ := gopus.NewDecoder(48000, channels)
+			dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 
 			b.ResetTimer()
 			b.ReportAllocs()
@@ -79,7 +79,7 @@ func BenchmarkDecodeGopus(b *testing.B) {
 			var totalSamples int
 			for i := 0; i < b.N; i++ {
 				for _, pkt := range packets {
-					out, err := dec.DecodeFloat32(pkt)
+					out, err := decodeFloat32(dec, pkt)
 					if err == nil {
 						totalSamples += len(out) / channels
 					}
@@ -162,13 +162,13 @@ func BenchmarkDecodeSinglePacketGopus(b *testing.B) {
 		channels = 2
 	}
 
-	dec, _ := gopus.NewDecoder(48000, channels)
+	dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		dec.DecodeFloat32(pkt)
+		decodeFloat32(dec, pkt)
 	}
 
 	b.ReportMetric(float64(toc.FrameSize), "samples/op")
@@ -251,7 +251,7 @@ func TestBenchmarkComparison(t *testing.T) {
 		}
 
 		// Warm up and collect samples for SNR
-		goDec, _ := gopus.NewDecoder(48000, channels)
+		goDec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 		libDec, _ := NewLibopusDecoder(48000, channels)
 		if libDec == nil {
 			t.Logf("Skipping %s: could not create libopus decoder", tv.name)
@@ -260,7 +260,7 @@ func TestBenchmarkComparison(t *testing.T) {
 
 		var goSamples, libSamples []float32
 		for _, pkt := range packets {
-			goOut, _ := goDec.DecodeFloat32(pkt)
+			goOut, _ := decodeFloat32(goDec, pkt)
 			goSamples = append(goSamples, goOut...)
 
 			libOut, n := libDec.DecodeFloat(pkt, 5760)
@@ -288,11 +288,11 @@ func TestBenchmarkComparison(t *testing.T) {
 		libDec.Destroy()
 
 		// Benchmark gopus
-		goDec2, _ := gopus.NewDecoder(48000, channels)
+		goDec2, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 		goStart := time.Now()
 		for iter := 0; iter < iterations; iter++ {
 			for _, pkt := range packets {
-				goDec2.DecodeFloat32(pkt)
+				decodeFloat32(goDec2, pkt)
 			}
 		}
 		goElapsed := time.Since(goStart)
@@ -368,7 +368,7 @@ func BenchmarkDecodeStreamGopus(b *testing.B) {
 
 	// Pre-allocate output buffer
 	outBuf := make([]float32, 5760*channels)
-	dec, _ := gopus.NewDecoder(48000, channels)
+	dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
 
 	b.ResetTimer()
 	b.ReportAllocs()

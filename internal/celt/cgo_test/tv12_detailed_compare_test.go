@@ -18,7 +18,7 @@ func TestTV12DetailedCompare(t *testing.T) {
 	}
 
 	// Create gopus decoder at 48kHz mono (TV12 is mono)
-	goDec, err := gopus.NewDecoder(48000, 1)
+	goDec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		t.Fatalf("Failed to create gopus decoder: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestTV12DetailedCompare(t *testing.T) {
 		bw := int(toc.Bandwidth)
 
 		// Decode with gopus
-		goOut, err := goDec.DecodeFloat32(pkt)
+		goOut, err := decodeFloat32(goDec, pkt)
 		if err != nil {
 			t.Logf("Packet %d: gopus decode error: %v", i, err)
 			continue
