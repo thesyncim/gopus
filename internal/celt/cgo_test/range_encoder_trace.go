@@ -360,7 +360,7 @@ func TraceHeaderPlusLaplace(headerBits, headerLogps []int, laplaceVals []int, la
 	if len(headerBits) != 4 || len(headerLogps) != 4 {
 		return nil, nil, nil
 	}
-	if len(laplaceVals) == 0 || len(laplaceVals) != len(laplaceFS) || len(laplaceVals) != len(laplaceDecay) {
+	if len(laplaceVals) != 0 && (len(laplaceVals) != len(laplaceFS) || len(laplaceVals) != len(laplaceDecay)) {
 		return nil, nil, nil
 	}
 
@@ -377,28 +377,47 @@ func TraceHeaderPlusLaplace(headerBits, headerLogps []int, laplaceVals []int, la
 		cHeaderLogps[i] = C.int(headerLogps[i])
 	}
 
-	cLaplaceVals := make([]C.int, laplaceCount)
-	cLaplaceFS := make([]C.uint, laplaceCount)
-	cLaplaceDecay := make([]C.int, laplaceCount)
-	for i := range laplaceVals {
-		cLaplaceVals[i] = C.int(laplaceVals[i])
-		cLaplaceFS[i] = C.uint(laplaceFS[i])
-		cLaplaceDecay[i] = C.int(laplaceDecay[i])
+	var cLaplaceVals []C.int
+	var cLaplaceFS []C.uint
+	var cLaplaceDecay []C.int
+	if laplaceCount > 0 {
+		cLaplaceVals = make([]C.int, laplaceCount)
+		cLaplaceFS = make([]C.uint, laplaceCount)
+		cLaplaceDecay = make([]C.int, laplaceCount)
+		for i := range laplaceVals {
+			cLaplaceVals[i] = C.int(laplaceVals[i])
+			cLaplaceFS[i] = C.uint(laplaceFS[i])
+			cLaplaceDecay[i] = C.int(laplaceDecay[i])
+		}
 	}
 
 	cStates := make([]C.RangeEncoderState, totalStates)
-	cOutLaplaceVals := make([]C.int, laplaceCount)
+	var cOutLaplaceVals []C.int
+	if laplaceCount > 0 {
+		cOutLaplaceVals = make([]C.int, laplaceCount)
+	}
 	outBuf := make([]byte, bufSize)
 	var outLen C.int
+
+	var laplaceValsPtr *C.int
+	var laplaceFSPtr *C.uint
+	var laplaceDecayPtr *C.int
+	var outLaplaceValsPtr *C.int
+	if laplaceCount > 0 {
+		laplaceValsPtr = (*C.int)(unsafe.Pointer(&cLaplaceVals[0]))
+		laplaceFSPtr = (*C.uint)(unsafe.Pointer(&cLaplaceFS[0]))
+		laplaceDecayPtr = (*C.int)(unsafe.Pointer(&cLaplaceDecay[0]))
+		outLaplaceValsPtr = (*C.int)(unsafe.Pointer(&cOutLaplaceVals[0]))
+	}
 
 	C.range_trace_header_plus_laplace(
 		(*C.uchar)(unsafe.Pointer(&buf[0])), C.int(bufSize),
 		(*C.int)(unsafe.Pointer(&cHeaderBits[0])), (*C.int)(unsafe.Pointer(&cHeaderLogps[0])),
-		(*C.int)(unsafe.Pointer(&cLaplaceVals[0])), (*C.uint)(unsafe.Pointer(&cLaplaceFS[0])),
-		(*C.int)(unsafe.Pointer(&cLaplaceDecay[0])),
+		laplaceValsPtr, laplaceFSPtr,
+		laplaceDecayPtr,
 		C.int(laplaceCount),
 		(*C.RangeEncoderState)(unsafe.Pointer(&cStates[0])),
-		(*C.int)(unsafe.Pointer(&cOutLaplaceVals[0])),
+		outLaplaceValsPtr,
 		(*C.uchar)(unsafe.Pointer(&outBuf[0])), &outLen,
 	)
 
@@ -415,9 +434,13 @@ func TraceHeaderPlusLaplace(headerBits, headerLogps []int, laplaceVals []int, la
 		}
 	}
 
-	outLaplaceVals = make([]int, laplaceCount)
-	for i := 0; i < laplaceCount; i++ {
-		outLaplaceVals[i] = int(cOutLaplaceVals[i])
+	if laplaceCount > 0 {
+		outLaplaceVals = make([]int, laplaceCount)
+		for i := 0; i < laplaceCount; i++ {
+			outLaplaceVals[i] = int(cOutLaplaceVals[i])
+		}
+	} else {
+		outLaplaceVals = []int{}
 	}
 
 	outBytes = make([]byte, int(outLen))

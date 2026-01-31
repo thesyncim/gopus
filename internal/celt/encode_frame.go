@@ -334,7 +334,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	isVBR := e.targetBitrate > 0
 	isConstrainedVBR := false // TODO: Add constrained VBR support
 	dynallocResult := DynallocAnalysis(
-		energies, energies, e.prevEnergy,
+		energies, energies, prev1LogE,
 		nbBands, start, end, e.channels, lsbDepth, lm,
 		logN,
 		effectiveBytes,

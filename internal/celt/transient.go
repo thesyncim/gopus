@@ -284,11 +284,12 @@ func (e *Encoder) TransientAnalysis(pcm []float64, frameSize int, allowWeakTrans
 		mean = math.Sqrt(mean * maxE * 0.5 * float64(len2))
 
 		// Inverse of mean energy (with epsilon to avoid division by zero)
-		// In libopus FLOAT mode, SHL32 and SHR32 are no-ops, so:
-		// norm = len2 / (EPSILON + mean)
-		// The 64* factor is applied in the loop below
+		// Match libopus FLOAT scaling:
+		//   norm = SHL32(len2, 6+14) / (EPSILON + SHR32(mean,1))
+		// which is: norm = len2 * 2^20 / (EPSILON + mean/2)
+		// This scaling is critical; omitting it inflates the mask metric.
 		epsilon := 1e-15
-		norm := float64(len2) / (mean + epsilon)
+		norm := (float64(len2) * (1 << 20)) / (mean*0.5 + epsilon)
 
 		// Compute harmonic mean using inverse table
 		// Skip unreliable boundaries, sample every 4th point
@@ -328,6 +329,9 @@ func (e *Encoder) TransientAnalysis(pcm []float64, frameSize int, allowWeakTrans
 	// very low frequency tone with a transient.
 	// Reference: libopus celt/celt_encoder.c lines 445-451
 	// toneishness > 0.98 AND tone_freq < 0.026 radians/sample (~198 Hz at 48kHz)
+	// Note: This check ONLY applies to very low frequency tones. Higher frequency
+	// pure tones (e.g., 440 Hz) can legitimately trigger transient detection,
+	// especially on the first frame where pre-emphasis buffer is empty.
 	if result.Toneishness > 0.98 && result.ToneFreq >= 0 && result.ToneFreq < 0.026 {
 		result.IsTransient = false
 		result.MaskMetric = 0

@@ -1587,19 +1587,21 @@ func quantAllBandsEncode(re *rangecoding.Encoder, channels, frameSize, lm int, s
 
 	lowbandOffset := 0
 	updateLowband := true
+	thetaRDOEnabled := channels == 2 && dualStereo == 0 && complexity >= 8
 	ctx := bandCtx{
-		re:              re,
-		encode:          true,
-		extEnc:          nil,
-		extraBits:       0,
-		bandE:           bandE,
-		nbBands:         end,
-		channels:        channels,
-		spread:          spread,
-		remainingBits:   0,
-		intensity:       intensity,
-		seed:            seed,
-		resynth:         true,
+		re:            re,
+		encode:        true,
+		extEnc:        nil,
+		extraBits:     0,
+		bandE:         bandE,
+		nbBands:       end,
+		channels:      channels,
+		spread:        spread,
+		remainingBits: 0,
+		intensity:     intensity,
+		seed:          seed,
+		// Match libopus: resynth only when theta RDO is enabled for stereo.
+		resynth:         thetaRDOEnabled,
 		disableInv:      false,
 		avoidSplitNoise: B > 1,
 		tapset:          tapset,
@@ -1608,7 +1610,6 @@ func quantAllBandsEncode(re *rangecoding.Encoder, channels, frameSize, lm int, s
 		ctx.nbBands = len(ctx.bandE) / ctx.channels
 	}
 
-	thetaRDOEnabled := channels == 2 && dualStereo == 0 && complexity >= 8
 	for i := start; i < end; i++ {
 		ctx.band = i
 		ctx.extraBits = 0
