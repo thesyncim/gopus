@@ -51,7 +51,7 @@ func TestReferenceFileComparison(t *testing.T) {
 		toc := gopus.ParseTOC(pkt[0])
 
 		// Decode with Go
-		goOut, err := goDec.DecodeInt16Slice(pkt)
+		goOut, err := decodeInt16(goDec, pkt)
 		if err != nil {
 			t.Logf("Packet %d: Go decode error: %v", pktIdx, err)
 			// Use zeros

@@ -42,7 +42,7 @@ func TestSilk48kHzComparison(t *testing.T) {
 		}
 
 		// Decode with Go at 48kHz
-		goSamples, err := goDec.DecodeFloat32(pkt)
+		goSamples, err := decodeFloat32(goDec, pkt)
 		if err != nil {
 			t.Fatalf("Go decode packet %d failed: %v", pktIdx, err)
 		}

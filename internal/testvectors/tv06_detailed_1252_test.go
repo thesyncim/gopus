@@ -33,7 +33,7 @@ func TestTV06DetailedAround1252(t *testing.T) {
 			continue
 		}
 
-		pcm, err := dec.DecodeInt16Slice(pkt.Data)
+		pcm, err := decodeInt16(dec, pkt.Data)
 		if err != nil {
 			continue
 		}
@@ -113,7 +113,7 @@ func TestTV06WorsePeriod(t *testing.T) {
 			continue
 		}
 
-		pcm, err := dec.DecodeInt16Slice(pkt.Data)
+		pcm, err := decodeInt16(dec, pkt.Data)
 		if err != nil {
 			continue
 		}
@@ -162,7 +162,7 @@ func TestTV06WorsePeriod(t *testing.T) {
 			continue
 		}
 
-		pcm, err := dec2.DecodeInt16Slice(pkt.Data)
+		pcm, err := decodeInt16(dec2, pkt.Data)
 		if err != nil {
 			continue
 		}
@@ -265,7 +265,7 @@ func TestTV06FreshDecoderAtBadPackets(t *testing.T) {
 			if len(pkt.Data) == 0 {
 				continue
 			}
-			pcm, err := dec.DecodeInt16Slice(pkt.Data)
+			pcm, err := decodeInt16(dec, pkt.Data)
 			if err != nil {
 				continue
 			}

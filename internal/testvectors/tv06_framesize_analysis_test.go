@@ -39,7 +39,7 @@ func TestTV06FrameSizeQuality(t *testing.T) {
 		stereo := (toc & 0x04) != 0
 		frameSize := getFrameSizeFromConfig(config)
 
-		pcm, err := dec.DecodeInt16Slice(pkt.Data)
+		pcm, err := decodeInt16(dec, pkt.Data)
 		if err != nil {
 			continue
 		}
@@ -127,7 +127,7 @@ func TestTV06FrameSizeTransitionDetail(t *testing.T) {
 			continue
 		}
 
-		pcm, err := dec.DecodeInt16Slice(pkt.Data)
+		pcm, err := decodeInt16(dec, pkt.Data)
 		if err != nil {
 			continue
 		}
@@ -199,7 +199,7 @@ func TestTV06AfterStereoTransition(t *testing.T) {
 			continue
 		}
 
-		pcm, err := dec.DecodeInt16Slice(pkt.Data)
+		pcm, err := decodeInt16(dec, pkt.Data)
 		if err != nil {
 			continue
 		}

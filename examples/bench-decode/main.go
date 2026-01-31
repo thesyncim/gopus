@@ -194,10 +194,12 @@ func decodeGopusOnce(data []byte) (int, error) {
 		return 0, errors.New("invalid channel count")
 	}
 
-	dec, err := gopus.NewDecoderDefault(sampleRate, channels)
+	cfg := gopus.DefaultDecoderConfig(sampleRate, channels)
+	dec, err := gopus.NewDecoder(cfg)
 	if err != nil {
 		return 0, err
 	}
+	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
 
 	remainingSkip := int(oggReader.PreSkip())
 	totalSamples := 0
@@ -211,26 +213,26 @@ func decodeGopusOnce(data []byte) (int, error) {
 			return 0, err
 		}
 
-		pcm, err := dec.DecodeFloat32(packet)
+		n, err := dec.Decode(packet, pcmOut)
 		if err != nil {
 			return 0, err
 		}
 
-		frameSamples := len(pcm) / channels
+		frameSamples := n
 		if remainingSkip > 0 {
 			if frameSamples <= remainingSkip {
 				remainingSkip -= frameSamples
 				continue
 			}
-			pcm = pcm[remainingSkip*channels:]
+			frameSamples -= remainingSkip
 			remainingSkip = 0
 		}
 
-		if len(pcm) == 0 {
+		if frameSamples == 0 {
 			continue
 		}
 
-		totalSamples += len(pcm) / channels
+		totalSamples += frameSamples
 	}
 
 	return totalSamples, nil

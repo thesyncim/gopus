@@ -44,7 +44,7 @@ func TestStereoPacketByPacket(t *testing.T) {
 		pktTOC := gopus.ParseTOC(pkt[0])
 
 		// Decode with Go
-		goOut, err := goDec.DecodeFloat32(pkt)
+		goOut, err := decodeFloat32(goDec, pkt)
 		goLen := 0
 		if err == nil {
 			goLen = len(goOut)
@@ -112,7 +112,7 @@ func TestCELTPacketByPacket(t *testing.T) {
 	for i, pkt := range packets {
 		pktTOC := gopus.ParseTOC(pkt[0])
 
-		goOut, _ := goDec.DecodeFloat32(pkt)
+		goOut, _ := decodeFloat32(goDec, pkt)
 		libOut, libN := libDec.DecodeFloat(pkt, pktTOC.FrameSize*4)
 
 		libTotal := 0

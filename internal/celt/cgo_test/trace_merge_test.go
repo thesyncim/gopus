@@ -39,7 +39,7 @@ func TestAnalyzeStereoErrorPattern(t *testing.T) {
 
 	// Sync up to packet 13
 	for i := 0; i < 14; i++ {
-		goDecHL.DecodeFloat32(packets[i])
+		decodeFloat32(goDecHL, packets[i])
 		libDec.DecodeFloat(packets[i], 5760)
 	}
 
@@ -47,7 +47,7 @@ func TestAnalyzeStereoErrorPattern(t *testing.T) {
 	pkt := packets[14]
 	t.Logf("Packet 14: len=%d, TOC=0x%02X", len(pkt), pkt[0])
 
-	goSamplesF32, _ := goDecHL.DecodeFloat32(pkt)
+	goSamplesF32, _ := decodeFloat32(goDecHL, pkt)
 	libPcm, libSamples := libDec.DecodeFloat(pkt, 5760)
 
 	// Convert to float64
@@ -161,7 +161,7 @@ func TestComparePacket13vs14(t *testing.T) {
 		goDecHL, _ := gopus.NewDecoderDefault(48000, 2)
 		libDec, _ := NewLibopusDecoder(48000, 2)
 
-		goSamplesF32, _ := goDecHL.DecodeFloat32(pkt)
+		goSamplesF32, _ := decodeFloat32(goDecHL, pkt)
 		libPcm, libSamples := libDec.DecodeFloat(pkt, 5760)
 		libDec.Destroy()
 

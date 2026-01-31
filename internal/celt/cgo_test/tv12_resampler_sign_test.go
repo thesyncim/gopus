@@ -534,7 +534,7 @@ func TestTV12FullDecoder48kHz(t *testing.T) {
 		toc := gopus.ParseTOC(pkt[0])
 
 		// Decode with Go
-		goSamples, err := goDec.DecodeFloat32(pkt)
+		goSamples, err := decodeFloat32(goDec, pkt)
 		if err != nil {
 			continue
 		}
@@ -646,7 +646,7 @@ func TestTV12FindDivergenceStart(t *testing.T) {
 		pkt := packets[pktIdx]
 		toc := gopus.ParseTOC(pkt[0])
 
-		goSamples, err := goDec.DecodeFloat32(pkt)
+		goSamples, err := decodeFloat32(goDec, pkt)
 		if err != nil {
 			continue
 		}
@@ -733,7 +733,7 @@ func TestTV12Pkt826DetailedCompare(t *testing.T) {
 	for i := 0; i <= targetPkt; i++ {
 		pkt := packets[i]
 
-		goSamples, _ := goDec.DecodeFloat32(pkt)
+		goSamples, _ := decodeFloat32(goDec, pkt)
 		libPcm, libSamples := libDec.DecodeFloat(pkt, len(goSamples)*2)
 
 		if i == targetPkt {
@@ -817,7 +817,7 @@ func TestTV12BandwidthTransitions(t *testing.T) {
 			continue
 		}
 
-		goSamples, err := goDec.DecodeFloat32(pkt)
+		goSamples, err := decodeFloat32(goDec, pkt)
 		if err != nil {
 			continue
 		}

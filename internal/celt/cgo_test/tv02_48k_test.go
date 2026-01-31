@@ -38,7 +38,7 @@ func TestTV02At48kHz(t *testing.T) {
 	for i := 0; i < len(packets) && i < 100; i++ {
 		pkt := packets[i]
 
-		goSamples, err := goDec.DecodeFloat32(pkt)
+		goSamples, err := decodeFloat32(goDec, pkt)
 		if err != nil {
 			t.Logf("Packet %d: decode error: %v", i, err)
 			continue

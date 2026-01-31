@@ -40,7 +40,7 @@ func TestTV12OpusLevelComparison(t *testing.T) {
 		}
 		prevBW = toc.Bandwidth
 
-		goSamples, err := goDec.DecodeFloat32(pkt)
+		goSamples, err := decodeFloat32(goDec, pkt)
 		if err != nil {
 			t.Logf("Packet %d: gopus error: %v", i, err)
 			continue
@@ -133,7 +133,7 @@ func TestTV12NativeSilkOnly(t *testing.T) {
 			rate = 12000
 		}
 
-		goSamples, err := goDec.DecodeFloat32(pkt)
+		goSamples, err := decodeFloat32(goDec, pkt)
 		if err != nil {
 			t.Logf("Packet %d: gopus error: %v", i, err)
 			continue

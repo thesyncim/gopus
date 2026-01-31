@@ -30,7 +30,7 @@ func TestTV12SMidAt137(t *testing.T) {
 		toc := gopus.ParseTOC(pkt[0])
 
 		// Decode
-		goSamples, _ := goDec.DecodeFloat32(pkt)
+		goSamples, _ := decodeFloat32(goDec, pkt)
 
 		// Get sMid AFTER decode
 		sMidAfter := silkDec.GetSMid()

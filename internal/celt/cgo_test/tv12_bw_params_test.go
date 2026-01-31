@@ -48,7 +48,7 @@ func TestTV12BWTransitionParams(t *testing.T) {
 		libPcm, _ := libDec.DecodeFloat(pkt, 1920)
 
 		// Decode with gopus full decoder
-		goPcm, _ := goDec.DecodeFloat32(pkt)
+		goPcm, _ := decodeFloat32(goDec, pkt)
 
 		// Only analyze SILK packets near transition
 		if toc.Mode != gopus.ModeSILK {

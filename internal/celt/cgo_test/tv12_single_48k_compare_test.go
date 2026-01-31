@@ -38,7 +38,7 @@ func TestTV12Single48kDecoders(t *testing.T) {
 			continue
 		}
 
-		goSamples, err := goDec.DecodeFloat32(pkt)
+		goSamples, err := decodeFloat32(goDec, pkt)
 		if err != nil {
 			t.Logf("Packet %d: gopus error: %v", i, err)
 			continue
@@ -126,7 +126,7 @@ func TestTV12BWTransitionPackets(t *testing.T) {
 		pkt := packets[i]
 		toc := gopus.ParseTOC(pkt[0])
 
-		goSamples, err := goDec.DecodeFloat32(pkt)
+		goSamples, err := decodeFloat32(goDec, pkt)
 		if err != nil {
 			continue
 		}

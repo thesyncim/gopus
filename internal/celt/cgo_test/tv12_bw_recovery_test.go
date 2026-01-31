@@ -51,7 +51,7 @@ func TestTV12BWRecovery(t *testing.T) {
 		t.Logf("\n=== Packets %d-%d ===", start, end-1)
 		for i := 0; i < end; i++ {
 			pkt := packets[i]
-			goOut, _ := goDec.DecodeFloat32(pkt)
+			goOut, _ := decodeFloat32(goDec, pkt)
 			libOut, libN := libDec.DecodeFloat(pkt, len(goOut)*2)
 
 			if i >= start {

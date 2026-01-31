@@ -41,7 +41,7 @@ func TestStereoMergeCompare(t *testing.T) {
 	goDec, _ := gopus.NewDecoderDefault(48000, 2)
 
 	t.Log("=== Decoding packet 14 with stereo merge tracing ===")
-	goSamples, _ := goDec.DecodeFloat32(packets[14])
+	goSamples, _ := decodeFloat32(goDec, packets[14])
 
 	// Compare with libopus
 	libDec, _ := NewLibopusDecoder(48000, 2)
@@ -120,7 +120,7 @@ func TestOverlapDifference(t *testing.T) {
 	}
 	defer libDec.Destroy()
 
-	goSamples, _ := goDec.DecodeFloat32(packets[14])
+	goSamples, _ := decodeFloat32(goDec, packets[14])
 	libPcm, _ := libDec.DecodeFloat(packets[14], 5760)
 
 	// The first overlap samples (0 to overlap-1) should show if overlap state matters

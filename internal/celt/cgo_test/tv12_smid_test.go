@@ -188,7 +188,7 @@ func TestTV12AllPacketsSNRComparison(t *testing.T) {
 				libN = n
 			}
 
-			goPcm, _ := goDec2.DecodeFloat32(pkt)
+			goPcm, _ := decodeFloat32(goDec2, pkt)
 			if i == targetPkt {
 				goOut = goPcm
 			}

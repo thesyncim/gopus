@@ -65,7 +65,7 @@ func TestTV12FindFirstDivergingPacket(t *testing.T) {
 
 		isModeTransition := prevMode != "" && prevMode != mode
 
-		pcm, err := dec.DecodeInt16Slice(pkt.Data)
+		pcm, err := decodeInt16(dec, pkt.Data)
 		if err != nil {
 			t.Logf("Packet %d decode error: %v", i, err)
 			zeros := make([]int16, fs*2)

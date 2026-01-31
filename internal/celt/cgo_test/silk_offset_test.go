@@ -33,7 +33,7 @@ func TestSilkTimingOffset(t *testing.T) {
 
 	// Decode with gopus
 	goDec, _ := gopus.NewDecoderDefault(48000, channels)
-	goPcm, decErr := goDec.DecodeFloat32(pkt)
+	goPcm, decErr := decodeFloat32(goDec, pkt)
 	if decErr != nil {
 		t.Fatalf("gopus decode failed: %v", decErr)
 	}
@@ -109,7 +109,7 @@ func TestSilkCrossCorrelation(t *testing.T) {
 	var goPcm, libPcmAll []float32
 
 	for _, pkt := range packets {
-		goSamples, decErr := goDec.DecodeFloat32(pkt)
+		goSamples, decErr := decodeFloat32(goDec, pkt)
 		if decErr != nil {
 			continue
 		}

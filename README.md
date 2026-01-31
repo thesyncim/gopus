@@ -118,19 +118,21 @@ import (
 
 func main() {
     // Create decoder: 48kHz, stereo
-    dec, err := gopus.NewDecoderDefault(48000, 2)
+    cfg := gopus.DefaultDecoderConfig(48000, 2)
+    dec, err := gopus.NewDecoder(cfg)
     if err != nil {
         log.Fatal(err)
     }
+    pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
 
     // Decode an Opus packet
     packet := []byte{ /* Opus packet data */ }
-    pcm, err := dec.DecodeFloat32(packet) // Scratch-backed; copy if you need to keep it
+    n, err := dec.Decode(packet, pcmOut)
     if err != nil {
         log.Fatal(err)
     }
 
-    log.Printf("Decoded %d samples", len(pcm)/2)
+    log.Printf("Decoded %d samples", n)
 }
 ```
 
@@ -139,9 +141,9 @@ func main() {
 ```go
 // When a packet is lost, pass nil to trigger PLC
 if packetLost {
-    pcm, err = dec.DecodeFloat32(nil)  // PLC generates replacement audio
+    n, err = dec.Decode(nil, pcmOut)  // PLC generates replacement audio
 } else {
-    pcm, err = dec.DecodeFloat32(packet)
+    n, err = dec.Decode(packet, pcmOut)
 }
 ```
 
@@ -230,12 +232,13 @@ func main() {
         log.Fatal(err)
     }
 
-    decoded, err := dec.DecodeFloat32(packet)
+    pcmOut := make([]float32, 960*6)
+    n, err := dec.Decode(packet, pcmOut)
     if err != nil {
         log.Fatal(err)
     }
 
-    log.Printf("5.1 surround: encoded %d bytes, decoded %d samples", len(packet), len(decoded)/6)
+    log.Printf("5.1 surround: encoded %d bytes, decoded %d samples", len(packet), n)
 }
 ```
 
@@ -302,7 +305,9 @@ func main() {
 
     log.Printf("Channels: %d, PreSkip: %d", reader.Header.Channels, reader.Header.PreSkip)
 
-    dec, _ := gopus.NewDecoderDefault(48000, int(reader.Header.Channels))
+    cfg := gopus.DefaultDecoderConfig(48000, int(reader.Header.Channels))
+    dec, _ := gopus.NewDecoder(cfg)
+    pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
 
     for {
         packet, err := reader.ReadPacket()
@@ -313,9 +318,9 @@ func main() {
             log.Fatal(err)
         }
 
-        pcm, _ := dec.DecodeFloat32(packet)
+        n, _ := dec.Decode(packet, pcmOut)
         // ... process decoded samples ...
-        _ = pcm
+        _ = n
     }
 }
 ```
@@ -442,11 +447,13 @@ Encoder and Decoder instances are **NOT** safe for concurrent use. Each goroutin
 ```go
 // Correct: one decoder per goroutine
 func decodeWorker(packets <-chan []byte) {
-    dec, _ := gopus.NewDecoderDefault(48000, 2)
+    cfg := gopus.DefaultDecoderConfig(48000, 2)
+    dec, _ := gopus.NewDecoder(cfg)
+    pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
     for packet := range packets {
-        pcm, _ := dec.DecodeFloat32(packet)
+        n, _ := dec.Decode(packet, pcmOut)
         // ... process pcm ...
-        _ = pcm
+        _ = n
     }
 }
 ```

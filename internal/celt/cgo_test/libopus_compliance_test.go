@@ -72,7 +72,7 @@ func TestAllVectorsVsLibopus(t *testing.T) {
 				pktTOC := gopus.ParseTOC(pkt[0])
 
 				// Decode with Go
-				goOut, err := goDec.DecodeFloat32(pkt)
+				goOut, err := decodeFloat32(goDec, pkt)
 				if err != nil {
 					// Use zeros for failed packets
 					zeros := make([]float32, pktTOC.FrameSize*channels)

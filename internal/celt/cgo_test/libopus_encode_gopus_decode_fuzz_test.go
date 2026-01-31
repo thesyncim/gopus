@@ -94,7 +94,7 @@ func FuzzLibopusEncodeGopusDecode(f *testing.F) {
 		}
 
 		// Decode with gopus
-		gopusDecoded, err := gopusDec.DecodeFloat32(packet)
+		gopusDecoded, err := decodeFloat32(gopusDec, packet)
 		if err != nil {
 			t.Errorf("gopus decode error: %v (libopus succeeded)", err)
 			return
@@ -282,7 +282,7 @@ func TestLibopusEncodeGopusDecodeVariousConfigs(t *testing.T) {
 			}
 
 			// Decode with gopus
-			gopusDecoded, err := gopusDec.DecodeFloat32(packet)
+			gopusDecoded, err := decodeFloat32(gopusDec, packet)
 			if err != nil {
 				t.Fatalf("gopus decode failed: %v", err)
 			}
@@ -372,7 +372,7 @@ func TestLibopusEncodeGopusDecodeMultiFrame(t *testing.T) {
 		}
 
 		// Decode
-		decoded, err := gopusDec.DecodeFloat32(packet)
+		decoded, err := decodeFloat32(gopusDec, packet)
 		if err != nil {
 			t.Fatalf("Frame %d: decode failed: %v", i, err)
 		}
@@ -444,7 +444,7 @@ func TestLibopusEncodeGopusDecodeRandomStress(t *testing.T) {
 		}
 
 		// Decode
-		decoded, err := gopusDec.DecodeFloat32(packet)
+		decoded, err := decodeFloat32(gopusDec, packet)
 		if err != nil {
 			t.Logf("Iteration %d: decode error (channels=%d, frameSize=%d, bitrate=%d, bw=%d): %v",
 				i, channels, frameSize, bitrate, bandwidth, err)

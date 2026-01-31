@@ -43,7 +43,7 @@ func TestPreDeemphSamplesCompare(t *testing.T) {
 
 	// First sync up to packet 995
 	for i := 0; i < 996; i++ {
-		goDec.DecodeFloat32(packets[i])
+		decodeFloat32(goDec, packets[i])
 		libDec.DecodeFloat(packets[i], 5760)
 	}
 
@@ -51,7 +51,7 @@ func TestPreDeemphSamplesCompare(t *testing.T) {
 		pkt := packets[i]
 		toc := gopus.ParseTOC(pkt[0])
 
-		goPcm, _ := goDec.DecodeFloat32(pkt)
+		goPcm, _ := decodeFloat32(goDec, pkt)
 		libPcm, libN := libDec.DecodeFloat(pkt, 5760)
 
 		if libN <= 0 {
@@ -142,7 +142,7 @@ func TestFreshDecodeEachPacket(t *testing.T) {
 		pkt := packets[i]
 		toc := gopus.ParseTOC(pkt[0])
 
-		goPcm, _ := goDec.DecodeFloat32(pkt)
+		goPcm, _ := decodeFloat32(goDec, pkt)
 		libPcm, libN := libDec.DecodeFloat(pkt, 5760)
 
 		libDec.Destroy()
@@ -196,7 +196,7 @@ func TestIsolateFrameSizeTransition(t *testing.T) {
 	defer libDec.Destroy()
 
 	for i := 0; i < 995; i++ {
-		goDec.DecodeFloat32(packets[i])
+		decodeFloat32(goDec, packets[i])
 		libDec.DecodeFloat(packets[i], 5760)
 	}
 
@@ -210,7 +210,7 @@ func TestIsolateFrameSizeTransition(t *testing.T) {
 		pkt := packets[i]
 		toc := gopus.ParseTOC(pkt[0])
 
-		goPcm, _ := goDec.DecodeFloat32(pkt)
+		goPcm, _ := decodeFloat32(goDec, pkt)
 		libPcm, libN := libDec.DecodeFloat(pkt, 5760)
 
 		// Get state after decode
@@ -285,7 +285,7 @@ func TestFindFirstDegradedPacket(t *testing.T) {
 		}
 		toc := gopus.ParseTOC(pkt[0])
 
-		goPcm, _ := goDec.DecodeFloat32(pkt)
+		goPcm, _ := decodeFloat32(goDec, pkt)
 		libPcm, libN := libDec.DecodeFloat(pkt, 5760)
 
 		if libN <= 0 {

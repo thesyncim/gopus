@@ -36,7 +36,7 @@ func TestTV12NativeCompare(t *testing.T) {
 
 		// Process packets 0-136 via gopus
 		for i := 0; i < 137; i++ {
-			goDec.DecodeFloat32(packets[i])
+			decodeFloat32(goDec, packets[i])
 		}
 
 		// Get sMid before decode

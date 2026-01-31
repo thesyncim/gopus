@@ -126,7 +126,7 @@ func analyzeVector(t *testing.T, vectorName string) {
 			modeTransitionCount++
 		}
 
-		goPcm, decErr := goDec.DecodeFloat32(pkt)
+		goPcm, decErr := decodeFloat32(goDec, pkt)
 		if decErr != nil {
 			t.Logf("Packet %d: gopus error: %v", i, decErr)
 			prevMode = toc.Mode
@@ -328,7 +328,7 @@ func TestCompareAroundTransition(t *testing.T) {
 		pkt := packets[i]
 		toc := gopus.ParseTOC(pkt[0])
 
-		goPcm, goErr := goDec.DecodeFloat32(pkt)
+		goPcm, goErr := decodeFloat32(goDec, pkt)
 		libPcm, libSamples := libDec.DecodeFloat(pkt, 5760)
 
 		if i >= start {

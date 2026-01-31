@@ -33,7 +33,7 @@ there is no reliable hybrid decode benchmark yet.
 
 - Added `decodeOpusFrameInto` and a buffer-based `Decoder.Decode` loop that avoids
   per-frame allocations at the top level.
-- `DecodeFloat32` / `DecodeInt16Slice` now return decoder-owned scratch slices.
+- Removed `DecodeFloat32` / `DecodeInt16Slice`; callers must pass explicit buffers.
 - Added `DecoderConfig` caps (`MaxPacketSamples`, `MaxPacketBytes`) and streaming
   `PacketReader` plumbing for buffer-based packet reads.
 
@@ -41,15 +41,8 @@ there is no reliable hybrid decode benchmark yet.
 
 ### Top-level decoder (gopus)
 
-- `decoder_opus_frame.go` (lines ~83-177, 157, 167-175)
-  - PLC paths allocate: `make([]float32, ...)` (line ~86, ~98, ~157).
-  - Transition / redundancy paths allocate new buffers and convert float64 -> float32.
-- `decoder.go` (lines ~176-225)
-  - `extractFrameData` allocates `[][]byte` per packet.
-- `decoder.go` (lines ~237-252)
-  - `DecodeInt16` allocates an intermediate `[]float32`.
-- `packet.go` (lines ~176-243)
-  - `ParsePacket` allocates `FrameSizes` slices (code 0/1/2 via literals; code 3 via `make`).
+- Public `Decoder` path is now buffer-based; PLC/transition/redundancy use decoder scratch.
+  Per-call allocations have been removed at this layer.
 
 ### CELT
 

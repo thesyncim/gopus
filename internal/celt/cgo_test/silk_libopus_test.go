@@ -42,7 +42,7 @@ func TestSilkVsLibopus(t *testing.T) {
 		toc := gopus.ParseTOC(pkt[0])
 
 		// Decode with gopus
-		goPcm, decErr := goDec.DecodeFloat32(pkt)
+		goPcm, decErr := decodeFloat32(goDec, pkt)
 		if decErr != nil {
 			t.Logf("Packet %d: gopus error: %v", i, decErr)
 			continue
@@ -140,7 +140,7 @@ func TestSilkFirstPacketDetail(t *testing.T) {
 		}())
 
 	// Decode with gopus
-	goPcm, decErr := goDec.DecodeFloat32(pkt)
+	goPcm, decErr := decodeFloat32(goDec, pkt)
 	if decErr != nil {
 		t.Fatalf("gopus decode failed: %v", decErr)
 	}
@@ -199,7 +199,7 @@ func TestSilkPacket1Detail(t *testing.T) {
 	defer libDec.Destroy()
 
 	// Decode packet 0 first (to initialize state)
-	goDec.DecodeFloat32(packets[0])
+	decodeFloat32(goDec, packets[0])
 	libDec.DecodeFloat(packets[0], 5760)
 
 	// Now examine packet 1
@@ -209,7 +209,7 @@ func TestSilkPacket1Detail(t *testing.T) {
 		len(pkt), toc.Stereo, toc.FrameSize, toc.Mode, toc.Bandwidth)
 
 	// Decode with gopus
-	goPcm, decErr := goDec.DecodeFloat32(pkt)
+	goPcm, decErr := decodeFloat32(goDec, pkt)
 	if decErr != nil {
 		t.Fatalf("gopus decode failed: %v", decErr)
 	}

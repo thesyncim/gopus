@@ -79,7 +79,7 @@ func BenchmarkDecodeGopus(b *testing.B) {
 			var totalSamples int
 			for i := 0; i < b.N; i++ {
 				for _, pkt := range packets {
-					out, err := dec.DecodeFloat32(pkt)
+					out, err := decodeFloat32(dec, pkt)
 					if err == nil {
 						totalSamples += len(out) / channels
 					}
@@ -168,7 +168,7 @@ func BenchmarkDecodeSinglePacketGopus(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		dec.DecodeFloat32(pkt)
+		decodeFloat32(dec, pkt)
 	}
 
 	b.ReportMetric(float64(toc.FrameSize), "samples/op")
@@ -260,7 +260,7 @@ func TestBenchmarkComparison(t *testing.T) {
 
 		var goSamples, libSamples []float32
 		for _, pkt := range packets {
-			goOut, _ := goDec.DecodeFloat32(pkt)
+			goOut, _ := decodeFloat32(goDec, pkt)
 			goSamples = append(goSamples, goOut...)
 
 			libOut, n := libDec.DecodeFloat(pkt, 5760)
@@ -292,7 +292,7 @@ func TestBenchmarkComparison(t *testing.T) {
 		goStart := time.Now()
 		for iter := 0; iter < iterations; iter++ {
 			for _, pkt := range packets {
-				goDec2.DecodeFloat32(pkt)
+				decodeFloat32(goDec2, pkt)
 			}
 		}
 		goElapsed := time.Since(goStart)

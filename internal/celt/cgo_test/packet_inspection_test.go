@@ -145,14 +145,14 @@ func TestComparePacket59And60(t *testing.T) {
 	defer libDecA.Destroy()
 
 	for i := 0; i < 59; i++ {
-		goDecA.DecodeFloat32(packets[i])
+		decodeFloat32(goDecA, packets[i])
 		libDecA.DecodeFloat(packets[i], 5760)
 	}
 	// Skip 59, decode 60
-	goDecA.DecodeFloat32(packets[60])
+	decodeFloat32(goDecA, packets[60])
 	libDecA.DecodeFloat(packets[60], 5760)
 	// Decode 61
-	goPcmA, _ := goDecA.DecodeFloat32(packets[61])
+	goPcmA, _ := decodeFloat32(goDecA, packets[61])
 	libPcmA, libNA := libDecA.DecodeFloat(packets[61], 5760)
 
 	nA := minInt(len(goPcmA), libNA*2)
@@ -175,11 +175,11 @@ func TestComparePacket59And60(t *testing.T) {
 	defer libDecB.Destroy()
 
 	for i := 0; i < 60; i++ {
-		goDecB.DecodeFloat32(packets[i])
+		decodeFloat32(goDecB, packets[i])
 		libDecB.DecodeFloat(packets[i], 5760)
 	}
 	// Skip 60, decode 61 directly
-	goPcmB, _ := goDecB.DecodeFloat32(packets[61])
+	goPcmB, _ := decodeFloat32(goDecB, packets[61])
 	libPcmB, libNB := libDecB.DecodeFloat(packets[61], 5760)
 
 	nB := minInt(len(goPcmB), libNB*2)
@@ -202,10 +202,10 @@ func TestComparePacket59And60(t *testing.T) {
 	defer libDecC.Destroy()
 
 	for i := 0; i <= 60; i++ {
-		goDecC.DecodeFloat32(packets[i])
+		decodeFloat32(goDecC, packets[i])
 		libDecC.DecodeFloat(packets[i], 5760)
 	}
-	goPcmC, _ := goDecC.DecodeFloat32(packets[61])
+	goPcmC, _ := decodeFloat32(goDecC, packets[61])
 	libPcmC, libNC := libDecC.DecodeFloat(packets[61], 5760)
 
 	nC := minInt(len(goPcmC), libNC*2)

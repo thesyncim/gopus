@@ -42,7 +42,7 @@ func TestSILKBandwidthCompare(t *testing.T) {
 
 			// Decode packet 0
 			pkt := packets[0]
-			goOut, err := goDec.DecodeFloat32(pkt)
+			goOut, err := decodeFloat32(goDec, pkt)
 			if err != nil {
 				t.Fatalf("Go decode error: %v", err)
 			}

@@ -91,7 +91,7 @@ func TestShortBlockSynthesisViaDecoder(t *testing.T) {
 		// Let's just compare all frames and note which have higher error
 
 		libPcm, libSamples := libDec.DecodeFloat(pkt, 5760)
-		goPcm, _ := goDec.DecodeFloat32(pkt)
+		goPcm, _ := decodeFloat32(goDec, pkt)
 
 		if libSamples <= 0 || len(goPcm) == 0 {
 			continue
@@ -188,7 +188,7 @@ func TestIsolateTransientFrame(t *testing.T) {
 
 	for i, pkt := range packets {
 		libPcm, libSamples := libDec.DecodeFloat(pkt, 5760)
-		goPcm, _ := goDec.DecodeFloat32(pkt)
+		goPcm, _ := decodeFloat32(goDec, pkt)
 
 		if libSamples <= 0 || len(goPcm) == 0 {
 			continue
@@ -226,7 +226,7 @@ func TestIsolateTransientFrame(t *testing.T) {
 
 	// Decode frames before the problem to sync state
 	for i := 0; i < problemIdx; i++ {
-		goDec2.DecodeFloat32(packets[i])
+		decodeFloat32(goDec2, packets[i])
 		libDec2.DecodeFloat(packets[i], 5760)
 	}
 
@@ -234,7 +234,7 @@ func TestIsolateTransientFrame(t *testing.T) {
 	t.Logf("\nDetailed analysis of packet %d:", problemIdx)
 
 	libPcm, libSamples := libDec2.DecodeFloat(packets[problemIdx], 5760)
-	goPcm, _ := goDec2.DecodeFloat32(packets[problemIdx])
+	goPcm, _ := decodeFloat32(goDec2, packets[problemIdx])
 
 	toc := gopus.ParseTOC(packets[problemIdx][0])
 	t.Logf("TOC=0x%02X mode=%v fs=%d len=%d", packets[problemIdx][0], toc.Mode, toc.FrameSize, len(packets[problemIdx]))
@@ -280,7 +280,7 @@ func TestIsolateTransientFrame(t *testing.T) {
 		t.Logf("\nNext frame (packet %d) - checking error propagation:", problemIdx+1)
 
 		libPcm2, libSamples2 := libDec2.DecodeFloat(packets[problemIdx+1], 5760)
-		goPcm2, _ := goDec2.DecodeFloat32(packets[problemIdx+1])
+		goPcm2, _ := decodeFloat32(goDec2, packets[problemIdx+1])
 
 		// First 30 samples of next frame
 		t.Logf("First 30 samples of next frame:")

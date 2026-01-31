@@ -56,7 +56,7 @@ func TestTestvector07FullAnalysis(t *testing.T) {
 		frameSizes[toc.FrameSize]++
 
 		libPcm, libSamples := libDec.DecodeFloat(pkt, 5760)
-		goPcm, _ := goDec.DecodeFloat32(pkt)
+		goPcm, _ := decodeFloat32(goDec, pkt)
 
 		if libSamples <= 0 || len(goPcm) == 0 {
 			continue

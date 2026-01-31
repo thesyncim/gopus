@@ -53,7 +53,6 @@ type Decoder struct {
 	maxPacketSamples  int
 	maxPacketBytes    int
 	scratchPCM        []float32
-	scratchInt16      []int16
 	scratchTransition []float32
 	scratchRedundant  []float32
 	lastFrameSize     int
@@ -104,7 +103,6 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 		maxPacketSamples:  maxPacketSamples,
 		maxPacketBytes:    maxPacketBytes,
 		scratchPCM:        make([]float32, maxPacketSamples*cfg.Channels),
-		scratchInt16:      make([]int16, maxPacketSamples*cfg.Channels),
 		scratchTransition: make([]float32, transitionSamples*cfg.Channels),
 		scratchRedundant:  make([]float32, transitionSamples*cfg.Channels),
 		lastFrameSize:     960,        // Default 20ms at 48kHz
@@ -392,26 +390,6 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 		pcm[i] = float32ToInt16(d.scratchPCM[i])
 	}
 	return n, nil
-}
-
-// DecodeFloat32 decodes an Opus packet and returns a slice backed by internal scratch.
-// The returned slice is only valid until the next decode call on this Decoder.
-func (d *Decoder) DecodeFloat32(data []byte) ([]float32, error) {
-	n, err := d.Decode(data, d.scratchPCM)
-	if err != nil {
-		return nil, err
-	}
-	return d.scratchPCM[:n*d.channels], nil
-}
-
-// DecodeInt16Slice decodes an Opus packet and returns a slice backed by internal scratch.
-// The returned slice is only valid until the next decode call on this Decoder.
-func (d *Decoder) DecodeInt16Slice(data []byte) ([]int16, error) {
-	n, err := d.DecodeInt16(data, d.scratchInt16)
-	if err != nil {
-		return nil, err
-	}
-	return d.scratchInt16[:n*d.channels], nil
 }
 
 func packetFrameCount(data []byte) (TOC, int, error) {

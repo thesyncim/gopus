@@ -32,7 +32,7 @@ func TestTV12Packet825(t *testing.T) {
 	for pktIdx := 0; pktIdx <= 825 && pktIdx < len(packets); pktIdx++ {
 		pkt := packets[pktIdx]
 
-		goSamples, err := goDec.DecodeFloat32(pkt)
+		goSamples, err := decodeFloat32(goDec, pkt)
 		if err != nil {
 			continue
 		}

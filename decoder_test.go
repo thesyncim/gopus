@@ -233,44 +233,6 @@ func TestDecoder_Decode_PLC(t *testing.T) {
 	t.Logf("PLC produced %d samples", n)
 }
 
-func TestDecoder_DecodeFloat32_Convenience(t *testing.T) {
-	dec, err := NewDecoderDefault(48000, 1)
-	if err != nil {
-		t.Fatalf("NewDecoder error: %v", err)
-	}
-
-	packet := minimalHybridTestPacket20ms()
-	frameSize := 960
-
-	pcmOut, err := dec.DecodeFloat32(packet)
-	if err != nil {
-		t.Fatalf("DecodeFloat32 error: %v", err)
-	}
-
-	if len(pcmOut) != frameSize {
-		t.Errorf("DecodeFloat32 returned %d samples, want %d", len(pcmOut), frameSize)
-	}
-}
-
-func TestDecoder_DecodeInt16Slice_Convenience(t *testing.T) {
-	dec, err := NewDecoderDefault(48000, 1)
-	if err != nil {
-		t.Fatalf("NewDecoder error: %v", err)
-	}
-
-	packet := minimalHybridTestPacket20ms()
-	frameSize := 960
-
-	pcmOut, err := dec.DecodeInt16Slice(packet)
-	if err != nil {
-		t.Fatalf("DecodeInt16Slice error: %v", err)
-	}
-
-	if len(pcmOut) != frameSize {
-		t.Errorf("DecodeInt16Slice returned %d samples, want %d", len(pcmOut), frameSize)
-	}
-}
-
 func TestDecoder_Reset(t *testing.T) {
 	dec, err := NewDecoderDefault(48000, 1)
 	if err != nil {
@@ -434,10 +396,10 @@ func TestDecode_ExtendedFrameSizes(t *testing.T) {
 		config    uint8
 		frameSize int
 	}{
-		{"CELT 2.5ms", 28, 120},  // CELT FB 2.5ms
-		{"CELT 5ms", 29, 240},    // CELT FB 5ms
-		{"SILK 40ms", 10, 1920},  // SILK WB 40ms
-		{"SILK 60ms", 11, 2880},  // SILK WB 60ms
+		{"CELT 2.5ms", 28, 120}, // CELT FB 2.5ms
+		{"CELT 5ms", 29, 240},   // CELT FB 5ms
+		{"SILK 40ms", 10, 1920}, // SILK WB 40ms
+		{"SILK 60ms", 11, 2880}, // SILK WB 60ms
 	}
 
 	for _, tt := range extendedConfigs {

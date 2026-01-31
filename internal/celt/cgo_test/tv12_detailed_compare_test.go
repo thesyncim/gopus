@@ -42,7 +42,7 @@ func TestTV12DetailedCompare(t *testing.T) {
 		bw := int(toc.Bandwidth)
 
 		// Decode with gopus
-		goOut, err := goDec.DecodeFloat32(pkt)
+		goOut, err := decodeFloat32(goDec, pkt)
 		if err != nil {
 			t.Logf("Packet %d: gopus decode error: %v", i, err)
 			continue

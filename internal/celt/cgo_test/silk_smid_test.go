@@ -34,7 +34,7 @@ func TestSilkSMidBuffering(t *testing.T) {
 		t.Logf("\n=== Packet %d: %d bytes, frameSize=%d ===", pktIdx, len(pkt), toc.FrameSize)
 
 		// Decode with gopus (full path with sMid buffering and resampling)
-		goPcm, goErr := goDec.DecodeFloat32(pkt)
+		goPcm, goErr := decodeFloat32(goDec, pkt)
 		if goErr != nil {
 			t.Fatalf("gopus decode failed: %v", goErr)
 		}

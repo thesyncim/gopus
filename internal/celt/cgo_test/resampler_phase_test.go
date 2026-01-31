@@ -36,7 +36,7 @@ func TestResamplerPhaseComparison(t *testing.T) {
 		t.Fatalf("libopus decode failed: %d", libSamples)
 	}
 
-	goPcm, decErr := goDec.DecodeFloat32(pkt)
+	goPcm, decErr := decodeFloat32(goDec, pkt)
 	if decErr != nil {
 		t.Fatalf("gopus decode failed: %v", decErr)
 	}

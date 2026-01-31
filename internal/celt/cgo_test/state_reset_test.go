@@ -46,7 +46,7 @@ func TestStateResetPerPacket(t *testing.T) {
 	goContinuous, _ := gopus.NewDecoderDefault(48000, 2)
 
 	for pktIdx := 0; pktIdx < 20 && pktIdx < len(packets); pktIdx++ {
-		goCont, _ := goContinuous.DecodeFloat32(packets[pktIdx])
+		goCont, _ := decodeFloat32(goContinuous, packets[pktIdx])
 		libPcm, libSamples := libDec.DecodeFloat(packets[pktIdx], 5760)
 
 		maxRErr := float64(0)
@@ -72,7 +72,7 @@ func TestStateResetPerPacket(t *testing.T) {
 		// Also create fresh libopus decoder
 		libFresh, _ := NewLibopusDecoder(48000, 2)
 
-		goSamples, _ := goFresh.DecodeFloat32(packets[pktIdx])
+		goSamples, _ := decodeFloat32(goFresh, packets[pktIdx])
 		libPcm, libSamples := libFresh.DecodeFloat(packets[pktIdx], 5760)
 		libFresh.Destroy()
 
@@ -96,12 +96,12 @@ func TestStateResetPerPacket(t *testing.T) {
 
 	// Sync both decoders through packets 0-13
 	for i := 0; i < 14; i++ {
-		goPartial.DecodeFloat32(packets[i])
+		decodeFloat32(goPartial, packets[i])
 		libDec.DecodeFloat(packets[i], 5760)
 	}
 
 	// Now decode packet 14 with both
-	goSamples, _ := goPartial.DecodeFloat32(packets[14])
+	goSamples, _ := decodeFloat32(goPartial, packets[14])
 	libPcm, libSamples := libDec.DecodeFloat(packets[14], 5760)
 
 	maxRErr := float64(0)
@@ -149,7 +149,7 @@ func TestIsolatePacket14Error(t *testing.T) {
 	}
 	defer libDec.Destroy()
 
-	goSamples, err := goDec.DecodeFloat32(packets[14])
+	goSamples, err := decodeFloat32(goDec, packets[14])
 	if err != nil {
 		t.Fatalf("gopus decode error: %v", err)
 	}

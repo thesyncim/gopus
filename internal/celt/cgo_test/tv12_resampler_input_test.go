@@ -30,7 +30,7 @@ func TestTV12ResamplerInputCompare(t *testing.T) {
 
 		// Process packets 0-136
 		for i := 0; i < 137; i++ {
-			goDec.DecodeFloat32(packets[i])
+			decodeFloat32(goDec, packets[i])
 		}
 
 		// Get MB resampler (creates it if not exists)
@@ -40,7 +40,7 @@ func TestTV12ResamplerInputCompare(t *testing.T) {
 		copy(gopusDelayBufBefore[:], delayBuf[:12])
 
 		// Decode packet 137
-		gopusOutput, _ = goDec.DecodeFloat32(packets[137])
+		gopusOutput, _ = decodeFloat32(goDec, packets[137])
 
 		delayBuf = mbRes.GetDelayBuf()
 		copy(gopusDelayBufAfter[:], delayBuf[:12])

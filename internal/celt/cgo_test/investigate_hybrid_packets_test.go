@@ -53,7 +53,7 @@ func TestInvestigateHybridPackets(t *testing.T) {
 	// Decode in order to maintain state
 	for i, pkt := range packets {
 		libPcm, libSamples := libDec.DecodeFloat(pkt, 5760)
-		goPcm, _ := goDec.DecodeFloat32(pkt)
+		goPcm, _ := decodeFloat32(goDec, pkt)
 
 		if libSamples <= 0 || len(goPcm) == 0 {
 			continue
@@ -116,12 +116,12 @@ func TestInvestigateHybridPackets(t *testing.T) {
 
 		// Warm up decoders
 		for i := 0; i < w.idx; i++ {
-			goDec2.DecodeFloat32(packets[i])
+			decodeFloat32(goDec2, packets[i])
 			libDec2.DecodeFloat(packets[i], 5760)
 		}
 
 		// Decode the problematic packet
-		goPcm, _ := goDec2.DecodeFloat32(packets[w.idx])
+		goPcm, _ := decodeFloat32(goDec2, packets[w.idx])
 		libPcm, libSamples := libDec2.DecodeFloat(packets[w.idx], 5760)
 
 		t.Logf("Fresh decode - go samples: %d, lib samples: %d", len(goPcm)/channels, libSamples)
@@ -181,7 +181,7 @@ func TestTrackStateAcrossHybridPackets(t *testing.T) {
 
 	for i, pkt := range packets {
 		libPcm, libSamples := libDec.DecodeFloat(pkt, 5760)
-		goPcm, _ := goDec.DecodeFloat32(pkt)
+		goPcm, _ := decodeFloat32(goDec, pkt)
 
 		if libSamples <= 0 || len(goPcm) == 0 {
 			continue

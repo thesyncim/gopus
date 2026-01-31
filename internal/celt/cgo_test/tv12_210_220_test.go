@@ -26,7 +26,7 @@ func TestTV12Packets210to220(t *testing.T) {
 
 	// Process packets 0-209
 	for i := 0; i < 210; i++ {
-		goDec.DecodeFloat32(packets[i])
+		decodeFloat32(goDec, packets[i])
 		libDec.DecodeFloat(packets[i], 1920)
 	}
 
@@ -35,7 +35,7 @@ func TestTV12Packets210to220(t *testing.T) {
 		pkt := packets[i]
 		toc := gopus.ParseTOC(pkt[0])
 
-		goSamples, _ := goDec.DecodeFloat32(pkt)
+		goSamples, _ := decodeFloat32(goDec, pkt)
 		libPcm, libN := libDec.DecodeFloat(pkt, len(goSamples)*2)
 
 		minLen := len(goSamples)

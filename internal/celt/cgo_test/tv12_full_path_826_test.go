@@ -34,7 +34,7 @@ func TestTV12FullPath826(t *testing.T) {
 		case gopus.ModeCELT:
 			celtCount++
 		}
-		opusDec.DecodeFloat32(pkt)
+		decodeFloat32(opusDec, pkt)
 	}
 	t.Logf("Packet counts: SILK=%d, Hybrid=%d, CELT=%d", silkCount, hybridCount, celtCount)
 
@@ -51,7 +51,7 @@ func TestTV12FullPath826(t *testing.T) {
 	bwNames := map[int]string{0: "NB", 1: "MB", 2: "WB", 3: "SWB", 4: "FB"}
 	t.Logf("\nPacket 826: Mode=%v BW=%s", toc826.Mode, bwNames[int(toc826.Bandwidth)])
 
-	output826, _ := opusDec.DecodeFloat32(pkt826)
+	output826, _ := decodeFloat32(opusDec, pkt826)
 
 	// Check sMid after packet 826
 	sMidAfter := silkDec.GetSMid()

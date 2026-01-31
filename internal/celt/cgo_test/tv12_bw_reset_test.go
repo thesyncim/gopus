@@ -33,7 +33,7 @@ func TestTV12BandwidthResetAnalysis(t *testing.T) {
 		toc := gopus.ParseTOC(pkt[0])
 		t.Logf("Packet 826: BW=%d, Mode=%v", toc.Bandwidth, toc.Mode)
 
-		goSamples, _ := freshGo.DecodeFloat32(pkt)
+		goSamples, _ := decodeFloat32(freshGo, pkt)
 		libPcm, libSamples := freshLib.DecodeFloat(pkt, len(goSamples)*2)
 
 		minLen := len(goSamples)
@@ -71,12 +71,12 @@ func TestTV12BandwidthResetAnalysis(t *testing.T) {
 			if toc.Bandwidth != 1 { // 1 = MB
 				continue
 			}
-			goMB.DecodeFloat32(pkt)
+			decodeFloat32(goMB, pkt)
 			libMB.DecodeFloat(pkt, 960*2)
 		}
 
 		pkt := packets[826]
-		goSamples, _ := goMB.DecodeFloat32(pkt)
+		goSamples, _ := decodeFloat32(goMB, pkt)
 		libPcm, libSamples := libMB.DecodeFloat(pkt, len(goSamples)*2)
 
 		minLen := len(goSamples)
@@ -117,7 +117,7 @@ func TestTV12BandwidthResetAnalysis(t *testing.T) {
 		// Full continuous decode
 		for i := 0; i <= 826; i++ {
 			pkt := packets[i]
-			goCont.DecodeFloat32(pkt)
+			decodeFloat32(goCont, pkt)
 			libCont.DecodeFloat(pkt, 960*2)
 		}
 
@@ -167,13 +167,13 @@ func TestTV12ResamplerStateOnBWChange(t *testing.T) {
 	// Process packets 0-825
 	for i := 0; i <= 825; i++ {
 		pkt := packets[i]
-		goDec.DecodeFloat32(pkt)
+		decodeFloat32(goDec, pkt)
 		libDec.DecodeFloat(pkt, 960*2)
 	}
 
 	// Now decode 826 (BW transition)
 	pkt826 := packets[826]
-	go826, _ := goDec.DecodeFloat32(pkt826)
+	go826, _ := decodeFloat32(goDec, pkt826)
 	lib826, libN := libDec.DecodeFloat(pkt826, len(go826)*2)
 
 	// Compare
@@ -225,7 +225,7 @@ func TestTV12ResamplerStateOnBWChange(t *testing.T) {
 
 	// Decode 827 (should match again)
 	pkt827 := packets[827]
-	go827, _ := goDec.DecodeFloat32(pkt827)
+	go827, _ := decodeFloat32(goDec, pkt827)
 	lib827, libN827 := libDec.DecodeFloat(pkt827, len(go827)*2)
 
 	minLen827 := len(go827)

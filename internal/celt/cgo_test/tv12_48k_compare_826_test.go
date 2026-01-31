@@ -30,7 +30,7 @@ func TestTV12_48kCompare826(t *testing.T) {
 	t.Log("=== Processing packets 0-825 ===")
 	for i := 0; i <= 825; i++ {
 		pkt := packets[i]
-		goDec.DecodeFloat32(pkt)
+		decodeFloat32(goDec, pkt)
 		libDec.DecodeFloat(pkt, 1920)
 	}
 
@@ -39,7 +39,7 @@ func TestTV12_48kCompare826(t *testing.T) {
 	toc := gopus.ParseTOC(pkt[0])
 	t.Logf("Packet 826: Mode=%v BW=%d", toc.Mode, toc.Bandwidth)
 
-	goOut, _ := goDec.DecodeFloat32(pkt)
+	goOut, _ := decodeFloat32(goDec, pkt)
 	libOut, libN := libDec.DecodeFloat(pkt, 1920)
 
 	goMax := maxAbs(goOut)

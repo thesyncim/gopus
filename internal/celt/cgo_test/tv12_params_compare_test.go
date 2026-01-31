@@ -33,7 +33,7 @@ func TestTV12Packet826DetailedCompare(t *testing.T) {
 	t.Log("Processing packets 0-825...")
 	for i := 0; i <= 825; i++ {
 		pkt := packets[i]
-		goDec.DecodeFloat32(pkt)
+		decodeFloat32(goDec, pkt)
 		libDec.DecodeFloat(pkt, 1920)
 	}
 
@@ -45,7 +45,7 @@ func TestTV12Packet826DetailedCompare(t *testing.T) {
 		silkBW, _ := silk.BandwidthFromOpus(int(toc.Bandwidth))
 		config := silk.GetBandwidthConfig(silkBW)
 
-		goOut, _ := goDec.DecodeFloat32(pkt)
+		goOut, _ := decodeFloat32(goDec, pkt)
 		libOut, libN := libDec.DecodeFloat(pkt, 1920)
 
 		minLen := len(goOut)

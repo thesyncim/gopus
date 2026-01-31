@@ -76,7 +76,7 @@ func TestStereoCouplingVsLibopus(t *testing.T) {
 		pkt := packets[i]
 
 		// Decode with Go
-		goSamples, err := goDec.DecodeFloat32(pkt.Data)
+		goSamples, err := decodeFloat32(goDec, pkt.Data)
 		if err != nil {
 			t.Logf("Frame %d: Go decode error: %v", i, err)
 			continue
@@ -252,10 +252,10 @@ func TestStereoCouplingTestvector07(t *testing.T) {
 		var pcm []int16
 		if pktTOC.Stereo {
 			stereoCount++
-			pcm, err = stereoDec.DecodeInt16Slice(pkt.Data)
+			pcm, err = decodeInt16(stereoDec, pkt.Data)
 		} else {
 			monoCount++
-			monoSamples, decErr := monoDec.DecodeInt16Slice(pkt.Data)
+			monoSamples, decErr := decodeInt16(monoDec, pkt.Data)
 			err = decErr
 			if err == nil {
 				// Duplicate mono to stereo

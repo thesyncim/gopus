@@ -38,7 +38,7 @@ func TestOverlapBufferAfterTransient(t *testing.T) {
 
 	// Decode frames around the transient
 	for i := 0; i < 65 && i < len(packets); i++ {
-		goDec.DecodeFloat32(packets[i])
+		decodeFloat32(goDec, packets[i])
 		libDec.DecodeFloat(packets[i], 5760)
 
 		if i >= 59 && i <= 63 {
@@ -107,7 +107,7 @@ func TestDetailedFrameComparison(t *testing.T) {
 
 	// Decode frames
 	for i := 0; i < 65 && i < len(packets); i++ {
-		goPcm, _ := goDec.DecodeFloat32(packets[i])
+		goPcm, _ := decodeFloat32(goDec, packets[i])
 		libPcm, libN := libDec.DecodeFloat(packets[i], 5760)
 
 		if i >= 60 && i <= 62 {

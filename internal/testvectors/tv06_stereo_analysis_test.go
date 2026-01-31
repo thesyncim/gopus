@@ -33,7 +33,7 @@ func TestTV06StereoChannelAnalysis(t *testing.T) {
 			continue
 		}
 
-		pcm, err := dec.DecodeInt16Slice(pkt.Data)
+		pcm, err := decodeInt16(dec, pkt.Data)
 		if err != nil {
 			continue
 		}
@@ -114,7 +114,7 @@ func TestTV06MonoVsNonMonoPackets(t *testing.T) {
 		toc := pkt.Data[0]
 		stereo := (toc & 0x04) != 0
 
-		pcm, err := dec.DecodeInt16Slice(pkt.Data)
+		pcm, err := decodeInt16(dec, pkt.Data)
 		if err != nil {
 			continue
 		}
@@ -241,7 +241,7 @@ func TestTV06CumulativeQualityByRegion(t *testing.T) {
 			continue
 		}
 
-		pcm, err := dec.DecodeInt16Slice(pkt.Data)
+		pcm, err := decodeInt16(dec, pkt.Data)
 		if err != nil {
 			continue
 		}

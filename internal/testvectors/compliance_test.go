@@ -134,11 +134,11 @@ func runTestVector(t *testing.T, name string) {
 
 	// 4. Decode all packets with a single stereo decoder.
 	// Note: Opus packets can contain multiple frames (code 1/2/3 in TOC byte).
-	// The decoder returns all frames combined, so we use DecodeInt16Slice.
+	// The decoder returns all frames combined, so we use buffer-based DecodeInt16.
 	var allDecoded []int16
 	decodeErrors := make(map[string]int) // Track error types
 	for i, pkt := range packets {
-		pcm, err := dec.DecodeInt16Slice(pkt.Data)
+		pcm, err := decodeInt16(dec, pkt.Data)
 		if err != nil {
 			// Log more detail about the failure
 			errKey := err.Error()
@@ -750,7 +750,7 @@ func runVectorSilent(t *testing.T, name string) vectorResult {
 	// 4. Decode all packets (using auto-allocating method for multi-frame support)
 	var allDecoded []int16
 	for _, pkt := range packets {
-		pcm, err := dec.DecodeInt16Slice(pkt.Data)
+		pcm, err := decodeInt16(dec, pkt.Data)
 		if err != nil {
 			result.decodeErrors++
 			// Use zeros for failed packets

@@ -47,7 +47,7 @@ func TestTV12PersistentDecoder(t *testing.T) {
 		pkt := packets[i]
 		toc := gopus.ParseTOC(pkt[0])
 
-		goSamples, err := goDec.DecodeFloat32(pkt)
+		goSamples, err := decodeFloat32(goDec, pkt)
 		if err != nil {
 			t.Logf("Packet %d: gopus error: %v", i, err)
 			continue
@@ -116,12 +116,12 @@ func TestTV12FreshVsStateAtBWChange(t *testing.T) {
 
 		// Build state
 		for i := 0; i < 826; i++ {
-			goDec.DecodeFloat32(packets[i])
+			decodeFloat32(goDec, packets[i])
 			libDec.DecodeFloat(packets[i], 960*2)
 		}
 
 		// Decode 826
-		go826, _ := goDec.DecodeFloat32(packets[826])
+		go826, _ := decodeFloat32(goDec, packets[826])
 		lib826, libN := libDec.DecodeFloat(packets[826], len(go826)*2)
 		libDec.Destroy()
 
@@ -152,7 +152,7 @@ func TestTV12FreshVsStateAtBWChange(t *testing.T) {
 			t.Skip("Could not create libopus decoder")
 		}
 
-		go826, _ := goDec.DecodeFloat32(packets[826])
+		go826, _ := decodeFloat32(goDec, packets[826])
 		lib826, libN := libDec.DecodeFloat(packets[826], len(go826)*2)
 		libDec.Destroy()
 
@@ -189,11 +189,11 @@ func TestTV12FreshVsStateAtBWChange(t *testing.T) {
 			if toc.Bandwidth != 0 { // Skip non-NB
 				continue
 			}
-			goDec.DecodeFloat32(packets[i])
+			decodeFloat32(goDec, packets[i])
 			libDec.DecodeFloat(packets[i], 960*2)
 		}
 
-		go826, _ := goDec.DecodeFloat32(packets[826])
+		go826, _ := decodeFloat32(goDec, packets[826])
 		lib826, libN := libDec.DecodeFloat(packets[826], len(go826)*2)
 		libDec.Destroy()
 
@@ -230,7 +230,7 @@ func TestTV12FreshVsStateAtBWChange(t *testing.T) {
 			if toc.Bandwidth != 0 {
 				continue
 			}
-			goDec.DecodeFloat32(packets[i])
+			decodeFloat32(goDec, packets[i])
 			libDec.DecodeFloat(packets[i], 960*2)
 		}
 
@@ -240,12 +240,12 @@ func TestTV12FreshVsStateAtBWChange(t *testing.T) {
 			if toc.Bandwidth != 1 {
 				continue
 			}
-			goDec.DecodeFloat32(packets[i])
+			decodeFloat32(goDec, packets[i])
 			libDec.DecodeFloat(packets[i], 960*2)
 		}
 
 		// Now decode 826
-		go826, _ := goDec.DecodeFloat32(packets[826])
+		go826, _ := decodeFloat32(goDec, packets[826])
 		lib826, libN := libDec.DecodeFloat(packets[826], len(go826)*2)
 		libDec.Destroy()
 

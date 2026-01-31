@@ -48,7 +48,8 @@ func TestRoundTrip_Mono_Float32(t *testing.T) {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
 
-	dec, err := NewDecoderDefault(48000, 1)
+	cfg := DefaultDecoderConfig(48000, 1)
+	dec, err := NewDecoder(cfg)
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
@@ -69,12 +70,13 @@ func TestRoundTrip_Mono_Float32(t *testing.T) {
 	}
 
 	// Decode
-	pcmOut, err := dec.DecodeFloat32(packet)
+	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
+	n, err := dec.Decode(packet, pcmOut)
 	if err != nil {
 		t.Fatalf("Decode error: %v", err)
 	}
 
-	outputEnergy := computeEnergy(pcmOut)
+	outputEnergy := computeEnergy(pcmOut[:n*cfg.Channels])
 
 	t.Logf("Mono float32 round-trip: input energy=%.4f, output energy=%.4f, packet=%d bytes",
 		inputEnergy, outputEnergy, len(packet))
@@ -92,7 +94,8 @@ func TestRoundTrip_Stereo_Float32(t *testing.T) {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
 
-	dec, err := NewDecoderDefault(48000, 2)
+	cfg := DefaultDecoderConfig(48000, 2)
+	dec, err := NewDecoder(cfg)
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
@@ -113,12 +116,13 @@ func TestRoundTrip_Stereo_Float32(t *testing.T) {
 	}
 
 	// Decode
-	pcmOut, err := dec.DecodeFloat32(packet)
+	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
+	n, err := dec.Decode(packet, pcmOut)
 	if err != nil {
 		t.Fatalf("Decode error: %v", err)
 	}
 
-	outputEnergy := computeEnergy(pcmOut)
+	outputEnergy := computeEnergy(pcmOut[:n*cfg.Channels])
 
 	t.Logf("Stereo float32 round-trip: input energy=%.4f, output energy=%.4f, packet=%d bytes",
 		inputEnergy, outputEnergy, len(packet))
@@ -131,7 +135,8 @@ func TestRoundTrip_Mono_Int16(t *testing.T) {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
 
-	dec, err := NewDecoderDefault(48000, 1)
+	cfg := DefaultDecoderConfig(48000, 1)
+	dec, err := NewDecoder(cfg)
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
@@ -151,7 +156,8 @@ func TestRoundTrip_Mono_Int16(t *testing.T) {
 	}
 
 	// Decode
-	pcmOut, err := dec.DecodeInt16Slice(packet)
+	pcmOut := make([]int16, cfg.MaxPacketSamples*cfg.Channels)
+	n, err := dec.DecodeInt16(packet, pcmOut)
 	if err != nil {
 		t.Fatalf("Decode error: %v", err)
 	}
@@ -160,7 +166,7 @@ func TestRoundTrip_Mono_Int16(t *testing.T) {
 	// The key validation is that encoding and decoding complete without error
 
 	t.Logf("Mono int16 round-trip: %d samples -> %d bytes -> %d samples",
-		len(pcmIn), len(packet), len(pcmOut))
+		len(pcmIn), len(packet), n*cfg.Channels)
 }
 
 // TestRoundTrip_Stereo_Int16 tests stereo int16 encode/decode round-trip.
@@ -170,7 +176,8 @@ func TestRoundTrip_Stereo_Int16(t *testing.T) {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
 
-	dec, err := NewDecoderDefault(48000, 2)
+	cfg := DefaultDecoderConfig(48000, 2)
+	dec, err := NewDecoder(cfg)
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
@@ -190,13 +197,14 @@ func TestRoundTrip_Stereo_Int16(t *testing.T) {
 	}
 
 	// Decode
-	pcmOut, err := dec.DecodeInt16Slice(packet)
+	pcmOut := make([]int16, cfg.MaxPacketSamples*cfg.Channels)
+	n, err := dec.DecodeInt16(packet, pcmOut)
 	if err != nil {
 		t.Fatalf("Decode error: %v", err)
 	}
 
 	t.Logf("Stereo int16 round-trip: %d samples -> %d bytes -> %d samples",
-		len(pcmIn), len(packet), len(pcmOut))
+		len(pcmIn), len(packet), n*cfg.Channels)
 }
 
 // TestRoundTrip_MultipleFrames tests encoding/decoding multiple consecutive frames.
@@ -206,7 +214,8 @@ func TestRoundTrip_MultipleFrames(t *testing.T) {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
 
-	dec, err := NewDecoderDefault(48000, 1)
+	cfg := DefaultDecoderConfig(48000, 1)
+	dec, err := NewDecoder(cfg)
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
@@ -217,6 +226,7 @@ func TestRoundTrip_MultipleFrames(t *testing.T) {
 	var totalPacketBytes int
 	var totalInputEnergy, totalOutputEnergy float64
 
+	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
 	for i := 0; i < numFrames; i++ {
 		// Generate varying frequency for each frame
 		freq := 440.0 + float64(i)*50
@@ -231,11 +241,11 @@ func TestRoundTrip_MultipleFrames(t *testing.T) {
 		totalPacketBytes += len(packet)
 
 		// Decode
-		pcmOut, err := dec.DecodeFloat32(packet)
+		n, err := dec.Decode(packet, pcmOut)
 		if err != nil {
 			t.Fatalf("Frame %d decode error: %v", i, err)
 		}
-		totalOutputEnergy += computeEnergy(pcmOut)
+		totalOutputEnergy += computeEnergy(pcmOut[:n*cfg.Channels])
 	}
 
 	t.Logf("Multiple frames: %d frames, %d total bytes, avg input=%.4f, avg output=%.4f",
@@ -253,7 +263,8 @@ func TestRoundTrip_AllSampleRates(t *testing.T) {
 				t.Fatalf("NewEncoder(%d) error: %v", sampleRate, err)
 			}
 
-			dec, err := NewDecoderDefault(sampleRate, 1)
+			cfg := DefaultDecoderConfig(sampleRate, 1)
+			dec, err := NewDecoder(cfg)
 			if err != nil {
 				t.Fatalf("NewDecoderDefault(%d) error: %v", sampleRate, err)
 			}
@@ -268,12 +279,13 @@ func TestRoundTrip_AllSampleRates(t *testing.T) {
 				t.Fatalf("Encode error: %v", err)
 			}
 
-			pcmOut, err := dec.DecodeFloat32(packet)
+			pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
+			n, err := dec.Decode(packet, pcmOut)
 			if err != nil {
 				t.Fatalf("Decode error: %v", err)
 			}
 
-			t.Logf("%d Hz: %d bytes packet, %d samples out", sampleRate, len(packet), len(pcmOut))
+			t.Logf("%d Hz: %d bytes packet, %d samples out", sampleRate, len(packet), n*cfg.Channels)
 		})
 	}
 }
@@ -331,7 +343,8 @@ func TestPLC_SingleLoss(t *testing.T) {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
 
-	dec, err := NewDecoderDefault(48000, 1)
+	cfg := DefaultDecoderConfig(48000, 1)
+	dec, err := NewDecoder(cfg)
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
@@ -341,21 +354,22 @@ func TestPLC_SingleLoss(t *testing.T) {
 	// Encode and decode first frame (establishes state)
 	pcm1 := generateSineWaveFloat32(48000, 440, frameSize, 1)
 	packet1, _ := enc.EncodeFloat32(pcm1)
-	_, err = dec.DecodeFloat32(packet1)
+	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
+	_, err = dec.Decode(packet1, pcmOut)
 	if err != nil {
 		t.Fatalf("First decode error: %v", err)
 	}
 
 	// Simulate packet loss - pass nil to decoder
-	plcOut, err := dec.DecodeFloat32(nil)
+	n, err := dec.Decode(nil, pcmOut)
 	if err != nil {
 		t.Fatalf("PLC decode error: %v", err)
 	}
 
-	plcEnergy := computeEnergy(plcOut)
+	plcEnergy := computeEnergy(pcmOut[:n*cfg.Channels])
 
 	// PLC should produce some audio (concealed samples)
-	t.Logf("PLC single loss: produced %d samples with energy %.4f", len(plcOut), plcEnergy)
+	t.Logf("PLC single loss: produced %d samples with energy %.4f", n, plcEnergy)
 }
 
 // TestPLC_MultipleLoss tests PLC fades gracefully on consecutive losses.
@@ -365,7 +379,8 @@ func TestPLC_MultipleLoss(t *testing.T) {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
 
-	dec, err := NewDecoderDefault(48000, 1)
+	cfg := DefaultDecoderConfig(48000, 1)
+	dec, err := NewDecoder(cfg)
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
@@ -375,18 +390,19 @@ func TestPLC_MultipleLoss(t *testing.T) {
 	// Encode and decode first frame
 	pcm1 := generateSineWaveFloat32(48000, 440, frameSize, 1)
 	packet1, _ := enc.EncodeFloat32(pcm1)
-	_, _ = dec.DecodeFloat32(packet1)
+	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
+	_, _ = dec.Decode(packet1, pcmOut)
 
 	// Multiple consecutive losses
 	numLosses := 5
 	var energies []float64
 
 	for i := 0; i < numLosses; i++ {
-		plcOut, err := dec.DecodeFloat32(nil)
+		n, err := dec.Decode(nil, pcmOut)
 		if err != nil {
 			t.Fatalf("PLC decode %d error: %v", i, err)
 		}
-		energies = append(energies, computeEnergy(plcOut))
+		energies = append(energies, computeEnergy(pcmOut[:n*cfg.Channels]))
 	}
 
 	t.Logf("PLC multiple losses: energies=%v", energies)

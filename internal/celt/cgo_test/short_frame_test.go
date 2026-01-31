@@ -67,7 +67,7 @@ func TestShortFrameHandling(t *testing.T) {
 		toc := gopus.ParseTOC(pkt[0])
 
 		libPcm, libSamples := libDec.DecodeFloat(pkt, 5760)
-		goPcm, _ := goDec.DecodeFloat32(pkt)
+		goPcm, _ := decodeFloat32(goDec, pkt)
 
 		if libSamples <= 0 || len(goPcm) == 0 {
 			t.Logf("Packet %d: failed to decode", i)
@@ -174,7 +174,7 @@ func TestIsolateWorstPacket(t *testing.T) {
 	// Decode all packets up to and including target
 	for i := 0; i <= targetIdx && i < len(packets); i++ {
 		libDec.DecodeFloat(packets[i], 5760)
-		goDec.DecodeFloat32(packets[i])
+		decodeFloat32(goDec, packets[i])
 	}
 
 	// Now analyze packets around the worst one
@@ -187,7 +187,7 @@ func TestIsolateWorstPacket(t *testing.T) {
 
 	for i := 0; i < targetIdx-5; i++ {
 		libDec2.DecodeFloat(packets[i], 5760)
-		goDec2.DecodeFloat32(packets[i])
+		decodeFloat32(goDec2, packets[i])
 	}
 
 	// Now decode the last 10 packets with detailed logging
@@ -196,7 +196,7 @@ func TestIsolateWorstPacket(t *testing.T) {
 		toc := gopus.ParseTOC(pkt[0])
 
 		libPcm, libSamples := libDec2.DecodeFloat(pkt, 5760)
-		goPcm, _ := goDec2.DecodeFloat32(pkt)
+		goPcm, _ := decodeFloat32(goDec2, pkt)
 
 		if libSamples <= 0 || len(goPcm) == 0 {
 			continue

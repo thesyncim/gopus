@@ -32,7 +32,7 @@ func TestTV12HybridTransition(t *testing.T) {
 		pkt := packets[i]
 		toc := gopus.ParseTOC(pkt[0])
 
-		goOut, _ := goDec.DecodeFloat32(pkt)
+		goOut, _ := decodeFloat32(goDec, pkt)
 		libOut, libN := libDec.DecodeFloat(pkt, len(goOut)*2)
 
 		minLen := len(goOut)

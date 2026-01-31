@@ -167,17 +167,18 @@ func TestMultistreamRoundTrip_51(t *testing.T) {
 	}
 
 	// Decode
-	pcmOut, err := dec.DecodeFloat32(packet)
+	pcmOut := make([]float32, frameSize*channels)
+	n, err := dec.Decode(packet, pcmOut)
 	if err != nil {
 		t.Fatalf("Decode error: %v", err)
 	}
 
-	outputEnergy := computeEnergyFloat32(pcmOut)
+	outputEnergy := computeEnergyFloat32(pcmOut[:n*channels])
 
 	// Verify output length
 	expectedLen := frameSize * channels
-	if len(pcmOut) != expectedLen {
-		t.Errorf("Output length = %d, want %d", len(pcmOut), expectedLen)
+	if n*channels != expectedLen {
+		t.Errorf("Output length = %d, want %d", n*channels, expectedLen)
 	}
 
 	// Log metrics
@@ -197,7 +198,7 @@ func TestMultistreamRoundTrip_51(t *testing.T) {
 
 	// Log per-channel energy
 	for ch := 0; ch < channels; ch++ {
-		chEnergy := computeChannelEnergy(pcmOut, channels, ch)
+		chEnergy := computeChannelEnergy(pcmOut[:n*channels], channels, ch)
 		t.Logf("  Channel %d energy: %.4f", ch, chEnergy)
 	}
 }
@@ -233,17 +234,18 @@ func TestMultistreamRoundTrip_71(t *testing.T) {
 	}
 
 	// Decode
-	pcmOut, err := dec.DecodeFloat32(packet)
+	pcmOut := make([]float32, frameSize*channels)
+	n, err := dec.Decode(packet, pcmOut)
 	if err != nil {
 		t.Fatalf("Decode error: %v", err)
 	}
 
-	outputEnergy := computeEnergyFloat32(pcmOut)
+	outputEnergy := computeEnergyFloat32(pcmOut[:n*channels])
 
 	// Verify output length
 	expectedLen := frameSize * channels
-	if len(pcmOut) != expectedLen {
-		t.Errorf("Output length = %d, want %d", len(pcmOut), expectedLen)
+	if n*channels != expectedLen {
+		t.Errorf("Output length = %d, want %d", n*channels, expectedLen)
 	}
 
 	// Log metrics
@@ -293,12 +295,13 @@ func TestMultistreamRoundTrip_Stereo(t *testing.T) {
 	}
 
 	// Decode
-	pcmOut, err := dec.DecodeFloat32(packet)
+	pcmOut := make([]float32, frameSize*channels)
+	n, err := dec.Decode(packet, pcmOut)
 	if err != nil {
 		t.Fatalf("Decode error: %v", err)
 	}
 
-	outputEnergy := computeEnergyFloat32(pcmOut)
+	outputEnergy := computeEnergyFloat32(pcmOut[:n*channels])
 
 	t.Logf("Stereo round-trip: input=%.4f, output=%.4f, packet=%d bytes",
 		inputEnergy, outputEnergy, len(packet))
@@ -332,6 +335,7 @@ func TestMultistreamRoundTrip_MultipleFrames(t *testing.T) {
 	var totalPacketBytes int
 	var totalInputEnergy, totalOutputEnergy float64
 
+	pcmOut := make([]float32, frameSize*channels)
 	for i := 0; i < numFrames; i++ {
 		// Generate unique signal for each frame
 		pcmIn := generateSurroundTestSignal(sampleRate, frameSize, channels)
@@ -350,11 +354,11 @@ func TestMultistreamRoundTrip_MultipleFrames(t *testing.T) {
 		totalPacketBytes += len(packet)
 
 		// Decode
-		pcmOut, err := dec.DecodeFloat32(packet)
+		n, err := dec.Decode(packet, pcmOut)
 		if err != nil {
 			t.Fatalf("Frame %d decode error: %v", i, err)
 		}
-		totalOutputEnergy += computeEnergyFloat32(pcmOut)
+		totalOutputEnergy += computeEnergyFloat32(pcmOut[:n*channels])
 	}
 
 	avgPacketSize := totalPacketBytes / numFrames
@@ -458,26 +462,27 @@ func TestMultistreamDecoder_PLC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("First encode error: %v", err)
 	}
-	_, err = dec.DecodeFloat32(packet1)
+	pcmOut := make([]float32, frameSize*channels)
+	_, err = dec.Decode(packet1, pcmOut)
 	if err != nil {
 		t.Fatalf("First decode error: %v", err)
 	}
 
-	// Simulate packet loss - call DecodeFloat32(nil) for PLC
-	plcOut, err := dec.DecodeFloat32(nil)
+	// Simulate packet loss - call Decode(nil, ...) for PLC
+	n, err := dec.Decode(nil, pcmOut)
 	if err != nil {
 		t.Fatalf("PLC decode error: %v", err)
 	}
 
-	plcEnergy := computeEnergyFloat32(plcOut)
+	plcEnergy := computeEnergyFloat32(pcmOut[:n*channels])
 
 	// PLC should produce some audio
-	t.Logf("PLC: %d samples, energy=%.4f", len(plcOut), plcEnergy)
+	t.Logf("PLC: %d samples, energy=%.4f", n*channels, plcEnergy)
 
 	// Verify output length
 	expectedLen := frameSize * channels
-	if len(plcOut) != expectedLen {
-		t.Errorf("PLC output length = %d, want %d", len(plcOut), expectedLen)
+	if n*channels != expectedLen {
+		t.Errorf("PLC output length = %d, want %d", n*channels, expectedLen)
 	}
 }
 
@@ -513,19 +518,20 @@ func TestMultistreamRoundTrip_Int16(t *testing.T) {
 	}
 
 	// Decode
-	pcmOut, err := dec.DecodeInt16Slice(packet)
+	pcmOut := make([]int16, frameSize*channels)
+	n, err := dec.DecodeInt16(packet, pcmOut)
 	if err != nil {
-		t.Fatalf("DecodeInt16Slice error: %v", err)
+		t.Fatalf("DecodeInt16 error: %v", err)
 	}
 
 	// Verify output length
 	expectedLen := frameSize * channels
-	if len(pcmOut) != expectedLen {
-		t.Errorf("Output length = %d, want %d", len(pcmOut), expectedLen)
+	if n*channels != expectedLen {
+		t.Errorf("Output length = %d, want %d", n*channels, expectedLen)
 	}
 
 	t.Logf("Int16 round-trip: %d input samples -> %d bytes -> %d output samples",
-		len(pcmIn), len(packet), len(pcmOut))
+		len(pcmIn), len(packet), n*channels)
 }
 
 // TestMultistreamEncoder_Reset tests encoder reset functionality.
@@ -583,10 +589,11 @@ func TestMultistreamDecoder_Reset(t *testing.T) {
 	}
 
 	// Decode a few frames
+	pcmOut := make([]float32, frameSize*channels)
 	for i := 0; i < 3; i++ {
 		pcm := generateSurroundTestSignal(sampleRate, frameSize, channels)
 		packet, _ := enc.EncodeFloat32(pcm)
-		_, err := dec.DecodeFloat32(packet)
+		_, err := dec.Decode(packet, pcmOut)
 		if err != nil {
 			t.Fatalf("Pre-reset decode %d error: %v", i, err)
 		}
@@ -599,11 +606,11 @@ func TestMultistreamDecoder_Reset(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		pcm := generateSurroundTestSignal(sampleRate, frameSize, channels)
 		packet, _ := enc.EncodeFloat32(pcm)
-		out, err := dec.DecodeFloat32(packet)
+		n, err := dec.Decode(packet, pcmOut)
 		if err != nil {
 			t.Fatalf("Post-reset decode %d error: %v", i, err)
 		}
-		if len(out) == 0 {
+		if n == 0 {
 			t.Errorf("Post-reset decode %d produced empty output", i)
 		}
 	}
@@ -711,12 +718,13 @@ func TestMultistreamRoundTrip_AllApplications(t *testing.T) {
 				t.Fatalf("Encode error: %v", err)
 			}
 
-			out, err := dec.DecodeFloat32(packet)
+			pcmOut := make([]float32, frameSize*channels)
+			n, err := dec.Decode(packet, pcmOut)
 			if err != nil {
 				t.Fatalf("Decode error: %v", err)
 			}
 
-			energy := computeEnergyFloat32(out)
+			energy := computeEnergyFloat32(pcmOut[:n*channels])
 			t.Logf("%s: packet=%d bytes, output energy=%.4f", tc.name, len(packet), energy)
 		})
 	}
@@ -752,12 +760,13 @@ func TestMultistreamRoundTrip_Mono(t *testing.T) {
 	}
 
 	// Decode
-	pcmOut, err := dec.DecodeFloat32(packet)
+	pcmOut := make([]float32, frameSize*channels)
+	n, err := dec.Decode(packet, pcmOut)
 	if err != nil {
 		t.Fatalf("Decode error: %v", err)
 	}
 
-	outputEnergy := computeEnergyFloat32(pcmOut)
+	outputEnergy := computeEnergyFloat32(pcmOut[:n*channels])
 
 	t.Logf("Mono multistream: input=%.4f, output=%.4f, packet=%d bytes",
 		inputEnergy, outputEnergy, len(packet))

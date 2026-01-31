@@ -50,7 +50,7 @@ func TestDebugDecode(t *testing.T) {
 	// Decode first 3 packets
 	var allDecoded []int16
 	for i := 0; i < 3 && i < len(packets); i++ {
-		pcm, err := dec.DecodeInt16Slice(packets[i].Data)
+		pcm, err := decodeInt16(dec, packets[i].Data)
 		if err != nil {
 			t.Logf("Packet %d decode error: %v", i, err)
 			// Fill with zeros
@@ -209,7 +209,7 @@ func TestDebugSinglePacketDecode(t *testing.T) {
 	// Decode packets 0-60
 	var allDecoded []int16
 	for i := 0; i < 60 && i < len(packets); i++ {
-		pcm, err := dec.DecodeInt16Slice(packets[i].Data)
+		pcm, err := decodeInt16(dec, packets[i].Data)
 		if err != nil {
 			pcm = make([]int16, 960*channels)
 		}
@@ -323,7 +323,7 @@ func TestDebugFullDecode(t *testing.T) {
 
 		if pktTOC.Stereo {
 			stereoCount++
-			pcm, err = stereoDec.DecodeInt16Slice(pkt.Data)
+			pcm, err = decodeInt16(stereoDec, pkt.Data)
 			if err != nil {
 				errKey := err.Error()
 				errCounts[errKey]++
@@ -333,7 +333,7 @@ func TestDebugFullDecode(t *testing.T) {
 			}
 		} else {
 			monoCount++
-			monoSamples, decErr := monoDec.DecodeInt16Slice(pkt.Data)
+			monoSamples, decErr := decodeInt16(monoDec, pkt.Data)
 			if decErr != nil {
 				errKey := decErr.Error()
 				errCounts[errKey]++

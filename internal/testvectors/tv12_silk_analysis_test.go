@@ -111,7 +111,7 @@ func TestTV12AnalyzeWorstSILKPackets(t *testing.T) {
 	var decoded []int16
 	for i := 0; i <= 830 && i < len(packets); i++ {
 		pkt := packets[i]
-		pcm, err := dec.DecodeInt16Slice(pkt.Data)
+		pcm, err := decodeInt16(dec, pkt.Data)
 		if err != nil {
 			fs := 960
 			if len(pkt.Data) > 0 {
@@ -184,7 +184,7 @@ func analyzePacketWithFreshDecoder(t *testing.T, packets []Packet, reference []i
 	var decoded []int16
 	for i := startIdx; i <= targetIdx; i++ {
 		pkt := packets[i]
-		pcm, err := dec.DecodeInt16Slice(pkt.Data)
+		pcm, err := decodeInt16(dec, pkt.Data)
 		if err != nil {
 			fs := 960
 			if len(pkt.Data) > 0 {
@@ -463,7 +463,7 @@ func TestTV12CompareRangeDecoderState(t *testing.T) {
 	t.Logf("=== Range Decoder State Check ===")
 	for i := 0; i <= maxIdx && i < len(packets); i++ {
 		pkt := packets[i]
-		_, err := dec.DecodeInt16Slice(pkt.Data)
+		_, err := decodeInt16(dec, pkt.Data)
 		if err != nil {
 			t.Logf("Packet %d: decode error: %v", i, err)
 			continue

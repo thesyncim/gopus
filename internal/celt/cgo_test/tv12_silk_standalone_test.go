@@ -126,7 +126,7 @@ func TestTV12OpusVsSilk(t *testing.T) {
 		toc := gopus.ParseTOC(pkt[0])
 
 		// Decode with full Opus decoder
-		opusOut, err := opusDec.DecodeFloat32(pkt)
+		opusOut, err := decodeFloat32(opusDec, pkt)
 		if err != nil {
 			t.Logf("Packet %d: opus decode error: %v", i, err)
 			continue

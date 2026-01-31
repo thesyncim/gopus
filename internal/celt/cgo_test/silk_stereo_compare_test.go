@@ -42,7 +42,7 @@ func TestSilkStereoFirstPacket(t *testing.T) {
 	}
 	defer libDec.Destroy()
 
-	goPcm, decErr := goDec.DecodeFloat32(pkt)
+	goPcm, decErr := decodeFloat32(goDec, pkt)
 	if decErr != nil {
 		t.Fatalf("gopus decode failed: %v", decErr)
 	}

@@ -39,7 +39,7 @@ func TestDecodePacketVsLibopus(t *testing.T) {
 
 			// Decode with gopus
 			goDec, _ := gopus.NewDecoderDefault(48000, channels)
-			goPcm, decErr := goDec.DecodeFloat32(pkt)
+			goPcm, decErr := decodeFloat32(goDec, pkt)
 			if decErr != nil {
 				t.Errorf("gopus decode failed: %v", decErr)
 				continue
@@ -95,7 +95,7 @@ func TestDecodeDivergencePoint(t *testing.T) {
 	firstBadPkt := -1
 	for i, pkt := range packets {
 		// Decode with gopus
-		goPcm, decErr := goDec.DecodeFloat32(pkt)
+		goPcm, decErr := decodeFloat32(goDec, pkt)
 		if decErr != nil {
 			t.Logf("Packet %d: gopus error: %v", i, decErr)
 			continue
@@ -189,7 +189,7 @@ func TestDecodeAllPacketsSNR(t *testing.T) {
 	lowSNRPackets := 0
 
 	for i, pkt := range packets {
-		goPcm, decErr := goDec.DecodeFloat32(pkt)
+		goPcm, decErr := decodeFloat32(goDec, pkt)
 		if decErr != nil {
 			continue
 		}
@@ -311,7 +311,7 @@ func TestAnalyzeSNRByFrameSize(t *testing.T) {
 			results[k] = &stats{}
 		}
 
-		goPcm, decErr := goDec.DecodeFloat32(pkt)
+		goPcm, decErr := decodeFloat32(goDec, pkt)
 		if decErr != nil {
 			continue
 		}
@@ -434,7 +434,7 @@ func TestAnalyzeBadMonoPacket(t *testing.T) {
 
 	// Decode all packets up to the target
 	for i := 0; i < targetPacket; i++ {
-		goDec.DecodeFloat32(packets[i])
+		decodeFloat32(goDec, packets[i])
 		libDec.DecodeFloat(packets[i], 5760)
 	}
 
@@ -443,7 +443,7 @@ func TestAnalyzeBadMonoPacket(t *testing.T) {
 	t.Logf("Packet %d: %d bytes, stereo=%v, frameSize=%d, mode=%v",
 		targetPacket, len(pkt), toc.Stereo, toc.FrameSize, toc.Mode)
 
-	goPcm, decErr := goDec.DecodeFloat32(pkt)
+	goPcm, decErr := decodeFloat32(goDec, pkt)
 	if decErr != nil {
 		t.Fatalf("gopus decode failed: %v", decErr)
 	}
@@ -525,7 +525,7 @@ func TestAnalyzeFirstPacket(t *testing.T) {
 	t.Logf("Packet 0: %d bytes, stereo=%v, frameSize=%d, mode=%v",
 		len(pkt), toc.Stereo, toc.FrameSize, toc.Mode)
 
-	goPcm, decErr := goDec.DecodeFloat32(pkt)
+	goPcm, decErr := decodeFloat32(goDec, pkt)
 	if decErr != nil {
 		t.Fatalf("gopus decode failed: %v", decErr)
 	}
@@ -598,7 +598,7 @@ func TestAnalyzeWorstPacket(t *testing.T) {
 	defer libDec.Destroy()
 
 	for i := 0; i < worstPacket; i++ {
-		goDec.DecodeFloat32(packets[i])
+		decodeFloat32(goDec, packets[i])
 		libDec.DecodeFloat(packets[i], 5760)
 	}
 
@@ -608,7 +608,7 @@ func TestAnalyzeWorstPacket(t *testing.T) {
 	t.Logf("Packet %d: %d bytes, stereo=%v, frameSize=%d, mode=%v",
 		worstPacket, len(pkt), toc.Stereo, toc.FrameSize, toc.Mode)
 
-	goPcm, decErr := goDec.DecodeFloat32(pkt)
+	goPcm, decErr := decodeFloat32(goDec, pkt)
 	if decErr != nil {
 		t.Fatalf("gopus decode failed: %v", decErr)
 	}
@@ -726,7 +726,7 @@ func TestAnalyzeBadPacketPattern(t *testing.T) {
 	var badPackets []badPacketInfo
 
 	for i, pkt := range packets {
-		goPcm, decErr := goDec.DecodeFloat32(pkt)
+		goPcm, decErr := decodeFloat32(goDec, pkt)
 		if decErr != nil {
 			continue
 		}
@@ -831,7 +831,7 @@ func TestFindFirstBadPacket(t *testing.T) {
 	recentSNRs := make([]float64, 0, windowSize)
 
 	for i, pkt := range packets {
-		goPcm, decErr := goDec.DecodeFloat32(pkt)
+		goPcm, decErr := decodeFloat32(goDec, pkt)
 		if decErr != nil {
 			continue
 		}

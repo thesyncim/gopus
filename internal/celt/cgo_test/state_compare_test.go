@@ -78,7 +78,7 @@ func TestPreemphStateComparison(t *testing.T) {
 		pkt := packets[i]
 
 		// Decode with both decoders
-		goDec.DecodeFloat32(pkt)
+		decodeFloat32(goDec, pkt)
 		libDec.DecodeFloat(pkt, 5760)
 
 		// Get preemph state from both
@@ -158,7 +158,7 @@ func TestDetailedStateDivergence(t *testing.T) {
 		pkt := packets[i]
 		toc := gopus.ParseTOC(pkt[0])
 
-		goPcm, _ := goDec.DecodeFloat32(pkt)
+		goPcm, _ := decodeFloat32(goDec, pkt)
 		libPcm, libSamples := libDec.DecodeFloat(pkt, 5760)
 
 		// Get state
@@ -250,7 +250,7 @@ func TestOverlapBufferComparison(t *testing.T) {
 
 	// Decode up to packet 60 (the packet before first transient)
 	for i := 0; i <= 60; i++ {
-		goDec.DecodeFloat32(packets[i])
+		decodeFloat32(goDec, packets[i])
 		libDec.DecodeFloat(packets[i], 5760)
 	}
 
@@ -272,7 +272,7 @@ func TestOverlapBufferComparison(t *testing.T) {
 	toc := gopus.ParseTOC(pkt61[0])
 	t.Logf("\nPacket 61: frame=%d stereo=%v len=%d", toc.FrameSize, toc.Stereo, len(pkt61))
 
-	goPcm61, _ := goDec.DecodeFloat32(pkt61)
+	goPcm61, _ := decodeFloat32(goDec, pkt61)
 	libPcm61, libSamples := libDec.DecodeFloat(pkt61, 5760)
 
 	// Compare samples

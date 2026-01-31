@@ -165,10 +165,12 @@ func decodeOpusFile(filename string) error {
 	}
 
 	// Create decoder
-	dec, err := gopus.NewDecoderDefault(sampleRate, int(oggReader.Channels()))
+	cfg := gopus.DefaultDecoderConfig(sampleRate, int(oggReader.Channels()))
+	dec, err := gopus.NewDecoder(cfg)
 	if err != nil {
 		return fmt.Errorf("create decoder: %w", err)
 	}
+	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
 
 	// Decode all packets
 	totalSamples := 0
@@ -182,17 +184,17 @@ func decodeOpusFile(filename string) error {
 		}
 
 		// Decode packet
-		samples, err := dec.DecodeFloat32(packet)
+		n, err := dec.Decode(packet, pcmOut)
 		if err != nil {
 			fmt.Printf("  Warning: decode error on packet %d: %v\n", totalPackets, err)
 			continue
 		}
 
 		totalPackets++
-		totalSamples += len(samples) / int(oggReader.Channels())
+		totalSamples += n
 
 		// Track peak sample
-		for _, s := range samples {
+		for _, s := range pcmOut[:n*cfg.Channels] {
 			if s > peakSample {
 				peakSample = s
 			} else if -s > peakSample {

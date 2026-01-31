@@ -26,12 +26,14 @@
 //
 // Decoding:
 //
-//	dec, err := gopus.NewDecoderDefault(48000, 2)
+//	cfg := gopus.DefaultDecoderConfig(48000, 2)
+//	dec, err := gopus.NewDecoder(cfg)
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
 //
-//	pcm, err := dec.DecodeFloat32(packet) // Scratch-backed; copy if you need to keep it
+//	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
+//	n, err := dec.Decode(packet, pcmOut)
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
@@ -77,9 +79,9 @@
 // concealment (PLC). The decoder will generate audio to conceal the gap:
 //
 //	if packetLost {
-//	    pcm, err = dec.DecodeFloat32(nil) // PLC
+//	    n, err = dec.Decode(nil, pcmOut) // PLC
 //	} else {
-//	    pcm, err = dec.DecodeFloat32(packet)
+//	    n, err = dec.Decode(packet, pcmOut)
 //	}
 //
 // # Packet Structure
@@ -130,7 +132,8 @@
 //	    log.Fatal(err)
 //	}
 //
-//	pcm, err := dec.DecodeFloat32(packet)
+//	pcmOut := make([]float32, 960*6)
+//	_, err = dec.Decode(packet, pcmOut)
 //	if err != nil {
 //	    log.Fatal(err)
 //	}

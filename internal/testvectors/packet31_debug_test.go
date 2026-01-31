@@ -117,7 +117,7 @@ func TestPacket31GopusDetailedAnalysis(t *testing.T) {
 
 	// Process packets before target
 	for i := 0; i < targetPacket; i++ {
-		dec.DecodeFloat32(packets[i])
+		decodeFloat32(dec, packets[i])
 	}
 
 	pkt := packets[targetPacket]
@@ -129,7 +129,7 @@ func TestPacket31GopusDetailedAnalysis(t *testing.T) {
 	t.Logf("First 16 bytes (hex): %x", pkt[:minInt16(16, len(pkt))])
 
 	// Decode packet 31
-	pcm, err := dec.DecodeFloat32(pkt)
+	pcm, err := decodeFloat32(dec, pkt)
 	if err != nil {
 		t.Fatalf("gopus decode failed: %v", err)
 	}
@@ -429,12 +429,12 @@ func TestPacket31DivergenceWindow(t *testing.T) {
 
 	// Process packets up to target
 	for i := 0; i < targetPacket; i++ {
-		dec.DecodeFloat32(packets[i])
+		decodeFloat32(dec, packets[i])
 	}
 
 	pkt := packets[targetPacket]
 	toc := gopus.ParseTOC(pkt[0])
-	pcm, err := dec.DecodeFloat32(pkt)
+	pcm, err := decodeFloat32(dec, pkt)
 	if err != nil {
 		t.Fatalf("decode failed: %v", err)
 	}
@@ -529,7 +529,7 @@ func TestPacket31CompareWithReference(t *testing.T) {
 		pkt := packets[i]
 		toc := gopus.ParseTOC(pkt[0])
 
-		pcm, err := dec.DecodeFloat32(pkt)
+		pcm, err := decodeFloat32(dec, pkt)
 		if err != nil {
 			t.Logf("Packet %d decode error: %v", i, err)
 			continue
@@ -622,7 +622,7 @@ func TestPacket31SurroundingPacketSNR(t *testing.T) {
 		pkt := packets[i]
 		toc := gopus.ParseTOC(pkt[0])
 
-		pcm, err := dec.DecodeFloat32(pkt)
+		pcm, err := decodeFloat32(dec, pkt)
 		if err != nil {
 			if i >= 25 {
 				t.Logf("%d\t%v\t%d\tERROR", i, toc.Stereo, toc.FrameSize)
