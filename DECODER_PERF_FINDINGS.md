@@ -145,6 +145,25 @@ These map well to NEON (arm64) and AVX2/SSE2 (amd64). A staged approach:
 start with NEON+SSE2 for MDCT/IMDCT + overlap-add, then expand to PVQ and
 resampling once correctness is locked.
 
+## Decode CPU profile (Apple M2 Pro, testvector01)
+
+Command:
+
+```
+go test ./internal/celt/cgo_test -run=^$ -bench='BenchmarkDecodeGopus/testvector01' -count=1 -cpuprofile /tmp/gopus-decode-tv01.prof
+go tool pprof -top /tmp/gopus-decode-tv01.prof
+```
+
+Top hotspots (flat %):
+
+- internal/celt.dft: 54.7% flat, 56.4% cum
+- internal/celt.imdctOverlapWithPrev: 0.85% flat, 60.7% cum (mostly DFT/IMDCT inside)
+- internal/celt.DecodeFrame chain: 70.1% cum (SynthesizeStereo -> imdctOverlapWithPrev)
+
+Takeaway: decode is dominated by the DFT/IMDCT path. SIMD or a proper
+mixed-radix FFT/IMDCT will be the largest win before targeting PVQ/comb
+filter loops.
+
 ## Benchmark TODO
 
 - Add a top-level `Decoder.Decode` benchmark using real Opus packets (testvectors)
