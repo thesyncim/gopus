@@ -141,11 +141,16 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		}
 		copy(pcm[offset*d.channels:], samples[:n*d.channels])
 		offset += n
+
+		// Update prevPacketStereo after each frame to prevent mono-to-stereo
+		// transition logic from firing on subsequent frames in multi-frame packets.
+		// This must be inside the loop, not after, because decodeOpusFrame uses
+		// this flag to set the hybrid decoder's prevPacketStereo state.
+		d.prevPacketStereo = pktInfo.TOC.Stereo
 	}
 
 	d.lastFrameSize = frameSize
 	d.lastBandwidth = pktInfo.TOC.Bandwidth
-	d.prevPacketStereo = pktInfo.TOC.Stereo
 
 	return totalSamples, nil
 }

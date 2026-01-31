@@ -76,6 +76,11 @@ var (
 	mdctTrigCache = map[int][]float64{}
 )
 
+var (
+	mdctTrigMuF32    sync.Mutex
+	mdctTrigCacheF32 = map[int][]float32{}
+)
+
 func getMDCTTrig(n int) []float64 {
 	mdctTrigMu.Lock()
 	defer mdctTrigMu.Unlock()
@@ -94,6 +99,25 @@ func getMDCTTrig(n int) []float64 {
 	}
 
 	mdctTrigCache[n] = trig
+	return trig
+}
+
+func getMDCTTrigF32(n int) []float32 {
+	mdctTrigMuF32.Lock()
+	defer mdctTrigMuF32.Unlock()
+
+	if trig, ok := mdctTrigCacheF32[n]; ok {
+		return trig
+	}
+
+	n2 := n / 2
+	trig := make([]float32, n2)
+	for i := 0; i < n2; i++ {
+		angle := 2.0 * math.Pi * (float64(i) + 0.125) / float64(n)
+		trig[i] = float32(math.Cos(angle))
+	}
+
+	mdctTrigCacheF32[n] = trig
 	return trig
 }
 
@@ -600,6 +624,28 @@ func dft(x []complex128) []complex128 {
 		wStep := complex(math.Cos(angle), math.Sin(angle))
 		w := complex(1.0, 0.0)
 		var sum complex128
+		for t := 0; t < n; t++ {
+			sum += x[t] * w
+			w *= wStep
+		}
+		out[k] = sum
+	}
+	return out
+}
+
+func dft32(x []complex64) []complex64 {
+	n := len(x)
+	if n <= 1 {
+		return x
+	}
+
+	out := make([]complex64, n)
+	twoPi := float32(-2.0*math.Pi) / float32(n)
+	for k := 0; k < n; k++ {
+		angle := twoPi * float32(k)
+		wStep := complex(float32(math.Cos(float64(angle))), float32(math.Sin(float64(angle))))
+		w := complex(float32(1.0), float32(0.0))
+		var sum complex64
 		for t := 0; t < n; t++ {
 			sum += x[t] * w
 			w *= wStep

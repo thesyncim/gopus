@@ -132,7 +132,13 @@ func MDCTForwardWithOverlap(samples []float64, overlap int) []float64 {
 
 // mdctForwardOverlap implements the CELT short-overlap MDCT (libopus clt_mdct_forward)
 // for a single block. Input length must be frameSize+overlap.
+// This uses float32 arithmetic internally to match libopus float precision.
 func mdctForwardOverlap(samples []float64, overlap int) []float64 {
+	return mdctForwardOverlapF32(samples, overlap)
+}
+
+// mdctForwardOverlapF64 preserves the original float64 implementation for testing.
+func mdctForwardOverlapF64(samples []float64, overlap int) []float64 {
 	if len(samples) == 0 {
 		return nil
 	}
@@ -219,6 +225,99 @@ func mdctForwardOverlap(samples []float64, overlap int) []float64 {
 		yi := re*t1 + im*t0
 		coeffs[2*i] = yr
 		coeffs[n2-1-2*i] = yi
+	}
+
+	return coeffs
+}
+
+// mdctForwardOverlapF32 is a float32-precision MDCT matching libopus float path.
+func mdctForwardOverlapF32(samples []float64, overlap int) []float64 {
+	if len(samples) == 0 {
+		return nil
+	}
+	if overlap < 0 {
+		overlap = 0
+	}
+	if overlap > len(samples) {
+		overlap = len(samples)
+	}
+
+	frameSize := len(samples) - overlap
+	if frameSize <= 0 {
+		return nil
+	}
+
+	n2 := frameSize
+	n := n2 * 2
+	n4 := n2 / 2
+	if n4 <= 0 {
+		return nil
+	}
+
+	trig := getMDCTTrigF32(n)
+	var window []float32
+	if overlap > 0 {
+		window = GetWindowBufferF32(overlap)
+	}
+
+	f := make([]float32, n2)
+	xp1 := overlap / 2
+	xp2 := n2 - 1 + overlap/2
+	wp1 := overlap / 2
+	wp2 := overlap/2 - 1
+	i := 0
+	limit1 := (overlap + 3) >> 2
+
+	for ; i < limit1; i++ {
+		f[2*i] = float32(samples[xp1+n2])*window[wp2] + float32(samples[xp2])*window[wp1]
+		f[2*i+1] = float32(samples[xp1])*window[wp1] - float32(samples[xp2-n2])*window[wp2]
+		xp1 += 2
+		xp2 -= 2
+		wp1 += 2
+		wp2 -= 2
+	}
+
+	wp1 = 0
+	wp2 = overlap - 1
+	for ; i < n4-limit1; i++ {
+		f[2*i] = float32(samples[xp2])
+		f[2*i+1] = float32(samples[xp1])
+		xp1 += 2
+		xp2 -= 2
+	}
+
+	for ; i < n4; i++ {
+		f[2*i] = -float32(samples[xp1-n2])*window[wp1] + float32(samples[xp2])*window[wp2]
+		f[2*i+1] = float32(samples[xp1])*window[wp2] + float32(samples[xp2+n2])*window[wp1]
+		xp1 += 2
+		xp2 -= 2
+		wp1 += 2
+		wp2 -= 2
+	}
+
+	scale := float32(1.0 / float64(n4))
+	fftIn := make([]complex64, n4)
+	for i = 0; i < n4; i++ {
+		re := f[2*i]
+		im := f[2*i+1]
+		t0 := trig[i]
+		t1 := trig[n4+i]
+		yr := re*t0 - im*t1
+		yi := im*t0 + re*t1
+		fftIn[i] = complex(yr*scale, yi*scale)
+	}
+
+	fftOut := dft32(fftIn)
+	coeffs := make([]float64, n2)
+	for i = 0; i < n4; i++ {
+		re := real(fftOut[i])
+		im := imag(fftOut[i])
+		t0 := trig[i]
+		t1 := trig[n4+i]
+		yr := im*t1 - re*t0
+		yi := re*t1 + im*t0
+		coeffs[2*i] = float64(yr)
+		coeffs[n2-1-2*i] = float64(yi)
 	}
 
 	return coeffs

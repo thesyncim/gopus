@@ -166,13 +166,15 @@ func computeBandRMS(coeffs []float64, start, end int) float64 {
 	}
 
 	// Compute sum of squares with libopus epsilon.
-	sumSq := 1e-27
+	sumSq := float32(1e-27)
 	for i := start; i < end; i++ {
-		sumSq += coeffs[i] * coeffs[i]
+		v := float32(coeffs[i])
+		sumSq += v * v
 	}
 
 	// log2(sqrt(sumSq)) = 0.5 * log2(sumSq)
-	return 0.5 * math.Log2(sumSq)
+	amp := float32(math.Sqrt(float64(sumSq)))
+	return float64(float32(math.Log2(float64(amp))))
 }
 
 // EncodeCoarseEnergy encodes coarse (6dB step) band energies.

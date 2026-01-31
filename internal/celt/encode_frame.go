@@ -171,6 +171,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			copy(hist, e.overlapBuffer[:overlap])
 			mdctLong := ComputeMDCTWithHistory(preemph, hist, 1)
 			bandLogE2 = e.ComputeBandEnergies(mdctLong, nbBands, frameSize)
+			roundFloat64ToFloat32(bandLogE2)
 		} else {
 			left, right := DeinterleaveStereo(preemph)
 			overlap := Overlap
@@ -194,6 +195,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			copy(mdctLong, mdctLeftLong)
 			copy(mdctLong[len(mdctLeftLong):], mdctRightLong)
 			bandLogE2 = e.ComputeBandEnergies(mdctLong, nbBands, frameSize)
+			roundFloat64ToFloat32(bandLogE2)
 		}
 		if bandLogE2 != nil {
 			offset := 0.5 * float64(lm)
@@ -243,6 +245,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	// Step 6: Compute band energies
 	energies := e.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
+	roundFloat64ToFloat32(energies)
 	if !secondMdct {
 		bandLogE2 = make([]float64, len(energies))
 		copy(bandLogE2, energies)
@@ -293,6 +296,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 			// Recompute band energies with short block coefficients
 			energies = e.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
+			roundFloat64ToFloat32(energies)
 			// Compensate for scaling of short vs long MDCTs (libopus adds 0.5*LM to bandLogE2)
 			if bandLogE2 != nil {
 				offset := 0.5 * float64(lm)
