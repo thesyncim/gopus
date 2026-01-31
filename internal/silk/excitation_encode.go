@@ -73,24 +73,23 @@ func (e *Encoder) encodePulses(pulses []int32, signalType, quantOffset int) {
 	// Select rate level that minimizes total bits
 	rateLevelIndex := e.selectOptimalRateLevel(sumPulses, nRshifts, signalType)
 
-	// Encode rate level
-	if signalType == 2 { // Voiced
-		e.rangeEncoder.EncodeICDF16(rateLevelIndex, ICDFRateLevelVoiced, 8)
-	} else {
-		e.rangeEncoder.EncodeICDF16(rateLevelIndex, ICDFRateLevelUnvoiced, 8)
-	}
+	// Encode rate level using libopus tables
+	// signalType>>1 maps: 0,1 -> 0 (unvoiced/inactive), 2,3 -> 1 (voiced)
+	e.rangeEncoder.EncodeICDF(rateLevelIndex, silk_rate_levels_iCDF[signalType>>1], 8)
 
 	// Encode sum-weighted pulses per shell block
+	// Use rate-level-dependent ICDF table (matching decoder's silk_pulses_per_block_iCDF)
+	pulseCountICDF := silk_pulses_per_block_iCDF[rateLevelIndex]
 	for i := 0; i < iter; i++ {
 		if nRshifts[i] == 0 {
-			e.rangeEncoder.EncodeICDF16(sumPulses[i], ICDFExcitationPulseCount, 8)
+			e.rangeEncoder.EncodeICDF(sumPulses[i], pulseCountICDF, 8)
 		} else {
 			// Overflow: encode special marker, then nRshifts-1 markers, then final sum
-			e.rangeEncoder.EncodeICDF16(SILK_MAX_PULSES+1, ICDFExcitationPulseCount, 8)
+			e.rangeEncoder.EncodeICDF(SILK_MAX_PULSES+1, pulseCountICDF, 8)
 			for k := 0; k < nRshifts[i]-1; k++ {
-				e.rangeEncoder.EncodeICDF16(SILK_MAX_PULSES+1, ICDFExcitationPulseCount, 8)
+				e.rangeEncoder.EncodeICDF(SILK_MAX_PULSES+1, silk_pulses_per_block_iCDF[N_RATE_LEVELS-1], 8)
 			}
-			e.rangeEncoder.EncodeICDF16(sumPulses[i], ICDFExcitationPulseCount, 8)
+			e.rangeEncoder.EncodeICDF(sumPulses[i], silk_pulses_per_block_iCDF[N_RATE_LEVELS-1], 8)
 		}
 	}
 
@@ -102,7 +101,7 @@ func (e *Encoder) encodePulses(pulses []int32, signalType, quantOffset int) {
 		}
 	}
 
-	// LSB encoding for overflow cases
+	// LSB encoding for overflow cases using libopus table
 	for i := 0; i < iter; i++ {
 		if nRshifts[i] > 0 {
 			offset := i * SHELL_CODEC_FRAME_LENGTH
@@ -111,10 +110,10 @@ func (e *Encoder) encodePulses(pulses []int32, signalType, quantOffset int) {
 				absQ := absInt(int(paddedPulses[offset+k]))
 				for j := nLS; j > 0; j-- {
 					bit := (absQ >> j) & 1
-					e.rangeEncoder.EncodeICDF16(bit, ICDFExcitationLSB, 8)
+					e.rangeEncoder.EncodeICDF(bit, silk_lsb_iCDF, 8)
 				}
 				bit := absQ & 1
-				e.rangeEncoder.EncodeICDF16(bit, ICDFExcitationLSB, 8)
+				e.rangeEncoder.EncodeICDF(bit, silk_lsb_iCDF, 8)
 			}
 		}
 	}
@@ -124,153 +123,105 @@ func (e *Encoder) encodePulses(pulses []int32, signalType, quantOffset int) {
 }
 
 // shellEncoder encodes 16 pulses using hierarchical binary splits.
-// Matches libopus silk_shell_encoder().
+// Matches libopus silk_shell_encoder() exactly.
 func (e *Encoder) shellEncoder(pulses []int) {
-	// Level 4: 16 -> 2x8
-	pulses8_0 := pulses[0] + pulses[1] + pulses[2] + pulses[3] + pulses[4] + pulses[5] + pulses[6] + pulses[7]
-	pulses8_1 := pulses[8] + pulses[9] + pulses[10] + pulses[11] + pulses[12] + pulses[13] + pulses[14] + pulses[15]
-	total := pulses8_0 + pulses8_1
+	// Combine pulses hierarchically, matching libopus silk_shell_encoder.c
+	pulses1 := make([]int, 8)
+	pulses2 := make([]int, 4)
+	pulses3 := make([]int, 2)
+	pulses4 := make([]int, 1)
 
-	if total == 0 {
-		return
+	// Combine: 16 -> 8
+	for k := 0; k < 8; k++ {
+		pulses1[k] = pulses[2*k] + pulses[2*k+1]
 	}
-
-	// Encode split at level 4 (16 -> 8+8)
-	e.encodeShellSplit(pulses8_0, total)
-
-	// Level 3: 8 -> 2x4 (first half)
-	if pulses8_0 > 0 {
-		pulses4_0 := pulses[0] + pulses[1] + pulses[2] + pulses[3]
-		e.encodeShellSplit(pulses4_0, pulses8_0)
-
-		// Level 2: 4 -> 2x2 (first quarter)
-		if pulses4_0 > 0 {
-			pulses2_0 := pulses[0] + pulses[1]
-			e.encodeShellSplit(pulses2_0, pulses4_0)
-
-			// Level 1: 2 -> 1+1
-			if pulses2_0 > 0 {
-				e.encodeShellSplit(pulses[0], pulses2_0)
-			}
-
-			pulses2_1 := pulses[2] + pulses[3]
-			if pulses2_1 > 0 {
-				e.encodeShellSplit(pulses[2], pulses2_1)
-			}
-		}
-
-		// Level 2: 4 -> 2x2 (second quarter)
-		pulses4_1 := pulses[4] + pulses[5] + pulses[6] + pulses[7]
-		if pulses4_1 > 0 {
-			pulses2_2 := pulses[4] + pulses[5]
-			e.encodeShellSplit(pulses2_2, pulses4_1)
-
-			if pulses2_2 > 0 {
-				e.encodeShellSplit(pulses[4], pulses2_2)
-			}
-
-			pulses2_3 := pulses[6] + pulses[7]
-			if pulses2_3 > 0 {
-				e.encodeShellSplit(pulses[6], pulses2_3)
-			}
-		}
+	// Combine: 8 -> 4
+	for k := 0; k < 4; k++ {
+		pulses2[k] = pulses1[2*k] + pulses1[2*k+1]
 	}
-
-	// Level 3: 8 -> 2x4 (second half)
-	if pulses8_1 > 0 {
-		pulses4_2 := pulses[8] + pulses[9] + pulses[10] + pulses[11]
-		e.encodeShellSplit(pulses4_2, pulses8_1)
-
-		if pulses4_2 > 0 {
-			pulses2_4 := pulses[8] + pulses[9]
-			e.encodeShellSplit(pulses2_4, pulses4_2)
-
-			if pulses2_4 > 0 {
-				e.encodeShellSplit(pulses[8], pulses2_4)
-			}
-
-			pulses2_5 := pulses[10] + pulses[11]
-			if pulses2_5 > 0 {
-				e.encodeShellSplit(pulses[10], pulses2_5)
-			}
-		}
-
-		pulses4_3 := pulses[12] + pulses[13] + pulses[14] + pulses[15]
-		if pulses4_3 > 0 {
-			pulses2_6 := pulses[12] + pulses[13]
-			e.encodeShellSplit(pulses2_6, pulses4_3)
-
-			if pulses2_6 > 0 {
-				e.encodeShellSplit(pulses[12], pulses2_6)
-			}
-
-			pulses2_7 := pulses[14] + pulses[15]
-			if pulses2_7 > 0 {
-				e.encodeShellSplit(pulses[14], pulses2_7)
-			}
-		}
+	// Combine: 4 -> 2
+	for k := 0; k < 2; k++ {
+		pulses3[k] = pulses2[2*k] + pulses2[2*k+1]
 	}
+	// Combine: 2 -> 1
+	pulses4[0] = pulses3[0] + pulses3[1]
+
+	// Encode splits using libopus shell tables
+	e.encodeShellSplitLibopus(pulses3[0], pulses4[0], silk_shell_code_table3)
+
+	e.encodeShellSplitLibopus(pulses2[0], pulses3[0], silk_shell_code_table2)
+
+	e.encodeShellSplitLibopus(pulses1[0], pulses2[0], silk_shell_code_table1)
+	e.encodeShellSplitLibopus(pulses[0], pulses1[0], silk_shell_code_table0)
+	e.encodeShellSplitLibopus(pulses[2], pulses1[1], silk_shell_code_table0)
+
+	e.encodeShellSplitLibopus(pulses1[2], pulses2[1], silk_shell_code_table1)
+	e.encodeShellSplitLibopus(pulses[4], pulses1[2], silk_shell_code_table0)
+	e.encodeShellSplitLibopus(pulses[6], pulses1[3], silk_shell_code_table0)
+
+	e.encodeShellSplitLibopus(pulses2[2], pulses3[1], silk_shell_code_table2)
+
+	e.encodeShellSplitLibopus(pulses1[4], pulses2[2], silk_shell_code_table1)
+	e.encodeShellSplitLibopus(pulses[8], pulses1[4], silk_shell_code_table0)
+	e.encodeShellSplitLibopus(pulses[10], pulses1[5], silk_shell_code_table0)
+
+	e.encodeShellSplitLibopus(pulses1[6], pulses2[3], silk_shell_code_table1)
+	e.encodeShellSplitLibopus(pulses[12], pulses1[6], silk_shell_code_table0)
+	e.encodeShellSplitLibopus(pulses[14], pulses1[7], silk_shell_code_table0)
 }
 
-// encodeShellSplit encodes a binary split: leftCount out of total.
-func (e *Encoder) encodeShellSplit(leftCount, total int) {
-	if total <= 0 {
-		return
+// encodeShellSplitLibopus encodes a binary split using libopus shell tables.
+// pChild1: pulse count in first child subframe
+// p: total pulse count in current subframe
+// shellTable: the shell code table to use (e.g., silk_shell_code_table0)
+func (e *Encoder) encodeShellSplitLibopus(pChild1, p int, shellTable []uint8) {
+	if p > 0 {
+		// Get offset into table based on total pulse count
+		offset := int(silk_shell_code_table_offsets[p])
+		e.rangeEncoder.EncodeICDF(pChild1, shellTable[offset:], 8)
 	}
-	if total > len(ICDFExcitationSplit) {
-		total = len(ICDFExcitationSplit)
-	}
-	if leftCount < 0 {
-		leftCount = 0
-	}
-	if leftCount > total {
-		leftCount = total
-	}
-
-	icdf := ICDFExcitationSplit[total-1] // 0-indexed
-	e.rangeEncoder.EncodeICDF16(leftCount, icdf, 8)
 }
 
 // encodeSigns encodes signs for non-zero pulses.
-// Matches libopus silk_encode_signs().
+// Matches libopus silk_encode_signs() exactly.
 func (e *Encoder) encodeSigns(pulses []int8, frameLength, signalType, quantOffset int, sumPulses []int) {
-	iter := len(sumPulses)
+	// Build 2-element ICDF for sign encoding
+	icdf := []uint8{0, 0}
 
+	// Compute index into silk_sign_iCDF table
+	// Per libopus: i = 7 * (quantOffsetType + (signalType << 1))
+	baseIdx := 7 * (quantOffset + (signalType << 1))
+	icdfPtr := silk_sign_iCDF[baseIdx:]
+
+	// Process each shell block
+	iter := (frameLength + SHELL_CODEC_FRAME_LENGTH/2) >> 4 // log2(16) = 4
 	for i := 0; i < iter; i++ {
-		if sumPulses[i] > 0 {
+		p := sumPulses[i]
+		if p > 0 {
+			// Set icdf[0] based on sumPulses, clamped to [0, 6]
+			pIdx := p & 0x1F
+			if pIdx > 6 {
+				pIdx = 6
+			}
+			icdf[0] = icdfPtr[pIdx]
+
+			// Encode sign for each non-zero pulse in this block
 			offset := i * SHELL_CODEC_FRAME_LENGTH
-			for k := 0; k < SHELL_CODEC_FRAME_LENGTH; k++ {
-				idx := offset + k
+			for j := 0; j < SHELL_CODEC_FRAME_LENGTH; j++ {
+				idx := offset + j
 				if idx >= frameLength {
 					break
 				}
 				if pulses[idx] != 0 {
-					sign := 0
+					// silk_enc_map: negative -> 0, positive -> 1
+					// Actually per libopus: silk_enc_map(a) = ( silk_RSHIFT( (a), 15 ) + 1 )
+					// For int8, if a < 0, RSHIFT by 15 gives -1, so result is 0
+					// If a > 0, RSHIFT by 15 gives 0, so result is 1
+					sign := 1
 					if pulses[idx] < 0 {
-						sign = 1
+						sign = 0
 					}
-
-					// Sign ICDF indexed by [signalType][quantOffset][min(|pulse|-1, 5)]
-					signIdx := absInt(int(pulses[idx])) - 1
-					if signIdx > 5 {
-						signIdx = 5
-					}
-					if signIdx < 0 {
-						signIdx = 0
-					}
-
-					// Guard against invalid indices
-					safeSignalType := signalType
-					if safeSignalType < 0 || safeSignalType > 2 {
-						safeSignalType = 0
-					}
-					safeQuantOffset := quantOffset
-					if safeQuantOffset < 0 || safeQuantOffset > 1 {
-						safeQuantOffset = 0
-					}
-
-					signICDF := ICDFExcitationSign[safeSignalType][safeQuantOffset][signIdx]
-					e.rangeEncoder.EncodeICDF16(sign, signICDF, 8)
+					e.rangeEncoder.EncodeICDF(sign, icdf, 8)
 				}
 			}
 		}

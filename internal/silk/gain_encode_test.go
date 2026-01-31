@@ -289,38 +289,15 @@ func TestInterpolationIndex(t *testing.T) {
 	}
 }
 
-func TestComputeLSFWeight(t *testing.T) {
+func TestComputeSymbolRate8(t *testing.T) {
 	enc := NewEncoder(BandwidthWideband)
 
-	// Test that mid-range coefficients have higher weight
-	order := 16
-	midIdx := order / 2
-
-	weightMid := enc.computeLSFWeight(midIdx, order)
-	weightEdge := enc.computeLSFWeight(0, order)
-
-	if weightMid <= weightEdge {
-		t.Errorf("mid weight (%d) should be higher than edge weight (%d)", weightMid, weightEdge)
-	}
-
-	// All weights should be positive
-	for i := 0; i < order; i++ {
-		w := enc.computeLSFWeight(i, order)
-		if w <= 0 {
-			t.Errorf("weight[%d] = %d, expected positive", i, w)
-		}
-	}
-}
-
-func TestComputeSymbolRate(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
-
-	// Test with known ICDF
-	icdf := ICDFLSFStage1WBVoiced
+	// Test with libopus NLSF CB1 ICDF (uint8)
+	icdf := silk_NLSF_CB1_iCDF_WB
 
 	// Low probability symbols should have higher rate
-	rate0 := enc.computeSymbolRate(0, icdf)
-	rate10 := enc.computeSymbolRate(10, icdf)
+	rate0 := enc.computeSymbolRate8(0, icdf)
+	rate10 := enc.computeSymbolRate8(10, icdf)
 
 	// Both should be positive
 	if rate0 <= 0 {
@@ -331,7 +308,7 @@ func TestComputeSymbolRate(t *testing.T) {
 	}
 
 	// Invalid symbol should return max rate
-	rateInvalid := enc.computeSymbolRate(-1, icdf)
+	rateInvalid := enc.computeSymbolRate8(-1, icdf)
 	if rateInvalid != 256 {
 		t.Errorf("invalid symbol rate should be 256, got %d", rateInvalid)
 	}
