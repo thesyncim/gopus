@@ -103,6 +103,7 @@ func TestDecodeQIFromBothPackets(t *testing.T) {
 	enc := celt.NewEncoder(1)
 	enc.Reset()
 	enc.SetBitrate(bitrate)
+	enc.SetVBR(false)
 
 	gopusPacket, err := enc.EncodeFrame(pcm64, frameSize)
 	if err != nil {

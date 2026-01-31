@@ -119,6 +119,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	transientResult := e.TransientAnalysis(transientInput, frameSize+overlap, false /* allowWeakTransients */)
 	transient := transientResult.IsTransient
 	tfEstimate := transientResult.TfEstimate
+	toneFreq := transientResult.ToneFreq
 	toneishness := transientResult.Toneishness
 
 	// Match libopus line 2033: cap toneishness based on tf_estimate
@@ -155,6 +156,51 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	tailStart := len(preemph) - preemphBufSize
 	if tailStart >= 0 {
 		copy(e.preemphBuffer[:preemphBufSize], preemph[tailStart:])
+	}
+
+	// For transients at high complexity, compute long MDCT energies (bandLogE2).
+	secondMdct := shortBlocks > 1 && e.complexity >= 8
+	var bandLogE2 []float64
+	if secondMdct {
+		if e.channels == 1 {
+			overlap := Overlap
+			if overlap > frameSize {
+				overlap = frameSize
+			}
+			hist := make([]float64, overlap)
+			copy(hist, e.overlapBuffer[:overlap])
+			mdctLong := ComputeMDCTWithHistory(preemph, hist, 1)
+			bandLogE2 = e.ComputeBandEnergies(mdctLong, nbBands, frameSize)
+		} else {
+			left, right := DeinterleaveStereo(preemph)
+			overlap := Overlap
+			if overlap > frameSize {
+				overlap = frameSize
+			}
+			if len(e.overlapBuffer) < 2*overlap {
+				newBuf := make([]float64, 2*overlap)
+				if len(e.overlapBuffer) > 0 {
+					copy(newBuf, e.overlapBuffer)
+				}
+				e.overlapBuffer = newBuf
+			}
+			leftHist := make([]float64, overlap)
+			rightHist := make([]float64, overlap)
+			copy(leftHist, e.overlapBuffer[:overlap])
+			copy(rightHist, e.overlapBuffer[overlap:2*overlap])
+			mdctLeftLong := ComputeMDCTWithHistory(left, leftHist, 1)
+			mdctRightLong := ComputeMDCTWithHistory(right, rightHist, 1)
+			mdctLong := make([]float64, len(mdctLeftLong)+len(mdctRightLong))
+			copy(mdctLong, mdctLeftLong)
+			copy(mdctLong[len(mdctLeftLong):], mdctRightLong)
+			bandLogE2 = e.ComputeBandEnergies(mdctLong, nbBands, frameSize)
+		}
+		if bandLogE2 != nil {
+			offset := 0.5 * float64(lm)
+			for i := range bandLogE2 {
+				bandLogE2[i] += offset
+			}
+		}
 	}
 
 	// Step 5: Compute MDCT with proper overlap handling
@@ -197,6 +243,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	// Step 6: Compute band energies
 	energies := e.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
+	if !secondMdct {
+		bandLogE2 = make([]float64, len(energies))
+		copy(bandLogE2, energies)
+	}
 
 	// Step 6.5: Patch transient decision based on band energy comparison
 	// This is a "second chance" to detect transients that time-domain analysis missed.
@@ -243,6 +293,13 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 			// Recompute band energies with short block coefficients
 			energies = e.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
+			// Compensate for scaling of short vs long MDCTs (libopus adds 0.5*LM to bandLogE2)
+			if bandLogE2 != nil {
+				offset := 0.5 * float64(lm)
+				for i := range bandLogE2 {
+					bandLogE2[i] += offset
+				}
+			}
 		}
 	}
 
@@ -378,7 +435,13 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	// Step 11.1: Compute and encode TF (time-frequency) resolution
 	// Note: 'end' was already set earlier during patch_transient_decision
-	effectiveBytes := targetBits / 8
+	effectiveBytes := 0
+	if e.vbr {
+		baseBits := e.bitrateToBits(frameSize)
+		effectiveBytes = baseBits / 8
+	} else {
+		effectiveBytes = e.cbrPayloadBytes(frameSize)
+	}
 
 	// Step 11.0.7: Compute dynalloc analysis for VBR and bit allocation
 	// This computes maxDepth, offsets, importance, and spread_weight.
@@ -389,15 +452,20 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	for i := 0; i < nbBands && i < len(LogN); i++ {
 		logN[i] = int16(LogN[i])
 	}
-	// Determine VBR mode (simplified: assume VBR if targetBitrate is set)
-	isVBR := e.targetBitrate > 0
-	isConstrainedVBR := false // TODO: Add constrained VBR support
+	// Determine VBR mode (match encoder settings)
+	isVBR := e.vbr
+	isConstrainedVBR := e.constrainedVBR
+	bandLogE2Use := energies
+	if bandLogE2 != nil {
+		bandLogE2Use = bandLogE2
+	}
 	dynallocResult := DynallocAnalysis(
-		energies, energies, prev1LogE,
+		energies, bandLogE2Use, prev1LogE,
 		nbBands, start, end, e.channels, lsbDepth, lm,
 		logN,
 		effectiveBytes,
 		transient, isVBR, isConstrainedVBR,
+		toneFreq, toneishness,
 	)
 	// Store for next frame's VBR computation
 	e.lastDynalloc = dynallocResult
@@ -822,15 +890,9 @@ func (e *Encoder) EncodeStereoFrame(left, right []float64, frameSize int) ([]byt
 	return e.EncodeFrame(interleaved, frameSize)
 }
 
-// computeTargetBits computes the target bit budget based on bitrate and frame size.
-// This implements libopus VBR logic from celt_encoder.c compute_vbr().
-//
-// For 64kbps and 20ms frame with VBR:
-// - Base: bitrate * frameSize / 48000 = 1280 bits
-// - VBR can boost up to 2x based on signal characteristics
-//
-// Reference: libopus celt/celt_encoder.c compute_vbr() and VBR computation around line 2435
-func (e *Encoder) computeTargetBits(frameSize int) int {
+// bitrateToBits returns the base target bits from bitrate and frame size.
+// This mirrors libopus bitrate_to_bits() for CELT frames.
+func (e *Encoder) bitrateToBits(frameSize int) int {
 	bitrate := e.targetBitrate
 	if bitrate <= 0 {
 		if e.channels == 2 {
@@ -845,12 +907,56 @@ func (e *Encoder) computeTargetBits(frameSize int) int {
 	if bitrate > 510000 {
 		bitrate = 510000
 	}
+	return bitrate * frameSize / 48000
+}
 
-	// Compute base bits using libopus bitrate_to_bits formula
-	// bitrate_to_bits(bitrate, Fs, frame_size) = bitrate*6/(6*Fs/frame_size)
-	// For 48kHz: = bitrate * 6 / (6 * 48000 / frameSize)
-	//           = bitrate * frameSize / 48000
-	baseBits := bitrate * frameSize / 48000
+// cbrPayloadBytes computes the CBR payload size (excluding TOC).
+// This matches libopus's CBR byte formula and subtracts the TOC byte.
+func (e *Encoder) cbrPayloadBytes(frameSize int) int {
+	const fs = 48000
+	bitrate := e.targetBitrate
+	if bitrate <= 0 {
+		if e.channels == 2 {
+			bitrate = 128000
+		} else {
+			bitrate = 64000
+		}
+	}
+	if bitrate < 6000 {
+		bitrate = 6000
+	}
+	if bitrate > 510000 {
+		bitrate = 510000
+	}
+	nbCompressed := (bitrate*frameSize + 4*fs) / (8 * fs)
+	if nbCompressed < 2 {
+		nbCompressed = 2
+	}
+	if nbCompressed > 1275 {
+		nbCompressed = 1275
+	}
+	payload := nbCompressed - 1 // subtract TOC byte
+	if payload < 0 {
+		payload = 0
+	}
+	return payload
+}
+
+// computeTargetBits computes the target bit budget based on bitrate and frame size.
+// This implements libopus VBR logic from celt_encoder.c compute_vbr().
+//
+// For 64kbps and 20ms frame with VBR:
+// - Base: bitrate * frameSize / 48000 = 1280 bits
+// - VBR can boost up to 2x based on signal characteristics
+//
+// Reference: libopus celt/celt_encoder.c compute_vbr() and VBR computation around line 2435
+func (e *Encoder) computeTargetBits(frameSize int) int {
+	// CBR path uses fixed payload size.
+	if !e.vbr {
+		return e.cbrPayloadBytes(frameSize) * 8
+	}
+
+	baseBits := e.bitrateToBits(frameSize)
 
 	// Convert to Q3 format (8ths of bits) for VBR computation
 	// Reference: libopus celt_encoder.c line 1903
@@ -867,7 +973,7 @@ func (e *Encoder) computeTargetBits(frameSize int) int {
 
 	// For VBR mode, apply boost based on signal characteristics
 	// This is a simplified version of libopus compute_vbr()
-	targetQ3 := e.computeVBRTarget(baseTargetQ3, frameSize, bitrate)
+	targetQ3 := e.computeVBRTarget(baseTargetQ3, frameSize)
 
 	// Convert back from Q3 to bits
 	// Reference: libopus line 2480: nbAvailableBytes = (target+(1<<(BITRES+2)))>>(BITRES+3)
@@ -902,7 +1008,7 @@ func (e *Encoder) computeTargetBits(frameSize int) int {
 // - floor_depth: signal depth floor based on maxDepth from dynalloc
 //
 // All values are in Q3 format (8ths of bits).
-func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize, bitrate int) int {
+func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int) int {
 	mode := GetModeConfig(frameSize)
 	lm := mode.LM
 	nbBands := mode.EffBands

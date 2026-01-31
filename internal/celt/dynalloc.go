@@ -157,6 +157,8 @@ func computeNoiseFloor(i, lsbDepth int, logN int16) float64 {
 //   - isTransient: true if frame is transient
 //   - vbr: true if using variable bitrate
 //   - constrainedVBR: true if using constrained VBR
+//   - toneFreq: detected tone frequency in radians/sample (-1 if none)
+//   - toneishness: tone purity metric (0.0-1.0)
 //
 // Reference: libopus celt/celt_encoder.c lines 1049-1273
 func DynallocAnalysis(
@@ -165,6 +167,7 @@ func DynallocAnalysis(
 	logN []int16,
 	effectiveBytes int,
 	isTransient, vbr, constrainedVBR bool,
+	toneFreq, toneishness float64,
 ) DynallocResult {
 	result := DynallocResult{
 		MaxDepth:     -31.9,
@@ -395,6 +398,31 @@ func DynallocAnalysis(
 			}
 		}
 
+		// Compensate for Opus under-allocation on tones.
+		if toneishness > 0.98 && toneFreq >= 0 {
+			freqBin := int(math.Floor(0.5 + toneFreq*120.0/math.Pi))
+			for i := start; i < end; i++ {
+				if freqBin >= EBands[i] && freqBin <= EBands[i+1] {
+					follower[i] += 2.0
+				}
+				if freqBin >= EBands[i]-1 && freqBin <= EBands[i+1]+1 {
+					follower[i] += 1.0
+				}
+				if freqBin >= EBands[i]-2 && freqBin <= EBands[i+1]+2 {
+					follower[i] += 1.0
+				}
+				if freqBin >= EBands[i]-3 && freqBin <= EBands[i+1]+3 {
+					follower[i] += 0.5
+				}
+			}
+			if end > start && freqBin >= EBands[end] {
+				follower[end-1] += 2.0
+				if end-2 >= start {
+					follower[end-2] += 1.0
+				}
+			}
+		}
+
 		// Clamp follower and compute offsets/boost
 		totBoost := 0
 		for i := start; i < end; i++ {
@@ -475,6 +503,7 @@ func DynallocAnalysisSimple(bandLogE []float64, nbBands, lm, effectiveBytes int)
 		logN,
 		effectiveBytes,
 		false, true, false, // not transient, VBR, not constrained
+		-1.0, 0.0,
 	)
 }
 

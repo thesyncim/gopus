@@ -52,6 +52,7 @@ func TestTFEncodingDetailedCompare(t *testing.T) {
 	goEnc.Reset()
 	goEnc.SetBitrate(bitrate)
 	goEnc.SetComplexity(10)
+	goEnc.SetVBR(false)
 
 	goPacket, err := goEnc.EncodeFrame(pcm64, frameSize)
 	if err != nil {
@@ -219,6 +220,7 @@ func TestPostTFEncoding(t *testing.T) {
 	goEnc.Reset()
 	goEnc.SetBitrate(bitrate)
 	goEnc.SetComplexity(10)
+	goEnc.SetVBR(false)
 
 	goPacket, err := goEnc.EncodeFrame(pcm64, frameSize)
 	if err != nil {
@@ -401,4 +403,3 @@ func TestTFBitstreamPosition(t *testing.T) {
 		t.Logf("  Band %2d: tf_change=%d", i, tfRes[i])
 	}
 }
-

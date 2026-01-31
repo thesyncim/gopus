@@ -50,8 +50,10 @@ type Encoder struct {
 	lastCodedBands int // Previous coded band count (0 = uninitialized)
 
 	// Bitrate control
-	targetBitrate int // Target bitrate in bits per second (0 = use buffer size)
-	frameBits     int // Per-frame bit budget for coarse energy (set during encoding)
+	targetBitrate  int // Target bitrate in bits per second (0 = use buffer size)
+	frameBits      int // Per-frame bit budget for coarse energy (set during encoding)
+	vbr            bool
+	constrainedVBR bool
 
 	// Complexity control (0-10)
 	complexity int
@@ -163,6 +165,9 @@ func NewEncoder(channels int) *Encoder {
 		// Delay buffer for lookahead (192 samples at 48kHz = 4ms)
 		// This matches libopus delay_compensation
 		delayBuffer: make([]float64, DelayCompensation*channels),
+
+		// Default to VBR enabled to mirror libopus behavior.
+		vbr: true,
 	}
 
 	// Energy arrays default to zero after allocation (matches libopus init).
@@ -242,6 +247,26 @@ func (e *Encoder) SetComplexity(complexity int) {
 		complexity = 10
 	}
 	e.complexity = complexity
+}
+
+// SetVBR enables or disables variable bitrate mode.
+func (e *Encoder) SetVBR(enabled bool) {
+	e.vbr = enabled
+}
+
+// VBR reports whether variable bitrate mode is enabled.
+func (e *Encoder) VBR() bool {
+	return e.vbr
+}
+
+// SetConstrainedVBR enables or disables constrained VBR mode.
+func (e *Encoder) SetConstrainedVBR(enabled bool) {
+	e.constrainedVBR = enabled
+}
+
+// ConstrainedVBR reports whether constrained VBR mode is enabled.
+func (e *Encoder) ConstrainedVBR() bool {
+	return e.constrainedVBR
 }
 
 // Complexity returns the current complexity setting.

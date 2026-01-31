@@ -55,6 +55,7 @@ func TestPacketEnergiesComparison(t *testing.T) {
 	gopusEnc := celt.NewEncoder(1)
 	gopusEnc.Reset()
 	gopusEnc.SetBitrate(bitrate)
+	gopusEnc.SetVBR(false)
 
 	gopusPacket, err := gopusEnc.EncodeFrame(pcm64, frameSize)
 	if err != nil {

@@ -55,6 +55,7 @@ func TestAllocTrimCompareWithEnc(t *testing.T) {
 	goEnc.Reset()
 	goEnc.SetBitrate(bitrate)
 	goEnc.SetComplexity(10)
+	goEnc.SetVBR(false)
 
 	goPacket, debugInfo, err := goEnc.EncodeFrameWithDebug(pcm64, frameSize)
 	if err != nil {
@@ -131,6 +132,7 @@ func TestAllocTrimCompare(t *testing.T) {
 	goEnc.Reset()
 	goEnc.SetBitrate(bitrate)
 	goEnc.SetComplexity(10)
+	goEnc.SetVBR(false)
 
 	// Manually compute the steps to get the inputs for AllocTrimAnalysis
 	pcm64 := make([]float64, frameSize)
@@ -261,6 +263,7 @@ func TestAllocTrimDebugEncoder(t *testing.T) {
 	goEnc.Reset()
 	goEnc.SetBitrate(bitrate)
 	goEnc.SetComplexity(10)
+	goEnc.SetVBR(false)
 
 	// Step 1: DC rejection (apply what encode_frame does)
 	dcRejected := goEnc.ApplyDCReject(pcm64)
