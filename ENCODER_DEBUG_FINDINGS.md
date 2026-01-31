@@ -4,16 +4,14 @@
 
 ## Known Issues
 1. **Audio Quality**: TestAudioAudibility failing with SNR=-4.39 dB (corrupted audio)
-2. **Bitstream Divergence**: TestBitExactComparison shows divergence from libopus at byte 1-6
+2. **Bitstream Divergence**: TestBitExactComparison shows divergence from libopus at byte 11
 
-## Divergence Pattern
-- TOC bytes match between gopus and libopus (0xf8, 0xf0 = CELT mode)
-- Payload diverges early (byte 1-6)
-- This suggests issues in:
-  - Range coding state
-  - Energy encoding
-  - Band allocation
-  - PVQ encoding
+## Divergence Pattern (Agent 25 Update)
+- First 11 bytes (88 bits) match perfectly
+- Divergence at byte 11: gopus=0xE3 (11100011), libopus=0xE1 (11100001)
+- XOR difference: 0x02 (bit 1)
+- Position: ~88 bits into the bitstream = TF encoding region
+- This indicates the divergence is in **TF Analysis values** (not TF encoding itself)
 
 ## C Reference
 - Located at: `tmp_check/opus-1.6.1/`
@@ -66,10 +64,61 @@
 | agent-10 | gopus-worktrees/agent-10 | fix-agent-10 | Coarse Energy/State | ✅ Complete |
 | agent-11 | gopus-worktrees/agent-11 | fix-agent-11 | Band Energy | ✅ Complete |
 | agent-12 | gopus-worktrees/agent-12 | fix-agent-12 | Input Normalization | ✅ Complete |
+| agent-25 | gopus-worktrees/agent-25 | fix-agent-25 | Bit Budget Calculations | ✅ Complete |
 
 ---
 
 ## Findings Log
+
+### Agent 25: Bit Budget Calculations (2026-01-31)
+
+**Task**: Debug bit budget calculations and find divergence source.
+
+**Key Findings**:
+
+1. **Packet Size Match**: In CBR mode, gopus produces exactly 159 bytes (same as libopus)
+2. **Divergence Location**: Byte 11, bit ~88 (in TF encoding region)
+3. **Binary Difference**: gopus=0xE3 vs libopus=0xE1 (XOR=0x02, bit 1 difference)
+
+**Bit Budget Analysis**:
+```
+Encoding Stage        | Bits Used | Cumulative
+----------------------+-----------+-----------
+Header flags          | ~6        | 6
+Coarse energy (21)    | ~78       | 84
+TF encoding           | ~10       | 94  <-- DIVERGENCE HERE
+Spread                | ~2        | 96
+Dynalloc              | ~10       | 106
+Trim                  | ~3        | 109
+Allocation            | varies    | ...
+Fine energy           | varies    | ...
+PVQ bands             | remaining | ...
+```
+
+**Root Cause Identified**:
+- TF encoding primitive is **CORRECT** (verified by TestTFEncodeMatchesLibopus)
+- TF analysis is producing **DIFFERENT tfRes values** than libopus
+- The `tfRes` array determines which bands favor time vs frequency resolution
+- Divergence in analysis input (normalized coefficients, tf_estimate, or importance weights)
+
+**Tests Created**:
+- `bit_budget_compare_test.go` - Overall bit budget comparison
+- `bit_budget_detailed_test.go` - Detailed encoding trace
+- `full_trace_test.go` - Full encoding comparison with libopus
+
+**Verified Correct**:
+- CBR payload size calculation: `cbrPayloadBytes()` matches libopus
+- VBR base bits calculation: `bitrateToBits()` = bitrate * frameSize / 48000
+- Bit allocation input formula: `(nbCompressedBytes*8 << 3) - ec_tell_frac(enc) - 1`
+- Anti-collapse reserve: `isTransient && LM>=2 && bits>=(LM+2)<<3 ? 8 : 0`
+
+**Recommended Next Steps**:
+1. Compare `tf_estimate` values between gopus and libopus
+2. Compare `importance[]` array from dynalloc_analysis
+3. Compare normalized MDCT coefficients used in TF analysis
+4. Verify transient detection produces same result
+
+---
 
 ### [2026-01-31] Initial Analysis
 - Identified encoder divergence in CELT mode
