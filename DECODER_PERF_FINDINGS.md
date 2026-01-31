@@ -21,6 +21,11 @@ After initial CELT scratch reuse (branch `decoder-perf-allocs`):
 - BenchmarkDecodeFrame: ~0.77 ms/op, 66,553 B/op, 11 allocs/op
 - BenchmarkDecodeFrame_Stereo: ~1.55 ms/op, 147,475 B/op, 19 allocs/op
 
+After PVQ scratch reuse (quantAllBandsDecodeWithScratch):
+
+- BenchmarkDecodeFrame: ~0.78 ms/op, 51,563 B/op, 7 allocs/op
+- BenchmarkDecodeFrame_Stereo: ~1.72 ms/op, 119,433 B/op, 14 allocs/op
+
 Note: BenchmarkHybridDecode is skipped in `internal/hybrid/hybrid_test.go`, so
 there is no reliable hybrid decode benchmark yet.
 

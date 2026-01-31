@@ -90,6 +90,7 @@ type Decoder struct {
 	scratchSilenceE        []float64
 	scratchCaps            []int
 	scratchAllocWork       []int
+	scratchBands           bandDecodeScratch
 }
 
 // NewDecoder creates a new CELT decoder with the given number of channels.
@@ -724,8 +725,8 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	d.DecodeFineEnergy(energies, end, fineQuant)
 	traceRange("fine", rd)
 
-	coeffsL, coeffsR, collapse := quantAllBandsDecode(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.channels == 1, &d.rng)
+	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.channels == 1, &d.rng, &d.scratchBands)
 	traceRange("pvq", rd)
 
 	antiCollapseOn := false
@@ -1190,8 +1191,8 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	traceRange("fine", rd)
 
 	// Decode bands for mono
-	coeffsMono, _, collapse := quantAllBandsDecode(rd, 1, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, false, &d.rng)
+	coeffsMono, _, collapse := quantAllBandsDecodeWithScratch(rd, 1, frameSize, lm, start, end, pulses, shortBlocks, spread,
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, false, &d.rng, &d.scratchBands)
 	traceRange("pvq", rd)
 
 	antiCollapseOn := false
@@ -1450,8 +1451,8 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	d.DecodeFineEnergy(energies, end, fineQuant)
 	traceRange("fine", rd)
 
-	coeffsL, coeffsR, collapse := quantAllBandsDecode(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, origChannels == 1, &d.rng)
+	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, origChannels == 1, &d.rng, &d.scratchBands)
 	traceRange("pvq", rd)
 
 	antiCollapseOn := false
@@ -1781,8 +1782,8 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	d.DecodeFineEnergy(energies, end, fineQuant)
 	traceRange("fine", rd)
 
-	coeffsL, coeffsR, collapse := quantAllBandsDecode(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.channels == 1, &d.rng)
+	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.channels == 1, &d.rng, &d.scratchBands)
 	traceRange("pvq", rd)
 
 	antiCollapseOn := false
@@ -2049,8 +2050,8 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	d.DecodeFineEnergy(monoEnergies, end, fineQuant)
 	traceRange("fine", rd)
 
-	coeffsMono, _, collapse := quantAllBandsDecode(rd, 1, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, false, &d.rng)
+	coeffsMono, _, collapse := quantAllBandsDecodeWithScratch(rd, 1, frameSize, lm, start, end, pulses, shortBlocks, spread,
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, false, &d.rng, &d.scratchBands)
 	traceRange("pvq", rd)
 
 	antiCollapseOn := false
@@ -2283,8 +2284,8 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	d.DecodeFineEnergy(energies, end, fineQuant)
 	traceRange("fine", rd)
 
-	coeffsL, coeffsR, collapse := quantAllBandsDecode(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, origChannels == 1, &d.rng)
+	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, origChannels == 1, &d.rng, &d.scratchBands)
 	traceRange("pvq", rd)
 
 	antiCollapseOn := false

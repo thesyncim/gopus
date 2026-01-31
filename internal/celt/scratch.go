@@ -23,3 +23,23 @@ func ensureIntSlice(buf *[]int, n int) []int {
 	}
 	return *buf
 }
+
+func ensureByteSlice(buf *[]byte, n int) []byte {
+	if n < 0 {
+		n = 0
+	}
+	if cap(*buf) < n {
+		*buf = make([]byte, n)
+	} else {
+		*buf = (*buf)[:n]
+	}
+	return *buf
+}
+
+type bandDecodeScratch struct {
+	left     []float64
+	right    []float64
+	collapse []byte
+	norm     []float64
+	lowband  []float64
+}
