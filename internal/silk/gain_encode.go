@@ -68,36 +68,48 @@ func (e *Encoder) encodeSubframeGains(gains []float32, signalType, numSubframes 
 
 
 // computeLogGainIndex converts linear gain to log gain index [0, 63].
-// Uses logarithmic quantization matching the decoder's dequantization formula.
+// Finds the index in GainDequantTable that best matches the input gain.
 //
-// The decoder's gain dequantization (per RFC 6716 Section 4.2.7.4):
-//
-//	gain = 2^(logGainIndex/8 - 1)
-//
-// Inverting this: logGainIndex = 8 * (log2(gain) + 1)
-//
-// This provides much better accuracy than linear search against GainDequantTable,
-// especially for high gain values where the table has large gaps.
+// The GainDequantTable contains Q16 gain values. Given a float32 gain,
+// we convert it to Q16 and find the closest table entry.
 func computeLogGainIndex(gain float32) int {
 	if gain <= 0 {
 		return 0
 	}
 
-	// Compute log-domain gain index matching decoder's formula
-	// Decoder (RFC 6716 Section 4.2.7.4): gain = 2^(logGainIndex/8 - 1)
-	// Inverting: logGainIndex = 8 * (log2(gain) + 1)
-	logGain := math.Log2(float64(gain))
-	idx := int(math.Round((logGain + 1.0) * 8.0))
+	// Convert float gain to Q16
+	gainQ16 := int32(gain * 65536.0)
 
-	// Clamp to valid range [0, 63]
-	if idx < 0 {
-		idx = 0
+	// Clamp to table range
+	if gainQ16 < GainDequantTable[0] {
+		return 0
 	}
-	if idx > 63 {
-		idx = 63
+	if gainQ16 >= GainDequantTable[63] {
+		return 63
 	}
 
-	return idx
+	// Binary search for closest index
+	// GainDequantTable is sorted in increasing order
+	lo, hi := 0, 63
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if GainDequantTable[mid] <= gainQ16 {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+
+	// Check if next index is closer
+	if lo < 63 {
+		diffLo := absInt32(GainDequantTable[lo] - gainQ16)
+		diffHi := absInt32(GainDequantTable[lo+1] - gainQ16)
+		if diffHi < diffLo {
+			return lo + 1
+		}
+	}
+
+	return lo
 }
 
 // computeFirstFrameGainIndex computes gain index for first frame encoding.

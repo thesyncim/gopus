@@ -75,6 +75,11 @@ func (e *Encoder) searchStage1CodebookLibopus(lsfQ15 []int16, cb *nlsfCB, stypeB
 
 // computeSymbolRate8 estimates bit cost from uint8 ICDF probabilities.
 func (e *Encoder) computeSymbolRate8(symbol int, icdf []uint8) int {
+	// Invalid symbol check
+	if symbol < 0 {
+		return 256 // Max cost for invalid symbols
+	}
+
 	// Find end of ICDF (terminated by 0)
 	icdfLen := 0
 	for i := 0; i < len(icdf); i++ {

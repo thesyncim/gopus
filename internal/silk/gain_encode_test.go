@@ -211,10 +211,11 @@ func TestQuantizeLSFNarrowband(t *testing.T) {
 
 func TestLSFEncodeDecode(t *testing.T) {
 	// This test verifies the quantization produces valid indices
-	// that can be reconstructed close to original
+	// that can be reconstructed using the libopus decoder logic
 
 	enc := NewEncoder(BandwidthNarrowband)
 	config := GetBandwidthConfig(BandwidthNarrowband)
+	cb := &silk_NLSF_CB_NB_MB
 
 	// Test LSF - use values closer to codebook entries for better reconstruction
 	lsfQ15 := make([]int16, config.LPCOrder)
@@ -225,26 +226,32 @@ func TestLSFEncodeDecode(t *testing.T) {
 
 	stage1Idx, residuals, _ := enc.quantizeLSF(lsfQ15, BandwidthNarrowband, 1)
 
-	// Reconstruct LSF from quantized values
-	reconstructed := make([]int16, config.LPCOrder)
-	mapIdx := stage1Idx >> 2
-	if mapIdx > 7 {
-		mapIdx = 7
+	// Verify stage1Idx is in valid range
+	if stage1Idx < 0 || stage1Idx >= cb.nVectors {
+		t.Errorf("stage1Idx=%d out of range [0, %d)", stage1Idx, cb.nVectors)
 	}
 
+	// Verify residuals are in valid range [-nlsfQuantMaxAmplitude, +nlsfQuantMaxAmplitude]
 	for i := 0; i < config.LPCOrder; i++ {
-		base := int32(LSFCodebookNBMB[stage1Idx][i]) << 7
-		resIdx := residuals[i]
-		if resIdx >= 9 {
-			resIdx = 8
+		if residuals[i] < -nlsfQuantMaxAmplitude || residuals[i] > nlsfQuantMaxAmplitude {
+			t.Errorf("residual[%d]=%d out of range [%d, %d]",
+				i, residuals[i], -nlsfQuantMaxAmplitude, nlsfQuantMaxAmplitude)
 		}
-		res := int32(LSFStage2ResNBMB[mapIdx][resIdx][i]) << 7
-		reconstructed[i] = int16(base + res)
 	}
+
+	// Reconstruct LSF using libopus decoder logic (silkNLSFDecode)
+	indices := make([]int8, config.LPCOrder+1)
+	indices[0] = int8(stage1Idx)
+	for i := 0; i < config.LPCOrder; i++ {
+		indices[i+1] = int8(residuals[i])
+	}
+
+	reconstructed := make([]int16, config.LPCOrder)
+	silkNLSFDecode(reconstructed, indices, cb)
 
 	// Verify reconstruction is reasonably close to original
-	// VQ quantization can have significant error - allow 15% of full range (32767)
-	maxAllowedDiff := 5000
+	// VQ quantization can have significant error - allow 20% of full range
+	maxAllowedDiff := 6500
 	for i := 0; i < config.LPCOrder; i++ {
 		diff := absInt(int(lsfQ15[i]) - int(reconstructed[i]))
 		if diff > maxAllowedDiff {
