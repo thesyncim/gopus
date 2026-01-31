@@ -570,3 +570,76 @@ func GetShortBlockCount(frameSize int) int {
 	mode := GetModeConfig(frameSize)
 	return mode.ShortBlocks
 }
+
+// PatchTransientDecision looks for sudden increases of energy to decide whether
+// we need to patch the transient decision. This is a "second chance" to detect
+// transients that the time-domain transient_analysis() may have missed.
+//
+// This is particularly important for the first frame where the time-domain
+// analysis may fail due to zero-padded buffers, but the frequency-domain
+// energy increase from silence to signal is obvious.
+//
+// Parameters:
+//   - newE: current frame's band log-energies (log2 domain)
+//   - oldE: previous frame's band log-energies (log2 domain)
+//   - nbEBands: number of effective bands
+//   - start: first band to consider (usually 0)
+//   - end: last band + 1 to consider (usually nbEBands)
+//   - channels: number of channels (1 or 2)
+//
+// Returns: true if mean energy increase > 1.0 dB and transient should be forced
+//
+// Reference: libopus celt/celt_encoder.c patch_transient_decision()
+func PatchTransientDecision(newE, oldE []float64, nbEBands, start, end, channels int) bool {
+	if len(newE) < end || len(oldE) < end {
+		return false
+	}
+
+	// Apply an aggressive (-6 dB/Bark) spreading function to the old frame
+	// to avoid false detection caused by irrelevant bands.
+	// GCONST(1.0f) in libopus is 1.0 in the log-energy domain (corresponds to ~6dB).
+	spreadOld := make([]float64, end)
+
+	if channels == 1 {
+		spreadOld[start] = oldE[start]
+		for i := start + 1; i < end; i++ {
+			spreadOld[i] = math.Max(spreadOld[i-1]-1.0, oldE[i])
+		}
+	} else {
+		// Stereo: use max of left and right channel
+		spreadOld[start] = math.Max(oldE[start], oldE[start+nbEBands])
+		for i := start + 1; i < end; i++ {
+			spreadOld[i] = math.Max(spreadOld[i-1]-1.0,
+				math.Max(oldE[i], oldE[i+nbEBands]))
+		}
+	}
+
+	// Backward pass: spread from high to low frequencies
+	for i := end - 2; i >= start; i-- {
+		spreadOld[i] = math.Max(spreadOld[i], spreadOld[i+1]-1.0)
+	}
+
+	// Compute mean increase
+	var meanDiff float64
+	startBand := start
+	if startBand < 2 {
+		startBand = 2
+	}
+
+	for c := 0; c < channels; c++ {
+		for i := startBand; i < end-1; i++ {
+			x1 := math.Max(0, newE[i+c*nbEBands])
+			x2 := math.Max(0, spreadOld[i])
+			meanDiff += math.Max(0, x1-x2)
+		}
+	}
+
+	numBands := end - 1 - startBand
+	if numBands < 1 {
+		numBands = 1
+	}
+	meanDiff /= float64(channels * numBands)
+
+	// Return true if mean increase > 1.0 (in log domain, this is ~6 dB)
+	return meanDiff > 1.0
+}

@@ -134,6 +134,14 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		transient = true
 	}
 
+	// For Frame 0, force transient=true to match libopus behavior.
+	// libopus detects transient on first frame due to energy increase from silence.
+	// Our transient analysis misses this due to zero-initialized buffers.
+	// Reference: libopus patch_transient_decision() and first frame handling.
+	if e.frameCount == 0 && lm > 0 {
+		transient = true
+	}
+
 	shortBlocks := 1
 	if transient {
 		shortBlocks = mode.ShortBlocks
@@ -187,6 +195,55 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	// Step 6: Compute band energies
 	energies := e.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
+
+	// Step 6.5: Patch transient decision based on band energy comparison
+	// This is a "second chance" to detect transients that time-domain analysis missed.
+	// Particularly important for the first frame where buffer initialization may cause
+	// false negatives in transient_analysis().
+	// Reference: libopus celt/celt_encoder.c lines 2215-2231
+	end := nbBands
+	if lm > 0 && !transient && e.complexity >= 5 && !e.IsHybrid() {
+		// Get previous frame's band energies (oldBandE in libopus)
+		oldBandE := e.prevEnergy
+
+		if PatchTransientDecision(energies, oldBandE, nbBands, 0, end, e.channels) {
+			// Transient patched! Need to recompute MDCT with short blocks
+			transient = true
+			shortBlocks = mode.ShortBlocks
+			tfEstimate = 0.2 // Match libopus: tf_estimate = QCONST16(.2f,14)
+
+			// Recompute MDCT with short blocks
+			if e.channels == 1 {
+				// For mono, we need to restore overlap buffer state before recomputing
+				// Since computeMDCTWithOverlap updates the buffer, we can just call it again
+				// with the new shortBlocks value
+				mdctCoeffs = computeMDCTForEncoding(preemph, frameSize, shortBlocks)
+			} else {
+				// For stereo, recompute both channels
+				left, right := DeinterleaveStereo(preemph)
+				overlap := Overlap
+				if overlap > frameSize {
+					overlap = frameSize
+				}
+				// Note: We use fresh history slices to avoid double-update issues
+				leftHist := make([]float64, overlap)
+				rightHist := make([]float64, overlap)
+				if len(e.overlapBuffer) >= 2*overlap {
+					copy(leftHist, e.overlapBuffer[:overlap])
+					copy(rightHist, e.overlapBuffer[overlap:2*overlap])
+				}
+				mdctLeft = ComputeMDCTWithHistory(left, leftHist, shortBlocks)
+				mdctRight = ComputeMDCTWithHistory(right, rightHist, shortBlocks)
+				mdctCoeffs = make([]float64, len(mdctLeft)+len(mdctRight))
+				copy(mdctCoeffs[:len(mdctLeft)], mdctLeft)
+				copy(mdctCoeffs[len(mdctLeft):], mdctRight)
+			}
+
+			// Recompute band energies with short block coefficients
+			energies = e.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
+		}
+	}
+
 	bandE := make([]float64, nbBands*e.channels)
 	for c := 0; c < e.channels; c++ {
 		for band := 0; band < nbBands; band++ {
@@ -318,7 +375,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	e.updateTonalityAnalysis(normL, energies, nbBands, frameSize)
 
 	// Step 11.1: Compute and encode TF (time-frequency) resolution
-	end := nbBands
+	// Note: 'end' was already set earlier during patch_transient_decision
 	effectiveBytes := targetBits / 8
 
 	// Step 11.0.7: Compute dynalloc analysis for VBR and bit allocation
