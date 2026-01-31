@@ -16,6 +16,11 @@ Results:
 - BenchmarkDecodeFrame: ~1.07 ms/op, 68,312 B/op, 21 allocs/op
 - BenchmarkDecodeFrame_Stereo: ~2.08 ms/op, 149,936 B/op, 29 allocs/op
 
+After initial CELT scratch reuse (branch `decoder-perf-allocs`):
+
+- BenchmarkDecodeFrame: ~0.77 ms/op, 66,553 B/op, 11 allocs/op
+- BenchmarkDecodeFrame_Stereo: ~1.55 ms/op, 147,475 B/op, 19 allocs/op
+
 Note: BenchmarkHybridDecode is skipped in `internal/hybrid/hybrid_test.go`, so
 there is no reliable hybrid decode benchmark yet.
 
@@ -115,6 +120,22 @@ Deeper changes:
 - `quantAllBandsDecodeInto` + output buffer plumbing for CELT.
 - Float32-only decode pipeline for CELT/Hybrid to avoid float64 conversions.
 - Public `DecodeInto` API for zero-alloc decode.
+
+## Assembly candidates (amd64/arm64, Linux/macOS)
+
+Likely wins in tight inner loops (vector-heavy, predictable strides):
+
+- CELT IMDCT/MDCT kernels (`internal/celt/mdct.go`, `imdct_*` helpers).
+- Band scaling / denormalization loops (`denormalizeCoeffs`, `scaleSamples`).
+- PVQ normalization and pulse spreading loops (`internal/celt/bands_quant.go`).
+- Overlap-add / windowing (`Synthesize`, `SynthesizeStereo`).
+- De-emphasis filter (mono/stereo loops in `applyDeemphasis`).
+- Resampler inner loops (SILK resampler in `internal/silk/resample_*`).
+- Pitch comb filter / postfilter (`applyPostfilter`).
+
+These map well to NEON (arm64) and AVX2/SSE2 (amd64). A staged approach:
+start with NEON+SSE2 for MDCT/IMDCT + overlap-add, then expand to PVQ and
+resampling once correctness is locked.
 
 ## Benchmark TODO
 

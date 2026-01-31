@@ -75,6 +75,20 @@ type Decoder struct {
 
 	// Channel transition tracking (for mono-to-stereo overlap buffer clearing)
 	prevStreamChannels int // Previous packet's channel count (0 = uninitialized)
+
+	// Scratch buffers to reduce per-frame allocations (decoder is not thread-safe).
+	scratchPrevEnergy      []float64
+	scratchPrevLogE        []float64
+	scratchPrevLogE2       []float64
+	scratchEnergies        []float64
+	scratchTFRes           []int
+	scratchOffsets         []int
+	scratchPulses          []int
+	scratchFineQuant       []int
+	scratchFinePriority    []int
+	scratchPrevBandEnergy  []float64
+	scratchSilenceE        []float64
+	scratchCaps            []int
 }
 
 // NewDecoder creates a new CELT decoder with the given number of channels.
@@ -545,9 +559,12 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 		end = 1
 	}
 	start := 0
-	prev1Energy := append([]float64(nil), d.prevEnergy...)
-	prev1LogE := append([]float64(nil), d.prevLogE...)
-	prev2LogE := append([]float64(nil), d.prevLogE2...)
+	prev1Energy := ensureFloat64Slice(&d.scratchPrevEnergy, len(d.prevEnergy))
+	copy(prev1Energy, d.prevEnergy)
+	prev1LogE := ensureFloat64Slice(&d.scratchPrevLogE, len(d.prevLogE))
+	copy(prev1LogE, d.prevLogE)
+	prev2LogE := ensureFloat64Slice(&d.scratchPrevLogE2, len(d.prevLogE2))
+	copy(prev2LogE, d.prevLogE2)
 
 	totalBits := len(data) * 8
 	tell := rd.Tell()
@@ -559,7 +576,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	}
 	if silence {
 		samples := d.decodeSilenceFrame(frameSize, 0, 0, 0)
-		silenceE := make([]float64, MaxBands*d.channels)
+		silenceE := ensureFloat64Slice(&d.scratchSilenceE, MaxBands*d.channels)
 		for i := range silenceE {
 			silenceE[i] = -28.0
 		}
@@ -618,10 +635,10 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	}
 
 	// Step 1: Decode coarse energy
-	energies := d.DecodeCoarseEnergy(end, intra, lm)
+	energies := d.decodeCoarseEnergyInto(ensureFloat64Slice(&d.scratchEnergies, end*d.channels), end, intra, lm)
 	traceRange("coarse", rd)
 
-	tfRes := make([]int, end)
+	tfRes := ensureIntSlice(&d.scratchTFRes, end)
 	tfDecode(start, end, transient, tfRes, lm, rd)
 	traceRange("tf", rd)
 
@@ -632,8 +649,9 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	}
 	traceRange("spread", rd)
 
-	cap := initCaps(end, lm, d.channels)
-	offsets := make([]int, end)
+	cap := ensureIntSlice(&d.scratchCaps, end)
+	initCapsInto(cap, end, lm, d.channels)
+	offsets := ensureIntSlice(&d.scratchOffsets, end)
 	dynallocLogp := 6
 	totalBitsQ3 := totalBits << bitRes
 	tellFrac := rd.TellFrac()
@@ -672,9 +690,9 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	}
 	bitsQ3 -= antiCollapseRsv
 
-	pulses := make([]int, end)
-	fineQuant := make([]int, end)
-	finePriority := make([]int, end)
+	pulses := ensureIntSlice(&d.scratchPulses, end)
+	fineQuant := ensureIntSlice(&d.scratchFineQuant, end)
+	finePriority := ensureIntSlice(&d.scratchFinePriority, end)
 	intensity := 0
 	dualStereo := 0
 	balance := 0
@@ -1005,9 +1023,12 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 
 	// Save prev energy/log state for mono prediction.
 	// For mono packets in a stereo stream, libopus uses the max of L/R energies.
-	prev1Energy := make([]float64, MaxBands)
-	prev1LogE := append([]float64(nil), d.prevLogE...)
-	prev2LogE := append([]float64(nil), d.prevLogE2...)
+	prev1Energy := ensureFloat64Slice(&d.scratchPrevEnergy, MaxBands)
+	prev1Energy = prev1Energy[:MaxBands]
+	prev1LogE := ensureFloat64Slice(&d.scratchPrevLogE, len(d.prevLogE))
+	copy(prev1LogE, d.prevLogE)
+	prev2LogE := ensureFloat64Slice(&d.scratchPrevLogE2, len(d.prevLogE2))
+	copy(prev2LogE, d.prevLogE2)
 	for i := 0; i < MaxBands; i++ {
 		left := d.prevEnergy[i]
 		if origChannels > 1 && len(d.prevEnergy) >= MaxBands*2 {
@@ -1041,7 +1062,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 		// Generate mono silence, then duplicate to stereo
 		d.channels = origChannels // Restore for silence frame
 		samples := d.decodeSilenceFrame(frameSize, 0, 0, 0)
-		silenceE := make([]float64, MaxBands*origChannels)
+		silenceE := ensureFloat64Slice(&d.scratchSilenceE, MaxBands*origChannels)
 		for i := range silenceE {
 			silenceE[i] = -28.0
 		}
@@ -1092,10 +1113,10 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	}
 
 	// Decode coarse energy for mono (using d.channels=1)
-	monoEnergies := d.DecodeCoarseEnergy(end, intra, lm)
+	monoEnergies := d.decodeCoarseEnergyInto(ensureFloat64Slice(&d.scratchEnergies, end*d.channels), end, intra, lm)
 	traceRange("coarse", rd)
 
-	tfRes := make([]int, end)
+	tfRes := ensureIntSlice(&d.scratchTFRes, end)
 	tfDecode(start, end, transient, tfRes, lm, rd)
 	traceRange("tf", rd)
 
@@ -1106,8 +1127,9 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	}
 	traceRange("spread", rd)
 
-	cap := initCaps(end, lm, 1) // mono
-	offsets := make([]int, end)
+	cap := ensureIntSlice(&d.scratchCaps, end)
+	initCapsInto(cap, end, lm, 1) // mono
+	offsets := ensureIntSlice(&d.scratchOffsets, end)
 	dynallocLogp := 6
 	totalBitsQ3 := totalBits << bitRes
 	tellFrac := rd.TellFrac()
@@ -1146,9 +1168,9 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	}
 	bitsQ3 -= antiCollapseRsv
 
-	pulses := make([]int, end)
-	fineQuant := make([]int, end)
-	finePriority := make([]int, end)
+	pulses := ensureIntSlice(&d.scratchPulses, end)
+	fineQuant := ensureIntSlice(&d.scratchFineQuant, end)
+	finePriority := ensureIntSlice(&d.scratchFinePriority, end)
 	intensity := 0
 	dualStereo := 0
 	balance := 0

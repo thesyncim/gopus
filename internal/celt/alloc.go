@@ -431,6 +431,14 @@ func InitCaps(nbBands, lm, channels int) []int {
 
 func initCaps(nbBands, lm, channels int) []int {
 	caps := make([]int, nbBands)
+	initCapsInto(caps, nbBands, lm, channels)
+	return caps
+}
+
+func initCapsInto(caps []int, nbBands, lm, channels int) {
+	if nbBands > len(caps) {
+		nbBands = len(caps)
+	}
 	if lm < 0 {
 		lm = 0
 	}
@@ -450,7 +458,6 @@ func initCaps(nbBands, lm, channels int) []int {
 		cap := int(cacheCaps[idx])
 		caps[i] = (cap + 64) * channels * N >> 2
 	}
-	return caps
 }
 
 // InitCapsForHybrid initializes band caps for hybrid mode.
