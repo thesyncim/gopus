@@ -48,7 +48,7 @@ func TestRoundTrip_Mono_Float32(t *testing.T) {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
 
-	dec, err := NewDecoder(48000, 1)
+	dec, err := NewDecoderDefault(48000, 1)
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestRoundTrip_Stereo_Float32(t *testing.T) {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
 
-	dec, err := NewDecoder(48000, 2)
+	dec, err := NewDecoderDefault(48000, 2)
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestRoundTrip_Mono_Int16(t *testing.T) {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
 
-	dec, err := NewDecoder(48000, 1)
+	dec, err := NewDecoderDefault(48000, 1)
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestRoundTrip_Stereo_Int16(t *testing.T) {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
 
-	dec, err := NewDecoder(48000, 2)
+	dec, err := NewDecoderDefault(48000, 2)
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestRoundTrip_MultipleFrames(t *testing.T) {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
 
-	dec, err := NewDecoder(48000, 1)
+	dec, err := NewDecoderDefault(48000, 1)
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
@@ -253,9 +253,9 @@ func TestRoundTrip_AllSampleRates(t *testing.T) {
 				t.Fatalf("NewEncoder(%d) error: %v", sampleRate, err)
 			}
 
-			dec, err := NewDecoder(sampleRate, 1)
+			dec, err := NewDecoderDefault(sampleRate, 1)
 			if err != nil {
-				t.Fatalf("NewDecoder(%d) error: %v", sampleRate, err)
+				t.Fatalf("NewDecoderDefault(%d) error: %v", sampleRate, err)
 			}
 
 			// Frame size at 48kHz is 960 (20ms), scale for other rates
@@ -331,7 +331,7 @@ func TestPLC_SingleLoss(t *testing.T) {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
 
-	dec, err := NewDecoder(48000, 1)
+	dec, err := NewDecoderDefault(48000, 1)
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
@@ -365,7 +365,7 @@ func TestPLC_MultipleLoss(t *testing.T) {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
 
-	dec, err := NewDecoder(48000, 1)
+	dec, err := NewDecoderDefault(48000, 1)
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}

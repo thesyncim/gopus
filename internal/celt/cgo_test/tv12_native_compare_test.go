@@ -31,7 +31,7 @@ func TestTV12NativeCompare(t *testing.T) {
 	var nativeGopus []float32
 	var sMidGopusBefore [2]int16
 	{
-		goDec, _ := gopus.NewDecoder(48000, 1)
+		goDec, _ := gopus.NewDecoderDefault(48000, 1)
 		silkDec := goDec.GetSILKDecoder()
 
 		// Process packets 0-136 via gopus

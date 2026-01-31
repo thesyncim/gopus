@@ -86,7 +86,7 @@ func TestMultiFramePackets(t *testing.T) {
 		channels = 2
 	}
 
-	goDec, _ := gopus.NewDecoder(48000, channels)
+	goDec, _ := gopus.NewDecoderDefault(48000, channels)
 
 	for _, idx := range failingIndices {
 		if idx >= len(packets) {

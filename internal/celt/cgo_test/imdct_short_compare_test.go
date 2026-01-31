@@ -34,7 +34,7 @@ func TestShortBlockIMDCTValues(t *testing.T) {
 	}
 
 	// Build up decoder state
-	goDec, _ := gopus.NewDecoder(48000, 2)
+	goDec, _ := gopus.NewDecoderDefault(48000, 2)
 	libDec, _ := NewLibopusDecoder(48000, 2)
 	defer libDec.Destroy()
 
@@ -124,7 +124,7 @@ func TestOverlapRegionDetailed(t *testing.T) {
 	}
 
 	// Create fresh decoders
-	goDec, _ := gopus.NewDecoder(48000, 2)
+	goDec, _ := gopus.NewDecoderDefault(48000, 2)
 	libDec, _ := NewLibopusDecoder(48000, 2)
 	defer libDec.Destroy()
 

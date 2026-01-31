@@ -42,7 +42,7 @@ func TestDebugDecode(t *testing.T) {
 	}
 	t.Logf("TOC=0x%02X, Channels=%d", toc, channels)
 
-	dec, err := gopus.NewDecoder(48000, channels)
+	dec, err := gopus.NewDecoderDefault(48000, channels)
 	if err != nil {
 		t.Fatalf("Error creating decoder: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestDebugSinglePacketDecode(t *testing.T) {
 		channels = 2
 	}
 
-	dec, err := gopus.NewDecoder(48000, channels)
+	dec, err := gopus.NewDecoderDefault(48000, channels)
 	if err != nil {
 		t.Fatalf("Error creating decoder: %v", err)
 	}
@@ -299,11 +299,11 @@ func TestDebugFullDecode(t *testing.T) {
 
 	// Create both mono and stereo decoders to handle mixed streams
 	t.Log("Creating mono and stereo decoders...")
-	monoDec, err := gopus.NewDecoder(48000, 1)
+	monoDec, err := gopus.NewDecoderDefault(48000, 1)
 	if err != nil {
 		t.Fatalf("Error creating mono decoder: %v", err)
 	}
-	stereoDec, err := gopus.NewDecoder(48000, 2)
+	stereoDec, err := gopus.NewDecoderDefault(48000, 2)
 	if err != nil {
 		t.Fatalf("Error creating stereo decoder: %v", err)
 	}

@@ -194,7 +194,7 @@ func decodeGopusOnce(data []byte) (int, error) {
 		return 0, errors.New("invalid channel count")
 	}
 
-	dec, err := gopus.NewDecoder(sampleRate, channels)
+	dec, err := gopus.NewDecoderDefault(sampleRate, channels)
 	if err != nil {
 		return 0, err
 	}

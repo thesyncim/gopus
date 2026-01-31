@@ -35,7 +35,7 @@ func TestInvestigateHybridPackets(t *testing.T) {
 	channels := 2
 
 	// Create decoders
-	goDec, _ := gopus.NewDecoder(48000, channels)
+	goDec, _ := gopus.NewDecoderDefault(48000, channels)
 	libDec, _ := NewLibopusDecoder(48000, channels)
 	defer libDec.Destroy()
 
@@ -110,7 +110,7 @@ func TestInvestigateHybridPackets(t *testing.T) {
 		t.Logf("\nDetailed analysis of worst packet %d:", w.idx)
 
 		// Decode with fresh decoder to see if state matters
-		goDec2, _ := gopus.NewDecoder(48000, channels)
+		goDec2, _ := gopus.NewDecoderDefault(48000, channels)
 		libDec2, _ := NewLibopusDecoder(48000, channels)
 		defer libDec2.Destroy()
 
@@ -171,7 +171,7 @@ func TestTrackStateAcrossHybridPackets(t *testing.T) {
 	}
 
 	channels := 2
-	goDec, _ := gopus.NewDecoder(48000, channels)
+	goDec, _ := gopus.NewDecoderDefault(48000, channels)
 	libDec, _ := NewLibopusDecoder(48000, channels)
 	defer libDec.Destroy()
 

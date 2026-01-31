@@ -95,7 +95,7 @@ func TestCompareWithFreshDecoders(t *testing.T) {
 	t.Logf("libopus: %d samples at 48kHz", libSamples)
 
 	// Decode with gopus
-	goDec, _ := gopus.NewDecoder(48000, 1)
+	goDec, _ := gopus.NewDecoderDefault(48000, 1)
 	goPcm, decErr := goDec.DecodeFloat32(pkt)
 	if decErr != nil {
 		t.Fatalf("gopus decode failed: %v", decErr)

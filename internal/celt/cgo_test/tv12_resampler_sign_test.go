@@ -504,7 +504,7 @@ func TestTV12FullDecoder48kHz(t *testing.T) {
 	}
 
 	// Create 48kHz mono decoders
-	goDec, err := gopus.NewDecoder(48000, 1)
+	goDec, err := gopus.NewDecoderDefault(48000, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -630,7 +630,7 @@ func TestTV12FindDivergenceStart(t *testing.T) {
 		t.Skip("Could not load packets")
 	}
 
-	goDec, _ := gopus.NewDecoder(48000, 1)
+	goDec, _ := gopus.NewDecoderDefault(48000, 1)
 	libDec, _ := NewLibopusDecoder(48000, 1)
 	if libDec == nil {
 		t.Skip("Could not create libopus decoder")
@@ -720,7 +720,7 @@ func TestTV12Pkt826DetailedCompare(t *testing.T) {
 		t.Skip("Could not load enough packets")
 	}
 
-	goDec, _ := gopus.NewDecoder(48000, 1)
+	goDec, _ := gopus.NewDecoderDefault(48000, 1)
 	libDec, _ := NewLibopusDecoder(48000, 1)
 	if libDec == nil {
 		t.Skip("Could not create libopus decoder")
@@ -790,7 +790,7 @@ func TestTV12BandwidthTransitions(t *testing.T) {
 		t.Skip("Could not load packets")
 	}
 
-	goDec, _ := gopus.NewDecoder(48000, 1)
+	goDec, _ := gopus.NewDecoderDefault(48000, 1)
 	libDec, _ := NewLibopusDecoder(48000, 1)
 	if libDec == nil {
 		t.Skip("Could not create libopus decoder")

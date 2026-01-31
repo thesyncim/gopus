@@ -62,7 +62,7 @@ func TestIntensityStereoPacket14(t *testing.T) {
 	}
 
 	// Now decode with gopus
-	goDec, _ := gopus.NewDecoder(48000, 2)
+	goDec, _ := gopus.NewDecoderDefault(48000, 2)
 	goSamples, _ := goDec.DecodeFloat32(pkt)
 
 	t.Log("First 10 gopus samples:")

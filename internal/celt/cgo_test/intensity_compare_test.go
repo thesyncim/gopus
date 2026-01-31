@@ -33,7 +33,7 @@ func TestIntensityEffect(t *testing.T) {
 	}
 
 	// Decode all packets and track when error appears
-	goDec, _ := gopus.NewDecoder(48000, 2)
+	goDec, _ := gopus.NewDecoderDefault(48000, 2)
 	libDec, _ := NewLibopusDecoder(48000, 2)
 	defer libDec.Destroy()
 
@@ -103,7 +103,7 @@ func TestDualStereoDecoding(t *testing.T) {
 	t.Logf("Packet 14: len=%d", len(pkt))
 
 	// Decode with fresh decoders
-	freshGo, _ := gopus.NewDecoder(48000, 2)
+	freshGo, _ := gopus.NewDecoderDefault(48000, 2)
 	freshLib, _ := NewLibopusDecoder(48000, 2)
 	defer freshLib.Destroy()
 

@@ -19,7 +19,7 @@ func TestTV12Packet826_48kHz(t *testing.T) {
 	}
 
 	// Create 48kHz mono decoders
-	goDec, err := gopus.NewDecoder(48000, 1)
+	goDec, err := gopus.NewDecoderDefault(48000, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestTV12WorstPackets48kHz(t *testing.T) {
 	}
 
 	// Create 48kHz mono decoders
-	goDec, err := gopus.NewDecoder(48000, 1)
+	goDec, err := gopus.NewDecoderDefault(48000, 1)
 	if err != nil {
 		t.Fatal(err)
 	}

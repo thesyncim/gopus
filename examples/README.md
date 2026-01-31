@@ -208,7 +208,7 @@ packet, err := enc.EncodeFloat32(pcmSamples)
 
 ```go
 // Create decoder
-dec, err := gopus.NewDecoder(48000, 2)
+dec, err := gopus.NewDecoderDefault(48000, 2)
 
 // Decode Opus to PCM
 samples, err := dec.DecodeFloat32(packet)

@@ -85,7 +85,7 @@ func ExampleReader_ReadPacket() {
 
 	// Read packets back
 	r, _ := ogg.NewReader(bytes.NewReader(buf.Bytes()))
-	dec, _ := gopus.NewDecoder(48000, 1)
+	dec, _ := gopus.NewDecoderDefault(48000, 1)
 
 	packetCount := 0
 	for {
@@ -171,7 +171,7 @@ func Example_roundTripOgg() {
 
 	// Decode from Ogg
 	r, _ := ogg.NewReader(bytes.NewReader(buf.Bytes()))
-	dec, _ := gopus.NewDecoder(48000, 2)
+	dec, _ := gopus.NewDecoderDefault(48000, 2)
 
 	totalSamples := 0
 	for {

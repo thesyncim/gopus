@@ -24,7 +24,7 @@ func TestTV06StereoChannelAnalysis(t *testing.T) {
 		t.Skipf("Could not read reference: %v", err)
 	}
 
-	dec, _ := gopus.NewDecoder(48000, 2)
+	dec, _ := gopus.NewDecoderDefault(48000, 2)
 
 	// Track per-packet stats for both channels
 	refOffset := 0
@@ -100,7 +100,7 @@ func TestTV06MonoVsNonMonoPackets(t *testing.T) {
 		t.Skipf("Could not read reference: %v", err)
 	}
 
-	dec, _ := gopus.NewDecoder(48000, 2)
+	dec, _ := gopus.NewDecoderDefault(48000, 2)
 
 	var monoSumQ, stereoSumQ float64
 	var monoCount, stereoCount int
@@ -216,7 +216,7 @@ func TestTV06CumulativeQualityByRegion(t *testing.T) {
 		t.Skipf("Could not read reference: %v", err)
 	}
 
-	dec, _ := gopus.NewDecoder(48000, 2)
+	dec, _ := gopus.NewDecoderDefault(48000, 2)
 
 	// Regions to analyze
 	regions := []struct {

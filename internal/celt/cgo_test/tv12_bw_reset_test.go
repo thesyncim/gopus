@@ -22,7 +22,7 @@ func TestTV12BandwidthResetAnalysis(t *testing.T) {
 	// Test 1: Fresh decoder just for packet 826
 	t.Log("=== Test 1: Fresh decoder just for packet 826 ===")
 	{
-		freshGo, _ := gopus.NewDecoder(48000, 1)
+		freshGo, _ := gopus.NewDecoderDefault(48000, 1)
 		freshLib, _ := NewLibopusDecoder(48000, 1)
 		if freshLib == nil {
 			t.Skip("Could not create libopus decoder")
@@ -57,7 +57,7 @@ func TestTV12BandwidthResetAnalysis(t *testing.T) {
 	// Test 2: Decoder that has processed only MB packets (no prior NB)
 	t.Log("\n=== Test 2: Decoder with MB history only (packets 600-825) ===")
 	{
-		goMB, _ := gopus.NewDecoder(48000, 1)
+		goMB, _ := gopus.NewDecoderDefault(48000, 1)
 		libMB, _ := NewLibopusDecoder(48000, 1)
 		if libMB == nil {
 			t.Skip("Could not create libopus decoder")
@@ -100,7 +100,7 @@ func TestTV12BandwidthResetAnalysis(t *testing.T) {
 	// Test 3: Full continuous decode from start
 	t.Log("\n=== Test 3: Full continuous decode from packet 0 ===")
 	{
-		goCont, _ := gopus.NewDecoder(48000, 1)
+		goCont, _ := gopus.NewDecoderDefault(48000, 1)
 		libCont, _ := NewLibopusDecoder(48000, 1)
 		if libCont == nil {
 			t.Skip("Could not create libopus decoder")
@@ -157,7 +157,7 @@ func TestTV12ResamplerStateOnBWChange(t *testing.T) {
 	}
 
 	// Create decoder and process up to 825
-	goDec, _ := gopus.NewDecoder(48000, 1)
+	goDec, _ := gopus.NewDecoderDefault(48000, 1)
 	libDec, _ := NewLibopusDecoder(48000, 1)
 	if libDec == nil {
 		t.Skip("Could not create libopus decoder")

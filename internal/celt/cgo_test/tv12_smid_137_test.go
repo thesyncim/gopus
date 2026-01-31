@@ -17,7 +17,7 @@ func TestTV12SMidAt137(t *testing.T) {
 	}
 
 	// Create gopus decoder at 48kHz
-	goDec, _ := gopus.NewDecoder(48000, 1)
+	goDec, _ := gopus.NewDecoderDefault(48000, 1)
 	silkDec := goDec.GetSILKDecoder()
 
 	t.Log("=== Tracing sMid around packet 137 ===")

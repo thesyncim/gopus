@@ -44,17 +44,51 @@ func smoothFade(in1, in2, out []float32, overlap, channels, sampleRate int) {
 	}
 }
 
-// decodeOpusFrame mirrors libopus opus_decode_frame behavior for a single frame.
-// frameSize is the maximum output size for this call (samples per channel).
-// packetFrameSize is the current packet's frame size (used for PLC clamping).
-func (d *Decoder) decodeOpusFrame(
+func copyFloat32(dst []float32, src []float32) {
+	n := len(dst)
+	if len(src) < n {
+		n = len(src)
+	}
+	copy(dst, src[:n])
+	if n < len(dst) {
+		clear(dst[n:])
+	}
+}
+
+func copyFloat64ToFloat32(dst []float32, src []float64) {
+	n := len(dst)
+	if len(src) < n {
+		n = len(src)
+	}
+	for i := 0; i < n; i++ {
+		dst[i] = float32(src[i])
+	}
+	if n < len(dst) {
+		clear(dst[n:])
+	}
+}
+
+func addFloat64ToFloat32(dst []float32, src []float64) {
+	n := len(dst)
+	if len(src) < n {
+		n = len(src)
+	}
+	for i := 0; i < n; i++ {
+		dst[i] += float32(src[i])
+	}
+}
+
+// decodeOpusFrameInto mirrors libopus opus_decode_frame behavior for a single frame.
+// out must have room for frameSize * channels samples.
+func (d *Decoder) decodeOpusFrameInto(
+	out []float32,
 	data []byte,
 	frameSize int,
 	packetFrameSize int,
 	packetMode Mode,
 	packetBandwidth Bandwidth,
 	packetStereo bool,
-) ([]float32, int, error) {
+) (int, error) {
 	fs := 48000
 	F20 := fs / 50
 	F10 := F20 >> 1
@@ -62,7 +96,7 @@ func (d *Decoder) decodeOpusFrame(
 	F2_5 := F5 >> 1
 
 	if frameSize < F2_5 {
-		return nil, 0, ErrBufferTooSmall
+		return 0, ErrBufferTooSmall
 	}
 
 	maxFrame := fs / 25 * 3
@@ -83,7 +117,12 @@ func (d *Decoder) decodeOpusFrame(
 	if data == nil {
 		audiosize = frameSize
 		if !d.haveDecoded {
-			return make([]float32, audiosize*d.channels), audiosize, nil
+			needed := audiosize * d.channels
+			if len(out) < needed {
+				return 0, ErrBufferTooSmall
+			}
+			clear(out[:needed])
+			return audiosize, nil
 		}
 
 		if d.prevRedundancy {
@@ -95,23 +134,21 @@ func (d *Decoder) decodeOpusFrame(
 		packetStereoLocal = d.prevPacketStereo
 
 		if audiosize > F20 {
-			out := make([]float32, frameSize*d.channels)
 			remaining := audiosize
 			offset := 0
 			for remaining > 0 {
 				chunk := minInt(remaining, F20)
-				chunkOut, chunkN, err := d.decodeOpusFrame(nil, chunk, packetFrameSize, mode, bandwidth, packetStereoLocal)
+				n, err := d.decodeOpusFrameInto(out[offset*d.channels:], nil, chunk, packetFrameSize, mode, bandwidth, packetStereoLocal)
 				if err != nil {
-					return nil, 0, err
+					return 0, err
 				}
-				if chunkN == 0 {
+				if n == 0 {
 					break
 				}
-				copy(out[offset*d.channels:], chunkOut[:chunkN*d.channels])
-				offset += chunkN
-				remaining -= chunkN
+				offset += n
+				remaining -= n
 			}
-			return out, frameSize, nil
+			return audiosize, nil
 		} else if audiosize < F20 {
 			if audiosize > F10 {
 				audiosize = F10
@@ -124,9 +161,15 @@ func (d *Decoder) decodeOpusFrame(
 	}
 
 	if audiosize > frameSize {
-		return nil, 0, ErrBufferTooSmall
+		return 0, ErrBufferTooSmall
 	}
 	frameSize = audiosize
+
+	needed := frameSize * d.channels
+	if len(out) < needed {
+		return 0, ErrBufferTooSmall
+	}
+	out = out[:needed]
 
 	transition := false
 	var pcmTransition []float32
@@ -135,11 +178,14 @@ func (d *Decoder) decodeOpusFrame(
 		transition = true
 		if mode == ModeCELT {
 			transSize := minInt(F5, audiosize)
-			trans, transN, err := d.decodeOpusFrame(nil, transSize, packetFrameSize, d.prevMode, d.lastBandwidth, packetStereoLocal)
-			if err != nil {
-				return nil, 0, err
+			if len(d.scratchTransition) < transSize*d.channels {
+				return 0, ErrBufferTooSmall
 			}
-			pcmTransition = trans[:transN*d.channels]
+			n, err := d.decodeOpusFrameInto(d.scratchTransition, nil, transSize, packetFrameSize, d.prevMode, d.lastBandwidth, packetStereoLocal)
+			if err != nil {
+				return 0, err
+			}
+			pcmTransition = d.scratchTransition[:n*d.channels]
 		}
 	}
 
@@ -154,8 +200,6 @@ func (d *Decoder) decodeOpusFrame(
 		d.celtDecoder.SetBandwidth(celtBW)
 	}
 
-	pcm := make([]float32, frameSize*d.channels)
-
 	redundancy := false
 	celtToSilk := false
 	redundancyBytes := 0
@@ -169,11 +213,16 @@ func (d *Decoder) decodeOpusFrame(
 		if err != nil {
 			return nil, err
 		}
-		out := make([]float32, len(samples))
-		for i, s := range samples {
-			out[i] = float32(s)
+		if len(d.scratchRedundant) < len(samples) {
+			return nil, ErrBufferTooSmall
 		}
-		return out, nil
+		for i := 0; i < len(samples); i++ {
+			d.scratchRedundant[i] = float32(samples[i])
+		}
+		if len(samples) < len(d.scratchRedundant) {
+			clear(d.scratchRedundant[len(samples):])
+		}
+		return d.scratchRedundant[:len(samples)], nil
 	}
 
 	switch mode {
@@ -181,13 +230,9 @@ func (d *Decoder) decodeOpusFrame(
 		if data == nil {
 			samples, err := d.hybridDecoder.DecodeWithPacketStereo(nil, frameSize, packetStereoLocal)
 			if err != nil {
-				return nil, 0, err
+				return 0, err
 			}
-			for i := range pcm {
-				if i < len(samples) {
-					pcm[i] = float32(samples[i])
-				}
-			}
+			copyFloat64ToFloat32(out, samples)
 		} else {
 			d.hybridDecoder.SetPrevPacketStereo(d.prevPacketStereo)
 			afterSilk := func(rd *rangecoding.Decoder) error {
@@ -222,11 +267,11 @@ func (d *Decoder) decodeOpusFrame(
 
 				if transition && !redundancy && len(pcmTransition) == 0 {
 					transSize := minInt(F5, audiosize)
-					trans, transN, err := d.decodeOpusFrame(nil, transSize, packetFrameSize, d.prevMode, d.lastBandwidth, packetStereoLocal)
+					n, err := d.decodeOpusFrameInto(d.scratchTransition, nil, transSize, packetFrameSize, d.prevMode, d.lastBandwidth, packetStereoLocal)
 					if err != nil {
 						return err
 					}
-					pcmTransition = trans[:transN*d.channels]
+					pcmTransition = d.scratchTransition[:n*d.channels]
 				}
 
 				if needCeltReset {
@@ -238,13 +283,9 @@ func (d *Decoder) decodeOpusFrame(
 
 			samples, err := d.hybridDecoder.DecodeWithDecoderHook(&rd, frameSize, packetStereoLocal, afterSilk)
 			if err != nil {
-				return nil, 0, err
+				return 0, err
 			}
-			for i := range pcm {
-				if i < len(samples) {
-					pcm[i] = float32(samples[i])
-				}
-			}
+			copyFloat64ToFloat32(out, samples)
 		}
 
 	case ModeSILK:
@@ -294,12 +335,12 @@ func (d *Decoder) decodeOpusFrame(
 			}
 		}
 		if err != nil {
-			return nil, 0, err
+			return 0, err
 		}
 		if frameSize < silkDecodeSize {
 			silkOut = silkOut[:frameSize*d.channels]
 		}
-		copy(pcm, silkOut)
+		copyFloat32(out, silkOut)
 
 		if data != nil && rd.Tell()+17 <= 8*len(data) {
 			redundancy = true
@@ -318,11 +359,11 @@ func (d *Decoder) decodeOpusFrame(
 
 		if transition && !redundancy && len(pcmTransition) == 0 {
 			transSize := minInt(F5, audiosize)
-			trans, transN, err := d.decodeOpusFrame(nil, transSize, packetFrameSize, d.prevMode, d.lastBandwidth, packetStereoLocal)
+			n, err := d.decodeOpusFrameInto(d.scratchTransition, nil, transSize, packetFrameSize, d.prevMode, d.lastBandwidth, packetStereoLocal)
 			if err != nil {
-				return nil, 0, err
+				return 0, err
 			}
-			pcmTransition = trans[:transN*d.channels]
+			pcmTransition = d.scratchTransition[:n*d.channels]
 		}
 
 	case ModeCELT:
@@ -334,13 +375,9 @@ func (d *Decoder) decodeOpusFrame(
 		}
 		samples, err := d.celtDecoder.DecodeFrameWithPacketStereo(data, minInt(F20, frameSize), packetStereoLocal)
 		if err != nil {
-			return nil, 0, err
+			return 0, err
 		}
-		for i := range pcm {
-			if i < len(samples) {
-				pcm[i] = float32(samples[i])
-			}
-		}
+		copyFloat64ToFloat32(out, samples)
 	}
 
 	if redundancy {
@@ -352,7 +389,7 @@ func (d *Decoder) decodeOpusFrame(
 		redundantData := data[mainLen : mainLen+redundancyBytes]
 		decoded, err := decodeRedundantCELT(redundantData)
 		if err != nil {
-			return nil, 0, err
+			return 0, err
 		}
 		redundantAudio = decoded
 	}
@@ -363,11 +400,9 @@ func (d *Decoder) decodeOpusFrame(
 		silence := []byte{0xFF, 0xFF}
 		samples, err := d.celtDecoder.DecodeFrameWithPacketStereo(silence, F2_5, packetStereoLocal)
 		if err != nil {
-			return nil, 0, err
+			return 0, err
 		}
-		for i := 0; i < minInt(len(pcm), len(samples)); i++ {
-			pcm[i] += float32(samples[i])
-		}
+		addFloat64ToFloat32(out, samples)
 	}
 
 	if redundancy && !celtToSilk && data != nil && redundancyBytes > 0 && mainLen >= 0 && mainLen+redundancyBytes <= len(data) {
@@ -376,26 +411,26 @@ func (d *Decoder) decodeOpusFrame(
 		redundantData := data[mainLen : mainLen+redundancyBytes]
 		decoded, err := decodeRedundantCELT(redundantData)
 		if err != nil {
-			return nil, 0, err
+			return 0, err
 		}
 		redundantAudio = decoded
 		start := (frameSize - F2_5) * d.channels
-		if start >= 0 && start < len(pcm) && len(redundantAudio) >= F5*d.channels {
-			smoothFade(pcm[start:], redundantAudio[F2_5*d.channels:], pcm[start:], F2_5, d.channels, fs)
+		if start >= 0 && start < len(out) && len(redundantAudio) >= F5*d.channels {
+			smoothFade(out[start:], redundantAudio[F2_5*d.channels:], out[start:], F2_5, d.channels, fs)
 		}
 	}
 
 	if redundancy && celtToSilk && (d.prevMode != ModeSILK || d.prevRedundancy) && len(redundantAudio) >= F5*d.channels {
-		copy(pcm[:F2_5*d.channels], redundantAudio[:F2_5*d.channels])
-		smoothFade(redundantAudio[F2_5*d.channels:], pcm[F2_5*d.channels:], pcm[F2_5*d.channels:], F2_5, d.channels, fs)
+		copy(out[:F2_5*d.channels], redundantAudio[:F2_5*d.channels])
+		smoothFade(redundantAudio[F2_5*d.channels:], out[F2_5*d.channels:], out[F2_5*d.channels:], F2_5, d.channels, fs)
 	}
 
 	if transition && len(pcmTransition) > 0 {
 		if audiosize >= F5 {
-			copy(pcm[:F2_5*d.channels], pcmTransition[:F2_5*d.channels])
-			smoothFade(pcmTransition[F2_5*d.channels:], pcm[F2_5*d.channels:], pcm[F2_5*d.channels:], F2_5, d.channels, fs)
+			copy(out[:F2_5*d.channels], pcmTransition[:F2_5*d.channels])
+			smoothFade(pcmTransition[F2_5*d.channels:], out[F2_5*d.channels:], out[F2_5*d.channels:], F2_5, d.channels, fs)
 		} else {
-			smoothFade(pcmTransition, pcm, pcm, F2_5, d.channels, fs)
+			smoothFade(pcmTransition, out, out, F2_5, d.channels, fs)
 		}
 	}
 
@@ -403,5 +438,5 @@ func (d *Decoder) decodeOpusFrame(
 	d.prevRedundancy = redundancy && !celtToSilk
 	d.haveDecoded = true
 
-	return pcm, audiosize, nil
+	return audiosize, nil
 }

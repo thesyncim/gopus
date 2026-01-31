@@ -17,7 +17,7 @@ func TestTV12FullPath826(t *testing.T) {
 	}
 
 	// Full Opus decoder
-	opusDec, _ := gopus.NewDecoder(48000, 1)
+	opusDec, _ := gopus.NewDecoderDefault(48000, 1)
 
 	t.Log("=== Processing all packets 0-825 with Opus decoder ===")
 

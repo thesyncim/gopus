@@ -210,7 +210,7 @@ func roundtrip(original []float32, config TestConfig) ([]float32, error) {
 	}
 
 	// Create decoder
-	dec, err := gopus.NewDecoder(sampleRate, config.Channels)
+	dec, err := gopus.NewDecoderDefault(sampleRate, config.Channels)
 	if err != nil {
 		return nil, fmt.Errorf("create decoder: %w", err)
 	}

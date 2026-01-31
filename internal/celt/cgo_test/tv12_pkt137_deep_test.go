@@ -18,7 +18,7 @@ func TestTV12Packet137Deep(t *testing.T) {
 	}
 
 	// Create gopus decoder at 48kHz
-	goDec, err := gopus.NewDecoder(48000, 1)
+	goDec, err := gopus.NewDecoderDefault(48000, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestTV12RunToPacket137(t *testing.T) {
 		t.Skip("Could not load packets")
 	}
 
-	goDec, _ := gopus.NewDecoder(48000, 1)
+	goDec, _ := gopus.NewDecoderDefault(48000, 1)
 	libDec, _ := NewLibopusDecoder(48000, 1)
 	if libDec == nil {
 		t.Skip("Could not create libopus decoder")

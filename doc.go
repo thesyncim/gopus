@@ -26,12 +26,12 @@
 //
 // Decoding:
 //
-//	dec, err := gopus.NewDecoder(48000, 2)
+//	dec, err := gopus.NewDecoderDefault(48000, 2)
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
 //
-//	pcm, err := dec.DecodeFloat32(packet)
+//	pcm, err := dec.DecodeFloat32(packet) // Scratch-backed; copy if you need to keep it
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
@@ -68,7 +68,7 @@
 // # Buffer Sizing
 //
 // For caller-provided buffers:
-//   - Decode output: max 2880 * channels samples (60ms at 48kHz)
+//   - Decode output: max 5760 * channels samples (120ms at 48kHz, default cap)
 //   - Encode output: 4000 bytes is sufficient for any Opus packet
 //
 // # Packet Loss Concealment

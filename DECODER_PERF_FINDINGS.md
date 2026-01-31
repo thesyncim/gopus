@@ -29,6 +29,14 @@ After PVQ scratch reuse (quantAllBandsDecodeWithScratch):
 Note: BenchmarkHybridDecode is skipped in `internal/hybrid/hybrid_test.go`, so
 there is no reliable hybrid decode benchmark yet.
 
+## Recent updates (decoder-perf-allocs)
+
+- Added `decodeOpusFrameInto` and a buffer-based `Decoder.Decode` loop that avoids
+  per-frame allocations at the top level.
+- `DecodeFloat32` / `DecodeInt16Slice` now return decoder-owned scratch slices.
+- Added `DecoderConfig` caps (`MaxPacketSamples`, `MaxPacketBytes`) and streaming
+  `PacketReader` plumbing for buffer-based packet reads.
+
 ## Allocation hotspots (by layer)
 
 ### Top-level decoder (gopus)

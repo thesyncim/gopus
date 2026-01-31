@@ -198,7 +198,7 @@ func decodeOggToWav(r io.Reader, outputPath string) (decodeStats, error) {
 		return stats, errors.New("invalid channel count in OpusHead")
 	}
 
-	dec, err := gopus.NewDecoder(sampleRate, channels)
+	dec, err := gopus.NewDecoderDefault(sampleRate, channels)
 	if err != nil {
 		return stats, fmt.Errorf("create decoder: %w", err)
 	}
@@ -296,7 +296,7 @@ func decodeOggToPipe(r io.Reader) (decodeStats, error) {
 		return stats, errors.New("invalid channel count in OpusHead")
 	}
 
-	dec, err := gopus.NewDecoder(sampleRate, channels)
+	dec, err := gopus.NewDecoderDefault(sampleRate, channels)
 	if err != nil {
 		return stats, fmt.Errorf("create decoder: %w", err)
 	}

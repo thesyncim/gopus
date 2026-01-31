@@ -33,7 +33,7 @@ func TestReferenceFileComparison(t *testing.T) {
 	t.Logf("Loaded %d packets, reference has %d samples", len(packets), len(reference))
 
 	// Create decoders - always stereo to match opus_demo reference output
-	goDec, err := gopus.NewDecoder(48000, 2)
+	goDec, err := gopus.NewDecoderDefault(48000, 2)
 	if err != nil {
 		t.Fatal(err)
 	}

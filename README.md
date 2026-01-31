@@ -50,7 +50,7 @@
 ### Streaming API
 
 - **io.Reader/io.Writer:** Standard Go streaming interfaces
-- **PacketSource/PacketSink:** Custom packet I/O abstraction
+- **PacketReader/PacketSink:** Custom packet I/O abstraction
 - **Sample formats:** float32 and int16 PCM
 
 ### Multistream (Surround Sound)
@@ -118,14 +118,14 @@ import (
 
 func main() {
     // Create decoder: 48kHz, stereo
-    dec, err := gopus.NewDecoder(48000, 2)
+    dec, err := gopus.NewDecoderDefault(48000, 2)
     if err != nil {
         log.Fatal(err)
     }
 
     // Decode an Opus packet
     packet := []byte{ /* Opus packet data */ }
-    pcm, err := dec.DecodeFloat32(packet)
+    pcm, err := dec.DecodeFloat32(packet) // Scratch-backed; copy if you need to keep it
     if err != nil {
         log.Fatal(err)
     }
@@ -302,7 +302,7 @@ func main() {
 
     log.Printf("Channels: %d, PreSkip: %d", reader.Header.Channels, reader.Header.PreSkip)
 
-    dec, _ := gopus.NewDecoder(48000, int(reader.Header.Channels))
+    dec, _ := gopus.NewDecoderDefault(48000, int(reader.Header.Channels))
 
     for {
         packet, err := reader.ReadPacket()
@@ -332,19 +332,23 @@ import (
     "github.com/thesyncim/gopus"
 )
 
-// PacketSource for decoding
+// PacketReader for decoding
 type mySource struct {
     packets [][]byte
     index   int
 }
 
-func (s *mySource) NextPacket() ([]byte, error) {
+func (s *mySource) ReadPacketInto(dst []byte) (int, uint64, error) {
     if s.index >= len(s.packets) {
-        return nil, io.EOF
+        return 0, 0, io.EOF
     }
     p := s.packets[s.index]
     s.index++
-    return p, nil
+    if len(p) > len(dst) {
+        return 0, 0, io.ErrShortBuffer
+    }
+    n := copy(dst, p)
+    return n, 0, nil
 }
 
 // PacketSink for encoding
@@ -370,7 +374,7 @@ func main() {
 
     // Streaming decode
     source := &mySource{packets: sink.packets}
-    reader, _ := gopus.NewReader(48000, 2, source, gopus.FormatFloat32LE)
+    reader, _ := gopus.NewReader(gopus.DefaultDecoderConfig(48000, 2), source, gopus.FormatFloat32LE)
 
     buf := make([]byte, 4096)
     for {
@@ -438,7 +442,7 @@ Encoder and Decoder instances are **NOT** safe for concurrent use. Each goroutin
 ```go
 // Correct: one decoder per goroutine
 func decodeWorker(packets <-chan []byte) {
-    dec, _ := gopus.NewDecoder(48000, 2)
+    dec, _ := gopus.NewDecoderDefault(48000, 2)
     for packet := range packets {
         pcm, _ := dec.DecodeFloat32(packet)
         // ... process pcm ...
@@ -455,7 +459,7 @@ func decodeWorker(packets <-chan []byte) {
 |-----------|------------------|
 | Encode output | 4000 bytes |
 | Decode output (20ms stereo) | 960 * 2 = 1920 samples |
-| Decode output (60ms stereo) | 2880 * 2 = 5760 samples |
+| Decode output (120ms stereo) | 5760 * 2 = 11520 samples |
 | Multistream encode output | 4000 * streams bytes |
 
 ---

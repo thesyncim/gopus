@@ -346,6 +346,9 @@ func (d *Decoder) DecodeStereoFrame(
 		}
 
 		if decodeOnlyMiddle == 0 && d.prevDecodeOnlyMiddle == 1 {
+			// Transition from mono to stereo - reset side channel decoder state only.
+			// Per libopus dec_API.c lines 307-314: only outBuf, sLPC_Q14_buf, etc. are reset.
+			// NOTE: pred_prev_Q13 and sSide are NOT reset here - they keep continuity.
 			resetSideChannelState(stSide)
 		}
 
@@ -496,6 +499,9 @@ func (d *Decoder) decodeStereoMidNative(
 		}
 
 		if decodeOnlyMiddle == 0 && d.prevDecodeOnlyMiddle == 1 {
+			// Transition from mono to stereo - reset side channel decoder state only.
+			// Per libopus dec_API.c lines 307-314: only outBuf, sLPC_Q14_buf, etc. are reset.
+			// NOTE: pred_prev_Q13 and sSide are NOT reset here - they keep continuity.
 			resetSideChannelState(stSide)
 		}
 

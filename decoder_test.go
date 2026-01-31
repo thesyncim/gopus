@@ -26,9 +26,9 @@ func TestNewDecoder_ValidParams(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			dec, err := NewDecoder(tt.sampleRate, tt.channels)
+			dec, err := NewDecoderDefault(tt.sampleRate, tt.channels)
 			if err != nil {
-				t.Fatalf("NewDecoder(%d, %d) unexpected error: %v", tt.sampleRate, tt.channels, err)
+				t.Fatalf("NewDecoderDefault(%d, %d) unexpected error: %v", tt.sampleRate, tt.channels, err)
 			}
 			if dec == nil {
 				t.Fatal("NewDecoder returned nil decoder")
@@ -48,9 +48,9 @@ func TestNewDecoder_InvalidSampleRate(t *testing.T) {
 
 	for _, rate := range invalidRates {
 		t.Run(fmt.Sprintf("rate_%d", rate), func(t *testing.T) {
-			dec, err := NewDecoder(rate, 1)
+			dec, err := NewDecoderDefault(rate, 1)
 			if err != ErrInvalidSampleRate {
-				t.Errorf("NewDecoder(%d, 1) error = %v, want ErrInvalidSampleRate", rate, err)
+				t.Errorf("NewDecoderDefault(%d, 1) error = %v, want ErrInvalidSampleRate", rate, err)
 			}
 			if dec != nil {
 				t.Error("NewDecoder returned non-nil decoder on error")
@@ -64,9 +64,9 @@ func TestNewDecoder_InvalidChannels(t *testing.T) {
 
 	for _, ch := range invalidChannels {
 		t.Run(fmt.Sprintf("channels_%d", ch), func(t *testing.T) {
-			dec, err := NewDecoder(48000, ch)
+			dec, err := NewDecoderDefault(48000, ch)
 			if err != ErrInvalidChannels {
-				t.Errorf("NewDecoder(48000, %d) error = %v, want ErrInvalidChannels", ch, err)
+				t.Errorf("NewDecoderDefault(48000, %d) error = %v, want ErrInvalidChannels", ch, err)
 			}
 			if dec != nil {
 				t.Error("NewDecoder returned non-nil decoder on error")
@@ -130,7 +130,7 @@ func minimalHybridTestPacket20msStereo() []byte {
 }
 
 func TestDecoder_Decode_Float32(t *testing.T) {
-	dec, err := NewDecoder(48000, 1)
+	dec, err := NewDecoderDefault(48000, 1)
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestDecoder_Decode_Float32(t *testing.T) {
 }
 
 func TestDecoder_Decode_Int16(t *testing.T) {
-	dec, err := NewDecoder(48000, 1)
+	dec, err := NewDecoderDefault(48000, 1)
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestDecoder_Decode_Int16(t *testing.T) {
 }
 
 func TestDecoder_Decode_BufferTooSmall(t *testing.T) {
-	dec, err := NewDecoder(48000, 1)
+	dec, err := NewDecoderDefault(48000, 1)
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestDecoder_Decode_BufferTooSmall(t *testing.T) {
 }
 
 func TestDecoder_Decode_PLC(t *testing.T) {
-	dec, err := NewDecoder(48000, 1)
+	dec, err := NewDecoderDefault(48000, 1)
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestDecoder_Decode_PLC(t *testing.T) {
 }
 
 func TestDecoder_DecodeFloat32_Convenience(t *testing.T) {
-	dec, err := NewDecoder(48000, 1)
+	dec, err := NewDecoderDefault(48000, 1)
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestDecoder_DecodeFloat32_Convenience(t *testing.T) {
 }
 
 func TestDecoder_DecodeInt16Slice_Convenience(t *testing.T) {
-	dec, err := NewDecoder(48000, 1)
+	dec, err := NewDecoderDefault(48000, 1)
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestDecoder_DecodeInt16Slice_Convenience(t *testing.T) {
 }
 
 func TestDecoder_Reset(t *testing.T) {
-	dec, err := NewDecoder(48000, 1)
+	dec, err := NewDecoderDefault(48000, 1)
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
@@ -298,7 +298,7 @@ func TestDecoder_Reset(t *testing.T) {
 }
 
 func TestDecoder_Stereo(t *testing.T) {
-	dec, err := NewDecoder(48000, 2)
+	dec, err := NewDecoderDefault(48000, 2)
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
@@ -393,7 +393,7 @@ func TestDecode_ModeRouting(t *testing.T) {
 			}
 
 			// Test decoder accepts the packet (may fail on decode but should not fail on routing)
-			dec, err := NewDecoder(48000, 1)
+			dec, err := NewDecoderDefault(48000, 1)
 			if err != nil {
 				t.Fatalf("NewDecoder failed: %v", err)
 			}
@@ -442,7 +442,7 @@ func TestDecode_ExtendedFrameSizes(t *testing.T) {
 
 	for _, tt := range extendedConfigs {
 		t.Run(tt.name, func(t *testing.T) {
-			dec, _ := NewDecoder(48000, 1)
+			dec, _ := NewDecoderDefault(48000, 1)
 
 			packet := make([]byte, 100)
 			packet[0] = GenerateTOC(tt.config, false, 0)
@@ -464,7 +464,7 @@ func TestDecode_ExtendedFrameSizes(t *testing.T) {
 // TestDecode_PLC_ModeTracking verifies that PLC uses the last decoded mode,
 // not defaulting to Hybrid mode.
 func TestDecode_PLC_ModeTracking(t *testing.T) {
-	dec, _ := NewDecoder(48000, 1)
+	dec, _ := NewDecoderDefault(48000, 1)
 
 	// First: decode a SILK packet to set mode
 	silkPacket := make([]byte, 50)

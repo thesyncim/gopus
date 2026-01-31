@@ -21,7 +21,7 @@ func TestSilkVsLibopus(t *testing.T) {
 	channels := 1 // testvector02 is mono SILK
 
 	// Create persistent decoders
-	goDec, err := gopus.NewDecoder(48000, channels)
+	goDec, err := gopus.NewDecoderDefault(48000, channels)
 	if err != nil {
 		t.Fatalf("Failed to create gopus decoder: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestSilkFirstPacketDetail(t *testing.T) {
 	channels := 1
 
 	// Create decoders
-	goDec, _ := gopus.NewDecoder(48000, channels)
+	goDec, _ := gopus.NewDecoderDefault(48000, channels)
 	libDec, err := NewLibopusDecoder(48000, channels)
 	if err != nil || libDec == nil {
 		t.Fatalf("Failed to create libopus decoder")
@@ -191,7 +191,7 @@ func TestSilkPacket1Detail(t *testing.T) {
 	channels := 1
 
 	// Create decoders
-	goDec, _ := gopus.NewDecoder(48000, channels)
+	goDec, _ := gopus.NewDecoderDefault(48000, channels)
 	libDec, err := NewLibopusDecoder(48000, channels)
 	if err != nil || libDec == nil {
 		t.Fatalf("Failed to create libopus decoder")

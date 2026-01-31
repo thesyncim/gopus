@@ -33,7 +33,7 @@ func TestSILKBandwidthCompare(t *testing.T) {
 				toc.Mode, toc.Bandwidth, toc.Stereo, toc.FrameSize)
 
 			// Create decoders
-			goDec, _ := gopus.NewDecoder(48000, 1)
+			goDec, _ := gopus.NewDecoderDefault(48000, 1)
 			libDec, _ := NewLibopusDecoder(48000, 1)
 			if libDec == nil {
 				t.Skip("Could not create libopus decoder")

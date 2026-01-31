@@ -138,7 +138,7 @@ func TestEncoder_Encode_RoundTrip(t *testing.T) {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
 
-	dec, err := NewDecoder(48000, 1)
+	dec, err := NewDecoderDefault(48000, 1)
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}

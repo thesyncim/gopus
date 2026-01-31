@@ -209,7 +209,7 @@ func readOggFile(filename string) error {
 	}
 
 	// Create decoder
-	dec, err := gopus.NewDecoder(sampleRate, int(oggReader.Channels()))
+	dec, err := gopus.NewDecoderDefault(sampleRate, int(oggReader.Channels()))
 	if err != nil {
 		return fmt.Errorf("create decoder: %w", err)
 	}

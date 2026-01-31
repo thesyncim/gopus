@@ -38,7 +38,7 @@ func TestStereoMergeCompare(t *testing.T) {
 	defer func() { celt.DebugStereoMerge = false }()
 
 	// Decode packet 14 with fresh decoder
-	goDec, _ := gopus.NewDecoder(48000, 2)
+	goDec, _ := gopus.NewDecoderDefault(48000, 2)
 
 	t.Log("=== Decoding packet 14 with stereo merge tracing ===")
 	goSamples, _ := goDec.DecodeFloat32(packets[14])
@@ -113,7 +113,7 @@ func TestOverlapDifference(t *testing.T) {
 	// Overlap is typically 120 samples for short frames
 
 	// Decode two fresh decoders
-	goDec, _ := gopus.NewDecoder(48000, 2)
+	goDec, _ := gopus.NewDecoderDefault(48000, 2)
 	libDec, _ := NewLibopusDecoder(48000, 2)
 	if libDec == nil {
 		t.Skip("Cannot create libopus decoder")

@@ -18,7 +18,7 @@ func TestTV12OpusLevelComparison(t *testing.T) {
 	}
 
 	// Create Opus-level decoders
-	goDec, _ := gopus.NewDecoder(48000, 1)
+	goDec, _ := gopus.NewDecoderDefault(48000, 1)
 	libDec, _ := NewLibopusDecoder(48000, 1)
 	if libDec == nil {
 		t.Skip("Could not create libopus decoder")
@@ -94,7 +94,7 @@ func TestTV12NativeSilkOnly(t *testing.T) {
 	}
 
 	// Create decoders at 8kHz to get SILK output without resampling
-	goDec8k, _ := gopus.NewDecoder(8000, 1)
+	goDec8k, _ := gopus.NewDecoderDefault(8000, 1)
 	libDec8k, _ := NewLibopusDecoder(8000, 1)
 	if libDec8k == nil {
 		t.Skip("Could not create 8k libopus decoder")
@@ -102,7 +102,7 @@ func TestTV12NativeSilkOnly(t *testing.T) {
 	defer libDec8k.Destroy()
 
 	// Also 12k for MB packets
-	goDec12k, _ := gopus.NewDecoder(12000, 1)
+	goDec12k, _ := gopus.NewDecoderDefault(12000, 1)
 	libDec12k, _ := NewLibopusDecoder(12000, 1)
 	if libDec12k == nil {
 		t.Skip("Could not create 12k libopus decoder")

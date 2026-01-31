@@ -82,7 +82,7 @@ func FuzzLibopusEncodeGopusDecode(f *testing.F) {
 		defer libDec.Destroy()
 
 		// Create gopus decoder
-		gopusDec, err := gopus.NewDecoder(48000, channels)
+		gopusDec, err := gopus.NewDecoderDefault(48000, channels)
 		if err != nil {
 			t.Fatalf("Failed to create gopus decoder: %v", err)
 		}
@@ -270,7 +270,7 @@ func TestLibopusEncodeGopusDecodeVariousConfigs(t *testing.T) {
 			defer libDec.Destroy()
 
 			// Create gopus decoder
-			gopusDec, err := gopus.NewDecoder(48000, tc.channels)
+			gopusDec, err := gopus.NewDecoderDefault(48000, tc.channels)
 			if err != nil {
 				t.Fatalf("Failed to create gopus decoder: %v", err)
 			}
@@ -347,7 +347,7 @@ func TestLibopusEncodeGopusDecodeMultiFrame(t *testing.T) {
 	libEnc.SetBitrate(64000)
 	libEnc.SetBandwidth(OpusBandwidthFullband)
 
-	gopusDec, err := gopus.NewDecoder(48000, channels)
+	gopusDec, err := gopus.NewDecoderDefault(48000, channels)
 	if err != nil {
 		t.Fatalf("Failed to create gopus decoder: %v", err)
 	}
@@ -438,7 +438,7 @@ func TestLibopusEncodeGopusDecodeRandomStress(t *testing.T) {
 		}
 
 		// Create decoder
-		gopusDec, err := gopus.NewDecoder(48000, channels)
+		gopusDec, err := gopus.NewDecoderDefault(48000, channels)
 		if err != nil {
 			continue
 		}

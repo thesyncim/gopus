@@ -19,7 +19,7 @@ func TestTV12PersistentDecoder(t *testing.T) {
 	}
 
 	// Create SINGLE 48kHz decoder that persists across all packets
-	goDec, _ := gopus.NewDecoder(48000, 1)
+	goDec, _ := gopus.NewDecoderDefault(48000, 1)
 	libDec, _ := NewLibopusDecoder(48000, 1)
 	if libDec == nil {
 		t.Skip("Could not create libopus decoder")
@@ -108,7 +108,7 @@ func TestTV12FreshVsStateAtBWChange(t *testing.T) {
 	// Test 1: Stateful decoder
 	t.Log("\nStateful decoder (processed 0-825 first):")
 	{
-		goDec, _ := gopus.NewDecoder(48000, 1)
+		goDec, _ := gopus.NewDecoderDefault(48000, 1)
 		libDec, _ := NewLibopusDecoder(48000, 1)
 		if libDec == nil {
 			t.Skip("Could not create libopus decoder")
@@ -146,7 +146,7 @@ func TestTV12FreshVsStateAtBWChange(t *testing.T) {
 	// Test 2: Fresh decoder (just packet 826)
 	t.Log("\nFresh decoder (only packet 826):")
 	{
-		goDec, _ := gopus.NewDecoder(48000, 1)
+		goDec, _ := gopus.NewDecoderDefault(48000, 1)
 		libDec, _ := NewLibopusDecoder(48000, 1)
 		if libDec == nil {
 			t.Skip("Could not create libopus decoder")
@@ -177,7 +177,7 @@ func TestTV12FreshVsStateAtBWChange(t *testing.T) {
 	// Test 3: Fresh decoder with state from packets 0-136 (NB) only, skip 137-825 (MB)
 	t.Log("\nDecoder with NB-only state (0-136, skipping MB 137-825):")
 	{
-		goDec, _ := gopus.NewDecoder(48000, 1)
+		goDec, _ := gopus.NewDecoderDefault(48000, 1)
 		libDec, _ := NewLibopusDecoder(48000, 1)
 		if libDec == nil {
 			t.Skip("Could not create libopus decoder")
@@ -218,7 +218,7 @@ func TestTV12FreshVsStateAtBWChange(t *testing.T) {
 	// Test 4: State from packets 0-136 + explicitly reset between 136 and 826
 	t.Log("\nDecoder reset between NB and MB segments:")
 	{
-		goDec, _ := gopus.NewDecoder(48000, 1)
+		goDec, _ := gopus.NewDecoderDefault(48000, 1)
 		libDec, _ := NewLibopusDecoder(48000, 1)
 		if libDec == nil {
 			t.Skip("Could not create libopus decoder")

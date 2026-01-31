@@ -23,7 +23,7 @@ func TestTV06FrameSizeQuality(t *testing.T) {
 		t.Skipf("Could not read reference: %v", err)
 	}
 
-	dec, _ := gopus.NewDecoder(48000, 2)
+	dec, _ := gopus.NewDecoderDefault(48000, 2)
 
 	var q10ms, q20ms []float64
 	var mono10ms, mono20ms, stereo10ms, stereo20ms []float64
@@ -116,7 +116,7 @@ func TestTV06FrameSizeTransitionDetail(t *testing.T) {
 		t.Skipf("Could not read reference: %v", err)
 	}
 
-	dec, _ := gopus.NewDecoder(48000, 2)
+	dec, _ := gopus.NewDecoderDefault(48000, 2)
 
 	// Transitions at packets 313, 939, 1252
 	transitions := []int{313, 939, 1252}
@@ -191,7 +191,7 @@ func TestTV06AfterStereoTransition(t *testing.T) {
 		t.Skipf("Could not read reference: %v", err)
 	}
 
-	dec, _ := gopus.NewDecoder(48000, 2)
+	dec, _ := gopus.NewDecoderDefault(48000, 2)
 
 	refOffset := 0
 	for i, pkt := range packets {

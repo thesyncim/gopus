@@ -54,7 +54,7 @@ func TestAllVectorsVsLibopus(t *testing.T) {
 			channels := 2
 
 			// Create decoders
-			goDec, err := gopus.NewDecoder(48000, channels)
+			goDec, err := gopus.NewDecoderDefault(48000, channels)
 			if err != nil {
 				t.Fatal(err)
 			}

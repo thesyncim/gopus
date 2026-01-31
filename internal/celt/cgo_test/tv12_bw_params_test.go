@@ -30,7 +30,7 @@ func TestTV12BWTransitionParams(t *testing.T) {
 	defer libDec.Destroy()
 
 	// Also create a gopus decoder for full Opus-level comparison
-	goDec, _ := gopus.NewDecoder(48000, 1)
+	goDec, _ := gopus.NewDecoderDefault(48000, 1)
 	if goDec == nil {
 		t.Fatal("Could not create gopus decoder")
 	}

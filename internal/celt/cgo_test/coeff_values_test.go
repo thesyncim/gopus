@@ -68,7 +68,7 @@ func TestShortBlockCoeffMagnitudes(t *testing.T) {
 	// Instead, let's analyze the OUTPUT values to infer coefficient characteristics
 
 	// Build up decoder state first
-	goDec, _ := gopus.NewDecoder(48000, 2)
+	goDec, _ := gopus.NewDecoderDefault(48000, 2)
 	for i := 0; i < 61; i++ {
 		goDec.DecodeFloat32(packets[i])
 	}
