@@ -97,6 +97,10 @@ type Encoder struct {
 	// This provides a 4ms lookahead that allows for better transient handling.
 	// Reference: libopus src/opus_encoder.c delay_compensation
 	delayBuffer []float64 // Size = delayCompensation * channels
+
+	// Debug mode for allocation trim analysis
+	debugAllocTrim     bool
+	lastAllocTrimDebug *AllocTrimDebugInfo
 }
 
 // NewEncoder creates a new CELT encoder with the given number of channels.

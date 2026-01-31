@@ -2227,3 +2227,127 @@ The transient flag mismatch is **conclusively verified** as the primary cause of
 - Moves divergence point from byte 0 to byte 7
 
 This finding provides a clear path to fixing the encoder's bitstream compatibility.
+
+---
+
+## Agent 20: TF Encoding Debug and Test ICDF Table Fixes
+
+**Date**: 2026-01-31
+**Worktree**: `/Users/thesyncim/GolandProjects/gopus-worktrees/agent-20`
+**Branch**: `compliance`
+
+### Summary
+
+Investigated TF (Time-Frequency) encoding to verify correctness and discovered multiple test ICDF table bugs that were causing incorrect bitstream comparison results.
+
+### Key Findings
+
+#### 1. TF Encoding is CORRECT
+The TF encoding matches libopus exactly:
+- Both encoders produce `tell=57` after TF decode
+- TF values match for all 21 bands
+- TFAnalysis Viterbi algorithm produces correct decisions
+
+#### 2. CRITICAL BUG FOUND: Test ICDF Tables Were Wrong
+
+**Spread ICDF Table (FIXED)**:
+```go
+// WRONG (used in test files):
+spreadICDF := []byte{243, 221, 128, 0}
+
+// CORRECT (from tables.go):
+spreadICDF := []byte{25, 23, 2, 0}
+```
+
+**Trim ICDF Table (FIXED)**:
+```go
+// WRONG (used in test files - truncated!):
+trimICDF := []byte{126, 124, 119, 109, 87, 41, 0}
+
+// CORRECT (full 11-element table from tables.go):
+trimICDF := []byte{126, 124, 119, 109, 87, 41, 19, 9, 4, 2, 0}
+```
+
+These incorrect ICDF tables caused the decoder in test files to read wrong bit positions, making it appear that encoding was incorrect when it wasn't.
+
+#### 3. Allocation Trim Computation is CORRECT
+
+After fixing the ICDF tables, verified:
+- gopus computes `allocTrim=6` with proper tfEstimate=0.2
+- gopus encodes `allocTrim=6`
+- gopus packet decodes to `allocTrim=6`
+
+The encoding/decoding roundtrip works correctly.
+
+#### 4. VBR vs CBR Differences
+
+When comparing gopus (VBR) vs libopus (VBR=false/CBR):
+- gopus: targetBits=1770, effectiveBytes=221
+- libopus: targetBits=1280, effectiveBytes=160
+
+This causes different dynalloc offsets and allocation trim values, which is expected behavior (not a bug).
+
+### Files Modified
+
+1. **`internal/celt/cgo_test/alloc_trim_compare_test.go`**:
+   - Fixed spreadICDF from `{243, 221, 128, 0}` to `{25, 23, 2, 0}`
+   - Fixed trimICDF from 7-element truncated to full 11-element table
+   - Added `TestTrimICDFEncodeDecode` roundtrip verification test
+   - Added `GetAllocTrimFromPacketDebug` with detailed tracing
+   - Added `TestAllocTrimDebugEncoder` for encoder state inspection
+
+2. **`internal/celt/cgo_test/tf_encoding_compare_test.go`**:
+   - Fixed `spreadICDFDecode` to `{25, 23, 2, 0}`
+   - Fixed `trimICDFDecode` to full 11-element table
+
+3. **`internal/celt/encoder.go`**:
+   - Added `debugAllocTrim` and `lastAllocTrimDebug` fields for debugging
+
+4. **`internal/celt/exports.go`**:
+   - Added `AllocTrimDebugInfo` struct
+   - Added `EncodeFrameWithDebug` method for allocation trim debugging
+
+5. **`internal/celt/encode_frame.go`**:
+   - Added debug info capture in allocation trim section
+
+### Technical Details
+
+#### ICDF Encoding/Decoding
+
+The ICDF (Inverse Cumulative Distribution Function) table defines probability ranges for symbols:
+- Entry `i` gives the probability of symbol `>= i` scaled to `1 << ftb`
+- The table must be complete (ending with 0) for correct decoding
+
+For trim ICDF with `ftb=7` (128 total):
+- Symbol 0: prob = 128 - 126 = 2
+- Symbol 1: prob = 126 - 124 = 2
+- Symbol 2: prob = 124 - 119 = 5
+- ... continues through symbol 10
+
+The truncated table missing entries `{19, 9, 4, 2}` caused symbols 6-10 to decode incorrectly.
+
+#### Allocation Trim Analysis
+
+The trim value (0-10) biases bit allocation:
+- Higher trim: more bits to lower frequencies
+- Lower trim: more bits to higher frequencies
+
+Factors affecting trim:
+1. equivRate (bitrate): <64kbps uses trim=4 base, >=80kbps uses trim=5
+2. spectral tilt: energy distribution across bands
+3. tfEstimate: transient characteristic (0.0-1.0)
+4. stereo correlation (for stereo signals)
+5. tonality slope (from analysis)
+
+### Remaining Differences (Not Bugs)
+
+The remaining bitstream differences between gopus and libopus are due to:
+1. VBR vs CBR mode affecting targetBits
+2. Different dynalloc analysis results (dependent on bit budget)
+3. Different allocation trim values (consequence of different analysis)
+
+These are expected differences when using VBR mode in gopus vs CBR in libopus.
+
+### Status: TF ENCODING VERIFIED CORRECT
+
+The TF encoding implementation in gopus is correct. The previous test failures were due to incorrect ICDF tables in the test files. The fixes ensure accurate bitstream comparison going forward.

@@ -138,8 +138,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// libopus detects transient on first frame due to energy increase from silence.
 	// Our transient analysis misses this due to zero-initialized buffers.
 	// Reference: libopus patch_transient_decision() and first frame handling.
+	// Also set tfEstimate = 0.2 to match libopus (line 2230: tf_estimate = QCONST16(.2f,14))
 	if e.frameCount == 0 && lm > 0 {
 		transient = true
+		tfEstimate = 0.2
 	}
 
 	shortBlocks := 1
@@ -486,23 +488,103 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	caps := initCaps(nbBands, lm, e.channels)
 
 	// Step 11.4: Encode dynamic allocation
-	// Match libopus/decoder: check budget before encoding each dynalloc bit.
-	// Since we don't use dynalloc boosts (offsets are all 0), we just encode
-	// one 0-bit per band IF budget allows, matching what decoder expects.
-	offsets := make([]int, nbBands)
+	// Reference: libopus celt/celt_encoder.c lines 2356-2389
+	//
+	// For each band, we encode a series of bits indicating boost allocation:
+	// - First bit uses logp=6 (or current dynallocLogp)
+	// - Subsequent bits use logp=1 (very likely to continue boosting)
+	// - A 0-bit terminates the boost for that band
+	// - If offsets[i] == 0, we just encode one 0-bit and move on
+	//
+	// The offsets come from dynalloc_analysis() and represent how many
+	// "quanta" of boost bits to allocate to each band.
+	offsets := dynallocResult.Offsets
+	if offsets == nil || len(offsets) < nbBands {
+		offsets = make([]int, nbBands)
+	}
 	dynallocLogp := 6
 	totalBitsQ3ForDynalloc := targetBits << bitRes
+	totalBoost := 0
 	tellFracDynalloc := re.TellFrac()
 	for i := start; i < end; i++ {
-		// Only encode if budget allows (matching decoder's budget check)
-		if tellFracDynalloc+(dynallocLogp<<bitRes) < totalBitsQ3ForDynalloc {
-			re.EncodeBit(0, uint(dynallocLogp))
+		// Compute band width and quanta (how many bits per boost step)
+		// Reference: libopus lines 2366-2369
+		// width = C*(eBands[i+1]-eBands[i])<<LM
+		width := e.channels * ScaledBandWidth(i, 120<<lm)
+		if width <= 0 {
+			width = 1
+		}
+		// quanta = min(width<<BITRES, max(6<<BITRES, width))
+		// This means quanta is between 6 bits and width bits, scaled by BITRES
+		innerMax := 6 << bitRes
+		if width > innerMax {
+			innerMax = width
+		}
+		quanta := width << bitRes
+		if quanta > innerMax {
+			quanta = innerMax
+		}
+
+		dynallocLoopLogp := dynallocLogp
+		boost := 0
+
+		// Loop encoding boost bits while j < offsets[i]
+		for j := 0; tellFracDynalloc+(dynallocLoopLogp<<bitRes) < totalBitsQ3ForDynalloc-totalBoost && boost < caps[i]; j++ {
+			flag := 0
+			if j < offsets[i] {
+				flag = 1
+			}
+			re.EncodeBit(flag, uint(dynallocLoopLogp))
 			tellFracDynalloc = re.TellFrac()
+			if flag == 0 {
+				break
+			}
+			boost += quanta
+			totalBoost += quanta
+			dynallocLoopLogp = 1 // After first bit, use logp=1
+		}
+
+		// Making dynalloc more likely for subsequent bands if we boosted this one
+		if boost > 0 {
+			if dynallocLogp > 2 {
+				dynallocLogp--
+			}
+		}
+
+		// Update offsets[i] to reflect actual boost applied (for allocation)
+		offsets[i] = boost
+	}
+
+	// Step 11.5: Compute and encode allocation trim (only if budget allows)
+	// Reference: libopus celt_encoder.c line 2408-2417
+	// The trim value affects bit allocation bias between lower and higher frequency bands.
+	effectiveBytesForTrim := targetBits / 8
+	equivRate := ComputeEquivRate(effectiveBytesForTrim, e.channels, lm, e.targetBitrate)
+	allocTrim := AllocTrimAnalysis(
+		normL,
+		energies,
+		nbBands,
+		lm,
+		e.channels,
+		normR,
+		intensity,
+		tfEstimate,
+		equivRate,
+		0.0, // surroundTrim - not implemented yet
+		0.0, // tonalitySlope - not implemented yet
+	)
+
+	// Capture debug info if enabled
+	if e.debugAllocTrim {
+		e.lastAllocTrimDebug = &AllocTrimDebugInfo{
+			TfEstimate:     tfEstimate,
+			EquivRate:      equivRate,
+			EffectiveBytes: effectiveBytesForTrim,
+			TargetBits:     targetBits,
+			AllocTrim:      allocTrim,
 		}
 	}
 
-	// Step 11.5: Encode allocation trim (only if budget allows)
-	allocTrim := 5
 	tellForTrim := re.TellFrac()
 	if tellForTrim+(6<<bitRes) <= totalBitsQ3ForDynalloc {
 		re.EncodeICDF(allocTrim, trimICDF, 7)
