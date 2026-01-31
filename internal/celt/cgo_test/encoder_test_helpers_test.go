@@ -359,3 +359,34 @@ func buildQuickConfigs() []EncoderTestConfig {
 		{Name: "Hybrid-FB-20ms-mono-64k", Mode: "Hybrid", Bandwidth: "FB", FrameSize: 960, Channels: 1, Bitrate: 64000},
 	}
 }
+
+// Helper functions for test utilities
+
+func minInt2(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func computeRMSF64(x []float64) float64 {
+	if len(x) == 0 {
+		return 0
+	}
+	var sum float64
+	for _, v := range x {
+		sum += v * v
+	}
+	return math.Sqrt(sum / float64(len(x)))
+}
+
+func computeRMS32F(x []float32) float64 {
+	if len(x) == 0 {
+		return 0
+	}
+	var sum float64
+	for _, v := range x {
+		sum += float64(v) * float64(v)
+	}
+	return math.Sqrt(sum / float64(len(x)))
+}
