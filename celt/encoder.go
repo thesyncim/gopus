@@ -697,6 +697,9 @@ type encoderScratch struct {
 
 	// Band encode scratch (for quantAllBandsEncode)
 	bandEncode bandEncodeScratch
+
+	// Range encoder (reused between frames)
+	rangeEncoder rangecoding.Encoder
 }
 
 // ensureScratch ensures all scratch buffers are properly sized for the given frame parameters.

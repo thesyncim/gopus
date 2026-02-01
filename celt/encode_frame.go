@@ -5,8 +5,6 @@ package celt
 
 import (
 	"errors"
-
-	"github.com/thesyncim/gopus/rangecoding"
 )
 
 // Encoding errors
@@ -428,7 +426,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		e.scratch.reBuf = buf
 	}
 	buf = buf[:bufSize]
-	re := &rangecoding.Encoder{}
+	re := &e.scratch.rangeEncoder
 	re.Init(buf)
 	// In CBR mode, shrink the encoder to produce exactly targetBytes output.
 	// This matches libopus ec_enc_shrink() behavior for constant bitrate encoding.
