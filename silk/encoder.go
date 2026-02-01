@@ -58,6 +58,57 @@ type Encoder struct {
 	packetLossPercent  int                                 // Expected packet loss (0-100)
 	nFramesEncoded     int                                 // Number of frames encoded in current packet
 	nFramesPerPacket   int                                 // Number of frames per packet
+
+	// Scratch buffers for zero-allocation encoding
+	scratchPaddedPulses []int8   // encodePulses: padded pulses
+	scratchAbsPulses    []int    // encodePulses: absolute value pulses
+	scratchSumPulses    []int    // encodePulses: sum per shell block
+	scratchNRshifts     []int    // encodePulses: right shifts per shell block
+	scratchLPC          []float64 // lpcToLSF: LPC coefficients as float64
+	scratchP            []float64 // lpcToLSF: P polynomial
+	scratchQ            []float64 // lpcToLSF: Q polynomial
+	scratchLSFFloat     []float64 // lpcToLSF: LSF in float64
+	scratchLSFQ15       []int16   // lpcToLSF: LSF result in Q15
+}
+
+// ensureInt8Slice ensures the slice has at least n elements.
+func ensureInt8Slice(buf *[]int8, n int) []int8 {
+	if cap(*buf) < n {
+		*buf = make([]int8, n)
+	} else {
+		*buf = (*buf)[:n]
+	}
+	return *buf
+}
+
+// ensureIntSlice ensures the slice has at least n elements.
+func ensureIntSlice(buf *[]int, n int) []int {
+	if cap(*buf) < n {
+		*buf = make([]int, n)
+	} else {
+		*buf = (*buf)[:n]
+	}
+	return *buf
+}
+
+// ensureFloat64Slice ensures the slice has at least n elements.
+func ensureFloat64Slice(buf *[]float64, n int) []float64 {
+	if cap(*buf) < n {
+		*buf = make([]float64, n)
+	} else {
+		*buf = (*buf)[:n]
+	}
+	return *buf
+}
+
+// ensureInt16Slice ensures the slice has at least n elements.
+func ensureInt16Slice(buf *[]int16, n int) []int16 {
+	if cap(*buf) < n {
+		*buf = make([]int16, n)
+	} else {
+		*buf = (*buf)[:n]
+	}
+	return *buf
 }
 
 // NewEncoder creates a new SILK encoder with proper initial state.

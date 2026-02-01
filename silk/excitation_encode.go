@@ -23,8 +23,12 @@ func (e *Encoder) encodePulses(pulses []int32, signalType, quantOffset int) {
 		iter++
 	}
 
-	// Pad pulses if needed
-	paddedPulses := make([]int8, iter*SHELL_CODEC_FRAME_LENGTH)
+	// Pad pulses if needed - use scratch buffer
+	shellLen := iter * SHELL_CODEC_FRAME_LENGTH
+	paddedPulses := ensureInt8Slice(&e.scratchPaddedPulses, shellLen)
+	for i := 0; i < shellLen; i++ {
+		paddedPulses[i] = 0 // Clear
+	}
 	for i := 0; i < frameLength && i < len(paddedPulses); i++ {
 		// Clamp to int8 range
 		p := pulses[i]
@@ -36,15 +40,15 @@ func (e *Encoder) encodePulses(pulses []int32, signalType, quantOffset int) {
 		paddedPulses[i] = int8(p)
 	}
 
-	// Take absolute value of pulses
-	absPulses := make([]int, iter*SHELL_CODEC_FRAME_LENGTH)
+	// Take absolute value of pulses - use scratch buffer
+	absPulses := ensureIntSlice(&e.scratchAbsPulses, shellLen)
 	for i := 0; i < len(paddedPulses); i++ {
 		absPulses[i] = absInt(int(paddedPulses[i]))
 	}
 
-	// Calculate sum pulses per shell block with overflow handling
-	sumPulses := make([]int, iter)
-	nRshifts := make([]int, iter)
+	// Calculate sum pulses per shell block with overflow handling - use scratch buffers
+	sumPulses := ensureIntSlice(&e.scratchSumPulses, iter)
+	nRshifts := ensureIntSlice(&e.scratchNRshifts, iter)
 
 	for i := 0; i < iter; i++ {
 		offset := i * SHELL_CODEC_FRAME_LENGTH

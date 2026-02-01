@@ -62,8 +62,15 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	// Step 4: Compute LPC coefficients
 	lpcQ12 := e.computeLPCFromFrame(pcm)
 
-	// Step 5: Convert to LSF and quantize
-	lsfQ15 := lpcToLSFEncode(lpcQ12)
+	// Step 5: Convert to LSF and quantize (use scratch buffers)
+	order := len(lpcQ12)
+	halfOrder := order / 2
+	lpc := ensureFloat64Slice(&e.scratchLPC, order)
+	pBuf := ensureFloat64Slice(&e.scratchP, halfOrder+1)
+	qBuf := ensureFloat64Slice(&e.scratchQ, halfOrder+1)
+	lsfFloat := ensureFloat64Slice(&e.scratchLSFFloat, order)
+	lsfQ15 := ensureInt16Slice(&e.scratchLSFQ15, order)
+	lpcToLSFEncodeInto(lpcQ12, lsfQ15, lpc, pBuf, qBuf, lsfFloat)
 	stage1Idx, residuals, interpIdx := e.quantizeLSF(lsfQ15, e.bandwidth, signalType)
 	e.encodeLSF(stage1Idx, residuals, interpIdx, e.bandwidth, signalType)
 
@@ -375,8 +382,15 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 	// Step 4: Compute LPC coefficients
 	lpcQ12 := e.computeLPCFromFrame(pcm)
 
-	// Step 5: Convert to LSF and quantize
-	lsfQ15 := lpcToLSFEncode(lpcQ12)
+	// Step 5: Convert to LSF and quantize (use scratch buffers)
+	order := len(lpcQ12)
+	halfOrder := order / 2
+	lpc := ensureFloat64Slice(&e.scratchLPC, order)
+	pBuf := ensureFloat64Slice(&e.scratchP, halfOrder+1)
+	qBuf := ensureFloat64Slice(&e.scratchQ, halfOrder+1)
+	lsfFloat := ensureFloat64Slice(&e.scratchLSFFloat, order)
+	lsfQ15 := ensureInt16Slice(&e.scratchLSFQ15, order)
+	lpcToLSFEncodeInto(lpcQ12, lsfQ15, lpc, pBuf, qBuf, lsfFloat)
 	stage1Idx, residuals, interpIdx := e.quantizeLSF(lsfQ15, e.bandwidth, signalType)
 	e.encodeLSF(stage1Idx, residuals, interpIdx, e.bandwidth, signalType)
 

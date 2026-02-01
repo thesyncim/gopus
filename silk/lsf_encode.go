@@ -4,6 +4,7 @@ import "math"
 
 // lpcToLSFEncode converts LPC coefficients to LSF (Line Spectral Frequencies).
 // Uses the Chebyshev polynomial method per Kabal & Ramachandran 1986.
+// This is the allocating version for backward compatibility.
 //
 // lpcQ12: LPC coefficients in Q12 format
 // Returns: LSF values in Q15 format [0, 32767] representing [0, pi]
@@ -12,21 +13,48 @@ func lpcToLSFEncode(lpcQ12 []int16) []int16 {
 	if order == 0 {
 		return nil
 	}
+	lsfQ15 := make([]int16, order)
+	lpcToLSFEncodeInto(lpcQ12, lsfQ15, nil, nil, nil, nil)
+	return lsfQ15
+}
+
+// lpcToLSFEncodeInto converts LPC coefficients to LSF using provided scratch buffers.
+// This is the zero-allocation version.
+func lpcToLSFEncodeInto(lpcQ12 []int16, lsfQ15 []int16, lpcBuf, pBuf, qBuf, lsfFloatBuf []float64) {
+	order := len(lpcQ12)
+	if order == 0 {
+		return
+	}
+
+	halfOrder := order / 2
+
+	// Use provided buffers or allocate if nil
+	var lpc, p, q, lsfFloat []float64
+	if lpcBuf != nil && len(lpcBuf) >= order {
+		lpc = lpcBuf[:order]
+	} else {
+		lpc = make([]float64, order)
+	}
+	if pBuf != nil && len(pBuf) >= halfOrder+1 {
+		p = pBuf[:halfOrder+1]
+	} else {
+		p = make([]float64, halfOrder+1)
+	}
+	if qBuf != nil && len(qBuf) >= halfOrder+1 {
+		q = qBuf[:halfOrder+1]
+	} else {
+		q = make([]float64, halfOrder+1)
+	}
+	if lsfFloatBuf != nil && len(lsfFloatBuf) >= order {
+		lsfFloat = lsfFloatBuf[:order]
+	} else {
+		lsfFloat = make([]float64, order)
+	}
 
 	// Convert Q12 to float for computation
-	lpc := make([]float64, order)
 	for i := 0; i < order; i++ {
 		lpc[i] = float64(lpcQ12[i]) / 4096.0
 	}
-
-	// Construct symmetric polynomials P(z) and Q(z)
-	// P(z) = A(z) + z^(-order-1) * A(z^-1)  (sum polynomial)
-	// Q(z) = A(z) - z^(-order-1) * A(z^-1)  (difference polynomial)
-	halfOrder := order / 2
-
-	// P and Q polynomial coefficients (after factoring out 1+z^-1 and 1-z^-1)
-	p := make([]float64, halfOrder+1)
-	q := make([]float64, halfOrder+1)
 
 	// Build P: a[k] + a[order-1-k]
 	// Build Q: a[k] - a[order-1-k]
@@ -47,7 +75,7 @@ func lpcToLSFEncode(lpcQ12 []int16) []int16 {
 	}
 
 	// Find roots by searching for sign changes in [0, pi]
-	lsfFloat := make([]float64, order)
+	// lsfFloat was already set up from scratch buffer
 	lsfIdx := 0
 
 	// Search resolution
@@ -93,7 +121,7 @@ func lpcToLSFEncode(lpcQ12 []int16) []int16 {
 	}
 
 	// Convert to Q15 format [0, 32767]
-	lsfQ15 := make([]int16, order)
+	// lsfQ15 was passed as parameter
 	for i := 0; i < order; i++ {
 		// Map [0, pi] to [0, 32767]
 		val := lsfFloat[i] * 32767.0 / math.Pi
@@ -108,8 +136,6 @@ func lpcToLSFEncode(lpcQ12 []int16) []int16 {
 
 	// Ensure strict ordering (bubble sort if needed)
 	ensureLSFOrdering(lsfQ15)
-
-	return lsfQ15
 }
 
 // evalChebyshev evaluates polynomial at x using Chebyshev recursion.
