@@ -21,7 +21,8 @@ func TestComputeBandEnergies(t *testing.T) {
 		energies := enc.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
 
 		// All energies should match the epsilon-based silence floor.
-		silence := 0.5 * math.Log2(1e-27)
+		// Use the same FLOAT_APPROX log2 path as ComputeBandEnergies.
+		silence := float64(celtLog2(float32(math.Sqrt(1e-27))))
 		for band, e := range energies {
 			expected := silence
 			if band < len(eMeans) {
@@ -55,7 +56,8 @@ func TestComputeBandEnergies(t *testing.T) {
 		if width <= 0 {
 			t.Fatalf("invalid band width for band %d", targetBand)
 		}
-		expected := 0.5 * math.Log2(float64(width))
+		// Expected log2 amplitude using FLOAT_APPROX log2.
+		expected := float64(celtLog2(float32(math.Sqrt(float64(width)))))
 		if targetBand < len(eMeans) {
 			expected -= eMeans[targetBand] * DB6
 		}

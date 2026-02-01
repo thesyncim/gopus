@@ -103,6 +103,10 @@ type Encoder struct {
 	// Debug mode for allocation trim analysis
 	debugAllocTrim     bool
 	lastAllocTrimDebug *AllocTrimDebugInfo
+
+	// Debug: last frame's band energies for dynalloc analysis tracing
+	lastBandLogE  []float64 // bandLogE (primary MDCT energies)
+	lastBandLogE2 []float64 // bandLogE2 (secondary MDCT for transients)
 }
 
 // NewEncoder creates a new CELT encoder with the given number of channels.
@@ -513,4 +517,16 @@ func (e *Encoder) PrevBandLogEnergy() []float64 {
 // This is computed during encoding and stored for the next frame's VBR decisions.
 func (e *Encoder) GetLastDynalloc() DynallocResult {
 	return e.lastDynalloc
+}
+
+// GetLastBandLogE returns the last frame's primary band log-energies.
+// These are the bandLogE values passed to DynallocAnalysis.
+func (e *Encoder) GetLastBandLogE() []float64 {
+	return e.lastBandLogE
+}
+
+// GetLastBandLogE2 returns the last frame's secondary band log-energies.
+// For transients, this is from the long MDCT; otherwise same as bandLogE.
+func (e *Encoder) GetLastBandLogE2() []float64 {
+	return e.lastBandLogE2
 }

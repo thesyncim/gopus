@@ -373,12 +373,18 @@ func imdctOverlapWithPrevScratchF32(out []float64, spectrum []float64, prevOverl
 	trig := getMDCTTrigF32(n)
 
 	var fftIn []complex64
+	var fftOut []complex64
 	var buf []float32
+	var fftTmp []kissCpx
 	if scratch == nil {
 		fftIn = make([]complex64, n4)
+		fftOut = make([]complex64, n4)
+		fftTmp = make([]kissCpx, n4)
 		buf = make([]float32, n2)
 	} else {
 		fftIn = ensureComplex64Slice(&scratch.fftIn, n4)
+		fftOut = ensureComplex64Slice(&scratch.fftOut, n4)
+		fftTmp = ensureKissCpxSlice(&scratch.fftTmp, n4)
 		buf = ensureFloat32Slice(&scratch.buf, n2)
 	}
 	for i := 0; i < n4; i++ {
@@ -392,9 +398,9 @@ func imdctOverlapWithPrevScratchF32(out []float64, spectrum []float64, prevOverl
 		fftIn[i] = complex(yi, yr)
 	}
 
-	fftResult := kissFFT32(fftIn)
+	kissFFT32To(fftOut, fftIn, fftTmp)
 	for i := 0; i < n4; i++ {
-		v := fftResult[i]
+		v := fftOut[i]
 		buf[2*i] = real(v)
 		buf[2*i+1] = imag(v)
 	}
@@ -597,12 +603,18 @@ func imdctInPlaceScratchF32(spectrum []float64, out []float64, blockStart, overl
 
 	// Pre-rotate with twiddles using float32
 	var fftIn []complex64
+	var fftOut []complex64
 	var buf []float32
+	var fftTmp []kissCpx
 	if scratch == nil {
 		fftIn = make([]complex64, n4)
+		fftOut = make([]complex64, n4)
+		fftTmp = make([]kissCpx, n4)
 		buf = make([]float32, n2)
 	} else {
 		fftIn = ensureComplex64Slice(&scratch.fftIn, n4)
+		fftOut = ensureComplex64Slice(&scratch.fftOut, n4)
+		fftTmp = ensureKissCpxSlice(&scratch.fftTmp, n4)
 		buf = ensureFloat32Slice(&scratch.buf, n2)
 	}
 
@@ -617,11 +629,11 @@ func imdctInPlaceScratchF32(spectrum []float64, out []float64, blockStart, overl
 	}
 
 	// FFT using float32 kiss_fft implementation
-	fftResult := kissFFT32(fftIn)
+	kissFFT32To(fftOut, fftIn, fftTmp)
 
 	// Post-rotate using float32
 	for i := 0; i < n4; i++ {
-		v := fftResult[i]
+		v := fftOut[i]
 		buf[2*i] = real(v)
 		buf[2*i+1] = imag(v)
 	}

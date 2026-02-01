@@ -84,6 +84,18 @@ func ensureUint32Slice(buf *[]uint32, n int) []uint32 {
 	return *buf
 }
 
+func ensureKissCpxSlice(buf *[]kissCpx, n int) []kissCpx {
+	if n < 0 {
+		n = 0
+	}
+	if cap(*buf) < n {
+		*buf = make([]kissCpx, n)
+	} else {
+		*buf = (*buf)[:n]
+	}
+	return *buf
+}
+
 type bandDecodeScratch struct {
 	left     []float64
 	right    []float64
@@ -228,5 +240,6 @@ type imdctScratch struct {
 type imdctScratchF32 struct {
 	fftIn  []complex64
 	fftOut []complex64
+	fftTmp []kissCpx
 	buf    []float32
 }

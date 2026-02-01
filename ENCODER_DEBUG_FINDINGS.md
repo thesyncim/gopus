@@ -2568,3 +2568,34 @@ All allocation arrays (bits[], fineBits[], finePriority[], caps[], balance, code
 1. Focus on **transient detection** fix (Agent 12's root cause)
 2. Verify MDCT short-block coefficient ordering
 3. Trace pre-emphasis buffer initialization for Frame 0
+
+---
+
+### 2026-02-01 Update: Byte 8 LSB Divergence Persists
+
+#### What Still Matches
+- `TestTraceExactByteDiff`: bytes 0-7 match; first mismatch at byte 8 LSB (bit 64). TF bits decode identical; tell after coarse = 50 bits; after TF = 72 bits.
+- `TestTFEncodingDetailedCompare`: tell after coarse/TF matches (50/57), TF values match for all bands.
+- `TestTmpBand2DynallocCompare`: band 2 energies differ by ~5e-5 (gopus lower), follower diff ~3.8e-5; boost count same (3). Not near 1.5 threshold in this case.
+
+#### Changes Tried (No Byte-Level Improvement Yet)
+- **Float-approx log2**: added libopus FLOAT_APPROX log2 implementation and used it in band energy computations.
+  - Files: `internal/celt/log2_approx.go`, `internal/celt/energy_encode.go`, `internal/celt/bands.go`.
+  - Result: bandLogE diff vs libopus unchanged (~5e-5 for the sine test); byte 8 mismatch unchanged.
+  - Tests updated to expect FLOAT_APPROX log2 output: `internal/celt/energy_encode_test.go`.
+- **Float32 coarse energy math**: switched `EncodeCoarseEnergy` internal math to float32 (coef/beta/oldE/prev/f) to match libopus float build.
+  - File: `internal/celt/energy_encode.go`.
+  - Result: no change in byte mismatch.
+
+#### Build/Debug Infrastructure
+- Added stubbed SIMD helpers to keep `internal/celt` buildable when optional optimized butterflies are missing.
+  - File: `internal/celt/kissfft32_opt_stub.go` (build tag `!arm64` to avoid conflicts with arm64 asm).
+
+#### C Reference (tmp_check)
+- Verified TF encoding logic matches libopus `tf_encode` in `tmp_check/opus-1.6.1/celt/celt_encoder.c` (logp schedule + tf_select reservation).
+- Coarse energy encoding still the most likely divergence source; range encoder itself matches libopus on dedicated CGO tests.
+
+#### Next Investigation Ideas
+1. Compare **TF encoding logp inputs** and **coarse energy encode decision paths** (Laplace vs small-energy) using libopus tracer; ensure same `logp` and method selection per band.
+2. Add libopus tracer wrapper for **Laplace encode** to compare range state after each coarse-energy symbol.
+3. Verify **max_decay / nbAvailableBytes** and `budget` calculations against libopus for CBR (pre-header `tell` effects).

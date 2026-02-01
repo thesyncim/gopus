@@ -457,13 +457,15 @@ func ComputeBandEnergy(coeffs []float64) float64 {
 		return 0.5 * math.Log2(1e-27)
 	}
 
-	energy := 1e-27
+	sumSq := float32(1e-27)
 	for _, x := range coeffs {
-		energy += x * x
+		v := float32(x)
+		sumSq += v * v
 	}
 
-	// log2(sqrt(energy)) = 0.5 * log2(energy)
-	return 0.5 * math.Log2(energy)
+	// log2(sqrt(sumSq)) = log2(amp) with libopus FLOAT_APPROX log2.
+	amp := float32(math.Sqrt(float64(sumSq)))
+	return float64(celtLog2(amp))
 }
 
 // InterleaveBands interleaves band coefficients for transient frames.

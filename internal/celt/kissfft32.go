@@ -158,6 +158,10 @@ func cMulByScalar(a kissCpx, s float32) kissCpx {
 
 func kfBfly2(fout []kissCpx, m, N int) {
 	if m == 1 {
+		if kfBfly2M1Available() {
+			kfBfly2M1(fout, N)
+			return
+		}
 		for i := 0; i < N; i++ {
 			fout2 := fout[1]
 			fout[1].r = fout[0].r - fout2.r
@@ -205,6 +209,10 @@ func kfBfly2(fout []kissCpx, m, N int) {
 
 func kfBfly4(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
 	if m == 1 {
+		if kfBfly4M1Available() {
+			kfBfly4M1(fout, N)
+			return
+		}
 		for i := 0; i < N; i++ {
 			scratch0 := cSub(fout[0], fout[2])
 			fout[0] = cAdd(fout[0], fout[2])
@@ -594,29 +602,46 @@ func kissFFT32(x []complex64) []complex64 {
 	if n == 0 {
 		return nil
 	}
+	out := make([]complex64, n)
+	tmp := make([]kissCpx, n)
+	kissFFT32To(out, x, tmp)
+	return out
+}
+
+// kissFFT32To performs the Kiss FFT into a caller-provided output buffer.
+// scratch must be at least len(x) to avoid allocations.
+func kissFFT32To(out []complex64, x []complex64, scratch []kissCpx) {
+	n := len(x)
+	if n == 0 || len(out) < n {
+		return
+	}
 
 	st := getKissFFTState(n)
 	if st == nil || len(st.bitrev) != n {
 		// Fallback to direct DFT
-		return dft32Fallback(x)
+		dft32FallbackTo(out, x)
+		return
+	}
+
+	if len(scratch) < n {
+		scratch = make([]kissCpx, n)
 	}
 
 	// Convert to kissCpx and apply bit-reversal
-	fout := make([]kissCpx, n)
 	for i := 0; i < n; i++ {
-		fout[st.bitrev[i]].r = real(x[i])
-		fout[st.bitrev[i]].i = imag(x[i])
+		v := x[i]
+		idx := st.bitrev[i]
+		scratch[idx].r = real(v)
+		scratch[idx].i = imag(v)
 	}
 
 	// Apply butterfly stages
-	st.fftImpl(fout)
+	st.fftImpl(scratch[:n])
 
 	// Convert back to complex64
-	out := make([]complex64, n)
 	for i := 0; i < n; i++ {
-		out[i] = complex(fout[i].r, fout[i].i)
+		out[i] = complex(scratch[i].r, scratch[i].i)
 	}
-	return out
 }
 
 // dft32Fallback is a direct O(n^2) DFT implementation as fallback.
@@ -627,6 +652,19 @@ func dft32Fallback(x []complex64) []complex64 {
 	}
 
 	out := make([]complex64, n)
+	dft32FallbackTo(out, x)
+	return out
+}
+
+func dft32FallbackTo(out []complex64, x []complex64) {
+	n := len(x)
+	if n == 0 || len(out) < n {
+		return
+	}
+	if n == 1 {
+		out[0] = x[0]
+		return
+	}
 	twoPi := float32(-2.0*math.Pi) / float32(n)
 	for k := 0; k < n; k++ {
 		angle := twoPi * float32(k)
@@ -639,5 +677,4 @@ func dft32Fallback(x []complex64) []complex64 {
 		}
 		out[k] = sum
 	}
-	return out
 }

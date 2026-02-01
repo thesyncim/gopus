@@ -172,9 +172,9 @@ func computeBandRMS(coeffs []float64, start, end int) float64 {
 		sumSq += v * v
 	}
 
-	// log2(sqrt(sumSq)) = 0.5 * log2(sumSq)
+	// log2(sqrt(sumSq)) = log2(amp) with libopus FLOAT_APPROX log2.
 	amp := float32(math.Sqrt(float64(sumSq)))
-	return float64(float32(math.Log2(float64(amp))))
+	return float64(celtLog2(amp))
 }
 
 // EncodeCoarseEnergy encodes coarse (6dB step) band energies.
@@ -218,6 +218,8 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 		coef = AlphaCoef[lm]
 		beta = BetaCoefInter[lm]
 	}
+	coef32 := float32(coef)
+	beta32 := float32(beta)
 
 	prob := eProbModel[lm][0]
 	if intra {
@@ -230,16 +232,16 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 	}
 
 	// Max decay bound (libopus uses nbAvailableBytes-based clamp).
-	maxDecay := 16.0 * DB6
+	maxDecay32 := float32(16.0 * DB6)
 	nbAvailableBytes := budget / 8
 	if nbBands > 10 {
-		limit := 0.125 * float64(nbAvailableBytes) * DB6
-		if limit < maxDecay {
-			maxDecay = limit
+		limit := float32(0.125 * float64(nbAvailableBytes) * DB6)
+		if limit < maxDecay32 {
+			maxDecay32 = limit
 		}
 	}
 
-	prevBandEnergy := make([]float64, channels)
+	prevBandEnergy := make([]float32, channels)
 	for band := 0; band < nbBands; band++ {
 		for c := 0; c < channels; c++ {
 			idx := c*nbBands + band
@@ -247,24 +249,29 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 				continue
 			}
 
-			x := energies[idx]
+			x := float32(energies[idx])
 
 			// Previous frame energy (for prediction and decay bound).
-			oldEBand := e.prevEnergy[c*MaxBands+band]
+			oldEBand := float32(e.prevEnergy[c*MaxBands+band])
 			oldE := oldEBand
-			minEnergy := -9.0 * DB6
+			minEnergy := float32(-9.0 * DB6)
 			if oldE < minEnergy {
 				oldE = minEnergy
 			}
 
 			// Prediction residual.
-			f := x - coef*oldE - prevBandEnergy[c]
-			qi := int(math.Floor(f/DB6 + 0.5))
+			f := x - coef32*oldE - prevBandEnergy[c]
+			qi := int(math.Floor(float64(f/float32(DB6) + 0.5)))
 
 			// Prevent energy from decaying too quickly.
-			decayBound := math.Max(-28.0*DB6, oldEBand) - maxDecay
+			decayBound := oldEBand
+			minDecay := float32(-28.0 * DB6)
+			if decayBound < minDecay {
+				decayBound = minDecay
+			}
+			decayBound -= maxDecay32
 			if qi < 0 && x < decayBound {
-				adjust := int((decayBound - x) / DB6)
+				adjust := int((decayBound - x) / float32(DB6))
 				qi += adjust
 				if qi > 0 {
 					qi = 0
@@ -318,12 +325,12 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 				qi = -1
 			}
 
-			q := float64(qi) * DB6
-			quantizedEnergy := coef*oldE + prevBandEnergy[c] + q
-			quantizedEnergies[idx] = quantizedEnergy
+			q := float32(qi) * float32(DB6)
+			quantizedEnergy := coef32*oldE + prevBandEnergy[c] + q
+			quantizedEnergies[idx] = float64(quantizedEnergy)
 
 			// Update inter-band predictor.
-			prevBandEnergy[c] = prevBandEnergy[c] + q - beta*q
+			prevBandEnergy[c] = prevBandEnergy[c] + q - beta32*q
 		}
 	}
 

@@ -214,6 +214,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			for i := range bandLogE2 {
 				bandLogE2[i] += offset
 			}
+			// Match libopus float path precision after offset addition.
+			roundFloat64ToFloat32(bandLogE2)
 		}
 	}
 
@@ -315,6 +317,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 				for i := range bandLogE2 {
 					bandLogE2[i] += offset
 				}
+				// Match libopus float path precision after offset addition.
+				roundFloat64ToFloat32(bandLogE2)
 			}
 		}
 	}
