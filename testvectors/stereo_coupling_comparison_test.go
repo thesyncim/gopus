@@ -16,7 +16,7 @@ import (
 // This test decodes stereo CELT packets and compares the PCM output with libopus.
 func TestStereoCouplingVsLibopus(t *testing.T) {
 	// Check if opus_demo is available
-	opusDemoPath := filepath.Join("..", "..", "tmp_check", "opus-1.6.1", "opus_demo")
+	opusDemoPath := filepath.Join("..", "tmp_check", "opus-1.6.1", "opus_demo")
 	if _, err := os.Stat(opusDemoPath); os.IsNotExist(err) {
 		t.Skipf("opus_demo not found at %s", opusDemoPath)
 	}
