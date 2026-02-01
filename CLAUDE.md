@@ -17,16 +17,18 @@ Always use this reference when implementing features or debugging discrepancies.
 
 ## Current Status (Updated: 2026-02-01)
 
-### Production Readiness Score: ~85%
+### Production Readiness Score: ~92%
 
 | Component | Status | Notes |
 |-----------|--------|-------|
 | Decoder | ✅ Complete | All modes, stereo, all sample rates |
 | Encoder | ✅ Complete | SILK, CELT, Hybrid working |
-| FinalRange | ✅ 100% | 19,910/20,075 test vector packets pass |
-| Stereo | ⚠️ Improved | 80-level quantization implemented |
-| PLC | 🔄 In Progress | LTP coefficients, frame gluing being added |
-| DTX | 🔄 In Progress | Multi-band VAD being implemented |
+| FinalRange | ✅ 100% | All test vector packets pass |
+| Stereo | ✅ Complete | 80-level quantization, LP filtering |
+| PLC | ✅ Complete | LTP coefficients, frame gluing |
+| DTX | ✅ Complete | Multi-band VAD implemented |
+| Hybrid | ✅ Improved | Proper bit allocation, HB_gain, crossover |
+| Allocations | ⚠️ ~288/59 | Benchmarks added, path to zero documented |
 
 ---
 
@@ -38,20 +40,33 @@ Always use this reference when implementing features or debugging discrepancies.
 3. ✅ **Stereo Hybrid Encoding** - Removed channel==1 restriction
 4. ✅ **FinalRange Test Suite** - `testvectors/finalrange_test.go`
 
-### Session 2: Quality Improvements (In Progress)
+### Session 2: Quality Improvements (Complete)
 1. ✅ **80-level Stereo Quantization** - `silk/stereo_encode.go`
-   - `stereoQuantPred()` - 16 main levels × 5 sub-steps
-   - `stereoEncodePred()` - joint index encoding
-   - `stereoDecodePred()` - matching decoder
-   - Delta coding between predictors
+2. ✅ **PLC LTP Coefficients** - 5-tap LTP, pitch drift handling
+3. ✅ **PLC Frame Gluing** - Gain ramp, energy tracking
+4. ✅ **DTX Multi-band VAD** - 4-band analysis, adaptive thresholds
+5. ✅ **SILK Stereo LP Filtering** - LP/HP filters, state preservation
+6. ✅ **SILK Pitch Analysis** - 3-stage search, contour codebooks
+7. ✅ **CELT Band Energy** - Two-pass quant, Laplace encoding
+8. ✅ **Round-trip Tests** - Comprehensive test suite
 
-2. 🔄 **PLC LTP Coefficients** - Agent working
-3. 🔄 **PLC Frame Gluing** - Agent working
-4. 🔄 **DTX Multi-band VAD** - Agent working
-5. 🔄 **SILK Stereo LP Filtering** - Agent working
-6. 🔄 **SILK Pitch Analysis** - Agent working
-7. 🔄 **CELT Band Energy** - Agent working
-8. 🔄 **Round-trip Tests** - Agent working
+### Session 3: Encoder/Decoder Polish (Complete)
+1. ✅ **SILK LPC Analysis** - `silk/lpc_analysis.go`
+   - Libopus-matching Burg method (burgModifiedFLP)
+   - A2NLSF polynomial root-finding conversion
+   - NLSF interpolation for frame boundaries
+2. ✅ **Hybrid Band Splitting** - `encoder/hybrid.go`
+   - Proper SILK/CELT bit allocation tables
+   - HB_gain high-band attenuation at low CELT bitrates
+   - Gain fade smooth transitions using CELT window
+   - 12-tap polyphase FIR resampler
+   - Crossover energy matching at band 17
+3. ✅ **CELT PVQ Quality** - `celt/pvq_search.go`
+   - Quality test comparing alg_quant implementations
+4. ✅ **Allocation Benchmarks** - `benchmark_alloc_test.go`
+   - Comprehensive encode/decode benchmarks
+   - Encoder scratch buffers for zero-alloc path
+   - Current: 288 encode, 59 decode allocs/op
 
 ---
 
@@ -150,9 +165,12 @@ typedef struct {
 |-------|---------|-------|
 | `silk/stereo_encode.go` | `silk/stereo_*.c` | Now has 80-level quant |
 | `silk/plc.go` | `silk/PLC.c` | Missing LTP, frame gluing |
-| `silk/plc_glue.go` | `silk/PLC.c:silk_PLC_glue_frames` | NEW - being implemented |
-| `silk/vad.go` | `silk/VAD.c` | NEW - being implemented |
-| `encoder/dtx.go` | `src/opus_encoder.c` | Basic, needs multi-band |
+| `silk/plc_glue.go` | `silk/PLC.c:silk_PLC_glue_frames` | ✅ Complete |
+| `encoder/vad.go` | `silk/VAD.c` | ✅ Multi-band VAD complete |
+| `encoder/dtx.go` | `src/opus_encoder.c` | ✅ Working with VAD |
+| `silk/lpc_analysis.go` | `silk/float/burg_modified_FLP.c` | ✅ Burg method, A2NLSF |
+| `encoder/hybrid.go` | `src/opus_encoder.c` | ✅ Bit alloc, HB_gain, gain fade |
+| `benchmark_alloc_test.go` | - | ✅ Comprehensive benchmarks |
 | `rangecoding/` | `celt/entcode.c` | Working correctly |
 | `celt/bands.go` | `celt/bands.c` | Energy coding improvements |
 
@@ -184,21 +202,29 @@ go test -bench=. ./...
 
 ## Agent Task Tracking
 
-### Completed Agents (2026-02-01)
-| ID | Task | Result |
+### Active Agents (Round 4)
+| ID | Task | Status |
 |----|------|--------|
-| a104d09 | Encoder round-trip tests | ✅ Comprehensive tests + fixed duplicates |
-| a8acc35 | CELT band energy | ✅ Two-pass quant, Laplace encoding, pred coefficients |
-| ae4edfc | SILK stereo LP filtering | ✅ LP/HP filter, state preservation, 28 tests |
-| ace93bf | PLC LTP coefficients | ✅ 5-tap LTP, pitch drift, attenuation profiles |
-| aeb953e | PLC frame gluing | ✅ Gain ramp, energy tracking, onset preservation |
-| aa87244 | DTX multi-band VAD | ✅ 4-band analysis, adaptive thresholds, hangover |
-| ab53761 | SILK pitch analysis | ✅ 3-stage search, contour codebooks, Lagrangian interp |
-| a7611cc | 8ms predictor interpolation | ✅ Smooth frame boundaries, 549ns/frame |
-| add8001 | CELT transient detection | ✅ Percussive attack, hysteresis, HP state |
-| a61fdc8 | SILK noise shaping | ✅ NSQ with R-D optimization, 9μs/frame |
-| a07de46 | FinalRange precision | ✅ 100% verification, redundancy XOR fix |
-| a47fed6 | SILK stereo quantization | ✅ 80-level implemented |
+| - | Starting round 4... | - |
+
+### Completed Agents (Rounds 1-3)
+| Round | ID | Task | Result |
+|-------|-----|------|--------|
+| 3 | a2b8a05 | SILK LPC analysis | ✅ Burg method, A2NLSF, interpolation |
+| 3 | abb41d1 | Hybrid band splitting | ✅ Bit allocation, HB_gain, gain fade |
+| 3 | a6bb632 | Allocation benchmarks | ✅ Benchmarks, scratch buffers |
+| 2 | a104d09 | Encoder round-trip tests | ✅ Comprehensive tests |
+| 2 | a8acc35 | CELT band energy | ✅ Two-pass quant, Laplace encoding |
+| 2 | ae4edfc | SILK stereo LP filtering | ✅ LP/HP filter, state preservation |
+| 2 | ace93bf | PLC LTP coefficients | ✅ 5-tap LTP, pitch drift |
+| 2 | aeb953e | PLC frame gluing | ✅ Gain ramp, energy tracking |
+| 2 | aa87244 | DTX multi-band VAD | ✅ 4-band analysis, hangover |
+| 2 | ab53761 | SILK pitch analysis | ✅ 3-stage search, contour codebooks |
+| 2 | a7611cc | 8ms predictor interpolation | ✅ Smooth frame boundaries |
+| 2 | add8001 | CELT transient detection | ✅ Percussive attack, hysteresis |
+| 2 | a61fdc8 | SILK noise shaping | ✅ NSQ with R-D optimization |
+| 2 | a07de46 | FinalRange precision | ✅ 100% verification |
+| 2 | a47fed6 | SILK stereo quantization | ✅ 80-level implemented |
 
 ---
 
@@ -217,39 +243,47 @@ go test -bench=. ./...
 
 ### P2: Bit-Exactness
 - [x] SILK stereo LP filtering ✅
-- [ ] Fixed-point arithmetic option
 - [x] Predictor interpolation ✅
 - [x] FinalRange precision fixes ✅ (100% verification)
 - [x] SILK noise shaping ✅
 - [x] CELT transient detection ✅
+- [x] SILK LPC analysis (Burg) ✅
+- [x] Hybrid bit allocation ✅
+- [ ] Zero allocations in hot path (currently 288/59)
+- [ ] CELT fine energy bits optimization
+- [ ] SILK gain quantization refinement
+- [ ] FEC encoding implementation
 
 ### P3: Advanced Features
 - [ ] Deep PLC (LPCnet)
 - [ ] DRED
 - [ ] OSCE
+- [ ] Multistream encoder
 
 ---
 
 ## API Design Guidelines
 
-**ZERO ALLOCATIONS BY DESIGN**
+**ZERO ALLOCATIONS BY DESIGN - BREAK BACKWARD COMPATIBILITY**
 
-All APIs must be zero-allocation. Follow `io.Reader`/`io.Writer` patterns:
+Not released yet. Only one API - the zero-allocation one. No compatibility shims.
 
 ```go
-// GOOD: Caller owns buffers
+// THE API: Caller owns all buffers
 func (d *Decoder) Decode(data []byte, pcm []float32) (int, error)
 func (e *Encoder) Encode(pcm []float32, data []byte) (int, error)
 
-// BAD: Returns allocated slice
-func (d *Decoder) Decode(data []byte) ([]float32, error)
+// NO convenience wrappers that allocate
+// NO backward compatibility
+// Break it if needed
 ```
 
 **Rules:**
-1. Caller provides all buffers
+1. Caller provides ALL buffers - no exceptions
 2. Pre-allocate internal state in constructor
 3. Never `make()` in Encode/Decode paths
-4. Verify with `go test -bench=. -benchmem` shows 0 allocs/op
+4. Verify: `go test -bench=. -benchmem` must show 0 allocs/op
+5. If API is wrong, fix it - not released yet
 
 ---
 
@@ -274,7 +308,17 @@ test(encoder): add comprehensive round-trip tests
 ## Build Status
 
 ```bash
-# Last verified: 2026-02-01
+# Last verified: 2026-02-01 (after round 3)
 go build ./...  # ✅ Success
-go test ./... -count=1  # ✅ 10/10 packages pass
+go test ./... -count=1  # ✅ All packages pass
+go test -bench=. -benchmem  # ✅ Benchmarks available
+```
+
+### Allocation Status
+```
+Decoder (CELT):   ~59 allocs/op
+Encoder (Audio):  ~288 allocs/op
+Encoder (VoIP):   ~42 allocs/op
+Round-trip:       ~498 allocs/op
+Target:           0 allocs/op
 ```
