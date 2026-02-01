@@ -926,6 +926,10 @@ func (d *Decoder) decodeSilenceFrame(frameSize int, newPeriod int, newGain float
 //
 // This is a first-order IIR filter that boosts low frequencies,
 // countering the high-frequency boost from pre-emphasis.
+//
+// IMPORTANT: This function uses float32 precision for the filter state
+// to match libopus exactly. The IIR filter accumulates state over time,
+// and using float64 would cause precision drift relative to libopus.
 func (d *Decoder) applyDeemphasis(samples []float64) {
 	if len(samples) == 0 {
 		return
@@ -933,36 +937,41 @@ func (d *Decoder) applyDeemphasis(samples []float64) {
 
 	// VERY_SMALL prevents denormal numbers that can cause performance issues.
 	// This matches libopus celt/celt_decoder.c celt_decode_with_ec().
-	const verySmall = 1e-30
+	// Using float32 constant to match libopus VERY_SMALL = 1e-30f
+	const verySmall float32 = 1e-30
+
+	// Use float32 for filter coefficient to match libopus
+	const coef float32 = float32(PreemphCoef)
 
 	if d.channels == 1 {
-		// Mono de-emphasis
-		state := d.preemphState[0]
+		// Mono de-emphasis - use float32 precision for state
+		state := float32(d.preemphState[0])
 		for i := range samples {
-			tmp := samples[i] + verySmall + state
-			state = PreemphCoef * tmp
-			samples[i] = tmp
+			// Perform computation in float32 to match libopus
+			tmp := float32(samples[i]) + verySmall + state
+			state = coef * tmp
+			samples[i] = float64(tmp)
 		}
-		d.preemphState[0] = state
+		d.preemphState[0] = float64(state)
 	} else {
-		// Stereo de-emphasis (interleaved samples)
-		stateL := d.preemphState[0]
-		stateR := d.preemphState[1]
+		// Stereo de-emphasis (interleaved samples) - use float32 precision
+		stateL := float32(d.preemphState[0])
+		stateR := float32(d.preemphState[1])
 
 		for i := 0; i < len(samples)-1; i += 2 {
-			// Left channel
-			tmpL := samples[i] + verySmall + stateL
-			stateL = PreemphCoef * tmpL
-			samples[i] = tmpL
+			// Left channel - float32 precision
+			tmpL := float32(samples[i]) + verySmall + stateL
+			stateL = coef * tmpL
+			samples[i] = float64(tmpL)
 
-			// Right channel
-			tmpR := samples[i+1] + verySmall + stateR
-			stateR = PreemphCoef * tmpR
-			samples[i+1] = tmpR
+			// Right channel - float32 precision
+			tmpR := float32(samples[i+1]) + verySmall + stateR
+			stateR = coef * tmpR
+			samples[i+1] = float64(tmpR)
 		}
 
-		d.preemphState[0] = stateL
-		d.preemphState[1] = stateR
+		d.preemphState[0] = float64(stateL)
+		d.preemphState[1] = float64(stateR)
 	}
 }
 
