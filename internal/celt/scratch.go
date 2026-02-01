@@ -48,6 +48,30 @@ func ensureComplexSlice(buf *[]complex128, n int) []complex128 {
 	return *buf
 }
 
+func ensureComplex64Slice(buf *[]complex64, n int) []complex64 {
+	if n < 0 {
+		n = 0
+	}
+	if cap(*buf) < n {
+		*buf = make([]complex64, n)
+	} else {
+		*buf = (*buf)[:n]
+	}
+	return *buf
+}
+
+func ensureFloat32Slice(buf *[]float32, n int) []float32 {
+	if n < 0 {
+		n = 0
+	}
+	if cap(*buf) < n {
+		*buf = make([]float32, n)
+	} else {
+		*buf = (*buf)[:n]
+	}
+	return *buf
+}
+
 func ensureUint32Slice(buf *[]uint32, n int) []uint32 {
 	if n < 0 {
 		n = 0
@@ -198,4 +222,11 @@ type imdctScratch struct {
 	fftIn  []complex128
 	fftOut []complex128
 	buf    []float64
+}
+
+// imdctScratchF32 holds scratch buffers for float32 IMDCT to avoid per-call allocations.
+type imdctScratchF32 struct {
+	fftIn  []complex64
+	fftOut []complex64
+	buf    []float32
 }

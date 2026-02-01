@@ -94,6 +94,7 @@ type Decoder struct {
 	scratchAllocWork      []int
 	scratchBands          bandDecodeScratch
 	scratchIMDCT          imdctScratch
+	scratchIMDCTF32       imdctScratchF32
 	scratchSynth          []float64
 	scratchSynthR         []float64
 	scratchStereo         []float64
