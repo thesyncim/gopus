@@ -484,6 +484,22 @@ func (e *Encoder) encodeCELTFrame(pcm []float64, frameSize int) ([]byte, error) 
 	// Set bitrate for proper bit allocation
 	e.celtEncoder.SetBitrate(e.bitrate)
 
+	// Propagate bitrate mode to CELT encoder
+	// CBR mode: VBR=false, CVBR=false - encoder uses exact bit budget
+	// CVBR mode: VBR=true, CVBR=true - encoder allows variation within constraints
+	// VBR mode: VBR=true, CVBR=false - encoder freely varies bitrate
+	switch e.bitrateMode {
+	case ModeCBR:
+		e.celtEncoder.SetVBR(false)
+		e.celtEncoder.SetConstrainedVBR(false)
+	case ModeCVBR:
+		e.celtEncoder.SetVBR(true)
+		e.celtEncoder.SetConstrainedVBR(true)
+	case ModeVBR:
+		e.celtEncoder.SetVBR(true)
+		e.celtEncoder.SetConstrainedVBR(false)
+	}
+
 	// Use our encoder instance for stateful encoding with bitrate
 	return e.celtEncoder.EncodeFrame(pcm, frameSize)
 }
