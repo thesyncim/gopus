@@ -130,14 +130,20 @@ func (e *Encoder) NormalizeBands(mdctCoeffs []float64, energies []float64, nbBan
 //
 // Reference: libopus celt/bands.c compute_band_energies() (float path, lines 154-170)
 func ComputeLinearBandAmplitudes(mdctCoeffs []float64, nbBands, frameSize int) []float64 {
+	bandE := make([]float64, nbBands)
+	ComputeLinearBandAmplitudesInto(mdctCoeffs, nbBands, frameSize, bandE)
+	return bandE
+}
+
+// ComputeLinearBandAmplitudesInto computes linear band amplitudes into the provided buffer.
+// This is the zero-allocation version of ComputeLinearBandAmplitudes.
+func ComputeLinearBandAmplitudesInto(mdctCoeffs []float64, nbBands, frameSize int, bandE []float64) {
 	if nbBands <= 0 || nbBands > MaxBands {
-		return nil
+		return
 	}
 	if frameSize <= 0 {
-		return nil
+		return
 	}
-
-	bandE := make([]float64, nbBands)
 	offset := 0
 
 	for band := 0; band < nbBands; band++ {
@@ -167,8 +173,6 @@ func ComputeLinearBandAmplitudes(mdctCoeffs []float64, nbBands, frameSize int) [
 		bandE[band] = float64(math.Sqrt(float64(sum)))
 		offset += n
 	}
-
-	return bandE
 }
 
 // NormalizeBandsToArray normalizes bands into a single contiguous array (length = frameSize).

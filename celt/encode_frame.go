@@ -396,17 +396,17 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Reference: libopus celt_encoder.c line 2096
 	var bandE []float64
 	if e.channels == 1 {
-		bandE = ComputeLinearBandAmplitudes(mdctCoeffs, nbBands, frameSize)
+		// Use scratch buffer for mono band amplitudes
+		bandE = ensureFloat64Slice(&e.scratch.bandE, nbBands)
+		ComputeLinearBandAmplitudesInto(mdctCoeffs, nbBands, frameSize, bandE)
 	} else {
-		// For stereo, compute per-channel and concatenate - use scratch buffers
-		bandEL := ComputeLinearBandAmplitudes(mdctLeft, nbBands, frameSize)
-		bandER := ComputeLinearBandAmplitudes(mdctRight, nbBands, frameSize)
-		bandE = e.scratch.bandE
-		if len(bandE) < nbBands*2 {
-			bandE = make([]float64, nbBands*2)
-			e.scratch.bandE = bandE
-		}
-		bandE = bandE[:nbBands*2]
+		// For stereo, compute per-channel using scratch buffers
+		bandEL := ensureFloat64Slice(&e.scratch.bandEL, nbBands)
+		bandER := ensureFloat64Slice(&e.scratch.bandER, nbBands)
+		ComputeLinearBandAmplitudesInto(mdctLeft, nbBands, frameSize, bandEL)
+		ComputeLinearBandAmplitudesInto(mdctRight, nbBands, frameSize, bandER)
+		// Concatenate into combined bandE buffer
+		bandE = ensureFloat64Slice(&e.scratch.bandE, nbBands*2)
 		copy(bandE[:nbBands], bandEL)
 		copy(bandE[nbBands:], bandER)
 	}
