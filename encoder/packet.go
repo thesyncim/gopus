@@ -90,6 +90,29 @@ func generateTOC(config uint8, stereo bool, frameCode uint8) byte {
 	return toc
 }
 
+// BuildPacketInto creates a complete Opus packet into the provided buffer.
+// Returns the number of bytes written, or error if buffer is too small.
+// Uses frame code 0 (single frame).
+func BuildPacketInto(dst, frameData []byte, mode types.Mode, bandwidth types.Bandwidth, frameSize int, stereo bool) (int, error) {
+	config := configFromParams(mode, bandwidth, frameSize)
+	if config < 0 {
+		return 0, ErrInvalidConfig
+	}
+
+	needed := 1 + len(frameData)
+	if len(dst) < needed {
+		return 0, ErrInvalidConfig // buffer too small
+	}
+
+	toc := generateTOC(uint8(config), stereo, 0)
+
+	// Packet = TOC + frame data
+	dst[0] = toc
+	copy(dst[1:], frameData)
+
+	return needed, nil
+}
+
 // BuildPacket creates a complete Opus packet from encoded frame data.
 // Uses frame code 0 (single frame).
 func BuildPacket(frameData []byte, mode types.Mode, bandwidth types.Bandwidth, frameSize int, stereo bool) ([]byte, error) {

@@ -175,34 +175,28 @@ func ComputeLinearBandAmplitudesInto(mdctCoeffs []float64, nbBands, frameSize in
 	}
 }
 
-// NormalizeBandsToArray normalizes bands into a single contiguous array (length = frameSize).
-// This mirrors libopus normalise_bands(): divide by the per-band LINEAR amplitude.
+// NormalizeBandsToArrayInto normalizes bands into a provided contiguous array.
+// This is the zero-allocation version - caller provides norm and bandE buffers.
 //
-// CRITICAL FIX: This function now uses LINEAR band amplitudes computed directly from MDCT
-// coefficients, NOT log-domain energies converted back to linear. The log-domain roundtrip
-// was introducing quantization errors that corrupted PVQ encoding.
-//
-// The energies parameter is now IGNORED - we compute linear amplitudes directly from mdctCoeffs.
-// This matches libopus which calls compute_band_energies() to get linear bandE, then uses
-// that directly in normalise_bands().
+// Parameters:
+//   - mdctCoeffs: MDCT coefficients to normalize
+//   - nbBands: number of bands
+//   - frameSize: frame size in samples
+//   - norm: output buffer (length >= frameSize)
+//   - bandE: scratch buffer for band amplitudes (length >= nbBands)
 //
 // Reference: libopus celt/bands.c normalise_bands() (float path, lines 172-187)
-func (e *Encoder) NormalizeBandsToArray(mdctCoeffs []float64, energies []float64, nbBands, frameSize int) []float64 {
+func NormalizeBandsToArrayInto(mdctCoeffs []float64, nbBands, frameSize int, norm, bandE []float64) {
 	if nbBands <= 0 || nbBands > MaxBands {
-		return nil
+		return
 	}
 	if frameSize <= 0 {
-		return nil
+		return
 	}
 
 	// Compute linear band amplitudes directly from MDCT coefficients
-	// This is the CRITICAL fix: use original linear amplitudes, not log-domain roundtrip
-	bandE := ComputeLinearBandAmplitudes(mdctCoeffs, nbBands, frameSize)
-	if bandE == nil {
-		return nil
-	}
+	ComputeLinearBandAmplitudesInto(mdctCoeffs, nbBands, frameSize, bandE)
 
-	norm := make([]float64, frameSize)
 	offset := 0
 	for band := 0; band < nbBands; band++ {
 		n := ScaledBandWidth(band, frameSize)
@@ -232,6 +226,33 @@ func (e *Encoder) NormalizeBandsToArray(mdctCoeffs []float64, energies []float64
 		}
 		offset += n
 	}
+}
+
+// NormalizeBandsToArray normalizes bands into a single contiguous array (length = frameSize).
+// This mirrors libopus normalise_bands(): divide by the per-band LINEAR amplitude.
+//
+// CRITICAL FIX: This function now uses LINEAR band amplitudes computed directly from MDCT
+// coefficients, NOT log-domain energies converted back to linear. The log-domain roundtrip
+// was introducing quantization errors that corrupted PVQ encoding.
+//
+// The energies parameter is now IGNORED - we compute linear amplitudes directly from mdctCoeffs.
+// This matches libopus which calls compute_band_energies() to get linear bandE, then uses
+// that directly in normalise_bands().
+//
+// Reference: libopus celt/bands.c normalise_bands() (float path, lines 172-187)
+func (e *Encoder) NormalizeBandsToArray(mdctCoeffs []float64, energies []float64, nbBands, frameSize int) []float64 {
+	if nbBands <= 0 || nbBands > MaxBands {
+		return nil
+	}
+	if frameSize <= 0 {
+		return nil
+	}
+
+	// Use scratch buffers
+	norm := ensureFloat64Slice(&e.scratch.normL, frameSize)
+	bandE := ensureFloat64Slice(&e.scratch.bandE, nbBands)
+
+	NormalizeBandsToArrayInto(mdctCoeffs, nbBands, frameSize, norm, bandE)
 
 	return norm
 }

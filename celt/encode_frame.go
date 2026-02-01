@@ -526,12 +526,16 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// TF analysis needs normalized coefficients to determine optimal time-frequency resolution
 	var normL, normR []float64
 	if e.channels == 1 {
-		normL = e.NormalizeBandsToArray(mdctCoeffs, energies, nbBands, frameSize)
+		normL = ensureFloat64Slice(&e.scratch.normL, frameSize)
+		bandEScratch := ensureFloat64Slice(&e.scratch.bandE, nbBands)
+		NormalizeBandsToArrayInto(mdctCoeffs, nbBands, frameSize, normL, bandEScratch)
 	} else {
-		energiesL := energies[:nbBands]
-		energiesR := energies[nbBands:]
-		normL = e.NormalizeBandsToArray(mdctLeft, energiesL, nbBands, frameSize)
-		normR = e.NormalizeBandsToArray(mdctRight, energiesR, nbBands, frameSize)
+		normL = ensureFloat64Slice(&e.scratch.normL, frameSize)
+		normR = ensureFloat64Slice(&e.scratch.normR, frameSize)
+		bandEL := ensureFloat64Slice(&e.scratch.bandEL, nbBands)
+		bandER := ensureFloat64Slice(&e.scratch.bandER, nbBands)
+		NormalizeBandsToArrayInto(mdctLeft, nbBands, frameSize, normL, bandEL)
+		NormalizeBandsToArrayInto(mdctRight, nbBands, frameSize, normR, bandER)
 	}
 
 	// Step 11.0.6: Compute tonality analysis for next frame's VBR decisions
