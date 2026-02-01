@@ -21,7 +21,7 @@ func (e *Encoder) analyzeLTP(pcm []float32, pitchLags []int, numSubframes int) [
 		coeffs := computeLTPCoeffs(pcm, start, subframeSamples, lag)
 
 		// Quantize to codebook
-		ltpCoeffs[sf] = quantizeLTPCoeffs(coeffs, e.isPreviousFrameVoiced)
+		ltpCoeffs[sf] = quantizeLTPCoeffs(coeffs[:], e.isPreviousFrameVoiced)
 	}
 
 	return ltpCoeffs
@@ -29,7 +29,8 @@ func (e *Encoder) analyzeLTP(pcm []float32, pitchLags []int, numSubframes int) [
 
 // computeLTPCoeffs computes 5-tap LTP coefficients for a subframe.
 // Uses least-squares minimization of prediction error.
-func computeLTPCoeffs(pcm []float32, start, length, lag int) []float64 {
+// Returns a fixed-size [5]float64 array to avoid heap allocation.
+func computeLTPCoeffs(pcm []float32, start, length, lag int) [5]float64 {
 	const numTaps = 5
 	const halfTaps = 2
 
@@ -74,7 +75,7 @@ func computeLTPCoeffs(pcm []float32, start, length, lag int) []float64 {
 	// Solve R * coeffs = r using Gaussian elimination
 	coeffs := solveLTPSystem(R, r)
 
-	return coeffs[:]
+	return coeffs
 }
 
 // solveLTPSystem solves the 5x5 normal equations using Gaussian elimination.
