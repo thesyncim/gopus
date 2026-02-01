@@ -101,9 +101,10 @@ type Encoder struct {
 	hybridState *HybridState
 
 	// Scratch buffers for zero-allocation encoding
-	scratchPCM32 []float32 // float64 to float32 conversion buffer
-	scratchLeft  []float32 // Left channel deinterleave buffer
-	scratchRight []float32 // Right channel deinterleave buffer
+	scratchPCM32  []float32 // float64 to float32 conversion buffer
+	scratchLeft   []float32 // Left channel deinterleave buffer
+	scratchRight  []float32 // Right channel deinterleave buffer
+	scratchPacket []byte    // Output packet buffer
 }
 
 // NewEncoder creates a new unified Opus encoder.
@@ -154,6 +155,7 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		scratchPCM32:        make([]float32, maxSamples),   // float64 to float32 conversion
 		scratchLeft:         make([]float32, 2880),         // Stereo deinterleave buffer
 		scratchRight:        make([]float32, 2880),         // Stereo deinterleave buffer
+		scratchPacket:       make([]byte, 1276),            // Max Opus packet (TOC + 1275 payload)
 	}
 }
 
@@ -414,12 +416,13 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		return nil, err
 	}
 
-	// Build complete packet with TOC byte
+	// Build complete packet with TOC byte into scratch buffer
 	stereo := e.channels == 2
-	packet, err := BuildPacket(frameData, modeToTypes(actualMode), e.bandwidth, frameSize, stereo)
+	packetLen, err := BuildPacketInto(e.scratchPacket, frameData, modeToTypes(actualMode), e.bandwidth, frameSize, stereo)
 	if err != nil {
 		return nil, err
 	}
+	packet := e.scratchPacket[:packetLen]
 
 	// Apply bitrate mode constraints
 	switch e.bitrateMode {

@@ -76,7 +76,10 @@ func TestAudioAudibility(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Encode error: %v", err)
 		}
-		packets = append(packets, packet)
+		// Copy packet since internal encoder returns scratch memory
+		packetCopy := make([]byte, len(packet))
+		copy(packetCopy, packet)
+		packets = append(packets, packetCopy)
 	}
 
 	t.Logf("Encoded %d frames", len(packets))
