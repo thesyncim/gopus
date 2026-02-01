@@ -775,11 +775,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		signalBandwidth = 0
 	}
 
-	allocResult := ComputeAllocationWithEncoder(
+	allocResult := e.computeAllocationScratch(
 		re,
 		totalBitsQ3,
 		nbBands,
-		e.channels,
 		caps,
 		offsets,
 		allocTrim,

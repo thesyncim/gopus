@@ -689,6 +689,8 @@ type encoderScratch struct {
 	allocFinePrio []int
 	allocThresh   []int
 	allocTrim     []int
+	allocCaps     []int
+	allocResult   AllocationResult // Pre-allocated result struct
 
 	// MDCT input buffer for ComputeMDCTWithHistory
 	mdctInput []float64
@@ -761,6 +763,15 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	if len(s.logN) < MaxBands {
 		s.logN = make([]int16, MaxBands)
 	}
+	s.allocBits = ensureIntSlice(&s.allocBits, MaxBands)
+	s.allocFineBits = ensureIntSlice(&s.allocFineBits, MaxBands)
+	s.allocFinePrio = ensureIntSlice(&s.allocFinePrio, MaxBands)
+	s.allocCaps = ensureIntSlice(&s.allocCaps, MaxBands)
+	// Initialize AllocationResult with pre-allocated slices
+	s.allocResult.BandBits = s.allocBits
+	s.allocResult.FineBits = s.allocFineBits
+	s.allocResult.FinePriority = s.allocFinePrio
+	s.allocResult.Caps = s.allocCaps
 
 	// TF results
 	s.tfRes = ensureIntSlice(&s.tfRes, MaxBands)
@@ -847,4 +858,83 @@ func (e *Encoder) ensureScratch(frameSize int) {
 // ensureFloat64SliceEncoder is a helper that reuses ensureFloat64Slice from scratch.go
 func ensureFloat64SliceEncoder(buf *[]float64, n int) []float64 {
 	return ensureFloat64Slice(buf, n)
+}
+
+// computeAllocationScratch computes bit allocation using scratch buffers (zero-alloc).
+// This is the zero-allocation version of ComputeAllocationWithEncoder.
+func (e *Encoder) computeAllocationScratch(re *rangecoding.Encoder, totalBitsQ3, nbBands int, cap, offsets []int, trim int, intensity int, dualStereo bool, lm int, prev int, signalBandwidth int) *AllocationResult {
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+	if nbBands < 0 {
+		nbBands = 0
+	}
+	channels := e.channels
+	if channels < 1 {
+		channels = 1
+	}
+	if channels > 2 {
+		channels = 2
+	}
+	if lm < 0 {
+		lm = 0
+	}
+	if lm > 3 {
+		lm = 3
+	}
+
+	// Use pre-allocated result from scratch
+	result := &e.scratch.allocResult
+	result.BandBits = e.scratch.allocBits[:nbBands]
+	result.FineBits = e.scratch.allocFineBits[:nbBands]
+	result.FinePriority = e.scratch.allocFinePrio[:nbBands]
+	result.Caps = e.scratch.allocCaps[:nbBands]
+	result.Balance = 0
+	result.CodedBands = nbBands
+	result.Intensity = 0
+	result.DualStereo = false
+
+	// Zero the slices
+	for i := 0; i < nbBands; i++ {
+		result.BandBits[i] = 0
+		result.FineBits[i] = 0
+		result.FinePriority[i] = 0
+		result.Caps[i] = 0
+	}
+
+	if nbBands == 0 || totalBitsQ3 <= 0 {
+		return result
+	}
+
+	if cap == nil || len(cap) < nbBands {
+		cap = initCaps(nbBands, lm, channels)
+	}
+	copy(result.Caps, cap[:nbBands])
+
+	if offsets == nil {
+		offsets = e.scratch.offsets[:nbBands]
+		for i := range offsets {
+			offsets[i] = 0
+		}
+	}
+
+	intensityVal := intensity
+	dualVal := 0
+	if dualStereo {
+		dualVal = 1
+	}
+	balance := 0
+	pulses := result.BandBits
+	fineBits := result.FineBits
+	finePriority := result.FinePriority
+
+	codedBands := cltComputeAllocationEncode(re, 0, nbBands, offsets, cap, trim, &intensityVal, &dualVal,
+		totalBitsQ3, &balance, pulses, fineBits, finePriority, channels, lm, prev, signalBandwidth)
+
+	result.CodedBands = codedBands
+	result.Balance = balance
+	result.Intensity = intensityVal
+	result.DualStereo = dualVal != 0
+
+	return result
 }
