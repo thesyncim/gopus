@@ -9,8 +9,21 @@ var ErrInvalidPacket = errors.New("silk: invalid packet")
 // pcm: Input samples at encoder's configured sample rate
 // vadFlag: True if frame contains voice activity
 // Returns: Encoded SILK frame bytes
+//
+// Note: This function allocates a new encoder per call.
+// For zero-allocation encoding, use EncodeWithEncoder.
 func Encode(pcm []float32, bandwidth Bandwidth, vadFlag bool) ([]byte, error) {
 	enc := NewEncoder(bandwidth)
+	return enc.EncodeFrame(pcm, vadFlag), nil
+}
+
+// EncodeWithEncoder encodes mono PCM audio using a pre-existing encoder.
+// This is the zero-allocation version of Encode.
+// enc: Pre-allocated encoder (use silk.NewEncoder to create)
+// pcm: Input samples at encoder's configured sample rate
+// vadFlag: True if frame contains voice activity
+// Returns: Encoded SILK frame bytes
+func EncodeWithEncoder(enc *Encoder, pcm []float32, bandwidth Bandwidth, vadFlag bool) ([]byte, error) {
 	return enc.EncodeFrame(pcm, vadFlag), nil
 }
 
@@ -19,9 +32,24 @@ func Encode(pcm []float32, bandwidth Bandwidth, vadFlag bool) ([]byte, error) {
 // bandwidth: Target bandwidth
 // vadFlag: True if frame contains voice activity
 // Returns: Encoded SILK frame bytes for combined mid/side channels
+//
+// Note: This function allocates new encoders per call.
+// For zero-allocation encoding, use EncodeStereoWithEncoder.
 func EncodeStereo(left, right []float32, bandwidth Bandwidth, vadFlag bool) ([]byte, error) {
 	enc := NewEncoder(bandwidth)
+	sideEnc := NewEncoder(bandwidth)
+	return EncodeStereoWithEncoder(enc, sideEnc, left, right, bandwidth, vadFlag)
+}
 
+// EncodeStereoWithEncoder encodes stereo PCM audio using pre-existing encoders.
+// This is the zero-allocation version of EncodeStereo.
+// enc: Pre-allocated encoder for mid channel
+// sideEnc: Pre-allocated encoder for side channel (can be nil, will be created)
+// left, right: Input samples for each channel
+// bandwidth: Target bandwidth
+// vadFlag: True if frame contains voice activity
+// Returns: Encoded SILK frame bytes for combined mid/side channels
+func EncodeStereoWithEncoder(enc, sideEnc *Encoder, left, right []float32, bandwidth Bandwidth, vadFlag bool) ([]byte, error) {
 	// Convert to mid-side and compute stereo weights
 	mid, side, weights := enc.encodeStereo(left, right)
 
@@ -29,7 +57,9 @@ func EncodeStereo(left, right []float32, bandwidth Bandwidth, vadFlag bool) ([]b
 	midBytes := enc.EncodeFrame(mid, vadFlag)
 
 	// Encode side channel (secondary, typically lower bitrate)
-	sideEnc := NewEncoder(bandwidth)
+	if sideEnc == nil {
+		sideEnc = NewEncoder(bandwidth)
+	}
 	sideBytes := sideEnc.EncodeFrame(side, vadFlag)
 
 	// Combine mid and side into single output

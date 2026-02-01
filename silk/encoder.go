@@ -174,3 +174,10 @@ func (e *Encoder) FinalRange() uint32 {
 func (e *Encoder) NSQState() *NSQState {
 	return e.nsqState
 }
+
+// SetBitrate sets the target bitrate for encoding.
+// This is a no-op for SILK in hybrid mode (bitrate is controlled by Opus-level allocator).
+func (e *Encoder) SetBitrate(bitrate int) {
+	// SILK bitrate control in hybrid mode is handled by the Opus-level encoder.
+	// This method exists for API compatibility.
+}

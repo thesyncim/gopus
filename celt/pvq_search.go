@@ -6,11 +6,25 @@ import (
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
-// opPVQSearch approximates libopus op_pvq_search() (float path).
+// EPSILON is the minimum value used to prevent division by zero and similar issues.
+// This matches libopus celt/mathops.h EPSILON definition.
+const pvqEPSILON = 1e-15
+
+// opPVQSearch implements libopus op_pvq_search_c() (float path) with high precision.
 // It finds the signed pulse vector iy (sum abs = K) that best matches X.
 // Returns the pulse vector and the computed energy yy (sum of squares of pulses).
-// This matches libopus which returns yy from op_pvq_search_c() for use in normalization.
+//
+// This implementation closely follows libopus celt/vq.c op_pvq_search_c() lines 205-374:
+// 1. Pre-search phase: Projects X onto the pyramid for large K
+// 2. Greedy phase: Places remaining pulses one at a time using rate-distortion criterion
+// 3. Sign restoration: Applies original signs to the pulse vector
+//
+// The rate-distortion criterion maximizes Rxy/sqrt(Ryy), which is equivalent to
+// maximizing Rxy^2/Ryy (avoiding the sqrt). We compare (Rxy_new)^2 * Ryy_old > (Rxy_old)^2 * Ryy_new.
+//
 // NOTE: This function does NOT modify the input x slice.
+//
+// Reference: RFC 6716 Section 4.3.4.1, libopus celt/vq.c op_pvq_search_c()
 func opPVQSearch(x []float64, k int) ([]int, float64) {
 	n := len(x)
 	iy := make([]int, n)
@@ -19,33 +33,38 @@ func opPVQSearch(x []float64, k int) ([]int, float64) {
 	}
 
 	signx := make([]int, n)
-	y := make([]float64, n)
+	y := make([]float32, n) // Use float32 to match libopus float path
 
 	// Make a local copy of absolute values for the search.
 	// We must NOT modify the input x slice.
-	absX := make([]float64, n)
+	// Use float32 internally to match libopus precision
+	absX := make([]float32, n)
 	for j := 0; j < n; j++ {
 		if x[j] < 0 {
 			signx[j] = 1
-			absX[j] = -x[j]
+			absX[j] = float32(-x[j])
 		} else {
-			absX[j] = x[j]
+			absX[j] = float32(x[j])
 		}
 	}
 
-	xy := 0.0
-	yy := 0.0
+	var xy float32
+	var yy float32
 	pulsesLeft := k
 
 	// Pre-search by projecting on the pyramid for large K.
+	// Reference: libopus vq.c lines 241-282
 	if k > (n >> 1) {
-		sum := 0.0
+		var sum float32
 		for j := 0; j < n; j++ {
 			sum += absX[j]
 		}
 
-		// Guard against tiny/huge/invalid sums.
-		if !(sum > 1e-15 && sum < 64.0) {
+		// If X is too small or invalid, replace with a pulse at position 0.
+		// Reference: libopus vq.c lines 252-262
+		// Prevents infinities and NaNs from causing too many pulses to be allocated.
+		// The check "sum < 64" is an approximation of infinity.
+		if !(sum > pvqEPSILON && sum < 64.0) {
 			absX[0] = 1.0
 			for j := 1; j < n; j++ {
 				absX[j] = 0.0
@@ -53,38 +72,61 @@ func opPVQSearch(x []float64, k int) ([]int, float64) {
 			sum = 1.0
 		}
 
-		rcp := (float64(k) + 0.8) / sum
+		// Using K+0.8 guarantees we cannot get more than K pulses.
+		// Reference: libopus vq.c lines 266-267
+		rcp := (float32(k) + 0.8) / sum
 		for j := 0; j < n; j++ {
-			iy[j] = int(math.Floor(rcp * absX[j]))
-			y[j] = float64(iy[j])
+			// It's important to round towards zero here (floor for positive values)
+			// Reference: libopus vq.c line 274
+			iy[j] = int(math.Floor(float64(rcp * absX[j])))
+			y[j] = float32(iy[j])
 			yy += y[j] * y[j]
 			xy += absX[j] * y[j]
+			// We multiply y[j] by 2 so we don't have to do it in the main loop
+			// Reference: libopus vq.c line 279
 			y[j] *= 2
 			pulsesLeft -= iy[j]
 		}
 	}
 
+	// Safety check: if pulsesLeft is way too large, dump them in first bin.
+	// This should never happen except on silence or corrupt data.
+	// Reference: libopus vq.c lines 290-297
 	if pulsesLeft > n+3 {
-		tmp := float64(pulsesLeft)
+		tmp := float32(pulsesLeft)
 		yy += tmp * tmp
 		yy += tmp * y[0]
 		iy[0] += pulsesLeft
 		pulsesLeft = 0
 	}
 
+	// Main greedy search loop: place remaining pulses one at a time.
+	// For each pulse, find the position that maximizes Rxy/sqrt(Ryy).
+	// Reference: libopus vq.c lines 299-362
 	for i := 0; i < pulsesLeft; i++ {
 		bestID := 0
+		// The squared magnitude term gets added anyway, so we add it outside the loop
+		// Reference: libopus vq.c line 314
 		yy += 1
 
+		// Calculations for position 0 are out of the loop to reduce branch mispredictions
+		// Reference: libopus vq.c lines 318-328
 		rxy := xy + absX[0]
-		ryy := yy + y[0]
+		ryy := yy + y[0] // y[j] is pre-multiplied by 2
+		// Approximate score: we maximise Rxy/sqrt(Ryy)
+		// Rxy is guaranteed positive because signs are pre-computed
 		bestNum := rxy * rxy
 		bestDen := ryy
 
+		// Search remaining positions
+		// Reference: libopus vq.c lines 329-351
 		for j := 1; j < n; j++ {
 			rxy = xy + absX[j]
 			ryy = yy + y[j]
 			num := rxy * rxy
+			// Compare num/den vs bestNum/bestDen without division:
+			// num/den > bestNum/bestDen  <=>  den*num > bestDen*bestNum (for positive den, bestDen)
+			// Reference: libopus vq.c line 345
 			if bestDen*num > ryy*bestNum {
 				bestDen = ryy
 				bestNum = num
@@ -92,19 +134,24 @@ func opPVQSearch(x []float64, k int) ([]int, float64) {
 			}
 		}
 
+		// Update running sums for the chosen position
+		// Reference: libopus vq.c lines 353-361
 		xy += absX[bestID]
 		yy += y[bestID]
-		y[bestID] += 2
+		y[bestID] += 2 // Keep y[j] = 2*iy[j] invariant
 		iy[bestID]++
 	}
 
+	// Put the original signs back
+	// Reference: libopus vq.c lines 364-371
+	// The XOR trick: (iy[j]^-signx[j]) + signx[j] negates iy[j] if signx[j]=1
 	for j := 0; j < n; j++ {
 		if signx[j] != 0 {
 			iy[j] = -iy[j]
 		}
 	}
 
-	return iy, yy
+	return iy, float64(yy)
 }
 
 func opPVQSearchN2(x []float64, k, up int) (iy []int, upIy []int, refine int) {

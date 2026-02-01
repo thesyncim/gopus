@@ -35,12 +35,20 @@ const (
 //   - Hybrid: combines SILK and CELT for wideband speech
 //
 // The mode is automatically selected based on the Application hint and bandwidth settings.
+//
+// Zero-allocation design: All scratch buffers are pre-allocated at construction time.
+// The Encode and EncodeInt16 methods perform zero heap allocations in the hot path
+// when called with properly sized caller-provided buffers.
 type Encoder struct {
 	enc         *encoder.Encoder
 	sampleRate  int
 	channels    int
 	frameSize   int
 	application Application
+
+	// Scratch buffers for zero-allocation encoding
+	scratchPCM64 []float64 // float32 to float64 conversion buffer
+	scratchPCM32 []float32 // int16 to float32 conversion buffer
 }
 
 // NewEncoder creates a new Opus encoder.
@@ -58,12 +66,17 @@ func NewEncoder(sampleRate, channels int, application Application) (*Encoder, er
 		return nil, ErrInvalidChannels
 	}
 
+	// Max frame size is 2880 samples (60ms at 48kHz) per channel
+	maxSamples := 2880 * channels
+
 	enc := &Encoder{
-		enc:         encoder.NewEncoder(sampleRate, channels),
-		sampleRate:  sampleRate,
-		channels:    channels,
-		frameSize:   960, // Default 20ms at 48kHz
-		application: application,
+		enc:          encoder.NewEncoder(sampleRate, channels),
+		sampleRate:   sampleRate,
+		channels:     channels,
+		frameSize:    960, // Default 20ms at 48kHz
+		application:  application,
+		scratchPCM64: make([]float64, maxSamples),
+		scratchPCM32: make([]float32, maxSamples),
 	}
 
 	// Apply application hint
@@ -105,8 +118,8 @@ func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 		return 0, ErrInvalidFrameSize
 	}
 
-	// Convert float32 to float64 for internal encoder
-	pcm64 := make([]float64, len(pcm))
+	// Convert float32 to float64 using pre-allocated scratch buffer (zero allocs)
+	pcm64 := e.scratchPCM64[:len(pcm)]
 	for i, v := range pcm {
 		pcm64[i] = float64(v)
 	}
@@ -139,8 +152,8 @@ func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 //
 // The samples are converted from int16 by dividing by 32768.
 func (e *Encoder) EncodeInt16(pcm []int16, data []byte) (int, error) {
-	// Convert int16 to float32
-	pcm32 := make([]float32, len(pcm))
+	// Convert int16 to float32 using pre-allocated scratch buffer (zero allocs)
+	pcm32 := e.scratchPCM32[:len(pcm)]
 	for i, v := range pcm {
 		pcm32[i] = float32(v) / 32768.0
 	}

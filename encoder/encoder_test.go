@@ -392,7 +392,9 @@ func TestDownsample48to16(t *testing.T) {
 	// 960 samples at 48kHz should become 320 samples at 16kHz
 	pcm := generateTestSignal(960, 1)
 
-	downsampled := encoder.Downsample48to16(pcm, 1)
+	// Create an encoder to access the downsampling method
+	enc := encoder.NewEncoder(48000, 1)
+	downsampled := enc.Downsample48to16Improved(pcm)
 
 	expectedLen := 960 / 3
 	if len(downsampled) != expectedLen {

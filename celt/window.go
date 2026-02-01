@@ -175,3 +175,10 @@ func WindowEnergy(overlap int) float64 {
 	// The other half contributes equally
 	return 2 * energy
 }
+
+// GetWindow returns the standard CELT overlap window (120 samples).
+// This is used for gain fading in hybrid mode to ensure smooth transitions.
+// Returns nil if the window is not available.
+func GetWindow() []float64 {
+	return GetWindowBuffer(Overlap)
+}

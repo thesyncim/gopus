@@ -95,6 +95,15 @@ type Encoder struct {
 	silkSideFrameBuffer  []float32 // Side channel buffer for stereo hybrid
 	silkBufferFilled     int       // Number of samples currently buffered
 	silkSideBufferFilled int       // Side channel buffer fill level
+
+	// Hybrid mode state for improved SILK/CELT coordination
+	// Contains HB_gain, resampler state, and crossover energy matching
+	hybridState *HybridState
+
+	// Scratch buffers for zero-allocation encoding
+	scratchPCM32 []float32 // float64 to float32 conversion buffer
+	scratchLeft  []float32 // Left channel deinterleave buffer
+	scratchRight []float32 // Right channel deinterleave buffer
 }
 
 // NewEncoder creates a new unified Opus encoder.
@@ -120,6 +129,9 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		channels = 2
 	}
 
+	// Max frame size is 2880 samples (60ms at 48kHz) per channel
+	maxSamples := 2880 * channels
+
 	return &Encoder{
 		mode:                ModeAuto,
 		bandwidth:           types.BandwidthFullband,
@@ -139,6 +151,9 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		silkFrameBuffer:     make([]float32, 320),          // 20ms at 16kHz for SILK buffering
 		silkSideFrameBuffer: make([]float32, 320),          // 20ms at 16kHz for stereo side channel
 		silkBufferFilled:    0,
+		scratchPCM32:        make([]float32, maxSamples),   // float64 to float32 conversion
+		scratchLeft:         make([]float32, 2880),         // Stereo deinterleave buffer
+		scratchRight:        make([]float32, 2880),         // Stereo deinterleave buffer
 	}
 }
 
@@ -464,30 +479,33 @@ func (e *Encoder) selectMode(frameSize int) Mode {
 }
 
 // encodeSILKFrame encodes a frame using SILK-only mode.
+// Uses pre-allocated scratch buffers for zero allocations in hot path.
 func (e *Encoder) encodeSILKFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Ensure SILK encoder exists
 	e.ensureSILKEncoder()
 
-	// Convert to float32 for SILK
-	pcm32 := make([]float32, len(pcm))
+	// Convert to float32 for SILK using pre-allocated scratch buffer
+	pcm32 := e.scratchPCM32[:len(pcm)]
 	for i, v := range pcm {
 		pcm32[i] = float32(v)
 	}
 
 	// For stereo, need to handle separately
 	if e.channels == 2 {
-		// Deinterleave
-		left := make([]float32, frameSize)
-		right := make([]float32, frameSize)
+		// Ensure side encoder exists for stereo
+		e.ensureSILKSideEncoder()
+		// Deinterleave using pre-allocated scratch buffers
+		left := e.scratchLeft[:frameSize]
+		right := e.scratchRight[:frameSize]
 		for i := 0; i < frameSize; i++ {
 			left[i] = pcm32[i*2]
 			right[i] = pcm32[i*2+1]
 		}
-		return silk.EncodeStereo(left, right, e.silkBandwidth(), true)
+		return silk.EncodeStereoWithEncoder(e.silkEncoder, e.silkSideEncoder, left, right, e.silkBandwidth(), true)
 	}
 
-	// Mono encoding
-	return silk.Encode(pcm32, e.silkBandwidth(), true)
+	// Mono encoding using persistent encoder
+	return silk.EncodeWithEncoder(e.silkEncoder, pcm32, e.silkBandwidth(), true)
 }
 
 // encodeCELTFrame encodes a frame using CELT-only mode.
