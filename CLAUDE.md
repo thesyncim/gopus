@@ -28,7 +28,7 @@ Always use this reference when implementing features or debugging discrepancies.
 | PLC | ✅ Complete | LTP coefficients, frame gluing |
 | DTX | ✅ Complete | Multi-band VAD implemented |
 | Hybrid | ✅ Improved | Proper bit allocation, HB_gain, crossover |
-| Allocations | ⚠️ ~1/34 | Round 7: CELT 1 alloc (BuildPacket), SILK 34 allocs |
+| Allocations | ✅ CELT 0, ⚠️ SILK 24 | Round 7: CELT achieved ZERO allocations! |
 
 ---
 
@@ -348,14 +348,24 @@ go build ./...  # ✅ Success
 go test ./... -count=1  # ✅ All packages pass
 ```
 
-### Allocation Status (Round 7)
+### Allocation Status (Round 7 - CELT ZERO ALLOCS ACHIEVED!)
 ```
-Encoder (CELT Mono):   1 allocs/op   (was 4, 75% reduction - BuildPacket only)
-Encoder (CELT Stereo): 1 allocs/op   (was 6, 83% reduction)
-Encoder (VoIP/SILK):   34 allocs/op  (was 38, 11% reduction)
+Encoder (CELT Mono):   0 allocs/op   ✅ ZERO ALLOCATIONS!
+Encoder (CELT Stereo): 0 allocs/op   ✅ ZERO ALLOCATIONS!
+Encoder (CELT LowDelay): 0 allocs/op ✅ ZERO ALLOCATIONS!
+Encoder (VoIP/SILK):   24 allocs/op  (was 38, 37% reduction)
 Target:                0 allocs/op
 
-Note: The remaining 1 alloc in CELT is BuildPacket which must allocate
-because the API returns ownership of the packet slice. Zero allocs would
-require API change to caller-provided output buffer.
+Key changes for zero-alloc CELT:
+- BuildPacketInto writes to scratch buffer
+- Top-level API copies to caller-provided buffer
+- Range encoder reused via scratch struct
+- NormalizeBandsToArrayInto uses scratch buffers
+
+Remaining SILK allocators (need scratch buffers):
+- detectPitch (25%)
+- computeNSQExcitation (11%)
+- rangecoding.SaveStateInto (10%)
+- computeStage2ResidualsLibopus (5%)
+- downsampleLowpass (5%)
 ```
