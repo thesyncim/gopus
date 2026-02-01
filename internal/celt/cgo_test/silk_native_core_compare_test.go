@@ -58,9 +58,10 @@ func TestSilkNativeCorePacket1AfterPacket0(t *testing.T) {
 
 		var rd rangecoding.Decoder
 		rd.Init(pkt[1:])
-		goNative, err := goDec.DecodeFrame(&rd, silkBW, duration, true)
+		// Use DecodeFrameRaw to get raw core output without delay compensation
+		goNative, err := goDec.DecodeFrameRaw(&rd, silkBW, duration, true)
 		if err != nil {
-			t.Fatalf("gopus DecodeFrame failed: %v", err)
+			t.Fatalf("gopus DecodeFrameRaw failed: %v", err)
 		}
 
 		libNative, err := libState.DecodePacketNativeCore(pkt[1:], fsKHz, nbSubfr, framesPerPacket)
@@ -197,9 +198,10 @@ func TestSilkNativeCoreFirstMismatch(t *testing.T) {
 
 		var rd rangecoding.Decoder
 		rd.Init(pkt[1:])
-		goNative, err := goDec.DecodeFrame(&rd, silkBW, duration, true)
+		// Use DecodeFrameRaw to get raw core output without delay compensation
+		goNative, err := goDec.DecodeFrameRaw(&rd, silkBW, duration, true)
 		if err != nil {
-			t.Fatalf("gopus DecodeFrame failed: %v", err)
+			t.Fatalf("gopus DecodeFrameRaw failed: %v", err)
 		}
 		libNative, err := libState.DecodePacketNativeCore(pkt[1:], fsKHz, nbSubfr, framesPerPacket)
 		if err != nil {
