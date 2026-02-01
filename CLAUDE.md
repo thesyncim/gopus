@@ -28,7 +28,7 @@ Always use this reference when implementing features or debugging discrepancies.
 | PLC | ✅ Complete | LTP coefficients, frame gluing |
 | DTX | ✅ Complete | Multi-band VAD implemented |
 | Hybrid | ✅ Improved | Proper bit allocation, HB_gain, crossover |
-| Allocations | ⚠️ ~279/1 | CELT decoder 98% reduction, FEC implemented |
+| Allocations | ⚠️ ~72/5 | Round 5: 74% encoder, 64% SILK decoder reduction |
 
 ---
 
@@ -329,19 +329,18 @@ test(encoder): add comprehensive round-trip tests
 ## Build Status
 
 ```bash
-# Last verified: 2026-02-01 (after round 4)
+# Last verified: 2026-02-01 (after round 5)
 go build ./...  # ✅ Success
 go test ./... -count=1  # ✅ All packages pass
-go test -bench=. -benchmem  # ✅ Benchmarks available
 ```
 
-### Allocation Status
+### Allocation Status (Round 5)
 ```
-Decoder (CELT):   1 alloc/op      (was ~59, 98% reduction!)
-Decoder (SILK):   14 allocs/op
-Decoder (Hybrid): 22 allocs/op
-Encoder (Audio):  279 allocs/op   (was ~288)
-Encoder (VoIP):   43 allocs/op
-Round-trip:       280 allocs/op   (was ~498, 44% reduction!)
+Decoder (CELT):   1 alloc/op
+Decoder (SILK):   5 allocs/op    (was 14, 64% reduction)
+Decoder (Hybrid): 10 allocs/op   (was 22, 55% reduction)
+Encoder (Mono):   72 allocs/op   (was 279, 74% reduction)
+Encoder (Stereo): 82 allocs/op   (was 1196, 93% reduction!)
+Round-trip:       73 allocs/op   (was 280, 74% reduction)
 Target:           0 allocs/op
 ```
