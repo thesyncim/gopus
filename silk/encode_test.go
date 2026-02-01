@@ -382,11 +382,14 @@ func TestStereoWeightEncoding(t *testing.T) {
 	t.Logf("Stereo weights: w0=%d, w1=%d (Q13)", weights[0], weights[1])
 
 	// Verify weights are in reasonable range
-	if weights[0] < -8192 || weights[0] > 8192 {
-		t.Errorf("Weight w0 out of range: %d", weights[0])
+	// libopus clamps to Q14 range: [-16384, 16384] which represents [-2, 2] in Q13
+	// This matches silk_stereo_find_predictor.c line 57:
+	// pred_Q13 = silk_LIMIT( pred_Q13, -(1 << 14), 1 << 14 );
+	if weights[0] < -16384 || weights[0] > 16384 {
+		t.Errorf("Weight w0 out of range: %d (expected [-16384, 16384])", weights[0])
 	}
-	if weights[1] < -8192 || weights[1] > 8192 {
-		t.Errorf("Weight w1 out of range: %d", weights[1])
+	if weights[1] < -16384 || weights[1] > 16384 {
+		t.Errorf("Weight w1 out of range: %d (expected [-16384, 16384])", weights[1])
 	}
 }
 

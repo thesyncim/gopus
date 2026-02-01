@@ -109,6 +109,11 @@ func (d *Decoder) DecodeFrame(
 		silkDecodeParameters(st, &ctrl, condCoding)
 		silkDecodeCore(st, &ctrl, frameOut, pulses)
 		silkUpdateOutBuf(st, frameOut)
+
+		// Apply PLC glue frames for smooth transition from concealed to real frames.
+		// This must be called after updating outBuf and before resetting lossCnt.
+		silkPLCGlueFrames(st, frameOut, frameLength)
+
 		st.lossCnt = 0
 		st.lagPrev = ctrl.pitchL[st.nbSubfr-1]
 		st.prevSignalType = int(st.indices.signalType)
@@ -211,6 +216,11 @@ func (d *Decoder) DecodeFrameRaw(
 		silkDecodeParameters(st, &ctrl, condCoding)
 		silkDecodeCore(st, &ctrl, frameOut, pulses)
 		silkUpdateOutBuf(st, frameOut)
+
+		// Apply PLC glue frames for smooth transition from concealed to real frames.
+		// This must be called after updating outBuf and before resetting lossCnt.
+		silkPLCGlueFrames(st, frameOut, frameLength)
+
 		st.lossCnt = 0
 		st.lagPrev = ctrl.pitchL[st.nbSubfr-1]
 		st.prevSignalType = int(st.indices.signalType)
@@ -312,6 +322,10 @@ func (d *Decoder) DecodeFrameWithTrace(
 		// Use tracing version if callback provided
 		silkDecodeCoreWithTrace(st, &ctrl, frameOut, pulses, i, trace)
 		silkUpdateOutBuf(st, frameOut)
+
+		// Apply PLC glue frames for smooth transition from concealed to real frames.
+		silkPLCGlueFrames(st, frameOut, frameLength)
+
 		st.lossCnt = 0
 		st.lagPrev = ctrl.pitchL[st.nbSubfr-1]
 		st.prevSignalType = int(st.indices.signalType)
@@ -500,6 +514,10 @@ func (d *Decoder) DecodeStereoFrame(
 		silkDecodeParameters(stMid, &ctrlMid, condMid)
 		silkDecodeCore(stMid, &ctrlMid, midOut, pulsesMid)
 		silkUpdateOutBuf(stMid, midOut)
+
+		// Apply PLC glue frames for smooth transition from concealed to real frames.
+		silkPLCGlueFrames(stMid, midOut, frameLength)
+
 		stMid.lossCnt = 0
 		stMid.lagPrev = ctrlMid.pitchL[stMid.nbSubfr-1]
 		stMid.prevSignalType = int(stMid.indices.signalType)
@@ -523,6 +541,10 @@ func (d *Decoder) DecodeStereoFrame(
 			silkDecodeParameters(stSide, &ctrlSide, condSide)
 			silkDecodeCore(stSide, &ctrlSide, sideOut, pulsesSide)
 			silkUpdateOutBuf(stSide, sideOut)
+
+			// Apply PLC glue frames for side channel.
+			silkPLCGlueFrames(stSide, sideOut, frameLength)
+
 			stSide.lossCnt = 0
 			stSide.lagPrev = ctrlSide.pitchL[stSide.nbSubfr-1]
 			stSide.prevSignalType = int(stSide.indices.signalType)
@@ -650,6 +672,10 @@ func (d *Decoder) decodeStereoMidNative(
 		silkDecodeParameters(stMid, &ctrlMid, condMid)
 		silkDecodeCore(stMid, &ctrlMid, midOut, pulsesMid)
 		silkUpdateOutBuf(stMid, midOut)
+
+		// Apply PLC glue frames for smooth transition from concealed to real frames.
+		silkPLCGlueFrames(stMid, midOut, frameLength)
+
 		stMid.lossCnt = 0
 		stMid.lagPrev = ctrlMid.pitchL[stMid.nbSubfr-1]
 		stMid.prevSignalType = int(stMid.indices.signalType)
@@ -674,6 +700,10 @@ func (d *Decoder) decodeStereoMidNative(
 			sideOut := make([]int16, frameLength)
 			silkDecodeCore(stSide, &ctrlSide, sideOut, pulsesSide)
 			silkUpdateOutBuf(stSide, sideOut)
+
+			// Apply PLC glue frames for side channel.
+			silkPLCGlueFrames(stSide, sideOut, frameLength)
+
 			stSide.lossCnt = 0
 			stSide.lagPrev = ctrlSide.pitchL[stSide.nbSubfr-1]
 			stSide.prevSignalType = int(stSide.indices.signalType)

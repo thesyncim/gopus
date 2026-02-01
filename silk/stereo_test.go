@@ -3,6 +3,8 @@ package silk
 import (
 	"math"
 	"testing"
+
+	"github.com/thesyncim/gopus/rangecoding"
 )
 
 func TestStereoUnmixBasic(t *testing.T) {
@@ -208,13 +210,164 @@ func TestSamplesPerSubframe(t *testing.T) {
 }
 
 func TestStereoPredWeights(t *testing.T) {
-	// Verify stereo prediction weight table is symmetric
-	for i := 0; i < 4; i++ {
+	// Verify stereo prediction weight table from libopus is symmetric
+	// The table silk_stereo_pred_quant_Q13 has 16 entries
+	for i := 0; i < 8; i++ {
 		// Weights should be symmetric around midpoint
-		// stereoPredWeights[i] should relate to stereoPredWeights[7-i]
-		if stereoPredWeights[i] != -stereoPredWeights[7-i] {
-			t.Errorf("stereoPredWeights[%d] = %d should be negative of stereoPredWeights[%d] = %d",
-				i, stereoPredWeights[i], 7-i, stereoPredWeights[7-i])
+		if silk_stereo_pred_quant_Q13[i] != -silk_stereo_pred_quant_Q13[15-i] {
+			t.Errorf("silk_stereo_pred_quant_Q13[%d] = %d should be negative of silk_stereo_pred_quant_Q13[%d] = %d",
+				i, silk_stereo_pred_quant_Q13[i], 15-i, silk_stereo_pred_quant_Q13[15-i])
+		}
+	}
+}
+
+func TestStereoQuantPred80Levels(t *testing.T) {
+	// Test that stereoQuantPred produces valid indices for various Q13 values
+	testCases := []struct {
+		name     string
+		predQ13  [2]int32
+		wantIx0  [3]int8 // Expected ix[0] ranges: [0][0-2], [1][0-4], [2][0-4]
+		wantIx1  [3]int8 // Expected ix[1] ranges
+	}{
+		{
+			name:    "zero predictors",
+			predQ13: [2]int32{0, 0},
+		},
+		{
+			name:    "positive predictor",
+			predQ13: [2]int32{5000, 0},
+		},
+		{
+			name:    "negative predictor",
+			predQ13: [2]int32{-5000, 0},
+		},
+		{
+			name:    "both predictors",
+			predQ13: [2]int32{3000, -2000},
+		},
+		{
+			name:    "extreme positive",
+			predQ13: [2]int32{13732, 13732},
+		},
+		{
+			name:    "extreme negative",
+			predQ13: [2]int32{-13732, -13732},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			predQ13 := tc.predQ13
+			ix := stereoQuantPred(&predQ13)
+
+			// Verify index ranges
+			for n := 0; n < 2; n++ {
+				if ix.Ix[n][0] < 0 || ix.Ix[n][0] > 2 {
+					t.Errorf("ix[%d][0] = %d, want [0, 2]", n, ix.Ix[n][0])
+				}
+				if ix.Ix[n][1] < 0 || ix.Ix[n][1] > 4 {
+					t.Errorf("ix[%d][1] = %d, want [0, 4]", n, ix.Ix[n][1])
+				}
+				if ix.Ix[n][2] < 0 || ix.Ix[n][2] > 4 {
+					t.Errorf("ix[%d][2] = %d, want [0, 4]", n, ix.Ix[n][2])
+				}
+			}
+
+			// Verify joint index is valid (< 25)
+			jointIdx := 5*int(ix.Ix[0][2]) + int(ix.Ix[1][2])
+			if jointIdx >= 25 {
+				t.Errorf("joint index = %d, want < 25", jointIdx)
+			}
+		})
+	}
+}
+
+func TestStereoQuantPredDeltaCoding(t *testing.T) {
+	// Test that delta coding is applied: predQ13[0] -= predQ13[1]
+	predQ13 := [2]int32{5000, 3000}
+	originalPred0 := predQ13[0]
+	originalPred1 := predQ13[1]
+
+	_ = stereoQuantPred(&predQ13)
+
+	// After quantization, predQ13[0] should be the quantized delta
+	// predQ13[1] should be the quantized second predictor
+	// The relationship: quantized_pred0_original = predQ13[0] + predQ13[1]
+
+	// We can't test exact values since quantization changes them,
+	// but we can verify the delta relationship holds approximately
+	reconstructedPred0 := predQ13[0] + predQ13[1]
+
+	// The reconstructed value should be close to the original (within quantization error)
+	// The quantization step is roughly (max-min)/80 levels
+	maxError := int32(2000) // Allow for quantization error
+
+	if absInt32(reconstructedPred0-originalPred0) > maxError {
+		t.Errorf("reconstructed pred[0] = %d, original = %d, difference = %d exceeds max error %d",
+			reconstructedPred0, originalPred0, absInt32(reconstructedPred0-originalPred0), maxError)
+	}
+	if absInt32(predQ13[1]-originalPred1) > maxError {
+		t.Errorf("quantized pred[1] = %d, original = %d, difference = %d exceeds max error %d",
+			predQ13[1], originalPred1, absInt32(predQ13[1]-originalPred1), maxError)
+	}
+}
+
+func TestStereoEncodePredRoundtrip(t *testing.T) {
+	// Test encoding stereo prediction indices
+	testCases := []struct {
+		name    string
+		predQ13 [2]int32
+	}{
+		{"zero", [2]int32{0, 0}},
+		{"positive", [2]int32{5000, 2000}},
+		{"negative", [2]int32{-5000, -2000}},
+		{"mixed", [2]int32{3000, -3000}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Quantize
+			predQ13 := tc.predQ13
+			ix := stereoQuantPred(&predQ13)
+
+			// Encode to bitstream
+			buf := make([]byte, 100)
+			var enc rangecoding.Encoder
+			enc.Init(buf)
+			stereoEncodePred(&enc, ix)
+			encoded := enc.Done()
+
+			// Verify something was encoded (non-empty)
+			if len(encoded) == 0 {
+				t.Error("encoded data is empty")
+			}
+		})
+	}
+}
+
+func TestSmulwb(t *testing.T) {
+	// Test SMULWB: (a * int16(b)) >> 16
+	// Note: b is truncated to int16, so only bottom 16 bits are used
+	// int16 range is [-32768, 32767], so 32768 becomes -32768
+	testCases := []struct {
+		a, b int32
+		want int32
+	}{
+		// Using values that fit in int16 for b
+		{65536, 16384, 16384},  // 65536 * 16384 >> 16 = 16384
+		{65536, -16384, -16384}, // 65536 * -16384 >> 16 = -16384
+		{131072, 16384, 32768}, // 131072 * 16384 >> 16 = 32768
+		{-65536, 16384, -16384}, // -65536 * 16384 >> 16 = -16384
+		{0, 16384, 0},          // 0 * anything = 0
+		{65536, 0, 0},          // anything * 0 = 0
+		// Note: 32768 overflows int16 to -32768
+		{65536, 32768, -32768}, // 65536 * int16(32768)=-32768 >> 16 = -32768
+	}
+
+	for _, tc := range testCases {
+		got := smulwb(tc.a, tc.b)
+		if got != tc.want {
+			t.Errorf("smulwb(%d, %d) = %d, want %d", tc.a, tc.b, got, tc.want)
 		}
 	}
 }

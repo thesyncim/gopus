@@ -1,5 +1,51 @@
 package plc
 
+import (
+	"math"
+)
+
+// Constants from libopus silk/PLC.h
+const (
+	// ltpOrder is the number of LTP filter taps (5-tap filter).
+	ltpOrder = 5
+
+	// maxLPCOrder is the maximum LPC order (16 for WB, 10 for NB/MB).
+	maxLPCOrder = 16
+
+	// bweCoef is the bandwidth expansion coefficient for LPC during PLC.
+	// Applied to prevent filter instability during concealment.
+	bweCoef = 0.99
+
+	// vPitchGainStartMinQ14 is the minimum LTP gain (0.7 in Q14).
+	// LTP gains below this are scaled up for better concealment.
+	vPitchGainStartMinQ14 = 11469
+
+	// vPitchGainStartMaxQ14 is the maximum LTP gain (0.95 in Q14).
+	// LTP gains above this are scaled down to prevent instability.
+	vPitchGainStartMaxQ14 = 15565
+
+	// maxPitchLagMs is the maximum pitch lag in milliseconds.
+	maxPitchLagMs = 18
+
+	// randBufSize is the size of the random noise buffer.
+	randBufSize = 128
+
+	// randBufMask is used for random buffer index masking.
+	randBufMask = randBufSize - 1
+
+	// pitchDriftFacQ16 is the pitch lag drift factor (0.01 in Q16).
+	// Pitch lag slowly increases during extended loss.
+	pitchDriftFacQ16 = 655
+
+	// Attenuation constants (Q15 format)
+	harmAttQ15_0    = 32440 // 0.99 - first lost frame
+	harmAttQ15_1    = 31130 // 0.95 - subsequent frames
+	randAttVQ15_0   = 31130 // 0.95 - voiced first frame
+	randAttVQ15_1   = 26214 // 0.8 - voiced subsequent
+	randAttUVQ15_0  = 32440 // 0.99 - unvoiced first frame
+	randAttUVQ15_1  = 29491 // 0.9 - unvoiced subsequent
+)
+
 // SILKDecoderState provides access to SILK decoder state needed for PLC.
 // This interface allows PLC to access decoder state without importing the silk package.
 type SILKDecoderState interface {
@@ -13,6 +59,229 @@ type SILKDecoderState interface {
 	OutputHistory() []float32
 	// HistoryIndex returns the current position in the history buffer.
 	HistoryIndex() int
+}
+
+// SILKDecoderStateExtended provides extended SILK decoder state access for LTP-aware PLC.
+// Implementations should provide this interface for full LTP coefficient support.
+type SILKDecoderStateExtended interface {
+	SILKDecoderState
+
+	// GetLastSignalType returns 0=inactive, 1=unvoiced, 2=voiced.
+	GetLastSignalType() int
+
+	// GetLTPCoefficients returns the LTP coefficients from the last good frame.
+	// Returns 5 coefficients in Q14 format.
+	GetLTPCoefficients() [ltpOrder]int16
+
+	// GetPitchLag returns the pitch lag from the last good frame.
+	GetPitchLag() int
+
+	// GetLastGain returns the gain from the last subframe (Q16 format).
+	GetLastGain() int32
+
+	// GetLTPScale returns the LTP scale factor (Q14 format).
+	GetLTPScale() int32
+
+	// GetExcitationHistory returns the excitation signal history (Q14 format).
+	GetExcitationHistory() []int32
+
+	// GetLPCCoefficientsQ12 returns LPC coefficients in Q12 format.
+	GetLPCCoefficientsQ12() []int16
+
+	// GetSampleRateKHz returns the sample rate in kHz (8, 12, or 16).
+	GetSampleRateKHz() int
+
+	// GetSubframeLength returns the subframe length in samples.
+	GetSubframeLength() int
+
+	// GetNumSubframes returns the number of subframes (2 or 4).
+	GetNumSubframes() int
+
+	// GetLTPMemoryLength returns the LTP memory length in samples.
+	GetLTPMemoryLength() int
+}
+
+// SILKPLCState stores persistent state for SILK PLC across lost frames.
+// This mirrors the silk_PLC_struct from libopus.
+type SILKPLCState struct {
+	// LTP coefficients from the last good voiced frame (Q14)
+	LTPCoefQ14 [ltpOrder]int16
+
+	// Pitch lag in Q8 format for sub-sample precision
+	PitchLQ8 int32
+
+	// Previous gains from last 2 subframes (Q16)
+	PrevGainQ16 [2]int32
+
+	// Previous LPC coefficients (Q12)
+	PrevLPCQ12 [maxLPCOrder]int16
+
+	// Previous LTP scale factor (Q14)
+	PrevLTPScaleQ14 int32
+
+	// Random scale for noise mixing (Q14)
+	RandScaleQ14 int16
+
+	// Random seed for noise generation
+	RandSeed int32
+
+	// Sample rate in kHz
+	FsKHz int
+
+	// Subframe length
+	SubfrLength int
+
+	// Number of subframes
+	NbSubfr int
+
+	// LPC order
+	LPCOrder int
+
+	// Concealed frame energy for glue frames
+	ConcEnergy      int32
+	ConcEnergyShift int
+
+	// Flag indicating if last frame was lost
+	LastFrameLost bool
+}
+
+// NewSILKPLCState creates a new SILK PLC state with default values.
+func NewSILKPLCState() *SILKPLCState {
+	return &SILKPLCState{
+		// Default pitch lag: half frame length in Q8
+		// 160 samples * 256 / 2 = 20480 (10ms at 16kHz)
+		PitchLQ8: 160 << 7, // 160 samples = 10ms at 16kHz
+
+		// Initialize gains to 1.0 (Q16)
+		PrevGainQ16: [2]int32{1 << 16, 1 << 16},
+
+		// Default subframe parameters
+		SubfrLength: 80, // 5ms at 16kHz
+		NbSubfr:     4,
+		FsKHz:       16,
+		LPCOrder:    16,
+
+		// Initial random scale (1.0 in Q14)
+		RandScaleQ14: 1 << 14,
+
+		// Initial random seed
+		RandSeed: 22222,
+	}
+}
+
+// Reset resets the PLC state for a new stream.
+func (s *SILKPLCState) Reset(frameLength int) {
+	s.PitchLQ8 = int32(frameLength) << 7 // Half frame length in Q8
+
+	s.PrevGainQ16[0] = 1 << 16
+	s.PrevGainQ16[1] = 1 << 16
+
+	s.SubfrLength = 80
+	s.NbSubfr = 4
+
+	for i := range s.LTPCoefQ14 {
+		s.LTPCoefQ14[i] = 0
+	}
+
+	for i := range s.PrevLPCQ12 {
+		s.PrevLPCQ12[i] = 0
+	}
+
+	s.PrevLTPScaleQ14 = 0
+	s.RandScaleQ14 = 1 << 14
+	s.RandSeed = 22222
+	s.LastFrameLost = false
+}
+
+// UpdateFromGoodFrame updates PLC state from a successfully decoded frame.
+// This should be called after each good frame to prepare for potential future losses.
+// This mirrors silk_PLC_update from libopus.
+func (s *SILKPLCState) UpdateFromGoodFrame(
+	signalType int, // 0=inactive, 1=unvoiced, 2=voiced
+	pitchL []int, // Pitch lags for each subframe
+	ltpCoefQ14 []int16, // LTP coefficients for all subframes (nbSubfr * ltpOrder)
+	ltpScaleQ14 int32, // LTP scale factor
+	gainsQ16 []int32, // Gains for each subframe (Q16)
+	lpcQ12 []int16, // LPC coefficients (Q12)
+	fsKHz int,
+	nbSubfr int,
+	subfrLength int,
+) {
+	s.FsKHz = fsKHz
+	s.SubfrLength = subfrLength
+	s.NbSubfr = nbSubfr
+	s.LPCOrder = len(lpcQ12)
+
+	// Save LPC coefficients
+	copy(s.PrevLPCQ12[:], lpcQ12)
+
+	// Save last two gains
+	if len(gainsQ16) >= 2 {
+		s.PrevGainQ16[0] = gainsQ16[len(gainsQ16)-2]
+		s.PrevGainQ16[1] = gainsQ16[len(gainsQ16)-1]
+	}
+
+	if signalType == 2 { // Voiced
+		// Find the subframe with the highest LTP gain to use for concealment
+		var ltpGainQ14 int32
+		var tempLtpGainQ14 int32
+
+		for j := 0; j*subfrLength < pitchL[nbSubfr-1] && j < nbSubfr; j++ {
+			tempLtpGainQ14 = 0
+			subfrIdx := nbSubfr - 1 - j
+
+			// Sum LTP coefficients for this subframe
+			for i := 0; i < ltpOrder; i++ {
+				tempLtpGainQ14 += int32(ltpCoefQ14[subfrIdx*ltpOrder+i])
+			}
+
+			if tempLtpGainQ14 > ltpGainQ14 {
+				ltpGainQ14 = tempLtpGainQ14
+
+				// Copy LTP coefficients from this subframe
+				for i := 0; i < ltpOrder; i++ {
+					s.LTPCoefQ14[i] = ltpCoefQ14[subfrIdx*ltpOrder+i]
+				}
+
+				// Save pitch lag in Q8
+				s.PitchLQ8 = int32(pitchL[subfrIdx]) << 8
+			}
+		}
+
+		// Center the LTP gain on the middle tap (like libopus)
+		for i := range s.LTPCoefQ14 {
+			s.LTPCoefQ14[i] = 0
+		}
+		s.LTPCoefQ14[ltpOrder/2] = int16(ltpGainQ14)
+
+		// Limit LTP coefficients to valid range
+		if ltpGainQ14 < vPitchGainStartMinQ14 {
+			// Scale up if gain is too low
+			if ltpGainQ14 > 0 {
+				scaleQ10 := (vPitchGainStartMinQ14 << 10) / ltpGainQ14
+				for i := range s.LTPCoefQ14 {
+					s.LTPCoefQ14[i] = int16((int32(s.LTPCoefQ14[i]) * scaleQ10) >> 10)
+				}
+			}
+		} else if ltpGainQ14 > vPitchGainStartMaxQ14 {
+			// Scale down if gain is too high
+			scaleQ14 := (vPitchGainStartMaxQ14 << 14) / ltpGainQ14
+			for i := range s.LTPCoefQ14 {
+				s.LTPCoefQ14[i] = int16((int32(s.LTPCoefQ14[i]) * scaleQ14) >> 14)
+			}
+		}
+
+		s.PrevLTPScaleQ14 = ltpScaleQ14
+	} else {
+		// Unvoiced: use default pitch lag
+		s.PitchLQ8 = int32(fsKHz*18) << 8 // 18ms pitch lag
+		for i := range s.LTPCoefQ14 {
+			s.LTPCoefQ14[i] = 0
+		}
+		s.PrevLTPScaleQ14 = 0
+	}
+
+	s.LastFrameLost = false
 }
 
 // ConcealSILK generates concealment audio for a lost SILK frame.
@@ -64,6 +333,246 @@ func ConcealSILK(dec SILKDecoderState, frameSize int, fadeFactor float64) []floa
 		// Unvoiced PLC: generate comfort noise filtered by LPC
 		concealUnvoicedSILK(output, prevLPC, order, fadeFactor, &rng)
 	}
+
+	return output
+}
+
+// ConcealSILKWithLTP generates concealment using full LTP coefficient support.
+// This is the enhanced version that uses LTP coefficients for better quality.
+//
+// Parameters:
+//   - dec: Extended SILK decoder state from last good frame
+//   - plcState: PLC state (will be updated)
+//   - lossCnt: Number of consecutive lost frames (0 for first loss)
+//   - frameSize: samples to generate at native SILK rate
+//
+// Returns: concealed samples at native SILK rate (int16 Q0 format)
+func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lossCnt int, frameSize int) []int16 {
+	if dec == nil || plcState == nil || frameSize <= 0 {
+		return make([]int16, frameSize)
+	}
+
+	fsKHz := dec.GetSampleRateKHz()
+	if fsKHz == 0 {
+		fsKHz = 16
+	}
+
+	nbSubfr := dec.GetNumSubframes()
+	if nbSubfr == 0 {
+		nbSubfr = 4
+	}
+
+	subfrLength := dec.GetSubframeLength()
+	if subfrLength == 0 {
+		subfrLength = 80
+	}
+
+	lpcOrder := dec.LPCOrder()
+	if lpcOrder == 0 {
+		lpcOrder = 16
+	}
+
+	ltpMemLength := dec.GetLTPMemoryLength()
+	if ltpMemLength == 0 {
+		ltpMemLength = 320
+	}
+
+	signalType := dec.GetLastSignalType()
+	prevGainQ10 := [2]int32{
+		plcState.PrevGainQ16[0] >> 6,
+		plcState.PrevGainQ16[1] >> 6,
+	}
+
+	// Get attenuation factors based on loss count
+	attIdx := lossCnt
+	if attIdx > 1 {
+		attIdx = 1
+	}
+
+	var harmGainQ15 int32
+	var randGainQ15 int32
+
+	if attIdx == 0 {
+		harmGainQ15 = harmAttQ15_0
+	} else {
+		harmGainQ15 = harmAttQ15_1
+	}
+
+	if signalType == 2 { // Voiced
+		if attIdx == 0 {
+			randGainQ15 = randAttVQ15_0
+		} else {
+			randGainQ15 = randAttVQ15_1
+		}
+	} else {
+		if attIdx == 0 {
+			randGainQ15 = randAttUVQ15_0
+		} else {
+			randGainQ15 = randAttUVQ15_1
+		}
+	}
+
+	// Apply bandwidth expansion to LPC coefficients for stability
+	lpcQ12 := make([]int16, lpcOrder)
+	copy(lpcQ12, plcState.PrevLPCQ12[:lpcOrder])
+	bwExpandQ12(lpcQ12, bweCoef)
+
+	// Initialize random scale on first lost frame
+	randScaleQ14 := plcState.RandScaleQ14
+	if lossCnt == 0 {
+		randScaleQ14 = 1 << 14 // 1.0
+
+		// For voiced frames, reduce noise based on LTP gain
+		if signalType == 2 {
+			for i := 0; i < ltpOrder; i++ {
+				randScaleQ14 -= plcState.LTPCoefQ14[i]
+			}
+			if randScaleQ14 < 3277 { // 0.2 in Q14
+				randScaleQ14 = 3277
+			}
+			// Apply LTP scale
+			randScaleQ14 = int16((int32(randScaleQ14) * plcState.PrevLTPScaleQ14) >> 14)
+		}
+	}
+
+	// Get pitch lag
+	lag := int(plcState.PitchLQ8+128) >> 8
+
+	// Prepare output buffers
+	output := make([]int16, frameSize)
+
+	// Generate excitation history buffer for random noise source
+	excHistory := dec.GetExcitationHistory()
+	randBuf := make([]int32, randBufSize)
+	if len(excHistory) > 0 {
+		// Use excitation from subframe with lower energy
+		energy1, shift1 := computeEnergy(excHistory, prevGainQ10[0], subfrLength, (nbSubfr-2)*subfrLength)
+		energy2, shift2 := computeEnergy(excHistory, prevGainQ10[1], subfrLength, (nbSubfr-1)*subfrLength)
+
+		var randStart int
+		if (energy1 >> uint(shift2)) < (energy2 >> uint(shift1)) {
+			randStart = maxInt(0, (nbSubfr-1)*subfrLength-randBufSize)
+		} else {
+			randStart = maxInt(0, nbSubfr*subfrLength-randBufSize)
+		}
+
+		for i := 0; i < randBufSize && randStart+i < len(excHistory); i++ {
+			randBuf[i] = excHistory[randStart+i]
+		}
+	}
+
+	// LTP synthesis filtering
+	sLTPQ15 := make([]int32, ltpMemLength+frameSize)
+	sLTPBufIdx := ltpMemLength
+
+	// Get output history for LPC analysis
+	outHistory := dec.OutputHistory()
+
+	// Rewhiten LTP state using LPC analysis
+	if len(outHistory) > 0 && signalType == 2 {
+		startIdx := ltpMemLength - lag - lpcOrder - ltpOrder/2
+		if startIdx <= 0 {
+			startIdx = 1
+		}
+
+		// Perform LPC analysis to get sLTP
+		sLTP := make([]int16, ltpMemLength)
+		lpcAnalysisFilter(sLTP[startIdx:], outHistory, lpcQ12, ltpMemLength-startIdx, lpcOrder, startIdx)
+
+		// Scale LTP state
+		invGainQ30 := inverse32VarQ(plcState.PrevGainQ16[1], 46)
+		if invGainQ30 > (1<<30 - 1) {
+			invGainQ30 = 1<<30 - 1
+		}
+
+		for i := startIdx + lpcOrder; i < ltpMemLength; i++ {
+			sLTPQ15[i] = smulwb(invGainQ30, int32(sLTP[i]))
+		}
+	}
+
+	randSeed := plcState.RandSeed
+	B_Q14 := plcState.LTPCoefQ14
+
+	// Process each subframe
+	sLPCQ14 := make([]int32, subfrLength+maxLPCOrder)
+
+	// Initialize sLPC from previous state
+	// (In a full implementation, this would come from decoder state)
+
+	for k := 0; k < nbSubfr; k++ {
+		// LTP prediction for voiced frames
+		if signalType == 2 {
+			predLagPtr := sLTPBufIdx - lag + ltpOrder/2
+
+			for i := 0; i < subfrLength; i++ {
+				// 5-tap LTP filter
+				ltpPredQ12 := int32(2) // Rounding
+				ltpPredQ12 = smlawb(ltpPredQ12, sLTPQ15[predLagPtr+0], int32(B_Q14[0]))
+				ltpPredQ12 = smlawb(ltpPredQ12, sLTPQ15[predLagPtr-1], int32(B_Q14[1]))
+				ltpPredQ12 = smlawb(ltpPredQ12, sLTPQ15[predLagPtr-2], int32(B_Q14[2]))
+				ltpPredQ12 = smlawb(ltpPredQ12, sLTPQ15[predLagPtr-3], int32(B_Q14[3]))
+				ltpPredQ12 = smlawb(ltpPredQ12, sLTPQ15[predLagPtr-4], int32(B_Q14[4]))
+				predLagPtr++
+
+				// Generate random noise
+				randSeed = silkRand(randSeed)
+				idx := (randSeed >> 25) & randBufMask
+				randExc := randBuf[idx]
+
+				// Combine LTP prediction with scaled noise
+				sLTPQ15[sLTPBufIdx] = (ltpPredQ12 << 2) + smulwb(int32(randScaleQ14)<<2, randExc)
+				sLTPBufIdx++
+			}
+		} else {
+			// Unvoiced: just noise
+			for i := 0; i < subfrLength; i++ {
+				randSeed = silkRand(randSeed)
+				idx := (randSeed >> 25) & randBufMask
+				randExc := randBuf[idx]
+				sLTPQ15[sLTPBufIdx] = smulwb(int32(randScaleQ14)<<2, randExc)
+				sLTPBufIdx++
+			}
+		}
+
+		// Attenuate LTP gain
+		for j := 0; j < ltpOrder; j++ {
+			B_Q14[j] = int16((int32(B_Q14[j]) * harmGainQ15) >> 15)
+		}
+
+		// Attenuate random scale
+		randScaleQ14 = int16((int32(randScaleQ14) * randGainQ15) >> 15)
+
+		// Increase pitch lag slowly
+		plcState.PitchLQ8 = plcState.PitchLQ8 + ((plcState.PitchLQ8 * pitchDriftFacQ16) >> 16)
+		maxLag := int32(maxPitchLagMs*fsKHz) << 8
+		if plcState.PitchLQ8 > maxLag {
+			plcState.PitchLQ8 = maxLag
+		}
+		lag = int(plcState.PitchLQ8+128) >> 8
+	}
+
+	// LPC synthesis filtering
+	sLPCBufIdx := ltpMemLength - maxLPCOrder
+	for i := 0; i < frameSize; i++ {
+		// LPC prediction
+		lpcPredQ10 := int32(lpcOrder >> 1) // Rounding
+		for j := 0; j < lpcOrder; j++ {
+			lpcPredQ10 = smlawb(lpcPredQ10, sLPCQ14[maxLPCOrder+i-j-1], int32(lpcQ12[j]))
+		}
+
+		// Add LTP excitation to LPC prediction
+		sLPCQ14[maxLPCOrder+i] = addSat32(sLTPQ15[sLPCBufIdx+maxLPCOrder+i], lshiftSat32(lpcPredQ10, 4))
+
+		// Scale with gain
+		outVal := smulww(sLPCQ14[maxLPCOrder+i], prevGainQ10[1])
+		output[i] = sat16(rshiftRound(outVal, 8))
+	}
+
+	// Update PLC state for next concealment
+	plcState.RandScaleQ14 = randScaleQ14
+	plcState.RandSeed = randSeed
+	plcState.LTPCoefQ14 = B_Q14
+	plcState.LastFrameLost = true
 
 	return output
 }
@@ -223,4 +732,154 @@ func ConcealSILKStereo(dec SILKDecoderState, frameSize int, fadeFactor float64) 
 	copy(right, mono)
 
 	return left, right
+}
+
+// Helper functions for fixed-point arithmetic (matching libopus)
+
+func silkRand(seed int32) int32 {
+	return seed*196314165 + 907633515
+}
+
+func smulwb(a, b int32) int32 {
+	return int32((int64(a) * int64(int16(b))) >> 16)
+}
+
+func smulww(a, b int32) int32 {
+	return int32((int64(a) * int64(b)) >> 16)
+}
+
+func smlawb(a, b, c int32) int32 {
+	return a + smulwb(b, c)
+}
+
+func rshiftRound(a int32, shift int) int32 {
+	if shift == 0 {
+		return a
+	}
+	return (a + (1 << (shift - 1))) >> shift
+}
+
+func sat16(a int32) int16 {
+	if a > 32767 {
+		return 32767
+	}
+	if a < -32768 {
+		return -32768
+	}
+	return int16(a)
+}
+
+func addSat32(a, b int32) int32 {
+	res := int64(a) + int64(b)
+	if res > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	if res < math.MinInt32 {
+		return math.MinInt32
+	}
+	return int32(res)
+}
+
+func lshiftSat32(a int32, shift int) int32 {
+	if shift == 0 {
+		return a
+	}
+	max := int32(math.MaxInt32 >> shift)
+	min := int32(math.MinInt32 >> shift)
+	if a > max {
+		return math.MaxInt32
+	}
+	if a < min {
+		return math.MinInt32
+	}
+	return a << shift
+}
+
+func inverse32VarQ(b, qRes int32) int32 {
+	if b == 0 {
+		return math.MaxInt32
+	}
+
+	// Simple approximation
+	bNorm := int32(1)
+	lshift := 0
+	for bNorm < b && lshift < 30 {
+		bNorm <<= 1
+		lshift++
+	}
+
+	result := int64(1) << qRes
+	result = result / int64(b)
+	if result > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return int32(result)
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func bwExpandQ12(ar []int16, coef float64) {
+	chirpQ16 := int32(coef * 65536.0)
+	chirpMinusOneQ16 := chirpQ16 - 65536
+
+	for i := 0; i < len(ar); i++ {
+		ar[i] = int16(rshiftRound(chirpQ16*int32(ar[i]), 16))
+		chirpQ16 = chirpQ16 + rshiftRound(chirpQ16*chirpMinusOneQ16, 16)
+	}
+}
+
+func computeEnergy(exc []int32, gainQ10 int32, length, offset int) (energy int32, shift int) {
+	var sum int64
+	for i := 0; i < length && offset+i < len(exc); i++ {
+		scaled := (int64(exc[offset+i]) * int64(gainQ10)) >> 8
+		sum += scaled * scaled
+	}
+
+	// Normalize
+	for sum > math.MaxInt32 && shift < 31 {
+		sum >>= 1
+		shift++
+	}
+
+	return int32(sum), shift
+}
+
+func lpcAnalysisFilter(out []int16, in []float32, B []int16, length, order, startIdx int) {
+	for i := 0; i < order && i < length; i++ {
+		out[i] = 0
+	}
+
+	histIdx := len(in) - 1
+
+	for ix := order; ix < length; ix++ {
+		inIdx := histIdx - (length - 1 - ix - startIdx)
+		if inIdx < 0 {
+			inIdx = 0
+		}
+
+		outQ12 := int32(0)
+		for j := 0; j < order; j++ {
+			prevIdx := inIdx - j - 1
+			if prevIdx < 0 {
+				break
+			}
+			if prevIdx < len(in) {
+				inVal := int32(in[prevIdx] * 32768.0)
+				outQ12 += (inVal * int32(B[j])) >> 12
+			}
+		}
+
+		if inIdx < len(in) {
+			inVal := int32(in[inIdx] * 32768.0)
+			outQ12 = (inVal << 0) - outQ12
+		}
+
+		out32 := rshiftRound(outQ12, 0)
+		out[ix] = sat16(out32)
+	}
 }

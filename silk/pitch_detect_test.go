@@ -10,18 +10,25 @@ func TestDetectPitchVoicedSignal(t *testing.T) {
 	config := GetBandwidthConfig(BandwidthWideband)
 
 	// Generate voiced signal at 200 Hz (pitch period = 80 samples at 16kHz)
-	pitchPeriod := config.SampleRate / 200     // 80 samples
-	frameSamples := config.SubframeSamples * 4 // 320 samples for 20ms
+	pitchPeriod := config.SampleRate / 200 // 80 samples
+	numSubframes := 4
+
+	// The pitch detector expects a frame that includes LTP memory.
+	// Per libopus: frameLength = (PE_LTP_MEM_LENGTH_MS + nb_subfr * PE_SUBFR_LENGTH_MS) * Fs_kHz
+	// = (20 + 4*5) * 16 = 640 samples
+	fsKHz := config.SampleRate / 1000
+	frameSamples := (peLTPMemLengthMS + numSubframes*peSubfrLengthMS) * fsKHz
 
 	pcm := make([]float32, frameSamples)
 	for i := range pcm {
-		// Sawtooth-like voiced waveform
+		// Sawtooth-like voiced waveform with realistic amplitude
+		// The pitch detector normalizer includes a constant term that requires
+		// reasonable signal levels to function correctly
 		phase := float64(i%pitchPeriod) / float64(pitchPeriod)
-		pcm[i] = float32(1.0-2.0*phase) * (10000 * int16Scale)
+		pcm[i] = float32(1.0-2.0*phase) * 10000 // Realistic int16-ish level
 	}
 
 	// Detect pitch
-	numSubframes := 4
 	pitchLags := enc.detectPitch(pcm, numSubframes)
 
 	if len(pitchLags) != numSubframes {
@@ -47,16 +54,19 @@ func TestDetectPitchNarrowband(t *testing.T) {
 	config := GetBandwidthConfig(BandwidthNarrowband)
 
 	// Generate voiced signal at 150 Hz (pitch period = ~53 samples at 8kHz)
-	pitchPeriod := config.SampleRate / 150     // ~53 samples
-	frameSamples := config.SubframeSamples * 4 // 160 samples for 20ms
+	pitchPeriod := config.SampleRate / 150 // ~53 samples
+	numSubframes := 4
+
+	// The pitch detector expects a frame that includes LTP memory.
+	fsKHz := config.SampleRate / 1000
+	frameSamples := (peLTPMemLengthMS + numSubframes*peSubfrLengthMS) * fsKHz
 
 	pcm := make([]float32, frameSamples)
 	for i := range pcm {
 		phase := float64(i%pitchPeriod) / float64(pitchPeriod)
-		pcm[i] = float32(1.0-2.0*phase) * (10000 * int16Scale)
+		pcm[i] = float32(1.0-2.0*phase) * 10000 // Realistic int16-ish level
 	}
 
-	numSubframes := 4
 	pitchLags := enc.detectPitch(pcm, numSubframes)
 
 	if len(pitchLags) != numSubframes {
@@ -335,5 +345,198 @@ func TestPitchMinMax(t *testing.T) {
 	}
 	if pitchMax(10, 5) != 10 {
 		t.Error("pitchMax(10, 5) should be 10")
+	}
+}
+
+// TestPitchDetectionAccuracyLibopusStyle tests pitch detection with various frequencies
+// to validate the libopus-style multi-stage algorithm.
+func TestPitchDetectionAccuracyLibopusStyle(t *testing.T) {
+	enc := NewEncoder(BandwidthWideband)
+	config := GetBandwidthConfig(BandwidthWideband)
+	numSubframes := 4
+	fsKHz := config.SampleRate / 1000
+	frameSamples := (peLTPMemLengthMS + numSubframes*peSubfrLengthMS) * fsKHz
+
+	// Test various pitch frequencies (Hz)
+	testFrequencies := []int{100, 150, 200, 250, 300, 350, 400}
+
+	for _, freq := range testFrequencies {
+		pitchPeriod := config.SampleRate / freq
+
+		// Skip if pitch period is outside valid range
+		if pitchPeriod < config.PitchLagMin || pitchPeriod > config.PitchLagMax {
+			continue
+		}
+
+		pcm := make([]float32, frameSamples)
+		for i := range pcm {
+			// Sawtooth waveform (richer harmonics than sine)
+			phase := float64(i%pitchPeriod) / float64(pitchPeriod)
+			pcm[i] = float32(1.0-2.0*phase) * 10000
+		}
+
+		pitchLags := enc.detectPitch(pcm, numSubframes)
+
+		// Check accuracy - allow for harmonic multiples (octave errors are common
+		// in pitch detection and may be acceptable depending on use case)
+		for sf, lag := range pitchLags {
+			// Check if lag matches fundamental or first harmonic (octave)
+			isFundamental := absInt(lag-pitchPeriod) <= pitchPeriod/10+2
+			isOctave := absInt(lag-2*pitchPeriod) <= pitchPeriod/5+2
+
+			if !isFundamental && !isOctave {
+				t.Errorf("freq=%dHz: subframe %d: detected lag %d, expected ~%d or ~%d",
+					freq, sf, lag, pitchPeriod, 2*pitchPeriod)
+			}
+		}
+
+		// Reset encoder for next test
+		enc.Reset()
+	}
+}
+
+// TestPitchDetectionWithSine tests pitch detection with sinusoidal input.
+func TestPitchDetectionWithSine(t *testing.T) {
+	enc := NewEncoder(BandwidthWideband)
+	config := GetBandwidthConfig(BandwidthWideband)
+	numSubframes := 4
+	fsKHz := config.SampleRate / 1000
+	frameSamples := (peLTPMemLengthMS + numSubframes*peSubfrLengthMS) * fsKHz
+
+	// 200 Hz sine wave
+	freq := 200.0
+	pitchPeriod := config.SampleRate / int(freq)
+
+	pcm := make([]float32, frameSamples)
+	for i := range pcm {
+		pcm[i] = float32(math.Sin(2*math.Pi*freq*float64(i)/float64(config.SampleRate))) * 10000
+	}
+
+	pitchLags := enc.detectPitch(pcm, numSubframes)
+
+	for sf, lag := range pitchLags {
+		errorMargin := pitchPeriod / 5
+		if errorMargin < 2 {
+			errorMargin = 2
+		}
+		if absInt(lag-pitchPeriod) > errorMargin {
+			t.Errorf("sine wave: subframe %d: detected lag %d, expected ~%d",
+				sf, lag, pitchPeriod)
+		}
+	}
+}
+
+// TestPitchDetectionMediumband tests pitch detection for medium bandwidth.
+func TestPitchDetectionMediumband(t *testing.T) {
+	enc := NewEncoder(BandwidthMediumband)
+	config := GetBandwidthConfig(BandwidthMediumband)
+	numSubframes := 4
+	fsKHz := config.SampleRate / 1000
+	frameSamples := (peLTPMemLengthMS + numSubframes*peSubfrLengthMS) * fsKHz
+
+	// 150 Hz at 12kHz = 80 sample period
+	pitchPeriod := config.SampleRate / 150
+
+	pcm := make([]float32, frameSamples)
+	for i := range pcm {
+		phase := float64(i%pitchPeriod) / float64(pitchPeriod)
+		pcm[i] = float32(1.0-2.0*phase) * 10000
+	}
+
+	pitchLags := enc.detectPitch(pcm, numSubframes)
+
+	for sf, lag := range pitchLags {
+		// Verify lags are within valid range
+		if lag < config.PitchLagMin || lag > config.PitchLagMax {
+			t.Errorf("mediumband: subframe %d: lag %d out of range [%d, %d]",
+				sf, lag, config.PitchLagMin, config.PitchLagMax)
+		}
+	}
+}
+
+// TestDownsampleLowpass tests the low-pass downsampling function.
+func TestDownsampleLowpass(t *testing.T) {
+	// Create a simple test signal
+	signal := make([]float32, 100)
+	for i := range signal {
+		signal[i] = float32(i)
+	}
+
+	ds := downsampleLowpass(signal, 2)
+
+	// Should have half the samples
+	if len(ds) != 50 {
+		t.Errorf("expected 50 samples, got %d", len(ds))
+	}
+
+	// Values should be smoothed versions
+	// The filter uses [0.25, 0.5, 0.25] coefficients
+	// For sample 1: 0.25*0 + 0.5*2 + 0.25*3 = 1.75
+	// Allowing some tolerance for the edge handling
+	if ds[1] < 1.0 || ds[1] > 3.0 {
+		t.Errorf("ds[1] = %f, expected ~1.75", ds[1])
+	}
+}
+
+// TestLagrangianInterpolate tests sub-sample pitch refinement.
+func TestLagrangianInterpolate(t *testing.T) {
+	// Test case where peak is at center
+	offset := lagrangianInterpolate(0.9, 1.0, 0.9)
+	if math.Abs(offset) > 0.01 {
+		t.Errorf("symmetric case: expected offset ~0, got %f", offset)
+	}
+
+	// Test case where peak is shifted right
+	offset = lagrangianInterpolate(0.8, 1.0, 0.9)
+	if offset < 0 || offset > 0.5 {
+		t.Errorf("right-shifted case: expected positive offset, got %f", offset)
+	}
+
+	// Test case where peak is shifted left
+	offset = lagrangianInterpolate(0.9, 1.0, 0.8)
+	if offset > 0 || offset < -0.5 {
+		t.Errorf("left-shifted case: expected negative offset, got %f", offset)
+	}
+}
+
+// TestEnergyFLP tests the energy computation function.
+func TestEnergyFLP(t *testing.T) {
+	data := []float32{1, 2, 3, 4, 5}
+	energy := energyFLP(data)
+
+	// Expected: 1 + 4 + 9 + 16 + 25 = 55
+	if math.Abs(energy-55.0) > 0.001 {
+		t.Errorf("expected energy 55, got %f", energy)
+	}
+}
+
+// TestInnerProductFLP tests the inner product computation.
+func TestInnerProductFLP(t *testing.T) {
+	a := []float32{1, 2, 3, 4}
+	b := []float32{2, 3, 4, 5}
+	result := innerProductFLP(a, b, 4)
+
+	// Expected: 1*2 + 2*3 + 3*4 + 4*5 = 2 + 6 + 12 + 20 = 40
+	if math.Abs(result-40.0) > 0.001 {
+		t.Errorf("expected inner product 40, got %f", result)
+	}
+}
+
+// TestPitchContourTables verifies the contour table dimensions match libopus.
+func TestPitchContourTables(t *testing.T) {
+	// Stage 2 contours should have 4 subframes x 11 entries
+	if len(pitchCBLagsStage2) != peMaxNbSubfr {
+		t.Errorf("pitchCBLagsStage2 has %d subframes, expected %d", len(pitchCBLagsStage2), peMaxNbSubfr)
+	}
+	if len(pitchCBLagsStage2[0]) != peNbCbksStage2Ext {
+		t.Errorf("pitchCBLagsStage2[0] has %d entries, expected %d", len(pitchCBLagsStage2[0]), peNbCbksStage2Ext)
+	}
+
+	// Stage 3 contours should have 4 subframes x 34 entries
+	if len(pitchCBLagsStage3) != peMaxNbSubfr {
+		t.Errorf("pitchCBLagsStage3 has %d subframes, expected %d", len(pitchCBLagsStage3), peMaxNbSubfr)
+	}
+	if len(pitchCBLagsStage3[0]) != peNbCbksStage3Max {
+		t.Errorf("pitchCBLagsStage3[0] has %d entries, expected %d", len(pitchCBLagsStage3[0]), peNbCbksStage3Max)
 	}
 }

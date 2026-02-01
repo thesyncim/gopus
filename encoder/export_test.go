@@ -28,3 +28,18 @@ func (e *Encoder) UpdateFECState(pcm []float32, vadFlag bool) {
 
 // WriteFrameLength exports writeFrameLength for testing.
 var WriteFrameLength = writeFrameLength
+
+// DTXFrameThreshold is the number of 20ms frames before DTX activates.
+// DTXFrameThresholdMs = 200ms, so at 20ms frames, this is 10 frames.
+const DTXFrameThreshold = DTXFrameThresholdMs / 20 // = 10 frames (matching NB_SPEECH_FRAMES_BEFORE_DTX)
+
+// Export VAD state for testing
+var NewVADStateExport = NewVADState
+
+// Export VAD constants
+const (
+	VADNBandsExport                  = VADNBands
+	VADInternalSubframesExport       = VADInternalSubframes
+	VADNoiseLevelSmoothCoefQ16Export = VADNoiseLevelSmoothCoefQ16
+	VADNoiseLevelsBiasExport         = VADNoiseLevelsBias
+)

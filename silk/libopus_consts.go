@@ -36,21 +36,15 @@ const (
 	nlsfQuantMaxAmplitude = 4
 	bweAfterLossQ16       = 63570
 	nlsfQuantLevelAdjQ10  = 102
-	lsfCosTabSizeFix      = 128
-	stereoQuantTabSize    = 16
-	stereoQuantSubSteps   = 5
-	stereoInterpLenMs     = 8
+	lsfCosTabSizeFix    = 128
+	stereoInterpLenMs   = 8
+
+	// Stereo prediction weight quantization constants (matching libopus define.h)
+	stereoQuantTabSize  = 16 // Number of main quantization levels
+	stereoQuantSubSteps = 5  // Number of sub-steps per main level (total 80 levels)
 )
 
-const (
-	peMaxNbSubfr        = 4
-	peMinLagMs          = 2
-	peMaxLagMs          = 18
-	peNbCbksStage2Ext   = 11
-	peNbCbksStage2_10ms = 3
-	peNbCbksStage3Max   = 34
-	peNbCbksStage3_10ms = 12
-)
+// Pitch estimation constants moved to pitch_detect.go
 
 var silk_Quantization_Offsets_Q10 = [][]int16{
 	{100, 240},

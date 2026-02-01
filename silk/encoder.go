@@ -27,6 +27,10 @@ type Encoder struct {
 
 	// Stereo state
 	prevStereoWeights [2]int16 // Previous w0, w1 stereo weights (Q13)
+	stereo            stereoEncState // Full stereo encoder state for LP filtering
+
+	// Pitch analysis state
+	pitchState PitchAnalysisState // State for pitch estimation across frames
 
 	// Analysis buffers (encoder-specific)
 	inputBuffer []float32 // Buffered input samples
@@ -68,6 +72,8 @@ func (e *Encoder) Reset() {
 		e.inputBuffer[i] = 0
 	}
 	e.prevStereoWeights = [2]int16{0, 0}
+	e.stereo = stereoEncState{} // Reset LP filter state
+	e.pitchState = PitchAnalysisState{} // Reset pitch state
 }
 
 // SetRangeEncoder sets the range encoder for the current frame.

@@ -81,10 +81,10 @@ func TestPLCFadeProfile(t *testing.T) {
 
 	// Expected fade values after each loss
 	expectedFades := []float64{
-		0.5,    // 1 loss: 1.0 * 0.5
-		0.25,   // 2 losses: 0.5 * 0.5
-		0.125,  // 3 losses: 0.25 * 0.5
-		0.0625, // 4 losses: 0.125 * 0.5
+		0.5,     // 1 loss: 1.0 * 0.5
+		0.25,    // 2 losses: 0.5 * 0.5
+		0.125,   // 3 losses: 0.25 * 0.5
+		0.0625,  // 4 losses: 0.125 * 0.5
 		0.03125, // 5 losses: 0.0625 * 0.5
 	}
 
@@ -153,11 +153,11 @@ type mockSILKDecoder struct {
 	histIdx   int
 }
 
-func (m *mockSILKDecoder) PrevLPCValues() []float32       { return m.lpcValues }
-func (m *mockSILKDecoder) LPCOrder() int                  { return m.lpcOrder }
-func (m *mockSILKDecoder) IsPreviousFrameVoiced() bool    { return m.wasVoiced }
-func (m *mockSILKDecoder) OutputHistory() []float32       { return m.history }
-func (m *mockSILKDecoder) HistoryIndex() int              { return m.histIdx }
+func (m *mockSILKDecoder) PrevLPCValues() []float32    { return m.lpcValues }
+func (m *mockSILKDecoder) LPCOrder() int               { return m.lpcOrder }
+func (m *mockSILKDecoder) IsPreviousFrameVoiced() bool { return m.wasVoiced }
+func (m *mockSILKDecoder) OutputHistory() []float32    { return m.history }
+func (m *mockSILKDecoder) HistoryIndex() int           { return m.histIdx }
 
 // TestSILKPLCOutput tests that SILK PLC produces valid samples.
 func TestSILKPLCOutput(t *testing.T) {
@@ -466,4 +466,352 @@ func abs32(x float32) float32 {
 		return -x
 	}
 	return x
+}
+
+// ============================================================================
+// LTP-specific tests
+// ============================================================================
+
+// TestSILKPLCStateCreation tests SILKPLCState initialization.
+func TestSILKPLCStateCreation(t *testing.T) {
+	state := NewSILKPLCState()
+
+	// Check default values
+	if state.PitchLQ8 == 0 {
+		t.Error("PitchLQ8 should not be zero after creation")
+	}
+
+	if state.PrevGainQ16[0] != (1 << 16) {
+		t.Errorf("PrevGainQ16[0] = %d, want %d", state.PrevGainQ16[0], 1<<16)
+	}
+
+	if state.PrevGainQ16[1] != (1 << 16) {
+		t.Errorf("PrevGainQ16[1] = %d, want %d", state.PrevGainQ16[1], 1<<16)
+	}
+
+	if state.RandScaleQ14 != (1 << 14) {
+		t.Errorf("RandScaleQ14 = %d, want %d", state.RandScaleQ14, 1<<14)
+	}
+
+	if state.SubfrLength != 80 {
+		t.Errorf("SubfrLength = %d, want 80", state.SubfrLength)
+	}
+
+	if state.NbSubfr != 4 {
+		t.Errorf("NbSubfr = %d, want 4", state.NbSubfr)
+	}
+}
+
+// TestSILKPLCStateReset tests SILKPLCState reset.
+func TestSILKPLCStateReset(t *testing.T) {
+	state := NewSILKPLCState()
+
+	// Modify state
+	state.PitchLQ8 = 12345
+	state.PrevGainQ16[0] = 999
+	state.LTPCoefQ14[0] = 100
+	state.LastFrameLost = true
+
+	// Reset
+	state.Reset(320)
+
+	// Check reset values
+	if state.PrevGainQ16[0] != (1 << 16) {
+		t.Errorf("After reset: PrevGainQ16[0] = %d, want %d", state.PrevGainQ16[0], 1<<16)
+	}
+
+	if state.LTPCoefQ14[0] != 0 {
+		t.Errorf("After reset: LTPCoefQ14[0] = %d, want 0", state.LTPCoefQ14[0])
+	}
+
+	if state.LastFrameLost {
+		t.Error("After reset: LastFrameLost should be false")
+	}
+
+	if state.RandScaleQ14 != (1 << 14) {
+		t.Errorf("After reset: RandScaleQ14 = %d, want %d", state.RandScaleQ14, 1<<14)
+	}
+}
+
+// TestSILKPLCStateUpdateFromGoodFrame tests updating PLC state from a good frame.
+func TestSILKPLCStateUpdateFromGoodFrame(t *testing.T) {
+	state := NewSILKPLCState()
+
+	// Simulate a voiced frame update
+	pitchL := []int{100, 101, 102, 103}
+	ltpCoefQ14 := make([]int16, 20) // 4 subframes * 5 coefficients
+	// Set LTP coefficients for last subframe
+	ltpCoefQ14[15] = 2000
+	ltpCoefQ14[16] = 3000
+	ltpCoefQ14[17] = 4000 // Middle coefficient
+	ltpCoefQ14[18] = 3000
+	ltpCoefQ14[19] = 2000
+
+	gainsQ16 := []int32{50000, 60000, 70000, 80000}
+	lpcQ12 := make([]int16, 16)
+	for i := range lpcQ12 {
+		lpcQ12[i] = int16(i * 100)
+	}
+
+	state.UpdateFromGoodFrame(
+		2, // Voiced
+		pitchL,
+		ltpCoefQ14,
+		16384, // 1.0 in Q14
+		gainsQ16,
+		lpcQ12,
+		16,  // fsKHz
+		4,   // nbSubfr
+		80,  // subfrLength
+	)
+
+	// Check that state was updated
+	if state.FsKHz != 16 {
+		t.Errorf("FsKHz = %d, want 16", state.FsKHz)
+	}
+
+	if state.NbSubfr != 4 {
+		t.Errorf("NbSubfr = %d, want 4", state.NbSubfr)
+	}
+
+	// Check gains were saved
+	if state.PrevGainQ16[0] != 70000 {
+		t.Errorf("PrevGainQ16[0] = %d, want 70000", state.PrevGainQ16[0])
+	}
+	if state.PrevGainQ16[1] != 80000 {
+		t.Errorf("PrevGainQ16[1] = %d, want 80000", state.PrevGainQ16[1])
+	}
+
+	// Check LTP scale was saved
+	if state.PrevLTPScaleQ14 != 16384 {
+		t.Errorf("PrevLTPScaleQ14 = %d, want 16384", state.PrevLTPScaleQ14)
+	}
+
+	// Check LastFrameLost is false
+	if state.LastFrameLost {
+		t.Error("LastFrameLost should be false after update")
+	}
+}
+
+// TestSILKPLCStateUnvoicedUpdate tests PLC state update for unvoiced frames.
+func TestSILKPLCStateUnvoicedUpdate(t *testing.T) {
+	state := NewSILKPLCState()
+
+	pitchL := []int{0, 0, 0, 0}
+	ltpCoefQ14 := make([]int16, 20)
+	gainsQ16 := []int32{50000, 60000, 70000, 80000}
+	lpcQ12 := make([]int16, 10)
+
+	state.UpdateFromGoodFrame(
+		1, // Unvoiced
+		pitchL,
+		ltpCoefQ14,
+		0, // No LTP scale for unvoiced
+		gainsQ16,
+		lpcQ12,
+		8,  // fsKHz (NB)
+		4,  // nbSubfr
+		40, // subfrLength (8kHz * 5ms)
+	)
+
+	// Check that LTP coefficients are zero for unvoiced
+	for i, coef := range state.LTPCoefQ14 {
+		if coef != 0 {
+			t.Errorf("LTPCoefQ14[%d] = %d, want 0 for unvoiced", i, coef)
+		}
+	}
+
+	// Check pitch lag is set to default (18ms * fsKHz)
+	expectedPitchLQ8 := int32(8*18) << 8
+	if state.PitchLQ8 != expectedPitchLQ8 {
+		t.Errorf("PitchLQ8 = %d, want %d for unvoiced", state.PitchLQ8, expectedPitchLQ8)
+	}
+}
+
+// TestLTPCoeffientClamping tests that LTP gain is clamped to valid range.
+func TestLTPCoefficientClamping(t *testing.T) {
+	state := NewSILKPLCState()
+
+	// Test with very low LTP gain (should be scaled up)
+	pitchL := []int{100, 100, 100, 100}
+	ltpCoefQ14 := make([]int16, 20)
+	// Set very low LTP gain (below minimum)
+	ltpCoefQ14[17] = 1000 // Middle coefficient, below vPitchGainStartMinQ14
+
+	gainsQ16 := []int32{65536, 65536, 65536, 65536}
+	lpcQ12 := make([]int16, 16)
+
+	state.UpdateFromGoodFrame(2, pitchL, ltpCoefQ14, 16384, gainsQ16, lpcQ12, 16, 4, 80)
+
+	// The middle coefficient should be scaled up
+	middleCoef := state.LTPCoefQ14[ltpOrder/2]
+	if middleCoef <= 1000 {
+		t.Errorf("LTP coefficient should be scaled up from %d", middleCoef)
+	}
+
+	// Test with very high LTP gain (should be scaled down)
+	state2 := NewSILKPLCState()
+	ltpCoefQ14High := make([]int16, 20)
+	// Set very high LTP gain (above maximum)
+	ltpCoefQ14High[17] = 20000 // Above vPitchGainStartMaxQ14
+
+	state2.UpdateFromGoodFrame(2, pitchL, ltpCoefQ14High, 16384, gainsQ16, lpcQ12, 16, 4, 80)
+
+	// The middle coefficient should be scaled down
+	middleCoef2 := state2.LTPCoefQ14[ltpOrder/2]
+	if middleCoef2 >= 20000 {
+		t.Errorf("LTP coefficient should be scaled down from %d", middleCoef2)
+	}
+	if middleCoef2 > int16(vPitchGainStartMaxQ14) {
+		t.Errorf("LTP coefficient %d exceeds maximum %d", middleCoef2, vPitchGainStartMaxQ14)
+	}
+}
+
+// TestFixedPointHelpers tests the fixed-point arithmetic helper functions.
+func TestFixedPointHelpers(t *testing.T) {
+	// Test silkRand
+	seed := int32(12345)
+	next := silkRand(seed)
+	if next == seed {
+		t.Error("silkRand should produce different value")
+	}
+
+	// Test smulwb (signed multiply word by bottom half)
+	result := smulwb(0x10000, 0x4000) // 1.0 * 0.25 in Q16 * Q14
+	if result < 0 || result > 0x4000 {
+		t.Errorf("smulwb result out of expected range: %d", result)
+	}
+
+	// Test sat16
+	if sat16(40000) != 32767 {
+		t.Errorf("sat16(40000) = %d, want 32767", sat16(40000))
+	}
+	if sat16(-40000) != -32768 {
+		t.Errorf("sat16(-40000) = %d, want -32768", sat16(-40000))
+	}
+	if sat16(1000) != 1000 {
+		t.Errorf("sat16(1000) = %d, want 1000", sat16(1000))
+	}
+
+	// Test rshiftRound
+	if rshiftRound(10, 1) != 5 {
+		t.Errorf("rshiftRound(10, 1) = %d, want 5", rshiftRound(10, 1))
+	}
+	if rshiftRound(11, 1) != 6 { // Rounds up
+		t.Errorf("rshiftRound(11, 1) = %d, want 6", rshiftRound(11, 1))
+	}
+
+	// Test addSat32
+	if addSat32(math.MaxInt32, 1) != math.MaxInt32 {
+		t.Errorf("addSat32 overflow not handled")
+	}
+	if addSat32(math.MinInt32, -1) != math.MinInt32 {
+		t.Errorf("addSat32 underflow not handled")
+	}
+}
+
+// TestBwExpandQ12 tests bandwidth expansion.
+func TestBwExpandQ12(t *testing.T) {
+	ar := []int16{4096, 4096, 4096, 4096} // 1.0 in Q12
+	bwExpandQ12(ar, 0.99)
+
+	// Each coefficient should be progressively smaller
+	for i := 1; i < len(ar); i++ {
+		if ar[i] >= ar[i-1] {
+			t.Errorf("bwExpandQ12: ar[%d]=%d should be < ar[%d]=%d", i, ar[i], i-1, ar[i-1])
+		}
+	}
+
+	// First coefficient should still be close to original * 0.99
+	origVal := float64(4096)
+	expected := int16(origVal * 0.99)
+	if math.Abs(float64(ar[0]-expected)) > 10 {
+		t.Errorf("bwExpandQ12: ar[0]=%d, expected ~%d", ar[0], expected)
+	}
+}
+
+// TestPitchLagDrift tests that pitch lag increases during concealment.
+func TestPitchLagDrift(t *testing.T) {
+	state := NewSILKPLCState()
+	state.PitchLQ8 = 128 << 8 // 128 samples in Q8
+
+	initialPitchLQ8 := state.PitchLQ8
+
+	// Simulate pitch drift
+	for i := 0; i < 10; i++ {
+		state.PitchLQ8 = state.PitchLQ8 + ((state.PitchLQ8 * pitchDriftFacQ16) >> 16)
+	}
+
+	if state.PitchLQ8 <= initialPitchLQ8 {
+		t.Errorf("Pitch lag should increase during drift: initial=%d, after=%d",
+			initialPitchLQ8, state.PitchLQ8)
+	}
+
+	// Check that drift is gradual (about 1% per iteration)
+	expectedDrift := float64(initialPitchLQ8) * math.Pow(1.01, 10)
+	actualDrift := float64(state.PitchLQ8)
+	tolerance := expectedDrift * 0.1 // 10% tolerance
+
+	if math.Abs(actualDrift-expectedDrift) > tolerance {
+		t.Errorf("Pitch drift unexpected: got %f, expected ~%f", actualDrift, expectedDrift)
+	}
+}
+
+// TestAttenuationConstants tests the attenuation constant values.
+func TestAttenuationConstants(t *testing.T) {
+	// Verify Q15 format values are reasonable (between 0 and 1)
+	q15Max := int32(1 << 15) // 1.0 in Q15
+
+	constants := []struct {
+		name  string
+		value int32
+	}{
+		{"harmAttQ15_0", harmAttQ15_0},
+		{"harmAttQ15_1", harmAttQ15_1},
+		{"randAttVQ15_0", randAttVQ15_0},
+		{"randAttVQ15_1", randAttVQ15_1},
+		{"randAttUVQ15_0", randAttUVQ15_0},
+		{"randAttUVQ15_1", randAttUVQ15_1},
+	}
+
+	for _, c := range constants {
+		if c.value < 0 || c.value > q15Max {
+			t.Errorf("%s = %d, should be in range [0, %d]", c.name, c.value, q15Max)
+		}
+
+		// Convert to float and verify approximate value
+		floatVal := float64(c.value) / float64(q15Max)
+		if floatVal < 0.7 || floatVal > 1.0 {
+			t.Errorf("%s = %f, expected between 0.7 and 1.0", c.name, floatVal)
+		}
+	}
+
+	// Verify ordering: first frame attenuation should be less aggressive
+	if harmAttQ15_0 < harmAttQ15_1 {
+		t.Error("harmAttQ15_0 should be >= harmAttQ15_1")
+	}
+	if randAttVQ15_0 < randAttVQ15_1 {
+		t.Error("randAttVQ15_0 should be >= randAttVQ15_1")
+	}
+}
+
+// TestLTPGainBounds tests the LTP gain min/max bounds.
+func TestLTPGainBounds(t *testing.T) {
+	// vPitchGainStartMinQ14 should be 0.7 in Q14
+	q14Base := float64(1 << 14)
+	minExpected := int32(q14Base * 0.7)
+	if math.Abs(float64(vPitchGainStartMinQ14-minExpected)) > 100 {
+		t.Errorf("vPitchGainStartMinQ14 = %d, expected ~%d (0.7 in Q14)", vPitchGainStartMinQ14, minExpected)
+	}
+
+	// vPitchGainStartMaxQ14 should be 0.95 in Q14
+	maxExpected := int32(q14Base * 0.95)
+	if math.Abs(float64(vPitchGainStartMaxQ14-maxExpected)) > 100 {
+		t.Errorf("vPitchGainStartMaxQ14 = %d, expected ~%d (0.95 in Q14)", vPitchGainStartMaxQ14, maxExpected)
+	}
+
+	// Min should be less than max
+	if vPitchGainStartMinQ14 >= vPitchGainStartMaxQ14 {
+		t.Error("vPitchGainStartMinQ14 should be < vPitchGainStartMaxQ14")
+	}
 }

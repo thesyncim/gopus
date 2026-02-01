@@ -2,18 +2,25 @@
 // DTX saves bandwidth during silence by suppressing packets and sending periodic
 // comfort noise frames to maintain presence.
 //
-// Reference: RFC 6716 Section 2.1.9
+// This implementation uses multi-band VAD (Voice Activity Detection) matching
+// libopus SILK behavior for accurate speech detection.
+//
+// Reference: RFC 6716 Section 2.1.9, libopus silk/VAD.c
 package encoder
 
-// DTX Constants
+// DTX Constants matching libopus silk/define.h
 const (
 	// DTXComfortNoiseIntervalMs is how often to send comfort noise during DTX.
 	// Per Opus convention, send a comfort noise frame every 400ms of silence.
 	DTXComfortNoiseIntervalMs = 400
 
-	// DTXFrameThreshold is the number of consecutive silent frames before DTX activates.
-	// At 20ms frames: 20 frames = 400ms of silence before DTX mode.
-	DTXFrameThreshold = 20
+	// DTXFrameThresholdMs is the duration of silence before DTX activates.
+	// Matches NB_SPEECH_FRAMES_BEFORE_DTX * 20 = 200ms.
+	DTXFrameThresholdMs = 200
+
+	// DTXMaxConsecutiveMs is the maximum duration for DTX mode.
+	// Matches MAX_CONSECUTIVE_DTX * 20 = 400ms.
+	DTXMaxConsecutiveMs = 400
 
 	// DTXFadeInMs is the fade-in duration when exiting DTX mode.
 	DTXFadeInMs = 10
@@ -22,114 +29,221 @@ const (
 	DTXFadeOutMs = 10
 
 	// DTXMinBitrate is the minimum bitrate used for comfort noise frames.
-	// This is used internally for DTX encoding.
 	DTXMinBitrate = 6000
 )
 
-// dtxState holds state for discontinuous transmission.
+// dtxState holds state for discontinuous transmission with multi-band VAD.
 type dtxState struct {
-	// Consecutive silent frames count
-	silentFrameCount int
+	// Multi-band VAD state for accurate speech detection
+	vad *VADState
 
-	// Whether currently in DTX mode
+	// Counter for consecutive no-activity frames in milliseconds (Q1 format)
+	noActivityMsQ1 int
+
+	// Whether currently in DTX mode (suppressing frames)
 	inDTXMode bool
 
 	// Frames since last comfort noise packet
-	framesSinceComfortNoise int
+	msSinceComfortNoise int
 
-	// Saved filter state for comfort noise
-	savedFilterState []float64
+	// Saved filter state for CNG (Comfort Noise Generation)
+	cngState *cngState
+
+	// Frame duration in milliseconds (for timing calculations)
+	frameDurationMs int
 }
 
-// newDTXState creates initial DTX state.
+// cngState holds state for Comfort Noise Generation.
+// Matches silk_CNG_struct from libopus.
+type cngState struct {
+	// Smoothed NLSF coefficients for CNG synthesis
+	smthNLSFQ15 [16]int16
+
+	// Smoothed gain for CNG
+	smthGainQ16 int32
+
+	// Random seed for excitation generation
+	randSeed int32
+
+	// Sample rate in kHz
+	fsKHz int
+}
+
+// newDTXState creates initial DTX state with multi-band VAD.
 func newDTXState() *dtxState {
 	return &dtxState{
-		silentFrameCount:        0,
-		inDTXMode:               false,
-		framesSinceComfortNoise: 0,
-		savedFilterState:        nil,
+		vad:                 NewVADState(),
+		noActivityMsQ1:      0,
+		inDTXMode:           false,
+		msSinceComfortNoise: 0,
+		cngState:            newCNGState(),
+		frameDurationMs:     20, // Default 20ms frames
+	}
+}
+
+// newCNGState creates initial CNG state.
+func newCNGState() *cngState {
+	return &cngState{
+		smthGainQ16: 0,
+		randSeed:    22222, // Match libopus
+		fsKHz:       16,
 	}
 }
 
 // reset resets DTX state when speech resumes.
 func (d *dtxState) reset() {
-	d.silentFrameCount = 0
+	d.noActivityMsQ1 = 0
 	d.inDTXMode = false
-	d.framesSinceComfortNoise = 0
+	d.msSinceComfortNoise = 0
+	// Note: VAD state is NOT reset - noise estimates should persist
+}
+
+// resetFull resets all DTX and VAD state (for new stream).
+func (d *dtxState) resetFull() {
+	d.reset()
+	if d.vad != nil {
+		d.vad.Reset()
+	}
+	if d.cngState != nil {
+		d.cngState.randSeed = 22222
+		d.cngState.smthGainQ16 = 0
+	}
 }
 
 // shouldUseDTX determines if frame should be suppressed (DTX mode).
+// Uses multi-band VAD for accurate speech detection matching libopus.
+//
 // Returns: (suppressFrame bool, sendComfortNoise bool)
 func (e *Encoder) shouldUseDTX(pcm []float64) (bool, bool) {
-	if !e.dtxEnabled {
+	if !e.dtxEnabled || e.dtx == nil {
 		return false, false
 	}
 
-	// Use energy-based silence detection
+	// Convert to float32 for VAD processing
 	pcm32 := toFloat32(pcm)
-	signalType, _ := classifySignal(pcm32)
 
-	if signalType == 0 {
-		// Silence detected
-		e.dtx.silentFrameCount++
+	// Determine sample rate and frame parameters
+	// For multi-channel, use first channel or mix to mono
+	frameLength := len(pcm32)
+	if e.channels == 2 {
+		frameLength /= 2
+	}
 
-		if e.dtx.silentFrameCount >= DTXFrameThreshold {
-			// Enter or stay in DTX mode
-			e.dtx.inDTXMode = true
-			e.dtx.framesSinceComfortNoise++
+	// Mix to mono for VAD analysis (if stereo)
+	mono := pcm32
+	if e.channels == 2 {
+		mono = make([]float32, frameLength)
+		for i := 0; i < frameLength; i++ {
+			mono[i] = (pcm32[i*2] + pcm32[i*2+1]) * 0.5
+		}
+	}
 
-			// Send comfort noise periodically
-			framesPerInterval := DTXComfortNoiseIntervalMs / 20 // 20ms frames
-			if e.dtx.framesSinceComfortNoise >= framesPerInterval {
-				e.dtx.framesSinceComfortNoise = 0
-				return true, true // Suppress but send comfort noise
+	// Determine sample rate in kHz for VAD
+	fsKHz := 16 // Default to 16kHz
+	switch {
+	case frameLength <= 80:
+		fsKHz = 8
+	case frameLength <= 120:
+		fsKHz = 12
+	case frameLength <= 160:
+		fsKHz = 16
+	case frameLength <= 240:
+		fsKHz = 24
+	case frameLength <= 480:
+		fsKHz = 48
+	}
+
+	// Get frame duration in ms
+	frameDurationMs := (frameLength * 1000) / (fsKHz * 1000)
+	if frameDurationMs <= 0 {
+		frameDurationMs = 20 // Default
+	}
+	e.dtx.frameDurationMs = frameDurationMs
+
+	// Run multi-band VAD
+	_, isActive := e.dtx.vad.GetSpeechActivity(mono, frameLength, fsKHz)
+
+	// DTX decision logic matching libopus decide_dtx_mode
+	frameSizeMsQ1 := frameDurationMs * 2 // Q1 format (multiply by 2)
+
+	if !isActive {
+		// No activity - increment counter
+		e.dtx.noActivityMsQ1 += frameSizeMsQ1
+
+		// Check if we've been silent long enough for DTX
+		thresholdMsQ1 := NBSpeechFramesBeforeDTX * 20 * 2 // 200ms in Q1
+		maxDTXMsQ1 := (NBSpeechFramesBeforeDTX + MaxConsecutiveDTX) * 20 * 2
+
+		if e.dtx.noActivityMsQ1 > thresholdMsQ1 {
+			if e.dtx.noActivityMsQ1 <= maxDTXMsQ1 {
+				// Valid DTX frame
+				e.dtx.inDTXMode = true
+				e.dtx.msSinceComfortNoise += frameDurationMs
+
+				// Send comfort noise periodically
+				if e.dtx.msSinceComfortNoise >= DTXComfortNoiseIntervalMs {
+					e.dtx.msSinceComfortNoise = 0
+					return true, true // Suppress but send CNG
+				}
+
+				return true, false // Suppress entirely
+			} else {
+				// Reset counter to threshold (prevent overflow)
+				e.dtx.noActivityMsQ1 = thresholdMsQ1
 			}
-
-			return true, false // Suppress entirely
 		}
 	} else {
-		// Speech detected - exit DTX mode
-		e.dtx.reset()
+		// Activity detected - exit DTX mode
+		e.dtx.noActivityMsQ1 = 0
+		if e.dtx.inDTXMode {
+			e.dtx.inDTXMode = false
+			e.dtx.msSinceComfortNoise = 0
+		}
 	}
 
 	return false, false
 }
 
-// classifySignal determines signal type using energy-based detection.
-// Returns: 0 = inactive (silence), 1 = unvoiced, 2 = voiced
-func classifySignal(pcm []float32) (int, float32) {
-	if len(pcm) == 0 {
-		return 0, 0
+// InDTX returns whether the encoder is currently in DTX mode.
+// This matches OPUS_GET_IN_DTX from libopus.
+func (e *Encoder) InDTX() bool {
+	if e.dtx == nil {
+		return false
 	}
+	return e.dtx.inDTXMode
+}
 
-	// Compute signal energy
-	var energy float64
-	for _, s := range pcm {
-		energy += float64(s) * float64(s)
+// GetVADActivity returns the current VAD speech activity level (0-255).
+func (e *Encoder) GetVADActivity() int {
+	if e.dtx == nil || e.dtx.vad == nil {
+		return 0
 	}
-	energy /= float64(len(pcm))
-
-	// Energy threshold for silence detection
-	// -40 dBFS is typical silence threshold
-	const silenceThreshold = 0.0001 // ~-40 dBFS
-
-	if energy < silenceThreshold {
-		return 0, float32(energy) // Inactive
-	}
-
-	// For now, classify as voiced (2) if above threshold
-	// Full voicing detection requires pitch analysis
-	return 2, float32(energy)
+	return e.dtx.vad.SpeechActivityQ8
 }
 
 // encodeComfortNoise encodes a comfort noise frame.
 // Comfort noise provides natural-sounding silence during DTX.
+// This generates low-level shaped noise matching the ambient noise characteristics.
 func (e *Encoder) encodeComfortNoise(frameSize int) ([]byte, error) {
-	// Generate low-level noise to maintain presence
+	// Generate shaped comfort noise based on CNG state
 	noise := make([]float64, frameSize*e.channels)
+
+	// Use CNG state for noise generation
+	cng := e.dtx.cngState
+	if cng == nil {
+		cng = newCNGState()
+		e.dtx.cngState = cng
+	}
+
+	// Generate noise with appropriate spectral shape
 	for i := range noise {
-		// Very low amplitude noise (-60 dBFS)
-		noise[i] = (e.nextRandom() - 0.5) * 0.002
+		// LCG random number generator (matching libopus)
+		cng.randSeed = cng.randSeed*1664525 + 1013904223
+
+		// Convert to float and scale to very low amplitude (-60 dBFS)
+		// CNG level is typically -40 to -60 dBFS
+		randFloat := float64(int32(cng.randSeed)) / float64(1<<31)
+		noise[i] = randFloat * 0.002 // ~-54 dBFS
 	}
 
 	// Encode the comfort noise frame using the current mode
@@ -170,4 +284,32 @@ func toFloat32(pcm []float64) []float32 {
 		result[i] = float32(v)
 	}
 	return result
+}
+
+// classifySignal determines signal type using energy-based detection.
+// This is a legacy function kept for compatibility; new code uses VAD.
+// Returns: 0 = inactive (silence), 1 = unvoiced, 2 = voiced
+func classifySignal(pcm []float32) (int, float32) {
+	if len(pcm) == 0 {
+		return 0, 0
+	}
+
+	// Compute signal energy
+	var energy float64
+	for _, s := range pcm {
+		energy += float64(s) * float64(s)
+	}
+	energy /= float64(len(pcm))
+
+	// Energy threshold for silence detection
+	// -40 dBFS is typical silence threshold
+	const silenceThreshold = 0.0001 // ~-40 dBFS
+
+	if energy < silenceThreshold {
+		return 0, float32(energy) // Inactive
+	}
+
+	// For now, classify as voiced (2) if above threshold
+	// Full voicing detection requires pitch analysis
+	return 2, float32(energy)
 }
