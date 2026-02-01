@@ -55,6 +55,140 @@ func (d *Decoder) DecodeFrame(
 				condCoding = codeConditionally
 			}
 			silkDecodeIndices(st, rd, true, condCoding)
+			// Use pre-allocated pulses buffer if available
+			pulsesLen := roundUpShellFrame(st.frameLength)
+			var pulses []int16
+			if d.scratchPulses != nil && len(d.scratchPulses) >= pulsesLen {
+				pulses = d.scratchPulses[:pulsesLen]
+				for j := range pulses {
+					pulses[j] = 0
+				}
+			} else {
+				pulses = make([]int16, pulsesLen)
+			}
+			silkDecodePulses(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength)
+		}
+	}
+
+	frameLength := st.frameLength
+	totalLen := framesPerPacket * frameLength
+
+	// Use pre-allocated outInt16 buffer if available
+	var outInt16 []int16
+	if d.scratchOutInt16 != nil && len(d.scratchOutInt16) >= totalLen {
+		outInt16 = d.scratchOutInt16[:totalLen]
+		for j := range outInt16 {
+			outInt16[j] = 0
+		}
+	} else {
+		outInt16 = make([]int16, totalLen)
+	}
+
+	for i := 0; i < framesPerPacket; i++ {
+		frameIndex := st.nFramesDecoded
+		condCoding := codeIndependently
+		if frameIndex > 0 {
+			condCoding = codeConditionally
+		}
+		vad := st.VADFlags[frameIndex] != 0
+		frameOut := outInt16[i*frameLength : (i+1)*frameLength]
+		silkDecodeIndices(st, rd, vad, condCoding)
+		// Use pre-allocated pulses buffer if available
+		pulsesLen := roundUpShellFrame(st.frameLength)
+		var pulses []int16
+		if d.scratchPulses != nil && len(d.scratchPulses) >= pulsesLen {
+			pulses = d.scratchPulses[:pulsesLen]
+			for j := range pulses {
+				pulses[j] = 0
+			}
+		} else {
+			pulses = make([]int16, pulsesLen)
+		}
+		silkDecodePulses(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength)
+		var ctrl decoderControl
+		silkDecodeParameters(st, &ctrl, condCoding)
+		silkDecodeCore(st, &ctrl, frameOut, pulses)
+		silkUpdateOutBuf(st, frameOut)
+		st.lossCnt = 0
+		st.lagPrev = ctrl.pitchL[st.nbSubfr-1]
+		st.prevSignalType = int(st.indices.signalType)
+		st.firstFrameAfterReset = false
+		st.nFramesDecoded++
+	}
+
+	// Apply libopus-compatible mono delay compensation.
+	// This matches the delay introduced by:
+	// 1. sMid[1] prepended before resampler input (1 sample)
+	// 2. Resampler input delay from delay_matrix_dec (varies by rate)
+	delayedInt16 := d.applyMonoDelay(outInt16, fsKHz)
+
+	// Use pre-allocated output buffer if available
+	var output []float32
+	if d.scratchOutput != nil && len(d.scratchOutput) >= len(delayedInt16) {
+		output = d.scratchOutput[:len(delayedInt16)]
+	} else {
+		output = make([]float32, len(delayedInt16))
+	}
+	for i, v := range delayedInt16 {
+		output[i] = float32(v) / 32768.0
+	}
+
+	// Mono decode resets mid-only tracking (libopus sets decode_only_middle=0).
+	d.prevDecodeOnlyMiddle = 0
+	d.haveDecoded = true
+	return output, nil
+}
+
+// DecodeFrameRaw decodes a single SILK mono frame from the bitstream.
+// Returns decoded samples at native SILK sample rate (8/12/16kHz) as float32.
+//
+// Unlike DecodeFrame, this does NOT apply libopus-compatible delay compensation.
+// The caller is responsible for handling sMid buffering before resampling.
+// This is used by Decode, DecodeWithDecoder, and the Hybrid decoder.
+//
+// Parameters:
+//   - rd: Range decoder initialized with the SILK bitstream
+//   - bandwidth: Audio bandwidth (NB/MB/WB)
+//   - duration: Frame duration (10/20/40/60ms)
+//   - vadFlag: Voice Activity Detection flag from header
+//
+// For 40/60ms frames, the frame is decoded as multiple 20ms sub-blocks.
+func (d *Decoder) DecodeFrameRaw(
+	rd *rangecoding.Decoder,
+	bandwidth Bandwidth,
+	duration FrameDuration,
+	vadFlag bool,
+) ([]float32, error) {
+	_ = vadFlag
+	if rd == nil {
+		return nil, ErrDecodeFailed
+	}
+	d.SetRangeDecoder(rd)
+	config := GetBandwidthConfig(bandwidth)
+	fsKHz := config.SampleRate / 1000
+	st := &d.state[0]
+
+	framesPerPacket, nbSubfr, err := frameParams(duration)
+	if err != nil {
+		return nil, err
+	}
+
+	st.nFramesDecoded = 0
+	st.nFramesPerPacket = framesPerPacket
+	st.nbSubfr = nbSubfr
+	silkDecoderSetFs(st, fsKHz)
+
+	decodeVADAndLBRRFlags(rd, st, framesPerPacket)
+	if st.LBRRFlag != 0 {
+		for i := 0; i < framesPerPacket; i++ {
+			if st.LBRRFlags[i] == 0 {
+				continue
+			}
+			condCoding := codeIndependently
+			if i > 0 && st.LBRRFlags[i-1] != 0 {
+				condCoding = codeConditionally
+			}
+			silkDecodeIndices(st, rd, true, condCoding)
 			pulses := make([]int16, roundUpShellFrame(st.frameLength))
 			silkDecodePulses(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength)
 		}
@@ -84,14 +218,10 @@ func (d *Decoder) DecodeFrame(
 		st.nFramesDecoded++
 	}
 
-	// Apply libopus-compatible mono delay compensation.
-	// This matches the delay introduced by:
-	// 1. sMid[1] prepended before resampler input (1 sample)
-	// 2. Resampler input delay from delay_matrix_dec (varies by rate)
-	delayedInt16 := d.applyMonoDelay(outInt16, fsKHz)
-
-	output := make([]float32, len(delayedInt16))
-	for i, v := range delayedInt16 {
+	// Convert to float32 WITHOUT delay compensation.
+	// The caller handles sMid buffering via BuildMonoResamplerInput.
+	output := make([]float32, len(outInt16))
+	for i, v := range outInt16 {
 		output[i] = float32(v) / 32768.0
 	}
 

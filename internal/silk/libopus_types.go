@@ -57,6 +57,13 @@ type decoderState struct {
 	prevSignalType       int
 	ecPrevSignalType     int
 	ecPrevLagIndex       int
+
+	// Scratch buffer references (set by parent Decoder for hot-path optimization).
+	// These are nil if the decoderState is used standalone (e.g., in tests).
+	scratchSLPC    []int32 // Pre-allocated sLPC buffer
+	scratchSLTP    []int16 // Pre-allocated sLTP buffer
+	scratchSLTPQ15 []int32 // Pre-allocated sLTP_Q15 buffer
+	scratchPresQ14 []int32 // Pre-allocated presQ14 buffer
 }
 
 type decoderControl struct {

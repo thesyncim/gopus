@@ -48,17 +48,23 @@ func (d *Decoder) DecodeBands(
 		return nil
 	}
 
-	// Allocate frameSize for MDCT, not totalBins
+	// Use pre-allocated coeffs buffer from scratch space
 	// Upper bins (totalBins to frameSize-1) stay zero (highest frequencies)
 	// This ensures IMDCT(frameSize) produces 2*frameSize samples
-	coeffs := make([]float64, frameSize)
+	coeffsSize := frameSize
 	if stereo {
-		coeffs = make([]float64, frameSize*2) // Double for stereo
+		coeffsSize = frameSize * 2 // Double for stereo
+	}
+	coeffs := d.scratchBands.ensureCoeffs(coeffsSize)
+	// Zero the buffer (required since we reuse it)
+	for i := range coeffs {
+		coeffs[i] = 0
 	}
 
 	// Track coded bands for folding
 	var collapseMask uint32
-	bandVectors := make([][]float64, nbBands) // Store decoded vectors for folding
+	// Use pre-allocated band vectors slice from scratch space
+	bandVectors := d.scratchBands.ensureBandVectors(nbBands)
 
 	offset := 0
 	for band := 0; band < nbBands; band++ {
@@ -73,23 +79,24 @@ func (d *Decoder) DecodeBands(
 		// Trace allocation
 		DefaultTracer.TraceAllocation(band, bandBits[band], k)
 
-		var shape []float64
+		// Get pre-allocated storage for this band's shape vector
+		shape := d.scratchBands.getBandStorage(band, n)
 		if k > 0 {
-			// Decode PVQ vector for this band (with tracing)
-			shape = d.DecodePVQWithTrace(band, n, k)
+			// Decode PVQ vector for this band (with tracing) into pre-allocated buffer
+			d.decodePVQInto(band, n, k, shape)
 			UpdateCollapseMask(&collapseMask, band)
 		} else {
-			// No pulses - fold from lower band
+			// No pulses - fold from lower band into pre-allocated buffer
 			srcBand := FindFoldSource(band, collapseMask, nil)
 			if srcBand >= 0 && bandVectors[srcBand] != nil {
-				shape = FoldBand(bandVectors[srcBand], n, &d.rng)
+				d.foldBandInto(bandVectors[srcBand], n, shape)
 			} else {
-				// No source - generate noise
-				shape = FoldBand(nil, n, &d.rng)
+				// No source - generate noise into pre-allocated buffer
+				d.foldBandInto(nil, n, shape)
 			}
 		}
 
-		// Store vector for potential folding by later bands
+		// Store vector reference for potential folding by later bands
 		bandVectors[band] = shape
 
 		// Denormalize: scale shape by energy (log2 units, 1 = 6 dB).
@@ -162,15 +169,22 @@ func (d *Decoder) DecodeBandsStereo(
 		return nil, nil
 	}
 
-	// Allocate frameSize for MDCT, not totalBins
+	// Use pre-allocated buffers from scratch space
 	// Upper bins (totalBins to frameSize-1) stay zero (highest frequencies)
-	left = make([]float64, frameSize)
-	right = make([]float64, frameSize)
+	left = d.scratchBands.ensureCoeffs(frameSize * 2)[:frameSize]
+	right = left[frameSize : frameSize*2]
+	// Zero the buffers (required since we reuse them)
+	for i := range left {
+		left[i] = 0
+	}
+	for i := range right {
+		right[i] = 0
+	}
 
 	// Track coded bands for folding
 	var collapseMask uint32
-	bandVectorsL := make([][]float64, nbBands)
-	bandVectorsR := make([][]float64, nbBands)
+	// Use pre-allocated band vectors slices from scratch space
+	bandVectorsL, bandVectorsR := d.scratchBands.ensureBandVectorsStereo(nbBands)
 
 	offset := 0
 	for band := 0; band < nbBands; band++ {
@@ -184,13 +198,17 @@ func (d *Decoder) DecodeBandsStereo(
 		// Trace allocation
 		DefaultTracer.TraceAllocation(band, bandBits[band], k)
 
-		var shapeL, shapeR []float64
+		// Get pre-allocated storage for this band's shape vectors
+		shapeL := d.scratchBands.getBandStorageL(band, n)
+		shapeR := d.scratchBands.getBandStorageR(band, n)
 
 		if band >= intensity && intensity >= 0 {
 			// Intensity stereo: decode mono and duplicate with sign
 			if k > 0 {
-				shapeMid := d.DecodePVQWithTrace(band, n, k)
-				shapeL, shapeR = d.DecodeIntensityStereo(shapeMid)
+				// Use pvqNorm as temporary for mid shape
+				shapeMid := d.scratchBands.ensurePVQNorm(n)
+				d.decodePVQInto(band, n, k, shapeMid)
+				d.decodeIntensityStereoInto(shapeMid, shapeL, shapeR)
 				UpdateCollapseMask(&collapseMask, band)
 			} else {
 				// Fold from lower band
@@ -199,9 +217,9 @@ func (d *Decoder) DecodeBandsStereo(
 				if srcBand >= 0 {
 					src = bandVectorsL[srcBand]
 				}
-				shapeMid := FoldBand(src, n, &d.rng)
-				shapeL = make([]float64, n)
-				shapeR = make([]float64, n)
+				// Use foldResult as temporary for mid shape
+				shapeMid := d.scratchBands.ensureFoldResult(n)
+				d.foldBandInto(src, n, shapeMid)
 				copy(shapeL, shapeMid)
 				copy(shapeR, shapeMid)
 			}
@@ -215,35 +233,41 @@ func (d *Decoder) DecodeBandsStereo(
 			}
 			kSide := k - kMid
 
-			shapeMid := d.DecodePVQWithTrace(band, n, kMid)
-			var shapeSide []float64
+			// Use pvqNorm as temporary for mid shape
+			shapeMid := d.scratchBands.ensurePVQNorm(n)
+			d.decodePVQInto(band, n, kMid, shapeMid)
+
+			// Use foldResult as temporary for side shape
+			shapeSide := d.scratchBands.ensureFoldResult(n)
 			if kSide > 0 {
-				shapeSide = d.DecodePVQWithTrace(band, n, kSide)
+				d.decodePVQInto(band, n, kSide, shapeSide)
 			} else {
-				shapeSide = make([]float64, n)
+				for i := 0; i < n; i++ {
+					shapeSide[i] = 0
+				}
 			}
 
 			// Decode theta for M/S mixing
 			itheta := d.DecodeStereoTheta(8) // 8 quantization steps
 			midGain, sideGain := ThetaToGains(itheta, 8)
 
-			// Apply rotation
-			shapeL, shapeR = ApplyMidSideRotation(shapeMid, shapeSide, midGain, sideGain)
+			// Apply rotation directly into pre-allocated buffers
+			applyMidSideRotationInto(shapeMid, shapeSide, midGain, sideGain, shapeL, shapeR)
 
 			UpdateCollapseMask(&collapseMask, band)
 		} else {
-			// Fold from lower band
+			// Fold from lower band into pre-allocated buffers
 			srcBand := FindFoldSource(band, collapseMask, nil)
 			var srcL, srcR []float64
 			if srcBand >= 0 {
 				srcL = bandVectorsL[srcBand]
 				srcR = bandVectorsR[srcBand]
 			}
-			shapeL = FoldBand(srcL, n, &d.rng)
-			shapeR = FoldBand(srcR, n, &d.rng)
+			d.foldBandInto(srcL, n, shapeL)
+			d.foldBandInto(srcR, n, shapeR)
 		}
 
-		// Store vectors for folding
+		// Store vector references for folding
 		bandVectorsL[band] = shapeL
 		bandVectorsR[band] = shapeR
 
