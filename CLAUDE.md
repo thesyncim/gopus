@@ -28,7 +28,7 @@ Always use this reference when implementing features or debugging discrepancies.
 | PLC | ✅ Complete | LTP coefficients, frame gluing |
 | DTX | ✅ Complete | Multi-band VAD implemented |
 | Hybrid | ✅ Improved | Proper bit allocation, HB_gain, crossover |
-| Allocations | ⚠️ ~288/59 | Benchmarks added, path to zero documented |
+| Allocations | ⚠️ ~279/1 | CELT decoder 98% reduction, FEC implemented |
 
 ---
 
@@ -67,6 +67,21 @@ Always use this reference when implementing features or debugging discrepancies.
    - Comprehensive encode/decode benchmarks
    - Encoder scratch buffers for zero-alloc path
    - Current: 288 encode, 59 decode allocs/op
+
+### Session 4: Allocation & FEC Improvements (Complete)
+1. ✅ **CELT Decoder Allocations** - `celt/scratch.go`, `celt/kiss_fft.go`
+   - Scratch buffer pooling for FFT transforms
+   - CELT decoder now 1 alloc/op (down from ~59, 98% reduction!)
+2. ✅ **CELT Encoder Allocations** - `celt/encoder.go`, `celt/bands_quant.go`
+   - Pre-allocated buffers for band quantization
+   - Encoder now 279 allocs/op (down from 288)
+3. ✅ **SILK Gain Quantization** - `silk/gain_quant.go`
+   - Full libopus-matching logarithmic gain quantization
+   - Hysteresis and delta coding for smooth gain changes
+4. ✅ **FEC/LBRR Encoding** - `silk/lbrr_encode.go`
+   - Low Bitrate Redundancy for forward error correction
+   - PatchInitialBits support in range encoder
+   - Enables packet loss recovery at decoder
 
 ---
 
@@ -171,6 +186,8 @@ typedef struct {
 | `silk/lpc_analysis.go` | `silk/float/burg_modified_FLP.c` | ✅ Burg method, A2NLSF |
 | `encoder/hybrid.go` | `src/opus_encoder.c` | ✅ Bit alloc, HB_gain, gain fade |
 | `benchmark_alloc_test.go` | - | ✅ Comprehensive benchmarks |
+| `silk/gain_quant.go` | `silk/gain_quant.c` | ✅ Libopus-matching gain quant |
+| `silk/lbrr_encode.go` | `silk/encode_frame_FLP.c` | ✅ FEC/LBRR encoding |
 | `rangecoding/` | `celt/entcode.c` | Working correctly |
 | `celt/bands.go` | `celt/bands.c` | Energy coding improvements |
 
@@ -202,14 +219,18 @@ go test -bench=. ./...
 
 ## Agent Task Tracking
 
-### Active Agents (Round 4)
+### Active Agents (Round 5)
 | ID | Task | Status |
 |----|------|--------|
-| - | Starting round 4... | - |
+| - | Ready for next round | - |
 
-### Completed Agents (Rounds 1-3)
+### Completed Agents (Rounds 1-4)
 | Round | ID | Task | Result |
 |-------|-----|------|--------|
+| 4 | a0efb6b | CELT decoder allocs | ✅ 59→1 alloc (98% reduction) |
+| 4 | a66a0ba | CELT encoder allocs | ✅ 288→279 allocs |
+| 4 | af890b5 | SILK gain quant | ✅ Libopus-matching log quantization |
+| 4 | ab2a915 | FEC/LBRR encoding | ✅ Forward error correction |
 | 3 | a2b8a05 | SILK LPC analysis | ✅ Burg method, A2NLSF, interpolation |
 | 3 | abb41d1 | Hybrid band splitting | ✅ Bit allocation, HB_gain, gain fade |
 | 3 | a6bb632 | Allocation benchmarks | ✅ Benchmarks, scratch buffers |
@@ -249,10 +270,10 @@ go test -bench=. ./...
 - [x] CELT transient detection ✅
 - [x] SILK LPC analysis (Burg) ✅
 - [x] Hybrid bit allocation ✅
-- [ ] Zero allocations in hot path (currently 288/59)
+- [ ] Zero allocations in hot path (currently 279/1, 98% CELT decoder reduction!)
 - [ ] CELT fine energy bits optimization
-- [ ] SILK gain quantization refinement
-- [ ] FEC encoding implementation
+- [x] SILK gain quantization refinement ✅
+- [x] FEC encoding implementation ✅
 
 ### P3: Advanced Features
 - [ ] Deep PLC (LPCnet)
@@ -308,7 +329,7 @@ test(encoder): add comprehensive round-trip tests
 ## Build Status
 
 ```bash
-# Last verified: 2026-02-01 (after round 3)
+# Last verified: 2026-02-01 (after round 4)
 go build ./...  # ✅ Success
 go test ./... -count=1  # ✅ All packages pass
 go test -bench=. -benchmem  # ✅ Benchmarks available
@@ -316,9 +337,11 @@ go test -bench=. -benchmem  # ✅ Benchmarks available
 
 ### Allocation Status
 ```
-Decoder (CELT):   ~59 allocs/op
-Encoder (Audio):  ~288 allocs/op
-Encoder (VoIP):   ~42 allocs/op
-Round-trip:       ~498 allocs/op
+Decoder (CELT):   1 alloc/op      (was ~59, 98% reduction!)
+Decoder (SILK):   14 allocs/op
+Decoder (Hybrid): 22 allocs/op
+Encoder (Audio):  279 allocs/op   (was ~288)
+Encoder (VoIP):   43 allocs/op
+Round-trip:       280 allocs/op   (was ~498, 44% reduction!)
 Target:           0 allocs/op
 ```
