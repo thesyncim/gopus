@@ -205,6 +205,7 @@ func (d *Decoder) decodeOpusFrameInto(
 	redundancyBytes := 0
 	mainLen := len(data)
 	var redundantAudio []float32
+	var redundantRng uint32 // Captured final range from redundancy decoding
 
 	needCeltReset := d.haveDecoded && mode != d.prevMode && !d.prevRedundancy
 
@@ -213,6 +214,8 @@ func (d *Decoder) decodeOpusFrameInto(
 		if err != nil {
 			return nil, err
 		}
+		// Capture the final range from decoding the redundancy frame
+		redundantRng = d.celtDecoder.FinalRange()
 		if len(d.scratchRedundant) < len(samples) {
 			return nil, ErrBufferTooSmall
 		}
@@ -233,6 +236,8 @@ func (d *Decoder) decodeOpusFrameInto(
 				return 0, err
 			}
 			copyFloat64ToFloat32(out, samples)
+			// Capture FinalRange for PLC
+			d.mainDecodeRng = d.hybridDecoder.FinalRange()
 		} else {
 			d.hybridDecoder.SetPrevPacketStereo(d.prevPacketStereo)
 			afterSilk := func(rd *rangecoding.Decoder) error {
@@ -286,6 +291,8 @@ func (d *Decoder) decodeOpusFrameInto(
 				return 0, err
 			}
 			copyFloat64ToFloat32(out, samples)
+			// Capture the main decode's FinalRange before any redundancy post-processing
+			d.mainDecodeRng = d.hybridDecoder.FinalRange()
 		}
 
 	case ModeSILK:
@@ -357,6 +364,10 @@ func (d *Decoder) decodeOpusFrameInto(
 			}
 		}
 
+		// Capture the main decode's FinalRange AFTER redundancy flag reads but BEFORE any CELT redundancy decode.
+		// For SILK-only mode, the final range includes all bits read from the range decoder.
+		d.mainDecodeRng = rd.Range()
+
 		if transition && !redundancy && len(pcmTransition) == 0 {
 			transSize := minInt(F5, audiosize)
 			n, err := d.decodeOpusFrameInto(d.scratchTransition, nil, transSize, packetFrameSize, d.prevMode, d.lastBandwidth, packetStereoLocal)
@@ -378,6 +389,8 @@ func (d *Decoder) decodeOpusFrameInto(
 			return 0, err
 		}
 		copyFloat64ToFloat32(out, samples)
+		// Capture the main decode's FinalRange (no redundancy post-processing for CELT-only)
+		d.mainDecodeRng = d.celtDecoder.FinalRange()
 	}
 
 	if redundancy {
@@ -437,6 +450,8 @@ func (d *Decoder) decodeOpusFrameInto(
 	d.prevMode = mode
 	d.prevRedundancy = redundancy && !celtToSilk
 	d.haveDecoded = true
+	d.redundantRng = redundantRng
+	// Note: d.lastDataLen is set at packet level in Decode(), not here
 
 	return audiosize, nil
 }

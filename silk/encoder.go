@@ -32,6 +32,9 @@ type Encoder struct {
 	// Pitch analysis state
 	pitchState PitchAnalysisState // State for pitch estimation across frames
 
+	// NSQ (Noise Shaping Quantization) state
+	nsqState *NSQState // Noise shaping quantizer state for proper libopus-matching
+
 	// Analysis buffers (encoder-specific)
 	inputBuffer []float32 // Buffered input samples
 	lpcState    []float32 // LPC filter state for residual computation
@@ -50,6 +53,7 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 		prevLSFQ15:  make([]int16, config.LPCOrder),
 		inputBuffer: make([]float32, frameSamples*2), // Look-ahead buffer
 		lpcState:    make([]float32, config.LPCOrder),
+		nsqState:    NewNSQState(), // Initialize NSQ state
 		bandwidth:   bandwidth,
 		sampleRate:  config.SampleRate,
 		lpcOrder:    config.LPCOrder,
@@ -74,6 +78,9 @@ func (e *Encoder) Reset() {
 	e.prevStereoWeights = [2]int16{0, 0}
 	e.stereo = stereoEncState{} // Reset LP filter state
 	e.pitchState = PitchAnalysisState{} // Reset pitch state
+	if e.nsqState != nil {
+		e.nsqState.Reset() // Reset NSQ state
+	}
 }
 
 // SetRangeEncoder sets the range encoder for the current frame.
@@ -161,4 +168,9 @@ func (e *Encoder) LPCState() []float32 {
 // Must be called after EncodeFrame() to get a meaningful value.
 func (e *Encoder) FinalRange() uint32 {
 	return e.lastRng
+}
+
+// NSQState returns the noise shaping quantizer state.
+func (e *Encoder) NSQState() *NSQState {
+	return e.nsqState
 }

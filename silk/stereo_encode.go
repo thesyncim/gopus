@@ -250,12 +250,17 @@ func EncodeStereoIndices(enc *rangecoding.Encoder, ix StereoQuantIndices) {
 	stereoEncodePred(enc, ix)
 }
 
-// encodeStereoWithLPFilter converts stereo to mid-side with proper LP/HP filtering.
+// encodeStereoWithLPFilter converts stereo to mid-side with proper LP/HP filtering
+// and applies 8ms predictor interpolation for smooth frame boundary transitions.
 // This matches libopus stereo_LR_to_MS.c by applying LP and HP filtering before
 // computing the stereo predictors, which improves prediction quality.
 //
 // The LP filter is a 3-tap FIR [1,2,1]/4 that separates low and high frequency content.
 // Separate predictors are computed for LP and HP bands and combined.
+//
+// The 8ms interpolation smoothly transitions from previous frame's predictor weights
+// to the current frame's weights over the first 8ms of the frame, eliminating
+// discontinuities at frame boundaries.
 //
 // Parameters:
 //   - left, right: input stereo signals (should have length frameLength+2 for look-ahead)
@@ -322,6 +327,100 @@ func (e *Encoder) encodeStereoWithLPFilter(left, right []float32, frameLength, f
 	return mid, side, predQ13
 }
 
+// StereoEncodeLRToMSWithInterp converts L/R to M/S and applies 8ms predictor interpolation.
+// This is the full libopus-compatible stereo encoding function that:
+// 1. Converts L/R to M/S with proper buffering
+// 2. Computes LP/HP predictors
+// 3. Applies 8ms smooth interpolation from previous to current predictors
+// 4. Updates state for next frame continuity
+//
+// The side channel output has the prediction subtracted, matching libopus behavior.
+// The interpolation ensures smooth transitions at frame boundaries.
+//
+// Parameters:
+//   - left, right: input stereo signals (length frameLength+2 for look-ahead)
+//   - frameLength: number of samples in the frame
+//   - fsKHz: sample rate in kHz (8, 12, or 16)
+//   - widthQ14: stereo width parameter in Q14 (16384 = full stereo)
+//
+// Returns:
+//   - midOut: mid channel output (length frameLength)
+//   - sideOut: side channel with prediction subtracted (length frameLength)
+//   - predQ13: computed prediction coefficients [LP, HP]
+func (e *Encoder) StereoEncodeLRToMSWithInterp(left, right []float32, frameLength, fsKHz int, widthQ14 int16) (midOut, sideOut []float32, predQ13 [2]int32) {
+	// First compute predictors using LP/HP filtering
+	mid, side, predQ13 := e.encodeStereoWithLPFilter(left, right, frameLength, fsKHz)
+
+	// Create output buffers
+	midOut = make([]float32, frameLength)
+	sideOut = make([]float32, frameLength)
+
+	// Copy mid channel (offset by 1 to account for the history sample alignment)
+	for n := 0; n < frameLength; n++ {
+		midOut[n] = mid[n+1]
+	}
+
+	// Apply 8ms predictor interpolation to side channel
+	// This matches libopus stereo_LR_to_MS.c lines 199-224
+	interpSamples := stereoInterpLenMs * fsKHz
+
+	// Get previous frame's predictor values (negated as in libopus)
+	pred0Q13 := -e.stereo.predPrevQ13[0]
+	pred1Q13 := -e.stereo.predPrevQ13[1]
+	wQ24 := int32(e.stereo.widthPrevQ14) << 10
+
+	// Compute interpolation deltas
+	// denomQ16 = 1.0 / (8ms * fsKHz) in Q16
+	denomQ16 := int32((1 << 16) / interpSamples)
+	delta0Q13 := -silkRSHIFT_ROUND(silkSMULBB(predQ13[0]-e.stereo.predPrevQ13[0], denomQ16), 16)
+	delta1Q13 := -silkRSHIFT_ROUND(silkSMULBB(predQ13[1]-e.stereo.predPrevQ13[1], denomQ16), 16)
+	deltawQ24 := int32(silkSMULWB(int32(widthQ14)-int32(e.stereo.widthPrevQ14), denomQ16)) << 10
+
+	// Process interpolation region (first 8ms)
+	for n := 0; n < interpSamples && n < frameLength; n++ {
+		pred0Q13 += delta0Q13
+		pred1Q13 += delta1Q13
+		wQ24 += deltawQ24
+
+		// LP-filtered mid: (mid[n] + 2*mid[n+1] + mid[n+2]) << 9 (Q11)
+		sumQ11 := int32((mid[n]+2*mid[n+1]+mid[n+2])*512) // Q11
+
+		// side' = width * side + pred0 * LP_mid + pred1 * mid
+		// In Q8 precision matching libopus
+		sideQ8 := silkSMULWB(wQ24, int32(side[n+1]*32768))
+		sideQ8 = silkSMLAWB(sideQ8, sumQ11, pred0Q13)
+		sideQ8 = silkSMLAWB(sideQ8, int32(mid[n+1]*32768)<<11, pred1Q13)
+
+		// Convert from Q8 to float
+		sideOut[n] = float32(silkRSHIFT_ROUND(sideQ8, 8)) / 32768.0
+	}
+
+	// Process remainder (after 8ms interpolation)
+	pred0Q13 = -predQ13[0]
+	pred1Q13 = -predQ13[1]
+	wQ24 = int32(widthQ14) << 10
+
+	for n := interpSamples; n < frameLength; n++ {
+		// LP-filtered mid: (mid[n] + 2*mid[n+1] + mid[n+2]) << 9 (Q11)
+		sumQ11 := int32((mid[n]+2*mid[n+1]+mid[n+2])*512) // Q11
+
+		// side' = width * side + pred0 * LP_mid + pred1 * mid
+		sideQ8 := silkSMULWB(wQ24, int32(side[n+1]*32768))
+		sideQ8 = silkSMLAWB(sideQ8, sumQ11, pred0Q13)
+		sideQ8 = silkSMLAWB(sideQ8, int32(mid[n+1]*32768)<<11, pred1Q13)
+
+		// Convert from Q8 to float
+		sideOut[n] = float32(silkRSHIFT_ROUND(sideQ8, 8)) / 32768.0
+	}
+
+	// Update state for next frame
+	e.stereo.predPrevQ13[0] = predQ13[0]
+	e.stereo.predPrevQ13[1] = predQ13[1]
+	e.stereo.widthPrevQ14 = widthQ14
+
+	return midOut, sideOut, predQ13
+}
+
 // EncodeStereoLRToMS is the public method that matches libopus stereo_LR_to_MS.
 // It converts stereo L/R to M/S with proper LP filtering for predictor analysis.
 // This should be used instead of EncodeStereoMidSide for proper libopus compatibility.
@@ -343,4 +442,128 @@ func (e *Encoder) EncodeStereoLRToMS(left, right []float32, frameLength, fsKHz i
 func (e *Encoder) ResetStereoState() {
 	e.stereo = stereoEncState{}
 	e.prevStereoWeights = [2]int16{0, 0}
+}
+
+// InterpolatePredictorsFloat applies 8ms smooth predictor interpolation using float arithmetic.
+// This is a cleaner implementation for testing and understanding the interpolation algorithm.
+//
+// The function linearly interpolates from prevPred to currPred over the first
+// interpSamples (8ms * fsKHz), then uses currPred for the remainder.
+//
+// Parameters:
+//   - prevPred: previous frame's predictor [LP, HP] as float
+//   - currPred: current frame's predictor [LP, HP] as float
+//   - prevWidth: previous frame's stereo width (0.0-1.0)
+//   - currWidth: current frame's stereo width (0.0-1.0)
+//   - mid: mid channel samples (length frameLength+2, with history)
+//   - side: side channel samples (length frameLength+2, with history)
+//   - frameLength: number of output samples
+//   - fsKHz: sample rate in kHz
+//
+// Returns:
+//   - sideOut: side channel with interpolated prediction applied
+func InterpolatePredictorsFloat(prevPred, currPred [2]float32, prevWidth, currWidth float32,
+	mid, side []float32, frameLength, fsKHz int) []float32 {
+
+	sideOut := make([]float32, frameLength)
+	interpSamples := stereoInterpLenMs * fsKHz
+
+	// Interpolation region (first 8ms)
+	for n := 0; n < interpSamples && n < frameLength; n++ {
+		// Linear interpolation factor: t goes from 0 to 1 over interpSamples
+		// But we increment after using, so at sample 0, t = 1/interpSamples
+		t := float32(n+1) / float32(interpSamples)
+
+		// Interpolate predictors and width
+		pred0 := prevPred[0] + t*(currPred[0]-prevPred[0])
+		pred1 := prevPred[1] + t*(currPred[1]-prevPred[1])
+		width := prevWidth + t*(currWidth-prevWidth)
+
+		// LP-filtered mid: (mid[n] + 2*mid[n+1] + mid[n+2]) / 4
+		lpMid := (mid[n] + 2*mid[n+1] + mid[n+2]) / 4.0
+
+		// Apply prediction to side channel:
+		// side' = width * side - pred0 * lpMid - pred1 * mid[n+1]
+		// The minus signs match libopus where pred is negated in the loop
+		sideOut[n] = width*side[n+1] - pred0*lpMid - pred1*mid[n+1]
+	}
+
+	// Remainder (after 8ms) - use final predictor values
+	for n := interpSamples; n < frameLength; n++ {
+		// LP-filtered mid
+		lpMid := (mid[n] + 2*mid[n+1] + mid[n+2]) / 4.0
+
+		// Apply final prediction
+		sideOut[n] = currWidth*side[n+1] - currPred[0]*lpMid - currPred[1]*mid[n+1]
+	}
+
+	return sideOut
+}
+
+// StereoEncStateInterp holds state for encoder-side 8ms predictor interpolation.
+// This is a simplified float-based state for easier integration.
+type StereoEncStateInterp struct {
+	PrevPredQ13 [2]int32  // Previous frame's predictors in Q13
+	PrevWidthQ14 int16    // Previous frame's stereo width in Q14
+	SMid         [2]int16 // Mid signal history buffer
+	SSide        [2]int16 // Side signal history buffer
+}
+
+// Reset clears the interpolation state for a new stream.
+func (s *StereoEncStateInterp) Reset() {
+	s.PrevPredQ13 = [2]int32{0, 0}
+	s.PrevWidthQ14 = 0
+	s.SMid = [2]int16{0, 0}
+	s.SSide = [2]int16{0, 0}
+}
+
+// ApplyInterpolation applies 8ms predictor interpolation to transform the side channel.
+// This updates the state with current predictor values for the next frame.
+//
+// Parameters:
+//   - currPredQ13: current frame's predictors [LP, HP] in Q13
+//   - currWidthQ14: current frame's stereo width in Q14 (16384 = full width)
+//   - mid, side: mid/side channels with 2 history samples prepended
+//   - frameLength: number of output samples
+//   - fsKHz: sample rate in kHz
+//
+// Returns:
+//   - sideOut: transformed side channel (length frameLength)
+func (s *StereoEncStateInterp) ApplyInterpolation(currPredQ13 [2]int32, currWidthQ14 int16,
+	mid, side []float32, frameLength, fsKHz int) []float32 {
+
+	// Convert Q13 predictors to float for cleaner math
+	prevPred := [2]float32{
+		float32(s.PrevPredQ13[0]) / 8192.0,
+		float32(s.PrevPredQ13[1]) / 8192.0,
+	}
+	currPred := [2]float32{
+		float32(currPredQ13[0]) / 8192.0,
+		float32(currPredQ13[1]) / 8192.0,
+	}
+	prevWidth := float32(s.PrevWidthQ14) / 16384.0
+	currWidth := float32(currWidthQ14) / 16384.0
+
+	// Apply interpolation
+	sideOut := InterpolatePredictorsFloat(prevPred, currPred, prevWidth, currWidth,
+		mid, side, frameLength, fsKHz)
+
+	// Update state for next frame
+	s.PrevPredQ13 = currPredQ13
+	s.PrevWidthQ14 = currWidthQ14
+
+	return sideOut
+}
+
+// GetInterpolationState returns the current interpolation state from the encoder.
+// This allows external code to track the interpolation state.
+func (e *Encoder) GetInterpolationState() (predPrevQ13 [2]int32, widthPrevQ14 int16) {
+	return e.stereo.predPrevQ13, e.stereo.widthPrevQ14
+}
+
+// SetInterpolationState sets the interpolation state for the encoder.
+// This is useful for testing or when restoring encoder state.
+func (e *Encoder) SetInterpolationState(predPrevQ13 [2]int32, widthPrevQ14 int16) {
+	e.stereo.predPrevQ13 = predPrevQ13
+	e.stereo.widthPrevQ14 = widthPrevQ14
 }

@@ -61,6 +61,9 @@ type Decoder struct {
 	prevRedundancy    bool
 	prevPacketStereo  bool
 	haveDecoded       bool
+	redundantRng      uint32 // Range from redundancy decoding, XORed with final range
+	lastDataLen       int    // Length of last packet data
+	mainDecodeRng     uint32 // Final range from main decode (before any redundancy processing)
 }
 
 // NewDecoder creates a new Opus decoder.
@@ -162,6 +165,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		}
 
 		d.lastFrameSize = frameSize
+		d.lastDataLen = 0 // PLC: set len to 0 so FinalRange returns 0
 		return frameSize, nil
 	}
 
@@ -329,6 +333,8 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 
 	d.lastFrameSize = frameSize
 	d.lastBandwidth = toc.Bandwidth
+	// Set the full packet length for FinalRange check (per libopus: len <= 1 means rangeFinal = 0)
+	d.lastDataLen = len(data)
 
 	return totalSamples, nil
 }
@@ -456,14 +462,16 @@ func (d *Decoder) GetSILKDecoder() *silk.Decoder {
 // FinalRange returns the final range coder state after decoding.
 // This matches libopus OPUS_GET_FINAL_RANGE and is used for bitstream verification.
 // Must be called after Decode() to get a meaningful value.
+//
+// Per libopus, the final range is XORed with any redundancy frame's range.
+// If the packet length was <= 1, FinalRange returns 0.
 func (d *Decoder) FinalRange() uint32 {
-	switch d.prevMode {
-	case ModeSILK:
-		return d.silkDecoder.FinalRange()
-	case ModeCELT:
-		return d.celtDecoder.FinalRange()
-	case ModeHybrid:
-		return d.hybridDecoder.FinalRange()
+	// Per libopus: if len <= 1, rangeFinal = 0
+	if d.lastDataLen <= 1 {
+		return 0
 	}
-	return 0
+
+	// Use the captured main decode range (not the current decoder state,
+	// which may have been modified by redundancy decoding)
+	return d.mainDecodeRng ^ d.redundantRng
 }

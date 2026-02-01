@@ -1,5 +1,32 @@
 // Package celt implements the CELT encoder per RFC 6716 Section 4.3.
 // This file provides transient detection for short block decisions.
+//
+// Transient detection identifies frames with sudden energy changes (attacks)
+// that benefit from using multiple short MDCTs instead of one long MDCT.
+// Short blocks provide better time resolution at the cost of frequency resolution,
+// which is crucial for preserving the quality of percussive sounds like drums,
+// hand claps, and other impulsive audio.
+//
+// The implementation provides multiple detection methods:
+//
+// 1. TransientAnalysis: Standard libopus-compatible analysis using forward/backward
+//    masking to compute a mask_metric. Threshold > 200 triggers transient mode.
+//
+// 2. TransientAnalysisWithState: Enhanced version with persistent state across frames.
+//    This improves detection of attacks spanning frame boundaries and uses:
+//    - Persistent HP filter state for continuous attack tracking
+//    - Attack duration tracking for percussive passage handling
+//    - Hysteresis to prevent rapid toggling
+//    - Adaptive thresholding based on signal level
+//
+// 3. DetectPercussiveAttack: Specialized detector for sharp percussive attacks
+//    using envelope analysis and crest factor computation. Useful for catching
+//    attacks that masking-based detection might miss.
+//
+// 4. PatchTransientDecision: Secondary check using band energy comparison to
+//    catch transients missed by time-domain analysis.
+//
+// Reference: libopus celt/celt_encoder.c transient_analysis(), patch_transient_decision()
 
 package celt
 
@@ -370,6 +397,240 @@ func (e *Encoder) TransientAnalysis(pcm []float64, frameSize int, allowWeakTrans
 	result.TfEstimate = math.Sqrt(tfEstimateSquared)
 
 	// Clamp to [0, 1] range
+	if result.TfEstimate > 1.0 {
+		result.TfEstimate = 1.0
+	}
+
+	return result
+}
+
+// TransientAnalysisWithState performs enhanced transient analysis using persistent state.
+// This improves detection of percussive sounds by:
+//   1. Using persistent HP filter state across frames for better attack detection
+//   2. Tracking attack duration for multi-frame transient handling
+//   3. Applying hysteresis to prevent rapid toggling
+//   4. Adaptive thresholding based on signal level
+//
+// This function updates the encoder's transient state and should be used
+// when encoding sequences of frames for optimal percussive sound quality.
+//
+// Parameters:
+//   - pcm: input PCM samples (mono or interleaved stereo, pre-emphasized)
+//   - frameSize: frame size in samples (total including overlap)
+//   - allowWeakTransients: for hybrid mode at low bitrate
+//
+// Returns: TransientAnalysisResult with all metrics
+//
+// Reference: libopus celt/celt_encoder.c transient_analysis() with state persistence
+func (e *Encoder) TransientAnalysisWithState(pcm []float64, frameSize int, allowWeakTransients bool) TransientAnalysisResult {
+	result := TransientAnalysisResult{
+		TfEstimate:  0.0,
+		TfChannel:   0,
+		ToneFreq:    -1,
+		Toneishness: 0,
+	}
+
+	if len(pcm) == 0 || frameSize <= 0 {
+		return result
+	}
+
+	channels := e.channels
+	samplesPerChannel := len(pcm) / channels
+	if samplesPerChannel < 16 {
+		return result
+	}
+
+	// Detect pure tones before transient analysis
+	toneFreq, toneishness := toneDetect(pcm, channels, 48000)
+	result.ToneFreq = toneFreq
+	result.Toneishness = toneishness
+
+	// Forward masking decay
+	forwardDecay := float32(0.0625)
+	if allowWeakTransients {
+		forwardDecay = 0.03125
+	}
+
+	// Inverse table for computing harmonic mean (6*64/x)
+	invTable := [128]int{
+		255, 255, 156, 110, 86, 70, 59, 51, 45, 40, 37, 33, 31, 28, 26, 25,
+		23, 22, 21, 20, 19, 18, 17, 16, 16, 15, 15, 14, 13, 13, 12, 12,
+		12, 12, 11, 11, 11, 10, 10, 10, 9, 9, 9, 9, 9, 9, 8, 8,
+		8, 8, 8, 7, 7, 7, 7, 7, 7, 6, 6, 6, 6, 6, 6, 6,
+		6, 6, 6, 6, 6, 6, 6, 6, 6, 5, 5, 5, 5, 5, 5, 5,
+		5, 5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+		4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 3, 3,
+		3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2,
+	}
+
+	var maxMaskMetric float64
+	tfChannel := 0
+	var totalFrameEnergy float64
+
+	// Process each channel with PERSISTENT HP filter state
+	for c := 0; c < channels; c++ {
+		// Extract channel samples
+		channelSamples := make([]float32, samplesPerChannel)
+		for i := 0; i < samplesPerChannel; i++ {
+			channelSamples[i] = float32(pcm[i*channels+c])
+		}
+
+		// High-pass filter with PERSISTENT memory
+		// This is key for detecting attacks that span frame boundaries
+		tmp := make([]float32, samplesPerChannel)
+		mem0 := e.transientHPMem[c][0]
+		mem1 := e.transientHPMem[c][1]
+
+		for i := 0; i < samplesPerChannel; i++ {
+			x := channelSamples[i]
+			y := mem0 + x
+			// Modified code to shorten dependency chains (matches libopus float)
+			mem00 := mem0
+			mem0 = mem0 - x + 0.5*mem1
+			mem1 = x - mem00
+			tmp[i] = y
+		}
+
+		// Save HP filter state for next frame
+		e.transientHPMem[c][0] = mem0
+		e.transientHPMem[c][1] = mem1
+
+		// Clear first few samples (filter warm-up) - but ONLY for first frame
+		// For subsequent frames, the HP memory carries valid state
+		warmupSamples := 12
+		if e.frameCount > 0 {
+			warmupSamples = 4 // Less warmup needed when state is valid
+		}
+		for i := 0; i < warmupSamples && i < len(tmp); i++ {
+			tmp[i] = 0
+		}
+
+		len2 := samplesPerChannel / 2
+
+		// Forward pass: compute post-echo threshold with forward masking
+		energy := make([]float32, len2)
+		var mean float32
+		var memFwd float32
+		for i := 0; i < len2; i++ {
+			x2 := tmp[2*i]*tmp[2*i] + tmp[2*i+1]*tmp[2*i+1]
+			mean += x2
+			totalFrameEnergy += float64(x2)
+			memFwd = x2 + (1.0-forwardDecay)*memFwd
+			energy[i] = forwardDecay * memFwd
+		}
+
+		// Backward pass: compute pre-echo threshold (13.9 dB/ms decay)
+		var maxE float32
+		var memBwd float32
+		for i := len2 - 1; i >= 0; i-- {
+			memBwd = energy[i] + 0.875*memBwd
+			energy[i] = 0.125 * memBwd
+			if 0.125*memBwd > maxE {
+				maxE = 0.125 * memBwd
+			}
+		}
+
+		// Compute frame energy as geometric mean of mean and max
+		geoMean := float32(math.Sqrt(float64(mean * maxE * 0.5 * float32(len2))))
+
+		// Inverse of mean energy
+		var norm float32
+		if geoMean > 1e-15 {
+			norm = float32(len2) / (geoMean*0.5 + 1e-15)
+		}
+
+		// Compute harmonic mean using inverse table
+		var unmask int
+		for i := 12; i < len2-5; i += 4 {
+			id := int(math.Floor(float64(64 * norm * (energy[i] + 1e-15))))
+			if id < 0 {
+				id = 0
+			}
+			if id > 127 {
+				id = 127
+			}
+			unmask += invTable[id]
+		}
+
+		// Normalize
+		numSamples := (len2 - 17) / 4
+		if numSamples < 1 {
+			numSamples = 1
+		}
+		maskMetric := float64(64*unmask*4) / float64(6*numSamples*4)
+
+		if maskMetric > maxMaskMetric {
+			tfChannel = c
+			maxMaskMetric = maskMetric
+		}
+	}
+
+	result.MaskMetric = maxMaskMetric
+	result.TfChannel = tfChannel
+
+	// Update peak energy tracking for adaptive thresholding
+	if totalFrameEnergy > e.peakEnergy {
+		e.peakEnergy = totalFrameEnergy
+	} else {
+		// Slow decay of peak energy (adapt to quieter passages)
+		e.peakEnergy = 0.99*e.peakEnergy + 0.01*totalFrameEnergy
+	}
+
+	// Adaptive threshold based on signal level
+	// For quiet signals, be more aggressive to catch small transients
+	// For loud signals, use standard threshold
+	threshold := 200.0
+	if e.peakEnergy > 0 && totalFrameEnergy < 0.1*e.peakEnergy {
+		// Quieter than 10dB below peak - lower threshold to catch subtle attacks
+		threshold = 150.0
+	}
+
+	// Apply hysteresis: if we were in transient state, use lower threshold
+	// to stay in transient mode (prevents rapid toggling on percussive passages)
+	if e.attackDuration > 0 {
+		threshold *= 0.8 // 20% lower threshold to maintain transient state
+	}
+
+	// Transient decision with hysteresis
+	result.IsTransient = maxMaskMetric > threshold
+
+	// Prevent false positives on very low frequency tones
+	if result.Toneishness > 0.98 && result.ToneFreq >= 0 && result.ToneFreq < 0.026 {
+		result.IsTransient = false
+		result.MaskMetric = 0
+	}
+
+	// Update attack duration tracking
+	if result.IsTransient {
+		e.attackDuration++
+		// Cap at 10 to prevent overflow and indicate sustained percussive passage
+		if e.attackDuration > 10 {
+			e.attackDuration = 10
+		}
+	} else {
+		// Decay attack duration (don't reset immediately for continuity)
+		if e.attackDuration > 0 {
+			e.attackDuration--
+		}
+	}
+
+	// Weak transient handling for hybrid mode
+	if allowWeakTransients && result.IsTransient && maxMaskMetric < 600 {
+		result.IsTransient = false
+		result.WeakTransient = true
+	}
+
+	// Store last mask metric for hysteresis
+	e.lastMaskMetric = maxMaskMetric
+
+	// Compute tf_estimate from mask_metric
+	tfMax := math.Max(0, math.Sqrt(27*maxMaskMetric)-42)
+	clampedTfMax := math.Min(163, tfMax)
+	tfEstimateSquared := 0.0069*clampedTfMax - 0.139
+	if tfEstimateSquared < 0 {
+		tfEstimateSquared = 0
+	}
+	result.TfEstimate = math.Sqrt(tfEstimateSquared)
 	if result.TfEstimate > 1.0 {
 		result.TfEstimate = 1.0
 	}
@@ -763,4 +1024,219 @@ func PatchTransientDecision(newE, oldE []float64, nbEBands, start, end, channels
 
 	// Return true if mean increase > 1.0 (in log domain, this is ~6 dB)
 	return meanDiff > 1.0
+}
+
+// DetectPercussiveAttack performs specialized detection for sharp percussive attacks.
+// This is optimized for drum hits, hand claps, and other impulsive sounds that
+// require very fine time resolution.
+//
+// Unlike the standard transient detector which uses forward/backward masking,
+// this function looks for:
+//   - Very rapid energy rise (attack time < 5ms)
+//   - High peak-to-average ratio (crest factor)
+//   - Broadband energy distribution (not tonal)
+//
+// Parameters:
+//   - pcm: input PCM samples (mono or interleaved stereo)
+//   - frameSize: frame size in samples
+//
+// Returns: (isPercussive, attackPosition, attackStrength)
+//   - isPercussive: true if a sharp percussive attack is detected
+//   - attackPosition: sample index where attack begins (0 to frameSize-1)
+//   - attackStrength: measure of attack sharpness (0.0 to 1.0)
+//
+// This can be used to:
+//   1. Force transient mode even when standard detection misses it
+//   2. Adjust TF resolution for optimal attack preservation
+//   3. Guide pre-echo reduction in VBR mode
+func (e *Encoder) DetectPercussiveAttack(pcm []float64, frameSize int) (bool, int, float64) {
+	if len(pcm) == 0 || frameSize <= 0 {
+		return false, 0, 0
+	}
+
+	channels := e.channels
+	samplesPerChannel := len(pcm) / channels
+
+	if samplesPerChannel < 32 {
+		return false, 0, 0
+	}
+
+	// Compute envelope using RMS in small windows
+	// Use 1ms windows at 48kHz = 48 samples
+	windowSize := 48
+	if windowSize > samplesPerChannel/4 {
+		windowSize = samplesPerChannel / 4
+	}
+	if windowSize < 8 {
+		windowSize = 8
+	}
+
+	numWindows := samplesPerChannel / windowSize
+	envelope := make([]float64, numWindows)
+
+	for w := 0; w < numWindows; w++ {
+		start := w * windowSize
+		end := start + windowSize
+
+		var sumSq float64
+		for c := 0; c < channels; c++ {
+			for i := start; i < end && i < samplesPerChannel; i++ {
+				idx := i*channels + c
+				if idx < len(pcm) {
+					sumSq += pcm[idx] * pcm[idx]
+				}
+			}
+		}
+		envelope[w] = math.Sqrt(sumSq / float64(windowSize*channels))
+	}
+
+	// Find the maximum envelope value and its position
+	var maxEnv float64
+	maxPos := 0
+	for w, env := range envelope {
+		if env > maxEnv {
+			maxEnv = env
+			maxPos = w
+		}
+	}
+
+	if maxEnv < 1e-10 {
+		return false, 0, 0
+	}
+
+	// Compute average envelope (excluding the peak region and near-silence)
+	// Only include windows with significant energy to get meaningful crest factor
+	var sumEnv float64
+	count := 0
+	noiseFloor := maxEnv * 0.01 // 40dB below peak
+	for w, env := range envelope {
+		// Exclude 3 windows around peak and very quiet windows
+		if (w < maxPos-1 || w > maxPos+1) && env > noiseFloor {
+			sumEnv += env
+			count++
+		}
+	}
+	avgEnv := 0.0
+	if count > 0 {
+		avgEnv = sumEnv / float64(count)
+	}
+
+	// Crest factor: ratio of peak to average (of non-silent regions)
+	var crestFactor float64
+	if avgEnv > 1e-10 {
+		crestFactor = maxEnv / avgEnv
+	} else {
+		// If average is near zero (signal from silence), consider it high crest factor
+		crestFactor = 100.0
+	}
+
+	// Attack detection: look for rapid rise in envelope
+	// Check if there's a >6dB jump in 2ms (2 windows at 1ms each)
+	attackDetected := false
+	attackPos := 0
+	attackStrength := 0.0
+
+	for w := 1; w < numWindows; w++ {
+		if envelope[w] > 1e-10 && envelope[w-1] > 1e-10 {
+			ratio := envelope[w] / envelope[w-1]
+			// 6dB rise = factor of 2
+			if ratio > 2.0 {
+				attackDetected = true
+				attackPos = w * windowSize
+				// Normalize attack strength by crest factor
+				attackStrength = math.Min(1.0, (ratio-1.0)/3.0) // Normalized 0-1
+				break
+			}
+		} else if envelope[w] > 1e-6 && envelope[w-1] < 1e-10 {
+			// Attack from silence - definite percussive event
+			attackDetected = true
+			attackPos = w * windowSize
+			attackStrength = 1.0
+			break
+		}
+	}
+
+	// Determine if this is a percussive attack
+	// Either:
+	// 1. Attack detected AND high crest factor (> 4 = 12dB peak-to-average)
+	// 2. Attack from silence (attackStrength == 1.0)
+	// 3. In ongoing percussive passage with moderate crest factor
+	isPercussive := false
+	if attackDetected {
+		if attackStrength >= 1.0 {
+			// Attack from silence is always percussive
+			isPercussive = true
+		} else if crestFactor > 4.0 {
+			// High crest factor indicates impulsive nature
+			isPercussive = true
+		} else if e.attackDuration > 2 && crestFactor > 2.5 {
+			// In ongoing percussive passage, lower threshold
+			isPercussive = true
+		}
+	}
+
+	return isPercussive, attackPos, attackStrength
+}
+
+// GetAttackDuration returns the number of consecutive transient frames.
+// This is useful for adapting encoding parameters during percussive passages.
+// A value > 1 indicates sustained percussive activity (e.g., drum roll).
+func (e *Encoder) GetAttackDuration() int {
+	return e.attackDuration
+}
+
+// ResetTransientState clears the transient detection state.
+// Call this when starting a new audio segment or after a discontinuity.
+func (e *Encoder) ResetTransientState() {
+	for c := 0; c < 2; c++ {
+		e.transientHPMem[c][0] = 0
+		e.transientHPMem[c][1] = 0
+	}
+	e.attackDuration = 0
+	e.lastMaskMetric = 0
+	e.peakEnergy = 0
+}
+
+// ShouldUseShortBlocks combines multiple transient indicators to decide
+// whether to use short blocks. This is a high-level decision function
+// that considers:
+//   - Standard transient analysis (mask_metric)
+//   - Percussive attack detection
+//   - Attack duration (hysteresis)
+//   - Frame budget constraints
+//
+// Parameters:
+//   - transientResult: result from TransientAnalysis or TransientAnalysisWithState
+//   - percussiveDetected: result from DetectPercussiveAttack
+//   - lm: log2 of frame size multiplier (0-3)
+//   - totalBits: available bits for the frame
+//
+// Returns: true if short blocks should be used
+func ShouldUseShortBlocks(transientResult TransientAnalysisResult, percussiveDetected bool, lm int, totalBits int) bool {
+	// LM=0 (2.5ms frames) cannot use short blocks
+	if lm == 0 {
+		return false
+	}
+
+	// Need at least 3 bits to encode the transient flag
+	if totalBits < 3 {
+		return false
+	}
+
+	// Primary: use TransientAnalysis result
+	if transientResult.IsTransient {
+		return true
+	}
+
+	// Secondary: percussive attack detection can override
+	// This helps catch sharp attacks that masking-based detection might miss
+	if percussiveDetected && !transientResult.IsTransient {
+		// Only override if tf_estimate suggests some temporal variation
+		// (tf_estimate near 0 means very steady signal)
+		if transientResult.TfEstimate > 0.1 || transientResult.MaskMetric > 100 {
+			return true
+		}
+	}
+
+	return false
 }

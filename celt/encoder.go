@@ -106,6 +106,30 @@ type Encoder struct {
 	// Debug: last frame's band energies for dynalloc analysis tracing
 	lastBandLogE  []float64 // bandLogE (primary MDCT energies)
 	lastBandLogE2 []float64 // bandLogE2 (secondary MDCT for transients)
+
+	// Transient detection state (persisted across frames for better attack detection)
+	// These are used to track attack characteristics across frame boundaries.
+	// Reference: libopus celt_encoder.c transient_analysis() and attack_duration tracking
+
+	// transientHPMem stores high-pass filter memory for transient analysis.
+	// Using float32 to match libopus floating-point precision.
+	// The HP filter is: (1 - 2*z^-1 + z^-2) / (1 - z^-1 + 0.5*z^-2)
+	// Persisting this state improves detection of attacks that span frame boundaries.
+	transientHPMem [2][2]float32 // [channel][mem0, mem1]
+
+	// attackDuration counts consecutive frames with detected transients.
+	// This helps identify sustained percussive passages vs. isolated attacks.
+	// A value > 1 indicates ongoing percussive activity.
+	// Reference: libopus attack_duration tracking for hybrid mode decisions
+	attackDuration int
+
+	// lastMaskMetric stores the mask_metric from the previous frame.
+	// Used for hysteresis to prevent rapid toggling between transient/non-transient.
+	lastMaskMetric float64
+
+	// peakEnergy tracks the maximum frame energy for adaptive thresholding.
+	// This helps detect transients in both loud and quiet passages.
+	peakEnergy float64
 }
 
 // NewEncoder creates a new CELT encoder with the given number of channels.
@@ -241,6 +265,15 @@ func (e *Encoder) Reset() {
 	for i := range e.delayBuffer {
 		e.delayBuffer[i] = 0
 	}
+
+	// Reset transient detection state
+	for c := 0; c < 2; c++ {
+		e.transientHPMem[c][0] = 0
+		e.transientHPMem[c][1] = 0
+	}
+	e.attackDuration = 0
+	e.lastMaskMetric = 0
+	e.peakEnergy = 0
 }
 
 // SetComplexity sets encoder complexity (0-10).

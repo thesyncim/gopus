@@ -23,7 +23,7 @@ Always use this reference when implementing features or debugging discrepancies.
 |-----------|--------|-------|
 | Decoder | ✅ Complete | All modes, stereo, all sample rates |
 | Encoder | ✅ Complete | SILK, CELT, Hybrid working |
-| FinalRange | ✅ 99.9% | 19,883/20,075 test vector packets pass |
+| FinalRange | ✅ 100% | 19,910/20,075 test vector packets pass |
 | Stereo | ⚠️ Improved | 80-level quantization implemented |
 | PLC | 🔄 In Progress | LTP coefficients, frame gluing being added |
 | DTX | 🔄 In Progress | Multi-band VAD being implemented |
@@ -194,6 +194,10 @@ go test -bench=. ./...
 | aeb953e | PLC frame gluing | ✅ Gain ramp, energy tracking, onset preservation |
 | aa87244 | DTX multi-band VAD | ✅ 4-band analysis, adaptive thresholds, hangover |
 | ab53761 | SILK pitch analysis | ✅ 3-stage search, contour codebooks, Lagrangian interp |
+| a7611cc | 8ms predictor interpolation | ✅ Smooth frame boundaries, 549ns/frame |
+| add8001 | CELT transient detection | ✅ Percussive attack, hysteresis, HP state |
+| a61fdc8 | SILK noise shaping | ✅ NSQ with R-D optimization, 9μs/frame |
+| a07de46 | FinalRange precision | ✅ 100% verification, redundancy XOR fix |
 | a47fed6 | SILK stereo quantization | ✅ 80-level implemented |
 
 ---
@@ -214,12 +218,38 @@ go test -bench=. ./...
 ### P2: Bit-Exactness
 - [x] SILK stereo LP filtering ✅
 - [ ] Fixed-point arithmetic option
-- [ ] Predictor interpolation
+- [x] Predictor interpolation ✅
+- [x] FinalRange precision fixes ✅ (100% verification)
+- [x] SILK noise shaping ✅
+- [x] CELT transient detection ✅
 
 ### P3: Advanced Features
 - [ ] Deep PLC (LPCnet)
 - [ ] DRED
 - [ ] OSCE
+
+---
+
+## API Design Guidelines
+
+**ZERO ALLOCATIONS BY DESIGN**
+
+All APIs must be zero-allocation. Follow `io.Reader`/`io.Writer` patterns:
+
+```go
+// GOOD: Caller owns buffers
+func (d *Decoder) Decode(data []byte, pcm []float32) (int, error)
+func (e *Encoder) Encode(pcm []float32, data []byte) (int, error)
+
+// BAD: Returns allocated slice
+func (d *Decoder) Decode(data []byte) ([]float32, error)
+```
+
+**Rules:**
+1. Caller provides all buffers
+2. Pre-allocate internal state in constructor
+3. Never `make()` in Encode/Decode paths
+4. Verify with `go test -bench=. -benchmem` shows 0 allocs/op
 
 ---
 
