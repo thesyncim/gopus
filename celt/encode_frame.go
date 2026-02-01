@@ -193,7 +193,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			}
 			hist = hist[:overlap]
 			copy(hist, e.overlapBuffer[:overlap])
-			mdctLong := ComputeMDCTWithHistory(preemph, hist, 1)
+			mdctLong := computeMDCTWithHistoryScratch(preemph, hist, 1, &e.scratch)
 			bandLogE2 = e.ComputeBandEnergies(mdctLong, nbBands, frameSize)
 			roundFloat64ToFloat32(bandLogE2)
 		} else {
@@ -224,8 +224,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			rightHist = rightHist[:overlap]
 			copy(leftHist, e.overlapBuffer[:overlap])
 			copy(rightHist, e.overlapBuffer[overlap:2*overlap])
-			mdctLeftLong := ComputeMDCTWithHistory(left, leftHist, 1)
-			mdctRightLong := ComputeMDCTWithHistory(right, rightHist, 1)
+			mdctLeftLong := computeMDCTWithHistoryScratchStereoL(left, leftHist, 1, &e.scratch)
+			mdctRightLong := computeMDCTWithHistoryScratchStereoR(right, rightHist, 1, &e.scratch)
 			// Use scratch for combined mdct
 			mdctLongLen := len(mdctLeftLong) + len(mdctRightLong)
 			mdctLong := e.scratch.mdctCoeffs
@@ -347,8 +347,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 					copy(leftHist, e.overlapBuffer[:overlap])
 					copy(rightHist, e.overlapBuffer[overlap:2*overlap])
 				}
-				mdctLeft = ComputeMDCTWithHistory(left, leftHist, shortBlocks)
-				mdctRight = ComputeMDCTWithHistory(right, rightHist, shortBlocks)
+				mdctLeft = computeMDCTWithHistoryScratchStereoL(left, leftHist, shortBlocks, &e.scratch)
+				mdctRight = computeMDCTWithHistoryScratchStereoR(right, rightHist, shortBlocks, &e.scratch)
 				// Use scratch buffer for combined coefficients
 				coeffsLen := len(mdctLeft) + len(mdctRight)
 				mdctCoeffs = e.scratch.mdctCoeffs
