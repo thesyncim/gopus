@@ -341,6 +341,116 @@ func imdctOverlapWithPrevScratch(out []float64, spectrum []float64, prevOverlap 
 	// Output is already in out.
 }
 
+// imdctOverlapWithPrevScratchF32 performs IMDCT using float32 precision to match libopus.
+// This is used for long (non-transient) blocks.
+func imdctOverlapWithPrevScratchF32(out []float64, spectrum []float64, prevOverlap []float64, overlap int, scratch *imdctScratchF32) {
+	n2 := len(spectrum)
+	if n2 == 0 {
+		return
+	}
+	if overlap < 0 {
+		overlap = 0
+	}
+
+	n := n2 * 2
+	n4 := n2 / 2
+	needed := n2 + overlap
+	if len(out) < needed {
+		return
+	}
+	// Clear output; preserves no stale data.
+	for i := 0; i < needed; i++ {
+		out[i] = 0
+	}
+
+	// Copy the full prevOverlap to out[0:overlap].
+	if overlap > 0 && len(prevOverlap) > 0 {
+		copyLen := minInt(len(prevOverlap), overlap)
+		copy(out[:copyLen], prevOverlap[:copyLen])
+	}
+
+	// Use float32 trig table to match libopus
+	trig := getMDCTTrigF32(n)
+
+	var fftIn []complex64
+	var buf []float32
+	if scratch == nil {
+		fftIn = make([]complex64, n4)
+		buf = make([]float32, n2)
+	} else {
+		fftIn = ensureComplex64Slice(&scratch.fftIn, n4)
+		buf = ensureFloat32Slice(&scratch.buf, n2)
+	}
+	for i := 0; i < n4; i++ {
+		x1 := float32(spectrum[2*i])
+		x2 := float32(spectrum[n2-1-2*i])
+		t0 := trig[i]
+		t1 := trig[n4+i]
+		yr := x2*t0 + x1*t1
+		yi := x1*t0 - x2*t1
+		// Swap real/imag because we use an FFT instead of an IFFT.
+		fftIn[i] = complex(yi, yr)
+	}
+
+	fftResult := kissFFT32(fftIn)
+	for i := 0; i < n4; i++ {
+		v := fftResult[i]
+		buf[2*i] = real(v)
+		buf[2*i+1] = imag(v)
+	}
+
+	yp0 := 0
+	yp1 := n2 - 2
+	for i := 0; i < (n4+1)>>1; i++ {
+		re := buf[yp0+1]
+		im := buf[yp0]
+		t0 := trig[i]
+		t1 := trig[n4+i]
+		yr := re*t0 + im*t1
+		yi := re*t1 - im*t0
+		re2 := buf[yp1+1]
+		im2 := buf[yp1]
+		buf[yp0] = yr
+		buf[yp1+1] = yi
+
+		t0 = trig[n4-i-1]
+		t1 = trig[n2-i-1]
+		yr = re2*t0 + im2*t1
+		yi = re2*t1 - im2*t0
+		buf[yp1] = yr
+		buf[yp0+1] = yi
+		yp0 += 2
+		yp1 -= 2
+	}
+
+	// Copy IMDCT output to out, starting at overlap/2, converting float32 to float64
+	start := overlap / 2
+	if start+n2 <= len(out) {
+		for i := 0; i < n2; i++ {
+			out[start+i] = float64(buf[i])
+		}
+	}
+
+	// TDAC windowing blends out[0:overlap] using float32
+	if overlap > 0 {
+		windowF32 := GetWindowBufferF32(overlap)
+		xp1 := overlap - 1
+		yp1 := 0
+		wp1 := 0
+		wp2 := overlap - 1
+		for i := 0; i < overlap/2; i++ {
+			x1 := float32(out[xp1])
+			x2 := float32(out[yp1])
+			out[yp1] = float64(x2*windowF32[wp2] - x1*windowF32[wp1])
+			out[xp1] = float64(x2*windowF32[wp1] + x1*windowF32[wp2])
+			yp1++
+			xp1--
+			wp1++
+			wp2--
+		}
+	}
+}
+
 // imdctInPlace performs IMDCT directly into a shared output buffer at the given offset.
 // This matches libopus's clt_mdct_backward behavior for short block processing.
 //
@@ -464,6 +574,137 @@ func imdctInPlaceScratch(spectrum []float64, out []float64, blockStart, overlap 
 // ImdctInPlaceExported exports imdctInPlace for testing
 func ImdctInPlaceExported(spectrum []float64, out []float64, blockStart, overlap int) {
 	imdctInPlace(spectrum, out, blockStart, overlap)
+}
+
+// imdctInPlaceScratchF32 performs IMDCT using float32 precision to match libopus.
+// This function is critical for matching libopus's floating-point behavior exactly.
+// libopus uses float (32-bit) for IMDCT, so using float64 in gopus causes precision
+// differences that accumulate, especially in transient frames with multiple short blocks.
+func imdctInPlaceScratchF32(spectrum []float64, out []float64, blockStart, overlap int, scratch *imdctScratchF32) {
+	n2 := len(spectrum)
+	if n2 == 0 {
+		return
+	}
+	if overlap < 0 {
+		overlap = 0
+	}
+
+	n := n2 * 2
+	n4 := n2 / 2
+
+	// Use float32 trig table to match libopus
+	trig := getMDCTTrigF32(n)
+
+	// Pre-rotate with twiddles using float32
+	var fftIn []complex64
+	var buf []float32
+	if scratch == nil {
+		fftIn = make([]complex64, n4)
+		buf = make([]float32, n2)
+	} else {
+		fftIn = ensureComplex64Slice(&scratch.fftIn, n4)
+		buf = ensureFloat32Slice(&scratch.buf, n2)
+	}
+
+	for i := 0; i < n4; i++ {
+		x1 := float32(spectrum[2*i])
+		x2 := float32(spectrum[n2-1-2*i])
+		t0 := trig[i]
+		t1 := trig[n4+i]
+		yr := x2*t0 + x1*t1
+		yi := x1*t0 - x2*t1
+		fftIn[i] = complex(yi, yr)
+	}
+
+	// FFT using float32 kiss_fft implementation
+	fftResult := kissFFT32(fftIn)
+
+	// Post-rotate using float32
+	for i := 0; i < n4; i++ {
+		v := fftResult[i]
+		buf[2*i] = real(v)
+		buf[2*i+1] = imag(v)
+	}
+
+	yp0 := 0
+	yp1 := n2 - 2
+	for i := 0; i < (n4+1)>>1; i++ {
+		re := buf[yp0+1]
+		im := buf[yp0]
+		t0 := trig[i]
+		t1 := trig[n4+i]
+		yr := re*t0 + im*t1
+		yi := re*t1 - im*t0
+		re2 := buf[yp1+1]
+		im2 := buf[yp1]
+		buf[yp0] = yr
+		buf[yp1+1] = yi
+
+		t0 = trig[n4-i-1]
+		t1 = trig[n2-i-1]
+		yr = re2*t0 + im2*t1
+		yi = re2*t1 - im2*t0
+		buf[yp1] = yr
+		buf[yp0+1] = yi
+		yp0 += 2
+		yp1 -= 2
+	}
+
+	// Write IMDCT output to shared buffer, converting float32 to float64
+	start := blockStart + overlap/2
+	end := start + n2
+	if end > len(out) {
+		end = len(out)
+	}
+	for i := start; i < end; i++ {
+		out[i] = float64(buf[i-start])
+	}
+
+	// TDAC windowing using float32 window
+	if overlap > 0 {
+		windowF32 := GetWindowBufferF32(overlap)
+		xp1 := blockStart + overlap - 1
+		yp1 := blockStart
+		wp1 := 0
+		wp2 := overlap - 1
+		for i := 0; i < overlap/2; i++ {
+			x1 := float32(out[xp1])
+			x2 := float32(out[yp1])
+			out[yp1] = float64(x2*windowF32[wp2] - x1*windowF32[wp1])
+			out[xp1] = float64(x2*windowF32[wp1] + x1*windowF32[wp2])
+			yp1++
+			xp1--
+			wp1++
+			wp2--
+		}
+	}
+}
+
+// dft32To performs DFT in-place with float32 precision, outputting to a pre-allocated buffer.
+func dft32To(out []complex64, x []complex64) {
+	n := len(x)
+	if n <= 1 {
+		if len(out) > 0 && len(x) > 0 {
+			out[0] = x[0]
+		}
+		return
+	}
+	if len(out) < n {
+		return
+	}
+
+	twoPi := float32(-2.0*math.Pi) / float32(n)
+	for k := 0; k < n; k++ {
+		angle := twoPi * float32(k)
+		wStep := complex(float32(math.Cos(float64(angle))), float32(math.Sin(float64(angle))))
+		w := complex(float32(1.0), float32(0.0))
+		var sum complex64
+		for t := 0; t < n; t++ {
+			sum += x[t] * w
+			w *= wStep
+		}
+		out[k] = sum
+	}
 }
 
 // isPowerOfTwo returns true if n is a power of 2.
