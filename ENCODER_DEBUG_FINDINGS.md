@@ -2568,3 +2568,71 @@ All allocation arrays (bits[], fineBits[], finePriority[], caps[], balance, code
 1. Focus on **transient detection** fix (Agent 12's root cause)
 2. Verify MDCT short-block coefficient ordering
 3. Trace pre-emphasis buffer initialization for Frame 0
+
+---
+
+### 2026-02-01 Update: Byte 8 LSB Divergence Persists
+
+#### What Still Matches
+- `TestTraceExactByteDiff`: bytes 0-7 match; first mismatch at byte 8 LSB (bit 64). TF bits decode identical; tell after coarse = 50 bits; after TF = 72 bits.
+- `TestTFEncodingDetailedCompare`: tell after coarse/TF matches (50/57), TF values match for all bands.
+- `TestTmpBand2DynallocCompare`: band 2 energies differ by ~5e-5 (gopus lower), follower diff ~3.8e-5; boost count same (3). Not near 1.5 threshold in this case.
+
+#### Changes Tried (No Byte-Level Improvement Yet)
+- **Float-approx log2**: added libopus FLOAT_APPROX log2 implementation and used it in band energy computations.
+  - Files: `internal/celt/log2_approx.go`, `internal/celt/energy_encode.go`, `internal/celt/bands.go`.
+  - Result: bandLogE diff vs libopus unchanged (~5e-5 for the sine test); byte 8 mismatch unchanged.
+  - Tests updated to expect FLOAT_APPROX log2 output: `internal/celt/energy_encode_test.go`.
+- **Float32 coarse energy math**: switched `EncodeCoarseEnergy` internal math to float32 (coef/beta/oldE/prev/f) to match libopus float build.
+  - File: `internal/celt/energy_encode.go`.
+  - Result: no change in byte mismatch.
+
+#### Build/Debug Infrastructure
+- Added stubbed SIMD helpers to keep `internal/celt` buildable when optional optimized butterflies are missing.
+  - File: `internal/celt/kissfft32_opt_stub.go` (build tag `!arm64` to avoid conflicts with arm64 asm).
+
+#### C Reference (tmp_check)
+- Verified TF encoding logic matches libopus `tf_encode` in `tmp_check/opus-1.6.1/celt/celt_encoder.c` (logp schedule + tf_select reservation).
+- Coarse energy encoding still the most likely divergence source; range encoder itself matches libopus on dedicated CGO tests.
+
+#### Next Investigation Ideas
+1. Compare **TF encoding logp inputs** and **coarse energy encode decision paths** (Laplace vs small-energy) using libopus tracer; ensure same `logp` and method selection per band.
+2. Add libopus tracer wrapper for **Laplace encode** to compare range state after each coarse-energy symbol.
+3. Verify **max_decay / nbAvailableBytes** and `budget` calculations against libopus for CBR (pre-header `tell` effects).
+
+---
+
+### 2026-02-01 Update: Encoder Now Bit-Exact (Single-Byte Mismatch Resolved)
+
+#### Root Cause
+- **Allocation was using Q0 bits instead of Q3** in the encoder path. `ComputeAllocationWithEncoder` expected Q0 and callers were passing `totalBitsQ3>>3`, which truncated fractional Q3 bits. This caused the encoder/decoder to compute different `pulses[]` (band 0 off by 1), desyncing PVQ indices and shifting the bitstream.
+- **Anti-collapse bit was hard-coded to 0**; libopus encodes `anti_collapse_on = (consec_transient < 2)` which flipped a single raw bit near the end of the packet after the allocation fix.
+
+#### Fixes Applied
+1. **Allocation now uses Q3 throughout encoder path**
+   - `ComputeAllocationWithEncoder`/`ComputeAllocationHybrid` now accept `totalBitsQ3` (Q3) and pass it through unchanged.
+   - All call sites updated to pass Q3 values (`<<3` where needed).
+   - Encoder allocation now matches decoder/libopus exactly.
+2. **Anti-collapse flag now matches libopus**
+   - Added `consecTransient` to encoder state.
+   - Encode `anti_collapse_on = (consecTransient < 2)` when reserved.
+   - Update `consecTransient` per frame (increment on transient, reset otherwise).
+3. **Trim encoding budget**
+   - Trim encoding now uses `totalBitsQ3 - totalBoost` budget (libopus behavior).
+   - `allocTrim` remains default 5 unless encoded (matches decoder).
+
+#### Result
+- `TestTraceRealEncodingDivergence` now reports **“Packets match completely!”** (159/159 bytes).
+- Range/PVQ indices align across all bands; final range matches libopus.
+
+#### Debug Hooks Added (for traceability)
+- `QuantDebugHook`, `BandDebugHook`, `DynallocDebugHook`, `TrimDebugHook` to inspect encoder/decoder alignment (no-op when nil).
+
+#### Tests Run
+- `go test ./internal/celt/cgo_test -run TestQuantDebugBand6EncodeDecode -v`
+- `go test ./internal/celt/cgo_test -run TestTracePVQSearchBand6 -v`
+- `go test ./internal/celt/cgo_test -run TestTraceRealEncodingDivergence -v`
+
+#### Re-Validation (2026-02-01)
+- `TestTraceRealEncodingDivergence`: packets match completely (159/159 bytes).
+- `TestTracePVQSearchBand6`: PVQ index matches (band 6).

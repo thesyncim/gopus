@@ -34,14 +34,14 @@ func TestBuildAllPackages(t *testing.T) {
 	packages := []string{
 		".",
 		"./container/ogg",
-		"./internal/rangecoding",
-		"./internal/silk",
-		"./internal/celt",
-		"./internal/hybrid",
-		"./internal/plc",
-		"./internal/multistream",
-		"./internal/encoder",
-		"./internal/types",
+		"./rangecoding",
+		"./silk",
+		"./celt",
+		"./hybrid",
+		"./plc",
+		"./multistream",
+		"./encoder",
+		"./types",
 	}
 
 	for _, pkg := range packages {

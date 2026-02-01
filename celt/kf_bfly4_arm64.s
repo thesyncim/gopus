@@ -1,0 +1,189 @@
+//go:build arm64 && !purego
+
+#include "textflag.h"
+
+// func kfBfly4M1(fout []kissCpx, n int)
+TEXT ·kfBfly4M1(SB), NOSPLIT, $0-32
+	MOVD	fout_base+0(FP), R0
+	MOVD	n+24(FP), R1
+	CBZ	R1, kf_bfly4m1_done
+
+kf_bfly4m1_loop:
+	FMOVS	(R0), F0
+	FMOVS	4(R0), F1
+	FMOVS	8(R0), F2
+	FMOVS	12(R0), F3
+	FMOVS	16(R0), F4
+	FMOVS	20(R0), F5
+	FMOVS	24(R0), F6
+	FMOVS	28(R0), F7
+
+	FSUBS	F4, F0, F8
+	FSUBS	F5, F1, F9
+	FADDS	F4, F0, F0
+	FADDS	F5, F1, F1
+
+	FADDS	F6, F2, F10
+	FADDS	F7, F3, F11
+
+	FSUBS	F10, F0, F4
+	FSUBS	F11, F1, F5
+	FADDS	F10, F0, F0
+	FADDS	F11, F1, F1
+
+	FSUBS	F6, F2, F10
+	FSUBS	F7, F3, F11
+
+	FADDS	F11, F8, F2
+	FSUBS	F10, F9, F3
+	FSUBS	F11, F8, F6
+	FADDS	F10, F9, F7
+
+	FMOVS	F0, (R0)
+	FMOVS	F1, 4(R0)
+	FMOVS	F2, 8(R0)
+	FMOVS	F3, 12(R0)
+	FMOVS	F4, 16(R0)
+	FMOVS	F5, 20(R0)
+	FMOVS	F6, 24(R0)
+	FMOVS	F7, 28(R0)
+
+	ADD	$32, R0
+	SUBS	$1, R1, R1
+	BNE	kf_bfly4m1_loop
+
+kf_bfly4m1_done:
+	RET
+
+// func kfBfly4Mx(fout []kissCpx, tw []kissCpx, m, n, fstride, mm int)
+TEXT ·kfBfly4Mx(SB), NOSPLIT, $0-80
+	MOVD	fout_base+0(FP), R0
+	MOVD	tw_base+24(FP), R1
+	MOVD	m+48(FP), R2
+	MOVD	n+56(FP), R3
+	MOVD	fstride+64(FP), R4
+	MOVD	mm+72(FP), R5
+
+	CMP	$0, R3
+	BLE	kf_bfly4mx_done
+	CMP	$0, R2
+	BLE	kf_bfly4mx_done
+
+	MOVD	R2, R9
+	LSL	$3, R9
+	MOVD	R9, R10
+	LSL	$1, R10
+	MOVD	R9, R11
+	ADD	R10, R11
+
+	MOVD	R4, R12
+	LSL	$1, R12
+	MOVD	R12, R13
+	ADD	R4, R13
+
+	MOVD	$0, R6
+
+kf_bfly4mx_outer:
+	MOVD	R6, R7
+	MUL	R5, R7, R7
+	LSL	$3, R7
+	ADD	R0, R7, R8
+
+	MOVD	$0, R14
+	MOVD	$0, R15
+	MOVD	$0, R16
+	MOVD	$0, R7
+
+kf_bfly4mx_inner:
+	ADD	R9, R8, R19
+	ADD	R10, R8, R20
+	ADD	R11, R8, R21
+
+	FMOVS	(R8), F0
+	FMOVS	4(R8), F1
+
+	FMOVS	(R19), F2
+	FMOVS	4(R19), F3
+	MOVD	R14, R22
+	LSL	$3, R22
+	ADD	R1, R22, R22
+	FMOVS	(R22), F4
+	FMOVS	4(R22), F5
+	FMULS	F2, F4, F6
+	FMULS	F3, F5, F7
+	FSUBS	F7, F6, F6
+	FMULS	F2, F5, F7
+	FMULS	F3, F4, F8
+	FADDS	F7, F8, F7
+
+	FMOVS	(R20), F2
+	FMOVS	4(R20), F3
+	MOVD	R15, R22
+	LSL	$3, R22
+	ADD	R1, R22, R22
+	FMOVS	(R22), F4
+	FMOVS	4(R22), F5
+	FMULS	F2, F4, F8
+	FMULS	F3, F5, F9
+	FSUBS	F9, F8, F8
+	FMULS	F2, F5, F9
+	FMULS	F3, F4, F10
+	FADDS	F9, F10, F9
+
+	FMOVS	(R21), F2
+	FMOVS	4(R21), F3
+	MOVD	R16, R22
+	LSL	$3, R22
+	ADD	R1, R22, R22
+	FMOVS	(R22), F4
+	FMOVS	4(R22), F5
+	FMULS	F2, F4, F10
+	FMULS	F3, F5, F11
+	FSUBS	F11, F10, F10
+	FMULS	F2, F5, F11
+	FMULS	F3, F4, F12
+	FADDS	F11, F12, F11
+
+	FSUBS	F8, F0, F12
+	FSUBS	F9, F1, F13
+	FADDS	F8, F0, F0
+	FADDS	F9, F1, F1
+
+	FADDS	F10, F6, F14
+	FADDS	F11, F7, F15
+	FSUBS	F10, F6, F16
+	FSUBS	F11, F7, F17
+
+	FSUBS	F14, F0, F18
+	FSUBS	F15, F1, F19
+	FADDS	F14, F0, F0
+	FADDS	F15, F1, F1
+
+	FADDS	F17, F12, F2
+	FSUBS	F16, F13, F3
+	FSUBS	F17, F12, F4
+	FADDS	F16, F13, F5
+
+	FMOVS	F0, (R8)
+	FMOVS	F1, 4(R8)
+	FMOVS	F2, (R19)
+	FMOVS	F3, 4(R19)
+	FMOVS	F18, (R20)
+	FMOVS	F19, 4(R20)
+	FMOVS	F4, (R21)
+	FMOVS	F5, 4(R21)
+
+	ADD	R4, R14, R14
+	ADD	R12, R15, R15
+	ADD	R13, R16, R16
+	ADD	$8, R8, R8
+	ADD	$1, R7, R7
+	CMP	R2, R7
+	BLT	kf_bfly4mx_inner
+
+	ADD	$1, R6, R6
+	CMP	R3, R6
+	BLT	kf_bfly4mx_outer
+
+kf_bfly4mx_done:
+	RET

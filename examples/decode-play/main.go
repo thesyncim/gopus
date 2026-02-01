@@ -50,7 +50,7 @@ func main() {
 	sample := flag.String("sample", "stereo", "Preset sample to download: stereo or speech")
 	output := flag.String("out", "", "Output WAV file (16-bit PCM). Defaults to decoded.wav if not set")
 	play := flag.Bool("play", false, "Play the decoded WAV (uses ffplay/afplay/aplay/paplay if available)")
-	pipe := flag.Bool("pipe", false, "Stream raw PCM directly to ffplay (no temp files)")
+	pipe := flag.Bool("pipe", true, "Stream raw PCM directly to ffplay (no temp files)")
 	ffplayFirst := flag.Bool("ffplay-first", false, "Play the source first with ffplay, then decode with gopus")
 	flag.Parse()
 
