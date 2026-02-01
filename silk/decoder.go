@@ -677,3 +677,13 @@ func (d *Decoder) DebugGetResetStates() (pre, post [6]int32) {
 func (d *Decoder) SetDisableResamplerReset(disable bool) {
 	d.disableResamplerReset = disable
 }
+
+// FinalRange returns the final range coder state after decoding.
+// This matches libopus OPUS_GET_FINAL_RANGE and is used for bitstream verification.
+// Must be called after decoding a frame to get a meaningful value.
+func (d *Decoder) FinalRange() uint32 {
+	if d.rangeDecoder != nil {
+		return d.rangeDecoder.Range()
+	}
+	return 0
+}

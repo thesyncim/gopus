@@ -117,7 +117,10 @@ func TestUpsampleLength(t *testing.T) {
 				input[i] = float32(i) / float32(tt.inputLen)
 			}
 
-			output := upsampleTo48k(input, tt.srcRate)
+			output, err := upsampleTo48k(input, tt.srcRate)
+			if err != nil {
+				t.Fatalf("upsampleTo48k failed: %v", err)
+			}
 
 			if len(output) != tt.outputLen {
 				t.Errorf("output length = %d, want %d", len(output), tt.outputLen)
@@ -133,7 +136,10 @@ func TestUpsampleMonotonic(t *testing.T) {
 		input[i] = float32(i) / 160.0 // Monotonically increasing ramp
 	}
 
-	output := upsampleTo48k(input, 8000)
+	output, err := upsampleTo48k(input, 8000)
+	if err != nil {
+		t.Fatalf("upsampleTo48k failed: %v", err)
+	}
 
 	if len(output) != 960 {
 		t.Errorf("upsampleTo48k output length = %d, want 960", len(output))
@@ -152,7 +158,10 @@ func TestUpsampleMonotonic(t *testing.T) {
 func TestUpsamplePassthrough(t *testing.T) {
 	// 48kHz input should pass through unchanged
 	input := []float32{0.1, 0.2, 0.3, 0.4, 0.5}
-	output := upsampleTo48k(input, 48000)
+	output, err := upsampleTo48k(input, 48000)
+	if err != nil {
+		t.Fatalf("upsampleTo48k failed: %v", err)
+	}
 
 	if len(output) != len(input) {
 		t.Errorf("48kHz passthrough length = %d, want %d", len(output), len(input))
@@ -165,12 +174,18 @@ func TestUpsamplePassthrough(t *testing.T) {
 }
 
 func TestUpsampleEmpty(t *testing.T) {
-	output := upsampleTo48k(nil, 8000)
+	output, err := upsampleTo48k(nil, 8000)
+	if err != nil {
+		t.Fatalf("upsampleTo48k failed: %v", err)
+	}
 	if output != nil {
 		t.Errorf("Expected nil for empty input, got length %d", len(output))
 	}
 
-	output = upsampleTo48k([]float32{}, 8000)
+	output, err = upsampleTo48k([]float32{}, 8000)
+	if err != nil {
+		t.Fatalf("upsampleTo48k failed: %v", err)
+	}
 	if output != nil {
 		t.Errorf("Expected nil for zero-length input, got length %d", len(output))
 	}
@@ -184,13 +199,44 @@ func TestUpsampleStereo(t *testing.T) {
 		right[i] = float32(160-i) / 160.0
 	}
 
-	outL, outR := upsampleTo48kStereo(left, right, 8000)
+	outL, outR, err := upsampleTo48kStereo(left, right, 8000)
+	if err != nil {
+		t.Fatalf("upsampleTo48kStereo failed: %v", err)
+	}
 
 	if len(outL) != 960 {
 		t.Errorf("Left channel length = %d, want 960", len(outL))
 	}
 	if len(outR) != 960 {
 		t.Errorf("Right channel length = %d, want 960", len(outR))
+	}
+}
+
+func TestUpsampleInvalidRate(t *testing.T) {
+	input := []float32{0.1, 0.2, 0.3}
+
+	// Test invalid rate that results in factor outside valid range
+	_, err := upsampleTo48k(input, 100) // factor = 480, > 6
+	if err != ErrInvalidResampleRate {
+		t.Errorf("Expected ErrInvalidResampleRate for rate 100, got %v", err)
+	}
+
+	// Test sinc resampler with same invalid rate
+	_, err = upsampleTo48kSinc(input, 100)
+	if err != ErrInvalidResampleRate {
+		t.Errorf("Expected ErrInvalidResampleRate from sinc resampler for rate 100, got %v", err)
+	}
+}
+
+func TestStereoUnmixMismatchedLengths(t *testing.T) {
+	mid := []float32{0.5, 0.5, 0.5}
+	side := []float32{0.25, 0.25} // Different length
+	left := make([]float32, 3)
+	right := make([]float32, 3)
+
+	err := stereoUnmix(mid, side, 0, 0, left, right)
+	if err != ErrMismatchedLengths {
+		t.Errorf("Expected ErrMismatchedLengths, got %v", err)
 	}
 }
 
@@ -404,7 +450,7 @@ func BenchmarkUpsample8to48(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = upsampleTo48k(input, 8000)
+		_, _ = upsampleTo48k(input, 8000)
 	}
 }
 
@@ -416,7 +462,7 @@ func BenchmarkUpsample12to48(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = upsampleTo48k(input, 12000)
+		_, _ = upsampleTo48k(input, 12000)
 	}
 }
 
@@ -428,7 +474,7 @@ func BenchmarkUpsample16to48(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = upsampleTo48k(input, 16000)
+		_, _ = upsampleTo48k(input, 16000)
 	}
 }
 

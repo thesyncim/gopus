@@ -193,6 +193,16 @@ func (d *Decoder) RangeDecoder() *rangecoding.Decoder {
 	return d.rangeDecoder
 }
 
+// FinalRange returns the final range coder state after decoding.
+// This matches libopus OPUS_GET_FINAL_RANGE and is used for bitstream verification.
+// Must be called after decoding a frame to get a meaningful value.
+func (d *Decoder) FinalRange() uint32 {
+	if d.rangeDecoder != nil {
+		return d.rangeDecoder.Range()
+	}
+	return 0
+}
+
 // Channels returns the number of audio channels (1 or 2).
 func (d *Decoder) Channels() int {
 	return d.channels

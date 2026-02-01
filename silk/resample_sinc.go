@@ -139,20 +139,20 @@ func (r *sincResampler) Process(input []float32) []float32 {
 
 // upsampleTo48kSinc resamples SILK output to 48kHz using sinc interpolation.
 // This provides much better quality than linear interpolation.
-func upsampleTo48kSinc(samples []float32, srcRate int) []float32 {
+func upsampleTo48kSinc(samples []float32, srcRate int) ([]float32, error) {
 	if srcRate == 48000 {
-		return samples
+		return samples, nil
 	}
 
 	factor := 48000 / srcRate
 	if factor < 1 || factor > 6 {
-		panic("upsampleTo48kSinc: invalid source rate")
+		return nil, ErrInvalidResampleRate
 	}
 
 	if len(samples) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	resampler := newSincResampler(factor)
-	return resampler.Process(samples)
+	return resampler.Process(samples), nil
 }

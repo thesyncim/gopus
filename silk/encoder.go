@@ -11,6 +11,10 @@ type Encoder struct {
 	// Range encoder reference (set per frame)
 	rangeEncoder *rangecoding.Encoder
 
+	// lastRng holds the final range coder state after encoding.
+	// This is captured before calling Done() which clears the state.
+	lastRng uint32
+
 	// Frame state (persists across frames, mirrors decoder)
 	haveEncoded           bool  // True after first frame encoded
 	previousLogGain       int32 // Last subframe gain (for delta coding)
@@ -144,4 +148,11 @@ func (e *Encoder) InputBuffer() []float32 {
 // LPCState returns the LPC filter state.
 func (e *Encoder) LPCState() []float32 {
 	return e.lpcState
+}
+
+// FinalRange returns the final range coder state after encoding.
+// This matches libopus OPUS_GET_FINAL_RANGE and is used for bitstream verification.
+// Must be called after EncodeFrame() to get a meaningful value.
+func (e *Encoder) FinalRange() uint32 {
+	return e.lastRng
 }

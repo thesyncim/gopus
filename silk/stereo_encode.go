@@ -1,6 +1,10 @@
 package silk
 
-import "math"
+import (
+	"math"
+
+	"github.com/thesyncim/gopus/rangecoding"
+)
 
 // encodeStereo converts stereo to mid-side and computes prediction weights.
 // Returns mid channel, side channel, and Q13 stereo weights.
@@ -137,4 +141,25 @@ func reconstructSide(mid []float32, weights [2]int16) []float32 {
 	}
 
 	return side
+}
+
+// EncodeStereoMidSide is the public method to convert stereo to mid-side
+// and compute prediction weights. Used by hybrid mode encoder.
+func (e *Encoder) EncodeStereoMidSide(left, right []float32) (mid []float32, side []float32, weights [2]int16) {
+	return e.encodeStereo(left, right)
+}
+
+// EncodeStereoWeightsToRange encodes stereo prediction weights to the range encoder.
+// Used by hybrid mode encoder.
+func (e *Encoder) EncodeStereoWeightsToRange(weights [2]int16) {
+	if e.rangeEncoder == nil {
+		return
+	}
+	e.encodeStereoWeights(weights)
+}
+
+// GetRangeEncoderPtr returns the current range encoder pointer.
+// Used to share range encoder between mid and side channel encoders.
+func (e *Encoder) GetRangeEncoderPtr() *rangecoding.Encoder {
+	return e.rangeEncoder
 }

@@ -57,9 +57,9 @@ func (d *Decoder) decodeStereoWeights() (w0, w1 int16) {
 //   - L = M + S', R = M - S'
 //
 // For simplicity, we use the basic formula when weights are zero.
-func stereoUnmix(mid, side []float32, w0, w1 int16, left, right []float32) {
+func stereoUnmix(mid, side []float32, w0, w1 int16, left, right []float32) error {
 	if len(mid) != len(side) || len(mid) != len(left) || len(mid) != len(right) {
-		panic("stereoUnmix: mismatched lengths")
+		return ErrMismatchedLengths
 	}
 
 	// Previous mid sample for prediction
@@ -96,6 +96,7 @@ func stereoUnmix(mid, side []float32, w0, w1 int16, left, right []float32) {
 
 		prevMid = m
 	}
+	return nil
 }
 
 // Stereo prediction weights in Q13 format per RFC 6716 Section 4.2.8.

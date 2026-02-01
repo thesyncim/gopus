@@ -452,3 +452,18 @@ func (d *Decoder) GetCELTDecoder() *celt.Decoder {
 func (d *Decoder) GetSILKDecoder() *silk.Decoder {
 	return d.silkDecoder
 }
+
+// FinalRange returns the final range coder state after decoding.
+// This matches libopus OPUS_GET_FINAL_RANGE and is used for bitstream verification.
+// Must be called after Decode() to get a meaningful value.
+func (d *Decoder) FinalRange() uint32 {
+	switch d.prevMode {
+	case ModeSILK:
+		return d.silkDecoder.FinalRange()
+	case ModeCELT:
+		return d.celtDecoder.FinalRange()
+	case ModeHybrid:
+		return d.hybridDecoder.FinalRange()
+	}
+	return 0
+}

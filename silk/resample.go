@@ -7,18 +7,18 @@ package silk
 // upsampleTo48k resamples SILK output to 48kHz using simple linear interpolation.
 // This is not the highest quality resampling but is sufficient for initial implementation.
 // A future optimization could use polyphase resampling for higher quality.
-func upsampleTo48k(samples []float32, srcRate int) []float32 {
+func upsampleTo48k(samples []float32, srcRate int) ([]float32, error) {
 	if srcRate == 48000 {
-		return samples // No resampling needed
+		return samples, nil // No resampling needed
 	}
 
 	factor := 48000 / srcRate
 	if factor < 1 || factor > 6 {
-		panic("upsampleTo48k: invalid source rate")
+		return nil, ErrInvalidResampleRate
 	}
 
 	if len(samples) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	output := make([]float32, len(samples)*factor)
@@ -39,14 +39,20 @@ func upsampleTo48k(samples []float32, srcRate int) []float32 {
 		}
 	}
 
-	return output
+	return output, nil
 }
 
 // upsampleTo48kStereo resamples stereo output to 48kHz.
-func upsampleTo48kStereo(left, right []float32, srcRate int) (outLeft, outRight []float32) {
-	outLeft = upsampleTo48k(left, srcRate)
-	outRight = upsampleTo48k(right, srcRate)
-	return
+func upsampleTo48kStereo(left, right []float32, srcRate int) (outLeft, outRight []float32, err error) {
+	outLeft, err = upsampleTo48k(left, srcRate)
+	if err != nil {
+		return nil, nil, err
+	}
+	outRight, err = upsampleTo48k(right, srcRate)
+	if err != nil {
+		return nil, nil, err
+	}
+	return outLeft, outRight, nil
 }
 
 // getUpsampleFactor returns the upsampling factor from source rate to 48kHz.

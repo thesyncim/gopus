@@ -110,12 +110,16 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 
 	// Finalize encoding
 	if useSharedEncoder {
-		// Hybrid mode: caller manages the range encoder, return nil
+		// Hybrid mode: caller manages the range encoder
+		// Capture range state for FinalRange() before returning
+		e.lastRng = e.rangeEncoder.Range()
 		return nil
 	}
 
 	// Standalone mode: get the encoded bytes and clear the range encoder
 	// so the next frame creates a fresh one
+	// Capture range state BEFORE Done() clears it
+	e.lastRng = e.rangeEncoder.Range()
 	result := e.rangeEncoder.Done()
 	e.rangeEncoder = nil
 	return result

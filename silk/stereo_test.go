@@ -12,7 +12,9 @@ func TestStereoUnmixBasic(t *testing.T) {
 	left := make([]float32, 4)
 	right := make([]float32, 4)
 
-	stereoUnmix(mid, side, 0, 0, left, right)
+	if err := stereoUnmix(mid, side, 0, 0, left, right); err != nil {
+		t.Fatalf("stereoUnmix failed: %v", err)
+	}
 
 	// L = M + S = 0.75
 	// R = M - S = 0.25
@@ -33,7 +35,9 @@ func TestStereoUnmixZeroSide(t *testing.T) {
 	left := make([]float32, 4)
 	right := make([]float32, 4)
 
-	stereoUnmix(mid, side, 0, 0, left, right)
+	if err := stereoUnmix(mid, side, 0, 0, left, right); err != nil {
+		t.Fatalf("stereoUnmix failed: %v", err)
+	}
 
 	for i := range mid {
 		if math.Abs(float64(left[i]-mid[i])) > 0.001 {
@@ -52,7 +56,9 @@ func TestStereoUnmixClamping(t *testing.T) {
 	left := make([]float32, 2)
 	right := make([]float32, 2)
 
-	stereoUnmix(mid, side, 0, 0, left, right)
+	if err := stereoUnmix(mid, side, 0, 0, left, right); err != nil {
+		t.Fatalf("stereoUnmix failed: %v", err)
+	}
 
 	// L = 1.0 + 0.5 = 1.5 -> clamped to 1.0
 	if left[0] > 1.0 {

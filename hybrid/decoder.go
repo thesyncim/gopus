@@ -138,6 +138,13 @@ func (d *Decoder) SetBandwidth(bw celt.CELTBandwidth) {
 	d.celtDecoder.SetBandwidth(bw)
 }
 
+// FinalRange returns the final range coder state after decoding.
+// This matches libopus OPUS_GET_FINAL_RANGE and is used for bitstream verification.
+// For hybrid mode, this returns the CELT decoder's final range since CELT encodes last.
+func (d *Decoder) FinalRange() uint32 {
+	return d.celtDecoder.FinalRange()
+}
+
 // ValidHybridFrameSize returns true if the frame size is valid for hybrid mode.
 // Hybrid only supports 10ms (480 samples) and 20ms (960 samples) at 48kHz.
 func ValidHybridFrameSize(frameSize int) bool {

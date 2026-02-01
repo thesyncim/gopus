@@ -42,6 +42,9 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, frameSize int) ([]byte, error
 
 	// Ensure sub-encoders exist
 	e.ensureSILKEncoder()
+	if e.channels == 2 {
+		e.ensureSILKSideEncoder()
+	}
 	e.ensureCELTEncoder()
 
 	// Propagate bitrate mode to CELT encoder for hybrid mode
@@ -188,6 +191,11 @@ func (e *Encoder) applyInputDelay(pcm []float64) []float64 {
 // For 10ms frames (160 samples at 16kHz), this function buffers samples until
 // we have a full 20ms (320 samples) because SILK requires 20ms frames.
 // This avoids the signal attenuation that would occur from zero-padding.
+//
+// For stereo, uses mid-side encoding per RFC 6716 Section 4.2.8:
+// - Encode stereo prediction weights
+// - Encode mid channel with main SILK encoder
+// - Encode side channel with side SILK encoder
 func (e *Encoder) encodeSILKHybrid(pcm []float32, frameSize int) {
 	// For hybrid mode, SILK always operates at WB (16kHz)
 	// The input is already downsampled to 16kHz
@@ -198,45 +206,81 @@ func (e *Encoder) encodeSILKHybrid(pcm []float32, frameSize int) {
 	// SILK at WB needs 320 samples per frame (20ms)
 	const silkWBSamples = 320
 
-	// Extract mono signal for SILK encoding
-	var inputSamples []float32
 	if e.channels == 1 {
-		inputSamples = pcm[:min(len(pcm), silkSamples)]
+		// Mono encoding
+		e.encodeSILKHybridMono(pcm, silkSamples, silkWBSamples)
 	} else {
-		// For stereo, compute mid channel: (L + R) / 2
-		actualSamples := len(pcm) / 2
-		if actualSamples < silkSamples {
-			silkSamples = actualSamples
-		}
-		inputSamples = make([]float32, silkSamples)
-		for i := 0; i < silkSamples && i*2+1 < len(pcm); i++ {
-			left := pcm[i*2]
-			right := pcm[i*2+1]
-			inputSamples[i] = (left + right) / 2
-		}
+		// Stereo encoding
+		e.encodeSILKHybridStereo(pcm, silkSamples, silkWBSamples)
 	}
+}
+
+// encodeSILKHybridMono encodes mono SILK data for hybrid mode.
+func (e *Encoder) encodeSILKHybridMono(pcm []float32, silkSamples, silkWBSamples int) {
+	inputSamples := pcm[:min(len(pcm), silkSamples)]
 
 	// Handle 10ms frames by buffering to 20ms
 	if silkSamples < silkWBSamples {
-		// 10ms frame - need to buffer
 		if e.silkBufferFilled == 0 {
-			// First 10ms - store in buffer and wait for second half
 			copy(e.silkFrameBuffer[:silkSamples], inputSamples)
 			e.silkBufferFilled = silkSamples
-			// Don't encode yet - wait for next 10ms
 			return
-		} else {
-			// Second 10ms - combine with buffer and encode full 20ms
-			copy(e.silkFrameBuffer[e.silkBufferFilled:], inputSamples)
-			inputSamples = e.silkFrameBuffer[:silkWBSamples]
-			e.silkBufferFilled = 0 // Reset buffer
 		}
+		copy(e.silkFrameBuffer[e.silkBufferFilled:], inputSamples)
+		inputSamples = e.silkFrameBuffer[:silkWBSamples]
+		e.silkBufferFilled = 0
 	}
 
-	// Encode the SILK frame (now have full 20ms worth of samples)
-	// Note: EncodeFrame creates its own range encoder if none is set,
-	// but we've already set one via SetRangeEncoder
 	_ = e.silkEncoder.EncodeFrame(inputSamples, true)
+}
+
+// encodeSILKHybridStereo encodes stereo SILK data for hybrid mode.
+// Uses mid-side encoding per RFC 6716 Section 4.2.8.
+func (e *Encoder) encodeSILKHybridStereo(pcm []float32, silkSamples, silkWBSamples int) {
+	// Deinterleave L/R channels
+	actualSamples := len(pcm) / 2
+	if actualSamples < silkSamples {
+		silkSamples = actualSamples
+	}
+
+	left := make([]float32, silkSamples)
+	right := make([]float32, silkSamples)
+	for i := 0; i < silkSamples && i*2+1 < len(pcm); i++ {
+		left[i] = pcm[i*2]
+		right[i] = pcm[i*2+1]
+	}
+
+	// Convert to mid-side and compute stereo weights
+	mid, side, weights := e.silkEncoder.EncodeStereoMidSide(left, right)
+
+	// Handle 10ms frames by buffering to 20ms
+	if silkSamples < silkWBSamples {
+		if e.silkBufferFilled == 0 {
+			// First 10ms - buffer mid and side
+			copy(e.silkFrameBuffer[:silkSamples], mid)
+			copy(e.silkSideFrameBuffer[:silkSamples], side)
+			e.silkBufferFilled = silkSamples
+			e.silkSideBufferFilled = silkSamples
+			return
+		}
+		// Second 10ms - combine and encode
+		copy(e.silkFrameBuffer[e.silkBufferFilled:], mid)
+		copy(e.silkSideFrameBuffer[e.silkSideBufferFilled:], side)
+		mid = e.silkFrameBuffer[:silkWBSamples]
+		side = e.silkSideFrameBuffer[:silkWBSamples]
+		e.silkBufferFilled = 0
+		e.silkSideBufferFilled = 0
+	}
+
+	// Encode stereo prediction weights via the shared range encoder
+	e.silkEncoder.EncodeStereoWeightsToRange(weights)
+
+	// Encode mid channel with main SILK encoder
+	_ = e.silkEncoder.EncodeFrame(mid, true)
+
+	// Encode side channel with side SILK encoder (uses same range encoder)
+	e.silkSideEncoder.SetRangeEncoder(e.silkEncoder.GetRangeEncoderPtr())
+	_ = e.silkSideEncoder.EncodeFrame(side, true)
 }
 
 // min returns the smaller of two ints.
