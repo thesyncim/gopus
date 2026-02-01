@@ -1,5 +1,7 @@
 package celt
 
+import "github.com/thesyncim/gopus/rangecoding"
+
 func ensureFloat64Slice(buf *[]float64, n int) []float64 {
 	if n < 0 {
 		n = 0
@@ -127,6 +129,122 @@ type bandDecodeScratch struct {
 
 	// Scratch buffer for FFT fstride computation (eliminates per-call allocations)
 	fftFstride []int // fstride array for FFT butterfly stages
+
+	// PVQ search scratch buffers (for encoder)
+	pvqSignx []int     // Sign extraction buffer
+	pvqY     []float32 // Working Y buffer
+	pvqAbsX  []float32 // Absolute value buffer
+	pvqIy    []int     // Output pulse buffer
+}
+
+// bandEncodeScratch holds pre-allocated buffers for stereo encoding hot path.
+// This eliminates per-band allocations in quantAllBandsEncode.
+type bandEncodeScratch struct {
+	// Main buffers for quantAllBandsEncode
+	collapse       []byte
+	norm           []float64
+	lowbandScratch []float64
+
+	// Theta RDO buffers (for stereo encoding)
+	xSave         []float64
+	ySave         []float64
+	normSave      []float64
+	xResult0      []float64
+	yResult0      []float64
+	normResult0   []float64
+
+	// Theta RDO encoder state saves (reusable across bands)
+	ecSave  rangecoding.EncoderState
+	ecSave0 rangecoding.EncoderState
+
+	// PVQ scratch buffers
+	pvqSignx []int
+	pvqY     []float32
+	pvqAbsX  []float32
+	pvqIy    []int
+
+	// CWRS scratch
+	cwrsU []uint32
+
+	// Hadamard scratch
+	hadamardTmp []float64
+}
+
+// ensurePVQSignx returns a pre-allocated buffer for PVQ sign extraction.
+func (s *bandDecodeScratch) ensurePVQSignx(n int) []int {
+	return ensureIntSlice(&s.pvqSignx, n)
+}
+
+// ensurePVQY returns a pre-allocated buffer for PVQ Y values.
+func (s *bandDecodeScratch) ensurePVQY(n int) []float32 {
+	return ensureFloat32Slice(&s.pvqY, n)
+}
+
+// ensurePVQAbsX returns a pre-allocated buffer for absolute X values.
+func (s *bandDecodeScratch) ensurePVQAbsX(n int) []float32 {
+	return ensureFloat32Slice(&s.pvqAbsX, n)
+}
+
+// ensurePVQIy returns a pre-allocated buffer for PVQ output pulses.
+func (s *bandDecodeScratch) ensurePVQIy(n int) []int {
+	return ensureIntSlice(&s.pvqIy, n)
+}
+
+// Encoder scratch buffer methods
+
+// ensureCollapse returns a pre-allocated collapse mask buffer.
+func (s *bandEncodeScratch) ensureCollapse(n int) []byte {
+	return ensureByteSlice(&s.collapse, n)
+}
+
+// ensureNorm returns a pre-allocated norm buffer.
+func (s *bandEncodeScratch) ensureNorm(n int) []float64 {
+	return ensureFloat64Slice(&s.norm, n)
+}
+
+// ensureLowbandScratch returns a pre-allocated lowband scratch buffer.
+func (s *bandEncodeScratch) ensureLowbandScratch(n int) []float64 {
+	return ensureFloat64Slice(&s.lowbandScratch, n)
+}
+
+// ensureXSave returns a pre-allocated buffer for saving X during theta RDO.
+func (s *bandEncodeScratch) ensureXSave(n int) []float64 {
+	return ensureFloat64Slice(&s.xSave, n)
+}
+
+// ensureYSave returns a pre-allocated buffer for saving Y during theta RDO.
+func (s *bandEncodeScratch) ensureYSave(n int) []float64 {
+	return ensureFloat64Slice(&s.ySave, n)
+}
+
+// ensureNormSave returns a pre-allocated buffer for saving norm during theta RDO.
+func (s *bandEncodeScratch) ensureNormSave(n int) []float64 {
+	return ensureFloat64Slice(&s.normSave, n)
+}
+
+// ensureXResult0 returns a pre-allocated buffer for X result during theta RDO.
+func (s *bandEncodeScratch) ensureXResult0(n int) []float64 {
+	return ensureFloat64Slice(&s.xResult0, n)
+}
+
+// ensureYResult0 returns a pre-allocated buffer for Y result during theta RDO.
+func (s *bandEncodeScratch) ensureYResult0(n int) []float64 {
+	return ensureFloat64Slice(&s.yResult0, n)
+}
+
+// ensureNormResult0 returns a pre-allocated buffer for norm result during theta RDO.
+func (s *bandEncodeScratch) ensureNormResult0(n int) []float64 {
+	return ensureFloat64Slice(&s.normResult0, n)
+}
+
+// ensureHadamardTmp returns a pre-allocated buffer for Hadamard transforms.
+func (s *bandEncodeScratch) ensureHadamardTmp(n int) []float64 {
+	return ensureFloat64Slice(&s.hadamardTmp, n)
+}
+
+// ensureCWRSU returns a pre-allocated buffer for CWRS u-row.
+func (s *bandEncodeScratch) ensureCWRSU(n int) []uint32 {
+	return ensureUint32Slice(&s.cwrsU, n)
 }
 
 // maxBandWidth is the maximum width of any single band (band 20 at LM=3 = 176 bins).

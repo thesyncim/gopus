@@ -84,6 +84,36 @@ type Decoder struct {
 	scratchOutInt16 []int16   // Size: maxFramesPerPacket * maxFrameLength = 960
 	scratchPulses   []int16   // Size: roundUpShellFrame(maxFrameLength) = 320
 	scratchOutput   []float32 // Size: maxFramesPerPacket * maxFrameLength = 960
+
+	// Scratch buffers for silkDecodeIndices
+	scratchEcIx   []int16 // Size: maxLPCOrder = 16
+	scratchPredQ8 []uint8 // Size: maxLPCOrder = 16
+
+	// Scratch buffers for silkShellDecoder
+	scratchPulses3 []int16 // Size: 2
+	scratchPulses2 []int16 // Size: 4
+	scratchPulses1 []int16 // Size: 8
+
+	// Scratch buffers for silkDecodePulses
+	// iter = frameLength >> 4 + 1 = 320/16 + 1 = 21 max
+	scratchSumPulses []int // Size: 21
+	scratchNLshifts  []int // Size: 21
+
+	// Scratch buffers for resampler - eliminate allocations in Process()
+	resamplerScratchIn     []int16   // Size: max input samples (fsInKHz * 10 = 160)
+	resamplerScratchOut    []int16   // Size: max output samples (480 for 48kHz)
+	resamplerScratchResult []float32 // Size: max output samples (480)
+	resamplerScratchBuf    []int16   // Size: 2*batchSize + resamplerOrderFIR12
+
+	// Scratch buffer for upsampleTo48k
+	upsampleScratch []float32 // Size: maxFramesPerPacket * maxFrameLength * 6 = 5760
+
+	// Scratch buffers for applyMonoDelay
+	monoResamplerIn []int16 // Size: maxFramesPerPacket * maxFrameLength = 960
+	monoOutput      []int16 // Size: maxFramesPerPacket * maxFrameLength = 960
+
+	// Scratch buffer for BuildMonoResamplerInput
+	buildMonoInputScratch []float32 // Size: maxFramesPerPacket * maxFrameLength = 960
 }
 
 // NewDecoder creates a new SILK decoder with proper initial state.
@@ -103,6 +133,13 @@ func NewDecoder() *Decoder {
 		maxOutInt16Size = 3 * 320   // maxFramesPerPacket * maxFrameLength
 		maxPulsesSize   = 320       // roundUpShellFrame(maxFrameLength)
 		maxOutputSize   = 3 * 320   // maxFramesPerPacket * maxFrameLength
+
+		// Additional scratch buffer sizes
+		maxIterSize      = 21   // (maxFrameLength >> 4) + 1
+		maxResamplerIn   = 160  // 16kHz * 10ms = 160 samples
+		maxResamplerOut  = 480  // 48kHz * 10ms = 480 samples
+		maxResamplerBuf  = 328  // 2 * 160 + 8 = 328 (2*batchSize + resamplerOrderFIR12)
+		maxUpsampleSize  = 5760 // 3 * 320 * 6 = 5760 (maxFramesPerPacket * maxFrameLength * 6x upsample)
 	)
 
 	d := &Decoder{
@@ -118,6 +155,23 @@ func NewDecoder() *Decoder {
 		scratchOutInt16: make([]int16, maxOutInt16Size),
 		scratchPulses:   make([]int16, maxPulsesSize),
 		scratchOutput:   make([]float32, maxOutputSize),
+
+		// Additional scratch buffers for zero-allocation decoding
+		scratchEcIx:            make([]int16, maxLPCOrder),
+		scratchPredQ8:          make([]uint8, maxLPCOrder),
+		scratchPulses3:         make([]int16, 2),
+		scratchPulses2:         make([]int16, 4),
+		scratchPulses1:         make([]int16, 8),
+		scratchSumPulses:       make([]int, maxIterSize),
+		scratchNLshifts:        make([]int, maxIterSize),
+		resamplerScratchIn:     make([]int16, maxResamplerIn),
+		resamplerScratchOut:    make([]int16, maxResamplerOut),
+		resamplerScratchResult: make([]float32, maxResamplerOut),
+		resamplerScratchBuf:    make([]int16, maxResamplerBuf),
+		upsampleScratch:        make([]float32, maxUpsampleSize),
+		monoResamplerIn:        make([]int16, maxOutInt16Size),
+		monoOutput:             make([]int16, maxOutInt16Size),
+		buildMonoInputScratch:  make([]float32, maxOutInt16Size),
 	}
 	resetDecoderState(&d.state[0])
 	resetDecoderState(&d.state[1])
@@ -135,11 +189,25 @@ func (d *Decoder) setupScratchBuffers() {
 	d.state[0].scratchSLTP = d.scratchSLTP
 	d.state[0].scratchSLTPQ15 = d.scratchSLTPQ15
 	d.state[0].scratchPresQ14 = d.scratchPresQ14
+	d.state[0].scratchEcIx = d.scratchEcIx
+	d.state[0].scratchPredQ8 = d.scratchPredQ8
+	d.state[0].scratchPulses3 = d.scratchPulses3
+	d.state[0].scratchPulses2 = d.scratchPulses2
+	d.state[0].scratchPulses1 = d.scratchPulses1
+	d.state[0].scratchSumPulses = d.scratchSumPulses
+	d.state[0].scratchNLshifts = d.scratchNLshifts
 
 	d.state[1].scratchSLPC = d.scratchSLPC
 	d.state[1].scratchSLTP = d.scratchSLTP
 	d.state[1].scratchSLTPQ15 = d.scratchSLTPQ15
 	d.state[1].scratchPresQ14 = d.scratchPresQ14
+	d.state[1].scratchEcIx = d.scratchEcIx
+	d.state[1].scratchPredQ8 = d.scratchPredQ8
+	d.state[1].scratchPulses3 = d.scratchPulses3
+	d.state[1].scratchPulses2 = d.scratchPulses2
+	d.state[1].scratchPulses1 = d.scratchPulses1
+	d.state[1].scratchSumPulses = d.scratchSumPulses
+	d.state[1].scratchNLshifts = d.scratchNLshifts
 }
 
 // Reset clears decoder state for a new stream.
@@ -216,6 +284,51 @@ func (d *Decoder) Reset() {
 	for i := range d.scratchOutput {
 		d.scratchOutput[i] = 0
 	}
+	for i := range d.scratchEcIx {
+		d.scratchEcIx[i] = 0
+	}
+	for i := range d.scratchPredQ8 {
+		d.scratchPredQ8[i] = 0
+	}
+	for i := range d.scratchPulses3 {
+		d.scratchPulses3[i] = 0
+	}
+	for i := range d.scratchPulses2 {
+		d.scratchPulses2[i] = 0
+	}
+	for i := range d.scratchPulses1 {
+		d.scratchPulses1[i] = 0
+	}
+	for i := range d.scratchSumPulses {
+		d.scratchSumPulses[i] = 0
+	}
+	for i := range d.scratchNLshifts {
+		d.scratchNLshifts[i] = 0
+	}
+	for i := range d.resamplerScratchIn {
+		d.resamplerScratchIn[i] = 0
+	}
+	for i := range d.resamplerScratchOut {
+		d.resamplerScratchOut[i] = 0
+	}
+	for i := range d.resamplerScratchResult {
+		d.resamplerScratchResult[i] = 0
+	}
+	for i := range d.resamplerScratchBuf {
+		d.resamplerScratchBuf[i] = 0
+	}
+	for i := range d.upsampleScratch {
+		d.upsampleScratch[i] = 0
+	}
+	for i := range d.monoResamplerIn {
+		d.monoResamplerIn[i] = 0
+	}
+	for i := range d.monoOutput {
+		d.monoOutput[i] = 0
+	}
+	for i := range d.buildMonoInputScratch {
+		d.buildMonoInputScratch[i] = 0
+	}
 
 	// Re-wire scratch buffers after resetDecoderState cleared them
 	d.setupScratchBuffers()
@@ -263,14 +376,26 @@ func (d *Decoder) applyMonoDelay(decoded []int16, fsKHz int) []int16 {
 	// This means the input has sMid[1] at position 0, then decoded[0:nSamplesOutDec-1]
 	// The last decoded sample is NOT in the resampler input.
 	nSamplesOutDec := len(decoded)
-	resamplerIn := make([]int16, nSamplesOutDec)
+
+	// Use scratch buffer for resamplerIn if available
+	var resamplerIn []int16
+	if d.monoResamplerIn != nil && len(d.monoResamplerIn) >= nSamplesOutDec {
+		resamplerIn = d.monoResamplerIn[:nSamplesOutDec]
+	} else {
+		resamplerIn = make([]int16, nSamplesOutDec)
+	}
 	resamplerIn[0] = d.stereo.sMid[1] // sMid[1] from previous frame
 	copy(resamplerIn[1:], decoded[:nSamplesOutDec-1])
 
 	inLen := len(resamplerIn)
 
-	// Output buffer same size as decoded
-	output := make([]int16, len(decoded))
+	// Output buffer same size as decoded - use scratch buffer if available
+	var output []int16
+	if d.monoOutput != nil && len(d.monoOutput) >= len(decoded) {
+		output = d.monoOutput[:len(decoded)]
+	} else {
+		output = make([]int16, len(decoded))
+	}
 
 	// Apply the libopus copy-resampler logic exactly:
 	// silk_resampler() for USE_silk_resampler_copy case:
@@ -499,7 +624,13 @@ func (d *Decoder) BuildMonoResamplerInput(samples []float32) []float32 {
 		return nil
 	}
 
-	resamplerInput := make([]float32, len(samples))
+	// Use pre-allocated scratch buffer if available
+	var resamplerInput []float32
+	if d.buildMonoInputScratch != nil && len(d.buildMonoInputScratch) >= len(samples) {
+		resamplerInput = d.buildMonoInputScratch[:len(samples)]
+	} else {
+		resamplerInput = make([]float32, len(samples))
+	}
 	resamplerInput[0] = float32(d.stereo.sMid[1]) / 32768.0
 
 	if len(samples) > 1 {

@@ -70,6 +70,19 @@ type decoderState struct {
 	scratchSLTP    []int16 // Pre-allocated sLTP buffer
 	scratchSLTPQ15 []int32 // Pre-allocated sLTP_Q15 buffer
 	scratchPresQ14 []int32 // Pre-allocated presQ14 buffer
+
+	// Additional scratch buffers for silkDecodeIndices
+	scratchEcIx   []int16 // Pre-allocated ecIx buffer
+	scratchPredQ8 []uint8 // Pre-allocated predQ8 buffer
+
+	// Scratch buffers for shell decoder
+	scratchPulses3 []int16 // Size: 2
+	scratchPulses2 []int16 // Size: 4
+	scratchPulses1 []int16 // Size: 8
+
+	// Scratch buffers for pulse decoder
+	scratchSumPulses []int // Size: 21
+	scratchNLshifts  []int // Size: 21
 }
 
 type decoderControl struct {

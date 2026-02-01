@@ -78,6 +78,9 @@ type bandCtx struct {
 	// scratch holds pre-allocated buffers for the decode hot path.
 	// This eliminates per-call allocations in algUnquant, Hadamard transforms, etc.
 	scratch *bandDecodeScratch
+	// encScratch holds pre-allocated buffers for the encode hot path.
+	// This eliminates per-call allocations in algQuant, PVQ search, etc.
+	encScratch *bandEncodeScratch
 }
 
 type splitCtx struct {
@@ -110,10 +113,16 @@ func deinterleaveHadamard(x []float64, n0, stride int, hadamard bool) {
 }
 
 func deinterleaveHadamardScratch(x []float64, n0, stride int, hadamard bool, scratch *bandDecodeScratch) {
+	deinterleaveHadamardScratchBuf(x, n0, stride, hadamard, scratch, nil)
+}
+
+func deinterleaveHadamardScratchBuf(x []float64, n0, stride int, hadamard bool, decScratch *bandDecodeScratch, encScratch *bandEncodeScratch) {
 	n := n0 * stride
 	var tmp []float64
-	if scratch != nil {
-		tmp = scratch.ensureHadamardTmp(n)
+	if decScratch != nil {
+		tmp = decScratch.ensureHadamardTmp(n)
+	} else if encScratch != nil {
+		tmp = encScratch.ensureHadamardTmp(n)
 	} else {
 		tmp = make([]float64, n)
 	}
@@ -139,10 +148,16 @@ func interleaveHadamard(x []float64, n0, stride int, hadamard bool) {
 }
 
 func interleaveHadamardScratch(x []float64, n0, stride int, hadamard bool, scratch *bandDecodeScratch) {
+	interleaveHadamardScratchBuf(x, n0, stride, hadamard, scratch, nil)
+}
+
+func interleaveHadamardScratchBuf(x []float64, n0, stride int, hadamard bool, decScratch *bandDecodeScratch, encScratch *bandEncodeScratch) {
 	n := n0 * stride
 	var tmp []float64
-	if scratch != nil {
-		tmp = scratch.ensureHadamardTmp(n)
+	if decScratch != nil {
+		tmp = decScratch.ensureHadamardTmp(n)
+	} else if encScratch != nil {
+		tmp = encScratch.ensureHadamardTmp(n)
 	} else {
 		tmp = make([]float64, n)
 	}
@@ -412,6 +427,10 @@ func algUnquantInto(shape []float64, rd *rangecoding.Decoder, band, n, k, spread
 }
 
 func algQuant(re *rangecoding.Encoder, band int, x []float64, n, k, spread, b int, gain float64, resynth bool, extEnc *rangecoding.Encoder, extraBits int) int {
+	return algQuantScratch(re, band, x, n, k, spread, b, gain, resynth, extEnc, extraBits, nil)
+}
+
+func algQuantScratch(re *rangecoding.Encoder, band int, x []float64, n, k, spread, b int, gain float64, resynth bool, extEnc *rangecoding.Encoder, extraBits int, scratch *bandEncodeScratch) int {
 	if k <= 0 || n <= 0 {
 		return 0
 	}
@@ -428,12 +447,24 @@ func algQuant(re *rangecoding.Encoder, band int, x []float64, n, k, spread, b in
 	var refine []int
 	var yy float64 // Energy computed during PVQ search
 
+	// Scratch buffer pointers
+	var iyBuf, signxBuf *[]int
+	var yBuf, absXBuf *[]float32
+	var uBuf *[]uint32
+	if scratch != nil {
+		iyBuf = &scratch.pvqIy
+		signxBuf = &scratch.pvqSignx
+		yBuf = &scratch.pvqY
+		absXBuf = &scratch.pvqAbsX
+		uBuf = &scratch.cwrsU
+	}
+
 	if extraBits >= 2 && extEnc != nil {
 		if n == 2 {
 			var refineVal int
 			up := (1 << extraBits) - 1
 			pulses, upPulses, refineVal = opPVQSearchN2(x, k, up)
-			index := EncodePulses(pulses, n, k)
+			index := EncodePulsesScratch(pulses, n, k, uBuf)
 			vSize := PVQ_V(n, k)
 			if vSize == 0 {
 				return 0
@@ -445,7 +476,7 @@ func algQuant(re *rangecoding.Encoder, band int, x []float64, n, k, spread, b in
 		} else {
 			up := (1 << extraBits) - 1
 			pulses, upPulses, refine = opPVQSearchExtra(x, k, up)
-			index := EncodePulses(pulses, n, k)
+			index := EncodePulsesScratch(pulses, n, k, uBuf)
 			vSize := PVQ_V(n, k)
 			if vSize == 0 {
 				return 0
@@ -466,8 +497,8 @@ func algQuant(re *rangecoding.Encoder, band int, x []float64, n, k, spread, b in
 			yy = 0
 		}
 	} else {
-		pulses, yy = opPVQSearch(x, k)
-		index := EncodePulses(pulses, n, k)
+		pulses, yy = opPVQSearchScratch(x, k, iyBuf, signxBuf, yBuf, absXBuf)
+		index := EncodePulsesScratch(pulses, n, k, uBuf)
 		vSize := PVQ_V(n, k)
 		if vSize == 0 {
 			return 0
@@ -482,13 +513,11 @@ func algQuant(re *rangecoding.Encoder, band int, x []float64, n, k, spread, b in
 
 	if resynth {
 		if len(upPulses) > 0 {
-			// For extended precision, let normalizeResidual compute energy from upPulses
-			shape := normalizeResidual(upPulses, gain, 0)
-			copy(x, shape)
+			// For extended precision, normalize in place
+			normalizeResidualInto(x, upPulses, gain, 0)
 		} else {
 			// Use the energy computed during PVQ search
-			shape := normalizeResidual(pulses, gain, yy)
-			copy(x, shape)
+			normalizeResidualInto(x, pulses, gain, yy)
 		}
 		expRotation(x, n, -1, b, k, spread)
 	}
@@ -1083,7 +1112,7 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 	if q != 0 {
 		k := getPulses(q)
 		if ctx.encode {
-			cm := algQuant(ctx.re, ctx.band, x, n, k, ctx.spread, B, gain, ctx.resynth, ctx.extEnc, ctx.extraBits)
+			cm := algQuantScratch(ctx.re, ctx.band, x, n, k, ctx.spread, B, gain, ctx.resynth, ctx.extEnc, ctx.extraBits, ctx.encScratch)
 			return cm, x
 		}
 		// Use scratch-aware version to avoid allocations in decode hot path
@@ -1221,10 +1250,10 @@ func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int
 
 	if B0 > 1 {
 		if ctx.encode {
-			deinterleaveHadamardScratch(x, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch)
+			deinterleaveHadamardScratchBuf(x, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch, ctx.encScratch)
 		}
 		if lowband != nil {
-			deinterleaveHadamardScratch(lowband, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch)
+			deinterleaveHadamardScratchBuf(lowband, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch, ctx.encScratch)
 		}
 	}
 
@@ -1232,7 +1261,7 @@ func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int
 
 	if ctx.resynth {
 		if B0 > 1 {
-			interleaveHadamardScratch(x, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch)
+			interleaveHadamardScratchBuf(x, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch, ctx.encScratch)
 		}
 		N_B = N_B0
 		B = B0
@@ -1651,6 +1680,17 @@ func quantAllBandsEncode(re *rangecoding.Encoder, channels, frameSize, lm int, s
 	x, y []float64, pulses []int, shortBlocks int, spread int, tapset int, dualStereo, intensity int,
 	tfRes []int, totalBitsQ3 int, balance int, codedBands int, seed *uint32, complexity int,
 	bandE []float64, extEnc *rangecoding.Encoder, extraBits []int) (collapse []byte) {
+	return quantAllBandsEncodeScratch(re, channels, frameSize, lm, start, end,
+		x, y, pulses, shortBlocks, spread, tapset, dualStereo, intensity,
+		tfRes, totalBitsQ3, balance, codedBands, seed, complexity,
+		bandE, extEnc, extraBits, nil)
+}
+
+// quantAllBandsEncodeScratch is the scratch-aware version of quantAllBandsEncode.
+func quantAllBandsEncodeScratch(re *rangecoding.Encoder, channels, frameSize, lm int, start, end int,
+	x, y []float64, pulses []int, shortBlocks int, spread int, tapset int, dualStereo, intensity int,
+	tfRes []int, totalBitsQ3 int, balance int, codedBands int, seed *uint32, complexity int,
+	bandE []float64, extEnc *rangecoding.Encoder, extraBits []int, scratch *bandEncodeScratch) (collapse []byte) {
 	if re == nil {
 		return nil
 	}
@@ -1670,14 +1710,31 @@ func quantAllBandsEncode(re *rangecoding.Encoder, channels, frameSize, lm int, s
 		B = shortBlocks
 	}
 
-	collapse = make([]byte, channels*MaxBands)
+	// Use scratch buffers if available
+	if scratch != nil {
+		collapse = scratch.ensureCollapse(channels * MaxBands)
+		for i := range collapse {
+			collapse[i] = 0
+		}
+	} else {
+		collapse = make([]byte, channels*MaxBands)
+	}
 
 	normOffset := M * EBands[start]
 	normLen := M*EBands[MaxBands-1] - normOffset
 	if normLen < 0 {
 		normLen = 0
 	}
-	norm := make([]float64, channels*normLen)
+
+	var norm []float64
+	if scratch != nil {
+		norm = scratch.ensureNorm(channels * normLen)
+		for i := range norm {
+			norm[i] = 0
+		}
+	} else {
+		norm = make([]float64, channels*normLen)
+	}
 	var norm2 []float64
 	if channels == 2 {
 		norm2 = norm[normLen:]
@@ -1687,7 +1744,13 @@ func quantAllBandsEncode(re *rangecoding.Encoder, channels, frameSize, lm int, s
 	if maxBand < 0 {
 		maxBand = 0
 	}
-	lowbandScratch := make([]float64, maxBand)
+
+	var lowbandScratch []float64
+	if scratch != nil {
+		lowbandScratch = scratch.ensureLowbandScratch(maxBand)
+	} else {
+		lowbandScratch = make([]float64, maxBand)
+	}
 
 	lowbandOffset := 0
 	updateLowband := true
@@ -1709,6 +1772,7 @@ func quantAllBandsEncode(re *rangecoding.Encoder, channels, frameSize, lm int, s
 		disableInv:      false,
 		avoidSplitNoise: B > 1,
 		tapset:          tapset,
+		encScratch:      scratch,
 	}
 	if ctx.channels > 0 && ctx.bandE != nil {
 		ctx.nbBands = len(ctx.bandE) / ctx.channels
@@ -1857,21 +1921,37 @@ func quantAllBandsEncode(re *rangecoding.Encoder, channels, frameSize, lm int, s
 					}
 					w0, w1 := computeChannelWeights(leftE, rightE)
 
-					// Save original input data
-					xSave := make([]float64, nBand)
-					ySave := make([]float64, nBand)
+					// Save original input data - use scratch if available
+					var xSave, ySave []float64
+					if scratch != nil {
+						xSave = scratch.ensureXSave(nBand)
+						ySave = scratch.ensureYSave(nBand)
+					} else {
+						xSave = make([]float64, nBand)
+						ySave = make([]float64, nBand)
+					}
 					copy(xSave, xBand)
 					copy(ySave, yBand)
 
 					// Save norm data if not last band
 					var normSave []float64
 					if lowbandOutX != nil {
-						normSave = make([]float64, nBand)
+						if scratch != nil {
+							normSave = scratch.ensureNormSave(nBand)
+						} else {
+							normSave = make([]float64, nBand)
+						}
 						copy(normSave, lowbandOutX)
 					}
 
-					// Save encoder state
-					ecSave := re.SaveState()
+					// Save encoder state - use scratch if available
+					var ecSave *rangecoding.EncoderState
+					if scratch != nil {
+						re.SaveStateInto(&scratch.ecSave)
+						ecSave = &scratch.ecSave
+					} else {
+						ecSave = re.SaveState()
+					}
 					ctxSave := ctx
 
 					// Try encoding with theta_round = -1 (bias toward 0/16384)
@@ -1882,17 +1962,33 @@ func quantAllBandsEncode(re *rangecoding.Encoder, channels, frameSize, lm int, s
 					// Compute distortion for first trial
 					dist0 := w0*innerProduct(xSave, xBand) + w1*innerProduct(ySave, yBand)
 
-					// Save the result of first trial
-					xResult0 := make([]float64, nBand)
-					yResult0 := make([]float64, nBand)
+					// Save the result of first trial - use scratch if available
+					var xResult0, yResult0 []float64
+					if scratch != nil {
+						xResult0 = scratch.ensureXResult0(nBand)
+						yResult0 = scratch.ensureYResult0(nBand)
+					} else {
+						xResult0 = make([]float64, nBand)
+						yResult0 = make([]float64, nBand)
+					}
 					copy(xResult0, xBand)
 					copy(yResult0, yBand)
 					var normResult0 []float64
 					if lowbandOutX != nil {
-						normResult0 = make([]float64, nBand)
+						if scratch != nil {
+							normResult0 = scratch.ensureNormResult0(nBand)
+						} else {
+							normResult0 = make([]float64, nBand)
+						}
 						copy(normResult0, lowbandOutX)
 					}
-					ecSave0 := re.SaveState()
+					var ecSave0 *rangecoding.EncoderState
+					if scratch != nil {
+						re.SaveStateInto(&scratch.ecSave0)
+						ecSave0 = &scratch.ecSave0
+					} else {
+						ecSave0 = re.SaveState()
+					}
 					ctxSave0 := ctx
 					cm0 := xCM0
 

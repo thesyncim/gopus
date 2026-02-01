@@ -738,6 +738,12 @@ func decodePulsesInto(index uint32, n, k int, y []int, scratch *bandDecodeScratc
 //
 // Returns: the combinatorial index (0 to V(n,k)-1)
 func EncodePulses(y []int, n, k int) uint32 {
+	return EncodePulsesScratch(y, n, k, nil)
+}
+
+// EncodePulsesScratch is the scratch-aware version of EncodePulses.
+// It uses a pre-allocated u buffer to avoid allocations in the hot path.
+func EncodePulsesScratch(y []int, n, k int, uBuf *[]uint32) uint32 {
 	if n <= 0 || k < 0 || len(y) != n {
 		return 0
 	}
@@ -758,7 +764,12 @@ func EncodePulses(y []int, n, k int) uint32 {
 		return 0
 	}
 
-	u := make([]uint32, k+2)
+	var u []uint32
+	if uBuf != nil {
+		u = ensureUint32Slice(uBuf, k+2)
+	} else {
+		u = make([]uint32, k+2)
+	}
 	index, _ := icwrs(n, k, y, u)
 	return index
 }

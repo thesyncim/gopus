@@ -478,6 +478,19 @@ func BenchmarkUpsample16to48(b *testing.B) {
 	}
 }
 
+func BenchmarkUpsample8to48WithScratch(b *testing.B) {
+	input := make([]float32, 160) // 20ms at 8kHz
+	for i := range input {
+		input[i] = float32(i) / 160.0
+	}
+	scratch := make([]float32, 960) // 160 * 6
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = upsampleTo48kWithScratch(input, 8000, scratch)
+	}
+}
+
 func BenchmarkDecoderCreation(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = NewDecoder()

@@ -56,12 +56,25 @@ type NSQState struct {
 
 	// Rewhitening flag
 	rewhiteFlag int
+
+	// Pre-allocated scratch buffers for zero-allocation encoding
+	scratchPulses  []int8  // Size: maxFrameLengthNSQ = 320
+	scratchXq      []int16 // Size: maxFrameLengthNSQ = 320
+	scratchSLTPQ15 []int32 // Size: ltpMemLength + maxFrameLengthNSQ = 640
+	scratchSLTP    []int16 // Size: ltpMemLength + maxFrameLengthNSQ = 640
+	scratchXScQ10  []int32 // Size: maxSubFrameLength = 80
 }
 
 // NewNSQState creates a new NSQ state with proper initialization.
 func NewNSQState() *NSQState {
 	state := &NSQState{
 		prevGainQ16: 65536, // 1.0 in Q16
+		// Pre-allocate scratch buffers for zero-allocation encoding
+		scratchPulses:  make([]int8, maxFrameLengthNSQ),
+		scratchXq:      make([]int16, maxFrameLengthNSQ),
+		scratchSLTPQ15: make([]int32, ltpMemLength+maxFrameLengthNSQ),
+		scratchSLTP:    make([]int16, ltpMemLength+maxFrameLengthNSQ),
+		scratchXScQ10:  make([]int32, maxSubFrameLength),
 	}
 	return state
 }
@@ -166,14 +179,57 @@ func NoiseShapeQuantize(nsq *NSQState, input []int16, params *NSQParams) ([]int8
 	// Set unvoiced lag to previous, overwrite for voiced
 	lag := nsq.lagPrev
 
-	// Allocate output buffers
-	pulses := make([]int8, frameLength)
-	xq := make([]int16, frameLength)
+	// Use pre-allocated output buffers if available, otherwise allocate
+	var pulses []int8
+	if nsq.scratchPulses != nil && len(nsq.scratchPulses) >= frameLength {
+		pulses = nsq.scratchPulses[:frameLength]
+		for i := range pulses {
+			pulses[i] = 0
+		}
+	} else {
+		pulses = make([]int8, frameLength)
+	}
 
-	// Allocate working buffers
-	sLTPQ15 := make([]int32, ltpMemLength+frameLength)
-	sLTP := make([]int16, ltpMemLength+frameLength)
-	xScQ10 := make([]int32, subfrLength)
+	var xq []int16
+	if nsq.scratchXq != nil && len(nsq.scratchXq) >= frameLength {
+		xq = nsq.scratchXq[:frameLength]
+		for i := range xq {
+			xq[i] = 0
+		}
+	} else {
+		xq = make([]int16, frameLength)
+	}
+
+	// Use pre-allocated working buffers if available
+	var sLTPQ15 []int32
+	if nsq.scratchSLTPQ15 != nil && len(nsq.scratchSLTPQ15) >= ltpMemLength+frameLength {
+		sLTPQ15 = nsq.scratchSLTPQ15[:ltpMemLength+frameLength]
+		for i := range sLTPQ15 {
+			sLTPQ15[i] = 0
+		}
+	} else {
+		sLTPQ15 = make([]int32, ltpMemLength+frameLength)
+	}
+
+	var sLTP []int16
+	if nsq.scratchSLTP != nil && len(nsq.scratchSLTP) >= ltpMemLength+frameLength {
+		sLTP = nsq.scratchSLTP[:ltpMemLength+frameLength]
+		for i := range sLTP {
+			sLTP[i] = 0
+		}
+	} else {
+		sLTP = make([]int16, ltpMemLength+frameLength)
+	}
+
+	var xScQ10 []int32
+	if nsq.scratchXScQ10 != nil && len(nsq.scratchXScQ10) >= subfrLength {
+		xScQ10 = nsq.scratchXScQ10[:subfrLength]
+		for i := range xScQ10 {
+			xScQ10[i] = 0
+		}
+	} else {
+		xScQ10 = make([]int32, subfrLength)
+	}
 
 	// Check LSF interpolation
 	lsfInterpFlag := 1 // Assume interpolation enabled

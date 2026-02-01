@@ -133,13 +133,25 @@ func toneLPC(x []float32, delay int) (float32, float32, bool) {
 //
 // Reference: libopus celt/celt_encoder.c tone_detect()
 func toneDetect(in []float64, channels int, sampleRate int) (float64, float64) {
+	return toneDetectScratch(in, channels, sampleRate, nil)
+}
+
+// toneDetectScratch is the scratch-aware version of toneDetect.
+func toneDetectScratch(in []float64, channels int, sampleRate int, xBuf []float32) (float64, float64) {
 	n := len(in) / channels
 	if n < 4 {
 		return -1, 0
 	}
 
+	// Use provided buffer or allocate
+	var x []float32
+	if xBuf != nil && len(xBuf) >= n {
+		x = xBuf[:n]
+	} else {
+		x = make([]float32, n)
+	}
+
 	// Mix down to mono if stereo (matching libopus behavior)
-	x := make([]float32, n)
 	if channels == 2 {
 		for i := 0; i < n; i++ {
 			// libopus sums channels (no 0.5 scale in float builds).
@@ -200,6 +212,16 @@ func toneDetect(in []float64, channels int, sampleRate int) (float64, float64) {
 //
 // Reference: libopus celt/celt_encoder.c transient_analysis()
 func (e *Encoder) TransientAnalysis(pcm []float64, frameSize int, allowWeakTransients bool) TransientAnalysisResult {
+	return e.transientAnalysisScratch(pcm, frameSize, allowWeakTransients,
+		e.scratch.transientX,
+		e.scratch.transientChannelSamps,
+		e.scratch.transientTmp,
+		e.scratch.transientEnergy)
+}
+
+// transientAnalysisScratch is the scratch-aware version of TransientAnalysis.
+func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWeakTransients bool,
+	toneBuf []float32, channelBuf []float64, tmpBuf []float64, energyBuf []float64) TransientAnalysisResult {
 	result := TransientAnalysisResult{
 		TfEstimate:  0.0,
 		TfChannel:   0,
@@ -220,7 +242,7 @@ func (e *Encoder) TransientAnalysis(pcm []float64, frameSize int, allowWeakTrans
 	// Detect pure tones before transient analysis
 	// This is used to prevent false transient detection on low-frequency tones
 	// Reference: libopus celt/celt_encoder.c tone_detect() called before transient_analysis()
-	toneFreq, toneishness := toneDetect(pcm, channels, 48000) // Assume 48kHz
+	toneFreq, toneishness := toneDetectScratch(pcm, channels, 48000, toneBuf)
 	result.ToneFreq = toneFreq
 	result.Toneishness = toneishness
 
@@ -249,17 +271,38 @@ func (e *Encoder) TransientAnalysis(pcm []float64, frameSize int, allowWeakTrans
 		3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2,
 	}
 
+	// Ensure scratch buffers are large enough
+	var channelSamples []float64
+	if channelBuf != nil && len(channelBuf) >= samplesPerChannel {
+		channelSamples = channelBuf[:samplesPerChannel]
+	} else {
+		channelSamples = make([]float64, samplesPerChannel)
+	}
+
+	var tmp []float64
+	if tmpBuf != nil && len(tmpBuf) >= samplesPerChannel {
+		tmp = tmpBuf[:samplesPerChannel]
+	} else {
+		tmp = make([]float64, samplesPerChannel)
+	}
+
+	len2 := samplesPerChannel / 2
+	var energy []float64
+	if energyBuf != nil && len(energyBuf) >= len2 {
+		energy = energyBuf[:len2]
+	} else {
+		energy = make([]float64, len2)
+	}
+
 	// Process each channel
 	for c := 0; c < channels; c++ {
 		// Extract channel samples
-		channelSamples := make([]float64, samplesPerChannel)
 		for i := 0; i < samplesPerChannel; i++ {
 			channelSamples[i] = pcm[i*channels+c]
 		}
 
 		// High-pass filter: (1 - 2*z^-1 + z^-2) / (1 - z^-1 + 0.5*z^-2)
 		// This removes DC and low frequencies to focus on transient energy
-		tmp := make([]float64, samplesPerChannel)
 		var mem0, mem1 float64
 		for i := 0; i < samplesPerChannel; i++ {
 			x := channelSamples[i]
@@ -278,12 +321,9 @@ func (e *Encoder) TransientAnalysis(pcm []float64, frameSize int, allowWeakTrans
 			tmp[i] = 0
 		}
 
-		len2 := samplesPerChannel / 2
-
 		// Forward pass: compute post-echo threshold with forward masking
 		// Group by two to reduce complexity
 		// Note: In libopus FLOAT mode, PSHR32 is a no-op, so no scaling is applied
-		energy := make([]float64, len2)
 		var mean float64
 		mem0 = 0
 		for i := 0; i < len2; i++ {

@@ -26,20 +26,57 @@ const pvqEPSILON = 1e-15
 //
 // Reference: RFC 6716 Section 4.3.4.1, libopus celt/vq.c op_pvq_search_c()
 func opPVQSearch(x []float64, k int) ([]int, float64) {
+	return opPVQSearchScratch(x, k, nil, nil, nil, nil)
+}
+
+// opPVQSearchScratch is the scratch-aware version of opPVQSearch.
+// It uses pre-allocated buffers to avoid allocations in the hot path.
+func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]int, yBuf *[]float32, absXBuf *[]float32) ([]int, float64) {
 	n := len(x)
-	iy := make([]int, n)
+
+	// Ensure output buffer
+	var iy []int
+	if iyBuf != nil {
+		iy = ensureIntSlice(iyBuf, n)
+	} else {
+		iy = make([]int, n)
+	}
+
 	if n == 0 || k <= 0 {
+		for i := range iy {
+			iy[i] = 0
+		}
 		return iy, 0
 	}
 
-	signx := make([]int, n)
-	y := make([]float32, n) // Use float32 to match libopus float path
+	// Ensure scratch buffers
+	var signx []int
+	var y []float32
+	var absX []float32
 
-	// Make a local copy of absolute values for the search.
-	// We must NOT modify the input x slice.
-	// Use float32 internally to match libopus precision
-	absX := make([]float32, n)
+	if signxBuf != nil {
+		signx = ensureIntSlice(signxBuf, n)
+	} else {
+		signx = make([]int, n)
+	}
+
+	if yBuf != nil {
+		y = ensureFloat32Slice(yBuf, n)
+	} else {
+		y = make([]float32, n)
+	}
+
+	if absXBuf != nil {
+		absX = ensureFloat32Slice(absXBuf, n)
+	} else {
+		absX = make([]float32, n)
+	}
+
+	// Initialize buffers
 	for j := 0; j < n; j++ {
+		iy[j] = 0
+		signx[j] = 0
+		y[j] = 0
 		if x[j] < 0 {
 			signx[j] = 1
 			absX[j] = float32(-x[j])

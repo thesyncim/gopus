@@ -150,11 +150,12 @@ func silkLPCFit(aQout []int16, aQin []int32, qOut, qIn, order int) {
 }
 
 func silkLPCInversePredGain(aQ12 []int16, order int) int32 {
-	if order <= 0 || len(aQ12) < order {
+	if order <= 0 || len(aQ12) < order || order > maxLPCOrder {
 		return 0
 	}
 
-	atmpQA := make([]int32, order)
+	// Use fixed-size stack array to avoid allocation (order is always ≤16)
+	var atmpQA [maxLPCOrder]int32
 	var dcResp int32
 	for k := 0; k < order; k++ {
 		dcResp += int32(aQ12[k])
@@ -163,7 +164,7 @@ func silkLPCInversePredGain(aQ12 []int16, order int) int32 {
 	if dcResp >= 4096 {
 		return 0
 	}
-	return silkLPCInversePredGainQA(atmpQA, order)
+	return silkLPCInversePredGainQA(atmpQA[:order], order)
 }
 
 func silkMul32FracQ(a32, b32 int32, q int) int32 {

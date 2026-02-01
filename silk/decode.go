@@ -66,7 +66,7 @@ func (d *Decoder) DecodeFrame(
 			} else {
 				pulses = make([]int16, pulsesLen)
 			}
-			silkDecodePulses(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength)
+			silkDecodePulsesWithScratch(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength, st.scratchSumPulses, st.scratchNLshifts)
 		}
 	}
 
@@ -104,7 +104,7 @@ func (d *Decoder) DecodeFrame(
 		} else {
 			pulses = make([]int16, pulsesLen)
 		}
-		silkDecodePulses(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength)
+		silkDecodePulsesWithScratch(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength, st.scratchSumPulses, st.scratchNLshifts)
 		var ctrl decoderControl
 		silkDecodeParameters(st, &ctrl, condCoding)
 		silkDecodeCore(st, &ctrl, frameOut, pulses)
@@ -194,13 +194,35 @@ func (d *Decoder) DecodeFrameRaw(
 				condCoding = codeConditionally
 			}
 			silkDecodeIndices(st, rd, true, condCoding)
-			pulses := make([]int16, roundUpShellFrame(st.frameLength))
-			silkDecodePulses(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength)
+			// Use pre-allocated pulses buffer if available
+			pulsesLen := roundUpShellFrame(st.frameLength)
+			var pulses []int16
+			if d.scratchPulses != nil && len(d.scratchPulses) >= pulsesLen {
+				pulses = d.scratchPulses[:pulsesLen]
+				for j := range pulses {
+					pulses[j] = 0
+				}
+			} else {
+				pulses = make([]int16, pulsesLen)
+			}
+			silkDecodePulsesWithScratch(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength, st.scratchSumPulses, st.scratchNLshifts)
 		}
 	}
 
 	frameLength := st.frameLength
-	outInt16 := make([]int16, framesPerPacket*frameLength)
+	totalLen := framesPerPacket * frameLength
+
+	// Use pre-allocated outInt16 buffer if available
+	var outInt16 []int16
+	if d.scratchOutInt16 != nil && len(d.scratchOutInt16) >= totalLen {
+		outInt16 = d.scratchOutInt16[:totalLen]
+		for j := range outInt16 {
+			outInt16[j] = 0
+		}
+	} else {
+		outInt16 = make([]int16, totalLen)
+	}
+
 	for i := 0; i < framesPerPacket; i++ {
 		frameIndex := st.nFramesDecoded
 		condCoding := codeIndependently
@@ -210,8 +232,18 @@ func (d *Decoder) DecodeFrameRaw(
 		vad := st.VADFlags[frameIndex] != 0
 		frameOut := outInt16[i*frameLength : (i+1)*frameLength]
 		silkDecodeIndices(st, rd, vad, condCoding)
-		pulses := make([]int16, roundUpShellFrame(st.frameLength))
-		silkDecodePulses(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength)
+		// Use pre-allocated pulses buffer if available
+		pulsesLen := roundUpShellFrame(st.frameLength)
+		var pulses []int16
+		if d.scratchPulses != nil && len(d.scratchPulses) >= pulsesLen {
+			pulses = d.scratchPulses[:pulsesLen]
+			for j := range pulses {
+				pulses[j] = 0
+			}
+		} else {
+			pulses = make([]int16, pulsesLen)
+		}
+		silkDecodePulsesWithScratch(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength, st.scratchSumPulses, st.scratchNLshifts)
 		var ctrl decoderControl
 		silkDecodeParameters(st, &ctrl, condCoding)
 		silkDecodeCore(st, &ctrl, frameOut, pulses)
@@ -230,7 +262,13 @@ func (d *Decoder) DecodeFrameRaw(
 
 	// Convert to float32 WITHOUT delay compensation.
 	// The caller handles sMid buffering via BuildMonoResamplerInput.
-	output := make([]float32, len(outInt16))
+	// Use pre-allocated output buffer if available
+	var output []float32
+	if d.scratchOutput != nil && len(d.scratchOutput) >= len(outInt16) {
+		output = d.scratchOutput[:len(outInt16)]
+	} else {
+		output = make([]float32, len(outInt16))
+	}
 	for i, v := range outInt16 {
 		output[i] = float32(v) / 32768.0
 	}

@@ -30,6 +30,12 @@ type LibopusResampler struct {
 
 	// Unique ID for tracking
 	debugID int
+
+	// Pre-allocated scratch buffers for zero-allocation resampling
+	scratchBuf    []int16   // Size: 2*batchSize + resamplerOrderFIR12
+	scratchIn     []int16   // Size: max input samples
+	scratchOut    []int16   // Size: max output samples
+	scratchResult []float32 // Size: max output samples
 }
 
 var debugResamplerNextID int
@@ -37,11 +43,31 @@ var debugResamplerNextID int
 // resampleIIRFIRSlice processes a slice of input samples and writes to output.
 // This is the core IIR_FIR processing without the delay buffer management.
 func (r *LibopusResampler) resampleIIRFIRSlice(out []int16, in []int16) {
+	r.resampleIIRFIRSliceWithScratch(out, in, nil)
+}
+
+// resampleIIRFIRSliceWithScratch is like resampleIIRFIRSlice but uses a pre-allocated scratch buffer.
+func (r *LibopusResampler) resampleIIRFIRSliceWithScratch(out []int16, in []int16, scratch []int16) {
 	inLen := int32(len(in))
 	outIdx := 0
 
-	// Allocate buffer for 2x upsampled data + FIR history
-	buf := make([]int16, 2*r.batchSize+resamplerOrderFIR12)
+	// Use pre-allocated buffer for 2x upsampled data + FIR history
+	bufSize := int(2*r.batchSize + resamplerOrderFIR12)
+	var buf []int16
+	if scratch != nil && len(scratch) >= bufSize {
+		buf = scratch[:bufSize]
+		// Clear the buffer
+		for i := range buf {
+			buf[i] = 0
+		}
+	} else if r.scratchBuf != nil && len(r.scratchBuf) >= bufSize {
+		buf = r.scratchBuf[:bufSize]
+		for i := range buf {
+			buf[i] = 0
+		}
+	} else {
+		buf = make([]int16, bufSize)
+	}
 
 	// Copy FIR state to start of buffer
 	copy(buf, r.sFIR[:])
@@ -161,6 +187,16 @@ func NewLibopusResampler(fsIn, fsOut int) *LibopusResampler {
 	// Initialize delay buffer
 	r.delayBuf = make([]int16, r.fsInKHz)
 
+	// Pre-allocate scratch buffers for zero-allocation resampling
+	// Max input: fsInKHz * resamplerMaxBatchSizeMs = 16 * 10 = 160 samples
+	// Max output: fsOutKHz * (inLen / fsInKHz) = 48 * (160/16) = 480 samples
+	maxInputSamples := int(r.fsInKHz * resamplerMaxBatchSizeMs)
+	maxOutputSamples := int(r.fsOutKHz * resamplerMaxBatchSizeMs)
+	r.scratchBuf = make([]int16, 2*r.batchSize+resamplerOrderFIR12)
+	r.scratchIn = make([]int16, maxInputSamples)
+	r.scratchOut = make([]int16, maxOutputSamples)
+	r.scratchResult = make([]float32, maxOutputSamples)
+
 	// Assign unique ID for debugging
 	debugResamplerNextID++
 	r.debugID = debugResamplerNextID
@@ -230,15 +266,29 @@ func (r *LibopusResampler) Process(samples []float32) []float32 {
 
 	// Need at least 1 ms of input data
 	if inLen < r.fsInKHz {
-		// Pad with zeros if needed
-		padded := make([]float32, r.fsInKHz)
+		// Pad with zeros if needed - use scratch buffer if available
+		paddedLen := int(r.fsInKHz)
+		var padded []float32
+		if r.scratchResult != nil && len(r.scratchResult) >= paddedLen {
+			padded = r.scratchResult[:paddedLen]
+			for i := range padded {
+				padded[i] = 0
+			}
+		} else {
+			padded = make([]float32, paddedLen)
+		}
 		copy(padded, samples)
 		samples = padded
 		inLen = r.fsInKHz
 	}
 
-	// Convert float32 to int16 for processing
-	in := make([]int16, len(samples))
+	// Convert float32 to int16 for processing - use scratch buffer if available
+	var in []int16
+	if r.scratchIn != nil && len(r.scratchIn) >= len(samples) {
+		in = r.scratchIn[:len(samples)]
+	} else {
+		in = make([]int16, len(samples))
+	}
 	for i, s := range samples {
 		scaled := s * 32768.0
 		if scaled > 32767 {
@@ -252,7 +302,17 @@ func (r *LibopusResampler) Process(samples []float32) []float32 {
 
 	// Calculate output size
 	outLen := int(inLen) * int(r.fsOutKHz) / int(r.fsInKHz)
-	out := make([]int16, outLen)
+
+	// Use scratch buffer for output if available
+	var out []int16
+	if r.scratchOut != nil && len(r.scratchOut) >= outLen {
+		out = r.scratchOut[:outLen]
+		for i := range out {
+			out[i] = 0
+		}
+	} else {
+		out = make([]int16, outLen)
+	}
 
 	// Match libopus silk_resampler() exactly:
 	// 1. Fill delay buffer with first samples
@@ -266,7 +326,7 @@ func (r *LibopusResampler) Process(samples []float32) []float32 {
 	copy(r.delayBuf[r.inputDelay:], in[:nSamples])
 
 	// Process delay buffer (1ms = fsInKHz samples)
-	r.resampleIIRFIRSlice(out[:r.fsOutKHz], r.delayBuf[:r.fsInKHz])
+	r.resampleIIRFIRSliceWithScratch(out[:r.fsOutKHz], r.delayBuf[:r.fsInKHz], r.scratchBuf)
 
 	// Process remaining input (exclude the last inputDelay samples, which are saved for next call)
 	if inLen > r.fsInKHz {
@@ -277,7 +337,7 @@ func (r *LibopusResampler) Process(samples []float32) []float32 {
 		if end > inLen {
 			end = inLen
 		}
-		r.resampleIIRFIRSlice(out[r.fsOutKHz:], in[nSamples:end])
+		r.resampleIIRFIRSliceWithScratch(out[r.fsOutKHz:], in[nSamples:end], r.scratchBuf)
 	}
 
 	// Save last inputDelay samples to delay buffer for next call
@@ -285,8 +345,13 @@ func (r *LibopusResampler) Process(samples []float32) []float32 {
 		copy(r.delayBuf[:r.inputDelay], in[inLen-r.inputDelay:])
 	}
 
-	// Convert back to float32
-	result := make([]float32, len(out))
+	// Convert back to float32 - use scratch buffer if available
+	var result []float32
+	if r.scratchResult != nil && len(r.scratchResult) >= len(out) {
+		result = r.scratchResult[:len(out)]
+	} else {
+		result = make([]float32, len(out))
+	}
 	for i, s := range out {
 		result[i] = float32(s) / 32768.0
 	}

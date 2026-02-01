@@ -85,8 +85,25 @@ func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, 
 	cb1Offset := stypeBand * cb.nVectors
 	st.indices.NLSFIndices[0] = int8(rd.DecodeICDF(cb.cb1ICDF[cb1Offset:], 8))
 
-	ecIx := make([]int16, maxLPCOrder)
-	predQ8 := make([]uint8, maxLPCOrder)
+	// Use pre-allocated scratch buffers if available
+	var ecIx []int16
+	var predQ8 []uint8
+	if st.scratchEcIx != nil && len(st.scratchEcIx) >= maxLPCOrder {
+		ecIx = st.scratchEcIx[:maxLPCOrder]
+		for i := range ecIx {
+			ecIx[i] = 0
+		}
+	} else {
+		ecIx = make([]int16, maxLPCOrder)
+	}
+	if st.scratchPredQ8 != nil && len(st.scratchPredQ8) >= maxLPCOrder {
+		predQ8 = st.scratchPredQ8[:maxLPCOrder]
+		for i := range predQ8 {
+			predQ8[i] = 0
+		}
+	} else {
+		predQ8 = make([]uint8, maxLPCOrder)
+	}
 	silkNLSFUnpack(ecIx, predQ8, cb, int(st.indices.NLSFIndices[0]))
 
 	for i := 0; i < cb.order; i++ {
@@ -138,9 +155,10 @@ func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, 
 }
 
 func silkShellDecoder(pulses []int16, rd *rangecoding.Decoder, pulses4 int) {
-	pulses3 := make([]int16, 2)
-	pulses2 := make([]int16, 4)
-	pulses1 := make([]int16, 8)
+	// These are small fixed-size arrays, using stack allocation via array
+	var pulses3 [2]int16
+	var pulses2 [4]int16
+	var pulses1 [8]int16
 
 	decodeSplit := func(c1, c2 *int16, p int, table []uint8) {
 		if p > 0 {
@@ -175,7 +193,7 @@ func silkShellDecoder(pulses []int16, rd *rangecoding.Decoder, pulses4 int) {
 }
 
 func silkDecodeSigns(rd *rangecoding.Decoder, pulses []int16, length int, signalType int, quantOffsetType int, sumPulses []int) {
-	icdf := []uint8{0, 0}
+	var icdf [2]uint8
 	qPtr := 0
 	idx := 7 * (quantOffsetType + (signalType << 1))
 	icdfPtr := silk_sign_iCDF[idx:]
@@ -186,7 +204,7 @@ func silkDecodeSigns(rd *rangecoding.Decoder, pulses []int16, length int, signal
 			icdf[0] = icdfPtr[silkMinInt(p&0x1F, 6)]
 			for j := 0; j < shellCodecFrameLength; j++ {
 				if pulses[qPtr+j] > 0 {
-					sign := rd.DecodeICDF(icdf, 8)
+					sign := rd.DecodeICDF(icdf[:], 8)
 					if sign == 0 {
 						pulses[qPtr+j] = -pulses[qPtr+j]
 					}
@@ -198,14 +216,35 @@ func silkDecodeSigns(rd *rangecoding.Decoder, pulses []int16, length int, signal
 }
 
 func silkDecodePulses(rd *rangecoding.Decoder, pulses []int16, signalType int, quantOffsetType int, frameLength int) {
+	silkDecodePulsesWithScratch(rd, pulses, signalType, quantOffsetType, frameLength, nil, nil)
+}
+
+// silkDecodePulsesWithScratch is like silkDecodePulses but uses pre-allocated scratch buffers.
+func silkDecodePulsesWithScratch(rd *rangecoding.Decoder, pulses []int16, signalType int, quantOffsetType int, frameLength int, scratchSumPulses, scratchNLshifts []int) {
 	rateLevel := rd.DecodeICDF(silk_rate_levels_iCDF[signalType>>1], 8)
 	iter := frameLength >> log2ShellCodecFrameLength
 	if iter*shellCodecFrameLength < frameLength {
 		iter++
 	}
 
-	sumPulses := make([]int, iter)
-	nLshifts := make([]int, iter)
+	// Use scratch buffers if provided, otherwise allocate
+	var sumPulses, nLshifts []int
+	if scratchSumPulses != nil && len(scratchSumPulses) >= iter {
+		sumPulses = scratchSumPulses[:iter]
+		for i := range sumPulses {
+			sumPulses[i] = 0
+		}
+	} else {
+		sumPulses = make([]int, iter)
+	}
+	if scratchNLshifts != nil && len(scratchNLshifts) >= iter {
+		nLshifts = scratchNLshifts[:iter]
+		for i := range nLshifts {
+			nLshifts[i] = 0
+		}
+	} else {
+		nLshifts = make([]int, iter)
+	}
 
 	cdfPtr := silk_pulses_per_block_iCDF[rateLevel]
 	for i := 0; i < iter; i++ {

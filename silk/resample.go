@@ -8,6 +8,11 @@ package silk
 // This is not the highest quality resampling but is sufficient for initial implementation.
 // A future optimization could use polyphase resampling for higher quality.
 func upsampleTo48k(samples []float32, srcRate int) ([]float32, error) {
+	return upsampleTo48kWithScratch(samples, srcRate, nil)
+}
+
+// upsampleTo48kWithScratch is like upsampleTo48k but uses a pre-allocated scratch buffer.
+func upsampleTo48kWithScratch(samples []float32, srcRate int, scratch []float32) ([]float32, error) {
 	if srcRate == 48000 {
 		return samples, nil // No resampling needed
 	}
@@ -21,7 +26,13 @@ func upsampleTo48k(samples []float32, srcRate int) ([]float32, error) {
 		return nil, nil
 	}
 
-	output := make([]float32, len(samples)*factor)
+	outputLen := len(samples) * factor
+	var output []float32
+	if scratch != nil && len(scratch) >= outputLen {
+		output = scratch[:outputLen]
+	} else {
+		output = make([]float32, outputLen)
+	}
 
 	for i := 0; i < len(samples); i++ {
 		curr := samples[i]

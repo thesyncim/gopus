@@ -433,28 +433,46 @@ type EncoderState struct {
 // SaveState captures the current encoder state for later restoration.
 // This allows trying different encoding choices and restoring to try again.
 func (e *Encoder) SaveState() *EncoderState {
-	state := &EncoderState{
-		offs:       e.offs,
-		endOffs:    e.endOffs,
-		endWindow:  e.endWindow,
-		nendBits:   e.nendBits,
-		nbitsTotal: e.nbitsTotal,
-		rng:        e.rng,
-		val:        e.val,
-		rem:        e.rem,
-		ext:        e.ext,
-		err:        e.err,
-	}
-	// Save the bytes that have been written
+	state := &EncoderState{}
+	e.SaveStateInto(state)
+	return state
+}
+
+// SaveStateInto captures the current encoder state into a pre-allocated state struct.
+// This is the allocation-free version of SaveState for hot paths.
+func (e *Encoder) SaveStateInto(state *EncoderState) {
+	state.offs = e.offs
+	state.endOffs = e.endOffs
+	state.endWindow = e.endWindow
+	state.nendBits = e.nendBits
+	state.nbitsTotal = e.nbitsTotal
+	state.rng = e.rng
+	state.val = e.val
+	state.rem = e.rem
+	state.ext = e.ext
+	state.err = e.err
+
+	// Save the bytes that have been written - reuse existing slices if large enough
 	if e.offs > 0 {
-		state.bufFront = make([]byte, e.offs)
+		if cap(state.bufFront) < int(e.offs) {
+			state.bufFront = make([]byte, e.offs)
+		} else {
+			state.bufFront = state.bufFront[:e.offs]
+		}
 		copy(state.bufFront, e.buf[:e.offs])
+	} else {
+		state.bufFront = state.bufFront[:0]
 	}
 	if e.endOffs > 0 {
-		state.bufBack = make([]byte, e.endOffs)
+		if cap(state.bufBack) < int(e.endOffs) {
+			state.bufBack = make([]byte, e.endOffs)
+		} else {
+			state.bufBack = state.bufBack[:e.endOffs]
+		}
 		copy(state.bufBack, e.buf[e.storage-e.endOffs:e.storage])
+	} else {
+		state.bufBack = state.bufBack[:0]
 	}
-	return state
 }
 
 // RestoreState restores the encoder to a previously saved state.

@@ -277,9 +277,9 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		leftHistory := e.overlapBuffer[:overlap]
 		rightHistory := e.overlapBuffer[overlap : 2*overlap]
 
-		// Use overlap-aware MDCT for both channels
-		mdctLeft = ComputeMDCTWithHistory(left, leftHistory, shortBlocks)
-		mdctRight = ComputeMDCTWithHistory(right, rightHistory, shortBlocks)
+		// Use overlap-aware MDCT for both channels with scratch buffers
+		mdctLeft = computeMDCTWithHistoryScratchStereoL(left, leftHistory, shortBlocks, &e.scratch)
+		mdctRight = computeMDCTWithHistoryScratchStereoR(right, rightHistory, shortBlocks, &e.scratch)
 
 		// Concatenate: [left coeffs][right coeffs] - use scratch buffer
 		coeffsLen := len(mdctLeft) + len(mdctRight)
@@ -810,7 +810,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		dualStereoVal = 1
 	}
 	tapset := e.TapsetDecision()
-	quantAllBandsEncode(
+	quantAllBandsEncodeScratch(
 		re,
 		e.channels,
 		frameSize,
@@ -834,6 +834,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		bandE,
 		nil,
 		nil,
+		&e.bandEncScratch,
 	)
 
 	// Step 14.5: Encode anti-collapse flag if reserved
@@ -905,7 +906,7 @@ func (e *Encoder) computeMDCTWithOverlap(samples []float64, shortBlocks int) []f
 		e.overlapBuffer = newBuf
 	}
 
-	return ComputeMDCTWithHistory(samples, e.overlapBuffer[:overlap], shortBlocks)
+	return computeMDCTWithHistoryScratch(samples, e.overlapBuffer[:overlap], shortBlocks, &e.scratch)
 }
 
 // ComputeMDCTWithHistory computes MDCT using a history buffer for overlap.
@@ -948,6 +949,158 @@ func ComputeMDCTWithHistory(samples, history []float64, shortBlocks int) []float
 		return MDCTShort(input, shortBlocks)
 	}
 	return MDCT(input)
+}
+
+// computeMDCTWithHistoryScratch computes MDCT using a history buffer with scratch buffers.
+// This is the zero-allocation version that uses pre-allocated buffers.
+func computeMDCTWithHistoryScratch(samples, history []float64, shortBlocks int, scratch *encoderScratch) []float64 {
+	if len(samples) == 0 {
+		return nil
+	}
+
+	overlap := Overlap
+	if overlap > len(samples) {
+		overlap = len(samples)
+	}
+
+	// Use scratch input buffer
+	inputLen := len(samples) + overlap
+	input := scratch.mdctInput
+	if len(input) < inputLen {
+		input = make([]float64, inputLen)
+		scratch.mdctInput = input
+	}
+	input = input[:inputLen]
+
+	// Copy history overlap into the head of the input buffer.
+	if overlap > 0 && len(history) > 0 {
+		if len(history) >= overlap {
+			copy(input[:overlap], history[len(history)-overlap:])
+		} else {
+			copy(input[overlap-len(history):overlap], history)
+		}
+	}
+
+	// Append current frame samples after the overlap.
+	copy(input[overlap:], samples)
+
+	// Update history with the current frame tail (overlap samples).
+	if overlap > 0 && len(history) > 0 {
+		if len(history) >= overlap {
+			copy(history, samples[len(samples)-overlap:])
+		} else {
+			copy(history, samples[len(samples)-len(history):])
+		}
+	}
+
+	if shortBlocks > 1 {
+		return mdctShortScratch(input, shortBlocks, scratch)
+	}
+	return mdctScratch(input, scratch)
+}
+
+// computeMDCTWithHistoryScratchStereoL computes MDCT for the left channel with scratch buffers.
+// Uses mdctLeft scratch buffer for output.
+func computeMDCTWithHistoryScratchStereoL(samples, history []float64, shortBlocks int, scratch *encoderScratch) []float64 {
+	if len(samples) == 0 {
+		return nil
+	}
+
+	overlap := Overlap
+	if overlap > len(samples) {
+		overlap = len(samples)
+	}
+
+	// Use scratch input buffer (shared, but reused between L and R sequentially)
+	inputLen := len(samples) + overlap
+	input := scratch.mdctInput
+	if len(input) < inputLen {
+		input = make([]float64, inputLen)
+		scratch.mdctInput = input
+	}
+	input = input[:inputLen]
+
+	// Copy history overlap into the head of the input buffer.
+	if overlap > 0 && len(history) > 0 {
+		if len(history) >= overlap {
+			copy(input[:overlap], history[len(history)-overlap:])
+		} else {
+			copy(input[overlap-len(history):overlap], history)
+		}
+	}
+
+	// Append current frame samples after the overlap.
+	copy(input[overlap:], samples)
+
+	// Update history with the current frame tail (overlap samples).
+	if overlap > 0 && len(history) > 0 {
+		if len(history) >= overlap {
+			copy(history, samples[len(samples)-overlap:])
+		} else {
+			copy(history, samples[len(samples)-len(history):])
+		}
+	}
+
+	// Use mdctLeft for output
+	frameSize := len(samples)
+	coeffs := ensureFloat64Slice(&scratch.mdctLeft, frameSize)
+
+	if shortBlocks > 1 {
+		return mdctShortScratchInto(input, shortBlocks, coeffs, scratch)
+	}
+	return mdctScratchInto(input, coeffs, scratch)
+}
+
+// computeMDCTWithHistoryScratchStereoR computes MDCT for the right channel with scratch buffers.
+// Uses mdctRight scratch buffer for output.
+func computeMDCTWithHistoryScratchStereoR(samples, history []float64, shortBlocks int, scratch *encoderScratch) []float64 {
+	if len(samples) == 0 {
+		return nil
+	}
+
+	overlap := Overlap
+	if overlap > len(samples) {
+		overlap = len(samples)
+	}
+
+	// Use scratch input buffer (shared, but reused between L and R sequentially)
+	inputLen := len(samples) + overlap
+	input := scratch.mdctInput
+	if len(input) < inputLen {
+		input = make([]float64, inputLen)
+		scratch.mdctInput = input
+	}
+	input = input[:inputLen]
+
+	// Copy history overlap into the head of the input buffer.
+	if overlap > 0 && len(history) > 0 {
+		if len(history) >= overlap {
+			copy(input[:overlap], history[len(history)-overlap:])
+		} else {
+			copy(input[overlap-len(history):overlap], history)
+		}
+	}
+
+	// Append current frame samples after the overlap.
+	copy(input[overlap:], samples)
+
+	// Update history with the current frame tail (overlap samples).
+	if overlap > 0 && len(history) > 0 {
+		if len(history) >= overlap {
+			copy(history, samples[len(samples)-overlap:])
+		} else {
+			copy(history, samples[len(samples)-len(history):])
+		}
+	}
+
+	// Use mdctRight for output
+	frameSize := len(samples)
+	coeffs := ensureFloat64Slice(&scratch.mdctRight, frameSize)
+
+	if shortBlocks > 1 {
+		return mdctShortScratchInto(input, shortBlocks, coeffs, scratch)
+	}
+	return mdctScratchInto(input, coeffs, scratch)
 }
 
 // isFrameSilent checks if all samples are effectively zero.

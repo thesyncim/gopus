@@ -110,6 +110,9 @@ type Encoder struct {
 	// Scratch buffers for hot path to eliminate heap allocations
 	scratch encoderScratch
 
+	// Scratch buffers for band encoding (PVQ, theta RDO, etc.)
+	bandEncScratch bandEncodeScratch
+
 	// Transient detection state (persisted across frames for better attack detection)
 	// These are used to track attack characteristics across frame boundaries.
 	// Reference: libopus celt_encoder.c transient_analysis() and attack_duration tracking
@@ -628,26 +631,61 @@ type encoderScratch struct {
 	deintRight []float64
 
 	// Band quantization buffers
-	quantCollapse     []byte
-	quantNorm         []float64
-	quantLowband      []float64
-	quantXSave        []float64
-	quantYSave        []float64
-	quantNormSave     []float64
-	quantXResult0     []float64
-	quantYResult0     []float64
-	quantNormResult0  []float64
+	quantCollapse    []byte
+	quantNorm        []float64
+	quantLowband     []float64
+	quantXSave       []float64
+	quantYSave       []float64
+	quantNormSave    []float64
+	quantXResult0    []float64
+	quantYResult0    []float64
+	quantNormResult0 []float64
 
 	// MDCT forward transform scratch (float32)
-	mdctF       []float32
-	mdctFFTIn   []complex64
-	mdctFFTOut  []complex64
+	mdctF          []float32
+	mdctFFTIn      []complex64
+	mdctFFTOut     []complex64
+	mdctFFTTmp     []kissCpx
+	mdctBlockCoeffs []float64 // Per-block coefficients for short MDCT
 
 	// Transient analysis scratch
 	transientTmp          []float64
 	transientEnergy       []float64
 	transientChannelSamps []float64
 	transientX            []float32
+
+	// Tonality analysis scratch
+	tonalityPowers      []float64
+	tonalityBandPowers  []float64
+	tonalityBandTonality []float64
+
+	// CWRS encoding scratch
+	cwrsU []uint32
+
+	// TF analysis scratch
+	tfMetric   []float64
+	tfTmp      []float64
+	tfPath0    []int
+	tfPath1    []int
+	tfBandCost []float64
+
+	// Dynalloc analysis scratch
+	dynallocFollower   []float64
+	dynallocNoise      []float64
+	dynallocImportance []int
+
+	// ComputeAllocation scratch
+	allocBits     []int
+	allocFineBits []int
+	allocFinePrio []int
+	allocThresh   []int
+	allocTrim     []int
+
+	// MDCT input buffer for ComputeMDCTWithHistory
+	mdctInput []float64
+
+	// Band encode scratch (for quantAllBandsEncode)
+	bandEncode bandEncodeScratch
 }
 
 // ensureScratch ensures all scratch buffers are properly sized for the given frame parameters.
@@ -721,6 +759,78 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	// Deinterleave buffers
 	s.deintLeft = ensureFloat64Slice(&s.deintLeft, frameSize)
 	s.deintRight = ensureFloat64Slice(&s.deintRight, frameSize)
+
+	// MDCT forward transform scratch (float32)
+	n4 := frameSize / 2 // n4 = frameSize/2 for N=2*frameSize MDCT
+	s.mdctF = ensureFloat32Slice(&s.mdctF, frameSize)
+	s.mdctFFTIn = ensureComplex64Slice(&s.mdctFFTIn, n4)
+	s.mdctFFTOut = ensureComplex64Slice(&s.mdctFFTOut, n4)
+	s.mdctFFTTmp = ensureKissCpxSlice(&s.mdctFFTTmp, n4)
+	// For short MDCT: max short size is frameSize/8 (for 8 short blocks)
+	s.mdctBlockCoeffs = ensureFloat64Slice(&s.mdctBlockCoeffs, frameSize/2)
+
+	// Transient analysis scratch
+	samplesPerChannel := frameSize + overlap
+	s.transientTmp = ensureFloat64Slice(&s.transientTmp, samplesPerChannel)
+	s.transientEnergy = ensureFloat64Slice(&s.transientEnergy, samplesPerChannel/2)
+	s.transientChannelSamps = ensureFloat64Slice(&s.transientChannelSamps, samplesPerChannel)
+	s.transientX = ensureFloat32Slice(&s.transientX, samplesPerChannel)
+
+	// Tonality analysis scratch
+	s.tonalityPowers = ensureFloat64Slice(&s.tonalityPowers, frameSize)
+	s.tonalityBandPowers = ensureFloat64Slice(&s.tonalityBandPowers, maxBandWidth)
+	s.tonalityBandTonality = ensureFloat64Slice(&s.tonalityBandTonality, MaxBands)
+
+	// CWRS encoding scratch (k can be up to ~128 for typical encoding)
+	s.cwrsU = ensureUint32Slice(&s.cwrsU, 256)
+
+	// TF analysis scratch
+	s.tfMetric = ensureFloat64Slice(&s.tfMetric, MaxBands)
+	s.tfTmp = ensureFloat64Slice(&s.tfTmp, MaxBands*4) // For 2 paths x 2 states
+	s.tfPath0 = ensureIntSlice(&s.tfPath0, MaxBands)
+	s.tfPath1 = ensureIntSlice(&s.tfPath1, MaxBands)
+	s.tfBandCost = ensureFloat64Slice(&s.tfBandCost, MaxBands*4)
+
+	// Dynalloc analysis scratch
+	s.dynallocFollower = ensureFloat64Slice(&s.dynallocFollower, MaxBands)
+	s.dynallocNoise = ensureFloat64Slice(&s.dynallocNoise, MaxBands)
+	s.dynallocImportance = ensureIntSlice(&s.dynallocImportance, MaxBands)
+
+	// ComputeAllocation scratch
+	s.allocBits = ensureIntSlice(&s.allocBits, MaxBands)
+	s.allocFineBits = ensureIntSlice(&s.allocFineBits, MaxBands)
+	s.allocFinePrio = ensureIntSlice(&s.allocFinePrio, MaxBands)
+	s.allocThresh = ensureIntSlice(&s.allocThresh, MaxBands)
+	s.allocTrim = ensureIntSlice(&s.allocTrim, MaxBands)
+
+	// MDCT input buffer for ComputeMDCTWithHistory
+	s.mdctInput = ensureFloat64Slice(&s.mdctInput, frameSize+overlap)
+
+	// PVQ search buffers
+	maxPVQN := maxBandWidth * 2 // Max band width with stereo doubling
+	s.pvqSignx = ensureIntSlice(&s.pvqSignx, maxPVQN)
+	s.pvqY = ensureFloat32Slice(&s.pvqY, maxPVQN)
+	s.pvqAbsX = ensureFloat32Slice(&s.pvqAbsX, maxPVQN)
+	s.pvqIy = ensureIntSlice(&s.pvqIy, maxPVQN)
+
+	// Band encode scratch
+	s.bandEncode.collapse = ensureByteSlice(&s.bandEncode.collapse, channels*MaxBands)
+	normLen := 8 * EBands[MaxBands-1] // M=8 for 20ms frames
+	s.bandEncode.norm = ensureFloat64Slice(&s.bandEncode.norm, channels*normLen)
+	maxBand := 8 * (EBands[MaxBands] - EBands[MaxBands-1])
+	s.bandEncode.lowbandScratch = ensureFloat64Slice(&s.bandEncode.lowbandScratch, maxBand)
+	s.bandEncode.xSave = ensureFloat64Slice(&s.bandEncode.xSave, maxBandWidth)
+	s.bandEncode.ySave = ensureFloat64Slice(&s.bandEncode.ySave, maxBandWidth)
+	s.bandEncode.normSave = ensureFloat64Slice(&s.bandEncode.normSave, maxBandWidth)
+	s.bandEncode.xResult0 = ensureFloat64Slice(&s.bandEncode.xResult0, maxBandWidth)
+	s.bandEncode.yResult0 = ensureFloat64Slice(&s.bandEncode.yResult0, maxBandWidth)
+	s.bandEncode.normResult0 = ensureFloat64Slice(&s.bandEncode.normResult0, maxBandWidth)
+	s.bandEncode.pvqSignx = ensureIntSlice(&s.bandEncode.pvqSignx, maxPVQN)
+	s.bandEncode.pvqY = ensureFloat32Slice(&s.bandEncode.pvqY, maxPVQN)
+	s.bandEncode.pvqAbsX = ensureFloat32Slice(&s.bandEncode.pvqAbsX, maxPVQN)
+	s.bandEncode.pvqIy = ensureIntSlice(&s.bandEncode.pvqIy, maxPVQN)
+	s.bandEncode.cwrsU = ensureUint32Slice(&s.bandEncode.cwrsU, 256)
+	s.bandEncode.hadamardTmp = ensureFloat64Slice(&s.bandEncode.hadamardTmp, maxBandWidth*16) // For stride up to 16
 }
 
 // ensureFloat64SliceEncoder is a helper that reuses ensureFloat64Slice from scratch.go
