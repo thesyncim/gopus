@@ -28,7 +28,7 @@ Always use this reference when implementing features or debugging discrepancies.
 | PLC | ✅ Complete | LTP coefficients, frame gluing |
 | DTX | ✅ Complete | Multi-band VAD implemented |
 | Hybrid | ✅ Improved | Proper bit allocation, HB_gain, crossover |
-| Allocations | ⚠️ ~18/5 | Round 6: 75% encoder reduction (72→18 allocs/op) |
+| Allocations | ⚠️ ~1/34 | Round 7: CELT 1 alloc (BuildPacket), SILK 34 allocs |
 
 ---
 
@@ -348,13 +348,14 @@ go build ./...  # ✅ Success
 go test ./... -count=1  # ✅ All packages pass
 ```
 
-### Allocation Status (Round 6)
+### Allocation Status (Round 7)
 ```
-Decoder (CELT):   1 alloc/op
-Decoder (SILK):   5 allocs/op    (was 14, 64% reduction)
-Decoder (Hybrid): 10 allocs/op   (was 22, 55% reduction)
-Encoder (Mono):   18 allocs/op   (was 72, 75% reduction from Round 5)
-Encoder (Stereo): 27 allocs/op   (was 82, 67% reduction from Round 5)
-Round-trip:       ~20 allocs/op  (estimated)
-Target:           0 allocs/op
+Encoder (CELT Mono):   1 allocs/op   (was 4, 75% reduction - BuildPacket only)
+Encoder (CELT Stereo): 1 allocs/op   (was 6, 83% reduction)
+Encoder (VoIP/SILK):   34 allocs/op  (was 38, 11% reduction)
+Target:                0 allocs/op
+
+Note: The remaining 1 alloc in CELT is BuildPacket which must allocate
+because the API returns ownership of the packet slice. Zero allocs would
+require API change to caller-provided output buffer.
 ```
