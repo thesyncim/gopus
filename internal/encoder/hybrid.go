@@ -44,10 +44,67 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, frameSize int) ([]byte, error
 	e.ensureSILKEncoder()
 	e.ensureCELTEncoder()
 
-	// Initialize shared range encoder
+	// Propagate bitrate mode to CELT encoder for hybrid mode
+	// This ensures CELT respects CBR/CVBR/VBR settings
+	switch e.bitrateMode {
+	case ModeCBR:
+		e.celtEncoder.SetVBR(false)
+		e.celtEncoder.SetConstrainedVBR(false)
+	case ModeCVBR:
+		e.celtEncoder.SetVBR(true)
+		e.celtEncoder.SetConstrainedVBR(true)
+	case ModeVBR:
+		e.celtEncoder.SetVBR(true)
+		e.celtEncoder.SetConstrainedVBR(false)
+	}
+
+	// Set bitrate for CELT encoder
+	e.celtEncoder.SetBitrate(e.bitrate)
+
+	// Compute target buffer size based on bitrate mode
+	// For CBR mode, use target bitrate; for CVBR, use max allowed by tolerance
+	// For VBR, use maximum
+	// Note: This is the FRAME DATA size, excluding the TOC byte that BuildPacket adds
+	targetBytes := maxHybridPacketSize
+	frameDurationMs := frameSize * 1000 / 48000
+	baseTargetBytes := (e.bitrate * frameDurationMs) / 8000
+
+	switch e.bitrateMode {
+	case ModeCBR:
+		// Calculate exact target bytes from bitrate
+		// Subtract 1 for TOC byte since BuildPacket adds it
+		targetBytes = baseTargetBytes - 1
+		if targetBytes < 1 {
+			targetBytes = 1
+		}
+		if targetBytes > maxHybridPacketSize-1 {
+			targetBytes = maxHybridPacketSize - 1
+		}
+	case ModeCVBR:
+		// For CVBR, use max allowed by tolerance (target + 15%)
+		// This constrains the encoder to stay within CVBR bounds
+		maxAllowed := int(float64(baseTargetBytes) * (1 + CVBRTolerance))
+		targetBytes = maxAllowed - 1 // Subtract TOC byte
+		if targetBytes < 1 {
+			targetBytes = 1
+		}
+		if targetBytes > maxHybridPacketSize-1 {
+			targetBytes = maxHybridPacketSize - 1
+		}
+	case ModeVBR:
+		// VBR: use maximum, no constraint
+		targetBytes = maxHybridPacketSize - 1
+	}
+
+	// Initialize shared range encoder with appropriate size
 	buf := make([]byte, maxHybridPacketSize)
 	re := &rangecoding.Encoder{}
 	re.Init(buf)
+
+	// For CBR and CVBR modes, shrink the range encoder to constrain output
+	if e.bitrateMode == ModeCBR || e.bitrateMode == ModeCVBR {
+		re.Shrink(uint32(targetBytes))
+	}
 
 	// Step 1: Downsample 48kHz -> 16kHz for SILK
 	silkInput := downsample48to16(pcm, e.channels)
@@ -256,9 +313,26 @@ func (e *Encoder) encodeCELTHybrid(pcm []float64, frameSize int) {
 	// Initialize caps for allocation - use hybrid mode caps that zero out low bands
 	caps := celt.InitCapsForHybrid(mode.EffBands, mode.LM, e.channels, startBand)
 
-	// Compute bit allocation
+	// Compute bit allocation based on bitrate target, not maximum packet size
+	// In hybrid mode, CELT gets a fraction of the total bitrate (typically 30-50%)
+	// The rest goes to SILK for low-frequency content
 	bitsUsed := re.Tell()
-	totalBits := maxHybridPacketSize*8 - bitsUsed
+
+	// Calculate total bits based on bitrate mode
+	var totalTargetBits int
+	if e.bitrateMode == ModeCBR {
+		// For CBR, calculate from bitrate
+		frameDurationMs := frameSize * 1000 / 48000
+		totalTargetBits = (e.bitrate * frameDurationMs) / 1000  // bits for this frame
+		// In hybrid mode, CELT typically gets about 40% of the budget
+		// (SILK handles 0-8kHz, CELT handles 8-20kHz which is less bandwidth)
+		totalTargetBits = totalTargetBits * 40 / 100
+	} else {
+		// For VBR/CVBR, use maximum
+		totalTargetBits = maxHybridPacketSize * 8
+	}
+
+	totalBits := totalTargetBits - bitsUsed
 	if totalBits < 0 {
 		totalBits = 64
 	}
