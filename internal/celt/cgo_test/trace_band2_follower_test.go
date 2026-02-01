@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces band 2 follower computation to find the exact divergence.
 package cgo
 

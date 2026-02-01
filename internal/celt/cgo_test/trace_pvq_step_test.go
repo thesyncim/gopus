@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces PVQ encoding step by step
 package cgo
 

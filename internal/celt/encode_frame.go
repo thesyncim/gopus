@@ -649,18 +649,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		// Update offsets[i] to reflect actual boost applied (for allocation)
 		offsets[i] = boost
 	}
-	if DynallocDebugHook != nil {
-		DynallocDebugHook(DynallocDebugInfo{
-			Encode:  true,
-			Offsets: append([]int(nil), offsets...),
-		})
-	}
-
 	// Step 11.5: Compute and encode allocation trim (only if budget allows)
 	// Reference: libopus celt_encoder.c line 2408-2417
 	// The trim value affects bit allocation bias between lower and higher frequency bands.
 	allocTrim := 5
-	encodedTrim := false
 	tellForTrim := re.TellFrac()
 	if tellForTrim+(6<<bitRes) <= totalBitsQ3ForDynalloc-totalBoost {
 		effectiveBytesForTrim := targetBits / 8
@@ -679,26 +671,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			0.0, // tonalitySlope - not implemented yet
 		)
 
-		// Capture debug info if enabled
-		if e.debugAllocTrim {
-			e.lastAllocTrimDebug = &AllocTrimDebugInfo{
-				TfEstimate:     tfEstimate,
-				EquivRate:      equivRate,
-				EffectiveBytes: effectiveBytesForTrim,
-				TargetBits:     targetBits,
-				AllocTrim:      allocTrim,
-			}
-		}
-
 		re.EncodeICDF(allocTrim, trimICDF, 7)
-		encodedTrim = true
-	}
-	if TrimDebugHook != nil {
-		TrimDebugHook(TrimDebugInfo{
-			Encode:  true,
-			Trim:    allocTrim,
-			Encoded: encodedTrim,
-		})
 	}
 
 	// Step 12: Compute bit allocation

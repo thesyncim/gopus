@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces fine quant encoding band by band.
 package cgo
 

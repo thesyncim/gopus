@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo provides tests for TF encoding comparison.
 // Agent 22: Debug TF encoding divergence
 package cgo

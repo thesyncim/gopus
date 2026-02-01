@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo compares normalized coefficients for band 2 in transient mode.
 package cgo
 

@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces band energy computation.
 package cgo
 

@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces fine energy encoding in detail.
 package cgo
 

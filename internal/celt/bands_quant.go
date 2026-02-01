@@ -363,10 +363,6 @@ func algQuant(re *rangecoding.Encoder, band int, x []float64, n, k, spread, b in
 	expRotation(x, n, 1, b, k, spread)
 
 	// Quantize the vector to pulses.
-	var debugX []float64
-	if PVQDebugHook != nil {
-		debugX = append([]float64(nil), x...)
-	}
 	var pulses []int
 	var upPulses []int
 	var refine []int
@@ -415,19 +411,6 @@ func algQuant(re *rangecoding.Encoder, band int, x []float64, n, k, spread, b in
 		vSize := PVQ_V(n, k)
 		if vSize == 0 {
 			return 0
-		}
-		if PVQDebugHook != nil {
-			PVQDebugHook(PVQDebugInfo{
-				Band:   band,
-				N:      n,
-				K:      k,
-				Spread: spread,
-				B:      b,
-				X:      debugX,
-				Pulses: append([]int(nil), pulses...),
-				Index:  index,
-				VSize:  vSize,
-			})
 		}
 		re.EncodeUniform(index, vSize)
 	}
@@ -972,20 +955,6 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 	}
 
 	if lm != -1 && b > maxBits+12 && n > 2 {
-		if QuantDebugHook != nil {
-			QuantDebugHook(QuantDebugInfo{
-				Band:          ctx.band,
-				Encode:        ctx.encode,
-				N:             n,
-				B:             B,
-				Bits:          b,
-				Q:             0,
-				K:             0,
-				CurrBits:      0,
-				RemainingBits: ctx.remainingBits,
-				Split:         true,
-			})
-		}
 		nHalf := n >> 1
 		y := x[nHalf:]
 		lm--
@@ -1050,24 +1019,6 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 		q--
 		currBits = pulsesToBits(ctx.band, lm, q)
 		ctx.remainingBits -= currBits
-	}
-	if QuantDebugHook != nil {
-		k := 0
-		if q != 0 {
-			k = getPulses(q)
-		}
-		QuantDebugHook(QuantDebugInfo{
-			Band:          ctx.band,
-			Encode:        ctx.encode,
-			N:             n,
-			B:             B,
-			Bits:          b,
-			Q:             q,
-			K:             k,
-			CurrBits:      currBits,
-			RemainingBits: ctx.remainingBits,
-			Split:         false,
-		})
 	}
 	if q != 0 {
 		k := getPulses(q)
@@ -1482,20 +1433,6 @@ func quantAllBandsDecodeWithScratch(rd *rangecoding.Decoder, channels, frameSize
 			currBalance = celtSudiv(balance, minInt(3, codedBands-i))
 			b = maxInt(0, minInt(16383, minInt(remaining+1, pulses[i]+currBalance)))
 		}
-		if BandDebugHook != nil {
-			BandDebugHook(BandDebugInfo{
-				Band:          i,
-				Encode:        false,
-				TellFrac:      tell,
-				Balance:       balance,
-				RemainingBits: remaining,
-				Bits:          b,
-				CurrBalance:   currBalance,
-				Pulses:        pulses[i],
-				CodedBands:    codedBands,
-			})
-		}
-
 		if ctx.resynth && (M*EBands[i]-nBand >= M*EBands[start] || i == start+1) && (updateLowband || lowbandOffset == 0) {
 			lowbandOffset = i
 		}
@@ -1752,20 +1689,6 @@ func quantAllBandsEncode(re *rangecoding.Encoder, channels, frameSize, lm int, s
 			currBalance = celtSudiv(balance, minInt(3, codedBands-i))
 			b = maxInt(0, minInt(16383, minInt(remaining+1, pulses[i]+currBalance)))
 		}
-		if BandDebugHook != nil {
-			BandDebugHook(BandDebugInfo{
-				Band:          i,
-				Encode:        true,
-				TellFrac:      tell,
-				Balance:       balance,
-				RemainingBits: remaining,
-				Bits:          b,
-				CurrBalance:   currBalance,
-				Pulses:        pulses[i],
-				CodedBands:    codedBands,
-			})
-		}
-
 		if ctx.resynth && (M*EBands[i]-nBand >= M*EBands[start] || i == start+1) && (updateLowband || lowbandOffset == 0) {
 			lowbandOffset = i
 		}

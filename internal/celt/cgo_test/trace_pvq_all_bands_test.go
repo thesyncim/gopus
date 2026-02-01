@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces PVQ indices across all bands to find first divergence.
 package cgo
 

@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Temporary debug test to compare bandLogE/bandLogE2 and follower for band 2.
 package cgo
 

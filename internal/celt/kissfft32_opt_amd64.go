@@ -1,11 +1,10 @@
-//go:build (!arm64 && !amd64) || purego
+//go:build amd64 && !purego
 
 package celt
 
-// Stub implementations for optional optimized radix-2/4 butterflies.
-// These keep the package buildable when no SIMD/asm helpers are present.
+import "golang.org/x/sys/cpu"
 
-func kfBfly2M1Available() bool { return false }
+func kfBfly2M1Available() bool { return true }
 
 func kfBfly4M1Available() bool { return false }
 
@@ -15,21 +14,35 @@ func kfBfly3M1Available() bool { return false }
 
 func kfBfly5M1Available() bool { return false }
 
-// kfBfly2M1 is a fallback used on non-arm64 platforms.
-// It matches the m==1 path in kfBfly2.
-func kfBfly2M1(fout []kissCpx, n int) {
-	for i := 0; i < n; i++ {
-		fout2 := fout[1]
-		fout[1].r = fout[0].r - fout2.r
-		fout[1].i = fout[0].i - fout2.i
-		fout[0].r += fout2.r
-		fout[0].i += fout2.i
-		fout = fout[2:]
+var kfBfly2M1Impl = kfBfly2M1SSE2
+
+func init() {
+	if cpu.X86.HasAVX2 {
+		kfBfly2M1Impl = kfBfly2M1AVX2
+		return
+	}
+	if cpu.X86.HasAVX {
+		kfBfly2M1Impl = kfBfly2M1AVX
 	}
 }
 
-// kfBfly4M1 is a fallback used on non-arm64 platforms.
-// It matches the m==1 path in kfBfly4.
+func kfBfly2M1(fout []kissCpx, n int) {
+	if n <= 0 {
+		return
+	}
+	kfBfly2M1Impl(fout, n)
+}
+
+//go:noescape
+func kfBfly2M1SSE2(fout []kissCpx, n int)
+
+//go:noescape
+func kfBfly2M1AVX(fout []kissCpx, n int)
+
+//go:noescape
+func kfBfly2M1AVX2(fout []kissCpx, n int)
+
+// kfBfly4M1 is a fallback used on amd64. It matches the m==1 path in kfBfly4.
 func kfBfly4M1(fout []kissCpx, n int) {
 	for i := 0; i < n; i++ {
 		scratch0 := cSub(fout[0], fout[2])
@@ -46,12 +59,11 @@ func kfBfly4M1(fout []kissCpx, n int) {
 	}
 }
 
-// kfBfly4Mx is a fallback used on non-arm64 platforms.
-// It uses the Go implementation via kfBfly4.
+// kfBfly4Mx is a fallback used on amd64. It uses the Go implementation via kfBfly4.
 func kfBfly4Mx(_ []kissCpx, _ []kissCpx, _ int, _ int, _ int, _ int) {}
 
-// kfBfly3M1 is a stub used on non-arm64 or purego builds.
+// kfBfly3M1 is a stub used on amd64.
 func kfBfly3M1(_ []kissCpx, _ []kissCpx, _ int, _ int, _ int) {}
 
-// kfBfly5M1 is a stub used on non-arm64 or purego builds.
+// kfBfly5M1 is a stub used on amd64.
 func kfBfly5M1(_ []kissCpx, _ []kissCpx, _ int, _ int, _ int) {}

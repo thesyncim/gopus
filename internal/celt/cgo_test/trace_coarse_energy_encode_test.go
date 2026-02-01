@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces coarse energy encoding to find divergence.
 package cgo
 

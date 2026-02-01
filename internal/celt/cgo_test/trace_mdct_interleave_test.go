@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces MDCT interleaving in transient mode
 package cgo
 

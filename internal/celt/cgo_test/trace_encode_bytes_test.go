@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces byte-by-byte encoding differences.
 package cgo
 

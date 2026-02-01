@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo captures PVQ indices during decode to find the first divergence.
 package cgo
 

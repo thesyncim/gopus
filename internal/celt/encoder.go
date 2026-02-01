@@ -102,9 +102,6 @@ type Encoder struct {
 	// Reference: libopus src/opus_encoder.c delay_compensation
 	delayBuffer []float64 // Size = delayCompensation * channels
 
-	// Debug mode for allocation trim analysis
-	debugAllocTrim     bool
-	lastAllocTrimDebug *AllocTrimDebugInfo
 
 	// Debug: last frame's band energies for dynalloc analysis tracing
 	lastBandLogE  []float64 // bandLogE (primary MDCT energies)

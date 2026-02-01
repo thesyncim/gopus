@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces TF encoding differences between gopus and libopus.
 package cgo
 

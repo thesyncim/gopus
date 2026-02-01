@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo compares actual QI values from EncodeCoarseEnergy with test computation.
 package cgo
 

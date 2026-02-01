@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo provides CGO comparison tests for the range encoder.
 // This file tests the Go range encoder against libopus ec_enc.
 package cgo

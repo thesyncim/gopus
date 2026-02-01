@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces exact byte/bit differences.
 package cgo
 

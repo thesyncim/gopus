@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo compares MDCT scale between gopus and libopus
 package cgo
 

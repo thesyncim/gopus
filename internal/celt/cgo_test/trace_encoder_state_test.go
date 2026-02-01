@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces encoder state to find where gopus and libopus diverge.
 package cgo
 

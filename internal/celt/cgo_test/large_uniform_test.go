@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo provides CGO tests for large uniform encoding.
 // This tests the specific case where V > 2^24.
 package cgo

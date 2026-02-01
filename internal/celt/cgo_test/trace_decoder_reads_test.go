@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces how many bytes the decoder reads.
 package cgo
 

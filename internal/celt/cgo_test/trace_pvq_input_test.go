@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces PVQ input differences between gopus and libopus
 package cgo
 

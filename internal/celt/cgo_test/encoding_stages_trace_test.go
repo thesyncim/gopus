@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces encoding stages to find the exact divergence point.
 package cgo
 

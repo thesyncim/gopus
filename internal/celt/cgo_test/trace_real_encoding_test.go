@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces real encoding from both encoders.
 package cgo
 

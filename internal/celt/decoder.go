@@ -692,25 +692,12 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 			dynallocLogp = maxInt(2, dynallocLogp-1)
 		}
 	}
-	if DynallocDebugHook != nil {
-		DynallocDebugHook(DynallocDebugInfo{
-			Encode:  false,
-			Offsets: append([]int(nil), offsets[:end]...),
-		})
-	}
 	traceRange("dynalloc", rd)
 
 	allocTrim := 5
 	encodedTrim := tellFrac+(6<<bitRes) <= totalBitsQ3
 	if encodedTrim {
 		allocTrim = rd.DecodeICDF(trimICDF, 7)
-	}
-	if TrimDebugHook != nil {
-		TrimDebugHook(TrimDebugInfo{
-			Encode:  false,
-			Trim:    allocTrim,
-			Encoded: encodedTrim,
-		})
 	}
 	traceRange("trim", rd)
 

@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces alloc_trim inputs through the encoder pipeline.
 package cgo
 

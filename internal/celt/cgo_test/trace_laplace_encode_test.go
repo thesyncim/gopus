@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces Laplace encoding differences between gopus and libopus.
 package cgo
 

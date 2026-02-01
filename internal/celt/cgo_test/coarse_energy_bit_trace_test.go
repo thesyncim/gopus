@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces coarse energy encoding bit by bit.
 // Agent 23: Find exact band where gopus diverges from libopus.
 package cgo

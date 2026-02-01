@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces stereo merge in detail
 package cgo
 

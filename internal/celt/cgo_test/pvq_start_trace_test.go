@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces encoding to find where PVQ bands start.
 package cgo
 

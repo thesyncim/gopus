@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo provides detailed tracing for byte 7-9 divergence analysis.
 // Agent 23: Deep trace of bytes 7-9 encoding to identify divergence root cause.
 package cgo

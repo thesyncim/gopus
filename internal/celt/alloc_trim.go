@@ -3,10 +3,7 @@
 
 package celt
 
-import (
-	"fmt"
-	"math"
-)
+import "math"
 
 // AllocTrimAnalysis computes the optimal allocation trim value for a CELT frame.
 // The trim value biases bit allocation between lower and higher frequency bands.
@@ -35,9 +32,6 @@ import (
 // Returns: trim index in range [0, 10], where 5 is the neutral default
 //
 // Reference: libopus celt/celt_encoder.c alloc_trim_analysis()
-// DebugAllocTrim controls whether to print debug info for alloc trim
-var DebugAllocTrim bool
-
 func AllocTrimAnalysis(
 	normCoeffs []float64,
 	bandLogE []float64,
@@ -53,14 +47,6 @@ func AllocTrimAnalysis(
 ) int {
 	// Start with default trim of 5
 	trim := 5.0
-
-	if DebugAllocTrim {
-		fmt.Printf("[AllocTrimAnalysis] nbBands=%d, equivRate=%d, tfEstimate=%.4f\n", nbBands, equivRate, tfEstimate)
-		fmt.Printf("[AllocTrimAnalysis] bandLogE (first 10):\n")
-		for i := 0; i < 10 && i < len(bandLogE); i++ {
-			fmt.Printf("  band %d: %.6f\n", i, bandLogE[i])
-		}
-	}
 
 	// At low bitrate, reducing the trim seems to help. At higher bitrates, it's less
 	// clear what's best, so we're keeping it as it was before, at least for now.
@@ -112,10 +98,6 @@ func AllocTrimAnalysis(
 	}
 	diff /= float64(channels * (end - 1))
 
-	if DebugAllocTrim {
-		fmt.Printf("[AllocTrimAnalysis] spectral tilt: diff=%.4f\n", diff)
-	}
-
 	// Apply spectral tilt adjustment, clamped to [-2, 2] range
 	// libopus: trim -= max(-2, min(2, (diff+1)/6))
 	// Note: In libopus, diff has DB_SHIFT scaling which we account for here.
@@ -128,10 +110,6 @@ func AllocTrimAnalysis(
 		tiltAdjust = 2.0
 	}
 
-	if DebugAllocTrim {
-		fmt.Printf("[AllocTrimAnalysis] tiltAdjust=%.4f (before clamp: %.4f)\n", tiltAdjust, (diff+1.0)/6.0)
-		fmt.Printf("[AllocTrimAnalysis] baseTrim=%.4f, after tilt=%.4f\n", trim, trim-tiltAdjust)
-	}
 	trim -= tiltAdjust
 
 	// Surround trim adjustment

@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces the follower computation in dynalloc analysis.
 package cgo
 

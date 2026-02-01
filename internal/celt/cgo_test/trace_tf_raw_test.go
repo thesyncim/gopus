@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces raw TF bits to find encoding differences.
 package cgo
 

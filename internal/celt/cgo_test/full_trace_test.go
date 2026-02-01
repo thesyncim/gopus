@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo provides full encoding trace tests.
 package cgo
 

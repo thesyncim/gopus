@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces exactly which band causes the bit 128 divergence.
 package cgo
 

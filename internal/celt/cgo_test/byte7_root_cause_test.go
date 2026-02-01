@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces the root cause of byte 7 divergence.
 // Agent 23: Extract gopus QI values and re-encode through libopus Laplace.
 package cgo

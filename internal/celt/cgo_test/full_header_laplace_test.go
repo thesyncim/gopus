@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo tests full header + Laplace encoding comparison.
 package cgo
 

@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo extracts QI values from actual encoder outputs.
 // Agent 23: Extract and compare coarse energy QI values.
 package cgo

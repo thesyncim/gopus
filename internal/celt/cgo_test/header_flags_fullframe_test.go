@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces header flags in a full frame encode.
 package cgo
 

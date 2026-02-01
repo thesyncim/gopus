@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces dynalloc encoding step-by-step.
 package cgo
 

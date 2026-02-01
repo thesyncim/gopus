@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces dynalloc encoding differences between gopus and libopus.
 package cgo
 

@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces the final follower values to find the exact divergence.
 package cgo
 

@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces what normalization factor gopus vs libopus uses
 package cgo
 

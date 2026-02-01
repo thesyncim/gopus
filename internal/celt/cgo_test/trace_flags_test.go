@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces actual flags used by gopus and libopus encoders.
 // Agent 23: Compare actual header flags between encoders.
 package cgo

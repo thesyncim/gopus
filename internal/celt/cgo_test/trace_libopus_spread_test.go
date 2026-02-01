@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces libopus spread decision for debugging.
 package cgo
 

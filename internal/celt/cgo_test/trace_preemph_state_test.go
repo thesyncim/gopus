@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces pre-emphasis state differences
 package cgo
 

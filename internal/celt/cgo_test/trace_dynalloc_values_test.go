@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces dynalloc analysis step-by-step comparing Go and libopus.
 // This test compares the DynallocAnalysis output between Go and libopus
 // by tracing exact follower values and boost computations.

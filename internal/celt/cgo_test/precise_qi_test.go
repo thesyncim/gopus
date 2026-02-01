@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo provides precise QI value comparison.
 // Agent 23: Match exact QI computation with decay bounds and bit budget.
 package cgo

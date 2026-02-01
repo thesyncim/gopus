@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo provides CGO wrappers for TF encoding comparison.
 // Agent 22: Debug TF and spread encoding divergence at byte 7
 package cgo

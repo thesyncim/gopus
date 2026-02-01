@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo tests full encoding state progression.
 package cgo
 

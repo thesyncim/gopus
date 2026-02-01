@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo traces exact PVQ input vs libopus encoded direction
 package cgo
 

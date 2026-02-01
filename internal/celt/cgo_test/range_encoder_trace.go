@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo provides CGO comparison tests.
 // This file provides range encoder state tracing wrappers.
 package cgo

@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 package cgo
 
 import (

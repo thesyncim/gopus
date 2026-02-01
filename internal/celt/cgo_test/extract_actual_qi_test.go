@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo extracts actual QI values from full encoder by comparing state.
 // Agent 23: Extract actual QI values produced by EncodeFrame.
 package cgo

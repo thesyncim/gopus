@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo tests decoding flags from encoded bytes.
 package cgo
 

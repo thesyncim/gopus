@@ -1,3 +1,6 @@
+//go:build trace
+// +build trace
+
 // Package cgo tests header + Laplace sequence encoding.
 package cgo
 
