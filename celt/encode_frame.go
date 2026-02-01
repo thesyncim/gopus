@@ -194,7 +194,9 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			hist = hist[:overlap]
 			copy(hist, e.overlapBuffer[:overlap])
 			mdctLong := computeMDCTWithHistoryScratch(preemph, hist, 1, &e.scratch)
-			bandLogE2 = e.ComputeBandEnergies(mdctLong, nbBands, frameSize)
+			// Use bandLogE2 scratch buffer to avoid aliasing with energies
+			bandLogE2 = ensureFloat64Slice(&e.scratch.bandLogE2, nbBands*e.channels)
+			e.ComputeBandEnergiesInto(mdctLong, nbBands, frameSize, bandLogE2)
 			roundFloat64ToFloat32(bandLogE2)
 		} else {
 			left, right := deinterleaveStereoScratch(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
@@ -236,7 +238,9 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			mdctLong = mdctLong[:mdctLongLen]
 			copy(mdctLong, mdctLeftLong)
 			copy(mdctLong[len(mdctLeftLong):], mdctRightLong)
-			bandLogE2 = e.ComputeBandEnergies(mdctLong, nbBands, frameSize)
+			// Use bandLogE2 scratch buffer to avoid aliasing with energies
+			bandLogE2 = ensureFloat64Slice(&e.scratch.bandLogE2, nbBands*e.channels)
+			e.ComputeBandEnergiesInto(mdctLong, nbBands, frameSize, bandLogE2)
 			roundFloat64ToFloat32(bandLogE2)
 		}
 		if bandLogE2 != nil {

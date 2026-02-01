@@ -24,6 +24,17 @@ import (
 //
 // Reference: RFC 6716 Section 4.3.2, libopus celt/quant_bands.c amp2Log2()
 func (e *Encoder) ComputeBandEnergies(mdctCoeffs []float64, nbBands, frameSize int) []float64 {
+	// Use default scratch buffer - caller should use ComputeBandEnergiesInto if they need
+	// a specific destination buffer to avoid aliasing
+	energiesLen := nbBands * e.channels
+	dst := ensureFloat64Slice(&e.scratch.energies, energiesLen)
+	e.ComputeBandEnergiesInto(mdctCoeffs, nbBands, frameSize, dst)
+	return dst
+}
+
+// ComputeBandEnergiesInto computes band energies into the provided destination buffer.
+// Use this instead of ComputeBandEnergies when you need to avoid buffer aliasing.
+func (e *Encoder) ComputeBandEnergiesInto(mdctCoeffs []float64, nbBands, frameSize int, dst []float64) {
 	if nbBands > MaxBands {
 		nbBands = MaxBands
 	}
@@ -44,7 +55,7 @@ func (e *Encoder) ComputeBandEnergies(mdctCoeffs []float64, nbBands, frameSize i
 		}
 	}
 
-	energies := make([]float64, nbBands*channels)
+	energies := dst
 	silence := 0.5 * math.Log2(1e-27)
 
 	for c := 0; c < channels; c++ {
@@ -95,8 +106,6 @@ func (e *Encoder) ComputeBandEnergies(mdctCoeffs []float64, nbBands, frameSize i
 			energies[c*nbBands+band] = energy
 		}
 	}
-
-	return energies
 }
 
 // ComputeBandEnergiesRaw computes energy for each frequency band WITHOUT eMeans subtraction.
