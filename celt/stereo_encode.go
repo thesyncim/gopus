@@ -243,6 +243,35 @@ func DeinterleaveStereo(interleaved []float64) (left, right []float64) {
 	return left, right
 }
 
+// deinterleaveStereoScratch separates interleaved stereo using scratch buffers.
+// This avoids heap allocations in the hot path.
+func deinterleaveStereoScratch(interleaved []float64, leftBuf, rightBuf *[]float64) (left, right []float64) {
+	if len(interleaved) < 2 {
+		return nil, nil
+	}
+
+	n := len(interleaved) / 2
+
+	// Ensure left buffer is large enough
+	if cap(*leftBuf) < n {
+		*leftBuf = make([]float64, n)
+	}
+	left = (*leftBuf)[:n]
+
+	// Ensure right buffer is large enough
+	if cap(*rightBuf) < n {
+		*rightBuf = make([]float64, n)
+	}
+	right = (*rightBuf)[:n]
+
+	for i := 0; i < n; i++ {
+		left[i] = interleaved[i*2]
+		right[i] = interleaved[i*2+1]
+	}
+
+	return left, right
+}
+
 // InterleaveStereo combines separate L and R arrays into interleaved format.
 // Input: [L0, L1, ...], [R0, R1, ...]
 // Output: [L0, R0, L1, R1, ...]

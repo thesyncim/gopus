@@ -17,7 +17,8 @@ type Encoder struct {
 
 	// Frame state (persists across frames, mirrors decoder)
 	haveEncoded           bool  // True after first frame encoded
-	previousLogGain       int32 // Last subframe gain (for delta coding)
+	previousLogGain       int32 // Last subframe gain (for delta coding) - legacy
+	previousGainIndex     int32 // Previous gain quantization index [0, 63] (libopus matching)
 	isPreviousFrameVoiced bool  // Was previous frame voiced
 	frameCounter          int   // Frame counter for seed generation (seed = frameCounter & 3)
 
@@ -26,7 +27,7 @@ type Encoder struct {
 	prevLSFQ15 []int16 // Previous frame LSF (Q15) for interpolation
 
 	// Stereo state
-	prevStereoWeights [2]int16 // Previous w0, w1 stereo weights (Q13)
+	prevStereoWeights [2]int16       // Previous w0, w1 stereo weights (Q13)
 	stereo            stereoEncState // Full stereo encoder state for LP filtering
 
 	// Pitch analysis state
@@ -42,6 +43,21 @@ type Encoder struct {
 	// Bandwidth configuration
 	bandwidth  Bandwidth
 	sampleRate int
+
+	// FEC/LBRR (Low Bitrate Redundancy) state
+	// LBRR provides forward error correction by encoding redundant data
+	// for the previous frame at a lower quality in the current packet.
+	// Reference: libopus silk/structs.h silk_encoder_state
+	useFEC             bool                                // Enable in-band FEC (LBRR)
+	lbrrEnabled        bool                                // LBRR currently active (depends on bitrate/loss)
+	lbrrGainIncreases  int                                 // Gain increase for LBRR encoding
+	lbrrPrevLastGainIdx int8                               // Previous frame's last gain index for LBRR
+	lbrrFlags          [maxFramesPerPacket]int             // LBRR flags per frame in packet
+	lbrrIndices        [maxFramesPerPacket]sideInfoIndices // LBRR indices per frame
+	lbrrPulses         [maxFramesPerPacket][]int8          // LBRR pulses per frame
+	packetLossPercent  int                                 // Expected packet loss (0-100)
+	nFramesEncoded     int                                 // Number of frames encoded in current packet
+	nFramesPerPacket   int                                 // Number of frames per packet
 }
 
 // NewEncoder creates a new SILK encoder with proper initial state.
@@ -49,14 +65,24 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 	config := GetBandwidthConfig(bandwidth)
 	// Frame samples = sampleRate * 20ms / 1000
 	frameSamples := config.SampleRate * 20 / 1000
+
+	// Pre-allocate LBRR pulse buffers
+	lbrrPulses := [maxFramesPerPacket][]int8{}
+	for i := range lbrrPulses {
+		lbrrPulses[i] = make([]int8, maxFrameLength)
+	}
+
 	return &Encoder{
-		prevLSFQ15:  make([]int16, config.LPCOrder),
-		inputBuffer: make([]float32, frameSamples*2), // Look-ahead buffer
-		lpcState:    make([]float32, config.LPCOrder),
-		nsqState:    NewNSQState(), // Initialize NSQ state
-		bandwidth:   bandwidth,
-		sampleRate:  config.SampleRate,
-		lpcOrder:    config.LPCOrder,
+		prevLSFQ15:        make([]int16, config.LPCOrder),
+		inputBuffer:       make([]float32, frameSamples*2), // Look-ahead buffer
+		lpcState:          make([]float32, config.LPCOrder),
+		nsqState:          NewNSQState(), // Initialize NSQ state
+		bandwidth:         bandwidth,
+		sampleRate:        config.SampleRate,
+		lpcOrder:          config.LPCOrder,
+		nFramesPerPacket:  1,              // Default: 1 frame per packet (20ms)
+		lbrrPulses:        lbrrPulses,
+		lbrrGainIncreases: 7,              // Default gain increase for LBRR
 	}
 }
 
@@ -64,6 +90,7 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 func (e *Encoder) Reset() {
 	e.haveEncoded = false
 	e.previousLogGain = 0
+	e.previousGainIndex = 0
 	e.isPreviousFrameVoiced = false
 
 	for i := range e.prevLSFQ15 {
@@ -76,10 +103,26 @@ func (e *Encoder) Reset() {
 		e.inputBuffer[i] = 0
 	}
 	e.prevStereoWeights = [2]int16{0, 0}
-	e.stereo = stereoEncState{} // Reset LP filter state
+	e.stereo = stereoEncState{}         // Reset LP filter state
 	e.pitchState = PitchAnalysisState{} // Reset pitch state
 	if e.nsqState != nil {
 		e.nsqState.Reset() // Reset NSQ state
+	}
+
+	// Reset FEC/LBRR state
+	e.lbrrEnabled = false
+	e.lbrrPrevLastGainIdx = 10 // Default gain index (same as decoder reset)
+	e.nFramesEncoded = 0
+	for i := range e.lbrrFlags {
+		e.lbrrFlags[i] = 0
+	}
+	for i := range e.lbrrIndices {
+		e.lbrrIndices[i] = sideInfoIndices{}
+	}
+	for i := range e.lbrrPulses {
+		for j := range e.lbrrPulses[i] {
+			e.lbrrPulses[i][j] = 0
+		}
 	}
 }
 
@@ -180,4 +223,70 @@ func (e *Encoder) NSQState() *NSQState {
 func (e *Encoder) SetBitrate(bitrate int) {
 	// SILK bitrate control in hybrid mode is handled by the Opus-level encoder.
 	// This method exists for API compatibility.
+}
+
+// SetFEC enables or disables in-band Forward Error Correction (LBRR).
+// When enabled, each packet includes redundant data for the previous frame
+// at a lower quality, allowing the decoder to recover from packet loss.
+//
+// Reference: libopus silk/control_codec.c silk_setup_LBRR
+func (e *Encoder) SetFEC(enabled bool) {
+	e.useFEC = enabled
+	e.updateLBRREnabled()
+}
+
+// FECEnabled returns whether FEC (LBRR) is enabled.
+func (e *Encoder) FECEnabled() bool {
+	return e.useFEC
+}
+
+// SetPacketLoss sets the expected packet loss percentage (0-100).
+// This affects the LBRR gain increase - higher loss means more aggressive
+// redundancy encoding with higher gains.
+//
+// Reference: libopus silk/control_codec.c silk_setup_LBRR
+func (e *Encoder) SetPacketLoss(lossPercent int) {
+	if lossPercent < 0 {
+		lossPercent = 0
+	}
+	if lossPercent > 100 {
+		lossPercent = 100
+	}
+	e.packetLossPercent = lossPercent
+	e.updateLBRREnabled()
+}
+
+// PacketLoss returns the configured packet loss percentage.
+func (e *Encoder) PacketLoss() int {
+	return e.packetLossPercent
+}
+
+// updateLBRREnabled updates the LBRR enabled flag based on FEC setting and packet loss.
+// Matches libopus silk_setup_LBRR logic.
+func (e *Encoder) updateLBRREnabled() {
+	lbrrInPreviousPacket := e.lbrrEnabled
+	e.lbrrEnabled = e.useFEC
+
+	if e.lbrrEnabled {
+		// Set gain increase for coding LBRR excitation
+		// Reference: libopus silk/control_codec.c
+		if !lbrrInPreviousPacket {
+			// Previous packet did not have LBRR, was coded at higher bitrate
+			e.lbrrGainIncreases = 7
+		} else {
+			// LBRR_GainIncreases = max(7 - PacketLoss_perc * 0.2, 3)
+			// Using fixed-point: 0.2 in Q16 = 13107
+			gainDecrease := (e.packetLossPercent * 13107) >> 16
+			e.lbrrGainIncreases = 7 - gainDecrease
+			if e.lbrrGainIncreases < 3 {
+				e.lbrrGainIncreases = 3
+			}
+		}
+	}
+}
+
+// LBRREnabled returns whether LBRR is currently active.
+// LBRR may be disabled even when FEC is enabled if bitrate is too low.
+func (e *Encoder) LBRREnabled() bool {
+	return e.lbrrEnabled
 }

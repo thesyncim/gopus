@@ -17,6 +17,7 @@ type kissFFTState struct {
 	factors []int
 	bitrev  []int
 	w       []kissCpx
+	fstride []int // Pre-computed fstride array for fftImpl (avoids per-call allocation)
 }
 
 var (
@@ -43,7 +44,17 @@ func newKissFFTState(nfft int) *kissFFTState {
 	bitrev := make([]int, nfft)
 	computeBitrevTableRecursive(0, bitrev, 0, 1, 1, factors)
 	w := computeTwiddles(nfft)
-	return &kissFFTState{nfft: nfft, factors: factors, bitrev: bitrev, w: w}
+
+	// Pre-compute fstride array for fftImpl (eliminates per-call allocation)
+	maxFactors := len(factors) / 2
+	fstride := make([]int, maxFactors+1)
+	fstride[0] = 1
+	for i := 0; i < maxFactors; i++ {
+		p := factors[2*i]
+		fstride[i+1] = fstride[i] * p
+	}
+
+	return &kissFFTState{nfft: nfft, factors: factors, bitrev: bitrev, w: w, fstride: fstride}
 }
 
 // kfFactor computes the radix factors for kiss FFT.
@@ -370,22 +381,29 @@ func (st *kissFFTState) fftImpl(fout []kissCpx) {
 	if st == nil || st.nfft == 0 {
 		return
 	}
-	// Build fstride array
-	maxFactors := len(st.factors) / 2
-	fstride := make([]int, maxFactors+1)
-	fstride[0] = 1
+	// Use pre-computed fstride array (avoids per-call allocation)
+	fstride := st.fstride
+	if len(fstride) == 0 {
+		return
+	}
+
+	// Find L by walking factors until m == 1
 	L := 0
-	m := 0
 	for {
-		p := st.factors[2*L]
-		m = st.factors[2*L+1]
-		fstride[L+1] = fstride[L] * p
+		if 2*L+1 >= len(st.factors) {
+			break
+		}
+		m := st.factors[2*L+1]
 		L++
 		if m == 1 {
 			break
 		}
 	}
-	m = st.factors[2*L-1]
+	if L == 0 {
+		return
+	}
+
+	m := st.factors[2*L-1]
 	for i := L - 1; i >= 0; i-- {
 		m2 := 1
 		if i != 0 {

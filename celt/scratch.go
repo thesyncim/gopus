@@ -121,6 +121,12 @@ type bandDecodeScratch struct {
 	pvqNorm    []float64 // Normalized PVQ vector
 	foldResult []float64 // Folded band result
 	cwrsU      []uint32  // CWRS u-row scratch buffer
+
+	// Scratch buffers for Hadamard interleave/deinterleave (eliminates per-call allocations)
+	hadamardTmp []float64 // Temporary buffer for Hadamard transforms
+
+	// Scratch buffer for FFT fstride computation (eliminates per-call allocations)
+	fftFstride []int // fstride array for FFT butterfly stages
 }
 
 // maxBandWidth is the maximum width of any single band (band 20 at LM=3 = 176 bins).
@@ -228,6 +234,16 @@ func (s *bandDecodeScratch) ensureFoldResult(n int) []float64 {
 // ensureCWRSU returns a pre-allocated buffer for CWRS u-row.
 func (s *bandDecodeScratch) ensureCWRSU(n int) []uint32 {
 	return ensureUint32Slice(&s.cwrsU, n)
+}
+
+// ensureHadamardTmp returns a pre-allocated buffer for Hadamard transforms.
+func (s *bandDecodeScratch) ensureHadamardTmp(n int) []float64 {
+	return ensureFloat64Slice(&s.hadamardTmp, n)
+}
+
+// ensureFFTFstride returns a pre-allocated buffer for FFT fstride computation.
+func (s *bandDecodeScratch) ensureFFTFstride(n int) []int {
+	return ensureIntSlice(&s.fftFstride, n)
 }
 
 type imdctScratch struct {

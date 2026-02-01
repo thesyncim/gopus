@@ -6,6 +6,13 @@ import "github.com/thesyncim/gopus/rangecoding"
 // Returns encoded bytes. If a range encoder was pre-set via SetRangeEncoder(),
 // it will be used (for hybrid mode) and nil is returned since the caller
 // manages the shared encoder.
+//
+// When FEC (Forward Error Correction) is enabled via SetFEC(true), this function
+// also encodes LBRR (Low Bitrate Redundancy) data for the previous frame.
+// The LBRR data is embedded at the start of each packet and allows the decoder
+// to recover from packet loss by using the redundant encoding.
+//
+// Reference: libopus silk/float/encode_frame_FLP.c
 func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	config := GetBandwidthConfig(e.bandwidth)
 	numSubframes := 4 // 20ms frame = 4 subframes
@@ -17,12 +24,17 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 
 	if !useSharedEncoder {
 		// Standalone SILK mode: create our own range encoder
+		// Allocate extra space for potential LBRR data
 		bufSize := len(pcm) / 3
 		if bufSize < 80 {
 			bufSize = 80
 		}
-		if bufSize > 200 {
-			bufSize = 200
+		if bufSize > 250 {
+			bufSize = 250
+		}
+		// Add extra for LBRR if enabled
+		if e.lbrrEnabled {
+			bufSize += 50
 		}
 		output := make([]byte, bufSize)
 		e.rangeEncoder = &rangecoding.Encoder{}
@@ -31,10 +43,13 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 
 	// Step 1: Classify frame (VAD)
 	var signalType, quantOffset int
+	var speechActivityQ8 int
 	if vadFlag {
 		signalType, quantOffset = e.classifyFrame(pcm)
+		speechActivityQ8 = 200 // Active speech activity (simplified)
 	} else {
 		signalType, quantOffset = 0, 0
+		speechActivityQ8 = 50 // Low activity
 	}
 
 	// Step 2: Encode frame type using ICDFFrameTypeVADActive
@@ -63,6 +78,16 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 		e.encodeLTPCoeffs(ltpCoeffs, periodicity, numSubframes)
 	}
 
+	// Step 6.5: LBRR Encoding (FEC)
+	// Per libopus: LBRR is encoded AFTER VAD but BEFORE main frame encoding
+	// Reference: silk/float/encode_frame_FLP.c silk_LBRR_encode_FLP call
+	// Determine conditional coding mode
+	condCoding := codeIndependently
+	if e.nFramesEncoded > 0 {
+		condCoding = codeConditionally
+	}
+	e.lbrrEncode(pcm, lpcQ12, lsfQ15, gains, pitchLags, signalType, quantOffset, speechActivityQ8, condCoding)
+
 	// Step 7: Encode seed (LAST in indices, BEFORE pulses)
 	// Per libopus: seed = frameCounter++ & 3
 	seed := e.frameCounter & 3
@@ -86,6 +111,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	// Update state for next frame
 	e.isPreviousFrameVoiced = (signalType == 2)
 	copy(e.prevLSFQ15, lsfQ15)
+	e.nFramesEncoded++
 	e.MarkEncoded()
 
 	// Finalize encoding
@@ -223,6 +249,175 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, gains []fl
 	}
 
 	return excitation
+}
+
+// EncodePacketWithFEC encodes a complete SILK packet with FEC support.
+// This function encodes VAD flags, LBRR (FEC) data from the previous packet,
+// and then the main frame data.
+//
+// The packet structure is:
+//  1. VAD flags (1 bit per frame)
+//  2. LBRR flag (1 bit indicating if any LBRR data follows)
+//  3. LBRR flags (only if LBRR flag is 1 and nFramesPerPacket > 1)
+//  4. LBRR indices and pulses for each frame with LBRR
+//  5. Main frame encoding for each frame
+//
+// Reference: libopus silk/enc_API.c silk_Encode lines 355-405
+func (e *Encoder) EncodePacketWithFEC(pcm []float32, vadFlags []bool) []byte {
+	// Determine frames per packet based on input size
+	config := GetBandwidthConfig(e.bandwidth)
+	frameSamples := config.SampleRate * 20 / 1000 // 20ms frame
+	nFrames := len(pcm) / frameSamples
+	if nFrames < 1 {
+		nFrames = 1
+	}
+	if nFrames > maxFramesPerPacket {
+		nFrames = maxFramesPerPacket
+	}
+	e.nFramesPerPacket = nFrames
+	e.nFramesEncoded = 0
+
+	// Create range encoder
+	bufSize := len(pcm)/2 + 100
+	if bufSize < 150 {
+		bufSize = 150
+	}
+	if bufSize > 400 {
+		bufSize = 400
+	}
+	output := make([]byte, bufSize)
+	e.rangeEncoder = &rangecoding.Encoder{}
+	e.rangeEncoder.Init(output)
+
+	// Step 1: Encode VAD and LBRR header
+	// First, create space for VAD+FEC flags at start of payload
+	nBitsHeader := (nFrames + 1) * 1 // nFrames VAD + 1 LBRR flag
+	iCDFVal := 256 - (256 >> uint(nBitsHeader))
+	if iCDFVal > 255 {
+		iCDFVal = 255
+	}
+	iCDF := []uint8{uint8(iCDFVal), 0}
+	e.rangeEncoder.EncodeICDF8(0, iCDF, 8)
+
+	// Step 2: Encode any LBRR data from previous packet
+	e.encodeLBRRData(e.rangeEncoder, 1) // nChannels = 1 for mono
+
+	// Step 3: Encode each frame
+	for i := 0; i < nFrames; i++ {
+		startSample := i * frameSamples
+		endSample := startSample + frameSamples
+		if endSample > len(pcm) {
+			endSample = len(pcm)
+		}
+		framePCM := pcm[startSample:endSample]
+
+		vadFlag := true
+		if vadFlags != nil && i < len(vadFlags) {
+			vadFlag = vadFlags[i]
+		}
+
+		// Encode the frame (this also computes LBRR for current frame)
+		e.encodeFrameInternal(framePCM, vadFlag)
+	}
+
+	// Step 4: Patch initial bits with VAD and FEC flags
+	// Build the flags value: [VAD_0, VAD_1, ..., VAD_n-1, LBRR_flag]
+	flags := 0
+	for i := 0; i < nFrames; i++ {
+		flags <<= 1
+		if vadFlags == nil || (i < len(vadFlags) && vadFlags[i]) {
+			flags |= 1
+		}
+	}
+	flags <<= 1
+	if e.hasLBRRData() {
+		flags |= 1
+	}
+
+	// Use ec_enc_patch_initial_bits equivalent
+	e.rangeEncoder.PatchInitialBits(uint32(flags), uint(nBitsHeader))
+
+	// Finalize and return
+	e.lastRng = e.rangeEncoder.Range()
+	result := e.rangeEncoder.Done()
+	e.rangeEncoder = nil
+
+	// Reset frame counter for next packet
+	e.nFramesEncoded = 0
+
+	return result
+}
+
+// encodeFrameInternal encodes a single frame within a packet.
+// This is used by EncodePacketWithFEC and doesn't manage the range encoder.
+func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
+	config := GetBandwidthConfig(e.bandwidth)
+	numSubframes := 4 // 20ms frame = 4 subframes
+
+	// Step 1: Classify frame (VAD)
+	var signalType, quantOffset int
+	var speechActivityQ8 int
+	if vadFlag {
+		signalType, quantOffset = e.classifyFrame(pcm)
+		speechActivityQ8 = 200
+	} else {
+		signalType, quantOffset = 0, 0
+		speechActivityQ8 = 50
+	}
+
+	// Step 2: Encode frame type
+	e.encodeFrameType(vadFlag, signalType, quantOffset)
+
+	// Step 3: Compute and encode gains
+	gains := e.computeSubframeGains(pcm, numSubframes)
+	e.encodeSubframeGains(gains, signalType, numSubframes)
+
+	// Step 4: Compute LPC coefficients
+	lpcQ12 := e.computeLPCFromFrame(pcm)
+
+	// Step 5: Convert to LSF and quantize
+	lsfQ15 := lpcToLSFEncode(lpcQ12)
+	stage1Idx, residuals, interpIdx := e.quantizeLSF(lsfQ15, e.bandwidth, signalType)
+	e.encodeLSF(stage1Idx, residuals, interpIdx, e.bandwidth, signalType)
+
+	// Step 6: Pitch detection and LTP (voiced only)
+	var pitchLags []int
+	if signalType == 2 {
+		pitchLags = e.detectPitch(pcm, numSubframes)
+		e.encodePitchLags(pitchLags, numSubframes)
+
+		ltpCoeffs := e.analyzeLTP(pcm, pitchLags, numSubframes)
+		periodicity := e.determinePeriodicity(pcm, pitchLags)
+		e.encodeLTPCoeffs(ltpCoeffs, periodicity, numSubframes)
+	}
+
+	// Step 6.5: LBRR Encoding (FEC) for this frame
+	condCoding := codeIndependently
+	if e.nFramesEncoded > 0 {
+		condCoding = codeConditionally
+	}
+	e.lbrrEncode(pcm, lpcQ12, lsfQ15, gains, pitchLags, signalType, quantOffset, speechActivityQ8, condCoding)
+
+	// Step 7: Encode seed
+	seed := e.frameCounter & 3
+	e.frameCounter++
+	e.rangeEncoder.EncodeICDF16(seed, ICDFLCGSeed, 8)
+
+	// Step 8: Compute and encode excitation
+	subframeSamples := config.SubframeSamples
+	frameSamples := numSubframes * subframeSamples
+	if frameSamples > len(pcm) {
+		frameSamples = len(pcm)
+	}
+
+	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, gains, pitchLags, signalType, quantOffset, seed, numSubframes, subframeSamples, frameSamples)
+	e.encodePulses(allExcitation, signalType, quantOffset)
+
+	// Update state
+	e.isPreviousFrameVoiced = (signalType == 2)
+	copy(e.prevLSFQ15, lsfQ15)
+	e.nFramesEncoded++
+	e.MarkEncoded()
 }
 
 // encodeFrameType encodes VAD flag, signal type, and quantization offset.

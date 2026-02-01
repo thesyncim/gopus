@@ -75,6 +75,9 @@ type bandCtx struct {
 	// encoder state consistency and future prefilter integration.
 	// Reference: libopus celt/celt.c comb_filter() gains table
 	tapset int
+	// scratch holds pre-allocated buffers for the decode hot path.
+	// This eliminates per-call allocations in algUnquant, Hadamard transforms, etc.
+	scratch *bandDecodeScratch
 }
 
 type splitCtx struct {
@@ -103,8 +106,17 @@ func orderyForStride(stride int) []int {
 }
 
 func deinterleaveHadamard(x []float64, n0, stride int, hadamard bool) {
+	deinterleaveHadamardScratch(x, n0, stride, hadamard, nil)
+}
+
+func deinterleaveHadamardScratch(x []float64, n0, stride int, hadamard bool, scratch *bandDecodeScratch) {
 	n := n0 * stride
-	tmp := make([]float64, n)
+	var tmp []float64
+	if scratch != nil {
+		tmp = scratch.ensureHadamardTmp(n)
+	} else {
+		tmp = make([]float64, n)
+	}
 	if hadamard {
 		ordery := orderyForStride(stride)
 		for i := 0; i < stride; i++ {
@@ -123,8 +135,17 @@ func deinterleaveHadamard(x []float64, n0, stride int, hadamard bool) {
 }
 
 func interleaveHadamard(x []float64, n0, stride int, hadamard bool) {
+	interleaveHadamardScratch(x, n0, stride, hadamard, nil)
+}
+
+func interleaveHadamardScratch(x []float64, n0, stride int, hadamard bool, scratch *bandDecodeScratch) {
 	n := n0 * stride
-	tmp := make([]float64, n)
+	var tmp []float64
+	if scratch != nil {
+		tmp = scratch.ensureHadamardTmp(n)
+	} else {
+		tmp = make([]float64, n)
+	}
 	if hadamard {
 		ordery := orderyForStride(stride)
 		for i := 0; i < stride; i++ {
@@ -233,6 +254,15 @@ func extractCollapseMask(pulses []int, n, b int) int {
 // This matches libopus normalise_residual() which receives yy as a parameter.
 func normalizeResidual(pulses []int, gain float64, yy float64) []float64 {
 	out := make([]float64, len(pulses))
+	normalizeResidualInto(out, pulses, gain, yy)
+	return out
+}
+
+// normalizeResidualInto normalizes the pulse vector into a pre-allocated output buffer.
+func normalizeResidualInto(out []float64, pulses []int, gain float64, yy float64) {
+	if len(out) < len(pulses) {
+		return
+	}
 	energy := yy
 	if energy <= 0 {
 		// Fall back to computing energy from pulses
@@ -241,13 +271,15 @@ func normalizeResidual(pulses []int, gain float64, yy float64) []float64 {
 		}
 	}
 	if energy <= 0 {
-		return out
+		for i := range pulses {
+			out[i] = 0
+		}
+		return
 	}
 	scale := gain / math.Sqrt(energy)
 	for i, v := range pulses {
 		out[i] = float64(v) * scale
 	}
-	return out
 }
 
 func renormalizeVector(x []float64, gain float64) {
@@ -329,26 +361,54 @@ func specialHybridFolding(norm, norm2 []float64, start, M int, dualStereo bool) 
 }
 
 func algUnquant(rd *rangecoding.Decoder, band, n, k, spread, b int, gain float64) ([]float64, int) {
+	shape := make([]float64, n)
+	cm := algUnquantInto(shape, rd, band, n, k, spread, b, gain, nil)
+	return shape, cm
+}
+
+// algUnquantInto decodes PVQ into a pre-allocated shape buffer using scratch buffers.
+func algUnquantInto(shape []float64, rd *rangecoding.Decoder, band, n, k, spread, b int, gain float64, scratch *bandDecodeScratch) int {
+	if len(shape) < n {
+		return 0
+	}
 	if k <= 0 || n <= 0 {
-		return make([]float64, n), 0
+		for i := 0; i < n; i++ {
+			shape[i] = 0
+		}
+		return 0
 	}
 	if rd == nil {
-		return make([]float64, n), 0
+		for i := 0; i < n; i++ {
+			shape[i] = 0
+		}
+		return 0
 	}
-	u := make([]uint32, k+2)
+
+	var u []uint32
+	var pulses []int
+	if scratch != nil {
+		u = scratch.ensureCWRSU(k + 2)
+		pulses = scratch.ensurePVQPulses(n)
+	} else {
+		u = make([]uint32, k+2)
+		pulses = make([]int, n)
+	}
+
 	vSize := ncwrsUrow(n, k, u)
 	if vSize == 0 {
-		return make([]float64, n), 0
+		for i := 0; i < n; i++ {
+			shape[i] = 0
+		}
+		return 0
 	}
 	idx := rd.DecodeUniform(vSize)
-	pulses := make([]int, n)
 	_ = cwrsi(n, k, idx, pulses, u)
 	DefaultTracer.TracePVQ(band, idx, k, n, pulses)
 	// Decoder doesn't have search energy, so pass 0 to compute from pulses
-	shape := normalizeResidual(pulses, gain, 0)
+	normalizeResidualInto(shape, pulses, gain, 0)
 	expRotation(shape, n, -1, b, k, spread)
 	cm := extractCollapseMask(pulses, n, b)
-	return shape, cm
+	return cm
 }
 
 func algQuant(re *rangecoding.Encoder, band int, x []float64, n, k, spread, b int, gain float64, resynth bool, extEnc *rangecoding.Encoder, extraBits int) int {
@@ -1026,8 +1086,8 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 			cm := algQuant(ctx.re, ctx.band, x, n, k, ctx.spread, B, gain, ctx.resynth, ctx.extEnc, ctx.extraBits)
 			return cm, x
 		}
-		shape, cm := algUnquant(ctx.rd, ctx.band, n, k, ctx.spread, B, gain)
-		copy(x, shape)
+		// Use scratch-aware version to avoid allocations in decode hot path
+		cm := algUnquantInto(x, ctx.rd, ctx.band, n, k, ctx.spread, B, gain, ctx.scratch)
 		return cm, x
 	}
 
@@ -1161,10 +1221,10 @@ func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int
 
 	if B0 > 1 {
 		if ctx.encode {
-			deinterleaveHadamard(x, N_B>>recombine, B0<<recombine, longBlocks)
+			deinterleaveHadamardScratch(x, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch)
 		}
 		if lowband != nil {
-			deinterleaveHadamard(lowband, N_B>>recombine, B0<<recombine, longBlocks)
+			deinterleaveHadamardScratch(lowband, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch)
 		}
 	}
 
@@ -1172,7 +1232,7 @@ func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int
 
 	if ctx.resynth {
 		if B0 > 1 {
-			interleaveHadamard(x, N_B>>recombine, B0<<recombine, longBlocks)
+			interleaveHadamardScratch(x, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch)
 		}
 		N_B = N_B0
 		B = B0
@@ -1402,6 +1462,7 @@ func quantAllBandsDecodeWithScratch(rd *rangecoding.Decoder, channels, frameSize
 		resynth:         true,
 		disableInv:      disableInv,
 		avoidSplitNoise: B > 1,
+		scratch:         scratch,
 	}
 
 	for i := start; i < end; i++ {

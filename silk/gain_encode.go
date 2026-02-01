@@ -2,196 +2,79 @@ package silk
 
 import "math"
 
+// Gain encoding matching libopus silk/encode_indices.c and silk/gain_quant.c
+// Implements proper delta coding with double step size for large gains.
+
 // encodeSubframeGains quantizes and encodes gains for all subframes.
 // First subframe: absolute (MSB + LSB) if first frame, delta-coded if subsequent frame.
 // Subsequent subframes: always delta-coded.
-// Per RFC 6716 Section 4.2.7.4.
-// Uses libopus tables: silk_gain_iCDF, silk_uniform8_iCDF, silk_delta_gain_iCDF
+// Uses libopus quantization algorithm with hysteresis and double step sizes.
 func (e *Encoder) encodeSubframeGains(gains []float32, signalType, numSubframes int) {
-	// Convert gains to log domain and quantize
-	logGains := make([]int, numSubframes)
+	// Convert gains to Q16 format
+	gainsQ16 := make([]int32, numSubframes)
 	for i := 0; i < numSubframes; i++ {
-		logGains[i] = computeLogGainIndex(gains[i])
+		// Convert float to Q16
+		gainsQ16[i] = int32(gains[i] * 65536.0)
+		if gainsQ16[i] < (1 << 16) {
+			gainsQ16[i] = 1 << 16 // Minimum gain of 1.0
+		}
 	}
 
-	// First subframe encoding depends on whether we're conditioning on previous frame
-	firstLogGain := logGains[0]
-	var condCoding bool
+	// Determine if we're using conditional coding
+	conditional := e.haveEncoded
 
-	if !e.haveEncoded {
-		// First frame: encode absolute gain (MSB + LSB)
-		condCoding = false
-		gainIndex := e.computeFirstFrameGainIndex(firstLogGain)
-		e.encodeFirstGainIndex(gainIndex, signalType)
+	// Quantize gains using libopus algorithm
+	// This updates gainsQ16 in-place to the quantized values
+	ind, newPrevInd := silkGainsQuant(gainsQ16, int8(e.previousGainIndex), conditional, numSubframes)
+
+	// Encode gain indices
+	if !conditional {
+		// First frame: encode absolute gain (MSB + LSB) for first subframe
+		// The index is already in [0, N_LEVELS_QGAIN-1] range
+		firstIndex := int(e.previousGainIndex) + int(ind[0]) - minDeltaGainQuant
+		if firstIndex < 0 {
+			firstIndex = 0
+		}
+		if firstIndex > nLevelsQGain-1 {
+			firstIndex = nLevelsQGain - 1
+		}
+		// Actually, for independent coding, ind[0] is the full index
+		// When conditional==false, ind[0] stores the absolute index after quantization
+		e.encodeAbsoluteGainIndex(int(ind[0]), signalType)
 	} else {
-		// Subsequent frames: encode first subframe as delta from previous frame
-		condCoding = true
-		// Delta = logGain - prevLogGain + delta_offset
-		// The delta_gain_iCDF has 41 symbols, so delta can be 0-40
-		// Per libopus: delta_gain = silk_LIMIT_int( ind, 0, MAX_DELTA_GAIN_QUANT-1 )
-		// MAX_DELTA_GAIN_QUANT = 41
-		delta := firstLogGain - int(e.previousLogGain) + maxDeltaGainQuant/2
-		if delta < 0 {
-			delta = 0
-		}
-		if delta > maxDeltaGainQuant-1 {
-			delta = maxDeltaGainQuant - 1
-		}
-		e.rangeEncoder.EncodeICDF(delta, silk_delta_gain_iCDF, 8)
+		// Conditional coding: first subframe uses delta_gain_iCDF
+		// ind[0] is already shifted by -MIN_DELTA_GAIN_QUANT so it's in [0, 40] range
+		e.rangeEncoder.EncodeICDF(int(ind[0]), silk_delta_gain_iCDF, 8)
 	}
 
-	// Subsequent subframes: always delta-coded using silk_delta_gain_iCDF
-	prevLogGain := firstLogGain
+	// Remaining subframes: always delta-coded
 	for i := 1; i < numSubframes; i++ {
-		// Delta = logGain - prevLogGain + delta_offset
-		delta := logGains[i] - prevLogGain + maxDeltaGainQuant/2
-		if delta < 0 {
-			delta = 0
-		}
-		if delta > maxDeltaGainQuant-1 {
-			delta = maxDeltaGainQuant - 1
-		}
-
-		e.rangeEncoder.EncodeICDF(delta, silk_delta_gain_iCDF, 8)
-
-		// Update prevLogGain: decoded_delta - offset = actual delta
-		// But we need to track what the decoder will compute
-		prevLogGain = logGains[i]
+		// ind[i] is already shifted by -MIN_DELTA_GAIN_QUANT so it's in [0, 40] range
+		e.rangeEncoder.EncodeICDF(int(ind[i]), silk_delta_gain_iCDF, 8)
 	}
 
 	// Update state for next frame
-	e.previousLogGain = int32(logGains[numSubframes-1])
-
-	// Suppress unused variable warning
-	_ = condCoding
+	e.previousGainIndex = int32(newPrevInd)
+	e.previousLogGain = int32(newPrevInd)
 }
 
-
-// computeLogGainIndexQ16 converts Q16 linear gain to log gain index [0, 63].
-// Finds the index in GainDequantTable that best matches the input gain.
-//
-// Parameters:
-//   - gainQ16: linear gain in Q16 format
-//
-// Returns: gain index in range [0, 63]
-func computeLogGainIndexQ16(gainQ16 int32) int {
-	if gainQ16 <= 0 {
-		return 0
-	}
-
-	// Clamp to table range
-	if gainQ16 < GainDequantTable[0] {
-		return 0
-	}
-	if gainQ16 >= GainDequantTable[63] {
-		return 63
-	}
-
-	// Binary search for closest index
-	// GainDequantTable is sorted in increasing order
-	lo, hi := 0, 63
-	for lo < hi {
-		mid := (lo + hi + 1) / 2
-		if GainDequantTable[mid] <= gainQ16 {
-			lo = mid
-		} else {
-			hi = mid - 1
-		}
-	}
-
-	// Check if next index is closer
-	if lo < 63 {
-		diffLo := absInt32(GainDequantTable[lo] - gainQ16)
-		diffHi := absInt32(GainDequantTable[lo+1] - gainQ16)
-		if diffHi < diffLo {
-			return lo + 1
-		}
-	}
-
-	return lo
-}
-
-// computeLogGainIndex converts linear gain to log gain index [0, 63].
-// Finds the index in GainDequantTable that best matches the input gain.
-//
-// The GainDequantTable contains Q16 gain values. Given a float32 gain,
-// we convert it to Q16 and find the closest table entry.
-func computeLogGainIndex(gain float32) int {
-	if gain <= 0 {
-		return 0
-	}
-
-	// Convert float gain to Q16
-	gainQ16 := int32(gain * 65536.0)
-
-	// Clamp to table range
-	if gainQ16 < GainDequantTable[0] {
-		return 0
-	}
-	if gainQ16 >= GainDequantTable[63] {
-		return 63
-	}
-
-	// Binary search for closest index
-	// GainDequantTable is sorted in increasing order
-	lo, hi := 0, 63
-	for lo < hi {
-		mid := (lo + hi + 1) / 2
-		if GainDequantTable[mid] <= gainQ16 {
-			lo = mid
-		} else {
-			hi = mid - 1
-		}
-	}
-
-	// Check if next index is closer
-	if lo < 63 {
-		diffLo := absInt32(GainDequantTable[lo] - gainQ16)
-		diffHi := absInt32(GainDequantTable[lo+1] - gainQ16)
-		if diffHi < diffLo {
-			return lo + 1
-		}
-	}
-
-	return lo
-}
-
-// computeFirstFrameGainIndex computes gain index for first frame encoding.
-// Reverses the limiter: logGain = max(0, gainIndex - 2*max(0, gainIndex - 16))
-func (e *Encoder) computeFirstFrameGainIndex(targetLogGain int) int {
-	// Search for gainIndex that produces targetLogGain after limiter
-	for gainIndex := 0; gainIndex <= 63; gainIndex++ {
-		var logGain int
-		if gainIndex > 16 {
-			logGain = gainIndex - 2*(gainIndex-16)
-		} else {
-			logGain = gainIndex
-		}
-		if logGain < 0 {
-			logGain = 0
-		}
-
-		if logGain == targetLogGain {
-			return gainIndex
-		}
-	}
-	return targetLogGain // Fallback
-}
-
-// encodeFirstGainIndex encodes the absolute gain index for first subframe.
+// encodeAbsoluteGainIndex encodes the absolute gain index for first subframe.
 // Uses libopus tables: silk_gain_iCDF[signalType] for MSB, silk_uniform8_iCDF for LSB
-func (e *Encoder) encodeFirstGainIndex(gainIndex, signalType int) {
+// Matches libopus silk/encode_indices.c lines 77-79
+func (e *Encoder) encodeAbsoluteGainIndex(gainIndex, signalType int) {
 	// Clamp to valid range
 	if gainIndex < 0 {
 		gainIndex = 0
 	}
-	if gainIndex > 63 {
-		gainIndex = 63
+	if gainIndex > nLevelsQGain-1 {
+		gainIndex = nLevelsQGain - 1
 	}
 
 	// Split into MSB (0-7) and LSB (0-7)
-	msb := gainIndex / 8
-	lsb := gainIndex % 8
+	// MSB = gainIndex >> 3 (divide by 8)
+	// LSB = gainIndex & 7 (modulo 8)
+	msb := gainIndex >> 3
+	lsb := gainIndex & 7
 
 	// Clamp MSB to table size (silk_gain_iCDF tables have 8 symbols)
 	if msb > 7 {
@@ -210,8 +93,14 @@ func (e *Encoder) encodeFirstGainIndex(gainIndex, signalType int) {
 	e.rangeEncoder.EncodeICDF(lsb, silk_uniform8_iCDF, 8)
 }
 
+// encodeFirstGainIndex is kept for backwards compatibility
+// Uses libopus tables: silk_gain_iCDF[signalType] for MSB, silk_uniform8_iCDF for LSB
+func (e *Encoder) encodeFirstGainIndex(gainIndex, signalType int) {
+	e.encodeAbsoluteGainIndex(gainIndex, signalType)
+}
+
 // computeSubframeGains computes gains for each subframe from PCM.
-// Returns gains in linear domain.
+// Returns gains in linear domain matching libopus energy computation.
 func (e *Encoder) computeSubframeGains(pcm []float32, numSubframes int) []float32 {
 	if len(pcm) == 0 || numSubframes <= 0 {
 		return make([]float32, numSubframes)
@@ -227,24 +116,109 @@ func (e *Encoder) computeSubframeGains(pcm []float32, numSubframes int) []float3
 			end = len(pcm)
 		}
 
-		// Compute RMS energy
+		// Compute energy (sum of squares)
 		var energy float64
 		for i := start; i < end; i++ {
 			energy += float64(pcm[i]) * float64(pcm[i])
 		}
-		if end > start {
-			energy /= float64(end - start)
+
+		// Normalize by number of samples
+		n := end - start
+		if n > 0 {
+			energy /= float64(n)
 		}
 
-		// Convert to gain (scale factor for unit energy)
+		// Convert to RMS gain
 		if energy > 0 {
 			gains[sf] = float32(math.Sqrt(energy))
 		} else {
 			gains[sf] = 1.0 // Minimum gain
 		}
+
+		// Ensure minimum gain
+		if gains[sf] < 1.0 {
+			gains[sf] = 1.0
+		}
 	}
 
 	return gains
+}
+
+// computeSubframeGainsQ16 computes gains for each subframe from PCM.
+// Returns gains in Q16 format matching libopus.
+func (e *Encoder) computeSubframeGainsQ16(pcm []int16, numSubframes int) []int32 {
+	if len(pcm) == 0 || numSubframes <= 0 {
+		gains := make([]int32, numSubframes)
+		for i := range gains {
+			gains[i] = 1 << 16 // Default gain of 1.0
+		}
+		return gains
+	}
+
+	subframeSamples := len(pcm) / numSubframes
+	gains := make([]int32, numSubframes)
+
+	for sf := 0; sf < numSubframes; sf++ {
+		start := sf * subframeSamples
+		end := start + subframeSamples
+		if end > len(pcm) {
+			end = len(pcm)
+		}
+
+		gains[sf] = GainQ16FromPCM(pcm[start:end], end-start)
+	}
+
+	return gains
+}
+
+// computeLogGainIndexQ16 converts Q16 linear gain to log gain index [0, 63].
+// Uses the libopus logarithmic quantization.
+func computeLogGainIndexQ16(gainQ16 int32) int {
+	if gainQ16 <= 0 {
+		return 0
+	}
+
+	// Use libopus log2lin/lin2log for accurate conversion
+	logGain := silkLin2Log(gainQ16)
+
+	// Scale to index: ind = SMULWB(SCALE_Q16, logGain - OFFSET)
+	ind := silkSMULWB(int32(gainScaleQ16), logGain-int32(gainOffsetQ7))
+
+	// Clamp to valid range
+	if ind < 0 {
+		return 0
+	}
+	if ind > nLevelsQGain-1 {
+		return nLevelsQGain - 1
+	}
+
+	return int(ind)
+}
+
+// computeLogGainIndex converts linear gain to log gain index [0, 63].
+// Uses the libopus logarithmic quantization.
+func computeLogGainIndex(gain float32) int {
+	if gain <= 0 {
+		return 0
+	}
+
+	// Convert float gain to Q16
+	gainQ16 := int32(gain * 65536.0)
+
+	return computeLogGainIndexQ16(gainQ16)
+}
+
+// computeFirstFrameGainIndex computes gain index for first frame encoding.
+// For libopus, when conditional=false, the absolute index is stored directly.
+func (e *Encoder) computeFirstFrameGainIndex(targetLogGain int) int {
+	// The target log gain is already in [0, 63] range
+	if targetLogGain < 0 {
+		return 0
+	}
+	if targetLogGain > nLevelsQGain-1 {
+		return nLevelsQGain - 1
+	}
+	return targetLogGain
 }
 
 func absInt32(x int32) int32 {

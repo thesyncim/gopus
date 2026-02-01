@@ -219,3 +219,99 @@ func (e *Encoder) ApplyDCReject(pcm []float64) []float64 {
 
 	return output
 }
+
+// applyDCRejectScratch applies DC rejection using pre-allocated scratch buffer.
+// This avoids heap allocations in the hot path.
+func (e *Encoder) applyDCRejectScratch(pcm []float64) []float64 {
+	if len(pcm) == 0 {
+		return nil
+	}
+
+	// Initialize hpMem if not already done
+	if len(e.hpMem) < e.channels {
+		e.hpMem = make([]float64, e.channels)
+	}
+
+	coef := float32(6.3 * float64(DCRejectCutoffHz) / float64(e.sampleRate))
+	coef2 := float32(1.0) - coef
+	verySmall := float32(1e-30)
+
+	// Use scratch buffer instead of allocating
+	output := e.scratch.dcRejected
+	if len(output) < len(pcm) {
+		output = make([]float64, len(pcm))
+		e.scratch.dcRejected = output
+	}
+	output = output[:len(pcm)]
+
+	if e.channels == 1 {
+		m0 := float32(e.hpMem[0])
+		for i := range pcm {
+			x := float32(pcm[i])
+			y := x - m0
+			output[i] = float64(y)
+			m0 = coef*x + verySmall + coef2*m0
+		}
+		e.hpMem[0] = float64(m0)
+	} else {
+		m0 := float32(e.hpMem[0])
+		m1 := float32(e.hpMem[1])
+		for i := 0; i < len(pcm)-1; i += 2 {
+			x0 := float32(pcm[i])
+			x1 := float32(pcm[i+1])
+			output[i] = float64(x0 - m0)
+			output[i+1] = float64(x1 - m1)
+			m0 = coef*x0 + verySmall + coef2*m0
+			m1 = coef*x1 + verySmall + coef2*m1
+		}
+		e.hpMem[0] = float64(m0)
+		e.hpMem[1] = float64(m1)
+	}
+
+	return output
+}
+
+// applyPreemphasisWithScalingScratch applies pre-emphasis with scaling using scratch buffer.
+func (e *Encoder) applyPreemphasisWithScalingScratch(pcm []float64) []float64 {
+	if len(pcm) == 0 {
+		return nil
+	}
+
+	// Use scratch buffer
+	output := e.scratch.preemph
+	if len(output) < len(pcm) {
+		output = make([]float64, len(pcm))
+		e.scratch.preemph = output
+	}
+	output = output[:len(pcm)]
+
+	coef := float32(PreemphCoef)
+
+	if e.channels == 1 {
+		state := float32(e.preemphState[0])
+		for i := range pcm {
+			scaled := float32(pcm[i]) * float32(CELTSigScale)
+			output[i] = float64(scaled - coef*state)
+			state = scaled
+		}
+		e.preemphState[0] = float64(state)
+	} else {
+		stateL := float32(e.preemphState[0])
+		stateR := float32(e.preemphState[1])
+
+		for i := 0; i < len(pcm)-1; i += 2 {
+			scaledL := float32(pcm[i]) * float32(CELTSigScale)
+			output[i] = float64(scaledL - coef*stateL)
+			stateL = scaledL
+
+			scaledR := float32(pcm[i+1]) * float32(CELTSigScale)
+			output[i+1] = float64(scaledR - coef*stateR)
+			stateR = scaledR
+		}
+
+		e.preemphState[0] = float64(stateL)
+		e.preemphState[1] = float64(stateR)
+	}
+
+	return output
+}

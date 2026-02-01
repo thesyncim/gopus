@@ -161,6 +161,16 @@ func (e *Encoder) EncodeBin(fl, fh uint32, bits uint) {
 	e.normalize()
 }
 
+// EncodeICDF8 encodes a symbol using a uint8 ICDF table.
+// s is the symbol to encode (0 to len(icdf)-2).
+// icdf is the inverse cumulative distribution function table (decreasing values).
+// ftb is the number of bits of precision (total = 1 << ftb).
+//
+// This is the uint8 variant of EncodeICDF for SILK tables.
+func (e *Encoder) EncodeICDF8(s int, icdf []uint8, ftb uint) {
+	e.EncodeICDF(s, icdf, ftb)
+}
+
 // EncodeICDF encodes a symbol using an inverse CDF table.
 // s is the symbol to encode (0 to len(icdf)-2).
 // icdf is the inverse cumulative distribution function table (decreasing values).

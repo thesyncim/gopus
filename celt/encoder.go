@@ -107,6 +107,9 @@ type Encoder struct {
 	lastBandLogE  []float64 // bandLogE (primary MDCT energies)
 	lastBandLogE2 []float64 // bandLogE2 (secondary MDCT for transients)
 
+	// Scratch buffers for hot path to eliminate heap allocations
+	scratch encoderScratch
+
 	// Transient detection state (persisted across frames for better attack detection)
 	// These are used to track attack characteristics across frame boundaries.
 	// Reference: libopus celt_encoder.c transient_analysis() and attack_duration tracking
@@ -562,4 +565,165 @@ func (e *Encoder) GetLastBandLogE() []float64 {
 // For transients, this is from the long MDCT; otherwise same as bandLogE.
 func (e *Encoder) GetLastBandLogE2() []float64 {
 	return e.lastBandLogE2
+}
+
+// encoderScratch holds pre-allocated scratch buffers for the encoder hot path.
+// These buffers are reused across frames to eliminate heap allocations during encoding.
+type encoderScratch struct {
+	// DC rejection output buffer
+	dcRejected []float64
+
+	// Combined delay buffer + PCM
+	combinedBuf []float64
+
+	// Pre-emphasized signal buffer
+	preemph []float64
+
+	// Transient analysis input buffer (overlap + frame)
+	transientInput []float64
+
+	// MDCT coefficient buffers
+	mdctCoeffs []float64
+	mdctLeft   []float64
+	mdctRight  []float64
+
+	// Band energy buffers
+	energies   []float64
+	bandLogE2  []float64
+	bandE      []float64
+	bandEL     []float64
+	bandER     []float64
+
+	// History buffers for MDCT
+	leftHist  []float64
+	rightHist []float64
+
+	// Range encoder buffer
+	reBuf []byte
+
+	// Quantized energies
+	quantizedEnergies []float64
+	prev1LogE         []float64
+
+	// Normalized coefficient buffers
+	normL []float64
+	normR []float64
+
+	// Allocation-related buffers
+	caps    []int
+	offsets []int
+	logN    []int16
+
+	// TF analysis buffers
+	tfRes []int
+
+	// PVQ search buffers
+	pvqSignx []int
+	pvqY     []float32
+	pvqAbsX  []float32
+	pvqIy    []int
+
+	// Deinterleave buffers
+	deintLeft  []float64
+	deintRight []float64
+
+	// Band quantization buffers
+	quantCollapse     []byte
+	quantNorm         []float64
+	quantLowband      []float64
+	quantXSave        []float64
+	quantYSave        []float64
+	quantNormSave     []float64
+	quantXResult0     []float64
+	quantYResult0     []float64
+	quantNormResult0  []float64
+
+	// MDCT forward transform scratch (float32)
+	mdctF       []float32
+	mdctFFTIn   []complex64
+	mdctFFTOut  []complex64
+
+	// Transient analysis scratch
+	transientTmp          []float64
+	transientEnergy       []float64
+	transientChannelSamps []float64
+	transientX            []float32
+}
+
+// ensureScratch ensures all scratch buffers are properly sized for the given frame parameters.
+// Call this at the start of EncodeFrame to prepare buffers for reuse.
+func (e *Encoder) ensureScratch(frameSize int) {
+	channels := e.channels
+	expectedLen := frameSize * channels
+	overlap := Overlap
+	if overlap > frameSize {
+		overlap = frameSize
+	}
+
+	s := &e.scratch
+
+	// DC rejection output
+	s.dcRejected = ensureFloat64Slice(&s.dcRejected, expectedLen)
+
+	// Combined delay buffer
+	delayComp := DelayCompensation * channels
+	combinedLen := delayComp + expectedLen
+	s.combinedBuf = ensureFloat64Slice(&s.combinedBuf, combinedLen)
+
+	// Pre-emphasis buffer
+	s.preemph = ensureFloat64Slice(&s.preemph, expectedLen)
+
+	// Transient analysis input (overlap + frameSize) * channels
+	transientLen := (overlap + frameSize) * channels
+	s.transientInput = ensureFloat64Slice(&s.transientInput, transientLen)
+
+	// MDCT coefficients
+	s.mdctCoeffs = ensureFloat64Slice(&s.mdctCoeffs, frameSize*2)
+	s.mdctLeft = ensureFloat64Slice(&s.mdctLeft, frameSize)
+	s.mdctRight = ensureFloat64Slice(&s.mdctRight, frameSize)
+
+	// Band energies
+	bandCount := MaxBands * channels
+	s.energies = ensureFloat64Slice(&s.energies, bandCount)
+	s.bandLogE2 = ensureFloat64Slice(&s.bandLogE2, bandCount)
+	s.bandE = ensureFloat64Slice(&s.bandE, bandCount)
+	s.bandEL = ensureFloat64Slice(&s.bandEL, MaxBands)
+	s.bandER = ensureFloat64Slice(&s.bandER, MaxBands)
+
+	// History buffers
+	s.leftHist = ensureFloat64Slice(&s.leftHist, overlap)
+	s.rightHist = ensureFloat64Slice(&s.rightHist, overlap)
+
+	// Range encoder buffer
+	bufSize := 256
+	if len(s.reBuf) < bufSize {
+		s.reBuf = make([]byte, bufSize)
+	}
+
+	// Quantized energies
+	s.quantizedEnergies = ensureFloat64Slice(&s.quantizedEnergies, bandCount)
+	s.prev1LogE = ensureFloat64Slice(&s.prev1LogE, bandCount)
+
+	// Normalized coefficients
+	s.normL = ensureFloat64Slice(&s.normL, frameSize)
+	s.normR = ensureFloat64Slice(&s.normR, frameSize)
+
+	// Allocation buffers
+	s.caps = ensureIntSlice(&s.caps, MaxBands)
+	s.offsets = ensureIntSlice(&s.offsets, MaxBands)
+	if len(s.logN) < MaxBands {
+		s.logN = make([]int16, MaxBands)
+	}
+
+	// TF results
+	s.tfRes = ensureIntSlice(&s.tfRes, MaxBands)
+
+	// Deinterleave buffers
+	s.deintLeft = ensureFloat64Slice(&s.deintLeft, frameSize)
+	s.deintRight = ensureFloat64Slice(&s.deintRight, frameSize)
+}
+
+// ensureFloat64SliceEncoder is a helper that reuses ensureFloat64Slice from scratch.go
+func ensureFloat64SliceEncoder(buf *[]float64, n int) []float64 {
+	return ensureFloat64Slice(buf, n)
 }

@@ -57,12 +57,15 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	nbBands := mode.EffBands
 	lm := mode.LM
 
+	// Ensure scratch buffers are properly sized for this frame
+	e.ensureScratch(frameSize)
+
 	// Step 3a: Apply DC rejection (high-pass) to match libopus Opus encoder.
 	// libopus applies dc_reject() at the Opus encoder level before CELT
 	// mode selection. Since gopus invokes the CELT encoder directly for
 	// CELT mode, we apply dc_reject here to match the full encode path.
 	// Reference: libopus src/opus_encoder.c line 2008: dc_reject(pcm, 3, ...)
-	dcRejected := e.ApplyDCReject(pcm)
+	dcRejected := e.applyDCRejectScratch(pcm)
 
 	// Step 3b: Apply delay buffer (lookahead compensation)
 	// libopus uses a delay_compensation of Fs/250 = 192 samples at 48kHz.
@@ -73,9 +76,14 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		e.delayBuffer = make([]float64, delayComp)
 	}
 
-	// Build combined buffer: [delay_buffer] + [PCM samples]
+	// Build combined buffer: [delay_buffer] + [PCM samples] using scratch
 	combinedLen := delayComp + len(dcRejected)
-	combinedBuf := make([]float64, combinedLen)
+	combinedBuf := e.scratch.combinedBuf
+	if len(combinedBuf) < combinedLen {
+		combinedBuf = make([]float64, combinedLen)
+		e.scratch.combinedBuf = combinedBuf
+	}
+	combinedBuf = combinedBuf[:combinedLen]
 	copy(combinedBuf[:delayComp], e.delayBuffer)
 	copy(combinedBuf[delayComp:], dcRejected)
 
@@ -92,7 +100,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Reference: libopus celt_encoder.c lines 2015-2030
 	// Input samples in float range [-1.0, 1.0] are scaled to signal scale (x32768)
 	// This matches libopus CELT_SIG_SCALE. The decoder reverses this with scaleSamples(1/32768).
-	preemph := e.ApplyPreemphasisWithScaling(samplesForFrame)
+	preemph := e.applyPreemphasisWithScalingScratch(samplesForFrame)
 
 	// Step 4: Detect transient and compute tf_estimate using PRE-EMPHASIZED signal
 	// libopus calls transient_analysis(in, N+overlap, ...) where 'in' contains:
@@ -111,8 +119,14 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	}
 
 	// Build combined signal for transient analysis: [overlap from previous frame] + [current frame]
-	// Total length: (overlap + frameSize) * channels
-	transientInput := make([]float64, (overlap+frameSize)*e.channels)
+	// Total length: (overlap + frameSize) * channels - use scratch buffer
+	transientLen := (overlap + frameSize) * e.channels
+	transientInput := e.scratch.transientInput
+	if len(transientInput) < transientLen {
+		transientInput = make([]float64, transientLen)
+		e.scratch.transientInput = transientInput
+	}
+	transientInput = transientInput[:transientLen]
 	copy(transientInput[:preemphBufSize], e.preemphBuffer[:preemphBufSize])
 	copy(transientInput[preemphBufSize:], preemph)
 
@@ -171,13 +185,19 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			if overlap > frameSize {
 				overlap = frameSize
 			}
-			hist := make([]float64, overlap)
+			// Use scratch for hist buffer
+			hist := e.scratch.leftHist
+			if len(hist) < overlap {
+				hist = make([]float64, overlap)
+				e.scratch.leftHist = hist
+			}
+			hist = hist[:overlap]
 			copy(hist, e.overlapBuffer[:overlap])
 			mdctLong := ComputeMDCTWithHistory(preemph, hist, 1)
 			bandLogE2 = e.ComputeBandEnergies(mdctLong, nbBands, frameSize)
 			roundFloat64ToFloat32(bandLogE2)
 		} else {
-			left, right := DeinterleaveStereo(preemph)
+			left, right := deinterleaveStereoScratch(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
 			overlap := Overlap
 			if overlap > frameSize {
 				overlap = frameSize
@@ -189,13 +209,31 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 				}
 				e.overlapBuffer = newBuf
 			}
-			leftHist := make([]float64, overlap)
-			rightHist := make([]float64, overlap)
+			// Use scratch for hist buffers
+			leftHist := e.scratch.leftHist
+			rightHist := e.scratch.rightHist
+			if len(leftHist) < overlap {
+				leftHist = make([]float64, overlap)
+				e.scratch.leftHist = leftHist
+			}
+			if len(rightHist) < overlap {
+				rightHist = make([]float64, overlap)
+				e.scratch.rightHist = rightHist
+			}
+			leftHist = leftHist[:overlap]
+			rightHist = rightHist[:overlap]
 			copy(leftHist, e.overlapBuffer[:overlap])
 			copy(rightHist, e.overlapBuffer[overlap:2*overlap])
 			mdctLeftLong := ComputeMDCTWithHistory(left, leftHist, 1)
 			mdctRightLong := ComputeMDCTWithHistory(right, rightHist, 1)
-			mdctLong := make([]float64, len(mdctLeftLong)+len(mdctRightLong))
+			// Use scratch for combined mdct
+			mdctLongLen := len(mdctLeftLong) + len(mdctRightLong)
+			mdctLong := e.scratch.mdctCoeffs
+			if len(mdctLong) < mdctLongLen {
+				mdctLong = make([]float64, mdctLongLen)
+				e.scratch.mdctCoeffs = mdctLong
+			}
+			mdctLong = mdctLong[:mdctLongLen]
 			copy(mdctLong, mdctLeftLong)
 			copy(mdctLong[len(mdctLeftLong):], mdctRightLong)
 			bandLogE2 = e.ComputeBandEnergies(mdctLong, nbBands, frameSize)
@@ -218,8 +256,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		// Mono: MDCT directly with overlap buffer for continuity
 		mdctCoeffs = e.computeMDCTWithOverlap(preemph, shortBlocks)
 	} else {
-		// Stereo: MDCT Left and Right directly
-		left, right := DeinterleaveStereo(preemph)
+		// Stereo: MDCT Left and Right directly - use scratch buffers
+		left, right := deinterleaveStereoScratch(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
 
 		overlap := Overlap
 		if overlap > frameSize {
@@ -243,8 +281,14 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		mdctLeft = ComputeMDCTWithHistory(left, leftHistory, shortBlocks)
 		mdctRight = ComputeMDCTWithHistory(right, rightHistory, shortBlocks)
 
-		// Concatenate: [left coeffs][right coeffs]
-		mdctCoeffs = make([]float64, len(mdctLeft)+len(mdctRight))
+		// Concatenate: [left coeffs][right coeffs] - use scratch buffer
+		coeffsLen := len(mdctLeft) + len(mdctRight)
+		mdctCoeffs = e.scratch.mdctCoeffs
+		if len(mdctCoeffs) < coeffsLen {
+			mdctCoeffs = make([]float64, coeffsLen)
+			e.scratch.mdctCoeffs = mdctCoeffs
+		}
+		mdctCoeffs = mdctCoeffs[:coeffsLen]
 		copy(mdctCoeffs[:len(mdctLeft)], mdctLeft)
 		copy(mdctCoeffs[len(mdctLeft):], mdctRight)
 	}
@@ -280,22 +324,39 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 				// with the new shortBlocks value
 				mdctCoeffs = computeMDCTForEncoding(preemph, frameSize, shortBlocks)
 			} else {
-				// For stereo, recompute both channels
-				left, right := DeinterleaveStereo(preemph)
+				// For stereo, recompute both channels - use scratch buffers
+				left, right := deinterleaveStereoScratch(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
 				overlap := Overlap
 				if overlap > frameSize {
 					overlap = frameSize
 				}
-				// Note: We use fresh history slices to avoid double-update issues
-				leftHist := make([]float64, overlap)
-				rightHist := make([]float64, overlap)
+				// Use scratch history slices to avoid double-update issues
+				leftHist := e.scratch.leftHist
+				rightHist := e.scratch.rightHist
+				if len(leftHist) < overlap {
+					leftHist = make([]float64, overlap)
+					e.scratch.leftHist = leftHist
+				}
+				if len(rightHist) < overlap {
+					rightHist = make([]float64, overlap)
+					e.scratch.rightHist = rightHist
+				}
+				leftHist = leftHist[:overlap]
+				rightHist = rightHist[:overlap]
 				if len(e.overlapBuffer) >= 2*overlap {
 					copy(leftHist, e.overlapBuffer[:overlap])
 					copy(rightHist, e.overlapBuffer[overlap:2*overlap])
 				}
 				mdctLeft = ComputeMDCTWithHistory(left, leftHist, shortBlocks)
 				mdctRight = ComputeMDCTWithHistory(right, rightHist, shortBlocks)
-				mdctCoeffs = make([]float64, len(mdctLeft)+len(mdctRight))
+				// Use scratch buffer for combined coefficients
+				coeffsLen := len(mdctLeft) + len(mdctRight)
+				mdctCoeffs = e.scratch.mdctCoeffs
+				if len(mdctCoeffs) < coeffsLen {
+					mdctCoeffs = make([]float64, coeffsLen)
+					e.scratch.mdctCoeffs = mdctCoeffs
+				}
+				mdctCoeffs = mdctCoeffs[:coeffsLen]
 				copy(mdctCoeffs[:len(mdctLeft)], mdctLeft)
 				copy(mdctCoeffs[len(mdctLeft):], mdctRight)
 			}
@@ -333,10 +394,15 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	if e.channels == 1 {
 		bandE = ComputeLinearBandAmplitudes(mdctCoeffs, nbBands, frameSize)
 	} else {
-		// For stereo, compute per-channel and concatenate
+		// For stereo, compute per-channel and concatenate - use scratch buffers
 		bandEL := ComputeLinearBandAmplitudes(mdctLeft, nbBands, frameSize)
 		bandER := ComputeLinearBandAmplitudes(mdctRight, nbBands, frameSize)
-		bandE = make([]float64, nbBands*2)
+		bandE = e.scratch.bandE
+		if len(bandE) < nbBands*2 {
+			bandE = make([]float64, nbBands*2)
+			e.scratch.bandE = bandE
+		}
+		bandE = bandE[:nbBands*2]
 		copy(bandE[:nbBands], bandEL)
 		copy(bandE[nbBands:], bandER)
 	}
@@ -351,7 +417,13 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	if bufSize < 256 {
 		bufSize = 256
 	}
-	buf := make([]byte, bufSize)
+	// Use scratch buffer for range encoder
+	buf := e.scratch.reBuf
+	if len(buf) < bufSize {
+		buf = make([]byte, bufSize)
+		e.scratch.reBuf = buf
+	}
+	buf = buf[:bufSize]
 	re := &rangecoding.Encoder{}
 	re.Init(buf)
 	// In CBR mode, shrink the encoder to produce exactly targetBytes output.
@@ -436,7 +508,14 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	dualStereo := false
 
 	// Step 11: Encode coarse energy
-	prev1LogE := append([]float64(nil), e.prevEnergy...)
+	// Use scratch buffer for prev1LogE
+	prev1LogE := e.scratch.prev1LogE
+	if len(prev1LogE) < len(e.prevEnergy) {
+		prev1LogE = make([]float64, len(e.prevEnergy))
+		e.scratch.prev1LogE = prev1LogE
+	}
+	prev1LogE = prev1LogE[:len(e.prevEnergy)]
+	copy(prev1LogE, e.prevEnergy)
 	quantizedEnergies := e.EncodeCoarseEnergy(energies, nbBands, intra, lm)
 
 	// Step 11.0.5: Normalize bands early for TF analysis
@@ -475,7 +554,13 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// libopus defaults to 24 for float input (see celt_encoder.c: st->lsb_depth=24).
 	// Our encoder operates on float64 samples, so match the float path.
 	lsbDepth := 24
-	logN := make([]int16, nbBands)
+	// Use scratch buffer for logN
+	logN := e.scratch.logN
+	if len(logN) < nbBands {
+		logN = make([]int16, nbBands)
+		e.scratch.logN = logN
+	}
+	logN = logN[:nbBands]
 	for i := 0; i < nbBands && i < len(LogN); i++ {
 		logN[i] = int16(LogN[i])
 	}

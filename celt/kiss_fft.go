@@ -43,6 +43,7 @@ type KissFFT64State struct {
 	factors  []int        // Factorization: pairs of (radix, m) where radix*m = previous m
 	twiddles []complex128 // Precomputed twiddle factors
 	bitrev   []int        // Bit-reversal (mixed-radix digit reversal) permutation
+	fstride  []int        // Pre-computed fstride array for fftImpl (avoids per-call allocation)
 }
 
 // kissFFT64Cache caches FFT states for commonly used sizes
@@ -88,6 +89,15 @@ func newKissFFT64State(nfft int) *KissFFT64State {
 
 	// Compute bit-reversal (digit-reversal) permutation
 	state.computeBitrev()
+
+	// Pre-compute fstride array for fftImpl (eliminates per-call allocation)
+	numFactors := len(state.factors) / 2
+	state.fstride = make([]int, numFactors+1)
+	state.fstride[0] = 1
+	for i := 0; i < numFactors; i++ {
+		p := state.factors[2*i]
+		state.fstride[i+1] = state.fstride[i] * p
+	}
 
 	return state
 }
@@ -229,14 +239,11 @@ func (s *KissFFT64State) KissIFFT(fin, fout []complex128) {
 // fftImpl performs the mixed-radix FFT computation.
 func (s *KissFFT64State) fftImpl(fout []complex128) {
 	numFactors := len(s.factors) / 2
-	fstride := make([]int, numFactors+1)
-	fstride[0] = 1
-
-	// Compute stride for each stage
-	for i := 0; i < numFactors; i++ {
-		p := s.factors[2*i]
-		fstride[i+1] = fstride[i] * p
+	if numFactors == 0 || len(s.fstride) == 0 {
+		return
 	}
+	// Use pre-computed fstride array (avoids per-call allocation)
+	fstride := s.fstride
 
 	m := s.factors[2*numFactors-1] // Start with the last m value
 
