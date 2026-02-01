@@ -2,26 +2,32 @@
 
 package gopus
 
-import "errors"
+import (
+	"errors"
 
-// Mode represents the Opus coding mode.
-type Mode uint8
-
-const (
-	ModeSILK   Mode = iota // SILK-only mode (configs 0-11)
-	ModeHybrid             // Hybrid SILK+CELT (configs 12-15)
-	ModeCELT               // CELT-only mode (configs 16-31)
+	"github.com/thesyncim/gopus/types"
 )
 
-// Bandwidth represents the audio bandwidth.
-type Bandwidth uint8
+// Mode is an alias for types.Mode representing the Opus coding mode.
+type Mode = types.Mode
 
+// Bandwidth is an alias for types.Bandwidth representing the audio bandwidth.
+type Bandwidth = types.Bandwidth
+
+// Re-export mode constants for convenience.
 const (
-	BandwidthNarrowband    Bandwidth = iota // 4kHz audio, 8kHz sample rate
-	BandwidthMediumband                     // 6kHz audio, 12kHz sample rate
-	BandwidthWideband                       // 8kHz audio, 16kHz sample rate
-	BandwidthSuperwideband                  // 12kHz audio, 24kHz sample rate
-	BandwidthFullband                       // 20kHz audio, 48kHz sample rate
+	ModeSILK   = types.ModeSILK   // SILK-only mode (configs 0-11)
+	ModeHybrid = types.ModeHybrid // Hybrid SILK+CELT (configs 12-15)
+	ModeCELT   = types.ModeCELT   // CELT-only mode (configs 16-31)
+)
+
+// Re-export bandwidth constants for convenience.
+const (
+	BandwidthNarrowband    = types.BandwidthNarrowband    // 4kHz audio, 8kHz sample rate
+	BandwidthMediumband    = types.BandwidthMediumband    // 6kHz audio, 12kHz sample rate
+	BandwidthWideband      = types.BandwidthWideband      // 8kHz audio, 16kHz sample rate
+	BandwidthSuperwideband = types.BandwidthSuperwideband // 12kHz audio, 24kHz sample rate
+	BandwidthFullband      = types.BandwidthFullband      // 20kHz audio, 48kHz sample rate
 )
 
 // TOC represents the parsed Table of Contents byte from an Opus packet.

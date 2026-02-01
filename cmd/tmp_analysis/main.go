@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/thesyncim/gopus/internal/celt"
+	"github.com/thesyncim/gopus/celt"
 )
 
 func main() {

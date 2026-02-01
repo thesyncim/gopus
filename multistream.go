@@ -3,7 +3,7 @@
 package gopus
 
 import (
-	"github.com/thesyncim/gopus/internal/multistream"
+	"github.com/thesyncim/gopus/multistream"
 )
 
 // MultistreamEncoder encodes multi-channel PCM audio into Opus multistream packets.

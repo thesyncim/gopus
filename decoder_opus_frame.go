@@ -1,9 +1,9 @@
 package gopus
 
 import (
-	"github.com/thesyncim/gopus/internal/celt"
-	"github.com/thesyncim/gopus/internal/rangecoding"
-	"github.com/thesyncim/gopus/internal/silk"
+	"github.com/thesyncim/gopus/celt"
+	"github.com/thesyncim/gopus/rangecoding"
+	"github.com/thesyncim/gopus/silk"
 )
 
 func minInt(a, b int) int {
