@@ -495,11 +495,11 @@ func minInt(a, b int) int {
 	return b
 }
 
-// ComputeAllocationWithEncoder computes bit allocation and encodes the stereo params
+// ComputeAllocationWithEncoder computes bit allocation in Q3 and encodes the stereo params
 // to the range encoder. This is the encoding counterpart to ComputeAllocationWithDecoder.
 // prev is the last coded band count used for skip hysteresis (0 = no history).
 // signalBandwidth is the highest band index considered to carry signal (>= start).
-func ComputeAllocationWithEncoder(re *rangecoding.Encoder, totalBits, nbBands, channels int, cap, offsets []int, trim int, intensity int, dualStereo bool, lm int, prev int, signalBandwidth int) AllocationResult {
+func ComputeAllocationWithEncoder(re *rangecoding.Encoder, totalBitsQ3, nbBands, channels int, cap, offsets []int, trim int, intensity int, dualStereo bool, lm int, prev int, signalBandwidth int) AllocationResult {
 	if nbBands > MaxBands {
 		nbBands = MaxBands
 	}
@@ -530,7 +530,7 @@ func ComputeAllocationWithEncoder(re *rangecoding.Encoder, totalBits, nbBands, c
 		DualStereo:   false,
 	}
 
-	if nbBands == 0 || totalBits <= 0 {
+	if nbBands == 0 || totalBitsQ3 <= 0 {
 		return result
 	}
 
@@ -554,7 +554,7 @@ func ComputeAllocationWithEncoder(re *rangecoding.Encoder, totalBits, nbBands, c
 	finePriority := result.FinePriority
 
 	codedBands := cltComputeAllocationEncode(re, 0, nbBands, offsets, cap, trim, &intensityVal, &dualVal,
-		totalBits<<bitRes, &balance, pulses, fineBits, finePriority, channels, lm, prev, signalBandwidth)
+		totalBitsQ3, &balance, pulses, fineBits, finePriority, channels, lm, prev, signalBandwidth)
 
 	result.CodedBands = codedBands
 	result.Balance = balance
@@ -567,7 +567,7 @@ func ComputeAllocationWithEncoder(re *rangecoding.Encoder, totalBits, nbBands, c
 // ComputeAllocationHybrid computes bit allocation for hybrid mode CELT encoding.
 // In hybrid mode, CELT only encodes bands 17-21 (start=HybridCELTStartBand).
 // This properly sets bits for bands 0-16 to 0.
-func ComputeAllocationHybrid(re *rangecoding.Encoder, totalBits, nbBands, channels int, cap, offsets []int, trim int, intensity int, dualStereo bool, lm int, prev int, signalBandwidth int) AllocationResult {
+func ComputeAllocationHybrid(re *rangecoding.Encoder, totalBitsQ3, nbBands, channels int, cap, offsets []int, trim int, intensity int, dualStereo bool, lm int, prev int, signalBandwidth int) AllocationResult {
 	if nbBands > MaxBands {
 		nbBands = MaxBands
 	}
@@ -598,7 +598,7 @@ func ComputeAllocationHybrid(re *rangecoding.Encoder, totalBits, nbBands, channe
 		DualStereo:   false,
 	}
 
-	if nbBands == 0 || totalBits <= 0 {
+	if nbBands == 0 || totalBitsQ3 <= 0 {
 		return result
 	}
 
@@ -623,7 +623,7 @@ func ComputeAllocationHybrid(re *rangecoding.Encoder, totalBits, nbBands, channe
 
 	// Use HybridCELTStartBand (17) as the start band for hybrid mode
 	codedBands := cltComputeAllocationEncode(re, HybridCELTStartBand, nbBands, offsets, cap, trim, &intensityVal, &dualVal,
-		totalBits<<bitRes, &balance, pulses, fineBits, finePriority, channels, lm, prev, signalBandwidth)
+		totalBitsQ3, &balance, pulses, fineBits, finePriority, channels, lm, prev, signalBandwidth)
 
 	result.CodedBands = codedBands
 	result.Balance = balance

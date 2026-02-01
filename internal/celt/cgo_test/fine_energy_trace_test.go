@@ -171,7 +171,7 @@ func TestFineEnergyDetailedTrace(t *testing.T) {
 	totalBitsQ3 -= antiCollapseRsv
 
 	allocResult := celt.ComputeAllocationWithEncoder(
-		re, totalBitsQ3>>bitResFE,
+		re, totalBitsQ3,
 		nbBands, 1, caps, offsets, allocTrim,
 		nbBands, false, lm, 0, nbBands-1,
 	)

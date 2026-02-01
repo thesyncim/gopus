@@ -116,6 +116,85 @@ func medianOf5(x []float64) float64 {
 	return math.Min(t2, t4)
 }
 
+func medianOf3f(x []float32) float32 {
+	if len(x) < 3 {
+		if len(x) == 0 {
+			return 0
+		}
+		return x[0]
+	}
+
+	var t0, t1, t2 float32
+	if x[0] > x[1] {
+		t0 = x[1]
+		t1 = x[0]
+	} else {
+		t0 = x[0]
+		t1 = x[1]
+	}
+	t2 = x[2]
+
+	if t1 < t2 {
+		return t1
+	} else if t0 < t2 {
+		return t2
+	}
+	return t0
+}
+
+func medianOf5f(x []float32) float32 {
+	if len(x) < 5 {
+		return medianOf3f(x)
+	}
+
+	var t0, t1, t2, t3, t4 float32
+	t2 = x[2]
+
+	if x[0] > x[1] {
+		t0 = x[1]
+		t1 = x[0]
+	} else {
+		t0 = x[0]
+		t1 = x[1]
+	}
+
+	if x[3] > x[4] {
+		t3 = x[4]
+		t4 = x[3]
+	} else {
+		t3 = x[3]
+		t4 = x[4]
+	}
+
+	if t0 > t3 {
+		t0, t3 = t3, t0
+		t1, t4 = t4, t1
+	}
+
+	if t2 > t1 {
+		if t1 < t3 {
+			if t2 < t3 {
+				return t2
+			}
+			return t3
+		}
+		if t4 < t1 {
+			return t4
+		}
+		return t1
+	}
+	if t2 < t3 {
+		if t1 < t3 {
+			return t1
+		}
+		return t3
+	}
+	if t2 < t4 {
+		return t2
+	}
+	return t4
+}
+
 // computeNoiseFloor computes the noise floor for a given band.
 // The noise floor accounts for:
 // - Band width (logN)
@@ -133,6 +212,14 @@ func computeNoiseFloor(i, lsbDepth int, logN int16) float64 {
 	// noise_floor = 0.0625*logN + 0.5 + (9-lsb_depth) - eMeans + 0.0062*(i+5)^2
 	// Note: logN is in Q8 format (multiplied by 256), so 0.0625 = 1/16 converts it
 	return 0.0625*float64(logN) + 0.5 + float64(9-lsbDepth) - eMean + 0.0062*float64((i+5)*(i+5))
+}
+
+func computeNoiseFloor32(i, lsbDepth int, logN int16) float32 {
+	eMean := float32(0.0)
+	if i < len(EMeans) {
+		eMean = float32(EMeans[i])
+	}
+	return 0.0625*float32(logN) + 0.5 + float32(9-lsbDepth) - eMean + 0.0062*float32((i+5)*(i+5))
 }
 
 // DynallocAnalysis performs dynamic allocation analysis to compute:
@@ -177,39 +264,60 @@ func DynallocAnalysis(
 		TotBoost:     0,
 	}
 
+	bandLogE32 := make([]float32, len(bandLogE))
+	for i, v := range bandLogE {
+		bandLogE32[i] = float32(v)
+	}
+	var bandLogE2_32 []float32
+	if bandLogE2 != nil {
+		bandLogE2_32 = make([]float32, len(bandLogE2))
+		for i, v := range bandLogE2 {
+			bandLogE2_32[i] = float32(v)
+		}
+	}
+	var oldBandE32 []float32
+	if oldBandE != nil {
+		oldBandE32 = make([]float32, len(oldBandE))
+		for i, v := range oldBandE {
+			oldBandE32[i] = float32(v)
+		}
+	}
+
 	// Compute noise floor per band
-	noiseFloor := make([]float64, end)
+	noiseFloor := make([]float32, end)
 	for i := 0; i < end; i++ {
 		logNVal := int16(0)
 		if i < len(logN) {
 			logNVal = logN[i]
 		}
-		noiseFloor[i] = computeNoiseFloor(i, lsbDepth, logNVal)
+		noiseFloor[i] = computeNoiseFloor32(i, lsbDepth, logNVal)
 	}
 
 	// Compute maxDepth: max(bandLogE - noiseFloor) across all bands and channels
+	maxDepth32 := float32(result.MaxDepth)
 	for c := 0; c < channels; c++ {
 		for i := 0; i < end; i++ {
 			idx := c*nbBands + i
-			if idx < len(bandLogE) {
-				depth := bandLogE[idx] - noiseFloor[i]
-				if depth > result.MaxDepth {
-					result.MaxDepth = depth
+			if idx < len(bandLogE32) {
+				depth := bandLogE32[idx] - noiseFloor[i]
+				if depth > maxDepth32 {
+					maxDepth32 = depth
 				}
 			}
 		}
 	}
+	result.MaxDepth = float64(maxDepth32)
 
 	// Compute spread_weight using a simple masking model
 	// Reference: libopus lines 1082-1117
 	{
-		mask := make([]float64, nbBands)
-		sig := make([]float64, nbBands)
+		mask := make([]float32, nbBands)
+		sig := make([]float32, nbBands)
 
 		// Initialize mask with signal relative to noise floor
 		for i := 0; i < end; i++ {
-			if i < len(bandLogE) {
-				mask[i] = bandLogE[i] - noiseFloor[i]
+			if i < len(bandLogE32) {
+				mask[i] = bandLogE32[i] - noiseFloor[i]
 			}
 		}
 
@@ -217,8 +325,8 @@ func DynallocAnalysis(
 		if channels == 2 {
 			for i := 0; i < end; i++ {
 				idx := nbBands + i
-				if idx < len(bandLogE) {
-					ch2Val := bandLogE[idx] - noiseFloor[i]
+				if idx < len(bandLogE32) {
+					ch2Val := bandLogE32[idx] - noiseFloor[i]
 					if ch2Val > mask[i] {
 						mask[i] = ch2Val
 					}
@@ -245,11 +353,25 @@ func DynallocAnalysis(
 		// Compute SMR (Signal to Mask Ratio) and spread weight
 		for i := 0; i < end; i++ {
 			// Mask is never more than 72 dB below peak and never below noise floor
-			maskThresh := math.Max(0, math.Max(result.MaxDepth-12.0, mask[i]))
+			maskThresh := float32(0)
+			if maxDepth32-12.0 > mask[i] {
+				maskThresh = maxDepth32 - 12.0
+			} else {
+				maskThresh = mask[i]
+			}
+			if maskThresh < 0 {
+				maskThresh = 0
+			}
 			smr := sig[i] - maskThresh
 
 			// Clamp shift to [0, 5] range
-			shift := int(math.Max(0, math.Min(5, math.Floor(0.5-smr))))
+			shift := -int(math.Floor(float64(0.5 + smr)))
+			if shift < 0 {
+				shift = 0
+			}
+			if shift > 5 {
+				shift = 5
+			}
 			result.SpreadWeight[i] = 32 >> shift
 		}
 	}
@@ -260,17 +382,17 @@ func DynallocAnalysis(
 	minBytes := 30 + 5*lm
 	if effectiveBytes >= minBytes {
 		// Compute follower (smoothed band energies for dynamic allocation)
-		follower := make([]float64, channels*nbBands)
+		follower := make([]float32, channels*nbBands)
 
 		for c := 0; c < channels; c++ {
 			// Use bandLogE2 (secondary MDCT for transients) or fallback to bandLogE
-			bandLogE3 := make([]float64, end)
+			bandLogE3 := make([]float32, end)
 			for i := 0; i < end; i++ {
 				idx := c*nbBands + i
-				if bandLogE2 != nil && idx < len(bandLogE2) {
-					bandLogE3[i] = bandLogE2[idx]
-				} else if idx < len(bandLogE) {
-					bandLogE3[i] = bandLogE[idx]
+				if bandLogE2_32 != nil && idx < len(bandLogE2_32) {
+					bandLogE3[i] = bandLogE2_32[idx]
+				} else if idx < len(bandLogE32) {
+					bandLogE3[i] = bandLogE32[idx]
 				}
 			}
 
@@ -279,9 +401,9 @@ func DynallocAnalysis(
 			if lm == 0 {
 				for i := 0; i < min(8, end); i++ {
 					idx := c*nbBands + i
-					if oldBandE != nil && idx < len(oldBandE) {
-						if oldBandE[idx] > bandLogE3[i] {
-							bandLogE3[i] = oldBandE[idx]
+					if oldBandE32 != nil && idx < len(oldBandE32) {
+						if oldBandE32[idx] > bandLogE3[i] {
+							bandLogE3[i] = oldBandE32[idx]
 						}
 					}
 				}
@@ -298,26 +420,36 @@ func DynallocAnalysis(
 				if bandLogE3[i] > bandLogE3[i-1]+0.5 {
 					last = i
 				}
-				f[i] = math.Min(f[i-1]+1.5, bandLogE3[i])
+				if f[i-1]+1.5 < bandLogE3[i] {
+					f[i] = f[i-1] + 1.5
+				} else {
+					f[i] = bandLogE3[i]
+				}
 			}
 
 			// Backward pass: smooth from the last significant band
 			for i := last - 1; i >= 0; i-- {
-				f[i] = math.Min(f[i], math.Min(f[i+1]+2.0, bandLogE3[i]))
+				fwd := f[i+1] + 2.0
+				if fwd > bandLogE3[i] {
+					fwd = bandLogE3[i]
+				}
+				if fwd < f[i] {
+					f[i] = fwd
+				}
 			}
 
 			// Apply median filter to avoid unnecessary dynalloc triggering
 			offset := 1.0
 			for i := 2; i < end-2; i++ {
-				medVal := medianOf5(bandLogE3[i-2:])
-				if medVal-offset > f[i] {
-					f[i] = medVal - offset
+				medVal := medianOf5f(bandLogE3[i-2:])
+				if medVal-float32(offset) > f[i] {
+					f[i] = medVal - float32(offset)
 				}
 			}
 
 			// Handle edge bands with median of 3
 			if end >= 3 {
-				tmp := medianOf3(bandLogE3[0:3]) - offset
+				tmp := medianOf3f(bandLogE3[0:3]) - float32(offset)
 				if tmp > f[0] {
 					f[0] = tmp
 				}
@@ -325,7 +457,7 @@ func DynallocAnalysis(
 					f[1] = tmp
 				}
 
-				tmp = medianOf3(bandLogE3[end-3:end]) - offset
+				tmp = medianOf3f(bandLogE3[end-3:end]) - float32(offset)
 				if tmp > f[end-2] {
 					f[end-2] = tmp
 				}
@@ -356,29 +488,41 @@ func DynallocAnalysis(
 				}
 
 				// Combine channels: average of (bandLogE - follower) for each channel
-				boost0 := 0.0
-				boost1 := 0.0
-				if i < len(bandLogE) {
-					boost0 = math.Max(0, bandLogE[i]-follower[i])
+				boost0 := float32(0.0)
+				boost1 := float32(0.0)
+				if i < len(bandLogE32) {
+					boost0 = bandLogE32[i] - follower[i]
+					if boost0 < 0 {
+						boost0 = 0
+					}
 				}
-				if nbBands+i < len(bandLogE) {
-					boost1 = math.Max(0, bandLogE[nbBands+i]-follower[nbBands+i])
+				if nbBands+i < len(bandLogE32) {
+					boost1 = bandLogE32[nbBands+i] - follower[nbBands+i]
+					if boost1 < 0 {
+						boost1 = 0
+					}
 				}
 				follower[i] = (boost0 + boost1) / 2.0
 			}
 		} else {
 			for i := start; i < end; i++ {
-				if i < len(bandLogE) {
-					follower[i] = math.Max(0, bandLogE[i]-follower[i])
+				if i < len(bandLogE32) {
+					follower[i] = bandLogE32[i] - follower[i]
+					if follower[i] < 0 {
+						follower[i] = 0
+					}
 				}
 			}
 		}
 
 		// Compute importance weights
 		for i := start; i < end; i++ {
-			// importance = round(13 * 2^(min(follower, 4)))
-			expArg := math.Min(follower[i], 4.0)
-			result.Importance[i] = int(math.Floor(0.5 + 13.0*math.Pow(2.0, expArg)))
+			expArg := follower[i]
+			if expArg > 4.0 {
+				expArg = 4.0
+			}
+			imp := 13.0 * float64(celtExp2(expArg))
+			result.Importance[i] = int(math.Floor(0.5 + imp))
 		}
 
 		// For non-transient CBR/CVBR frames, halve the dynalloc contribution
@@ -400,7 +544,7 @@ func DynallocAnalysis(
 
 		// Compensate for Opus under-allocation on tones.
 		if toneishness > 0.98 && toneFreq >= 0 {
-			freqBin := int(math.Floor(0.5 + toneFreq*120.0/math.Pi))
+			freqBin := int(math.Floor(0.5 + float64(float32(toneFreq))*120.0/math.Pi))
 			for i := start; i < end; i++ {
 				if freqBin >= EBands[i] && freqBin <= EBands[i+1] {
 					follower[i] += 2.0
@@ -438,7 +582,9 @@ func DynallocAnalysis(
 		// The boost value is the NUMBER OF QUANTA to allocate (a count).
 		totBoost := 0
 		for i := start; i < end; i++ {
-			follower[i] = math.Min(follower[i], 4.0)
+			if follower[i] > 4.0 {
+				follower[i] = 4.0
+			}
 
 			// In float mode, SHR32(follower, 8) is a no-op
 			followerVal := follower[i]
@@ -464,7 +610,7 @@ func DynallocAnalysis(
 				boost = int(followerVal * 8.0)
 				boostBits = (boost * width << bitRes) / 8
 			} else {
-				boost = int(followerVal * float64(width) / 6.0)
+				boost = int(followerVal * float32(width) / 6.0)
 				boostBits = boost * 6 << bitRes
 			}
 

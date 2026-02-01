@@ -358,17 +358,6 @@ func imdctOverlapWithPrevScratchF32(out []float64, spectrum []float64, prevOverl
 	if len(out) < needed {
 		return
 	}
-	// Clear output; preserves no stale data.
-	for i := 0; i < needed; i++ {
-		out[i] = 0
-	}
-
-	// Copy the full prevOverlap to out[0:overlap].
-	if overlap > 0 && len(prevOverlap) > 0 {
-		copyLen := minInt(len(prevOverlap), overlap)
-		copy(out[:copyLen], prevOverlap[:copyLen])
-	}
-
 	// Use float32 trig table to match libopus
 	trig := getMDCTTrigF32(n)
 
@@ -376,27 +365,34 @@ func imdctOverlapWithPrevScratchF32(out []float64, spectrum []float64, prevOverl
 	var fftOut []complex64
 	var buf []float32
 	var fftTmp []kissCpx
+	var outF32 []float32
 	if scratch == nil {
 		fftIn = make([]complex64, n4)
 		fftOut = make([]complex64, n4)
 		fftTmp = make([]kissCpx, n4)
 		buf = make([]float32, n2)
+		outF32 = make([]float32, needed)
 	} else {
 		fftIn = ensureComplex64Slice(&scratch.fftIn, n4)
 		fftOut = ensureComplex64Slice(&scratch.fftOut, n4)
 		fftTmp = ensureKissCpxSlice(&scratch.fftTmp, n4)
 		buf = ensureFloat32Slice(&scratch.buf, n2)
+		outF32 = ensureFloat32Slice(&scratch.out, needed)
 	}
-	for i := 0; i < n4; i++ {
-		x1 := float32(spectrum[2*i])
-		x2 := float32(spectrum[n2-1-2*i])
-		t0 := trig[i]
-		t1 := trig[n4+i]
-		yr := x2*t0 + x1*t1
-		yi := x1*t0 - x2*t1
-		// Swap real/imag because we use an FFT instead of an IFFT.
-		fftIn[i] = complex(yi, yr)
+
+	for i := 0; i < needed; i++ {
+		outF32[i] = 0
 	}
+
+	// Copy the full prevOverlap to outF32[0:overlap].
+	if overlap > 0 && len(prevOverlap) > 0 {
+		copyLen := minInt(len(prevOverlap), overlap)
+		for i := 0; i < copyLen; i++ {
+			outF32[i] = float32(prevOverlap[i])
+		}
+	}
+
+	imdctPreRotateF32(fftIn, spectrum, trig, n2, n4)
 
 	kissFFT32To(fftOut, fftIn, fftTmp)
 	for i := 0; i < n4; i++ {
@@ -405,39 +401,15 @@ func imdctOverlapWithPrevScratchF32(out []float64, spectrum []float64, prevOverl
 		buf[2*i+1] = imag(v)
 	}
 
-	yp0 := 0
-	yp1 := n2 - 2
-	for i := 0; i < (n4+1)>>1; i++ {
-		re := buf[yp0+1]
-		im := buf[yp0]
-		t0 := trig[i]
-		t1 := trig[n4+i]
-		yr := re*t0 + im*t1
-		yi := re*t1 - im*t0
-		re2 := buf[yp1+1]
-		im2 := buf[yp1]
-		buf[yp0] = yr
-		buf[yp1+1] = yi
+	imdctPostRotateF32(buf, trig, n2, n4)
 
-		t0 = trig[n4-i-1]
-		t1 = trig[n2-i-1]
-		yr = re2*t0 + im2*t1
-		yi = re2*t1 - im2*t0
-		buf[yp1] = yr
-		buf[yp0+1] = yi
-		yp0 += 2
-		yp1 -= 2
-	}
-
-	// Copy IMDCT output to out, starting at overlap/2, converting float32 to float64
+	// Copy IMDCT output to outF32, starting at overlap/2
 	start := overlap / 2
-	if start+n2 <= len(out) {
-		for i := 0; i < n2; i++ {
-			out[start+i] = float64(buf[i])
-		}
+	if start+n2 <= len(outF32) {
+		copy(outF32[start:start+n2], buf)
 	}
 
-	// TDAC windowing blends out[0:overlap] using float32
+	// TDAC windowing blends outF32[0:overlap] using float32
 	if overlap > 0 {
 		windowF32 := GetWindowBufferF32(overlap)
 		xp1 := overlap - 1
@@ -445,15 +417,19 @@ func imdctOverlapWithPrevScratchF32(out []float64, spectrum []float64, prevOverl
 		wp1 := 0
 		wp2 := overlap - 1
 		for i := 0; i < overlap/2; i++ {
-			x1 := float32(out[xp1])
-			x2 := float32(out[yp1])
-			out[yp1] = float64(x2*windowF32[wp2] - x1*windowF32[wp1])
-			out[xp1] = float64(x2*windowF32[wp1] + x1*windowF32[wp2])
+			x1 := outF32[xp1]
+			x2 := outF32[yp1]
+			outF32[yp1] = x2*windowF32[wp2] - x1*windowF32[wp1]
+			outF32[xp1] = x2*windowF32[wp1] + x1*windowF32[wp2]
 			yp1++
 			xp1--
 			wp1++
 			wp2--
 		}
+	}
+
+	for i := 0; i < needed; i++ {
+		out[i] = float64(outF32[i])
 	}
 }
 
@@ -618,15 +594,7 @@ func imdctInPlaceScratchF32(spectrum []float64, out []float64, blockStart, overl
 		buf = ensureFloat32Slice(&scratch.buf, n2)
 	}
 
-	for i := 0; i < n4; i++ {
-		x1 := float32(spectrum[2*i])
-		x2 := float32(spectrum[n2-1-2*i])
-		t0 := trig[i]
-		t1 := trig[n4+i]
-		yr := x2*t0 + x1*t1
-		yi := x1*t0 - x2*t1
-		fftIn[i] = complex(yi, yr)
-	}
+	imdctPreRotateF32(fftIn, spectrum, trig, n2, n4)
 
 	// FFT using float32 kiss_fft implementation
 	kissFFT32To(fftOut, fftIn, fftTmp)
@@ -638,38 +606,11 @@ func imdctInPlaceScratchF32(spectrum []float64, out []float64, blockStart, overl
 		buf[2*i+1] = imag(v)
 	}
 
-	yp0 := 0
-	yp1 := n2 - 2
-	for i := 0; i < (n4+1)>>1; i++ {
-		re := buf[yp0+1]
-		im := buf[yp0]
-		t0 := trig[i]
-		t1 := trig[n4+i]
-		yr := re*t0 + im*t1
-		yi := re*t1 - im*t0
-		re2 := buf[yp1+1]
-		im2 := buf[yp1]
-		buf[yp0] = yr
-		buf[yp1+1] = yi
+	imdctPostRotateF32(buf, trig, n2, n4)
 
-		t0 = trig[n4-i-1]
-		t1 = trig[n2-i-1]
-		yr = re2*t0 + im2*t1
-		yi = re2*t1 - im2*t0
-		buf[yp1] = yr
-		buf[yp0+1] = yi
-		yp0 += 2
-		yp1 -= 2
-	}
-
-	// Write IMDCT output to shared buffer, converting float32 to float64
 	start := blockStart + overlap/2
-	end := start + n2
-	if end > len(out) {
-		end = len(out)
-	}
-	for i := start; i < end; i++ {
-		out[i] = float64(buf[i-start])
+	if start >= len(out) {
+		return
 	}
 
 	// TDAC windowing using float32 window
@@ -680,7 +621,8 @@ func imdctInPlaceScratchF32(spectrum []float64, out []float64, blockStart, overl
 		wp1 := 0
 		wp2 := overlap - 1
 		for i := 0; i < overlap/2; i++ {
-			x1 := float32(out[xp1])
+			bufIdx := xp1 - start
+			x1 := buf[bufIdx]
 			x2 := float32(out[yp1])
 			out[yp1] = float64(x2*windowF32[wp2] - x1*windowF32[wp1])
 			out[xp1] = float64(x2*windowF32[wp1] + x1*windowF32[wp2])
@@ -689,6 +631,18 @@ func imdctInPlaceScratchF32(spectrum []float64, out []float64, blockStart, overl
 			wp1++
 			wp2--
 		}
+	}
+
+	copyStart := 0
+	if overlap > 0 {
+		copyStart = overlap / 2
+	}
+	limit := n2
+	if start+limit > len(out) {
+		limit = len(out) - start
+	}
+	for i := copyStart; i < limit; i++ {
+		out[start+i] = float64(buf[i])
 	}
 }
 

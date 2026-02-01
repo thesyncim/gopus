@@ -45,6 +45,8 @@ type Encoder struct {
 
 	// Frame counting for intra mode decisions
 	frameCount int // Number of frames encoded (0 = first frame uses intra mode)
+	// Consecutive transient frames (used for anti-collapse flag)
+	consecTransient int
 
 	// Allocation history for skip decisions
 	lastCodedBands int // Previous coded band count (0 = uninitialized)
@@ -213,6 +215,7 @@ func (e *Encoder) Reset() {
 	e.frameCount = 0
 	e.frameBits = 0
 	e.lastCodedBands = 0
+	e.consecTransient = 0
 
 	// Reset spread decision state (match libopus init values)
 	// Reference: libopus celt_encoder.c line 3088-3089

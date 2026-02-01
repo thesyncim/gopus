@@ -185,34 +185,36 @@ func (e *Encoder) ApplyDCReject(pcm []float64) []float64 {
 
 	// Coefficients: coef = 6.3 * cutoff / Fs
 	// For 48kHz and 3Hz cutoff: coef = 6.3 * 3 / 48000 = 0.00039375
-	coef := 6.3 * float64(DCRejectCutoffHz) / float64(e.sampleRate)
-	coef2 := 1.0 - coef
-	verySmall := 1e-20 // Matches VERY_SMALL in libopus
+	// Use float32 math to match libopus float path.
+	coef := float32(6.3 * float64(DCRejectCutoffHz) / float64(e.sampleRate))
+	coef2 := float32(1.0) - coef
+	verySmall := float32(1e-30) // Matches VERY_SMALL in libopus float build
 
 	output := make([]float64, len(pcm))
 
 	if e.channels == 1 {
-		m0 := e.hpMem[0]
+		m0 := float32(e.hpMem[0])
 		for i := range pcm {
-			x := pcm[i]
-			output[i] = x - m0
+			x := float32(pcm[i])
+			y := x - m0
+			output[i] = float64(y)
 			m0 = coef*x + verySmall + coef2*m0
 		}
-		e.hpMem[0] = m0
+		e.hpMem[0] = float64(m0)
 	} else {
 		// Stereo: interleaved samples
-		m0 := e.hpMem[0]
-		m1 := e.hpMem[1]
+		m0 := float32(e.hpMem[0])
+		m1 := float32(e.hpMem[1])
 		for i := 0; i < len(pcm)-1; i += 2 {
-			x0 := pcm[i]
-			x1 := pcm[i+1]
-			output[i] = x0 - m0
-			output[i+1] = x1 - m1
+			x0 := float32(pcm[i])
+			x1 := float32(pcm[i+1])
+			output[i] = float64(x0 - m0)
+			output[i+1] = float64(x1 - m1)
 			m0 = coef*x0 + verySmall + coef2*m0
 			m1 = coef*x1 + verySmall + coef2*m1
 		}
-		e.hpMem[0] = m0
-		e.hpMem[1] = m1
+		e.hpMem[0] = float64(m0)
+		e.hpMem[1] = float64(m1)
 	}
 
 	return output

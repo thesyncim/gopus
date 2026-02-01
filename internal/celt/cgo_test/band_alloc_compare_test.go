@@ -82,8 +82,8 @@ func compareBandAllocation(t *testing.T, frameSize, channels, bitrate, trim int)
 	libCodedBands, libBalance, libPulses, libEbits, libFinePriority, _, _ :=
 		LibopusComputeAllocation(0, nbBands, offsets, libopusCaps, trim, intensity, dualStereo, totalBitsQ3, channels, lm, 0, nbBands-1)
 
-	// Call gopus allocation (convert Q3 to bits)
-	gopusResult := celt.ComputeAllocationWithEncoder(nil, totalBitsQ3>>3, nbBands, channels, gopusCaps, offsets, trim, intensity, false, lm, 0, nbBands-1)
+	// Call gopus allocation (Q3 bits)
+	gopusResult := celt.ComputeAllocationWithEncoder(nil, totalBitsQ3, nbBands, channels, gopusCaps, offsets, trim, intensity, false, lm, 0, nbBands-1)
 
 	t.Logf("\n=== Band Allocation Comparison ===")
 	t.Logf("Parameters: frameSize=%d, channels=%d, bitrate=%d, trim=%d", frameSize, channels, bitrate, trim)
@@ -205,7 +205,7 @@ func TestBits2PulsesComparison(t *testing.T) {
 		lm     int
 		bitsQ3 int
 	}{
-		{0, 3, 256},  // Low band, 20ms, typical allocation
+		{0, 3, 256}, // Low band, 20ms, typical allocation
 		{5, 3, 200},
 		{10, 3, 300},
 		{15, 3, 700},

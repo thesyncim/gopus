@@ -242,4 +242,5 @@ type imdctScratchF32 struct {
 	fftOut []complex64
 	fftTmp []kissCpx
 	buf    []float32
+	out    []float32
 }

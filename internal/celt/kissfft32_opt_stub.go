@@ -1,4 +1,4 @@
-//go:build !arm64
+//go:build !arm64 || purego
 
 package celt
 
@@ -8,6 +8,12 @@ package celt
 func kfBfly2M1Available() bool { return false }
 
 func kfBfly4M1Available() bool { return false }
+
+func kfBfly4MxAvailable() bool { return false }
+
+func kfBfly3M1Available() bool { return false }
+
+func kfBfly5M1Available() bool { return false }
 
 // kfBfly2M1 is a fallback used on non-arm64 platforms.
 // It matches the m==1 path in kfBfly2.
@@ -39,3 +45,13 @@ func kfBfly4M1(fout []kissCpx, n int) {
 		fout = fout[4:]
 	}
 }
+
+// kfBfly4Mx is a fallback used on non-arm64 platforms.
+// It uses the Go implementation via kfBfly4.
+func kfBfly4Mx(_ []kissCpx, _ []kissCpx, _ int, _ int, _ int, _ int) {}
+
+// kfBfly3M1 is a stub used on non-arm64 or purego builds.
+func kfBfly3M1(_ []kissCpx, _ []kissCpx, _ int, _ int, _ int) {}
+
+// kfBfly5M1 is a stub used on non-arm64 or purego builds.
+func kfBfly5M1(_ []kissCpx, _ []kissCpx, _ int, _ int, _ int) {}

@@ -29,14 +29,22 @@ func TestTmpBand2DynallocCompare(t *testing.T) {
 	shortBlocks := mode.ShortBlocks
 	overlap := celt.Overlap
 
-	// GOPUS pipeline (short + long MDCT energies)
+	// GOPUS pipeline (DC reject + delay + preemph + MDCT energies)
 	goEnc := celt.NewEncoder(1)
 	goEnc.Reset()
 	goEnc.SetBitrate(bitrate)
 	goEnc.SetComplexity(10)
 	goEnc.SetVBR(false)
 
-	gopusPreemph := goEnc.ApplyPreemphasisWithScaling(pcm64)
+	// Apply DC reject (matches encoder path)
+	dcRejected := goEnc.ApplyDCReject(pcm64)
+	// Apply delay compensation (192 samples of lookahead)
+	delayComp := 192
+	combined := make([]float64, delayComp+len(dcRejected))
+	copy(combined[delayComp:], dcRejected)
+	samplesForFrame := combined[:frameSize]
+
+	gopusPreemph := goEnc.ApplyPreemphasisWithScaling(samplesForFrame)
 
 	gopusShortMDCT := celt.ComputeMDCTWithHistory(gopusPreemph, make([]float64, overlap), shortBlocks)
 	gopusBandLogE := goEnc.ComputeBandEnergies(gopusShortMDCT, nbBands, frameSize)
@@ -52,8 +60,12 @@ func TestTmpBand2DynallocCompare(t *testing.T) {
 	}
 	roundToFloat32(gopusBandLogE2)
 
-	// LIBOPUS pipeline using MDCT wrapper
-	libPreemph := ApplyLibopusPreemphasis(pcm32, 0.85)
+	// LIBOPUS pipeline using MDCT wrapper (same DC reject + delay)
+	samplesForFrame32 := make([]float32, frameSize)
+	for i := 0; i < frameSize; i++ {
+		samplesForFrame32[i] = float32(samplesForFrame[i])
+	}
+	libPreemph := ApplyLibopusPreemphasis(samplesForFrame32, float32(celt.PreemphCoef))
 	modeLib := GetCELTMode48000_960()
 	if modeLib == nil {
 		t.Fatal("failed to get libopus CELT mode")

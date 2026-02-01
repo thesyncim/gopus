@@ -245,7 +245,7 @@ func TestBitBudgetAllocationInputs(t *testing.T) {
 	// Compute allocation
 	result := celt.ComputeAllocationWithEncoder(
 		nil,
-		bitsForAllocQ3>>3, // bits in Q0
+		bitsForAllocQ3, // bits in Q3
 		nbBands,
 		channels,
 		caps,

@@ -228,6 +228,10 @@ func kfBfly4(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
 		}
 		return
 	}
+	if kfBfly4MxAvailable() {
+		kfBfly4Mx(fout, st.w, m, N, fstride, mm)
+		return
+	}
 	m2 := 2 * m
 	m3 := 3 * m
 	foutBeg := fout
@@ -259,6 +263,12 @@ func kfBfly4(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
 }
 
 func kfBfly3(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
+	if m == 1 {
+		if kfBfly3M1Available() {
+			kfBfly3M1(fout, st.w, fstride, N, mm)
+			return
+		}
+	}
 	m2 := 2 * m
 	foutBeg := fout
 	epi3 := st.w[fstride*m]
@@ -292,6 +302,12 @@ func kfBfly3(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
 }
 
 func kfBfly5(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
+	if m == 1 {
+		if kfBfly5M1Available() {
+			kfBfly5M1(fout, st.w, fstride, N, mm)
+			return
+		}
+	}
 	foutBeg := fout
 	ya := st.w[fstride*m]
 	yb := st.w[fstride*2*m]

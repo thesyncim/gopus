@@ -272,6 +272,7 @@ func TestAllocationEncodeDecodeRoundTrip(t *testing.T) {
 	lm := 3
 	channels := 2
 	totalBits := 600
+	totalBitsQ3 := totalBits << bitRes
 	intensity := nbBands
 	dualStereo := true
 	trim := 0
@@ -285,7 +286,7 @@ func TestAllocationEncodeDecodeRoundTrip(t *testing.T) {
 
 	encResult := ComputeAllocationWithEncoder(
 		re,
-		totalBits,
+		totalBitsQ3,
 		nbBands,
 		channels,
 		caps,

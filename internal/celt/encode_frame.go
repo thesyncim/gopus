@@ -57,20 +57,12 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	nbBands := mode.EffBands
 	lm := mode.LM
 
-	// Step 3a: DC rejection is DISABLED for pure CELT encoding.
-	// Testing showed that libopus's EncodeFloat for CELT-only mode does NOT
-	// apply DC rejection at the CELT encoder level. DC rejection is applied
-	// at the Opus encoder level (opus_encode_float) before mode selection,
-	// but when we directly call the CELT encoder, we should skip it.
-	//
-	// The DC rejection was causing MDCT coefficients to differ by ~20-22,
-	// which then caused PVQ quantization to produce completely different
-	// indices (dot product of -0.31 between gopus and libopus directions).
-	//
-	// TODO: For full Opus encoder integration, dc_reject should be applied
-	// at the Opus level, not within EncodeFrame.
+	// Step 3a: Apply DC rejection (high-pass) to match libopus Opus encoder.
+	// libopus applies dc_reject() at the Opus encoder level before CELT
+	// mode selection. Since gopus invokes the CELT encoder directly for
+	// CELT mode, we apply dc_reject here to match the full encode path.
 	// Reference: libopus src/opus_encoder.c line 2008: dc_reject(pcm, 3, ...)
-	dcRejected := pcm // Skip DC rejection - use raw PCM
+	dcRejected := e.ApplyDCReject(pcm)
 
 	// Step 3b: Apply delay buffer (lookahead compensation)
 	// libopus uses a delay_compensation of Fs/250 = 192 samples at 48kHz.
@@ -323,6 +315,15 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		}
 	}
 
+	// Store band log-energies for debugging/analysis.
+	// These are the values passed to DynallocAnalysis.
+	e.lastBandLogE = append(e.lastBandLogE[:0], energies...)
+	if bandLogE2 != nil {
+		e.lastBandLogE2 = append(e.lastBandLogE2[:0], bandLogE2...)
+	} else {
+		e.lastBandLogE2 = e.lastBandLogE2[:0]
+	}
+
 	// Compute linear band amplitudes directly from MDCT coefficients.
 	// This matches libopus compute_band_energies() which returns sqrt(sum of squares).
 	// CRITICAL: We must use ORIGINAL linear amplitudes, not log-domain converted back to linear,
@@ -470,7 +471,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// This computes maxDepth, offsets, importance, and spread_weight.
 	// The results are stored for next frame's VBR target computation.
 	// Reference: libopus celt/celt_encoder.c dynalloc_analysis()
-	lsbDepth := 16 // Assume 16-bit input; could be made configurable
+	//
+	// libopus defaults to 24 for float input (see celt_encoder.c: st->lsb_depth=24).
+	// Our encoder operates on float64 samples, so match the float path.
+	lsbDepth := 24
 	logN := make([]int16, nbBands)
 	for i := 0; i < nbBands && i < len(LogN); i++ {
 		logN[i] = int16(LogN[i])
@@ -566,8 +570,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			// pf_on&&!shortBlocks as updateHF condition.
 			updateHF := shortBlocks == 1
 			// Compute dynamic spread weights based on masking analysis (matches libopus dynalloc_analysis)
-			// Using 16-bit depth assumption (standard audio input)
-			spreadWeights := ComputeSpreadWeights(energies, nbBands, e.channels, 16)
+			// Use lsbDepth derived above to match libopus float input.
+			spreadWeights := ComputeSpreadWeights(energies, nbBands, e.channels, lsbDepth)
 			spread = e.SpreadingDecisionWithWeights(normL, nbBands, e.channels, frameSize, updateHF, spreadWeights)
 		}
 		re.EncodeICDF(spread, spreadICDF, 5)
@@ -645,40 +649,56 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		// Update offsets[i] to reflect actual boost applied (for allocation)
 		offsets[i] = boost
 	}
+	if DynallocDebugHook != nil {
+		DynallocDebugHook(DynallocDebugInfo{
+			Encode:  true,
+			Offsets: append([]int(nil), offsets...),
+		})
+	}
 
 	// Step 11.5: Compute and encode allocation trim (only if budget allows)
 	// Reference: libopus celt_encoder.c line 2408-2417
 	// The trim value affects bit allocation bias between lower and higher frequency bands.
-	effectiveBytesForTrim := targetBits / 8
-	equivRate := ComputeEquivRate(effectiveBytesForTrim, e.channels, lm, e.targetBitrate)
-	allocTrim := AllocTrimAnalysis(
-		normL,
-		energies,
-		nbBands,
-		lm,
-		e.channels,
-		normR,
-		intensity,
-		tfEstimate,
-		equivRate,
-		0.0, // surroundTrim - not implemented yet
-		0.0, // tonalitySlope - not implemented yet
-	)
-
-	// Capture debug info if enabled
-	if e.debugAllocTrim {
-		e.lastAllocTrimDebug = &AllocTrimDebugInfo{
-			TfEstimate:     tfEstimate,
-			EquivRate:      equivRate,
-			EffectiveBytes: effectiveBytesForTrim,
-			TargetBits:     targetBits,
-			AllocTrim:      allocTrim,
-		}
-	}
-
+	allocTrim := 5
+	encodedTrim := false
 	tellForTrim := re.TellFrac()
-	if tellForTrim+(6<<bitRes) <= totalBitsQ3ForDynalloc {
+	if tellForTrim+(6<<bitRes) <= totalBitsQ3ForDynalloc-totalBoost {
+		effectiveBytesForTrim := targetBits / 8
+		equivRate := ComputeEquivRate(effectiveBytesForTrim, e.channels, lm, e.targetBitrate)
+		allocTrim = AllocTrimAnalysis(
+			normL,
+			energies,
+			nbBands,
+			lm,
+			e.channels,
+			normR,
+			intensity,
+			tfEstimate,
+			equivRate,
+			0.0, // surroundTrim - not implemented yet
+			0.0, // tonalitySlope - not implemented yet
+		)
+
+		// Capture debug info if enabled
+		if e.debugAllocTrim {
+			e.lastAllocTrimDebug = &AllocTrimDebugInfo{
+				TfEstimate:     tfEstimate,
+				EquivRate:      equivRate,
+				EffectiveBytes: effectiveBytesForTrim,
+				TargetBits:     targetBits,
+				AllocTrim:      allocTrim,
+			}
+		}
+
 		re.EncodeICDF(allocTrim, trimICDF, 7)
+		encodedTrim = true
+	}
+	if TrimDebugHook != nil {
+		TrimDebugHook(TrimDebugInfo{
+			Encode:  true,
+			Trim:    allocTrim,
+			Encoded: encodedTrim,
+		})
 	}
 
 	// Step 12: Compute bit allocation
@@ -697,7 +717,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	allocResult := ComputeAllocationWithEncoder(
 		re,
-		totalBitsQ3>>bitRes,
+		totalBitsQ3,
 		nbBands,
 		e.channels,
 		caps,
@@ -760,7 +780,11 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	// Step 14.5: Encode anti-collapse flag if reserved
 	if antiCollapseRsv > 0 {
-		re.EncodeRawBits(0, 1)
+		antiCollapseOn := 0
+		if e.consecTransient < 2 {
+			antiCollapseOn = 1
+		}
+		re.EncodeRawBits(uint32(antiCollapseOn), 1)
 	}
 
 	// Step 14.6: Encode energy finalization bits (leftover budget)
@@ -778,6 +802,11 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	bytes := re.Done()
 	e.SetPrevEnergyWithPrev(prev1LogE, quantizedEnergies)
 	e.IncrementFrameCount()
+	if transient {
+		e.consecTransient++
+	} else {
+		e.consecTransient = 0
+	}
 
 	return bytes, nil
 }

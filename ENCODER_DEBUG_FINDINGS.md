@@ -2599,3 +2599,40 @@ All allocation arrays (bits[], fineBits[], finePriority[], caps[], balance, code
 1. Compare **TF encoding logp inputs** and **coarse energy encode decision paths** (Laplace vs small-energy) using libopus tracer; ensure same `logp` and method selection per band.
 2. Add libopus tracer wrapper for **Laplace encode** to compare range state after each coarse-energy symbol.
 3. Verify **max_decay / nbAvailableBytes** and `budget` calculations against libopus for CBR (pre-header `tell` effects).
+
+---
+
+### 2026-02-01 Update: Encoder Now Bit-Exact (Single-Byte Mismatch Resolved)
+
+#### Root Cause
+- **Allocation was using Q0 bits instead of Q3** in the encoder path. `ComputeAllocationWithEncoder` expected Q0 and callers were passing `totalBitsQ3>>3`, which truncated fractional Q3 bits. This caused the encoder/decoder to compute different `pulses[]` (band 0 off by 1), desyncing PVQ indices and shifting the bitstream.
+- **Anti-collapse bit was hard-coded to 0**; libopus encodes `anti_collapse_on = (consec_transient < 2)` which flipped a single raw bit near the end of the packet after the allocation fix.
+
+#### Fixes Applied
+1. **Allocation now uses Q3 throughout encoder path**
+   - `ComputeAllocationWithEncoder`/`ComputeAllocationHybrid` now accept `totalBitsQ3` (Q3) and pass it through unchanged.
+   - All call sites updated to pass Q3 values (`<<3` where needed).
+   - Encoder allocation now matches decoder/libopus exactly.
+2. **Anti-collapse flag now matches libopus**
+   - Added `consecTransient` to encoder state.
+   - Encode `anti_collapse_on = (consecTransient < 2)` when reserved.
+   - Update `consecTransient` per frame (increment on transient, reset otherwise).
+3. **Trim encoding budget**
+   - Trim encoding now uses `totalBitsQ3 - totalBoost` budget (libopus behavior).
+   - `allocTrim` remains default 5 unless encoded (matches decoder).
+
+#### Result
+- `TestTraceRealEncodingDivergence` now reports **“Packets match completely!”** (159/159 bytes).
+- Range/PVQ indices align across all bands; final range matches libopus.
+
+#### Debug Hooks Added (for traceability)
+- `QuantDebugHook`, `BandDebugHook`, `DynallocDebugHook`, `TrimDebugHook` to inspect encoder/decoder alignment (no-op when nil).
+
+#### Tests Run
+- `go test ./internal/celt/cgo_test -run TestQuantDebugBand6EncodeDecode -v`
+- `go test ./internal/celt/cgo_test -run TestTracePVQSearchBand6 -v`
+- `go test ./internal/celt/cgo_test -run TestTraceRealEncodingDivergence -v`
+
+#### Re-Validation (2026-02-01)
+- `TestTraceRealEncodingDivergence`: packets match completely (159/159 bytes).
+- `TestTracePVQSearchBand6`: PVQ index matches (band 6).

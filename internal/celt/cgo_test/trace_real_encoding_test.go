@@ -149,6 +149,7 @@ func TestTraceRealEncodingDivergence(t *testing.T) {
 		offsetsLib[i] = boost
 	}
 	t.Logf("Tell after dynalloc: %d bits", rdLib.Tell())
+	t.Logf("Dynalloc offsets (lib, Q3 bits): %v", offsetsLib[:nbBands])
 
 	// Decode trim
 	trimICDF := []uint8{126, 124, 119, 109, 87, 41, 19, 9, 4, 2, 0}
@@ -247,6 +248,12 @@ func TestTraceRealEncodingDivergence(t *testing.T) {
 		offsetsGo[i] = boost
 	}
 	t.Logf("Tell after dynalloc: %d bits", rdGo.Tell())
+	t.Logf("Dynalloc offsets (go, Q3 bits): %v", offsetsGo[:nbBands])
+	for i := 0; i < nbBands; i++ {
+		if offsetsLib[i] != offsetsGo[i] {
+			t.Logf("Dynalloc offset diff band %d: lib=%d go=%d", i, offsetsLib[i], offsetsGo[i])
+		}
+	}
 
 	// Decode trim
 	trimGo := rdGo.DecodeICDF(trimICDF, 7)
@@ -466,11 +473,12 @@ func TestTraceRealEncodingDivergence(t *testing.T) {
 		}
 	}
 
-	// Now decode PVQ for first few bands
+	// Now decode PVQ for bands until we find a mismatch
 	M := 1 << lm
 	t.Logf("Tell before PVQ: lib=%d go=%d", rdLib2.Tell(), rdGo2.Tell())
 
-	for band := 0; band < 5; band++ {
+	firstPVQDiff := -1
+	for band := 0; band < nbBands; band++ {
 		bandStart := celt.EBands[band] * M
 		bandEnd := celt.EBands[band+1] * M
 		n := bandEnd - bandStart
@@ -507,9 +515,19 @@ func TestTraceRealEncodingDivergence(t *testing.T) {
 		marker := ""
 		if idxLib != idxGo || vsizeLib != vsizeGo || tellLib != tellGo {
 			marker = " <-- DIFFERS"
+			if firstPVQDiff < 0 {
+				firstPVQDiff = band
+			}
 		}
 		t.Logf("Band %d: lib(k=%d, vsize=%d, idx=%d, tell=%d) go(k=%d, vsize=%d, idx=%d, tell=%d)%s",
 			band, kLib, vsizeLib, idxLib, tellLib, kGo, vsizeGo, idxGo, tellGo, marker)
+		if firstPVQDiff >= 0 {
+			break
+		}
+	}
+
+	if firstPVQDiff >= 0 {
+		t.Logf("First PVQ mismatch at band %d", firstPVQDiff)
 	}
 
 	// Show bytes around divergence

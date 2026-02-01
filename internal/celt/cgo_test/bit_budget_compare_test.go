@@ -244,6 +244,7 @@ func TestBitBudgetComponentBreakdown(t *testing.T) {
 	// Available bits for allocation (after flags, coarse energy, TF, spread, dynalloc, trim)
 	availBitsForAlloc := totalBits - overheadBits + fineEnergyBits // fine energy is part of allocation
 	t.Logf("Available bits for allocation: ~%d", availBitsForAlloc)
+	availBitsForAllocQ3 := availBitsForAlloc << 3
 
 	// Compute allocation
 	caps := initCapsLocal(nbBands, lm, channels)
@@ -252,7 +253,7 @@ func TestBitBudgetComponentBreakdown(t *testing.T) {
 
 	result := celt.ComputeAllocationWithEncoder(
 		nil, // no encoder needed
-		availBitsForAlloc,
+		availBitsForAllocQ3,
 		nbBands,
 		channels,
 		caps,

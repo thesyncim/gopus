@@ -30,70 +30,70 @@ type TransientAnalysisResult struct {
 // This is used to detect pure tones by analyzing the resonant characteristics.
 // Returns (lpc0, lpc1, success) where success=false if the computation fails.
 // Reference: libopus celt/celt_encoder.c tone_lpc()
-func toneLPC(x []float64, delay int) (float64, float64, bool) {
-	len := len(x)
-	if len <= 2*delay {
+func toneLPC(x []float32, delay int) (float32, float32, bool) {
+	n := len(x)
+	if n <= 2*delay {
 		return 0, 0, false
 	}
 
-	// Compute correlations using forward prediction covariance method
-	var r00, r01, r02 float64
-	for i := 0; i < len-2*delay; i++ {
+	// Compute correlations using forward prediction covariance method.
+	var r00, r01, r02 float32
+	for i := 0; i < n-2*delay; i++ {
 		r00 += x[i] * x[i]
 		r01 += x[i] * x[i+delay]
 		r02 += x[i] * x[i+2*delay]
 	}
 
-	// Compute edge corrections for r11, r22, r12
-	var edges float64
+	// Edge corrections for r11, r22, r12.
+	var edges float32
 	for i := 0; i < delay; i++ {
-		edges += x[len+i-2*delay]*x[len+i-2*delay] - x[i]*x[i]
+		edges += x[n+i-2*delay]*x[n+i-2*delay] - x[i]*x[i]
 	}
 	r11 := r00 + edges
 
 	edges = 0
 	for i := 0; i < delay; i++ {
-		edges += x[len+i-delay]*x[len+i-delay] - x[i+delay]*x[i+delay]
+		edges += x[n+i-delay]*x[n+i-delay] - x[i+delay]*x[i+delay]
 	}
 	r22 := r11 + edges
 
 	edges = 0
 	for i := 0; i < delay; i++ {
-		edges += x[len+i-2*delay]*x[len+i-delay] - x[i]*x[i+delay]
+		edges += x[n+i-2*delay]*x[n+i-delay] - x[i]*x[i+delay]
 	}
 	r12 := r01 + edges
 
-	// Combine forward and backward for symmetric solution
+	// Combine forward and backward for symmetric solution.
 	R00 := r00 + r22
 	R01 := r01 + r12
 	R11 := 2 * r11
 	R02 := 2 * r02
 	R12 := r12 + r01
 
-	// Solve A*x=b where A=[R00, R01; R01, R11] and b=[R02; R12]
+	// Solve A*x=b where A=[R00, R01; R01, R11] and b=[R02; R12].
 	den := R00*R11 - R01*R01
-
-	// Check for near-singular matrix (as in libopus: den < 0.001*R00*R11)
 	if den < 0.001*R00*R11 {
 		return 0, 0, false
 	}
 
 	num1 := R02*R11 - R01*R12
-	num0 := R00*R12 - R02*R01
-
-	lpc1 := num1 / den
-	lpc0 := num0 / den
-
-	// Clamp to valid range
-	if lpc1 > 1.0 {
+	var lpc1 float32
+	if num1 >= den {
 		lpc1 = 1.0
-	} else if lpc1 < -1.0 {
+	} else if num1 <= -den {
 		lpc1 = -1.0
+	} else {
+		lpc1 = num1 / den
 	}
-	if lpc0 > 2.0 {
-		lpc0 = 2.0
-	} else if lpc0 < -2.0 {
-		lpc0 = -2.0
+
+	num0 := R00*R12 - R02*R01
+	var lpc0 float32
+	if 0.5*num0 >= den {
+		lpc0 = 1.999999
+	} else if 0.5*num0 <= -den {
+		lpc0 = -1.999999
+	} else {
+		lpc0 = num0 / den
 	}
 
 	return lpc0, lpc1, true
@@ -112,13 +112,16 @@ func toneDetect(in []float64, channels int, sampleRate int) (float64, float64) {
 	}
 
 	// Mix down to mono if stereo (matching libopus behavior)
-	x := make([]float64, n)
+	x := make([]float32, n)
 	if channels == 2 {
 		for i := 0; i < n; i++ {
-			x[i] = 0.5 * (in[i*2] + in[i*2+1])
+			// libopus sums channels (no 0.5 scale in float builds).
+			x[i] = float32(in[i*2] + in[i*2+1])
 		}
 	} else {
-		copy(x, in[:n])
+		for i := 0; i < n; i++ {
+			x[i] = float32(in[i])
+		}
 	}
 
 	delay := 1
@@ -140,12 +143,12 @@ func toneDetect(in []float64, channels int, sampleRate int) (float64, float64) {
 
 	// Check that our filter has complex roots: lpc0^2 + 4*lpc1 < 0
 	// This indicates a resonant (tonal) system
-	if success && lpc0*lpc0+4*lpc1 < 0 {
-		// Toneishness is the squared radius of the poles
+	if success && float64(lpc0*lpc0+3.999999*lpc1) < 0 {
+		// Toneishness is the squared radius of the poles.
 		toneishness := -lpc1
-		// Frequency from the angle of the complex pole
-		freq := math.Acos(0.5*lpc0) / float64(delay)
-		return freq, toneishness
+		// Frequency from the angle of the complex pole.
+		freq := math.Acos(0.5*float64(lpc0)) / float64(delay)
+		return freq, float64(toneishness)
 	}
 
 	return -1, 0

@@ -257,6 +257,14 @@ func TestTraceDynallocWithRealEncoder(t *testing.T) {
 
 	goPacket, _ := goEnc.EncodeFrame(pcm64, frameSize)
 	goDynalloc := goEnc.GetLastDynalloc()
+	goBandLogE := goEnc.GetLastBandLogE()
+	goBandLogE2 := goEnc.GetLastBandLogE2()
+	if len(goBandLogE) > 0 {
+		t.Logf("Go bandLogE[0..4]: %.6f %.6f %.6f %.6f %.6f", goBandLogE[0], goBandLogE[1], goBandLogE[2], goBandLogE[3], goBandLogE[4])
+	}
+	if len(goBandLogE2) > 0 {
+		t.Logf("Go bandLogE2[0..4]: %.6f %.6f %.6f %.6f %.6f", goBandLogE2[0], goBandLogE2[1], goBandLogE2[2], goBandLogE2[3], goBandLogE2[4])
+	}
 
 	t.Log("=== Packet Comparison ===")
 	t.Logf("libopus packet length: %d", len(libPacket))
@@ -269,6 +277,31 @@ func TestTraceDynallocWithRealEncoder(t *testing.T) {
 	t.Logf("Offsets: %v", goDynalloc.Offsets[:nbBands])
 	t.Logf("Importance: %v", goDynalloc.Importance[:nbBands])
 	t.Logf("SpreadWeight: %v", goDynalloc.SpreadWeight[:nbBands])
+
+	t.Log("")
+	t.Log("=== Libopus Dynalloc on Go bandLogE ===")
+	libOnGo := TraceDynallocAnalysis(
+		goBandLogE, goBandLogE2,
+		nbBands, 0, nbBands, 1, 24, lm, effectiveBytes,
+		true, false, false,
+	)
+	t.Logf("Lib-on-go follower band2=%.6f offsets[2]=%d (Q3 bits)", libOnGo.FollowerFinal[2], libOnGo.Offsets[2])
+	t.Logf("Lib(MaxDepth)=%.4f Go(MaxDepth)=%.4f", libOnGo.MaxDepth, goDynalloc.MaxDepth)
+	t.Logf("Lib(TotBoost)=%d Go(TotBoost)=%d", libOnGo.TotBoost, goDynalloc.TotBoost)
+	diffCount := 0
+	for i := 0; i < nbBands; i++ {
+		if libOnGo.Offsets[i] != goDynalloc.Offsets[i] {
+			if diffCount < 5 {
+				t.Logf("Offset diff band %d: lib=%d go=%d", i, libOnGo.Offsets[i], goDynalloc.Offsets[i])
+			}
+			diffCount++
+		}
+	}
+	if diffCount == 0 {
+		t.Log("Offsets match for Go bandLogE inputs")
+	} else {
+		t.Logf("Total offset diffs: %d", diffCount)
+	}
 
 	// Compare the first bytes of packets
 	t.Log("")

@@ -202,7 +202,7 @@ func TestEncodingStagesVsLibopus(t *testing.T) {
 
 	allocResult := celt.ComputeAllocationWithEncoder(
 		re,
-		totalBitsQ3>>bitRes,
+		totalBitsQ3,
 		nbBands, 1, caps, offsets, allocTrim,
 		nbBands, false, lm, 0, nbBands-1,
 	)

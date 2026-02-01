@@ -26,6 +26,7 @@ func initCapsLocal(nbBands, lm, channels int) []int {
 func TestAllocationEncodeDecodeSymmetry(t *testing.T) {
 	// Test parameters matching our encode test
 	totalBits := 1280 // About what we get for 64kbps @ 20ms
+	totalBitsQ3 := totalBits << 3
 	nbBands := 21
 	channels := 1
 	lm := 3 // 20ms frame
@@ -37,7 +38,7 @@ func TestAllocationEncodeDecodeSymmetry(t *testing.T) {
 
 	encResult := celt.ComputeAllocationWithEncoder(
 		nil, // No range encoder needed for basic computation
-		totalBits,
+		totalBitsQ3,
 		nbBands,
 		channels,
 		caps,
@@ -182,6 +183,7 @@ func TestAllocationWithRangeCoder(t *testing.T) {
 	// After flags and coarse energy, compute remaining for allocation
 	// This is a rough estimate
 	bitsForAlloc := totalBits - tellAfterFlags - 100 // rough estimate for coarse energy
+	bitsForAllocQ3 := bitsForAlloc << 3
 
 	t.Logf("Estimated bits for allocation: %d", bitsForAlloc)
 
@@ -192,7 +194,7 @@ func TestAllocationWithRangeCoder(t *testing.T) {
 
 	result := celt.ComputeAllocationWithEncoder(
 		re,
-		bitsForAlloc,
+		bitsForAllocQ3,
 		nbBands,
 		channels,
 		caps,
