@@ -415,3 +415,140 @@ func TestNormalizeBandsMethodComparison(t *testing.T) {
 		offset += n
 	}
 }
+
+// TestComputeLinearBandAmplitudes verifies that linear band amplitudes are computed
+// correctly from MDCT coefficients. This is the critical fix for PVQ normalization.
+func TestComputeLinearBandAmplitudes(t *testing.T) {
+	frameSize := 480
+	nbBands := 21
+
+	// Generate MDCT coefficients with known properties
+	totalBins := 0
+	for band := 0; band < nbBands; band++ {
+		totalBins += ScaledBandWidth(band, frameSize)
+	}
+
+	mdctCoeffs := make([]float64, totalBins)
+	for i := range mdctCoeffs {
+		mdctCoeffs[i] = math.Sin(float64(i)*0.1) * float64(i%50+1) * 0.01
+	}
+
+	// Compute linear band amplitudes
+	bandE := ComputeLinearBandAmplitudes(mdctCoeffs, nbBands, frameSize)
+	if bandE == nil {
+		t.Fatal("ComputeLinearBandAmplitudes returned nil")
+	}
+	if len(bandE) != nbBands {
+		t.Fatalf("expected %d bands, got %d", nbBands, len(bandE))
+	}
+
+	// Verify each band amplitude matches sqrt(sum of squares)
+	offset := 0
+	for band := 0; band < nbBands; band++ {
+		n := ScaledBandWidth(band, frameSize)
+		if n <= 0 {
+			continue
+		}
+		if offset+n > len(mdctCoeffs) {
+			break
+		}
+
+		// Compute expected amplitude: sqrt(epsilon + sum(x^2))
+		expected := float32(1e-27) // libopus epsilon
+		for i := 0; i < n; i++ {
+			v := float32(mdctCoeffs[offset+i])
+			expected += v * v
+		}
+		expected = float32(math.Sqrt(float64(expected)))
+
+		actual := float32(bandE[band])
+		relErr := math.Abs(float64(expected-actual)) / float64(expected)
+		if relErr > 1e-5 {
+			t.Errorf("band %d: expected amplitude %f, got %f (rel err %.2e)",
+				band, expected, actual, relErr)
+		}
+
+		offset += n
+	}
+}
+
+// TestNormalizationUsesLinearAmplitudes verifies that normalization now uses
+// direct linear amplitudes instead of log-domain roundtrip.
+func TestNormalizationUsesLinearAmplitudes(t *testing.T) {
+	enc := NewEncoder(1)
+	frameSize := 480
+	nbBands := 21
+
+	// Generate MDCT coefficients
+	totalBins := 0
+	for band := 0; band < nbBands; band++ {
+		totalBins += ScaledBandWidth(band, frameSize)
+	}
+
+	mdctCoeffs := make([]float64, totalBins)
+	for i := range mdctCoeffs {
+		mdctCoeffs[i] = math.Sin(float64(i)*0.2) * 100.0
+	}
+
+	// Compute linear band amplitudes directly
+	bandE := ComputeLinearBandAmplitudes(mdctCoeffs, nbBands, frameSize)
+
+	// Get normalized coefficients (the energies parameter is now ignored)
+	normalized := enc.NormalizeBandsToArray(mdctCoeffs, nil, nbBands, frameSize)
+	if normalized == nil {
+		t.Fatal("NormalizeBandsToArray returned nil")
+	}
+
+	// Verify normalization: normalized = mdct / bandE
+	offset := 0
+	for band := 0; band < nbBands; band++ {
+		n := ScaledBandWidth(band, frameSize)
+		if n <= 0 {
+			continue
+		}
+		if offset+n > len(mdctCoeffs) {
+			break
+		}
+
+		amplitude := bandE[band]
+		if amplitude < 1e-27 {
+			amplitude = 1e-27
+		}
+		g := 1.0 / amplitude
+
+		for i := 0; i < n; i++ {
+			expected := mdctCoeffs[offset+i] * g
+			actual := normalized[offset+i]
+			if math.Abs(expected-actual) > 1e-10 {
+				t.Errorf("band %d, bin %d: expected %f, got %f",
+					band, i, expected, actual)
+			}
+		}
+
+		offset += n
+	}
+
+	// Verify L2 norm of each band is 1.0
+	offset = 0
+	for band := 0; band < nbBands; band++ {
+		n := ScaledBandWidth(band, frameSize)
+		if n <= 0 {
+			continue
+		}
+		if offset+n > len(normalized) {
+			break
+		}
+
+		var sumSq float64
+		for i := 0; i < n; i++ {
+			sumSq += normalized[offset+i] * normalized[offset+i]
+		}
+		l2norm := math.Sqrt(sumSq)
+
+		if math.Abs(l2norm-1.0) > 1e-5 {
+			t.Errorf("band %d: L2 norm = %f, expected 1.0", band, l2norm)
+		}
+
+		offset += n
+	}
+}

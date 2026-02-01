@@ -5,7 +5,6 @@ package celt
 
 import (
 	"errors"
-	"math"
 
 	"github.com/thesyncim/gopus/internal/rangecoding"
 )
@@ -310,26 +309,22 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		}
 	}
 
-	bandE := make([]float64, nbBands*e.channels)
-	for c := 0; c < e.channels; c++ {
-		for band := 0; band < nbBands; band++ {
-			idx := c*nbBands + band
-			if idx >= len(energies) {
-				continue
-			}
-			eVal := energies[idx]
-			if band < len(eMeans) {
-				eVal += eMeans[band] * DB6
-			}
-			if eVal > 32*DB6 {
-				eVal = 32 * DB6
-			}
-			bandE[idx] = math.Exp2(eVal / DB6)
-		}
+	// Compute linear band amplitudes directly from MDCT coefficients.
+	// This matches libopus compute_band_energies() which returns sqrt(sum of squares).
+	// CRITICAL: We must use ORIGINAL linear amplitudes, not log-domain converted back to linear,
+	// to avoid quantization/roundtrip errors that corrupt PVQ encoding.
+	// Reference: libopus celt_encoder.c line 2096
+	var bandE []float64
+	if e.channels == 1 {
+		bandE = ComputeLinearBandAmplitudes(mdctCoeffs, nbBands, frameSize)
+	} else {
+		// For stereo, compute per-channel and concatenate
+		bandEL := ComputeLinearBandAmplitudes(mdctLeft, nbBands, frameSize)
+		bandER := ComputeLinearBandAmplitudes(mdctRight, nbBands, frameSize)
+		bandE = make([]float64, nbBands*2)
+		copy(bandE[:nbBands], bandEL)
+		copy(bandE[nbBands:], bandER)
 	}
-
-	// Note: Band normalization uses the ORIGINAL energies (libopus normalise_bands).
-	// Quantized energies are used only for decoding/denormalization.
 
 	// Step 7: Initialize range encoder with bitrate-derived size
 	// ... (no changes here) ...

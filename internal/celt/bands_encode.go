@@ -120,17 +120,81 @@ func (e *Encoder) NormalizeBands(mdctCoeffs []float64, energies []float64, nbBan
 	return shapes
 }
 
+// ComputeLinearBandAmplitudes computes linear band amplitudes directly from MDCT coefficients.
+// This matches libopus compute_band_energies() which returns sqrt(sum of squares) per band.
+// The result is in LINEAR scale (not log), ready to use as normalization divisor.
+//
+// CRITICAL: This function computes the ORIGINAL linear amplitude from MDCT coefficients,
+// which must be used for normalization. Do NOT use log-domain energies converted back to linear,
+// as that introduces quantization/roundtrip errors.
+//
+// Reference: libopus celt/bands.c compute_band_energies() (float path, lines 154-170)
+func ComputeLinearBandAmplitudes(mdctCoeffs []float64, nbBands, frameSize int) []float64 {
+	if nbBands <= 0 || nbBands > MaxBands {
+		return nil
+	}
+	if frameSize <= 0 {
+		return nil
+	}
+
+	bandE := make([]float64, nbBands)
+	offset := 0
+
+	for band := 0; band < nbBands; band++ {
+		n := ScaledBandWidth(band, frameSize)
+		if n <= 0 {
+			bandE[band] = 1e-27 // epsilon like libopus
+			continue
+		}
+		if offset+n > len(mdctCoeffs) {
+			bandE[band] = 1e-27
+			offset += n
+			continue
+		}
+
+		// Compute sum of squares with libopus epsilon
+		// Reference: libopus bands.c line 164:
+		//   sum = 1e-27f + celt_inner_prod(&X[...], &X[...], ...)
+		sum := float32(1e-27)
+		for i := 0; i < n; i++ {
+			v := float32(mdctCoeffs[offset+i])
+			sum += v * v
+		}
+
+		// sqrt(sum) gives the amplitude (L2 norm)
+		// Reference: libopus bands.c line 165:
+		//   bandE[i+c*m->nbEBands] = celt_sqrt(sum)
+		bandE[band] = float64(math.Sqrt(float64(sum)))
+		offset += n
+	}
+
+	return bandE
+}
+
 // NormalizeBandsToArray normalizes bands into a single contiguous array (length = frameSize).
-// This mirrors libopus normalise_bands(): divide by the per-band gain without re-normalizing.
-// The input energies should be the original (unquantized) band energies.
+// This mirrors libopus normalise_bands(): divide by the per-band LINEAR amplitude.
+//
+// CRITICAL FIX: This function now uses LINEAR band amplitudes computed directly from MDCT
+// coefficients, NOT log-domain energies converted back to linear. The log-domain roundtrip
+// was introducing quantization errors that corrupted PVQ encoding.
+//
+// The energies parameter is now IGNORED - we compute linear amplitudes directly from mdctCoeffs.
+// This matches libopus which calls compute_band_energies() to get linear bandE, then uses
+// that directly in normalise_bands().
+//
+// Reference: libopus celt/bands.c normalise_bands() (float path, lines 172-187)
 func (e *Encoder) NormalizeBandsToArray(mdctCoeffs []float64, energies []float64, nbBands, frameSize int) []float64 {
 	if nbBands <= 0 || nbBands > MaxBands {
 		return nil
 	}
-	if len(energies) < nbBands {
+	if frameSize <= 0 {
 		return nil
 	}
-	if frameSize <= 0 {
+
+	// Compute linear band amplitudes directly from MDCT coefficients
+	// This is the CRITICAL fix: use original linear amplitudes, not log-domain roundtrip
+	bandE := ComputeLinearBandAmplitudes(mdctCoeffs, nbBands, frameSize)
+	if bandE == nil {
 		return nil
 	}
 
@@ -146,26 +210,21 @@ func (e *Encoder) NormalizeBandsToArray(mdctCoeffs []float64, energies []float64
 			continue
 		}
 
-		eVal := energies[band]
-		if band < len(eMeans) {
-			eVal += eMeans[band] * DB6
+		// Get linear amplitude for this band
+		// Reference: libopus bands.c line 182:
+		//   opus_val16 g = 1.f/(1e-27f+bandE[i+c*m->nbEBands])
+		amplitude := bandE[band]
+		if amplitude < 1e-27 {
+			amplitude = 1e-27
 		}
-		if eVal > 32*DB6 {
-			eVal = 32 * DB6
-		}
-		gain := math.Exp2(eVal / DB6)
+		g := 1.0 / amplitude
 
-		if gain < 1e-15 {
-			norm[offset] = 1.0
-			for i := 1; i < n; i++ {
-				norm[offset+i] = 0
-			}
-			offset += n
-			continue
-		}
-
+		// Normalize: X[j] = freq[j] * g
+		// Reference: libopus bands.c lines 183-184:
+		//   for (j=M*eBands[i];j<M*eBands[i+1];j++)
+		//      X[j+c*N] = freq[j+c*N]*g;
 		for i := 0; i < n; i++ {
-			norm[offset+i] = mdctCoeffs[offset+i] / gain
+			norm[offset+i] = mdctCoeffs[offset+i] * g
 		}
 		offset += n
 	}
