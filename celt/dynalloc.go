@@ -672,3 +672,402 @@ func min(a, b int) int {
 	}
 	return b
 }
+
+// DynallocScratch holds pre-allocated buffers for DynallocAnalysis.
+type DynallocScratch struct {
+	// Result arrays (caller provides these in result struct)
+	Offsets      []int
+	SpreadWeight []int
+	Importance   []int
+
+	// Conversion buffers (float32 for precision matching libopus)
+	BandLogE32  []float32
+	BandLogE2_32 []float32
+	OldBandE32  []float32
+	NoiseFloor  []float32
+
+	// Masking model buffers
+	Mask     []float32
+	Sig      []float32
+	Follower []float32
+	BandLogE3 []float32
+}
+
+// EnsureDynallocScratch ensures scratch buffers are large enough.
+func (s *DynallocScratch) EnsureDynallocScratch(nbBands, channels int) {
+	maxSize := nbBands * channels
+	if cap(s.Offsets) < nbBands {
+		s.Offsets = make([]int, nbBands)
+	} else {
+		s.Offsets = s.Offsets[:nbBands]
+	}
+	if cap(s.SpreadWeight) < nbBands {
+		s.SpreadWeight = make([]int, nbBands)
+	} else {
+		s.SpreadWeight = s.SpreadWeight[:nbBands]
+	}
+	if cap(s.Importance) < nbBands {
+		s.Importance = make([]int, nbBands)
+	} else {
+		s.Importance = s.Importance[:nbBands]
+	}
+	if cap(s.BandLogE32) < maxSize {
+		s.BandLogE32 = make([]float32, maxSize)
+	}
+	if cap(s.BandLogE2_32) < maxSize {
+		s.BandLogE2_32 = make([]float32, maxSize)
+	}
+	if cap(s.OldBandE32) < maxSize {
+		s.OldBandE32 = make([]float32, maxSize)
+	}
+	if cap(s.NoiseFloor) < nbBands {
+		s.NoiseFloor = make([]float32, nbBands)
+	}
+	if cap(s.Mask) < nbBands {
+		s.Mask = make([]float32, nbBands)
+	}
+	if cap(s.Sig) < nbBands {
+		s.Sig = make([]float32, nbBands)
+	}
+	if cap(s.Follower) < maxSize {
+		s.Follower = make([]float32, maxSize)
+	}
+	if cap(s.BandLogE3) < nbBands {
+		s.BandLogE3 = make([]float32, nbBands)
+	}
+}
+
+// DynallocAnalysisWithScratch is the zero-allocation version of DynallocAnalysis.
+func DynallocAnalysisWithScratch(
+	bandLogE, bandLogE2, oldBandE []float64,
+	nbBands, start, end, channels, lsbDepth, lm int,
+	logN []int16,
+	effectiveBytes int,
+	isTransient, vbr, constrainedVBR bool,
+	toneFreq, toneishness float64,
+	scratch *DynallocScratch,
+) DynallocResult {
+	if scratch == nil {
+		return DynallocAnalysis(bandLogE, bandLogE2, oldBandE, nbBands, start, end, channels, lsbDepth, lm, logN, effectiveBytes, isTransient, vbr, constrainedVBR, toneFreq, toneishness)
+	}
+
+	scratch.EnsureDynallocScratch(nbBands, channels)
+
+	result := DynallocResult{
+		MaxDepth:     -31.9,
+		Offsets:      scratch.Offsets[:nbBands],
+		SpreadWeight: scratch.SpreadWeight[:nbBands],
+		Importance:   scratch.Importance[:nbBands],
+		TotBoost:     0,
+	}
+
+	// Zero output arrays
+	for i := range result.Offsets {
+		result.Offsets[i] = 0
+		result.SpreadWeight[i] = 0
+		result.Importance[i] = 0
+	}
+
+	// Convert to float32 using scratch buffers
+	bandLogE32 := scratch.BandLogE32[:len(bandLogE)]
+	for i, v := range bandLogE {
+		bandLogE32[i] = float32(v)
+	}
+
+	var bandLogE2_32 []float32
+	if bandLogE2 != nil {
+		bandLogE2_32 = scratch.BandLogE2_32[:len(bandLogE2)]
+		for i, v := range bandLogE2 {
+			bandLogE2_32[i] = float32(v)
+		}
+	}
+
+	var oldBandE32 []float32
+	if oldBandE != nil {
+		oldBandE32 = scratch.OldBandE32[:len(oldBandE)]
+		for i, v := range oldBandE {
+			oldBandE32[i] = float32(v)
+		}
+	}
+
+	// Compute noise floor per band
+	noiseFloor := scratch.NoiseFloor[:end]
+	for i := 0; i < end; i++ {
+		logNVal := int16(0)
+		if i < len(logN) {
+			logNVal = logN[i]
+		}
+		noiseFloor[i] = computeNoiseFloor32(i, lsbDepth, logNVal)
+	}
+
+	// Compute maxDepth
+	maxDepth32 := float32(result.MaxDepth)
+	for c := 0; c < channels; c++ {
+		for i := 0; i < end; i++ {
+			idx := c*nbBands + i
+			if idx < len(bandLogE32) {
+				depth := bandLogE32[idx] - noiseFloor[i]
+				if depth > maxDepth32 {
+					maxDepth32 = depth
+				}
+			}
+		}
+	}
+	result.MaxDepth = float64(maxDepth32)
+
+	// Compute spread_weight using masking model
+	mask := scratch.Mask[:nbBands]
+	sig := scratch.Sig[:nbBands]
+
+	for i := 0; i < nbBands; i++ {
+		mask[i] = 0
+		sig[i] = 0
+	}
+
+	for i := 0; i < end; i++ {
+		if i < len(bandLogE32) {
+			mask[i] = bandLogE32[i] - noiseFloor[i]
+		}
+	}
+
+	if channels == 2 {
+		for i := 0; i < end; i++ {
+			idx := nbBands + i
+			if idx < len(bandLogE32) {
+				ch2Val := bandLogE32[idx] - noiseFloor[i]
+				if ch2Val > mask[i] {
+					mask[i] = ch2Val
+				}
+			}
+		}
+	}
+
+	copy(sig[:end], mask[:end])
+
+	for i := 1; i < end; i++ {
+		if mask[i-1]-2.0 > mask[i] {
+			mask[i] = mask[i-1] - 2.0
+		}
+	}
+
+	for i := end - 2; i >= 0; i-- {
+		if mask[i+1]-3.0 > mask[i] {
+			mask[i] = mask[i+1] - 3.0
+		}
+	}
+
+	for i := 0; i < end; i++ {
+		maskThresh := float32(0)
+		if maxDepth32-12.0 > mask[i] {
+			maskThresh = maxDepth32 - 12.0
+		} else {
+			maskThresh = mask[i]
+		}
+		if maskThresh < 0 {
+			maskThresh = 0
+		}
+		smr := sig[i] - maskThresh
+
+		shift := -int(math.Floor(float64(0.5 + smr)))
+		if shift < 0 {
+			shift = 0
+		}
+		if shift > 5 {
+			shift = 5
+		}
+		result.SpreadWeight[i] = 32 >> shift
+	}
+
+	// Dynamic allocation (budget permitting)
+	minBytes := 30 + 5*lm
+	if effectiveBytes >= minBytes {
+		follower := scratch.Follower[:channels*nbBands]
+		for i := range follower {
+			follower[i] = 0
+		}
+
+		for c := 0; c < channels; c++ {
+			bandLogE3 := scratch.BandLogE3[:end]
+			for i := 0; i < end; i++ {
+				idx := c*nbBands + i
+				if bandLogE2_32 != nil && idx < len(bandLogE2_32) {
+					bandLogE3[i] = bandLogE2_32[idx]
+				} else if idx < len(bandLogE32) {
+					bandLogE3[i] = bandLogE32[idx]
+				} else {
+					bandLogE3[i] = 0
+				}
+			}
+
+			if lm == 0 {
+				for i := 0; i < min(8, end); i++ {
+					idx := c*nbBands + i
+					if oldBandE32 != nil && idx < len(oldBandE32) {
+						if oldBandE32[idx] > bandLogE3[i] {
+							bandLogE3[i] = oldBandE32[idx]
+						}
+					}
+				}
+			}
+
+			f := follower[c*nbBands : (c+1)*nbBands]
+			if end > 0 {
+				f[0] = bandLogE3[0]
+			}
+
+			last := 0
+			for i := 1; i < end; i++ {
+				if bandLogE3[i] > bandLogE3[i-1]+0.5 {
+					last = i
+				}
+				if f[i-1]+1.5 < bandLogE3[i] {
+					f[i] = f[i-1] + 1.5
+				} else {
+					f[i] = bandLogE3[i]
+				}
+			}
+
+			for i := last - 1; i >= 0; i-- {
+				fwd := f[i+1] + 2.0
+				if fwd > bandLogE3[i] {
+					fwd = bandLogE3[i]
+				}
+				if fwd < f[i] {
+					f[i] = fwd
+				}
+			}
+
+			offset := float32(1.0)
+			for i := 2; i < end-2; i++ {
+				medVal := medianOf5f(bandLogE3[i-2:])
+				if medVal-offset > f[i] {
+					f[i] = medVal - offset
+				}
+			}
+
+			if end >= 3 {
+				tmp := medianOf3f(bandLogE3[0:3]) - offset
+				if tmp > f[0] {
+					f[0] = tmp
+				}
+				if tmp > f[1] {
+					f[1] = tmp
+				}
+
+				tmp = medianOf3f(bandLogE3[end-3:end]) - offset
+				if tmp > f[end-2] {
+					f[end-2] = tmp
+				}
+				if tmp > f[end-1] {
+					f[end-1] = tmp
+				}
+			}
+
+			for i := 0; i < end; i++ {
+				if noiseFloor[i] > f[i] {
+					f[i] = noiseFloor[i]
+				}
+			}
+		}
+
+		if channels == 2 {
+			for i := start; i < end; i++ {
+				ch0 := follower[i]
+				ch1 := follower[nbBands+i]
+				if ch0-4.0 > ch1 {
+					follower[nbBands+i] = ch0 - 4.0
+				}
+				if ch1-4.0 > ch0 {
+					follower[i] = ch1 - 4.0
+				}
+
+				boost0 := float32(0.0)
+				boost1 := float32(0.0)
+				if i < len(bandLogE32) {
+					boost0 = bandLogE32[i] - follower[i]
+					if boost0 < 0 {
+						boost0 = 0
+					}
+				}
+				if nbBands+i < len(bandLogE32) {
+					boost1 = bandLogE32[nbBands+i] - follower[nbBands+i]
+					if boost1 < 0 {
+						boost1 = 0
+					}
+				}
+				follower[i] = (boost0 + boost1) / 2.0
+			}
+		} else {
+			for i := start; i < end; i++ {
+				if i < len(bandLogE32) {
+					follower[i] = bandLogE32[i] - follower[i]
+					if follower[i] < 0 {
+						follower[i] = 0
+					}
+				}
+			}
+		}
+
+		for i := start; i < end; i++ {
+			expArg := follower[i]
+			if expArg > 4.0 {
+				expArg = 4.0
+			}
+			imp := 13.0 * float64(celtExp2(expArg))
+			result.Importance[i] = int(math.Floor(0.5 + imp))
+		}
+
+		if (!vbr || constrainedVBR) && !isTransient {
+			for i := start; i < end; i++ {
+				follower[i] /= 2.0
+			}
+		}
+
+		for i := start; i < end; i++ {
+			if i < 8 {
+				follower[i] *= 2.0
+			}
+			if i >= 12 {
+				follower[i] /= 2.0
+			}
+		}
+
+		if toneishness > 0.98 && toneFreq >= 0 {
+			freqBin := int(math.Floor(0.5 + float64(float32(toneFreq))*120.0/math.Pi))
+			for i := start; i < end; i++ {
+				if freqBin >= EBands[i] && freqBin <= EBands[i+1] {
+					follower[i] += 2.0
+				}
+				if freqBin >= EBands[i]-1 && freqBin <= EBands[i+1]+1 {
+					follower[i] += 1.0
+				}
+				if freqBin >= EBands[i]-2 && freqBin <= EBands[i+1]+2 {
+					follower[i] += 1.0
+				}
+				if freqBin >= EBands[i]-3 && freqBin <= EBands[i+1]+3 {
+					follower[i] += 0.5
+				}
+			}
+			if end > start && freqBin >= EBands[end] {
+				follower[end-1] += 2.0
+				if end-2 >= start {
+					follower[end-2] += 1.0
+				}
+			}
+		}
+
+		for i := start; i < end; i++ {
+			offset := int(math.Floor(0.5 + float64(follower[i])))
+			if offset > 0 {
+				result.Offsets[i] = offset
+				result.TotBoost += offset
+			}
+		}
+	} else {
+		for i := start; i < end; i++ {
+			result.Importance[i] = 13
+		}
+	}
+
+	return result
+}

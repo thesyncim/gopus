@@ -28,7 +28,7 @@ Always use this reference when implementing features or debugging discrepancies.
 | PLC | ✅ Complete | LTP coefficients, frame gluing |
 | DTX | ✅ Complete | Multi-band VAD implemented |
 | Hybrid | ✅ Improved | Proper bit allocation, HB_gain, crossover |
-| Allocations | ⚠️ ~72/5 | Round 5: 74% encoder, 64% SILK decoder reduction |
+| Allocations | ⚠️ ~18/5 | Round 6: 75% encoder reduction (72→18 allocs/op) |
 
 ---
 
@@ -82,6 +82,20 @@ Always use this reference when implementing features or debugging discrepancies.
    - Low Bitrate Redundancy for forward error correction
    - PatchInitialBits support in range encoder
    - Enables packet loss recovery at decoder
+
+### Session 5: Zero-Alloc Hot Path (In Progress)
+1. ✅ **Tonality Analysis** - `celt/tonality.go`
+   - Added TonalityScratch and ComputeTonalityWithBandsScratch
+   - Eliminates per-frame allocations in tonality computation
+2. ✅ **TF Analysis** - `celt/tf.go`
+   - Added TFAnalysisScratch and TFAnalysisWithScratch
+   - Zero-alloc Viterbi algorithm for TF resolution
+3. ✅ **Dynalloc Analysis** - `celt/dynalloc.go`
+   - Added DynallocScratch and DynallocAnalysisWithScratch
+   - Pre-allocated buffers for masking model
+4. ✅ **Caps Initialization** - `celt/encode_frame.go`
+   - Use initCapsInto with scratch buffer
+   - Encoder: 72→18 allocs/op (75% reduction)
 
 ---
 
@@ -334,13 +348,13 @@ go build ./...  # ✅ Success
 go test ./... -count=1  # ✅ All packages pass
 ```
 
-### Allocation Status (Round 5)
+### Allocation Status (Round 6)
 ```
 Decoder (CELT):   1 alloc/op
 Decoder (SILK):   5 allocs/op    (was 14, 64% reduction)
 Decoder (Hybrid): 10 allocs/op   (was 22, 55% reduction)
-Encoder (Mono):   72 allocs/op   (was 279, 74% reduction)
-Encoder (Stereo): 82 allocs/op   (was 1196, 93% reduction!)
-Round-trip:       73 allocs/op   (was 280, 74% reduction)
+Encoder (Mono):   18 allocs/op   (was 72, 75% reduction from Round 5)
+Encoder (Stereo): 27 allocs/op   (was 82, 67% reduction from Round 5)
+Round-trip:       ~20 allocs/op  (estimated)
 Target:           0 allocs/op
 ```

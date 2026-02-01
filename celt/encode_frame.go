@@ -571,13 +571,14 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	if bandLogE2 != nil {
 		bandLogE2Use = bandLogE2
 	}
-	dynallocResult := DynallocAnalysis(
+	dynallocResult := DynallocAnalysisWithScratch(
 		energies, bandLogE2Use, prev1LogE,
 		nbBands, start, end, e.channels, lsbDepth, lm,
 		logN,
 		effectiveBytes,
 		transient, isVBR, isConstrainedVBR,
 		toneFreq, toneishness,
+		&e.dynallocScratch,
 	)
 	// Store for next frame's VBR computation
 	e.lastDynalloc = dynallocResult
@@ -606,9 +607,9 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		// Reference: libopus celt/celt_encoder.c dynalloc_analysis() -> importance
 		importance := dynallocResult.Importance
 
-		// Use the normalized coefficients for TF analysis
+		// Use the normalized coefficients for TF analysis (zero-alloc version)
 		// For stereo, use the left channel (similar to libopus tf_chan approach)
-		tfRes, tfSelect = TFAnalysis(normL, len(normL), nbBands, transient, lm, useTfEstimate, effectiveBytes, importance)
+		tfRes, tfSelect = TFAnalysisWithScratch(normL, len(normL), nbBands, transient, lm, useTfEstimate, effectiveBytes, importance, &e.tfScratch)
 
 		// Encode TF decisions using the computed values
 		TFEncodeWithSelect(re, start, end, transient, tfRes, lm, tfSelect)
@@ -664,8 +665,9 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		spread = spreadNormal
 	}
 
-	// Step 11.3: Initialize caps for allocation
-	caps := initCaps(nbBands, lm, e.channels)
+	// Step 11.3: Initialize caps for allocation (zero-alloc)
+	caps := ensureIntSlice(&e.scratch.caps, nbBands)
+	initCapsInto(caps, nbBands, lm, e.channels)
 
 	// Step 11.4: Encode dynamic allocation
 	// Reference: libopus celt/celt_encoder.c lines 2356-2389
@@ -1401,9 +1403,8 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int) int {
 //   - nbBands: number of frequency bands
 //   - frameSize: frame size in samples (unused but kept for API consistency)
 func (e *Encoder) updateTonalityAnalysis(normCoeffs, energies []float64, nbBands, frameSize int) {
-	// Compute tonality using Spectral Flatness Measure
-	// ComputeTonality takes coeffs and optional previous coeffs for flux calculation
-	tonalityResult := ComputeTonalityWithBands(normCoeffs, nbBands, frameSize)
+	// Compute tonality using Spectral Flatness Measure (zero-alloc version)
+	tonalityResult := ComputeTonalityWithBandsScratch(normCoeffs, nbBands, frameSize, &e.tonalityScratch)
 
 	// Compute spectral flux (frame-to-frame change) for smoothing decisions
 	spectralFlux := ComputeSpectralFlux(energies, e.prevBandLogEnergy, nbBands)

@@ -205,6 +205,130 @@ func computePerBandTonality(mdctCoeffs []float64, nbBands, frameSize int) []floa
 	return bandTonality
 }
 
+// TonalityScratch holds pre-allocated buffers for tonality analysis.
+// This eliminates allocations in the hot path.
+type TonalityScratch struct {
+	Powers       []float64 // Power spectrum buffer (size: frameSize)
+	BandTonality []float64 // Per-band tonality output (size: nbBands)
+	BandPowers   []float64 // Temporary buffer for per-band power (size: max band width ~176)
+}
+
+// EnsureTonalityScratch ensures the scratch buffers are large enough.
+func (s *TonalityScratch) EnsureTonalityScratch(frameSize, nbBands int) {
+	if cap(s.Powers) < frameSize {
+		s.Powers = make([]float64, frameSize)
+	} else {
+		s.Powers = s.Powers[:frameSize]
+	}
+	if cap(s.BandTonality) < nbBands {
+		s.BandTonality = make([]float64, nbBands)
+	} else {
+		s.BandTonality = s.BandTonality[:nbBands]
+	}
+	// Max band width is ~176 bins (band 20 at LM=3)
+	const maxBandWidth = 256
+	if cap(s.BandPowers) < maxBandWidth {
+		s.BandPowers = make([]float64, maxBandWidth)
+	}
+}
+
+// ComputeTonalityWithBandsScratch analyzes MDCT coefficients with explicit band count using pre-allocated scratch buffers.
+// This is the zero-allocation version.
+func ComputeTonalityWithBandsScratch(mdctCoeffs []float64, nbBands, frameSize int, scratch *TonalityScratch) TonalityAnalysisResult {
+	result := TonalityAnalysisResult{
+		Tonality:     0.5,
+		SFM:          0.5,
+		BandTonality: nil,
+		SpectralFlux: 0.0,
+	}
+
+	if len(mdctCoeffs) == 0 || nbBands <= 0 || frameSize <= 0 || scratch == nil {
+		return result
+	}
+
+	// Ensure scratch buffers are sized
+	scratch.EnsureTonalityScratch(len(mdctCoeffs), nbBands)
+
+	// Compute power spectrum into scratch buffer
+	powers := scratch.Powers[:len(mdctCoeffs)]
+	for i, coeff := range mdctCoeffs {
+		powers[i] = coeff * coeff
+	}
+
+	// Compute overall SFM
+	result.SFM = computeSpectralFlatness(powers)
+	result.Tonality = 1.0 - result.SFM
+
+	// Clamp to valid range
+	if result.Tonality < 0 {
+		result.Tonality = 0
+	}
+	if result.Tonality > 1 {
+		result.Tonality = 1
+	}
+
+	// Compute per-band tonality using scratch
+	computePerBandTonalityScratch(mdctCoeffs, nbBands, frameSize, scratch)
+	result.BandTonality = scratch.BandTonality[:nbBands]
+
+	return result
+}
+
+// computePerBandTonalityScratch computes tonality for each CELT band using pre-allocated scratch buffers.
+func computePerBandTonalityScratch(mdctCoeffs []float64, nbBands, frameSize int, scratch *TonalityScratch) {
+	bandTonality := scratch.BandTonality[:nbBands]
+
+	scale := frameSize / Overlap
+	if scale < 1 {
+		scale = 1
+	}
+
+	for band := 0; band < nbBands; band++ {
+		if band+1 >= len(EBands) {
+			break
+		}
+
+		startBin := EBands[band] * scale
+		endBin := EBands[band+1] * scale
+
+		if startBin >= len(mdctCoeffs) {
+			bandTonality[band] = 0.5
+			continue
+		}
+		if endBin > len(mdctCoeffs) {
+			endBin = len(mdctCoeffs)
+		}
+
+		bandWidth := endBin - startBin
+		if bandWidth <= 0 {
+			bandTonality[band] = 0.5
+			continue
+		}
+
+		// Use scratch buffer for band powers
+		powers := scratch.BandPowers[:bandWidth]
+		for i := 0; i < bandWidth; i++ {
+			idx := startBin + i
+			if idx < len(mdctCoeffs) {
+				powers[i] = mdctCoeffs[idx] * mdctCoeffs[idx]
+			}
+		}
+
+		// Compute SFM for this band
+		sfm := computeSpectralFlatness(powers)
+
+		// Convert SFM to tonality
+		bt := 1.0 - sfm
+		if bt < 0 {
+			bt = 0
+		}
+		if bt > 1 {
+			bt = 1
+		}
+		bandTonality[band] = bt
+	}
+}
+
 // inferBandCount infers the number of bands from frame size.
 func inferBandCount(frameSize int) int {
 	// Standard CELT band count is 21 for all frame sizes

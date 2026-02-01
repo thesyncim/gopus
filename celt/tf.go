@@ -453,6 +453,247 @@ func TFAnalysis(X []float64, N0, nbEBands int, isTransient bool, lm int, tfEstim
 	return tfRes, tfSelect
 }
 
+// TFAnalysisScratch holds pre-allocated buffers for TF analysis.
+type TFAnalysisScratch struct {
+	Metric []int     // Per-band metric (size: nbEBands)
+	Tmp    []float64 // Band coefficients working buffer
+	Tmp1   []float64 // Copy for transient analysis
+	Path0  []int     // Viterbi path state 0
+	Path1  []int     // Viterbi path state 1
+	TfRes  []int     // Output buffer
+}
+
+// EnsureTFAnalysisScratch ensures scratch buffers are large enough.
+func (s *TFAnalysisScratch) EnsureTFAnalysisScratch(nbEBands, maxBandWidth int) {
+	if cap(s.Metric) < nbEBands {
+		s.Metric = make([]int, nbEBands)
+	} else {
+		s.Metric = s.Metric[:nbEBands]
+	}
+	if cap(s.Tmp) < maxBandWidth {
+		s.Tmp = make([]float64, maxBandWidth)
+	}
+	if cap(s.Tmp1) < maxBandWidth {
+		s.Tmp1 = make([]float64, maxBandWidth)
+	}
+	if cap(s.Path0) < nbEBands {
+		s.Path0 = make([]int, nbEBands)
+	} else {
+		s.Path0 = s.Path0[:nbEBands]
+	}
+	if cap(s.Path1) < nbEBands {
+		s.Path1 = make([]int, nbEBands)
+	} else {
+		s.Path1 = s.Path1[:nbEBands]
+	}
+	if cap(s.TfRes) < nbEBands {
+		s.TfRes = make([]int, nbEBands)
+	} else {
+		s.TfRes = s.TfRes[:nbEBands]
+	}
+}
+
+// TFAnalysisWithScratch is the zero-allocation version of TFAnalysis.
+func TFAnalysisWithScratch(X []float64, N0, nbEBands int, isTransient bool, lm int, tfEstimate float64, effectiveBytes int, importance []int, scratch *TFAnalysisScratch) (tfRes []int, tfSelect int) {
+	if scratch == nil {
+		return TFAnalysis(X, N0, nbEBands, isTransient, lm, tfEstimate, effectiveBytes, importance)
+	}
+
+	// Compute max band width for scratch sizing
+	maxBandWidth := 0
+	for i := 0; i < nbEBands && i+1 < len(EBands); i++ {
+		bw := (EBands[i+1] - EBands[i]) << lm
+		if bw > maxBandWidth {
+			maxBandWidth = bw
+		}
+	}
+	scratch.EnsureTFAnalysisScratch(nbEBands, maxBandWidth)
+
+	tfRes = scratch.TfRes[:nbEBands]
+	for i := range tfRes {
+		tfRes[i] = 0
+	}
+
+	// Compute lambda
+	lambda := 80
+	if effectiveBytes > 0 {
+		lambda = maxInt(80, 20480/effectiveBytes+2)
+	}
+
+	bias := 0.04 * math.Max(-0.25, 0.5-tfEstimate)
+
+	metric := scratch.Metric[:nbEBands]
+	tmp := scratch.Tmp
+
+	for i := 0; i < nbEBands; i++ {
+		bandStart := EBands[i] << lm
+		bandEnd := EBands[i+1] << lm
+		N := bandEnd - bandStart
+
+		narrow := (EBands[i+1] - EBands[i]) == 1
+
+		// Use scratch buffer
+		tmpSlice := tmp[:N]
+		for j := 0; j < N && bandStart+j < len(X); j++ {
+			tmpSlice[j] = X[bandStart+j]
+		}
+
+		var initLM int
+		if isTransient {
+			initLM = lm
+		}
+		L1 := l1Metric(tmpSlice, N, initLM, bias)
+		bestL1 := L1
+		bestLevel := 0
+
+		if isTransient && !narrow {
+			// Use scratch tmp1 instead of allocating
+			tmp1 := scratch.Tmp1[:N]
+			copy(tmp1, tmpSlice)
+			haar1(tmp1, N>>lm, 1<<lm)
+			L1 = l1Metric(tmp1, N, lm+1, bias)
+			if L1 < bestL1 {
+				bestL1 = L1
+				bestLevel = -1
+			}
+		}
+
+		maxK := lm
+		if !isTransient && !narrow {
+			maxK = lm + 1
+		}
+		for k := 0; k < maxK; k++ {
+			var B int
+			if isTransient {
+				B = lm - k - 1
+			} else {
+				B = k + 1
+			}
+
+			haar1(tmpSlice, N>>k, 1<<k)
+			L1 = l1Metric(tmpSlice, N, B, bias)
+
+			if L1 < bestL1 {
+				bestL1 = L1
+				bestLevel = k + 1
+			}
+		}
+
+		if isTransient {
+			metric[i] = 2 * bestLevel
+		} else {
+			metric[i] = -2 * bestLevel
+		}
+
+		if narrow && (metric[i] == 0 || metric[i] == -2*lm) {
+			metric[i]--
+		}
+	}
+
+	// Search for optimal tf resolution using Viterbi
+	tfSelect = 0
+	selcost := [2]int{}
+
+	for sel := 0; sel < 2; sel++ {
+		imp0 := 13
+		if importance != nil && len(importance) > 0 {
+			imp0 = importance[0]
+		}
+		isTransientInt := boolToInt(isTransient)
+
+		cost0 := imp0 * absInt(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+0]))
+		lambdaInit := lambda
+		if isTransient {
+			lambdaInit = 0
+		}
+		cost1 := imp0*absInt(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+1])) + lambdaInit
+
+		for i := 1; i < nbEBands; i++ {
+			imp := 13
+			if importance != nil && i < len(importance) {
+				imp = importance[i]
+			}
+
+			curr0 := minInt(cost0, cost1+lambda)
+			curr1 := minInt(cost0+lambda, cost1)
+			cost0 = curr0 + imp*absInt(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+0]))
+			cost1 = curr1 + imp*absInt(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+1]))
+		}
+
+		selcost[sel] = minInt(cost0, cost1)
+	}
+
+	if selcost[1] < selcost[0] && isTransient {
+		tfSelect = 1
+	}
+
+	// Viterbi forward pass
+	isTransientInt := boolToInt(isTransient)
+	path0 := scratch.Path0[:nbEBands]
+	path1 := scratch.Path1[:nbEBands]
+
+	imp0 := 13
+	if importance != nil && len(importance) > 0 {
+		imp0 = importance[0]
+	}
+
+	cost0 := imp0 * absInt(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+0]))
+	lambdaInit := lambda
+	if isTransient {
+		lambdaInit = 0
+	}
+	cost1 := imp0*absInt(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+1])) + lambdaInit
+
+	for i := 1; i < nbEBands; i++ {
+		imp := 13
+		if importance != nil && i < len(importance) {
+			imp = importance[i]
+		}
+
+		from0 := cost0
+		from1 := cost1 + lambda
+		var curr0 int
+		if from0 < from1 {
+			curr0 = from0
+			path0[i] = 0
+		} else {
+			curr0 = from1
+			path0[i] = 1
+		}
+
+		from0 = cost0 + lambda
+		from1 = cost1
+		var curr1 int
+		if from0 < from1 {
+			curr1 = from0
+			path1[i] = 0
+		} else {
+			curr1 = from1
+			path1[i] = 1
+		}
+
+		cost0 = curr0 + imp*absInt(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+0]))
+		cost1 = curr1 + imp*absInt(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+1]))
+	}
+
+	if cost0 < cost1 {
+		tfRes[nbEBands-1] = 0
+	} else {
+		tfRes[nbEBands-1] = 1
+	}
+
+	// Viterbi backward pass
+	for i := nbEBands - 2; i >= 0; i-- {
+		if tfRes[i+1] == 1 {
+			tfRes[i] = path1[i+1]
+		} else {
+			tfRes[i] = path0[i+1]
+		}
+	}
+
+	return tfRes, tfSelect
+}
+
 // TFEncodeWithSelect encodes TF resolution with a specific tf_select value.
 // This is called after TFAnalysis to encode the computed TF decisions.
 //
