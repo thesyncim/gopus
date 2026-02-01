@@ -216,7 +216,8 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 		channels = 1
 	}
 
-	quantizedEnergies := make([]float64, nbBands*channels)
+	// Use scratch buffer for quantized energies (zero-alloc)
+	quantizedEnergies := ensureFloat64Slice(&e.scratch.quantizedEnergies, nbBands*channels)
 
 	// Prediction coefficients (libopus quant_coarse_energy_impl).
 	var coef, beta float64
