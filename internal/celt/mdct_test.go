@@ -733,21 +733,30 @@ func TestDeEmphasis(t *testing.T) {
 	dec.applyDeemphasis(samples)
 
 	// First sample should still be 1.0 (no history)
-	if math.Abs(samples[0]-1.0) > 1e-10 {
+	// Note: With float32 precision used to match libopus, we need slightly
+	// looser tolerance than the theoretical float64 value.
+	if math.Abs(samples[0]-1.0) > 1e-6 {
 		t.Errorf("First sample = %v, want 1.0", samples[0])
 	}
 
 	// Second sample should be PreemphCoef (previous output was 1.0)
-	expected := PreemphCoef
-	if math.Abs(samples[1]-expected) > 1e-10 {
-		t.Errorf("Second sample = %v, want %v", samples[1], expected)
+	// The de-emphasis filter uses float32 precision to match libopus,
+	// so we compare against the float32 representation of PreemphCoef.
+	expected32 := float32(PreemphCoef)
+	if math.Abs(samples[1]-float64(expected32)) > 1e-6 {
+		t.Errorf("Second sample = %v, want %v (float32)", samples[1], expected32)
 	}
 
 	// Verify exponential decay pattern
+	// Using float32 precision, so error accumulates - use looser tolerance
 	for i := 2; i < 10; i++ {
-		expected := math.Pow(PreemphCoef, float64(i))
-		if math.Abs(samples[i]-expected) > 1e-6 {
-			t.Errorf("Sample[%d] = %v, want %v", i, samples[i], expected)
+		// Expected value using float32 math (matching libopus)
+		var expectedF32 float32 = float32(PreemphCoef)
+		for j := 1; j < i; j++ {
+			expectedF32 *= float32(PreemphCoef)
+		}
+		if math.Abs(samples[i]-float64(expectedF32)) > 1e-5 {
+			t.Errorf("Sample[%d] = %v, want %v", i, samples[i], expectedF32)
 		}
 	}
 }
