@@ -1612,6 +1612,92 @@ int test_encode_uniform_detailed(unsigned char *out_buf, int max_size,
     return enc.error;
 }
 
+// Structure to hold encoder state for tracing
+typedef struct {
+    opus_uint32 rng;
+    opus_uint32 val;
+    opus_uint32 ext;
+    int rem;
+    opus_uint32 offs;
+    int tell;
+} ec_enc_state_trace;
+
+// Encode a bit with logp and return state BEFORE and AFTER
+void test_encode_bit_logp_trace(ec_enc *enc, int val, unsigned int logp,
+                                 ec_enc_state_trace *before, ec_enc_state_trace *after) {
+    before->rng = enc->rng;
+    before->val = enc->val;
+    before->ext = enc->ext;
+    before->rem = enc->rem;
+    before->offs = enc->offs;
+    before->tell = ec_tell(enc);
+
+    ec_enc_bit_logp(enc, val, logp);
+
+    after->rng = enc->rng;
+    after->val = enc->val;
+    after->ext = enc->ext;
+    after->rem = enc->rem;
+    after->offs = enc->offs;
+    after->tell = ec_tell(enc);
+}
+
+// Encode ICDF and return state BEFORE and AFTER
+void test_encode_icdf_trace(ec_enc *enc, int s, const unsigned char *icdf, unsigned int ftb,
+                             ec_enc_state_trace *before, ec_enc_state_trace *after) {
+    before->rng = enc->rng;
+    before->val = enc->val;
+    before->ext = enc->ext;
+    before->rem = enc->rem;
+    before->offs = enc->offs;
+    before->tell = ec_tell(enc);
+
+    ec_enc_icdf(enc, s, icdf, ftb);
+
+    after->rng = enc->rng;
+    after->val = enc->val;
+    after->ext = enc->ext;
+    after->rem = enc->rem;
+    after->offs = enc->offs;
+    after->tell = ec_tell(enc);
+}
+
+// Encode a uniform value and return state BEFORE and AFTER
+void test_encode_uint_trace(ec_enc *enc, opus_uint32 val, opus_uint32 ft,
+                             ec_enc_state_trace *before, ec_enc_state_trace *after) {
+    before->rng = enc->rng;
+    before->val = enc->val;
+    before->ext = enc->ext;
+    before->rem = enc->rem;
+    before->offs = enc->offs;
+    before->tell = ec_tell(enc);
+
+    ec_enc_uint(enc, val, ft);
+
+    after->rng = enc->rng;
+    after->val = enc->val;
+    after->ext = enc->ext;
+    after->rem = enc->rem;
+    after->offs = enc->offs;
+    after->tell = ec_tell(enc);
+}
+
+// Get current encoder state
+void test_get_enc_state(ec_enc *enc, ec_enc_state_trace *state) {
+    state->rng = enc->rng;
+    state->val = enc->val;
+    state->ext = enc->ext;
+    state->rem = enc->rem;
+    state->offs = enc->offs;
+    state->tell = ec_tell(enc);
+}
+
+// Initialize encoder and return initial state
+void test_enc_init_with_state(ec_enc *enc, unsigned char *buf, int size, ec_enc_state_trace *state) {
+    ec_enc_init(enc, buf, size);
+    test_get_enc_state(enc, state);
+}
+
 // ====================================================================
 // SILK LSF/NLSF Encoding Comparison Wrappers
 // ====================================================================
@@ -3112,4 +3198,132 @@ func LibopusQuantEnergyFinalise(oldEBands, errorIn []float32, fineQuant, finePri
 		UpdatedEnergies: oldECopy,
 		UpdatedError:    errorCopy,
 	}, nil
+}
+
+// ====================================================================
+// Range Encoder State Tracing Wrappers
+// ====================================================================
+
+// ECEncStateTrace holds the range encoder state for debugging.
+type ECEncStateTrace struct {
+	Rng  uint32 // Range
+	Val  uint32 // Low value
+	Ext  uint32 // Extension count (pending 0xFF bytes)
+	Rem  int    // Remainder byte
+	Offs uint32 // Output offset
+	Tell int    // Bits written (approx)
+}
+
+// LibopusEncoderTracer allows step-by-step encoding with state tracking.
+// Uses C-allocated memory to avoid CGO pointer issues.
+type LibopusEncoderTracer struct {
+	enc    *C.ec_enc
+	buf    *C.uchar
+	bufLen int
+}
+
+// NewLibopusEncoderTracer creates a new encoder tracer.
+func NewLibopusEncoderTracer(bufSize int) *LibopusEncoderTracer {
+	t := &LibopusEncoderTracer{
+		enc:    (*C.ec_enc)(C.malloc(C.size_t(unsafe.Sizeof(C.ec_enc{})))),
+		buf:    (*C.uchar)(C.malloc(C.size_t(bufSize))),
+		bufLen: bufSize,
+	}
+	var state C.ec_enc_state_trace
+	C.test_enc_init_with_state(
+		t.enc,
+		t.buf,
+		C.int(bufSize),
+		&state,
+	)
+	return t
+}
+
+// Destroy frees the C-allocated memory.
+func (t *LibopusEncoderTracer) Destroy() {
+	if t.enc != nil {
+		C.free(unsafe.Pointer(t.enc))
+		t.enc = nil
+	}
+	if t.buf != nil {
+		C.free(unsafe.Pointer(t.buf))
+		t.buf = nil
+	}
+}
+
+// GetState returns the current encoder state.
+func (t *LibopusEncoderTracer) GetState() ECEncStateTrace {
+	var state C.ec_enc_state_trace
+	C.test_get_enc_state(t.enc, &state)
+	return ECEncStateTrace{
+		Rng:  uint32(state.rng),
+		Val:  uint32(state.val),
+		Ext:  uint32(state.ext),
+		Rem:  int(state.rem),
+		Offs: uint32(state.offs),
+		Tell: int(state.tell),
+	}
+}
+
+// EncodeBitLogp encodes a bit with log probability and returns before/after state.
+func (t *LibopusEncoderTracer) EncodeBitLogp(val int, logp uint) (before, after ECEncStateTrace) {
+	var bef, aft C.ec_enc_state_trace
+	C.test_encode_bit_logp_trace(t.enc, C.int(val), C.uint(logp), &bef, &aft)
+	return ECEncStateTrace{
+			Rng:  uint32(bef.rng),
+			Val:  uint32(bef.val),
+			Ext:  uint32(bef.ext),
+			Rem:  int(bef.rem),
+			Offs: uint32(bef.offs),
+			Tell: int(bef.tell),
+		}, ECEncStateTrace{
+			Rng:  uint32(aft.rng),
+			Val:  uint32(aft.val),
+			Ext:  uint32(aft.ext),
+			Rem:  int(aft.rem),
+			Offs: uint32(aft.offs),
+			Tell: int(aft.tell),
+		}
+}
+
+// EncodeICDF encodes using ICDF and returns before/after state.
+func (t *LibopusEncoderTracer) EncodeICDF(s int, icdf []uint8, ftb uint) (before, after ECEncStateTrace) {
+	var bef, aft C.ec_enc_state_trace
+	C.test_encode_icdf_trace(t.enc, C.int(s), (*C.uchar)(unsafe.Pointer(&icdf[0])), C.uint(ftb), &bef, &aft)
+	return ECEncStateTrace{
+			Rng:  uint32(bef.rng),
+			Val:  uint32(bef.val),
+			Ext:  uint32(bef.ext),
+			Rem:  int(bef.rem),
+			Offs: uint32(bef.offs),
+			Tell: int(bef.tell),
+		}, ECEncStateTrace{
+			Rng:  uint32(aft.rng),
+			Val:  uint32(aft.val),
+			Ext:  uint32(aft.ext),
+			Rem:  int(aft.rem),
+			Offs: uint32(aft.offs),
+			Tell: int(aft.tell),
+		}
+}
+
+// EncodeUniform encodes a uniform value and returns before/after state.
+func (t *LibopusEncoderTracer) EncodeUniform(val, ft uint32) (before, after ECEncStateTrace) {
+	var bef, aft C.ec_enc_state_trace
+	C.test_encode_uint_trace(t.enc, C.uint(val), C.uint(ft), &bef, &aft)
+	return ECEncStateTrace{
+			Rng:  uint32(bef.rng),
+			Val:  uint32(bef.val),
+			Ext:  uint32(bef.ext),
+			Rem:  int(bef.rem),
+			Offs: uint32(bef.offs),
+			Tell: int(bef.tell),
+		}, ECEncStateTrace{
+			Rng:  uint32(aft.rng),
+			Val:  uint32(aft.val),
+			Ext:  uint32(aft.ext),
+			Rem:  int(aft.rem),
+			Offs: uint32(aft.offs),
+			Tell: int(aft.tell),
+		}
 }

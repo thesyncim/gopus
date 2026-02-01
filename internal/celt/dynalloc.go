@@ -424,16 +424,24 @@ func DynallocAnalysis(
 		}
 
 		// Clamp follower and compute offsets/boost
+		// Reference: libopus celt_encoder.c lines 1232-1265
+		//
+		// IMPORTANT: In libopus FLOAT mode, SHR32 is a NO-OP!
+		// From arch.h line 313: #define SHR32(a,shift) (a)
+		//
+		// So in float mode:
+		//   follower[i] = MIN(follower[i], 4.0);  // clamp to 4.0
+		//   follower[i] = SHR32(follower[i], 8);  // NO-OP in float mode
+		//   boost = (int)SHR32(follower[i]*..., DB_SHIFT-8);  // NO-OP in float mode
+		//
+		// This means boost = (int)(follower * factor) directly, no scaling.
+		// The boost value is the NUMBER OF QUANTA to allocate (a count).
 		totBoost := 0
 		for i := start; i < end; i++ {
 			follower[i] = math.Min(follower[i], 4.0)
 
-			// Scale down follower for offset computation
-			// In libopus: follower[i] = SHR32(follower[i], 8)
-			// Since we're in float, this is approximately dividing by 256
-			// But actually libopus shifts by 8 bits in DB_SHIFT domain (which is 15 for dB values)
-			// In float domain, we just keep the dB value and scale appropriately
-			followerScaled := follower[i] / 256.0
+			// In float mode, SHR32(follower, 8) is a no-op
+			followerVal := follower[i]
 
 			// Compute band width
 			width := channels * ScaledBandWidth(i, 120<<lm) // 120 is base frame size
@@ -445,14 +453,18 @@ func DynallocAnalysis(
 
 			// Different scaling based on band width
 			// Reference: libopus lines 1242-1252
+			// In float mode, SHR32 is a no-op, so:
+			// - width < 6: boost = (int)follower
+			// - width > 48: boost = (int)(follower * 8)
+			// - else: boost = (int)(follower * width / 6)
 			if width < 6 {
-				boost = int(followerScaled * 256) // Scale to match libopus fixed-point
+				boost = int(followerVal)
 				boostBits = boost * width << bitRes
 			} else if width > 48 {
-				boost = int(followerScaled * 256 * 8)
+				boost = int(followerVal * 8.0)
 				boostBits = (boost * width << bitRes) / 8
 			} else {
-				boost = int(followerScaled * 256 * float64(width) / 6.0)
+				boost = int(followerVal * float64(width) / 6.0)
 				boostBits = boost * 6 << bitRes
 			}
 

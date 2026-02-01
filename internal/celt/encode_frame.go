@@ -57,10 +57,20 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	nbBands := mode.EffBands
 	lm := mode.LM
 
-	// Step 3a: Apply DC rejection (high-pass filter) to remove DC offset
-	// libopus applies this at the Opus encoder level before CELT processing
+	// Step 3a: DC rejection is DISABLED for pure CELT encoding.
+	// Testing showed that libopus's EncodeFloat for CELT-only mode does NOT
+	// apply DC rejection at the CELT encoder level. DC rejection is applied
+	// at the Opus encoder level (opus_encode_float) before mode selection,
+	// but when we directly call the CELT encoder, we should skip it.
+	//
+	// The DC rejection was causing MDCT coefficients to differ by ~20-22,
+	// which then caused PVQ quantization to produce completely different
+	// indices (dot product of -0.31 between gopus and libopus directions).
+	//
+	// TODO: For full Opus encoder integration, dc_reject should be applied
+	// at the Opus level, not within EncodeFrame.
 	// Reference: libopus src/opus_encoder.c line 2008: dc_reject(pcm, 3, ...)
-	dcRejected := e.ApplyDCReject(pcm)
+	dcRejected := pcm // Skip DC rejection - use raw PCM
 
 	// Step 3b: Apply delay buffer (lookahead compensation)
 	// libopus uses a delay_compensation of Fs/250 = 192 samples at 48kHz.
@@ -71,7 +81,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		e.delayBuffer = make([]float64, delayComp)
 	}
 
-	// Build combined buffer: [delay_buffer] + [DC-rejected new samples]
+	// Build combined buffer: [delay_buffer] + [PCM samples]
 	combinedLen := delayComp + len(dcRejected)
 	combinedBuf := make([]float64, combinedLen)
 	copy(combinedBuf[:delayComp], e.delayBuffer)
@@ -530,8 +540,12 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	// Step 11.2: Compute and encode spread decision
 	// Match libopus gating: only encode if there's budget for the decision.
+	// Reference: libopus celt_encoder.c line 2302-2345
 	var spread int
 	if re.Tell()+4 <= targetBits {
+		// For transient frames (shortBlocks), low complexity, or very low bitrate,
+		// skip spreading_decision() analysis and use simple defaults.
+		// Reference: libopus celt_encoder.c line 2316-2321
 		if shortBlocks > 1 || e.complexity < 3 || effectiveBytes < 10*e.channels {
 			if e.complexity == 0 {
 				spread = spreadNone
@@ -542,14 +556,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			// Reference: libopus celt_encoder.c line 2306: st->tapset_decision = 0
 			e.SetTapsetDecision(0)
 		} else {
-			// Analyze normalized coefficients for spread decision.
-			// Note: libopus uses normalized X after normalise_bands.
-			// Enable updateHF when prefilter could be active (non-short blocks).
-			// The tapset decision is used for the prefilter comb filter taper selection.
+			// For non-transient frames with sufficient bits, analyze the signal
+			// to determine optimal spreading.
 			// Reference: libopus celt_encoder.c spreading_decision() call with
 			// pf_on&&!shortBlocks as updateHF condition.
-			// Since we don't have full prefilter yet, we enable HF update
-			// when conditions are met for future prefilter integration.
 			updateHF := shortBlocks == 1
 			// Compute dynamic spread weights based on masking analysis (matches libopus dynalloc_analysis)
 			// Using 16-bit depth assumption (standard audio input)

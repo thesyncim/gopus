@@ -253,6 +253,11 @@ func (d *Decoder) Val() uint32 {
 	return d.val
 }
 
+// Offs returns the current read offset (for testing/debugging).
+func (d *Decoder) Offs() uint32 {
+	return d.offs
+}
+
 // DecodeUniform decodes a uniformly distributed value in the range [0, ft).
 // This is used for fine energy bits and PVQ indices.
 // Reference: libopus celt/entdec.c ec_dec_uint()

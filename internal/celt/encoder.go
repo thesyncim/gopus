@@ -146,8 +146,9 @@ func NewEncoder(channels int) *Encoder {
 		complexity: 10,
 
 		// Initialize spread decision state (libopus defaults to SPREAD_NORMAL)
+		// Reference: libopus celt_encoder.c line 3088-3089
 		spreadDecision: spreadNormal,
-		tonalAverage:   0,
+		tonalAverage:   256, // libopus initializes to 256
 		hfAverage:      0,
 		tapsetDecision: 0,
 
@@ -209,9 +210,10 @@ func (e *Encoder) Reset() {
 	e.frameBits = 0
 	e.lastCodedBands = 0
 
-	// Reset spread decision state
+	// Reset spread decision state (match libopus init values)
+	// Reference: libopus celt_encoder.c line 3088-3089
 	e.spreadDecision = spreadNormal
-	e.tonalAverage = 0
+	e.tonalAverage = 256
 	e.hfAverage = 0
 	e.tapsetDecision = 0
 
@@ -505,4 +507,10 @@ func (e *Encoder) SetLastTonality(tonality float64) {
 // Used for spectral flux computation in tonality analysis.
 func (e *Encoder) PrevBandLogEnergy() []float64 {
 	return e.prevBandLogEnergy
+}
+
+// GetLastDynalloc returns the last computed dynalloc result.
+// This is computed during encoding and stored for the next frame's VBR decisions.
+func (e *Encoder) GetLastDynalloc() DynallocResult {
+	return e.lastDynalloc
 }

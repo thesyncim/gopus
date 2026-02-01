@@ -20,6 +20,16 @@ func PulsesToBitsExport(band, lm, pulses int) int {
 	return pulsesToBits(band, lm, pulses)
 }
 
+// ExpRotationExport exposes expRotation for testing.
+func ExpRotationExport(x []float64, length, dir, stride, k, spread int) {
+	expRotation(x, length, dir, stride, k, spread)
+}
+
+// OpPVQSearchExport exposes opPVQSearch for testing (same as ExportedOpPVQSearch).
+func OpPVQSearchExport(x []float64, k int) ([]int, float64) {
+	return opPVQSearch(x, k)
+}
+
 // AllocTrimDebugInfo contains debug information for allocation trim computation.
 type AllocTrimDebugInfo struct {
 	TfEstimate     float64

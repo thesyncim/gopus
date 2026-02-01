@@ -660,7 +660,15 @@ func TestOffsetComputation(t *testing.T) {
 }
 
 // TestBoostBitsCalculation verifies boost_bits formula.
-// Reference: libopus celt_encoder.c lines 1241-1252
+// Reference: libopus celt_encoder.c lines 1232-1265
+//
+// In float mode, the formula is:
+//
+//	follower = min(follower, 4.0)
+//	follower = SHR32(follower, 8) = follower / 256
+//	boost = (int)SHR32(follower * factor, DB_SHIFT-8) = (int)(follower * factor / 128)
+//
+// This produces very small boost values (often 0) which is correct for float mode.
 func TestBoostBitsCalculation(t *testing.T) {
 	lm := 3 // 20ms frame
 	C := 1  // mono
@@ -668,7 +676,7 @@ func TestBoostBitsCalculation(t *testing.T) {
 	testCases := []struct {
 		bandIdx  int
 		width    int
-		follower float64 // In log2 units
+		follower float64 // In log2 units (dB/6 approximately)
 	}{
 		{0, 1, 2.0},   // Very narrow band
 		{5, 4, 2.0},   // Narrow band
@@ -684,22 +692,28 @@ func TestBoostBitsCalculation(t *testing.T) {
 			width = C * (EBands[tc.bandIdx+1] - EBands[tc.bandIdx]) << lm
 		}
 
-		// Clamp follower
+		// Clamp follower to 4.0 (libopus MIN(follower, GCONST(4)))
 		follower := tc.follower
 		if follower > 4.0 {
 			follower = 4.0
 		}
-		follower /= 8.0 // SHR32(follower, 8) in fixed-point
+
+		// SHR32(follower, 8) in float mode = divide by 256
+		followerScaled := follower / 256.0
 
 		var boost, boostBits int
+		// Each case: boost = SHR32(followerScaled * factor, DB_SHIFT-8) = followerScaled * factor / 128
 		if width < 6 {
-			boost = int(follower * 256) // SHR(follower, DB_SHIFT-8)
+			// boost = SHR32(follower, DB_SHIFT-8) = followerScaled / 128
+			boost = int(followerScaled / 128.0)
 			boostBits = boost * width << bitRes
 		} else if width > 48 {
-			boost = int(follower * 8 * 256)
+			// boost = SHR32(follower * 8, DB_SHIFT-8) = followerScaled * 8 / 128
+			boost = int(followerScaled * 8.0 / 128.0)
 			boostBits = (boost * width << bitRes) / 8
 		} else {
-			boost = int(follower * float64(width) / 6 * 256)
+			// boost = SHR32(follower * width / 6, DB_SHIFT-8) = followerScaled * width / 6 / 128
+			boost = int(followerScaled * float64(width) / 6.0 / 128.0)
 			boostBits = boost * 6 << bitRes
 		}
 
