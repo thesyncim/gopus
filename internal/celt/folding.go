@@ -1,5 +1,7 @@
 package celt
 
+import "math"
+
 // Band folding for uncoded bands in CELT.
 // When a band receives zero bit allocation (k=0 pulses), its shape is
 // reconstructed by "folding" from a lower coded band with pseudo-random
@@ -48,6 +50,68 @@ func FoldBand(lowband []float64, n int, seed *uint32) []float64 {
 
 	// Normalize to unit energy
 	return NormalizeVector(result)
+}
+
+// foldBandInto generates a normalized vector by folding directly into a pre-allocated buffer.
+// This is the zero-allocation version used in the hot path.
+// lowband: the source band vector (already decoded and normalized)
+// n: width of target band (number of MDCT bins)
+// dst: pre-allocated destination buffer of length >= n
+//
+// If lowband is empty or nil, generates pseudo-random noise instead.
+func (d *Decoder) foldBandInto(lowband []float64, n int, dst []float64) {
+	if n <= 0 || len(dst) < n {
+		return
+	}
+
+	if len(lowband) == 0 {
+		// No source band available - generate pseudo-random noise
+		// Uses LCG (Linear Congruential Generator) matching libopus
+		for i := 0; i < n; i++ {
+			d.rng = d.rng*1664525 + 1013904223 // LCG constants
+			// Convert to signed float in approximately [-1, 1]
+			dst[i] = float64(int32(d.rng)) / float64(1<<31)
+		}
+	} else {
+		// Copy from lower band with pseudo-random sign flips
+		// The sign is determined by bit 15 of the RNG state
+		for i := 0; i < n; i++ {
+			// Determine sign from current seed
+			sign := 1.0
+			if d.rng&0x8000 != 0 {
+				sign = -1.0
+			}
+			// Advance RNG
+			d.rng = d.rng*1664525 + 1013904223
+
+			// Copy from lowband with wrapping if target is larger
+			dst[i] = sign * lowband[i%len(lowband)]
+		}
+	}
+
+	// Normalize to unit energy in place
+	normalizeVectorInPlace(dst[:n])
+}
+
+// normalizeVectorInPlace scales vector to unit L2 norm in place.
+func normalizeVectorInPlace(v []float64) {
+	if len(v) == 0 {
+		return
+	}
+
+	var energy float64
+	for _, x := range v {
+		energy += x * x
+	}
+
+	if energy < 1e-15 {
+		return
+	}
+
+	scale := 1.0 / math.Sqrt(energy)
+	for i := range v {
+		v[i] *= scale
+	}
 }
 
 // FindFoldSource finds the band to fold from for an uncoded band.

@@ -10,7 +10,7 @@ import (
 
 const (
 	defaultMaxPacketSamples = 5760
-	defaultMaxPacketBytes   = 1275
+	defaultMaxPacketBytes   = 1500
 )
 
 // DecoderConfig configures a Decoder instance.
@@ -276,28 +276,34 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		}
 
 		if vbr {
+			var frameLens [48]int
 			for i := 0; i < m-1; i++ {
 				frameLen, bytesRead, err := parseFrameLength(data, offset)
 				if err != nil {
 					return 0, err
 				}
 				offset += bytesRead
-				if offset+frameLen > len(data)-padding {
+				frameLens[i] = frameLen
+			}
+			frameDataOffset := offset
+			for i := 0; i < m-1; i++ {
+				frameLen := frameLens[i]
+				if frameDataOffset+frameLen > len(data)-padding {
 					return 0, ErrInvalidPacket
 				}
-				if err := decodeFrame(data[offset : offset+frameLen]); err != nil {
+				if err := decodeFrame(data[frameDataOffset : frameDataOffset+frameLen]); err != nil {
 					return 0, err
 				}
-				offset += frameLen
+				frameDataOffset += frameLen
 			}
-			lastFrameLen := len(data) - offset - padding
+			lastFrameLen := len(data) - frameDataOffset - padding
 			if lastFrameLen < 0 {
 				return 0, ErrInvalidPacket
 			}
-			if offset+lastFrameLen > len(data) {
+			if frameDataOffset+lastFrameLen > len(data)-padding {
 				return 0, ErrInvalidPacket
 			}
-			if err := decodeFrame(data[offset : offset+lastFrameLen]); err != nil {
+			if err := decodeFrame(data[frameDataOffset : frameDataOffset+lastFrameLen]); err != nil {
 				return 0, err
 			}
 		} else {

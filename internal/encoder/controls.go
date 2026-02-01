@@ -70,15 +70,86 @@ func targetBytesForBitrate(bitrate, frameSize int) int {
 	return (bitrate * durationMs) / 8000
 }
 
-// padToSize pads or truncates packet to exact size.
+// padToSize pads packet to exact size without truncating.
 // Used for CBR mode.
 func padToSize(packet []byte, targetSize int) []byte {
 	if len(packet) >= targetSize {
-		return packet[:targetSize]
+		return packet
 	}
-	// Pad with zeros (treated as padding per RFC 6716)
-	padded := make([]byte, targetSize)
-	copy(padded, packet)
+	if len(packet) == 0 {
+		return packet
+	}
+
+	toc, frames, err := parsePacketFrames(packet)
+	if err != nil || len(frames) == 0 || len(frames) > 48 {
+		return packet
+	}
+
+	totalFrameBytes := 0
+	lengthBytes := 0
+	for i, frame := range frames {
+		totalFrameBytes += len(frame)
+		if i < len(frames)-1 {
+			lengthBytes += frameLengthBytes(len(frame))
+		}
+	}
+
+	base := 1 + 1 + lengthBytes + totalFrameBytes
+	if base >= targetSize {
+		return packet
+	}
+
+	extraNeeded := targetSize - base
+	padding := 0
+	padLenBytes := 0
+	for k := 1; k <= 10; k++ {
+		p := extraNeeded - k
+		if p <= 0 {
+			continue
+		}
+		minP := 254*(k-1) + 1
+		maxP := 254 * k
+		if p >= minP && p <= maxP {
+			padding = p
+			padLenBytes = k
+			break
+		}
+	}
+	if padding == 0 {
+		return packet
+	}
+
+	newLen := base + padLenBytes + padding
+	if newLen != targetSize {
+		return packet
+	}
+
+	padded := make([]byte, newLen)
+	padded[0] = (toc & 0xFC) | 0x03
+	countByte := byte(len(frames)&0x3F) | 0x80
+	if padding > 0 {
+		countByte |= 0x40
+	}
+	padded[1] = countByte
+
+	offset := 2
+	remaining := padding
+	for remaining > 254 {
+		padded[offset] = 255
+		offset++
+		remaining -= 254
+	}
+	padded[offset] = byte(remaining)
+	offset++
+
+	for i := 0; i < len(frames)-1; i++ {
+		offset += writeFrameLength(padded[offset:], len(frames[i]))
+	}
+	for _, frame := range frames {
+		copy(padded[offset:], frame)
+		offset += len(frame)
+	}
+
 	return padded
 }
 
@@ -91,7 +162,7 @@ func constrainSize(packet []byte, target int, tolerance float64) []byte {
 		return padToSize(packet, minSize)
 	}
 	if len(packet) > maxSize {
-		return packet[:maxSize]
+		return packet
 	}
 	return packet
 }

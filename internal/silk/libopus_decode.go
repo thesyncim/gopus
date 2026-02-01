@@ -392,13 +392,43 @@ func silkDecodeCore(st *decoderState, ctrl *decoderControl, out []int16, pulses 
 		randSeed += int32(pulses[i])
 	}
 
-	sLPC := make([]int32, st.subfrLength+maxLPCOrder)
+	// Use pre-allocated scratch buffers if available, otherwise allocate.
+	// This eliminates hot-path allocations when called from the Decoder.
+	var sLPC []int32
+	if st.scratchSLPC != nil && len(st.scratchSLPC) >= st.subfrLength+maxLPCOrder {
+		sLPC = st.scratchSLPC[:st.subfrLength+maxLPCOrder]
+		// Clear the portion beyond maxLPCOrder that will be used for new samples
+		for i := maxLPCOrder; i < st.subfrLength+maxLPCOrder; i++ {
+			sLPC[i] = 0
+		}
+	} else {
+		sLPC = make([]int32, st.subfrLength+maxLPCOrder)
+	}
 	copy(sLPC, st.sLPCQ14Buf[:])
 	pexc := st.excQ14[:]
 	pxq := out
 
-	sLTP := make([]int16, st.ltpMemLength)
-	sLTP_Q15 := make([]int32, st.ltpMemLength+st.frameLength)
+	var sLTP []int16
+	if st.scratchSLTP != nil && len(st.scratchSLTP) >= st.ltpMemLength {
+		sLTP = st.scratchSLTP[:st.ltpMemLength]
+		// Clear the buffer for reuse
+		for i := 0; i < st.ltpMemLength; i++ {
+			sLTP[i] = 0
+		}
+	} else {
+		sLTP = make([]int16, st.ltpMemLength)
+	}
+
+	var sLTP_Q15 []int32
+	if st.scratchSLTPQ15 != nil && len(st.scratchSLTPQ15) >= st.ltpMemLength+st.frameLength {
+		sLTP_Q15 = st.scratchSLTPQ15[:st.ltpMemLength+st.frameLength]
+		// Clear the buffer for reuse
+		for i := 0; i < st.ltpMemLength+st.frameLength; i++ {
+			sLTP_Q15[i] = 0
+		}
+	} else {
+		sLTP_Q15 = make([]int32, st.ltpMemLength+st.frameLength)
+	}
 	sLTPBufIdx := st.ltpMemLength
 
 	for k := 0; k < st.nbSubfr; k++ {
@@ -455,7 +485,12 @@ func silkDecodeCore(st *decoderState, ctrl *decoderControl, out []int16, pulses 
 		if signalType == typeVoiced {
 			lag := ctrl.pitchL[k]
 			predLagPtr := sLTPBufIdx - lag + ltpOrder/2
-			presQ14 = make([]int32, st.subfrLength)
+			// Use pre-allocated presQ14 buffer if available
+			if st.scratchPresQ14 != nil && len(st.scratchPresQ14) >= st.subfrLength {
+				presQ14 = st.scratchPresQ14[:st.subfrLength]
+			} else {
+				presQ14 = make([]int32, st.subfrLength)
+			}
 			for i := 0; i < st.subfrLength; i++ {
 				ltpPredQ13 := int32(2)
 				ltpPredQ13 = silkSMLAWB(ltpPredQ13, sLTP_Q15[predLagPtr+0], int32(B_Q14[0]))
@@ -515,13 +550,39 @@ func silkDecodeCoreWithTrace(st *decoderState, ctrl *decoderControl, out []int16
 		randSeed += int32(pulses[i])
 	}
 
-	sLPC := make([]int32, st.subfrLength+maxLPCOrder)
+	// Use pre-allocated scratch buffers if available, otherwise allocate.
+	var sLPC []int32
+	if st.scratchSLPC != nil && len(st.scratchSLPC) >= st.subfrLength+maxLPCOrder {
+		sLPC = st.scratchSLPC[:st.subfrLength+maxLPCOrder]
+		for i := maxLPCOrder; i < st.subfrLength+maxLPCOrder; i++ {
+			sLPC[i] = 0
+		}
+	} else {
+		sLPC = make([]int32, st.subfrLength+maxLPCOrder)
+	}
 	copy(sLPC, st.sLPCQ14Buf[:])
 	pexc := st.excQ14[:]
 	pxq := out
 
-	sLTP := make([]int16, st.ltpMemLength)
-	sLTP_Q15 := make([]int32, st.ltpMemLength+st.frameLength)
+	var sLTP []int16
+	if st.scratchSLTP != nil && len(st.scratchSLTP) >= st.ltpMemLength {
+		sLTP = st.scratchSLTP[:st.ltpMemLength]
+		for i := 0; i < st.ltpMemLength; i++ {
+			sLTP[i] = 0
+		}
+	} else {
+		sLTP = make([]int16, st.ltpMemLength)
+	}
+
+	var sLTP_Q15 []int32
+	if st.scratchSLTPQ15 != nil && len(st.scratchSLTPQ15) >= st.ltpMemLength+st.frameLength {
+		sLTP_Q15 = st.scratchSLTPQ15[:st.ltpMemLength+st.frameLength]
+		for i := 0; i < st.ltpMemLength+st.frameLength; i++ {
+			sLTP_Q15[i] = 0
+		}
+	} else {
+		sLTP_Q15 = make([]int32, st.ltpMemLength+st.frameLength)
+	}
 	sLTPBufIdx := st.ltpMemLength
 
 	for k := 0; k < st.nbSubfr; k++ {
@@ -580,7 +641,12 @@ func silkDecodeCoreWithTrace(st *decoderState, ctrl *decoderControl, out []int16
 		if signalType == typeVoiced {
 			lag := ctrl.pitchL[k]
 			predLagPtr := sLTPBufIdx - lag + ltpOrder/2
-			presQ14 = make([]int32, st.subfrLength)
+			// Use pre-allocated presQ14 buffer if available
+			if st.scratchPresQ14 != nil && len(st.scratchPresQ14) >= st.subfrLength {
+				presQ14 = st.scratchPresQ14[:st.subfrLength]
+			} else {
+				presQ14 = make([]int32, st.subfrLength)
+			}
 			for i := 0; i < st.subfrLength; i++ {
 				ltpPredQ13 := int32(2)
 				ltpPredQ13 = silkSMLAWB(ltpPredQ13, sLTP_Q15[predLagPtr+0], int32(B_Q14[0]))

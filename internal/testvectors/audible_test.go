@@ -103,8 +103,9 @@ func TestAudioAudibility(t *testing.T) {
 
 	// Read decoded and compute quality
 	decoded := readTestWAV(decodedWav)
-	if len(decoded) > 312 {
-		decoded = decoded[312:] // Skip pre-skip
+	// opusdec already applies pre-skip from OpusHead. Only trim if it's still present.
+	if len(decoded) >= len(pcm)+312 {
+		decoded = decoded[312:]
 	}
 
 	compareLen := len(pcm)

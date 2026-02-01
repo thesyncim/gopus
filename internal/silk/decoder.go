@@ -68,19 +68,78 @@ type Decoder struct {
 	monoDelayBuf     []int16 // Delay buffer (size = fsKHz)
 	monoInputDelay   int     // Delay compensation (from delay_matrix_dec)
 	monoDelayBufInit bool    // Whether delay buffer has been initialized
+
+	// Pre-allocated scratch buffers for hot-path performance.
+	// These eliminate allocations in performance-critical decode loops.
+	// Sizes are based on maximum SILK frame parameters:
+	// - maxSubFrameLength = 80 (5ms * 16kHz)
+	// - maxLPCOrder = 16
+	// - maxLtpMemLength = 320 (20ms * 16kHz)
+	// - maxFrameLength = 320 (4 subframes * 80 samples)
+	// - maxFramesPerPacket = 3
+	scratchSLPC     []int32   // Size: maxSubFrameLength + maxLPCOrder = 96
+	scratchSLTP     []int16   // Size: maxLtpMemLength = 320
+	scratchSLTPQ15  []int32   // Size: maxLtpMemLength + maxFrameLength = 640
+	scratchPresQ14  []int32   // Size: maxSubFrameLength = 80
+	scratchOutInt16 []int16   // Size: maxFramesPerPacket * maxFrameLength = 960
+	scratchPulses   []int16   // Size: roundUpShellFrame(maxFrameLength) = 320
+	scratchOutput   []float32 // Size: maxFramesPerPacket * maxFrameLength = 960
 }
 
 // NewDecoder creates a new SILK decoder with proper initial state.
 // The decoder is ready to process SILK frames after creation.
 func NewDecoder() *Decoder {
+	// Pre-calculate max buffer sizes based on SILK constants:
+	// - maxSubFrameLength = 80 (5ms * 16kHz)
+	// - maxLPCOrder = 16
+	// - maxLtpMemLength = 320 (20ms * 16kHz)
+	// - maxFrameLength = 320 (4 subframes * 80)
+	// - maxFramesPerPacket = 3
+	const (
+		maxSLPCSize     = 80 + 16   // maxSubFrameLength + maxLPCOrder
+		maxSLTPSize     = 320       // maxLtpMemLength
+		maxSLTPQ15Size  = 320 + 320 // maxLtpMemLength + maxFrameLength
+		maxPresQ14Size  = 80        // maxSubFrameLength
+		maxOutInt16Size = 3 * 320   // maxFramesPerPacket * maxFrameLength
+		maxPulsesSize   = 320       // roundUpShellFrame(maxFrameLength)
+		maxOutputSize   = 3 * 320   // maxFramesPerPacket * maxFrameLength
+	)
+
 	d := &Decoder{
 		prevLPCValues: make([]float32, 16),  // Max for WB (d_LPC = 16)
 		prevLSFQ15:    make([]int16, 16),    // Max for WB (d_LPC = 16)
 		outputHistory: make([]float32, 322), // Max pitch lag (288) + LTP taps (5) + margin
+
+		// Pre-allocated scratch buffers for hot-path performance
+		scratchSLPC:     make([]int32, maxSLPCSize),
+		scratchSLTP:     make([]int16, maxSLTPSize),
+		scratchSLTPQ15:  make([]int32, maxSLTPQ15Size),
+		scratchPresQ14:  make([]int32, maxPresQ14Size),
+		scratchOutInt16: make([]int16, maxOutInt16Size),
+		scratchPulses:   make([]int16, maxPulsesSize),
+		scratchOutput:   make([]float32, maxOutputSize),
 	}
 	resetDecoderState(&d.state[0])
 	resetDecoderState(&d.state[1])
+
+	// Wire up scratch buffers to decoderState for hot-path optimization
+	d.setupScratchBuffers()
+
 	return d
+}
+
+// setupScratchBuffers wires the pre-allocated scratch buffers to both decoderState instances.
+// This enables silkDecodeCore and related functions to use pre-allocated memory.
+func (d *Decoder) setupScratchBuffers() {
+	d.state[0].scratchSLPC = d.scratchSLPC
+	d.state[0].scratchSLTP = d.scratchSLTP
+	d.state[0].scratchSLTPQ15 = d.scratchSLTPQ15
+	d.state[0].scratchPresQ14 = d.scratchPresQ14
+
+	d.state[1].scratchSLPC = d.scratchSLPC
+	d.state[1].scratchSLTP = d.scratchSLTP
+	d.state[1].scratchSLTPQ15 = d.scratchSLTPQ15
+	d.state[1].scratchPresQ14 = d.scratchPresQ14
 }
 
 // Reset clears decoder state for a new stream.
@@ -132,6 +191,34 @@ func (d *Decoder) Reset() {
 	d.monoDelayBuf = nil
 	d.monoInputDelay = 0
 	d.monoDelayBufInit = false
+
+	// Clear scratch buffers (zero them for clean state).
+	// Note: We don't reallocate - the buffers remain allocated
+	// and are reused across stream resets for performance.
+	for i := range d.scratchSLPC {
+		d.scratchSLPC[i] = 0
+	}
+	for i := range d.scratchSLTP {
+		d.scratchSLTP[i] = 0
+	}
+	for i := range d.scratchSLTPQ15 {
+		d.scratchSLTPQ15[i] = 0
+	}
+	for i := range d.scratchPresQ14 {
+		d.scratchPresQ14[i] = 0
+	}
+	for i := range d.scratchOutInt16 {
+		d.scratchOutInt16[i] = 0
+	}
+	for i := range d.scratchPulses {
+		d.scratchPulses[i] = 0
+	}
+	for i := range d.scratchOutput {
+		d.scratchOutput[i] = 0
+	}
+
+	// Re-wire scratch buffers after resetDecoderState cleared them
+	d.setupScratchBuffers()
 }
 
 // applyMonoDelay applies libopus-compatible delay compensation for mono SILK output.

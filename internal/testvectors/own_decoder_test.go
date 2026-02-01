@@ -62,9 +62,9 @@ func TestOwnEncoderDecoder(t *testing.T) {
 	}
 	t.Logf("\nMax amplitudes: orig=%.4f, decoded=%.4f", maxOrig, maxDec)
 
-	// Compute SNR (align for CELT overlap delay).
-	// The CELT MDCT/IMDCT pipeline introduces a fixed delay of Overlap samples.
-	delay := celt.Overlap
+	// Compute SNR (align for CELT algorithmic delay).
+	// CELT adds the overlap (MDCT) plus encoder lookahead (delay compensation).
+	delay := celt.Overlap + celt.DelayCompensation
 	if delay >= len(decoded) {
 		t.Fatalf("Decoded output too short for overlap delay: %d >= %d", delay, len(decoded))
 	}

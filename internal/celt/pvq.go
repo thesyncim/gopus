@@ -220,3 +220,95 @@ func (d *Decoder) DecodeIntensityStereo(mid []float64) (left, right []float64) {
 
 	return left, right
 }
+
+// decodePVQInto decodes a PVQ codeword directly into a pre-allocated buffer.
+// This is the zero-allocation version used in the hot path.
+// band: the band index (for tracing purposes)
+// n: band width (number of MDCT bins)
+// k: number of pulses (from bit allocation)
+// dst: pre-allocated destination buffer of length n
+func (d *Decoder) decodePVQInto(band, n, k int, dst []float64) {
+	if k == 0 || n <= 0 || len(dst) < n {
+		// Zero the destination for k=0 case
+		for i := 0; i < n && i < len(dst); i++ {
+			dst[i] = 0
+		}
+		return
+	}
+
+	// Read CWRS index from range coder
+	vSize := PVQ_V(n, k)
+	if vSize == 0 {
+		for i := 0; i < n; i++ {
+			dst[i] = 0
+		}
+		return
+	}
+
+	index := d.rangeDecoder.DecodeUniform(vSize)
+
+	// Convert index to pulse vector using CWRS with pre-allocated buffer
+	pulses := d.scratchBands.ensurePVQPulses(n)
+	decodePulsesInto(index, n, k, pulses, &d.scratchBands)
+
+	// Trace PVQ decode
+	DefaultTracer.TracePVQ(band, index, k, n, pulses)
+
+	// Convert to float and normalize directly into dst
+	var energy float64
+	for i := 0; i < n; i++ {
+		dst[i] = float64(pulses[i])
+		energy += dst[i] * dst[i]
+	}
+
+	// Normalize to unit L2 energy
+	if energy >= 1e-15 {
+		scale := 1.0 / math.Sqrt(energy)
+		for i := 0; i < n; i++ {
+			dst[i] *= scale
+		}
+	}
+}
+
+// decodeIntensityStereoInto decodes intensity stereo into pre-allocated buffers.
+// mid: the mid channel coefficients (input)
+// left, right: pre-allocated destination buffers
+func (d *Decoder) decodeIntensityStereoInto(mid, left, right []float64) {
+	n := len(mid)
+	if len(left) < n || len(right) < n {
+		return
+	}
+
+	// Decode inversion flag (1 bit)
+	inv := d.rangeDecoder.DecodeBit(1) == 1
+
+	if inv {
+		// Copy mid to left, inverted mid to right
+		for i := 0; i < n; i++ {
+			left[i] = mid[i]
+			right[i] = -mid[i]
+		}
+	} else {
+		// Copy mid to both channels
+		copy(left[:n], mid)
+		copy(right[:n], mid)
+	}
+}
+
+// applyMidSideRotationInto rotates mid-side vectors directly into left-right buffers.
+// mid, side: input vectors
+// midGain, sideGain: rotation gains from theta
+// left, right: pre-allocated destination buffers
+func applyMidSideRotationInto(mid, side []float64, midGain, sideGain float64, left, right []float64) {
+	n := len(mid)
+	if len(side) != n || len(left) < n || len(right) < n {
+		return
+	}
+
+	for i := 0; i < n; i++ {
+		// Left = mid*cos(theta) + side*sin(theta)
+		// Right = mid*cos(theta) - side*sin(theta)
+		left[i] = midGain*mid[i] + sideGain*side[i]
+		right[i] = midGain*mid[i] - sideGain*side[i]
+	}
+}

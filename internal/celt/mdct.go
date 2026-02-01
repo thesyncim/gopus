@@ -678,6 +678,15 @@ func dftTo(out []complex128, x []complex128) {
 	if len(out) < n {
 		return
 	}
+
+	// Use mixed-radix FFT for O(n log n) complexity on supported sizes
+	state := GetKissFFT64State(n)
+	if state != nil {
+		kissFFT64Forward(out, x, state)
+		return
+	}
+
+	// Fall back to O(n^2) DFT for unsupported sizes
 	twoPi := -2.0 * math.Pi / float64(n)
 	for k := 0; k < n; k++ {
 		angle := twoPi * float64(k)
