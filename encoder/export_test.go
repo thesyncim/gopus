@@ -4,17 +4,15 @@ package encoder
 
 // Export unexported functions for testing
 
-// Downsample48to16Improved exports the improved downsampler method for testing.
-// This requires an Encoder instance with initialized hybridState.
-func (e *Encoder) Downsample48to16Improved(samples []float64) []float32 {
+// Downsample48to16Hybrid exports the hybrid downsampler for testing.
+func (e *Encoder) Downsample48to16Hybrid(samples []float64, frameSize int) []float32 {
 	if e.hybridState == nil {
 		e.hybridState = &HybridState{
 			prevHBGain:     1.0,
 			stereoWidthQ14: 16384,
-			resamplerState: newResamplerState(e.channels),
 		}
 	}
-	return e.downsample48to16Improved(samples)
+	return e.downsample48to16Hybrid(samples, frameSize)
 }
 
 // TargetBytesForBitrate exports targetBytesForBitrate for testing.

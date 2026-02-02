@@ -11,7 +11,7 @@
 // - Proper SILK/CELT bit allocation using rate tables
 // - HB_gain for high-band attenuation when CELT is under-allocated
 // - gain_fade for smooth transitions between frames
-// - Improved anti-aliasing resampler for 48kHz to 16kHz
+// - Libopus-matching downsampler (AR2+FIR) for 48kHz to 16kHz
 // - Energy matching between SILK and CELT at crossover
 //
 // Reference: RFC 6716 Section 3.2, libopus src/opus_encoder.c
@@ -33,10 +33,6 @@ const (
 
 	// maxHybridPacketSize is the maximum packet size for hybrid mode.
 	maxHybridPacketSize = 1275
-
-	// hybridCrossoverFreq is the crossover frequency between SILK and CELT.
-	// SILK handles 0-8kHz, CELT handles 8-20kHz.
-	hybridCrossoverFreq = 8000
 
 	// hybridOverlap is the overlap size for gain fading (matches CELT overlap).
 	// 120 samples at 48kHz = 2.5ms.
@@ -68,33 +64,9 @@ type HybridState struct {
 	// Reduced at low bitrates to improve coding efficiency.
 	stereoWidthQ14 int
 
-	// resamplerState holds state for the downsampler.
-	resamplerState *resamplerState
-
 	// crossoverBuffer stores samples around the crossover frequency
 	// for smooth energy matching between SILK and CELT.
 	crossoverBuffer []float64
-}
-
-// resamplerState holds state for the 48kHz to 16kHz downsampler.
-// Uses a polyphase FIR filter for high-quality resampling.
-type resamplerState struct {
-	// delayBuf holds delayed input samples for the FIR filter.
-	delayBuf []float64
-
-	// channels is the number of audio channels.
-	channels int
-}
-
-// newResamplerState creates a new resampler state for the given channel count.
-func newResamplerState(channels int) *resamplerState {
-	// Filter delay is based on the FIR filter order.
-	// We use a 12-tap filter for good quality.
-	filterLen := 12
-	return &resamplerState{
-		delayBuf: make([]float64, filterLen*channels),
-		channels: channels,
-	}
 }
 
 // encodeHybridFrame encodes a hybrid frame using SILK+CELT.
@@ -126,7 +98,6 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, frameSize int) ([]byte, error
 		e.hybridState = &HybridState{
 			prevHBGain:     1.0,
 			stereoWidthQ14: 16384, // Full width (Q14 = 1.0)
-			resamplerState: newResamplerState(e.channels),
 		}
 	}
 
@@ -182,27 +153,51 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, frameSize int) ([]byte, error
 	buf := make([]byte, maxHybridPacketSize)
 	re := &rangecoding.Encoder{}
 	re.Init(buf)
+	re.Shrink(uint32(targetBytes))
 
-	if e.bitrateMode == ModeCBR || e.bitrateMode == ModeCVBR {
-		re.Shrink(uint32(targetBytes))
-	}
-
-	// Step 1: Downsample 48kHz -> 16kHz for SILK using improved resampler
-	silkInput := e.downsample48to16Improved(pcm)
+	// Step 1: Downsample 48kHz -> 16kHz for SILK using libopus-matching resampler
+	silkInput := e.downsample48to16Hybrid(pcm, frameSize)
 
 	// Step 2: SILK encodes first (uses shared range encoder)
 	e.silkEncoder.SetRangeEncoder(re)
-	e.silkEncoder.SetBitrate(silkBitrate)
+	e.silkEncoder.ResetPacketState()
+	if silkBitrate > 0 {
+		perChannel := silkBitrate / e.channels
+		if perChannel > 0 {
+			e.silkEncoder.SetBitrate(perChannel)
+			if e.channels == 2 {
+				e.silkSideEncoder.SetBitrate(perChannel)
+			}
+		}
+	}
+	e.silkEncoder.SetFEC(e.fecEnabled)
+	e.silkEncoder.SetPacketLoss(e.packetLoss)
+	if e.channels == 2 {
+		e.silkSideEncoder.ResetPacketState()
+		e.silkSideEncoder.SetFEC(e.fecEnabled)
+		e.silkSideEncoder.SetPacketLoss(e.packetLoss)
+	}
 	e.encodeSILKHybrid(silkInput, frameSize)
 
 	// Step 3: Apply CELT DC rejection + delay compensation, then hybrid delay and gain fade
 	dcRejected := e.celtEncoder.ApplyDCRejectScratchHybrid(pcm)
 	samplesForFrame := e.celtEncoder.ApplyDelayCompensationScratchHybrid(dcRejected, frameSize)
 	celtInput := e.applyInputDelayWithGainFade(samplesForFrame, hbGain)
+	if e.channels == 2 {
+		frameRate := 48000 / frameSize
+		vbr := e.bitrateMode != ModeCBR
+		equivRate := computeEquivRate(e.bitrate, e.channels, frameRate, vbr, ModeHybrid, e.complexity, e.packetLoss)
+		targetWidthQ14 := computeStereoWidthQ14(equivRate)
+		if e.hybridState.stereoWidthQ14 < (1<<14) || targetWidthQ14 < (1<<14) {
+			celtInput = e.applyStereoWidthFade(celtInput, e.hybridState.stereoWidthQ14, targetWidthQ14)
+		}
+		e.hybridState.stereoWidthQ14 = targetWidthQ14
+	}
 
 	// Step 4: CELT encodes high frequencies (bands 17-21)
 	e.celtEncoder.SetRangeEncoder(re)
 	e.celtEncoder.SetBitrate(celtBitrate)
+	e.celtEncoder.SetLSBDepth(e.lsbDepth)
 	e.encodeCELTHybridImproved(celtInput, frameSize)
 
 	// Update state for next frame
@@ -337,74 +332,63 @@ func (e *Encoder) computeHBGain(celtBitrate int) float64 {
 	return gain
 }
 
-// downsample48to16Improved downsamples from 48kHz to 16kHz using a
-// high-quality polyphase FIR filter with proper anti-aliasing.
-// This matches libopus silk_resampler for the 3:1 decimation case.
-func (e *Encoder) downsample48to16Improved(samples []float64) []float32 {
-	if len(samples) == 0 {
+// downsample48to16Hybrid downsamples from 48kHz to 16kHz using the
+// libopus-matching SILK downsampler (AR2 + FIR).
+func (e *Encoder) downsample48to16Hybrid(samples []float64, frameSize int) []float32 {
+	if len(samples) == 0 || frameSize <= 0 {
 		return nil
 	}
 
-	channels := e.channels
-	totalSamples := len(samples) / channels
-	outputSamples := totalSamples / 3
-
-	// Use the resampler state for filter continuity
-	rs := e.hybridState.resamplerState
-
-	output := make([]float32, outputSamples*channels)
-
-	// 12-tap FIR filter coefficients for 3:1 decimation
-	// These are optimized for Opus's target frequency response
-	// Low-pass at 8kHz with 48kHz input (16kHz output Nyquist)
-	filterCoeffs := []float64{
-		0.0017089843750, -0.0076904296875, 0.0205078125000, -0.0445556640625,
-		0.0866699218750, -0.1766357421875, 0.6277465820312, 0.6277465820312,
-		-0.1766357421875, 0.0866699218750, -0.0445556640625, 0.0205078125000,
+	// Convert input to float32 using the shared scratch buffer.
+	totalSamples := frameSize * e.channels
+	if totalSamples > len(samples) {
+		totalSamples = len(samples)
 	}
-	filterLen := len(filterCoeffs)
-	halfFilter := filterLen / 2
-
-	for ch := 0; ch < channels; ch++ {
-		// Process each output sample
-		for i := 0; i < outputSamples; i++ {
-			var sum float64
-
-			// Apply FIR filter centered on input sample i*3
-			for j := 0; j < filterLen; j++ {
-				srcIdx := i*3 - halfFilter + j
-
-				var sample float64
-				if srcIdx < 0 {
-					// Use delay buffer from previous frame
-					delayIdx := len(rs.delayBuf)/channels + srcIdx
-					if delayIdx >= 0 && delayIdx < len(rs.delayBuf)/channels {
-						sample = rs.delayBuf[delayIdx*channels+ch]
-					}
-				} else if srcIdx*channels+ch < len(samples) {
-					sample = samples[srcIdx*channels+ch]
-				}
-
-				sum += filterCoeffs[j] * sample
-			}
-
-			output[i*channels+ch] = float32(sum)
-		}
-
-		// Update delay buffer with the tail of current frame
-		delayLen := filterLen
-		if totalSamples < delayLen {
-			delayLen = totalSamples
-		}
-		for j := 0; j < delayLen; j++ {
-			srcIdx := (totalSamples-delayLen+j)*channels + ch
-			if srcIdx < len(samples) {
-				rs.delayBuf[j*channels+ch] = samples[srcIdx]
-			}
-		}
+	pcm32 := e.scratchPCM32[:totalSamples]
+	for i := 0; i < totalSamples; i++ {
+		pcm32[i] = float32(samples[i])
 	}
 
-	return output
+	targetSamples := frameSize / 3 // 48kHz -> 16kHz
+	if targetSamples <= 0 {
+		return nil
+	}
+
+	e.ensureSILKResampler(16000)
+
+	if e.channels == 1 {
+		out := e.ensureSilkResampled(targetSamples)
+		n := e.silkResampler.ProcessInto(pcm32[:frameSize], out)
+		return out[:n]
+	}
+
+	// Stereo: deinterleave, resample per channel, then interleave.
+	left := e.scratchLeft[:frameSize]
+	right := e.scratchRight[:frameSize]
+	for i := 0; i < frameSize; i++ {
+		left[i] = pcm32[i*2]
+		right[i] = pcm32[i*2+1]
+	}
+
+	leftOut := e.ensureSilkResampled(targetSamples)
+	rightOut := e.ensureSilkResampledR(targetSamples)
+	nL := e.silkResampler.ProcessInto(left, leftOut)
+	nR := e.silkResamplerRight.ProcessInto(right, rightOut)
+	n := nL
+	if nR < n {
+		n = nR
+	}
+	if n <= 0 {
+		return nil
+	}
+
+	interleaved := e.scratchPCM32[:n*2]
+	for i := 0; i < n; i++ {
+		interleaved[i*2] = leftOut[i]
+		interleaved[i*2+1] = rightOut[i]
+	}
+
+	return interleaved
 }
 
 // applyInputDelayWithGainFade applies CELT delay compensation and
@@ -493,6 +477,72 @@ func (e *Encoder) applyGainFade(samples []float64, g1, g2 float64) []float64 {
 	return samples
 }
 
+// applyStereoWidthFade applies stereo width reduction with smooth transition.
+// This mirrors libopus stereo_fade() for hybrid/CELT preprocessing.
+func (e *Encoder) applyStereoWidthFade(samples []float64, widthQ14Prev, widthQ14 int) []float64 {
+	if e.channels != 2 {
+		return samples
+	}
+
+	frameSize := len(samples) / 2
+	if frameSize <= 0 {
+		return samples
+	}
+
+	// Clamp widths to [0, 16384]
+	if widthQ14Prev < 0 {
+		widthQ14Prev = 0
+	}
+	if widthQ14Prev > 16384 {
+		widthQ14Prev = 16384
+	}
+	if widthQ14 < 0 {
+		widthQ14 = 0
+	}
+	if widthQ14 > 16384 {
+		widthQ14 = 16384
+	}
+
+	// Convert width to "collapse factor" g (0=full width, 1=mono)
+	g1 := 1.0 - float64(widthQ14Prev)/16384.0
+	g2 := 1.0 - float64(widthQ14)/16384.0
+
+	overlap := hybridOverlap
+	if overlap > frameSize {
+		overlap = frameSize
+	}
+
+	window := celt.GetWindow()
+	if window == nil || len(window) < overlap {
+		// Fallback: no window available, apply constant g2
+		for i := 0; i < frameSize; i++ {
+			diff := 0.5 * (samples[i*2] - samples[i*2+1])
+			diff *= g2
+			samples[i*2] -= diff
+			samples[i*2+1] += diff
+		}
+		return samples
+	}
+
+	for i := 0; i < overlap; i++ {
+		w := window[i]
+		w2 := w * w
+		g := g1*(1.0-w2) + g2*w2
+		diff := 0.5 * (samples[i*2] - samples[i*2+1])
+		diff *= g
+		samples[i*2] -= diff
+		samples[i*2+1] += diff
+	}
+	for i := overlap; i < frameSize; i++ {
+		diff := 0.5 * (samples[i*2] - samples[i*2+1])
+		diff *= g2
+		samples[i*2] -= diff
+		samples[i*2+1] += diff
+	}
+
+	return samples
+}
+
 // applyLinearGainFade applies a simple linear crossfade between gains.
 // Used as fallback when window is not available.
 func (e *Encoder) applyLinearGainFade(samples []float64, g1, g2 float64, overlap int) []float64 {
@@ -521,9 +571,8 @@ func (e *Encoder) applyLinearGainFade(samples []float64, g1, g2 float64, overlap
 // encodeSILKHybrid encodes SILK data for hybrid mode.
 // Uses the SILK encoder's EncodeFrame method with a shared range encoder.
 //
-// For 10ms frames (160 samples at 16kHz), this function buffers samples until
-// we have a full 20ms (320 samples) because SILK requires 20ms frames.
-// This avoids the signal attenuation that would occur from zero-padding.
+// SILK supports both 10ms and 20ms frames. Hybrid packets should encode the
+// low band at the same duration as the Opus frame (no buffering).
 //
 // For stereo, uses mid-side encoding per RFC 6716 Section 4.2.8:
 // - Encode stereo prediction weights
@@ -536,15 +585,12 @@ func (e *Encoder) encodeSILKHybrid(pcm []float32, frameSize int) {
 	// Calculate samples at 16kHz (input is at 16kHz after downsampling)
 	silkSamples := frameSize / 3 // 48kHz -> 16kHz (160 for 10ms, 320 for 20ms)
 
-	// SILK at WB needs 320 samples per frame (20ms)
-	const silkWBSamples = 320
-
 	if e.channels == 1 {
 		// Mono encoding
-		e.encodeSILKHybridMono(pcm, silkSamples, silkWBSamples)
+		e.encodeSILKHybridMono(pcm, silkSamples)
 	} else {
 		// Stereo encoding
-		e.encodeSILKHybridStereo(pcm, silkSamples, silkWBSamples)
+		e.encodeSILKHybridStereo(pcm, silkSamples)
 	}
 }
 
@@ -555,33 +601,26 @@ func (e *Encoder) encodeSILKHybrid(pcm []float32, frameSize int) {
 // 2. LBRR flag (1 bit)
 // 3. [LBRR data if LBRR flag set]
 // 4. Frame data
-func (e *Encoder) encodeSILKHybridMono(pcm []float32, silkSamples, silkWBSamples int) {
+func (e *Encoder) encodeSILKHybridMono(pcm []float32, silkSamples int) {
 	inputSamples := pcm[:min(len(pcm), silkSamples)]
-
-	// Handle 10ms frames by buffering to 20ms
-	if silkSamples < silkWBSamples {
-		if e.silkBufferFilled == 0 {
-			copy(e.silkFrameBuffer[:silkSamples], inputSamples)
-			e.silkBufferFilled = silkSamples
-			return
-		}
-		copy(e.silkFrameBuffer[e.silkBufferFilled:], inputSamples)
-		inputSamples = e.silkFrameBuffer[:silkWBSamples]
-		e.silkBufferFilled = 0
+	vadFlag := e.computeSilkVAD(inputSamples, len(inputSamples), 16)
+	lbrrFlag := false
+	if e.fecEnabled {
+		lbrrFlag = e.silkEncoder.HasLBRRData()
 	}
 
 	// Get the shared range encoder
 	re := e.silkEncoder.GetRangeEncoderPtr()
 	if re == nil {
 		// Fall back to normal encoding if no shared encoder
-		_ = e.silkEncoder.EncodeFrame(inputSamples, true)
+		_ = e.silkEncoder.EncodeFrame(inputSamples, vadFlag)
 		return
 	}
 
 	// Reserve space for VAD+LBRR flags at packet start
 	// Per libopus: (nFramesPerPacket + 1) * nChannels bits
-	// For 20ms mono: (1 + 1) * 1 = 2 bits
-	nFramesPerPacket := 1 // 20ms = 1 frame in SILK
+	// For mono: (1 + 1) * 1 = 2 bits
+	nFramesPerPacket := 1 // One SILK frame per packet (10ms or 20ms)
 	nChannels := 1        // mono
 	nBitsHeader := (nFramesPerPacket + 1) * nChannels
 
@@ -591,15 +630,23 @@ func (e *Encoder) encodeSILKHybridMono(pcm []float32, silkSamples, silkWBSamples
 	iCDF := [2]uint8{uint8(iCDFVal), 0}
 	re.EncodeICDF(0, iCDF[:], 8)
 
+	// Encode any LBRR data from previous packet (header already reserved here)
+	if e.fecEnabled {
+		e.silkEncoder.EncodeLBRRData(re, 1, false)
+	}
+
 	// Encode the frame (EncodeFrame in hybrid mode skips its own VAD/LBRR)
-	_ = e.silkEncoder.EncodeFrame(inputSamples, true)
+	_ = e.silkEncoder.EncodeFrame(inputSamples, vadFlag)
 
 	// Patch initial bits with actual VAD+LBRR flags
 	// Format: [VAD][LBRR]
-	// VAD=1 (active), LBRR=0 (no FEC data)
 	flags := uint32(0)
-	flags |= 1 << 1 // VAD = 1
-	flags |= 0 << 0 // LBRR = 0
+	if vadFlag {
+		flags |= 1 << 1
+	}
+	if lbrrFlag {
+		flags |= 1 << 0
+	}
 	re.PatchInitialBits(flags, uint(nBitsHeader))
 }
 
@@ -615,7 +662,7 @@ func (e *Encoder) encodeSILKHybridMono(pcm []float32, silkSamples, silkWBSamples
 // 6. Stereo prediction weights (per frame)
 // 7. Mid channel frame data
 // 8. Side channel frame data
-func (e *Encoder) encodeSILKHybridStereo(pcm []float32, silkSamples, silkWBSamples int) {
+func (e *Encoder) encodeSILKHybridStereo(pcm []float32, silkSamples int) {
 	// Deinterleave L/R channels
 	actualSamples := len(pcm) / 2
 	if actualSamples < silkSamples {
@@ -647,23 +694,11 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, silkSamples, silkWBSampl
 		side = sideWithHistory
 	}
 
-	// Handle 10ms frames by buffering to 20ms
-	if silkSamples < silkWBSamples {
-		if e.silkBufferFilled == 0 {
-			// First 10ms - buffer mid and side
-			copy(e.silkFrameBuffer[:silkSamples], mid)
-			copy(e.silkSideFrameBuffer[:silkSamples], side)
-			e.silkBufferFilled = silkSamples
-			e.silkSideBufferFilled = silkSamples
-			return
-		}
-		// Second 10ms - combine and encode
-		copy(e.silkFrameBuffer[e.silkBufferFilled:], mid)
-		copy(e.silkSideFrameBuffer[e.silkSideBufferFilled:], side)
-		mid = e.silkFrameBuffer[:silkWBSamples]
-		side = e.silkSideFrameBuffer[:silkWBSamples]
-		e.silkBufferFilled = 0
-		e.silkSideBufferFilled = 0
+	vadFlag := e.computeSilkVAD(mid, len(mid), 16)
+	lbrrMid := false
+	lbrrSide := false
+	if e.fecEnabled {
+		lbrrMid = e.silkEncoder.HasLBRRData()
 	}
 
 	// Get the shared range encoder
@@ -674,10 +709,10 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, silkSamples, silkWBSampl
 
 	// Step 1: Reserve space for VAD+LBRR flags at packet start
 	// Per libopus: (nFramesPerPacket + 1) * nChannelsInternal bits
-	// For 20ms stereo: (1 + 1) * 2 = 4 bits
+	// For stereo: (1 + 1) * 2 = 4 bits
 	// - Mid: VAD(1) + LBRR(1) = 2 bits
 	// - Side: VAD(1) + LBRR(1) = 2 bits
-	nFramesPerPacket := 1 // 20ms = 1 frame in SILK
+	nFramesPerPacket := 1 // One SILK frame per packet (10ms or 20ms)
 	nChannels := 2        // stereo
 	nBitsHeader := (nFramesPerPacket + 1) * nChannels
 
@@ -687,24 +722,34 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, silkSamples, silkWBSampl
 	iCDF := [2]uint8{uint8(iCDFVal), 0}
 	re.EncodeICDF(0, iCDF[:], 8)
 
+	// Encode any LBRR data from previous packet (mid channel only for now)
+	if e.fecEnabled {
+		e.silkEncoder.EncodeLBRRData(re, 1, false)
+	}
+
 	// Step 2: Encode stereo prediction weights
 	e.silkEncoder.EncodeStereoWeightsToRange(weights)
 
 	// Step 3: Encode mid channel (skip VAD/LBRR since we handle them above)
-	_ = e.silkEncoder.EncodeFrame(mid, true)
+	_ = e.silkEncoder.EncodeFrame(mid, vadFlag)
 
 	// Step 4: Encode side channel
 	e.silkSideEncoder.SetRangeEncoder(re)
-	_ = e.silkSideEncoder.EncodeFrame(side, true)
+	_ = e.silkSideEncoder.EncodeFrame(side, vadFlag)
 
 	// Step 5: Patch initial bits with actual VAD+LBRR flags
 	// Format: [VAD_mid][LBRR_mid][VAD_side][LBRR_side]
-	// VAD=1 (active), LBRR=0 (no FEC data)
 	flags := uint32(0)
-	flags |= 1 << 3 // VAD_mid = 1
-	flags |= 0 << 2 // LBRR_mid = 0
-	flags |= 1 << 1 // VAD_side = 1
-	flags |= 0 << 0 // LBRR_side = 0
+	if vadFlag {
+		flags |= 1 << 3
+		flags |= 1 << 1
+	}
+	if lbrrMid {
+		flags |= 1 << 2
+	}
+	if lbrrSide {
+		flags |= 1 << 0
+	}
 	re.PatchInitialBits(flags, uint(nBitsHeader))
 }
 
@@ -722,6 +767,49 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// computeEquivRate computes libopus-style equivalent bitrate for stereo width decisions.
+func computeEquivRate(bitrate, channels, frameRate int, vbr bool, mode Mode, complexity int, loss int) int {
+	equiv := bitrate
+	if frameRate > 50 {
+		equiv -= (40*channels + 20) * (frameRate - 50)
+	}
+	if !vbr {
+		equiv -= equiv / 12
+	}
+	equiv = equiv * (90 + complexity) / 100
+	switch mode {
+	case ModeSILK, ModeHybrid:
+		if complexity < 2 {
+			equiv = equiv * 4 / 5
+		}
+		equiv -= equiv * loss / (6*loss + 10)
+	case ModeCELT:
+		if complexity < 5 {
+			equiv = equiv * 9 / 10
+		}
+	default:
+		equiv -= equiv * loss / (12*loss + 20)
+	}
+	return equiv
+}
+
+// computeStereoWidthQ14 computes target stereo width from equivalent bitrate.
+// Matches libopus logic in opus_encoder.c around stereo width reduction.
+func computeStereoWidthQ14(equivRate int) int {
+	switch {
+	case equivRate > 32000:
+		return 16384
+	case equivRate < 16000:
+		return 0
+	default:
+		den := equivRate - 14000
+		if den <= 0 {
+			return 0
+		}
+		return 16384 - 2048*(32000-equivRate)/den
+	}
 }
 
 // celtBandwidthFromTypes maps types.Bandwidth to CELT bandwidth.
@@ -870,7 +958,7 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int) {
 	e.celtEncoder.UpdateTonalityAnalysisHybrid(normL, energies, nbBands, frameSize)
 
 	// Compute dynalloc analysis for TF/spread and offsets.
-	lsbDepth := 24
+	lsbDepth := e.lsbDepth
 	effectiveBytes := 0
 	if e.celtEncoder.VBR() {
 		baseBits := e.celtEncoder.BitrateToBits(frameSize)

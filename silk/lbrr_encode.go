@@ -59,7 +59,7 @@ func (e *Encoder) lbrrEncode(
 
 	// Adjust gains for LBRR - increase gain to reduce excitation bits
 	// Reference: libopus silk_LBRR_encode_FLP
-	lbrrGainsQ16 := make([]int32, len(gains))
+	lbrrGainsQ16 := ensureInt32Slice(&e.scratchGainsQ16, len(gains))
 	for i := range gains {
 		lbrrGainsQ16[i] = int32(gains[i] * 65536.0)
 	}
@@ -89,12 +89,26 @@ func (e *Encoder) lbrrEncode(
 
 	// Compute LBRR excitation using NSQ with higher gains
 	config := GetBandwidthConfig(e.bandwidth)
-	numSubframes := 4
 	subframeSamples := config.SubframeSamples
-	frameSamples := numSubframes * subframeSamples
+	frameSamples := len(pcm)
+	if frameSamples <= 0 {
+		return
+	}
+	numSubframes := frameSamples / subframeSamples
+	if numSubframes < 1 {
+		numSubframes = 1
+		subframeSamples = frameSamples
+	}
+	if numSubframes > maxNbSubfr {
+		numSubframes = maxNbSubfr
+	}
+	frameSamples = numSubframes * subframeSamples
 
 	// Prepare pitch lags
-	pitchL := make([]int, numSubframes)
+	pitchL := ensureIntSlice(&e.scratchPitchL, numSubframes)
+	for i := range pitchL {
+		pitchL[i] = 0
+	}
 	if pitchLags != nil {
 		copy(pitchL, pitchLags)
 	}
@@ -156,7 +170,7 @@ func (e *Encoder) computeLBRRPulses(
 	frameSamples, numSubframes, subframeSamples int,
 ) {
 	// Convert PCM to int16 for NSQ
-	inputQ0 := make([]int16, frameSamples)
+	inputQ0 := ensureInt16Slice(&e.scratchInputQ0, frameSamples)
 	for i := 0; i < frameSamples && i < len(pcm); i++ {
 		val := pcm[i] * 32767.0
 		if val > 32767 {
@@ -176,7 +190,10 @@ func (e *Encoder) computeLBRRPulses(
 		shapeLPCOrder = maxShapeLpcOrder
 	}
 
-	arShpQ13 := make([]int16, numSubframes*maxShapeLpcOrder)
+	arShpQ13 := ensureInt16Slice(&e.scratchArShpQ13, numSubframes*maxShapeLpcOrder)
+	for i := range arShpQ13 {
+		arShpQ13[i] = 0
+	}
 	for sf := 0; sf < numSubframes; sf++ {
 		for i := 0; i < shapeLPCOrder && i < len(lpcQ12); i++ {
 			// Bandwidth expansion for LBRR (more aggressive)
@@ -185,7 +202,10 @@ func (e *Encoder) computeLBRRPulses(
 	}
 
 	// LTP coefficients (simplified)
-	ltpCoefQ14 := make([]int16, numSubframes*ltpOrderConst)
+	ltpCoefQ14 := ensureInt16Slice(&e.scratchLtpCoefQ14, numSubframes*ltpOrderConst)
+	for i := range ltpCoefQ14 {
+		ltpCoefQ14[i] = 0
+	}
 	if signalType == typeVoiced {
 		for sf := 0; sf < numSubframes; sf++ {
 			ltpCoefQ14[sf*ltpOrderConst+2] = 8192 // Center tap = 0.5 in Q14
@@ -193,16 +213,24 @@ func (e *Encoder) computeLBRRPulses(
 	}
 
 	// Prediction coefficients
-	predCoefQ12 := make([]int16, 2*maxLPCOrder)
+	predCoefQ12 := ensureInt16Slice(&e.scratchPredCoefQ12, 2*maxLPCOrder)
+	for i := range predCoefQ12 {
+		predCoefQ12[i] = 0
+	}
 	for i := 0; i < len(lpcQ12) && i < maxLPCOrder; i++ {
 		predCoefQ12[i] = lpcQ12[i]
 		predCoefQ12[maxLPCOrder+i] = lpcQ12[i]
 	}
 
 	// Shaping parameters (more aggressive for LBRR)
-	harmShapeGainQ14 := make([]int, numSubframes)
-	tiltQ14 := make([]int, numSubframes)
-	lfShpQ14 := make([]int32, numSubframes)
+	harmShapeGainQ14 := ensureIntSlice(&e.scratchHarmShapeGainQ14, numSubframes)
+	tiltQ14 := ensureIntSlice(&e.scratchTiltQ14, numSubframes)
+	lfShpQ14 := ensureInt32Slice(&e.scratchLfShpQ14, numSubframes)
+	for i := 0; i < numSubframes; i++ {
+		harmShapeGainQ14[i] = 0
+		tiltQ14[i] = 0
+		lfShpQ14[i] = 0
+	}
 	for sf := 0; sf < numSubframes; sf++ {
 		if signalType == typeVoiced {
 			harmShapeGainQ14[sf] = 3072 // Lower than main (more noise tolerance)
@@ -257,19 +285,21 @@ func (e *Encoder) computeLBRRPulses(
 // This should be called at the beginning of the first frame encoding.
 //
 // Reference: libopus silk/enc_API.c lines 355-405
-func (e *Encoder) encodeLBRRData(re *rangecoding.Encoder, nChannels int) {
+func (e *Encoder) encodeLBRRData(re *rangecoding.Encoder, nChannels int, includeHeader bool) {
 	if e.nFramesEncoded != 0 {
 		// LBRR is only encoded at the start of the packet
 		return
 	}
 
-	// Create space at start of payload for VAD and FEC flags
-	// This is done by encoding a placeholder that will be patched later
-	iCDF := []uint16{
-		uint16(256 - (256 >> ((e.nFramesPerPacket + 1) * nChannels))),
-		0,
+	if includeHeader {
+		// Create space at start of payload for VAD and FEC flags
+		// This is done by encoding a placeholder that will be patched later
+		iCDF := []uint16{
+			uint16(256 - (256 >> ((e.nFramesPerPacket + 1) * nChannels))),
+			0,
+		}
+		re.EncodeICDF16(0, iCDF, 8)
 	}
-	re.EncodeICDF16(0, iCDF, 8)
 
 	// Encode LBRR flags
 	lbrrSymbol := 0
@@ -311,6 +341,12 @@ func (e *Encoder) encodeLBRRData(re *rangecoding.Encoder, nChannels int) {
 	for i := range e.lbrrFlags {
 		e.lbrrFlags[i] = 0
 	}
+}
+
+// EncodeLBRRData encodes LBRR data with optional header placeholder.
+// If includeHeader is false, the caller is responsible for reserving header bits.
+func (e *Encoder) EncodeLBRRData(re *rangecoding.Encoder, nChannels int, includeHeader bool) {
+	e.encodeLBRRData(re, nChannels, includeHeader)
 }
 
 // encodeLBRRIndices encodes the LBRR indices for a single frame.
@@ -362,7 +398,7 @@ func (e *Encoder) encodeLBRRPulses(re *rangecoding.Encoder, frameIdx int) {
 	quantOffset := int(e.lbrrIndices[frameIdx].quantOffsetType)
 
 	// Convert int8 pulses to int32 for encoding
-	pulsesInt32 := make([]int32, len(pulses))
+	pulsesInt32 := ensureInt32Slice(&e.scratchPulses32, len(pulses))
 	for i, p := range pulses {
 		pulsesInt32[i] = int32(p)
 	}
@@ -379,6 +415,11 @@ func (e *Encoder) hasLBRRData() bool {
 		}
 	}
 	return false
+}
+
+// HasLBRRData reports whether there is pending LBRR data to encode.
+func (e *Encoder) HasLBRRData() bool {
+	return e.hasLBRRData()
 }
 
 // Note: silk_LBRR_flags_iCDF_ptr is defined in libopus_tables.go

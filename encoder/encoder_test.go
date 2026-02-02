@@ -394,7 +394,7 @@ func TestDownsample48to16(t *testing.T) {
 
 	// Create an encoder to access the downsampling method
 	enc := encoder.NewEncoder(48000, 1)
-	downsampled := enc.Downsample48to16Improved(pcm)
+	downsampled := enc.Downsample48to16Hybrid(pcm, 960)
 
 	expectedLen := 960 / 3
 	if len(downsampled) != expectedLen {

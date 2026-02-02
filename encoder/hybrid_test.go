@@ -222,14 +222,7 @@ func TestStereoWidthComputation(t *testing.T) {
 
 // TestResamplerContinuity verifies the resampler maintains continuity across frames.
 func TestResamplerContinuity(t *testing.T) {
-	e := &Encoder{
-		channels: 1,
-	}
-	e.hybridState = &HybridState{
-		prevHBGain:     1.0,
-		stereoWidthQ14: 16384,
-		resamplerState: newResamplerState(1),
-	}
+	e := NewEncoder(48000, 1)
 
 	// Generate a continuous sine wave across multiple frames
 	freq := 1000.0 // 1kHz test tone
@@ -245,7 +238,7 @@ func TestResamplerContinuity(t *testing.T) {
 			samples[i] = math.Sin(2 * math.Pi * freq * t)
 		}
 
-		output := e.downsample48to16Improved(samples)
+		output := e.downsample48to16Hybrid(samples, frameSize)
 
 		if frame > 0 && len(output) > 0 {
 			// Check continuity between frames
@@ -333,14 +326,7 @@ func BenchmarkHBGainComputation(b *testing.B) {
 
 // BenchmarkDownsample48to16 benchmarks the improved resampler.
 func BenchmarkDownsample48to16(b *testing.B) {
-	e := &Encoder{
-		channels: 1,
-	}
-	e.hybridState = &HybridState{
-		prevHBGain:     1.0,
-		stereoWidthQ14: 16384,
-		resamplerState: newResamplerState(1),
-	}
+	e := NewEncoder(48000, 1)
 
 	samples := make([]float64, 960)
 	for i := range samples {
@@ -349,6 +335,6 @@ func BenchmarkDownsample48to16(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		e.downsample48to16Improved(samples)
+		e.downsample48to16Hybrid(samples, 960)
 	}
 }

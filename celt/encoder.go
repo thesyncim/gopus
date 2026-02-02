@@ -27,6 +27,7 @@ type Encoder struct {
 	// Configuration (mirrors decoder)
 	channels   int // 1 or 2
 	sampleRate int // Always 48000
+	lsbDepth   int // Input LSB depth (8-24 bits)
 
 	// Energy state (persists across frames, mirrors decoder)
 	prevEnergy  []float64 // Previous frame band energies [MaxBands * channels]
@@ -106,6 +107,15 @@ type Encoder struct {
 	// Reference: libopus src/opus_encoder.c delay_compensation
 	delayBuffer []float64 // Size = delayCompensation * channels
 
+	// Prefilter (comb filter) state for postfilter signaling.
+	// These mirror libopus CELT encoder fields used by run_prefilter().
+	prefilterPeriod int
+	prefilterGain   float64
+	prefilterTapset int
+	prefilterMem    []float64
+
+	// Packet loss expectation (0-100) for prefilter gain scaling.
+	packetLoss int
 
 	// Debug: last frame's band energies for dynalloc analysis tracing
 	lastBandLogE  []float64 // bandLogE (primary MDCT energies)
@@ -169,6 +179,7 @@ func NewEncoder(channels int) *Encoder {
 	e := &Encoder{
 		channels:   channels,
 		sampleRate: 48000, // CELT always operates at 48kHz internally
+		lsbDepth:   24,    // Default to full 24-bit depth
 
 		// Allocate energy arrays for all bands and channels
 		prevEnergy:  make([]float64, MaxBands*channels),
@@ -213,6 +224,12 @@ func NewEncoder(channels int) *Encoder {
 		// This matches libopus delay_compensation
 		delayBuffer: make([]float64, DelayCompensation*channels),
 
+		// Prefilter state (comb filter history) for postfilter signaling.
+		prefilterPeriod: combFilterMinPeriod,
+		prefilterGain:   0,
+		prefilterTapset: 0,
+		prefilterMem:    make([]float64, combFilterMaxPeriod*channels),
+
 		// Default to VBR enabled to mirror libopus behavior.
 		vbr: true,
 	}
@@ -234,6 +251,14 @@ func (e *Encoder) Reset() {
 	// Clear overlap buffer
 	for i := range e.overlapBuffer {
 		e.overlapBuffer[i] = 0
+	}
+
+	// Reset prefilter state
+	e.prefilterPeriod = combFilterMinPeriod
+	e.prefilterGain = 0
+	e.prefilterTapset = 0
+	for i := range e.prefilterMem {
+		e.prefilterMem[i] = 0
 	}
 
 	// Clear pre-emphasis state
@@ -490,6 +515,43 @@ func (e *Encoder) Bitrate() int {
 	return e.targetBitrate
 }
 
+// SetPacketLoss sets the expected packet loss percentage (0-100).
+// This affects the prefilter gain for improved loss resilience.
+func (e *Encoder) SetPacketLoss(lossPercent int) {
+	if lossPercent < 0 {
+		lossPercent = 0
+	}
+	if lossPercent > 100 {
+		lossPercent = 100
+	}
+	e.packetLoss = lossPercent
+}
+
+// PacketLoss returns the expected packet loss percentage.
+func (e *Encoder) PacketLoss() int {
+	return e.packetLoss
+}
+
+// SetLSBDepth sets the input signal LSB depth (8-24 bits).
+// This affects masking/spread decisions at low bitrates.
+func (e *Encoder) SetLSBDepth(depth int) {
+	if depth < 8 {
+		depth = 8
+	}
+	if depth > 24 {
+		depth = 24
+	}
+	e.lsbDepth = depth
+}
+
+// LSBDepth returns the current input signal LSB depth.
+func (e *Encoder) LSBDepth() int {
+	if e.lsbDepth <= 0 {
+		return 24
+	}
+	return e.lsbDepth
+}
+
 // TapsetDecision returns the current tapset decision (0, 1, or 2).
 // The tapset controls the window taper used in the prefilter/postfilter comb filter:
 // - 0: Narrow taper (concentrated energy)
@@ -610,17 +672,26 @@ type encoderScratch struct {
 	// Transient analysis input buffer (overlap + frame)
 	transientInput []float64
 
+	// Prefilter (comb filter) scratch buffers
+	prefilterPre      []float64
+	prefilterOut      []float64
+	prefilterPitchBuf []float64
+	prefilterXLP4     []float64
+	prefilterYLP4     []float64
+	prefilterXcorr    []float64
+	prefilterYYLookup []float64
+
 	// MDCT coefficient buffers
 	mdctCoeffs []float64
 	mdctLeft   []float64
 	mdctRight  []float64
 
 	// Band energy buffers
-	energies   []float64
-	bandLogE2  []float64
-	bandE      []float64
-	bandEL     []float64
-	bandER     []float64
+	energies  []float64
+	bandLogE2 []float64
+	bandE     []float64
+	bandEL    []float64
+	bandER    []float64
 
 	// History buffers for MDCT
 	leftHist  []float64
@@ -667,10 +738,10 @@ type encoderScratch struct {
 	quantNormResult0 []float64
 
 	// MDCT forward transform scratch (float32)
-	mdctF          []float32
-	mdctFFTIn      []complex64
-	mdctFFTOut     []complex64
-	mdctFFTTmp     []kissCpx
+	mdctF           []float32
+	mdctFFTIn       []complex64
+	mdctFFTOut      []complex64
+	mdctFFTTmp      []kissCpx
 	mdctBlockCoeffs []float64 // Per-block coefficients for short MDCT
 
 	// Transient analysis scratch
@@ -680,8 +751,8 @@ type encoderScratch struct {
 	transientX            []float32
 
 	// Tonality analysis scratch
-	tonalityPowers      []float64
-	tonalityBandPowers  []float64
+	tonalityPowers       []float64
+	tonalityBandPowers   []float64
 	tonalityBandTonality []float64
 
 	// CWRS encoding scratch
@@ -744,6 +815,41 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	// Transient analysis input (overlap + frameSize) * channels
 	transientLen := (overlap + frameSize) * channels
 	s.transientInput = ensureFloat64Slice(&s.transientInput, transientLen)
+
+	// Prefilter scratch buffers
+	maxPeriod := combFilterMaxPeriod
+	if maxPeriod < combFilterMinPeriod {
+		maxPeriod = combFilterMinPeriod
+	}
+	prefilterLen := (maxPeriod + frameSize) * channels
+	s.prefilterPre = ensureFloat64Slice(&s.prefilterPre, prefilterLen)
+	s.prefilterOut = ensureFloat64Slice(&s.prefilterOut, prefilterLen)
+	pitchBufLen := (maxPeriod + frameSize) >> 1
+	if pitchBufLen < 1 {
+		pitchBufLen = 1
+	}
+	s.prefilterPitchBuf = ensureFloat64Slice(&s.prefilterPitchBuf, pitchBufLen)
+	maxPitch := maxPeriod - 3*combFilterMinPeriod
+	if maxPitch < 1 {
+		maxPitch = 1
+	}
+	s.prefilterXcorr = ensureFloat64Slice(&s.prefilterXcorr, maxPitch>>1)
+	xlp4Len := frameSize >> 2
+	if xlp4Len < 1 {
+		xlp4Len = 1
+	}
+	s.prefilterXLP4 = ensureFloat64Slice(&s.prefilterXLP4, xlp4Len)
+	lag := frameSize + maxPitch
+	ylp4Len := lag >> 2
+	if ylp4Len < 1 {
+		ylp4Len = 1
+	}
+	s.prefilterYLP4 = ensureFloat64Slice(&s.prefilterYLP4, ylp4Len)
+	yyLookupLen := (maxPeriod >> 1) + 1
+	if yyLookupLen < 1 {
+		yyLookupLen = 1
+	}
+	s.prefilterYYLookup = ensureFloat64Slice(&s.prefilterYYLookup, yyLookupLen)
 
 	// MDCT coefficients
 	s.mdctCoeffs = ensureFloat64Slice(&s.mdctCoeffs, frameSize*2)

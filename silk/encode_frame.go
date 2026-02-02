@@ -1,7 +1,5 @@
 package silk
 
-import "github.com/thesyncim/gopus/rangecoding"
-
 // EncodeFrame encodes a complete SILK frame to bitstream.
 // Returns encoded bytes. If a range encoder was pre-set via SetRangeEncoder(),
 // it will be used (for hybrid mode) and nil is returned since the caller
@@ -25,6 +23,11 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 		numSubframes = maxNbSubfr
 	}
 
+	// Update target SNR based on configured bitrate and frame size.
+	if e.targetRateBps > 0 {
+		e.controlSNR(e.targetRateBps, numSubframes)
+	}
+
 	// Check if we have a pre-set range encoder (hybrid mode)
 	// Note: rangeEncoder is set externally via SetRangeEncoder() for hybrid mode.
 	// In standalone mode, rangeEncoder should be nil at the start of each frame.
@@ -36,7 +39,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 		// This ensures gain indices are absolute, not deltas from previous packet
 		// The decoder also resets nFramesDecoded=0 at the start of each packet
 		e.nFramesEncoded = 0
-		e.haveEncoded = false   // Reset so gain encoding uses absolute mode
+		e.haveEncoded = false    // Reset so gain encoding uses absolute mode
 		e.previousGainIndex = 10 // Default gain index (matches decoder's reset)
 
 		// Create our own range encoder using scratch buffer
@@ -141,8 +144,13 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	interpIdx = e.buildPredCoefQ12(predCoefQ12, lsfQ15, interpIdx)
 
 	// Step 6: Pitch detection and LTP (voiced only)
+	condCoding := codeIndependently
+	if e.nFramesEncoded > 0 {
+		condCoding = codeConditionally
+	}
 	var pitchLags []int
 	var ltpCoeffs LTPCoeffsArray
+	ltpScaleIndex := 0
 	periodicity := 0
 	if signalType == 2 {
 		// Use pitch analysis buffer (LTP memory + current frame) for better pitch detection
@@ -158,9 +166,13 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 		periodicity = e.determinePeriodicity(pcm, pitchLags)
 		ltpCoeffs = e.analyzeLTP(pcm, pitchLags, numSubframes, periodicity)
 		e.encodeLTPCoeffs(ltpCoeffs, periodicity, numSubframes)
+
+		ltpPredGainQ7 := computeLTPPredGainQ7(pcm, pitchLags, ltpCoeffs, numSubframes, subframeSamples)
+		ltpScaleIndex = e.computeLTPScaleIndex(ltpPredGainQ7, condCoding)
 		// Encode LTP scale index (required for voiced frames).
-		ltpScaleIndex := 1 // Middle value; matches LTPScaleQ14 used in NSQ.
-		e.rangeEncoder.EncodeICDF(ltpScaleIndex, silk_LTPscale_iCDF, 8)
+		if condCoding == codeIndependently {
+			e.rangeEncoder.EncodeICDF(ltpScaleIndex, silk_LTPscale_iCDF, 8)
+		}
 	} else {
 		// Reset LTP correlation for unvoiced frames
 		e.ltpCorr = 0
@@ -169,11 +181,6 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	// Step 6.5: LBRR Encoding (FEC)
 	// Per libopus: LBRR is encoded AFTER VAD but BEFORE main frame encoding
 	// Reference: silk/float/encode_frame_FLP.c silk_LBRR_encode_FLP call
-	// Determine conditional coding mode
-	condCoding := codeIndependently
-	if e.nFramesEncoded > 0 {
-		condCoding = codeConditionally
-	}
 	e.lbrrEncode(pcm, lpcQ12, lsfQ15, gains, pitchLags, signalType, quantOffset, speechActivityQ8, condCoding)
 
 	// Step 7: Encode seed (LAST in indices, BEFORE pulses)
@@ -190,7 +197,11 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	}
 
 	// Use NSQ for proper noise-shaped quantization with adaptive parameters
-	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, signalType, quantOffset, speechActivityQ8, seed, numSubframes, subframeSamples, frameSamples)
+	ltpScaleQ14 := 0
+	if signalType == typeVoiced {
+		ltpScaleQ14 = int(silk_LTPScales_table_Q14[ltpScaleIndex])
+	}
+	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, speechActivityQ8, seed, numSubframes, subframeSamples, frameSamples)
 
 	// Encode ALL pulses for the entire frame at once
 	e.encodePulses(allExcitation, signalType, quantOffset)
@@ -221,7 +232,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 // computeNSQExcitation computes excitation using Noise Shaping Quantization.
 // This provides proper libopus-matching noise shaping for better audio quality.
 // The noise shaping parameters are computed adaptively based on signal characteristics.
-func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ12 []int16, nlsfInterpQ2 int, gainsQ16 []int32, pitchLags []int, ltpCoeffs LTPCoeffsArray, signalType, quantOffset, speechActivityQ8, seed, numSubframes, subframeSamples, frameSamples int) []int32 {
+func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ12 []int16, nlsfInterpQ2 int, gainsQ16 []int32, pitchLags []int, ltpCoeffs LTPCoeffsArray, ltpScaleQ14 int, signalType, quantOffset, speechActivityQ8, seed, numSubframes, subframeSamples, frameSamples int) []int32 {
 	// Convert PCM to int16 for NSQ using scratch buffer
 	inputQ0 := ensureInt16Slice(&e.scratchInputQ0, frameSamples)
 	for i := 0; i < frameSamples && i < len(pcm); i++ {
@@ -337,8 +348,9 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 	// Lambda (rate-distortion tradeoff) from adaptive computation
 	lambdaQ10 := noiseParams.LambdaQ10
 
-	// LTP scale for first subframe
-	ltpScaleQ14 := silk_LTPScales_table_Q14[1] // Middle value
+	if signalType != typeVoiced {
+		ltpScaleQ14 = 0
+	}
 
 	// Set up NSQ parameters
 	params := &NSQParams{
@@ -389,9 +401,15 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 //
 // Reference: libopus silk/enc_API.c silk_Encode lines 355-405
 func (e *Encoder) EncodePacketWithFEC(pcm []float32, vadFlags []bool) []byte {
+	// Reset per-packet state for standalone encoding
+	e.ResetPacketState()
+
 	// Determine frames per packet based on input size
 	config := GetBandwidthConfig(e.bandwidth)
-	frameSamples := config.SampleRate * 20 / 1000 // 20ms frame
+	frameSamples := config.SampleRate * 20 / 1000 // 20ms frame baseline
+	if len(pcm) < frameSamples {
+		frameSamples = len(pcm) // 10ms frame or shorter input
+	}
 	nFrames := len(pcm) / frameSamples
 	if nFrames < 1 {
 		nFrames = 1
@@ -402,7 +420,7 @@ func (e *Encoder) EncodePacketWithFEC(pcm []float32, vadFlags []bool) []byte {
 	e.nFramesPerPacket = nFrames
 	e.nFramesEncoded = 0
 
-	// Create range encoder
+	// Create range encoder (reuse scratch buffer)
 	bufSize := len(pcm)/2 + 100
 	if bufSize < 150 {
 		bufSize = 150
@@ -410,9 +428,9 @@ func (e *Encoder) EncodePacketWithFEC(pcm []float32, vadFlags []bool) []byte {
 	if bufSize > 400 {
 		bufSize = 400
 	}
-	output := make([]byte, bufSize)
-	e.rangeEncoder = &rangecoding.Encoder{}
-	e.rangeEncoder.Init(output)
+	output := ensureByteSlice(&e.scratchOutput, bufSize)
+	e.scratchRangeEncoder.Init(output)
+	e.rangeEncoder = &e.scratchRangeEncoder
 
 	// Step 1: Encode VAD and LBRR header
 	// First, create space for VAD+FEC flags at start of payload
@@ -425,7 +443,7 @@ func (e *Encoder) EncodePacketWithFEC(pcm []float32, vadFlags []bool) []byte {
 	e.rangeEncoder.EncodeICDF8(0, iCDF, 8)
 
 	// Step 2: Encode any LBRR data from previous packet
-	e.encodeLBRRData(e.rangeEncoder, 1) // nChannels = 1 for mono
+	e.encodeLBRRData(e.rangeEncoder, 1, true) // nChannels = 1 for mono
 
 	// Step 3: Encode each frame
 	for i := 0; i < nFrames; i++ {
@@ -538,8 +556,13 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 	interpIdx = e.buildPredCoefQ12(predCoefQ12, lsfQ15, interpIdx)
 
 	// Step 6: Pitch detection and LTP (voiced only)
+	condCoding := codeIndependently
+	if e.nFramesEncoded > 0 {
+		condCoding = codeConditionally
+	}
 	var pitchLags []int
 	var ltpCoeffs LTPCoeffsArray
+	ltpScaleIndex := 0
 	periodicity := 0
 	if signalType == 2 {
 		// Use pitch analysis buffer (LTP memory + current frame) for better pitch detection
@@ -555,19 +578,19 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 		periodicity = e.determinePeriodicity(pcm, pitchLags)
 		ltpCoeffs = e.analyzeLTP(pcm, pitchLags, numSubframes, periodicity)
 		e.encodeLTPCoeffs(ltpCoeffs, periodicity, numSubframes)
+
+		ltpPredGainQ7 := computeLTPPredGainQ7(pcm, pitchLags, ltpCoeffs, numSubframes, subframeSamples)
+		ltpScaleIndex = e.computeLTPScaleIndex(ltpPredGainQ7, condCoding)
 		// Encode LTP scale index (required for voiced frames).
-		ltpScaleIndex := 1 // Middle value; matches LTPScaleQ14 used in NSQ.
-		e.rangeEncoder.EncodeICDF(ltpScaleIndex, silk_LTPscale_iCDF, 8)
+		if condCoding == codeIndependently {
+			e.rangeEncoder.EncodeICDF(ltpScaleIndex, silk_LTPscale_iCDF, 8)
+		}
 	} else {
 		// Reset LTP correlation for unvoiced frames
 		e.ltpCorr = 0
 	}
 
 	// Step 6.5: LBRR Encoding (FEC) for this frame
-	condCoding := codeIndependently
-	if e.nFramesEncoded > 0 {
-		condCoding = codeConditionally
-	}
 	e.lbrrEncode(pcm, lpcQ12, lsfQ15, gains, pitchLags, signalType, quantOffset, speechActivityQ8, condCoding)
 
 	// Step 7: Encode seed
@@ -581,7 +604,11 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 		frameSamples = len(pcm)
 	}
 
-	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, signalType, quantOffset, speechActivityQ8, seed, numSubframes, subframeSamples, frameSamples)
+	ltpScaleQ14 := 0
+	if signalType == typeVoiced {
+		ltpScaleQ14 = int(silk_LTPScales_table_Q14[ltpScaleIndex])
+	}
+	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, speechActivityQ8, seed, numSubframes, subframeSamples, frameSamples)
 	e.encodePulses(allExcitation, signalType, quantOffset)
 
 	// Update state

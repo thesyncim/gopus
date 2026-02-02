@@ -161,17 +161,80 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		tfEstimate = 0.2
 	}
 
-	shortBlocks := 1
-	if transient {
-		shortBlocks = mode.ShortBlocks
-	}
-
 	// Save current frame's tail (last overlap samples) for next frame's transient analysis
 	// For mono: last 'overlap' samples
 	// For stereo: last 'overlap' interleaved pairs
 	tailStart := len(preemph) - preemphBufSize
 	if tailStart >= 0 {
 		copy(e.preemphBuffer[:preemphBufSize], preemph[tailStart:])
+	}
+
+	// Step 5: Initialize range encoder and encode early flags (silence/postfilter)
+	targetBitsRaw := e.computeTargetBits(frameSize)
+	targetBytes := (targetBitsRaw + 7) / 8
+	targetBits := targetBytes * 8
+	e.frameBits = targetBits
+	defer func() { e.frameBits = 0 }()
+
+	bufSize := targetBytes
+	if bufSize < 256 {
+		bufSize = 256
+	}
+	buf := e.scratch.reBuf
+	if len(buf) < bufSize {
+		buf = make([]byte, bufSize)
+		e.scratch.reBuf = buf
+	}
+	buf = buf[:bufSize]
+	re := &e.scratch.rangeEncoder
+	re.Init(buf)
+	re.Shrink(uint32(targetBytes))
+	e.SetRangeEncoder(re)
+
+	isSilence := isFrameSilent(pcm)
+	tell := re.Tell()
+	if tell == 1 {
+		if isSilence {
+			re.EncodeBit(1, 15)
+			e.rng = re.Range()
+			bytes := re.Done()
+			return bytes, nil
+		}
+		re.EncodeBit(0, 15)
+	} else {
+		isSilence = false
+	}
+	start := 0
+
+	prefilterTapset := e.TapsetDecision()
+	enabled := start == 0 && targetBytes > 12*e.channels && !e.IsHybrid() && !isSilence && re.Tell()+16 <= targetBits
+	pfResult := e.runPrefilter(preemph, frameSize, prefilterTapset, enabled, tfEstimate, targetBytes, toneFreq, toneishness)
+	if !e.IsHybrid() && start == 0 && re.Tell()+16 <= targetBits {
+		if !pfResult.on {
+			re.EncodeBit(0, 1)
+		} else {
+			re.EncodeBit(1, 1)
+			pitchIndex := pfResult.pitch + 1
+			octave := ilog32(uint32(pitchIndex)) - 5
+			if octave < 0 {
+				octave = 0
+			}
+			re.EncodeUniform(uint32(octave), 6)
+			re.EncodeRawBits(uint32(pitchIndex-(16<<octave)), uint(4+octave))
+			re.EncodeRawBits(uint32(pfResult.qg), 3)
+			re.EncodeICDF(pfResult.tapset, tapsetICDF, 2)
+		}
+	}
+
+	// Determine short blocks based on bit budget
+	shortBlocks := 1
+	if lm > 0 && re.Tell()+3 <= targetBits {
+		if transient {
+			shortBlocks = mode.ShortBlocks
+		}
+	} else {
+		transient = false
+		shortBlocks = 1
 	}
 
 	// For transients at high complexity, compute long MDCT energies (bandLogE2).
@@ -409,74 +472,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		copy(bandE[nbBands:], bandER)
 	}
 
-	// Step 7: Initialize range encoder with bitrate-derived size
-	// Step 7: Initialize range encoder with bitrate-derived size
-	// Compute target bytes from bitrate, then use targetBytes*8 as the actual
-	// bit budget for allocation. This ensures encoder and decoder use the same
-	// totalBits value, which is critical for allocation to match.
-	targetBitsRaw := e.computeTargetBits(frameSize)
-	targetBytes := (targetBitsRaw + 7) / 8
-	targetBits := targetBytes * 8
-	e.frameBits = targetBits
-	defer func() { e.frameBits = 0 }()
-	bufSize := targetBytes
-	if bufSize < 256 {
-		bufSize = 256
-	}
-	// Use scratch buffer for range encoder
-	buf := e.scratch.reBuf
-	if len(buf) < bufSize {
-		buf = make([]byte, bufSize)
-		e.scratch.reBuf = buf
-	}
-	buf = buf[:bufSize]
-	re := &e.scratch.rangeEncoder
-	re.Init(buf)
-	// Always shrink the encoder to produce exactly targetBytes output.
-	// This is necessary for encoder/decoder allocation to match.
-	// In VBR mode, targetBytes varies based on signal, but the packet must
-	// still match the targetBytes used for allocation.
-	// Reference: libopus celt_encoder.c line 1920: ec_enc_shrink(enc, nbCompressedBytes)
-	re.Shrink(uint32(targetBytes))
-	e.SetRangeEncoder(re)
-
-	// Step 9: Encode frame flags
-	// Match libopus encoding order and budget conditions exactly:
-	// 1. Silence flag (if tell==1, with logp=15)
-	// 2. Postfilter flag (if start==0 && !hybrid && tell+16<=total_bits, with logp=1)
-	// 3. Transient flag (if LM>0 && tell+3<=total_bits, with logp=3)
-	// 4. Intra energy flag (if tell+3<=total_bits, with logp=3)
-	//
-	// Reference: libopus celt_encoder.c lines 1981-1984:
-	//   if (tell==1)
-	//      ec_enc_bit_logp(enc, silence, 15);
-	//   else
-	//      silence=0;
-	// The silence flag is ONLY encoded when tell==1 (the very first bit position).
-	// If tell!=1, silence is forced to 0 without encoding anything.
-	isSilence := isFrameSilent(pcm)
-	tell := re.Tell()
-	if tell == 1 {
-		if isSilence {
-			re.EncodeBit(1, 15)
-			// Capture final range BEFORE Done(), matching libopus celt_encoder.c:2809
-			e.rng = re.Range()
-			bytes := re.Done()
-			return bytes, nil
-		}
-		re.EncodeBit(0, 15)
-	} else {
-		// tell != 1: don't encode silence flag, force silence to false
-		isSilence = false
-	}
-	start := 0
-
-	// Postfilter flag: only encode if start==0, NOT in hybrid mode, and budget allows
-	// Reference: libopus celt_encoder.c line 2047-2048
-	// if(!hybrid && tell+16<=total_bits) ec_enc_bit_logp(enc, 0, 1);
-	if !e.IsHybrid() && start == 0 && re.Tell()+16 <= targetBits {
-		re.EncodeBit(0, 1) // No postfilter (disabled for now)
-	}
+	// Step 9: Encode transient and intra flags (silence/postfilter already encoded)
 
 	// Transient flag: only encode if LM>0 and budget allows
 	// Reference: libopus celt_encoder.c line 2063-2069
@@ -563,7 +559,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	//
 	// libopus defaults to 24 for float input (see celt_encoder.c: st->lsb_depth=24).
 	// Our encoder operates on float64 samples, so match the float path.
-	lsbDepth := 24
+	lsbDepth := e.LSBDepth()
 	// Use scratch buffer for logN
 	logN := e.scratch.logN
 	if len(logN) < nbBands {
@@ -1260,10 +1256,13 @@ func (e *Encoder) computeTargetBits(frameSize int) int {
 	if targetBits < 16 {
 		targetBits = 16
 	}
-	maxBits := 1275 * 8
+	maxBits := (1275 - 1) * 8 // payload only (TOC consumes 1 byte)
 	if e.channels == 1 && frameSize == 960 {
 		// For mono 20ms, cap at ~320 bytes (reasonable VBR max for 64kbps)
 		maxBits = baseBits * 2 // Up to 2x boost
+	}
+	if maxBits > (1275-1)*8 {
+		maxBits = (1275 - 1) * 8
 	}
 	if targetBits > maxBits {
 		targetBits = maxBits

@@ -71,9 +71,13 @@ type Encoder struct {
 	bitrate     int // Target bits per second
 
 	// FEC controls (08-04)
-	fecEnabled bool
-	packetLoss int // Expected packet loss percentage (0-100)
-	fec        *fecState
+	fecEnabled        bool
+	packetLoss        int // Expected packet loss percentage (0-100)
+	lastVADActivityQ8 int
+	lastVADActive     bool
+	lastVADValid      bool
+	silkVAD           *VADState
+	fec               *fecState
 
 	// DTX (Discontinuous Transmission) controls
 	dtxEnabled bool
@@ -105,31 +109,23 @@ type Encoder struct {
 	// The 2.7ms delay (130 samples at 48kHz) aligns SILK and CELT
 	prevSamples []float64
 
-	// SILK frame buffer for hybrid mode 10ms->20ms frame accumulation
-	// SILK requires 20ms frames (320 samples at 16kHz)
-	// When encoding 10ms hybrid frames, we buffer the first 10ms and encode
-	// when we have the full 20ms
-	silkFrameBuffer      []float32
-	silkSideFrameBuffer  []float32 // Side channel buffer for stereo hybrid
-	silkBufferFilled     int       // Number of samples currently buffered
-	silkSideBufferFilled int       // Side channel buffer fill level
-
 	// Hybrid mode state for improved SILK/CELT coordination
-	// Contains HB_gain, resampler state, and crossover energy matching
+	// Contains HB_gain and crossover energy matching
 	hybridState *HybridState
 
 	// SILK downsampling (48kHz -> SILK bandwidth rate) for SILK-only mode
 	// Uses DownsamplingResampler with proper AR2+FIR algorithm (not IIR_FIR upsampling)
-	silkResampler     *silk.DownsamplingResampler
+	silkResampler      *silk.DownsamplingResampler
 	silkResamplerRight *silk.DownsamplingResampler
-	silkResamplerRate int
-	silkResampled     []float32
-	silkResampledR    []float32
+	silkResamplerRate  int
+	silkResampled      []float32
+	silkResampledR     []float32
 
 	// Scratch buffers for zero-allocation encoding
 	scratchPCM32  []float32 // float64 to float32 conversion buffer
 	scratchLeft   []float32 // Left channel deinterleave buffer
 	scratchRight  []float32 // Right channel deinterleave buffer
+	scratchMono   []float32 // Mono mix buffer (VAD)
 	scratchPacket []byte    // Output packet buffer
 }
 
@@ -181,12 +177,10 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		predictionDisabled:     false,                         // Inter-frame prediction enabled
 		phaseInversionDisabled: false,                         // Phase inversion enabled for stereo
 		prevSamples:            make([]float64, 130*channels), // CELT delay compensation buffer
-		silkFrameBuffer:        make([]float32, 320),          // 20ms at 16kHz for SILK buffering
-		silkSideFrameBuffer:    make([]float32, 320),          // 20ms at 16kHz for stereo side channel
-		silkBufferFilled:       0,
 		scratchPCM32:           make([]float32, maxSamples),   // float64 to float32 conversion
 		scratchLeft:            make([]float32, 2880),         // Stereo deinterleave buffer
 		scratchRight:           make([]float32, 2880),         // Stereo deinterleave buffer
+		scratchMono:            make([]float32, 2880),         // Mono mix buffer for VAD
 		scratchPacket:          make([]byte, 1276),            // Max Opus packet (TOC + 1275 payload)
 	}
 }
@@ -254,8 +248,6 @@ func (e *Encoder) Reset() {
 	}
 
 	// Reset SILK frame buffers
-	e.silkBufferFilled = 0
-	e.silkSideBufferFilled = 0
 
 	// Reset FEC state
 	e.resetFECState()
@@ -290,6 +282,9 @@ func (e *Encoder) SetPacketLoss(lossPercent int) {
 		lossPercent = 100
 	}
 	e.packetLoss = lossPercent
+	if e.celtEncoder != nil {
+		e.celtEncoder.SetPacketLoss(e.packetLoss)
+	}
 }
 
 // PacketLoss returns the expected packet loss percentage.
@@ -428,7 +423,11 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	}
 
 	// Determine actual mode to use
-	actualMode := e.selectMode(frameSize)
+	signalHint := e.signalType
+	if e.mode == ModeAuto && e.signalType == types.SignalAuto {
+		signalHint = e.autoSignalFromPCM(pcm, frameSize)
+	}
+	actualMode := e.selectMode(frameSize, signalHint)
 
 	// Route to appropriate encoder (returns raw frame data without TOC)
 	var frameData []byte
@@ -485,7 +484,7 @@ func modeToTypes(m Mode) types.Mode {
 }
 
 // selectMode determines the actual encoding mode based on settings and content.
-func (e *Encoder) selectMode(frameSize int) Mode {
+func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
 	// If mode is explicitly set (not auto), use it
 	if e.mode != ModeAuto {
 		return e.mode
@@ -493,7 +492,7 @@ func (e *Encoder) selectMode(frameSize int) Mode {
 
 	// Apply signal type hint to influence mode selection
 	// SignalVoice biases toward SILK, SignalMusic toward CELT
-	switch e.signalType {
+	switch signalHint {
 	case types.SignalVoice:
 		// Voice signal: prefer SILK for lower bandwidths, Hybrid for higher
 		switch e.effectiveBandwidth() {
@@ -533,6 +532,70 @@ func (e *Encoder) selectMode(frameSize int) Mode {
 	}
 }
 
+// autoSignalFromPCM estimates signal type for ModeAuto when no hint is provided.
+// Uses energy-based silence detection plus a simple high-frequency proxy.
+func (e *Encoder) autoSignalFromPCM(pcm []float64, frameSize int) types.Signal {
+	if len(pcm) == 0 || frameSize <= 0 {
+		return types.SignalAuto
+	}
+
+	// Use existing energy-based classifier for silence gating.
+	pcm32 := e.scratchPCM32[:len(pcm)]
+	for i, v := range pcm {
+		pcm32[i] = float32(v)
+	}
+	signalType, _ := classifySignal(pcm32)
+	if signalType == 0 {
+		// Silence: bias toward SILK/DTX.
+		return types.SignalVoice
+	}
+
+	// Compute a simple high-frequency proxy using first-difference energy.
+	channels := e.channels
+	if channels < 1 {
+		channels = 1
+	}
+	samples := frameSize
+	if samples <= 1 {
+		return types.SignalVoice
+	}
+
+	var energy, diffEnergy float64
+	var prev float64
+	for i := 0; i < samples; i++ {
+		var s float64
+		if channels == 2 {
+			idx := i * 2
+			if idx+1 >= len(pcm) {
+				break
+			}
+			s = 0.5 * (pcm[idx] + pcm[idx+1])
+		} else {
+			if i >= len(pcm) {
+				break
+			}
+			s = pcm[i]
+		}
+		energy += s * s
+		if i > 0 {
+			d := s - prev
+			diffEnergy += d * d
+		}
+		prev = s
+	}
+
+	if energy <= 0 {
+		return types.SignalVoice
+	}
+	ratio := diffEnergy / (energy + 1e-12)
+
+	// Higher ratio implies more high-frequency content (music/percussive).
+	if ratio > 0.25 {
+		return types.SignalMusic
+	}
+	return types.SignalVoice
+}
+
 // effectiveBandwidth returns the actual bandwidth to use, considering maxBandwidth limit.
 func (e *Encoder) effectiveBandwidth() types.Bandwidth {
 	if e.bandwidth > e.maxBandwidth {
@@ -567,8 +630,19 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, frameSize int) ([]byte, error) 
 
 	// For stereo, need to handle separately
 	if e.channels == 2 {
+		perChannelRate := e.bitrate / e.channels
+		if perChannelRate > 0 {
+			e.silkEncoder.SetBitrate(perChannelRate)
+		}
+		e.silkEncoder.SetFEC(e.fecEnabled)
+		e.silkEncoder.SetPacketLoss(e.packetLoss)
 		// Ensure side encoder exists for stereo
 		e.ensureSILKSideEncoder()
+		if perChannelRate > 0 {
+			e.silkSideEncoder.SetBitrate(perChannelRate)
+		}
+		e.silkSideEncoder.SetFEC(e.fecEnabled)
+		e.silkSideEncoder.SetPacketLoss(e.packetLoss)
 		// Deinterleave using pre-allocated scratch buffers
 		left := e.scratchLeft[:frameSize]
 		right := e.scratchRight[:frameSize]
@@ -591,7 +665,15 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, frameSize int) ([]byte, error) 
 			left = leftOut
 			right = rightOut
 		}
-		return silk.EncodeStereoWithEncoder(e.silkEncoder, e.silkSideEncoder, left, right, e.silkBandwidth(), true)
+		// Compute VAD on mono mix at SILK sample rate
+		fsKHz := targetRate / 1000
+		mono := e.scratchMono[:len(left)]
+		for i := 0; i < len(left); i++ {
+			mono[i] = (left[i] + right[i]) * 0.5
+		}
+		vadFlag := e.computeSilkVAD(mono, len(left), fsKHz)
+
+		return silk.EncodeStereoWithEncoder(e.silkEncoder, e.silkSideEncoder, left, right, e.silkBandwidth(), vadFlag)
 	}
 
 	if targetRate != 48000 {
@@ -603,8 +685,24 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, frameSize int) ([]byte, error) 
 		pcm32 = out
 	}
 
+	if e.bitrate > 0 {
+		perChannelRate := e.bitrate / e.channels
+		if perChannelRate > 0 {
+			e.silkEncoder.SetBitrate(perChannelRate)
+		}
+	}
+	e.silkEncoder.SetFEC(e.fecEnabled)
+	e.silkEncoder.SetPacketLoss(e.packetLoss)
+
+	// Compute VAD at SILK sample rate
+	fsKHz := targetRate / 1000
+	vadFlag := e.computeSilkVAD(pcm32, len(pcm32), fsKHz)
+
 	// Mono encoding using persistent encoder
-	return silk.EncodeWithEncoder(e.silkEncoder, pcm32, e.silkBandwidth(), true)
+	if e.fecEnabled {
+		return e.silkEncoder.EncodePacketWithFEC(pcm32, []bool{vadFlag}), nil
+	}
+	return silk.EncodeWithEncoder(e.silkEncoder, pcm32, e.silkBandwidth(), vadFlag)
 }
 
 // encodeCELTFrame encodes a frame using CELT-only mode.
@@ -614,6 +712,12 @@ func (e *Encoder) encodeCELTFrame(pcm []float64, frameSize int) ([]byte, error) 
 
 	// Set bitrate for proper bit allocation
 	e.celtEncoder.SetBitrate(e.bitrate)
+	// Ensure CELT encoder is not in hybrid mode
+	e.celtEncoder.SetHybrid(false)
+	// Propagate packet loss for prefilter gain scaling
+	e.celtEncoder.SetPacketLoss(e.packetLoss)
+	// Propagate LSB depth to CELT for masking/spread decisions
+	e.celtEncoder.SetLSBDepth(e.lsbDepth)
 
 	// Propagate bitrate mode to CELT encoder
 	// CBR mode: VBR=false, CVBR=false - encoder uses exact bit budget
@@ -667,6 +771,25 @@ func (e *Encoder) ensureSILKResampler(rate int) {
 	if e.channels == 2 && e.silkResamplerRight == nil {
 		e.silkResamplerRight = silk.NewDownsamplingResampler(48000, rate)
 	}
+}
+
+func (e *Encoder) ensureSilkVAD() {
+	if e.silkVAD == nil {
+		e.silkVAD = NewVADState()
+	}
+}
+
+func (e *Encoder) computeSilkVAD(mono []float32, frameSamples, fsKHz int) bool {
+	if frameSamples <= 0 || fsKHz <= 0 {
+		e.lastVADValid = false
+		return false
+	}
+	e.ensureSilkVAD()
+	activityQ8, active := e.silkVAD.GetSpeechActivity(mono, frameSamples, fsKHz)
+	e.lastVADActivityQ8 = activityQ8
+	e.lastVADActive = active
+	e.lastVADValid = true
+	return active
 }
 
 func (e *Encoder) ensureSilkResampled(size int) []float32 {

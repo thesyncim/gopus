@@ -39,8 +39,9 @@ type Encoder struct {
 	noiseShapeState *NoiseShapeState // Noise shaping analysis state for adaptive parameters
 
 	// Encoder control parameters (persists across frames)
-	snrDBQ7  int // Target SNR in dB (Q7 format, e.g., 25 dB = 25 * 128)
-	ltpCorr  float32 // LTP correlation from pitch analysis [0, 1]
+	snrDBQ7        int     // Target SNR in dB (Q7 format, e.g., 25 dB = 25 * 128)
+	targetRateBps  int     // Target bitrate (per channel) for SNR control
+	ltpCorr        float32 // LTP correlation from pitch analysis [0, 1]
 
 	// LPC analysis results (for gain computation from prediction residual)
 	lastTotalEnergy    float64 // C0 from Burg analysis
@@ -112,6 +113,7 @@ type Encoder struct {
 	scratchTiltQ14         []int   // tilt values
 	scratchLfShpQ14        []int32 // low-frequency shaping
 	scratchExcitation      []int32 // excitation output
+	scratchPulses32        []int32 // LBRR pulse conversion
 
 	// LPC/Burg scratch buffers
 	scratchLpcBurg       []float64 // LPC coefficients from Burg
@@ -279,6 +281,7 @@ func (e *Encoder) Reset() {
 	e.previousLogGain = 0
 	e.previousGainIndex = 0
 	e.isPreviousFrameVoiced = false
+	e.targetRateBps = 0
 
 	for i := range e.prevLSFQ15 {
 		e.prevLSFQ15[i] = 0
@@ -333,6 +336,14 @@ func (e *Encoder) HaveEncoded() bool {
 // MarkEncoded marks that a frame has been successfully encoded.
 func (e *Encoder) MarkEncoded() {
 	e.haveEncoded = true
+}
+
+// ResetPacketState resets per-packet encoder state for standalone/shared encoding.
+// This mirrors the standalone EncodeFrame() packet initialization.
+func (e *Encoder) ResetPacketState() {
+	e.nFramesEncoded = 0
+	e.haveEncoded = false
+	e.previousGainIndex = 10 // Default gain index (matches decoder reset)
 }
 
 // Bandwidth returns the current bandwidth setting.
@@ -432,8 +443,10 @@ func (e *Encoder) GetLastNumSamples() int {
 // SetBitrate sets the target bitrate for encoding.
 // This is a no-op for SILK in hybrid mode (bitrate is controlled by Opus-level allocator).
 func (e *Encoder) SetBitrate(bitrate int) {
-	// SILK bitrate control in hybrid mode is handled by the Opus-level encoder.
-	// This method exists for API compatibility.
+	if bitrate <= 0 {
+		return
+	}
+	e.targetRateBps = bitrate
 }
 
 // SetFEC enables or disables in-band Forward Error Correction (LBRR).

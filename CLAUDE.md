@@ -1,6 +1,6 @@
-# Gopus Project Context for Claude
+# Gopus Project Context for Agents
 
-This file is automatically loaded on every Claude session to provide project context.
+This file is automatically loaded on every agent session (Codex/Claude) to provide project context.
 
 ## Project Overview
 
@@ -198,6 +198,22 @@ Always use this reference when implementing features or debugging discrepancies.
    - Default intensity set to `nbBands` (disable intensity stereo unless chosen by allocator)
 6. ✅ **PVQ Resynthesis Enabled** - `celt/bands_quant.go`
    - Encoder now resynthesizes PVQ output for lowband folding
+
+### Session 11: Encoder Quality Fixes (In Progress)
+1. ✅ **CELT Prefilter/Postfilter Enabled** - `celt/prefilter.go`, `celt/encode_frame.go`, `celt/postfilter.go`
+   - Ported `run_prefilter` with pitch search + comb filter
+   - Postfilter flags/params now encoded (no longer always 0)
+2. ✅ **SILK/Hybrid VAD + LBRR Wiring** - `encoder/encoder.go`, `encoder/hybrid.go`, `silk/*`
+   - Real VAD flags passed to SILK/hybrid headers
+   - LBRR data emitted when FEC enabled
+3. ✅ **LSB Depth Propagation** - `celt/encoder.go`, `celt/encode_frame.go`, `encoder/hybrid.go`
+   - Masking/spread now respects input bit depth
+4. ✅ **Auto Mode Content Analysis** - `encoder/encoder.go`
+   - ModeAuto now uses music/voice detection, not just bandwidth hint
+5. ✅ **Hybrid Stereo Width Fade** - `encoder/hybrid.go`
+   - Stereo width reduction at low equiv rates
+6. ✅ **Hybrid Packet Size Clamp** - `encoder/hybrid.go`
+   - VBR frames now capped to max Opus packet size
    - Matches libopus RESYNTH behavior and avoids folding with unquantized lowbands
 7. ✅ **TF Fallback Encoding Fix** - `encoder/hybrid.go`
    - Hybrid fallback path now uses budget‑aware `TFEncodeWithSelect`
@@ -218,6 +234,25 @@ Always use this reference when implementing features or debugging discrepancies.
 3. ✅ **LTP Correlation Tracking** - `silk/encode_frame.go`, `silk/encoder.go`
    - Added ltpCorr field to Encoder struct
    - Updates from pitch detection for noise shaping
+
+### Session 12: Hybrid 10ms SILK Framing (Complete)
+1. ✅ **Hybrid 10ms SILK framing** - `encoder/hybrid.go`, `encoder/encoder.go`
+   - Encode SILK lowband at the Opus frame duration (10ms or 20ms)
+   - Removed 10ms→20ms buffering in hybrid path
+
+### Session 13: Hybrid Downsampler Parity (Complete)
+1. ✅ **Hybrid downsampler parity** - `encoder/hybrid.go`, `encoder/encoder.go`
+   - Use libopus DownsamplingResampler for 48kHz → 16kHz in hybrid
+   - Removed custom FIR downsampler and unused hybrid buffering fields
+
+### Session 14: LTP Scale Control & Trace (Complete)
+1. ✅ **LTP scale control** - `silk/ltp_scale_ctrl.go`, `silk/encode_frame.go`
+   - Use libopus LTP scale control (packet loss aware)
+   - Apply LTP scale in NSQ (no longer fixed index)
+2. ✅ **Packet loss propagation to SILK encoders** - `encoder/encoder.go`, `encoder/hybrid.go`
+3. ✅ **LTP trace metrics** - `silk/decoder.go`, `testvectors/libopus_trace_test.go`
+   - Expose PER/LTP indices in DebugFrameParams
+   - Trace PER/LTP index mismatch counts vs libopus
 
 ---
 
@@ -250,6 +285,9 @@ Always use this reference when implementing features or debugging discrepancies.
 | SILK quality degrading over frames | **FIXED** - warmup_test.go was missing silkUpdateOutBuf call; decoder outBuf wasn't being updated with frame data for LTP history | 2026-02-02 |
 | Pitch detection normalizer bias | **FIXED** - normalizer constant 4000.0 was for int16; changed to 0.001 for float32 signals | 2026-02-02 |
 | Pitch detection missing history | **FIXED** - encoder now uses 40ms pitch analysis buffer (LTP memory + frame) instead of single 20ms frame | 2026-02-02 |
+| Hybrid 10ms SILK buffering | Fixed: encode SILK at actual frame duration in hybrid mode | 2026-02-02 |
+| Hybrid downsampler mismatch | Replaced custom FIR with libopus AR2+FIR DownsamplingResampler | 2026-02-02 |
+| LTP scale index fixed | Use loss-aware LTP scale index and apply to NSQ | 2026-02-02 |
 
 ### VERIFIED WORKING COMPONENTS (Do NOT Debug!)
 
@@ -280,8 +318,8 @@ is below production targets. This is a known work-in-progress area.
 | CELT 10ms mono | ~39 dB | Q ~ -19 | GOOD |
 | CELT 20ms mono | ~36 dB | Q ~ -25 | GOOD |
 | CELT stereo | ~24-26 dB | Q ~ -46 to -51 | GOOD |
-| SILK NB/WB | ~-5 to 0 dB | Q ~ -110 to -100 | BASE |
-| Hybrid (SWB/FB) | ~-3 to -1 dB | Q ~ -106 to -101 | BASE |
+| SILK NB/WB | ~-6.3 to -0.2 dB | Q ~ -113 to -100 | BASE |
+| Hybrid (SWB/FB) | ~-7.7 to -3.9 dB | Q ~ -116 to -110 | BASE |
 
 **Production targets (libopus-comparable):**
 - Music (CELT): Q >= 0 (48 dB SNR)
@@ -305,7 +343,7 @@ test status will transition: BASE → GOOD → PASS.
 
 **Actual current status (post-fix):**
 - CELT quality now ~31–39 dB SNR (Q ~ -35 to -19) with opusdec.
-- SILK/Hybrid improved but still low: SILK SNR ~-3.2 to -0.2 dB (Q ~ -107 to -100), Hybrid SNR ~-3.6 to -1.9 dB (Q ~ -107 to -104).
+- SILK/Hybrid improved but still low: SILK SNR ~-6.3 to -0.2 dB (Q ~ -113 to -100), Hybrid SNR ~-7.7 to -3.9 dB (Q ~ -116 to -110).
 - SILK voiced round-trip RMS improved from ~0.035 to ~0.62 after LTP scale index fix (compliance signal may still classify unvoiced).
 
 **Components verified as WORKING CORRECTLY:**
@@ -333,9 +371,10 @@ The 57.6% amplitude ratio observed for constant DC signals is **correct libopus 
 
 **Prime suspects (NOT YET VERIFIED, focus: SILK/Hybrid):**
 1. **SILK resampling / bandwidth alignment** - Verify 48 kHz → SILK rate path and frame buffering
-2. ~~**SILK NSQ core quantization**~~ - Gain application verified correct; DC amplitude loss is expected
-3. **Hybrid lowband/highband handoff** - Confirm split energy and gain matching across the 8 kHz boundary
-4. ~~**SILK LPC coefficient application**~~ - Decoder LPC prediction verified working
+2. **SILK LTP analysis/quantization** - PER index mismatches 44/50 and LTP index mismatches 185/200 vs libopus (2026-02-02 trace)
+3. ~~**SILK NSQ core quantization**~~ - Gain application verified correct; DC amplitude loss is expected
+4. **Hybrid lowband/highband handoff** - Confirm split energy and gain matching across the 8 kHz boundary
+5. ~~**SILK LPC coefficient application**~~ - Decoder LPC prediction verified working
 
 **SILK noise shaping resolved (2026-02-02):**
 - Implemented adaptive noise shaping parameters (HarmShapeGain, Tilt, LF_shp, Lambda) in silk/noise_shape.go
@@ -356,8 +395,14 @@ The 57.6% amplitude ratio observed for constant DC signals is **correct libopus 
 - Hybrid fallback TF encoding used a non‑budgeted path without converting `tfRes` to TF change values. Now fixed with `TFEncodeWithSelect`.
 - SILK NLSF quantization now uses libopus MSVQ + delayed decision with Laroia weights; NSQ uses quantized NLSF prediction coefficients (interpolation-aware).
 - **SILK standalone mode missing VAD/LBRR flags** - RFC 6716 requires VAD and LBRR flags at packet start. Encoder was skipping these in standalone mode, causing decoder to misparse gains. Fixed by encoding VAD bit + LBRR bit before frame type. Roundtrip RMS now ~0.49 for 0.5 amplitude input (was near-zero before).
+- **Hybrid 10ms SILK buffering** - Encode SILK lowband at frame duration (10ms/20ms); removed 10ms→20ms buffering in hybrid path.
+- **Hybrid downsampler mismatch** - Hybrid now uses libopus AR2+FIR downsampler; removed custom FIR path.
 
-**Next debugging step:**
+**Next debugging step (SILK):**
+- Port `silk_find_LTP` + `silk_quant_LTP_gains` from libopus.
+- Current trace shows large divergence vs libopus (PER index mismatches 44/50, LTP index mismatches 185/200).
+
+**Next debugging step (CELT):**
 Create a minimal test that:
 1. Takes MDCT coefficients directly (skip pre-emphasis)
 2. Normalizes → PVQ search → encode pulses
@@ -587,7 +632,7 @@ func (e *Encoder) Encode(pcm []float32, data []byte) (int, error)
 ## Commit Rules
 
 **IMPORTANT:** When committing changes:
-1. **DO NOT** mention Claude, AI, or any assistant in commit messages
+1. **DO NOT** mention Codex, Claude, AI, or any assistant in commit messages
 2. **DO NOT** use `Co-Authored-By` headers referencing AI
 3. Write commits as if authored by a human developer
 4. Use conventional commit format: `type(scope): description`

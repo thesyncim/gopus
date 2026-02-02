@@ -135,11 +135,11 @@ func NewDecoder() *Decoder {
 		maxOutputSize   = 3 * 320   // maxFramesPerPacket * maxFrameLength
 
 		// Additional scratch buffer sizes
-		maxIterSize      = 21   // (maxFrameLength >> 4) + 1
-		maxResamplerIn   = 160  // 16kHz * 10ms = 160 samples
-		maxResamplerOut  = 480  // 48kHz * 10ms = 480 samples
-		maxResamplerBuf  = 328  // 2 * 160 + 8 = 328 (2*batchSize + resamplerOrderFIR12)
-		maxUpsampleSize  = 5760 // 3 * 320 * 6 = 5760 (maxFramesPerPacket * maxFrameLength * 6x upsample)
+		maxIterSize     = 21   // (maxFrameLength >> 4) + 1
+		maxResamplerIn  = 160  // 16kHz * 10ms = 160 samples
+		maxResamplerOut = 480  // 48kHz * 10ms = 480 samples
+		maxResamplerBuf = 328  // 2 * 160 + 8 = 328 (2*batchSize + resamplerOrderFIR12)
+		maxUpsampleSize = 5760 // 3 * 320 * 6 = 5760 (maxFramesPerPacket * maxFrameLength * 6x upsample)
 	)
 
 	d := &Decoder{
@@ -537,6 +537,8 @@ type DebugFrameParams struct {
 	LTPScaleIndex    int
 	LagPrev          int
 	GainIndices      []int
+	PERIndex         int
+	LTPIndices       []int
 }
 
 // GetLastFrameParams returns the parameters from the last decoded frame.
@@ -546,11 +548,17 @@ func (d *Decoder) GetLastFrameParams() DebugFrameParams {
 	for i := 0; i < st.nbSubfr; i++ {
 		gains[i] = int(st.indices.GainsIndices[i])
 	}
+	ltpIdx := make([]int, st.nbSubfr)
+	for i := 0; i < st.nbSubfr; i++ {
+		ltpIdx[i] = int(st.indices.LTPIndex[i])
+	}
 	return DebugFrameParams{
 		NLSFInterpCoefQ2: int(st.indices.NLSFInterpCoefQ2),
 		LTPScaleIndex:    int(st.indices.LTPScaleIndex),
 		LagPrev:          st.lagPrev,
 		GainIndices:      gains,
+		PERIndex:         int(st.indices.PERIndex),
+		LTPIndices:       ltpIdx,
 	}
 }
 

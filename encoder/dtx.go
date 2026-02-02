@@ -258,7 +258,7 @@ func (e *Encoder) encodeComfortNoise(frameSize int) ([]byte, error) {
 // This is used by both normal encoding and comfort noise generation.
 func (e *Encoder) encodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Determine actual mode to use
-	actualMode := e.selectMode(frameSize)
+	actualMode := e.selectMode(frameSize, e.signalType)
 
 	// Route to appropriate encoder
 	switch actualMode {
