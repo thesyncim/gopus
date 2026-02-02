@@ -154,6 +154,7 @@ func rateID(rate int) int {
 
 const resamplerOrderFIR12 = 8
 const resamplerMaxBatchSizeMs = 10
+const resamplerMaxFrameMs = 60
 
 // NewLibopusResampler creates a new resampler matching libopus behavior.
 func NewLibopusResampler(fsIn, fsOut int) *LibopusResampler {
@@ -187,12 +188,12 @@ func NewLibopusResampler(fsIn, fsOut int) *LibopusResampler {
 	// Initialize delay buffer
 	r.delayBuf = make([]int16, r.fsInKHz)
 
-	// Pre-allocate scratch buffers for zero-allocation resampling
-	// SILK frames are up to 20ms, so we need to support 20ms of input.
-	// Max input: fsInKHz * 20 = 16 * 20 = 320 samples (for 16kHz WB 20ms)
-	// Max output: fsOutKHz * 20 = 48 * 20 = 960 samples (for 48kHz 20ms)
-	maxInputSamples := int(r.fsInKHz * 20) // 20ms max frame
-	maxOutputSamples := int(r.fsOutKHz * 20)
+	// Pre-allocate scratch buffers for zero-allocation resampling.
+	// Opus allows up to 60ms frames, so size for that worst case.
+	// Max input: fsInKHz * 60
+	// Max output: fsOutKHz * 60
+	maxInputSamples := int(r.fsInKHz * resamplerMaxFrameMs)
+	maxOutputSamples := int(r.fsOutKHz * resamplerMaxFrameMs)
 	r.scratchBuf = make([]int16, 2*r.batchSize+resamplerOrderFIR12)
 	r.scratchIn = make([]int16, maxInputSamples)
 	r.scratchOut = make([]int16, maxOutputSamples)

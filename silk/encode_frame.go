@@ -15,7 +15,15 @@ import "github.com/thesyncim/gopus/rangecoding"
 // Reference: libopus silk/float/encode_frame_FLP.c
 func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	config := GetBandwidthConfig(e.bandwidth)
-	numSubframes := 4 // 20ms frame = 4 subframes
+	subframeSamples := config.SubframeSamples
+	numSubframes := len(pcm) / subframeSamples
+	if numSubframes < 1 {
+		numSubframes = 1
+		subframeSamples = len(pcm)
+	}
+	if numSubframes > maxNbSubfr {
+		numSubframes = maxNbSubfr
+	}
 
 	// Check if we have a pre-set range encoder (hybrid mode)
 	// Note: rangeEncoder is set externally via SetRangeEncoder() for hybrid mode.
@@ -103,7 +111,6 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 
 	// Step 8: Compute excitation using Noise Shaping Quantization (NSQ)
 	// Per libopus silk_encode_pulses(), pulses are encoded for full frame_length
-	subframeSamples := config.SubframeSamples
 	frameSamples := numSubframes * subframeSamples
 	if frameSamples > len(pcm) {
 		frameSamples = len(pcm)
@@ -371,7 +378,15 @@ func (e *Encoder) EncodePacketWithFEC(pcm []float32, vadFlags []bool) []byte {
 // This is used by EncodePacketWithFEC and doesn't manage the range encoder.
 func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 	config := GetBandwidthConfig(e.bandwidth)
-	numSubframes := 4 // 20ms frame = 4 subframes
+	subframeSamples := config.SubframeSamples
+	numSubframes := len(pcm) / subframeSamples
+	if numSubframes < 1 {
+		numSubframes = 1
+		subframeSamples = len(pcm)
+	}
+	if numSubframes > maxNbSubfr {
+		numSubframes = maxNbSubfr
+	}
 
 	// Step 1: Classify frame (VAD)
 	var signalType, quantOffset int
@@ -430,7 +445,6 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 	e.rangeEncoder.EncodeICDF16(seed, ICDFLCGSeed, 8)
 
 	// Step 8: Compute and encode excitation
-	subframeSamples := config.SubframeSamples
 	frameSamples := numSubframes * subframeSamples
 	if frameSamples > len(pcm) {
 		frameSamples = len(pcm)

@@ -220,6 +220,8 @@ Always use this reference when implementing features or debugging discrepancies.
 | TestDTXSuppressesSilence | Fixed after sigmQ15 fix | 2026-02-01 |
 | TestDetectPitchVoicedSignal | Fixed by removing duplicate functions | 2026-02-01 |
 | Duplicate functions in multiple files | Removed by round-trip test agent | 2026-02-01 |
+| Encoder compliance/bitexact packets reused scratch buffer | Copy packets before storing (real Ogg stream) | 2026-02-02 |
+| SILK 10ms NSQ panic | Derive subframe count from PCM length (not fixed 4) | 2026-02-02 |
 
 ### KNOWN PRECISION DIFFERENCES (Expected)
 
@@ -235,11 +237,10 @@ is below production targets. This is a known work-in-progress area.
 **Current measured quality (encode with gopus → decode with libopus/opusdec):**
 | Mode | SNR | Q-value | Status |
 |------|-----|---------|--------|
-| CELT mono | ~-1 to 0 dB | Q ~ -100 | Baseline |
-| CELT stereo | ~-2 dB | Q ~ -104 | Baseline |
-| SILK NB | ~0 dB | Q ~ -100 | Baseline |
-| SILK WB | ~-6 dB | Q ~ -112 | Baseline |
-| Hybrid | ~-8 dB | Q ~ -117 | Baseline |
+| CELT mono | ~36-39 dB | Q ~ -25 to -19 | GOOD |
+| CELT stereo | ~31 dB | Q ~ -35 | GOOD |
+| SILK NB/WB | ~-5 to 0 dB | Q ~ -110 to -100 | Baseline |
+| Hybrid (SWB/FB) | ~-7 to -3 dB | Q ~ -115 to -105 | Baseline |
 
 **Production targets (libopus-comparable):**
 - Music (CELT): Q >= 0 (48 dB SNR)
@@ -251,13 +252,14 @@ test status will transition: BASE → GOOD → PASS.
 
 ### ENCODER QUALITY ROOT CAUSE ANALYSIS (Updated 2026-02-02)
 
-Investigation findings from roundtrip testing (gopus encoder → gopus decoder):
+**Resolved measurement bug (do not re-debug):**
+- Encoder compliance and bit‑exact tests stored slices backed by the encoder’s scratch packet buffer.
+- Result: all packets in the Ogg stream collapsed to the final frame → garbage audio → ~0 dB SNR.
+- Fix: copy packets before storing (`testvectors/encoder_compliance_test.go`, `testvectors/bitexact_test.go`).
 
-**Current symptoms (Q ~ -100):**
-- SNR: ~-1.6 dB (target: 48 dB)
-- Correlation: ~0.14 (weak positive, some frames show **negative** correlation)
-- Sign inversion: 126 inverted vs 67 same sign in samples 200-400
-- Amplitude ratio: ~0.63 (decoded is 63% of original amplitude)
+**Actual current status (post-fix):**
+- CELT quality now ~31–39 dB SNR (Q ~ -35 to -19) with opusdec.
+- SILK/Hybrid remain low (SNR ~-7 to 0 dB) and still need work.
 
 **Components verified as WORKING CORRECTLY:**
 1. ✅ **CWRS encoding/decoding** - Signs preserved perfectly in pulse roundtrip
@@ -268,23 +270,10 @@ Investigation findings from roundtrip testing (gopus encoder → gopus decoder):
 
 **DO NOT re-investigate these components - they are verified working.**
 
-**Prime suspects (NOT YET VERIFIED):**
-1. **Band normalization flow** - Encoder divides by gain, decoder multiplies
-   - Main CELT path now uses `NormalizeBandsToArrayInto` (linear band amplitudes) so this is likely OK there.
-   - Hybrid CELT path still uses `NormalizeBands` (energy-based) + `EncodeBands`, so normalization remains a suspect for hybrid quality.
-
-2. **Pre-emphasis/de-emphasis chain** - May have sign or phase issues
-   - Encoder: `preemph[i] = val - 0.85*mem`
-   - Decoder: `deemph[i] = out[i] + 0.85*mem`
-   - These should be inverses but may have implementation mismatch
-
-3. **Encoder input scaling** - Check CELTSigScale application
-   - Encoder multiplies by CELTSigScale before MDCT
-   - Decoder divides by CELTSigScale after synthesis
-
-4. **The `resynth` flag** - Controls whether encoder reconstructs signal
-   - If resynth=false, encoder may not update internal state correctly
-   - Check if decoder expects state that encoder didn't write
+**Prime suspects (NOT YET VERIFIED, focus: SILK/Hybrid):**
+1. **SILK resampling / bandwidth alignment** - Verify 48 kHz → SILK rate path and frame buffering
+2. **SILK bitrate distribution / NSQ** - Check noise‑shaping quantizer parity with libopus
+3. **Hybrid lowband/highband handoff** - Confirm split energy and gain matching across the 8 kHz boundary
 
 **Code parity checks (2026-02-02):**
 - CELT encode path uses `NormalizeBandsToArrayInto` (linear band amplitudes from MDCT) for PVQ input, matching libopus `normalise_bands()` behavior.

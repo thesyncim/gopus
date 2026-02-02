@@ -118,6 +118,13 @@ type Encoder struct {
 	// Contains HB_gain, resampler state, and crossover energy matching
 	hybridState *HybridState
 
+	// SILK downsampling (48kHz -> SILK bandwidth rate) for SILK-only mode
+	silkResampler     *silk.LibopusResampler
+	silkResamplerRight *silk.LibopusResampler
+	silkResamplerRate int
+	silkResampled     []float32
+	silkResampledR    []float32
+
 	// Scratch buffers for zero-allocation encoding
 	scratchPCM32  []float32 // float64 to float32 conversion buffer
 	scratchLeft   []float32 // Left channel deinterleave buffer
@@ -545,6 +552,18 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, frameSize int) ([]byte, error) 
 		pcm32[i] = float32(v)
 	}
 
+	// Downsample 48kHz -> SILK bandwidth sample rate for SILK-only mode
+	// libopus feeds SILK at its native rate (8/12/16 kHz).
+	cfg := silk.GetBandwidthConfig(e.silkBandwidth())
+	targetRate := cfg.SampleRate
+	if targetRate != 48000 {
+		e.ensureSILKResampler(targetRate)
+	}
+	targetSamples := frameSize * targetRate / 48000
+	if targetSamples <= 0 {
+		targetSamples = len(pcm32)
+	}
+
 	// For stereo, need to handle separately
 	if e.channels == 2 {
 		// Ensure side encoder exists for stereo
@@ -556,7 +575,31 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, frameSize int) ([]byte, error) 
 			left[i] = pcm32[i*2]
 			right[i] = pcm32[i*2+1]
 		}
+		if targetRate != 48000 {
+			leftOut := e.ensureSilkResampled(targetSamples)
+			rightOut := e.ensureSilkResampledR(targetSamples)
+			nL := e.silkResampler.ProcessInto(left, leftOut)
+			nR := e.silkResamplerRight.ProcessInto(right, rightOut)
+			if nL < nR {
+				rightOut = rightOut[:nL]
+				leftOut = leftOut[:nL]
+			} else if nR < nL {
+				leftOut = leftOut[:nR]
+				rightOut = rightOut[:nR]
+			}
+			left = leftOut
+			right = rightOut
+		}
 		return silk.EncodeStereoWithEncoder(e.silkEncoder, e.silkSideEncoder, left, right, e.silkBandwidth(), true)
+	}
+
+	if targetRate != 48000 {
+		out := e.ensureSilkResampled(targetSamples)
+		n := e.silkResampler.ProcessInto(pcm32, out)
+		if n < len(out) {
+			out = out[:n]
+		}
+		pcm32 = out
 	}
 
 	// Mono encoding using persistent encoder
@@ -603,6 +646,44 @@ func (e *Encoder) ensureSILKSideEncoder() {
 	if e.silkSideEncoder == nil && e.channels == 2 {
 		e.silkSideEncoder = silk.NewEncoder(e.silkBandwidth())
 	}
+}
+
+func (e *Encoder) ensureSILKResampler(rate int) {
+	if rate <= 0 {
+		return
+	}
+	if e.silkResampler == nil || e.silkResamplerRate != rate {
+		e.silkResampler = silk.NewLibopusResampler(48000, rate)
+		e.silkResamplerRate = rate
+		e.silkResamplerRight = nil
+		if e.channels == 2 {
+			e.silkResamplerRight = silk.NewLibopusResampler(48000, rate)
+		}
+		return
+	}
+	if e.channels == 2 && e.silkResamplerRight == nil {
+		e.silkResamplerRight = silk.NewLibopusResampler(48000, rate)
+	}
+}
+
+func (e *Encoder) ensureSilkResampled(size int) []float32 {
+	if size <= 0 {
+		return nil
+	}
+	if cap(e.silkResampled) < size {
+		e.silkResampled = make([]float32, size)
+	}
+	return e.silkResampled[:size]
+}
+
+func (e *Encoder) ensureSilkResampledR(size int) []float32 {
+	if size <= 0 {
+		return nil
+	}
+	if cap(e.silkResampledR) < size {
+		e.silkResampledR = make([]float32, size)
+	}
+	return e.silkResampledR[:size]
 }
 
 // ensureCELTEncoder creates the CELT encoder if it doesn't exist.

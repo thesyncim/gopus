@@ -29,9 +29,9 @@ import (
 //   - Speech (SILK): Q >= -15 (40 dB SNR)
 //
 // Current baseline (gopus as of 2026-02):
-//   - CELT: ~8-10 dB SNR (Q ~ -80 to -85)
-//   - SILK: ~5-8 dB SNR (Q ~ -85 to -90)
-//   - Hybrid: ~5-8 dB SNR (Q ~ -85 to -90)
+//   - CELT: ~31-39 dB SNR (Q ~ -35 to -19)
+//   - SILK: ~-5 to 0 dB SNR (Q ~ -110 to -100)
+//   - Hybrid: ~-7 to -3 dB SNR (Q ~ -115 to -105)
 const (
 	// EncoderQualityThreshold is the minimum Q value for passing encoder tests.
 	// This tracks the current baseline - tests fail if quality regresses below this.
@@ -257,7 +257,10 @@ func runEncoderComplianceTest(t *testing.T, mode encoder.Mode, bandwidth types.B
 		if len(packet) == 0 {
 			t.Fatalf("Empty packet at frame %d", i)
 		}
-		packets[i] = packet
+		// Copy packet since Encode returns a slice backed by scratch memory.
+		packetCopy := make([]byte, len(packet))
+		copy(packetCopy, packet)
+		packets[i] = packetCopy
 	}
 
 	// Write to Ogg Opus container

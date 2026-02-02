@@ -219,7 +219,10 @@ func encodeWithGopus(t *testing.T, pcmF32 []float32, frameSize, channels, bitrat
 		if err != nil {
 			t.Fatalf("gopus encode failed: %v", err)
 		}
-		packets = append(packets, packet)
+		// Copy packet since Encode returns a slice backed by scratch memory.
+		packetCopy := make([]byte, len(packet))
+		copy(packetCopy, packet)
+		packets = append(packets, packetCopy)
 	}
 
 	return packets
