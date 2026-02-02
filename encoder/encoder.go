@@ -83,6 +83,24 @@ type Encoder struct {
 	// Complexity control (0-10, higher = better quality but slower)
 	complexity int
 
+	// Signal type hint for mode selection
+	signalType types.Signal
+
+	// Maximum bandwidth limit (actual bandwidth is clamped to this)
+	maxBandwidth types.Bandwidth
+
+	// Force channels (-1=auto, 1=mono, 2=stereo)
+	forceChannels int
+
+	// LSB depth of input signal (8-24 bits, affects DTX sensitivity)
+	lsbDepth int
+
+	// Prediction disabled (reduces inter-frame dependency for error resilience)
+	predictionDisabled bool
+
+	// Phase inversion disabled (for stereo decorrelation)
+	phaseInversionDisabled bool
+
 	// Encoder state for CELT delay compensation
 	// The 2.7ms delay (130 samples at 48kHz) aligns SILK and CELT
 	prevSamples []float64
@@ -134,28 +152,34 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 	maxSamples := 2880 * channels
 
 	return &Encoder{
-		mode:                ModeAuto,
-		bandwidth:           types.BandwidthFullband,
-		sampleRate:          sampleRate,
-		channels:            channels,
-		frameSize:           960,     // Default 20ms
-		bitrateMode:         ModeVBR, // VBR is default
-		bitrate:             64000,   // 64 kbps default
-		fecEnabled:          false,   // FEC disabled by default
-		packetLoss:          0,       // 0% packet loss expected
-		fec:                 newFECState(),
-		dtxEnabled:          false,
-		dtx:                 newDTXState(),
-		rng:                 22222,                         // Match libopus seed
-		complexity:          10,                            // Default: highest quality
-		prevSamples:         make([]float64, 130*channels), // CELT delay compensation buffer
-		silkFrameBuffer:     make([]float32, 320),          // 20ms at 16kHz for SILK buffering
-		silkSideFrameBuffer: make([]float32, 320),          // 20ms at 16kHz for stereo side channel
-		silkBufferFilled:    0,
-		scratchPCM32:        make([]float32, maxSamples),   // float64 to float32 conversion
-		scratchLeft:         make([]float32, 2880),         // Stereo deinterleave buffer
-		scratchRight:        make([]float32, 2880),         // Stereo deinterleave buffer
-		scratchPacket:       make([]byte, 1276),            // Max Opus packet (TOC + 1275 payload)
+		mode:                   ModeAuto,
+		bandwidth:              types.BandwidthFullband,
+		sampleRate:             sampleRate,
+		channels:               channels,
+		frameSize:              960,     // Default 20ms
+		bitrateMode:            ModeVBR, // VBR is default
+		bitrate:                64000,   // 64 kbps default
+		fecEnabled:             false,   // FEC disabled by default
+		packetLoss:             0,       // 0% packet loss expected
+		fec:                    newFECState(),
+		dtxEnabled:             false,
+		dtx:                    newDTXState(),
+		rng:                    22222,                         // Match libopus seed
+		complexity:             10,                            // Default: highest quality
+		signalType:             types.SignalAuto,              // Auto-detect signal type
+		maxBandwidth:           types.BandwidthFullband,       // No bandwidth limit
+		forceChannels:          -1,                            // Auto channel selection
+		lsbDepth:               24,                            // Full 24-bit depth
+		predictionDisabled:     false,                         // Inter-frame prediction enabled
+		phaseInversionDisabled: false,                         // Phase inversion enabled for stereo
+		prevSamples:            make([]float64, 130*channels), // CELT delay compensation buffer
+		silkFrameBuffer:        make([]float32, 320),          // 20ms at 16kHz for SILK buffering
+		silkSideFrameBuffer:    make([]float32, 320),          // 20ms at 16kHz for stereo side channel
+		silkBufferFilled:       0,
+		scratchPCM32:           make([]float32, maxSamples),   // float64 to float32 conversion
+		scratchLeft:            make([]float32, 2880),         // Stereo deinterleave buffer
+		scratchRight:           make([]float32, 2880),         // Stereo deinterleave buffer
+		scratchPacket:          make([]byte, 1276),            // Max Opus packet (TOC + 1275 payload)
 	}
 }
 
@@ -418,7 +442,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 
 	// Build complete packet with TOC byte into scratch buffer
 	stereo := e.channels == 2
-	packetLen, err := BuildPacketInto(e.scratchPacket, frameData, modeToTypes(actualMode), e.bandwidth, frameSize, stereo)
+	packetLen, err := BuildPacketInto(e.scratchPacket, frameData, modeToTypes(actualMode), e.effectiveBandwidth(), frameSize, stereo)
 	if err != nil {
 		return nil, err
 	}
@@ -459,8 +483,28 @@ func (e *Encoder) selectMode(frameSize int) Mode {
 		return e.mode
 	}
 
+	// Apply signal type hint to influence mode selection
+	// SignalVoice biases toward SILK, SignalMusic toward CELT
+	switch e.signalType {
+	case types.SignalVoice:
+		// Voice signal: prefer SILK for lower bandwidths, Hybrid for higher
+		switch e.effectiveBandwidth() {
+		case types.BandwidthNarrowband, types.BandwidthMediumband, types.BandwidthWideband:
+			return ModeSILK
+		case types.BandwidthSuperwideband, types.BandwidthFullband:
+			// Use Hybrid for voice at high bandwidth (if frame size supports it)
+			if frameSize == 480 || frameSize == 960 {
+				return ModeHybrid
+			}
+			return ModeSILK
+		}
+	case types.SignalMusic:
+		// Music signal: prefer CELT for full-bandwidth audio
+		return ModeCELT
+	}
+
 	// Auto mode selection based on bandwidth and frame size
-	switch e.bandwidth {
+	switch e.effectiveBandwidth() {
 	case types.BandwidthNarrowband, types.BandwidthMediumband, types.BandwidthWideband:
 		// Lower bandwidths: use SILK
 		return ModeSILK
@@ -479,6 +523,14 @@ func (e *Encoder) selectMode(frameSize int) Mode {
 	default:
 		return ModeCELT
 	}
+}
+
+// effectiveBandwidth returns the actual bandwidth to use, considering maxBandwidth limit.
+func (e *Encoder) effectiveBandwidth() types.Bandwidth {
+	if e.bandwidth > e.maxBandwidth {
+		return e.maxBandwidth
+	}
+	return e.bandwidth
 }
 
 // encodeSILKFrame encodes a frame using SILK-only mode.
@@ -595,4 +647,92 @@ func ValidFrameSize(frameSize int, mode Mode) bool {
 		return frameSize == 120 || frameSize == 240 || frameSize == 480 ||
 			frameSize == 960 || frameSize == 1920 || frameSize == 2880
 	}
+}
+
+// SetSignalType sets the signal type hint for mode selection.
+// SignalVoice biases toward SILK mode, SignalMusic toward CELT mode.
+func (e *Encoder) SetSignalType(signal types.Signal) {
+	e.signalType = signal
+}
+
+// SignalType returns the current signal type hint.
+func (e *Encoder) SignalType() types.Signal {
+	return e.signalType
+}
+
+// SetMaxBandwidth sets the maximum bandwidth limit.
+// The actual bandwidth will be clamped to this limit.
+func (e *Encoder) SetMaxBandwidth(bw types.Bandwidth) {
+	e.maxBandwidth = bw
+}
+
+// MaxBandwidth returns the maximum bandwidth limit.
+func (e *Encoder) MaxBandwidth() types.Bandwidth {
+	return e.maxBandwidth
+}
+
+// SetForceChannels sets the forced channel count.
+// -1 = auto (use input channels), 1 = force mono, 2 = force stereo.
+func (e *Encoder) SetForceChannels(channels int) {
+	e.forceChannels = channels
+}
+
+// ForceChannels returns the forced channel count (-1 = auto).
+func (e *Encoder) ForceChannels() int {
+	return e.forceChannels
+}
+
+// Lookahead returns the encoder's algorithmic delay in samples at 48kHz.
+// This includes both CELT delay compensation and mode-specific delay.
+// Reference: libopus OPUS_GET_LOOKAHEAD
+func (e *Encoder) Lookahead() int {
+	// Base lookahead is sampleRate/400 (2.5ms) = 120 samples at 48kHz
+	// Plus delay compensation: 130 samples for CELT overlap
+	// Total: approximately 250 samples (5.2ms) at 48kHz
+	baseLookahead := e.sampleRate / 400 // 2.5ms
+	delayComp := 130                    // CELT delay compensation in 48kHz samples
+	return baseLookahead + delayComp
+}
+
+// SetLSBDepth sets the input signal's LSB depth (8-24 bits).
+// This affects DTX sensitivity - lower depths mean louder silence threshold.
+func (e *Encoder) SetLSBDepth(depth int) {
+	if depth < 8 {
+		depth = 8
+	}
+	if depth > 24 {
+		depth = 24
+	}
+	e.lsbDepth = depth
+}
+
+// LSBDepth returns the current LSB depth setting.
+func (e *Encoder) LSBDepth() int {
+	return e.lsbDepth
+}
+
+// SetPredictionDisabled disables inter-frame prediction.
+// When true, each frame can be decoded independently, improving error resilience.
+func (e *Encoder) SetPredictionDisabled(disabled bool) {
+	e.predictionDisabled = disabled
+}
+
+// PredictionDisabled returns whether inter-frame prediction is disabled.
+func (e *Encoder) PredictionDisabled() bool {
+	return e.predictionDisabled
+}
+
+// SetPhaseInversionDisabled disables stereo phase inversion.
+// Phase inversion improves stereo decorrelation but may cause issues with some audio.
+func (e *Encoder) SetPhaseInversionDisabled(disabled bool) {
+	e.phaseInversionDisabled = disabled
+	// Propagate to CELT encoder if it exists
+	if e.celtEncoder != nil {
+		e.celtEncoder.SetPhaseInversionDisabled(disabled)
+	}
+}
+
+// PhaseInversionDisabled returns whether stereo phase inversion is disabled.
+func (e *Encoder) PhaseInversionDisabled() bool {
+	return e.phaseInversionDisabled
 }

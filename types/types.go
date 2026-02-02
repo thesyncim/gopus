@@ -21,3 +21,16 @@ const (
 	BandwidthSuperwideband                  // 12kHz audio, 24kHz sample rate
 	BandwidthFullband                       // 20kHz audio, 48kHz sample rate
 )
+
+// Signal represents the input signal type hint for the encoder.
+// This helps the encoder optimize for speech or music content.
+type Signal int
+
+const (
+	// SignalAuto lets the encoder detect the signal type automatically.
+	SignalAuto Signal = -1000
+	// SignalVoice hints that the input is speech, biasing toward SILK mode.
+	SignalVoice Signal = 3001
+	// SignalMusic hints that the input is music, biasing toward CELT mode.
+	SignalMusic Signal = 3002
+)

@@ -24,6 +24,19 @@ const (
 	ApplicationLowDelay
 )
 
+// Signal represents a hint about the input signal type.
+// This helps the encoder optimize for speech or music content.
+type Signal = types.Signal
+
+const (
+	// SignalAuto lets the encoder detect the signal type automatically.
+	SignalAuto = types.SignalAuto
+	// SignalVoice hints that the input is speech, biasing toward SILK mode.
+	SignalVoice = types.SignalVoice
+	// SignalMusic hints that the input is music, biasing toward CELT mode.
+	SignalMusic = types.SignalMusic
+)
+
 // Encoder encodes PCM audio samples into Opus packets.
 //
 // An Encoder instance maintains internal state and is NOT safe for concurrent use.
@@ -315,4 +328,136 @@ func (e *Encoder) SampleRate() int {
 // Must be called after Encode() to get a meaningful value.
 func (e *Encoder) FinalRange() uint32 {
 	return e.enc.FinalRange()
+}
+
+// SetSignal sets the signal type hint for mode selection.
+//
+// signal must be one of:
+//   - SignalAuto: automatically detect signal type
+//   - SignalVoice: optimize for speech (biases toward SILK)
+//   - SignalMusic: optimize for music (biases toward CELT)
+//
+// Returns ErrInvalidSignal if the value is not valid.
+func (e *Encoder) SetSignal(signal Signal) error {
+	switch signal {
+	case SignalAuto, SignalVoice, SignalMusic:
+		e.enc.SetSignalType(signal)
+		return nil
+	default:
+		return ErrInvalidSignal
+	}
+}
+
+// Signal returns the current signal type hint.
+func (e *Encoder) Signal() Signal {
+	return e.enc.SignalType()
+}
+
+// SetMaxBandwidth sets the maximum audio bandwidth.
+//
+// The encoder will not use a bandwidth higher than this limit.
+// This is useful for limiting bandwidth without changing the sample rate.
+//
+// Valid values are:
+//   - BandwidthNarrowband (4kHz)
+//   - BandwidthMediumband (6kHz)
+//   - BandwidthWideband (8kHz)
+//   - BandwidthSuperwideband (12kHz)
+//   - BandwidthFullband (20kHz)
+func (e *Encoder) SetMaxBandwidth(bandwidth Bandwidth) {
+	e.enc.SetMaxBandwidth(bandwidth)
+}
+
+// MaxBandwidth returns the current maximum bandwidth limit.
+func (e *Encoder) MaxBandwidth() Bandwidth {
+	return e.enc.MaxBandwidth()
+}
+
+// SetForceChannels forces the encoder to use a specific channel count.
+//
+// channels must be one of:
+//   - -1: automatic (use input channels)
+//   - 1: force mono output
+//   - 2: force stereo output
+//
+// Note: Forcing stereo on mono input will duplicate the channel.
+// Forcing mono on stereo input will downmix to mono.
+//
+// Returns ErrInvalidForceChannels if the value is not valid.
+func (e *Encoder) SetForceChannels(channels int) error {
+	if channels != -1 && channels != 1 && channels != 2 {
+		return ErrInvalidForceChannels
+	}
+	e.enc.SetForceChannels(channels)
+	return nil
+}
+
+// ForceChannels returns the forced channel count (-1 = auto).
+func (e *Encoder) ForceChannels() int {
+	return e.enc.ForceChannels()
+}
+
+// Lookahead returns the encoder's algorithmic delay in samples at 48kHz.
+//
+// This is the total look-ahead used by the encoder, including:
+//   - Base lookahead (2.5ms = 120 samples at 48kHz)
+//   - CELT delay compensation (130 samples)
+//
+// The returned value is approximately 250 samples (5.2ms) at 48kHz.
+// For other sample rates, scale proportionally.
+func (e *Encoder) Lookahead() int {
+	return e.enc.Lookahead()
+}
+
+// SetLSBDepth sets the bit depth of the input signal.
+//
+// depth must be 8-24. This affects DTX silence detection:
+// lower bit depths have a higher noise floor, so the encoder
+// adjusts its silence threshold accordingly.
+//
+// Default is 24 (full precision).
+// Returns ErrInvalidLSBDepth if out of range.
+func (e *Encoder) SetLSBDepth(depth int) error {
+	if depth < 8 || depth > 24 {
+		return ErrInvalidLSBDepth
+	}
+	e.enc.SetLSBDepth(depth)
+	return nil
+}
+
+// LSBDepth returns the current input bit depth setting.
+func (e *Encoder) LSBDepth() int {
+	return e.enc.LSBDepth()
+}
+
+// SetPredictionDisabled disables inter-frame prediction.
+//
+// When disabled (true), each frame can be decoded independently,
+// which improves error resilience at the cost of compression efficiency.
+// This is useful for applications with high packet loss.
+//
+// Default is false (prediction enabled).
+func (e *Encoder) SetPredictionDisabled(disabled bool) {
+	e.enc.SetPredictionDisabled(disabled)
+}
+
+// PredictionDisabled returns whether inter-frame prediction is disabled.
+func (e *Encoder) PredictionDisabled() bool {
+	return e.enc.PredictionDisabled()
+}
+
+// SetPhaseInversionDisabled disables stereo phase inversion.
+//
+// Phase inversion is a technique used to improve stereo decorrelation.
+// Some audio processing pipelines may have issues with phase-inverted audio.
+// Disabling it (true) ensures no phase inversion is applied.
+//
+// Default is false (phase inversion enabled).
+func (e *Encoder) SetPhaseInversionDisabled(disabled bool) {
+	e.enc.SetPhaseInversionDisabled(disabled)
+}
+
+// PhaseInversionDisabled returns whether stereo phase inversion is disabled.
+func (e *Encoder) PhaseInversionDisabled() bool {
+	return e.enc.PhaseInversionDisabled()
 }

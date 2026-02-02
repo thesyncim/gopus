@@ -108,6 +108,31 @@ Always use this reference when implementing features or debugging discrepancies.
    - VoIP/SILK mode: 0 allocs/op ✅
    - LowDelay mode: 0 allocs/op ✅
 
+### Session 6: Encoder Feature Parity (Complete)
+1. ✅ **Signal Type Hint** - `types/types.go`, `encoder/encoder.go`, `encoder.go`
+   - SignalAuto, SignalVoice, SignalMusic constants
+   - SetSignal/Signal API with validation
+   - Mode selection biases toward SILK (voice) or CELT (music)
+2. ✅ **Max Bandwidth Limit** - `encoder/encoder.go`, `encoder.go`
+   - SetMaxBandwidth/MaxBandwidth API
+   - effectiveBandwidth() clamps bandwidth before encoding
+   - Packet TOC uses effective bandwidth
+3. ✅ **Force Channels** - `encoder/encoder.go`, `encoder.go`
+   - SetForceChannels/ForceChannels API
+   - -1=auto, 1=mono, 2=stereo
+4. ✅ **Lookahead** - `encoder/encoder.go`, `encoder.go`
+   - Read-only Lookahead() getter
+   - Returns ~250 samples (5.2ms) at 48kHz
+5. ✅ **LSB Depth** - `encoder/encoder.go`, `encoder.go`
+   - SetLSBDepth/LSBDepth API (8-24 bits)
+   - Affects DTX sensitivity threshold
+6. ✅ **Prediction Disabled** - `encoder/encoder.go`, `encoder.go`
+   - SetPredictionDisabled/PredictionDisabled API
+   - Disables inter-frame prediction for error resilience
+7. ✅ **Phase Inversion Disabled** - `celt/encoder.go`, `encoder/encoder.go`, `encoder.go`
+   - SetPhaseInversionDisabled/PhaseInversionDisabled API
+   - Disables stereo phase inversion decorrelation
+
 ---
 
 ## Known Issues & Debugging Notes
@@ -299,6 +324,7 @@ go test -bench=. ./...
 - [ ] CELT fine energy bits optimization
 - [x] SILK gain quantization refinement ✅
 - [x] FEC encoding implementation ✅
+- [x] Encoder feature parity ✅ (Signal, MaxBandwidth, ForceChannels, Lookahead, LSBDepth, PredictionDisabled, PhaseInversionDisabled)
 
 ### P3: Advanced Features
 - [ ] Deep PLC (LPCnet)

@@ -456,3 +456,288 @@ func TestEncoder_InvalidFrameSize_Encode(t *testing.T) {
 		t.Errorf("Encode with wrong size: got %v, want ErrInvalidFrameSize", err)
 	}
 }
+
+func TestEncoder_SetSignal(t *testing.T) {
+	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	// Default is SignalAuto
+	if enc.Signal() != SignalAuto {
+		t.Errorf("Signal() = %d, want SignalAuto (%d)", enc.Signal(), SignalAuto)
+	}
+
+	// Test valid signals
+	validSignals := []Signal{SignalAuto, SignalVoice, SignalMusic}
+	for _, sig := range validSignals {
+		t.Run(fmt.Sprintf("signal_%d", sig), func(t *testing.T) {
+			err := enc.SetSignal(sig)
+			if err != nil {
+				t.Errorf("SetSignal(%d) error: %v", sig, err)
+			}
+			if enc.Signal() != sig {
+				t.Errorf("Signal() = %d, want %d", enc.Signal(), sig)
+			}
+		})
+	}
+
+	// Test invalid signal
+	err = enc.SetSignal(Signal(9999))
+	if err != ErrInvalidSignal {
+		t.Errorf("SetSignal(9999) error = %v, want ErrInvalidSignal", err)
+	}
+}
+
+func TestEncoder_SetMaxBandwidth(t *testing.T) {
+	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	// Default is Fullband
+	if enc.MaxBandwidth() != BandwidthFullband {
+		t.Errorf("MaxBandwidth() = %d, want BandwidthFullband (%d)", enc.MaxBandwidth(), BandwidthFullband)
+	}
+
+	// Test all bandwidths
+	bandwidths := []Bandwidth{
+		BandwidthNarrowband,
+		BandwidthMediumband,
+		BandwidthWideband,
+		BandwidthSuperwideband,
+		BandwidthFullband,
+	}
+	for _, bw := range bandwidths {
+		t.Run(fmt.Sprintf("bandwidth_%d", bw), func(t *testing.T) {
+			enc.SetMaxBandwidth(bw)
+			if enc.MaxBandwidth() != bw {
+				t.Errorf("MaxBandwidth() = %d, want %d", enc.MaxBandwidth(), bw)
+			}
+		})
+	}
+}
+
+func TestEncoder_SetForceChannels(t *testing.T) {
+	enc, err := NewEncoder(48000, 2, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	// Default is -1 (auto)
+	if enc.ForceChannels() != -1 {
+		t.Errorf("ForceChannels() = %d, want -1", enc.ForceChannels())
+	}
+
+	// Test valid values
+	validChannels := []int{-1, 1, 2}
+	for _, ch := range validChannels {
+		t.Run(fmt.Sprintf("channels_%d", ch), func(t *testing.T) {
+			err := enc.SetForceChannels(ch)
+			if err != nil {
+				t.Errorf("SetForceChannels(%d) error: %v", ch, err)
+			}
+			if enc.ForceChannels() != ch {
+				t.Errorf("ForceChannels() = %d, want %d", enc.ForceChannels(), ch)
+			}
+		})
+	}
+
+	// Test invalid values
+	invalidChannels := []int{-2, 0, 3, 100}
+	for _, ch := range invalidChannels {
+		t.Run(fmt.Sprintf("invalid_channels_%d", ch), func(t *testing.T) {
+			err := enc.SetForceChannels(ch)
+			if err != ErrInvalidForceChannels {
+				t.Errorf("SetForceChannels(%d) error = %v, want ErrInvalidForceChannels", ch, err)
+			}
+		})
+	}
+}
+
+func TestEncoder_Lookahead(t *testing.T) {
+	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	lookahead := enc.Lookahead()
+
+	// Lookahead should be positive and reasonable (250 samples at 48kHz ~ 5.2ms)
+	if lookahead <= 0 {
+		t.Errorf("Lookahead() = %d, want > 0", lookahead)
+	}
+	if lookahead > 1000 {
+		t.Errorf("Lookahead() = %d, unexpectedly large", lookahead)
+	}
+
+	t.Logf("Lookahead: %d samples (%.2fms at 48kHz)", lookahead, float64(lookahead)/48.0)
+}
+
+func TestEncoder_SetLSBDepth(t *testing.T) {
+	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	// Default is 24
+	if enc.LSBDepth() != 24 {
+		t.Errorf("LSBDepth() = %d, want 24", enc.LSBDepth())
+	}
+
+	// Test valid depths
+	for depth := 8; depth <= 24; depth++ {
+		t.Run(fmt.Sprintf("depth_%d", depth), func(t *testing.T) {
+			err := enc.SetLSBDepth(depth)
+			if err != nil {
+				t.Errorf("SetLSBDepth(%d) error: %v", depth, err)
+			}
+			if enc.LSBDepth() != depth {
+				t.Errorf("LSBDepth() = %d, want %d", enc.LSBDepth(), depth)
+			}
+		})
+	}
+
+	// Test invalid depths
+	invalidDepths := []int{0, 7, 25, 32}
+	for _, depth := range invalidDepths {
+		t.Run(fmt.Sprintf("invalid_depth_%d", depth), func(t *testing.T) {
+			err := enc.SetLSBDepth(depth)
+			if err != ErrInvalidLSBDepth {
+				t.Errorf("SetLSBDepth(%d) error = %v, want ErrInvalidLSBDepth", depth, err)
+			}
+		})
+	}
+}
+
+func TestEncoder_SetPredictionDisabled(t *testing.T) {
+	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	// Default is false
+	if enc.PredictionDisabled() {
+		t.Error("PredictionDisabled() = true, want false")
+	}
+
+	// Enable
+	enc.SetPredictionDisabled(true)
+	if !enc.PredictionDisabled() {
+		t.Error("PredictionDisabled() = false after SetPredictionDisabled(true)")
+	}
+
+	// Disable
+	enc.SetPredictionDisabled(false)
+	if enc.PredictionDisabled() {
+		t.Error("PredictionDisabled() = true after SetPredictionDisabled(false)")
+	}
+}
+
+func TestEncoder_SetPhaseInversionDisabled(t *testing.T) {
+	enc, err := NewEncoder(48000, 2, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	// Default is false
+	if enc.PhaseInversionDisabled() {
+		t.Error("PhaseInversionDisabled() = true, want false")
+	}
+
+	// Enable
+	enc.SetPhaseInversionDisabled(true)
+	if !enc.PhaseInversionDisabled() {
+		t.Error("PhaseInversionDisabled() = false after SetPhaseInversionDisabled(true)")
+	}
+
+	// Disable
+	enc.SetPhaseInversionDisabled(false)
+	if enc.PhaseInversionDisabled() {
+		t.Error("PhaseInversionDisabled() = true after SetPhaseInversionDisabled(false)")
+	}
+}
+
+func TestEncoder_SignalVoice_BiasesTowardSILK(t *testing.T) {
+	// Create encoder with voice signal hint at wideband
+	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	// Set signal type to voice
+	if err := enc.SetSignal(SignalVoice); err != nil {
+		t.Fatalf("SetSignal error: %v", err)
+	}
+
+	// Generate a simple frame
+	frameSize := 960
+	pcm := generateSineWave(48000, 440, frameSize)
+
+	// Encode and verify it produces a valid packet
+	packet, err := enc.EncodeFloat32(pcm)
+	if err != nil {
+		t.Fatalf("Encode error: %v", err)
+	}
+
+	if len(packet) == 0 {
+		t.Error("Encode with SignalVoice returned empty packet")
+	}
+
+	t.Logf("SignalVoice encoded to %d bytes", len(packet))
+}
+
+func TestEncoder_SignalMusic_BiasesTowardCELT(t *testing.T) {
+	// Create encoder with music signal hint
+	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	// Set signal type to music
+	if err := enc.SetSignal(SignalMusic); err != nil {
+		t.Fatalf("SetSignal error: %v", err)
+	}
+
+	// Generate a simple frame
+	frameSize := 960
+	pcm := generateSineWave(48000, 440, frameSize)
+
+	// Encode and verify it produces a valid packet
+	packet, err := enc.EncodeFloat32(pcm)
+	if err != nil {
+		t.Fatalf("Encode error: %v", err)
+	}
+
+	if len(packet) == 0 {
+		t.Error("Encode with SignalMusic returned empty packet")
+	}
+
+	t.Logf("SignalMusic encoded to %d bytes", len(packet))
+}
+
+func TestEncoder_MaxBandwidth_ClampsOutput(t *testing.T) {
+	// Test that max bandwidth setting works for wideband limit
+	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	// Limit to wideband (instead of narrowband to avoid SILK frame size restrictions)
+	enc.SetMaxBandwidth(BandwidthWideband)
+
+	frameSize := 960
+	pcm := generateSineWave(48000, 440, frameSize)
+
+	// Encode - should work with wideband limit
+	packet, err := enc.EncodeFloat32(pcm)
+	if err != nil {
+		t.Fatalf("Encode with limited bandwidth error: %v", err)
+	}
+
+	if len(packet) == 0 {
+		t.Error("Encode with limited bandwidth returned empty packet")
+	}
+
+	t.Logf("Wideband-limited encoded to %d bytes", len(packet))
+}

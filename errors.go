@@ -54,6 +54,18 @@ var (
 	// ErrInvalidBandwidth indicates an invalid bandwidth for the current mode.
 	// For SILK-only mode, only NB, MB, and WB are valid (not SWB or FB).
 	ErrInvalidBandwidth = errors.New("gopus: invalid bandwidth for mode")
+
+	// ErrInvalidSignal indicates an invalid signal type hint.
+	// Valid values are SignalAuto, SignalVoice, or SignalMusic.
+	ErrInvalidSignal = errors.New("gopus: invalid signal type (must be SignalAuto, SignalVoice, or SignalMusic)")
+
+	// ErrInvalidLSBDepth indicates an invalid LSB depth.
+	// Valid range is 8 to 24 bits.
+	ErrInvalidLSBDepth = errors.New("gopus: invalid LSB depth (must be 8-24)")
+
+	// ErrInvalidForceChannels indicates an invalid force channels value.
+	// Valid values are -1 (auto), 1 (mono), or 2 (stereo).
+	ErrInvalidForceChannels = errors.New("gopus: invalid force channels (must be -1, 1, or 2)")
 )
 
 // validSampleRate returns true if the sample rate is valid for Opus.

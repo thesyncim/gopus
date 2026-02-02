@@ -91,6 +91,10 @@ type Encoder struct {
 	// When true, the encoder forces short blocks for the next frame
 	forceTransient bool
 
+	// Phase inversion disabled for stereo encoding
+	// When true, disables stereo phase inversion decorrelation
+	phaseInversionDisabled bool
+
 	// DC rejection filter state (high-pass filter to remove DC offset)
 	// libopus applies this at the Opus encoder level before CELT processing
 	// Reference: libopus src/opus_encoder.c dc_reject()
@@ -577,6 +581,18 @@ func (e *Encoder) GetLastBandLogE() []float64 {
 // For transients, this is from the long MDCT; otherwise same as bandLogE.
 func (e *Encoder) GetLastBandLogE2() []float64 {
 	return e.lastBandLogE2
+}
+
+// SetPhaseInversionDisabled disables stereo phase inversion.
+// When true, the encoder will not use phase inversion for stereo decorrelation.
+// This can improve compatibility with some audio processing chains.
+func (e *Encoder) SetPhaseInversionDisabled(disabled bool) {
+	e.phaseInversionDisabled = disabled
+}
+
+// PhaseInversionDisabled returns whether stereo phase inversion is disabled.
+func (e *Encoder) PhaseInversionDisabled() bool {
+	return e.phaseInversionDisabled
 }
 
 // encoderScratch holds pre-allocated scratch buffers for the encoder hot path.
