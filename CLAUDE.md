@@ -15,9 +15,9 @@ Always use this reference when implementing features or debugging discrepancies.
 
 ---
 
-## Current Status (Updated: 2026-02-01)
+## Current Status (Updated: 2026-02-02)
 
-### Production Readiness Score: ~92%
+### Production Readiness Score: ~95%
 
 | Component | Status | Notes |
 |-----------|--------|-------|
@@ -28,7 +28,7 @@ Always use this reference when implementing features or debugging discrepancies.
 | PLC | ✅ Complete | LTP coefficients, frame gluing |
 | DTX | ✅ Complete | Multi-band VAD implemented |
 | Hybrid | ✅ Improved | Proper bit allocation, HB_gain, crossover |
-| Allocations | ✅ CELT 0, ⚠️ SILK 24 | Round 7: CELT achieved ZERO allocations! |
+| Allocations | ✅ Encoder 0 | ALL encoder modes now ZERO allocations! |
 
 ---
 
@@ -83,7 +83,7 @@ Always use this reference when implementing features or debugging discrepancies.
    - PatchInitialBits support in range encoder
    - Enables packet loss recovery at decoder
 
-### Session 5: Zero-Alloc Hot Path (In Progress)
+### Session 5: Zero-Alloc Hot Path (Complete)
 1. ✅ **Tonality Analysis** - `celt/tonality.go`
    - Added TonalityScratch and ComputeTonalityWithBandsScratch
    - Eliminates per-frame allocations in tonality computation
@@ -96,6 +96,17 @@ Always use this reference when implementing features or debugging discrepancies.
 4. ✅ **Caps Initialization** - `celt/encode_frame.go`
    - Use initCapsInto with scratch buffer
    - Encoder: 72→18 allocs/op (75% reduction)
+5. ✅ **SILK Encoder Zero-Alloc** - `silk/encoder.go`
+   - Scratch buffers for pitch detection, gain quantization, LPC/Burg analysis
+   - silkGainsQuantInto zero-alloc version
+   - LTP coefficients as fixed-size array [4][5]int8
+   - Flat array with stride indexing for pitch correlations
+   - DTX stereo-to-mono mixing uses encoder scratch buffers
+6. ✅ **All Encoder Modes: 0 allocs/op**
+   - CELT mode: 0 allocs/op ✅
+   - Stereo mode: 0 allocs/op ✅
+   - VoIP/SILK mode: 0 allocs/op ✅
+   - LowDelay mode: 0 allocs/op ✅
 
 ---
 
@@ -284,7 +295,7 @@ go test -bench=. ./...
 - [x] CELT transient detection ✅
 - [x] SILK LPC analysis (Burg) ✅
 - [x] Hybrid bit allocation ✅
-- [ ] Zero allocations in hot path (currently 279/1, 98% CELT decoder reduction!)
+- [x] Zero allocations in encoder hot path ✅ (ALL modes: 0 allocs/op)
 - [ ] CELT fine energy bits optimization
 - [x] SILK gain quantization refinement ✅
 - [x] FEC encoding implementation ✅
@@ -348,24 +359,20 @@ go build ./...  # ✅ Success
 go test ./... -count=1  # ✅ All packages pass
 ```
 
-### Allocation Status (Round 7 - CELT ZERO ALLOCS ACHIEVED!)
+### Allocation Status (ALL ENCODER MODES ZERO ALLOCS!)
 ```
-Encoder (CELT Mono):   0 allocs/op   ✅ ZERO ALLOCATIONS!
-Encoder (CELT Stereo): 0 allocs/op   ✅ ZERO ALLOCATIONS!
+Encoder (CELT Mono):     0 allocs/op ✅ ZERO ALLOCATIONS!
+Encoder (CELT Stereo):   0 allocs/op ✅ ZERO ALLOCATIONS!
 Encoder (CELT LowDelay): 0 allocs/op ✅ ZERO ALLOCATIONS!
-Encoder (VoIP/SILK):   24 allocs/op  (was 38, 37% reduction)
-Target:                0 allocs/op
+Encoder (VoIP/SILK):     0 allocs/op ✅ ZERO ALLOCATIONS!
+Target:                  0 allocs/op ✅ ACHIEVED!
 
-Key changes for zero-alloc CELT:
-- BuildPacketInto writes to scratch buffer
-- Top-level API copies to caller-provided buffer
-- Range encoder reused via scratch struct
-- NormalizeBandsToArrayInto uses scratch buffers
-
-Remaining SILK allocators (need scratch buffers):
-- detectPitch (25%)
-- computeNSQExcitation (11%)
-- rangecoding.SaveStateInto (10%)
-- computeStage2ResidualsLibopus (5%)
-- downsampleLowpass (5%)
+Key changes for zero-alloc SILK:
+- Pitch detection: flat arrays with stride indexing for C8kHz
+- Gain quantization: silkGainsQuantInto with scratch buffer
+- LPC/Burg analysis: scratchBurg* buffers for all intermediate arrays
+- LSF encoding: scratch buffers for residuals and predictions
+- LTP coefficients: fixed-size array [4][5]int8 instead of slices
+- Shell encoder: fixed-size scratch arrays [8], [4], [2], [1]
+- DTX: reuse encoder scratchPCM32 and scratchLeft for conversion
 ```
