@@ -19,6 +19,10 @@ const DecodeBufferSize = 2048
 // In libopus, energies are stored in log2 units, so 6 dB = 1.0.
 const DB6 = 1.0
 
+// BitRes is the Q3 fixed-point resolution used throughout CELT allocation math.
+// This mirrors libopus BITRES.
+const BitRes = bitRes
+
 // PreemphCoef is the de-emphasis filter coefficient.
 // The encoder applies pre-emphasis; decoder applies inverse de-emphasis:
 // y[n] = x[n] + PreemphCoef * y[n-1]
@@ -203,6 +207,12 @@ var log2FracTable = [24]uint8{
 var spreadICDF = []uint8{25, 23, 2, 0}
 var trimICDF = []uint8{126, 124, 119, 109, 87, 41, 19, 9, 4, 2, 0}
 var tapsetICDF = []uint8{2, 1, 0}
+
+// SpreadICDF exposes the spread entropy table for callers that need it.
+var SpreadICDF = spreadICDF
+
+// TrimICDF exposes the allocation trim entropy table for callers that need it.
+var TrimICDF = trimICDF
 
 // tfSelectTable maps TF selection to per-band resolution changes.
 // Source: libopus celt/celt.c tf_select_table.

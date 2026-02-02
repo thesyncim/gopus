@@ -360,6 +360,170 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 	return quantizedEnergies
 }
 
+// EncodeCoarseEnergyRange encodes coarse energies for bands in [start, end).
+// This mirrors EncodeCoarseEnergy but only processes the specified band range.
+// Bands outside the range keep their previous energy values.
+func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, intra bool, lm int) []float64 {
+	if e.rangeEncoder == nil {
+		return energies
+	}
+	if start < 0 {
+		start = 0
+	}
+	if end > MaxBands {
+		end = MaxBands
+	}
+	if end <= start {
+		return energies
+	}
+	if lm < 0 {
+		lm = 0
+	}
+	if lm > 3 {
+		lm = 3
+	}
+
+	nbBands := end
+	channels := e.channels
+	if len(energies) < nbBands*channels {
+		channels = 1
+	}
+
+	quantizedEnergies := ensureFloat64Slice(&e.scratch.quantizedEnergies, nbBands*channels)
+	// Initialize with previous energies so bands outside [start,end) remain unchanged.
+	for c := 0; c < channels; c++ {
+		basePrev := c * MaxBands
+		base := c * nbBands
+		for band := 0; band < nbBands; band++ {
+			quantizedEnergies[base+band] = e.prevEnergy[basePrev+band]
+		}
+	}
+
+	// Prediction coefficients.
+	var coef, beta float64
+	if intra {
+		coef = 0.0
+		beta = BetaIntra
+	} else {
+		coef = AlphaCoef[lm]
+		beta = BetaCoefInter[lm]
+	}
+	coef32 := float32(coef)
+	beta32 := float32(beta)
+
+	prob := eProbModel[lm][0]
+	if intra {
+		prob = eProbModel[lm][1]
+	}
+
+	budget := e.rangeEncoder.StorageBits()
+	if e.frameBits > 0 && e.frameBits < budget {
+		budget = e.frameBits
+	}
+
+	// Max decay bound (libopus uses nbAvailableBytes-based clamp).
+	maxDecay32 := float32(16.0 * DB6)
+	nbAvailableBytes := budget / 8
+	if nbBands > 10 {
+		limit := float32(0.125 * float64(nbAvailableBytes) * DB6)
+		if limit < maxDecay32 {
+			maxDecay32 = limit
+		}
+	}
+
+	var prevBandEnergy [2]float32
+	for band := start; band < end; band++ {
+		for c := 0; c < channels; c++ {
+			idx := c*nbBands + band
+			if idx >= len(energies) {
+				continue
+			}
+			x := float32(energies[idx])
+
+			// Previous frame energy (for prediction and decay bound).
+			oldEBand := float32(e.prevEnergy[c*MaxBands+band])
+			oldE := oldEBand
+			minEnergy := float32(-9.0 * DB6)
+			if oldE < minEnergy {
+				oldE = minEnergy
+			}
+
+			// Prediction residual.
+			f := x - coef32*oldE - prevBandEnergy[c]
+			qi := int(math.Floor(float64(f/float32(DB6) + 0.5)))
+
+			// Prevent energy from decaying too quickly.
+			decayBound := oldEBand
+			minDecay := float32(-28.0 * DB6)
+			if decayBound < minDecay {
+				decayBound = minDecay
+			}
+			decayBound -= maxDecay32
+			if qi < 0 && x < decayBound {
+				adjust := int((decayBound - x) / float32(DB6))
+				qi += adjust
+				if qi > 0 {
+					qi = 0
+				}
+			}
+
+			tell := e.rangeEncoder.Tell()
+			bitsLeft := budget - tell - 3*channels*(end-band)
+			if band != start && bitsLeft < 30 {
+				if bitsLeft < 24 && qi > 1 {
+					qi = 1
+				}
+				if bitsLeft < 16 && qi < -1 {
+					qi = -1
+				}
+			}
+
+			// Encode with Laplace or fallback models.
+			if budget-tell >= 15 {
+				pi := 2 * band
+				if pi > 40 {
+					pi = 40
+				}
+				fs := int(prob[pi]) << 7
+				decay := int(prob[pi+1]) << 6
+				qi = e.encodeLaplace(qi, fs, decay)
+			} else if budget-tell >= 2 {
+				if qi > 1 {
+					qi = 1
+				}
+				if qi < -1 {
+					qi = -1
+				}
+				// Encode using zigzag mapping to match decoder's decoding:
+				// Decoder: qi = (s >> 1) ^ -(s & 1)
+				//   s=0 -> qi=0, s=1 -> qi=-1, s=2 -> qi=1
+				var s int
+				if qi < 0 {
+					s = -2*qi - 1
+				} else {
+					s = 2 * qi
+				}
+				e.rangeEncoder.EncodeICDF(s, smallEnergyICDF, 2)
+			} else if budget-tell >= 1 {
+				if qi > 0 {
+					qi = 0
+				}
+				e.rangeEncoder.EncodeBit(-qi, 1)
+			} else {
+				qi = -1
+			}
+
+			// Update energy and prediction state.
+			q := float32(qi) * float32(DB6)
+			energy := float32(coef32*oldE+prevBandEnergy[c]) + q
+			quantizedEnergies[idx] = float64(energy)
+			prevBandEnergy[c] = prevBandEnergy[c] + q - beta32*q
+		}
+	}
+
+	return quantizedEnergies
+}
+
 // encodeLaplace encodes a Laplace-distributed integer using the range encoder.
 // This is the inverse of decoder's decodeLaplace.
 // Uses symmetric Laplace encoding: 0, +1, -1, +2, -2, ...
@@ -486,6 +650,65 @@ func (e *Encoder) EncodeFineEnergy(energies []float64, quantizedCoarse []float64
 	}
 }
 
+// EncodeFineEnergyRange encodes fine energies for bands in [start, end).
+func (e *Encoder) EncodeFineEnergyRange(energies []float64, quantizedCoarse []float64, start, end int, fineBits []int) {
+	if e.rangeEncoder == nil {
+		return
+	}
+	if start < 0 {
+		start = 0
+	}
+	if end > MaxBands {
+		end = MaxBands
+	}
+	if end <= start {
+		return
+	}
+
+	nbBands := end
+	if nbBands > len(fineBits) {
+		nbBands = len(fineBits)
+	}
+
+	channels := e.channels
+	if len(energies) < nbBands*channels {
+		channels = 1
+	}
+
+	re := e.rangeEncoder
+
+	for band := start; band < nbBands; band++ {
+		bits := fineBits[band]
+		if bits <= 0 {
+			continue
+		}
+
+		ft := 1 << bits
+		scale := float64(ft)
+		for c := 0; c < channels; c++ {
+			idx := c*nbBands + band
+			if idx >= len(energies) || idx >= len(quantizedCoarse) {
+				continue
+			}
+
+			fine := energies[idx] - quantizedCoarse[idx]
+			q := int(math.Floor((fine/DB6+0.5)*scale + 1e-9))
+
+			if q < 0 {
+				q = 0
+			}
+			if q >= ft {
+				q = ft - 1
+			}
+
+			re.EncodeRawBits(uint32(q), uint(bits))
+
+			offset := (float64(q)+0.5)/scale - 0.5
+			quantizedCoarse[idx] += offset * DB6
+		}
+	}
+}
+
 // EncodeEnergyRemainder encodes any leftover precision bits.
 // Called after PVQ bands decoded, uses leftover bits from bit allocation.
 // This mirrors decoder's DecodeEnergyRemainder exactly (in reverse).
@@ -604,6 +827,59 @@ func (e *Encoder) EncodeEnergyFinalise(energies []float64, quantizedEnergies []f
 	}
 }
 
+// EncodeEnergyFinaliseRange consumes leftover bits for energy refinement in [start, end).
+func (e *Encoder) EncodeEnergyFinaliseRange(energies []float64, quantizedEnergies []float64, start, end int, fineQuant []int, finePriority []int, bitsLeft int) {
+	if e.rangeEncoder == nil {
+		return
+	}
+	if start < 0 {
+		start = 0
+	}
+	if end > MaxBands {
+		end = MaxBands
+	}
+	if end <= start {
+		return
+	}
+	if bitsLeft < 0 {
+		bitsLeft = 0
+	}
+
+	nbBands := end
+	channels := e.channels
+	if len(energies) < nbBands*channels || len(quantizedEnergies) < nbBands*channels {
+		channels = 1
+	}
+
+	re := e.rangeEncoder
+
+	for prio := 0; prio < 2; prio++ {
+		for band := start; band < nbBands && bitsLeft >= channels; band++ {
+			if band >= len(fineQuant) || band >= len(finePriority) {
+				continue
+			}
+			if fineQuant[band] >= maxFineBits || finePriority[band] != prio {
+				continue
+			}
+			for c := 0; c < channels; c++ {
+				idx := c*nbBands + band
+				if idx >= len(energies) || idx >= len(quantizedEnergies) {
+					continue
+				}
+				errorVal := energies[idx] - quantizedEnergies[idx]
+				q2 := 0
+				if errorVal >= 0 {
+					q2 = 1
+				}
+				re.EncodeRawBits(uint32(q2), 1)
+				offset := (float64(q2) - 0.5) / float64(uint(1)<<(fineQuant[band]+1))
+				quantizedEnergies[idx] += offset * DB6
+				bitsLeft--
+			}
+		}
+	}
+}
+
 // EncodeCoarseEnergyWithEncoder encodes coarse energies using an explicit range encoder.
 // This variant allows passing a range encoder directly rather than using e.rangeEncoder.
 func (e *Encoder) EncodeCoarseEnergyWithEncoder(re *rangecoding.Encoder, energies []float64, nbBands int, intra bool, lm int) []float64 {
@@ -648,21 +924,7 @@ func (e *Encoder) EncodeCoarseEnergyHybrid(energies []float64, nbBands int, intr
 		return make([]float64, nbBands*e.channels)
 	}
 
-	// For hybrid mode, simply delegate to the regular encode for the relevant bands
-	// and zero out the lower bands that aren't encoded
-	quantized := e.EncodeCoarseEnergy(energies, nbBands, intra, lm)
-
-	// Zero out bands below startBand (they're handled by SILK)
-	for c := 0; c < e.channels; c++ {
-		for i := 0; i < startBand && i < nbBands; i++ {
-			idx := c*nbBands + i
-			if idx < len(quantized) {
-				quantized[idx] = 0
-			}
-		}
-	}
-
-	return quantized
+	return e.EncodeCoarseEnergyRange(energies, startBand, nbBands, intra, lm)
 }
 
 // EncodeFineEnergyHybrid encodes fine energies for hybrid mode.
@@ -672,7 +934,5 @@ func (e *Encoder) EncodeFineEnergyHybrid(energies []float64, quantizedCoarse []f
 		return
 	}
 
-	// For hybrid mode, encode fine bits only for bands from startBand onwards
-	// This delegates to the regular fine energy encoding
-	e.EncodeFineEnergy(energies, quantizedCoarse, nbBands, fineBits)
+	e.EncodeFineEnergyRange(energies, quantizedCoarse, startBand, nbBands, fineBits)
 }

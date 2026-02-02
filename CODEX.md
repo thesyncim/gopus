@@ -179,6 +179,18 @@ Always use this reference when implementing features or debugging discrepancies.
    - ConcealCELTInto writes to caller buffer
    - Scratch buffer in CELT decoder
 
+### Session 10: Hybrid CELT Parity (In Progress)
+1. ✅ **Hybrid CELT Energy Range Coding** - `celt/energy_encode.go`
+   - Range-limited coarse/fine/finalize helpers for start..end bands
+   - Hybrid encoder now uses `EncodeCoarseEnergyRange`, `EncodeFineEnergyRange`, `EncodeEnergyFinaliseRange`
+2. ✅ **Hybrid PVQ Path Alignment** - `encoder/hybrid.go`, `celt/hybrid_encode_helpers.go`
+   - Hybrid now uses `NormalizeBandsToArray*` + `quant_all_bands` (PVQ search)
+   - TF/spread/dynalloc/trim bits encoded with decoder-aligned gating
+   - Proper `bandE` passed for stereo decisions and theta RDO
+3. ⏳ **Remaining Hybrid Gaps**
+   - Transient analysis and dynalloc/spread analysis still defaulted (zeros / `SpreadNormal`)
+   - Potential next step if hybrid quality still lags
+
 ---
 
 ## Known Issues & Debugging Notes
@@ -267,8 +279,9 @@ Investigation findings from roundtrip testing (gopus encoder → gopus decoder):
 - Pre-emphasis/de-emphasis path uses float32 state and `CELTSigScale=32768` with decoder scaling `1/32768`, matching libopus float path.
 - `quant_all_bands` resynth is enabled only when theta RDO is active (stereo, complexity>=8), matching libopus; lowband folding is disabled when resynth is off.
 
-**Possible divergence to revisit:**
-- Hybrid CELT encoding path still uses `EncodeBands`/`vectorToPulses` + `NormalizeBands` instead of `quant_all_bands` with PVQ search; this may explain hybrid quality gaps and should be aligned if hybrid results remain poor.
+**Hybrid CELT parity status:**
+- Hybrid CELT encoding path now aligned with main CELT: `quant_all_bands`, linear normalization, and range-limited energy coding for bands 17..end.
+- Remaining gap: hybrid currently uses default TF/spread/dynalloc (no analysis); may still limit quality on transient-heavy content.
 
 **Next debugging step:**
 Create a minimal test that:

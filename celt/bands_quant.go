@@ -23,6 +23,14 @@ const (
 	spreadAggressive = 3
 )
 
+// Exported spread constants for callers outside the celt package.
+const (
+	SpreadNone       = spreadNone
+	SpreadLight      = spreadLight
+	SpreadNormal     = spreadNormal
+	SpreadAggressive = spreadAggressive
+)
+
 var orderyTable = []int{
 	1, 0,
 	3, 0, 2, 1,

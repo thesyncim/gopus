@@ -470,6 +470,12 @@ func initCapsInto(caps []int, nbBands, lm, channels int) {
 	}
 }
 
+// InitCapsInto initializes band caps into the provided slice.
+// This is an exported wrapper around initCapsInto for callers outside celt.
+func InitCapsInto(caps []int, nbBands, lm, channels int) {
+	initCapsInto(caps, nbBands, lm, channels)
+}
+
 // InitCapsForHybrid initializes band caps for hybrid mode.
 // In hybrid mode, bands before startBand get zero cap (no bits allocated).
 func InitCapsForHybrid(nbBands, lm, channels, startBand int) []int {
