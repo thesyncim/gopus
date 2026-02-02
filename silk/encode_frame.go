@@ -63,12 +63,15 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	// Step 2: Encode frame type using ICDFFrameTypeVADActive
 	e.encodeFrameType(vadFlag, signalType, quantOffset)
 
-	// Step 3: Compute and encode gains
+	// Step 3: Compute LPC coefficients FIRST (needed for residual-based gain computation)
+	// This sets e.lastTotalEnergy, e.lastInvGain, e.lastNumSamples
+	lpcQ12 := e.computeLPCFromFrame(pcm)
+
+	// Step 4: Compute and encode gains from signal energy
+	// NOTE: Gains encode the overall signal amplitude, NOT the prediction residual.
+	// The prediction residual is only used for NSQ pulse quantization.
 	gains := e.computeSubframeGains(pcm, numSubframes)
 	gainsQ16 := e.encodeSubframeGains(gains, signalType, numSubframes)
-
-	// Step 4: Compute LPC coefficients
-	lpcQ12 := e.computeLPCFromFrame(pcm)
 
 	// Step 5: Convert to LSF and quantize (use scratch buffers)
 	order := len(lpcQ12)
@@ -446,12 +449,13 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 	// Step 2: Encode frame type
 	e.encodeFrameType(vadFlag, signalType, quantOffset)
 
-	// Step 3: Compute and encode gains
+	// Step 3: Compute LPC coefficients FIRST (needed for residual-based gain computation)
+	lpcQ12 := e.computeLPCFromFrame(pcm)
+
+	// Step 4: Compute and encode gains from signal energy
+	// NOTE: Gains encode the overall signal amplitude, NOT the prediction residual.
 	gains := e.computeSubframeGains(pcm, numSubframes)
 	gainsQ16 := e.encodeSubframeGains(gains, signalType, numSubframes)
-
-	// Step 4: Compute LPC coefficients
-	lpcQ12 := e.computeLPCFromFrame(pcm)
 
 	// Step 5: Convert to LSF and quantize (use scratch buffers)
 	order := len(lpcQ12)

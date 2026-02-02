@@ -747,6 +747,16 @@ func (e *Encoder) burgModifiedFLPZeroAlloc(x []float64, minInvGainVal float64, s
 		}
 	}
 
+	// Store energy and inverse gain for gain computation from prediction residual
+	// C0 is the total energy, invGain is the inverse prediction gain
+	// Residual energy = C0 * invGain
+	// IMPORTANT: C0 is computed from normalized PCM [-1, 1], but gain quantization
+	// expects int16-scale energy. Scale by 32768^2 to convert to int16 scale.
+	const pcmScaleSq = 32768.0 * 32768.0
+	e.lastTotalEnergy = C0 * pcmScaleSq
+	e.lastInvGain = invGain
+	e.lastNumSamples = totalLen
+
 	// Negate coefficients for LPC convention
 	A := ensureFloat64Slice(&e.scratchBurgResult, order)
 	for k := 0; k < order; k++ {

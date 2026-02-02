@@ -161,6 +161,93 @@ func (e *Encoder) computeSubframeGains(pcm []float32, numSubframes int) []float3
 	return gains
 }
 
+// computeSubframeGainsFromResidual computes gains from LPC prediction residual energy.
+// This matches libopus behavior where gains are sqrt(residual_energy), not sqrt(input_energy).
+// The residual energy is computed during LPC (Burg) analysis and stored in encoder state.
+//
+// Key insight: libopus computes gains from the Schur/Burg residual energy, which is
+// much smaller than the raw signal energy because LPC prediction removes the predictable
+// component. This keeps gains within the quantizable range (max ~636 linear).
+//
+// Uses scratch buffers for zero-allocation operation.
+func (e *Encoder) computeSubframeGainsFromResidual(pcm []float32, numSubframes int) []float32 {
+	if len(pcm) == 0 || numSubframes <= 0 {
+		gains := ensureFloat32Slice(&e.scratchGains, numSubframes)
+		for i := range gains {
+			gains[i] = 1.0
+		}
+		return gains
+	}
+
+	gains := ensureFloat32Slice(&e.scratchGains, numSubframes)
+
+	// Get residual energy from LPC analysis (set by burgModifiedFLPZeroAlloc)
+	// residualEnergy = C0 * invGain where C0 is total energy and invGain is inverse prediction gain
+	totalEnergy := e.lastTotalEnergy
+	invGain := e.lastInvGain
+	numSamples := e.lastNumSamples
+
+	if numSamples <= 0 || totalEnergy <= 0 || invGain <= 0 {
+		// Fallback to minimum gain if LPC analysis data not available
+		for i := range gains {
+			gains[i] = 1.0
+		}
+		return gains
+	}
+
+	// Compute average residual energy per sample
+	// residualEnergy = totalEnergy * invGain
+	// averageResidualEnergy = residualEnergy / numSamples
+	residualEnergy := totalEnergy * invGain
+	avgResidualPerSample := residualEnergy / float64(numSamples)
+
+	// Each subframe gets approximately the same average residual energy
+	// Gain = sqrt(avgResidualPerSample) which is the RMS of the prediction residual
+	subframeSamples := len(pcm) / numSubframes
+	for sf := 0; sf < numSubframes; sf++ {
+		// Compute per-subframe energy for more accurate per-subframe gains
+		// Scale the average by subframe-specific energy ratio
+		start := sf * subframeSamples
+		end := start + subframeSamples
+		if end > len(pcm) {
+			end = len(pcm)
+		}
+
+		// Compute subframe energy to scale the average residual
+		var subframeEnergy float64
+		const pcmScale = 32768.0
+		for i := start; i < end; i++ {
+			s := float64(pcm[i]) * pcmScale
+			subframeEnergy += s * s
+		}
+		n := end - start
+		if n > 0 {
+			subframeEnergy /= float64(n)
+		}
+
+		// Scale residual by ratio of subframe energy to average frame energy
+		avgFrameEnergy := totalEnergy / float64(numSamples)
+		if avgFrameEnergy > 0 {
+			// Subframe residual energy ≈ avgResidualPerSample * (subframeEnergy / avgFrameEnergy)
+			subframeResidual := avgResidualPerSample * (subframeEnergy / avgFrameEnergy)
+			gains[sf] = float32(math.Sqrt(subframeResidual))
+		} else {
+			gains[sf] = float32(math.Sqrt(avgResidualPerSample))
+		}
+
+		// Ensure minimum gain (1 LSB in int16 domain)
+		if gains[sf] < 1.0 {
+			gains[sf] = 1.0
+		}
+		// Cap at maximum (libopus caps at 32767.0)
+		if gains[sf] > 32767.0 {
+			gains[sf] = 32767.0
+		}
+	}
+
+	return gains
+}
+
 // computeSubframeGainsQ16 computes gains for each subframe from PCM.
 // Returns gains in Q16 format matching libopus.
 func (e *Encoder) computeSubframeGainsQ16(pcm []int16, numSubframes int) []int32 {

@@ -41,6 +41,11 @@ type Encoder struct {
 	snrDBQ7  int // Target SNR in dB (Q7 format, e.g., 25 dB = 25 * 128)
 	ltpCorr  float32 // LTP correlation from pitch analysis [0, 1]
 
+	// LPC analysis results (for gain computation from prediction residual)
+	lastTotalEnergy    float64 // C0 from Burg analysis
+	lastInvGain        float64 // Inverse prediction gain from Burg analysis
+	lastNumSamples     int     // Number of samples analyzed
+
 	// Analysis buffers (encoder-specific)
 	inputBuffer []float32 // Buffered input samples
 	lpcState    []float32 // LPC filter state for residual computation
@@ -395,6 +400,23 @@ func (e *Encoder) FinalRange() uint32 {
 // NSQState returns the noise shaping quantizer state.
 func (e *Encoder) NSQState() *NSQState {
 	return e.nsqState
+}
+
+// GetLastTotalEnergy returns the total energy (C0) from the last LPC Burg analysis.
+// Used for debugging gain computation from prediction residual.
+func (e *Encoder) GetLastTotalEnergy() float64 {
+	return e.lastTotalEnergy
+}
+
+// GetLastInvGain returns the inverse prediction gain from the last LPC Burg analysis.
+// invGain = residualEnergy / totalEnergy, so residualEnergy = totalEnergy * invGain.
+func (e *Encoder) GetLastInvGain() float64 {
+	return e.lastInvGain
+}
+
+// GetLastNumSamples returns the number of samples analyzed in the last LPC Burg analysis.
+func (e *Encoder) GetLastNumSamples() int {
+	return e.lastNumSamples
 }
 
 // SetBitrate sets the target bitrate for encoding.
