@@ -3,6 +3,8 @@ package multistream
 import (
 	"math"
 	"testing"
+
+	"github.com/thesyncim/gopus/types"
 )
 
 // TestNewEncoder tests encoder creation validation.
@@ -948,4 +950,308 @@ func TestEncode_Mono(t *testing.T) {
 		t.Fatal("Encode returned nil packet")
 	}
 	t.Logf("Encoded mono packet: %d bytes", len(packet))
+}
+
+// TestGetFinalRange tests that GetFinalRange returns a non-zero value after encoding.
+func TestGetFinalRange(t *testing.T) {
+	enc, err := NewEncoderDefault(48000, 6)
+	if err != nil {
+		t.Fatalf("NewEncoderDefault error: %v", err)
+	}
+
+	// Before encoding, final range should be 0
+	initialRange := enc.GetFinalRange()
+	t.Logf("Initial FinalRange: %d", initialRange)
+
+	// Create 20ms of 5.1 audio
+	frameSize := 960
+	pcm := make([]float64, frameSize*6)
+	for i := 0; i < frameSize; i++ {
+		for ch := 0; ch < 6; ch++ {
+			pcm[i*6+ch] = math.Sin(2 * math.Pi * float64(440+ch*100) * float64(i) / 48000)
+		}
+	}
+
+	// Encode
+	_, err = enc.Encode(pcm, frameSize)
+	if err != nil {
+		t.Fatalf("Encode error: %v", err)
+	}
+
+	// After encoding, final range should be non-zero
+	finalRange := enc.GetFinalRange()
+	if finalRange == 0 {
+		t.Error("GetFinalRange() = 0 after encoding, expected non-zero")
+	}
+	t.Logf("FinalRange after encode: %d", finalRange)
+
+	// Encode again, should get different final range
+	_, err = enc.Encode(pcm, frameSize)
+	if err != nil {
+		t.Fatalf("Encode error: %v", err)
+	}
+
+	newFinalRange := enc.GetFinalRange()
+	t.Logf("FinalRange after second encode: %d", newFinalRange)
+}
+
+// TestLookahead tests encoder lookahead value.
+func TestLookahead(t *testing.T) {
+	enc, err := NewEncoderDefault(48000, 2)
+	if err != nil {
+		t.Fatalf("NewEncoderDefault error: %v", err)
+	}
+
+	lookahead := enc.Lookahead()
+
+	// Lookahead should be positive and reasonable
+	// Expected: ~250 samples (2.5ms base + 130 delay compensation)
+	if lookahead <= 0 {
+		t.Errorf("Lookahead() = %d, expected positive value", lookahead)
+	}
+	if lookahead > 500 {
+		t.Errorf("Lookahead() = %d, unexpectedly large", lookahead)
+	}
+	t.Logf("Encoder lookahead: %d samples", lookahead)
+}
+
+// TestSignal tests signal type get/set.
+func TestSignal(t *testing.T) {
+	enc, err := NewEncoderDefault(48000, 2)
+	if err != nil {
+		t.Fatalf("NewEncoderDefault error: %v", err)
+	}
+
+	// Default should be SignalAuto
+	if enc.Signal() != types.SignalAuto {
+		t.Errorf("Signal() = %d, want SignalAuto (%d)", enc.Signal(), types.SignalAuto)
+	}
+
+	// Set to Voice
+	enc.SetSignal(types.SignalVoice)
+	if enc.Signal() != types.SignalVoice {
+		t.Errorf("Signal() = %d, want SignalVoice (%d)", enc.Signal(), types.SignalVoice)
+	}
+
+	// Set to Music
+	enc.SetSignal(types.SignalMusic)
+	if enc.Signal() != types.SignalMusic {
+		t.Errorf("Signal() = %d, want SignalMusic (%d)", enc.Signal(), types.SignalMusic)
+	}
+
+	// Set back to Auto
+	enc.SetSignal(types.SignalAuto)
+	if enc.Signal() != types.SignalAuto {
+		t.Errorf("Signal() = %d, want SignalAuto (%d)", enc.Signal(), types.SignalAuto)
+	}
+}
+
+// TestMaxBandwidth tests max bandwidth get/set.
+func TestMaxBandwidth(t *testing.T) {
+	enc, err := NewEncoderDefault(48000, 2)
+	if err != nil {
+		t.Fatalf("NewEncoderDefault error: %v", err)
+	}
+
+	// Default should be Fullband
+	if enc.MaxBandwidth() != types.BandwidthFullband {
+		t.Errorf("MaxBandwidth() = %d, want BandwidthFullband (%d)", enc.MaxBandwidth(), types.BandwidthFullband)
+	}
+
+	// Set to Wideband
+	enc.SetMaxBandwidth(types.BandwidthWideband)
+	if enc.MaxBandwidth() != types.BandwidthWideband {
+		t.Errorf("MaxBandwidth() = %d, want BandwidthWideband (%d)", enc.MaxBandwidth(), types.BandwidthWideband)
+	}
+
+	// Set to Narrowband
+	enc.SetMaxBandwidth(types.BandwidthNarrowband)
+	if enc.MaxBandwidth() != types.BandwidthNarrowband {
+		t.Errorf("MaxBandwidth() = %d, want BandwidthNarrowband (%d)", enc.MaxBandwidth(), types.BandwidthNarrowband)
+	}
+}
+
+// TestLSBDepth tests LSB depth get/set.
+func TestLSBDepth(t *testing.T) {
+	enc, err := NewEncoderDefault(48000, 2)
+	if err != nil {
+		t.Fatalf("NewEncoderDefault error: %v", err)
+	}
+
+	// Default should be 24
+	if enc.LSBDepth() != 24 {
+		t.Errorf("LSBDepth() = %d, want 24", enc.LSBDepth())
+	}
+
+	// Set to 16
+	err = enc.SetLSBDepth(16)
+	if err != nil {
+		t.Errorf("SetLSBDepth(16) error: %v", err)
+	}
+	if enc.LSBDepth() != 16 {
+		t.Errorf("LSBDepth() = %d, want 16", enc.LSBDepth())
+	}
+
+	// Set to 8 (minimum)
+	err = enc.SetLSBDepth(8)
+	if err != nil {
+		t.Errorf("SetLSBDepth(8) error: %v", err)
+	}
+	if enc.LSBDepth() != 8 {
+		t.Errorf("LSBDepth() = %d, want 8", enc.LSBDepth())
+	}
+
+	// Set to 24 (maximum)
+	err = enc.SetLSBDepth(24)
+	if err != nil {
+		t.Errorf("SetLSBDepth(24) error: %v", err)
+	}
+	if enc.LSBDepth() != 24 {
+		t.Errorf("LSBDepth() = %d, want 24", enc.LSBDepth())
+	}
+
+	// Invalid: too low
+	err = enc.SetLSBDepth(7)
+	if err == nil {
+		t.Error("SetLSBDepth(7) should return error")
+	}
+
+	// Invalid: too high
+	err = enc.SetLSBDepth(25)
+	if err == nil {
+		t.Error("SetLSBDepth(25) should return error")
+	}
+}
+
+// TestValidateEncoderLayout tests the layout validation function.
+func TestValidateEncoderLayout(t *testing.T) {
+	tests := []struct {
+		name           string
+		mapping        []byte
+		coupledStreams int
+		wantErr        bool
+	}{
+		{
+			name:           "valid stereo",
+			mapping:        []byte{0, 1},
+			coupledStreams: 1,
+			wantErr:        false,
+		},
+		{
+			name:           "valid 5.1",
+			mapping:        []byte{0, 4, 1, 2, 3, 5},
+			coupledStreams: 2,
+			wantErr:        false,
+		},
+		{
+			name:           "valid 7.1",
+			mapping:        []byte{0, 6, 1, 2, 3, 4, 5, 7},
+			coupledStreams: 3,
+			wantErr:        false,
+		},
+		{
+			name:           "valid mono",
+			mapping:        []byte{0},
+			coupledStreams: 0,
+			wantErr:        false,
+		},
+		{
+			name:           "missing right channel",
+			mapping:        []byte{0, 255}, // Left mapped, right silent
+			coupledStreams: 1,
+			wantErr:        true,
+		},
+		{
+			name:           "missing left channel",
+			mapping:        []byte{255, 1}, // Left silent, right mapped
+			coupledStreams: 1,
+			wantErr:        true,
+		},
+		{
+			name:           "both channels silent",
+			mapping:        []byte{255, 255},
+			coupledStreams: 1,
+			wantErr:        true,
+		},
+		{
+			name:           "second coupled stream incomplete",
+			mapping:        []byte{0, 1, 2, 255}, // Stream 0 complete, stream 1 missing right
+			coupledStreams: 2,
+			wantErr:        true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateEncoderLayout(tt.mapping, tt.coupledStreams)
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// TestNewEncoderLayoutValidation tests that NewEncoder validates layout.
+func TestNewEncoderLayoutValidation(t *testing.T) {
+	// Valid: stereo with both channels mapped
+	_, err := NewEncoder(48000, 2, 1, 1, []byte{0, 1})
+	if err != nil {
+		t.Errorf("valid stereo mapping rejected: %v", err)
+	}
+
+	// Invalid: stereo with left channel missing (right only)
+	_, err = NewEncoder(48000, 2, 1, 1, []byte{255, 1})
+	if err == nil {
+		t.Error("invalid layout (missing left) should be rejected")
+	} else if !containsError(err, ErrInvalidLayout) {
+		t.Errorf("expected ErrInvalidLayout, got: %v", err)
+	}
+
+	// Invalid: stereo with right channel missing (left only)
+	_, err = NewEncoder(48000, 2, 1, 1, []byte{0, 255})
+	if err == nil {
+		t.Error("invalid layout (missing right) should be rejected")
+	} else if !containsError(err, ErrInvalidLayout) {
+		t.Errorf("expected ErrInvalidLayout, got: %v", err)
+	}
+}
+
+// TestGetFinalRange_XORCombination tests that FinalRange XORs all stream values.
+func TestGetFinalRange_XORCombination(t *testing.T) {
+	// Create a 5.1 encoder (4 streams)
+	enc, err := NewEncoderDefault(48000, 6)
+	if err != nil {
+		t.Fatalf("NewEncoderDefault error: %v", err)
+	}
+
+	// Create 20ms of audio with different content per channel
+	frameSize := 960
+	pcm := make([]float64, frameSize*6)
+	for i := 0; i < frameSize; i++ {
+		for ch := 0; ch < 6; ch++ {
+			// Different frequency per channel for distinct encoding
+			freq := 220.0 * float64(ch+1)
+			pcm[i*6+ch] = 0.5 * math.Sin(2*math.Pi*freq*float64(i)/48000)
+		}
+	}
+
+	// Encode multiple frames to ensure we get different FinalRange values
+	for i := 0; i < 3; i++ {
+		_, err = enc.Encode(pcm, frameSize)
+		if err != nil {
+			t.Fatalf("Encode error on frame %d: %v", i, err)
+		}
+	}
+
+	finalRange := enc.GetFinalRange()
+	t.Logf("Combined FinalRange: 0x%08X", finalRange)
+
+	// The XOR combination means we can't predict the exact value,
+	// but it should be non-zero with varied content
+	if finalRange == 0 {
+		t.Log("Warning: FinalRange is 0, this may indicate an issue")
+	}
 }

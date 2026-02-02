@@ -133,6 +133,22 @@ Always use this reference when implementing features or debugging discrepancies.
    - SetPhaseInversionDisabled/PhaseInversionDisabled API
    - Disables stereo phase inversion decorrelation
 
+### Session 7: Multistream Encoder Completion (Complete)
+1. ✅ **Encoder Query Methods** - `multistream/encoder.go`, `multistream.go`
+   - GetFinalRange() - XOR combined range from all streams
+   - Lookahead() - Algorithmic delay in samples
+   - Signal()/SetSignal() - Signal type hint
+2. ✅ **Layout Validation** - `multistream/encoder.go`
+   - validateEncoderLayout() for coupled stream L/R pairs
+   - ErrInvalidLayout for invalid configurations
+3. ✅ **Control Forwarding** - `multistream/encoder.go`, `multistream.go`
+   - SetMaxBandwidth/MaxBandwidth
+   - SetLSBDepth/LSBDepth
+4. ✅ **CELT Fine Energy Verification** - Already complete in `celt/alloc.go`
+   - Offset-based fine bits rounding
+   - Excess bits rebalancing
+   - Priority flag updates
+
 ---
 
 ## Known Issues & Debugging Notes
@@ -321,16 +337,17 @@ go test -bench=. ./...
 - [x] SILK LPC analysis (Burg) ✅
 - [x] Hybrid bit allocation ✅
 - [x] Zero allocations in encoder hot path ✅ (ALL modes: 0 allocs/op)
-- [ ] CELT fine energy bits optimization
+- [x] CELT fine energy bits optimization ✅ (Already complete - offset rounding, excess rebalancing)
 - [x] SILK gain quantization refinement ✅
 - [x] FEC encoding implementation ✅
 - [x] Encoder feature parity ✅ (Signal, MaxBandwidth, ForceChannels, Lookahead, LSBDepth, PredictionDisabled, PhaseInversionDisabled)
+- [x] Multistream encoder API completion ✅ (Query methods, layout validation, control forwarding)
 
 ### P3: Advanced Features
 - [ ] Deep PLC (LPCnet)
 - [ ] DRED
 - [ ] OSCE
-- [ ] Multistream encoder
+- [ ] Ambisonics multistream support (up to 227 channels)
 
 ---
 

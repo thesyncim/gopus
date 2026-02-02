@@ -4,6 +4,7 @@ package gopus
 
 import (
 	"github.com/thesyncim/gopus/multistream"
+	"github.com/thesyncim/gopus/types"
 )
 
 // MultistreamEncoder encodes multi-channel PCM audio into Opus multistream packets.
@@ -320,6 +321,57 @@ func (e *MultistreamEncoder) Streams() int {
 // CoupledStreams returns the number of coupled (stereo) streams.
 func (e *MultistreamEncoder) CoupledStreams() int {
 	return e.enc.CoupledStreams()
+}
+
+// GetFinalRange returns the final range coder state for all streams.
+// The values from all streams are XOR combined to produce a single verification value.
+// This matches libopus OPUS_GET_FINAL_RANGE for multistream encoders.
+// Must be called after Encode() to get a meaningful value.
+func (e *MultistreamEncoder) GetFinalRange() uint32 {
+	return e.enc.GetFinalRange()
+}
+
+// Lookahead returns the encoder's algorithmic delay in samples at 48kHz.
+// This includes both CELT delay compensation and mode-specific delay.
+// Reference: libopus OPUS_GET_LOOKAHEAD
+func (e *MultistreamEncoder) Lookahead() int {
+	return e.enc.Lookahead()
+}
+
+// Signal returns the current signal type hint.
+// Returns SignalAuto, SignalVoice, or SignalMusic.
+func (e *MultistreamEncoder) Signal() Signal {
+	return Signal(e.enc.Signal())
+}
+
+// SetSignal sets the signal type hint for all stream encoders.
+// Use SignalVoice for speech content, SignalMusic for music content,
+// or SignalAuto (default) for automatic detection.
+func (e *MultistreamEncoder) SetSignal(signal Signal) {
+	e.enc.SetSignal(types.Signal(signal))
+}
+
+// SetMaxBandwidth sets the maximum bandwidth limit for all stream encoders.
+// The actual bandwidth will be clamped to this limit.
+func (e *MultistreamEncoder) SetMaxBandwidth(bw Bandwidth) {
+	e.enc.SetMaxBandwidth(types.Bandwidth(bw))
+}
+
+// MaxBandwidth returns the maximum bandwidth limit.
+func (e *MultistreamEncoder) MaxBandwidth() Bandwidth {
+	return Bandwidth(e.enc.MaxBandwidth())
+}
+
+// SetLSBDepth sets the input signal's LSB depth for all stream encoders.
+// Valid range is 8-24 bits. This affects DTX sensitivity.
+// Returns an error if the depth is out of range.
+func (e *MultistreamEncoder) SetLSBDepth(depth int) error {
+	return e.enc.SetLSBDepth(depth)
+}
+
+// LSBDepth returns the current LSB depth setting.
+func (e *MultistreamEncoder) LSBDepth() int {
+	return e.enc.LSBDepth()
 }
 
 // MultistreamDecoder decodes Opus multistream packets into multi-channel PCM audio.

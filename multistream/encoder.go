@@ -11,10 +11,18 @@ import (
 	"fmt"
 
 	"github.com/thesyncim/gopus/encoder"
+	"github.com/thesyncim/gopus/types"
 )
 
 // ErrInvalidInput indicates the input samples have incorrect length.
 var ErrInvalidInput = errors.New("multistream: invalid input length")
+
+// ErrInvalidLayout indicates the channel mapping has an invalid layout.
+// For coupled streams, both left and right channels must be mapped.
+var ErrInvalidLayout = errors.New("multistream: invalid layout - coupled stream missing left or right channel")
+
+// ErrInvalidLSBDepth indicates the LSB depth is outside the valid range (8-24).
+var ErrInvalidLSBDepth = errors.New("multistream: invalid LSB depth (must be 8-24)")
 
 // Encoder encodes multi-channel audio into Opus multistream packets.
 // Each elementary stream is encoded independently using a Phase 8 unified Encoder,
@@ -101,6 +109,11 @@ func NewEncoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 		if m != 255 && int(m) >= maxMappingValue {
 			return nil, fmt.Errorf("%w: mapping[%d]=%d exceeds maximum %d", ErrInvalidMapping, i, m, maxMappingValue-1)
 		}
+	}
+
+	// Validate layout: ensure coupled streams have valid L/R pairs
+	if err := validateEncoderLayout(mapping, coupledStreams); err != nil {
+		return nil, err
 	}
 
 	// Create stream encoders
@@ -456,4 +469,121 @@ func (e *Encoder) DTXEnabled() bool {
 		return e.encoders[0].DTXEnabled()
 	}
 	return false
+}
+
+// GetFinalRange returns the final range coder state for all streams.
+// The values from all streams are XOR combined to produce a single verification value.
+// This matches libopus OPUS_GET_FINAL_RANGE for multistream encoders.
+// Must be called after Encode() to get a meaningful value.
+func (e *Encoder) GetFinalRange() uint32 {
+	var combined uint32
+	for _, enc := range e.encoders {
+		combined ^= enc.FinalRange()
+	}
+	return combined
+}
+
+// Lookahead returns the encoder's algorithmic delay in samples at 48kHz.
+// This includes both CELT delay compensation and mode-specific delay.
+// For multistream, all stream encoders have the same lookahead.
+// Reference: libopus OPUS_GET_LOOKAHEAD
+func (e *Encoder) Lookahead() int {
+	if len(e.encoders) > 0 {
+		return e.encoders[0].Lookahead()
+	}
+	// Default: 2.5ms base + 130 samples delay compensation
+	return e.sampleRate/400 + 130
+}
+
+// Signal returns the current signal type hint (from first encoder).
+// All stream encoders share the same signal type setting.
+func (e *Encoder) Signal() types.Signal {
+	if len(e.encoders) > 0 {
+		return e.encoders[0].SignalType()
+	}
+	return types.SignalAuto
+}
+
+// SetSignal sets the signal type hint for all stream encoders.
+// SignalVoice biases toward SILK mode, SignalMusic toward CELT mode.
+func (e *Encoder) SetSignal(signal types.Signal) {
+	for _, enc := range e.encoders {
+		enc.SetSignalType(signal)
+	}
+}
+
+// SetMaxBandwidth sets the maximum bandwidth limit for all stream encoders.
+// The actual bandwidth will be clamped to this limit.
+func (e *Encoder) SetMaxBandwidth(bw types.Bandwidth) {
+	for _, enc := range e.encoders {
+		enc.SetMaxBandwidth(bw)
+	}
+}
+
+// MaxBandwidth returns the maximum bandwidth limit (from first encoder).
+// All stream encoders share the same max bandwidth setting.
+func (e *Encoder) MaxBandwidth() types.Bandwidth {
+	if len(e.encoders) > 0 {
+		return e.encoders[0].MaxBandwidth()
+	}
+	return types.BandwidthFullband
+}
+
+// SetLSBDepth sets the input signal's LSB depth for all stream encoders.
+// Valid range is 8-24 bits. This affects DTX sensitivity.
+func (e *Encoder) SetLSBDepth(depth int) error {
+	if depth < 8 || depth > 24 {
+		return ErrInvalidLSBDepth
+	}
+	for _, enc := range e.encoders {
+		enc.SetLSBDepth(depth)
+	}
+	return nil
+}
+
+// LSBDepth returns the current LSB depth setting (from first encoder).
+// All stream encoders share the same LSB depth setting.
+func (e *Encoder) LSBDepth() int {
+	if len(e.encoders) > 0 {
+		return e.encoders[0].LSBDepth()
+	}
+	return 24 // Default
+}
+
+// validateEncoderLayout verifies that all coupled streams have valid L/R pairs.
+// For a coupled stream to be valid, both the left channel (even index) and
+// right channel (odd index) must be mapped to an input channel (not silent).
+// This catches invalid configurations early during encoder creation.
+func validateEncoderLayout(mapping []byte, coupledStreams int) error {
+	// Track which coupled stream channels are mapped
+	// For each coupled stream, we need both left (even) and right (odd)
+	leftMapped := make([]bool, coupledStreams)
+	rightMapped := make([]bool, coupledStreams)
+
+	for _, m := range mapping {
+		if m == 255 {
+			continue // Silent channel, skip
+		}
+
+		idx := int(m)
+		if idx < 2*coupledStreams {
+			// This is a coupled stream channel
+			streamIdx := idx / 2
+			if idx%2 == 0 {
+				leftMapped[streamIdx] = true
+			} else {
+				rightMapped[streamIdx] = true
+			}
+		}
+		// Uncoupled streams don't need validation - mono is always valid
+	}
+
+	// Verify each coupled stream has both channels mapped
+	for i := 0; i < coupledStreams; i++ {
+		if !leftMapped[i] || !rightMapped[i] {
+			return fmt.Errorf("%w: coupled stream %d", ErrInvalidLayout, i)
+		}
+	}
+
+	return nil
 }
