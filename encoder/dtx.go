@@ -119,8 +119,11 @@ func (e *Encoder) shouldUseDTX(pcm []float64) (bool, bool) {
 		return false, false
 	}
 
-	// Convert to float32 for VAD processing
-	pcm32 := toFloat32(pcm)
+	// Convert to float32 for VAD processing using scratch buffer (zero-alloc)
+	pcm32 := e.scratchPCM32[:len(pcm)]
+	for i, v := range pcm {
+		pcm32[i] = float32(v)
+	}
 
 	// Determine sample rate and frame parameters
 	// For multi-channel, use first channel or mix to mono
@@ -129,10 +132,10 @@ func (e *Encoder) shouldUseDTX(pcm []float64) (bool, bool) {
 		frameLength /= 2
 	}
 
-	// Mix to mono for VAD analysis (if stereo)
+	// Mix to mono for VAD analysis (if stereo) using scratch buffer (zero-alloc)
 	mono := pcm32
 	if e.channels == 2 {
-		mono = make([]float32, frameLength)
+		mono = e.scratchLeft[:frameLength]
 		for i := 0; i < frameLength; i++ {
 			mono[i] = (pcm32[i*2] + pcm32[i*2+1]) * 0.5
 		}
@@ -277,14 +280,6 @@ func (e *Encoder) nextRandom() float64 {
 	return float64(e.rng) / float64(1<<32)
 }
 
-// toFloat32 converts float64 slice to float32.
-func toFloat32(pcm []float64) []float32 {
-	result := make([]float32, len(pcm))
-	for i, v := range pcm {
-		result[i] = float32(v)
-	}
-	return result
-}
 
 // classifySignal determines signal type using energy-based detection.
 // This is a legacy function kept for compatibility; new code uses VAD.

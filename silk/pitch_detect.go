@@ -115,20 +115,20 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int) []int {
 		frameLength = len(pcm)
 	}
 
-	// Resample to 8kHz
+	// Resample to 8kHz using scratch buffer
 	dsRatio8k := fsKHz / 8
 	if dsRatio8k < 1 {
 		dsRatio8k = 1
 	}
-	frame8kHz := downsampleLowpass(pcm[:frameLength], dsRatio8k)
+	frame8kHz := downsampleLowpassInto(pcm[:frameLength], dsRatio8k, &e.scratchFrame8kHz)
 
 	// Ensure frame8kHz has correct length
 	if len(frame8kHz) > frameLength8kHz {
 		frame8kHz = frame8kHz[:frameLength8kHz]
 	}
 
-	// Decimate to 4kHz
-	frame4kHz := downsampleLowpass(frame8kHz, 2)
+	// Decimate to 4kHz using scratch buffer
+	frame4kHz := downsampleLowpassInto(frame8kHz, 2, &e.scratchFrame4kHz)
 	if len(frame4kHz) > frameLength4kHz {
 		frame4kHz = frame4kHz[:frameLength4kHz]
 	}
@@ -138,8 +138,11 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int) []int {
 		frame4kHz[i] = frame4kHz[i] + frame4kHz[i-1]
 	}
 
-	// Stage 1: Coarse search at 4kHz
-	C := make([]float64, maxLag4kHz+5)
+	// Stage 1: Coarse search at 4kHz using scratch buffer
+	C := ensureFloat64Slice(&e.scratchPitchC, maxLag4kHz+5)
+	for i := range C {
+		C[i] = 0 // Clear
+	}
 
 	targetStart := sfLength4kHz * 4 // Start after LTP memory
 	if targetStart >= len(frame4kHz) {
@@ -225,8 +228,11 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int) []int {
 		lengthDSrch = peDSrchLength
 	}
 
-	dSrch := make([]int, lengthDSrch)
-	dSrchCorr := make([]float64, lengthDSrch)
+	dSrch := ensureIntSlice(&e.scratchDSrch, lengthDSrch)
+	dSrchCorr := ensureFloat64Slice(&e.scratchDSrchCorr, lengthDSrch)
+	for i := range dSrch {
+		dSrch[i] = 0
+	}
 	for i := range dSrchCorr {
 		dSrchCorr[i] = -1e10
 	}
@@ -251,8 +257,8 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int) []int {
 	// Check if correlation is too low
 	Cmax := dSrchCorr[0]
 	if Cmax < 0.2 {
-		// Unvoiced - return minimum lags
-		pitchLags := make([]int, numSubframes)
+		// Unvoiced - return minimum lags using scratch buffer
+		pitchLags := ensureIntSlice(&e.scratchPitchLags, numSubframes)
 		for i := range pitchLags {
 			pitchLags[i] = minLag
 		}
@@ -264,7 +270,10 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int) []int {
 	threshold := searchThres1 * Cmax
 
 	// Convert to 8kHz indices and expand search range
-	dComp := make([]int16, maxLag8kHz+5)
+	dComp := ensureInt16Slice(&e.scratchDComp, maxLag8kHz+5)
+	for i := range dComp {
+		dComp[i] = 0 // Clear
+	}
 	validDSrch := 0
 	for i := 0; i < lengthDSrch; i++ {
 		if dSrchCorr[i] > threshold {
@@ -295,9 +304,11 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int) []int {
 	}
 
 	// Stage 2: Refined search at 8kHz
-	C8kHz := make([][]float64, numSubframes)
+	// Use flat array: C8kHz[k][d] -> C8kHz[k*c8kHzStride + d]
+	c8kHzStride := maxLag8kHz + 5
+	C8kHz := ensureFloat64Slice(&e.scratchC8kHz, numSubframes*c8kHzStride)
 	for i := range C8kHz {
-		C8kHz[i] = make([]float64, maxLag8kHz+5)
+		C8kHz[i] = 0 // Clear
 	}
 
 	targetStart8k := peLTPMemLengthMS * 8
@@ -332,8 +343,8 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int) []int {
 				basisEnergy += float64(basis[i]) * float64(basis[i])
 			}
 
-			if xcorr > 0 && d < len(C8kHz[k]) {
-				C8kHz[k][d] = 2 * xcorr / (targetEnergy + basisEnergy)
+			if xcorr > 0 && d < c8kHzStride {
+				C8kHz[k*c8kHzStride+d] = 2 * xcorr / (targetEnergy + basisEnergy)
 			}
 		}
 	}
@@ -387,8 +398,8 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int) []int {
 					cbOffset = lagCBPtr[i][j]
 				}
 				idx := d + int(cbOffset)
-				if idx >= 0 && idx < len(C8kHz[i]) {
-					CC += C8kHz[i][idx]
+				if idx >= 0 && idx < c8kHzStride {
+					CC += C8kHz[i*c8kHzStride+idx]
 				}
 			}
 
@@ -417,8 +428,8 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int) []int {
 		if CCmaxNewB > CCmaxB && CCmax > float64(numSubframes)*searchThres2 {
 			CCmaxB = CCmaxNewB
 		} else if lag == -1 {
-			// No suitable candidate
-			pitchLags := make([]int, numSubframes)
+			// No suitable candidate - use scratch buffer
+			pitchLags := ensureIntSlice(&e.scratchPitchLags, numSubframes)
 			for i := range pitchLags {
 				pitchLags[i] = minLag
 			}
@@ -431,8 +442,8 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int) []int {
 		e.pitchState.ltpCorr = CCmax / float64(numSubframes)
 	}
 
-	// Stage 3: Fine search at full rate (if not 8kHz)
-	pitchLags := make([]int, numSubframes)
+	// Stage 3: Fine search at full rate (if not 8kHz) - use scratch buffer
+	pitchLags := ensureIntSlice(&e.scratchPitchLags, numSubframes)
 
 	if fsKHz > 8 && lag > 0 {
 		// Convert lag to full rate
@@ -585,7 +596,26 @@ func downsampleLowpass(signal []float32, factor int) []float32 {
 
 	n := len(signal) / factor
 	ds := make([]float32, n)
+	downsampleLowpassToBuffer(signal, factor, ds)
+	return ds
+}
 
+// downsampleLowpassInto performs downsampling using a scratch buffer.
+// Zero-allocation version.
+func downsampleLowpassInto(signal []float32, factor int, dsBuf *[]float32) []float32 {
+	if factor <= 1 {
+		return signal
+	}
+
+	n := len(signal) / factor
+	ds := ensureFloat32Slice(dsBuf, n)
+	downsampleLowpassToBuffer(signal, factor, ds)
+	return ds
+}
+
+// downsampleLowpassToBuffer performs the actual downsampling into a provided buffer.
+func downsampleLowpassToBuffer(signal []float32, factor int, ds []float32) {
+	n := len(ds)
 	// 3-tap low-pass filter: [0.25, 0.5, 0.25]
 	offset := factor / 2
 	for i := 0; i < n; i++ {
@@ -599,8 +629,6 @@ func downsampleLowpass(signal []float32, factor int) []float32 {
 			ds[i] = signal[idx]
 		}
 	}
-
-	return ds
 }
 
 // downsample reduces sample rate by averaging factor samples.
@@ -805,19 +833,20 @@ func (e *Encoder) encodePitchLags(pitchLags []int, numSubframes int) {
 	config := GetBandwidthConfig(e.bandwidth)
 
 	// Select pitch contour table based on bandwidth and frame size
+	// Use scratch buffer for pitchContour
 	var pitchContour [][4]int8
 	var contourICDF []uint16
 
 	switch e.bandwidth {
 	case BandwidthNarrowband:
 		if numSubframes == 4 {
-			pitchContour = make([][4]int8, len(PitchContourNB20ms))
+			pitchContour = ensure2DInt8Slice(&e.scratchPitchContour, len(PitchContourNB20ms))
 			for i := range PitchContourNB20ms {
 				pitchContour[i] = PitchContourNB20ms[i]
 			}
 		} else {
 			// Convert [16][2]int8 to [][4]int8 for 10ms frames
-			pitchContour = make([][4]int8, len(PitchContourNB10ms))
+			pitchContour = ensure2DInt8Slice(&e.scratchPitchContour, len(PitchContourNB10ms))
 			for i := range PitchContourNB10ms {
 				pitchContour[i] = [4]int8{PitchContourNB10ms[i][0], PitchContourNB10ms[i][1], 0, 0}
 			}
@@ -825,12 +854,12 @@ func (e *Encoder) encodePitchLags(pitchLags []int, numSubframes int) {
 		contourICDF = ICDFPitchContourNB
 	case BandwidthMediumband:
 		if numSubframes == 4 {
-			pitchContour = make([][4]int8, len(PitchContourMB20ms))
+			pitchContour = ensure2DInt8Slice(&e.scratchPitchContour, len(PitchContourMB20ms))
 			for i := range PitchContourMB20ms {
 				pitchContour[i] = PitchContourMB20ms[i]
 			}
 		} else {
-			pitchContour = make([][4]int8, len(PitchContourMB10ms))
+			pitchContour = ensure2DInt8Slice(&e.scratchPitchContour, len(PitchContourMB10ms))
 			for i := range PitchContourMB10ms {
 				pitchContour[i] = [4]int8{PitchContourMB10ms[i][0], PitchContourMB10ms[i][1], 0, 0}
 			}
@@ -838,12 +867,12 @@ func (e *Encoder) encodePitchLags(pitchLags []int, numSubframes int) {
 		contourICDF = ICDFPitchContourMB
 	default: // Wideband
 		if numSubframes == 4 {
-			pitchContour = make([][4]int8, len(PitchContourWB20ms))
+			pitchContour = ensure2DInt8Slice(&e.scratchPitchContour, len(PitchContourWB20ms))
 			for i := range PitchContourWB20ms {
 				pitchContour[i] = PitchContourWB20ms[i]
 			}
 		} else {
-			pitchContour = make([][4]int8, len(PitchContourWB10ms))
+			pitchContour = ensure2DInt8Slice(&e.scratchPitchContour, len(PitchContourWB10ms))
 			for i := range PitchContourWB10ms {
 				pitchContour[i] = [4]int8{PitchContourWB10ms[i][0], PitchContourWB10ms[i][1], 0, 0}
 			}

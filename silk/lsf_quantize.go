@@ -116,13 +116,14 @@ func (e *Encoder) computeSymbolRate8(symbol int, icdf []uint8) int {
 // These are the NLSFIndices[1:order+1] values that get encoded.
 // Per libopus silk_NLSF_encode(): residuals are computed per coefficient using
 // prediction and quantization step.
+// Uses scratch buffers for zero-allocation operation.
 func (e *Encoder) computeStage2ResidualsLibopus(lsfQ15 []int16, stage1Idx int, cb *nlsfCB) []int {
 	order := cb.order
-	residuals := make([]int, order)
+	residuals := ensureIntSlice(&e.scratchLsfResiduals, order)
 
 	// Get ecIx and predQ8 for this stage1 index (same as decoder's silkNLSFUnpack)
-	ecIx := make([]int16, order)
-	predQ8 := make([]uint8, order)
+	ecIx := ensureInt16Slice(&e.scratchEcIx, order)
+	predQ8 := ensureUint8Slice(&e.scratchPredQ8, order)
 	silkNLSFUnpack(ecIx, predQ8, cb, stage1Idx)
 
 	// Get base values from stage 1 codebook
@@ -134,7 +135,7 @@ func (e *Encoder) computeStage2ResidualsLibopus(lsfQ15 []int16, stage1Idx int, c
 	// Then quantize to get index
 
 	// First convert lsfQ15 to resQ10 (what we want to encode)
-	resQ10 := make([]int16, order)
+	resQ10 := ensureInt16Slice(&e.scratchResQ10, order)
 	for i := 0; i < order; i++ {
 		// Target NLSF in Q15
 		target := int32(lsfQ15[i])
@@ -255,9 +256,9 @@ func (e *Encoder) encodeLSF(stage1Idx int, residuals []int, interpIdx int, bandw
 	cb1Offset := stypeBand * cb.nVectors
 	e.rangeEncoder.EncodeICDF(stage1Idx, cb.cb1ICDF[cb1Offset:], 8)
 
-	// Get ecIx for stage 2 encoding (same as silkNLSFUnpack)
-	ecIx := make([]int16, cb.order)
-	predQ8 := make([]uint8, cb.order)
+	// Get ecIx for stage 2 encoding (same as silkNLSFUnpack) using scratch buffers
+	ecIx := ensureInt16Slice(&e.scratchEcIx, cb.order)
+	predQ8 := ensureUint8Slice(&e.scratchPredQ8, cb.order)
 	silkNLSFUnpack(ecIx, predQ8, cb, stage1Idx)
 
 	// Encode stage 2 residuals for each coefficient

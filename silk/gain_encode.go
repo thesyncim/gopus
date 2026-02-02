@@ -9,9 +9,10 @@ import "math"
 // First subframe: absolute (MSB + LSB) if first frame, delta-coded if subsequent frame.
 // Subsequent subframes: always delta-coded.
 // Uses libopus quantization algorithm with hysteresis and double step sizes.
+// Uses scratch buffers for zero-allocation operation.
 func (e *Encoder) encodeSubframeGains(gains []float32, signalType, numSubframes int) {
-	// Convert gains to Q16 format
-	gainsQ16 := make([]int32, numSubframes)
+	// Convert gains to Q16 format using scratch buffer
+	gainsQ16 := ensureInt32Slice(&e.scratchGainsQ16Enc, numSubframes)
 	for i := 0; i < numSubframes; i++ {
 		// Convert float to Q16
 		gainsQ16[i] = int32(gains[i] * 65536.0)
@@ -23,9 +24,10 @@ func (e *Encoder) encodeSubframeGains(gains []float32, signalType, numSubframes 
 	// Determine if we're using conditional coding
 	conditional := e.haveEncoded
 
-	// Quantize gains using libopus algorithm
+	// Quantize gains using libopus algorithm (zero-alloc)
 	// This updates gainsQ16 in-place to the quantized values
-	ind, newPrevInd := silkGainsQuant(gainsQ16, int8(e.previousGainIndex), conditional, numSubframes)
+	ind := ensureInt8Slice(&e.scratchGainInd, numSubframes)
+	newPrevInd := silkGainsQuantInto(ind, gainsQ16, int8(e.previousGainIndex), conditional, numSubframes)
 
 	// Encode gain indices
 	if !conditional {
@@ -101,13 +103,18 @@ func (e *Encoder) encodeFirstGainIndex(gainIndex, signalType int) {
 
 // computeSubframeGains computes gains for each subframe from PCM.
 // Returns gains in linear domain matching libopus energy computation.
+// Uses scratch buffers for zero-allocation operation.
 func (e *Encoder) computeSubframeGains(pcm []float32, numSubframes int) []float32 {
 	if len(pcm) == 0 || numSubframes <= 0 {
-		return make([]float32, numSubframes)
+		gains := ensureFloat32Slice(&e.scratchGains, numSubframes)
+		for i := range gains {
+			gains[i] = 0
+		}
+		return gains
 	}
 
 	subframeSamples := len(pcm) / numSubframes
-	gains := make([]float32, numSubframes)
+	gains := ensureFloat32Slice(&e.scratchGains, numSubframes)
 
 	for sf := 0; sf < numSubframes; sf++ {
 		start := sf * subframeSamples

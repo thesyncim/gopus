@@ -23,7 +23,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	useSharedEncoder := e.rangeEncoder != nil
 
 	if !useSharedEncoder {
-		// Standalone SILK mode: create our own range encoder
+		// Standalone SILK mode: create our own range encoder using scratch buffer
 		// Allocate extra space for potential LBRR data
 		bufSize := len(pcm) / 3
 		if bufSize < 80 {
@@ -36,9 +36,9 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 		if e.lbrrEnabled {
 			bufSize += 50
 		}
-		output := make([]byte, bufSize)
-		e.rangeEncoder = &rangecoding.Encoder{}
-		e.rangeEncoder.Init(output)
+		output := ensureByteSlice(&e.scratchOutput, bufSize)
+		e.scratchRangeEncoder.Init(output)
+		e.rangeEncoder = &e.scratchRangeEncoder
 	}
 
 	// Step 1: Classify frame (VAD)
@@ -141,8 +141,8 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 // computeNSQExcitation computes excitation using Noise Shaping Quantization.
 // This provides proper libopus-matching noise shaping for better audio quality.
 func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, gains []float32, pitchLags []int, signalType, quantOffset, seed, numSubframes, subframeSamples, frameSamples int) []int32 {
-	// Convert PCM to int16 for NSQ
-	inputQ0 := make([]int16, frameSamples)
+	// Convert PCM to int16 for NSQ using scratch buffer
+	inputQ0 := ensureInt16Slice(&e.scratchInputQ0, frameSamples)
 	for i := 0; i < frameSamples && i < len(pcm); i++ {
 		// Scale float to int16 range
 		val := pcm[i] * 32767.0
@@ -154,8 +154,8 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, gains []fl
 		inputQ0[i] = int16(val)
 	}
 
-	// Convert gains to Q16 format
-	gainsQ16 := make([]int32, numSubframes)
+	// Convert gains to Q16 format using scratch buffer
+	gainsQ16 := ensureInt32Slice(&e.scratchGainsQ16, numSubframes)
 	for i := 0; i < numSubframes && i < len(gains); i++ {
 		gainsQ16[i] = int32(gains[i] * 65536.0)
 		if gainsQ16[i] < 1 {
@@ -163,8 +163,11 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, gains []fl
 		}
 	}
 
-	// Prepare pitch lags (default to 0 for unvoiced)
-	pitchL := make([]int, numSubframes)
+	// Prepare pitch lags (default to 0 for unvoiced) using scratch buffer
+	pitchL := ensureIntSlice(&e.scratchPitchL, numSubframes)
+	for i := range pitchL {
+		pitchL[i] = 0 // Clear first
+	}
 	if pitchLags != nil {
 		copy(pitchL, pitchLags)
 	}
@@ -176,8 +179,11 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, gains []fl
 		shapeLPCOrder = maxShapeLpcOrder
 	}
 
-	// Create shaping coefficients (Q13) from LPC (Q12)
-	arShpQ13 := make([]int16, numSubframes*maxShapeLpcOrder)
+	// Create shaping coefficients (Q13) from LPC (Q12) using scratch buffer
+	arShpQ13 := ensureInt16Slice(&e.scratchArShpQ13, numSubframes*maxShapeLpcOrder)
+	for i := range arShpQ13 {
+		arShpQ13[i] = 0 // Clear
+	}
 	for sf := 0; sf < numSubframes; sf++ {
 		for i := 0; i < shapeLPCOrder && i < len(lpcQ12); i++ {
 			// Convert Q12 to Q13 with bandwidth expansion (0.94^(i+1))
@@ -186,8 +192,11 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, gains []fl
 		}
 	}
 
-	// LTP coefficients (Q14) - simplified, use default for unvoiced
-	ltpCoefQ14 := make([]int16, numSubframes*ltpOrderConst)
+	// LTP coefficients (Q14) - simplified, use default for unvoiced, using scratch buffer
+	ltpCoefQ14 := ensureInt16Slice(&e.scratchLtpCoefQ14, numSubframes*ltpOrderConst)
+	for i := range ltpCoefQ14 {
+		ltpCoefQ14[i] = 0 // Clear
+	}
 	if signalType == typeVoiced {
 		// Default LTP coefficients for voiced (center tap dominant)
 		for sf := 0; sf < numSubframes; sf++ {
@@ -195,17 +204,20 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, gains []fl
 		}
 	}
 
-	// Prediction coefficients - replicate for both subframe groups
-	predCoefQ12 := make([]int16, 2*maxLPCOrder)
+	// Prediction coefficients - replicate for both subframe groups, using scratch buffer
+	predCoefQ12 := ensureInt16Slice(&e.scratchPredCoefQ12, 2*maxLPCOrder)
+	for i := range predCoefQ12 {
+		predCoefQ12[i] = 0 // Clear
+	}
 	for i := 0; i < len(lpcQ12) && i < maxLPCOrder; i++ {
 		predCoefQ12[i] = lpcQ12[i]
 		predCoefQ12[maxLPCOrder+i] = lpcQ12[i]
 	}
 
-	// Harmonic shaping gain (Q14) - based on voicing
-	harmShapeGainQ14 := make([]int, numSubframes)
-	tiltQ14 := make([]int, numSubframes)
-	lfShpQ14 := make([]int32, numSubframes)
+	// Harmonic shaping gain (Q14) - based on voicing, using scratch buffers
+	harmShapeGainQ14 := ensureIntSlice(&e.scratchHarmShapeGainQ14, numSubframes)
+	tiltQ14 := ensureIntSlice(&e.scratchTiltQ14, numSubframes)
+	lfShpQ14 := ensureInt32Slice(&e.scratchLfShpQ14, numSubframes)
 	for sf := 0; sf < numSubframes; sf++ {
 		if signalType == typeVoiced {
 			harmShapeGainQ14[sf] = 4096 // Moderate harmonic shaping
@@ -249,8 +261,8 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, gains []fl
 	// Run NSQ
 	pulses, _ := NoiseShapeQuantize(e.nsqState, inputQ0, params)
 
-	// Convert pulses to int32 for encoding
-	excitation := make([]int32, frameSamples)
+	// Convert pulses to int32 for encoding using scratch buffer
+	excitation := ensureInt32Slice(&e.scratchExcitation, frameSamples)
 	for i := 0; i < len(pulses) && i < frameSamples; i++ {
 		excitation[i] = int32(pulses[i])
 	}

@@ -238,15 +238,10 @@ func TestAnalyzeLTP(t *testing.T) {
 
 	ltpCoeffs := enc.analyzeLTP(pcm, pitchLags, numSubframes)
 
-	if len(ltpCoeffs) != numSubframes {
-		t.Fatalf("expected %d LTP coefficient sets, got %d", numSubframes, len(ltpCoeffs))
-	}
-
-	for sf, coeffs := range ltpCoeffs {
-		if len(coeffs) != 5 {
-			t.Errorf("subframe %d: expected 5 taps, got %d", sf, len(coeffs))
-		}
-		// Verify coefficients are in Q7 range
+	// LTPCoeffsArray is [4][5]int8 - fixed size
+	for sf := 0; sf < numSubframes; sf++ {
+		coeffs := ltpCoeffs[sf]
+		// Verify coefficients are in Q7 range (int8 already constrains this)
 		for tap, c := range coeffs {
 			if c < -128 || c > 127 {
 				t.Errorf("subframe %d tap %d: %d out of Q7 range", sf, tap, c)
@@ -280,8 +275,7 @@ func TestDeterminePeriodicity(t *testing.T) {
 
 func TestFindLTPCodebookIndex(t *testing.T) {
 	// Test with known codebook entry from LTPFilterHigh
-	coeffs := make([]int8, 5)
-	copy(coeffs, LTPFilterHigh[0][:])
+	coeffs := LTPFilterHigh[0]
 
 	idx := findLTPCodebookIndex(coeffs, 2)
 	if idx != 0 {
@@ -289,21 +283,21 @@ func TestFindLTPCodebookIndex(t *testing.T) {
 	}
 
 	// Test with middle entry
-	copy(coeffs, LTPFilterHigh[15][:])
+	coeffs = LTPFilterHigh[15]
 	idx = findLTPCodebookIndex(coeffs, 2)
 	if idx != 15 {
 		t.Errorf("expected index 15 for entry 15, got %d", idx)
 	}
 
 	// Test with low periodicity
-	copy(coeffs, LTPFilterLow[3][:])
+	coeffs = LTPFilterLow[3]
 	idx = findLTPCodebookIndex(coeffs, 0)
 	if idx != 3 {
 		t.Errorf("expected index 3 for LTPFilterLow[3], got %d", idx)
 	}
 
 	// Test with mid periodicity
-	copy(coeffs, LTPFilterMid[7][:])
+	coeffs = LTPFilterMid[7]
 	idx = findLTPCodebookIndex(coeffs, 1)
 	if idx != 7 {
 		t.Errorf("expected index 7 for LTPFilterMid[7], got %d", idx)

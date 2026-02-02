@@ -2,26 +2,31 @@ package silk
 
 import "math"
 
+// LTPCoeffsArray is a fixed-size type for LTP coefficients to avoid allocations.
+// Maximum 4 subframes, 5 taps each.
+type LTPCoeffsArray [4][5]int8
+
 // analyzeLTP computes LTP coefficients for each subframe.
 // LTP predicts current samples from pitch-delayed past samples.
 //
 // Per draft-vos-silk-01 Section 2.1.2.6.
 // Returns 5-tap LTP coefficients per subframe in Q7 format.
-func (e *Encoder) analyzeLTP(pcm []float32, pitchLags []int, numSubframes int) [][]int8 {
+// Uses fixed-size array to avoid allocations.
+func (e *Encoder) analyzeLTP(pcm []float32, pitchLags []int, numSubframes int) LTPCoeffsArray {
 	config := GetBandwidthConfig(e.bandwidth)
 	subframeSamples := config.SubframeSamples
 
-	ltpCoeffs := make([][]int8, numSubframes)
+	var ltpCoeffs LTPCoeffsArray
 
-	for sf := 0; sf < numSubframes; sf++ {
+	for sf := 0; sf < numSubframes && sf < 4; sf++ {
 		start := sf * subframeSamples
 		lag := pitchLags[sf]
 
 		// Compute optimal LTP coefficients via least squares
 		coeffs := computeLTPCoeffs(pcm, start, subframeSamples, lag)
 
-		// Quantize to codebook
-		ltpCoeffs[sf] = quantizeLTPCoeffs(coeffs[:], e.isPreviousFrameVoiced)
+		// Quantize to codebook into fixed array
+		quantizeLTPCoeffsInto(coeffs[:], e.isPreviousFrameVoiced, &ltpCoeffs[sf])
 	}
 
 	return ltpCoeffs
@@ -133,7 +138,18 @@ func solveLTPSystem(R [5][5]float64, r [5]float64) [5]float64 {
 // quantizeLTPCoeffs quantizes LTP coefficients to nearest codebook entry.
 // Uses LTP codebook from codebook.go (LTPFilterLow/Mid/High).
 // Returns Q7 format coefficients.
+// Allocating version for backward compatibility.
 func quantizeLTPCoeffs(coeffs []float64, isPreviousVoiced bool) []int8 {
+	result := make([]int8, 5)
+	var fixed [5]int8
+	quantizeLTPCoeffsInto(coeffs, isPreviousVoiced, &fixed)
+	copy(result, fixed[:])
+	return result
+}
+
+// quantizeLTPCoeffsInto quantizes LTP coefficients into a pre-allocated array.
+// Zero-allocation version.
+func quantizeLTPCoeffsInto(coeffs []float64, isPreviousVoiced bool, result *[5]int8) {
 	const numTaps = 5
 
 	// Select codebook based on periodicity
@@ -146,7 +162,6 @@ func quantizeLTPCoeffs(coeffs []float64, isPreviousVoiced bool) []int8 {
 	// Find best matching codebook entry
 	bestIdx := 0
 	var bestDist float64 = math.MaxFloat64
-	result := make([]int8, numTaps)
 
 	switch periodicity {
 	case 0:
@@ -162,7 +177,7 @@ func quantizeLTPCoeffs(coeffs []float64, isPreviousVoiced bool) []int8 {
 				bestIdx = idx
 			}
 		}
-		copy(result, LTPFilterLow[bestIdx][:])
+		*result = LTPFilterLow[bestIdx]
 
 	case 1:
 		for idx := 0; idx < len(LTPFilterMid); idx++ {
@@ -177,7 +192,7 @@ func quantizeLTPCoeffs(coeffs []float64, isPreviousVoiced bool) []int8 {
 				bestIdx = idx
 			}
 		}
-		copy(result, LTPFilterMid[bestIdx][:])
+		*result = LTPFilterMid[bestIdx]
 
 	case 2:
 		for idx := 0; idx < len(LTPFilterHigh); idx++ {
@@ -192,10 +207,8 @@ func quantizeLTPCoeffs(coeffs []float64, isPreviousVoiced bool) []int8 {
 				bestIdx = idx
 			}
 		}
-		copy(result, LTPFilterHigh[bestIdx][:])
+		*result = LTPFilterHigh[bestIdx]
 	}
-
-	return result
 }
 
 // encodeLTPCoeffs encodes LTP coefficients to the bitstream.
@@ -209,7 +222,7 @@ func quantizeLTPCoeffs(coeffs []float64, isPreviousVoiced bool) []int8 {
 //   - 0 = Low periodicity (less correlated/voiced)
 //   - 1 = Mid periodicity
 //   - 2 = High periodicity (strongly voiced)
-func (e *Encoder) encodeLTPCoeffs(ltpCoeffs [][]int8, periodicity int, numSubframes int) {
+func (e *Encoder) encodeLTPCoeffs(ltpCoeffs LTPCoeffsArray, periodicity int, numSubframes int) {
 	// Select codebook and ICDF based on actual periodicity
 	var gainICDF []uint16
 	var codebookPeriodicity int
@@ -263,7 +276,7 @@ func (e *Encoder) encodeLTPCoeffs(ltpCoeffs [][]int8, periodicity int, numSubfra
 }
 
 // findLTPCodebookIndex finds the codebook index for given coefficients.
-func findLTPCodebookIndex(coeffs []int8, periodicity int) int {
+func findLTPCodebookIndex(coeffs [5]int8, periodicity int) int {
 	const numTaps = 5
 
 	switch periodicity {

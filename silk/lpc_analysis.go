@@ -541,9 +541,10 @@ func applyBandwidthExpansionFloat(lpcQ12 []int16, chirp float64) {
 
 // computeLPCFromFrame computes LPC coefficients for a frame.
 // Applies windowing, Burg analysis, and bandwidth expansion.
+// Uses scratch buffers for zero-allocation operation.
 func (e *Encoder) computeLPCFromFrame(pcm []float32) []int16 {
-	// Apply window (can use simple Hamming or none for now)
-	windowed := make([]float32, len(pcm))
+	// Apply window using scratch buffer
+	windowed := ensureFloat32Slice(&e.scratchWindowed, len(pcm))
 	n := float64(len(pcm))
 	for i := range pcm {
 		// Hamming window
@@ -551,13 +552,208 @@ func (e *Encoder) computeLPCFromFrame(pcm []float32) []int16 {
 		windowed[i] = pcm[i] * float32(w)
 	}
 
-	// Compute LPC via Burg's method
-	lpcQ12 := burgLPC(windowed, e.lpcOrder)
+	// Compute LPC via Burg's method using scratch buffers
+	lpcQ12 := e.burgLPCZeroAlloc(windowed, e.lpcOrder)
 
 	// Apply bandwidth expansion for stability (chirp = 0.96)
 	applyBandwidthExpansionFloat(lpcQ12, 0.96)
 
 	return lpcQ12
+}
+
+// burgLPCZeroAlloc computes LPC coefficients using scratch buffers.
+func (e *Encoder) burgLPCZeroAlloc(signal []float32, order int) []int16 {
+	n := len(signal)
+	if n < order+1 {
+		// Not enough samples, return zeros using scratch
+		lpcQ12 := ensureInt16Slice(&e.scratchLpcQ12, order)
+		for i := range lpcQ12 {
+			lpcQ12[i] = 0
+		}
+		return lpcQ12
+	}
+
+	// Convert to float64 using scratch buffer
+	x := ensureFloat64Slice(&e.scratchLpcBurg, n)
+	for i := 0; i < n; i++ {
+		x[i] = float64(signal[i])
+	}
+
+	// Use subframe-based Burg method matching libopus
+	subfrLength := n
+	nbSubfr := 1
+
+	if n >= order*4 {
+		nbSubfr = 4
+		subfrLength = n / nbSubfr
+	}
+
+	a := e.burgModifiedFLPZeroAlloc(x, minInvGain, subfrLength, nbSubfr, order)
+
+	// Convert to Q12 fixed-point using scratch
+	lpcQ12 := ensureInt16Slice(&e.scratchLpcQ12, order)
+	for i := 0; i < order; i++ {
+		val := a[i] * 4096.0 // Q12 scaling
+		if val > 32767 {
+			val = 32767
+		} else if val < -32768 {
+			val = -32768
+		}
+		lpcQ12[i] = int16(val)
+	}
+
+	return lpcQ12
+}
+
+// burgModifiedFLPZeroAlloc computes LPC using scratch buffers.
+func (e *Encoder) burgModifiedFLPZeroAlloc(x []float64, minInvGainVal float64, subfrLength, nbSubfr, order int) []float64 {
+	totalLen := nbSubfr * subfrLength
+	if totalLen > maxBurgFrameSize || totalLen > len(x) {
+		// Safety check - return zeros
+		result := ensureFloat64Slice(&e.scratchBurgResult, order)
+		for i := range result {
+			result[i] = 0
+		}
+		return result
+	}
+
+	// Use scratch buffers for Burg algorithm working arrays
+	Af := ensureFloat64Slice(&e.scratchBurgAf, order)
+	CFirstRow := ensureFloat64Slice(&e.scratchBurgCFirstRow, silkMaxOrderLPC)
+	CLastRow := ensureFloat64Slice(&e.scratchBurgCLastRow, silkMaxOrderLPC)
+	CAf := ensureFloat64Slice(&e.scratchBurgCAf, silkMaxOrderLPC+1)
+	CAb := ensureFloat64Slice(&e.scratchBurgCAb, silkMaxOrderLPC+1)
+
+	// Clear all scratch buffers
+	for i := range Af {
+		Af[i] = 0
+	}
+	for i := range CFirstRow {
+		CFirstRow[i] = 0
+	}
+	for i := range CLastRow {
+		CLastRow[i] = 0
+	}
+	for i := range CAf {
+		CAf[i] = 0
+	}
+	for i := range CAb {
+		CAb[i] = 0
+	}
+
+	// Compute total energy (C0)
+	var C0 float64
+	for i := 0; i < totalLen; i++ {
+		C0 += x[i] * x[i]
+	}
+
+	// Compute initial autocorrelations
+	for s := 0; s < nbSubfr; s++ {
+		xPtr := s * subfrLength
+		for n := 1; n <= order; n++ {
+			var sum float64
+			for k := 0; k < subfrLength-n; k++ {
+				sum += x[xPtr+k] * x[xPtr+k+n]
+			}
+			CFirstRow[n-1] += sum
+		}
+	}
+	copy(CLastRow[:silkMaxOrderLPC], CFirstRow[:silkMaxOrderLPC])
+
+	CAf[0] = C0 + findLPCCondFac*C0 + 1e-9
+	CAb[0] = CAf[0]
+
+	invGain := 1.0
+	reachedMaxGain := false
+
+	// Main Burg iteration
+	for n := 0; n < order; n++ {
+		for s := 0; s < nbSubfr; s++ {
+			xPtr := s * subfrLength
+			tmp1 := x[xPtr+n]
+			tmp2 := x[xPtr+subfrLength-n-1]
+
+			for k := 0; k < n; k++ {
+				CFirstRow[k] -= x[xPtr+n] * x[xPtr+n-k-1]
+				CLastRow[k] -= x[xPtr+subfrLength-n-1] * x[xPtr+subfrLength-n+k]
+				Atmp := Af[k]
+				tmp1 += x[xPtr+n-k-1] * Atmp
+				tmp2 += x[xPtr+subfrLength-n+k] * Atmp
+			}
+
+			for k := 0; k <= n; k++ {
+				CAf[k] -= tmp1 * x[xPtr+n-k]
+				CAb[k] -= tmp2 * x[xPtr+subfrLength-n+k-1]
+			}
+		}
+
+		tmp1 := CFirstRow[n]
+		tmp2 := CLastRow[n]
+		for k := 0; k < n; k++ {
+			Atmp := Af[k]
+			tmp1 += CLastRow[n-k-1] * Atmp
+			tmp2 += CFirstRow[n-k-1] * Atmp
+		}
+		CAf[n+1] = tmp1
+		CAb[n+1] = tmp2
+
+		num := CAb[n+1]
+		nrgB := CAb[0]
+		nrgF := CAf[0]
+		for k := 0; k < n; k++ {
+			Atmp := Af[k]
+			num += CAb[n-k] * Atmp
+			nrgB += CAb[k+1] * Atmp
+			nrgF += CAf[k+1] * Atmp
+		}
+
+		if nrgF <= 0 || nrgB <= 0 {
+			break
+		}
+
+		rc := -2.0 * num / (nrgF + nrgB)
+
+		tmp1 = invGain * (1.0 - rc*rc)
+		if tmp1 <= minInvGainVal {
+			rc = math.Sqrt(1.0 - minInvGainVal/invGain)
+			if num > 0 {
+				rc = -rc
+			}
+			invGain = minInvGainVal
+			reachedMaxGain = true
+		} else {
+			invGain = tmp1
+		}
+
+		for k := 0; k < (n+1)>>1; k++ {
+			tmp1 = Af[k]
+			tmp2 = Af[n-k-1]
+			Af[k] = tmp1 + rc*tmp2
+			Af[n-k-1] = tmp2 + rc*tmp1
+		}
+		Af[n] = rc
+
+		if reachedMaxGain {
+			for k := n + 1; k < order; k++ {
+				Af[k] = 0
+			}
+			break
+		}
+
+		for k := 0; k <= n+1; k++ {
+			tmp1 = CAf[k]
+			CAf[k] += rc * CAb[n-k+1]
+			CAb[n-k+1] += rc * tmp1
+		}
+	}
+
+	// Negate coefficients for LPC convention
+	A := ensureFloat64Slice(&e.scratchBurgResult, order)
+	for k := 0; k < order; k++ {
+		A[k] = -Af[k]
+	}
+
+	return A
 }
 
 // FindLPCWithInterpolation performs LPC analysis with NLSF interpolation search.

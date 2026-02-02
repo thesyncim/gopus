@@ -20,18 +20,17 @@ const (
 	gainScaleQ16 = (65536 * (nLevelsQGain - 1)) / (((maxQGainDb - minQGainDb) * 128) / 6)
 )
 
-// silkGainsQuant quantizes gains matching libopus silk/gain_quant.c:silk_gains_quant
+// silkGainsQuantInto quantizes gains matching libopus silk/gain_quant.c:silk_gains_quant
 // Parameters:
+//   - ind: output buffer for gain indices (must have length >= nbSubfr)
 //   - gainQ16: input gains in Q16 format, will be modified to quantized values
 //   - prevInd: previous index from last frame
 //   - conditional: if true, first gain is delta-coded from prevInd
 //   - nbSubfr: number of subframes
 //
 // Returns:
-//   - ind: gain indices for each subframe
 //   - newPrevInd: updated previous index for next frame
-func silkGainsQuant(gainQ16 []int32, prevInd int8, conditional bool, nbSubfr int) ([]int8, int8) {
-	ind := make([]int8, nbSubfr)
+func silkGainsQuantInto(ind []int8, gainQ16 []int32, prevInd int8, conditional bool, nbSubfr int) int8 {
 	currentPrevInd := int(prevInd)
 
 	for k := 0; k < nbSubfr; k++ {
@@ -88,7 +87,7 @@ func silkGainsQuant(gainQ16 []int32, prevInd int8, conditional bool, nbSubfr int
 		gainQ16[k] = silkLog2Lin(logQ7)
 	}
 
-	return ind, int8(currentPrevInd)
+	return int8(currentPrevInd)
 }
 
 // silkGainsID computes unique identifier of gain indices vector

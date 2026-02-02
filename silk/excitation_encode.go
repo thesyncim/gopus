@@ -128,12 +128,13 @@ func (e *Encoder) encodePulses(pulses []int32, signalType, quantOffset int) {
 
 // shellEncoder encodes 16 pulses using hierarchical binary splits.
 // Matches libopus silk_shell_encoder() exactly.
+// Uses scratch arrays from encoder to avoid allocations.
 func (e *Encoder) shellEncoder(pulses []int) {
-	// Combine pulses hierarchically, matching libopus silk_shell_encoder.c
-	pulses1 := make([]int, 8)
-	pulses2 := make([]int, 4)
-	pulses3 := make([]int, 2)
-	pulses4 := make([]int, 1)
+	// Use scratch arrays (fixed size, no allocation)
+	pulses1 := &e.scratchShellPulses1
+	pulses2 := &e.scratchShellPulses2
+	pulses3 := &e.scratchShellPulses3
+	pulses4 := &e.scratchShellPulses4
 
 	// Combine: 16 -> 8
 	for k := 0; k < 8; k++ {

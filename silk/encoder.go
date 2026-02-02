@@ -69,6 +69,69 @@ type Encoder struct {
 	scratchQ            []float64 // lpcToLSF: Q polynomial
 	scratchLSFFloat     []float64 // lpcToLSF: LSF in float64
 	scratchLSFQ15       []int16   // lpcToLSF: LSF result in Q15
+
+	// Pitch detection scratch buffers
+	scratchFrame8kHz  []float32  // detectPitch: downsampled to 8kHz
+	scratchFrame4kHz  []float32  // detectPitch: downsampled to 4kHz
+	scratchPitchC     []float64  // detectPitch: autocorrelation
+	scratchDSrch      []int      // detectPitch: candidate lags
+	scratchDSrchCorr  []float64  // detectPitch: candidate correlations
+	scratchDComp      []int16    // detectPitch: expanded search
+	scratchC8kHz      []float64  // detectPitch: 8kHz correlations (flat array for 4 subframes)
+	scratchPitchLags  []int      // detectPitch: output pitch lags
+
+	// Shell encoder scratch buffers (fixed sizes)
+	scratchShellPulses1 [8]int // shellEncoder: level 1
+	scratchShellPulses2 [4]int // shellEncoder: level 2
+	scratchShellPulses3 [2]int // shellEncoder: level 3
+	scratchShellPulses4 [1]int // shellEncoder: level 4
+
+	// Pitch contour scratch buffer
+	scratchPitchContour [][4]int8 // encodePitchLags: contour table
+
+	// NSQ (computeNSQExcitation) scratch buffers
+	scratchInputQ0         []int16 // PCM converted to int16
+	scratchGainsQ16        []int32 // gains in Q16 format
+	scratchPitchL          []int   // pitch lags for NSQ
+	scratchArShpQ13        []int16 // AR shaping coefficients
+	scratchLtpCoefQ14      []int16 // LTP coefficients
+	scratchPredCoefQ12     []int16 // prediction coefficients
+	scratchHarmShapeGainQ14 []int  // harmonic shaping gain
+	scratchTiltQ14         []int   // tilt values
+	scratchLfShpQ14        []int32 // low-frequency shaping
+	scratchExcitation      []int32 // excitation output
+
+	// LPC/Burg scratch buffers
+	scratchLpcBurg       []float64 // LPC coefficients from Burg
+	scratchBurgC         []float64 // Burg C buffer
+	scratchBurgBf        []float64 // Burg forward buffer
+	scratchBurgBb        []float64 // Burg backward buffer
+	scratchWindowed      []float32 // computeLPCFromFrame: windowed PCM
+	scratchLpcQ12        []int16   // burgLPCZeroAlloc: output LPC Q12
+	scratchBurgAf        []float64 // burgModifiedFLPZeroAlloc: Af buffer
+	scratchBurgCFirstRow []float64 // burgModifiedFLPZeroAlloc: CFirstRow
+	scratchBurgCLastRow  []float64 // burgModifiedFLPZeroAlloc: CLastRow
+	scratchBurgCAf       []float64 // burgModifiedFLPZeroAlloc: CAf
+	scratchBurgCAb       []float64 // burgModifiedFLPZeroAlloc: CAb
+	scratchBurgResult    []float64 // burgModifiedFLPZeroAlloc: result
+
+	// LTP analysis scratch buffers
+	scratchLtpCoeffs [4][]float64 // per-subframe LTP coefficients (4 subframes max)
+
+	// LSF quantization scratch buffers
+	scratchLsfResiduals []int   // computeStage2ResidualsLibopus: residuals
+	scratchEcIx         []int16 // computeStage2ResidualsLibopus / encodeLSF: ecIx
+	scratchPredQ8       []uint8 // computeStage2ResidualsLibopus / encodeLSF: predQ8
+	scratchResQ10       []int16 // computeStage2ResidualsLibopus: resQ10
+
+	// Gain encoding scratch buffers
+	scratchGains        []float32 // computeSubframeGains: output gains
+	scratchGainsQ16Enc  []int32   // encodeSubframeGains: gains in Q16
+	scratchGainInd      []int8    // silkGainsQuant: gain indices
+
+	// Output buffer scratch (standalone SILK mode)
+	scratchOutput       []byte              // EncodeFrame: range encoder output
+	scratchRangeEncoder rangecoding.Encoder // EncodeFrame: reusable range encoder
 }
 
 // ensureInt8Slice ensures the slice has at least n elements.
@@ -105,6 +168,56 @@ func ensureFloat64Slice(buf *[]float64, n int) []float64 {
 func ensureInt16Slice(buf *[]int16, n int) []int16 {
 	if cap(*buf) < n {
 		*buf = make([]int16, n)
+	} else {
+		*buf = (*buf)[:n]
+	}
+	return *buf
+}
+
+// ensureFloat32Slice ensures the slice has at least n elements.
+func ensureFloat32Slice(buf *[]float32, n int) []float32 {
+	if cap(*buf) < n {
+		*buf = make([]float32, n)
+	} else {
+		*buf = (*buf)[:n]
+	}
+	return *buf
+}
+
+// ensure2DInt8Slice ensures the slice has at least n elements, each with 4 elements.
+func ensure2DInt8Slice(buf *[][4]int8, n int) [][4]int8 {
+	if cap(*buf) < n {
+		*buf = make([][4]int8, n)
+	} else {
+		*buf = (*buf)[:n]
+	}
+	return *buf
+}
+
+// ensureInt32Slice ensures the slice has at least n elements.
+func ensureInt32Slice(buf *[]int32, n int) []int32 {
+	if cap(*buf) < n {
+		*buf = make([]int32, n)
+	} else {
+		*buf = (*buf)[:n]
+	}
+	return *buf
+}
+
+// ensureUint8Slice ensures the slice has at least n elements.
+func ensureUint8Slice(buf *[]uint8, n int) []uint8 {
+	if cap(*buf) < n {
+		*buf = make([]uint8, n)
+	} else {
+		*buf = (*buf)[:n]
+	}
+	return *buf
+}
+
+// ensureByteSlice ensures the slice has at least n elements.
+func ensureByteSlice(buf *[]byte, n int) []byte {
+	if cap(*buf) < n {
+		*buf = make([]byte, n)
 	} else {
 		*buf = (*buf)[:n]
 	}
