@@ -13,29 +13,33 @@ func (d *Decoder) decodeSubframeGains(signalType, numSubframes int) []int32 {
 	gainIndex := d.decodeFirstGainIndex(signalType)
 
 	// Convert first gain index to log gain
-	// Per RFC 6716 Section 4.2.7.4.1:
-	// log_gain = max(0, gain_index - 2*max(0, gain_index - 16)) if first frame
-	// or log_gain = clamp(prev_log_gain + gain_index - 16, 0, 63) if not first
+	// Per libopus silk_gains_dequant: for k==0 && conditional==0:
+	//   prev_ind = max(ind[k], prev_ind - 16)
+	// This limits how much gain can drop from previous frame's gain.
+	// For the very first frame, previousLogGain is initialized to 10.
 	var logGain int
 	if d.haveDecoded {
-		// Delta from previous frame's log gain
-		logGain = int(d.previousLogGain) + gainIndex - 16
-		if logGain < 0 {
-			logGain = 0
+		// Conditional coding (first subframe delta from previous frame)
+		// prev_ind = max(ind[k], prev_ind - 16)
+		minGain := int(d.previousLogGain) - 16
+		if minGain < 0 {
+			minGain = 0
 		}
-		if logGain > 63 {
-			logGain = 63
+		logGain = gainIndex
+		if logGain < minGain {
+			logGain = minGain
 		}
 	} else {
-		// First frame: apply gain limiter
-		if gainIndex > 16 {
-			logGain = gainIndex - 2*(gainIndex-16)
-		} else {
-			logGain = gainIndex
-		}
-		if logGain < 0 {
-			logGain = 0
-		}
+		// First frame ever - use the decoded index directly
+		// (previousLogGain is 0, so max(gainIndex, 0-16) = gainIndex)
+		logGain = gainIndex
+	}
+	// Clamp to valid range
+	if logGain < 0 {
+		logGain = 0
+	}
+	if logGain > 63 {
+		logGain = 63
 	}
 
 	// Convert log gain to Q16 gain

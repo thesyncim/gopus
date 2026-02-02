@@ -50,8 +50,31 @@ func EncodeStereo(left, right []float32, bandwidth Bandwidth, vadFlag bool) ([]b
 // vadFlag: True if frame contains voice activity
 // Returns: Encoded SILK frame bytes for combined mid/side channels
 func EncodeStereoWithEncoder(enc, sideEnc *Encoder, left, right []float32, bandwidth Bandwidth, vadFlag bool) ([]byte, error) {
-	// Convert to mid-side and compute stereo weights
-	mid, side, weights := enc.encodeStereo(left, right)
+	// Get frame length and sample rate for LP/HP filtering
+	config := GetBandwidthConfig(bandwidth)
+	frameLength := len(left)
+	fsKHz := config.SampleRate / 1000
+
+	// Convert to mid-side with LP/HP filtering and compute stereo weights
+	// This matches libopus stereo_LR_to_MS.c by:
+	// 1. Computing LP and HP filtered versions of mid/side
+	// 2. Computing separate predictors for LP and HP bands
+	// 3. Providing proper predictor values for the decoder
+	midWithHistory, sideWithHistory, weights := enc.EncodeStereoLRToMS(left, right, frameLength, fsKHz)
+
+	// Extract frame data (skip 1 history sample offset due to LP filter alignment)
+	// The output has frameLength+2 samples with history at the start
+	var mid, side []float32
+	if len(midWithHistory) >= frameLength+1 {
+		mid = midWithHistory[1 : frameLength+1]
+	} else {
+		mid = midWithHistory
+	}
+	if len(sideWithHistory) >= frameLength+1 {
+		side = sideWithHistory[1 : frameLength+1]
+	} else {
+		side = sideWithHistory
+	}
 
 	// Encode mid channel (primary)
 	midBytes := enc.EncodeFrame(mid, vadFlag)

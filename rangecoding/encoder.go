@@ -503,7 +503,9 @@ func (e *Encoder) RangeBytes() int {
 }
 
 // PatchInitialBits overwrites the first few bits in the range coder stream.
-// This mirrors libopus ec_enc_patch_initial_bits and is intended for testing.
+// This mirrors libopus ec_enc_patch_initial_bits and is used for VAD/LBRR flag
+// encoding in SILK packets where the flags must be written at the packet start
+// but their values are only known after encoding the frame data.
 func (e *Encoder) PatchInitialBits(val uint32, nbits uint) {
 	if nbits == 0 || nbits > EC_SYM_BITS {
 		e.err = -1

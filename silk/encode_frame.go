@@ -91,8 +91,8 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	lpcQ12 := e.computeLPCFromFrame(pcm)
 
 	// Step 4: Compute and encode gains from signal energy
-	// NOTE: Gains encode the overall signal amplitude, NOT the prediction residual.
-	// The prediction residual is only used for NSQ pulse quantization.
+	// Gains encode the signal amplitude (not prediction residual).
+	// NSQ scales input by inverse gain, quantizes, then decoder scales output by gain.
 	gains := e.computeSubframeGains(pcm, numSubframes)
 	gainsQ16 := e.encodeSubframeGains(gains, signalType, numSubframes)
 
@@ -476,7 +476,6 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 	lpcQ12 := e.computeLPCFromFrame(pcm)
 
 	// Step 4: Compute and encode gains from signal energy
-	// NOTE: Gains encode the overall signal amplitude, NOT the prediction residual.
 	gains := e.computeSubframeGains(pcm, numSubframes)
 	gainsQ16 := e.encodeSubframeGains(gains, signalType, numSubframes)
 

@@ -515,6 +515,12 @@ func (e *Encoder) encodeSILKHybrid(pcm []float32, frameSize int) {
 }
 
 // encodeSILKHybridMono encodes mono SILK data for hybrid mode.
+//
+// Per RFC 6716, the SILK layer header contains:
+// 1. VAD flag for each frame (1 bit per frame)
+// 2. LBRR flag (1 bit)
+// 3. [LBRR data if LBRR flag set]
+// 4. Frame data
 func (e *Encoder) encodeSILKHybridMono(pcm []float32, silkSamples, silkWBSamples int) {
 	inputSamples := pcm[:min(len(pcm), silkSamples)]
 
@@ -530,11 +536,51 @@ func (e *Encoder) encodeSILKHybridMono(pcm []float32, silkSamples, silkWBSamples
 		e.silkBufferFilled = 0
 	}
 
+	// Get the shared range encoder
+	re := e.silkEncoder.GetRangeEncoderPtr()
+	if re == nil {
+		// Fall back to normal encoding if no shared encoder
+		_ = e.silkEncoder.EncodeFrame(inputSamples, true)
+		return
+	}
+
+	// Reserve space for VAD+LBRR flags at packet start
+	// Per libopus: (nFramesPerPacket + 1) * nChannels bits
+	// For 20ms mono: (1 + 1) * 1 = 2 bits
+	nFramesPerPacket := 1 // 20ms = 1 frame in SILK
+	nChannels := 1        // mono
+	nBitsHeader := (nFramesPerPacket + 1) * nChannels
+
+	// Encode a placeholder using the same ICDF pattern as libopus
+	// iCDF[0] = 256 - (256 >> nBitsHeader), but we must compute with int then cast
+	iCDFVal := 256 - (256 >> uint(nBitsHeader))
+	iCDF := [2]uint8{uint8(iCDFVal), 0}
+	re.EncodeICDF(0, iCDF[:], 8)
+
+	// Encode the frame (EncodeFrame in hybrid mode skips its own VAD/LBRR)
 	_ = e.silkEncoder.EncodeFrame(inputSamples, true)
+
+	// Patch initial bits with actual VAD+LBRR flags
+	// Format: [VAD][LBRR]
+	// VAD=1 (active), LBRR=0 (no FEC data)
+	flags := uint32(0)
+	flags |= 1 << 1 // VAD = 1
+	flags |= 0 << 0 // LBRR = 0
+	re.PatchInitialBits(flags, uint(nBitsHeader))
 }
 
 // encodeSILKHybridStereo encodes stereo SILK data for hybrid mode.
 // Uses mid-side encoding per RFC 6716 Section 4.2.8.
+//
+// Per libopus enc_API.c, stereo SILK format is:
+// 1. VAD flags for mid channel (1 bit per frame)
+// 2. LBRR flag for mid channel (1 bit)
+// 3. VAD flags for side channel (1 bit per frame)
+// 4. LBRR flag for side channel (1 bit)
+// 5. [LBRR data if any]
+// 6. Stereo prediction weights (per frame)
+// 7. Mid channel frame data
+// 8. Side channel frame data
 func (e *Encoder) encodeSILKHybridStereo(pcm []float32, silkSamples, silkWBSamples int) {
 	// Deinterleave L/R channels
 	actualSamples := len(pcm) / 2
@@ -549,8 +595,23 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, silkSamples, silkWBSampl
 		right[i] = pcm[i*2+1]
 	}
 
-	// Convert to mid-side and compute stereo weights
-	mid, side, weights := e.silkEncoder.EncodeStereoMidSide(left, right)
+	// Convert to mid-side with LP/HP filtering and compute stereo weights
+	// This matches libopus stereo_LR_to_MS.c by computing separate LP and HP predictors
+	fsKHz := 16 // SILK wideband uses 16kHz
+	midWithHistory, sideWithHistory, weights := e.silkEncoder.EncodeStereoLRToMS(left, right, silkSamples, fsKHz)
+
+	// Extract frame data (skip 1 history sample offset due to LP filter alignment)
+	var mid, side []float32
+	if len(midWithHistory) >= silkSamples+1 {
+		mid = midWithHistory[1 : silkSamples+1]
+	} else {
+		mid = midWithHistory
+	}
+	if len(sideWithHistory) >= silkSamples+1 {
+		side = sideWithHistory[1 : silkSamples+1]
+	} else {
+		side = sideWithHistory
+	}
 
 	// Handle 10ms frames by buffering to 20ms
 	if silkSamples < silkWBSamples {
@@ -571,15 +632,46 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, silkSamples, silkWBSampl
 		e.silkSideBufferFilled = 0
 	}
 
-	// Encode stereo prediction weights via the shared range encoder
+	// Get the shared range encoder
+	re := e.silkEncoder.GetRangeEncoderPtr()
+	if re == nil {
+		return
+	}
+
+	// Step 1: Reserve space for VAD+LBRR flags at packet start
+	// Per libopus: (nFramesPerPacket + 1) * nChannelsInternal bits
+	// For 20ms stereo: (1 + 1) * 2 = 4 bits
+	// - Mid: VAD(1) + LBRR(1) = 2 bits
+	// - Side: VAD(1) + LBRR(1) = 2 bits
+	nFramesPerPacket := 1 // 20ms = 1 frame in SILK
+	nChannels := 2        // stereo
+	nBitsHeader := (nFramesPerPacket + 1) * nChannels
+
+	// Encode a placeholder using the same ICDF pattern as libopus
+	// iCDF[0] = 256 - (256 >> nBitsHeader), but compute with int then cast
+	iCDFVal := 256 - (256 >> uint(nBitsHeader))
+	iCDF := [2]uint8{uint8(iCDFVal), 0}
+	re.EncodeICDF(0, iCDF[:], 8)
+
+	// Step 2: Encode stereo prediction weights
 	e.silkEncoder.EncodeStereoWeightsToRange(weights)
 
-	// Encode mid channel with main SILK encoder
+	// Step 3: Encode mid channel (skip VAD/LBRR since we handle them above)
 	_ = e.silkEncoder.EncodeFrame(mid, true)
 
-	// Encode side channel with side SILK encoder (uses same range encoder)
-	e.silkSideEncoder.SetRangeEncoder(e.silkEncoder.GetRangeEncoderPtr())
+	// Step 4: Encode side channel
+	e.silkSideEncoder.SetRangeEncoder(re)
 	_ = e.silkSideEncoder.EncodeFrame(side, true)
+
+	// Step 5: Patch initial bits with actual VAD+LBRR flags
+	// Format: [VAD_mid][LBRR_mid][VAD_side][LBRR_side]
+	// VAD=1 (active), LBRR=0 (no FEC data)
+	flags := uint32(0)
+	flags |= 1 << 3 // VAD_mid = 1
+	flags |= 0 << 2 // LBRR_mid = 0
+	flags |= 1 << 1 // VAD_side = 1
+	flags |= 0 << 0 // LBRR_side = 0
+	re.PatchInitialBits(flags, uint(nBitsHeader))
 }
 
 // min returns the smaller of two ints.
