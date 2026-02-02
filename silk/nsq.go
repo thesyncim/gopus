@@ -114,6 +114,9 @@ type NSQParams struct {
 	// LPC prediction coefficients (Q12)
 	PredCoefQ12 []int16
 
+	// NLSF interpolation coefficient (Q2). 4 means no interpolation.
+	NLSFInterpCoefQ2 int
+
 	// LTP coefficients (Q14), 5 per subframe
 	LTPCoefQ14 []int16
 
@@ -241,7 +244,10 @@ func NoiseShapeQuantize(nsq *NSQState, input []int16, params *NSQParams) ([]int8
 	}
 
 	// Check LSF interpolation
-	lsfInterpFlag := 1 // Assume interpolation enabled
+	lsfInterpFlag := 1
+	if params.NLSFInterpCoefQ2 == 4 {
+		lsfInterpFlag = 0
+	}
 
 	// Set up pointers
 	nsq.sLTPShpBufIdx = ltpMemLength

@@ -79,8 +79,12 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	lsfFloat := ensureFloat64Slice(&e.scratchLSFFloat, order)
 	lsfQ15 := ensureInt16Slice(&e.scratchLSFQ15, order)
 	lpcToLSFEncodeInto(lpcQ12, lsfQ15, lpc, pBuf, qBuf, lsfFloat)
-	stage1Idx, residuals, interpIdx := e.quantizeLSF(lsfQ15, e.bandwidth, signalType)
+	stage1Idx, residuals, interpIdx := e.quantizeLSF(lsfQ15, e.bandwidth, signalType, speechActivityQ8, numSubframes)
 	e.encodeLSF(stage1Idx, residuals, interpIdx, e.bandwidth, signalType)
+	// Reconstruct quantized NLSF and build predictor coefficients for NSQ.
+	lsfQ15 = e.decodeQuantizedNLSF(stage1Idx, residuals, e.bandwidth)
+	predCoefQ12 := ensureInt16Slice(&e.scratchPredCoefQ12, 2*maxLPCOrder)
+	interpIdx = e.buildPredCoefQ12(predCoefQ12, lsfQ15, interpIdx)
 
 	// Step 6: Pitch detection and LTP (voiced only)
 	var pitchLags []int
@@ -122,7 +126,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	}
 
 	// Use NSQ for proper noise-shaped quantization
-	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, gainsQ16, pitchLags, ltpCoeffs, signalType, quantOffset, seed, numSubframes, subframeSamples, frameSamples)
+	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, signalType, quantOffset, seed, numSubframes, subframeSamples, frameSamples)
 
 	// Encode ALL pulses for the entire frame at once
 	e.encodePulses(allExcitation, signalType, quantOffset)
@@ -152,7 +156,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 
 // computeNSQExcitation computes excitation using Noise Shaping Quantization.
 // This provides proper libopus-matching noise shaping for better audio quality.
-func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, gainsQ16 []int32, pitchLags []int, ltpCoeffs LTPCoeffsArray, signalType, quantOffset, seed, numSubframes, subframeSamples, frameSamples int) []int32 {
+func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ12 []int16, nlsfInterpQ2 int, gainsQ16 []int32, pitchLags []int, ltpCoeffs LTPCoeffsArray, signalType, quantOffset, seed, numSubframes, subframeSamples, frameSamples int) []int32 {
 	// Convert PCM to int16 for NSQ using scratch buffer
 	inputQ0 := ensureInt16Slice(&e.scratchInputQ0, frameSamples)
 	for i := 0; i < frameSamples && i < len(pcm); i++ {
@@ -219,14 +223,17 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, gainsQ16 [
 		}
 	}
 
-	// Prediction coefficients - replicate for both subframe groups, using scratch buffer
-	predCoefQ12 := ensureInt16Slice(&e.scratchPredCoefQ12, 2*maxLPCOrder)
-	for i := range predCoefQ12 {
-		predCoefQ12[i] = 0 // Clear
-	}
-	for i := 0; i < len(lpcQ12) && i < maxLPCOrder; i++ {
-		predCoefQ12[i] = lpcQ12[i]
-		predCoefQ12[maxLPCOrder+i] = lpcQ12[i]
+	// Prediction coefficients (quantized NLSF -> LPC). Expect caller-provided buffer.
+	if len(predCoefQ12) < 2*maxLPCOrder {
+		predCoefQ12 = ensureInt16Slice(&e.scratchPredCoefQ12, 2*maxLPCOrder)
+		for i := range predCoefQ12 {
+			predCoefQ12[i] = 0
+		}
+		for i := 0; i < len(lpcQ12) && i < maxLPCOrder; i++ {
+			predCoefQ12[i] = lpcQ12[i]
+			predCoefQ12[maxLPCOrder+i] = lpcQ12[i]
+		}
+		nlsfInterpQ2 = 4
 	}
 
 	// Harmonic shaping gain (Q14) - based on voicing, using scratch buffers
@@ -255,6 +262,7 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, gainsQ16 [
 		SignalType:       signalType,
 		QuantOffsetType:  quantOffset,
 		PredCoefQ12:      predCoefQ12,
+		NLSFInterpCoefQ2: nlsfInterpQ2,
 		LTPCoefQ14:       ltpCoefQ14,
 		ARShpQ13:         arShpQ13,
 		HarmShapeGainQ14: harmShapeGainQ14,
@@ -426,8 +434,12 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 	lsfFloat := ensureFloat64Slice(&e.scratchLSFFloat, order)
 	lsfQ15 := ensureInt16Slice(&e.scratchLSFQ15, order)
 	lpcToLSFEncodeInto(lpcQ12, lsfQ15, lpc, pBuf, qBuf, lsfFloat)
-	stage1Idx, residuals, interpIdx := e.quantizeLSF(lsfQ15, e.bandwidth, signalType)
+	stage1Idx, residuals, interpIdx := e.quantizeLSF(lsfQ15, e.bandwidth, signalType, speechActivityQ8, numSubframes)
 	e.encodeLSF(stage1Idx, residuals, interpIdx, e.bandwidth, signalType)
+	// Reconstruct quantized NLSF and build predictor coefficients for NSQ.
+	lsfQ15 = e.decodeQuantizedNLSF(stage1Idx, residuals, e.bandwidth)
+	predCoefQ12 := ensureInt16Slice(&e.scratchPredCoefQ12, 2*maxLPCOrder)
+	interpIdx = e.buildPredCoefQ12(predCoefQ12, lsfQ15, interpIdx)
 
 	// Step 6: Pitch detection and LTP (voiced only)
 	var pitchLags []int
@@ -463,7 +475,7 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 		frameSamples = len(pcm)
 	}
 
-	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, gainsQ16, pitchLags, ltpCoeffs, signalType, quantOffset, seed, numSubframes, subframeSamples, frameSamples)
+	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, signalType, quantOffset, seed, numSubframes, subframeSamples, frameSamples)
 	e.encodePulses(allExcitation, signalType, quantOffset)
 
 	// Update state

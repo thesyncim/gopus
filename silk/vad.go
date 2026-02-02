@@ -41,11 +41,12 @@ func (e *Encoder) classifyFrame(pcm []float32) (signalType, quantOffset int) {
 	config := GetBandwidthConfig(e.bandwidth)
 	periodicity := e.computePeriodicity(pcm, config.PitchLagMin, config.PitchLagMax)
 
-	// Classification logic per draft-vos-silk-01
-	const voicedThreshold = 0.5    // Normalized periodicity threshold
-	const highQuantThreshold = 0.7 // For quantization offset
+	// Classification logic per draft-vos-silk-01 (tuned for tonal signals)
+	const voicedThreshold = 0.4         // Normalized periodicity threshold
+	const voicedShortCorrThreshold = 0.8 // Short-term correlation fallback
+	const highQuantThreshold = 0.6      // For quantization offset
 
-	if periodicity > voicedThreshold {
+	if periodicity > voicedThreshold || shortTermCorr > voicedShortCorrThreshold {
 		signalType = 2 // Voiced
 	} else {
 		signalType = 1 // Unvoiced

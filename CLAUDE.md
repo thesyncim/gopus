@@ -179,6 +179,30 @@ Always use this reference when implementing features or debugging discrepancies.
    - ConcealCELTInto writes to caller buffer
    - Scratch buffer in CELT decoder
 
+### Session 10: Hybrid CELT Parity (In Progress)
+1. ✅ **Hybrid CELT Energy Range Coding** - `celt/energy_encode.go`
+   - Range-limited coarse/fine/finalize helpers for start..end bands
+   - Hybrid encoder now uses `EncodeCoarseEnergyRange`, `EncodeFineEnergyRange`, `EncodeEnergyFinaliseRange`
+2. ✅ **Hybrid PVQ Path Alignment** - `encoder/hybrid.go`, `celt/hybrid_encode_helpers.go`
+   - Hybrid now uses `NormalizeBandsToArray*` + `quant_all_bands` (PVQ search)
+   - TF/spread/dynalloc/trim bits encoded with decoder-aligned gating
+   - Proper `bandE` passed for stereo decisions and theta RDO
+3. ✅ **Hybrid Analysis Port** - `encoder/hybrid.go`, `celt/hybrid_encode_helpers.go`
+   - Transient analysis + short-block MDCT for hybrid CELT
+   - Dynalloc + TF analysis + spread decision integrated
+   - Alloc trim analysis now uses `ComputeEquivRate` with hybrid bit budget
+4. ✅ **Dynalloc Scratch Resizing** - `celt/dynalloc.go`
+   - Fix slice length reuse when nbBands changes between frames
+5. ✅ **Hybrid Pre-Processing Alignment** - `encoder/hybrid.go`, `celt/hybrid_encode_helpers.go`
+   - Apply DC reject + CELT delay compensation before hybrid delay/gain fade
+   - Default intensity set to `nbBands` (disable intensity stereo unless chosen by allocator)
+6. ✅ **PVQ Resynthesis Enabled** - `celt/bands_quant.go`
+   - Encoder now resynthesizes PVQ output for lowband folding
+   - Matches libopus RESYNTH behavior and avoids folding with unquantized lowbands
+7. ✅ **TF Fallback Encoding Fix** - `encoder/hybrid.go`
+   - Hybrid fallback path now uses budget‑aware `TFEncodeWithSelect`
+   - Ensures `tfRes` is converted to actual TF change values before PVQ
+
 ---
 
 ## Known Issues & Debugging Notes
@@ -196,6 +220,10 @@ Always use this reference when implementing features or debugging discrepancies.
 | TestDTXSuppressesSilence | Fixed after sigmQ15 fix | 2026-02-01 |
 | TestDetectPitchVoicedSignal | Fixed by removing duplicate functions | 2026-02-01 |
 | Duplicate functions in multiple files | Removed by round-trip test agent | 2026-02-01 |
+| Encoder compliance/bitexact packets reused scratch buffer | Copy packets before storing (real Ogg stream) | 2026-02-02 |
+| SILK 10ms NSQ panic | Derive subframe count from PCM length (not fixed 4) | 2026-02-02 |
+| SILK voiced frames missing LTP scale index | Encode LTP scale index (matches NSQ LTPScaleQ14) | 2026-02-02 |
+| SILK NLSF quantization too naive | Ported libopus MSVQ + delayed decision quantizer | 2026-02-02 |
 
 ### KNOWN PRECISION DIFFERENCES (Expected)
 
@@ -211,11 +239,10 @@ is below production targets. This is a known work-in-progress area.
 **Current measured quality (encode with gopus → decode with libopus/opusdec):**
 | Mode | SNR | Q-value | Status |
 |------|-----|---------|--------|
-| CELT mono | ~-1 to 0 dB | Q ~ -100 | Baseline |
-| CELT stereo | ~-2 dB | Q ~ -104 | Baseline |
-| SILK NB | ~0 dB | Q ~ -100 | Baseline |
-| SILK WB | ~-6 dB | Q ~ -112 | Baseline |
-| Hybrid | ~-8 dB | Q ~ -117 | Baseline |
+| CELT mono | ~36-39 dB | Q ~ -25 to -19 | GOOD |
+| CELT stereo | ~31 dB | Q ~ -35 | GOOD |
+| SILK NB/WB | ~-3.2 to -0.2 dB | Q ~ -107 to -100 | Improving |
+| Hybrid (SWB/FB) | ~-3.6 to -1.9 dB | Q ~ -107 to -104 | Improving |
 
 **Production targets (libopus-comparable):**
 - Music (CELT): Q >= 0 (48 dB SNR)
@@ -227,13 +254,15 @@ test status will transition: BASE → GOOD → PASS.
 
 ### ENCODER QUALITY ROOT CAUSE ANALYSIS (Updated 2026-02-02)
 
-Investigation findings from roundtrip testing (gopus encoder → gopus decoder):
+**Resolved measurement bug (do not re-debug):**
+- Encoder compliance and bit‑exact tests stored slices backed by the encoder’s scratch packet buffer.
+- Result: all packets in the Ogg stream collapsed to the final frame → garbage audio → ~0 dB SNR.
+- Fix: copy packets before storing (`testvectors/encoder_compliance_test.go`, `testvectors/bitexact_test.go`).
 
-**Current symptoms (Q ~ -100):**
-- SNR: ~-1.6 dB (target: 48 dB)
-- Correlation: ~0.14 (weak positive, some frames show **negative** correlation)
-- Sign inversion: 126 inverted vs 67 same sign in samples 200-400
-- Amplitude ratio: ~0.63 (decoded is 63% of original amplitude)
+**Actual current status (post-fix):**
+- CELT quality now ~31–39 dB SNR (Q ~ -35 to -19) with opusdec.
+- SILK/Hybrid improved but still low: SILK SNR ~-3.2 to -0.2 dB (Q ~ -107 to -100), Hybrid SNR ~-3.6 to -1.9 dB (Q ~ -107 to -104).
+- SILK voiced round-trip RMS improved from ~0.035 to ~0.62 after LTP scale index fix (compliance signal may still classify unvoiced).
 
 **Components verified as WORKING CORRECTLY:**
 1. ✅ **CWRS encoding/decoding** - Signs preserved perfectly in pulse roundtrip
@@ -244,23 +273,24 @@ Investigation findings from roundtrip testing (gopus encoder → gopus decoder):
 
 **DO NOT re-investigate these components - they are verified working.**
 
-**Prime suspects (NOT YET VERIFIED):**
-1. **Band normalization flow** - Encoder divides by gain, decoder multiplies
-   - Check if `NormalizeBands` and `denormalizeCoeffs` use same energy basis
-   - Check if quantized vs unquantized energies are being mixed
+**Prime suspects (NOT YET VERIFIED, focus: SILK/Hybrid):**
+1. **SILK resampling / bandwidth alignment** - Verify 48 kHz → SILK rate path and frame buffering
+2. **SILK bitrate distribution / NSQ** - Check noise‑shaping quantizer parity with libopus
+3. **Hybrid lowband/highband handoff** - Confirm split energy and gain matching across the 8 kHz boundary
 
-2. **Pre-emphasis/de-emphasis chain** - May have sign or phase issues
-   - Encoder: `preemph[i] = val - 0.85*mem`
-   - Decoder: `deemph[i] = out[i] + 0.85*mem`
-   - These should be inverses but may have implementation mismatch
+**Code parity checks (2026-02-02):**
+- CELT encode path uses `NormalizeBandsToArrayInto` (linear band amplitudes from MDCT) for PVQ input, matching libopus `normalise_bands()` behavior.
+- Pre-emphasis/de-emphasis path uses float32 state and `CELTSigScale=32768` with decoder scaling `1/32768`, matching libopus float path.
+- `quant_all_bands` resynth is enabled only when theta RDO is active (stereo, complexity>=8), matching libopus; lowband folding is disabled when resynth is off.
 
-3. **Encoder input scaling** - Check CELTSigScale application
-   - Encoder multiplies by CELTSigScale before MDCT
-   - Decoder divides by CELTSigScale after synthesis
+**Hybrid CELT parity status:**
+- Hybrid CELT encoding path aligned with main CELT: `quant_all_bands`, linear normalization, range-limited energy coding for bands 17..end, plus transient/TF/spread/dynalloc analysis.
+- Remaining gap: hybrid uses simplified bit budget estimates (derived from CELT bitrate), could be refined if quality still lags.
 
-4. **The `resynth` flag** - Controls whether encoder reconstructs signal
-   - If resynth=false, encoder may not update internal state correctly
-   - Check if decoder expects state that encoder didn't write
+**Quality suspect resolved:**
+- Encoder PVQ resynth was disabled except for theta RDO, which caused folding to use unquantized lowbands. Resynth is now always enabled in the encoder path.
+- Hybrid fallback TF encoding used a non‑budgeted path without converting `tfRes` to TF change values. Now fixed with `TFEncodeWithSelect`.
+- SILK NLSF quantization now uses libopus MSVQ + delayed decision with Laroia weights; NSQ uses quantized NLSF prediction coefficients (interpolation-aware).
 
 **Next debugging step:**
 Create a minimal test that:

@@ -156,7 +156,7 @@ func TestQuantizeLSF(t *testing.T) {
 		lsfQ15[i] = int16((i + 1) * 32767 / (config.LPCOrder + 1))
 	}
 
-	stage1Idx, residuals, interpIdx := enc.quantizeLSF(lsfQ15, BandwidthWideband, 2)
+	stage1Idx, residuals, interpIdx := enc.quantizeLSF(lsfQ15, BandwidthWideband, 2, 200, 4)
 
 	// Verify stage1 index is valid
 	if stage1Idx < 0 || stage1Idx >= 32 {
@@ -191,7 +191,7 @@ func TestQuantizeLSFNarrowband(t *testing.T) {
 		lsfQ15[i] = int16((i + 1) * 32767 / (config.LPCOrder + 1))
 	}
 
-	stage1Idx, residuals, interpIdx := enc.quantizeLSF(lsfQ15, BandwidthNarrowband, 1)
+	stage1Idx, residuals, interpIdx := enc.quantizeLSF(lsfQ15, BandwidthNarrowband, 1, 200, 4)
 
 	// Verify stage1 index is valid (NB/MB has fewer entries in ICDF)
 	if stage1Idx < 0 || stage1Idx >= 25 { // ICDFLSFStage1NBMBUnvoiced has 24 symbols
@@ -224,7 +224,7 @@ func TestLSFEncodeDecode(t *testing.T) {
 		lsfQ15[i] = int16((i + 1) * 30000 / (config.LPCOrder + 1))
 	}
 
-	stage1Idx, residuals, _ := enc.quantizeLSF(lsfQ15, BandwidthNarrowband, 1)
+	stage1Idx, residuals, _ := enc.quantizeLSF(lsfQ15, BandwidthNarrowband, 1, 200, 4)
 
 	// Verify stage1Idx is in valid range
 	if stage1Idx < 0 || stage1Idx >= cb.nVectors {

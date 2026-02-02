@@ -34,6 +34,10 @@ const (
 	codeConditionally             = 2
 
 	nlsfQuantMaxAmplitude = 4
+	nlsfQuantMaxAmplitudeExt = 10
+	nlsfQuantDelDecStatesLog2 = 2
+	nlsfQuantDelDecStates = 1 << nlsfQuantDelDecStatesLog2
+	nlsfWQ = 2
 	bweAfterLossQ16       = 63570
 	nlsfQuantLevelAdjQ10  = 102
 	lsfCosTabSizeFix    = 128

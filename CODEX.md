@@ -223,6 +223,7 @@ Always use this reference when implementing features or debugging discrepancies.
 | Encoder compliance/bitexact packets reused scratch buffer | Copy packets before storing (real Ogg stream) | 2026-02-02 |
 | SILK 10ms NSQ panic | Derive subframe count from PCM length (not fixed 4) | 2026-02-02 |
 | SILK voiced frames missing LTP scale index | Encode LTP scale index (matches NSQ LTPScaleQ14) | 2026-02-02 |
+| SILK NLSF quantization too naive | Ported libopus MSVQ + delayed decision quantizer | 2026-02-02 |
 
 ### KNOWN PRECISION DIFFERENCES (Expected)
 
@@ -240,8 +241,8 @@ is below production targets. This is a known work-in-progress area.
 |------|-----|---------|--------|
 | CELT mono | ~36-39 dB | Q ~ -25 to -19 | GOOD |
 | CELT stereo | ~31 dB | Q ~ -35 | GOOD |
-| SILK NB/WB | ~-5 to 0 dB | Q ~ -110 to -100 | Baseline |
-| Hybrid (SWB/FB) | ~-7 to -3 dB | Q ~ -115 to -105 | Baseline |
+| SILK NB/WB | ~-3.2 to -0.2 dB | Q ~ -107 to -100 | Improving |
+| Hybrid (SWB/FB) | ~-3.6 to -1.9 dB | Q ~ -107 to -104 | Improving |
 
 **Production targets (libopus-comparable):**
 - Music (CELT): Q >= 0 (48 dB SNR)
@@ -260,7 +261,7 @@ test status will transition: BASE → GOOD → PASS.
 
 **Actual current status (post-fix):**
 - CELT quality now ~31–39 dB SNR (Q ~ -35 to -19) with opusdec.
-- SILK/Hybrid remain low (SNR ~-7 to 0 dB) and still need work.
+- SILK/Hybrid improved but still low: SILK SNR ~-3.2 to -0.2 dB (Q ~ -107 to -100), Hybrid SNR ~-3.6 to -1.9 dB (Q ~ -107 to -104).
 - SILK voiced round-trip RMS improved from ~0.035 to ~0.62 after LTP scale index fix (compliance signal may still classify unvoiced).
 
 **Components verified as WORKING CORRECTLY:**
@@ -289,6 +290,7 @@ test status will transition: BASE → GOOD → PASS.
 **Quality suspect resolved:**
 - Encoder PVQ resynth was disabled except for theta RDO, which caused folding to use unquantized lowbands. Resynth is now always enabled in the encoder path.
 - Hybrid fallback TF encoding used a non‑budgeted path without converting `tfRes` to TF change values. Now fixed with `TFEncodeWithSelect`.
+- SILK NLSF quantization now uses libopus MSVQ + delayed decision with Laroia weights; NSQ uses quantized NLSF prediction coefficients (interpolation-aware).
 
 **Next debugging step:**
 Create a minimal test that:

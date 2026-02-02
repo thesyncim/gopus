@@ -28,9 +28,33 @@ func silkNLSFResidualDequant(xQ10 []int16, indices []int8, predQ8 []uint8, quant
 }
 
 func silkNLSFDecode(nlsfQ15 []int16, indices []int8, cb *nlsfCB) {
-	ecIx := make([]int16, maxLPCOrder)
-	predQ8 := make([]uint8, maxLPCOrder)
-	resQ10 := make([]int16, maxLPCOrder)
+	var ecIx [maxLPCOrder]int16
+	var predQ8 [maxLPCOrder]uint8
+	var resQ10 [maxLPCOrder]int16
+
+	silkNLSFDecodeInto(nlsfQ15, indices, cb, ecIx[:], predQ8[:], resQ10[:])
+}
+
+// silkNLSFDecodeInto decodes NLSF values using caller-provided scratch buffers.
+// This avoids allocations in hot paths.
+func silkNLSFDecodeInto(nlsfQ15 []int16, indices []int8, cb *nlsfCB, ecIx []int16, predQ8 []uint8, resQ10 []int16) {
+	if cb == nil || len(indices) < cb.order+1 || len(nlsfQ15) < cb.order {
+		return
+	}
+
+	if len(ecIx) < cb.order {
+		return
+	}
+	if len(predQ8) < cb.order {
+		return
+	}
+	if len(resQ10) < cb.order {
+		return
+	}
+
+	ecIx = ecIx[:cb.order]
+	predQ8 = predQ8[:cb.order]
+	resQ10 = resQ10[:cb.order]
 
 	silkNLSFUnpack(ecIx, predQ8, cb, int(indices[0]))
 	silkNLSFResidualDequant(resQ10, indices[1:], predQ8, cb.quantStepSizeQ16, cb.order)

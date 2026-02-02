@@ -225,6 +225,7 @@ func (e *Encoder) computeLBRRPulses(
 		SignalType:       signalType,
 		QuantOffsetType:  quantOffset,
 		PredCoefQ12:      predCoefQ12,
+		NLSFInterpCoefQ2: 4,
 		LTPCoefQ14:       ltpCoefQ14,
 		ARShpQ13:         arShpQ13,
 		HarmShapeGainQ14: harmShapeGainQ14,

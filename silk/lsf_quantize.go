@@ -2,13 +2,11 @@ package silk
 
 import "math"
 
-// quantizeLSF quantizes LSF coefficients using two-stage VQ per libopus.
+// quantizeLSF quantizes LSF coefficients using libopus-aligned MSVQ.
 // Returns stage1 index, stage2 residuals (as NLSFIndices[1:order+1]), and interpolation index.
-// Per RFC 6716 Section 4.2.7.5.
-// Uses libopus tables from libopus_tables.go and libopus_codebook.go
-func (e *Encoder) quantizeLSF(lsfQ15 []int16, bandwidth Bandwidth, signalType int) (int, []int, int) {
+// Per RFC 6716 Section 4.2.7.5 and libopus silk/process_NLSFs.c.
+func (e *Encoder) quantizeLSF(lsfQ15 []int16, bandwidth Bandwidth, signalType int, speechActivityQ8 int, numSubframes int) (int, []int, int) {
 	isWideband := bandwidth == BandwidthWideband
-	lpcOrder := len(lsfQ15)
 
 	// Select codebook based on bandwidth
 	var cb *nlsfCB
@@ -18,17 +16,54 @@ func (e *Encoder) quantizeLSF(lsfQ15 []int16, bandwidth Bandwidth, signalType in
 		cb = &silk_NLSF_CB_NB_MB
 	}
 
-	// Stage 1: Find best codebook entry
-	stypeBand := signalType >> 1 // 0 for unvoiced/inactive, 1 for voiced
-	bestStage1 := e.searchStage1CodebookLibopus(lsfQ15, cb, stypeBand)
+	order := cb.order
+	if len(lsfQ15) < order {
+		residuals := ensureIntSlice(&e.scratchLsfResiduals, order)
+		for i := range residuals {
+			residuals[i] = 0
+		}
+		return 0, residuals, 4
+	}
 
-	// Stage 2: Compute residual indices per coefficient
-	residuals := e.computeStage2ResidualsLibopus(lsfQ15, bestStage1, cb)
+	// Stabilize NLSFs before quantization
+	silkNLSFStabilize(lsfQ15[:order], cb.deltaMinQ15, order)
 
 	// Compute interpolation index (blend with previous frame)
-	interpIdx := e.computeInterpolationIndex(lsfQ15, lpcOrder)
+	interpIdx := e.computeInterpolationIndex(lsfQ15, order)
 
-	return bestStage1, residuals, interpIdx
+	// Compute NLSF weights (Laroia)
+	wQ2 := ensureInt16Slice(&e.scratchNLSFWeights, order)
+	silkNLSFWeightsLaroia(wQ2, lsfQ15, order)
+
+	// Update weights if interpolation is used
+	if interpIdx < 4 && e.haveEncoded {
+		nlsf0 := ensureInt16Slice(&e.scratchNLSFTempQ15, order)
+		for i := 0; i < order; i++ {
+			diff := int32(lsfQ15[i]) - int32(e.prevLSFQ15[i])
+			nlsf0[i] = int16(int32(e.prevLSFQ15[i]) + (int32(interpIdx)*diff >> 2))
+		}
+		w0Q2 := ensureInt16Slice(&e.scratchNLSFWeightsTmp, order)
+		silkNLSFWeightsLaroia(w0Q2, nlsf0, order)
+
+		iSqrQ15 := int32(silkLSHIFT(silkSMULBB(int32(interpIdx), int32(interpIdx)), 11))
+		for i := 0; i < order; i++ {
+			adj := silkRSHIFT(silkSMULBB(int32(w0Q2[i]), iSqrQ15), 16)
+			wQ2[i] = int16((int32(wQ2[i]) >> 1) + adj)
+		}
+	}
+
+	muQ20 := computeNLSFMuQ20(speechActivityQ8, numSubframes)
+	nSurvivors := 8
+	if nSurvivors > cb.nVectors {
+		nSurvivors = cb.nVectors
+	}
+	if nSurvivors < 2 {
+		nSurvivors = 2
+	}
+
+	stage1Idx, residuals := e.nlsfEncode(lsfQ15, cb, wQ2, muQ20, nSurvivors, signalType)
+
+	return stage1Idx, residuals, interpIdx
 }
 
 // searchStage1CodebookLibopus finds the best stage 1 codebook entry per libopus.
@@ -224,6 +259,84 @@ func (e *Encoder) computeInterpolationIndex(lsfQ15 []int16, order int) int {
 		return 3
 	}
 	return 4 // No interpolation
+}
+
+// decodeQuantizedNLSF reconstructs the quantized NLSF (Q15) from stage1 index and residuals.
+// This mirrors the decoder's silkNLSFDecode path and avoids allocations via encoder scratch buffers.
+func (e *Encoder) decodeQuantizedNLSF(stage1Idx int, residuals []int, bandwidth Bandwidth) []int16 {
+	// Select codebook based on bandwidth
+	var cb *nlsfCB
+	if bandwidth == BandwidthWideband {
+		cb = &silk_NLSF_CB_WB
+	} else {
+		cb = &silk_NLSF_CB_NB_MB
+	}
+
+	order := cb.order
+	nlsfQ15 := ensureInt16Slice(&e.scratchLSFQ15, order)
+
+	indices := ensureInt8Slice(&e.scratchNLSFIndices, order+1)
+	indices[0] = int8(stage1Idx)
+	for i := 0; i < order; i++ {
+		if i < len(residuals) {
+			indices[i+1] = int8(residuals[i])
+		} else {
+			indices[i+1] = 0
+		}
+	}
+
+	ecIx := ensureInt16Slice(&e.scratchEcIx, order)
+	predQ8 := ensureUint8Slice(&e.scratchPredQ8, order)
+	resQ10 := ensureInt16Slice(&e.scratchResQ10, order)
+	silkNLSFDecodeInto(nlsfQ15, indices, cb, ecIx, predQ8, resQ10)
+
+	return nlsfQ15
+}
+
+// buildPredCoefQ12 constructs prediction coefficients for NSQ using quantized NLSF.
+// Returns the effective interpolation index (may be forced to 4 on failure).
+func (e *Encoder) buildPredCoefQ12(predCoefQ12 []int16, nlsfQ15 []int16, interpIdx int) int {
+	order := len(nlsfQ15)
+	if order > maxLPCOrder {
+		order = maxLPCOrder
+	}
+
+	// Clear the destination buffer to avoid stale coefficients.
+	for i := range predCoefQ12 {
+		predCoefQ12[i] = 0
+	}
+
+	// Compute LPC from current NLSF (goes into second set).
+	curr := predCoefQ12[maxLPCOrder : maxLPCOrder+order]
+	if !silkNLSF2A(curr, nlsfQ15[:order], order) {
+		lpc := lsfToLPCDirect(nlsfQ15[:order])
+		copy(curr, lpc[:order])
+		interpIdx = 4
+	}
+
+	// Handle interpolation for first subframes when allowed.
+	if interpIdx < 4 && e.haveEncoded {
+		var interpNLSF [maxLPCOrder]int16
+		for i := 0; i < order; i++ {
+			diff := int32(nlsfQ15[i]) - int32(e.prevLSFQ15[i])
+			interpNLSF[i] = int16(int32(e.prevLSFQ15[i]) + (int32(interpIdx)*diff >> 2))
+		}
+		first := predCoefQ12[:order]
+		if !silkNLSF2A(first, interpNLSF[:order], order) {
+			lpc := lsfToLPCDirect(interpNLSF[:order])
+			copy(first, lpc[:order])
+			interpIdx = 4
+		}
+	} else {
+		interpIdx = 4
+	}
+
+	// If interpolation disabled, use current coefficients for both sets.
+	if interpIdx >= 4 {
+		copy(predCoefQ12[:order], predCoefQ12[maxLPCOrder:maxLPCOrder+order])
+	}
+
+	return interpIdx
 }
 
 // encodeLSF encodes quantized LSF to bitstream per libopus.

@@ -120,9 +120,13 @@ type Encoder struct {
 
 	// LSF quantization scratch buffers
 	scratchLsfResiduals []int   // computeStage2ResidualsLibopus: residuals
-	scratchEcIx         []int16 // computeStage2ResidualsLibopus / encodeLSF: ecIx
-	scratchPredQ8       []uint8 // computeStage2ResidualsLibopus / encodeLSF: predQ8
-	scratchResQ10       []int16 // computeStage2ResidualsLibopus: resQ10
+	scratchEcIx         []int16 // computeStage2ResidualsLibopus / NLSF decode: ecIx
+	scratchPredQ8       []uint8 // computeStage2ResidualsLibopus / NLSF decode: predQ8
+	scratchResQ10       []int16 // computeStage2ResidualsLibopus / NLSF decode: resQ10
+	scratchNLSFIndices  []int8  // NLSF decode indices (stage1 + residuals)
+	scratchNLSFWeights  []int16 // NLSF VQ weights (Laroia)
+	scratchNLSFWeightsTmp []int16 // NLSF weights for interpolated vector
+	scratchNLSFTempQ15  []int16 // Interpolated NLSF scratch
 
 	// Gain encoding scratch buffers
 	scratchGains        []float32 // computeSubframeGains: output gains
