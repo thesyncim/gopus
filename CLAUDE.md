@@ -203,6 +203,22 @@ Always use this reference when implementing features or debugging discrepancies.
    - Hybrid fallback path now uses budget‑aware `TFEncodeWithSelect`
    - Ensures `tfRes` is converted to actual TF change values before PVQ
 
+### Session 11: SILK Noise Shaping Analysis (Complete)
+1. ✅ **Float-to-Int16 Scaling Fix** - `silk/encode_frame.go`
+   - Fixed asymmetric scaling (32767.0 → 32768.0)
+   - Matches libopus and resample_libopus.go behavior
+2. ✅ **Adaptive Noise Shaping Parameters** - `silk/noise_shape.go`
+   - New NoiseShapeState struct for smoothed parameters
+   - ComputeNoiseShapeParams() ports libopus noise_shape_analysis_FLP.c
+   - Adaptive HarmShapeGain based on LTP correlation and signal type
+   - Adaptive Tilt (spectral noise tilt) with HP noise shaping
+   - Adaptive LF_shp (low-frequency shaping) based on pitch lag
+   - Adaptive Lambda (R-D tradeoff) from speech activity, quality, quant offset
+   - Tuning constants from libopus: HARMONIC_SHAPING=0.3, HP_NOISE_COEF=0.25, LAMBDA_OFFSET=1.2
+3. ✅ **LTP Correlation Tracking** - `silk/encode_frame.go`, `silk/encoder.go`
+   - Added ltpCorr field to Encoder struct
+   - Updates from pitch detection for noise shaping
+
 ---
 
 ## Known Issues & Debugging Notes
@@ -239,14 +255,22 @@ is below production targets. This is a known work-in-progress area.
 **Current measured quality (encode with gopus → decode with libopus/opusdec):**
 | Mode | SNR | Q-value | Status |
 |------|-----|---------|--------|
-| CELT mono | ~36-39 dB | Q ~ -25 to -19 | GOOD |
-| CELT stereo | ~31 dB | Q ~ -35 | GOOD |
-| SILK NB/WB | ~-3.2 to -0.2 dB | Q ~ -107 to -100 | Improving |
-| Hybrid (SWB/FB) | ~-3.6 to -1.9 dB | Q ~ -107 to -104 | Improving |
+| CELT 2.5ms mono | ~24 dB | Q ~ -49 | GOOD |
+| CELT 5ms mono | ~32 dB | Q ~ -34 | GOOD |
+| CELT 10ms mono | ~39 dB | Q ~ -19 | GOOD |
+| CELT 20ms mono | ~36 dB | Q ~ -25 | GOOD |
+| CELT stereo | ~24-26 dB | Q ~ -46 to -51 | GOOD |
+| SILK NB/WB | ~-5 to 0 dB | Q ~ -110 to -100 | BASE |
+| Hybrid (SWB/FB) | ~-3 to -1 dB | Q ~ -106 to -101 | BASE |
 
 **Production targets (libopus-comparable):**
 - Music (CELT): Q >= 0 (48 dB SNR)
 - Speech (SILK): Q >= -15 (40 dB SNR)
+
+**Quality thresholds:**
+- PASS (Production): Q >= 0.0 (48.0 dB SNR) - libopus comparable
+- GOOD (Acceptable): Q >= -50.0 (24.0 dB SNR) - usable quality
+- BASE (Current):    Q >= -125.0 (-12.0 dB SNR) - development baseline
 
 **Note:** The encoder compliance tests (`testvectors/encoder_compliance_test.go`)
 track these metrics and will detect regressions. As encoder quality improves,
@@ -275,8 +299,14 @@ test status will transition: BASE → GOOD → PASS.
 
 **Prime suspects (NOT YET VERIFIED, focus: SILK/Hybrid):**
 1. **SILK resampling / bandwidth alignment** - Verify 48 kHz → SILK rate path and frame buffering
-2. **SILK bitrate distribution / NSQ** - Check noise‑shaping quantizer parity with libopus
+2. **SILK NSQ core quantization** - Verify gain application and state scaling matches libopus exactly
 3. **Hybrid lowband/highband handoff** - Confirm split energy and gain matching across the 8 kHz boundary
+4. **SILK LPC coefficient application** - Check prediction filter in NSQ loop
+
+**SILK noise shaping resolved (2026-02-02):**
+- Implemented adaptive noise shaping parameters (HarmShapeGain, Tilt, LF_shp, Lambda) in silk/noise_shape.go
+- Parameters now adapt to signal type, speech activity, LTP correlation, coding quality
+- Fixed float-to-int16 scaling asymmetry (32767→32768)
 
 **Code parity checks (2026-02-02):**
 - CELT encode path uses `NormalizeBandsToArrayInto` (linear band amplitudes from MDCT) for PVQ input, matching libopus `normalise_bands()` behavior.

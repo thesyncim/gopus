@@ -119,8 +119,9 @@ type Encoder struct {
 	hybridState *HybridState
 
 	// SILK downsampling (48kHz -> SILK bandwidth rate) for SILK-only mode
-	silkResampler     *silk.LibopusResampler
-	silkResamplerRight *silk.LibopusResampler
+	// Uses DownsamplingResampler with proper AR2+FIR algorithm (not IIR_FIR upsampling)
+	silkResampler     *silk.DownsamplingResampler
+	silkResamplerRight *silk.DownsamplingResampler
 	silkResamplerRate int
 	silkResampled     []float32
 	silkResampledR    []float32
@@ -653,16 +654,18 @@ func (e *Encoder) ensureSILKResampler(rate int) {
 		return
 	}
 	if e.silkResampler == nil || e.silkResamplerRate != rate {
-		e.silkResampler = silk.NewLibopusResampler(48000, rate)
+		// Use DownsamplingResampler with proper AR2+FIR algorithm for encoder mode
+		// This fixes the critical bug where IIR_FIR upsampling was used for downsampling
+		e.silkResampler = silk.NewDownsamplingResampler(48000, rate)
 		e.silkResamplerRate = rate
 		e.silkResamplerRight = nil
 		if e.channels == 2 {
-			e.silkResamplerRight = silk.NewLibopusResampler(48000, rate)
+			e.silkResamplerRight = silk.NewDownsamplingResampler(48000, rate)
 		}
 		return
 	}
 	if e.channels == 2 && e.silkResamplerRight == nil {
-		e.silkResamplerRight = silk.NewLibopusResampler(48000, rate)
+		e.silkResamplerRight = silk.NewDownsamplingResampler(48000, rate)
 	}
 }
 

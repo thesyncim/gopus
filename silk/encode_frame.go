@@ -94,12 +94,21 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 		pitchLags = e.detectPitch(pcm, numSubframes)
 		e.encodePitchLags(pitchLags, numSubframes)
 
+		// Update LTP correlation for noise shaping (from pitch detection)
+		e.ltpCorr = float32(e.pitchState.ltpCorr)
+		if e.ltpCorr > 1.0 {
+			e.ltpCorr = 1.0
+		}
+
 		periodicity = e.determinePeriodicity(pcm, pitchLags)
 		ltpCoeffs = e.analyzeLTP(pcm, pitchLags, numSubframes, periodicity)
 		e.encodeLTPCoeffs(ltpCoeffs, periodicity, numSubframes)
 		// Encode LTP scale index (required for voiced frames).
 		ltpScaleIndex := 1 // Middle value; matches LTPScaleQ14 used in NSQ.
 		e.rangeEncoder.EncodeICDF(ltpScaleIndex, silk_LTPscale_iCDF, 8)
+	} else {
+		// Reset LTP correlation for unvoiced frames
+		e.ltpCorr = 0
 	}
 
 	// Step 6.5: LBRR Encoding (FEC)
@@ -125,8 +134,8 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 		frameSamples = len(pcm)
 	}
 
-	// Use NSQ for proper noise-shaped quantization
-	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, signalType, quantOffset, seed, numSubframes, subframeSamples, frameSamples)
+	// Use NSQ for proper noise-shaped quantization with adaptive parameters
+	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, signalType, quantOffset, speechActivityQ8, seed, numSubframes, subframeSamples, frameSamples)
 
 	// Encode ALL pulses for the entire frame at once
 	e.encodePulses(allExcitation, signalType, quantOffset)
@@ -156,12 +165,14 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 
 // computeNSQExcitation computes excitation using Noise Shaping Quantization.
 // This provides proper libopus-matching noise shaping for better audio quality.
-func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ12 []int16, nlsfInterpQ2 int, gainsQ16 []int32, pitchLags []int, ltpCoeffs LTPCoeffsArray, signalType, quantOffset, seed, numSubframes, subframeSamples, frameSamples int) []int32 {
+// The noise shaping parameters are computed adaptively based on signal characteristics.
+func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ12 []int16, nlsfInterpQ2 int, gainsQ16 []int32, pitchLags []int, ltpCoeffs LTPCoeffsArray, signalType, quantOffset, speechActivityQ8, seed, numSubframes, subframeSamples, frameSamples int) []int32 {
 	// Convert PCM to int16 for NSQ using scratch buffer
 	inputQ0 := ensureInt16Slice(&e.scratchInputQ0, frameSamples)
 	for i := 0; i < frameSamples && i < len(pcm); i++ {
-		// Scale float to int16 range
-		val := pcm[i] * 32767.0
+		// Scale float to int16 range (symmetric: -1.0→-32768, +1.0→+32768)
+		// Use 32768.0 for symmetric scaling, matching libopus and resample_libopus.go
+		val := pcm[i] * 32768.0
 		if val > 32767 {
 			val = 32767
 		} else if val < -32768 {
@@ -236,23 +247,40 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 		nlsfInterpQ2 = 4
 	}
 
-	// Harmonic shaping gain (Q14) - based on voicing, using scratch buffers
+	// Compute adaptive noise shaping parameters using libopus-matching algorithm
+	// Reference: libopus silk/float/noise_shape_analysis_FLP.c
+	if e.noiseShapeState == nil {
+		e.noiseShapeState = NewNoiseShapeState()
+	}
+
+	// Get sample rate in kHz for noise shaping computation
+	fsKHz := e.sampleRate / 1000
+	if fsKHz < 8 {
+		fsKHz = 8
+	}
+
+	// Compute adaptive noise shaping parameters
+	noiseParams := e.noiseShapeState.ComputeNoiseShapeParams(
+		signalType,
+		speechActivityQ8,
+		e.ltpCorr,
+		pitchL,
+		e.snrDBQ7,
+		quantOffset,
+		numSubframes,
+		fsKHz,
+	)
+
+	// Use the adaptive parameters
 	harmShapeGainQ14 := ensureIntSlice(&e.scratchHarmShapeGainQ14, numSubframes)
 	tiltQ14 := ensureIntSlice(&e.scratchTiltQ14, numSubframes)
 	lfShpQ14 := ensureInt32Slice(&e.scratchLfShpQ14, numSubframes)
-	for sf := 0; sf < numSubframes; sf++ {
-		if signalType == typeVoiced {
-			harmShapeGainQ14[sf] = 4096 // Moderate harmonic shaping
-			tiltQ14[sf] = -2048         // Slight high-frequency emphasis
-		} else {
-			harmShapeGainQ14[sf] = 0
-			tiltQ14[sf] = -4096 // More tilt for unvoiced
-		}
-		lfShpQ14[sf] = 512 // Low-frequency shaping
-	}
+	copy(harmShapeGainQ14, noiseParams.HarmShapeGainQ14)
+	copy(tiltQ14, noiseParams.TiltQ14)
+	copy(lfShpQ14, noiseParams.LFShpQ14)
 
-	// Lambda (rate-distortion tradeoff) - higher = more aggressive quantization
-	lambdaQ10 := 512 // Moderate R-D tradeoff
+	// Lambda (rate-distortion tradeoff) from adaptive computation
+	lambdaQ10 := noiseParams.LambdaQ10
 
 	// LTP scale for first subframe
 	ltpScaleQ14 := silk_LTPScales_table_Q14[1] // Middle value
@@ -449,12 +477,21 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 		pitchLags = e.detectPitch(pcm, numSubframes)
 		e.encodePitchLags(pitchLags, numSubframes)
 
+		// Update LTP correlation for noise shaping (from pitch detection)
+		e.ltpCorr = float32(e.pitchState.ltpCorr)
+		if e.ltpCorr > 1.0 {
+			e.ltpCorr = 1.0
+		}
+
 		periodicity = e.determinePeriodicity(pcm, pitchLags)
 		ltpCoeffs = e.analyzeLTP(pcm, pitchLags, numSubframes, periodicity)
 		e.encodeLTPCoeffs(ltpCoeffs, periodicity, numSubframes)
 		// Encode LTP scale index (required for voiced frames).
 		ltpScaleIndex := 1 // Middle value; matches LTPScaleQ14 used in NSQ.
 		e.rangeEncoder.EncodeICDF(ltpScaleIndex, silk_LTPscale_iCDF, 8)
+	} else {
+		// Reset LTP correlation for unvoiced frames
+		e.ltpCorr = 0
 	}
 
 	// Step 6.5: LBRR Encoding (FEC) for this frame
@@ -475,7 +512,7 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 		frameSamples = len(pcm)
 	}
 
-	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, signalType, quantOffset, seed, numSubframes, subframeSamples, frameSamples)
+	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, signalType, quantOffset, speechActivityQ8, seed, numSubframes, subframeSamples, frameSamples)
 	e.encodePulses(allExcitation, signalType, quantOffset)
 
 	// Update state

@@ -520,7 +520,7 @@ func (r *LibopusResampler) up2HQ(out []int16, in []int16) {
 		r.sIIR[2] = out32_2 + X
 
 		// Convert back to int16 and store even sample
-		out[2*k] = sat16(rshiftRound(out32_1, 10))
+		out[2*k] = int16(sat16(rshiftRound(out32_1, 10)))
 
 		// First all-pass section for odd output sample
 		Y = in32 - r.sIIR[3]
@@ -541,7 +541,7 @@ func (r *LibopusResampler) up2HQ(out []int16, in []int16) {
 		r.sIIR[5] = out32_2 + X
 
 		// Convert back to int16 and store odd sample
-		out[2*k+1] = sat16(rshiftRound(out32_1, 10))
+		out[2*k+1] = int16(sat16(rshiftRound(out32_1, 10)))
 	}
 }
 
@@ -568,7 +568,7 @@ func (r *LibopusResampler) firInterpol(out []int16, outIdx int, buf []int16, max
 		resQ15 = smlabb(resQ15, int32(buf[bufIdx+7]), int32(silkResamplerFracFIR12[11-tableIndex][0]))
 
 		if outIdx < len(out) {
-			out[outIdx] = sat16(rshiftRound(resQ15, 15))
+			out[outIdx] = int16(sat16(rshiftRound(resQ15, 15)))
 			outIdx++
 		}
 	}

@@ -733,8 +733,9 @@ func silk_SMULWW(a, b int32) int32 {
 }
 
 func silk_SMULBB(a, b int32) int32 {
-	// Low 16-bit * low 16-bit
-	return (a & 0xFFFF) * (b & 0xFFFF)
+	// Low 16-bit * low 16-bit (SIGNED extraction like libopus)
+	// libopus: #define silk_SMULBB(a32, b32) ((opus_int32)((opus_int16)(a32)) * (opus_int32)((opus_int16)(b32)))
+	return int32(int16(a)) * int32(int16(b))
 }
 
 func silk_SMLABB(a, b, c int32) int32 {
@@ -759,7 +760,8 @@ func silk_RSHIFT_ROUND(a int32, shift int) int32 {
 	if shift <= 0 {
 		return a << (-shift)
 	}
-	return (a + (1 << (shift - 1))) >> shift
+	// Use int64 to avoid overflow when a is close to INT32_MAX
+	return int32((int64(a) + (1 << (shift - 1))) >> shift)
 }
 
 func silk_ADD32(a, b int32) int32 {
@@ -812,17 +814,114 @@ func silk_max(a, b int32) int32 {
 	return b
 }
 
-// silk_INVERSE32_varQ computes 1/a in Qres format
-func silk_INVERSE32_varQ(a int32, qres int) int32 {
-	if a <= 0 {
+// silk_INVERSE32_varQ computes 1/a in Qres format.
+// Matches libopus silk/Inlines.h silk_INVERSE32_varQ using Newton-Raphson.
+func silk_INVERSE32_varQ(b32 int32, qres int) int32 {
+	if b32 == 0 {
 		return 0x7FFFFFFF
 	}
 
-	// Approximate inverse using direct division
-	// result = (1 << qres) / a
-	result := int32((int64(1) << qres) / int64(a))
+	// Count leading zeros and normalize
+	absB32 := b32
+	if absB32 < 0 {
+		absB32 = -absB32
+	}
+	bHeadrm := silk_CLZ32(absB32) - 1
+	b32Nrm := silk_LSHIFT_SAT32(b32, bHeadrm) // Q: b_headrm
 
-	return result
+	// Inverse of b32, with 14 bits of precision
+	// b32_inv = (silk_int32_MAX >> 2) / (b32_nrm >> 16)
+	b32Inv := silk_DIV32_16(0x7FFFFFFF>>2, int16(b32Nrm>>16)) // Q: 29 + 16 - b_headrm
+
+	// First approximation
+	result := silk_LSHIFT_SAT32(b32Inv, 16) // Q: 61 - b_headrm
+
+	// Compute residual: (1<<29) - (b32_nrm * b32_inv >> 16)
+	errQ32 := silk_LSHIFT_SAT32((1<<29)-silk_SMULWB(b32Nrm, b32Inv), 3) // Q32
+
+	// Refinement
+	result = silk_SMLAWW_int32(result, errQ32, b32Inv) // Q: 61 - b_headrm
+
+	// Convert to Qres domain
+	lshift := 61 - bHeadrm - qres
+	if lshift <= 0 {
+		return silk_LSHIFT_SAT32(result, -lshift)
+	} else if lshift < 32 {
+		return result >> lshift
+	}
+	return 0
+}
+
+// silk_CLZ32 counts leading zeros in a 32-bit value.
+func silk_CLZ32(x int32) int {
+	if x == 0 {
+		return 32
+	}
+	n := 0
+	if x < 0 {
+		return 0 // Negative number has no leading zeros in 2's complement
+	}
+	ux := uint32(x)
+	if ux <= 0x0000FFFF {
+		n += 16
+		ux <<= 16
+	}
+	if ux <= 0x00FFFFFF {
+		n += 8
+		ux <<= 8
+	}
+	if ux <= 0x0FFFFFFF {
+		n += 4
+		ux <<= 4
+	}
+	if ux <= 0x3FFFFFFF {
+		n += 2
+		ux <<= 2
+	}
+	if ux <= 0x7FFFFFFF {
+		n += 1
+	}
+	return n
+}
+
+// silk_LSHIFT_SAT32 shifts left with saturation.
+func silk_LSHIFT_SAT32(a int32, shift int) int32 {
+	if shift < 0 {
+		return a >> (-shift)
+	}
+	if shift >= 31 {
+		if a > 0 {
+			return 0x7FFFFFFF
+		}
+		if a < 0 {
+			return -0x80000000
+		}
+		return 0
+	}
+	result := int64(a) << shift
+	if result > 0x7FFFFFFF {
+		return 0x7FFFFFFF
+	}
+	if result < -0x80000000 {
+		return -0x80000000
+	}
+	return int32(result)
+}
+
+// silk_DIV32_16 divides int32 by int16.
+func silk_DIV32_16(a int32, b int16) int32 {
+	if b == 0 {
+		if a >= 0 {
+			return 0x7FFFFFFF
+		}
+		return -0x80000000
+	}
+	return a / int32(b)
+}
+
+// silk_SMLAWW_int32 is multiply-accumulate for inverse computation.
+func silk_SMLAWW_int32(a, b, c int32) int32 {
+	return a + int32((int64(b)*int64(c))>>16)
 }
 
 // silk_DIV32_varQ computes a/b in Qres format

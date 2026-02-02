@@ -34,7 +34,12 @@ type Encoder struct {
 	pitchState PitchAnalysisState // State for pitch estimation across frames
 
 	// NSQ (Noise Shaping Quantization) state
-	nsqState *NSQState // Noise shaping quantizer state for proper libopus-matching
+	nsqState        *NSQState        // Noise shaping quantizer state for proper libopus-matching
+	noiseShapeState *NoiseShapeState // Noise shaping analysis state for adaptive parameters
+
+	// Encoder control parameters (persists across frames)
+	snrDBQ7  int // Target SNR in dB (Q7 format, e.g., 25 dB = 25 * 128)
+	ltpCorr  float32 // LTP correlation from pitch analysis [0, 1]
 
 	// Analysis buffers (encoder-specific)
 	inputBuffer []float32 // Buffered input samples
@@ -244,13 +249,15 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 		prevLSFQ15:        make([]int16, config.LPCOrder),
 		inputBuffer:       make([]float32, frameSamples*2), // Look-ahead buffer
 		lpcState:          make([]float32, config.LPCOrder),
-		nsqState:          NewNSQState(), // Initialize NSQ state
+		nsqState:          NewNSQState(),        // Initialize NSQ state
+		noiseShapeState:   NewNoiseShapeState(), // Initialize noise shaping state
 		bandwidth:         bandwidth,
 		sampleRate:        config.SampleRate,
 		lpcOrder:          config.LPCOrder,
-		nFramesPerPacket:  1,              // Default: 1 frame per packet (20ms)
+		snrDBQ7:           25 * 128,             // Default: 25 dB SNR target
+		nFramesPerPacket:  1,                    // Default: 1 frame per packet (20ms)
 		lbrrPulses:        lbrrPulses,
-		lbrrGainIncreases: 7,              // Default gain increase for LBRR
+		lbrrGainIncreases: 7,                    // Default gain increase for LBRR
 	}
 }
 
@@ -276,6 +283,10 @@ func (e *Encoder) Reset() {
 	if e.nsqState != nil {
 		e.nsqState.Reset() // Reset NSQ state
 	}
+	if e.noiseShapeState != nil {
+		e.noiseShapeState = NewNoiseShapeState() // Reset noise shaping state
+	}
+	e.ltpCorr = 0
 
 	// Reset FEC/LBRR state
 	e.lbrrEnabled = false
