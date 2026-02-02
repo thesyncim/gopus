@@ -60,6 +60,29 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 		speechActivityQ8 = 50 // Low activity
 	}
 
+	// Step 1.5: Encode VAD and LBRR flags (standalone SILK only)
+	// Per RFC 6716, the SILK layer header contains:
+	// 1. VAD flag for each frame (1 bit per frame)
+	// 2. LBRR flag (1 bit) - whether LBRR data follows
+	// 3. LBRR data if LBRR flag is set
+	// In hybrid mode, this header is handled by the Opus layer.
+	if !useSharedEncoder {
+		// Encode VAD flag (1 bit) - this is for single-frame packets
+		vadBit := 0
+		if vadFlag {
+			vadBit = 1
+		}
+		e.rangeEncoder.EncodeBit(vadBit, 1)
+
+		// Encode LBRR flag (1 bit) - whether LBRR data follows
+		lbrrFlagBit := 0
+		if e.lbrrEnabled && e.nFramesEncoded > 0 {
+			// LBRR is only available after the first frame
+			lbrrFlagBit = 1
+		}
+		e.rangeEncoder.EncodeBit(lbrrFlagBit, 1)
+	}
+
 	// Step 2: Encode frame type using ICDFFrameTypeVADActive
 	e.encodeFrameType(vadFlag, signalType, quantOffset)
 
