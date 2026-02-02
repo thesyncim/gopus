@@ -256,7 +256,7 @@ func ComputeQualityFloat32(decoded, reference []float32, sampleRate int) float64
 //   - decoded: Decoded PCM samples as float32 (normalized -1.0 to 1.0)
 //   - reference: Reference PCM samples as float32 (normalized -1.0 to 1.0)
 //   - sampleRate: Sample rate in Hz
-//   - maxDelay: Maximum delay to search (in samples, e.g., 500)
+//   - maxDelay: Maximum delay to search (in samples, e.g., 2000 for roundtrip)
 //
 // Returns: Q value at optimal delay alignment, and the optimal delay found
 func ComputeQualityFloat32WithDelay(decoded, reference []float32, sampleRate int, maxDelay int) (q float64, delay int) {

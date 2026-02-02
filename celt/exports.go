@@ -29,3 +29,13 @@ func ExpRotationExport(x []float64, length, dir, stride, k, spread int) {
 func OpPVQSearchExport(x []float64, k int) ([]int, float64) {
 	return opPVQSearch(x, k)
 }
+
+// NormalizeResidualExport exposes normalizeResidual for testing.
+func NormalizeResidualExport(pulses []int, gain float64, yy float64) []float64 {
+	return normalizeResidual(pulses, gain, yy)
+}
+
+// NormalizeResidualIntoExport exposes normalizeResidualInto for testing.
+func NormalizeResidualIntoExport(out []float64, pulses []int, gain float64, yy float64) {
+	normalizeResidualInto(out, pulses, gain, yy)
+}

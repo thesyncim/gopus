@@ -203,6 +203,87 @@ Always use this reference when implementing features or debugging discrepancies.
 2. **testvector11** - Some packets have buffer sizing edge cases
 3. **IMDCT precision** - Using float32 for better libopus matching (fixed)
 
+### ENCODER QUALITY BASELINE (2026-02-02)
+
+The encoder produces valid Opus packets that decode correctly, but signal quality
+is below production targets. This is a known work-in-progress area.
+
+**Current measured quality (encode with gopus → decode with libopus/opusdec):**
+| Mode | SNR | Q-value | Status |
+|------|-----|---------|--------|
+| CELT mono | ~-1 to 0 dB | Q ~ -100 | Baseline |
+| CELT stereo | ~-2 dB | Q ~ -104 | Baseline |
+| SILK NB | ~0 dB | Q ~ -100 | Baseline |
+| SILK WB | ~-6 dB | Q ~ -112 | Baseline |
+| Hybrid | ~-8 dB | Q ~ -117 | Baseline |
+
+**Production targets (libopus-comparable):**
+- Music (CELT): Q >= 0 (48 dB SNR)
+- Speech (SILK): Q >= -15 (40 dB SNR)
+
+**Note:** The encoder compliance tests (`testvectors/encoder_compliance_test.go`)
+track these metrics and will detect regressions. As encoder quality improves,
+test status will transition: BASE → GOOD → PASS.
+
+### ENCODER QUALITY ROOT CAUSE ANALYSIS (Updated 2026-02-02)
+
+Investigation findings from roundtrip testing (gopus encoder → gopus decoder):
+
+**Current symptoms (Q ~ -100):**
+- SNR: ~-1.6 dB (target: 48 dB)
+- Correlation: ~0.14 (weak positive, some frames show **negative** correlation)
+- Sign inversion: 126 inverted vs 67 same sign in samples 200-400
+- Amplitude ratio: ~0.63 (decoded is 63% of original amplitude)
+
+**Components verified as WORKING CORRECTLY:**
+1. ✅ **CWRS encoding/decoding** - Signs preserved perfectly in pulse roundtrip
+2. ✅ **MDCT/IMDCT roundtrip** - maxDiff=0.0000, RMS=0.0000 in test
+3. ✅ **Energy encoding/decoding** - All 21 bands roundtrip correctly (after buffer fix)
+4. ✅ **Band width calculations** - ScaledBandWidth returns correct values
+5. ✅ **V(n,k) computation** - Overflow properly detected and k limited
+
+**DO NOT re-investigate these components - they are verified working.**
+
+**Prime suspects (NOT YET VERIFIED):**
+1. **Band normalization flow** - Encoder divides by gain, decoder multiplies
+   - Check if `NormalizeBands` and `denormalizeCoeffs` use same energy basis
+   - Check if quantized vs unquantized energies are being mixed
+
+2. **Pre-emphasis/de-emphasis chain** - May have sign or phase issues
+   - Encoder: `preemph[i] = val - 0.85*mem`
+   - Decoder: `deemph[i] = out[i] + 0.85*mem`
+   - These should be inverses but may have implementation mismatch
+
+3. **Encoder input scaling** - Check CELTSigScale application
+   - Encoder multiplies by CELTSigScale before MDCT
+   - Decoder divides by CELTSigScale after synthesis
+
+4. **The `resynth` flag** - Controls whether encoder reconstructs signal
+   - If resynth=false, encoder may not update internal state correctly
+   - Check if decoder expects state that encoder didn't write
+
+**Next debugging step:**
+Create a minimal test that:
+1. Takes MDCT coefficients directly (skip pre-emphasis)
+2. Normalizes → PVQ search → encode pulses
+3. Decode pulses → denormalize
+4. Compare before/after normalization+PVQ
+This isolates the PVQ path from transform issues.
+
+**Scratchpad diagnostics (in session scratchpad dir):**
+- `energy_trace.go` - Traces energy encode/decode (WORKING after fix)
+- `cwrs_sign_check.go` - Verifies CWRS sign preservation (WORKING)
+- `pvq_roundtrip_diag.go` - Tests PVQ encode/decode quality
+- `full_trace.go` - Full encoder/decoder trace with stats
+- `imdct_sign_check.go` - MDCT/IMDCT sign verification (WORKING)
+
+**Test methodology note:**
+Using a pure sine wave (440 Hz) makes correlation-based alignment ambiguous
+since it finds local maxima at every period boundary. Better test signals:
+- Chirp (varying frequency)
+- Impulse train
+- Actual speech/music samples
+
 ---
 
 ## C Reference Quick Guide
