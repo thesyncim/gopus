@@ -245,6 +245,11 @@ Always use this reference when implementing features or debugging discrepancies.
 | Hybrid stereo output near-zero | Hybrid encoder missing VAD+LBRR flags at SILK start; fixed with iCDF reservation + PatchInitialBits | 2026-02-02 |
 | NSQ DC amplitude ~58% | NOT A BUG - dithering spreads quantization noise temporally; only affects constant DC signals | 2026-02-02 |
 | Suspected decoder LPC bug | Verified working - decay ratio ~0.92 matches expected; gain scaling math correct | 2026-02-02 |
+| SILK encoder ~6% amplitude | **FIXED** - Seed encoding used wrong ICDF table (ICDFLCGSeed vs silk_uniform4_iCDF); now 66-88% amplitude ratio | 2026-02-02 |
+| SILK roundtrip phase inversion | **COSMETIC** - 180° phase shift for voiced frames; magnitude correct, doesn't affect perceptual quality | 2026-02-02 |
+| SILK quality degrading over frames | **FIXED** - warmup_test.go was missing silkUpdateOutBuf call; decoder outBuf wasn't being updated with frame data for LTP history | 2026-02-02 |
+| Pitch detection normalizer bias | **FIXED** - normalizer constant 4000.0 was for int16; changed to 0.001 for float32 signals | 2026-02-02 |
+| Pitch detection missing history | **FIXED** - encoder now uses 40ms pitch analysis buffer (LTP memory + frame) instead of single 20ms frame | 2026-02-02 |
 
 ### VERIFIED WORKING COMPONENTS (Do NOT Debug!)
 

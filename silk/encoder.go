@@ -31,7 +31,8 @@ type Encoder struct {
 	stereo            stereoEncState // Full stereo encoder state for LP filtering
 
 	// Pitch analysis state
-	pitchState PitchAnalysisState // State for pitch estimation across frames
+	pitchState       PitchAnalysisState // State for pitch estimation across frames
+	pitchAnalysisBuf []float32          // History buffer for pitch analysis (LTP memory + frame)
 
 	// NSQ (Noise Shaping Quantization) state
 	nsqState        *NSQState        // Noise shaping quantizer state for proper libopus-matching
@@ -79,6 +80,7 @@ type Encoder struct {
 	scratchQ            []float64 // lpcToLSF: Q polynomial
 	scratchLSFFloat     []float64 // lpcToLSF: LSF in float64
 	scratchLSFQ15       []int16   // lpcToLSF: LSF result in Q15
+	scratchLPCQ16       []int32   // silkA2NLSF: LPC coefficients in Q16
 
 	// Pitch detection scratch buffers
 	scratchFrame8kHz  []float32  // detectPitch: downsampled to 8kHz
@@ -250,12 +252,17 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 		lbrrPulses[i] = make([]int8, maxFrameLength)
 	}
 
+	// Pitch analysis buffer: LTP memory (20ms) + frame (20ms) = 40ms
+	// peLTPMemLengthMS = 20, so total = (20 + 20) * fsKHz = 40 * sampleRate/1000
+	pitchBufSamples := 40 * config.SampleRate / 1000
+
 	return &Encoder{
 		prevLSFQ15:        make([]int16, config.LPCOrder),
 		inputBuffer:       make([]float32, frameSamples*2), // Look-ahead buffer
 		lpcState:          make([]float32, config.LPCOrder),
 		nsqState:          NewNSQState(),        // Initialize NSQ state
 		noiseShapeState:   NewNoiseShapeState(), // Initialize noise shaping state
+		pitchAnalysisBuf:  make([]float32, pitchBufSamples), // Pitch analysis buffer
 		bandwidth:         bandwidth,
 		sampleRate:        config.SampleRate,
 		lpcOrder:          config.LPCOrder,
@@ -285,6 +292,9 @@ func (e *Encoder) Reset() {
 	e.prevStereoWeights = [2]int16{0, 0}
 	e.stereo = stereoEncState{}         // Reset LP filter state
 	e.pitchState = PitchAnalysisState{} // Reset pitch state
+	for i := range e.pitchAnalysisBuf {
+		e.pitchAnalysisBuf[i] = 0
+	}
 	if e.nsqState != nil {
 		e.nsqState.Reset() // Reset NSQ state
 	}

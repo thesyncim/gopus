@@ -177,7 +177,10 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int) []int {
 		}
 
 		// Compute normalizer
-		normalizer := targetEnergy + basisEnergy + float64(sfLength8kHz)*4000.0
+		// The bias term 4000.0 is for int16 signals (range ±32768).
+		// For float32 signals (range ±1.0), scale by 1/(32768^2) ≈ 9.3e-10.
+		// Use a small constant to prevent division by zero.
+		normalizer := targetEnergy + basisEnergy + 0.001
 
 		// Compute initial cross-correlation
 		var xcorr float64
@@ -206,7 +209,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int) []int {
 				basisEnergy += float64(frame4kHz[basisIdx])*float64(frame4kHz[basisIdx]) -
 					float64(frame4kHz[basisIdx+sfLength8kHz])*float64(frame4kHz[basisIdx+sfLength8kHz])
 			}
-			normalizer = targetEnergy + basisEnergy + float64(sfLength8kHz)*4000.0
+			normalizer = targetEnergy + basisEnergy + 0.001
 
 			if d < len(C) {
 				C[d] += 2 * xcorr / normalizer
@@ -828,14 +831,18 @@ func innerProductFLP(a, b []float32, length int) float64 {
 // encodePitchLags encodes pitch lags to the bitstream.
 // First subframe is absolute, subsequent are delta-coded via contour.
 // Per RFC 6716 Section 4.2.7.6.
-// Uses existing ICDF tables: ICDFPitchLagNB/MB/WB, ICDFPitchLowBitsQ*, ICDFPitchContourNB/MB/WB
+// Uses libopus tables: silk_pitch_lag_iCDF, silk_uniform4/6/8_iCDF, silk_pitch_contour*_iCDF
 func (e *Encoder) encodePitchLags(pitchLags []int, numSubframes int) {
 	config := GetBandwidthConfig(e.bandwidth)
+	fsKHz := config.SampleRate / 1000
 
 	// Select pitch contour table based on bandwidth and frame size
 	// Use scratch buffer for pitchContour
+	// Per libopus control_codec.c:
+	//   NB (8kHz): silk_pitch_contour_NB_iCDF (20ms) or silk_pitch_contour_10_ms_NB_iCDF (10ms)
+	//   MB/WB:     silk_pitch_contour_iCDF (20ms) or silk_pitch_contour_10_ms_iCDF (10ms)
 	var pitchContour [][4]int8
-	var contourICDF []uint16
+	var contourICDF []uint8
 
 	switch e.bandwidth {
 	case BandwidthNarrowband:
@@ -844,93 +851,101 @@ func (e *Encoder) encodePitchLags(pitchLags []int, numSubframes int) {
 			for i := range PitchContourNB20ms {
 				pitchContour[i] = PitchContourNB20ms[i]
 			}
+			contourICDF = silk_pitch_contour_NB_iCDF
 		} else {
 			// Convert [16][2]int8 to [][4]int8 for 10ms frames
 			pitchContour = ensure2DInt8Slice(&e.scratchPitchContour, len(PitchContourNB10ms))
 			for i := range PitchContourNB10ms {
 				pitchContour[i] = [4]int8{PitchContourNB10ms[i][0], PitchContourNB10ms[i][1], 0, 0}
 			}
+			contourICDF = silk_pitch_contour_10_ms_NB_iCDF
 		}
-		contourICDF = ICDFPitchContourNB
-	case BandwidthMediumband:
+	default: // Mediumband or Wideband
 		if numSubframes == 4 {
-			pitchContour = ensure2DInt8Slice(&e.scratchPitchContour, len(PitchContourMB20ms))
-			for i := range PitchContourMB20ms {
-				pitchContour[i] = PitchContourMB20ms[i]
+			if fsKHz == 12 {
+				pitchContour = ensure2DInt8Slice(&e.scratchPitchContour, len(PitchContourMB20ms))
+				for i := range PitchContourMB20ms {
+					pitchContour[i] = PitchContourMB20ms[i]
+				}
+			} else {
+				pitchContour = ensure2DInt8Slice(&e.scratchPitchContour, len(PitchContourWB20ms))
+				for i := range PitchContourWB20ms {
+					pitchContour[i] = PitchContourWB20ms[i]
+				}
 			}
+			contourICDF = silk_pitch_contour_iCDF
 		} else {
-			pitchContour = ensure2DInt8Slice(&e.scratchPitchContour, len(PitchContourMB10ms))
-			for i := range PitchContourMB10ms {
-				pitchContour[i] = [4]int8{PitchContourMB10ms[i][0], PitchContourMB10ms[i][1], 0, 0}
+			if fsKHz == 12 {
+				pitchContour = ensure2DInt8Slice(&e.scratchPitchContour, len(PitchContourMB10ms))
+				for i := range PitchContourMB10ms {
+					pitchContour[i] = [4]int8{PitchContourMB10ms[i][0], PitchContourMB10ms[i][1], 0, 0}
+				}
+			} else {
+				pitchContour = ensure2DInt8Slice(&e.scratchPitchContour, len(PitchContourWB10ms))
+				for i := range PitchContourWB10ms {
+					pitchContour[i] = [4]int8{PitchContourWB10ms[i][0], PitchContourWB10ms[i][1], 0, 0}
+				}
 			}
+			contourICDF = silk_pitch_contour_10_ms_iCDF
 		}
-		contourICDF = ICDFPitchContourMB
-	default: // Wideband
-		if numSubframes == 4 {
-			pitchContour = ensure2DInt8Slice(&e.scratchPitchContour, len(PitchContourWB20ms))
-			for i := range PitchContourWB20ms {
-				pitchContour[i] = PitchContourWB20ms[i]
-			}
-		} else {
-			pitchContour = ensure2DInt8Slice(&e.scratchPitchContour, len(PitchContourWB10ms))
-			for i := range PitchContourWB10ms {
-				pitchContour[i] = [4]int8{PitchContourWB10ms[i][0], PitchContourWB10ms[i][1], 0, 0}
-			}
-		}
-		contourICDF = ICDFPitchContourWB
 	}
 
 	// Find best matching contour and base lag
 	contourIdx, baseLag := e.findBestPitchContour(pitchLags, pitchContour, numSubframes)
 
 	// Encode absolute lag for first subframe
+	// Per libopus silk/encode_indices.c:
+	//   pitch_high_bits = lagIndex / (fs_kHz >> 1)
+	//   pitch_low_bits  = lagIndex % (fs_kHz >> 1)
+	// Uses silk_pitch_lag_iCDF (unified table, 32 entries) for high bits
+	// Uses bandwidth-specific uniform ICDF for low bits
 	lagIdx := baseLag - config.PitchLagMin
 	if lagIdx < 0 {
 		lagIdx = 0
 	}
-	if lagIdx > config.PitchLagMax-config.PitchLagMin {
-		lagIdx = config.PitchLagMax - config.PitchLagMin
+
+	// Divisor is sample rate in kHz divided by 2
+	// (fsKHz already computed above for contour selection)
+	divisor := fsKHz / 2 // 8 for 16kHz, 6 for 12kHz, 4 for 8kHz
+	if divisor < 1 {
+		divisor = 1
 	}
-
-	// Encode lag high bits (MSB) - use bandwidth-specific ICDF
-	var lagHighICDF []uint16
-
-	switch e.bandwidth {
-	case BandwidthNarrowband:
-		lagHighICDF = ICDFPitchLagNB
-	case BandwidthMediumband:
-		lagHighICDF = ICDFPitchLagMB
-	default: // Wideband
-		lagHighICDF = ICDFPitchLagWB
-	}
-
-	// Low bits are ALWAYS 2 bits (Q2) per RFC 6716 Section 4.2.7.6.1
-	// lag = min_lag + high * 4 + low (low is always 0-3)
-	lagLowICDF := ICDFPitchLowBitsQ2
-	divisor := 4
 
 	lagHigh := lagIdx / divisor
 	lagLow := lagIdx % divisor
 
-	// Clamp to valid range for the ICDF table
-	maxHighIdx := len(lagHighICDF) - 2
-	if lagHigh > maxHighIdx {
-		lagHigh = maxHighIdx
+	// Clamp high bits to valid range (0-31 for silk_pitch_lag_iCDF)
+	if lagHigh > 31 {
+		lagHigh = 31
 	}
-	maxLowIdx := len(lagLowICDF) - 2
+
+	// Select low bits ICDF based on sample rate (matches decoder's pitchLagLowBitsICDF)
+	var lagLowICDF []uint8
+	switch fsKHz {
+	case 16:
+		lagLowICDF = silk_uniform8_iCDF
+	case 12:
+		lagLowICDF = silk_uniform6_iCDF
+	default: // 8kHz
+		lagLowICDF = silk_uniform4_iCDF
+	}
+
+	// Clamp low bits to valid range
+	maxLowIdx := len(lagLowICDF) - 1
 	if lagLow > maxLowIdx {
 		lagLow = maxLowIdx
 	}
 
-	e.rangeEncoder.EncodeICDF16(lagHigh, lagHighICDF, 8)
-	e.rangeEncoder.EncodeICDF16(lagLow, lagLowICDF, 8)
+	// Encode using libopus tables
+	e.rangeEncoder.EncodeICDF(lagHigh, silk_pitch_lag_iCDF, 8)
+	e.rangeEncoder.EncodeICDF(lagLow, lagLowICDF, 8)
 
 	// Encode contour index for delta pattern
-	maxContourIdx := len(contourICDF) - 2
+	maxContourIdx := len(contourICDF) - 1
 	if contourIdx > maxContourIdx {
 		contourIdx = maxContourIdx
 	}
-	e.rangeEncoder.EncodeICDF16(contourIdx, contourICDF, 8)
+	e.rangeEncoder.EncodeICDF(contourIdx, contourICDF, 8)
 }
 
 // findBestPitchContour finds the contour that best matches pitch lag pattern.

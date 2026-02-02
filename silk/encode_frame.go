@@ -31,7 +31,15 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	useSharedEncoder := e.rangeEncoder != nil
 
 	if !useSharedEncoder {
-		// Standalone SILK mode: create our own range encoder using scratch buffer
+		// Standalone SILK mode: each call produces a separate packet
+		// Reset frame counter and encoding state so frame is encoded as independent
+		// This ensures gain indices are absolute, not deltas from previous packet
+		// The decoder also resets nFramesDecoded=0 at the start of each packet
+		e.nFramesEncoded = 0
+		e.haveEncoded = false   // Reset so gain encoding uses absolute mode
+		e.previousGainIndex = 10 // Default gain index (matches decoder's reset)
+
+		// Create our own range encoder using scratch buffer
 		// Allocate extra space for potential LBRR data
 		bufSize := len(pcm) / 3
 		if bufSize < 80 {
@@ -47,6 +55,21 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 		output := ensureByteSlice(&e.scratchOutput, bufSize)
 		e.scratchRangeEncoder.Init(output)
 		e.rangeEncoder = &e.scratchRangeEncoder
+	}
+
+	// Step 0.5: Update pitch analysis buffer
+	// The buffer holds LTP memory (20ms history) + current frame (20ms).
+	// Shift old samples left and append new samples.
+	// This provides proper history for pitch detection correlation.
+	pitchBufFrameLen := len(pcm)
+	if len(e.pitchAnalysisBuf) >= pitchBufFrameLen*2 {
+		// Shift old samples left (keep second half as LTP memory)
+		copy(e.pitchAnalysisBuf[:pitchBufFrameLen], e.pitchAnalysisBuf[pitchBufFrameLen:])
+		// Append new frame
+		copy(e.pitchAnalysisBuf[pitchBufFrameLen:], pcm)
+	} else if len(e.pitchAnalysisBuf) > 0 {
+		// Buffer might be smaller, just copy what fits
+		copy(e.pitchAnalysisBuf, pcm)
 	}
 
 	// Step 1: Classify frame (VAD)
@@ -98,15 +121,18 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	gains := e.computeSubframeGainsFromResidual(pcm, numSubframes)
 	gainsQ16 := e.encodeSubframeGains(gains, signalType, numSubframes)
 
-	// Step 5: Convert to LSF and quantize (use scratch buffers)
+	// Step 5: Convert LPC to NLSF using silkA2NLSF (with bandwidth expansion retry)
+	// lpcToLSFEncodeInto fails for sparse LPC coefficients (e.g., from sine waves
+	// where Burg's method produces only 2 non-zero coefficients). silkA2NLSF
+	// handles this by applying bandwidth expansion and retrying root-finding.
 	order := len(lpcQ12)
-	halfOrder := order / 2
-	lpc := ensureFloat64Slice(&e.scratchLPC, order)
-	pBuf := ensureFloat64Slice(&e.scratchP, halfOrder+1)
-	qBuf := ensureFloat64Slice(&e.scratchQ, halfOrder+1)
-	lsfFloat := ensureFloat64Slice(&e.scratchLSFFloat, order)
 	lsfQ15 := ensureInt16Slice(&e.scratchLSFQ15, order)
-	lpcToLSFEncodeInto(lpcQ12, lsfQ15, lpc, pBuf, qBuf, lsfFloat)
+	lpcQ16 := ensureInt32Slice(&e.scratchLPCQ16, order)
+	for i := 0; i < order; i++ {
+		// Convert Q12 to Q16: multiply by 2^(16-12) = 16
+		lpcQ16[i] = int32(lpcQ12[i]) << 4
+	}
+	silkA2NLSF(lsfQ15, lpcQ16, order)
 	stage1Idx, residuals, interpIdx := e.quantizeLSF(lsfQ15, e.bandwidth, signalType, speechActivityQ8, numSubframes)
 	e.encodeLSF(stage1Idx, residuals, interpIdx, e.bandwidth, signalType)
 	// Reconstruct quantized NLSF and build predictor coefficients for NSQ.
@@ -119,7 +145,8 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	var ltpCoeffs LTPCoeffsArray
 	periodicity := 0
 	if signalType == 2 {
-		pitchLags = e.detectPitch(pcm, numSubframes)
+		// Use pitch analysis buffer (LTP memory + current frame) for better pitch detection
+		pitchLags = e.detectPitch(e.pitchAnalysisBuf, numSubframes)
 		e.encodePitchLags(pitchLags, numSubframes)
 
 		// Update LTP correlation for noise shaping (from pitch detection)
@@ -153,7 +180,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	// Per libopus: seed = frameCounter++ & 3
 	seed := e.frameCounter & 3
 	e.frameCounter++
-	e.rangeEncoder.EncodeICDF16(seed, ICDFLCGSeed, 8)
+	e.rangeEncoder.EncodeICDF(seed, silk_uniform4_iCDF, 8)
 
 	// Step 8: Compute excitation using Noise Shaping Quantization (NSQ)
 	// Per libopus silk_encode_pulses(), pulses are encoded for full frame_length
@@ -460,6 +487,16 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 		numSubframes = maxNbSubfr
 	}
 
+	// Step 0.5: Update pitch analysis buffer
+	// The buffer holds LTP memory (20ms history) + current frame (20ms).
+	pitchBufFrameLen := len(pcm)
+	if len(e.pitchAnalysisBuf) >= pitchBufFrameLen*2 {
+		copy(e.pitchAnalysisBuf[:pitchBufFrameLen], e.pitchAnalysisBuf[pitchBufFrameLen:])
+		copy(e.pitchAnalysisBuf[pitchBufFrameLen:], pcm)
+	} else if len(e.pitchAnalysisBuf) > 0 {
+		copy(e.pitchAnalysisBuf, pcm)
+	}
+
 	// Step 1: Classify frame (VAD)
 	var signalType, quantOffset int
 	var speechActivityQ8 int
@@ -481,15 +518,18 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 	gains := e.computeSubframeGains(pcm, numSubframes)
 	gainsQ16 := e.encodeSubframeGains(gains, signalType, numSubframes)
 
-	// Step 5: Convert to LSF and quantize (use scratch buffers)
+	// Step 5: Convert LPC to NLSF using silkA2NLSF (with bandwidth expansion retry)
+	// lpcToLSFEncodeInto fails for sparse LPC coefficients (e.g., from sine waves
+	// where Burg's method produces only 2 non-zero coefficients). silkA2NLSF
+	// handles this by applying bandwidth expansion and retrying root-finding.
 	order := len(lpcQ12)
-	halfOrder := order / 2
-	lpc := ensureFloat64Slice(&e.scratchLPC, order)
-	pBuf := ensureFloat64Slice(&e.scratchP, halfOrder+1)
-	qBuf := ensureFloat64Slice(&e.scratchQ, halfOrder+1)
-	lsfFloat := ensureFloat64Slice(&e.scratchLSFFloat, order)
 	lsfQ15 := ensureInt16Slice(&e.scratchLSFQ15, order)
-	lpcToLSFEncodeInto(lpcQ12, lsfQ15, lpc, pBuf, qBuf, lsfFloat)
+	lpcQ16 := ensureInt32Slice(&e.scratchLPCQ16, order)
+	for i := 0; i < order; i++ {
+		// Convert Q12 to Q16: multiply by 2^(16-12) = 16
+		lpcQ16[i] = int32(lpcQ12[i]) << 4
+	}
+	silkA2NLSF(lsfQ15, lpcQ16, order)
 	stage1Idx, residuals, interpIdx := e.quantizeLSF(lsfQ15, e.bandwidth, signalType, speechActivityQ8, numSubframes)
 	e.encodeLSF(stage1Idx, residuals, interpIdx, e.bandwidth, signalType)
 	// Reconstruct quantized NLSF and build predictor coefficients for NSQ.
@@ -502,7 +542,8 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 	var ltpCoeffs LTPCoeffsArray
 	periodicity := 0
 	if signalType == 2 {
-		pitchLags = e.detectPitch(pcm, numSubframes)
+		// Use pitch analysis buffer (LTP memory + current frame) for better pitch detection
+		pitchLags = e.detectPitch(e.pitchAnalysisBuf, numSubframes)
 		e.encodePitchLags(pitchLags, numSubframes)
 
 		// Update LTP correlation for noise shaping (from pitch detection)
@@ -532,7 +573,7 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 	// Step 7: Encode seed
 	seed := e.frameCounter & 3
 	e.frameCounter++
-	e.rangeEncoder.EncodeICDF16(seed, ICDFLCGSeed, 8)
+	e.rangeEncoder.EncodeICDF(seed, silk_uniform4_iCDF, 8)
 
 	// Step 8: Compute and encode excitation
 	frameSamples := numSubframes * subframeSamples

@@ -81,7 +81,8 @@ func (d *Decoder) decodeExcitation(subframeSamples int, signalType, quantOffset 
 				}
 				signICDF := ICDFExcitationSign[safeSignalType][safeQuantOffset][signIdx]
 				sign := d.rangeDecoder.DecodeICDF16(signICDF, 8)
-				if sign == 1 {
+				// Per libopus silk_dec_map: decoded 0 -> negate, decoded 1 -> keep positive
+				if sign == 0 {
 					shellPulses[i] = -shellPulses[i]
 				}
 			}

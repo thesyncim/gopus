@@ -210,66 +210,47 @@ func quantizeLTPCoeffsInto(coeffs []float64, periodicity int, result *[5]int8) {
 }
 
 // encodeLTPCoeffs encodes LTP coefficients to the bitstream.
-// Per RFC 6716 Section 4.2.7.6.3.
-// Uses existing ICDF tables: ICDFLTPFilterIndex*, ICDFLTPGain*
+// Per RFC 6716 Section 4.2.7.6.3 and libopus silk/encode_indices.c.
 //
-// The encoding uses the periodicity computed from signal analysis to select
-// the appropriate codebook and ICDF tables.
+// Libopus encoding scheme:
+// 1. Encode PER index (0-2) using silk_LTP_per_index_iCDF
+// 2. For each subframe, encode LTP codebook index using silk_LTP_gain_iCDF_ptrs[PERIndex]
 //
-// Periodicity mapping:
-//   - 0 = Low periodicity (less correlated/voiced)
-//   - 1 = Mid periodicity
-//   - 2 = High periodicity (strongly voiced)
+// PER index determines the codebook:
+//   - 0: silk_LTP_gain_iCDF_0 (8 entries) -> LTPFilterLow
+//   - 1: silk_LTP_gain_iCDF_1 (16 entries) -> LTPFilterMid
+//   - 2: silk_LTP_gain_iCDF_2 (32 entries) -> LTPFilterHigh
 func (e *Encoder) encodeLTPCoeffs(ltpCoeffs LTPCoeffsArray, periodicity int, numSubframes int) {
-	// Select codebook and ICDF based on actual periodicity
-	var gainICDF []uint16
-	var codebookPeriodicity int
-
-	switch periodicity {
-	case 0:
-		// Low periodicity - encode index 0-3 from ICDFLTPFilterIndexLowPeriod
-		cbIdx := findLTPCodebookIndex(ltpCoeffs[0], 0)
-		if cbIdx > 3 {
-			cbIdx = 3 // Clamp to valid range for low periodicity
-		}
-		e.rangeEncoder.EncodeICDF16(cbIdx, ICDFLTPFilterIndexLowPeriod, 8)
-		gainICDF = ICDFLTPGainLow
-		codebookPeriodicity = 0
-
-	case 1:
-		// Mid periodicity - signal via low period table first, then mid
-		// Encode 0 in low period table (to indicate "not low")
-		// Note: The decoder expects a multi-stage encoding for mid/high periodicity
-		// For compatibility with current decoder, fall back to low periodicity
-		e.rangeEncoder.EncodeICDF16(0, ICDFLTPFilterIndexLowPeriod, 8)
-		gainICDF = ICDFLTPGainMid
-		codebookPeriodicity = 1
-
-	case 2:
-		// High periodicity - strongly voiced
-		// For compatibility with current decoder, fall back to low periodicity encoding
-		// but use high periodicity codebook for better coefficient matching
-		e.rangeEncoder.EncodeICDF16(0, ICDFLTPFilterIndexLowPeriod, 8)
-		gainICDF = ICDFLTPGainHigh
-		codebookPeriodicity = 2
-
-	default:
-		// Default to low periodicity
-		e.rangeEncoder.EncodeICDF16(0, ICDFLTPFilterIndexLowPeriod, 8)
-		gainICDF = ICDFLTPGainLow
-		codebookPeriodicity = 0
+	// Map periodicity to PER index (0-2)
+	perIndex := periodicity
+	if perIndex < 0 {
+		perIndex = 0
+	}
+	if perIndex > 2 {
+		perIndex = 2
 	}
 
-	// Encode codebook index per subframe using the selected periodicity codebook
+	// Step 1: Encode PER index using libopus silk_LTP_per_index_iCDF
+	e.rangeEncoder.EncodeICDF(perIndex, silk_LTP_per_index_iCDF, 8)
+
+	// Step 2: Encode LTP codebook index for each subframe
+	// Use the ICDF table corresponding to the PER index
+	gainICDF := silk_LTP_gain_iCDF_ptrs[perIndex]
+
 	for sf := 0; sf < numSubframes; sf++ {
 		// Find best matching codebook index for this subframe's coefficients
-		cbIdx := findLTPCodebookIndex(ltpCoeffs[sf], codebookPeriodicity)
-		// Clamp to valid range for ICDF table
-		maxIdx := len(gainICDF) - 2
+		cbIdx := findLTPCodebookIndex(ltpCoeffs[sf], perIndex)
+
+		// Clamp to valid range for the selected ICDF table
+		maxIdx := len(gainICDF) - 1
 		if cbIdx > maxIdx {
 			cbIdx = maxIdx
 		}
-		e.rangeEncoder.EncodeICDF16(cbIdx, gainICDF, 8)
+		if cbIdx < 0 {
+			cbIdx = 0
+		}
+
+		e.rangeEncoder.EncodeICDF(cbIdx, gainICDF, 8)
 	}
 }
 
