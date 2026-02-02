@@ -410,11 +410,15 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	}
 
 	// Step 7: Initialize range encoder with bitrate-derived size
-	// ... (no changes here) ...
-	targetBits := e.computeTargetBits(frameSize)
+	// Step 7: Initialize range encoder with bitrate-derived size
+	// Compute target bytes from bitrate, then use targetBytes*8 as the actual
+	// bit budget for allocation. This ensures encoder and decoder use the same
+	// totalBits value, which is critical for allocation to match.
+	targetBitsRaw := e.computeTargetBits(frameSize)
+	targetBytes := (targetBitsRaw + 7) / 8
+	targetBits := targetBytes * 8
 	e.frameBits = targetBits
 	defer func() { e.frameBits = 0 }()
-	targetBytes := (targetBits + 7) / 8
 	bufSize := targetBytes
 	if bufSize < 256 {
 		bufSize = 256
@@ -428,12 +432,12 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	buf = buf[:bufSize]
 	re := &e.scratch.rangeEncoder
 	re.Init(buf)
-	// In CBR mode, shrink the encoder to produce exactly targetBytes output.
-	// This matches libopus ec_enc_shrink() behavior for constant bitrate encoding.
+	// Always shrink the encoder to produce exactly targetBytes output.
+	// This is necessary for encoder/decoder allocation to match.
+	// In VBR mode, targetBytes varies based on signal, but the packet must
+	// still match the targetBytes used for allocation.
 	// Reference: libopus celt_encoder.c line 1920: ec_enc_shrink(enc, nbCompressedBytes)
-	if !e.vbr {
-		re.Shrink(uint32(targetBytes))
-	}
+	re.Shrink(uint32(targetBytes))
 	e.SetRangeEncoder(re)
 
 	// Step 9: Encode frame flags
