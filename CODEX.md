@@ -222,6 +222,7 @@ Always use this reference when implementing features or debugging discrepancies.
 | Duplicate functions in multiple files | Removed by round-trip test agent | 2026-02-01 |
 | Encoder compliance/bitexact packets reused scratch buffer | Copy packets before storing (real Ogg stream) | 2026-02-02 |
 | SILK 10ms NSQ panic | Derive subframe count from PCM length (not fixed 4) | 2026-02-02 |
+| SILK voiced frames missing LTP scale index | Encode LTP scale index (matches NSQ LTPScaleQ14) | 2026-02-02 |
 
 ### KNOWN PRECISION DIFFERENCES (Expected)
 
@@ -260,6 +261,7 @@ test status will transition: BASE → GOOD → PASS.
 **Actual current status (post-fix):**
 - CELT quality now ~31–39 dB SNR (Q ~ -35 to -19) with opusdec.
 - SILK/Hybrid remain low (SNR ~-7 to 0 dB) and still need work.
+- SILK voiced round-trip RMS improved from ~0.035 to ~0.62 after LTP scale index fix (compliance signal may still classify unvoiced).
 
 **Components verified as WORKING CORRECTLY:**
 1. ✅ **CWRS encoding/decoding** - Signs preserved perfectly in pulse roundtrip

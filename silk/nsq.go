@@ -191,7 +191,16 @@ func NoiseShapeQuantize(nsq *NSQState, input []int16, params *NSQParams) ([]int8
 	}
 
 	var xq []int16
-	if nsq.scratchXq != nil && len(nsq.scratchXq) >= frameLength {
+	xqStart := ltpMemLength
+	xqEnd := ltpMemLength + frameLength
+	if xqEnd <= len(nsq.xq) {
+		// Use state buffer so LTP rewhitening and history update work correctly.
+		xq = nsq.xq[xqStart:xqEnd]
+		for i := range xq {
+			xq[i] = 0
+		}
+	} else if nsq.scratchXq != nil && len(nsq.scratchXq) >= frameLength {
+		// Fallback to scratch if frame length exceeds state buffer.
 		xq = nsq.scratchXq[:frameLength]
 		for i := range xq {
 			xq[i] = 0

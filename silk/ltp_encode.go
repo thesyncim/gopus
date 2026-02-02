@@ -12,7 +12,7 @@ type LTPCoeffsArray [4][5]int8
 // Per draft-vos-silk-01 Section 2.1.2.6.
 // Returns 5-tap LTP coefficients per subframe in Q7 format.
 // Uses fixed-size array to avoid allocations.
-func (e *Encoder) analyzeLTP(pcm []float32, pitchLags []int, numSubframes int) LTPCoeffsArray {
+func (e *Encoder) analyzeLTP(pcm []float32, pitchLags []int, numSubframes int, periodicity int) LTPCoeffsArray {
 	config := GetBandwidthConfig(e.bandwidth)
 	subframeSamples := config.SubframeSamples
 
@@ -25,8 +25,8 @@ func (e *Encoder) analyzeLTP(pcm []float32, pitchLags []int, numSubframes int) L
 		// Compute optimal LTP coefficients via least squares
 		coeffs := computeLTPCoeffs(pcm, start, subframeSamples, lag)
 
-		// Quantize to codebook into fixed array
-		quantizeLTPCoeffsInto(coeffs[:], e.isPreviousFrameVoiced, &ltpCoeffs[sf])
+		// Quantize to codebook into fixed array using periodicity-selected codebook
+		quantizeLTPCoeffsInto(coeffs[:], periodicity, &ltpCoeffs[sf])
 	}
 
 	return ltpCoeffs
@@ -139,24 +139,22 @@ func solveLTPSystem(R [5][5]float64, r [5]float64) [5]float64 {
 // Uses LTP codebook from codebook.go (LTPFilterLow/Mid/High).
 // Returns Q7 format coefficients.
 // Allocating version for backward compatibility.
-func quantizeLTPCoeffs(coeffs []float64, isPreviousVoiced bool) []int8 {
+func quantizeLTPCoeffs(coeffs []float64, periodicity int) []int8 {
 	result := make([]int8, 5)
 	var fixed [5]int8
-	quantizeLTPCoeffsInto(coeffs, isPreviousVoiced, &fixed)
+	quantizeLTPCoeffsInto(coeffs, periodicity, &fixed)
 	copy(result, fixed[:])
 	return result
 }
 
 // quantizeLTPCoeffsInto quantizes LTP coefficients into a pre-allocated array.
 // Zero-allocation version.
-func quantizeLTPCoeffsInto(coeffs []float64, isPreviousVoiced bool, result *[5]int8) {
+func quantizeLTPCoeffsInto(coeffs []float64, periodicity int, result *[5]int8) {
 	const numTaps = 5
 
-	// Select codebook based on periodicity
-	// 0 = low, 1 = mid, 2 = high
-	periodicity := 1 // Default medium periodicity
-	if isPreviousVoiced {
-		periodicity = 2 // High periodicity for voiced continuation
+	// Clamp periodicity: 0 = low, 1 = mid, 2 = high
+	if periodicity < 0 || periodicity > 2 {
+		periodicity = 1
 	}
 
 	// Find best matching codebook entry

@@ -65,7 +65,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 
 	// Step 3: Compute and encode gains
 	gains := e.computeSubframeGains(pcm, numSubframes)
-	e.encodeSubframeGains(gains, signalType, numSubframes)
+	gainsQ16 := e.encodeSubframeGains(gains, signalType, numSubframes)
 
 	// Step 4: Compute LPC coefficients
 	lpcQ12 := e.computeLPCFromFrame(pcm)
@@ -84,13 +84,18 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 
 	// Step 6: Pitch detection and LTP (voiced only)
 	var pitchLags []int
+	var ltpCoeffs LTPCoeffsArray
+	periodicity := 0
 	if signalType == 2 {
 		pitchLags = e.detectPitch(pcm, numSubframes)
 		e.encodePitchLags(pitchLags, numSubframes)
 
-		ltpCoeffs := e.analyzeLTP(pcm, pitchLags, numSubframes)
-		periodicity := e.determinePeriodicity(pcm, pitchLags)
+		periodicity = e.determinePeriodicity(pcm, pitchLags)
+		ltpCoeffs = e.analyzeLTP(pcm, pitchLags, numSubframes, periodicity)
 		e.encodeLTPCoeffs(ltpCoeffs, periodicity, numSubframes)
+		// Encode LTP scale index (required for voiced frames).
+		ltpScaleIndex := 1 // Middle value; matches LTPScaleQ14 used in NSQ.
+		e.rangeEncoder.EncodeICDF(ltpScaleIndex, silk_LTPscale_iCDF, 8)
 	}
 
 	// Step 6.5: LBRR Encoding (FEC)
@@ -117,7 +122,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	}
 
 	// Use NSQ for proper noise-shaped quantization
-	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, gains, pitchLags, signalType, quantOffset, seed, numSubframes, subframeSamples, frameSamples)
+	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, gainsQ16, pitchLags, ltpCoeffs, signalType, quantOffset, seed, numSubframes, subframeSamples, frameSamples)
 
 	// Encode ALL pulses for the entire frame at once
 	e.encodePulses(allExcitation, signalType, quantOffset)
@@ -147,7 +152,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 
 // computeNSQExcitation computes excitation using Noise Shaping Quantization.
 // This provides proper libopus-matching noise shaping for better audio quality.
-func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, gains []float32, pitchLags []int, signalType, quantOffset, seed, numSubframes, subframeSamples, frameSamples int) []int32 {
+func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, gainsQ16 []int32, pitchLags []int, ltpCoeffs LTPCoeffsArray, signalType, quantOffset, seed, numSubframes, subframeSamples, frameSamples int) []int32 {
 	// Convert PCM to int16 for NSQ using scratch buffer
 	inputQ0 := ensureInt16Slice(&e.scratchInputQ0, frameSamples)
 	for i := 0; i < frameSamples && i < len(pcm); i++ {
@@ -161,13 +166,14 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, gains []fl
 		inputQ0[i] = int16(val)
 	}
 
-	// Convert gains to Q16 format using scratch buffer
-	gainsQ16 := ensureInt32Slice(&e.scratchGainsQ16, numSubframes)
-	for i := 0; i < numSubframes && i < len(gains); i++ {
-		gainsQ16[i] = int32(gains[i] * 65536.0)
-		if gainsQ16[i] < 1 {
-			gainsQ16[i] = 1 // Minimum gain
+	// Ensure gainsQ16 has numSubframes entries (pad with minimum gain if needed).
+	if len(gainsQ16) < numSubframes {
+		tmp := ensureInt32Slice(&e.scratchGainsQ16, numSubframes)
+		copy(tmp, gainsQ16)
+		for i := len(gainsQ16); i < numSubframes; i++ {
+			tmp[i] = 1 << 16
 		}
+		gainsQ16 = tmp
 	}
 
 	// Prepare pitch lags (default to 0 for unvoiced) using scratch buffer
@@ -199,15 +205,17 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, gains []fl
 		}
 	}
 
-	// LTP coefficients (Q14) - simplified, use default for unvoiced, using scratch buffer
+	// LTP coefficients (Q14) derived from quantized codebook taps.
 	ltpCoefQ14 := ensureInt16Slice(&e.scratchLtpCoefQ14, numSubframes*ltpOrderConst)
 	for i := range ltpCoefQ14 {
 		ltpCoefQ14[i] = 0 // Clear
 	}
 	if signalType == typeVoiced {
-		// Default LTP coefficients for voiced (center tap dominant)
-		for sf := 0; sf < numSubframes; sf++ {
-			ltpCoefQ14[sf*ltpOrderConst+2] = 8192 // Center tap = 0.5 in Q14
+		for sf := 0; sf < numSubframes && sf < len(ltpCoeffs); sf++ {
+			for tap := 0; tap < ltpOrderConst; tap++ {
+				// Codebook taps are Q7 (128 = 1.0). Convert to Q14.
+				ltpCoefQ14[sf*ltpOrderConst+tap] = int16(ltpCoeffs[sf][tap]) << 7
+			}
 		}
 	}
 
@@ -404,7 +412,7 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 
 	// Step 3: Compute and encode gains
 	gains := e.computeSubframeGains(pcm, numSubframes)
-	e.encodeSubframeGains(gains, signalType, numSubframes)
+	gainsQ16 := e.encodeSubframeGains(gains, signalType, numSubframes)
 
 	// Step 4: Compute LPC coefficients
 	lpcQ12 := e.computeLPCFromFrame(pcm)
@@ -423,13 +431,18 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 
 	// Step 6: Pitch detection and LTP (voiced only)
 	var pitchLags []int
+	var ltpCoeffs LTPCoeffsArray
+	periodicity := 0
 	if signalType == 2 {
 		pitchLags = e.detectPitch(pcm, numSubframes)
 		e.encodePitchLags(pitchLags, numSubframes)
 
-		ltpCoeffs := e.analyzeLTP(pcm, pitchLags, numSubframes)
-		periodicity := e.determinePeriodicity(pcm, pitchLags)
+		periodicity = e.determinePeriodicity(pcm, pitchLags)
+		ltpCoeffs = e.analyzeLTP(pcm, pitchLags, numSubframes, periodicity)
 		e.encodeLTPCoeffs(ltpCoeffs, periodicity, numSubframes)
+		// Encode LTP scale index (required for voiced frames).
+		ltpScaleIndex := 1 // Middle value; matches LTPScaleQ14 used in NSQ.
+		e.rangeEncoder.EncodeICDF(ltpScaleIndex, silk_LTPscale_iCDF, 8)
 	}
 
 	// Step 6.5: LBRR Encoding (FEC) for this frame
@@ -450,7 +463,7 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 		frameSamples = len(pcm)
 	}
 
-	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, gains, pitchLags, signalType, quantOffset, seed, numSubframes, subframeSamples, frameSamples)
+	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, gainsQ16, pitchLags, ltpCoeffs, signalType, quantOffset, seed, numSubframes, subframeSamples, frameSamples)
 	e.encodePulses(allExcitation, signalType, quantOffset)
 
 	// Update state

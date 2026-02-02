@@ -169,7 +169,7 @@ func TestQuantizeLTPCoeffs(t *testing.T) {
 	// Test with known coefficients
 	coeffs := []float64{0.5, 0.3, 0.1, -0.1, -0.05}
 
-	quantized := quantizeLTPCoeffs(coeffs, true)
+	quantized := quantizeLTPCoeffs(coeffs, 2)
 
 	if len(quantized) != 5 {
 		t.Fatalf("expected 5 coefficients, got %d", len(quantized))
@@ -187,7 +187,7 @@ func TestQuantizeLTPCoeffsZeroCoeffs(t *testing.T) {
 	// Test with zero coefficients
 	coeffs := []float64{0, 0, 0, 0, 0}
 
-	quantized := quantizeLTPCoeffs(coeffs, false)
+	quantized := quantizeLTPCoeffs(coeffs, 1)
 
 	if len(quantized) != 5 {
 		t.Fatalf("expected 5 coefficients, got %d", len(quantized))
@@ -205,7 +205,7 @@ func TestQuantizeLTPCoeffsLargeCoeffs(t *testing.T) {
 	// Test with large coefficients (should clip to codebook range)
 	coeffs := []float64{2.0, 1.5, 1.0, -1.0, -1.5}
 
-	quantized := quantizeLTPCoeffs(coeffs, true)
+	quantized := quantizeLTPCoeffs(coeffs, 2)
 
 	if len(quantized) != 5 {
 		t.Fatalf("expected 5 coefficients, got %d", len(quantized))
@@ -236,7 +236,7 @@ func TestAnalyzeLTP(t *testing.T) {
 	pitchLags := []int{pitchPeriod, pitchPeriod, pitchPeriod, pitchPeriod}
 	numSubframes := 4
 
-	ltpCoeffs := enc.analyzeLTP(pcm, pitchLags, numSubframes)
+	ltpCoeffs := enc.analyzeLTP(pcm, pitchLags, numSubframes, 2)
 
 	// LTPCoeffsArray is [4][5]int8 - fixed size
 	for sf := 0; sf < numSubframes; sf++ {

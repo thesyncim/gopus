@@ -10,15 +10,21 @@ import "math"
 // Subsequent subframes: always delta-coded.
 // Uses libopus quantization algorithm with hysteresis and double step sizes.
 // Uses scratch buffers for zero-allocation operation.
-func (e *Encoder) encodeSubframeGains(gains []float32, signalType, numSubframes int) {
+func (e *Encoder) encodeSubframeGains(gains []float32, signalType, numSubframes int) []int32 {
+	const minGainQ16 = 1 << 16
+	const maxGainQ16 = int32(0x7fffffff)
+
 	// Convert gains to Q16 format using scratch buffer
 	gainsQ16 := ensureInt32Slice(&e.scratchGainsQ16Enc, numSubframes)
 	for i := 0; i < numSubframes; i++ {
 		// Convert float to Q16
-		gainsQ16[i] = int32(gains[i] * 65536.0)
-		if gainsQ16[i] < (1 << 16) {
-			gainsQ16[i] = 1 << 16 // Minimum gain of 1.0
+		val := float64(gains[i]) * 65536.0
+		if val < float64(minGainQ16) {
+			val = float64(minGainQ16) // Minimum gain of 1.0
+		} else if val > float64(maxGainQ16) {
+			val = float64(maxGainQ16)
 		}
+		gainsQ16[i] = int32(val)
 	}
 
 	// Determine if we're using conditional coding
@@ -58,6 +64,8 @@ func (e *Encoder) encodeSubframeGains(gains []float32, signalType, numSubframes 
 	// Update state for next frame
 	e.previousGainIndex = int32(newPrevInd)
 	e.previousLogGain = int32(newPrevInd)
+
+	return gainsQ16
 }
 
 // encodeAbsoluteGainIndex encodes the absolute gain index for first subframe.
@@ -122,11 +130,13 @@ func (e *Encoder) computeSubframeGains(pcm []float32, numSubframes int) []float3
 		if end > len(pcm) {
 			end = len(pcm)
 		}
-
-		// Compute energy (sum of squares)
+		// Compute energy (sum of squares) in int16 scale to match SILK gain quantization.
+		// PCM is normalized [-1, 1], so scale to int16 range before RMS.
 		var energy float64
+		const pcmScale = 32768.0
 		for i := start; i < end; i++ {
-			energy += float64(pcm[i]) * float64(pcm[i])
+			s := float64(pcm[i]) * pcmScale
+			energy += s * s
 		}
 
 		// Normalize by number of samples
@@ -135,11 +145,11 @@ func (e *Encoder) computeSubframeGains(pcm []float32, numSubframes int) []float3
 			energy /= float64(n)
 		}
 
-		// Convert to RMS gain
+		// Convert to RMS gain (int16 amplitude domain)
 		if energy > 0 {
 			gains[sf] = float32(math.Sqrt(energy))
 		} else {
-			gains[sf] = 1.0 // Minimum gain
+			gains[sf] = 1.0 // Minimum gain (1 LSB in int16 domain)
 		}
 
 		// Ensure minimum gain
