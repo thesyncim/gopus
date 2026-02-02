@@ -187,9 +187,15 @@ Always use this reference when implementing features or debugging discrepancies.
    - Hybrid now uses `NormalizeBandsToArray*` + `quant_all_bands` (PVQ search)
    - TF/spread/dynalloc/trim bits encoded with decoder-aligned gating
    - Proper `bandE` passed for stereo decisions and theta RDO
-3. ⏳ **Remaining Hybrid Gaps**
-   - Transient analysis and dynalloc/spread analysis still defaulted (zeros / `SpreadNormal`)
-   - Potential next step if hybrid quality still lags
+3. ✅ **Hybrid Analysis Port** - `encoder/hybrid.go`, `celt/hybrid_encode_helpers.go`
+   - Transient analysis + short-block MDCT for hybrid CELT
+   - Dynalloc + TF analysis + spread decision integrated
+   - Alloc trim analysis now uses `ComputeEquivRate` with hybrid bit budget
+4. ✅ **Dynalloc Scratch Resizing** - `celt/dynalloc.go`
+   - Fix slice length reuse when nbBands changes between frames
+5. ✅ **Hybrid Pre-Processing Alignment** - `encoder/hybrid.go`, `celt/hybrid_encode_helpers.go`
+   - Apply DC reject + CELT delay compensation before hybrid delay/gain fade
+   - Default intensity set to `nbBands` (disable intensity stereo unless chosen by allocator)
 
 ---
 
@@ -280,8 +286,8 @@ Investigation findings from roundtrip testing (gopus encoder → gopus decoder):
 - `quant_all_bands` resynth is enabled only when theta RDO is active (stereo, complexity>=8), matching libopus; lowband folding is disabled when resynth is off.
 
 **Hybrid CELT parity status:**
-- Hybrid CELT encoding path now aligned with main CELT: `quant_all_bands`, linear normalization, and range-limited energy coding for bands 17..end.
-- Remaining gap: hybrid currently uses default TF/spread/dynalloc (no analysis); may still limit quality on transient-heavy content.
+- Hybrid CELT encoding path aligned with main CELT: `quant_all_bands`, linear normalization, range-limited energy coding for bands 17..end, plus transient/TF/spread/dynalloc analysis.
+- Remaining gap: hybrid uses simplified bit budget estimates (derived from CELT bitrate), could be refined if quality still lags.
 
 **Next debugging step:**
 Create a minimal test that:

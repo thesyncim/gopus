@@ -195,8 +195,10 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, frameSize int) ([]byte, error
 	e.silkEncoder.SetBitrate(silkBitrate)
 	e.encodeSILKHybrid(silkInput, frameSize)
 
-	// Step 3: Apply CELT delay compensation (130 samples) and HB gain fade
-	celtInput := e.applyInputDelayWithGainFade(pcm, hbGain)
+	// Step 3: Apply CELT DC rejection + delay compensation, then hybrid delay and gain fade
+	dcRejected := e.celtEncoder.ApplyDCRejectScratchHybrid(pcm)
+	samplesForFrame := e.celtEncoder.ApplyDelayCompensationScratchHybrid(dcRejected, frameSize)
+	celtInput := e.applyInputDelayWithGainFade(samplesForFrame, hbGain)
 
 	// Step 4: CELT encodes high frequencies (bands 17-21)
 	e.celtEncoder.SetRangeEncoder(re)
@@ -627,11 +629,13 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int) {
 	// Apply pre-emphasis with signal scaling
 	preemph := e.celtEncoder.ApplyPreemphasisWithScaling(pcm)
 
-	// Compute MDCT with overlap history
-	mdctCoeffs := computeMDCTForHybrid(preemph, frameSize, e.channels, e.celtEncoder.OverlapBuffer())
-	if len(mdctCoeffs) == 0 {
+	// Get the range encoder
+	re := e.celtEncoder.RangeEncoder()
+	if re == nil {
 		return
 	}
+
+	totalBits := re.StorageBits()
 
 	// Hybrid CELT only encodes bands starting at HybridCELTStartBand.
 	start := celt.HybridCELTStartBand
@@ -648,13 +652,33 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int) {
 	}
 	nbBands := end
 
+	// Transient analysis (pre-MDCT) to decide short blocks and tf metrics.
+	transient, tfEstimate, toneFreq, toneishness, shortBlocks, bandLogE2 := e.celtEncoder.TransientAnalysisHybrid(preemph, frameSize, nbBands, lm)
+
+	// Compute MDCT with overlap history using the selected block size.
+	mdctCoeffs := computeMDCTForHybrid(preemph, frameSize, e.channels, e.celtEncoder.OverlapBuffer(), shortBlocks)
+	if len(mdctCoeffs) == 0 {
+		return
+	}
+
 	// Compute band energies
 	energies := e.celtEncoder.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
+	e.celtEncoder.RoundFloat64ToFloat32(energies)
+	if bandLogE2 == nil {
+		bandLogE2 = make([]float64, len(energies))
+		copy(bandLogE2, energies)
+	}
 
 	// In hybrid mode, set low bands (0-16) to very low energy.
 	// These bands are handled by SILK.
-	for i := 0; i < start && i < len(energies); i++ {
-		energies[i] = -28.0
+	for c := 0; c < e.channels; c++ {
+		base := c * nbBands
+		for band := 0; band < start && base+band < len(energies); band++ {
+			energies[base+band] = -28.0
+			if bandLogE2 != nil && base+band < len(bandLogE2) {
+				bandLogE2[base+band] = -28.0
+			}
+		}
 	}
 
 	// Apply crossover energy matching
@@ -676,14 +700,6 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int) {
 		normL, normR, bandE = e.celtEncoder.NormalizeBandsToArrayStereoWithBandE(mdctLeft, mdctRight, nbBands, frameSize)
 	}
 
-	// Get the range encoder
-	re := e.celtEncoder.RangeEncoder()
-	if re == nil {
-		return
-	}
-
-	totalBits := re.StorageBits()
-
 	// Encode silence flag ONLY if tell==1 (match libopus/decoder gating).
 	if re.Tell() == 1 {
 		re.EncodeBit(0, 15)
@@ -692,9 +708,15 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int) {
 	// In hybrid mode, postfilter flag is SKIPPED (not encoded)
 
 	// Encode transient flag (only for LM >= 1)
-	transient := false
 	if lm >= 1 && re.Tell()+3 <= totalBits {
-		re.EncodeBit(0, 3) // No transient for hybrid
+		if transient {
+			re.EncodeBit(1, 3)
+		} else {
+			re.EncodeBit(0, 3)
+		}
+	} else if lm >= 1 {
+		transient = false
+		shortBlocks = 1
 	}
 
 	// Encode intra flag
@@ -712,22 +734,82 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int) {
 	// Encode coarse energy
 	prevEnergy := make([]float64, len(e.celtEncoder.PrevEnergy()))
 	copy(prevEnergy, e.celtEncoder.PrevEnergy())
+	oldBandE := prevEnergy
+	if maxLen := nbBands * e.channels; maxLen > 0 && len(oldBandE) > maxLen {
+		oldBandE = oldBandE[:maxLen]
+	}
 	quantizedEnergies := e.celtEncoder.EncodeCoarseEnergyRange(energies, start, end, intra, lm)
 
-	// Encode TF resolution (default zeros) and convert to actual tf changes.
-	tfRes := e.celtEncoder.TFResScratch(nbBands)
-	for i := range tfRes {
-		tfRes[i] = 0
-	}
-	celt.TFEncodeWithSelect(re, start, end, transient, tfRes, lm, 0)
+	// Update tonality analysis for next frame's VBR decisions.
+	e.celtEncoder.UpdateTonalityAnalysisHybrid(normL, energies, nbBands, frameSize)
 
-	// Encode spread decision (default normal) only if budget allows.
+	// Compute dynalloc analysis for TF/spread and offsets.
+	lsbDepth := 24
+	effectiveBytes := 0
+	if e.celtEncoder.VBR() {
+		baseBits := e.celtEncoder.BitrateToBits(frameSize)
+		effectiveBytes = baseBits / 8
+	} else {
+		effectiveBytes = e.celtEncoder.CBRPayloadBytes(frameSize)
+	}
+
+	dynallocResult := e.celtEncoder.DynallocAnalysisHybridScratch(
+		energies,
+		bandLogE2,
+		oldBandE,
+		nbBands,
+		start,
+		end,
+		lsbDepth,
+		lm,
+		effectiveBytes,
+		transient,
+		e.celtEncoder.VBR(),
+		e.celtEncoder.ConstrainedVBR(),
+		toneFreq,
+		toneishness,
+	)
+
+	// TF analysis (enable with sufficient bits/complexity).
+	enableTFAnalysis := effectiveBytes >= 15*e.channels && e.celtEncoder.Complexity() >= 2 && toneishness < 0.98
+	var tfRes []int
+	if enableTFAnalysis {
+		useTfEstimate := tfEstimate
+		if transient && tfEstimate < 0.2 {
+			useTfEstimate = 0.2
+		}
+		tfRes, tfSelect := e.celtEncoder.TFAnalysisHybridScratch(normL, nbBands, transient, lm, useTfEstimate, effectiveBytes, dynallocResult.Importance)
+		celt.TFEncodeWithSelect(re, start, end, transient, tfRes, lm, tfSelect)
+	} else {
+		tfRes = e.celtEncoder.TFResScratch(nbBands)
+		for i := range tfRes {
+			tfRes[i] = 0
+		}
+		if transient {
+			for i := 0; i < nbBands; i++ {
+				tfRes[i] = 1
+			}
+		}
+		celt.TFEncode(re, start, end, transient, tfRes, lm)
+	}
+
+	// Encode spread decision (analysis-based) only if budget allows.
 	spread := celt.SpreadNormal
 	if re.Tell()+4 <= totalBits {
+		if shortBlocks > 1 || e.celtEncoder.Complexity() < 3 || effectiveBytes < 10*e.channels {
+			if e.celtEncoder.Complexity() == 0 {
+				spread = celt.SpreadNone
+			} else {
+				spread = celt.SpreadNormal
+			}
+			e.celtEncoder.SetTapsetDecision(0)
+		} else {
+			updateHF := shortBlocks == 1
+			spreadWeights := celt.ComputeSpreadWeights(energies, nbBands, e.channels, lsbDepth)
+			spread = e.celtEncoder.SpreadingDecisionWithWeights(normL, nbBands, e.channels, frameSize, updateHF, spreadWeights)
+		}
 		re.EncodeICDF(spread, celt.SpreadICDF, 5)
 	}
-	// Reset tapset decision (no spreading analysis in hybrid path).
-	e.celtEncoder.SetTapsetDecision(0)
 
 	// Initialize caps and offsets for allocation (hybrid bands only).
 	caps := e.celtEncoder.CapsScratch(nbBands)
@@ -736,12 +818,15 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int) {
 		caps[i] = 0
 	}
 
-	offsets := e.celtEncoder.OffsetsScratch(nbBands)
-	for i := range offsets {
-		offsets[i] = 0
+	offsets := dynallocResult.Offsets
+	if offsets == nil || len(offsets) < nbBands {
+		offsets = e.celtEncoder.OffsetsScratch(nbBands)
+		for i := range offsets {
+			offsets[i] = 0
+		}
 	}
 
-	// Encode dynalloc offsets (zeros) to match decoder expectations.
+	// Encode dynalloc offsets.
 	dynallocLogp := 6
 	totalBitsQ3ForDynalloc := totalBits << celt.BitRes
 	totalBoost := 0
@@ -784,6 +869,20 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int) {
 
 	allocTrim := 5
 	if tellFracDynalloc+(6<<celt.BitRes) <= totalBitsQ3ForDynalloc-totalBoost {
+		equivRate := celt.ComputeEquivRate(effectiveBytes, e.channels, lm, e.celtEncoder.Bitrate())
+		allocTrim = celt.AllocTrimAnalysis(
+			normL,
+			energies,
+			nbBands,
+			lm,
+			e.channels,
+			normR,
+			0,
+			tfEstimate,
+			equivRate,
+			0.0,
+			0.0,
+		)
 		re.EncodeICDF(allocTrim, celt.TrimICDF, 7)
 	}
 
@@ -796,7 +895,7 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int) {
 	}
 	totalBitsQ3 -= antiCollapseRsv
 
-	intensity := 0
+	intensity := nbBands
 	dualStereo := false
 	signalBandwidth := end - 1
 	if signalBandwidth < 0 {
@@ -846,7 +945,7 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int) {
 		normL,
 		normR,
 		allocResult.BandBits,
-		1,
+		shortBlocks,
 		spread,
 		tapset,
 		dualStereoVal,
@@ -937,7 +1036,7 @@ func (e *Encoder) matchCrossoverEnergy(energies []float64, startBand int) []floa
 }
 
 // computeMDCTForHybrid computes MDCT for hybrid mode encoding.
-func computeMDCTForHybrid(samples []float64, frameSize, channels int, history []float64) []float64 {
+func computeMDCTForHybrid(samples []float64, frameSize, channels int, history []float64, shortBlocks int) []float64 {
 	if len(samples) == 0 {
 		return nil
 	}
@@ -949,25 +1048,37 @@ func computeMDCTForHybrid(samples []float64, frameSize, channels int, history []
 
 	if channels == 1 {
 		if len(history) >= overlap {
-			return celt.ComputeMDCTWithHistory(samples, history[:overlap], 1)
+			return celt.ComputeMDCTWithHistory(samples, history[:overlap], shortBlocks)
 		}
-		return celt.MDCT(append(make([]float64, overlap), samples...))
+		input := append(make([]float64, overlap), samples...)
+		if shortBlocks > 1 {
+			return celt.MDCTShort(input, shortBlocks)
+		}
+		return celt.MDCT(input)
 	}
 
 	// Stereo: MDCT each channel separately (L/R)
 	left, right := celt.DeinterleaveStereo(samples)
 
 	if len(history) >= overlap*2 {
-		mdctLeft := celt.ComputeMDCTWithHistory(left, history[:overlap], 1)
-		mdctRight := celt.ComputeMDCTWithHistory(right, history[overlap:overlap*2], 1)
+		mdctLeft := celt.ComputeMDCTWithHistory(left, history[:overlap], shortBlocks)
+		mdctRight := celt.ComputeMDCTWithHistory(right, history[overlap:overlap*2], shortBlocks)
 		result := make([]float64, len(mdctLeft)+len(mdctRight))
 		copy(result[:len(mdctLeft)], mdctLeft)
 		copy(result[len(mdctLeft):], mdctRight)
 		return result
 	}
 
-	mdctLeft := celt.MDCT(append(make([]float64, overlap), left...))
-	mdctRight := celt.MDCT(append(make([]float64, overlap), right...))
+	leftInput := append(make([]float64, overlap), left...)
+	rightInput := append(make([]float64, overlap), right...)
+	var mdctLeft, mdctRight []float64
+	if shortBlocks > 1 {
+		mdctLeft = celt.MDCTShort(leftInput, shortBlocks)
+		mdctRight = celt.MDCTShort(rightInput, shortBlocks)
+	} else {
+		mdctLeft = celt.MDCT(leftInput)
+		mdctRight = celt.MDCT(rightInput)
+	}
 
 	result := make([]float64, len(mdctLeft)+len(mdctRight))
 	copy(result[:len(mdctLeft)], mdctLeft)

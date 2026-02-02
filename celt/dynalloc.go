@@ -681,15 +681,15 @@ type DynallocScratch struct {
 	Importance   []int
 
 	// Conversion buffers (float32 for precision matching libopus)
-	BandLogE32  []float32
+	BandLogE32   []float32
 	BandLogE2_32 []float32
-	OldBandE32  []float32
-	NoiseFloor  []float32
+	OldBandE32   []float32
+	NoiseFloor   []float32
 
 	// Masking model buffers
-	Mask     []float32
-	Sig      []float32
-	Follower []float32
+	Mask      []float32
+	Sig       []float32
+	Follower  []float32
 	BandLogE3 []float32
 }
 
@@ -713,27 +713,43 @@ func (s *DynallocScratch) EnsureDynallocScratch(nbBands, channels int) {
 	}
 	if cap(s.BandLogE32) < maxSize {
 		s.BandLogE32 = make([]float32, maxSize)
+	} else {
+		s.BandLogE32 = s.BandLogE32[:maxSize]
 	}
 	if cap(s.BandLogE2_32) < maxSize {
 		s.BandLogE2_32 = make([]float32, maxSize)
+	} else {
+		s.BandLogE2_32 = s.BandLogE2_32[:maxSize]
 	}
 	if cap(s.OldBandE32) < maxSize {
 		s.OldBandE32 = make([]float32, maxSize)
+	} else {
+		s.OldBandE32 = s.OldBandE32[:maxSize]
 	}
 	if cap(s.NoiseFloor) < nbBands {
 		s.NoiseFloor = make([]float32, nbBands)
+	} else {
+		s.NoiseFloor = s.NoiseFloor[:nbBands]
 	}
 	if cap(s.Mask) < nbBands {
 		s.Mask = make([]float32, nbBands)
+	} else {
+		s.Mask = s.Mask[:nbBands]
 	}
 	if cap(s.Sig) < nbBands {
 		s.Sig = make([]float32, nbBands)
+	} else {
+		s.Sig = s.Sig[:nbBands]
 	}
 	if cap(s.Follower) < maxSize {
 		s.Follower = make([]float32, maxSize)
+	} else {
+		s.Follower = s.Follower[:maxSize]
 	}
 	if cap(s.BandLogE3) < nbBands {
 		s.BandLogE3 = make([]float32, nbBands)
+	} else {
+		s.BandLogE3 = s.BandLogE3[:nbBands]
 	}
 }
 
@@ -752,6 +768,18 @@ func DynallocAnalysisWithScratch(
 	}
 
 	scratch.EnsureDynallocScratch(nbBands, channels)
+	if nbBands < 0 {
+		nbBands = 0
+	}
+	if end > nbBands {
+		end = nbBands
+	}
+	if start < 0 {
+		start = 0
+	}
+	if start > end {
+		start = end
+	}
 
 	result := DynallocResult{
 		MaxDepth:     -31.9,

@@ -174,3 +174,227 @@ func (e *Encoder) UpdateConsecTransient(transient bool) {
 		e.consecTransient = 0
 	}
 }
+
+// TransientAnalysisHybrid performs transient analysis and updates preemph overlap state.
+// Returns transient flags, tf/tone metrics, shortBlocks choice, and optional bandLogE2.
+func (e *Encoder) TransientAnalysisHybrid(preemph []float64, frameSize, nbBands, lm int) (transient bool, tfEstimate, toneFreq, toneishness float64, shortBlocks int, bandLogE2 []float64) {
+	overlap := Overlap
+	if overlap > frameSize {
+		overlap = frameSize
+	}
+
+	preemphBufSize := overlap * e.channels
+	if len(e.preemphBuffer) < preemphBufSize {
+		e.preemphBuffer = make([]float64, preemphBufSize)
+	}
+
+	transientLen := (overlap + frameSize) * e.channels
+	transientInput := e.scratch.transientInput
+	if len(transientInput) < transientLen {
+		transientInput = make([]float64, transientLen)
+		e.scratch.transientInput = transientInput
+	}
+	transientInput = transientInput[:transientLen]
+	copy(transientInput[:preemphBufSize], e.preemphBuffer[:preemphBufSize])
+	copy(transientInput[preemphBufSize:], preemph)
+
+	result := e.TransientAnalysis(transientInput, frameSize+overlap, false)
+	transient = result.IsTransient
+	tfEstimate = result.TfEstimate
+	toneFreq = result.ToneFreq
+	toneishness = result.Toneishness
+
+	maxToneishness := 1.0 - tfEstimate
+	if toneishness > maxToneishness {
+		toneishness = maxToneishness
+	}
+
+	if e.forceTransient {
+		transient = true
+	}
+	if e.frameCount == 0 && lm > 0 && !transient {
+		transient = true
+		tfEstimate = 0.2
+	}
+
+	shortBlocks = 1
+	if transient {
+		mode := GetModeConfig(frameSize)
+		shortBlocks = mode.ShortBlocks
+	}
+
+	tailStart := len(preemph) - preemphBufSize
+	if tailStart >= 0 {
+		copy(e.preemphBuffer[:preemphBufSize], preemph[tailStart:])
+	}
+
+	secondMdct := shortBlocks > 1 && e.complexity >= 8
+	if !secondMdct {
+		return transient, tfEstimate, toneFreq, toneishness, shortBlocks, nil
+	}
+
+	if e.channels == 1 {
+		hist := e.scratch.leftHist
+		if len(hist) < overlap {
+			hist = make([]float64, overlap)
+			e.scratch.leftHist = hist
+		}
+		hist = hist[:overlap]
+		copy(hist, e.overlapBuffer[:overlap])
+		mdctLong := computeMDCTWithHistoryScratch(preemph, hist, 1, &e.scratch)
+		bandLogE2 = ensureFloat64Slice(&e.scratch.bandLogE2, nbBands*e.channels)
+		e.ComputeBandEnergiesInto(mdctLong, nbBands, frameSize, bandLogE2)
+		roundFloat64ToFloat32(bandLogE2)
+	} else {
+		left, right := deinterleaveStereoScratch(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
+		if len(e.overlapBuffer) < 2*overlap {
+			newBuf := make([]float64, 2*overlap)
+			if len(e.overlapBuffer) > 0 {
+				copy(newBuf, e.overlapBuffer)
+			}
+			e.overlapBuffer = newBuf
+		}
+		leftHist := e.scratch.leftHist
+		rightHist := e.scratch.rightHist
+		if len(leftHist) < overlap {
+			leftHist = make([]float64, overlap)
+			e.scratch.leftHist = leftHist
+		}
+		if len(rightHist) < overlap {
+			rightHist = make([]float64, overlap)
+			e.scratch.rightHist = rightHist
+		}
+		leftHist = leftHist[:overlap]
+		rightHist = rightHist[:overlap]
+		copy(leftHist, e.overlapBuffer[:overlap])
+		copy(rightHist, e.overlapBuffer[overlap:2*overlap])
+		mdctLeftLong := computeMDCTWithHistoryScratchStereoL(left, leftHist, 1, &e.scratch)
+		mdctRightLong := computeMDCTWithHistoryScratchStereoR(right, rightHist, 1, &e.scratch)
+		mdctLongLen := len(mdctLeftLong) + len(mdctRightLong)
+		mdctLong := e.scratch.mdctCoeffs
+		if len(mdctLong) < mdctLongLen {
+			mdctLong = make([]float64, mdctLongLen)
+			e.scratch.mdctCoeffs = mdctLong
+		}
+		mdctLong = mdctLong[:mdctLongLen]
+		copy(mdctLong, mdctLeftLong)
+		copy(mdctLong[len(mdctLeftLong):], mdctRightLong)
+		bandLogE2 = ensureFloat64Slice(&e.scratch.bandLogE2, nbBands*e.channels)
+		e.ComputeBandEnergiesInto(mdctLong, nbBands, frameSize, bandLogE2)
+		roundFloat64ToFloat32(bandLogE2)
+	}
+
+	if bandLogE2 != nil {
+		offset := 0.5 * float64(lm)
+		for i := range bandLogE2 {
+			bandLogE2[i] += offset
+		}
+		roundFloat64ToFloat32(bandLogE2)
+	}
+
+	return transient, tfEstimate, toneFreq, toneishness, shortBlocks, bandLogE2
+}
+
+// DynallocAnalysisHybridScratch runs dynalloc analysis using encoder scratch buffers.
+func (e *Encoder) DynallocAnalysisHybridScratch(bandLogE, bandLogE2, oldBandE []float64, nbBands, start, end, lsbDepth, lm int, effectiveBytes int, isTransient, vbr, constrainedVBR bool, toneFreq, toneishness float64) DynallocResult {
+	if nbBands < 0 {
+		nbBands = 0
+	}
+	if start < 0 {
+		start = 0
+	}
+	if end > nbBands {
+		end = nbBands
+	}
+	if end < start {
+		end = start
+	}
+
+	logN := e.scratch.logN
+	if len(logN) < nbBands {
+		logN = make([]int16, nbBands)
+		e.scratch.logN = logN
+	}
+	logN = logN[:nbBands]
+	for i := 0; i < nbBands && i < len(LogN); i++ {
+		logN[i] = int16(LogN[i])
+	}
+
+	result := DynallocAnalysisWithScratch(
+		bandLogE,
+		bandLogE2,
+		oldBandE,
+		nbBands,
+		start,
+		end,
+		e.channels,
+		lsbDepth,
+		lm,
+		logN,
+		effectiveBytes,
+		isTransient,
+		vbr,
+		constrainedVBR,
+		toneFreq,
+		toneishness,
+		&e.dynallocScratch,
+	)
+	e.lastDynalloc = result
+	return result
+}
+
+// TFAnalysisHybridScratch runs TF analysis using the encoder's scratch buffers.
+func (e *Encoder) TFAnalysisHybridScratch(norm []float64, nbBands int, transient bool, lm int, tfEstimate float64, effectiveBytes int, importance []int) ([]int, int) {
+	return TFAnalysisWithScratch(norm, len(norm), nbBands, transient, lm, tfEstimate, effectiveBytes, importance, &e.tfScratch)
+}
+
+// UpdateTonalityAnalysisHybrid updates tonality metrics for VBR decisions.
+func (e *Encoder) UpdateTonalityAnalysisHybrid(normCoeffs, energies []float64, nbBands, frameSize int) {
+	e.updateTonalityAnalysis(normCoeffs, energies, nbBands, frameSize)
+}
+
+// BitrateToBits exposes bitrate_to_bits for hybrid callers.
+func (e *Encoder) BitrateToBits(frameSize int) int {
+	return e.bitrateToBits(frameSize)
+}
+
+// CBRPayloadBytes exposes cbrPayloadBytes for hybrid callers.
+func (e *Encoder) CBRPayloadBytes(frameSize int) int {
+	return e.cbrPayloadBytes(frameSize)
+}
+
+// RoundFloat64ToFloat32 rounds each element to float32 precision and back.
+func (e *Encoder) RoundFloat64ToFloat32(x []float64) {
+	roundFloat64ToFloat32(x)
+}
+
+// ApplyDCRejectScratchHybrid applies DC rejection using the encoder scratch buffers.
+func (e *Encoder) ApplyDCRejectScratchHybrid(pcm []float64) []float64 {
+	return e.applyDCRejectScratch(pcm)
+}
+
+// ApplyDelayCompensationScratchHybrid applies CELT delay compensation using encoder state.
+// It prepends the delay buffer and returns a frame-sized slice of samples.
+func (e *Encoder) ApplyDelayCompensationScratchHybrid(pcm []float64, frameSize int) []float64 {
+	expectedLen := frameSize * e.channels
+	delayComp := DelayCompensation * e.channels
+	if len(e.delayBuffer) < delayComp {
+		e.delayBuffer = make([]float64, delayComp)
+	}
+
+	combinedLen := delayComp + len(pcm)
+	combinedBuf := e.scratch.combinedBuf
+	if len(combinedBuf) < combinedLen {
+		combinedBuf = make([]float64, combinedLen)
+		e.scratch.combinedBuf = combinedBuf
+	}
+	combinedBuf = combinedBuf[:combinedLen]
+	copy(combinedBuf[:delayComp], e.delayBuffer)
+	copy(combinedBuf[delayComp:], pcm)
+
+	samplesForFrame := combinedBuf[:expectedLen]
+	delayTailStart := len(combinedBuf) - delayComp
+	copy(e.delayBuffer, combinedBuf[delayTailStart:])
+
+	return samplesForFrame
+}
