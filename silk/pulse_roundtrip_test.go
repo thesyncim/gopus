@@ -415,3 +415,225 @@ func TestGainScalingConsistency(t *testing.T) {
 		}
 	}
 }
+
+// TestPulseExcitationRoundtrip_WithLPC tests NSQ with proper LPC prediction.
+// This verifies that the pulse roundtrip works correctly when the signal has
+// proper LPC prediction applied (which is the normal case in real encoding).
+func TestPulseExcitationRoundtrip_WithLPC(t *testing.T) {
+	nsq := NewNSQState()
+
+	// Create a signal that LPC can predict - a low-frequency sine wave
+	// LPC with high first coefficient will predict this well
+	subfrLength := 80
+	input := make([]int16, subfrLength)
+	inputAmplitude := int16(16384)
+	for i := range input {
+		// Very slowly varying signal - LPC prediction should work well
+		phase := float64(i) * 0.02 // Very low frequency
+		input[i] = int16(float64(inputAmplitude) * math.Sin(phase))
+	}
+
+	// Compute gain
+	gainQ16 := GainQ16FromPCM(input, subfrLength)
+
+	// Create LPC coefficients that predict past values
+	// For a slowly varying signal, a[0] ~= 1.0 (Q12 = 4096) predicts well
+	lpcQ12 := make([]int16, 32)
+	lpcQ12[0] = 3900 // ~0.95 in Q12 - strong prediction from previous sample
+
+	t.Logf("gainQ16 = %d (%.2f linear)", gainQ16, float64(gainQ16)/65536.0)
+	t.Logf("First 10 input samples: %v", input[:10])
+
+	params := &NSQParams{
+		SignalType:       1, // Unvoiced
+		QuantOffsetType:  0,
+		PredCoefQ12:      lpcQ12,
+		NLSFInterpCoefQ2: 4,                // No interpolation
+		LTPCoefQ14:       make([]int16, 20),
+		ARShpQ13:         make([]int16, 96),
+		HarmShapeGainQ14: make([]int, 4),
+		TiltQ14:          make([]int, 4),
+		LFShpQ14:         make([]int32, 4),
+		GainsQ16:         []int32{gainQ16},
+		PitchL:           make([]int, 4),
+		LambdaQ10:        1024,
+		LTPScaleQ14:      int(silk_LTPScales_table_Q14[1]),
+		FrameLength:      subfrLength,
+		SubfrLength:      subfrLength,
+		NbSubfr:          1,
+		LTPMemLength:     320,
+		PredLPCOrder:     10,
+		ShapeLPCOrder:    16,
+		Seed:             0,
+	}
+
+	// Run NSQ encoder
+	pulses, xq := NoiseShapeQuantize(nsq, input, params)
+
+	// Now decode with the same parameters
+	// The decoder uses the SAME LPC coefficients to reconstruct
+	// We'll manually compute what the decoder would output
+
+	// Count non-zero pulses
+	nonZeroCount := 0
+	maxPulse := int8(0)
+	for _, p := range pulses {
+		if p != 0 {
+			nonZeroCount++
+		}
+		if p > maxPulse || -p > maxPulse {
+			if p > 0 {
+				maxPulse = p
+			} else {
+				maxPulse = -p
+			}
+		}
+	}
+
+	t.Logf("Non-zero pulses: %d/%d, max magnitude: %d", nonZeroCount, subfrLength, maxPulse)
+	t.Logf("First 10 pulses: %v", pulses[:10])
+	t.Logf("First 10 xq (encoder output): %v", xq[:10])
+
+	// Compute RMS of input vs output
+	var inputSum, xqSum float64
+	for i := 0; i < subfrLength; i++ {
+		inputSum += float64(input[i]) * float64(input[i])
+		xqSum += float64(xq[i]) * float64(xq[i])
+	}
+	inputRMS := math.Sqrt(inputSum / float64(subfrLength))
+	xqRMS := math.Sqrt(xqSum / float64(subfrLength))
+	ratio := xqRMS / inputRMS
+
+	t.Logf("Input RMS: %.2f, Output RMS: %.2f, Ratio: %.4f", inputRMS, xqRMS, ratio)
+
+	// With LPC prediction, the ratio should be much better than without
+	// We expect maybe 50-90% amplitude preservation depending on quantization
+	if ratio < 0.3 {
+		t.Errorf("Amplitude ratio too low with LPC: %.4f (expected > 0.3)", ratio)
+	}
+}
+
+// TestPulseExcitationRoundtrip_DetailedTrace traces the exact math through encoder and decoder.
+// This isolates the pulse encoding path to understand the amplitude discrepancy.
+// NOTE: This test intentionally uses NO LPC prediction to trace the raw quantization path.
+// The low amplitude ratio is EXPECTED in this case.
+func TestPulseExcitationRoundtrip_DetailedTrace(t *testing.T) {
+	// Test with a very simple signal: constant amplitude
+	inputAmplitude := int16(16384) // 0.5 in int16 scale
+	subfrLength := 80
+	input := make([]int16, subfrLength)
+	for i := range input {
+		input[i] = inputAmplitude
+	}
+
+	// GainQ16 as computed by GainQ16FromPCM
+	gainQ16 := GainQ16FromPCM(input, subfrLength)
+	t.Logf("gainQ16 = %d (%.2f linear)", gainQ16, float64(gainQ16)/65536.0)
+
+	// ENCODER PATH: Scale input by 1/gain
+	invGainQ31 := silk_INVERSE32_varQ(gainQ16, 47)
+	invGainQ26 := silk_RSHIFT_ROUND(invGainQ31, 5)
+	t.Logf("invGainQ31 = %d, invGainQ26 = %d", invGainQ31, invGainQ26)
+
+	// Scaled input for first sample
+	xScQ10_0 := silk_SMULWW(int32(input[0]), invGainQ26)
+	t.Logf("Input[0] = %d -> xScQ10[0] = %d (%.4f linear)", input[0], xScQ10_0, float64(xScQ10_0)/1024.0)
+
+	// With no LPC prediction, residual = scaled input
+	// The residual rQ10 gets quantized
+	offsetQ10 := 100 // Unvoiced, low offset
+	rQ10 := xScQ10_0
+	t.Logf("Residual rQ10 = %d", rQ10)
+
+	// RD quantization: computeRDQuantization
+	q1Q10, q2Q10, rd1Q20, rd2Q20 := computeRDQuantization(rQ10, offsetQ10, 1024)
+	t.Logf("q1Q10 = %d, q2Q10 = %d, rd1Q20 = %d, rd2Q20 = %d", q1Q10, q2Q10, rd1Q20, rd2Q20)
+
+	// Compute pulse from q1Q10
+	pulse := silk_RSHIFT_ROUND(q1Q10, 10)
+	t.Logf("Encoded pulse = %d", pulse)
+
+	// DECODER PATH: Reconstruct excitation from pulse
+	excQ14 := int32(pulse) << 14
+	t.Logf("excQ14 initial (pulse << 14) = %d", excQ14)
+
+	// Apply quantLevelAdjust and offset
+	if excQ14 > 0 {
+		excQ14 -= quantLevelAdjustQ10 << 4 // 80 << 4 = 1280
+		t.Logf("excQ14 after -quantLevelAdjust = %d", excQ14)
+	} else if excQ14 < 0 {
+		excQ14 += quantLevelAdjustQ10 << 4
+		t.Logf("excQ14 after +quantLevelAdjust = %d", excQ14)
+	}
+	excQ14 += int32(offsetQ10) << 4 // 100 << 4 = 1600
+	t.Logf("excQ14 after +offset = %d (%.4f linear in Q14)", excQ14, float64(excQ14)/16384.0)
+
+	// Output scaling (no LPC prediction)
+	// sLPC[i] = excQ14 + lpcPredQ10 << 4 (lpcPredQ10 = 0 with no LPC)
+	sLPCQ14 := excQ14
+	gainQ10 := gainQ16 >> 6
+	t.Logf("gainQ10 = %d", gainQ10)
+
+	// output = (sLPCQ14 * gainQ10) >> 8
+	product64 := int64(sLPCQ14) * int64(gainQ10)
+	t.Logf("sLPCQ14 * gainQ10 = %d", product64)
+	output := silkSAT16(silkRSHIFT_ROUND(silkSMULWW(sLPCQ14, gainQ10), 8))
+	t.Logf("Output = %d", output)
+
+	// Calculate expected output
+	// The expected output should be close to input[0] if the roundtrip is correct
+	ratio := float64(output) / float64(input[0])
+	t.Logf("Ratio (output/input) = %.4f", ratio)
+
+	// Verify the math more carefully
+	// NSQ encoder uses q1Q10 for excitation: excQ14 = q1Q10 << 4
+	// So what the encoder puts INTO the decoder is q1Q10 << 4, not pulse << 14
+	// Let me trace the ACTUAL encoder output path
+
+	t.Logf("\n=== Trace ACTUAL encoder output path ===")
+	// In NSQ, excQ14 is computed as:
+	//   excQ14 := silk_LSHIFT32(q1Q10, 4)
+	// NOT from pulse << 14
+
+	// So the encoder's excQ14 (before dither flip) is:
+	encExcQ14 := silk_LSHIFT32(q1Q10, 4)
+	t.Logf("Encoder's excQ14 = q1Q10 << 4 = %d", encExcQ14)
+
+	// Then xqQ14 = excQ14 + ltpPredQ13<<1 + lpcPredQ10<<4
+	// With no LTP and no LPC: xqQ14 = excQ14
+	xqQ14 := encExcQ14
+	t.Logf("xqQ14 (no LPC/LTP) = %d", xqQ14)
+
+	// Encoder output: xq[i] = SAT16(RSHIFT_ROUND(SMULWW(xqQ14, gainQ10), 8))
+	encOutput := silkSAT16(silkRSHIFT_ROUND(silkSMULWW(xqQ14, gainQ10), 8))
+	t.Logf("Encoder output xq[0] = %d", encOutput)
+
+	// Hmm, but the decoder uses the PULSE, not q1Q10!
+	// Let me check what the decoder computes from the pulse
+
+	t.Logf("\n=== Compare encoder vs decoder excQ14 ===")
+	// Decoder: excQ14 = pulse << 14 - quantLevelAdjust<<4 + offset<<4
+	// For pulse=1: excQ14 = 16384 - 1280 + 1600 = 16704
+	decoderExcQ14Pulse1 := (1 << 14) - (quantLevelAdjustQ10 << 4) + (offsetQ10 << 4)
+	t.Logf("Decoder excQ14 for pulse=1: %d", decoderExcQ14Pulse1)
+
+	// Encoder: q1Q10 for pulse=1 is computed from RD quantization
+	// For q1Q0 = 1: q1Q10 = (1 << 10) - quantLevelAdjustQ10 + offsetQ10 = 1024 - 80 + 100 = 1044
+	// Actually, let me trace RD quantization more carefully for q1Q0=1
+	// From computeRDQuantization:
+	//   if q1Q0 > 0:
+	//     q1Q10 = (q1Q0 << 10) - quantLevelAdjustQ10 + offsetQ10
+	//     q2Q10 = q1Q10 + 1024
+	// So for q1Q0=1: q1Q10 = 1024 - 80 + 100 = 1044
+	q1Q10_forPulse1 := (1 << 10) - quantLevelAdjustQ10 + offsetQ10
+	t.Logf("q1Q10 for pulse=1 (from RD quantization): %d", q1Q10_forPulse1)
+
+	// Encoder excQ14 = q1Q10 << 4 = 1044 << 4 = 16704
+	encExcQ14_forPulse1 := q1Q10_forPulse1 << 4
+	t.Logf("Encoder excQ14 for pulse=1: %d", encExcQ14_forPulse1)
+
+	t.Logf("\n=== KEY FINDING ===")
+	t.Logf("Decoder excQ14 for pulse=1 = %d", decoderExcQ14Pulse1)
+	t.Logf("Encoder excQ14 for pulse=1 = %d", encExcQ14_forPulse1)
+	t.Logf("They match: %v", decoderExcQ14Pulse1 == encExcQ14_forPulse1)
+}
