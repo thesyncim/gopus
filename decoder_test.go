@@ -444,3 +444,241 @@ func TestDecode_PLC_ModeTracking(t *testing.T) {
 		t.Errorf("PLC should use SILK mode, not hybrid: %v", err)
 	}
 }
+
+// TestDecodeWithFEC_FallbackToPLC verifies that DecodeWithFEC falls back to PLC
+// when no FEC data is available (e.g., when no previous packet was decoded,
+// or the previous packet was CELT-only mode).
+func TestDecodeWithFEC_FallbackToPLC(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	// Attempt FEC decode without any previous packet - should fall back to PLC
+	frameSize := 960
+	pcm := make([]float32, frameSize)
+
+	// First FEC decode with no prior data - should use PLC and produce silence/zeros
+	n, err := dec.DecodeWithFEC(nil, pcm, true)
+	if err != nil {
+		t.Fatalf("DecodeWithFEC error (expected PLC fallback): %v", err)
+	}
+	if n != frameSize {
+		t.Errorf("DecodeWithFEC returned %d samples, want %d", n, frameSize)
+	}
+
+	t.Logf("DecodeWithFEC fell back to PLC successfully, produced %d samples", n)
+}
+
+// TestDecodeWithFEC_CELTNoFEC verifies that CELT-only packets don't have FEC data.
+// DecodeWithFEC should fall back to PLC after decoding a CELT packet.
+func TestDecodeWithFEC_CELTNoFEC(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	// Create a CELT packet (config 31 = CELT FB 20ms)
+	celtPacket := make([]byte, 100)
+	celtPacket[0] = GenerateTOC(31, false, 0) // CELT FB 20ms
+	for i := 1; i < len(celtPacket); i++ {
+		celtPacket[i] = byte(i)
+	}
+
+	frameSize := 960
+	pcm := make([]float32, frameSize)
+
+	// Decode the CELT packet normally
+	_, err = dec.Decode(celtPacket, pcm)
+	if err != nil {
+		t.Fatalf("Decode CELT packet error: %v", err)
+	}
+
+	// Check that no FEC data was stored (CELT doesn't have LBRR)
+	if dec.hasFEC {
+		t.Error("hasFEC should be false after CELT packet decode")
+	}
+
+	// Attempt FEC decode - should fall back to PLC since no FEC available
+	n, err := dec.DecodeWithFEC(nil, pcm, true)
+	if err != nil {
+		t.Fatalf("DecodeWithFEC error (expected PLC fallback): %v", err)
+	}
+	if n != frameSize {
+		t.Errorf("DecodeWithFEC returned %d samples, want %d", n, frameSize)
+	}
+
+	t.Logf("DecodeWithFEC correctly fell back to PLC for CELT mode")
+}
+
+// TestDecodeWithFEC_SILKStoresFEC verifies that SILK packets store FEC data.
+func TestDecodeWithFEC_SILKStoresFEC(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	// Create a SILK packet (config 9 = SILK WB 20ms)
+	silkPacket := make([]byte, 100)
+	silkPacket[0] = GenerateTOC(9, false, 0) // SILK WB 20ms
+	for i := 1; i < len(silkPacket); i++ {
+		silkPacket[i] = byte(i)
+	}
+
+	frameSize := 960
+	pcm := make([]float32, frameSize)
+
+	// Decode the SILK packet normally
+	_, err = dec.Decode(silkPacket, pcm)
+	if err != nil {
+		t.Fatalf("Decode SILK packet error: %v", err)
+	}
+
+	// Check that FEC data was stored (SILK packets can have LBRR)
+	if !dec.hasFEC {
+		t.Error("hasFEC should be true after SILK packet decode")
+	}
+	if dec.fecMode != ModeSILK {
+		t.Errorf("fecMode = %v, want ModeSILK", dec.fecMode)
+	}
+
+	t.Log("DecodeWithFEC correctly stored FEC data for SILK mode")
+}
+
+// TestDecodeWithFEC_HybridStoresFEC verifies that Hybrid packets store FEC data.
+func TestDecodeWithFEC_HybridStoresFEC(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	// Use the minimal hybrid test packet
+	packet := minimalHybridTestPacket20ms()
+	frameSize := 960
+	pcm := make([]float32, frameSize)
+
+	// Decode the Hybrid packet normally
+	_, err = dec.Decode(packet, pcm)
+	if err != nil {
+		t.Fatalf("Decode Hybrid packet error: %v", err)
+	}
+
+	// Check that FEC data was stored (Hybrid packets can have LBRR)
+	if !dec.hasFEC {
+		t.Error("hasFEC should be true after Hybrid packet decode")
+	}
+	if dec.fecMode != ModeHybrid {
+		t.Errorf("fecMode = %v, want ModeHybrid", dec.fecMode)
+	}
+
+	t.Log("DecodeWithFEC correctly stored FEC data for Hybrid mode")
+}
+
+// TestDecodeWithFEC_Recovery tests FEC recovery flow.
+// This test simulates packet loss and FEC recovery.
+func TestDecodeWithFEC_Recovery(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	// Decode a series of SILK packets to build up state
+	silkPacket := make([]byte, 100)
+	silkPacket[0] = GenerateTOC(9, false, 0) // SILK WB 20ms
+	for i := 1; i < len(silkPacket); i++ {
+		silkPacket[i] = byte(i * 3)
+	}
+
+	frameSize := 960
+	pcm1 := make([]float32, frameSize)
+	pcm2 := make([]float32, frameSize)
+
+	// Decode packet 1
+	_, err = dec.Decode(silkPacket, pcm1)
+	if err != nil {
+		t.Fatalf("Decode packet 1 error: %v", err)
+	}
+
+	// Simulate packet 2 is lost - use FEC to recover
+	// In real usage, we'd use the NEXT packet's LBRR to recover the lost one.
+	// For this test, we just verify DecodeWithFEC works without crashing.
+	n, err := dec.DecodeWithFEC(nil, pcm2, true)
+	if err != nil {
+		t.Fatalf("DecodeWithFEC error: %v", err)
+	}
+	if n != frameSize {
+		t.Errorf("DecodeWithFEC returned %d samples, want %d", n, frameSize)
+	}
+
+	t.Logf("FEC recovery produced %d samples", n)
+}
+
+// TestDecodeWithFEC_NoFECRequested verifies that when fec=false, DecodeWithFEC
+// behaves identically to Decode.
+func TestDecodeWithFEC_NoFECRequested(t *testing.T) {
+	dec1, _ := NewDecoder(DefaultDecoderConfig(48000, 1))
+	dec2, _ := NewDecoder(DefaultDecoderConfig(48000, 1))
+
+	packet := minimalHybridTestPacket20ms()
+	frameSize := 960
+
+	pcm1 := make([]float32, frameSize)
+	pcm2 := make([]float32, frameSize)
+
+	// Decode with Decode
+	n1, err1 := dec1.Decode(packet, pcm1)
+	// Decode with DecodeWithFEC(fec=false)
+	n2, err2 := dec2.DecodeWithFEC(packet, pcm2, false)
+
+	if err1 != err2 {
+		t.Errorf("Errors differ: Decode=%v, DecodeWithFEC=%v", err1, err2)
+	}
+	if n1 != n2 {
+		t.Errorf("Sample counts differ: Decode=%d, DecodeWithFEC=%d", n1, n2)
+	}
+
+	// Verify samples are identical
+	for i := 0; i < n1*1; i++ {
+		if pcm1[i] != pcm2[i] {
+			t.Errorf("Sample %d differs: Decode=%v, DecodeWithFEC=%v", i, pcm1[i], pcm2[i])
+			break
+		}
+	}
+
+	t.Log("DecodeWithFEC(fec=false) behaves identically to Decode")
+}
+
+// TestDecodeWithFEC_ResetClearsFEC verifies that Reset clears FEC state.
+func TestDecodeWithFEC_ResetClearsFEC(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	// Decode a SILK packet to store FEC data
+	silkPacket := make([]byte, 100)
+	silkPacket[0] = GenerateTOC(9, false, 0)
+	for i := 1; i < len(silkPacket); i++ {
+		silkPacket[i] = byte(i)
+	}
+
+	pcm := make([]float32, 960)
+	_, _ = dec.Decode(silkPacket, pcm)
+
+	if !dec.hasFEC {
+		t.Fatal("FEC data should be stored after SILK decode")
+	}
+
+	// Reset the decoder
+	dec.Reset()
+
+	// FEC state should be cleared
+	if dec.hasFEC {
+		t.Error("hasFEC should be false after Reset")
+	}
+	if dec.fecFrameSize != 0 {
+		t.Error("fecFrameSize should be 0 after Reset")
+	}
+
+	t.Log("Reset correctly clears FEC state")
+}

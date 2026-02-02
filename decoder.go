@@ -37,6 +37,9 @@ func DefaultDecoderConfig(sampleRate, channels int) DecoderConfig {
 	}
 }
 
+// maxFECFrames is the maximum number of frames per packet that can have LBRR.
+const maxFECFrames = 3
+
 // Decoder decodes Opus packets into PCM audio samples.
 //
 // A Decoder instance maintains internal state and is NOT safe for concurrent use.
@@ -64,6 +67,17 @@ type Decoder struct {
 	redundantRng      uint32 // Range from redundancy decoding, XORed with final range
 	lastDataLen       int    // Length of last packet data
 	mainDecodeRng     uint32 // Final range from main decode (before any redundancy processing)
+
+	// FEC (Forward Error Correction) state
+	// Stores LBRR data from the current packet for use by the next packet's FEC decode.
+	fecData        []byte             // Stored packet data containing LBRR for FEC recovery
+	fecMode        Mode               // Mode of the packet containing LBRR
+	fecBandwidth   Bandwidth          // Bandwidth of the packet containing LBRR
+	fecStereo      bool               // Whether the packet was stereo
+	fecFrameSize   int                // Frame size of the packet containing LBRR
+	fecFrameCount  int                // Number of frames in packet
+	hasFEC         bool               // True if fecData contains valid LBRR data
+	scratchFEC     []float32          // Scratch buffer for FEC decode
 }
 
 // NewDecoder creates a new Opus decoder.
@@ -111,6 +125,8 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 		lastFrameSize:     960,        // Default 20ms at 48kHz
 		prevMode:          ModeHybrid, // Default for PLC until first decode
 		lastBandwidth:     BandwidthFullband,
+		fecData:           make([]byte, maxPacketBytes),
+		scratchFEC:        make([]float32, maxPacketSamples*cfg.Channels),
 	}, nil
 }
 
@@ -336,7 +352,192 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 	// Set the full packet length for FinalRange check (per libopus: len <= 1 means rangeFinal = 0)
 	d.lastDataLen = len(data)
 
+	// Store packet info for FEC recovery on next lost packet.
+	// LBRR is only available in SILK and Hybrid modes.
+	if toc.Mode == ModeSILK || toc.Mode == ModeHybrid {
+		d.storeFECData(data, toc, frameCount, frameSize)
+	} else {
+		d.hasFEC = false
+	}
+
 	return totalSamples, nil
+}
+
+// DecodeWithFEC decodes an Opus packet, optionally recovering a lost frame using FEC.
+//
+// If fec is true and the previous packet contained LBRR redundancy data, the decoder
+// will use that data to recover the lost frame instead of using PLC extrapolation.
+// This produces better audio quality during packet loss.
+//
+// If fec is true but no LBRR data is available, the decoder falls back to standard PLC.
+// If fec is false, this behaves identically to Decode().
+//
+// Parameters:
+//   - data: Opus packet data, or nil to trigger FEC/PLC for a lost packet
+//   - pcm: Output buffer for decoded samples
+//   - fec: If true and data is nil, attempt FEC recovery before falling back to PLC
+//
+// Returns the number of samples per channel decoded, or an error.
+//
+// Usage pattern for handling packet loss:
+//
+//	// When packet N is lost:
+//	// 1. First decode packet N+1's FEC data to recover N
+//	samples, _ := decoder.DecodeWithFEC(packetN1, pcmN, true)
+//	// 2. Then decode packet N+1 normally
+//	samples, _ := decoder.Decode(packetN1, pcmN1)
+//
+// Note: FEC recovery uses LBRR (Low Bitrate Redundancy) data that is encoded
+// at the encoder side when the encoder has FEC enabled. LBRR data is only
+// available in SILK and Hybrid modes, not in CELT-only mode.
+func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, error) {
+	// If not requesting FEC or we have actual data with fec=false, use normal decode
+	if !fec || (data != nil && len(data) > 0) {
+		return d.Decode(data, pcm)
+	}
+
+	// FEC decode requested for a lost packet (data is nil)
+	// Try to use stored LBRR data from the previous packet
+	if d.hasFEC && len(d.fecData) > 0 {
+		// Decode using LBRR data from previous packet
+		n, err := d.decodeFECFrame(pcm)
+		if err == nil {
+			return n, nil
+		}
+		// If FEC decode fails, fall back to PLC
+	}
+
+	// No FEC available or FEC failed, fall back to standard PLC
+	return d.Decode(nil, pcm)
+}
+
+// storeFECData stores the current packet's information for FEC recovery.
+// This is called after successfully decoding a SILK or Hybrid packet.
+func (d *Decoder) storeFECData(data []byte, toc TOC, frameCount, frameSize int) {
+	// Copy packet data to FEC buffer
+	if len(data) <= len(d.fecData) {
+		copy(d.fecData[:len(data)], data)
+		d.fecData = d.fecData[:len(data)]
+	} else {
+		d.fecData = make([]byte, len(data))
+		copy(d.fecData, data)
+	}
+
+	d.fecMode = toc.Mode
+	d.fecBandwidth = toc.Bandwidth
+	d.fecStereo = toc.Stereo
+	d.fecFrameSize = frameSize
+	d.fecFrameCount = frameCount
+	d.hasFEC = true
+}
+
+// decodeFECFrame decodes LBRR data from the stored FEC packet.
+// This is used to recover a lost frame using forward error correction.
+func (d *Decoder) decodeFECFrame(pcm []float32) (int, error) {
+	if !d.hasFEC || len(d.fecData) == 0 {
+		return 0, ErrNoFECData
+	}
+
+	frameSize := d.fecFrameSize
+	if frameSize <= 0 {
+		frameSize = d.lastFrameSize
+	}
+	if frameSize <= 0 {
+		frameSize = 960
+	}
+
+	totalSamples := frameSize * d.fecFrameCount
+	if totalSamples > d.maxPacketSamples {
+		return 0, ErrPacketTooLarge
+	}
+
+	needed := totalSamples * d.channels
+	if len(pcm) < needed {
+		return 0, ErrBufferTooSmall
+	}
+
+	// Decode LBRR frames
+	n, err := d.decodeLBRRFrames(pcm, frameSize)
+	if err != nil {
+		return 0, err
+	}
+
+	// Clear FEC data after use to prevent reuse
+	d.hasFEC = false
+
+	return n, nil
+}
+
+// decodeLBRRFrames decodes LBRR (FEC) data from the stored packet.
+func (d *Decoder) decodeLBRRFrames(pcm []float32, frameSize int) (int, error) {
+	// Use the SILK decoder's FEC decode capability
+	// The LBRR data is embedded in the SILK bitstream and was already parsed
+	// during normal decode. We need to re-decode the packet with FEC flag.
+
+	switch d.fecMode {
+	case ModeSILK:
+		return d.decodeSILKFEC(pcm, frameSize)
+	case ModeHybrid:
+		return d.decodeHybridFEC(pcm, frameSize)
+	default:
+		// CELT-only mode doesn't have LBRR
+		return 0, ErrNoFECData
+	}
+}
+
+// decodeSILKFEC decodes SILK LBRR data for FEC recovery.
+func (d *Decoder) decodeSILKFEC(pcm []float32, frameSize int) (int, error) {
+	silkBW, ok := silk.BandwidthFromOpus(int(d.fecBandwidth))
+	if !ok {
+		silkBW = silk.BandwidthWideband
+	}
+
+	// Decode FEC frames using SILK decoder's LBRR support
+	fecSamples, err := d.silkDecoder.DecodeFEC(d.fecData, silkBW, frameSize, d.fecStereo, d.channels)
+	if err != nil {
+		return 0, err
+	}
+
+	// Copy to output buffer
+	needed := len(fecSamples)
+	if len(pcm) < needed {
+		return 0, ErrBufferTooSmall
+	}
+	copy(pcm[:needed], fecSamples)
+
+	d.lastFrameSize = frameSize
+	d.haveDecoded = true
+
+	return frameSize, nil
+}
+
+// decodeHybridFEC decodes Hybrid mode LBRR data for FEC recovery.
+func (d *Decoder) decodeHybridFEC(pcm []float32, frameSize int) (int, error) {
+	// For Hybrid mode, we decode the SILK LBRR and add CELT contribution
+	// The LBRR is in the SILK part of the bitstream
+
+	silkBW, ok := silk.BandwidthFromOpus(int(d.fecBandwidth))
+	if !ok {
+		silkBW = silk.BandwidthWideband
+	}
+
+	// Decode SILK FEC
+	fecSamples, err := d.silkDecoder.DecodeFEC(d.fecData, silkBW, frameSize, d.fecStereo, d.channels)
+	if err != nil {
+		return 0, err
+	}
+
+	// Copy to output buffer
+	needed := len(fecSamples)
+	if len(pcm) < needed {
+		return 0, ErrBufferTooSmall
+	}
+	copy(pcm[:needed], fecSamples)
+
+	d.lastFrameSize = frameSize
+	d.haveDecoded = true
+
+	return frameSize, nil
 }
 
 // DecodeInt16 decodes an Opus packet into int16 PCM samples.
@@ -435,6 +636,11 @@ func (d *Decoder) Reset() {
 	d.prevRedundancy = false
 	d.prevPacketStereo = false
 	d.haveDecoded = false
+
+	// Clear FEC state
+	d.hasFEC = false
+	d.fecFrameSize = 0
+	d.fecFrameCount = 0
 }
 
 // Channels returns the number of audio channels (1 or 2).

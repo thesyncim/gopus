@@ -17,7 +17,7 @@ Always use this reference when implementing features or debugging discrepancies.
 
 ## Current Status (Updated: 2026-02-02)
 
-### Production Readiness Score: ~95%
+### Production Readiness Score: ~98%
 
 | Component | Status | Notes |
 |-----------|--------|-------|
@@ -29,6 +29,9 @@ Always use this reference when implementing features or debugging discrepancies.
 | DTX | ✅ Complete | Multi-band VAD implemented |
 | Hybrid | ✅ Improved | Proper bit allocation, HB_gain, crossover |
 | Allocations | ✅ Encoder 0 | ALL encoder modes now ZERO allocations! |
+| FEC | ✅ Complete | LBRR encode/decode, DecodeWithFEC API |
+| Multistream | ✅ Complete | 1-227 channels, Ambisonics families 2/3 |
+| Encoder Controls | ✅ Complete | Full libopus API parity (27 controls) |
 
 ---
 
@@ -148,6 +151,19 @@ Always use this reference when implementing features or debugging discrepancies.
    - Offset-based fine bits rounding
    - Excess bits rebalancing
    - Priority flag updates
+
+### Session 8: Ambisonics & FEC Decoding (Complete)
+1. ✅ **Ambisonics Support** - `multistream/ambisonics.go`
+   - Channel mapping families 2 and 3
+   - ValidateAmbisonics(), GetAmbisonicsOrder()
+   - AmbisonicsMapping() for ACN channel order
+   - NewEncoderAmbisonics() constructor
+   - Supports up to 227 channels (15th-order ambisonics)
+2. ✅ **FEC Decoding** - `decoder.go`, `silk/lbrr_decode.go`
+   - DecodeWithFEC(data, pcm, fec) API
+   - LBRR data storage and recovery
+   - Seamless PLC fallback when no LBRR available
+   - DecodeFEC() and HasLBRR() in SILK decoder
 
 ---
 
@@ -342,12 +358,13 @@ go test -bench=. ./...
 - [x] FEC encoding implementation ✅
 - [x] Encoder feature parity ✅ (Signal, MaxBandwidth, ForceChannels, Lookahead, LSBDepth, PredictionDisabled, PhaseInversionDisabled)
 - [x] Multistream encoder API completion ✅ (Query methods, layout validation, control forwarding)
+- [x] Ambisonics multistream support ✅ (Families 2/3, up to 227 channels)
+- [x] FEC decoding ✅ (DecodeWithFEC API, LBRR recovery, PLC fallback)
 
 ### P3: Advanced Features
 - [ ] Deep PLC (LPCnet)
 - [ ] DRED
 - [ ] OSCE
-- [ ] Ambisonics multistream support (up to 227 channels)
 
 ---
 

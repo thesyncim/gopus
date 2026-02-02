@@ -60,6 +60,14 @@ type Encoder struct {
 
 	// bitrate is the total bitrate in bits per second, distributed across streams.
 	bitrate int
+
+	// mappingFamily indicates the channel mapping family used:
+	//   0: RTP mapping (mono or stereo only)
+	//   1: Vorbis-style mapping (1-8 channels)
+	//   2: Ambisonics ACN/SN3D (mostly mono streams)
+	//   3: Ambisonics with projection (paired stereo streams)
+	//   255: Discrete channels (no predefined mapping)
+	mappingFamily int
 }
 
 // NewEncoder creates a new multistream encoder.
@@ -164,7 +172,72 @@ func NewEncoderDefault(sampleRate, channels int) (*Encoder, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewEncoder(sampleRate, channels, streams, coupledStreams, mapping)
+	enc, err := NewEncoder(sampleRate, channels, streams, coupledStreams, mapping)
+	if err != nil {
+		return nil, err
+	}
+	enc.mappingFamily = 1 // Vorbis-style mapping
+	return enc, nil
+}
+
+// NewEncoderAmbisonics creates a new multistream encoder for ambisonics audio.
+//
+// Parameters:
+//   - sampleRate: input sample rate (8000, 12000, 16000, 24000, or 48000 Hz)
+//   - channels: total input channels (valid ambisonics count: 1, 4, 6, 9, 11, 16, 18, 25, 27...)
+//   - mappingFamily: 2 for ACN/SN3D (mostly mono), 3 for projection (paired stereo)
+//
+// Valid ambisonics channel counts are (order+1)^2 or (order+1)^2 + 2:
+//   - Order 0: 1 channel (or 3 with non-diegetic)
+//   - Order 1 (FOA): 4 channels (or 6 with non-diegetic)
+//   - Order 2 (SOA): 9 channels (or 11 with non-diegetic)
+//   - Order 3 (TOA): 16 channels (or 18 with non-diegetic)
+//
+// For mapping family 2:
+//   - ACN channel ordering with SN3D normalization
+//   - All ambisonics channels are mono streams
+//   - Optional non-diegetic stereo pair as one coupled stream
+//
+// For mapping family 3:
+//   - Projection-based encoding
+//   - Channels are paired into stereo coupled streams
+//   - streams = (channels+1)/2, coupled = channels/2
+//
+// Reference: RFC 7845 Section 5.1.1.2, libopus opus_multistream_encoder.c
+func NewEncoderAmbisonics(sampleRate, channels, mappingFamily int) (*Encoder, error) {
+	var streams, coupledStreams int
+	var mapping []byte
+	var err error
+
+	switch mappingFamily {
+	case 2:
+		streams, coupledStreams, err = ValidateAmbisonics(channels)
+		if err != nil {
+			return nil, err
+		}
+		mapping, err = AmbisonicsMapping(channels)
+		if err != nil {
+			return nil, err
+		}
+	case 3:
+		streams, coupledStreams, err = ValidateAmbisonicsFamily3(channels)
+		if err != nil {
+			return nil, err
+		}
+		mapping, err = AmbisonicsMappingFamily3(channels)
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return nil, ErrInvalidMappingFamily
+	}
+
+	enc, err := NewEncoder(sampleRate, channels, streams, coupledStreams, mapping)
+	if err != nil {
+		return nil, err
+	}
+	enc.mappingFamily = mappingFamily
+	return enc, nil
 }
 
 // Reset clears all encoder state for a new stream.
@@ -193,6 +266,18 @@ func (e *Encoder) Streams() int {
 // CoupledStreams returns the number of coupled (stereo) streams.
 func (e *Encoder) CoupledStreams() int {
 	return e.coupledStreams
+}
+
+// MappingFamily returns the channel mapping family used by this encoder.
+//
+// Mapping families:
+//   - 0: RTP mapping (mono or stereo only)
+//   - 1: Vorbis-style mapping (1-8 channels)
+//   - 2: Ambisonics ACN/SN3D (mostly mono streams)
+//   - 3: Ambisonics with projection (paired stereo streams)
+//   - 255: Discrete channels (no predefined mapping)
+func (e *Encoder) MappingFamily() int {
+	return e.mappingFamily
 }
 
 // SetBitrate sets the total bitrate in bits per second.

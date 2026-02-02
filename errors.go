@@ -66,6 +66,11 @@ var (
 	// ErrInvalidForceChannels indicates an invalid force channels value.
 	// Valid values are -1 (auto), 1 (mono), or 2 (stereo).
 	ErrInvalidForceChannels = errors.New("gopus: invalid force channels (must be -1, 1, or 2)")
+
+	// ErrNoFECData indicates no FEC (LBRR) data is available for recovery.
+	// This occurs when FEC decode is requested but the previous packet
+	// was CELT-only mode or didn't contain LBRR data.
+	ErrNoFECData = errors.New("gopus: no FEC data available for recovery")
 )
 
 // validSampleRate returns true if the sample rate is valid for Opus.
