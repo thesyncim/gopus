@@ -241,6 +241,7 @@ Always use this reference when implementing features or debugging discrepancies.
 | SILK voiced frames missing LTP scale index | Encode LTP scale index (matches NSQ LTPScaleQ14) | 2026-02-02 |
 | SILK NLSF quantization too naive | Ported libopus MSVQ + delayed decision quantizer | 2026-02-02 |
 | SILK decoder suspected of bugs | **VERIFIED CORRECT** - 100% FinalRange on 9/11 test vectors (17K+ packets) | 2026-02-02 |
+| SILK standalone gains near-zero | Standalone mode missing VAD+LBRR flags at packet start (RFC 6716) | 2026-02-02 |
 
 ### VERIFIED WORKING COMPONENTS (Do NOT Debug!)
 
@@ -332,6 +333,7 @@ test status will transition: BASE → GOOD → PASS.
 - Encoder PVQ resynth was disabled except for theta RDO, which caused folding to use unquantized lowbands. Resynth is now always enabled in the encoder path.
 - Hybrid fallback TF encoding used a non‑budgeted path without converting `tfRes` to TF change values. Now fixed with `TFEncodeWithSelect`.
 - SILK NLSF quantization now uses libopus MSVQ + delayed decision with Laroia weights; NSQ uses quantized NLSF prediction coefficients (interpolation-aware).
+- **SILK standalone mode missing VAD/LBRR flags** - RFC 6716 requires VAD and LBRR flags at packet start. Encoder was skipping these in standalone mode, causing decoder to misparse gains. Fixed by encoding VAD bit + LBRR bit before frame type. Roundtrip RMS now ~0.49 for 0.5 amplitude input (was near-zero before).
 
 **Next debugging step:**
 Create a minimal test that:
