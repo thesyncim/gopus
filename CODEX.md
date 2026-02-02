@@ -196,6 +196,9 @@ Always use this reference when implementing features or debugging discrepancies.
 5. ✅ **Hybrid Pre-Processing Alignment** - `encoder/hybrid.go`, `celt/hybrid_encode_helpers.go`
    - Apply DC reject + CELT delay compensation before hybrid delay/gain fade
    - Default intensity set to `nbBands` (disable intensity stereo unless chosen by allocator)
+6. ✅ **PVQ Resynthesis Enabled** - `celt/bands_quant.go`
+   - Encoder now resynthesizes PVQ output for lowband folding
+   - Matches libopus RESYNTH behavior and avoids folding with unquantized lowbands
 
 ---
 
@@ -288,6 +291,9 @@ Investigation findings from roundtrip testing (gopus encoder → gopus decoder):
 **Hybrid CELT parity status:**
 - Hybrid CELT encoding path aligned with main CELT: `quant_all_bands`, linear normalization, range-limited energy coding for bands 17..end, plus transient/TF/spread/dynalloc analysis.
 - Remaining gap: hybrid uses simplified bit budget estimates (derived from CELT bitrate), could be refined if quality still lags.
+
+**Quality suspect resolved:**
+- Encoder PVQ resynth was disabled except for theta RDO, which caused folding to use unquantized lowbands. Resynth is now always enabled in the encoder path.
 
 **Next debugging step:**
 Create a minimal test that:

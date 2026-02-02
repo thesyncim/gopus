@@ -1775,8 +1775,9 @@ func quantAllBandsEncodeScratch(re *rangecoding.Encoder, channels, frameSize, lm
 		remainingBits: 0,
 		intensity:     intensity,
 		seed:          seed,
-		// Match libopus: resynth only when theta RDO is enabled for stereo.
-		resynth:         thetaRDOEnabled,
+		// Resynth must be enabled so lowband folding uses reconstructed data.
+		// This matches libopus builds with RESYNTH enabled and improves quality.
+		resynth:         true,
 		disableInv:      false,
 		avoidSplitNoise: B > 1,
 		tapset:          tapset,
