@@ -64,8 +64,8 @@ type HybridState struct {
 	// Reduced at low bitrates to improve coding efficiency.
 	stereoWidthQ14 int
 
-	// crossoverBuffer stores samples around the crossover frequency
-	// for smooth energy matching between SILK and CELT.
+	// crossoverBuffer stores smoothed crossover-band energies (per channel)
+	// to reduce frame-to-frame discontinuities at the SILK/CELT boundary.
 	crossoverBuffer []float64
 }
 
@@ -1243,6 +1243,36 @@ func (e *Encoder) matchCrossoverEnergy(energies []float64, startBand int) []floa
 			// Gentle boost (0.5-1.5 dB) to compensate for crossover filtering
 			boost := 0.5 * (1.0 - float64(i)/float64(rolloffBands))
 			energies[band] += boost
+		}
+	}
+
+	// Smooth the crossover band over time to avoid abrupt energy changes.
+	if e.hybridState != nil && e.channels > 0 {
+		channels := e.channels
+		if len(e.hybridState.crossoverBuffer) != channels {
+			e.hybridState.crossoverBuffer = make([]float64, channels)
+			for i := range e.hybridState.crossoverBuffer {
+				e.hybridState.crossoverBuffer[i] = math.NaN()
+			}
+		}
+
+		bandsPerChannel := len(energies) / channels
+		if bandsPerChannel > 0 && startBand < bandsPerChannel {
+			const alpha = 0.2
+			for c := 0; c < channels; c++ {
+				idx := c*bandsPerChannel + startBand
+				if idx >= len(energies) {
+					continue
+				}
+				prev := e.hybridState.crossoverBuffer[c]
+				if math.IsNaN(prev) {
+					e.hybridState.crossoverBuffer[c] = energies[idx]
+					continue
+				}
+				smoothed := prev + alpha*(energies[idx]-prev)
+				energies[idx] = smoothed
+				e.hybridState.crossoverBuffer[c] = smoothed
+			}
 		}
 	}
 

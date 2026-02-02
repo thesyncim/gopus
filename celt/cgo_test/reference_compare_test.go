@@ -6,6 +6,7 @@ package cgo
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math"
 	"os"
 	"testing"
@@ -177,7 +178,7 @@ func readPCMFile(filename string) ([]int16, error) {
 	}
 
 	if len(data)%2 != 0 {
-		return nil, err
+		return nil, fmt.Errorf("odd number of bytes in PCM file")
 	}
 
 	samples := make([]int16, len(data)/2)
