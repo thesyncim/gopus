@@ -101,6 +101,7 @@ type Decoder struct {
 	scratchShortCoeffs    []float64
 	postfilterScratch     []float64
 	scratchZeros          []float64
+	scratchPLC            []float64 // Scratch buffer for PLC concealment samples
 }
 
 // NewDecoder creates a new CELT decoder with the given number of channels.
@@ -1684,9 +1685,12 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 		end = 1
 	}
 	start := HybridCELTStartBand
-	prev1Energy := append([]float64(nil), d.prevEnergy...)
-	prev1LogE := append([]float64(nil), d.prevLogE...)
-	prev2LogE := append([]float64(nil), d.prevLogE2...)
+	prev1Energy := ensureFloat64Slice(&d.scratchPrevEnergy, len(d.prevEnergy))
+	copy(prev1Energy, d.prevEnergy)
+	prev1LogE := ensureFloat64Slice(&d.scratchPrevLogE, len(d.prevLogE))
+	copy(prev1LogE, d.prevLogE)
+	prev2LogE := ensureFloat64Slice(&d.scratchPrevLogE2, len(d.prevLogE2))
+	copy(prev2LogE, d.prevLogE2)
 
 	totalBits := rd.StorageBits()
 	tell := rd.Tell()
@@ -1698,7 +1702,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	}
 	if silence {
 		samples := d.decodeSilenceFrame(frameSize, 0, 0, 0)
-		silenceE := make([]float64, MaxBands*d.channels)
+		silenceE := ensureFloat64Slice(&d.scratchSilenceE, MaxBands*d.channels)
 		for i := range silenceE {
 			silenceE[i] = -28.0
 		}
@@ -1742,7 +1746,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	}
 
 	// Initialize energies with previous state so bands below start are preserved.
-	energies := make([]float64, end*d.channels)
+	energies := ensureFloat64Slice(&d.scratchEnergies, end*d.channels)
 	for c := 0; c < d.channels; c++ {
 		for band := 0; band < end; band++ {
 			energies[c*end+band] = d.prevEnergy[c*MaxBands+band]
@@ -1751,7 +1755,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	d.decodeCoarseEnergyRange(start, end, intra, lm, energies)
 	traceRange("coarse", rd)
 
-	tfRes := make([]int, end)
+	tfRes := ensureIntSlice(&d.scratchTFRes, end)
 	tfDecode(start, end, transient, tfRes, lm, rd)
 	traceRange("tf", rd)
 
@@ -1762,8 +1766,12 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	}
 	traceRange("spread", rd)
 
-	cap := initCaps(end, lm, d.channels)
-	offsets := make([]int, end)
+	cap := ensureIntSlice(&d.scratchCaps, end)
+	initCapsInto(cap, end, lm, d.channels)
+	offsets := ensureIntSlice(&d.scratchOffsets, end)
+	for i := range offsets {
+		offsets[i] = 0
+	}
 	dynallocLogp := 6
 	totalBitsQ3 := totalBits << bitRes
 	tellFrac := rd.TellFrac()
@@ -1802,9 +1810,9 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	}
 	bitsQ3 -= antiCollapseRsv
 
-	pulses := make([]int, end)
-	fineQuant := make([]int, end)
-	finePriority := make([]int, end)
+	pulses := ensureIntSlice(&d.scratchPulses, end)
+	fineQuant := ensureIntSlice(&d.scratchFineQuant, end)
+	finePriority := ensureIntSlice(&d.scratchFinePriority, end)
 	intensity := 0
 	dualStereo := 0
 	balance := 0
@@ -2394,12 +2402,16 @@ func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
 	// Get fade factor for this loss
 	fadeFactor := celtPLCState.RecordLoss()
 
-	// Generate concealment using PLC module
-	// Pass decoder as both state and synthesizer (it implements both interfaces)
-	samples := plc.ConcealCELT(d, d, frameSize, fadeFactor)
-	scaleSamples(samples, 1.0/32768.0)
+	// Ensure scratch buffer is large enough
+	outLen := frameSize * d.channels
+	d.scratchPLC = ensureFloat64Slice(&d.scratchPLC, outLen)
 
-	return samples, nil
+	// Generate concealment using PLC module into scratch buffer
+	// Pass decoder as both state and synthesizer (it implements both interfaces)
+	plc.ConcealCELTInto(d.scratchPLC, d, d, frameSize, fadeFactor)
+	scaleSamples(d.scratchPLC, 1.0/32768.0)
+
+	return d.scratchPLC, nil
 }
 
 // decodePLCHybrid generates concealment for CELT in hybrid mode.

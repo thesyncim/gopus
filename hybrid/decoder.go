@@ -19,6 +19,9 @@ const (
 	// Bands 0-16 are covered by SILK; CELT only decodes bands 17-21.
 	HybridCELTStartBand = 17
 
+	// maxHybridFrameSamples is the maximum frame size for hybrid mode (20ms at 48kHz).
+	maxHybridFrameSamples = 960
+
 	// SilkCELTDelay is the delay compensation in samples at 48kHz.
 	// SILK output must be delayed relative to CELT for proper time alignment.
 	// This matches celt.SilkCELTDelay = 60
@@ -66,6 +69,11 @@ type Decoder struct {
 
 	// Channel count (1 for mono, 2 for stereo)
 	channels int
+
+	// Scratch buffers to reduce per-frame allocations (decoder is not thread-safe).
+	// Max frame size is 960 samples at 48kHz (20ms), stereo needs 960*2 = 1920 samples.
+	scratchSilkUpsampled []float64 // SILK upsampled output (max 960*2 for stereo 20ms)
+	scratchOutput        []float64 // Final output buffer (max 960*2 for stereo 20ms)
 }
 
 // NewDecoder creates a new Hybrid decoder with the given number of channels.
@@ -83,6 +91,9 @@ func NewDecoder(channels int) *Decoder {
 		channels = 2
 	}
 
+	// Max frame: 960 samples (20ms at 48kHz) * 2 channels = 1920
+	maxSamples := 960 * channels
+
 	return &Decoder{
 		silkDecoder: silk.NewDecoder(),
 		celtDecoder: celt.NewDecoder(channels),
@@ -91,6 +102,10 @@ func NewDecoder(channels int) *Decoder {
 		silkDelayBuffer: make([]float64, SilkCELTDelay*channels),
 
 		channels: channels,
+
+		// Pre-allocate scratch buffers for zero-alloc decode path
+		scratchSilkUpsampled: make([]float64, maxSamples),
+		scratchOutput:        make([]float64, maxSamples),
 	}
 }
 
@@ -214,7 +229,14 @@ func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, pa
 	leftResampler := d.silkDecoder.GetResampler(silk.BandwidthWideband)
 	rightResampler := d.silkDecoder.GetResamplerRightChannel(silk.BandwidthWideband)
 
-	var silkUpsampled []float64
+	// Use scratch buffer for SILK upsampled output
+	totalSamples := frameSize * d.channels
+	silkUpsampled := d.ensureSilkUpsampled(totalSamples)
+
+	// Scratch buffer for resampler output (float32)
+	scratchF32L := d.silkDecoder.GetResamplerScratch(frameSize)
+	scratchF32R := d.silkDecoder.GetResamplerScratchR(frameSize)
+
 	if packetStereo {
 		if d.channels == 1 {
 			mid, err := d.silkDecoder.DecodeStereoFrameToMono(
@@ -227,10 +249,9 @@ func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, pa
 				return nil, err
 			}
 			resamplerInput := d.silkDecoder.BuildMonoResamplerInput(mid)
-			upL := leftResampler.Process(resamplerInput)
-			silkUpsampled = make([]float64, len(upL))
-			for i := range upL {
-				silkUpsampled[i] = float64(upL[i])
+			nL := leftResampler.ProcessInto(resamplerInput, scratchF32L)
+			for i := 0; i < nL && i < totalSamples; i++ {
+				silkUpsampled[i] = float64(scratchF32L[i])
 			}
 		} else {
 			silkOutputL, silkOutputR, err := d.silkDecoder.DecodeStereoFrame(
@@ -242,12 +263,15 @@ func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, pa
 			if err != nil {
 				return nil, err
 			}
-			upL := leftResampler.Process(silkOutputL)
-			upR := rightResampler.Process(silkOutputR)
-			silkUpsampled = make([]float64, len(upL)*2)
-			for i := range upL {
-				silkUpsampled[i*2] = float64(upL[i])
-				silkUpsampled[i*2+1] = float64(upR[i])
+			nL := leftResampler.ProcessInto(silkOutputL, scratchF32L)
+			nR := rightResampler.ProcessInto(silkOutputR, scratchF32R)
+			n := nL
+			if nR < n {
+				n = nR
+			}
+			for i := 0; i < n && i*2+1 < totalSamples; i++ {
+				silkUpsampled[i*2] = float64(scratchF32L[i])
+				silkUpsampled[i*2+1] = float64(scratchF32R[i])
 			}
 		}
 	} else {
@@ -262,31 +286,28 @@ func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, pa
 			return nil, err
 		}
 		resamplerInput := d.silkDecoder.BuildMonoResamplerInput(silkOutput)
-		upL := leftResampler.Process(resamplerInput)
+		nL := leftResampler.ProcessInto(resamplerInput, scratchF32L)
 		if d.channels == 2 {
 			if stereoToMono {
-				upR := rightResampler.Process(resamplerInput)
-				n := len(upL)
-				if len(upR) < n {
-					n = len(upR)
+				nR := rightResampler.ProcessInto(resamplerInput, scratchF32R)
+				n := nL
+				if nR < n {
+					n = nR
 				}
-				silkUpsampled = make([]float64, n*2)
-				for i := 0; i < n; i++ {
-					silkUpsampled[i*2] = float64(upL[i])
-					silkUpsampled[i*2+1] = float64(upR[i])
+				for i := 0; i < n && i*2+1 < totalSamples; i++ {
+					silkUpsampled[i*2] = float64(scratchF32L[i])
+					silkUpsampled[i*2+1] = float64(scratchF32R[i])
 				}
 			} else {
-				silkUpsampled = make([]float64, len(upL)*2)
-				for i := range upL {
-					val := float64(upL[i])
+				for i := 0; i < nL && i*2+1 < totalSamples; i++ {
+					val := float64(scratchF32L[i])
 					silkUpsampled[i*2] = val
 					silkUpsampled[i*2+1] = val
 				}
 			}
 		} else {
-			silkUpsampled = make([]float64, len(upL))
-			for i := range upL {
-				silkUpsampled[i] = float64(upL[i])
+			for i := 0; i < nL && i < totalSamples; i++ {
+				silkUpsampled[i] = float64(scratchF32L[i])
 			}
 		}
 	}
@@ -307,18 +328,16 @@ func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, pa
 	// Step 3: Use SILK output directly
 	// The delay compensation is handled internally by the SILK resampler,
 	// matching libopus behavior where SILK outputs at API rate with proper alignment.
-	silkDelayed := silkUpsampled
 
-	// Step 4: Sum SILK and CELT outputs
-	totalSamples := frameSize * d.channels
-	output := make([]float64, totalSamples)
+	// Step 4: Sum SILK and CELT outputs into scratch buffer
+	output := d.ensureOutput(totalSamples)
 
 	for i := 0; i < totalSamples; i++ {
 		silkSample := float64(0)
 		celtSample := float64(0)
 
-		if i < len(silkDelayed) {
-			silkSample = silkDelayed[i]
+		if i < len(silkUpsampled) {
+			silkSample = silkUpsampled[i]
 		}
 		if i < len(celtOutput) {
 			celtSample = celtOutput[i]
@@ -332,6 +351,30 @@ func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, pa
 
 	d.prevPacketStereo = packetStereo
 	return output, nil
+}
+
+// ensureSilkUpsampled returns a pre-allocated buffer for SILK upsampled output.
+func (d *Decoder) ensureSilkUpsampled(n int) []float64 {
+	if cap(d.scratchSilkUpsampled) < n {
+		d.scratchSilkUpsampled = make([]float64, n)
+	} else {
+		d.scratchSilkUpsampled = d.scratchSilkUpsampled[:n]
+	}
+	// Clear the buffer
+	for i := range d.scratchSilkUpsampled {
+		d.scratchSilkUpsampled[i] = 0
+	}
+	return d.scratchSilkUpsampled
+}
+
+// ensureOutput returns a pre-allocated buffer for final output.
+func (d *Decoder) ensureOutput(n int) []float64 {
+	if cap(d.scratchOutput) < n {
+		d.scratchOutput = make([]float64, n)
+	} else {
+		d.scratchOutput = d.scratchOutput[:n]
+	}
+	return d.scratchOutput
 }
 
 // applyDelayMono applies the SilkCELTDelay to mono SILK output.

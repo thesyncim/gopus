@@ -189,7 +189,7 @@ func (d *Decoder) decodeOpusFrameInto(
 		}
 	}
 
-	var rd rangecoding.Decoder
+	rd := &d.scratchRangeDecoder
 	if data != nil {
 		rd.Init(data)
 	}
@@ -286,7 +286,7 @@ func (d *Decoder) decodeOpusFrameInto(
 				return nil
 			}
 
-			samples, err := d.hybridDecoder.DecodeWithDecoderHook(&rd, frameSize, packetStereoLocal, afterSilk)
+			samples, err := d.hybridDecoder.DecodeWithDecoderHook(rd, frameSize, packetStereoLocal, afterSilk)
 			if err != nil {
 				return 0, err
 			}
@@ -310,7 +310,7 @@ func (d *Decoder) decodeOpusFrameInto(
 			silkDecodeSize = F10
 		}
 
-		var silkOut []float32
+		var silkSamples int
 		var err error
 		if data != nil {
 			if packetStereoLocal && d.channels == 2 && !d.prevPacketStereo {
@@ -318,13 +318,41 @@ func (d *Decoder) decodeOpusFrameInto(
 			}
 			switch {
 			case packetStereoLocal && d.channels == 2:
-				silkOut, err = d.silkDecoder.DecodeStereoWithDecoder(&rd, silkBW, silkDecodeSize, true)
+				var silkOut []float32
+				silkOut, err = d.silkDecoder.DecodeStereoWithDecoder(rd, silkBW, silkDecodeSize, true)
+				if err == nil {
+					silkSamples = len(silkOut) / d.channels
+					if frameSize < silkDecodeSize {
+						silkSamples = frameSize
+					}
+					copyFloat32(out, silkOut[:silkSamples*d.channels])
+				}
 			case packetStereoLocal && d.channels == 1:
-				silkOut, err = d.silkDecoder.DecodeStereoToMonoWithDecoder(&rd, silkBW, silkDecodeSize, true)
+				var silkOut []float32
+				silkOut, err = d.silkDecoder.DecodeStereoToMonoWithDecoder(rd, silkBW, silkDecodeSize, true)
+				if err == nil {
+					silkSamples = len(silkOut) / d.channels
+					if frameSize < silkDecodeSize {
+						silkSamples = frameSize
+					}
+					copyFloat32(out, silkOut[:silkSamples*d.channels])
+				}
 			case !packetStereoLocal && d.channels == 2:
-				silkOut, err = d.silkDecoder.DecodeMonoToStereoWithDecoder(&rd, silkBW, silkDecodeSize, true, d.prevPacketStereo)
+				var silkOut []float32
+				silkOut, err = d.silkDecoder.DecodeMonoToStereoWithDecoder(rd, silkBW, silkDecodeSize, true, d.prevPacketStereo)
+				if err == nil {
+					silkSamples = len(silkOut) / d.channels
+					if frameSize < silkDecodeSize {
+						silkSamples = frameSize
+					}
+					copyFloat32(out, silkOut[:silkSamples*d.channels])
+				}
 			default:
-				silkOut, err = d.silkDecoder.DecodeWithDecoder(&rd, silkBW, silkDecodeSize, true)
+				// Zero-allocation path for mono SILK decode
+				silkSamples, err = d.silkDecoder.DecodeWithDecoderInto(rd, silkBW, silkDecodeSize, true, out)
+				if err == nil && frameSize < silkDecodeSize {
+					silkSamples = frameSize
+				}
 			}
 		} else {
 			if packetStereoLocal && d.channels == 2 && !d.prevPacketStereo {
@@ -332,22 +360,51 @@ func (d *Decoder) decodeOpusFrameInto(
 			}
 			switch {
 			case packetStereoLocal && d.channels == 2:
+				var silkOut []float32
 				silkOut, err = d.silkDecoder.DecodeStereo(nil, silkBW, silkDecodeSize, true)
+				if err == nil {
+					silkSamples = len(silkOut) / d.channels
+					if frameSize < silkDecodeSize {
+						silkSamples = frameSize
+					}
+					copyFloat32(out, silkOut[:silkSamples*d.channels])
+				}
 			case packetStereoLocal && d.channels == 1:
+				var silkOut []float32
 				silkOut, err = d.silkDecoder.DecodeStereoToMono(nil, silkBW, silkDecodeSize, true)
+				if err == nil {
+					silkSamples = len(silkOut) / d.channels
+					if frameSize < silkDecodeSize {
+						silkSamples = frameSize
+					}
+					copyFloat32(out, silkOut[:silkSamples*d.channels])
+				}
 			case !packetStereoLocal && d.channels == 2:
+				var silkOut []float32
 				silkOut, err = d.silkDecoder.DecodeMonoToStereo(nil, silkBW, silkDecodeSize, true, d.prevPacketStereo)
+				if err == nil {
+					silkSamples = len(silkOut) / d.channels
+					if frameSize < silkDecodeSize {
+						silkSamples = frameSize
+					}
+					copyFloat32(out, silkOut[:silkSamples*d.channels])
+				}
 			default:
+				var silkOut []float32
 				silkOut, err = d.silkDecoder.Decode(nil, silkBW, silkDecodeSize, true)
+				if err == nil {
+					silkSamples = len(silkOut) / d.channels
+					if frameSize < silkDecodeSize {
+						silkSamples = frameSize
+					}
+					copyFloat32(out, silkOut[:silkSamples*d.channels])
+				}
 			}
 		}
 		if err != nil {
 			return 0, err
 		}
-		if frameSize < silkDecodeSize {
-			silkOut = silkOut[:frameSize*d.channels]
-		}
-		copyFloat32(out, silkOut)
+		_ = silkSamples // Used for tracking decode size
 
 		if data != nil && rd.Tell()+17 <= 8*len(data) {
 			redundancy = true

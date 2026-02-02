@@ -408,6 +408,82 @@ func (d *Decoder) DecodeWithDecoder(
 	return output, nil
 }
 
+// DecodeWithDecoderInto decodes a SILK mono frame into a caller-provided buffer.
+// This is the zero-allocation version of DecodeWithDecoder.
+// Returns the number of samples written to the output buffer.
+func (d *Decoder) DecodeWithDecoderInto(
+	rd *rangecoding.Decoder,
+	bandwidth Bandwidth,
+	frameSizeSamples int,
+	vadFlag bool,
+	output []float32,
+) (int, error) {
+	if bandwidth > BandwidthWideband {
+		return 0, ErrInvalidBandwidth
+	}
+	if rd == nil {
+		return 0, ErrDecodeFailed
+	}
+
+	// DEBUG: Check resampler state BEFORE handleBandwidthChange
+	if bandwidth == BandwidthNarrowband {
+		if pair, ok := d.resamplers[BandwidthNarrowband]; ok && pair != nil && pair.left != nil {
+			d.debugPreResetSIIR = pair.left.GetSIIR()
+		}
+	}
+
+	// Handle bandwidth changes - reset sMid state when sample rate changes
+	d.handleBandwidthChange(bandwidth)
+
+	// DEBUG: Check resampler state AFTER handleBandwidthChange
+	if bandwidth == BandwidthNarrowband {
+		if pair, ok := d.resamplers[BandwidthNarrowband]; ok && pair != nil && pair.left != nil {
+			d.debugPostResetSIIR = pair.left.GetSIIR()
+		}
+	}
+
+	duration := FrameDurationFromTOC(frameSizeSamples)
+
+	// Decode at native rate without delay compensation (sMid buffering happens before resampler)
+	nativeSamples, err := d.DecodeFrameRaw(rd, bandwidth, duration, vadFlag)
+	if err != nil {
+		return 0, err
+	}
+
+	// Check for bandwidth change and reset sMid state if needed.
+	d.HandleBandwidthChange(bandwidth)
+
+	config := GetBandwidthConfig(bandwidth)
+	framesPerPacket, nbSubfr, err := frameParams(duration)
+	if err != nil {
+		return 0, err
+	}
+	fsKHz := config.SampleRate / 1000
+	frameLength := nbSubfr * subFrameLengthMs * fsKHz
+	if framesPerPacket > 0 && frameLength*framesPerPacket != len(nativeSamples) {
+		frameLength = len(nativeSamples) / framesPerPacket
+	}
+
+	resampler := d.GetResampler(bandwidth)
+	outputOffset := 0
+	for f := 0; f < framesPerPacket; f++ {
+		start := f * frameLength
+		end := start + frameLength
+		if start < 0 || end > len(nativeSamples) || frameLength == 0 {
+			break
+		}
+		frame := nativeSamples[start:end]
+		resamplerInput := d.BuildMonoResamplerInput(frame)
+		n := resampler.ProcessInto(resamplerInput, output[outputOffset:])
+		outputOffset += n
+	}
+
+	plcState.Reset()
+	plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 1)
+
+	return outputOffset, nil
+}
+
 // DecodeStereoWithDecoder decodes a SILK stereo frame using a pre-initialized range decoder.
 func (d *Decoder) DecodeStereoWithDecoder(
 	rd *rangecoding.Decoder,

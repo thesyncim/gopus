@@ -17,7 +17,7 @@ Always use this reference when implementing features or debugging discrepancies.
 
 ## Current Status (Updated: 2026-02-02)
 
-### Production Readiness Score: ~98%
+### Production Readiness Score: ~99%
 
 | Component | Status | Notes |
 |-----------|--------|-------|
@@ -28,7 +28,7 @@ Always use this reference when implementing features or debugging discrepancies.
 | PLC | ✅ Complete | LTP coefficients, frame gluing |
 | DTX | ✅ Complete | Multi-band VAD implemented |
 | Hybrid | ✅ Improved | Proper bit allocation, HB_gain, crossover |
-| Allocations | ✅ Encoder 0 | ALL encoder modes now ZERO allocations! |
+| Allocations | ✅ 0 allocs | ALL encoder AND decoder modes: ZERO allocations! |
 | FEC | ✅ Complete | LBRR encode/decode, DecodeWithFEC API |
 | Multistream | ✅ Complete | 1-227 channels, Ambisonics families 2/3 |
 | Encoder Controls | ✅ Complete | Full libopus API parity (27 controls) |
@@ -164,6 +164,20 @@ Always use this reference when implementing features or debugging discrepancies.
    - LBRR data storage and recovery
    - Seamless PLC fallback when no LBRR available
    - DecodeFEC() and HasLBRR() in SILK decoder
+
+### Session 9: Decoder Zero Allocations (Complete)
+1. ✅ **CELT Decoder** - `decoder_opus_frame.go`
+   - Range decoder as struct field (no escape to heap)
+2. ✅ **SILK Decoder** - `silk/silk.go`, `silk/resample_libopus.go`
+   - Resampler scratch buffers for 20ms frames
+   - Direct output to caller buffer
+3. ✅ **Hybrid Decoder** - `hybrid/decoder.go`, `celt/decoder.go`
+   - Scratch buffers for prev energy arrays
+   - Scratch for upsampled SILK output
+   - initCapsInto with pre-allocated buffer
+4. ✅ **PLC Decoder** - `plc/celt_plc.go`, `celt/decoder.go`
+   - ConcealCELTInto writes to caller buffer
+   - Scratch buffer in CELT decoder
 
 ---
 
@@ -353,6 +367,7 @@ go test -bench=. ./...
 - [x] SILK LPC analysis (Burg) ✅
 - [x] Hybrid bit allocation ✅
 - [x] Zero allocations in encoder hot path ✅ (ALL modes: 0 allocs/op)
+- [x] Zero allocations in decoder hot path ✅ (ALL modes: 0 allocs/op)
 - [x] CELT fine energy bits optimization ✅ (Already complete - offset rounding, excess rebalancing)
 - [x] SILK gain quantization refinement ✅
 - [x] FEC encoding implementation ✅
@@ -419,20 +434,22 @@ go build ./...  # ✅ Success
 go test ./... -count=1  # ✅ All packages pass
 ```
 
-### Allocation Status (ALL ENCODER MODES ZERO ALLOCS!)
+### Allocation Status (ALL ENCODER + DECODER: ZERO ALLOCS!)
 ```
-Encoder (CELT Mono):     0 allocs/op ✅ ZERO ALLOCATIONS!
-Encoder (CELT Stereo):   0 allocs/op ✅ ZERO ALLOCATIONS!
-Encoder (CELT LowDelay): 0 allocs/op ✅ ZERO ALLOCATIONS!
-Encoder (VoIP/SILK):     0 allocs/op ✅ ZERO ALLOCATIONS!
-Target:                  0 allocs/op ✅ ACHIEVED!
+Encoder (CELT Mono):     0 allocs/op ✅
+Encoder (CELT Stereo):   0 allocs/op ✅
+Encoder (CELT LowDelay): 0 allocs/op ✅
+Encoder (VoIP/SILK):     0 allocs/op ✅
+Decoder (CELT):          0 allocs/op ✅
+Decoder (SILK):          0 allocs/op ✅
+Decoder (Hybrid):        0 allocs/op ✅
+Decoder (PLC):           0 allocs/op ✅
+Decoder (Stereo):        0 allocs/op ✅
 
-Key changes for zero-alloc SILK:
-- Pitch detection: flat arrays with stride indexing for C8kHz
-- Gain quantization: silkGainsQuantInto with scratch buffer
-- LPC/Burg analysis: scratchBurg* buffers for all intermediate arrays
-- LSF encoding: scratch buffers for residuals and predictions
-- LTP coefficients: fixed-size array [4][5]int8 instead of slices
-- Shell encoder: fixed-size scratch arrays [8], [4], [2], [1]
-- DTX: reuse encoder scratchPCM32 and scratchLeft for conversion
+Key techniques:
+- Range encoder/decoder as struct field (not local var that escapes)
+- Resampler scratch buffers sized for 20ms frames
+- CELT DecodeFrameHybrid uses scratch for prev energy arrays
+- PLC ConcealCELTInto writes to caller buffer
+- Hybrid decoder scratch for upsampled SILK output
 ```

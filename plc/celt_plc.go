@@ -176,6 +176,93 @@ func ConcealCELT(dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fad
 	return samples
 }
 
+// ConcealCELTInto generates concealment audio into a pre-allocated buffer.
+// This is the zero-allocation version of ConcealCELT.
+//
+// Parameters:
+//   - dst: destination buffer (must be at least frameSize*channels)
+//   - dec: CELT decoder state from last good frame
+//   - synth: CELT synthesizer for IMDCT
+//   - frameSize: samples to generate at 48kHz (120, 240, 480, or 960)
+//   - fadeFactor: gain multiplier (0.0 to 1.0)
+func ConcealCELTInto(dst []float64, dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fadeFactor float64) {
+	if dec == nil {
+		// Zero the output buffer
+		for i := 0; i < frameSize && i < len(dst); i++ {
+			dst[i] = 0
+		}
+		return
+	}
+
+	channels := dec.Channels()
+	outLen := frameSize * channels
+
+	// If fade is effectively zero, return silence
+	if fadeFactor < 0.001 {
+		for i := 0; i < outLen && i < len(dst); i++ {
+			dst[i] = 0
+		}
+		return
+	}
+
+	bandInfo := DefaultCELTBandInfo
+	nbBands := bandInfo.EffBands(frameSize)
+
+	// Get previous frame energy (will be decayed)
+	prevEnergy := dec.PrevEnergy()
+
+	// Create decayed energy for concealment
+	// Re-use prevEnergy slice in-place by modifying decoder state directly
+	concealEnergy := make([]float64, len(prevEnergy))
+	for i := range prevEnergy {
+		// Apply energy decay
+		concealEnergy[i] = prevEnergy[i] * EnergyDecayPerFrame
+	}
+
+	// Generate noise-filled MDCT coefficients at the decayed energy levels
+	var coeffs []float64
+	var coeffsL, coeffsR []float64
+
+	rng := dec.RNG()
+
+	if channels == 2 {
+		// Stereo: generate coefficients for both channels
+		coeffsL = generateNoiseBands(concealEnergy[:bandInfo.MaxBands], nbBands, frameSize, &rng, fadeFactor, bandInfo)
+		coeffsR = generateNoiseBands(concealEnergy[bandInfo.MaxBands:], nbBands, frameSize, &rng, fadeFactor, bandInfo)
+	} else {
+		// Mono: single set of coefficients
+		coeffs = generateNoiseBands(concealEnergy, nbBands, frameSize, &rng, fadeFactor, bandInfo)
+	}
+
+	// Synthesize using IMDCT + window + overlap-add
+	var samples []float64
+	if synth != nil {
+		if channels == 2 {
+			samples = synth.SynthesizeStereo(coeffsL, coeffsR, false, 1)
+		} else {
+			samples = synth.Synthesize(coeffs, false, 1)
+		}
+	} else {
+		// No synthesizer available - output zeros
+		for i := 0; i < outLen && i < len(dst); i++ {
+			dst[i] = 0
+		}
+		dec.SetPrevEnergy(concealEnergy)
+		dec.SetRNG(rng)
+		return
+	}
+
+	// Copy synthesized samples to destination
+	copy(dst[:outLen], samples)
+
+	// Apply de-emphasis to maintain filter state continuity
+	applyDeemphasisPLC(dst[:outLen], dec.PreemphState(), channels)
+
+	// Update decoder energy state for next concealment
+	dec.SetPrevEnergy(concealEnergy)
+	dec.SetRNG(rng)
+}
+
 // generateNoiseBands creates noise-filled MDCT coefficients scaled by band energies.
 // Each band gets random noise normalized and scaled to the target energy level.
 func generateNoiseBands(energies []float64, nbBands, frameSize int, rng *uint32, fadeFactor float64, bandInfo *CELTBandInfo) []float64 {

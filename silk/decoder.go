@@ -803,6 +803,30 @@ func (d *Decoder) DebugGetResetStates() (pre, post [6]int32) {
 	return d.debugPreResetSIIR, d.debugPostResetSIIR
 }
 
+// GetResamplerScratch returns a pre-allocated buffer for resampler output (left channel).
+// This is used by the Hybrid decoder for zero-allocation SILK upsampling.
+func (d *Decoder) GetResamplerScratch(frameSize int) []float32 {
+	// Max output is frameSize samples (already at 48kHz after resampling)
+	if cap(d.resamplerScratchResult) < frameSize {
+		d.resamplerScratchResult = make([]float32, frameSize)
+	} else {
+		d.resamplerScratchResult = d.resamplerScratchResult[:frameSize]
+	}
+	return d.resamplerScratchResult
+}
+
+// GetResamplerScratchR returns a pre-allocated buffer for right channel resampler output.
+// This is used by the Hybrid decoder for zero-allocation stereo SILK upsampling.
+func (d *Decoder) GetResamplerScratchR(frameSize int) []float32 {
+	// Max output is frameSize samples (already at 48kHz after resampling)
+	if cap(d.upsampleScratch) < frameSize {
+		d.upsampleScratch = make([]float32, frameSize)
+	} else {
+		d.upsampleScratch = d.upsampleScratch[:frameSize]
+	}
+	return d.upsampleScratch
+}
+
 // SetDisableResamplerReset controls whether the resampler is reset on bandwidth change.
 // This is for testing purposes to compare behavior with/without reset.
 func (d *Decoder) SetDisableResamplerReset(disable bool) {

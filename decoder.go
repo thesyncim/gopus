@@ -5,6 +5,7 @@ package gopus
 import (
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/hybrid"
+	"github.com/thesyncim/gopus/rangecoding"
 	"github.com/thesyncim/gopus/silk"
 )
 
@@ -78,6 +79,9 @@ type Decoder struct {
 	fecFrameCount  int                // Number of frames in packet
 	hasFEC         bool               // True if fecData contains valid LBRR data
 	scratchFEC     []float32          // Scratch buffer for FEC decode
+
+	// Scratch range decoder to avoid per-frame heap allocations
+	scratchRangeDecoder rangecoding.Decoder
 }
 
 // NewDecoder creates a new Opus decoder.

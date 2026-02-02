@@ -188,10 +188,11 @@ func NewLibopusResampler(fsIn, fsOut int) *LibopusResampler {
 	r.delayBuf = make([]int16, r.fsInKHz)
 
 	// Pre-allocate scratch buffers for zero-allocation resampling
-	// Max input: fsInKHz * resamplerMaxBatchSizeMs = 16 * 10 = 160 samples
-	// Max output: fsOutKHz * (inLen / fsInKHz) = 48 * (160/16) = 480 samples
-	maxInputSamples := int(r.fsInKHz * resamplerMaxBatchSizeMs)
-	maxOutputSamples := int(r.fsOutKHz * resamplerMaxBatchSizeMs)
+	// SILK frames are up to 20ms, so we need to support 20ms of input.
+	// Max input: fsInKHz * 20 = 16 * 20 = 320 samples (for 16kHz WB 20ms)
+	// Max output: fsOutKHz * 20 = 48 * 20 = 960 samples (for 48kHz 20ms)
+	maxInputSamples := int(r.fsInKHz * 20) // 20ms max frame
+	maxOutputSamples := int(r.fsOutKHz * 20)
 	r.scratchBuf = make([]int16, 2*r.batchSize+resamplerOrderFIR12)
 	r.scratchIn = make([]int16, maxInputSamples)
 	r.scratchOut = make([]int16, maxOutputSamples)
@@ -364,6 +365,132 @@ func (r *LibopusResampler) Process(samples []float32) []float32 {
 	}
 
 	return result
+}
+
+// ProcessInto resamples float32 samples from input rate to output rate into a caller-provided buffer.
+// This is the zero-allocation version of Process().
+// Returns the number of samples written to the output buffer.
+func (r *LibopusResampler) ProcessInto(samples []float32, out []float32) int {
+	if len(samples) == 0 {
+		return 0
+	}
+
+	// Debug: capture state at start of Process() call
+	if r.debugEnabled {
+		r.debugProcessCallCount++
+		r.debugLastProcessID = r.debugID
+		r.debugProcessCallSIIR = r.sIIR
+		for i := 0; i < 10 && i < len(samples); i++ {
+			r.debugInputFirst10[i] = samples[i]
+		}
+		for i := 0; i < 8 && i < len(r.delayBuf); i++ {
+			r.debugDelayBufFirst8[i] = r.delayBuf[i]
+		}
+	}
+
+	inLen := int32(len(samples))
+
+	// Need at least 1 ms of input data
+	if inLen < r.fsInKHz {
+		// Pad with zeros if needed - use scratch buffer if available
+		paddedLen := int(r.fsInKHz)
+		var padded []float32
+		if r.scratchResult != nil && len(r.scratchResult) >= paddedLen {
+			padded = r.scratchResult[:paddedLen]
+			for i := range padded {
+				padded[i] = 0
+			}
+		} else {
+			// Fall back to temporary allocation (rare edge case)
+			padded = make([]float32, paddedLen)
+		}
+		copy(padded, samples)
+		samples = padded
+		inLen = r.fsInKHz
+	}
+
+	// Convert float32 to int16 for processing - use scratch buffer if available
+	var in []int16
+	if r.scratchIn != nil && len(r.scratchIn) >= len(samples) {
+		in = r.scratchIn[:len(samples)]
+	} else {
+		// Fall back to temporary allocation (rare edge case)
+		in = make([]int16, len(samples))
+	}
+	for i, s := range samples {
+		scaled := s * 32768.0
+		if scaled > 32767 {
+			in[i] = 32767
+		} else if scaled < -32768 {
+			in[i] = -32768
+		} else {
+			in[i] = int16(scaled)
+		}
+	}
+
+	// Calculate output size
+	outLen := int(inLen) * int(r.fsOutKHz) / int(r.fsInKHz)
+
+	// Use scratch buffer for intermediate output
+	var outInt16 []int16
+	if r.scratchOut != nil && len(r.scratchOut) >= outLen {
+		outInt16 = r.scratchOut[:outLen]
+		for i := range outInt16 {
+			outInt16[i] = 0
+		}
+	} else {
+		// Fall back to temporary allocation (rare edge case)
+		outInt16 = make([]int16, outLen)
+	}
+
+	// Match libopus silk_resampler() exactly:
+	// 1. Fill delay buffer with first samples
+	// 2. Process delay buffer (1ms worth)
+	// 3. Process remaining input
+	// 4. Save last samples to delay buffer
+
+	nSamples := r.fsInKHz - r.inputDelay
+
+	// Copy first nSamples to delay buffer
+	copy(r.delayBuf[r.inputDelay:], in[:nSamples])
+
+	// Process delay buffer (1ms = fsInKHz samples)
+	r.resampleIIRFIRSliceWithScratch(outInt16[:r.fsOutKHz], r.delayBuf[:r.fsInKHz], r.scratchBuf)
+
+	// Process remaining input (exclude the last inputDelay samples, which are saved for next call)
+	if inLen > r.fsInKHz {
+		end := inLen - r.inputDelay
+		if end < nSamples {
+			end = nSamples
+		}
+		if end > inLen {
+			end = inLen
+		}
+		r.resampleIIRFIRSliceWithScratch(outInt16[r.fsOutKHz:], in[nSamples:end], r.scratchBuf)
+	}
+
+	// Save last inputDelay samples to delay buffer for next call
+	if r.inputDelay > 0 {
+		copy(r.delayBuf[:r.inputDelay], in[inLen-r.inputDelay:])
+	}
+
+	// Convert back to float32 directly into output buffer
+	written := outLen
+	if written > len(out) {
+		written = len(out)
+	}
+	for i := 0; i < written; i++ {
+		out[i] = float32(outInt16[i]) / 32768.0
+	}
+
+	// Debug: capture output first 10 samples
+	if r.debugEnabled {
+		for i := 0; i < 10 && i < written; i++ {
+			r.debugOutputFirst10[i] = out[i]
+		}
+	}
+
+	return written
 }
 
 // up2HQ implements silk_resampler_private_up2_HQ.
