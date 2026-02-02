@@ -199,6 +199,9 @@ Always use this reference when implementing features or debugging discrepancies.
 6. ✅ **PVQ Resynthesis Enabled** - `celt/bands_quant.go`
    - Encoder now resynthesizes PVQ output for lowband folding
    - Matches libopus RESYNTH behavior and avoids folding with unquantized lowbands
+7. ✅ **TF Fallback Encoding Fix** - `encoder/hybrid.go`
+   - Hybrid fallback path now uses budget‑aware `TFEncodeWithSelect`
+   - Ensures `tfRes` is converted to actual TF change values before PVQ
 
 ---
 
@@ -294,6 +297,7 @@ Investigation findings from roundtrip testing (gopus encoder → gopus decoder):
 
 **Quality suspect resolved:**
 - Encoder PVQ resynth was disabled except for theta RDO, which caused folding to use unquantized lowbands. Resynth is now always enabled in the encoder path.
+- Hybrid fallback TF encoding used a non‑budgeted path without converting `tfRes` to TF change values. Now fixed with `TFEncodeWithSelect`.
 
 **Next debugging step:**
 Create a minimal test that:

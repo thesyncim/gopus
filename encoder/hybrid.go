@@ -790,7 +790,7 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int) {
 				tfRes[i] = 1
 			}
 		}
-		celt.TFEncode(re, start, end, transient, tfRes, lm)
+		celt.TFEncodeWithSelect(re, start, end, transient, tfRes, lm, 0)
 	}
 
 	// Encode spread decision (analysis-based) only if budget allows.
