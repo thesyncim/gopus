@@ -243,7 +243,7 @@ func (r *DownsamplingResampler) ProcessInto(in []float32, out []float32) int {
 }
 
 // processInt16 is the core downsampling function.
-// Matches libopus silk_resampler_private_down_FIR.
+// Matches libopus silk_resampler_private_down_FIR exactly.
 func (r *DownsamplingResampler) processInt16(out []int16, in []int16) {
 	inLen := int32(len(in))
 	outIdx := 0
@@ -255,14 +255,16 @@ func (r *DownsamplingResampler) processInt16(out []int16, in []int16) {
 	}
 	buf := r.scratchBuf
 
-	// Copy FIR state to start of buffer
+	// Copy FIR state (buffered samples) to start of buffer
 	copy(buf, r.sFIR)
 
 	inOffset := int32(0)
 	indexIncrementQ16 := r.invRatioQ16
+	var lastNSamplesIn int32
 
-	for inLen > 0 {
+	for {
 		nSamplesIn := min32(inLen, r.batchSize)
+		lastNSamplesIn = nSamplesIn
 
 		// Apply AR2 filter (output in Q8)
 		r.ar2Filter(buf[r.firOrder:], in[inOffset:inOffset+nSamplesIn])
@@ -275,34 +277,50 @@ func (r *DownsamplingResampler) processInt16(out []int16, in []int16) {
 		inLen -= nSamplesIn
 
 		if inLen > 1 {
-			// Copy last part of filtered signal to beginning of buffer
+			// More iterations to do; copy last part of filtered signal to beginning of buffer
 			copy(buf, buf[nSamplesIn:nSamplesIn+int32(r.firOrder)])
+		} else {
+			break
 		}
 	}
 
-	// Save FIR state for next call
-	copy(r.sFIR, buf[int(r.batchSize):])
+	// Save FIR state for next call (from the last nSamplesIn position)
+	copy(r.sFIR, buf[lastNSamplesIn:lastNSamplesIn+int32(r.firOrder)])
 }
 
 // ar2Filter applies the second-order AR pre-filter.
 // Output is in Q8 format.
-// Matches libopus silk_resampler_private_AR2.
+// Matches libopus silk_resampler_private_AR2 exactly.
+//
+// Reference: silk/resampler_private_AR2.c
+//
+//	for( k = 0; k < len; k++ ) {
+//	    out32       = silk_ADD_LSHIFT32( S[ 0 ], (opus_int32)in[ k ], 8 );
+//	    out_Q8[ k ] = out32;
+//	    out32       = silk_LSHIFT( out32, 2 );
+//	    S[ 0 ]      = silk_SMLAWB( S[ 1 ], out32, A_Q14[ 0 ] );
+//	    S[ 1 ]      = silk_SMULWB( out32, A_Q14[ 1 ] );
+//	}
 func (r *DownsamplingResampler) ar2Filter(out []int32, in []int16) {
-	A0Q13 := int32(r.coefs[0])
-	A1Q13 := int32(r.coefs[1])
+	A0Q14 := int32(r.coefs[0]) // Q14 coefficient
+	A1Q14 := int32(r.coefs[1]) // Q14 coefficient
 
-	for i := 0; i < len(in); i++ {
-		// out32 = S0 + input*A0
-		out32 := r.sIIR[0] + smulwb(int32(in[i])<<8, A0Q13)
+	for k := 0; k < len(in); k++ {
+		// out32 = S[0] + (in[k] << 8)
+		out32 := r.sIIR[0] + (int32(in[k]) << 8)
 
-		// S0 = S1 + input*A1 - out32*A0
-		r.sIIR[0] = r.sIIR[1] + smulwb(int32(in[i])<<8, A1Q13) - smulwb(out32, A0Q13)
+		// Store output in Q8 format
+		out[k] = out32
 
-		// S1 = input - out32*A1
-		r.sIIR[1] = int32(in[i])<<8 - smulwb(out32, A1Q13)
+		// out32 = out32 << 2 (for filter coefficient application)
+		out32 = out32 << 2
 
-		// Store output (Q8)
-		out[i] = out32
+		// S[0] = S[1] + silk_SMULWB(out32, A_Q14[0])
+		// silk_SMULWB: (a * (int16)b) >> 16
+		r.sIIR[0] = r.sIIR[1] + silkSMULWB(out32, A0Q14)
+
+		// S[1] = silk_SMULWB(out32, A_Q14[1])
+		r.sIIR[1] = silkSMULWB(out32, A1Q14)
 	}
 }
 

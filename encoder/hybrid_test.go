@@ -77,16 +77,18 @@ func TestHBGainComputation(t *testing.T) {
 		expectedMinGain float64
 		expectedMaxGain float64
 	}{
-		// High CELT bitrate: full gain
+		// libopus formula: HB_gain = 1.0 - 2^(-celt_rate/1024) / 2
+		// This results in gains very close to 1.0 for typical bitrates
+		// High CELT bitrate: nearly full gain
 		{"high bitrate (25kbps)", 25000, 0.99, 1.01},
 		{"moderate bitrate (16kbps)", 16000, 0.99, 1.01},
-		// Medium CELT bitrate: some attenuation
-		{"medium bitrate (10kbps)", 10000, 0.6, 0.9},
-		// Low CELT bitrate: significant attenuation
-		{"low bitrate (6kbps)", 6000, 0.5, 0.7},
-		// Very low CELT bitrate: minimum gain
-		{"very low bitrate (4kbps)", 4000, 0.45, 0.55},
-		{"minimum bitrate (2kbps)", 2000, 0.45, 0.55},
+		// Medium CELT bitrate: still very close to 1.0
+		{"medium bitrate (10kbps)", 10000, 0.99, 1.01},
+		// Low CELT bitrate: slight attenuation
+		{"low bitrate (6kbps)", 6000, 0.98, 1.0},
+		// Very low CELT bitrate: more noticeable attenuation
+		{"very low bitrate (4kbps)", 4000, 0.96, 0.98},
+		{"minimum bitrate (2kbps)", 2000, 0.85, 0.90},
 	}
 
 	e := &Encoder{}

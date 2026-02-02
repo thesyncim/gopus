@@ -4,66 +4,192 @@ import "math"
 
 // classifyFrame determines the signal type for a PCM frame.
 // Returns signalType (0=inactive, 1=unvoiced, 2=voiced) and quantOffset (0=low, 1=high).
+//
+// This follows the libopus two-phase approach:
+// Phase 1: Energy-based activity detection (inactive vs active)
+// Phase 2: Pitch analysis to distinguish voiced from unvoiced
+//
 // Per RFC 6716 Section 4.2.7.3, draft-vos-silk-01 Section 2.1.2.2.
+// Reference: libopus silk/float/encode_frame_FLP.c
 func (e *Encoder) classifyFrame(pcm []float32) (signalType, quantOffset int) {
 	if len(pcm) == 0 {
 		return 0, 0 // Inactive for empty input
 	}
 
-	// Compute frame energy
-	var energy float64
+	// ============================================
+	// Phase 1: Energy-based activity detection
+	// ============================================
+
+	// Compute frame energy and variance
+	var sum, sumSq float64
 	for _, s := range pcm {
-		energy += float64(s) * float64(s)
+		sum += float64(s)
+		sumSq += float64(s) * float64(s)
 	}
-	energy /= float64(len(pcm))
+	n := float64(len(pcm))
+	mean := sum / n
+	energy := sumSq / n
 	rmsEnergy := math.Sqrt(energy)
 
-	// Inactive threshold: very low energy (normalized PCM)
-	const inactiveThreshold = 1e-4 // Empirical, tune as needed
-	if rmsEnergy < inactiveThreshold {
-		return 0, 0 // Inactive
+	// Compute variance to detect DC signals
+	// DC signal has zero variance (all samples are the same)
+	variance := energy - mean*mean
+	if variance < 0 {
+		variance = 0 // Numerical stability
+	}
+	stdDev := math.Sqrt(variance)
+
+	// Activity detection thresholds
+	const inactiveEnergyThreshold = 1e-4  // Very low energy = inactive
+	const inactiveVarianceThreshold = 1e-6 // Very low variance = DC-like = inactive
+
+	// Check for inactive signal (silence or DC)
+	if rmsEnergy < inactiveEnergyThreshold {
+		return 0, 0 // Inactive: too quiet
+	}
+	if stdDev < inactiveVarianceThreshold {
+		return 0, 0 // Inactive: DC signal (zero variance)
 	}
 
-	// Compute normalized autocorrelation at lag 1 (short-term correlation)
+	// DC detection: A true DC signal has all its energy in the mean (variance near zero).
+	// For a proper DC signal: variance / energy -> 0
+	// For a sine wave: variance / energy = 0.5 (half the energy is AC component)
+	// For noise: variance / energy = 1.0 (mean is zero, all energy in variance)
+	//
+	// We consider a signal "DC-like" if less than 1% of energy is in the AC component.
+	// This correctly handles:
+	// - Pure DC: variance/energy = 0 -> detected as DC
+	// - DC + small noise: variance/energy is small -> detected as DC
+	// - Sine wave: variance/energy = 0.5 -> NOT detected as DC
+	// - Noise: variance/energy = 1.0 -> NOT detected as DC
+	if rmsEnergy > inactiveEnergyThreshold && energy > 1e-10 {
+		varianceToEnergyRatio := variance / energy
+		if varianceToEnergyRatio < 0.01 {
+			// Less than 1% of energy is in AC component = DC signal
+			return 0, 0 // Inactive: DC signal
+		}
+	}
+
+	// ============================================
+	// Phase 2: Voiced/Unvoiced classification
+	// Default to UNVOICED for active frames (like libopus)
+	// ============================================
+	signalType = 1 // Default: UNVOICED
+
+	// Compute periodicity using pitch analysis
+	config := GetBandwidthConfig(e.bandwidth)
+	periodicity := e.computePeriodicity(pcm, config.PitchLagMin, config.PitchLagMax)
+
+	// Compute adaptive threshold for voiced detection (like libopus find_pitch_lags_FLP.c)
+	// Base threshold
+	voicedThreshold := 0.6
+
+	// Adjust based on LPC order (higher order = more confident, lower threshold)
+	voicedThreshold -= 0.004 * float64(e.LPCOrder())
+
+	// Adjust based on previous frame type (hysteresis: easier to stay voiced)
+	if e.isPreviousFrameVoiced {
+		voicedThreshold -= 0.15 // ~0.15 reduction for continuity
+	}
+
+	// Spectral tilt adjustment: signals with more high-frequency content are less likely voiced
+	spectralTilt := e.computeSpectralTilt(pcm)
+	voicedThreshold -= 0.1 * spectralTilt // tilt in [-1, 1]
+
+	// Clamp threshold to reasonable range
+	if voicedThreshold < 0.25 {
+		voicedThreshold = 0.25
+	}
+	if voicedThreshold > 0.8 {
+		voicedThreshold = 0.8
+	}
+
+	// Only classify as VOICED if periodicity exceeds adaptive threshold
+	// AND the signal shows genuine periodic structure (not just high autocorrelation)
+	if periodicity > voicedThreshold {
+		// Additional check: verify it's not just high autocorrelation due to smoothness
+		// True voiced signals should have periodicity at pitch lags, not everywhere
+		shortTermCorr := e.computeShortTermCorr(pcm)
+
+		// If short-term correlation is very high (>0.99), it might be a smooth signal
+		// like a slowly varying DC or very low frequency, not true voiced
+		if shortTermCorr < 0.995 || periodicity > 0.8 {
+			signalType = 2 // VOICED
+		}
+	}
+
+	// ============================================
+	// Quantization offset selection
+	// ============================================
+	// Higher offset for cleaner, more tonal signals
+	if signalType == 2 && periodicity > 0.7 {
+		quantOffset = 1 // High offset for strongly voiced
+	} else {
+		quantOffset = 0 // Low offset otherwise
+	}
+
+	return signalType, quantOffset
+}
+
+// computeShortTermCorr computes normalized autocorrelation at lag 1.
+// High values (close to 1) indicate smooth, slowly varying signals.
+func (e *Encoder) computeShortTermCorr(pcm []float32) float64 {
+	if len(pcm) < 2 {
+		return 0
+	}
+
 	var corr, norm float64
 	for i := 1; i < len(pcm); i++ {
 		corr += float64(pcm[i]) * float64(pcm[i-1])
 		norm += float64(pcm[i-1]) * float64(pcm[i-1])
 	}
 
-	shortTermCorr := 0.0
-	if norm > 0 {
-		shortTermCorr = corr / norm
+	if norm < 1e-10 {
+		return 0
+	}
+	return corr / norm
+}
+
+// computeSpectralTilt estimates the spectral tilt of the signal.
+// Returns a value in [-1, 1] where:
+// - Positive values indicate high-frequency emphasis (noise-like)
+// - Negative values indicate low-frequency emphasis (voiced-like)
+func (e *Encoder) computeSpectralTilt(pcm []float32) float64 {
+	if len(pcm) < 2 {
+		return 0
 	}
 
-	// Compute long-term periodicity (pitch-like correlation)
-	// Search for peaks in autocorrelation at pitch lags
-	config := GetBandwidthConfig(e.bandwidth)
-	periodicity := e.computePeriodicity(pcm, config.PitchLagMin, config.PitchLagMax)
-
-	// Classification logic per draft-vos-silk-01 (tuned for tonal signals)
-	const voicedThreshold = 0.4         // Normalized periodicity threshold
-	const voicedShortCorrThreshold = 0.8 // Short-term correlation fallback
-	const highQuantThreshold = 0.6      // For quantization offset
-
-	if periodicity > voicedThreshold || shortTermCorr > voicedShortCorrThreshold {
-		signalType = 2 // Voiced
-	} else {
-		signalType = 1 // Unvoiced
+	// Compute first-order prediction coefficient
+	// This approximates spectral tilt: a1 > 0 means low-freq emphasis
+	var r0, r1 float64
+	for i := 0; i < len(pcm); i++ {
+		r0 += float64(pcm[i]) * float64(pcm[i])
+		if i > 0 {
+			r1 += float64(pcm[i]) * float64(pcm[i-1])
+		}
 	}
 
-	// Quantization offset based on energy and periodicity
-	if periodicity > highQuantThreshold || shortTermCorr > 0.85 {
-		quantOffset = 1 // High
-	} else {
-		quantOffset = 0 // Low
+	if r0 < 1e-10 {
+		return 0
 	}
 
-	return signalType, quantOffset
+	// First-order prediction coefficient: a1 = r1/r0
+	a1 := r1 / r0
+
+	// Clamp to [-1, 1]
+	if a1 > 1 {
+		a1 = 1
+	} else if a1 < -1 {
+		a1 = -1
+	}
+
+	// Return negative of a1 so positive = high-freq, negative = low-freq
+	return -a1
 }
 
 // computePeriodicity computes normalized autocorrelation in pitch range.
 // Returns max normalized correlation (0 to 1, higher = more periodic/voiced).
+// This is used to detect true pitch periodicity at specific pitch lags.
 func (e *Encoder) computePeriodicity(pcm []float32, minLag, maxLag int) float64 {
 	n := len(pcm)
 	if maxLag >= n {
@@ -76,7 +202,14 @@ func (e *Encoder) computePeriodicity(pcm []float32, minLag, maxLag int) float64 
 		return 0
 	}
 
+	// Only search for periodicity at reasonable pitch lags
+	// Avoid very short lags which could pick up sample-to-sample correlation
+	if minLag < 16 {
+		minLag = 16 // Minimum reasonable pitch lag
+	}
+
 	var maxCorr float64 = 0
+	var maxCorrLag int = 0
 
 	for lag := minLag; lag <= maxLag; lag++ {
 		var corr, energy1, energy2 float64
@@ -86,10 +219,35 @@ func (e *Encoder) computePeriodicity(pcm []float32, minLag, maxLag int) float64 
 			energy2 += float64(pcm[i-lag]) * float64(pcm[i-lag])
 		}
 
-		if energy1 > 0 && energy2 > 0 {
+		if energy1 > 1e-10 && energy2 > 1e-10 {
 			normCorr := corr / math.Sqrt(energy1*energy2)
 			if normCorr > maxCorr {
 				maxCorr = normCorr
+				maxCorrLag = lag
+			}
+		}
+	}
+
+	// Verify this is a true pitch peak, not just overall high correlation
+	// Check that correlation drops at non-harmonic lags
+	if maxCorr > 0.3 && maxCorrLag > 0 {
+		// Check correlation at half the lag (should be lower if true pitch)
+		halfLag := maxCorrLag / 2
+		if halfLag >= minLag {
+			var corrHalf, energy1, energy2 float64
+			for i := halfLag; i < n; i++ {
+				corrHalf += float64(pcm[i]) * float64(pcm[i-halfLag])
+				energy1 += float64(pcm[i]) * float64(pcm[i])
+				energy2 += float64(pcm[i-halfLag]) * float64(pcm[i-halfLag])
+			}
+			if energy1 > 1e-10 && energy2 > 1e-10 {
+				normCorrHalf := corrHalf / math.Sqrt(energy1*energy2)
+				// If correlation at half lag is almost as high as at full lag,
+				// it might not be true pitch (could be DC-like or very smooth signal)
+				if normCorrHalf > 0.98*maxCorr && maxCorr < 0.9 {
+					// Penalize: correlation doesn't drop at half lag
+					maxCorr *= 0.7
+				}
 			}
 		}
 	}

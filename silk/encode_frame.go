@@ -90,10 +90,12 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	// This sets e.lastTotalEnergy, e.lastInvGain, e.lastNumSamples
 	lpcQ12 := e.computeLPCFromFrame(pcm)
 
-	// Step 4: Compute and encode gains from signal energy
-	// Gains encode the signal amplitude (not prediction residual).
+	// Step 4: Compute and encode gains from LPC residual energy
+	// Per libopus: gains are sqrt(residual_energy) from Burg/Schur analysis,
+	// NOT sqrt(raw_signal_energy). The residual is much smaller than raw signal
+	// because LPC prediction removes the predictable component.
 	// NSQ scales input by inverse gain, quantizes, then decoder scales output by gain.
-	gains := e.computeSubframeGains(pcm, numSubframes)
+	gains := e.computeSubframeGainsFromResidual(pcm, numSubframes)
 	gainsQ16 := e.encodeSubframeGains(gains, signalType, numSubframes)
 
 	// Step 5: Convert to LSF and quantize (use scratch buffers)

@@ -34,11 +34,14 @@ func (d *Decoder) ltpSynthesis(excitation []int32, pitchLag int, ltpCoeffs []int
 	for i := range excitation {
 		var pred float64
 
-		// 5-tap filter: taps at [-2, -1, 0, +1, +2] relative to pitchLag
+		// 5-tap filter centered around pitchLag samples ago.
+		// Per libopus NSQ.c: b_Q14[0] is applied to position (-lag + 2),
+		// b_Q14[1] to (-lag + 1), ..., b_Q14[4] to (-lag - 2).
+		// So coefficient k is applied to history at (-lag + 2 - k).
 		for k := 0; k < 5; k++ {
-			// History index: current position in history - pitchLag + k - 2
-			// We read from circular buffer relative to current write position
-			histIdx := d.historyIndex - pitchLag + k - 2 + i
+			// History index: current position in history - pitchLag + (2 - k)
+			// This matches libopus's pred_lag_ptr[0], pred_lag_ptr[-1], ..., pred_lag_ptr[-4]
+			histIdx := d.historyIndex - pitchLag + 2 - k + i
 			for histIdx < 0 {
 				histIdx += historyLen
 			}

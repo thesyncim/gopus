@@ -257,7 +257,26 @@ func (e *Encoder) computeHybridBitAllocation(frame20ms bool) (silkBitrate, celtB
 		silkRatePerChannel += (ratePerChannel - lastRow[0]) / 2
 	}
 
+	// Apply libopus adjustments to SILK rate (before multiplying by channels)
+
+	// 1. CBR boost: tiny boost for CBR mode (libopus: +100)
+	if e.bitrateMode == ModeCBR {
+		silkRatePerChannel += 100
+	}
+
+	// 2. SWB boost: extra bits for superwideband (libopus: +300)
+	if e.effectiveBandwidth() == types.BandwidthSuperwideband {
+		silkRatePerChannel += 300
+	}
+
+	// Multiply by channels
 	silkBitrate = silkRatePerChannel * channels
+
+	// 3. Stereo adjustment: small reduction for stereo at higher rates (libopus: -1000)
+	if channels == 2 && ratePerChannel >= 12000 {
+		silkBitrate -= 1000
+	}
+
 	celtBitrate = totalRate - silkBitrate
 
 	// Ensure minimum CELT bitrate for acceptable quality
@@ -276,30 +295,45 @@ func (e *Encoder) computeHybridBitAllocation(frame20ms bool) (silkBitrate, celtB
 //
 // This implements libopus HB_gain calculation:
 // HB_gain = Q15ONE - SHR32(celt_exp2(-celt_rate * QCONST16(1.f/1024, 10)), 1)
+//
+// In float: HB_gain = 1.0 - 2^(-celt_rate/1024) / 2
+//
+// This results in HB_gain very close to 1.0 for typical bitrates:
+// - At 8000 bps: HB_gain ~ 0.9978
+// - At 16000 bps: HB_gain ~ 0.9999
+// - At 4000 bps: HB_gain ~ 0.9902
 func (e *Encoder) computeHBGain(celtBitrate int) float64 {
-	// At very low CELT bitrates, attenuate high frequencies
-	// Full gain (1.0) when CELT has sufficient bits
-	// Reduced gain when CELT is starved for bits
+	// Compute: HB_gain = 1.0 - 2^(-celt_rate/1024) / 2
+	// This is the libopus formula for high-band attenuation.
+	//
+	// The exponent -celt_rate/1024 means:
+	// - At 1024 bps: 2^(-1) = 0.5, HB_gain = 1.0 - 0.25 = 0.75
+	// - At 2048 bps: 2^(-2) = 0.25, HB_gain = 1.0 - 0.125 = 0.875
+	// - At 4096 bps: 2^(-4) = 0.0625, HB_gain = 1.0 - 0.03125 = 0.96875
+	// - At 8192 bps: 2^(-8) = 0.0039, HB_gain = 1.0 - 0.00195 = 0.998
+	//
+	// At typical hybrid bitrates (8-25 kbps CELT), gain is essentially 1.0.
 
-	// Threshold below which we start attenuating
-	// At 64kbps total, CELT typically gets ~25kbps
-	// At 24kbps total, CELT might only get ~8kbps
-	const minFullGainRate = 16000 // Below this, start attenuating
-	const minRate = 4000          // At this rate, minimum gain
-
-	if celtBitrate >= minFullGainRate {
-		return 1.0
+	if celtBitrate <= 0 {
+		// At zero or negative bitrate, return minimum gain
+		return 0.5
 	}
 
-	if celtBitrate <= minRate {
-		return 0.5 // Don't completely zero out, just attenuate
+	// Compute 2^(-celt_rate/1024) using math.Exp2
+	exponent := -float64(celtBitrate) / 1024.0
+	exp2Value := math.Exp2(exponent)
+
+	// HB_gain = 1.0 - exp2Value / 2
+	gain := 1.0 - exp2Value/2.0
+
+	// Clamp to reasonable range [0.5, 1.0]
+	if gain < 0.5 {
+		gain = 0.5
+	}
+	if gain > 1.0 {
+		gain = 1.0
 	}
 
-	// Linear interpolation between min and full gain
-	t := float64(celtBitrate-minRate) / float64(minFullGainRate-minRate)
-
-	// Apply exponential curve for smoother transition (matches libopus celt_exp2)
-	gain := 0.5 + 0.5*t*t
 	return gain
 }
 

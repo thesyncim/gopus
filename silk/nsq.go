@@ -656,22 +656,42 @@ func scaleNSQStates(
 }
 
 // rewhitenLTP applies LPC analysis filter for rewhitening.
+// Matches libopus silk_LPC_analysis_filter behavior:
+// - First 'order' outputs are set to zero
+// - Remaining outputs computed as: out[ix] = in[ix] - sum(a[k] * in[ix-1-k])
 func rewhitenLTP(sLTP []int16, xq []int16, startIdx, offset int, aQ12 []int16, length, order int) {
-	for i := startIdx; i < startIdx+length && i < len(sLTP); i++ {
-		xqIdx := i + offset
-		if xqIdx < 0 || xqIdx >= len(xq) {
+	// Set first 'order' outputs to zero (per libopus silk_LPC_analysis_filter)
+	for i := startIdx; i < startIdx+order && i < len(sLTP); i++ {
+		sLTP[i] = 0
+	}
+
+	// Compute LPC analysis filter for remaining samples
+	// libopus iterates ix from d to len-1 and writes to out[ix]
+	// Input pointer is in[ix-1], so it reads in[ix-1], in[ix-2], ..., in[ix-d]
+	// Output is: in[ix] - prediction
+	for ix := order; ix < length && startIdx+ix < len(sLTP); ix++ {
+		inIdx := startIdx + offset + ix
+		if inIdx < 0 || inIdx >= len(xq) {
 			continue
 		}
 
-		// LPC analysis filter: e[n] = x[n] - sum(a[k] * x[n-k-1])
-		out := int32(xq[xqIdx]) << 12 // Q12
+		// in_ptr = &in[ix-1] in libopus, so in_ptr[0] = in[ix-1], in_ptr[-1] = in[ix-2], etc.
+		// Compute prediction: sum(a[k] * in[ix-1-k]) for k=0..order-1
+		var predQ12 int32
 		for k := 0; k < order; k++ {
-			prevIdx := xqIdx - k - 1
+			prevIdx := inIdx - 1 - k // in[ix-1-k]
 			if prevIdx >= 0 && prevIdx < len(xq) {
-				out -= int32(aQ12[k]) * int32(xq[prevIdx])
+				// silk_SMULBB: low 16 bits * low 16 bits
+				predQ12 += int32(int16(aQ12[k])) * int32(xq[prevIdx])
 			}
 		}
-		sLTP[i] = int16(silk_RSHIFT_ROUND(out, 12))
+
+		// Output = in[ix] - prediction, then scale from Q12 to Q0
+		outQ12 := (int32(xq[inIdx]) << 12) - predQ12
+		out := silk_RSHIFT_ROUND(outQ12, 12)
+
+		// Saturate and store
+		sLTP[startIdx+ix] = int16(silk_SAT16(out))
 	}
 }
 

@@ -105,6 +105,12 @@ func silkGainsID(ind []int8, nbSubfr int) int32 {
 
 // GainQ16FromPCM computes Q16 gain from PCM samples using libopus method.
 // This computes the subframe energy and converts to gain matching libopus.
+//
+// libopus flow (silk/float/process_gains_FLP.c):
+// 1. Gains[k] = sqrt(residual_energy) -> linear amplitude in int16 range (0-32767)
+// 2. pGains_Q16[k] = Gains[k] * 65536.0f -> Q16 format
+//
+// For raw PCM (without LPC prediction), gain = RMS amplitude of signal.
 func GainQ16FromPCM(pcm []int16, subframeSamples int) int32 {
 	if len(pcm) == 0 || subframeSamples <= 0 {
 		return 1 << 16 // Default gain of 1.0
@@ -123,29 +129,36 @@ func GainQ16FromPCM(pcm []int16, subframeSamples int) int32 {
 	}
 
 	// Compute RMS and scale to Q16
-	// rms = sqrt(sumSq / n)
-	// gain_Q16 = rms * 65536
+	// rms = sqrt(sumSq / n) -> linear amplitude (int16 domain, 0-32767)
+	// gain_Q16 = rms * 65536 -> Q16 format
 	if sumSq == 0 {
 		return 1 << 16
 	}
 
-	// Shift to avoid overflow while maintaining precision
-	// Use log domain for accuracy
+	// Average energy (variance)
 	energyQ0 := sumSq / int64(n)
 	if energyQ0 <= 0 {
 		return 1 << 16
 	}
 
-	// Approximate sqrt: gain = sqrt(energy)
-	// In log domain: log(gain) = log(energy) / 2
-	// Then convert back to linear
+	// Compute sqrt in log domain for accuracy:
+	// log(gain) = log(energy) / 2
+	// gainLinear = exp(log(gain)) = sqrt(energy)
 	logEnergy := silkLin2Log(int32(energyQ0))
 	logGain := logEnergy >> 1 // Divide by 2 for sqrt
 
-	// Convert to linear Q16
-	gainQ16 := silkLog2Lin(logGain)
+	// silkLog2Lin returns LINEAR value (the actual amplitude, e.g., 16384)
+	gainLinear := silkLog2Lin(logGain)
 
-	// Clamp to minimum
+	// Convert linear gain to Q16: gainQ16 = gainLinear * 65536
+	// This matches libopus: pGains_Q16[k] = Gains[k] * 65536.0f
+	gainQ16_64 := int64(gainLinear) << 16
+	if gainQ16_64 > 0x7FFFFFFF {
+		gainQ16_64 = 0x7FFFFFFF // Clamp to max int32
+	}
+	gainQ16 := int32(gainQ16_64)
+
+	// Clamp to minimum of 1.0 in Q16 (65536)
 	if gainQ16 < (1 << 16) {
 		gainQ16 = 1 << 16
 	}
