@@ -308,26 +308,19 @@ Always use this reference when implementing features or debugging discrepancies.
    - PCM rounded to int16 precision before analysis (libopus float API parity)
    - Regression test `silk/encode_quantize_test.go`
 
-### Session 19: SILK Parity Improvements (Complete)
-1. ✅ **NLSF Interpolation Parity** - `silk/pred_coefs.go`, `silk/noise_shape_analysis.go`
-   - Improved interpolation search by using correct residual energy logic
-   - NLSF interp coef mismatches reduced from 31/50 to 20/50 (35% reduction)
-2. ✅ **SNR_adj_dB Adjustment** - `silk/noise_shape_analysis.go`, `silk/noise_shape.go`
-   - Ported full libopus SNR adjustment logic including VBR/Voiced/Unvoiced tweaks
-   - codingQuality now correctly derived from SNR_adj_dB, matching libopus
-3. ✅ **VAD Math Bit-Exactness** - `encoder/vad.go`
-   - Ported bit-exact `sigmQ15` and `lin2log` LUT-based implementations
-   - Ensures VAD flags and tilt/quality measures match libopus
-4. ✅ **Pitch Analysis Fixes** - `silk/pitch_detect.go`
-   - Fixed 4kHz low-pass filter to use int16 saturation, matching libopus `silk_ADD_SAT16`
-   - Initialized `prevLag` and `lagPrev` to 100 in `NewEncoder` and `Reset`
-5. ✅ **LPC Prediction Gain Tracing** - `silk/pitch_residual.go`, `silk/encoder.go`
-   - Added `lastLPCGain` tracking to `Encoder` struct
-   - Use LPC prediction gain for noise shaping bandwidth expansion, aligning with `psEncCtrl->predGain`
-6. ✅ **Rounding Parity** - `silk/pitch_resampler.go`, `testvectors/libopus_trace_test.go`
-   - Unified rounding to `RoundToEven` (lrintf) across encoder and test signal generation
-7. ✅ **VBR Propagation** - `encoder/encoder.go`, `silk/encoder.go`
-   - Fixed bug where VBR setting was not propagated to SILK sub-encoders
+### Session 20: Pitch & Resampler Parity (Complete)
+1. ✅ **Resampler Parity** - `silk/resampler_libopus_compare_test.go`
+   - Verified `NewDownsamplingResampler` output matches libopus `silk_resampler` (max diff 0.0, RMS 0.0)
+   - Input signal to core encoder is now confirmed correct
+2. ✅ **Correlation Matrix Fix** - `silk/ltp_quant.go`
+   - Updated `corrMatrixFLP` and `corrVectorFLP` to match libopus optimized logic
+   - Uses `energyF64` for diagonal and iterative updates
+3. ✅ **Pitch Detection Flow** - `silk/pitch_detect.go`, `silk/encode_frame.go`
+   - Updated `detectPitch` to return `lagIndex` and `contourIndex` found during search
+   - `EncodeFrame` now passes these indices to `encodePitchLags`, avoiding `findBestPitchContour` ambiguity
+   - Initialized `prevLag` to 100 in `NewEncoder`
+4. ✅ **Trace Status** - `testvectors/libopus_trace_test.go`
+   - Stable metrics: Gain~5.07, LTP Scale~12/50, NLSF~20/50, LTP~83/200
 
 ---
 

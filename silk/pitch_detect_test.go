@@ -29,7 +29,7 @@ func TestDetectPitchVoicedSignal(t *testing.T) {
 	}
 
 	// Detect pitch
-	pitchLags := enc.detectPitch(pcm, numSubframes, 0, 0)
+	pitchLags, _, _ := enc.detectPitch(pcm, numSubframes, 0, 0)
 
 	if len(pitchLags) != numSubframes {
 		t.Fatalf("expected %d pitch lags, got %d", numSubframes, len(pitchLags))
@@ -67,7 +67,7 @@ func TestDetectPitchNarrowband(t *testing.T) {
 		pcm[i] = float32(1.0-2.0*phase) * 10000 // Realistic int16-ish level
 	}
 
-	pitchLags := enc.detectPitch(pcm, numSubframes, 0, 0)
+	pitchLags, _, _ := enc.detectPitch(pcm, numSubframes, 0, 0)
 
 	if len(pitchLags) != numSubframes {
 		t.Fatalf("expected %d pitch lags, got %d", numSubframes, len(pitchLags))
@@ -92,7 +92,7 @@ func TestDetectPitchUnvoicedZeroLags(t *testing.T) {
 
 	pcm := make([]float32, frameSamples) // Silence -> unvoiced
 
-	pitchLags := enc.detectPitch(pcm, numSubframes, 0, 0)
+	pitchLags, _, _ := enc.detectPitch(pcm, numSubframes, 0, 0)
 	if len(pitchLags) != numSubframes {
 		t.Fatalf("expected %d pitch lags, got %d", numSubframes, len(pitchLags))
 	}
@@ -397,7 +397,7 @@ func TestPitchDetectionAccuracyLibopusStyle(t *testing.T) {
 			pcm[i] = float32(1.0-2.0*phase) * 10000
 		}
 
-		pitchLags := enc.detectPitch(pcm, numSubframes, 0, 0)
+		pitchLags, _, _ := enc.detectPitch(pcm, numSubframes, 0, 0)
 
 		// Check accuracy - allow for harmonic multiples (octave errors are common
 		// in pitch detection and may be acceptable depending on use case)
@@ -434,7 +434,7 @@ func TestPitchDetectionWithSine(t *testing.T) {
 		pcm[i] = float32(math.Sin(2*math.Pi*freq*float64(i)/float64(config.SampleRate))) * 10000
 	}
 
-	pitchLags := enc.detectPitch(pcm, numSubframes, 0, 0)
+	pitchLags, _, _ := enc.detectPitch(pcm, numSubframes, 0, 0)
 
 	for sf, lag := range pitchLags {
 		errorMargin := pitchPeriod / 5
@@ -465,7 +465,7 @@ func TestPitchDetectionMediumband(t *testing.T) {
 		pcm[i] = float32(1.0-2.0*phase) * 10000
 	}
 
-	pitchLags := enc.detectPitch(pcm, numSubframes, 0, 0)
+	pitchLags, _, _ := enc.detectPitch(pcm, numSubframes, 0, 0)
 
 	for sf, lag := range pitchLags {
 		// Verify lags are within valid range

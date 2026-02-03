@@ -124,7 +124,7 @@ type pitchEncodeParams struct {
 // Stage 1: Coarse search at 4kHz with normalized autocorrelation
 // Stage 2: Refined search at 8kHz with contour codebook
 // Stage 3: Fine search at full rate with interpolation
-func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, searchThres2 float64) []int {
+func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, searchThres2 float64) ([]int, int, int) {
 	config := GetBandwidthConfig(e.bandwidth)
 	fsKHz := config.SampleRate / 1000
 
@@ -147,7 +147,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		frameLength = len(pcm)
 	}
 	if frameLength <= 0 {
-		return nil
+		return nil, 0, 0
 	}
 
 	frameFix := ensureInt16Slice(&e.scratchFrame16Fix, frameLength)
@@ -327,7 +327,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		}
 		e.pitchState.ltpCorr = 0
 		e.pitchState.prevLag = 0
-		return pitchLags
+		return pitchLags, 0, 0
 	}
 
 	// Threshold for candidate selection
@@ -525,7 +525,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		}
 		e.pitchState.ltpCorr = 0
 		e.pitchState.prevLag = 0
-		return pitchLags
+		return pitchLags, 0, 0
 	}
 
 	// Update LTP correlation
@@ -649,7 +649,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		e.pitchState.prevLag = 0
 	}
 
-	return pitchLags
+	return pitchLags, lag - minLag, CBimax
 }
 
 // downsampleLowpass performs downsampling with a simple low-pass filter.
@@ -1014,40 +1014,28 @@ func pitchAnalysisCalcEnergySt3(out []float64, frame []float32, startLag, sfLeng
 // First subframe is absolute, subsequent are delta-coded via contour.
 // Per RFC 6716 Section 4.2.7.6.
 // Uses libopus tables: silk_pitch_lag_iCDF, silk_uniform4/6/8_iCDF, silk_pitch_contour*_iCDF
-func (e *Encoder) encodePitchLags(pitchLags []int, numSubframes int, condCoding int) {
-	params := e.preparePitchLags(pitchLags, numSubframes)
+func (e *Encoder) encodePitchLags(pitchLags []int, numSubframes, condCoding, lagIndex, contourIndex int) {
+	params := e.preparePitchLags(pitchLags, numSubframes, lagIndex, contourIndex)
 	e.encodePitchLagsWithParams(params, condCoding)
 }
 
-func (e *Encoder) preparePitchLags(pitchLags []int, numSubframes int) pitchEncodeParams {
+func (e *Encoder) preparePitchLags(pitchLags []int, numSubframes, lagIndex, contourIndex int) pitchEncodeParams {
 	config := GetBandwidthConfig(e.bandwidth)
 	fsKHz := config.SampleRate / 1000
 
-	contourTable, contourICDF, lagLowICDF := pitchLagTables(fsKHz, numSubframes)
+	_, contourICDF, lagLowICDF := pitchLagTables(fsKHz, numSubframes)
 
-	contourIdx, baseLag := findBestPitchContour(pitchLags, numSubframes, config.PitchLagMin, config.PitchLagMax, contourTable, len(contourICDF))
-	lagIdx := baseLag - config.PitchLagMin
-	if lagIdx < 0 {
-		lagIdx = 0
+	// Clamp indices for safety
+	if lagIndex < 0 {
+		lagIndex = 0
 	}
-	if lagIdx > config.PitchLagMax-config.PitchLagMin {
-		lagIdx = config.PitchLagMax - config.PitchLagMin
-	}
-
-	for sf := 0; sf < numSubframes && sf < len(pitchLags); sf++ {
-		lag := baseLag + int(contourTable[sf][contourIdx])
-		if lag < config.PitchLagMin {
-			lag = config.PitchLagMin
-		}
-		if lag > config.PitchLagMax {
-			lag = config.PitchLagMax
-		}
-		pitchLags[sf] = lag
+	if lagIndex > config.PitchLagMax-config.PitchLagMin {
+		lagIndex = config.PitchLagMax - config.PitchLagMin
 	}
 
 	return pitchEncodeParams{
-		contourIdx:  contourIdx,
-		lagIdx:      lagIdx,
+		contourIdx:  contourIndex,
+		lagIdx:      lagIndex,
 		contourICDF: contourICDF,
 		lagLowICDF:  lagLowICDF,
 	}

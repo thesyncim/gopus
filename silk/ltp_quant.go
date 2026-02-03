@@ -21,18 +21,44 @@ func corrMatrixFLP(x []float64, subfrLen, order int, out []float64) {
 		}
 		return
 	}
-	base := order - 1
-	for i := 0; i < order; i++ {
-		row := i * order
-		idxI := base - i
-		for j := 0; j < order; j++ {
-			sum := 0.0
-			idxJ := base - j
-			for n := 0; n < subfrLen; n++ {
-				sum += x[idxI+n] * x[idxJ+n]
-			}
-			out[row+j] = sum
+
+	// ptr1 points to &x[order-1] (start of column 0 of X)
+	ptr1Idx := order - 1
+
+	// Calculate X[:,0]'*X[:,0]
+	energy := energyF64(x[ptr1Idx:ptr1Idx+subfrLen], subfrLen)
+	out[0] = energy
+
+	for j := 1; j < order; j++ {
+		// Calculate X[:,j]'*X[:,j]
+		// energy += x[ptr1Idx-j]*x[ptr1Idx-j] - x[ptr1Idx+subfrLen-j]*x[ptr1Idx+subfrLen-j]
+		term1 := x[ptr1Idx-j]
+		term2 := x[ptr1Idx+subfrLen-j]
+		energy += term1*term1 - term2*term2
+		out[j*order+j] = energy
+	}
+
+	ptr2Idx := order - 2 // First sample of column 1 of X
+	for lag := 1; lag < order; lag++ {
+		// Calculate X[:,0]'*X[:,lag]
+		inner := 0.0
+		for n := 0; n < subfrLen; n++ {
+			inner += x[ptr1Idx+n] * x[ptr2Idx+n]
 		}
+		out[lag*order+0] = inner
+		out[0*order+lag] = inner
+
+		// Calculate X[:,j]'*X[:,j+lag]
+		for j := 1; j < order-lag; j++ {
+			term1 := x[ptr1Idx-j]
+			term2 := x[ptr2Idx-j]
+			term3 := x[ptr1Idx+subfrLen-j]
+			term4 := x[ptr2Idx+subfrLen-j]
+			inner += term1*term2 - term3*term4
+			out[(lag+j)*order+j] = inner
+			out[j*order+(lag+j)] = inner
+		}
+		ptr2Idx--
 	}
 }
 
@@ -43,14 +69,15 @@ func corrVectorFLP(x, y []float64, subfrLen, order int, out []float64) {
 		}
 		return
 	}
-	base := order - 1
-	for i := 0; i < order; i++ {
+
+	ptr1Idx := order - 1
+	for lag := 0; lag < order; lag++ {
 		sum := 0.0
-		idx := base - i
 		for n := 0; n < subfrLen; n++ {
-			sum += x[idx+n] * y[n]
+			sum += x[ptr1Idx+n] * y[n]
 		}
-		out[i] = sum
+		out[lag] = sum
+		ptr1Idx--
 	}
 }
 

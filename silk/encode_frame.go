@@ -117,6 +117,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 
 	// Step 2: Pitch detection and LTP (voiced only)
 	var pitchLags []int
+	var lagIndex, contourIndex int
 	var pitchParams pitchEncodeParams
 	var ltpCoeffs LTPCoeffsArray
 	ltpScaleIndex := 0
@@ -140,7 +141,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 		} else if thrhld > 1 {
 			thrhld = 1
 		}
-		pitchLags = e.detectPitch(residual32, numSubframes, searchThres1, thrhld)
+		pitchLags, lagIndex, contourIndex = e.detectPitch(residual32, numSubframes, searchThres1, thrhld)
 
 		// Update LTP correlation for noise shaping (from pitch detection)
 		e.ltpCorr = float32(e.pitchState.ltpCorr)
@@ -150,7 +151,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 
 		if e.ltpCorr > 0 {
 			signalType = typeVoiced
-			pitchParams = e.preparePitchLags(pitchLags, numSubframes)
+			pitchParams = e.preparePitchLags(pitchLags, numSubframes, lagIndex, contourIndex)
 			ltpCoeffs, ltpIndices, perIndex, predGainQ7 = e.analyzeLTPQuantized(residual, resStart, pitchLags, numSubframes, subframeSamples)
 			ltpScaleIndex = e.computeLTPScaleIndex(predGainQ7, condCoding)
 		} else {
@@ -633,6 +634,7 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 
 	// Step 2: Pitch detection and LTP (voiced only)
 	var pitchLags []int
+	var lagIndex, contourIndex int
 	var pitchParams pitchEncodeParams
 	var ltpCoeffs LTPCoeffsArray
 	ltpScaleIndex := 0
@@ -655,8 +657,8 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 		} else if thrhld > 1 {
 			thrhld = 1
 		}
-		pitchLags = e.detectPitch(residual32, numSubframes, searchThres1, thrhld)
-		pitchParams = e.preparePitchLags(pitchLags, numSubframes)
+		pitchLags, lagIndex, contourIndex = e.detectPitch(residual32, numSubframes, searchThres1, thrhld)
+		pitchParams = e.preparePitchLags(pitchLags, numSubframes, lagIndex, contourIndex)
 
 		// Update LTP correlation for noise shaping (from pitch detection)
 		e.ltpCorr = float32(e.pitchState.ltpCorr)

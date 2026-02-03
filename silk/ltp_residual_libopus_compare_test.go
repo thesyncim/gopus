@@ -38,7 +38,6 @@ func TestLTPResidualTraceAgainstLibopus(t *testing.T) {
 
 		var pitchLags []int
 		var ltpCoeffs LTPCoeffsArray
-		predGainQ7 := int32(0)
 
 		if signalType != typeNoVoiceActivity {
 			searchThres1 := float64(enc.pitchEstimationThresholdQ16) / 65536.0
@@ -64,7 +63,7 @@ func TestLTPResidualTraceAgainstLibopus(t *testing.T) {
 
 			if enc.ltpCorr > 0 {
 				signalType = typeVoiced
-				ltpCoeffs, _, _, predGainQ7 = enc.analyzeLTPQuantized(residual, resStart, pitchLags, numSubfr, subfrLen)
+				ltpCoeffs, _, _, _ = enc.analyzeLTPQuantized(residual, resStart, pitchLags, numSubfr, subfrLen)
 			} else {
 				signalType = typeUnvoiced
 				enc.sumLogGainQ7 = 0
