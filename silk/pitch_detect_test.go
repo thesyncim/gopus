@@ -82,6 +82,33 @@ func TestDetectPitchNarrowband(t *testing.T) {
 	}
 }
 
+func TestDetectPitchUnvoicedZeroLags(t *testing.T) {
+	enc := NewEncoder(BandwidthWideband)
+	config := GetBandwidthConfig(BandwidthWideband)
+
+	numSubframes := 4
+	fsKHz := config.SampleRate / 1000
+	frameSamples := (peLTPMemLengthMS + numSubframes*peSubfrLengthMS) * fsKHz
+
+	pcm := make([]float32, frameSamples) // Silence -> unvoiced
+
+	pitchLags := enc.detectPitch(pcm, numSubframes, 0, 0)
+	if len(pitchLags) != numSubframes {
+		t.Fatalf("expected %d pitch lags, got %d", numSubframes, len(pitchLags))
+	}
+	for sf, lag := range pitchLags {
+		if lag != 0 {
+			t.Fatalf("subframe %d: expected lag 0 for unvoiced, got %d", sf, lag)
+		}
+	}
+	if enc.pitchState.ltpCorr != 0 {
+		t.Fatalf("expected ltpCorr=0 for unvoiced, got %.6f", enc.pitchState.ltpCorr)
+	}
+	if enc.pitchState.prevLag != 0 {
+		t.Fatalf("expected prevLag=0 for unvoiced, got %d", enc.pitchState.prevLag)
+	}
+}
+
 func TestDownsample(t *testing.T) {
 	signal := []float32{1, 2, 3, 4, 5, 6, 7, 8}
 

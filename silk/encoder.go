@@ -72,6 +72,7 @@ type Encoder struct {
 	// Analysis buffers (encoder-specific)
 	inputBuffer []float32 // Noise shaping lookahead buffer (x_buf in libopus)
 	lpcState    []float32 // LPC filter state for residual computation
+	scratchPCMQuant []float32 // Quantized PCM (int16 round-trip) for SILK entry
 
 	// Bandwidth configuration
 	bandwidth  Bandwidth

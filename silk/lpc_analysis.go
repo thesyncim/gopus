@@ -889,10 +889,10 @@ func interpolateNLSF(out, prevNLSF, curNLSF []int16, interpCoef, order int) {
 		return
 	}
 
-	// out = prevNLSF + ((curNLSF - prevNLSF) * interpCoef + 2) >> 2
+	// out = prevNLSF + ((curNLSF - prevNLSF) * interpCoef) >> 2
 	for i := 0; i < order; i++ {
 		diff := int32(curNLSF[i]) - int32(prevNLSF[i])
-		out[i] = int16(int32(prevNLSF[i]) + ((int32(interpCoef)*diff + 2) >> 2))
+		out[i] = int16(int32(prevNLSF[i]) + (int32(interpCoef)*diff >> 2))
 	}
 }
 

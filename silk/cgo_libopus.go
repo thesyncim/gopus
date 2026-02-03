@@ -21,6 +21,19 @@ typedef struct {
 } ltp_quant_result;
 
 typedef struct {
+    opus_int   interp_Q2;
+    opus_int16 nlsf_Q15[ MAX_LPC_ORDER ];
+} lpc_interp_result;
+
+typedef struct {
+    opus_int   interp_Q2;
+    opus_int16 nlsf_Q15[ MAX_LPC_ORDER ];
+    float      res_nrg;
+    float      res_nrg_last;
+    float      res_nrg_interp[ 4 ];
+} lpc_interp_debug_result;
+
+typedef struct {
     opus_int   pitch[MAX_NB_SUBFR];
     opus_int16 lagIndex;
     opus_int8  contourIndex;
@@ -74,8 +87,88 @@ static void opus_silk_ltp_analysis_filter(const float *x, const float *B, const 
     silk_LTP_analysis_filter_FLP(out, x, B, pitchL, invGains, subfr_len, nb_subfr, pre_len);
 }
 
+static void opus_silk_find_lpc_interp(const float *x, int nb_subfr, int subfr_length, int lpc_order,
+    int use_interp, int first_frame_after_reset, const opus_int16 *prev_nlsf, float minInvGain, lpc_interp_result *out) {
+    silk_encoder_state st;
+    silk_memset(&st, 0, sizeof(st));
+    st.nb_subfr = nb_subfr;
+    st.subfr_length = subfr_length;
+    st.predictLPCOrder = lpc_order;
+    st.useInterpolatedNLSFs = use_interp;
+    st.first_frame_after_reset = first_frame_after_reset;
+    st.arch = 0;
+    if (prev_nlsf && lpc_order > 0) {
+        silk_memcpy(st.prev_NLSFq_Q15, prev_nlsf, sizeof(opus_int16) * lpc_order);
+    }
+    silk_find_LPC_FLP(&st, out->nlsf_Q15, x, minInvGain, 0);
+    out->interp_Q2 = st.indices.NLSFInterpCoef_Q2;
+}
+
+static void opus_silk_find_lpc_interp_debug(const float *x, int nb_subfr, int subfr_length, int lpc_order,
+    int use_interp, int first_frame_after_reset, const opus_int16 *prev_nlsf, float minInvGain, lpc_interp_debug_result *out) {
+    opus_int k;
+    silk_float a[ MAX_LPC_ORDER ];
+    silk_float a_tmp[ MAX_LPC_ORDER ];
+    opus_int16 NLSF_Q15[ MAX_LPC_ORDER ];
+    opus_int16 NLSF0_Q15[ MAX_LPC_ORDER ];
+    silk_float LPC_res[ MAX_FRAME_LENGTH + MAX_NB_SUBFR * MAX_LPC_ORDER ];
+    silk_float res_nrg, res_nrg_2nd, res_nrg_interp, res_nrg_last;
+
+    silk_memset(out, 0, sizeof(*out));
+    for (k = 0; k < 4; k++) {
+        out->res_nrg_interp[k] = -1.0f;
+    }
+
+    subfr_length += lpc_order;
+    res_nrg = silk_burg_modified_FLP(a, x, minInvGain, subfr_length, nb_subfr, lpc_order, 0);
+    res_nrg_last = 0.0f;
+    out->interp_Q2 = 4;
+
+    if (use_interp && !first_frame_after_reset && nb_subfr == MAX_NB_SUBFR) {
+        res_nrg_last = silk_burg_modified_FLP(a_tmp, x + ( MAX_NB_SUBFR / 2 ) * subfr_length, minInvGain,
+            subfr_length, MAX_NB_SUBFR / 2, lpc_order, 0);
+        res_nrg -= res_nrg_last;
+
+        silk_A2NLSF_FLP(NLSF_Q15, a_tmp, lpc_order);
+
+        res_nrg_2nd = silk_float_MAX;
+        for (k = 3; k >= 0; k--) {
+            silk_interpolate(NLSF0_Q15, prev_nlsf, NLSF_Q15, k, lpc_order);
+            silk_NLSF2A_FLP(a_tmp, NLSF0_Q15, lpc_order, 0);
+            silk_LPC_analysis_filter_FLP(LPC_res, a_tmp, x, 2 * subfr_length, lpc_order);
+            res_nrg_interp = (silk_float)(
+                silk_energy_FLP( LPC_res + lpc_order,                subfr_length - lpc_order ) +
+                silk_energy_FLP( LPC_res + lpc_order + subfr_length, subfr_length - lpc_order ) );
+            out->res_nrg_interp[k] = res_nrg_interp;
+            if (res_nrg_interp < res_nrg) {
+                res_nrg = res_nrg_interp;
+                out->interp_Q2 = k;
+            } else if (res_nrg_interp > res_nrg_2nd) {
+                break;
+            }
+            res_nrg_2nd = res_nrg_interp;
+        }
+    }
+
+    if (out->interp_Q2 == 4) {
+        silk_A2NLSF_FLP(NLSF_Q15, a, lpc_order);
+    }
+
+    out->res_nrg = res_nrg;
+    out->res_nrg_last = res_nrg_last;
+    silk_memcpy(out->nlsf_Q15, NLSF_Q15, sizeof(opus_int16) * lpc_order);
+}
+
 static float opus_silk_burg_modified(const float *x, float minInvGain, int subfr_len, int nb_subfr, int order, float *A) {
     return silk_burg_modified_FLP(A, x, minInvGain, subfr_len, nb_subfr, order, 0);
+}
+
+static void opus_silk_nlsf2a(const opus_int16 *nlsf, int order, opus_int16 *a_q12) {
+    silk_NLSF2A(a_q12, nlsf, order, 0);
+}
+
+static void opus_silk_lpc_analysis_filter(const float *x, const float *pred, int length, int order, float *out) {
+    silk_LPC_analysis_filter_FLP(out, pred, x, length, order);
 }
 
 static int opus_silk_resample_once(const float *in, int in_len, int fs_in, int fs_out, int for_enc, opus_int16 *out) {
@@ -119,6 +212,18 @@ type libopusPitchAnalysisResult struct {
 	Voiced       bool
 }
 
+type libopusLPCInterpResult struct {
+	NLSF     []int16
+	InterpQ2 int
+}
+
+type libopusLPCInterpDebugResult struct {
+	NLSF        []int16
+	InterpQ2    int
+	ResNrg      float32
+	ResNrgLast  float32
+	ResNrgInterp [4]float32
+}
 func libopusFindLTP(residual []float32, resStart int, pitchLags []int, subfrLen, nbSubfr int) ([]float32, []float32) {
 	if len(residual) == 0 || nbSubfr <= 0 {
 		return nil, nil
@@ -205,6 +310,85 @@ func libopusPitchAnalysis(frame []float32, fsKHz, nbSubfr, complexity int, searc
 	return res
 }
 
+func libopusFindLPCInterp(x []float32, nbSubfr, subfrLen, lpcOrder int, useInterp, firstFrame bool, prevNLSF []int16, minInvGain float32) libopusLPCInterpResult {
+	var out C.lpc_interp_result
+	if len(x) == 0 || nbSubfr <= 0 || lpcOrder <= 0 {
+		return libopusLPCInterpResult{}
+	}
+	prev := make([]C.opus_int16, lpcOrder)
+	for i := 0; i < lpcOrder && i < len(prevNLSF); i++ {
+		prev[i] = C.opus_int16(prevNLSF[i])
+	}
+	useInterpFlag := 0
+	if useInterp {
+		useInterpFlag = 1
+	}
+	firstFlag := 0
+	if firstFrame {
+		firstFlag = 1
+	}
+	C.opus_silk_find_lpc_interp(
+		(*C.float)(unsafe.Pointer(&x[0])),
+		C.int(nbSubfr),
+		C.int(subfrLen),
+		C.int(lpcOrder),
+		C.int(useInterpFlag),
+		C.int(firstFlag),
+		(*C.opus_int16)(unsafe.Pointer(&prev[0])),
+		C.float(minInvGain),
+		&out,
+	)
+	res := libopusLPCInterpResult{
+		NLSF:     make([]int16, lpcOrder),
+		InterpQ2: int(out.interp_Q2),
+	}
+	for i := 0; i < lpcOrder && i < len(res.NLSF); i++ {
+		res.NLSF[i] = int16(out.nlsf_Q15[i])
+	}
+	return res
+}
+
+func libopusFindLPCInterpDebug(x []float32, nbSubfr, subfrLen, lpcOrder int, useInterp, firstFrame bool, prevNLSF []int16, minInvGain float32) libopusLPCInterpDebugResult {
+	var out C.lpc_interp_debug_result
+	if len(x) == 0 || nbSubfr <= 0 || lpcOrder <= 0 {
+		return libopusLPCInterpDebugResult{}
+	}
+	prev := make([]C.opus_int16, lpcOrder)
+	for i := 0; i < lpcOrder && i < len(prevNLSF); i++ {
+		prev[i] = C.opus_int16(prevNLSF[i])
+	}
+	useInterpFlag := 0
+	if useInterp {
+		useInterpFlag = 1
+	}
+	firstFlag := 0
+	if firstFrame {
+		firstFlag = 1
+	}
+	C.opus_silk_find_lpc_interp_debug(
+		(*C.float)(unsafe.Pointer(&x[0])),
+		C.int(nbSubfr),
+		C.int(subfrLen),
+		C.int(lpcOrder),
+		C.int(useInterpFlag),
+		C.int(firstFlag),
+		(*C.opus_int16)(unsafe.Pointer(&prev[0])),
+		C.float(minInvGain),
+		&out,
+	)
+	res := libopusLPCInterpDebugResult{
+		NLSF:         make([]int16, lpcOrder),
+		InterpQ2:     int(out.interp_Q2),
+		ResNrg:       float32(out.res_nrg),
+		ResNrgLast:   float32(out.res_nrg_last),
+		ResNrgInterp: [4]float32{float32(out.res_nrg_interp[0]), float32(out.res_nrg_interp[1]), float32(out.res_nrg_interp[2]), float32(out.res_nrg_interp[3])},
+	}
+	for i := 0; i < lpcOrder && i < len(res.NLSF); i++ {
+		res.NLSF[i] = int16(out.nlsf_Q15[i])
+	}
+	return res
+}
+
 func libopusLTPAnalysisFilter(x []float32, b []float32, pitchLags []int, invGains []float32, subfrLen, nbSubfr, preLen int) []float32 {
 	if len(x) == 0 || nbSubfr <= 0 {
 		return nil
@@ -244,6 +428,38 @@ func libopusBurgModified(x []float32, minInvGain float32, subfrLen, nbSubfr, ord
 		(*C.float)(unsafe.Pointer(&A[0])),
 	)
 	return A, float32(res)
+}
+
+func libopusNLSF2A(nlsf []int16, order int) []int16 {
+	if len(nlsf) == 0 || order <= 0 {
+		return nil
+	}
+	out := make([]int16, order)
+	cNLSF := make([]C.opus_int16, order)
+	for i := 0; i < order && i < len(nlsf); i++ {
+		cNLSF[i] = C.opus_int16(nlsf[i])
+	}
+	C.opus_silk_nlsf2a(
+		(*C.opus_int16)(unsafe.Pointer(&cNLSF[0])),
+		C.int(order),
+		(*C.opus_int16)(unsafe.Pointer(&out[0])),
+	)
+	return out
+}
+
+func libopusLPCAnalysisFilter(x []float32, pred []float32, length, order int) []float32 {
+	if len(x) == 0 || len(pred) == 0 || length <= 0 || order <= 0 {
+		return nil
+	}
+	out := make([]float32, length)
+	C.opus_silk_lpc_analysis_filter(
+		(*C.float)(unsafe.Pointer(&x[0])),
+		(*C.float)(unsafe.Pointer(&pred[0])),
+		C.int(length),
+		C.int(order),
+		(*C.float)(unsafe.Pointer(&out[0])),
+	)
+	return out
 }
 
 func libopusResampleOnce(in []float32, fsIn, fsOut int, forEnc bool) ([]int16, error) {

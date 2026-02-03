@@ -95,22 +95,14 @@ func (e *Encoder) computePitchResidual(numSubframes int) ([]float64, []float32, 
 	for i := range input {
 		input[i] = 0
 	}
-	if len(e.inputBuffer) >= needed {
-		// Align pitch buffer to use LA_PITCH lookahead instead of LA_SHAPE.
-		// x_buf layout: [ltp_mem][la_shape][frame]. We want [ltp_mem][la_pitch][frame].
-		offset := laShape - laPitch
-		if offset < 0 {
-			offset = 0
-		}
-		if offset+needed > len(e.inputBuffer) {
-			if len(e.inputBuffer) > needed {
-				offset = len(e.inputBuffer) - needed
-			} else {
-				offset = 0
-			}
-		}
+	shapeNeeded := ltpMemSamples + laShape + frameSamples
+	if len(e.inputBuffer) >= shapeNeeded {
+		// Use the first buf_len samples (ltp_mem + frame + la_pitch) from x_buf.
+		// This matches libopus: x_buf includes la_shape, but pitch uses la_pitch
+		// by limiting the buffer length.
+		scale := float64(silkSampleScale)
 		for i := 0; i < needed; i++ {
-			input[i] = float64(e.inputBuffer[i+offset]) * silkSampleScale
+			input[i] = float64(e.inputBuffer[i]) * scale
 		}
 	} else {
 		pitchBuf := e.pitchAnalysisBuf

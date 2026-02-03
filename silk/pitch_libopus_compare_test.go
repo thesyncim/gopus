@@ -12,10 +12,10 @@ func TestPitchAnalysisMatchesLibopus(t *testing.T) {
 	fsKHz := 16
 	numSubfr := 4
 	frameLen := (peLTPMemLengthMS + numSubfr*peSubfrLengthMS) * fsKHz
-	laPitch := laPitchMs * fsKHz
-	needed := frameLen + laPitch
+	laShape := laShapeMs * fsKHz
+	bufLen := frameLen + laShape
 
-	signal := make([]float32, needed)
+	signal := make([]float32, bufLen)
 	for i := range signal {
 		tm := float64(i) / float64(fsKHz*1000)
 		signal[i] = float32(

@@ -32,6 +32,9 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 		e.controlSNR(e.targetRateBps, numSubframes)
 	}
 
+	// Quantize input to int16 precision to match libopus float API behavior.
+	pcm = e.quantizePCMToInt16(pcm)
+
 	// Check if we have a pre-set range encoder (hybrid mode)
 	// Note: rangeEncoder is set externally via SetRangeEncoder() for hybrid mode.
 	// In standalone mode, rangeEncoder should be nil at the start of each frame.
@@ -596,6 +599,9 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 		frameSamples = len(pcm)
 	}
 
+	// Quantize input to int16 precision to match libopus float API behavior.
+	pcm = e.quantizePCMToInt16(pcm)
+
 	// Step 1: Classify frame (VAD)
 	var signalType, quantOffset int
 	var speechActivityQ8 int
@@ -817,6 +823,21 @@ func (e *Encoder) encodeFrameType(vadFlag bool, signalType, quantOffset int) {
 		idx = 3
 	}
 	e.rangeEncoder.EncodeICDF16(idx, ICDFFrameTypeVADActive, 8)
+}
+
+// quantizePCMToInt16 rounds input samples to int16 precision and returns
+// the quantized float32 values (scaled back to [-1, 1]).
+func (e *Encoder) quantizePCMToInt16(pcm []float32) []float32 {
+	if len(pcm) == 0 {
+		return pcm
+	}
+	quantized := ensureFloat32Slice(&e.scratchPCMQuant, len(pcm))
+	scale := float32(silkSampleScale)
+	invScale := float32(1.0 / silkSampleScale)
+	for i, v := range pcm {
+		quantized[i] = float32(floatToInt16Round(v*scale)) * invScale
+	}
+	return quantized
 }
 
 // updateShapeBuffer updates the noise shaping lookahead buffer (x_buf) and

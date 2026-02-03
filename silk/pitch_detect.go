@@ -319,11 +319,13 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 	// Check if correlation is too low
 	Cmax := dSrchCorr[0]
 	if Cmax < 0.2 {
-		// Unvoiced - return minimum lags using scratch buffer
+		// Unvoiced - libopus returns zero lags in this case.
 		pitchLags := ensureIntSlice(&e.scratchPitchLags, numSubframes)
 		for i := range pitchLags {
-			pitchLags[i] = minLag
+			pitchLags[i] = 0
 		}
+		e.pitchState.ltpCorr = 0
+		e.pitchState.prevLag = 0
 		return pitchLags
 	}
 
@@ -518,7 +520,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 	if lag == -1 {
 		pitchLags := ensureIntSlice(&e.scratchPitchLags, numSubframes)
 		for i := range pitchLags {
-			pitchLags[i] = minLag
+			pitchLags[i] = 0
 		}
 		e.pitchState.ltpCorr = 0
 		e.pitchState.prevLag = 0

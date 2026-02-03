@@ -286,8 +286,27 @@ Always use this reference when implementing features or debugging discrepancies.
    - Pitch detection now runs on pitch residual
    - LTP quantization uses the same pitch residual as libopus
 3. ⚠️ **Trace status (SILK WB)** - `testvectors/libopus_trace_test.go`
-   - PER mismatches 33/50, LTP index mismatches 194/200, NLSF interp mismatches 46/50
-   - LTP scale mismatches 27/50, gain diff ~0.45
+   - Gain index avg abs diff: 5.06 (frames=50)
+   - LTP scale index mismatches: 9/50
+   - NLSF interp coef mismatches: 31/50
+   - PER index mismatches: 18/50
+   - LTP index mismatches: 90/200
+   - Signal type mismatches: 1/50
+4. ✅ **Unvoiced pitch lag parity** - `silk/pitch_detect.go`
+   - Unvoiced frames now return zero pitch lags and reset `ltpCorr`/`prevLag`
+   - Multi-frame cgo trace now shows 0 mismatches for pitch lags, lag index, contour, and ltpCorr
+5. ✅ **Voiced pitch trace parity test** - `silk/pitch_multiframe_libopus_compare_test.go`
+   - Added voiced multi-frame cgo parity test with warmup
+   - Confirms pitch lags/lag index/contour/ltpCorr match libopus on voiced frames
+6. ✅ **NLSF interpolation truncation parity** - `silk/lpc_analysis.go`, `silk/lsf_quantize.go`
+   - Interpolation now uses truncation (no rounding) to match `silk_interpolate`
+   - cgo NLSF interpolation traces show 0 mismatches on voiced and multi‑sine signals
+7. ✅ **LTP residual parity trace** - `silk/ltp_residual_libopus_compare_test.go`
+   - Compares `buildLTPResidual` vs libopus `silk_LTP_analysis_filter_FLP` on multi‑frame signals
+   - Zero mismatches with shared pitch/coefficients/gains; residual path is aligned
+8. ✅ **SILK input quantization at entry** - `silk/encode_frame.go`
+   - PCM rounded to int16 precision before analysis (libopus float API parity)
+   - Regression test `silk/encode_quantize_test.go`
 
 ### Session 18: LTP Codebooks + Hybrid VBR Budget (Complete)
 1. ✅ **LTP codebooks aligned with libopus** - `silk/codebook.go`

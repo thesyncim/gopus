@@ -514,7 +514,7 @@ func TestNLSFInterpolation(t *testing.T) {
 	interpolateNLSF(outNLSF, prevNLSF, curNLSF, 2, order)
 	for i := 0; i < order; i++ {
 		diff := int32(curNLSF[i]) - int32(prevNLSF[i])
-		expected := int32(prevNLSF[i]) + ((2*diff + 2) >> 2)
+		expected := int32(prevNLSF[i]) + ((2 * diff) >> 2)
 		if int32(outNLSF[i]) != expected {
 			t.Errorf("interpCoef=2: expected %d, got %d at index %d", expected, outNLSF[i], i)
 		}
