@@ -141,14 +141,16 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, frameSize int) ([]byte, error
 		if maxAllowed < 2 {
 			maxAllowed = 2
 		}
-		targetBytes = maxAllowed - 1
+		// Reserve one extra byte to account for range coder end bits.
+		targetBytes = maxAllowed - 2
 	case ModeVBR:
 		// Allow up to 2x target in VBR (matches libopus compute_vbr cap).
 		maxAllowed := int(float64(baseTargetBytes) * 2.0)
 		if maxAllowed < 2 {
 			maxAllowed = 2
 		}
-		targetBytes = maxAllowed - 1
+		// Reserve one extra byte to account for range coder end bits.
+		targetBytes = maxAllowed - 2
 	}
 	if targetBytes < 1 {
 		targetBytes = 1
