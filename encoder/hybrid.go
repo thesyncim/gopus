@@ -694,11 +694,13 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, silkSamples int) {
 		side = sideWithHistory
 	}
 
-	vadFlag := e.computeSilkVAD(mid, len(mid), 16)
+	vadMid := e.computeSilkVAD(mid, len(mid), 16)
+	vadSide := e.computeSilkVADSide(side, len(side), 16)
 	lbrrMid := false
 	lbrrSide := false
 	if e.fecEnabled {
 		lbrrMid = e.silkEncoder.HasLBRRData()
+		lbrrSide = e.silkSideEncoder.HasLBRRData()
 	}
 
 	// Get the shared range encoder
@@ -722,30 +724,33 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, silkSamples int) {
 	iCDF := [2]uint8{uint8(iCDFVal), 0}
 	re.EncodeICDF(0, iCDF[:], 8)
 
-	// Encode any LBRR data from previous packet (mid channel only for now)
+	// Encode any LBRR data from previous packet (mid + side)
 	if e.fecEnabled {
-		e.silkEncoder.EncodeLBRRData(re, 1, false)
+		e.silkEncoder.EncodeLBRRData(re, 2, false)
+		e.silkSideEncoder.EncodeLBRRData(re, 2, false)
 	}
 
 	// Step 2: Encode stereo prediction weights
 	e.silkEncoder.EncodeStereoWeightsToRange(weights)
 
 	// Step 3: Encode mid channel (skip VAD/LBRR since we handle them above)
-	_ = e.silkEncoder.EncodeFrame(mid, vadFlag)
+	_ = e.silkEncoder.EncodeFrame(mid, vadMid)
 
 	// Step 4: Encode side channel
 	e.silkSideEncoder.SetRangeEncoder(re)
-	_ = e.silkSideEncoder.EncodeFrame(side, vadFlag)
+	_ = e.silkSideEncoder.EncodeFrame(side, vadSide)
 
 	// Step 5: Patch initial bits with actual VAD+LBRR flags
 	// Format: [VAD_mid][LBRR_mid][VAD_side][LBRR_side]
 	flags := uint32(0)
-	if vadFlag {
+	if vadMid {
 		flags |= 1 << 3
-		flags |= 1 << 1
 	}
 	if lbrrMid {
 		flags |= 1 << 2
+	}
+	if vadSide {
+		flags |= 1 << 1
 	}
 	if lbrrSide {
 		flags |= 1 << 0

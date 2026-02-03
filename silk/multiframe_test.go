@@ -24,7 +24,8 @@ func TestMultiFrameConvergence(t *testing.T) {
 	for f := 0; f < numFrames; f++ {
 		start := f * frameSamples
 		end := start + frameSamples
-		encodedFrames[f] = enc.EncodeFrame(pcmFloat[start:end], true)
+		encoded := enc.EncodeFrame(pcmFloat[start:end], true)
+		encodedFrames[f] = append([]byte(nil), encoded...)
 		t.Logf("Frame %d: encoded %d bytes", f, len(encodedFrames[f]))
 	}
 

@@ -209,7 +209,7 @@ func quantizeLTPCoeffsInto(coeffs []float64, periodicity int, result *[5]int8) {
 	}
 }
 
-// encodeLTPCoeffs encodes LTP coefficients to the bitstream.
+// encodeLTPCoeffs encodes LTP indices to the bitstream.
 // Per RFC 6716 Section 4.2.7.6.3 and libopus silk/encode_indices.c.
 //
 // Libopus encoding scheme:
@@ -217,12 +217,10 @@ func quantizeLTPCoeffsInto(coeffs []float64, periodicity int, result *[5]int8) {
 // 2. For each subframe, encode LTP codebook index using silk_LTP_gain_iCDF_ptrs[PERIndex]
 //
 // PER index determines the codebook:
-//   - 0: silk_LTP_gain_iCDF_0 (8 entries) -> LTPFilterLow
-//   - 1: silk_LTP_gain_iCDF_1 (16 entries) -> LTPFilterMid
-//   - 2: silk_LTP_gain_iCDF_2 (32 entries) -> LTPFilterHigh
-func (e *Encoder) encodeLTPCoeffs(ltpCoeffs LTPCoeffsArray, periodicity int, numSubframes int) {
-	// Map periodicity to PER index (0-2)
-	perIndex := periodicity
+//   - 0: silk_LTP_gain_iCDF_0 (8 entries)
+//   - 1: silk_LTP_gain_iCDF_1 (16 entries)
+//   - 2: silk_LTP_gain_iCDF_2 (32 entries)
+func (e *Encoder) encodeLTPCoeffs(perIndex int, ltpIndices []int8, numSubframes int) {
 	if perIndex < 0 {
 		perIndex = 0
 	}
@@ -234,22 +232,17 @@ func (e *Encoder) encodeLTPCoeffs(ltpCoeffs LTPCoeffsArray, periodicity int, num
 	e.rangeEncoder.EncodeICDF(perIndex, silk_LTP_per_index_iCDF, 8)
 
 	// Step 2: Encode LTP codebook index for each subframe
-	// Use the ICDF table corresponding to the PER index
 	gainICDF := silk_LTP_gain_iCDF_ptrs[perIndex]
 
-	for sf := 0; sf < numSubframes; sf++ {
-		// Find best matching codebook index for this subframe's coefficients
-		cbIdx := findLTPCodebookIndex(ltpCoeffs[sf], perIndex)
-
-		// Clamp to valid range for the selected ICDF table
+	for sf := 0; sf < numSubframes && sf < len(ltpIndices); sf++ {
+		cbIdx := int(ltpIndices[sf])
+		if cbIdx < 0 {
+			cbIdx = 0
+		}
 		maxIdx := len(gainICDF) - 1
 		if cbIdx > maxIdx {
 			cbIdx = maxIdx
 		}
-		if cbIdx < 0 {
-			cbIdx = 0
-		}
-
 		e.rangeEncoder.EncodeICDF(cbIdx, gainICDF, 8)
 	}
 }

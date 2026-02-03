@@ -20,6 +20,7 @@ type Encoder struct {
 	previousLogGain       int32 // Last subframe gain (for delta coding) - legacy
 	previousGainIndex     int32 // Previous gain quantization index [0, 63] (libopus matching)
 	isPreviousFrameVoiced bool  // Was previous frame voiced
+	ecPrevLagIndex        int   // Previous lag index for conditional pitch coding
 	frameCounter          int   // Frame counter for seed generation (seed = frameCounter & 3)
 
 	// LPC state
@@ -39,14 +40,21 @@ type Encoder struct {
 	noiseShapeState *NoiseShapeState // Noise shaping analysis state for adaptive parameters
 
 	// Encoder control parameters (persists across frames)
-	snrDBQ7        int     // Target SNR in dB (Q7 format, e.g., 25 dB = 25 * 128)
-	targetRateBps  int     // Target bitrate (per channel) for SNR control
-	ltpCorr        float32 // LTP correlation from pitch analysis [0, 1]
+	snrDBQ7       int     // Target SNR in dB (Q7 format, e.g., 25 dB = 25 * 128)
+	targetRateBps int     // Target bitrate (per channel) for SNR control
+	ltpCorr       float32 // LTP correlation from pitch analysis [0, 1]
+	sumLogGainQ7  int32   // Sum log gain for LTP quantization
+	complexity    int     // Encoder complexity (0-10)
+
+	// Pitch estimation tuning (mirrors libopus control_codec.c)
+	pitchEstimationComplexity   int
+	pitchEstimationThresholdQ16 int32
+	pitchEstimationLPCOrder     int
 
 	// LPC analysis results (for gain computation from prediction residual)
-	lastTotalEnergy    float64 // C0 from Burg analysis
-	lastInvGain        float64 // Inverse prediction gain from Burg analysis
-	lastNumSamples     int     // Number of samples analyzed
+	lastTotalEnergy float64 // C0 from Burg analysis
+	lastInvGain     float64 // Inverse prediction gain from Burg analysis
+	lastNumSamples  int     // Number of samples analyzed
 
 	// Analysis buffers (encoder-specific)
 	inputBuffer []float32 // Buffered input samples
@@ -60,22 +68,22 @@ type Encoder struct {
 	// LBRR provides forward error correction by encoding redundant data
 	// for the previous frame at a lower quality in the current packet.
 	// Reference: libopus silk/structs.h silk_encoder_state
-	useFEC             bool                                // Enable in-band FEC (LBRR)
-	lbrrEnabled        bool                                // LBRR currently active (depends on bitrate/loss)
-	lbrrGainIncreases  int                                 // Gain increase for LBRR encoding
-	lbrrPrevLastGainIdx int8                               // Previous frame's last gain index for LBRR
-	lbrrFlags          [maxFramesPerPacket]int             // LBRR flags per frame in packet
-	lbrrIndices        [maxFramesPerPacket]sideInfoIndices // LBRR indices per frame
-	lbrrPulses         [maxFramesPerPacket][]int8          // LBRR pulses per frame
-	packetLossPercent  int                                 // Expected packet loss (0-100)
-	nFramesEncoded     int                                 // Number of frames encoded in current packet
-	nFramesPerPacket   int                                 // Number of frames per packet
+	useFEC              bool                                // Enable in-band FEC (LBRR)
+	lbrrEnabled         bool                                // LBRR currently active (depends on bitrate/loss)
+	lbrrGainIncreases   int                                 // Gain increase for LBRR encoding
+	lbrrPrevLastGainIdx int8                                // Previous frame's last gain index for LBRR
+	lbrrFlags           [maxFramesPerPacket]int             // LBRR flags per frame in packet
+	lbrrIndices         [maxFramesPerPacket]sideInfoIndices // LBRR indices per frame
+	lbrrPulses          [maxFramesPerPacket][]int8          // LBRR pulses per frame
+	packetLossPercent   int                                 // Expected packet loss (0-100)
+	nFramesEncoded      int                                 // Number of frames encoded in current packet
+	nFramesPerPacket    int                                 // Number of frames per packet
 
 	// Scratch buffers for zero-allocation encoding
-	scratchPaddedPulses []int8   // encodePulses: padded pulses
-	scratchAbsPulses    []int    // encodePulses: absolute value pulses
-	scratchSumPulses    []int    // encodePulses: sum per shell block
-	scratchNRshifts     []int    // encodePulses: right shifts per shell block
+	scratchPaddedPulses []int8    // encodePulses: padded pulses
+	scratchAbsPulses    []int     // encodePulses: absolute value pulses
+	scratchSumPulses    []int     // encodePulses: sum per shell block
+	scratchNRshifts     []int     // encodePulses: right shifts per shell block
 	scratchLPC          []float64 // lpcToLSF: LPC coefficients as float64
 	scratchP            []float64 // lpcToLSF: P polynomial
 	scratchQ            []float64 // lpcToLSF: Q polynomial
@@ -84,14 +92,14 @@ type Encoder struct {
 	scratchLPCQ16       []int32   // silkA2NLSF: LPC coefficients in Q16
 
 	// Pitch detection scratch buffers
-	scratchFrame8kHz  []float32  // detectPitch: downsampled to 8kHz
-	scratchFrame4kHz  []float32  // detectPitch: downsampled to 4kHz
-	scratchPitchC     []float64  // detectPitch: autocorrelation
-	scratchDSrch      []int      // detectPitch: candidate lags
-	scratchDSrchCorr  []float64  // detectPitch: candidate correlations
-	scratchDComp      []int16    // detectPitch: expanded search
-	scratchC8kHz      []float64  // detectPitch: 8kHz correlations (flat array for 4 subframes)
-	scratchPitchLags  []int      // detectPitch: output pitch lags
+	scratchFrame8kHz []float32 // detectPitch: downsampled to 8kHz
+	scratchFrame4kHz []float32 // detectPitch: downsampled to 4kHz
+	scratchPitchC    []float64 // detectPitch: autocorrelation
+	scratchDSrch     []int     // detectPitch: candidate lags
+	scratchDSrchCorr []float64 // detectPitch: candidate correlations
+	scratchDComp     []int16   // detectPitch: expanded search
+	scratchC8kHz     []float64 // detectPitch: 8kHz correlations (flat array for 4 subframes)
+	scratchPitchLags []int     // detectPitch: output pitch lags
 
 	// Shell encoder scratch buffers (fixed sizes)
 	scratchShellPulses1 [8]int // shellEncoder: level 1
@@ -99,21 +107,18 @@ type Encoder struct {
 	scratchShellPulses3 [2]int // shellEncoder: level 3
 	scratchShellPulses4 [1]int // shellEncoder: level 4
 
-	// Pitch contour scratch buffer
-	scratchPitchContour [][4]int8 // encodePitchLags: contour table
-
 	// NSQ (computeNSQExcitation) scratch buffers
-	scratchInputQ0         []int16 // PCM converted to int16
-	scratchGainsQ16        []int32 // gains in Q16 format
-	scratchPitchL          []int   // pitch lags for NSQ
-	scratchArShpQ13        []int16 // AR shaping coefficients
-	scratchLtpCoefQ14      []int16 // LTP coefficients
-	scratchPredCoefQ12     []int16 // prediction coefficients
-	scratchHarmShapeGainQ14 []int  // harmonic shaping gain
-	scratchTiltQ14         []int   // tilt values
-	scratchLfShpQ14        []int32 // low-frequency shaping
-	scratchExcitation      []int32 // excitation output
-	scratchPulses32        []int32 // LBRR pulse conversion
+	scratchInputQ0          []int16 // PCM converted to int16
+	scratchGainsQ16         []int32 // gains in Q16 format
+	scratchPitchL           []int   // pitch lags for NSQ
+	scratchArShpQ13         []int16 // AR shaping coefficients
+	scratchLtpCoefQ14       []int16 // LTP coefficients
+	scratchPredCoefQ12      []int16 // prediction coefficients
+	scratchHarmShapeGainQ14 []int   // harmonic shaping gain
+	scratchTiltQ14          []int   // tilt values
+	scratchLfShpQ14         []int32 // low-frequency shaping
+	scratchExcitation       []int32 // excitation output
+	scratchPulses32         []int32 // LBRR pulse conversion
 
 	// LPC/Burg scratch buffers
 	scratchLpcBurg       []float64 // LPC coefficients from Burg
@@ -130,22 +135,29 @@ type Encoder struct {
 	scratchBurgResult    []float64 // burgModifiedFLPZeroAlloc: result
 
 	// LTP analysis scratch buffers
-	scratchLtpCoeffs [4][]float64 // per-subframe LTP coefficients (4 subframes max)
+	scratchLtpCoeffs  [4][]float64 // per-subframe LTP coefficients (4 subframes max)
+	scratchLtpInput   []float64    // LTP analysis: pitch analysis buffer as float64
+	scratchLtpRes     []float64    // LTP analysis: LPC residual
+	scratchPitchWsig  []float64    // Pitch analysis: windowed signal
+	scratchPitchAuto  []float64    // Pitch analysis: autocorrelation
+	scratchPitchRefl  []float64    // Pitch analysis: reflection coefficients
+	scratchPitchA     []float64    // Pitch analysis: LPC coefficients
+	scratchPitchRes32 []float32    // Pitch analysis: residual as float32
 
 	// LSF quantization scratch buffers
-	scratchLsfResiduals []int   // computeStage2ResidualsLibopus: residuals
-	scratchEcIx         []int16 // computeStage2ResidualsLibopus / NLSF decode: ecIx
-	scratchPredQ8       []uint8 // computeStage2ResidualsLibopus / NLSF decode: predQ8
-	scratchResQ10       []int16 // computeStage2ResidualsLibopus / NLSF decode: resQ10
-	scratchNLSFIndices  []int8  // NLSF decode indices (stage1 + residuals)
-	scratchNLSFWeights  []int16 // NLSF VQ weights (Laroia)
+	scratchLsfResiduals   []int   // computeStage2ResidualsLibopus: residuals
+	scratchEcIx           []int16 // computeStage2ResidualsLibopus / NLSF decode: ecIx
+	scratchPredQ8         []uint8 // computeStage2ResidualsLibopus / NLSF decode: predQ8
+	scratchResQ10         []int16 // computeStage2ResidualsLibopus / NLSF decode: resQ10
+	scratchNLSFIndices    []int8  // NLSF decode indices (stage1 + residuals)
+	scratchNLSFWeights    []int16 // NLSF VQ weights (Laroia)
 	scratchNLSFWeightsTmp []int16 // NLSF weights for interpolated vector
-	scratchNLSFTempQ15  []int16 // Interpolated NLSF scratch
+	scratchNLSFTempQ15    []int16 // Interpolated NLSF scratch
 
 	// Gain encoding scratch buffers
-	scratchGains        []float32 // computeSubframeGains: output gains
-	scratchGainsQ16Enc  []int32   // encodeSubframeGains: gains in Q16
-	scratchGainInd      []int8    // silkGainsQuant: gain indices
+	scratchGains       []float32 // computeSubframeGains: output gains
+	scratchGainsQ16Enc []int32   // encodeSubframeGains: gains in Q16
+	scratchGainInd     []int8    // silkGainsQuant: gain indices
 
 	// Output buffer scratch (standalone SILK mode)
 	scratchOutput       []byte              // EncodeFrame: range encoder output
@@ -202,15 +214,6 @@ func ensureFloat32Slice(buf *[]float32, n int) []float32 {
 	return *buf
 }
 
-// ensure2DInt8Slice ensures the slice has at least n elements, each with 4 elements.
-func ensure2DInt8Slice(buf *[][4]int8, n int) [][4]int8 {
-	if cap(*buf) < n {
-		*buf = make([][4]int8, n)
-	} else {
-		*buf = (*buf)[:n]
-	}
-	return *buf
-}
 
 // ensureInt32Slice ensures the slice has at least n elements.
 func ensureInt32Slice(buf *[]int32, n int) []int32 {
@@ -254,34 +257,53 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 		lbrrPulses[i] = make([]int8, maxFrameLength)
 	}
 
-	// Pitch analysis buffer: LTP memory (20ms) + frame (20ms) = 40ms
-	// peLTPMemLengthMS = 20, so total = (20 + 20) * fsKHz = 40 * sampleRate/1000
-	pitchBufSamples := 40 * config.SampleRate / 1000
+	// Pitch analysis buffer: LTP memory + max frame (20ms).
+	// Lookahead is zero-padded during residual computation.
+	frameMs := 20
+	fsKHz := config.SampleRate / 1000
+	pitchBufSamples := (ltpMemLengthMs + frameMs) * fsKHz
+	pitchResSamples := pitchBufSamples + laPitchMs*fsKHz
+	maxPitchWinSamples := findPitchLpcWinMs * fsKHz
+	if maxPitchWinSamples < 1 {
+		maxPitchWinSamples = 1
+	}
 
-	return &Encoder{
+	enc := &Encoder{
 		prevLSFQ15:        make([]int16, config.LPCOrder),
 		inputBuffer:       make([]float32, frameSamples*2), // Look-ahead buffer
 		lpcState:          make([]float32, config.LPCOrder),
-		nsqState:          NewNSQState(),        // Initialize NSQ state
-		noiseShapeState:   NewNoiseShapeState(), // Initialize noise shaping state
+		nsqState:          NewNSQState(),                    // Initialize NSQ state
+		noiseShapeState:   NewNoiseShapeState(),             // Initialize noise shaping state
 		pitchAnalysisBuf:  make([]float32, pitchBufSamples), // Pitch analysis buffer
+		scratchLtpInput:   make([]float64, pitchResSamples),
+		scratchLtpRes:     make([]float64, pitchResSamples),
+		scratchPitchRes32: make([]float32, pitchResSamples),
+		scratchPitchWsig:  make([]float64, maxPitchWinSamples),
+		scratchPitchAuto:  make([]float64, maxFindPitchLpcOrder+1),
+		scratchPitchRefl:  make([]float64, maxFindPitchLpcOrder),
+		scratchPitchA:     make([]float64, maxFindPitchLpcOrder),
 		bandwidth:         bandwidth,
 		sampleRate:        config.SampleRate,
 		lpcOrder:          config.LPCOrder,
-		snrDBQ7:           25 * 128,             // Default: 25 dB SNR target
-		nFramesPerPacket:  1,                    // Default: 1 frame per packet (20ms)
+		snrDBQ7:           25 * 128, // Default: 25 dB SNR target
+		nFramesPerPacket:  1,        // Default: 1 frame per packet (20ms)
 		lbrrPulses:        lbrrPulses,
-		lbrrGainIncreases: 7,                    // Default gain increase for LBRR
+		lbrrGainIncreases: 7, // Default gain increase for LBRR
+		previousGainIndex: 10,
 	}
+	enc.SetComplexity(10)
+	return enc
 }
 
 // Reset clears encoder state for a new stream.
 func (e *Encoder) Reset() {
 	e.haveEncoded = false
 	e.previousLogGain = 0
-	e.previousGainIndex = 0
+	e.previousGainIndex = 10
 	e.isPreviousFrameVoiced = false
+	e.ecPrevLagIndex = 0
 	e.targetRateBps = 0
+	e.sumLogGainQ7 = 0
 
 	for i := range e.prevLSFQ15 {
 		e.prevLSFQ15[i] = 0
@@ -323,6 +345,57 @@ func (e *Encoder) Reset() {
 	}
 }
 
+// SetComplexity sets the SILK encoder complexity (0-10) and related pitch parameters.
+func (e *Encoder) SetComplexity(complexity int) {
+	if complexity < 0 {
+		complexity = 0
+	}
+	if complexity > 10 {
+		complexity = 10
+	}
+	e.complexity = complexity
+
+	switch {
+	case complexity < 1:
+		e.pitchEstimationComplexity = 0
+		e.pitchEstimationThresholdQ16 = 52429
+		e.pitchEstimationLPCOrder = 6
+	case complexity < 2:
+		e.pitchEstimationComplexity = 1
+		e.pitchEstimationThresholdQ16 = 49807
+		e.pitchEstimationLPCOrder = 8
+	case complexity < 3:
+		e.pitchEstimationComplexity = 0
+		e.pitchEstimationThresholdQ16 = 52429
+		e.pitchEstimationLPCOrder = 6
+	case complexity < 4:
+		e.pitchEstimationComplexity = 1
+		e.pitchEstimationThresholdQ16 = 49807
+		e.pitchEstimationLPCOrder = 8
+	case complexity < 6:
+		e.pitchEstimationComplexity = 1
+		e.pitchEstimationThresholdQ16 = 48497
+		e.pitchEstimationLPCOrder = 10
+	case complexity < 8:
+		e.pitchEstimationComplexity = 1
+		e.pitchEstimationThresholdQ16 = 47186
+		e.pitchEstimationLPCOrder = 12
+	default:
+		e.pitchEstimationComplexity = 2
+		e.pitchEstimationThresholdQ16 = 45875
+		e.pitchEstimationLPCOrder = 16
+	}
+
+	if e.pitchEstimationLPCOrder > e.lpcOrder {
+		e.pitchEstimationLPCOrder = e.lpcOrder
+	}
+}
+
+// Complexity returns the current SILK complexity setting.
+func (e *Encoder) Complexity() int {
+	return e.complexity
+}
+
 // SetRangeEncoder sets the range encoder for the current frame.
 func (e *Encoder) SetRangeEncoder(re *rangecoding.Encoder) {
 	e.rangeEncoder = re
@@ -342,8 +415,6 @@ func (e *Encoder) MarkEncoded() {
 // This mirrors the standalone EncodeFrame() packet initialization.
 func (e *Encoder) ResetPacketState() {
 	e.nFramesEncoded = 0
-	e.haveEncoded = false
-	e.previousGainIndex = 10 // Default gain index (matches decoder reset)
 }
 
 // Bandwidth returns the current bandwidth setting.

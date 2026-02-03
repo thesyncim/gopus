@@ -4,18 +4,18 @@ import "math"
 
 // Pitch estimation constants from libopus pitch_est_defines.h
 const (
-	peMaxNbSubfr      = 4
-	peSubfrLengthMS   = 5
-	peLTPMemLengthMS  = 20 // 4 * PE_SUBFR_LENGTH_MS
-	peMaxLagMS        = 18 // 18 ms -> 56 Hz
-	peMinLagMS        = 2  // 2 ms -> 500 Hz
-	peDSrchLength     = 24
-	peNbStage3Lags    = 5
-	peNbCbksStage2    = 3
-	peNbCbksStage2Ext = 11
-	peNbCbksStage3Max = 34
-	peNbCbksStage3Mid = 24
-	peNbCbksStage3Min = 16
+	peMaxNbSubfr       = 4
+	peSubfrLengthMS    = 5
+	peLTPMemLengthMS   = 20 // 4 * PE_SUBFR_LENGTH_MS
+	peMaxLagMS         = 18 // 18 ms -> 56 Hz
+	peMinLagMS         = 2  // 2 ms -> 500 Hz
+	peDSrchLength      = 24
+	peNbStage3Lags     = 5
+	peNbCbksStage2     = 3
+	peNbCbksStage2Ext  = 11
+	peNbCbksStage3Max  = 34
+	peNbCbksStage3Mid  = 24
+	peNbCbksStage3Min  = 16
 	peNbCbksStage310ms = 12
 	peNbCbksStage210ms = 3
 
@@ -26,8 +26,8 @@ const (
 	peNbCbksStage3_10ms = peNbCbksStage310ms
 
 	// Bias constants from libopus
-	peShortlagBias    = 0.2  // for logarithmic weighting
-	pePrevlagBias     = 0.2  // for logarithmic weighting
+	peShortlagBias    = 0.2 // for logarithmic weighting
+	pePrevlagBias     = 0.2 // for logarithmic weighting
 	peFlatcontourBias = 0.05
 )
 
@@ -78,11 +78,35 @@ var pitchLagRangeStage310ms = [2][2]int8{
 	{-2, 7},
 }
 
+var pitchCBLagsStage2Slice = [][]int8{
+	pitchCBLagsStage2[0][:],
+	pitchCBLagsStage2[1][:],
+	pitchCBLagsStage2[2][:],
+	pitchCBLagsStage2[3][:],
+}
+
+var pitchCBLagsStage210msSlice = [][]int8{
+	pitchCBLagsStage210ms[0][:],
+	pitchCBLagsStage210ms[1][:],
+}
+
+var pitchCBLagsStage3Slice = [][]int8{
+	pitchCBLagsStage3[0][:],
+	pitchCBLagsStage3[1][:],
+	pitchCBLagsStage3[2][:],
+	pitchCBLagsStage3[3][:],
+}
+
+var pitchCBLagsStage310msSlice = [][]int8{
+	pitchCBLagsStage310ms[0][:],
+	pitchCBLagsStage310ms[1][:],
+}
+
 // PitchAnalysisState holds state for pitch analysis across frames
 type PitchAnalysisState struct {
-	prevLag     int     // Previous frame's pitch lag
-	ltpCorr     float64 // LTP correlation from previous frame
-	complexity  int     // Complexity setting (0-2)
+	prevLag    int     // Previous frame's pitch lag
+	ltpCorr    float64 // LTP correlation from previous frame
+	complexity int     // Complexity setting (0-2)
 }
 
 // detectPitch performs three-stage coarse-to-fine pitch detection matching libopus.
@@ -92,7 +116,7 @@ type PitchAnalysisState struct {
 // Stage 1: Coarse search at 4kHz with normalized autocorrelation
 // Stage 2: Refined search at 8kHz with contour codebook
 // Stage 3: Fine search at full rate with interpolation
-func (e *Encoder) detectPitch(pcm []float32, numSubframes int) []int {
+func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, searchThres2 float64) []int {
 	config := GetBandwidthConfig(e.bandwidth)
 	fsKHz := config.SampleRate / 1000
 
@@ -109,6 +133,9 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int) []int {
 	maxLag := peMaxLagMS*fsKHz - 1
 	maxLag4kHz := peMaxLagMS * 4
 	maxLag8kHz := peMaxLagMS*8 - 1
+
+	// Bias terms scaled to normalized float input (libopus uses int16 scale).
+	energyBias := 1.0 / (32768.0 * 32768.0)
 
 	// Ensure we have enough samples
 	if len(pcm) < frameLength {
@@ -176,11 +203,9 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int) []int {
 			basisEnergy += float64(frame4kHz[basisIdx+i]) * float64(frame4kHz[basisIdx+i])
 		}
 
-		// Compute normalizer
-		// The bias term 4000.0 is for int16 signals (range ±32768).
-		// For float32 signals (range ±1.0), scale by 1/(32768^2) ≈ 9.3e-10.
-		// Use a small constant to prevent division by zero.
-		normalizer := targetEnergy + basisEnergy + 0.001
+		// Compute normalizer with bias scaled to float input.
+		normBias := float64(sfLength8kHz) * 4000.0 * energyBias
+		normalizer := targetEnergy + basisEnergy + normBias
 
 		// Compute initial cross-correlation
 		var xcorr float64
@@ -209,7 +234,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int) []int {
 				basisEnergy += float64(frame4kHz[basisIdx])*float64(frame4kHz[basisIdx]) -
 					float64(frame4kHz[basisIdx+sfLength8kHz])*float64(frame4kHz[basisIdx+sfLength8kHz])
 			}
-			normalizer = targetEnergy + basisEnergy + 0.001
+			normalizer = targetEnergy + basisEnergy + normBias
 
 			if d < len(C) {
 				C[d] += 2 * xcorr / normalizer
@@ -225,7 +250,12 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int) []int {
 	}
 
 	// Find top candidates using insertion sort
-	complexity := 2 // Use maximum complexity
+	complexity := e.pitchEstimationComplexity
+	if complexity < 0 {
+		complexity = 0
+	} else if complexity > 2 {
+		complexity = 2
+	}
 	lengthDSrch := 4 + 2*complexity
 	if lengthDSrch > peDSrchLength {
 		lengthDSrch = peDSrchLength
@@ -269,7 +299,9 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int) []int {
 	}
 
 	// Threshold for candidate selection
-	searchThres1 := 0.8 - 0.5*float64(complexity)/2.0
+	if searchThres1 <= 0 {
+		searchThres1 = 0.8 - 0.5*float64(complexity)/2.0
+	}
 	threshold := searchThres1 * Cmax
 
 	// Convert to 8kHz indices and expand search range
@@ -280,7 +312,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int) []int {
 	validDSrch := 0
 	for i := 0; i < lengthDSrch; i++ {
 		if dSrchCorr[i] > threshold {
-			idx := dSrch[i]*2 // Convert to 8kHz
+			idx := dSrch[i] * 2 // Convert to 8kHz
 			if idx >= minLag8kHz && idx <= maxLag8kHz {
 				dComp[idx] = 1
 			}
@@ -288,20 +320,37 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int) []int {
 		}
 	}
 
-	// Convolution to expand search range
+	// Convolution to expand search range (stage 2 d_srch list)
 	for i := maxLag8kHz + 3; i >= minLag8kHz; i-- {
 		if i < len(dComp) && i-1 >= 0 && i-2 >= 0 {
 			dComp[i] += dComp[i-1] + dComp[i-2]
 		}
 	}
 
-	// Collect expanded search lags
+	// Collect expanded search lags for codebook search
 	lengthDSrch = 0
 	for i := minLag8kHz; i <= maxLag8kHz; i++ {
 		if i+1 < len(dComp) && dComp[i+1] > 0 {
 			if lengthDSrch < len(dSrch) {
 				dSrch[lengthDSrch] = i
 				lengthDSrch++
+			}
+		}
+	}
+
+	// Further expand d_comp list used for 8kHz correlation computation
+	for i := maxLag8kHz + 3; i >= minLag8kHz; i-- {
+		if i < len(dComp) && i-1 >= 0 && i-2 >= 0 && i-3 >= 0 {
+			dComp[i] += dComp[i-1] + dComp[i-2] + dComp[i-3]
+		}
+	}
+
+	lengthDComp := 0
+	for i := minLag8kHz; i < maxLag8kHz+4; i++ {
+		if i < len(dComp) && dComp[i] > 0 {
+			if lengthDComp < len(dComp) {
+				dComp[lengthDComp] = int16(i - 2)
+				lengthDComp++
 			}
 		}
 	}
@@ -330,10 +379,10 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int) []int {
 		for _, s := range target {
 			targetEnergy += float64(s) * float64(s)
 		}
-		targetEnergy += 1.0 // Avoid division by zero
+		targetEnergy += energyBias // Avoid division by zero
 
-		for j := 0; j < lengthDSrch; j++ {
-			d := dSrch[j]
+		for j := 0; j < lengthDComp; j++ {
+			d := int(dComp[j])
 			basisIdx := targetIdx - d
 			if basisIdx < 0 || basisIdx+sfLength8kHz > len(frame8kHz) {
 				continue
@@ -346,7 +395,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int) []int {
 				basisEnergy += float64(basis[i]) * float64(basis[i])
 			}
 
-			if xcorr > 0 && d < c8kHzStride {
+			if xcorr > 0 && d >= 0 && d < c8kHzStride {
 				C8kHz[k*c8kHzStride+d] = 2 * xcorr / (targetEnergy + basisEnergy)
 			}
 		}
@@ -387,7 +436,9 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int) []int {
 		nbCbkSearch = peNbCbksStage210ms
 	}
 
-	searchThres2 := 0.4 - 0.25*float64(complexity)/2.0
+	if searchThres2 <= 0 {
+		searchThres2 = 0.4 - 0.25*float64(complexity)/2.0
+	}
 
 	for k := 0; k < lengthDSrch; k++ {
 		d := dSrch[k]
@@ -832,153 +883,136 @@ func innerProductFLP(a, b []float32, length int) float64 {
 // First subframe is absolute, subsequent are delta-coded via contour.
 // Per RFC 6716 Section 4.2.7.6.
 // Uses libopus tables: silk_pitch_lag_iCDF, silk_uniform4/6/8_iCDF, silk_pitch_contour*_iCDF
-func (e *Encoder) encodePitchLags(pitchLags []int, numSubframes int) {
+func (e *Encoder) encodePitchLags(pitchLags []int, numSubframes int, condCoding int) {
 	config := GetBandwidthConfig(e.bandwidth)
 	fsKHz := config.SampleRate / 1000
 
-	// Select pitch contour table based on bandwidth and frame size
-	// Use scratch buffer for pitchContour
-	// Per libopus control_codec.c:
-	//   NB (8kHz): silk_pitch_contour_NB_iCDF (20ms) or silk_pitch_contour_10_ms_NB_iCDF (10ms)
-	//   MB/WB:     silk_pitch_contour_iCDF (20ms) or silk_pitch_contour_10_ms_iCDF (10ms)
-	var pitchContour [][4]int8
+	var contourTable [][]int8
 	var contourICDF []uint8
 
-	switch e.bandwidth {
-	case BandwidthNarrowband:
+	if fsKHz == 8 {
 		if numSubframes == 4 {
-			pitchContour = ensure2DInt8Slice(&e.scratchPitchContour, len(PitchContourNB20ms))
-			for i := range PitchContourNB20ms {
-				pitchContour[i] = PitchContourNB20ms[i]
-			}
+			contourTable = pitchCBLagsStage2Slice
 			contourICDF = silk_pitch_contour_NB_iCDF
 		} else {
-			// Convert [16][2]int8 to [][4]int8 for 10ms frames
-			pitchContour = ensure2DInt8Slice(&e.scratchPitchContour, len(PitchContourNB10ms))
-			for i := range PitchContourNB10ms {
-				pitchContour[i] = [4]int8{PitchContourNB10ms[i][0], PitchContourNB10ms[i][1], 0, 0}
-			}
+			contourTable = pitchCBLagsStage210msSlice
 			contourICDF = silk_pitch_contour_10_ms_NB_iCDF
 		}
-	default: // Mediumband or Wideband
+	} else {
 		if numSubframes == 4 {
-			if fsKHz == 12 {
-				pitchContour = ensure2DInt8Slice(&e.scratchPitchContour, len(PitchContourMB20ms))
-				for i := range PitchContourMB20ms {
-					pitchContour[i] = PitchContourMB20ms[i]
-				}
-			} else {
-				pitchContour = ensure2DInt8Slice(&e.scratchPitchContour, len(PitchContourWB20ms))
-				for i := range PitchContourWB20ms {
-					pitchContour[i] = PitchContourWB20ms[i]
-				}
-			}
+			contourTable = pitchCBLagsStage3Slice
 			contourICDF = silk_pitch_contour_iCDF
 		} else {
-			if fsKHz == 12 {
-				pitchContour = ensure2DInt8Slice(&e.scratchPitchContour, len(PitchContourMB10ms))
-				for i := range PitchContourMB10ms {
-					pitchContour[i] = [4]int8{PitchContourMB10ms[i][0], PitchContourMB10ms[i][1], 0, 0}
-				}
-			} else {
-				pitchContour = ensure2DInt8Slice(&e.scratchPitchContour, len(PitchContourWB10ms))
-				for i := range PitchContourWB10ms {
-					pitchContour[i] = [4]int8{PitchContourWB10ms[i][0], PitchContourWB10ms[i][1], 0, 0}
-				}
-			}
+			contourTable = pitchCBLagsStage310msSlice
 			contourICDF = silk_pitch_contour_10_ms_iCDF
 		}
 	}
 
-	// Find best matching contour and base lag
-	contourIdx, baseLag := e.findBestPitchContour(pitchLags, pitchContour, numSubframes)
-
-	// Encode absolute lag for first subframe
-	// Per libopus silk/encode_indices.c:
-	//   pitch_high_bits = lagIndex / (fs_kHz >> 1)
-	//   pitch_low_bits  = lagIndex % (fs_kHz >> 1)
-	// Uses silk_pitch_lag_iCDF (unified table, 32 entries) for high bits
-	// Uses bandwidth-specific uniform ICDF for low bits
+	contourIdx, baseLag := findBestPitchContour(pitchLags, numSubframes, config.PitchLagMin, config.PitchLagMax, contourTable, len(contourICDF))
 	lagIdx := baseLag - config.PitchLagMin
 	if lagIdx < 0 {
 		lagIdx = 0
 	}
-
-	// Divisor is sample rate in kHz divided by 2
-	// (fsKHz already computed above for contour selection)
-	divisor := fsKHz / 2 // 8 for 16kHz, 6 for 12kHz, 4 for 8kHz
-	if divisor < 1 {
-		divisor = 1
+	if lagIdx > config.PitchLagMax-config.PitchLagMin {
+		lagIdx = config.PitchLagMax - config.PitchLagMin
 	}
 
-	lagHigh := lagIdx / divisor
-	lagLow := lagIdx % divisor
-
-	// Clamp high bits to valid range (0-31 for silk_pitch_lag_iCDF)
-	if lagHigh > 31 {
-		lagHigh = 31
+	encodeAbsolute := true
+	if condCoding == codeConditionally && e.isPreviousFrameVoiced {
+		delta := lagIdx - e.ecPrevLagIndex
+		if delta < -8 || delta > 11 {
+			delta = 0
+		} else {
+			delta += 9
+			encodeAbsolute = false
+		}
+		e.rangeEncoder.EncodeICDF(delta, silk_pitch_delta_iCDF, 8)
 	}
 
-	// Select low bits ICDF based on sample rate (matches decoder's pitchLagLowBitsICDF)
-	var lagLowICDF []uint8
-	switch fsKHz {
-	case 16:
-		lagLowICDF = silk_uniform8_iCDF
-	case 12:
-		lagLowICDF = silk_uniform6_iCDF
-	default: // 8kHz
-		lagLowICDF = silk_uniform4_iCDF
+	if encodeAbsolute {
+		divisor := fsKHz / 2 // 8 for 16kHz, 6 for 12kHz, 4 for 8kHz
+		if divisor < 1 {
+			divisor = 1
+		}
+		lagHigh := lagIdx / divisor
+		lagLow := lagIdx - lagHigh*divisor
+		if lagHigh > 31 {
+			lagHigh = 31
+		}
+
+		var lagLowICDF []uint8
+		switch fsKHz {
+		case 16:
+			lagLowICDF = silk_uniform8_iCDF
+		case 12:
+			lagLowICDF = silk_uniform6_iCDF
+		default:
+			lagLowICDF = silk_uniform4_iCDF
+		}
+
+		if lagLow > len(lagLowICDF)-1 {
+			lagLow = len(lagLowICDF) - 1
+		}
+
+		e.rangeEncoder.EncodeICDF(lagHigh, silk_pitch_lag_iCDF, 8)
+		e.rangeEncoder.EncodeICDF(lagLow, lagLowICDF, 8)
 	}
 
-	// Clamp low bits to valid range
-	maxLowIdx := len(lagLowICDF) - 1
-	if lagLow > maxLowIdx {
-		lagLow = maxLowIdx
+	if contourIdx < 0 {
+		contourIdx = 0
 	}
-
-	// Encode using libopus tables
-	e.rangeEncoder.EncodeICDF(lagHigh, silk_pitch_lag_iCDF, 8)
-	e.rangeEncoder.EncodeICDF(lagLow, lagLowICDF, 8)
-
-	// Encode contour index for delta pattern
-	maxContourIdx := len(contourICDF) - 1
-	if contourIdx > maxContourIdx {
-		contourIdx = maxContourIdx
+	if contourIdx > len(contourICDF)-1 {
+		contourIdx = len(contourICDF) - 1
 	}
 	e.rangeEncoder.EncodeICDF(contourIdx, contourICDF, 8)
+	e.ecPrevLagIndex = lagIdx
+
+	for sf := 0; sf < numSubframes && sf < len(pitchLags); sf++ {
+		lag := baseLag + int(contourTable[sf][contourIdx])
+		if lag < config.PitchLagMin {
+			lag = config.PitchLagMin
+		}
+		if lag > config.PitchLagMax {
+			lag = config.PitchLagMax
+		}
+		pitchLags[sf] = lag
+	}
 }
 
-// findBestPitchContour finds the contour that best matches pitch lag pattern.
+// findBestPitchContour finds the contour that best matches the pitch lag pattern.
 // Returns contour index and base lag.
-func (e *Encoder) findBestPitchContour(pitchLags []int, contours [][4]int8, numSubframes int) (int, int) {
-	// Find mean lag
-	var sumLag int
-	for _, lag := range pitchLags {
-		sumLag += lag
-	}
-	baseLag := sumLag / len(pitchLags)
-
-	// Find best matching contour
+func findBestPitchContour(pitchLags []int, numSubframes int, minLag, maxLag int, contours [][]int8, cbkSize int) (int, int) {
 	bestContour := 0
+	bestBase := minLag
 	bestDist := math.MaxInt32
 
-	for cIdx := 0; cIdx < len(contours); cIdx++ {
-		contour := contours[cIdx]
+	for cIdx := 0; cIdx < cbkSize; cIdx++ {
+		var sumLag int
+		for sf := 0; sf < numSubframes && sf < len(pitchLags); sf++ {
+			sumLag += pitchLags[sf] - int(contours[sf][cIdx])
+		}
+		baseLag := sumLag / numSubframes
+		if baseLag < minLag {
+			baseLag = minLag
+		}
+		if baseLag > maxLag {
+			baseLag = maxLag
+		}
 
 		var dist int
 		for sf := 0; sf < numSubframes && sf < len(pitchLags); sf++ {
-			predicted := baseLag + int(contour[sf])
+			predicted := baseLag + int(contours[sf][cIdx])
 			diff := pitchLags[sf] - predicted
 			dist += diff * diff
 		}
-
 		if dist < bestDist {
 			bestDist = dist
 			bestContour = cIdx
+			bestBase = baseLag
 		}
 	}
 
-	return bestContour, baseLag
+	return bestContour, bestBase
 }
 
 // pitchMax returns the larger of a and b.

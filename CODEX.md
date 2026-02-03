@@ -15,7 +15,7 @@ Always use this reference when implementing features or debugging discrepancies.
 
 ---
 
-## Current Status (Updated: 2026-02-02)
+## Current Status (Updated: 2026-02-03)
 
 ### Production Readiness Score: ~99%
 
@@ -265,6 +265,30 @@ Always use this reference when implementing features or debugging discrepancies.
 4. ✅ **Fix cgo_libopus include paths** - `celt/cgo_test/*_wrapper.go`
    - Paths now point to `tmp_check/opus-1.6.1` under repo root
 
+### Session 16: LTP Quantization (In Progress)
+1. ✅ **LTP quantization + VQ weighting** - `silk/ltp_quant.go`
+   - Ported `silk_quant_LTP_gains` + `silk_VQ_WMat_EC` logic (fixed-point)
+   - Added `findLTP` correlation on LPC residual (float) with `LTP_CORR_INV_MAX`
+2. ✅ **LTP gain bits tables** - `silk/libopus_tables.go`
+   - Added `silk_LTP_gain_BITS_Q5_*` arrays + ptr table
+3. ✅ **LTP state tracking** - `silk/encoder.go`
+   - Added `sumLogGainQ7` state (reset on packet reset/unvoiced)
+4. ✅ **Encoder wiring** - `silk/encode_frame.go`, `silk/ltp_encode.go`
+   - Encode LTP indices directly from quantizer output
+   - LTP scale index now uses `pred_gain_dB_Q7` from quantizer
+   - FEC encode path now uses residual-based gains (align with main path)
+
+### Session 17: Pitch Residual Alignment (In Progress)
+1. ✅ **Pitch residual analysis pipeline** - `silk/pitch_residual.go`
+   - Ported sine-windowed autocorr + Schur + k2a + bwexpander for pitch LPC
+   - Residual now computed with `FIND_PITCH_BANDWIDTH_EXPANSION` and white-noise floor
+2. ✅ **Encoder wiring** - `silk/encode_frame.go`
+   - Pitch detection now runs on pitch residual
+   - LTP quantization uses the same pitch residual as libopus
+3. ⚠️ **Trace status (SILK WB)** - `testvectors/libopus_trace_test.go`
+   - PER mismatches 33/50, LTP index mismatches 194/200, NLSF interp mismatches 46/50
+   - LTP scale mismatches 27/50, gain diff ~0.45
+
 ---
 
 ## Known Issues & Debugging Notes
@@ -382,7 +406,8 @@ The 57.6% amplitude ratio observed for constant DC signals is **correct libopus 
 
 **Prime suspects (NOT YET VERIFIED, focus: SILK/Hybrid):**
 1. **SILK resampling / bandwidth alignment** - Verify 48 kHz → SILK rate path and frame buffering
-2. **SILK LTP analysis/quantization** - PER index mismatches 44/50 and LTP index mismatches 185/200 vs libopus (2026-02-02 trace)
+2. **SILK LTP residual / pitch analysis** - Residual alignment still leaves high mismatch:
+   - PER index mismatches 33/50, LTP index mismatches 194/200, NLSF interp mismatches 46/50 (2026-02-03 trace)
 3. ~~**SILK NSQ core quantization**~~ - Gain application verified correct; DC amplitude loss is expected
 4. **Hybrid lowband/highband handoff** - Confirm split energy and gain matching across the 8 kHz boundary
 5. ~~**SILK LPC coefficient application**~~ - Decoder LPC prediction verified working
@@ -410,7 +435,8 @@ The 57.6% amplitude ratio observed for constant DC signals is **correct libopus 
 - **Hybrid downsampler mismatch** - Hybrid now uses libopus AR2+FIR downsampler; removed custom FIR path.
 
 **Next debugging step (SILK):**
-- Port `silk_find_LTP` + `silk_quant_LTP_gains` from libopus.
+- Align pitch residual generation with libopus `find_pitch_lags_FLP` (LPC order, windowing, bwexpander).
+- Verify `LTP_analysis_filter` path and predictor coefficients before quantization.
 - Current trace shows large divergence vs libopus (PER index mismatches 44/50, LTP index mismatches 185/200).
 
 **Next debugging step (CELT):**

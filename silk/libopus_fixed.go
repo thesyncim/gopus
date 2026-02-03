@@ -176,6 +176,16 @@ func silkAddSat32(a, b int32) int32 {
 	return int32(v)
 }
 
+// silkAddPosSat32 adds two non-negative int32 values with positive saturation.
+// Matches libopus silk_ADD_POS_SAT32 behavior.
+func silkAddPosSat32(a, b int32) int32 {
+	sum := uint32(a) + uint32(b)
+	if sum&0x80000000 != 0 {
+		return int32(0x7fffffff)
+	}
+	return int32(sum)
+}
+
 func silkSubSat32(a, b int32) int32 {
 	v := int64(a) - int64(b)
 	if v > int64((1<<31)-1) {

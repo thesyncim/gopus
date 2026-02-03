@@ -10,7 +10,7 @@ import "math"
 // Subsequent subframes: always delta-coded.
 // Uses libopus quantization algorithm with hysteresis and double step sizes.
 // Uses scratch buffers for zero-allocation operation.
-func (e *Encoder) encodeSubframeGains(gains []float32, signalType, numSubframes int) []int32 {
+func (e *Encoder) encodeSubframeGains(gains []float32, signalType, numSubframes int, condCoding int) []int32 {
 	const minGainQ16 = 1 << 16
 	const maxGainQ16 = int32(0x7fffffff)
 
@@ -28,7 +28,7 @@ func (e *Encoder) encodeSubframeGains(gains []float32, signalType, numSubframes 
 	}
 
 	// Determine if we're using conditional coding
-	conditional := e.haveEncoded
+	conditional := condCoding == codeConditionally
 
 	// Quantize gains using libopus algorithm (zero-alloc)
 	// This updates gainsQ16 in-place to the quantized values
@@ -248,6 +248,9 @@ func (e *Encoder) computeSubframeGainsFromResidual(pcm []float32, numSubframes i
 	return gains
 }
 
+// computeSubframeGainsFromLPCResidual computes gains from LPC residual energy using
+// the provided LPC coefficients. This more closely matches libopus by measuring
+// residual energy directly from the analysis filter instead of Burg's inverse gain.
 // computeSubframeGainsQ16 computes gains for each subframe from PCM.
 // Returns gains in Q16 format matching libopus.
 func (e *Encoder) computeSubframeGainsQ16(pcm []int16, numSubframes int) []int32 {

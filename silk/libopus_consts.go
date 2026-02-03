@@ -33,19 +33,31 @@ const (
 	codeIndependentlyNoLtpScaling = 1
 	codeConditionally             = 2
 
-	nlsfQuantMaxAmplitude = 4
-	nlsfQuantMaxAmplitudeExt = 10
+	nlsfQuantMaxAmplitude     = 4
+	nlsfQuantMaxAmplitudeExt  = 10
 	nlsfQuantDelDecStatesLog2 = 2
-	nlsfQuantDelDecStates = 1 << nlsfQuantDelDecStatesLog2
-	nlsfWQ = 2
-	bweAfterLossQ16       = 63570
-	nlsfQuantLevelAdjQ10  = 102
-	lsfCosTabSizeFix    = 128
-	stereoInterpLenMs   = 8
+	nlsfQuantDelDecStates     = 1 << nlsfQuantDelDecStatesLog2
+	nlsfWQ                    = 2
+	bweAfterLossQ16           = 63570
+	nlsfQuantLevelAdjQ10      = 102
+	lsfCosTabSizeFix          = 128
+	stereoInterpLenMs         = 8
 
 	// Stereo prediction weight quantization constants (matching libopus define.h)
 	stereoQuantTabSize  = 16 // Number of main quantization levels
 	stereoQuantSubSteps = 5  // Number of sub-steps per main level (total 80 levels)
+
+	// LTP quantization constants (tuning_parameters.h)
+	maxSumLogGainDB = 250.0
+	ltpCorrInvMax   = 0.03
+
+	// Pitch analysis constants (define.h / tuning_parameters.h)
+	laPitchMs                   = 2
+	findPitchLpcWinMs           = 20 + (laPitchMs << 1)
+	findPitchLpcWinMs2SF        = 10 + (laPitchMs << 1)
+	findPitchBandwidthExpansion = 0.99
+	findPitchWhiteNoiseFraction = 1e-3
+	maxFindPitchLpcOrder        = 16
 )
 
 // Pitch estimation constants moved to pitch_detect.go

@@ -39,7 +39,7 @@ func TestPitchDetectionWithBuffer(t *testing.T) {
 		t.Logf("Frame %d: buffer RMS=%.4f", frame, bufRMS)
 
 		// Run pitch detection
-		pitchLags := encoder.detectPitch(encoder.pitchAnalysisBuf, 4)
+		pitchLags := encoder.detectPitch(encoder.pitchAnalysisBuf, 4, 0, 0)
 		t.Logf("Frame %d: pitchLags=%v, ltpCorr=%.4f", frame, pitchLags, encoder.pitchState.ltpCorr)
 
 		// On frame 2, trace the Stage 1 correlation manually
@@ -167,7 +167,7 @@ func TestPitchDetectionDirect(t *testing.T) {
 
 	// Now run the encoder's pitch detection
 	encoder := NewEncoder(BandwidthWideband)
-	pitchLags := encoder.detectPitch(pcm, 4)
+	pitchLags := encoder.detectPitch(pcm, 4, 0, 0)
 	t.Logf("Encoder's detectPitch result: %v", pitchLags)
 	t.Logf("Encoder's ltpCorr after detection: %.4f", encoder.pitchState.ltpCorr)
 
@@ -186,11 +186,11 @@ func TestPitchDetectionDirect(t *testing.T) {
 
 	// Compute Stage 1 correlation at 4kHz
 	// Parameters matching pitch_detect.go
-	sfLength4kHz := 5 * 4                  // peSubfrLengthMS=5, 4kHz
-	targetStart := sfLength4kHz * 4        // After LTP memory
-	minLag4kHz := 2 * 4                    // peMinLagMS=2 at 4kHz = 8
-	maxLag4kHz := 18 * 4                   // peMaxLagMS=18 at 4kHz = 72
-	expectedLag4kHz := expectedLag / 4     // 53/4 ≈ 13
+	sfLength4kHz := 5 * 4              // peSubfrLengthMS=5, 4kHz
+	targetStart := sfLength4kHz * 4    // After LTP memory
+	minLag4kHz := 2 * 4                // peMinLagMS=2 at 4kHz = 8
+	maxLag4kHz := 18 * 4               // peMaxLagMS=18 at 4kHz = 72
+	expectedLag4kHz := expectedLag / 4 // 53/4 ≈ 13
 
 	t.Logf("4kHz params: sfLength=%d, targetStart=%d, minLag=%d, maxLag=%d, expectedLag=%d",
 		sfLength4kHz, targetStart, minLag4kHz, maxLag4kHz, expectedLag4kHz)

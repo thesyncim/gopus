@@ -29,7 +29,7 @@ func TestDetectPitchVoicedSignal(t *testing.T) {
 	}
 
 	// Detect pitch
-	pitchLags := enc.detectPitch(pcm, numSubframes)
+	pitchLags := enc.detectPitch(pcm, numSubframes, 0, 0)
 
 	if len(pitchLags) != numSubframes {
 		t.Fatalf("expected %d pitch lags, got %d", numSubframes, len(pitchLags))
@@ -67,7 +67,7 @@ func TestDetectPitchNarrowband(t *testing.T) {
 		pcm[i] = float32(1.0-2.0*phase) * 10000 // Realistic int16-ish level
 	}
 
-	pitchLags := enc.detectPitch(pcm, numSubframes)
+	pitchLags := enc.detectPitch(pcm, numSubframes, 0, 0)
 
 	if len(pitchLags) != numSubframes {
 		t.Fatalf("expected %d pitch lags, got %d", numSubframes, len(pitchLags))
@@ -305,16 +305,17 @@ func TestFindLTPCodebookIndex(t *testing.T) {
 }
 
 func TestFindBestPitchContour(t *testing.T) {
-	enc := NewEncoder(BandwidthWideband)
-
 	// Test with constant pitch lags
 	pitchLags := []int{100, 100, 100, 100}
-	contours := make([][4]int8, len(PitchContourWB20ms))
-	for i := range PitchContourWB20ms {
-		contours[i] = PitchContourWB20ms[i]
-	}
-
-	contourIdx, baseLag := enc.findBestPitchContour(pitchLags, contours, 4)
+	config := GetBandwidthConfig(BandwidthWideband)
+	contourIdx, baseLag := findBestPitchContour(
+		pitchLags,
+		4,
+		config.PitchLagMin,
+		config.PitchLagMax,
+		pitchCBLagsStage3Slice,
+		len(silk_pitch_contour_iCDF),
+	)
 
 	// Should find a contour and base lag close to 100
 	if baseLag < 95 || baseLag > 105 {
@@ -322,8 +323,8 @@ func TestFindBestPitchContour(t *testing.T) {
 	}
 
 	// Contour index should be valid
-	if contourIdx < 0 || contourIdx >= len(contours) {
-		t.Errorf("contour index %d out of valid range [0, %d)", contourIdx, len(contours))
+	if contourIdx < 0 || contourIdx >= len(silk_pitch_contour_iCDF) {
+		t.Errorf("contour index %d out of valid range [0, %d)", contourIdx, len(silk_pitch_contour_iCDF))
 	}
 }
 
@@ -369,7 +370,7 @@ func TestPitchDetectionAccuracyLibopusStyle(t *testing.T) {
 			pcm[i] = float32(1.0-2.0*phase) * 10000
 		}
 
-		pitchLags := enc.detectPitch(pcm, numSubframes)
+		pitchLags := enc.detectPitch(pcm, numSubframes, 0, 0)
 
 		// Check accuracy - allow for harmonic multiples (octave errors are common
 		// in pitch detection and may be acceptable depending on use case)
@@ -406,7 +407,7 @@ func TestPitchDetectionWithSine(t *testing.T) {
 		pcm[i] = float32(math.Sin(2*math.Pi*freq*float64(i)/float64(config.SampleRate))) * 10000
 	}
 
-	pitchLags := enc.detectPitch(pcm, numSubframes)
+	pitchLags := enc.detectPitch(pcm, numSubframes, 0, 0)
 
 	for sf, lag := range pitchLags {
 		errorMargin := pitchPeriod / 5
@@ -437,7 +438,7 @@ func TestPitchDetectionMediumband(t *testing.T) {
 		pcm[i] = float32(1.0-2.0*phase) * 10000
 	}
 
-	pitchLags := enc.detectPitch(pcm, numSubframes)
+	pitchLags := enc.detectPitch(pcm, numSubframes, 0, 0)
 
 	for sf, lag := range pitchLags {
 		// Verify lags are within valid range

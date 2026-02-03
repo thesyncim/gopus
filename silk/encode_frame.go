@@ -39,8 +39,6 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 		// This ensures gain indices are absolute, not deltas from previous packet
 		// The decoder also resets nFramesDecoded=0 at the start of each packet
 		e.nFramesEncoded = 0
-		e.haveEncoded = false    // Reset so gain encoding uses absolute mode
-		e.previousGainIndex = 10 // Default gain index (matches decoder's reset)
 
 		// Create our own range encoder using scratch buffer
 		// Allocate extra space for potential LBRR data
@@ -60,19 +58,26 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 		e.rangeEncoder = &e.scratchRangeEncoder
 	}
 
+	condCoding := codeIndependently
+	if e.nFramesEncoded > 0 {
+		condCoding = codeConditionally
+	}
+
 	// Step 0.5: Update pitch analysis buffer
-	// The buffer holds LTP memory (20ms history) + current frame (20ms).
-	// Shift old samples left and append new samples.
+	// The buffer holds LTP memory (20ms history) + current frame (up to 20ms).
+	// Shift old samples left by the current frame length and append new samples.
 	// This provides proper history for pitch detection correlation.
 	pitchBufFrameLen := len(pcm)
-	if len(e.pitchAnalysisBuf) >= pitchBufFrameLen*2 {
-		// Shift old samples left (keep second half as LTP memory)
-		copy(e.pitchAnalysisBuf[:pitchBufFrameLen], e.pitchAnalysisBuf[pitchBufFrameLen:])
-		// Append new frame
-		copy(e.pitchAnalysisBuf[pitchBufFrameLen:], pcm)
-	} else if len(e.pitchAnalysisBuf) > 0 {
-		// Buffer might be smaller, just copy what fits
-		copy(e.pitchAnalysisBuf, pcm)
+	if pitchBufFrameLen > 0 && len(e.pitchAnalysisBuf) > 0 {
+		if len(e.pitchAnalysisBuf) > pitchBufFrameLen {
+			copy(e.pitchAnalysisBuf, e.pitchAnalysisBuf[pitchBufFrameLen:])
+		}
+		start := len(e.pitchAnalysisBuf) - pitchBufFrameLen
+		if start < 0 {
+			start = 0
+			pitchBufFrameLen = len(e.pitchAnalysisBuf)
+		}
+		copy(e.pitchAnalysisBuf[start:], pcm[:pitchBufFrameLen])
 	}
 
 	// Step 1: Classify frame (VAD)
@@ -116,13 +121,13 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	// This sets e.lastTotalEnergy, e.lastInvGain, e.lastNumSamples
 	lpcQ12 := e.computeLPCFromFrame(pcm)
 
-	// Step 4: Compute and encode gains from LPC residual energy
+	// Step 4: Compute and encode gains from subframe energy
 	// Per libopus: gains are sqrt(residual_energy) from Burg/Schur analysis,
 	// NOT sqrt(raw_signal_energy). The residual is much smaller than raw signal
 	// because LPC prediction removes the predictable component.
 	// NSQ scales input by inverse gain, quantizes, then decoder scales output by gain.
-	gains := e.computeSubframeGainsFromResidual(pcm, numSubframes)
-	gainsQ16 := e.encodeSubframeGains(gains, signalType, numSubframes)
+	gains := e.computeSubframeGains(pcm, numSubframes)
+	gainsQ16 := e.encodeSubframeGains(gains, signalType, numSubframes, condCoding)
 
 	// Step 5: Convert LPC to NLSF using silkA2NLSF (with bandwidth expansion retry)
 	// lpcToLSFEncodeInto fails for sparse LPC coefficients (e.g., from sine waves
@@ -144,18 +149,30 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	interpIdx = e.buildPredCoefQ12(predCoefQ12, lsfQ15, interpIdx)
 
 	// Step 6: Pitch detection and LTP (voiced only)
-	condCoding := codeIndependently
-	if e.nFramesEncoded > 0 {
-		condCoding = codeConditionally
-	}
 	var pitchLags []int
 	var ltpCoeffs LTPCoeffsArray
 	ltpScaleIndex := 0
-	periodicity := 0
+	var ltpIndices [maxNbSubfr]int8
+	perIndex := 0
+	predGainQ7 := int32(0)
 	if signalType == 2 {
-		// Use pitch analysis buffer (LTP memory + current frame) for better pitch detection
-		pitchLags = e.detectPitch(e.pitchAnalysisBuf, numSubframes)
-		e.encodePitchLags(pitchLags, numSubframes)
+		residual, residual32, resStart, _ := e.computePitchResidual(numSubframes)
+		// Use pitch residual for more accurate pitch detection (libopus parity).
+		searchThres1 := float64(e.pitchEstimationThresholdQ16) / 65536.0
+		prevSignalType := 0
+		if e.isPreviousFrameVoiced {
+			prevSignalType = 2
+		}
+		thrhld := 0.6 - 0.004*float64(e.pitchEstimationLPCOrder) -
+			0.1*float64(speechActivityQ8)/256.0 -
+			0.15*float64(prevSignalType>>1)
+		if thrhld < 0 {
+			thrhld = 0
+		} else if thrhld > 1 {
+			thrhld = 1
+		}
+		pitchLags = e.detectPitch(residual32, numSubframes, searchThres1, thrhld)
+		e.encodePitchLags(pitchLags, numSubframes, condCoding)
 
 		// Update LTP correlation for noise shaping (from pitch detection)
 		e.ltpCorr = float32(e.pitchState.ltpCorr)
@@ -163,12 +180,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 			e.ltpCorr = 1.0
 		}
 
-		periodicity = e.determinePeriodicity(pcm, pitchLags)
-		ltpCoeffs = e.analyzeLTP(pcm, pitchLags, numSubframes, periodicity)
-		e.encodeLTPCoeffs(ltpCoeffs, periodicity, numSubframes)
+		ltpCoeffs, ltpIndices, perIndex, predGainQ7 = e.analyzeLTPQuantized(residual, resStart, pitchLags, numSubframes, subframeSamples)
+		e.encodeLTPCoeffs(perIndex, ltpIndices[:], numSubframes)
 
-		ltpPredGainQ7 := computeLTPPredGainQ7(pcm, pitchLags, ltpCoeffs, numSubframes, subframeSamples)
-		ltpScaleIndex = e.computeLTPScaleIndex(ltpPredGainQ7, condCoding)
+		ltpScaleIndex = e.computeLTPScaleIndex(predGainQ7, condCoding)
 		// Encode LTP scale index (required for voiced frames).
 		if condCoding == codeIndependently {
 			e.rangeEncoder.EncodeICDF(ltpScaleIndex, silk_LTPscale_iCDF, 8)
@@ -176,6 +191,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	} else {
 		// Reset LTP correlation for unvoiced frames
 		e.ltpCorr = 0
+		e.sumLogGainQ7 = 0
 	}
 
 	// Step 6.5: LBRR Encoding (FEC)
@@ -506,13 +522,18 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 	}
 
 	// Step 0.5: Update pitch analysis buffer
-	// The buffer holds LTP memory (20ms history) + current frame (20ms).
+	// The buffer holds LTP memory (20ms history) + current frame (up to 20ms).
 	pitchBufFrameLen := len(pcm)
-	if len(e.pitchAnalysisBuf) >= pitchBufFrameLen*2 {
-		copy(e.pitchAnalysisBuf[:pitchBufFrameLen], e.pitchAnalysisBuf[pitchBufFrameLen:])
-		copy(e.pitchAnalysisBuf[pitchBufFrameLen:], pcm)
-	} else if len(e.pitchAnalysisBuf) > 0 {
-		copy(e.pitchAnalysisBuf, pcm)
+	if pitchBufFrameLen > 0 && len(e.pitchAnalysisBuf) > 0 {
+		if len(e.pitchAnalysisBuf) > pitchBufFrameLen {
+			copy(e.pitchAnalysisBuf, e.pitchAnalysisBuf[pitchBufFrameLen:])
+		}
+		start := len(e.pitchAnalysisBuf) - pitchBufFrameLen
+		if start < 0 {
+			start = 0
+			pitchBufFrameLen = len(e.pitchAnalysisBuf)
+		}
+		copy(e.pitchAnalysisBuf[start:], pcm[:pitchBufFrameLen])
 	}
 
 	// Step 1: Classify frame (VAD)
@@ -529,12 +550,17 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 	// Step 2: Encode frame type
 	e.encodeFrameType(vadFlag, signalType, quantOffset)
 
+	condCoding := codeIndependently
+	if e.nFramesEncoded > 0 {
+		condCoding = codeConditionally
+	}
+
 	// Step 3: Compute LPC coefficients FIRST (needed for residual-based gain computation)
 	lpcQ12 := e.computeLPCFromFrame(pcm)
 
-	// Step 4: Compute and encode gains from signal energy
+	// Step 4: Compute and encode gains from subframe energy
 	gains := e.computeSubframeGains(pcm, numSubframes)
-	gainsQ16 := e.encodeSubframeGains(gains, signalType, numSubframes)
+	gainsQ16 := e.encodeSubframeGains(gains, signalType, numSubframes, condCoding)
 
 	// Step 5: Convert LPC to NLSF using silkA2NLSF (with bandwidth expansion retry)
 	// lpcToLSFEncodeInto fails for sparse LPC coefficients (e.g., from sine waves
@@ -556,18 +582,30 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 	interpIdx = e.buildPredCoefQ12(predCoefQ12, lsfQ15, interpIdx)
 
 	// Step 6: Pitch detection and LTP (voiced only)
-	condCoding := codeIndependently
-	if e.nFramesEncoded > 0 {
-		condCoding = codeConditionally
-	}
 	var pitchLags []int
 	var ltpCoeffs LTPCoeffsArray
 	ltpScaleIndex := 0
-	periodicity := 0
+	var ltpIndices [maxNbSubfr]int8
+	perIndex := 0
+	predGainQ7 := int32(0)
 	if signalType == 2 {
-		// Use pitch analysis buffer (LTP memory + current frame) for better pitch detection
-		pitchLags = e.detectPitch(e.pitchAnalysisBuf, numSubframes)
-		e.encodePitchLags(pitchLags, numSubframes)
+		residual, residual32, resStart, _ := e.computePitchResidual(numSubframes)
+		// Use pitch residual for more accurate pitch detection (libopus parity).
+		searchThres1 := float64(e.pitchEstimationThresholdQ16) / 65536.0
+		prevSignalType := 0
+		if e.isPreviousFrameVoiced {
+			prevSignalType = 2
+		}
+		thrhld := 0.6 - 0.004*float64(e.pitchEstimationLPCOrder) -
+			0.1*float64(speechActivityQ8)/256.0 -
+			0.15*float64(prevSignalType>>1)
+		if thrhld < 0 {
+			thrhld = 0
+		} else if thrhld > 1 {
+			thrhld = 1
+		}
+		pitchLags = e.detectPitch(residual32, numSubframes, searchThres1, thrhld)
+		e.encodePitchLags(pitchLags, numSubframes, condCoding)
 
 		// Update LTP correlation for noise shaping (from pitch detection)
 		e.ltpCorr = float32(e.pitchState.ltpCorr)
@@ -575,12 +613,10 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 			e.ltpCorr = 1.0
 		}
 
-		periodicity = e.determinePeriodicity(pcm, pitchLags)
-		ltpCoeffs = e.analyzeLTP(pcm, pitchLags, numSubframes, periodicity)
-		e.encodeLTPCoeffs(ltpCoeffs, periodicity, numSubframes)
+		ltpCoeffs, ltpIndices, perIndex, predGainQ7 = e.analyzeLTPQuantized(residual, resStart, pitchLags, numSubframes, subframeSamples)
+		e.encodeLTPCoeffs(perIndex, ltpIndices[:], numSubframes)
 
-		ltpPredGainQ7 := computeLTPPredGainQ7(pcm, pitchLags, ltpCoeffs, numSubframes, subframeSamples)
-		ltpScaleIndex = e.computeLTPScaleIndex(ltpPredGainQ7, condCoding)
+		ltpScaleIndex = e.computeLTPScaleIndex(predGainQ7, condCoding)
 		// Encode LTP scale index (required for voiced frames).
 		if condCoding == codeIndependently {
 			e.rangeEncoder.EncodeICDF(ltpScaleIndex, silk_LTPscale_iCDF, 8)
@@ -588,6 +624,7 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 	} else {
 		// Reset LTP correlation for unvoiced frames
 		e.ltpCorr = 0
+		e.sumLogGainQ7 = 0
 	}
 
 	// Step 6.5: LBRR Encoding (FEC) for this frame

@@ -77,6 +77,7 @@ type Encoder struct {
 	lastVADActive     bool
 	lastVADValid      bool
 	silkVAD           *VADState
+	silkVADSide       *VADState
 	fec               *fecState
 
 	// DTX (Discontinuous Transmission) controls
@@ -330,6 +331,12 @@ func (e *Encoder) SetComplexity(complexity int) {
 	// Future: affect MDCT precision, pitch search resolution, etc.
 	if e.celtEncoder != nil {
 		e.celtEncoder.SetComplexity(complexity)
+	}
+	if e.silkEncoder != nil {
+		e.silkEncoder.SetComplexity(complexity)
+	}
+	if e.silkSideEncoder != nil {
+		e.silkSideEncoder.SetComplexity(complexity)
 	}
 }
 
@@ -743,6 +750,7 @@ func (e *Encoder) encodeCELTFrame(pcm []float64, frameSize int) ([]byte, error) 
 func (e *Encoder) ensureSILKEncoder() {
 	if e.silkEncoder == nil {
 		e.silkEncoder = silk.NewEncoder(e.silkBandwidth())
+		e.silkEncoder.SetComplexity(e.complexity)
 	}
 }
 
@@ -750,6 +758,7 @@ func (e *Encoder) ensureSILKEncoder() {
 func (e *Encoder) ensureSILKSideEncoder() {
 	if e.silkSideEncoder == nil && e.channels == 2 {
 		e.silkSideEncoder = silk.NewEncoder(e.silkBandwidth())
+		e.silkSideEncoder.SetComplexity(e.complexity)
 	}
 }
 
@@ -779,16 +788,41 @@ func (e *Encoder) ensureSilkVAD() {
 	}
 }
 
+func (e *Encoder) ensureSilkVADSide() {
+	if e.silkVADSide == nil {
+		e.silkVADSide = NewVADState()
+	}
+}
+
+func computeSilkVADWithState(state *VADState, mono []float32, frameSamples, fsKHz int) (int, bool) {
+	if state == nil || frameSamples <= 0 || fsKHz <= 0 {
+		return 0, false
+	}
+	if len(mono) < frameSamples {
+		return 0, false
+	}
+	return state.GetSpeechActivity(mono, frameSamples, fsKHz)
+}
+
 func (e *Encoder) computeSilkVAD(mono []float32, frameSamples, fsKHz int) bool {
 	if frameSamples <= 0 || fsKHz <= 0 {
 		e.lastVADValid = false
 		return false
 	}
 	e.ensureSilkVAD()
-	activityQ8, active := e.silkVAD.GetSpeechActivity(mono, frameSamples, fsKHz)
+	activityQ8, active := computeSilkVADWithState(e.silkVAD, mono, frameSamples, fsKHz)
 	e.lastVADActivityQ8 = activityQ8
 	e.lastVADActive = active
 	e.lastVADValid = true
+	return active
+}
+
+func (e *Encoder) computeSilkVADSide(mono []float32, frameSamples, fsKHz int) bool {
+	if frameSamples <= 0 || fsKHz <= 0 {
+		return false
+	}
+	e.ensureSilkVADSide()
+	_, active := computeSilkVADWithState(e.silkVADSide, mono, frameSamples, fsKHz)
 	return active
 }
 
