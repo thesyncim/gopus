@@ -5,7 +5,7 @@ import "math"
 // quantizeLSF quantizes LSF coefficients using libopus-aligned MSVQ.
 // Returns stage1 index, stage2 residuals (as NLSFIndices[1:order+1]), and interpolation index.
 // Per RFC 6716 Section 4.2.7.5 and libopus silk/process_NLSFs.c.
-func (e *Encoder) quantizeLSF(lsfQ15 []int16, bandwidth Bandwidth, signalType int, speechActivityQ8 int, numSubframes int) (int, []int, int) {
+func (e *Encoder) quantizeLSF(lsfQ15 []int16, bandwidth Bandwidth, signalType int, speechActivityQ8 int, numSubframes int, interpOverride int) (int, []int, int) {
 	isWideband := bandwidth == BandwidthWideband
 
 	// Select codebook based on bandwidth
@@ -29,7 +29,13 @@ func (e *Encoder) quantizeLSF(lsfQ15 []int16, bandwidth Bandwidth, signalType in
 	silkNLSFStabilize(lsfQ15[:order], cb.deltaMinQ15, order)
 
 	// Compute interpolation index (blend with previous frame)
-	interpIdx := e.computeInterpolationIndex(lsfQ15, order)
+	interpIdx := interpOverride
+	if interpIdx < 0 {
+		interpIdx = e.computeInterpolationIndex(lsfQ15, order)
+	}
+	if interpIdx < 4 && (!e.haveEncoded || numSubframes != maxNbSubfr) {
+		interpIdx = 4
+	}
 
 	// Compute NLSF weights (Laroia)
 	wQ2 := ensureInt16Slice(&e.scratchNLSFWeights, order)
@@ -40,7 +46,7 @@ func (e *Encoder) quantizeLSF(lsfQ15 []int16, bandwidth Bandwidth, signalType in
 		nlsf0 := ensureInt16Slice(&e.scratchNLSFTempQ15, order)
 		for i := 0; i < order; i++ {
 			diff := int32(lsfQ15[i]) - int32(e.prevLSFQ15[i])
-			nlsf0[i] = int16(int32(e.prevLSFQ15[i]) + (int32(interpIdx)*diff >> 2))
+			nlsf0[i] = int16(int32(e.prevLSFQ15[i]) + (int32(interpIdx) * diff >> 2))
 		}
 		w0Q2 := ensureInt16Slice(&e.scratchNLSFWeightsTmp, order)
 		silkNLSFWeightsLaroia(w0Q2, nlsf0, order)
@@ -53,7 +59,77 @@ func (e *Encoder) quantizeLSF(lsfQ15 []int16, bandwidth Bandwidth, signalType in
 	}
 
 	muQ20 := computeNLSFMuQ20(speechActivityQ8, numSubframes)
-	nSurvivors := 8
+	nSurvivors := e.nlsfSurvivors
+	if nSurvivors > cb.nVectors {
+		nSurvivors = cb.nVectors
+	}
+	if nSurvivors < 2 {
+		nSurvivors = 2
+	}
+
+	stage1Idx, residuals := e.nlsfEncode(lsfQ15, cb, wQ2, muQ20, nSurvivors, signalType)
+
+	return stage1Idx, residuals, interpIdx
+}
+
+// quantizeLSFWithInterp quantizes LSF coefficients using a provided interpolation index.
+// Returns stage1 index, stage2 residuals, and the effective interpolation index.
+func (e *Encoder) quantizeLSFWithInterp(lsfQ15 []int16, bandwidth Bandwidth, signalType int, speechActivityQ8 int, numSubframes int, interpIdx int) (int, []int, int) {
+	isWideband := bandwidth == BandwidthWideband
+
+	// Select codebook based on bandwidth
+	var cb *nlsfCB
+	if isWideband {
+		cb = &silk_NLSF_CB_WB
+	} else {
+		cb = &silk_NLSF_CB_NB_MB
+	}
+
+	order := cb.order
+	if len(lsfQ15) < order {
+		residuals := ensureIntSlice(&e.scratchLsfResiduals, order)
+		for i := range residuals {
+			residuals[i] = 0
+		}
+		return 0, residuals, 4
+	}
+
+	if !e.haveEncoded {
+		interpIdx = 4
+	}
+	if interpIdx < 0 {
+		interpIdx = 0
+	}
+	if interpIdx > 4 {
+		interpIdx = 4
+	}
+
+	// Stabilize NLSFs before quantization
+	silkNLSFStabilize(lsfQ15[:order], cb.deltaMinQ15, order)
+
+	// Compute NLSF weights (Laroia)
+	wQ2 := ensureInt16Slice(&e.scratchNLSFWeights, order)
+	silkNLSFWeightsLaroia(wQ2, lsfQ15, order)
+
+	// Update weights if interpolation is used
+	if interpIdx < 4 && e.haveEncoded {
+		nlsf0 := ensureInt16Slice(&e.scratchNLSFTempQ15, order)
+		for i := 0; i < order; i++ {
+			diff := int32(lsfQ15[i]) - int32(e.prevLSFQ15[i])
+			nlsf0[i] = int16(int32(e.prevLSFQ15[i]) + (int32(interpIdx) * diff >> 2))
+		}
+		w0Q2 := ensureInt16Slice(&e.scratchNLSFWeightsTmp, order)
+		silkNLSFWeightsLaroia(w0Q2, nlsf0, order)
+
+		iSqrQ15 := int32(silkLSHIFT(silkSMULBB(int32(interpIdx), int32(interpIdx)), 11))
+		for i := 0; i < order; i++ {
+			adj := silkRSHIFT(silkSMULBB(int32(w0Q2[i]), iSqrQ15), 16)
+			wQ2[i] = int16((int32(wQ2[i]) >> 1) + adj)
+		}
+	}
+
+	muQ20 := computeNLSFMuQ20(speechActivityQ8, numSubframes)
+	nSurvivors := e.nlsfSurvivors
 	if nSurvivors > cb.nVectors {
 		nSurvivors = cb.nVectors
 	}
@@ -230,7 +306,6 @@ func (e *Encoder) computeStage2ResidualsLibopus(lsfQ15 []int16, stage1Idx int, c
 	return residuals
 }
 
-
 // computeInterpolationIndex determines blend with previous frame LSF.
 // Per RFC 6716 Section 4.2.7.5.3.
 func (e *Encoder) computeInterpolationIndex(lsfQ15 []int16, order int) int {
@@ -319,7 +394,7 @@ func (e *Encoder) buildPredCoefQ12(predCoefQ12 []int16, nlsfQ15 []int16, interpI
 		var interpNLSF [maxLPCOrder]int16
 		for i := 0; i < order; i++ {
 			diff := int32(nlsfQ15[i]) - int32(e.prevLSFQ15[i])
-			interpNLSF[i] = int16(int32(e.prevLSFQ15[i]) + (int32(interpIdx)*diff >> 2))
+			interpNLSF[i] = int16(int32(e.prevLSFQ15[i]) + (int32(interpIdx) * diff >> 2))
 		}
 		first := predCoefQ12[:order]
 		if !silkNLSF2A(first, interpNLSF[:order], order) {

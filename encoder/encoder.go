@@ -74,6 +74,8 @@ type Encoder struct {
 	fecEnabled        bool
 	packetLoss        int // Expected packet loss percentage (0-100)
 	lastVADActivityQ8 int
+	lastVADInputTiltQ15 int
+	lastVADInputQualityQ15 int
 	lastVADActive     bool
 	lastVADValid      bool
 	silkVAD           *VADState
@@ -689,6 +691,8 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, frameSize int) ([]byte, error) 
 			mono[i] = (left[i] + right[i]) * 0.5
 		}
 		vadFlag := e.computeSilkVAD(mono, len(left), fsKHz)
+		e.silkEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.lastVADInputQualityQ15)
+		e.silkSideEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.lastVADInputQualityQ15)
 
 		return silk.EncodeStereoWithEncoder(e.silkEncoder, e.silkSideEncoder, left, right, e.silkBandwidth(), vadFlag)
 	}
@@ -714,6 +718,7 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, frameSize int) ([]byte, error) 
 	// Compute VAD at SILK sample rate
 	fsKHz := targetRate / 1000
 	vadFlags, nFrames := e.computeSilkVADFlags(pcm32, fsKHz)
+	e.silkEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.lastVADInputQualityQ15)
 
 	// Mono encoding using persistent encoder
 	if e.fecEnabled || nFrames > 1 {
@@ -826,6 +831,8 @@ func (e *Encoder) computeSilkVAD(mono []float32, frameSamples, fsKHz int) bool {
 	e.ensureSilkVAD()
 	activityQ8, active := computeSilkVADWithState(e.silkVAD, mono, frameSamples, fsKHz)
 	e.lastVADActivityQ8 = activityQ8
+	e.lastVADInputTiltQ15 = e.silkVAD.InputTiltQ15
+	e.lastVADInputQualityQ15 = (e.silkVAD.InputQualityBandsQ15[0] + e.silkVAD.InputQualityBandsQ15[1]) / 2
 	e.lastVADActive = active
 	e.lastVADValid = true
 	return active

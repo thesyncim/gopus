@@ -36,6 +36,10 @@ func (e *Encoder) noiseShapeAnalysis(
 		}
 	}
 
+	inputQualityQ15 := -1
+	if e.speechActivitySet {
+		inputQualityQ15 = e.inputQualityQ15
+	}
 	params := e.noiseShapeState.ComputeNoiseShapeParams(
 		signalType,
 		speechActivityQ8,
@@ -43,6 +47,7 @@ func (e *Encoder) noiseShapeAnalysis(
 		pitchLags,
 		e.snrDBQ7,
 		quantOffsetType,
+		inputQualityQ15,
 		numSubframes,
 		fsKHz,
 	)

@@ -35,6 +35,12 @@ type Encoder struct {
 	pitchState       PitchAnalysisState // State for pitch estimation across frames
 	pitchAnalysisBuf []float32          // History buffer for pitch analysis (LTP memory + frame)
 
+	// VAD-derived state (optional, provided by Opus-level encoder)
+	speechActivityQ8  int   // Speech activity in Q8 (0-255)
+	inputTiltQ15      int   // Spectral tilt in Q15 from VAD
+	inputQualityQ15   int   // Input quality in Q15 (0-32768)
+	speechActivitySet bool  // Whether VAD-derived state was explicitly set
+
 	// NSQ (Noise Shaping Quantization) state
 	nsqState        *NSQState        // Noise shaping quantizer state for proper libopus-matching
 	noiseShapeState *NoiseShapeState // Noise shaping analysis state for adaptive parameters
@@ -56,6 +62,7 @@ type Encoder struct {
 	laShape         int
 	shapeWinLength  int
 	warpingQ16      int
+	nlsfSurvivors   int
 
 	// LPC analysis results (for gain computation from prediction residual)
 	lastTotalEnergy float64 // C0 from Burg analysis
@@ -403,6 +410,7 @@ func (e *Encoder) SetComplexity(complexity int) {
 		e.shapingLPCOrder = 12
 		e.laShape = 3 * fsKHz
 		e.warpingQ16 = 0
+		e.nlsfSurvivors = 2
 	case complexity < 2:
 		e.pitchEstimationComplexity = 1
 		e.pitchEstimationThresholdQ16 = 49807
@@ -410,6 +418,7 @@ func (e *Encoder) SetComplexity(complexity int) {
 		e.shapingLPCOrder = 14
 		e.laShape = 5 * fsKHz
 		e.warpingQ16 = 0
+		e.nlsfSurvivors = 3
 	case complexity < 3:
 		e.pitchEstimationComplexity = 0
 		e.pitchEstimationThresholdQ16 = 52429
@@ -417,6 +426,7 @@ func (e *Encoder) SetComplexity(complexity int) {
 		e.shapingLPCOrder = 12
 		e.laShape = 3 * fsKHz
 		e.warpingQ16 = 0
+		e.nlsfSurvivors = 2
 	case complexity < 4:
 		e.pitchEstimationComplexity = 1
 		e.pitchEstimationThresholdQ16 = 49807
@@ -424,6 +434,7 @@ func (e *Encoder) SetComplexity(complexity int) {
 		e.shapingLPCOrder = 14
 		e.laShape = 5 * fsKHz
 		e.warpingQ16 = 0
+		e.nlsfSurvivors = 4
 	case complexity < 6:
 		e.pitchEstimationComplexity = 1
 		e.pitchEstimationThresholdQ16 = 48497
@@ -431,6 +442,7 @@ func (e *Encoder) SetComplexity(complexity int) {
 		e.shapingLPCOrder = 16
 		e.laShape = 5 * fsKHz
 		e.warpingQ16 = int(float64(fsKHz) * warpingMultiplier * 65536.0)
+		e.nlsfSurvivors = 6
 	case complexity < 8:
 		e.pitchEstimationComplexity = 1
 		e.pitchEstimationThresholdQ16 = 47186
@@ -438,6 +450,7 @@ func (e *Encoder) SetComplexity(complexity int) {
 		e.shapingLPCOrder = 20
 		e.laShape = 5 * fsKHz
 		e.warpingQ16 = int(float64(fsKHz) * warpingMultiplier * 65536.0)
+		e.nlsfSurvivors = 8
 	default:
 		e.pitchEstimationComplexity = 2
 		e.pitchEstimationThresholdQ16 = 45875
@@ -445,6 +458,7 @@ func (e *Encoder) SetComplexity(complexity int) {
 		e.shapingLPCOrder = 24
 		e.laShape = 5 * fsKHz
 		e.warpingQ16 = int(float64(fsKHz) * warpingMultiplier * 65536.0)
+		e.nlsfSurvivors = 16
 	}
 
 	if e.pitchEstimationLPCOrder > e.lpcOrder {
@@ -521,6 +535,21 @@ func (e *Encoder) IsPreviousFrameVoiced() bool {
 // SetPreviousFrameVoiced sets the voiced state for the previous frame.
 func (e *Encoder) SetPreviousFrameVoiced(voiced bool) {
 	e.isPreviousFrameVoiced = voiced
+}
+
+// SetVADState sets speech activity and spectral tilt from VAD analysis.
+// These values influence pitch thresholding and noise shaping.
+func (e *Encoder) SetVADState(speechActivityQ8 int, inputTiltQ15 int, inputQualityQ15 int) {
+	if speechActivityQ8 < 0 {
+		speechActivityQ8 = 0
+	}
+	if speechActivityQ8 > 255 {
+		speechActivityQ8 = 255
+	}
+	e.speechActivityQ8 = speechActivityQ8
+	e.inputTiltQ15 = inputTiltQ15
+	e.inputQualityQ15 = inputQualityQ15
+	e.speechActivitySet = true
 }
 
 // PrevLSFQ15 returns the previous frame's LSF coefficients.

@@ -117,6 +117,7 @@ type pitchEncodeParams struct {
 }
 
 // detectPitch performs three-stage coarse-to-fine pitch detection matching libopus.
+// Input samples must be in int16 scale (same scale as silk_pitch_analysis_core_FLP).
 // Returns pitch lags for each subframe (voiced frames only).
 //
 // Per libopus pitch_analysis_core_FLP.c:
@@ -150,7 +151,8 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 	}
 
 	frameFix := ensureInt16Slice(&e.scratchFrame16Fix, frameLength)
-	floatToInt16SliceScaled(frameFix, pcm[:frameLength], float32(silkSampleScale))
+	// Input is already in int16 scale (libopus pitch_analysis_core_FLP expects that).
+	floatToInt16SliceScaled(frameFix, pcm[:frameLength], 1.0)
 
 	// Resample to 8kHz using libopus down2/down2_3
 	var frame8Fix []int16

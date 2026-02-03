@@ -2,6 +2,24 @@ package silk
 
 import "math"
 
+func computeMinInvGain(predGainQ7 int32, codingQuality float32, firstFrame bool) float64 {
+	if firstFrame {
+		return 1.0 / maxPredictionPowerGainAfterReset
+	}
+
+	predGain := float64(predGainQ7) / 128.0
+	minInvGainVal := math.Pow(2.0, predGain/3.0) / maxPredictionPowerGain
+	minInvGainVal /= 0.25 + 0.75*float64(codingQuality)
+
+	if minInvGainVal < 1.0/maxPredictionPowerGain {
+		minInvGainVal = 1.0 / maxPredictionPowerGain
+	}
+	if minInvGainVal > 1.0 {
+		minInvGainVal = 1.0
+	}
+	return minInvGainVal
+}
+
 func (e *Encoder) buildLTPResidual(pitchBuf []float32, frameStart int, gains []float32, pitchLags []int, ltpCoeffs LTPCoeffsArray, numSubframes, subframeSamples int, signalType int) []float32 {
 	preLen := e.lpcOrder
 	outLen := numSubframes * (subframeSamples + preLen)
@@ -67,7 +85,7 @@ func (e *Encoder) computeLPCFromLTPResidual(ltpRes []float32, numSubframes, subf
 		x[i] = float64(ltpRes[i])
 	}
 
-	a := e.burgModifiedFLPZeroAlloc(x, minInvGain, subfrLen, numSubframes, order)
+	a, _ := e.burgModifiedFLPZeroAlloc(x, minInvGain, subfrLen, numSubframes, order)
 
 	lpcQ12 := ensureInt16Slice(&e.scratchLpcQ12, order)
 	for i := 0; i < order; i++ {
@@ -81,6 +99,111 @@ func (e *Encoder) computeLPCFromLTPResidual(ltpRes []float32, numSubframes, subf
 	}
 
 	return lpcQ12
+}
+
+func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, subframeSamples int, minInvGainVal float64) ([]int16, []int16, int) {
+	order := e.lpcOrder
+	lpcQ12 := ensureInt16Slice(&e.scratchLpcQ12, order)
+	lsfQ15 := ensureInt16Slice(&e.scratchLSFQ15, order)
+
+	if order <= 0 {
+		return lpcQ12, lsfQ15, 4
+	}
+
+	subfrLen := subframeSamples + order
+	totalLen := numSubframes * subfrLen
+	if totalLen <= 0 || totalLen > len(ltpRes) {
+		for i := 0; i < order; i++ {
+			lpcQ12[i] = 0
+			lsfQ15[i] = int16((i + 1) * 32767 / (order + 1))
+		}
+		return lpcQ12, lsfQ15, 4
+	}
+
+	x := ensureFloat64Slice(&e.scratchLtpInput, totalLen)
+	for i := 0; i < totalLen; i++ {
+		x[i] = float64(ltpRes[i])
+	}
+
+	aFull, resNrg := e.burgModifiedFLPZeroAlloc(x, minInvGainVal, subfrLen, numSubframes, order)
+	fullTotalEnergy := e.lastTotalEnergy
+	fullInvGain := e.lastInvGain
+	fullNumSamples := e.lastNumSamples
+
+	for i := 0; i < order; i++ {
+		val := aFull[i] * 4096.0
+		if val > 32767 {
+			val = 32767
+		} else if val < -32768 {
+			val = -32768
+		}
+		lpcQ12[i] = int16(val)
+	}
+
+	lpcQ16 := ensureInt32Slice(&e.scratchLPCQ16, order)
+	for i := 0; i < order; i++ {
+		lpcQ16[i] = int32(aFull[i] * 65536.0)
+	}
+	silkA2NLSF(lsfQ15, lpcQ16, order)
+
+	interpIdx := 4
+	useInterp := e.complexity >= 4 && e.haveEncoded && numSubframes == maxNbSubfr
+	if useInterp {
+		halfOffset := (maxNbSubfr / 2) * subfrLen
+		if halfOffset+subfrLen*(maxNbSubfr/2) <= totalLen {
+			aLast, resNrgLast := e.burgModifiedFLPZeroAlloc(x[halfOffset:], minInvGainVal, subfrLen, maxNbSubfr/2, order)
+			lsfLast := ensureInt16Slice(&e.scratchNLSFTempQ15, order)
+			for i := 0; i < order; i++ {
+				lpcQ16[i] = int32(aLast[i] * 65536.0)
+			}
+			silkA2NLSF(lsfLast, lpcQ16, order)
+
+			// Restore full-frame energy stats for gain processing.
+			e.lastTotalEnergy = fullTotalEnergy
+			e.lastInvGain = fullInvGain
+			e.lastNumSamples = fullNumSamples
+
+			resNrg -= resNrgLast
+
+			resNrg2nd := math.MaxFloat64
+			analyzeLen := 2 * subfrLen
+			if analyzeLen <= totalLen {
+				var interpNLSF [maxLPCOrder]int16
+				var lpcTmpQ12 [maxLPCOrder]int16
+				lpcTmpF64 := ensureFloat64Slice(&e.scratchPredCoefF64A, order)
+				lpcRes := ensureFloat64Slice(&e.scratchLpcResF64, analyzeLen)
+
+				for k := 3; k >= 0; k-- {
+					interpolateNLSF(interpNLSF[:order], e.prevLSFQ15, lsfLast, k, order)
+					if !silkNLSF2A(lpcTmpQ12[:order], interpNLSF[:order], order) {
+						fallback := lsfToLPCDirect(interpNLSF[:order])
+						copy(lpcTmpQ12[:order], fallback[:order])
+					}
+					for i := 0; i < order; i++ {
+						lpcTmpF64[i] = float64(lpcTmpQ12[i]) / 4096.0
+					}
+					lpcAnalysisFilterFLP(lpcRes, lpcTmpF64, x, analyzeLen, order)
+
+					resNrgInterp := energyF64(lpcRes[order:], subfrLen-order)
+					resNrgInterp += energyF64(lpcRes[order+subfrLen:], subfrLen-order)
+
+					if resNrgInterp < resNrg {
+						resNrg = resNrgInterp
+						interpIdx = k
+					} else if resNrgInterp > resNrg2nd {
+						break
+					}
+					resNrg2nd = resNrgInterp
+				}
+			}
+
+			if interpIdx < 4 {
+				copy(lsfQ15, lsfLast)
+			}
+		}
+	}
+
+	return lpcQ12, lsfQ15, interpIdx
 }
 
 func (e *Encoder) computeResidualEnergies(ltpRes []float32, predCoefQ12 []int16, interpIdx int, gains []float32, numSubframes, subframeSamples int) []float64 {

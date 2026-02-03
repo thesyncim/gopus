@@ -292,14 +292,7 @@ func (r *LibopusResampler) Process(samples []float32) []float32 {
 		in = make([]int16, len(samples))
 	}
 	for i, s := range samples {
-		scaled := s * 32768.0
-		if scaled > 32767 {
-			in[i] = 32767
-		} else if scaled < -32768 {
-			in[i] = -32768
-		} else {
-			in[i] = int16(scaled)
-		}
+		in[i] = float32ToInt16(s)
 	}
 
 	// Calculate output size
@@ -419,14 +412,7 @@ func (r *LibopusResampler) ProcessInto(samples []float32, out []float32) int {
 		in = make([]int16, len(samples))
 	}
 	for i, s := range samples {
-		scaled := s * 32768.0
-		if scaled > 32767 {
-			in[i] = 32767
-		} else if scaled < -32768 {
-			in[i] = -32768
-		} else {
-			in[i] = int16(scaled)
-		}
+		in[i] = float32ToInt16(s)
 	}
 
 	// Calculate output size

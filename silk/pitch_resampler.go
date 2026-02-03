@@ -14,13 +14,14 @@ var resampler23CoefsLQ = [6]int16{
 }
 
 func floatToInt16Round(x float32) int16 {
-	v := int32(math.RoundToEven(float64(x)))
-	if v > 32767 {
-		v = 32767
-	} else if v < -32768 {
-		v = -32768
+	// Match libopus FLOAT2INT16: clamp before rounding to nearest.
+	if x > 32767 {
+		return 32767
 	}
-	return int16(v)
+	if x < -32768 {
+		return -32768
+	}
+	return int16(math.RoundToEven(float64(x)))
 }
 
 func floatToInt16SliceScaled(out []int16, in []float32, scale float32) {

@@ -618,6 +618,7 @@ func (e *Encoder) encodeSILKHybrid(pcm []float32, frameSize int) {
 func (e *Encoder) encodeSILKHybridMono(pcm []float32, silkSamples int) {
 	inputSamples := pcm[:min(len(pcm), silkSamples)]
 	vadFlag := e.computeSilkVAD(inputSamples, len(inputSamples), 16)
+	e.silkEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.lastVADInputQualityQ15)
 	lbrrFlag := false
 	if e.fecEnabled {
 		lbrrFlag = e.silkEncoder.HasLBRRData()
@@ -710,6 +711,8 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, silkSamples int) {
 
 	vadMid := e.computeSilkVAD(mid, len(mid), 16)
 	vadSide := e.computeSilkVADSide(side, len(side), 16)
+	e.silkEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.lastVADInputQualityQ15)
+	e.silkSideEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.lastVADInputQualityQ15)
 	lbrrMid := false
 	lbrrSide := false
 	if e.fecEnabled {

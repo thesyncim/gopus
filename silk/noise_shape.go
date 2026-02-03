@@ -112,6 +112,7 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 	pitchLags []int,
 	snrDBQ7 int,
 	quantOffsetType int,
+	inputQualityQ15 int,
 	numSubframes int,
 	fsKHz int,
 ) *NoiseShapeParams {
@@ -126,8 +127,12 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 	snrDB := float32(snrDBQ7) / 128.0
 	params.CodingQuality = sigmoid(0.25 * (snrDB - 20.0))
 
-	// Input quality (simplified: use speech activity as proxy)
-	params.InputQuality = float32(speechActivityQ8) / 256.0
+	// Input quality (prefer VAD-derived value, fallback to speech activity)
+	if inputQualityQ15 >= 0 {
+		params.InputQuality = float32(inputQualityQ15) / 32768.0
+	} else {
+		params.InputQuality = float32(speechActivityQ8) / 256.0
+	}
 
 	// Compute Lambda (rate-distortion tradeoff)
 	// Lambda = LAMBDA_OFFSET + LAMBDA_SPEECH_ACT * speech_activity

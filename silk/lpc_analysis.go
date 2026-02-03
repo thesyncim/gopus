@@ -588,7 +588,7 @@ func (e *Encoder) burgLPCZeroAlloc(signal []float32, order int) []int16 {
 		subfrLength = n / nbSubfr
 	}
 
-	a := e.burgModifiedFLPZeroAlloc(x, minInvGain, subfrLength, nbSubfr, order)
+	a, _ := e.burgModifiedFLPZeroAlloc(x, minInvGain, subfrLength, nbSubfr, order)
 
 	// Convert to Q12 fixed-point using scratch
 	lpcQ12 := ensureInt16Slice(&e.scratchLpcQ12, order)
@@ -606,7 +606,7 @@ func (e *Encoder) burgLPCZeroAlloc(signal []float32, order int) []int16 {
 }
 
 // burgModifiedFLPZeroAlloc computes LPC using scratch buffers.
-func (e *Encoder) burgModifiedFLPZeroAlloc(x []float64, minInvGainVal float64, subfrLength, nbSubfr, order int) []float64 {
+func (e *Encoder) burgModifiedFLPZeroAlloc(x []float64, minInvGainVal float64, subfrLength, nbSubfr, order int) ([]float64, float64) {
 	totalLen := nbSubfr * subfrLength
 	if totalLen > maxBurgFrameSize || totalLen > len(x) {
 		// Safety check - return zeros
@@ -614,7 +614,7 @@ func (e *Encoder) burgModifiedFLPZeroAlloc(x []float64, minInvGainVal float64, s
 		for i := range result {
 			result[i] = 0
 		}
-		return result
+		return result, 0
 	}
 
 	// Use scratch buffers for Burg algorithm working arrays
@@ -757,13 +757,29 @@ func (e *Encoder) burgModifiedFLPZeroAlloc(x []float64, minInvGainVal float64, s
 	e.lastInvGain = invGain
 	e.lastNumSamples = totalLen
 
+	var nrgF float64
+	if reachedMaxGain {
+		// Approximate residual energy
+		nrgF = C0 * invGain
+	} else {
+		// Compute residual energy using final correlation state
+		nrgF = CAf[0]
+		tmp1 := 1.0
+		for k := 0; k < order; k++ {
+			Atmp := Af[k]
+			nrgF += CAf[k+1] * Atmp
+			tmp1 += Atmp * Atmp
+		}
+		nrgF -= findLPCCondFac * C0 * tmp1
+	}
+
 	// Negate coefficients for LPC convention
 	A := ensureFloat64Slice(&e.scratchBurgResult, order)
 	for k := 0; k < order; k++ {
 		A[k] = -Af[k]
 	}
 
-	return A
+	return A, nrgF
 }
 
 // FindLPCWithInterpolation performs LPC analysis with NLSF interpolation search.

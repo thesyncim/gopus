@@ -54,6 +54,8 @@ func TestPitchAnalysisMatchesLibopus(t *testing.T) {
 	if !lib.Voiced {
 		t.Fatalf("libopus pitch analysis returned unvoiced")
 	}
+	t.Logf("go pitchLags=%v lagIndex=%d contourIndex=%d ltpCorr=%.4f", pitchLags, pitchParams.lagIdx, pitchParams.contourIdx, enc.pitchState.ltpCorr)
+	t.Logf("lib pitchLags=%v lagIndex=%d contourIndex=%d ltpCorr=%.4f", lib.Pitch[:numSubfr], lib.LagIndex, lib.ContourIndex, lib.LTPCorr)
 
 	for i := 0; i < numSubfr; i++ {
 		if pitchLags[i] != lib.Pitch[i] {

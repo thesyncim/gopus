@@ -187,21 +187,20 @@ func (r *DownsamplingResampler) Process(in []float32) []float32 {
 	// Convert float32 to int16
 	inInt := make([]int16, len(in))
 	for i, v := range in {
-		scaled := v * 32768.0
-		if scaled > 32767 {
-			scaled = 32767
-		} else if scaled < -32768 {
-			scaled = -32768
-		}
-		inInt[i] = int16(scaled)
+		inInt[i] = float32ToInt16(v)
+	}
+	if len(inInt) < int(r.fsInKHz) {
+		padded := make([]int16, r.fsInKHz)
+		copy(padded, inInt)
+		inInt = padded
 	}
 
 	// Calculate output length
 	outLen := int(int64(len(in)) * int64(r.fsOutKHz) / int64(r.fsInKHz))
 	outInt := make([]int16, outLen)
 
-	// Process
-	r.processInt16(outInt, inInt)
+	// Process with libopus-style delay handling
+	r.processWithDelay(outInt, inInt)
 
 	// Convert back to float32
 	out := make([]float32, len(outInt))
@@ -216,13 +215,12 @@ func (r *DownsamplingResampler) ProcessInto(in []float32, out []float32) int {
 	// Convert float32 to int16
 	inInt := make([]int16, len(in))
 	for i, v := range in {
-		scaled := v * 32768.0
-		if scaled > 32767 {
-			scaled = 32767
-		} else if scaled < -32768 {
-			scaled = -32768
-		}
-		inInt[i] = int16(scaled)
+		inInt[i] = float32ToInt16(v)
+	}
+	if len(inInt) < int(r.fsInKHz) {
+		padded := make([]int16, r.fsInKHz)
+		copy(padded, inInt)
+		inInt = padded
 	}
 
 	// Calculate output length
@@ -232,14 +230,58 @@ func (r *DownsamplingResampler) ProcessInto(in []float32, out []float32) int {
 	}
 	outInt := make([]int16, outLen)
 
-	// Process
-	r.processInt16(outInt, inInt)
+	// Process with libopus-style delay handling
+	r.processWithDelay(outInt, inInt)
 
 	// Convert back to float32
 	for i := 0; i < outLen && i < len(outInt); i++ {
 		out[i] = float32(outInt[i]) / 32768.0
 	}
 	return outLen
+}
+
+// processWithDelay matches libopus silk_resampler() for encoder downsampling.
+// It applies input delay buffering before calling the down_FIR core.
+func (r *DownsamplingResampler) processWithDelay(out []int16, in []int16) {
+	inLen := len(in)
+	if inLen == 0 {
+		return
+	}
+
+	nSamples := int(r.fsInKHz - r.inputDelay)
+	if nSamples < 0 {
+		nSamples = 0
+	}
+	if nSamples > inLen {
+		nSamples = inLen
+	}
+
+	// Copy to delay buffer (preserve first inputDelay samples from previous call).
+	if nSamples > 0 {
+		copy(r.delayBuf[r.inputDelay:], in[:nSamples])
+	}
+
+	// Process delay buffer (1ms = fsInKHz samples).
+	if len(out) >= int(r.fsOutKHz) {
+		r.processInt16(out[:r.fsOutKHz], r.delayBuf[:r.fsInKHz])
+	}
+
+	// Process remaining input, excluding the last inputDelay samples.
+	if inLen > int(r.fsInKHz) && len(out) > int(r.fsOutKHz) {
+		end := inLen - int(r.inputDelay)
+		if end < nSamples {
+			end = nSamples
+		}
+		if end > inLen {
+			end = inLen
+		}
+		r.processInt16(out[r.fsOutKHz:], in[nSamples:end])
+	}
+
+	// Save last inputDelay samples to delay buffer.
+	if r.inputDelay > 0 && inLen >= int(r.inputDelay) {
+		copy(r.delayBuf[:r.inputDelay], in[inLen-int(r.inputDelay):])
+	}
 }
 
 // processInt16 is the core downsampling function.

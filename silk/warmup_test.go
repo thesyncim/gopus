@@ -38,8 +38,12 @@ func TestPitchDetectionWithBuffer(t *testing.T) {
 		bufRMS := math.Sqrt(bufSum / float64(len(encoder.pitchAnalysisBuf)))
 		t.Logf("Frame %d: buffer RMS=%.4f", frame, bufRMS)
 
-		// Run pitch detection
-		pitchLags := encoder.detectPitch(encoder.pitchAnalysisBuf, 4, 0, 0)
+		// Run pitch detection (expects int16-scale input)
+		scaled := make([]float32, len(encoder.pitchAnalysisBuf))
+		for i, v := range encoder.pitchAnalysisBuf {
+			scaled[i] = v * float32(silkSampleScale)
+		}
+		pitchLags := encoder.detectPitch(scaled, 4, 0, 0)
 		t.Logf("Frame %d: pitchLags=%v, ltpCorr=%.4f", frame, pitchLags, encoder.pitchState.ltpCorr)
 
 		// On frame 2, trace the Stage 1 correlation manually
@@ -165,9 +169,13 @@ func TestPitchDetectionDirect(t *testing.T) {
 		t.Logf("Correlation at lag=%d: %.4f", testLag, corr)
 	}
 
-	// Now run the encoder's pitch detection
+	// Now run the encoder's pitch detection (expects int16-scale input)
 	encoder := NewEncoder(BandwidthWideband)
-	pitchLags := encoder.detectPitch(pcm, 4, 0, 0)
+	scaled := make([]float32, len(pcm))
+	for i, v := range pcm {
+		scaled[i] = v * float32(silkSampleScale)
+	}
+	pitchLags := encoder.detectPitch(scaled, 4, 0, 0)
 	t.Logf("Encoder's detectPitch result: %v", pitchLags)
 	t.Logf("Encoder's ltpCorr after detection: %.4f", encoder.pitchState.ltpCorr)
 

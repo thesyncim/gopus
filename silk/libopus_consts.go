@@ -62,6 +62,10 @@ const (
 	findPitchWhiteNoiseFraction = 1e-3
 	maxFindPitchLpcOrder        = 16
 	silkSampleScale             = 32768.0
+
+	// Prediction gain limits (define.h)
+	maxPredictionPowerGain            = 1e4
+	maxPredictionPowerGainAfterReset  = 1e2
 )
 
 // Pitch estimation constants moved to pitch_detect.go

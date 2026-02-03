@@ -7,6 +7,7 @@ package silk
 #cgo CFLAGS: -I${SRCDIR}/../tmp_check/opus-1.6.1/include -I${SRCDIR}/../tmp_check/opus-1.6.1/celt -I${SRCDIR}/../tmp_check/opus-1.6.1 -I${SRCDIR}/../tmp_check/opus-1.6.1/silk -I${SRCDIR}/../tmp_check/opus-1.6.1/silk/float -DHAVE_CONFIG_H
 #cgo LDFLAGS: -L${SRCDIR}/../tmp_check/opus-1.6.1/.libs -lopus -lm
 
+#include <stdlib.h>
 #include <string.h>
 #include "silk/float/main_FLP.h"
 #include "silk/main.h"
@@ -76,10 +77,31 @@ static void opus_silk_ltp_analysis_filter(const float *x, const float *B, const 
 static float opus_silk_burg_modified(const float *x, float minInvGain, int subfr_len, int nb_subfr, int order, float *A) {
     return silk_burg_modified_FLP(A, x, minInvGain, subfr_len, nb_subfr, order, 0);
 }
+
+static int opus_silk_resample_once(const float *in, int in_len, int fs_in, int fs_out, int for_enc, opus_int16 *out) {
+    silk_resampler_state_struct st;
+    opus_int ret = silk_resampler_init(&st, fs_in, fs_out, for_enc);
+    if (ret != 0) {
+        return ret;
+    }
+    opus_int16 *buf = (opus_int16*)malloc(sizeof(opus_int16) * in_len);
+    if (!buf) {
+        return -1;
+    }
+    for (int i = 0; i < in_len; i++) {
+        buf[i] = FLOAT2INT16(in[i]);
+    }
+    ret = silk_resampler(&st, out, buf, in_len);
+    free(buf);
+    return ret;
+}
 */
 import "C"
 
-import "unsafe"
+import (
+	"fmt"
+	"unsafe"
+)
 
 type libopusLTPQuantResult struct {
 	PerIndex     int8
@@ -222,4 +244,31 @@ func libopusBurgModified(x []float32, minInvGain float32, subfrLen, nbSubfr, ord
 		(*C.float)(unsafe.Pointer(&A[0])),
 	)
 	return A, float32(res)
+}
+
+func libopusResampleOnce(in []float32, fsIn, fsOut int, forEnc bool) ([]int16, error) {
+	if len(in) == 0 || fsIn <= 0 || fsOut <= 0 {
+		return nil, fmt.Errorf("invalid resampler input")
+	}
+	outLen := len(in) * fsOut / fsIn
+	if outLen <= 0 {
+		return nil, fmt.Errorf("invalid resampler output length")
+	}
+	out := make([]int16, outLen)
+	encFlag := 0
+	if forEnc {
+		encFlag = 1
+	}
+	ret := C.opus_silk_resample_once(
+		(*C.float)(unsafe.Pointer(&in[0])),
+		C.int(len(in)),
+		C.int(fsIn),
+		C.int(fsOut),
+		C.int(encFlag),
+		(*C.opus_int16)(unsafe.Pointer(&out[0])),
+	)
+	if ret != 0 {
+		return nil, fmt.Errorf("libopus resampler failed: %d", int(ret))
+	}
+	return out, nil
 }

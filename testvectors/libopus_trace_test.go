@@ -373,6 +373,7 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 	var perIndexDiff int
 	var ltpIndexDiff int
 	var ltpIndexCount int
+	var signalTypeDiff int
 
 	for i := 0; i < compareCount; i++ {
 		goPayload := gopusPackets[i]
@@ -399,6 +400,9 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 
 		goParams := goDec.GetLastFrameParams()
 		libParams := libDec.GetLastFrameParams()
+		if goDec.GetLastSignalType() != libDec.GetLastSignalType() {
+			signalTypeDiff++
+		}
 
 		if goParams.LTPScaleIndex != libParams.LTPScaleIndex {
 			ltpScaleDiff++
@@ -443,4 +447,5 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 	if ltpIndexCount > 0 {
 		t.Logf("LTP index mismatches: %d/%d", ltpIndexDiff, ltpIndexCount)
 	}
+	t.Logf("Signal type mismatches: %d/%d", signalTypeDiff, compareCount)
 }
