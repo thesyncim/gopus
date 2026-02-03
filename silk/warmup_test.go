@@ -43,7 +43,7 @@ func TestPitchDetectionWithBuffer(t *testing.T) {
 		for i, v := range encoder.pitchAnalysisBuf {
 			scaled[i] = v * float32(silkSampleScale)
 		}
-		pitchLags := encoder.detectPitch(scaled, 4, 0, 0)
+		pitchLags, _, _ := encoder.detectPitch(scaled, 4, 0, 0)
 		t.Logf("Frame %d: pitchLags=%v, ltpCorr=%.4f", frame, pitchLags, encoder.pitchState.ltpCorr)
 
 		// On frame 2, trace the Stage 1 correlation manually
@@ -175,7 +175,7 @@ func TestPitchDetectionDirect(t *testing.T) {
 	for i, v := range pcm {
 		scaled[i] = v * float32(silkSampleScale)
 	}
-	pitchLags := encoder.detectPitch(scaled, 4, 0, 0)
+	pitchLags, _, _ := encoder.detectPitch(scaled, 4, 0, 0)
 	t.Logf("Encoder's detectPitch result: %v", pitchLags)
 	t.Logf("Encoder's ltpCorr after detection: %.4f", encoder.pitchState.ltpCorr)
 

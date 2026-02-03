@@ -89,10 +89,10 @@ func TestPitchMultiFrameTraceAgainstLibopus(t *testing.T) {
 			thrhld = 1
 		}
 
-		goPitchLags := enc.detectPitch(residual32[:frameLen], numSubfr, searchThres1, thrhld)
+		goPitchLags, lagIdx, contourIdx := enc.detectPitch(residual32[:frameLen], numSubfr, searchThres1, thrhld)
 		goParams := pitchEncodeParams{}
 		if enc.pitchState.ltpCorr > 0 {
-			goParams = enc.preparePitchLags(append([]int(nil), goPitchLags...), numSubfr)
+			goParams = enc.preparePitchLags(append([]int(nil), goPitchLags...), numSubfr, lagIdx, contourIdx)
 		}
 
 		lib := libopusPitchAnalysis(residual32[:frameLen], fsKHz, numSubfr, complexity, searchThres1, thrhld, libPrevLag, libLTPCorr)
@@ -190,7 +190,7 @@ func TestPitchMultiFrameVoicedTraceAgainstLibopus(t *testing.T) {
 			thrhld = 1
 		}
 
-		goPitchLags := enc.detectPitch(residual32[:frameLen], numSubfr, searchThres1, thrhld)
+		goPitchLags, lagIdx, contourIdx := enc.detectPitch(residual32[:frameLen], numSubfr, searchThres1, thrhld)
 		lib := libopusPitchAnalysis(residual32[:frameLen], fsKHz, numSubfr, complexity, searchThres1, thrhld, libPrevLag, libLTPCorr)
 
 		if lib.Voiced {
@@ -209,7 +209,7 @@ func TestPitchMultiFrameVoicedTraceAgainstLibopus(t *testing.T) {
 			t.Fatalf("frame %d: expected voiced pitch (go=%v lib=%v)", frame, enc.pitchState.ltpCorr > 0, lib.Voiced)
 		}
 
-		goParams := enc.preparePitchLags(append([]int(nil), goPitchLags...), numSubfr)
+		goParams := enc.preparePitchLags(append([]int(nil), goPitchLags...), numSubfr, lagIdx, contourIdx)
 		for i := 0; i < numSubfr; i++ {
 			if goPitchLags[i] != lib.Pitch[i] {
 				t.Fatalf("frame %d pitchLags[%d] mismatch: go=%d lib=%d",

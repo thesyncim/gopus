@@ -321,6 +321,8 @@ Always use this reference when implementing features or debugging discrepancies.
    - Initialized `prevLag` to 100 in `NewEncoder`
 4. ✅ **Trace Status** - `testvectors/libopus_trace_test.go`
    - Stable metrics: Gain~5.07, LTP Scale~12/50, NLSF~20/50, LTP~83/200
+   - Note: LTP quantization logic verified bit-exact with `TestLTPQuantizationTraceAgainstLibopus` (0/50).
+   - Remaining mismatches likely due to sensitive state divergence in residual generation or floating-point associativity differences accumulating over frames.
 
 ---
 

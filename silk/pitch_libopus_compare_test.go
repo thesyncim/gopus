@@ -43,12 +43,12 @@ func TestPitchAnalysisMatchesLibopus(t *testing.T) {
 	searchThres1 := 0.8 - 0.5*float64(complexity)/2.0
 	searchThres2 := 0.4 - 0.25*float64(complexity)/2.0
 
-	pitchLags := enc.detectPitch(residual32, numSubfr, searchThres1, searchThres2)
+	pitchLags, lagIdx, contourIdx := enc.detectPitch(residual32, numSubfr, searchThres1, searchThres2)
 	if len(pitchLags) != numSubfr {
-		t.Fatalf("unexpected pitch lag count: %d", len(pitchLags))
+		t.Fatalf("expected %d pitch lags, got %d", numSubfr, len(pitchLags))
 	}
 
-	pitchParams := enc.preparePitchLags(append([]int(nil), pitchLags...), numSubfr)
+	pitchParams := enc.preparePitchLags(pitchLags, numSubfr, lagIdx, contourIdx)
 
 	lib := libopusPitchAnalysis(residual32[:frameLen], fsKHz, numSubfr, complexity, searchThres1, searchThres2, 0, 0)
 	if !lib.Voiced {

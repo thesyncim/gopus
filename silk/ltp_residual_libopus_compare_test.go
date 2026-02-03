@@ -55,7 +55,7 @@ func TestLTPResidualTraceAgainstLibopus(t *testing.T) {
 				thrhld = 1
 			}
 
-			pitchLags = enc.detectPitch(residual32, numSubfr, searchThres1, thrhld)
+			pitchLags, _, _ = enc.detectPitch(residual32, numSubfr, searchThres1, thrhld)
 			enc.ltpCorr = float32(enc.pitchState.ltpCorr)
 			if enc.ltpCorr > 1.0 {
 				enc.ltpCorr = 1.0

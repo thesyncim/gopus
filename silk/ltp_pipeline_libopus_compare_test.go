@@ -40,7 +40,9 @@ func TestLTPQuantizationPipelineMatchesLibopus(t *testing.T) {
 		thrhld = 1
 	}
 
-	pitchLags := enc.detectPitch(residual32, numSubframes, searchThres1, thrhld)
+			pitchLags, _, _ := enc.detectPitch(residual32, numSubframes, searchThres1, thrhld)
+
+	
 	if len(pitchLags) != numSubframes {
 		t.Fatalf("unexpected pitch lag count: %d", len(pitchLags))
 	}
