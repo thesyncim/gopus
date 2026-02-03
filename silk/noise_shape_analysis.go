@@ -401,16 +401,5 @@ func limitCoefs(coefs []float64, limit float64, order int) {
 }
 
 func floatToInt16(x float64) int16 {
-	if x >= 0 {
-		x += 0.5
-	} else {
-		x -= 0.5
-	}
-	if x > math.MaxInt16 {
-		return math.MaxInt16
-	}
-	if x < math.MinInt16 {
-		return math.MinInt16
-	}
-	return int16(x)
+	return float64ToInt16Round(x)
 }

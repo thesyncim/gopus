@@ -46,7 +46,7 @@ func (e *Encoder) quantizeLSF(lsfQ15 []int16, bandwidth Bandwidth, signalType in
 		nlsf0 := ensureInt16Slice(&e.scratchNLSFTempQ15, order)
 		for i := 0; i < order; i++ {
 			diff := int32(lsfQ15[i]) - int32(e.prevLSFQ15[i])
-			nlsf0[i] = int16(int32(e.prevLSFQ15[i]) + (int32(interpIdx) * diff >> 2))
+			nlsf0[i] = int16(int32(e.prevLSFQ15[i]) + ((int32(interpIdx)*diff + 2) >> 2))
 		}
 		w0Q2 := ensureInt16Slice(&e.scratchNLSFWeightsTmp, order)
 		silkNLSFWeightsLaroia(w0Q2, nlsf0, order)
@@ -116,7 +116,7 @@ func (e *Encoder) quantizeLSFWithInterp(lsfQ15 []int16, bandwidth Bandwidth, sig
 		nlsf0 := ensureInt16Slice(&e.scratchNLSFTempQ15, order)
 		for i := 0; i < order; i++ {
 			diff := int32(lsfQ15[i]) - int32(e.prevLSFQ15[i])
-			nlsf0[i] = int16(int32(e.prevLSFQ15[i]) + (int32(interpIdx) * diff >> 2))
+			nlsf0[i] = int16(int32(e.prevLSFQ15[i]) + ((int32(interpIdx)*diff + 2) >> 2))
 		}
 		w0Q2 := ensureInt16Slice(&e.scratchNLSFWeightsTmp, order)
 		silkNLSFWeightsLaroia(w0Q2, nlsf0, order)
@@ -394,7 +394,7 @@ func (e *Encoder) buildPredCoefQ12(predCoefQ12 []int16, nlsfQ15 []int16, interpI
 		var interpNLSF [maxLPCOrder]int16
 		for i := 0; i < order; i++ {
 			diff := int32(nlsfQ15[i]) - int32(e.prevLSFQ15[i])
-			interpNLSF[i] = int16(int32(e.prevLSFQ15[i]) + (int32(interpIdx) * diff >> 2))
+			interpNLSF[i] = int16(int32(e.prevLSFQ15[i]) + ((int32(interpIdx)*diff + 2) >> 2))
 		}
 		first := predCoefQ12[:order]
 		if !silkNLSF2A(first, interpNLSF[:order], order) {

@@ -88,6 +88,7 @@ func (e *Encoder) computePitchResidual(numSubframes int) ([]float64, []float32, 
 	ltpMemSamples := ltpMemLengthMs * fsKHz
 	histLen := ltpMemSamples + frameSamples
 	laPitch := laPitchMs * fsKHz
+	laShape := laShapeMs * fsKHz
 	needed := histLen + laPitch
 
 	input := ensureFloat64Slice(&e.scratchLtpInput, needed)
@@ -95,8 +96,21 @@ func (e *Encoder) computePitchResidual(numSubframes int) ([]float64, []float32, 
 		input[i] = 0
 	}
 	if len(e.inputBuffer) >= needed {
+		// Align pitch buffer to use LA_PITCH lookahead instead of LA_SHAPE.
+		// x_buf layout: [ltp_mem][la_shape][frame]. We want [ltp_mem][la_pitch][frame].
+		offset := laShape - laPitch
+		if offset < 0 {
+			offset = 0
+		}
+		if offset+needed > len(e.inputBuffer) {
+			if len(e.inputBuffer) > needed {
+				offset = len(e.inputBuffer) - needed
+			} else {
+				offset = 0
+			}
+		}
 		for i := 0; i < needed; i++ {
-			input[i] = float64(e.inputBuffer[i]) * silkSampleScale
+			input[i] = float64(e.inputBuffer[i+offset]) * silkSampleScale
 		}
 	} else {
 		pitchBuf := e.pitchAnalysisBuf

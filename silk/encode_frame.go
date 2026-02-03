@@ -176,14 +176,14 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	// Step 4: Build LTP residual and compute LPC from it
 	fsKHz := config.SampleRate / 1000
 	ltpMemSamples := ltpMemLengthMs * fsKHz
-	histLen := ltpMemSamples + frameSamples
 	pitchBuf := e.inputBuffer
-	if len(pitchBuf) > histLen {
-		pitchBuf = pitchBuf[:histLen]
-	}
-	frameStart := len(pitchBuf) - frameSamples
-	if frameStart < 0 {
-		frameStart = 0
+	frameStart := ltpMemSamples
+	if frameStart+frameSamples > len(pitchBuf) {
+		if len(pitchBuf) > frameSamples {
+			frameStart = len(pitchBuf) - frameSamples
+		} else {
+			frameStart = 0
+		}
 	}
 	ltpRes := e.buildLTPResidual(pitchBuf, frameStart, gains, pitchLags, ltpCoeffs, numSubframes, subframeSamples, signalType)
 	codingQuality := float32(0.0)
@@ -688,14 +688,14 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 	// Step 4: Build LTP residual and compute LPC from it
 	fsKHz := config.SampleRate / 1000
 	ltpMemSamples := ltpMemLengthMs * fsKHz
-	histLen := ltpMemSamples + frameSamples
 	pitchBuf := e.inputBuffer
-	if len(pitchBuf) > histLen {
-		pitchBuf = pitchBuf[:histLen]
-	}
-	frameStart := len(pitchBuf) - frameSamples
-	if frameStart < 0 {
-		frameStart = 0
+	frameStart := ltpMemSamples
+	if frameStart+frameSamples > len(pitchBuf) {
+		if len(pitchBuf) > frameSamples {
+			frameStart = len(pitchBuf) - frameSamples
+		} else {
+			frameStart = 0
+		}
 	}
 	ltpRes := e.buildLTPResidual(pitchBuf, frameStart, gains, pitchLags, ltpCoeffs, numSubframes, subframeSamples, signalType)
 	codingQuality := float32(0.0)

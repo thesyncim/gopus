@@ -494,15 +494,15 @@ func TestNLSFInterpolation(t *testing.T) {
 		curNLSF[i] = int16(2000 + i*300)
 	}
 
-	// Test interpolation coefficient 0 (100% current)
+	// Test interpolation coefficient 0 (100% previous)
 	interpolateNLSF(outNLSF, prevNLSF, curNLSF, 0, order)
 	for i := 0; i < order; i++ {
-		if outNLSF[i] != curNLSF[i] {
-			t.Errorf("interpCoef=0: expected %d, got %d at index %d", curNLSF[i], outNLSF[i], i)
+		if outNLSF[i] != prevNLSF[i] {
+			t.Errorf("interpCoef=0: expected %d, got %d at index %d", prevNLSF[i], outNLSF[i], i)
 		}
 	}
 
-	// Test interpolation coefficient 4 (copy current)
+	// Test interpolation coefficient 4 (100% current)
 	interpolateNLSF(outNLSF, prevNLSF, curNLSF, 4, order)
 	for i := 0; i < order; i++ {
 		if outNLSF[i] != curNLSF[i] {
@@ -513,7 +513,8 @@ func TestNLSFInterpolation(t *testing.T) {
 	// Test interpolation coefficient 2 (50% blend)
 	interpolateNLSF(outNLSF, prevNLSF, curNLSF, 2, order)
 	for i := 0; i < order; i++ {
-		expected := (int32(prevNLSF[i])*2 + int32(curNLSF[i])*2 + 2) >> 2
+		diff := int32(curNLSF[i]) - int32(prevNLSF[i])
+		expected := int32(prevNLSF[i]) + ((2*diff + 2) >> 2)
 		if int32(outNLSF[i]) != expected {
 			t.Errorf("interpCoef=2: expected %d, got %d at index %d", expected, outNLSF[i], i)
 		}

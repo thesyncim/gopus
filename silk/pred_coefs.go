@@ -89,13 +89,7 @@ func (e *Encoder) computeLPCFromLTPResidual(ltpRes []float32, numSubframes, subf
 
 	lpcQ12 := ensureInt16Slice(&e.scratchLpcQ12, order)
 	for i := 0; i < order; i++ {
-		val := a[i] * 4096.0
-		if val > 32767 {
-			val = 32767
-		} else if val < -32768 {
-			val = -32768
-		}
-		lpcQ12[i] = int16(val)
+		lpcQ12[i] = float64ToInt16Round(a[i] * 4096.0)
 	}
 
 	return lpcQ12
@@ -131,18 +125,12 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 	fullNumSamples := e.lastNumSamples
 
 	for i := 0; i < order; i++ {
-		val := aFull[i] * 4096.0
-		if val > 32767 {
-			val = 32767
-		} else if val < -32768 {
-			val = -32768
-		}
-		lpcQ12[i] = int16(val)
+		lpcQ12[i] = float64ToInt16Round(aFull[i] * 4096.0)
 	}
 
 	lpcQ16 := ensureInt32Slice(&e.scratchLPCQ16, order)
 	for i := 0; i < order; i++ {
-		lpcQ16[i] = int32(aFull[i] * 65536.0)
+		lpcQ16[i] = float64ToInt32Round(aFull[i] * 65536.0)
 	}
 	silkA2NLSF(lsfQ15, lpcQ16, order)
 
@@ -154,7 +142,7 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 			aLast, resNrgLast := e.burgModifiedFLPZeroAlloc(x[halfOffset:], minInvGainVal, subfrLen, maxNbSubfr/2, order)
 			lsfLast := ensureInt16Slice(&e.scratchNLSFTempQ15, order)
 			for i := 0; i < order; i++ {
-				lpcQ16[i] = int32(aLast[i] * 65536.0)
+				lpcQ16[i] = float64ToInt32Round(aLast[i] * 65536.0)
 			}
 			silkA2NLSF(lsfLast, lpcQ16, order)
 

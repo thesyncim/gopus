@@ -320,7 +320,7 @@ func a2nlsfFLP(a []float64, order int) []int16 {
 	// Convert float64 LPC to Q16 for the fixed-point A2NLSF
 	aQ16 := make([]int32, order)
 	for k := 0; k < order; k++ {
-		aQ16[k] = int32(a[k] * 65536.0)
+		aQ16[k] = float64ToInt32Round(a[k] * 65536.0)
 	}
 
 	nlsfQ15 := make([]int16, order)
@@ -759,8 +759,16 @@ func (e *Encoder) burgModifiedFLPZeroAlloc(x []float64, minInvGainVal float64, s
 
 	var nrgF float64
 	if reachedMaxGain {
-		// Approximate residual energy
-		nrgF = C0 * invGain
+		// Approximate residual energy (match libopus: subtract energy of preceding samples).
+		adjustedC0 := C0
+		for s := 0; s < nbSubfr; s++ {
+			start := s * subfrLength
+			if start+order > totalLen {
+				break
+			}
+			adjustedC0 -= energyF64(x[start:start+order], order)
+		}
+		nrgF = adjustedC0 * invGain
 	} else {
 		// Compute residual energy using final correlation state
 		nrgF = CAf[0]
@@ -874,16 +882,17 @@ func (e *Encoder) FindLPCWithInterpolation(x []float32, prevNLSFQ15 []int16, use
 }
 
 // interpolateNLSF interpolates between two NLSF vectors.
-// interpCoef: 0-3 (weight for prevNLSF is interpCoef/4)
+// interpCoef: 0-4 (weight for curNLSF is interpCoef/4).
 func interpolateNLSF(out, prevNLSF, curNLSF []int16, interpCoef, order int) {
 	if interpCoef == 4 {
 		copy(out, curNLSF)
 		return
 	}
 
-	// out = (prevNLSF * interpCoef + curNLSF * (4 - interpCoef) + 2) >> 2
+	// out = prevNLSF + ((curNLSF - prevNLSF) * interpCoef + 2) >> 2
 	for i := 0; i < order; i++ {
-		out[i] = int16((int32(prevNLSF[i])*int32(interpCoef) + int32(curNLSF[i])*int32(4-interpCoef) + 2) >> 2)
+		diff := int32(curNLSF[i]) - int32(prevNLSF[i])
+		out[i] = int16(int32(prevNLSF[i]) + ((int32(interpCoef)*diff + 2) >> 2))
 	}
 }
 

@@ -11,10 +11,7 @@ const (
 )
 
 func float64ToInt32(x float64) int32 {
-	if x >= 0 {
-		return int32(x + 0.5)
-	}
-	return int32(x - 0.5)
+	return float64ToInt32Round(x)
 }
 
 func corrMatrixFLP(x []float64, subfrLen, order int, out []float64) {

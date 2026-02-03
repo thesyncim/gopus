@@ -122,7 +122,8 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, frameSize int) ([]byte, error
 	// Lower CELT bitrate means we should attenuate high frequencies
 	hbGain := e.computeHBGain(celtBitrate)
 
-	// Compute target buffer size based on bitrate mode
+	// Compute target buffer size based on bitrate mode.
+	// baseTargetBytes includes the TOC byte; payloadTarget is the shared range payload.
 	baseTargetBytes := targetBytesForBitrate(e.bitrate, frameSize)
 	if baseTargetBytes < 2 {
 		baseTargetBytes = 2
@@ -131,18 +132,18 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, frameSize int) ([]byte, error
 	if payloadTarget < 1 {
 		payloadTarget = 1
 	}
-	targetBytes := payloadTarget
 
+	maxTargetBytes := payloadTarget
 	switch e.bitrateMode {
 	case ModeCBR:
-		targetBytes = payloadTarget
+		maxTargetBytes = payloadTarget
 	case ModeCVBR:
 		maxAllowed := int(float64(baseTargetBytes) * (1 + CVBRTolerance))
 		if maxAllowed < 2 {
 			maxAllowed = 2
 		}
 		// Reserve one extra byte to account for range coder end bits.
-		targetBytes = maxAllowed - 2
+		maxTargetBytes = maxAllowed - 2
 	case ModeVBR:
 		// Allow up to 2x target in VBR (matches libopus compute_vbr cap).
 		maxAllowed := int(float64(baseTargetBytes) * 2.0)
@@ -150,13 +151,13 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, frameSize int) ([]byte, error
 			maxAllowed = 2
 		}
 		// Reserve one extra byte to account for range coder end bits.
-		targetBytes = maxAllowed - 2
+		maxTargetBytes = maxAllowed - 2
 	}
-	if targetBytes < 1 {
-		targetBytes = 1
+	if maxTargetBytes < payloadTarget {
+		maxTargetBytes = payloadTarget
 	}
-	if targetBytes > maxHybridPacketSize-1 {
-		targetBytes = maxHybridPacketSize - 1
+	if maxTargetBytes > maxHybridPacketSize-1 {
+		maxTargetBytes = maxHybridPacketSize - 1
 	}
 
 	// Initialize shared range encoder
@@ -164,9 +165,9 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, frameSize int) ([]byte, error
 	re := &rangecoding.Encoder{}
 	re.Init(buf)
 	if e.bitrateMode == ModeCBR {
-		re.Shrink(uint32(targetBytes))
+		re.Shrink(uint32(maxTargetBytes))
 	} else {
-		re.Limit(uint32(targetBytes))
+		re.Limit(uint32(maxTargetBytes))
 	}
 
 	// Step 1: Downsample 48kHz -> 16kHz for SILK using libopus-matching resampler
@@ -212,7 +213,7 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, frameSize int) ([]byte, error
 	e.celtEncoder.SetRangeEncoder(re)
 	e.celtEncoder.SetBitrate(celtBitrate)
 	e.celtEncoder.SetLSBDepth(e.lsbDepth)
-	e.encodeCELTHybridImproved(celtInput, frameSize)
+	e.encodeCELTHybridImproved(celtInput, frameSize, payloadTarget)
 
 	// Update state for next frame
 	e.hybridState.prevHBGain = hbGain
@@ -854,7 +855,8 @@ func celtBandwidthFromTypes(bw types.Bandwidth) celt.CELTBandwidth {
 
 // encodeCELTHybridImproved encodes CELT data for hybrid mode with improvements.
 // Implements proper energy matching at the crossover frequency.
-func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int) {
+// targetPayloadBytes is the desired total payload budget (excluding TOC) for the full packet.
+func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetPayloadBytes int) {
 	// Set hybrid mode flag on CELT encoder
 	e.celtEncoder.SetHybrid(true)
 
@@ -871,7 +873,14 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int) {
 		return
 	}
 
-	totalBits := re.StorageBits()
+	if targetPayloadBytes < 1 {
+		targetPayloadBytes = 1
+	}
+	totalBits := targetPayloadBytes * 8
+	if used := re.Tell(); totalBits < used+8 {
+		// Ensure we don't end up with negative budgets if SILK used more bits.
+		totalBits = used + 8
+	}
 
 	// Hybrid CELT only encodes bands starting at HybridCELTStartBand.
 	start := celt.HybridCELTStartBand

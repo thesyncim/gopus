@@ -15,12 +15,13 @@ func TestLTPAnalysisFilterAndBurgMatchLibopus(t *testing.T) {
 	frameLen := subfrLen * nbSubfr
 	preLen := enc.lpcOrder
 	ltpMem := ltpMemLengthMs * fsKHz
+	laShape := laShapeMs * fsKHz
 
 	if preLen <= 0 {
 		t.Fatalf("invalid LPC order: %d", preLen)
 	}
 
-	pitchBuf := make([]float32, ltpMem+frameLen)
+	pitchBuf := make([]float32, ltpMem+laShape+frameLen)
 	for i := range pitchBuf {
 		tm := float64(i) / float64(fsKHz*1000)
 		pitchBuf[i] = float32(
