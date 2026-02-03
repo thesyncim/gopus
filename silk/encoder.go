@@ -51,6 +51,12 @@ type Encoder struct {
 	pitchEstimationThresholdQ16 int32
 	pitchEstimationLPCOrder     int
 
+	// Noise shaping analysis tuning (mirrors libopus control_codec.c)
+	shapingLPCOrder int
+	laShape         int
+	shapeWinLength  int
+	warpingQ16      int
+
 	// LPC analysis results (for gain computation from prediction residual)
 	lastTotalEnergy float64 // C0 from Burg analysis
 	lastInvGain     float64 // Inverse prediction gain from Burg analysis
@@ -76,6 +82,8 @@ type Encoder struct {
 	lbrrFlag            int                                 // LBRR flag for current packet header
 	lbrrIndices         [maxFramesPerPacket]sideInfoIndices // LBRR indices per frame
 	lbrrPulses          [maxFramesPerPacket][]int8          // LBRR pulses per frame
+	lbrrFrameLength     [maxFramesPerPacket]int             // LBRR frame length per frame
+	lbrrNbSubfr         [maxFramesPerPacket]int             // LBRR subframe count per frame
 	packetLossPercent   int                                 // Expected packet loss (0-100)
 	nFramesEncoded      int                                 // Number of frames encoded in current packet
 	nFramesPerPacket    int                                 // Number of frames per packet
@@ -146,6 +154,13 @@ type Encoder struct {
 	scratchPitchRefl  []float64    // Pitch analysis: reflection coefficients
 	scratchPitchA     []float64    // Pitch analysis: LPC coefficients
 	scratchPitchRes32 []float32    // Pitch analysis: residual as float32
+
+	// Noise shaping analysis scratch buffers
+	scratchShapeInput    []float64 // noise shape analysis: input with lookahead
+	scratchShapeWindow   []float64 // noise shape analysis: windowed buffer
+	scratchShapeAutoCorr []float64 // noise shape analysis: autocorrelation
+	scratchShapeRc       []float64 // noise shape analysis: reflection coeffs
+	scratchShapeAr       []float64 // noise shape analysis: AR coeffs
 
 	// LTP residual and residual energy scratch
 	scratchLtpResF32    []float32 // LTP analysis: LTP residual with pre-length
@@ -347,6 +362,10 @@ func (e *Encoder) Reset() {
 	for i := range e.lbrrIndices {
 		e.lbrrIndices[i] = sideInfoIndices{}
 	}
+	for i := range e.lbrrFrameLength {
+		e.lbrrFrameLength[i] = 0
+		e.lbrrNbSubfr[i] = 0
+	}
 	for i := range e.lbrrPulses {
 		for j := range e.lbrrPulses[i] {
 			e.lbrrPulses[i][j] = 0
@@ -364,40 +383,76 @@ func (e *Encoder) SetComplexity(complexity int) {
 	}
 	e.complexity = complexity
 
+	fsKHz := e.sampleRate / 1000
+	if fsKHz < 1 {
+		fsKHz = 1
+	}
+
 	switch {
 	case complexity < 1:
 		e.pitchEstimationComplexity = 0
 		e.pitchEstimationThresholdQ16 = 52429
 		e.pitchEstimationLPCOrder = 6
+		e.shapingLPCOrder = 12
+		e.laShape = 3 * fsKHz
+		e.warpingQ16 = 0
 	case complexity < 2:
 		e.pitchEstimationComplexity = 1
 		e.pitchEstimationThresholdQ16 = 49807
 		e.pitchEstimationLPCOrder = 8
+		e.shapingLPCOrder = 14
+		e.laShape = 5 * fsKHz
+		e.warpingQ16 = 0
 	case complexity < 3:
 		e.pitchEstimationComplexity = 0
 		e.pitchEstimationThresholdQ16 = 52429
 		e.pitchEstimationLPCOrder = 6
+		e.shapingLPCOrder = 12
+		e.laShape = 3 * fsKHz
+		e.warpingQ16 = 0
 	case complexity < 4:
 		e.pitchEstimationComplexity = 1
 		e.pitchEstimationThresholdQ16 = 49807
 		e.pitchEstimationLPCOrder = 8
+		e.shapingLPCOrder = 14
+		e.laShape = 5 * fsKHz
+		e.warpingQ16 = 0
 	case complexity < 6:
 		e.pitchEstimationComplexity = 1
 		e.pitchEstimationThresholdQ16 = 48497
 		e.pitchEstimationLPCOrder = 10
+		e.shapingLPCOrder = 16
+		e.laShape = 5 * fsKHz
+		e.warpingQ16 = int(float64(fsKHz) * warpingMultiplier * 65536.0)
 	case complexity < 8:
 		e.pitchEstimationComplexity = 1
 		e.pitchEstimationThresholdQ16 = 47186
 		e.pitchEstimationLPCOrder = 12
+		e.shapingLPCOrder = 20
+		e.laShape = 5 * fsKHz
+		e.warpingQ16 = int(float64(fsKHz) * warpingMultiplier * 65536.0)
 	default:
 		e.pitchEstimationComplexity = 2
 		e.pitchEstimationThresholdQ16 = 45875
 		e.pitchEstimationLPCOrder = 16
+		e.shapingLPCOrder = 24
+		e.laShape = 5 * fsKHz
+		e.warpingQ16 = int(float64(fsKHz) * warpingMultiplier * 65536.0)
 	}
 
 	if e.pitchEstimationLPCOrder > e.lpcOrder {
 		e.pitchEstimationLPCOrder = e.lpcOrder
 	}
+	if e.shapingLPCOrder > maxShapeLpcOrder {
+		e.shapingLPCOrder = maxShapeLpcOrder
+	}
+	if e.shapingLPCOrder < 2 {
+		e.shapingLPCOrder = 2
+	}
+	if e.shapingLPCOrder&1 != 0 {
+		e.shapingLPCOrder--
+	}
+	e.shapeWinLength = subFrameLengthMs*fsKHz + 2*e.laShape
 }
 
 // Complexity returns the current SILK complexity setting.

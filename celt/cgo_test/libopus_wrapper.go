@@ -356,6 +356,224 @@ int test_silk_decode_indices_pulses(
     return -1;
 }
 
+// Decode SILK LBRR indices and pulses for a specific frame in a packet.
+// Returns 0 on success, -1 on failure (e.g., bad frame index or no LBRR).
+int test_silk_decode_lbrr_indices_pulses(
+    const unsigned char *data, int data_len,
+    int fs_kHz, int nb_subfr, int frames_per_packet, int frame_index,
+    opus_int8 *out_gains, opus_int8 *out_ltp, opus_int8 *out_nlsf,
+    opus_int16 *out_lag, opus_int8 *out_contour, opus_int8 *out_signalType,
+    opus_int8 *out_quantOffset, opus_int8 *out_nlsfInterp, opus_int8 *out_perIndex,
+    opus_int8 *out_ltpScale, opus_int8 *out_seed,
+    opus_int16 *out_pulses, int out_pulses_len)
+{
+    if (frame_index < 0 || frame_index >= frames_per_packet) {
+        return -1;
+    }
+
+    ec_dec dec;
+    silk_decoder_state st;
+    opus_int16 pulses_buf[MAX_FRAME_LENGTH + SHELL_CODEC_FRAME_LENGTH];
+    int i;
+
+    ec_dec_init(&dec, (unsigned char*)data, data_len);
+    silk_init_decoder(&st);
+    st.nb_subfr = nb_subfr;
+    st.nFramesPerPacket = frames_per_packet;
+    silk_decoder_set_fs(&st, fs_kHz, fs_kHz * 1000);
+
+    // Decode VAD flags
+    for (i = 0; i < frames_per_packet; i++) {
+        st.VAD_flags[i] = ec_dec_bit_logp(&dec, 1);
+    }
+    // Decode LBRR flags
+    st.LBRR_flag = ec_dec_bit_logp(&dec, 1);
+    silk_memset(st.LBRR_flags, 0, sizeof(st.LBRR_flags));
+    if (!st.LBRR_flag) {
+        return -1;
+    }
+    if (frames_per_packet == 1) {
+        st.LBRR_flags[0] = 1;
+    } else {
+        opus_int32 LBRR_symbol = ec_dec_icdf(&dec, silk_LBRR_flags_iCDF_ptr[frames_per_packet - 2], 8) + 1;
+        for (i = 0; i < frames_per_packet; i++) {
+            st.LBRR_flags[i] = (LBRR_symbol >> i) & 1;
+        }
+    }
+
+    // Decode LBRR payload and return requested frame
+    for (i = 0; i < frames_per_packet; i++) {
+        if (st.LBRR_flags[i] == 0) {
+            continue;
+        }
+        int condCoding = CODE_INDEPENDENTLY;
+        if (i > 0 && st.LBRR_flags[i - 1]) {
+            condCoding = CODE_CONDITIONALLY;
+        }
+        silk_decode_indices(&st, &dec, i, 1, condCoding);
+        int pulses_len = (st.frame_length + SHELL_CODEC_FRAME_LENGTH - 1) & ~(SHELL_CODEC_FRAME_LENGTH - 1);
+        if (pulses_len > (int)(sizeof(pulses_buf)/sizeof(pulses_buf[0]))) {
+            return -1;
+        }
+        silk_decode_pulses(&dec, pulses_buf, st.indices.signalType, st.indices.quantOffsetType, st.frame_length);
+
+        if (i == frame_index) {
+            memcpy(out_gains, st.indices.GainsIndices, MAX_NB_SUBFR * sizeof(opus_int8));
+            memcpy(out_ltp, st.indices.LTPIndex, MAX_NB_SUBFR * sizeof(opus_int8));
+            memcpy(out_nlsf, st.indices.NLSFIndices, (MAX_LPC_ORDER + 1) * sizeof(opus_int8));
+            *out_lag = st.indices.lagIndex;
+            *out_contour = st.indices.contourIndex;
+            *out_signalType = st.indices.signalType;
+            *out_quantOffset = st.indices.quantOffsetType;
+            *out_nlsfInterp = st.indices.NLSFInterpCoef_Q2;
+            *out_perIndex = st.indices.PERIndex;
+            *out_ltpScale = st.indices.LTP_scaleIndex;
+            *out_seed = st.indices.Seed;
+
+            if (out_pulses_len < st.frame_length) {
+                return -1;
+            }
+            memcpy(out_pulses, pulses_buf, st.frame_length * sizeof(opus_int16));
+            return 0;
+        }
+    }
+    return -1;
+}
+
+// Decode SILK pulses from a payload that contains only pulse data.
+// Returns 0 on success, -1 on failure.
+int test_silk_decode_pulses_only(
+    const unsigned char *data, int data_len,
+    int signalType, int quantOffsetType, int frame_length,
+    opus_int16 *out_pulses, int out_pulses_len)
+{
+    if (data_len <= 0 || frame_length <= 0) {
+        return -1;
+    }
+    if (out_pulses_len < frame_length) {
+        return -1;
+    }
+    ec_dec dec;
+    ec_dec_init(&dec, (unsigned char*)data, data_len);
+    silk_decode_pulses(&dec, out_pulses, signalType, quantOffsetType, frame_length);
+    return 0;
+}
+
+// Decode LBRR indices and return ec_tell() bit count after indices for a frame.
+// Returns 0 on success, -1 on failure.
+int test_silk_decode_lbrr_indices_bits(
+    const unsigned char *data, int data_len,
+    int fs_kHz, int nb_subfr, int frames_per_packet, int frame_index,
+    int *out_bits)
+{
+    if (frame_index < 0 || frame_index >= frames_per_packet) {
+        return -1;
+    }
+    ec_dec dec;
+    silk_decoder_state st;
+    int i;
+
+    ec_dec_init(&dec, (unsigned char*)data, data_len);
+    silk_init_decoder(&st);
+    st.nb_subfr = nb_subfr;
+    st.nFramesPerPacket = frames_per_packet;
+    silk_decoder_set_fs(&st, fs_kHz, fs_kHz * 1000);
+
+    for (i = 0; i < frames_per_packet; i++) {
+        st.VAD_flags[i] = ec_dec_bit_logp(&dec, 1);
+    }
+    st.LBRR_flag = ec_dec_bit_logp(&dec, 1);
+    silk_memset(st.LBRR_flags, 0, sizeof(st.LBRR_flags));
+    if (!st.LBRR_flag) {
+        return -1;
+    }
+    if (frames_per_packet == 1) {
+        st.LBRR_flags[0] = 1;
+    } else {
+        opus_int32 LBRR_symbol = ec_dec_icdf(&dec, silk_LBRR_flags_iCDF_ptr[frames_per_packet - 2], 8) + 1;
+        for (i = 0; i < frames_per_packet; i++) {
+            st.LBRR_flags[i] = (LBRR_symbol >> i) & 1;
+        }
+    }
+
+    for (i = 0; i < frames_per_packet; i++) {
+        if (st.LBRR_flags[i] == 0) {
+            continue;
+        }
+        int condCoding = CODE_INDEPENDENTLY;
+        if (i > 0 && st.LBRR_flags[i - 1]) {
+            condCoding = CODE_CONDITIONALLY;
+        }
+        silk_decode_indices(&st, &dec, i, 1, condCoding);
+        if (i == frame_index) {
+            if (out_bits) {
+                *out_bits = ec_tell(&dec);
+            }
+            return 0;
+        }
+    }
+    return -1;
+}
+
+// Decode LBRR indices and return ec_dec rng/val state after indices for a frame.
+// Returns 0 on success, -1 on failure.
+int test_silk_decode_lbrr_indices_state(
+    const unsigned char *data, int data_len,
+    int fs_kHz, int nb_subfr, int frames_per_packet, int frame_index,
+    opus_uint32 *out_rng, opus_uint32 *out_val)
+{
+    if (frame_index < 0 || frame_index >= frames_per_packet) {
+        return -1;
+    }
+    ec_dec dec;
+    silk_decoder_state st;
+    int i;
+
+    ec_dec_init(&dec, (unsigned char*)data, data_len);
+    silk_init_decoder(&st);
+    st.nb_subfr = nb_subfr;
+    st.nFramesPerPacket = frames_per_packet;
+    silk_decoder_set_fs(&st, fs_kHz, fs_kHz * 1000);
+
+    for (i = 0; i < frames_per_packet; i++) {
+        st.VAD_flags[i] = ec_dec_bit_logp(&dec, 1);
+    }
+    st.LBRR_flag = ec_dec_bit_logp(&dec, 1);
+    silk_memset(st.LBRR_flags, 0, sizeof(st.LBRR_flags));
+    if (!st.LBRR_flag) {
+        return -1;
+    }
+    if (frames_per_packet == 1) {
+        st.LBRR_flags[0] = 1;
+    } else {
+        opus_int32 LBRR_symbol = ec_dec_icdf(&dec, silk_LBRR_flags_iCDF_ptr[frames_per_packet - 2], 8) + 1;
+        for (i = 0; i < frames_per_packet; i++) {
+            st.LBRR_flags[i] = (LBRR_symbol >> i) & 1;
+        }
+    }
+
+    for (i = 0; i < frames_per_packet; i++) {
+        if (st.LBRR_flags[i] == 0) {
+            continue;
+        }
+        int condCoding = CODE_INDEPENDENTLY;
+        if (i > 0 && st.LBRR_flags[i - 1]) {
+            condCoding = CODE_CONDITIONALLY;
+        }
+        silk_decode_indices(&st, &dec, i, 1, condCoding);
+        if (i == frame_index) {
+            if (out_rng) {
+                *out_rng = dec.rng;
+            }
+            if (out_val) {
+                *out_val = dec.val;
+            }
+            return 0;
+        }
+    }
+    return -1;
+}
+
 // Create/destroy a persistent SILK decoder state for native (pre-resampler) decode.
 silk_decoder_state* test_silk_decoder_state_create(void) {
     silk_decoder_state *st = (silk_decoder_state*)malloc(sizeof(silk_decoder_state));
@@ -1991,6 +2209,101 @@ func SilkDecodeIndicesPulses(
 		return nil, nil
 	}
 	return &out, nil
+}
+
+// SilkDecodeLBRRIndicesPulses decodes LBRR indices and pulses for a frame using libopus.
+func SilkDecodeLBRRIndicesPulses(
+	data []byte,
+	fsKHz, nbSubfr, framesPerPacket, frameIndex, frameLength int,
+) (*SilkDecodedFrame, error) {
+	if len(data) == 0 {
+		return nil, nil
+	}
+	var out SilkDecodedFrame
+	out.Pulses = make([]int16, frameLength)
+
+	cData := (*C.uchar)(unsafe.Pointer(&data[0]))
+	ret := C.test_silk_decode_lbrr_indices_pulses(
+		cData, C.int(len(data)),
+		C.int(fsKHz), C.int(nbSubfr), C.int(framesPerPacket), C.int(frameIndex),
+		(*C.opus_int8)(unsafe.Pointer(&out.GainsIndices[0])),
+		(*C.opus_int8)(unsafe.Pointer(&out.LTPIndex[0])),
+		(*C.opus_int8)(unsafe.Pointer(&out.NLSFIndices[0])),
+		(*C.opus_int16)(unsafe.Pointer(&out.LagIndex)),
+		(*C.opus_int8)(unsafe.Pointer(&out.ContourIndex)),
+		(*C.opus_int8)(unsafe.Pointer(&out.SignalType)),
+		(*C.opus_int8)(unsafe.Pointer(&out.QuantOffsetType)),
+		(*C.opus_int8)(unsafe.Pointer(&out.NLSFInterpCoef)),
+		(*C.opus_int8)(unsafe.Pointer(&out.PERIndex)),
+		(*C.opus_int8)(unsafe.Pointer(&out.LTPScaleIndex)),
+		(*C.opus_int8)(unsafe.Pointer(&out.Seed)),
+		(*C.opus_int16)(unsafe.Pointer(&out.Pulses[0])),
+		C.int(len(out.Pulses)),
+	)
+	if ret != 0 {
+		return nil, nil
+	}
+	return &out, nil
+}
+
+// SilkDecodePulsesOnly decodes a pulse-only payload using libopus.
+func SilkDecodePulsesOnly(data []byte, signalType, quantOffsetType, frameLength int) ([]int16, error) {
+	if len(data) == 0 {
+		return nil, nil
+	}
+	pulsesLen := (frameLength + 15) & ^15
+	if pulsesLen < frameLength {
+		pulsesLen = frameLength
+	}
+	out := make([]int16, pulsesLen)
+	cData := (*C.uchar)(unsafe.Pointer(&data[0]))
+	ret := C.test_silk_decode_pulses_only(
+		cData, C.int(len(data)),
+		C.int(signalType), C.int(quantOffsetType), C.int(frameLength),
+		(*C.opus_int16)(unsafe.Pointer(&out[0])),
+		C.int(len(out)),
+	)
+	if ret != 0 {
+		return nil, nil
+	}
+	return out[:frameLength], nil
+}
+
+// SilkDecodeLBRRIndexBits returns the number of bits consumed after LBRR indices decode.
+func SilkDecodeLBRRIndexBits(data []byte, fsKHz, nbSubfr, framesPerPacket, frameIndex int) (int, error) {
+	if len(data) == 0 {
+		return 0, nil
+	}
+	var bits C.int
+	cData := (*C.uchar)(unsafe.Pointer(&data[0]))
+	ret := C.test_silk_decode_lbrr_indices_bits(
+		cData, C.int(len(data)),
+		C.int(fsKHz), C.int(nbSubfr), C.int(framesPerPacket), C.int(frameIndex),
+		&bits,
+	)
+	if ret != 0 {
+		return 0, nil
+	}
+	return int(bits), nil
+}
+
+// SilkDecodeLBRRIndexState returns the libopus range decoder state after LBRR indices.
+func SilkDecodeLBRRIndexState(data []byte, fsKHz, nbSubfr, framesPerPacket, frameIndex int) (uint32, uint32, error) {
+	if len(data) == 0 {
+		return 0, 0, nil
+	}
+	var rng C.opus_uint32
+	var val C.opus_uint32
+	cData := (*C.uchar)(unsafe.Pointer(&data[0]))
+	ret := C.test_silk_decode_lbrr_indices_state(
+		cData, C.int(len(data)),
+		C.int(fsKHz), C.int(nbSubfr), C.int(framesPerPacket), C.int(frameIndex),
+		&rng, &val,
+	)
+	if ret != 0 {
+		return 0, 0, nil
+	}
+	return uint32(rng), uint32(val), nil
 }
 
 // SilkDecoderState wraps a persistent libopus silk_decoder_state.

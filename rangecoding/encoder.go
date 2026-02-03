@@ -502,6 +502,12 @@ func (e *Encoder) RangeBytes() int {
 	return int(e.offs)
 }
 
+// State returns the internal range encoder state (rng, val).
+// Useful for bit-exact comparisons against libopus in tests.
+func (e *Encoder) State() (uint32, uint32) {
+	return e.rng, e.val
+}
+
 // PatchInitialBits overwrites the first few bits in the range coder stream.
 // This mirrors libopus ec_enc_patch_initial_bits and is used for VAD/LBRR flag
 // encoding in SILK packets where the flags must be written at the packet start

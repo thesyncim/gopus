@@ -46,12 +46,12 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 		if bufSize < 80 {
 			bufSize = 80
 		}
-		if bufSize > 250 {
-			bufSize = 250
-		}
 		// Add extra for LBRR if enabled
 		if e.lbrrEnabled {
 			bufSize += 50
+		}
+		if bufSize < maxSilkPacketBytes {
+			bufSize = maxSilkPacketBytes
 		}
 		output := ensureByteSlice(&e.scratchOutput, bufSize)
 		e.scratchRangeEncoder.Init(output)
@@ -106,8 +106,8 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	var ltpIndices [maxNbSubfr]int8
 	perIndex := 0
 	predGainQ7 := int32(0)
+	residual, residual32, resStart, _ := e.computePitchResidual(numSubframes)
 	if signalType == 2 {
-		residual, residual32, resStart, _ := e.computePitchResidual(numSubframes)
 		// Use pitch residual for more accurate pitch detection (libopus parity).
 		searchThres1 := float64(e.pitchEstimationThresholdQ16) / 65536.0
 		prevSignalType := 0
@@ -140,9 +140,19 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 		e.sumLogGainQ7 = 0
 	}
 
-	// Step 3: Compute initial gains from prediction residual energy (Burg analysis)
-	_ = e.computeLPCFromFrame(pcm)
-	gains := e.computeSubframeGainsFromResidual(pcm, numSubframes)
+	// Step 3: Noise shaping analysis (sparseness quant offset, gains, shaping AR)
+	noiseParams, gains, quantOffset := e.noiseShapeAnalysis(
+		pcm,
+		residual,
+		resStart,
+		signalType,
+		speechActivityQ8,
+		predGainQ7,
+		pitchLags,
+		quantOffset,
+		numSubframes,
+		subframeSamples,
+	)
 
 	// Step 4: Build LTP residual and compute LPC from it
 	frameSamples := numSubframes * subframeSamples
@@ -183,33 +193,17 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 
 	// Step 6: Residual energy and gain processing
 	resNrg := e.computeResidualEnergies(ltpRes, predCoefQ12, interpIdx, gains, numSubframes, subframeSamples)
-
-	if e.noiseShapeState == nil {
-		e.noiseShapeState = NewNoiseShapeState()
-	}
-	fsKHzNS := e.sampleRate / 1000
-	if fsKHzNS < 8 {
-		fsKHzNS = 8
-	}
-	noiseParams := e.noiseShapeState.ComputeNoiseShapeParams(
-		signalType,
-		speechActivityQ8,
-		e.ltpCorr,
-		pitchLags,
-		e.snrDBQ7,
-		quantOffset,
-		numSubframes,
-		fsKHzNS,
-	)
 	tiltQ14 := 0
-	if len(noiseParams.TiltQ14) > 0 {
+	if noiseParams != nil && len(noiseParams.TiltQ14) > 0 {
 		tiltQ14 = noiseParams.TiltQ14[0]
 	}
 	processedQuantOffset := applyGainProcessing(gains, resNrg, predGainQ7, e.snrDBQ7, signalType, tiltQ14, subframeSamples)
 	if signalType == typeVoiced {
 		quantOffset = processedQuantOffset
 	}
-	noiseParams.LambdaQ10 = computeLambdaQ10(signalType, speechActivityQ8, quantOffset, noiseParams.CodingQuality, noiseParams.InputQuality)
+	if noiseParams != nil {
+		noiseParams.LambdaQ10 = computeLambdaQ10(signalType, speechActivityQ8, quantOffset, noiseParams.CodingQuality, noiseParams.InputQuality)
+	}
 
 	// Step 7: Encode frame type and gains (now that quantOffset is final)
 	e.encodeFrameType(vadFlag, signalType, quantOffset)
@@ -228,14 +222,41 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 		}
 	}
 
-	// Step 10: LBRR Encoding (FEC)
-	// Per libopus: LBRR uses the same parameters as the main frame but lower quality.
-	e.lbrrEncode(pcm, lpcQ12, lsfQ15, gains, pitchLags, signalType, quantOffset, speechActivityQ8, condCoding)
+	seed := e.frameCounter & 3
+	e.frameCounter++
+
+	frameIndices := sideInfoIndices{
+		signalType:       int8(signalType),
+		quantOffsetType:  int8(quantOffset),
+		NLSFInterpCoefQ2: int8(interpIdx),
+		Seed:             int8(seed),
+	}
+	for i := 0; i < numSubframes && i < len(e.scratchGainInd); i++ {
+		frameIndices.GainsIndices[i] = e.scratchGainInd[i]
+	}
+	frameIndices.NLSFIndices[0] = int8(stage1Idx)
+	nlsfOrder := e.lpcOrder
+	if nlsfOrder > len(residuals) {
+		nlsfOrder = len(residuals)
+	}
+	for i := 0; i < nlsfOrder; i++ {
+		frameIndices.NLSFIndices[i+1] = int8(residuals[i])
+	}
+	if signalType == typeVoiced {
+		frameIndices.lagIndex = int16(pitchParams.lagIdx)
+		frameIndices.contourIndex = int8(pitchParams.contourIdx)
+		frameIndices.PERIndex = int8(perIndex)
+		frameIndices.LTPScaleIndex = int8(ltpScaleIndex)
+		for i := 0; i < numSubframes; i++ {
+			frameIndices.LTPIndex[i] = ltpIndices[i]
+		}
+	}
+
+	// Step 10: LBRR Encoding (FEC) for this frame
+	e.lbrrEncode(pcm, frameIndices, lpcQ12, predCoefQ12, interpIdx, pitchLags, ltpCoeffs, ltpScaleIndex, noiseParams, seed, numSubframes, subframeSamples, frameSamples, speechActivityQ8)
 
 	// Step 7: Encode seed (LAST in indices, BEFORE pulses)
 	// Per libopus: seed = frameCounter++ & 3
-	seed := e.frameCounter & 3
-	e.frameCounter++
 	e.rangeEncoder.EncodeICDF(seed, silk_uniform4_iCDF, 8)
 
 	// Step 11: Compute excitation using Noise Shaping Quantization (NSQ)
@@ -246,7 +267,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	if signalType == typeVoiced {
 		ltpScaleQ14 = int(silk_LTPScales_table_Q14[ltpScaleIndex])
 	}
-	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, speechActivityQ8, noiseParams, seed, numSubframes, subframeSamples, frameSamples)
+	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, speechActivityQ8, noiseParams, seed, numSubframes, subframeSamples, frameSamples, e.nsqState)
 
 	// Encode ALL pulses for the entire frame at once
 	e.encodePulses(allExcitation, signalType, quantOffset)
@@ -288,7 +309,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 // computeNSQExcitation computes excitation using Noise Shaping Quantization.
 // This provides proper libopus-matching noise shaping for better audio quality.
 // The noise shaping parameters are computed adaptively based on signal characteristics.
-func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ12 []int16, nlsfInterpQ2 int, gainsQ16 []int32, pitchLags []int, ltpCoeffs LTPCoeffsArray, ltpScaleQ14 int, signalType, quantOffset, speechActivityQ8 int, noiseParams *NoiseShapeParams, seed, numSubframes, subframeSamples, frameSamples int) []int32 {
+func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ12 []int16, nlsfInterpQ2 int, gainsQ16 []int32, pitchLags []int, ltpCoeffs LTPCoeffsArray, ltpScaleQ14 int, signalType, quantOffset, speechActivityQ8 int, noiseParams *NoiseShapeParams, seed, numSubframes, subframeSamples, frameSamples int, nsqState *NSQState) []int32 {
 	// Convert PCM to int16 for NSQ using scratch buffer
 	inputQ0 := ensureInt16Slice(&e.scratchInputQ0, frameSamples)
 	for i := 0; i < frameSamples && i < len(pcm); i++ {
@@ -322,23 +343,34 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 		copy(pitchL, pitchLags)
 	}
 
-	// Compute noise shaping AR coefficients from LPC
-	// For simplicity, use the LPC coefficients with bandwidth expansion
-	shapeLPCOrder := len(lpcQ12)
+	// Compute noise shaping AR coefficients
+	shapeLPCOrder := e.shapingLPCOrder
+	if shapeLPCOrder <= 0 {
+		shapeLPCOrder = len(lpcQ12)
+	}
 	if shapeLPCOrder > maxShapeLpcOrder {
 		shapeLPCOrder = maxShapeLpcOrder
 	}
-
-	// Create shaping coefficients (Q13) from LPC (Q12) using scratch buffer
-	arShpQ13 := ensureInt16Slice(&e.scratchArShpQ13, numSubframes*maxShapeLpcOrder)
-	for i := range arShpQ13 {
-		arShpQ13[i] = 0 // Clear
+	if shapeLPCOrder < 2 {
+		shapeLPCOrder = 2
 	}
-	for sf := 0; sf < numSubframes; sf++ {
-		for i := 0; i < shapeLPCOrder && i < len(lpcQ12); i++ {
-			// Convert Q12 to Q13 with bandwidth expansion (0.94^(i+1))
-			// This shapes the quantization noise spectrum
-			arShpQ13[sf*maxShapeLpcOrder+i] = int16(int32(lpcQ12[i]) * 2 * 94 / 100)
+	if shapeLPCOrder&1 != 0 {
+		shapeLPCOrder--
+	}
+
+	var arShpQ13 []int16
+	if noiseParams != nil && len(noiseParams.ARShpQ13) >= numSubframes*maxShapeLpcOrder {
+		arShpQ13 = noiseParams.ARShpQ13[:numSubframes*maxShapeLpcOrder]
+	} else {
+		// Fallback: use LPC coefficients with bandwidth expansion
+		arShpQ13 = ensureInt16Slice(&e.scratchArShpQ13, numSubframes*maxShapeLpcOrder)
+		for i := range arShpQ13 {
+			arShpQ13[i] = 0
+		}
+		for sf := 0; sf < numSubframes; sf++ {
+			for i := 0; i < shapeLPCOrder && i < len(lpcQ12); i++ {
+				arShpQ13[sf*maxShapeLpcOrder+i] = int16(int32(lpcQ12[i]) * 2 * 94 / 100)
+			}
 		}
 	}
 
@@ -435,7 +467,11 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 	}
 
 	// Run NSQ
-	pulses, _ := NoiseShapeQuantize(e.nsqState, inputQ0, params)
+	state := nsqState
+	if state == nil {
+		state = e.nsqState
+	}
+	pulses, _ := NoiseShapeQuantize(state, inputQ0, params)
 
 	// Convert pulses to int32 for encoding using scratch buffer
 	excitation := ensureInt32Slice(&e.scratchExcitation, frameSamples)
@@ -483,27 +519,19 @@ func (e *Encoder) EncodePacketWithFEC(pcm []float32, vadFlags []bool) []byte {
 	if bufSize < 150 {
 		bufSize = 150
 	}
-	if bufSize > 400 {
-		bufSize = 400
+	if bufSize < maxSilkPacketBytes {
+		bufSize = maxSilkPacketBytes
 	}
 	output := ensureByteSlice(&e.scratchOutput, bufSize)
 	e.scratchRangeEncoder.Init(output)
 	e.rangeEncoder = &e.scratchRangeEncoder
 
-	// Step 1: Encode VAD and LBRR header
-	// First, create space for VAD+FEC flags at start of payload
-	nBitsHeader := (nFrames + 1) * 1 // nFrames VAD + 1 LBRR flag
-	iCDFVal := 256 - (256 >> uint(nBitsHeader))
-	if iCDFVal > 255 {
-		iCDFVal = 255
-	}
-	iCDF := []uint8{uint8(iCDFVal), 0}
-	e.rangeEncoder.EncodeICDF8(0, iCDF, 8)
-
-	// Step 2: Encode any LBRR data from previous packet
+	// Step 1: Reserve header bits and encode any LBRR data from previous packet.
+	// This mirrors libopus: placeholder bits are patched after frame encoding.
 	e.encodeLBRRData(e.rangeEncoder, 1, true) // nChannels = 1 for mono
 
-	// Step 3: Encode each frame
+	// Step 2: Encode each frame
+	var vadFlagsLocal [maxFramesPerPacket]bool
 	for i := 0; i < nFrames; i++ {
 		startSample := i * frameSamples
 		endSample := startSample + frameSamples
@@ -516,26 +544,22 @@ func (e *Encoder) EncodePacketWithFEC(pcm []float32, vadFlags []bool) []byte {
 		if vadFlags != nil && i < len(vadFlags) {
 			vadFlag = vadFlags[i]
 		}
+		vadFlagsLocal[i] = vadFlag
 
 		// Encode the frame (this also computes LBRR for current frame)
 		e.encodeFrameInternal(framePCM, vadFlag)
 	}
 
-	// Step 4: Patch initial bits with VAD and FEC flags
-	// Build the flags value: [VAD_0, VAD_1, ..., VAD_n-1, LBRR_flag]
+	// Patch VAD/LBRR header bits for this packet.
 	flags := 0
 	for i := 0; i < nFrames; i++ {
 		flags <<= 1
-		if vadFlags == nil || (i < len(vadFlags) && vadFlags[i]) {
+		if vadFlagsLocal[i] {
 			flags |= 1
 		}
 	}
-	flags <<= 1
-	if e.lbrrFlag != 0 {
-		flags |= 1
-	}
-
-	// Use ec_enc_patch_initial_bits equivalent
+	flags = (flags << 1) | e.lbrrFlag
+	nBitsHeader := (e.nFramesPerPacket + 1) * 1
 	e.rangeEncoder.PatchInitialBits(uint32(flags), uint(nBitsHeader))
 
 	// Finalize and return
@@ -602,8 +626,8 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 	var ltpIndices [maxNbSubfr]int8
 	perIndex := 0
 	predGainQ7 := int32(0)
+	residual, residual32, resStart, _ := e.computePitchResidual(numSubframes)
 	if signalType == 2 {
-		residual, residual32, resStart, _ := e.computePitchResidual(numSubframes)
 		// Use pitch residual for more accurate pitch detection (libopus parity).
 		searchThres1 := float64(e.pitchEstimationThresholdQ16) / 65536.0
 		prevSignalType := 0
@@ -636,9 +660,19 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 		e.sumLogGainQ7 = 0
 	}
 
-	// Step 3: Compute initial gains from prediction residual energy (Burg analysis)
-	_ = e.computeLPCFromFrame(pcm)
-	gains := e.computeSubframeGainsFromResidual(pcm, numSubframes)
+	// Step 3: Noise shaping analysis (sparseness quant offset, gains, shaping AR)
+	noiseParams, gains, quantOffset := e.noiseShapeAnalysis(
+		pcm,
+		residual,
+		resStart,
+		signalType,
+		speechActivityQ8,
+		predGainQ7,
+		pitchLags,
+		quantOffset,
+		numSubframes,
+		subframeSamples,
+	)
 
 	// Step 4: Build LTP residual and compute LPC from it
 	frameSamples := numSubframes * subframeSamples
@@ -679,33 +713,17 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 
 	// Step 6: Residual energy and gain processing
 	resNrg := e.computeResidualEnergies(ltpRes, predCoefQ12, interpIdx, gains, numSubframes, subframeSamples)
-
-	if e.noiseShapeState == nil {
-		e.noiseShapeState = NewNoiseShapeState()
-	}
-	fsKHzNS := e.sampleRate / 1000
-	if fsKHzNS < 8 {
-		fsKHzNS = 8
-	}
-	noiseParams := e.noiseShapeState.ComputeNoiseShapeParams(
-		signalType,
-		speechActivityQ8,
-		e.ltpCorr,
-		pitchLags,
-		e.snrDBQ7,
-		quantOffset,
-		numSubframes,
-		fsKHzNS,
-	)
 	tiltQ14 := 0
-	if len(noiseParams.TiltQ14) > 0 {
+	if noiseParams != nil && len(noiseParams.TiltQ14) > 0 {
 		tiltQ14 = noiseParams.TiltQ14[0]
 	}
 	processedQuantOffset := applyGainProcessing(gains, resNrg, predGainQ7, e.snrDBQ7, signalType, tiltQ14, subframeSamples)
 	if signalType == typeVoiced {
 		quantOffset = processedQuantOffset
 	}
-	noiseParams.LambdaQ10 = computeLambdaQ10(signalType, speechActivityQ8, quantOffset, noiseParams.CodingQuality, noiseParams.InputQuality)
+	if noiseParams != nil {
+		noiseParams.LambdaQ10 = computeLambdaQ10(signalType, speechActivityQ8, quantOffset, noiseParams.CodingQuality, noiseParams.InputQuality)
+	}
 
 	// Step 7: Encode frame type and gains (now that quantOffset is final)
 	e.encodeFrameType(vadFlag, signalType, quantOffset)
@@ -724,12 +742,40 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 		}
 	}
 
-	// Step 10: LBRR Encoding (FEC) for this frame
-	e.lbrrEncode(pcm, lpcQ12, lsfQ15, gains, pitchLags, signalType, quantOffset, speechActivityQ8, condCoding)
-
-	// Step 7: Encode seed
 	seed := e.frameCounter & 3
 	e.frameCounter++
+
+	frameIndices := sideInfoIndices{
+		signalType:       int8(signalType),
+		quantOffsetType:  int8(quantOffset),
+		NLSFInterpCoefQ2: int8(interpIdx),
+		Seed:             int8(seed),
+	}
+	for i := 0; i < numSubframes && i < len(e.scratchGainInd); i++ {
+		frameIndices.GainsIndices[i] = e.scratchGainInd[i]
+	}
+	frameIndices.NLSFIndices[0] = int8(stage1Idx)
+	nlsfOrder := e.lpcOrder
+	if nlsfOrder > len(residuals) {
+		nlsfOrder = len(residuals)
+	}
+	for i := 0; i < nlsfOrder; i++ {
+		frameIndices.NLSFIndices[i+1] = int8(residuals[i])
+	}
+	if signalType == typeVoiced {
+		frameIndices.lagIndex = int16(pitchParams.lagIdx)
+		frameIndices.contourIndex = int8(pitchParams.contourIdx)
+		frameIndices.PERIndex = int8(perIndex)
+		frameIndices.LTPScaleIndex = int8(ltpScaleIndex)
+		for i := 0; i < numSubframes; i++ {
+			frameIndices.LTPIndex[i] = ltpIndices[i]
+		}
+	}
+
+	// Step 10: LBRR Encoding (FEC) for this frame
+	e.lbrrEncode(pcm, frameIndices, lpcQ12, predCoefQ12, interpIdx, pitchLags, ltpCoeffs, ltpScaleIndex, noiseParams, seed, numSubframes, subframeSamples, frameSamples, speechActivityQ8)
+
+	// Step 7: Encode seed
 	e.rangeEncoder.EncodeICDF(seed, silk_uniform4_iCDF, 8)
 
 	// Step 11: Compute and encode excitation
@@ -738,7 +784,7 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 	if signalType == typeVoiced {
 		ltpScaleQ14 = int(silk_LTPScales_table_Q14[ltpScaleIndex])
 	}
-	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, speechActivityQ8, noiseParams, seed, numSubframes, subframeSamples, frameSamples)
+	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, speechActivityQ8, noiseParams, seed, numSubframes, subframeSamples, frameSamples, e.nsqState)
 	e.encodePulses(allExcitation, signalType, quantOffset)
 
 	// Update state

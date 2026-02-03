@@ -20,6 +20,15 @@ const (
 	lowFreqShapingQ14            = 6554
 	lowQualityLowFreqShapingDecr = 0.5 // Decrease for low quality
 
+	// Noise shape analysis constants (tuning_parameters.h)
+	bgSNRDecrDB                       = 2.0
+	harmSNRIncrDB                     = 2.0
+	energyVariationThresholdQntOffset = 0.6
+	shapeWhiteNoiseFraction           = 3e-5
+	bandwidthExpansion                = 0.94
+	shapeCoefLimit                    = 3.999
+	warpingMultiplier                 = 0.015
+
 	// Subframe smoothing coefficient
 	subfrSmthCoef = 0.4 // Smoothing between subframes
 
@@ -57,6 +66,7 @@ type NoiseShapeParams struct {
 	HarmShapeGainQ14 []int   // Harmonic shaping gain (Q14)
 	TiltQ14          []int   // Spectral tilt (Q14)
 	LFShpQ14         []int32 // Low-frequency shaping (packed MA/AR, Q14)
+	ARShpQ13         []int16 // Noise shaping AR coefficients (Q13, per subframe)
 
 	// Frame-level parameters
 	LambdaQ10     int     // Rate-distortion tradeoff (Q10)

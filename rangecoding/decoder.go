@@ -172,6 +172,12 @@ func (d *Decoder) TellFrac() int {
 	return nbits - ((l << 3) + b)
 }
 
+// State returns the internal range decoder state (rng, val).
+// Useful for bit-exact comparisons against libopus in tests.
+func (d *Decoder) State() (uint32, uint32) {
+	return d.rng, d.val
+}
+
 // ilog computes the integer log base 2 (position of highest set bit + 1).
 // Returns 0 for input 0.
 func ilog(x uint32) int {

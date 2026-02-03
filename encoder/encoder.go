@@ -497,12 +497,21 @@ func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
 		return e.mode
 	}
 
+	bw := e.effectiveBandwidth()
+	perChanRate := e.bitrate
+	if e.channels > 0 {
+		perChanRate = e.bitrate / e.channels
+	}
+	if perChanRate >= 48000 && (bw == types.BandwidthSuperwideband || bw == types.BandwidthFullband) {
+		return ModeCELT
+	}
+
 	// Apply signal type hint to influence mode selection
 	// SignalVoice biases toward SILK, SignalMusic toward CELT
 	switch signalHint {
 	case types.SignalVoice:
 		// Voice signal: prefer SILK for lower bandwidths, Hybrid for higher
-		switch e.effectiveBandwidth() {
+		switch bw {
 		case types.BandwidthNarrowband, types.BandwidthMediumband, types.BandwidthWideband:
 			return ModeSILK
 		case types.BandwidthSuperwideband, types.BandwidthFullband:
@@ -518,7 +527,7 @@ func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
 	}
 
 	// Auto mode selection based on bandwidth and frame size
-	switch e.effectiveBandwidth() {
+	switch bw {
 	case types.BandwidthNarrowband, types.BandwidthMediumband, types.BandwidthWideband:
 		// Lower bandwidths: use SILK
 		return ModeSILK

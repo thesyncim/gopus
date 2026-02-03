@@ -899,26 +899,7 @@ func (e *Encoder) preparePitchLags(pitchLags []int, numSubframes int) pitchEncod
 	config := GetBandwidthConfig(e.bandwidth)
 	fsKHz := config.SampleRate / 1000
 
-	var contourTable [][]int8
-	var contourICDF []uint8
-
-	if fsKHz == 8 {
-		if numSubframes == 4 {
-			contourTable = pitchCBLagsStage2Slice
-			contourICDF = silk_pitch_contour_NB_iCDF
-		} else {
-			contourTable = pitchCBLagsStage210msSlice
-			contourICDF = silk_pitch_contour_10_ms_NB_iCDF
-		}
-	} else {
-		if numSubframes == 4 {
-			contourTable = pitchCBLagsStage3Slice
-			contourICDF = silk_pitch_contour_iCDF
-		} else {
-			contourTable = pitchCBLagsStage310msSlice
-			contourICDF = silk_pitch_contour_10_ms_iCDF
-		}
-	}
+	contourTable, contourICDF, lagLowICDF := pitchLagTables(fsKHz, numSubframes)
 
 	contourIdx, baseLag := findBestPitchContour(pitchLags, numSubframes, config.PitchLagMin, config.PitchLagMax, contourTable, len(contourICDF))
 	lagIdx := baseLag - config.PitchLagMin
@@ -940,6 +921,37 @@ func (e *Encoder) preparePitchLags(pitchLags []int, numSubframes int) pitchEncod
 		pitchLags[sf] = lag
 	}
 
+	return pitchEncodeParams{
+		contourIdx:  contourIdx,
+		lagIdx:      lagIdx,
+		contourICDF: contourICDF,
+		lagLowICDF:  lagLowICDF,
+	}
+}
+
+func pitchLagTables(fsKHz, numSubframes int) ([][]int8, []uint8, []uint8) {
+	use10ms := numSubframes != maxNbSubfr
+	var contourTable [][]int8
+	var contourICDF []uint8
+
+	if fsKHz == 8 {
+		if use10ms {
+			contourTable = pitchCBLagsStage210msSlice
+			contourICDF = silk_pitch_contour_10_ms_NB_iCDF
+		} else {
+			contourTable = pitchCBLagsStage2Slice
+			contourICDF = silk_pitch_contour_NB_iCDF
+		}
+	} else {
+		if use10ms {
+			contourTable = pitchCBLagsStage310msSlice
+			contourICDF = silk_pitch_contour_10_ms_iCDF
+		} else {
+			contourTable = pitchCBLagsStage3Slice
+			contourICDF = silk_pitch_contour_iCDF
+		}
+	}
+
 	var lagLowICDF []uint8
 	switch fsKHz {
 	case 16:
@@ -950,12 +962,7 @@ func (e *Encoder) preparePitchLags(pitchLags []int, numSubframes int) pitchEncod
 		lagLowICDF = silk_uniform4_iCDF
 	}
 
-	return pitchEncodeParams{
-		contourIdx:  contourIdx,
-		lagIdx:      lagIdx,
-		contourICDF: contourICDF,
-		lagLowICDF:  lagLowICDF,
-	}
+	return contourTable, contourICDF, lagLowICDF
 }
 
 func (e *Encoder) encodePitchLagsWithParams(params pitchEncodeParams, condCoding int) {

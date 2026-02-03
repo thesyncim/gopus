@@ -7,6 +7,7 @@ const (
 	maxFsKHz                     = 16
 	maxSubFrameLength            = subFrameLengthMs * maxFsKHz
 	maxFrameLength               = maxSubFrameLength * maxNbSubfr
+	maxSilkPacketBytes           = 1275
 	maxLPCOrder                  = 16
 	minLPCOrder                  = 10
 	ltpOrder                     = 5

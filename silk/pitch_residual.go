@@ -19,7 +19,22 @@ func schurFLP(refl, autoCorr []float64, order int) float64 {
 		}
 		return 0
 	}
-	var C [maxFindPitchLpcOrder + 1][2]float64
+	if order > maxShapeLpcOrder {
+		order = maxShapeLpcOrder
+	}
+	if order >= len(autoCorr) {
+		order = len(autoCorr) - 1
+	}
+	if order > len(refl) {
+		order = len(refl)
+	}
+	if order <= 0 {
+		if len(autoCorr) > 0 {
+			return autoCorr[0]
+		}
+		return 0
+	}
+	var C [maxShapeLpcOrder + 1][2]float64
 	for k := 0; k <= order; k++ {
 		C[k][0] = autoCorr[k]
 		C[k][1] = autoCorr[k]
