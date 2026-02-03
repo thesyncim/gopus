@@ -289,6 +289,17 @@ Always use this reference when implementing features or debugging discrepancies.
    - PER mismatches 33/50, LTP index mismatches 194/200, NLSF interp mismatches 46/50
    - LTP scale mismatches 27/50, gain diff ~0.45
 
+### Session 18: LTP Codebooks + Hybrid VBR Budget (Complete)
+1. ✅ **LTP codebooks aligned with libopus** - `silk/codebook.go`
+   - `LTPFilterMid` and `LTPFilterHigh` now match `silk_LTP_gain_vq_1/2` tables
+2. ✅ **Hybrid VBR/CVBR budget cap** - `encoder/hybrid.go`, `rangecoding/encoder.go`
+   - Added `Encoder.Limit` to cap range coder budget without forcing CBR output size
+   - Hybrid VBR/CVBR now uses bitrate-based caps (no more max-packet sizing)
+3. ✅ **Hybrid VBR size regression test** - `encoder/hybrid_test.go`
+   - Ensures VBR packets stay within 2× target bitrate budget
+4. ✅ **LTP analysis filter parity test fix** - `silk/ltp_predcoef_libopus_compare_test.go`
+   - Libopus filter now receives full history buffer for correct parity
+
 ---
 
 ## Known Issues & Debugging Notes
