@@ -192,7 +192,7 @@ func (e *Encoder) computeShapingARAndGains(
 	for i := 0; i < xLen; i++ {
 		idx := startIdx + i
 		if idx >= 0 && idx < len(shapeBuf) {
-			xBuf[i] = float64(shapeBuf[idx])
+			xBuf[i] = float64(shapeBuf[idx]) * silkSampleScale
 		}
 	}
 

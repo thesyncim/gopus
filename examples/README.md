@@ -174,6 +174,42 @@ go build .
 - `-play`: Play the decoded WAV with a system player
 - `-pipe`: Stream raw PCM directly to ffplay (no temp files)
 
+### encode-play
+
+Encodes a generated test signal with gopus and optionally plays the resulting
+Ogg Opus file. Playback uses `ffplay` if available, otherwise it decodes with
+gopus and plays a WAV via the system's default audio player.
+
+**What it does:**
+1. Generates a test signal (sine, sweep, noise, chord, speech)
+1. Encodes to Ogg Opus with gopus
+1. Plays the `.opus` file with `ffplay` (optional)
+
+**Usage:**
+```bash
+cd examples/encode-play
+go build .
+
+# Encode and play (zero-config; uses system player if ffplay is missing)
+./encode-play -play
+
+# Sweep at higher bitrate
+./encode-play -signal sweep -duration 3 -bitrate 96000 -play
+
+# Encode to a file without playback
+./encode-play -out demo.opus
+```
+
+**Flags:**
+- `-out`: Output Ogg Opus file path
+- `-duration`: Duration in seconds (default: 2)
+- `-bitrate`: Target bitrate in bps (default: 64000)
+- `-channels`: Number of channels (1 or 2)
+- `-signal`: Signal type: sine, sweep, noise, chord, speech
+- `-frame`: Frame size at 48kHz (default: 960)
+- `-play`: Play the encoded file with `ffplay`
+- `-libopus`: Use external libopus encoder (`opusenc`/`ffmpeg`) instead of gopus
+
 ## Building All Examples
 
 ```bash
@@ -182,6 +218,7 @@ go build ./examples/ffmpeg-interop
 go build ./examples/roundtrip
 go build ./examples/ogg-file
 go build ./examples/decode-play
+go build ./examples/encode-play
 
 # Or build all at once
 go build ./examples/...

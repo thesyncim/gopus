@@ -7,6 +7,8 @@ package encoder
 import (
 	"math"
 	"testing"
+
+	"github.com/thesyncim/gopus/types"
 )
 
 // TestHybridBitAllocation verifies SILK/CELT bit allocation follows libopus tables.
@@ -311,6 +313,36 @@ func BenchmarkHybridBitAllocation(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		e.computeHybridBitAllocation(true)
+	}
+}
+
+func TestHybridVBRPacketSizeCap(t *testing.T) {
+	enc := NewEncoder(48000, 2)
+	enc.SetMode(ModeHybrid)
+	enc.SetBandwidth(types.BandwidthFullband)
+	enc.SetBitrateMode(ModeVBR)
+	enc.SetBitrate(64000)
+	enc.SetFrameSize(960)
+
+	pcm := make([]float64, 960*2)
+	for i := 0; i < 960; i++ {
+		v := 0.2 * math.Sin(2*math.Pi*440*float64(i)/48000.0)
+		pcm[i*2] = v
+		pcm[i*2+1] = v
+	}
+
+	packet, err := enc.Encode(pcm, 960)
+	if err != nil {
+		t.Fatalf("encode failed: %v", err)
+	}
+	if len(packet) == 0 {
+		t.Fatalf("expected packet, got 0 bytes")
+	}
+
+	baseBytes := targetBytesForBitrate(64000, 960)
+	maxAllowed := int(float64(baseBytes) * 2.0)
+	if len(packet) > maxAllowed {
+		t.Fatalf("hybrid VBR packet too large: got %d bytes, max %d", len(packet), maxAllowed)
 	}
 }
 

@@ -101,14 +101,20 @@ type Encoder struct {
 	scratchLPCQ16       []int32   // silkA2NLSF: LPC coefficients in Q16
 
 	// Pitch detection scratch buffers
-	scratchFrame8kHz []float32 // detectPitch: downsampled to 8kHz
-	scratchFrame4kHz []float32 // detectPitch: downsampled to 4kHz
-	scratchPitchC    []float64 // detectPitch: autocorrelation
-	scratchDSrch     []int     // detectPitch: candidate lags
-	scratchDSrchCorr []float64 // detectPitch: candidate correlations
-	scratchDComp     []int16   // detectPitch: expanded search
-	scratchC8kHz     []float64 // detectPitch: 8kHz correlations (flat array for 4 subframes)
-	scratchPitchLags []int     // detectPitch: output pitch lags
+	scratchFrame8kHz      []float32 // detectPitch: downsampled to 8kHz
+	scratchFrame4kHz      []float32 // detectPitch: downsampled to 4kHz
+	scratchFrame16Fix     []int16   // detectPitch: input in int16 scale
+	scratchFrame8Fix      []int16   // detectPitch: 8kHz int16 samples
+	scratchFrame4Fix      []int16   // detectPitch: 4kHz int16 samples
+	scratchResampler      []int32   // detectPitch: resampler buffer (int32)
+	scratchPitchC         []float64 // detectPitch: autocorrelation
+	scratchDSrch          []int     // detectPitch: candidate lags
+	scratchDSrchCorr      []float64 // detectPitch: candidate correlations
+	scratchDComp          []int16   // detectPitch: expanded search
+	scratchC8kHz          []float64 // detectPitch: 8kHz correlations (flat array for 4 subframes)
+	scratchPitchLags      []int     // detectPitch: output pitch lags
+	scratchPitchCorrSt3   []float64 // detectPitch: stage3 correlations
+	scratchPitchEnergySt3 []float64 // detectPitch: stage3 energies
 
 	// Shell encoder scratch buffers (fixed sizes)
 	scratchShellPulses1 [8]int // shellEncoder: level 1

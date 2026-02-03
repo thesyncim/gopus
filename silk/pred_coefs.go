@@ -15,34 +15,34 @@ func (e *Encoder) buildLTPResidual(pitchBuf []float32, frameStart int, gains []f
 		if idx < 0 || idx >= len(pitchBuf) {
 			return 0
 		}
-		return pitchBuf[idx]
+		return float32(floatToInt16Round(pitchBuf[idx] * float32(silkSampleScale)))
 	}
 
 	for k := 0; k < numSubframes; k++ {
 		outBase := k * (subframeSamples + preLen)
 		xStart := frameStart - preLen + k*subframeSamples
-		invGain := 1.0
+		invGain := float32(1.0)
 		if k < len(gains) && gains[k] > 0 {
-			invGain = 1.0 / float64(gains[k])
+			invGain = 1.0 / gains[k]
 		}
 		if signalType == typeVoiced && k < len(pitchLags) {
 			pitchLag := pitchLags[k]
 			for i := 0; i < subframeSamples+preLen; i++ {
 				xIdx := xStart + i
-				x := float64(getSample(xIdx))
+				x := getSample(xIdx)
 				lagBase := xIdx - pitchLag
-				var pred float64
+				var pred float32
 				for j := 0; j < ltpOrderConst; j++ {
 					lagIdx := lagBase + (ltpOrderConst/2 - j)
-					b := float64(ltpCoeffs[k][j]) / 128.0
-					pred += b * float64(getSample(lagIdx))
+					b := float32(ltpCoeffs[k][j]) / 128.0
+					pred += b * getSample(lagIdx)
 				}
-				ltpRes[outBase+i] = float32((x - pred) * invGain)
+				ltpRes[outBase+i] = (x - pred) * invGain
 			}
 		} else {
 			for i := 0; i < subframeSamples+preLen; i++ {
 				xIdx := xStart + i
-				ltpRes[outBase+i] = float32(float64(getSample(xIdx)) * invGain)
+				ltpRes[outBase+i] = getSample(xIdx) * invGain
 			}
 		}
 	}

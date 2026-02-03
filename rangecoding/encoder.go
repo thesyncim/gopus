@@ -60,6 +60,27 @@ func (e *Encoder) Shrink(size uint32) {
 	e.shrunk = true
 }
 
+// Limit reduces the storage size to the given number of bytes without forcing
+// CBR-style output length. This is useful for VBR/CVBR paths that need a bit
+// budget cap but still want Done() to return the actual number of bytes used.
+// It mirrors ec_enc_shrink() without setting the "shrunk" flag.
+func (e *Encoder) Limit(size uint32) {
+	if e.offs+e.endOffs > size {
+		// Can't shrink to less than already written
+		e.err = -1
+		return
+	}
+	if size > e.storage {
+		// Can't grow the buffer
+		return
+	}
+	if e.endOffs > 0 {
+		// Move end bytes to new position
+		copy(e.buf[size-e.endOffs:size], e.buf[e.storage-e.endOffs:e.storage])
+	}
+	e.storage = size
+}
+
 // carryOut handles carry propagation when outputting bytes.
 // This is a direct port of libopus celt/entenc.c ec_enc_carry_out.
 // NO byte complementing - the decoder handles that with its (255 &^ sym) formula.

@@ -96,7 +96,7 @@ func (e *Encoder) computePitchResidual(numSubframes int) ([]float64, []float32, 
 	}
 	if len(e.inputBuffer) >= needed {
 		for i := 0; i < needed; i++ {
-			input[i] = float64(e.inputBuffer[i])
+			input[i] = float64(e.inputBuffer[i]) * silkSampleScale
 		}
 	} else {
 		pitchBuf := e.pitchAnalysisBuf
@@ -113,7 +113,7 @@ func (e *Encoder) computePitchResidual(numSubframes int) ([]float64, []float32, 
 				maxCopy = len(pitchBuf)
 			}
 			for i := 0; i < maxCopy; i++ {
-				input[offset+i] = float64(pitchBuf[i])
+				input[offset+i] = float64(pitchBuf[i]) * silkSampleScale
 			}
 		}
 	}

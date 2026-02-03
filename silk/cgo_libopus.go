@@ -19,6 +19,14 @@ typedef struct {
     opus_int32 sumLogGain_Q7;
 } ltp_quant_result;
 
+typedef struct {
+    opus_int   pitch[MAX_NB_SUBFR];
+    opus_int16 lagIndex;
+    opus_int8  contourIndex;
+    float      ltpCorr;
+    int        voiced;
+} pitch_analysis_result;
+
 static void opus_silk_find_ltp_flt(const float *res, const int *lag, int subfr_len, int nb_subfr, float *XX, float *xX) {
     silk_find_LTP_FLP(XX, xX, res, lag, subfr_len, nb_subfr, 0);
 }
@@ -44,6 +52,30 @@ static void opus_silk_quant_ltp_flt(const float *XX, const float *xX, int subfr_
     out->sumLogGain_Q7 = sum_log_gain;
     memcpy(out->ltpIndex, cbk_index, nb_subfr * sizeof(opus_int8));
 }
+
+static void opus_silk_pitch_analysis(const float *frame, int fs_kHz, int nb_subfr, int complexity,
+    float search_thres1, float search_thres2, int prevLag, float ltpCorrIn, pitch_analysis_result *out) {
+    opus_int pitch_out[MAX_NB_SUBFR];
+    opus_int16 lagIndex = 0;
+    opus_int8 contourIndex = 0;
+    float ltpCorr = ltpCorrIn;
+    int ret = silk_pitch_analysis_core_FLP(frame, pitch_out, &lagIndex, &contourIndex, &ltpCorr,
+        prevLag, search_thres1, search_thres2, fs_kHz, complexity, nb_subfr, 0);
+    out->voiced = (ret == 0);
+    out->lagIndex = lagIndex;
+    out->contourIndex = contourIndex;
+    out->ltpCorr = ltpCorr;
+    memcpy(out->pitch, pitch_out, nb_subfr * sizeof(opus_int));
+}
+
+static void opus_silk_ltp_analysis_filter(const float *x, const float *B, const int *pitchL, const float *invGains,
+    int subfr_len, int nb_subfr, int pre_len, float *out) {
+    silk_LTP_analysis_filter_FLP(out, x, B, pitchL, invGains, subfr_len, nb_subfr, pre_len);
+}
+
+static float opus_silk_burg_modified(const float *x, float minInvGain, int subfr_len, int nb_subfr, int order, float *A) {
+    return silk_burg_modified_FLP(A, x, minInvGain, subfr_len, nb_subfr, order, 0);
+}
 */
 import "C"
 
@@ -55,6 +87,14 @@ type libopusLTPQuantResult struct {
 	BQ14         [maxNbSubfr * ltpOrderConst]int16
 	PredGainQ7   int32
 	SumLogGainQ7 int32
+}
+
+type libopusPitchAnalysisResult struct {
+	Pitch        [maxNbSubfr]int
+	LagIndex     int16
+	ContourIndex int8
+	LTPCorr      float32
+	Voiced       bool
 }
 
 func libopusFindLTP(residual []float32, resStart int, pitchLags []int, subfrLen, nbSubfr int) ([]float32, []float32) {
@@ -114,4 +154,72 @@ func libopusQuantLTP(XX, xX []float32, subfrLen, nbSubfr int, sumLogGainQ7 int32
 		res.BQ14[i] = int16(out.B_Q14[i])
 	}
 	return res
+}
+
+func libopusPitchAnalysis(frame []float32, fsKHz, nbSubfr, complexity int, searchThres1, searchThres2 float64, prevLag int, ltpCorr float32) libopusPitchAnalysisResult {
+	var out C.pitch_analysis_result
+	if len(frame) == 0 || nbSubfr <= 0 {
+		return libopusPitchAnalysisResult{}
+	}
+	C.opus_silk_pitch_analysis(
+		(*C.float)(unsafe.Pointer(&frame[0])),
+		C.int(fsKHz),
+		C.int(nbSubfr),
+		C.int(complexity),
+		C.float(searchThres1),
+		C.float(searchThres2),
+		C.int(prevLag),
+		C.float(ltpCorr),
+		&out,
+	)
+	var res libopusPitchAnalysisResult
+	for i := 0; i < nbSubfr && i < maxNbSubfr; i++ {
+		res.Pitch[i] = int(out.pitch[i])
+	}
+	res.LagIndex = int16(out.lagIndex)
+	res.ContourIndex = int8(out.contourIndex)
+	res.LTPCorr = float32(out.ltpCorr)
+	res.Voiced = out.voiced != 0
+	return res
+}
+
+func libopusLTPAnalysisFilter(x []float32, b []float32, pitchLags []int, invGains []float32, subfrLen, nbSubfr, preLen int) []float32 {
+	if len(x) == 0 || nbSubfr <= 0 {
+		return nil
+	}
+	outLen := nbSubfr * (subfrLen + preLen)
+	out := make([]float32, outLen)
+	cLags := make([]C.int, nbSubfr)
+	for i := 0; i < nbSubfr; i++ {
+		if i < len(pitchLags) {
+			cLags[i] = C.int(pitchLags[i])
+		}
+	}
+	C.opus_silk_ltp_analysis_filter(
+		(*C.float)(unsafe.Pointer(&x[0])),
+		(*C.float)(unsafe.Pointer(&b[0])),
+		(*C.int)(unsafe.Pointer(&cLags[0])),
+		(*C.float)(unsafe.Pointer(&invGains[0])),
+		C.int(subfrLen),
+		C.int(nbSubfr),
+		C.int(preLen),
+		(*C.float)(unsafe.Pointer(&out[0])),
+	)
+	return out
+}
+
+func libopusBurgModified(x []float32, minInvGain float32, subfrLen, nbSubfr, order int) ([]float32, float32) {
+	if len(x) == 0 || order <= 0 {
+		return nil, 0
+	}
+	A := make([]float32, order)
+	res := C.opus_silk_burg_modified(
+		(*C.float)(unsafe.Pointer(&x[0])),
+		C.float(minInvGain),
+		C.int(subfrLen),
+		C.int(nbSubfr),
+		C.int(order),
+		(*C.float)(unsafe.Pointer(&A[0])),
+	)
+	return A, float32(res)
 }

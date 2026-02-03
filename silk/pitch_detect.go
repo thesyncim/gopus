@@ -141,28 +141,50 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 	maxLag4kHz := peMaxLagMS * 4
 	maxLag8kHz := peMaxLagMS*8 - 1
 
-	// Bias terms scaled to normalized float input (libopus uses int16 scale).
-	energyBias := 1.0 / (32768.0 * 32768.0)
-
 	// Ensure we have enough samples
 	if len(pcm) < frameLength {
 		frameLength = len(pcm)
 	}
-
-	// Resample to 8kHz using scratch buffer
-	dsRatio8k := fsKHz / 8
-	if dsRatio8k < 1 {
-		dsRatio8k = 1
+	if frameLength <= 0 {
+		return nil
 	}
-	frame8kHz := downsampleLowpassInto(pcm[:frameLength], dsRatio8k, &e.scratchFrame8kHz)
 
-	// Ensure frame8kHz has correct length
+	frameFix := ensureInt16Slice(&e.scratchFrame16Fix, frameLength)
+	floatToInt16SliceScaled(frameFix, pcm[:frameLength], float32(silkSampleScale))
+
+	// Resample to 8kHz using libopus down2/down2_3
+	var frame8Fix []int16
+	switch fsKHz {
+	case 16:
+		frame8Fix = ensureInt16Slice(&e.scratchFrame8Fix, frameLength8kHz)
+		var st [2]int32
+		outLen := resamplerDown2(&st, frame8Fix, frameFix)
+		frame8Fix = frame8Fix[:outLen]
+	case 12:
+		frame8Fix = ensureInt16Slice(&e.scratchFrame8Fix, frameLength8kHz)
+		var st [6]int32
+		scratch := ensureInt32Slice(&e.scratchResampler, frameLength+4)
+		outLen := resamplerDown2_3(&st, frame8Fix, frameFix, scratch)
+		frame8Fix = frame8Fix[:outLen]
+	case 8:
+		frame8Fix = frameFix
+	default:
+		frame8Fix = frameFix
+	}
+
+	frame8kHz := ensureFloat32Slice(&e.scratchFrame8kHz, len(frame8Fix))
+	int16ToFloat32Slice(frame8kHz, frame8Fix)
 	if len(frame8kHz) > frameLength8kHz {
 		frame8kHz = frame8kHz[:frameLength8kHz]
 	}
 
-	// Decimate to 4kHz using scratch buffer
-	frame4kHz := downsampleLowpassInto(frame8kHz, 2, &e.scratchFrame4kHz)
+	// Decimate to 4kHz using down2
+	frame4Fix := ensureInt16Slice(&e.scratchFrame4Fix, len(frame8Fix)/2)
+	var st4 [2]int32
+	outLen4 := resamplerDown2(&st4, frame4Fix, frame8Fix)
+	frame4Fix = frame4Fix[:outLen4]
+	frame4kHz := ensureFloat32Slice(&e.scratchFrame4kHz, len(frame4Fix))
+	int16ToFloat32Slice(frame4kHz, frame4Fix)
 	if len(frame4kHz) > frameLength4kHz {
 		frame4kHz = frame4kHz[:frameLength4kHz]
 	}
@@ -211,7 +233,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		}
 
 		// Compute normalizer with bias scaled to float input.
-		normBias := float64(sfLength8kHz) * 4000.0 * energyBias
+		normBias := float64(sfLength8kHz) * 4000.0
 		normalizer := targetEnergy + basisEnergy + normBias
 
 		// Compute initial cross-correlation
@@ -277,17 +299,15 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		dSrchCorr[i] = -1e10
 	}
 
-	// Insertion sort to find top candidates
+	// Insertion sort to find top candidates (store offsets relative to minLag4kHz)
 	for d := minLag4kHz; d <= maxLag4kHz && d < len(C); d++ {
 		if C[d] > dSrchCorr[lengthDSrch-1] {
-			// Insert this candidate
 			for j := 0; j < lengthDSrch; j++ {
 				if C[d] > dSrchCorr[j] {
-					// Shift everything down
 					copy(dSrchCorr[j+1:], dSrchCorr[j:lengthDSrch-1])
 					copy(dSrch[j+1:], dSrch[j:lengthDSrch-1])
 					dSrchCorr[j] = C[d]
-					dSrch[j] = d
+					dSrch[j] = d - minLag4kHz
 					break
 				}
 			}
@@ -316,14 +336,15 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 	for i := range dComp {
 		dComp[i] = 0 // Clear
 	}
-	validDSrch := 0
 	for i := 0; i < lengthDSrch; i++ {
-		if dSrchCorr[i] > threshold {
-			idx := dSrch[i] * 2 // Convert to 8kHz
-			if idx >= minLag8kHz && idx <= maxLag8kHz {
-				dComp[idx] = 1
-			}
-			validDSrch++
+		if dSrchCorr[i] <= threshold {
+			lengthDSrch = i
+			break
+		}
+		d := (dSrch[i] + minLag4kHz) * 2
+		dSrch[i] = d
+		if d >= minLag8kHz && d <= maxLag8kHz {
+			dComp[d] = 1
 		}
 	}
 
@@ -386,7 +407,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		for _, s := range target {
 			targetEnergy += float64(s) * float64(s)
 		}
-		targetEnergy += energyBias // Avoid division by zero
+		targetEnergy += 1.0 // Avoid division by zero
 
 		for j := 0; j < lengthDComp; j++ {
 			d := int(dComp[j])
@@ -409,7 +430,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 	}
 
 	// Search over lag range and contour codebook
-	var CCmax float64 = -1000
+	var CCmax float64
 	CCmaxB := -1000.0
 	CBimax := 0
 	lag := -1
@@ -447,12 +468,13 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		searchThres2 = 0.4 - 0.25*float64(complexity)/2.0
 	}
 
+	var ccBuf [peNbCbksStage2Ext]float64
 	for k := 0; k < lengthDSrch; k++ {
 		d := dSrch[k]
 
-		// Sum correlation across subframes for each codebook entry
+		cc := ccBuf[:nbCbkSearch]
 		for j := 0; j < nbCbkSearch; j++ {
-			var CC float64
+			cc[j] = 0
 			for i := 0; i < numSubframes; i++ {
 				var cbOffset int8
 				if lagCBPtr != nil && i < peMaxNbSubfr && j < cbkSize {
@@ -460,25 +482,22 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 				}
 				idx := d + int(cbOffset)
 				if idx >= 0 && idx < c8kHzStride {
-					CC += C8kHz[i*c8kHzStride+idx]
+					cc[j] += C8kHz[i*c8kHzStride+idx]
 				}
 			}
+		}
 
-			// Find best codebook
-			if CC > CCmax {
-				CCmax = CC
-				CBimax = j
-				lag = d
+		CCmaxNew := -1000.0
+		CBimaxNew := 0
+		for i := 0; i < nbCbkSearch; i++ {
+			if cc[i] > CCmaxNew {
+				CCmaxNew = cc[i]
+				CBimaxNew = i
 			}
 		}
-	}
 
-	// Apply biases
-	if lag > 0 {
-		lagLog2 := math.Log2(float64(lag))
-		CCmaxNewB := CCmax - peShortlagBias*float64(numSubframes)*lagLog2
-
-		// Bias toward previous lag
+		lagLog2 := math.Log2(float64(d))
+		CCmaxNewB := CCmaxNew - peShortlagBias*float64(numSubframes)*lagLog2
 		if prevLag > 0 {
 			deltaLagLog2Sqr := lagLog2 - prevLagLog2
 			deltaLagLog2Sqr *= deltaLagLog2Sqr
@@ -486,16 +505,22 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 				deltaLagLog2Sqr / (deltaLagLog2Sqr + 0.5)
 		}
 
-		if CCmaxNewB > CCmaxB && CCmax > float64(numSubframes)*searchThres2 {
+		if CCmaxNewB > CCmaxB && CCmaxNew > float64(numSubframes)*searchThres2 {
 			CCmaxB = CCmaxNewB
-		} else if lag == -1 {
-			// No suitable candidate - use scratch buffer
-			pitchLags := ensureIntSlice(&e.scratchPitchLags, numSubframes)
-			for i := range pitchLags {
-				pitchLags[i] = minLag
-			}
-			return pitchLags
+			CCmax = CCmaxNew
+			lag = d
+			CBimax = CBimaxNew
 		}
+	}
+
+	if lag == -1 {
+		pitchLags := ensureIntSlice(&e.scratchPitchLags, numSubframes)
+		for i := range pitchLags {
+			pitchLags[i] = minLag
+		}
+		e.pitchState.ltpCorr = 0
+		e.pitchState.prevLag = 0
+		return pitchLags
 	}
 
 	// Update LTP correlation
@@ -506,15 +531,13 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 	// Stage 3: Fine search at full rate (if not 8kHz) - use scratch buffer
 	pitchLags := ensureIntSlice(&e.scratchPitchLags, numSubframes)
 
-	if fsKHz > 8 && lag > 0 {
-		// Convert lag to full rate
+	if fsKHz > 8 {
 		if fsKHz == 12 {
 			lag = (lag*3 + 1) / 2
 		} else if fsKHz == 16 {
-			lag = lag * 2
+			lag *= 2
 		}
 
-		// Clamp to valid range
 		if lag < minLag {
 			lag = minLag
 		}
@@ -522,7 +545,6 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 			lag = maxLag
 		}
 
-		// Search range for stage 3
 		startLag := lag - 2
 		if startLag < minLag {
 			startLag = minLag
@@ -532,90 +554,63 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 			endLag = maxLag
 		}
 
-		// Get contour codebook parameters for stage 3
-		nbCbkSearch3 := pitchNbCbkSearchsStage3[complexity]
-		lagRangePtr := &pitchLagRangeStage3[complexity]
+		corrSt3 := ensureFloat64Slice(&e.scratchPitchCorrSt3, numSubframes*peNbCbksStage3Max*peNbStage3Lags)
+		energySt3 := ensureFloat64Slice(&e.scratchPitchEnergySt3, numSubframes*peNbCbksStage3Max*peNbStage3Lags)
+		pitchAnalysisCalcCorrSt3(corrSt3, pcm, startLag, sfLength, numSubframes, complexity)
+		pitchAnalysisCalcEnergySt3(energySt3, pcm, startLag, sfLength, numSubframes, complexity)
 
-		// Fine search with Lagrangian interpolation
-		var bestLag int
-		var bestCC float64 = -1000
+		lagCounter := 0
+		contourBias := peFlatcontourBias / float64(lag)
+
+		var lagCBStage3 [][]int8
+		var nbCbkSearch3 int
+		if numSubframes == peMaxNbSubfr {
+			nbCbkSearch3 = pitchNbCbkSearchsStage3[complexity]
+			lagCBStage3 = pitchCBLagsStage3Slice
+		} else {
+			nbCbkSearch3 = peNbCbksStage310ms
+			lagCBStage3 = pitchCBLagsStage310msSlice
+		}
 
 		targetStartFull := peLTPMemLengthMS * fsKHz
+		targetEnd := targetStartFull + numSubframes*sfLength
+		if targetEnd > len(pcm) {
+			targetEnd = len(pcm)
+		}
+		energyTmp := energyFLP(pcm[targetStartFull:targetEnd]) + 1.0
+
+		lagNew := lag
+		CBimax = 0
+		CCmax = -1000.0
 
 		for d := startLag; d <= endLag; d++ {
 			for j := 0; j < nbCbkSearch3; j++ {
-				var crossCorr, energy float64
-
+				crossCorr := 0.0
+				energy := energyTmp
 				for k := 0; k < numSubframes; k++ {
-					cbOffset := pitchCBLagsStage3[k][j]
-					lagK := d + int(cbOffset)
-
-					// Check if within valid lag range for this subframe
-					if k < peMaxNbSubfr {
-						lagLow := int(lagRangePtr[k][0])
-						lagHigh := int(lagRangePtr[k][1])
-						if int(cbOffset) < lagLow || int(cbOffset) > lagHigh {
-							continue
-						}
-					}
-
-					if lagK < minLag || lagK > maxLag {
-						continue
-					}
-
-					targetIdx := targetStartFull + k*sfLength
-					if targetIdx+sfLength > len(pcm) {
-						break
-					}
-					target := pcm[targetIdx : targetIdx+sfLength]
-
-					basisIdx := targetIdx - lagK
-					if basisIdx < 0 || basisIdx+sfLength > len(pcm) {
-						continue
-					}
-					basis := pcm[basisIdx : basisIdx+sfLength]
-
-					for i := 0; i < sfLength; i++ {
-						crossCorr += float64(target[i]) * float64(basis[i])
-						energy += float64(basis[i]) * float64(basis[i])
-					}
+					idx := pitchStage3Index(k, j, lagCounter)
+					crossCorr += corrSt3[idx]
+					energy += energySt3[idx]
 				}
-
-				// Compute normalized correlation with contour bias
-				if crossCorr > 0 && energy > 0 {
-					var targetEnergy float64
-					for k := 0; k < numSubframes; k++ {
-						targetIdx := targetStartFull + k*sfLength
-						if targetIdx+sfLength > len(pcm) {
-							break
-						}
-						for i := 0; i < sfLength; i++ {
-							targetEnergy += float64(pcm[targetIdx+i]) * float64(pcm[targetIdx+i])
-						}
-					}
-					CC := 2 * crossCorr / (energy + targetEnergy + 1.0)
-
-					// Apply flat contour bias
-					contourBias := peFlatcontourBias / float64(d)
-					CC *= 1.0 - contourBias*float64(j)
-
-					if CC > bestCC && (d+int(pitchCBLagsStage3[0][j])) <= maxLag {
-						bestCC = CC
-						bestLag = d
-						CBimax = j
-					}
+				var cc float64
+				if crossCorr > 0.0 {
+					cc = 2.0 * crossCorr / energy
+					cc *= 1.0 - contourBias*float64(j)
+				} else {
+					cc = 0.0
+				}
+				if cc > CCmax && (d+int(lagCBStage3[0][j])) <= maxLag {
+					CCmax = cc
+					lagNew = d
+					CBimax = j
 				}
 			}
+			lagCounter++
 		}
 
-		lag = bestLag
-
-		// Compute final pitch lags using contour
 		for k := 0; k < numSubframes; k++ {
-			cbOffset := pitchCBLagsStage3[k][CBimax]
-			pitchLags[k] = lag + int(cbOffset)
-
-			// Clamp to valid range
+			cbOffset := lagCBStage3[k][CBimax]
+			pitchLags[k] = lagNew + int(cbOffset)
 			if pitchLags[k] < minLag {
 				pitchLags[k] = minLag
 			}
@@ -623,6 +618,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 				pitchLags[k] = maxLag
 			}
 		}
+		lag = lagNew
 	} else {
 		// 8kHz: use stage 2 results directly
 		for k := 0; k < numSubframes; k++ {
@@ -632,7 +628,6 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 			}
 			pitchLags[k] = lag + int(cbOffset)
 
-			// Clamp to valid range
 			if pitchLags[k] < minLag8kHz {
 				pitchLags[k] = minLag8kHz
 			}
@@ -643,7 +638,11 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 	}
 
 	// Update state for next frame
-	e.pitchState.prevLag = lag
+	if len(pitchLags) > 0 {
+		e.pitchState.prevLag = pitchLags[len(pitchLags)-1]
+	} else {
+		e.pitchState.prevLag = 0
+	}
 
 	return pitchLags
 }
@@ -884,6 +883,126 @@ func innerProductFLP(a, b []float32, length int) float64 {
 	}
 
 	return result
+}
+
+func pitchStage3Index(k, j, lag int) int {
+	return (k*peNbCbksStage3Max+j)*peNbStage3Lags + lag
+}
+
+func pitchAnalysisCalcCorrSt3(out []float64, frame []float32, startLag, sfLength, nbSubfr, complexity int) {
+	if nbSubfr <= 0 || sfLength <= 0 {
+		return
+	}
+
+	var lagRange [][2]int8
+	var lagCB [][]int8
+	var nbCbkSearch int
+	if nbSubfr == peMaxNbSubfr {
+		lagRange = pitchLagRangeStage3[complexity][:]
+		lagCB = pitchCBLagsStage3Slice
+		nbCbkSearch = pitchNbCbkSearchsStage3[complexity]
+	} else {
+		lagRange = pitchLagRangeStage310ms[:]
+		lagCB = pitchCBLagsStage310msSlice
+		nbCbkSearch = peNbCbksStage310ms
+	}
+
+	targetIdx := sfLength * 4
+	var scratchMem [22]float64
+	for k := 0; k < nbSubfr; k++ {
+		lagLow := int(lagRange[k][0])
+		lagHigh := int(lagRange[k][1])
+		if lagHigh < lagLow {
+			targetIdx += sfLength
+			continue
+		}
+		lagCount := lagHigh - lagLow + 1
+		if lagCount > len(scratchMem) {
+			lagCount = len(scratchMem)
+		}
+		for i := 0; i < lagCount; i++ {
+			scratchMem[i] = 0
+		}
+		for j := lagLow; j <= lagHigh && (j-lagLow) < lagCount; j++ {
+			basisIdx := targetIdx - startLag - j
+			if basisIdx < 0 || basisIdx+sfLength > len(frame) || targetIdx+sfLength > len(frame) {
+				continue
+			}
+			scratchMem[j-lagLow] = innerProductFLP(frame[basisIdx:], frame[targetIdx:], sfLength)
+		}
+		delta := lagLow
+		for i := 0; i < nbCbkSearch; i++ {
+			idx := int(lagCB[k][i]) - delta
+			for j := 0; j < peNbStage3Lags; j++ {
+				if idx+j < 0 || idx+j >= lagCount {
+					out[pitchStage3Index(k, i, j)] = 0
+					continue
+				}
+				out[pitchStage3Index(k, i, j)] = scratchMem[idx+j]
+			}
+		}
+		targetIdx += sfLength
+	}
+}
+
+func pitchAnalysisCalcEnergySt3(out []float64, frame []float32, startLag, sfLength, nbSubfr, complexity int) {
+	if nbSubfr <= 0 || sfLength <= 0 {
+		return
+	}
+
+	var lagRange [][2]int8
+	var lagCB [][]int8
+	var nbCbkSearch int
+	if nbSubfr == peMaxNbSubfr {
+		lagRange = pitchLagRangeStage3[complexity][:]
+		lagCB = pitchCBLagsStage3Slice
+		nbCbkSearch = pitchNbCbkSearchsStage3[complexity]
+	} else {
+		lagRange = pitchLagRangeStage310ms[:]
+		lagCB = pitchCBLagsStage310msSlice
+		nbCbkSearch = peNbCbksStage310ms
+	}
+
+	targetIdx := sfLength * 4
+	var scratchMem [22]float64
+	for k := 0; k < nbSubfr; k++ {
+		lagLow := int(lagRange[k][0])
+		lagHigh := int(lagRange[k][1])
+		if lagHigh < lagLow {
+			targetIdx += sfLength
+			continue
+		}
+		lagCount := lagHigh - lagLow + 1
+		if lagCount > len(scratchMem) {
+			lagCount = len(scratchMem)
+		}
+
+		basisStart := targetIdx - (startLag + lagLow)
+		if basisStart < 0 || basisStart+sfLength > len(frame) {
+			targetIdx += sfLength
+			continue
+		}
+		energy := energyFLP(frame[basisStart:basisStart+sfLength]) + 1e-3
+		scratchMem[0] = energy
+		for i := 1; i < lagCount; i++ {
+			energy -= float64(frame[basisStart+sfLength-i]) * float64(frame[basisStart+sfLength-i])
+			energy += float64(frame[basisStart-i]) * float64(frame[basisStart-i])
+			scratchMem[i] = energy
+		}
+
+		delta := lagLow
+		for i := 0; i < nbCbkSearch; i++ {
+			idx := int(lagCB[k][i]) - delta
+			for j := 0; j < peNbStage3Lags; j++ {
+				if idx+j < 0 || idx+j >= lagCount {
+					out[pitchStage3Index(k, i, j)] = 0
+					continue
+				}
+				out[pitchStage3Index(k, i, j)] = scratchMem[idx+j]
+			}
+		}
+		targetIdx += sfLength
+	}
 }
 
 // encodePitchLags encodes pitch lags to the bitstream.

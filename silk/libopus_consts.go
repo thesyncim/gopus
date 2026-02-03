@@ -61,6 +61,7 @@ const (
 	findPitchBandwidthExpansion = 0.99
 	findPitchWhiteNoiseFraction = 1e-3
 	maxFindPitchLpcOrder        = 16
+	silkSampleScale             = 32768.0
 )
 
 // Pitch estimation constants moved to pitch_detect.go

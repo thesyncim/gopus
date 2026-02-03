@@ -123,29 +123,37 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, frameSize int) ([]byte, error
 	hbGain := e.computeHBGain(celtBitrate)
 
 	// Compute target buffer size based on bitrate mode
-	targetBytes := maxHybridPacketSize
-	frameDurationMs := frameSize * 1000 / 48000
-	baseTargetBytes := (e.bitrate * frameDurationMs) / 8000
+	baseTargetBytes := targetBytesForBitrate(e.bitrate, frameSize)
+	if baseTargetBytes < 2 {
+		baseTargetBytes = 2
+	}
+	payloadTarget := baseTargetBytes - 1
+	if payloadTarget < 1 {
+		payloadTarget = 1
+	}
+	targetBytes := payloadTarget
 
 	switch e.bitrateMode {
 	case ModeCBR:
-		targetBytes = baseTargetBytes - 1
-		if targetBytes < 1 {
-			targetBytes = 1
-		}
-		if targetBytes > maxHybridPacketSize-1 {
-			targetBytes = maxHybridPacketSize - 1
-		}
+		targetBytes = payloadTarget
 	case ModeCVBR:
 		maxAllowed := int(float64(baseTargetBytes) * (1 + CVBRTolerance))
+		if maxAllowed < 2 {
+			maxAllowed = 2
+		}
 		targetBytes = maxAllowed - 1
-		if targetBytes < 1 {
-			targetBytes = 1
-		}
-		if targetBytes > maxHybridPacketSize-1 {
-			targetBytes = maxHybridPacketSize - 1
-		}
 	case ModeVBR:
+		// Allow up to 2x target in VBR (matches libopus compute_vbr cap).
+		maxAllowed := int(float64(baseTargetBytes) * 2.0)
+		if maxAllowed < 2 {
+			maxAllowed = 2
+		}
+		targetBytes = maxAllowed - 1
+	}
+	if targetBytes < 1 {
+		targetBytes = 1
+	}
+	if targetBytes > maxHybridPacketSize-1 {
 		targetBytes = maxHybridPacketSize - 1
 	}
 
@@ -153,7 +161,11 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, frameSize int) ([]byte, error
 	buf := make([]byte, maxHybridPacketSize)
 	re := &rangecoding.Encoder{}
 	re.Init(buf)
-	re.Shrink(uint32(targetBytes))
+	if e.bitrateMode == ModeCBR {
+		re.Shrink(uint32(targetBytes))
+	} else {
+		re.Limit(uint32(targetBytes))
+	}
 
 	// Step 1: Downsample 48kHz -> 16kHz for SILK using libopus-matching resampler
 	silkInput := e.downsample48to16Hybrid(pcm, frameSize)
