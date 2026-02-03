@@ -15,6 +15,7 @@ package encoder
 
 import (
 	"math"
+	"math/bits"
 )
 
 // VAD Constants matching libopus silk/define.h
@@ -490,46 +491,44 @@ func anaFiltBank1(in []int16, S *[2]int32, outL, outH []int16, N int) {
 
 // Helper functions for fixed-point arithmetic
 
-// lin2log converts linear value to log domain.
-// Approximation of log2(x) * 128 for Q8 input.
-// Matches silk_lin2log from libopus.
-func lin2log(x int32) int32 {
-	if x <= 0 {
-		return 0
-	}
+var sigmLUTSlopeQ10 = [6]int32{237, 153, 73, 30, 12, 7}
+var sigmLUTPosQ15 = [6]int32{16384, 23955, 28861, 31213, 32178, 32548}
+var sigmLUTNegQ15 = [6]int32{16384, 8812, 3906, 1554, 589, 219}
 
-	// Find position of highest bit (0-indexed)
-	var i int32
-	for tmp := x; tmp > 1; tmp >>= 1 {
-		i++
+func sigmQ15(inQ5 int32) int32 {
+	if inQ5 < 0 {
+		/* Negative input */
+		inQ5 = -inQ5
+		if inQ5 >= 6*32 {
+			return 0 /* Clip */
+		} else {
+			/* Linear interpolation of look up table */
+			ind := inQ5 >> 5
+			return sigmLUTNegQ15[ind] - sigmLUTSlopeQ10[ind]*(inQ5&0x1F)
+		}
+	} else {
+		/* Positive input */
+		if inQ5 >= 6*32 {
+			return 32767 /* clip */
+		} else {
+			/* Linear interpolation of look up table */
+			ind := inQ5 >> 5
+			return sigmLUTPosQ15[ind] + sigmLUTSlopeQ10[ind]*(inQ5&0x1F)
+		}
 	}
-
-	// For very small values, return directly
-	if i < 15 {
-		// Fractional part approximation
-		frac := (x << uint(15-i)) & 0x7FFF
-		return (i << 7) + ((frac * 128) >> 15)
-	}
-
-	// For larger values, avoid overflow
-	frac := (x >> uint(i-15)) & 0x7FFF
-	return (i << 7) + ((frac * 128) >> 15)
 }
 
-// sigmQ15 computes sigmoid function in Q15.
-// sigmoid(x) = 1 / (1 + exp(-x))
-func sigmQ15(x int32) int32 {
-	// Clamp input - sigmoid saturates at boundaries
-	if x >= 127 {
-		return 32767 // Max Q15 positive value (0.9999...)
+// lin2log converts linear value to log domain.
+// Approximation of 128 * log2(x)
+// Matches silk_lin2log from libopus.
+func lin2log(inLin int32) int32 {
+	if inLin <= 0 {
+		return 0
 	}
-	if x <= -128 {
-		return 0 // Min value
-	}
+	lz := int32(bits.LeadingZeros32(uint32(inLin)))
+	fracQ7 := int32(bits.RotateLeft32(uint32(inLin), -int(24-lz)) & 0x7f)
 
-	// Piecewise linear approximation
-	// sigmoid(x) approx= 0.5 + 0.25*x for small |x|
-	return 16384 + (x * 128) // 0.5 + x/256 in Q15
+	return (((fracQ7 * (128 - fracQ7) * 179) >> 16) + fracQ7) + ((31 - lz) << 7)
 }
 
 // sqrtApprox computes approximate integer square root.

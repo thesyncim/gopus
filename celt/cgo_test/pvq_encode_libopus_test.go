@@ -78,7 +78,7 @@ func TestPVQSearchAndEncodeRoundtrip(t *testing.T) {
 				copy(xOrig, x)
 
 				// PVQ search finds the best pulse vector
-				pulses := goPVQSearch(x, tc.k)
+				pulses, _ := celt.OpPVQSearchExport(x, tc.k)
 
 				// Encode to CWRS index
 				index := celt.EncodePulses(pulses, tc.n, tc.k)
@@ -136,7 +136,7 @@ func TestPVQSearchVsLibopusWithSameInput(t *testing.T) {
 				// Run Go implementation
 				xCopyGo := make([]float64, n)
 				copy(xCopyGo, x)
-				goPulses := goPVQSearch(xCopyGo, k)
+				goPulses, _ := celt.OpPVQSearchExport(xCopyGo, k)
 
 				// Run libopus implementation
 				libopusPulses, _ := LibopusPVQSearch(x, k)
@@ -214,7 +214,7 @@ func TestPVQEncodingEndToEnd(t *testing.T) {
 					// 1. PVQ search (use a copy since goPVQSearch modifies the input)
 					xCopy := make([]float64, n)
 					copy(xCopy, x)
-					pulses := goPVQSearch(xCopy, k)
+					pulses, _ := celt.OpPVQSearchExport(xCopy, k)
 
 					// Verify pulse count
 					pulseSum := 0
@@ -332,7 +332,7 @@ func TestLibopusPVQSearchOutputFormat(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			goPulses := goPVQSearch(tc.x, tc.k)
+			goPulses, _ := celt.OpPVQSearchExport(tc.x, tc.k)
 			libPulses, yy := LibopusPVQSearch(tc.x, tc.k)
 
 			goSum := pulseSum(goPulses)

@@ -36,10 +36,10 @@ type Encoder struct {
 	pitchAnalysisBuf []float32          // History buffer for pitch analysis (LTP memory + frame)
 
 	// VAD-derived state (optional, provided by Opus-level encoder)
-	speechActivityQ8  int   // Speech activity in Q8 (0-255)
-	inputTiltQ15      int   // Spectral tilt in Q15 from VAD
-	inputQualityQ15   int   // Input quality in Q15 (0-32768)
-	speechActivitySet bool  // Whether VAD-derived state was explicitly set
+	speechActivityQ8  int      // Speech activity in Q8 (0-255)
+	inputTiltQ15      int      // Spectral tilt in Q15 from VAD
+	inputQualityBandsQ15 [4]int // Quality in each VAD band (Q15)
+	speechActivitySet bool     // Whether VAD-derived state was explicitly set
 
 	// NSQ (Noise Shaping Quantization) state
 	nsqState        *NSQState        // Noise shaping quantizer state for proper libopus-matching
@@ -48,6 +48,7 @@ type Encoder struct {
 	// Encoder control parameters (persists across frames)
 	snrDBQ7       int     // Target SNR in dB (Q7 format, e.g., 25 dB = 25 * 128)
 	targetRateBps int     // Target bitrate (per channel) for SNR control
+	useCBR        bool    // Constant Bitrate mode
 	ltpCorr       float32 // LTP correlation from pitch analysis [0, 1]
 	sumLogGainQ7  int32   // Sum log gain for LTP quantization
 	complexity    int     // Encoder complexity (0-10)
@@ -67,6 +68,7 @@ type Encoder struct {
 	// LPC analysis results (for gain computation from prediction residual)
 	lastTotalEnergy float64 // C0 from Burg analysis
 	lastInvGain     float64 // Inverse prediction gain from Burg analysis
+	lastLPCGain     float64 // Initial prediction gain from pitch analysis
 	lastNumSamples  int     // Number of samples analyzed
 
 	// Analysis buffers (encoder-specific)
@@ -323,12 +325,14 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 		bandwidth:         bandwidth,
 		sampleRate:        config.SampleRate,
 		lpcOrder:          config.LPCOrder,
-		snrDBQ7:           25 * 128, // Default: 25 dB SNR target
-		nFramesPerPacket:  1,        // Default: 1 frame per packet (20ms)
+		pitchState:        PitchAnalysisState{prevLag: 100}, // libopus initialization
+		snrDBQ7:           25 * 128,                        // Default: 25 dB SNR target
+		nFramesPerPacket:  1,                               // Default: 1 frame per packet (20ms)
 		lbrrPulses:        lbrrPulses,
 		lbrrGainIncreases: 7, // Default gain increase for LBRR
 		previousGainIndex: 10,
 	}
+	enc.nsqState.lagPrev = 100 // libopus initialization
 	enc.SetComplexity(10)
 	return enc
 }
@@ -353,13 +357,14 @@ func (e *Encoder) Reset() {
 		e.inputBuffer[i] = 0
 	}
 	e.prevStereoWeights = [2]int16{0, 0}
-	e.stereo = stereoEncState{}         // Reset LP filter state
-	e.pitchState = PitchAnalysisState{} // Reset pitch state
+	e.stereo = stereoEncState{}                      // Reset LP filter state
+	e.pitchState = PitchAnalysisState{prevLag: 100} // libopus initialization
 	for i := range e.pitchAnalysisBuf {
 		e.pitchAnalysisBuf[i] = 0
 	}
 	if e.nsqState != nil {
-		e.nsqState.Reset() // Reset NSQ state
+		e.nsqState.Reset()        // Reset NSQ state
+		e.nsqState.lagPrev = 100 // libopus initialization
 	}
 	if e.noiseShapeState != nil {
 		e.noiseShapeState = NewNoiseShapeState() // Reset noise shaping state
@@ -540,7 +545,7 @@ func (e *Encoder) SetPreviousFrameVoiced(voiced bool) {
 
 // SetVADState sets speech activity and spectral tilt from VAD analysis.
 // These values influence pitch thresholding and noise shaping.
-func (e *Encoder) SetVADState(speechActivityQ8 int, inputTiltQ15 int, inputQualityQ15 int) {
+func (e *Encoder) SetVADState(speechActivityQ8 int, inputTiltQ15 int, inputQualityBandsQ15 [4]int) {
 	if speechActivityQ8 < 0 {
 		speechActivityQ8 = 0
 	}
@@ -549,7 +554,7 @@ func (e *Encoder) SetVADState(speechActivityQ8 int, inputTiltQ15 int, inputQuali
 	}
 	e.speechActivityQ8 = speechActivityQ8
 	e.inputTiltQ15 = inputTiltQ15
-	e.inputQualityQ15 = inputQualityQ15
+	e.inputQualityBandsQ15 = inputQualityBandsQ15
 	e.speechActivitySet = true
 }
 
@@ -612,13 +617,14 @@ func (e *Encoder) GetLastNumSamples() int {
 	return e.lastNumSamples
 }
 
-// SetBitrate sets the target bitrate for encoding.
-// This is a no-op for SILK in hybrid mode (bitrate is controlled by Opus-level allocator).
+// SetBitrate sets the target bitrate in bps (per channel).
 func (e *Encoder) SetBitrate(bitrate int) {
-	if bitrate <= 0 {
-		return
-	}
 	e.targetRateBps = bitrate
+}
+
+// SetVBR enables or disables variable bitrate mode.
+func (e *Encoder) SetVBR(vbr bool) {
+	e.useCBR = !vbr
 }
 
 // SetFEC enables or disables in-band Forward Error Correction (LBRR).

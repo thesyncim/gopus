@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -55,7 +56,7 @@ func findOpusDemo(t *testing.T) string {
 func writeRawPCM16(path string, pcm []float32) error {
 	buf := &bytes.Buffer{}
 	for _, s := range pcm {
-		v := int32(s * 32768.0)
+		v := int32(math.RoundToEven(float64(s * 32768.0)))
 		if v > 32767 {
 			v = 32767
 		} else if v < -32768 {

@@ -185,15 +185,16 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 	var st4 [2]int32
 	outLen4 := resamplerDown2(&st4, frame4Fix, frame8Fix)
 	frame4Fix = frame4Fix[:outLen4]
+
+	// Apply simple low-pass filter to 4kHz signal (matching libopus silk_ADD_SAT16 on float signal filled from FIX)
+	for i := len(frame4Fix) - 1; i > 0; i-- {
+		frame4Fix[i] = silkSAT16(int32(frame4Fix[i]) + int32(frame4Fix[i-1]))
+	}
+
 	frame4kHz := ensureFloat32Slice(&e.scratchFrame4kHz, len(frame4Fix))
 	int16ToFloat32Slice(frame4kHz, frame4Fix)
 	if len(frame4kHz) > frameLength4kHz {
 		frame4kHz = frame4kHz[:frameLength4kHz]
-	}
-
-	// Apply simple low-pass filter to 4kHz signal
-	for i := len(frame4kHz) - 1; i > 0; i-- {
-		frame4kHz[i] = frame4kHz[i] + frame4kHz[i-1]
 	}
 
 	// Stage 1: Coarse search at 4kHz using scratch buffer

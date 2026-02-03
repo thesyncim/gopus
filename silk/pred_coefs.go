@@ -292,18 +292,18 @@ func (e *Encoder) computeResidualEnergies(ltpRes []float32, predCoefQ12 []int16,
 	return resNrg
 }
 
-func applyGainProcessing(gains []float32, resNrg []float64, predGainQ7 int32, snrDBQ7 int, signalType int, tiltQ14 int, subframeSamples int) int {
+func applyGainProcessing(gains []float32, resNrg []float64, predGainQ7 int32, snrDBQ7 int, signalType int, inputTiltQ15 int, subframeSamples int) int {
 	quantOffsetType := 0
 	if signalType == typeVoiced {
 		predGainDB := float32(predGainQ7) / 128.0
-		inputTilt := float32(tiltQ14) / 16384.0
+		inputTilt := float32(inputTiltQ15) / 32768.0
 		if predGainDB+inputTilt > 1.0 {
 			quantOffsetType = 0
 		} else {
 			quantOffsetType = 1
 		}
 
-		s := float32(1.0 - 0.5*sigmoid(0.25*(predGainDB-12.0)))
+		s := float32(1.0 - 0.5*Sigmoid(0.25*(predGainDB-12.0)))
 		for k := range gains {
 			gains[k] *= s
 		}

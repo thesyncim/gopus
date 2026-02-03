@@ -11,7 +11,7 @@ func (e *Encoder) noiseShapeAnalysis(
 	pitchResStart int,
 	signalType int,
 	speechActivityQ8 int,
-	predGainQ7 int32,
+	lpcPredGain float64,
 	pitchLags []int,
 	quantOffset int,
 	numSubframes int,
@@ -36,18 +36,42 @@ func (e *Encoder) noiseShapeAnalysis(
 		}
 	}
 
-	inputQualityQ15 := -1
+	inputQualityBandsQ15 := [4]int{-1, -1, -1, -1}
 	if e.speechActivitySet {
-		inputQualityQ15 = e.inputQualityQ15
+		inputQualityBandsQ15 = e.inputQualityBandsQ15
 	}
+
+	// Compute average input quality from first two bands (matches libopus psEncCtrl->input_quality)
+	var inputQuality float32
+	if inputQualityBandsQ15[0] >= 0 {
+		inputQuality = 0.5 * (float32(inputQualityBandsQ15[0]) + float32(inputQualityBandsQ15[1])) / 32768.0
+	} else {
+		inputQuality = float32(speechActivityQ8) / 256.0
+	}
+
+	// SNR adjustment for gain tweaking and coding quality (matching libopus SNR_adj_dB)
+	snrDB := float64(e.snrDBQ7) / 128.0
+	SNRAdjDB := snrDB
+	b := 1.0 - float64(speechActivityQ8)/256.0
+	// Initial estimate for coding quality to match recursive dependency in libopus
+	initialCodingQuality := Sigmoid(0.25 * (float32(snrDB) - 20.0))
+	if !e.useCBR {
+		SNRAdjDB -= bgSNRDecrDB * float64(initialCodingQuality) * (0.5 + 0.5*float64(inputQuality)) * b * b
+	}
+	if signalType == typeVoiced {
+		SNRAdjDB += harmSNRIncrDB * float64(e.ltpCorr)
+	} else {
+		SNRAdjDB += (-0.4*snrDB + 6.0) * (1.0 - float64(inputQuality))
+	}
+
 	params := e.noiseShapeState.ComputeNoiseShapeParams(
 		signalType,
 		speechActivityQ8,
 		e.ltpCorr,
 		pitchLags,
-		e.snrDBQ7,
+		SNRAdjDB,
 		quantOffsetType,
-		inputQualityQ15,
+		inputQualityBandsQ15,
 		numSubframes,
 		fsKHz,
 	)
@@ -56,7 +80,8 @@ func (e *Encoder) noiseShapeAnalysis(
 		pcm,
 		numSubframes,
 		subframeSamples,
-		predGainQ7,
+		lpcPredGain,
+		SNRAdjDB,
 		signalType,
 		speechActivityQ8,
 		params.CodingQuality,
@@ -124,7 +149,8 @@ func (e *Encoder) computeShapingARAndGains(
 	pcm []float32,
 	numSubframes int,
 	subframeSamples int,
-	predGainQ7 int32,
+	lpcPredGain float64,
+	SNRAdjDB float64,
 	signalType int,
 	speechActivityQ8 int,
 	codingQuality float32,
@@ -201,21 +227,8 @@ func (e *Encoder) computeShapingARAndGains(
 		}
 	}
 
-	// SNR adjustment for gain tweaking.
-	snrDB := float64(e.snrDBQ7) / 128.0
-	SNRAdjDB := snrDB
-	b := 1.0 - float64(speechActivityQ8)/256.0
-	SNRAdjDB -= bgSNRDecrDB * float64(codingQuality) * (0.5 + 0.5*float64(inputQuality)) * b * b
-	if signalType == typeVoiced {
-		SNRAdjDB += harmSNRIncrDB * float64(e.ltpCorr)
-	} else {
-		SNRAdjDB += (-0.4*snrDB + 6.0) * (1.0 - float64(inputQuality))
-	}
-
 	// Bandwidth expansion and warping.
-	predGainDB := float64(predGainQ7) / 128.0
-	predGain := math.Pow(10.0, predGainDB/10.0)
-	strength := findPitchWhiteNoiseFraction * predGain
+	strength := findPitchWhiteNoiseFraction * lpcPredGain
 	BWExp := bandwidthExpansion / (1.0 + strength*strength)
 	warping := float64(e.warpingQ16)/65536.0 + 0.01*float64(codingQuality)
 

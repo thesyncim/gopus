@@ -75,7 +75,7 @@ type Encoder struct {
 	packetLoss        int // Expected packet loss percentage (0-100)
 	lastVADActivityQ8 int
 	lastVADInputTiltQ15 int
-	lastVADInputQualityQ15 int
+	lastVADInputQualityBandsQ15 [4]int
 	lastVADActive     bool
 	lastVADValid      bool
 	silkVAD           *VADState
@@ -691,8 +691,10 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, frameSize int) ([]byte, error) 
 			mono[i] = (left[i] + right[i]) * 0.5
 		}
 		vadFlag := e.computeSilkVAD(mono, len(left), fsKHz)
-		e.silkEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.lastVADInputQualityQ15)
-		e.silkSideEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.lastVADInputQualityQ15)
+		e.silkEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.silkVAD.InputQualityBandsQ15)
+		if e.silkSideEncoder != nil {
+			e.silkSideEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.silkVAD.InputQualityBandsQ15)
+		}
 
 		return silk.EncodeStereoWithEncoder(e.silkEncoder, e.silkSideEncoder, left, right, e.silkBandwidth(), vadFlag)
 	}
@@ -715,10 +717,18 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, frameSize int) ([]byte, error) 
 	e.silkEncoder.SetFEC(e.fecEnabled)
 	e.silkEncoder.SetPacketLoss(e.packetLoss)
 
+	// Propagate bitrate mode to SILK encoder
+	switch e.bitrateMode {
+	case ModeCBR:
+		e.silkEncoder.SetVBR(false)
+	case ModeCVBR, ModeVBR:
+		e.silkEncoder.SetVBR(true)
+	}
+
 	// Compute VAD at SILK sample rate
 	fsKHz := targetRate / 1000
 	vadFlags, nFrames := e.computeSilkVADFlags(pcm32, fsKHz)
-	e.silkEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.lastVADInputQualityQ15)
+	e.silkEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.lastVADInputQualityBandsQ15)
 
 	// Mono encoding using persistent encoder
 	if e.fecEnabled || nFrames > 1 {
@@ -832,7 +842,7 @@ func (e *Encoder) computeSilkVAD(mono []float32, frameSamples, fsKHz int) bool {
 	activityQ8, active := computeSilkVADWithState(e.silkVAD, mono, frameSamples, fsKHz)
 	e.lastVADActivityQ8 = activityQ8
 	e.lastVADInputTiltQ15 = e.silkVAD.InputTiltQ15
-	e.lastVADInputQualityQ15 = (e.silkVAD.InputQualityBandsQ15[0] + e.silkVAD.InputQualityBandsQ15[1]) / 2
+	e.lastVADInputQualityBandsQ15 = e.silkVAD.InputQualityBandsQ15
 	e.lastVADActive = active
 	e.lastVADValid = true
 	return active

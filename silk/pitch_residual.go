@@ -173,7 +173,10 @@ func (e *Encoder) computePitchResidual(numSubframes int) ([]float64, []float32, 
 	autoCorr[0] += autoCorr[0]*findPitchWhiteNoiseFraction + 1.0
 
 	refl := ensureFloat64Slice(&e.scratchPitchRefl, order)
-	schurFLP(refl, autoCorr, order)
+	resNrg := schurFLP(refl, autoCorr, order)
+
+	// Prediction gain (matching libopus silk_find_pitch_lags_FLP)
+	e.lastLPCGain = autoCorr[0] / math.Max(resNrg, 1.0)
 
 	a := ensureFloat64Slice(&e.scratchPitchA, order)
 	for i := range a {

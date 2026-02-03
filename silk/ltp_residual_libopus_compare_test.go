@@ -77,7 +77,7 @@ func TestLTPResidualTraceAgainstLibopus(t *testing.T) {
 			resStart,
 			signalType,
 			speechActivityQ8,
-			predGainQ7,
+			enc.lastLPCGain,
 			pitchLags,
 			quantOffset,
 			numSubfr,

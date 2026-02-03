@@ -169,7 +169,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 		resStart,
 		signalType,
 		speechActivityQ8,
-		predGainQ7,
+		e.lastLPCGain,
 		pitchLags,
 		quantOffset,
 		numSubframes,
@@ -203,11 +203,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 
 	// Step 6: Residual energy and gain processing
 	resNrg := e.computeResidualEnergies(ltpRes, predCoefQ12, interpIdx, gains, numSubframes, subframeSamples)
-	tiltQ14 := 0
-	if noiseParams != nil && len(noiseParams.TiltQ14) > 0 {
-		tiltQ14 = noiseParams.TiltQ14[0]
-	}
-	processedQuantOffset := applyGainProcessing(gains, resNrg, predGainQ7, e.snrDBQ7, signalType, tiltQ14, subframeSamples)
+	processedQuantOffset := applyGainProcessing(gains, resNrg, predGainQ7, e.snrDBQ7, signalType, e.inputTiltQ15, subframeSamples)
 	if signalType == typeVoiced {
 		quantOffset = processedQuantOffset
 	}
@@ -418,18 +414,18 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 		}
 
 		// Compute adaptive noise shaping parameters
-		inputQualityQ15 := -1
+		inputQualityBandsQ15 := [4]int{-1, -1, -1, -1}
 		if e.speechActivitySet {
-			inputQualityQ15 = e.inputQualityQ15
+			inputQualityBandsQ15 = e.inputQualityBandsQ15
 		}
 		noiseParams = e.noiseShapeState.ComputeNoiseShapeParams(
 			signalType,
 			speechActivityQ8,
 			e.ltpCorr,
-			pitchL,
-			e.snrDBQ7,
+			pitchLags,
+			float64(e.snrDBQ7)/128.0,
 			quantOffset,
-			inputQualityQ15,
+			inputQualityBandsQ15,
 			numSubframes,
 			fsKHz,
 		)
@@ -684,7 +680,7 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 		resStart,
 		signalType,
 		speechActivityQ8,
-		predGainQ7,
+		e.lastLPCGain,
 		pitchLags,
 		quantOffset,
 		numSubframes,
@@ -718,11 +714,7 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 
 	// Step 6: Residual energy and gain processing
 	resNrg := e.computeResidualEnergies(ltpRes, predCoefQ12, interpIdx, gains, numSubframes, subframeSamples)
-	tiltQ14 := 0
-	if noiseParams != nil && len(noiseParams.TiltQ14) > 0 {
-		tiltQ14 = noiseParams.TiltQ14[0]
-	}
-	processedQuantOffset := applyGainProcessing(gains, resNrg, predGainQ7, e.snrDBQ7, signalType, tiltQ14, subframeSamples)
+	processedQuantOffset := applyGainProcessing(gains, resNrg, predGainQ7, e.snrDBQ7, signalType, e.inputTiltQ15, subframeSamples)
 	if signalType == typeVoiced {
 		quantOffset = processedQuantOffset
 	}

@@ -1,5 +1,7 @@
 package silk
 
+import "math"
+
 // Noise shaping analysis constants from libopus tuning_parameters.h
 // These control the spectral shaping of quantization noise.
 const (
@@ -110,9 +112,9 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 	speechActivityQ8 int,
 	ltpCorr float32,
 	pitchLags []int,
-	snrDBQ7 int,
+	snrAdjDB float64,
 	quantOffsetType int,
-	inputQualityQ15 int,
+	inputQualityBandsQ15 [4]int,
 	numSubframes int,
 	fsKHz int,
 ) *NoiseShapeParams {
@@ -122,15 +124,17 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 		LFShpQ14:         make([]int32, numSubframes),
 	}
 
-	// Compute coding quality from SNR (sigmoid mapping)
-	// coding_quality = sigmoid(0.25 * (SNR_dB - 20))
-	snrDB := float32(snrDBQ7) / 128.0
-	params.CodingQuality = sigmoid(0.25 * (snrDB - 20.0))
+	// Compute coding quality from adjusted SNR (sigmoid mapping)
+	// coding_quality = sigmoid(0.25 * (SNR_adj_dB - 20))
+	params.CodingQuality = Sigmoid(0.25 * (float32(snrAdjDB) - 20.0))
 
-	// Input quality (prefer VAD-derived value, fallback to speech activity)
-	if inputQualityQ15 >= 0 {
-		params.InputQuality = float32(inputQualityQ15) / 32768.0
+	// Input quality (average of the quality in the lowest two VAD bands)
+	var inputQualityBand0 float32
+	if inputQualityBandsQ15[0] >= 0 {
+		inputQualityBand0 = float32(inputQualityBandsQ15[0]) / 32768.0
+		params.InputQuality = 0.5 * (float32(inputQualityBandsQ15[0]) + float32(inputQualityBandsQ15[1])) / 32768.0
 	} else {
+		inputQualityBand0 = float32(speechActivityQ8) / 256.0
 		params.InputQuality = float32(speechActivityQ8) / 256.0
 	}
 
@@ -189,8 +193,8 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 	harmShapeGainQ14 := int(harmShapeGain * 16384.0)
 
 	// Compute LF shaping (low-frequency noise shaping)
-	// strength = LOW_FREQ_SHAPING * (1 + LOW_QUALITY_DECR * (input_quality - 1))
-	strength := lowFreqShaping * (1.0 + lowQualityLowFreqShapingDecr*(params.InputQuality-1.0))
+	// strength = LOW_FREQ_SHAPING * (1 + LOW_QUALITY_DECR * (input_quality_bands[0] - 1))
+	strength := lowFreqShaping * (1.0 + lowQualityLowFreqShapingDecr*(inputQualityBand0-1.0))
 	strength *= float32(speechActivityQ8) / 256.0
 
 	// Apply smoothing and compute per-subframe values
@@ -228,8 +232,8 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 	return params
 }
 
-// sigmoid computes the sigmoid function: 1 / (1 + exp(-x))
-func sigmoid(x float32) float32 {
+// Sigmoid computes the sigmoid function: 1 / (1 + exp(-x))
+func Sigmoid(x float32) float32 {
 	if x > 10 {
 		return 1.0
 	}
@@ -277,12 +281,7 @@ func sqrt32(x float32) float32 {
 	if x <= 0 {
 		return 0
 	}
-	// Newton-Raphson iteration
-	guess := x / 2
-	for i := 0; i < 5; i++ {
-		guess = (guess + x/guess) / 2
-	}
-	return guess
+	return float32(math.Sqrt(float64(x)))
 }
 
 // NewNoiseShapeState creates a new noise shaping state.

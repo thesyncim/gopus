@@ -107,7 +107,7 @@ func TestPostfilterParamsVsLibopusLowBitrate(t *testing.T) {
 	bitrates := []int{12000, 16000, 24000, 32000}
 
 	for _, vector := range vectors {
-		decFile := filepath.Join("..", "..", "..", "testvectors", "testdata", "opus_testvectors", vector+".dec")
+		decFile := filepath.Join("..", "..", "testvectors", "testdata", "opus_testvectors", vector+".dec")
 		if _, err := os.Stat(decFile); err != nil {
 			t.Skipf("missing %s: %v", decFile, err)
 			return

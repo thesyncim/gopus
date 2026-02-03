@@ -9,104 +9,8 @@ import (
 	"math"
 	"math/rand"
 	"testing"
+	"github.com/thesyncim/gopus/celt"
 )
-
-// goPVQSearch is the Go implementation from pvq_search.go (copied here for testing).
-func goPVQSearch(xIn []float64, k int) []int {
-	n := len(xIn)
-	iy := make([]int, n)
-	if n == 0 || k <= 0 {
-		return iy
-	}
-
-	// Make a copy since we modify x
-	x := make([]float64, n)
-	copy(x, xIn)
-
-	signx := make([]int, n)
-	y := make([]float64, n)
-
-	// Remove sign and initialize.
-	for j := 0; j < n; j++ {
-		if x[j] < 0 {
-			signx[j] = 1
-			x[j] = -x[j]
-		}
-	}
-
-	xy := 0.0
-	yy := 0.0
-	pulsesLeft := k
-
-	// Pre-search by projecting on the pyramid for large K.
-	if k > (n >> 1) {
-		sum := 0.0
-		for j := 0; j < n; j++ {
-			sum += x[j]
-		}
-
-		// Guard against tiny/huge/invalid sums.
-		if !(sum > 1e-15 && sum < 64.0) {
-			x[0] = 1.0
-			for j := 1; j < n; j++ {
-				x[j] = 0.0
-			}
-			sum = 1.0
-		}
-
-		rcp := (float64(k) + 0.8) / sum
-		for j := 0; j < n; j++ {
-			iy[j] = int(math.Floor(rcp * x[j]))
-			y[j] = float64(iy[j])
-			yy += y[j] * y[j]
-			xy += x[j] * y[j]
-			y[j] *= 2
-			pulsesLeft -= iy[j]
-		}
-	}
-
-	if pulsesLeft > n+3 {
-		tmp := float64(pulsesLeft)
-		yy += tmp * tmp
-		yy += tmp * y[0]
-		iy[0] += pulsesLeft
-		pulsesLeft = 0
-	}
-
-	for i := 0; i < pulsesLeft; i++ {
-		bestID := 0
-		yy += 1
-
-		rxy := xy + x[0]
-		ryy := yy + y[0]
-		bestNum := rxy * rxy
-		bestDen := ryy
-
-		for j := 1; j < n; j++ {
-			rxy = xy + x[j]
-			ryy = yy + y[j]
-			num := rxy * rxy
-			if bestDen*num > ryy*bestNum {
-				bestDen = ryy
-				bestNum = num
-				bestID = j
-			}
-		}
-
-		xy += x[bestID]
-		yy += y[bestID]
-		y[bestID] += 2
-		iy[bestID]++
-	}
-
-	for j := 0; j < n; j++ {
-		if signx[j] != 0 {
-			iy[j] = -iy[j]
-		}
-	}
-
-	return iy
-}
 
 // pulseSum computes the L1 norm (sum of absolute values) of pulses.
 func pulseSum(pulses []int) int {
@@ -170,7 +74,7 @@ func TestPVQSearchBasic(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Run Go implementation
-			goPulses := goPVQSearch(tc.x, tc.k)
+			goPulses, _ := celt.OpPVQSearchExport(tc.x, tc.k)
 
 			// Run libopus implementation
 			libopusPulses, _ := LibopusPVQSearch(tc.x, tc.k)
@@ -250,7 +154,7 @@ func TestPVQSearchRandom(t *testing.T) {
 				}
 
 				// Run both implementations
-				goPulses := goPVQSearch(x, tc.k)
+				goPulses, _ := celt.OpPVQSearchExport(x, tc.k)
 				libopusPulses, _ := LibopusPVQSearch(x, tc.k)
 
 				// Check for match
@@ -317,7 +221,7 @@ func TestPVQSearchNormalized(t *testing.T) {
 					}
 
 					// Run both
-					goPulses := goPVQSearch(x, k)
+					goPulses, _ := celt.OpPVQSearchExport(x, k)
 					libopusPulses, _ := LibopusPVQSearch(x, k)
 
 					goCorr := computeCorrelation(x, goPulses)
@@ -366,7 +270,7 @@ func TestPVQSearchSpecificVectors(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			goPulses := goPVQSearch(tc.x, tc.k)
+			goPulses, _ := celt.OpPVQSearchExport(tc.x, tc.k)
 			libopusPulses, _ := LibopusPVQSearch(tc.x, tc.k)
 
 			t.Logf("Input: %v", tc.x)
@@ -395,7 +299,7 @@ func TestPVQSearchEdgeCases(t *testing.T) {
 		x := []float64{1, 0, 0, 0}
 		k := 8
 
-		goPulses := goPVQSearch(x, k)
+		goPulses, _ := celt.OpPVQSearchExport(x, k)
 		libopusPulses, _ := LibopusPVQSearch(x, k)
 
 		t.Logf("Go:      %v (sum=%d)", goPulses, pulseSum(goPulses))
@@ -418,7 +322,7 @@ func TestPVQSearchEdgeCases(t *testing.T) {
 			x[i] = 1.0 / math.Sqrt(float64(n))
 		}
 
-		goPulses := goPVQSearch(x, k)
+		goPulses, _ := celt.OpPVQSearchExport(x, k)
 		libopusPulses, _ := LibopusPVQSearch(x, k)
 
 		t.Logf("Go sum=%d, libopus sum=%d", pulseSum(goPulses), pulseSum(libopusPulses))
@@ -447,7 +351,7 @@ func BenchmarkPVQSearchGo(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = goPVQSearch(x, k)
+		_, _ = celt.OpPVQSearchExport(x, k)
 	}
 }
 
