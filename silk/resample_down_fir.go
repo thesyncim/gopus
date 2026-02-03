@@ -91,6 +91,40 @@ type DownsamplingResampler struct {
 	scratchBuf []int32
 }
 
+// DownsamplingResamplerState holds the internal state of the downsampling resampler.
+type DownsamplingResamplerState struct {
+	sIIR     [2]int32
+	sFIR     []int32
+	delayBuf []int16
+}
+
+// State returns a snapshot of the current resampler state.
+func (r *DownsamplingResampler) State() DownsamplingResamplerState {
+	s := DownsamplingResamplerState{
+		sIIR: r.sIIR,
+	}
+	if len(r.sFIR) > 0 {
+		s.sFIR = make([]int32, len(r.sFIR))
+		copy(s.sFIR, r.sFIR)
+	}
+	if len(r.delayBuf) > 0 {
+		s.delayBuf = make([]int16, len(r.delayBuf))
+		copy(s.delayBuf, r.delayBuf)
+	}
+	return s
+}
+
+// SetState restores the resampler state from a snapshot.
+func (r *DownsamplingResampler) SetState(s DownsamplingResamplerState) {
+	r.sIIR = s.sIIR
+	if len(s.sFIR) > 0 && len(r.sFIR) >= len(s.sFIR) {
+		copy(r.sFIR, s.sFIR)
+	}
+	if len(s.delayBuf) > 0 && len(r.delayBuf) >= len(s.delayBuf) {
+		copy(r.delayBuf, s.delayBuf)
+	}
+}
+
 // NewDownsamplingResampler creates a new downsampling resampler for encoder mode.
 // Supports: 48kHz -> 8/12/16 kHz, 24kHz -> 8/12/16 kHz, etc.
 func NewDownsamplingResampler(fsIn, fsOut int) *DownsamplingResampler {

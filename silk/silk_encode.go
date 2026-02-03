@@ -14,7 +14,7 @@ var ErrInvalidPacket = errors.New("silk: invalid packet")
 // For zero-allocation encoding, use EncodeWithEncoder.
 func Encode(pcm []float32, bandwidth Bandwidth, vadFlag bool) ([]byte, error) {
 	enc := NewEncoder(bandwidth)
-	return enc.EncodeFrame(pcm, vadFlag), nil
+	return enc.EncodeFrame(pcm, nil, vadFlag), nil
 }
 
 // EncodeWithEncoder encodes mono PCM audio using a pre-existing encoder.
@@ -24,7 +24,7 @@ func Encode(pcm []float32, bandwidth Bandwidth, vadFlag bool) ([]byte, error) {
 // vadFlag: True if frame contains voice activity
 // Returns: Encoded SILK frame bytes
 func EncodeWithEncoder(enc *Encoder, pcm []float32, bandwidth Bandwidth, vadFlag bool) ([]byte, error) {
-	return enc.EncodeFrame(pcm, vadFlag), nil
+	return enc.EncodeFrame(pcm, nil, vadFlag), nil
 }
 
 // EncodeStereo encodes stereo PCM audio to SILK frame.
@@ -77,13 +77,13 @@ func EncodeStereoWithEncoder(enc, sideEnc *Encoder, left, right []float32, bandw
 	}
 
 	// Encode mid channel (primary)
-	midBytes := enc.EncodeFrame(mid, vadFlag)
+	midBytes := enc.EncodeFrame(mid, nil, vadFlag)
 
 	// Encode side channel (secondary, typically lower bitrate)
 	if sideEnc == nil {
 		sideEnc = NewEncoder(bandwidth)
 	}
-	sideBytes := sideEnc.EncodeFrame(side, vadFlag)
+	sideBytes := sideEnc.EncodeFrame(side, nil, vadFlag)
 
 	// Combine mid and side into single output
 	// Format: [weights:4][mid_len:2][mid_bytes][side_len:2][side_bytes]
@@ -202,7 +202,7 @@ func NewEncoderState(bandwidth Bandwidth) *EncoderState {
 
 // EncodeFrame encodes a frame maintaining state across calls.
 func (es *EncoderState) EncodeFrame(pcm []float32, vadFlag bool) ([]byte, error) {
-	return es.enc.EncodeFrame(pcm, vadFlag), nil
+	return es.enc.EncodeFrame(pcm, nil, vadFlag), nil
 }
 
 // Reset resets encoder state for a new stream.

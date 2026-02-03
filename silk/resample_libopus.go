@@ -206,6 +206,35 @@ func NewLibopusResampler(fsIn, fsOut int) *LibopusResampler {
 	return r
 }
 
+// ResamplerState holds the internal state of the resampler.
+type ResamplerState struct {
+	sIIR     [6]int32
+	sFIR     [8]int16
+	delayBuf []int16
+}
+
+// State returns a snapshot of the current resampler state.
+func (r *LibopusResampler) State() ResamplerState {
+	s := ResamplerState{
+		sIIR: r.sIIR,
+		sFIR: r.sFIR,
+	}
+	if len(r.delayBuf) > 0 {
+		s.delayBuf = make([]int16, len(r.delayBuf))
+		copy(s.delayBuf, r.delayBuf)
+	}
+	return s
+}
+
+// SetState restores the resampler state from a snapshot.
+func (r *LibopusResampler) SetState(s ResamplerState) {
+	r.sIIR = s.sIIR
+	r.sFIR = s.sFIR
+	if len(s.delayBuf) > 0 && len(r.delayBuf) >= len(s.delayBuf) {
+		copy(r.delayBuf, s.delayBuf)
+	}
+}
+
 // Reset clears the resampler state.
 func (r *LibopusResampler) Reset() {
 	for i := range r.sIIR {

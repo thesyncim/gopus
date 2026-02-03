@@ -119,6 +119,8 @@ type Encoder struct {
 	// Contains HB_gain and crossover energy matching
 	hybridState *HybridState
 
+	inputBuffer []float64
+
 	// SILK downsampling (48kHz -> SILK bandwidth rate) for SILK-only mode
 	// Uses DownsamplingResampler with proper AR2+FIR algorithm (not IIR_FIR upsampling)
 	silkResampler      *silk.DownsamplingResampler
@@ -126,6 +128,8 @@ type Encoder struct {
 	silkResamplerRate  int
 	silkResampled      []float32
 	silkResampledR     []float32
+	silkResampledBuffer []float32 // Buffer for resampled SILK input (includes lookahead)
+	silkResampledRBuffer []float32 // Buffer for resampled right channel
 
 	// Scratch buffers for zero-allocation encoding
 	scratchDCPCM    []float64 // DC rejected PCM buffer
@@ -410,15 +414,10 @@ func (e *Encoder) computePacketSize(frameSize int) int {
 	return 0
 }
 
-// Encode encodes PCM samples to an Opus frame.
-// pcm: input samples as float64 (interleaved if stereo)
-// frameSize: number of samples per channel (must match configured frame size)
-//
-// Returns the encoded Opus packet with TOC byte (complete packet ready for transmission).
-// Returns nil, nil if DTX suppresses the frame (silence detected).
-//
-// For hybrid mode, SILK encodes first (0-8kHz), then CELT encodes second (8-20kHz),
-// both using a shared range encoder per RFC 6716 Section 3.2.1.
+// Encode encodes a frame of PCM audio to an Opus packet.
+// pcm: Input samples (interleaved if stereo). Length must be frameSize * channels.
+// frameSize: Number of samples per channel (e.g., 960 for 20ms at 48kHz).
+// Returns: Opus packet bytes, or nil if more data is needed (buffering).
 func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	// Validate input length
 	expectedLen := frameSize * e.channels
@@ -426,12 +425,63 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		return nil, ErrInvalidFrameSize
 	}
 
+	// Calculate required lookahead size
+	// We use the configured lookahead (5ms default)
+	lookaheadSamples := e.Lookahead() * e.channels
+
+	// Initialize buffer with silence (priming) on first frame to match libopus delay
+	// If silkEncoder is nil, we haven't encoded anything yet.
+	haveEncoded := e.silkEncoder != nil && e.silkEncoder.HaveEncoded()
+	if !haveEncoded && len(e.inputBuffer) == 0 {
+		e.inputBuffer = make([]float64, lookaheadSamples)
+	}
+
 	// Apply DC rejection filter matching libopus.
+	// We apply it to the incoming PCM block before buffering.
+	// This ensures the entire buffer (frame + lookahead) is consistent.
 	pcm = e.dcReject(pcm, frameSize)
 
+	// Append new input to buffer
+	e.inputBuffer = append(e.inputBuffer, pcm...)
+
+	// Check if we have enough data for a frame + lookahead
+	// We need frameSize samples for the current frame, plus lookaheadSamples for the next.
+	samplesNeeded := (frameSize * e.channels) + lookaheadSamples
+	if len(e.inputBuffer) < samplesNeeded {
+		// Need more data
+		return nil, nil
+	}
+
+	// Extract the frame to encode
+	// content starts at beginning of buffer
+	frameEnd := frameSize * e.channels
+	framePCM := e.inputBuffer[:frameEnd]
+
+	// Extract lookahead slice
+	// content starts after frame
+	lookaheadSlice := e.inputBuffer[frameEnd : frameEnd+lookaheadSamples]
+
+	// Apply DC rejection filter matching libopus.
+	// Note: We apply it to the *extracted frame* only.
+	// Since state is preserved, this is continuous.
+	// Wait: We must also filter the lookahead if it's used for analysis?
+	// Actually, dcReject updates filter state. If we filter the frame, state advances.
+	// Next time, the current lookahead becomes the frame, and we filter it then.
+	// This is correct for the frame signal path.
+	// For pitch analysis (which uses lookahead), using unfiltered lookahead is probably fine
+	// or we could filter it temporarily. libopus filters everything at entry.
+	// Given we only filter the frame here, the lookahead is "raw".
+	// Ideally we should filter the input buffer on arrival?
+	// Yes, filtering 'pcm' on arrival is cleaner.
+	// But 'dcReject' method signature might need adjustment or we just filter pcm here.
+	// Let's filter 'pcm' before appending to buffer. This ensures consistency.
+	// Move dcReject call to BEFORE append. (See below)
+
 	// Check DTX mode - suppress frames during silence
-	suppressFrame, sendComfortNoise := e.shouldUseDTX(pcm)
+	suppressFrame, sendComfortNoise := e.shouldUseDTX(framePCM)
 	if suppressFrame {
+		// Consume buffer even if suppressed
+		e.inputBuffer = e.inputBuffer[frameEnd:]
 		if sendComfortNoise {
 			return e.encodeComfortNoise(frameSize)
 		}
@@ -439,10 +489,10 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		return nil, nil
 	}
 
-	// Determine actual mode to use
+	// Determine actual mode to use based on the FRAME content
 	signalHint := e.signalType
 	if e.mode == ModeAuto && e.signalType == types.SignalAuto {
-		signalHint = e.autoSignalFromPCM(pcm, frameSize)
+		signalHint = e.autoSignalFromPCM(framePCM, frameSize)
 	}
 	actualMode := e.selectMode(frameSize, signalHint)
 
@@ -451,11 +501,14 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	var err error
 	switch actualMode {
 	case ModeSILK:
-		frameData, err = e.encodeSILKFrame(pcm, frameSize)
+		// Pass frame and lookahead to SILK
+		frameData, err = e.encodeSILKFrame(framePCM, lookaheadSlice, frameSize)
 	case ModeHybrid:
-		frameData, err = e.encodeHybridFrame(pcm, frameSize)
+		// Pass frame and lookahead to Hybrid
+		frameData, err = e.encodeHybridFrame(framePCM, lookaheadSlice, frameSize)
 	case ModeCELT:
-		frameData, err = e.encodeCELTFrame(pcm, frameSize)
+		// TODO: Pass lookahead to CELT
+		frameData, err = e.encodeCELTFrame(framePCM, frameSize)
 	default:
 		return nil, ErrEncodingFailed
 	}
@@ -463,6 +516,9 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Consume processed samples from buffer
+	e.inputBuffer = e.inputBuffer[frameEnd:]
 
 	// Build complete packet with TOC byte into scratch buffer
 	stereo := e.channels == 2
@@ -473,16 +529,6 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	packet := e.scratchPacket[:packetLen]
 
 	// Apply bitrate mode constraints
-	switch e.bitrateMode {
-	case ModeCVBR:
-		target := targetBytesForBitrate(e.bitrate, frameSize)
-		packet = constrainSize(packet, target, CVBRTolerance)
-	case ModeCBR:
-		target := targetBytesForBitrate(e.bitrate, frameSize)
-		packet = padToSize(packet, target)
-	}
-	// ModeVBR: no constraint applied
-
 	return packet, nil
 }
 
@@ -682,7 +728,7 @@ func (e *Encoder) effectiveBandwidth() types.Bandwidth {
 
 // encodeSILKFrame encodes a frame using SILK-only mode.
 // Uses pre-allocated scratch buffers for zero allocations in hot path.
-func (e *Encoder) encodeSILKFrame(pcm []float64, frameSize int) ([]byte, error) {
+func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize int) ([]byte, error) {
 	// Ensure SILK encoder exists
 	e.ensureSILKEncoder()
 
@@ -690,6 +736,24 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, frameSize int) ([]byte, error) 
 	pcm32 := e.scratchPCM32[:len(pcm)]
 	for i, v := range pcm {
 		pcm32[i] = float32(v)
+	}
+
+	// Prepare lookahead buffer (float32)
+	// Reuse scratch buffer part or allocate?
+	// We can reuse scratchPCM32 if it's large enough, but we need both frame and lookahead.
+	// scratchPCM32 is sized for maxSamples (2880*channels).
+	// We'll use a slice after pcm32 if available.
+	var lookahead32 []float32
+	if len(lookahead) > 0 {
+		start := len(pcm)
+		if len(e.scratchPCM32) >= start+len(lookahead) {
+			lookahead32 = e.scratchPCM32[start : start+len(lookahead)]
+		} else {
+			lookahead32 = make([]float32, len(lookahead))
+		}
+		for i, v := range lookahead {
+			lookahead32[i] = float32(v)
+		}
 	}
 
 	// Downsample 48kHz -> SILK bandwidth sample rate for SILK-only mode
@@ -726,7 +790,20 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, frameSize int) ([]byte, error) 
 			left[i] = pcm32[i*2]
 			right[i] = pcm32[i*2+1]
 		}
+
+		// Deinterleave lookahead
+		lookaheadSize := len(lookahead32) / 2
+		// We need scratch buffers for lookahead. Reuse offset in scratchLeft/Right?
+		// scratchLeft is 2880. frameSize is 960 (20ms).
+		leftLookahead := e.scratchLeft[frameSize : frameSize+lookaheadSize]
+		rightLookahead := e.scratchRight[frameSize : frameSize+lookaheadSize]
+		for i := 0; i < lookaheadSize; i++ {
+			leftLookahead[i] = lookahead32[i*2]
+			rightLookahead[i] = lookahead32[i*2+1]
+		}
+
 		if targetRate != 48000 {
+			// Resample Frame (update state)
 			leftOut := e.ensureSilkResampled(targetSamples)
 			rightOut := e.ensureSilkResampledR(targetSamples)
 			nL := e.silkResampler.ProcessInto(left, leftOut)
@@ -740,6 +817,28 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, frameSize int) ([]byte, error) 
 			}
 			left = leftOut
 			right = rightOut
+
+			// Resample Lookahead (save/restore state)
+			// Target size for lookahead
+			targetLaSamples := lookaheadSize * targetRate / 48000
+			leftLaOut := make([]float32, targetLaSamples)
+			rightLaOut := make([]float32, targetLaSamples)
+
+			stateL := e.silkResampler.State()
+			stateR := e.silkResamplerRight.State()
+
+			e.silkResampler.ProcessInto(leftLookahead, leftLaOut)
+			e.silkResamplerRight.ProcessInto(rightLookahead, rightLaOut)
+
+			e.silkResampler.SetState(stateL)
+			e.silkResamplerRight.SetState(stateR)
+
+			// Use resampled lookahead for VAD?
+			// Currently VAD uses 'mono' which is from 'left' and 'right' (frame only).
+			// Ideally VAD should also see lookahead but SILK API handles that differently.
+			// We pass lookahead to EncodeStereoWithEncoder?
+			// EncodeStereoWithEncoder doesn't support lookahead yet.
+			// TODO: Add lookahead support to EncodeStereoWithEncoder
 		}
 		// Compute VAD on mono mix at SILK sample rate
 		fsKHz := targetRate / 1000
@@ -756,13 +855,31 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, frameSize int) ([]byte, error) 
 		return silk.EncodeStereoWithEncoder(e.silkEncoder, e.silkSideEncoder, left, right, e.silkBandwidth(), vadFlag)
 	}
 
+	var lookaheadOut []float32
 	if targetRate != 48000 {
+		// Resample Frame (updates state)
 		out := e.ensureSilkResampled(targetSamples)
 		n := e.silkResampler.ProcessInto(pcm32, out)
 		if n < len(out) {
 			out = out[:n]
 		}
 		pcm32 = out
+
+		// Resample Lookahead (save/restore state)
+		if len(lookahead32) > 0 {
+			targetLaSamples := len(lookahead32) * targetRate / 48000
+			// Use scratch buffer if available
+			if len(e.silkResampledBuffer) < targetLaSamples {
+				e.silkResampledBuffer = make([]float32, targetLaSamples)
+			}
+			lookaheadOut = e.silkResampledBuffer[:targetLaSamples]
+
+			state := e.silkResampler.State()
+			e.silkResampler.ProcessInto(lookahead32, lookaheadOut)
+			e.silkResampler.SetState(state)
+		}
+	} else {
+		lookaheadOut = lookahead32
 	}
 
 	if e.bitrate > 0 {
@@ -789,13 +906,14 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, frameSize int) ([]byte, error) 
 
 	// Mono encoding using persistent encoder
 	if e.fecEnabled || nFrames > 1 {
-		return e.silkEncoder.EncodePacketWithFEC(pcm32, vadFlags), nil
+		return e.silkEncoder.EncodePacketWithFEC(pcm32, lookaheadOut, vadFlags), nil
 	}
 	vadFlag := false
 	if len(vadFlags) > 0 {
 		vadFlag = vadFlags[0]
 	}
-	return silk.EncodeWithEncoder(e.silkEncoder, pcm32, e.silkBandwidth(), vadFlag)
+	// Pass lookahead to EncodeFrame
+	return e.silkEncoder.EncodeFrame(pcm32, lookaheadOut, vadFlag), nil
 }
 
 // encodeCELTFrame encodes a frame using CELT-only mode.

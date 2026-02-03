@@ -50,14 +50,19 @@ Always use this reference when implementing features or debugging discrepancies.
    - Corrected energy window length and offsets
 4. ✅ **DC Rejection Implementation** - `encoder/encoder.go`
    - Implemented and applied top-level `dc_reject` filter (1st-order HPF @ 3Hz)
-5. ✅ **Pitch Analysis Alignment** - `silk/pitch_detect.go`
+6. **Pitch Analysis Alignment** - `silk/pitch_detect.go`
    - Refined Stage 2 and Stage 3 correlation normalizers (+1.0 matching libopus)
    - Removed restrictive lag checks in Stage 3 to allow contour-based boundary crossing
-   - **Root Cause Identified:** Trace shows 19/50 Pitch Lag mismatches. This drives the downstream LTP/NSQ divergence. Future work must focus on `detectPitch` signal path parity (resampling/correlation).
-6. ✅ **SNR Unadjustment** - `silk/noise_shape.go`, `silk/noise_shape_analysis.go`
+7. **SNR Unadjustment** - `silk/noise_shape.go`, `silk/noise_shape_analysis.go`
    - Corrected `codingQuality` to use unadjusted SNR, matching libopus `noise_shape_analysis_FLP.c`
-7. ✅ **VAD Math Bit-Exactness** - `encoder/vad.go`, `encoder/vad_test.go`
+8. **VAD Math Bit-Exactness** - `encoder/vad.go`, `encoder/vad_test.go`
    - Verified and fixed `sigmQ15` LUT and tests to match libopus fixed-point implementation
+9. **Encoder Buffering & Lookahead** - `encoder/encoder.go`, `silk/encode_frame.go`
+   - Refactored `Encoder.Encode` to implement proper delay buffering (output = input - delay).
+   - Implemented `lookahead` passing to `silk.Encoder` and `detectPitch`.
+   - Added `State()`/`SetState()` to `DownsamplingResampler` to handle lookahead processing without state corruption.
+   - **Status:** Trace metrics temporarily regressed (Gain Diff 4.75, Pitch Lag 20/50) due to signal path changes, but architecture now matches libopus delay/lookahead model. Further tuning required.
+
 
 ---
 

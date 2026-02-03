@@ -1,6 +1,11 @@
 package silk
 
-import "math"
+import (
+	"fmt"
+	"math"
+)
+
+var debugPitchFrameCount int
 
 // Pitch estimation constants from libopus pitch_est_defines.h
 const (
@@ -125,6 +130,7 @@ type pitchEncodeParams struct {
 // Stage 2: Refined search at 8kHz with contour codebook
 // Stage 3: Fine search at full rate with interpolation
 func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, searchThres2 float64) ([]int, int, int) {
+	debugPitchFrameCount++
 	config := GetBandwidthConfig(e.bandwidth)
 	fsKHz := config.SampleRate / 1000
 
@@ -201,6 +207,11 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 	C := ensureFloat64Slice(&e.scratchPitchC, maxLag4kHz+5)
 	for i := range C {
 		C[i] = 0 // Clear
+	}
+
+	// DEBUG: Print frame4kHz samples for frame 23
+	if debugPitchFrameCount == 23 {
+		fmt.Printf("Frame 23 frame4kHz: %v\n", frame4kHz[:10])
 	}
 
 	targetStart := sfLength4kHz * 4 // Start after LTP memory

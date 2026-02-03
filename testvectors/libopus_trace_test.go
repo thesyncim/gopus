@@ -417,6 +417,9 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 			perIndexDiff++
 		}
 		if goParams.LagIndex != libParams.LagIndex {
+			if lagIndexDiff < 5 {
+				t.Logf("Frame %d: LagIndex mismatch: go=%d lib=%d", i, goParams.LagIndex, libParams.LagIndex)
+			}
 			lagIndexDiff++
 		}
 		if goParams.ContourIndex != libParams.ContourIndex {

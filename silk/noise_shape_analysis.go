@@ -16,6 +16,7 @@ func (e *Encoder) noiseShapeAnalysis(
 	quantOffset int,
 	numSubframes int,
 	subframeSamples int,
+	lookahead []float32,
 ) (*NoiseShapeParams, []float32, int) {
 	if e.noiseShapeState == nil {
 		e.noiseShapeState = NewNoiseShapeState()
@@ -86,6 +87,7 @@ func (e *Encoder) noiseShapeAnalysis(
 		speechActivityQ8,
 		params.CodingQuality,
 		params.InputQuality,
+		lookahead,
 	)
 	params.ARShpQ13 = arShpQ13
 
@@ -155,6 +157,7 @@ func (e *Encoder) computeShapingARAndGains(
 	speechActivityQ8 int,
 	codingQuality float32,
 	inputQuality float32,
+	lookahead []float32,
 ) ([]float32, []int16) {
 	gains := ensureFloat32Slice(&e.scratchGains, numSubframes)
 	arShpQ13 := ensureInt16Slice(&e.scratchArShpQ13, numSubframes*maxShapeLpcOrder)
@@ -217,14 +220,29 @@ func (e *Encoder) computeShapingARAndGains(
 		xBuf[i] = 0
 	}
 
-	ltpMemSamples := ltpMemLengthMs * fsKHz
-	startIdx := ltpMemSamples - laShape
-	shapeBuf := e.inputBuffer
-	for i := 0; i < xLen; i++ {
-		idx := startIdx + i
-		if idx >= 0 && idx < len(shapeBuf) {
-			xBuf[i] = float64(shapeBuf[idx]) * silkSampleScale
+	// Populate xBuf: History + Frame + Lookahead
+	// 1. Copy history from pitchAnalysisBuf (last laShape samples)
+	pitchBuf := e.pitchAnalysisBuf
+	if len(pitchBuf) >= laShape {
+		for i := 0; i < laShape; i++ {
+			xBuf[i] = float64(pitchBuf[len(pitchBuf)-laShape+i]) * silkSampleScale
 		}
+	}
+
+	// 2. Copy current frame from inputBuffer (which should match pcm)
+	// We use pcm here since it's passed in and guaranteed to be the frame
+	// Note: e.inputBuffer might not be updated yet if called from EncodeFrame
+	for i := 0; i < frameSamples; i++ {
+		xBuf[laShape+i] = float64(pcm[i]) * silkSampleScale
+	}
+
+	// 3. Copy Lookahead
+	limit := len(lookahead)
+	if limit > laShape {
+		limit = laShape
+	}
+	for i := 0; i < limit; i++ {
+		xBuf[laShape+frameSamples+i] = float64(lookahead[i]) * silkSampleScale
 	}
 
 	// Bandwidth expansion and warping.

@@ -11,7 +11,7 @@ package silk
 // to recover from packet loss by using the redundant encoding.
 //
 // Reference: libopus silk/float/encode_frame_FLP.c
-func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
+func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) []byte {
 	config := GetBandwidthConfig(e.bandwidth)
 	subframeSamples := config.SubframeSamples
 	numSubframes := len(pcm) / subframeSamples
@@ -124,7 +124,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	var ltpIndices [maxNbSubfr]int8
 	perIndex := 0
 	predGainQ7 := int32(0)
-	residual, residual32, resStart, _ := e.computePitchResidual(numSubframes)
+	residual, residual32, resStart, _ := e.computePitchResidual(numSubframes, lookahead)
 	if signalType != typeNoVoiceActivity {
 		// Use pitch residual for more accurate pitch detection (libopus parity).
 		searchThres1 := float64(e.pitchEstimationThresholdQ16) / 65536.0
@@ -175,6 +175,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 		quantOffset,
 		numSubframes,
 		subframeSamples,
+		lookahead,
 	)
 
 	// Step 4: Build LTP residual and compute LPC from it
@@ -499,7 +500,7 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 //  5. Main frame encoding for each frame
 //
 // Reference: libopus silk/enc_API.c silk_Encode lines 355-405
-func (e *Encoder) EncodePacketWithFEC(pcm []float32, vadFlags []bool) []byte {
+func (e *Encoder) EncodePacketWithFEC(pcm []float32, lookahead []float32, vadFlags []bool) []byte {
 	// Reset per-packet state for standalone encoding
 	e.ResetPacketState()
 
@@ -545,16 +546,37 @@ func (e *Encoder) EncodePacketWithFEC(pcm []float32, vadFlags []bool) []byte {
 		}
 		framePCM := pcm[startSample:endSample]
 
-		vadFlag := true
-		if vadFlags != nil && i < len(vadFlags) {
-			vadFlag = vadFlags[i]
-		}
-		vadFlagsLocal[i] = vadFlag
-
-		// Encode the frame (this also computes LBRR for current frame)
-		e.encodeFrameInternal(framePCM, vadFlag)
-	}
-
+		 vadFlag := true
+				if vadFlags != nil && i < len(vadFlags) {
+					vadFlag = vadFlags[i]
+				} else {
+					// Fallback VAD
+					vadFlag = true // Assume active if flags not provided
+				}
+				vadFlagsLocal[i] = vadFlag
+		
+				// Determine lookahead for this frame
+				var frameLookahead []float32
+				if i < nFrames-1 {
+					// Lookahead is the next frame in the packet
+					nextStart := (i + 1) * frameSamples
+					// We provide the full next frame as lookahead buffer
+					if nextStart < len(pcm) {
+						frameLookahead = pcm[nextStart:]
+						// Limit lookahead size if needed? No, computePitchResidual handles it.
+						if len(frameLookahead) > frameSamples {
+							frameLookahead = frameLookahead[:frameSamples]
+						}
+					}
+				} else {
+					// Last frame: use external lookahead
+					frameLookahead = lookahead
+				}
+		
+				// Encode the frame (updates state)
+				e.encodeFrameInternal(framePCM, frameLookahead, vadFlag)
+				e.nFramesEncoded++
+			}
 	// Patch VAD/LBRR header bits for this packet.
 	flags := 0
 	for i := 0; i < nFrames; i++ {
@@ -580,7 +602,7 @@ func (e *Encoder) EncodePacketWithFEC(pcm []float32, vadFlags []bool) []byte {
 
 // encodeFrameInternal encodes a single frame within a packet.
 // This is used by EncodePacketWithFEC and doesn't manage the range encoder.
-func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
+func (e *Encoder) encodeFrameInternal(pcm []float32, lookahead []float32, vadFlag bool) {
 	config := GetBandwidthConfig(e.bandwidth)
 	subframeSamples := config.SubframeSamples
 	numSubframes := len(pcm) / subframeSamples
@@ -641,7 +663,7 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 	var ltpIndices [maxNbSubfr]int8
 	perIndex := 0
 	predGainQ7 := int32(0)
-	residual, residual32, resStart, _ := e.computePitchResidual(numSubframes)
+	residual, residual32, resStart, _ := e.computePitchResidual(numSubframes, lookahead)
 	if signalType == 2 {
 		// Use pitch residual for more accurate pitch detection (libopus parity).
 		searchThres1 := float64(e.pitchEstimationThresholdQ16) / 65536.0
@@ -687,6 +709,7 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 		quantOffset,
 		numSubframes,
 		subframeSamples,
+		lookahead,
 	)
 
 	// Step 4: Build LTP residual and compute LPC from it

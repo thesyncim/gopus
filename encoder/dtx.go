@@ -263,9 +263,9 @@ func (e *Encoder) encodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Route to appropriate encoder
 	switch actualMode {
 	case ModeSILK:
-		return e.encodeSILKFrame(pcm, frameSize)
+		return e.encodeSILKFrame(pcm, nil, frameSize)
 	case ModeHybrid:
-		return e.encodeHybridFrame(pcm, frameSize)
+		return e.encodeHybridFrame(pcm, nil, frameSize)
 	case ModeCELT:
 		return e.encodeCELTFrame(pcm, frameSize)
 	default:

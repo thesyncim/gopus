@@ -76,7 +76,7 @@ func bwexpanderFLP(ar []float64, order int, chirp float64) {
 	}
 }
 
-func (e *Encoder) computePitchResidual(numSubframes int) ([]float64, []float32, int, int) {
+func (e *Encoder) computePitchResidual(numSubframes int, lookahead []float32) ([]float64, []float32, int, int) {
 	config := GetBandwidthConfig(e.bandwidth)
 	fsKHz := config.SampleRate / 1000
 	subframeSamples := config.SubframeSamples
@@ -88,40 +88,47 @@ func (e *Encoder) computePitchResidual(numSubframes int) ([]float64, []float32, 
 	ltpMemSamples := ltpMemLengthMs * fsKHz
 	histLen := ltpMemSamples + frameSamples
 	laPitch := laPitchMs * fsKHz
-	laShape := laShapeMs * fsKHz
 	needed := histLen + laPitch
 
 	input := ensureFloat64Slice(&e.scratchLtpInput, needed)
-	for i := range input {
-		input[i] = 0
+	offset := 0
+
+	// 1. Copy history from pitchAnalysisBuf (last ltpMemSamples)
+	pitchBuf := e.pitchAnalysisBuf
+	if len(pitchBuf) > ltpMemSamples {
+		pitchBuf = pitchBuf[len(pitchBuf)-ltpMemSamples:]
 	}
-	shapeNeeded := ltpMemSamples + laShape + frameSamples
-	if len(e.inputBuffer) >= shapeNeeded {
-		// Use the first buf_len samples (ltp_mem + frame + la_pitch) from x_buf.
-		// This matches libopus: x_buf includes la_shape, but pitch uses la_pitch
-		// by limiting the buffer length.
-		scale := float64(silkSampleScale)
-		for i := 0; i < needed; i++ {
-			input[i] = float64(e.inputBuffer[i]) * scale
+	for i := range pitchBuf {
+		if offset < len(input) {
+			input[offset] = float64(pitchBuf[i]) * silkSampleScale
+			offset++
 		}
-	} else {
-		pitchBuf := e.pitchAnalysisBuf
-		if len(pitchBuf) > histLen {
-			pitchBuf = pitchBuf[len(pitchBuf)-histLen:]
+	}
+
+	// 2. Copy current frame from inputBuffer
+	frameBuf := e.inputBuffer
+	if len(frameBuf) > frameSamples {
+		frameBuf = frameBuf[:frameSamples]
+	}
+	for i := range frameBuf {
+		if offset < len(input) {
+			input[offset] = float64(frameBuf[i]) * silkSampleScale
+			offset++
 		}
-		if len(pitchBuf) > 0 {
-			offset := histLen - len(pitchBuf)
-			if offset < 0 {
-				offset = 0
-			}
-			maxCopy := len(input) - offset
-			if maxCopy > len(pitchBuf) {
-				maxCopy = len(pitchBuf)
-			}
-			for i := 0; i < maxCopy; i++ {
-				input[offset+i] = float64(pitchBuf[i]) * silkSampleScale
-			}
+	}
+
+	// 3. Copy lookahead
+	for i := range lookahead {
+		if offset < len(input) {
+			input[offset] = float64(lookahead[i]) * silkSampleScale
+			offset++
 		}
+	}
+
+	// Zero pad if needed
+	for offset < len(input) {
+		input[offset] = 0
+		offset++
 	}
 
 	order := e.pitchEstimationLPCOrder
