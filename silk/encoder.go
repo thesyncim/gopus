@@ -73,6 +73,7 @@ type Encoder struct {
 	lbrrGainIncreases   int                                 // Gain increase for LBRR encoding
 	lbrrPrevLastGainIdx int8                                // Previous frame's last gain index for LBRR
 	lbrrFlags           [maxFramesPerPacket]int             // LBRR flags per frame in packet
+	lbrrFlag            int                                 // LBRR flag for current packet header
 	lbrrIndices         [maxFramesPerPacket]sideInfoIndices // LBRR indices per frame
 	lbrrPulses          [maxFramesPerPacket][]int8          // LBRR pulses per frame
 	packetLossPercent   int                                 // Expected packet loss (0-100)
@@ -138,11 +139,19 @@ type Encoder struct {
 	scratchLtpCoeffs  [4][]float64 // per-subframe LTP coefficients (4 subframes max)
 	scratchLtpInput   []float64    // LTP analysis: pitch analysis buffer as float64
 	scratchLtpRes     []float64    // LTP analysis: LPC residual
+	scratchLtpResF64  []float64    // Residual energy: float64 scratch
+	scratchLpcResF64  []float64    // Residual energy: LPC residual scratch
 	scratchPitchWsig  []float64    // Pitch analysis: windowed signal
 	scratchPitchAuto  []float64    // Pitch analysis: autocorrelation
 	scratchPitchRefl  []float64    // Pitch analysis: reflection coefficients
 	scratchPitchA     []float64    // Pitch analysis: LPC coefficients
 	scratchPitchRes32 []float32    // Pitch analysis: residual as float32
+
+	// LTP residual and residual energy scratch
+	scratchLtpResF32    []float32 // LTP analysis: LTP residual with pre-length
+	scratchResNrg       []float64 // Gain processing: residual energies
+	scratchPredCoefF64A []float64 // Gain processing: LPC coeffs (first half)
+	scratchPredCoefF64B []float64 // Gain processing: LPC coeffs (second half)
 
 	// LSF quantization scratch buffers
 	scratchLsfResiduals   []int   // computeStage2ResidualsLibopus: residuals
@@ -213,7 +222,6 @@ func ensureFloat32Slice(buf *[]float32, n int) []float32 {
 	}
 	return *buf
 }
-
 
 // ensureInt32Slice ensures the slice has at least n elements.
 func ensureInt32Slice(buf *[]int32, n int) []int32 {
@@ -331,6 +339,7 @@ func (e *Encoder) Reset() {
 	// Reset FEC/LBRR state
 	e.lbrrEnabled = false
 	e.lbrrPrevLastGainIdx = 10 // Default gain index (same as decoder reset)
+	e.lbrrFlag = 0
 	e.nFramesEncoded = 0
 	for i := range e.lbrrFlags {
 		e.lbrrFlags[i] = 0

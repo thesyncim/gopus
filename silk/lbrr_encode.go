@@ -312,6 +312,7 @@ func (e *Encoder) encodeLBRRData(re *rangecoding.Encoder, nChannels int, include
 	if lbrrSymbol > 0 {
 		lbrrFlag = 1
 	}
+	e.lbrrFlag = lbrrFlag
 
 	// If LBRR is present and there are multiple frames, encode the flags
 	if lbrrFlag != 0 && e.nFramesPerPacket > 1 {

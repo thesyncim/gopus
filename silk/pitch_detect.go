@@ -109,6 +109,13 @@ type PitchAnalysisState struct {
 	complexity int     // Complexity setting (0-2)
 }
 
+type pitchEncodeParams struct {
+	contourIdx  int
+	lagIdx      int
+	contourICDF []uint8
+	lagLowICDF  []uint8
+}
+
 // detectPitch performs three-stage coarse-to-fine pitch detection matching libopus.
 // Returns pitch lags for each subframe (voiced frames only).
 //
@@ -884,6 +891,11 @@ func innerProductFLP(a, b []float32, length int) float64 {
 // Per RFC 6716 Section 4.2.7.6.
 // Uses libopus tables: silk_pitch_lag_iCDF, silk_uniform4/6/8_iCDF, silk_pitch_contour*_iCDF
 func (e *Encoder) encodePitchLags(pitchLags []int, numSubframes int, condCoding int) {
+	params := e.preparePitchLags(pitchLags, numSubframes)
+	e.encodePitchLagsWithParams(params, condCoding)
+}
+
+func (e *Encoder) preparePitchLags(pitchLags []int, numSubframes int) pitchEncodeParams {
 	config := GetBandwidthConfig(e.bandwidth)
 	fsKHz := config.SampleRate / 1000
 
@@ -917,9 +929,42 @@ func (e *Encoder) encodePitchLags(pitchLags []int, numSubframes int, condCoding 
 		lagIdx = config.PitchLagMax - config.PitchLagMin
 	}
 
+	for sf := 0; sf < numSubframes && sf < len(pitchLags); sf++ {
+		lag := baseLag + int(contourTable[sf][contourIdx])
+		if lag < config.PitchLagMin {
+			lag = config.PitchLagMin
+		}
+		if lag > config.PitchLagMax {
+			lag = config.PitchLagMax
+		}
+		pitchLags[sf] = lag
+	}
+
+	var lagLowICDF []uint8
+	switch fsKHz {
+	case 16:
+		lagLowICDF = silk_uniform8_iCDF
+	case 12:
+		lagLowICDF = silk_uniform6_iCDF
+	default:
+		lagLowICDF = silk_uniform4_iCDF
+	}
+
+	return pitchEncodeParams{
+		contourIdx:  contourIdx,
+		lagIdx:      lagIdx,
+		contourICDF: contourICDF,
+		lagLowICDF:  lagLowICDF,
+	}
+}
+
+func (e *Encoder) encodePitchLagsWithParams(params pitchEncodeParams, condCoding int) {
+	config := GetBandwidthConfig(e.bandwidth)
+	fsKHz := config.SampleRate / 1000
+
 	encodeAbsolute := true
 	if condCoding == codeConditionally && e.isPreviousFrameVoiced {
-		delta := lagIdx - e.ecPrevLagIndex
+		delta := params.lagIdx - e.ecPrevLagIndex
 		if delta < -8 || delta > 11 {
 			delta = 0
 		} else {
@@ -934,49 +979,28 @@ func (e *Encoder) encodePitchLags(pitchLags []int, numSubframes int, condCoding 
 		if divisor < 1 {
 			divisor = 1
 		}
-		lagHigh := lagIdx / divisor
-		lagLow := lagIdx - lagHigh*divisor
+		lagHigh := params.lagIdx / divisor
+		lagLow := params.lagIdx - lagHigh*divisor
 		if lagHigh > 31 {
 			lagHigh = 31
 		}
 
-		var lagLowICDF []uint8
-		switch fsKHz {
-		case 16:
-			lagLowICDF = silk_uniform8_iCDF
-		case 12:
-			lagLowICDF = silk_uniform6_iCDF
-		default:
-			lagLowICDF = silk_uniform4_iCDF
-		}
-
-		if lagLow > len(lagLowICDF)-1 {
-			lagLow = len(lagLowICDF) - 1
+		if lagLow > len(params.lagLowICDF)-1 {
+			lagLow = len(params.lagLowICDF) - 1
 		}
 
 		e.rangeEncoder.EncodeICDF(lagHigh, silk_pitch_lag_iCDF, 8)
-		e.rangeEncoder.EncodeICDF(lagLow, lagLowICDF, 8)
+		e.rangeEncoder.EncodeICDF(lagLow, params.lagLowICDF, 8)
 	}
 
-	if contourIdx < 0 {
-		contourIdx = 0
+	if params.contourIdx < 0 {
+		params.contourIdx = 0
 	}
-	if contourIdx > len(contourICDF)-1 {
-		contourIdx = len(contourICDF) - 1
+	if params.contourIdx > len(params.contourICDF)-1 {
+		params.contourIdx = len(params.contourICDF) - 1
 	}
-	e.rangeEncoder.EncodeICDF(contourIdx, contourICDF, 8)
-	e.ecPrevLagIndex = lagIdx
-
-	for sf := 0; sf < numSubframes && sf < len(pitchLags); sf++ {
-		lag := baseLag + int(contourTable[sf][contourIdx])
-		if lag < config.PitchLagMin {
-			lag = config.PitchLagMin
-		}
-		if lag > config.PitchLagMax {
-			lag = config.PitchLagMax
-		}
-		pitchLags[sf] = lag
-	}
+	e.rangeEncoder.EncodeICDF(params.contourIdx, params.contourICDF, 8)
+	e.ecPrevLagIndex = params.lagIdx
 }
 
 // findBestPitchContour finds the contour that best matches the pitch lag pattern.

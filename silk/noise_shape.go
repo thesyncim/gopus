@@ -4,20 +4,20 @@ package silk
 // These control the spectral shaping of quantization noise.
 const (
 	// Harmonic shaping (Q14 = 16384 = 1.0)
-	harmonicShaping                   = 0.3   // Base harmonic shaping
-	harmonicShapingQ14                = 4915  // 0.3 * 16384
-	highRateOrLowQualityHarmonicShaping    = 0.2   // Additional for high rate/low quality
-	highRateOrLowQualityHarmonicShapingQ14 = 3277  // 0.2 * 16384
+	harmonicShaping                        = 0.3  // Base harmonic shaping
+	harmonicShapingQ14                     = 4915 // 0.3 * 16384
+	highRateOrLowQualityHarmonicShaping    = 0.2  // Additional for high rate/low quality
+	highRateOrLowQualityHarmonicShapingQ14 = 3277 // 0.2 * 16384
 
 	// Noise tilt (HP filtering of noise)
-	hpNoiseCoef     = 0.25 // High-pass coefficient
-	hpNoiseCoefQ14  = 4096 // 0.25 * 16384
-	harmHPNoiseCoef = 0.35 // Additional HP for voiced
+	hpNoiseCoef        = 0.25    // High-pass coefficient
+	hpNoiseCoefQ14     = 4096    // 0.25 * 16384
+	harmHPNoiseCoef    = 0.35    // Additional HP for voiced
 	harmHPNoiseCoefQ24 = 5872026 // 0.35 * 16777216 (Q24 for libopus matching)
 
 	// Low-frequency shaping
-	lowFreqShaping     = 0.4 // Base low-freq shaping strength
-	lowFreqShapingQ14  = 6554
+	lowFreqShaping               = 0.4 // Base low-freq shaping strength
+	lowFreqShapingQ14            = 6554
 	lowQualityLowFreqShapingDecr = 0.5 // Decrease for low quality
 
 	// Subframe smoothing coefficient
@@ -59,9 +59,29 @@ type NoiseShapeParams struct {
 	LFShpQ14         []int32 // Low-frequency shaping (packed MA/AR, Q14)
 
 	// Frame-level parameters
-	LambdaQ10     int // Rate-distortion tradeoff (Q10)
+	LambdaQ10     int     // Rate-distortion tradeoff (Q10)
 	CodingQuality float32 // Coding quality [0, 1]
 	InputQuality  float32 // Input quality [0, 1]
+}
+
+// computeLambdaQ10 recomputes the Lambda (rate-distortion tradeoff) using the
+// provided quantization offset type. This mirrors the logic in ComputeNoiseShapeParams.
+func computeLambdaQ10(signalType, speechActivityQ8, quantOffsetType int, codingQuality, inputQuality float32) int {
+	quantOffset := float32(silk_Quantization_Offsets_Q10[signalType>>1][quantOffsetType]) / 1024.0
+	lambda := lambdaOffset +
+		lambdaSpeechAct*float32(speechActivityQ8)/256.0 +
+		lambdaInputQuality*inputQuality +
+		lambdaCodingQuality*codingQuality +
+		lambdaQuantOffset*quantOffset
+
+	// Clamp lambda to valid range [0.0, 2.0)
+	if lambda < 0 {
+		lambda = 0
+	}
+	if lambda >= 2.0 {
+		lambda = 1.99
+	}
+	return int(lambda * 1024.0)
 }
 
 // ComputeNoiseShapeParams computes adaptive noise shaping parameters.

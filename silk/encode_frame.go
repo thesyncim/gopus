@@ -91,65 +91,16 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 		speechActivityQ8 = 50 // Low activity
 	}
 
-	// Step 1.5: Encode VAD and LBRR flags (standalone SILK only)
-	// Per RFC 6716, the SILK layer header contains:
-	// 1. VAD flag for each frame (1 bit per frame)
-	// 2. LBRR flag (1 bit) - whether LBRR data follows
-	// 3. LBRR data if LBRR flag is set
-	// In hybrid mode, this header is handled by the Opus layer.
+	// Step 1.5: Encode LBRR data/header placeholder (standalone SILK only)
+	// Reserve VAD/LBRR header bits and emit any LBRR data from the previous packet.
+	// In hybrid mode, the Opus layer handles the SILK header.
 	if !useSharedEncoder {
-		// Encode VAD flag (1 bit) - this is for single-frame packets
-		vadBit := 0
-		if vadFlag {
-			vadBit = 1
-		}
-		e.rangeEncoder.EncodeBit(vadBit, 1)
-
-		// Encode LBRR flag (1 bit) - whether LBRR data follows
-		lbrrFlagBit := 0
-		if e.lbrrEnabled && e.nFramesEncoded > 0 {
-			// LBRR is only available after the first frame
-			lbrrFlagBit = 1
-		}
-		e.rangeEncoder.EncodeBit(lbrrFlagBit, 1)
+		e.encodeLBRRData(e.rangeEncoder, 1, true) // mono only in standalone
 	}
 
-	// Step 2: Encode frame type using ICDFFrameTypeVADActive
-	e.encodeFrameType(vadFlag, signalType, quantOffset)
-
-	// Step 3: Compute LPC coefficients FIRST (needed for residual-based gain computation)
-	// This sets e.lastTotalEnergy, e.lastInvGain, e.lastNumSamples
-	lpcQ12 := e.computeLPCFromFrame(pcm)
-
-	// Step 4: Compute and encode gains from subframe energy
-	// Per libopus: gains are sqrt(residual_energy) from Burg/Schur analysis,
-	// NOT sqrt(raw_signal_energy). The residual is much smaller than raw signal
-	// because LPC prediction removes the predictable component.
-	// NSQ scales input by inverse gain, quantizes, then decoder scales output by gain.
-	gains := e.computeSubframeGains(pcm, numSubframes)
-	gainsQ16 := e.encodeSubframeGains(gains, signalType, numSubframes, condCoding)
-
-	// Step 5: Convert LPC to NLSF using silkA2NLSF (with bandwidth expansion retry)
-	// lpcToLSFEncodeInto fails for sparse LPC coefficients (e.g., from sine waves
-	// where Burg's method produces only 2 non-zero coefficients). silkA2NLSF
-	// handles this by applying bandwidth expansion and retrying root-finding.
-	order := len(lpcQ12)
-	lsfQ15 := ensureInt16Slice(&e.scratchLSFQ15, order)
-	lpcQ16 := ensureInt32Slice(&e.scratchLPCQ16, order)
-	for i := 0; i < order; i++ {
-		// Convert Q12 to Q16: multiply by 2^(16-12) = 16
-		lpcQ16[i] = int32(lpcQ12[i]) << 4
-	}
-	silkA2NLSF(lsfQ15, lpcQ16, order)
-	stage1Idx, residuals, interpIdx := e.quantizeLSF(lsfQ15, e.bandwidth, signalType, speechActivityQ8, numSubframes)
-	e.encodeLSF(stage1Idx, residuals, interpIdx, e.bandwidth, signalType)
-	// Reconstruct quantized NLSF and build predictor coefficients for NSQ.
-	lsfQ15 = e.decodeQuantizedNLSF(stage1Idx, residuals, e.bandwidth)
-	predCoefQ12 := ensureInt16Slice(&e.scratchPredCoefQ12, 2*maxLPCOrder)
-	interpIdx = e.buildPredCoefQ12(predCoefQ12, lsfQ15, interpIdx)
-
-	// Step 6: Pitch detection and LTP (voiced only)
+	// Step 2: Pitch detection and LTP (voiced only)
 	var pitchLags []int
+	var pitchParams pitchEncodeParams
 	var ltpCoeffs LTPCoeffsArray
 	ltpScaleIndex := 0
 	var ltpIndices [maxNbSubfr]int8
@@ -172,7 +123,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 			thrhld = 1
 		}
 		pitchLags = e.detectPitch(residual32, numSubframes, searchThres1, thrhld)
-		e.encodePitchLags(pitchLags, numSubframes, condCoding)
+		pitchParams = e.preparePitchLags(pitchLags, numSubframes)
 
 		// Update LTP correlation for noise shaping (from pitch detection)
 		e.ltpCorr = float32(e.pitchState.ltpCorr)
@@ -181,22 +132,104 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 		}
 
 		ltpCoeffs, ltpIndices, perIndex, predGainQ7 = e.analyzeLTPQuantized(residual, resStart, pitchLags, numSubframes, subframeSamples)
-		e.encodeLTPCoeffs(perIndex, ltpIndices[:], numSubframes)
 
 		ltpScaleIndex = e.computeLTPScaleIndex(predGainQ7, condCoding)
-		// Encode LTP scale index (required for voiced frames).
-		if condCoding == codeIndependently {
-			e.rangeEncoder.EncodeICDF(ltpScaleIndex, silk_LTPscale_iCDF, 8)
-		}
 	} else {
 		// Reset LTP correlation for unvoiced frames
 		e.ltpCorr = 0
 		e.sumLogGainQ7 = 0
 	}
 
-	// Step 6.5: LBRR Encoding (FEC)
-	// Per libopus: LBRR is encoded AFTER VAD but BEFORE main frame encoding
-	// Reference: silk/float/encode_frame_FLP.c silk_LBRR_encode_FLP call
+	// Step 3: Compute initial gains from prediction residual energy (Burg analysis)
+	_ = e.computeLPCFromFrame(pcm)
+	gains := e.computeSubframeGainsFromResidual(pcm, numSubframes)
+
+	// Step 4: Build LTP residual and compute LPC from it
+	frameSamples := numSubframes * subframeSamples
+	if frameSamples > len(pcm) {
+		frameSamples = len(pcm)
+	}
+	fsKHz := config.SampleRate / 1000
+	ltpMemSamples := ltpMemLengthMs * fsKHz
+	histLen := ltpMemSamples + frameSamples
+	pitchBuf := e.pitchAnalysisBuf
+	if len(pitchBuf) > histLen {
+		pitchBuf = pitchBuf[len(pitchBuf)-histLen:]
+	}
+	frameStart := len(pitchBuf) - frameSamples
+	if frameStart < 0 {
+		frameStart = 0
+	}
+	ltpRes := e.buildLTPResidual(pitchBuf, frameStart, gains, pitchLags, ltpCoeffs, numSubframes, subframeSamples, signalType)
+	lpcQ12 := e.computeLPCFromLTPResidual(ltpRes, numSubframes, subframeSamples)
+
+	// Step 5: Convert LPC to NLSF using silkA2NLSF (with bandwidth expansion retry)
+	// lpcToLSFEncodeInto fails for sparse LPC coefficients (e.g., from sine waves
+	// where Burg's method produces only 2 non-zero coefficients). silkA2NLSF
+	// handles this by applying bandwidth expansion and retrying root-finding.
+	order := len(lpcQ12)
+	lsfQ15 := ensureInt16Slice(&e.scratchLSFQ15, order)
+	lpcQ16 := ensureInt32Slice(&e.scratchLPCQ16, order)
+	for i := 0; i < order; i++ {
+		// Convert Q12 to Q16: multiply by 2^(16-12) = 16
+		lpcQ16[i] = int32(lpcQ12[i]) << 4
+	}
+	silkA2NLSF(lsfQ15, lpcQ16, order)
+	stage1Idx, residuals, interpIdx := e.quantizeLSF(lsfQ15, e.bandwidth, signalType, speechActivityQ8, numSubframes)
+	// Reconstruct quantized NLSF and build predictor coefficients for NSQ.
+	lsfQ15 = e.decodeQuantizedNLSF(stage1Idx, residuals, e.bandwidth)
+	predCoefQ12 := ensureInt16Slice(&e.scratchPredCoefQ12, 2*maxLPCOrder)
+	interpIdx = e.buildPredCoefQ12(predCoefQ12, lsfQ15, interpIdx)
+
+	// Step 6: Residual energy and gain processing
+	resNrg := e.computeResidualEnergies(ltpRes, predCoefQ12, interpIdx, gains, numSubframes, subframeSamples)
+
+	if e.noiseShapeState == nil {
+		e.noiseShapeState = NewNoiseShapeState()
+	}
+	fsKHzNS := e.sampleRate / 1000
+	if fsKHzNS < 8 {
+		fsKHzNS = 8
+	}
+	noiseParams := e.noiseShapeState.ComputeNoiseShapeParams(
+		signalType,
+		speechActivityQ8,
+		e.ltpCorr,
+		pitchLags,
+		e.snrDBQ7,
+		quantOffset,
+		numSubframes,
+		fsKHzNS,
+	)
+	tiltQ14 := 0
+	if len(noiseParams.TiltQ14) > 0 {
+		tiltQ14 = noiseParams.TiltQ14[0]
+	}
+	processedQuantOffset := applyGainProcessing(gains, resNrg, predGainQ7, e.snrDBQ7, signalType, tiltQ14, subframeSamples)
+	if signalType == typeVoiced {
+		quantOffset = processedQuantOffset
+	}
+	noiseParams.LambdaQ10 = computeLambdaQ10(signalType, speechActivityQ8, quantOffset, noiseParams.CodingQuality, noiseParams.InputQuality)
+
+	// Step 7: Encode frame type and gains (now that quantOffset is final)
+	e.encodeFrameType(vadFlag, signalType, quantOffset)
+	gainsQ16 := e.encodeSubframeGains(gains, signalType, numSubframes, condCoding)
+
+	// Step 8: Encode LSF parameters
+	e.encodeLSF(stage1Idx, residuals, interpIdx, e.bandwidth, signalType)
+
+	// Step 9: Encode pitch and LTP (voiced only)
+	if signalType == typeVoiced {
+		e.encodePitchLagsWithParams(pitchParams, condCoding)
+		e.encodeLTPCoeffs(perIndex, ltpIndices[:], numSubframes)
+		// Encode LTP scale index (required for voiced frames).
+		if condCoding == codeIndependently {
+			e.rangeEncoder.EncodeICDF(ltpScaleIndex, silk_LTPscale_iCDF, 8)
+		}
+	}
+
+	// Step 10: LBRR Encoding (FEC)
+	// Per libopus: LBRR uses the same parameters as the main frame but lower quality.
 	e.lbrrEncode(pcm, lpcQ12, lsfQ15, gains, pitchLags, signalType, quantOffset, speechActivityQ8, condCoding)
 
 	// Step 7: Encode seed (LAST in indices, BEFORE pulses)
@@ -205,19 +238,15 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	e.frameCounter++
 	e.rangeEncoder.EncodeICDF(seed, silk_uniform4_iCDF, 8)
 
-	// Step 8: Compute excitation using Noise Shaping Quantization (NSQ)
+	// Step 11: Compute excitation using Noise Shaping Quantization (NSQ)
 	// Per libopus silk_encode_pulses(), pulses are encoded for full frame_length
-	frameSamples := numSubframes * subframeSamples
-	if frameSamples > len(pcm) {
-		frameSamples = len(pcm)
-	}
 
 	// Use NSQ for proper noise-shaped quantization with adaptive parameters
 	ltpScaleQ14 := 0
 	if signalType == typeVoiced {
 		ltpScaleQ14 = int(silk_LTPScales_table_Q14[ltpScaleIndex])
 	}
-	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, speechActivityQ8, seed, numSubframes, subframeSamples, frameSamples)
+	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, speechActivityQ8, noiseParams, seed, numSubframes, subframeSamples, frameSamples)
 
 	// Encode ALL pulses for the entire frame at once
 	e.encodePulses(allExcitation, signalType, quantOffset)
@@ -227,6 +256,17 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	copy(e.prevLSFQ15, lsfQ15)
 	e.nFramesEncoded++
 	e.MarkEncoded()
+
+	// Patch VAD/LBRR header bits for standalone packets.
+	if !useSharedEncoder {
+		flags := 0
+		if vadFlag {
+			flags = 1
+		}
+		flags = (flags << 1) | e.lbrrFlag
+		nBitsHeader := (e.nFramesPerPacket + 1) * 1
+		e.rangeEncoder.PatchInitialBits(uint32(flags), uint(nBitsHeader))
+	}
 
 	// Finalize encoding
 	if useSharedEncoder {
@@ -248,7 +288,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 // computeNSQExcitation computes excitation using Noise Shaping Quantization.
 // This provides proper libopus-matching noise shaping for better audio quality.
 // The noise shaping parameters are computed adaptively based on signal characteristics.
-func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ12 []int16, nlsfInterpQ2 int, gainsQ16 []int32, pitchLags []int, ltpCoeffs LTPCoeffsArray, ltpScaleQ14 int, signalType, quantOffset, speechActivityQ8, seed, numSubframes, subframeSamples, frameSamples int) []int32 {
+func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ12 []int16, nlsfInterpQ2 int, gainsQ16 []int32, pitchLags []int, ltpCoeffs LTPCoeffsArray, ltpScaleQ14 int, signalType, quantOffset, speechActivityQ8 int, noiseParams *NoiseShapeParams, seed, numSubframes, subframeSamples, frameSamples int) []int32 {
 	// Convert PCM to int16 for NSQ using scratch buffer
 	inputQ0 := ensureInt16Slice(&e.scratchInputQ0, frameSamples)
 	for i := 0; i < frameSamples && i < len(pcm); i++ {
@@ -331,27 +371,29 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 
 	// Compute adaptive noise shaping parameters using libopus-matching algorithm
 	// Reference: libopus silk/float/noise_shape_analysis_FLP.c
-	if e.noiseShapeState == nil {
-		e.noiseShapeState = NewNoiseShapeState()
-	}
+	if noiseParams == nil {
+		if e.noiseShapeState == nil {
+			e.noiseShapeState = NewNoiseShapeState()
+		}
 
-	// Get sample rate in kHz for noise shaping computation
-	fsKHz := e.sampleRate / 1000
-	if fsKHz < 8 {
-		fsKHz = 8
-	}
+		// Get sample rate in kHz for noise shaping computation
+		fsKHz := e.sampleRate / 1000
+		if fsKHz < 8 {
+			fsKHz = 8
+		}
 
-	// Compute adaptive noise shaping parameters
-	noiseParams := e.noiseShapeState.ComputeNoiseShapeParams(
-		signalType,
-		speechActivityQ8,
-		e.ltpCorr,
-		pitchL,
-		e.snrDBQ7,
-		quantOffset,
-		numSubframes,
-		fsKHz,
-	)
+		// Compute adaptive noise shaping parameters
+		noiseParams = e.noiseShapeState.ComputeNoiseShapeParams(
+			signalType,
+			speechActivityQ8,
+			e.ltpCorr,
+			pitchL,
+			e.snrDBQ7,
+			quantOffset,
+			numSubframes,
+			fsKHz,
+		)
+	}
 
 	// Use the adaptive parameters
 	harmShapeGainQ14 := ensureIntSlice(&e.scratchHarmShapeGainQ14, numSubframes)
@@ -489,7 +531,7 @@ func (e *Encoder) EncodePacketWithFEC(pcm []float32, vadFlags []bool) []byte {
 		}
 	}
 	flags <<= 1
-	if e.hasLBRRData() {
+	if e.lbrrFlag != 0 {
 		flags |= 1
 	}
 
@@ -547,42 +589,14 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 		speechActivityQ8 = 50
 	}
 
-	// Step 2: Encode frame type
-	e.encodeFrameType(vadFlag, signalType, quantOffset)
-
 	condCoding := codeIndependently
 	if e.nFramesEncoded > 0 {
 		condCoding = codeConditionally
 	}
 
-	// Step 3: Compute LPC coefficients FIRST (needed for residual-based gain computation)
-	lpcQ12 := e.computeLPCFromFrame(pcm)
-
-	// Step 4: Compute and encode gains from subframe energy
-	gains := e.computeSubframeGains(pcm, numSubframes)
-	gainsQ16 := e.encodeSubframeGains(gains, signalType, numSubframes, condCoding)
-
-	// Step 5: Convert LPC to NLSF using silkA2NLSF (with bandwidth expansion retry)
-	// lpcToLSFEncodeInto fails for sparse LPC coefficients (e.g., from sine waves
-	// where Burg's method produces only 2 non-zero coefficients). silkA2NLSF
-	// handles this by applying bandwidth expansion and retrying root-finding.
-	order := len(lpcQ12)
-	lsfQ15 := ensureInt16Slice(&e.scratchLSFQ15, order)
-	lpcQ16 := ensureInt32Slice(&e.scratchLPCQ16, order)
-	for i := 0; i < order; i++ {
-		// Convert Q12 to Q16: multiply by 2^(16-12) = 16
-		lpcQ16[i] = int32(lpcQ12[i]) << 4
-	}
-	silkA2NLSF(lsfQ15, lpcQ16, order)
-	stage1Idx, residuals, interpIdx := e.quantizeLSF(lsfQ15, e.bandwidth, signalType, speechActivityQ8, numSubframes)
-	e.encodeLSF(stage1Idx, residuals, interpIdx, e.bandwidth, signalType)
-	// Reconstruct quantized NLSF and build predictor coefficients for NSQ.
-	lsfQ15 = e.decodeQuantizedNLSF(stage1Idx, residuals, e.bandwidth)
-	predCoefQ12 := ensureInt16Slice(&e.scratchPredCoefQ12, 2*maxLPCOrder)
-	interpIdx = e.buildPredCoefQ12(predCoefQ12, lsfQ15, interpIdx)
-
-	// Step 6: Pitch detection and LTP (voiced only)
+	// Step 2: Pitch detection and LTP (voiced only)
 	var pitchLags []int
+	var pitchParams pitchEncodeParams
 	var ltpCoeffs LTPCoeffsArray
 	ltpScaleIndex := 0
 	var ltpIndices [maxNbSubfr]int8
@@ -605,7 +619,7 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 			thrhld = 1
 		}
 		pitchLags = e.detectPitch(residual32, numSubframes, searchThres1, thrhld)
-		e.encodePitchLags(pitchLags, numSubframes, condCoding)
+		pitchParams = e.preparePitchLags(pitchLags, numSubframes)
 
 		// Update LTP correlation for noise shaping (from pitch detection)
 		e.ltpCorr = float32(e.pitchState.ltpCorr)
@@ -614,20 +628,103 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 		}
 
 		ltpCoeffs, ltpIndices, perIndex, predGainQ7 = e.analyzeLTPQuantized(residual, resStart, pitchLags, numSubframes, subframeSamples)
-		e.encodeLTPCoeffs(perIndex, ltpIndices[:], numSubframes)
 
 		ltpScaleIndex = e.computeLTPScaleIndex(predGainQ7, condCoding)
-		// Encode LTP scale index (required for voiced frames).
-		if condCoding == codeIndependently {
-			e.rangeEncoder.EncodeICDF(ltpScaleIndex, silk_LTPscale_iCDF, 8)
-		}
 	} else {
 		// Reset LTP correlation for unvoiced frames
 		e.ltpCorr = 0
 		e.sumLogGainQ7 = 0
 	}
 
-	// Step 6.5: LBRR Encoding (FEC) for this frame
+	// Step 3: Compute initial gains from prediction residual energy (Burg analysis)
+	_ = e.computeLPCFromFrame(pcm)
+	gains := e.computeSubframeGainsFromResidual(pcm, numSubframes)
+
+	// Step 4: Build LTP residual and compute LPC from it
+	frameSamples := numSubframes * subframeSamples
+	if frameSamples > len(pcm) {
+		frameSamples = len(pcm)
+	}
+	fsKHz := config.SampleRate / 1000
+	ltpMemSamples := ltpMemLengthMs * fsKHz
+	histLen := ltpMemSamples + frameSamples
+	pitchBuf := e.pitchAnalysisBuf
+	if len(pitchBuf) > histLen {
+		pitchBuf = pitchBuf[len(pitchBuf)-histLen:]
+	}
+	frameStart := len(pitchBuf) - frameSamples
+	if frameStart < 0 {
+		frameStart = 0
+	}
+	ltpRes := e.buildLTPResidual(pitchBuf, frameStart, gains, pitchLags, ltpCoeffs, numSubframes, subframeSamples, signalType)
+	lpcQ12 := e.computeLPCFromLTPResidual(ltpRes, numSubframes, subframeSamples)
+
+	// Step 5: Convert LPC to NLSF using silkA2NLSF (with bandwidth expansion retry)
+	// lpcToLSFEncodeInto fails for sparse LPC coefficients (e.g., from sine waves
+	// where Burg's method produces only 2 non-zero coefficients). silkA2NLSF
+	// handles this by applying bandwidth expansion and retrying root-finding.
+	order := len(lpcQ12)
+	lsfQ15 := ensureInt16Slice(&e.scratchLSFQ15, order)
+	lpcQ16 := ensureInt32Slice(&e.scratchLPCQ16, order)
+	for i := 0; i < order; i++ {
+		// Convert Q12 to Q16: multiply by 2^(16-12) = 16
+		lpcQ16[i] = int32(lpcQ12[i]) << 4
+	}
+	silkA2NLSF(lsfQ15, lpcQ16, order)
+	stage1Idx, residuals, interpIdx := e.quantizeLSF(lsfQ15, e.bandwidth, signalType, speechActivityQ8, numSubframes)
+	// Reconstruct quantized NLSF and build predictor coefficients for NSQ.
+	lsfQ15 = e.decodeQuantizedNLSF(stage1Idx, residuals, e.bandwidth)
+	predCoefQ12 := ensureInt16Slice(&e.scratchPredCoefQ12, 2*maxLPCOrder)
+	interpIdx = e.buildPredCoefQ12(predCoefQ12, lsfQ15, interpIdx)
+
+	// Step 6: Residual energy and gain processing
+	resNrg := e.computeResidualEnergies(ltpRes, predCoefQ12, interpIdx, gains, numSubframes, subframeSamples)
+
+	if e.noiseShapeState == nil {
+		e.noiseShapeState = NewNoiseShapeState()
+	}
+	fsKHzNS := e.sampleRate / 1000
+	if fsKHzNS < 8 {
+		fsKHzNS = 8
+	}
+	noiseParams := e.noiseShapeState.ComputeNoiseShapeParams(
+		signalType,
+		speechActivityQ8,
+		e.ltpCorr,
+		pitchLags,
+		e.snrDBQ7,
+		quantOffset,
+		numSubframes,
+		fsKHzNS,
+	)
+	tiltQ14 := 0
+	if len(noiseParams.TiltQ14) > 0 {
+		tiltQ14 = noiseParams.TiltQ14[0]
+	}
+	processedQuantOffset := applyGainProcessing(gains, resNrg, predGainQ7, e.snrDBQ7, signalType, tiltQ14, subframeSamples)
+	if signalType == typeVoiced {
+		quantOffset = processedQuantOffset
+	}
+	noiseParams.LambdaQ10 = computeLambdaQ10(signalType, speechActivityQ8, quantOffset, noiseParams.CodingQuality, noiseParams.InputQuality)
+
+	// Step 7: Encode frame type and gains (now that quantOffset is final)
+	e.encodeFrameType(vadFlag, signalType, quantOffset)
+	gainsQ16 := e.encodeSubframeGains(gains, signalType, numSubframes, condCoding)
+
+	// Step 8: Encode LSF parameters
+	e.encodeLSF(stage1Idx, residuals, interpIdx, e.bandwidth, signalType)
+
+	// Step 9: Encode pitch and LTP (voiced only)
+	if signalType == typeVoiced {
+		e.encodePitchLagsWithParams(pitchParams, condCoding)
+		e.encodeLTPCoeffs(perIndex, ltpIndices[:], numSubframes)
+		// Encode LTP scale index (required for voiced frames).
+		if condCoding == codeIndependently {
+			e.rangeEncoder.EncodeICDF(ltpScaleIndex, silk_LTPscale_iCDF, 8)
+		}
+	}
+
+	// Step 10: LBRR Encoding (FEC) for this frame
 	e.lbrrEncode(pcm, lpcQ12, lsfQ15, gains, pitchLags, signalType, quantOffset, speechActivityQ8, condCoding)
 
 	// Step 7: Encode seed
@@ -635,17 +732,13 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 	e.frameCounter++
 	e.rangeEncoder.EncodeICDF(seed, silk_uniform4_iCDF, 8)
 
-	// Step 8: Compute and encode excitation
-	frameSamples := numSubframes * subframeSamples
-	if frameSamples > len(pcm) {
-		frameSamples = len(pcm)
-	}
+	// Step 11: Compute and encode excitation
 
 	ltpScaleQ14 := 0
 	if signalType == typeVoiced {
 		ltpScaleQ14 = int(silk_LTPScales_table_Q14[ltpScaleIndex])
 	}
-	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, speechActivityQ8, seed, numSubframes, subframeSamples, frameSamples)
+	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, speechActivityQ8, noiseParams, seed, numSubframes, subframeSamples, frameSamples)
 	e.encodePulses(allExcitation, signalType, quantOffset)
 
 	// Update state
