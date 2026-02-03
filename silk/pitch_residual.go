@@ -90,26 +90,31 @@ func (e *Encoder) computePitchResidual(numSubframes int) ([]float64, []float32, 
 	laPitch := laPitchMs * fsKHz
 	needed := histLen + laPitch
 
-	pitchBuf := e.pitchAnalysisBuf
-	if len(pitchBuf) > histLen {
-		pitchBuf = pitchBuf[len(pitchBuf)-histLen:]
-	}
-
 	input := ensureFloat64Slice(&e.scratchLtpInput, needed)
 	for i := range input {
 		input[i] = 0
 	}
-	if len(pitchBuf) > 0 {
-		offset := histLen - len(pitchBuf)
-		if offset < 0 {
-			offset = 0
+	if len(e.inputBuffer) >= needed {
+		for i := 0; i < needed; i++ {
+			input[i] = float64(e.inputBuffer[i])
 		}
-		maxCopy := len(input) - offset
-		if maxCopy > len(pitchBuf) {
-			maxCopy = len(pitchBuf)
+	} else {
+		pitchBuf := e.pitchAnalysisBuf
+		if len(pitchBuf) > histLen {
+			pitchBuf = pitchBuf[len(pitchBuf)-histLen:]
 		}
-		for i := 0; i < maxCopy; i++ {
-			input[offset+i] = float64(pitchBuf[i])
+		if len(pitchBuf) > 0 {
+			offset := histLen - len(pitchBuf)
+			if offset < 0 {
+				offset = 0
+			}
+			maxCopy := len(input) - offset
+			if maxCopy > len(pitchBuf) {
+				maxCopy = len(pitchBuf)
+			}
+			for i := 0; i < maxCopy; i++ {
+				input[offset+i] = float64(pitchBuf[i])
+			}
 		}
 	}
 

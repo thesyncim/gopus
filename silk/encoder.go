@@ -63,7 +63,7 @@ type Encoder struct {
 	lastNumSamples  int     // Number of samples analyzed
 
 	// Analysis buffers (encoder-specific)
-	inputBuffer []float32 // Buffered input samples
+	inputBuffer []float32 // Noise shaping lookahead buffer (x_buf in libopus)
 	lpcState    []float32 // LPC filter state for residual computation
 
 	// Bandwidth configuration
@@ -285,6 +285,7 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 	frameMs := 20
 	fsKHz := config.SampleRate / 1000
 	pitchBufSamples := (ltpMemLengthMs + frameMs) * fsKHz
+	shapeBufSamples := (ltpMemLengthMs+laShapeMs)*fsKHz + frameSamples
 	pitchResSamples := pitchBufSamples + laPitchMs*fsKHz
 	maxPitchWinSamples := findPitchLpcWinMs * fsKHz
 	if maxPitchWinSamples < 1 {
@@ -293,7 +294,7 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 
 	enc := &Encoder{
 		prevLSFQ15:        make([]int16, config.LPCOrder),
-		inputBuffer:       make([]float32, frameSamples*2), // Look-ahead buffer
+		inputBuffer:       make([]float32, shapeBufSamples), // Noise shaping buffer with lookahead
 		lpcState:          make([]float32, config.LPCOrder),
 		nsqState:          NewNSQState(),                    // Initialize NSQ state
 		noiseShapeState:   NewNoiseShapeState(),             // Initialize noise shaping state

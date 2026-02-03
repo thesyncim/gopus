@@ -123,11 +123,12 @@ type Encoder struct {
 	silkResampledR     []float32
 
 	// Scratch buffers for zero-allocation encoding
-	scratchPCM32  []float32 // float64 to float32 conversion buffer
-	scratchLeft   []float32 // Left channel deinterleave buffer
-	scratchRight  []float32 // Right channel deinterleave buffer
-	scratchMono   []float32 // Mono mix buffer (VAD)
-	scratchPacket []byte    // Output packet buffer
+	scratchPCM32    []float32 // float64 to float32 conversion buffer
+	scratchLeft     []float32 // Left channel deinterleave buffer
+	scratchRight    []float32 // Right channel deinterleave buffer
+	scratchMono     []float32 // Mono mix buffer (VAD)
+	scratchVADFlags [silk.MaxFramesPerPacket]bool
+	scratchPacket   []byte // Output packet buffer
 }
 
 // NewEncoder creates a new unified Opus encoder.
@@ -712,11 +713,15 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, frameSize int) ([]byte, error) 
 
 	// Compute VAD at SILK sample rate
 	fsKHz := targetRate / 1000
-	vadFlag := e.computeSilkVAD(pcm32, len(pcm32), fsKHz)
+	vadFlags, nFrames := e.computeSilkVADFlags(pcm32, fsKHz)
 
 	// Mono encoding using persistent encoder
-	if e.fecEnabled {
-		return e.silkEncoder.EncodePacketWithFEC(pcm32, []bool{vadFlag}), nil
+	if e.fecEnabled || nFrames > 1 {
+		return e.silkEncoder.EncodePacketWithFEC(pcm32, vadFlags), nil
+	}
+	vadFlag := false
+	if len(vadFlags) > 0 {
+		vadFlag = vadFlags[0]
 	}
 	return silk.EncodeWithEncoder(e.silkEncoder, pcm32, e.silkBandwidth(), vadFlag)
 }
@@ -833,6 +838,46 @@ func (e *Encoder) computeSilkVADSide(mono []float32, frameSamples, fsKHz int) bo
 	e.ensureSilkVADSide()
 	_, active := computeSilkVADWithState(e.silkVADSide, mono, frameSamples, fsKHz)
 	return active
+}
+
+func computeSilkFrameLayout(pcmLen, fsKHz int) (frameSamples, nFrames int) {
+	if pcmLen <= 0 || fsKHz <= 0 {
+		return 0, 0
+	}
+	frameSamples = fsKHz * 20
+	if frameSamples <= 0 {
+		return 0, 0
+	}
+	if pcmLen < frameSamples {
+		frameSamples = pcmLen
+	}
+	nFrames = pcmLen / frameSamples
+	if nFrames < 1 {
+		nFrames = 1
+	}
+	if nFrames > silk.MaxFramesPerPacket {
+		nFrames = silk.MaxFramesPerPacket
+	}
+	return frameSamples, nFrames
+}
+
+func (e *Encoder) computeSilkVADFlags(pcm []float32, fsKHz int) ([]bool, int) {
+	frameSamples, nFrames := computeSilkFrameLayout(len(pcm), fsKHz)
+	if nFrames == 0 {
+		e.lastVADValid = false
+		return nil, 0
+	}
+	flags := e.scratchVADFlags[:nFrames]
+	for i := 0; i < nFrames; i++ {
+		start := i * frameSamples
+		end := start + frameSamples
+		if end > len(pcm) {
+			end = len(pcm)
+		}
+		framePCM := pcm[start:end]
+		flags[i] = e.computeSilkVAD(framePCM, len(framePCM), fsKHz)
+	}
+	return flags, nFrames
 }
 
 func (e *Encoder) ensureSilkResampled(size int) []float32 {

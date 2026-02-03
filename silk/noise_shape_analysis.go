@@ -186,29 +186,14 @@ func (e *Encoder) computeShapingARAndGains(
 		xBuf[i] = 0
 	}
 
-	// Copy pre-frame lookback samples into the first laShape positions.
-	if laShape > 0 {
-		hist := e.pitchAnalysisBuf
-		preAvail := len(hist) - frameSamples
-		if preAvail > laShape {
-			preAvail = laShape
+	ltpMemSamples := ltpMemLengthMs * fsKHz
+	startIdx := ltpMemSamples - laShape
+	shapeBuf := e.inputBuffer
+	for i := 0; i < xLen; i++ {
+		idx := startIdx + i
+		if idx >= 0 && idx < len(shapeBuf) {
+			xBuf[i] = float64(shapeBuf[idx])
 		}
-		if preAvail > 0 {
-			start := len(hist) - frameSamples - preAvail
-			if start < 0 {
-				start = 0
-			}
-			dst := xBuf[laShape-preAvail : laShape]
-			src := hist[start : start+preAvail]
-			for i := 0; i < preAvail; i++ {
-				dst[i] = float64(src[i])
-			}
-		}
-	}
-
-	// Copy current frame.
-	for i := 0; i < frameSamples; i++ {
-		xBuf[laShape+i] = float64(pcm[i])
 	}
 
 	// SNR adjustment for gain tweaking.

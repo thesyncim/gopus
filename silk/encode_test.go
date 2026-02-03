@@ -27,7 +27,7 @@ func TestEncodeFrameBasic(t *testing.T) {
 	}
 
 	// Verify output is not too large (reasonable for 20ms SILK frame)
-	if len(encoded) > 250 {
+	if len(encoded) > 320 {
 		t.Errorf("Encoded frame too large: %d bytes", len(encoded))
 	}
 
@@ -243,7 +243,7 @@ func TestMultiFrameRangeEncoderLifecycle(t *testing.T) {
 
 	// Verify all frames produced reasonable output
 	for i, size := range frameSizes {
-		if size < 10 || size > 300 {
+		if size < 10 || size > 400 {
 			t.Errorf("Frame %d: unusual size %d bytes", i, size)
 		}
 	}

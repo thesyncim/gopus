@@ -16,6 +16,7 @@ const (
 	nRateLevels                  = 10
 	silkMaxPulses                = 16
 	maxFramesPerPacket           = 3
+	MaxFramesPerPacket           = maxFramesPerPacket
 	maxLPCStabilizeIterations    = 16
 	maxPredictionPowerGainInvQ30 = 107374
 
@@ -54,6 +55,7 @@ const (
 
 	// Pitch analysis constants (define.h / tuning_parameters.h)
 	laPitchMs                   = 2
+	laShapeMs                   = 5
 	findPitchLpcWinMs           = 20 + (laPitchMs << 1)
 	findPitchLpcWinMs2SF        = 10 + (laPitchMs << 1)
 	findPitchBandwidthExpansion = 0.99

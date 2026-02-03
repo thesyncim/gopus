@@ -22,6 +22,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	if numSubframes > maxNbSubfr {
 		numSubframes = maxNbSubfr
 	}
+	frameSamples := numSubframes * subframeSamples
+	if frameSamples > len(pcm) {
+		frameSamples = len(pcm)
+	}
 
 	// Update target SNR based on configured bitrate and frame size.
 	if e.targetRateBps > 0 {
@@ -63,23 +67,6 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 		condCoding = codeConditionally
 	}
 
-	// Step 0.5: Update pitch analysis buffer
-	// The buffer holds LTP memory (20ms history) + current frame (up to 20ms).
-	// Shift old samples left by the current frame length and append new samples.
-	// This provides proper history for pitch detection correlation.
-	pitchBufFrameLen := len(pcm)
-	if pitchBufFrameLen > 0 && len(e.pitchAnalysisBuf) > 0 {
-		if len(e.pitchAnalysisBuf) > pitchBufFrameLen {
-			copy(e.pitchAnalysisBuf, e.pitchAnalysisBuf[pitchBufFrameLen:])
-		}
-		start := len(e.pitchAnalysisBuf) - pitchBufFrameLen
-		if start < 0 {
-			start = 0
-			pitchBufFrameLen = len(e.pitchAnalysisBuf)
-		}
-		copy(e.pitchAnalysisBuf[start:], pcm[:pitchBufFrameLen])
-	}
-
 	// Step 1: Classify frame (VAD)
 	var signalType, quantOffset int
 	var speechActivityQ8 int
@@ -89,6 +76,23 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	} else {
 		signalType, quantOffset = 0, 0
 		speechActivityQ8 = 50 // Low activity
+	}
+
+	// Step 1.1: Update noise shaping lookahead buffer and select delayed frame
+	framePCM := e.updateShapeBuffer(pcm, frameSamples)
+
+	// Step 1.2: Update pitch analysis buffer with delayed frame
+	pitchBufFrameLen := len(framePCM)
+	if pitchBufFrameLen > 0 && len(e.pitchAnalysisBuf) > 0 {
+		if len(e.pitchAnalysisBuf) > pitchBufFrameLen {
+			copy(e.pitchAnalysisBuf, e.pitchAnalysisBuf[pitchBufFrameLen:])
+		}
+		start := len(e.pitchAnalysisBuf) - pitchBufFrameLen
+		if start < 0 {
+			start = 0
+			pitchBufFrameLen = len(e.pitchAnalysisBuf)
+		}
+		copy(e.pitchAnalysisBuf[start:], framePCM[:pitchBufFrameLen])
 	}
 
 	// Step 1.5: Encode LBRR data/header placeholder (standalone SILK only)
@@ -142,7 +146,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 
 	// Step 3: Noise shaping analysis (sparseness quant offset, gains, shaping AR)
 	noiseParams, gains, quantOffset := e.noiseShapeAnalysis(
-		pcm,
+		framePCM,
 		residual,
 		resStart,
 		signalType,
@@ -155,16 +159,12 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	)
 
 	// Step 4: Build LTP residual and compute LPC from it
-	frameSamples := numSubframes * subframeSamples
-	if frameSamples > len(pcm) {
-		frameSamples = len(pcm)
-	}
 	fsKHz := config.SampleRate / 1000
 	ltpMemSamples := ltpMemLengthMs * fsKHz
 	histLen := ltpMemSamples + frameSamples
-	pitchBuf := e.pitchAnalysisBuf
+	pitchBuf := e.inputBuffer
 	if len(pitchBuf) > histLen {
-		pitchBuf = pitchBuf[len(pitchBuf)-histLen:]
+		pitchBuf = pitchBuf[:histLen]
 	}
 	frameStart := len(pitchBuf) - frameSamples
 	if frameStart < 0 {
@@ -253,7 +253,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	}
 
 	// Step 10: LBRR Encoding (FEC) for this frame
-	e.lbrrEncode(pcm, frameIndices, lpcQ12, predCoefQ12, interpIdx, pitchLags, ltpCoeffs, ltpScaleIndex, noiseParams, seed, numSubframes, subframeSamples, frameSamples, speechActivityQ8)
+	e.lbrrEncode(framePCM, frameIndices, lpcQ12, predCoefQ12, interpIdx, pitchLags, ltpCoeffs, ltpScaleIndex, noiseParams, seed, numSubframes, subframeSamples, frameSamples, speechActivityQ8)
 
 	// Step 7: Encode seed (LAST in indices, BEFORE pulses)
 	// Per libopus: seed = frameCounter++ & 3
@@ -267,7 +267,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, vadFlag bool) []byte {
 	if signalType == typeVoiced {
 		ltpScaleQ14 = int(silk_LTPScales_table_Q14[ltpScaleIndex])
 	}
-	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, speechActivityQ8, noiseParams, seed, numSubframes, subframeSamples, frameSamples, e.nsqState)
+	allExcitation := e.computeNSQExcitation(framePCM, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, speechActivityQ8, noiseParams, seed, numSubframes, subframeSamples, frameSamples, e.nsqState)
 
 	// Encode ALL pulses for the entire frame at once
 	e.encodePulses(allExcitation, signalType, quantOffset)
@@ -586,20 +586,9 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 	if numSubframes > maxNbSubfr {
 		numSubframes = maxNbSubfr
 	}
-
-	// Step 0.5: Update pitch analysis buffer
-	// The buffer holds LTP memory (20ms history) + current frame (up to 20ms).
-	pitchBufFrameLen := len(pcm)
-	if pitchBufFrameLen > 0 && len(e.pitchAnalysisBuf) > 0 {
-		if len(e.pitchAnalysisBuf) > pitchBufFrameLen {
-			copy(e.pitchAnalysisBuf, e.pitchAnalysisBuf[pitchBufFrameLen:])
-		}
-		start := len(e.pitchAnalysisBuf) - pitchBufFrameLen
-		if start < 0 {
-			start = 0
-			pitchBufFrameLen = len(e.pitchAnalysisBuf)
-		}
-		copy(e.pitchAnalysisBuf[start:], pcm[:pitchBufFrameLen])
+	frameSamples := numSubframes * subframeSamples
+	if frameSamples > len(pcm) {
+		frameSamples = len(pcm)
 	}
 
 	// Step 1: Classify frame (VAD)
@@ -611,6 +600,23 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 	} else {
 		signalType, quantOffset = 0, 0
 		speechActivityQ8 = 50
+	}
+
+	// Step 1.1: Update noise shaping lookahead buffer and select delayed frame
+	framePCM := e.updateShapeBuffer(pcm, frameSamples)
+
+	// Step 1.2: Update pitch analysis buffer with delayed frame
+	pitchBufFrameLen := len(framePCM)
+	if pitchBufFrameLen > 0 && len(e.pitchAnalysisBuf) > 0 {
+		if len(e.pitchAnalysisBuf) > pitchBufFrameLen {
+			copy(e.pitchAnalysisBuf, e.pitchAnalysisBuf[pitchBufFrameLen:])
+		}
+		start := len(e.pitchAnalysisBuf) - pitchBufFrameLen
+		if start < 0 {
+			start = 0
+			pitchBufFrameLen = len(e.pitchAnalysisBuf)
+		}
+		copy(e.pitchAnalysisBuf[start:], framePCM[:pitchBufFrameLen])
 	}
 
 	condCoding := codeIndependently
@@ -662,7 +668,7 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 
 	// Step 3: Noise shaping analysis (sparseness quant offset, gains, shaping AR)
 	noiseParams, gains, quantOffset := e.noiseShapeAnalysis(
-		pcm,
+		framePCM,
 		residual,
 		resStart,
 		signalType,
@@ -675,16 +681,12 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 	)
 
 	// Step 4: Build LTP residual and compute LPC from it
-	frameSamples := numSubframes * subframeSamples
-	if frameSamples > len(pcm) {
-		frameSamples = len(pcm)
-	}
 	fsKHz := config.SampleRate / 1000
 	ltpMemSamples := ltpMemLengthMs * fsKHz
 	histLen := ltpMemSamples + frameSamples
-	pitchBuf := e.pitchAnalysisBuf
+	pitchBuf := e.inputBuffer
 	if len(pitchBuf) > histLen {
-		pitchBuf = pitchBuf[len(pitchBuf)-histLen:]
+		pitchBuf = pitchBuf[:histLen]
 	}
 	frameStart := len(pitchBuf) - frameSamples
 	if frameStart < 0 {
@@ -773,7 +775,7 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 	}
 
 	// Step 10: LBRR Encoding (FEC) for this frame
-	e.lbrrEncode(pcm, frameIndices, lpcQ12, predCoefQ12, interpIdx, pitchLags, ltpCoeffs, ltpScaleIndex, noiseParams, seed, numSubframes, subframeSamples, frameSamples, speechActivityQ8)
+	e.lbrrEncode(framePCM, frameIndices, lpcQ12, predCoefQ12, interpIdx, pitchLags, ltpCoeffs, ltpScaleIndex, noiseParams, seed, numSubframes, subframeSamples, frameSamples, speechActivityQ8)
 
 	// Step 7: Encode seed
 	e.rangeEncoder.EncodeICDF(seed, silk_uniform4_iCDF, 8)
@@ -784,7 +786,7 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, vadFlag bool) {
 	if signalType == typeVoiced {
 		ltpScaleQ14 = int(silk_LTPScales_table_Q14[ltpScaleIndex])
 	}
-	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, speechActivityQ8, noiseParams, seed, numSubframes, subframeSamples, frameSamples, e.nsqState)
+	allExcitation := e.computeNSQExcitation(framePCM, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, speechActivityQ8, noiseParams, seed, numSubframes, subframeSamples, frameSamples, e.nsqState)
 	e.encodePulses(allExcitation, signalType, quantOffset)
 
 	// Update state
@@ -818,4 +820,52 @@ func (e *Encoder) encodeFrameType(vadFlag bool, signalType, quantOffset int) {
 		idx = 3
 	}
 	e.rangeEncoder.EncodeICDF16(idx, ICDFFrameTypeVADActive, 8)
+}
+
+// updateShapeBuffer updates the noise shaping lookahead buffer (x_buf) and
+// returns the delayed frame slice to encode.
+func (e *Encoder) updateShapeBuffer(pcm []float32, frameSamples int) []float32 {
+	if frameSamples <= 0 {
+		return pcm
+	}
+	fsKHz := e.sampleRate / 1000
+	if fsKHz < 1 {
+		fsKHz = 1
+	}
+	ltpMemSamples := ltpMemLengthMs * fsKHz
+	laShapeSamples := laShapeMs * fsKHz
+	keep := ltpMemSamples + laShapeSamples
+	needed := keep + frameSamples
+
+	shapeBuf := e.inputBuffer
+	if len(shapeBuf) < needed {
+		shapeBuf = make([]float32, needed)
+		e.inputBuffer = shapeBuf
+	}
+
+	if keep > 0 && frameSamples > 0 && frameSamples+keep <= len(shapeBuf) {
+		copy(shapeBuf[:keep], shapeBuf[frameSamples:frameSamples+keep])
+	}
+
+	insertOffset := keep
+	if insertOffset+frameSamples > len(shapeBuf) {
+		if insertOffset >= len(shapeBuf) {
+			return pcm
+		}
+		frameSamples = len(shapeBuf) - insertOffset
+	}
+	insert := shapeBuf[insertOffset : insertOffset+frameSamples]
+	n := copy(insert, pcm)
+	for i := n; i < frameSamples; i++ {
+		insert[i] = 0
+	}
+
+	start := ltpMemSamples
+	if start+frameSamples > len(shapeBuf) {
+		if start >= len(shapeBuf) {
+			return pcm
+		}
+		frameSamples = len(shapeBuf) - start
+	}
+	return shapeBuf[start : start+frameSamples]
 }
