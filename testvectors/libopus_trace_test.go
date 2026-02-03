@@ -375,6 +375,8 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 	var ltpIndexDiff int
 	var ltpIndexCount int
 	var signalTypeDiff int
+	var lagIndexDiff int
+	var contourIndexDiff int
 
 	for i := 0; i < compareCount; i++ {
 		goPayload := gopusPackets[i]
@@ -414,6 +416,12 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 		if goParams.PERIndex != libParams.PERIndex {
 			perIndexDiff++
 		}
+		if goParams.LagIndex != libParams.LagIndex {
+			lagIndexDiff++
+		}
+		if goParams.ContourIndex != libParams.ContourIndex {
+			contourIndexDiff++
+		}
 		n := len(goParams.GainIndices)
 		if len(libParams.GainIndices) < n {
 			n = len(libParams.GainIndices)
@@ -445,6 +453,8 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 	t.Logf("LTP scale index mismatches: %d/%d", ltpScaleDiff, compareCount)
 	t.Logf("NLSF interp coef mismatches: %d/%d", interpDiff, compareCount)
 	t.Logf("PER index mismatches: %d/%d", perIndexDiff, compareCount)
+	t.Logf("Pitch Lag mismatches: %d/%d", lagIndexDiff, compareCount)
+	t.Logf("Pitch Contour mismatches: %d/%d", contourIndexDiff, compareCount)
 	if ltpIndexCount > 0 {
 		t.Logf("LTP index mismatches: %d/%d", ltpIndexDiff, ltpIndexCount)
 	}

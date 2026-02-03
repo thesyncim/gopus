@@ -69,7 +69,7 @@ func (e *Encoder) noiseShapeAnalysis(
 		speechActivityQ8,
 		e.ltpCorr,
 		pitchLags,
-		SNRAdjDB,
+		snrDB,
 		quantOffsetType,
 		inputQualityBandsQ15,
 		numSubframes,

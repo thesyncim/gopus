@@ -312,9 +312,9 @@ func TestSigmQ15(t *testing.T) {
 		t.Errorf("sigmQ15(127) = %d, want >= 32000", high)
 	}
 
-	// Test low saturation boundary
-	if sigmQ15(-128) != 0 {
-		t.Errorf("sigmQ15(-128) = %d, want 0", sigmQ15(-128))
+	// Test low value (at VAD_NEGATIVE_OFFSET_Q5)
+	if sigmQ15(-128) != 589 {
+		t.Errorf("sigmQ15(-128) = %d, want 589", sigmQ15(-128))
 	}
 
 	// Test midpoint

@@ -539,6 +539,8 @@ type DebugFrameParams struct {
 	GainIndices      []int
 	PERIndex         int
 	LTPIndices       []int
+	LagIndex         int
+	ContourIndex     int
 }
 
 // GetLastFrameParams returns the parameters from the last decoded frame.
@@ -559,6 +561,8 @@ func (d *Decoder) GetLastFrameParams() DebugFrameParams {
 		GainIndices:      gains,
 		PERIndex:         int(st.indices.PERIndex),
 		LTPIndices:       ltpIdx,
+		LagIndex:         int(st.indices.lagIndex),
+		ContourIndex:     int(st.indices.contourIndex),
 	}
 }
 

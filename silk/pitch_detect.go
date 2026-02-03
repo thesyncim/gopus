@@ -428,8 +428,8 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 				basisEnergy += float64(basis[i]) * float64(basis[i])
 			}
 
-			if xcorr > 0 && d >= 0 && d < c8kHzStride {
-				C8kHz[k*c8kHzStride+d] = 2 * xcorr / (targetEnergy + basisEnergy)
+			if d >= 0 && d < c8kHzStride {
+				C8kHz[k*c8kHzStride+d] = 2 * xcorr / (targetEnergy + basisEnergy + 1.0)
 			}
 		}
 	}
@@ -597,14 +597,10 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 					crossCorr += corrSt3[idx]
 					energy += energySt3[idx]
 				}
-				var cc float64
-				if crossCorr > 0.0 {
-					cc = 2.0 * crossCorr / energy
-					cc *= 1.0 - contourBias*float64(j)
-				} else {
-					cc = 0.0
-				}
-				if cc > CCmax && (d+int(lagCBStage3[0][j])) <= maxLag {
+				cc := 2.0 * crossCorr / energy
+				cc *= 1.0 - contourBias*float64(j)
+
+				if cc > CCmax {
 					CCmax = cc
 					lagNew = d
 					CBimax = j

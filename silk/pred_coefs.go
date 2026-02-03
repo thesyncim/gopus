@@ -163,6 +163,7 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 
 				for k := 3; k >= 0; k-- {
 					interpolateNLSF(interpNLSF[:order], e.prevLSFQ15, lsfLast, k, order)
+					// silk_NLSF2A_FLP calls silk_NLSF2A fixed-point
 					if !silkNLSF2A(lpcTmpQ12[:order], interpNLSF[:order], order) {
 						fallback := lsfToLPCDirect(interpNLSF[:order])
 						copy(lpcTmpQ12[:order], fallback[:order])
@@ -172,16 +173,17 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 					}
 					lpcAnalysisFilterFLP(lpcRes, lpcTmpF64, x, analyzeLen, order)
 
-					resNrgInterp := energyF64(lpcRes[order:], subfrLen-order)
-					resNrgInterp += energyF64(lpcRes[order+subfrLen:], subfrLen-order)
+					// Match libopus float32 comparison precision
+					resNrgInterp := float32(energyF64(lpcRes[order:], subframeSamples))
+					resNrgInterp += float32(energyF64(lpcRes[order+subfrLen:], subframeSamples))
 
-					if resNrgInterp < resNrg {
-						resNrg = resNrgInterp
+					if resNrgInterp < float32(resNrg) {
+						resNrg = float64(resNrgInterp)
 						interpIdx = k
-					} else if resNrgInterp > resNrg2nd {
+					} else if resNrgInterp > float32(resNrg2nd) {
 						break
 					}
-					resNrg2nd = resNrgInterp
+					resNrg2nd = float64(resNrgInterp)
 				}
 			}
 
@@ -241,7 +243,7 @@ func (e *Encoder) computeResidualEnergies(ltpRes []float32, predCoefQ12 []int16,
 		lpcRes := ensureFloat64Slice(&e.scratchLpcResF64, length)
 		lpcAnalysisFilterFLP(lpcRes, coeffs, x, length, order)
 		for k := 0; k < subframesInFirstHalf; k++ {
-			start := order + k*subframeSamples
+			start := order + k*subfrLen
 			end := start + subframeSamples
 			if end > len(lpcRes) {
 				end = len(lpcRes)
@@ -271,7 +273,7 @@ func (e *Encoder) computeResidualEnergies(ltpRes []float32, predCoefQ12 []int16,
 			lpcRes := ensureFloat64Slice(&e.scratchLpcResF64, length)
 			lpcAnalysisFilterFLP(lpcRes, coef1, x, length, order)
 			for k := 0; k < 2; k++ {
-				start := order + k*subframeSamples
+				start := order + k*subfrLen
 				end := start + subframeSamples
 				if end > len(lpcRes) {
 					end = len(lpcRes)
@@ -309,8 +311,8 @@ func applyGainProcessing(gains []float32, resNrg []float64, predGainQ7 int32, sn
 		}
 	}
 
-	snrDB := float64(snrDBQ7) / 128.0
-	invMaxSqrVal := math.Pow(2.0, 0.33*(21.0-snrDB)) / float64(subframeSamples)
+	snrDB := float32(snrDBQ7) / 128.0
+	invMaxSqrVal := math.Pow(2.0, float64(0.33*float32(21.0-snrDB))) / float64(subframeSamples)
 	if invMaxSqrVal < 0 {
 		invMaxSqrVal = 0
 	}

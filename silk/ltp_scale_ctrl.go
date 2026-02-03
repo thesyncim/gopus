@@ -79,18 +79,17 @@ func (e *Encoder) computeLTPScaleIndex(ltpPredGainQ7 int32, condCoding int) int 
 	//
 	// In libopus, LTPredCodGain is dB (float). silk_SMULBB truncates it to int16.
 	// In gopus, ltpPredGainQ7 is dB * 128 (Q7).
-	// So LHS = (dB * 128) * roundLoss = 128 * (dB * roundLoss).
-	// To match, we scale RHS by 128.
-	// silkLog2Lin(x + 7*128) = silkLog2Lin(x) * 128.
-	threshold1 := silkLog2Lin(int32(128*7+2900) - int32(e.snrDBQ7))
-	threshold2 := silkLog2Lin(int32(128*7+3900) - int32(e.snrDBQ7))
+	// To match libopus truncation, we use (ltpPredGainQ7 / 128).
+	val := (ltpPredGainQ7 / 128) * int32(roundLoss)
 
-	scaledGain := silkSMULBB(ltpPredGainQ7, int32(roundLoss))
+	threshold1 := silkLog2Lin(2900 - int32(e.snrDBQ7))
+	threshold2 := silkLog2Lin(3900 - int32(e.snrDBQ7))
+
 	idx := 0
-	if scaledGain > threshold1 {
+	if val > threshold1 {
 		idx++
 	}
-	if scaledGain > threshold2 {
+	if val > threshold2 {
 		idx++
 	}
 	if idx < 0 {

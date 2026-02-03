@@ -108,6 +108,9 @@ type Encoder struct {
 	// Phase inversion disabled (for stereo decorrelation)
 	phaseInversionDisabled bool
 
+	// DC rejection filter state
+	hpMem [4]float64
+
 	// Encoder state for CELT delay compensation
 	// The 2.7ms delay (130 samples at 48kHz) aligns SILK and CELT
 	prevSamples []float64
@@ -125,6 +128,7 @@ type Encoder struct {
 	silkResampledR     []float32
 
 	// Scratch buffers for zero-allocation encoding
+	scratchDCPCM    []float64 // DC rejected PCM buffer
 	scratchPCM32    []float32 // float64 to float32 conversion buffer
 	scratchLeft     []float32 // Left channel deinterleave buffer
 	scratchRight    []float32 // Right channel deinterleave buffer
@@ -422,6 +426,9 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		return nil, ErrInvalidFrameSize
 	}
 
+	// Apply DC rejection filter matching libopus.
+	pcm = e.dcReject(pcm, frameSize)
+
 	// Check DTX mode - suppress frames during silence
 	suppressFrame, sendComfortNoise := e.shouldUseDTX(pcm)
 	if suppressFrame {
@@ -491,6 +498,56 @@ func modeToTypes(m Mode) types.Mode {
 	default:
 		return types.ModeCELT // ModeAuto already resolved
 	}
+}
+
+// dcReject applies a DC rejection filter (1st-order high-pass filter at 3Hz).
+// Matches libopus dc_reject() behavior for AUDIO application.
+func (e *Encoder) dcReject(in []float64, frameSize int) []float64 {
+	channels := e.channels
+	n := frameSize * channels
+	out := e.ensureDCPCM(n)
+
+	// coef = 6.3f * cutoff_Hz / Fs
+	// For cutoff_Hz = 3 and Fs = 48000:
+	// coef = 6.3 * 3 / 48000 = 0.00039375
+	const coef = 0.00039375
+	const coef2 = 1.0 - coef
+
+	if channels == 2 {
+		m0 := e.hpMem[0]
+		m2 := e.hpMem[2]
+		for i := 0; i < frameSize; i++ {
+			x0 := in[2*i]
+			x1 := in[2*i+1]
+			out0 := x0 - m0
+			out1 := x1 - m2
+			// hp_mem = coef*in + coef2*hp_mem
+			m0 = coef*x0 + coef2*m0
+			m2 = coef*x1 + coef2*m2
+			out[2*i] = out0
+			out[2*i+1] = out1
+		}
+		e.hpMem[0] = m0
+		e.hpMem[2] = m2
+	} else {
+		m0 := e.hpMem[0]
+		for i := 0; i < n; i++ {
+			x := in[i]
+			y := x - m0
+			m0 = coef*x + coef2*m0
+			out[i] = y
+		}
+		e.hpMem[0] = m0
+	}
+
+	return out
+}
+
+func (e *Encoder) ensureDCPCM(size int) []float64 {
+	if cap(e.scratchDCPCM) < size {
+		e.scratchDCPCM = make([]float64, size)
+	}
+	return e.scratchDCPCM[:size]
 }
 
 // selectMode determines the actual encoding mode based on settings and content.
