@@ -64,9 +64,12 @@ const (
 	silkSampleScale             = 32768.0
 
 	// Prediction gain limits (define.h)
-	maxPredictionPowerGain            = 1e4
-	maxPredictionPowerGainAfterReset  = 1e2
+	maxPredictionPowerGain           = 1e4
+	maxPredictionPowerGainAfterReset = 1e2
 )
+
+// SilkSampleScale exposes the internal sample scaling factor used by the SILK float path.
+const SilkSampleScale = silkSampleScale
 
 // Pitch estimation constants moved to pitch_detect.go
 

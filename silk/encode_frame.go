@@ -85,6 +85,8 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		output := ensureByteSlice(&e.scratchOutput, bufSize)
 		e.scratchRangeEncoder.Init(output)
 		e.rangeEncoder = &e.scratchRangeEncoder
+		e.nFramesPerPacket = 1
+		e.encodeLBRRData(e.rangeEncoder, 1, true)
 	}
 
 	condCoding := codeIndependently
@@ -136,24 +138,82 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			0.1*float64(speechActivityQ8)/256.0 -
 			0.15*float64(prevSignalType>>1) -
 			0.1*float64(e.inputTiltQ15)/32768.0
+		rawThrhld := thrhld
 		if thrhld < 0 {
 			thrhld = 0
 		} else if thrhld > 1 {
 			thrhld = 1
 		}
-		pitchLags, lagIndex, contourIndex = e.detectPitch(residual32, numSubframes, searchThres1, thrhld)
-		e.ltpCorr = float32(e.pitchState.ltpCorr)
-		if e.ltpCorr > 1.0 {
-			e.ltpCorr = 1.0
+		if e.trace != nil && e.trace.Pitch != nil {
+			tr := e.trace.Pitch
+			tr.SearchThres1 = searchThres1
+			tr.Thrhld = rawThrhld
+			tr.ThrhldClamped = thrhld
+			tr.PitchEstThresholdQ16 = e.pitchEstimationThresholdQ16
+			tr.PrevLag = e.pitchState.prevLag
+			tr.PrevSignal = prevSignalType
+			tr.SignalType = signalType
+			tr.SpeechQ8 = speechActivityQ8
+			tr.InputTiltQ15 = e.inputTiltQ15
+			tr.LPCOrder = e.pitchEstimationLPCOrder
+			tr.Complexity = e.pitchEstimationComplexity
+			tr.FirstFrameAfterReset = !e.haveEncoded
 		}
-		if e.ltpCorr > 0 {
-			signalType = typeVoiced
-			pitchParams = e.preparePitchLags(pitchLags, numSubframes, lagIndex, contourIndex)
-			ltpCoeffs, ltpIndices, perIndex, predGainQ7 = e.analyzeLTPQuantized(residual, resStart, pitchLags, numSubframes, subframeSamples)
-			ltpScaleIndex = e.computeLTPScaleIndex(predGainQ7, condCoding)
-		} else {
+		if !e.haveEncoded {
+			// Match libopus: skip pitch analysis on the first frame after reset.
+			pitchLags = make([]int, numSubframes)
+			lagIndex = 0
+			contourIndex = 0
+			e.ltpCorr = 0
 			signalType = typeUnvoiced
 			e.sumLogGainQ7 = 0
+			if e.trace != nil && e.trace.Pitch != nil && e.trace.Pitch.CapturePitchLags {
+				tr := e.trace.Pitch
+				tr.PitchLags = append(tr.PitchLags[:0], pitchLags...)
+				tr.LagIndex = lagIndex
+				tr.Contour = contourIndex
+				tr.LTPCorr = 0
+			}
+		} else {
+			pitchLags, lagIndex, contourIndex = e.detectPitch(residual32, numSubframes, searchThres1, thrhld)
+			if e.trace != nil && e.trace.Pitch != nil && e.trace.Pitch.CapturePitchLags {
+				tr := e.trace.Pitch
+				tr.PitchLags = append(tr.PitchLags[:0], pitchLags...)
+				tr.LagIndex = lagIndex
+				tr.Contour = contourIndex
+				tr.LTPCorr = float32(e.pitchState.ltpCorr)
+			}
+			e.ltpCorr = float32(e.pitchState.ltpCorr)
+			if e.ltpCorr > 1.0 {
+				e.ltpCorr = 1.0
+			}
+			if e.ltpCorr > 0 {
+				signalType = typeVoiced
+				pitchParams = e.preparePitchLags(pitchLags, numSubframes, lagIndex, contourIndex)
+				if e.trace != nil && e.trace.LTP != nil {
+					tr := e.trace.LTP
+					tr.PitchLags = append(tr.PitchLags[:0], pitchLags...)
+					tr.SumLogGainQ7In = e.sumLogGainQ7
+				}
+				ltpCoeffs, ltpIndices, perIndex, predGainQ7 = e.analyzeLTPQuantized(residual, resStart, pitchLags, numSubframes, subframeSamples)
+				if e.trace != nil && e.trace.LTP != nil {
+					tr := e.trace.LTP
+					tr.PERIndex = perIndex
+					tr.PredGainQ7 = predGainQ7
+					tr.SumLogGainQ7Out = e.sumLogGainQ7
+					tr.LTPIndex = append(tr.LTPIndex[:0], ltpIndices[:numSubframes]...)
+					tr.BQ14 = tr.BQ14[:0]
+					for sf := 0; sf < numSubframes; sf++ {
+						for tap := 0; tap < ltpOrderConst; tap++ {
+							tr.BQ14 = append(tr.BQ14, int16(ltpCoeffs[sf][tap])<<7)
+						}
+					}
+				}
+				ltpScaleIndex = e.computeLTPScaleIndex(predGainQ7, condCoding)
+			} else {
+				signalType = typeUnvoiced
+				e.sumLogGainQ7 = 0
+			}
 		}
 	} else {
 		e.ltpCorr = 0
@@ -184,6 +244,17 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	lpcQ12, lsfQ15, interpIdx := e.computeLPCAndNLSFWithInterp(ltpRes, numSubframes, subframeSamples, minInvGainVal)
 	stage1Idx, residuals, interpIdx := e.quantizeLSFWithInterp(lsfQ15, e.bandwidth, signalType, speechActivityQ8, numSubframes, interpIdx)
 	lsfQ15 = e.decodeQuantizedNLSF(stage1Idx, residuals, e.bandwidth)
+	if e.trace != nil && e.trace.NLSF != nil {
+		tr := e.trace.NLSF
+		tr.Stage1Idx = stage1Idx
+		tr.Residuals = append(tr.Residuals[:0], residuals...)
+		tr.QuantizedNLSFQ15 = append(tr.QuantizedNLSFQ15[:0], lsfQ15...)
+		tr.SignalType = signalType
+		tr.SpeechQ8 = speechActivityQ8
+		tr.Bandwidth = e.bandwidth
+		tr.NLSFSurvivors = e.nlsfSurvivors
+		tr.InterpIdx = interpIdx
+	}
 	predCoefQ12 := ensureInt16Slice(&e.scratchPredCoefQ12, 2*maxLPCOrder)
 	interpIdx = e.buildPredCoefQ12(predCoefQ12, lsfQ15, interpIdx)
 
@@ -298,12 +369,12 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		return nil
 	}
 
-	// SILK Header (VAD, LBRR) - MUST BE PATCHED AT START
+	// Patch SILK header bits (VAD + LBRR) at start of bitstream.
 	flags := uint32(0)
 	if vadFlag {
 		flags = 1
 	}
-	flags = (flags << 1) | 0 // LBRR off
+	flags = (flags << 1) | uint32(e.lbrrFlag&1)
 	e.rangeEncoder.PatchInitialBits(flags, 2)
 
 	raw := e.rangeEncoder.Done()
@@ -467,6 +538,7 @@ func (e *Encoder) EncodePacketWithFEC(pcm []float32, lookahead []float32, vadFla
 	e.scratchRangeEncoder.Init(output)
 	e.rangeEncoder = &e.scratchRangeEncoder
 	e.encodeLBRRData(e.rangeEncoder, 1, true)
+	var vadUsed [maxFramesPerPacket]int
 	for i := 0; i < nFrames; i++ {
 		startSample := i * frameSamples
 		endSample := startSample + frameSamples
@@ -477,6 +549,11 @@ func (e *Encoder) EncodePacketWithFEC(pcm []float32, lookahead []float32, vadFla
 		vadFlag := true
 		if vadFlags != nil && i < len(vadFlags) {
 			vadFlag = vadFlags[i]
+		}
+		if vadFlag {
+			vadUsed[i] = 1
+		} else {
+			vadUsed[i] = 0
 		}
 		var frameLookahead []float32
 		if i < nFrames-1 {
@@ -492,6 +569,14 @@ func (e *Encoder) EncodePacketWithFEC(pcm []float32, lookahead []float32, vadFla
 		}
 		_ = e.EncodeFrame(framePCM, frameLookahead, vadFlag)
 	}
+	// Patch SILK header bits (VAD + LBRR) at start of bitstream.
+	flags := uint32(0)
+	for i := 0; i < nFrames; i++ {
+		flags <<= 1
+		flags |= uint32(vadUsed[i] & 1)
+	}
+	flags = (flags << 1) | uint32(e.lbrrFlag&1)
+	e.rangeEncoder.PatchInitialBits(flags, uint(nFrames+1))
 	e.lastRng = e.rangeEncoder.Range()
 	result := e.rangeEncoder.Done()
 	e.rangeEncoder = nil

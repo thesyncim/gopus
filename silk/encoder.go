@@ -35,11 +35,14 @@ type Encoder struct {
 	pitchState       PitchAnalysisState // State for pitch estimation across frames
 	pitchAnalysisBuf []float32          // History buffer for pitch analysis (LTP memory + frame)
 
+	// Optional trace hook for parity debugging (set in tests).
+	trace *EncoderTrace
+
 	// VAD-derived state (optional, provided by Opus-level encoder)
-	speechActivityQ8  int      // Speech activity in Q8 (0-255)
-	inputTiltQ15      int      // Spectral tilt in Q15 from VAD
+	speechActivityQ8     int    // Speech activity in Q8 (0-255)
+	inputTiltQ15         int    // Spectral tilt in Q15 from VAD
 	inputQualityBandsQ15 [4]int // Quality in each VAD band (Q15)
-	speechActivitySet bool     // Whether VAD-derived state was explicitly set
+	speechActivitySet    bool   // Whether VAD-derived state was explicitly set
 
 	// NSQ (Noise Shaping Quantization) state
 	nsqState        *NSQState        // Noise shaping quantizer state for proper libopus-matching
@@ -72,8 +75,8 @@ type Encoder struct {
 	lastNumSamples  int     // Number of samples analyzed
 
 	// Analysis buffers (encoder-specific)
-	inputBuffer []float32 // Noise shaping lookahead buffer (x_buf in libopus)
-	lpcState    []float32 // LPC filter state for residual computation
+	inputBuffer     []float32 // Noise shaping lookahead buffer (x_buf in libopus)
+	lpcState        []float32 // LPC filter state for residual computation
 	scratchPCMQuant []float32 // Quantized PCM (int16 round-trip) for SILK entry
 
 	// Bandwidth configuration
@@ -99,12 +102,12 @@ type Encoder struct {
 	nFramesPerPacket    int                                 // Number of frames per packet
 
 	// Scratch buffers for zero-allocation encoding
-	scratchPaddedPulses []int8    // encodePulses: padded pulses
-	scratchAbsPulses    []int     // encodePulses: absolute value pulses
-	scratchSumPulses    []int     // encodePulses: sum per shell block
-	scratchNRshifts     []int     // encodePulses: right shifts per shell block
-	scratchLSFQ15       []int16   // lpcToLSF: LSF result in Q15
-	scratchLPCQ16       []int32   // silkA2NLSF: LPC coefficients in Q16
+	scratchPaddedPulses []int8  // encodePulses: padded pulses
+	scratchAbsPulses    []int   // encodePulses: absolute value pulses
+	scratchSumPulses    []int   // encodePulses: sum per shell block
+	scratchNRshifts     []int   // encodePulses: right shifts per shell block
+	scratchLSFQ15       []int16 // lpcToLSF: LSF result in Q15
+	scratchLPCQ16       []int32 // silkA2NLSF: LPC coefficients in Q16
 
 	// Pitch detection scratch buffers
 	scratchFrame8kHz      []float32 // detectPitch: downsampled to 8kHz
@@ -153,15 +156,20 @@ type Encoder struct {
 	scratchBurgResult    []float64 // burgModifiedFLPZeroAlloc: result
 
 	// LTP analysis scratch buffers
-	scratchLtpInput   []float64    // LTP analysis: pitch analysis buffer as float64
-	scratchLtpRes     []float64    // LTP analysis: LPC residual
-	scratchLtpResF64  []float64    // Residual energy: float64 scratch
-	scratchLpcResF64  []float64    // Residual energy: LPC residual scratch
-	scratchPitchWsig  []float64    // Pitch analysis: windowed signal
-	scratchPitchAuto  []float64    // Pitch analysis: autocorrelation
-	scratchPitchRefl  []float64    // Pitch analysis: reflection coefficients
-	scratchPitchA     []float64    // Pitch analysis: LPC coefficients
-	scratchPitchRes32 []float32    // Pitch analysis: residual as float32
+	scratchLtpInput     []float64 // LTP analysis: pitch analysis buffer as float64
+	scratchLtpRes       []float64 // LTP analysis: LPC residual
+	scratchLtpResF64    []float64 // Residual energy: float64 scratch
+	scratchLpcResF64    []float64 // Residual energy: LPC residual scratch
+	scratchPitchWsig    []float64 // Pitch analysis: windowed signal
+	scratchPitchAuto    []float64 // Pitch analysis: autocorrelation
+	scratchPitchRefl    []float64 // Pitch analysis: reflection coefficients
+	scratchPitchA       []float64 // Pitch analysis: LPC coefficients
+	scratchPitchRes32   []float32 // Pitch analysis: residual as float32
+	scratchPitchInput32 []float32 // Pitch analysis: input buffer (float32)
+	scratchPitchWsig32  []float32 // Pitch analysis: windowed signal (float32)
+	scratchPitchAuto32  []float32 // Pitch analysis: autocorrelation (float32)
+	scratchPitchRefl32  []float32 // Pitch analysis: reflection coefficients (float32)
+	scratchPitchA32     []float32 // Pitch analysis: LPC coefficients (float32)
 
 	// Noise shaping analysis scratch buffers
 	scratchShapeInput    []float64 // noise shape analysis: input with lookahead
@@ -187,8 +195,8 @@ type Encoder struct {
 	scratchNLSFTempQ15    []int16 // Interpolated NLSF scratch
 
 	// Gain encoding scratch buffers
-	scratchGains       []float32 // computeSubframeGains: output gains
-	scratchGainInd     []int8    // silkGainsQuant: gain indices
+	scratchGains   []float32 // computeSubframeGains: output gains
+	scratchGainInd []int8    // silkGainsQuant: gain indices
 
 	// Rate control loop scratch buffers
 	// Bit reservoir and rate control state (libopus parity)
@@ -323,8 +331,8 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 		sampleRate:        config.SampleRate,
 		lpcOrder:          config.LPCOrder,
 		pitchState:        PitchAnalysisState{prevLag: 100}, // libopus initialization
-		snrDBQ7:           25 * 128,                        // Default: 25 dB SNR target
-		nFramesPerPacket:  1,                               // Default: 1 frame per packet (20ms)
+		snrDBQ7:           25 * 128,                         // Default: 25 dB SNR target
+		nFramesPerPacket:  1,                                // Default: 1 frame per packet (20ms)
 		lbrrPulses:        lbrrPulses,
 		lbrrGainIncreases: 7, // Default gain increase for LBRR
 		previousGainIndex: 10,
@@ -354,13 +362,13 @@ func (e *Encoder) Reset() {
 		e.inputBuffer[i] = 0
 	}
 	e.prevStereoWeights = [2]int16{0, 0}
-	e.stereo = stereoEncState{}                      // Reset LP filter state
+	e.stereo = stereoEncState{}                     // Reset LP filter state
 	e.pitchState = PitchAnalysisState{prevLag: 100} // libopus initialization
 	for i := range e.pitchAnalysisBuf {
 		e.pitchAnalysisBuf[i] = 0
 	}
 	if e.nsqState != nil {
-		e.nsqState.Reset()        // Reset NSQ state
+		e.nsqState.Reset()       // Reset NSQ state
 		e.nsqState.lagPrev = 100 // libopus initialization
 	}
 	if e.noiseShapeState != nil {
@@ -555,6 +563,11 @@ func (e *Encoder) SetVADState(speechActivityQ8 int, inputTiltQ15 int, inputQuali
 	e.speechActivitySet = true
 }
 
+// LTPCorr returns the last pitch correlation estimate.
+func (e *Encoder) LTPCorr() float32 {
+	return e.ltpCorr
+}
+
 // PrevLSFQ15 returns the previous frame's LSF coefficients.
 func (e *Encoder) PrevLSFQ15() []int16 {
 	return e.prevLSFQ15
@@ -573,6 +586,11 @@ func (e *Encoder) PrevStereoWeights() [2]int16 {
 // SetPrevStereoWeights sets the stereo weights for the next frame.
 func (e *Encoder) SetPrevStereoWeights(weights [2]int16) {
 	e.prevStereoWeights = weights
+}
+
+// SetTrace enables or disables encoder tracing for debugging parity.
+func (e *Encoder) SetTrace(trace *EncoderTrace) {
+	e.trace = trace
 }
 
 // InputBuffer returns the input sample buffer.

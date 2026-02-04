@@ -45,6 +45,8 @@ const (
 	// DTXActivityThreshold is the activity probability threshold for DTX.
 	// Matches libopus DTX_ACTIVITY_THRESHOLD = 0.1f
 	DTXActivityThreshold = 0.1
+	// speechActivityThresholdQ8 matches SILK_FIX_CONST(SPEECH_ACTIVITY_DTX_THRES, 8) with SPEECH_ACTIVITY_DTX_THRES=0.1.
+	speechActivityThresholdQ8 = 26
 
 	// NBSpeechFramesBeforeDTX is frames of speech required before DTX (200ms).
 	NBSpeechFramesBeforeDTX = 10
@@ -57,8 +59,8 @@ var vadTiltWeights = [VADNBands]int32{30000, 6000, -12000, -12000}
 
 // Analysis filter bank coefficients (matching silk/ana_filt_bank_1.c).
 const (
-	aFB1_20 = 5394 << 1    // 10788
-	aFB1_21 = -24290       // (20623 << 1) cast to int16
+	aFB1_20 = 5394 << 1 // 10788
+	aFB1_21 = -24290    // (20623 << 1) cast to int16
 )
 
 // VADState holds the state for Voice Activity Detection.
@@ -104,6 +106,31 @@ type VADState struct {
 
 	// Previous activity decision for hysteresis
 	PrevActivity bool
+}
+
+// VADTrace captures intermediate values for VAD parity debugging.
+// All fields are in the same fixed-point domains as libopus.
+type VADTrace struct {
+	Xnrg               [VADNBands]int32
+	XnrgSubfr          [VADNBands]int32
+	SubfrEnergy        [VADNBands][VADInternalSubframes]int32
+	NrgToNoiseRatioQ8  [VADNBands]int32
+	SNRQ7              [VADNBands]int32
+	SNRQ7Tilt          [VADNBands]int32
+	SNRQ7Smth          [VADNBands]int32
+	NrgRatioSmthQ8Prev [VADNBands]int32
+	NrgRatioSmthQ8     [VADNBands]int32
+	InputQualityQ15    [VADNBands]int32
+	NL                 [VADNBands]int32
+	InvNL              [VADNBands]int32
+	SumSquared         int32
+	PSNRdBQ7           int32
+	SAQ15              int32
+	InputTilt          int32
+	SpeechNrgPre       int32
+	SpeechNrgPost      int32
+	SmoothCoefQ16      int32
+	HPState            int16
 }
 
 // NewVADState creates and initializes a new VAD state.
@@ -165,22 +192,32 @@ func (v *VADState) Reset() {
 //   - activityQ8: Speech activity level (0-255, Q8)
 //   - isActive: True if speech activity detected
 func (v *VADState) GetSpeechActivity(pcm []float32, frameLength int, fsKHz int) (int, bool) {
+	activityQ8, isActive, _ := v.getSpeechActivity(pcm, frameLength, fsKHz, nil)
+	return activityQ8, isActive
+}
+
+// GetSpeechActivityTrace runs VAD and returns detailed intermediate values for debugging.
+func (v *VADState) GetSpeechActivityTrace(pcm []float32, frameLength int, fsKHz int) (int, bool, VADTrace) {
+	var trace VADTrace
+	activityQ8, isActive, _ := v.getSpeechActivity(pcm, frameLength, fsKHz, &trace)
+	return activityQ8, isActive, trace
+}
+
+func (v *VADState) getSpeechActivity(pcm []float32, frameLength int, fsKHz int, trace *VADTrace) (int, bool, bool) {
+	if trace != nil {
+		*trace = VADTrace{}
+	}
 	// Safety checks
 	if frameLength == 0 || len(pcm) < frameLength {
-		return 0, false
+		return 0, false, false
 	}
 
 	// Convert float32 samples to int16 for fixed-point processing
 	input := make([]int16, frameLength)
 	for i := 0; i < frameLength; i++ {
 		// Clamp to int16 range
-		sample := pcm[i] * 32768.0
-		if sample > 32767 {
-			sample = 32767
-		} else if sample < -32768 {
-			sample = -32768
-		}
-		input[i] = int16(sample)
+		sample := float64(pcm[i]) * 32768.0
+		input[i] = float64ToInt16Round(sample)
 	}
 
 	// Calculate decimated frame lengths
@@ -219,6 +256,9 @@ func (v *VADState) GetSpeechActivity(pcm []float32, frameLength int, fsKHz int) 
 	}
 	X[0] -= v.HPState
 	v.HPState = hpStateTmp
+	if trace != nil {
+		trace.HPState = v.HPState
+	}
 
 	// Calculate energy in each band
 	Xnrg := [VADNBands]int32{}
@@ -252,6 +292,9 @@ func (v *VADState) GetSpeechActivity(pcm []float32, frameLength int, fsKHz int) 
 					sumSquared += xTmp * xTmp
 				}
 			}
+			if trace != nil {
+				trace.SubfrEnergy[b][s] = sumSquared
+			}
 
 			// Add/saturate energy
 			if s < VADInternalSubframes-1 {
@@ -264,10 +307,20 @@ func (v *VADState) GetSpeechActivity(pcm []float32, frameLength int, fsKHz int) 
 			decSubframeOffset += decSubframeLength
 		}
 		v.XnrgSubfr[b] = sumSquared
+		if trace != nil {
+			trace.Xnrg[b] = Xnrg[b]
+			trace.XnrgSubfr[b] = v.XnrgSubfr[b]
+		}
 	}
 
 	// Noise estimation
 	v.getNoiseLevels(Xnrg[:])
+	if trace != nil {
+		for b := 0; b < VADNBands; b++ {
+			trace.NL[b] = v.NL[b]
+			trace.InvNL[b] = v.InvNL[b]
+		}
+	}
 
 	// Signal-plus-noise to noise ratio estimation
 	var sumSquared int32
@@ -286,30 +339,52 @@ func (v *VADState) GetSpeechActivity(pcm []float32, frameLength int, fsKHz int) 
 
 			// Convert to log domain
 			snrQ7 := lin2log(NrgToNoiseRatioQ8[b]) - 8*128
+			if trace != nil {
+				trace.NrgToNoiseRatioQ8[b] = NrgToNoiseRatioQ8[b]
+				trace.SNRQ7[b] = snrQ7
+			}
 
 			// Sum-of-squares for mean calculation
-			sumSquared += snrQ7 * snrQ7
+			sumSquared = smlabb(sumSquared, snrQ7, snrQ7)
 
 			// Tilt measure
 			snrForTilt := snrQ7
 			if speechNrg < (1 << 20) {
 				// Scale down SNR for small speech energies
-				snrForTilt = (sqrtApprox(speechNrg) << 6) * snrQ7 >> 15
+				snrForTilt = smulwb(int32(sqrtApprox(speechNrg)<<6), snrQ7)
 			}
-			inputTilt += (vadTiltWeights[b] * snrForTilt) >> 15
+			if trace != nil {
+				trace.SNRQ7Tilt[b] = snrForTilt
+			}
+			inputTilt = smlawb(inputTilt, vadTiltWeights[b], snrForTilt)
 		} else {
 			NrgToNoiseRatioQ8[b] = 256 // 1.0 in Q8
+			if trace != nil {
+				trace.NrgToNoiseRatioQ8[b] = NrgToNoiseRatioQ8[b]
+				trace.SNRQ7[b] = 0
+				trace.SNRQ7Tilt[b] = 0
+			}
 		}
 	}
 
 	// Mean-of-squares
 	sumSquared /= VADNBands
+	if trace != nil {
+		trace.SumSquared = sumSquared
+		trace.InputTilt = inputTilt
+	}
 
 	// Root-mean-square approximation, scale to dBs
-	pSNRdBQ7 := int32(3 * sqrtApprox(sumSquared))
+	pSNRdBQ7 := int32(int16(3 * sqrtApprox(sumSquared)))
+	if trace != nil {
+		trace.PSNRdBQ7 = pSNRdBQ7
+	}
 
 	// Speech probability estimation using sigmoid
-	saQ15 := sigmQ15((VADSNRFactorQ16*pSNRdBQ7)>>15 - VADNegativeOffsetQ5)
+	saQ15 := sigmQ15(smulwb(VADSNRFactorQ16, pSNRdBQ7) - VADNegativeOffsetQ5)
+	if trace != nil {
+		trace.SAQ15 = saQ15
+	}
 
 	// Frequency tilt measure
 	v.InputTiltQ15 = int((sigmQ15(inputTilt) - 16384) << 1)
@@ -319,6 +394,9 @@ func (v *VADState) GetSpeechActivity(pcm []float32, frameLength int, fsKHz int) 
 	for b := 0; b < VADNBands; b++ {
 		// Higher frequency bands have more weight
 		speechNrg += int32(b+1) * ((Xnrg[b] - v.NL[b]) >> 4)
+	}
+	if trace != nil {
+		trace.SpeechNrgPre = speechNrg
 	}
 
 	// Adjust for frame length (20ms has half the energy of 10ms)
@@ -332,14 +410,24 @@ func (v *VADState) GetSpeechActivity(pcm []float32, frameLength int, fsKHz int) 
 	} else if speechNrg < 16384 {
 		speechNrg <<= 16
 		speechNrg = sqrtApprox(speechNrg)
-		saQ15 = ((32768 + speechNrg) * saQ15) >> 15
+		saQ15 = smulwb(32768+speechNrg, saQ15)
+	}
+	if trace != nil {
+		trace.SpeechNrgPost = speechNrg
 	}
 
 	// Convert to Q8 (0-255) and clamp
 	v.SpeechActivityQ8 = min(int(saQ15>>7), 255)
 
 	// Smoothing coefficient based on activity
-	smoothCoefQ16 := (VADSNRSmoothCoefQ18 * saQ15 * saQ15) >> 30
+	tmp := smulwb(int32(saQ15), int32(saQ15))
+	smoothCoefQ16 := smulwb(VADSNRSmoothCoefQ18, tmp)
+	if trace != nil {
+		trace.SmoothCoefQ16 = smoothCoefQ16
+		for b := 0; b < VADNBands; b++ {
+			trace.NrgRatioSmthQ8Prev[b] = v.NrgRatioSmthQ8[b]
+		}
+	}
 
 	if frameLength == 10*fsKHz {
 		smoothCoefQ16 >>= 1
@@ -348,33 +436,25 @@ func (v *VADState) GetSpeechActivity(pcm []float32, frameLength int, fsKHz int) 
 	// Update smoothed energy-to-noise ratios and quality bands
 	for b := 0; b < VADNBands; b++ {
 		// Smooth energy-to-noise ratio
-		v.NrgRatioSmthQ8[b] += ((NrgToNoiseRatioQ8[b] - v.NrgRatioSmthQ8[b]) * smoothCoefQ16) >> 16
+		v.NrgRatioSmthQ8[b] = smlawb(v.NrgRatioSmthQ8[b], NrgToNoiseRatioQ8[b]-v.NrgRatioSmthQ8[b], smoothCoefQ16)
+		if trace != nil {
+			trace.NrgRatioSmthQ8[b] = v.NrgRatioSmthQ8[b]
+		}
 
 		// SNR in dB per band
 		snrQ7 := int32(3) * (lin2log(v.NrgRatioSmthQ8[b]) - 8*128)
 		// Quality = sigmoid(0.25 * (SNR_dB - 16))
 		v.InputQualityBandsQ15[b] = int(sigmQ15((snrQ7 - 16*128) >> 4))
+		if trace != nil {
+			trace.SNRQ7Smth[b] = snrQ7
+			trace.InputQualityQ15[b] = int32(v.InputQualityBandsQ15[b])
+		}
 	}
 
-	// Apply hangover and hysteresis for smooth transitions
-	activityProb := float64(v.SpeechActivityQ8) / 255.0
-	isActive := activityProb > DTXActivityThreshold
+	// Activity decision (matches libopus: compare speech_activity_Q8 to threshold)
+	isActive := v.SpeechActivityQ8 >= speechActivityThresholdQ8
 
-	// Hangover: keep activity flag high for a few frames after speech ends
-	if isActive {
-		v.HangoverCount = 5 // 5 frames hangover (~100ms at 20ms frames)
-	} else if v.HangoverCount > 0 {
-		v.HangoverCount--
-		isActive = true
-	}
-
-	// Hysteresis: use different thresholds for on/off transitions
-	if v.PrevActivity && activityProb > DTXActivityThreshold*0.5 {
-		isActive = true
-	}
-	v.PrevActivity = isActive
-
-	return v.SpeechActivityQ8, isActive
+	return v.SpeechActivityQ8, isActive, true
 }
 
 // getNoiseLevels updates noise level estimates for each band.
@@ -412,7 +492,7 @@ func (v *VADState) getNoiseLevels(pX []int32) {
 			coef = VADNoiseLevelSmoothCoefQ16
 		} else {
 			// In between - interpolate
-			coef = ((invNrg * nl) >> 15) * (VADNoiseLevelSmoothCoefQ16 << 1) >> 16
+			coef = smulwb(smulww(invNrg, nl), VADNoiseLevelSmoothCoefQ16<<1)
 		}
 
 		// Initially faster smoothing
@@ -421,7 +501,7 @@ func (v *VADState) getNoiseLevels(pX []int32) {
 		}
 
 		// Smooth inverse energies
-		v.InvNL[k] += ((invNrg - v.InvNL[k]) * coef) >> 16
+		v.InvNL[k] = smlawb(v.InvNL[k], invNrg-v.InvNL[k], coef)
 		if v.InvNL[k] < 0 {
 			v.InvNL[k] = 0
 		}
@@ -464,7 +544,7 @@ func anaFiltBank1(in []int16, S *[2]int32, outL, outH []int16, N int) {
 
 		// All-pass section for even input sample
 		Y := in32 - S[0]
-		X := Y + ((Y * int32(aFB1_21)) >> 16)
+		X := smlawb(Y, Y, int32(aFB1_21))
 		out1 := S[0] + X
 		S[0] = in32 + X
 
@@ -473,23 +553,63 @@ func anaFiltBank1(in []int16, S *[2]int32, outL, outH []int16, N int) {
 
 		// All-pass section for odd input sample
 		Y = in32 - S[1]
-		X = (Y * int32(aFB1_20)) >> 16
+		X = smulwb(Y, int32(aFB1_20))
 		out2 := S[1] + X
 		S[1] = in32 + X
 
 		// Add/subtract, convert back to int16 and store
 		if k < len(outL) {
-			sum := (out2 + out1 + (1 << 10)) >> 11
+			sum := rshiftRound(out2+out1, 11)
 			outL[k] = satInt16(sum)
 		}
 		if k < len(outH) {
-			diff := (out2 - out1 + (1 << 10)) >> 11
+			diff := rshiftRound(out2-out1, 11)
 			outH[k] = satInt16(diff)
 		}
 	}
 }
 
 // Helper functions for fixed-point arithmetic
+
+func smulbb(a, b int32) int32 {
+	return int32(int64(int16(a)) * int64(int16(b)))
+}
+
+func smulwb(a, b int32) int32 {
+	return int32((int64(a) * int64(int16(b))) >> 16)
+}
+
+func smulww(a, b int32) int32 {
+	return smulwb(a, b) + int32(int64(a)*int64(rshiftRound(b, 16)))
+}
+
+func smlawb(a, b, c int32) int32 {
+	return a + smulwb(b, c)
+}
+
+func smlabb(a, b, c int32) int32 {
+	return a + smulbb(b, c)
+}
+
+func rshiftRound(a int32, shift int) int32 {
+	if shift <= 0 {
+		return a
+	}
+	if shift == 1 {
+		return (a >> 1) + (a & 1)
+	}
+	return ((a >> (shift - 1)) + 1) >> 1
+}
+
+func float64ToInt16Round(x float64) int16 {
+	if x > 32767 {
+		return 32767
+	}
+	if x < -32768 {
+		return -32768
+	}
+	return int16(math.RoundToEven(x))
+}
 
 var sigmLUTSlopeQ10 = [6]int32{237, 153, 73, 30, 12, 7}
 var sigmLUTPosQ15 = [6]int32{16384, 23955, 28861, 31213, 32178, 32548}
@@ -536,7 +656,20 @@ func sqrtApprox(x int32) int32 {
 	if x <= 0 {
 		return 0
 	}
-	return int32(math.Sqrt(float64(x)))
+	lz := int32(bits.LeadingZeros32(uint32(x)))
+	fracQ7 := int32(bits.RotateLeft32(uint32(x), -int(24-lz)) & 0x7f)
+
+	var y int32
+	if lz&1 != 0 {
+		y = 32768
+	} else {
+		y = 46214 // sqrt(2) * 32768
+	}
+	y >>= (lz >> 1)
+
+	// y = y + (y * (213 * fracQ7)) >> 16
+	y += int32((int64(y) * int64(213*fracQ7)) >> 16)
+	return y
 }
 
 // addPosSat32 adds two positive int32 values with saturation.

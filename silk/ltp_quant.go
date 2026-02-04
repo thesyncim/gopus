@@ -265,6 +265,26 @@ func (e *Encoder) analyzeLTPQuantized(residual []float64, resStart int, pitchLag
 	var xX [maxNbSubfr * ltpOrderConst]float64
 	findLTPFLP(XX[:], xX[:], residual, resStart, pitchLags, subframeSamples, numSubframes)
 
+	if e.trace != nil && e.trace.LTP != nil {
+		tr := e.trace.LTP
+		xxLen := numSubframes * ltpOrderConst * ltpOrderConst
+		xXLen := numSubframes * ltpOrderConst
+		tr.XXLen = xxLen
+		tr.XxLen = xXLen
+		tr.XXHash = hashFloat64AsFloat32(XX[:xxLen])
+		tr.XxHash = hashFloat64AsFloat32(xX[:xXLen])
+		if tr.CaptureXX {
+			tr.XX = tr.XX[:0]
+			for i := 0; i < xxLen; i++ {
+				tr.XX = append(tr.XX, float32(XX[i]))
+			}
+			tr.Xx = tr.Xx[:0]
+			for i := 0; i < xXLen; i++ {
+				tr.Xx = append(tr.Xx, float32(xX[i]))
+			}
+		}
+	}
+
 	var XXQ17 [maxNbSubfr * ltpOrderConst * ltpOrderConst]int32
 	var xXQ17 [maxNbSubfr * ltpOrderConst]int32
 	xxLen := numSubframes * ltpOrderConst * ltpOrderConst

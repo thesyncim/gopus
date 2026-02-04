@@ -320,6 +320,11 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 		if err != nil {
 			t.Fatalf("gopus encode failed at frame %d: %v", i, err)
 		}
+		if i < 5 {
+			t.Logf("Frame %d: SILK VAD activity=%d tiltQ15=%d opusVADProb=%.3f opusActive=%v",
+				i, goEnc.LastSilkVADActivity(), goEnc.LastSilkVADInputTiltQ15(), goEnc.LastOpusVADProb(), goEnc.LastOpusVADActive())
+			t.Logf("Frame %d: SILK ltpCorr=%.4f", i, goEnc.LastSilkLTPCorr())
+		}
 		packetCopy := make([]byte, len(packet))
 		copy(packetCopy, packet)
 		gopusPackets = append(gopusPackets, packetCopy)
@@ -405,6 +410,9 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 		libParams := libDec.GetLastFrameParams()
 		if goDec.GetLastSignalType() != libDec.GetLastSignalType() {
 			signalTypeDiff++
+			if signalTypeDiff <= 5 {
+				t.Logf("Frame %d: SignalType mismatch: go=%d lib=%d", i, goDec.GetLastSignalType(), libDec.GetLastSignalType())
+			}
 		}
 
 		if goParams.LTPScaleIndex != libParams.LTPScaleIndex {

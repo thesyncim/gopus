@@ -94,7 +94,7 @@ func computeInterpIdxFloat32(x []float32, prevNLSF, curNLSF []int16, resNrg floa
 	for k := 3; k >= 0; k-- {
 		for i := 0; i < order; i++ {
 			diff := int32(curNLSF[i]) - int32(prevNLSF[i])
-			interpNLSF[i] = int16(int32(prevNLSF[i]) + (int32(k)*diff >> 2))
+			interpNLSF[i] = int16(int32(prevNLSF[i]) + (int32(k) * diff >> 2))
 		}
 		silkNLSF2A(lpcTmpQ12, interpNLSF, order)
 		for i := 0; i < order; i++ {
@@ -344,24 +344,24 @@ func TestNLSFInterpolationVoicedTraceAgainstLibopus(t *testing.T) {
 				if len(libALast) == enc.lpcOrder {
 					lpcQ16 := make([]int32, enc.lpcOrder)
 					for i := 0; i < enc.lpcOrder; i++ {
-						lpcQ16[i] = float64ToInt32Round(float64(libALast[i]) * 65536.0)
+						lpcQ16[i] = float64ToInt32Round(float64(libALast[i] * 65536.0))
 					}
 					silkA2NLSF(lsfLastLib, lpcQ16, enc.lpcOrder)
 				}
 				// Compute Go burg energies for comparison without disturbing encoder state.
 				savedTotal, savedInvGain, savedNum := enc.lastTotalEnergy, enc.lastInvGain, enc.lastNumSamples
-				_, goResFull := enc.burgModifiedFLPZeroAlloc(f64SliceFromF32(ltpRes), minInvGainVal, subfrLenWithOrder, numSubfr, enc.lpcOrder)
-				_, goResLast := enc.burgModifiedFLPZeroAlloc(f64SliceFromF32(ltpRes[halfOffset:]), minInvGainVal, subfrLenWithOrder, maxNbSubfr/2, enc.lpcOrder)
+				_, goResFull := enc.burgModifiedFLPZeroAllocF32(ltpRes, float32(minInvGainVal), subfrLenWithOrder, numSubfr, enc.lpcOrder)
+				_, goResLast := enc.burgModifiedFLPZeroAllocF32(ltpRes[halfOffset:], float32(minInvGainVal), subfrLenWithOrder, maxNbSubfr/2, enc.lpcOrder)
 				enc.lastTotalEnergy, enc.lastInvGain, enc.lastNumSamples = savedTotal, savedInvGain, savedNum
 				goRes := goResFull - goResLast
 				lsfLastGo := make([]int16, enc.lpcOrder)
 				{
 					savedTotal, savedInvGain, savedNum := enc.lastTotalEnergy, enc.lastInvGain, enc.lastNumSamples
-					aLast, _ := enc.burgModifiedFLPZeroAlloc(f64SliceFromF32(ltpRes[halfOffset:]), minInvGainVal, subfrLenWithOrder, maxNbSubfr/2, enc.lpcOrder)
+					aLast, _ := enc.burgModifiedFLPZeroAllocF32(ltpRes[halfOffset:], float32(minInvGainVal), subfrLenWithOrder, maxNbSubfr/2, enc.lpcOrder)
 					enc.lastTotalEnergy, enc.lastInvGain, enc.lastNumSamples = savedTotal, savedInvGain, savedNum
 					lpcQ16 := make([]int32, enc.lpcOrder)
 					for i := 0; i < enc.lpcOrder; i++ {
-						lpcQ16[i] = float64ToInt32Round(aLast[i] * 65536.0)
+						lpcQ16[i] = float64ToInt32Round(float64(float32(aLast[i]) * 65536.0))
 					}
 					silkA2NLSF(lsfLastGo, lpcQ16, enc.lpcOrder)
 				}
