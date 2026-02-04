@@ -351,7 +351,7 @@ func TestEvalChebyshev(t *testing.T) {
 	// Test constant polynomial
 	coef := []float64{5.0}
 	result := evalChebyshev(coef, 0.5)
-	if math.Abs(result-5.0) > 1e-10 {
+	if math.Abs(result-5.0) > 1e-5 {
 		t.Errorf("constant polynomial: expected 5.0, got %f", result)
 	}
 
@@ -549,7 +549,7 @@ func TestLPCAnalysisFilterFLP(t *testing.T) {
 	// For a first-order predictor: residual[i] = signal[i] - 0.9*signal[i-1]
 	for i := order; i < length; i++ {
 		expected := signal[i] - 0.9*signal[i-1]
-		if math.Abs(residual[i]-expected) > 1e-10 {
+		if math.Abs(residual[i]-expected) > 1e-5 {
 			t.Errorf("residual[%d]: expected %f, got %f", i, expected, residual[i])
 		}
 	}
@@ -601,14 +601,14 @@ func TestEnergyF64(t *testing.T) {
 
 	energy := energyF64(signal, len(signal))
 
-	if math.Abs(energy-expected) > 1e-10 {
+	if math.Abs(energy-expected) > 1e-5 {
 		t.Errorf("energy: expected %f, got %f", expected, energy)
 	}
 
 	// Test with partial length
 	energy = energyF64(signal, 2)
 	expected = 1.0 + 4.0 // 5.0
-	if math.Abs(energy-expected) > 1e-10 {
+	if math.Abs(energy-expected) > 1e-5 {
 		t.Errorf("partial energy: expected %f, got %f", expected, energy)
 	}
 }

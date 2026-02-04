@@ -94,20 +94,6 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	// Step 1.1: Update noise shaping lookahead buffer and select delayed frame
 	framePCM := e.updateShapeBuffer(pcm, frameSamples)
 
-	// Step 1.2: Update pitch analysis buffer with delayed frame
-	pitchBufFrameLen := len(framePCM)
-	if pitchBufFrameLen > 0 && len(e.pitchAnalysisBuf) > 0 {
-		if len(e.pitchAnalysisBuf) > pitchBufFrameLen {
-			copy(e.pitchAnalysisBuf, e.pitchAnalysisBuf[pitchBufFrameLen:])
-		}
-		start := len(e.pitchAnalysisBuf) - pitchBufFrameLen
-		if start < 0 {
-			start = 0
-			pitchBufFrameLen = len(e.pitchAnalysisBuf)
-		}
-		copy(e.pitchAnalysisBuf[start:], framePCM[:pitchBufFrameLen])
-	}
-
 	// Step 1.5: Encode LBRR data/header placeholder (standalone SILK only)
 	// Reserve VAD/LBRR header bits and emit any LBRR data from the previous packet.
 	// In hybrid mode, the Opus layer handles the SILK header.
@@ -283,6 +269,21 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	// Update state for next frame
 	e.isPreviousFrameVoiced = (signalType == 2)
 	copy(e.prevLSFQ15, lsfQ15)
+
+	// Step 1.2: Update pitch analysis buffer with delayed frame
+	pitchBufFrameLen := len(framePCM)
+	if pitchBufFrameLen > 0 && len(e.pitchAnalysisBuf) > 0 {
+		if len(e.pitchAnalysisBuf) > pitchBufFrameLen {
+			copy(e.pitchAnalysisBuf, e.pitchAnalysisBuf[pitchBufFrameLen:])
+		}
+		start := len(e.pitchAnalysisBuf) - pitchBufFrameLen
+		if start < 0 {
+			start = 0
+			pitchBufFrameLen = len(e.pitchAnalysisBuf)
+		}
+		copy(e.pitchAnalysisBuf[start:], framePCM[:pitchBufFrameLen])
+	}
+
 	e.nFramesEncoded++
 	e.MarkEncoded()
 
@@ -635,20 +636,6 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, lookahead []float32, vadFla
 	// Step 1.1: Update noise shaping lookahead buffer and select delayed frame
 	framePCM := e.updateShapeBuffer(pcm, frameSamples)
 
-	// Step 1.2: Update pitch analysis buffer with delayed frame
-	pitchBufFrameLen := len(framePCM)
-	if pitchBufFrameLen > 0 && len(e.pitchAnalysisBuf) > 0 {
-		if len(e.pitchAnalysisBuf) > pitchBufFrameLen {
-			copy(e.pitchAnalysisBuf, e.pitchAnalysisBuf[pitchBufFrameLen:])
-		}
-		start := len(e.pitchAnalysisBuf) - pitchBufFrameLen
-		if start < 0 {
-			start = 0
-			pitchBufFrameLen = len(e.pitchAnalysisBuf)
-		}
-		copy(e.pitchAnalysisBuf[start:], framePCM[:pitchBufFrameLen])
-	}
-
 	condCoding := codeIndependently
 	if e.nFramesEncoded > 0 {
 		condCoding = codeConditionally
@@ -814,6 +801,20 @@ func (e *Encoder) encodeFrameInternal(pcm []float32, lookahead []float32, vadFla
 	copy(e.prevLSFQ15, lsfQ15)
 	e.nFramesEncoded++
 	e.MarkEncoded()
+
+	// Step 1.2: Update pitch analysis buffer with delayed frame
+	pitchBufFrameLen := len(framePCM)
+	if pitchBufFrameLen > 0 && len(e.pitchAnalysisBuf) > 0 {
+		if len(e.pitchAnalysisBuf) > pitchBufFrameLen {
+			copy(e.pitchAnalysisBuf, e.pitchAnalysisBuf[pitchBufFrameLen:])
+		}
+		start := len(e.pitchAnalysisBuf) - pitchBufFrameLen
+		if start < 0 {
+			start = 0
+			pitchBufFrameLen = len(e.pitchAnalysisBuf)
+		}
+		copy(e.pitchAnalysisBuf[start:], framePCM[:pitchBufFrameLen])
+	}
 }
 
 // encodeFrameType encodes VAD flag, signal type, and quantization offset.

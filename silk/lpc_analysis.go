@@ -297,11 +297,11 @@ func lpcAnalysisFilterFLP(rLPC, predCoef, s []float64, length, order int) {
 
 	// Apply analysis filter
 	for ix := order; ix < length; ix++ {
-		var lpcPred float64
+		var lpcPred float32
 		for k := 0; k < order; k++ {
-			lpcPred += s[ix-k-1] * predCoef[k]
+			lpcPred += float32(s[ix-k-1]) * float32(predCoef[k])
 		}
-		rLPC[ix] = s[ix] - lpcPred
+		rLPC[ix] = float64(float32(s[ix]) - lpcPred)
 	}
 }
 

@@ -229,7 +229,7 @@ func TestMultiFrameRangeEncoderLifecycle(t *testing.T) {
 			pcm[i] = float32(math.Sin(2*math.Pi*400*tm)) * (10000 * int16Scale)
 		}
 
-		encoded := enc.EncodeFrame(pcm, true)
+		encoded := enc.EncodeFrame(pcm, nil, true)
 		frameSizes[frame] = len(encoded)
 
 		// Every frame must produce output in standalone mode

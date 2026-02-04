@@ -18,7 +18,7 @@ func TestEncodeFrameQuantizesInputPCM(t *testing.T) {
 		pcm[i] = 0.1 // value that requires rounding when scaled to int16
 	}
 
-	_ = enc.EncodeFrame(pcm, true)
+	_ = enc.EncodeFrame(pcm, nil, true)
 
 	fsKHz := config.SampleRate / 1000
 	ltpMemSamples := ltpMemLengthMs * fsKHz

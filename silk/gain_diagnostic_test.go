@@ -114,7 +114,7 @@ func TestGainComputationDiagnostic(t *testing.T) {
 
 	// Reset encoder state
 	enc2 := NewEncoder(BandwidthWideband)
-	encoded := enc2.EncodeFrame(pcm, true)
+	encoded := enc2.EncodeFrame(pcm, nil, true)
 
 	t.Logf("Encoded frame size: %d bytes", len(encoded))
 	t.Logf("After encode - lastTotalEnergy: %.2f", enc2.lastTotalEnergy)
@@ -209,7 +209,7 @@ func TestEncoderGainTrace(t *testing.T) {
 	// Step 4: Do a full encode to verify the complete flow
 	t.Logf("\n=== Full Encode Test ===")
 	enc2 := NewEncoder(BandwidthWideband)
-	encoded := enc2.EncodeFrame(pcm, true)
+	encoded := enc2.EncodeFrame(pcm, nil, true)
 	t.Logf("Encoded frame: %d bytes", len(encoded))
 
 	// Check the gains that were used (stored in encoder state during encode)
@@ -230,7 +230,7 @@ func TestSILKRoundtripQuality(t *testing.T) {
 
 	// Encode
 	enc := NewEncoder(BandwidthWideband)
-	encoded := enc.EncodeFrame(pcmFloat, true)
+	encoded := enc.EncodeFrame(pcmFloat, nil, true)
 	t.Logf("Encoded %d samples into %d bytes", frameSamples, len(encoded))
 
 	// Decode using SILK decoder - use DecodeFrameRaw to get native samples

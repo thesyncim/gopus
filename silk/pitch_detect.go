@@ -1,7 +1,6 @@
 package silk
 
 import (
-	"fmt"
 	"math"
 )
 
@@ -16,8 +15,8 @@ const (
 	peMinLagMS         = 2  // 2 ms -> 500 Hz
 	peDSrchLength      = 24
 	peNbStage3Lags     = 5
-	peNbCbksStage2     = 3
-	peNbCbksStage2Ext  = 11
+	peNbCbksStage2     = 11
+	peNbCbksStage2Ext  = 34
 	peNbCbksStage3Max  = 34
 	peNbCbksStage3Mid  = 24
 	peNbCbksStage3Min  = 16
@@ -38,10 +37,10 @@ const (
 
 // Pitch contour codebooks for stage 2 (matching libopus silk_CB_lags_stage2)
 var pitchCBLagsStage2 = [peMaxNbSubfr][peNbCbksStage2Ext]int8{
-	{0, 2, -1, -1, -1, 0, 0, 1, 1, 0, 1},
-	{0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0},
-	{0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0},
-	{0, -1, 2, 1, 0, 1, 1, 0, 0, -1, -1},
+	{0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, -1, -1, -1, -1, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, -1, -1, -1},
+	{0, 1, 0, 1, -1, -1, -1, 0, 1, 0, 1, -1, 0, -1, 0, 1, 0, 1, -1, 0, -1, 2, 1, 0, 1, -1, 0, -1, -1, 2, 2, 1, -2, -2},
+	{0, 0, 1, 1, 0, 1, -1, 0, 0, 1, 1, 0, 1, -1, 0, 0, 1, 1, 0, 1, -1, -1, 2, 1, 0, 1, -1, 0, -1, 2, 2, 1, -2, -2},
+	{0, -1, 2, 1, 0, 1, 1, 0, -1, 2, 1, 0, 1, 1, 0, -1, 2, 1, 0, 1, 1, -1, 2, 1, 0, 1, -1, 0, -1, 2, 2, 1, -2, -2},
 }
 
 // Pitch contour codebooks for stage 3 (matching libopus silk_CB_lags_stage3)
@@ -211,7 +210,6 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 
 	// DEBUG: Print frame4kHz samples for frame 23
 	if debugPitchFrameCount == 23 {
-		fmt.Printf("Frame 23 frame4kHz: %v\n", frame4kHz[:10])
 	}
 
 	targetStart := sfLength4kHz * 4 // Start after LTP memory

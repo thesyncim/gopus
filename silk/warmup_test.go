@@ -266,7 +266,7 @@ func TestMultiFrameWarmup(t *testing.T) {
 		}
 
 		// Encode
-		encoded := encoder.EncodeFrame(pcm, true)
+		encoded := encoder.EncodeFrame(pcm, nil, true)
 
 		// After encoding, check the encoder's pitch analysis buffer and LTP correlation
 		if frame < 2 {
