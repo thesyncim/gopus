@@ -12,6 +12,7 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/encoder"
@@ -49,11 +50,25 @@ const (
 	OpusPreSkip = 312
 )
 
+var encoderComplianceLogOnce sync.Once
+
+func logEncoderComplianceStatus(t *testing.T) {
+	encoderComplianceLogOnce.Do(func() {
+		t.Log("KNOWN: Encoder compliance currently below 48 dB (Q>=0) for SILK/Hybrid and CELT 2.5ms.")
+		t.Log("ATTEMPTED: Moved Opus delay compensation to Opus encoder (CELT expects compensated input).")
+		t.Log("ATTEMPTED: Removed CELT internal delay buffer and hybrid delay compensation path.")
+		t.Log("ATTEMPTED: SILK frame-type coding aligned to libopus type_offset tables.")
+		t.Log("ATTEMPTED: SILK noise-shape window origin aligned to libopus x - la_shape.")
+		t.Log("NEXT: Port remaining SILK analysis parity (pitch residual, noise shaping, gain path) and CELT 2.5ms bit budget.")
+	})
+}
+
 // TestEncoderComplianceCELT tests CELT mode encoding at various frame sizes.
 func TestEncoderComplianceCELT(t *testing.T) {
 	if !checkOpusdecAvailableEncoder() {
 		t.Skip("opusdec not found in PATH")
 	}
+	logEncoderComplianceStatus(t)
 
 	tests := []struct {
 		name      string
@@ -80,6 +95,7 @@ func TestEncoderComplianceSILK(t *testing.T) {
 	if !checkOpusdecAvailableEncoder() {
 		t.Skip("opusdec not found in PATH")
 	}
+	logEncoderComplianceStatus(t)
 
 	tests := []struct {
 		name      string
@@ -107,6 +123,7 @@ func TestEncoderComplianceHybrid(t *testing.T) {
 	if !checkOpusdecAvailableEncoder() {
 		t.Skip("opusdec not found in PATH")
 	}
+	logEncoderComplianceStatus(t)
 
 	tests := []struct {
 		name      string
@@ -134,6 +151,7 @@ func TestEncoderComplianceBitrates(t *testing.T) {
 	if !checkOpusdecAvailableEncoder() {
 		t.Skip("opusdec not found in PATH")
 	}
+	logEncoderComplianceStatus(t)
 
 	bitrates := []int{32000, 64000, 128000, 256000}
 
@@ -149,6 +167,7 @@ func TestEncoderComplianceSummary(t *testing.T) {
 	if !checkOpusdecAvailableEncoder() {
 		t.Skip("opusdec not found in PATH")
 	}
+	logEncoderComplianceStatus(t)
 
 	type testCase struct {
 		name      string

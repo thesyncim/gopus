@@ -65,16 +65,16 @@ type Encoder struct {
 	bitrate     int // Target bits per second
 
 	// FEC controls
-	fecEnabled        bool
-	packetLoss        int // Expected packet loss percentage (0-100)
-	lastVADActivityQ8 int
-	lastVADInputTiltQ15 int
+	fecEnabled                  bool
+	packetLoss                  int // Expected packet loss percentage (0-100)
+	lastVADActivityQ8           int
+	lastVADInputTiltQ15         int
 	lastVADInputQualityBandsQ15 [4]int
-	lastVADActive     bool
-	lastVADValid      bool
-	silkVAD           *VADState
-	silkVADSide       *VADState
-	fec               *fecState
+	lastVADActive               bool
+	lastVADValid                bool
+	silkVAD                     *VADState
+	silkVADSide                 *VADState
+	fec                         *fecState
 
 	// DTX (Discontinuous Transmission) controls
 	dtxEnabled bool
@@ -118,23 +118,24 @@ type Encoder struct {
 	delayBuffer []float64
 
 	// SILK downsampling
-	silkResampler      *silk.DownsamplingResampler
-	silkResamplerRight *silk.DownsamplingResampler
-	silkResamplerRate  int
-	silkResampled      []float32
-	silkResampledR     []float32
-	silkResampledBuffer []float32
+	silkResampler        *silk.DownsamplingResampler
+	silkResamplerRight   *silk.DownsamplingResampler
+	silkResamplerRate    int
+	silkResampled        []float32
+	silkResampledR       []float32
+	silkResampledBuffer  []float32
 	silkResampledRBuffer []float32
 
 	// Scratch buffers for zero-allocation encoding
-	scratchDCPCM    []float64 // DC rejected PCM buffer
-	scratchPCM32    []float32 // float64 to float32 conversion buffer
-	scratchLeft     []float32 // Left channel deinterleave buffer
-	scratchRight    []float32 // Right channel deinterleave buffer
-	scratchMono     []float32 // Mono mix buffer (VAD)
-	scratchVADFlags [silk.MaxFramesPerPacket]bool
-	scratchPacket   []byte // Output packet buffer
+	scratchDCPCM      []float64 // DC rejected PCM buffer
+	scratchPCM32      []float32 // float64 to float32 conversion buffer
+	scratchLeft       []float32 // Left channel deinterleave buffer
+	scratchRight      []float32 // Right channel deinterleave buffer
+	scratchMono       []float32 // Mono mix buffer (VAD)
+	scratchVADFlags   [silk.MaxFramesPerPacket]bool
+	scratchPacket     []byte    // Output packet buffer
 	scratchDelayedPCM []float64 // Delay-compensated CELT input
+	scratchDelayTail  []float64 // Snapshot of delay buffer tail
 }
 
 // NewEncoder creates a new unified Opus encoder.
@@ -538,6 +539,13 @@ func (e *Encoder) ensureDelayedPCM(size int) []float64 {
 	return e.scratchDelayedPCM[:size]
 }
 
+func (e *Encoder) ensureDelayTail(size int) []float64 {
+	if cap(e.scratchDelayTail) < size {
+		e.scratchDelayTail = make([]float64, size)
+	}
+	return e.scratchDelayTail[:size]
+}
+
 // applyDelayCompensation prepends the Opus delay buffer (Fs/250) to the current frame
 // and returns a frame-sized slice for CELT processing. The delay buffer is updated
 // with the latest samples after constructing the output.
@@ -551,31 +559,34 @@ func (e *Encoder) applyDelayCompensation(pcm []float64, frameSize int) []float64
 		channels = 1
 	}
 	delaySamples := delayComp * channels
-	needed := frameSize * channels
-	if len(pcm) < needed {
-		needed = len(pcm)
+	encoderBufferSamples := (e.sampleRate / 100) * channels
+	frameSamples := frameSize * channels
+	if len(pcm) < frameSamples {
+		frameSamples = len(pcm)
 	}
-	if delaySamples <= 0 || needed <= 0 {
+	if delaySamples <= 0 || frameSamples <= 0 {
 		return pcm
 	}
-	if len(e.delayBuffer) != delaySamples {
-		e.delayBuffer = make([]float64, delaySamples)
+	if encoderBufferSamples < delaySamples {
+		encoderBufferSamples = delaySamples
 	}
-	out := e.ensureDelayedPCM(frameSize * channels)
-	if delaySamples >= len(out) {
-		copy(out, e.delayBuffer[:len(out)])
-	} else {
-		copy(out, e.delayBuffer)
-		copy(out[delaySamples:], pcm[:len(out)-delaySamples])
+	if len(e.delayBuffer) != encoderBufferSamples {
+		e.delayBuffer = make([]float64, encoderBufferSamples)
 	}
 
-	// Update delay buffer with the latest samples.
-	if needed >= delaySamples {
-		copy(e.delayBuffer, pcm[needed-delaySamples:needed])
+	tailStart := encoderBufferSamples - delaySamples
+	tail := e.ensureDelayTail(delaySamples)
+	copy(tail, e.delayBuffer[tailStart:])
+
+	out := e.ensureDelayedPCM(frameSize * channels)
+	if frameSamples <= delaySamples {
+		copy(out, tail[:frameSamples])
 	} else {
-		copy(e.delayBuffer, e.delayBuffer[needed:])
-		copy(e.delayBuffer[delaySamples-needed:], pcm[:needed])
+		copy(out, tail)
+		copy(out[delaySamples:], pcm[:frameSamples-delaySamples])
 	}
+
+	e.updateDelayBufferInternal(pcm, frameSamples, delaySamples, encoderBufferSamples, tail)
 	return out
 }
 
@@ -591,22 +602,69 @@ func (e *Encoder) updateDelayBuffer(pcm []float64, frameSize int) {
 		channels = 1
 	}
 	delaySamples := delayComp * channels
-	needed := frameSize * channels
-	if len(pcm) < needed {
-		needed = len(pcm)
+	encoderBufferSamples := (e.sampleRate / 100) * channels
+	frameSamples := frameSize * channels
+	if len(pcm) < frameSamples {
+		frameSamples = len(pcm)
 	}
-	if delaySamples <= 0 || needed <= 0 {
+	if delaySamples <= 0 || frameSamples <= 0 {
 		return
 	}
-	if len(e.delayBuffer) != delaySamples {
-		e.delayBuffer = make([]float64, delaySamples)
+	if encoderBufferSamples < delaySamples {
+		encoderBufferSamples = delaySamples
 	}
-	if needed >= delaySamples {
-		copy(e.delayBuffer, pcm[needed-delaySamples:needed])
+	if len(e.delayBuffer) != encoderBufferSamples {
+		e.delayBuffer = make([]float64, encoderBufferSamples)
+	}
+	tailStart := encoderBufferSamples - delaySamples
+	tail := e.ensureDelayTail(delaySamples)
+	copy(tail, e.delayBuffer[tailStart:])
+	e.updateDelayBufferInternal(pcm, frameSamples, delaySamples, encoderBufferSamples, tail)
+}
+
+func (e *Encoder) updateDelayBufferInternal(pcm []float64, frameSamples, delaySamples, encoderBufferSamples int, tail []float64) {
+	if delaySamples <= 0 || frameSamples <= 0 {
 		return
 	}
-	copy(e.delayBuffer, e.delayBuffer[needed:])
-	copy(e.delayBuffer[delaySamples-needed:], pcm[:needed])
+	if encoderBufferSamples < delaySamples {
+		encoderBufferSamples = delaySamples
+	}
+
+	if encoderBufferSamples > frameSamples+delaySamples {
+		keep := encoderBufferSamples - (frameSamples + delaySamples)
+		if keep > 0 {
+			copy(e.delayBuffer[:keep], e.delayBuffer[frameSamples:frameSamples+keep])
+		}
+		copy(e.delayBuffer[keep:keep+delaySamples], tail)
+		copy(e.delayBuffer[keep+delaySamples:], pcm[:frameSamples])
+		return
+	}
+
+	start := delaySamples + frameSamples - encoderBufferSamples
+	if start < delaySamples {
+		nTail := delaySamples - start
+		if nTail > encoderBufferSamples {
+			nTail = encoderBufferSamples
+		}
+		copy(e.delayBuffer[:nTail], tail[start:start+nTail])
+		remaining := encoderBufferSamples - nTail
+		if remaining > 0 {
+			copy(e.delayBuffer[nTail:], pcm[:remaining])
+		}
+		return
+	}
+
+	pcmStart := start - delaySamples
+	if pcmStart < 0 {
+		pcmStart = 0
+	}
+	if pcmStart+encoderBufferSamples > len(pcm) {
+		pcmStart = len(pcm) - encoderBufferSamples
+		if pcmStart < 0 {
+			pcmStart = 0
+		}
+	}
+	copy(e.delayBuffer, pcm[pcmStart:pcmStart+encoderBufferSamples])
 }
 
 // selectMode determines the actual encoding mode based on settings and content.
@@ -1004,6 +1062,8 @@ func (e *Encoder) ensureCELTEncoder() {
 	if e.celtEncoder == nil {
 		e.celtEncoder = celt.NewEncoder(e.channels)
 		e.celtEncoder.SetComplexity(e.complexity)
+		// Opus encoder already applies dc_reject at the top level.
+		e.celtEncoder.SetDCRejectEnabled(false)
 	}
 }
 

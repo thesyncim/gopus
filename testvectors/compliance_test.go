@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus"
@@ -31,6 +32,17 @@ var testVectorNames = []string{
 	"testvector09", "testvector10", "testvector11", "testvector12",
 }
 
+var decoderComplianceLogOnce sync.Once
+
+func logDecoderComplianceStatus(t *testing.T) {
+	decoderComplianceLogOnce.Do(func() {
+		t.Log("KNOWN: Decoder compliance is slightly below 48 dB on several SILK/Hybrid vectors.")
+		t.Log("ATTEMPTED: Aligned Opus-level delay compensation (CELT expects compensated input).")
+		t.Log("ATTEMPTED: SILK frame-type coding aligned to libopus type_offset tables.")
+		t.Log("NEXT: Verify remaining SILK bitstream parity affecting decode quality on long SILK/Hybrid vectors.")
+	})
+}
+
 // TestDecoderCompliance runs all RFC 8251 test vectors against the gopus decoder.
 // This is the main compliance test that validates decoder correctness.
 //
@@ -43,6 +55,7 @@ var testVectorNames = []string{
 //   - Compute quality metric against both references
 //   - Pass if either Q >= 0 (RFC 8251 allows either reference)
 func TestDecoderCompliance(t *testing.T) {
+	logDecoderComplianceStatus(t)
 	// Ensure test vectors are available
 	if err := ensureTestVectors(t); err != nil {
 		t.Skipf("Skipping compliance test: %v", err)
@@ -382,6 +395,7 @@ func extractTarGz(r io.Reader) error {
 // TestSingleVector allows running a single test vector for debugging.
 // Usage: go test -v -run TestSingleVector/testvector01
 func TestSingleVector(t *testing.T) {
+	logDecoderComplianceStatus(t)
 	if err := ensureTestVectors(t); err != nil {
 		t.Skipf("Skipping: %v", err)
 		return

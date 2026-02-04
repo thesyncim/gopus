@@ -58,16 +58,17 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Ensure scratch buffers are properly sized for this frame
 	e.ensureScratch(frameSize)
 
-	// Step 3a: Apply DC rejection (high-pass) to match libopus Opus encoder.
-	// libopus applies dc_reject() at the Opus encoder level before CELT
-	// mode selection. Since gopus invokes the CELT encoder directly for
-	// CELT mode, we apply dc_reject here to match the full encode path.
+	// Step 3a: Optionally apply DC rejection (high-pass) to match libopus Opus encoder.
+	// libopus applies dc_reject() at the Opus encoder level before CELT mode selection.
+	// When CELT is driven directly, keep this enabled to match the full Opus path.
 	// Reference: libopus src/opus_encoder.c line 2008: dc_reject(pcm, 3, ...)
-	dcRejected := e.applyDCRejectScratch(pcm)
+	samplesForFrame := pcm
+	if e.dcRejectEnabled {
+		samplesForFrame = e.applyDCRejectScratch(pcm)
+	}
 
 	// Step 3b: Delay compensation is handled at the Opus encoder level.
 	// CELT expects already compensated input here.
-	samplesForFrame := dcRejected
 
 	// Step 3c: Apply pre-emphasis with signal scaling (before transient analysis)
 	// This matches libopus order: celt_preemphasis() is called before transient_analysis()

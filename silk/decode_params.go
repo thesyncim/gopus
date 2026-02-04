@@ -32,16 +32,16 @@ type FrameParams struct {
 // For active frames (vadFlag=true), decodes signal type (1=unvoiced, 2=voiced)
 // and quantization offset (0=low, 1=high).
 func (d *Decoder) DecodeFrameType(vadFlag bool) (signalType, quantOffset int) {
-	if !vadFlag {
-		// Inactive frame - no range coding needed
-		return 0, 0
+	var idx int
+	if vadFlag {
+		// ICDFFrameTypeVADActive encodes 4 outcomes:
+		// 0: unvoiced low, 1: unvoiced high, 2: voiced low, 3: voiced high
+		idx = d.rangeDecoder.DecodeICDF16(ICDFFrameTypeVADActive, 8) + 2
+	} else {
+		// VAD inactive uses a 2-outcome table (typeOffset 0 or 1).
+		idx = d.rangeDecoder.DecodeICDF16(ICDFFrameTypeVADInactive, 8)
 	}
-	// Decode 2 bits packed as single symbol
-	// ICDFFrameTypeVADActive encodes 4 outcomes:
-	// 0: unvoiced low, 1: unvoiced high, 2: voiced low, 3: voiced high
-	idx := d.rangeDecoder.DecodeICDF16(ICDFFrameTypeVADActive, 8)
-	// idx=0,1 -> signalType=1 (unvoiced), idx=2,3 -> signalType=2 (voiced)
-	signalType = (idx >> 1) + 1 // 0->1, 1->1, 2->2, 3->2
-	quantOffset = idx & 1       // 0 or 1
+	signalType = idx >> 1
+	quantOffset = idx & 1
 	return
 }

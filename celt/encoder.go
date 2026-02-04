@@ -101,6 +101,11 @@ type Encoder struct {
 	// Reference: libopus src/opus_encoder.c dc_reject()
 	hpMem []float64 // High-pass filter memory [channels]
 
+	// dcRejectEnabled controls whether EncodeFrame applies dc_reject().
+	// When CELT is driven by the Opus encoder, dc_reject is already applied,
+	// so this should be false to avoid double filtering.
+	dcRejectEnabled bool
+
 	// Delay buffer for lookahead compensation (matches libopus delay_compensation)
 	// libopus uses Fs/250 = 192 samples at 48kHz for delay compensation.
 	// This provides a 4ms lookahead that allows for better transient handling.
@@ -219,6 +224,9 @@ func NewEncoder(channels int) *Encoder {
 
 		// DC rejection (high-pass) filter memory, one per channel
 		hpMem: make([]float64, channels),
+
+		// Apply dc_reject by default for standalone CELT usage
+		dcRejectEnabled: true,
 
 		// Delay buffer for lookahead (192 samples at 48kHz = 4ms)
 		// This matches libopus delay_compensation
@@ -350,6 +358,17 @@ func (e *Encoder) SetConstrainedVBR(enabled bool) {
 // ConstrainedVBR reports whether constrained VBR mode is enabled.
 func (e *Encoder) ConstrainedVBR() bool {
 	return e.constrainedVBR
+}
+
+// SetDCRejectEnabled controls whether EncodeFrame applies dc_reject().
+// For Opus-level encoding, this should be false because dc_reject is already applied.
+func (e *Encoder) SetDCRejectEnabled(enabled bool) {
+	e.dcRejectEnabled = enabled
+}
+
+// DCRejectEnabled reports whether dc_reject is applied in EncodeFrame.
+func (e *Encoder) DCRejectEnabled() bool {
+	return e.dcRejectEnabled
 }
 
 // Complexity returns the current complexity setting.

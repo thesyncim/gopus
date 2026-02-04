@@ -36,7 +36,7 @@ func main() {
 	signal := flag.String("signal", "chord", "Signal type: sine, sweep, noise, chord, speech")
 	frameSize := flag.Int("frame", 960, "Frame size in samples at 48kHz (e.g., 480, 960, 1920)")
 	play := flag.Bool("play", true, "Play the encoded Opus file with ffplay if available")
-	libopus := flag.Bool("libopus", false, "Use external libopus encoder (opusenc/ffmpeg) instead of gopus")
+	libopus := flag.Bool("libopus", true, "Use external libopus encoder (opusenc/ffmpeg) instead of gopus")
 	flag.Parse()
 
 	if *channels < 1 {

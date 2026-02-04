@@ -50,6 +50,8 @@ func TestLPCSynthesis_SimpleAR(t *testing.T) {
 
 // TestRoundtripAmplitudeTrace traces amplitude through the full encode-decode path.
 func TestRoundtripAmplitudeTrace(t *testing.T) {
+	logSilkQualityStatus(t)
+
 	config := GetBandwidthConfig(BandwidthWideband)
 	frameSamples := config.SampleRate * 20 / 1000
 

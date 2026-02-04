@@ -2,6 +2,8 @@ package silk
 
 import (
 	"testing"
+
+	"github.com/thesyncim/gopus/rangecoding"
 )
 
 func TestBandwidthConfig(t *testing.T) {
@@ -34,9 +36,17 @@ func TestBandwidthConfig(t *testing.T) {
 }
 
 func TestFrameTypeInactive(t *testing.T) {
+	// Encode an inactive frame type (typeOffset=0) and decode it.
+	var enc rangecoding.Encoder
+	buf := make([]byte, 32)
+	enc.Init(buf)
+	enc.EncodeICDF16(0, ICDFFrameTypeVADInactive, 8)
+	raw := enc.Done()
+
 	d := NewDecoder()
-	// VAD inactive should return (0, 0) without range decoding
-	// No range decoder needed for inactive frames
+	rd := &rangecoding.Decoder{}
+	rd.Init(raw)
+	d.SetRangeDecoder(rd)
 	sig, quant := d.DecodeFrameType(false)
 	if sig != 0 || quant != 0 {
 		t.Errorf("Inactive frame: got (%d, %d), want (0, 0)", sig, quant)

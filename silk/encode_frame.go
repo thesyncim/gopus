@@ -125,7 +125,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	var ltpIndices [maxNbSubfr]int8
 	perIndex := 0
 	predGainQ7 := int32(0)
-	residual, residual32, resStart, _ := e.computePitchResidual(numSubframes, lookahead)
+	residual, residual32, resStart, _ := e.computePitchResidual(numSubframes)
 	if signalType != typeNoVoiceActivity {
 		searchThres1 := float64(e.pitchEstimationThresholdQ16) / 65536.0
 		prevSignalType := 0
@@ -161,7 +161,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	}
 
 	// Step 3: Noise shaping analysis
-	noiseParams, gains, quantOffset := e.noiseShapeAnalysis(framePCM, residual, resStart, signalType, speechActivityQ8, e.lastLPCGain, pitchLags, quantOffset, numSubframes, subframeSamples, lookahead)
+	noiseParams, gains, quantOffset := e.noiseShapeAnalysis(framePCM, residual, resStart, signalType, speechActivityQ8, e.lastLPCGain, pitchLags, quantOffset, numSubframes, subframeSamples)
 
 	// Step 4: Build LTP residual and compute LPC
 	fsKHz := config.SampleRate / 1000
@@ -207,7 +207,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	for i := range gains {
 		gainsQ16[i] = int32(gains[i] * 65536.0)
 	}
-	
+
 	e.previousGainIndex = int32(e.lbrrPrevLastGainIdx)
 	gainIndices := ensureInt8Slice(&e.scratchGainInd, numSubframes)
 	newPrevInd := silkGainsQuantInto(gainIndices, gainsQ16, int8(e.previousGainIndex), condCoding == codeConditionally, numSubframes)
@@ -265,10 +265,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	if signalType == typeVoiced {
 		ltpScaleQ14 = int(silk_LTPScales_table_Q14[ltpScaleIndex])
 	}
-	
+
 	// CRITICAL: Use the quantized gainsQ16 (modified by silkGainsQuantInto) for NSQ!
 	allExcitation := e.computeNSQExcitation(framePCM, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, speechActivityQ8, noiseParams, seed, numSubframes, subframeSamples, frameSamples, e.nsqState)
-	
+
 	e.encodePulses(allExcitation, signalType, quantOffset)
 
 	e.previousGainIndex = int32(newPrevInd)
@@ -307,7 +307,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	e.rangeEncoder.PatchInitialBits(flags, 2)
 
 	raw := e.rangeEncoder.Done()
-	
+
 	result := make([]byte, len(raw))
 	copy(result, raw)
 	e.rangeEncoder = nil
@@ -499,21 +499,25 @@ func (e *Encoder) EncodePacketWithFEC(pcm []float32, lookahead []float32, vadFla
 }
 
 func (e *Encoder) encodeFrameType(vadFlag bool, signalType, quantOffset int) {
-	if !vadFlag {
-		e.rangeEncoder.EncodeICDF16(0, ICDFFrameTypeVADActive, 8)
+	typeOffset := 2*signalType + quantOffset
+	if vadFlag {
+		if typeOffset < 2 {
+			typeOffset = 2
+		}
+		if typeOffset > 5 {
+			typeOffset = 5
+		}
+		e.rangeEncoder.EncodeICDF16(typeOffset-2, ICDFFrameTypeVADActive, 8)
 		return
 	}
-	if signalType < 1 {
-		signalType = 1
+	// VAD inactive uses a dedicated 2-symbol table (typeOffset 0 or 1).
+	if typeOffset < 0 {
+		typeOffset = 0
 	}
-	idx := (signalType-1)*2 + quantOffset
-	if idx < 0 {
-		idx = 0
+	if typeOffset > 1 {
+		typeOffset = 1
 	}
-	if idx > 3 {
-		idx = 3
-	}
-	e.rangeEncoder.EncodeICDF16(idx, ICDFFrameTypeVADActive, 8)
+	e.rangeEncoder.EncodeICDF16(typeOffset, ICDFFrameTypeVADInactive, 8)
 }
 
 func (e *Encoder) quantizePCMToInt16(pcm []float32) []float32 {
