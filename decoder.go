@@ -79,6 +79,9 @@ type Decoder struct {
 
 	// Scratch range decoder to avoid per-frame heap allocations
 	scratchRangeDecoder rangecoding.Decoder
+
+	// Soft clipping memory (float decode uses none; int16 decode uses this)
+	softClipMem [2]float32
 }
 
 // NewDecoder creates a new Opus decoder.
@@ -568,6 +571,7 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 		if err != nil {
 			return 0, err
 		}
+		opusPCMSoftClip(d.scratchPCM[:n*d.channels], n, d.channels, d.softClipMem[:])
 		for i := 0; i < n*d.channels; i++ {
 			pcm[i] = float32ToInt16(d.scratchPCM[i])
 		}
@@ -595,6 +599,7 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	opusPCMSoftClip(d.scratchPCM[:n*d.channels], n, d.channels, d.softClipMem[:])
 	for i := 0; i < n*d.channels; i++ {
 		pcm[i] = float32ToInt16(d.scratchPCM[i])
 	}
@@ -637,6 +642,8 @@ func (d *Decoder) Reset() {
 	d.prevRedundancy = false
 	d.prevPacketStereo = false
 	d.haveDecoded = false
+	d.softClipMem[0] = 0
+	d.softClipMem[1] = 0
 
 	// Clear FEC state
 	d.hasFEC = false
@@ -664,6 +671,24 @@ func (d *Decoder) GetCELTDecoder() *celt.Decoder {
 // This allows access to internal state like resampler state and sMid buffer.
 func (d *Decoder) GetSILKDecoder() *silk.Decoder {
 	return d.silkDecoder
+}
+
+// DebugPrevMode returns the previous decode mode (SILK/Hybrid/CELT).
+// This is intended for testing/debugging parity with libopus.
+func (d *Decoder) DebugPrevMode() Mode {
+	return d.prevMode
+}
+
+// DebugPrevRedundancy reports whether the previous frame used CELT redundancy.
+// This is intended for testing/debugging parity with libopus.
+func (d *Decoder) DebugPrevRedundancy() bool {
+	return d.prevRedundancy
+}
+
+// DebugPrevPacketStereo returns the last packet's stereo flag.
+// This is intended for testing/debugging parity with libopus.
+func (d *Decoder) DebugPrevPacketStereo() bool {
+	return d.prevPacketStereo
 }
 
 // FinalRange returns the final range coder state after decoding.

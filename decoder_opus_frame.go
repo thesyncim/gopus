@@ -315,6 +315,11 @@ func (d *Decoder) decodeOpusFrameInto(
 		if data != nil {
 			if packetStereoLocal && d.channels == 2 && !d.prevPacketStereo {
 				d.silkDecoder.ResetSideChannel()
+				leftResampler := d.silkDecoder.GetResampler(silkBW)
+				rightResampler := d.silkDecoder.GetResamplerRightChannel(silkBW)
+				if rightResampler != nil && leftResampler != nil {
+					rightResampler.CopyFrom(leftResampler)
+				}
 			}
 			switch {
 			case packetStereoLocal && d.channels == 2:
@@ -357,6 +362,11 @@ func (d *Decoder) decodeOpusFrameInto(
 		} else {
 			if packetStereoLocal && d.channels == 2 && !d.prevPacketStereo {
 				d.silkDecoder.ResetSideChannel()
+				leftResampler := d.silkDecoder.GetResampler(silkBW)
+				rightResampler := d.silkDecoder.GetResamplerRightChannel(silkBW)
+				if rightResampler != nil && leftResampler != nil {
+					rightResampler.CopyFrom(leftResampler)
+				}
 			}
 			switch {
 			case packetStereoLocal && d.channels == 2:

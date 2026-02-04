@@ -900,6 +900,12 @@ int test_decode_float(OpusDecoder* dec, const unsigned char *data, int data_len,
     return opus_decode_float(dec, data, data_len, pcm_out, max_samples, 0);
 }
 
+// Decode a single packet to int16 with persistent decoder state
+int test_decode_int16(OpusDecoder* dec, const unsigned char *data, int data_len,
+                      opus_int16 *pcm_out, int max_samples) {
+    return opus_decode(dec, data, data_len, pcm_out, max_samples, 0);
+}
+
 // MDCT/IMDCT test functions using internal libopus modes
 #include "modes.h"
 #include "mdct.h"
@@ -2487,7 +2493,8 @@ func VorbisWindow(i, overlap int) float32 {
 
 // LibopusDecoder wraps an opus decoder for comparison tests.
 type LibopusDecoder struct {
-	dec *C.OpusDecoder
+	dec      *C.OpusDecoder
+	channels int
 }
 
 // NewLibopusDecoder creates a new libopus decoder.
@@ -2497,7 +2504,7 @@ func NewLibopusDecoder(sampleRate, channels int) (*LibopusDecoder, error) {
 	if err != 0 || dec == nil {
 		return nil, nil // Return nil to indicate failure
 	}
-	return &LibopusDecoder{dec: dec}, nil
+	return &LibopusDecoder{dec: dec, channels: channels}, nil
 }
 
 // Destroy frees the decoder resources.
@@ -2529,11 +2536,36 @@ func (d *LibopusDecoder) DecodeFloat(data []byte, maxSamples int) ([]float32, in
 		return nil, -1
 	}
 
-	pcm := make([]float32, maxSamples*2) // stereo
+	ch := d.channels
+	if ch <= 0 {
+		ch = 2
+	}
+	pcm := make([]float32, maxSamples*ch)
 	cData := (*C.uchar)(unsafe.Pointer(&data[0]))
 	cPcm := (*C.float)(unsafe.Pointer(&pcm[0]))
 
 	samples := int(C.test_decode_float(d.dec, cData, C.int(len(data)), cPcm, C.int(maxSamples)))
+	if samples < 0 {
+		return nil, samples
+	}
+	return pcm, samples
+}
+
+// DecodeInt16 decodes a packet to int16 samples.
+func (d *LibopusDecoder) DecodeInt16(data []byte, maxSamples int) ([]int16, int) {
+	if d.dec == nil || len(data) == 0 {
+		return nil, -1
+	}
+
+	ch := d.channels
+	if ch <= 0 {
+		ch = 2
+	}
+	pcm := make([]int16, maxSamples*ch)
+	cData := (*C.uchar)(unsafe.Pointer(&data[0]))
+	cPcm := (*C.opus_int16)(unsafe.Pointer(&pcm[0]))
+
+	samples := int(C.test_decode_int16(d.dec, cData, C.int(len(data)), cPcm, C.int(maxSamples)))
 	if samples < 0 {
 		return nil, samples
 	}
