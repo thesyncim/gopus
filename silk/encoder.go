@@ -199,6 +199,18 @@ type Encoder struct {
 	scratchGainsQ16Enc []int32   // encodeSubframeGains: gains in Q16
 	scratchGainInd     []int8    // silkGainsQuant: gain indices
 
+	// Rate control loop scratch buffers
+	scratchRangeEncoderCopy  rangecoding.EncoderState
+	scratchRangeEncoderCopy2 rangecoding.EncoderState
+	scratchNSQCopy           *NSQState
+	scratchNSQCopy2          *NSQState
+	scratchEcBufCopy         []byte
+
+	// Bit reservoir and rate control state (libopus parity)
+	nBitsExceeded int // Bits produced in excess of target
+	maxBits       int // Maximum bits allowed for current frame
+	useVBR        bool
+
 	// Output buffer scratch (standalone SILK mode)
 	scratchOutput       []byte              // EncodeFrame: range encoder output
 	scratchRangeEncoder rangecoding.Encoder // EncodeFrame: reusable range encoder
@@ -622,8 +634,14 @@ func (e *Encoder) SetBitrate(bitrate int) {
 	e.targetRateBps = bitrate
 }
 
+// SetMaxBits sets the maximum number of bits allowed for the current frame.
+func (e *Encoder) SetMaxBits(maxBits int) {
+	e.maxBits = maxBits
+}
+
 // SetVBR enables or disables variable bitrate mode.
 func (e *Encoder) SetVBR(vbr bool) {
+	e.useVBR = vbr
 	e.useCBR = !vbr
 }
 

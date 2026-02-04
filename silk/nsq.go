@@ -79,6 +79,49 @@ func NewNSQState() *NSQState {
 	return state
 }
 
+// Clone creates a deep copy of the NSQ state.
+func (s *NSQState) Clone() *NSQState {
+	c := &NSQState{
+		lagPrev:     s.lagPrev,
+		sLTPBufIdx:  s.sLTPBufIdx,
+		sLTPShpBufIdx: s.sLTPShpBufIdx,
+		randSeed:    s.randSeed,
+		prevGainQ16: s.prevGainQ16,
+		rewhiteFlag: s.rewhiteFlag,
+	}
+	copy(c.xq[:], s.xq[:])
+	copy(c.sLTPShpQ14[:], s.sLTPShpQ14[:])
+	copy(c.sLPCQ14[:], s.sLPCQ14[:])
+	copy(c.sAR2Q14[:], s.sAR2Q14[:])
+	c.sLFARShpQ14 = s.sLFARShpQ14
+	c.sDiffShpQ14 = s.sDiffShpQ14
+
+	// Don't need to copy scratch buffers as they are transient per call
+	c.scratchPulses = make([]int8, len(s.scratchPulses))
+	c.scratchXq = make([]int16, len(s.scratchXq))
+	c.scratchSLTPQ15 = make([]int32, len(s.scratchSLTPQ15))
+	c.scratchSLTP = make([]int16, len(s.scratchSLTP))
+	c.scratchXScQ10 = make([]int32, len(s.scratchXScQ10))
+
+	return c
+}
+
+// RestoreFrom copies state from another NSQState.
+func (s *NSQState) RestoreFrom(other *NSQState) {
+	s.lagPrev = other.lagPrev
+	s.sLTPBufIdx = other.sLTPBufIdx
+	s.sLTPShpBufIdx = other.sLTPShpBufIdx
+	s.randSeed = other.randSeed
+	s.prevGainQ16 = other.prevGainQ16
+	s.rewhiteFlag = other.rewhiteFlag
+	copy(s.xq[:], other.xq[:])
+	copy(s.sLTPShpQ14[:], other.sLTPShpQ14[:])
+	copy(s.sLPCQ14[:], other.sLPCQ14[:])
+	copy(s.sAR2Q14[:], other.sAR2Q14[:])
+	s.sLFARShpQ14 = other.sLFARShpQ14
+	s.sDiffShpQ14 = other.sDiffShpQ14
+}
+
 // Reset clears the NSQ state for a new stream.
 func (s *NSQState) Reset() {
 	for i := range s.xq {

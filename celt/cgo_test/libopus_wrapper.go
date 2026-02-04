@@ -24,7 +24,7 @@ package cgo
 #include "silk/macros.h"
 
 // Toggle libopus debug range tracing (prints to stderr when enabled)
-int opus_debug_range = 0;
+extern int opus_debug_range;
 void opus_set_debug_range(int v) {
     opus_debug_range = v;
 }

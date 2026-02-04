@@ -394,24 +394,74 @@ func (e *Encoder) Bitrate() int {
 	return e.bitrate
 }
 
-// computePacketSize determines target packet size based on mode.
-func (e *Encoder) computePacketSize(frameSize int) int {
-	target := targetBytesForBitrate(e.bitrate, frameSize)
+// computeEquivRate calculates the equivalent bitrate based on frame rate, VBR mode,
+// complexity, and packet loss. Matches libopus compute_equiv_rate().
+func (e *Encoder) computeEquivRate(bitrate int, channels int, frameRate int, vbr bool, actualMode Mode, complexity int, loss int) int {
+	equiv := bitrate
 
-	switch e.bitrateMode {
-	case ModeVBR:
-		// No size constraint
-		return 0 // 0 means unlimited
-
-	case ModeCVBR:
-		// Return target as hint; actual size can vary by CVBRTolerance
-		return target
-
-	case ModeCBR:
-		// Return exact target
-		return target
+	// Take into account overhead from smaller frames.
+	if frameRate > 50 {
+		equiv -= (40*channels + 20) * (frameRate - 50)
 	}
-	return 0
+
+	// CBR is about a 8% penalty for both SILK and CELT.
+	if !vbr {
+		equiv -= equiv / 12
+	}
+
+	// Complexity makes about 10% difference (from 0 to 10) in general.
+	equiv = (equiv * (90 + complexity)) / 100
+
+	if actualMode == ModeSILK || actualMode == ModeHybrid {
+		// SILK complexity 0-1 uses the non-delayed-decision NSQ, which costs about 20%.
+		if complexity < 2 {
+			equiv = (equiv * 4) / 5
+		}
+		// Adjust for packet loss
+		if loss > 0 {
+			equiv -= (equiv * loss) / (6*loss + 10)
+		}
+	} else if actualMode == ModeCELT {
+		// CELT complexity 0-4 doesn't have the pitch filter, which costs about 10%.
+		if complexity < 5 {
+			equiv = (equiv * 9) / 10
+		}
+	}
+
+	if equiv < 5000 {
+		equiv = 5000
+	}
+	return equiv
+}
+
+func bitrateToBits(bitrate int, frameSize int) int {
+	return (bitrate * frameSize) / 48000
+}
+
+func bitsToBitrate(bits int, frameSize int) int {
+	return (bits * 48000) / frameSize
+}
+
+// computePacketSize determines target packet size based on mode.
+func (e *Encoder) computePacketSize(frameSize int, actualMode Mode) int {
+	frameRate := 48000 / frameSize
+	vbr := e.bitrateMode != ModeCBR
+	equivRate := e.computeEquivRate(e.bitrate, e.channels, frameRate, vbr, actualMode, e.complexity, e.packetLoss)
+
+	if e.bitrateMode == ModeVBR {
+		if actualMode == ModeSILK {
+			// bits_target = bitrate_to_bits(...) - 8 (TOC)
+			bitsTarget := bitrateToBits(equivRate, frameSize) - 8
+			if bitsTarget < 0 {
+				bitsTarget = 0
+			}
+			// Convert back to bitrate for SILK sub-encoder TargetRate_bps
+			return bitsToBitrate(bitsTarget, frameSize)
+		}
+		return 0 // CELT handles its own VBR
+	}
+
+	return e.bitrate
 }
 
 // Encode encodes a frame of PCM audio to an Opus packet.
@@ -461,22 +511,6 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	// content starts after frame
 	lookaheadSlice := e.inputBuffer[frameEnd : frameEnd+lookaheadSamples]
 
-	// Apply DC rejection filter matching libopus.
-	// Note: We apply it to the *extracted frame* only.
-	// Since state is preserved, this is continuous.
-	// Wait: We must also filter the lookahead if it's used for analysis?
-	// Actually, dcReject updates filter state. If we filter the frame, state advances.
-	// Next time, the current lookahead becomes the frame, and we filter it then.
-	// This is correct for the frame signal path.
-	// For pitch analysis (which uses lookahead), using unfiltered lookahead is probably fine
-	// or we could filter it temporarily. libopus filters everything at entry.
-	// Given we only filter the frame here, the lookahead is "raw".
-	// Ideally we should filter the input buffer on arrival?
-	// Yes, filtering 'pcm' on arrival is cleaner.
-	// But 'dcReject' method signature might need adjustment or we just filter pcm here.
-	// Let's filter 'pcm' before appending to buffer. This ensures consistency.
-	// Move dcReject call to BEFORE append. (See below)
-
 	// Check DTX mode - suppress frames during silence
 	suppressFrame, sendComfortNoise := e.shouldUseDTX(framePCM)
 	if suppressFrame {
@@ -495,6 +529,18 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		signalHint = e.autoSignalFromPCM(framePCM, frameSize)
 	}
 	actualMode := e.selectMode(frameSize, signalHint)
+
+	// Determine bit budget for this frame (libopus parity)
+	targetBitrate := e.computePacketSize(frameSize, actualMode)
+	if actualMode == ModeSILK {
+		e.ensureSILKEncoder()
+		// maxBits = bits_target = bitrate_to_bits(bitrate) - 8
+		bitsTarget := bitrateToBits(targetBitrate, frameSize) - 8
+		if bitsTarget < 0 {
+			bitsTarget = 0
+		}
+		e.silkEncoder.SetMaxBits(bitsTarget)
+	}
 
 	// Route to appropriate encoder (returns raw frame data without TOC)
 	var frameData []byte
@@ -528,7 +574,6 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	}
 	packet := e.scratchPacket[:packetLen]
 
-	// Apply bitrate mode constraints
 	return packet, nil
 }
 
@@ -890,6 +935,12 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 	}
 	e.silkEncoder.SetFEC(e.fecEnabled)
 	e.silkEncoder.SetPacketLoss(e.packetLoss)
+
+	// Set maxBits for SILK rate control loop
+	targetBytes := targetBytesForBitrate(e.bitrate, frameSize)
+	if targetBytes > 0 {
+		e.silkEncoder.SetMaxBits((targetBytes - 1) * 8)
+	}
 
 	// Propagate bitrate mode to SILK encoder
 	switch e.bitrateMode {

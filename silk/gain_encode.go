@@ -5,6 +5,16 @@ import "math"
 // Gain encoding matching libopus silk/encode_indices.c and silk/gain_quant.c
 // Implements proper delta coding with double step size for large gains.
 
+// silkGainsQuant quantizes gains using libopus algorithm.
+func (e *Encoder) silkGainsQuant(ind []int8, gainQ16 []int32, signalType int, numSubframes int, condCoding int) {
+	conditional := condCoding == codeConditionally
+	newPrevInd := silkGainsQuantInto(ind, gainQ16, int8(e.previousGainIndex), conditional, numSubframes)
+
+	// Update state
+	e.previousGainIndex = int32(newPrevInd)
+	e.previousLogGain = int32(newPrevInd)
+}
+
 // encodeSubframeGains quantizes and encodes gains for all subframes.
 // First subframe: absolute (MSB + LSB) if first frame, delta-coded if subsequent frame.
 // Subsequent subframes: always delta-coded.
