@@ -159,3 +159,136 @@ func TestSilkDecodeCoreCompareFrame2(t *testing.T) {
 		}
 	}
 }
+
+// TestSilkDecodeCoreCompareVector02Packet2Frame0 compares Go vs libopus core for packet 2, frame 0.
+func TestSilkDecodeCoreCompareVector02Packet2Frame0(t *testing.T) {
+	bitFile := "../testvectors/testdata/opus_testvectors/testvector02.bit"
+	packets := loadPacketsForCoreCompare(t, bitFile, 3)
+	if len(packets) < 3 {
+		t.Skip("not enough packets")
+	}
+
+	dec := NewDecoder()
+
+	// Decode packets 0 and 1 to set state.
+	for i := 0; i < 2; i++ {
+		pkt := packets[i]
+		config := pkt[0] >> 3
+		if config >= 12 {
+			t.Skip("not SILK")
+		}
+		bwGroup := config / 4
+		var bw Bandwidth
+		switch bwGroup {
+		case 0:
+			bw = BandwidthNarrowband
+		case 1:
+			bw = BandwidthMediumband
+		case 2:
+			bw = BandwidthWideband
+		default:
+			t.Fatalf("unexpected bandwidth group: %d", bwGroup)
+		}
+		frameSize := []int{480, 960, 1920, 2880}[config%4]
+		duration := FrameDurationFromTOC(frameSize)
+		var rd rangecoding.Decoder
+		rd.Init(pkt[1:])
+		if _, err := dec.DecodeFrameRaw(&rd, bw, duration, true); err != nil {
+			t.Fatalf("packet %d decode failed: %v", i, err)
+		}
+	}
+
+	// Now manually decode packet 2 frame 0 and compare core outputs.
+	pkt := packets[2]
+	config := pkt[0] >> 3
+	if config >= 12 {
+		t.Skip("not SILK")
+	}
+	bwGroup := config / 4
+	var bw Bandwidth
+	switch bwGroup {
+	case 0:
+		bw = BandwidthNarrowband
+	case 1:
+		bw = BandwidthMediumband
+	case 2:
+		bw = BandwidthWideband
+	default:
+		t.Fatalf("unexpected bandwidth group: %d", bwGroup)
+	}
+	frameSize := []int{480, 960, 1920, 2880}[config%4]
+	duration := FrameDurationFromTOC(frameSize)
+
+	var rd rangecoding.Decoder
+	rd.Init(pkt[1:])
+
+	configBW := GetBandwidthConfig(bw)
+	fsKHz := configBW.SampleRate / 1000
+	framesPerPacket, nbSubfr, err := frameParams(duration)
+	if err != nil {
+		t.Fatalf("frameParams: %v", err)
+	}
+
+	st := &dec.state[0]
+	st.nFramesDecoded = 0
+	st.nFramesPerPacket = framesPerPacket
+	st.nbSubfr = nbSubfr
+	silkDecoderSetFs(st, fsKHz)
+
+	decodeVADAndLBRRFlags(&rd, st, framesPerPacket)
+	if st.LBRRFlag != 0 {
+		for i := 0; i < framesPerPacket; i++ {
+			if st.LBRRFlags[i] == 0 {
+				continue
+			}
+			condCoding := codeIndependently
+			if i > 0 && st.LBRRFlags[i-1] != 0 {
+				condCoding = codeConditionally
+			}
+			silkDecodeIndices(st, &rd, true, condCoding)
+			pulses := make([]int16, roundUpShellFrame(st.frameLength))
+			silkDecodePulses(&rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength)
+		}
+	}
+
+	// Frame 0
+	frameIndex := st.nFramesDecoded
+	condCoding := codeIndependently
+	if frameIndex > 0 {
+		condCoding = codeConditionally
+	}
+	vad := st.VADFlags[frameIndex] != 0
+	silkDecodeIndices(st, &rd, vad, condCoding)
+	pulses := make([]int16, roundUpShellFrame(st.frameLength))
+	silkDecodePulses(&rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength)
+	var ctrl decoderControl
+	silkDecodeParameters(st, &ctrl, condCoding)
+
+	stCopy := *st
+	ctrlCopy := ctrl
+	frameOut := make([]int16, st.frameLength)
+	silkDecodeCore(&stCopy, &ctrlCopy, frameOut, pulses)
+	outGo := frameOut
+
+	predCoef := make([]int16, 0, 2*maxLPCOrder)
+	predCoef = append(predCoef, ctrl.PredCoefQ12[0][:]...)
+	predCoef = append(predCoef, ctrl.PredCoefQ12[1][:]...)
+
+	outC := cgowrap.SilkDecodeCore(
+		st.fsKHz, st.nbSubfr, st.frameLength, st.subfrLength, st.ltpMemLength, st.lpcOrder,
+		st.prevGainQ16, st.lossCnt, st.prevSignalType,
+		st.indices.signalType, st.indices.quantOffsetType, st.indices.NLSFInterpCoefQ2, st.indices.Seed,
+		st.outBuf[:], st.sLPCQ14Buf[:],
+		ctrl.GainsQ16[:], predCoef, ctrl.LTPCoefQ14[:], ctrl.pitchL[:], ctrl.LTPScaleQ14,
+		pulses,
+	)
+
+	if len(outGo) != len(outC) {
+		t.Fatalf("length mismatch: go=%d c=%d", len(outGo), len(outC))
+	}
+	for i := range outGo {
+		if outGo[i] != outC[i] {
+			t.Fatalf("core mismatch at sample %d: go=%d c=%d", i, outGo[i], outC[i])
+		}
+	}
+}

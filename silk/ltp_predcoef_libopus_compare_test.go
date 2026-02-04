@@ -78,19 +78,22 @@ func TestLTPAnalysisFilterAndBurgMatchLibopus(t *testing.T) {
 		}
 	}
 
-	libA, _ := libopusBurgModified(ltpRes, float32(minInvGain), subfrLen+preLen, nbSubfr, preLen)
-	lpcQ12 := enc.computeLPCFromLTPResidual(ltpRes, nbSubfr, subfrLen)
-	if len(libA) != len(lpcQ12) {
-		t.Fatalf("LPC length mismatch: go=%d lib=%d", len(lpcQ12), len(libA))
+	subfrLenWithOrder := subfrLen + preLen
+	libA, _ := libopusBurgModified(ltpRes, float32(minInvGain), subfrLenWithOrder, nbSubfr, preLen)
+
+	goA, _ := enc.burgModifiedFLPZeroAlloc(f64SliceFromF32(ltpRes), minInvGain, subfrLenWithOrder, nbSubfr, preLen)
+	if len(libA) != len(goA) {
+		t.Fatalf("LPC length mismatch: go=%d lib=%d", len(goA), len(libA))
 	}
-	for i := range lpcQ12 {
+	for i := range goA {
+		goQ12 := float64ToInt16Round(goA[i] * 4096.0)
 		libQ12 := int16(math.Round(float64(libA[i] * 4096.0)))
-		diff := int(lpcQ12[i]) - int(libQ12)
+		diff := int(goQ12) - int(libQ12)
 		if diff < 0 {
 			diff = -diff
 		}
 		if diff > 2 {
-			t.Fatalf("LPC Q12 mismatch at %d: go=%d lib=%d", i, lpcQ12[i], libQ12)
+			t.Fatalf("LPC Q12 mismatch at %d: go=%d lib=%d", i, goQ12, libQ12)
 		}
 	}
 }

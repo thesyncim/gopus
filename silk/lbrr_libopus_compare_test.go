@@ -30,7 +30,7 @@ func TestSilkLBRRIndicesPulsesMatchLibopus(t *testing.T) {
 		pcm1[i] = v
 	}
 
-	_ = enc.EncodePacketWithFEC(pcm0, []bool{true})
+	_ = enc.EncodePacketWithFEC(pcm0, nil, []bool{true})
 	if enc.lbrrFlags[0] == 0 {
 		t.Skip("LBRR not generated for first frame")
 	}
@@ -71,7 +71,7 @@ func TestSilkLBRRIndicesPulsesMatchLibopus(t *testing.T) {
 		}
 	}
 
-	pkt1 := enc.EncodePacketWithFEC(pcm1, []bool{true})
+	pkt1 := enc.EncodePacketWithFEC(pcm1, nil, []bool{true})
 	if len(pkt1) == 0 {
 		t.Fatalf("second packet empty")
 	}

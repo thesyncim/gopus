@@ -197,28 +197,46 @@ func silkDiv32VarQ(a32, b32 int32, q int) int32 {
 	if b32 == 0 {
 		return 0
 	}
-	res := (int64(a32) << q) / int64(b32)
-	if res > 0x7FFFFFFF {
-		return 0x7FFFFFFF
+
+	// Compute number of bits headroom and normalize inputs
+	aHeadrm := silkCLZ32(silkAbs32(a32)) - 1
+	a32Nrm := silkLSHIFT(a32, int(aHeadrm))
+	bHeadrm := silkCLZ32(silkAbs32(b32)) - 1
+	b32Nrm := silkLSHIFT(b32, int(bHeadrm))
+
+	// Inverse of b32, with 14 bits of precision
+	b32Inv := silkDiv32_16(int32(0x7FFFFFFF>>2), int32(b32Nrm>>16))
+
+	// First approximation
+	result := silkSMULWB(a32Nrm, b32Inv)
+
+	// Compute residual (overflow OK)
+	a32Nrm = silkSub32Ovflw(a32Nrm, silkLSHIFTovflw(silkSMMUL(b32Nrm, result), 3))
+
+	// Refinement
+	result = silkSMLAWB(result, a32Nrm, b32Inv)
+
+	// Convert to Qres domain
+	lshift := int(29 + aHeadrm - bHeadrm - int32(q))
+	if lshift < 0 {
+		return silkLShiftSAT32(result, -lshift)
 	}
-	if res < -0x80000000 {
-		return -0x80000000
+	if lshift < 32 {
+		return silkRSHIFT(result, lshift)
 	}
-	return int32(res)
+	return 0
 }
 
 func silkInverse32VarQ(b32 int32, q int) int32 {
-	if b32 == 0 {
-		return 0x7FFFFFFF
-	}
-	res := (int64(1) << q) / int64(b32)
-	if res > 0x7FFFFFFF {
-		return 0x7FFFFFFF
-	}
-	if res < -0x80000000 {
-		return -0x80000000
-	}
-	return int32(res)
+	return silk_INVERSE32_varQ(b32, q)
+}
+
+func silkSub32Ovflw(a, b int32) int32 {
+	return a - b
+}
+
+func silkLSHIFTovflw(a int32, shift int) int32 {
+	return int32(uint32(a) << shift)
 }
 
 func silkCLZ32(x int32) int32 {
