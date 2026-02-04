@@ -4,6 +4,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/thesyncim/gopus/util"
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
@@ -302,13 +303,13 @@ func TestStereoQuantPredDeltaCoding(t *testing.T) {
 	// The quantization step is roughly (max-min)/80 levels
 	maxError := int32(2000) // Allow for quantization error
 
-	if absInt32(reconstructedPred0-originalPred0) > maxError {
+	if util.Abs(reconstructedPred0-originalPred0) > maxError {
 		t.Errorf("reconstructed pred[0] = %d, original = %d, difference = %d exceeds max error %d",
-			reconstructedPred0, originalPred0, absInt32(reconstructedPred0-originalPred0), maxError)
+			reconstructedPred0, originalPred0, util.Abs(reconstructedPred0-originalPred0), maxError)
 	}
-	if absInt32(predQ13[1]-originalPred1) > maxError {
+	if util.Abs(predQ13[1]-originalPred1) > maxError {
 		t.Errorf("quantized pred[1] = %d, original = %d, difference = %d exceeds max error %d",
-			predQ13[1], originalPred1, absInt32(predQ13[1]-originalPred1), maxError)
+			predQ13[1], originalPred1, util.Abs(predQ13[1]-originalPred1), maxError)
 	}
 }
 

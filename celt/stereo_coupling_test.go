@@ -636,7 +636,7 @@ func TestThetaQ30ExtendedPrecision(t *testing.T) {
 	// Q30 difference should be at least 65536 times the standard difference (on average)
 	// but due to rounding, just verify Q30 captures more detail
 	t.Logf("Standard diff: %d, Q30 diff: %d, ratio: %.2f",
-		standardDiff, q30Diff, float64(q30Diff)/float64(maxInt(1, standardDiff)))
+		standardDiff, q30Diff, float64(q30Diff)/float64(max(1, standardDiff)))
 
 	// Both should produce valid values
 	if ithetaQ30_1 < 0 || ithetaQ30_1 > 1<<30 {

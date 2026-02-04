@@ -6,13 +6,6 @@ import (
 	"github.com/thesyncim/gopus/silk"
 )
 
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 // smoothFade applies a libopus-style crossfade using the CELT window.
 func smoothFade(in1, in2, out []float32, overlap, channels, sampleRate int) {
 	if overlap <= 0 || channels <= 0 || sampleRate <= 0 {
@@ -28,7 +21,7 @@ func smoothFade(in1, in2, out []float32, overlap, channels, sampleRate int) {
 	}
 	maxSamples := overlap * channels
 	if len(out) < maxSamples || len(in1) < maxSamples || len(in2) < maxSamples {
-		maxSamples = minInt(len(out), minInt(len(in1), len(in2)))
+		maxSamples = min(len(out), min(len(in1), len(in2)))
 		overlap = maxSamples / channels
 	}
 	for c := 0; c < channels; c++ {
@@ -100,12 +93,12 @@ func (d *Decoder) decodeOpusFrameInto(
 	}
 
 	maxFrame := fs / 25 * 3
-	frameSize = minInt(frameSize, maxFrame)
+	frameSize = min(frameSize, maxFrame)
 
 	if len(data) <= 1 {
 		data = nil
 		if packetFrameSize > 0 {
-			frameSize = minInt(frameSize, packetFrameSize)
+			frameSize = min(frameSize, packetFrameSize)
 		}
 	}
 
@@ -137,7 +130,7 @@ func (d *Decoder) decodeOpusFrameInto(
 			remaining := audiosize
 			offset := 0
 			for remaining > 0 {
-				chunk := minInt(remaining, F20)
+				chunk := min(remaining, F20)
 				n, err := d.decodeOpusFrameInto(out[offset*d.channels:], nil, chunk, packetFrameSize, mode, bandwidth, packetStereoLocal)
 				if err != nil {
 					return 0, err
@@ -177,7 +170,7 @@ func (d *Decoder) decodeOpusFrameInto(
 		(mode != ModeCELT && d.prevMode == ModeCELT)) {
 		transition = true
 		if mode == ModeCELT {
-			transSize := minInt(F5, audiosize)
+			transSize := min(F5, audiosize)
 			if len(d.scratchTransition) < transSize*d.channels {
 				return 0, ErrBufferTooSmall
 			}
@@ -271,7 +264,7 @@ func (d *Decoder) decodeOpusFrameInto(
 				}
 
 				if transition && !redundancy && len(pcmTransition) == 0 {
-					transSize := minInt(F5, audiosize)
+					transSize := min(F5, audiosize)
 					n, err := d.decodeOpusFrameInto(d.scratchTransition, nil, transSize, packetFrameSize, d.prevMode, d.lastBandwidth, packetStereoLocal)
 					if err != nil {
 						return err
@@ -426,7 +419,7 @@ func (d *Decoder) decodeOpusFrameInto(
 		d.mainDecodeRng = rd.Range()
 
 		if transition && !redundancy && len(pcmTransition) == 0 {
-			transSize := minInt(F5, audiosize)
+			transSize := min(F5, audiosize)
 			n, err := d.decodeOpusFrameInto(d.scratchTransition, nil, transSize, packetFrameSize, d.prevMode, d.lastBandwidth, packetStereoLocal)
 			if err != nil {
 				return 0, err
@@ -441,7 +434,7 @@ func (d *Decoder) decodeOpusFrameInto(
 				d.celtDecoder.SetBandwidth(celtBW)
 			}
 		}
-		samples, err := d.celtDecoder.DecodeFrameWithPacketStereo(data, minInt(F20, frameSize), packetStereoLocal)
+		samples, err := d.celtDecoder.DecodeFrameWithPacketStereo(data, min(F20, frameSize), packetStereoLocal)
 		if err != nil {
 			return 0, err
 		}

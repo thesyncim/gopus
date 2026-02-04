@@ -219,18 +219,3 @@ func computeLogGainIndex(gain float32) int {
 
 	return computeLogGainIndexQ16(gainQ16)
 }
-
-func absInt32(x int32) int32 {
-	if x < 0 {
-		return -x
-	}
-	return x
-}
-
-// absInt returns the absolute value of an integer.
-func absInt(x int) int {
-	if x < 0 {
-		return -x
-	}
-	return x
-}

@@ -1,6 +1,10 @@
 package silk
 
-import "math"
+import (
+	"math"
+
+	"github.com/thesyncim/gopus/util"
+)
 
 // encodePulses encodes quantization indices of excitation for the entire frame.
 // This matches libopus silk_encode_pulses() - encoding ALL pulses at once.
@@ -34,7 +38,7 @@ func (e *Encoder) encodePulses(pulses []int32, signalType, quantOffset int) {
 	// Take absolute value of pulses - use scratch buffer
 	absPulses := ensureIntSlice(&e.scratchAbsPulses, shellLen)
 	for i := 0; i < len(paddedPulses); i++ {
-		absPulses[i] = absInt(int(paddedPulses[i]))
+		absPulses[i] = util.Abs(int(paddedPulses[i]))
 	}
 
 	// Calculate sum pulses per shell block with overflow handling - use scratch buffers
@@ -119,7 +123,7 @@ func (e *Encoder) encodePulses(pulses []int32, signalType, quantOffset int) {
 			offset := i * shellCodecFrameLength
 			nLS := nRshifts[i] - 1
 			for k := 0; k < shellCodecFrameLength; k++ {
-				absQ := absInt(int(paddedPulses[offset+k]))
+				absQ := util.Abs(int(paddedPulses[offset+k]))
 				for j := nLS; j > 0; j-- {
 					bit := (absQ >> j) & 1
 					e.rangeEncoder.EncodeICDF(bit, silk_lsb_iCDF, 8)

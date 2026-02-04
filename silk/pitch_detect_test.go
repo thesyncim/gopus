@@ -3,6 +3,8 @@ package silk
 import (
 	"math"
 	"testing"
+
+	"github.com/thesyncim/gopus/util"
 )
 
 func TestDetectPitchVoicedSignal(t *testing.T) {
@@ -42,7 +44,7 @@ func TestDetectPitchVoicedSignal(t *testing.T) {
 		if errorMargin < 2 {
 			errorMargin = 2
 		}
-		error := absInt(lag - pitchPeriod)
+		error := util.Abs(lag - pitchPeriod)
 		if error > errorMargin {
 			t.Errorf("subframe %d: detected lag %d, expected ~%d (error: %d)", sf, lag, pitchPeriod, error)
 		}
@@ -403,8 +405,8 @@ func TestPitchDetectionAccuracyLibopusStyle(t *testing.T) {
 		// in pitch detection and may be acceptable depending on use case)
 		for sf, lag := range pitchLags {
 			// Check if lag matches fundamental or first harmonic (octave)
-			isFundamental := absInt(lag-pitchPeriod) <= pitchPeriod/10+2
-			isOctave := absInt(lag-2*pitchPeriod) <= pitchPeriod/5+2
+			isFundamental := util.Abs(lag-pitchPeriod) <= pitchPeriod/10+2
+			isOctave := util.Abs(lag-2*pitchPeriod) <= pitchPeriod/5+2
 
 			if !isFundamental && !isOctave {
 				t.Errorf("freq=%dHz: subframe %d: detected lag %d, expected ~%d or ~%d",
@@ -441,7 +443,7 @@ func TestPitchDetectionWithSine(t *testing.T) {
 		if errorMargin < 2 {
 			errorMargin = 2
 		}
-		if absInt(lag-pitchPeriod) > errorMargin {
+		if util.Abs(lag-pitchPeriod) > errorMargin {
 			t.Errorf("sine wave: subframe %d: detected lag %d, expected ~%d",
 				sf, lag, pitchPeriod)
 		}

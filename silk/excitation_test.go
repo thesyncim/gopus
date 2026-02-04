@@ -2,6 +2,8 @@ package silk
 
 import (
 	"testing"
+
+	"github.com/thesyncim/gopus/util"
 )
 
 func TestExcitationOutputLength(t *testing.T) {
@@ -87,7 +89,7 @@ func TestLPCFilterStability(t *testing.T) {
 
 			// Verify coefficients are smaller or equal after limiting
 			for i := range lpcCopy {
-				if absInt16(lpcCopy[i]) > absInt16(tt.lpc[i]) {
+				if util.Abs(lpcCopy[i]) > util.Abs(tt.lpc[i]) {
 					t.Errorf("Coefficient %d increased: %d > %d", i, lpcCopy[i], tt.lpc[i])
 				}
 			}
@@ -175,9 +177,9 @@ func TestLPCSynthesisBasic(t *testing.T) {
 	foundPeak := false
 	peakIdx := 0
 	for i := 1; i < len(output); i++ {
-		if absFloat32(output[i]) > absFloat32(output[i-1]) && !foundPeak {
+		if util.Abs(output[i]) > util.Abs(output[i-1]) && !foundPeak {
 			// Still rising
-		} else if absFloat32(output[i]) < absFloat32(output[peakIdx]) {
+		} else if util.Abs(output[i]) < util.Abs(output[peakIdx]) {
 			foundPeak = true
 			peakIdx = i - 1
 		}
@@ -292,7 +294,7 @@ func TestBandwidthExpansion(t *testing.T) {
 	// (exponential decay due to chirp^k)
 	origCoeffs := []int16{4096, 4096, 4096, 4096, 4096}
 	for i := range lpc {
-		if absInt16(lpc[i]) >= absInt16(origCoeffs[i]) {
+		if util.Abs(lpc[i]) >= util.Abs(origCoeffs[i]) {
 			t.Errorf("Coefficient %d not reduced: %d >= %d", i, lpc[i], origCoeffs[i])
 		}
 		// Later coefficients should be more reduced
@@ -416,20 +418,6 @@ func TestScaleExcitation(t *testing.T) {
 }
 
 // Helper functions
-
-func absInt16(x int16) int16 {
-	if x < 0 {
-		return -x
-	}
-	return x
-}
-
-func absFloat32(x float32) float32 {
-	if x < 0 {
-		return -x
-	}
-	return x
-}
 
 func sumInt32(arr []int32) int64 {
 	var sum int64

@@ -42,7 +42,7 @@ func TestDecodeLibopusPacket(t *testing.T) {
 		t.Fatal("Failed to extract audio packet")
 	}
 	t.Logf("Libopus packet: %d bytes", len(packet))
-	t.Logf("First 20 bytes: % x", packet[:minInt(20, len(packet))])
+	t.Logf("First 20 bytes: % x", packet[:min(20, len(packet))])
 
 	// Decode with our decoder (skip TOC byte)
 	dec := celt.NewDecoder(1)
@@ -105,11 +105,4 @@ func findOggPages(data []byte) []int {
 		}
 	}
 	return pages
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

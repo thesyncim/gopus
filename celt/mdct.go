@@ -242,7 +242,7 @@ func imdctOverlapWithPrevScratch(out []float64, spectrum []float64, prevOverlap 
 	// The IMDCT will overwrite out[overlap/2:...], but the TDAC needs
 	// out[0:overlap/2] from prevOverlap.
 	if overlap > 0 && len(prevOverlap) > 0 {
-		copyLen := minInt(len(prevOverlap), overlap)
+		copyLen := min(len(prevOverlap), overlap)
 		copy(out[:copyLen], prevOverlap[:copyLen])
 	}
 
@@ -386,7 +386,7 @@ func imdctOverlapWithPrevScratchF32(out []float64, spectrum []float64, prevOverl
 
 	// Copy the full prevOverlap to outF32[0:overlap].
 	if overlap > 0 && len(prevOverlap) > 0 {
-		copyLen := minInt(len(prevOverlap), overlap)
+		copyLen := min(len(prevOverlap), overlap)
 		for i := 0; i < copyLen; i++ {
 			outF32[i] = float32(prevOverlap[i])
 		}

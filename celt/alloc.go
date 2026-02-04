@@ -161,7 +161,7 @@ func cltComputeAllocationWithScratch(start, end int, offsets, cap []int, allocTr
 
 	for j := start; j < end; j++ {
 		width := EBands[j+1] - EBands[j]
-		thresh[j] = maxInt(channels<<bitRes, (3*(width<<lm)<<bitRes)>>4)
+		thresh[j] = max(channels<<bitRes, (3*(width<<lm)<<bitRes)>>4)
 		trimOffset[j] = int(int64(channels*width*(allocTrim-5-lm)*(end-j-1)*(1<<(lm+bitRes))) >> 6)
 		if (width << lm) == 1 {
 			trimOffset[j] -= channels << bitRes
@@ -179,12 +179,12 @@ func cltComputeAllocationWithScratch(start, end int, offsets, cap []int, allocTr
 			width := EBands[idx+1] - EBands[idx]
 			bitsj := (channels * width * BandAlloc[mid][idx] << lm) >> 2
 			if bitsj > 0 {
-				bitsj = maxInt(0, bitsj+trimOffset[idx])
+				bitsj = max(0, bitsj+trimOffset[idx])
 			}
 			bitsj += offsets[idx]
 			if bitsj >= thresh[idx] || done != 0 {
 				done = 1
-				psum += minInt(bitsj, cap[idx])
+				psum += min(bitsj, cap[idx])
 			} else if bitsj >= channels<<bitRes {
 				psum += channels << bitRes
 			}
@@ -212,10 +212,10 @@ func cltComputeAllocationWithScratch(start, end int, offsets, cap []int, allocTr
 			bits2j = (channels * width * BandAlloc[hi][j] << lm) >> 2
 		}
 		if bits1j > 0 {
-			bits1j = maxInt(0, bits1j+trimOffset[j])
+			bits1j = max(0, bits1j+trimOffset[j])
 		}
 		if bits2j > 0 {
-			bits2j = maxInt(0, bits2j+trimOffset[j])
+			bits2j = max(0, bits2j+trimOffset[j])
 		}
 		if lo > 0 {
 			bits1j += offsets[j]
@@ -224,7 +224,7 @@ func cltComputeAllocationWithScratch(start, end int, offsets, cap []int, allocTr
 		if offsets[j] > 0 {
 			skipStart = j
 		}
-		bits2j = maxInt(0, bits2j-bits1j)
+		bits2j = max(0, bits2j-bits1j)
 		bits1[j] = bits1j
 		bits2[j] = bits2j
 	}
@@ -256,7 +256,7 @@ func interpBits2Pulses(start, end, skipStart int, bits1, bits2, thresh, cap []in
 			tmp := bits1[idx] + int((int64(mid)*int64(bits2[idx]))>>allocSteps)
 			if tmp >= thresh[idx] || done != 0 {
 				done = 1
-				psum += minInt(tmp, cap[idx])
+				psum += min(tmp, cap[idx])
 			} else if tmp >= allocFloor {
 				psum += allocFloor
 			}
@@ -281,7 +281,7 @@ func interpBits2Pulses(start, end, skipStart int, bits1, bits2, thresh, cap []in
 		} else {
 			done = 1
 		}
-		tmp = minInt(tmp, cap[idx])
+		tmp = min(tmp, cap[idx])
 		bits[idx] = tmp
 		psum += tmp
 	}
@@ -297,11 +297,11 @@ func interpBits2Pulses(start, end, skipStart int, bits1, bits2, thresh, cap []in
 		left := total - psum
 		percoeff := celtUdiv(left, EBands[codedBands]-EBands[start])
 		left -= (EBands[codedBands] - EBands[start]) * percoeff
-		rem := maxInt(left-(EBands[j]-EBands[start]), 0)
+		rem := max(left-(EBands[j]-EBands[start]), 0)
 		bandWidth := EBands[codedBands] - EBands[j]
 		bandBits := bits[j] + percoeff*bandWidth + rem
 
-		if bandBits >= maxInt(thresh[j], allocFloor+(1<<bitRes)) {
+		if bandBits >= max(thresh[j], allocFloor+(1<<bitRes)) {
 			if rd != nil {
 				if rd.DecodeBit(1) == 1 {
 					break
@@ -366,7 +366,7 @@ func interpBits2Pulses(start, end, skipStart int, bits1, bits2, thresh, cap []in
 		bits[j] += percoeff * (EBands[j+1] - EBands[j])
 	}
 	for j := start; j < codedBands; j++ {
-		tmp := minInt(left, EBands[j+1]-EBands[j])
+		tmp := min(left, EBands[j+1]-EBands[j])
 		bits[j] += tmp
 		left -= tmp
 	}
@@ -378,7 +378,7 @@ func interpBits2Pulses(start, end, skipStart int, bits1, bits2, thresh, cap []in
 		bit := bits[j] + bal
 		excess := 0
 		if N > 1 {
-			excess = maxInt(bit-cap[j], 0)
+			excess = max(bit-cap[j], 0)
 			bits[j] = bit - excess
 
 			den := channels * N
@@ -396,23 +396,23 @@ func interpBits2Pulses(start, end, skipStart int, bits1, bits2, thresh, cap []in
 				offset += NClogN >> 3
 			}
 
-			ebits[j] = maxInt(0, bits[j]+offset+(den<<(bitRes-1)))
+			ebits[j] = max(0, bits[j]+offset+(den<<(bitRes-1)))
 			ebits[j] = celtUdiv(ebits[j], den) >> bitRes
 			if channels*ebits[j] > (bits[j] >> bitRes) {
 				ebits[j] = bits[j] >> stereo >> bitRes
 			}
-			ebits[j] = minInt(ebits[j], maxFineBits)
+			ebits[j] = min(ebits[j], maxFineBits)
 			finePriority[j] = boolToInt(ebits[j]*(den<<bitRes) >= bits[j]+offset)
 			bits[j] -= channels * ebits[j] << bitRes
 		} else {
-			excess = maxInt(0, bit-(channels<<bitRes))
+			excess = max(0, bit-(channels<<bitRes))
 			bits[j] = bit - excess
 			ebits[j] = 0
 			finePriority[j] = 1
 		}
 
 		if excess > 0 {
-			extraFine := minInt(excess>>(stereo+bitRes), maxFineBits-ebits[j])
+			extraFine := min(excess>>(stereo+bitRes), maxFineBits-ebits[j])
 			ebits[j] += extraFine
 			extraBits := extraFine * channels << bitRes
 			finePriority[j] = boolToInt(extraBits >= excess-bal)
@@ -485,20 +485,6 @@ func InitCapsForHybrid(nbBands, lm, channels, startBand int) []int {
 		caps[i] = 0
 	}
 	return caps
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // ComputeAllocationWithEncoder computes bit allocation in Q3 and encodes the stereo params
@@ -682,7 +668,7 @@ func cltComputeAllocationEncode(re *rangecoding.Encoder, start, end int, offsets
 
 	for j := start; j < end; j++ {
 		width := EBands[j+1] - EBands[j]
-		thresh[j] = maxInt(channels<<bitRes, (3*(width<<lm)<<bitRes)>>4)
+		thresh[j] = max(channels<<bitRes, (3*(width<<lm)<<bitRes)>>4)
 		trimOffset[j] = int(int64(channels*width*(allocTrim-5-lm)*(end-j-1)*(1<<(lm+bitRes))) >> 6)
 		if (width << lm) == 1 {
 			trimOffset[j] -= channels << bitRes
@@ -700,12 +686,12 @@ func cltComputeAllocationEncode(re *rangecoding.Encoder, start, end int, offsets
 			width := EBands[idx+1] - EBands[idx]
 			bitsj := (channels * width * BandAlloc[mid][idx] << lm) >> 2
 			if bitsj > 0 {
-				bitsj = maxInt(0, bitsj+trimOffset[idx])
+				bitsj = max(0, bitsj+trimOffset[idx])
 			}
 			bitsj += offsets[idx]
 			if bitsj >= thresh[idx] || done != 0 {
 				done = 1
-				psum += minInt(bitsj, cap[idx])
+				psum += min(bitsj, cap[idx])
 			} else if bitsj >= channels<<bitRes {
 				psum += channels << bitRes
 			}
@@ -733,10 +719,10 @@ func cltComputeAllocationEncode(re *rangecoding.Encoder, start, end int, offsets
 			bits2j = (channels * width * BandAlloc[hi][j] << lm) >> 2
 		}
 		if bits1j > 0 {
-			bits1j = maxInt(0, bits1j+trimOffset[j])
+			bits1j = max(0, bits1j+trimOffset[j])
 		}
 		if bits2j > 0 {
-			bits2j = maxInt(0, bits2j+trimOffset[j])
+			bits2j = max(0, bits2j+trimOffset[j])
 		}
 		if lo > 0 {
 			bits1j += offsets[j]
@@ -745,7 +731,7 @@ func cltComputeAllocationEncode(re *rangecoding.Encoder, start, end int, offsets
 		if offsets[j] > 0 {
 			skipStart = j
 		}
-		bits2j = maxInt(0, bits2j-bits1j)
+		bits2j = max(0, bits2j-bits1j)
 		bits1[j] = bits1j
 		bits2[j] = bits2j
 	}
@@ -786,7 +772,7 @@ func interpBits2PulsesEncode(re *rangecoding.Encoder, start, end, skipStart int,
 			tmp := bits1[idx] + int((int64(mid)*int64(bits2[idx]))>>allocSteps)
 			if tmp >= thresh[idx] || done != 0 {
 				done = 1
-				psum += minInt(tmp, cap[idx])
+				psum += min(tmp, cap[idx])
 			} else if tmp >= allocFloor {
 				psum += allocFloor
 			}
@@ -811,7 +797,7 @@ func interpBits2PulsesEncode(re *rangecoding.Encoder, start, end, skipStart int,
 		} else {
 			done = 1
 		}
-		tmp = minInt(tmp, cap[idx])
+		tmp = min(tmp, cap[idx])
 		bits[idx] = tmp
 		psum += tmp
 	}
@@ -827,11 +813,11 @@ func interpBits2PulsesEncode(re *rangecoding.Encoder, start, end, skipStart int,
 		left := total - psum
 		percoeff := celtUdiv(left, EBands[codedBands]-EBands[start])
 		left -= (EBands[codedBands] - EBands[start]) * percoeff
-		rem := maxInt(left-(EBands[j]-EBands[start]), 0)
+		rem := max(left-(EBands[j]-EBands[start]), 0)
 		bandWidth := EBands[codedBands] - EBands[j]
 		bandBits := bits[j] + percoeff*bandWidth + rem
 
-		if bandBits >= maxInt(thresh[j], allocFloor+(1<<bitRes)) {
+		if bandBits >= max(thresh[j], allocFloor+(1<<bitRes)) {
 			// Compute the skip/keep decision (same logic whether encoding or not)
 			// Match libopus exactly:
 			//   if (codedBands<=start+2 || (band_bits > (depth_threshold*band_width<<LM<<BITRES)>>4 && j<=signalBandwidth))
@@ -916,7 +902,7 @@ func interpBits2PulsesEncode(re *rangecoding.Encoder, start, end, skipStart int,
 		bits[j] += percoeff * (EBands[j+1] - EBands[j])
 	}
 	for j := start; j < codedBands; j++ {
-		tmp := minInt(left, EBands[j+1]-EBands[j])
+		tmp := min(left, EBands[j+1]-EBands[j])
 		bits[j] += tmp
 		left -= tmp
 	}
@@ -928,7 +914,7 @@ func interpBits2PulsesEncode(re *rangecoding.Encoder, start, end, skipStart int,
 		bit := bits[j] + bal
 		excess := 0
 		if N > 1 {
-			excess = maxInt(bit-cap[j], 0)
+			excess = max(bit-cap[j], 0)
 			bits[j] = bit - excess
 
 			den := channels * N
@@ -946,23 +932,23 @@ func interpBits2PulsesEncode(re *rangecoding.Encoder, start, end, skipStart int,
 				offset += NClogN >> 3
 			}
 
-			ebits[j] = maxInt(0, bits[j]+offset+(den<<(bitRes-1)))
+			ebits[j] = max(0, bits[j]+offset+(den<<(bitRes-1)))
 			ebits[j] = celtUdiv(ebits[j], den) >> bitRes
 			if channels*ebits[j] > (bits[j] >> bitRes) {
 				ebits[j] = bits[j] >> stereo >> bitRes
 			}
-			ebits[j] = minInt(ebits[j], maxFineBits)
+			ebits[j] = min(ebits[j], maxFineBits)
 			finePriority[j] = boolToInt(ebits[j]*(den<<bitRes) >= bits[j]+offset)
 			bits[j] -= channels * ebits[j] << bitRes
 		} else {
-			excess = maxInt(0, bit-(channels<<bitRes))
+			excess = max(0, bit-(channels<<bitRes))
 			bits[j] = bit - excess
 			ebits[j] = 0
 			finePriority[j] = 1
 		}
 
 		if excess > 0 {
-			extraFine := minInt(excess>>(stereo+bitRes), maxFineBits-ebits[j])
+			extraFine := min(excess>>(stereo+bitRes), maxFineBits-ebits[j])
 			ebits[j] += extraFine
 			extraBits := extraFine * channels << bitRes
 			finePriority[j] = boolToInt(extraBits >= excess-bal)

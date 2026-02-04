@@ -227,7 +227,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		return
 	}
 
-	alphaE := 1.0 / float32(minIntAnalysis(25, 1+s.Count))
+	alphaE := 1.0 / float32(min(25, 1+s.Count))
 
 	var out [480]complex64
 	// Use 480 samples from InMem for FFT
@@ -287,7 +287,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	info.Activity = alphaE*frameProbs[1] + (1-alphaE)*info.Activity
 
 	s.WritePos = (s.WritePos + 1) % DetectSize
-	s.Count = minIntAnalysis(s.Count+1, 10000)
+	s.Count = min(s.Count+1, 10000)
 	s.ECount = (s.ECount + 1) % NbFrames
 }
 
@@ -300,11 +300,4 @@ func (s *TonalityAnalysisState) RunAnalysis(pcm []float32, frameSize int, channe
 func (s *TonalityAnalysisState) GetInfo() AnalysisInfo {
 	readPos := (s.WritePos + DetectSize - 1) % DetectSize
 	return s.Info[readPos]
-}
-
-func minIntAnalysis(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

@@ -1,10 +1,5 @@
 package celt
 
-// ExportedOpPVQSearch exposes opPVQSearch for testing.
-func ExportedOpPVQSearch(x []float64, k int) ([]int, float64) {
-	return opPVQSearch(x, k)
-}
-
 // BitsToPulsesExport exposes bitsToPulses for testing.
 func BitsToPulsesExport(band, lm, bitsQ3 int) int {
 	return bitsToPulses(band, lm, bitsQ3)
@@ -25,7 +20,7 @@ func ExpRotationExport(x []float64, length, dir, stride, k, spread int) {
 	expRotation(x, length, dir, stride, k, spread)
 }
 
-// OpPVQSearchExport exposes opPVQSearch for testing (same as ExportedOpPVQSearch).
+// OpPVQSearchExport exposes opPVQSearch for testing.
 func OpPVQSearchExport(x []float64, k int) ([]int, float64) {
 	return opPVQSearch(x, k)
 }

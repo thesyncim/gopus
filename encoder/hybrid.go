@@ -794,23 +794,6 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, lookahead []float32, sil
 	re.PatchInitialBits(flagsCombined, uint(nBitsHeader*2))
 }
 
-
-// min returns the smaller of two ints.
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-// maxInt returns the larger of two ints.
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 // computeEquivRate computes libopus-style equivalent bitrate for stereo width decisions.
 func computeEquivRate(bitrate, channels, frameRate int, vbr bool, mode Mode, complexity int, loss int) int {
 	equiv := bitrate
@@ -1181,7 +1164,7 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 	)
 	prevCoded := e.celtEncoder.LastCodedBands()
 	if prevCoded != 0 {
-		coded := maxInt(prevCoded-1, allocResult.CodedBands)
+		coded := max(prevCoded-1, allocResult.CodedBands)
 		coded = min(prevCoded+1, coded)
 		e.celtEncoder.SetLastCodedBands(coded)
 	} else {

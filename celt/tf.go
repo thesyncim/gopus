@@ -3,6 +3,7 @@ package celt
 import (
 	"math"
 
+	"github.com/thesyncim/gopus/util"
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
@@ -258,7 +259,7 @@ func TFAnalysis(X []float64, N0, nbEBands int, isTransient bool, lm int, tfEstim
 	// Higher lambda = more expensive to change TF resolution between bands
 	lambda := 80
 	if effectiveBytes > 0 {
-		lambda = maxInt(80, 20480/effectiveBytes+2)
+		lambda = max(80, 20480/effectiveBytes+2)
 	}
 
 	// Compute bias: slightly prefer frequency resolution when uncertain
@@ -356,12 +357,12 @@ func TFAnalysis(X []float64, N0, nbEBands int, isTransient bool, lm int, tfEstim
 		}
 		isTransientInt := boolToInt(isTransient)
 
-		cost0 := imp0 * absInt(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+0]))
+		cost0 := imp0 * util.Abs(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+0]))
 		lambdaInit := lambda
 		if isTransient {
 			lambdaInit = 0
 		}
-		cost1 := imp0*absInt(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+1])) + lambdaInit
+		cost1 := imp0*util.Abs(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+1])) + lambdaInit
 
 		for i := 1; i < nbEBands; i++ {
 			imp := 13
@@ -369,13 +370,13 @@ func TFAnalysis(X []float64, N0, nbEBands int, isTransient bool, lm int, tfEstim
 				imp = importance[i]
 			}
 
-			curr0 := minInt(cost0, cost1+lambda)
-			curr1 := minInt(cost0+lambda, cost1)
-			cost0 = curr0 + imp*absInt(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+0]))
-			cost1 = curr1 + imp*absInt(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+1]))
+			curr0 := min(cost0, cost1+lambda)
+			curr1 := min(cost0+lambda, cost1)
+			cost0 = curr0 + imp*util.Abs(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+0]))
+			cost1 = curr1 + imp*util.Abs(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+1]))
 		}
 
-		selcost[sel] = minInt(cost0, cost1)
+		selcost[sel] = min(cost0, cost1)
 	}
 
 	// Only allow tf_select=1 for transients (conservative approach per libopus)
@@ -393,12 +394,12 @@ func TFAnalysis(X []float64, N0, nbEBands int, isTransient bool, lm int, tfEstim
 		imp0 = importance[0]
 	}
 
-	cost0 := imp0 * absInt(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+0]))
+	cost0 := imp0 * util.Abs(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+0]))
 	lambdaInit := lambda
 	if isTransient {
 		lambdaInit = 0
 	}
-	cost1 := imp0*absInt(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+1])) + lambdaInit
+	cost1 := imp0*util.Abs(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+1])) + lambdaInit
 
 	for i := 1; i < nbEBands; i++ {
 		imp := 13
@@ -430,8 +431,8 @@ func TFAnalysis(X []float64, N0, nbEBands int, isTransient bool, lm int, tfEstim
 			path1[i] = 1
 		}
 
-		cost0 = curr0 + imp*absInt(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+0]))
-		cost1 = curr1 + imp*absInt(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+1]))
+		cost0 = curr0 + imp*util.Abs(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+0]))
+		cost1 = curr1 + imp*util.Abs(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+1]))
 	}
 
 	// Determine final state
@@ -517,7 +518,7 @@ func TFAnalysisWithScratch(X []float64, N0, nbEBands int, isTransient bool, lm i
 	// Compute lambda
 	lambda := 80
 	if effectiveBytes > 0 {
-		lambda = maxInt(80, 20480/effectiveBytes+2)
+		lambda = max(80, 20480/effectiveBytes+2)
 	}
 
 	bias := 0.04 * math.Max(-0.25, 0.5-tfEstimate)
@@ -601,12 +602,12 @@ func TFAnalysisWithScratch(X []float64, N0, nbEBands int, isTransient bool, lm i
 		}
 		isTransientInt := boolToInt(isTransient)
 
-		cost0 := imp0 * absInt(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+0]))
+		cost0 := imp0 * util.Abs(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+0]))
 		lambdaInit := lambda
 		if isTransient {
 			lambdaInit = 0
 		}
-		cost1 := imp0*absInt(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+1])) + lambdaInit
+		cost1 := imp0*util.Abs(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+1])) + lambdaInit
 
 		for i := 1; i < nbEBands; i++ {
 			imp := 13
@@ -614,13 +615,13 @@ func TFAnalysisWithScratch(X []float64, N0, nbEBands int, isTransient bool, lm i
 				imp = importance[i]
 			}
 
-			curr0 := minInt(cost0, cost1+lambda)
-			curr1 := minInt(cost0+lambda, cost1)
-			cost0 = curr0 + imp*absInt(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+0]))
-			cost1 = curr1 + imp*absInt(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+1]))
+			curr0 := min(cost0, cost1+lambda)
+			curr1 := min(cost0+lambda, cost1)
+			cost0 = curr0 + imp*util.Abs(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+0]))
+			cost1 = curr1 + imp*util.Abs(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+1]))
 		}
 
-		selcost[sel] = minInt(cost0, cost1)
+		selcost[sel] = min(cost0, cost1)
 	}
 
 	if selcost[1] < selcost[0] && isTransient {
@@ -637,12 +638,12 @@ func TFAnalysisWithScratch(X []float64, N0, nbEBands int, isTransient bool, lm i
 		imp0 = importance[0]
 	}
 
-	cost0 := imp0 * absInt(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+0]))
+	cost0 := imp0 * util.Abs(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+0]))
 	lambdaInit := lambda
 	if isTransient {
 		lambdaInit = 0
 	}
-	cost1 := imp0*absInt(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+1])) + lambdaInit
+	cost1 := imp0*util.Abs(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+1])) + lambdaInit
 
 	for i := 1; i < nbEBands; i++ {
 		imp := 13
@@ -672,8 +673,8 @@ func TFAnalysisWithScratch(X []float64, N0, nbEBands int, isTransient bool, lm i
 			path1[i] = 1
 		}
 
-		cost0 = curr0 + imp*absInt(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+0]))
-		cost1 = curr1 + imp*absInt(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+1]))
+		cost0 = curr0 + imp*util.Abs(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+0]))
+		cost1 = curr1 + imp*util.Abs(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+1]))
 	}
 
 	if cost0 < cost1 {

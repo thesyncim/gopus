@@ -117,11 +117,7 @@ func orderyForStride(stride int) []int {
 }
 
 func deinterleaveHadamard(x []float64, n0, stride int, hadamard bool) {
-	deinterleaveHadamardScratch(x, n0, stride, hadamard, nil)
-}
-
-func deinterleaveHadamardScratch(x []float64, n0, stride int, hadamard bool, scratch *bandDecodeScratch) {
-	deinterleaveHadamardScratchBuf(x, n0, stride, hadamard, scratch, nil)
+	deinterleaveHadamardScratchBuf(x, n0, stride, hadamard, nil, nil)
 }
 
 func deinterleaveHadamardScratchBuf(x []float64, n0, stride int, hadamard bool, decScratch *bandDecodeScratch, encScratch *bandEncodeScratch) {
@@ -152,11 +148,7 @@ func deinterleaveHadamardScratchBuf(x []float64, n0, stride int, hadamard bool, 
 }
 
 func interleaveHadamard(x []float64, n0, stride int, hadamard bool) {
-	interleaveHadamardScratch(x, n0, stride, hadamard, nil)
-}
-
-func interleaveHadamardScratch(x []float64, n0, stride int, hadamard bool, scratch *bandDecodeScratch) {
-	interleaveHadamardScratchBuf(x, n0, stride, hadamard, scratch, nil)
+	interleaveHadamardScratchBuf(x, n0, stride, hadamard, nil, nil)
 }
 
 func interleaveHadamardScratchBuf(x []float64, n0, stride int, hadamard bool, decScratch *bandDecodeScratch, encScratch *bandEncodeScratch) {
@@ -530,8 +522,8 @@ func computeQn(n, b, offset, pulseCap int, stereo bool) int {
 		n2--
 	}
 	qb := celtSudiv(b+n2*offset, n2)
-	qb = minInt(b-pulseCap-(4<<bitRes), qb)
-	qb = minInt(8<<bitRes, qb)
+	qb = min(b-pulseCap-(4<<bitRes), qb)
+	qb = min(8<<bitRes, qb)
 	if qb < (1 << (bitRes - 1)) {
 		return 1
 	}
@@ -1059,10 +1051,10 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 			if sctx.itheta > 8192 {
 				sctx.delta -= sctx.delta >> (4 - lm)
 			} else {
-				sctx.delta = minInt(0, sctx.delta+(nHalf<<bitRes>>(5-lm)))
+				sctx.delta = min(0, sctx.delta+(nHalf<<bitRes>>(5-lm)))
 			}
 		}
-		mbits := maxInt(0, minInt(b, (b-sctx.delta)/2))
+		mbits := max(0, min(b, (b-sctx.delta)/2))
 		sbits := b - mbits
 		ctx.remainingBits -= sctx.qalloc
 
@@ -1369,7 +1361,7 @@ func quantBandStereo(ctx *bandCtx, x, y []float64, n, b, B int, lowband []float6
 	}
 
 	delta := sctx.delta
-	mbits := maxInt(0, minInt(b, (b-delta)/2))
+	mbits := max(0, min(b, (b-delta)/2))
 	sbits := b - mbits
 	ctx.remainingBits -= sctx.qalloc
 
@@ -1511,8 +1503,8 @@ func quantAllBandsDecodeWithScratch(rd *rangecoding.Decoder, channels, frameSize
 		b := 0
 		currBalance := 0
 		if i <= codedBands-1 {
-			currBalance = celtSudiv(balance, minInt(3, codedBands-i))
-			b = maxInt(0, minInt(16383, minInt(remaining+1, pulses[i]+currBalance)))
+			currBalance = celtSudiv(balance, min(3, codedBands-i))
+			b = max(0, min(16383, min(remaining+1, pulses[i]+currBalance)))
 		}
 		if ctx.resynth && (M*EBands[i]-nBand >= M*EBands[start] || i == start+1) && (updateLowband || lowbandOffset == 0) {
 			lowbandOffset = i
@@ -1527,7 +1519,7 @@ func quantAllBandsDecodeWithScratch(rd *rangecoding.Decoder, channels, frameSize
 		xCM := 0
 		yCM := 0
 		if lowbandOffset != 0 && (spread != spreadAggressive || B > 1 || ctx.tfChange < 0) {
-			effectiveLowband = maxInt(0, M*EBands[lowbandOffset]-normOffset-nBand)
+			effectiveLowband = max(0, M*EBands[lowbandOffset]-normOffset-nBand)
 			foldStart := lowbandOffset
 			for {
 				foldStart--
@@ -1793,8 +1785,8 @@ func quantAllBandsEncodeScratch(re *rangecoding.Encoder, channels, frameSize, lm
 		b := 0
 		currBalance := 0
 		if i <= codedBands-1 {
-			currBalance = celtSudiv(balance, minInt(3, codedBands-i))
-			b = maxInt(0, minInt(16383, minInt(remaining+1, pulses[i]+currBalance)))
+			currBalance = celtSudiv(balance, min(3, codedBands-i))
+			b = max(0, min(16383, min(remaining+1, pulses[i]+currBalance)))
 		}
 		if ctx.resynth && (M*EBands[i]-nBand >= M*EBands[start] || i == start+1) && (updateLowband || lowbandOffset == 0) {
 			lowbandOffset = i
@@ -1812,7 +1804,7 @@ func quantAllBandsEncodeScratch(re *rangecoding.Encoder, channels, frameSize, lm
 		xCM := 0
 		yCM := 0
 		if lowbandOffset != 0 && (spread != spreadAggressive || B > 1 || ctx.tfChange < 0) {
-			effectiveLowband = maxInt(0, M*EBands[lowbandOffset]-normOffset-nBand)
+			effectiveLowband = max(0, M*EBands[lowbandOffset]-normOffset-nBand)
 			foldStart := lowbandOffset
 			for {
 				foldStart--

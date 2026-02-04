@@ -31,7 +31,7 @@ func TestPVQSignPreservation(t *testing.T) {
 
 	// Test opPVQSearch
 	k := 4
-	pulses, yy := celt.ExportedOpPVQSearch(x, k)
+	pulses, yy := celt.OpPVQSearchExport(x, k)
 
 	t.Logf("Original input:  %v", original)
 	t.Logf("After PVQ search: %v", x)

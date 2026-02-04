@@ -772,7 +772,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		signalBandwidth,
 	)
 	if e.lastCodedBands != 0 {
-		e.lastCodedBands = minInt(e.lastCodedBands+1, maxInt(e.lastCodedBands-1, allocResult.CodedBands))
+		e.lastCodedBands = min(e.lastCodedBands+1, max(e.lastCodedBands-1, allocResult.CodedBands))
 	} else {
 		e.lastCodedBands = allocResult.CodedBands
 	}

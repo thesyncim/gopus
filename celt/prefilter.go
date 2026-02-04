@@ -1,6 +1,10 @@
 package celt
 
-import "math"
+import (
+	"math"
+
+	"github.com/thesyncim/gopus/util"
+)
 
 type prefilterResult struct {
 	on     bool
@@ -98,7 +102,7 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 
 	// Gain threshold for enabling the prefilter/postfilter
 	pfThreshold := 0.2
-	if absInt(pitchIndex-e.prefilterPeriod)*10 > pitchIndex {
+	if util.Abs(pitchIndex-e.prefilterPeriod)*10 > pitchIndex {
 		pfThreshold += 0.2
 		if tfEstimate > 0.98 {
 			gain1 = 0
@@ -301,7 +305,7 @@ func pitchSearch(xLP []float64, y []float64, length, maxPitch int, scratch *enco
 
 	for i := 0; i < maxPitch>>1; i++ {
 		xcorr[i] = 0
-		if absInt(i-2*bestPitch[0]) > 2 && absInt(i-2*bestPitch[1]) > 2 {
+		if util.Abs(i-2*bestPitch[0]) > 2 && util.Abs(i-2*bestPitch[1]) > 2 {
 			continue
 		}
 		sum := celtInnerProd(xLP, y[i:], length>>1)
@@ -433,9 +437,9 @@ func removeDoubling(x []float64, maxPeriod, minPeriod, N int, T0 *int, prevPerio
 		yy = 0.5 * (yyLookup[T1] + yyLookup[T1b])
 		g1 := computePitchGain(xy, xx, yy)
 		cont := 0.0
-		if absInt(T1-prevPeriod) <= 1 {
+		if util.Abs(T1-prevPeriod) <= 1 {
 			cont = prevGain
-		} else if absInt(T1-prevPeriod) <= 2 && 5*k*k < T0val {
+		} else if util.Abs(T1-prevPeriod) <= 2 && 5*k*k < T0val {
 			cont = 0.5 * prevGain
 		}
 		thresh := math.Max(0.3, 0.7*g0-cont)

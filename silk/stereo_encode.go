@@ -3,6 +3,7 @@ package silk
 import (
 	"math"
 
+	"github.com/thesyncim/gopus/util"
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
@@ -106,7 +107,7 @@ func stereoQuantPred(predQ13 *[2]int32) StereoQuantIndices {
 			for j := 0; j < stereoQuantSubSteps; j++ {
 				// lvl_Q13 = low_Q13 + step_Q13 * (2*j + 1)
 				lvlQ13 := lowQ13 + stepQ13*(int32(2*j+1))
-				errQ13 := absInt32(predQ13[n] - lvlQ13)
+				errQ13 := util.Abs(predQ13[n] - lvlQ13)
 
 				if errQ13 < errMinQ13 {
 					errMinQ13 = errQ13

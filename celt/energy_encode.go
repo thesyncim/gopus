@@ -908,15 +908,6 @@ func (e *Encoder) EncodeEnergyRemainderWithEncoder(re *rangecoding.Encoder, ener
 	e.EncodeEnergyRemainder(energies, quantizedEnergies, nbBands, remainderBits)
 }
 
-// absInt returns the absolute value of an integer.
-// Note: we use absInt to avoid conflict with abs in cwrs.go
-func absInt(x int) int {
-	if x < 0 {
-		return -x
-	}
-	return x
-}
-
 // EncodeCoarseEnergyHybrid encodes coarse energies for hybrid mode.
 // Only encodes bands from startBand onwards (typically band 17).
 func (e *Encoder) EncodeCoarseEnergyHybrid(energies []float64, nbBands int, intra bool, lm int, startBand int) []float64 {

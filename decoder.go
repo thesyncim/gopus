@@ -169,7 +169,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		remaining := frameSize
 		offset := 0
 		for remaining > 0 {
-			chunk := minInt(remaining, 48000/50)
+			chunk := min(remaining, 48000/50)
 			n, err := d.decodeOpusFrameInto(pcm[offset*d.channels:], nil, chunk, d.lastFrameSize, d.prevMode, d.lastBandwidth, d.prevPacketStereo)
 			if err != nil {
 				return 0, err

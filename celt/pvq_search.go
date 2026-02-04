@@ -3,6 +3,7 @@ package celt
 import (
 	"math"
 
+	"github.com/thesyncim/gopus/util"
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
@@ -222,8 +223,8 @@ func opPVQSearchN2(x []float64, k, up int) (iy []int, upIy []int, refine int) {
 	}
 
 	offset := upIy[0] - up*iy[0]
-	iy[1] = k - absInt(iy[0])
-	upIy[1] = up*k - absInt(upIy[0])
+	iy[1] = k - util.Abs(iy[0])
+	upIy[1] = up*k - util.Abs(upIy[0])
 	if x[1] < 0 {
 		iy[1] = -iy[1]
 		upIy[1] = -upIy[1]
@@ -260,7 +261,7 @@ func opPVQRefine(xn []float64, iy []int, iy0 []int, k, up, margin int, same bool
 	for i := 0; i < n; i++ {
 		iysum += iy[i]
 	}
-	if absInt(iysum-k) > 32 {
+	if util.Abs(iysum-k) > 32 {
 		return true
 	}
 	dir := -1
@@ -272,7 +273,7 @@ func opPVQRefine(xn []float64, iy []int, iy0 []int, k, up, margin int, same bool
 		roundPos := 0
 		for i := 0; i < n; i++ {
 			if (rounding[i]-roundVal)*float64(dir) > 0 &&
-				absInt(iy[i]-up*iy0[i]) < (margin-1) &&
+				util.Abs(iy[i]-up*iy0[i]) < (margin-1) &&
 				!(dir == -1 && iy[i] == 0) {
 				roundVal = rounding[i]
 				roundPos = i
@@ -335,7 +336,7 @@ func ecEncRefine(enc *rangecoding.Encoder, refine int, up int, extraBits int, us
 	if enc == nil || extraBits <= 0 {
 		return
 	}
-	large := absInt(refine) > up/2
+	large := util.Abs(refine) > up/2
 	logp := uint(1)
 	if useEntropy {
 		logp = 3
@@ -347,7 +348,7 @@ func ecEncRefine(enc *rangecoding.Encoder, refine int, up int, extraBits int, us
 			sign = 1
 		}
 		enc.EncodeRawBits(uint32(sign), 1)
-		enc.EncodeRawBits(uint32(absInt(refine)-up/2-1), uint(extraBits-1))
+		enc.EncodeRawBits(uint32(util.Abs(refine)-up/2-1), uint(extraBits-1))
 	} else {
 		enc.EncodeBit(0, logp)
 		enc.EncodeRawBits(uint32(refine+up/2), uint(extraBits))

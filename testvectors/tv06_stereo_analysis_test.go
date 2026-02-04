@@ -197,7 +197,7 @@ func TestTV06StereoPacketDistribution(t *testing.T) {
 		t.Logf("Mono packet indices: %v", monoPackets)
 	}
 	if len(stereoPackets) > 0 && len(stereoPackets) <= 20 {
-		t.Logf("Stereo packet indices (first 20): %v", stereoPackets[:minInt(20, len(stereoPackets))])
+		t.Logf("Stereo packet indices (first 20): %v", stereoPackets[:min(20, len(stereoPackets))])
 	}
 }
 

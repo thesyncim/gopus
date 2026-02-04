@@ -1,5 +1,6 @@
 package celt
 
+
 // Overlap-add synthesis for CELT frame reconstruction.
 // This file implements the final stage of CELT decoding: converting
 // frequency-domain coefficients to time-domain audio samples with
@@ -264,7 +265,7 @@ func (d *Decoder) SynthesizeStereo(coeffsL, coeffsR []float64, transient bool, s
 
 	outL := ensureFloat64Slice(&d.scratchSynth, len(coeffsL)+Overlap)
 	outR := ensureFloat64Slice(&d.scratchSynthR, len(coeffsR)+Overlap)
-	shortCoeffs := ensureFloat64Slice(&d.scratchShortCoeffs, maxInt(len(coeffsL), len(coeffsR)))
+	shortCoeffs := ensureFloat64Slice(&d.scratchShortCoeffs, max(len(coeffsL), len(coeffsR)))
 	outputL := synthesizeChannelWithOverlapScratch(coeffsL, overlapL, Overlap, transient, shortBlocks, outL, &d.scratchIMDCT, &d.scratchIMDCTF32, shortCoeffs)
 	outputR := synthesizeChannelWithOverlapScratch(coeffsR, overlapR, Overlap, transient, shortBlocks, outR, &d.scratchIMDCT, &d.scratchIMDCTF32, shortCoeffs)
 

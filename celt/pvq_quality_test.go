@@ -3,6 +3,8 @@ package celt
 import (
 	"math"
 	"testing"
+
+	"github.com/thesyncim/gopus/util"
 )
 
 // TestPVQSearchQuality tests the PVQ search algorithm quality by verifying
@@ -298,13 +300,13 @@ func TestPVQSearchN2(t *testing.T) {
 			iy, upIy, refine := opPVQSearchN2(tc.x, tc.k, tc.up)
 
 			// Verify L1 norm of iy equals k
-			l1 := absInt(iy[0]) + absInt(iy[1])
+			l1 := util.Abs(iy[0]) + util.Abs(iy[1])
 			if l1 != tc.k {
 				t.Errorf("L1(iy) = %d, want %d", l1, tc.k)
 			}
 
 			// Verify L1 norm of upIy equals up*k
-			l1up := absInt(upIy[0]) + absInt(upIy[1])
+			l1up := util.Abs(upIy[0]) + util.Abs(upIy[1])
 			if l1up != tc.up*tc.k {
 				t.Errorf("L1(upIy) = %d, want %d", l1up, tc.up*tc.k)
 			}
@@ -315,7 +317,7 @@ func TestPVQSearchN2(t *testing.T) {
 				expectedRefine = -expectedRefine
 			}
 			// Note: the sign handling in opPVQSearchN2 is complex, just verify bounds
-			if absInt(refine) > (tc.up-1)/2+1 {
+			if util.Abs(refine) > (tc.up-1)/2+1 {
 				t.Errorf("refine=%d out of expected bounds", refine)
 			}
 
@@ -344,7 +346,7 @@ func TestPVQSearchExtra(t *testing.T) {
 			// Verify L1 norm of iy equals k
 			l1 := 0
 			for _, v := range iy {
-				l1 += absInt(v)
+				l1 += util.Abs(v)
 			}
 			if l1 != tc.k {
 				t.Errorf("L1(iy) = %d, want %d", l1, tc.k)
@@ -353,7 +355,7 @@ func TestPVQSearchExtra(t *testing.T) {
 			// Verify L1 norm of upIy equals up*k
 			l1up := 0
 			for _, v := range upIy {
-				l1up += absInt(v)
+				l1up += util.Abs(v)
 			}
 			if l1up != tc.up*tc.k {
 				t.Errorf("L1(upIy) = %d, want %d", l1up, tc.up*tc.k)
@@ -361,7 +363,7 @@ func TestPVQSearchExtra(t *testing.T) {
 
 			// Verify refine values are within bounds
 			for i, r := range refine {
-				if absInt(r) > tc.up {
+				if util.Abs(r) > tc.up {
 					t.Errorf("refine[%d]=%d exceeds up=%d", i, r, tc.up)
 				}
 				// Verify upIy[i] = up*iy[i] + refine[i]

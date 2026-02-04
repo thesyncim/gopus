@@ -94,7 +94,7 @@ func TestKissFFT_BitReversal(t *testing.T) {
 				t.Errorf("nfft=%d: bitrev has %d unique values, want %d", nfft, count, nfft)
 			}
 
-			t.Logf("nfft=%d: bitrev is valid permutation (first 10: %v)", nfft, st.bitrev[:minInt(10, len(st.bitrev))])
+			t.Logf("nfft=%d: bitrev is valid permutation (first 10: %v)", nfft, st.bitrev[:min(10, len(st.bitrev))])
 		})
 	}
 }

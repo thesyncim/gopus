@@ -451,9 +451,9 @@ func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lo
 
 		var randStart int
 		if (energy1 >> uint(shift2)) < (energy2 >> uint(shift1)) {
-			randStart = maxInt(0, (nbSubfr-1)*subfrLength-randBufSize)
+			randStart = max(0, (nbSubfr-1)*subfrLength-randBufSize)
 		} else {
-			randStart = maxInt(0, nbSubfr*subfrLength-randBufSize)
+			randStart = max(0, nbSubfr*subfrLength-randBufSize)
 		}
 
 		for i := 0; i < randBufSize && randStart+i < len(excHistory); i++ {
@@ -814,13 +814,6 @@ func inverse32VarQ(b, qRes int32) int32 {
 		return math.MaxInt32
 	}
 	return int32(result)
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 func bwExpandQ12(ar []int16, coef float64) {

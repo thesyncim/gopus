@@ -119,7 +119,7 @@ func NewVADState() *VADState {
 func (v *VADState) Reset() {
 	// Initialize noise level bias (approx pink noise - PSD proportional to 1/f)
 	for b := 0; b < VADNBands; b++ {
-		v.NoiseLevelBias[b] = maxInt32(VADNoiseLevelsBias/(int32(b)+1), 1)
+		v.NoiseLevelBias[b] = max(VADNoiseLevelsBias/(int32(b)+1), 1)
 	}
 
 	// Initialize state with noise estimates
@@ -336,7 +336,7 @@ func (v *VADState) GetSpeechActivity(pcm []float32, frameLength int, fsKHz int) 
 	}
 
 	// Convert to Q8 (0-255) and clamp
-	v.SpeechActivityQ8 = minInt(int(saQ15>>7), 255)
+	v.SpeechActivityQ8 = min(int(saQ15>>7), 255)
 
 	// Smoothing coefficient based on activity
 	smoothCoefQ16 := (VADSNRSmoothCoefQ18 * saQ15 * saQ15) >> 30
@@ -557,20 +557,4 @@ func satInt16(x int32) int16 {
 		return -32768
 	}
 	return int16(x)
-}
-
-// maxInt32 returns the maximum of two int32 values.
-func maxInt32(a, b int32) int32 {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-// minInt returns the minimum of two int values.
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

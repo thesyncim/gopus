@@ -2,6 +2,8 @@ package silk
 
 import (
 	"testing"
+
+	"github.com/thesyncim/gopus/util"
 )
 
 func TestComputeLogGainIndex(t *testing.T) {
@@ -13,7 +15,7 @@ func TestComputeLogGainIndex(t *testing.T) {
 		computedIdx := computeLogGainIndex(gainFloat)
 
 		// Allow +/- 1 for rounding
-		if absInt(computedIdx-idx) > 1 {
+		if util.Abs(computedIdx-idx) > 1 {
 			t.Errorf("idx=%d: gainQ16=%d, computed idx=%d", idx, gainQ16, computedIdx)
 		}
 	}
@@ -253,7 +255,7 @@ func TestLSFEncodeDecode(t *testing.T) {
 	// VQ quantization can have significant error - allow 20% of full range
 	maxAllowedDiff := 6500
 	for i := 0; i < config.LPCOrder; i++ {
-		diff := absInt(int(lsfQ15[i]) - int(reconstructed[i]))
+		diff := util.Abs(int(lsfQ15[i]) - int(reconstructed[i]))
 		if diff > maxAllowedDiff {
 			t.Errorf("LSF[%d]: original=%d, reconstructed=%d, diff=%d (max allowed %d)",
 				i, lsfQ15[i], reconstructed[i], diff, maxAllowedDiff)
