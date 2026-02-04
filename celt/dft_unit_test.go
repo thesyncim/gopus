@@ -229,10 +229,10 @@ func idftComplex(x []complex128) []complex128 {
 	return out
 }
 
-// TestFFTRoundtrip verifies that FFT followed by IFFT returns the original signal.
-func TestFFTRoundtrip(t *testing.T) {
-	sizes := []int{8, 16, 32, 64, 128, 256, 512}
-
+// transformRoundtripTest is a parameterized test helper for FFT/DFT roundtrip verification.
+// It takes forward and inverse transform functions and verifies that applying both
+// returns the original signal within the specified error tolerance.
+func transformRoundtripTest(t *testing.T, sizes []int, forward, inverse func([]complex128) []complex128, name string) {
 	for _, n := range sizes {
 		t.Run("", func(t *testing.T) {
 			rng := rand.New(rand.NewSource(12345))
@@ -242,8 +242,8 @@ func TestFFTRoundtrip(t *testing.T) {
 			}
 
 			// Forward then inverse
-			forward := fft(original)
-			back := ifft(forward)
+			forwardResult := forward(original)
+			back := inverse(forwardResult)
 
 			// Check roundtrip accuracy
 			var maxErr float64
@@ -258,12 +258,18 @@ func TestFFTRoundtrip(t *testing.T) {
 				}
 			}
 
-			t.Logf("n=%d, max roundtrip error = %.2e", n, maxErr)
+			t.Logf("n=%d (%s), max roundtrip error = %.2e", n, name, maxErr)
 			if maxErr > 1e-10 {
-				t.Errorf("n=%d: roundtrip error too large: %.2e", n, maxErr)
+				t.Errorf("n=%d (%s): roundtrip error too large: %.2e", n, name, maxErr)
 			}
 		})
 	}
+}
+
+// TestFFTRoundtrip verifies that FFT followed by IFFT returns the original signal.
+func TestFFTRoundtrip(t *testing.T) {
+	sizes := []int{8, 16, 32, 64, 128, 256, 512}
+	transformRoundtripTest(t, sizes, fft, ifft, "FFT")
 }
 
 // TestDFTSpecificSizes tests DFT for sizes commonly used in CELT/Opus.
@@ -299,38 +305,7 @@ func TestDFTSpecificSizes(t *testing.T) {
 // Tests non-power-of-2 sizes commonly used in CELT/Opus.
 func TestDFTRoundtrip(t *testing.T) {
 	sizes := []int{36, 50, 60, 120, 240, 480}
-
-	for _, n := range sizes {
-		t.Run("", func(t *testing.T) {
-			rng := rand.New(rand.NewSource(12345))
-			original := make([]complex128, n)
-			for i := 0; i < n; i++ {
-				original[i] = complex(rng.Float64()*2-1, rng.Float64()*2-1)
-			}
-
-			// Forward then inverse
-			forward := dft(original)
-			back := idftComplex(forward)
-
-			// Check roundtrip accuracy
-			var maxErr float64
-			for i := 0; i < n; i++ {
-				errReal := math.Abs(real(back[i]) - real(original[i]))
-				errImag := math.Abs(imag(back[i]) - imag(original[i]))
-				if errReal > maxErr {
-					maxErr = errReal
-				}
-				if errImag > maxErr {
-					maxErr = errImag
-				}
-			}
-
-			t.Logf("n=%d, max roundtrip error = %.2e", n, maxErr)
-			if maxErr > 1e-10 {
-				t.Errorf("n=%d: roundtrip error too large: %.2e", n, maxErr)
-			}
-		})
-	}
+	transformRoundtripTest(t, sizes, dft, idftComplex, "DFT")
 }
 
 // TestDFTParsevals verifies Parseval's theorem: energy in time domain equals energy in frequency domain.

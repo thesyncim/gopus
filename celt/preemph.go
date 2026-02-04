@@ -114,18 +114,11 @@ func (e *Encoder) ApplyPreemphasisInPlace(pcm []float64) {
 	}
 }
 
-// ApplyPreemphasisWithScaling applies pre-emphasis with signal scaling.
-// Input samples are first scaled from float range [-1.0, 1.0] to signal scale
+// applyPreemphasisWithScalingCore applies pre-emphasis with signal scaling to the output buffer.
+// This is the shared core logic for both allocating and scratch-based versions.
+// Input samples are scaled from float range [-1.0, 1.0] to signal scale
 // (multiplied by CELTSigScale = 32768), then the pre-emphasis filter is applied.
-//
-// This matches libopus celt_preemphasis() behavior where samples are scaled
-// and filtered together. The decoder's scaleSamples(1/32768) reverses the scaling.
-func (e *Encoder) ApplyPreemphasisWithScaling(pcm []float64) []float64 {
-	if len(pcm) == 0 {
-		return nil
-	}
-
-	output := make([]float64, len(pcm))
+func (e *Encoder) applyPreemphasisWithScalingCore(pcm, output []float64) {
 	coef := float32(PreemphCoef)
 
 	if e.channels == 1 {
@@ -159,38 +152,33 @@ func (e *Encoder) ApplyPreemphasisWithScaling(pcm []float64) []float64 {
 		e.preemphState[0] = float64(stateL)
 		e.preemphState[1] = float64(stateR)
 	}
-
-	return output
 }
 
-// ApplyDCReject applies a DC rejection (high-pass) filter to remove DC offset.
-// This matches libopus dc_reject() which is applied before CELT encoding.
+// ApplyPreemphasisWithScaling applies pre-emphasis with signal scaling.
+// Input samples are first scaled from float range [-1.0, 1.0] to signal scale
+// (multiplied by CELTSigScale = 32768), then the pre-emphasis filter is applied.
 //
-// The filter is a simple first-order high-pass:
-//
-//	coef = 6.3 * cutoffHz / sampleRate
-//	out[i] = x[i] - m
-//	m = coef*x[i] + (1-coef)*m
-//
-// Reference: libopus src/opus_encoder.c dc_reject()
-func (e *Encoder) ApplyDCReject(pcm []float64) []float64 {
+// This matches libopus celt_preemphasis() behavior where samples are scaled
+// and filtered together. The decoder's scaleSamples(1/32768) reverses the scaling.
+func (e *Encoder) ApplyPreemphasisWithScaling(pcm []float64) []float64 {
 	if len(pcm) == 0 {
 		return nil
 	}
 
-	// Initialize hpMem if not already done
-	if len(e.hpMem) < e.channels {
-		e.hpMem = make([]float64, e.channels)
-	}
+	output := make([]float64, len(pcm))
+	e.applyPreemphasisWithScalingCore(pcm, output)
+	return output
+}
 
+// applyDCRejectCore applies DC rejection filter to the output buffer.
+// This is the shared core logic for both allocating and scratch-based versions.
+func (e *Encoder) applyDCRejectCore(pcm, output []float64) {
 	// Coefficients: coef = 6.3 * cutoff / Fs
 	// For 48kHz and 3Hz cutoff: coef = 6.3 * 3 / 48000 = 0.00039375
 	// Use float32 math to match libopus float path.
 	coef := float32(6.3 * float64(DCRejectCutoffHz) / float64(e.sampleRate))
 	coef2 := float32(1.0) - coef
 	verySmall := float32(1e-30) // Matches VERY_SMALL in libopus float build
-
-	output := make([]float64, len(pcm))
 
 	if e.channels == 1 {
 		m0 := float32(e.hpMem[0])
@@ -216,7 +204,30 @@ func (e *Encoder) ApplyDCReject(pcm []float64) []float64 {
 		e.hpMem[0] = float64(m0)
 		e.hpMem[1] = float64(m1)
 	}
+}
 
+// ApplyDCReject applies a DC rejection (high-pass) filter to remove DC offset.
+// This matches libopus dc_reject() which is applied before CELT encoding.
+//
+// The filter is a simple first-order high-pass:
+//
+//	coef = 6.3 * cutoffHz / sampleRate
+//	out[i] = x[i] - m
+//	m = coef*x[i] + (1-coef)*m
+//
+// Reference: libopus src/opus_encoder.c dc_reject()
+func (e *Encoder) ApplyDCReject(pcm []float64) []float64 {
+	if len(pcm) == 0 {
+		return nil
+	}
+
+	// Initialize hpMem if not already done
+	if len(e.hpMem) < e.channels {
+		e.hpMem = make([]float64, e.channels)
+	}
+
+	output := make([]float64, len(pcm))
+	e.applyDCRejectCore(pcm, output)
 	return output
 }
 
@@ -232,10 +243,6 @@ func (e *Encoder) applyDCRejectScratch(pcm []float64) []float64 {
 		e.hpMem = make([]float64, e.channels)
 	}
 
-	coef := float32(6.3 * float64(DCRejectCutoffHz) / float64(e.sampleRate))
-	coef2 := float32(1.0) - coef
-	verySmall := float32(1e-30)
-
 	// Use scratch buffer instead of allocating
 	output := e.scratch.dcRejected
 	if len(output) < len(pcm) {
@@ -244,30 +251,7 @@ func (e *Encoder) applyDCRejectScratch(pcm []float64) []float64 {
 	}
 	output = output[:len(pcm)]
 
-	if e.channels == 1 {
-		m0 := float32(e.hpMem[0])
-		for i := range pcm {
-			x := float32(pcm[i])
-			y := x - m0
-			output[i] = float64(y)
-			m0 = coef*x + verySmall + coef2*m0
-		}
-		e.hpMem[0] = float64(m0)
-	} else {
-		m0 := float32(e.hpMem[0])
-		m1 := float32(e.hpMem[1])
-		for i := 0; i < len(pcm)-1; i += 2 {
-			x0 := float32(pcm[i])
-			x1 := float32(pcm[i+1])
-			output[i] = float64(x0 - m0)
-			output[i+1] = float64(x1 - m1)
-			m0 = coef*x0 + verySmall + coef2*m0
-			m1 = coef*x1 + verySmall + coef2*m1
-		}
-		e.hpMem[0] = float64(m0)
-		e.hpMem[1] = float64(m1)
-	}
-
+	e.applyDCRejectCore(pcm, output)
 	return output
 }
 
@@ -285,33 +269,6 @@ func (e *Encoder) applyPreemphasisWithScalingScratch(pcm []float64) []float64 {
 	}
 	output = output[:len(pcm)]
 
-	coef := float32(PreemphCoef)
-
-	if e.channels == 1 {
-		state := float32(e.preemphState[0])
-		for i := range pcm {
-			scaled := float32(pcm[i]) * float32(CELTSigScale)
-			output[i] = float64(scaled - coef*state)
-			state = scaled
-		}
-		e.preemphState[0] = float64(state)
-	} else {
-		stateL := float32(e.preemphState[0])
-		stateR := float32(e.preemphState[1])
-
-		for i := 0; i < len(pcm)-1; i += 2 {
-			scaledL := float32(pcm[i]) * float32(CELTSigScale)
-			output[i] = float64(scaledL - coef*stateL)
-			stateL = scaledL
-
-			scaledR := float32(pcm[i+1]) * float32(CELTSigScale)
-			output[i+1] = float64(scaledR - coef*stateR)
-			stateR = scaledR
-		}
-
-		e.preemphState[0] = float64(stateL)
-		e.preemphState[1] = float64(stateR)
-	}
-
+	e.applyPreemphasisWithScalingCore(pcm, output)
 	return output
 }
