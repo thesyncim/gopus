@@ -161,7 +161,14 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []float64, nbBands, channel
 
 	// Update high-frequency average for tapset decision
 	if updateHF {
-		hfBandCount := 4 - nbBands + nbBands // Number of HF bands (simplification)
+		// Count of HF bands that actually contributed to hfSum.
+		// HF bands are those with index > nbBands-4, so at most min(4, nbBands).
+		// Per libopus: hf_sum = celt_udiv(hf_sum, C*(4-m->nbEBands+end))
+		// When end == nbEBands (full analysis), this is 4.
+		hfBandCount := nbBands
+		if hfBandCount > 4 {
+			hfBandCount = 4
+		}
 		if hfBandCount < 1 {
 			hfBandCount = 1
 		}

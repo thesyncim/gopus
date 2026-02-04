@@ -286,12 +286,14 @@ Always use this reference when implementing features or debugging discrepancies.
    - Pitch detection now runs on pitch residual
    - LTP quantization uses the same pitch residual as libopus
 3. ⚠️ **Trace status (SILK WB)** - `testvectors/libopus_trace_test.go`
-   - Gain index avg abs diff: 5.06 (frames=50)
-   - LTP scale index mismatches: 9/50
-   - NLSF interp coef mismatches: 31/50
-   - PER index mismatches: 18/50
-   - LTP index mismatches: 90/200
-   - Signal type mismatches: 1/50
+   - Gain index avg abs diff: 0.95 (frames=50) - Improved!
+   - LTP scale index mismatches: 12/50
+   - NLSF interp coef mismatches: 32/50
+   - PER index mismatches: 15/50
+   - Pitch Lag mismatches: 20/50
+   - Pitch Contour mismatches: 19/50
+   - LTP index mismatches: 86/200
+   - Signal type mismatches: 0/50 - Fixed!
 4. ✅ **Unvoiced pitch lag parity** - `silk/pitch_detect.go`
    - Unvoiced frames now return zero pitch lags and reset `ltpCorr`/`prevLag`
    - Multi-frame cgo trace now shows 0 mismatches for pitch lags, lag index, contour, and ltpCorr
@@ -318,6 +320,20 @@ Always use this reference when implementing features or debugging discrepancies.
    - Ensures VBR packets stay within 2× target bitrate budget
 4. ✅ **LTP analysis filter parity test fix** - `silk/ltp_predcoef_libopus_compare_test.go`
    - Libopus filter now receives full history buffer for correct parity
+
+### Session 19: Encoder Quality Analysis (In Progress)
+1. ✅ **CELT spread decision HF band count fix** - `celt/spread_decision.go`
+   - Fixed algebraically constant expression `4 - nbBands + nbBands` (always 4)
+   - Now correctly computes `min(4, nbBands)` for HF band normalization
+   - Affects tapset decision for prefilter
+2. ✅ **SILK NLSF interpolation restriction removed** - `silk/lsf_quantize.go`
+   - Removed incorrect `numSubframes != maxNbSubfr` restriction
+   - Per libopus: interpolation allowed for all frame sizes, only blocked on first frame
+3. ⚠️ **Encoder quality baseline (2026-02-04)**
+   - CELT: ~24-37 dB SNR (GOOD threshold met)
+   - SILK: ~0 dB SNR (needs investigation)
+   - Hybrid: ~0 dB SNR (needs investigation)
+   - SILK/Hybrid quality gap is the primary remaining issue
 
 ---
 

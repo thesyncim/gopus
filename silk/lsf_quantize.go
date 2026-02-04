@@ -33,7 +33,10 @@ func (e *Encoder) quantizeLSF(lsfQ15 []int16, bandwidth Bandwidth, signalType in
 	if interpIdx < 0 {
 		interpIdx = e.computeInterpolationIndex(lsfQ15, order)
 	}
-	if interpIdx < 4 && (!e.haveEncoded || numSubframes != maxNbSubfr) {
+	// Only force no interpolation on first frame (can't interpolate without previous NLSF).
+	// Per libopus process_NLSFs.c: doInterpolate = (useInterpolatedNLSFs == 1) && (NLSFInterpCoef_Q2 < 4)
+	// The 10ms frame restriction was incorrect - libopus allows interpolation for all frame sizes.
+	if interpIdx < 4 && !e.haveEncoded {
 		interpIdx = 4
 	}
 
