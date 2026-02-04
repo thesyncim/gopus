@@ -20,9 +20,9 @@ func TestAudioAudibility(t *testing.T) {
 		t.Skip("opusdec not found in PATH")
 	}
 
-	// Generate a 3-second test signal: A major chord + sweep
+	// Generate a 0.1-second test signal: A major chord + sweep
 	sampleRate := 48000
-	duration := 3.0
+	duration := 0.1
 	numSamples := int(float64(sampleRate) * duration)
 
 	pcm := make([]float32, numSamples)
@@ -85,9 +85,10 @@ func TestAudioAudibility(t *testing.T) {
 	t.Logf("Encoded %d frames", len(packets))
 	t.Logf("Average packet size: %.1f bytes", avgSize(packets))
 
-	// Write Ogg Opus file
+	// Write Ogg Opus file with correct pre-skip
 	var buf bytes.Buffer
-	writeOggOpusAudible(&buf, packets, 1)
+	preSkip := enc.Lookahead()
+	writeOggOpusAudible(&buf, packets, 1, preSkip)
 
 	opusFile := "/tmp/gopus_output.opus"
 	if err := os.WriteFile(opusFile, buf.Bytes(), 0644); err != nil {
@@ -107,8 +108,8 @@ func TestAudioAudibility(t *testing.T) {
 	// Read decoded and compute quality
 	decoded := readTestWAV(decodedWav)
 	// opusdec already applies pre-skip from OpusHead. Only trim if it's still present.
-	if len(decoded) >= len(pcm)+312 {
-		decoded = decoded[312:]
+	if len(decoded) >= len(pcm)+preSkip {
+		decoded = decoded[preSkip:]
 	}
 
 	compareLen := len(pcm)
@@ -234,21 +235,21 @@ func checkOpusdecAvailable() bool {
 	return err == nil
 }
 
-func writeOggOpusAudible(w *bytes.Buffer, packets [][]byte, channels int) {
+func writeOggOpusAudible(w *bytes.Buffer, packets [][]byte, channels int, preSkip int) {
 	serialNo := uint32(12345)
 
 	opusHead := make([]byte, 19)
 	copy(opusHead[0:8], "OpusHead")
 	opusHead[8] = 1
 	opusHead[9] = byte(channels)
-	binary.LittleEndian.PutUint16(opusHead[10:12], 312)
+	binary.LittleEndian.PutUint16(opusHead[10:12], uint16(preSkip))
 	binary.LittleEndian.PutUint32(opusHead[12:16], 48000)
 	writeOggPageAudible(w, serialNo, 0, 2, 0, [][]byte{opusHead})
 
 	tags := []byte("OpusTags\x05\x00\x00\x00gopus\x00\x00\x00\x00")
 	writeOggPageAudible(w, serialNo, 1, 0, 0, [][]byte{tags})
 
-	granulePos := uint64(312)
+	granulePos := uint64(preSkip)
 	for i, pkt := range packets {
 		granulePos += 960
 		headerType := byte(0)

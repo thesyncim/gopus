@@ -159,7 +159,13 @@ func constrainSize(packet []byte, target int, tolerance float64) []byte {
 	maxSize := int(float64(target) * (1 + tolerance))
 
 	if len(packet) < minSize {
-		return padToSize(packet, minSize)
+		for size := minSize; size <= maxSize; size++ {
+			padded := padToSize(packet, size)
+			if len(padded) >= size {
+				return padded
+			}
+		}
+		return packet
 	}
 	if len(packet) > maxSize {
 		return packet

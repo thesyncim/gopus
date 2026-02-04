@@ -182,9 +182,9 @@ func NewDownsamplingResampler(fsIn, fsOut int) *DownsamplingResampler {
 	r.firCoefs = r.coefs[2:]
 
 	// Compute invRatio_Q16 (up2x = 0 for downsampling)
-	r.invRatioQ16 = int32((int64(fsInHz) << 14) / int64(fsOutHz) << 2)
+	r.invRatioQ16 = int32((int64(fsInHz) << 16) / int64(fsOutHz))
 	// Round up
-	for smulww(r.invRatioQ16, fsOutHz) < (fsInHz) {
+	for int32((int64(r.invRatioQ16) * int64(fsOutHz)) >> 16) < int32(fsInHz) {
 		r.invRatioQ16++
 	}
 

@@ -47,12 +47,6 @@ var (
 )
 
 // Encoder is the unified Opus encoder that orchestrates SILK and CELT sub-encoders.
-// It supports three encoding modes:
-// - ModeSILK: SILK-only for speech at lower bandwidths
-// - ModeHybrid: Combined SILK+CELT for speech at SWB/FB
-// - ModeCELT: CELT-only for music or high-quality audio
-//
-// Reference: RFC 6716 Section 3.2
 type Encoder struct {
 	// Sub-encoders (created lazily)
 	silkEncoder     *silk.Encoder
@@ -70,7 +64,7 @@ type Encoder struct {
 	bitrateMode BitrateMode
 	bitrate     int // Target bits per second
 
-	// FEC controls (08-04)
+	// FEC controls
 	fecEnabled        bool
 	packetLoss        int // Expected packet loss percentage (0-100)
 	lastVADActivityQ8 int
@@ -112,24 +106,25 @@ type Encoder struct {
 	hpMem [4]float64
 
 	// Encoder state for CELT delay compensation
-	// The 2.7ms delay (130 samples at 48kHz) aligns SILK and CELT
 	prevSamples []float64
 
 	// Hybrid mode state for improved SILK/CELT coordination
-	// Contains HB_gain and crossover energy matching
 	hybridState *HybridState
 
-	inputBuffer []float64
+	// Audio scene analyzer (The "Brain")
+	analyzer *TonalityAnalysisState
 
-	// SILK downsampling (48kHz -> SILK bandwidth rate) for SILK-only mode
-	// Uses DownsamplingResampler with proper AR2+FIR algorithm (not IIR_FIR upsampling)
+	inputBuffer []float64
+	delayBuffer []float64
+
+	// SILK downsampling
 	silkResampler      *silk.DownsamplingResampler
 	silkResamplerRight *silk.DownsamplingResampler
 	silkResamplerRate  int
 	silkResampled      []float32
 	silkResampledR     []float32
-	silkResampledBuffer []float32 // Buffer for resampled SILK input (includes lookahead)
-	silkResampledRBuffer []float32 // Buffer for resampled right channel
+	silkResampledBuffer []float32
+	silkResampledRBuffer []float32
 
 	// Scratch buffers for zero-allocation encoding
 	scratchDCPCM    []float64 // DC rejected PCM buffer
@@ -139,32 +134,21 @@ type Encoder struct {
 	scratchMono     []float32 // Mono mix buffer (VAD)
 	scratchVADFlags [silk.MaxFramesPerPacket]bool
 	scratchPacket   []byte // Output packet buffer
+	scratchDelayedPCM []float64 // Delay-compensated CELT input
 }
 
 // NewEncoder creates a new unified Opus encoder.
-// sampleRate must be one of: 8000, 12000, 16000, 24000, 48000
-// channels must be 1 (mono) or 2 (stereo)
-//
-// The encoder defaults to:
-// - ModeAuto (automatic mode selection)
-// - BandwidthFullband
-// - 20ms frames (960 samples at 48kHz)
 func NewEncoder(sampleRate, channels int) *Encoder {
-	// Validate sample rate
 	validRates := map[int]bool{8000: true, 12000: true, 16000: true, 24000: true, 48000: true}
 	if !validRates[sampleRate] {
-		sampleRate = 48000 // Default to 48kHz
+		sampleRate = 48000
 	}
-
-	// Validate channels
 	if channels < 1 {
 		channels = 1
 	}
 	if channels > 2 {
 		channels = 2
 	}
-
-	// Max frame size is 2880 samples (60ms at 48kHz) per channel
 	maxSamples := 2880 * channels
 
 	return &Encoder{
@@ -172,33 +156,33 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		bandwidth:              types.BandwidthFullband,
 		sampleRate:             sampleRate,
 		channels:               channels,
-		frameSize:              960,     // Default 20ms
-		bitrateMode:            ModeVBR, // VBR is default
-		bitrate:                64000,   // 64 kbps default
-		fecEnabled:             false,   // FEC disabled by default
-		packetLoss:             0,       // 0% packet loss expected
+		frameSize:              960,
+		bitrateMode:            ModeVBR,
+		bitrate:                64000,
+		fecEnabled:             false,
+		packetLoss:             0,
 		fec:                    newFECState(),
 		dtxEnabled:             false,
 		dtx:                    newDTXState(),
-		rng:                    22222,                         // Match libopus seed
-		complexity:             10,                            // Default: highest quality
-		signalType:             types.SignalAuto,              // Auto-detect signal type
-		maxBandwidth:           types.BandwidthFullband,       // No bandwidth limit
-		forceChannels:          -1,                            // Auto channel selection
-		lsbDepth:               24,                            // Full 24-bit depth
-		predictionDisabled:     false,                         // Inter-frame prediction enabled
-		phaseInversionDisabled: false,                         // Phase inversion enabled for stereo
-		prevSamples:            make([]float64, 130*channels), // CELT delay compensation buffer
-		scratchPCM32:           make([]float32, maxSamples),   // float64 to float32 conversion
-		scratchLeft:            make([]float32, 2880),         // Stereo deinterleave buffer
-		scratchRight:           make([]float32, 2880),         // Stereo deinterleave buffer
-		scratchMono:            make([]float32, 2880),         // Mono mix buffer for VAD
-		scratchPacket:          make([]byte, 1276),            // Max Opus packet (TOC + 1275 payload)
+		rng:                    22222,
+		complexity:             10,
+		signalType:             types.SignalAuto,
+		maxBandwidth:           types.BandwidthFullband,
+		forceChannels:          -1,
+		lsbDepth:               24,
+		predictionDisabled:     false,
+		phaseInversionDisabled: false,
+		prevSamples:            make([]float64, 130*channels),
+		analyzer:               NewTonalityAnalysisState(sampleRate),
+		scratchPCM32:           make([]float32, maxSamples),
+		scratchLeft:            make([]float32, 2880),
+		scratchRight:           make([]float32, 2880),
+		scratchMono:            make([]float32, 2880),
+		scratchPacket:          make([]byte, 1276),
 	}
 }
 
 // SetMode sets the encoding mode.
-// Use ModeAuto for automatic selection based on content and bandwidth.
 func (e *Encoder) SetMode(mode Mode) {
 	e.mode = mode
 }
@@ -209,7 +193,6 @@ func (e *Encoder) Mode() Mode {
 }
 
 // SetBandwidth sets the target audio bandwidth.
-// The bandwidth affects mode selection in ModeAuto.
 func (e *Encoder) SetBandwidth(bandwidth types.Bandwidth) {
 	e.bandwidth = bandwidth
 }
@@ -220,8 +203,6 @@ func (e *Encoder) Bandwidth() types.Bandwidth {
 }
 
 // SetFrameSize sets the frame size in samples at 48kHz.
-// Valid sizes: 120 (2.5ms), 240 (5ms), 480 (10ms), 960 (20ms), 1920 (40ms), 2880 (60ms)
-// Note: Hybrid mode only supports 480 and 960.
 func (e *Encoder) SetFrameSize(frameSize int) {
 	e.frameSize = frameSize
 }
@@ -243,12 +224,15 @@ func (e *Encoder) SampleRate() int {
 
 // Reset clears the encoder state for a new stream.
 func (e *Encoder) Reset() {
-	// Clear delay compensation buffer
 	for i := range e.prevSamples {
 		e.prevSamples[i] = 0
 	}
-
-	// Reset sub-encoders if they exist
+	if len(e.delayBuffer) > 0 {
+		clear(e.delayBuffer)
+	}
+	if len(e.inputBuffer) > 0 {
+		e.inputBuffer = e.inputBuffer[:0]
+	}
 	if e.silkEncoder != nil {
 		e.silkEncoder.Reset()
 	}
@@ -258,20 +242,16 @@ func (e *Encoder) Reset() {
 	if e.celtEncoder != nil {
 		e.celtEncoder.Reset()
 	}
-
-	// Reset SILK frame buffers
-
-	// Reset FEC state
 	e.resetFECState()
-
-	// Reset DTX state
 	if e.dtx != nil {
 		e.dtx.reset()
+	}
+	if e.analyzer != nil {
+		e.analyzer.Reset()
 	}
 }
 
 // SetFEC enables or disables in-band Forward Error Correction.
-// When enabled, the encoder includes LBRR data for loss recovery.
 func (e *Encoder) SetFEC(enabled bool) {
 	e.fecEnabled = enabled
 	if enabled && e.fec == nil {
@@ -285,7 +265,6 @@ func (e *Encoder) FECEnabled() bool {
 }
 
 // SetPacketLoss sets the expected packet loss percentage (0-100).
-// This affects FEC behavior and bitrate allocation.
 func (e *Encoder) SetPacketLoss(lossPercent int) {
 	if lossPercent < 0 {
 		lossPercent = 0
@@ -305,7 +284,6 @@ func (e *Encoder) PacketLoss() int {
 }
 
 // SetDTX enables or disables Discontinuous Transmission.
-// When enabled, packets are suppressed during silence.
 func (e *Encoder) SetDTX(enabled bool) {
 	e.dtxEnabled = enabled
 	if enabled && e.dtx == nil {
@@ -319,15 +297,6 @@ func (e *Encoder) DTXEnabled() bool {
 }
 
 // SetComplexity sets encoder complexity (0-10).
-// Higher values use more CPU for better quality.
-// Default is 10 (maximum quality).
-//
-// Guidelines:
-//
-//	0-1: Minimal processing, fastest encoding
-//	2-4: Basic analysis, good for real-time with limited CPU
-//	5-7: Moderate analysis, balanced quality/speed
-//	8-10: Thorough analysis, highest quality
 func (e *Encoder) SetComplexity(complexity int) {
 	if complexity < 0 {
 		complexity = 0
@@ -336,10 +305,6 @@ func (e *Encoder) SetComplexity(complexity int) {
 		complexity = 10
 	}
 	e.complexity = complexity
-
-	// Apply complexity to sub-encoders
-	// For v1, this affects decision thresholds only
-	// Future: affect MDCT precision, pitch search resolution, etc.
 	if e.celtEncoder != nil {
 		e.celtEncoder.SetComplexity(complexity)
 	}
@@ -357,15 +322,10 @@ func (e *Encoder) Complexity() int {
 }
 
 // FinalRange returns the final range coder state after encoding.
-// This matches libopus OPUS_GET_FINAL_RANGE and is used for bitstream verification.
-// Must be called after Encode() to get a meaningful value.
 func (e *Encoder) FinalRange() uint32 {
-	// Return the final range from the CELT encoder if it exists
-	// (CELT is used for CELT-only and Hybrid modes)
 	if e.celtEncoder != nil {
 		return e.celtEncoder.FinalRange()
 	}
-	// SILK encoder final range for SILK-only mode
 	if e.silkEncoder != nil {
 		return e.silkEncoder.FinalRange()
 	}
@@ -383,8 +343,6 @@ func (e *Encoder) GetBitrateMode() BitrateMode {
 }
 
 // SetBitrate sets the target bitrate in bits per second.
-// Valid range is 6000-510000 (6 kbps to 510 kbps).
-// Values outside this range are clamped.
 func (e *Encoder) SetBitrate(bitrate int) {
 	e.bitrate = ClampBitrate(bitrate)
 }
@@ -392,46 +350,6 @@ func (e *Encoder) SetBitrate(bitrate int) {
 // Bitrate returns the current target bitrate.
 func (e *Encoder) Bitrate() int {
 	return e.bitrate
-}
-
-// computeEquivRate calculates the equivalent bitrate based on frame rate, VBR mode,
-// complexity, and packet loss. Matches libopus compute_equiv_rate().
-func (e *Encoder) computeEquivRate(bitrate int, channels int, frameRate int, vbr bool, actualMode Mode, complexity int, loss int) int {
-	equiv := bitrate
-
-	// Take into account overhead from smaller frames.
-	if frameRate > 50 {
-		equiv -= (40*channels + 20) * (frameRate - 50)
-	}
-
-	// CBR is about a 8% penalty for both SILK and CELT.
-	if !vbr {
-		equiv -= equiv / 12
-	}
-
-	// Complexity makes about 10% difference (from 0 to 10) in general.
-	equiv = (equiv * (90 + complexity)) / 100
-
-	if actualMode == ModeSILK || actualMode == ModeHybrid {
-		// SILK complexity 0-1 uses the non-delayed-decision NSQ, which costs about 20%.
-		if complexity < 2 {
-			equiv = (equiv * 4) / 5
-		}
-		// Adjust for packet loss
-		if loss > 0 {
-			equiv -= (equiv * loss) / (6*loss + 10)
-		}
-	} else if actualMode == ModeCELT {
-		// CELT complexity 0-4 doesn't have the pitch filter, which costs about 10%.
-		if complexity < 5 {
-			equiv = (equiv * 9) / 10
-		}
-	}
-
-	if equiv < 5000 {
-		equiv = 5000
-	}
-	return equiv
 }
 
 func bitrateToBits(bitrate int, frameSize int) int {
@@ -442,138 +360,118 @@ func bitsToBitrate(bits int, frameSize int) int {
 	return (bits * 48000) / frameSize
 }
 
+// computeEquivRate calculates the equivalent bitrate based on frame rate, VBR mode,
+// complexity, and packet loss. Matches libopus compute_equiv_rate().
+func (e *Encoder) computeEquivRate(bitrate int, channels int, frameRate int, vbr bool, actualMode Mode, complexity int, loss int) int {
+	equiv := bitrate
+	if frameRate > 50 {
+		equiv -= (40*channels + 20) * (frameRate - 50)
+	}
+	if !vbr {
+		equiv -= equiv / 12
+	}
+	equiv = (equiv * (90 + complexity)) / 100
+	if actualMode == ModeSILK || actualMode == ModeHybrid {
+		if complexity < 2 {
+			equiv = (equiv * 4) / 5
+		}
+		if loss > 0 {
+			equiv -= (equiv * loss) / (6*loss + 10)
+		}
+	} else if actualMode == ModeCELT {
+		if complexity < 5 {
+			equiv = (equiv * 9) / 10
+		}
+	}
+	if equiv < 5000 {
+		equiv = 5000
+	}
+	return equiv
+}
+
 // computePacketSize determines target packet size based on mode.
 func (e *Encoder) computePacketSize(frameSize int, actualMode Mode) int {
-	frameRate := 48000 / frameSize
-	vbr := e.bitrateMode != ModeCBR
-	equivRate := e.computeEquivRate(e.bitrate, e.channels, frameRate, vbr, actualMode, e.complexity, e.packetLoss)
-
-	if e.bitrateMode == ModeVBR {
-		if actualMode == ModeSILK {
-			// bits_target = bitrate_to_bits(...) - 8 (TOC)
-			bitsTarget := bitrateToBits(equivRate, frameSize) - 8
-			if bitsTarget < 0 {
-				bitsTarget = 0
-			}
-			// Convert back to bitrate for SILK sub-encoder TargetRate_bps
-			return bitsToBitrate(bitsTarget, frameSize)
-		}
-		return 0 // CELT handles its own VBR
+	if actualMode == ModeSILK && e.bitrateMode == ModeVBR {
+		frameRate := 48000 / frameSize
+		equivRate := e.computeEquivRate(e.bitrate, e.channels, frameRate, true, actualMode, e.complexity, e.packetLoss)
+		return equivRate
 	}
-
 	return e.bitrate
 }
 
 // Encode encodes a frame of PCM audio to an Opus packet.
-// pcm: Input samples (interleaved if stereo). Length must be frameSize * channels.
-// frameSize: Number of samples per channel (e.g., 960 for 20ms at 48kHz).
-// Returns: Opus packet bytes, or nil if more data is needed (buffering).
 func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
-	// Validate input length
 	expectedLen := frameSize * e.channels
 	if len(pcm) != expectedLen {
 		return nil, ErrInvalidFrameSize
 	}
-
-	// Calculate required lookahead size
-	// We use the configured lookahead (5ms default)
-	lookaheadSamples := e.Lookahead() * e.channels
-
-	// Initialize buffer with silence (priming) on first frame to match libopus delay
-	// If silkEncoder is nil, we haven't encoded anything yet.
-	haveEncoded := e.silkEncoder != nil && e.silkEncoder.HaveEncoded()
-	if !haveEncoded && len(e.inputBuffer) == 0 {
-		e.inputBuffer = make([]float64, lookaheadSamples)
-	}
-
-	// Apply DC rejection filter matching libopus.
-	// We apply it to the incoming PCM block before buffering.
-	// This ensures the entire buffer (frame + lookahead) is consistent.
+	lookaheadSamples := 0
 	pcm = e.dcReject(pcm, frameSize)
-
-	// Append new input to buffer
 	e.inputBuffer = append(e.inputBuffer, pcm...)
-
-	// Check if we have enough data for a frame + lookahead
-	// We need frameSize samples for the current frame, plus lookaheadSamples for the next.
 	samplesNeeded := (frameSize * e.channels) + lookaheadSamples
 	if len(e.inputBuffer) < samplesNeeded {
-		// Need more data
 		return nil, nil
 	}
-
-	// Extract the frame to encode
-	// content starts at beginning of buffer
 	frameEnd := frameSize * e.channels
 	framePCM := e.inputBuffer[:frameEnd]
-
-	// Extract lookahead slice
-	// content starts after frame
 	lookaheadSlice := e.inputBuffer[frameEnd : frameEnd+lookaheadSamples]
 
-	// Check DTX mode - suppress frames during silence
 	suppressFrame, sendComfortNoise := e.shouldUseDTX(framePCM)
 	if suppressFrame {
-		// Consume buffer even if suppressed
 		e.inputBuffer = e.inputBuffer[frameEnd:]
 		if sendComfortNoise {
 			return e.encodeComfortNoise(frameSize)
 		}
-		// Return nil to indicate frame suppression
 		return nil, nil
 	}
 
-	// Determine actual mode to use based on the FRAME content
 	signalHint := e.signalType
-	if e.mode == ModeAuto && e.signalType == types.SignalAuto {
+	if signalHint == types.SignalAuto {
 		signalHint = e.autoSignalFromPCM(framePCM, frameSize)
 	}
 	actualMode := e.selectMode(frameSize, signalHint)
 
-	// Determine bit budget for this frame (libopus parity)
 	targetBitrate := e.computePacketSize(frameSize, actualMode)
 	if actualMode == ModeSILK {
 		e.ensureSILKEncoder()
-		// maxBits = bits_target = bitrate_to_bits(bitrate) - 8
-		bitsTarget := bitrateToBits(targetBitrate, frameSize) - 8
-		if bitsTarget < 0 {
-			bitsTarget = 0
-		}
-		e.silkEncoder.SetMaxBits(bitsTarget)
+		e.silkEncoder.SetMaxBits(bitrateToBits(targetBitrate, frameSize))
 	}
 
-	// Route to appropriate encoder (returns raw frame data without TOC)
 	var frameData []byte
 	var err error
 	switch actualMode {
 	case ModeSILK:
-		// Pass frame and lookahead to SILK
 		frameData, err = e.encodeSILKFrame(framePCM, lookaheadSlice, frameSize)
+		e.updateDelayBuffer(framePCM, frameSize)
 	case ModeHybrid:
-		// Pass frame and lookahead to Hybrid
-		frameData, err = e.encodeHybridFrame(framePCM, lookaheadSlice, frameSize)
+		celtPCM := e.applyDelayCompensation(framePCM, frameSize)
+		frameData, err = e.encodeHybridFrame(framePCM, celtPCM, lookaheadSlice, frameSize)
 	case ModeCELT:
-		// TODO: Pass lookahead to CELT
-		frameData, err = e.encodeCELTFrame(framePCM, frameSize)
+		celtPCM := e.applyDelayCompensation(framePCM, frameSize)
+		frameData, err = e.encodeCELTFrame(celtPCM, frameSize)
 	default:
 		return nil, ErrEncodingFailed
 	}
-
 	if err != nil {
 		return nil, err
 	}
-
-	// Consume processed samples from buffer
 	e.inputBuffer = e.inputBuffer[frameEnd:]
-
-	// Build complete packet with TOC byte into scratch buffer
 	stereo := e.channels == 2
-	packetLen, err := BuildPacketInto(e.scratchPacket, frameData, modeToTypes(actualMode), e.effectiveBandwidth(), frameSize, stereo)
+	packetBW := e.effectiveBandwidth()
+	if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
+		packetBW = types.BandwidthWideband
+	}
+	packetLen, err := BuildPacketInto(e.scratchPacket, frameData, modeToTypes(actualMode), packetBW, frameSize, stereo)
 	if err != nil {
 		return nil, err
 	}
 	packet := e.scratchPacket[:packetLen]
-
+	switch e.bitrateMode {
+	case ModeCBR:
+		packet = padToSize(packet, targetBytesForBitrate(e.bitrate, frameSize))
+	case ModeCVBR:
+		packet = constrainSize(packet, targetBytesForBitrate(e.bitrate, frameSize), CVBRTolerance)
+	}
 	return packet, nil
 }
 
@@ -587,23 +485,17 @@ func modeToTypes(m Mode) types.Mode {
 	case ModeCELT:
 		return types.ModeCELT
 	default:
-		return types.ModeCELT // ModeAuto already resolved
+		return types.ModeCELT
 	}
 }
 
 // dcReject applies a DC rejection filter (1st-order high-pass filter at 3Hz).
-// Matches libopus dc_reject() behavior for AUDIO application.
 func (e *Encoder) dcReject(in []float64, frameSize int) []float64 {
 	channels := e.channels
 	n := frameSize * channels
 	out := e.ensureDCPCM(n)
-
-	// coef = 6.3f * cutoff_Hz / Fs
-	// For cutoff_Hz = 3 and Fs = 48000:
-	// coef = 6.3 * 3 / 48000 = 0.00039375
 	const coef = 0.00039375
 	const coef2 = 1.0 - coef
-
 	if channels == 2 {
 		m0 := e.hpMem[0]
 		m2 := e.hpMem[2]
@@ -612,7 +504,6 @@ func (e *Encoder) dcReject(in []float64, frameSize int) []float64 {
 			x1 := in[2*i+1]
 			out0 := x0 - m0
 			out1 := x1 - m2
-			// hp_mem = coef*in + coef2*hp_mem
 			m0 = coef*x0 + coef2*m0
 			m2 = coef*x1 + coef2*m2
 			out[2*i] = out0
@@ -630,7 +521,6 @@ func (e *Encoder) dcReject(in []float64, frameSize int) []float64 {
 		}
 		e.hpMem[0] = m0
 	}
-
 	return out
 }
 
@@ -641,13 +531,89 @@ func (e *Encoder) ensureDCPCM(size int) []float64 {
 	return e.scratchDCPCM[:size]
 }
 
+func (e *Encoder) ensureDelayedPCM(size int) []float64 {
+	if cap(e.scratchDelayedPCM) < size {
+		e.scratchDelayedPCM = make([]float64, size)
+	}
+	return e.scratchDelayedPCM[:size]
+}
+
+// applyDelayCompensation prepends the Opus delay buffer (Fs/250) to the current frame
+// and returns a frame-sized slice for CELT processing. The delay buffer is updated
+// with the latest samples after constructing the output.
+func (e *Encoder) applyDelayCompensation(pcm []float64, frameSize int) []float64 {
+	delayComp := e.sampleRate / 250
+	if delayComp <= 0 {
+		return pcm
+	}
+	channels := e.channels
+	if channels < 1 {
+		channels = 1
+	}
+	delaySamples := delayComp * channels
+	needed := frameSize * channels
+	if len(pcm) < needed {
+		needed = len(pcm)
+	}
+	if delaySamples <= 0 || needed <= 0 {
+		return pcm
+	}
+	if len(e.delayBuffer) != delaySamples {
+		e.delayBuffer = make([]float64, delaySamples)
+	}
+	out := e.ensureDelayedPCM(frameSize * channels)
+	if delaySamples >= len(out) {
+		copy(out, e.delayBuffer[:len(out)])
+	} else {
+		copy(out, e.delayBuffer)
+		copy(out[delaySamples:], pcm[:len(out)-delaySamples])
+	}
+
+	// Update delay buffer with the latest samples.
+	if needed >= delaySamples {
+		copy(e.delayBuffer, pcm[needed-delaySamples:needed])
+	} else {
+		copy(e.delayBuffer, e.delayBuffer[needed:])
+		copy(e.delayBuffer[delaySamples-needed:], pcm[:needed])
+	}
+	return out
+}
+
+// updateDelayBuffer advances the delay buffer without generating a compensated frame.
+// This keeps the delay history in sync during SILK-only frames.
+func (e *Encoder) updateDelayBuffer(pcm []float64, frameSize int) {
+	delayComp := e.sampleRate / 250
+	if delayComp <= 0 {
+		return
+	}
+	channels := e.channels
+	if channels < 1 {
+		channels = 1
+	}
+	delaySamples := delayComp * channels
+	needed := frameSize * channels
+	if len(pcm) < needed {
+		needed = len(pcm)
+	}
+	if delaySamples <= 0 || needed <= 0 {
+		return
+	}
+	if len(e.delayBuffer) != delaySamples {
+		e.delayBuffer = make([]float64, delaySamples)
+	}
+	if needed >= delaySamples {
+		copy(e.delayBuffer, pcm[needed-delaySamples:needed])
+		return
+	}
+	copy(e.delayBuffer, e.delayBuffer[needed:])
+	copy(e.delayBuffer[delaySamples-needed:], pcm[:needed])
+}
+
 // selectMode determines the actual encoding mode based on settings and content.
 func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
-	// If mode is explicitly set (not auto), use it
 	if e.mode != ModeAuto {
 		return e.mode
 	}
-
 	bw := e.effectiveBandwidth()
 	perChanRate := e.bitrate
 	if e.channels > 0 {
@@ -656,68 +622,48 @@ func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
 	if perChanRate >= 48000 && (bw == types.BandwidthSuperwideband || bw == types.BandwidthFullband) {
 		return ModeCELT
 	}
-
-	// Apply signal type hint to influence mode selection
-	// SignalVoice biases toward SILK, SignalMusic toward CELT
 	switch signalHint {
 	case types.SignalVoice:
-		// Voice signal: prefer SILK for lower bandwidths, Hybrid for higher
 		switch bw {
 		case types.BandwidthNarrowband, types.BandwidthMediumband, types.BandwidthWideband:
 			return ModeSILK
 		case types.BandwidthSuperwideband, types.BandwidthFullband:
-			// Use Hybrid for voice at high bandwidth (if frame size supports it)
 			if frameSize == 480 || frameSize == 960 {
 				return ModeHybrid
 			}
 			return ModeSILK
 		}
 	case types.SignalMusic:
-		// Music signal: prefer CELT for full-bandwidth audio
 		return ModeCELT
 	}
-
-	// Auto mode selection based on bandwidth and frame size
 	switch bw {
 	case types.BandwidthNarrowband, types.BandwidthMediumband, types.BandwidthWideband:
-		// Lower bandwidths: use SILK
 		return ModeSILK
 	case types.BandwidthSuperwideband:
-		// Superwideband: use Hybrid for speech (10ms or 20ms frames)
-		// Hybrid combines SILK (0-8kHz) with CELT (8-12kHz) for good speech quality
-		// Now supports both mono and stereo
 		if frameSize == 480 || frameSize == 960 {
 			return ModeHybrid
 		}
 		return ModeCELT
 	case types.BandwidthFullband:
-		// Fullband: use CELT for best audio quality
-		// CELT handles the full 0-20kHz range natively, no need for Hybrid
 		return ModeCELT
 	default:
 		return ModeCELT
 	}
 }
 
-// autoSignalFromPCM estimates signal type for ModeAuto when no hint is provided.
-// Uses energy-based silence detection plus a simple high-frequency proxy.
+// autoSignalFromPCM is kept for backward compatibility but RunAnalysis is preferred.
 func (e *Encoder) autoSignalFromPCM(pcm []float64, frameSize int) types.Signal {
 	if len(pcm) == 0 || frameSize <= 0 {
 		return types.SignalAuto
 	}
-
-	// Use existing energy-based classifier for silence gating.
 	pcm32 := e.scratchPCM32[:len(pcm)]
 	for i, v := range pcm {
 		pcm32[i] = float32(v)
 	}
 	signalType, _ := classifySignal(pcm32)
 	if signalType == 0 {
-		// Silence: bias toward SILK/DTX.
 		return types.SignalVoice
 	}
-
-	// Compute a simple high-frequency proxy using first-difference energy.
 	channels := e.channels
 	if channels < 1 {
 		channels = 1
@@ -726,7 +672,6 @@ func (e *Encoder) autoSignalFromPCM(pcm []float64, frameSize int) types.Signal {
 	if samples <= 1 {
 		return types.SignalVoice
 	}
-
 	var energy, diffEnergy float64
 	var prev float64
 	for i := 0; i < samples; i++ {
@@ -750,13 +695,10 @@ func (e *Encoder) autoSignalFromPCM(pcm []float64, frameSize int) types.Signal {
 		}
 		prev = s
 	}
-
 	if energy <= 0 {
 		return types.SignalVoice
 	}
 	ratio := diffEnergy / (energy + 1e-12)
-
-	// Higher ratio implies more high-frequency content (music/percussive).
 	if ratio > 0.25 {
 		return types.SignalMusic
 	}
@@ -772,22 +714,12 @@ func (e *Encoder) effectiveBandwidth() types.Bandwidth {
 }
 
 // encodeSILKFrame encodes a frame using SILK-only mode.
-// Uses pre-allocated scratch buffers for zero allocations in hot path.
 func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize int) ([]byte, error) {
-	// Ensure SILK encoder exists
 	e.ensureSILKEncoder()
-
-	// Convert to float32 for SILK using pre-allocated scratch buffer
 	pcm32 := e.scratchPCM32[:len(pcm)]
 	for i, v := range pcm {
 		pcm32[i] = float32(v)
 	}
-
-	// Prepare lookahead buffer (float32)
-	// Reuse scratch buffer part or allocate?
-	// We can reuse scratchPCM32 if it's large enough, but we need both frame and lookahead.
-	// scratchPCM32 is sized for maxSamples (2880*channels).
-	// We'll use a slice after pcm32 if available.
 	var lookahead32 []float32
 	if len(lookahead) > 0 {
 		start := len(pcm)
@@ -800,9 +732,6 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 			lookahead32[i] = float32(v)
 		}
 	}
-
-	// Downsample 48kHz -> SILK bandwidth sample rate for SILK-only mode
-	// libopus feeds SILK at its native rate (8/12/16 kHz).
 	cfg := silk.GetBandwidthConfig(e.silkBandwidth())
 	targetRate := cfg.SampleRate
 	if targetRate != 48000 {
@@ -812,8 +741,6 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 	if targetSamples <= 0 {
 		targetSamples = len(pcm32)
 	}
-
-	// For stereo, need to handle separately
 	if e.channels == 2 {
 		perChannelRate := e.bitrate / e.channels
 		if perChannelRate > 0 {
@@ -821,34 +748,26 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 		}
 		e.silkEncoder.SetFEC(e.fecEnabled)
 		e.silkEncoder.SetPacketLoss(e.packetLoss)
-		// Ensure side encoder exists for stereo
 		e.ensureSILKSideEncoder()
 		if perChannelRate > 0 {
 			e.silkSideEncoder.SetBitrate(perChannelRate)
 		}
 		e.silkSideEncoder.SetFEC(e.fecEnabled)
 		e.silkSideEncoder.SetPacketLoss(e.packetLoss)
-		// Deinterleave using pre-allocated scratch buffers
 		left := e.scratchLeft[:frameSize]
 		right := e.scratchRight[:frameSize]
 		for i := 0; i < frameSize; i++ {
 			left[i] = pcm32[i*2]
 			right[i] = pcm32[i*2+1]
 		}
-
-		// Deinterleave lookahead
 		lookaheadSize := len(lookahead32) / 2
-		// We need scratch buffers for lookahead. Reuse offset in scratchLeft/Right?
-		// scratchLeft is 2880. frameSize is 960 (20ms).
 		leftLookahead := e.scratchLeft[frameSize : frameSize+lookaheadSize]
 		rightLookahead := e.scratchRight[frameSize : frameSize+lookaheadSize]
 		for i := 0; i < lookaheadSize; i++ {
 			leftLookahead[i] = lookahead32[i*2]
 			rightLookahead[i] = lookahead32[i*2+1]
 		}
-
 		if targetRate != 48000 {
-			// Resample Frame (update state)
 			leftOut := e.ensureSilkResampled(targetSamples)
 			rightOut := e.ensureSilkResampledR(targetSamples)
 			nL := e.silkResampler.ProcessInto(left, leftOut)
@@ -862,30 +781,7 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 			}
 			left = leftOut
 			right = rightOut
-
-			// Resample Lookahead (save/restore state)
-			// Target size for lookahead
-			targetLaSamples := lookaheadSize * targetRate / 48000
-			leftLaOut := make([]float32, targetLaSamples)
-			rightLaOut := make([]float32, targetLaSamples)
-
-			stateL := e.silkResampler.State()
-			stateR := e.silkResamplerRight.State()
-
-			e.silkResampler.ProcessInto(leftLookahead, leftLaOut)
-			e.silkResamplerRight.ProcessInto(rightLookahead, rightLaOut)
-
-			e.silkResampler.SetState(stateL)
-			e.silkResamplerRight.SetState(stateR)
-
-			// Use resampled lookahead for VAD?
-			// Currently VAD uses 'mono' which is from 'left' and 'right' (frame only).
-			// Ideally VAD should also see lookahead but SILK API handles that differently.
-			// We pass lookahead to EncodeStereoWithEncoder?
-			// EncodeStereoWithEncoder doesn't support lookahead yet.
-			// TODO: Add lookahead support to EncodeStereoWithEncoder
 		}
-		// Compute VAD on mono mix at SILK sample rate
 		fsKHz := targetRate / 1000
 		mono := e.scratchMono[:len(left)]
 		for i := 0; i < len(left); i++ {
@@ -896,29 +792,22 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 		if e.silkSideEncoder != nil {
 			e.silkSideEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.silkVAD.InputQualityBandsQ15)
 		}
-
 		return silk.EncodeStereoWithEncoder(e.silkEncoder, e.silkSideEncoder, left, right, e.silkBandwidth(), vadFlag)
 	}
-
 	var lookaheadOut []float32
 	if targetRate != 48000 {
-		// Resample Frame (updates state)
 		out := e.ensureSilkResampled(targetSamples)
 		n := e.silkResampler.ProcessInto(pcm32, out)
 		if n < len(out) {
 			out = out[:n]
 		}
 		pcm32 = out
-
-		// Resample Lookahead (save/restore state)
 		if len(lookahead32) > 0 {
 			targetLaSamples := len(lookahead32) * targetRate / 48000
-			// Use scratch buffer if available
 			if len(e.silkResampledBuffer) < targetLaSamples {
 				e.silkResampledBuffer = make([]float32, targetLaSamples)
 			}
 			lookaheadOut = e.silkResampledBuffer[:targetLaSamples]
-
 			state := e.silkResampler.State()
 			e.silkResampler.ProcessInto(lookahead32, lookaheadOut)
 			e.silkResampler.SetState(state)
@@ -926,7 +815,6 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 	} else {
 		lookaheadOut = lookahead32
 	}
-
 	if e.bitrate > 0 {
 		perChannelRate := e.bitrate / e.channels
 		if perChannelRate > 0 {
@@ -935,27 +823,9 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 	}
 	e.silkEncoder.SetFEC(e.fecEnabled)
 	e.silkEncoder.SetPacketLoss(e.packetLoss)
-
-	// Set maxBits for SILK rate control loop
-	targetBytes := targetBytesForBitrate(e.bitrate, frameSize)
-	if targetBytes > 0 {
-		e.silkEncoder.SetMaxBits((targetBytes - 1) * 8)
-	}
-
-	// Propagate bitrate mode to SILK encoder
-	switch e.bitrateMode {
-	case ModeCBR:
-		e.silkEncoder.SetVBR(false)
-	case ModeCVBR, ModeVBR:
-		e.silkEncoder.SetVBR(true)
-	}
-
-	// Compute VAD at SILK sample rate
 	fsKHz := targetRate / 1000
 	vadFlags, nFrames := e.computeSilkVADFlags(pcm32, fsKHz)
 	e.silkEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.lastVADInputQualityBandsQ15)
-
-	// Mono encoding using persistent encoder
 	if e.fecEnabled || nFrames > 1 {
 		return e.silkEncoder.EncodePacketWithFEC(pcm32, lookaheadOut, vadFlags), nil
 	}
@@ -963,28 +833,17 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 	if len(vadFlags) > 0 {
 		vadFlag = vadFlags[0]
 	}
-	// Pass lookahead to EncodeFrame
-	return e.silkEncoder.EncodeFrame(pcm32, lookaheadOut, vadFlag), nil
+	res := e.silkEncoder.EncodeFrame(pcm32, lookaheadOut, vadFlag)
+	return res, nil
 }
 
 // encodeCELTFrame encodes a frame using CELT-only mode.
 func (e *Encoder) encodeCELTFrame(pcm []float64, frameSize int) ([]byte, error) {
-	// Ensure CELT encoder exists
 	e.ensureCELTEncoder()
-
-	// Set bitrate for proper bit allocation
 	e.celtEncoder.SetBitrate(e.bitrate)
-	// Ensure CELT encoder is not in hybrid mode
 	e.celtEncoder.SetHybrid(false)
-	// Propagate packet loss for prefilter gain scaling
 	e.celtEncoder.SetPacketLoss(e.packetLoss)
-	// Propagate LSB depth to CELT for masking/spread decisions
 	e.celtEncoder.SetLSBDepth(e.lsbDepth)
-
-	// Propagate bitrate mode to CELT encoder
-	// CBR mode: VBR=false, CVBR=false - encoder uses exact bit budget
-	// CVBR mode: VBR=true, CVBR=true - encoder allows variation within constraints
-	// VBR mode: VBR=true, CVBR=false - encoder freely varies bitrate
 	switch e.bitrateMode {
 	case ModeCBR:
 		e.celtEncoder.SetVBR(false)
@@ -996,8 +855,6 @@ func (e *Encoder) encodeCELTFrame(pcm []float64, frameSize int) ([]byte, error) 
 		e.celtEncoder.SetVBR(true)
 		e.celtEncoder.SetConstrainedVBR(false)
 	}
-
-	// Use our encoder instance for stateful encoding with bitrate
 	return e.celtEncoder.EncodeFrame(pcm, frameSize)
 }
 
@@ -1022,8 +879,6 @@ func (e *Encoder) ensureSILKResampler(rate int) {
 		return
 	}
 	if e.silkResampler == nil || e.silkResamplerRate != rate {
-		// Use DownsamplingResampler with proper AR2+FIR algorithm for encoder mode
-		// This fixes the critical bug where IIR_FIR upsampling was used for downsampling
 		e.silkResampler = silk.NewDownsamplingResampler(48000, rate)
 		e.silkResamplerRate = rate
 		e.silkResamplerRight = nil
@@ -1079,7 +934,8 @@ func (e *Encoder) computeSilkVADSide(mono []float32, frameSamples, fsKHz int) bo
 		return false
 	}
 	e.ensureSilkVADSide()
-	_, active := computeSilkVADWithState(e.silkVADSide, mono, frameSamples, fsKHz)
+	activityQ8, active := computeSilkVADWithState(e.silkVADSide, mono, frameSamples, fsKHz)
+	_ = activityQ8
 	return active
 }
 
@@ -1161,7 +1017,6 @@ func (e *Encoder) silkBandwidth() silk.Bandwidth {
 	case types.BandwidthWideband:
 		return silk.BandwidthWideband
 	case types.BandwidthSuperwideband, types.BandwidthFullband:
-		// Hybrid mode uses WB for SILK layer
 		return silk.BandwidthWideband
 	default:
 		return silk.BandwidthWideband
@@ -1172,23 +1027,18 @@ func (e *Encoder) silkBandwidth() silk.Bandwidth {
 func ValidFrameSize(frameSize int, mode Mode) bool {
 	switch mode {
 	case ModeSILK:
-		// SILK: 10, 20, 40, 60ms (480, 960, 1920, 2880 at 48kHz)
 		return frameSize == 480 || frameSize == 960 || frameSize == 1920 || frameSize == 2880
 	case ModeHybrid:
-		// Hybrid: only 10, 20ms
 		return frameSize == 480 || frameSize == 960
 	case ModeCELT:
-		// CELT: 2.5, 5, 10, 20ms (120, 240, 480, 960 at 48kHz)
 		return frameSize == 120 || frameSize == 240 || frameSize == 480 || frameSize == 960
 	default:
-		// ModeAuto: accept all valid sizes
 		return frameSize == 120 || frameSize == 240 || frameSize == 480 ||
 			frameSize == 960 || frameSize == 1920 || frameSize == 2880
 	}
 }
 
 // SetSignalType sets the signal type hint for mode selection.
-// SignalVoice biases toward SILK mode, SignalMusic toward CELT mode.
 func (e *Encoder) SetSignalType(signal types.Signal) {
 	e.signalType = signal
 }
@@ -1199,7 +1049,6 @@ func (e *Encoder) SignalType() types.Signal {
 }
 
 // SetMaxBandwidth sets the maximum bandwidth limit.
-// The actual bandwidth will be clamped to this limit.
 func (e *Encoder) SetMaxBandwidth(bw types.Bandwidth) {
 	e.maxBandwidth = bw
 }
@@ -1210,7 +1059,6 @@ func (e *Encoder) MaxBandwidth() types.Bandwidth {
 }
 
 // SetForceChannels sets the forced channel count.
-// -1 = auto (use input channels), 1 = force mono, 2 = force stereo.
 func (e *Encoder) SetForceChannels(channels int) {
 	e.forceChannels = channels
 }
@@ -1221,19 +1069,14 @@ func (e *Encoder) ForceChannels() int {
 }
 
 // Lookahead returns the encoder's algorithmic delay in samples at 48kHz.
-// This includes both CELT delay compensation and mode-specific delay.
-// Reference: libopus OPUS_GET_LOOKAHEAD
 func (e *Encoder) Lookahead() int {
-	// Base lookahead is sampleRate/400 (2.5ms) = 120 samples at 48kHz
-	// Plus delay compensation: 130 samples for CELT overlap
-	// Total: approximately 250 samples (5.2ms) at 48kHz
-	baseLookahead := e.sampleRate / 400 // 2.5ms
-	delayComp := 130                    // CELT delay compensation in 48kHz samples
+	baseLookahead := e.sampleRate / 400
+	// libopus: delay_compensation = Fs/250 (4 ms)
+	delayComp := e.sampleRate / 250
 	return baseLookahead + delayComp
 }
 
 // SetLSBDepth sets the input signal's LSB depth (8-24 bits).
-// This affects DTX sensitivity - lower depths mean louder silence threshold.
 func (e *Encoder) SetLSBDepth(depth int) {
 	if depth < 8 {
 		depth = 8
@@ -1250,7 +1093,6 @@ func (e *Encoder) LSBDepth() int {
 }
 
 // SetPredictionDisabled disables inter-frame prediction.
-// When true, each frame can be decoded independently, improving error resilience.
 func (e *Encoder) SetPredictionDisabled(disabled bool) {
 	e.predictionDisabled = disabled
 }
@@ -1261,10 +1103,8 @@ func (e *Encoder) PredictionDisabled() bool {
 }
 
 // SetPhaseInversionDisabled disables stereo phase inversion.
-// Phase inversion improves stereo decorrelation but may cause issues with some audio.
 func (e *Encoder) SetPhaseInversionDisabled(disabled bool) {
 	e.phaseInversionDisabled = disabled
-	// Propagate to CELT encoder if it exists
 	if e.celtEncoder != nil {
 		e.celtEncoder.SetPhaseInversionDisabled(disabled)
 	}

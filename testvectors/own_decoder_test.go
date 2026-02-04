@@ -23,8 +23,17 @@ func TestOwnEncoderDecoder(t *testing.T) {
 	enc := celt.NewEncoder(1)
 	enc.SetBitrate(64000)
 
+	// Apply Opus-level delay compensation before CELT encoding.
+	delayComp := celt.DelayCompensation
+	delayedPCM := make([]float64, frameSize)
+	if delayComp >= frameSize {
+		// All zeros for extremely short frames (not expected here).
+	} else {
+		copy(delayedPCM[delayComp:], pcm[:frameSize-delayComp])
+	}
+
 	// Encode
-	packet, err := enc.EncodeFrame(pcm, frameSize)
+	packet, err := enc.EncodeFrame(delayedPCM, frameSize)
 	if err != nil {
 		t.Fatalf("Encode error: %v", err)
 	}

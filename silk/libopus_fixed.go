@@ -215,53 +215,28 @@ func silkDiv32VarQ(a32, b32 int32, q int) int32 {
 	if b32 == 0 {
 		return 0
 	}
-	if q < 0 {
-		q = 0
+	res := (int64(a32) << q) / int64(b32)
+	if res > 0x7FFFFFFF {
+		return 0x7FFFFFFF
 	}
-
-	aHeadrm := int32(silkCLZ32(silkAbs32(a32)) - 1)
-	a32Nrm := silkLSHIFT(a32, int(aHeadrm))
-	bHeadrm := int32(silkCLZ32(silkAbs32(b32)) - 1)
-	b32Nrm := silkLSHIFT(b32, int(bHeadrm))
-
-	b32Inv := silkDiv32_16(int32(0x7fffffff>>2), int32(b32Nrm>>16))
-	result := silkSMULWB(a32Nrm, b32Inv)
-
-	a32Nrm = a32Nrm - silkLSHIFT(silkSMMUL(b32Nrm, result), 3)
-	result = silkSMLAWB(result, a32Nrm, b32Inv)
-
-	lshift := int(29 + aHeadrm - bHeadrm - int32(q))
-	if lshift < 0 {
-		return silkLShiftSAT32(result, -lshift)
+	if res < -0x80000000 {
+		return -0x80000000
 	}
-	if lshift < 32 {
-		return result >> lshift
-	}
-	return 0
+	return int32(res)
 }
 
 func silkInverse32VarQ(b32 int32, q int) int32 {
-	if b32 == 0 || q <= 0 {
-		return 0
+	if b32 == 0 {
+		return 0x7FFFFFFF
 	}
-
-	bHeadrm := int32(silkCLZ32(silkAbs32(b32)) - 1)
-	b32Nrm := silkLSHIFT(b32, int(bHeadrm))
-
-	b32Inv := silkDiv32_16(int32(0x7fffffff>>2), int32(b32Nrm>>16))
-	result := silkLSHIFT(b32Inv, 16)
-
-	errQ32 := silkLSHIFT(int32((1<<29)-silkSMULWB(b32Nrm, b32Inv)), 3)
-	result = silkSMLAWW(result, errQ32, b32Inv)
-
-	lshift := int(61 - bHeadrm - int32(q))
-	if lshift <= 0 {
-		return silkLShiftSAT32(result, -lshift)
+	res := (int64(1) << q) / int64(b32)
+	if res > 0x7FFFFFFF {
+		return 0x7FFFFFFF
 	}
-	if lshift < 32 {
-		return result >> lshift
+	if res < -0x80000000 {
+		return -0x80000000
 	}
-	return 0
+	return int32(res)
 }
 
 func silkCLZ32(x int32) int32 {

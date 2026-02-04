@@ -257,17 +257,25 @@ func (e *Encoder) encodeComfortNoise(frameSize int) ([]byte, error) {
 // encodeFrame encodes a single frame using the current mode.
 // This is used by both normal encoding and comfort noise generation.
 func (e *Encoder) encodeFrame(pcm []float64, frameSize int) ([]byte, error) {
+	pcm = e.dcReject(pcm, frameSize)
+
 	// Determine actual mode to use
 	actualMode := e.selectMode(frameSize, e.signalType)
 
 	// Route to appropriate encoder
 	switch actualMode {
 	case ModeSILK:
-		return e.encodeSILKFrame(pcm, nil, frameSize)
+		res, err := e.encodeSILKFrame(pcm, nil, frameSize)
+		if err == nil {
+			e.updateDelayBuffer(pcm, frameSize)
+		}
+		return res, err
 	case ModeHybrid:
-		return e.encodeHybridFrame(pcm, nil, frameSize)
+		celtPCM := e.applyDelayCompensation(pcm, frameSize)
+		return e.encodeHybridFrame(pcm, celtPCM, nil, frameSize)
 	case ModeCELT:
-		return e.encodeCELTFrame(pcm, frameSize)
+		celtPCM := e.applyDelayCompensation(pcm, frameSize)
+		return e.encodeCELTFrame(celtPCM, frameSize)
 	default:
 		return nil, ErrEncodingFailed
 	}

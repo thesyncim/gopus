@@ -65,33 +65,9 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Reference: libopus src/opus_encoder.c line 2008: dc_reject(pcm, 3, ...)
 	dcRejected := e.applyDCRejectScratch(pcm)
 
-	// Step 3b: Apply delay buffer (lookahead compensation)
-	// libopus uses a delay_compensation of Fs/250 = 192 samples at 48kHz.
-	// The delay buffer is prepended to the new samples, creating a lookahead.
-	// Reference: libopus src/opus_encoder.c line 1967
-	delayComp := DelayCompensation * e.channels
-	if len(e.delayBuffer) < delayComp {
-		e.delayBuffer = make([]float64, delayComp)
-	}
-
-	// Build combined buffer: [delay_buffer] + [PCM samples] using scratch
-	combinedLen := delayComp + len(dcRejected)
-	combinedBuf := e.scratch.combinedBuf
-	if len(combinedBuf) < combinedLen {
-		combinedBuf = make([]float64, combinedLen)
-		e.scratch.combinedBuf = combinedBuf
-	}
-	combinedBuf = combinedBuf[:combinedLen]
-	copy(combinedBuf[:delayComp], e.delayBuffer)
-	copy(combinedBuf[delayComp:], dcRejected)
-
-	// Take frame_size samples from the start for processing
-	samplesForFrame := combinedBuf[:expectedLen]
-
-	// Save remaining samples to delay buffer for next frame
-	// The tail of combinedBuf (last delayComp samples) becomes new delay buffer
-	delayTailStart := len(combinedBuf) - delayComp
-	copy(e.delayBuffer, combinedBuf[delayTailStart:])
+	// Step 3b: Delay compensation is handled at the Opus encoder level.
+	// CELT expects already compensated input here.
+	samplesForFrame := dcRejected
 
 	// Step 3c: Apply pre-emphasis with signal scaling (before transient analysis)
 	// This matches libopus order: celt_preemphasis() is called before transient_analysis()

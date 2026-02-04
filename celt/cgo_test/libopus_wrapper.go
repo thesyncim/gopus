@@ -7,7 +7,7 @@ package cgo
 
 /*
 #cgo CFLAGS: -I${SRCDIR}/../../tmp_check/opus-1.6.1/include -I${SRCDIR}/../../tmp_check/opus-1.6.1/celt -I${SRCDIR}/../../tmp_check/opus-1.6.1 -DHAVE_CONFIG_H
-#cgo LDFLAGS: -L${SRCDIR}/../../tmp_check/opus-1.6.1/.libs -lopus -lm
+#cgo LDFLAGS: ${SRCDIR}/../../tmp_check/opus-1.6.1/.libs/libopus.a -lm
 
 #include <stdlib.h>
 #include <string.h>
@@ -36,10 +36,6 @@ static int pack_ec_enc(ec_enc *enc);
 void opus_flush_stdio(void) {
     fflush(NULL);
 }
-
-// ============================================================================
-// Internal state access for debugging - mirrors internal libopus structures
-// ============================================================================
 
 // Mirror of OpusDecoder structure from opus_decoder.c
 // Based on https://github.com/xiph/opus/blob/main/src/opus_decoder.c

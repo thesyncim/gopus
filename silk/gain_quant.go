@@ -35,8 +35,8 @@ func silkGainsQuantInto(ind []int8, gainQ16 []int32, prevInd int8, conditional b
 
 	for k := 0; k < nbSubfr; k++ {
 		// Convert to log scale, scale, floor()
-		// ind[k] = SMULWB(SCALE_Q16, silk_lin2log(gain_Q16[k]) - OFFSET)
 		logGain := silkLin2Log(gainQ16[k])
+		
 		rawInd := silkSMULWB(int32(gainScaleQ16), logGain-int32(gainOffsetQ7))
 
 		// Round towards previous quantized gain (hysteresis)
@@ -53,38 +53,38 @@ func silkGainsQuantInto(ind []int8, gainQ16 []int32, prevInd int8, conditional b
 			currentPrevInd = int(ind[k])
 		} else {
 			// Delta index
-			ind[k] = int8(int(ind[k]) - currentPrevInd)
+			delta := int(ind[k]) - currentPrevInd
 
 			// Double the quantization step size for large gain increases
-			// so that the max gain level can be reached
 			doubleStepThreshold := 2*maxDeltaGainQuant - nLevelsQGain + currentPrevInd
-			if int(ind[k]) > doubleStepThreshold {
-				ind[k] = int8(doubleStepThreshold + (int(ind[k])-doubleStepThreshold+1)>>1)
+			if delta > doubleStepThreshold {
+				delta = doubleStepThreshold + (delta-doubleStepThreshold+1)>>1
 			}
 
-			ind[k] = int8(silkLimitInt(int(ind[k]), minDeltaGainQuant, maxDeltaGainQuant))
+			delta = silkLimitInt(delta, minDeltaGainQuant, maxDeltaGainQuant)
+			ind[k] = int8(delta)
 
 			// Accumulate deltas
 			if int(ind[k]) > doubleStepThreshold {
 				currentPrevInd += 2*int(ind[k]) - doubleStepThreshold
-				if currentPrevInd > nLevelsQGain-1 {
-					currentPrevInd = nLevelsQGain - 1
-				}
 			} else {
 				currentPrevInd += int(ind[k])
 			}
+			currentPrevInd = silkLimitInt(currentPrevInd, 0, nLevelsQGain-1)
 
 			// Shift to make non-negative (for encoding)
 			ind[k] -= int8(minDeltaGainQuant)
 		}
 
-		// Scale and convert to linear scale
-		// gain_Q16[k] = silk_log2lin(min(SMULWB(INV_SCALE_Q16, prev_ind) + OFFSET, 3967))
+		// Scale and convert back to linear scale for NSQ
 		logQ7 := silkSMULWB(int32(invScaleQ16Val), int32(currentPrevInd)) + int32(gainOffsetQ7)
 		if logQ7 > 3967 {
 			logQ7 = 3967
 		}
 		gainQ16[k] = silkLog2Lin(logQ7)
+		if gainQ16[k] < (1 << 16) {
+			gainQ16[k] = 1 << 16
+		}
 	}
 
 	return int8(currentPrevInd)

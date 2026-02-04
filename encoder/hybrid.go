@@ -70,7 +70,7 @@ type HybridState struct {
 }
 
 // encodeHybridFrame encodes a frame using combined SILK and CELT.
-func (e *Encoder) encodeHybridFrame(pcm []float64, lookahead []float64, frameSize int) ([]byte, error) {
+func (e *Encoder) encodeHybridFrame(pcm []float64, celtPCM []float64, lookahead []float64, frameSize int) ([]byte, error) {
 	// Validate: only 480 (10ms) or 960 (20ms) for hybrid
 	if frameSize != 480 && frameSize != 960 {
 		return nil, ErrInvalidHybridFrameSize
@@ -228,10 +228,8 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, lookahead []float64, frameSiz
 	}
 	e.encodeSILKHybrid(silkInput, silkLookahead, frameSize)
 
-	// Step 3: Apply CELT DC rejection + delay compensation, then hybrid delay and gain fade
-	dcRejected := e.celtEncoder.ApplyDCRejectScratchHybrid(pcm)
-	samplesForFrame := e.celtEncoder.ApplyDelayCompensationScratchHybrid(dcRejected, frameSize)
-	celtInput := e.applyInputDelayWithGainFade(samplesForFrame, hbGain)
+	// Step 3: Apply hybrid delay and gain fade on delay-compensated CELT input
+	celtInput := e.applyInputDelayWithGainFade(celtPCM, hbGain)
 	if e.channels == 2 {
 		frameRate := 48000 / frameSize
 		vbr := e.bitrateMode != ModeCBR
@@ -667,18 +665,10 @@ func (e *Encoder) encodeSILKHybridMono(pcm []float32, lookahead []float32, silkS
 		return
 	}
 
-	// Reserve space for VAD+LBRR flags at packet start
-	// Per libopus: (nFramesPerPacket + 1) * nChannels bits
-	// For mono: (1 + 1) * 1 = 2 bits
+	// Header bits to patch at packet start
 	nFramesPerPacket := 1 // One SILK frame per packet (10ms or 20ms)
 	nChannels := 1        // mono
 	nBitsHeader := (nFramesPerPacket + 1) * nChannels
-
-	// Encode a placeholder using the same ICDF pattern as libopus
-	// iCDF[0] = 256 - (256 >> nBitsHeader), but we must compute with int then cast
-	iCDFVal := 256 - (256 >> uint(nBitsHeader))
-	iCDF := [2]uint8{uint8(iCDFVal), 0}
-	re.EncodeICDF(0, iCDF[:], 8)
 
 	// Encode any LBRR data from previous packet (header already reserved here)
 	if e.fecEnabled {
@@ -761,37 +751,31 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, lookahead []float32, sil
 		}
 	}
 
-	// 1. Reserve Mid Header
+	// Header bits to patch at packet start (VAD/LBRR)
 	nBitsHeader := 2
-	iCDFVal := 256 - (256 >> uint(nBitsHeader))
-	iCDF := [2]uint8{uint8(iCDFVal), 0}
-	re.EncodeICDF(0, iCDF[:], 8)
 
-	// 2. Reserve Side Header
-	re.EncodeICDF(0, iCDF[:], 8)
-
-	// 3. Encode LBRR Mid
+	// 1. Encode LBRR Mid
 	if e.fecEnabled {
 		e.silkEncoder.EncodeLBRRData(re, 1, false)
 	}
 
-	// 4. Encode LBRR Side
+	// 2. Encode LBRR Side
 	if e.fecEnabled && e.silkSideEncoder != nil {
 		e.silkSideEncoder.EncodeLBRRData(re, 1, false)
 	}
 
-	// 5. Encode Weights
+	// 3. Encode Weights
 	e.silkEncoder.EncodeStereoWeightsToRange(weights)
 
-	// 6. Encode Mid Frame
+	// 4. Encode Mid Frame
 	_ = e.silkEncoder.EncodeFrame(mid, nil, vadMid)
 
-	// 7. Encode Side Frame
+	// 5. Encode Side Frame
 	if e.silkSideEncoder != nil {
 		_ = e.silkSideEncoder.EncodeFrame(side, nil, vadSide)
 	}
 
-	// 8. Patch Mid Header
+	// 6. Patch both headers at once (Mid first, then Side).
 	flagsMid := uint32(0)
 	if vadMid {
 		flagsMid |= 1 << 1
@@ -799,9 +783,6 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, lookahead []float32, sil
 	if lbrrMid {
 		flagsMid |= 1 << 0
 	}
-	re.PatchInitialBits(flagsMid, uint(nBitsHeader))
-
-	// 9. Patch Side Header (offset is nBitsHeader bits after Mid header)
 	flagsSide := uint32(0)
 	if vadSide {
 		flagsSide |= 1 << 1
@@ -809,31 +790,8 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, lookahead []float32, sil
 	if lbrrSide {
 		flagsSide |= 1 << 0
 	}
-	// We need to patch the SECOND placeholder.
-	// PatchInitialBits patches the LAST placeholder? No, it patches from the beginning?
-	// rangeEncoder stores a list of patch locations.
-	// But PatchInitialBits takes `nBits`.
-	// We need to patch specific locations.
-	// `PatchInitialBits` implementation: it patches the *first* `nBits` of the buffer.
-	// To patch the second header, we need a way to offset.
-	// Libopus handles this by tracking bit offsets.
-	
-	// In gopus rangecoding, PatchInitialBits is simple.
-	// It patches bits at byte 0.
-	// If we reserved 2 bits, then 2 bits.
-	// Total 4 bits reserved (2 headers).
-	// We can patch all 4 bits at once!
-	// Format: [VAD_Side][LBRR_Side][VAD_Mid][LBRR_Mid] (LSB to MSB?)
-	// Wait. The encoder writes bits.
-	// First EncodeICDF writes to bit 0, 1? No, Range Coder writes bytes.
-	// The placeholders are 0s.
-	// If we reserved 4 bits total.
-	// We can patch 4 bits.
-	// flags = (flagsSide << 2) | flagsMid
-	// re.PatchInitialBits(flags, 4)
-	
-	flagsCombined := (flagsSide << 2) | flagsMid
-	re.PatchInitialBits(flagsCombined, 4)
+	flagsCombined := (flagsMid << 2) | flagsSide
+	re.PatchInitialBits(flagsCombined, uint(nBitsHeader*2))
 }
 
 

@@ -105,9 +105,6 @@ func (e *Encoder) carryOut(c int) {
 		}
 
 		// Write any pending 0xFF bytes, adjusted for carry
-		// This is a SEPARATE if, not inside the rem >= 0 block!
-		// If carry=1: 0xFF + 1 = 0x100, masked to 0x00
-		// If carry=0: 0xFF + 0 = 0xFF
 		if e.ext > 0 {
 			sym := (EC_SYM_MAX + carry) & EC_SYM_MAX
 			for e.ext > 0 {
@@ -172,12 +169,11 @@ func (e *Encoder) EncodeBin(fl, fh uint32, bits uint) {
 		return
 	}
 	r := e.rng >> bits
-	ft := uint32(1) << bits
 	if fl > 0 {
-		e.val += e.rng - r*(ft-fl)
+		e.val += e.rng - r*( (uint32(1)<<bits) - fl)
 		e.rng = r * (fh - fl)
 	} else {
-		e.rng -= r * (ft - fh)
+		e.rng -= r * ((uint32(1)<<bits) - fh)
 	}
 	e.normalize()
 }
@@ -254,15 +250,17 @@ func (e *Encoder) EncodeICDF16(s int, icdf []uint16, ftb uint) {
 // - bit=0: use interval [0, threshold), rng = threshold, val unchanged
 // - bit=1: use interval [threshold, rng), val += threshold, rng = r
 func (e *Encoder) EncodeBit(val int, logp uint) {
-	r := e.rng >> logp
-	threshold := e.rng - r // '1' probability region is at TOP of range
+	if logp == 0 {
+		return
+	}
+	// logp is the log probability: P(1) = 1 / 2^logp (rare, bottom region).
+	r := e.rng
+	s := r >> logp
 	if val != 0 {
-		// Encode 1: use interval [threshold, rng)
-		e.val += threshold
-		e.rng = r
+		e.val += r - s
+		e.rng = s
 	} else {
-		// Encode 0: use interval [0, threshold)
-		e.rng = threshold
+		e.rng = r - s
 	}
 	e.normalize()
 }
@@ -273,13 +271,10 @@ func (e *Encoder) EncodeBit(val int, logp uint) {
 // This follows libopus celt/entenc.c ec_enc_done exactly.
 func (e *Encoder) Done() []byte {
 	// Compute how many bits we need to output to uniquely identify the interval.
-	l := EC_CODE_BITS - ilog(e.rng)
+	l := EC_CODE_BITS - int(ilog(e.rng))
 
 	// Compute mask for rounding
-	var msk uint32
-	if l < EC_CODE_BITS {
-		msk = (EC_CODE_TOP - 1) >> l
-	}
+	var msk uint32 = (EC_CODE_TOP - 1) >> uint(l)
 
 	// Round up to alignment boundary
 	end := (e.val + msk) & ^msk
@@ -291,6 +286,8 @@ func (e *Encoder) Done() []byte {
 		end = (e.val + msk) & ^msk
 	}
 
+	// println("rangeCoder Done: l=", l, "rng=", e.rng, "val=", e.val, "end=", end, "Tell=", e.Tell())
+
 	// Output remaining bytes via carry propagation
 	for l > 0 {
 		e.carryOut(int(end >> EC_CODE_SHIFT))
@@ -298,7 +295,7 @@ func (e *Encoder) Done() []byte {
 		l -= EC_SYM_BITS
 	}
 
-	// Flush buffered range coder bytes (matches libopus ec_enc_done).
+	// Final symbol buffer flush
 	if e.rem >= 0 || e.ext > 0 {
 		e.carryOut(0)
 	}
@@ -324,9 +321,18 @@ func (e *Encoder) Done() []byte {
 			if e.endOffs >= e.storage {
 				e.err = -1
 			} else {
-				l = -l
-				if e.offs+e.endOffs >= e.storage && l < used {
-					window &= (1 << l) - 1
+				usable := -l
+				if usable < 0 {
+					usable = 0
+				}
+				if int(e.offs+e.endOffs) >= int(e.storage) && usable < used {
+					if usable >= 32 {
+						// No masking needed for full 32-bit window.
+					} else if usable <= 0 {
+						window = 0
+					} else {
+						window &= (uint32(1) << usable) - 1
+					}
 					e.err = -1
 				}
 				idx := int(e.storage - e.endOffs - 1)
@@ -338,49 +344,49 @@ func (e *Encoder) Done() []byte {
 	}
 
 	if e.err != 0 {
-		used = 0
 		if int(e.storage) <= len(e.buf) {
 			return e.buf[:e.storage]
 		}
 		return e.buf
 	}
 
-	// For CBR mode (when Shrink was called), return exactly storage bytes.
-	// The buffer is already structured as:
-	//   [front bytes from offs][zeros][end bytes from endOffs]
-	// with storage as the total size.
-	if e.shrunk {
-		return e.buf[:e.storage]
-	}
-
-	// For VBR mode, return actual written bytes (compact the buffer).
-	// Combine front bytes with end bytes.
-	padLen := 0
-	if used > 0 {
-		padLen = 1
+	// Calculate packed size
+	padSize := 0
+	if used > 0 && e.offs+e.endOffs < e.storage {
+		padSize = 1
 		if int(e.offs) < len(e.buf) {
 			e.buf[e.offs] = byte(window)
 		}
 	}
+	packedSize := int(e.offs + e.endOffs + uint32(padSize))
 
-	packedSize := int(e.offs + e.endOffs + uint32(padLen))
+	// For CBR mode (when Shrink was called), return exactly storage bytes.
+	if e.shrunk {
+		packedSize = int(e.storage)
+	}
+
 	if e.endOffs > 0 {
-		dst := int(e.offs) + padLen
+		dst := int(e.offs) + padSize
 		copy(e.buf[dst:], e.buf[e.storage-e.endOffs:e.storage])
 	}
 
 	if packedSize < 0 {
 		packedSize = 0
 	}
+	if packedSize > int(e.storage) {
+		e.err = -1
+		packedSize = int(e.storage)
+	}
 	if packedSize > len(e.buf) {
 		packedSize = len(e.buf)
 	}
+
 	return e.buf[:packedSize]
 }
 
 // Tell returns the number of bits written so far.
 func (e *Encoder) Tell() int {
-	return e.nbitsTotal - ilog(e.rng)
+	return e.nbitsTotal - int(ilog(e.rng))
 }
 
 // TellFrac returns the number of bits written with 1/8 bit precision.
@@ -389,8 +395,8 @@ func (e *Encoder) TellFrac() int {
 	correction := [8]uint32{35733, 38967, 42495, 46340, 50535, 55109, 60097, 65535}
 
 	nbits := e.nbitsTotal << 3
-	l := ilog(e.rng)
-	r := e.rng >> (l - 16)
+	l := int(ilog(e.rng))
+	r := e.rng >> (uint(l) - 16)
 	b := int((r >> 12) - 8)
 	if r > correction[b] {
 		b++
@@ -534,26 +540,24 @@ func (e *Encoder) State() (uint32, uint32) {
 // encoding in SILK packets where the flags must be written at the packet start
 // but their values are only known after encoding the frame data.
 func (e *Encoder) PatchInitialBits(val uint32, nbits uint) {
-	if nbits == 0 || nbits > EC_SYM_BITS {
+	if nbits <= 0 || nbits > EC_SYM_BITS {
 		e.err = -1
 		return
 	}
 	shift := EC_SYM_BITS - nbits
 	mask := (uint32(1)<<nbits - 1) << shift
 	if e.offs > 0 {
-		e.buf[0] = byte((uint32(e.buf[0]) &^ mask) | (val << shift))
-		return
-	}
-	if e.rem >= 0 {
+		e.buf[0] = (e.buf[0] &^ byte(mask)) | byte(val<<shift)
+	} else if e.rem >= 0 {
 		e.rem = int((uint32(e.rem) &^ mask) | (val << shift))
-		return
-	}
-	if e.rng <= (EC_CODE_TOP >> nbits) {
+	} else if e.rng <= (EC_CODE_TOP >> nbits) {
 		shiftedMask := mask << EC_CODE_SHIFT
 		e.val = (e.val &^ shiftedMask) | (val << (EC_CODE_SHIFT + shift))
-		return
+	} else {
+		// If we reach here, it means we're trying to patch bits before 
+		// the range coder has progressed enough to stabilize the first bits.
+		e.err = -1
 	}
-	e.err = -1
 }
 
 // EncodeUniform encodes a uniformly distributed value in the range [0, ft).

@@ -7,7 +7,7 @@ package cgo
 
 /*
 #cgo CFLAGS: -I${SRCDIR}/../../tmp_check/opus-1.6.1/include -I${SRCDIR}/../../tmp_check/opus-1.6.1/celt -I${SRCDIR}/../../tmp_check/opus-1.6.1 -DHAVE_CONFIG_H
-#cgo LDFLAGS: -L${SRCDIR}/../../tmp_check/opus-1.6.1/.libs -lopus -lm
+#cgo LDFLAGS: ${SRCDIR}/../../tmp_check/opus-1.6.1/.libs/libopus.a -lm
 
 #include <stdlib.h>
 #include <string.h>

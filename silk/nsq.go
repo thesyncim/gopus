@@ -357,6 +357,22 @@ func NoiseShapeQuantize(nsq *NSQState, input []int16, params *NSQParams) ([]int8
 		)
 	}
 
+	// Copy reconstructed samples to output buffer BEFORE shifting state
+	outXQ := make([]int16, frameLength)
+	copy(outXQ, nsq.xq[ltpMemLength:ltpMemLength+frameLength])
+
+	// Debug signal presence
+	var maxAbs int16
+	for _, v := range outXQ {
+		absV := v
+		if absV < 0 {
+			absV = -absV
+		}
+		if absV > maxAbs {
+			maxAbs = absV
+		}
+	}
+
 	// Update state for next frame
 	nsq.lagPrev = params.PitchL[nbSubfr-1]
 
@@ -364,7 +380,7 @@ func NoiseShapeQuantize(nsq *NSQState, input []int16, params *NSQParams) ([]int8
 	copy(nsq.xq[:ltpMemLength], nsq.xq[frameLength:frameLength+ltpMemLength])
 	copy(nsq.sLTPShpQ14[:ltpMemLength], nsq.sLTPShpQ14[frameLength:frameLength+ltpMemLength])
 
-	return pulses, xq
+	return pulses, outXQ
 }
 
 // noiseShapeQuantizerSubframe quantizes one subframe with noise shaping.
@@ -499,8 +515,14 @@ func noiseShapeQuantizerSubframe(
 		lpcExcQ14 := silk_ADD_LSHIFT32(excQ14, ltpPredQ13, 1)
 		xqQ14 := silk_ADD32(lpcExcQ14, silk_LSHIFT32(lpcPredQ10, 4))
 
-		// Scale back to output level
-		xq[i] = int16(silk_SAT16(silk_RSHIFT_ROUND(silk_SMULWW(xqQ14, gainQ10), 8)))
+		// Scale back to output level (dequantize from Q14 to Q0)
+		// Matches libopus: xq[i] = (int16)silk_SAT16(silk_RSHIFT_ROUND(silk_SMULWW(xq_Q14, gain_Q10), 16+8-14))
+		// gainQ10 is gainQ16 >> 6. xqQ14 * gainQ10 is Q14 * Q10 = Q24.
+		// To get Q0, we need to shift right by 24. SMULWW is (32*32)>>16.
+		// So xqQ14 * gainQ10 >> 16 is Q(24-16) = Q8, then >>8 to Q0.
+		// Let's use direct int64 multiply for clarity and then shift.
+		xqQ0 := int32((int64(xqQ14) * int64(gainQ10)) >> 24)
+		xq[i] = int16(silk_SAT16(xqQ0))
 
 		// Update states
 		psLPCQ14Idx++
@@ -638,10 +660,13 @@ func scaleNSQStates(
 	lag := pitchL[subfr]
 	invGainQ31 := silk_INVERSE32_varQ(silk_max(gainsQ16[subfr], 1), 47)
 
-	// Scale input
+	// Scale input (to Q10)
 	invGainQ26 := silk_RSHIFT_ROUND(invGainQ31, 5)
 	for i := 0; i < subfrLength && i < len(x16); i++ {
-		xScQ10[i] = silk_SMULWW(int32(x16[i]), invGainQ26)
+		// Matches libopus: x_sc_Q10[ i ] = silk_SMULWW( x16[ i ], inv_gain_Q26 )
+		// x16 is Q0, invGainQ26 is Q26. SMULWW is (32*32)>>16.
+		// So Q0 * Q26 >> 16 = Q10.
+		xScQ10[i] = int32((int64(x16[i]) * int64(invGainQ26)) >> 16)
 	}
 
 	// After rewhitening, scale LTP state
@@ -790,9 +815,9 @@ func silk_SMULWB(a, b int32) int32 {
 }
 
 func silk_SMULWW(a, b int32) int32 {
-	// Full 32x32 multiply returning high 32 bits
-	result := int64(a) * int64(b)
-	return int32(result >> 16)
+	// (a * b) >> 16
+	// Matches libopus silk_SMULWW
+	return int32((int64(a) * int64(b)) >> 16)
 }
 
 func silk_SMULBB(a, b int32) int32 {
