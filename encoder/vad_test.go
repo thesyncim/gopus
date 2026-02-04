@@ -144,7 +144,7 @@ func TestVADTransitions(t *testing.T) {
 		t.Errorf("Speech onset detected too late: frame %d", speechOnsetFrame)
 	}
 
-	// Transition back to silence - verify hangover
+	// Transition back to silence
 	var silenceOnsetFrame int
 	for i := 0; i < 30; i++ {
 		_, isActive := vad.GetSpeechActivity(silence, frameLength, 16)
@@ -153,9 +153,9 @@ func TestVADTransitions(t *testing.T) {
 		}
 	}
 
-	// Silence should be detected after hangover period (5 frames)
-	if silenceOnsetFrame < 3 {
-		t.Errorf("Silence detected too quickly (no hangover): frame %d", silenceOnsetFrame)
+	// Silence should be detected quickly (no hangover in libopus VAD)
+	if silenceOnsetFrame > 2 {
+		t.Errorf("Silence detected too late: frame %d", silenceOnsetFrame)
 	}
 }
 

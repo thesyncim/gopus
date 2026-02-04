@@ -87,23 +87,42 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 		return lpcQ12, lsfQ15, 4
 	}
 
+	minInvGain32 := float32(minInvGainVal)
+
+	if e.trace != nil && e.trace.NLSF != nil {
+		tr := e.trace.NLSF
+		tr.LTPResLen = totalLen
+		tr.LTPResHash = hashFloat32Slice(ltpRes[:totalLen])
+		if tr.CaptureLTPRes {
+			tr.LTPRes = append(tr.LTPRes[:0], ltpRes[:totalLen]...)
+		}
+		tr.MinInvGain = float64(minInvGain32)
+		tr.LPCOrder = order
+		tr.NbSubfr = numSubframes
+		tr.SubfrLen = subframeSamples
+		tr.SubfrLenWithOrder = subfrLen
+		tr.FirstFrameAfterReset = !e.haveEncoded
+	}
+
+	aFull, resNrg := e.burgModifiedFLPZeroAllocF32(ltpRes[:totalLen], minInvGain32, subfrLen, numSubframes, order)
+	resNrg32 := float32(resNrg)
+	fullTotalEnergy := e.lastTotalEnergy
+	fullInvGain := e.lastInvGain
+	fullNumSamples := e.lastNumSamples
 	x := ensureFloat64Slice(&e.scratchLtpInput, totalLen)
 	for i := 0; i < totalLen; i++ {
 		x[i] = float64(ltpRes[i])
 	}
 
-	aFull, resNrg := e.burgModifiedFLPZeroAlloc(x, minInvGainVal, subfrLen, numSubframes, order)
-	fullTotalEnergy := e.lastTotalEnergy
-	fullInvGain := e.lastInvGain
-	fullNumSamples := e.lastNumSamples
-
 	for i := 0; i < order; i++ {
-		lpcQ12[i] = float64ToInt16Round(aFull[i] * 4096.0)
+		a32 := float32(aFull[i])
+		lpcQ12[i] = float64ToInt16Round(float64(a32 * 4096.0))
 	}
 
 	lpcQ16 := ensureInt32Slice(&e.scratchLPCQ16, order)
 	for i := 0; i < order; i++ {
-		lpcQ16[i] = float64ToInt32Round(aFull[i] * 65536.0)
+		a32 := float32(aFull[i])
+		lpcQ16[i] = float64ToInt32Round(float64(a32 * 65536.0))
 	}
 	silkA2NLSF(lsfQ15, lpcQ16, order)
 
@@ -112,10 +131,12 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 	if useInterp {
 		halfOffset := (maxNbSubfr / 2) * subfrLen
 		if halfOffset+subfrLen*(maxNbSubfr/2) <= totalLen {
-			aLast, resNrgLast := e.burgModifiedFLPZeroAlloc(x[halfOffset:], minInvGainVal, subfrLen, maxNbSubfr/2, order)
+			aLast, resNrgLast := e.burgModifiedFLPZeroAllocF32(ltpRes[halfOffset:], minInvGain32, subfrLen, maxNbSubfr/2, order)
+			resNrgLast32 := float32(resNrgLast)
 			lsfLast := ensureInt16Slice(&e.scratchNLSFTempQ15, order)
 			for i := 0; i < order; i++ {
-				lpcQ16[i] = float64ToInt32Round(aLast[i] * 65536.0)
+				a32 := float32(aLast[i])
+				lpcQ16[i] = float64ToInt32Round(float64(a32 * 65536.0))
 			}
 			silkA2NLSF(lsfLast, lpcQ16, order)
 
@@ -124,9 +145,9 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 			e.lastInvGain = fullInvGain
 			e.lastNumSamples = fullNumSamples
 
-			resNrg -= resNrgLast
+			resNrg32 -= resNrgLast32
 
-			resNrg2nd := math.MaxFloat64
+			resNrg2nd := float32(math.MaxFloat32)
 			analyzeLen := 2 * subfrLen
 			if analyzeLen <= totalLen {
 				var interpNLSF [maxLPCOrder]int16
@@ -150,13 +171,13 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 					resNrgInterp := float32(energyF64(lpcRes[order:], subframeSamples))
 					resNrgInterp += float32(energyF64(lpcRes[order+subfrLen:], subframeSamples))
 
-					if resNrgInterp < float32(resNrg) {
-						resNrg = float64(resNrgInterp)
+					if resNrgInterp < resNrg32 {
+						resNrg32 = resNrgInterp
 						interpIdx = k
-					} else if resNrgInterp > float32(resNrg2nd) {
+					} else if resNrgInterp > resNrg2nd {
 						break
 					}
-					resNrg2nd = float64(resNrgInterp)
+					resNrg2nd = resNrgInterp
 				}
 			}
 
@@ -164,6 +185,14 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 				copy(lsfQ15, lsfLast)
 			}
 		}
+	}
+
+	if e.trace != nil && e.trace.NLSF != nil {
+		tr := e.trace.NLSF
+		tr.UseInterp = useInterp
+		tr.InterpIdx = interpIdx
+		tr.RawNLSFQ15 = append(tr.RawNLSFQ15[:0], lsfQ15...)
+		tr.PrevNLSFQ15 = append(tr.PrevNLSFQ15[:0], e.prevLSFQ15...)
 	}
 
 	return lpcQ12, lsfQ15, interpIdx

@@ -76,6 +76,9 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, celtPCM []float64, lookahead 
 		return nil, ErrInvalidHybridFrameSize
 	}
 
+	// Update Opus-level VAD activity (used to gate SILK VAD)
+	e.updateOpusVAD(pcm, frameSize)
+
 	// Ensure sub-encoders exist
 	e.ensureSILKEncoder()
 	if e.channels == 2 {
@@ -174,7 +177,7 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, celtPCM []float64, lookahead 
 		}
 
 		targetLaSamples := len(lookahead) / 3
-		silkLookahead = make([]float32, targetLaSamples * e.channels)
+		silkLookahead = make([]float32, targetLaSamples*e.channels)
 
 		if e.channels == 1 {
 			state := e.silkResampler.State()
@@ -188,17 +191,17 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, celtPCM []float64, lookahead 
 				leftLa[i] = lookahead32[i*2]
 				rightLa[i] = lookahead32[i*2+1]
 			}
-			
+
 			leftOut := make([]float32, targetLaSamples/2)
 			rightOut := make([]float32, targetLaSamples/2)
-			
+
 			stateL := e.silkResampler.State()
 			stateR := e.silkResamplerRight.State()
 			e.silkResampler.ProcessInto(leftLa, leftOut)
 			e.silkResamplerRight.ProcessInto(rightLa, rightOut)
 			e.silkResampler.SetState(stateL)
 			e.silkResamplerRight.SetState(stateR)
-			
+
 			// Interleave into silkLookahead
 			for i := 0; i < targetLaSamples/2; i++ {
 				silkLookahead[i*2] = leftOut[i]
@@ -726,7 +729,7 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, lookahead []float32, sil
 	// Compute VAD flags
 	vadMid := e.computeSilkVAD(mid, len(mid), fsKHz)
 	e.silkEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.lastVADInputQualityBandsQ15)
-	
+
 	vadSide := e.computeSilkVADSide(side, len(side), fsKHz)
 	if e.silkSideEncoder != nil {
 		e.silkSideEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.lastVADInputQualityBandsQ15)

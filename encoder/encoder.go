@@ -72,6 +72,9 @@ type Encoder struct {
 	lastVADInputQualityBandsQ15 [4]int
 	lastVADActive               bool
 	lastVADValid                bool
+	lastOpusVADActive           bool
+	lastOpusVADValid            bool
+	lastOpusVADProb             float32
 	silkVAD                     *VADState
 	silkVADSide                 *VADState
 	fec                         *fecState
@@ -118,12 +121,12 @@ type Encoder struct {
 	delayBuffer []float64
 
 	// SILK downsampling
-	silkResampler        *silk.DownsamplingResampler
-	silkResamplerRight   *silk.DownsamplingResampler
-	silkResamplerRate    int
-	silkResampled        []float32
-	silkResampledR       []float32
-	silkResampledBuffer  []float32
+	silkResampler       *silk.DownsamplingResampler
+	silkResamplerRight  *silk.DownsamplingResampler
+	silkResamplerRate   int
+	silkResampled       []float32
+	silkResampledR      []float32
+	silkResampledBuffer []float32
 
 	// Scratch buffers for zero-allocation encoding
 	scratchDCPCM      []float64 // DC rejected PCM buffer
@@ -769,6 +772,7 @@ func (e *Encoder) effectiveBandwidth() types.Bandwidth {
 // encodeSILKFrame encodes a frame using SILK-only mode.
 func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize int) ([]byte, error) {
 	e.ensureSILKEncoder()
+	e.updateOpusVAD(pcm, frameSize)
 	pcm32 := e.scratchPCM32[:len(pcm)]
 	for i, v := range pcm {
 		pcm32[i] = float32(v)
@@ -957,14 +961,45 @@ func (e *Encoder) ensureSilkVADSide() {
 	}
 }
 
-func computeSilkVADWithState(state *VADState, mono []float32, frameSamples, fsKHz int) (int, bool) {
+// updateOpusVAD updates the Opus-level VAD activity state from the tonality analyzer.
+// This mirrors opus_encoder.c behavior where SILK VAD is suppressed if Opus VAD is inactive.
+func (e *Encoder) updateOpusVAD(pcm []float64, frameSize int) {
+	if e.analyzer == nil || frameSize <= 0 || len(pcm) == 0 {
+		e.lastOpusVADValid = false
+		e.lastOpusVADActive = true
+		e.lastOpusVADProb = 1.0
+		return
+	}
+	pcm32 := e.scratchPCM32[:len(pcm)]
+	for i, v := range pcm {
+		pcm32[i] = float32(v)
+	}
+	info := e.analyzer.RunAnalysis(pcm32, frameSize, e.channels)
+	e.lastOpusVADProb = info.VADProb
+	e.lastOpusVADValid = info.Valid
+	if !info.Valid {
+		e.lastOpusVADActive = true
+		return
+	}
+	e.lastOpusVADActive = info.VADProb >= DTXActivityThreshold
+}
+
+func computeSilkVADWithState(state *VADState, mono []float32, frameSamples, fsKHz int, opusActive, opusValid bool) (int, bool) {
 	if state == nil || frameSamples <= 0 || fsKHz <= 0 {
 		return 0, false
 	}
 	if len(mono) < frameSamples {
 		return 0, false
 	}
-	return state.GetSpeechActivity(mono, frameSamples, fsKHz)
+	activityQ8, active := state.GetSpeechActivity(mono, frameSamples, fsKHz)
+	if opusValid && !opusActive {
+		if activityQ8 >= speechActivityThresholdQ8 {
+			activityQ8 = speechActivityThresholdQ8 - 1
+			state.SpeechActivityQ8 = activityQ8
+		}
+		active = false
+	}
+	return activityQ8, active
 }
 
 func (e *Encoder) computeSilkVAD(mono []float32, frameSamples, fsKHz int) bool {
@@ -973,7 +1008,7 @@ func (e *Encoder) computeSilkVAD(mono []float32, frameSamples, fsKHz int) bool {
 		return false
 	}
 	e.ensureSilkVAD()
-	activityQ8, active := computeSilkVADWithState(e.silkVAD, mono, frameSamples, fsKHz)
+	activityQ8, active := computeSilkVADWithState(e.silkVAD, mono, frameSamples, fsKHz, e.lastOpusVADActive, e.lastOpusVADValid)
 	e.lastVADActivityQ8 = activityQ8
 	e.lastVADInputTiltQ15 = e.silkVAD.InputTiltQ15
 	e.lastVADInputQualityBandsQ15 = e.silkVAD.InputQualityBandsQ15
@@ -987,7 +1022,7 @@ func (e *Encoder) computeSilkVADSide(mono []float32, frameSamples, fsKHz int) bo
 		return false
 	}
 	e.ensureSilkVADSide()
-	activityQ8, active := computeSilkVADWithState(e.silkVADSide, mono, frameSamples, fsKHz)
+	activityQ8, active := computeSilkVADWithState(e.silkVADSide, mono, frameSamples, fsKHz, e.lastOpusVADActive, e.lastOpusVADValid)
 	_ = activityQ8
 	return active
 }
@@ -1101,6 +1136,34 @@ func (e *Encoder) SetSignalType(signal types.Signal) {
 // SignalType returns the current signal type hint.
 func (e *Encoder) SignalType() types.Signal {
 	return e.signalType
+}
+
+// LastSilkVADActivity returns the last SILK VAD speech activity (Q8, 0-255).
+func (e *Encoder) LastSilkVADActivity() int {
+	return e.lastVADActivityQ8
+}
+
+// LastSilkVADInputTiltQ15 returns the last SILK VAD input tilt (Q15).
+func (e *Encoder) LastSilkVADInputTiltQ15() int {
+	return e.lastVADInputTiltQ15
+}
+
+// LastOpusVADProb returns the last Opus-level VAD probability (0..1).
+func (e *Encoder) LastOpusVADProb() float32 {
+	return e.lastOpusVADProb
+}
+
+// LastOpusVADActive returns whether the Opus-level VAD classified the last frame as active.
+func (e *Encoder) LastOpusVADActive() bool {
+	return e.lastOpusVADActive
+}
+
+// LastSilkLTPCorr returns the last SILK pitch correlation estimate.
+func (e *Encoder) LastSilkLTPCorr() float32 {
+	if e.silkEncoder == nil {
+		return 0
+	}
+	return e.silkEncoder.LTPCorr()
 }
 
 // SetMaxBandwidth sets the maximum bandwidth limit.

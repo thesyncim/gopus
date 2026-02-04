@@ -81,7 +81,7 @@ func TestLTPAnalysisFilterAndBurgMatchLibopus(t *testing.T) {
 	subfrLenWithOrder := subfrLen + preLen
 	libA, _ := libopusBurgModified(ltpRes, float32(minInvGain), subfrLenWithOrder, nbSubfr, preLen)
 
-	goA, _ := enc.burgModifiedFLPZeroAlloc(f64SliceFromF32(ltpRes), minInvGain, subfrLenWithOrder, nbSubfr, preLen)
+	goA, _ := enc.burgModifiedFLPZeroAllocF32(ltpRes, float32(minInvGain), subfrLenWithOrder, nbSubfr, preLen)
 	if len(libA) != len(goA) {
 		t.Fatalf("LPC length mismatch: go=%d lib=%d", len(goA), len(libA))
 	}
