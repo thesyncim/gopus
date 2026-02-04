@@ -177,15 +177,14 @@ func synthesizeChannelWithOverlapScratch(coeffs []float64, prevOverlap []float64
 	if len(out) < needed {
 		return nil
 	}
-	// Clear output for deterministic TDAC windowing.
-	for i := 0; i < needed; i++ {
-		out[i] = 0
-	}
-	if overlap > 0 {
-		copy(out[:overlap], prevOverlap)
-	}
 
 	if transient && shortBlocks > 1 {
+		// Clear output for deterministic TDAC windowing in the short-block path.
+		clear(out[:needed])
+		if overlap > 0 {
+			copy(out[:overlap], prevOverlap)
+		}
+
 		shortSize := frameSize / shortBlocks
 		if shortSize <= 0 {
 			return nil

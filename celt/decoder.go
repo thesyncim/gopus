@@ -791,8 +791,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
 
 	// Step 7: Apply de-emphasis filter
-	d.applyDeemphasis(samples)
-	scaleSamples(samples, 1.0/32768.0)
+	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
 
 	// Trace final synthesis output
 	traceLen = len(samples)
@@ -904,8 +903,7 @@ func (d *Decoder) decodeSilenceFrame(frameSize int, newPeriod int, newGain float
 	}
 
 	d.applyPostfilter(samples, frameSize, mode.LM, newPeriod, newGain, newTapset)
-	d.applyDeemphasis(samples)
-	scaleSamples(samples, 1.0/32768.0)
+	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
 
 	return samples
 }
@@ -921,6 +919,10 @@ func (d *Decoder) decodeSilenceFrame(frameSize int, newPeriod int, newGain float
 // to match libopus exactly. The IIR filter accumulates state over time,
 // and using float64 would cause precision drift relative to libopus.
 func (d *Decoder) applyDeemphasis(samples []float64) {
+	d.applyDeemphasisAndScale(samples, 1.0)
+}
+
+func (d *Decoder) applyDeemphasisAndScale(samples []float64, scale float64) {
 	if len(samples) == 0 {
 		return
 	}
@@ -932,6 +934,7 @@ func (d *Decoder) applyDeemphasis(samples []float64) {
 
 	// Use float32 for filter coefficient to match libopus
 	const coef float32 = float32(PreemphCoef)
+	scale32 := float32(scale)
 
 	if d.channels == 1 {
 		// Mono de-emphasis - use float32 precision for state
@@ -940,7 +943,7 @@ func (d *Decoder) applyDeemphasis(samples []float64) {
 			// Perform computation in float32 to match libopus
 			tmp := float32(samples[i]) + verySmall + state
 			state = coef * tmp
-			samples[i] = float64(tmp)
+			samples[i] = float64(tmp * scale32)
 		}
 		d.preemphState[0] = float64(state)
 	} else {
@@ -952,12 +955,12 @@ func (d *Decoder) applyDeemphasis(samples []float64) {
 			// Left channel - float32 precision
 			tmpL := float32(samples[i]) + verySmall + stateL
 			stateL = coef * tmpL
-			samples[i] = float64(tmpL)
+			samples[i] = float64(tmpL * scale32)
 
 			// Right channel - float32 precision
 			tmpR := float32(samples[i+1]) + verySmall + stateR
 			stateR = coef * tmpR
-			samples[i+1] = float64(tmpR)
+			samples[i+1] = float64(tmpR * scale32)
 		}
 
 		d.preemphState[0] = float64(stateL)
@@ -1245,8 +1248,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	DefaultTracer.TraceSynthesis("synth_pre", samples[:traceLen])
 
 	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
-	d.applyDeemphasis(samples)
-	scaleSamples(samples, 1.0/32768.0)
+	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
 
 	// Update stereo energy state by duplicating mono energies
 	stereoEnergies := make([]float64, MaxBands*2)
@@ -1386,7 +1388,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	energies := d.DecodeCoarseEnergy(end, intra, lm)
 	traceRange("coarse", rd)
 
-	tfRes := make([]int, end)
+	tfRes := ensureIntSlice(&d.scratchTFRes, end)
 	tfDecode(start, end, transient, tfRes, lm, rd)
 	traceRange("tf", rd)
 
@@ -1398,7 +1400,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	traceRange("spread", rd)
 
 	cap := initCaps(end, lm, d.channels)
-	offsets := make([]int, end)
+	offsets := ensureIntSlice(&d.scratchOffsets, end)
 	dynallocLogp := 6
 	totalBitsQ3 := totalBits << bitRes
 	tellFrac := rd.TellFrac()
@@ -1437,9 +1439,9 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	}
 	bitsQ3 -= antiCollapseRsv
 
-	pulses := make([]int, end)
-	fineQuant := make([]int, end)
-	finePriority := make([]int, end)
+	pulses := ensureIntSlice(&d.scratchPulses, end)
+	fineQuant := ensureIntSlice(&d.scratchFineQuant, end)
+	finePriority := ensureIntSlice(&d.scratchFinePriority, end)
 	intensity := 0
 	dualStereo := 0
 	balance := 0
@@ -1524,8 +1526,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	DefaultTracer.TraceSynthesis("synth_pre", samples[:traceLen])
 
 	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
-	d.applyDeemphasis(samples)
-	scaleSamples(samples, 1.0/32768.0)
+	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
 
 	celtPLCState.SetLastFrameParams(plc.ModeCELT, frameSize, origChannels)
 
@@ -1607,8 +1608,7 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 	samples := d.Synthesize(coeffs, transient, shortBlocks)
 
 	// De-emphasis
-	d.applyDeemphasis(samples)
-	scaleSamples(samples, 1.0/32768.0)
+	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
 
 	// Update energy
 	d.updateLogE(energies, nbBands, transient)
@@ -1846,8 +1846,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 
 	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
 
-	d.applyDeemphasis(samples)
-	scaleSamples(samples, 1.0/32768.0)
+	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
 	d.updateLogE(energies, end, transient)
 	d.SetPrevEnergyWithPrev(prev1Energy, energies)
 	// Mirror libopus: clear energies/logs outside [start,end).
@@ -2004,7 +2003,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	d.decodeCoarseEnergyRange(start, end, intra, lm, monoEnergies)
 	traceRange("coarse", rd)
 
-	tfRes := make([]int, end)
+	tfRes := ensureIntSlice(&d.scratchTFRes, end)
 	tfDecode(start, end, transient, tfRes, lm, rd)
 	traceRange("tf", rd)
 
@@ -2016,7 +2015,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	traceRange("spread", rd)
 
 	cap := initCaps(end, lm, 1)
-	offsets := make([]int, end)
+	offsets := ensureIntSlice(&d.scratchOffsets, end)
 	dynallocLogp := 6
 	totalBitsQ3 := totalBits << bitRes
 	tellFrac := rd.TellFrac()
@@ -2055,9 +2054,9 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	}
 	bitsQ3 -= antiCollapseRsv
 
-	pulses := make([]int, end)
-	fineQuant := make([]int, end)
-	finePriority := make([]int, end)
+	pulses := ensureIntSlice(&d.scratchPulses, end)
+	fineQuant := ensureIntSlice(&d.scratchFineQuant, end)
+	finePriority := ensureIntSlice(&d.scratchFinePriority, end)
 	intensity := 0
 	dualStereo := 0
 	balance := 0
@@ -2104,8 +2103,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	samples := d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
 
 	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
-	d.applyDeemphasis(samples)
-	scaleSamples(samples, 1.0/32768.0)
+	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
 
 	// Update stereo energy state by duplicating mono energies
 	stereoEnergies := make([]float64, MaxBands*2)
@@ -2238,7 +2236,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	d.decodeCoarseEnergyRange(start, end, intra, lm, energies)
 	traceRange("coarse", rd)
 
-	tfRes := make([]int, end)
+	tfRes := ensureIntSlice(&d.scratchTFRes, end)
 	tfDecode(start, end, transient, tfRes, lm, rd)
 	traceRange("tf", rd)
 
@@ -2250,7 +2248,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	traceRange("spread", rd)
 
 	cap := initCaps(end, lm, d.channels)
-	offsets := make([]int, end)
+	offsets := ensureIntSlice(&d.scratchOffsets, end)
 	dynallocLogp := 6
 	totalBitsQ3 := totalBits << bitRes
 	tellFrac := rd.TellFrac()
@@ -2289,9 +2287,9 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	}
 	bitsQ3 -= antiCollapseRsv
 
-	pulses := make([]int, end)
-	fineQuant := make([]int, end)
-	finePriority := make([]int, end)
+	pulses := ensureIntSlice(&d.scratchPulses, end)
+	fineQuant := ensureIntSlice(&d.scratchFineQuant, end)
+	finePriority := ensureIntSlice(&d.scratchFinePriority, end)
 	intensity := 0
 	dualStereo := 0
 	balance := 0
@@ -2364,8 +2362,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	samples := d.Synthesize(coeffsMono, transient, shortBlocks)
 
 	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
-	d.applyDeemphasis(samples)
-	scaleSamples(samples, 1.0/32768.0)
+	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
 
 	return samples, nil
 }

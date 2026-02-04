@@ -355,6 +355,7 @@ func imdctOverlapWithPrevScratchF32(out []float64, spectrum []float64, prevOverl
 	n := n2 * 2
 	n4 := n2 / 2
 	needed := n2 + overlap
+	start := overlap / 2
 	if len(out) < needed {
 		return
 	}
@@ -380,8 +381,11 @@ func imdctOverlapWithPrevScratchF32(out []float64, spectrum []float64, prevOverl
 		outF32 = ensureFloat32Slice(&scratch.out, needed)
 	}
 
-	for i := 0; i < needed; i++ {
-		outF32[i] = 0
+	// Clear only the regions that must be zeroed when reusing scratch.
+	// The IMDCT output overwrites [start:start+n2], and prevOverlap overwrites [0:overlap].
+	// Only the tail [start+n2:needed] must be zeroed each call.
+	if start+n2 < needed {
+		clear(outF32[start+n2 : needed])
 	}
 
 	// Copy the full prevOverlap to outF32[0:overlap].
@@ -390,6 +394,11 @@ func imdctOverlapWithPrevScratchF32(out []float64, spectrum []float64, prevOverl
 		for i := 0; i < copyLen; i++ {
 			outF32[i] = float32(prevOverlap[i])
 		}
+		if copyLen < overlap {
+			clear(outF32[copyLen:overlap])
+		}
+	} else if overlap > 0 {
+		clear(outF32[:overlap])
 	}
 
 	imdctPreRotateF32(fftIn, spectrum, trig, n2, n4)
@@ -404,7 +413,6 @@ func imdctOverlapWithPrevScratchF32(out []float64, spectrum []float64, prevOverl
 	imdctPostRotateF32(buf, trig, n2, n4)
 
 	// Copy IMDCT output to outF32, starting at overlap/2
-	start := overlap / 2
 	if start+n2 <= len(outF32) {
 		copy(outF32[start:start+n2], buf)
 	}
