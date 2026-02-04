@@ -421,6 +421,9 @@ func denormalizeCoeffs(coeffs []float64, energies []float64, nbBands, frameSize 
 		nbBands = len(energies)
 	}
 
+	coeffsLen := len(coeffs)
+	coeffs = coeffs[:coeffsLen:coeffsLen]
+	_ = coeffs[coeffsLen-1]
 	offset := 0
 	for band := 0; band < nbBands; band++ {
 		width := ScaledBandWidth(band, frameSize)
@@ -435,13 +438,21 @@ func denormalizeCoeffs(coeffs []float64, energies []float64, nbBands, frameSize 
 			e = 32
 		}
 		gain := math.Exp2(e / DB6)
-		for i := 0; i < width && offset+i < len(coeffs); i++ {
-			coeffs[offset+i] *= gain
+		end := offset + width
+		if end > coeffsLen {
+			end = coeffsLen
 		}
-		traceEnd := offset + width
-		if traceEnd > len(coeffs) {
-			traceEnd = len(coeffs)
+		i := offset
+		for ; i+3 < end; i += 4 {
+			coeffs[i] *= gain
+			coeffs[i+1] *= gain
+			coeffs[i+2] *= gain
+			coeffs[i+3] *= gain
 		}
+		for ; i < end; i++ {
+			coeffs[i] *= gain
+		}
+		traceEnd := end
 		if traceEnd > offset {
 			DefaultTracer.TraceCoeffs(band, coeffs[offset:traceEnd])
 		}

@@ -182,22 +182,43 @@ func haar1(x []float64, n0, stride int) {
 	n0 >>= 1
 	invSqrt2 := float32(0.7071067811865476)
 	for i := 0; i < stride; i++ {
+		idx0 := i
+		idx1 := i + stride
+		step := stride * 2
 		for j := 0; j < n0; j++ {
-			idx0 := stride*2*j + i
-			idx1 := stride*(2*j+1) + i
 			tmp1 := invSqrt2 * float32(x[idx0])
 			tmp2 := invSqrt2 * float32(x[idx1])
 			x[idx0] = float64(tmp1 + tmp2)
 			x[idx1] = float64(tmp1 - tmp2)
+			idx0 += step
+			idx1 += step
 		}
 	}
 }
 
 func expRotation1(x []float64, length, stride int, c, s float64) {
+	if length <= 0 {
+		return
+	}
+	x = x[:length:length]
+	_ = x[length-1]
 	c32 := float32(c)
 	s32 := float32(s)
 	ms := float32(-s)
-	for i := 0; i < length-stride; i++ {
+	end := length - stride
+	i := 0
+	for ; i+1 < end; i += 2 {
+		x1 := float32(x[i])
+		x2 := float32(x[i+stride])
+		x[i+stride] = float64(c32*x2 + s32*x1)
+		x[i] = float64(c32*x1 + ms*x2)
+
+		x3 := float32(x[i+1])
+		x4 := float32(x[i+1+stride])
+		x[i+1+stride] = float64(c32*x4 + s32*x3)
+		x[i+1] = float64(c32*x3 + ms*x4)
+	}
+	for ; i < end; i++ {
 		x1 := float32(x[i])
 		x2 := float32(x[i+stride])
 		x[i+stride] = float64(c32*x2 + s32*x1)
@@ -249,12 +270,18 @@ func extractCollapseMask(pulses []int, n, b int) int {
 	if b <= 1 {
 		return 1
 	}
+	if n <= 0 {
+		return 1
+	}
+	pulses = pulses[:n:n]
+	_ = pulses[n-1]
 	n0 := celtUdiv(n, b)
 	mask := 0
 	for i := 0; i < b; i++ {
 		tmp := 0
+		base := i * n0
 		for j := 0; j < n0; j++ {
-			tmp |= pulses[i*n0+j]
+			tmp |= pulses[base+j]
 		}
 		if tmp != 0 {
 			mask |= 1 << i
@@ -275,25 +302,42 @@ func normalizeResidual(pulses []int, gain float64, yy float64) []float64 {
 
 // normalizeResidualInto normalizes the pulse vector into a pre-allocated output buffer.
 func normalizeResidualInto(out []float64, pulses []int, gain float64, yy float64) {
-	if len(out) < len(pulses) {
+	n := len(pulses)
+	if len(out) < n {
 		return
 	}
+	out = out[:n:n]
+	pulses = pulses[:n:n]
 	energy := yy
 	if energy <= 0 {
 		// Fall back to computing energy from pulses
-		for _, v := range pulses {
+		i := 0
+		for ; i+3 < n; i += 4 {
+			v0 := pulses[i]
+			v1 := pulses[i+1]
+			v2 := pulses[i+2]
+			v3 := pulses[i+3]
+			energy += float64(v0*v0 + v1*v1 + v2*v2 + v3*v3)
+		}
+		for ; i < n; i++ {
+			v := pulses[i]
 			energy += float64(v * v)
 		}
 	}
 	if energy <= 0 {
-		for i := range pulses {
-			out[i] = 0
-		}
+		clear(out[:n])
 		return
 	}
 	scale := gain / math.Sqrt(energy)
-	for i, v := range pulses {
-		out[i] = float64(v) * scale
+	i := 0
+	for ; i+3 < n; i += 4 {
+		out[i] = float64(pulses[i]) * scale
+		out[i+1] = float64(pulses[i+1]) * scale
+		out[i+2] = float64(pulses[i+2]) * scale
+		out[i+3] = float64(pulses[i+3]) * scale
+	}
+	for ; i < n; i++ {
+		out[i] = float64(pulses[i]) * scale
 	}
 }
 
@@ -301,15 +345,34 @@ func renormalizeVector(x []float64, gain float64) {
 	if len(x) == 0 {
 		return
 	}
+	n := len(x)
+	x = x[:n:n]
+	_ = x[n-1]
 	energy := 0.0
-	for _, v := range x {
+	i := 0
+	for ; i+3 < n; i += 4 {
+		v0 := x[i]
+		v1 := x[i+1]
+		v2 := x[i+2]
+		v3 := x[i+3]
+		energy += v0*v0 + v1*v1 + v2*v2 + v3*v3
+	}
+	for ; i < n; i++ {
+		v := x[i]
 		energy += v * v
 	}
 	if energy <= 0 {
 		return
 	}
 	scale := gain / math.Sqrt(energy)
-	for i := range x {
+	i = 0
+	for ; i+3 < n; i += 4 {
+		x[i] *= scale
+		x[i+1] *= scale
+		x[i+2] *= scale
+		x[i+3] *= scale
+	}
+	for ; i < n; i++ {
 		x[i] *= scale
 	}
 }
@@ -319,13 +382,34 @@ func stereoMerge(x, y []float64, mid float64) {
 	if n == 0 || len(y) < n {
 		return
 	}
+	x = x[:n:n]
+	y = y[:n:n]
+	_ = x[n-1]
+	_ = y[n-1]
 	xp := 0.0
 	side := 0.0
 	xNorm := 0.0
-	for i := 0; i < n; i++ {
-		xp += y[i] * x[i]
-		side += y[i] * y[i]
-		xNorm += x[i] * x[i]
+	i := 0
+	for ; i+3 < n; i += 4 {
+		x0 := x[i]
+		y0 := y[i]
+		x1 := x[i+1]
+		y1 := y[i+1]
+		x2 := x[i+2]
+		y2 := y[i+2]
+		x3 := x[i+3]
+		y3 := y[i+3]
+
+		xp += y0*x0 + y1*x1 + y2*x2 + y3*x3
+		side += y0*y0 + y1*y1 + y2*y2 + y3*y3
+		xNorm += x0*x0 + x1*x1 + x2*x2 + x3*x3
+	}
+	for ; i < n; i++ {
+		xv := x[i]
+		yv := y[i]
+		xp += yv * xv
+		side += yv * yv
+		xNorm += xv * xv
 	}
 	xp *= mid
 	mid2 := mid * mid
@@ -343,7 +427,29 @@ func stereoMerge(x, y []float64, mid float64) {
 	}
 	lgain := 1.0 / math.Sqrt(el)
 	rgain := 1.0 / math.Sqrt(er)
-	for i := 0; i < n; i++ {
+	i = 0
+	for ; i+3 < n; i += 4 {
+		l0 := mid * x[i]
+		r0 := y[i]
+		x[i] = (l0 - r0) * lgain
+		y[i] = (l0 + r0) * rgain
+
+		l1 := mid * x[i+1]
+		r1 := y[i+1]
+		x[i+1] = (l1 - r1) * lgain
+		y[i+1] = (l1 + r1) * rgain
+
+		l2 := mid * x[i+2]
+		r2 := y[i+2]
+		x[i+2] = (l2 - r2) * lgain
+		y[i+2] = (l2 + r2) * rgain
+
+		l3 := mid * x[i+3]
+		r3 := y[i+3]
+		x[i+3] = (l3 - r3) * lgain
+		y[i+3] = (l3 + r3) * rgain
+	}
+	for ; i < n; i++ {
 		l := mid * x[i]
 		r := y[i]
 		x[i] = (l - r) * lgain
@@ -380,16 +486,13 @@ func algUnquantInto(shape []float64, rd *rangecoding.Decoder, band, n, k, spread
 	if len(shape) < n {
 		return 0
 	}
+	shape = shape[:n:n]
 	if k <= 0 || n <= 0 {
-		for i := 0; i < n; i++ {
-			shape[i] = 0
-		}
+		clear(shape)
 		return 0
 	}
 	if rd == nil {
-		for i := 0; i < n; i++ {
-			shape[i] = 0
-		}
+		clear(shape)
 		return 0
 	}
 
@@ -405,9 +508,7 @@ func algUnquantInto(shape []float64, rd *rangecoding.Decoder, band, n, k, spread
 
 	vSize := ncwrsUrow(n, k, u)
 	if vSize == 0 {
-		for i := 0; i < n; i++ {
-			shape[i] = 0
-		}
+		clear(shape)
 		return 0
 	}
 	idx := rd.DecodeUniform(vSize)
@@ -556,17 +657,59 @@ func stereoIthetaQ30(x, y []float64, stereo bool) int {
 	if n <= 0 {
 		return 0
 	}
+	x = x[:n:n]
+	y = y[:n:n]
+	_ = x[n-1]
+	_ = y[n-1]
 
 	var emid, eside float64
 	if stereo {
-		for i := 0; i < n; i++ {
+		i := 0
+		for ; i+3 < n; i += 4 {
+			x0 := x[i]
+			y0 := y[i]
+			m0 := x0 + y0
+			s0 := y0 - x0
+
+			x1 := x[i+1]
+			y1 := y[i+1]
+			m1 := x1 + y1
+			s1 := y1 - x1
+
+			x2 := x[i+2]
+			y2 := y[i+2]
+			m2 := x2 + y2
+			s2 := y2 - x2
+
+			x3 := x[i+3]
+			y3 := y[i+3]
+			m3 := x3 + y3
+			s3 := y3 - x3
+
+			emid += m0*m0 + m1*m1 + m2*m2 + m3*m3
+			eside += s0*s0 + s1*s1 + s2*s2 + s3*s3
+		}
+		for ; i < n; i++ {
 			m := x[i] + y[i]
 			s := y[i] - x[i]
 			emid += m * m
 			eside += s * s
 		}
 	} else {
-		for i := 0; i < n; i++ {
+		i := 0
+		for ; i+3 < n; i += 4 {
+			x0 := x[i]
+			x1 := x[i+1]
+			x2 := x[i+2]
+			x3 := x[i+3]
+			y0 := y[i]
+			y1 := y[i+1]
+			y2 := y[i+2]
+			y3 := y[i+3]
+			emid += x0*x0 + x1*x1 + x2*x2 + x3*x3
+			eside += y0*y0 + y1*y1 + y2*y2 + y3*y3
+		}
+		for ; i < n; i++ {
 			emid += x[i] * x[i]
 			eside += y[i] * y[i]
 		}
@@ -743,7 +886,123 @@ func (ctx *bandCtx) bandEnergy(channel int) float64 {
 // computeTheta computes and encodes/decodes the stereo theta angle.
 // This is the standard version without extended precision support.
 func computeTheta(ctx *bandCtx, sctx *splitCtx, x, y []float64, n int, b *int, B, B0, lm int, stereo bool, fill *int) {
+	if !ctx.encode {
+		computeThetaDecode(ctx, sctx, x, y, n, b, B, B0, lm, stereo, fill)
+		return
+	}
 	computeThetaExt(ctx, sctx, x, y, n, b, nil, B, B0, lm, stereo, fill)
+}
+
+func computeThetaDecode(ctx *bandCtx, sctx *splitCtx, x, y []float64, n int, b *int, B, B0, lm int, stereo bool, fill *int) {
+	pulseCap := LogN[ctx.band] + lm*(1<<bitRes)
+	offset := (pulseCap >> 1) - qthetaOffset
+	if stereo && n == 2 {
+		offset = (pulseCap >> 1) - qthetaOffsetTwoPhase
+	}
+	qn := computeQn(n, *b, offset, pulseCap, stereo)
+	if stereo && ctx.band >= ctx.intensity {
+		qn = 1
+	}
+
+	tell := 0
+	if ctx.rd != nil {
+		tell = ctx.rd.TellFrac()
+	}
+
+	itheta := 0
+	ithetaQ30 := 0
+	inv := 0
+	if qn != 1 {
+		if stereo && n > 2 {
+			p0 := 3
+			x0 := qn / 2
+			ft := p0*(x0+1) + x0
+			if ctx.rd != nil {
+				fm := int(ctx.rd.Decode(uint32(ft)))
+				if fm < (x0+1)*p0 {
+					itheta = fm / p0
+				} else {
+					itheta = x0 + 1 + (fm - (x0+1)*p0)
+				}
+				var fl int
+				if itheta <= x0 {
+					fl = p0 * itheta
+					ctx.rd.Update(uint32(fl), uint32(fl+p0), uint32(ft))
+				} else {
+					fl = (itheta - 1 - x0) + (x0+1)*p0
+					ctx.rd.Update(uint32(fl), uint32(fl+1), uint32(ft))
+				}
+			}
+		} else if B0 > 1 || stereo {
+			if ctx.rd != nil {
+				itheta = int(ctx.rd.DecodeUniform(uint32(qn + 1)))
+			}
+		} else {
+			ft := ((qn >> 1) + 1) * ((qn >> 1) + 1)
+			if ctx.rd != nil {
+				fm := int(ctx.rd.Decode(uint32(ft)))
+				if fm < ((qn >> 1) * ((qn >> 1) + 1) >> 1) {
+					itheta = int((isqrt32(uint32(8*fm+1)) - 1) >> 1)
+					fs := itheta + 1
+					fl := itheta * (itheta + 1) >> 1
+					ctx.rd.Update(uint32(fl), uint32(fl+fs), uint32(ft))
+				} else {
+					itheta = int((2*(qn+1) - int(isqrt32(uint32(8*(ft-fm-1)+1)))) >> 1)
+					fs := qn + 1 - itheta
+					fl := ft - ((qn + 1 - itheta) * (qn + 2 - itheta) >> 1)
+					ctx.rd.Update(uint32(fl), uint32(fl+fs), uint32(ft))
+				}
+			}
+		}
+		itheta = celtUdiv(itheta*16384, qn)
+		ithetaQ30 = itheta << 16
+	} else if stereo {
+		if *b > 2<<bitRes && ctx.remainingBits > 2<<bitRes {
+			if ctx.rd != nil {
+				inv = ctx.rd.DecodeBit(2)
+			}
+		}
+		if ctx.disableInv {
+			inv = 0
+		}
+		itheta = 0
+		ithetaQ30 = 0
+	}
+
+	qalloc := 0
+	if ctx.rd != nil {
+		qalloc = ctx.rd.TellFrac() - tell
+	}
+	if qalloc != 0 {
+		*b -= qalloc
+		sctx.qalloc = qalloc
+	}
+
+	imid := 0
+	iside := 0
+	delta := 0
+	if itheta == 0 {
+		imid = 32767
+		iside = 0
+		*fill &= (1 << B) - 1
+		delta = -16384
+	} else if itheta == 16384 {
+		imid = 0
+		iside = 32767
+		*fill &= ((1 << B) - 1) << B
+		delta = 16384
+	} else {
+		imid = bitexactCos(itheta)
+		iside = bitexactCos(16384 - itheta)
+		delta = fracMul16((n-1)<<7, bitexactLog2tan(iside, imid))
+	}
+
+	sctx.inv = inv
+	sctx.imid = imid
+	sctx.iside = iside
+	sctx.delta = delta
+	sctx.itheta = itheta
+	sctx.ithetaQ30 = ithetaQ30
 }
 
 // computeThetaExt computes and encodes/decodes the stereo theta angle with optional extended precision.
@@ -1025,11 +1284,17 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 	if n == 1 {
 		return 1, x
 	}
+	if n > 0 {
+		x = x[:n:n]
+		_ = x[n-1]
+	}
 
+	var lut *pulseCacheLUT
 	maxBits := 0
-	if lm != -1 {
-		if cache, ok := pulseCacheForBand(ctx.band, lm); ok {
-			maxBits = int(cache[int(cache[0])])
+	if l := pulseCacheLUTForBand(ctx.band, lm); l != nil {
+		lut = l
+		if lm != -1 {
+			maxBits = l.maxBits
 		}
 	}
 
@@ -1090,14 +1355,34 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 		return cm, x
 	}
 
-	q := bitsToPulses(ctx.band, lm, b)
-	currBits := pulsesToBits(ctx.band, lm, q)
-	ctx.remainingBits -= currBits
-	for ctx.remainingBits < 0 && q > 0 {
-		ctx.remainingBits += currBits
-		q--
+	q := 0
+	currBits := 0
+	if lut != nil {
+		if b > 0 {
+			if b < len(lut.bitsToPulses) {
+				q = int(lut.bitsToPulses[b])
+			} else {
+				q = lut.maxPseudo
+			}
+			currBits = pulsesToBitsCached(lut.cache, q)
+			ctx.remainingBits -= currBits
+			for ctx.remainingBits < 0 && q > 0 {
+				ctx.remainingBits += currBits
+				q--
+				currBits = pulsesToBitsCached(lut.cache, q)
+				ctx.remainingBits -= currBits
+			}
+		}
+	} else {
+		q = bitsToPulses(ctx.band, lm, b)
 		currBits = pulsesToBits(ctx.band, lm, q)
 		ctx.remainingBits -= currBits
+		for ctx.remainingBits < 0 && q > 0 {
+			ctx.remainingBits += currBits
+			q--
+			currBits = pulsesToBits(ctx.band, lm, q)
+			ctx.remainingBits -= currBits
+		}
 	}
 	if q != 0 {
 		k := getPulses(q)
@@ -1114,9 +1399,7 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 		cmMask := (1 << B) - 1
 		fill &= cmMask
 		if fill == 0 {
-			for i := range x {
-				x[i] = 0
-			}
+			clear(x)
 			return 0, x
 		}
 		if lowband == nil {
@@ -1150,6 +1433,152 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 	return fill, x
 }
 
+func quantPartitionDecode(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int, gain float64, fill int) (int, []float64) {
+	if n == 1 {
+		return 1, x
+	}
+	if n > 0 {
+		x = x[:n:n]
+		_ = x[n-1]
+	}
+
+	var lut *pulseCacheLUT
+	maxBits := 0
+	if l := pulseCacheLUTForBand(ctx.band, lm); l != nil {
+		lut = l
+		if lm != -1 {
+			maxBits = l.maxBits
+		}
+	}
+
+	if lm != -1 && b > maxBits+12 && n > 2 {
+		nHalf := n >> 1
+		y := x[nHalf:]
+		lm--
+		B0 := B
+		if B == 1 {
+			fill = (fill & 1) | (fill << 1)
+		}
+		B = (B + 1) >> 1
+
+		sctx := splitCtx{}
+		computeThetaDecode(ctx, &sctx, x[:nHalf], y, nHalf, &b, B, B0, lm, false, &fill)
+		mid := float64(sctx.imid) / 32768.0
+		side := float64(sctx.iside) / 32768.0
+		if B0 > 1 && (sctx.itheta&0x3fff) != 0 {
+			if sctx.itheta > 8192 {
+				sctx.delta -= sctx.delta >> (4 - lm)
+			} else {
+				sctx.delta = min(0, sctx.delta+(nHalf<<bitRes>>(5-lm)))
+			}
+		}
+		mbits := max(0, min(b, (b-sctx.delta)/2))
+		sbits := b - mbits
+		ctx.remainingBits -= sctx.qalloc
+
+		var lowband1 []float64
+		var lowband2 []float64
+		if lowband != nil && len(lowband) >= nHalf {
+			lowband1 = lowband[:nHalf]
+		}
+		if lowband != nil && len(lowband) >= n {
+			lowband2 = lowband[nHalf:]
+		}
+
+		rebalance := ctx.remainingBits
+		var cm int
+		if mbits >= sbits {
+			cm, _ = quantPartitionDecode(ctx, x[:nHalf], nHalf, mbits, B, lowband1, lm, gain*mid, fill)
+			rebalance = mbits - (rebalance - ctx.remainingBits)
+			if rebalance > 3<<bitRes && sctx.itheta != 0 {
+				sbits += rebalance - (3 << bitRes)
+			}
+			scm, _ := quantPartitionDecode(ctx, y, nHalf, sbits, B, lowband2, lm, gain*side, fill>>B)
+			cm |= scm << (B0 >> 1)
+		} else {
+			cm, _ = quantPartitionDecode(ctx, y, nHalf, sbits, B, lowband2, lm, gain*side, fill>>B)
+			cm <<= B0 >> 1
+			rebalance = sbits - (rebalance - ctx.remainingBits)
+			if rebalance > 3<<bitRes && sctx.itheta != 16384 {
+				mbits += rebalance - (3 << bitRes)
+			}
+			scm, _ := quantPartitionDecode(ctx, x[:nHalf], nHalf, mbits, B, lowband1, lm, gain*mid, fill)
+			cm |= scm
+		}
+		return cm, x
+	}
+
+	q := 0
+	currBits := 0
+	if lut != nil {
+		if b > 0 {
+			if b < len(lut.bitsToPulses) {
+				q = int(lut.bitsToPulses[b])
+			} else {
+				q = lut.maxPseudo
+			}
+			currBits = pulsesToBitsCached(lut.cache, q)
+			ctx.remainingBits -= currBits
+			for ctx.remainingBits < 0 && q > 0 {
+				ctx.remainingBits += currBits
+				q--
+				currBits = pulsesToBitsCached(lut.cache, q)
+				ctx.remainingBits -= currBits
+			}
+		}
+	} else {
+		q = bitsToPulses(ctx.band, lm, b)
+		currBits = pulsesToBits(ctx.band, lm, q)
+		ctx.remainingBits -= currBits
+		for ctx.remainingBits < 0 && q > 0 {
+			ctx.remainingBits += currBits
+			q--
+			currBits = pulsesToBits(ctx.band, lm, q)
+			ctx.remainingBits -= currBits
+		}
+	}
+	if q != 0 {
+		k := getPulses(q)
+		cm := algUnquantInto(x, ctx.rd, ctx.band, n, k, ctx.spread, B, gain, ctx.scratch)
+		return cm, x
+	}
+
+	if ctx.resynth {
+		cmMask := (1 << B) - 1
+		fill &= cmMask
+		if fill == 0 {
+			clear(x)
+			return 0, x
+		}
+		if lowband == nil {
+			if ctx.seed != nil {
+				for i := range x {
+					*ctx.seed = (*ctx.seed)*1664525 + 1013904223
+					x[i] = float64(int32(*ctx.seed) >> 20)
+				}
+			}
+			renormalizeVector(x, gain)
+			return cmMask, x
+		}
+		if ctx.seed != nil {
+			for i := range x {
+				*ctx.seed = (*ctx.seed)*1664525 + 1013904223
+				tmp := 1.0 / 256.0
+				if (*ctx.seed & 0x8000) == 0 {
+					tmp = -tmp
+				}
+				if i < len(lowband) {
+					x[i] = lowband[i] + tmp
+				} else {
+					x[i] = tmp
+				}
+			}
+		}
+		renormalizeVector(x, gain)
+		return fill, x
+	}
+	return fill, x
+}
 func quantBandN1(ctx *bandCtx, x, y []float64, b int, lowbandOut []float64) int {
 	stereo := y != nil
 	x0 := x
@@ -1187,9 +1616,76 @@ func quantBandN1(ctx *bandCtx, x, y []float64, b int, lowbandOut []float64) int 
 	return 1
 }
 
+func quantBandN1Decode(ctx *bandCtx, x, y []float64, b int, lowbandOut []float64) int {
+	if y == nil {
+		return quantBandN1DecodeMono(ctx, x, b, lowbandOut)
+	}
+	return quantBandN1DecodeStereo(ctx, x, y, b, lowbandOut)
+}
+
+func quantBandN1DecodeMono(ctx *bandCtx, x []float64, b int, lowbandOut []float64) int {
+	sign := 0
+	if ctx.remainingBits >= 1<<bitRes {
+		if ctx.rd != nil {
+			sign = int(ctx.rd.DecodeRawBits(1))
+		}
+		ctx.remainingBits -= 1 << bitRes
+	}
+	if ctx.resynth {
+		val := 1.0
+		if sign != 0 {
+			val = -1.0
+		}
+		x[0] = val
+	}
+	if lowbandOut != nil && len(lowbandOut) > 0 {
+		// In floating-point mode, libopus's SHR32(X[0],4) is a no-op.
+		lowbandOut[0] = x[0]
+	}
+	return 1
+}
+
+func quantBandN1DecodeStereo(ctx *bandCtx, x, y []float64, b int, lowbandOut []float64) int {
+	sign0 := 0
+	if ctx.remainingBits >= 1<<bitRes {
+		if ctx.rd != nil {
+			sign0 = int(ctx.rd.DecodeRawBits(1))
+		}
+		ctx.remainingBits -= 1 << bitRes
+	}
+	sign1 := 0
+	if ctx.remainingBits >= 1<<bitRes {
+		if ctx.rd != nil {
+			sign1 = int(ctx.rd.DecodeRawBits(1))
+		}
+		ctx.remainingBits -= 1 << bitRes
+	}
+	if ctx.resynth {
+		val0 := 1.0
+		if sign0 != 0 {
+			val0 = -1.0
+		}
+		val1 := 1.0
+		if sign1 != 0 {
+			val1 = -1.0
+		}
+		x[0] = val0
+		y[0] = val1
+	}
+	if lowbandOut != nil && len(lowbandOut) > 0 {
+		// In floating-point mode, libopus's SHR32(X[0],4) is a no-op.
+		lowbandOut[0] = x[0]
+	}
+	return 1
+}
+
 func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int, lowbandOut []float64, gain float64, lowbandScratch []float64, fill int) int {
 	if n == 1 {
 		return quantBandN1(ctx, x, nil, b, lowbandOut)
+	}
+	if n > 0 {
+		x = x[:n:n]
+		_ = x[n-1]
 	}
 
 	N0 := n
@@ -1278,9 +1774,103 @@ func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int
 	return cm
 }
 
+func quantBandDecode(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int, lowbandOut []float64, gain float64, lowbandScratch []float64, fill int) int {
+	if n == 1 {
+		return quantBandN1Decode(ctx, x, nil, b, lowbandOut)
+	}
+	if n > 0 {
+		x = x[:n:n]
+		_ = x[n-1]
+	}
+
+	N0 := n
+	N_B := celtUdiv(n, B)
+	longBlocks := B == 1
+
+	recombine := 0
+	tfChange := ctx.tfChange
+	if tfChange > 0 {
+		recombine = tfChange
+	}
+
+	if lowbandScratch != nil && lowband != nil && (recombine != 0 || ((N_B&1) == 0 && tfChange < 0) || B > 1) {
+		copy(lowbandScratch, lowband)
+		lowband = lowbandScratch
+	}
+
+	if recombine != 0 {
+		for k := 0; k < recombine; k++ {
+			if lowband != nil {
+				haar1(lowband, n>>k, 1<<k)
+			}
+			fill = bitInterleaveTable[fill&0xF] | (bitInterleaveTable[fill>>4] << 2)
+		}
+	}
+	B >>= recombine
+	N_B <<= recombine
+
+	timeDivide := 0
+	for (N_B&1) == 0 && tfChange < 0 {
+		if lowband != nil {
+			haar1(lowband, N_B, B)
+		}
+		fill |= fill << B
+		B <<= 1
+		N_B >>= 1
+		timeDivide++
+		tfChange++
+	}
+	B0 := B
+	N_B0 := N_B
+
+	if B0 > 1 {
+		if lowband != nil {
+			deinterleaveHadamardScratchBuf(lowband, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch, ctx.encScratch)
+		}
+	}
+
+	cm, _ := quantPartitionDecode(ctx, x, n, b, B, lowband, lm, gain, fill)
+
+	if ctx.resynth {
+		if B0 > 1 {
+			interleaveHadamardScratchBuf(x, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch, ctx.encScratch)
+		}
+		N_B = N_B0
+		B = B0
+		for k := 0; k < timeDivide; k++ {
+			B >>= 1
+			N_B <<= 1
+			cm |= cm >> B
+			haar1(x, N_B, B)
+		}
+		for k := 0; k < recombine; k++ {
+			cm = bitDeinterleaveTable[cm&0xF]
+			haar1(x, N0>>k, 1<<k)
+		}
+		B <<= recombine
+
+		if lowbandOut != nil && len(lowbandOut) >= N0 {
+			norm := math.Sqrt(float64(N0))
+			for j := 0; j < N0; j++ {
+				lowbandOut[j] = norm * x[j]
+			}
+		}
+		cm &= (1 << B) - 1
+	}
+	return cm
+}
+
 func quantBandStereo(ctx *bandCtx, x, y []float64, n, b, B int, lowband []float64, lm int, lowbandOut []float64, lowbandScratch []float64, fill int) int {
 	if n == 1 {
 		return quantBandN1(ctx, x, y, b, lowbandOut)
+	}
+	if n > 0 {
+		x = x[:n:n]
+		_ = x[n-1]
+		if y != nil {
+			y = y[:n:n]
+			_ = y[n-1]
+		}
 	}
 
 	origFill := fill
@@ -1381,6 +1971,108 @@ func quantBandStereo(ctx *bandCtx, x, y []float64, n, b, B int, lowband []float6
 			mbits += rebalance - (3 << bitRes)
 		}
 		cm |= quantBand(ctx, x, n, mbits, B, lowband, lm, lowbandOut, 1.0, lowbandScratch, fill)
+	}
+
+	if ctx.resynth {
+		if n != 2 {
+			stereoMerge(x, y, mid)
+		}
+		if sctx.inv != 0 {
+			for i := 0; i < n; i++ {
+				y[i] = -y[i]
+			}
+		}
+	}
+	return cm
+}
+
+func quantBandStereoDecode(ctx *bandCtx, x, y []float64, n, b, B int, lowband []float64, lm int, lowbandOut []float64, lowbandScratch []float64, fill int) int {
+	if n == 1 {
+		return quantBandN1Decode(ctx, x, y, b, lowbandOut)
+	}
+	if n > 0 {
+		x = x[:n:n]
+		_ = x[n-1]
+		if y != nil {
+			y = y[:n:n]
+			_ = y[n-1]
+		}
+	}
+
+	origFill := fill
+
+	sctx := splitCtx{}
+	computeThetaDecode(ctx, &sctx, x, y, n, &b, B, B, lm, true, &fill)
+	mid := float64(sctx.imid) / 32768.0
+	side := float64(sctx.iside) / 32768.0
+
+	if n == 2 {
+		mbits := b
+		sbits := 0
+		if sctx.itheta != 0 && sctx.itheta != 16384 {
+			sbits = 1 << bitRes
+		}
+		mbits -= sbits
+		c := sctx.itheta > 8192
+		ctx.remainingBits -= sctx.qalloc + sbits
+
+		x2 := x
+		y2 := y
+		if c {
+			x2 = y
+			y2 = x
+		}
+		sign := 1
+		if sbits > 0 {
+			if ctx.rd != nil {
+				if ctx.rd.DecodeRawBits(1) == 1 {
+					sign = -1
+				}
+			}
+		}
+		cm := quantBandDecode(ctx, x2, n, mbits, B, lowband, lm, lowbandOut, 1.0, lowbandScratch, origFill)
+		y2[0] = float64(sign) * (-x2[1])
+		y2[1] = float64(sign) * x2[0]
+		if ctx.resynth {
+			x[0] *= mid
+			x[1] *= mid
+			y[0] *= side
+			y[1] *= side
+			tmp := x[0]
+			x[0] = tmp - y[0]
+			y[0] = tmp + y[0]
+			tmp = x[1]
+			x[1] = tmp - y[1]
+			y[1] = tmp + y[1]
+			if sctx.inv != 0 {
+				y[0] = -y[0]
+				y[1] = -y[1]
+			}
+		}
+		return cm
+	}
+
+	delta := sctx.delta
+	mbits := max(0, min(b, (b-delta)/2))
+	sbits := b - mbits
+	ctx.remainingBits -= sctx.qalloc
+
+	rebalance := ctx.remainingBits
+	cm := 0
+	if mbits >= sbits {
+		cm = quantBandDecode(ctx, x, n, mbits, B, lowband, lm, lowbandOut, 1.0, lowbandScratch, fill)
+		rebalance = mbits - (rebalance - ctx.remainingBits)
+		if rebalance > 3<<bitRes && sctx.itheta != 0 {
+			sbits += rebalance - (3 << bitRes)
+		}
+		cm |= quantBandDecode(ctx, y, n, sbits, B, nil, lm, nil, side, nil, fill>>B)
+	} else {
+		cm = quantBandDecode(ctx, y, n, sbits, B, nil, lm, nil, side, nil, fill>>B)
+		rebalance = sbits - (rebalance - ctx.remainingBits)
+		if rebalance > 3<<bitRes && sctx.itheta != 16384 {
+			mbits += rebalance - (3 << bitRes)
+		}
+		cm |= quantBandDecode(ctx, x, n, mbits, B, lowband, lm, lowbandOut, 1.0, lowbandScratch, fill)
 	}
 
 	if ctx.resynth {
@@ -1599,13 +2291,13 @@ func quantAllBandsDecodeWithScratch(rd *rangecoding.Decoder, channels, frameSize
 					i, nBand, b, B, ctx.rd.TellFrac())
 				fmt.Printf("  lowbandX nil=%v, lowbandY nil=%v\n", lowbandX == nil, lowbandY == nil)
 			}
-			xCM = quantBand(&ctx, x, nBand, b/2, B, lowbandX, lm, lowbandOutX, 1.0, lowbandScratch, xCM)
+			xCM = quantBandDecode(&ctx, x, nBand, b/2, B, lowbandX, lm, lowbandOutX, 1.0, lowbandScratch, xCM)
 			if DebugDualStereo {
 				fmt.Printf("  After L: tell=%d, first 3 coeffs: %.4f %.4f %.4f\n",
 					ctx.rd.TellFrac(), x[0], x[1], x[2])
 			}
 			if channels == 2 {
-				yCM = quantBand(&ctx, y, nBand, b/2, B, lowbandY, lm, lowbandOutY, 1.0, lowbandScratch, yCM)
+				yCM = quantBandDecode(&ctx, y, nBand, b/2, B, lowbandY, lm, lowbandOutY, 1.0, lowbandScratch, yCM)
 				if DebugDualStereo {
 					fmt.Printf("  After R: tell=%d, first 3 coeffs: %.4f %.4f %.4f\n",
 						ctx.rd.TellFrac(), y[0], y[1], y[2])
@@ -1613,10 +2305,10 @@ func quantAllBandsDecodeWithScratch(rd *rangecoding.Decoder, channels, frameSize
 			}
 		} else {
 			if channels == 2 {
-				xCM = quantBandStereo(&ctx, x, y, nBand, b, B, lowbandX, lm, lowbandOutX, lowbandScratch, xCM|yCM)
+				xCM = quantBandStereoDecode(&ctx, x, y, nBand, b, B, lowbandX, lm, lowbandOutX, lowbandScratch, xCM|yCM)
 				yCM = xCM
 			} else {
-				xCM = quantBand(&ctx, x, nBand, b, B, lowbandX, lm, lowbandOutX, 1.0, lowbandScratch, xCM|yCM)
+				xCM = quantBandDecode(&ctx, x, nBand, b, B, lowbandX, lm, lowbandOutX, 1.0, lowbandScratch, xCM|yCM)
 				yCM = xCM
 			}
 		}
