@@ -5,6 +5,84 @@ import (
 	"testing"
 )
 
+func assertAmbisonicsMapping(t *testing.T, name string, channels int, want []byte, fn func(int) ([]byte, error)) {
+	t.Helper()
+
+	mapping, err := fn(channels)
+	if err != nil {
+		t.Fatalf("%s(%d) error: %v", name, channels, err)
+	}
+	if len(mapping) != len(want) {
+		t.Fatalf("%s(%d) len = %d, want %d", name, channels, len(mapping), len(want))
+	}
+	for i, expect := range want {
+		if mapping[i] != expect {
+			t.Errorf("%s(%d)[%d] = %d, want %d", name, channels, i, mapping[i], expect)
+		}
+	}
+}
+
+func assertNewEncoderAmbisonics(t *testing.T, family int, channels, wantStreams, wantCoupled int) {
+	t.Helper()
+
+	enc, err := NewEncoderAmbisonics(48000, channels, family)
+	if err != nil {
+		t.Fatalf("NewEncoderAmbisonics(%d, %d) error: %v", channels, family, err)
+	}
+
+	if enc.Channels() != channels {
+		t.Errorf("Channels() = %d, want %d", enc.Channels(), channels)
+	}
+	if enc.Streams() != wantStreams {
+		t.Errorf("Streams() = %d, want %d", enc.Streams(), wantStreams)
+	}
+	if enc.CoupledStreams() != wantCoupled {
+		t.Errorf("CoupledStreams() = %d, want %d", enc.CoupledStreams(), wantCoupled)
+	}
+	if enc.MappingFamily() != family {
+		t.Errorf("MappingFamily() = %d, want %d", enc.MappingFamily(), family)
+	}
+}
+
+func encodeAmbisonicsAndCheck(t *testing.T, label string, channels, family int, baseFreq, amplitude float64) {
+	t.Helper()
+
+	enc, err := NewEncoderAmbisonics(48000, channels, family)
+	if err != nil {
+		t.Fatalf("NewEncoderAmbisonics error: %v", err)
+	}
+
+	frameSize := 960 // 20ms at 48kHz
+	pcm := make([]float64, frameSize*channels)
+
+	for i := 0; i < frameSize; i++ {
+		for ch := 0; ch < channels; ch++ {
+			pcm[i*channels+ch] = amplitude * math.Sin(2*math.Pi*float64(baseFreq*float64(ch+1))*float64(i)/48000)
+		}
+	}
+
+	packet, err := enc.Encode(pcm, frameSize)
+	if err != nil {
+		t.Fatalf("Encode error: %v", err)
+	}
+	if packet == nil {
+		t.Fatal("Encode returned nil packet")
+	}
+	if len(packet) == 0 {
+		t.Fatal("Encode returned empty packet")
+	}
+
+	t.Logf("Encoded %s packet (family %d): %d bytes, %d streams", label, family, len(packet), enc.Streams())
+
+	streamPackets, err := parseMultistreamPacket(packet, enc.Streams())
+	if err != nil {
+		t.Fatalf("parseMultistreamPacket error: %v", err)
+	}
+	if len(streamPackets) != enc.Streams() {
+		t.Errorf("parsed %d streams, want %d", len(streamPackets), enc.Streams())
+	}
+}
+
 // TestIsqrt32 tests the integer square root function.
 func TestIsqrt32(t *testing.T) {
 	tests := []struct {
@@ -230,18 +308,7 @@ func TestAmbisonicsMapping(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run("", func(t *testing.T) {
-			mapping, err := AmbisonicsMapping(tc.channels)
-			if err != nil {
-				t.Fatalf("AmbisonicsMapping(%d) error: %v", tc.channels, err)
-			}
-			if len(mapping) != len(tc.wantMapping) {
-				t.Fatalf("AmbisonicsMapping(%d) len = %d, want %d", tc.channels, len(mapping), len(tc.wantMapping))
-			}
-			for i, want := range tc.wantMapping {
-				if mapping[i] != want {
-					t.Errorf("AmbisonicsMapping(%d)[%d] = %d, want %d", tc.channels, i, mapping[i], want)
-				}
-			}
+			assertAmbisonicsMapping(t, "AmbisonicsMapping", tc.channels, tc.wantMapping, AmbisonicsMapping)
 		})
 	}
 }
@@ -261,18 +328,7 @@ func TestAmbisonicsMappingFamily3(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run("", func(t *testing.T) {
-			mapping, err := AmbisonicsMappingFamily3(tc.channels)
-			if err != nil {
-				t.Fatalf("AmbisonicsMappingFamily3(%d) error: %v", tc.channels, err)
-			}
-			if len(mapping) != len(tc.wantMapping) {
-				t.Fatalf("AmbisonicsMappingFamily3(%d) len = %d, want %d", tc.channels, len(mapping), len(tc.wantMapping))
-			}
-			for i, want := range tc.wantMapping {
-				if mapping[i] != want {
-					t.Errorf("AmbisonicsMappingFamily3(%d)[%d] = %d, want %d", tc.channels, i, mapping[i], want)
-				}
-			}
+			assertAmbisonicsMapping(t, "AmbisonicsMappingFamily3", tc.channels, tc.wantMapping, AmbisonicsMappingFamily3)
 		})
 	}
 }
@@ -361,23 +417,7 @@ func TestNewEncoderAmbisonics_Family2(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			enc, err := NewEncoderAmbisonics(48000, tc.channels, 2)
-			if err != nil {
-				t.Fatalf("NewEncoderAmbisonics(%d, 2) error: %v", tc.channels, err)
-			}
-
-			if enc.Channels() != tc.channels {
-				t.Errorf("Channels() = %d, want %d", enc.Channels(), tc.channels)
-			}
-			if enc.Streams() != tc.wantStreams {
-				t.Errorf("Streams() = %d, want %d", enc.Streams(), tc.wantStreams)
-			}
-			if enc.CoupledStreams() != tc.wantCoupled {
-				t.Errorf("CoupledStreams() = %d, want %d", enc.CoupledStreams(), tc.wantCoupled)
-			}
-			if enc.MappingFamily() != 2 {
-				t.Errorf("MappingFamily() = %d, want 2", enc.MappingFamily())
-			}
+			assertNewEncoderAmbisonics(t, 2, tc.channels, tc.wantStreams, tc.wantCoupled)
 		})
 	}
 }
@@ -400,23 +440,7 @@ func TestNewEncoderAmbisonics_Family3(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			enc, err := NewEncoderAmbisonics(48000, tc.channels, 3)
-			if err != nil {
-				t.Fatalf("NewEncoderAmbisonics(%d, 3) error: %v", tc.channels, err)
-			}
-
-			if enc.Channels() != tc.channels {
-				t.Errorf("Channels() = %d, want %d", enc.Channels(), tc.channels)
-			}
-			if enc.Streams() != tc.wantStreams {
-				t.Errorf("Streams() = %d, want %d", enc.Streams(), tc.wantStreams)
-			}
-			if enc.CoupledStreams() != tc.wantCoupled {
-				t.Errorf("CoupledStreams() = %d, want %d", enc.CoupledStreams(), tc.wantCoupled)
-			}
-			if enc.MappingFamily() != 3 {
-				t.Errorf("MappingFamily() = %d, want 3", enc.MappingFamily())
-			}
+			assertNewEncoderAmbisonics(t, 3, tc.channels, tc.wantStreams, tc.wantCoupled)
 		})
 	}
 }
@@ -459,126 +483,15 @@ func TestNewEncoderAmbisonics_InvalidChannels(t *testing.T) {
 // TestEncoderAmbisonics_Encode tests that ambisonics encoding produces valid output.
 func TestEncoderAmbisonics_Encode(t *testing.T) {
 	t.Run("FOA Family 2", func(t *testing.T) {
-		enc, err := NewEncoderAmbisonics(48000, 4, 2)
-		if err != nil {
-			t.Fatalf("NewEncoderAmbisonics error: %v", err)
-		}
-
-		// Create 20ms of FOA audio (960 samples * 4 channels)
-		frameSize := 960
-		pcm := make([]float64, frameSize*4)
-
-		// Fill with test signal
-		for i := 0; i < frameSize; i++ {
-			for ch := 0; ch < 4; ch++ {
-				pcm[i*4+ch] = math.Sin(2 * math.Pi * float64(220*(ch+1)) * float64(i) / 48000)
-			}
-		}
-
-		// Encode
-		packet, err := enc.Encode(pcm, frameSize)
-		if err != nil {
-			t.Fatalf("Encode error: %v", err)
-		}
-
-		if packet == nil {
-			t.Fatal("Encode returned nil packet")
-		}
-		if len(packet) == 0 {
-			t.Fatal("Encode returned empty packet")
-		}
-
-		t.Logf("Encoded FOA packet (family 2): %d bytes, %d streams", len(packet), enc.Streams())
-
-		// Verify packet can be parsed into correct number of streams
-		streamPackets, err := parseMultistreamPacket(packet, enc.Streams())
-		if err != nil {
-			t.Fatalf("parseMultistreamPacket error: %v", err)
-		}
-		if len(streamPackets) != enc.Streams() {
-			t.Errorf("parsed %d streams, want %d", len(streamPackets), enc.Streams())
-		}
+		encodeAmbisonicsAndCheck(t, "FOA", 4, 2, 220, 1.0)
 	})
 
 	t.Run("FOA Family 3", func(t *testing.T) {
-		enc, err := NewEncoderAmbisonics(48000, 4, 3)
-		if err != nil {
-			t.Fatalf("NewEncoderAmbisonics error: %v", err)
-		}
-
-		// Create 20ms of FOA audio (960 samples * 4 channels)
-		frameSize := 960
-		pcm := make([]float64, frameSize*4)
-
-		// Fill with test signal
-		for i := 0; i < frameSize; i++ {
-			for ch := 0; ch < 4; ch++ {
-				pcm[i*4+ch] = math.Sin(2 * math.Pi * float64(220*(ch+1)) * float64(i) / 48000)
-			}
-		}
-
-		// Encode
-		packet, err := enc.Encode(pcm, frameSize)
-		if err != nil {
-			t.Fatalf("Encode error: %v", err)
-		}
-
-		if packet == nil {
-			t.Fatal("Encode returned nil packet")
-		}
-		if len(packet) == 0 {
-			t.Fatal("Encode returned empty packet")
-		}
-
-		t.Logf("Encoded FOA packet (family 3): %d bytes, %d streams", len(packet), enc.Streams())
-
-		// Verify packet can be parsed into correct number of streams
-		streamPackets, err := parseMultistreamPacket(packet, enc.Streams())
-		if err != nil {
-			t.Fatalf("parseMultistreamPacket error: %v", err)
-		}
-		if len(streamPackets) != enc.Streams() {
-			t.Errorf("parsed %d streams, want %d", len(streamPackets), enc.Streams())
-		}
+		encodeAmbisonicsAndCheck(t, "FOA", 4, 3, 220, 1.0)
 	})
 
 	t.Run("SOA Family 2", func(t *testing.T) {
-		enc, err := NewEncoderAmbisonics(48000, 9, 2)
-		if err != nil {
-			t.Fatalf("NewEncoderAmbisonics error: %v", err)
-		}
-
-		// Create 20ms of SOA audio (960 samples * 9 channels)
-		frameSize := 960
-		pcm := make([]float64, frameSize*9)
-
-		// Fill with test signal
-		for i := 0; i < frameSize; i++ {
-			for ch := 0; ch < 9; ch++ {
-				pcm[i*9+ch] = 0.3 * math.Sin(2*math.Pi*float64(110*(ch+1))*float64(i)/48000)
-			}
-		}
-
-		// Encode
-		packet, err := enc.Encode(pcm, frameSize)
-		if err != nil {
-			t.Fatalf("Encode error: %v", err)
-		}
-
-		if packet == nil {
-			t.Fatal("Encode returned nil packet")
-		}
-
-		t.Logf("Encoded SOA packet (family 2): %d bytes, %d streams", len(packet), enc.Streams())
-
-		// Verify packet can be parsed into correct number of streams
-		streamPackets, err := parseMultistreamPacket(packet, enc.Streams())
-		if err != nil {
-			t.Fatalf("parseMultistreamPacket error: %v", err)
-		}
-		if len(streamPackets) != enc.Streams() {
-			t.Errorf("parsed %d streams, want %d", len(streamPackets), enc.Streams())
-		}
+		encodeAmbisonicsAndCheck(t, "SOA", 9, 2, 110, 0.3)
 	})
 }
 

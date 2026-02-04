@@ -119,7 +119,6 @@ type bandDecodeScratch struct {
 
 	// Scratch buffers for PVQ/folding operations
 	pvqPulses  []int     // Pulse vector from CWRS decode
-	pvqFloat   []float64 // Float conversion of pulses
 	pvqNorm    []float64 // Normalized PVQ vector
 	foldResult []float64 // Folded band result
 	cwrsU      []uint32  // CWRS u-row scratch buffer
@@ -127,14 +126,6 @@ type bandDecodeScratch struct {
 	// Scratch buffers for Hadamard interleave/deinterleave (eliminates per-call allocations)
 	hadamardTmp []float64 // Temporary buffer for Hadamard transforms
 
-	// Scratch buffer for FFT fstride computation (eliminates per-call allocations)
-	fftFstride []int // fstride array for FFT butterfly stages
-
-	// PVQ search scratch buffers (for encoder)
-	pvqSignx []int     // Sign extraction buffer
-	pvqY     []float32 // Working Y buffer
-	pvqAbsX  []float32 // Absolute value buffer
-	pvqIy    []int     // Output pulse buffer
 }
 
 // bandEncodeScratch holds pre-allocated buffers for stereo encoding hot path.
@@ -168,26 +159,6 @@ type bandEncodeScratch struct {
 
 	// Hadamard scratch
 	hadamardTmp []float64
-}
-
-// ensurePVQSignx returns a pre-allocated buffer for PVQ sign extraction.
-func (s *bandDecodeScratch) ensurePVQSignx(n int) []int {
-	return ensureIntSlice(&s.pvqSignx, n)
-}
-
-// ensurePVQY returns a pre-allocated buffer for PVQ Y values.
-func (s *bandDecodeScratch) ensurePVQY(n int) []float32 {
-	return ensureFloat32Slice(&s.pvqY, n)
-}
-
-// ensurePVQAbsX returns a pre-allocated buffer for absolute X values.
-func (s *bandDecodeScratch) ensurePVQAbsX(n int) []float32 {
-	return ensureFloat32Slice(&s.pvqAbsX, n)
-}
-
-// ensurePVQIy returns a pre-allocated buffer for PVQ output pulses.
-func (s *bandDecodeScratch) ensurePVQIy(n int) []int {
-	return ensureIntSlice(&s.pvqIy, n)
 }
 
 // Encoder scratch buffer methods
@@ -242,17 +213,8 @@ func (s *bandEncodeScratch) ensureHadamardTmp(n int) []float64 {
 	return ensureFloat64Slice(&s.hadamardTmp, n)
 }
 
-// ensureCWRSU returns a pre-allocated buffer for CWRS u-row.
-func (s *bandEncodeScratch) ensureCWRSU(n int) []uint32 {
-	return ensureUint32Slice(&s.cwrsU, n)
-}
-
 // maxBandWidth is the maximum width of any single band (band 20 at LM=3 = 176 bins).
 const maxBandWidth = 176
-
-// maxPVQPulses is the maximum number of pulses that can be decoded.
-// Conservative estimate based on maximum bit allocation.
-const maxPVQPulses = 256
 
 // ensureCoeffs returns a pre-allocated coefficients buffer of the requested size.
 func (s *bandDecodeScratch) ensureCoeffs(n int) []float64 {
@@ -334,11 +296,6 @@ func (s *bandDecodeScratch) ensurePVQPulses(n int) []int {
 	return ensureIntSlice(&s.pvqPulses, n)
 }
 
-// ensurePVQFloat returns a pre-allocated buffer for float conversion.
-func (s *bandDecodeScratch) ensurePVQFloat(n int) []float64 {
-	return ensureFloat64Slice(&s.pvqFloat, n)
-}
-
 // ensurePVQNorm returns a pre-allocated buffer for normalized vector.
 func (s *bandDecodeScratch) ensurePVQNorm(n int) []float64 {
 	return ensureFloat64Slice(&s.pvqNorm, n)
@@ -357,11 +314,6 @@ func (s *bandDecodeScratch) ensureCWRSU(n int) []uint32 {
 // ensureHadamardTmp returns a pre-allocated buffer for Hadamard transforms.
 func (s *bandDecodeScratch) ensureHadamardTmp(n int) []float64 {
 	return ensureFloat64Slice(&s.hadamardTmp, n)
-}
-
-// ensureFFTFstride returns a pre-allocated buffer for FFT fstride computation.
-func (s *bandDecodeScratch) ensureFFTFstride(n int) []int {
-	return ensureIntSlice(&s.fftFstride, n)
 }
 
 type imdctScratch struct {

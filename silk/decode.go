@@ -380,75 +380,6 @@ func (d *Decoder) DecodeFrameWithTrace(
 	return output, nil
 }
 
-// decode20msBlock decodes one 20ms sub-block.
-func (d *Decoder) decode20msBlock(
-	bandwidth Bandwidth,
-	vadFlag bool,
-	output []float32,
-) error {
-	return d.decodeBlock(bandwidth, vadFlag, Frame20ms, output)
-}
-
-// decodeBlock decodes a 10ms or 20ms block.
-func (d *Decoder) decodeBlock(
-	bandwidth Bandwidth,
-	vadFlag bool,
-	duration FrameDuration,
-	output []float32,
-) error {
-	config := GetBandwidthConfig(bandwidth)
-	numSubframes := len(output) / config.SubframeSamples
-
-	// 1. Decode frame type
-	signalType, quantOffset := d.DecodeFrameType(vadFlag)
-
-	// 2. Decode subframe gains
-	gains := d.decodeSubframeGains(signalType, numSubframes)
-
-	// 3. Decode LSF -> LPC coefficients
-	lsfQ15 := d.decodeLSFCoefficients(bandwidth, signalType)
-	lpcQ12 := lsfToLPC(lsfQ15)
-	limitLPCFilterGain(lpcQ12)
-
-	// 4. Decode pitch/LTP (voiced only)
-	var pitchLags []int
-	var ltpCoeffs [][]int8
-	var ltpScale int
-	if signalType == 2 { // Voiced
-		pitchLags = d.decodePitchLag(bandwidth, numSubframes)
-		ltpCoeffs, ltpScale = d.decodeLTPCoefficients(bandwidth, numSubframes)
-	}
-
-	// 5. Decode and synthesize each subframe
-	for sf := 0; sf < numSubframes; sf++ {
-		sfStart := sf * config.SubframeSamples
-		sfEnd := sfStart + config.SubframeSamples
-		sfOutput := output[sfStart:sfEnd]
-
-		// Decode excitation
-		excitation := d.decodeExcitation(config.SubframeSamples, signalType, quantOffset)
-
-		// Scale excitation by gain
-		scaleExcitation(excitation, gains[sf])
-
-		// Apply LTP synthesis (voiced only)
-		if signalType == 2 && pitchLags != nil {
-			d.ltpSynthesis(excitation, pitchLags[sf], ltpCoeffs[sf], ltpScale)
-		}
-
-		// Apply LPC synthesis
-		d.lpcSynthesis(excitation, lpcQ12, gains[sf], sfOutput)
-
-		// Update output history for LTP lookback
-		d.updateHistory(sfOutput)
-	}
-
-	// Update voiced flag for next frame
-	d.isPreviousFrameVoiced = (signalType == 2)
-
-	return nil
-}
-
 // DecodeStereoFrame decodes a SILK stereo frame from the bitstream.
 // Returns left and right channel samples at native sample rate.
 //
@@ -755,28 +686,4 @@ func (d *Decoder) decodeStereoMidNative(
 
 	d.haveDecoded = true
 	return midNative, frameLength, nil
-}
-
-// decodeChannel decodes a single channel (used for stereo).
-func (d *Decoder) decodeChannel(
-	bandwidth Bandwidth,
-	duration FrameDuration,
-	vadFlag bool,
-	output []float32,
-) error {
-	if is40or60ms(duration) {
-		subBlocks := getSubBlockCount(duration)
-		config := GetBandwidthConfig(bandwidth)
-		subBlockSamples := 4 * config.SubframeSamples
-
-		for block := 0; block < subBlocks; block++ {
-			blockOutput := output[block*subBlockSamples : (block+1)*subBlockSamples]
-			if err := d.decode20msBlock(bandwidth, vadFlag, blockOutput); err != nil {
-				return err
-			}
-		}
-	} else {
-		return d.decodeBlock(bandwidth, vadFlag, duration, output)
-	}
-	return nil
 }

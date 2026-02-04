@@ -290,50 +290,6 @@ func (d *Decoder) SynthesizeStereo(coeffsL, coeffsR []float64, transient bool, s
 	return stereo
 }
 
-func (d *Decoder) synthesizeShort(coeffs []float64, shortBlocks int) []float64 {
-	out := ensureFloat64Slice(&d.scratchSynth, len(coeffs)+Overlap)
-	shortCoeffs := ensureFloat64Slice(&d.scratchShortCoeffs, len(coeffs))
-	output := synthesizeChannelWithOverlapScratch(coeffs, d.overlapBuffer, Overlap, true, shortBlocks, out, &d.scratchIMDCT, &d.scratchIMDCTF32, shortCoeffs)
-	if len(output) == 0 {
-		return nil
-	}
-	if Overlap > 0 && len(out) >= len(coeffs)+Overlap {
-		copy(d.overlapBuffer, out[len(coeffs):len(coeffs)+Overlap])
-	}
-	return output
-}
-
-func (d *Decoder) synthesizeShortStereo(coeffsL, coeffsR []float64, shortBlocks int) []float64 {
-	if len(d.overlapBuffer) < Overlap*2 {
-		d.overlapBuffer = make([]float64, Overlap*2)
-	}
-	overlapL := d.overlapBuffer[:Overlap]
-	overlapR := d.overlapBuffer[Overlap : Overlap*2]
-	outL := ensureFloat64Slice(&d.scratchSynth, len(coeffsL)+Overlap)
-	outR := ensureFloat64Slice(&d.scratchSynthR, len(coeffsR)+Overlap)
-	shortCoeffs := ensureFloat64Slice(&d.scratchShortCoeffs, maxInt(len(coeffsL), len(coeffsR)))
-	outputL := synthesizeChannelWithOverlapScratch(coeffsL, overlapL, Overlap, true, shortBlocks, outL, &d.scratchIMDCT, &d.scratchIMDCTF32, shortCoeffs)
-	outputR := synthesizeChannelWithOverlapScratch(coeffsR, overlapR, Overlap, true, shortBlocks, outR, &d.scratchIMDCT, &d.scratchIMDCTF32, shortCoeffs)
-
-	if Overlap > 0 && len(outL) >= len(coeffsL)+Overlap {
-		copy(d.overlapBuffer[:Overlap], outL[len(coeffsL):len(coeffsL)+Overlap])
-	}
-	if Overlap > 0 && len(outR) >= len(coeffsR)+Overlap {
-		copy(d.overlapBuffer[Overlap:Overlap*2], outR[len(coeffsR):len(coeffsR)+Overlap])
-	}
-
-	n := len(outputL)
-	if len(outputR) < n {
-		n = len(outputR)
-	}
-	output := ensureFloat64Slice(&d.scratchStereo, n*2)
-	for i := 0; i < n; i++ {
-		output[2*i] = outputL[i]
-		output[2*i+1] = outputR[i]
-	}
-	return output
-}
-
 // WindowAndOverlap applies Vorbis window and performs overlap-add.
 // This is a combined operation for efficiency.
 //

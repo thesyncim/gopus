@@ -110,7 +110,6 @@ var pitchCBLagsStage310msSlice = [][]int8{
 type PitchAnalysisState struct {
 	prevLag    int     // Previous frame's pitch lag
 	ltpCorr    float64 // LTP correlation from previous frame
-	complexity int     // Complexity setting (0-2)
 }
 
 type pitchEncodeParams struct {
@@ -670,19 +669,6 @@ func downsampleLowpass(signal []float32, factor int) []float32 {
 	return ds
 }
 
-// downsampleLowpassInto performs downsampling using a scratch buffer.
-// Zero-allocation version.
-func downsampleLowpassInto(signal []float32, factor int, dsBuf *[]float32) []float32 {
-	if factor <= 1 {
-		return signal
-	}
-
-	n := len(signal) / factor
-	ds := ensureFloat32Slice(dsBuf, n)
-	downsampleLowpassToBuffer(signal, factor, ds)
-	return ds
-}
-
 // downsampleLowpassToBuffer performs the actual downsampling into a provided buffer.
 func downsampleLowpassToBuffer(signal []float32, factor int, ds []float32) {
 	n := len(ds)
@@ -768,50 +754,6 @@ func autocorrPitchSearch(signal []float32, minLag, maxLag int) int {
 	return bestLag
 }
 
-// autocorrPitchSearchSubframe searches for pitch in a subframe.
-// Uses preceding samples for lookback.
-// Kept for backward compatibility with existing tests.
-func autocorrPitchSearchSubframe(subframe, fullSignal []float32, subframeStart, minLag, maxLag int) int {
-	n := len(subframe)
-	if maxLag >= subframeStart {
-		maxLag = subframeStart - 1
-	}
-	if minLag < 1 {
-		minLag = 1
-	}
-	if minLag > maxLag {
-		return minLag
-	}
-
-	bestLag := minLag
-	var bestCorr float64 = -1
-
-	for lag := minLag; lag <= maxLag; lag++ {
-		var corr, energy1, energy2 float64
-		for i := 0; i < n && subframeStart-lag+i >= 0; i++ {
-			s := float64(subframe[i])
-			past := float64(fullSignal[subframeStart-lag+i])
-			corr += s * past
-			energy1 += s * s
-			energy2 += past * past
-		}
-
-		if energy1 < 1e-10 || energy2 < 1e-10 {
-			continue
-		}
-
-		normCorr := corr / math.Sqrt(energy1*energy2)
-		normCorr *= 1.0 - 0.001*float64(lag-minLag)
-
-		if normCorr > bestCorr {
-			bestCorr = normCorr
-			bestLag = lag
-		}
-	}
-
-	return bestLag
-}
-
 // lagrangianInterpolate performs Lagrangian interpolation for sub-sample pitch refinement.
 // Given correlation values at lags [d-1, d, d+1], returns fractional offset.
 // This matches libopus's approach in remove_doubling/pitch_search.
@@ -832,22 +774,6 @@ func lagrangianInterpolate(corrMinus, corrCenter, corrPlus float64) float64 {
 		offset = 0.5
 	}
 	return offset
-}
-
-// computePitchCorrelation computes normalized correlation at a specific lag.
-// Used for sub-sample interpolation and voicing detection.
-func computePitchCorrelation(target, basis []float32, lag int) (xcorr, targetEnergy, basisEnergy float64) {
-	n := len(target)
-	if lag > len(basis) {
-		return 0, 0, 0
-	}
-
-	for i := 0; i < n && i+lag < len(basis); i++ {
-		xcorr += float64(target[i]) * float64(basis[i])
-		targetEnergy += float64(target[i]) * float64(target[i])
-		basisEnergy += float64(basis[i]) * float64(basis[i])
-	}
-	return
 }
 
 // energyFLP computes sum of squares of a float32 array.
@@ -1013,15 +939,6 @@ func pitchAnalysisCalcEnergySt3(out []float64, frame []float32, startLag, sfLeng
 		}
 		targetIdx += sfLength
 	}
-}
-
-// encodePitchLags encodes pitch lags to the bitstream.
-// First subframe is absolute, subsequent are delta-coded via contour.
-// Per RFC 6716 Section 4.2.7.6.
-// Uses libopus tables: silk_pitch_lag_iCDF, silk_uniform4/6/8_iCDF, silk_pitch_contour*_iCDF
-func (e *Encoder) encodePitchLags(pitchLags []int, numSubframes, condCoding, lagIndex, contourIndex int) {
-	params := e.preparePitchLags(pitchLags, numSubframes, lagIndex, contourIndex)
-	e.encodePitchLagsWithParams(params, condCoding)
 }
 
 func (e *Encoder) preparePitchLags(pitchLags []int, numSubframes, lagIndex, contourIndex int) pitchEncodeParams {

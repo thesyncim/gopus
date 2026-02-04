@@ -356,43 +356,6 @@ func (d *Decoder) DecodeCoarseEnergyWithDecoder(rd *rangecoding.Decoder, nbBands
 	return d.DecodeCoarseEnergy(nbBands, intra, lm)
 }
 
-// decodeUniform decodes a value uniformly in [0, ft).
-// Reference: libopus celt/entdec.c ec_dec_uint()
-func (d *Decoder) decodeUniform(ft uint) int {
-	rd := d.rangeDecoder
-	if rd == nil || ft == 0 {
-		return 0
-	}
-
-	// For uniform distribution, all symbols have equal probability
-	// Each symbol has frequency 1, total frequency ft
-
-	if ft == 1 {
-		return 0
-	}
-
-	// Get current range state
-	rng := rd.Range()
-	val := rd.Val()
-
-	// Scale
-	s := rng / uint32(ft)
-	if s == 0 {
-		s = 1
-	}
-
-	// Find symbol
-	k := val / s
-	if k >= uint32(ft) {
-		k = uint32(ft) - 1
-	}
-
-	// Update range decoder state (uniform => [k, k+1))
-	d.updateRange(k, k+1, uint32(ft))
-
-	return int(k)
-}
-
 // DecodeFineEnergy adds fine energy precision to coarse values.
 // fineBits[band] specifies bits allocated for refinement (0 = no refinement).
 // Reference: RFC 6716 Section 4.3.2, libopus celt/quant_bands.c unquant_fine_energy()

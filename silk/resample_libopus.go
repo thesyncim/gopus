@@ -40,12 +40,6 @@ type LibopusResampler struct {
 
 var debugResamplerNextID int
 
-// resampleIIRFIRSlice processes a slice of input samples and writes to output.
-// This is the core IIR_FIR processing without the delay buffer management.
-func (r *LibopusResampler) resampleIIRFIRSlice(out []int16, in []int16) {
-	r.resampleIIRFIRSliceWithScratch(out, in, nil)
-}
-
 // resampleIIRFIRSliceWithScratch is like resampleIIRFIRSlice but uses a pre-allocated scratch buffer.
 func (r *LibopusResampler) resampleIIRFIRSliceWithScratch(out []int16, in []int16, scratch []int16) {
 	inLen := int32(len(in))

@@ -68,33 +68,6 @@ func (e *Encoder) buildLTPResidual(pitchBuf []float32, frameStart int, gains []f
 	return ltpRes
 }
 
-func (e *Encoder) computeLPCFromLTPResidual(ltpRes []float32, numSubframes, subframeSamples int) []int16 {
-	order := e.lpcOrder
-	if order <= 0 {
-		return ensureInt16Slice(&e.scratchLpcQ12, 0)
-	}
-
-	subfrLen := subframeSamples + order
-	totalLen := numSubframes * subfrLen
-	if totalLen <= 0 {
-		return ensureInt16Slice(&e.scratchLpcQ12, order)
-	}
-
-	x := ensureFloat64Slice(&e.scratchLtpInput, totalLen)
-	for i := 0; i < totalLen && i < len(ltpRes); i++ {
-		x[i] = float64(ltpRes[i])
-	}
-
-	a, _ := e.burgModifiedFLPZeroAlloc(x, minInvGain, subfrLen, numSubframes, order)
-
-	lpcQ12 := ensureInt16Slice(&e.scratchLpcQ12, order)
-	for i := 0; i < order; i++ {
-		lpcQ12[i] = float64ToInt16Round(a[i] * 4096.0)
-	}
-
-	return lpcQ12
-}
-
 func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, subframeSamples int, minInvGainVal float64) ([]int16, []int16, int) {
 	order := e.lpcOrder
 	lpcQ12 := ensureInt16Slice(&e.scratchLpcQ12, order)

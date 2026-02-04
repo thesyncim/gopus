@@ -4,7 +4,6 @@ package encoder_test
 
 import (
 	"math"
-	"math/rand"
 	"testing"
 
 	"github.com/thesyncim/gopus"
@@ -130,15 +129,6 @@ func generateSilence(samples, channels int) []float64 {
 	return make([]float64, samples*channels)
 }
 
-// generateNoise generates white noise.
-func generateNoise(samples, channels int, amplitude float64) []float64 {
-	pcm := make([]float64, samples*channels)
-	for i := range pcm {
-		pcm[i] = amplitude * (rand.Float64()*2 - 1)
-	}
-	return pcm
-}
-
 // generateTransientSignal generates a signal with sudden transients.
 func generateTransientSignal(samples, channels int, sampleRate int) []float64 {
 	pcm := make([]float64, samples*channels)
@@ -170,31 +160,6 @@ func generateTransientSignal(samples, channels int, sampleRate int) []float64 {
 // =============================================================================
 // Quality Measurement Functions
 // =============================================================================
-
-// computeSNR computes Signal-to-Noise Ratio in dB.
-func computeSNR(original, decoded []float64) float64 {
-	if len(original) == 0 || len(decoded) == 0 {
-		return math.Inf(-1)
-	}
-
-	n := min(len(original), len(decoded))
-
-	var signalPower, noisePower float64
-	for i := 0; i < n; i++ {
-		signalPower += original[i] * original[i]
-		noise := decoded[i] - original[i]
-		noisePower += noise * noise
-	}
-
-	if noisePower == 0 {
-		return math.Inf(1)
-	}
-	if signalPower == 0 {
-		return math.Inf(-1)
-	}
-
-	return 10.0 * math.Log10(signalPower/noisePower)
-}
 
 // computeCorrelation computes Pearson correlation coefficient.
 func computeCorrelation(a, b []float64) float64 {
@@ -1091,14 +1056,6 @@ func bitrateToString(bitrate int) string {
 	return string(rune('0'+bitrate/100000)) +
 		string(rune('0'+(bitrate/10000)%10)) +
 		string(rune('0'+(bitrate/1000)%10)) + "kbps"
-}
-
-func float64SliceFromFloat32(f32 []float32) []float64 {
-	f64 := make([]float64, len(f32))
-	for i, v := range f32 {
-		f64[i] = float64(v)
-	}
-	return f64
 }
 
 func min(a, b int) int {

@@ -56,9 +56,6 @@ type dtxState struct {
 // cngState holds state for Comfort Noise Generation.
 // Matches silk_CNG_struct from libopus.
 type cngState struct {
-	// Smoothed NLSF coefficients for CNG synthesis
-	smthNLSFQ15 [16]int16
-
 	// Smoothed gain for CNG
 	smthGainQ16 int32
 
@@ -96,18 +93,6 @@ func (d *dtxState) reset() {
 	d.inDTXMode = false
 	d.msSinceComfortNoise = 0
 	// Note: VAD state is NOT reset - noise estimates should persist
-}
-
-// resetFull resets all DTX and VAD state (for new stream).
-func (d *dtxState) resetFull() {
-	d.reset()
-	if d.vad != nil {
-		d.vad.Reset()
-	}
-	if d.cngState != nil {
-		d.cngState.randSeed = 22222
-		d.cngState.smthGainQ16 = 0
-	}
 }
 
 // shouldUseDTX determines if frame should be suppressed (DTX mode).
@@ -279,13 +264,6 @@ func (e *Encoder) encodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	default:
 		return nil, ErrEncodingFailed
 	}
-}
-
-// nextRandom returns a random float64 in [0, 1).
-// Uses LCG matching libopus for determinism.
-func (e *Encoder) nextRandom() float64 {
-	e.rng = e.rng*1664525 + 1013904223
-	return float64(e.rng) / float64(1<<32)
 }
 
 

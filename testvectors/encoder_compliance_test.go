@@ -369,13 +369,13 @@ func writeOggOpusEncoder(w io.Writer, packets [][]byte, channels, sampleRate, fr
 
 	// Page 1: OpusHead header
 	opusHead := makeOpusHeadEncoder(channels, sampleRate)
-	if err := writeOggPageEncoder(w, serialNo, 0, 2, 0, [][]byte{opusHead}); err != nil {
+	if err := writeOggPage(w, serialNo, 0, 2, 0, [][]byte{opusHead}); err != nil {
 		return err
 	}
 
 	// Page 2: OpusTags header
 	opusTags := makeOpusTagsEncoder()
-	if err := writeOggPageEncoder(w, serialNo, 1, 0, 0, [][]byte{opusTags}); err != nil {
+	if err := writeOggPage(w, serialNo, 1, 0, 0, [][]byte{opusTags}); err != nil {
 		return err
 	}
 
@@ -389,7 +389,7 @@ func writeOggOpusEncoder(w io.Writer, packets [][]byte, channels, sampleRate, fr
 		if i == len(packets)-1 {
 			headerType = 4 // End of stream
 		}
-		if err := writeOggPageEncoder(w, serialNo, pageNo, headerType, granulePos, [][]byte{packet}); err != nil {
+		if err := writeOggPage(w, serialNo, pageNo, headerType, granulePos, [][]byte{packet}); err != nil {
 			return err
 		}
 		pageNo++
@@ -420,79 +420,7 @@ func makeOpusTagsEncoder() []byte {
 	return tags
 }
 
-func writeOggPageEncoder(w io.Writer, serialNo, pageNo uint32, headerType byte, granulePos uint64, segments [][]byte) error {
-	// Calculate segment table
-	var segmentTable []byte
-	for _, seg := range segments {
-		remaining := len(seg)
-		for remaining >= 255 {
-			segmentTable = append(segmentTable, 255)
-			remaining -= 255
-		}
-		segmentTable = append(segmentTable, byte(remaining))
-	}
-
-	// Page header
-	header := make([]byte, 27+len(segmentTable))
-	copy(header[0:4], "OggS")
-	header[4] = 0 // Version
-	header[5] = headerType
-	binary.LittleEndian.PutUint64(header[6:14], granulePos)
-	binary.LittleEndian.PutUint32(header[14:18], serialNo)
-	binary.LittleEndian.PutUint32(header[18:22], pageNo)
-	// CRC will be at [22:26]
-	header[26] = byte(len(segmentTable))
-	copy(header[27:], segmentTable)
-
-	// Compute CRC
-	crc := oggCRCEncoder(header)
-	for _, seg := range segments {
-		crc = oggCRCUpdateEncoder(crc, seg)
-	}
-	binary.LittleEndian.PutUint32(header[22:26], crc)
-
-	// Write header
-	if _, err := w.Write(header); err != nil {
-		return err
-	}
-
-	// Write segments
-	for _, seg := range segments {
-		if _, err := w.Write(seg); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// Ogg CRC-32 (polynomial 0x04c11db7)
-var oggCRCTableEncoder [256]uint32
-
-func init() {
-	for i := 0; i < 256; i++ {
-		r := uint32(i) << 24
-		for j := 0; j < 8; j++ {
-			if r&0x80000000 != 0 {
-				r = (r << 1) ^ 0x04c11db7
-			} else {
-				r <<= 1
-			}
-		}
-		oggCRCTableEncoder[i] = r
-	}
-}
-
-func oggCRCEncoder(data []byte) uint32 {
-	return oggCRCUpdateEncoder(0, data)
-}
-
-func oggCRCUpdateEncoder(crc uint32, data []byte) uint32 {
-	for _, b := range data {
-		crc = (crc << 8) ^ oggCRCTableEncoder[byte(crc>>24)^b]
-	}
-	return crc
-}
+// writeOggPage, oggCRC, oggCRCUpdate are defined in ogg_helpers_test.go
 
 // decodeWithOpusdec invokes opusdec and parses the WAV output.
 func decodeWithOpusdec(oggData []byte) ([]float32, error) {

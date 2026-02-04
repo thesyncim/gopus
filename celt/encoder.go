@@ -745,17 +745,6 @@ type encoderScratch struct {
 	deintLeft  []float64
 	deintRight []float64
 
-	// Band quantization buffers
-	quantCollapse    []byte
-	quantNorm        []float64
-	quantLowband     []float64
-	quantXSave       []float64
-	quantYSave       []float64
-	quantNormSave    []float64
-	quantXResult0    []float64
-	quantYResult0    []float64
-	quantNormResult0 []float64
-
 	// MDCT forward transform scratch (float32)
 	mdctF           []float32
 	mdctFFTIn       []complex64
@@ -997,11 +986,6 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.bandEncode.pvqIy = ensureIntSlice(&s.bandEncode.pvqIy, maxPVQN)
 	s.bandEncode.cwrsU = ensureUint32Slice(&s.bandEncode.cwrsU, 256)
 	s.bandEncode.hadamardTmp = ensureFloat64Slice(&s.bandEncode.hadamardTmp, maxBandWidth*16) // For stride up to 16
-}
-
-// ensureFloat64SliceEncoder is a helper that reuses ensureFloat64Slice from scratch.go
-func ensureFloat64SliceEncoder(buf *[]float64, n int) []float64 {
-	return ensureFloat64Slice(buf, n)
 }
 
 // computeAllocationScratch computes bit allocation using scratch buffers (zero-alloc).

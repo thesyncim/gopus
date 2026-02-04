@@ -92,12 +92,3 @@ func getSubBlockCount(duration FrameDuration) int {
 		return 1
 	}
 }
-
-// getSubBlockSubframes returns the number of subframes per sub-block.
-// 10ms blocks have 2 subframes, 20ms blocks have 4 subframes.
-func getSubBlockSubframes(duration FrameDuration) int {
-	if duration == Frame10ms {
-		return 2
-	}
-	return 4 // 20ms sub-blocks
-}

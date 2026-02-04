@@ -127,18 +127,3 @@ func correlation(a, b []float64) float64 {
 
 	return sumXY / (math.Sqrt(sumXX*sumYY) + 1e-10)
 }
-
-func energy(s []float64) float64 {
-	var sum float64
-	for _, v := range s {
-		sum += v * v
-	}
-	return sum
-}
-
-func safeIndex(s []float64, i int) float64 {
-	if i >= 0 && i < len(s) {
-		return s[i]
-	}
-	return 0
-}

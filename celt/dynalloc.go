@@ -44,78 +44,6 @@ type DynallocResult struct {
 	TotBoost int
 }
 
-// medianOf3 computes the median of 3 consecutive values starting at x.
-// Reference: libopus celt/celt_encoder.c lines 1029-1047
-func medianOf3(x []float64) float64 {
-	if len(x) < 3 {
-		if len(x) == 0 {
-			return 0
-		}
-		return x[0]
-	}
-
-	var t0, t1, t2 float64
-	if x[0] > x[1] {
-		t0 = x[1]
-		t1 = x[0]
-	} else {
-		t0 = x[0]
-		t1 = x[1]
-	}
-	t2 = x[2]
-
-	if t1 < t2 {
-		return t1
-	} else if t0 < t2 {
-		return t2
-	}
-	return t0
-}
-
-// medianOf5 computes the median of 5 consecutive values starting at x.
-// Reference: libopus celt/celt_encoder.c lines 990-1027
-func medianOf5(x []float64) float64 {
-	if len(x) < 5 {
-		return medianOf3(x)
-	}
-
-	var t0, t1, t2, t3, t4 float64
-	t2 = x[2]
-
-	if x[0] > x[1] {
-		t0 = x[1]
-		t1 = x[0]
-	} else {
-		t0 = x[0]
-		t1 = x[1]
-	}
-
-	if x[3] > x[4] {
-		t3 = x[4]
-		t4 = x[3]
-	} else {
-		t3 = x[3]
-		t4 = x[4]
-	}
-
-	// Swap to ensure t0 <= t3
-	if t0 > t3 {
-		t0, t3 = t3, t0
-		t1, t4 = t4, t1
-	}
-
-	if t2 > t1 {
-		if t1 < t3 {
-			return math.Min(t2, t3)
-		}
-		return math.Min(t4, t1)
-	}
-	if t2 < t3 {
-		return math.Min(t1, t3)
-	}
-	return math.Min(t2, t4)
-}
-
 func medianOf3f(x []float32) float32 {
 	if len(x) < 3 {
 		if len(x) == 0 {
@@ -193,25 +121,6 @@ func medianOf5f(x []float32) float32 {
 		return t2
 	}
 	return t4
-}
-
-// computeNoiseFloor computes the noise floor for a given band.
-// The noise floor accounts for:
-// - Band width (logN)
-// - Bit depth (lsbDepth)
-// - Mean energy per band (eMeans)
-// - Preemphasis adjustment: 0.0062 * (i+5)^2
-//
-// Reference: libopus celt/celt_encoder.c lines 1071-1075
-func computeNoiseFloor(i, lsbDepth int, logN int16) float64 {
-	eMean := 0.0
-	if i < len(EMeans) {
-		eMean = EMeans[i]
-	}
-
-	// noise_floor = 0.0625*logN + 0.5 + (9-lsb_depth) - eMeans + 0.0062*(i+5)^2
-	// Note: logN is in Q8 format (multiplied by 256), so 0.0625 = 1/16 converts it
-	return 0.0625*float64(logN) + 0.5 + float64(9-lsbDepth) - eMean + 0.0062*float64((i+5)*(i+5))
 }
 
 func computeNoiseFloor32(i, lsbDepth int, logN int16) float32 {

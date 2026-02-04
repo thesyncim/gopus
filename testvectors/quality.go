@@ -20,25 +20,11 @@ const (
 	QualityScale = 100.0 / TargetSNR
 )
 
-// ComputeQuality computes a quality metric between decoded and reference audio.
-//
-// This implements a simplified SNR-based comparison. The full opus_compare
-// uses psychoacoustic masking across 21 frequency bands, but for most decoder
-// compliance testing, this SNR-based metric is sufficient.
-//
-// Parameters:
-//   - decoded: Decoded PCM samples from gopus decoder
-//   - reference: Reference PCM samples from .dec file
-//   - sampleRate: Sample rate in Hz (affects nothing currently, reserved for future)
-//
-// Returns: Q value where Q >= 0 indicates passing (48 dB SNR threshold)
-//
-// The quality formula maps SNR to a Q scale:
-//   - Q = 0: 48 dB SNR (pass threshold)
-//   - Q = 50: 72 dB SNR (excellent)
-//   - Q = 100: 96 dB SNR (near-perfect)
-//   - Q = -50: 24 dB SNR (poor)
-func ComputeQuality(decoded, reference []int16, sampleRate int) float64 {
+type sampleNumber interface {
+	~int16 | ~float32
+}
+
+func computeQualitySamples[T sampleNumber](decoded, reference []T) float64 {
 	if len(decoded) == 0 || len(reference) == 0 {
 		return math.Inf(-1) // No samples to compare
 	}
@@ -87,6 +73,28 @@ func ComputeQuality(decoded, reference []int16, sampleRate int) float64 {
 	q := (snr - TargetSNR) * QualityScale
 
 	return q
+}
+
+// ComputeQuality computes a quality metric between decoded and reference audio.
+//
+// This implements a simplified SNR-based comparison. The full opus_compare
+// uses psychoacoustic masking across 21 frequency bands, but for most decoder
+// compliance testing, this SNR-based metric is sufficient.
+//
+// Parameters:
+//   - decoded: Decoded PCM samples from gopus decoder
+//   - reference: Reference PCM samples from .dec file
+//   - sampleRate: Sample rate in Hz (affects nothing currently, reserved for future)
+//
+// Returns: Q value where Q >= 0 indicates passing (48 dB SNR threshold)
+//
+// The quality formula maps SNR to a Q scale:
+//   - Q = 0: 48 dB SNR (pass threshold)
+//   - Q = 50: 72 dB SNR (excellent)
+//   - Q = 100: 96 dB SNR (near-perfect)
+//   - Q = -50: 24 dB SNR (poor)
+func ComputeQuality(decoded, reference []int16, sampleRate int) float64 {
+	return computeQualitySamples(decoded, reference)
 }
 
 // QualityPasses returns true if the quality metric meets RFC 8251 threshold.
@@ -199,52 +207,7 @@ func SNRFromQuality(q float64) float64 {
 //
 // Returns: Q value where Q >= 0 indicates passing (48 dB SNR threshold)
 func ComputeQualityFloat32(decoded, reference []float32, sampleRate int) float64 {
-	if len(decoded) == 0 || len(reference) == 0 {
-		return math.Inf(-1) // No samples to compare
-	}
-
-	// Use shorter length if mismatched
-	n := len(decoded)
-	if len(reference) < n {
-		n = len(reference)
-	}
-
-	// Compute signal power and noise power
-	var signalPower, noisePower float64
-
-	for i := 0; i < n; i++ {
-		ref := float64(reference[i])
-		dec := float64(decoded[i])
-
-		signalPower += ref * ref
-		noise := dec - ref
-		noisePower += noise * noise
-	}
-
-	// Normalize by sample count
-	signalPower /= float64(n)
-	noisePower /= float64(n)
-
-	// Handle edge cases
-	if signalPower == 0 {
-		// Silent reference - check if decoded is also silent
-		if noisePower == 0 {
-			return 100.0 // Both silent = perfect match
-		}
-		return math.Inf(-1) // Noise against silence = bad
-	}
-
-	if noisePower == 0 {
-		return 100.0 // Perfect match (no noise)
-	}
-
-	// Compute SNR in dB
-	snr := 10.0 * math.Log10(signalPower/noisePower)
-
-	// Map SNR to Q scale
-	q := (snr - TargetSNR) * QualityScale
-
-	return q
+	return computeQualitySamples(decoded, reference)
 }
 
 // ComputeQualityFloat32WithDelay computes quality with optimal delay compensation.

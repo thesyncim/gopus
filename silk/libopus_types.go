@@ -105,8 +105,5 @@ type stereoEncState struct {
 	predPrevQ13   [2]int32 // Previous frame prediction coefficients (Q13)
 	sMid          [2]int16 // Mid signal buffer for LP filter continuity
 	sSide         [2]int16 // Side signal buffer for LP filter continuity
-	midSideAmpQ0  [4]int32 // Smoothed mid/side amplitudes [LP_mid, LP_res, HP_mid, HP_res]
-	smthWidthQ14  int16    // Smoothed stereo width (Q14)
 	widthPrevQ14  int16    // Previous frame's stereo width (Q14)
-	silentSideLen int16    // Length of silent side samples for mid-only transition
 }

@@ -103,10 +103,6 @@ type Encoder struct {
 	scratchAbsPulses    []int     // encodePulses: absolute value pulses
 	scratchSumPulses    []int     // encodePulses: sum per shell block
 	scratchNRshifts     []int     // encodePulses: right shifts per shell block
-	scratchLPC          []float64 // lpcToLSF: LPC coefficients as float64
-	scratchP            []float64 // lpcToLSF: P polynomial
-	scratchQ            []float64 // lpcToLSF: Q polynomial
-	scratchLSFFloat     []float64 // lpcToLSF: LSF in float64
 	scratchLSFQ15       []int16   // lpcToLSF: LSF result in Q15
 	scratchLPCQ16       []int32   // silkA2NLSF: LPC coefficients in Q16
 
@@ -147,9 +143,6 @@ type Encoder struct {
 
 	// LPC/Burg scratch buffers
 	scratchLpcBurg       []float64 // LPC coefficients from Burg
-	scratchBurgC         []float64 // Burg C buffer
-	scratchBurgBf        []float64 // Burg forward buffer
-	scratchBurgBb        []float64 // Burg backward buffer
 	scratchWindowed      []float32 // computeLPCFromFrame: windowed PCM
 	scratchLpcQ12        []int16   // burgLPCZeroAlloc: output LPC Q12
 	scratchBurgAf        []float64 // burgModifiedFLPZeroAlloc: Af buffer
@@ -160,7 +153,6 @@ type Encoder struct {
 	scratchBurgResult    []float64 // burgModifiedFLPZeroAlloc: result
 
 	// LTP analysis scratch buffers
-	scratchLtpCoeffs  [4][]float64 // per-subframe LTP coefficients (4 subframes max)
 	scratchLtpInput   []float64    // LTP analysis: pitch analysis buffer as float64
 	scratchLtpRes     []float64    // LTP analysis: LPC residual
 	scratchLtpResF64  []float64    // Residual energy: float64 scratch
@@ -196,16 +188,9 @@ type Encoder struct {
 
 	// Gain encoding scratch buffers
 	scratchGains       []float32 // computeSubframeGains: output gains
-	scratchGainsQ16Enc []int32   // encodeSubframeGains: gains in Q16
 	scratchGainInd     []int8    // silkGainsQuant: gain indices
 
 	// Rate control loop scratch buffers
-	scratchRangeEncoderCopy  rangecoding.EncoderState
-	scratchRangeEncoderCopy2 rangecoding.EncoderState
-	scratchNSQCopy           *NSQState
-	scratchNSQCopy2          *NSQState
-	scratchEcBufCopy         []byte
-
 	// Bit reservoir and rate control state (libopus parity)
 	nBitsExceeded int // Bits produced in excess of target
 	maxBits       int // Maximum bits allowed for current frame

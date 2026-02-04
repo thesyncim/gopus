@@ -90,16 +90,6 @@ func silkGainsQuantInto(ind []int8, gainQ16 []int32, prevInd int8, conditional b
 	return int8(currentPrevInd)
 }
 
-// silkGainsID computes unique identifier of gain indices vector
-// Matches libopus silk/gain_quant.c:silk_gains_ID
-func silkGainsID(ind []int8, nbSubfr int) int32 {
-	var gainsID int32
-	for k := 0; k < nbSubfr; k++ {
-		gainsID = (gainsID << 8) + int32(ind[k])
-	}
-	return gainsID
-}
-
 // Note: silkLimitInt is defined in libopus_fixed.go
 // Note: silkLimit32 is defined in libopus_fixed.go
 

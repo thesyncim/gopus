@@ -330,16 +330,6 @@ func parseWAVSamples(data []byte) []float32 {
 	return samples
 }
 
-// generateSineWave creates a mono sine wave.
-func generateSineWave(freq float64, samples int) []float64 {
-	pcm := make([]float64, samples)
-	for i := range pcm {
-		t := float64(i) / 48000.0
-		pcm[i] = 0.5 * math.Sin(2*math.Pi*freq*t)
-	}
-	return pcm
-}
-
 // generateMultichannelSine creates interleaved multi-channel sine wave.
 // Each channel gets a different frequency.
 func generateMultichannelSine(channels, samplesPerChannel int) []float64 {
@@ -369,6 +359,85 @@ func computeEnergyF32(samples []float32) float64 {
 		sum += float64(s) * float64(s)
 	}
 	return sum / float64(len(samples))
+}
+
+func runLibopusSurroundTest(t *testing.T, label string, channels, bitrate int) {
+	t.Helper()
+
+	enc, err := NewEncoderDefault(48000, channels)
+	if err != nil {
+		t.Fatalf("NewEncoderDefault failed: %v", err)
+	}
+	enc.Reset()
+	enc.SetBitrate(bitrate)
+
+	frameSize := 960 // 20ms at 48kHz
+	numFrames := 20
+
+	var allInput []float64
+	packets := make([][]byte, numFrames)
+
+	for i := 0; i < numFrames; i++ {
+		pcm := generateMultichannelSine(channels, frameSize)
+		allInput = append(allInput, pcm...)
+
+		packet, err := enc.Encode(pcm, frameSize)
+		if err != nil {
+			t.Fatalf("Frame %d: Encode failed: %v", i, err)
+		}
+		if packet == nil {
+			packet = []byte{0xF8, 0xFF, 0xFE}
+		}
+		packets[i] = packet
+		if i == 0 {
+			t.Logf("Frame %d: %d bytes (%s)", i, len(packet), label)
+		}
+	}
+
+	inputF32 := make([]float32, len(allInput))
+	for i, v := range allInput {
+		inputF32[i] = float32(v)
+	}
+	inputEnergy := computeEnergyF32(inputF32)
+	t.Logf("Input: %d frames, %d total samples (%dch), energy=%.6f", numFrames, len(allInput), channels, inputEnergy)
+
+	streams, coupled, mapping, err := DefaultMapping(channels)
+	if err != nil {
+		t.Fatalf("DefaultMapping(%d) failed: %v", channels, err)
+	}
+	t.Logf("%s config: %d streams, %d coupled, mapping=%v", label, streams, coupled, mapping)
+
+	var ogg bytes.Buffer
+	err = writeOggOpusMultistream(&ogg, packets, 48000, channels, streams, coupled, mapping, frameSize)
+	if err != nil {
+		t.Fatalf("writeOggOpusMultistream failed: %v", err)
+	}
+	t.Logf("Ogg container: %d bytes", ogg.Len())
+
+	decoded, err := decodeWithOpusdec(ogg.Bytes())
+	if err != nil {
+		if _, ok := err.(*skipError); ok {
+			t.Skipf("opusdec blocked (likely macOS provenance): %v", err)
+		}
+		t.Fatalf("decodeWithOpusdec failed: %v", err)
+	}
+
+	if len(decoded) == 0 {
+		t.Fatal("opusdec produced empty output")
+	}
+
+	outputEnergy := computeEnergyF32(decoded)
+	t.Logf("Decoded: %d samples (should be ~%d for %dch), energy=%.6f",
+		len(decoded), numFrames*frameSize*channels, channels, outputEnergy)
+
+	energyRatio := outputEnergy / inputEnergy * 100
+	t.Logf("Energy ratio: %.1f%% (threshold: 10%%)", energyRatio)
+
+	if energyRatio < 10.0 {
+		t.Errorf("Energy ratio too low: %.1f%% < 10%%", energyRatio)
+	} else {
+		t.Logf("PASS: %s multistream validated with libopus", label)
+	}
 }
 
 // TestLibopus_Stereo tests stereo multistream encoding with libopus.
@@ -464,85 +533,7 @@ func TestLibopus_51Surround(t *testing.T) {
 		t.Skip("opusdec not available in PATH")
 	}
 
-	// Create 5.1 encoder (6 channels, 4 streams, 2 coupled)
-	enc, err := NewEncoderDefault(48000, 6)
-	if err != nil {
-		t.Fatalf("NewEncoderDefault failed: %v", err)
-	}
-	enc.Reset()
-	enc.SetBitrate(256000) // 256 kbps for 5.1
-
-	frameSize := 960 // 20ms at 48kHz
-	numFrames := 20
-
-	// Generate test audio
-	var allInput []float64
-	packets := make([][]byte, numFrames)
-
-	for i := 0; i < numFrames; i++ {
-		pcm := generateMultichannelSine(6, frameSize)
-		allInput = append(allInput, pcm...)
-
-		packet, err := enc.Encode(pcm, frameSize)
-		if err != nil {
-			t.Fatalf("Frame %d: Encode failed: %v", i, err)
-		}
-		if packet == nil {
-			packet = []byte{0xF8, 0xFF, 0xFE}
-		}
-		packets[i] = packet
-		if i == 0 {
-			t.Logf("Frame %d: %d bytes (5.1)", i, len(packet))
-		}
-	}
-
-	// Compute input energy
-	inputF32 := make([]float32, len(allInput))
-	for i, v := range allInput {
-		inputF32[i] = float32(v)
-	}
-	inputEnergy := computeEnergyF32(inputF32)
-	t.Logf("Input: %d frames, %d total samples (6ch), energy=%.6f", numFrames, len(allInput), inputEnergy)
-
-	// Get mapping for 5.1
-	streams, coupled, mapping, _ := DefaultMapping(6)
-	t.Logf("5.1 config: %d streams, %d coupled, mapping=%v", streams, coupled, mapping)
-
-	// Write Ogg Opus container
-	var ogg bytes.Buffer
-	err = writeOggOpusMultistream(&ogg, packets, 48000, 6, streams, coupled, mapping, frameSize)
-	if err != nil {
-		t.Fatalf("writeOggOpusMultistream failed: %v", err)
-	}
-	t.Logf("Ogg container: %d bytes", ogg.Len())
-
-	// Decode with opusdec
-	decoded, err := decodeWithOpusdec(ogg.Bytes())
-	if err != nil {
-		if _, ok := err.(*skipError); ok {
-			t.Skipf("opusdec blocked (likely macOS provenance): %v", err)
-		}
-		t.Fatalf("decodeWithOpusdec failed: %v", err)
-	}
-
-	if len(decoded) == 0 {
-		t.Fatal("opusdec produced empty output")
-	}
-
-	// Compute output energy
-	outputEnergy := computeEnergyF32(decoded)
-	t.Logf("Decoded: %d samples (should be ~%d for 6ch), energy=%.6f",
-		len(decoded), numFrames*frameSize*6, outputEnergy)
-
-	// Energy ratio check
-	energyRatio := outputEnergy / inputEnergy * 100
-	t.Logf("Energy ratio: %.1f%% (threshold: 10%%)", energyRatio)
-
-	if energyRatio < 10.0 {
-		t.Errorf("Energy ratio too low: %.1f%% < 10%%", energyRatio)
-	} else {
-		t.Logf("PASS: 5.1 surround multistream validated with libopus")
-	}
+	runLibopusSurroundTest(t, "5.1", 6, 256000)
 }
 
 // TestLibopus_71Surround tests 7.1 surround multistream encoding with libopus.
@@ -551,85 +542,7 @@ func TestLibopus_71Surround(t *testing.T) {
 		t.Skip("opusdec not available in PATH")
 	}
 
-	// Create 7.1 encoder (8 channels, 5 streams, 3 coupled)
-	enc, err := NewEncoderDefault(48000, 8)
-	if err != nil {
-		t.Fatalf("NewEncoderDefault failed: %v", err)
-	}
-	enc.Reset()
-	enc.SetBitrate(384000) // 384 kbps for 7.1
-
-	frameSize := 960 // 20ms at 48kHz
-	numFrames := 20
-
-	// Generate test audio
-	var allInput []float64
-	packets := make([][]byte, numFrames)
-
-	for i := 0; i < numFrames; i++ {
-		pcm := generateMultichannelSine(8, frameSize)
-		allInput = append(allInput, pcm...)
-
-		packet, err := enc.Encode(pcm, frameSize)
-		if err != nil {
-			t.Fatalf("Frame %d: Encode failed: %v", i, err)
-		}
-		if packet == nil {
-			packet = []byte{0xF8, 0xFF, 0xFE}
-		}
-		packets[i] = packet
-		if i == 0 {
-			t.Logf("Frame %d: %d bytes (7.1)", i, len(packet))
-		}
-	}
-
-	// Compute input energy
-	inputF32 := make([]float32, len(allInput))
-	for i, v := range allInput {
-		inputF32[i] = float32(v)
-	}
-	inputEnergy := computeEnergyF32(inputF32)
-	t.Logf("Input: %d frames, %d total samples (8ch), energy=%.6f", numFrames, len(allInput), inputEnergy)
-
-	// Get mapping for 7.1
-	streams, coupled, mapping, _ := DefaultMapping(8)
-	t.Logf("7.1 config: %d streams, %d coupled, mapping=%v", streams, coupled, mapping)
-
-	// Write Ogg Opus container
-	var ogg bytes.Buffer
-	err = writeOggOpusMultistream(&ogg, packets, 48000, 8, streams, coupled, mapping, frameSize)
-	if err != nil {
-		t.Fatalf("writeOggOpusMultistream failed: %v", err)
-	}
-	t.Logf("Ogg container: %d bytes", ogg.Len())
-
-	// Decode with opusdec
-	decoded, err := decodeWithOpusdec(ogg.Bytes())
-	if err != nil {
-		if _, ok := err.(*skipError); ok {
-			t.Skipf("opusdec blocked (likely macOS provenance): %v", err)
-		}
-		t.Fatalf("decodeWithOpusdec failed: %v", err)
-	}
-
-	if len(decoded) == 0 {
-		t.Fatal("opusdec produced empty output")
-	}
-
-	// Compute output energy
-	outputEnergy := computeEnergyF32(decoded)
-	t.Logf("Decoded: %d samples (should be ~%d for 8ch), energy=%.6f",
-		len(decoded), numFrames*frameSize*8, outputEnergy)
-
-	// Energy ratio check
-	energyRatio := outputEnergy / inputEnergy * 100
-	t.Logf("Energy ratio: %.1f%% (threshold: 10%%)", energyRatio)
-
-	if energyRatio < 10.0 {
-		t.Errorf("Energy ratio too low: %.1f%% < 10%%", energyRatio)
-	} else {
-		t.Logf("PASS: 7.1 surround multistream validated with libopus")
-	}
+	runLibopusSurroundTest(t, "7.1", 8, 384000)
 }
 
 // TestLibopus_BitrateQuality tests encoding at different bitrates and logs quality metrics.

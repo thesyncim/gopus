@@ -124,7 +124,6 @@ type Encoder struct {
 	silkResampled        []float32
 	silkResampledR       []float32
 	silkResampledBuffer  []float32
-	silkResampledRBuffer []float32
 
 	// Scratch buffers for zero-allocation encoding
 	scratchDCPCM      []float64 // DC rejected PCM buffer
@@ -355,10 +354,6 @@ func (e *Encoder) Bitrate() int {
 
 func bitrateToBits(bitrate int, frameSize int) int {
 	return (bitrate * frameSize) / 48000
-}
-
-func bitsToBitrate(bits int, frameSize int) int {
-	return (bits * 48000) / frameSize
 }
 
 // computeEquivRate calculates the equivalent bitrate based on frame rate, VBR mode,

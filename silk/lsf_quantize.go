@@ -142,48 +142,6 @@ func (e *Encoder) quantizeLSFWithInterp(lsfQ15 []int16, bandwidth Bandwidth, sig
 	return stage1Idx, residuals, interpIdx
 }
 
-// searchStage1CodebookLibopus finds the best stage 1 codebook entry per libopus.
-// Uses weighted distortion matching silkNLSFDecode's reconstruction.
-func (e *Encoder) searchStage1CodebookLibopus(lsfQ15 []int16, cb *nlsfCB, stypeBand int) int {
-	numCodewords := cb.nVectors
-	order := cb.order
-
-	// ICDF for rate calculation (offset by stypeBand * nVectors for voiced/unvoiced)
-	icdf := cb.cb1ICDF[stypeBand*numCodewords:]
-
-	bestIdx := 0
-	var bestCost int64 = math.MaxInt64
-
-	for idx := 0; idx < numCodewords; idx++ {
-		// Compute weighted distortion
-		var dist int64
-		baseIdx := idx * order
-		for i := 0; i < order; i++ {
-			// Reconstruct what decoder would produce: base << 7 (Q8 to Q15)
-			cbVal := int64(cb.cb1NLSFQ8[baseIdx+i]) << 7
-			diff := int64(lsfQ15[i]) - cbVal
-
-			// Use codebook weights for perceptual weighting
-			weight := int64(cb.cb1WghtQ9[baseIdx+i])
-			if weight == 0 {
-				weight = 256
-			}
-			dist += (diff * diff) / weight
-		}
-
-		// Add rate cost from ICDF
-		rate := e.computeSymbolRate8(idx, icdf)
-		totalCost := dist + int64(rate*64) // Scale rate contribution
-
-		if totalCost < bestCost {
-			bestCost = totalCost
-			bestIdx = idx
-		}
-	}
-
-	return bestIdx
-}
-
 // computeSymbolRate8 estimates bit cost from uint8 ICDF probabilities.
 func (e *Encoder) computeSymbolRate8(symbol int, icdf []uint8) int {
 	// Invalid symbol check
@@ -221,89 +179,6 @@ func (e *Encoder) computeSymbolRate8(symbol int, icdf []uint8) int {
 		rate = 0
 	}
 	return rate
-}
-
-// computeStage2ResidualsLibopus computes stage 2 residual indices per libopus.
-// These are the NLSFIndices[1:order+1] values that get encoded.
-// Per libopus silk_NLSF_encode(): residuals are computed per coefficient using
-// prediction and quantization step.
-// Uses scratch buffers for zero-allocation operation.
-func (e *Encoder) computeStage2ResidualsLibopus(lsfQ15 []int16, stage1Idx int, cb *nlsfCB) []int {
-	order := cb.order
-	residuals := ensureIntSlice(&e.scratchLsfResiduals, order)
-
-	// Get ecIx and predQ8 for this stage1 index (same as decoder's silkNLSFUnpack)
-	ecIx := ensureInt16Slice(&e.scratchEcIx, order)
-	predQ8 := ensureUint8Slice(&e.scratchPredQ8, order)
-	silkNLSFUnpack(ecIx, predQ8, cb, stage1Idx)
-
-	// Get base values from stage 1 codebook
-	baseIdx := stage1Idx * order
-
-	// Compute target residuals (what decoder needs to reconstruct lsfQ15)
-	// Per libopus silk_NLSF_encode():
-	// resQ10[i] = (lsfQ15[i] - base<<7) * weight / (1<<14) / quantStepSize
-	// Then quantize to get index
-
-	// First convert lsfQ15 to resQ10 (what we want to encode)
-	resQ10 := ensureInt16Slice(&e.scratchResQ10, order)
-	for i := 0; i < order; i++ {
-		// Target NLSF in Q15
-		target := int32(lsfQ15[i])
-
-		// Base from codebook (Q8 scaled to Q15)
-		base := int32(cb.cb1NLSFQ8[baseIdx+i]) << 7
-
-		// Difference in Q15
-		diff := target - base
-
-		// Apply weight (cb1WghtQ9) to get resQ10
-		// Per libopus: resQ10 = diff * wght / (1 << 14)
-		wght := int32(cb.cb1WghtQ9[baseIdx+i])
-		if wght == 0 {
-			wght = 256
-		}
-		resQ10[i] = int16((diff * wght) >> 14)
-	}
-
-	// Quantize residuals using prediction (reverse of silkNLSFResidualDequant)
-	// Per libopus silk_NLSF_residual_quant():
-	// The quantization is done in reverse order with prediction from next coefficient
-	invQuantStepQ6 := cb.invQuantStepSizeQ6
-
-	var outQ10 int32
-	for i := order - 1; i >= 0; i-- {
-		// Prediction from previous output
-		predQ10 := silkRSHIFT(silkSMULBB(outQ10, int32(predQ8[i])), 8)
-
-		// Target after removing prediction
-		targetQ10 := int32(resQ10[i]) - predQ10
-
-		// Quantize: idx = round(targetQ10 * invQuantStepQ6 / (1<<16))
-		// The quantization maps to range [-nlsfQuantMaxAmplitude, +nlsfQuantMaxAmplitude]
-		idx := silkRSHIFT_ROUND(silkSMULBB(targetQ10, int32(invQuantStepQ6)), 16)
-
-		// Clamp to valid range
-		if idx < -nlsfQuantMaxAmplitude {
-			idx = -nlsfQuantMaxAmplitude
-		}
-		if idx > nlsfQuantMaxAmplitude {
-			idx = nlsfQuantMaxAmplitude
-		}
-
-		residuals[i] = int(idx)
-
-		// Reconstruct what decoder will compute (for next iteration's prediction)
-		outQ10 = int32(idx) << 10
-		if outQ10 > 0 {
-			outQ10 -= nlsfQuantLevelAdjQ10
-		} else if outQ10 < 0 {
-			outQ10 += nlsfQuantLevelAdjQ10
-		}
-		outQ10 = silkSMLAWB(predQ10, outQ10, int32(cb.quantStepSizeQ16))
-	}
-
-	return residuals
 }
 
 // computeInterpolationIndex determines blend with previous frame LSF.

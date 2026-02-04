@@ -410,6 +410,111 @@ func silkLPCAnalysisFilter(out []int16, in []int16, B []int16, length int, order
 	}
 }
 
+// decodeCoreBuffers holds the pre-allocated or newly allocated buffers used in silkDecodeCore.
+type decodeCoreBuffers struct {
+	sLPC       []int32
+	sLTP       []int16
+	sLTP_Q15   []int32
+	sLTPBufIdx int
+}
+
+// initDecodeCoreBuffers initializes the scratch buffers for silkDecodeCore/silkDecodeCoreWithTrace.
+// This eliminates hot-path allocations when called from the Decoder.
+func initDecodeCoreBuffers(st *decoderState, out []int16) decodeCoreBuffers {
+	var bufs decodeCoreBuffers
+
+	// sLPC buffer
+	if st.scratchSLPC != nil && len(st.scratchSLPC) >= st.subfrLength+maxLPCOrder {
+		bufs.sLPC = st.scratchSLPC[:st.subfrLength+maxLPCOrder]
+		// Clear the portion beyond maxLPCOrder that will be used for new samples
+		for i := maxLPCOrder; i < st.subfrLength+maxLPCOrder; i++ {
+			bufs.sLPC[i] = 0
+		}
+	} else {
+		bufs.sLPC = make([]int32, st.subfrLength+maxLPCOrder)
+	}
+	copy(bufs.sLPC, st.sLPCQ14Buf[:])
+
+	// sLTP buffer
+	if st.scratchSLTP != nil && len(st.scratchSLTP) >= st.ltpMemLength {
+		bufs.sLTP = st.scratchSLTP[:st.ltpMemLength]
+		// Clear the buffer for reuse
+		for i := 0; i < st.ltpMemLength; i++ {
+			bufs.sLTP[i] = 0
+		}
+	} else {
+		bufs.sLTP = make([]int16, st.ltpMemLength)
+	}
+
+	// sLTP_Q15 buffer
+	if st.scratchSLTPQ15 != nil && len(st.scratchSLTPQ15) >= st.ltpMemLength+st.frameLength {
+		bufs.sLTP_Q15 = st.scratchSLTPQ15[:st.ltpMemLength+st.frameLength]
+		// Clear the buffer for reuse
+		for i := 0; i < st.ltpMemLength+st.frameLength; i++ {
+			bufs.sLTP_Q15[i] = 0
+		}
+	} else {
+		bufs.sLTP_Q15 = make([]int32, st.ltpMemLength+st.frameLength)
+	}
+
+	bufs.sLTPBufIdx = st.ltpMemLength
+	return bufs
+}
+
+// processLTPVoiced handles the LTP processing for voiced signals in the decoder core.
+// It computes sLTP_Q15 values from the LPC analysis filter or applies gain adjustment.
+// Parameters:
+//   - st: decoder state
+//   - ctrl: decoder control parameters
+//   - out: output buffer (used when k==2 to copy samples to outBuf)
+//   - A_Q12: LPC prediction coefficients
+//   - sLTP: short-term prediction buffer
+//   - sLTP_Q15: short-term prediction buffer in Q15
+//   - sLTPBufIdx: current index in sLTP_Q15 buffer
+//   - lag: pitch lag for current subframe
+//   - k: subframe index
+//   - interpFlag: whether interpolation is active
+//   - invGainQ31: inverse gain in Q31 (modified for k==0 with LTP scale)
+//   - gainAdjQ16: gain adjustment factor
+//
+// Returns the potentially modified invGainQ31 value.
+func processLTPVoiced(
+	st *decoderState,
+	ctrl *decoderControl,
+	out []int16,
+	A_Q12 []int16,
+	sLTP []int16,
+	sLTP_Q15 []int32,
+	sLTPBufIdx int,
+	lag int,
+	k int,
+	interpFlag bool,
+	invGainQ31 int32,
+	gainAdjQ16 int32,
+) int32 {
+	if k == 0 || (k == 2 && interpFlag) {
+		startIdx := st.ltpMemLength - lag - st.lpcOrder - ltpOrder/2
+		if startIdx <= 0 {
+			startIdx = 1 // Match libopus assertion: start_idx > 0
+		}
+		if k == 2 {
+			copy(st.outBuf[st.ltpMemLength:], out[:2*st.subfrLength])
+		}
+		silkLPCAnalysisFilter(sLTP[startIdx:], st.outBuf[startIdx+k*st.subfrLength:], A_Q12, st.ltpMemLength-startIdx, st.lpcOrder)
+		if k == 0 {
+			invGainQ31 = silkLSHIFT(silkSMULWB(invGainQ31, ctrl.LTPScaleQ14), 2)
+		}
+		for i := 0; i < lag+ltpOrder/2; i++ {
+			sLTP_Q15[sLTPBufIdx-i-1] = silkSMULWB(invGainQ31, int32(sLTP[st.ltpMemLength-i-1]))
+		}
+	} else if gainAdjQ16 != int32(1<<16) {
+		for i := 0; i < lag+ltpOrder/2; i++ {
+			sLTP_Q15[sLTPBufIdx-i-1] = silkSMULWW(gainAdjQ16, sLTP_Q15[sLTPBufIdx-i-1])
+		}
+	}
+	return invGainQ31
+}
+
 func silkDecodeCore(st *decoderState, ctrl *decoderControl, out []int16, pulses []int16) {
 	offsetQ10 := silk_Quantization_Offsets_Q10[int(st.indices.signalType)>>1][int(st.indices.quantOffsetType)]
 	interpFlag := st.indices.NLSFInterpCoefQ2 < 4
@@ -431,44 +536,13 @@ func silkDecodeCore(st *decoderState, ctrl *decoderControl, out []int16, pulses 
 		randSeed += int32(pulses[i])
 	}
 
-	// Use pre-allocated scratch buffers if available, otherwise allocate.
-	// This eliminates hot-path allocations when called from the Decoder.
-	var sLPC []int32
-	if st.scratchSLPC != nil && len(st.scratchSLPC) >= st.subfrLength+maxLPCOrder {
-		sLPC = st.scratchSLPC[:st.subfrLength+maxLPCOrder]
-		// Clear the portion beyond maxLPCOrder that will be used for new samples
-		for i := maxLPCOrder; i < st.subfrLength+maxLPCOrder; i++ {
-			sLPC[i] = 0
-		}
-	} else {
-		sLPC = make([]int32, st.subfrLength+maxLPCOrder)
-	}
-	copy(sLPC, st.sLPCQ14Buf[:])
+	bufs := initDecodeCoreBuffers(st, out)
+	sLPC := bufs.sLPC
+	sLTP := bufs.sLTP
+	sLTP_Q15 := bufs.sLTP_Q15
+	sLTPBufIdx := bufs.sLTPBufIdx
 	pexc := st.excQ14[:]
 	pxq := out
-
-	var sLTP []int16
-	if st.scratchSLTP != nil && len(st.scratchSLTP) >= st.ltpMemLength {
-		sLTP = st.scratchSLTP[:st.ltpMemLength]
-		// Clear the buffer for reuse
-		for i := 0; i < st.ltpMemLength; i++ {
-			sLTP[i] = 0
-		}
-	} else {
-		sLTP = make([]int16, st.ltpMemLength)
-	}
-
-	var sLTP_Q15 []int32
-	if st.scratchSLTPQ15 != nil && len(st.scratchSLTPQ15) >= st.ltpMemLength+st.frameLength {
-		sLTP_Q15 = st.scratchSLTPQ15[:st.ltpMemLength+st.frameLength]
-		// Clear the buffer for reuse
-		for i := 0; i < st.ltpMemLength+st.frameLength; i++ {
-			sLTP_Q15[i] = 0
-		}
-	} else {
-		sLTP_Q15 = make([]int32, st.ltpMemLength+st.frameLength)
-	}
-	sLTPBufIdx := st.ltpMemLength
 
 	for k := 0; k < st.nbSubfr; k++ {
 		A_Q12 := ctrl.PredCoefQ12[k>>1][:]
@@ -498,26 +572,7 @@ func silkDecodeCore(st *decoderState, ctrl *decoderControl, out []int16, pulses 
 
 		if signalType == typeVoiced {
 			lag := ctrl.pitchL[k]
-			if k == 0 || (k == 2 && interpFlag) {
-				startIdx := st.ltpMemLength - lag - st.lpcOrder - ltpOrder/2
-				if startIdx <= 0 {
-					startIdx = 1 // Match libopus assertion: start_idx > 0
-				}
-				if k == 2 {
-					copy(st.outBuf[st.ltpMemLength:], out[:2*st.subfrLength])
-				}
-				silkLPCAnalysisFilter(sLTP[startIdx:], st.outBuf[startIdx+k*st.subfrLength:], A_Q12, st.ltpMemLength-startIdx, st.lpcOrder)
-				if k == 0 {
-					invGainQ31 = silkLSHIFT(silkSMULWB(invGainQ31, ctrl.LTPScaleQ14), 2)
-				}
-				for i := 0; i < lag+ltpOrder/2; i++ {
-					sLTP_Q15[sLTPBufIdx-i-1] = silkSMULWB(invGainQ31, int32(sLTP[st.ltpMemLength-i-1]))
-				}
-			} else if gainAdjQ16 != int32(1<<16) {
-				for i := 0; i < lag+ltpOrder/2; i++ {
-					sLTP_Q15[sLTPBufIdx-i-1] = silkSMULWW(gainAdjQ16, sLTP_Q15[sLTPBufIdx-i-1])
-				}
-			}
+			invGainQ31 = processLTPVoiced(st, ctrl, out, A_Q12, sLTP, sLTP_Q15, sLTPBufIdx, lag, k, interpFlag, invGainQ31, gainAdjQ16)
 		}
 
 		var presQ14 []int32
@@ -589,40 +644,13 @@ func silkDecodeCoreWithTrace(st *decoderState, ctrl *decoderControl, out []int16
 		randSeed += int32(pulses[i])
 	}
 
-	// Use pre-allocated scratch buffers if available, otherwise allocate.
-	var sLPC []int32
-	if st.scratchSLPC != nil && len(st.scratchSLPC) >= st.subfrLength+maxLPCOrder {
-		sLPC = st.scratchSLPC[:st.subfrLength+maxLPCOrder]
-		for i := maxLPCOrder; i < st.subfrLength+maxLPCOrder; i++ {
-			sLPC[i] = 0
-		}
-	} else {
-		sLPC = make([]int32, st.subfrLength+maxLPCOrder)
-	}
-	copy(sLPC, st.sLPCQ14Buf[:])
+	bufs := initDecodeCoreBuffers(st, out)
+	sLPC := bufs.sLPC
+	sLTP := bufs.sLTP
+	sLTP_Q15 := bufs.sLTP_Q15
+	sLTPBufIdx := bufs.sLTPBufIdx
 	pexc := st.excQ14[:]
 	pxq := out
-
-	var sLTP []int16
-	if st.scratchSLTP != nil && len(st.scratchSLTP) >= st.ltpMemLength {
-		sLTP = st.scratchSLTP[:st.ltpMemLength]
-		for i := 0; i < st.ltpMemLength; i++ {
-			sLTP[i] = 0
-		}
-	} else {
-		sLTP = make([]int16, st.ltpMemLength)
-	}
-
-	var sLTP_Q15 []int32
-	if st.scratchSLTPQ15 != nil && len(st.scratchSLTPQ15) >= st.ltpMemLength+st.frameLength {
-		sLTP_Q15 = st.scratchSLTPQ15[:st.ltpMemLength+st.frameLength]
-		for i := 0; i < st.ltpMemLength+st.frameLength; i++ {
-			sLTP_Q15[i] = 0
-		}
-	} else {
-		sLTP_Q15 = make([]int32, st.ltpMemLength+st.frameLength)
-	}
-	sLTPBufIdx := st.ltpMemLength
 
 	for k := 0; k < st.nbSubfr; k++ {
 		A_Q12 := ctrl.PredCoefQ12[k>>1][:]
@@ -652,26 +680,7 @@ func silkDecodeCoreWithTrace(st *decoderState, ctrl *decoderControl, out []int16
 
 		if signalType == typeVoiced {
 			lag := ctrl.pitchL[k]
-			if k == 0 || (k == 2 && interpFlag) {
-				startIdx := st.ltpMemLength - lag - st.lpcOrder - ltpOrder/2
-				if startIdx <= 0 {
-					startIdx = 1 // Match libopus assertion: start_idx > 0
-				}
-				if k == 2 {
-					copy(st.outBuf[st.ltpMemLength:], out[:2*st.subfrLength])
-				}
-				silkLPCAnalysisFilter(sLTP[startIdx:], st.outBuf[startIdx+k*st.subfrLength:], A_Q12, st.ltpMemLength-startIdx, st.lpcOrder)
-				if k == 0 {
-					invGainQ31 = silkLSHIFT(silkSMULWB(invGainQ31, ctrl.LTPScaleQ14), 2)
-				}
-				for i := 0; i < lag+ltpOrder/2; i++ {
-					sLTP_Q15[sLTPBufIdx-i-1] = silkSMULWB(invGainQ31, int32(sLTP[st.ltpMemLength-i-1]))
-				}
-			} else if gainAdjQ16 != int32(1<<16) {
-				for i := 0; i < lag+ltpOrder/2; i++ {
-					sLTP_Q15[sLTPBufIdx-i-1] = silkSMULWW(gainAdjQ16, sLTP_Q15[sLTPBufIdx-i-1])
-				}
-			}
+			invGainQ31 = processLTPVoiced(st, ctrl, out, A_Q12, sLTP, sLTP_Q15, sLTPBufIdx, lag, k, interpFlag, invGainQ31, gainAdjQ16)
 		}
 
 		var presQ14 []int32

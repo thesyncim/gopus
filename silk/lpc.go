@@ -160,30 +160,3 @@ func lpcInterpolate(lpc0, lpc1 []int16, alpha int32) []int16 {
 
 	return result
 }
-
-// lpcResidual computes the LPC residual (inverse filter) for analysis.
-// This is the inverse of lpcSynthesis - it extracts the excitation from
-// a signal given the LPC coefficients.
-//
-// This function is useful for encoder analysis and testing.
-//
-//	residual[n] = signal[n] - sum(a[k] * signal[n-k-1]) for k=0..order-1
-func lpcResidual(signal []float32, lpcCoeffs []int16, residual []int32) {
-	order := len(lpcCoeffs)
-
-	for i := range signal {
-		// Start with signal sample (scaled to fixed-point)
-		sample := int64(signal[i] * 32768.0 * 256.0)
-
-		// Subtract LPC prediction
-		for k := 0; k < order; k++ {
-			if i-k-1 >= 0 {
-				prevQ12 := int64(signal[i-k-1] * 4096.0)
-				sample -= (int64(lpcCoeffs[k]) * prevQ12) >> 12
-			}
-		}
-
-		// Store residual
-		residual[i] = int32(sample >> 8)
-	}
-}

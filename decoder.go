@@ -38,9 +38,6 @@ func DefaultDecoderConfig(sampleRate, channels int) DecoderConfig {
 	}
 }
 
-// maxFECFrames is the maximum number of frames per packet that can have LBRR.
-const maxFECFrames = 3
-
 // Decoder decodes Opus packets into PCM audio samples.
 //
 // A Decoder instance maintains internal state and is NOT safe for concurrent use.

@@ -886,29 +886,6 @@ func (d *Decoder) decodeIntraFlag() bool {
 	return d.rangeDecoder.DecodeBit(logp) == 1
 }
 
-// decodeSpread decodes the spread value for folding.
-// Returns spread decision (0-3).
-func (d *Decoder) decodeSpread() int {
-	if d.rangeDecoder == nil {
-		return 0
-	}
-	// Spread is decoded as 2 bits
-	// 0 = aggressive, 1 = normal, 2 = light, 3 = none
-	bit1 := d.rangeDecoder.DecodeBit(5)
-	if bit1 == 0 {
-		return 2 // Light spread (default)
-	}
-	bit2 := d.rangeDecoder.DecodeBit(1)
-	if bit2 == 0 {
-		return 1 // Normal spread
-	}
-	bit3 := d.rangeDecoder.DecodeBit(1)
-	if bit3 == 0 {
-		return 0 // Aggressive spread
-	}
-	return 3 // No spread
-}
-
 // decodeSilenceFrame returns zeros for a silence frame.
 func (d *Decoder) decodeSilenceFrame(frameSize int, newPeriod int, newGain float64, newTapset int) []float64 {
 	mode := GetModeConfig(frameSize)
@@ -2412,22 +2389,6 @@ func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
 	scaleSamples(d.scratchPLC, 1.0/32768.0)
 
 	return d.scratchPLC, nil
-}
-
-// decodePLCHybrid generates concealment for CELT in hybrid mode.
-func (d *Decoder) decodePLCHybrid(frameSize int) ([]float64, error) {
-	if frameSize != 480 && frameSize != 960 {
-		return nil, ErrInvalidFrameSize
-	}
-
-	// Get fade factor for this loss
-	fadeFactor := celtPLCState.RecordLoss()
-
-	// Generate concealment for hybrid bands only (17-21)
-	samples := plc.ConcealCELTHybrid(d, d, frameSize, fadeFactor)
-	scaleSamples(samples, 1.0/32768.0)
-
-	return samples, nil
 }
 
 // CELTPLCState returns the PLC state for external access (e.g., hybrid mode).

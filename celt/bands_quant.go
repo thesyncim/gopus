@@ -383,12 +383,6 @@ func specialHybridFolding(norm, norm2 []float64, start, M int, dualStereo bool) 
 	}
 }
 
-func algUnquant(rd *rangecoding.Decoder, band, n, k, spread, b int, gain float64) ([]float64, int) {
-	shape := make([]float64, n)
-	cm := algUnquantInto(shape, rd, band, n, k, spread, b, gain, nil)
-	return shape, cm
-}
-
 // algUnquantInto decodes PVQ into a pre-allocated shape buffer using scratch buffers.
 func algUnquantInto(shape []float64, rd *rangecoding.Decoder, band, n, k, spread, b int, gain float64, scratch *bandDecodeScratch) int {
 	if len(shape) < n {
@@ -432,10 +426,6 @@ func algUnquantInto(shape []float64, rd *rangecoding.Decoder, band, n, k, spread
 	expRotation(shape, n, -1, b, k, spread)
 	cm := extractCollapseMask(pulses, n, b)
 	return cm
-}
-
-func algQuant(re *rangecoding.Encoder, band int, x []float64, n, k, spread, b int, gain float64, resynth bool, extEnc *rangecoding.Encoder, extraBits int) int {
-	return algQuantScratch(re, band, x, n, k, spread, b, gain, resynth, extEnc, extraBits, nil)
 }
 
 func algQuantScratch(re *rangecoding.Encoder, band int, x []float64, n, k, spread, b int, gain float64, resynth bool, extEnc *rangecoding.Encoder, extraBits int, scratch *bandEncodeScratch) int {
@@ -1414,13 +1404,6 @@ func quantBandStereo(ctx *bandCtx, x, y []float64, n, b, B int, lowband []float6
 	return cm
 }
 
-func quantAllBandsDecode(rd *rangecoding.Decoder, channels, frameSize, lm int, start, end int,
-	pulses []int, shortBlocks int, spread int, dualStereo, intensity int,
-	tfRes []int, totalBitsQ3 int, balance int, codedBands int, disableInv bool, seed *uint32) (left, right []float64, collapse []byte) {
-	return quantAllBandsDecodeWithScratch(rd, channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, totalBitsQ3, balance, codedBands, disableInv, seed, nil)
-}
-
 func quantAllBandsDecodeWithScratch(rd *rangecoding.Decoder, channels, frameSize, lm int, start, end int,
 	pulses []int, shortBlocks int, spread int, dualStereo, intensity int,
 	tfRes []int, totalBitsQ3 int, balance int, codedBands int, disableInv bool, seed *uint32,
@@ -1684,16 +1667,6 @@ func quantAllBandsDecodeWithScratch(rd *rangecoding.Decoder, channels, frameSize
 //   - extraBits: extra bits per band for extended mode (can be nil)
 //
 // Reference: libopus celt/bands.c quant_all_bands()
-func quantAllBandsEncode(re *rangecoding.Encoder, channels, frameSize, lm int, start, end int,
-	x, y []float64, pulses []int, shortBlocks int, spread int, tapset int, dualStereo, intensity int,
-	tfRes []int, totalBitsQ3 int, balance int, codedBands int, seed *uint32, complexity int,
-	bandE []float64, extEnc *rangecoding.Encoder, extraBits []int) (collapse []byte) {
-	return quantAllBandsEncodeScratch(re, channels, frameSize, lm, start, end,
-		x, y, pulses, shortBlocks, spread, tapset, dualStereo, intensity,
-		tfRes, totalBitsQ3, balance, codedBands, seed, complexity,
-		bandE, extEnc, extraBits, nil)
-}
-
 // quantAllBandsEncodeScratch is the scratch-aware version of quantAllBandsEncode.
 func quantAllBandsEncodeScratch(re *rangecoding.Encoder, channels, frameSize, lm int, start, end int,
 	x, y []float64, pulses []int, shortBlocks int, spread int, tapset int, dualStereo, intensity int,

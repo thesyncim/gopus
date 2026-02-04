@@ -513,29 +513,6 @@ func safeLog(x float64) float64 {
 	return math.Log(x)
 }
 
-// computePerceptualWeights returns per-band weights based on perceptual importance.
-// Lower frequency bands (where speech fundamentals and music harmonics live) are weighted higher.
-// This matches libopus's emphasis on perceptually important frequency ranges.
-func computePerceptualWeights(nbBands int) []float64 {
-	weights := make([]float64, nbBands)
-
-	for i := 0; i < nbBands; i++ {
-		// Weights decrease logarithmically with band index
-		// Band 0-7 (0-1600 Hz): full weight (speech fundamentals, music fundamentals)
-		// Band 8-13 (1600-4000 Hz): moderate weight (speech formants, harmonics)
-		// Band 14-20 (4000-20000 Hz): lower weight (high harmonics, less critical)
-		if i < 8 {
-			weights[i] = 1.0
-		} else if i < 14 {
-			weights[i] = 0.7
-		} else {
-			weights[i] = 0.3
-		}
-	}
-
-	return weights
-}
-
 // ComputeTonalityFromNormalized computes tonality from pre-normalized MDCT coefficients.
 // This is useful when normalization has already been done (as in encode_frame.go).
 //

@@ -19,9 +19,6 @@ const (
 	// Bands 0-16 are covered by SILK; CELT only decodes bands 17-21.
 	HybridCELTStartBand = 17
 
-	// maxHybridFrameSamples is the maximum frame size for hybrid mode (20ms at 48kHz).
-	maxHybridFrameSamples = 960
-
 	// SilkCELTDelay is the delay compensation in samples at 48kHz.
 	// SILK output must be delayed relative to CELT for proper time alignment.
 	// This matches celt.SilkCELTDelay = 60
@@ -443,16 +440,6 @@ func (d *Decoder) applyDelayStereo(input []float64) []float64 {
 	copy(d.silkDelayBuffer, input[tailStart:])
 
 	return output
-}
-
-// syncDelayBufferMono ensures the stereo delay buffer is in mono state.
-func (d *Decoder) syncDelayBufferMono() {
-	if d.channels != 2 || len(d.silkDelayBuffer) < SilkCELTDelay*2 {
-		return
-	}
-	for i := 0; i < SilkCELTDelay; i++ {
-		d.silkDelayBuffer[i*2+1] = d.silkDelayBuffer[i*2]
-	}
 }
 
 // upsample3x upsamples SILK output from 16kHz to 48kHz using linear interpolation.

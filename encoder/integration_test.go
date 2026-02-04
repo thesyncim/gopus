@@ -641,31 +641,6 @@ func generateChirpIntegration(n int, startFreq, endFreq float64) []float64 {
 	return pcm
 }
 
-func computeCorrelationIntegration(a, b []float64) float64 {
-	if len(a) != len(b) || len(a) == 0 {
-		return 0
-	}
-
-	var sumA, sumB, sumAB, sumA2, sumB2 float64
-	n := float64(len(a))
-
-	for i := range a {
-		sumA += a[i]
-		sumB += b[i]
-		sumAB += a[i] * b[i]
-		sumA2 += a[i] * a[i]
-		sumB2 += b[i] * b[i]
-	}
-
-	num := n*sumAB - sumA*sumB
-	den := math.Sqrt((n*sumA2 - sumA*sumA) * (n*sumB2 - sumB*sumB))
-
-	if den == 0 {
-		return 0
-	}
-	return num / den
-}
-
 func computePeakIntegration(samples []float64) float64 {
 	var peak float64
 	for _, s := range samples {

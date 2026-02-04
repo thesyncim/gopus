@@ -168,12 +168,6 @@ func stereoEncodePred(enc *rangecoding.Encoder, ix StereoQuantIndices) {
 	}
 }
 
-// stereoEncodeMidOnly encodes the mid-only flag to the bitstream.
-// This is a direct port of silk/stereo_encode_pred.c silk_stereo_encode_mid_only.
-func stereoEncodeMidOnly(enc *rangecoding.Encoder, midOnlyFlag int8) {
-	enc.EncodeICDF(int(midOnlyFlag), silk_stereo_only_code_mid_iCDF, 8)
-}
-
 // smulwb and absInt32 are defined in other files (resample_libopus.go and gain_encode.go)
 
 // encodeStereoWeights encodes stereo prediction weights to bitstream.
@@ -193,26 +187,6 @@ func (e *Encoder) encodeStereoWeights(weights [2]int32) {
 	// quantized_pred0 = predQ13[0] + predQ13[1]
 	e.prevStereoWeights[0] = int16(predQ13[0] + predQ13[1])
 	e.prevStereoWeights[1] = int16(predQ13[1])
-}
-
-// reconstructSide reconstructs side channel from mid using weights.
-// For verification that encoding matches decoding.
-func reconstructSide(mid []float32, weights [2]int16) []float32 {
-	n := len(mid)
-	side := make([]float32, n)
-
-	w0 := float32(weights[0]) / 8192.0
-	w1 := float32(weights[1]) / 8192.0
-
-	for i := 0; i < n; i++ {
-		var m1 float32
-		if i > 0 {
-			m1 = mid[i-1]
-		}
-		side[i] = w0*mid[i] + w1*m1
-	}
-
-	return side
 }
 
 // EncodeStereoMidSide is the public method to convert stereo to mid-side

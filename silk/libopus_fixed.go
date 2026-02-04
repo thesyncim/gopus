@@ -9,13 +9,6 @@ func silkAbs32(x int32) int32 {
 	return x
 }
 
-func silkAbsInt(x int) int {
-	if x < 0 {
-		return -x
-	}
-	return x
-}
-
 func silkMaxInt(a, b int) int {
 	if a > b {
 		return a
@@ -24,13 +17,6 @@ func silkMaxInt(a, b int) int {
 }
 
 func silkMinInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func silkMin32(a, b int32) int32 {
 	if a < b {
 		return a
 	}
@@ -122,10 +108,6 @@ func silkSMLABB(a, b, c int32) int32 {
 
 func silkSMULWW(a, b int32) int32 {
 	return int32((int64(a) * int64(b)) >> 16)
-}
-
-func silkSMLAWW(a, b, c int32) int32 {
-	return a + int32((int64(b)*int64(c))>>16)
 }
 
 func silkMUL(a, b int32) int32 {
@@ -241,13 +223,6 @@ func silkInverse32VarQ(b32 int32, q int) int32 {
 
 func silkCLZ32(x int32) int32 {
 	return int32(bits.LeadingZeros32(uint32(x)))
-}
-
-func silkCLZ_FRAC(in int32) (lz int32, fracQ7 int32) {
-	lz = silkCLZ32(in)
-	rot := bits.RotateLeft32(uint32(in), -int(24-lz))
-	fracQ7 = int32(rot & 0x7f)
-	return lz, fracQ7
 }
 
 func silkFixConst(x float64, q int) int {

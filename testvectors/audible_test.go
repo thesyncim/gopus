@@ -244,10 +244,10 @@ func writeOggOpusAudible(w *bytes.Buffer, packets [][]byte, channels int, preSki
 	opusHead[9] = byte(channels)
 	binary.LittleEndian.PutUint16(opusHead[10:12], uint16(preSkip))
 	binary.LittleEndian.PutUint32(opusHead[12:16], 48000)
-	writeOggPageAudible(w, serialNo, 0, 2, 0, [][]byte{opusHead})
+	_ = writeOggPage(w, serialNo, 0, 2, 0, [][]byte{opusHead})
 
 	tags := []byte("OpusTags\x05\x00\x00\x00gopus\x00\x00\x00\x00")
-	writeOggPageAudible(w, serialNo, 1, 0, 0, [][]byte{tags})
+	_ = writeOggPage(w, serialNo, 1, 0, 0, [][]byte{tags})
 
 	granulePos := uint64(preSkip)
 	for i, pkt := range packets {
@@ -256,38 +256,8 @@ func writeOggOpusAudible(w *bytes.Buffer, packets [][]byte, channels int, preSki
 		if i == len(packets)-1 {
 			headerType = 4
 		}
-		writeOggPageAudible(w, serialNo, uint32(2+i), headerType, granulePos, [][]byte{pkt})
+		_ = writeOggPage(w, serialNo, uint32(2+i), headerType, granulePos, [][]byte{pkt})
 	}
 }
 
-func writeOggPageAudible(w *bytes.Buffer, serialNo, pageNo uint32, headerType byte, granulePos uint64, segments [][]byte) {
-	var segTable []byte
-	for _, seg := range segments {
-		remaining := len(seg)
-		for remaining >= 255 {
-			segTable = append(segTable, 255)
-			remaining -= 255
-		}
-		segTable = append(segTable, byte(remaining))
-	}
-
-	header := make([]byte, 27+len(segTable))
-	copy(header[0:4], "OggS")
-	header[5] = headerType
-	binary.LittleEndian.PutUint64(header[6:14], granulePos)
-	binary.LittleEndian.PutUint32(header[14:18], serialNo)
-	binary.LittleEndian.PutUint32(header[18:22], pageNo)
-	header[26] = byte(len(segTable))
-	copy(header[27:], segTable)
-
-	crc := oggCRC(header)
-	for _, seg := range segments {
-		crc = oggCRCUpdate(crc, seg)
-	}
-	binary.LittleEndian.PutUint32(header[22:26], crc)
-
-	w.Write(header)
-	for _, seg := range segments {
-		w.Write(seg)
-	}
-}
+// writeOggPage, oggCRC, oggCRCUpdate are defined in ogg_helpers_test.go

@@ -54,29 +54,6 @@ func stereoLPFilterFloat(signal []float32, frameLength int) (lp, hp []float32) {
 	return lp, hp
 }
 
-// stereoApplyLPFilterWithState applies LP filtering with state preservation.
-// This maintains filter continuity across frames by storing 2 samples of history.
-// The state parameter holds [s[-2], s[-1]] from the previous frame.
-// After processing, state is updated with [s[frameLength-2], s[frameLength-1]].
-//
-// signalWithHistory must be a slice of length frameLength+2 where:
-//   - signalWithHistory[0:2] will be filled from state
-//   - signalWithHistory[2:] contains the new frame samples
-func stereoApplyLPFilterWithState(signalWithHistory []int16, frameLength int, state *[2]int16) (lp, hp []int16) {
-	// Copy state to beginning of signal (history samples)
-	signalWithHistory[0] = state[0]
-	signalWithHistory[1] = state[1]
-
-	// Apply LP filter
-	lp, hp = stereoLPFilter(signalWithHistory, frameLength)
-
-	// Update state with last 2 samples
-	state[0] = signalWithHistory[frameLength]
-	state[1] = signalWithHistory[frameLength+1]
-
-	return lp, hp
-}
-
 // stereoConvertLRToMS converts left/right signals to mid/side.
 // Output mid and side arrays must have length frameLength+2 to hold history samples.
 // This matches libopus stereo_LR_to_MS.c lines 62-68.
@@ -118,106 +95,6 @@ func stereoConvertLRToMSFloat(left, right []float32, frameLength int) (mid, side
 // Returns:
 //   - predQ13: predictor coefficient in Q13
 //   - ratioQ14: ratio of residual to mid energies in Q14
-func stereoFindPredictor(x, y []int16, midResAmpQ0 *[2]int32, length int, smoothCoefQ16 int32) (predQ13 int32, ratioQ14 int32) {
-	// Compute energies and correlation
-	var nrgx, nrgy int64
-	var corr int64
-
-	for i := 0; i < length; i++ {
-		xi := int64(x[i])
-		yi := int64(y[i])
-		nrgx += xi * xi
-		nrgy += yi * yi
-		corr += xi * yi
-	}
-
-	// Determine scaling to prevent overflow
-	scale1 := 0
-	for nrgx > (1 << 30) {
-		nrgx >>= 2
-		scale1 += 2
-	}
-	scale2 := 0
-	nrgyOrig := nrgy
-	for nrgy > (1 << 30) {
-		nrgy >>= 2
-		scale2 += 2
-	}
-
-	scale := scale1
-	if scale2 > scale {
-		scale = scale2
-	}
-	// Make scale even
-	scale = scale + (scale & 1)
-
-	// Apply scaling
-	nrgxScaled := int32(nrgx >> (scale - scale1))
-	nrgyScaled := int32(nrgyOrig >> (scale - scale2))
-
-	if nrgxScaled < 1 {
-		nrgxScaled = 1
-	}
-
-	// Scale correlation
-	corrScaled := corr >> (scale / 2)
-
-	// Compute predictor: pred = corr / nrgx
-	// Using fixed-point division with Q13 result
-	predQ13 = int32((corrScaled << 13) / int64(nrgxScaled))
-
-	// Clamp to [-16384, 16384] (Q14 range, but we use Q13)
-	if predQ13 > (1 << 14) {
-		predQ13 = 1 << 14
-	}
-	if predQ13 < -(1 << 14) {
-		predQ13 = -(1 << 14)
-	}
-
-	pred2Q10 := int32((int64(predQ13) * int64(predQ13)) >> 16)
-
-	// Faster update for signals with large prediction parameters
-	if pred2Q10 > smoothCoefQ16 {
-		smoothCoefQ16 = pred2Q10
-	}
-	if smoothCoefQ16 > 32767 {
-		smoothCoefQ16 = 32767
-	}
-
-	// Compute smoothed amplitudes
-	scaleHalf := scale / 2
-
-	// Mid amplitude (sqrt of energy)
-	midAmp := int32(isqrt32(uint32(nrgxScaled))) << scaleHalf
-	midResAmpQ0[0] = midResAmpQ0[0] + int32((int64(midAmp-midResAmpQ0[0])*int64(smoothCoefQ16))>>16)
-
-	// Residual energy = nrgy - 2*pred*corr + pred^2*nrgx
-	// In Q notation: nrgy - (pred_Q13 * corr) >> 12 + (pred2_Q10 * nrgx) >> 10
-	residualEnergy := nrgyScaled - int32((int64(predQ13)*corrScaled)>>(13-1+scaleHalf))
-	residualEnergy += int32((int64(pred2Q10) * int64(nrgxScaled)) >> 10)
-	if residualEnergy < 0 {
-		residualEnergy = 0
-	}
-
-	resAmp := int32(isqrt32(uint32(residualEnergy))) << scaleHalf
-	midResAmpQ0[1] = midResAmpQ0[1] + int32((int64(resAmp-midResAmpQ0[1])*int64(smoothCoefQ16))>>16)
-
-	// Compute ratio of residual to mid norms
-	midAmpClamped := midResAmpQ0[0]
-	if midAmpClamped < 1 {
-		midAmpClamped = 1
-	}
-	ratioQ14 = int32((int64(midResAmpQ0[1]) << 14) / int64(midAmpClamped))
-	if ratioQ14 > 32767 {
-		ratioQ14 = 32767
-	}
-	if ratioQ14 < 0 {
-		ratioQ14 = 0
-	}
-
-	return predQ13, ratioQ14
-}
-
 // stereoFindPredictorFloat is the float version for encoder analysis.
 func stereoFindPredictorFloat(x, y []float32, length int) (predQ13 int32) {
 	// Compute energies and correlation

@@ -47,18 +47,6 @@ func TestTV12AnalyzeWorstSILKPackets(t *testing.T) {
 		t.Fatalf("Failed to create decoder: %v", err)
 	}
 
-	type packetInfo struct {
-		index     int
-		tocByte   byte
-		config    byte
-		stereo    bool
-		frameCode byte
-		mode      string
-		bandwidth string
-		frameSize int
-		dataLen   int
-	}
-
 	// Collect packet info for all worst packets
 	for _, targetIdx := range worstPackets {
 		if targetIdx >= len(packets) {

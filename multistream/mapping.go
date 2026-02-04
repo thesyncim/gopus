@@ -10,20 +10,6 @@ import "errors"
 // ErrUnsupportedChannels indicates a channel count that doesn't have a default mapping.
 var ErrUnsupportedChannels = errors.New("multistream: unsupported channel count for default mapping (must be 1-8)")
 
-// vorbisChannelOrder defines the standard Vorbis channel ordering for 1-8 channels.
-// These names correspond to the physical speaker positions in surround configurations.
-// Reference: RFC 7845 Section 5.1.1.2
-var vorbisChannelOrder = map[int][]string{
-	1: {"mono"},
-	2: {"left", "right"},
-	3: {"left", "center", "right"},
-	4: {"front_left", "front_right", "rear_left", "rear_right"},
-	5: {"front_left", "center", "front_right", "rear_left", "rear_right"},
-	6: {"front_left", "center", "front_right", "rear_left", "rear_right", "LFE"},                       // 5.1 surround
-	7: {"front_left", "center", "front_right", "side_left", "side_right", "rear_center", "LFE"},        // 6.1 surround
-	8: {"front_left", "center", "front_right", "side_left", "side_right", "rear_left", "rear_right", "LFE"}, // 7.1 surround
-}
-
 // DefaultMapping returns the default Vorbis-style (mapping family 1) configuration
 // for a given channel count.
 //

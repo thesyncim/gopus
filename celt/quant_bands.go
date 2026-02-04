@@ -34,11 +34,6 @@ var betaCoef = [4]float32{
 // Reference: libopus celt/quant_bands.c beta_intra
 const betaIntraF32 = float32(4915.0 / 32768.0) // 0.15
 
-// DB_SHIFT is the fixed-point shift for dB representation in libopus.
-// In the float path, we don't need to use this directly, but it's
-// referenced in the formulas for consistency.
-const dbShift = 14
-
 // QuantCoarseEnergyResult holds the result of coarse energy quantization.
 type QuantCoarseEnergyResult struct {
 	// QuantizedEnergy is the quantized energy per band per channel.
@@ -650,13 +645,4 @@ func Amp2Log2(bandE []float64, effEnd, end, channels int) []float64 {
 	}
 
 	return bandLogE
-}
-
-// celtExp2DB computes 2^x for denormalization.
-// Matches libopus celt_exp2_db() behavior.
-func celtExp2DB(x float64) float64 {
-	if x > 32 {
-		x = 32
-	}
-	return math.Exp2(x)
 }

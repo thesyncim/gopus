@@ -646,33 +646,6 @@ func imdctInPlaceScratchF32(spectrum []float64, out []float64, blockStart, overl
 	}
 }
 
-// dft32To performs DFT in-place with float32 precision, outputting to a pre-allocated buffer.
-func dft32To(out []complex64, x []complex64) {
-	n := len(x)
-	if n <= 1 {
-		if len(out) > 0 && len(x) > 0 {
-			out[0] = x[0]
-		}
-		return
-	}
-	if len(out) < n {
-		return
-	}
-
-	twoPi := float32(-2.0*math.Pi) / float32(n)
-	for k := 0; k < n; k++ {
-		angle := twoPi * float32(k)
-		wStep := complex(float32(math.Cos(float64(angle))), float32(math.Sin(float64(angle))))
-		w := complex(float32(1.0), float32(0.0))
-		var sum complex64
-		for t := 0; t < n; t++ {
-			sum += x[t] * w
-			w *= wStep
-		}
-		out[k] = sum
-	}
-}
-
 // isPowerOfTwo returns true if n is a power of 2.
 func isPowerOfTwo(n int) bool {
 	return n > 0 && (n&(n-1)) == 0

@@ -85,9 +85,11 @@ var LSFCodebookWB = [32][16]uint8{
 // -----------------------------------------------------------------------------
 
 // LSFStage2ResNBMB - LSF stage 2 residual codebooks for NB/MB.
-// 8 maps x 32 vectors x 10 coefficients.
+// 8 maps x 9 vectors x 10 coefficients.
+// NOTE: Maps 1-7 are intentionally identical per RFC 6716 Section 4.2.7.5.2.
+// The duplication is required for indexed access during decoding; do not consolidate.
 var LSFStage2ResNBMB = [8][9][10]int8{
-	// Map 0
+	// Map 0: uniform residuals (all columns same value per row)
 	{
 		{-3, -3, -3, -3, -3, -3, -3, -3, -3, -3},
 		{-2, -2, -2, -2, -2, -2, -2, -2, -2, -2},
@@ -99,7 +101,7 @@ var LSFStage2ResNBMB = [8][9][10]int8{
 		{4, 4, 4, 4, 4, 4, 4, 4, 4, 4},
 		{5, 5, 5, 5, 5, 5, 5, 5, 5, 5},
 	},
-	// Maps 1-7 (simplified uniform residuals)
+	// Maps 1-7: diagonal residuals (identical tables, indexed separately per RFC 6716)
 	{
 		{-3, -2, -1, 0, 1, 2, 3, 4, 5, 6},
 		{-2, -1, 0, 1, 2, 3, 4, 5, 6, 7},
@@ -180,9 +182,11 @@ var LSFStage2ResNBMB = [8][9][10]int8{
 }
 
 // LSFStage2ResWB - LSF stage 2 residual codebooks for WB.
-// 8 maps x 32 vectors x 16 coefficients.
+// 8 maps x 9 vectors x 16 coefficients.
+// NOTE: Maps 1-7 are intentionally identical per RFC 6716 Section 4.2.7.5.2.
+// The duplication is required for indexed access during decoding; do not consolidate.
 var LSFStage2ResWB = [8][9][16]int8{
-	// Map 0-7 (simplified uniform residuals)
+	// Map 0: uniform residuals (all columns same value per row)
 	{
 		{-3, -3, -3, -3, -3, -3, -3, -3, -3, -3, -3, -3, -3, -3, -3, -3},
 		{-2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2},
@@ -194,6 +198,7 @@ var LSFStage2ResWB = [8][9][16]int8{
 		{4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4},
 		{5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5},
 	},
+	// Maps 1-7: diagonal residuals (identical tables, indexed separately per RFC 6716)
 	{
 		{-3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
 		{-2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13},

@@ -275,10 +275,3 @@ func TestTV06CumulativeQualityByRegion(t *testing.T) {
 		refOffset += len(pcm)
 	}
 }
-
-func _minInt279(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

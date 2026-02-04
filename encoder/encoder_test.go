@@ -1350,23 +1350,6 @@ func modeName(m encoder.Mode) string {
 	}
 }
 
-func bwName(bw types.Bandwidth) string {
-	switch bw {
-	case types.BandwidthNarrowband:
-		return "nb"
-	case types.BandwidthMediumband:
-		return "mb"
-	case types.BandwidthWideband:
-		return "wb"
-	case types.BandwidthSuperwideband:
-		return "swb"
-	case types.BandwidthFullband:
-		return "fb"
-	default:
-		return "unk"
-	}
-}
-
 func bwNameTypes(bw types.Bandwidth) string {
 	switch bw {
 	case types.BandwidthNarrowband:

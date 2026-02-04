@@ -248,19 +248,6 @@ func readPCMFile(filename string) ([]int16, error) {
 	return samples, nil
 }
 
-// duplicateMonoToStereo converts mono PCM samples to stereo by duplicating each sample.
-// This matches opus_demo behavior which always outputs stereo (L=R for mono sources).
-// Input:  [S0, S1, S2, ...]
-// Output: [S0, S0, S1, S1, S2, S2, ...]
-func duplicateMonoToStereo(mono []int16) []int16 {
-	stereo := make([]int16, len(mono)*2)
-	for i, s := range mono {
-		stereo[i*2] = s   // Left
-		stereo[i*2+1] = s // Right (duplicate)
-	}
-	return stereo
-}
-
 // ensureTestVectors downloads and extracts test vectors if needed.
 func ensureTestVectors(t *testing.T) error {
 	// Check if test vectors already exist and are complete
