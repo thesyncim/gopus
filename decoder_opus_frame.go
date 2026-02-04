@@ -53,7 +53,19 @@ func copyFloat64ToFloat32(dst []float32, src []float64) {
 	if len(src) < n {
 		n = len(src)
 	}
-	for i := 0; i < n; i++ {
+	if n > 0 {
+		dst = dst[:n:n]
+		src = src[:n:n]
+		_ = src[n-1]
+	}
+	i := 0
+	for ; i+3 < n; i += 4 {
+		dst[i] = float32(src[i])
+		dst[i+1] = float32(src[i+1])
+		dst[i+2] = float32(src[i+2])
+		dst[i+3] = float32(src[i+3])
+	}
+	for ; i < n; i++ {
 		dst[i] = float32(src[i])
 	}
 	if n < len(dst) {

@@ -939,8 +939,28 @@ func (d *Decoder) applyDeemphasisAndScale(samples []float64, scale float64) {
 	if d.channels == 1 {
 		// Mono de-emphasis - use float32 precision for state
 		state := float32(d.preemphState[0])
-		for i := range samples {
-			// Perform computation in float32 to match libopus
+		n := len(samples)
+		samples = samples[:n:n]
+		_ = samples[n-1]
+		i := 0
+		for ; i+3 < n; i += 4 {
+			tmp0 := float32(samples[i]) + verySmall + state
+			state = coef * tmp0
+			samples[i] = float64(tmp0 * scale32)
+
+			tmp1 := float32(samples[i+1]) + verySmall + state
+			state = coef * tmp1
+			samples[i+1] = float64(tmp1 * scale32)
+
+			tmp2 := float32(samples[i+2]) + verySmall + state
+			state = coef * tmp2
+			samples[i+2] = float64(tmp2 * scale32)
+
+			tmp3 := float32(samples[i+3]) + verySmall + state
+			state = coef * tmp3
+			samples[i+3] = float64(tmp3 * scale32)
+		}
+		for ; i < n; i++ {
 			tmp := float32(samples[i]) + verySmall + state
 			state = coef * tmp
 			samples[i] = float64(tmp * scale32)
@@ -950,14 +970,32 @@ func (d *Decoder) applyDeemphasisAndScale(samples []float64, scale float64) {
 		// Stereo de-emphasis (interleaved samples) - use float32 precision
 		stateL := float32(d.preemphState[0])
 		stateR := float32(d.preemphState[1])
+		n := len(samples)
+		samples = samples[:n:n]
+		_ = samples[n-1]
+		i := 0
+		for ; i+3 < n; i += 4 {
+			tmpL0 := float32(samples[i]) + verySmall + stateL
+			stateL = coef * tmpL0
+			samples[i] = float64(tmpL0 * scale32)
 
-		for i := 0; i < len(samples)-1; i += 2 {
-			// Left channel - float32 precision
+			tmpR0 := float32(samples[i+1]) + verySmall + stateR
+			stateR = coef * tmpR0
+			samples[i+1] = float64(tmpR0 * scale32)
+
+			tmpL1 := float32(samples[i+2]) + verySmall + stateL
+			stateL = coef * tmpL1
+			samples[i+2] = float64(tmpL1 * scale32)
+
+			tmpR1 := float32(samples[i+3]) + verySmall + stateR
+			stateR = coef * tmpR1
+			samples[i+3] = float64(tmpR1 * scale32)
+		}
+		for ; i+1 < n; i += 2 {
 			tmpL := float32(samples[i]) + verySmall + stateL
 			stateL = coef * tmpL
 			samples[i] = float64(tmpL * scale32)
 
-			// Right channel - float32 precision
 			tmpR := float32(samples[i+1]) + verySmall + stateR
 			stateR = coef * tmpR
 			samples[i+1] = float64(tmpR * scale32)

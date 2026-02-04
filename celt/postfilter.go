@@ -106,33 +106,45 @@ func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPerio
 
 	window := GetWindowBuffer(Overlap)
 
-	for ch := 0; ch < d.channels; ch++ {
-		hist := d.postfilterMem[ch*history : (ch+1)*history]
+	if d.channels == 1 {
+		hist := d.postfilterMem[:history]
 		buf := d.postfilterScratch[:needed]
 		copy(buf, hist)
-
-		if d.channels == 1 {
-			copy(buf[history:], samples)
-		} else {
-			for i := 0; i < frameSize; i++ {
-				buf[history+i] = samples[i*d.channels+ch]
-			}
-		}
+		copy(buf[history:], samples[:frameSize])
 
 		combFilter(buf, history, t0, t1, shortMdctSize, g0, g1, tap0, tap1, window, Overlap)
 		if lm != 0 && shortMdctSize < frameSize {
 			combFilter(buf, history+shortMdctSize, t1b, t2, frameSize-shortMdctSize, g1, g2, tap1b, tap2, window, Overlap)
 		}
 
-		if d.channels == 1 {
-			copy(samples, buf[history:history+frameSize])
-		} else {
-			for i := 0; i < frameSize; i++ {
-				samples[i*d.channels+ch] = buf[history+i]
-			}
-		}
-
+		copy(samples[:frameSize], buf[history:history+frameSize])
 		copy(hist, buf[frameSize:])
+	} else {
+		channels := d.channels
+		for ch := 0; ch < channels; ch++ {
+			hist := d.postfilterMem[ch*history : (ch+1)*history]
+			buf := d.postfilterScratch[:needed]
+			copy(buf, hist)
+
+			j := ch
+			for i := 0; i < frameSize; i++ {
+				buf[history+i] = samples[j]
+				j += channels
+			}
+
+			combFilter(buf, history, t0, t1, shortMdctSize, g0, g1, tap0, tap1, window, Overlap)
+			if lm != 0 && shortMdctSize < frameSize {
+				combFilter(buf, history+shortMdctSize, t1b, t2, frameSize-shortMdctSize, g1, g2, tap1b, tap2, window, Overlap)
+			}
+
+			j = ch
+			for i := 0; i < frameSize; i++ {
+				samples[j] = buf[history+i]
+				j += channels
+			}
+
+			copy(hist, buf[frameSize:])
+		}
 	}
 
 	d.postfilterPeriodOld = d.postfilterPeriod

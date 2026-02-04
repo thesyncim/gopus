@@ -424,7 +424,28 @@ func imdctOverlapWithPrevScratchF32(out []float64, spectrum []float64, prevOverl
 		yp1 := 0
 		wp1 := 0
 		wp2 := overlap - 1
-		for i := 0; i < overlap/2; i++ {
+		limit := overlap / 2
+		i := 0
+		for ; i+1 < limit; i += 2 {
+			x1 := outF32[xp1]
+			x2 := outF32[yp1]
+			outF32[yp1] = x2*windowF32[wp2] - x1*windowF32[wp1]
+			outF32[xp1] = x2*windowF32[wp1] + x1*windowF32[wp2]
+			yp1++
+			xp1--
+			wp1++
+			wp2--
+
+			x1 = outF32[xp1]
+			x2 = outF32[yp1]
+			outF32[yp1] = x2*windowF32[wp2] - x1*windowF32[wp1]
+			outF32[xp1] = x2*windowF32[wp1] + x1*windowF32[wp2]
+			yp1++
+			xp1--
+			wp1++
+			wp2--
+		}
+		for ; i < limit; i++ {
 			x1 := outF32[xp1]
 			x2 := outF32[yp1]
 			outF32[yp1] = x2*windowF32[wp2] - x1*windowF32[wp1]
@@ -436,7 +457,19 @@ func imdctOverlapWithPrevScratchF32(out []float64, spectrum []float64, prevOverl
 		}
 	}
 
-	for i := 0; i < needed; i++ {
+	if needed > 0 {
+		out = out[:needed:needed]
+		outF32 = outF32[:needed:needed]
+		_ = outF32[needed-1]
+	}
+	i := 0
+	for ; i+3 < needed; i += 4 {
+		out[i] = float64(outF32[i])
+		out[i+1] = float64(outF32[i+1])
+		out[i+2] = float64(outF32[i+2])
+		out[i+3] = float64(outF32[i+3])
+	}
+	for ; i < needed; i++ {
 		out[i] = float64(outF32[i])
 	}
 }
