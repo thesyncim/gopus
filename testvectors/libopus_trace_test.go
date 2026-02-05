@@ -309,8 +309,19 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 	goEnc.SetMode(encoder.ModeSILK)
 	goEnc.SetBandwidth(types.BandwidthWideband)
 	goEnc.SetBitrate(bitrate)
+	pitchTrace := &silk.PitchTrace{CaptureXBuf: true}
+	gainTrace := &silk.GainLoopTrace{}
+	nsqTrace := &silk.NSQTrace{CaptureInputs: true}
+	framePreTrace := &silk.FrameStateTrace{}
+	frameTrace := &silk.FrameStateTrace{}
+	goEnc.SetSilkTrace(&silk.EncoderTrace{Pitch: pitchTrace, GainLoop: gainTrace, NSQ: nsqTrace, FramePre: framePreTrace, Frame: frameTrace})
 
 	gopusPackets := make([][]byte, 0, numFrames)
+	pitchTraces := make([]silk.PitchTrace, 0, numFrames)
+	gainTraces := make([]silk.GainLoopTrace, 0, numFrames)
+	nsqTraces := make([]silk.NSQTrace, 0, numFrames)
+	framePreTraces := make([]silk.FrameStateTrace, 0, numFrames)
+	frameTraces := make([]silk.FrameStateTrace, 0, numFrames)
 	samplesPerFrame := frameSize * channels
 	for i := 0; i < numFrames; i++ {
 		start := i * samplesPerFrame
@@ -328,6 +339,25 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 		packetCopy := make([]byte, len(packet))
 		copy(packetCopy, packet)
 		gopusPackets = append(gopusPackets, packetCopy)
+		if pitchTrace != nil {
+			pitchTraces = append(pitchTraces, *pitchTrace)
+		}
+		if gainTrace != nil {
+			snapshot := *gainTrace
+			snapshot.Iterations = append([]silk.GainLoopIter(nil), gainTrace.Iterations...)
+			gainTraces = append(gainTraces, snapshot)
+		}
+		if nsqTrace != nil {
+			nsqTraces = append(nsqTraces, cloneNSQTrace(nsqTrace))
+		}
+		if framePreTrace != nil {
+			snapshot := *framePreTrace
+			snapshot.PitchBuf = append([]float32(nil), framePreTrace.PitchBuf...)
+			framePreTraces = append(framePreTraces, snapshot)
+		}
+		if frameTrace != nil {
+			frameTraces = append(frameTraces, *frameTrace)
+		}
 	}
 
 	// Encode with libopus (opus_demo).
@@ -382,6 +412,26 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 	var signalTypeDiff int
 	var lagIndexDiff int
 	var contourIndexDiff int
+	var seedDiff int
+	var gainMismatchLogged int
+	var prePrevLagDiff int
+	var prePrevSignalDiff int
+	var preNSQLagDiff int
+	var preNSQBufDiff int
+	var preNSQShpBufDiff int
+	var preNSQPrevGainDiff int
+	var preNSQSeedDiff int
+	var preNSQRewhiteDiff int
+	var preECPrevLagDiff int
+	var preECPrevSignalDiff int
+	var preSumLogGainDiff int
+	var preLastGainDiff int
+	var prePitchBufLenDiff int
+	var prePitchBufHashDiff int
+	var prePitchWinLenDiff int
+	var prePitchWinHashDiff int
+	var preModeUseCBRDiff int
+	var preModeMaxBitsDiff int
 
 	for i := 0; i < compareCount; i++ {
 		goPayload := gopusPackets[i]
@@ -389,6 +439,148 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 		if len(goPayload) < 2 || len(libPayload) < 2 {
 			continue
 		}
+
+		if i < len(framePreTraces) {
+			if snapPre, ok := captureLibopusOpusSilkStateBeforeFrame(original, sampleRate, channels, bitrate, frameSize, i); ok {
+				pre := framePreTraces[i]
+				if pre.PrevLag != snapPre.PrevLag {
+					prePrevLagDiff++
+					if prePrevLagDiff <= 5 {
+						t.Logf("Frame %d pre-state PrevLag mismatch: go=%d lib=%d", i, pre.PrevLag, snapPre.PrevLag)
+					}
+				}
+				if pre.PrevSignalType != snapPre.PrevSignalType {
+					prePrevSignalDiff++
+					if prePrevSignalDiff <= 5 {
+						t.Logf("Frame %d pre-state PrevSignal mismatch: go=%d lib=%d", i, pre.PrevSignalType, snapPre.PrevSignalType)
+					}
+				}
+				if pre.NSQLagPrev != snapPre.NSQLagPrev {
+					preNSQLagDiff++
+					if preNSQLagDiff <= 5 {
+						t.Logf("Frame %d pre-state NSQ lagPrev mismatch: go=%d lib=%d", i, pre.NSQLagPrev, snapPre.NSQLagPrev)
+					}
+				}
+				if pre.NSQSLTPBufIdx != snapPre.NSQSLTPBufIdx {
+					preNSQBufDiff++
+					if preNSQBufDiff <= 5 {
+						t.Logf("Frame %d pre-state NSQ sLTPBufIdx mismatch: go=%d lib=%d", i, pre.NSQSLTPBufIdx, snapPre.NSQSLTPBufIdx)
+					}
+				}
+				if pre.NSQSLTPShpBufIdx != snapPre.NSQSLTPShpBufIdx {
+					preNSQShpBufDiff++
+					if preNSQShpBufDiff <= 5 {
+						t.Logf("Frame %d pre-state NSQ sLTPShpBufIdx mismatch: go=%d lib=%d", i, pre.NSQSLTPShpBufIdx, snapPre.NSQSLTPShpBufIdx)
+					}
+				}
+				if pre.NSQPrevGainQ16 != snapPre.NSQPrevGainQ16 {
+					preNSQPrevGainDiff++
+					if preNSQPrevGainDiff <= 5 {
+						t.Logf("Frame %d pre-state NSQ prevGain mismatch: go=%d lib=%d", i, pre.NSQPrevGainQ16, snapPre.NSQPrevGainQ16)
+					}
+				}
+				if pre.NSQRandSeed != snapPre.NSQRandSeed {
+					preNSQSeedDiff++
+					if preNSQSeedDiff <= 5 {
+						t.Logf("Frame %d pre-state NSQ randSeed mismatch: go=%d lib=%d", i, pre.NSQRandSeed, snapPre.NSQRandSeed)
+					}
+				}
+				if pre.NSQRewhiteFlag != snapPre.NSQRewhiteFlag {
+					preNSQRewhiteDiff++
+					if preNSQRewhiteDiff <= 5 {
+						t.Logf("Frame %d pre-state NSQ rewhite mismatch: go=%d lib=%d", i, pre.NSQRewhiteFlag, snapPre.NSQRewhiteFlag)
+					}
+				}
+				if pre.ECPrevLagIndex != snapPre.ECPrevLagIndex {
+					preECPrevLagDiff++
+					if preECPrevLagDiff <= 5 {
+						t.Logf("Frame %d pre-state ec_prevLagIndex mismatch: go=%d lib=%d", i, pre.ECPrevLagIndex, snapPre.ECPrevLagIndex)
+					}
+				}
+				if pre.ECPrevSignalType != snapPre.ECPrevSignalType {
+					preECPrevSignalDiff++
+					if preECPrevSignalDiff <= 5 {
+						t.Logf("Frame %d pre-state ec_prevSignal mismatch: go=%d lib=%d", i, pre.ECPrevSignalType, snapPre.ECPrevSignalType)
+					}
+				}
+				if pre.SumLogGainQ7 != snapPre.SumLogGainQ7 {
+					preSumLogGainDiff++
+					if preSumLogGainDiff <= 5 {
+						t.Logf("Frame %d pre-state sumLogGain mismatch: go=%d lib=%d", i, pre.SumLogGainQ7, snapPre.SumLogGainQ7)
+					}
+				}
+				if int(pre.LastGainIndex) != snapPre.LastGainIndex {
+					preLastGainDiff++
+					if preLastGainDiff <= 5 {
+						t.Logf("Frame %d pre-state lastGain mismatch: go=%d lib=%d", i, pre.LastGainIndex, snapPre.LastGainIndex)
+					}
+				}
+				if pre.PitchBufLen != snapPre.PitchBufLen {
+					prePitchBufLenDiff++
+					if prePitchBufLenDiff <= 5 {
+						t.Logf("Frame %d pre-state pitch buf len mismatch: go=%d lib=%d", i, pre.PitchBufLen, snapPre.PitchBufLen)
+					}
+				}
+				if pre.PitchBufHash != snapPre.PitchXBufHash {
+					prePitchBufHashDiff++
+					if prePitchBufHashDiff <= 5 {
+						t.Logf("Frame %d pre-state pitch x_buf hash mismatch: go=%d lib=%d", i, pre.PitchBufHash, snapPre.PitchXBufHash)
+					}
+					if prePitchBufHashDiff <= 3 {
+						if libPitchBuf, ok := captureLibopusOpusPitchXBufBeforeFrame(original, sampleRate, channels, bitrate, frameSize, i); ok {
+							if idx, goVal, libVal, ok := firstFloat32BitsDiff(pre.PitchBuf, libPitchBuf); ok {
+								t.Logf("Frame %d pre-state pitch x_buf first sample diff: idx=%d go=%.9f lib=%.9f lenGo=%d lenLib=%d",
+									i, idx, goVal, libVal, len(pre.PitchBuf), len(libPitchBuf))
+								diffCount, maxIdx, maxAbs := float32DiffStats(pre.PitchBuf, libPitchBuf)
+								t.Logf("Frame %d pre-state pitch x_buf diff stats: mismatches=%d compared=%d maxAbs=%.9f maxIdx=%d",
+									i, diffCount, minInt(len(pre.PitchBuf), len(libPitchBuf)), maxAbs, maxIdx)
+								if i == 1 && len(pre.PitchBuf) >= 400 && len(libPitchBuf) >= 400 {
+									goSeg := pre.PitchBuf[80:400]
+									libSeg := libPitchBuf[80:400]
+									lag, score := bestLagCorrelation(goSeg, libSeg, 48)
+									scale := fitScaleAtLag(goSeg, libSeg, lag)
+									t.Logf("Frame %d pre-state pitch x_buf frame-segment lag estimate: bestLag=%d score=%.6f",
+										i, lag, score)
+									t.Logf("Frame %d pre-state pitch x_buf frame-segment scale at lag: scale=%.6f", i, scale)
+								}
+							} else {
+								t.Logf("Frame %d pre-state pitch x_buf samples match exactly despite hash mismatch; lenGo=%d lenLib=%d",
+									i, len(pre.PitchBuf), len(libPitchBuf))
+							}
+						}
+					}
+				}
+				if pre.PitchWinLen != snapPre.PitchWinLen {
+					prePitchWinLenDiff++
+					if prePitchWinLenDiff <= 5 {
+						t.Logf("Frame %d pre-state pitch window len mismatch: go=%d lib=%d", i, pre.PitchWinLen, snapPre.PitchWinLen)
+					}
+				}
+				if pre.PitchWinHash != snapPre.PitchWinHash {
+					prePitchWinHashDiff++
+					if prePitchWinHashDiff <= 5 {
+						t.Logf("Frame %d pre-state pitch window hash mismatch: go=%d lib=%d", i, pre.PitchWinHash, snapPre.PitchWinHash)
+					}
+				}
+				if i < len(gainTraces) {
+					useCBRGo := gainTraces[i].UseCBR
+					useCBRLib := snapPre.SilkModeUseCBR != 0
+					if useCBRGo != useCBRLib {
+						preModeUseCBRDiff++
+						if preModeUseCBRDiff <= 5 {
+							t.Logf("Frame %d pre-state mode useCBR mismatch: go=%v lib=%v", i, useCBRGo, useCBRLib)
+						}
+					}
+					if gainTraces[i].MaxBits != snapPre.SilkModeMaxBits {
+						preModeMaxBitsDiff++
+						if preModeMaxBitsDiff <= 5 {
+							t.Logf("Frame %d pre-state mode maxBits mismatch: go=%d lib=%d", i, gainTraces[i].MaxBits, snapPre.SilkModeMaxBits)
+						}
+					}
+				}
+			}
+		}
+
 		// Skip TOC byte for SILK-only packets.
 		goPayload = goPayload[1:]
 		libPayload = libPayload[1:]
@@ -408,6 +600,17 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 
 		goParams := goDec.GetLastFrameParams()
 		libParams := libDec.GetLastFrameParams()
+		if i < 2 && i < len(frameTraces) {
+			if snap, ok := captureLibopusOpusSilkState(original, sampleRate, channels, bitrate, frameSize, i); ok {
+				ft := frameTraces[i]
+				t.Logf("Frame %d gain state: go gains=%v lastGain=%d | lib gains=%v lastGain=%d",
+					i, ft.GainIndices, ft.LastGainIndex, snap.GainIndices, snap.LastGainIndex)
+				t.Logf("Frame %d ctl state: go speechQ8=%d tiltQ15=%d thresQ16=%d nStates=%d warping=%d sumLogGainQ7=%d | lib speechQ8=%d tiltQ15=%d thresQ16=%d nStates=%d warping=%d sumLogGainQ7=%d",
+					i,
+					ft.SpeechActivityQ8, ft.InputTiltQ15, ft.PitchEstThresholdQ16, ft.NStatesDelayedDecision, ft.WarpingQ16, ft.SumLogGainQ7,
+					snap.SpeechActivityQ8, snap.InputTiltQ15, snap.PitchEstThresQ16, snap.NStatesDelayedDec, snap.WarpingQ16, snap.SumLogGainQ7)
+			}
+		}
 		if goDec.GetLastSignalType() != libDec.GetLastSignalType() {
 			signalTypeDiff++
 			if signalTypeDiff <= 5 {
@@ -417,12 +620,21 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 
 		if goParams.LTPScaleIndex != libParams.LTPScaleIndex {
 			ltpScaleDiff++
+			if ltpScaleDiff <= 5 {
+				t.Logf("Frame %d: LTPScale mismatch: go=%d lib=%d", i, goParams.LTPScaleIndex, libParams.LTPScaleIndex)
+			}
 		}
 		if goParams.NLSFInterpCoefQ2 != libParams.NLSFInterpCoefQ2 {
 			interpDiff++
+			if interpDiff <= 5 {
+				t.Logf("Frame %d: NLSF interp mismatch: go=%d lib=%d", i, goParams.NLSFInterpCoefQ2, libParams.NLSFInterpCoefQ2)
+			}
 		}
 		if goParams.PERIndex != libParams.PERIndex {
 			perIndexDiff++
+			if perIndexDiff <= 5 {
+				t.Logf("Frame %d: PER index mismatch: go=%d lib=%d", i, goParams.PERIndex, libParams.PERIndex)
+			}
 		}
 		if goParams.LagIndex != libParams.LagIndex {
 			if lagIndexDiff < 5 {
@@ -432,6 +644,9 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 		}
 		if goParams.ContourIndex != libParams.ContourIndex {
 			contourIndexDiff++
+		}
+		if goParams.Seed != libParams.Seed {
+			seedDiff++
 		}
 		n := len(goParams.GainIndices)
 		if len(libParams.GainIndices) < n {
@@ -455,11 +670,196 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 			}
 			ltpIndexCount++
 		}
+
+		if gainMismatchLogged < 5 {
+			nbSubfr := len(goParams.GainIndices)
+			goGainsID := gainsIDFromIndices(goParams.GainIndices, nbSubfr)
+			libGainsID := gainsIDFromIndices(libParams.GainIndices, nbSubfr)
+			if goGainsID != libGainsID {
+				t.Logf("Frame %d: GainsID mismatch: go=%d lib=%d", i, goGainsID, libGainsID)
+				t.Logf("  Decoded gains: go=%v lib=%v", goParams.GainIndices, libParams.GainIndices)
+				if i < len(gainTraces) {
+					trace := gainTraces[i]
+					t.Logf("  Gain loop: seedIn=%d seedOut=%d delayed=%v warpingQ16=%d nStates=%d maxBits=%d useCBR=%v",
+						trace.SeedIn, trace.SeedOut, trace.UsedDelayedDecision, trace.WarpingQ16, trace.NStatesDelayedDecision, trace.MaxBits, trace.UseCBR)
+					if trace.NumSubframes > 0 {
+						gainsUnq := make([]int32, trace.NumSubframes)
+						for gi := 0; gi < trace.NumSubframes && gi < len(trace.GainsUnqQ16); gi++ {
+							gainsUnq[gi] = trace.GainsUnqQ16[gi]
+						}
+						t.Logf("  GainsUnqQ16=%v lastGainPrev=%d conditional=%v", gainsUnq, trace.LastGainIndexPrev, trace.ConditionalCoding)
+						if libInd, libPrev, ok := libopusQuantizeGainsVector(gainsUnq, trace.LastGainIndexPrev, trace.ConditionalCoding, trace.NumSubframes); ok {
+							t.Logf("  libopus quant on Go gains: indices=%v prevOut=%d", libInd, libPrev)
+						}
+						gainsIn := make([]float32, trace.NumSubframes)
+						resNrgIn := make([]float32, trace.NumSubframes)
+						gainsAfter := make([]float32, trace.NumSubframes)
+						for gi := 0; gi < trace.NumSubframes; gi++ {
+							gainsIn[gi] = trace.GainsBefore[gi]
+							resNrgIn[gi] = trace.ResNrgBefore[gi]
+							gainsAfter[gi] = trace.GainsAfter[gi]
+						}
+						t.Logf("  process_gains inputs: signal=%d predGainQ7=%d snrQ7=%d tiltQ15=%d speechQ8=%d subfr=%d qOffBefore=%d",
+							trace.SignalType, trace.PredGainQ7, trace.SNRDBQ7, trace.InputTiltQ15, trace.SpeechActivityQ8, trace.SubframeSamples, trace.QuantOffsetBefore)
+						t.Logf("  process_gains vectors: gainsIn=%v resNrg=%v gainsAfterGo=%v qOffAfterGo=%d",
+							gainsIn, resNrgIn, gainsAfter, trace.QuantOffsetAfter)
+						if libSnap, ok := libopusProcessGainsFromTraceInputs(
+							gainsIn,
+							resNrgIn,
+							trace.NumSubframes,
+							trace.SubframeSamples,
+							trace.SignalType,
+							trace.PredGainQ7,
+							trace.InputTiltQ15,
+							trace.SNRDBQ7,
+							trace.SpeechActivityQ8,
+							trace.NStatesDelayedDecision,
+							trace.LastGainIndexPrev,
+							trace.ConditionalCoding,
+						); ok {
+							t.Logf("  libopus process_gains on Go inputs: indices=%v lastGainOut=%d qOff=%d gainsUnq=%v lambda=%.6f",
+								libSnap.GainsIndices, libSnap.LastGainIndexOut, libSnap.QuantOffsetType, libSnap.GainsUnqQ16, libSnap.Lambda)
+						}
+						if libFull, ok := captureLibopusProcessGainsAtFrame(original, sampleRate, channels, bitrate, frameSize, i); ok {
+							libGainsIn := make([]float32, libFull.NumSubframes)
+							libResNrgIn := make([]float32, libFull.NumSubframes)
+							libGainsAfter := make([]float32, libFull.NumSubframes)
+							libGainsInd := make([]int8, libFull.NumSubframes)
+							libGainsUnq := make([]int32, libFull.NumSubframes)
+							for gi := 0; gi < libFull.NumSubframes; gi++ {
+								libGainsIn[gi] = libFull.GainsBefore[gi]
+								libResNrgIn[gi] = libFull.ResNrgBefore[gi]
+								libGainsAfter[gi] = libFull.GainsAfter[gi]
+								libGainsInd[gi] = libFull.GainsIndices[gi]
+								libGainsUnq[gi] = libFull.GainsUnqQ16[gi]
+							}
+							t.Logf("  libopus full process_gains: calls=%d cond=%d signal=%d predGain=%.6f snrQ7=%d tiltQ15=%d speechQ8=%d subfr=%d nStates=%d",
+								libFull.CallsInFrame, libFull.CondCoding, libFull.SignalType, libFull.LTPPredCodGain, libFull.SNRDBQ7, libFull.InputTiltQ15, libFull.SpeechActivityQ8, libFull.SubframeLength, libFull.NStatesDelayedDecision)
+							t.Logf("  libopus full vectors: gainsIn=%v resNrg=%v gainsAfter=%v qOff=%d->%d",
+								libGainsIn, libResNrgIn, libGainsAfter, libFull.QuantOffsetBefore, libFull.QuantOffsetAfter)
+							t.Logf("  libopus full quant: indices=%v lastGain=%d->%d gainsUnq=%v lambda=%.6f",
+								libGainsInd, libFull.LastGainIndexPrev, libFull.LastGainIndexOut, libGainsUnq, libFull.Lambda)
+							if idx, goVal, libVal, ok := firstFloat32BitsDiff(gainsIn, libGainsIn); ok {
+								t.Logf("  process_gains gainsIn diff idx=%d go=%.8f lib=%.8f", idx, goVal, libVal)
+							}
+							if idx, goVal, libVal, ok := firstFloat32BitsDiff(resNrgIn, libResNrgIn); ok {
+								t.Logf("  process_gains resNrg diff idx=%d go=%.8f lib=%.8f", idx, goVal, libVal)
+							}
+							if idx, goVal, libVal, ok := firstFloat32BitsDiff(gainsAfter, libGainsAfter); ok {
+								t.Logf("  process_gains gainsAfter diff idx=%d go=%.8f lib=%.8f", idx, goVal, libVal)
+							}
+							if idx, goVal, libVal, ok := firstIntSliceDiff(goParams.GainIndices, libGainsInd); ok {
+								t.Logf("  process_gains gain index diff idx=%d go=%d lib=%d", idx, goVal, libVal)
+							}
+							if trace.LastGainIndexPrev != int8(libFull.LastGainIndexPrev) {
+								t.Logf("  process_gains lastGainPrev diff go=%d lib=%d", trace.LastGainIndexPrev, libFull.LastGainIndexPrev)
+							}
+							if trace.QuantOffsetBefore != libFull.QuantOffsetBefore || trace.QuantOffsetAfter != libFull.QuantOffsetAfter {
+								t.Logf("  process_gains qOff diff go=%d->%d lib=%d->%d",
+									trace.QuantOffsetBefore, trace.QuantOffsetAfter, libFull.QuantOffsetBefore, libFull.QuantOffsetAfter)
+							}
+						}
+					}
+					for _, iter := range trace.Iterations {
+						t.Logf("  iter %d: gainMultQ8=%d gainsID=%d quantOffset=%d bits=%d (beforeIdx=%d afterIdx=%d afterPulses=%d) foundL=%v foundU=%v skippedNSQ=%v seedIn=%d seedAfterNSQ=%d seedOut=%d",
+							iter.Iter, iter.GainMultQ8, iter.GainsID, iter.QuantOffset, iter.Bits, iter.BitsBeforeIndices, iter.BitsAfterIndices, iter.BitsAfterPulses, iter.FoundLower, iter.FoundUpper, iter.SkippedNSQ, iter.SeedIn, iter.SeedAfterNSQ, iter.SeedOut)
+					}
+				}
+				if i < len(nsqTraces) {
+					tr := nsqTraces[i]
+					if tr.FrameLength > 0 && len(tr.InputQ0) >= tr.FrameLength {
+						if msg := compareNSQTraceWithLibopus(tr); msg != "" {
+							t.Logf("  NSQ compare: %s", msg)
+						}
+						if snap, ok := captureLibopusNSQState(original, sampleRate, bitrate, frameSize, i); ok {
+							if idx, goVal, libVal, ok := firstInt16Diff(tr.NSQXQ, snap.XQ); ok {
+								t.Logf("  NSQ state xq diff idx=%d go=%d lib=%d", idx, goVal, libVal)
+							}
+							if idx, goVal, libVal, ok := firstInt32Diff(tr.NSQSLTPShpQ14, snap.SLTPShpQ14); ok {
+								t.Logf("  NSQ state sLTP_shp diff idx=%d go=%d lib=%d", idx, goVal, libVal)
+							}
+							if idx, goVal, libVal, ok := firstInt32Diff(tr.NSQLPCQ14, snap.SLPCQ14); ok {
+								t.Logf("  NSQ state sLPC diff idx=%d go=%d lib=%d", idx, goVal, libVal)
+							}
+							if idx, goVal, libVal, ok := firstInt32Diff(tr.NSQAR2Q14, snap.SAR2Q14); ok {
+								t.Logf("  NSQ state sAR2 diff idx=%d go=%d lib=%d", idx, goVal, libVal)
+							}
+							if tr.NSQLFARQ14 != snap.LFARQ14 || tr.NSQDiffQ14 != snap.DiffQ14 {
+								t.Logf("  NSQ state scalars diff: lfAR go=%d lib=%d diff go=%d lib=%d",
+									tr.NSQLFARQ14, snap.LFARQ14, tr.NSQDiffQ14, snap.DiffQ14)
+							}
+							if tr.NSQLagPrev != snap.LagPrev || tr.NSQSLTPBufIdx != snap.SLTPBufIdx || tr.NSQSLTPShpBufIdx != snap.SLTPShpBufIdx {
+								t.Logf("  NSQ state idx diff: lagPrev go=%d lib=%d sLTPBufIdx go=%d lib=%d sLTPShpBufIdx go=%d lib=%d",
+									tr.NSQLagPrev, snap.LagPrev, tr.NSQSLTPBufIdx, snap.SLTPBufIdx, tr.NSQSLTPShpBufIdx, snap.SLTPShpBufIdx)
+							}
+							if tr.NSQRandSeed != snap.RandSeed || tr.NSQPrevGainQ16 != snap.PrevGainQ16 || tr.NSQRewhiteFlag != snap.RewhiteFlag {
+								t.Logf("  NSQ state flags diff: randSeed go=%d lib=%d prevGain go=%d lib=%d rewhite go=%d lib=%d",
+									tr.NSQRandSeed, snap.RandSeed, tr.NSQPrevGainQ16, snap.PrevGainQ16, tr.NSQRewhiteFlag, snap.RewhiteFlag)
+							}
+						}
+					}
+				}
+				if i < len(frameTraces) {
+					ft := frameTraces[i]
+					if snap, ok := captureLibopusOpusSilkState(original, sampleRate, channels, bitrate, frameSize, i); ok {
+						if ft.SignalType != snap.SignalType || ft.LagIndex != snap.LagIndex || ft.Contour != snap.ContourIndex ||
+							ft.PrevLag != snap.PrevLag || ft.PrevSignalType != snap.PrevSignalType {
+							t.Logf("  Opus state frame diff: sig go=%d lib=%d lagIdx go=%d lib=%d contour go=%d lib=%d prevLag go=%d lib=%d prevSig go=%d lib=%d",
+								ft.SignalType, snap.SignalType, ft.LagIndex, snap.LagIndex, ft.Contour, snap.ContourIndex, ft.PrevLag, snap.PrevLag, ft.PrevSignalType, snap.PrevSignalType)
+						}
+						if math.Abs(float64(ft.LTPCorr-snap.LTPCorr)) > 1e-6 || ft.FirstFrameAfterReset != (snap.FirstFrameAfterReset != 0) {
+							t.Logf("  Opus pitch state diff: ltpCorr go=%.6f lib=%.6f firstAfterReset go=%v lib=%v",
+								ft.LTPCorr, snap.LTPCorr, ft.FirstFrameAfterReset, snap.FirstFrameAfterReset != 0)
+						}
+						if ft.NSQLagPrev != snap.NSQLagPrev || ft.NSQSLTPBufIdx != snap.NSQSLTPBufIdx || ft.NSQSLTPShpBufIdx != snap.NSQSLTPShpBufIdx {
+							t.Logf("  Opus NSQ idx diff: lagPrev go=%d lib=%d sLTPBufIdx go=%d lib=%d sLTPShpBufIdx go=%d lib=%d",
+								ft.NSQLagPrev, snap.NSQLagPrev, ft.NSQSLTPBufIdx, snap.NSQSLTPBufIdx, ft.NSQSLTPShpBufIdx, snap.NSQSLTPShpBufIdx)
+						}
+						if ft.NSQPrevGainQ16 != snap.NSQPrevGainQ16 || ft.NSQRandSeed != snap.NSQRandSeed || ft.NSQRewhiteFlag != snap.NSQRewhiteFlag {
+							t.Logf("  Opus NSQ scalar diff: prevGain go=%d lib=%d randSeed go=%d lib=%d rewhite go=%d lib=%d",
+								ft.NSQPrevGainQ16, snap.NSQPrevGainQ16, ft.NSQRandSeed, snap.NSQRandSeed, ft.NSQRewhiteFlag, snap.NSQRewhiteFlag)
+						}
+						if ft.ECPrevLagIndex != snap.ECPrevLagIndex || ft.ECPrevSignalType != snap.ECPrevSignalType {
+							t.Logf("  Opus entropy state diff: ecPrevLag go=%d lib=%d ecPrevSig go=%d lib=%d",
+								ft.ECPrevLagIndex, snap.ECPrevLagIndex, ft.ECPrevSignalType, snap.ECPrevSignalType)
+						}
+						if ft.GainIndices != snap.GainIndices || int(ft.LastGainIndex) != snap.LastGainIndex {
+							t.Logf("  Opus gain state diff: gains go=%v lib=%v lastGain go=%d lib=%d",
+								ft.GainIndices, snap.GainIndices, ft.LastGainIndex, snap.LastGainIndex)
+						}
+						if ft.SpeechActivityQ8 != snap.SpeechActivityQ8 || ft.InputTiltQ15 != snap.InputTiltQ15 ||
+							ft.PitchEstThresholdQ16 != snap.PitchEstThresQ16 || ft.NStatesDelayedDecision != snap.NStatesDelayedDec ||
+							ft.WarpingQ16 != snap.WarpingQ16 || ft.SumLogGainQ7 != snap.SumLogGainQ7 {
+							t.Logf("  Opus ctl state diff: speechQ8 go=%d lib=%d tiltQ15 go=%d lib=%d thresQ16 go=%d lib=%d nStates go=%d lib=%d warping go=%d lib=%d sumLogGainQ7 go=%d lib=%d",
+								ft.SpeechActivityQ8, snap.SpeechActivityQ8,
+								ft.InputTiltQ15, snap.InputTiltQ15,
+								ft.PitchEstThresholdQ16, snap.PitchEstThresQ16,
+								ft.NStatesDelayedDecision, snap.NStatesDelayedDec,
+								ft.WarpingQ16, snap.WarpingQ16,
+								ft.SumLogGainQ7, snap.SumLogGainQ7)
+						}
+						if i < len(gainTraces) {
+							gtr := gainTraces[i]
+							useCBRLib := snap.SilkModeUseCBR != 0
+							if gtr.MaxBits != snap.SilkModeMaxBits || gtr.UseCBR != useCBRLib {
+								t.Logf("  Opus mode diff: maxBits go=%d lib=%d useCBR go=%v lib=%v",
+									gtr.MaxBits, snap.SilkModeMaxBits, gtr.UseCBR, useCBRLib)
+							}
+						}
+					}
+				}
+				gainMismatchLogged++
+			}
+		}
 	}
 
 	if gainCount > 0 {
 		avgGainDiff := float64(gainDiffSum) / float64(gainCount)
 		t.Logf("gain index avg abs diff: %.2f (frames=%d)", avgGainDiff, compareCount)
+		// Regression guard: gain-path parity should stay tightly aligned.
+		if avgGainDiff > 0.20 {
+			t.Fatalf("gain index avg abs diff regressed: got %.2f, want <= 0.20", avgGainDiff)
+		}
 	}
 	t.Logf("LTP scale index mismatches: %d/%d", ltpScaleDiff, compareCount)
 	t.Logf("NLSF interp coef mismatches: %d/%d", interpDiff, compareCount)
@@ -470,4 +870,241 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 		t.Logf("LTP index mismatches: %d/%d", ltpIndexDiff, ltpIndexCount)
 	}
 	t.Logf("Signal type mismatches: %d/%d", signalTypeDiff, compareCount)
+	t.Logf("Seed mismatches: %d/%d", seedDiff, compareCount)
+	t.Logf("Pre-state mismatches: prevLag=%d prevSignal=%d nsqLagPrev=%d nsqSLTPBufIdx=%d nsqSLTPShpBufIdx=%d nsqPrevGain=%d nsqSeed=%d nsqRewhite=%d ecPrevLag=%d ecPrevSignal=%d sumLogGain=%d lastGain=%d modeUseCBR=%d modeMaxBits=%d pitchBufLen=%d pitchBufHash=%d pitchWinLen=%d pitchWinHash=%d",
+		prePrevLagDiff, prePrevSignalDiff, preNSQLagDiff, preNSQBufDiff, preNSQShpBufDiff, preNSQPrevGainDiff, preNSQSeedDiff, preNSQRewhiteDiff, preECPrevLagDiff, preECPrevSignalDiff, preSumLogGainDiff, preLastGainDiff, preModeUseCBRDiff, preModeMaxBitsDiff, prePitchBufLenDiff, prePitchBufHashDiff, prePitchWinLenDiff, prePitchWinHashDiff)
+	if preNSQPrevGainDiff > 10 {
+		t.Fatalf("pre-state NSQ prevGain mismatches regressed: got %d/%d, want <= 10", preNSQPrevGainDiff, compareCount)
+	}
+	if preLastGainDiff > 10 {
+		t.Fatalf("pre-state lastGain mismatches regressed: got %d/%d, want <= 10", preLastGainDiff, compareCount)
+	}
+	// Regression guard: this test used to diverge for nearly every frame before
+	// SILK mono handoff alignment was fixed.
+	if prePitchBufHashDiff > 10 {
+		t.Fatalf("pre-state pitch x_buf hash mismatches regressed: got %d/%d, want <= 10", prePitchBufHashDiff, compareCount)
+	}
+	if prePitchWinHashDiff > 10 {
+		t.Fatalf("pre-state pitch window hash mismatches regressed: got %d/%d, want <= 10", prePitchWinHashDiff, compareCount)
+	}
+}
+
+func gainsIDFromIndices(indices []int, nbSubfr int) int32 {
+	var gainsID int32
+	n := nbSubfr
+	if n > len(indices) {
+		n = len(indices)
+	}
+	for k := 0; k < n; k++ {
+		gainsID = int32(indices[k]) + (gainsID << 8)
+	}
+	return gainsID
+}
+
+func cloneNSQTrace(src *silk.NSQTrace) silk.NSQTrace {
+	dst := *src
+	dst.InputQ0 = append([]int16(nil), src.InputQ0...)
+	dst.PredCoefQ12 = append([]int16(nil), src.PredCoefQ12...)
+	dst.LTPCoefQ14 = append([]int16(nil), src.LTPCoefQ14...)
+	dst.ARShpQ13 = append([]int16(nil), src.ARShpQ13...)
+	dst.HarmShapeGainQ14 = append([]int(nil), src.HarmShapeGainQ14...)
+	dst.TiltQ14 = append([]int(nil), src.TiltQ14...)
+	dst.LFShpQ14 = append([]int32(nil), src.LFShpQ14...)
+	dst.GainsQ16 = append([]int32(nil), src.GainsQ16...)
+	dst.PitchL = append([]int(nil), src.PitchL...)
+	dst.XScSubfrHash = append([]uint64(nil), src.XScSubfrHash...)
+	dst.XScQ10 = append([]int32(nil), src.XScQ10...)
+	dst.SLTPQ15 = append([]int32(nil), src.SLTPQ15...)
+	dst.SLTPRaw = append([]int16(nil), src.SLTPRaw...)
+	dst.DelayedGainQ10 = append([]int32(nil), src.DelayedGainQ10...)
+	dst.NSQXQ = append([]int16(nil), src.NSQXQ...)
+	dst.NSQSLTPShpQ14 = append([]int32(nil), src.NSQSLTPShpQ14...)
+	dst.NSQLPCQ14 = append([]int32(nil), src.NSQLPCQ14...)
+	dst.NSQAR2Q14 = append([]int32(nil), src.NSQAR2Q14...)
+	return dst
+}
+
+func hashInt8Slice(vals []int8) uint64 {
+	var h uint64 = 1469598103934665603
+	const prime uint64 = 1099511628211
+	for _, v := range vals {
+		h ^= uint64(uint8(v))
+		h *= prime
+	}
+	return h
+}
+
+func hashInt16Slice(vals []int16) uint64 {
+	var h uint64 = 1469598103934665603
+	const prime uint64 = 1099511628211
+	for _, v := range vals {
+		h ^= uint64(uint16(v))
+		h *= prime
+	}
+	return h
+}
+
+func hashInt32Slice(vals []int32) uint64 {
+	var h uint64 = 1469598103934665603
+	const prime uint64 = 1099511628211
+	for _, v := range vals {
+		h ^= uint64(uint32(v))
+		h *= prime
+	}
+	return h
+}
+
+func hashFloat32SliceForTrace(vals []float32) uint64 {
+	var h uint64 = 1469598103934665603
+	const prime uint64 = 1099511628211
+	for _, v := range vals {
+		h ^= uint64(math.Float32bits(v))
+		h *= prime
+	}
+	return h
+}
+
+func firstFloat32BitsDiff(goVals, libVals []float32) (int, float32, float32, bool) {
+	n := len(goVals)
+	if len(libVals) < n {
+		n = len(libVals)
+	}
+	for i := 0; i < n; i++ {
+		if math.Float32bits(goVals[i]) != math.Float32bits(libVals[i]) {
+			return i, goVals[i], libVals[i], true
+		}
+	}
+	if len(goVals) != len(libVals) {
+		if len(goVals) > n {
+			return n, goVals[n], 0, true
+		}
+		return n, 0, libVals[n], true
+	}
+	return -1, 0, 0, false
+}
+
+func float32DiffStats(goVals, libVals []float32) (diffCount int, maxIdx int, maxAbs float32) {
+	n := minInt(len(goVals), len(libVals))
+	maxIdx = -1
+	for i := 0; i < n; i++ {
+		if math.Float32bits(goVals[i]) != math.Float32bits(libVals[i]) {
+			diffCount++
+		}
+		diff := goVals[i] - libVals[i]
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff > maxAbs {
+			maxAbs = diff
+			maxIdx = i
+		}
+	}
+	diffCount += absInt(len(goVals) - len(libVals))
+	return diffCount, maxIdx, maxAbs
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+func bestLagCorrelation(a, b []float32, maxLag int) (bestLag int, bestScore float64) {
+	if len(a) == 0 || len(b) == 0 {
+		return 0, 0
+	}
+	bestLag = 0
+	bestScore = -1
+	for lag := -maxLag; lag <= maxLag; lag++ {
+		var ab, aa, bb float64
+		for i := 0; i < len(a); i++ {
+			j := i + lag
+			if j < 0 || j >= len(b) {
+				continue
+			}
+			av := float64(a[i])
+			bv := float64(b[j])
+			ab += av * bv
+			aa += av * av
+			bb += bv * bv
+		}
+		if aa == 0 || bb == 0 {
+			continue
+		}
+		score := ab / math.Sqrt(aa*bb)
+		if score > bestScore {
+			bestScore = score
+			bestLag = lag
+		}
+	}
+	if bestScore < 0 {
+		return 0, 0
+	}
+	return bestLag, bestScore
+}
+
+func fitScaleAtLag(a, b []float32, lag int) float64 {
+	var num float64
+	var den float64
+	for i := 0; i < len(a); i++ {
+		j := i + lag
+		if j < 0 || j >= len(b) {
+			continue
+		}
+		av := float64(a[i])
+		bv := float64(b[j])
+		num += av * bv
+		den += av * av
+	}
+	if den == 0 {
+		return 0
+	}
+	return num / den
+}
+
+func firstInt16Diff(goVals, libVals []int16) (int, int16, int16, bool) {
+	n := len(goVals)
+	if len(libVals) < n {
+		n = len(libVals)
+	}
+	for i := 0; i < n; i++ {
+		if goVals[i] != libVals[i] {
+			return i, goVals[i], libVals[i], true
+		}
+	}
+	return -1, 0, 0, false
+}
+
+func firstInt32Diff(goVals, libVals []int32) (int, int32, int32, bool) {
+	n := len(goVals)
+	if len(libVals) < n {
+		n = len(libVals)
+	}
+	for i := 0; i < n; i++ {
+		if goVals[i] != libVals[i] {
+			return i, goVals[i], libVals[i], true
+		}
+	}
+	return -1, 0, 0, false
+}
+
+func firstIntSliceDiff(goVals []int, libVals []int8) (int, int, int8, bool) {
+	n := len(goVals)
+	if len(libVals) < n {
+		n = len(libVals)
+	}
+	for i := 0; i < n; i++ {
+		if goVals[i] != int(libVals[i]) {
+			return i, goVals[i], libVals[i], true
+		}
+	}
+	return -1, 0, 0, false
 }

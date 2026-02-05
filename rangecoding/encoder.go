@@ -170,10 +170,10 @@ func (e *Encoder) EncodeBin(fl, fh uint32, bits uint) {
 	}
 	r := e.rng >> bits
 	if fl > 0 {
-		e.val += e.rng - r*( (uint32(1)<<bits) - fl)
+		e.val += e.rng - r*((uint32(1)<<bits)-fl)
 		e.rng = r * (fh - fl)
 	} else {
-		e.rng -= r * ((uint32(1)<<bits) - fh)
+		e.rng -= r * ((uint32(1) << bits) - fh)
 	}
 	e.normalize()
 }
@@ -409,6 +409,17 @@ func (e *Encoder) Range() uint32 {
 	return e.rng
 }
 
+// Offs returns the current write offset in bytes.
+func (e *Encoder) Offs() uint32 {
+	return e.offs
+}
+
+// Buffer returns the underlying output buffer.
+// Callers must treat the returned slice as read-only.
+func (e *Encoder) Buffer() []byte {
+	return e.buf
+}
+
 // Val returns the current val (low end of range) (for testing/debugging).
 func (e *Encoder) Val() uint32 {
 	return e.val
@@ -554,7 +565,7 @@ func (e *Encoder) PatchInitialBits(val uint32, nbits uint) {
 		shiftedMask := mask << EC_CODE_SHIFT
 		e.val = (e.val &^ shiftedMask) | (val << (EC_CODE_SHIFT + shift))
 	} else {
-		// If we reach here, it means we're trying to patch bits before 
+		// If we reach here, it means we're trying to patch bits before
 		// the range coder has progressed enough to stabilize the first bits.
 		e.err = -1
 	}

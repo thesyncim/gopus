@@ -1,5 +1,7 @@
 package silk
 
+import "math"
+
 // stereo_lp_filter.go implements LP/HP filtering for stereo mid/side channels.
 // This matches libopus silk/stereo_LR_to_MS.c and silk/stereo_MS_to_LR.c.
 //
@@ -125,6 +127,70 @@ func stereoFindPredictorFloat(x, y []float32, length int) (predQ13 int32) {
 	}
 
 	return predQ13
+}
+
+// stereoFindPredictorFloatWithRatio computes the predictor and updates smoothed
+// mid/residual amplitudes, returning the residual-to-mid ratio.
+// This is a float-domain approximation of silk_stereo_find_predictor.
+func stereoFindPredictorFloatWithRatio(x, y []float32, length int, midResAmp *[2]float64, smoothCoef float64) (predQ13 int32, ratio float64) {
+	if length <= 0 {
+		return 0, 0
+	}
+
+	var nrgx, nrgy, corr float64
+	for i := 0; i < length; i++ {
+		xi := float64(x[i])
+		yi := float64(y[i])
+		nrgx += xi * xi
+		nrgy += yi * yi
+		corr += xi * yi
+	}
+
+	if nrgx < 1e-10 {
+		return 0, 0
+	}
+
+	pred := corr / nrgx
+	if pred > 2.0 {
+		pred = 2.0
+	} else if pred < -2.0 {
+		pred = -2.0
+	}
+	predQ13 = int32(pred * 8192.0)
+
+	// Match libopus smoothing behavior: smoothCoef >= pred^2/64.
+	pred2 := pred * pred
+	if smoothCoef < pred2/64.0 {
+		smoothCoef = pred2 / 64.0
+	}
+	if smoothCoef > 1.0 {
+		smoothCoef = 1.0
+	}
+
+	// Smoothed mid and residual norms.
+	midAmp := math.Sqrt(nrgx)
+	resEnergy := nrgy - 2.0*pred*corr + pred2*nrgx
+	if resEnergy < 0 {
+		resEnergy = 0
+	}
+	resAmp := math.Sqrt(resEnergy)
+
+	midResAmp[0] += smoothCoef * (midAmp - midResAmp[0])
+	midResAmp[1] += smoothCoef * (resAmp - midResAmp[1])
+
+	den := midResAmp[0]
+	if den < 1e-9 {
+		den = 1e-9
+	}
+	ratio = midResAmp[1] / den
+	if ratio < 0 {
+		ratio = 0
+	}
+	if ratio > 2.0 {
+		ratio = 2.0
+	}
+
+	return predQ13, ratio
 }
 
 // isqrt32 computes integer square root of a 32-bit unsigned integer.

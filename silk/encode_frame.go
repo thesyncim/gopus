@@ -21,12 +21,12 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	if frameSamples > len(pcm) {
 		frameSamples = len(pcm)
 	}
+	payloadSizeMs := (frameSamples * 1000) / config.SampleRate
 
 	// Update target SNR based on configured bitrate and frame size.
 	if e.targetRateBps > 0 {
 		// Total target bits for packet
-		payloadSizeMs := (frameSamples * 1000) / config.SampleRate
-		nBits := (e.targetRateBps * payloadSizeMs) / 1000 * 8
+		nBits := (e.targetRateBps * payloadSizeMs) / 1000
 
 		// Divide by number of uncoded frames left in packet
 		nBits /= e.nFramesPerPacket
@@ -93,6 +93,48 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	if e.nFramesEncoded > 0 {
 		condCoding = codeConditionally
 	}
+	firstFrameAfterReset := !e.haveEncoded
+
+	if e.trace != nil && e.trace.FramePre != nil {
+		tr := e.trace.FramePre
+		tr.SignalType = e.ecPrevSignalType
+		tr.LagIndex = e.ecPrevLagIndex
+		tr.Contour = 0
+		for i := 0; i < maxNbSubfr; i++ {
+			tr.GainIndices[i] = 0
+		}
+		tr.LastGainIndex = e.previousGainIndex
+		tr.SumLogGainQ7 = e.sumLogGainQ7
+		tr.PrevLag = e.pitchState.prevLag
+		tr.PrevSignalType = e.ecPrevSignalType
+		tr.LTPCorr = e.ltpCorr
+		tr.SpeechActivityQ8 = e.speechActivityQ8
+		tr.InputTiltQ15 = e.inputTiltQ15
+		tr.PitchEstThresholdQ16 = e.pitchEstimationThresholdQ16
+		tr.NStatesDelayedDecision = e.nStatesDelayedDecision
+		tr.WarpingQ16 = e.warpingQ16
+		tr.FirstFrameAfterReset = firstFrameAfterReset
+		tr.ECPrevLagIndex = e.ecPrevLagIndex
+		tr.ECPrevSignalType = e.ecPrevSignalType
+		if e.nsqState != nil {
+			tr.NSQLagPrev = e.nsqState.lagPrev
+			tr.NSQSLTPBufIdx = e.nsqState.sLTPBufIdx
+			tr.NSQSLTPShpBufIdx = e.nsqState.sLTPShpBufIdx
+			tr.NSQPrevGainQ16 = e.nsqState.prevGainQ16
+			tr.NSQRandSeed = e.nsqState.randSeed
+			tr.NSQRewhiteFlag = e.nsqState.rewhiteFlag
+		}
+		tr.PitchBufLen, tr.PitchBufHash, tr.PitchWinLen, tr.PitchWinHash = e.tracePitchBufferState(frameSamples, numSubframes)
+		if tr.PitchBufLen > 0 {
+			tr.PitchBuf = ensureFloat32Slice(&tr.PitchBuf, tr.PitchBufLen)
+			scale := float32(silkSampleScale)
+			for i := 0; i < tr.PitchBufLen; i++ {
+				tr.PitchBuf[i] = e.inputBuffer[i] * scale
+			}
+		} else {
+			tr.PitchBuf = tr.PitchBuf[:0]
+		}
+	}
 
 	// Step 1: Determine activity and defaults
 	var signalType, quantOffset int
@@ -157,14 +199,16 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			tr.InputTiltQ15 = e.inputTiltQ15
 			tr.LPCOrder = e.pitchEstimationLPCOrder
 			tr.Complexity = e.pitchEstimationComplexity
-			tr.FirstFrameAfterReset = !e.haveEncoded
+			tr.FirstFrameAfterReset = firstFrameAfterReset
 		}
-		if !e.haveEncoded {
+		if firstFrameAfterReset {
 			// Match libopus: skip pitch analysis on the first frame after reset.
 			pitchLags = make([]int, numSubframes)
 			lagIndex = 0
 			contourIndex = 0
 			e.ltpCorr = 0
+			e.pitchState.ltpCorr = 0
+			e.pitchState.prevLag = 0
 			signalType = typeUnvoiced
 			e.sumLogGainQ7 = 0
 			if e.trace != nil && e.trace.Pitch != nil && e.trace.Pitch.CapturePitchLags {
@@ -217,6 +261,8 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		}
 	} else {
 		e.ltpCorr = 0
+		e.pitchState.ltpCorr = 0
+		e.pitchState.prevLag = 0
 		e.sumLogGainQ7 = 0
 	}
 
@@ -240,7 +286,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	if noiseParams != nil {
 		codingQuality = noiseParams.CodingQuality
 	}
-	minInvGainVal := computeMinInvGain(predGainQ7, codingQuality, !e.haveEncoded)
+	minInvGainVal := computeMinInvGain(predGainQ7, codingQuality, firstFrameAfterReset)
 	lpcQ12, lsfQ15, interpIdx := e.computeLPCAndNLSFWithInterp(ltpRes, numSubframes, subframeSamples, minInvGainVal)
 	stage1Idx, residuals, interpIdx := e.quantizeLSFWithInterp(lsfQ15, e.bandwidth, signalType, speechActivityQ8, numSubframes, interpIdx)
 	lsfQ15 = e.decodeQuantizedNLSF(stage1Idx, residuals, e.bandwidth)
@@ -260,75 +306,105 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 
 	// Step 6: Residual energy and gain processing
 	resNrg := e.computeResidualEnergies(ltpRes, predCoefQ12, interpIdx, gains, numSubframes, subframeSamples)
+	quantOffsetBeforeProcess := quantOffset
+	var gainsBeforeProcess [maxNbSubfr]float32
+	for i := 0; i < numSubframes && i < len(gainsBeforeProcess) && i < len(gains); i++ {
+		gainsBeforeProcess[i] = gains[i]
+	}
 	processedQuantOffset := applyGainProcessing(gains, resNrg, predGainQ7, e.snrDBQ7, signalType, e.inputTiltQ15, subframeSamples)
 	if signalType == typeVoiced {
 		quantOffset = processedQuantOffset
 	}
 	if noiseParams != nil {
-		noiseParams.LambdaQ10 = computeLambdaQ10(signalType, speechActivityQ8, quantOffset, noiseParams.CodingQuality, noiseParams.InputQuality)
+		noiseParams.LambdaQ10 = computeLambdaQ10(signalType, speechActivityQ8, quantOffset, e.nStatesDelayedDecision, noiseParams.CodingQuality, noiseParams.InputQuality)
 	}
 
-	// Step 7: Encode frame type
-	e.encodeFrameType(vadFlag, signalType, quantOffset)
-
-	// SINGLE PASS ENCODING
-
-	// Prepare gains for quantization
-	gainsQ16 := make([]int32, numSubframes)
-	for i := range gains {
-		gainsQ16[i] = int32(gains[i] * 65536.0)
-	}
-
-	e.previousGainIndex = int32(e.lbrrPrevLastGainIdx)
-	gainIndices := ensureInt8Slice(&e.scratchGainInd, numSubframes)
-	newPrevInd := silkGainsQuantInto(gainIndices, gainsQ16, int8(e.previousGainIndex), condCoding == codeConditionally, numSubframes)
-
-	// Encode gain indices to bitstream
-	if condCoding == codeIndependently {
-		e.encodeAbsoluteGainIndex(int(gainIndices[0]), signalType)
-	} else {
-		e.rangeEncoder.EncodeICDF(int(gainIndices[0]), silk_delta_gain_iCDF, 8)
-	}
-	for i := 1; i < numSubframes; i++ {
-		e.rangeEncoder.EncodeICDF(int(gainIndices[i]), silk_delta_gain_iCDF, 8)
-	}
-
-	e.encodeLSF(stage1Idx, residuals, interpIdx, e.bandwidth, signalType)
-	if signalType == typeVoiced {
-		e.encodePitchLagsWithParams(pitchParams, condCoding)
-		e.encodeLTPCoeffs(perIndex, ltpIndices[:], numSubframes)
-		if condCoding == codeIndependently {
-			e.rangeEncoder.EncodeICDF(ltpScaleIndex, silk_LTPscale_iCDF, 8)
-		}
-	}
+	// Step 7: Prepare indices and gains for bitrate control loop.
 	seed := e.frameCounter & 3
-	e.rangeEncoder.EncodeICDF(seed, silk_uniform4_iCDF, 8)
+	maxBits := e.maxBits
+	if maxBits <= 0 {
+		maxBits = 1 << 30
+	}
+	var gainTrace *GainLoopTrace
+	if e.trace != nil && e.trace.GainLoop != nil {
+		gainTrace = e.trace.GainLoop
+		gainTrace.Iterations = gainTrace.Iterations[:0]
+		gainTrace.SeedIn = seed
+		gainTrace.SeedOut = seed
+		gainTrace.UsedDelayedDecision = e.nStatesDelayedDecision > 1 || e.warpingQ16 > 0
+		gainTrace.WarpingQ16 = e.warpingQ16
+		gainTrace.NStatesDelayedDecision = e.nStatesDelayedDecision
+		gainTrace.MaxBits = maxBits
+		gainTrace.UseCBR = e.useCBR
+		gainTrace.ConditionalCoding = condCoding == codeConditionally
+		gainTrace.NumSubframes = numSubframes
+		gainTrace.LastGainIndexPrev = int8(e.previousGainIndex)
+		gainTrace.SignalType = signalType
+		gainTrace.SpeechActivityQ8 = speechActivityQ8
+		gainTrace.InputTiltQ15 = e.inputTiltQ15
+		gainTrace.SNRDBQ7 = e.snrDBQ7
+		gainTrace.PredGainQ7 = predGainQ7
+		gainTrace.SubframeSamples = subframeSamples
+		gainTrace.QuantOffsetBefore = quantOffsetBeforeProcess
+		gainTrace.QuantOffsetAfter = quantOffset
+		for i := range gainTrace.GainsUnqQ16 {
+			gainTrace.GainsUnqQ16[i] = 0
+			gainTrace.GainsBefore[i] = 0
+			gainTrace.ResNrgBefore[i] = 0
+			gainTrace.GainsAfter[i] = 0
+		}
+		for i := 0; i < numSubframes && i < len(gainTrace.GainsBefore); i++ {
+			gainTrace.GainsBefore[i] = gainsBeforeProcess[i]
+			if i < len(resNrg) {
+				gainTrace.ResNrgBefore[i] = float32(resNrg[i])
+			}
+			if i < len(gains) {
+				gainTrace.GainsAfter[i] = gains[i]
+			}
+		}
+	}
 
-	// Prepare LBRR data for the next packet if FEC is enabled.
+	var frameIndices sideInfoIndices
+	frameIndices.signalType = int8(signalType)
+	frameIndices.quantOffsetType = int8(quantOffset)
+	frameIndices.NLSFInterpCoefQ2 = int8(interpIdx)
+	frameIndices.PERIndex = int8(perIndex)
+	frameIndices.LTPScaleIndex = int8(ltpScaleIndex)
+	frameIndices.Seed = int8(seed)
+	frameIndices.lagIndex = int16(pitchParams.lagIdx)
+	frameIndices.contourIndex = int8(pitchParams.contourIdx)
+	if stage1Idx < 0 {
+		frameIndices.NLSFIndices[0] = 0
+	} else {
+		frameIndices.NLSFIndices[0] = int8(stage1Idx)
+	}
+	for i := 0; i < len(residuals) && i < maxLPCOrder; i++ {
+		frameIndices.NLSFIndices[i+1] = int8(residuals[i])
+	}
+	for i := 0; i < numSubframes && i < len(ltpIndices); i++ {
+		frameIndices.LTPIndex[i] = ltpIndices[i]
+	}
+
+	gainsUnqQ16 := ensureInt32Slice(&e.scratchGainsUnqQ16, numSubframes)
+	for i := 0; i < numSubframes && i < len(gains); i++ {
+		gainsUnqQ16[i] = int32(gains[i] * 65536.0)
+	}
+	if gainTrace != nil {
+		for i := 0; i < numSubframes && i < len(gainTrace.GainsUnqQ16); i++ {
+			gainTrace.GainsUnqQ16[i] = gainsUnqQ16[i]
+		}
+	}
+	gainsQ16 := ensureInt32Slice(&e.scratchGainsQ16, numSubframes)
+	copy(gainsQ16, gainsUnqQ16)
+	gainIndices := ensureInt8Slice(&e.scratchGainInd, numSubframes)
+	lastGainIndexPrev := int8(e.previousGainIndex)
+	currentPrevInd := silkGainsQuantInto(gainIndices, gainsQ16, lastGainIndexPrev, condCoding == codeConditionally, numSubframes)
+	for i := 0; i < numSubframes; i++ {
+		frameIndices.GainsIndices[i] = gainIndices[i]
+	}
+
+	// Prepare LBRR data for the next packet if FEC is enabled (before bitrate loop).
 	if e.lbrrEnabled {
-		var frameIndices sideInfoIndices
-		for i := 0; i < numSubframes && i < len(gainIndices); i++ {
-			frameIndices.GainsIndices[i] = gainIndices[i]
-		}
-		for i := 0; i < numSubframes && i < len(ltpIndices); i++ {
-			frameIndices.LTPIndex[i] = ltpIndices[i]
-		}
-		frameIndices.signalType = int8(signalType)
-		frameIndices.quantOffsetType = int8(quantOffset)
-		frameIndices.NLSFInterpCoefQ2 = int8(interpIdx)
-		frameIndices.PERIndex = int8(perIndex)
-		frameIndices.LTPScaleIndex = int8(ltpScaleIndex)
-		frameIndices.Seed = int8(seed)
-		frameIndices.lagIndex = int16(pitchParams.lagIdx)
-		frameIndices.contourIndex = int8(pitchParams.contourIdx)
-		if stage1Idx < 0 {
-			frameIndices.NLSFIndices[0] = 0
-		} else {
-			frameIndices.NLSFIndices[0] = int8(stage1Idx)
-		}
-		for i := 0; i < len(residuals) && i < maxLPCOrder; i++ {
-			frameIndices.NLSFIndices[i+1] = int8(residuals[i])
-		}
 		e.lbrrEncode(framePCM, frameIndices, lpcQ12, predCoefQ12, interpIdx, pitchLags, ltpCoeffs, ltpScaleIndex, noiseParams, seed, numSubframes, subframeSamples, frameSamples, speechActivityQ8)
 	}
 
@@ -337,16 +413,352 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		ltpScaleQ14 = int(silk_LTPScales_table_Q14[ltpScaleIndex])
 	}
 
-	// CRITICAL: Use the quantized gainsQ16 (modified by silkGainsQuantInto) for NSQ!
-	allExcitation := e.computeNSQExcitation(framePCM, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, speechActivityQ8, noiseParams, seed, numSubframes, subframeSamples, frameSamples, e.nsqState)
+	// Bitrate control: multi-pass NSQ + index encoding.
+	bitsMargin := 5
+	if !e.useCBR {
+		bitsMargin = maxBits / 4
+	}
 
-	e.encodePulses(allExcitation, signalType, quantOffset)
+	maxIter := 6
+	gainMultQ8 := int16(1 << 8)
+	foundLower := false
+	foundUpper := false
+	gainsID := silkGainsID(gainIndices, numSubframes)
+	gainsIDLower := int32(-1)
+	gainsIDUpper := int32(-1)
 
-	e.previousGainIndex = int32(newPrevInd)
-	e.previousLogGain = int32(newPrevInd)
+	rangeCopy := *e.rangeEncoder
+	nsqCopy0 := *e.nsqState
+	seedCopy := frameIndices.Seed
+	ecPrevLagIndexCopy := e.ecPrevLagIndex
+	ecPrevSignalTypeCopy := e.ecPrevSignalType
+	rangeCopy2 := *e.rangeEncoder
+	nsqCopy1 := *e.nsqState
+	var lastGainIndexCopy2 int8
+	ecBufCopy := ensureByteSlice(&e.scratchEcBufCopy, len(e.rangeEncoder.Buffer()))
+	var nBits, nBitsLower, nBitsUpper int
+	var gainMultLower, gainMultUpper int32
+	var gainLock [maxNbSubfr]bool
+	var bestGainMult [maxNbSubfr]int16
+	var bestSum [maxNbSubfr]int
+	var pulses []int8
+
+	for iter := 0; ; iter++ {
+		skippedNSQ := false
+		bitsBeforeIndices := -1
+		bitsAfterIndices := -1
+		bitsAfterPulses := -1
+		seedInIter := int(frameIndices.Seed)
+		seedAfterNSQ := seedInIter
+
+		if gainsID == gainsIDLower {
+			nBits = nBitsLower
+			skippedNSQ = true
+		} else if gainsID == gainsIDUpper {
+			nBits = nBitsUpper
+			skippedNSQ = true
+		} else {
+			if iter > 0 {
+				*e.rangeEncoder = rangeCopy
+				*e.nsqState = nsqCopy0
+				frameIndices.Seed = seedCopy
+				e.ecPrevLagIndex = ecPrevLagIndexCopy
+				e.ecPrevSignalType = ecPrevSignalTypeCopy
+			}
+
+			// Noise shaping quantization
+			pulses, seedOut := e.computeNSQExcitation(framePCM, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, speechActivityQ8, noiseParams, int(frameIndices.Seed), numSubframes, subframeSamples, frameSamples, e.nsqState)
+			frameIndices.Seed = int8(seedOut)
+			seedAfterNSQ = seedOut
+			frameIndices.quantOffsetType = int8(quantOffset)
+
+			if iter == maxIter && !foundLower {
+				rangeCopy2 = *e.rangeEncoder
+			}
+
+			// Encode indices
+			bitsBeforeIndices = e.rangeEncoder.Tell()
+			e.encodeFrameType(vadFlag, signalType, int(frameIndices.quantOffsetType))
+			if condCoding == codeIndependently {
+				e.encodeAbsoluteGainIndex(int(frameIndices.GainsIndices[0]), signalType)
+			} else {
+				e.rangeEncoder.EncodeICDF(int(frameIndices.GainsIndices[0]), silk_delta_gain_iCDF, 8)
+			}
+			for i := 1; i < numSubframes; i++ {
+				e.rangeEncoder.EncodeICDF(int(frameIndices.GainsIndices[i]), silk_delta_gain_iCDF, 8)
+			}
+			e.encodeLSF(stage1Idx, residuals, interpIdx, e.bandwidth, signalType)
+			if signalType == typeVoiced {
+				e.encodePitchLagsWithParams(pitchParams, condCoding)
+				e.encodeLTPCoeffs(perIndex, ltpIndices[:], numSubframes)
+				if condCoding == codeIndependently {
+					e.rangeEncoder.EncodeICDF(ltpScaleIndex, silk_LTPscale_iCDF, 8)
+				}
+			}
+			e.rangeEncoder.EncodeICDF(int(frameIndices.Seed), silk_uniform4_iCDF, 8)
+			bitsAfterIndices = e.rangeEncoder.Tell()
+
+			// Encode excitation pulses
+			pulseCount := len(pulses)
+			pulses32 := ensureInt32Slice(&e.scratchExcitation, pulseCount)
+			for i := 0; i < pulseCount; i++ {
+				pulses32[i] = int32(pulses[i])
+			}
+			e.encodePulses(pulses32, signalType, int(frameIndices.quantOffsetType))
+
+			nBits = e.rangeEncoder.Tell()
+			bitsAfterPulses = nBits
+
+			// If we still bust after the last iteration, do some damage control.
+			if iter == maxIter && !foundLower && nBits > maxBits {
+				*e.rangeEncoder = rangeCopy2
+				for i := 0; i < numSubframes; i++ {
+					frameIndices.GainsIndices[i] = 4
+				}
+				if condCoding != codeConditionally {
+					frameIndices.GainsIndices[0] = lastGainIndexPrev
+				}
+				e.ecPrevLagIndex = ecPrevLagIndexCopy
+				e.ecPrevSignalType = ecPrevSignalTypeCopy
+				currentPrevInd = lastGainIndexPrev
+				if pulses != nil {
+					for i := range pulses {
+						pulses[i] = 0
+					}
+				}
+
+				bitsBeforeIndices = e.rangeEncoder.Tell()
+				e.encodeFrameType(vadFlag, signalType, int(frameIndices.quantOffsetType))
+				if condCoding == codeIndependently {
+					e.encodeAbsoluteGainIndex(int(frameIndices.GainsIndices[0]), signalType)
+				} else {
+					e.rangeEncoder.EncodeICDF(int(frameIndices.GainsIndices[0]), silk_delta_gain_iCDF, 8)
+				}
+				for i := 1; i < numSubframes; i++ {
+					e.rangeEncoder.EncodeICDF(int(frameIndices.GainsIndices[i]), silk_delta_gain_iCDF, 8)
+				}
+				e.encodeLSF(stage1Idx, residuals, interpIdx, e.bandwidth, signalType)
+				if signalType == typeVoiced {
+					e.encodePitchLagsWithParams(pitchParams, condCoding)
+					e.encodeLTPCoeffs(perIndex, ltpIndices[:], numSubframes)
+					if condCoding == codeIndependently {
+						e.rangeEncoder.EncodeICDF(ltpScaleIndex, silk_LTPscale_iCDF, 8)
+					}
+				}
+				e.rangeEncoder.EncodeICDF(int(frameIndices.Seed), silk_uniform4_iCDF, 8)
+				bitsAfterIndices = e.rangeEncoder.Tell()
+				if pulses != nil {
+					pulses32 := ensureInt32Slice(&e.scratchExcitation, len(pulses))
+					for i := range pulses32 {
+						pulses32[i] = 0
+					}
+					e.encodePulses(pulses32, signalType, int(frameIndices.quantOffsetType))
+				}
+				nBits = e.rangeEncoder.Tell()
+				bitsAfterPulses = nBits
+			}
+
+			if !e.useCBR && iter == 0 && nBits <= maxBits {
+				if gainTrace != nil {
+					gainTrace.Iterations = append(gainTrace.Iterations, GainLoopIter{
+						Iter:              iter,
+						GainMultQ8:        gainMultQ8,
+						GainsID:           gainsID,
+						QuantOffset:       quantOffset,
+						Bits:              nBits,
+						BitsBeforeIndices: bitsBeforeIndices,
+						BitsAfterIndices:  bitsAfterIndices,
+						BitsAfterPulses:   bitsAfterPulses,
+						FoundLower:        foundLower,
+						FoundUpper:        foundUpper,
+						SkippedNSQ:        skippedNSQ,
+						SeedIn:            seedInIter,
+						SeedAfterNSQ:      seedAfterNSQ,
+						SeedOut:           int(frameIndices.Seed),
+					})
+					gainTrace.SeedOut = int(frameIndices.Seed)
+				}
+				break
+			}
+		}
+
+		if gainTrace != nil {
+			gainTrace.Iterations = append(gainTrace.Iterations, GainLoopIter{
+				Iter:              iter,
+				GainMultQ8:        gainMultQ8,
+				GainsID:           gainsID,
+				QuantOffset:       quantOffset,
+				Bits:              nBits,
+				BitsBeforeIndices: bitsBeforeIndices,
+				BitsAfterIndices:  bitsAfterIndices,
+				BitsAfterPulses:   bitsAfterPulses,
+				FoundLower:        foundLower,
+				FoundUpper:        foundUpper,
+				SkippedNSQ:        skippedNSQ,
+				SeedIn:            seedInIter,
+				SeedAfterNSQ:      seedAfterNSQ,
+				SeedOut:           int(frameIndices.Seed),
+			})
+			gainTrace.SeedOut = int(frameIndices.Seed)
+		}
+
+		if iter == maxIter {
+			if foundLower && (gainsID == gainsIDLower || nBits > maxBits) {
+				*e.rangeEncoder = rangeCopy2
+				offs := int(rangeCopy2.Offs())
+				if offs <= len(ecBufCopy) {
+					copy(e.rangeEncoder.Buffer()[:offs], ecBufCopy[:offs])
+				}
+				*e.nsqState = nsqCopy1
+				currentPrevInd = lastGainIndexCopy2
+			}
+			break
+		}
+
+		if nBits > maxBits {
+			if !foundLower && iter >= 2 {
+				if noiseParams != nil {
+					noiseParams.LambdaQ10 += noiseParams.LambdaQ10 / 2
+				}
+				quantOffset = 0
+				foundUpper = false
+				gainsIDUpper = -1
+			} else {
+				foundUpper = true
+				nBitsUpper = nBits
+				gainMultUpper = int32(gainMultQ8)
+				gainsIDUpper = gainsID
+			}
+		} else if nBits < maxBits-bitsMargin {
+			foundLower = true
+			nBitsLower = nBits
+			gainMultLower = int32(gainMultQ8)
+			if gainsID != gainsIDLower {
+				gainsIDLower = gainsID
+				rangeCopy2 = *e.rangeEncoder
+				offs := int(rangeCopy2.Offs())
+				if offs <= len(ecBufCopy) {
+					copy(ecBufCopy[:offs], e.rangeEncoder.Buffer()[:offs])
+				}
+				nsqCopy1 = *e.nsqState
+				lastGainIndexCopy2 = currentPrevInd
+			}
+		} else {
+			break
+		}
+
+		if !foundLower && nBits > maxBits && pulses != nil {
+			for i := 0; i < numSubframes; i++ {
+				sum := 0
+				start := i * subframeSamples
+				end := start + subframeSamples
+				if end > len(pulses) {
+					end = len(pulses)
+				}
+				for j := start; j < end; j++ {
+					v := int(pulses[j])
+					if v < 0 {
+						v = -v
+					}
+					sum += v
+				}
+				if iter == 0 || (sum < bestSum[i] && !gainLock[i]) {
+					bestSum[i] = sum
+					bestGainMult[i] = gainMultQ8
+				} else {
+					gainLock[i] = true
+				}
+			}
+		}
+
+		if !(foundLower && foundUpper) {
+			if nBits > maxBits {
+				next := int(gainMultQ8) * 3 / 2
+				if next > 1024 {
+					next = 1024
+				}
+				gainMultQ8 = int16(next)
+			} else {
+				next := int(gainMultQ8) * 4 / 5
+				if next < 64 {
+					next = 64
+				}
+				gainMultQ8 = int16(next)
+			}
+		} else {
+			num := (gainMultUpper - gainMultLower) * int32(maxBits-nBitsLower)
+			den := nBitsUpper - nBitsLower
+			if den == 0 {
+				den = 1
+			}
+			gainMultQ8 = int16(gainMultLower + num/int32(den))
+			upper := gainMultLower + ((gainMultUpper - gainMultLower) >> 2)
+			lower := gainMultUpper - ((gainMultUpper - gainMultLower) >> 2)
+			if int32(gainMultQ8) > upper {
+				gainMultQ8 = int16(upper)
+			} else if int32(gainMultQ8) < lower {
+				gainMultQ8 = int16(lower)
+			}
+		}
+
+		for i := 0; i < numSubframes; i++ {
+			tmp := gainMultQ8
+			if gainLock[i] {
+				tmp = bestGainMult[i]
+			}
+			gainsQ16[i] = silk_LSHIFT_SAT32(silk_SMULWB(gainsUnqQ16[i], int32(tmp)), 8)
+		}
+		currentPrevInd = silkGainsQuantInto(gainIndices, gainsQ16, lastGainIndexPrev, condCoding == codeConditionally, numSubframes)
+		for i := 0; i < numSubframes; i++ {
+			frameIndices.GainsIndices[i] = gainIndices[i]
+		}
+		gainsID = silkGainsID(gainIndices, numSubframes)
+	}
+
+	if gainTrace != nil {
+		gainTrace.SeedOut = int(frameIndices.Seed)
+	}
+
+	e.previousGainIndex = int32(currentPrevInd)
+	e.previousLogGain = int32(currentPrevInd)
+	e.ecPrevSignalType = signalType
 	e.frameCounter++
 	e.isPreviousFrameVoiced = (signalType == typeVoiced)
 	copy(e.prevLSFQ15, lsfQ15)
+
+	if e.trace != nil && e.trace.Frame != nil {
+		tr := e.trace.Frame
+		tr.SignalType = signalType
+		tr.LagIndex = pitchParams.lagIdx
+		tr.Contour = pitchParams.contourIdx
+		tr.LastGainIndex = e.previousGainIndex
+		tr.SumLogGainQ7 = e.sumLogGainQ7
+		for i := 0; i < maxNbSubfr; i++ {
+			tr.GainIndices[i] = frameIndices.GainsIndices[i]
+		}
+		tr.PrevLag = 0
+		if numSubframes > 0 && len(pitchLags) >= numSubframes {
+			tr.PrevLag = pitchLags[numSubframes-1]
+		}
+		tr.PrevSignalType = signalType
+		tr.LTPCorr = e.ltpCorr
+		tr.SpeechActivityQ8 = speechActivityQ8
+		tr.InputTiltQ15 = e.inputTiltQ15
+		tr.PitchEstThresholdQ16 = e.pitchEstimationThresholdQ16
+		tr.NStatesDelayedDecision = e.nStatesDelayedDecision
+		tr.WarpingQ16 = e.warpingQ16
+		tr.FirstFrameAfterReset = firstFrameAfterReset
+		tr.ECPrevLagIndex = e.ecPrevLagIndex
+		tr.ECPrevSignalType = e.ecPrevSignalType
+		if e.nsqState != nil {
+			tr.NSQLagPrev = e.nsqState.lagPrev
+			tr.NSQSLTPBufIdx = e.nsqState.sLTPBufIdx
+			tr.NSQSLTPShpBufIdx = e.nsqState.sLTPShpBufIdx
+			tr.NSQPrevGainQ16 = e.nsqState.prevGainQ16
+			tr.NSQRandSeed = e.nsqState.randSeed
+			tr.NSQRewhiteFlag = e.nsqState.rewhiteFlag
+		}
+	}
 
 	pitchBufFrameLen := len(framePCM)
 	if pitchBufFrameLen > 0 && len(e.pitchAnalysisBuf) > 0 {
@@ -384,11 +796,21 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 
 	result := make([]byte, len(raw))
 	copy(result, raw)
+
+	if e.targetRateBps > 0 && payloadSizeMs > 0 {
+		e.nBitsExceeded += len(result) * 8
+		e.nBitsExceeded -= (e.targetRateBps * payloadSizeMs) / 1000
+		if e.nBitsExceeded < 0 {
+			e.nBitsExceeded = 0
+		} else if e.nBitsExceeded > 10000 {
+			e.nBitsExceeded = 10000
+		}
+	}
 	e.rangeEncoder = nil
 	return result
 }
 
-func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ12 []int16, nlsfInterpQ2 int, gainsQ16 []int32, pitchLags []int, ltpCoeffs LTPCoeffsArray, ltpScaleQ14 int, signalType, quantOffset, speechActivityQ8 int, noiseParams *NoiseShapeParams, seed, numSubframes, subframeSamples, frameSamples int, nsqState *NSQState) []int32 {
+func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ12 []int16, nlsfInterpQ2 int, gainsQ16 []int32, pitchLags []int, ltpCoeffs LTPCoeffsArray, ltpScaleQ14 int, signalType, quantOffset, speechActivityQ8 int, noiseParams *NoiseShapeParams, seed, numSubframes, subframeSamples, frameSamples int, nsqState *NSQState) ([]int8, int) {
 	inputQ0 := ensureInt16Slice(&e.scratchInputQ0, frameSamples)
 	for i := 0; i < frameSamples && i < len(pcm); i++ {
 		inputQ0[i] = float32ToInt16(pcm[i])
@@ -469,7 +891,7 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 		if e.speechActivitySet {
 			inputQualityBandsQ15 = e.inputQualityBandsQ15
 		}
-		noiseParams = e.noiseShapeState.ComputeNoiseShapeParams(signalType, speechActivityQ8, e.ltpCorr, pitchLags, float64(e.snrDBQ7)/128.0, quantOffset, inputQualityBandsQ15, numSubframes, fsKHz)
+		noiseParams = e.noiseShapeState.ComputeNoiseShapeParams(signalType, speechActivityQ8, e.ltpCorr, pitchLags, float64(e.snrDBQ7)/128.0, quantOffset, inputQualityBandsQ15, numSubframes, fsKHz, e.nStatesDelayedDecision)
 	}
 	harmShapeGainQ14 := ensureIntSlice(&e.scratchHarmShapeGainQ14, numSubframes)
 	tiltQ14 := ensureIntSlice(&e.scratchTiltQ14, numSubframes)
@@ -482,37 +904,156 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 		ltpScaleQ14 = 0
 	}
 	params := &NSQParams{
-		SignalType:       signalType,
-		QuantOffsetType:  quantOffset,
-		PredCoefQ12:      predCoefQ12,
-		NLSFInterpCoefQ2: nlsfInterpQ2,
-		LTPCoefQ14:       ltpCoefQ14,
-		ARShpQ13:         arShpQ13,
-		HarmShapeGainQ14: harmShapeGainQ14,
-		TiltQ14:          tiltQ14,
-		LFShpQ14:         lfShpQ14,
-		GainsQ16:         gainsQ16,
-		PitchL:           pitchL,
-		LambdaQ10:        lambdaQ10,
-		LTPScaleQ14:      int(ltpScaleQ14),
-		FrameLength:      frameSamples,
-		SubfrLength:      subframeSamples,
-		NbSubfr:          numSubframes,
-		LTPMemLength:     ltpMemLength,
-		PredLPCOrder:     len(lpcQ12),
-		ShapeLPCOrder:    shapeLPCOrder,
-		Seed:             seed,
+		SignalType:             signalType,
+		QuantOffsetType:        quantOffset,
+		PredCoefQ12:            predCoefQ12,
+		NLSFInterpCoefQ2:       nlsfInterpQ2,
+		LTPCoefQ14:             ltpCoefQ14,
+		ARShpQ13:               arShpQ13,
+		HarmShapeGainQ14:       harmShapeGainQ14,
+		TiltQ14:                tiltQ14,
+		LFShpQ14:               lfShpQ14,
+		GainsQ16:               gainsQ16,
+		PitchL:                 pitchL,
+		LambdaQ10:              lambdaQ10,
+		LTPScaleQ14:            int(ltpScaleQ14),
+		FrameLength:            frameSamples,
+		SubfrLength:            subframeSamples,
+		NbSubfr:                numSubframes,
+		LTPMemLength:           ltpMemLength,
+		PredLPCOrder:           len(lpcQ12),
+		ShapeLPCOrder:          shapeLPCOrder,
+		WarpingQ16:             e.warpingQ16,
+		NStatesDelayedDecision: e.nStatesDelayedDecision,
+		Seed:                   seed,
+	}
+	var nsqTraceXSc []int32
+	var nsqTraceSLTPQ15 []int32
+	var nsqTraceSLTPRaw []int16
+	var nsqTraceDelayedGain []int32
+	var traceEnabled bool
+	if e.trace != nil && e.trace.NSQ != nil && e.trace.NSQ.CaptureInputs {
+		traceEnabled = true
+		tr := e.trace.NSQ
+		tr.SeedIn = seed
+		tr.SignalType = signalType
+		tr.QuantOffsetType = quantOffset
+		tr.NLSFInterpCoefQ2 = nlsfInterpQ2
+		tr.LambdaQ10 = lambdaQ10
+		tr.LTPScaleQ14 = int(ltpScaleQ14)
+		tr.FrameLength = frameSamples
+		tr.SubfrLength = subframeSamples
+		tr.NbSubfr = numSubframes
+		tr.LTPMemLength = ltpMemLength
+		tr.PredLPCOrder = len(lpcQ12)
+		tr.ShapeLPCOrder = shapeLPCOrder
+		tr.WarpingQ16 = e.warpingQ16
+		tr.NStatesDelayedDecision = e.nStatesDelayedDecision
+		tr.InputQ0 = append(tr.InputQ0[:0], inputQ0[:frameSamples]...)
+		tr.PredCoefQ12 = append(tr.PredCoefQ12[:0], predCoefQ12...)
+		tr.LTPCoefQ14 = append(tr.LTPCoefQ14[:0], ltpCoefQ14...)
+		tr.ARShpQ13 = append(tr.ARShpQ13[:0], arShpQ13...)
+		tr.HarmShapeGainQ14 = append(tr.HarmShapeGainQ14[:0], harmShapeGainQ14...)
+		tr.TiltQ14 = append(tr.TiltQ14[:0], tiltQ14...)
+		tr.LFShpQ14 = append(tr.LFShpQ14[:0], lfShpQ14...)
+		tr.GainsQ16 = append(tr.GainsQ16[:0], gainsQ16...)
+		tr.PitchL = append(tr.PitchL[:0], pitchL...)
+		tr.PulsesLen = 0
+		tr.PulsesHash = 0
+		tr.XqHash = 0
+		tr.SLTPQ15Hash = 0
+		tr.XScSubfrHash = tr.XScSubfrHash[:0]
+		tr.XScQ10 = tr.XScQ10[:0]
+		tr.SLTPQ15 = tr.SLTPQ15[:0]
+		tr.SLTPRaw = tr.SLTPRaw[:0]
+		tr.DelayedGainQ10 = tr.DelayedGainQ10[:0]
+		tr.SeedOut = seed
+
+		if numSubframes > 0 && subframeSamples > 0 {
+			xscLen := numSubframes * subframeSamples
+			nsqTraceXSc = make([]int32, xscLen)
+			setNSQDelDecDebugXSc(nsqTraceXSc, subframeSamples)
+		}
+		if params.LTPMemLength > 0 && frameSamples > 0 {
+			nsqTraceSLTPQ15 = make([]int32, params.LTPMemLength+frameSamples)
+			setNSQDelDecDebugSLTP(nsqTraceSLTPQ15)
+			nsqTraceSLTPRaw = make([]int16, params.LTPMemLength+frameSamples)
+			setNSQDelDecDebugSLTPRaw(nsqTraceSLTPRaw)
+		}
+		nsqTraceDelayedGain = make([]int32, decisionDelay)
+		setNSQDelDecDebugDelayedGain(nsqTraceDelayedGain)
 	}
 	state := nsqState
 	if state == nil {
 		state = e.nsqState
 	}
-	pulses, _ := NoiseShapeQuantize(state, inputQ0, params)
-	excitation := ensureInt32Slice(&e.scratchExcitation, frameSamples)
-	for i := 0; i < len(pulses) && i < frameSamples; i++ {
-		excitation[i] = int32(pulses[i])
+	if traceEnabled && state != nil {
+		tr := e.trace.NSQ
+		tr.NSQLFARQ14 = state.sLFARShpQ14
+		tr.NSQDiffQ14 = state.sDiffShpQ14
+		tr.NSQLagPrev = state.lagPrev
+		tr.NSQSLTPBufIdx = state.sLTPBufIdx
+		tr.NSQSLTPShpBufIdx = state.sLTPShpBufIdx
+		tr.NSQRandSeed = state.randSeed
+		tr.NSQPrevGainQ16 = state.prevGainQ16
+		tr.NSQRewhiteFlag = state.rewhiteFlag
+		tr.NSQXQ = append(tr.NSQXQ[:0], state.xq[:]...)
+		tr.NSQSLTPShpQ14 = append(tr.NSQSLTPShpQ14[:0], state.sLTPShpQ14[:]...)
+		tr.NSQLPCQ14 = append(tr.NSQLPCQ14[:0], state.sLPCQ14[:]...)
+		tr.NSQAR2Q14 = append(tr.NSQAR2Q14[:0], state.sAR2Q14[:]...)
 	}
-	return excitation
+	seedOut := seed
+	var pulses []int8
+	if params.NStatesDelayedDecision > 1 || params.WarpingQ16 > 0 {
+		var outXQ []int16
+		pulses, outXQ, seedOut = NoiseShapeQuantizeDelDec(state, inputQ0, params)
+		if traceEnabled {
+			tr := e.trace.NSQ
+			tr.PulsesLen = len(pulses)
+			tr.PulsesHash = hashInt8Slice(pulses)
+			tr.XqHash = hashInt16Slice(outXQ)
+			tr.SeedOut = seedOut
+			if len(nsqTraceSLTPQ15) > 0 {
+				tr.SLTPQ15Hash = hashInt32Slice(nsqTraceSLTPQ15)
+				tr.SLTPQ15 = append(tr.SLTPQ15[:0], nsqTraceSLTPQ15...)
+			}
+			if len(nsqTraceSLTPRaw) > 0 {
+				tr.SLTPRaw = append(tr.SLTPRaw[:0], nsqTraceSLTPRaw...)
+			}
+			if len(nsqTraceDelayedGain) > 0 {
+				tr.DelayedGainQ10 = append(tr.DelayedGainQ10[:0], nsqTraceDelayedGain...)
+			}
+			if len(nsqTraceXSc) > 0 && numSubframes > 0 && subframeSamples > 0 {
+				tr.XScSubfrHash = ensureUint64Slice(&tr.XScSubfrHash, numSubframes)
+				for sf := 0; sf < numSubframes; sf++ {
+					start := sf * subframeSamples
+					end := start + subframeSamples
+					if end > len(nsqTraceXSc) {
+						end = len(nsqTraceXSc)
+					}
+					if start < end {
+						tr.XScSubfrHash[sf] = hashInt32Slice(nsqTraceXSc[start:end])
+					}
+				}
+				tr.XScQ10 = append(tr.XScQ10[:0], nsqTraceXSc...)
+			}
+		}
+	} else {
+		pulses, _ = NoiseShapeQuantize(state, inputQ0, params)
+		if traceEnabled {
+			tr := e.trace.NSQ
+			tr.PulsesLen = len(pulses)
+			tr.PulsesHash = hashInt8Slice(pulses)
+			tr.SeedOut = seedOut
+		}
+	}
+	if traceEnabled {
+		setNSQDelDecDebugSLTP(nil)
+		setNSQDelDecDebugSLTPRaw(nil)
+		setNSQDelDecDebugXSc(nil, 0)
+		setNSQDelDecDebugDelayedGain(nil)
+	}
+	return pulses, seedOut
 }
 
 func (e *Encoder) EncodePacketWithFEC(pcm []float32, lookahead []float32, vadFlags []bool) []byte {
@@ -582,6 +1123,18 @@ func (e *Encoder) EncodePacketWithFEC(pcm []float32, lookahead []float32, vadFla
 	e.rangeEncoder.PatchInitialBits(flags, uint(nFrames+1))
 	e.lastRng = e.rangeEncoder.Range()
 	result := e.rangeEncoder.Done()
+	if e.targetRateBps > 0 {
+		payloadSizeMs := (nFrames * frameSamples * 1000) / config.SampleRate
+		if payloadSizeMs > 0 {
+			e.nBitsExceeded += len(result) * 8
+			e.nBitsExceeded -= (e.targetRateBps * payloadSizeMs) / 1000
+			if e.nBitsExceeded < 0 {
+				e.nBitsExceeded = 0
+			} else if e.nBitsExceeded > 10000 {
+				e.nBitsExceeded = 10000
+			}
+		}
+	}
 	e.rangeEncoder = nil
 	return result
 }
@@ -659,6 +1212,25 @@ func (e *Encoder) updateShapeBuffer(pcm []float32, frameSamples int) []float32 {
 	for i := n; i < frameSamples; i++ {
 		insert[i] = 0
 	}
+	// Match libopus encode_frame_FLP: add a tiny anti-denormal signal to
+	// eight evenly spaced positions in the freshly copied frame.
+	// This is applied to x_buf after short->float conversion.
+	step := frameSamples >> 3
+	if step > 0 {
+		// Our x_buf is normalized to [-1, 1], while libopus x_buf is int16-scaled.
+		// Scale the tiny anti-denormal term to match libopus magnitude.
+		antiDenormal := float32(1e-6 / silkSampleScale)
+		for i := 0; i < 8; i++ {
+			idx := i * step
+			if idx >= 0 && idx < frameSamples {
+				dither := antiDenormal
+				if (i & 2) != 0 {
+					dither = -dither
+				}
+				insert[idx] += dither
+			}
+		}
+	}
 	start := ltpMemSamples
 	if start+frameSamples > len(shapeBuf) {
 		if start >= len(shapeBuf) {
@@ -667,6 +1239,44 @@ func (e *Encoder) updateShapeBuffer(pcm []float32, frameSamples int) []float32 {
 		frameSamples = len(shapeBuf) - start
 	}
 	return shapeBuf[start : start+frameSamples]
+}
+
+func (e *Encoder) tracePitchBufferState(frameSamples, numSubframes int) (bufLen int, bufHash uint64, winLen int, winHash uint64) {
+	fsKHz := e.sampleRate / 1000
+	if fsKHz <= 0 {
+		return 0, 0, 0, 0
+	}
+	ltpMemSamples := ltpMemLengthMs * fsKHz
+	laPitchSamples := laPitchMs * fsKHz
+	bufLen = ltpMemSamples + frameSamples + laPitchSamples
+	if bufLen < 0 {
+		bufLen = 0
+	}
+	if bufLen > len(e.inputBuffer) {
+		bufLen = len(e.inputBuffer)
+	}
+	if bufLen == 0 {
+		return 0, 0, 0, 0
+	}
+	scale := float32(silkSampleScale)
+	bufHash = hashScaledFloat32Slice(e.inputBuffer[:bufLen], scale)
+
+	if numSubframes == 2 {
+		winLen = findPitchLpcWinMs2SF * fsKHz
+	} else {
+		winLen = findPitchLpcWinMs * fsKHz
+	}
+	if winLen < 0 {
+		winLen = 0
+	}
+	if winLen > bufLen {
+		winLen = bufLen
+	}
+	if winLen == 0 {
+		return bufLen, bufHash, 0, 0
+	}
+	winHash = hashScaledFloat32Slice(e.inputBuffer[bufLen-winLen:bufLen], scale)
+	return bufLen, bufHash, winLen, winHash
 }
 
 // shiftInputBuffer shifts the input buffer left by frameSamples after frame encoding.

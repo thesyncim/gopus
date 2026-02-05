@@ -74,15 +74,15 @@ type DownsamplingResampler struct {
 	sFIR []int32
 
 	// Configuration
-	fsInKHz      int32
-	fsOutKHz     int32
-	batchSize    int32
-	inputDelay   int32
-	invRatioQ16  int32
-	firOrder     int
-	firFracs     int
-	coefs        []int16 // Full coefficient array (AR2 + FIR)
-	firCoefs     []int16 // Just the FIR coefficients (after AR2)
+	fsInKHz     int32
+	fsOutKHz    int32
+	batchSize   int32
+	inputDelay  int32
+	invRatioQ16 int32
+	firOrder    int
+	firFracs    int
+	coefs       []int16 // Full coefficient array (AR2 + FIR)
+	firCoefs    []int16 // Just the FIR coefficients (after AR2)
 
 	// Delay buffer
 	delayBuf []int16
@@ -184,7 +184,7 @@ func NewDownsamplingResampler(fsIn, fsOut int) *DownsamplingResampler {
 	// Compute invRatio_Q16 (up2x = 0 for downsampling)
 	r.invRatioQ16 = int32((int64(fsInHz) << 16) / int64(fsOutHz))
 	// Round up
-	for int32((int64(r.invRatioQ16) * int64(fsOutHz)) >> 16) < int32(fsInHz) {
+	for int32((int64(r.invRatioQ16)*int64(fsOutHz))>>16) < int32(fsInHz) {
 		r.invRatioQ16++
 	}
 

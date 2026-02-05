@@ -644,6 +644,18 @@ func TestTargetBytesForBitrate(t *testing.T) {
 	}
 }
 
+func TestSilkInputBitrateReservesTOC(t *testing.T) {
+	enc := encoder.NewEncoder(48000, 1)
+	enc.SetBitrate(32000)
+
+	if got := enc.SilkInputBitrate(960); got != 31600 {
+		t.Fatalf("SilkInputBitrate(960) = %d, want 31600", got)
+	}
+	if got := enc.SilkInputBitrate(480); got != 31200 {
+		t.Fatalf("SilkInputBitrate(480) = %d, want 31200", got)
+	}
+}
+
 // TestBitrateModeGetSet tests SetBitrateMode and GetBitrateMode.
 func TestBitrateModeGetSet(t *testing.T) {
 	enc := encoder.NewEncoder(48000, 1)

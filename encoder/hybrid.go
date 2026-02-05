@@ -68,6 +68,9 @@ type HybridState struct {
 	// crossoverBuffer stores smoothed crossover-band energies (per channel)
 	// to reduce frame-to-frame discontinuities at the SILK/CELT boundary.
 	crossoverBuffer []float64
+
+	// prevDecodeOnlyMiddle tracks the previous mid-only (no side) decision.
+	prevDecodeOnlyMiddle bool
 }
 
 // encodeHybridFrame encodes a frame using combined SILK and CELT.
@@ -230,7 +233,7 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, celtPCM []float64, lookahead 
 		e.silkSideEncoder.SetFEC(e.fecEnabled)
 		e.silkSideEncoder.SetPacketLoss(e.packetLoss)
 	}
-	e.encodeSILKHybrid(silkInput, silkLookahead, frameSize)
+	e.encodeSILKHybrid(silkInput, silkLookahead, frameSize, silkBitrate)
 
 	// Step 3: Apply hybrid delay and gain fade on delay-compensated CELT input
 	celtInput := e.applyInputDelayWithGainFade(celtPCM, hbGain)
@@ -629,7 +632,7 @@ func (e *Encoder) applyLinearGainFade(samples []float64, g1, g2 float64, overlap
 // - Encode stereo prediction weights
 // - Encode mid channel with main SILK encoder
 // - Encode side channel with side SILK encoder
-func (e *Encoder) encodeSILKHybrid(pcm []float32, lookahead []float32, frameSize int) {
+func (e *Encoder) encodeSILKHybrid(pcm []float32, lookahead []float32, frameSize int, totalRateBps int) {
 	// For hybrid mode, SILK always operates at WB (16kHz)
 	// The input is already downsampled to 16kHz
 
@@ -638,10 +641,10 @@ func (e *Encoder) encodeSILKHybrid(pcm []float32, lookahead []float32, frameSize
 
 	if e.channels == 1 {
 		// Mono encoding
-		e.encodeSILKHybridMono(pcm, lookahead, silkSamples)
+		e.encodeSILKHybridMono(pcm, lookahead, silkSamples, totalRateBps)
 	} else {
 		// Stereo encoding
-		e.encodeSILKHybridStereo(pcm, lookahead, silkSamples)
+		e.encodeSILKHybridStereo(pcm, lookahead, silkSamples, totalRateBps)
 	}
 }
 
@@ -652,7 +655,10 @@ func (e *Encoder) encodeSILKHybrid(pcm []float32, lookahead []float32, frameSize
 // 2. LBRR flag (1 bit)
 // 3. [LBRR data if LBRR flag set]
 // 4. Frame data
-func (e *Encoder) encodeSILKHybridMono(pcm []float32, lookahead []float32, silkSamples int) {
+func (e *Encoder) encodeSILKHybridMono(pcm []float32, lookahead []float32, silkSamples int, totalRateBps int) {
+	if totalRateBps > 0 {
+		e.silkEncoder.SetBitrate(totalRateBps)
+	}
 	inputSamples := pcm[:min(len(pcm), silkSamples)]
 	vadFlag := e.computeSilkVAD(inputSamples, len(inputSamples), 16)
 	e.silkEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.lastVADInputQualityBandsQ15)
@@ -696,7 +702,7 @@ func (e *Encoder) encodeSILKHybridMono(pcm []float32, lookahead []float32, silkS
 
 // encodeSILKHybridStereo encodes stereo SILK data for hybrid mode.
 // Uses mid-side encoding per RFC 6716 Section 4.2.8.
-func (e *Encoder) encodeSILKHybridStereo(pcm []float32, lookahead []float32, silkSamples int) {
+func (e *Encoder) encodeSILKHybridStereo(pcm []float32, lookahead []float32, silkSamples int, totalRateBps int) {
 	// Deinterleave L/R channels and append 2-sample lookahead for LP filtering.
 	actualSamples := len(pcm) / 2
 	if actualSamples < silkSamples {
@@ -727,19 +733,29 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, lookahead []float32, sil
 		right[silkSamples+1] = 0
 	}
 
-	// Convert to mid-side with quantized predictor interpolation (libopus stereo_LR_to_MS).
+	// Convert to mid-side with libopus-aligned stereo front-end.
 	fsKHz := 16 // SILK wideband uses 16kHz
-	widthQ14 := int16(16384)
-	if e.hybridState != nil && e.hybridState.stereoWidthQ14 > 0 {
-		widthQ14 = int16(e.hybridState.stereoWidthQ14)
+	mid, side, predIdx, midOnly, midRate, sideRate, _ := e.silkEncoder.StereoLRToMSWithRates(
+		left, right, silkSamples, fsKHz, totalRateBps, e.lastVADActivityQ8, false,
+	)
+	if midOnly {
+		sideRate = 0
 	}
-	mid, side, _, predIdx := e.silkEncoder.StereoEncodeLRToMSWithInterpQuantized(left, right, silkSamples, fsKHz, widthQ14)
+	if midRate > 0 {
+		e.silkEncoder.SetBitrate(midRate)
+	}
+	if e.silkSideEncoder != nil && sideRate > 0 {
+		e.silkSideEncoder.SetBitrate(sideRate)
+	}
 
 	// Compute VAD flags
 	vadMid := e.computeSilkVAD(mid, len(mid), fsKHz)
 	e.silkEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.lastVADInputQualityBandsQ15)
 
-	vadSide := e.computeSilkVADSide(side, len(side), fsKHz)
+	vadSide := vadMid
+	if midOnly {
+		vadSide = false
+	}
 	if e.silkSideEncoder != nil {
 		e.silkSideEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.lastVADInputQualityBandsQ15)
 	}
@@ -758,7 +774,7 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, lookahead []float32, sil
 	lbrrSide := false
 	if e.fecEnabled {
 		lbrrMid = e.silkEncoder.HasLBRRData()
-		if e.silkSideEncoder != nil {
+		if e.silkSideEncoder != nil && !midOnly {
 			lbrrSide = e.silkSideEncoder.HasLBRRData()
 		}
 	}
@@ -771,7 +787,7 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, lookahead []float32, sil
 	e.silkEncoder.EncodeLBRRData(re, 2, true)
 
 	// 2. Encode LBRR Side (no header placeholder; already reserved).
-	if e.fecEnabled && e.silkSideEncoder != nil {
+	if e.fecEnabled && e.silkSideEncoder != nil && !midOnly {
 		e.silkSideEncoder.EncodeLBRRData(re, 1, false)
 	}
 
@@ -780,14 +796,21 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, lookahead []float32, sil
 
 	// 3b. Encode mid-only flag when side VAD is inactive (libopus stereo flag).
 	if !vadSide {
-		silk.EncodeStereoMidOnly(re, 0) // always code side for now
+		if midOnly {
+			silk.EncodeStereoMidOnly(re, 1)
+		} else {
+			silk.EncodeStereoMidOnly(re, 0)
+		}
 	}
 
 	// 4. Encode Mid Frame
 	_ = e.silkEncoder.EncodeFrame(mid, nil, vadMid)
 
-	// 5. Encode Side Frame
-	if e.silkSideEncoder != nil {
+	// 5. Encode Side Frame (skip if mid-only)
+	if e.silkSideEncoder != nil && !midOnly {
+		if e.hybridState != nil && e.hybridState.prevDecodeOnlyMiddle {
+			e.silkSideEncoder.Reset()
+		}
 		_ = e.silkSideEncoder.EncodeFrame(side, nil, vadSide)
 	}
 
@@ -808,6 +831,10 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, lookahead []float32, sil
 	}
 	flagsCombined := (flagsMid << 2) | flagsSide
 	re.PatchInitialBits(flagsCombined, uint(nBitsHeader*2))
+
+	if e.hybridState != nil {
+		e.hybridState.prevDecodeOnlyMiddle = midOnly
+	}
 }
 
 // computeEquivRate computes libopus-style equivalent bitrate for stereo width decisions.

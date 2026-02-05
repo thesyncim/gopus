@@ -5,6 +5,7 @@ import (
 )
 
 var debugPitchFrameCount int
+var debugPitchCapture bool
 
 // Pitch estimation constants from libopus pitch_est_defines.h
 const (
@@ -15,8 +16,8 @@ const (
 	peMinLagMS         = 2  // 2 ms -> 500 Hz
 	peDSrchLength      = 24
 	peNbStage3Lags     = 5
-	peNbCbksStage2     = 11
-	peNbCbksStage2Ext  = 34
+	peNbCbksStage2     = 3
+	peNbCbksStage2Ext  = 11
 	peNbCbksStage3Max  = 34
 	peNbCbksStage3Mid  = 24
 	peNbCbksStage3Min  = 16
@@ -37,10 +38,10 @@ const (
 
 // Pitch contour codebooks for stage 2 (matching libopus silk_CB_lags_stage2)
 var pitchCBLagsStage2 = [peMaxNbSubfr][peNbCbksStage2Ext]int8{
-	{0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, -1, -1, -1, -1, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, -1, -1, -1},
-	{0, 1, 0, 1, -1, -1, -1, 0, 1, 0, 1, -1, 0, -1, 0, 1, 0, 1, -1, 0, -1, 2, 1, 0, 1, -1, 0, -1, -1, 2, 2, 1, -2, -2},
-	{0, 0, 1, 1, 0, 1, -1, 0, 0, 1, 1, 0, 1, -1, 0, 0, 1, 1, 0, 1, -1, -1, 2, 1, 0, 1, -1, 0, -1, 2, 2, 1, -2, -2},
-	{0, -1, 2, 1, 0, 1, 1, 0, -1, 2, 1, 0, 1, 1, 0, -1, 2, 1, 0, 1, 1, -1, 2, 1, 0, 1, -1, 0, -1, 2, 2, 1, -2, -2},
+	{0, 2, -1, -1, -1, 0, 0, 1, 1, 0, 1},
+	{0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0},
+	{0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0},
+	{0, -1, 2, 1, 0, 1, 1, 0, 0, -1, -1},
 }
 
 // Pitch contour codebooks for stage 3 (matching libopus silk_CB_lags_stage3)
@@ -225,7 +226,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		}
 		target := frame4kHz[targetIdx : targetIdx+sfLength8kHz]
 
-		// Compute energy of target
+		// Compute energy of target (double, matches silk_energy_FLP)
 		var targetEnergy float64
 		for _, s := range target {
 			targetEnergy += float64(s) * float64(s)
@@ -240,20 +241,31 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		// Initial energy at minimum lag
 		var basisEnergy float64
 		for i := 0; i < sfLength8kHz && basisIdx+i < len(frame4kHz); i++ {
-			basisEnergy += float64(frame4kHz[basisIdx+i]) * float64(frame4kHz[basisIdx+i])
+			v := frame4kHz[basisIdx+i]
+			basisEnergy += float64(v) * float64(v)
 		}
 
 		// Compute normalizer with bias scaled to float input.
 		normBias := float64(sfLength8kHz) * 4000.0
 		normalizer := targetEnergy + basisEnergy + normBias
 
-		// Compute initial cross-correlation
-		var xcorr float64
-		for i := 0; i < sfLength8kHz && targetIdx+i < len(frame4kHz) && basisIdx+i < len(frame4kHz); i++ {
-			xcorr += float64(target[i]) * float64(frame4kHz[basisIdx+i])
+		// Compute cross-correlation vector (matches celt_pitch_xcorr order)
+		xcorrLen := maxLag4kHz - minLag4kHz + 1
+		xcorr := ensureFloat32Slice(&e.scratchPitchXcorr, xcorrLen)
+		xcorr = xcorr[:xcorrLen]
+		xcorrStart := targetIdx - maxLag4kHz
+		if xcorrStart < 0 {
+			xcorrStart = 0
+		}
+		celtPitchXcorrFloat(target, frame4kHz[xcorrStart:], xcorr, sfLength8kHz, xcorrLen)
+		var xcorrVal float32
+		if maxLag4kHz-minLag4kHz < len(xcorr) {
+			xcorrVal = xcorr[maxLag4kHz-minLag4kHz]
 		}
 		if minLag4kHz < len(C) {
-			C[minLag4kHz] += 2 * xcorr / normalizer
+			val := float32(C[minLag4kHz])
+			val += float32(2.0 * float64(xcorrVal) / normalizer)
+			C[minLag4kHz] = float64(val)
 		}
 
 		// Recursive update for remaining lags
@@ -263,21 +275,25 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 				break
 			}
 
-			// Recompute cross-correlation for this lag
-			xcorr = 0
-			for i := 0; i < sfLength8kHz && targetIdx+i < len(frame4kHz) && basisIdx+i < len(frame4kHz); i++ {
-				xcorr += float64(target[i]) * float64(frame4kHz[basisIdx+i])
+			// Fetch cross-correlation for this lag
+			xcorrVal = 0
+			idx := maxLag4kHz - d
+			if idx >= 0 && idx < len(xcorr) {
+				xcorrVal = xcorr[idx]
 			}
 
 			// Update energy recursively
 			if basisIdx >= 0 && basisIdx+sfLength8kHz < len(frame4kHz) {
-				basisEnergy += float64(frame4kHz[basisIdx])*float64(frame4kHz[basisIdx]) -
-					float64(frame4kHz[basisIdx+sfLength8kHz])*float64(frame4kHz[basisIdx+sfLength8kHz])
+				vNew := frame4kHz[basisIdx]
+				vOld := frame4kHz[basisIdx+sfLength8kHz]
+				basisEnergy += float64(vNew)*float64(vNew) - float64(vOld)*float64(vOld)
 			}
 			normalizer = targetEnergy + basisEnergy + normBias
 
 			if d < len(C) {
-				C[d] += 2 * xcorr / normalizer
+				val := float32(C[d])
+				val += float32(2.0 * float64(xcorrVal) / normalizer)
+				C[d] = float64(val)
 			}
 		}
 	}
@@ -285,11 +301,13 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 	// Apply short-lag bias (matching libopus)
 	for i := maxLag4kHz; i >= minLag4kHz; i-- {
 		if i < len(C) {
-			C[i] -= C[i] * float64(i) / 4096.0
+			val := float32(C[i])
+			val -= val * float32(i) / 4096.0
+			C[i] = float64(val)
 		}
 	}
 
-	// Find top candidates using insertion sort
+	// Find top candidates using insertion sort (match libopus in-place behavior)
 	complexity := e.pitchEstimationComplexity
 	if complexity < 0 {
 		complexity = 0
@@ -301,32 +319,51 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		lengthDSrch = peDSrchLength
 	}
 
-	dSrch := ensureIntSlice(&e.scratchDSrch, lengthDSrch)
-	dSrchCorr := ensureFloat64Slice(&e.scratchDSrchCorr, lengthDSrch)
-	for i := range dSrch {
-		dSrch[i] = 0
+	dSrch := ensureIntSlice(&e.scratchDSrch, peDSrchLength)
+	for i := 0; i < lengthDSrch; i++ {
+		dSrch[i] = i
 	}
-	for i := range dSrchCorr {
-		dSrchCorr[i] = -1e10
+	if minLag4kHz < 0 {
+		minLag4kHz = 0
 	}
-
-	// Insertion sort to find top candidates (store offsets relative to minLag4kHz)
-	for d := minLag4kHz; d <= maxLag4kHz && d < len(C); d++ {
-		if C[d] > dSrchCorr[lengthDSrch-1] {
-			for j := 0; j < lengthDSrch; j++ {
-				if C[d] > dSrchCorr[j] {
-					copy(dSrchCorr[j+1:], dSrchCorr[j:lengthDSrch-1])
-					copy(dSrch[j+1:], dSrch[j:lengthDSrch-1])
-					dSrchCorr[j] = C[d]
-					dSrch[j] = d - minLag4kHz
-					break
-				}
+	if maxLag4kHz >= len(C) {
+		maxLag4kHz = len(C) - 1
+	}
+	if maxLag4kHz < minLag4kHz {
+		maxLag4kHz = minLag4kHz
+	}
+	cSlice := C[minLag4kHz : maxLag4kHz+1]
+	if lengthDSrch > len(cSlice) {
+		lengthDSrch = len(cSlice)
+	}
+	// In-place insertion sort for first K candidates (libopus silk_insertion_sort_decreasing_FLP).
+	for i := 1; i < lengthDSrch; i++ {
+		value := cSlice[i]
+		j := i - 1
+		for j >= 0 && value > cSlice[j] {
+			cSlice[j+1] = cSlice[j]
+			dSrch[j+1] = dSrch[j]
+			j--
+		}
+		cSlice[j+1] = value
+		dSrch[j+1] = i
+	}
+	for i := lengthDSrch; i < len(cSlice); i++ {
+		value := cSlice[i]
+		if value > cSlice[lengthDSrch-1] {
+			j := lengthDSrch - 2
+			for j >= 0 && value > cSlice[j] {
+				cSlice[j+1] = cSlice[j]
+				dSrch[j+1] = dSrch[j]
+				j--
 			}
+			cSlice[j+1] = value
+			dSrch[j+1] = i
 		}
 	}
 
 	// Check if correlation is too low
-	Cmax := dSrchCorr[0]
+	Cmax := float32(cSlice[0])
 	if Cmax < 0.2 {
 		// Unvoiced - libopus returns zero lags in this case.
 		pitchLags := ensureIntSlice(&e.scratchPitchLags, numSubframes)
@@ -342,15 +379,16 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 	if searchThres1 <= 0 {
 		searchThres1 = 0.8 - 0.5*float64(complexity)/2.0
 	}
-	threshold := searchThres1 * Cmax
+	threshold := float32(searchThres1) * Cmax
 
 	// Convert to 8kHz indices and expand search range
-	dComp := ensureInt16Slice(&e.scratchDComp, maxLag8kHz+5)
+	dCompLen := peMaxLagMS*8 + 5
+	dComp := ensureInt16Slice(&e.scratchDComp, dCompLen)
 	for i := range dComp {
 		dComp[i] = 0 // Clear
 	}
 	for i := 0; i < lengthDSrch; i++ {
-		if dSrchCorr[i] <= threshold {
+		if float32(cSlice[i]) <= threshold {
 			lengthDSrch = i
 			break
 		}
@@ -378,79 +416,27 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 			}
 		}
 	}
-
-	// Further expand d_comp list used for 8kHz correlation computation
+	// Second convolution to build d_comp lag list (libopus stage 2 precompute gating)
 	for i := maxLag8kHz + 3; i >= minLag8kHz; i-- {
 		if i < len(dComp) && i-1 >= 0 && i-2 >= 0 && i-3 >= 0 {
 			dComp[i] += dComp[i-1] + dComp[i-2] + dComp[i-3]
 		}
 	}
-
-	lengthDComp := 0
-	for i := minLag8kHz; i < maxLag8kHz+4; i++ {
-		if i < len(dComp) && dComp[i] > 0 {
-			if lengthDComp < len(dComp) {
-				dComp[lengthDComp] = int16(i - 2)
-				lengthDComp++
-			}
-		}
-	}
-
-	// Stage 2: Refined search at 8kHz
-	// Use flat array: C8kHz[k][d] -> C8kHz[k*c8kHzStride + d]
-	c8kHzStride := maxLag8kHz + 5
-	C8kHz := ensureFloat64Slice(&e.scratchC8kHz, numSubframes*c8kHzStride)
-	for i := range C8kHz {
-		C8kHz[i] = 0 // Clear
-	}
-
+	// Stage 2: Refined search at 8kHz (compute correlations on the fly)
 	targetStart8k := peLTPMemLengthMS * 8
 	if fsKHz == 8 {
 		targetStart8k = peLTPMemLengthMS * 8
 	}
 
-	for k := 0; k < numSubframes; k++ {
-		targetIdx := targetStart8k + k*sfLength8kHz
-		if targetIdx+sfLength8kHz > len(frame8kHz) {
-			break
-		}
-		target := frame8kHz[targetIdx : targetIdx+sfLength8kHz]
-
-		var targetEnergy float64
-		for _, s := range target {
-			targetEnergy += float64(s) * float64(s)
-		}
-		targetEnergy += 1.0 // Avoid division by zero
-
-		for j := 0; j < lengthDComp; j++ {
-			d := int(dComp[j])
-			basisIdx := targetIdx - d
-			if basisIdx < 0 || basisIdx+sfLength8kHz > len(frame8kHz) {
-				continue
-			}
-			basis := frame8kHz[basisIdx : basisIdx+sfLength8kHz]
-
-			var xcorr, basisEnergy float64
-			for i := 0; i < sfLength8kHz; i++ {
-				xcorr += float64(target[i]) * float64(basis[i])
-				basisEnergy += float64(basis[i]) * float64(basis[i])
-			}
-
-			if d >= 0 && d < c8kHzStride {
-				C8kHz[k*c8kHzStride+d] = 2 * xcorr / (targetEnergy + basisEnergy + 1.0)
-			}
-		}
-	}
-
 	// Search over lag range and contour codebook
-	var CCmax float64
-	CCmaxB := -1000.0
+	CCmaxStage2 := float32(-1000.0)
+	CCmaxBStage2 := float32(-1000.0)
 	CBimax := 0
 	lag := -1
 
 	// Previous lag handling
 	prevLag := e.pitchState.prevLag
-	var prevLagLog2 float64
+	var prevLagLog2 float32
 	if prevLag > 0 {
 		prevLag8k := prevLag
 		if fsKHz == 12 {
@@ -458,7 +444,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		} else if fsKHz == 16 {
 			prevLag8k = prevLag / 2
 		}
-		prevLagLog2 = math.Log2(float64(prevLag8k))
+		prevLagLog2 = silkLog2Float(float32(prevLag8k))
 	}
 
 	// Determine number of codebook searches
@@ -481,26 +467,41 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		searchThres2 = 0.4 - 0.25*float64(complexity)/2.0
 	}
 
-	var ccBuf [peNbCbksStage2Ext]float64
+	var ccBuf [peNbCbksStage2Ext]float32
 	for k := 0; k < lengthDSrch; k++ {
 		d := dSrch[k]
 
 		cc := ccBuf[:nbCbkSearch]
 		for j := 0; j < nbCbkSearch; j++ {
 			cc[j] = 0
+			targetIdx := targetStart8k
 			for i := 0; i < numSubframes; i++ {
 				var cbOffset int8
 				if lagCBPtr != nil && i < peMaxNbSubfr && j < cbkSize {
 					cbOffset = lagCBPtr[i][j]
 				}
-				idx := d + int(cbOffset)
-				if idx >= 0 && idx < c8kHzStride {
-					cc[j] += C8kHz[i*c8kHzStride+idx]
+				lagVal := d + int(cbOffset)
+				idx := lagVal + 2
+				if idx < 0 || idx >= len(dComp) || dComp[idx] <= 0 {
+					targetIdx += sfLength8kHz
+					continue
 				}
+				basisIdx := targetIdx - lagVal
+				if basisIdx >= 0 && basisIdx+sfLength8kHz <= len(frame8kHz) && targetIdx+sfLength8kHz <= len(frame8kHz) {
+					target := frame8kHz[targetIdx : targetIdx+sfLength8kHz]
+					basis := frame8kHz[basisIdx : basisIdx+sfLength8kHz]
+					xcorr := innerProductFLP(basis, target, sfLength8kHz)
+					if xcorr > 0 {
+						energyTmp := energyFLP(target) + 1.0
+						energy := energyFLP(basis)
+						cc[j] += 2.0 * xcorr / (energy + energyTmp)
+					}
+				}
+				targetIdx += sfLength8kHz
 			}
 		}
 
-		CCmaxNew := -1000.0
+		CCmaxNew := float32(-1000.0)
 		CBimaxNew := 0
 		for i := 0; i < nbCbkSearch; i++ {
 			if cc[i] > CCmaxNew {
@@ -509,18 +510,17 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 			}
 		}
 
-		lagLog2 := math.Log2(float64(d))
-		CCmaxNewB := CCmaxNew - peShortlagBias*float64(numSubframes)*lagLog2
+		lagLog2 := silkLog2Float(float32(d))
+		CCmaxNewB := CCmaxNew - float32(peShortlagBias)*float32(numSubframes)*lagLog2
 		if prevLag > 0 {
 			deltaLagLog2Sqr := lagLog2 - prevLagLog2
 			deltaLagLog2Sqr *= deltaLagLog2Sqr
-			CCmaxNewB -= pePrevlagBias * float64(numSubframes) * e.pitchState.ltpCorr *
+			CCmaxNewB -= float32(pePrevlagBias) * float32(numSubframes) * float32(e.pitchState.ltpCorr) *
 				deltaLagLog2Sqr / (deltaLagLog2Sqr + 0.5)
 		}
-
-		if CCmaxNewB > CCmaxB && CCmaxNew > float64(numSubframes)*searchThres2 {
-			CCmaxB = CCmaxNewB
-			CCmax = CCmaxNew
+		if CCmaxNewB > CCmaxBStage2 && CCmaxNew > float32(numSubframes)*float32(searchThres2) {
+			CCmaxBStage2 = CCmaxNewB
+			CCmaxStage2 = CCmaxNew
 			lag = d
 			CBimax = CBimaxNew
 		}
@@ -538,9 +538,8 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 
 	// Update LTP correlation
 	if lag > 0 {
-		e.pitchState.ltpCorr = CCmax / float64(numSubframes)
+		e.pitchState.ltpCorr = float64(CCmaxStage2 / float32(numSubframes))
 	}
-
 	// Stage 3: Fine search at full rate (if not 8kHz) - use scratch buffer
 	pitchLags := ensureIntSlice(&e.scratchPitchLags, numSubframes)
 
@@ -573,7 +572,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		pitchAnalysisCalcEnergySt3(energySt3, pcm, startLag, sfLength, numSubframes, complexity)
 
 		lagCounter := 0
-		contourBias := peFlatcontourBias / float64(lag)
+		contourBias := float32(peFlatcontourBias) / float32(lag)
 
 		var lagCBStage3 [][]int8
 		var nbCbkSearch3 int
@@ -594,29 +593,44 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 
 		lagNew := lag
 		CBimax = 0
-		CCmax = -1000.0
+		CCmaxSt3 := float32(-1000.0)
+
+		var cbOffsetCheck []int8
+		if numSubframes == peMaxNbSubfr {
+			cbOffsetCheck = pitchCBLagsStage3Slice[0]
+		} else {
+			cbOffsetCheck = pitchCBLagsStage310msSlice[0]
+		}
 
 		for d := startLag; d <= endLag; d++ {
 			for j := 0; j < nbCbkSearch3; j++ {
 				crossCorr := 0.0
-				energy := energyTmp
+				energy := float64(energyTmp)
 				for k := 0; k < numSubframes; k++ {
 					idx := pitchStage3Index(k, j, lagCounter)
 					crossCorr += corrSt3[idx]
 					energy += energySt3[idx]
 				}
-				cc := 2.0 * crossCorr / energy
-				cc *= 1.0 - contourBias*float64(j)
+				cc := float32(0)
+				if crossCorr > 0 {
+					cc = float32(2.0 * crossCorr / energy)
+					cc *= 1.0 - contourBias*float32(j)
+				}
 
-				if cc > CCmax {
-					CCmax = cc
-					lagNew = d
-					CBimax = j
+				if cc > CCmaxSt3 {
+					limitOffset := 0
+					if j < len(cbOffsetCheck) {
+						limitOffset = int(cbOffsetCheck[j])
+					}
+					if d+limitOffset <= maxLag {
+						CCmaxSt3 = cc
+						lagNew = d
+						CBimax = j
+					}
 				}
 			}
 			lagCounter++
 		}
-
 		for k := 0; k < numSubframes; k++ {
 			cbOffset := lagCBStage3[k][CBimax]
 			pitchLags[k] = lagNew + int(cbOffset)
@@ -655,6 +669,14 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 
 	return pitchLags, lag - minLag, CBimax
 }
+
+func silkLog2Float(x float32) float32 {
+	if x <= 0 {
+		return 0
+	}
+	return float32(3.32192809488736 * math.Log10(float64(x)))
+}
+
 
 // downsampleLowpass performs downsampling with a simple low-pass filter.
 // This matches libopus's approach of using a 3-tap filter for anti-aliasing.
@@ -777,48 +799,185 @@ func lagrangianInterpolate(corrMinus, corrCenter, corrPlus float64) float64 {
 }
 
 // energyFLP computes sum of squares of a float32 array.
-// Matches libopus silk_energy_FLP.
-func energyFLP(data []float32) float64 {
-	var result float64
+// Matches libopus silk_energy_FLP (float precision accumulation).
+func energyFLP(data []float32) float32 {
+	var result float32
 
 	// 4x unrolled loop for performance
 	n := len(data)
 	i := 0
 	for ; i < n-3; i += 4 {
-		result += float64(data[i+0])*float64(data[i+0]) +
-			float64(data[i+1])*float64(data[i+1]) +
-			float64(data[i+2])*float64(data[i+2]) +
-			float64(data[i+3])*float64(data[i+3])
+		result += data[i+0]*data[i+0] +
+			data[i+1]*data[i+1] +
+			data[i+2]*data[i+2] +
+			data[i+3]*data[i+3]
 	}
 
 	// Handle remaining samples
 	for ; i < n; i++ {
-		result += float64(data[i]) * float64(data[i])
+		result += data[i] * data[i]
 	}
 
 	return result
 }
 
 // innerProductFLP computes inner product of two float32 arrays.
-// Matches libopus silk_inner_product_FLP.
-func innerProductFLP(a, b []float32, length int) float64 {
-	var result float64
+// Matches libopus silk_inner_product_FLP (float precision accumulation).
+func innerProductFLP(a, b []float32, length int) float32 {
+	var result float32
 
 	// 4x unrolled loop for performance
 	i := 0
 	for ; i < length-3; i += 4 {
-		result += float64(a[i+0])*float64(b[i+0]) +
-			float64(a[i+1])*float64(b[i+1]) +
-			float64(a[i+2])*float64(b[i+2]) +
-			float64(a[i+3])*float64(b[i+3])
+		result += a[i+0]*b[i+0] +
+			a[i+1]*b[i+1] +
+			a[i+2]*b[i+2] +
+			a[i+3]*b[i+3]
 	}
 
 	// Handle remaining samples
 	for ; i < length; i++ {
-		result += float64(a[i]) * float64(b[i])
+		result += a[i] * b[i]
 	}
 
 	return result
+}
+
+func innerProductF32Acc(a, b []float32, length int) float32 {
+	var result float32
+	for i := 0; i < length; i++ {
+		result += a[i] * b[i]
+	}
+	return result
+}
+
+func xcorrKernelFloat(x, y []float32, sum *[4]float32, length int) {
+	if length < 3 {
+		return
+	}
+	xIdx := 0
+	yIdx := 0
+	y0 := y[yIdx]
+	yIdx++
+	y1 := y[yIdx]
+	yIdx++
+	y2 := y[yIdx]
+	yIdx++
+	y3 := float32(0)
+
+	j := 0
+	for j+3 < length {
+		tmp := x[xIdx]
+		xIdx++
+		y3 = y[yIdx]
+		yIdx++
+		sum[0] += tmp * y0
+		sum[1] += tmp * y1
+		sum[2] += tmp * y2
+		sum[3] += tmp * y3
+
+		tmp = x[xIdx]
+		xIdx++
+		y0 = y[yIdx]
+		yIdx++
+		sum[0] += tmp * y1
+		sum[1] += tmp * y2
+		sum[2] += tmp * y3
+		sum[3] += tmp * y0
+
+		tmp = x[xIdx]
+		xIdx++
+		y1 = y[yIdx]
+		yIdx++
+		sum[0] += tmp * y2
+		sum[1] += tmp * y3
+		sum[2] += tmp * y0
+		sum[3] += tmp * y1
+
+		tmp = x[xIdx]
+		xIdx++
+		y2 = y[yIdx]
+		yIdx++
+		sum[0] += tmp * y3
+		sum[1] += tmp * y0
+		sum[2] += tmp * y1
+		sum[3] += tmp * y2
+		j += 4
+	}
+
+	if j < length {
+		tmp := x[xIdx]
+		xIdx++
+		y3 = y[yIdx]
+		yIdx++
+		sum[0] += tmp * y0
+		sum[1] += tmp * y1
+		sum[2] += tmp * y2
+		sum[3] += tmp * y3
+		j++
+	}
+	if j < length {
+		tmp := x[xIdx]
+		xIdx++
+		y0 = y[yIdx]
+		yIdx++
+		sum[0] += tmp * y1
+		sum[1] += tmp * y2
+		sum[2] += tmp * y3
+		sum[3] += tmp * y0
+		j++
+	}
+	if j < length {
+		tmp := x[xIdx]
+		y1 = y[yIdx]
+		sum[0] += tmp * y2
+		sum[1] += tmp * y3
+		sum[2] += tmp * y0
+		sum[3] += tmp * y1
+	}
+}
+
+func celtPitchXcorrFloat(x, y []float32, out []float32, length, maxPitch int) {
+	if maxPitch <= 0 || length <= 0 {
+		return
+	}
+	if len(x) < length {
+		length = len(x)
+	}
+	if length <= 0 || len(out) == 0 {
+		return
+	}
+	// Need at least `length` samples for scalar correlation and `length+3`
+	// for the 4-way kernel.
+	maxByY := len(y) - length + 1
+	if maxByY <= 0 {
+		return
+	}
+	if maxPitch > maxByY {
+		maxPitch = maxByY
+	}
+	if maxPitch > len(out) {
+		maxPitch = len(out)
+	}
+	if maxPitch <= 0 {
+		return
+	}
+
+	i := 0
+	for ; i < maxPitch-3; i += 4 {
+		if len(y)-i < length+3 {
+			break
+		}
+		var sum [4]float32
+		xcorrKernelFloat(x, y[i:], &sum, length)
+		out[i] = sum[0]
+		out[i+1] = sum[1]
+		out[i+2] = sum[2]
+		out[i+3] = sum[3]
+	}
+	for ; i < maxPitch; i++ {
+		out[i] = innerProductF32Acc(x, y[i:], length)
+	}
 }
 
 func pitchStage3Index(k, j, lag int) int {
@@ -844,7 +1003,7 @@ func pitchAnalysisCalcCorrSt3(out []float64, frame []float32, startLag, sfLength
 	}
 
 	targetIdx := sfLength * 4
-	var scratchMem [22]float64
+	var scratchMem [22]float32
 	for k := 0; k < nbSubfr; k++ {
 		lagLow := int(lagRange[k][0])
 		lagHigh := int(lagRange[k][1])
@@ -864,7 +1023,7 @@ func pitchAnalysisCalcCorrSt3(out []float64, frame []float32, startLag, sfLength
 			if basisIdx < 0 || basisIdx+sfLength > len(frame) || targetIdx+sfLength > len(frame) {
 				continue
 			}
-			scratchMem[j-lagLow] = innerProductFLP(frame[basisIdx:], frame[targetIdx:], sfLength)
+			scratchMem[j-lagLow] = innerProductF32Acc(frame[basisIdx:], frame[targetIdx:], sfLength)
 		}
 		delta := lagLow
 		for i := 0; i < nbCbkSearch; i++ {
@@ -874,7 +1033,7 @@ func pitchAnalysisCalcCorrSt3(out []float64, frame []float32, startLag, sfLength
 					out[pitchStage3Index(k, i, j)] = 0
 					continue
 				}
-				out[pitchStage3Index(k, i, j)] = scratchMem[idx+j]
+				out[pitchStage3Index(k, i, j)] = float64(scratchMem[idx+j])
 			}
 		}
 		targetIdx += sfLength
@@ -900,7 +1059,7 @@ func pitchAnalysisCalcEnergySt3(out []float64, frame []float32, startLag, sfLeng
 	}
 
 	targetIdx := sfLength * 4
-	var scratchMem [22]float64
+	var scratchMem [22]float32
 	for k := 0; k < nbSubfr; k++ {
 		lagLow := int(lagRange[k][0])
 		lagHigh := int(lagRange[k][1])
@@ -918,12 +1077,12 @@ func pitchAnalysisCalcEnergySt3(out []float64, frame []float32, startLag, sfLeng
 			targetIdx += sfLength
 			continue
 		}
-		energy := energyFLP(frame[basisStart:basisStart+sfLength]) + 1e-3
-		scratchMem[0] = energy
+		energy := float64(energyFLP(frame[basisStart:basisStart+sfLength])) + 1e-3
+		scratchMem[0] = float32(energy)
 		for i := 1; i < lagCount; i++ {
 			energy -= float64(frame[basisStart+sfLength-i]) * float64(frame[basisStart+sfLength-i])
 			energy += float64(frame[basisStart-i]) * float64(frame[basisStart-i])
-			scratchMem[i] = energy
+			scratchMem[i] = float32(energy)
 		}
 
 		delta := lagLow
@@ -934,7 +1093,7 @@ func pitchAnalysisCalcEnergySt3(out []float64, frame []float32, startLag, sfLeng
 					out[pitchStage3Index(k, i, j)] = 0
 					continue
 				}
-				out[pitchStage3Index(k, i, j)] = scratchMem[idx+j]
+				out[pitchStage3Index(k, i, j)] = float64(scratchMem[idx+j])
 			}
 		}
 		targetIdx += sfLength
@@ -1004,7 +1163,7 @@ func (e *Encoder) encodePitchLagsWithParams(params pitchEncodeParams, condCoding
 	fsKHz := config.SampleRate / 1000
 
 	encodeAbsolute := true
-	if condCoding == codeConditionally && e.isPreviousFrameVoiced {
+	if condCoding == codeConditionally && e.ecPrevSignalType == typeVoiced {
 		delta := params.lagIdx - e.ecPrevLagIndex
 		if delta < -8 || delta > 11 {
 			delta = 0

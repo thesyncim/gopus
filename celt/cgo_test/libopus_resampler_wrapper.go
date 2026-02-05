@@ -11,6 +11,7 @@ package cgo
 #include <string.h>
 #include "opus_types.h"
 #include "silk/resampler_structs.h"
+#include "silk/resampler_private.h"
 
 // Direct access to libopus resampler
 extern int silk_resampler_init(silk_resampler_state_struct *S, int Fs_Hz_in, int Fs_Hz_out, int forEnc);
@@ -22,6 +23,16 @@ void processLibopusResamplerC(int16_t* out, const int16_t* in, int inLen, int fs
 	memset(&S, 0, sizeof(S));
 	silk_resampler_init(&S, fsIn, fsOut, 0);
 	silk_resampler(&S, out, in, inLen);
+}
+
+void processLibopusDown2C(int16_t* out, const int16_t* in, int inLen) {
+	opus_int32 state[2] = {0, 0};
+	silk_resampler_down2(state, out, in, inLen);
+}
+
+void processLibopusDown2_3C(int16_t* out, const int16_t* in, int inLen) {
+	opus_int32 state[6] = {0, 0, 0, 0, 0, 0};
+	silk_resampler_down2_3(state, out, in, inLen);
 }
 
 // Get resampler parameters after init
@@ -69,6 +80,36 @@ func ProcessLibopusResampler(in []int16, fsIn, fsOut int) []int16 {
 		C.int(len(in)),
 		C.int(fsIn),
 		C.int(fsOut),
+	)
+	return out
+}
+
+// ProcessLibopusDown2 runs silk_resampler_down2 on the input.
+func ProcessLibopusDown2(in []int16) []int16 {
+	if len(in) == 0 {
+		return nil
+	}
+	outLen := len(in) / 2
+	out := make([]int16, outLen)
+	C.processLibopusDown2C(
+		(*C.int16_t)(unsafe.Pointer(&out[0])),
+		(*C.int16_t)(unsafe.Pointer(&in[0])),
+		C.int(len(in)),
+	)
+	return out
+}
+
+// ProcessLibopusDown2_3 runs silk_resampler_down2_3 on the input.
+func ProcessLibopusDown2_3(in []int16) []int16 {
+	if len(in) == 0 {
+		return nil
+	}
+	outLen := len(in) * 2 / 3
+	out := make([]int16, outLen)
+	C.processLibopusDown2_3C(
+		(*C.int16_t)(unsafe.Pointer(&out[0])),
+		(*C.int16_t)(unsafe.Pointer(&in[0])),
+		C.int(len(in)),
 	)
 	return out
 }

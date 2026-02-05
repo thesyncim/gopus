@@ -18,8 +18,8 @@ const (
 	harmHPNoiseCoefQ24 = 5872026 // 0.35 * 16777216 (Q24 for libopus matching)
 
 	// Low-frequency shaping
-	lowFreqShaping               = 0.4 // Base low-freq shaping strength
-	lowFreqShapingQ14            = 6554
+	lowFreqShaping               = 4.0 // Base low-freq shaping strength
+	lowFreqShapingQ14            = 65536
 	lowQualityLowFreqShapingDecr = 0.5 // Decrease for low quality
 
 	// Noise shape analysis constants (tuning_parameters.h)
@@ -78,9 +78,10 @@ type NoiseShapeParams struct {
 
 // computeLambdaQ10 recomputes the Lambda (rate-distortion tradeoff) using the
 // provided quantization offset type. This mirrors the logic in ComputeNoiseShapeParams.
-func computeLambdaQ10(signalType, speechActivityQ8, quantOffsetType int, codingQuality, inputQuality float32) int {
+func computeLambdaQ10(signalType, speechActivityQ8, quantOffsetType, nStatesDelayedDecision int, codingQuality, inputQuality float32) int {
 	quantOffset := float32(silk_Quantization_Offsets_Q10[signalType>>1][quantOffsetType]) / 1024.0
 	lambda := lambdaOffset +
+		lambdaDelayedDecisions*float32(nStatesDelayedDecision) +
 		lambdaSpeechAct*float32(speechActivityQ8)/256.0 +
 		lambdaInputQuality*inputQuality +
 		lambdaCodingQuality*codingQuality +
@@ -117,6 +118,7 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 	inputQualityBandsQ15 [4]int,
 	numSubframes int,
 	fsKHz int,
+	nStatesDelayedDecision int,
 ) *NoiseShapeParams {
 	params := &NoiseShapeParams{
 		HarmShapeGainQ14: make([]int, numSubframes),
@@ -145,6 +147,7 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 	//        + LAMBDA_QUANT_OFFSET * quant_offset
 	quantOffset := float32(silk_Quantization_Offsets_Q10[signalType>>1][quantOffsetType]) / 1024.0
 	lambda := lambdaOffset +
+		lambdaDelayedDecisions*float32(nStatesDelayedDecision) +
 		lambdaSpeechAct*float32(speechActivityQ8)/256.0 +
 		lambdaInputQuality*params.InputQuality +
 		lambdaCodingQuality*params.CodingQuality +
@@ -240,40 +243,7 @@ func Sigmoid(x float32) float32 {
 	if x < -10 {
 		return 0.0
 	}
-	return 1.0 / (1.0 + exp32(-x))
-}
-
-// exp32 computes exp(x) for float32 using a fast approximation
-func exp32(x float32) float32 {
-	// Use standard library via float64 conversion for accuracy
-	return float32(exp64(float64(x)))
-}
-
-// exp64 computes exp(x) for float64
-func exp64(x float64) float64 {
-	// Fast exp approximation using series expansion for small x
-	// For larger values, use the identity exp(x) = exp(x/2)^2
-	if x > 20 {
-		return 485165195.4 // exp(20) approx
-	}
-	if x < -20 {
-		return 0
-	}
-
-	// For moderate values, use polynomial approximation
-	// exp(x) ≈ 1 + x + x²/2 + x³/6 + x⁴/24 + x⁵/120 + x⁶/720
-	if x >= -1 && x <= 1 {
-		x2 := x * x
-		x3 := x2 * x
-		x4 := x2 * x2
-		x5 := x4 * x
-		x6 := x3 * x3
-		return 1 + x + x2/2 + x3/6 + x4/24 + x5/120 + x6/720
-	}
-
-	// For larger |x|, use identity
-	half := exp64(x / 2)
-	return half * half
+	return float32(1.0 / (1.0 + math.Exp(float64(-x))))
 }
 
 // sqrt32 computes sqrt(x) for float32

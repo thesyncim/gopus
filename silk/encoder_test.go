@@ -36,6 +36,12 @@ func TestNewEncoder(t *testing.T) {
 			if len(enc.PrevLSFQ15()) != tt.wantLPCOrder {
 				t.Errorf("PrevLSFQ15() length = %d, want %d", len(enc.PrevLSFQ15()), tt.wantLPCOrder)
 			}
+			if enc.pitchState.prevLag != 0 {
+				t.Errorf("pitchState.prevLag = %d, want 0", enc.pitchState.prevLag)
+			}
+			if enc.nsqState == nil || enc.nsqState.lagPrev != 100 {
+				t.Errorf("nsqState.lagPrev = %d, want 100", enc.nsqState.lagPrev)
+			}
 		})
 	}
 }
@@ -73,6 +79,12 @@ func TestEncoderReset(t *testing.T) {
 	weights := enc.PrevStereoWeights()
 	if weights[0] != 0 || weights[1] != 0 {
 		t.Error("PrevStereoWeights should be [0,0] after Reset")
+	}
+	if enc.pitchState.prevLag != 0 {
+		t.Errorf("pitchState.prevLag should be 0 after Reset, got %d", enc.pitchState.prevLag)
+	}
+	if enc.nsqState == nil || enc.nsqState.lagPrev != 100 {
+		t.Errorf("nsqState.lagPrev should be 100 after Reset, got %d", enc.nsqState.lagPrev)
 	}
 }
 

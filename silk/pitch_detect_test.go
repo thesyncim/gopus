@@ -161,6 +161,35 @@ func TestDownsampleFactor1(t *testing.T) {
 	}
 }
 
+func TestCeltPitchXcorrFloatBounds(t *testing.T) {
+	length := 40
+	x := make([]float32, length)
+	y := make([]float32, length) // Only one valid lag available.
+	for i := 0; i < length; i++ {
+		x[i] = float32(i + 1)
+		y[i] = float32(i + 2)
+	}
+	out := make([]float32, 8)
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("celtPitchXcorrFloat panicked: %v", r)
+		}
+	}()
+
+	celtPitchXcorrFloat(x, y, out, length, len(out))
+
+	want := innerProductF32Acc(x, y, length)
+	if math.Abs(float64(out[0]-want)) > 1e-4 {
+		t.Fatalf("out[0] = %f, want %f", out[0], want)
+	}
+	for i := 1; i < len(out); i++ {
+		if out[i] != 0 {
+			t.Fatalf("out[%d] = %f, want 0 (no valid lag)", i, out[i])
+		}
+	}
+}
+
 func TestAutocorrPitchSearch(t *testing.T) {
 	// Generate periodic signal
 	period := 40
@@ -529,7 +558,7 @@ func TestEnergyFLP(t *testing.T) {
 	energy := energyFLP(data)
 
 	// Expected: 1 + 4 + 9 + 16 + 25 = 55
-	if math.Abs(energy-55.0) > 0.001 {
+	if math.Abs(float64(energy)-55.0) > 0.001 {
 		t.Errorf("expected energy 55, got %f", energy)
 	}
 }
@@ -541,7 +570,7 @@ func TestInnerProductFLP(t *testing.T) {
 	result := innerProductFLP(a, b, 4)
 
 	// Expected: 1*2 + 2*3 + 3*4 + 4*5 = 2 + 6 + 12 + 20 = 40
-	if math.Abs(result-40.0) > 0.001 {
+	if math.Abs(float64(result)-40.0) > 0.001 {
 		t.Errorf("expected inner product 40, got %f", result)
 	}
 }

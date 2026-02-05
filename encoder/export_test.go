@@ -37,6 +37,11 @@ func (e *Encoder) UpdateFECState(pcm []float32, vadFlag bool) {
 // WriteFrameLength exports writeFrameLength for testing.
 var WriteFrameLength = writeFrameLength
 
+// SilkInputBitrate exports the internal SILK bitrate reservation logic for tests.
+func (e *Encoder) SilkInputBitrate(frameSize int) int {
+	return e.silkInputBitrate(frameSize)
+}
+
 // DTXFrameThreshold is the number of 20ms frames before DTX activates.
 // DTXFrameThresholdMs = 200ms, so at 20ms frames, this is 10 frames.
 const DTXFrameThreshold = DTXFrameThresholdMs / 20 // = 10 frames (matching NB_SPEECH_FRAMES_BEFORE_DTX)
