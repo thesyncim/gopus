@@ -40,6 +40,9 @@ typedef struct {
     int silk_mode_payload_size_ms;
     int silk_mode_use_cbr;
     int silk_mode_max_bits;
+    int silk_mode_bit_rate;
+    int n_frames_per_packet;
+    int n_frames_encoded;
     int speech_activity_q8;
     int input_tilt_q15;
     int pitch_estimation_threshold_q16;
@@ -51,6 +54,10 @@ typedef struct {
     int n_bits_exceeded;
     int gain_indices[4];
     int last_gain_index;
+    unsigned long long nsq_xq_hash;
+    unsigned long long nsq_sltp_shp_hash;
+    unsigned long long nsq_slpc_hash;
+    unsigned long long nsq_sar2_hash;
     unsigned long long pitch_x_buf_hash;
     int pitch_buf_len;
     unsigned long long pitch_win_hash;
@@ -58,6 +65,34 @@ typedef struct {
 } opus_silk_encoder_state_snapshot;
 
 static unsigned long long hash_float32_array(const float *data, int n) {
+    const uint64_t fnv_offset = 1469598103934665603ULL;
+    const uint64_t fnv_prime = 1099511628211ULL;
+    uint64_t h = fnv_offset;
+    int i;
+    for (i = 0; i < n; i++) {
+        uint32_t bits = 0;
+        memcpy(&bits, &data[i], sizeof(bits));
+        h ^= (uint64_t)bits;
+        h *= fnv_prime;
+    }
+    return (unsigned long long)h;
+}
+
+static unsigned long long hash_int16_array(const opus_int16 *data, int n) {
+    const uint64_t fnv_offset = 1469598103934665603ULL;
+    const uint64_t fnv_prime = 1099511628211ULL;
+    uint64_t h = fnv_offset;
+    int i;
+    for (i = 0; i < n; i++) {
+        uint16_t bits = 0;
+        memcpy(&bits, &data[i], sizeof(bits));
+        h ^= (uint64_t)bits;
+        h *= fnv_prime;
+    }
+    return (unsigned long long)h;
+}
+
+static unsigned long long hash_int32_array(const opus_int32 *data, int n) {
     const uint64_t fnv_offset = 1469598103934665603ULL;
     const uint64_t fnv_prime = 1099511628211ULL;
     uint64_t h = fnv_offset;
@@ -99,6 +134,9 @@ static void fill_opus_silk_encoder_state_snapshot(OpusEncoder *enc, opus_silk_en
     out->silk_mode_payload_size_ms = st->silk_mode.payloadSize_ms;
     out->silk_mode_use_cbr = st->silk_mode.useCBR;
     out->silk_mode_max_bits = st->silk_mode.maxBits;
+    out->silk_mode_bit_rate = st->silk_mode.bitRate;
+    out->n_frames_per_packet = st0->sCmn.nFramesPerPacket;
+    out->n_frames_encoded = st0->sCmn.nFramesEncoded;
     out->speech_activity_q8 = st0->sCmn.speech_activity_Q8;
     out->input_tilt_q15 = st0->sCmn.input_tilt_Q15;
     out->pitch_estimation_threshold_q16 = st0->sCmn.pitchEstimationThreshold_Q16;
@@ -113,6 +151,10 @@ static void fill_opus_silk_encoder_state_snapshot(OpusEncoder *enc, opus_silk_en
     out->gain_indices[2] = st0->sCmn.indices.GainsIndices[2];
     out->gain_indices[3] = st0->sCmn.indices.GainsIndices[3];
     out->last_gain_index = st0->sShape.LastGainIndex;
+    out->nsq_xq_hash = hash_int16_array(st0->sCmn.sNSQ.xq, 2 * MAX_FRAME_LENGTH);
+    out->nsq_sltp_shp_hash = hash_int32_array(st0->sCmn.sNSQ.sLTP_shp_Q14, 2 * MAX_FRAME_LENGTH);
+    out->nsq_slpc_hash = hash_int32_array(st0->sCmn.sNSQ.sLPC_Q14, MAX_SUB_FRAME_LENGTH + NSQ_LPC_BUF_LENGTH);
+    out->nsq_sar2_hash = hash_int32_array(st0->sCmn.sNSQ.sAR2_Q14, MAX_SHAPE_LPC_ORDER);
 
     {
         int buf_len = st0->sCmn.la_pitch + st0->sCmn.frame_length + st0->sCmn.ltp_mem_length;
@@ -332,6 +374,9 @@ type OpusSilkEncoderStateSnapshot struct {
 	SilkPayloadSizeMs int
 	SilkModeUseCBR    int
 	SilkModeMaxBits   int
+	SilkModeBitRate   int
+	NFramesPerPacket  int
+	NFramesEncoded    int
 	SpeechActivityQ8  int
 	InputTiltQ15      int
 	PitchEstThresQ16  int32
@@ -343,6 +388,10 @@ type OpusSilkEncoderStateSnapshot struct {
 	NBitsExceeded     int
 	GainIndices       [4]int8
 	LastGainIndex     int
+	NSQXQHash         uint64
+	NSQSLTPShpHash    uint64
+	NSQSLPCHash       uint64
+	NSQSAR2Hash       uint64
 	PitchXBufHash     uint64
 	PitchBufLen       int
 	PitchWinHash      uint64
@@ -405,6 +454,9 @@ func captureOpusSilkEncoderStateAtFrame(samples []float32, sampleRate, channels,
 		SilkPayloadSizeMs:    int(out.silk_mode_payload_size_ms),
 		SilkModeUseCBR:       int(out.silk_mode_use_cbr),
 		SilkModeMaxBits:      int(out.silk_mode_max_bits),
+		SilkModeBitRate:      int(out.silk_mode_bit_rate),
+		NFramesPerPacket:     int(out.n_frames_per_packet),
+		NFramesEncoded:       int(out.n_frames_encoded),
 		SpeechActivityQ8:     int(out.speech_activity_q8),
 		InputTiltQ15:         int(out.input_tilt_q15),
 		PitchEstThresQ16:     int32(out.pitch_estimation_threshold_q16),
@@ -420,11 +472,15 @@ func captureOpusSilkEncoderStateAtFrame(samples []float32, sampleRate, channels,
 			int8(out.gain_indices[2]),
 			int8(out.gain_indices[3]),
 		},
-		LastGainIndex: int(out.last_gain_index),
-		PitchXBufHash: uint64(out.pitch_x_buf_hash),
-		PitchBufLen:   int(out.pitch_buf_len),
-		PitchWinHash:  uint64(out.pitch_win_hash),
-		PitchWinLen:   int(out.pitch_win_len),
+		LastGainIndex:  int(out.last_gain_index),
+		NSQXQHash:      uint64(out.nsq_xq_hash),
+		NSQSLTPShpHash: uint64(out.nsq_sltp_shp_hash),
+		NSQSLPCHash:    uint64(out.nsq_slpc_hash),
+		NSQSAR2Hash:    uint64(out.nsq_sar2_hash),
+		PitchXBufHash:  uint64(out.pitch_x_buf_hash),
+		PitchBufLen:    int(out.pitch_buf_len),
+		PitchWinHash:   uint64(out.pitch_win_hash),
+		PitchWinLen:    int(out.pitch_win_len),
 	}, true
 }
 
