@@ -169,15 +169,18 @@ type GainLoopIter struct {
 
 // FrameStateTrace captures final per-frame encoder state after successful encode.
 type FrameStateTrace struct {
-	SignalType    int
-	LagIndex      int
-	Contour       int
-	GainIndices   [maxNbSubfr]int8
-	LastGainIndex int32
-	SumLogGainQ7  int32
-	TargetRateBps int
-	SNRDBQ7       int
-	NBitsExceeded int
+	SignalType       int
+	LagIndex         int
+	Contour          int
+	GainIndices      [maxNbSubfr]int8
+	LastGainIndex    int32
+	SumLogGainQ7     int32
+	InputRateBps     int
+	TargetRateBps    int
+	SNRDBQ7          int
+	NBitsExceeded    int
+	NFramesPerPacket int
+	NFramesEncoded   int
 
 	PrevLag        int
 	PrevSignalType int
@@ -199,6 +202,10 @@ type FrameStateTrace struct {
 	NSQPrevGainQ16   int32
 	NSQRandSeed      int32
 	NSQRewhiteFlag   int
+	NSQXQHash        uint64
+	NSQSLTPShpHash   uint64
+	NSQSLPCHash      uint64
+	NSQSAR2Hash      uint64
 
 	PitchBufHash uint64
 	PitchBufLen  int

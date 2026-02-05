@@ -108,9 +108,12 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		}
 		tr.LastGainIndex = e.previousGainIndex
 		tr.SumLogGainQ7 = e.sumLogGainQ7
+		tr.InputRateBps = e.targetRateBps
 		tr.TargetRateBps = e.lastControlTargetRateBps
 		tr.SNRDBQ7 = e.snrDBQ7
 		tr.NBitsExceeded = e.nBitsExceeded
+		tr.NFramesPerPacket = e.nFramesPerPacket
+		tr.NFramesEncoded = e.nFramesEncoded
 		tr.PrevLag = e.pitchState.prevLag
 		tr.PrevSignalType = e.ecPrevSignalType
 		tr.LTPCorr = e.ltpCorr
@@ -129,6 +132,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			tr.NSQPrevGainQ16 = e.nsqState.prevGainQ16
 			tr.NSQRandSeed = e.nsqState.randSeed
 			tr.NSQRewhiteFlag = e.nsqState.rewhiteFlag
+			tr.NSQXQHash = hashInt16Slice(e.nsqState.xq[:])
+			tr.NSQSLTPShpHash = hashInt32Slice(e.nsqState.sLTPShpQ14[:])
+			tr.NSQSLPCHash = hashInt32Slice(e.nsqState.sLPCQ14[:])
+			tr.NSQSAR2Hash = hashInt32Slice(e.nsqState.sAR2Q14[:])
 		}
 		tr.PitchBufLen, tr.PitchBufHash, tr.PitchWinLen, tr.PitchWinHash = e.tracePitchBufferState(frameSamples, numSubframes)
 		if tr.PitchBufLen > 0 {
@@ -739,9 +746,12 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		tr.Contour = pitchParams.contourIdx
 		tr.LastGainIndex = e.previousGainIndex
 		tr.SumLogGainQ7 = e.sumLogGainQ7
+		tr.InputRateBps = e.targetRateBps
 		tr.TargetRateBps = e.lastControlTargetRateBps
 		tr.SNRDBQ7 = e.snrDBQ7
 		tr.NBitsExceeded = e.nBitsExceeded
+		tr.NFramesPerPacket = e.nFramesPerPacket
+		tr.NFramesEncoded = e.nFramesEncoded
 		for i := 0; i < maxNbSubfr; i++ {
 			tr.GainIndices[i] = frameIndices.GainsIndices[i]
 		}
@@ -766,6 +776,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			tr.NSQPrevGainQ16 = e.nsqState.prevGainQ16
 			tr.NSQRandSeed = e.nsqState.randSeed
 			tr.NSQRewhiteFlag = e.nsqState.rewhiteFlag
+			tr.NSQXQHash = hashInt16Slice(e.nsqState.xq[:])
+			tr.NSQSLTPShpHash = hashInt32Slice(e.nsqState.sLTPShpQ14[:])
+			tr.NSQSLPCHash = hashInt32Slice(e.nsqState.sLPCQ14[:])
+			tr.NSQSAR2Hash = hashInt32Slice(e.nsqState.sAR2Q14[:])
 		}
 	}
 

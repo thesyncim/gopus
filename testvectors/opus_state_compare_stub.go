@@ -25,6 +25,9 @@ type libopusOpusStateSnapshot struct {
 	SilkPayloadSizeMs int
 	SilkModeUseCBR    int
 	SilkModeMaxBits   int
+	SilkModeBitRate   int
+	NFramesPerPacket  int
+	NFramesEncoded    int
 	SpeechActivityQ8  int
 	InputTiltQ15      int
 	PitchEstThresQ16  int32
@@ -36,6 +39,10 @@ type libopusOpusStateSnapshot struct {
 	NBitsExceeded     int
 	GainIndices       [4]int8
 	LastGainIndex     int
+	NSQXQHash         uint64
+	NSQSLTPShpHash    uint64
+	NSQSLPCHash       uint64
+	NSQSAR2Hash       uint64
 	PitchXBufHash     uint64
 	PitchBufLen       int
 	PitchWinHash      uint64
