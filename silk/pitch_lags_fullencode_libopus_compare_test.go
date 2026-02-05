@@ -19,6 +19,7 @@ func TestPitchLagsTraceFullEncodeAgainstLibopus(t *testing.T) {
 		Pitch: &PitchTrace{
 			CaptureResidual:  true,
 			CapturePitchLags: true,
+			CaptureXBuf:      true,
 		},
 	}
 	enc.trace = trace
@@ -42,15 +43,13 @@ func TestPitchLagsTraceFullEncodeAgainstLibopus(t *testing.T) {
 		if pt.XBufLen <= 0 {
 			t.Fatalf("invalid x buffer length at frame %d", frame)
 		}
-		if pt.XBufLen > len(enc.inputBuffer) {
-			t.Fatalf("trace x buffer length %d exceeds input buffer %d", pt.XBufLen, len(enc.inputBuffer))
+		// Use the captured XBuf from trace (captured before buffer shift at end of frame)
+		if len(pt.XBuf) < pt.XBufLen {
+			t.Fatalf("frame %d: captured XBuf too short (%d < %d)", frame, len(pt.XBuf), pt.XBufLen)
 		}
-		xBufScaled := make([]float32, pt.XBufLen)
-		for i := 0; i < pt.XBufLen; i++ {
-			xBufScaled[i] = enc.inputBuffer[i] * silkSampleScale
-		}
+		xBufScaled := pt.XBuf[:pt.XBufLen]
 		if got := hashFloat32Slice(xBufScaled); got != pt.XBufHash {
-			t.Fatalf("frame %d: xBufHash mismatch go=%d calc=%d", frame, pt.XBufHash, got)
+			t.Fatalf("frame %d: xBufHash mismatch trace=%d calc=%d", frame, pt.XBufHash, got)
 		}
 		if pt.LtpMemLen >= len(xBufScaled) {
 			t.Fatalf("frame %d: LTP mem length %d exceeds buffer %d", frame, pt.LtpMemLen, len(xBufScaled))

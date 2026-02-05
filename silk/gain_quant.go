@@ -77,14 +77,15 @@ func silkGainsQuantInto(ind []int8, gainQ16 []int32, prevInd int8, conditional b
 		}
 
 		// Scale and convert back to linear scale for NSQ
+		// Per libopus gain_quant.c line 89:
+		// gain_Q16[k] = silk_log2lin(silk_min_32(silk_SMULWB(INV_SCALE_Q16, *prev_ind) + OFFSET, 3967))
+		// Note: NO minimum clamping after log2lin - gains can be < 1.0
 		logQ7 := silkSMULWB(int32(invScaleQ16Val), int32(currentPrevInd)) + int32(gainOffsetQ7)
 		if logQ7 > 3967 {
 			logQ7 = 3967
 		}
 		gainQ16[k] = silkLog2Lin(logQ7)
-		if gainQ16[k] < (1 << 16) {
-			gainQ16[k] = 1 << 16
-		}
+		// DO NOT clamp to minimum - libopus allows gains < 1.0
 	}
 
 	return int8(currentPrevInd)

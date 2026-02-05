@@ -14,9 +14,11 @@ type EncoderTrace struct {
 type PitchTrace struct {
 	CaptureResidual  bool
 	CapturePitchLags bool
+	CaptureXBuf      bool
 
 	XBufHash   uint64
 	XBufLen    int
+	XBuf       []float32 // Captured input buffer (scaled) when CaptureXBuf is true
 	XFrameHash uint64
 	XFrameLen  int
 

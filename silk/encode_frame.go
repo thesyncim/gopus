@@ -361,6 +361,9 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		copy(e.pitchAnalysisBuf[start:], framePCM[:pitchBufFrameLen])
 	}
 
+	// Shift input buffer at end of frame (matches libopus memmove timing)
+	e.shiftInputBuffer(frameSamples)
+
 	e.nFramesEncoded++
 	e.MarkEncoded()
 	e.lastRng = e.rangeEncoder.Range()
@@ -635,9 +638,15 @@ func (e *Encoder) updateShapeBuffer(pcm []float32, frameSamples int) []float32 {
 		shapeBuf = make([]float32, needed)
 		e.inputBuffer = shapeBuf
 	}
-	if keep > 0 && frameSamples > 0 && frameSamples+keep <= len(shapeBuf) {
-		copy(shapeBuf[:keep], shapeBuf[frameSamples:frameSamples+keep])
-	}
+
+	// Per libopus silk/float/encode_frame_FLP.c:
+	// 1. Copy new PCM to buffer FIRST (before shift)
+	// 2. Run pitch analysis
+	// 3. Shift buffer at frame END (after encoding)
+	//
+	// This ensures LTP memory contains the correct history at pitch analysis time.
+	// The shift for frame N happens AFTER frame N encoding (in shiftInputBuffer).
+
 	insertOffset := keep
 	if insertOffset+frameSamples > len(shapeBuf) {
 		if insertOffset >= len(shapeBuf) {
@@ -658,4 +667,27 @@ func (e *Encoder) updateShapeBuffer(pcm []float32, frameSamples int) []float32 {
 		frameSamples = len(shapeBuf) - start
 	}
 	return shapeBuf[start : start+frameSamples]
+}
+
+// shiftInputBuffer shifts the input buffer left by frameSamples after frame encoding.
+// This matches libopus silk/float/encode_frame_FLP.c silk_memmove at end of frame.
+// Must be called AFTER encoding is complete for the current frame.
+func (e *Encoder) shiftInputBuffer(frameSamples int) {
+	if frameSamples <= 0 {
+		return
+	}
+	fsKHz := e.sampleRate / 1000
+	if fsKHz < 1 {
+		fsKHz = 1
+	}
+	ltpMemSamples := ltpMemLengthMs * fsKHz
+	laShapeSamples := laShapeMs * fsKHz
+	keep := ltpMemSamples + laShapeSamples
+	shapeBuf := e.inputBuffer
+	if len(shapeBuf) < keep+frameSamples {
+		return
+	}
+	// Per libopus: memmove(x_buf, x_buf + frame_length, ltp_mem + la_shape)
+	// This shifts buffer left by frame_length, keeping ltp_mem + la_shape samples.
+	copy(shapeBuf[:keep], shapeBuf[frameSamples:frameSamples+keep])
 }

@@ -330,6 +330,9 @@ func (e *Encoder) computePitchResidual(numSubframes int) ([]float64, []float32, 
 		if tr.CaptureResidual {
 			tr.Residual = append(tr.Residual[:0], residual32...)
 		}
+		if tr.CaptureXBuf {
+			tr.XBuf = append(tr.XBuf[:0], input32...)
+		}
 	}
 
 	if e.trace != nil && e.trace.LTP != nil {
