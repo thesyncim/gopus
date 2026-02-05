@@ -210,17 +210,17 @@ func (e *Encoder) computeResidualEnergies(ltpRes []float32, predCoefQ12 []int16,
 		return resNrg
 	}
 
-	coefToF64 := func(dst []float64, src []int16) {
+	coefToF32 := func(dst []float32, src []int16) {
 		for i := 0; i < order; i++ {
-			dst[i] = float64(src[i]) / 4096.0
+			dst[i] = float32(src[i]) / 4096.0
 		}
 	}
 
-	coef0 := ensureFloat64Slice(&e.scratchPredCoefF64A, order)
-	coef1 := ensureFloat64Slice(&e.scratchPredCoefF64B, order)
-	coefToF64(coef1, predCoefQ12[maxLPCOrder:maxLPCOrder+order])
+	coef0 := ensureFloat32Slice(&e.scratchPredCoefF32A, order)
+	coef1 := ensureFloat32Slice(&e.scratchPredCoefF32B, order)
+	coefToF32(coef1, predCoefQ12[maxLPCOrder:maxLPCOrder+order])
 	if interpIdx < 4 {
-		coefToF64(coef0, predCoefQ12[:order])
+		coefToF32(coef0, predCoefQ12[:order])
 	} else {
 		copy(coef0, coef1)
 	}
@@ -238,26 +238,24 @@ func (e *Encoder) computeResidualEnergies(ltpRes []float32, predCoefQ12 []int16,
 		length = len(ltpRes)
 	}
 	if length > 0 {
-		x := ensureFloat64Slice(&e.scratchLtpResF64, length)
-		for i := 0; i < length; i++ {
-			x[i] = float64(ltpRes[i])
-		}
-		lpcRes := ensureFloat64Slice(&e.scratchLpcResF64, length)
-		lpcAnalysisFilterFLP(lpcRes, coeffs, x, length, order)
+		x := ensureFloat32Slice(&e.scratchLtpResF32, length)
+		copy(x, ltpRes[:length])
+		lpcRes := ensureFloat32Slice(&e.scratchLpcResF32, length)
+		lpcAnalysisFilterF32(lpcRes, coeffs, x, length, order)
 		for k := 0; k < subframesInFirstHalf; k++ {
 			start := order + k*subfrLen
 			end := start + subframeSamples
 			if end > len(lpcRes) {
 				end = len(lpcRes)
 			}
-			var energy float64
+			energy := float32(0)
 			for i := start; i < end; i++ {
 				energy += lpcRes[i] * lpcRes[i]
 			}
 			if k < len(gains) {
-				energy *= float64(gains[k] * gains[k])
+				energy *= gains[k] * gains[k]
 			}
-			resNrg[k] = energy
+			resNrg[k] = float64(energy)
 		}
 	}
 
@@ -268,27 +266,25 @@ func (e *Encoder) computeResidualEnergies(ltpRes []float32, predCoefQ12 []int16,
 			length = len(ltpRes) - offset
 		}
 		if length > 0 {
-			x := ensureFloat64Slice(&e.scratchLtpResF64, length)
-			for i := 0; i < length; i++ {
-				x[i] = float64(ltpRes[offset+i])
-			}
-			lpcRes := ensureFloat64Slice(&e.scratchLpcResF64, length)
-			lpcAnalysisFilterFLP(lpcRes, coef1, x, length, order)
+			x := ensureFloat32Slice(&e.scratchLtpResF32, length)
+			copy(x, ltpRes[offset:offset+length])
+			lpcRes := ensureFloat32Slice(&e.scratchLpcResF32, length)
+			lpcAnalysisFilterF32(lpcRes, coef1, x, length, order)
 			for k := 0; k < 2; k++ {
 				start := order + k*subfrLen
 				end := start + subframeSamples
 				if end > len(lpcRes) {
 					end = len(lpcRes)
 				}
-				var energy float64
+				energy := float32(0)
 				for i := start; i < end; i++ {
 					energy += lpcRes[i] * lpcRes[i]
 				}
 				idx := k + 2
 				if idx < len(gains) {
-					energy *= float64(gains[idx] * gains[idx])
+					energy *= gains[idx] * gains[idx]
 				}
-				resNrg[idx] = energy
+				resNrg[idx] = float64(energy)
 			}
 		}
 	}
@@ -307,31 +303,26 @@ func applyGainProcessing(gains []float32, resNrg []float64, predGainQ7 int32, sn
 			quantOffsetType = 1
 		}
 
-		s := float32(1.0 - 0.5*Sigmoid(0.25*(predGainDB-12.0)))
+		// Match libopus process_gains_FLP.c sigmoid path for voiced gain reduction.
+		s := float32(1.0 - 0.5*(1.0/(1.0+math.Exp(float64(-0.25*(predGainDB-12.0))))))
 		for k := range gains {
 			gains[k] *= s
 		}
 	}
 
 	snrDB := float32(snrDBQ7) / 128.0
-	invMaxSqrVal := math.Pow(2.0, float64(0.33*float32(21.0-snrDB))) / float64(subframeSamples)
-	if invMaxSqrVal < 0 {
-		invMaxSqrVal = 0
-	}
+	invMaxSqrVal := float32(math.Pow(2.0, float64(0.33*(21.0-snrDB)))) / float32(subframeSamples)
 
 	for k := range gains {
-		energy := float64(gains[k] * gains[k])
+		energy := gains[k] * gains[k]
 		if k < len(resNrg) {
-			energy += resNrg[k] * invMaxSqrVal
+			energy += float32(resNrg[k]) * invMaxSqrVal
 		}
-		g := math.Sqrt(energy)
+		g := float32(math.Sqrt(float64(energy)))
 		if g > 32767.0 {
 			g = 32767.0
 		}
-		if g < 1.0 {
-			g = 1.0
-		}
-		gains[k] = float32(g)
+		gains[k] = g
 	}
 
 	return quantOffsetType

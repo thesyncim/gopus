@@ -96,17 +96,12 @@ func (e *Encoder) lbrrEncode(
 	if signalType == typeVoiced {
 		ltpScaleQ14 = int(silk_LTPScales_table_Q14[ltpScaleIndex])
 	}
-	allExcitation := e.computeNSQExcitation(pcm, lpcQ12, predCoefQ12, interpIdx, lbrrGainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, speechActivityQ8, noiseParams, seed, numSubframes, subframeSamples, frameSamples, &lbrrNSQ)
+	pulses, seedOut := e.computeNSQExcitation(pcm, lpcQ12, predCoefQ12, interpIdx, lbrrGainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, speechActivityQ8, noiseParams, seed, numSubframes, subframeSamples, frameSamples, &lbrrNSQ)
+	e.lbrrIndices[frameIdx].Seed = int8(seedOut)
 
-	pulses := e.lbrrPulses[frameIdx]
-	for i := 0; i < frameSamples && i < len(allExcitation); i++ {
-		p := allExcitation[i]
-		if p > 127 {
-			p = 127
-		} else if p < -128 {
-			p = -128
-		}
-		pulses[i] = int8(p)
+	lbrrPulses := e.lbrrPulses[frameIdx]
+	for i := 0; i < frameSamples && i < len(pulses); i++ {
+		lbrrPulses[i] = pulses[i]
 	}
 }
 

@@ -480,6 +480,216 @@ func (e *Encoder) StereoEncodeLRToMSWithInterpQuantized(left, right []float32, f
 	return midOut, sideOut, predQ13, ix
 }
 
+// StereoLRToMSWithRates is a libopus-aligned stereo front-end that computes
+// mid/side signals, predictor indices, mid-only decision, and per-channel rates.
+//
+// This approximates silk_stereo_LR_to_MS using float-domain analysis while
+// preserving the key rate/width decision logic.
+func (e *Encoder) StereoLRToMSWithRates(
+	left, right []float32,
+	frameLength, fsKHz int,
+	totalRateBps int,
+	prevSpeechActQ8 int,
+	toMono bool,
+) (midOut, sideOut []float32, ix StereoQuantIndices, midOnly bool, midRate, sideRate int, widthQ14 int16) {
+	if frameLength <= 0 {
+		return nil, nil, StereoQuantIndices{}, false, 0, 0, 0
+	}
+
+	// Ensure lookahead samples exist.
+	if len(left) < frameLength+2 {
+		pad := make([]float32, frameLength+2)
+		copy(pad, left)
+		left = pad
+	}
+	if len(right) < frameLength+2 {
+		pad := make([]float32, frameLength+2)
+		copy(pad, right)
+		right = pad
+	}
+
+	// Convert to mid/side and apply history buffering.
+	mid, side := stereoConvertLRToMSFloat(left, right, frameLength)
+	mid[0] = float32(e.stereo.sMid[0]) / 32768.0
+	mid[1] = float32(e.stereo.sMid[1]) / 32768.0
+	side[0] = float32(e.stereo.sSide[0]) / 32768.0
+	side[1] = float32(e.stereo.sSide[1]) / 32768.0
+
+	e.stereo.sMid[0] = float32ToInt16(mid[frameLength])
+	e.stereo.sMid[1] = float32ToInt16(mid[frameLength+1])
+	e.stereo.sSide[0] = float32ToInt16(side[frameLength])
+	e.stereo.sSide[1] = float32ToInt16(side[frameLength+1])
+
+	// LP/HP filters.
+	lpMid, hpMid := stereoLPFilterFloat(mid, frameLength)
+	lpSide, hpSide := stereoLPFilterFloat(side, frameLength)
+
+	// Predictor smoothing coefficient.
+	smoothCoef := stereoRatioSmoothCoef
+	if frameLength == 10*fsKHz {
+		smoothCoef *= 0.5
+	}
+	speech := float64(prevSpeechActQ8) / 256.0
+	smoothCoef *= speech * speech
+
+	// Predictors and ratios.
+	lpMidRes := [2]float64{e.stereo.midSideAmpQ0[0], e.stereo.midSideAmpQ0[1]}
+	hpMidRes := [2]float64{e.stereo.midSideAmpQ0[2], e.stereo.midSideAmpQ0[3]}
+
+	predLP, ratioLP := stereoFindPredictorFloatWithRatio(lpMid, lpSide, frameLength, &lpMidRes, smoothCoef)
+	predHP, ratioHP := stereoFindPredictorFloatWithRatio(hpMid, hpSide, frameLength, &hpMidRes, smoothCoef)
+
+	e.stereo.midSideAmpQ0[0], e.stereo.midSideAmpQ0[1] = lpMidRes[0], lpMidRes[1]
+	e.stereo.midSideAmpQ0[2], e.stereo.midSideAmpQ0[3] = hpMidRes[0], hpMidRes[1]
+
+	predQ13 := [2]int32{predLP, predHP}
+
+	// frac = min(1, HP_ratio + 3*LP_ratio)
+	frac := ratioHP + 3.0*ratioLP
+	if frac > 1.0 {
+		frac = 1.0
+	}
+	if frac < 0 {
+		frac = 0
+	}
+
+	// Rate split and width decision.
+	total := totalRateBps
+	if total < 1 {
+		total = 1
+	}
+	minMidRate := 2000 + fsKHz*600
+
+	midRate = int(float64(total) * 8.0 / (13.0 + 3.0*frac))
+	if midRate < minMidRate {
+		midRate = minMidRate
+		sideRate = total - midRate
+		width := 4.0 * (2.0*float64(sideRate) - float64(minMidRate)) / ((1.0 + 3.0*frac) * float64(minMidRate))
+		if width < 0 {
+			width = 0
+		}
+		if width > 1.0 {
+			width = 1.0
+		}
+		widthQ14 = int16(width*16384.0 + 0.5)
+	} else {
+		sideRate = total - midRate
+		widthQ14 = 16384
+	}
+
+	// Smooth width.
+	smthWidth := float64(e.stereo.smthWidthQ14) / 16384.0
+	targetWidth := float64(widthQ14) / 16384.0
+	smthWidth += smoothCoef * (targetWidth - smthWidth)
+	if smthWidth < 0 {
+		smthWidth = 0
+	}
+	if smthWidth > 1.0 {
+		smthWidth = 1.0
+	}
+	e.stereo.smthWidthQ14 = int16(smthWidth*16384.0 + 0.5)
+
+	widthPrev := float64(e.stereo.widthPrevQ14) / 16384.0
+	smthWidth = float64(e.stereo.smthWidthQ14) / 16384.0
+
+	// Mid-only / width decisions.
+	midOnly = false
+	if toMono {
+		widthQ14 = 0
+		predQ13[0], predQ13[1] = 0, 0
+	} else if widthPrev == 0 && (8*total < 13*minMidRate || frac*smthWidth < 0.05) {
+		predQ13[0] = int32(float64(predQ13[0]) * smthWidth)
+		predQ13[1] = int32(float64(predQ13[1]) * smthWidth)
+		midOnly = true
+		widthQ14 = 0
+		midRate = total
+		sideRate = 0
+	} else if widthPrev != 0 && (8*total < 11*minMidRate || frac*smthWidth < 0.02) {
+		predQ13[0] = int32(float64(predQ13[0]) * smthWidth)
+		predQ13[1] = int32(float64(predQ13[1]) * smthWidth)
+		widthQ14 = 0
+	} else if smthWidth > 0.95 {
+		widthQ14 = 16384
+	} else {
+		predQ13[0] = int32(float64(predQ13[0]) * smthWidth)
+		predQ13[1] = int32(float64(predQ13[1]) * smthWidth)
+		widthQ14 = int16(smthWidth*16384.0 + 0.5)
+	}
+
+	// Quantize predictors (returns delta-coded predQ13).
+	predQ13, ix = QuantizeStereoWeights(predQ13)
+
+	// Handle mid-only persistence.
+	if midOnly {
+		e.stereo.silentSideLen += int32(frameLength - stereoInterpLenMs*fsKHz)
+		if e.stereo.silentSideLen < int32(laShapeMs*fsKHz) {
+			midOnly = false
+		} else if e.stereo.silentSideLen > 10000 {
+			e.stereo.silentSideLen = 10000
+		}
+	} else {
+		e.stereo.silentSideLen = 0
+	}
+
+	if !midOnly && sideRate < 1 {
+		sideRate = 1
+		if total > 1 {
+			midRate = total - sideRate
+		}
+	}
+
+	// Interpolate predictors and subtract prediction from side channel.
+	midOut = make([]float32, frameLength)
+	sideOut = make([]float32, frameLength)
+	for n := 0; n < frameLength; n++ {
+		midOut[n] = mid[n+1]
+	}
+
+	pred0Q13 := -e.stereo.predPrevQ13[0]
+	pred1Q13 := -e.stereo.predPrevQ13[1]
+	wQ24 := int32(e.stereo.widthPrevQ14) << 10
+	denomQ16 := int32((1 << 16) / (stereoInterpLenMs * fsKHz))
+	delta0Q13 := -silkRSHIFT_ROUND(silkSMULBB(predQ13[0]-e.stereo.predPrevQ13[0], denomQ16), 16)
+	delta1Q13 := -silkRSHIFT_ROUND(silkSMULBB(predQ13[1]-e.stereo.predPrevQ13[1], denomQ16), 16)
+	deltawQ24 := int32(silkSMULWB(int32(widthQ14)-int32(e.stereo.widthPrevQ14), denomQ16)) << 10
+
+	interpSamples := stereoInterpLenMs * fsKHz
+	for n := 0; n < interpSamples && n < frameLength; n++ {
+		pred0Q13 += delta0Q13
+		pred1Q13 += delta1Q13
+		wQ24 += deltawQ24
+
+		sumQ11 := int32((mid[n]+2*mid[n+1]+mid[n+2])*512)
+		sideQ8 := silkSMULWB(wQ24, int32(side[n+1]*32768))
+		sideQ8 = silkSMLAWB(sideQ8, sumQ11, pred0Q13)
+		sideQ8 = silkSMLAWB(sideQ8, int32(mid[n+1]*32768)<<11, pred1Q13)
+		sideOut[n] = float32(silkRSHIFT_ROUND(sideQ8, 8)) / 32768.0
+	}
+
+	pred0Q13 = -predQ13[0]
+	pred1Q13 = -predQ13[1]
+	wQ24 = int32(widthQ14) << 10
+	for n := interpSamples; n < frameLength; n++ {
+		sumQ11 := int32((mid[n]+2*mid[n+1]+mid[n+2])*512)
+		sideQ8 := silkSMULWB(wQ24, int32(side[n+1]*32768))
+		sideQ8 = silkSMLAWB(sideQ8, sumQ11, pred0Q13)
+		sideQ8 = silkSMLAWB(sideQ8, int32(mid[n+1]*32768)<<11, pred1Q13)
+		sideOut[n] = float32(silkRSHIFT_ROUND(sideQ8, 8)) / 32768.0
+	}
+
+	// Update state for next frame.
+	if widthQ14 == 0 {
+		predQ13[0], predQ13[1] = 0, 0
+	}
+	e.stereo.predPrevQ13[0] = predQ13[0]
+	e.stereo.predPrevQ13[1] = predQ13[1]
+	e.stereo.widthPrevQ14 = widthQ14
+	e.prevStereoWeights[0] = int16(predQ13[0] + predQ13[1])
+	e.prevStereoWeights[1] = int16(predQ13[1])
+
+	return midOut, sideOut, ix, midOnly, midRate, sideRate, widthQ14
+}
+
 // EncodeStereoLRToMS is the public method that matches libopus stereo_LR_to_MS.
 // It converts stereo L/R to M/S with proper LP filtering for predictor analysis.
 // This should be used instead of EncodeStereoMidSide for proper libopus compatibility.
@@ -501,6 +711,7 @@ func (e *Encoder) EncodeStereoLRToMS(left, right []float32, frameLength, fsKHz i
 func (e *Encoder) ResetStereoState() {
 	e.stereo = stereoEncState{}
 	e.prevStereoWeights = [2]int16{0, 0}
+	e.stereo.smthWidthQ14 = 16384
 }
 
 // InterpolatePredictorsFloat applies 8ms smooth predictor interpolation using float arithmetic.

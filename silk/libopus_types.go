@@ -106,4 +106,9 @@ type stereoEncState struct {
 	sMid          [2]int16 // Mid signal buffer for LP filter continuity
 	sSide         [2]int16 // Side signal buffer for LP filter continuity
 	widthPrevQ14  int16    // Previous frame's stereo width (Q14)
+	smthWidthQ14  int16    // Smoothed stereo width (Q14)
+	silentSideLen int32    // Accumulated silent side length (samples)
+	// Smoothed mid/residual amplitudes for LP/HP (float domain).
+	// Matches mid_side_amp_Q0 in libopus but stored as float for simplicity.
+	midSideAmpQ0 [4]float64
 }

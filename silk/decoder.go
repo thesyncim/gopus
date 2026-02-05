@@ -541,6 +541,7 @@ type DebugFrameParams struct {
 	LTPIndices       []int
 	LagIndex         int
 	ContourIndex     int
+	Seed             int
 }
 
 // GetLastFrameParams returns the parameters from the last decoded frame.
@@ -563,6 +564,7 @@ func (d *Decoder) GetLastFrameParams() DebugFrameParams {
 		LTPIndices:       ltpIdx,
 		LagIndex:         int(st.indices.lagIndex),
 		ContourIndex:     int(st.indices.contourIndex),
+		Seed:             int(st.indices.Seed),
 	}
 }
 

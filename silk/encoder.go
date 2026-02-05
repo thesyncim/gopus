@@ -21,6 +21,7 @@ type Encoder struct {
 	previousGainIndex     int32 // Previous gain quantization index [0, 63] (libopus matching)
 	isPreviousFrameVoiced bool  // Was previous frame voiced
 	ecPrevLagIndex        int   // Previous lag index for conditional pitch coding
+	ecPrevSignalType      int   // Previous signal type for conditional pitch coding
 	frameCounter          int   // Frame counter for seed generation (seed = frameCounter & 3)
 
 	// LPC state
@@ -49,12 +50,13 @@ type Encoder struct {
 	noiseShapeState *NoiseShapeState // Noise shaping analysis state for adaptive parameters
 
 	// Encoder control parameters (persists across frames)
-	snrDBQ7       int     // Target SNR in dB (Q7 format, e.g., 25 dB = 25 * 128)
-	targetRateBps int     // Target bitrate (per channel) for SNR control
-	useCBR        bool    // Constant Bitrate mode
-	ltpCorr       float32 // LTP correlation from pitch analysis [0, 1]
-	sumLogGainQ7  int32   // Sum log gain for LTP quantization
-	complexity    int     // Encoder complexity (0-10)
+	snrDBQ7                int     // Target SNR in dB (Q7 format, e.g., 25 dB = 25 * 128)
+	targetRateBps          int     // Target bitrate (per channel) for SNR control
+	useCBR                 bool    // Constant Bitrate mode
+	ltpCorr                float32 // LTP correlation from pitch analysis [0, 1]
+	sumLogGainQ7           int32   // Sum log gain for LTP quantization
+	complexity             int     // Encoder complexity (0-10)
+	nStatesDelayedDecision int     // Delayed decision states (libopus control_codec)
 
 	// Pitch estimation tuning (mirrors libopus control_codec.c)
 	pitchEstimationComplexity   int
@@ -124,6 +126,7 @@ type Encoder struct {
 	scratchPitchLags      []int     // detectPitch: output pitch lags
 	scratchPitchCorrSt3   []float64 // detectPitch: stage3 correlations
 	scratchPitchEnergySt3 []float64 // detectPitch: stage3 energies
+	scratchPitchXcorr     []float32 // detectPitch: celt_pitch_xcorr scratch
 
 	// Shell encoder scratch buffers (fixed sizes)
 	scratchShellPulses1 [8]int // shellEncoder: level 1
@@ -133,6 +136,7 @@ type Encoder struct {
 
 	// NSQ (computeNSQExcitation) scratch buffers
 	scratchInputQ0          []int16 // PCM converted to int16
+	scratchGainsUnqQ16      []int32 // unquantized gains in Q16 format
 	scratchGainsQ16         []int32 // gains in Q16 format
 	scratchPitchL           []int   // pitch lags for NSQ
 	scratchArShpQ13         []int16 // AR shaping coefficients
@@ -143,6 +147,7 @@ type Encoder struct {
 	scratchLfShpQ14         []int32 // low-frequency shaping
 	scratchExcitation       []int32 // excitation output
 	scratchPulses32         []int32 // LBRR pulse conversion
+	scratchEcBufCopy        []byte  // range encoder buffer snapshot
 
 	// LPC/Burg scratch buffers
 	scratchLpcBurg       []float64 // LPC coefficients from Burg
@@ -180,7 +185,10 @@ type Encoder struct {
 
 	// LTP residual and residual energy scratch
 	scratchLtpResF32    []float32 // LTP analysis: LTP residual with pre-length
+	scratchLpcResF32    []float32 // Residual energy: LPC residual scratch (float32)
 	scratchResNrg       []float64 // Gain processing: residual energies
+	scratchPredCoefF32A []float32 // Gain processing: LPC coeffs (first half, float32)
+	scratchPredCoefF32B []float32 // Gain processing: LPC coeffs (second half, float32)
 	scratchPredCoefF64A []float64 // Gain processing: LPC coeffs (first half)
 	scratchPredCoefF64B []float64 // Gain processing: LPC coeffs (second half)
 
@@ -289,6 +297,16 @@ func ensureByteSlice(buf *[]byte, n int) []byte {
 	return *buf
 }
 
+// ensureUint64Slice ensures the slice has at least n elements.
+func ensureUint64Slice(buf *[]uint64, n int) []uint64 {
+	if cap(*buf) < n {
+		*buf = make([]uint64, n)
+	} else {
+		*buf = (*buf)[:n]
+	}
+	return *buf
+}
+
 // NewEncoder creates a new SILK encoder with proper initial state.
 func NewEncoder(bandwidth Bandwidth) *Encoder {
 	config := GetBandwidthConfig(bandwidth)
@@ -330,7 +348,8 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 		bandwidth:         bandwidth,
 		sampleRate:        config.SampleRate,
 		lpcOrder:          config.LPCOrder,
-		pitchState:        PitchAnalysisState{prevLag: 100}, // libopus initialization
+		// libopus initializes prevLag to 0; only NSQ lagPrev starts at 100.
+		pitchState:        PitchAnalysisState{prevLag: 0},
 		snrDBQ7:           25 * 128,                         // Default: 25 dB SNR target
 		nFramesPerPacket:  1,                                // Default: 1 frame per packet (20ms)
 		lbrrPulses:        lbrrPulses,
@@ -339,6 +358,7 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 	}
 	enc.nsqState.lagPrev = 100 // libopus initialization
 	enc.SetComplexity(10)
+	enc.stereo.smthWidthQ14 = 16384
 	return enc
 }
 
@@ -349,6 +369,7 @@ func (e *Encoder) Reset() {
 	e.previousGainIndex = 10
 	e.isPreviousFrameVoiced = false
 	e.ecPrevLagIndex = 0
+	e.ecPrevSignalType = 0
 	e.targetRateBps = 0
 	e.sumLogGainQ7 = 0
 
@@ -362,8 +383,10 @@ func (e *Encoder) Reset() {
 		e.inputBuffer[i] = 0
 	}
 	e.prevStereoWeights = [2]int16{0, 0}
-	e.stereo = stereoEncState{}                     // Reset LP filter state
-	e.pitchState = PitchAnalysisState{prevLag: 100} // libopus initialization
+	e.stereo = stereoEncState{} // Reset LP filter state
+	e.stereo.smthWidthQ14 = 16384
+	// Keep reset parity with libopus: prevLag resets to 0.
+	e.pitchState = PitchAnalysisState{prevLag: 0}
 	for i := range e.pitchAnalysisBuf {
 		e.pitchAnalysisBuf[i] = 0
 	}
@@ -420,6 +443,7 @@ func (e *Encoder) SetComplexity(complexity int) {
 		e.pitchEstimationLPCOrder = 6
 		e.shapingLPCOrder = 12
 		e.laShape = 3 * fsKHz
+		e.nStatesDelayedDecision = 1
 		e.warpingQ16 = 0
 		e.nlsfSurvivors = 2
 	case complexity < 2:
@@ -428,6 +452,7 @@ func (e *Encoder) SetComplexity(complexity int) {
 		e.pitchEstimationLPCOrder = 8
 		e.shapingLPCOrder = 14
 		e.laShape = 5 * fsKHz
+		e.nStatesDelayedDecision = 1
 		e.warpingQ16 = 0
 		e.nlsfSurvivors = 3
 	case complexity < 3:
@@ -436,6 +461,7 @@ func (e *Encoder) SetComplexity(complexity int) {
 		e.pitchEstimationLPCOrder = 6
 		e.shapingLPCOrder = 12
 		e.laShape = 3 * fsKHz
+		e.nStatesDelayedDecision = 2
 		e.warpingQ16 = 0
 		e.nlsfSurvivors = 2
 	case complexity < 4:
@@ -444,6 +470,7 @@ func (e *Encoder) SetComplexity(complexity int) {
 		e.pitchEstimationLPCOrder = 8
 		e.shapingLPCOrder = 14
 		e.laShape = 5 * fsKHz
+		e.nStatesDelayedDecision = 2
 		e.warpingQ16 = 0
 		e.nlsfSurvivors = 4
 	case complexity < 6:
@@ -452,6 +479,7 @@ func (e *Encoder) SetComplexity(complexity int) {
 		e.pitchEstimationLPCOrder = 10
 		e.shapingLPCOrder = 16
 		e.laShape = 5 * fsKHz
+		e.nStatesDelayedDecision = 2
 		e.warpingQ16 = int(float64(fsKHz) * warpingMultiplier * 65536.0)
 		e.nlsfSurvivors = 6
 	case complexity < 8:
@@ -460,6 +488,7 @@ func (e *Encoder) SetComplexity(complexity int) {
 		e.pitchEstimationLPCOrder = 12
 		e.shapingLPCOrder = 20
 		e.laShape = 5 * fsKHz
+		e.nStatesDelayedDecision = 3
 		e.warpingQ16 = int(float64(fsKHz) * warpingMultiplier * 65536.0)
 		e.nlsfSurvivors = 8
 	default:
@@ -468,6 +497,7 @@ func (e *Encoder) SetComplexity(complexity int) {
 		e.pitchEstimationLPCOrder = 16
 		e.shapingLPCOrder = 24
 		e.laShape = 5 * fsKHz
+		e.nStatesDelayedDecision = maxDelDecStates
 		e.warpingQ16 = int(float64(fsKHz) * warpingMultiplier * 65536.0)
 		e.nlsfSurvivors = 16
 	}

@@ -36,6 +36,9 @@ const (
 	CELTMaxBitrate   = 510000 // 510 kbps
 	HybridMinBitrate = 12000  // 12 kbps
 	HybridMaxBitrate = 128000 // 128 kbps typical
+
+	// Maximum SILK packet size in bytes (libopus MAX_DATA_BYTES).
+	maxSilkPacketBytes = 1275
 )
 
 // CVBR tolerance (percentage)

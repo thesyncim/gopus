@@ -69,8 +69,21 @@ opus_int32 gain_dequantize(opus_int32 idx) {
 opus_int32 gain_silk_smulwb(opus_int32 a, opus_int32 b) {
     return silk_SMULWB(a, b);
 }
+
+void gain_quantize_vector(
+    opus_int8 *ind,
+    opus_int32 *gain_Q16,
+    int *prev_ind,
+    int conditional,
+    int nb_subfr
+) {
+    opus_int8 prev = (opus_int8)(*prev_ind);
+    silk_gains_quant(ind, gain_Q16, &prev, conditional, nb_subfr);
+    *prev_ind = (int)prev;
+}
 */
 import "C"
+import "unsafe"
 
 // GainGetOffset returns the OFFSET constant from libopus
 func GainGetOffset() int {
@@ -130,4 +143,26 @@ func GainDequantize(idx int) int32 {
 // GainSilkSMULWB wraps silk_SMULWB
 func GainSilkSMULWB(a, b int32) int32 {
 	return int32(C.gain_silk_smulwb(C.opus_int32(a), C.opus_int32(b)))
+}
+
+// GainQuantizeVector runs libopus silk_gains_quant on a gain vector.
+func GainQuantizeVector(gainsQ16 []int32, prevInd int8, conditional bool, nbSubfr int) ([]int8, []int32, int8) {
+	if nbSubfr <= 0 || len(gainsQ16) < nbSubfr {
+		return nil, nil, prevInd
+	}
+	indices := make([]int8, nbSubfr)
+	quantized := append([]int32(nil), gainsQ16[:nbSubfr]...)
+	cPrev := C.int(prevInd)
+	cConditional := C.int(0)
+	if conditional {
+		cConditional = 1
+	}
+	C.gain_quantize_vector(
+		(*C.opus_int8)(unsafe.Pointer(&indices[0])),
+		(*C.opus_int32)(unsafe.Pointer(&quantized[0])),
+		&cPrev,
+		cConditional,
+		C.int(nbSubfr),
+	)
+	return indices, quantized, int8(cPrev)
 }

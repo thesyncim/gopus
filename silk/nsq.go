@@ -4,18 +4,18 @@ package silk
 
 // NSQ constants from libopus define.h
 const (
-	nsqLpcBufLength    = 16               // NSQ_LPC_BUF_LENGTH = MAX_LPC_ORDER
-	maxShapeLpcOrder   = 24               // MAX_SHAPE_LPC_ORDER
-	harmShapeFirTaps   = 3                // HARM_SHAPE_FIR_TAPS
-	ltpOrderConst      = 5                // LTP_ORDER
-	decisionDelay      = 40               // DECISION_DELAY
-	quantLevelAdjQ10   = 80               // QUANT_LEVEL_ADJUST_Q10
-	offsetVLQ10        = 32               // OFFSET_VL_Q10
-	offsetVHQ10        = 100              // OFFSET_VH_Q10
-	offsetUVLQ10       = 100              // OFFSET_UVL_Q10
-	offsetUVHQ10       = 240              // OFFSET_UVH_Q10
-	maxFrameLengthNSQ  = 320              // MAX_FRAME_LENGTH for 20ms at 16kHz
-	ltpMemLength       = 320              // LTP_MEM_LENGTH = 20ms * 16kHz
+	nsqLpcBufLength   = 16  // NSQ_LPC_BUF_LENGTH = MAX_LPC_ORDER
+	maxShapeLpcOrder  = 24  // MAX_SHAPE_LPC_ORDER
+	harmShapeFirTaps  = 3   // HARM_SHAPE_FIR_TAPS
+	ltpOrderConst     = 5   // LTP_ORDER
+	decisionDelay     = 40  // DECISION_DELAY
+	quantLevelAdjQ10  = 80  // QUANT_LEVEL_ADJUST_Q10
+	offsetVLQ10       = 32  // OFFSET_VL_Q10
+	offsetVHQ10       = 100 // OFFSET_VH_Q10
+	offsetUVLQ10      = 100 // OFFSET_UVL_Q10
+	offsetUVHQ10      = 240 // OFFSET_UVH_Q10
+	maxFrameLengthNSQ = 320 // MAX_FRAME_LENGTH for 20ms at 16kHz
+	ltpMemLength      = 320 // LTP_MEM_LENGTH = 20ms * 16kHz
 )
 
 // NSQState holds the noise shaping quantizer state.
@@ -63,6 +63,9 @@ type NSQState struct {
 	scratchSLTPQ15 []int32 // Size: ltpMemLength + maxFrameLengthNSQ = 640
 	scratchSLTP    []int16 // Size: ltpMemLength + maxFrameLengthNSQ = 640
 	scratchXScQ10  []int32 // Size: maxSubFrameLength = 80
+
+	// Delayed decision states (NSQ_del_dec)
+	delDecStates [maxDelDecStates]nsqDelDecState
 }
 
 // NewNSQState creates a new NSQ state with proper initialization.
@@ -82,17 +85,18 @@ func NewNSQState() *NSQState {
 // Clone creates a deep copy of the NSQ state.
 func (s *NSQState) Clone() *NSQState {
 	c := &NSQState{
-		lagPrev:     s.lagPrev,
-		sLTPBufIdx:  s.sLTPBufIdx,
+		lagPrev:       s.lagPrev,
+		sLTPBufIdx:    s.sLTPBufIdx,
 		sLTPShpBufIdx: s.sLTPShpBufIdx,
-		randSeed:    s.randSeed,
-		prevGainQ16: s.prevGainQ16,
-		rewhiteFlag: s.rewhiteFlag,
+		randSeed:      s.randSeed,
+		prevGainQ16:   s.prevGainQ16,
+		rewhiteFlag:   s.rewhiteFlag,
 	}
 	copy(c.xq[:], s.xq[:])
 	copy(c.sLTPShpQ14[:], s.sLTPShpQ14[:])
 	copy(c.sLPCQ14[:], s.sLPCQ14[:])
 	copy(c.sAR2Q14[:], s.sAR2Q14[:])
+	c.delDecStates = s.delDecStates
 	c.sLFARShpQ14 = s.sLFARShpQ14
 	c.sDiffShpQ14 = s.sDiffShpQ14
 
@@ -118,6 +122,7 @@ func (s *NSQState) RestoreFrom(other *NSQState) {
 	copy(s.sLTPShpQ14[:], other.sLTPShpQ14[:])
 	copy(s.sLPCQ14[:], other.sLPCQ14[:])
 	copy(s.sAR2Q14[:], other.sAR2Q14[:])
+	s.delDecStates = other.delDecStates
 	s.sLFARShpQ14 = other.sLFARShpQ14
 	s.sDiffShpQ14 = other.sDiffShpQ14
 }
@@ -136,6 +141,7 @@ func (s *NSQState) Reset() {
 	for i := range s.sAR2Q14 {
 		s.sAR2Q14[i] = 0
 	}
+	s.delDecStates = [maxDelDecStates]nsqDelDecState{}
 	s.sLFARShpQ14 = 0
 	s.sDiffShpQ14 = 0
 	s.lagPrev = 0
@@ -188,12 +194,14 @@ type NSQParams struct {
 	LTPScaleQ14 int
 
 	// Frame configuration
-	FrameLength   int
-	SubfrLength   int
-	NbSubfr       int
-	LTPMemLength  int
-	PredLPCOrder  int
-	ShapeLPCOrder int
+	FrameLength            int
+	SubfrLength            int
+	NbSubfr                int
+	LTPMemLength           int
+	PredLPCOrder           int
+	ShapeLPCOrder          int
+	WarpingQ16             int
+	NStatesDelayedDecision int
 
 	// LCG seed for dithering
 	Seed int
@@ -470,9 +478,9 @@ func noiseShapeQuantizerSubframe(
 			nLTPQ13 = silk_LSHIFT32(nLTPQ13, 1)
 			shpLagPtr++
 
-			tmp2 := silk_SUB32(ltpPredQ13, nLTPQ13)            // Q13
-			tmp1 = silk_ADD32(tmp2, silk_LSHIFT32(tmp1, 1))    // Q13
-			tmp1 = silk_RSHIFT_ROUND(tmp1, 3)                  // Q10
+			tmp2 := silk_SUB32(ltpPredQ13, nLTPQ13)         // Q13
+			tmp1 = silk_ADD32(tmp2, silk_LSHIFT32(tmp1, 1)) // Q13
+			tmp1 = silk_RSHIFT_ROUND(tmp1, 3)               // Q10
 		} else {
 			tmp1 = silk_RSHIFT_ROUND(tmp1, 2) // Q10
 		}
@@ -804,7 +812,7 @@ func silk_SMLAWB(a, b, c int32) int32 {
 
 func silk_SMLAWT(a, b, c int32) int32 {
 	// a + ((b * (c >> 16)) >> 16)
-	return a + ((b * (c >> 16)) >> 16)
+	return a + int32((int64(b)*(int64(c)>>16))>>16)
 }
 
 func silk_SMULWB(a, b int32) int32 {
@@ -848,8 +856,10 @@ func silk_RSHIFT_ROUND(a int32, shift int) int32 {
 	if shift <= 0 {
 		return a << (-shift)
 	}
-	// Use int64 to avoid overflow when a is close to INT32_MAX
-	return int32((int64(a) + (1 << (shift - 1))) >> shift)
+	if shift == 1 {
+		return (a >> 1) + (a & 1)
+	}
+	return ((a >> (shift - 1)) + 1) >> 1
 }
 
 func silk_ADD32(a, b int32) int32 {
@@ -871,8 +881,24 @@ func silk_ADD_SAT32(a, b int32) int32 {
 	return int32(result)
 }
 
+func silk_SUB_SAT32(a, b int32) int32 {
+	return silk_ADD_SAT32(a, -b)
+}
+
 func silk_ADD_LSHIFT32(a, b int32, shift int) int32 {
 	return a + (b << shift)
+}
+
+func silk_SUB_LSHIFT32(a, b int32, shift int) int32 {
+	return a - (b << shift)
+}
+
+func silk_ADD32_ovflw(a, b int32) int32 {
+	return a + b
+}
+
+func silk_SUB32_ovflw(a, b int32) int32 {
+	return a - b
 }
 
 func silk_LIMIT_32(val, minVal, maxVal int32) int32 {
@@ -915,17 +941,17 @@ func silk_INVERSE32_varQ(b32 int32, qres int) int32 {
 		absB32 = -absB32
 	}
 	bHeadrm := silk_CLZ32(absB32) - 1
-	b32Nrm := silk_LSHIFT_SAT32(b32, bHeadrm) // Q: b_headrm
+	b32Nrm := silk_LSHIFT32(b32, bHeadrm) // Q: b_headrm
 
 	// Inverse of b32, with 14 bits of precision
 	// b32_inv = (silk_int32_MAX >> 2) / (b32_nrm >> 16)
 	b32Inv := silk_DIV32_16(0x7FFFFFFF>>2, int16(b32Nrm>>16)) // Q: 29 + 16 - b_headrm
 
 	// First approximation
-	result := silk_LSHIFT_SAT32(b32Inv, 16) // Q: 61 - b_headrm
+	result := silk_LSHIFT32(b32Inv, 16) // Q: 61 - b_headrm
 
 	// Compute residual: (1<<29) - (b32_nrm * b32_inv >> 16)
-	errQ32 := silk_LSHIFT_SAT32((1<<29)-silk_SMULWB(b32Nrm, b32Inv), 3) // Q32
+	errQ32 := silk_LSHIFT32((1<<29)-silk_SMULWB(b32Nrm, b32Inv), 3) // Q32
 
 	// Refinement
 	result = silk_SMLAWW_int32(result, errQ32, b32Inv) // Q: 61 - b_headrm
@@ -977,6 +1003,9 @@ func silk_LSHIFT_SAT32(a int32, shift int) int32 {
 	if shift < 0 {
 		return a >> (-shift)
 	}
+	if shift == 0 {
+		return a
+	}
 	if shift >= 31 {
 		if a > 0 {
 			return 0x7FFFFFFF
@@ -986,14 +1015,15 @@ func silk_LSHIFT_SAT32(a int32, shift int) int32 {
 		}
 		return 0
 	}
-	result := int64(a) << shift
-	if result > 0x7FFFFFFF {
-		return 0x7FFFFFFF
+	// Match libopus: saturate before shifting.
+	min := int32(-0x80000000 >> shift)
+	max := int32(0x7FFFFFFF >> shift)
+	if a < min {
+		a = min
+	} else if a > max {
+		a = max
 	}
-	if result < -0x80000000 {
-		return -0x80000000
-	}
-	return int32(result)
+	return a << shift
 }
 
 // silk_DIV32_16 divides int32 by int16.
@@ -1014,13 +1044,6 @@ func silk_SMLAWW_int32(a, b, c int32) int32 {
 
 // silk_DIV32_varQ computes a/b in Qres format
 func silk_DIV32_varQ(a, b int32, qres int) int32 {
-	if b == 0 {
-		if a >= 0 {
-			return 0x7FFFFFFF
-		}
-		return -0x80000000
-	}
-
-	result := int32((int64(a) << qres) / int64(b))
-	return result
+	// Use libopus-matching implementation.
+	return silkDiv32VarQ(a, b, qres)
 }

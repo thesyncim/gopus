@@ -15,7 +15,8 @@ package silk
 
 // Derived constants matching libopus silk/gain_quant.c:
 // SCALE_Q16 = (65536 * (N_LEVELS_QGAIN - 1)) / (((MAX_QGAIN_DB - MIN_QGAIN_DB) * 128) / 6)
-//           = (65536 * 63) / ((86 * 128) / 6) = 4128768 / 1834 = 2251
+//
+//	= (65536 * 63) / ((86 * 128) / 6) = 4128768 / 1834 = 2251
 const (
 	gainScaleQ16 = (65536 * (nLevelsQGain - 1)) / (((maxQGainDb - minQGainDb) * 128) / 6)
 )
@@ -36,7 +37,7 @@ func silkGainsQuantInto(ind []int8, gainQ16 []int32, prevInd int8, conditional b
 	for k := 0; k < nbSubfr; k++ {
 		// Convert to log scale, scale, floor()
 		logGain := silkLin2Log(gainQ16[k])
-		
+
 		rawInd := silkSMULWB(int32(gainScaleQ16), logGain-int32(gainOffsetQ7))
 
 		// Round towards previous quantized gain (hysteresis)
@@ -89,6 +90,16 @@ func silkGainsQuantInto(ind []int8, gainQ16 []int32, prevInd int8, conditional b
 	}
 
 	return int8(currentPrevInd)
+}
+
+// silkGainsID computes a unique identifier for a gains index vector.
+// Matches libopus silk_gains_ID in gain_quant.c.
+func silkGainsID(ind []int8, nbSubfr int) int32 {
+	var gainsID int32
+	for k := 0; k < nbSubfr && k < len(ind); k++ {
+		gainsID = silkADD_LSHIFT32(int32(ind[k]), gainsID, 8)
+	}
+	return gainsID
 }
 
 // Note: silkLimitInt is defined in libopus_fixed.go

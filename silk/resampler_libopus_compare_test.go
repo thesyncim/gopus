@@ -72,6 +72,60 @@ func TestDownsamplingResamplerMatchesLibopus(t *testing.T) {
 	}
 }
 
+func TestDownsamplingResamplerChunkedMatchesOneShot(t *testing.T) {
+	const (
+		fsIn   = 48000
+		fsOut  = 16000
+		frames = 4
+	)
+
+	frameLen := fsIn / 50 // 20ms
+	inLen := frameLen * frames
+	in := make([]float32, inLen)
+	for i := range in {
+		tm := float64(i) / float64(fsIn)
+		in[i] = float32(
+			0.5*math.Sin(2*math.Pi*173*tm) +
+				0.4*math.Sin(2*math.Pi*911*tm) +
+				0.1*math.Sin(2*math.Pi*3011*tm),
+		)
+	}
+
+	oneShot := NewDownsamplingResampler(fsIn, fsOut)
+	outAll := make([]float32, inLen*fsOut/fsIn)
+	nAll := oneShot.ProcessInto(in, outAll)
+	outAll = outAll[:nAll]
+
+	chunked := NewDownsamplingResampler(fsIn, fsOut)
+	outChunk := make([]float32, 0, len(outAll))
+	for f := 0; f < frames; f++ {
+		chunk := in[f*frameLen : (f+1)*frameLen]
+		tmp := make([]float32, frameLen*fsOut/fsIn)
+		n := chunked.ProcessInto(chunk, tmp)
+		outChunk = append(outChunk, tmp[:n]...)
+	}
+
+	if len(outChunk) != len(outAll) {
+		t.Fatalf("output length mismatch: chunked=%d oneshot=%d", len(outChunk), len(outAll))
+	}
+
+	maxDiff := float32(0)
+	maxIdx := -1
+	for i := range outAll {
+		diff := outChunk[i] - outAll[i]
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff > maxDiff {
+			maxDiff = diff
+			maxIdx = i
+		}
+	}
+	if maxDiff > 0 {
+		t.Fatalf("chunked vs oneshot mismatch maxDiff=%g at %d: chunked=%g oneshot=%g", maxDiff, maxIdx, outChunk[maxIdx], outAll[maxIdx])
+	}
+}
+
 func TestDecoderResamplerMatchesLibopus(t *testing.T) {
 	testCases := []struct {
 		fsIn   int

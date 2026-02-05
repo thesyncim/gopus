@@ -74,6 +74,7 @@ func (e *Encoder) noiseShapeAnalysis(
 		inputQualityBandsQ15,
 		numSubframes,
 		fsKHz,
+		e.nStatesDelayedDecision,
 	)
 
 	gains, arShpQ13 := e.computeShapingARAndGains(
@@ -212,7 +213,7 @@ func (e *Encoder) computeShapingARAndGains(
 	}
 
 	xLen := frameSamples + 2*laShape
-	xBuf := ensureFloat64Slice(&e.scratchShapeInput, xLen)
+	xBuf := ensureFloat32Slice(&e.scratchPitchInput32, xLen)
 	for i := range xBuf {
 		xBuf[i] = 0
 	}
@@ -228,16 +229,16 @@ func (e *Encoder) computeShapingARAndGains(
 	for i := 0; i < xLen; i++ {
 		srcIdx := start + i
 		if srcIdx < len(src) {
-			xBuf[i] = float64(src[srcIdx]) * silkSampleScale
+			xBuf[i] = src[srcIdx] * float32(silkSampleScale)
 		} else {
 			xBuf[i] = 0
 		}
 	}
 
-	// Bandwidth expansion and warping.
-	strength := findPitchWhiteNoiseFraction * lpcPredGain
-	BWExp := bandwidthExpansion / (1.0 + strength*strength)
-	warping := float64(e.warpingQ16)/65536.0 + 0.01*float64(codingQuality)
+	// Bandwidth expansion and warping in float32 precision to mirror libopus FLP behavior.
+	strengthF32 := float32(findPitchWhiteNoiseFraction) * float32(lpcPredGain)
+	BWExp := float64(float32(bandwidthExpansion) / (1.0 + strengthF32*strengthF32))
+	warping := float64(float32(float32(e.warpingQ16)/65536.0 + 0.01*codingQuality))
 
 	flatPart := fsKHz * 3
 	slopePart := (shapeWinLength - flatPart) / 2
@@ -245,66 +246,75 @@ func (e *Encoder) computeShapingARAndGains(
 		slopePart = 0
 	}
 
-	win := ensureFloat64Slice(&e.scratchShapeWindow, shapeWinLength)
-	autoCorr := ensureFloat64Slice(&e.scratchShapeAutoCorr, shapeOrder+1)
-	rc := ensureFloat64Slice(&e.scratchShapeRc, shapeOrder+1)
-	ar := ensureFloat64Slice(&e.scratchShapeAr, shapeOrder)
+	win := ensureFloat32Slice(&e.scratchPitchWsig32, shapeWinLength)
+	autoCorr := ensureFloat32Slice(&e.scratchPitchAuto32, shapeOrder+1)
+	rc := ensureFloat32Slice(&e.scratchPitchRefl32, shapeOrder+1)
+	ar := ensureFloat32Slice(&e.scratchPitchA32, shapeOrder)
+	ar64 := ensureFloat64Slice(&e.scratchShapeAr, shapeOrder)
 
 	for k := 0; k < numSubframes; k++ {
 		offset := k * subframeSamples
 		segment := xBuf[offset : offset+shapeWinLength]
 
 		if slopePart > 0 && slopePart*2+flatPart == shapeWinLength {
-			applySineWindowFLP(win[:slopePart], segment[:slopePart], 1, slopePart)
+			applySineWindowFLP32(win[:slopePart], segment[:slopePart], 1, slopePart)
 			copy(win[slopePart:slopePart+flatPart], segment[slopePart:slopePart+flatPart])
-			applySineWindowFLP(win[slopePart+flatPart:], segment[slopePart+flatPart:], 2, slopePart)
+			applySineWindowFLP32(win[slopePart+flatPart:], segment[slopePart+flatPart:], 2, slopePart)
 		} else {
 			copy(win, segment)
 		}
 
 		if e.warpingQ16 > 0 {
-			warpedAutocorrelationFLP(autoCorr, rc, win, warping, shapeWinLength, shapeOrder)
+			warpedAutocorrelationFLP32(autoCorr, rc, win, float32(warping), shapeWinLength, shapeOrder)
 		} else {
-			autocorrelationFLP(autoCorr, win, shapeWinLength, shapeOrder+1)
+			autocorrelationF32(autoCorr, win, shapeWinLength, shapeOrder+1)
 		}
 
-		autoCorr[0] += autoCorr[0]*shapeWhiteNoiseFraction + 1.0
+		autoCorr[0] += autoCorr[0]*float32(shapeWhiteNoiseFraction) + 1.0
 
-		nrg := schurFLP(rc, autoCorr, shapeOrder)
+		nrg := schurF32(rc, autoCorr, shapeOrder)
 		for i := range ar {
 			ar[i] = 0
 		}
-		k2aFLP(ar, rc, shapeOrder)
+		k2aF32(ar, rc, shapeOrder)
 
-		g := 0.0
+		g := float32(0)
 		if nrg > 0 {
-			g = math.Sqrt(nrg)
-		}
-		if e.warpingQ16 > 0 {
-			g *= warpedGain(ar, warping, shapeOrder)
+			g = float32(math.Sqrt(float64(nrg)))
 		}
 
-		bwexpanderFLP(ar, shapeOrder, BWExp)
+		for i := 0; i < shapeOrder; i++ {
+			ar64[i] = float64(ar[i])
+		}
 		if e.warpingQ16 > 0 {
-			warpedTrue2MonicCoefs(ar, warping, shapeCoefLimit, shapeOrder)
+			g *= float32(warpedGain(ar64, warping, shapeOrder))
+		}
+
+		bwexpanderF32(ar, shapeOrder, float32(BWExp))
+		for i := 0; i < shapeOrder; i++ {
+			ar64[i] = float64(ar[i])
+		}
+		if e.warpingQ16 > 0 {
+			warpedTrue2MonicCoefs(ar64, warping, shapeCoefLimit, shapeOrder)
 		} else {
-			limitCoefs(ar, shapeCoefLimit, shapeOrder)
+			limitCoefs(ar64, shapeCoefLimit, shapeOrder)
 		}
 
-		gains[k] = float32(g)
+		gains[k] = g
 		base := k * maxShapeLpcOrder
 		for i := 0; i < shapeOrder; i++ {
-			arShpQ13[base+i] = floatToInt16(ar[i] * 8192.0)
+			arShpQ13[base+i] = floatToInt16(ar64[i] * 8192.0)
 		}
 		for i := shapeOrder; i < maxShapeLpcOrder; i++ {
 			arShpQ13[base+i] = 0
 		}
 	}
 
-	gainMult := math.Pow(2.0, -0.16*SNRAdjDB)
-	gainAdd := math.Pow(2.0, 0.16*float64(minQGainDb))
+	snrAdjF32 := float32(SNRAdjDB)
+	gainMult := float32(math.Pow(2.0, float64(-0.16*snrAdjF32)))
+	gainAdd := float32(math.Pow(2.0, float64(0.16*float32(minQGainDb))))
 	for k := 0; k < numSubframes; k++ {
-		gains[k] = float32(float64(gains[k])*gainMult + gainAdd)
+		gains[k] = gains[k]*gainMult + gainAdd
 	}
 
 	return gains, arShpQ13
@@ -336,6 +346,52 @@ func warpedAutocorrelationFLP(out, state []float64, in []float64, warping float6
 		}
 		state[order] = tmp1
 		out[order] += state[0] * tmp1
+	}
+}
+
+// warpedAutocorrelationFLP32 mirrors silk_warped_autocorrelation_FLP using float32 input/output.
+func warpedAutocorrelationFLP32(out, state, in []float32, warping float32, length, order int) {
+	if order&1 != 0 {
+		order--
+	}
+	if order <= 0 {
+		return
+	}
+	if order > maxShapeLpcOrder {
+		order = maxShapeLpcOrder
+	}
+
+	var st [maxShapeLpcOrder + 1]float64
+	var corr [maxShapeLpcOrder + 1]float64
+	w := float64(warping)
+
+	for n := 0; n < length; n++ {
+		tmp1 := float64(in[n])
+		for i := 0; i < order; i += 2 {
+			tmp2 := st[i] + w*st[i+1] - w*tmp1
+			st[i] = tmp1
+			corr[i] += st[0] * tmp1
+			tmp1 = st[i+1] + w*st[i+2] - w*tmp2
+			st[i+1] = tmp2
+			corr[i+1] += st[0] * tmp2
+		}
+		st[order] = tmp1
+		corr[order] += st[0] * tmp1
+	}
+
+	maxOut := order + 1
+	if maxOut > len(out) {
+		maxOut = len(out)
+	}
+	for i := 0; i < maxOut; i++ {
+		out[i] = float32(corr[i])
+	}
+	maxState := order + 1
+	if maxState > len(state) {
+		maxState = len(state)
+	}
+	for i := 0; i < maxState; i++ {
+		state[i] = float32(st[i])
 	}
 }
 

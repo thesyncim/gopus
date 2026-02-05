@@ -44,6 +44,7 @@ const (
 	nlsfQuantLevelAdjQ10      = 102
 	lsfCosTabSizeFix          = 128
 	stereoInterpLenMs         = 8
+	stereoRatioSmoothCoef     = 0.01
 
 	// Stereo prediction weight quantization constants (matching libopus define.h)
 	stereoQuantTabSize  = 16 // Number of main quantization levels
@@ -66,6 +67,12 @@ const (
 	// Prediction gain limits (define.h)
 	maxPredictionPowerGain           = 1e4
 	maxPredictionPowerGainAfterReset = 1e2
+
+	// Delayed decision quantization limits (define.h)
+	maxDelDecStates = 4
+
+	// int32 max (SigProc_FIX.h)
+	silk_int32_MAX = int32(0x7fffffff)
 )
 
 // SilkSampleScale exposes the internal sample scaling factor used by the SILK float path.

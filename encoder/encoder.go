@@ -106,7 +106,7 @@ type Encoder struct {
 	phaseInversionDisabled bool
 
 	// DC rejection filter state
-	hpMem [4]float64
+	hpMem [4]float32
 
 	// Encoder state for CELT delay compensation
 	prevSamples []float64
@@ -127,6 +127,8 @@ type Encoder struct {
 	silkResampled       []float32
 	silkResampledR      []float32
 	silkResampledBuffer []float32
+	silkMonoInputHist   [2]float32
+	scratchSilkAligned  []float32
 
 	// Scratch buffers for zero-allocation encoding
 	scratchDCPCM      []float64 // DC rejected PCM buffer
@@ -245,6 +247,7 @@ func (e *Encoder) Reset() {
 	if e.celtEncoder != nil {
 		e.celtEncoder.Reset()
 	}
+	e.silkMonoInputHist = [2]float32{}
 	e.resetFECState()
 	if e.dtx != nil {
 		e.dtx.reset()
@@ -357,6 +360,20 @@ func (e *Encoder) Bitrate() int {
 
 func bitrateToBits(bitrate int, frameSize int) int {
 	return (bitrate * frameSize) / 48000
+}
+
+// silkInputBitrate mirrors the Opus bits_target reservation before SILK allocation.
+// Opus reserves 8 bits for TOC/signaling before deriving the SILK bitrate.
+func (e *Encoder) silkInputBitrate(frameSize int) int {
+	if e.bitrate <= 0 || frameSize <= 0 {
+		return 0
+	}
+	overheadBps := (8 * 48000) / frameSize
+	rate := e.bitrate - overheadBps
+	if rate < 0 {
+		return 0
+	}
+	return rate
 }
 
 // computeEquivRate calculates the equivalent bitrate based on frame rate, VBR mode,
@@ -493,30 +510,31 @@ func (e *Encoder) dcReject(in []float64, frameSize int) []float64 {
 	channels := e.channels
 	n := frameSize * channels
 	out := e.ensureDCPCM(n)
-	const coef = 0.00039375
-	const coef2 = 1.0 - coef
+	const coef = float32(0.00039375)
+	const coef2 = float32(1.0) - coef
+	const verySmall = float32(1e-30)
 	if channels == 2 {
 		m0 := e.hpMem[0]
 		m2 := e.hpMem[2]
 		for i := 0; i < frameSize; i++ {
-			x0 := in[2*i]
-			x1 := in[2*i+1]
+			x0 := float32(in[2*i])
+			x1 := float32(in[2*i+1])
 			out0 := x0 - m0
 			out1 := x1 - m2
-			m0 = coef*x0 + coef2*m0
-			m2 = coef*x1 + coef2*m2
-			out[2*i] = out0
-			out[2*i+1] = out1
+			m0 = coef*x0 + verySmall + coef2*m0
+			m2 = coef*x1 + verySmall + coef2*m2
+			out[2*i] = float64(out0)
+			out[2*i+1] = float64(out1)
 		}
 		e.hpMem[0] = m0
 		e.hpMem[2] = m2
 	} else {
 		m0 := e.hpMem[0]
 		for i := 0; i < n; i++ {
-			x := in[i]
+			x := float32(in[i])
 			y := x - m0
-			m0 = coef*x + coef2*m0
-			out[i] = y
+			m0 = coef*x + verySmall + coef2*m0
+			out[i] = float64(y)
 		}
 		e.hpMem[0] = m0
 	}
@@ -799,7 +817,7 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 		targetSamples = len(pcm32)
 	}
 	if e.channels == 2 {
-		perChannelRate := e.bitrate / e.channels
+		perChannelRate := e.silkInputBitrate(frameSize) / e.channels
 		if perChannelRate > 0 {
 			e.silkEncoder.SetBitrate(perChannelRate)
 		}
@@ -872,11 +890,43 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 	} else {
 		lookaheadOut = lookahead32
 	}
+	// Match libopus mono SILK input buffering in enc_API.c:
+	// the encoder prepends a 2-sample history and encodes from inputBuf + 1.
+	// This introduces a 1-sample handoff across frames.
+	if e.channels == 1 {
+		pcm32 = e.alignSilkMonoInput(pcm32)
+	}
 	if e.bitrate > 0 {
-		perChannelRate := e.bitrate / e.channels
+		perChannelRate := e.silkInputBitrate(frameSize) / e.channels
 		if perChannelRate > 0 {
 			e.silkEncoder.SetBitrate(perChannelRate)
 		}
+	}
+	switch e.bitrateMode {
+	case ModeCBR:
+		e.silkEncoder.SetVBR(false)
+	default:
+		e.silkEncoder.SetVBR(true)
+	}
+	// Set SILK max bits based on bitrate mode (matches opus_encoder.c behavior).
+	if e.bitrate > 0 {
+		targetBytes := targetBytesForBitrate(e.bitrate, frameSize)
+		maxBytes := targetBytes
+		switch e.bitrateMode {
+		case ModeVBR:
+			maxBytes = maxSilkPacketBytes
+		case ModeCVBR:
+			maxBytes = int(float64(targetBytes) * (1 + CVBRTolerance))
+			if maxBytes < 1 {
+				maxBytes = 1
+			}
+			if maxBytes > maxSilkPacketBytes {
+				maxBytes = maxSilkPacketBytes
+			}
+		case ModeCBR:
+			// keep targetBytes
+		}
+		e.silkEncoder.SetMaxBits(maxBytes * 8)
 	}
 	e.silkEncoder.SetFEC(e.fecEnabled)
 	e.silkEncoder.SetPacketLoss(e.packetLoss)
@@ -959,6 +1009,27 @@ func (e *Encoder) ensureSilkVADSide() {
 	if e.silkVADSide == nil {
 		e.silkVADSide = NewVADState()
 	}
+}
+
+func (e *Encoder) alignSilkMonoInput(in []float32) []float32 {
+	n := len(in)
+	if n == 0 {
+		return in
+	}
+	if cap(e.scratchSilkAligned) < n {
+		e.scratchSilkAligned = make([]float32, n)
+	}
+	out := e.scratchSilkAligned[:n]
+	out[0] = e.silkMonoInputHist[1]
+	if n > 1 {
+		copy(out[1:], in[:n-1])
+		e.silkMonoInputHist[0] = in[n-2]
+		e.silkMonoInputHist[1] = in[n-1]
+	} else {
+		e.silkMonoInputHist[0] = e.silkMonoInputHist[1]
+		e.silkMonoInputHist[1] = in[0]
+	}
+	return out
 }
 
 // updateOpusVAD updates the Opus-level VAD activity state from the tonality analyzer.
@@ -1164,6 +1235,13 @@ func (e *Encoder) LastSilkLTPCorr() float32 {
 		return 0
 	}
 	return e.silkEncoder.LTPCorr()
+}
+
+// SetSilkTrace enables SILK encoder tracing for parity debugging.
+// Only applies when the SILK encoder is active.
+func (e *Encoder) SetSilkTrace(trace *silk.EncoderTrace) {
+	e.ensureSILKEncoder()
+	e.silkEncoder.SetTrace(trace)
 }
 
 // SetMaxBandwidth sets the maximum bandwidth limit.

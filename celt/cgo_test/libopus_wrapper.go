@@ -37,6 +37,50 @@ void opus_flush_stdio(void) {
     fflush(NULL);
 }
 
+// Expose fixed-point helpers for parity tests.
+opus_int32 test_silk_inverse32_varQ(opus_int32 b32, int qres) {
+    return silk_INVERSE32_varQ(b32, qres);
+}
+
+opus_int32 test_silk_div32_varQ(opus_int32 a32, opus_int32 b32, int qres) {
+    return silk_DIV32_varQ(a32, b32, qres);
+}
+
+opus_int32 test_silk_smlawb(opus_int32 a, opus_int32 b, opus_int32 c) {
+    return silk_SMLAWB(a, b, c);
+}
+
+opus_int32 test_silk_smlawt(opus_int32 a, opus_int32 b, opus_int32 c) {
+    return silk_SMLAWT(a, b, c);
+}
+
+opus_int32 test_silk_smulwb(opus_int32 a, opus_int32 b) {
+    return silk_SMULWB(a, b);
+}
+
+opus_int32 test_silk_smulww(opus_int32 a, opus_int32 b) {
+    return silk_SMULWW(a, b);
+}
+
+opus_int32 test_silk_rshift_round(opus_int32 a, int shift) {
+    return silk_RSHIFT_ROUND(a, shift);
+}
+
+void test_silk_ltp_pred(const opus_int32 *sLTP_Q15, const opus_int16 *b_Q14, int start_idx, int length, opus_int32 *out) {
+    const opus_int32 *pred_lag_ptr = &sLTP_Q15[start_idx];
+    for (int i = 0; i < length; i++) {
+        opus_int32 LTP_pred_Q14 = 2;
+        LTP_pred_Q14 = silk_SMLAWB(LTP_pred_Q14, pred_lag_ptr[0],  b_Q14[0]);
+        LTP_pred_Q14 = silk_SMLAWB(LTP_pred_Q14, pred_lag_ptr[-1], b_Q14[1]);
+        LTP_pred_Q14 = silk_SMLAWB(LTP_pred_Q14, pred_lag_ptr[-2], b_Q14[2]);
+        LTP_pred_Q14 = silk_SMLAWB(LTP_pred_Q14, pred_lag_ptr[-3], b_Q14[3]);
+        LTP_pred_Q14 = silk_SMLAWB(LTP_pred_Q14, pred_lag_ptr[-4], b_Q14[4]);
+        LTP_pred_Q14 = silk_LSHIFT(LTP_pred_Q14, 1);
+        out[i] = LTP_pred_Q14;
+        pred_lag_ptr++;
+    }
+}
+
 // Mirror of OpusDecoder structure from opus_decoder.c
 // Based on https://github.com/xiph/opus/blob/main/src/opus_decoder.c
 typedef struct {
@@ -1995,6 +2039,57 @@ import (
 
 func init() {
 	SetLibopusDebugRange(false)
+}
+
+// SilkInverse32VarQ calls libopus silk_INVERSE32_varQ.
+func SilkInverse32VarQ(b32 int32, qres int) int32 {
+	return int32(C.test_silk_inverse32_varQ(C.opus_int32(b32), C.int(qres)))
+}
+
+// SilkDiv32VarQ calls libopus silk_DIV32_varQ.
+func SilkDiv32VarQ(a32, b32 int32, qres int) int32 {
+	return int32(C.test_silk_div32_varQ(C.opus_int32(a32), C.opus_int32(b32), C.int(qres)))
+}
+
+// SilkSMLAWB calls libopus silk_SMLAWB.
+func SilkSMLAWB(a, b, c int32) int32 {
+	return int32(C.test_silk_smlawb(C.opus_int32(a), C.opus_int32(b), C.opus_int32(c)))
+}
+
+// SilkSMLAWT calls libopus silk_SMLAWT.
+func SilkSMLAWT(a, b, c int32) int32 {
+	return int32(C.test_silk_smlawt(C.opus_int32(a), C.opus_int32(b), C.opus_int32(c)))
+}
+
+// SilkSMULWB calls libopus silk_SMULWB.
+func SilkSMULWB(a, b int32) int32 {
+	return int32(C.test_silk_smulwb(C.opus_int32(a), C.opus_int32(b)))
+}
+
+// SilkSMULWW calls libopus silk_SMULWW.
+func SilkSMULWW(a, b int32) int32 {
+	return int32(C.test_silk_smulww(C.opus_int32(a), C.opus_int32(b)))
+}
+
+// SilkRSHIFT_ROUND calls libopus silk_RSHIFT_ROUND.
+func SilkRSHIFT_ROUND(a int32, shift int) int32 {
+	return int32(C.test_silk_rshift_round(C.opus_int32(a), C.int(shift)))
+}
+
+// SilkLTPPredQ14 computes libopus LTP prediction for a sequence.
+func SilkLTPPredQ14(sLTPQ15 []int32, bQ14 []int16, startIdx, length int) []int32 {
+	if length <= 0 || startIdx < 4 || startIdx+length > len(sLTPQ15) || len(bQ14) < 5 {
+		return nil
+	}
+	out := make([]int32, length)
+	C.test_silk_ltp_pred(
+		(*C.opus_int32)(unsafe.Pointer(&sLTPQ15[0])),
+		(*C.opus_int16)(unsafe.Pointer(&bQ14[0])),
+		C.int(startIdx),
+		C.int(length),
+		(*C.opus_int32)(unsafe.Pointer(&out[0])),
+	)
+	return out
 }
 
 // DecodeLaplace calls libopus ec_laplace_decode
