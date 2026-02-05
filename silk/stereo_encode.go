@@ -225,6 +225,19 @@ func EncodeStereoIndices(enc *rangecoding.Encoder, ix StereoQuantIndices) {
 	stereoEncodePred(enc, ix)
 }
 
+// EncodeStereoMidOnly encodes the stereo "mid-only" flag.
+// This is only encoded when the side channel VAD flag is inactive.
+// midOnly=1 means side channel is not coded.
+func EncodeStereoMidOnly(enc *rangecoding.Encoder, midOnly int) {
+	if enc == nil {
+		return
+	}
+	if midOnly != 0 {
+		midOnly = 1
+	}
+	enc.EncodeICDF(midOnly, silk_stereo_only_code_mid_iCDF, 8)
+}
+
 // encodeStereoWithLPFilter converts stereo to mid-side with proper LP/HP filtering
 // and applies 8ms predictor interpolation for smooth frame boundary transitions.
 // This matches libopus stereo_LR_to_MS.c by applying LP and HP filtering before
@@ -394,6 +407,77 @@ func (e *Encoder) StereoEncodeLRToMSWithInterp(left, right []float32, frameLengt
 	e.stereo.widthPrevQ14 = widthQ14
 
 	return midOut, sideOut, predQ13
+}
+
+// StereoEncodeLRToMSWithInterpQuantized is the libopus-aligned variant that:
+// 1) computes LP/HP predictors,
+// 2) quantizes predictors to 80 levels,
+// 3) applies 8ms interpolation using the quantized predictors, and
+// 4) updates encoder stereo state based on quantized predictors.
+//
+// This ensures the side residual is computed with the same predictors the decoder will use.
+//
+// Returns mid/side outputs (length frameLength), the quantized predictors, and the quant indices.
+func (e *Encoder) StereoEncodeLRToMSWithInterpQuantized(left, right []float32, frameLength, fsKHz int, widthQ14 int16) (midOut, sideOut []float32, predQ13 [2]int32, ix StereoQuantIndices) {
+	// Compute predictors from LP/HP filtered mid/side
+	mid, side, predQ13 := e.encodeStereoWithLPFilter(left, right, frameLength, fsKHz)
+
+	// Quantize predictors (80-level) and keep indices for encoding
+	predQ13, ix = QuantizeStereoWeights(predQ13)
+
+	// Create output buffers
+	midOut = make([]float32, frameLength)
+	sideOut = make([]float32, frameLength)
+
+	// Copy mid channel (offset by 1 to account for history alignment)
+	for n := 0; n < frameLength; n++ {
+		midOut[n] = mid[n+1]
+	}
+
+	// Apply 8ms predictor interpolation using quantized predictors
+	interpSamples := stereoInterpLenMs * fsKHz
+
+	pred0Q13 := -e.stereo.predPrevQ13[0]
+	pred1Q13 := -e.stereo.predPrevQ13[1]
+	wQ24 := int32(e.stereo.widthPrevQ14) << 10
+
+	denomQ16 := int32((1 << 16) / interpSamples)
+	delta0Q13 := -silkRSHIFT_ROUND(silkSMULBB(predQ13[0]-e.stereo.predPrevQ13[0], denomQ16), 16)
+	delta1Q13 := -silkRSHIFT_ROUND(silkSMULBB(predQ13[1]-e.stereo.predPrevQ13[1], denomQ16), 16)
+	deltawQ24 := int32(silkSMULWB(int32(widthQ14)-int32(e.stereo.widthPrevQ14), denomQ16)) << 10
+
+	for n := 0; n < interpSamples && n < frameLength; n++ {
+		pred0Q13 += delta0Q13
+		pred1Q13 += delta1Q13
+		wQ24 += deltawQ24
+
+		sumQ11 := int32((mid[n]+2*mid[n+1]+mid[n+2])*512)
+		sideQ8 := silkSMULWB(wQ24, int32(side[n+1]*32768))
+		sideQ8 = silkSMLAWB(sideQ8, sumQ11, pred0Q13)
+		sideQ8 = silkSMLAWB(sideQ8, int32(mid[n+1]*32768)<<11, pred1Q13)
+		sideOut[n] = float32(silkRSHIFT_ROUND(sideQ8, 8)) / 32768.0
+	}
+
+	pred0Q13 = -predQ13[0]
+	pred1Q13 = -predQ13[1]
+	wQ24 = int32(widthQ14) << 10
+
+	for n := interpSamples; n < frameLength; n++ {
+		sumQ11 := int32((mid[n]+2*mid[n+1]+mid[n+2])*512)
+		sideQ8 := silkSMULWB(wQ24, int32(side[n+1]*32768))
+		sideQ8 = silkSMLAWB(sideQ8, sumQ11, pred0Q13)
+		sideQ8 = silkSMLAWB(sideQ8, int32(mid[n+1]*32768)<<11, pred1Q13)
+		sideOut[n] = float32(silkRSHIFT_ROUND(sideQ8, 8)) / 32768.0
+	}
+
+	// Update state for next frame (quantized predictors)
+	e.stereo.predPrevQ13[0] = predQ13[0]
+	e.stereo.predPrevQ13[1] = predQ13[1]
+	e.stereo.widthPrevQ14 = widthQ14
+	e.prevStereoWeights[0] = int16(predQ13[0] + predQ13[1])
+	e.prevStereoWeights[1] = int16(predQ13[1])
+
+	return midOut, sideOut, predQ13, ix
 }
 
 // EncodeStereoLRToMS is the public method that matches libopus stereo_LR_to_MS.

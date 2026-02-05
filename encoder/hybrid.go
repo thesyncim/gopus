@@ -23,6 +23,7 @@ import (
 
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/rangecoding"
+	"github.com/thesyncim/gopus/silk"
 	"github.com/thesyncim/gopus/types"
 )
 
@@ -673,10 +674,10 @@ func (e *Encoder) encodeSILKHybridMono(pcm []float32, lookahead []float32, silkS
 	nChannels := 1        // mono
 	nBitsHeader := (nFramesPerPacket + 1) * nChannels
 
-	// Encode any LBRR data from previous packet (header already reserved here)
-	if e.fecEnabled {
-		e.silkEncoder.EncodeLBRRData(re, 1, false)
-	}
+	// Reserve header bits (VAD + LBRR) and encode any LBRR data from previous packet.
+	// This must always be called to ensure PatchInitialBits overwrites reserved bits
+	// instead of corrupting the frame payload.
+	e.silkEncoder.EncodeLBRRData(re, 1, true)
 
 	// Encode the frame (EncodeFrame in hybrid mode skips its own VAD/LBRR)
 	_ = e.silkEncoder.EncodeFrame(inputSamples, lookahead, vadFlag)
@@ -696,35 +697,43 @@ func (e *Encoder) encodeSILKHybridMono(pcm []float32, lookahead []float32, silkS
 // encodeSILKHybridStereo encodes stereo SILK data for hybrid mode.
 // Uses mid-side encoding per RFC 6716 Section 4.2.8.
 func (e *Encoder) encodeSILKHybridStereo(pcm []float32, lookahead []float32, silkSamples int) {
-	// Deinterleave L/R channels
+	// Deinterleave L/R channels and append 2-sample lookahead for LP filtering.
 	actualSamples := len(pcm) / 2
 	if actualSamples < silkSamples {
 		silkSamples = actualSamples
 	}
 
-	left := make([]float32, silkSamples)
-	right := make([]float32, silkSamples)
+	left := e.scratchLeft[:silkSamples+2]
+	right := e.scratchRight[:silkSamples+2]
 	for i := 0; i < silkSamples && i*2+1 < len(pcm); i++ {
 		left[i] = pcm[i*2]
 		right[i] = pcm[i*2+1]
 	}
+	// Use lookahead if provided, otherwise zero-pad.
+	if len(lookahead) >= 2 {
+		left[silkSamples] = lookahead[0]
+		right[silkSamples] = lookahead[1]
+		if len(lookahead) >= 4 {
+			left[silkSamples+1] = lookahead[2]
+			right[silkSamples+1] = lookahead[3]
+		} else {
+			left[silkSamples+1] = left[silkSamples]
+			right[silkSamples+1] = right[silkSamples]
+		}
+	} else {
+		left[silkSamples] = 0
+		right[silkSamples] = 0
+		left[silkSamples+1] = 0
+		right[silkSamples+1] = 0
+	}
 
-	// Convert to mid-side with LP/HP filtering and compute stereo weights
+	// Convert to mid-side with quantized predictor interpolation (libopus stereo_LR_to_MS).
 	fsKHz := 16 // SILK wideband uses 16kHz
-	midWithHistory, sideWithHistory, weights := e.silkEncoder.EncodeStereoLRToMS(left, right, silkSamples, fsKHz)
-
-	// Extract frame data (skip 1 history sample offset due to LP filter alignment)
-	var mid, side []float32
-	if len(midWithHistory) >= silkSamples+1 {
-		mid = midWithHistory[1 : silkSamples+1]
-	} else {
-		mid = midWithHistory
+	widthQ14 := int16(16384)
+	if e.hybridState != nil && e.hybridState.stereoWidthQ14 > 0 {
+		widthQ14 = int16(e.hybridState.stereoWidthQ14)
 	}
-	if len(sideWithHistory) >= silkSamples+1 {
-		side = sideWithHistory[1 : silkSamples+1]
-	} else {
-		side = sideWithHistory
-	}
+	mid, side, _, predIdx := e.silkEncoder.StereoEncodeLRToMSWithInterpQuantized(left, right, silkSamples, fsKHz, widthQ14)
 
 	// Compute VAD flags
 	vadMid := e.computeSilkVAD(mid, len(mid), fsKHz)
@@ -757,18 +766,22 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, lookahead []float32, sil
 	// Header bits to patch at packet start (VAD/LBRR)
 	nBitsHeader := 2
 
-	// 1. Encode LBRR Mid
-	if e.fecEnabled {
-		e.silkEncoder.EncodeLBRRData(re, 1, false)
-	}
+	// 1. Reserve header bits (VAD + LBRR) and encode any LBRR Mid data.
+	// Use nChannels=2 to reserve space for both Mid+Side flags.
+	e.silkEncoder.EncodeLBRRData(re, 2, true)
 
-	// 2. Encode LBRR Side
+	// 2. Encode LBRR Side (no header placeholder; already reserved).
 	if e.fecEnabled && e.silkSideEncoder != nil {
 		e.silkSideEncoder.EncodeLBRRData(re, 1, false)
 	}
 
-	// 3. Encode Weights
-	e.silkEncoder.EncodeStereoWeightsToRange(weights)
+	// 3. Encode Weights (pre-quantized indices)
+	silk.EncodeStereoIndices(re, predIdx)
+
+	// 3b. Encode mid-only flag when side VAD is inactive (libopus stereo flag).
+	if !vadSide {
+		silk.EncodeStereoMidOnly(re, 0) // always code side for now
+	}
 
 	// 4. Encode Mid Frame
 	_ = e.silkEncoder.EncodeFrame(mid, nil, vadMid)
