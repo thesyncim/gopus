@@ -162,6 +162,7 @@ func TestNSQDelDecMatchesLibopus(t *testing.T) {
 			}
 
 			nsq := NewNSQState()
+			nsqInit := nsq.Clone()
 			debugSLTP := make([]int32, ltpMemLength+frameLength)
 			debugSLTPRaw := make([]int16, ltpMemLength+frameLength)
 			setNSQDelDecDebugSLTP(debugSLTP)
@@ -177,13 +178,17 @@ func TestNSQDelDecMatchesLibopus(t *testing.T) {
 			scaleGain := nsqDelDecDebugScaleGain
 			setNSQDelDecDebugScale(-1, -1)
 
-			pulsesLib, xqLib, seedLib, sLTPLib, sLTPLibRaw, _ := cgowrap.SilkNSQDelDecCaptureSLTPQ15(
+			pulsesLib, xqLib, seedLib, sLTPLib, sLTPLibRaw, _, finalState := cgowrap.SilkNSQDelDecCaptureWithStateFinal(
 				frameLength, subfrLength, nbSubfr, ltpMemLength,
 				predLPCOrder, shapeLPCOrder, tc.warpingQ16, tc.nStates,
 				tc.signalType, quantOffset, nlsfInterpQ2, seed,
 				x16, predCoefQ12, ltpCoefQ14, arShpQ13,
 				harmShapeGainQ14, tiltQ14, lfShpQ14, gainsQ16, pitchL,
 				lambdaQ10, ltpScaleQ14,
+				nsqInit.xq[:], nsqInit.sLTPShpQ14[:], nsqInit.sLPCQ14[:], nsqInit.sAR2Q14[:],
+				nsqInit.sLFARShpQ14, nsqInit.sDiffShpQ14,
+				nsqInit.lagPrev, nsqInit.sLTPBufIdx, nsqInit.sLTPShpBufIdx,
+				nsqInit.randSeed, nsqInit.prevGainQ16, nsqInit.rewhiteFlag,
 			)
 
 			if len(pulsesGo) != len(pulsesLib) {
@@ -316,8 +321,65 @@ func TestNSQDelDecMatchesLibopus(t *testing.T) {
 			if seedGo != seedLib {
 				t.Fatalf("seed mismatch: go=%d lib=%d", seedGo, seedLib)
 			}
+
+			if idx := firstInt16Mismatch(nsq.xq[:], finalState.XQ); idx >= 0 {
+				t.Fatalf("final state xq mismatch at %d: go=%d lib=%d", idx, nsq.xq[idx], finalState.XQ[idx])
+			}
+			if idx := firstInt32Mismatch(nsq.sLTPShpQ14[:], finalState.SLTPShpQ14); idx >= 0 {
+				t.Fatalf("final state sLTP_shp mismatch at %d: go=%d lib=%d", idx, nsq.sLTPShpQ14[idx], finalState.SLTPShpQ14[idx])
+			}
+			if idx := firstInt32Mismatch(nsq.sLPCQ14[:], finalState.SLPCQ14); idx >= 0 {
+				t.Fatalf("final state sLPC mismatch at %d: go=%d lib=%d", idx, nsq.sLPCQ14[idx], finalState.SLPCQ14[idx])
+			}
+			if idx := firstInt32Mismatch(nsq.sAR2Q14[:], finalState.SAR2Q14); idx >= 0 {
+				t.Fatalf("final state sAR2 mismatch at %d: go=%d lib=%d", idx, nsq.sAR2Q14[idx], finalState.SAR2Q14[idx])
+			}
+			if nsq.sLFARShpQ14 != finalState.LFARQ14 || nsq.sDiffShpQ14 != finalState.DiffQ14 {
+				t.Fatalf("final state shaping scalar mismatch: lfAR go=%d lib=%d diff go=%d lib=%d",
+					nsq.sLFARShpQ14, finalState.LFARQ14, nsq.sDiffShpQ14, finalState.DiffQ14)
+			}
+			if nsq.lagPrev != finalState.LagPrev || nsq.sLTPBufIdx != finalState.SLTPBufIdx || nsq.sLTPShpBufIdx != finalState.SLTPShpBufIdx {
+				t.Fatalf("final state index mismatch: lagPrev go=%d lib=%d sLTPBufIdx go=%d lib=%d sLTPShpBufIdx go=%d lib=%d",
+					nsq.lagPrev, finalState.LagPrev, nsq.sLTPBufIdx, finalState.SLTPBufIdx, nsq.sLTPShpBufIdx, finalState.SLTPShpBufIdx)
+			}
+			if nsq.randSeed != finalState.RandSeed || nsq.prevGainQ16 != finalState.PrevGainQ16 || nsq.rewhiteFlag != finalState.RewhiteFlag {
+				t.Fatalf("final state flags mismatch: randSeed go=%d lib=%d prevGain go=%d lib=%d rewhite go=%d lib=%d",
+					nsq.randSeed, finalState.RandSeed, nsq.prevGainQ16, finalState.PrevGainQ16, nsq.rewhiteFlag, finalState.RewhiteFlag)
+			}
 		})
 	}
+}
+
+func firstInt16Mismatch(a, b []int16) int {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	for i := 0; i < n; i++ {
+		if a[i] != b[i] {
+			return i
+		}
+	}
+	if len(a) != len(b) {
+		return n
+	}
+	return -1
+}
+
+func firstInt32Mismatch(a, b []int32) int {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	for i := 0; i < n; i++ {
+		if a[i] != b[i] {
+			return i
+		}
+	}
+	if len(a) != len(b) {
+		return n
+	}
+	return -1
 }
 
 func TestRewhitenLTPMatchesLibopus(t *testing.T) {

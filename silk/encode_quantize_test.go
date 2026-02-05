@@ -29,7 +29,7 @@ func TestEncodeFrameQuantizesInputPCM(t *testing.T) {
 	}
 
 	expected := float32(floatToInt16Round(pcm[0]*float32(silkSampleScale))) / float32(silkSampleScale)
-	expected += 1e-6 // encode_frame adds anti-denormal dither at the first frame sample
+	expected += float32(1e-6 / silkSampleScale) // encode_frame adds anti-denormal dither in normalized sample scale
 	got := enc.inputBuffer[insertOffset]
 	if math.Abs(float64(got-expected)) > 1e-9 {
 		t.Fatalf("input not quantized: got=%v expected=%v", got, expected)

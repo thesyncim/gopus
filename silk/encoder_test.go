@@ -39,8 +39,8 @@ func TestNewEncoder(t *testing.T) {
 			if enc.pitchState.prevLag != 0 {
 				t.Errorf("pitchState.prevLag = %d, want 0", enc.pitchState.prevLag)
 			}
-			if enc.nsqState == nil || enc.nsqState.lagPrev != 100 {
-				t.Errorf("nsqState.lagPrev = %d, want 100", enc.nsqState.lagPrev)
+			if enc.nsqState == nil || enc.nsqState.lagPrev != 0 {
+				t.Errorf("nsqState.lagPrev = %d, want 0", enc.nsqState.lagPrev)
 			}
 		})
 	}
@@ -83,8 +83,8 @@ func TestEncoderReset(t *testing.T) {
 	if enc.pitchState.prevLag != 0 {
 		t.Errorf("pitchState.prevLag should be 0 after Reset, got %d", enc.pitchState.prevLag)
 	}
-	if enc.nsqState == nil || enc.nsqState.lagPrev != 100 {
-		t.Errorf("nsqState.lagPrev should be 100 after Reset, got %d", enc.nsqState.lagPrev)
+	if enc.nsqState == nil || enc.nsqState.lagPrev != 0 {
+		t.Errorf("nsqState.lagPrev should be 0 after Reset, got %d", enc.nsqState.lagPrev)
 	}
 }
 

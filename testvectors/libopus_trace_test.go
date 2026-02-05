@@ -1025,6 +1025,10 @@ func cloneNSQTrace(src *silk.NSQTrace) silk.NSQTrace {
 	dst.NSQSLTPShpQ14 = append([]int32(nil), src.NSQSLTPShpQ14...)
 	dst.NSQLPCQ14 = append([]int32(nil), src.NSQLPCQ14...)
 	dst.NSQAR2Q14 = append([]int32(nil), src.NSQAR2Q14...)
+	dst.NSQPostXQ = append([]int16(nil), src.NSQPostXQ...)
+	dst.NSQPostSLTPShpQ14 = append([]int32(nil), src.NSQPostSLTPShpQ14...)
+	dst.NSQPostLPCQ14 = append([]int32(nil), src.NSQPostLPCQ14...)
+	dst.NSQPostAR2Q14 = append([]int32(nil), src.NSQPostAR2Q14...)
 	return dst
 }
 

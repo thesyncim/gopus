@@ -71,7 +71,7 @@ type NSQState struct {
 // NewNSQState creates a new NSQ state with proper initialization.
 func NewNSQState() *NSQState {
 	state := &NSQState{
-		prevGainQ16: 65536, // 1.0 in Q16
+		prevGainQ16: 0,
 		// Pre-allocate scratch buffers for zero-allocation encoding
 		scratchPulses:  make([]int8, maxFrameLengthNSQ),
 		scratchXq:      make([]int16, maxFrameLengthNSQ),
@@ -148,7 +148,7 @@ func (s *NSQState) Reset() {
 	s.sLTPBufIdx = 0
 	s.sLTPShpBufIdx = 0
 	s.randSeed = 0
-	s.prevGainQ16 = 65536
+	s.prevGainQ16 = 0
 	s.rewhiteFlag = 0
 }
 

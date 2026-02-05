@@ -13,8 +13,8 @@ func TestNSQStateInitialization(t *testing.T) {
 		t.Fatal("NewNSQState returned nil")
 	}
 
-	if state.prevGainQ16 != 65536 {
-		t.Errorf("Expected prevGainQ16 = 65536, got %d", state.prevGainQ16)
+	if state.prevGainQ16 != 0 {
+		t.Errorf("Expected prevGainQ16 = 0, got %d", state.prevGainQ16)
 	}
 
 	// Verify all arrays are zero-initialized
@@ -59,7 +59,7 @@ func TestNSQStateReset(t *testing.T) {
 	if state.sLPCQ14[0] != 0 {
 		t.Errorf("sLPCQ14[0] not reset: %d", state.sLPCQ14[0])
 	}
-	if state.prevGainQ16 != 65536 {
+	if state.prevGainQ16 != 0 {
 		t.Errorf("prevGainQ16 not reset to default: %d", state.prevGainQ16)
 	}
 }
@@ -121,7 +121,7 @@ func TestFixedPointMath(t *testing.T) {
 	// Test with positive values in range
 	// Note: c is cast to int16, so 0x4000 = 16384 (positive)
 	result = silk_SMLAWB(0, 65536, 16384) // 1.0 * (16384/65536) = 0.25 -> 16384
-	expected := int32(16384) // 65536 * 16384 >> 16 = 16384
+	expected := int32(16384)              // 65536 * 16384 >> 16 = 16384
 	if result != expected {
 		t.Errorf("silk_SMLAWB: expected %d, got %d", expected, result)
 	}

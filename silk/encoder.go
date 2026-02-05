@@ -349,7 +349,7 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 		bandwidth:         bandwidth,
 		sampleRate:        config.SampleRate,
 		lpcOrder:          config.LPCOrder,
-		// libopus initializes prevLag to 0; only NSQ lagPrev starts at 100.
+		// Keep reset parity with libopus.
 		pitchState:               PitchAnalysisState{prevLag: 0},
 		snrDBQ7:                  25 * 128, // Default: 25 dB SNR target
 		lastControlTargetRateBps: 0,
@@ -358,7 +358,6 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 		lbrrGainIncreases:        7, // Default gain increase for LBRR
 		previousGainIndex:        10,
 	}
-	enc.nsqState.lagPrev = 100 // libopus initialization
 	enc.SetComplexity(10)
 	enc.stereo.smthWidthQ14 = 16384
 	return enc
@@ -394,8 +393,7 @@ func (e *Encoder) Reset() {
 		e.pitchAnalysisBuf[i] = 0
 	}
 	if e.nsqState != nil {
-		e.nsqState.Reset()       // Reset NSQ state
-		e.nsqState.lagPrev = 100 // libopus initialization
+		e.nsqState.Reset() // Reset NSQ state
 	}
 	if e.noiseShapeState != nil {
 		e.noiseShapeState = NewNoiseShapeState() // Reset noise shaping state
