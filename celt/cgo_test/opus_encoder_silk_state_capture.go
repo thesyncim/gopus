@@ -46,6 +46,9 @@ typedef struct {
     int n_states_delayed_decision;
     int warping_q16;
     int sum_log_gain_q7;
+    int target_rate_bps;
+    int snr_db_q7;
+    int n_bits_exceeded;
     int gain_indices[4];
     int last_gain_index;
     unsigned long long pitch_x_buf_hash;
@@ -102,6 +105,9 @@ static void fill_opus_silk_encoder_state_snapshot(OpusEncoder *enc, opus_silk_en
     out->n_states_delayed_decision = st0->sCmn.nStatesDelayedDecision;
     out->warping_q16 = st0->sCmn.warping_Q16;
     out->sum_log_gain_q7 = st0->sCmn.sum_log_gain_Q7;
+    out->target_rate_bps = st0->sCmn.TargetRate_bps;
+    out->snr_db_q7 = st0->sCmn.SNR_dB_Q7;
+    out->n_bits_exceeded = silk_enc->nBitsExceeded;
     out->gain_indices[0] = st0->sCmn.indices.GainsIndices[0];
     out->gain_indices[1] = st0->sCmn.indices.GainsIndices[1];
     out->gain_indices[2] = st0->sCmn.indices.GainsIndices[2];
@@ -319,19 +325,22 @@ type OpusSilkEncoderStateSnapshot struct {
 	NSQRandSeed      int32
 	NSQRewhiteFlag   int
 
-    ECPrevLagIndex    int
-    ECPrevSignalType  int
-    SilkModeSignal    int
-    SilkInternalHz    int
-    SilkPayloadSizeMs int
-    SilkModeUseCBR    int
-    SilkModeMaxBits   int
-    SpeechActivityQ8  int
+	ECPrevLagIndex    int
+	ECPrevSignalType  int
+	SilkModeSignal    int
+	SilkInternalHz    int
+	SilkPayloadSizeMs int
+	SilkModeUseCBR    int
+	SilkModeMaxBits   int
+	SpeechActivityQ8  int
 	InputTiltQ15      int
 	PitchEstThresQ16  int32
 	NStatesDelayedDec int
 	WarpingQ16        int
 	SumLogGainQ7      int32
+	TargetRateBps     int
+	SNRDBQ7           int
+	NBitsExceeded     int
 	GainIndices       [4]int8
 	LastGainIndex     int
 	PitchXBufHash     uint64
@@ -389,19 +398,22 @@ func captureOpusSilkEncoderStateAtFrame(samples []float32, sampleRate, channels,
 		NSQPrevGainQ16:       int32(out.nsq_prev_gain_q16),
 		NSQRandSeed:          int32(out.nsq_rand_seed),
 		NSQRewhiteFlag:       int(out.nsq_rewhite_flag),
-        ECPrevLagIndex:       int(out.ec_prev_lag_index),
-        ECPrevSignalType:     int(out.ec_prev_signal_type),
-        SilkModeSignal:       int(out.silk_mode_signal_type),
-        SilkInternalHz:       int(out.silk_mode_internal_sample_rate),
-        SilkPayloadSizeMs:    int(out.silk_mode_payload_size_ms),
-        SilkModeUseCBR:       int(out.silk_mode_use_cbr),
-        SilkModeMaxBits:      int(out.silk_mode_max_bits),
-        SpeechActivityQ8:     int(out.speech_activity_q8),
+		ECPrevLagIndex:       int(out.ec_prev_lag_index),
+		ECPrevSignalType:     int(out.ec_prev_signal_type),
+		SilkModeSignal:       int(out.silk_mode_signal_type),
+		SilkInternalHz:       int(out.silk_mode_internal_sample_rate),
+		SilkPayloadSizeMs:    int(out.silk_mode_payload_size_ms),
+		SilkModeUseCBR:       int(out.silk_mode_use_cbr),
+		SilkModeMaxBits:      int(out.silk_mode_max_bits),
+		SpeechActivityQ8:     int(out.speech_activity_q8),
 		InputTiltQ15:         int(out.input_tilt_q15),
 		PitchEstThresQ16:     int32(out.pitch_estimation_threshold_q16),
 		NStatesDelayedDec:    int(out.n_states_delayed_decision),
 		WarpingQ16:           int(out.warping_q16),
 		SumLogGainQ7:         int32(out.sum_log_gain_q7),
+		TargetRateBps:        int(out.target_rate_bps),
+		SNRDBQ7:              int(out.snr_db_q7),
+		NBitsExceeded:        int(out.n_bits_exceeded),
 		GainIndices: [4]int8{
 			int8(out.gain_indices[0]),
 			int8(out.gain_indices[1]),

@@ -175,6 +175,9 @@ type FrameStateTrace struct {
 	GainIndices   [maxNbSubfr]int8
 	LastGainIndex int32
 	SumLogGainQ7  int32
+	TargetRateBps int
+	SNRDBQ7       int
+	NBitsExceeded int
 
 	PrevLag        int
 	PrevSignalType int
