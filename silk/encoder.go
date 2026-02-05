@@ -50,13 +50,14 @@ type Encoder struct {
 	noiseShapeState *NoiseShapeState // Noise shaping analysis state for adaptive parameters
 
 	// Encoder control parameters (persists across frames)
-	snrDBQ7                int     // Target SNR in dB (Q7 format, e.g., 25 dB = 25 * 128)
-	targetRateBps          int     // Target bitrate (per channel) for SNR control
-	useCBR                 bool    // Constant Bitrate mode
-	ltpCorr                float32 // LTP correlation from pitch analysis [0, 1]
-	sumLogGainQ7           int32   // Sum log gain for LTP quantization
-	complexity             int     // Encoder complexity (0-10)
-	nStatesDelayedDecision int     // Delayed decision states (libopus control_codec)
+	snrDBQ7                  int     // Target SNR in dB (Q7 format, e.g., 25 dB = 25 * 128)
+	targetRateBps            int     // Target bitrate (per channel) for SNR control
+	lastControlTargetRateBps int     // Last per-frame target rate used for SNR control
+	useCBR                   bool    // Constant Bitrate mode
+	ltpCorr                  float32 // LTP correlation from pitch analysis [0, 1]
+	sumLogGainQ7             int32   // Sum log gain for LTP quantization
+	complexity               int     // Encoder complexity (0-10)
+	nStatesDelayedDecision   int     // Delayed decision states (libopus control_codec)
 
 	// Pitch estimation tuning (mirrors libopus control_codec.c)
 	pitchEstimationComplexity   int
@@ -349,12 +350,13 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 		sampleRate:        config.SampleRate,
 		lpcOrder:          config.LPCOrder,
 		// libopus initializes prevLag to 0; only NSQ lagPrev starts at 100.
-		pitchState:        PitchAnalysisState{prevLag: 0},
-		snrDBQ7:           25 * 128,                         // Default: 25 dB SNR target
-		nFramesPerPacket:  1,                                // Default: 1 frame per packet (20ms)
-		lbrrPulses:        lbrrPulses,
-		lbrrGainIncreases: 7, // Default gain increase for LBRR
-		previousGainIndex: 10,
+		pitchState:               PitchAnalysisState{prevLag: 0},
+		snrDBQ7:                  25 * 128, // Default: 25 dB SNR target
+		lastControlTargetRateBps: 0,
+		nFramesPerPacket:         1, // Default: 1 frame per packet (20ms)
+		lbrrPulses:               lbrrPulses,
+		lbrrGainIncreases:        7, // Default gain increase for LBRR
+		previousGainIndex:        10,
 	}
 	enc.nsqState.lagPrev = 100 // libopus initialization
 	enc.SetComplexity(10)
@@ -371,6 +373,7 @@ func (e *Encoder) Reset() {
 	e.ecPrevLagIndex = 0
 	e.ecPrevSignalType = 0
 	e.targetRateBps = 0
+	e.lastControlTargetRateBps = 0
 	e.sumLogGainQ7 = 0
 
 	for i := range e.prevLSFQ15 {

@@ -58,7 +58,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			targetRate = 5000
 		}
 
+		e.lastControlTargetRateBps = targetRate
 		e.controlSNR(targetRate, numSubframes)
+	} else {
+		e.lastControlTargetRateBps = 0
 	}
 
 	// Quantize input to int16 precision to match libopus float API behavior.
@@ -105,6 +108,9 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		}
 		tr.LastGainIndex = e.previousGainIndex
 		tr.SumLogGainQ7 = e.sumLogGainQ7
+		tr.TargetRateBps = e.lastControlTargetRateBps
+		tr.SNRDBQ7 = e.snrDBQ7
+		tr.NBitsExceeded = e.nBitsExceeded
 		tr.PrevLag = e.pitchState.prevLag
 		tr.PrevSignalType = e.ecPrevSignalType
 		tr.LTPCorr = e.ltpCorr
@@ -733,6 +739,9 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		tr.Contour = pitchParams.contourIdx
 		tr.LastGainIndex = e.previousGainIndex
 		tr.SumLogGainQ7 = e.sumLogGainQ7
+		tr.TargetRateBps = e.lastControlTargetRateBps
+		tr.SNRDBQ7 = e.snrDBQ7
+		tr.NBitsExceeded = e.nBitsExceeded
 		for i := 0; i < maxNbSubfr; i++ {
 			tr.GainIndices[i] = frameIndices.GainsIndices[i]
 		}

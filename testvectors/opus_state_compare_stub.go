@@ -31,6 +31,9 @@ type libopusOpusStateSnapshot struct {
 	NStatesDelayedDec int
 	WarpingQ16        int
 	SumLogGainQ7      int32
+	TargetRateBps     int
+	SNRDBQ7           int
+	NBitsExceeded     int
 	GainIndices       [4]int8
 	LastGainIndex     int
 	PitchXBufHash     uint64

@@ -425,6 +425,9 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 	var preECPrevLagDiff int
 	var preECPrevSignalDiff int
 	var preSumLogGainDiff int
+	var preTargetRateDiff int
+	var preSNRDiff int
+	var preNBitsExceededDiff int
 	var preLastGainDiff int
 	var prePitchBufLenDiff int
 	var prePitchBufHashDiff int
@@ -507,6 +510,24 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 					preSumLogGainDiff++
 					if preSumLogGainDiff <= 5 {
 						t.Logf("Frame %d pre-state sumLogGain mismatch: go=%d lib=%d", i, pre.SumLogGainQ7, snapPre.SumLogGainQ7)
+					}
+				}
+				if pre.TargetRateBps != snapPre.TargetRateBps {
+					preTargetRateDiff++
+					if preTargetRateDiff <= 5 {
+						t.Logf("Frame %d pre-state targetRate mismatch: go=%d lib=%d", i, pre.TargetRateBps, snapPre.TargetRateBps)
+					}
+				}
+				if pre.SNRDBQ7 != snapPre.SNRDBQ7 {
+					preSNRDiff++
+					if preSNRDiff <= 5 {
+						t.Logf("Frame %d pre-state SNR mismatch: go=%d lib=%d", i, pre.SNRDBQ7, snapPre.SNRDBQ7)
+					}
+				}
+				if pre.NBitsExceeded != snapPre.NBitsExceeded {
+					preNBitsExceededDiff++
+					if preNBitsExceededDiff <= 5 {
+						t.Logf("Frame %d pre-state nBitsExceeded mismatch: go=%d lib=%d", i, pre.NBitsExceeded, snapPre.NBitsExceeded)
 					}
 				}
 				if int(pre.LastGainIndex) != snapPre.LastGainIndex {
@@ -838,6 +859,12 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 								ft.WarpingQ16, snap.WarpingQ16,
 								ft.SumLogGainQ7, snap.SumLogGainQ7)
 						}
+						if ft.TargetRateBps != snap.TargetRateBps || ft.SNRDBQ7 != snap.SNRDBQ7 || ft.NBitsExceeded != snap.NBitsExceeded {
+							t.Logf("  Opus rate state diff: targetRate go=%d lib=%d snrQ7 go=%d lib=%d nBitsExceeded go=%d lib=%d",
+								ft.TargetRateBps, snap.TargetRateBps,
+								ft.SNRDBQ7, snap.SNRDBQ7,
+								ft.NBitsExceeded, snap.NBitsExceeded)
+						}
 						if i < len(gainTraces) {
 							gtr := gainTraces[i]
 							useCBRLib := snap.SilkModeUseCBR != 0
@@ -871,8 +898,8 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 	}
 	t.Logf("Signal type mismatches: %d/%d", signalTypeDiff, compareCount)
 	t.Logf("Seed mismatches: %d/%d", seedDiff, compareCount)
-	t.Logf("Pre-state mismatches: prevLag=%d prevSignal=%d nsqLagPrev=%d nsqSLTPBufIdx=%d nsqSLTPShpBufIdx=%d nsqPrevGain=%d nsqSeed=%d nsqRewhite=%d ecPrevLag=%d ecPrevSignal=%d sumLogGain=%d lastGain=%d modeUseCBR=%d modeMaxBits=%d pitchBufLen=%d pitchBufHash=%d pitchWinLen=%d pitchWinHash=%d",
-		prePrevLagDiff, prePrevSignalDiff, preNSQLagDiff, preNSQBufDiff, preNSQShpBufDiff, preNSQPrevGainDiff, preNSQSeedDiff, preNSQRewhiteDiff, preECPrevLagDiff, preECPrevSignalDiff, preSumLogGainDiff, preLastGainDiff, preModeUseCBRDiff, preModeMaxBitsDiff, prePitchBufLenDiff, prePitchBufHashDiff, prePitchWinLenDiff, prePitchWinHashDiff)
+	t.Logf("Pre-state mismatches: prevLag=%d prevSignal=%d nsqLagPrev=%d nsqSLTPBufIdx=%d nsqSLTPShpBufIdx=%d nsqPrevGain=%d nsqSeed=%d nsqRewhite=%d ecPrevLag=%d ecPrevSignal=%d sumLogGain=%d targetRate=%d snr=%d nBitsExceeded=%d lastGain=%d modeUseCBR=%d modeMaxBits=%d pitchBufLen=%d pitchBufHash=%d pitchWinLen=%d pitchWinHash=%d",
+		prePrevLagDiff, prePrevSignalDiff, preNSQLagDiff, preNSQBufDiff, preNSQShpBufDiff, preNSQPrevGainDiff, preNSQSeedDiff, preNSQRewhiteDiff, preECPrevLagDiff, preECPrevSignalDiff, preSumLogGainDiff, preTargetRateDiff, preSNRDiff, preNBitsExceededDiff, preLastGainDiff, preModeUseCBRDiff, preModeMaxBitsDiff, prePitchBufLenDiff, prePitchBufHashDiff, prePitchWinLenDiff, prePitchWinHashDiff)
 	if preNSQPrevGainDiff > 10 {
 		t.Fatalf("pre-state NSQ prevGain mismatches regressed: got %d/%d, want <= 10", preNSQPrevGainDiff, compareCount)
 	}
