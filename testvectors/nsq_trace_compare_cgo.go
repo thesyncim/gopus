@@ -33,7 +33,7 @@ func compareNSQTraceWithLibopus(tr silk.NSQTrace) string {
 		tr.SeedIn, tr.SeedOut, libSeed, tr.PulsesHash, libPulsesHash, tr.XqHash, libXQHash, tr.FrameLength, tr.SubfrLength, tr.NbSubfr, tr.LTPMemLength)
 
 	if len(tr.NSQXQ) > 0 && len(tr.NSQSLTPShpQ14) > 0 && len(tr.NSQLPCQ14) > 0 && len(tr.NSQAR2Q14) > 0 {
-		sPulses, sXQ, sSeed, _, _, _ := cgowrap.SilkNSQDelDecCaptureWithState(
+		sPulses, sXQ, sSeed, _, _, _, sFinal := cgowrap.SilkNSQDelDecCaptureWithStateFinal(
 			tr.FrameLength, tr.SubfrLength, tr.NbSubfr, tr.LTPMemLength,
 			tr.PredLPCOrder, tr.ShapeLPCOrder, tr.WarpingQ16, tr.NStatesDelayedDecision,
 			tr.SignalType, tr.QuantOffsetType, tr.NLSFInterpCoefQ2, tr.SeedIn,
@@ -63,6 +63,49 @@ func compareNSQTraceWithLibopus(tr silk.NSQTrace) string {
 		sPulsesHash := hashInt8Slice(sPulses)
 		sXQHash := hashInt16Slice(sXQ)
 		msg += fmt.Sprintf(" stateNSQ(seed=%d pulses=%x xq=%x)", sSeed, sPulsesHash, sXQHash)
+
+		if len(tr.NSQPostXQ) > 0 {
+			if tr.NSQPostXQHash != 0 && tr.NSQPostXQHash != hashInt16Slice(sFinal.XQ) {
+				if idx, goVal, libVal, ok := firstInt16Diff(tr.NSQPostXQ, sFinal.XQ); ok {
+					msg += fmt.Sprintf(" postXQ diff idx=%d go=%d lib=%d", idx, goVal, libVal)
+				} else {
+					msg += " postXQ diff"
+				}
+			}
+			if tr.NSQPostSLTPShpHash != 0 && tr.NSQPostSLTPShpHash != hashInt32Slice(sFinal.SLTPShpQ14) {
+				if idx, goVal, libVal, ok := firstInt32Diff(tr.NSQPostSLTPShpQ14, sFinal.SLTPShpQ14); ok {
+					msg += fmt.Sprintf(" postSLTPShp diff idx=%d go=%d lib=%d", idx, goVal, libVal)
+				} else {
+					msg += " postSLTPShp diff"
+				}
+			}
+			if tr.NSQPostSLPCHash != 0 && tr.NSQPostSLPCHash != hashInt32Slice(sFinal.SLPCQ14) {
+				if idx, goVal, libVal, ok := firstInt32Diff(tr.NSQPostLPCQ14, sFinal.SLPCQ14); ok {
+					msg += fmt.Sprintf(" postSLPC diff idx=%d go=%d lib=%d", idx, goVal, libVal)
+				} else {
+					msg += " postSLPC diff"
+				}
+			}
+			if tr.NSQPostSAR2Hash != 0 && tr.NSQPostSAR2Hash != hashInt32Slice(sFinal.SAR2Q14) {
+				if idx, goVal, libVal, ok := firstInt32Diff(tr.NSQPostAR2Q14, sFinal.SAR2Q14); ok {
+					msg += fmt.Sprintf(" postSAR2 diff idx=%d go=%d lib=%d", idx, goVal, libVal)
+				} else {
+					msg += " postSAR2 diff"
+				}
+			}
+			if tr.NSQPostLFARQ14 != sFinal.LFARQ14 || tr.NSQPostDiffQ14 != sFinal.DiffQ14 {
+				msg += fmt.Sprintf(" postScalars diff lfAR go=%d lib=%d diff go=%d lib=%d",
+					tr.NSQPostLFARQ14, sFinal.LFARQ14, tr.NSQPostDiffQ14, sFinal.DiffQ14)
+			}
+			if tr.NSQPostLagPrev != sFinal.LagPrev || tr.NSQPostSLTPBufIdx != sFinal.SLTPBufIdx || tr.NSQPostSLTPShpBufIdx != sFinal.SLTPShpBufIdx {
+				msg += fmt.Sprintf(" postIdx diff lagPrev go=%d lib=%d sLTPBufIdx go=%d lib=%d sLTPShpBufIdx go=%d lib=%d",
+					tr.NSQPostLagPrev, sFinal.LagPrev, tr.NSQPostSLTPBufIdx, sFinal.SLTPBufIdx, tr.NSQPostSLTPShpBufIdx, sFinal.SLTPShpBufIdx)
+			}
+			if tr.NSQPostRandSeed != sFinal.RandSeed || tr.NSQPostPrevGainQ16 != sFinal.PrevGainQ16 || tr.NSQPostRewhiteFlag != sFinal.RewhiteFlag {
+				msg += fmt.Sprintf(" postFlags diff randSeed go=%d lib=%d prevGain go=%d lib=%d rewhite go=%d lib=%d",
+					tr.NSQPostRandSeed, sFinal.RandSeed, tr.NSQPostPrevGainQ16, sFinal.PrevGainQ16, tr.NSQPostRewhiteFlag, sFinal.RewhiteFlag)
+			}
+		}
 	}
 
 	_, _, _, libSLTPQ15, libSLTPRaw, libDelayedGain := cgowrap.SilkNSQDelDecCaptureSLTPQ15(

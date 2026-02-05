@@ -105,6 +105,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		tr.Contour = 0
 		for i := 0; i < maxNbSubfr; i++ {
 			tr.GainIndices[i] = 0
+			tr.PitchL[i] = 0
 		}
 		tr.LastGainIndex = e.previousGainIndex
 		tr.SumLogGainQ7 = e.sumLogGainQ7
@@ -754,6 +755,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		tr.NFramesEncoded = e.nFramesEncoded
 		for i := 0; i < maxNbSubfr; i++ {
 			tr.GainIndices[i] = frameIndices.GainsIndices[i]
+			tr.PitchL[i] = 0
+			if i < len(pitchLags) {
+				tr.PitchL[i] = pitchLags[i]
+			}
 		}
 		tr.PrevLag = 0
 		if numSubframes > 0 && len(pitchLags) >= numSubframes {
@@ -990,6 +995,22 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 		tr.SLTPQ15 = tr.SLTPQ15[:0]
 		tr.SLTPRaw = tr.SLTPRaw[:0]
 		tr.DelayedGainQ10 = tr.DelayedGainQ10[:0]
+		tr.NSQPostXQ = tr.NSQPostXQ[:0]
+		tr.NSQPostSLTPShpQ14 = tr.NSQPostSLTPShpQ14[:0]
+		tr.NSQPostLPCQ14 = tr.NSQPostLPCQ14[:0]
+		tr.NSQPostAR2Q14 = tr.NSQPostAR2Q14[:0]
+		tr.NSQPostLFARQ14 = 0
+		tr.NSQPostDiffQ14 = 0
+		tr.NSQPostLagPrev = 0
+		tr.NSQPostSLTPBufIdx = 0
+		tr.NSQPostSLTPShpBufIdx = 0
+		tr.NSQPostRandSeed = 0
+		tr.NSQPostPrevGainQ16 = 0
+		tr.NSQPostRewhiteFlag = 0
+		tr.NSQPostXQHash = 0
+		tr.NSQPostSLTPShpHash = 0
+		tr.NSQPostSLPCHash = 0
+		tr.NSQPostSAR2Hash = 0
 		tr.SeedOut = seed
 
 		if numSubframes > 0 && subframeSamples > 0 {
@@ -1069,6 +1090,25 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 			tr.PulsesHash = hashInt8Slice(pulses)
 			tr.SeedOut = seedOut
 		}
+	}
+	if traceEnabled && state != nil {
+		tr := e.trace.NSQ
+		tr.NSQPostLFARQ14 = state.sLFARShpQ14
+		tr.NSQPostDiffQ14 = state.sDiffShpQ14
+		tr.NSQPostLagPrev = state.lagPrev
+		tr.NSQPostSLTPBufIdx = state.sLTPBufIdx
+		tr.NSQPostSLTPShpBufIdx = state.sLTPShpBufIdx
+		tr.NSQPostRandSeed = state.randSeed
+		tr.NSQPostPrevGainQ16 = state.prevGainQ16
+		tr.NSQPostRewhiteFlag = state.rewhiteFlag
+		tr.NSQPostXQ = append(tr.NSQPostXQ[:0], state.xq[:]...)
+		tr.NSQPostSLTPShpQ14 = append(tr.NSQPostSLTPShpQ14[:0], state.sLTPShpQ14[:]...)
+		tr.NSQPostLPCQ14 = append(tr.NSQPostLPCQ14[:0], state.sLPCQ14[:]...)
+		tr.NSQPostAR2Q14 = append(tr.NSQPostAR2Q14[:0], state.sAR2Q14[:]...)
+		tr.NSQPostXQHash = hashInt16Slice(tr.NSQPostXQ)
+		tr.NSQPostSLTPShpHash = hashInt32Slice(tr.NSQPostSLTPShpQ14)
+		tr.NSQPostSLPCHash = hashInt32Slice(tr.NSQPostLPCQ14)
+		tr.NSQPostSAR2Hash = hashInt32Slice(tr.NSQPostAR2Q14)
 	}
 	if traceEnabled {
 		setNSQDelDecDebugSLTP(nil)

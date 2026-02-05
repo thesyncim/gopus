@@ -173,6 +173,7 @@ type FrameStateTrace struct {
 	LagIndex         int
 	Contour          int
 	GainIndices      [maxNbSubfr]int8
+	PitchL           [maxNbSubfr]int
 	LastGainIndex    int32
 	SumLogGainQ7     int32
 	InputRateBps     int
@@ -267,6 +268,24 @@ type NSQTrace struct {
 	NSQRandSeed      int32
 	NSQPrevGainQ16   int32
 	NSQRewhiteFlag   int
+
+	// NSQ state snapshot after quantization.
+	NSQPostXQ            []int16
+	NSQPostSLTPShpQ14    []int32
+	NSQPostLPCQ14        []int32
+	NSQPostAR2Q14        []int32
+	NSQPostLFARQ14       int32
+	NSQPostDiffQ14       int32
+	NSQPostLagPrev       int
+	NSQPostSLTPBufIdx    int
+	NSQPostSLTPShpBufIdx int
+	NSQPostRandSeed      int32
+	NSQPostPrevGainQ16   int32
+	NSQPostRewhiteFlag   int
+	NSQPostXQHash        uint64
+	NSQPostSLTPShpHash   uint64
+	NSQPostSLPCHash      uint64
+	NSQPostSAR2Hash      uint64
 }
 
 func hashFloat32Slice(vals []float32) uint64 {
