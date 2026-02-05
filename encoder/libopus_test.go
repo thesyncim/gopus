@@ -31,6 +31,7 @@ func TestLibopusHybridDecode(t *testing.T) {
 		{"SWB-20ms-mono", types.BandwidthSuperwideband, 960, 1},
 		{"FB-20ms-mono", types.BandwidthFullband, 960, 1},
 		{"SWB-20ms-stereo", types.BandwidthSuperwideband, 960, 2},
+		{"FB-20ms-stereo", types.BandwidthFullband, 960, 2},
 	}
 
 	for _, tc := range tests {
