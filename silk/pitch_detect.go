@@ -109,8 +109,8 @@ var pitchCBLagsStage310msSlice = [][]int8{
 
 // PitchAnalysisState holds state for pitch analysis across frames
 type PitchAnalysisState struct {
-	prevLag    int     // Previous frame's pitch lag
-	ltpCorr    float64 // LTP correlation from previous frame
+	prevLag int     // Previous frame's pitch lag
+	ltpCorr float64 // LTP correlation from previous frame
 }
 
 type pitchEncodeParams struct {
@@ -422,10 +422,44 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 			dComp[i] += dComp[i-1] + dComp[i-2] + dComp[i-3]
 		}
 	}
-	// Stage 2: Refined search at 8kHz (compute correlations on the fly)
+	// Build length_d_comp list from second convolution.
+	// This mirrors libopus pitch_analysis_core_FLP.c and stores lag-2 values.
+	lengthDComp := 0
+	var dCompLags [peMaxLagMS*16 + 8]int16
+	for i := minLag8kHz; i < maxLag8kHz+4; i++ {
+		if i < len(dComp) && dComp[i] > 0 {
+			dCompLags[lengthDComp] = int16(i - 2)
+			lengthDComp++
+		}
+	}
+
+	// Pre-compute C[k][d] correlations for Stage-2 lag/codebook search.
+	const cArrayDim = (peMaxLagMS*16)/2 + 5 // (PE_MAX_LAG >> 1) + 5
+	var corrC [peMaxNbSubfr][cArrayDim]float32
+
 	targetStart8k := peLTPMemLengthMS * 8
-	if fsKHz == 8 {
-		targetStart8k = peLTPMemLengthMS * 8
+	targetIdx := targetStart8k
+	for k := 0; k < numSubframes; k++ {
+		if targetIdx+sfLength8kHz > len(frame8kHz) {
+			break
+		}
+		target := frame8kHz[targetIdx : targetIdx+sfLength8kHz]
+		energyTmp := energyFLP(target) + 1.0
+		for j := 0; j < lengthDComp; j++ {
+			d := int(dCompLags[j])
+			basisIdx := targetIdx - d
+			if basisIdx >= 0 && basisIdx+sfLength8kHz <= len(frame8kHz) {
+				basis := frame8kHz[basisIdx : basisIdx+sfLength8kHz]
+				xcorr := innerProductFLP(basis, target, sfLength8kHz)
+				if xcorr > 0 {
+					energy := energyFLP(basis)
+					if d >= 0 && d < cArrayDim {
+						corrC[k][d] = float32(2.0 * xcorr / (energy + energyTmp))
+					}
+				}
+			}
+		}
+		targetIdx += sfLength8kHz
 	}
 
 	// Search over lag range and contour codebook
@@ -450,6 +484,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 	// Determine number of codebook searches
 	var cbkSize, nbCbkSearch int
 	var lagCBPtr *[peMaxNbSubfr][peNbCbksStage2Ext]int8
+	var lagCBPtr10ms *[2][peNbCbksStage210ms]int8
 	if numSubframes == peMaxNbSubfr {
 		cbkSize = peNbCbksStage2Ext
 		lagCBPtr = &pitchCBLagsStage2
@@ -460,6 +495,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		}
 	} else {
 		cbkSize = peNbCbksStage210ms
+		lagCBPtr10ms = &pitchCBLagsStage210ms
 		nbCbkSearch = peNbCbksStage210ms
 	}
 
@@ -474,30 +510,17 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		cc := ccBuf[:nbCbkSearch]
 		for j := 0; j < nbCbkSearch; j++ {
 			cc[j] = 0
-			targetIdx := targetStart8k
 			for i := 0; i < numSubframes; i++ {
 				var cbOffset int8
 				if lagCBPtr != nil && i < peMaxNbSubfr && j < cbkSize {
 					cbOffset = lagCBPtr[i][j]
+				} else if lagCBPtr10ms != nil && i < 2 && j < cbkSize {
+					cbOffset = lagCBPtr10ms[i][j]
 				}
-				lagVal := d + int(cbOffset)
-				idx := lagVal + 2
-				if idx < 0 || idx >= len(dComp) || dComp[idx] <= 0 {
-					targetIdx += sfLength8kHz
-					continue
+				lagIdx := d + int(cbOffset)
+				if lagIdx >= 0 && lagIdx < cArrayDim && i < peMaxNbSubfr {
+					cc[j] += corrC[i][lagIdx]
 				}
-				basisIdx := targetIdx - lagVal
-				if basisIdx >= 0 && basisIdx+sfLength8kHz <= len(frame8kHz) && targetIdx+sfLength8kHz <= len(frame8kHz) {
-					target := frame8kHz[targetIdx : targetIdx+sfLength8kHz]
-					basis := frame8kHz[basisIdx : basisIdx+sfLength8kHz]
-					xcorr := innerProductFLP(basis, target, sfLength8kHz)
-					if xcorr > 0 {
-						energyTmp := energyFLP(target) + 1.0
-						energy := energyFLP(basis)
-						cc[j] += float32(2.0 * xcorr / (energy + energyTmp))
-					}
-				}
-				targetIdx += sfLength8kHz
 			}
 		}
 
@@ -676,7 +699,6 @@ func silkLog2Float(x float32) float32 {
 	}
 	return float32(3.32192809488736 * math.Log10(float64(x)))
 }
-
 
 // downsampleLowpass performs downsampling with a simple low-pass filter.
 // This matches libopus's approach of using a 3-tap filter for anti-aliasing.
