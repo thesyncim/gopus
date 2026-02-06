@@ -448,6 +448,16 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 	var preNSQTopSLPCDiff int
 	var preNSQTopSAR2Diff int
 	var preNSQTopScalarDiff int
+	var preNSQInputX16Diff int
+	var preNSQInputPredDiff int
+	var preNSQInputLTPDiff int
+	var preNSQInputARDiff int
+	var preNSQInputHarmDiff int
+	var preNSQInputTiltDiff int
+	var preNSQInputLFDiff int
+	var preNSQInputGainsDiff int
+	var preNSQInputPitchDiff int
+	var preNSQInputScalarDiff int
 
 	for i := 0; i < compareCount; i++ {
 		goPayload := gopusPackets[i]
@@ -714,6 +724,106 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 							tr.NSQPrevGainQ16, snapNSQ.PrevGainQ16,
 							tr.NSQRandSeed, snapNSQ.RandSeed,
 							tr.NSQRewhiteFlag, snapNSQ.RewhiteFlag,
+						)
+					}
+				}
+			}
+		}
+		if i > 0 && i-1 < len(nsqTraces) && preNSQXQHashDiff > 0 && preNSQXQHashDiff <= 3 {
+			if snapIn, ok := captureLibopusOpusNSQInputsAtFrame(original, sampleRate, channels, bitrate, frameSize, i-1); ok {
+				tr := nsqTraces[i-1]
+				if tr.FrameLength == snapIn.FrameLength && len(tr.InputQ0) >= snapIn.FrameLength {
+					if idx, goVal, libVal, ok := firstInt16Diff(tr.InputQ0[:snapIn.FrameLength], snapIn.X16); ok {
+						preNSQInputX16Diff++
+						if preNSQInputX16Diff <= 3 {
+							t.Logf("Frame %d prev-frame NSQ input x16 diff idx=%d go=%d lib=%d", i, idx, goVal, libVal)
+						}
+					}
+				}
+				if len(tr.PredCoefQ12) == len(snapIn.PredCoefQ12) {
+					if idx, goVal, libVal, ok := firstInt16Diff(tr.PredCoefQ12, snapIn.PredCoefQ12); ok {
+						preNSQInputPredDiff++
+						if preNSQInputPredDiff <= 3 {
+							t.Logf("Frame %d prev-frame NSQ input pred diff idx=%d go=%d lib=%d", i, idx, goVal, libVal)
+						}
+					}
+				}
+				if len(tr.LTPCoefQ14) == len(snapIn.LTPCoefQ14) {
+					if idx, goVal, libVal, ok := firstInt16Diff(tr.LTPCoefQ14, snapIn.LTPCoefQ14); ok {
+						preNSQInputLTPDiff++
+						if preNSQInputLTPDiff <= 3 {
+							t.Logf("Frame %d prev-frame NSQ input LTP diff idx=%d go=%d lib=%d", i, idx, goVal, libVal)
+						}
+					}
+				}
+				if len(tr.ARShpQ13) == len(snapIn.ARQ13) {
+					if idx, goVal, libVal, ok := firstInt16Diff(tr.ARShpQ13, snapIn.ARQ13); ok {
+						preNSQInputARDiff++
+						if preNSQInputARDiff <= 3 {
+							t.Logf("Frame %d prev-frame NSQ input AR diff idx=%d go=%d lib=%d", i, idx, goVal, libVal)
+						}
+					}
+				}
+				if len(tr.HarmShapeGainQ14) == len(snapIn.HarmShapeGainQ14) {
+					if idx, goVal, libVal, ok := firstIntIntDiff(tr.HarmShapeGainQ14, snapIn.HarmShapeGainQ14); ok {
+						preNSQInputHarmDiff++
+						if preNSQInputHarmDiff <= 3 {
+							t.Logf("Frame %d prev-frame NSQ input harm diff idx=%d go=%d lib=%d", i, idx, goVal, libVal)
+						}
+					}
+				}
+				if len(tr.TiltQ14) == len(snapIn.TiltQ14) {
+					if idx, goVal, libVal, ok := firstIntIntDiff(tr.TiltQ14, snapIn.TiltQ14); ok {
+						preNSQInputTiltDiff++
+						if preNSQInputTiltDiff <= 3 {
+							t.Logf("Frame %d prev-frame NSQ input tilt diff idx=%d go=%d lib=%d", i, idx, goVal, libVal)
+						}
+					}
+				}
+				if len(tr.LFShpQ14) == len(snapIn.LFShpQ14) {
+					if idx, goVal, libVal, ok := firstInt32Diff(tr.LFShpQ14, snapIn.LFShpQ14); ok {
+						preNSQInputLFDiff++
+						if preNSQInputLFDiff <= 3 {
+							t.Logf("Frame %d prev-frame NSQ input LF diff idx=%d go=%d lib=%d", i, idx, goVal, libVal)
+						}
+					}
+				}
+				if len(tr.GainsQ16) == len(snapIn.GainsQ16) {
+					if idx, goVal, libVal, ok := firstInt32Diff(tr.GainsQ16, snapIn.GainsQ16); ok {
+						preNSQInputGainsDiff++
+						if preNSQInputGainsDiff <= 3 {
+							t.Logf("Frame %d prev-frame NSQ input gains diff idx=%d go=%d lib=%d", i, idx, goVal, libVal)
+						}
+					}
+				}
+				if len(tr.PitchL) == len(snapIn.PitchL) {
+					if idx, goVal, libVal, ok := firstIntIntDiff(tr.PitchL, snapIn.PitchL); ok {
+						preNSQInputPitchDiff++
+						if preNSQInputPitchDiff <= 3 {
+							t.Logf("Frame %d prev-frame NSQ input pitch diff idx=%d go=%d lib=%d", i, idx, goVal, libVal)
+						}
+					}
+				}
+				if tr.SignalType != snapIn.SignalType ||
+					tr.QuantOffsetType != snapIn.QuantOffsetType ||
+					tr.NLSFInterpCoefQ2 != snapIn.NLSFInterpCoefQ2 ||
+					tr.SeedIn != snapIn.SeedIn ||
+					tr.LambdaQ10 != snapIn.LambdaQ10 ||
+					tr.LTPScaleQ14 != snapIn.LTPScaleQ14 ||
+					tr.WarpingQ16 != snapIn.WarpingQ16 ||
+					tr.NStatesDelayedDecision != snapIn.NStatesDelayedDecision {
+					preNSQInputScalarDiff++
+					if preNSQInputScalarDiff <= 3 {
+						t.Logf("Frame %d prev-frame NSQ input scalar diff: signal go=%d lib=%d qOff go=%d lib=%d interp go=%d lib=%d seedIn go=%d lib=%d lambda go=%d lib=%d ltpScale go=%d lib=%d warping go=%d lib=%d nStates go=%d lib=%d",
+							i,
+							tr.SignalType, snapIn.SignalType,
+							tr.QuantOffsetType, snapIn.QuantOffsetType,
+							tr.NLSFInterpCoefQ2, snapIn.NLSFInterpCoefQ2,
+							tr.SeedIn, snapIn.SeedIn,
+							tr.LambdaQ10, snapIn.LambdaQ10,
+							tr.LTPScaleQ14, snapIn.LTPScaleQ14,
+							tr.WarpingQ16, snapIn.WarpingQ16,
+							tr.NStatesDelayedDecision, snapIn.NStatesDelayedDecision,
 						)
 					}
 				}
@@ -1041,6 +1151,8 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 		prePrevLagDiff, prePrevSignalDiff, preNSQLagDiff, preNSQBufDiff, preNSQShpBufDiff, preNSQPrevGainDiff, preNSQSeedDiff, preNSQRewhiteDiff, preNSQXQHashDiff, preNSQSLTPShpHashDiff, preNSQSLPCHashDiff, preNSQSAR2HashDiff, preECPrevLagDiff, preECPrevSignalDiff, preInputRateDiff, preSumLogGainDiff, preTargetRateDiff, preSNRDiff, preNBitsExceededDiff, preNFramesPerPacketDiff, preNFramesEncodedDiff, preLastGainDiff, preModeUseCBRDiff, preModeMaxBitsDiff, preModeBitRateDiff, prePitchBufLenDiff, prePitchBufHashDiff, prePitchWinLenDiff, prePitchWinHashDiff)
 	t.Logf("Pre-NSQ top-level full-state diffs: xq=%d sLTP_shp=%d sLPC=%d sAR2=%d scalar=%d",
 		preNSQTopXQDiff, preNSQTopSLTPShpDiff, preNSQTopSLPCDiff, preNSQTopSAR2Diff, preNSQTopScalarDiff)
+	t.Logf("Pre-NSQ top-level input diffs (prev frame): x16=%d pred=%d ltp=%d ar=%d harm=%d tilt=%d lf=%d gains=%d pitch=%d scalar=%d",
+		preNSQInputX16Diff, preNSQInputPredDiff, preNSQInputLTPDiff, preNSQInputARDiff, preNSQInputHarmDiff, preNSQInputTiltDiff, preNSQInputLFDiff, preNSQInputGainsDiff, preNSQInputPitchDiff, preNSQInputScalarDiff)
 	if preNSQPrevGainDiff > 10 {
 		t.Fatalf("pre-state NSQ prevGain mismatches regressed: got %d/%d, want <= 10", preNSQPrevGainDiff, compareCount)
 	}
@@ -1275,6 +1387,19 @@ func firstIntSliceDiff(goVals []int, libVals []int8) (int, int, int8, bool) {
 	}
 	for i := 0; i < n; i++ {
 		if goVals[i] != int(libVals[i]) {
+			return i, goVals[i], libVals[i], true
+		}
+	}
+	return -1, 0, 0, false
+}
+
+func firstIntIntDiff(goVals, libVals []int) (int, int, int, bool) {
+	n := len(goVals)
+	if len(libVals) < n {
+		n = len(libVals)
+	}
+	for i := 0; i < n; i++ {
+		if goVals[i] != libVals[i] {
 			return i, goVals[i], libVals[i], true
 		}
 	}

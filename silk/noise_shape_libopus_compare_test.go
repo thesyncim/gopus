@@ -64,8 +64,8 @@ func TestNoiseShapeAnalysisAgainstLibopus(t *testing.T) {
 	}
 
 	// Capture pre-call smoothing state so libopus sees identical inputs.
-	harmSmthIn := float32(enc.noiseShapeState.HarmShapeGainSmth) / 16384.0
-	tiltSmthIn := float32(enc.noiseShapeState.TiltSmth) / 16384.0
+	harmSmthIn := enc.noiseShapeState.HarmShapeGainSmth
+	tiltSmthIn := enc.noiseShapeState.TiltSmth
 
 	paramsGo, gainsGo, quantOffsetGo := enc.noiseShapeAnalysis(
 		framePCM,
