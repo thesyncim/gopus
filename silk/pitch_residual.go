@@ -84,15 +84,90 @@ func lpcAnalysisFilterF32(rLPC, predCoef, s []float32, length, order int) {
 	if order > length {
 		return
 	}
+	switch order {
+	case 6:
+		for ix := 6; ix < length; ix++ {
+			lpcPred := s[ix-1]*predCoef[0] +
+				s[ix-2]*predCoef[1] +
+				s[ix-3]*predCoef[2] +
+				s[ix-4]*predCoef[3] +
+				s[ix-5]*predCoef[4] +
+				s[ix-6]*predCoef[5]
+			rLPC[ix] = s[ix] - lpcPred
+		}
+	case 8:
+		for ix := 8; ix < length; ix++ {
+			lpcPred := s[ix-1]*predCoef[0] +
+				s[ix-2]*predCoef[1] +
+				s[ix-3]*predCoef[2] +
+				s[ix-4]*predCoef[3] +
+				s[ix-5]*predCoef[4] +
+				s[ix-6]*predCoef[5] +
+				s[ix-7]*predCoef[6] +
+				s[ix-8]*predCoef[7]
+			rLPC[ix] = s[ix] - lpcPred
+		}
+	case 10:
+		for ix := 10; ix < length; ix++ {
+			lpcPred := s[ix-1]*predCoef[0] +
+				s[ix-2]*predCoef[1] +
+				s[ix-3]*predCoef[2] +
+				s[ix-4]*predCoef[3] +
+				s[ix-5]*predCoef[4] +
+				s[ix-6]*predCoef[5] +
+				s[ix-7]*predCoef[6] +
+				s[ix-8]*predCoef[7] +
+				s[ix-9]*predCoef[8] +
+				s[ix-10]*predCoef[9]
+			rLPC[ix] = s[ix] - lpcPred
+		}
+	case 12:
+		for ix := 12; ix < length; ix++ {
+			lpcPred := s[ix-1]*predCoef[0] +
+				s[ix-2]*predCoef[1] +
+				s[ix-3]*predCoef[2] +
+				s[ix-4]*predCoef[3] +
+				s[ix-5]*predCoef[4] +
+				s[ix-6]*predCoef[5] +
+				s[ix-7]*predCoef[6] +
+				s[ix-8]*predCoef[7] +
+				s[ix-9]*predCoef[8] +
+				s[ix-10]*predCoef[9] +
+				s[ix-11]*predCoef[10] +
+				s[ix-12]*predCoef[11]
+			rLPC[ix] = s[ix] - lpcPred
+		}
+	case 16:
+		for ix := 16; ix < length; ix++ {
+			lpcPred := s[ix-1]*predCoef[0] +
+				s[ix-2]*predCoef[1] +
+				s[ix-3]*predCoef[2] +
+				s[ix-4]*predCoef[3] +
+				s[ix-5]*predCoef[4] +
+				s[ix-6]*predCoef[5] +
+				s[ix-7]*predCoef[6] +
+				s[ix-8]*predCoef[7] +
+				s[ix-9]*predCoef[8] +
+				s[ix-10]*predCoef[9] +
+				s[ix-11]*predCoef[10] +
+				s[ix-12]*predCoef[11] +
+				s[ix-13]*predCoef[12] +
+				s[ix-14]*predCoef[13] +
+				s[ix-15]*predCoef[14] +
+				s[ix-16]*predCoef[15]
+			rLPC[ix] = s[ix] - lpcPred
+		}
+	default:
+		for ix := order; ix < length; ix++ {
+			var lpcPred float32
+			for k := 0; k < order; k++ {
+				lpcPred += s[ix-k-1] * predCoef[k]
+			}
+			rLPC[ix] = s[ix] - lpcPred
+		}
+	}
 	for i := 0; i < order; i++ {
 		rLPC[i] = 0
-	}
-	for ix := order; ix < length; ix++ {
-		var lpcPred float32
-		for k := 0; k < order; k++ {
-			lpcPred += s[ix-k-1] * predCoef[k]
-		}
-		rLPC[ix] = s[ix] - lpcPred
 	}
 }
 

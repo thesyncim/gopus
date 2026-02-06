@@ -51,7 +51,7 @@ func stage2EvalGo(frame []float32, fsKHz, nbSubfr, complexity, d int) stage2Eval
 			crossCorr := innerProductFLP(basis, target, sfLength8kHz)
 			if crossCorr > 0 {
 				energy := energyFLP(basis)
-				cc += 2.0 * crossCorr / (energy + energyTmp)
+				cc += float32(2.0 * crossCorr / (energy + energyTmp))
 			}
 		}
 		if cc > best {
@@ -171,14 +171,14 @@ func TestPitchAnalysisMatchesLibopus(t *testing.T) {
 	frame8Go := stage2Frame8kGo(residual32[:frameLen], fsKHz, numSubfr)
 	frame8Lib := cgowrap.SilkPitchStage2Frame8kHz(residual32[:frameLen], fsKHz, numSubfr)
 	t.Logf("frame8 len: go=%d lib=%d", len(frame8Go), len(frame8Lib))
-	if len(frame8Go) > 0 && len(frame8Lib) > 0 {
-		n := len(frame8Go)
-		if len(frame8Lib) < n {
-			n = len(frame8Lib)
-		}
+	if len(frame8Go) != len(frame8Lib) {
+		t.Fatalf("frame8 length mismatch: go=%d lib=%d", len(frame8Go), len(frame8Lib))
+	}
+	if len(frame8Go) > 0 {
+		const maxAllowedDiff = float32(1.0 / 512.0)
 		maxDiff := float32(0)
 		maxIdx := -1
-		for i := 0; i < n; i++ {
+		for i := 0; i < len(frame8Go); i++ {
 			diff := frame8Go[i] - frame8Lib[i]
 			if diff < 0 {
 				diff = -diff
@@ -189,7 +189,11 @@ func TestPitchAnalysisMatchesLibopus(t *testing.T) {
 			}
 		}
 		if maxIdx >= 0 {
-			t.Logf("frame8k max diff=%.3f at %d (go=%.3f lib=%.3f)", maxDiff, maxIdx, frame8Go[maxIdx], frame8Lib[maxIdx])
+			t.Logf("frame8k max diff=%.6f at %d (go=%.6f lib=%.6f)", maxDiff, maxIdx, frame8Go[maxIdx], frame8Lib[maxIdx])
+		}
+		if maxDiff > maxAllowedDiff {
+			t.Fatalf("frame8k mismatch too large: maxDiff=%.6f allowed=%.6f idx=%d go=%.6f lib=%.6f",
+				maxDiff, maxAllowedDiff, maxIdx, frame8Go[maxIdx], frame8Lib[maxIdx])
 		}
 	}
 
