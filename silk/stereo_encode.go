@@ -458,10 +458,16 @@ func (e *Encoder) StereoEncodeLRToMSWithInterpQuantized(left, right []float32, f
 		pred1Q13 += delta1Q13
 		wQ24 += deltawQ24
 
-		sumQ11 := int32((mid[n]+2*mid[n+1]+mid[n+2])*512)
+		// LP-filtered mid: (mid[n] + 2*mid[n+1] + mid[n+2]) << 9 (Q11)
+		// Convert float mid values to int16 scale first, matching libopus int16 arithmetic.
+		midN := int32(mid[n] * 32768)
+		midN1 := int32(mid[n+1] * 32768)
+		midN2 := int32(mid[n+2] * 32768)
+		sumQ11 := (midN + midN2 + (midN1 << 1)) << 9
+
 		sideQ8 := silkSMULWB(wQ24, int32(side[n+1]*32768))
 		sideQ8 = silkSMLAWB(sideQ8, sumQ11, pred0Q13)
-		sideQ8 = silkSMLAWB(sideQ8, int32(mid[n+1]*32768)<<11, pred1Q13)
+		sideQ8 = silkSMLAWB(sideQ8, midN1<<11, pred1Q13)
 		sideOut[n] = float32(silkRSHIFT_ROUND(sideQ8, 8)) / 32768.0
 	}
 
@@ -470,10 +476,15 @@ func (e *Encoder) StereoEncodeLRToMSWithInterpQuantized(left, right []float32, f
 	wQ24 = int32(widthQ14) << 10
 
 	for n := interpSamples; n < frameLength; n++ {
-		sumQ11 := int32((mid[n]+2*mid[n+1]+mid[n+2])*512)
+		// LP-filtered mid: (mid[n] + 2*mid[n+1] + mid[n+2]) << 9 (Q11)
+		midN := int32(mid[n] * 32768)
+		midN1 := int32(mid[n+1] * 32768)
+		midN2 := int32(mid[n+2] * 32768)
+		sumQ11 := (midN + midN2 + (midN1 << 1)) << 9
+
 		sideQ8 := silkSMULWB(wQ24, int32(side[n+1]*32768))
 		sideQ8 = silkSMLAWB(sideQ8, sumQ11, pred0Q13)
-		sideQ8 = silkSMLAWB(sideQ8, int32(mid[n+1]*32768)<<11, pred1Q13)
+		sideQ8 = silkSMLAWB(sideQ8, midN1<<11, pred1Q13)
 		sideOut[n] = float32(silkRSHIFT_ROUND(sideQ8, 8)) / 32768.0
 	}
 
@@ -660,16 +671,10 @@ func (e *Encoder) StereoLRToMSWithRates(
 	// midOut[n] = mid[n+1] gives mid[1..frameLength] which matches inputBuf[1..frame_length].
 	// sideOut[n] = prediction at n, which matches inputBuf[n+1] = x2[n-1].
 	//
-	// NOTE on sumQ11 scaling: In libopus, mid values are int16 and the LP filter
+	// sumQ11 scaling: In libopus, mid values are int16 and the LP filter
 	// sum = (mid[n]+2*mid[n+1]+mid[n+2]) << 9 produces Q11 in int32.
-	// Our float mid values are in [-1,1] (= int16/32768), so the correct int16-matching
-	// formula would be: int32(mid_float*32768) for each sample, then << 9.
-	// However, fixing sumQ11 to full int16 precision degrades quality because
-	// the decoder's prediction addition uses SILK-decoded int16 mid values
-	// which differ from the encoder's original mid values (~23 dB mono SNR).
-	// The prediction mismatch amplifies this error. Keeping the weaker *512 scaling
-	// reduces the pred0 (LP) term, limiting the mismatch impact.
-	// This is a known trade-off that will improve as SILK mono quality improves.
+	// Our float mid values are in [-1,1] (= int16/32768), so we convert to
+	// int16 scale first (multiply by 32768), then apply the << 9 shift.
 	midOut = make([]float32, frameLength)
 	sideOut = make([]float32, frameLength)
 	for n := 0; n < frameLength; n++ {
@@ -690,10 +695,16 @@ func (e *Encoder) StereoLRToMSWithRates(
 		pred1Q13 += delta1Q13
 		wQ24 += deltawQ24
 
-		sumQ11 := int32((mid[n]+2*mid[n+1]+mid[n+2])*512)
+		// LP-filtered mid: (mid[n] + 2*mid[n+1] + mid[n+2]) << 9 (Q11)
+		// Convert float mid values to int16 scale first, matching libopus int16 arithmetic.
+		midN := int32(mid[n] * 32768)
+		midN1 := int32(mid[n+1] * 32768)
+		midN2 := int32(mid[n+2] * 32768)
+		sumQ11 := (midN + midN2 + (midN1 << 1)) << 9
+
 		sideQ8 := silkSMULWB(wQ24, int32(side[n+1]*32768))
 		sideQ8 = silkSMLAWB(sideQ8, sumQ11, pred0Q13)
-		sideQ8 = silkSMLAWB(sideQ8, int32(mid[n+1]*32768)<<11, pred1Q13)
+		sideQ8 = silkSMLAWB(sideQ8, midN1<<11, pred1Q13)
 		sideOut[n] = float32(silkRSHIFT_ROUND(sideQ8, 8)) / 32768.0
 	}
 
@@ -701,10 +712,15 @@ func (e *Encoder) StereoLRToMSWithRates(
 	pred1Q13 = -predQ13[1]
 	wQ24 = int32(widthQ14) << 10
 	for n := interpSamples; n < frameLength; n++ {
-		sumQ11 := int32((mid[n]+2*mid[n+1]+mid[n+2])*512)
+		// LP-filtered mid: (mid[n] + 2*mid[n+1] + mid[n+2]) << 9 (Q11)
+		midN := int32(mid[n] * 32768)
+		midN1 := int32(mid[n+1] * 32768)
+		midN2 := int32(mid[n+2] * 32768)
+		sumQ11 := (midN + midN2 + (midN1 << 1)) << 9
+
 		sideQ8 := silkSMULWB(wQ24, int32(side[n+1]*32768))
 		sideQ8 = silkSMLAWB(sideQ8, sumQ11, pred0Q13)
-		sideQ8 = silkSMLAWB(sideQ8, int32(mid[n+1]*32768)<<11, pred1Q13)
+		sideQ8 = silkSMLAWB(sideQ8, midN1<<11, pred1Q13)
 		sideOut[n] = float32(silkRSHIFT_ROUND(sideQ8, 8)) / 32768.0
 	}
 

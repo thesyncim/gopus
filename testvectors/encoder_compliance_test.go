@@ -313,15 +313,14 @@ func runEncoderComplianceTest(t *testing.T, mode encoder.Mode, bandwidth types.B
 		compareLen = len(decoded)
 	}
 
-	// Compute quality metric with delay compensation
-	// The codec introduces inherent delay that includes:
-	// - Encoder lookahead (~250 samples for CELT)
-	// - Decoder pre-skip (312 samples typically, handled by opusdec)
-	// - Additional frame buffering (~960 samples)
-	// - SILK resampling + LA_SHAPE lookahead
-	// Search ±4000 samples to find optimal alignment
+	// Compute quality metric with delay compensation.
+	// opusdec already strips the pre-skip (312 samples), so the residual
+	// delay between decoded and original should be small -- typically within
+	// a few samples of zero.  Search +/- 960 samples (one 20ms frame) to
+	// handle any mode-dependent resampling offset without picking up false
+	// correlation peaks from the test signal's quasi-periodicity.
 	var foundDelay int
-	q, foundDelay = ComputeQualityFloat32WithDelay(decoded[:compareLen], original[:compareLen], 48000, 4000)
+	q, foundDelay = ComputeQualityFloat32WithDelay(decoded[:compareLen], original[:compareLen], 48000, 960)
 	t.Logf("Quality: Q=%.2f, foundDelay=%d samples (%.1f ms), decoded=%d original=%d compareLen=%d",
 		q, foundDelay, float64(foundDelay)/48.0, len(decoded), len(original), compareLen)
 

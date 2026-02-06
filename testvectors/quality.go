@@ -215,11 +215,16 @@ func ComputeQualityFloat32(decoded, reference []float32, sampleRate int) float64
 // for codec delay. This is important for encoder compliance testing since codecs
 // introduce inherent delays that cause misalignment between input and output.
 //
+// The search covers both positive and negative delays because when an external
+// decoder (e.g., opusdec) has already stripped the pre-skip from its output,
+// the effective residual delay can be slightly negative (decoded output starts
+// a few samples ahead of the reference).
+//
 // Parameters:
 //   - decoded: Decoded PCM samples as float32 (normalized -1.0 to 1.0)
 //   - reference: Reference PCM samples as float32 (normalized -1.0 to 1.0)
 //   - sampleRate: Sample rate in Hz
-//   - maxDelay: Maximum delay to search (in samples, e.g., 2000 for roundtrip)
+//   - maxDelay: Maximum delay magnitude to search in each direction (in samples)
 //
 // Returns: Q value at optimal delay alignment, and the optimal delay found
 func ComputeQualityFloat32WithDelay(decoded, reference []float32, sampleRate int, maxDelay int) (q float64, delay int) {
