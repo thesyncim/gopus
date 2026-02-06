@@ -337,6 +337,29 @@ func imin(a, b int) int {
 	return b
 }
 
+// canUseCWRSTableFast reports whether cwrsiFast can decode (n, k)
+// using only precomputed table lookups.
+func canUseCWRSTableFast(n, k int) bool {
+	if n > 14 {
+		return false
+	}
+	minN := imin(n, k+1)
+	if minN >= 15 {
+		return false
+	}
+	maxK := imax(n, k+1)
+	offset := maxK - minN
+	return offset >= 0 && offset < pvqURowLen[minN]
+}
+
+//go:nosplit
+func pvqUTableLookupFast(n, k int) uint32 {
+	if n > k {
+		n, k = k, n
+	}
+	return pvqUData[pvqURow[n]+(k-n)]
+}
+
 // unext computes the next row/column of any recurrence that obeys the relation
 // u[i][j]=u[i-1][j]+u[i][j-1]+u[i-1][j-1].
 // u0 is the base case for the new row/column.
@@ -404,12 +427,8 @@ func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 
 		// Lots of pulses case (k >= n)
 		if k >= n {
-			// Look up from row n
-			rowMin := imin(n, k+1)
-			rowMax := imax(n, k+1)
-
 			// Are the pulses in this dimension negative?
-			p, _ = pvqUTableLookup(rowMin, rowMax)
+			p = pvqUTableLookupFast(n, k+1)
 			if i >= p {
 				s = -1
 				i -= p
@@ -417,26 +436,20 @@ func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 
 			// Count how many pulses were placed in this dimension
 			k0 = k
-			qMin := imin(n, n)
-			qMax := imax(n, n)
-			q, _ = pvqUTableLookup(qMin, qMax)
+			q = pvqUTableLookupFast(n, n)
 
 			if q > i {
 				k = n
 				for {
 					k--
-					pMin := imin(k, n)
-					pMax := imax(k, n)
-					p, _ = pvqUTableLookup(pMin, pMax)
+					p = pvqUTableLookupFast(k, n)
 					if p <= i {
 						break
 					}
 				}
 			} else {
 				for {
-					pMin := imin(n, k)
-					pMax := imax(n, k)
-					p, _ = pvqUTableLookup(pMin, pMax)
+					p = pvqUTableLookupFast(n, k)
 					if p <= i {
 						break
 					}
@@ -453,13 +466,8 @@ func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 		} else {
 			// Lots of dimensions case (k < n)
 			// Are there any pulses in this dimension at all?
-			pMin := imin(k, n)
-			pMax := imax(k, n)
-			p, _ = pvqUTableLookup(pMin, pMax)
-
-			qMin := imin(k+1, n)
-			qMax := imax(k+1, n)
-			q, _ = pvqUTableLookup(qMin, qMax)
+			p = pvqUTableLookupFast(k, n)
+			q = pvqUTableLookupFast(k+1, n)
 
 			if p <= i && i < q {
 				i -= p
@@ -474,9 +482,7 @@ func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 				k0 = k
 				for {
 					k--
-					pMin := imin(k, n)
-					pMax := imax(k, n)
-					p, _ = pvqUTableLookup(pMin, pMax)
+					p = pvqUTableLookupFast(k, n)
 					if p <= i {
 						break
 					}
@@ -633,26 +639,8 @@ func DecodePulses(index uint32, n, k int) []int {
 		return y
 	}
 
-	// Try the fast path using table lookups
-	// Check if all required lookups will succeed
-	canUseFast := true
-	if n > 14 {
-		canUseFast = false
-	} else {
-		// Check if k is within table bounds
-		minN := imin(n, k+1)
-		if minN >= 15 {
-			canUseFast = false
-		} else {
-			maxK := imax(n, k+1)
-			offset := maxK - minN
-			if offset >= pvqURowLen[minN] {
-				canUseFast = false
-			}
-		}
-	}
-
-	if canUseFast {
+	// Try the fast path using table lookups.
+	if canUseCWRSTableFast(n, k) {
 		_ = cwrsiFast(n, k, index, y)
 	} else {
 		// Fallback to row-based algorithm
@@ -696,24 +684,8 @@ func decodePulsesInto(index uint32, n, k int, y []int, scratch *bandDecodeScratc
 		return
 	}
 
-	// Try the fast path using table lookups
-	canUseFast := true
-	if n > 14 {
-		canUseFast = false
-	} else {
-		minN := imin(n, k+1)
-		if minN >= 15 {
-			canUseFast = false
-		} else {
-			maxK := imax(n, k+1)
-			offset := maxK - minN
-			if offset >= pvqURowLen[minN] {
-				canUseFast = false
-			}
-		}
-	}
-
-	if canUseFast {
+	// Try the fast path using table lookups.
+	if canUseCWRSTableFast(n, k) {
 		_ = cwrsiFast(n, k, index, y)
 	} else {
 		// Use scratch buffer for u row if available, otherwise allocate

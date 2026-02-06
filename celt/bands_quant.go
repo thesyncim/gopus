@@ -496,23 +496,36 @@ func algUnquantInto(shape []float64, rd *rangecoding.Decoder, band, n, k, spread
 		return 0
 	}
 
-	var u []uint32
 	var pulses []int
 	if scratch != nil {
-		u = scratch.ensureCWRSU(k + 2)
 		pulses = scratch.ensurePVQPulses(n)
 	} else {
-		u = make([]uint32, k+2)
 		pulses = make([]int, n)
 	}
 
-	vSize := ncwrsUrow(n, k, u)
+	canUseFast := canUseCWRSTableFast(n, k)
+	var vSize uint32
+	var u []uint32
+	if canUseFast {
+		vSize = PVQ_V(n, k)
+	} else {
+		if scratch != nil {
+			u = scratch.ensureCWRSU(k + 2)
+		} else {
+			u = make([]uint32, k+2)
+		}
+		vSize = ncwrsUrow(n, k, u)
+	}
 	if vSize == 0 {
 		clear(shape)
 		return 0
 	}
 	idx := rd.DecodeUniform(vSize)
-	_ = cwrsi(n, k, idx, pulses, u)
+	if canUseFast {
+		_ = cwrsiFast(n, k, idx, pulses)
+	} else {
+		_ = cwrsi(n, k, idx, pulses, u)
+	}
 	tracePVQ(band, idx, k, n, pulses)
 	// Decoder doesn't have search energy, so pass 0 to compute from pulses
 	normalizeResidualInto(shape, pulses, gain, 0)
