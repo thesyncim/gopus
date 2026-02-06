@@ -153,6 +153,14 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 			e.lastNumSamples = fullNumSamples
 
 			resNrg32 -= resNrgLast32
+			if e.trace != nil && e.trace.NLSF != nil {
+				tr := e.trace.NLSF
+				tr.InterpBaseResNrg = resNrg32
+				tr.InterpBreakAt = -1
+				for i := range tr.InterpResNrgQ2 {
+					tr.InterpResNrgQ2[i] = float32(math.NaN())
+				}
+			}
 
 			resNrg2nd := float32(math.MaxFloat32)
 			analyzeLen := 2 * subfrLen
@@ -182,12 +190,17 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 							energyF32(lpcRes[order+subfrLen:], subframeSamples),
 					)
 
-						// Match libopus tie behavior in NLSF interpolation search:
-						// for near-equal energies, prefer the later-tested lower k.
-						if resNrgInterp <= resNrg32 {
-							resNrg32 = resNrgInterp
-							interpIdx = k
-						} else if resNrgInterp > resNrg2nd {
+					if e.trace != nil && e.trace.NLSF != nil && k >= 0 && k < len(e.trace.NLSF.InterpResNrgQ2) {
+						e.trace.NLSF.InterpResNrgQ2[k] = resNrgInterp
+					}
+
+					if resNrgInterp < resNrg32 {
+						resNrg32 = resNrgInterp
+						interpIdx = k
+					} else if resNrgInterp > resNrg2nd {
+						if e.trace != nil && e.trace.NLSF != nil {
+							e.trace.NLSF.InterpBreakAt = k
+						}
 						break
 					}
 					resNrg2nd = resNrgInterp

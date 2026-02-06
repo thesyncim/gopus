@@ -655,7 +655,14 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		if nBits > maxBits {
 			if !foundLower && iter >= 2 {
 				if noiseParams != nil {
-					noiseParams.LambdaQ10 += noiseParams.LambdaQ10 / 2
+					lambda := noiseParams.LambdaQ10 + noiseParams.LambdaQ10/2
+					// Match libopus encode_frame_FLP.c:
+					// sEncCtrl.Lambda = silk_max_float(sEncCtrl.Lambda*1.5f, 1.5f)
+					// (Q10 => minimum 1.5 * 1024 = 1536).
+					if lambda < 1536 {
+						lambda = 1536
+					}
+					noiseParams.LambdaQ10 = lambda
 				}
 				quantOffset = 0
 				foundUpper = false
@@ -1352,9 +1359,19 @@ func (e *Encoder) updateShapeBuffer(pcm []float32, frameSamples int) []float32 {
 }
 
 func (e *Encoder) tracePitchBufferState(frameSamples, numSubframes int) (bufLen int, bufHash uint64, winLen int, winHash uint64) {
+	// Match libopus capture timing: before the first encode, the SILK
+	// encoder state fields (frame_length, la_pitch, ltp_mem_length) have
+	// not been set by silk_control_encoder yet, so buf_len computes as 0.
+	// Our trace is captured inside EncodeFrame (after the encoder already
+	// knows its configuration), so we explicitly return 0 for the first
+	// frame to match the libopus "before frame 0" snapshot.
+	const fnvOffsetBasis = 1469598103934665603
+	if !e.haveEncoded {
+		return 0, fnvOffsetBasis, 0, fnvOffsetBasis
+	}
 	fsKHz := e.sampleRate / 1000
 	if fsKHz <= 0 {
-		return 0, 0, 0, 0
+		return 0, fnvOffsetBasis, 0, fnvOffsetBasis
 	}
 	ltpMemSamples := ltpMemLengthMs * fsKHz
 	laPitchSamples := laPitchMs * fsKHz

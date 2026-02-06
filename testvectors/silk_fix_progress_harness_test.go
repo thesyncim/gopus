@@ -129,6 +129,7 @@ type silkFixProgressMetrics struct {
 	PreNSQPrevGain      frameMismatch `json:"pre_nsq_prev_gain"`
 	PreNSQSeed          frameMismatch `json:"pre_nsq_seed"`
 	PrePitchBufHash     frameMismatch `json:"pre_pitch_buf_hash"`
+	PreNBitsExceeded    frameMismatch `json:"pre_nbits_exceeded"`
 	PreTargetRate       frameMismatch `json:"pre_target_rate"`
 	PreSNR              frameMismatch `json:"pre_snr"`
 }
@@ -151,6 +152,7 @@ func newSILKFixProgressMetrics(framesRequested int) silkFixProgressMetrics {
 		PreNSQPrevGain:      newFrameMismatch(),
 		PreNSQSeed:          newFrameMismatch(),
 		PrePitchBufHash:     newFrameMismatch(),
+		PreNBitsExceeded:    newFrameMismatch(),
 		PreTargetRate:       newFrameMismatch(),
 		PreSNR:              newFrameMismatch(),
 	}
@@ -168,12 +170,14 @@ func collectSILKFixProgressMetrics(t *testing.T, frames int) silkFixProgressMetr
 	)
 
 	original := generateEncoderTestSignal(frameSize*frames*channels, channels)
+	original = quantizeFloat32SignalToPCM16(original)
 	metrics := newSILKFixProgressMetrics(frames)
 
 	goEnc := encoder.NewEncoder(sampleRate, channels)
 	goEnc.SetMode(encoder.ModeSILK)
 	goEnc.SetBandwidth(types.BandwidthWideband)
 	goEnc.SetBitrate(bitrate)
+	goEnc.SetLSBDepth(16)
 
 	framePreTrace := &silk.FrameStateTrace{}
 	goEnc.SetSilkTrace(&silk.EncoderTrace{FramePre: framePreTrace})
@@ -268,11 +272,28 @@ func collectSILKFixProgressMetrics(t *testing.T, frames int) silkFixProgressMetr
 			if pre.PitchBufHash != snapPre.PitchXBufHash {
 				metrics.PrePitchBufHash.add(i)
 			}
+			if pre.NBitsExceeded != snapPre.NBitsExceeded {
+				metrics.PreNBitsExceeded.add(i)
+			}
 			if pre.TargetRateBps != snapPre.TargetRateBps {
 				metrics.PreTargetRate.add(i)
+				t.Logf("Frame %d targetRate mismatch: go=%d lib=%d (diff=%d) | nBitsExceeded: go=%d lib=%d (diff=%d) | inputRate: go=%d lib=%d | SNRDBQ7: go=%d lib=%d",
+					i, pre.TargetRateBps, snapPre.TargetRateBps, pre.TargetRateBps-snapPre.TargetRateBps,
+					pre.NBitsExceeded, snapPre.NBitsExceeded, pre.NBitsExceeded-snapPre.NBitsExceeded,
+					pre.InputRateBps, snapPre.SilkModeBitRate,
+					pre.SNRDBQ7, snapPre.SNRDBQ7)
+			} else if pre.NBitsExceeded != snapPre.NBitsExceeded {
+				// nBitsExceeded diverges but targetRate still matches
+				t.Logf("Frame %d nBitsExceeded diverge (targetRate MATCH): go=%d lib=%d (diff=%d) | targetRate=%d | nBitsExceeded: go=%d lib=%d",
+					i, pre.NBitsExceeded, snapPre.NBitsExceeded, pre.NBitsExceeded-snapPre.NBitsExceeded,
+					pre.TargetRateBps, pre.NBitsExceeded, snapPre.NBitsExceeded)
 			}
 			if pre.SNRDBQ7 != snapPre.SNRDBQ7 {
 				metrics.PreSNR.add(i)
+				if pre.TargetRateBps == snapPre.TargetRateBps {
+					t.Logf("Frame %d SNR mismatch (targetRate MATCH=%d): go=%d lib=%d",
+						i, pre.TargetRateBps, pre.SNRDBQ7, snapPre.SNRDBQ7)
+				}
 			}
 		}
 	}
@@ -495,7 +516,7 @@ func buildSILKProgressScoreboard(metrics silkFixProgressMetrics) []progressScore
 func logSILKProgressScoreboard(t *testing.T, metrics silkFixProgressMetrics, scoreboard []progressScoreRow) {
 	t.Helper()
 	t.Logf("SILK fix progress: requested=%d compare=%d", metrics.FramesRequested, metrics.CompareFrames)
-	t.Logf("raw mismatches: gainsID=%d ltpScale=%d nlsfInterp=%d per=%d lag=%d contour=%d seed=%d signalType=%d ltpIndex=%d/%d prePrevLag=%d preNSQLagPrev=%d preNSQSLTPBufIdx=%d preNSQSLTPShpBufIdx=%d preNSQPrevGain=%d preNSQSeed=%d prePitchBufHash=%d preTargetRate=%d preSNR=%d",
+	t.Logf("raw mismatches: gainsID=%d ltpScale=%d nlsfInterp=%d per=%d lag=%d contour=%d seed=%d signalType=%d ltpIndex=%d/%d prePrevLag=%d preNSQLagPrev=%d preNSQSLTPBufIdx=%d preNSQSLTPShpBufIdx=%d preNSQPrevGain=%d preNSQSeed=%d prePitchBufHash=%d preNBitsExceeded=%d preTargetRate=%d preSNR=%d",
 		metrics.GainsID.Count,
 		metrics.LTPScale.Count,
 		metrics.NLSFInterp.Count,
@@ -513,6 +534,7 @@ func logSILKProgressScoreboard(t *testing.T, metrics silkFixProgressMetrics, sco
 		metrics.PreNSQPrevGain.Count,
 		metrics.PreNSQSeed.Count,
 		metrics.PrePitchBufHash.Count,
+		metrics.PreNBitsExceeded.Count,
 		metrics.PreTargetRate.Count,
 		metrics.PreSNR.Count,
 	)
@@ -595,4 +617,26 @@ func progressFrameCountFromEnv(defaultFrames int) int {
 		return defaultFrames
 	}
 	return v
+}
+
+func quantizeFloat32SignalToPCM16(in []float32) []float32 {
+	if len(in) == 0 {
+		return in
+	}
+	out := make([]float32, len(in))
+	for i, s := range in {
+		v := int32(s * 32768.0)
+		if s >= 0 {
+			v = int32(s*32768.0 + 0.5)
+		} else {
+			v = int32(s*32768.0 - 0.5)
+		}
+		if v > 32767 {
+			v = 32767
+		} else if v < -32768 {
+			v = -32768
+		}
+		out[i] = float32(v) / 32768.0
+	}
+	return out
 }

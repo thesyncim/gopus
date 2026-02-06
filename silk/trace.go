@@ -75,6 +75,9 @@ type NLSFTrace struct {
 	SubfrLenWithOrder int
 	UseInterp         bool
 	InterpIdx         int
+	InterpBaseResNrg  float32
+	InterpBreakAt     int
+	InterpResNrgQ2    [4]float32
 
 	RawNLSFQ15       []int16
 	PrevNLSFQ15      []int16
