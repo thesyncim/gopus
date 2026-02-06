@@ -122,3 +122,7 @@ func captureLibopusOpusNSQInputsAtFrame(_ []float32, _, _, _, _, _ int) (libopus
 func captureLibopusOpusNSQInputsAtFrameInt16(_ []int16, _, _, _, _, _ int) (libopusOpusNSQInputSnapshot, bool) {
 	return libopusOpusNSQInputSnapshot{}, false
 }
+
+func encodeWithLibopusFloat(_ []float32, _, _, _, _, _ int) []libopusPacket {
+	return nil
+}

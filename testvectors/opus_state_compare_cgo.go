@@ -31,3 +31,35 @@ func captureLibopusOpusNSQInputsAtFrame(samples []float32, sampleRate, channels,
 func captureLibopusOpusNSQInputsAtFrameInt16(samplesInt16 []int16, sampleRate, channels, bitrate, frameSize, frameIndex int) (libopusOpusNSQInputSnapshot, bool) {
 	return cgowrap.CaptureOpusNSQInputsAtFrameInt16(samplesInt16, sampleRate, channels, bitrate, frameSize, frameIndex)
 }
+
+// encodeWithLibopusFloat encodes the given float32 samples using libopus opus_encode_float
+// and returns the encoded packets. Uses the given application type.
+func encodeWithLibopusFloat(samples []float32, sampleRate, channels, bitrate, frameSize, application int) []libopusPacket {
+	enc, err := cgowrap.NewLibopusEncoder(sampleRate, channels, application)
+	if err != nil || enc == nil {
+		return nil
+	}
+	defer enc.Destroy()
+	enc.SetForceMode(cgowrap.ModeSilkOnly)
+	enc.SetBitrate(bitrate)
+	enc.SetBandwidth(cgowrap.OpusBandwidthWideband)
+
+	samplesPerFrame := frameSize * channels
+	numFrames := len(samples) / samplesPerFrame
+	packets := make([]libopusPacket, 0, numFrames)
+	for i := 0; i < numFrames; i++ {
+		start := i * samplesPerFrame
+		end := start + samplesPerFrame
+		data, n := enc.EncodeFloat(samples[start:end], frameSize)
+		if n <= 0 {
+			continue
+		}
+		pkt := libopusPacket{
+			data:       make([]byte, len(data)),
+			finalRange: enc.GetFinalRange(),
+		}
+		copy(pkt.data, data)
+		packets = append(packets, pkt)
+	}
+	return packets
+}

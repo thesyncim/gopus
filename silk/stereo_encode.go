@@ -639,6 +639,19 @@ func (e *Encoder) StereoLRToMSWithRates(
 	}
 
 	// Interpolate predictors and subtract prediction from side channel.
+	// Matches libopus stereo_LR_to_MS.c lines 198-224.
+	//
+	// In libopus, mid = &x1[-2], so mid[n+1] = inputBuf[n+1].
+	// The SILK encoder reads from inputBuf[1] for frame_length samples,
+	// i.e., inputBuf[1..frame_length] = mid[1..frameLength].
+	// The prediction loop writes x2[n-1] for n=0..frame_length-1.
+	// x2 = &inputBuf[2], so x2[n-1] = inputBuf[n+1]. The encoder reads
+	// inputBuf[1..frame_length] for side too, which is x2[-1..frame_length-2] =
+	// prediction at n=0..frame_length-1.
+	//
+	// Our mid array: mid[0..1] = history, mid[2..frameLength+1] = current frame.
+	// midOut[n] = mid[n+1] gives mid[1..frameLength] which matches inputBuf[1..frame_length].
+	// sideOut[n] = prediction at n, which matches inputBuf[n+1] = x2[n-1].
 	midOut = make([]float32, frameLength)
 	sideOut = make([]float32, frameLength)
 	for n := 0; n < frameLength; n++ {

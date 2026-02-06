@@ -29,6 +29,16 @@ func TestLTPAnalysisFilterAndBurgMatchLibopus(t *testing.T) {
 				0.2*math.Sin(2*math.Pi*500*tm),
 		)
 	}
+	// Quantize to int16 precision to match the real encoder path:
+	// In the actual encoder, inputBuffer stores data that has been
+	// through quantizePCMToInt16 (float32 -> int16 -> float32 at [-1,1] scale).
+	// buildLTPResidual then scales by silkSampleScale to recover int16-range values.
+	// Without this, we compare unquantized-then-scaled vs int16-quantized data.
+	scale := float32(silkSampleScale)
+	invScale := float32(1.0 / silkSampleScale)
+	for i := range pitchBuf {
+		pitchBuf[i] = float32(floatToInt16Round(pitchBuf[i]*scale)) * invScale
+	}
 
 	frameStart := ltpMem
 	pitchLags := []int{80, 82, 85, 88}

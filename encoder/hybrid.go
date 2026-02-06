@@ -235,6 +235,16 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, celtPCM []float64, lookahead 
 	}
 	e.encodeSILKHybrid(silkInput, silkLookahead, frameSize, silkBitrate)
 
+	// Step 2b: Encode redundancy flag between SILK and CELT.
+	// Per libopus opus_encoder.c: in hybrid mode, a redundancy flag is always
+	// written between the SILK and CELT portions (logp=12, value=0 for no redundancy).
+	// The decoder reads this flag in its afterSilk hook; if we don't write it,
+	// the CELT decoder reads shifted data and produces garbage output.
+	// Condition matches libopus: ec_tell(&enc)+17+20 <= 8*(max_data_bytes-1)
+	if re.Tell()+17+20 <= 8*maxTargetBytes {
+		re.EncodeBit(0, 12) // redundancy = 0 (no redundancy)
+	}
+
 	// Step 3: Apply hybrid delay and gain fade on delay-compensated CELT input
 	celtInput := e.applyInputDelayWithGainFade(celtPCM, hbGain)
 	if e.channels == 2 {

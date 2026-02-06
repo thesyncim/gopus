@@ -3242,6 +3242,7 @@ const (
 	OpusApplicationVoIP            = 2048
 	OpusApplicationAudio           = 2049
 	OpusApplicationRestrictedDelay = 2051
+	OpusApplicationRestrictedSilk  = 2052
 
 	OpusSetBitrateRequest       = 4002
 	OpusSetComplexityRequest    = 4010
@@ -3259,6 +3260,12 @@ const (
 	OpusSignalAuto  = -1000
 	OpusSignalVoice = 3001
 	OpusSignalMusic = 3002
+
+	OpusSetForceModeRequest = 11002
+
+	ModeSilkOnly = 1000
+	ModeCeltOnly = 1002
+	ModeHybrid   = 1001
 )
 
 // LibopusEncoder wraps a libopus encoder for comparison tests.
@@ -3335,6 +3342,13 @@ func (e *LibopusEncoder) SetSignal(signal int) {
 func (e *LibopusEncoder) SetForceChannels(channels int) {
 	if e.enc != nil {
 		C.test_encoder_ctl_set_int(e.enc, C.int(OpusSetForceChannelsRequest), C.int(channels))
+	}
+}
+
+// SetForceMode forces a specific codec mode (ModeSilkOnly, ModeCeltOnly, ModeHybrid).
+func (e *LibopusEncoder) SetForceMode(mode int) {
+	if e.enc != nil {
+		C.test_encoder_ctl_set_int(e.enc, C.int(OpusSetForceModeRequest), C.int(mode))
 	}
 }
 

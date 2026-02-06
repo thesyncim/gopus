@@ -16,11 +16,6 @@ import (
 	"github.com/thesyncim/gopus/types"
 )
 
-type libopusPacket struct {
-	data       []byte
-	finalRange uint32
-}
-
 func findOpusDemo(t *testing.T) string {
 	t.Helper()
 	if path := os.Getenv("OPUS_DEMO"); path != "" {
@@ -290,8 +285,6 @@ func TestDecoderParityLibopusPacketsSILKWB(t *testing.T) {
 }
 
 func TestSILKParamTraceAgainstLibopus(t *testing.T) {
-	opusDemo := findOpusDemo(t)
-
 	const (
 		sampleRate = 48000
 		channels   = 1
@@ -360,35 +353,16 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 		}
 	}
 
-	// Encode with libopus (opus_demo).
-	tmpdir := t.TempDir()
-	inRaw := filepath.Join(tmpdir, "input.pcm")
-	outBit := filepath.Join(tmpdir, "output.bit")
-	if err := writeRawPCM16(inRaw, original); err != nil {
-		t.Fatalf("write input pcm: %v", err)
+	// Encode with libopus via CGO float path (opus_encode_float, restricted-silk application).
+	// This matches gopus's float input path exactly, unlike opus_demo -16 which uses
+	// int16 input (different lsb_depth, float precision).
+	cgoPackets := encodeWithLibopusFloat(original, sampleRate, channels, bitrate, frameSize, 2052 /* OPUS_APPLICATION_RESTRICTED_SILK */)
+	if len(cgoPackets) == 0 {
+		t.Skip("CGO libopus encoder not available; build with -tags cgo_libopus")
 	}
-	args := []string{
-		"-e", "restricted-silk",
-		fmt.Sprintf("%d", sampleRate),
-		fmt.Sprintf("%d", channels),
-		fmt.Sprintf("%d", bitrate),
-		"-bandwidth", "WB",
-		"-framesize", "20",
-		"-16",
-		inRaw, outBit,
-	}
-	cmd := exec.Command(opusDemo, args...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("opus_demo failed: %v\n%s", err, stderr.String())
-	}
-	libPackets, err := parseOpusDemoBitstream(outBit)
-	if err != nil {
-		t.Fatalf("parse opus_demo output: %v", err)
-	}
-	if len(libPackets) == 0 {
-		t.Fatal("no libopus packets produced")
+	libPackets := make([][]byte, len(cgoPackets))
+	for i, p := range cgoPackets {
+		libPackets[i] = p.data
 	}
 
 	// Compare decoded SILK parameters using our decoder.
@@ -462,7 +436,7 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 
 	for i := 0; i < compareCount; i++ {
 		goPayload := gopusPackets[i]
-		libPayload := libPackets[i].data
+		libPayload := libPackets[i]
 		if len(goPayload) < 2 || len(libPayload) < 2 {
 			continue
 		}
@@ -1386,10 +1360,19 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 	if prePitchWinHashDiff > 10 {
 		t.Fatalf("pre-state pitch window hash mismatches regressed: got %d/%d, want <= 10", prePitchWinHashDiff, compareCount)
 	}
-	// Regression guard: bit-reservoir accounting and gain-loop parity should not
-	// cause early gain-index divergence on this canonical WB signal.
-	if firstGainsIDMismatchFrame >= 0 && firstGainsIDMismatchFrame < 23 {
-		t.Fatalf("first GainsID mismatch regressed early: got frame %d, want >= 23", firstGainsIDMismatchFrame)
+	// Regression guard: with CGO float restricted-silk encoding, gain indices
+	// should match exactly (no GainsID mismatch) for this canonical WB signal.
+	if firstGainsIDMismatchFrame >= 0 {
+		t.Errorf("unexpected GainsID mismatch at frame %d (expect no gain mismatches with float CGO comparison)", firstGainsIDMismatchFrame)
+	}
+	// Regression guard: seed mismatches should remain at 8 or fewer (from 2 NLSF
+	// interp mismatches due to 1-LSB x16 input precision differences).
+	if seedDiff > 12 {
+		t.Fatalf("seed mismatches regressed: got %d/%d, want <= 12", seedDiff, compareCount)
+	}
+	// Regression guard: NLSF interp mismatches should remain at 2 or fewer.
+	if interpDiff > 4 {
+		t.Fatalf("NLSF interp mismatches regressed: got %d/%d, want <= 4", interpDiff, compareCount)
 	}
 }
 

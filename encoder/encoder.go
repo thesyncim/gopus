@@ -701,33 +701,48 @@ func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
 	if perChanRate >= 48000 && (bw == types.BandwidthSuperwideband || bw == types.BandwidthFullband) {
 		return ModeCELT
 	}
+
+	// Determine the preferred mode based on signal hint and bandwidth.
+	preferred := ModeCELT
 	switch signalHint {
 	case types.SignalVoice:
 		switch bw {
 		case types.BandwidthNarrowband, types.BandwidthMediumband, types.BandwidthWideband:
-			return ModeSILK
+			preferred = ModeSILK
 		case types.BandwidthSuperwideband, types.BandwidthFullband:
 			if frameSize == 480 || frameSize == 960 {
-				return ModeHybrid
+				preferred = ModeHybrid
+			} else {
+				preferred = ModeSILK
 			}
-			return ModeSILK
 		}
 	case types.SignalMusic:
-		return ModeCELT
-	}
-	switch bw {
-	case types.BandwidthNarrowband, types.BandwidthMediumband, types.BandwidthWideband:
-		return ModeSILK
-	case types.BandwidthSuperwideband:
-		if frameSize == 480 || frameSize == 960 {
-			return ModeHybrid
-		}
-		return ModeCELT
-	case types.BandwidthFullband:
-		return ModeCELT
+		preferred = ModeCELT
 	default:
+		switch bw {
+		case types.BandwidthNarrowband, types.BandwidthMediumband, types.BandwidthWideband:
+			preferred = ModeSILK
+		case types.BandwidthSuperwideband:
+			if frameSize == 480 || frameSize == 960 {
+				preferred = ModeHybrid
+			} else {
+				preferred = ModeCELT
+			}
+		case types.BandwidthFullband:
+			preferred = ModeCELT
+		}
+	}
+
+	// Validate that the selected mode supports the requested frame size.
+	// If not, fall back to a compatible mode. CELT supports all frame sizes.
+	if !ValidFrameSize(frameSize, preferred) {
+		if ValidFrameSize(frameSize, ModeCELT) {
+			return ModeCELT
+		}
+		// Frame size 1920/2880 is SILK-only; should not happen for short frames.
 		return ModeCELT
 	}
+	return preferred
 }
 
 // autoSignalFromPCM is kept for backward compatibility but RunAnalysis is preferred.
@@ -812,6 +827,7 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 			lookahead32[i] = float32(v)
 		}
 	}
+
 	cfg := silk.GetBandwidthConfig(e.silkBandwidth())
 	targetRate := cfg.SampleRate
 	if targetRate != 48000 {
@@ -822,9 +838,12 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 		targetSamples = len(pcm32)
 	}
 	if e.channels == 2 {
-		perChannelRate := e.silkInputBitrate(frameSize) / e.channels
-		if perChannelRate > 0 {
-			e.silkEncoder.SetBitrate(perChannelRate)
+		// Set bitrates: total rate on mid encoder (StereoLRToMSWithRates splits it),
+		// per-channel rate on side encoder for its own SNR control.
+		totalSilkRate := e.silkInputBitrate(frameSize)
+		perChannelRate := totalSilkRate / e.channels
+		if totalSilkRate > 0 {
+			e.silkEncoder.SetBitrate(totalSilkRate)
 		}
 		e.silkEncoder.SetFEC(e.fecEnabled)
 		e.silkEncoder.SetPacketLoss(e.packetLoss)
@@ -834,6 +853,37 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 		}
 		e.silkSideEncoder.SetFEC(e.fecEnabled)
 		e.silkSideEncoder.SetPacketLoss(e.packetLoss)
+
+		// Set VBR mode on both encoders (matching mono path).
+		switch e.bitrateMode {
+		case ModeCBR:
+			e.silkEncoder.SetVBR(false)
+			e.silkSideEncoder.SetVBR(false)
+		default:
+			e.silkEncoder.SetVBR(true)
+			e.silkSideEncoder.SetVBR(true)
+		}
+
+		// Set max bits for both encoders.
+		if e.bitrate > 0 {
+			targetBytes := targetBytesForBitrate(e.bitrate, frameSize)
+			maxBytes := targetBytes
+			switch e.bitrateMode {
+			case ModeVBR:
+				maxBytes = maxSilkPacketBytes
+			case ModeCVBR:
+				maxBytes = int(float64(targetBytes) * (1 + CVBRTolerance))
+				if maxBytes < 1 {
+					maxBytes = 1
+				}
+				if maxBytes > maxSilkPacketBytes {
+					maxBytes = maxSilkPacketBytes
+				}
+			}
+			e.silkEncoder.SetMaxBits(maxBytes * 8)
+			e.silkSideEncoder.SetMaxBits(maxBytes * 8)
+		}
+
 		left := e.scratchLeft[:frameSize]
 		right := e.scratchRight[:frameSize]
 		for i := 0; i < frameSize; i++ {
