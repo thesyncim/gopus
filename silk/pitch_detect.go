@@ -494,7 +494,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 					if xcorr > 0 {
 						energyTmp := energyFLP(target) + 1.0
 						energy := energyFLP(basis)
-						cc[j] += 2.0 * xcorr / (energy + energyTmp)
+						cc[j] += float32(2.0 * xcorr / (energy + energyTmp))
 					}
 				}
 				targetIdx += sfLength8kHz
@@ -800,22 +800,25 @@ func lagrangianInterpolate(corrMinus, corrCenter, corrPlus float64) float64 {
 
 // energyFLP computes sum of squares of a float32 array.
 // Matches libopus silk_energy_FLP (float precision accumulation).
-func energyFLP(data []float32) float32 {
-	var result float32
+func energyFLP(data []float32) float64 {
+	// Match libopus silk_energy_FLP: accumulate in double precision.
+	var result float64
 
 	// 4x unrolled loop for performance
 	n := len(data)
 	i := 0
 	for ; i < n-3; i += 4 {
-		result += data[i+0]*data[i+0] +
-			data[i+1]*data[i+1] +
-			data[i+2]*data[i+2] +
-			data[i+3]*data[i+3]
+		d0 := float64(data[i+0])
+		d1 := float64(data[i+1])
+		d2 := float64(data[i+2])
+		d3 := float64(data[i+3])
+		result += d0*d0 + d1*d1 + d2*d2 + d3*d3
 	}
 
 	// Handle remaining samples
 	for ; i < n; i++ {
-		result += data[i] * data[i]
+		d := float64(data[i])
+		result += d * d
 	}
 
 	return result
@@ -823,21 +826,22 @@ func energyFLP(data []float32) float32 {
 
 // innerProductFLP computes inner product of two float32 arrays.
 // Matches libopus silk_inner_product_FLP (float precision accumulation).
-func innerProductFLP(a, b []float32, length int) float32 {
-	var result float32
+func innerProductFLP(a, b []float32, length int) float64 {
+	// Match libopus silk_inner_product_FLP: return double precision.
+	var result float64
 
 	// 4x unrolled loop for performance
 	i := 0
 	for ; i < length-3; i += 4 {
-		result += a[i+0]*b[i+0] +
-			a[i+1]*b[i+1] +
-			a[i+2]*b[i+2] +
-			a[i+3]*b[i+3]
+		result += float64(a[i+0])*float64(b[i+0]) +
+			float64(a[i+1])*float64(b[i+1]) +
+			float64(a[i+2])*float64(b[i+2]) +
+			float64(a[i+3])*float64(b[i+3])
 	}
 
 	// Handle remaining samples
 	for ; i < length; i++ {
-		result += a[i] * b[i]
+		result += float64(a[i]) * float64(b[i])
 	}
 
 	return result

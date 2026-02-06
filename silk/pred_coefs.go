@@ -109,10 +109,6 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 	fullTotalEnergy := e.lastTotalEnergy
 	fullInvGain := e.lastInvGain
 	fullNumSamples := e.lastNumSamples
-	x := ensureFloat64Slice(&e.scratchLtpInput, totalLen)
-	for i := 0; i < totalLen; i++ {
-		x[i] = float64(ltpRes[i])
-	}
 
 	for i := 0; i < order; i++ {
 		a32 := float32(aFull[i])
@@ -152,8 +148,8 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 			if analyzeLen <= totalLen {
 				var interpNLSF [maxLPCOrder]int16
 				var lpcTmpQ12 [maxLPCOrder]int16
-				lpcTmpF64 := ensureFloat64Slice(&e.scratchPredCoefF64A, order)
-				lpcRes := ensureFloat64Slice(&e.scratchLpcResF64, analyzeLen)
+				lpcTmpF32 := ensureFloat32Slice(&e.scratchPredCoefF32A, order)
+				lpcRes := ensureFloat32Slice(&e.scratchLpcResF32, analyzeLen)
 
 				for k := 3; k >= 0; k-- {
 					interpolateNLSF(interpNLSF[:order], e.prevLSFQ15, lsfLast, k, order)
@@ -163,13 +159,13 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 						copy(lpcTmpQ12[:order], fallback[:order])
 					}
 					for i := 0; i < order; i++ {
-						lpcTmpF64[i] = float64(lpcTmpQ12[i]) / 4096.0
+						lpcTmpF32[i] = float32(lpcTmpQ12[i]) / 4096.0
 					}
-					lpcAnalysisFilterFLP(lpcRes, lpcTmpF64, x, analyzeLen, order)
+					lpcAnalysisFilterF32(lpcRes, lpcTmpF32, ltpRes[:analyzeLen], analyzeLen, order)
 
-					// Match libopus float32 comparison precision
-					resNrgInterp := float32(energyF64(lpcRes[order:], subframeSamples))
-					resNrgInterp += float32(energyF64(lpcRes[order+subfrLen:], subframeSamples))
+					// Match libopus silk_LPC_analysis_filter_FLP + energy_FLP path.
+					resNrgInterp := float32(energyF32(lpcRes[order:], subframeSamples))
+					resNrgInterp += float32(energyF32(lpcRes[order+subfrLen:], subframeSamples))
 
 					if resNrgInterp < resNrg32 {
 						resNrg32 = resNrgInterp
@@ -238,24 +234,21 @@ func (e *Encoder) computeResidualEnergies(ltpRes []float32, predCoefQ12 []int16,
 		length = len(ltpRes)
 	}
 	if length > 0 {
-		x := ensureFloat32Slice(&e.scratchLtpResF32, length)
-		copy(x, ltpRes[:length])
 		lpcRes := ensureFloat32Slice(&e.scratchLpcResF32, length)
-		lpcAnalysisFilterF32(lpcRes, coeffs, x, length, order)
+		lpcAnalysisFilterF32(lpcRes, coeffs, ltpRes[:length], length, order)
 		for k := 0; k < subframesInFirstHalf; k++ {
 			start := order + k*subfrLen
 			end := start + subframeSamples
 			if end > len(lpcRes) {
 				end = len(lpcRes)
 			}
-			energy := float32(0)
-			for i := start; i < end; i++ {
-				energy += lpcRes[i] * lpcRes[i]
-			}
+			energy := energyF32(lpcRes[start:end], end-start)
 			if k < len(gains) {
-				energy *= gains[k] * gains[k]
+				g := float64(gains[k])
+				energy *= g * g
 			}
-			resNrg[k] = float64(energy)
+			// Match libopus residual_energy_FLP output type (silk_float).
+			resNrg[k] = float64(float32(energy))
 		}
 	}
 
@@ -266,25 +259,22 @@ func (e *Encoder) computeResidualEnergies(ltpRes []float32, predCoefQ12 []int16,
 			length = len(ltpRes) - offset
 		}
 		if length > 0 {
-			x := ensureFloat32Slice(&e.scratchLtpResF32, length)
-			copy(x, ltpRes[offset:offset+length])
 			lpcRes := ensureFloat32Slice(&e.scratchLpcResF32, length)
-			lpcAnalysisFilterF32(lpcRes, coef1, x, length, order)
+			lpcAnalysisFilterF32(lpcRes, coef1, ltpRes[offset:offset+length], length, order)
 			for k := 0; k < 2; k++ {
 				start := order + k*subfrLen
 				end := start + subframeSamples
 				if end > len(lpcRes) {
 					end = len(lpcRes)
 				}
-				energy := float32(0)
-				for i := start; i < end; i++ {
-					energy += lpcRes[i] * lpcRes[i]
-				}
+				energy := energyF32(lpcRes[start:end], end-start)
 				idx := k + 2
 				if idx < len(gains) {
-					energy *= gains[idx] * gains[idx]
+					g := float64(gains[idx])
+					energy *= g * g
 				}
-				resNrg[idx] = float64(energy)
+				// Match libopus residual_energy_FLP output type (silk_float).
+				resNrg[idx] = float64(float32(energy))
 			}
 		}
 	}
