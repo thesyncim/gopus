@@ -1,5 +1,23 @@
 package celt
 
+import "math/bits"
+
+const bitexactThetaMax = 16384
+
+var bitexactCosTable [bitexactThetaMax + 1]int
+var bitexactLog2tanThetaTable [bitexactThetaMax + 1]int
+
+func init() {
+	for i := 0; i <= bitexactThetaMax; i++ {
+		bitexactCosTable[i] = bitexactCosCalc(i)
+	}
+	for i := 1; i < bitexactThetaMax; i++ {
+		isin := bitexactCosTable[bitexactThetaMax-i]
+		icos := bitexactCosTable[i]
+		bitexactLog2tanThetaTable[i] = bitexactLog2tanCalc(isin, icos)
+	}
+}
+
 func celtUdiv(n, d int) int {
 	if d <= 0 {
 		return 0
@@ -25,6 +43,13 @@ func fracMul16(a, b int) int {
 }
 
 func bitexactCos(x int) int {
+	if uint(x) <= bitexactThetaMax {
+		return bitexactCosTable[x]
+	}
+	return bitexactCosCalc(x)
+}
+
+func bitexactCosCalc(x int) int {
 	tmp := (4096 + int32(x)*int32(x)) >> 13
 	x2 := int(tmp)
 	x2 = (32767 - x2) + fracMul16(x2, (-7651+fracMul16(x2, (8277+fracMul16(-626, x2)))))
@@ -32,11 +57,30 @@ func bitexactCos(x int) int {
 }
 
 func bitexactLog2tan(isin, icos int) int {
+	return bitexactLog2tanCalc(isin, icos)
+}
+
+func bitexactLog2tanCalc(isin, icos int) int {
 	lc := ilog32(uint32(icos))
 	ls := ilog32(uint32(isin))
+	if lc > 15 {
+		lc = 15
+	}
+	if ls > 15 {
+		ls = 15
+	}
 	icos <<= 15 - lc
 	isin <<= 15 - ls
 	return (ls-lc)*(1<<11) + fracMul16(isin, fracMul16(isin, -2597)+7932) - fracMul16(icos, fracMul16(icos, -2597)+7932)
+}
+
+func bitexactLog2tanTheta(itheta int) int {
+	if uint(itheta) <= bitexactThetaMax {
+		return bitexactLog2tanThetaTable[itheta]
+	}
+	imid := bitexactCos(itheta)
+	iside := bitexactCos(16384 - itheta)
+	return bitexactLog2tan(iside, imid)
 }
 
 // isqrt32 computes floor(sqrt(val)) with exact arithmetic.
@@ -60,29 +104,5 @@ func isqrt32(val uint32) uint32 {
 }
 
 func ilog32(x uint32) int {
-	if x == 0 {
-		return 0
-	}
-	n := 0
-	if x >= (1 << 16) {
-		n += 16
-		x >>= 16
-	}
-	if x >= (1 << 8) {
-		n += 8
-		x >>= 8
-	}
-	if x >= (1 << 4) {
-		n += 4
-		x >>= 4
-	}
-	if x >= (1 << 2) {
-		n += 2
-		x >>= 2
-	}
-	if x >= (1 << 1) {
-		n += 1
-		x >>= 1
-	}
-	return n + int(x)
+	return bits.Len32(x)
 }

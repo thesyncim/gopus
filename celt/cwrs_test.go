@@ -229,15 +229,21 @@ func BenchmarkPVQ_V(b *testing.B) {
 
 // BenchmarkDecodePulses benchmarks the decoding function.
 func BenchmarkDecodePulses(b *testing.B) {
+	y := make([]int, 16)
+	var scratch bandDecodeScratch
+	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		DecodePulses(12345, 16, 8)
+		_ = decodePulsesInto(12345, 16, 8, y, &scratch)
 	}
 }
 
 // BenchmarkDecodePulsesLarge benchmarks decoding with larger parameters.
 func BenchmarkDecodePulsesLarge(b *testing.B) {
+	y := make([]int, 32)
+	var scratch bandDecodeScratch
+	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		DecodePulses(123456, 32, 16)
+		_ = decodePulsesInto(123456, 32, 16, y, &scratch)
 	}
 }
 

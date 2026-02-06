@@ -1040,6 +1040,39 @@ func (d *Decoder) applyDeemphasisAndScale(samples []float64, scale float64) {
 		samples = samples[:n:n]
 		_ = samples[n-1]
 		i := 0
+		for ; i+7 < n; i += 8 {
+			tmp0 := float32(samples[i]) + verySmall + state
+			state = coef * tmp0
+			samples[i] = float64(tmp0 * scale32)
+
+			tmp1 := float32(samples[i+1]) + verySmall + state
+			state = coef * tmp1
+			samples[i+1] = float64(tmp1 * scale32)
+
+			tmp2 := float32(samples[i+2]) + verySmall + state
+			state = coef * tmp2
+			samples[i+2] = float64(tmp2 * scale32)
+
+			tmp3 := float32(samples[i+3]) + verySmall + state
+			state = coef * tmp3
+			samples[i+3] = float64(tmp3 * scale32)
+
+			tmp4 := float32(samples[i+4]) + verySmall + state
+			state = coef * tmp4
+			samples[i+4] = float64(tmp4 * scale32)
+
+			tmp5 := float32(samples[i+5]) + verySmall + state
+			state = coef * tmp5
+			samples[i+5] = float64(tmp5 * scale32)
+
+			tmp6 := float32(samples[i+6]) + verySmall + state
+			state = coef * tmp6
+			samples[i+6] = float64(tmp6 * scale32)
+
+			tmp7 := float32(samples[i+7]) + verySmall + state
+			state = coef * tmp7
+			samples[i+7] = float64(tmp7 * scale32)
+		}
 		for ; i+3 < n; i += 4 {
 			tmp0 := float32(samples[i]) + verySmall + state
 			state = coef * tmp0
@@ -1071,6 +1104,39 @@ func (d *Decoder) applyDeemphasisAndScale(samples []float64, scale float64) {
 		samples = samples[:n:n]
 		_ = samples[n-1]
 		i := 0
+		for ; i+7 < n; i += 8 {
+			tmpL0 := float32(samples[i]) + verySmall + stateL
+			stateL = coef * tmpL0
+			samples[i] = float64(tmpL0 * scale32)
+
+			tmpR0 := float32(samples[i+1]) + verySmall + stateR
+			stateR = coef * tmpR0
+			samples[i+1] = float64(tmpR0 * scale32)
+
+			tmpL1 := float32(samples[i+2]) + verySmall + stateL
+			stateL = coef * tmpL1
+			samples[i+2] = float64(tmpL1 * scale32)
+
+			tmpR1 := float32(samples[i+3]) + verySmall + stateR
+			stateR = coef * tmpR1
+			samples[i+3] = float64(tmpR1 * scale32)
+
+			tmpL2 := float32(samples[i+4]) + verySmall + stateL
+			stateL = coef * tmpL2
+			samples[i+4] = float64(tmpL2 * scale32)
+
+			tmpR2 := float32(samples[i+5]) + verySmall + stateR
+			stateR = coef * tmpR2
+			samples[i+5] = float64(tmpR2 * scale32)
+
+			tmpL3 := float32(samples[i+6]) + verySmall + stateL
+			stateL = coef * tmpL3
+			samples[i+6] = float64(tmpL3 * scale32)
+
+			tmpR3 := float32(samples[i+7]) + verySmall + stateR
+			stateR = coef * tmpR3
+			samples[i+7] = float64(tmpR3 * scale32)
+		}
 		for ; i+3 < n; i += 4 {
 			tmpL0 := float32(samples[i]) + verySmall + stateL
 			stateL = coef * tmpL0
@@ -1363,9 +1429,9 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	// Denormalize mono coefficients
 	denormalizeCoeffs(coeffsMono, monoEnergies, end, frameSize)
 
-	// Duplicate mono coefficients to stereo for synthesis
+	// Duplicate mono coefficients to stereo for synthesis.
 	coeffsL := coeffsMono
-	coeffsR := make([]float64, len(coeffsMono))
+	coeffsR := ensureFloat64Slice(&d.scratchSynthR, len(coeffsMono))
 	copy(coeffsR, coeffsMono)
 
 	// Restore original channels for stereo synthesis
@@ -1385,8 +1451,9 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
 	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
 
-	// Update stereo energy state by duplicating mono energies
-	stereoEnergies := make([]float64, MaxBands*2)
+	// Update stereo energy state by duplicating mono energies.
+	var stereoEnergiesArr [MaxBands * 2]float64
+	stereoEnergies := stereoEnergiesArr[:]
 	for i := 0; i < end; i++ {
 		stereoEnergies[i] = monoEnergies[i]          // Left
 		stereoEnergies[MaxBands+i] = monoEnergies[i] // Right (duplicate)
@@ -1460,9 +1527,12 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 		end = 1
 	}
 	start := 0
-	prev1Energy := append([]float64(nil), d.prevEnergy...)
-	prev1LogE := append([]float64(nil), d.prevLogE...)
-	prev2LogE := append([]float64(nil), d.prevLogE2...)
+	prev1Energy := ensureFloat64Slice(&d.scratchPrevEnergy, len(d.prevEnergy))
+	copy(prev1Energy, d.prevEnergy)
+	prev1LogE := ensureFloat64Slice(&d.scratchPrevLogE, len(d.prevLogE))
+	copy(prev1LogE, d.prevLogE)
+	prev2LogE := ensureFloat64Slice(&d.scratchPrevLogE2, len(d.prevLogE2))
+	copy(prev2LogE, d.prevLogE2)
 
 	totalBits := len(data) * 8
 	tell := rd.Tell()
@@ -1475,7 +1545,8 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	if silence {
 		// Silence frame: output mono silence, but update stereo energy state.
 		samples := make([]float64, frameSize)
-		silenceE := make([]float64, MaxBands*2)
+		var silenceEArr [MaxBands * 2]float64
+		silenceE := silenceEArr[:]
 		for i := range silenceE {
 			silenceE[i] = -28.0
 		}
@@ -1520,7 +1591,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 		shortBlocks = mode.ShortBlocks
 	}
 
-	energies := d.DecodeCoarseEnergy(end, intra, lm)
+	energies := d.decodeCoarseEnergyInto(ensureFloat64Slice(&d.scratchEnergies, end*d.channels), end, intra, lm)
 	traceRange("coarse", rd)
 
 	tfRes := ensureIntSlice(&d.scratchTFRes, end)
@@ -1534,7 +1605,8 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	}
 	traceRange("spread", rd)
 
-	cap := initCaps(end, lm, d.channels)
+	cap := ensureIntSlice(&d.scratchCaps, end)
+	initCapsInto(cap, end, lm, d.channels)
 	offsets := ensureIntSlice(&d.scratchOffsets, end)
 	dynallocLogp := 6
 	totalBitsQ3 := totalBits << bitRes
@@ -1624,7 +1696,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	energiesR := energies[end:]
 	denormalizeCoeffs(coeffsL, energiesL, end, frameSize)
 	denormalizeCoeffs(coeffsR, energiesR, end, frameSize)
-	coeffsMono := make([]float64, len(coeffsL))
+	coeffsMono := ensureFloat64Slice(&d.scratchShortCoeffs, len(coeffsL))
 	for i := range coeffsMono {
 		coeffsMono[i] = 0.5 * (coeffsL[i] + coeffsR[i])
 	}

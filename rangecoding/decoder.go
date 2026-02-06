@@ -1,5 +1,7 @@
 package rangecoding
 
+import "math/bits"
+
 // Decoder implements the range decoder per RFC 6716 Section 4.1.
 // This is a bit-exact port of libopus entdec.c.
 type Decoder struct {
@@ -181,31 +183,7 @@ func (d *Decoder) State() (uint32, uint32) {
 // ilog computes the integer log base 2 (position of highest set bit + 1).
 // Returns 0 for input 0.
 func ilog(x uint32) int {
-	if x == 0 {
-		return 0
-	}
-	n := 0
-	if x >= (1 << 16) {
-		n += 16
-		x >>= 16
-	}
-	if x >= (1 << 8) {
-		n += 8
-		x >>= 8
-	}
-	if x >= (1 << 4) {
-		n += 4
-		x >>= 4
-	}
-	if x >= (1 << 2) {
-		n += 2
-		x >>= 2
-	}
-	if x >= (1 << 1) {
-		n += 1
-		x >>= 1
-	}
-	return n + int(x)
+	return bits.Len32(x)
 }
 
 // Error returns the error flag. Non-zero indicates a decoding error.

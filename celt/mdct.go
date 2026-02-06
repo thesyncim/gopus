@@ -363,19 +363,16 @@ func imdctOverlapWithPrevScratchF32(out []float64, spectrum []float64, prevOverl
 	trig := getMDCTTrigF32(n)
 
 	var fftIn []complex64
-	var fftOut []complex64
 	var buf []float32
 	var fftTmp []kissCpx
 	var outF32 []float32
 	if scratch == nil {
 		fftIn = make([]complex64, n4)
-		fftOut = make([]complex64, n4)
 		fftTmp = make([]kissCpx, n4)
 		buf = make([]float32, n2)
 		outF32 = make([]float32, needed)
 	} else {
 		fftIn = ensureComplex64Slice(&scratch.fftIn, n4)
-		fftOut = ensureComplex64Slice(&scratch.fftOut, n4)
 		fftTmp = ensureKissCpxSlice(&scratch.fftTmp, n4)
 		buf = ensureFloat32Slice(&scratch.buf, n2)
 		outF32 = ensureFloat32Slice(&scratch.out, needed)
@@ -403,12 +400,7 @@ func imdctOverlapWithPrevScratchF32(out []float64, spectrum []float64, prevOverl
 
 	imdctPreRotateF32(fftIn, spectrum, trig, n2, n4)
 
-	kissFFT32To(fftOut, fftIn, fftTmp)
-	for i := 0; i < n4; i++ {
-		v := fftOut[i]
-		buf[2*i] = real(v)
-		buf[2*i+1] = imag(v)
-	}
+	kissFFT32ToInterleaved(buf, fftIn, fftTmp)
 
 	imdctPostRotateF32(buf, trig, n2, n4)
 
@@ -620,17 +612,14 @@ func imdctInPlaceScratchF32(spectrum []float64, out []float64, blockStart, overl
 
 	// Pre-rotate with twiddles using float32
 	var fftIn []complex64
-	var fftOut []complex64
 	var buf []float32
 	var fftTmp []kissCpx
 	if scratch == nil {
 		fftIn = make([]complex64, n4)
-		fftOut = make([]complex64, n4)
 		fftTmp = make([]kissCpx, n4)
 		buf = make([]float32, n2)
 	} else {
 		fftIn = ensureComplex64Slice(&scratch.fftIn, n4)
-		fftOut = ensureComplex64Slice(&scratch.fftOut, n4)
 		fftTmp = ensureKissCpxSlice(&scratch.fftTmp, n4)
 		buf = ensureFloat32Slice(&scratch.buf, n2)
 	}
@@ -638,14 +627,7 @@ func imdctInPlaceScratchF32(spectrum []float64, out []float64, blockStart, overl
 	imdctPreRotateF32(fftIn, spectrum, trig, n2, n4)
 
 	// FFT using float32 kiss_fft implementation
-	kissFFT32To(fftOut, fftIn, fftTmp)
-
-	// Post-rotate using float32
-	for i := 0; i < n4; i++ {
-		v := fftOut[i]
-		buf[2*i] = real(v)
-		buf[2*i+1] = imag(v)
-	}
+	kissFFT32ToInterleaved(buf, fftIn, fftTmp)
 
 	imdctPostRotateF32(buf, trig, n2, n4)
 
@@ -661,7 +643,30 @@ func imdctInPlaceScratchF32(spectrum []float64, out []float64, blockStart, overl
 		yp1 := blockStart
 		wp1 := 0
 		wp2 := overlap - 1
-		for i := 0; i < overlap/2; i++ {
+		limit := overlap / 2
+		i := 0
+		for ; i+1 < limit; i += 2 {
+			bufIdx := xp1 - start
+			x1 := buf[bufIdx]
+			x2 := float32(out[yp1])
+			out[yp1] = float64(x2*windowF32[wp2] - x1*windowF32[wp1])
+			out[xp1] = float64(x2*windowF32[wp1] + x1*windowF32[wp2])
+			yp1++
+			xp1--
+			wp1++
+			wp2--
+
+			bufIdx = xp1 - start
+			x1 = buf[bufIdx]
+			x2 = float32(out[yp1])
+			out[yp1] = float64(x2*windowF32[wp2] - x1*windowF32[wp1])
+			out[xp1] = float64(x2*windowF32[wp1] + x1*windowF32[wp2])
+			yp1++
+			xp1--
+			wp1++
+			wp2--
+		}
+		for ; i < limit; i++ {
 			bufIdx := xp1 - start
 			x1 := buf[bufIdx]
 			x2 := float32(out[yp1])
@@ -682,7 +687,15 @@ func imdctInPlaceScratchF32(spectrum []float64, out []float64, blockStart, overl
 	if start+limit > len(out) {
 		limit = len(out) - start
 	}
-	for i := copyStart; i < limit; i++ {
+	i := copyStart
+	for ; i+3 < limit; i += 4 {
+		base := start + i
+		out[base] = float64(buf[i])
+		out[base+1] = float64(buf[i+1])
+		out[base+2] = float64(buf[i+2])
+		out[base+3] = float64(buf[i+3])
+	}
+	for ; i < limit; i++ {
 		out[start+i] = float64(buf[i])
 	}
 }

@@ -156,6 +156,7 @@ func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPerio
 	}
 
 	window := GetWindowBuffer(Overlap)
+	windowSq := GetWindowSquareBuffer(Overlap)
 
 	if d.channels == 1 {
 		hist := d.postfilterMem[:history]
@@ -163,9 +164,9 @@ func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPerio
 		copy(buf, hist)
 		copy(buf[history:], samples[:frameSize])
 
-		combFilter(buf, history, t0, t1, shortMdctSize, g0, g1, tap0, tap1, window, Overlap)
+		combFilterWithSquare(buf, history, t0, t1, shortMdctSize, g0, g1, tap0, tap1, window, windowSq, Overlap)
 		if lm != 0 && shortMdctSize < frameSize {
-			combFilter(buf, history+shortMdctSize, t1b, t2, frameSize-shortMdctSize, g1, g2, tap1b, tap2, window, Overlap)
+			combFilterWithSquare(buf, history+shortMdctSize, t1b, t2, frameSize-shortMdctSize, g1, g2, tap1b, tap2, window, windowSq, Overlap)
 		}
 
 		copy(samples[:frameSize], buf[history:history+frameSize])
@@ -178,18 +179,40 @@ func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPerio
 			copy(buf, hist)
 
 			j := ch
-			for i := 0; i < frameSize; i++ {
+			i := 0
+			for ; i+3 < frameSize; i += 4 {
+				buf[history+i] = samples[j]
+				j += channels
+				buf[history+i+1] = samples[j]
+				j += channels
+				buf[history+i+2] = samples[j]
+				j += channels
+				buf[history+i+3] = samples[j]
+				j += channels
+			}
+			for ; i < frameSize; i++ {
 				buf[history+i] = samples[j]
 				j += channels
 			}
 
-			combFilter(buf, history, t0, t1, shortMdctSize, g0, g1, tap0, tap1, window, Overlap)
+			combFilterWithSquare(buf, history, t0, t1, shortMdctSize, g0, g1, tap0, tap1, window, windowSq, Overlap)
 			if lm != 0 && shortMdctSize < frameSize {
-				combFilter(buf, history+shortMdctSize, t1b, t2, frameSize-shortMdctSize, g1, g2, tap1b, tap2, window, Overlap)
+				combFilterWithSquare(buf, history+shortMdctSize, t1b, t2, frameSize-shortMdctSize, g1, g2, tap1b, tap2, window, windowSq, Overlap)
 			}
 
 			j = ch
-			for i := 0; i < frameSize; i++ {
+			i = 0
+			for ; i+3 < frameSize; i += 4 {
+				samples[j] = buf[history+i]
+				j += channels
+				samples[j] = buf[history+i+1]
+				j += channels
+				samples[j] = buf[history+i+2]
+				j += channels
+				samples[j] = buf[history+i+3]
+				j += channels
+			}
+			for ; i < frameSize; i++ {
 				samples[j] = buf[history+i]
 				j += channels
 			}
@@ -212,6 +235,10 @@ func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPerio
 }
 
 func combFilter(buf []float64, start int, t0, t1, n int, g0, g1 float64, tapset0, tapset1 int, window []float64, overlap int) {
+	combFilterWithSquare(buf, start, t0, t1, n, g0, g1, tapset0, tapset1, window, nil, overlap)
+}
+
+func combFilterWithSquare(buf []float64, start int, t0, t1, n int, g0, g1 float64, tapset0, tapset1 int, window, windowSq []float64, overlap int) {
 	if n <= 0 {
 		return
 	}
@@ -234,6 +261,9 @@ func combFilter(buf []float64, start int, t0, t1, n int, g0, g1 float64, tapset0
 	}
 	if overlap > len(window) {
 		overlap = len(window)
+	}
+	if windowSq != nil && overlap > len(windowSq) {
+		overlap = len(windowSq)
 	}
 
 	if tapset0 < 0 || tapset0 >= len(combFilterGains) {
@@ -260,7 +290,13 @@ func combFilter(buf []float64, start int, t0, t1, n int, g0, g1 float64, tapset0
 	}
 
 	for i := 0; i < overlap; i++ {
-		f := window[i] * window[i]
+		var f float64
+		if windowSq != nil {
+			f = windowSq[i]
+		} else {
+			w := window[i]
+			f = w * w
+		}
 		oneMinus := 1.0 - f
 		idx := start + i
 		x0 := buf[idx-t1+2]
@@ -353,7 +389,8 @@ func combFilterWithInput(dst, src []float64, start int, t0, t1, n int, g0, g1 fl
 	}
 
 	for i := 0; i < overlap; i++ {
-		f := window[i] * window[i]
+		w := window[i]
+		f := w * w
 		oneMinus := 1.0 - f
 		idx := start + i
 		x0 := src[idx-t1+2]

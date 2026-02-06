@@ -54,7 +54,7 @@ func TestCWRSUnitLibopus(t *testing.T) {
 				u := make([]uint32, k+2)
 				copy(u, uBase)
 				y := make([]int, n)
-				_ = cwrsi(n, k, i, y, u)
+				cwrsi(n, k, i, y, u)
 
 				sum := 0
 				for _, v := range y {

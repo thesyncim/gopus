@@ -255,13 +255,21 @@ func canUseCWRSFast(n, k int) bool {
 	if n <= 2 || k <= 0 {
 		return false
 	}
-	// cwrsiFast has two top-level cases:
-	// 1) k >= n: needs U(n,k+1) and U(n,n) rows.
-	// 2) k < n: needs U(k,n) and U(k+1,n) rows.
+	maxRows := len(pvqURowLen)
 	if k >= n {
-		return pvqUHasLookup(n, k+1) && pvqUHasLookup(n, n)
+		if n >= maxRows {
+			return false
+		}
+		// Needs U(n,k+1), i.e. offset (k+1-n) in row n.
+		return (k + 1 - n) < pvqURowLen[n]
 	}
-	return pvqUHasLookup(k, n) && pvqUHasLookup(k+1, n)
+	if k+1 >= maxRows {
+		return false
+	}
+	// Needs U(k,n) and U(k+1,n), i.e. offsets (n-k) and (n-k-1).
+	offset0 := n - k
+	offset1 := offset0 - 1
+	return offset0 < pvqURowLen[k] && offset1 < pvqURowLen[k+1]
 }
 
 // PVQ_V computes V(N,K), the total number of PVQ codewords with N dimensions
@@ -401,6 +409,30 @@ func uprev(u []uint32, length int, u0 uint32) {
 	u[length-1] = u0
 }
 
+// findLargestLEInU returns the largest index idx in u[0:hi+1] such that u[idx] <= target.
+// u must be non-decreasing in the searched range.
+func findLargestLEInU(u []uint32, hi int, target uint32) int {
+	if hi <= 0 {
+		return 0
+	}
+	if hi >= len(u) {
+		hi = len(u) - 1
+	}
+	if target >= u[hi] {
+		return hi
+	}
+	lo := 0
+	for lo < hi {
+		mid := (lo + hi + 1) >> 1
+		if u[mid] <= target {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	return lo
+}
+
 // ncwrsUrow computes V(n,k) and fills u with U(n,0..k+1).
 // u must have length at least k+2.
 func ncwrsUrow(n, k int, u []uint32) uint32 {
@@ -438,8 +470,9 @@ func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 
 		// Lots of pulses case (k >= n)
 		if k >= n {
+			rowN := pvqURow[n]
 			// Are the pulses in this dimension negative?
-			p = pvqUTableLookupFast(n, k+1)
+			p = pvqUData[rowN+(k+1-n)]
 			if i >= p {
 				s = -1
 				i -= p
@@ -447,25 +480,34 @@ func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 
 			// Count how many pulses were placed in this dimension
 			k0 = k
-			q = pvqUTableLookupFast(n, n)
+			q = pvqUData[rowN]
 
 			if q > i {
 				k = n
+				nk := 0
 				for {
 					k--
-					p = pvqUTableLookupFast(k, n)
+					nk++
+					p = pvqUData[pvqURow[k]+nk]
 					if p <= i {
 						break
 					}
 				}
 			} else {
-				for {
-					p = pvqUTableLookupFast(n, k)
-					if p <= i {
-						break
+				// pvqUData[rowN + t] is monotonic in t for fixed n, so we can
+				// locate the largest t <= (k-n) with value <= i via binary search.
+				lo := 0
+				hi := k - n
+				for lo < hi {
+					mid := (lo + hi + 1) >> 1
+					if pvqUData[rowN+mid] <= i {
+						lo = mid
+					} else {
+						hi = mid - 1
 					}
-					k--
 				}
+				k = n + lo
+				p = pvqUData[rowN+lo]
 			}
 			i -= p
 			yj = k0 - k
@@ -476,9 +518,10 @@ func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 			yy += uint32(yj * yj)
 		} else {
 			// Lots of dimensions case (k < n)
+			nk := n - k
 			// Are there any pulses in this dimension at all?
-			p = pvqUTableLookupFast(k, n)
-			q = pvqUTableLookupFast(k+1, n)
+			p = pvqUData[pvqURow[k]+nk]
+			q = pvqUData[pvqURow[k+1]+nk-1]
 
 			if p <= i && i < q {
 				i -= p
@@ -493,7 +536,8 @@ func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 				k0 = k
 				for {
 					k--
-					p = pvqUTableLookupFast(k, n)
+					nk++
+					p = pvqUData[pvqURow[k]+nk]
 					if p <= i {
 						break
 					}
@@ -559,11 +603,8 @@ func cwrsi(n, k int, i uint32, y []int, u []uint32) uint32 {
 			i -= p
 		}
 		yj := k
+		k = findLargestLEInU(u, k, i)
 		p = u[k]
-		for p > i {
-			k--
-			p = u[k]
-		}
 		i -= p
 		yj -= k
 		val := yj
@@ -671,18 +712,16 @@ func DecodePulses(index uint32, n, k int) []int {
 //   - k: number of pulses
 //   - y: pre-allocated output buffer of length at least n
 //   - scratch: optional scratch buffer for row computation
-func decodePulsesInto(index uint32, n, k int, y []int, scratch *bandDecodeScratch) {
+func decodePulsesInto(index uint32, n, k int, y []int, scratch *bandDecodeScratch) uint32 {
 	if n <= 0 || k < 0 || len(y) < n {
-		return
-	}
-
-	// Zero the output
-	for i := 0; i < n; i++ {
-		y[i] = 0
+		return 0
 	}
 
 	if k == 0 {
-		return
+		// Only k==0 needs an explicit clear. For k>0 both CWRS decode paths
+		// write all n outputs, so pre-clearing is redundant work.
+		clear(y[:n])
+		return 0
 	}
 
 	if n == 1 {
@@ -691,11 +730,11 @@ func decodePulsesInto(index uint32, n, k int, y []int, scratch *bandDecodeScratc
 		} else {
 			y[0] = k
 		}
-		return
+		return uint32(k * k)
 	}
 
 	if canUseCWRSFast(n, k) {
-		_ = cwrsiFast(n, k, index, y)
+		return cwrsiFast(n, k, index, y)
 	} else {
 		// Use scratch buffer for u row if available, otherwise allocate
 		var u []uint32
@@ -705,7 +744,7 @@ func decodePulsesInto(index uint32, n, k int, y []int, scratch *bandDecodeScratc
 			u = make([]uint32, k+2)
 		}
 		ncwrsUrow(n, k, u)
-		_ = cwrsi(n, k, index, y, u)
+		return cwrsi(n, k, index, y, u)
 	}
 }
 

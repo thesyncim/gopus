@@ -100,7 +100,7 @@ func TestCWRSRoundtripWithRangeCoding(t *testing.T) {
 			u2 := make([]uint32, k+2)
 			ncwrsUrow(n, k, u2)
 			decodedPulses := make([]int, n)
-			_ = cwrsi(n, k, decodedIndex, decodedPulses, u2)
+			cwrsi(n, k, decodedIndex, decodedPulses, u2)
 
 			// Verify pulse vectors match
 			for i := 0; i < n; i++ {

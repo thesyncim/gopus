@@ -658,6 +658,55 @@ func kissFFT32To(out []complex64, x []complex64, scratch []kissCpx) {
 	}
 }
 
+// kissFFT32ToInterleaved performs the Kiss FFT and writes output as interleaved
+// real/imag float32 pairs into outRI: [re0, im0, re1, im1, ...].
+// outRI must have length at least 2*len(x).
+func kissFFT32ToInterleaved(outRI []float32, x []complex64, scratch []kissCpx) {
+	n := len(x)
+	if n == 0 || len(outRI) < 2*n {
+		return
+	}
+
+	st := getKissFFTState(n)
+	if st == nil || len(st.bitrev) != n {
+		// Fallback to direct DFT and interleave.
+		tmp := make([]complex64, n)
+		dft32FallbackTo(tmp, x)
+		j := 0
+		for i := 0; i < n; i++ {
+			v := tmp[i]
+			outRI[j] = real(v)
+			outRI[j+1] = imag(v)
+			j += 2
+		}
+		return
+	}
+
+	if len(scratch) < n {
+		scratch = make([]kissCpx, n)
+	}
+
+	// Convert to kissCpx and apply bit-reversal.
+	for i := 0; i < n; i++ {
+		v := x[i]
+		idx := st.bitrev[i]
+		scratch[idx].r = real(v)
+		scratch[idx].i = imag(v)
+	}
+
+	// Apply butterfly stages.
+	st.fftImpl(scratch[:n])
+
+	// Interleave output directly into float32 buffer.
+	j := 0
+	for i := 0; i < n; i++ {
+		v := scratch[i]
+		outRI[j] = v.r
+		outRI[j+1] = v.i
+		j += 2
+	}
+}
+
 // dft32Fallback is a direct O(n^2) DFT implementation as fallback.
 func dft32Fallback(x []complex64) []complex64 {
 	n := len(x)
