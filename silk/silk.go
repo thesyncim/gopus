@@ -444,8 +444,9 @@ func (d *Decoder) DecodeWithDecoderInto(
 
 	duration := FrameDurationFromTOC(frameSizeSamples)
 
-	// Decode at native rate without delay compensation (sMid buffering happens before resampler)
-	nativeSamples, err := d.DecodeFrameRaw(rd, bandwidth, duration, vadFlag)
+	// Decode at native rate without delay compensation (sMid buffering happens before resampler).
+	// Use int16-native path to avoid float32->int16 reconversion before resampling.
+	nativeSamples, err := d.decodeFrameRawInt16(rd, bandwidth, duration, vadFlag)
 	if err != nil {
 		return 0, err
 	}
@@ -473,8 +474,8 @@ func (d *Decoder) DecodeWithDecoderInto(
 			break
 		}
 		frame := nativeSamples[start:end]
-		resamplerInput := d.BuildMonoResamplerInput(frame)
-		n := resampler.ProcessInto(resamplerInput, output[outputOffset:])
+		resamplerInput := d.BuildMonoResamplerInputInt16(frame)
+		n := resampler.ProcessInt16Into(resamplerInput, output[outputOffset:])
 		outputOffset += n
 	}
 

@@ -1,6 +1,9 @@
 package rangecoding
 
-import "testing"
+import (
+	"math/rand"
+	"testing"
+)
 
 // TestDecoderInit tests decoder initialization with various inputs.
 func TestDecoderInit(t *testing.T) {
@@ -173,6 +176,33 @@ func TestDecodeICDF(t *testing.T) {
 				t.Errorf("rng = 0x%X after decode, want > 0x%X", d.rng, EC_CODE_BOT)
 			}
 		})
+	}
+}
+
+func TestDecodeICDF2MatchesDecodeICDF(t *testing.T) {
+	r := rand.New(rand.NewSource(1))
+	for tc := 0; tc < 200; tc++ {
+		buf := make([]byte, 64)
+		for i := range buf {
+			buf[i] = byte(r.Uint32())
+		}
+		icdf0 := uint8(r.Intn(255) + 1)
+		icdf := [2]uint8{icdf0, 0}
+
+		var d1, d2 Decoder
+		d1.Init(buf)
+		d2.Init(buf)
+
+		for i := 0; i < 128; i++ {
+			sym1 := d1.DecodeICDF(icdf[:], 8)
+			sym2 := d2.DecodeICDF2(icdf0, 8)
+			if sym1 != sym2 {
+				t.Fatalf("symbol mismatch tc=%d i=%d: generic=%d fast=%d", tc, i, sym1, sym2)
+			}
+			if d1.rng != d2.rng || d1.val != d2.val {
+				t.Fatalf("state mismatch tc=%d i=%d: generic(rng=%d,val=%d) fast(rng=%d,val=%d)", tc, i, d1.rng, d1.val, d2.rng, d2.val)
+			}
+		}
 	}
 }
 

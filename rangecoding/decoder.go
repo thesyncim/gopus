@@ -97,6 +97,23 @@ func (d *Decoder) DecodeICDF(icdf []uint8, ftb uint) int {
 	}
 }
 
+// DecodeICDF2 decodes a 2-symbol ICDF with entries [icdf0, 0].
+// This avoids generic loop/slice overhead in hot binary-symbol call sites.
+func (d *Decoder) DecodeICDF2(icdf0 uint8, ftb uint) int {
+	t := d.rng
+	r := t >> ftb
+	s := r * uint32(icdf0)
+	if d.val >= s {
+		d.val -= s
+		d.rng = t - s
+		d.normalize()
+		return 0
+	}
+	d.rng = s
+	d.normalize()
+	return 1
+}
+
 // DecodeICDF16 decodes a symbol using a uint16 ICDF table.
 // This variant is needed because SILK ICDF tables use values 0-256,
 // and 256 doesn't fit in uint8.

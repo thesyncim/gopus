@@ -659,6 +659,33 @@ func (d *Decoder) BuildMonoResamplerInput(samples []float32) []float32 {
 	return resamplerInput
 }
 
+// BuildMonoResamplerInputInt16 prepares mono resampler input with libopus-style sMid buffering.
+// This int16 variant is used by decoder hot paths to avoid float32->int16 reconversion.
+func (d *Decoder) BuildMonoResamplerInputInt16(samples []int16) []int16 {
+	if len(samples) == 0 {
+		return nil
+	}
+
+	var resamplerInput []int16
+	if d.monoResamplerIn != nil && len(d.monoResamplerIn) >= len(samples) {
+		resamplerInput = d.monoResamplerIn[:len(samples)]
+	} else {
+		resamplerInput = make([]int16, len(samples))
+	}
+	resamplerInput[0] = d.stereo.sMid[1]
+
+	if len(samples) > 1 {
+		copy(resamplerInput[1:], samples[:len(samples)-1])
+		d.stereo.sMid[0] = samples[len(samples)-2]
+		d.stereo.sMid[1] = samples[len(samples)-1]
+	} else {
+		d.stereo.sMid[0] = d.stereo.sMid[1]
+		d.stereo.sMid[1] = samples[0]
+	}
+
+	return resamplerInput
+}
+
 // ResetSideChannel resets the side-channel decoder state and its resampler history.
 // This matches libopus behavior when switching from mono to stereo.
 func (d *Decoder) ResetSideChannel() {

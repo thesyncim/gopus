@@ -272,8 +272,8 @@ func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, pa
 			}
 		}
 	} else {
-		// Use DecodeFrameRaw since we handle sMid buffering in BuildMonoResamplerInput
-		silkOutput, err := d.silkDecoder.DecodeFrameRaw(
+		// Use int16-native SILK decode/resampler path for hot hybrid decode.
+		silkOutput, err := d.silkDecoder.DecodeFrameRawInt16(
 			rd,
 			silk.BandwidthWideband,
 			silkDuration,
@@ -282,11 +282,11 @@ func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, pa
 		if err != nil {
 			return nil, err
 		}
-		resamplerInput := d.silkDecoder.BuildMonoResamplerInput(silkOutput)
-		nL := leftResampler.ProcessInto(resamplerInput, scratchF32L)
+		resamplerInput := d.silkDecoder.BuildMonoResamplerInputInt16(silkOutput)
+		nL := leftResampler.ProcessInt16Into(resamplerInput, scratchF32L)
 		if d.channels == 2 {
 			if stereoToMono {
-				nR := rightResampler.ProcessInto(resamplerInput, scratchF32R)
+				nR := rightResampler.ProcessInt16Into(resamplerInput, scratchF32R)
 				n := nL
 				if nR < n {
 					n = nR

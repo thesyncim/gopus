@@ -90,17 +90,11 @@ func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, 
 	var predQ8 []uint8
 	if st.scratchEcIx != nil && len(st.scratchEcIx) >= maxLPCOrder {
 		ecIx = st.scratchEcIx[:maxLPCOrder]
-		for i := range ecIx {
-			ecIx[i] = 0
-		}
 	} else {
 		ecIx = make([]int16, maxLPCOrder)
 	}
 	if st.scratchPredQ8 != nil && len(st.scratchPredQ8) >= maxLPCOrder {
 		predQ8 = st.scratchPredQ8[:maxLPCOrder]
-		for i := range predQ8 {
-			predQ8[i] = 0
-		}
 	} else {
 		predQ8 = make([]uint8, maxLPCOrder)
 	}
@@ -193,7 +187,6 @@ func silkShellDecoder(pulses []int16, rd *rangecoding.Decoder, pulses4 int) {
 }
 
 func silkDecodeSigns(rd *rangecoding.Decoder, pulses []int16, length int, signalType int, quantOffsetType int, sumPulses []int) {
-	var icdf [2]uint8
 	qPtr := 0
 	idx := 7 * (quantOffsetType + (signalType << 1))
 	icdfPtr := silk_sign_iCDF[idx:]
@@ -201,10 +194,10 @@ func silkDecodeSigns(rd *rangecoding.Decoder, pulses []int16, length int, signal
 	for i := 0; i < blocks; i++ {
 		p := sumPulses[i]
 		if p > 0 {
-			icdf[0] = icdfPtr[silkMinInt(p&0x1F, 6)]
+			icdf0 := icdfPtr[silkMinInt(p&0x1F, 6)]
 			for j := 0; j < shellCodecFrameLength; j++ {
 				if pulses[qPtr+j] > 0 {
-					sign := rd.DecodeICDF(icdf[:], 8)
+					sign := rd.DecodeICDF2(icdf0, 8)
 					if sign == 0 {
 						pulses[qPtr+j] = -pulses[qPtr+j]
 					}
@@ -231,17 +224,11 @@ func silkDecodePulsesWithScratch(rd *rangecoding.Decoder, pulses []int16, signal
 	var sumPulses, nLshifts []int
 	if scratchSumPulses != nil && len(scratchSumPulses) >= iter {
 		sumPulses = scratchSumPulses[:iter]
-		for i := range sumPulses {
-			sumPulses[i] = 0
-		}
 	} else {
 		sumPulses = make([]int, iter)
 	}
 	if scratchNLshifts != nil && len(scratchNLshifts) >= iter {
 		nLshifts = scratchNLshifts[:iter]
-		for i := range nLshifts {
-			nLshifts[i] = 0
-		}
 	} else {
 		nLshifts = make([]int, iter)
 	}
@@ -503,6 +490,171 @@ func processLTPVoiced(
 	return invGainQ31
 }
 
+// lShiftSAT32By4 is a decode-hot specialization of silkLShiftSAT32(x, 4).
+// It keeps exact saturation behavior while avoiding int64 work for this fixed shift.
+func lShiftSAT32By4(x int32) int32 {
+	if x > 0x07ffffff {
+		return 0x7fffffff
+	}
+	if x < -0x08000000 {
+		return -0x80000000
+	}
+	return x << 4
+}
+
+// synthesizeLPCOrder10 computes LPC synthesis for NB/MB (order 10).
+// This is a decode-core hot path and keeps the exact operation order.
+func synthesizeLPCOrder10(sLPC []int32, A_Q12 []int16, presQ14 []int32, pxq []int16, gainQ10 int32, subfrLength int) {
+	c0 := int32(A_Q12[0])
+	c1 := int32(A_Q12[1])
+	c2 := int32(A_Q12[2])
+	c3 := int32(A_Q12[3])
+	c4 := int32(A_Q12[4])
+	c5 := int32(A_Q12[5])
+	c6 := int32(A_Q12[6])
+	c7 := int32(A_Q12[7])
+	c8 := int32(A_Q12[8])
+	c9 := int32(A_Q12[9])
+
+	// Keep the last 10 samples in locals and slide every iteration.
+	// This removes repeated indexed loads from sLPC in the hot loop.
+	v0 := sLPC[maxLPCOrder-1]
+	v1 := sLPC[maxLPCOrder-2]
+	v2 := sLPC[maxLPCOrder-3]
+	v3 := sLPC[maxLPCOrder-4]
+	v4 := sLPC[maxLPCOrder-5]
+	v5 := sLPC[maxLPCOrder-6]
+	v6 := sLPC[maxLPCOrder-7]
+	v7 := sLPC[maxLPCOrder-8]
+	v8 := sLPC[maxLPCOrder-9]
+	v9 := sLPC[maxLPCOrder-10]
+
+	sIdx := maxLPCOrder
+	for i := 0; i < subfrLength; i++ {
+		lpcPredQ10 := int32(minLPCOrder >> 1)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v0, c0)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v1, c1)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v2, c2)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v3, c3)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v4, c4)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v5, c5)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v6, c6)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v7, c7)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v8, c8)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v9, c9)
+
+		s := silkAddSat32(presQ14[i], lShiftSAT32By4(lpcPredQ10))
+		sLPC[sIdx] = s
+		pxq[i] = silkSAT16(silkRSHIFT_ROUND(silkSMULWW(s, gainQ10), 8))
+		sIdx++
+
+		v9 = v8
+		v8 = v7
+		v7 = v6
+		v6 = v5
+		v5 = v4
+		v4 = v3
+		v3 = v2
+		v2 = v1
+		v1 = v0
+		v0 = s
+	}
+}
+
+// synthesizeLPCOrder16 computes LPC synthesis for WB (order 16).
+// This is a decode-core hot path and keeps the exact operation order.
+func synthesizeLPCOrder16(sLPC []int32, A_Q12 []int16, presQ14 []int32, pxq []int16, gainQ10 int32, subfrLength int) {
+	c0 := int32(A_Q12[0])
+	c1 := int32(A_Q12[1])
+	c2 := int32(A_Q12[2])
+	c3 := int32(A_Q12[3])
+	c4 := int32(A_Q12[4])
+	c5 := int32(A_Q12[5])
+	c6 := int32(A_Q12[6])
+	c7 := int32(A_Q12[7])
+	c8 := int32(A_Q12[8])
+	c9 := int32(A_Q12[9])
+	c10 := int32(A_Q12[10])
+	c11 := int32(A_Q12[11])
+	c12 := int32(A_Q12[12])
+	c13 := int32(A_Q12[13])
+	c14 := int32(A_Q12[14])
+	c15 := int32(A_Q12[15])
+
+	// Keep the last 16 samples in locals and slide every iteration.
+	v0 := sLPC[maxLPCOrder-1]
+	v1 := sLPC[maxLPCOrder-2]
+	v2 := sLPC[maxLPCOrder-3]
+	v3 := sLPC[maxLPCOrder-4]
+	v4 := sLPC[maxLPCOrder-5]
+	v5 := sLPC[maxLPCOrder-6]
+	v6 := sLPC[maxLPCOrder-7]
+	v7 := sLPC[maxLPCOrder-8]
+	v8 := sLPC[maxLPCOrder-9]
+	v9 := sLPC[maxLPCOrder-10]
+	v10 := sLPC[maxLPCOrder-11]
+	v11 := sLPC[maxLPCOrder-12]
+	v12 := sLPC[maxLPCOrder-13]
+	v13 := sLPC[maxLPCOrder-14]
+	v14 := sLPC[maxLPCOrder-15]
+	v15 := sLPC[maxLPCOrder-16]
+
+	sIdx := maxLPCOrder
+	for i := 0; i < subfrLength; i++ {
+		lpcPredQ10 := int32(maxLPCOrder >> 1)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v0, c0)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v1, c1)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v2, c2)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v3, c3)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v4, c4)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v5, c5)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v6, c6)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v7, c7)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v8, c8)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v9, c9)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v10, c10)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v11, c11)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v12, c12)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v13, c13)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v14, c14)
+		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v15, c15)
+
+		s := silkAddSat32(presQ14[i], lShiftSAT32By4(lpcPredQ10))
+		sLPC[sIdx] = s
+		pxq[i] = silkSAT16(silkRSHIFT_ROUND(silkSMULWW(s, gainQ10), 8))
+		sIdx++
+
+		v15 = v14
+		v14 = v13
+		v13 = v12
+		v12 = v11
+		v11 = v10
+		v10 = v9
+		v9 = v8
+		v8 = v7
+		v7 = v6
+		v6 = v5
+		v5 = v4
+		v4 = v3
+		v3 = v2
+		v2 = v1
+		v1 = v0
+		v0 = s
+	}
+}
+
+func synthesizeLPCGeneric(sLPC []int32, A_Q12 []int16, presQ14 []int32, pxq []int16, gainQ10 int32, subfrLength, order int) {
+	for i := 0; i < subfrLength; i++ {
+		lpcPredQ10 := int32(order >> 1)
+		for j := 0; j < order; j++ {
+			lpcPredQ10 = silkSMLAWB(lpcPredQ10, sLPC[maxLPCOrder+i-j-1], int32(A_Q12[j]))
+		}
+		s := silkAddSat32(presQ14[i], lShiftSAT32By4(lpcPredQ10))
+		sLPC[maxLPCOrder+i] = s
+		pxq[i] = silkSAT16(silkRSHIFT_ROUND(silkSMULWW(s, gainQ10), 8))
+	}
+}
+
 func silkDecodeCore(st *decoderState, ctrl *decoderControl, out []int16, pulses []int16) {
 	offsetQ10 := silk_Quantization_Offsets_Q10[int(st.indices.signalType)>>1][int(st.indices.quantOffsetType)]
 	interpFlag := st.indices.NLSFInterpCoefQ2 < 4
@@ -589,13 +741,13 @@ func silkDecodeCore(st *decoderState, ctrl *decoderControl, out []int16, pulses 
 			presQ14 = pexc[:st.subfrLength]
 		}
 
-		for i := 0; i < st.subfrLength; i++ {
-			lpcPredQ10 := int32(st.lpcOrder >> 1)
-			for j := 0; j < st.lpcOrder; j++ {
-				lpcPredQ10 = silkSMLAWB(lpcPredQ10, sLPC[maxLPCOrder+i-j-1], int32(A_Q12[j]))
-			}
-			sLPC[maxLPCOrder+i] = silkAddSat32(presQ14[i], silkLShiftSAT32(lpcPredQ10, 4))
-			pxq[i] = silkSAT16(silkRSHIFT_ROUND(silkSMULWW(sLPC[maxLPCOrder+i], gainQ10), 8))
+		switch st.lpcOrder {
+		case minLPCOrder:
+			synthesizeLPCOrder10(sLPC, A_Q12, presQ14, pxq, gainQ10, st.subfrLength)
+		case maxLPCOrder:
+			synthesizeLPCOrder16(sLPC, A_Q12, presQ14, pxq, gainQ10, st.subfrLength)
+		default:
+			synthesizeLPCGeneric(sLPC, A_Q12, presQ14, pxq, gainQ10, st.subfrLength, st.lpcOrder)
 		}
 
 		copy(sLPC, sLPC[st.subfrLength:st.subfrLength+maxLPCOrder])
@@ -720,7 +872,7 @@ func silkDecodeCoreWithTrace(st *decoderState, ctrl *decoderControl, out []int16
 			for j := 0; j < st.lpcOrder; j++ {
 				lpcPredQ10 = silkSMLAWB(lpcPredQ10, sLPC[maxLPCOrder+i-j-1], int32(A_Q12[j]))
 			}
-			sLPC[maxLPCOrder+i] = silkAddSat32(presQ14[i], silkLShiftSAT32(lpcPredQ10, 4))
+			sLPC[maxLPCOrder+i] = silkAddSat32(presQ14[i], lShiftSAT32By4(lpcPredQ10))
 			pxq[i] = silkSAT16(silkRSHIFT_ROUND(silkSMULWW(sLPC[maxLPCOrder+i], gainQ10), 8))
 			if i == 0 {
 				firstLpcPredQ10 = lpcPredQ10

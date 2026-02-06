@@ -60,9 +60,6 @@ func (d *Decoder) DecodeFrame(
 			var pulses []int16
 			if d.scratchPulses != nil && len(d.scratchPulses) >= pulsesLen {
 				pulses = d.scratchPulses[:pulsesLen]
-				for j := range pulses {
-					pulses[j] = 0
-				}
 			} else {
 				pulses = make([]int16, pulsesLen)
 			}
@@ -77,9 +74,6 @@ func (d *Decoder) DecodeFrame(
 	var outInt16 []int16
 	if d.scratchOutInt16 != nil && len(d.scratchOutInt16) >= totalLen {
 		outInt16 = d.scratchOutInt16[:totalLen]
-		for j := range outInt16 {
-			outInt16[j] = 0
-		}
 	} else {
 		outInt16 = make([]int16, totalLen)
 	}
@@ -98,9 +92,6 @@ func (d *Decoder) DecodeFrame(
 		var pulses []int16
 		if d.scratchPulses != nil && len(d.scratchPulses) >= pulsesLen {
 			pulses = d.scratchPulses[:pulsesLen]
-			for j := range pulses {
-				pulses[j] = 0
-			}
 		} else {
 			pulses = make([]int16, pulsesLen)
 		}
@@ -164,6 +155,44 @@ func (d *Decoder) DecodeFrameRaw(
 	duration FrameDuration,
 	vadFlag bool,
 ) ([]float32, error) {
+	outInt16, err := d.decodeFrameRawInt16(rd, bandwidth, duration, vadFlag)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert to float32 WITHOUT delay compensation.
+	// The caller handles sMid buffering via BuildMonoResamplerInput.
+	var output []float32
+	if d.scratchOutput != nil && len(d.scratchOutput) >= len(outInt16) {
+		output = d.scratchOutput[:len(outInt16)]
+	} else {
+		output = make([]float32, len(outInt16))
+	}
+	for i, v := range outInt16 {
+		output[i] = float32(v) / 32768.0
+	}
+	return output, nil
+}
+
+// DecodeFrameRawInt16 decodes a single SILK mono frame at native SILK sample rate as int16.
+// This is an int16-native variant used by hot paths that resample immediately.
+func (d *Decoder) DecodeFrameRawInt16(
+	rd *rangecoding.Decoder,
+	bandwidth Bandwidth,
+	duration FrameDuration,
+	vadFlag bool,
+) ([]int16, error) {
+	return d.decodeFrameRawInt16(rd, bandwidth, duration, vadFlag)
+}
+
+// decodeFrameRawInt16 is the int16-native DecodeFrameRaw path used by decoder hot paths.
+// It performs the same decode steps as DecodeFrameRaw and returns native-rate int16 samples.
+func (d *Decoder) decodeFrameRawInt16(
+	rd *rangecoding.Decoder,
+	bandwidth Bandwidth,
+	duration FrameDuration,
+	vadFlag bool,
+) ([]int16, error) {
 	_ = vadFlag
 	if rd == nil {
 		return nil, ErrDecodeFailed
@@ -194,14 +223,10 @@ func (d *Decoder) DecodeFrameRaw(
 				condCoding = codeConditionally
 			}
 			silkDecodeIndices(st, rd, true, condCoding)
-			// Use pre-allocated pulses buffer if available
 			pulsesLen := roundUpShellFrame(st.frameLength)
 			var pulses []int16
 			if d.scratchPulses != nil && len(d.scratchPulses) >= pulsesLen {
 				pulses = d.scratchPulses[:pulsesLen]
-				for j := range pulses {
-					pulses[j] = 0
-				}
 			} else {
 				pulses = make([]int16, pulsesLen)
 			}
@@ -212,13 +237,9 @@ func (d *Decoder) DecodeFrameRaw(
 	frameLength := st.frameLength
 	totalLen := framesPerPacket * frameLength
 
-	// Use pre-allocated outInt16 buffer if available
 	var outInt16 []int16
 	if d.scratchOutInt16 != nil && len(d.scratchOutInt16) >= totalLen {
 		outInt16 = d.scratchOutInt16[:totalLen]
-		for j := range outInt16 {
-			outInt16[j] = 0
-		}
 	} else {
 		outInt16 = make([]int16, totalLen)
 	}
@@ -232,14 +253,10 @@ func (d *Decoder) DecodeFrameRaw(
 		vad := st.VADFlags[frameIndex] != 0
 		frameOut := outInt16[i*frameLength : (i+1)*frameLength]
 		silkDecodeIndices(st, rd, vad, condCoding)
-		// Use pre-allocated pulses buffer if available
 		pulsesLen := roundUpShellFrame(st.frameLength)
 		var pulses []int16
 		if d.scratchPulses != nil && len(d.scratchPulses) >= pulsesLen {
 			pulses = d.scratchPulses[:pulsesLen]
-			for j := range pulses {
-				pulses[j] = 0
-			}
 		} else {
 			pulses = make([]int16, pulsesLen)
 		}
@@ -248,9 +265,6 @@ func (d *Decoder) DecodeFrameRaw(
 		silkDecodeParameters(st, &ctrl, condCoding)
 		silkDecodeCore(st, &ctrl, frameOut, pulses)
 		silkUpdateOutBuf(st, frameOut)
-
-		// Apply PLC glue frames for smooth transition from concealed to real frames.
-		// This must be called after updating outBuf and before resetting lossCnt.
 		silkPLCGlueFrames(st, frameOut, frameLength)
 
 		st.lossCnt = 0
@@ -260,23 +274,10 @@ func (d *Decoder) DecodeFrameRaw(
 		st.nFramesDecoded++
 	}
 
-	// Convert to float32 WITHOUT delay compensation.
-	// The caller handles sMid buffering via BuildMonoResamplerInput.
-	// Use pre-allocated output buffer if available
-	var output []float32
-	if d.scratchOutput != nil && len(d.scratchOutput) >= len(outInt16) {
-		output = d.scratchOutput[:len(outInt16)]
-	} else {
-		output = make([]float32, len(outInt16))
-	}
-	for i, v := range outInt16 {
-		output[i] = float32(v) / 32768.0
-	}
-
 	// Mono decode resets mid-only tracking (libopus sets decode_only_middle=0).
 	d.prevDecodeOnlyMiddle = 0
 	d.haveDecoded = true
-	return output, nil
+	return outInt16, nil
 }
 
 // DecodeStereoFrameToMono decodes a stereo SILK frame and returns the mid channel
