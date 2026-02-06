@@ -5,14 +5,15 @@
 // - SILK encodes FIRST, CELT encodes SECOND (order matters!)
 // - SILK operates at WB (16kHz) - downsample input from 48kHz
 // - CELT encodes bands 17-21 only (8-20kHz) - use hybrid mode
-// - Apply 2.7ms delay (130 samples at 48kHz) to CELT input for alignment
+// - CELT input is delay-compensated (Fs/250 = 192 samples at 48kHz) in the caller
 //
 // Key improvements implemented from libopus reference:
-// - Proper SILK/CELT bit allocation using rate tables
+// - Proper SILK/CELT bit allocation using rate tables with TOC overhead correction
 // - HB_gain for high-band attenuation when CELT is under-allocated
-// - gain_fade for smooth transitions between frames
+// - gain_fade for smooth transitions between frames (in-place, no extra delay)
 // - Libopus-matching downsampler (AR2+FIR) for 48kHz to 16kHz
 // - Energy matching between SILK and CELT at crossover
+// - VBR constraint always disabled for CELT in hybrid mode (per libopus)
 //
 // Reference: RFC 6716 Section 3.2, libopus src/opus_encoder.c
 
@@ -28,10 +29,6 @@ import (
 )
 
 const (
-	// hybridCELTDelay is the delay in samples at 48kHz for CELT alignment.
-	// 2.7ms = 2.7 * 48 = 129.6, rounded to 130 samples.
-	hybridCELTDelay = 130
-
 	// maxHybridPacketSize is the maximum packet size for hybrid mode.
 	maxHybridPacketSize = 1275
 
@@ -98,15 +95,15 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, celtPCM []float64, lookahead 
 		}
 	}
 
-	// Propagate bitrate mode to CELT encoder for hybrid mode
+	// Propagate bitrate mode to CELT encoder for hybrid mode.
+	// Per libopus opus_encoder.c: in hybrid VBR mode, the CELT VBR constraint
+	// is always disabled (OPUS_SET_VBR_CONSTRAINT(0)), regardless of whether
+	// the outer encoder uses CVBR. The SILK portion handles rate control.
 	switch e.bitrateMode {
 	case ModeCBR:
 		e.celtEncoder.SetVBR(false)
 		e.celtEncoder.SetConstrainedVBR(false)
-	case ModeCVBR:
-		e.celtEncoder.SetVBR(true)
-		e.celtEncoder.SetConstrainedVBR(true)
-	case ModeVBR:
+	case ModeCVBR, ModeVBR:
 		e.celtEncoder.SetVBR(true)
 		e.celtEncoder.SetConstrainedVBR(false)
 	}
@@ -245,8 +242,10 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, celtPCM []float64, lookahead 
 		re.EncodeBit(0, 12) // redundancy = 0 (no redundancy)
 	}
 
-	// Step 3: Apply hybrid delay and gain fade on delay-compensated CELT input
-	celtInput := e.applyInputDelayWithGainFade(celtPCM, hbGain)
+	// Step 3: Apply HB_gain fade on the delay-compensated CELT input.
+	// The CELT input is already delay-compensated by applyDelayCompensation
+	// in the caller (Fs/250 = 192 samples). No additional delay is needed here.
+	celtInput := e.applyHBGainFade(celtPCM, hbGain)
 	if e.channels == 2 {
 		frameRate := 48000 / frameSize
 		vbr := e.bitrateMode != ModeCBR
@@ -273,8 +272,24 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, celtPCM []float64, lookahead 
 
 // computeHybridBitAllocation computes the SILK and CELT bitrates for hybrid mode.
 // This implements libopus compute_silk_rate_for_hybrid() logic.
+//
+// In libopus, the SILK rate is derived from bits_target (which subtracts 8 bits
+// for TOC overhead) rather than the raw bitrate:
+//   bits_target = min(8*(max_data_bytes-1), bitrate*frame_size/Fs) - 8
+//   total_bitRate = bits_target * Fs / frame_size = bitrate - 8*Fs/frame_size
 func (e *Encoder) computeHybridBitAllocation(frame20ms bool) (silkBitrate, celtBitrate int) {
-	totalRate := e.bitrate
+	// Apply TOC overhead correction matching libopus bits_target -> bits_to_bitrate roundtrip.
+	// For 48kHz/10ms: overhead = 8*48000/480 = 800 bps
+	// For 48kHz/20ms: overhead = 8*48000/960 = 400 bps
+	frameSize := 480
+	if frame20ms {
+		frameSize = 960
+	}
+	tocOverhead := 8 * 48000 / frameSize
+	totalRate := e.bitrate - tocOverhead
+	if totalRate < 0 {
+		totalRate = 0
+	}
 	channels := e.channels
 
 	// Per-channel rate for table lookup
@@ -455,43 +470,26 @@ func (e *Encoder) downsample48to16Hybrid(samples []float64, frameSize int) []flo
 	return interleaved
 }
 
-// applyInputDelayWithGainFade applies CELT delay compensation and
-// smooth gain fading for HB_gain changes between frames.
+// applyHBGainFade applies HB_gain to the CELT input with smooth gain fading.
 // This implements libopus gain_fade() for artifact-free transitions.
-func (e *Encoder) applyInputDelayWithGainFade(pcm []float64, hbGain float64) []float64 {
-	totalSamples := len(pcm)
-	delayedSamples := hybridCELTDelay * e.channels
-
-	output := make([]float64, totalSamples)
-
-	// Copy delayed samples from previous buffer
-	copy(output, e.prevSamples)
-
-	// Copy current samples (minus the delay worth)
-	if totalSamples > delayedSamples {
-		copy(output[delayedSamples:], pcm[:totalSamples-delayedSamples])
-	}
-
-	// Store tail samples for next frame
-	if totalSamples >= delayedSamples {
-		copy(e.prevSamples, pcm[totalSamples-delayedSamples:])
-	} else {
-		copy(e.prevSamples, e.prevSamples[totalSamples:])
-		copy(e.prevSamples[delayedSamples-totalSamples:], pcm)
-	}
-
+//
+// IMPORTANT: This function does NOT add any delay. The CELT input is already
+// delay-compensated by applyDelayCompensation (Fs/250 = 192 samples at 48kHz).
+// In libopus, gain_fade operates in-place on pcm_buf which already contains
+// the delay-compensated samples.
+func (e *Encoder) applyHBGainFade(pcm []float64, hbGain float64) []float64 {
 	// Apply gain fade if gain changed
 	prevGain := e.hybridState.prevHBGain
 	if prevGain != hbGain {
-		output = e.applyGainFade(output, prevGain, hbGain)
+		pcm = e.applyGainFade(pcm, prevGain, hbGain)
 	} else if hbGain < 1.0 {
 		// Apply constant gain if less than 1.0
-		for i := range output {
-			output[i] *= hbGain
+		for i := range pcm {
+			pcm[i] *= hbGain
 		}
 	}
 
-	return output
+	return pcm
 }
 
 // applyGainFade applies a smooth window-based transition between two gain values.

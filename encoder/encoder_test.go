@@ -1,6 +1,7 @@
 package encoder_test
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 	"testing"
@@ -369,11 +370,13 @@ func TestHybridRoundTrip(t *testing.T) {
 }
 
 // TestInvalidHybridFrameSize tests that invalid frame sizes return error for hybrid mode.
+// Note: 1920 (40ms) and 2880 (60ms) are NOT invalid - they fall back to SILK mode
+// per RFC 6716 since CELT/Hybrid only support up to 20ms.
 func TestInvalidHybridFrameSize(t *testing.T) {
 	enc := encoder.NewEncoder(48000, 1)
 	enc.SetMode(encoder.ModeHybrid)
 
-	invalidSizes := []int{120, 240, 1920, 2880, 100, 500}
+	invalidSizes := []int{120, 240, 100, 500}
 
 	for _, size := range invalidSizes {
 		t.Run(string(rune('0'+size/100)), func(t *testing.T) {
@@ -384,6 +387,31 @@ func TestInvalidHybridFrameSize(t *testing.T) {
 				t.Errorf("Expected error for frame size %d in hybrid mode", size)
 			}
 		})
+	}
+}
+
+// TestLargeFrameSizeFallsBackToSILK tests that 40ms/60ms frame sizes produce
+// valid output by falling back to SILK, even when another mode is requested.
+func TestLargeFrameSizeFallsBackToSILK(t *testing.T) {
+	for _, mode := range []encoder.Mode{encoder.ModeAuto, encoder.ModeCELT, encoder.ModeHybrid, encoder.ModeSILK} {
+		for _, frameSize := range []int{1920, 2880} {
+			t.Run(fmt.Sprintf("mode=%d/frameSize=%d", mode, frameSize), func(t *testing.T) {
+				enc := encoder.NewEncoder(48000, 1)
+				enc.SetMode(mode)
+				pcm := make([]float64, frameSize)
+				// Generate a simple signal
+				for i := range pcm {
+					pcm[i] = 0.5 * math.Sin(2*math.Pi*440*float64(i)/48000)
+				}
+				data, err := enc.Encode(pcm, frameSize)
+				if err != nil {
+					t.Fatalf("Encode failed for frameSize=%d mode=%d: %v", frameSize, mode, err)
+				}
+				if len(data) == 0 {
+					t.Fatalf("Encode returned empty packet for frameSize=%d mode=%d", frameSize, mode)
+				}
+			})
+		}
 	}
 }
 

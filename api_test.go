@@ -440,6 +440,94 @@ func TestPacketParsing(t *testing.T) {
 		info.TOC.Mode, info.TOC.Bandwidth, info.TOC.FrameSize, info.TOC.Stereo)
 }
 
+// TestSILK10msOpusRoundTrip tests SILK 10ms encoding/decoding through the full
+// Opus API at various bitrates. This verifies that the complete pipeline
+// (encoder -> TOC byte -> decoder) works correctly for 10ms SILK frames.
+func TestSILK10msOpusRoundTrip(t *testing.T) {
+	testCases := []struct {
+		name      string
+		bitrate   int
+		frameSize int // at 48kHz: 480=10ms, 960=20ms
+		maxPeak   float64
+	}{
+		{"SILK-10ms-32k", 32000, 480, 2.0},
+		{"SILK-10ms-40k", 40000, 480, 2.0},
+		{"SILK-10ms-48k", 48000, 480, 2.0},
+		{"SILK-10ms-64k", 64000, 480, 2.0},
+		{"SILK-20ms-32k", 32000, 960, 2.0},
+		{"SILK-20ms-64k", 64000, 960, 2.0},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			enc, err := NewEncoder(48000, 1, ApplicationVoIP)
+			if err != nil {
+				t.Fatalf("NewEncoder error: %v", err)
+			}
+			enc.SetBitrate(tc.bitrate)
+			enc.SetFrameSize(tc.frameSize)
+			enc.SetSignal(SignalVoice)
+			enc.SetMaxBandwidth(BandwidthWideband)
+
+			cfg := DefaultDecoderConfig(48000, 1)
+			dec, err := NewDecoder(cfg)
+			if err != nil {
+				t.Fatalf("NewDecoder error: %v", err)
+			}
+
+			nFrames := 20
+			var maxPeak float64
+			nDecoded := 0
+			pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
+
+			for i := 0; i < nFrames; i++ {
+				pcmIn := make([]float32, tc.frameSize)
+				for j := 0; j < tc.frameSize; j++ {
+					sampleIdx := i*tc.frameSize + j
+					tm := float64(sampleIdx) / 48000.0
+					pcmIn[j] = float32(0.5 * math.Sin(2*math.Pi*440*tm))
+				}
+
+				packet, err := enc.EncodeFloat32(pcmIn)
+				if err != nil {
+					t.Fatalf("Encode error at frame %d: %v", i, err)
+				}
+				if len(packet) == 0 {
+					continue
+				}
+
+				// Verify TOC byte
+				toc := ParseTOC(packet[0])
+				if toc.Mode != ModeSILK {
+					t.Logf("Frame %d: mode=%d (expected SILK), bw=%d", i, toc.Mode, toc.Bandwidth)
+				}
+
+				n, err := dec.Decode(packet, pcmOut)
+				if err != nil {
+					t.Logf("Frame %d: decode error: %v (pktLen=%d)", i, err, len(packet))
+					continue
+				}
+				nDecoded++
+
+				for j := 0; j < n; j++ {
+					v := math.Abs(float64(pcmOut[j]))
+					if v > maxPeak {
+						maxPeak = v
+					}
+				}
+			}
+
+			t.Logf("Peak=%.4f (nDecoded=%d)", maxPeak, nDecoded)
+			if maxPeak > tc.maxPeak {
+				t.Errorf("Output peak %.4f exceeds limit %.4f - CORRUPTION", maxPeak, tc.maxPeak)
+			}
+			if nDecoded == 0 {
+				t.Error("No frames decoded")
+			}
+		})
+	}
+}
+
 // TestBufferSizing tests that buffer recommendations work.
 func TestBufferSizing(t *testing.T) {
 	// Maximum frame size: 60ms at 48kHz stereo = 2880 * 2 = 5760 samples

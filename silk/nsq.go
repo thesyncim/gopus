@@ -71,7 +71,7 @@ type NSQState struct {
 // NewNSQState creates a new NSQ state with proper initialization.
 func NewNSQState() *NSQState {
 	state := &NSQState{
-		prevGainQ16: 0,
+		prevGainQ16: 1 << 16, // 1.0 in Q16, matches libopus initialization
 		// Pre-allocate scratch buffers for zero-allocation encoding
 		scratchPulses:  make([]int8, maxFrameLengthNSQ),
 		scratchXq:      make([]int16, maxFrameLengthNSQ),
@@ -148,7 +148,7 @@ func (s *NSQState) Reset() {
 	s.sLTPBufIdx = 0
 	s.sLTPShpBufIdx = 0
 	s.randSeed = 0
-	s.prevGainQ16 = 0
+	s.prevGainQ16 = 1 << 16 // 1.0 in Q16, matches libopus initialization
 	s.rewhiteFlag = 0
 }
 
@@ -524,13 +524,8 @@ func noiseShapeQuantizerSubframe(
 		xqQ14 := silk_ADD32(lpcExcQ14, silk_LSHIFT32(lpcPredQ10, 4))
 
 		// Scale back to output level (dequantize from Q14 to Q0)
-		// Matches libopus: xq[i] = (int16)silk_SAT16(silk_RSHIFT_ROUND(silk_SMULWW(xq_Q14, gain_Q10), 16+8-14))
-		// gainQ10 is gainQ16 >> 6. xqQ14 * gainQ10 is Q14 * Q10 = Q24.
-		// To get Q0, we need to shift right by 24. SMULWW is (32*32)>>16.
-		// So xqQ14 * gainQ10 >> 16 is Q(24-16) = Q8, then >>8 to Q0.
-		// Let's use direct int64 multiply for clarity and then shift.
-		xqQ0 := int32((int64(xqQ14) * int64(gainQ10)) >> 24)
-		xq[i] = int16(silk_SAT16(xqQ0))
+		// Matches libopus: xq[i] = (int16)silk_SAT16(silk_RSHIFT_ROUND(silk_SMULWW(xq_Q14, Gain_Q10), 8))
+		xq[i] = int16(silk_SAT16(silk_RSHIFT_ROUND(silk_SMULWW(xqQ14, gainQ10), 8)))
 
 		// Update states
 		psLPCQ14Idx++

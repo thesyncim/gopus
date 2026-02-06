@@ -13,8 +13,8 @@ func TestNSQStateInitialization(t *testing.T) {
 		t.Fatal("NewNSQState returned nil")
 	}
 
-	if state.prevGainQ16 != 0 {
-		t.Errorf("Expected prevGainQ16 = 0, got %d", state.prevGainQ16)
+	if state.prevGainQ16 != 1<<16 {
+		t.Errorf("Expected prevGainQ16 = %d (1<<16), got %d", 1<<16, state.prevGainQ16)
 	}
 
 	// Verify all arrays are zero-initialized
@@ -59,8 +59,8 @@ func TestNSQStateReset(t *testing.T) {
 	if state.sLPCQ14[0] != 0 {
 		t.Errorf("sLPCQ14[0] not reset: %d", state.sLPCQ14[0])
 	}
-	if state.prevGainQ16 != 0 {
-		t.Errorf("prevGainQ16 not reset to default: %d", state.prevGainQ16)
+	if state.prevGainQ16 != 1<<16 {
+		t.Errorf("prevGainQ16 not reset to default: got %d, want %d", state.prevGainQ16, 1<<16)
 	}
 }
 

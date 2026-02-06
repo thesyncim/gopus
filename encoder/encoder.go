@@ -690,6 +690,11 @@ func (e *Encoder) updateDelayBufferInternal(pcm []float64, frameSamples, delaySa
 
 // selectMode determines the actual encoding mode based on settings and content.
 func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
+	// Frame sizes > 960 samples (40ms, 60ms) can ONLY use SILK mode per RFC 6716.
+	// CELT supports up to 20ms (960 samples) and Hybrid supports up to 20ms (960 samples).
+	if frameSize > 960 {
+		return ModeSILK
+	}
 	if e.mode != ModeAuto {
 		return e.mode
 	}
@@ -734,12 +739,14 @@ func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
 	}
 
 	// Validate that the selected mode supports the requested frame size.
-	// If not, fall back to a compatible mode. CELT supports all frame sizes.
+	// If not, fall back to a compatible mode.
 	if !ValidFrameSize(frameSize, preferred) {
 		if ValidFrameSize(frameSize, ModeCELT) {
 			return ModeCELT
 		}
-		// Frame size 1920/2880 is SILK-only; should not happen for short frames.
+		if ValidFrameSize(frameSize, ModeSILK) {
+			return ModeSILK
+		}
 		return ModeCELT
 	}
 	return preferred
