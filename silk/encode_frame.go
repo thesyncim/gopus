@@ -23,6 +23,16 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	}
 	payloadSizeMs := (frameSamples * 1000) / config.SampleRate
 
+	// Match libopus packet control ordering:
+	// packet/frame counters are reset before target-rate/SNR control for
+	// standalone packets, so bitsBalance only applies to already-encoded
+	// frames within the current packet.
+	useSharedEncoder := e.rangeEncoder != nil
+	if !useSharedEncoder {
+		e.ResetPacketState()
+		e.nFramesPerPacket = 1
+	}
+
 	// Update target SNR based on configured bitrate and frame size.
 	if e.targetRateBps > 0 {
 		// Total target bits for packet
@@ -67,12 +77,6 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	// Quantize input to int16 precision to match libopus float API behavior.
 	pcm = e.quantizePCMToInt16(pcm)
 
-	// Check if we have a pre-set range encoder (hybrid mode)
-	useSharedEncoder := e.rangeEncoder != nil
-	if !useSharedEncoder {
-		e.ResetPacketState()
-	}
-
 	if !useSharedEncoder {
 		e.rangeEncoder = nil // Safety clear
 		bufSize := len(pcm) / 3
@@ -88,7 +92,6 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		output := ensureByteSlice(&e.scratchOutput, bufSize)
 		e.scratchRangeEncoder.Init(output)
 		e.rangeEncoder = &e.scratchRangeEncoder
-		e.nFramesPerPacket = 1
 		e.encodeLBRRData(e.rangeEncoder, 1, true)
 	}
 
