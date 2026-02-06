@@ -1,4 +1,11 @@
-.PHONY: lint lint-fix test
+.PHONY: lint lint-fix test build build-nopgo pgo-generate pgo-build
+
+GO ?= go
+PGO_FILE ?= default.pgo
+PGO_BENCH ?= ^BenchmarkDecoderDecode_(CELT|Hybrid|SILK|Stereo|MultiFrame)$
+PGO_PKG ?= .
+PGO_BENCHTIME ?= 20s
+PGO_COUNT ?= 1
 
 # Run golangci-lint
 lint:
@@ -12,4 +19,19 @@ lint-fix:
 
 # Run tests
 test:
-	go test ./...
+	$(GO) test ./...
+
+# Build with profile-guided optimization (default.pgo auto-discovered by Go toolchain)
+build:
+	$(GO) build -pgo=auto ./...
+
+# Build without profile-guided optimization
+build-nopgo:
+	$(GO) build -pgo=off ./...
+
+# Regenerate default.pgo from decode hot-path benchmarks
+pgo-generate:
+	$(GO) test -run='^$$' -bench='$(PGO_BENCH)' -benchtime=$(PGO_BENCHTIME) -count=$(PGO_COUNT) -cpuprofile $(PGO_FILE) $(PGO_PKG)
+
+# Refresh default.pgo then build with PGO enabled
+pgo-build: pgo-generate build

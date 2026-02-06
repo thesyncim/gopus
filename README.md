@@ -473,9 +473,34 @@ func decodeWorker(packets <-chan []byte) {
 
 ## Benchmarks
 
-*Performance benchmarks coming soon.*
+gopus includes decode benchmark coverage and an end-to-end decode benchmark example:
 
-This is a pure Go implementation focused on correctness and RFC compliance. Performance optimizations are ongoing. For applications requiring maximum throughput, consider using CGO bindings to libopus.
+```bash
+# Microbenchmarks
+go test -run='^$' -bench='^BenchmarkDecoderDecode_' -benchmem ./...
+
+# End-to-end sample benchmark vs ffmpeg/libopus
+go run ./examples/bench-decode
+```
+
+### Profile-Guided Optimization (PGO)
+
+PGO is supported and `default.pgo` is tracked at the module root.
+
+```bash
+# Refresh profile from decode hot-path benchmarks
+make pgo-generate
+
+# Build with PGO (uses default.pgo)
+make build
+```
+
+Equivalent manual commands:
+
+```bash
+go test -run='^$' -bench='^BenchmarkDecoderDecode_(CELT|Hybrid|SILK|Stereo|MultiFrame)$' -benchtime=20s -cpuprofile default.pgo .
+go build -pgo=auto ./...
+```
 
 ---
 
@@ -529,6 +554,9 @@ go test -race ./...
 
 # Run benchmarks
 go test -bench=. ./...
+
+# Refresh and use PGO profile
+make pgo-build
 ```
 
 ---

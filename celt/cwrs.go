@@ -238,6 +238,32 @@ func pvqUTableLookup(n, k int) (uint32, bool) {
 	return pvqUData[pvqURow[n]+offset], true
 }
 
+// pvqUHasLookup reports whether U(n,k) is available in the static table.
+func pvqUHasLookup(n, k int) bool {
+	if n > k {
+		n, k = k, n
+	}
+	if n < 0 || n >= len(pvqURowLen) {
+		return false
+	}
+	offset := k - n
+	return offset >= 0 && offset < pvqURowLen[n]
+}
+
+// canUseCWRSFast reports whether cwrsiFast can decode (n,k) using only table lookups.
+func canUseCWRSFast(n, k int) bool {
+	if n <= 2 || k <= 0 {
+		return false
+	}
+	// cwrsiFast has two top-level cases:
+	// 1) k >= n: needs U(n,k+1) and U(n,n) rows.
+	// 2) k < n: needs U(k,n) and U(k+1,n) rows.
+	if k >= n {
+		return pvqUHasLookup(n, k+1) && pvqUHasLookup(n, n)
+	}
+	return pvqUHasLookup(k, n) && pvqUHasLookup(k+1, n)
+}
+
 // PVQ_V computes V(N,K), the total number of PVQ codewords with N dimensions
 // and K pulses (where the sum of absolute values equals K).
 //
@@ -633,26 +659,7 @@ func DecodePulses(index uint32, n, k int) []int {
 		return y
 	}
 
-	// Try the fast path using table lookups
-	// Check if all required lookups will succeed
-	canUseFast := true
-	if n > 14 {
-		canUseFast = false
-	} else {
-		// Check if k is within table bounds
-		minN := imin(n, k+1)
-		if minN >= 15 {
-			canUseFast = false
-		} else {
-			maxK := imax(n, k+1)
-			offset := maxK - minN
-			if offset >= pvqURowLen[minN] {
-				canUseFast = false
-			}
-		}
-	}
-
-	if canUseFast {
+	if canUseCWRSFast(n, k) {
 		_ = cwrsiFast(n, k, index, y)
 	} else {
 		// Fallback to row-based algorithm
@@ -696,24 +703,7 @@ func decodePulsesInto(index uint32, n, k int, y []int, scratch *bandDecodeScratc
 		return
 	}
 
-	// Try the fast path using table lookups
-	canUseFast := true
-	if n > 14 {
-		canUseFast = false
-	} else {
-		minN := imin(n, k+1)
-		if minN >= 15 {
-			canUseFast = false
-		} else {
-			maxK := imax(n, k+1)
-			offset := maxK - minN
-			if offset >= pvqURowLen[minN] {
-				canUseFast = false
-			}
-		}
-	}
-
-	if canUseFast {
+	if canUseCWRSFast(n, k) {
 		_ = cwrsiFast(n, k, index, y)
 	} else {
 		// Use scratch buffer for u row if available, otherwise allocate

@@ -202,33 +202,31 @@ func expRotation1(x []float64, length, stride int, c, s float64) {
 	}
 	x = x[:length:length]
 	_ = x[length-1]
-	c32 := float32(c)
-	s32 := float32(s)
-	ms := float32(-s)
+	ms := -s
 	end := length - stride
 	i := 0
 	for ; i+1 < end; i += 2 {
-		x1 := float32(x[i])
-		x2 := float32(x[i+stride])
-		x[i+stride] = float64(c32*x2 + s32*x1)
-		x[i] = float64(c32*x1 + ms*x2)
+		x1 := x[i]
+		x2 := x[i+stride]
+		x[i+stride] = c*x2 + s*x1
+		x[i] = c*x1 + ms*x2
 
-		x3 := float32(x[i+1])
-		x4 := float32(x[i+1+stride])
-		x[i+1+stride] = float64(c32*x4 + s32*x3)
-		x[i+1] = float64(c32*x3 + ms*x4)
+		x3 := x[i+1]
+		x4 := x[i+1+stride]
+		x[i+1+stride] = c*x4 + s*x3
+		x[i+1] = c*x3 + ms*x4
 	}
 	for ; i < end; i++ {
-		x1 := float32(x[i])
-		x2 := float32(x[i+stride])
-		x[i+stride] = float64(c32*x2 + s32*x1)
-		x[i] = float64(c32*x1 + ms*x2)
+		x1 := x[i]
+		x2 := x[i+stride]
+		x[i+stride] = c*x2 + s*x1
+		x[i] = c*x1 + ms*x2
 	}
 	for i := length - 2*stride - 1; i >= 0; i-- {
-		x1 := float32(x[i])
-		x2 := float32(x[i+stride])
-		x[i+stride] = float64(c32*x2 + s32*x1)
-		x[i] = float64(c32*x1 + ms*x2)
+		x1 := x[i]
+		x2 := x[i+stride]
+		x[i+stride] = c*x2 + s*x1
+		x[i] = c*x1 + ms*x2
 	}
 }
 
@@ -496,23 +494,20 @@ func algUnquantInto(shape []float64, rd *rangecoding.Decoder, band, n, k, spread
 		return 0
 	}
 
-	var u []uint32
 	var pulses []int
 	if scratch != nil {
-		u = scratch.ensureCWRSU(k + 2)
 		pulses = scratch.ensurePVQPulses(n)
 	} else {
-		u = make([]uint32, k+2)
 		pulses = make([]int, n)
 	}
 
-	vSize := ncwrsUrow(n, k, u)
+	vSize := PVQ_V(n, k)
 	if vSize == 0 {
 		clear(shape)
 		return 0
 	}
 	idx := rd.DecodeUniform(vSize)
-	_ = cwrsi(n, k, idx, pulses, u)
+	decodePulsesInto(idx, n, k, pulses, scratch)
 	tracePVQ(band, idx, k, n, pulses)
 	// Decoder doesn't have search energy, so pass 0 to compute from pulses
 	normalizeResidualInto(shape, pulses, gain, 0)

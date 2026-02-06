@@ -327,9 +327,42 @@ func bitsToK(bits, n int) int {
 	return getPulses(q)
 }
 
+const maxBandWidthLookup = 1024
+
+var (
+	bandByWidth [maxBandWidthLookup + 1]int8
+	lmByWidth   [maxBandWidthLookup + 1]int8
+)
+
+func init() {
+	for i := range bandByWidth {
+		bandByWidth[i] = -1
+		lmByWidth[i] = -1
+	}
+	// Preserve existing lookup behavior: first match wins with lm ascending.
+	for lm := 0; lm <= 3; lm++ {
+		for band := 0; band < MaxBands; band++ {
+			width := (EBands[band+1] - EBands[band]) << lm
+			if width <= 0 || width > maxBandWidthLookup {
+				continue
+			}
+			if bandByWidth[width] < 0 {
+				bandByWidth[width] = int8(band)
+				lmByWidth[width] = int8(lm)
+			}
+		}
+	}
+}
+
 func bandFromWidth(width int) (band int, lm int, ok bool) {
 	if width <= 0 {
 		return 0, 0, false
+	}
+	if width <= maxBandWidthLookup {
+		b := bandByWidth[width]
+		if b >= 0 {
+			return int(b), int(lmByWidth[width]), true
+		}
 	}
 	for lm = 0; lm <= 3; lm++ {
 		for band = 0; band < MaxBands; band++ {
