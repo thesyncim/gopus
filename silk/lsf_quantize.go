@@ -327,33 +327,21 @@ func (e *Encoder) encodeLSF(stage1Idx int, residuals []int, interpIdx int, bandw
 	predQ8 := ensureUint8Slice(&e.scratchPredQ8, cb.order)
 	silkNLSFUnpack(ecIx, predQ8, cb, stage1Idx)
 
-	// Encode stage 2 residuals for each coefficient
-	// This matches decoder: rd.DecodeICDF(cb.ecICDF[ecIx[i]:], 8)
+	// Encode stage 2 residuals for each coefficient.
+	// Match libopus silk/encode_indices.c boundary behavior exactly:
+	// extension coding is used for idx <= -A and idx >= +A (including boundary).
+	// This must mirror decoder logic, which always reads an extension symbol when
+	// the decoded base symbol is 0 or 2*A.
 	for i := 0; i < cb.order && i < len(residuals); i++ {
-		// Residual is in range [-nlsfQuantMaxAmplitude, +nlsfQuantMaxAmplitude]
-		// Encode as index in [0, 2*nlsfQuantMaxAmplitude]
-		resIdx := residuals[i] + nlsfQuantMaxAmplitude
-
-		// Check for extension coding (values outside normal range)
-		if resIdx < 0 {
-			// Encode 0 (underflow marker), then extension
-			e.rangeEncoder.EncodeICDF(0, cb.ecICDF[ecIx[i]:], 8)
-			extVal := -resIdx
-			if extVal > 6 {
-				extVal = 6
-			}
-			e.rangeEncoder.EncodeICDF(extVal, silk_NLSF_EXT_iCDF, 8)
-		} else if resIdx > 2*nlsfQuantMaxAmplitude {
-			// Encode 2*nlsfQuantMaxAmplitude (overflow marker), then extension
+		idx := residuals[i]
+		if idx >= nlsfQuantMaxAmplitude {
 			e.rangeEncoder.EncodeICDF(2*nlsfQuantMaxAmplitude, cb.ecICDF[ecIx[i]:], 8)
-			extVal := resIdx - 2*nlsfQuantMaxAmplitude
-			if extVal > 6 {
-				extVal = 6
-			}
-			e.rangeEncoder.EncodeICDF(extVal, silk_NLSF_EXT_iCDF, 8)
+			e.rangeEncoder.EncodeICDF(idx-nlsfQuantMaxAmplitude, silk_NLSF_EXT_iCDF, 8)
+		} else if idx <= -nlsfQuantMaxAmplitude {
+			e.rangeEncoder.EncodeICDF(0, cb.ecICDF[ecIx[i]:], 8)
+			e.rangeEncoder.EncodeICDF(-idx-nlsfQuantMaxAmplitude, silk_NLSF_EXT_iCDF, 8)
 		} else {
-			// Normal range encoding
-			e.rangeEncoder.EncodeICDF(resIdx, cb.ecICDF[ecIx[i]:], 8)
+			e.rangeEncoder.EncodeICDF(idx+nlsfQuantMaxAmplitude, cb.ecICDF[ecIx[i]:], 8)
 		}
 	}
 

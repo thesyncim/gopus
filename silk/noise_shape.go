@@ -163,11 +163,14 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 	params.LambdaQ10 = int(float64ToInt32Round(float64(lambda * 1024.0)))
 
 	// Compute Tilt (spectral noise tilt)
+	// Match libopus float precision: intermediate products in float32 (not constant-folded).
 	var tilt float32
 	if signalType == typeVoiced {
 		// For voiced: reduce HF noise, more with higher speech activity
 		// Tilt = -HP_NOISE_COEF - (1-HP_NOISE_COEF) * HARM_HP_NOISE_COEF * speech_activity
-		tilt = -hpNoiseCoef - (1.0-hpNoiseCoef)*harmHPNoiseCoef*float32(speechActivityQ8)/256.0
+		// C: (1 - HP_NOISE_COEF) * HARM_HP_NOISE_COEF computed in float32 arithmetic.
+		oneMinusHP := float32(1.0) - float32(hpNoiseCoef)
+		tilt = -hpNoiseCoef - oneMinusHP*float32(harmHPNoiseCoef)*float32(speechActivityQ8)*(1.0/256.0)
 	} else {
 		// For unvoiced: just HP noise shaping
 		tilt = -hpNoiseCoef
@@ -223,9 +226,11 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 
 		// Pack LF_MA and LF_AR into single int32 (libopus format)
 		// LF_shp_Q14 = (LF_AR_shp << 16) | (LF_MA_shp & 0xFFFF)
-		lfMaQ14 := float64ToInt16Round(float64(lfMaShp * 16384.0))
-		lfArQ14 := float64ToInt16Round(float64(lfArShp * 16384.0))
-		params.LFShpQ14[k] = (int32(lfArQ14) << 16) | (int32(lfMaQ14) & 0xFFFF)
+		// Use int32 rounding (matching C silk_float2int -> opus_int32) then
+		// truncate via bit ops, matching C: silk_LSHIFT32(...,16) | (opus_uint16)...
+		lfMaQ14 := float64ToInt32Round(float64(lfMaShp * 16384.0))
+		lfArQ14 := float64ToInt32Round(float64(lfArShp * 16384.0))
+		params.LFShpQ14[k] = (int32(lfArQ14) << 16) | (int32(uint16(lfMaQ14)))
 	}
 
 	return params

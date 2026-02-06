@@ -32,6 +32,9 @@ type Encoder struct {
 	prevStereoWeights [2]int16       // Previous w0, w1 stereo weights (Q13)
 	stereo            stereoEncState // Full stereo encoder state for LP filtering
 
+	// LP variable cutoff filter state (for smooth bandwidth transitions)
+	lpState LPState
+
 	// Pitch analysis state
 	pitchState       PitchAnalysisState // State for pitch estimation across frames
 	pitchAnalysisBuf []float32          // History buffer for pitch analysis (LTP memory + frame)
@@ -212,6 +215,9 @@ type Encoder struct {
 	nBitsExceeded int // Bits produced in excess of target
 	maxBits       int // Maximum bits allowed for current frame
 	useVBR        bool
+
+	// LP variable cutoff filter scratch buffer
+	scratchLPInt16 []int16 // LP filter: int16 conversion for biquad filter
 
 	// Output buffer scratch (standalone SILK mode)
 	scratchOutput       []byte              // EncodeFrame: range encoder output

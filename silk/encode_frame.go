@@ -32,75 +32,13 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		e.ResetPacketState()
 		e.nFramesPerPacket = 1
 	}
-
-	// Update target SNR based on configured bitrate and frame size.
-	if e.targetRateBps > 0 {
-		// Total target bits for packet
-		nBits := (e.targetRateBps * payloadSizeMs) / 1000
-
-		// Divide by number of uncoded frames left in packet
-		nBits /= e.nFramesPerPacket
-
-		// Convert to bits/second
-		targetRate := 0
-		if payloadSizeMs == 10 {
-			targetRate = nBits * 100
-		} else {
-			targetRate = nBits * 50
-		}
-
-		// Bit reservoir logic from libopus silk/enc_API.c:
-		if e.nBitsExceeded > 0 {
-			targetRate -= (e.nBitsExceeded * 1000) / 500
-		}
-
-		// Compare actual vs target bits so far in this packet (bitsBalance)
-		if e.nFramesEncoded > 0 && e.rangeEncoder != nil {
-			bitsBalance := e.rangeEncoder.Tell() - nBits*e.nFramesEncoded
-			targetRate -= (bitsBalance * 1000) / 500
-		}
-
-		// Never exceed input bitrate, and maintain minimum for quality.
-		if targetRate > e.targetRateBps {
-			targetRate = e.targetRateBps
-		}
-		if targetRate < 5000 {
-			targetRate = 5000
-		}
-
-		e.lastControlTargetRateBps = targetRate
-		e.controlSNR(targetRate, numSubframes)
-	} else {
-		e.lastControlTargetRateBps = 0
-	}
-
-	// Quantize input to int16 precision to match libopus float API behavior.
-	pcm = e.quantizePCMToInt16(pcm)
-
-	if !useSharedEncoder {
-		e.rangeEncoder = nil // Safety clear
-		bufSize := len(pcm) / 3
-		if bufSize < 80 {
-			bufSize = 80
-		}
-		if e.lbrrEnabled {
-			bufSize += 50
-		}
-		if bufSize < maxSilkPacketBytes {
-			bufSize = maxSilkPacketBytes
-		}
-		output := ensureByteSlice(&e.scratchOutput, bufSize)
-		e.scratchRangeEncoder.Init(output)
-		e.rangeEncoder = &e.scratchRangeEncoder
-		e.encodeLBRRData(e.rangeEncoder, 1, true)
-	}
-
-	condCoding := codeIndependently
-	if e.nFramesEncoded > 0 {
-		condCoding = codeConditionally
-	}
 	firstFrameAfterReset := !e.haveEncoded
 
+	// Capture FramePre trace BEFORE the targetRate/SNR computation to match
+	// libopus capture timing.  The libopus "before frame i" snapshot reads
+	// sCmn.TargetRate_bps and sCmn.SNR_dB_Q7 which were set by the PREVIOUS
+	// frame's silk_control_SNR call.  By capturing here (before lines below
+	// update lastControlTargetRateBps / snrDBQ7), we get the same values.
 	if e.trace != nil && e.trace.FramePre != nil {
 		tr := e.trace.FramePre
 		tr.SignalType = e.ecPrevSignalType
@@ -151,6 +89,88 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		} else {
 			tr.PitchBuf = tr.PitchBuf[:0]
 		}
+	}
+
+	// Update target SNR based on configured bitrate and frame size.
+	if e.targetRateBps > 0 {
+		// Total target bits for packet
+		nBits := (e.targetRateBps * payloadSizeMs) / 1000
+
+		// Divide by number of uncoded frames left in packet
+		nBits /= e.nFramesPerPacket
+
+		// Convert to bits/second
+		targetRate := 0
+		if payloadSizeMs == 10 {
+			targetRate = nBits * 100
+		} else {
+			targetRate = nBits * 50
+		}
+
+		// Bit reservoir logic from libopus silk/enc_API.c:
+		targetRate -= (e.nBitsExceeded * 1000) / 500
+
+		// Compare actual vs target bits so far in this packet (bitsBalance)
+		if e.nFramesEncoded > 0 && e.rangeEncoder != nil {
+			bitsBalance := e.rangeEncoder.Tell() - nBits*e.nFramesEncoded
+			targetRate -= (bitsBalance * 1000) / 500
+		}
+
+		// Never exceed input bitrate, and maintain minimum for quality.
+		if targetRate > e.targetRateBps {
+			targetRate = e.targetRateBps
+		}
+		if targetRate < 5000 {
+			targetRate = 5000
+		}
+
+		e.lastControlTargetRateBps = targetRate
+		e.controlSNR(targetRate, numSubframes)
+	} else {
+		e.lastControlTargetRateBps = 0
+	}
+
+	// Quantize input to int16 precision to match libopus float API behavior.
+	pcm = e.quantizePCMToInt16(pcm)
+
+	// Apply LP variable cutoff filter for smooth bandwidth transitions.
+	// Matches libopus encode_frame_FLP.c line 134: silk_LP_variable_cutoff(&sLP, inputBuf+1, frame_length).
+	// The filter operates on int16 data, so we convert float32→int16, filter, then int16→float32.
+	// Only do the conversion when the filter is active (Mode != 0); when Mode == 0 it's a no-op.
+	if e.lpState.Mode != 0 {
+		lpBuf := ensureInt16Slice(&e.scratchLPInt16, frameSamples)
+		scale := float32(silkSampleScale)
+		for i := 0; i < frameSamples; i++ {
+			lpBuf[i] = int16(floatToInt16Round(pcm[i] * scale))
+		}
+		e.lpState.LPVariableCutoff(lpBuf, frameSamples)
+		invScale := float32(1.0 / silkSampleScale)
+		for i := 0; i < frameSamples; i++ {
+			pcm[i] = float32(lpBuf[i]) * invScale
+		}
+	}
+
+	if !useSharedEncoder {
+		e.rangeEncoder = nil // Safety clear
+		bufSize := len(pcm) / 3
+		if bufSize < 80 {
+			bufSize = 80
+		}
+		if e.lbrrEnabled {
+			bufSize += 50
+		}
+		if bufSize < maxSilkPacketBytes {
+			bufSize = maxSilkPacketBytes
+		}
+		output := ensureByteSlice(&e.scratchOutput, bufSize)
+		e.scratchRangeEncoder.Init(output)
+		e.rangeEncoder = &e.scratchRangeEncoder
+		e.encodeLBRRData(e.rangeEncoder, 1, true)
+	}
+
+	condCoding := codeIndependently
+	if e.nFramesEncoded > 0 {
+		condCoding = codeConditionally
 	}
 
 	// Step 1: Determine activity and defaults
@@ -812,6 +832,20 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	e.lastRng = e.rangeEncoder.Range()
 
 	if useSharedEncoder {
+		// Update nBitsExceeded for the shared (hybrid) encoder path.
+		// In libopus enc_API.c:555-557, this update happens after the encode
+		// loop regardless of standalone vs hybrid mode.  We do NOT call Done()
+		// here because the hybrid caller manages the shared range encoder.
+		if e.targetRateBps > 0 && payloadSizeMs > 0 {
+			nBytesOut := (e.rangeEncoder.Tell() + 7) >> 3
+			e.nBitsExceeded += nBytesOut * 8
+			e.nBitsExceeded -= (e.targetRateBps * payloadSizeMs) / 1000
+			if e.nBitsExceeded < 0 {
+				e.nBitsExceeded = 0
+			} else if e.nBitsExceeded > 10000 {
+				e.nBitsExceeded = 10000
+			}
+		}
 		return nil
 	}
 
@@ -823,16 +857,21 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	flags = (flags << 1) | uint32(e.lbrrFlag&1)
 	e.rangeEncoder.PatchInitialBits(flags, 2)
 
+	// Capture nBytesOut BEFORE ec_enc_done, matching libopus encode_frame_FLP.c:381:
+	//   *pnBytesOut = silk_RSHIFT( ec_tell( psRangeEnc ) + 7, 3 );
+	nBytesOut := (e.rangeEncoder.Tell() + 7) >> 3
+
 	raw := e.rangeEncoder.Done()
 
 	result := make([]byte, len(raw))
 	copy(result, raw)
 
 	if e.targetRateBps > 0 && payloadSizeMs > 0 {
-		// Match libopus silk_Encode(): nBitsExceeded uses *nBytesOut * 8,
-		// where *nBytesOut comes from ec_tell() before the final range-coder flush.
-		usedBits := ((nBits + 7) >> 3) * 8
-		e.nBitsExceeded += usedBits
+		// Match libopus enc_API.c nBitsExceeded update exactly:
+		//   psEnc->nBitsExceeded += *nBytesOut * 8;
+		//   psEnc->nBitsExceeded -= silk_DIV32_16(silk_MUL(bitRate, payloadSize_ms), 1000);
+		//   psEnc->nBitsExceeded = silk_LIMIT(psEnc->nBitsExceeded, 0, 10000);
+		e.nBitsExceeded += nBytesOut * 8
 		e.nBitsExceeded -= (e.targetRateBps * payloadSizeMs) / 1000
 		if e.nBitsExceeded < 0 {
 			e.nBitsExceeded = 0
@@ -1191,11 +1230,13 @@ func (e *Encoder) EncodePacketWithFEC(pcm []float32, lookahead []float32, vadFla
 	flags = (flags << 1) | uint32(e.lbrrFlag&1)
 	e.rangeEncoder.PatchInitialBits(flags, uint(nFrames+1))
 	e.lastRng = e.rangeEncoder.Range()
+	// Capture nBytesOut BEFORE ec_enc_done, matching libopus encode_frame_FLP.c:381.
+	nBytesOut := (e.rangeEncoder.Tell() + 7) >> 3
 	result := e.rangeEncoder.Done()
 	if e.targetRateBps > 0 {
 		payloadSizeMs := (nFrames * frameSamples * 1000) / config.SampleRate
 		if payloadSizeMs > 0 {
-			e.nBitsExceeded += len(result) * 8
+			e.nBitsExceeded += nBytesOut * 8
 			e.nBitsExceeded -= (e.targetRateBps * payloadSizeMs) / 1000
 			if e.nBitsExceeded < 0 {
 				e.nBitsExceeded = 0

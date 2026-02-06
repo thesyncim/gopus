@@ -618,12 +618,9 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		CBimax = 0
 		CCmaxSt3 := float32(-1000.0)
 
-		var cbOffsetCheck []int8
-		if numSubframes == peMaxNbSubfr {
-			cbOffsetCheck = pitchCBLagsStage3Slice[0]
-		} else {
-			cbOffsetCheck = pitchCBLagsStage310msSlice[0]
-		}
+		// libopus always uses silk_CB_lags_stage3[0] for the max_lag limit
+		// check, even for 10ms frames (see pitch_analysis_core_FLP.c line 450).
+		cbOffsetCheck := pitchCBLagsStage3Slice[0]
 
 		for d := startLag; d <= endLag; d++ {
 			for j := 0; j < nbCbkSearch3; j++ {
@@ -1049,7 +1046,7 @@ func pitchAnalysisCalcCorrSt3(out []float64, frame []float32, startLag, sfLength
 			if basisIdx < 0 || basisIdx+sfLength > len(frame) || targetIdx+sfLength > len(frame) {
 				continue
 			}
-			scratchMem[j-lagLow] = innerProductF32Acc(frame[basisIdx:], frame[targetIdx:], sfLength)
+			scratchMem[j-lagLow] = float32(innerProductFLP(frame[basisIdx:], frame[targetIdx:], sfLength))
 		}
 		delta := lagLow
 		for i := 0; i < nbCbkSearch; i++ {

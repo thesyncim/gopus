@@ -993,9 +993,13 @@ func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32
 	e.lastInvGain = invGain
 	e.lastNumSamples = totalLen
 
+	// Return Burg coefficients at full float64 (double) precision.
+	// libopus stores Af[] as double internally; the caller is responsible
+	// for truncating to silk_float (float32) when converting to Q12/Q16,
+	// matching the (silk_float)(-Af[k]) cast at the libopus call-site.
 	A := ensureFloat64Slice(&e.scratchBurgResult, order)
 	for k := 0; k < order; k++ {
-		A[k] = float64(float32(-Af[k]))
+		A[k] = -Af[k]
 	}
 
 	return A, nrgF

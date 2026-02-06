@@ -7,17 +7,24 @@ func computeMinInvGain(predGainQ7 int32, codingQuality float32, firstFrame bool)
 		return 1.0 / maxPredictionPowerGainAfterReset
 	}
 
-	predGain := float64(predGainQ7) / 128.0
-	minInvGainVal := math.Pow(2.0, predGain/3.0) / maxPredictionPowerGain
-	minInvGainVal /= 0.25 + 0.75*float64(codingQuality)
+	// Match libopus find_pred_coefs_FLP.c precision:
+	// minInvGain = (silk_float)pow( 2, LTPredCodGain / 3 ) / MAX_PREDICTION_POWER_GAIN;
+	// minInvGain /= 0.25f + 0.75f * coding_quality;
+	predGainF32 := float32(predGainQ7) / 128.0
+	// LTPredCodGain / 3 is float32 in C (float / int promotes to float).
+	powArg := predGainF32 / 3.0
+	// pow(2, double) returns double, then (silk_float) casts to float.
+	minInvGain := float32(math.Pow(2.0, float64(powArg))) / float32(maxPredictionPowerGain)
+	// float / float in C.
+	minInvGain /= float32(0.25) + float32(0.75)*codingQuality
 
-	if minInvGainVal < 1.0/maxPredictionPowerGain {
-		minInvGainVal = 1.0 / maxPredictionPowerGain
+	if minInvGain < float32(1.0/maxPredictionPowerGain) {
+		minInvGain = float32(1.0 / maxPredictionPowerGain)
 	}
-	if minInvGainVal > 1.0 {
-		minInvGainVal = 1.0
+	if minInvGain > 1.0 {
+		minInvGain = 1.0
 	}
-	return minInvGainVal
+	return float64(minInvGain)
 }
 
 func (e *Encoder) buildLTPResidual(pitchBuf []float32, frameStart int, gains []float32, pitchLags []int, ltpCoeffs LTPCoeffsArray, numSubframes, subframeSamples int, signalType int) []float32 {
@@ -29,11 +36,15 @@ func (e *Encoder) buildLTPResidual(pitchBuf []float32, frameStart int, gains []f
 		ltpRes[i] = 0
 	}
 
+	// Match libopus silk_LTP_analysis_filter_FLP: operate entirely in float.
+	// The input buffer is already int16-quantized (from quantizePCMToInt16),
+	// scaled to [-1,1]. We scale to int16 range without redundant quantization.
+	scale := float32(silkSampleScale)
 	getSample := func(idx int) float32 {
 		if idx < 0 || idx >= len(pitchBuf) {
 			return 0
 		}
-		return float32(floatToInt16Round(pitchBuf[idx] * float32(silkSampleScale)))
+		return pitchBuf[idx] * scale
 	}
 
 	for k := 0; k < numSubframes; k++ {
@@ -163,9 +174,13 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 					}
 					lpcAnalysisFilterF32(lpcRes, lpcTmpF32, ltpRes[:analyzeLen], analyzeLen, order)
 
-					// Match libopus silk_LPC_analysis_filter_FLP + energy_FLP path.
-					resNrgInterp := float32(energyF32(lpcRes[order:], subframeSamples))
-					resNrgInterp += float32(energyF32(lpcRes[order+subfrLen:], subframeSamples))
+					// Match libopus find_LPC_FLP.c exactly:
+					// res_nrg_interp = (silk_float)( energy(seg0) + energy(seg1) );
+					// Sum in double precision, cast once to float32.
+					resNrgInterp := float32(
+						energyF32(lpcRes[order:], subframeSamples) +
+							energyF32(lpcRes[order+subfrLen:], subframeSamples),
+					)
 
 					if resNrgInterp < resNrg32 {
 						resNrg32 = resNrgInterp
@@ -294,14 +309,24 @@ func applyGainProcessing(gains []float32, resNrg []float64, predGainQ7 int32, sn
 		}
 
 		// Match libopus process_gains_FLP.c sigmoid path for voiced gain reduction.
-		s := float32(1.0 - 0.5*(1.0/(1.0+math.Exp(float64(-0.25*(predGainDB-12.0))))))
+		// libopus: s = 1.0f - 0.5f * silk_sigmoid( 0.25f * ( LTPredCodGain - 12.0f ) )
+		// silk_sigmoid(x) = (silk_float)(1.0 / (1.0 + exp(-x)))
+		// Step 1: arg = 0.25f * (LTPredCodGain - 12.0f) — float32 arithmetic
+		// Step 2: sigmoid = (float)(1.0 / (1.0 + exp((double)(-arg)))) — double internally, cast to float
+		// Step 3: s = 1.0f - 0.5f * sigmoid — float32 arithmetic
+		arg := float32(0.25) * (predGainDB - float32(12.0))
+		sigmoid := float32(1.0 / (1.0 + math.Exp(float64(-arg))))
+		s := float32(1.0) - float32(0.5)*sigmoid
 		for k := range gains {
 			gains[k] *= s
 		}
 	}
 
 	snrDB := float32(snrDBQ7) / 128.0
-	invMaxSqrVal := float32(math.Pow(2.0, float64(0.33*(21.0-snrDB)))) / float32(subframeSamples)
+	// Match libopus: InvMaxSqrVal = (silk_float)(pow(2.0f, 0.33f * (21.0f - SNR_dB_Q7 * (1/128.0f))) / subfr_length)
+	// pow arg is float32, pow returns double, division by subfr_length is in double, then cast to float32.
+	powArg := float32(0.33) * (float32(21.0) - snrDB)
+	invMaxSqrVal := float32(math.Pow(2.0, float64(powArg)) / float64(subframeSamples))
 
 	for k := range gains {
 		energy := gains[k] * gains[k]
