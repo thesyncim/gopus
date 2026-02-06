@@ -731,7 +731,7 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 				}
 			}
 		}
-		if i > 0 && i-1 < len(nsqTraces) && preNSQXQHashDiff > 0 && preNSQXQHashDiff <= 3 {
+		if i > 0 && i-1 < len(nsqTraces) {
 			if snapIn, ok := captureLibopusOpusNSQInputsAtFrame(original, sampleRate, channels, bitrate, frameSize, i-1); ok {
 				tr := nsqTraces[i-1]
 				if tr.FrameLength == snapIn.FrameLength && len(tr.InputQ0) >= snapIn.FrameLength {
