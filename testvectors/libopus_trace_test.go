@@ -874,6 +874,77 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 						t.Logf("Frame %d nsq compare: %s", i, msg)
 					}
 				}
+				// Early-frame NSQ input comparison (unconditional)
+				samplesInt16Diag := make([]int16, len(original))
+				for si, s := range original {
+					v := int32(math.RoundToEven(float64(s * 32768.0)))
+					if v > 32767 {
+						v = 32767
+					} else if v < -32768 {
+						v = -32768
+					}
+					samplesInt16Diag[si] = int16(v)
+				}
+				if libNSQ, ok := captureLibopusOpusNSQInputsAtFrameInt16(samplesInt16Diag, sampleRate, channels, bitrate, frameSize, i); ok {
+					x16Diff := 0
+					x16MaxDiff := int16(0)
+					x16MinLen := len(tr.InputQ0)
+					if len(libNSQ.X16) < x16MinLen {
+						x16MinLen = len(libNSQ.X16)
+					}
+					for si := 0; si < x16MinLen; si++ {
+						d := tr.InputQ0[si] - libNSQ.X16[si]
+						if d < 0 {
+							d = -d
+						}
+						if d > 0 {
+							x16Diff++
+							if d > x16MaxDiff {
+								x16MaxDiff = d
+							}
+						}
+					}
+					arDiff := 0
+					arMaxDiff := int16(0)
+					arMinLen := len(tr.ARShpQ13)
+					if len(libNSQ.ARQ13) < arMinLen {
+						arMinLen = len(libNSQ.ARQ13)
+					}
+					for si := 0; si < arMinLen; si++ {
+						d := tr.ARShpQ13[si] - libNSQ.ARQ13[si]
+						if d < 0 {
+							d = -d
+						}
+						if d > 0 {
+							arDiff++
+							if d > arMaxDiff {
+								arMaxDiff = d
+							}
+						}
+					}
+					gainsDiff := 0
+					gainsMinLen := len(tr.GainsQ16)
+					if len(libNSQ.GainsQ16) < gainsMinLen {
+						gainsMinLen = len(libNSQ.GainsQ16)
+					}
+					for si := 0; si < gainsMinLen; si++ {
+						if tr.GainsQ16[si] != libNSQ.GainsQ16[si] {
+							gainsDiff++
+						}
+					}
+					t.Logf("Frame %d EARLY NSQ inputs: x16 diffs=%d/%d(maxDiff=%d) ARQ13 diffs=%d/%d(maxDiff=%d) gains diffs=%d/%d",
+						i, x16Diff, x16MinLen, x16MaxDiff, arDiff, arMinLen, arMaxDiff, gainsDiff, gainsMinLen)
+					t.Logf("Frame %d EARLY NSQ scalars: go seed=%d lib seed=%d go interp=%d lib interp=%d go signal=%d lib signal=%d go lambda=%d lib lambda=%d",
+						i, tr.SeedIn, libNSQ.SeedIn, tr.NLSFInterpCoefQ2, libNSQ.NLSFInterpCoefQ2, tr.SignalType, libNSQ.SignalType, tr.LambdaQ10, libNSQ.LambdaQ10)
+					// Print first few AR diffs for diagnosis
+					if arDiff > 0 && arDiff <= arMinLen {
+						for si := 0; si < arMinLen && si < 10; si++ {
+							if tr.ARShpQ13[si] != libNSQ.ARQ13[si] {
+								t.Logf("  Frame %d ARQ13[%d]: go=%d lib=%d diff=%d", i, si, tr.ARShpQ13[si], libNSQ.ARQ13[si], tr.ARShpQ13[si]-libNSQ.ARQ13[si])
+							}
+						}
+					}
+				}
 			}
 		}
 		if goDec.GetLastSignalType() != libDec.GetLastSignalType() {
@@ -912,6 +983,144 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 		}
 		if goParams.Seed != libParams.Seed {
 			seedDiff++
+			if seedDiff <= 3 {
+				goSeedIn := -1
+				if i < len(gainTraces) {
+					goSeedIn = gainTraces[i].SeedIn
+				}
+				t.Logf("Frame %d: Seed mismatch: go=%d lib=%d (gopus seedIn=%d, fc&3=%d)", i, goParams.Seed, libParams.Seed, goSeedIn, i&3)
+				// Capture libopus NSQ inputs using int16 path (matches opus_demo -16 exactly)
+				if i < len(nsqTraces) {
+					goTr := nsqTraces[i]
+					// Convert float32 to int16 same as writeRawPCM16 / opus_demo -16
+					samplesInt16 := make([]int16, len(original))
+					for si, s := range original {
+						v := int32(math.RoundToEven(float64(s * 32768.0)))
+						if v > 32767 {
+							v = 32767
+						} else if v < -32768 {
+							v = -32768
+						}
+						samplesInt16[si] = int16(v)
+					}
+					if libNSQ, ok := captureLibopusOpusNSQInputsAtFrameInt16(samplesInt16, sampleRate, channels, bitrate, frameSize, i); ok {
+						goGainIters := 0
+						goGainSeedOut := -1
+						if i < len(gainTraces) {
+							goGainIters = len(gainTraces[i].Iterations)
+							goGainSeedOut = gainTraces[i].SeedOut
+						}
+						t.Logf("  Frame %d NSQ inputs (int16 path): lib seedIn=%d seedOut=%d callsInFrame=%d lambdaQ10=%d | go seedIn=%d seedOut=%d gainIters=%d gainSeedOut=%d lambdaQ10=%d",
+							i, libNSQ.SeedIn, libNSQ.SeedOut, libNSQ.CallsInFrame, libNSQ.LambdaQ10, goTr.SeedIn, goTr.SeedOut, goGainIters, goGainSeedOut, goTr.LambdaQ10)
+						t.Logf("  Frame %d NSQ scalars (int16 path): lib nlsfInterp=%d signalType=%d quantOff=%d ltpScale=%d warp=%d nStates=%d | go nlsfInterp=%d signalType=%d quantOff=%d ltpScale=%d warp=%d nStates=%d",
+							i, libNSQ.NLSFInterpCoefQ2, libNSQ.SignalType, libNSQ.QuantOffsetType, libNSQ.LTPScaleQ14, libNSQ.WarpingQ16, libNSQ.NStatesDelayedDecision,
+							goTr.NLSFInterpCoefQ2, goTr.SignalType, goTr.QuantOffsetType, goTr.LTPScaleQ14, goTr.WarpingQ16, goTr.NStatesDelayedDecision)
+						// Compare x16 arrays (gopus InputQ0 vs libopus X16)
+						x16Diff := 0
+						x16MaxDiff := int16(0)
+						x16MinLen := len(goTr.InputQ0)
+						if len(libNSQ.X16) < x16MinLen {
+							x16MinLen = len(libNSQ.X16)
+						}
+						for si := 0; si < x16MinLen; si++ {
+							d := goTr.InputQ0[si] - libNSQ.X16[si]
+							if d < 0 {
+								d = -d
+							}
+							if d > 0 {
+								x16Diff++
+								if d > x16MaxDiff {
+									x16MaxDiff = d
+								}
+							}
+						}
+						t.Logf("  Frame %d x16 diffs: %d/%d (maxDiff=%d)", i, x16Diff, x16MinLen, x16MaxDiff)
+						// Compare AR shaping coefficients (gopus ARShpQ13 vs libopus ARQ13)
+						arDiff := 0
+						arMinLen := len(goTr.ARShpQ13)
+						if len(libNSQ.ARQ13) < arMinLen {
+							arMinLen = len(libNSQ.ARQ13)
+						}
+						for si := 0; si < arMinLen; si++ {
+							if goTr.ARShpQ13[si] != libNSQ.ARQ13[si] {
+								arDiff++
+							}
+						}
+						t.Logf("  Frame %d ARQ13 diffs: %d/%d", i, arDiff, arMinLen)
+						// Compare PredCoefQ12
+						predDiff := 0
+						predMinLen := len(goTr.PredCoefQ12)
+						if len(libNSQ.PredCoefQ12) < predMinLen {
+							predMinLen = len(libNSQ.PredCoefQ12)
+						}
+						for si := 0; si < predMinLen; si++ {
+							if goTr.PredCoefQ12[si] != libNSQ.PredCoefQ12[si] {
+								predDiff++
+							}
+						}
+						t.Logf("  Frame %d PredCoefQ12 diffs: %d/%d", i, predDiff, predMinLen)
+						// Compare LTP coefficients
+						ltpDiff := 0
+						ltpMinLen := len(goTr.LTPCoefQ14)
+						if len(libNSQ.LTPCoefQ14) < ltpMinLen {
+							ltpMinLen = len(libNSQ.LTPCoefQ14)
+						}
+						for si := 0; si < ltpMinLen; si++ {
+							if goTr.LTPCoefQ14[si] != libNSQ.LTPCoefQ14[si] {
+								ltpDiff++
+							}
+						}
+						t.Logf("  Frame %d LTPCoefQ14 diffs: %d/%d", i, ltpDiff, ltpMinLen)
+						// Compare per-subframe arrays
+						nbSf := goTr.NbSubfr
+						if libNSQ.NumSubframes < nbSf {
+							nbSf = libNSQ.NumSubframes
+						}
+						for sf := 0; sf < nbSf; sf++ {
+							gH, lH := 0, 0
+							gT, lT := 0, 0
+							gL, lL := int32(0), int32(0)
+							gG, lG := int32(0), int32(0)
+							gP, lP := 0, 0
+							if sf < len(goTr.HarmShapeGainQ14) {
+								gH = goTr.HarmShapeGainQ14[sf]
+							}
+							if sf < len(libNSQ.HarmShapeGainQ14) {
+								lH = libNSQ.HarmShapeGainQ14[sf]
+							}
+							if sf < len(goTr.TiltQ14) {
+								gT = goTr.TiltQ14[sf]
+							}
+							if sf < len(libNSQ.TiltQ14) {
+								lT = libNSQ.TiltQ14[sf]
+							}
+							if sf < len(goTr.LFShpQ14) {
+								gL = goTr.LFShpQ14[sf]
+							}
+							if sf < len(libNSQ.LFShpQ14) {
+								lL = libNSQ.LFShpQ14[sf]
+							}
+							if sf < len(goTr.GainsQ16) {
+								gG = goTr.GainsQ16[sf]
+							}
+							if sf < len(libNSQ.GainsQ16) {
+								lG = libNSQ.GainsQ16[sf]
+							}
+							if sf < len(goTr.PitchL) {
+								gP = goTr.PitchL[sf]
+							}
+							if sf < len(libNSQ.PitchL) {
+								lP = libNSQ.PitchL[sf]
+							}
+							if gH != lH || gT != lT || gL != lL || gG != lG || gP != lP {
+								t.Logf("  Frame %d sf %d: harm go=%d lib=%d tilt go=%d lib=%d lf go=%d lib=%d gain go=%d lib=%d pitch go=%d lib=%d",
+									i, sf, gH, lH, gT, lT, gL, lL, gG, lG, gP, lP)
+							}
+						}
+						// (detailed array comparisons already printed above via int16 path)
+					}
+				}
+			}
 		}
 		n := len(goParams.GainIndices)
 		if len(libParams.GainIndices) < n {

@@ -212,9 +212,10 @@ type Encoder struct {
 
 	// Rate control loop scratch buffers
 	// Bit reservoir and rate control state (libopus parity)
-	nBitsExceeded int // Bits produced in excess of target
-	maxBits       int // Maximum bits allowed for current frame
-	useVBR        bool
+	nBitsExceeded  int // Bits produced in excess of target
+	nBitsUsedLBRR  int // Exponential moving average of LBRR overhead bits
+	maxBits        int // Maximum bits allowed for current frame
+	useVBR         bool
 
 	// LP variable cutoff filter scratch buffer
 	scratchLPInt16 []int16 // LP filter: int16 conversion for biquad filter
@@ -362,7 +363,7 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 		nFramesPerPacket:         1, // Default: 1 frame per packet (20ms)
 		lbrrPulses:               lbrrPulses,
 		lbrrGainIncreases:        7, // Default gain increase for LBRR
-		previousGainIndex:        10,
+		previousGainIndex:        0,
 	}
 	enc.SetComplexity(10)
 	enc.stereo.smthWidthQ14 = 16384
@@ -377,7 +378,7 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 func (e *Encoder) Reset() {
 	e.haveEncoded = false
 	e.previousLogGain = 0
-	e.previousGainIndex = 10
+	e.previousGainIndex = 0
 	e.isPreviousFrameVoiced = false
 	e.ecPrevLagIndex = 0
 	e.ecPrevSignalType = 0

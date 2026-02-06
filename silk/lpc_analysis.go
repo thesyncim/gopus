@@ -188,12 +188,13 @@ func burgModifiedFLP(x []float64, minInvGainVal float64, subfrLength, nbSubfr, o
 	}
 
 	// Negate coefficients for LPC convention (libopus stores negative)
+	// Match libopus: A[k] = (silk_float)(-Af[k]) and return (silk_float)nrg_f
 	A := make([]float64, order)
 	for k := 0; k < order; k++ {
 		A[k] = float64(float32(-Af[k]))
 	}
 
-	return A, nrgF
+	return A, float64(float32(nrgF))
 }
 
 // burgLPC computes LPC coefficients using Burg's method.
@@ -993,16 +994,14 @@ func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32
 	e.lastInvGain = invGain
 	e.lastNumSamples = totalLen
 
-	// Return Burg coefficients at full float64 (double) precision.
-	// libopus stores Af[] as double internally; the caller is responsible
-	// for truncating to silk_float (float32) when converting to Q12/Q16,
-	// matching the (silk_float)(-Af[k]) cast at the libopus call-site.
+	// Match libopus: A[k] = (silk_float)(-Af[k]) and return (silk_float)nrg_f.
+	// Truncate to float32 precision to match libopus silk_float output.
 	A := ensureFloat64Slice(&e.scratchBurgResult, order)
 	for k := 0; k < order; k++ {
-		A[k] = -Af[k]
+		A[k] = float64(float32(-Af[k]))
 	}
 
-	return A, nrgF
+	return A, float64(float32(nrgF))
 }
 
 // FindLPCWithInterpolation performs LPC analysis with NLSF interpolation search.
@@ -1036,22 +1035,25 @@ func (e *Encoder) FindLPCWithInterpolation(x []float32, prevNLSFQ15 []int16, use
 	}
 
 	// Burg AR analysis for full frame
-	a, resNrg := burgModifiedFLP(xF64, minInvGain, subfrLength, nbSubfr, order)
+	// burgModifiedFLP now returns float32-precision values matching libopus
+	a, resNrgF64 := burgModifiedFLP(xF64, minInvGain, subfrLength, nbSubfr, order)
+	resNrg := float32(resNrgF64)
 
 	// Check for NLSF interpolation
 	if useInterp && !firstFrame && nbSubfr == maxNbSubfr {
 		// Compute optimal solution for last 10ms (half the subframes)
 		halfOffset := (maxNbSubfr / 2) * subfrLength
 		if halfOffset+subfrLength*(maxNbSubfr/2) <= len(xF64) {
-			_, resNrgLast := burgModifiedFLP(xF64[halfOffset:], minInvGain, subfrLength, maxNbSubfr/2, order)
-			resNrg -= resNrgLast
+			_, resNrgLastF64 := burgModifiedFLP(xF64[halfOffset:], minInvGain, subfrLength, maxNbSubfr/2, order)
+			resNrg -= float32(resNrgLastF64)
 		}
 
 		// Convert to NLSF
 		nlsfQ15 := a2nlsfFLP(a, order)
 
 		// Search for best interpolation index
-		resNrg2nd := math.MaxFloat64
+		// Match libopus: res_nrg, res_nrg_2nd, res_nrg_interp are all silk_float (float32)
+		resNrg2nd := float32(math.MaxFloat32)
 		bestResNrg := resNrg
 
 		// For interpolation search, we need enough signal
@@ -1071,10 +1073,12 @@ func (e *Encoder) FindLPCWithInterpolation(x []float32, prevNLSFQ15 []int16, use
 				lpcAnalysisFilterFLP(lpcRes, aTmp, xF64, analyzeLen, order)
 
 				// Compute energy of residual (excluding initial order samples)
-				resNrgInterp := energyF64(lpcRes[order:], subfrLength-order)
+				// Match libopus: res_nrg_interp = (silk_float)( energy0 + energy1 )
+				nrgAccum := energyF64(lpcRes[order:], subfrLength-order)
 				if subfrLength+order < analyzeLen {
-					resNrgInterp += energyF64(lpcRes[subfrLength:], silkMinInt(subfrLength-order, analyzeLen-subfrLength))
+					nrgAccum += energyF64(lpcRes[subfrLength:], silkMinInt(subfrLength-order, analyzeLen-subfrLength))
 				}
+				resNrgInterp := float32(nrgAccum)
 
 				if resNrgInterp < bestResNrg {
 					bestResNrg = resNrgInterp

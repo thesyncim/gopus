@@ -136,6 +136,10 @@ func TestNoiseShapeAnalysisAgainstLibopus(t *testing.T) {
 
 	const gainTol = 1e-3
 	const shapeTol = 1e-3
+	const arTol = 1e-4
+	shapeOrder := enc.shapingLPCOrder
+	arDiffCount := 0
+	arMaxDiff := float64(0)
 	for k := 0; k < numSubfr; k++ {
 		if diff := math.Abs(float64(gainsGo[k] - libSnap.Gains[k])); diff > gainTol {
 			t.Fatalf("gain[%d] mismatch: go=%.6f lib=%.6f diff=%.6f", k, gainsGo[k], libSnap.Gains[k], diff)
@@ -159,5 +163,25 @@ func TestNoiseShapeAnalysisAgainstLibopus(t *testing.T) {
 		if diff := math.Abs(float64(goLFAR - libSnap.LFARShp[k])); diff > shapeTol {
 			t.Fatalf("lfAR[%d] mismatch: go=%.6f lib=%.6f diff=%.6f", k, goLFAR, libSnap.LFARShp[k], diff)
 		}
+
+		// Compare AR shaping coefficients (float32, before Q13 quantization)
+		for j := 0; j < shapeOrder; j++ {
+			goAR := paramsGo.ARShpQ13[k*maxShapeLpcOrder+j]
+			libAR := libSnap.AR[k*maxShapeLpcOrder+j]
+			goARf := float32(goAR) / 8192.0
+			diff := math.Abs(float64(goARf - libAR))
+			if diff > arTol {
+				arDiffCount++
+				if diff > arMaxDiff {
+					arMaxDiff = diff
+				}
+				if arDiffCount <= 5 {
+					t.Logf("AR[%d][%d] mismatch: go(Q13=%d f32=%.6f) lib=%.6f diff=%.6f", k, j, goAR, goARf, libAR, diff)
+				}
+			}
+		}
+	}
+	if arDiffCount > 0 {
+		t.Errorf("AR coefficient diffs: %d/%d (maxDiff=%.6f, tolerance=%.6f)", arDiffCount, numSubfr*shapeOrder, arMaxDiff, arTol)
 	}
 }

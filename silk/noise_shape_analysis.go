@@ -49,19 +49,20 @@ func (e *Encoder) noiseShapeAnalysis(
 		inputQuality = float32(speechActivityQ8) / 256.0
 	}
 
-	// SNR adjustment for gain tweaking and coding quality (matching libopus SNR_adj_dB)
-	snrDB := float64(e.snrDBQ7) / 128.0
+	// SNR adjustment for gain tweaking and coding quality.
+	// Match libopus: SNR_adj_dB and all intermediates are silk_float (float32).
+	snrDB := float32(e.snrDBQ7) * (1.0 / 128.0)
 	SNRAdjDB := snrDB
-	b := 1.0 - float64(speechActivityQ8)/256.0
+	b := float32(1.0) - float32(speechActivityQ8)*(1.0/256.0)
 	// Initial estimate for coding quality to match recursive dependency in libopus
-	initialCodingQuality := Sigmoid(0.25 * (float32(snrDB) - 20.0))
+	initialCodingQuality := Sigmoid(0.25 * (snrDB - 20.0))
 	if !e.useCBR {
-		SNRAdjDB -= bgSNRDecrDB * float64(initialCodingQuality) * (0.5 + 0.5*float64(inputQuality)) * b * b
+		SNRAdjDB -= float32(bgSNRDecrDB) * initialCodingQuality * (0.5 + 0.5*inputQuality) * b * b
 	}
 	if signalType == typeVoiced {
-		SNRAdjDB += harmSNRIncrDB * float64(e.ltpCorr)
+		SNRAdjDB += float32(harmSNRIncrDB) * e.ltpCorr
 	} else {
-		SNRAdjDB += (-0.4*snrDB + 6.0) * (1.0 - float64(inputQuality))
+		SNRAdjDB += (-0.4*snrDB + 6.0) * (1.0 - inputQuality)
 	}
 
 	params := e.noiseShapeState.ComputeNoiseShapeParams(
@@ -69,7 +70,7 @@ func (e *Encoder) noiseShapeAnalysis(
 		speechActivityQ8,
 		e.ltpCorr,
 		pitchLags,
-		snrDB,
+		float64(snrDB),
 		quantOffsetType,
 		inputQualityBandsQ15,
 		numSubframes,
@@ -127,19 +128,26 @@ func computeSparsenessQuantOffset(pitchRes []float64, start, fsKHz, numSubframes
 		nSegs = maxSegs
 	}
 
-	energyVariation := 0.0
-	logEnergyPrev := 0.0
+	// Match libopus: nrg, log_energy, log_energy_prev, energy_variation are all silk_float (float32).
+	energyVariation := float32(0)
+	logEnergyPrev := float32(0)
 	for k := 0; k < nSegs; k++ {
 		seg := pitchResFrame[k*nSamples : (k+1)*nSamples]
-		nrg := float64(nSamples) + energyF64(seg, nSamples)
-		logEnergy := math.Log2(nrg)
+		// libopus: nrg = (silk_float)nSamples + (silk_float)silk_energy_FLP(...)
+		nrg := float32(nSamples) + float32(energyF64(seg, nSamples))
+		// libopus: silk_log2() returns silk_float = (silk_float)(3.32192809488736 * log10(x))
+		logEnergy := float32(3.32192809488736 * math.Log10(float64(nrg)))
 		if k > 0 {
-			energyVariation += math.Abs(logEnergy - logEnergyPrev)
+			diff := logEnergy - logEnergyPrev
+			if diff < 0 {
+				diff = -diff
+			}
+			energyVariation += diff
 		}
 		logEnergyPrev = logEnergy
 	}
 
-	threshold := energyVariationThresholdQntOffset * float64(nSegs-1)
+	threshold := float32(energyVariationThresholdQntOffset) * float32(nSegs-1)
 	if energyVariation > threshold {
 		return 0, true
 	}
@@ -151,7 +159,7 @@ func (e *Encoder) computeShapingARAndGains(
 	numSubframes int,
 	subframeSamples int,
 	lpcPredGain float64,
-	SNRAdjDB float64,
+	SNRAdjDB float32,
 	signalType int,
 	speechActivityQ8 int,
 	codingQuality float32,
@@ -237,8 +245,8 @@ func (e *Encoder) computeShapingARAndGains(
 
 	// Bandwidth expansion and warping in float32 precision to mirror libopus FLP behavior.
 	strengthF32 := float32(findPitchWhiteNoiseFraction) * float32(lpcPredGain)
-	BWExp := float64(float32(bandwidthExpansion) / (1.0 + strengthF32*strengthF32))
-	warping := float64(float32(float32(e.warpingQ16)/65536.0 + 0.01*codingQuality))
+	BWExp := float32(bandwidthExpansion) / (1.0 + strengthF32*strengthF32)
+	warping := float32(e.warpingQ16)/65536.0 + 0.01*codingQuality
 
 	flatPart := fsKHz * 3
 	slopePart := (shapeWinLength - flatPart) / 2
@@ -250,7 +258,6 @@ func (e *Encoder) computeShapingARAndGains(
 	autoCorr := ensureFloat32Slice(&e.scratchPitchAuto32, shapeOrder+1)
 	rc := ensureFloat32Slice(&e.scratchPitchRefl32, shapeOrder+1)
 	ar := ensureFloat32Slice(&e.scratchPitchA32, shapeOrder)
-	ar64 := ensureFloat64Slice(&e.scratchShapeAr, shapeOrder)
 
 	for k := 0; k < numSubframes; k++ {
 		offset := k * subframeSamples
@@ -265,7 +272,7 @@ func (e *Encoder) computeShapingARAndGains(
 		}
 
 		if e.warpingQ16 > 0 {
-			warpedAutocorrelationFLP32(autoCorr, rc, win, float32(warping), shapeWinLength, shapeOrder)
+			warpedAutocorrelationFLP32(autoCorr, rc, win, warping, shapeWinLength, shapeOrder)
 		} else {
 			autocorrelationF32(autoCorr, win, shapeWinLength, shapeOrder+1)
 		}
@@ -283,35 +290,30 @@ func (e *Encoder) computeShapingARAndGains(
 			g = float32(math.Sqrt(float64(nrg)))
 		}
 
-		for i := 0; i < shapeOrder; i++ {
-			ar64[i] = float64(ar[i])
-		}
 		if e.warpingQ16 > 0 {
-			g *= float32(warpedGain(ar64, warping, shapeOrder))
+			g *= warpedGainF32(ar, warping, shapeOrder)
 		}
 
-		bwexpanderF32(ar, shapeOrder, float32(BWExp))
-		for i := 0; i < shapeOrder; i++ {
-			ar64[i] = float64(ar[i])
-		}
+		bwexpanderF32(ar, shapeOrder, BWExp)
 		if e.warpingQ16 > 0 {
-			warpedTrue2MonicCoefs(ar64, warping, shapeCoefLimit, shapeOrder)
+			warpedTrue2MonicCoefsF32(ar, warping, float32(shapeCoefLimit), shapeOrder)
 		} else {
-			limitCoefs(ar64, shapeCoefLimit, shapeOrder)
+			limitCoefsF32(ar, float32(shapeCoefLimit), shapeOrder)
 		}
 
 		gains[k] = g
 		base := k * maxShapeLpcOrder
 		for i := 0; i < shapeOrder; i++ {
-			arShpQ13[base+i] = floatToInt16(ar64[i] * 8192.0)
+			// Match libopus: silk_float2int(AR[i] * 8192.0f) - multiply in float32.
+			arShpQ13[base+i] = int16(float64ToInt32Round(float64(ar[i] * 8192.0)))
 		}
 		for i := shapeOrder; i < maxShapeLpcOrder; i++ {
 			arShpQ13[base+i] = 0
 		}
 	}
 
-	snrAdjF32 := float32(SNRAdjDB)
-	gainMult := float32(math.Pow(2.0, float64(-0.16*snrAdjF32)))
+	// Match libopus: gain_mult = (silk_float)pow(2.0f, -0.16f * SNR_adj_dB)
+	gainMult := float32(math.Pow(2.0, float64(-0.16*SNRAdjDB)))
 	gainAdd := float32(math.Pow(2.0, float64(0.16*float32(minQGainDb))))
 	for k := 0; k < numSubframes; k++ {
 		gains[k] = gains[k]*gainMult + gainAdd
@@ -407,6 +409,19 @@ func warpedGain(coefs []float64, lambda float64, order int) float64 {
 	return 1.0 / (1.0 - lambda*gain)
 }
 
+// warpedGainF32 matches libopus warped_gain() which operates in silk_float (float32).
+func warpedGainF32(coefs []float32, lambda float32, order int) float32 {
+	lambda = -lambda
+	if order <= 0 {
+		return 1.0
+	}
+	gain := coefs[order-1]
+	for i := order - 2; i >= 0; i-- {
+		gain = lambda*gain + coefs[i]
+	}
+	return 1.0 / (1.0 - lambda*gain)
+}
+
 func warpedTrue2MonicCoefs(coefs []float64, lambda, limit float64, order int) {
 	if order <= 0 {
 		return
@@ -454,6 +469,57 @@ func warpedTrue2MonicCoefs(coefs []float64, lambda, limit float64, order int) {
 	}
 }
 
+// warpedTrue2MonicCoefsF32 matches libopus warped_true2monic_coefs() in silk_float (float32).
+func warpedTrue2MonicCoefsF32(coefs []float32, lambda, limit float32, order int) {
+	if order <= 0 {
+		return
+	}
+	for i := order - 1; i > 0; i-- {
+		coefs[i-1] -= lambda * coefs[i]
+	}
+	gain := (1.0 - lambda*lambda) / (1.0 + lambda*coefs[0])
+	for i := 0; i < order; i++ {
+		coefs[i] *= gain
+	}
+
+	for iter := 0; iter < 10; iter++ {
+		maxabs := float32(-1.0)
+		ind := 0
+		for i := 0; i < order; i++ {
+			tmp := coefs[i]
+			if tmp < 0 {
+				tmp = -tmp
+			}
+			if tmp > maxabs {
+				maxabs = tmp
+				ind = i
+			}
+		}
+		if maxabs <= limit {
+			return
+		}
+
+		for i := 1; i < order; i++ {
+			coefs[i-1] += lambda * coefs[i]
+		}
+		gain = 1.0 / gain
+		for i := 0; i < order; i++ {
+			coefs[i] *= gain
+		}
+
+		chirp := 0.99 - (0.8+0.1*float32(iter))*(maxabs-limit)/(maxabs*float32(ind+1))
+		bwexpanderF32(coefs, order, chirp)
+
+		for i := order - 1; i > 0; i-- {
+			coefs[i-1] -= lambda * coefs[i]
+		}
+		gain = (1.0 - lambda*lambda) / (1.0 + lambda*coefs[0])
+		for i := 0; i < order; i++ {
+			coefs[i] *= gain
+		}
+	}
+}
+
 func limitCoefs(coefs []float64, limit float64, order int) {
 	if order <= 0 {
 		return
@@ -473,6 +539,32 @@ func limitCoefs(coefs []float64, limit float64, order int) {
 		}
 		chirp := 0.99 - (0.8+0.1*float64(iter))*(maxabs-limit)/(maxabs*float64(ind+1))
 		bwexpanderFLP(coefs, order, chirp)
+	}
+}
+
+// limitCoefsF32 matches libopus limit_coefs() in silk_float (float32).
+func limitCoefsF32(coefs []float32, limit float32, order int) {
+	if order <= 0 {
+		return
+	}
+	for iter := 0; iter < 10; iter++ {
+		maxabs := float32(-1.0)
+		ind := 0
+		for i := 0; i < order; i++ {
+			tmp := coefs[i]
+			if tmp < 0 {
+				tmp = -tmp
+			}
+			if tmp > maxabs {
+				maxabs = tmp
+				ind = i
+			}
+		}
+		if maxabs <= limit {
+			return
+		}
+		chirp := 0.99 - (0.8+0.1*float32(iter))*(maxabs-limit)/(maxabs*float32(ind+1))
+		bwexpanderF32(coefs, order, chirp)
 	}
 }
 

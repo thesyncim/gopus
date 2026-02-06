@@ -118,3 +118,7 @@ func captureLibopusOpusNSQStateBeforeFrame(_ []float32, _, _, _, _, _ int) (libo
 func captureLibopusOpusNSQInputsAtFrame(_ []float32, _, _, _, _, _ int) (libopusOpusNSQInputSnapshot, bool) {
 	return libopusOpusNSQInputSnapshot{}, false
 }
+
+func captureLibopusOpusNSQInputsAtFrameInt16(_ []int16, _, _, _, _, _ int) (libopusOpusNSQInputSnapshot, bool) {
+	return libopusOpusNSQInputSnapshot{}, false
+}

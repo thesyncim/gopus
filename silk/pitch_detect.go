@@ -110,7 +110,7 @@ var pitchCBLagsStage310msSlice = [][]int8{
 // PitchAnalysisState holds state for pitch analysis across frames
 type PitchAnalysisState struct {
 	prevLag int     // Previous frame's pitch lag
-	ltpCorr float64 // LTP correlation from previous frame
+	ltpCorr float32 // LTP correlation from previous frame (silk_float in libopus)
 }
 
 type pitchEncodeParams struct {
@@ -538,7 +538,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		if prevLag > 0 {
 			deltaLagLog2Sqr := lagLog2 - prevLagLog2
 			deltaLagLog2Sqr *= deltaLagLog2Sqr
-			CCmaxNewB -= float32(pePrevlagBias) * float32(numSubframes) * float32(e.pitchState.ltpCorr) *
+			CCmaxNewB -= float32(pePrevlagBias) * float32(numSubframes) * e.pitchState.ltpCorr *
 				deltaLagLog2Sqr / (deltaLagLog2Sqr + 0.5)
 		}
 		if CCmaxNewB > CCmaxBStage2 && CCmaxNew > float32(numSubframes)*float32(searchThres2) {
@@ -561,7 +561,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 
 	// Update LTP correlation
 	if lag > 0 {
-		e.pitchState.ltpCorr = float64(CCmaxStage2 / float32(numSubframes))
+		e.pitchState.ltpCorr = CCmaxStage2 / float32(numSubframes)
 	}
 	// Stage 3: Fine search at full rate (if not 8kHz) - use scratch buffer
 	pitchLags := ensureIntSlice(&e.scratchPitchLags, numSubframes)

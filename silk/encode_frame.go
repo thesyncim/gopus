@@ -28,6 +28,12 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	// standalone packets, so bitsBalance only applies to already-encoded
 	// frames within the current packet.
 	useSharedEncoder := e.rangeEncoder != nil
+	// Save nFramesEncoded before the standalone reset.  The libopus "before
+	// frame i" snapshot is taken after opus_encode_float(i-1) returns (where
+	// nFramesEncoded was incremented to 1) but before opus_encode_float(i)
+	// starts (which resets it to 0 inside silk_Encode).  We capture the
+	// pre-reset value here so the FramePre trace matches libopus.
+	preResetNFramesEncoded := e.nFramesEncoded
 	if !useSharedEncoder {
 		e.ResetPacketState()
 		e.nFramesPerPacket = 1
@@ -55,7 +61,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		tr.SNRDBQ7 = e.snrDBQ7
 		tr.NBitsExceeded = e.nBitsExceeded
 		tr.NFramesPerPacket = e.nFramesPerPacket
-		tr.NFramesEncoded = e.nFramesEncoded
+		tr.NFramesEncoded = preResetNFramesEncoded
 		tr.PrevLag = e.pitchState.prevLag
 		tr.PrevSignalType = e.ecPrevSignalType
 		tr.LTPCorr = e.ltpCorr
@@ -91,10 +97,26 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		}
 	}
 
+	// Match libopus silk/control_codec.c: when fs_kHz changes (including on the
+	// very first call, since fs_kHz starts at 0 after memset-init), the encoder
+	// resets sShape.LastGainIndex to 10, sNSQ.lagPrev to 100, etc.  In gopus
+	// the constructor leaves previousGainIndex at 0 (matching silk_init_encoder's
+	// memset), and we apply the control_encoder initialization here so the FramePre
+	// trace captures the pre-control_encoder state (0) while the actual encoding
+	// uses the post-control_encoder state (10).
+	if firstFrameAfterReset {
+		e.previousGainIndex = 10
+	}
+
 	// Update target SNR based on configured bitrate and frame size.
+	// Matches libopus silk/enc_API.c rate control logic (lines 411-443).
 	if e.targetRateBps > 0 {
 		// Total target bits for packet
 		nBits := (e.targetRateBps * payloadSizeMs) / 1000
+
+		// Subtract bits used for LBRR (exponential moving average).
+		// Matches libopus enc_API.c line 425: nBits -= psEnc->nBitsUsedLBRR;
+		nBits -= e.nBitsUsedLBRR
 
 		// Divide by number of uncoded frames left in packet
 		nBits /= e.nFramesPerPacket
@@ -107,12 +129,15 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			targetRate = nBits * 50
 		}
 
-		// Bit reservoir logic from libopus silk/enc_API.c:
+		// Subtract fraction of bits in excess of target in previous packets.
+		// Matches libopus enc_API.c line 436.
 		targetRate -= (e.nBitsExceeded * 1000) / 500
 
-		// Compare actual vs target bits so far in this packet (bitsBalance)
+		// Compare actual vs target bits so far in this packet (bitsBalance).
+		// Matches libopus enc_API.c lines 437-440:
+		//   bitsBalance = ec_tell(psRangeEnc) - psEnc->nBitsUsedLBRR - nBits * nFramesEncoded
 		if e.nFramesEncoded > 0 && e.rangeEncoder != nil {
-			bitsBalance := e.rangeEncoder.Tell() - nBits*e.nFramesEncoded
+			bitsBalance := e.rangeEncoder.Tell() - e.nBitsUsedLBRR - nBits*e.nFramesEncoded
 			targetRate -= (bitsBalance * 1000) / 500
 		}
 
@@ -208,15 +233,19 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	predGainQ7 := int32(0)
 	residual, residual32, resStart, _ := e.computePitchResidual(numSubframes)
 	if signalType != typeNoVoiceActivity {
-		searchThres1 := float64(e.pitchEstimationThresholdQ16) / 65536.0
+		// Match libopus: search_thres1 = pitchEstimationThreshold_Q16 / 65536.0f — silk_float.
+		searchThres1 := float64(float32(e.pitchEstimationThresholdQ16) / 65536.0)
 		prevSignalType := 0
 		if e.isPreviousFrameVoiced {
 			prevSignalType = 2
 		}
-		thrhld := 0.6 - 0.004*float64(e.pitchEstimationLPCOrder) -
-			0.1*float64(speechActivityQ8)/256.0 -
-			0.15*float64(prevSignalType>>1) -
-			0.1*float64(e.inputTiltQ15)/32768.0
+		// Match libopus find_pitch_lags_FLP: thrhld is silk_float (float32).
+		thrhldF32 := float32(0.6)
+		thrhldF32 -= float32(0.004) * float32(e.pitchEstimationLPCOrder)
+		thrhldF32 -= float32(0.1) * float32(speechActivityQ8) * (1.0 / 256.0)
+		thrhldF32 -= float32(0.15) * float32(prevSignalType>>1)
+		thrhldF32 -= float32(0.1) * float32(e.inputTiltQ15) * (1.0 / 32768.0)
+		thrhld := float64(thrhldF32)
 		rawThrhld := thrhld
 		if thrhld < 0 {
 			thrhld = 0
@@ -262,9 +291,9 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 				tr.PitchLags = append(tr.PitchLags[:0], pitchLags...)
 				tr.LagIndex = lagIndex
 				tr.Contour = contourIndex
-				tr.LTPCorr = float32(e.pitchState.ltpCorr)
+				tr.LTPCorr = e.pitchState.ltpCorr
 			}
-			e.ltpCorr = float32(e.pitchState.ltpCorr)
+			e.ltpCorr = e.pitchState.ltpCorr
 			if e.ltpCorr > 1.0 {
 				e.ltpCorr = 1.0
 			}
@@ -782,7 +811,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		tr.SNRDBQ7 = e.snrDBQ7
 		tr.NBitsExceeded = e.nBitsExceeded
 		tr.NFramesPerPacket = e.nFramesPerPacket
-		tr.NFramesEncoded = e.nFramesEncoded
+		// Use nFramesEncoded+1 to match libopus capture timing: the libopus
+		// "after frame i" snapshot is taken after opus_encode_float returns,
+		// where nFramesEncoded has already been incremented.
+		tr.NFramesEncoded = e.nFramesEncoded + 1
 		for i := 0; i < maxNbSubfr; i++ {
 			tr.GainIndices[i] = frameIndices.GainsIndices[i]
 			tr.PitchL[i] = 0
@@ -839,20 +871,11 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	e.lastRng = e.rangeEncoder.Range()
 
 	if useSharedEncoder {
-		// Update nBitsExceeded for the shared (hybrid) encoder path.
-		// In libopus enc_API.c:555-557, this update happens after the encode
-		// loop regardless of standalone vs hybrid mode.  We do NOT call Done()
-		// here because the hybrid caller manages the shared range encoder.
-		if e.targetRateBps > 0 && payloadSizeMs > 0 {
-			nBytesOut := (e.rangeEncoder.Tell() + 7) >> 3
-			e.nBitsExceeded += nBytesOut * 8
-			e.nBitsExceeded -= (e.targetRateBps * payloadSizeMs) / 1000
-			if e.nBitsExceeded < 0 {
-				e.nBitsExceeded = 0
-			} else if e.nBitsExceeded > 10000 {
-				e.nBitsExceeded = 10000
-			}
-		}
+		// In libopus, nBitsExceeded is only updated once per packet at the
+		// enc_API.c level (lines 555-557), after all frames in the packet are
+		// encoded.  The per-frame encode function does NOT update nBitsExceeded.
+		// The packet-level caller (EncodePacketWithFEC or hybrid encoder) is
+		// responsible for the nBitsExceeded update.
 		return nil
 	}
 
@@ -971,7 +994,9 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 		if e.speechActivitySet {
 			inputQualityBandsQ15 = e.inputQualityBandsQ15
 		}
-		noiseParams = e.noiseShapeState.ComputeNoiseShapeParams(signalType, speechActivityQ8, e.ltpCorr, pitchLags, float64(e.snrDBQ7)/128.0, quantOffset, inputQualityBandsQ15, numSubframes, fsKHz, e.nStatesDelayedDecision)
+		// Match libopus: SNR_dB = (silk_float)psEnc->sCmn.SNR_dB_Q7 * ( 1 / 128.0f ) — float32.
+		snrDB := float32(e.snrDBQ7) * (1.0 / 128.0)
+		noiseParams = e.noiseShapeState.ComputeNoiseShapeParams(signalType, speechActivityQ8, e.ltpCorr, pitchLags, float64(snrDB), quantOffset, inputQualityBandsQ15, numSubframes, fsKHz, e.nStatesDelayedDecision)
 	}
 	harmShapeGainQ14 := ensureIntSlice(&e.scratchHarmShapeGainQ14, numSubframes)
 	tiltQ14 := ensureIntSlice(&e.scratchTiltQ14, numSubframes)

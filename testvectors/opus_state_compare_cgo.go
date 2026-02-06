@@ -27,3 +27,7 @@ func captureLibopusOpusNSQStateBeforeFrame(samples []float32, sampleRate, channe
 func captureLibopusOpusNSQInputsAtFrame(samples []float32, sampleRate, channels, bitrate, frameSize, frameIndex int) (libopusOpusNSQInputSnapshot, bool) {
 	return cgowrap.CaptureOpusNSQInputsAtFrame(samples, sampleRate, channels, bitrate, frameSize, frameIndex)
 }
+
+func captureLibopusOpusNSQInputsAtFrameInt16(samplesInt16 []int16, sampleRate, channels, bitrate, frameSize, frameIndex int) (libopusOpusNSQInputSnapshot, bool) {
+	return cgowrap.CaptureOpusNSQInputsAtFrameInt16(samplesInt16, sampleRate, channels, bitrate, frameSize, frameIndex)
+}

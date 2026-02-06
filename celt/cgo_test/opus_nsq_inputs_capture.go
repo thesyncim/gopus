@@ -215,6 +215,81 @@ static int test_capture_opus_nsq_inputs_frame(
     opus_encoder_destroy(enc);
     return 0;
 }
+
+// Capture NSQ inputs using opus_encode24 with int16 samples (matches opus_demo -16 path).
+static int test_capture_opus_nsq_inputs_frame_int16(
+    const opus_int16 *samples_int16,
+    int total_samples,
+    int sample_rate,
+    int channels,
+    int bitrate,
+    int frame_size,
+    int frame_index,
+    opus_nsq_input_snapshot *out
+) {
+    int err = OPUS_OK;
+    int i;
+    unsigned char packet[1500];
+    opus_int32 in24[960*2]; // max frame size * max channels
+
+    OpusEncoder *enc = opus_encoder_create(sample_rate, channels, OPUS_APPLICATION_RESTRICTED_SILK, &err);
+    if (err != OPUS_OK || !enc) {
+        return -1;
+    }
+
+    opus_encoder_ctl(enc, OPUS_SET_BITRATE(bitrate));
+    opus_encoder_ctl(enc, OPUS_SET_BANDWIDTH(OPUS_BANDWIDTH_WIDEBAND));
+    opus_encoder_ctl(enc, OPUS_SET_COMPLEXITY(10));
+    opus_encoder_ctl(enc, OPUS_SET_INBAND_FEC(0));
+    opus_encoder_ctl(enc, OPUS_SET_DTX(0));
+    opus_encoder_ctl(enc, OPUS_SET_VBR(1));
+    opus_encoder_ctl(enc, OPUS_SET_LSB_DEPTH(16));
+
+    {
+        const int samples_per_frame = frame_size * channels;
+        const int n_frames = total_samples / samples_per_frame;
+        if (samples_per_frame <= 0 || samples_per_frame > 960*2) {
+            opus_encoder_destroy(enc);
+            return -2;
+        }
+        if (frame_index < 0 || frame_index >= n_frames) {
+            opus_encoder_destroy(enc);
+            return -3;
+        }
+
+        memset(&g_nsq_input_snapshot, 0, sizeof(g_nsq_input_snapshot));
+        g_nsq_input_target_frame = frame_index;
+        g_nsq_input_current_frame = -1;
+
+        for (i = 0; i <= frame_index; i++) {
+            const opus_int16 *frame = samples_int16 + i * samples_per_frame;
+            int j, n;
+            // Convert int16 to int32 * 256 (opus_demo -16 path)
+            for (j = 0; j < samples_per_frame; j++) {
+                in24[j] = (opus_int32)frame[j] * 256;
+            }
+            g_nsq_input_current_frame = i;
+            n = opus_encode24(enc, in24, frame_size, packet, (opus_int32)sizeof(packet));
+            g_nsq_input_current_frame = -1;
+            if (n < 0) {
+                g_nsq_input_target_frame = -1;
+                opus_encoder_destroy(enc);
+                return -4;
+            }
+        }
+    }
+
+    g_nsq_input_target_frame = -1;
+    if (!g_nsq_input_snapshot.valid) {
+        opus_encoder_destroy(enc);
+        return -5;
+    }
+    if (out) {
+        *out = g_nsq_input_snapshot;
+    }
+    opus_encoder_destroy(enc);
+    return 0;
+}
 */
 import "C"
 
@@ -363,4 +438,113 @@ func CaptureOpusNSQInputsAtFrame(samples []float32, sampleRate, channels, bitrat
 		GainsQ16:               gains,
 		PitchL:                 pitch,
 	}, true
+}
+
+// CaptureOpusNSQInputsAtFrameInt16 captures NSQ inputs using opus_encode24 with int16 samples.
+// This matches the opus_demo -16 encode path exactly.
+func CaptureOpusNSQInputsAtFrameInt16(samplesInt16 []int16, sampleRate, channels, bitrate, frameSize, frameIndex int) (OpusNSQInputSnapshot, bool) {
+	if len(samplesInt16) == 0 || frameSize <= 0 || channels <= 0 || frameIndex < 0 {
+		return OpusNSQInputSnapshot{}, false
+	}
+	var out C.opus_nsq_input_snapshot
+	ret := C.test_capture_opus_nsq_inputs_frame_int16(
+		(*C.opus_int16)(unsafe.Pointer(&samplesInt16[0])),
+		C.int(len(samplesInt16)),
+		C.int(sampleRate),
+		C.int(channels),
+		C.int(bitrate),
+		C.int(frameSize),
+		C.int(frameIndex),
+		&out,
+	)
+	if ret != 0 {
+		return OpusNSQInputSnapshot{}, false
+	}
+	return snapshotFromC(&out), true
+}
+
+func snapshotFromC(out *C.opus_nsq_input_snapshot) OpusNSQInputSnapshot {
+	frameLen := int(out.frame_length)
+	if frameLen < 0 {
+		frameLen = 0
+	}
+	if frameLen > opusNSQInputMaxFrameLength {
+		frameLen = opusNSQInputMaxFrameLength
+	}
+	numSubfr := int(out.nb_subfr)
+	if numSubfr < 0 {
+		numSubfr = 0
+	}
+	if numSubfr > opusNSQInputMaxSubfr {
+		numSubfr = opusNSQInputMaxSubfr
+	}
+
+	x16 := make([]int16, frameLen)
+	pred := make([]int16, opusNSQInputPredCoefLen)
+	ltp := make([]int16, opusNSQInputLTPCoefLen)
+	ar := make([]int16, opusNSQInputARLen)
+	harm := make([]int, numSubfr)
+	tilt := make([]int, numSubfr)
+	lf := make([]int32, numSubfr)
+	gains := make([]int32, numSubfr)
+	pitch := make([]int, numSubfr)
+
+	x16C := unsafe.Slice((*C.opus_int16)(unsafe.Pointer(&out.x16[0])), frameLen)
+	predC := unsafe.Slice((*C.opus_int16)(unsafe.Pointer(&out.pred_coef_q12[0])), opusNSQInputPredCoefLen)
+	ltpC := unsafe.Slice((*C.opus_int16)(unsafe.Pointer(&out.ltp_coef_q14[0])), opusNSQInputLTPCoefLen)
+	arC := unsafe.Slice((*C.opus_int16)(unsafe.Pointer(&out.ar_q13[0])), opusNSQInputARLen)
+	harmC := unsafe.Slice((*C.opus_int)(unsafe.Pointer(&out.harm_shape_gain_q14[0])), numSubfr)
+	tiltC := unsafe.Slice((*C.opus_int)(unsafe.Pointer(&out.tilt_q14[0])), numSubfr)
+	lfC := unsafe.Slice((*C.opus_int32)(unsafe.Pointer(&out.lf_shp_q14[0])), numSubfr)
+	gainsC := unsafe.Slice((*C.opus_int32)(unsafe.Pointer(&out.gains_q16[0])), numSubfr)
+	pitchC := unsafe.Slice((*C.opus_int)(unsafe.Pointer(&out.pitch_l[0])), numSubfr)
+
+	for i := 0; i < frameLen; i++ {
+		x16[i] = int16(x16C[i])
+	}
+	for i := 0; i < opusNSQInputPredCoefLen; i++ {
+		pred[i] = int16(predC[i])
+	}
+	for i := 0; i < opusNSQInputLTPCoefLen; i++ {
+		ltp[i] = int16(ltpC[i])
+	}
+	for i := 0; i < opusNSQInputARLen; i++ {
+		ar[i] = int16(arC[i])
+	}
+	for i := 0; i < numSubfr; i++ {
+		harm[i] = int(harmC[i])
+		tilt[i] = int(tiltC[i])
+		lf[i] = int32(lfC[i])
+		gains[i] = int32(gainsC[i])
+		pitch[i] = int(pitchC[i])
+	}
+
+	return OpusNSQInputSnapshot{
+		EncodeFrame:            int(out.encode_frame),
+		CallsInFrame:           int(out.calls_in_frame),
+		FrameLength:            frameLen,
+		SubfrLength:            int(out.subfr_length),
+		NumSubframes:           numSubfr,
+		LTPMemLength:           int(out.ltp_mem_length),
+		PredLPCOrder:           int(out.pred_lpc_order),
+		ShapeLPCOrder:          int(out.shape_lpc_order),
+		WarpingQ16:             int(out.warping_q16),
+		NStatesDelayedDecision: int(out.n_states_delayed_decision),
+		SignalType:             int(out.signal_type),
+		QuantOffsetType:        int(out.quant_offset_type),
+		NLSFInterpCoefQ2:       int(out.nlsf_interp_coef_q2),
+		SeedIn:                 int(out.seed_in),
+		SeedOut:                int(out.seed_out),
+		LambdaQ10:              int(out.lambda_q10),
+		LTPScaleQ14:            int(out.ltp_scale_q14),
+		X16:                    x16,
+		PredCoefQ12:            pred,
+		LTPCoefQ14:             ltp,
+		ARQ13:                  ar,
+		HarmShapeGainQ14:       harm,
+		TiltQ14:                tilt,
+		LFShpQ14:               lf,
+		GainsQ16:               gains,
+		PitchL:                 pitch,
+	}
 }

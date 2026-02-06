@@ -144,6 +144,10 @@ func (e *Encoder) encodeLBRRData(re *rangecoding.Encoder, nChannels int, include
 		re.EncodeICDF16(0, iCDF, 8)
 	}
 
+	// Track LBRR bits: start measuring AFTER the VAD/FEC header reservation,
+	// matching libopus enc_API.c: curr_nBitsUsedLBRR = ec_tell(psRangeEnc);
+	lbrrBitsStart := re.Tell()
+
 	// Encode LBRR flags
 	lbrrSymbol := 0
 	for i := 0; i < e.nFramesPerPacket; i++ {
@@ -181,6 +185,17 @@ func (e *Encoder) encodeLBRRData(re *rangecoding.Encoder, nChannels int, include
 
 		// Encode LBRR pulses
 		e.encodeLBRRPulses(re, i)
+	}
+
+	// Update LBRR bits tracking (exponential moving average).
+	// Matches libopus enc_API.c lines 406-425.
+	currNBitsUsedLBRR := re.Tell() - lbrrBitsStart
+	if currNBitsUsedLBRR < 10 {
+		e.nBitsUsedLBRR = 0
+	} else if e.nBitsUsedLBRR < 10 {
+		e.nBitsUsedLBRR = currNBitsUsedLBRR
+	} else {
+		e.nBitsUsedLBRR = (e.nBitsUsedLBRR + currNBitsUsedLBRR) / 2
 	}
 
 	// Clear LBRR flags after encoding (they apply to the previous packet)

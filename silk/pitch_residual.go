@@ -175,7 +175,10 @@ func applySineWindowFLP32(pxWin, px []float32, winType, length int) {
 	if length == 0 || length&3 != 0 {
 		return
 	}
-	freq := float32(math.Pi / float64(length+1))
+	// Match libopus: freq = PI / (length + 1) where PI = 3.1415926536f (float32).
+	// Compute in float32 to match C float / float precision.
+	const piF32 = float32(3.1415926536)
+	freq := piF32 / float32(length+1)
 	// Approximation of 2 * cos(f)
 	c := float32(2.0) - freq*freq
 
@@ -353,7 +356,10 @@ func (e *Encoder) computePitchResidual(numSubframes int) ([]float64, []float32, 
 	resNrg := schurF32(refl, autoCorr, order)
 
 	// Prediction gain (matching libopus silk_find_pitch_lags_FLP)
-	e.lastLPCGain = float64(autoCorr[0]) / math.Max(float64(resNrg), 1.0)
+	// libopus: psEncCtrl->predGain = auto_corr[0] / silk_max_float(res_nrg, 1.0f)
+	// This is silk_float / silk_float = float32 division.
+	predGainF32 := autoCorr[0] / float32(math.Max(float64(resNrg), 1.0))
+	e.lastLPCGain = float64(predGainF32)
 
 	a := ensureFloat32Slice(&e.scratchPitchA32, order)
 	for i := range a {

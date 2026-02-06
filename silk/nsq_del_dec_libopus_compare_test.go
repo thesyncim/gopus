@@ -394,30 +394,34 @@ func TestRewhitenLTPMatchesLibopus(t *testing.T) {
 	xq := make([]int16, ltpMemLength+frameLength)
 	fillInt16(&rng, xq, -20000, 20000)
 
-	startIdx := 238
-	if startIdx <= 0 || startIdx >= ltpMemLength {
-		t.Fatalf("invalid startIdx=%d", startIdx)
-	}
-	length := ltpMemLength - startIdx
 	offsets := []int{0, 160}
 
 	aQ12 := make([]int16, order)
 	fillInt16(&rng, aQ12, -3000, 3000)
 
-	for _, offset := range offsets {
-		if startIdx+offset+length > len(xq) {
-			t.Fatalf("invalid offset=%d", offset)
+	for _, startIdx := range []int{0, 238} {
+		if startIdx < 0 || startIdx >= ltpMemLength {
+			t.Fatalf("invalid startIdx=%d", startIdx)
 		}
-		sLTP := make([]int16, ltpMemLength+frameLength)
-		rewhitenLTP(sLTP, xq, startIdx, offset, aQ12, length, order)
+		length := ltpMemLength - startIdx
+		if length < order {
+			t.Fatalf("invalid length for startIdx=%d", startIdx)
+		}
+		for _, offset := range offsets {
+			if startIdx+offset+length > len(xq) {
+				t.Fatalf("invalid offset=%d", offset)
+			}
+			sLTP := make([]int16, ltpMemLength+frameLength)
+			rewhitenLTP(sLTP, xq, startIdx, offset, aQ12, length, order)
 
-		libOut := cgowrap.SilkLPCAnalysisFilter(xq[startIdx+offset:], aQ12, length, order)
+			libOut := cgowrap.SilkLPCAnalysisFilter(xq[startIdx+offset:], aQ12, length, order)
 
-		for i := 0; i < length; i++ {
-			got := sLTP[startIdx+i]
-			want := libOut[i]
-			if got != want {
-				t.Fatalf("rewhiten mismatch (offset=%d) at %d: go=%d lib=%d", offset, i, got, want)
+			for i := 0; i < length; i++ {
+				got := sLTP[startIdx+i]
+				want := libOut[i]
+				if got != want {
+					t.Fatalf("rewhiten mismatch (start=%d offset=%d) at %d: go=%d lib=%d", startIdx, offset, i, got, want)
+				}
 			}
 		}
 	}
