@@ -357,7 +357,7 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 		lpcOrder:          config.LPCOrder,
 		// Keep reset parity with libopus.
 		pitchState:               PitchAnalysisState{prevLag: 0},
-		snrDBQ7:                  25 * 128, // Default: 25 dB SNR target
+		snrDBQ7:                  0, // Match libopus zero-initialization (silk_init_encoder memset 0)
 		lastControlTargetRateBps: 0,
 		nFramesPerPacket:         1, // Default: 1 frame per packet (20ms)
 		lbrrPulses:               lbrrPulses,
@@ -366,6 +366,10 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 	}
 	enc.SetComplexity(10)
 	enc.stereo.smthWidthQ14 = 16384
+	// Set default bitrate matching libopus (opus_encoder.c: silk_mode.bitRate = 25000).
+	// This ensures controlSNR is called on the first frame, matching libopus behavior
+	// where silk_control_SNR is always invoked before encoding.
+	enc.targetRateBps = 25000
 	return enc
 }
 
@@ -379,6 +383,7 @@ func (e *Encoder) Reset() {
 	e.ecPrevSignalType = 0
 	e.targetRateBps = 0
 	e.lastControlTargetRateBps = 0
+	e.snrDBQ7 = 0
 	e.sumLogGainQ7 = 0
 
 	for i := range e.prevLSFQ15 {

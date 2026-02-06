@@ -31,7 +31,11 @@ func TestDiagnosticRoundTrip(t *testing.T) {
 
     t.Logf("\n=== ENCODED ===")
     t.Logf("Encoded bytes: %d", len(encoded))
-    t.Logf("First 10 bytes: %v", encoded[:10])
+    showN := len(encoded)
+    if showN > 10 {
+        showN = 10
+    }
+    t.Logf("First %d bytes: %v", showN, encoded[:showN])
 
     // Decode
     decoder := NewDecoder()
