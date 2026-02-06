@@ -510,8 +510,13 @@ func (e *Encoder) dcReject(in []float64, frameSize int) []float64 {
 	channels := e.channels
 	n := frameSize * channels
 	out := e.ensureDCPCM(n)
-	const coef = float32(0.00039375)
-	const coef2 = float32(1.0) - coef
+	fs := e.sampleRate
+	if fs <= 0 {
+		fs = 48000
+	}
+	// Match libopus dc_reject(): coef = 6.3f * cutoff_Hz / Fs (float math).
+	coef := float32(6.3) * float32(3) / float32(fs)
+	coef2 := float32(1.0) - coef
 	const verySmall = float32(1e-30)
 	if channels == 2 {
 		m0 := e.hpMem[0]
