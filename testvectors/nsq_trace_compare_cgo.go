@@ -108,21 +108,54 @@ func compareNSQTraceWithLibopus(tr silk.NSQTrace) string {
 		}
 	}
 
-	_, _, _, libSLTPQ15, libSLTPRaw, libDelayedGain := cgowrap.SilkNSQDelDecCaptureSLTPQ15(
-		tr.FrameLength, tr.SubfrLength, tr.NbSubfr, tr.LTPMemLength,
-		tr.PredLPCOrder, tr.ShapeLPCOrder, tr.WarpingQ16, tr.NStatesDelayedDecision,
-		tr.SignalType, tr.QuantOffsetType, tr.NLSFInterpCoefQ2, tr.SeedIn,
-		tr.InputQ0,
-		tr.PredCoefQ12,
-		tr.LTPCoefQ14,
-		tr.ARShpQ13,
-		tr.HarmShapeGainQ14,
-		tr.TiltQ14,
-		tr.LFShpQ14,
-		tr.GainsQ16,
-		tr.PitchL,
-		tr.LambdaQ10, tr.LTPScaleQ14,
-	)
+	var libSLTPQ15 []int32
+	var libSLTPRaw []int16
+	var libDelayedGain []int32
+	if len(tr.NSQXQ) > 0 && len(tr.NSQSLTPShpQ14) > 0 && len(tr.NSQLPCQ14) > 0 && len(tr.NSQAR2Q14) > 0 {
+		_, _, _, libSLTPQ15, libSLTPRaw, libDelayedGain = cgowrap.SilkNSQDelDecCaptureWithState(
+			tr.FrameLength, tr.SubfrLength, tr.NbSubfr, tr.LTPMemLength,
+			tr.PredLPCOrder, tr.ShapeLPCOrder, tr.WarpingQ16, tr.NStatesDelayedDecision,
+			tr.SignalType, tr.QuantOffsetType, tr.NLSFInterpCoefQ2, tr.SeedIn,
+			tr.InputQ0,
+			tr.PredCoefQ12,
+			tr.LTPCoefQ14,
+			tr.ARShpQ13,
+			tr.HarmShapeGainQ14,
+			tr.TiltQ14,
+			tr.LFShpQ14,
+			tr.GainsQ16,
+			tr.PitchL,
+			tr.LambdaQ10, tr.LTPScaleQ14,
+			tr.NSQXQ,
+			tr.NSQSLTPShpQ14,
+			tr.NSQLPCQ14,
+			tr.NSQAR2Q14,
+			tr.NSQLFARQ14,
+			tr.NSQDiffQ14,
+			tr.NSQLagPrev,
+			tr.NSQSLTPBufIdx,
+			tr.NSQSLTPShpBufIdx,
+			tr.NSQRandSeed,
+			tr.NSQPrevGainQ16,
+			tr.NSQRewhiteFlag,
+		)
+	} else {
+		_, _, _, libSLTPQ15, libSLTPRaw, libDelayedGain = cgowrap.SilkNSQDelDecCaptureSLTPQ15(
+			tr.FrameLength, tr.SubfrLength, tr.NbSubfr, tr.LTPMemLength,
+			tr.PredLPCOrder, tr.ShapeLPCOrder, tr.WarpingQ16, tr.NStatesDelayedDecision,
+			tr.SignalType, tr.QuantOffsetType, tr.NLSFInterpCoefQ2, tr.SeedIn,
+			tr.InputQ0,
+			tr.PredCoefQ12,
+			tr.LTPCoefQ14,
+			tr.ARShpQ13,
+			tr.HarmShapeGainQ14,
+			tr.TiltQ14,
+			tr.LFShpQ14,
+			tr.GainsQ16,
+			tr.PitchL,
+			tr.LambdaQ10, tr.LTPScaleQ14,
+		)
+	}
 	libSLTPHash := hashInt32Slice(libSLTPQ15)
 	if tr.SLTPQ15Hash != 0 && tr.SLTPQ15Hash != libSLTPHash {
 		if idx, goVal, libVal, ok := firstInt32Diff(tr.SLTPQ15, libSLTPQ15); ok {

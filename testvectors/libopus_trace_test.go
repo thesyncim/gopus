@@ -414,6 +414,7 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 	var contourIndexDiff int
 	var seedDiff int
 	var gainMismatchLogged int
+	firstGainsIDMismatchFrame := -1
 	var prePrevLagDiff int
 	var prePrevSignalDiff int
 	var preNSQLagDiff int
@@ -935,10 +936,14 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 			ltpIndexCount++
 		}
 
+		nbSubfr := len(goParams.GainIndices)
+		goGainsID := gainsIDFromIndices(goParams.GainIndices, nbSubfr)
+		libGainsID := gainsIDFromIndices(libParams.GainIndices, nbSubfr)
+		if goGainsID != libGainsID && firstGainsIDMismatchFrame < 0 {
+			firstGainsIDMismatchFrame = i
+		}
+
 		if gainMismatchLogged < 5 {
-			nbSubfr := len(goParams.GainIndices)
-			goGainsID := gainsIDFromIndices(goParams.GainIndices, nbSubfr)
-			libGainsID := gainsIDFromIndices(libParams.GainIndices, nbSubfr)
 			if goGainsID != libGainsID {
 				t.Logf("Frame %d: GainsID mismatch: go=%d lib=%d", i, goGainsID, libGainsID)
 				t.Logf("  Decoded gains: go=%v lib=%v", goParams.GainIndices, libParams.GainIndices)
@@ -1149,6 +1154,9 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 	}
 	t.Logf("Signal type mismatches: %d/%d", signalTypeDiff, compareCount)
 	t.Logf("Seed mismatches: %d/%d", seedDiff, compareCount)
+	if firstGainsIDMismatchFrame >= 0 {
+		t.Logf("First GainsID mismatch frame: %d", firstGainsIDMismatchFrame)
+	}
 	t.Logf("Pre-state mismatches: prevLag=%d prevSignal=%d nsqLagPrev=%d nsqSLTPBufIdx=%d nsqSLTPShpBufIdx=%d nsqPrevGain=%d nsqSeed=%d nsqRewhite=%d nsqXQHash=%d nsqSLTPShpHash=%d nsqSLPCHash=%d nsqSAR2Hash=%d ecPrevLag=%d ecPrevSignal=%d inputRate=%d sumLogGain=%d targetRate=%d snr=%d nBitsExceeded=%d nFramesPerPacket=%d nFramesEncoded=%d lastGain=%d modeUseCBR=%d modeMaxBits=%d modeBitRate=%d pitchBufLen=%d pitchBufHash=%d pitchWinLen=%d pitchWinHash=%d",
 		prePrevLagDiff, prePrevSignalDiff, preNSQLagDiff, preNSQBufDiff, preNSQShpBufDiff, preNSQPrevGainDiff, preNSQSeedDiff, preNSQRewhiteDiff, preNSQXQHashDiff, preNSQSLTPShpHashDiff, preNSQSLPCHashDiff, preNSQSAR2HashDiff, preECPrevLagDiff, preECPrevSignalDiff, preInputRateDiff, preSumLogGainDiff, preTargetRateDiff, preSNRDiff, preNBitsExceededDiff, preNFramesPerPacketDiff, preNFramesEncodedDiff, preLastGainDiff, preModeUseCBRDiff, preModeMaxBitsDiff, preModeBitRateDiff, prePitchBufLenDiff, prePitchBufHashDiff, prePitchWinLenDiff, prePitchWinHashDiff)
 	t.Logf("Pre-NSQ top-level full-state diffs: xq=%d sLTP_shp=%d sLPC=%d sAR2=%d scalar=%d",
@@ -1168,6 +1176,11 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 	}
 	if prePitchWinHashDiff > 10 {
 		t.Fatalf("pre-state pitch window hash mismatches regressed: got %d/%d, want <= 10", prePitchWinHashDiff, compareCount)
+	}
+	// Regression guard: bit-reservoir accounting and gain-loop parity should not
+	// cause early gain-index divergence on this canonical WB signal.
+	if firstGainsIDMismatchFrame >= 0 && firstGainsIDMismatchFrame < 23 {
+		t.Fatalf("first GainsID mismatch regressed early: got frame %d, want >= 23", firstGainsIDMismatchFrame)
 	}
 }
 
