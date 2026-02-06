@@ -611,6 +611,8 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 					prePitchBufHashDiff++
 					if prePitchBufHashDiff <= 5 {
 						t.Logf("Frame %d pre-state pitch x_buf hash mismatch: go=%d lib=%d", i, pre.PitchBufHash, snapPre.PitchXBufHash)
+						t.Logf("Frame %d lib pre-state LP transition: mode=%d transitionFrame=%d state=[%d,%d]",
+							i, snapPre.LPMode, snapPre.LPTransitionFrame, snapPre.LPState0, snapPre.LPState1)
 					}
 					if prePitchBufHashDiff <= 3 {
 						if libPitchBuf, ok := captureLibopusOpusPitchXBufBeforeFrame(original, sampleRate, channels, bitrate, frameSize, i); ok {

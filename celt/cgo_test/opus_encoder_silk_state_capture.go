@@ -52,8 +52,14 @@ typedef struct {
     int target_rate_bps;
     int snr_db_q7;
     int n_bits_exceeded;
+    int lp_mode;
+    int lp_transition_frame_no;
+    int lp_state_0;
+    int lp_state_1;
     int gain_indices[4];
     int last_gain_index;
+    int frame_length;
+    int input_buf[MAX_FRAME_LENGTH + 2];
     unsigned long long nsq_xq_hash;
     unsigned long long nsq_sltp_shp_hash;
     unsigned long long nsq_slpc_hash;
@@ -146,11 +152,27 @@ static void fill_opus_silk_encoder_state_snapshot(OpusEncoder *enc, opus_silk_en
     out->target_rate_bps = st0->sCmn.TargetRate_bps;
     out->snr_db_q7 = st0->sCmn.SNR_dB_Q7;
     out->n_bits_exceeded = silk_enc->nBitsExceeded;
+    out->lp_mode = st0->sCmn.sLP.mode;
+    out->lp_transition_frame_no = st0->sCmn.sLP.transition_frame_no;
+    out->lp_state_0 = st0->sCmn.sLP.In_LP_State[0];
+    out->lp_state_1 = st0->sCmn.sLP.In_LP_State[1];
     out->gain_indices[0] = st0->sCmn.indices.GainsIndices[0];
     out->gain_indices[1] = st0->sCmn.indices.GainsIndices[1];
     out->gain_indices[2] = st0->sCmn.indices.GainsIndices[2];
     out->gain_indices[3] = st0->sCmn.indices.GainsIndices[3];
     out->last_gain_index = st0->sShape.LastGainIndex;
+    out->frame_length = st0->sCmn.frame_length;
+    {
+        int n = st0->sCmn.frame_length + 2;
+        if (n < 0) n = 0;
+        if (n > MAX_FRAME_LENGTH + 2) n = MAX_FRAME_LENGTH + 2;
+        for (int i = 0; i < n; i++) {
+            out->input_buf[i] = st0->sCmn.inputBuf[i];
+        }
+        for (int i = n; i < MAX_FRAME_LENGTH + 2; i++) {
+            out->input_buf[i] = 0;
+        }
+    }
     out->nsq_xq_hash = hash_int16_array(st0->sCmn.sNSQ.xq, 2 * MAX_FRAME_LENGTH);
     out->nsq_sltp_shp_hash = hash_int32_array(st0->sCmn.sNSQ.sLTP_shp_Q14, 2 * MAX_FRAME_LENGTH);
     out->nsq_slpc_hash = hash_int32_array(st0->sCmn.sNSQ.sLPC_Q14, MAX_SUB_FRAME_LENGTH + NSQ_LPC_BUF_LENGTH);
@@ -386,6 +408,12 @@ type OpusSilkEncoderStateSnapshot struct {
 	TargetRateBps     int
 	SNRDBQ7           int
 	NBitsExceeded     int
+	LPMode            int
+	LPTransitionFrame int
+	LPState0          int32
+	LPState1          int32
+	FrameLength       int
+	InputBufQ0        []int16
 	GainIndices       [4]int8
 	LastGainIndex     int
 	NSQXQHash         uint64
@@ -433,6 +461,25 @@ func captureOpusSilkEncoderStateAtFrame(samples []float32, sampleRate, channels,
 	if ret != 0 {
 		return OpusSilkEncoderStateSnapshot{}, false
 	}
+	frameLength := int(out.frame_length)
+	if frameLength < 0 {
+		frameLength = 0
+	}
+	maxFrameLength := int(C.MAX_FRAME_LENGTH)
+	if frameLength > maxFrameLength {
+		frameLength = maxFrameLength
+	}
+	inputBufLen := frameLength + 2
+	if inputBufLen < 0 {
+		inputBufLen = 0
+	}
+	if inputBufLen > maxFrameLength+2 {
+		inputBufLen = maxFrameLength + 2
+	}
+	inputBuf := make([]int16, inputBufLen)
+	for i := 0; i < inputBufLen; i++ {
+		inputBuf[i] = int16(out.input_buf[i])
+	}
 	return OpusSilkEncoderStateSnapshot{
 		SignalType:           int(out.signal_type),
 		LagIndex:             int(out.lag_index),
@@ -466,6 +513,12 @@ func captureOpusSilkEncoderStateAtFrame(samples []float32, sampleRate, channels,
 		TargetRateBps:        int(out.target_rate_bps),
 		SNRDBQ7:              int(out.snr_db_q7),
 		NBitsExceeded:        int(out.n_bits_exceeded),
+		LPMode:               int(out.lp_mode),
+		LPTransitionFrame:    int(out.lp_transition_frame_no),
+		LPState0:             int32(out.lp_state_0),
+		LPState1:             int32(out.lp_state_1),
+		FrameLength:          frameLength,
+		InputBufQ0:           inputBuf,
 		GainIndices: [4]int8{
 			int8(out.gain_indices[0]),
 			int8(out.gain_indices[1]),

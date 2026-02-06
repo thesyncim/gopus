@@ -37,6 +37,12 @@ type libopusOpusStateSnapshot struct {
 	TargetRateBps     int
 	SNRDBQ7           int
 	NBitsExceeded     int
+	LPMode            int
+	LPTransitionFrame int
+	LPState0          int32
+	LPState1          int32
+	FrameLength       int
+	InputBufQ0        []int16
 	GainIndices       [4]int8
 	LastGainIndex     int
 	NSQXQHash         uint64
