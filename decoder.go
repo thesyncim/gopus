@@ -68,14 +68,14 @@ type Decoder struct {
 
 	// FEC (Forward Error Correction) state
 	// Stores LBRR data from the current packet for use by the next packet's FEC decode.
-	fecData        []byte             // Stored packet data containing LBRR for FEC recovery
-	fecMode        Mode               // Mode of the packet containing LBRR
-	fecBandwidth   Bandwidth          // Bandwidth of the packet containing LBRR
-	fecStereo      bool               // Whether the packet was stereo
-	fecFrameSize   int                // Frame size of the packet containing LBRR
-	fecFrameCount  int                // Number of frames in packet
-	hasFEC         bool               // True if fecData contains valid LBRR data
-	scratchFEC     []float32          // Scratch buffer for FEC decode
+	fecData       []byte    // Stored packet data containing LBRR for FEC recovery
+	fecMode       Mode      // Mode of the packet containing LBRR
+	fecBandwidth  Bandwidth // Bandwidth of the packet containing LBRR
+	fecStereo     bool      // Whether the packet was stereo
+	fecFrameSize  int       // Frame size of the packet containing LBRR
+	fecFrameCount int       // Number of frames in packet
+	hasFEC        bool      // True if fecData contains valid LBRR data
+	scratchFEC    []float32 // Scratch buffer for FEC decode
 
 	// Scratch range decoder to avoid per-frame heap allocations
 	scratchRangeDecoder rangecoding.Decoder
@@ -418,14 +418,14 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 // storeFECData stores the current packet's information for FEC recovery.
 // This is called after successfully decoding a SILK or Hybrid packet.
 func (d *Decoder) storeFECData(data []byte, toc TOC, frameCount, frameSize int) {
-	// Copy packet data to FEC buffer
-	if len(data) <= len(d.fecData) {
-		copy(d.fecData[:len(data)], data)
-		d.fecData = d.fecData[:len(data)]
-	} else {
+	// Copy packet data to FEC buffer. Keep backing storage to avoid churn when
+	// packet sizes vary frame-to-frame.
+	if cap(d.fecData) < len(data) {
 		d.fecData = make([]byte, len(data))
-		copy(d.fecData, data)
+	} else {
+		d.fecData = d.fecData[:len(data)]
 	}
+	copy(d.fecData, data)
 
 	d.fecMode = toc.Mode
 	d.fecBandwidth = toc.Bandwidth

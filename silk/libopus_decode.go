@@ -420,16 +420,12 @@ type decodeCoreBuffers struct {
 
 // initDecodeCoreBuffers initializes the scratch buffers for silkDecodeCore/silkDecodeCoreWithTrace.
 // This eliminates hot-path allocations when called from the Decoder.
-func initDecodeCoreBuffers(st *decoderState, out []int16) decodeCoreBuffers {
+func initDecodeCoreBuffers(st *decoderState) decodeCoreBuffers {
 	var bufs decodeCoreBuffers
 
 	// sLPC buffer
 	if st.scratchSLPC != nil && len(st.scratchSLPC) >= st.subfrLength+maxLPCOrder {
 		bufs.sLPC = st.scratchSLPC[:st.subfrLength+maxLPCOrder]
-		// Clear the portion beyond maxLPCOrder that will be used for new samples
-		for i := maxLPCOrder; i < st.subfrLength+maxLPCOrder; i++ {
-			bufs.sLPC[i] = 0
-		}
 	} else {
 		bufs.sLPC = make([]int32, st.subfrLength+maxLPCOrder)
 	}
@@ -438,10 +434,6 @@ func initDecodeCoreBuffers(st *decoderState, out []int16) decodeCoreBuffers {
 	// sLTP buffer
 	if st.scratchSLTP != nil && len(st.scratchSLTP) >= st.ltpMemLength {
 		bufs.sLTP = st.scratchSLTP[:st.ltpMemLength]
-		// Clear the buffer for reuse
-		for i := 0; i < st.ltpMemLength; i++ {
-			bufs.sLTP[i] = 0
-		}
 	} else {
 		bufs.sLTP = make([]int16, st.ltpMemLength)
 	}
@@ -449,10 +441,6 @@ func initDecodeCoreBuffers(st *decoderState, out []int16) decodeCoreBuffers {
 	// sLTP_Q15 buffer
 	if st.scratchSLTPQ15 != nil && len(st.scratchSLTPQ15) >= st.ltpMemLength+st.frameLength {
 		bufs.sLTP_Q15 = st.scratchSLTPQ15[:st.ltpMemLength+st.frameLength]
-		// Clear the buffer for reuse
-		for i := 0; i < st.ltpMemLength+st.frameLength; i++ {
-			bufs.sLTP_Q15[i] = 0
-		}
 	} else {
 		bufs.sLTP_Q15 = make([]int32, st.ltpMemLength+st.frameLength)
 	}
@@ -536,7 +524,7 @@ func silkDecodeCore(st *decoderState, ctrl *decoderControl, out []int16, pulses 
 		randSeed += int32(pulses[i])
 	}
 
-	bufs := initDecodeCoreBuffers(st, out)
+	bufs := initDecodeCoreBuffers(st)
 	sLPC := bufs.sLPC
 	sLTP := bufs.sLTP
 	sLTP_Q15 := bufs.sLTP_Q15
@@ -644,7 +632,7 @@ func silkDecodeCoreWithTrace(st *decoderState, ctrl *decoderControl, out []int16
 		randSeed += int32(pulses[i])
 	}
 
-	bufs := initDecodeCoreBuffers(st, out)
+	bufs := initDecodeCoreBuffers(st)
 	sLPC := bufs.sLPC
 	sLTP := bufs.sLTP
 	sLTP_Q15 := bufs.sLTP_Q15

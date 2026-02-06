@@ -6,6 +6,8 @@ import (
 	"github.com/thesyncim/gopus/silk"
 )
 
+var celtSilenceFrame2B = [...]byte{0xFF, 0xFF}
+
 // smoothFade applies a libopus-style crossfade using the CELT window.
 func smoothFade(in1, in2, out []float32, overlap, channels, sampleRate int) {
 	if overlap <= 0 || channels <= 0 || sampleRate <= 0 {
@@ -482,8 +484,7 @@ func (d *Decoder) decodeOpusFrameInto(
 	if mode != ModeSILK && data == nil {
 		// No extra work for PLC in CELT/Hybrid modes.
 	} else if mode == ModeSILK && d.prevMode == ModeHybrid && !(redundancy && celtToSilk && d.prevRedundancy) {
-		silence := []byte{0xFF, 0xFF}
-		samples, err := d.celtDecoder.DecodeFrameWithPacketStereo(silence, F2_5, packetStereoLocal)
+		samples, err := d.celtDecoder.DecodeFrameWithPacketStereo(celtSilenceFrame2B[:], F2_5, packetStereoLocal)
 		if err != nil {
 			return 0, err
 		}

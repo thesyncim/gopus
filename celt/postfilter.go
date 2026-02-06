@@ -62,6 +62,42 @@ func sanitizePostfilterParams(t0, t1 int, g0, g1 float64, tap0, tap1 int) (int, 
 	return t0, t1, tap0, tap1
 }
 
+func (d *Decoder) updatePostfilterHistory(samples []float64, frameSize int, history int) {
+	if frameSize <= 0 || history <= 0 {
+		return
+	}
+	if d.channels <= 1 {
+		hist := d.postfilterMem[:history]
+		if frameSize >= history {
+			copy(hist, samples[frameSize-history:frameSize])
+			return
+		}
+		copy(hist, hist[frameSize:])
+		copy(hist[history-frameSize:], samples[:frameSize])
+		return
+	}
+
+	channels := d.channels
+	for ch := 0; ch < channels; ch++ {
+		hist := d.postfilterMem[ch*history : (ch+1)*history]
+		if frameSize >= history {
+			src := (frameSize-history)*channels + ch
+			for i := 0; i < history; i++ {
+				hist[i] = samples[src]
+				src += channels
+			}
+			continue
+		}
+		copy(hist, hist[frameSize:])
+		src := ch
+		dst := history - frameSize
+		for i := 0; i < frameSize; i++ {
+			hist[dst+i] = samples[src]
+			src += channels
+		}
+	}
+}
+
 func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPeriod int, newGain float64, newTapset int) {
 	if len(samples) == 0 || frameSize <= 0 {
 		return
@@ -77,6 +113,21 @@ func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPerio
 	history := combFilterHistory
 	if len(d.postfilterMem) != history*d.channels {
 		d.postfilterMem = make([]float64, history*d.channels)
+	}
+	if d.postfilterGainOld == 0 && d.postfilterGain == 0 && newGain == 0 {
+		d.updatePostfilterHistory(samples, frameSize, history)
+		d.postfilterPeriodOld = d.postfilterPeriod
+		d.postfilterGainOld = d.postfilterGain
+		d.postfilterTapsetOld = d.postfilterTapset
+		d.postfilterPeriod = newPeriod
+		d.postfilterGain = newGain
+		d.postfilterTapset = newTapset
+		if lm != 0 {
+			d.postfilterPeriodOld = d.postfilterPeriod
+			d.postfilterGainOld = d.postfilterGain
+			d.postfilterTapsetOld = d.postfilterTapset
+		}
+		return
 	}
 	needed := history + frameSize
 	if needed < 0 {

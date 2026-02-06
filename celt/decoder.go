@@ -100,7 +100,6 @@ type Decoder struct {
 	scratchStereo         []float64
 	scratchShortCoeffs    []float64
 	postfilterScratch     []float64
-	scratchZeros          []float64
 	scratchPLC            []float64 // Scratch buffer for PLC concealment samples
 }
 
@@ -610,14 +609,14 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 		}
 		d.updateLogE(silenceE, MaxBands, false)
 		d.SetPrevEnergyWithPrev(prev1Energy, silenceE)
-		DefaultTracer.TraceHeader(frameSize, d.channels, lm, 0, 0)
-		DefaultTracer.TraceEnergy(0, 0, 0, 0)
+		traceHeader(frameSize, d.channels, lm, 0, 0)
+		traceEnergy(0, 0, 0, 0)
 		traceLen := len(samples)
 		if traceLen > 16 {
 			traceLen = 16
 		}
 		if traceLen > 0 {
-			DefaultTracer.TraceSynthesis("final", samples[:traceLen])
+			traceSynthesis("final", samples[:traceLen])
 		}
 		celtPLCState.Reset()
 		celtPLCState.SetLastFrameParams(plc.ModeCELT, frameSize, d.channels)
@@ -654,7 +653,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	traceRange("intra", rd)
 
 	// Trace frame header
-	DefaultTracer.TraceHeader(frameSize, d.channels, lm, boolToInt(intra), boolToInt(transient))
+	traceHeader(frameSize, d.channels, lm, boolToInt(intra), boolToInt(transient))
 
 	// Determine short blocks for transient mode
 	shortBlocks := 1
@@ -739,10 +738,8 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 		if width > 0 {
 			k = bitsToK(pulses[i], width)
 		}
-		DefaultTracer.TraceAllocation(i, pulses[i], k)
-		if ft, ok := DefaultTracer.(FineBitsTracer); ok {
-			ft.TraceFineBits(i, fineQuant[i])
-		}
+		traceAllocation(i, pulses[i], k)
+		traceFineBits(i, fineQuant[i])
 	}
 
 	d.DecodeFineEnergy(energies, end, fineQuant)
@@ -786,7 +783,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	if traceLen > 16 {
 		traceLen = 16
 	}
-	DefaultTracer.TraceSynthesis("synth_pre", samples[:traceLen])
+	traceSynthesis("synth_pre", samples[:traceLen])
 
 	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
 
@@ -798,7 +795,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	if traceLen > 16 {
 		traceLen = 16
 	}
-	DefaultTracer.TraceSynthesis("final", samples[:traceLen])
+	traceSynthesis("final", samples[:traceLen])
 
 	// Update energy state for next frame
 	d.updateLogE(energies, end, transient)
@@ -885,18 +882,90 @@ func (d *Decoder) decodeIntraFlag() bool {
 	return d.rangeDecoder.DecodeBit(logp) == 1
 }
 
-// decodeSilenceFrame returns zeros for a silence frame.
+func (d *Decoder) synthesizeSilenceMono(frameSize int) []float64 {
+	if frameSize <= 0 {
+		return nil
+	}
+	out := ensureFloat64Slice(&d.scratchSynth, frameSize)
+	clear(out)
+
+	if Overlap <= 0 {
+		return out
+	}
+	if len(d.overlapBuffer) < Overlap {
+		buf := make([]float64, Overlap)
+		copy(buf, d.overlapBuffer)
+		d.overlapBuffer = buf
+	}
+	prev := d.overlapBuffer[:Overlap]
+	window := GetWindowBufferF32(Overlap)
+	half := Overlap >> 1
+	if half > frameSize {
+		half = frameSize
+	}
+	for i := 0; i < half; i++ {
+		x2 := float32(prev[i])
+		out[i] = float64(x2 * window[Overlap-1-i])
+		j := Overlap - 1 - i
+		if j < frameSize {
+			out[j] = float64(x2 * window[i])
+		}
+	}
+	clear(prev)
+	return out
+}
+
+func (d *Decoder) synthesizeSilenceStereo(frameSize int) []float64 {
+	if frameSize <= 0 {
+		return nil
+	}
+	if len(d.overlapBuffer) < Overlap*2 {
+		buf := make([]float64, Overlap*2)
+		copy(buf, d.overlapBuffer)
+		d.overlapBuffer = buf
+	}
+
+	out := ensureFloat64Slice(&d.scratchStereo, frameSize*2)
+	clear(out)
+	if Overlap <= 0 {
+		return out
+	}
+
+	overlapL := d.overlapBuffer[:Overlap]
+	overlapR := d.overlapBuffer[Overlap : Overlap*2]
+	window := GetWindowBufferF32(Overlap)
+	half := Overlap >> 1
+	if half > frameSize {
+		half = frameSize
+	}
+	for i := 0; i < half; i++ {
+		j := Overlap - 1 - i
+
+		x2L := float32(overlapL[i])
+		out[2*i] = float64(x2L * window[Overlap-1-i])
+		if j < frameSize {
+			out[2*j] = float64(x2L * window[i])
+		}
+
+		x2R := float32(overlapR[i])
+		out[2*i+1] = float64(x2R * window[Overlap-1-i])
+		if j < frameSize {
+			out[2*j+1] = float64(x2R * window[i])
+		}
+	}
+	clear(overlapL)
+	clear(overlapR)
+	return out
+}
+
+// decodeSilenceFrame synthesizes a CELT silence frame from overlap state.
 func (d *Decoder) decodeSilenceFrame(frameSize int, newPeriod int, newGain float64, newTapset int) []float64 {
 	mode := GetModeConfig(frameSize)
-	zeros := ensureFloat64Slice(&d.scratchZeros, frameSize)
-	for i := range zeros {
-		zeros[i] = 0
-	}
 	var samples []float64
 	if d.channels == 2 {
-		samples = d.SynthesizeStereo(zeros, zeros, false, 1)
+		samples = d.synthesizeSilenceStereo(frameSize)
 	} else {
-		samples = d.Synthesize(zeros, false, 1)
+		samples = d.synthesizeSilenceMono(frameSize)
 	}
 	if len(samples) == 0 {
 		return nil
@@ -925,6 +994,34 @@ func (d *Decoder) applyDeemphasis(samples []float64) {
 func (d *Decoder) applyDeemphasisAndScale(samples []float64, scale float64) {
 	if len(samples) == 0 {
 		return
+	}
+	// Silence fast path: when de-emphasis state is zero and all samples are zero,
+	// output remains zero regardless of scale. Skipping the filter avoids extra work
+	// on CELT silence frames and keeps state at exact zero.
+	if d.channels == 1 {
+		if d.preemphState[0] == 0 {
+			allZero := true
+			for i := 0; i < len(samples); i++ {
+				if samples[i] != 0 {
+					allZero = false
+					break
+				}
+			}
+			if allZero {
+				return
+			}
+		}
+	} else if d.preemphState[0] == 0 && d.preemphState[1] == 0 {
+		allZero := true
+		for i := 0; i < len(samples); i++ {
+			if samples[i] != 0 {
+				allZero = false
+				break
+			}
+		}
+		if allZero {
+			return
+		}
 	}
 
 	// VERY_SMALL prevents denormal numbers that can cause performance issues.
@@ -1283,7 +1380,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	if traceLen > 16 {
 		traceLen = 16
 	}
-	DefaultTracer.TraceSynthesis("synth_pre", samples[:traceLen])
+	traceSynthesis("synth_pre", samples[:traceLen])
 
 	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
 	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
@@ -1497,7 +1594,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 		if width > 0 {
 			k = bitsToK(pulses[i], width)
 		}
-		DefaultTracer.TraceAllocation(i, pulses[i], k)
+		traceAllocation(i, pulses[i], k)
 	}
 
 	d.DecodeFineEnergy(energies, end, fineQuant)
@@ -1561,7 +1658,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	if traceLen > 16 {
 		traceLen = 16
 	}
-	DefaultTracer.TraceSynthesis("synth_pre", samples[:traceLen])
+	traceSynthesis("synth_pre", samples[:traceLen])
 
 	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
 	d.applyDeemphasisAndScale(samples, 1.0/32768.0)

@@ -513,7 +513,7 @@ func algUnquantInto(shape []float64, rd *rangecoding.Decoder, band, n, k, spread
 	}
 	idx := rd.DecodeUniform(vSize)
 	_ = cwrsi(n, k, idx, pulses, u)
-	DefaultTracer.TracePVQ(band, idx, k, n, pulses)
+	tracePVQ(band, idx, k, n, pulses)
 	// Decoder doesn't have search energy, so pass 0 to compute from pulses
 	normalizeResidualInto(shape, pulses, gain, 0)
 	expRotation(shape, n, -1, b, k, spread)

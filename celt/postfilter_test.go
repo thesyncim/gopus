@@ -470,6 +470,116 @@ func TestCombFilterVsLibopusReference(t *testing.T) {
 	}
 }
 
+func TestApplyPostfilterNoGainBypassMono(t *testing.T) {
+	d := NewDecoder(1)
+	frameSize := 120
+	lm := 0
+	samples := make([]float64, frameSize)
+	for i := range samples {
+		samples[i] = float64(i+1) * 0.01
+	}
+	samplesBefore := make([]float64, len(samples))
+	copy(samplesBefore, samples)
+
+	for i := range d.postfilterMem {
+		d.postfilterMem[i] = float64(i+1) * 0.001
+	}
+	histBefore := make([]float64, len(d.postfilterMem))
+	copy(histBefore, d.postfilterMem)
+
+	d.postfilterPeriod = 0
+	d.postfilterGain = 0
+	d.postfilterTapset = 0
+	d.postfilterPeriodOld = 0
+	d.postfilterGainOld = 0
+	d.postfilterTapsetOld = 0
+
+	d.applyPostfilter(samples, frameSize, lm, 88, 0, 2)
+
+	for i := range samples {
+		if samples[i] != samplesBefore[i] {
+			t.Fatalf("samples[%d] changed: got=%v want=%v", i, samples[i], samplesBefore[i])
+		}
+	}
+
+	history := combFilterHistory
+	expectedHist := make([]float64, history)
+	copy(expectedHist, histBefore[frameSize:])
+	copy(expectedHist[history-frameSize:], samplesBefore)
+	for i := 0; i < history; i++ {
+		if d.postfilterMem[i] != expectedHist[i] {
+			t.Fatalf("history[%d] mismatch: got=%v want=%v", i, d.postfilterMem[i], expectedHist[i])
+		}
+	}
+
+	if d.postfilterPeriodOld != 0 || d.postfilterGainOld != 0 || d.postfilterTapsetOld != 0 {
+		t.Fatalf("unexpected old state: period=%d gain=%v tap=%d", d.postfilterPeriodOld, d.postfilterGainOld, d.postfilterTapsetOld)
+	}
+	if d.postfilterPeriod != 88 || d.postfilterGain != 0 || d.postfilterTapset != 2 {
+		t.Fatalf("unexpected current state: period=%d gain=%v tap=%d", d.postfilterPeriod, d.postfilterGain, d.postfilterTapset)
+	}
+}
+
+func TestApplyPostfilterNoGainBypassStereo(t *testing.T) {
+	d := NewDecoder(2)
+	frameSize := 120
+	lm := 1
+	samples := make([]float64, frameSize*2)
+	for i := range samples {
+		samples[i] = float64(i+1) * 0.01
+	}
+	samplesBefore := make([]float64, len(samples))
+	copy(samplesBefore, samples)
+
+	for i := range d.postfilterMem {
+		d.postfilterMem[i] = float64(i+1) * 0.001
+	}
+	histBefore := make([]float64, len(d.postfilterMem))
+	copy(histBefore, d.postfilterMem)
+
+	d.postfilterPeriod = 0
+	d.postfilterGain = 0
+	d.postfilterTapset = 0
+	d.postfilterPeriodOld = 0
+	d.postfilterGainOld = 0
+	d.postfilterTapsetOld = 0
+
+	d.applyPostfilter(samples, frameSize, lm, 92, 0, 1)
+
+	for i := range samples {
+		if samples[i] != samplesBefore[i] {
+			t.Fatalf("samples[%d] changed: got=%v want=%v", i, samples[i], samplesBefore[i])
+		}
+	}
+
+	history := combFilterHistory
+	expected := make([]float64, history*2)
+	for ch := 0; ch < 2; ch++ {
+		oldHist := histBefore[ch*history : (ch+1)*history]
+		expHist := expected[ch*history : (ch+1)*history]
+		copy(expHist, oldHist[frameSize:])
+		src := ch
+		dst := history - frameSize
+		for i := 0; i < frameSize; i++ {
+			expHist[dst+i] = samplesBefore[src]
+			src += 2
+		}
+	}
+	for i := range expected {
+		if d.postfilterMem[i] != expected[i] {
+			t.Fatalf("history[%d] mismatch: got=%v want=%v", i, d.postfilterMem[i], expected[i])
+		}
+	}
+
+	// lm != 0 mirrors libopus behavior: old state is set to current state after update.
+	if d.postfilterPeriodOld != 92 || d.postfilterGainOld != 0 || d.postfilterTapsetOld != 1 {
+		t.Fatalf("unexpected old state: period=%d gain=%v tap=%d", d.postfilterPeriodOld, d.postfilterGainOld, d.postfilterTapsetOld)
+	}
+	if d.postfilterPeriod != 92 || d.postfilterGain != 0 || d.postfilterTapset != 1 {
+		t.Fatalf("unexpected current state: period=%d gain=%v tap=%d", d.postfilterPeriod, d.postfilterGain, d.postfilterTapset)
+	}
+}
+
 // BenchmarkCombFilter measures comb filter performance.
 func BenchmarkCombFilter(b *testing.B) {
 	n := 960 // 20ms frame
