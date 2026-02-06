@@ -64,6 +64,35 @@ type libopusOpusNSQStateSnapshot struct {
 	RewhiteFlag   int
 }
 
+type libopusOpusNSQInputSnapshot struct {
+	EncodeFrame            int
+	CallsInFrame           int
+	FrameLength            int
+	SubfrLength            int
+	NumSubframes           int
+	LTPMemLength           int
+	PredLPCOrder           int
+	ShapeLPCOrder          int
+	WarpingQ16             int
+	NStatesDelayedDecision int
+	SignalType             int
+	QuantOffsetType        int
+	NLSFInterpCoefQ2       int
+	SeedIn                 int
+	SeedOut                int
+	LambdaQ10              int
+	LTPScaleQ14            int
+	X16                    []int16
+	PredCoefQ12            []int16
+	LTPCoefQ14             []int16
+	ARQ13                  []int16
+	HarmShapeGainQ14       []int
+	TiltQ14                []int
+	LFShpQ14               []int32
+	GainsQ16               []int32
+	PitchL                 []int
+}
+
 func captureLibopusOpusSilkState(_ []float32, _, _, _, _, _ int) (libopusOpusStateSnapshot, bool) {
 	return libopusOpusStateSnapshot{}, false
 }
@@ -78,4 +107,8 @@ func captureLibopusOpusPitchXBufBeforeFrame(_ []float32, _, _, _, _, _ int) ([]f
 
 func captureLibopusOpusNSQStateBeforeFrame(_ []float32, _, _, _, _, _ int) (libopusOpusNSQStateSnapshot, bool) {
 	return libopusOpusNSQStateSnapshot{}, false
+}
+
+func captureLibopusOpusNSQInputsAtFrame(_ []float32, _, _, _, _, _ int) (libopusOpusNSQInputSnapshot, bool) {
+	return libopusOpusNSQInputSnapshot{}, false
 }

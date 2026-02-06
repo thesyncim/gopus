@@ -52,11 +52,11 @@ const (
 // NoiseShapeState holds the noise shaping state that persists across frames.
 // This mirrors libopus silk_shape_state_FLP structure.
 type NoiseShapeState struct {
-	// Smoothed harmonic shaping gain (Q14)
-	HarmShapeGainSmth int32
+	// Smoothed harmonic shaping gain (float)
+	HarmShapeGainSmth float32
 
-	// Smoothed tilt (Q14)
-	TiltSmth int32
+	// Smoothed tilt (float)
+	TiltSmth float32
 
 	// Last gain index for conditional coding
 	LastGainIndex int8
@@ -87,14 +87,14 @@ func computeLambdaQ10(signalType, speechActivityQ8, quantOffsetType, nStatesDela
 		lambdaCodingQuality*codingQuality +
 		lambdaQuantOffset*quantOffset
 
-	// Clamp lambda to valid range [0.0, 2.0)
+	// Keep lambda in the valid range and match libopus float->int rounding.
 	if lambda < 0 {
 		lambda = 0
 	}
-	if lambda >= 2.0 {
-		lambda = 1.99
+	if lambda > 2.0 {
+		lambda = 2.0
 	}
-	return int(lambda * 1024.0)
+	return int(float64ToInt32Round(float64(lambda * 1024.0)))
 }
 
 // ComputeNoiseShapeParams computes adaptive noise shaping parameters.
@@ -153,14 +153,14 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 		lambdaCodingQuality*params.CodingQuality +
 		lambdaQuantOffset*quantOffset
 
-	// Clamp lambda to valid range [0.0, 2.0)
+	// Keep lambda in the valid range and match libopus float->int rounding.
 	if lambda < 0 {
 		lambda = 0
 	}
-	if lambda >= 2.0 {
-		lambda = 1.99
+	if lambda > 2.0 {
+		lambda = 2.0
 	}
-	params.LambdaQ10 = int(lambda * 1024.0)
+	params.LambdaQ10 = int(float64ToInt32Round(float64(lambda * 1024.0)))
 
 	// Compute Tilt (spectral noise tilt)
 	var tilt float32
@@ -172,8 +172,6 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 		// For unvoiced: just HP noise shaping
 		tilt = -hpNoiseCoef
 	}
-	tiltQ14 := int(tilt * 16384.0)
-
 	// Compute HarmShapeGain (harmonic noise shaping for voiced)
 	var harmShapeGain float32
 	if signalType == typeVoiced {
@@ -193,8 +191,6 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 	} else {
 		harmShapeGain = 0
 	}
-	harmShapeGainQ14 := int(harmShapeGain * 16384.0)
-
 	// Compute LF shaping (low-frequency noise shaping)
 	// strength = LOW_FREQ_SHAPING * (1 + LOW_QUALITY_DECR * (input_quality_bands[0] - 1))
 	strength := lowFreqShaping * (1.0 + lowQualityLowFreqShapingDecr*(inputQualityBand0-1.0))
@@ -203,12 +199,12 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 	// Apply smoothing and compute per-subframe values
 	for k := 0; k < numSubframes; k++ {
 		// Smooth harmonic shaping gain
-		s.HarmShapeGainSmth += int32(subfrSmthCoef * float32(int32(harmShapeGainQ14)-s.HarmShapeGainSmth))
-		params.HarmShapeGainQ14[k] = int(s.HarmShapeGainSmth)
+		s.HarmShapeGainSmth += subfrSmthCoef * (harmShapeGain - s.HarmShapeGainSmth)
+		params.HarmShapeGainQ14[k] = int(float64ToInt32Round(float64(s.HarmShapeGainSmth * 16384.0)))
 
 		// Smooth tilt
-		s.TiltSmth += int32(subfrSmthCoef * float32(int32(tiltQ14)-s.TiltSmth))
-		params.TiltQ14[k] = int(s.TiltSmth)
+		s.TiltSmth += subfrSmthCoef * (tilt - s.TiltSmth)
+		params.TiltQ14[k] = int(float64ToInt32Round(float64(s.TiltSmth * 16384.0)))
 
 		// LF shaping depends on pitch lag
 		var lfMaShp, lfArShp float32
@@ -227,8 +223,8 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 
 		// Pack LF_MA and LF_AR into single int32 (libopus format)
 		// LF_shp_Q14 = (LF_AR_shp << 16) | (LF_MA_shp & 0xFFFF)
-		lfMaQ14 := int16(lfMaShp * 16384.0)
-		lfArQ14 := int16(lfArShp * 16384.0)
+		lfMaQ14 := float64ToInt16Round(float64(lfMaShp * 16384.0))
+		lfArQ14 := float64ToInt16Round(float64(lfArShp * 16384.0))
 		params.LFShpQ14[k] = (int32(lfArQ14) << 16) | (int32(lfMaQ14) & 0xFFFF)
 	}
 
@@ -258,7 +254,8 @@ func sqrt32(x float32) float32 {
 func NewNoiseShapeState() *NoiseShapeState {
 	return &NoiseShapeState{
 		HarmShapeGainSmth: 0,
-		TiltSmth:          -hpNoiseCoefQ14, // Start with default unvoiced tilt
-		LastGainIndex:     0,
+		// libopus starts the smoothed tilt state at 0 and then applies per-subframe smoothing.
+		TiltSmth:      0,
+		LastGainIndex: 0,
 	}
 }
