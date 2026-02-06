@@ -371,13 +371,17 @@ func (e *Encoder) StereoEncodeLRToMSWithInterp(left, right []float32, frameLengt
 		wQ24 += deltawQ24
 
 		// LP-filtered mid: (mid[n] + 2*mid[n+1] + mid[n+2]) << 9 (Q11)
-		sumQ11 := int32((mid[n]+2*mid[n+1]+mid[n+2])*512) // Q11
+		// Convert float mid values to int16 scale first, matching libopus int16 arithmetic.
+		midN := int32(mid[n] * 32768)
+		midN1 := int32(mid[n+1] * 32768)
+		midN2 := int32(mid[n+2] * 32768)
+		sumQ11 := (midN + midN2 + (midN1 << 1)) << 9
 
 		// side' = width * side + pred0 * LP_mid + pred1 * mid
 		// In Q8 precision matching libopus
 		sideQ8 := silkSMULWB(wQ24, int32(side[n+1]*32768))
 		sideQ8 = silkSMLAWB(sideQ8, sumQ11, pred0Q13)
-		sideQ8 = silkSMLAWB(sideQ8, int32(mid[n+1]*32768)<<11, pred1Q13)
+		sideQ8 = silkSMLAWB(sideQ8, midN1<<11, pred1Q13)
 
 		// Convert from Q8 to float
 		sideOut[n] = float32(silkRSHIFT_ROUND(sideQ8, 8)) / 32768.0
@@ -390,12 +394,15 @@ func (e *Encoder) StereoEncodeLRToMSWithInterp(left, right []float32, frameLengt
 
 	for n := interpSamples; n < frameLength; n++ {
 		// LP-filtered mid: (mid[n] + 2*mid[n+1] + mid[n+2]) << 9 (Q11)
-		sumQ11 := int32((mid[n]+2*mid[n+1]+mid[n+2])*512) // Q11
+		midN := int32(mid[n] * 32768)
+		midN1 := int32(mid[n+1] * 32768)
+		midN2 := int32(mid[n+2] * 32768)
+		sumQ11 := (midN + midN2 + (midN1 << 1)) << 9
 
 		// side' = width * side + pred0 * LP_mid + pred1 * mid
 		sideQ8 := silkSMULWB(wQ24, int32(side[n+1]*32768))
 		sideQ8 = silkSMLAWB(sideQ8, sumQ11, pred0Q13)
-		sideQ8 = silkSMLAWB(sideQ8, int32(mid[n+1]*32768)<<11, pred1Q13)
+		sideQ8 = silkSMLAWB(sideQ8, midN1<<11, pred1Q13)
 
 		// Convert from Q8 to float
 		sideOut[n] = float32(silkRSHIFT_ROUND(sideQ8, 8)) / 32768.0

@@ -56,10 +56,18 @@ func TestHybridBitAllocation(t *testing.T) {
 					silkBitrate, tc.minSilkBitrate, tc.maxSilkBitrate)
 			}
 
-			// Verify total adds up
-			if silkBitrate+celtBitrate != tc.totalBitrate {
-				t.Errorf("SILK (%d) + CELT (%d) = %d, expected %d",
-					silkBitrate, celtBitrate, silkBitrate+celtBitrate, tc.totalBitrate)
+			// Verify total adds up to bitrate minus TOC overhead.
+			// Per libopus, bits_target = bitrate_to_bits(bitrate, Fs, frame_size) - 8,
+			// so total_bitRate = bitrate - 8*Fs/frame_size.
+			frameSize := 480
+			if tc.frame20ms {
+				frameSize = 960
+			}
+			tocOverhead := 8 * 48000 / frameSize
+			expectedTotal := tc.totalBitrate - tocOverhead
+			if silkBitrate+celtBitrate != expectedTotal {
+				t.Errorf("SILK (%d) + CELT (%d) = %d, expected %d (bitrate %d - TOC overhead %d)",
+					silkBitrate, celtBitrate, silkBitrate+celtBitrate, expectedTotal, tc.totalBitrate, tocOverhead)
 			}
 
 			// Verify CELT gets at least minimum bitrate

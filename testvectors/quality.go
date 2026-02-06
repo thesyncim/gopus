@@ -230,8 +230,9 @@ func ComputeQualityFloat32WithDelay(decoded, reference []float32, sampleRate int
 	bestQ := math.Inf(-1)
 	bestDelay := 0
 
-	// Search for optimal delay
-	for d := -maxDelay; d <= maxDelay; d++ {
+	// Search for optimal delay (only non-negative: a causal codec can only
+	// delay the output, never advance it relative to the input).
+	for d := 0; d <= maxDelay; d++ {
 		var signalPower, noisePower float64
 		count := 0
 

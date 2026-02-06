@@ -226,79 +226,40 @@ func EncodeStereoWithEncoder(enc, sideEnc *Encoder, left, right []float32, bandw
 	return result, nil
 }
 
-// DecodeStereoEncoded decodes stereo SILK frame back to left/right channels.
-// Uses Phase 2 decoder for mid/side, then reconstructs stereo.
+// DecodeStereoEncoded decodes a range-coded SILK stereo packet back to
+// separate left/right channel float32 slices at 48 kHz.
+//
+// The input must be a complete SILK stereo bitstream produced by
+// EncodeStereoWithEncoder (or the equivalent libopus stereo encoder).
+// The packet contains range-coded VAD/LBRR header bits, stereo prediction
+// indices, mid and side channel frame data.
+//
+// Returns left and right channels (each 48 kHz, length = frameSizeSamples).
 func DecodeStereoEncoded(encoded []byte, bandwidth Bandwidth) (left, right []float32, err error) {
-	if len(encoded) < 8 {
+	if len(encoded) < 2 {
 		return nil, nil, ErrInvalidPacket
 	}
 
-	// Parse stereo weights (Q13 format) at start
-	weights := [2]int16{
-		int16(encoded[0])<<8 | int16(encoded[1]),
-		int16(encoded[2])<<8 | int16(encoded[3]),
-	}
-
-	// Parse mid length and data
-	midLen := int(encoded[4])<<8 | int(encoded[5])
-	if 6+midLen > len(encoded) {
-		return nil, nil, ErrInvalidPacket
-	}
-	midBytes := encoded[6 : 6+midLen]
-
-	// Parse side length and data
-	offset := 6 + midLen
-	if offset+2 > len(encoded) {
-		return nil, nil, ErrInvalidPacket
-	}
-	sideLen := int(encoded[offset])<<8 | int(encoded[offset+1])
-	if offset+2+sideLen > len(encoded) {
-		return nil, nil, ErrInvalidPacket
-	}
-	sideBytes := encoded[offset+2 : offset+2+sideLen]
-
-	// Decode mid and side channels using Phase 2 decoder
+	// Compute expected 48 kHz frame size from bandwidth (20 ms frame).
 	config := GetBandwidthConfig(bandwidth)
-	frameSamples := config.SampleRate * 20 / 1000 // 20ms frame
+	frameSamples := config.SampleRate * 20 / 1000
+	frameSizeSamples48 := frameSamples * 48000 / config.SampleRate
 
+	// Use the proper stereo decoder which handles range-coded SILK stereo
+	// packets (VAD/LBRR header, stereo prediction, mid/side frames, MS-to-LR).
 	decoder := NewDecoder()
-	mid, err := decoder.Decode(midBytes, bandwidth, frameSamples*48000/config.SampleRate, true)
+	interleaved, err := decoder.DecodeStereo(encoded, bandwidth, frameSizeSamples48, true)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	sideDecoder := NewDecoder()
-	side, err := sideDecoder.Decode(sideBytes, bandwidth, frameSamples*48000/config.SampleRate, true)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// Reconstruct left/right from mid/side
-	n := len(mid)
-	if len(side) < n {
-		n = len(side)
-	}
-
+	// De-interleave [L0, R0, L1, R1, ...] into separate left/right slices.
+	n := len(interleaved) / 2
 	left = make([]float32, n)
 	right = make([]float32, n)
-
-	// Apply stereo weights to reconstruct
-	// Prediction: side_pred = w0*mid + w1*mid_prev
-	// Residual side is encoded separately
-	w0 := float32(weights[0]) / 8192.0
-	w1 := float32(weights[1]) / 8192.0
-
 	for i := 0; i < n; i++ {
-		var midPrev float32
-		if i > 0 {
-			midPrev = mid[i-1]
-		}
-		sidePred := w0*mid[i] + w1*midPrev
-		sideActual := side[i] + sidePred
-
-		// Convert back to left/right
-		left[i] = mid[i] + sideActual
-		right[i] = mid[i] - sideActual
+		left[i] = interleaved[i*2]
+		right[i] = interleaved[i*2+1]
 	}
 
 	return left, right, nil

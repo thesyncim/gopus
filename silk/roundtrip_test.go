@@ -474,30 +474,25 @@ func TestStereoRoundTrip_WeightsPreserved(t *testing.T) {
 		t.Fatalf("EncodeStereo failed: %v", err)
 	}
 
-	// Extract weights from encoded packet (first 4 bytes)
-	if len(encoded) < 4 {
-		t.Fatal("Encoded packet too short")
+	if len(encoded) == 0 {
+		t.Fatal("Encoded packet is empty")
 	}
 
-	w0 := int16(encoded[0])<<8 | int16(encoded[1])
-	w1 := int16(encoded[2])<<8 | int16(encoded[3])
-
-	t.Logf("Stereo weights: w0=%d w1=%d (Q13: %.3f %.3f)",
-		w0, w1, float32(w0)/8192.0, float32(w1)/8192.0)
-
-	// Verify weights are in valid Q13 range [-8192, 8192]
-	// (which maps to [-1.0, 1.0])
-	if w0 < -8192 || w0 > 8192 {
-		t.Errorf("Weight w0 out of valid Q13 range: %d", w0)
-	}
-	if w1 < -8192 || w1 > 8192 {
-		t.Errorf("Weight w1 out of valid Q13 range: %d", w1)
-	}
-
-	// Decode and verify it completes without panic
+	// The encoded packet is a range-coded SILK stereo bitstream.
+	// Stereo prediction weights are range-coded inside the packet,
+	// not stored as raw int16 at fixed byte offsets.
+	// Verify the full round-trip instead.
 	decLeft, decRight, err := DecodeStereoEncoded(encoded, BandwidthWideband)
 	if err != nil {
 		t.Fatalf("DecodeStereoEncoded failed: %v", err)
+	}
+
+	expectedSamples := frameSamples * 48000 / config.SampleRate
+	if len(decLeft) != expectedSamples {
+		t.Errorf("Left channel length %d != expected %d", len(decLeft), expectedSamples)
+	}
+	if len(decRight) != expectedSamples {
+		t.Errorf("Right channel length %d != expected %d", len(decRight), expectedSamples)
 	}
 
 	t.Logf("Stereo decoded successfully: L=%d R=%d samples", len(decLeft), len(decRight))

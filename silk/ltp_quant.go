@@ -1,7 +1,5 @@
 package silk
 
-import "math"
-
 const (
 	ltpQuantScaleQ17     = 131072.0     // 2^17
 	ltpQuantSum1Q15      = int32(32801) // round(1.001 * 2^15)
@@ -27,15 +25,16 @@ func corrMatrixFLP(x []float64, subfrLen, order int, out []float64) {
 
 	// Calculate X[:,0]'*X[:,0]
 	energy := energyF64(x[ptr1Idx:ptr1Idx+subfrLen], subfrLen)
-	out[0] = energy
+	// Match libopus: store as silk_float (float32) to match C precision.
+	out[0] = float64(float32(energy))
 
 	for j := 1; j < order; j++ {
 		// Calculate X[:,j]'*X[:,j]
-		// energy += x[ptr1Idx-j]*x[ptr1Idx-j] - x[ptr1Idx+subfrLen-j]*x[ptr1Idx+subfrLen-j]
 		term1 := x[ptr1Idx-j]
 		term2 := x[ptr1Idx+subfrLen-j]
 		energy += term1*term1 - term2*term2
-		out[j*order+j] = energy
+		// Match libopus: cast to float32 before storing.
+		out[j*order+j] = float64(float32(energy))
 	}
 
 	ptr2Idx := order - 2 // First sample of column 1 of X
@@ -45,8 +44,10 @@ func corrMatrixFLP(x []float64, subfrLen, order int, out []float64) {
 		for n := 0; n < subfrLen; n++ {
 			inner += x[ptr1Idx+n] * x[ptr2Idx+n]
 		}
-		out[lag*order+0] = inner
-		out[0*order+lag] = inner
+		// Match libopus: cast to float32 before storing.
+		f32inner := float64(float32(inner))
+		out[lag*order+0] = f32inner
+		out[0*order+lag] = f32inner
 
 		// Calculate X[:,j]'*X[:,j+lag]
 		for j := 1; j < order-lag; j++ {
@@ -55,8 +56,10 @@ func corrMatrixFLP(x []float64, subfrLen, order int, out []float64) {
 			term3 := x[ptr1Idx+subfrLen-j]
 			term4 := x[ptr2Idx+subfrLen-j]
 			inner += term1*term2 - term3*term4
-			out[(lag+j)*order+j] = inner
-			out[j*order+(lag+j)] = inner
+			// Match libopus: cast to float32 before storing.
+			f32inner = float64(float32(inner))
+			out[(lag+j)*order+j] = f32inner
+			out[j*order+(lag+j)] = f32inner
 		}
 		ptr2Idx--
 	}
@@ -76,7 +79,8 @@ func corrVectorFLP(x, y []float64, subfrLen, order int, out []float64) {
 		for n := 0; n < subfrLen; n++ {
 			sum += x[ptr1Idx+n] * y[n]
 		}
-		out[lag] = sum
+		// Match libopus: silk_corrVector_FLP stores as silk_float (float32).
+		out[lag] = float64(float32(sum))
 		ptr1Idx--
 	}
 }
@@ -108,15 +112,25 @@ func findLTPFLP(XX, xX []float64, residual []float64, resStart int, lag []int, s
 		corrMatrixFLP(lagPtr, subfrLen, ltpOrderConst, XX[xxIdx:xxIdx+ltpOrderConst*ltpOrderConst])
 		corrVectorFLP(lagPtr, rPtr, subfrLen, ltpOrderConst, xX[xXIdx:xXIdx+ltpOrderConst])
 
-		xx := energyF64(rPtr, subfrLen+ltpOrderConst)
-		diag0 := XX[xxIdx]
-		diagLast := XX[xxIdx+ltpOrderConst*ltpOrderConst-1]
-		temp := 1.0 / math.Max(xx, ltpCorrInvMax*0.5*(diag0+diagLast)+1.0)
+		// Match libopus: xx = (silk_float)silk_energy_FLP(r_ptr, subfr_length + LTP_ORDER)
+		// The energy is computed in double but cast to silk_float (float32).
+		xxF32 := float32(energyF64(rPtr, subfrLen+ltpOrderConst))
+		diag0F32 := float32(XX[xxIdx])
+		diagLastF32 := float32(XX[xxIdx+ltpOrderConst*ltpOrderConst-1])
+		// Match libopus: temp = 1.0f / silk_max(xx, LTP_CORR_INV_MAX * 0.5f * (XX_ptr[0] + XX_ptr[24]) + 1.0f)
+		// All float32 arithmetic.
+		denomF32 := float32(ltpCorrInvMax) * 0.5 * (diag0F32 + diagLastF32) + 1.0
+		if xxF32 > denomF32 {
+			denomF32 = xxF32
+		}
+		tempF32 := 1.0 / denomF32
+		// Match libopus: silk_scale_vector_FLP(XX_ptr, temp, LTP_ORDER * LTP_ORDER)
+		// silk_scale_vector_FLP multiplies silk_float by silk_float.
 		for i := 0; i < ltpOrderConst*ltpOrderConst; i++ {
-			XX[xxIdx+i] *= temp
+			XX[xxIdx+i] = float64(float32(XX[xxIdx+i]) * tempF32)
 		}
 		for i := 0; i < ltpOrderConst; i++ {
-			xX[xXIdx+i] *= temp
+			xX[xXIdx+i] = float64(float32(xX[xXIdx+i]) * tempF32)
 		}
 
 		rPtrStart += subfrLen
@@ -289,11 +303,14 @@ func (e *Encoder) analyzeLTPQuantized(residual []float64, resStart int, pitchLag
 	var xXQ17 [maxNbSubfr * ltpOrderConst]int32
 	xxLen := numSubframes * ltpOrderConst * ltpOrderConst
 	xXLen := numSubframes * ltpOrderConst
+	// Match libopus wrappers_FLP.c: XX_Q17[i] = (opus_int32)silk_float2int(XX[i] * 131072.0f)
+	// The multiplication XX[i] * 131072.0f is in float32 precision (silk_float * float literal).
+	// silk_float2int uses lrintf (round to nearest, ties to even).
 	for i := 0; i < xxLen; i++ {
-		XXQ17[i] = float64ToInt32(XX[i] * ltpQuantScaleQ17)
+		XXQ17[i] = float64ToInt32(float64(float32(XX[i]) * 131072.0))
 	}
 	for i := 0; i < xXLen; i++ {
-		xXQ17[i] = float64ToInt32(xX[i] * ltpQuantScaleQ17)
+		xXQ17[i] = float64ToInt32(float64(float32(xX[i]) * 131072.0))
 	}
 
 	var bQ14 [maxNbSubfr * ltpOrderConst]int16

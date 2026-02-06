@@ -303,11 +303,9 @@ func runEncoderComplianceTest(t *testing.T, mode encoder.Mode, bandwidth types.B
 		t.Fatal("No samples decoded")
 	}
 
-	// Strip pre-skip samples from decoded output
-	preSkipSamples := OpusPreSkip * channels
-	if len(decoded) > preSkipSamples {
-		decoded = decoded[preSkipSamples:]
-	}
+	// NOTE: opusdec already handles pre-skip internally (reads it from
+	// the OpusHead header and discards that many samples). Do NOT strip
+	// pre-skip again here — that would double-subtract and misalign.
 
 	// Align lengths for comparison (decoded may have trailing samples)
 	compareLen := len(original)
@@ -318,11 +316,14 @@ func runEncoderComplianceTest(t *testing.T, mode encoder.Mode, bandwidth types.B
 	// Compute quality metric with delay compensation
 	// The codec introduces inherent delay that includes:
 	// - Encoder lookahead (~250 samples for CELT)
-	// - Decoder pre-skip (312 samples typically)
+	// - Decoder pre-skip (312 samples typically, handled by opusdec)
 	// - Additional frame buffering (~960 samples)
-	// Total delay can be up to 1500-2000 samples for full roundtrip
-	// Use larger search range to account for this
-	q, _ = ComputeQualityFloat32WithDelay(decoded[:compareLen], original[:compareLen], 48000, 2000)
+	// - SILK resampling + LA_SHAPE lookahead
+	// Search ±4000 samples to find optimal alignment
+	var foundDelay int
+	q, foundDelay = ComputeQualityFloat32WithDelay(decoded[:compareLen], original[:compareLen], 48000, 4000)
+	t.Logf("Quality: Q=%.2f, foundDelay=%d samples (%.1f ms), decoded=%d original=%d compareLen=%d",
+		q, foundDelay, float64(foundDelay)/48.0, len(decoded), len(original), compareLen)
 
 	return q, decoded
 }
@@ -330,13 +331,22 @@ func runEncoderComplianceTest(t *testing.T, mode encoder.Mode, bandwidth types.B
 // Test signal generators
 
 // generateEncoderTestSignal generates a test signal for encoding.
-// Uses a combination of frequencies to test across the audio spectrum.
+// Uses an amplitude-modulated multi-frequency signal with a unique onset
+// to enable reliable delay detection. The signal is aperiodic within
+// the test duration, avoiding false correlation peaks that confuse
+// delay-compensated SNR measurement.
 func generateEncoderTestSignal(samples int, channels int) []float32 {
 	signal := make([]float32, samples)
 
 	// Multi-frequency test signal: 440 Hz + 1000 Hz + 2000 Hz
+	// with slow amplitude modulation to break periodicity.
 	freqs := []float64{440, 1000, 2000}
 	amp := 0.3 // Amplitude per frequency (0.3 * 3 = 0.9 total)
+
+	// Modulation frequencies (slow, incommensurate with carrier freqs)
+	modFreqs := []float64{1.3, 2.7, 0.9}
+
+	totalDuration := float64(samples/channels) / 48000.0
 
 	for i := 0; i < samples; i++ {
 		ch := i % channels
@@ -344,14 +354,28 @@ func generateEncoderTestSignal(samples int, channels int) []float32 {
 		t := float64(sampleIdx) / 48000.0
 
 		var val float64
-		for _, freq := range freqs {
+		for fi, freq := range freqs {
 			// For stereo, slightly offset frequencies between channels
 			f := freq
 			if channels == 2 && ch == 1 {
 				f *= 1.01 // 1% higher frequency on right channel
 			}
-			val += amp * math.Sin(2*math.Pi*f*t)
+			// Amplitude modulation: 0.5 + 0.5*sin(modFreq*2*pi*t)
+			// This makes the envelope vary slowly, breaking periodicity.
+			modDepth := 0.5 + 0.5*math.Sin(2*math.Pi*modFreqs[fi]*t)
+			val += amp * modDepth * math.Sin(2*math.Pi*f*t)
 		}
+
+		// Add a unique onset ramp (first 10ms) to aid delay detection.
+		// The ramp shape is asymmetric and non-periodic.
+		onsetSamples := int(0.010 * 48000)
+		if sampleIdx < onsetSamples {
+			// Cubic ramp from 0 to 1 over 10ms
+			frac := float64(sampleIdx) / float64(onsetSamples)
+			val *= frac * frac * frac
+		}
+
+		_ = totalDuration
 
 		signal[i] = float32(val)
 	}

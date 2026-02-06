@@ -389,7 +389,21 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	seed := e.frameCounter & 3
 	maxBits := e.maxBits
 	if maxBits <= 0 {
-		maxBits = 1 << 30
+		// Derive from target rate: bits = targetRate * frameDuration_ms / 1000
+		// This matches libopus where opus_encoder.c computes maxBits from the
+		// packet budget before calling silk_Encode. When the SILK encoder is
+		// invoked standalone (not via the Opus-level encoder), maxBits would
+		// otherwise default to an astronomically large value that defeats the
+		// rate control loop (VBR fast-exit always triggers on iteration 0).
+		if e.targetRateBps > 0 && payloadSizeMs > 0 {
+			maxBits = e.targetRateBps * payloadSizeMs / 1000
+		} else {
+			// Fallback: use a generous but reasonable default (1275 bytes = max SILK packet)
+			maxBits = 1275 * 8
+		}
+		if maxBits < 100 {
+			maxBits = 100
+		}
 	}
 	var gainTrace *GainLoopTrace
 	if e.trace != nil && e.trace.GainLoop != nil {

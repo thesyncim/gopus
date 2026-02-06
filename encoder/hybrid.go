@@ -225,10 +225,37 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, celtPCM []float64, lookahead 
 	}
 	e.silkEncoder.SetFEC(e.fecEnabled)
 	e.silkEncoder.SetPacketLoss(e.packetLoss)
+
+	// Per libopus: in hybrid CBR mode, SILK is switched to VBR with a max bits cap.
+	// This allows SILK to use fewer bits and CELT to absorb the variation.
+	// In hybrid VBR/CVBR mode, SILK's maxBits is constrained to the SILK-appropriate
+	// portion of the available bits.
+	silkMaxBits := (maxTargetBytes) * 8
+	if e.bitrateMode == ModeCBR {
+		// Hybrid CBR: switch SILK to VBR with cap (libopus behavior)
+		e.silkEncoder.SetVBR(true)
+		otherBits := silkMaxBits - silkBitrate*frameSize/48000
+		if otherBits < 0 {
+			otherBits = 0
+		}
+		silkMaxBits -= otherBits * 3 / 4
+		if silkMaxBits < 0 {
+			silkMaxBits = 0
+		}
+	} else {
+		// Hybrid VBR/CVBR: constrain SILK maxBits using the rate table.
+		e.silkEncoder.SetVBR(true)
+		maxBitsAsBitrate := silkMaxBits * 48000 / frameSize
+		maxSilkRate := e.computeSilkRateForMax(maxBitsAsBitrate, frame20ms)
+		silkMaxBits = maxSilkRate * frameSize / 48000
+	}
+	e.silkEncoder.SetMaxBits(silkMaxBits)
 	if e.channels == 2 {
 		e.silkSideEncoder.ResetPacketState()
 		e.silkSideEncoder.SetFEC(e.fecEnabled)
 		e.silkSideEncoder.SetPacketLoss(e.packetLoss)
+		e.silkSideEncoder.SetVBR(true)
+		e.silkSideEncoder.SetMaxBits(silkMaxBits)
 	}
 	e.encodeSILKHybrid(silkInput, silkLookahead, frameSize, silkBitrate)
 
@@ -304,31 +331,35 @@ func (e *Encoder) computeHybridBitAllocation(frame20ms bool) (silkBitrate, celtB
 		entry += 2 // Add 2 for FEC entries
 	}
 
-	// Find the appropriate row in the rate table
+	// Find the appropriate row in the rate table.
+	// This matches the libopus loop: find the first entry where rate_table[i][0] > rate,
+	// then interpolate between i-1 and i. If no entry exceeds rate, extrapolate from last.
 	silkRatePerChannel := 0
-	for i := 1; i < len(hybridRateTable); i++ {
+	tableLen := len(hybridRateTable)
+	breakIdx := tableLen // Will be set to i if we break
+	for i := 1; i < tableLen; i++ {
 		if hybridRateTable[i][0] > ratePerChannel {
-			if i == len(hybridRateTable)-1 {
-				// Above highest rate, extrapolate
-				silkRatePerChannel = hybridRateTable[i][entry]
-				// Give 50% of extra bits to SILK (libopus behavior)
-				silkRatePerChannel += (ratePerChannel - hybridRateTable[i][0]) / 2
-			} else {
-				// Linear interpolation between rows
-				lower := hybridRateTable[i-1]
-				upper := hybridRateTable[i]
-				t := float64(ratePerChannel-lower[0]) / float64(upper[0]-lower[0])
-				silkRatePerChannel = int(float64(lower[entry])*(1-t) + float64(upper[entry])*t)
-			}
+			breakIdx = i
 			break
 		}
 	}
-
-	// Handle case where we're at the top of the table
-	if silkRatePerChannel == 0 && ratePerChannel > 0 {
-		lastRow := hybridRateTable[len(hybridRateTable)-1]
+	if breakIdx == tableLen {
+		// Past the end of the table: extrapolate from last entry
+		lastRow := hybridRateTable[tableLen-1]
 		silkRatePerChannel = lastRow[entry]
+		// Give 50% of extra bits to SILK (libopus behavior)
 		silkRatePerChannel += (ratePerChannel - lastRow[0]) / 2
+	} else {
+		// Interpolate between breakIdx-1 and breakIdx
+		lo := hybridRateTable[breakIdx-1][entry]
+		hi := hybridRateTable[breakIdx][entry]
+		x0 := hybridRateTable[breakIdx-1][0]
+		x1 := hybridRateTable[breakIdx][0]
+		if x1 > x0 {
+			silkRatePerChannel = (lo*(x1-ratePerChannel) + hi*(ratePerChannel-x0)) / (x1 - x0)
+		} else {
+			silkRatePerChannel = lo
+		}
 	}
 
 	// Apply libopus adjustments to SILK rate (before multiplying by channels)
@@ -361,6 +392,60 @@ func (e *Encoder) computeHybridBitAllocation(frame20ms bool) (silkBitrate, celtB
 	}
 
 	return silkBitrate, celtBitrate
+}
+
+// computeSilkRateForMax computes the SILK rate corresponding to a maximum available
+// bitrate. This is used to constrain SILK's maxBits in hybrid VBR mode.
+// Matches libopus: compute_silk_rate_for_hybrid(maxBits*Fs/frame_size, ...).
+func (e *Encoder) computeSilkRateForMax(maxBitrate int, frame20ms bool) int {
+	channels := e.channels
+	ratePerChannel := maxBitrate / channels
+
+	entry := 1 // 10ms no FEC
+	if frame20ms {
+		entry = 2
+	}
+	if e.fecEnabled {
+		entry += 2
+	}
+
+	tableLen := len(hybridRateTable)
+	silkRatePerChannel := 0
+	breakIdx := tableLen
+	for i := 1; i < tableLen; i++ {
+		if hybridRateTable[i][0] > ratePerChannel {
+			breakIdx = i
+			break
+		}
+	}
+	if breakIdx == tableLen {
+		lastRow := hybridRateTable[tableLen-1]
+		silkRatePerChannel = lastRow[entry]
+		silkRatePerChannel += (ratePerChannel - lastRow[0]) / 2
+	} else {
+		lo := hybridRateTable[breakIdx-1][entry]
+		hi := hybridRateTable[breakIdx][entry]
+		x0 := hybridRateTable[breakIdx-1][0]
+		x1 := hybridRateTable[breakIdx][0]
+		if x1 > x0 {
+			silkRatePerChannel = (lo*(x1-ratePerChannel) + hi*(ratePerChannel-x0)) / (x1 - x0)
+		} else {
+			silkRatePerChannel = lo
+		}
+	}
+
+	if e.bitrateMode == ModeCBR {
+		silkRatePerChannel += 100
+	}
+	if e.effectiveBandwidth() == types.BandwidthSuperwideband {
+		silkRatePerChannel += 300
+	}
+
+	silkRate := silkRatePerChannel * channels
+	if channels == 2 && ratePerChannel >= 12000 {
+		silkRate -= 1000
+	}
+	return silkRate
 }
 
 // computeHBGain computes the high-band gain for CELT attenuation.
