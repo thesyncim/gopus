@@ -363,6 +363,14 @@ func imin(a, b int) int {
 	return b
 }
 
+//go:nosplit
+func pvqUTableLookupFast(n, k int) uint32 {
+	if n > k {
+		n, k = k, n
+	}
+	return pvqUData[pvqURow[n]+(k-n)]
+}
+
 // unext computes the next row/column of any recurrence that obeys the relation
 // u[i][j]=u[i-1][j]+u[i][j-1]+u[i-1][j-1].
 // u0 is the base case for the new row/column.
@@ -430,12 +438,8 @@ func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 
 		// Lots of pulses case (k >= n)
 		if k >= n {
-			// Look up from row n
-			rowMin := imin(n, k+1)
-			rowMax := imax(n, k+1)
-
 			// Are the pulses in this dimension negative?
-			p, _ = pvqUTableLookup(rowMin, rowMax)
+			p = pvqUTableLookupFast(n, k+1)
 			if i >= p {
 				s = -1
 				i -= p
@@ -443,26 +447,20 @@ func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 
 			// Count how many pulses were placed in this dimension
 			k0 = k
-			qMin := imin(n, n)
-			qMax := imax(n, n)
-			q, _ = pvqUTableLookup(qMin, qMax)
+			q = pvqUTableLookupFast(n, n)
 
 			if q > i {
 				k = n
 				for {
 					k--
-					pMin := imin(k, n)
-					pMax := imax(k, n)
-					p, _ = pvqUTableLookup(pMin, pMax)
+					p = pvqUTableLookupFast(k, n)
 					if p <= i {
 						break
 					}
 				}
 			} else {
 				for {
-					pMin := imin(n, k)
-					pMax := imax(n, k)
-					p, _ = pvqUTableLookup(pMin, pMax)
+					p = pvqUTableLookupFast(n, k)
 					if p <= i {
 						break
 					}
@@ -479,13 +477,8 @@ func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 		} else {
 			// Lots of dimensions case (k < n)
 			// Are there any pulses in this dimension at all?
-			pMin := imin(k, n)
-			pMax := imax(k, n)
-			p, _ = pvqUTableLookup(pMin, pMax)
-
-			qMin := imin(k+1, n)
-			qMax := imax(k+1, n)
-			q, _ = pvqUTableLookup(qMin, qMax)
+			p = pvqUTableLookupFast(k, n)
+			q = pvqUTableLookupFast(k+1, n)
 
 			if p <= i && i < q {
 				i -= p
@@ -500,9 +493,7 @@ func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 				k0 = k
 				for {
 					k--
-					pMin := imin(k, n)
-					pMax := imax(k, n)
-					p, _ = pvqUTableLookup(pMin, pMax)
+					p = pvqUTableLookupFast(k, n)
 					if p <= i {
 						break
 					}

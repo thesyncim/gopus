@@ -177,20 +177,173 @@ func cMulByScalar(a kissCpx, s float32) kissCpx {
 	return kissCpx{r: a.r * s, i: a.i * s}
 }
 
+func kfBfly2M1Available() bool { return true }
+
+func kfBfly4M1Available() bool { return true }
+
+func kfBfly4MxAvailable() bool { return false }
+
+func kfBfly3M1Available() bool { return true }
+
+func kfBfly5M1Available() bool { return true }
+
+// kfBfly2M1 handles the radix-2 m==1 hot path with index arithmetic (no reslicing).
+func kfBfly2M1(fout []kissCpx, n int) {
+	if n <= 0 {
+		return
+	}
+	total := n << 1
+	_ = fout[total-1] // BCE hint for i and i+1 accesses.
+	for i := 0; i < total; i += 2 {
+		ar := fout[i].r
+		ai := fout[i].i
+		br := fout[i+1].r
+		bi := fout[i+1].i
+		fout[i].r = ar + br
+		fout[i].i = ai + bi
+		fout[i+1].r = ar - br
+		fout[i+1].i = ai - bi
+	}
+}
+
+// kfBfly4M1 handles the radix-4 m==1 hot path.
+func kfBfly4M1(fout []kissCpx, n int) {
+	if n <= 0 {
+		return
+	}
+	total := n << 2
+	_ = fout[total-1] // BCE hint for base+0..3 accesses.
+	for i := 0; i < total; i += 4 {
+		a0r, a0i := fout[i].r, fout[i].i
+		a1r, a1i := fout[i+1].r, fout[i+1].i
+		a2r, a2i := fout[i+2].r, fout[i+2].i
+		a3r, a3i := fout[i+3].r, fout[i+3].i
+
+		s0r := a0r - a2r
+		s0i := a0i - a2i
+		f0r := a0r + a2r
+		f0i := a0i + a2i
+
+		s1r := a1r + a3r
+		s1i := a1i + a3i
+		f2r := f0r - s1r
+		f2i := f0i - s1i
+		f0r += s1r
+		f0i += s1i
+
+		s1r = a1r - a3r
+		s1i = a1i - a3i
+		f1r := s0r + s1i
+		f1i := s0i - s1r
+		f3r := s0r - s1i
+		f3i := s0i + s1r
+
+		fout[i].r, fout[i].i = f0r, f0i
+		fout[i+1].r, fout[i+1].i = f1r, f1i
+		fout[i+2].r, fout[i+2].i = f2r, f2i
+		fout[i+3].r, fout[i+3].i = f3r, f3i
+	}
+}
+
+// kfBfly3M1 handles the radix-3 m==1 path.
+func kfBfly3M1(fout []kissCpx, tw []kissCpx, fstride, n, mm int) {
+	if n <= 0 || mm <= 0 {
+		return
+	}
+	last := (n-1)*mm + 2
+	if last >= len(fout) || fstride >= len(tw) {
+		return
+	}
+	epi3i := tw[fstride].i
+	half := float32(0.5)
+	_ = fout[last] // BCE hint for base+0..2 accesses.
+	for i := 0; i < n; i++ {
+		base := i * mm
+		a0r, a0i := fout[base].r, fout[base].i
+		a1r, a1i := fout[base+1].r, fout[base+1].i
+		a2r, a2i := fout[base+2].r, fout[base+2].i
+
+		s3r := a1r + a2r
+		s3i := a1i + a2i
+		s0r := a1r - a2r
+		s0i := a1i - a2i
+
+		f1r := a0r - half*s3r
+		f1i := a0i - half*s3i
+		f0r := a0r + s3r
+		f0i := a0i + s3i
+
+		s0r *= epi3i
+		s0i *= epi3i
+
+		f2r := f1r + s0i
+		f2i := f1i - s0r
+		f1r -= s0i
+		f1i += s0r
+
+		fout[base].r, fout[base].i = f0r, f0i
+		fout[base+1].r, fout[base+1].i = f1r, f1i
+		fout[base+2].r, fout[base+2].i = f2r, f2i
+	}
+}
+
+// kfBfly5M1 handles the radix-5 m==1 path.
+func kfBfly5M1(fout []kissCpx, tw []kissCpx, fstride, n, mm int) {
+	if n <= 0 || mm <= 0 {
+		return
+	}
+	last := (n-1)*mm + 4
+	if last >= len(fout) || 2*fstride >= len(tw) {
+		return
+	}
+	ya := tw[fstride]
+	yb := tw[2*fstride]
+	yar, yai := ya.r, ya.i
+	ybr, ybi := yb.r, yb.i
+	_ = fout[last] // BCE hint for base+0..4 accesses.
+	for i := 0; i < n; i++ {
+		base := i * mm
+		a0r, a0i := fout[base].r, fout[base].i
+		a1r, a1i := fout[base+1].r, fout[base+1].i
+		a2r, a2i := fout[base+2].r, fout[base+2].i
+		a3r, a3i := fout[base+3].r, fout[base+3].i
+		a4r, a4i := fout[base+4].r, fout[base+4].i
+
+		s7r, s7i := a1r+a4r, a1i+a4i
+		s10r, s10i := a1r-a4r, a1i-a4i
+		s8r, s8i := a2r+a3r, a2i+a3i
+		s9r, s9i := a2r-a3r, a2i-a3i
+
+		f0r := a0r + s7r + s8r
+		f0i := a0i + s7i + s8i
+
+		s5r := a0r + (s7r*yar + s8r*ybr)
+		s5i := a0i + (s7i*yar + s8i*ybr)
+		s6r := s10i*yai + s9i*ybi
+		s6i := -(s10r*yai + s9r*ybi)
+
+		f1r, f1i := s5r-s6r, s5i-s6i
+		f4r, f4i := s5r+s6r, s5i+s6i
+
+		s11r := a0r + (s7r*ybr + s8r*yar)
+		s11i := a0i + (s7i*ybr + s8i*yar)
+		s12r := s9i*yai - s10i*ybi
+		s12i := s10r*ybi - s9r*yai
+
+		f2r, f2i := s11r+s12r, s11i+s12i
+		f3r, f3i := s11r-s12r, s11i-s12i
+
+		fout[base].r, fout[base].i = f0r, f0i
+		fout[base+1].r, fout[base+1].i = f1r, f1i
+		fout[base+2].r, fout[base+2].i = f2r, f2i
+		fout[base+3].r, fout[base+3].i = f3r, f3i
+		fout[base+4].r, fout[base+4].i = f4r, f4i
+	}
+}
+
 func kfBfly2(fout []kissCpx, m, N int) {
 	if m == 1 {
-		if kfBfly2M1Available() {
-			kfBfly2M1(fout, N)
-			return
-		}
-		for i := 0; i < N; i++ {
-			fout2 := fout[1]
-			fout[1].r = fout[0].r - fout2.r
-			fout[1].i = fout[0].i - fout2.i
-			fout[0].r += fout2.r
-			fout[0].i += fout2.i
-			fout = fout[2:]
-		}
+		kfBfly2M1(fout, N)
 		return
 	}
 	// m==4 degenerate radix-2 after radix-4
@@ -230,159 +383,178 @@ func kfBfly2(fout []kissCpx, m, N int) {
 
 func kfBfly4(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
 	if m == 1 {
-		if kfBfly4M1Available() {
-			kfBfly4M1(fout, N)
-			return
-		}
-		for i := 0; i < N; i++ {
-			scratch0 := cSub(fout[0], fout[2])
-			fout[0] = cAdd(fout[0], fout[2])
-			scratch1 := cAdd(fout[1], fout[3])
-			fout[2] = cSub(fout[0], scratch1)
-			fout[0] = cAdd(fout[0], scratch1)
-			scratch1 = cSub(fout[1], fout[3])
-			fout[1].r = scratch0.r + scratch1.i
-			fout[1].i = scratch0.i - scratch1.r
-			fout[3].r = scratch0.r - scratch1.i
-			fout[3].i = scratch0.i + scratch1.r
-			fout = fout[4:]
-		}
-		return
-	}
-	if kfBfly4MxAvailable() {
-		kfBfly4Mx(fout, st.w, m, N, fstride, mm)
+		kfBfly4M1(fout, N)
 		return
 	}
 	m2 := 2 * m
 	m3 := 3 * m
-	foutBeg := fout
+	if N <= 0 || mm <= 0 {
+		return
+	}
+	_ = fout[N*mm-1] // BCE for idx+{0,m,m2,m3}
+	w := st.w
 	for i := 0; i < N; i++ {
-		fout = foutBeg[i*mm:]
-		tw1 := 0
-		tw2 := 0
-		tw3 := 0
+		base := i * mm
+		tw1, tw2, tw3 := 0, 0, 0
 		for j := 0; j < m; j++ {
-			scratch0 := cMul(fout[m], st.w[tw1])
-			scratch1 := cMul(fout[m2], st.w[tw2])
-			scratch2 := cMul(fout[m3], st.w[tw3])
-			scratch5 := cSub(fout[0], scratch1)
-			fout[0] = cAdd(fout[0], scratch1)
-			scratch3 := cAdd(scratch0, scratch2)
-			scratch4 := cSub(scratch0, scratch2)
-			fout[m2] = cSub(fout[0], scratch3)
+			idx := base + j
+
+			a0r, a0i := fout[idx].r, fout[idx].i
+			b1 := fout[idx+m]
+			b2 := fout[idx+m2]
+			b3 := fout[idx+m3]
+			w1 := w[tw1]
+			w2 := w[tw2]
+			w3 := w[tw3]
+
+			s0r := b1.r*w1.r - b1.i*w1.i
+			s0i := b1.r*w1.i + b1.i*w1.r
+			s1r := b2.r*w2.r - b2.i*w2.i
+			s1i := b2.r*w2.i + b2.i*w2.r
+			s2r := b3.r*w3.r - b3.i*w3.i
+			s2i := b3.r*w3.i + b3.i*w3.r
+
+			s5r := a0r - s1r
+			s5i := a0i - s1i
+			a0r += s1r
+			a0i += s1i
+
+			s3r := s0r + s2r
+			s3i := s0i + s2i
+			s4r := s0r - s2r
+			s4i := s0i - s2i
+
+			fout[idx+m2].r = a0r - s3r
+			fout[idx+m2].i = a0i - s3i
+			a0r += s3r
+			a0i += s3i
+			fout[idx].r = a0r
+			fout[idx].i = a0i
+
+			fout[idx+m].r = s5r + s4i
+			fout[idx+m].i = s5i - s4r
+			fout[idx+m3].r = s5r - s4i
+			fout[idx+m3].i = s5i + s4r
+
 			tw1 += fstride
 			tw2 += fstride * 2
 			tw3 += fstride * 3
-			fout[0] = cAdd(fout[0], scratch3)
-			fout[m].r = scratch5.r + scratch4.i
-			fout[m].i = scratch5.i - scratch4.r
-			fout[m3].r = scratch5.r - scratch4.i
-			fout[m3].i = scratch5.i + scratch4.r
-			fout = fout[1:]
 		}
 	}
 }
 
 func kfBfly3(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
-	if m == 1 {
-		if kfBfly3M1Available() {
-			kfBfly3M1(fout, st.w, fstride, N, mm)
-			return
-		}
-	}
 	m2 := 2 * m
-	foutBeg := fout
 	epi3 := st.w[fstride*m]
+	if N <= 0 || mm <= 0 {
+		return
+	}
+	_ = fout[N*mm-1] // BCE for idx+{0,m,m2}
+	w := st.w
+	const half = float32(0.5)
+	epi3i := epi3.i
 	for i := 0; i < N; i++ {
-		fout = foutBeg[i*mm:]
-		tw1 := 0
-		tw2 := 0
-		for k := 0; k < m; k++ {
-			scratch1 := cMul(fout[m], st.w[tw1])
-			scratch2 := cMul(fout[m2], st.w[tw2])
-			scratch3 := cAdd(scratch1, scratch2)
-			scratch0 := cSub(scratch1, scratch2)
+		base := i * mm
+		tw1, tw2 := 0, 0
+		for j := 0; j < m; j++ {
+			idx := base + j
+
+			a0r, a0i := fout[idx].r, fout[idx].i
+			b1 := fout[idx+m]
+			b2 := fout[idx+m2]
+			w1 := w[tw1]
+			w2 := w[tw2]
+
+			s1r := b1.r*w1.r - b1.i*w1.i
+			s1i := b1.r*w1.i + b1.i*w1.r
+			s2r := b2.r*w2.r - b2.i*w2.i
+			s2i := b2.r*w2.i + b2.i*w2.r
+
+			s3r := s1r + s2r
+			s3i := s1i + s2i
+			s0r := (s1r - s2r) * epi3i
+			s0i := (s1i - s2i) * epi3i
+
+			f1r := a0r - half*s3r
+			f1i := a0i - half*s3i
+			fout[idx].r = a0r + s3r
+			fout[idx].i = a0i + s3i
+			fout[idx+m2].r = f1r + s0i
+			fout[idx+m2].i = f1i - s0r
+			fout[idx+m].r = f1r - s0i
+			fout[idx+m].i = f1i + s0r
+
 			tw1 += fstride
 			tw2 += fstride * 2
-
-			// HALF_OF(x) = x * 0.5f in float builds
-			fout[m].r = fout[0].r - float32(0.5)*scratch3.r
-			fout[m].i = fout[0].i - float32(0.5)*scratch3.i
-			scratch0 = cMulByScalar(scratch0, epi3.i)
-			fout[0].r += scratch3.r
-			fout[0].i += scratch3.i
-
-			fout[m2].r = fout[m].r + scratch0.i
-			fout[m2].i = fout[m].i - scratch0.r
-			fout[m].r = fout[m].r - scratch0.i
-			fout[m].i = fout[m].i + scratch0.r
-
-			fout = fout[1:]
 		}
 	}
 }
 
 func kfBfly5(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
-	if m == 1 {
-		if kfBfly5M1Available() {
-			kfBfly5M1(fout, st.w, fstride, N, mm)
-			return
-		}
+	if N <= 0 || mm <= 0 {
+		return
 	}
-	foutBeg := fout
 	ya := st.w[fstride*m]
 	yb := st.w[fstride*2*m]
+	yar, yai := ya.r, ya.i
+	ybr, ybi := yb.r, yb.i
+	_ = fout[N*mm-1] // BCE for idx+{0..4m}
+	w := st.w
 	for i := 0; i < N; i++ {
-		fout = foutBeg[i*mm:]
-		fout0 := fout
-		fout1 := fout[m:]
-		fout2 := fout[2*m:]
-		fout3 := fout[3*m:]
-		fout4 := fout[4*m:]
+		base := i * mm
+		idx0, idx1, idx2, idx3, idx4 := base, base+m, base+2*m, base+3*m, base+4*m
+		tw1, tw2, tw3, tw4 := 0, 0, 0, 0
 		for u := 0; u < m; u++ {
-			scratch0 := fout0[0]
-			scratch1 := cMul(fout1[0], st.w[u*fstride])
-			scratch2 := cMul(fout2[0], st.w[2*u*fstride])
-			scratch3 := cMul(fout3[0], st.w[3*u*fstride])
-			scratch4 := cMul(fout4[0], st.w[4*u*fstride])
+			a0 := fout[idx0]
+			b1 := fout[idx1]
+			b2 := fout[idx2]
+			b3 := fout[idx3]
+			b4 := fout[idx4]
+			w1 := w[tw1]
+			w2 := w[tw2]
+			w3 := w[tw3]
+			w4 := w[tw4]
 
-			scratch7 := cAdd(scratch1, scratch4)
-			scratch10 := cSub(scratch1, scratch4)
-			scratch8 := cAdd(scratch2, scratch3)
-			scratch9 := cSub(scratch2, scratch3)
+			s1r := b1.r*w1.r - b1.i*w1.i
+			s1i := b1.r*w1.i + b1.i*w1.r
+			s2r := b2.r*w2.r - b2.i*w2.i
+			s2i := b2.r*w2.i + b2.i*w2.r
+			s3r := b3.r*w3.r - b3.i*w3.i
+			s3i := b3.r*w3.i + b3.i*w3.r
+			s4r := b4.r*w4.r - b4.i*w4.i
+			s4i := b4.r*w4.i + b4.i*w4.r
 
-			fout0[0].r = fout0[0].r + (scratch7.r + scratch8.r)
-			fout0[0].i = fout0[0].i + (scratch7.i + scratch8.i)
+			s7r, s7i := s1r+s4r, s1i+s4i
+			s10r, s10i := s1r-s4r, s1i-s4i
+			s8r, s8i := s2r+s3r, s2i+s3i
+			s9r, s9i := s2r-s3r, s2i-s3i
 
-			scratch5 := kissCpx{
-				r: scratch0.r + (scratch7.r*ya.r + scratch8.r*yb.r),
-				i: scratch0.i + (scratch7.i*ya.r + scratch8.i*yb.r),
-			}
-			scratch6 := kissCpx{
-				r: scratch10.i*ya.i + scratch9.i*yb.i,
-				i: -(scratch10.r*ya.i + scratch9.r*yb.i),
-			}
+			fout[idx0].r = a0.r + (s7r + s8r)
+			fout[idx0].i = a0.i + (s7i + s8i)
 
-			fout1[0] = cSub(scratch5, scratch6)
-			fout4[0] = cAdd(scratch5, scratch6)
+			s5r := a0.r + (s7r*yar + s8r*ybr)
+			s5i := a0.i + (s7i*yar + s8i*ybr)
+			s6r := s10i*yai + s9i*ybi
+			s6i := -(s10r*yai + s9r*ybi)
+			fout[idx1].r, fout[idx1].i = s5r-s6r, s5i-s6i
+			fout[idx4].r, fout[idx4].i = s5r+s6r, s5i+s6i
 
-			scratch11 := kissCpx{
-				r: scratch0.r + (scratch7.r*yb.r + scratch8.r*ya.r),
-				i: scratch0.i + (scratch7.i*yb.r + scratch8.i*ya.r),
-			}
-			scratch12 := kissCpx{
-				r: scratch9.i*ya.i - scratch10.i*yb.i,
-				i: scratch10.r*yb.i - scratch9.r*ya.i,
-			}
+			s11r := a0.r + (s7r*ybr + s8r*yar)
+			s11i := a0.i + (s7i*ybr + s8i*yar)
+			s12r := s9i*yai - s10i*ybi
+			s12i := s10r*ybi - s9r*yai
+			fout[idx2].r, fout[idx2].i = s11r+s12r, s11i+s12i
+			fout[idx3].r, fout[idx3].i = s11r-s12r, s11i-s12i
 
-			fout2[0] = cAdd(scratch11, scratch12)
-			fout3[0] = cSub(scratch11, scratch12)
-
-			fout0 = fout0[1:]
-			fout1 = fout1[1:]
-			fout2 = fout2[1:]
-			fout3 = fout3[1:]
-			fout4 = fout4[1:]
+			idx0++
+			idx1++
+			idx2++
+			idx3++
+			idx4++
+			tw1 += fstride
+			tw2 += fstride * 2
+			tw3 += fstride * 3
+			tw4 += fstride * 4
 		}
 	}
 }
