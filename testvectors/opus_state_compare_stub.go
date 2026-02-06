@@ -49,6 +49,21 @@ type libopusOpusStateSnapshot struct {
 	PitchWinLen       int
 }
 
+type libopusOpusNSQStateSnapshot struct {
+	XQ            []int16
+	SLTPShpQ14    []int32
+	SLPCQ14       []int32
+	SAR2Q14       []int32
+	LFARQ14       int32
+	DiffQ14       int32
+	LagPrev       int
+	SLTPBufIdx    int
+	SLTPShpBufIdx int
+	RandSeed      int32
+	PrevGainQ16   int32
+	RewhiteFlag   int
+}
+
 func captureLibopusOpusSilkState(_ []float32, _, _, _, _, _ int) (libopusOpusStateSnapshot, bool) {
 	return libopusOpusStateSnapshot{}, false
 }
@@ -59,4 +74,8 @@ func captureLibopusOpusSilkStateBeforeFrame(_ []float32, _, _, _, _, _ int) (lib
 
 func captureLibopusOpusPitchXBufBeforeFrame(_ []float32, _, _, _, _, _ int) ([]float32, bool) {
 	return nil, false
+}
+
+func captureLibopusOpusNSQStateBeforeFrame(_ []float32, _, _, _, _, _ int) (libopusOpusNSQStateSnapshot, bool) {
+	return libopusOpusNSQStateSnapshot{}, false
 }

@@ -443,6 +443,11 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 	var preModeUseCBRDiff int
 	var preModeMaxBitsDiff int
 	var preModeBitRateDiff int
+	var preNSQTopXQDiff int
+	var preNSQTopSLTPShpDiff int
+	var preNSQTopSLPCDiff int
+	var preNSQTopSAR2Diff int
+	var preNSQTopScalarDiff int
 
 	for i := 0; i < compareCount; i++ {
 		goPayload := gopusPackets[i]
@@ -653,6 +658,63 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 						if preModeBitRateDiff <= 5 {
 							t.Logf("Frame %d pre-state mode bitRate mismatch: go=%d lib=%d", i, pre.InputRateBps, snapPre.SilkModeBitRate)
 						}
+					}
+				}
+			}
+		}
+
+		if i < len(nsqTraces) && preNSQXQHashDiff > 0 && preNSQXQHashDiff <= 3 {
+			if snapNSQ, ok := captureLibopusOpusNSQStateBeforeFrame(original, sampleRate, channels, bitrate, frameSize, i); ok {
+				tr := nsqTraces[i]
+				if len(tr.NSQXQ) == len(snapNSQ.XQ) {
+					if idx, goVal, libVal, ok := firstInt16Diff(tr.NSQXQ, snapNSQ.XQ); ok {
+						preNSQTopXQDiff++
+						if preNSQTopXQDiff <= 3 {
+							t.Logf("Frame %d pre-NSQ top-level xq diff idx=%d go=%d lib=%d", i, idx, goVal, libVal)
+						}
+					}
+				}
+				if len(tr.NSQSLTPShpQ14) == len(snapNSQ.SLTPShpQ14) {
+					if idx, goVal, libVal, ok := firstInt32Diff(tr.NSQSLTPShpQ14, snapNSQ.SLTPShpQ14); ok {
+						preNSQTopSLTPShpDiff++
+						if preNSQTopSLTPShpDiff <= 3 {
+							t.Logf("Frame %d pre-NSQ top-level sLTP_shp diff idx=%d go=%d lib=%d", i, idx, goVal, libVal)
+						}
+					}
+				}
+				if len(tr.NSQLPCQ14) == len(snapNSQ.SLPCQ14) {
+					if idx, goVal, libVal, ok := firstInt32Diff(tr.NSQLPCQ14, snapNSQ.SLPCQ14); ok {
+						preNSQTopSLPCDiff++
+						if preNSQTopSLPCDiff <= 3 {
+							t.Logf("Frame %d pre-NSQ top-level sLPC diff idx=%d go=%d lib=%d", i, idx, goVal, libVal)
+						}
+					}
+				}
+				if len(tr.NSQAR2Q14) == len(snapNSQ.SAR2Q14) {
+					if idx, goVal, libVal, ok := firstInt32Diff(tr.NSQAR2Q14, snapNSQ.SAR2Q14); ok {
+						preNSQTopSAR2Diff++
+						if preNSQTopSAR2Diff <= 3 {
+							t.Logf("Frame %d pre-NSQ top-level sAR2 diff idx=%d go=%d lib=%d", i, idx, goVal, libVal)
+						}
+					}
+				}
+				if tr.NSQLFARQ14 != snapNSQ.LFARQ14 || tr.NSQDiffQ14 != snapNSQ.DiffQ14 ||
+					tr.NSQLagPrev != snapNSQ.LagPrev || tr.NSQSLTPBufIdx != snapNSQ.SLTPBufIdx ||
+					tr.NSQSLTPShpBufIdx != snapNSQ.SLTPShpBufIdx || tr.NSQPrevGainQ16 != snapNSQ.PrevGainQ16 ||
+					tr.NSQRandSeed != snapNSQ.RandSeed || tr.NSQRewhiteFlag != snapNSQ.RewhiteFlag {
+					preNSQTopScalarDiff++
+					if preNSQTopScalarDiff <= 3 {
+						t.Logf("Frame %d pre-NSQ top-level scalar diff: lfAR go=%d lib=%d diff go=%d lib=%d lagPrev go=%d lib=%d sLTPBufIdx go=%d lib=%d sLTPShpBufIdx go=%d lib=%d prevGain go=%d lib=%d randSeed go=%d lib=%d rewhite go=%d lib=%d",
+							i,
+							tr.NSQLFARQ14, snapNSQ.LFARQ14,
+							tr.NSQDiffQ14, snapNSQ.DiffQ14,
+							tr.NSQLagPrev, snapNSQ.LagPrev,
+							tr.NSQSLTPBufIdx, snapNSQ.SLTPBufIdx,
+							tr.NSQSLTPShpBufIdx, snapNSQ.SLTPShpBufIdx,
+							tr.NSQPrevGainQ16, snapNSQ.PrevGainQ16,
+							tr.NSQRandSeed, snapNSQ.RandSeed,
+							tr.NSQRewhiteFlag, snapNSQ.RewhiteFlag,
+						)
 					}
 				}
 			}
@@ -977,6 +1039,8 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 	t.Logf("Seed mismatches: %d/%d", seedDiff, compareCount)
 	t.Logf("Pre-state mismatches: prevLag=%d prevSignal=%d nsqLagPrev=%d nsqSLTPBufIdx=%d nsqSLTPShpBufIdx=%d nsqPrevGain=%d nsqSeed=%d nsqRewhite=%d nsqXQHash=%d nsqSLTPShpHash=%d nsqSLPCHash=%d nsqSAR2Hash=%d ecPrevLag=%d ecPrevSignal=%d inputRate=%d sumLogGain=%d targetRate=%d snr=%d nBitsExceeded=%d nFramesPerPacket=%d nFramesEncoded=%d lastGain=%d modeUseCBR=%d modeMaxBits=%d modeBitRate=%d pitchBufLen=%d pitchBufHash=%d pitchWinLen=%d pitchWinHash=%d",
 		prePrevLagDiff, prePrevSignalDiff, preNSQLagDiff, preNSQBufDiff, preNSQShpBufDiff, preNSQPrevGainDiff, preNSQSeedDiff, preNSQRewhiteDiff, preNSQXQHashDiff, preNSQSLTPShpHashDiff, preNSQSLPCHashDiff, preNSQSAR2HashDiff, preECPrevLagDiff, preECPrevSignalDiff, preInputRateDiff, preSumLogGainDiff, preTargetRateDiff, preSNRDiff, preNBitsExceededDiff, preNFramesPerPacketDiff, preNFramesEncodedDiff, preLastGainDiff, preModeUseCBRDiff, preModeMaxBitsDiff, preModeBitRateDiff, prePitchBufLenDiff, prePitchBufHashDiff, prePitchWinLenDiff, prePitchWinHashDiff)
+	t.Logf("Pre-NSQ top-level full-state diffs: xq=%d sLTP_shp=%d sLPC=%d sAR2=%d scalar=%d",
+		preNSQTopXQDiff, preNSQTopSLTPShpDiff, preNSQTopSLPCDiff, preNSQTopSAR2Diff, preNSQTopScalarDiff)
 	if preNSQPrevGainDiff > 10 {
 		t.Fatalf("pre-state NSQ prevGain mismatches regressed: got %d/%d, want <= 10", preNSQPrevGainDiff, compareCount)
 	}
