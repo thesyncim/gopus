@@ -295,7 +295,7 @@ func (e *Encoder) buildPredCoefQ12(predCoefQ12 []int16, nlsfQ15 []int16, interpI
 // encodeLSF encodes quantized LSF to bitstream per libopus.
 // Uses libopus ICDF tables matching silkDecodeIndices in libopus_decode.go.
 // Per RFC 6716 Section 4.2.7.5.2.
-func (e *Encoder) encodeLSF(stage1Idx int, residuals []int, interpIdx int, bandwidth Bandwidth, signalType int) {
+func (e *Encoder) encodeLSF(stage1Idx int, residuals []int, interpIdx int, bandwidth Bandwidth, signalType int, numSubframes int) {
 	isWideband := bandwidth == BandwidthWideband
 
 	// Select codebook based on bandwidth
@@ -345,13 +345,18 @@ func (e *Encoder) encodeLSF(stage1Idx int, residuals []int, interpIdx int, bandw
 		}
 	}
 
-	// Encode interpolation index using silk_NLSF_interpolation_factor_iCDF
-	// This matches decoder: rd.DecodeICDF(silk_NLSF_interpolation_factor_iCDF, 8)
-	if interpIdx < 0 {
-		interpIdx = 0
+	// Encode interpolation index only for 20ms frames (4 subframes).
+	// Per libopus silk/encode_indices.c: the interpolation factor is only
+	// written when nb_subfr == MAX_NB_SUBFR.  The decoder (silk_decode_indices)
+	// mirrors this: it only reads the symbol for 4-subframe packets.
+	// For 10ms frames (2 subframes) the decoder hard-codes interpCoefQ2=4.
+	if numSubframes == maxNbSubfr {
+		if interpIdx < 0 {
+			interpIdx = 0
+		}
+		if interpIdx > 4 {
+			interpIdx = 4
+		}
+		e.rangeEncoder.EncodeICDF(interpIdx, silk_NLSF_interpolation_factor_iCDF, 8)
 	}
-	if interpIdx > 4 {
-		interpIdx = 4
-	}
-	e.rangeEncoder.EncodeICDF(interpIdx, silk_NLSF_interpolation_factor_iCDF, 8)
 }

@@ -553,7 +553,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			for i := 1; i < numSubframes; i++ {
 				e.rangeEncoder.EncodeICDF(int(frameIndices.GainsIndices[i]), silk_delta_gain_iCDF, 8)
 			}
-			e.encodeLSF(stage1Idx, residuals, interpIdx, e.bandwidth, signalType)
+			e.encodeLSF(stage1Idx, residuals, interpIdx, e.bandwidth, signalType, numSubframes)
 			if signalType == typeVoiced {
 				e.encodePitchLagsWithParams(pitchParams, condCoding)
 				e.encodeLTPCoeffs(perIndex, ltpIndices[:], numSubframes)
@@ -603,7 +603,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 				for i := 1; i < numSubframes; i++ {
 					e.rangeEncoder.EncodeICDF(int(frameIndices.GainsIndices[i]), silk_delta_gain_iCDF, 8)
 				}
-				e.encodeLSF(stage1Idx, residuals, interpIdx, e.bandwidth, signalType)
+				e.encodeLSF(stage1Idx, residuals, interpIdx, e.bandwidth, signalType, numSubframes)
 				if signalType == typeVoiced {
 					e.encodePitchLagsWithParams(pitchParams, condCoding)
 					e.encodeLTPCoeffs(perIndex, ltpIndices[:], numSubframes)
