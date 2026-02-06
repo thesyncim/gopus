@@ -652,6 +652,17 @@ func (e *Encoder) StereoLRToMSWithRates(
 	// Our mid array: mid[0..1] = history, mid[2..frameLength+1] = current frame.
 	// midOut[n] = mid[n+1] gives mid[1..frameLength] which matches inputBuf[1..frame_length].
 	// sideOut[n] = prediction at n, which matches inputBuf[n+1] = x2[n-1].
+	//
+	// NOTE on sumQ11 scaling: In libopus, mid values are int16 and the LP filter
+	// sum = (mid[n]+2*mid[n+1]+mid[n+2]) << 9 produces Q11 in int32.
+	// Our float mid values are in [-1,1] (= int16/32768), so the correct int16-matching
+	// formula would be: int32(mid_float*32768) for each sample, then << 9.
+	// However, fixing sumQ11 to full int16 precision degrades quality because
+	// the decoder's prediction addition uses SILK-decoded int16 mid values
+	// which differ from the encoder's original mid values (~23 dB mono SNR).
+	// The prediction mismatch amplifies this error. Keeping the weaker *512 scaling
+	// reduces the pred0 (LP) term, limiting the mismatch impact.
+	// This is a known trade-off that will improve as SILK mono quality improves.
 	midOut = make([]float32, frameLength)
 	sideOut = make([]float32, frameLength)
 	for n := 0; n < frameLength; n++ {

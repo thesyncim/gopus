@@ -745,17 +745,20 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, lookahead []float32, sil
 
 	// Convert to mid-side with libopus-aligned stereo front-end.
 	fsKHz := 16 // SILK wideband uses 16kHz
-	mid, side, predIdx, midOnly, midRate, sideRate, _ := e.silkEncoder.StereoLRToMSWithRates(
+	mid, side, predIdx, midOnly, _, _, _ := e.silkEncoder.StereoLRToMSWithRates(
 		left, right, silkSamples, fsKHz, totalRateBps, e.lastVADActivityQ8, false,
 	)
-	if midOnly {
-		sideRate = 0
+	// Give the mid encoder the full total rate rather than just the mid share.
+	// This matches the standalone SILK stereo path in encodeSILKFrame.
+	// With our current SILK mono quality (~23 dB), giving more bits to mid
+	// improves the decoder's stereo reconstruction which depends on accurate mid.
+	// The side encoder gets the per-channel rate as a baseline.
+	if totalRateBps > 0 {
+		e.silkEncoder.SetBitrate(totalRateBps)
 	}
-	if midRate > 0 {
-		e.silkEncoder.SetBitrate(midRate)
-	}
-	if e.silkSideEncoder != nil && sideRate > 0 {
-		e.silkSideEncoder.SetBitrate(sideRate)
+	perChannelRate := totalRateBps / 2
+	if e.silkSideEncoder != nil && perChannelRate > 0 {
+		e.silkSideEncoder.SetBitrate(perChannelRate)
 	}
 
 	// Compute VAD flags

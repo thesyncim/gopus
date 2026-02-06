@@ -160,7 +160,7 @@ func EncodeStereoWithEncoder(enc, sideEnc *Encoder, left, right []float32, bandw
 
 	// Convert L/R to M/S with stereo prediction, rate allocation, and width decision.
 	// This matches libopus silk_stereo_LR_to_MS.
-	midOut, sideOut, ix, midOnly, midRate, sideRate, _ := enc.StereoLRToMSWithRates(
+	midOut, sideOut, ix, midOnly, _, _, _ := enc.StereoLRToMSWithRates(
 		left, right, frameLength, fsKHz,
 		totalRate, speechActQ8, false,
 	)
@@ -178,27 +178,6 @@ func EncodeStereoWithEncoder(enc, sideEnc *Encoder, left, right []float32, bandw
 			midOnlyVal = 1
 		}
 		EncodeStereoMidOnly(re, midOnlyVal)
-	}
-
-	// Set per-channel bitrates from the stereo rate allocation.
-	// In libopus enc_API.c line 502-513, each channel gets its own channelRate_bps
-	// from MStargetRates_bps[], and silk_control_SNR is called with that rate.
-	if midOnly {
-		enc.SetBitrate(totalRate)
-	} else {
-		if midRate > 0 {
-			enc.SetBitrate(midRate)
-		}
-		if sideRate > 0 {
-			sideEnc.SetBitrate(sideRate)
-		}
-	}
-
-	// In libopus, when side is active, the mid channel is forced non-CBR
-	// and maxBits is reduced to leave room for side. Matches enc_API.c line 503-507:
-	//   useCBR = 0; maxBits -= encControl->maxBits / (tot_blocks * 2);
-	if !midOnly && sideRate > 0 && enc.maxBits > 0 {
-		enc.maxBits -= enc.maxBits / 2
 	}
 
 	// Set up shared range encoder for mid channel encoding.
