@@ -182,10 +182,12 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 							energyF32(lpcRes[order+subfrLen:], subframeSamples),
 					)
 
-					if resNrgInterp < resNrg32 {
-						resNrg32 = resNrgInterp
-						interpIdx = k
-					} else if resNrgInterp > resNrg2nd {
+						// Match libopus tie behavior in NLSF interpolation search:
+						// for near-equal energies, prefer the later-tested lower k.
+						if resNrgInterp <= resNrg32 {
+							resNrg32 = resNrgInterp
+							interpIdx = k
+						} else if resNrgInterp > resNrg2nd {
 						break
 					}
 					resNrg2nd = resNrgInterp
