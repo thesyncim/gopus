@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -177,7 +178,6 @@ func collectSILKFixProgressMetrics(t *testing.T, frames int) silkFixProgressMetr
 	goEnc.SetMode(encoder.ModeSILK)
 	goEnc.SetBandwidth(types.BandwidthWideband)
 	goEnc.SetBitrate(bitrate)
-	goEnc.SetLSBDepth(16)
 
 	framePreTrace := &silk.FrameStateTrace{}
 	goEnc.SetSilkTrace(&silk.EncoderTrace{FramePre: framePreTrace})
@@ -625,18 +625,13 @@ func quantizeFloat32SignalToPCM16(in []float32) []float32 {
 	}
 	out := make([]float32, len(in))
 	for i, s := range in {
-		v := int32(s * 32768.0)
-		if s >= 0 {
-			v = int32(s*32768.0 + 0.5)
-		} else {
-			v = int32(s*32768.0 - 0.5)
-		}
+		v := math.RoundToEven(float64(s) * 32768.0)
 		if v > 32767 {
 			v = 32767
 		} else if v < -32768 {
 			v = -32768
 		}
-		out[i] = float32(v) / 32768.0
+		out[i] = float32(v / 32768.0)
 	}
 	return out
 }
