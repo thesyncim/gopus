@@ -829,7 +829,19 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	copy(result, raw)
 
 	if e.targetRateBps > 0 && payloadSizeMs > 0 {
-		e.nBitsExceeded += len(result) * 8
+		// Match libopus bit-reservoir behavior as closely as possible.
+		// In rare edge cases our packed byte count can under-report by one byte
+		// relative to the arithmetic coder tell() boundary, which feeds back into
+		// TargetRate/SNR control on subsequent frames.
+		usedBits := len(result) * 8
+		tellBits := e.rangeEncoder.Tell()
+		if tellBits > 0 {
+			tellAligned := (tellBits + 7) &^ 7
+			if tellAligned > usedBits {
+				usedBits = tellAligned
+			}
+		}
+		e.nBitsExceeded += usedBits
 		e.nBitsExceeded -= (e.targetRateBps * payloadSizeMs) / 1000
 		if e.nBitsExceeded < 0 {
 			e.nBitsExceeded = 0
