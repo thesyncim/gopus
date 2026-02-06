@@ -831,14 +831,16 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 }
 
 func float32ToInt16(v float32) int16 {
-	scaled := float64(v) * 32768.0
+	// Match libopus FLOAT2INT16 path: keep scaling/clamping in float32,
+	// then round-to-nearest-even at conversion.
+	scaled := v * 32768.0
 	if scaled > 32767.0 {
 		return 32767
 	}
 	if scaled < -32768.0 {
 		return -32768
 	}
-	return int16(math.RoundToEven(scaled))
+	return int16(math.RoundToEven(float64(scaled)))
 }
 
 // PLCState returns the PLC state for external access (e.g., hybrid mode).
