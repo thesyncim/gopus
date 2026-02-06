@@ -79,25 +79,25 @@ func TestRangeStageCompareLibopus(t *testing.T) {
 	// Decode gopus packet with range stage tracing
 	goTracer := &stageTracer{}
 	origTracer := celt.DefaultTracer
-	celt.DefaultTracer = goTracer
+	celt.SetTracer(goTracer)
 	{
 		dec := celt.NewDecoder(1)
 		if _, err := dec.DecodeFrame(goPacket, frameSize); err != nil {
 			t.Fatalf("gopus decode failed: %v", err)
 		}
 	}
-	celt.DefaultTracer = origTracer
+	celt.SetTracer(origTracer)
 
 	// Decode libopus packet (skip TOC)
 	libTracer := &stageTracer{}
-	celt.DefaultTracer = libTracer
+	celt.SetTracer(libTracer)
 	{
 		dec := celt.NewDecoder(1)
 		if _, err := dec.DecodeFrame(libPacket[1:], frameSize); err != nil {
 			t.Fatalf("libopus decode failed: %v", err)
 		}
 	}
-	celt.DefaultTracer = origTracer
+	celt.SetTracer(origTracer)
 
 	// Compare stage states in order observed by gopus decode
 	firstMismatch := ""

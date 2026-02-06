@@ -77,7 +77,7 @@ func (d *Decoder) DecodeBands(
 		k := bitsToK(bandBits[band], n)
 
 		// Trace allocation
-		DefaultTracer.TraceAllocation(band, bandBits[band], k)
+		traceAllocation(band, bandBits[band], k)
 
 		// Get pre-allocated storage for this band's shape vector
 		shape := d.scratchBands.getBandStorage(band, n)
@@ -121,7 +121,7 @@ func (d *Decoder) DecodeBands(
 		if traceEnd > len(coeffs) {
 			traceEnd = len(coeffs)
 		}
-		DefaultTracer.TraceCoeffs(band, coeffs[offset:traceEnd])
+		traceCoeffs(band, coeffs[offset:traceEnd])
 
 		offset += n
 	}
@@ -196,7 +196,7 @@ func (d *Decoder) DecodeBandsStereo(
 		// Convert bits to pulse count
 		k := bitsToK(bandBits[band], n)
 		// Trace allocation
-		DefaultTracer.TraceAllocation(band, bandBits[band], k)
+		traceAllocation(band, bandBits[band], k)
 
 		// Get pre-allocated storage for this band's shape vectors
 		shapeL := d.scratchBands.getBandStorageL(band, n)
@@ -454,7 +454,7 @@ func denormalizeCoeffs(coeffs []float64, energies []float64, nbBands, frameSize 
 		}
 		traceEnd := end
 		if traceEnd > offset {
-			DefaultTracer.TraceCoeffs(band, coeffs[offset:traceEnd])
+			traceCoeffs(band, coeffs[offset:traceEnd])
 		}
 		offset += width
 	}

@@ -545,6 +545,49 @@ func TestDecodeWithFEC_SILKStoresFEC(t *testing.T) {
 	t.Log("DecodeWithFEC correctly stored FEC data for SILK mode")
 }
 
+func TestStoreFECData_ReusesBackingBuffer(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	initialCap := cap(dec.fecData)
+	if initialCap == 0 {
+		t.Fatal("expected preallocated fecData backing buffer")
+	}
+
+	toc := TOC{
+		Mode:      ModeSILK,
+		Bandwidth: BandwidthWideband,
+		Stereo:    false,
+	}
+
+	packetSmall := make([]byte, 32)
+	packetLarge := make([]byte, 512)
+	for i := range packetSmall {
+		packetSmall[i] = byte(i)
+	}
+	for i := range packetLarge {
+		packetLarge[i] = byte(255 - (i % 255))
+	}
+
+	dec.storeFECData(packetSmall, toc, 1, 960)
+	if cap(dec.fecData) != initialCap {
+		t.Fatalf("fecData cap changed after small packet: got %d want %d", cap(dec.fecData), initialCap)
+	}
+
+	dec.storeFECData(packetLarge, toc, 1, 960)
+	if cap(dec.fecData) != initialCap {
+		t.Fatalf("fecData cap changed after large packet: got %d want %d", cap(dec.fecData), initialCap)
+	}
+	if len(dec.fecData) != len(packetLarge) {
+		t.Fatalf("fecData len = %d, want %d", len(dec.fecData), len(packetLarge))
+	}
+	if dec.fecData[0] != packetLarge[0] || dec.fecData[len(dec.fecData)-1] != packetLarge[len(packetLarge)-1] {
+		t.Fatal("fecData content mismatch after copy")
+	}
+}
+
 // TestDecodeWithFEC_HybridStoresFEC verifies that Hybrid packets store FEC data.
 func TestDecodeWithFEC_HybridStoresFEC(t *testing.T) {
 	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
