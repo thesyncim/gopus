@@ -68,6 +68,8 @@ func TestPVQSignPreservation(t *testing.T) {
 
 // TestEncoderOutputCorrelation tests if the encoder output has correct polarity
 func TestEncoderOutputCorrelation(t *testing.T) {
+	SetLibopusDebugRange(false)
+
 	sampleRate := 48000
 	frameSize := 960
 
@@ -121,6 +123,62 @@ func TestEncoderOutputCorrelation(t *testing.T) {
 	t.Logf("  idx     original     decoded")
 	for i := 0; i < 10; i++ {
 		t.Logf("  [%d]  %10.5f  %10.5f", i, pcm[i], decoded[i])
+	}
+}
+
+// TestEncoderOutputCorrelationAfterWarmup validates encoder output shape after
+// one-frame startup effects (lookahead/window overlap) have settled.
+func TestEncoderOutputCorrelationAfterWarmup(t *testing.T) {
+	SetLibopusDebugRange(false)
+
+	sampleRate := 48000
+	frameSize := 960
+
+	pcm := make([]float64, frameSize*2)
+	for i := 0; i < len(pcm); i++ {
+		ti := float64(i) / float64(sampleRate)
+		pcm[i] = 0.5 * math.Sin(2*math.Pi*440*ti)
+	}
+
+	enc := encoder.NewEncoder(48000, 1)
+	enc.SetMode(encoder.ModeCELT)
+	enc.SetBandwidth(gopus.BandwidthFullband)
+	enc.SetBitrate(64000)
+
+	pkt1, err := enc.Encode(pcm[:frameSize], frameSize)
+	if err != nil {
+		t.Fatalf("frame1 encode failed: %v", err)
+	}
+	pkt2, err := enc.Encode(pcm[frameSize:], frameSize)
+	if err != nil {
+		t.Fatalf("frame2 encode failed: %v", err)
+	}
+
+	libDec, err := NewLibopusDecoder(48000, 1)
+	if err != nil {
+		t.Fatalf("NewLibopusDecoder failed: %v", err)
+	}
+	defer libDec.Destroy()
+
+	decoded1, samples1 := libDec.DecodeFloat(pkt1, frameSize)
+	if samples1 <= 0 {
+		t.Fatalf("frame1 decode failed: %d", samples1)
+	}
+	decoded2, samples2 := libDec.DecodeFloat(pkt2, frameSize)
+	if samples2 <= 0 {
+		t.Fatalf("frame2 decode failed: %d", samples2)
+	}
+
+	corr1, lag1 := maxLagCorrelation(pcm[:frameSize], decoded1, 120)
+	corr2, lag2 := maxLagCorrelation(pcm[frameSize:], decoded2, 120)
+
+	t.Logf("Frame1 correlation: %.4f (lag=%d)", corr1, lag1)
+	t.Logf("Frame2 correlation: %.4f (lag=%d)", corr2, lag2)
+
+	if corr2 < 0 {
+		t.Errorf("frame2 signal inverted: corr=%.4f", corr2)
+	} else if corr2 < 0.9 {
+		t.Errorf("frame2 low correlation: %.4f (expected > 0.9)", corr2)
 	}
 }
 
