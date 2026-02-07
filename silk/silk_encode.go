@@ -147,14 +147,30 @@ func EncodeStereoWithEncoder(enc, sideEnc *Encoder, left, right []float32, bandw
 	}
 
 	// Ensure we have lookahead samples (need frameLength + 2 for LP filter).
+	// When explicit lookahead isn't available, extend with the tail sample
+	// instead of zeros to avoid frame-boundary predictor discontinuities.
 	if len(left) < frameLength+2 {
 		pad := make([]float32, frameLength+2)
 		copy(pad, left)
+		fill := float32(0)
+		if len(left) > 0 {
+			fill = left[len(left)-1]
+		}
+		for i := len(left); i < len(pad); i++ {
+			pad[i] = fill
+		}
 		left = pad
 	}
 	if len(right) < frameLength+2 {
 		pad := make([]float32, frameLength+2)
 		copy(pad, right)
+		fill := float32(0)
+		if len(right) > 0 {
+			fill = right[len(right)-1]
+		}
+		for i := len(right); i < len(pad); i++ {
+			pad[i] = fill
+		}
 		right = pad
 	}
 

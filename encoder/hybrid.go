@@ -820,10 +820,16 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, lookahead []float32, sil
 			right[silkSamples+1] = right[silkSamples]
 		}
 	} else {
-		left[silkSamples] = 0
-		right[silkSamples] = 0
-		left[silkSamples+1] = 0
-		right[silkSamples+1] = 0
+		lastL := float32(0)
+		lastR := float32(0)
+		if silkSamples > 0 {
+			lastL = left[silkSamples-1]
+			lastR = right[silkSamples-1]
+		}
+		left[silkSamples] = lastL
+		right[silkSamples] = lastR
+		left[silkSamples+1] = lastL
+		right[silkSamples+1] = lastR
 	}
 
 	// Convert to mid-side with libopus-aligned stereo front-end.
