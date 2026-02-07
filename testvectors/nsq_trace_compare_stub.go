@@ -1,5 +1,3 @@
-//go:build !cgo_libopus
-
 package testvectors
 
 import "github.com/thesyncim/gopus/silk"
