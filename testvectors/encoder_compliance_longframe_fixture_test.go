@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/encoder"
@@ -16,6 +17,12 @@ import (
 )
 
 const longFrameFixturePath = "testdata/encoder_compliance_longframe_libopus_ref.json"
+
+var (
+	longFrameFixtureOnce sync.Once
+	longFrameFixtureData longFrameFixtureFile
+	longFrameFixtureErr  error
+)
 
 type longFrameFixtureFile struct {
 	Version int                    `json:"version"`
@@ -60,7 +67,7 @@ func TestLongFrameLibopusReferenceParityFromFixture(t *testing.T) {
 		t.Skip("opusdec not found in PATH")
 	}
 
-	fixture, err := loadLongFrameFixture()
+	fixture, err := loadLongFrameFixtureCached()
 	if err != nil {
 		t.Fatalf("load long-frame fixture: %v", err)
 	}
@@ -128,6 +135,31 @@ func runLongFrameFixtureReferenceCase(c longFrameFixtureCase) (float64, error) {
 	return q, nil
 }
 
+func findLongFrameFixtureCase(mode encoder.Mode, bandwidth types.Bandwidth, frameSize, channels, bitrate int) (longFrameFixtureCase, bool) {
+	fixture, err := loadLongFrameFixtureCached()
+	if err != nil {
+		return longFrameFixtureCase{}, false
+	}
+	for _, c := range fixture.Cases {
+		caseMode, err := parseFixtureMode(c.Mode)
+		if err != nil {
+			continue
+		}
+		caseBandwidth, err := parseFixtureBandwidth(c.Bandwidth)
+		if err != nil {
+			continue
+		}
+		if caseMode == mode &&
+			caseBandwidth == bandwidth &&
+			c.FrameSize == frameSize &&
+			c.Channels == channels &&
+			c.Bitrate == bitrate {
+			return c, true
+		}
+	}
+	return longFrameFixtureCase{}, false
+}
+
 func computeComplianceQualityFromPackets(packets [][]byte, original []float32, channels, frameSize int) (float64, error) {
 	var oggBuf bytes.Buffer
 	if err := writeOggOpusEncoder(&oggBuf, packets, channels, 48000, frameSize); err != nil {
@@ -160,6 +192,18 @@ func loadLongFrameFixture() (longFrameFixtureFile, error) {
 		return longFrameFixtureFile{}, err
 	}
 	return fixture, nil
+}
+
+func loadLongFrameFixtureCached() (longFrameFixtureFile, error) {
+	longFrameFixtureOnce.Do(func() {
+		longFrameFixtureData, longFrameFixtureErr = loadLongFrameFixture()
+	})
+	return longFrameFixtureData, longFrameFixtureErr
+}
+
+func longFrameFixtureReferenceAvailable() bool {
+	_, err := loadLongFrameFixtureCached()
+	return err == nil
 }
 
 func decodeFixturePackets(encodedPackets []string) ([][]byte, error) {
