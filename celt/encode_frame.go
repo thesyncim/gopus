@@ -795,8 +795,15 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			0.0, // tonalitySlope - not implemented yet
 		)
 
+		trimBoost := 0
+		if e.channels == 1 {
+			trimBoost++
+		}
 		if dualStereo {
-			allocTrim += 1
+			trimBoost += 2
+		}
+		if trimBoost > 0 {
+			allocTrim += trimBoost
 			if allocTrim > 10 {
 				allocTrim = 10
 			}
