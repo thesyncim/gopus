@@ -8,13 +8,14 @@ import (
 )
 
 func TestOwnEncoderDecoder(t *testing.T) {
-	// Generate 1 frame of simple sine wave
+	// Generate a short multi-frame sine wave so CELT can warm up overlap/history.
 	sampleRate := 48000
 	frameSize := 960
+	numFrames := 12
 	freq := 440.0
 
-	pcm := make([]float64, frameSize)
-	for i := 0; i < frameSize; i++ {
+	pcm := make([]float64, frameSize*numFrames)
+	for i := range pcm {
 		ti := float64(i) / float64(sampleRate)
 		pcm[i] = 0.5 * math.Sin(2*math.Pi*freq*ti)
 	}
@@ -23,30 +24,30 @@ func TestOwnEncoderDecoder(t *testing.T) {
 	enc := celt.NewEncoder(1)
 	enc.SetBitrate(64000)
 
-	// Apply Opus-level delay compensation before CELT encoding.
-	delayComp := celt.DelayCompensation
-	delayedPCM := make([]float64, frameSize)
-	if delayComp >= frameSize {
-		// All zeros for extremely short frames (not expected here).
-	} else {
-		copy(delayedPCM[delayComp:], pcm[:frameSize-delayComp])
-	}
-
-	// Encode
-	packet, err := enc.EncodeFrame(delayedPCM, frameSize)
-	if err != nil {
-		t.Fatalf("Encode error: %v", err)
-	}
-	t.Logf("Encoded packet: %d bytes", len(packet))
-	t.Logf("First 10 bytes: %x", packet[:10])
-
 	// Create CELT decoder
 	dec := celt.NewDecoder(1)
 
-	// Decode with our own decoder
-	decoded, err := dec.DecodeFrame(packet, frameSize)
-	if err != nil {
-		t.Fatalf("Decode error: %v", err)
+	var decoded []float64
+	for f := 0; f < numFrames; f++ {
+		start := f * frameSize
+		end := start + frameSize
+
+		packet, err := enc.EncodeFrame(pcm[start:end], frameSize)
+		if err != nil {
+			t.Fatalf("Encode error at frame %d: %v", f, err)
+		}
+		if f == 0 {
+			t.Logf("Encoded packet: %d bytes", len(packet))
+			if len(packet) >= 10 {
+				t.Logf("First 10 bytes: %x", packet[:10])
+			}
+		}
+
+		frameOut, err := dec.DecodeFrame(packet, frameSize)
+		if err != nil {
+			t.Fatalf("Decode error at frame %d: %v", f, err)
+		}
+		decoded = append(decoded, frameOut...)
 	}
 	t.Logf("Decoded samples: %d", len(decoded))
 
@@ -71,33 +72,28 @@ func TestOwnEncoderDecoder(t *testing.T) {
 	}
 	t.Logf("\nMax amplitudes: orig=%.4f, decoded=%.4f", maxOrig, maxDec)
 
-	// Compute SNR (align for CELT algorithmic delay).
-	// CELT adds the overlap (MDCT) plus encoder lookahead (delay compensation).
-	delay := celt.Overlap + celt.DelayCompensation
-	if delay >= len(decoded) {
-		t.Fatalf("Decoded output too short for overlap delay: %d >= %d", delay, len(decoded))
+	origF32 := make([]float32, len(pcm))
+	decF32 := make([]float32, len(decoded))
+	for i := range pcm {
+		origF32[i] = float32(pcm[i])
 	}
-	if delay >= len(pcm) {
-		t.Fatalf("Input too short for overlap delay: %d >= %d", delay, len(pcm))
-	}
-
-	n := len(pcm)
-	if len(decoded)-delay < n {
-		n = len(decoded) - delay
+	for i := range decoded {
+		decF32[i] = float32(decoded[i])
 	}
 
-	var signalPower, noisePower float64
-	for i := 0; i < n; i++ {
-		signalPower += pcm[i] * pcm[i]
-		noise := pcm[i] - decoded[i+delay]
-		noisePower += noise * noise
+	compareLen := len(origF32)
+	if len(decF32) < compareLen {
+		compareLen = len(decF32)
+	}
+	if compareLen == 0 {
+		t.Fatal("no samples to compare")
 	}
 
-	snr := 10 * math.Log10(signalPower/(noisePower+1e-10))
+	q, delay := ComputeQualityFloat32WithDelay(decF32[:compareLen], origF32[:compareLen], sampleRate, 2000)
+	snr := SNRFromQuality(q)
+	t.Logf("SNR: %.2f dB (Q=%.2f, delay=%d samples)", snr, q, delay)
 
-	t.Logf("SNR: %.2f dB", snr)
-
-	if snr < 5 {
+	if snr < 5.0 {
 		t.Errorf("SNR too low: %.2f dB", snr)
 	}
 }
