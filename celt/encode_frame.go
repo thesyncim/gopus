@@ -186,9 +186,9 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	prefilterTapset := e.TapsetDecision()
 	enabled := start == 0 && targetBytes > 12*e.channels && !e.IsHybrid() && !isSilence && re.Tell()+16 <= targetBits
-	// libopus scales prefilter gain with analysis->max_pitch_ratio computed from
-	// the original analysis signal, not the pre-emphasized CELT input.
-	maxPitchRatio := estimateMaxPitchRatio(samplesForFrame, e.channels, e.scratch.prefilterPitchBuf)
+	// Derive the prefilter max-pitch ratio from the same pre-emphasized signal
+	// used by the CELT analysis path; this improves postfilter parity vs libopus.
+	maxPitchRatio := estimateMaxPitchRatio(preemph, e.channels, e.scratch.prefilterPitchBuf)
 	pfResult := e.runPrefilter(preemph, frameSize, prefilterTapset, enabled, tfEstimate, targetBytes, toneFreq, toneishness, maxPitchRatio)
 	if !e.IsHybrid() && start == 0 && re.Tell()+16 <= targetBits {
 		if !pfResult.on {
