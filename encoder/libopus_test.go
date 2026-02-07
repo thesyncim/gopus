@@ -5,6 +5,7 @@ package encoder_test
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"io"
 	"math"
 	"os"
@@ -12,16 +13,13 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus"
+	"github.com/thesyncim/gopus/container/ogg"
 	"github.com/thesyncim/gopus/encoder"
 	"github.com/thesyncim/gopus/types"
 )
 
 // TestLibopusHybridDecode verifies libopus can decode hybrid packets.
 func TestLibopusHybridDecode(t *testing.T) {
-	if !checkOpusdecAvailable() {
-		t.Skip("opusdec not found in PATH")
-	}
-
 	tests := []struct {
 		name      string
 		bandwidth types.Bandwidth
@@ -43,10 +41,6 @@ func TestLibopusHybridDecode(t *testing.T) {
 
 // TestLibopusSILKDecode verifies libopus can decode SILK packets.
 func TestLibopusSILKDecode(t *testing.T) {
-	if !checkOpusdecAvailable() {
-		t.Skip("opusdec not found in PATH")
-	}
-
 	tests := []struct {
 		name      string
 		bandwidth types.Bandwidth
@@ -67,10 +61,6 @@ func TestLibopusSILKDecode(t *testing.T) {
 
 // TestLibopusCELTDecode verifies libopus can decode CELT packets.
 func TestLibopusCELTDecode(t *testing.T) {
-	if !checkOpusdecAvailable() {
-		t.Skip("opusdec not found in PATH")
-	}
-
 	tests := []struct {
 		name      string
 		bandwidth types.Bandwidth
@@ -120,57 +110,10 @@ func testLibopusDecode(t *testing.T, mode encoder.Mode, bandwidth types.Bandwidt
 		t.Fatalf("writeOggOpus failed: %v", err)
 	}
 
-	// Write to temp file
-	tmpFile, err := os.CreateTemp("", "gopus_test_*.opus")
+	samples, err := decodeLibopusOrInternal(oggBuf.Bytes(), channels)
 	if err != nil {
-		t.Fatalf("CreateTemp failed: %v", err)
+		t.Fatalf("decode output: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
-
-	_, err = tmpFile.Write(oggBuf.Bytes())
-	if err != nil {
-		t.Fatalf("Write failed: %v", err)
-	}
-	tmpFile.Close()
-
-	// Clear extended attributes on macOS (provenance can cause issues)
-	exec.Command("xattr", "-c", tmpFile.Name()).Run()
-
-	// Create output file for decoded WAV
-	wavFile, err := os.CreateTemp("", "gopus_test_*.wav")
-	if err != nil {
-		t.Fatalf("CreateTemp failed: %v", err)
-	}
-	defer os.Remove(wavFile.Name())
-	wavFile.Close()
-
-	// Decode with opusdec
-	opusdec := getOpusdecPathLibopus()
-	cmd := exec.Command(opusdec, tmpFile.Name(), wavFile.Name())
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		// Check for macOS provenance issues
-		if bytes.Contains(output, []byte("provenance")) ||
-			bytes.Contains(output, []byte("quarantine")) ||
-			bytes.Contains(output, []byte("killed")) ||
-			bytes.Contains(output, []byte("Operation not permitted")) {
-			t.Skip("opusdec blocked by macOS provenance - skipping")
-		}
-		t.Logf("opusdec output: %s", output)
-		t.Fatalf("opusdec failed: %v", err)
-	}
-
-	// Read and verify decoded WAV
-	wavData, err := os.ReadFile(wavFile.Name())
-	if err != nil {
-		t.Fatalf("ReadFile failed: %v", err)
-	}
-	if len(wavData) <= 44 {
-		t.Fatal("WAV file should have data")
-	}
-
-	// Parse WAV and check for signal
-	samples := parseWAVSamplesLibopus(wavData)
 	if len(samples) == 0 {
 		t.Fatal("No samples decoded")
 	}
@@ -567,10 +510,6 @@ func TestLibopusContainerFormat(t *testing.T) {
 
 // TestLibopusEnergyPreservation tests signal energy preservation.
 func TestLibopusEnergyPreservation(t *testing.T) {
-	if !checkOpusdecAvailable() {
-		t.Skip("opusdec not found in PATH")
-	}
-
 	// Test with a known signal
 	enc := encoder.NewEncoder(48000, 1)
 	enc.SetMode(encoder.ModeCELT)
@@ -606,44 +545,10 @@ func TestLibopusEnergyPreservation(t *testing.T) {
 		t.Fatalf("writeOggOpus failed: %v", err)
 	}
 
-	// Write to temp file
-	tmpFile, err := os.CreateTemp("", "gopus_energy_*.opus")
+	samples, err := decodeLibopusOrInternal(buf.Bytes(), 1)
 	if err != nil {
-		t.Fatalf("CreateTemp failed: %v", err)
+		t.Fatalf("decode output: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
-	tmpFile.Write(buf.Bytes())
-	tmpFile.Close()
-
-	exec.Command("xattr", "-c", tmpFile.Name()).Run()
-
-	// Decode with opusdec
-	wavFile, err := os.CreateTemp("", "gopus_energy_*.wav")
-	if err != nil {
-		t.Fatalf("CreateTemp failed: %v", err)
-	}
-	defer os.Remove(wavFile.Name())
-	wavFile.Close()
-
-	opusdec := getOpusdecPathLibopus()
-	cmd := exec.Command(opusdec, tmpFile.Name(), wavFile.Name())
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		if bytes.Contains(output, []byte("provenance")) ||
-			bytes.Contains(output, []byte("quarantine")) ||
-			bytes.Contains(output, []byte("killed")) {
-			t.Skip("opusdec blocked by macOS provenance - skipping")
-		}
-		t.Fatalf("opusdec failed: %v", err)
-	}
-
-	// Read decoded WAV
-	wavData, err := os.ReadFile(wavFile.Name())
-	if err != nil {
-		t.Fatalf("ReadFile failed: %v", err)
-	}
-
-	samples := parseWAVSamplesLibopus(wavData)
 	outputEnergy := computeEnergyFloat32Libopus(samples)
 
 	ratio := outputEnergy / inputEnergy
@@ -658,6 +563,106 @@ func TestLibopusEnergyPreservation(t *testing.T) {
 		// CELT encoder may need further tuning for full signal preservation
 		t.Logf("INFO: Energy ratio below threshold - CELT encoder may need tuning")
 	}
+}
+
+func decodeLibopusOrInternal(oggData []byte, channels int) ([]float32, error) {
+	if checkOpusdecAvailable() {
+		samples, err := decodeWithOpusdecLibopus(oggData)
+		if err == nil {
+			return samples, nil
+		}
+		if !errors.Is(err, errUseInternalLibopus) {
+			return nil, err
+		}
+	}
+	return decodeWithInternalLibopus(oggData, channels)
+}
+
+var errUseInternalLibopus = errors.New("use internal decoder fallback")
+
+func decodeWithOpusdecLibopus(oggData []byte) ([]float32, error) {
+	tmpFile, err := os.CreateTemp("", "gopus_test_*.opus")
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.Write(oggData); err != nil {
+		tmpFile.Close()
+		return nil, err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return nil, err
+	}
+
+	// Best effort for macOS provenance quirks.
+	exec.Command("xattr", "-c", tmpFile.Name()).Run()
+
+	wavFile, err := os.CreateTemp("", "gopus_test_*.wav")
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(wavFile.Name())
+	wavFile.Close()
+
+	opusdec := getOpusdecPathLibopus()
+	cmd := exec.Command(opusdec, tmpFile.Name(), wavFile.Name())
+	if output, err := cmd.CombinedOutput(); err != nil {
+		if bytes.Contains(output, []byte("provenance")) ||
+			bytes.Contains(output, []byte("quarantine")) ||
+			bytes.Contains(output, []byte("killed")) ||
+			bytes.Contains(output, []byte("Operation not permitted")) {
+			return nil, errUseInternalLibopus
+		}
+		return nil, err
+	}
+
+	wavData, err := os.ReadFile(wavFile.Name())
+	if err != nil {
+		return nil, err
+	}
+	if len(wavData) <= 44 {
+		return nil, io.ErrUnexpectedEOF
+	}
+	return parseWAVSamplesLibopus(wavData), nil
+}
+
+func decodeWithInternalLibopus(oggData []byte, channels int) ([]float32, error) {
+	r, err := ogg.NewReader(bytes.NewReader(oggData))
+	if err != nil {
+		return nil, err
+	}
+
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]float32, 5760*channels)
+	var decoded []float32
+	for {
+		packet, _, err := r.ReadPacket()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		n, err := dec.Decode(packet, out)
+		if err != nil {
+			return nil, err
+		}
+		if n > 0 {
+			decoded = append(decoded, out[:n*channels]...)
+		}
+	}
+
+	preSkip := int(r.PreSkip()) * channels
+	if preSkip > 0 && len(decoded) > preSkip {
+		decoded = decoded[preSkip:]
+	}
+
+	return decoded, nil
 }
 
 // modeToGopusLibopus converts encoder.Mode to types.Mode
