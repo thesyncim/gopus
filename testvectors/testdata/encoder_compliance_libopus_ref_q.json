@@ -1,0 +1,157 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "mode": "celt",
+      "bandwidth": "fb",
+      "frame_size": 960,
+      "channels": 1,
+      "bitrate": 64000,
+      "lib_q": -18.66
+    },
+    {
+      "mode": "celt",
+      "bandwidth": "fb",
+      "frame_size": 960,
+      "channels": 2,
+      "bitrate": 128000,
+      "lib_q": -19.59
+    },
+    {
+      "mode": "celt",
+      "bandwidth": "fb",
+      "frame_size": 480,
+      "channels": 1,
+      "bitrate": 64000,
+      "lib_q": -21.66
+    },
+    {
+      "mode": "silk",
+      "bandwidth": "nb",
+      "frame_size": 480,
+      "channels": 1,
+      "bitrate": 16000,
+      "lib_q": -65.51
+    },
+    {
+      "mode": "silk",
+      "bandwidth": "nb",
+      "frame_size": 960,
+      "channels": 1,
+      "bitrate": 16000,
+      "lib_q": -63.12
+    },
+    {
+      "mode": "silk",
+      "bandwidth": "nb",
+      "frame_size": 1920,
+      "channels": 1,
+      "bitrate": 16000,
+      "lib_q": -63.06
+    },
+    {
+      "mode": "silk",
+      "bandwidth": "mb",
+      "frame_size": 960,
+      "channels": 1,
+      "bitrate": 24000,
+      "lib_q": -41.30
+    },
+    {
+      "mode": "silk",
+      "bandwidth": "wb",
+      "frame_size": 480,
+      "channels": 1,
+      "bitrate": 32000,
+      "lib_q": -50.45
+    },
+    {
+      "mode": "silk",
+      "bandwidth": "wb",
+      "frame_size": 960,
+      "channels": 1,
+      "bitrate": 32000,
+      "lib_q": -49.82
+    },
+    {
+      "mode": "silk",
+      "bandwidth": "wb",
+      "frame_size": 1920,
+      "channels": 1,
+      "bitrate": 32000,
+      "lib_q": -50.30
+    },
+    {
+      "mode": "silk",
+      "bandwidth": "wb",
+      "frame_size": 2880,
+      "channels": 1,
+      "bitrate": 32000,
+      "lib_q": -50.70
+    },
+    {
+      "mode": "silk",
+      "bandwidth": "wb",
+      "frame_size": 960,
+      "channels": 2,
+      "bitrate": 48000,
+      "lib_q": -52.37
+    },
+    {
+      "mode": "hybrid",
+      "bandwidth": "swb",
+      "frame_size": 480,
+      "channels": 1,
+      "bitrate": 48000,
+      "lib_q": -50.47
+    },
+    {
+      "mode": "hybrid",
+      "bandwidth": "swb",
+      "frame_size": 960,
+      "channels": 1,
+      "bitrate": 48000,
+      "lib_q": -50.61
+    },
+    {
+      "mode": "hybrid",
+      "bandwidth": "swb",
+      "frame_size": 1920,
+      "channels": 1,
+      "bitrate": 48000,
+      "lib_q": -50.61
+    },
+    {
+      "mode": "hybrid",
+      "bandwidth": "fb",
+      "frame_size": 480,
+      "channels": 1,
+      "bitrate": 64000,
+      "lib_q": -50.68
+    },
+    {
+      "mode": "hybrid",
+      "bandwidth": "fb",
+      "frame_size": 960,
+      "channels": 1,
+      "bitrate": 64000,
+      "lib_q": -50.49
+    },
+    {
+      "mode": "hybrid",
+      "bandwidth": "fb",
+      "frame_size": 2880,
+      "channels": 1,
+      "bitrate": 64000,
+      "lib_q": -50.69
+    },
+    {
+      "mode": "hybrid",
+      "bandwidth": "fb",
+      "frame_size": 960,
+      "channels": 2,
+      "bitrate": 96000,
+      "lib_q": -51.95
+    }
+  ]
+}

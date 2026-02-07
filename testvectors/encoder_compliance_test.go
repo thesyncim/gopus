@@ -407,43 +407,17 @@ func runEncoderComplianceTest(t *testing.T, mode encoder.Mode, bandwidth types.B
 // runLibopusComplianceReferenceTest runs the same compliance pipeline as
 // runEncoderComplianceTest but uses libopus as the encoder reference.
 func runLibopusComplianceReferenceTest(t *testing.T, mode encoder.Mode, bandwidth types.Bandwidth, frameSize, channels, bitrate int) (q float64, decoded []float32, ok bool) {
-	// Generate the same 1-second compliance signal.
-	numFrames := 48000 / frameSize
-	totalSamples := numFrames * frameSize * channels
-	original := generateEncoderTestSignal(totalSamples, channels)
-
-	// Encode with libopus reference (CGO-backed; unavailable in stub builds).
-	packets := encodeWithLibopusComplianceReference(original, 48000, channels, bitrate, frameSize, mode, bandwidth)
-	if len(packets) == 0 {
-		// Fallback for non-cgo runs: use frozen long-frame libopus fixtures.
-		if fixtureCase, found := findLongFrameFixtureCase(mode, bandwidth, frameSize, channels, bitrate); found {
-			fixtureQ, err := runLongFrameFixtureReferenceCase(fixtureCase)
-			if err == nil {
-				return fixtureQ, nil, true
-			}
+	_ = t
+	if libQ, found := lookupEncoderComplianceReferenceQ(mode, bandwidth, frameSize, channels, bitrate); found {
+		return libQ, nil, true
+	}
+	if fixtureCase, found := findLongFrameFixtureCase(mode, bandwidth, frameSize, channels, bitrate); found {
+		fixtureQ, err := runLongFrameFixtureReferenceCase(fixtureCase)
+		if err == nil {
+			return fixtureQ, nil, true
 		}
-		return 0, nil, false
 	}
-
-	// Write to Ogg Opus container and decode via opusdec to keep decode path
-	// identical with the gopus compliance pipeline.
-	var oggBuf bytes.Buffer
-	if err := writeOggOpusEncoder(&oggBuf, packets, channels, 48000, frameSize); err != nil {
-		return 0, nil, false
-	}
-
-	var err error
-	decoded, err = decodeWithOpusdec(oggBuf.Bytes())
-	if err != nil || len(decoded) == 0 {
-		return 0, nil, false
-	}
-
-	compareLen := len(original)
-	if len(decoded) < compareLen {
-		compareLen = len(decoded)
-	}
-	q, _ = ComputeQualityFloat32WithDelay(decoded[:compareLen], original[:compareLen], 48000, 960)
-	return q, decoded, true
+	return 0, nil, false
 }
 
 // Test signal generators
