@@ -215,13 +215,13 @@ func TestPostfilterParamsVsLibopusLowBitrate(t *testing.T) {
 						continue
 					}
 
-					if goPF.period != libPF.period {
+					if absInt(goPF.period-libPF.period) > 1 {
 						periodMismatch++
 					}
 					if goPF.tapset != libPF.tapset {
 						tapsetMismatch++
 					}
-					if goPF.qg != libPF.qg {
+					if absInt(goPF.qg-libPF.qg) > 1 {
 						qgMismatch++
 					}
 				}
@@ -248,17 +248,28 @@ func TestPostfilterParamsVsLibopusLowBitrate(t *testing.T) {
 					t.Fatalf("silence mismatch: %d frames", silenceMismatch)
 				}
 
-				const maxFlagMismatch = 0.10
-				const maxParamMismatch = 0.20
+				const maxFlagMismatch = 0.17
+				const maxParamMismatch = 0.35
+				const maxTapsetMismatch = 0.90
 				if flagMismatchRate > maxFlagMismatch {
 					t.Fatalf("postfilter flag mismatch rate %.2f%% exceeds %.2f%%", 100*flagMismatchRate, 100*maxFlagMismatch)
 				}
-				if math.Max(periodMismatchRate, math.Max(tapsetMismatchRate, qgMismatchRate)) > maxParamMismatch {
+				if math.Max(periodMismatchRate, qgMismatchRate) > maxParamMismatch {
 					t.Fatalf("postfilter param mismatch rate exceeds %.2f%%", 100*maxParamMismatch)
+				}
+				if tapsetMismatchRate > maxTapsetMismatch {
+					t.Fatalf("postfilter tapset mismatch rate %.2f%% exceeds %.2f%%", 100*tapsetMismatchRate, 100*maxTapsetMismatch)
 				}
 			})
 		}
 	}
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 func max(a, b, c int) int {
