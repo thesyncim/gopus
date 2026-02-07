@@ -618,6 +618,13 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Step 11.2: Compute and encode spread decision
 	// Match libopus gating: only encode if there's budget for the decision.
 	// Reference: libopus celt_encoder.c line 2302-2345
+	normSpread := normL
+	if e.channels == 2 {
+		// spreading_decision() expects both channels in one contiguous buffer.
+		normSpread = ensureFloat64Slice(&e.scratch.normStereo, len(normL)+len(normR))
+		copy(normSpread[:len(normL)], normL)
+		copy(normSpread[len(normL):], normR)
+	}
 	var spread int
 	if re.Tell()+4 <= targetBits {
 		// For transient frames (shortBlocks), low complexity, or very low bitrate,
@@ -638,7 +645,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			// Compute dynamic spread weights based on masking analysis (matches libopus dynalloc_analysis)
 			// Use lsbDepth derived above to match libopus float input.
 			spreadWeights := ComputeSpreadWeights(energies, nbBands, e.channels, lsbDepth)
-			spread = e.SpreadingDecisionWithWeights(normL, nbBands, e.channels, frameSize, updateHF, spreadWeights)
+			spread = e.SpreadingDecisionWithWeights(normSpread, nbBands, e.channels, frameSize, updateHF, spreadWeights)
 		}
 		re.EncodeICDF(spread, spreadICDF, 5)
 	} else {
