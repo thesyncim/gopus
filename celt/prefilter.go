@@ -17,7 +17,7 @@ type prefilterResult struct {
 // runPrefilter applies the CELT prefilter (comb filter) and returns the
 // postfilter parameters to signal in the bitstream.
 // This mirrors libopus run_prefilter() in celt_encoder.c.
-func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, enabled bool, tfEstimate float64, nbAvailableBytes int, toneFreq, toneishness float64) prefilterResult {
+func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, enabled bool, tfEstimate float64, nbAvailableBytes int, toneFreq, toneishness, maxPitchRatio float64) prefilterResult {
 	result := prefilterResult{on: false, pitch: combFilterMinPeriod, qg: 0, tapset: tapset, gain: 0}
 	channels := e.channels
 	if channels <= 0 || frameSize <= 0 || len(preemph) == 0 {
@@ -99,6 +99,14 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		gain1 = 0
 		pitchIndex = minPeriod
 	}
+	// Match libopus run_prefilter() scaling by analysis->max_pitch_ratio.
+	if maxPitchRatio < 0 {
+		maxPitchRatio = 0
+	}
+	if maxPitchRatio > 1 {
+		maxPitchRatio = 1
+	}
+	gain1 *= maxPitchRatio
 
 	// Gain threshold for enabling the prefilter/postfilter
 	pfThreshold := 0.2
@@ -225,6 +233,41 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 	result.tapset = tapset
 	result.gain = gain1
 	return result
+}
+
+// estimateMaxPitchRatio approximates libopus analysis->max_pitch_ratio.
+// It attenuates prefilter gain when high-frequency energy dominates.
+func estimateMaxPitchRatio(pcm []float64, channels int) float64 {
+	if channels <= 0 || len(pcm) < channels {
+		return 1
+	}
+	const sampleRate = 48000.0
+	const cutoffHz = 8000.0
+	alpha := 1.0 - math.Exp(-2.0*math.Pi*cutoffHz/sampleRate)
+	if alpha <= 0 || alpha >= 1 {
+		return 1
+	}
+
+	var lp float64
+	var below, above float64
+	for i := 0; i+channels <= len(pcm); i += channels {
+		s := pcm[i]
+		if channels == 2 {
+			s = 0.5 * (pcm[i] + pcm[i+1])
+		}
+		lp += alpha * (s - lp)
+		hp := s - lp
+		below += lp * lp
+		above += hp * hp
+	}
+	if above > below && above > 1e-12 {
+		r := below / above
+		if r < 0 {
+			return 0
+		}
+		return r
+	}
+	return 1
 }
 
 func pitchDownsample(x []float64, xLP []float64, length, channels, factor int) {
