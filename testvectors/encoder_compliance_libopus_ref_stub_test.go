@@ -8,7 +8,7 @@ import (
 )
 
 func libopusComplianceReferenceAvailable() bool {
-	return false
+	return longFrameFixtureReferenceAvailable()
 }
 
 func encodeWithLibopusComplianceReference(

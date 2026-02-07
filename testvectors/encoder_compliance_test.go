@@ -415,6 +415,13 @@ func runLibopusComplianceReferenceTest(t *testing.T, mode encoder.Mode, bandwidt
 	// Encode with libopus reference (CGO-backed; unavailable in stub builds).
 	packets := encodeWithLibopusComplianceReference(original, 48000, channels, bitrate, frameSize, mode, bandwidth)
 	if len(packets) == 0 {
+		// Fallback for non-cgo runs: use frozen long-frame libopus fixtures.
+		if fixtureCase, found := findLongFrameFixtureCase(mode, bandwidth, frameSize, channels, bitrate); found {
+			fixtureQ, err := runLongFrameFixtureReferenceCase(fixtureCase)
+			if err == nil {
+				return fixtureQ, nil, true
+			}
+		}
 		return 0, nil, false
 	}
 
