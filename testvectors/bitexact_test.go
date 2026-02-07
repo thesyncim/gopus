@@ -649,10 +649,6 @@ func writeOggOpusForLibopus(w io.Writer, packets [][]byte, channels int) error {
 
 // TestVerifyGopusDecodable verifies gopus output can be decoded by libopus.
 func TestVerifyGopusDecodable(t *testing.T) {
-	if !checkOpusdecAvailableEncoder() {
-		t.Skip("opusdec not found")
-	}
-
 	// Generate test signal
 	pcmF32 := generateSineWave(960*5, 1, 440, 48000, 0.5)
 
@@ -674,30 +670,41 @@ func TestVerifyGopusDecodable(t *testing.T) {
 	tmpFile.Write(buf.Bytes())
 	tmpFile.Close()
 
-	// Decode with opusdec
-	wavFile, err := os.CreateTemp("", "gopus_verify_*.wav")
-	if err != nil {
-		t.Fatalf("Create temp wav: %v", err)
-	}
-	defer os.Remove(wavFile.Name())
-	wavFile.Close()
+	var decoded []float32
+	if checkOpusdecAvailableEncoder() {
+		// Decode with opusdec
+		wavFile, err := os.CreateTemp("", "gopus_verify_*.wav")
+		if err != nil {
+			t.Fatalf("Create temp wav: %v", err)
+		}
+		defer os.Remove(wavFile.Name())
+		wavFile.Close()
 
-	cmd := exec.Command("opusdec", tmpFile.Name(), wavFile.Name())
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Logf("opusdec output: %s", output)
-		t.Fatalf("opusdec failed: %v", err)
-	}
+		cmd := exec.Command("opusdec", tmpFile.Name(), wavFile.Name())
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Logf("opusdec output: %s", output)
+			t.Fatalf("opusdec failed: %v", err)
+		}
+		t.Log("gopus output successfully decoded by libopus")
 
-	t.Log("gopus output successfully decoded by libopus")
-
-	// Read decoded WAV and check quality
-	wavData, _ := os.ReadFile(wavFile.Name())
-	decoded := parseWAVSamplesEncoder(wavData)
-
-	// Strip pre-skip
-	if len(decoded) > 312 {
-		decoded = decoded[312:]
+		// Read decoded WAV and check quality
+		wavData, _ := os.ReadFile(wavFile.Name())
+		decoded = parseWAVSamplesEncoder(wavData)
+		// Strip pre-skip
+		if len(decoded) > 312 {
+			decoded = decoded[312:]
+		}
+	} else {
+		t.Log("opusdec not found; using internal decoder fallback")
+		internal, err := decodeComplianceWithInternalDecoder(packets, 1)
+		if err != nil {
+			t.Fatalf("internal decode failed: %v", err)
+		}
+		if len(internal) > 312 {
+			internal = internal[312:]
+		}
+		decoded = internal
 	}
 
 	// Compare with original
