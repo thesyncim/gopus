@@ -1088,8 +1088,12 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 
 // encodeCELTFrame encodes a frame using CELT-only mode.
 func (e *Encoder) encodeCELTFrame(pcm []float64, frameSize int) ([]byte, error) {
+	return e.encodeCELTFrameWithBitrate(pcm, frameSize, e.bitrate)
+}
+
+func (e *Encoder) encodeCELTFrameWithBitrate(pcm []float64, frameSize int, bitrate int) ([]byte, error) {
 	e.ensureCELTEncoder()
-	e.celtEncoder.SetBitrate(e.bitrate)
+	e.celtEncoder.SetBitrate(bitrate)
 	e.celtEncoder.SetHybrid(false)
 	e.celtEncoder.SetPacketLoss(e.packetLoss)
 	e.celtEncoder.SetLSBDepth(e.lsbDepth)
@@ -1125,10 +1129,20 @@ func (e *Encoder) encodeCELTMultiFramePacket(celtPCM []float64, frameSize int) (
 	frames := make([][]byte, frameCount)
 	sameSize := true
 	prevSize := -1
+	subframeBitrate := e.bitrate
+	if e.bitrateMode == ModeVBR {
+		// For 40/60ms CELT VBR packets, encode each 20ms subframe with a
+		// reduced bitrate budget to avoid repeatedly hitting the per-frame
+		// CELT VBR boost ceiling across multiple subframes.
+		subframeBitrate = (e.bitrate * 3) / 5
+		if subframeBitrate < 6000 {
+			subframeBitrate = 6000
+		}
+	}
 	for i := 0; i < frameCount; i++ {
 		start := i * frameStride
 		end := start + frameStride
-		frameData, err := e.encodeCELTFrame(celtPCM[start:end], 960)
+		frameData, err := e.encodeCELTFrameWithBitrate(celtPCM[start:end], 960, subframeBitrate)
 		if err != nil {
 			return nil, err
 		}
