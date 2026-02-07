@@ -190,11 +190,21 @@ func EncodeStereoWithEncoderVADFlags(enc, sideEnc *Encoder, left, right []float3
 
 		// Convert L/R to M/S with stereo prediction, rate allocation, and width decision.
 		// This matches libopus silk_stereo_LR_to_MS.
-		midOut, sideOut, ix, midOnly, _, _, _ := enc.StereoLRToMSWithRates(
+		midOut, sideOut, ix, midOnly, midRate, sideRate, _ := enc.StereoLRToMSWithRates(
 			leftFrame, rightFrame, frameLength, fsKHz,
 			totalRate, speechActQ8, false,
 		)
 		EncodeStereoIndices(re, ix)
+
+		// Match libopus stereo control flow: apply the per-channel
+		// mid/side rate split from stereo_LR_to_MS before encoding each
+		// channel frame so controlSNR runs at the intended target.
+		if midRate > 0 {
+			enc.SetBitrate(midRate)
+		}
+		if sideRate > 0 {
+			sideEnc.SetBitrate(sideRate)
+		}
 
 		frameVAD := stereoVADFlagAt(vadFlags, i)
 		if frameVAD {

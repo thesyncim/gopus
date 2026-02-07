@@ -48,6 +48,11 @@ const (
 
 	// Pre-skip samples as defined in Ogg Opus header
 	OpusPreSkip = 312
+
+	// Relative quality targets versus libopus reference (when available).
+	// Gap is reported as (gopus SNR - libopus SNR).
+	EncoderLibopusGapGoodDB = -1.5
+	EncoderLibopusGapBaseDB = -4.0
 )
 
 var encoderComplianceLogOnce sync.Once
@@ -193,10 +198,19 @@ func TestEncoderComplianceSummary(t *testing.T) {
 		{"Hybrid-FB-20ms-stereo-96k", encoder.ModeHybrid, types.BandwidthFullband, 960, 2, 96000},
 	}
 
-	t.Log("Encoder Compliance Summary")
-	t.Log("===========================")
-	t.Logf("%-35s %10s %10s %s", "Configuration", "Q", "SNR(dB)", "Status")
-	t.Logf("%-35s %10s %10s %s", "--------------", "----", "------", "------")
+	refAvailable := libopusComplianceReferenceAvailable()
+	if refAvailable {
+		t.Log("Encoder Compliance Summary (Target: libopus reference)")
+		t.Log("======================================================")
+		t.Logf("%-35s %10s %10s %10s %10s %10s %s", "Configuration", "Q", "SNR(dB)", "LibQ", "LibSNR", "Gap(dB)", "Status")
+		t.Logf("%-35s %10s %10s %10s %10s %10s %s", "--------------", "----", "------", "----", "------", "-------", "------")
+	} else {
+		t.Log("Encoder Compliance Summary")
+		t.Log("===========================")
+		t.Logf("%-35s %10s %10s %s", "Configuration", "Q", "SNR(dB)", "Status")
+		t.Logf("%-35s %10s %10s %s", "--------------", "----", "------", "------")
+		t.Log("INFO: libopus reference unavailable (run with -tags cgo_libopus for gap metrics)")
+	}
 
 	passed := 0
 	failed := 0
@@ -206,26 +220,64 @@ func TestEncoderComplianceSummary(t *testing.T) {
 
 		snr := SNRFromQuality(q)
 		var status string
-		if q >= EncoderStrictThreshold {
-			status = "PASS" // Production quality
-			passed++
-		} else if q >= EncoderGoodThreshold {
-			status = "GOOD" // Acceptable quality
-			passed++
-		} else if q >= EncoderQualityThreshold {
-			status = "BASE" // Current baseline
-			passed++
+		if refAvailable {
+			libQ, libDecoded, ok := runLibopusComplianceReferenceTest(t, tc.mode, tc.bandwidth, tc.frameSize, tc.channels, tc.bitrate)
+			_ = libDecoded // decoded samples available for debugging if needed
+			if ok {
+				libSNR := SNRFromQuality(libQ)
+				gapDB := snr - libSNR
+				if gapDB >= EncoderLibopusGapGoodDB {
+					status = "GOOD"
+					passed++
+				} else if gapDB >= EncoderLibopusGapBaseDB {
+					status = "BASE"
+					passed++
+				} else {
+					status = "FAIL"
+					failed++
+				}
+				t.Logf("%-35s %10.2f %10.2f %10.2f %10.2f %10.2f %s", tc.name, q, snr, libQ, libSNR, gapDB, status)
+			} else {
+				// Fall back to absolute thresholds if reference encode fails for this case.
+				if q >= EncoderStrictThreshold {
+					status = "PASS"
+					passed++
+				} else if q >= EncoderGoodThreshold {
+					status = "GOOD"
+					passed++
+				} else if q >= EncoderQualityThreshold {
+					status = "BASE"
+					passed++
+				} else {
+					status = "FAIL"
+					failed++
+				}
+				t.Logf("%-35s %10.2f %10.2f %10s %10s %10s %s", tc.name, q, snr, "-", "-", "-", status)
+			}
 		} else {
-			status = "FAIL" // Regression
-			failed++
+			if q >= EncoderStrictThreshold {
+				status = "PASS" // Production quality
+				passed++
+			} else if q >= EncoderGoodThreshold {
+				status = "GOOD" // Acceptable quality
+				passed++
+			} else if q >= EncoderQualityThreshold {
+				status = "BASE" // Current baseline
+				passed++
+			} else {
+				status = "FAIL" // Regression
+				failed++
+			}
+			_ = decoded // decoded samples available for debugging if needed
+			t.Logf("%-35s %10.2f %10.2f %s", tc.name, q, snr, status)
 		}
-
-		_ = decoded // decoded samples available for debugging if needed
-		t.Logf("%-35s %10.2f %10.2f %s", tc.name, q, snr, status)
 	}
 
 	t.Logf("---")
 	t.Logf("Total: %d passed, %d failed", passed, failed)
+	if refAvailable {
+		t.Logf("Gap thresholds (gopus SNR - libopus SNR): GOOD >= %.1f dB, BASE >= %.1f dB", EncoderLibopusGapGoodDB, EncoderLibopusGapBaseDB)
+	}
 }
 
 // testEncoderCompliance runs a single encoder compliance test.
@@ -325,6 +377,41 @@ func runEncoderComplianceTest(t *testing.T, mode encoder.Mode, bandwidth types.B
 		q, foundDelay, float64(foundDelay)/48.0, len(decoded), len(original), compareLen)
 
 	return q, decoded
+}
+
+// runLibopusComplianceReferenceTest runs the same compliance pipeline as
+// runEncoderComplianceTest but uses libopus as the encoder reference.
+func runLibopusComplianceReferenceTest(t *testing.T, mode encoder.Mode, bandwidth types.Bandwidth, frameSize, channels, bitrate int) (q float64, decoded []float32, ok bool) {
+	// Generate the same 1-second compliance signal.
+	numFrames := 48000 / frameSize
+	totalSamples := numFrames * frameSize * channels
+	original := generateEncoderTestSignal(totalSamples, channels)
+
+	// Encode with libopus reference (CGO-backed; unavailable in stub builds).
+	packets := encodeWithLibopusComplianceReference(original, 48000, channels, bitrate, frameSize, mode, bandwidth)
+	if len(packets) == 0 {
+		return 0, nil, false
+	}
+
+	// Write to Ogg Opus container and decode via opusdec to keep decode path
+	// identical with the gopus compliance pipeline.
+	var oggBuf bytes.Buffer
+	if err := writeOggOpusEncoder(&oggBuf, packets, channels, 48000, frameSize); err != nil {
+		return 0, nil, false
+	}
+
+	var err error
+	decoded, err = decodeWithOpusdec(oggBuf.Bytes())
+	if err != nil || len(decoded) == 0 {
+		return 0, nil, false
+	}
+
+	compareLen := len(original)
+	if len(decoded) < compareLen {
+		compareLen = len(decoded)
+	}
+	q, _ = ComputeQualityFloat32WithDelay(decoded[:compareLen], original[:compareLen], 48000, 960)
+	return q, decoded, true
 }
 
 // Test signal generators
