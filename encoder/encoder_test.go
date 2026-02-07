@@ -369,8 +369,8 @@ func TestHybridRoundTrip(t *testing.T) {
 }
 
 // TestInvalidHybridFrameSize tests that invalid frame sizes return error for hybrid mode.
-// Note: 1920 (40ms) and 2880 (60ms) are NOT invalid - they fall back to SILK mode
-// per RFC 6716 since CELT/Hybrid only support up to 20ms.
+// Note: 1920 (40ms) and 2880 (60ms) are NOT invalid - they are encoded as
+// code-3 packets containing 2/3 x 20ms hybrid frames.
 func TestInvalidHybridFrameSize(t *testing.T) {
 	enc := encoder.NewEncoder(48000, 1)
 	enc.SetMode(encoder.ModeHybrid)
@@ -390,8 +390,8 @@ func TestInvalidHybridFrameSize(t *testing.T) {
 }
 
 // TestLargeFrameSizeModeSelectionAndPacketization verifies long-frame behavior:
-// SILK remains single-frame, Hybrid falls back to SILK, and CELT uses code-3
-// multi-frame packetization for 40/60ms packets.
+// SILK remains single-frame, while Hybrid and CELT use code-3 multi-frame
+// packetization for 40/60ms packets.
 func TestLargeFrameSizeModeSelectionAndPacketization(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -403,7 +403,8 @@ func TestLargeFrameSizeModeSelectionAndPacketization(t *testing.T) {
 		wantFrameCount int
 	}{
 		{"silk_40ms", encoder.ModeSILK, types.SignalAuto, 1920, gopus.ModeSILK, 0, 1},
-		{"hybrid_fallback_40ms", encoder.ModeHybrid, types.SignalAuto, 1920, gopus.ModeSILK, 0, 1},
+		{"hybrid_40ms", encoder.ModeHybrid, types.SignalAuto, 1920, gopus.ModeHybrid, 3, 2},
+		{"hybrid_60ms", encoder.ModeHybrid, types.SignalAuto, 2880, gopus.ModeHybrid, 3, 3},
 		{"celt_40ms", encoder.ModeCELT, types.SignalAuto, 1920, gopus.ModeCELT, 3, 2},
 		{"celt_60ms", encoder.ModeCELT, types.SignalAuto, 2880, gopus.ModeCELT, 3, 3},
 		{"auto_music_40ms", encoder.ModeAuto, types.SignalMusic, 1920, gopus.ModeCELT, 3, 2},

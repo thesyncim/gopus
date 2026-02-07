@@ -468,7 +468,11 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		e.updateDelayBuffer(framePCM, frameSize)
 	case ModeHybrid:
 		celtPCM := e.applyDelayCompensation(framePCM, frameSize)
-		frameData, err = e.encodeHybridFrame(framePCM, celtPCM, lookaheadSlice, frameSize)
+		if frameSize > 960 {
+			packet, err = e.encodeHybridMultiFramePacket(framePCM, celtPCM, lookaheadSlice, frameSize)
+		} else {
+			frameData, err = e.encodeHybridFrame(framePCM, celtPCM, lookaheadSlice, frameSize)
+		}
 	case ModeCELT:
 		celtPCM := e.applyDelayCompensation(framePCM, frameSize)
 		if frameSize > 960 {
@@ -726,9 +730,9 @@ func (e *Encoder) updateDelayBufferInternal(pcm []float64, frameSamples, delaySa
 func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
 	if frameSize > 960 {
 		if e.mode != ModeAuto {
-			// Hybrid has no native 40/60ms config, so fall back to SILK.
+			// Hybrid 40/60ms packets are encoded as 2/3 x 20ms code-3 packets.
 			if e.mode == ModeHybrid {
-				return ModeSILK
+				return ModeHybrid
 			}
 			// CELT 40/60ms is encoded as multi-frame (2/3 x 20ms) packets.
 			return e.mode
@@ -1158,6 +1162,64 @@ func (e *Encoder) encodeCELTMultiFramePacket(celtPCM []float64, frameSize int) (
 	return BuildMultiFramePacket(
 		frames,
 		types.ModeCELT,
+		e.effectiveBandwidth(),
+		960,
+		e.channels == 2,
+		!sameSize,
+	)
+}
+
+// encodeHybridMultiFramePacket encodes 40/60ms hybrid packets by splitting into
+// 20ms hybrid frames and packing them using code-3 framing.
+func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64, lookahead []float64, frameSize int) ([]byte, error) {
+	if frameSize <= 960 || frameSize%960 != 0 {
+		return nil, ErrInvalidFrameSize
+	}
+	frameCount := frameSize / 960
+	if frameCount < 2 || frameCount > 3 {
+		return nil, ErrInvalidFrameSize
+	}
+	if len(pcm) != frameSize*e.channels || len(celtPCM) != frameSize*e.channels {
+		return nil, ErrInvalidFrameSize
+	}
+
+	frameStride := 960 * e.channels
+	frames := make([][]byte, frameCount)
+	sameSize := true
+	prevSize := -1
+	for i := 0; i < frameCount; i++ {
+		start := i * frameStride
+		end := start + frameStride
+		subPCM := pcm[start:end]
+		subCELTPCM := celtPCM[start:end]
+
+		var subLookahead []float64
+		if i < frameCount-1 {
+			nextStart := end
+			nextEnd := nextStart + frameStride
+			if nextEnd <= len(pcm) {
+				subLookahead = pcm[nextStart:nextEnd]
+			}
+		} else {
+			subLookahead = lookahead
+		}
+
+		frameData, err := e.encodeHybridFrame(subPCM, subCELTPCM, subLookahead, 960)
+		if err != nil {
+			return nil, err
+		}
+		// Keep a stable copy because encoder scratch buffers are reused.
+		frameCopy := append([]byte(nil), frameData...)
+		frames[i] = frameCopy
+		if prevSize >= 0 && len(frameCopy) != prevSize {
+			sameSize = false
+		}
+		prevSize = len(frameCopy)
+	}
+
+	return BuildMultiFramePacket(
+		frames,
+		types.ModeHybrid,
 		e.effectiveBandwidth(),
 		960,
 		e.channels == 2,
