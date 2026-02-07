@@ -60,13 +60,19 @@ func (e *Encoder) buildLTPResidual(pitchBuf []float32, frameStart int, gains []f
 				xIdx := xStart + i
 				x := getSample(xIdx)
 				lagBase := xIdx - pitchLag
-				var pred float32
+				// Match libopus operation order:
+				//   LTP_res[i] = x[i];
+				//   for j: LTP_res[i] -= B[j] * x_lag[...];
+				//   LTP_res[i] *= inv_gain;
+				// Avoid summing predictor taps separately, which changes float
+				// associativity and can flip NLSF decisions in late frames.
+				res := x
 				for j := 0; j < ltpOrderConst; j++ {
 					lagIdx := lagBase + (ltpOrderConst/2 - j)
 					b := float32(ltpCoeffs[k][j]) / 128.0
-					pred += b * getSample(lagIdx)
+					res -= b * getSample(lagIdx)
 				}
-				ltpRes[outBase+i] = (x - pred) * invGain
+				ltpRes[outBase+i] = res * invGain
 			}
 		} else {
 			for i := 0; i < subframeSamples+preLen; i++ {
@@ -273,10 +279,14 @@ func (e *Encoder) computeResidualEnergies(ltpRes []float32, predCoefQ12 []int16,
 				end = len(lpcRes)
 			}
 			energy := energyF32(lpcRes[start:end], end-start)
+			gainSq := float32(1.0)
 			if k < len(gains) {
-				g := float64(gains[k])
-				energy *= g * g
+				// Match libopus precision: gains[] are silk_float, so gain^2
+				// is computed in float before promotion for energy multiply.
+				g := gains[k]
+				gainSq = g * g
 			}
+			energy *= float64(gainSq)
 			// Match libopus residual_energy_FLP output type (silk_float).
 			resNrg[k] = float64(float32(energy))
 		}
@@ -299,10 +309,12 @@ func (e *Encoder) computeResidualEnergies(ltpRes []float32, predCoefQ12 []int16,
 				}
 				energy := energyF32(lpcRes[start:end], end-start)
 				idx := k + 2
+				gainSq := float32(1.0)
 				if idx < len(gains) {
-					g := float64(gains[idx])
-					energy *= g * g
+					g := gains[idx]
+					gainSq = g * g
 				}
+				energy *= float64(gainSq)
 				// Match libopus residual_energy_FLP output type (silk_float).
 				resNrg[idx] = float64(float32(energy))
 			}

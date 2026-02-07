@@ -23,10 +23,10 @@ package cgo
 #include "silk/Inlines.h"
 #include "silk/macros.h"
 
-// Toggle libopus debug range tracing (prints to stderr when enabled)
-extern int opus_debug_range;
+// Toggle libopus debug range tracing (prints to stderr when enabled).
+// Upstream libopus does not export this debug symbol in normal builds.
 void opus_set_debug_range(int v) {
-    opus_debug_range = v;
+    (void)v;
 }
 
 // Forward declaration for packing range encoder output.

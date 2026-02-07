@@ -41,8 +41,11 @@ func schurF32(refl, autoCorr []float32, order int) float32 {
 	}
 	for k := 0; k < order; k++ {
 		den := C[0][1]
-		if den < 1e-9 {
-			den = 1e-9
+		// Match libopus silk_max_float(C[0][1], 1e-9f):
+		// compare against float32 literal, then use that exact value in double domain.
+		minDen := float64(float32(1e-9))
+		if den < minDen {
+			den = minDen
 		}
 		rc := -C[k+1][0] / den
 		refl[k] = float32(rc)
