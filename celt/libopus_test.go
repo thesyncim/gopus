@@ -10,32 +10,11 @@ package celt
 
 import (
 	"bytes"
-	"strings"
 	"testing"
 )
 
-// skipIfOpusdecFailed checks if the error is due to macOS file provenance issues
-// and skips the test if so. This allows tests to pass in sandboxed environments.
-func skipIfOpusdecFailed(t *testing.T, err error) {
-	if err == nil {
-		return
-	}
-	errStr := err.Error()
-	if strings.Contains(errStr, "Failed to open") {
-		t.Skipf("opusdec file access issue (likely macOS provenance): %v", err)
-	}
-	if strings.Contains(errStr, "WAV parse error") || strings.Contains(errStr, "unsupported WAV format") {
-		t.Skipf("opusdec output parse issue: %v", err)
-	}
-	t.Fatalf("opusdec failed: %v", err)
-}
-
 // TestLibopusCrossValidationMono tests mono CELT encode -> opusdec decode.
 func TestLibopusCrossValidationMono(t *testing.T) {
-	if !checkOpusdecAvailable() {
-		t.Skip("opusdec not available in PATH")
-	}
-
 	// Generate 20ms sine wave (960 samples at 48kHz)
 	frameSize := 960
 	pcm := generateSineWave(440.0, frameSize)
@@ -66,7 +45,9 @@ func TestLibopusCrossValidationMono(t *testing.T) {
 
 	// Decode with opusdec
 	decoded, err := decodeWithOpusdec(ogg.Bytes())
-	skipIfOpusdecFailed(t, err)
+	if err != nil {
+		t.Fatalf("decodeWithOpusdec failed: %v", err)
+	}
 
 	// Verify output exists
 	if len(decoded) == 0 {
@@ -95,10 +76,6 @@ func TestLibopusCrossValidationMono(t *testing.T) {
 
 // TestLibopusCrossValidationStereo tests stereo CELT encode -> opusdec decode.
 func TestLibopusCrossValidationStereo(t *testing.T) {
-	if !checkOpusdecAvailable() {
-		t.Skip("opusdec not available in PATH")
-	}
-
 	// Generate 20ms stereo sine wave (different frequencies L/R)
 	frameSize := 960
 	pcm := generateStereoSineWave(440.0, 880.0, frameSize)
@@ -129,7 +106,9 @@ func TestLibopusCrossValidationStereo(t *testing.T) {
 
 	// Decode with opusdec
 	decoded, err := decodeWithOpusdec(ogg.Bytes())
-	skipIfOpusdecFailed(t, err)
+	if err != nil {
+		t.Fatalf("decodeWithOpusdec failed: %v", err)
+	}
 
 	// Verify output exists
 	if len(decoded) == 0 {
@@ -168,10 +147,6 @@ func TestLibopusCrossValidationStereo(t *testing.T) {
 // TestLibopusCrossValidationAllFrameSizes tests all frame sizes with opusdec.
 // Note: Only testing 20ms frames due to MDCT synthesis issues with smaller sizes.
 func TestLibopusCrossValidationAllFrameSizes(t *testing.T) {
-	if !checkOpusdecAvailable() {
-		t.Skip("opusdec not available in PATH")
-	}
-
 	// Frame sizes to test (samples at 48kHz)
 	// Only 20ms works reliably due to MDCT bin count mismatch
 	frameSizes := []struct {
@@ -209,7 +184,9 @@ func TestLibopusCrossValidationAllFrameSizes(t *testing.T) {
 
 			// Decode with opusdec
 			decoded, err := decodeWithOpusdec(ogg.Bytes())
-			skipIfOpusdecFailed(t, err)
+			if err != nil {
+				t.Fatalf("decodeWithOpusdec failed: %v", err)
+			}
 
 			if len(decoded) == 0 {
 				t.Fatalf("%s: opusdec produced empty output", fs.name)
@@ -232,10 +209,6 @@ func TestLibopusCrossValidationAllFrameSizes(t *testing.T) {
 
 // TestLibopusCrossValidationSilence tests silence frame with opusdec.
 func TestLibopusCrossValidationSilence(t *testing.T) {
-	if !checkOpusdecAvailable() {
-		t.Skip("opusdec not available in PATH")
-	}
-
 	// Generate silence (20ms)
 	frameSize := 960
 	pcm := make([]float64, frameSize)
@@ -259,7 +232,9 @@ func TestLibopusCrossValidationSilence(t *testing.T) {
 
 	// Decode with opusdec
 	decoded, err := decodeWithOpusdec(ogg.Bytes())
-	skipIfOpusdecFailed(t, err)
+	if err != nil {
+		t.Fatalf("decodeWithOpusdec failed: %v", err)
+	}
 
 	if len(decoded) == 0 {
 		t.Fatal("opusdec produced empty output")
@@ -275,10 +250,6 @@ func TestLibopusCrossValidationSilence(t *testing.T) {
 
 // TestLibopusCrossValidationMultipleFrames tests multiple consecutive frames.
 func TestLibopusCrossValidationMultipleFrames(t *testing.T) {
-	if !checkOpusdecAvailable() {
-		t.Skip("opusdec not available in PATH")
-	}
-
 	frameSize := 960
 	numFrames := 5
 
@@ -318,7 +289,9 @@ func TestLibopusCrossValidationMultipleFrames(t *testing.T) {
 
 	// Decode with opusdec
 	decoded, err := decodeWithOpusdec(ogg.Bytes())
-	skipIfOpusdecFailed(t, err)
+	if err != nil {
+		t.Fatalf("decodeWithOpusdec failed: %v", err)
+	}
 
 	if len(decoded) == 0 {
 		t.Fatal("opusdec produced empty output")

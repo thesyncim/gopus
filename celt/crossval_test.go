@@ -5,12 +5,17 @@ package celt
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math"
 	"os"
 	"os/exec"
+	"sync"
 	"testing"
 )
 
@@ -92,6 +97,89 @@ func init() {
 		}
 		oggCRCLookup[i] = crc
 	}
+}
+
+const opusdecCrossvalFixturePath = "testdata/opusdec_crossval_fixture.json"
+
+type opusdecCrossvalFixtureFile struct {
+	Version int                           `json:"version"`
+	Entries []opusdecCrossvalFixtureEntry `json:"entries"`
+}
+
+type opusdecCrossvalFixtureEntry struct {
+	Name             string `json:"name"`
+	SHA256           string `json:"sha256"`
+	SampleRate       int    `json:"sample_rate"`
+	Channels         int    `json:"channels"`
+	DecodedF32Base64 string `json:"decoded_f32le_base64"`
+}
+
+var (
+	opusdecCrossvalFixtureOnce sync.Once
+	opusdecCrossvalFixtureMap  map[string]opusdecCrossvalFixtureEntry
+	opusdecCrossvalFixtureErr  error
+)
+
+func oggSHA256Hex(oggData []byte) string {
+	sum := sha256.Sum256(oggData)
+	return hex.EncodeToString(sum[:])
+}
+
+func loadOpusdecCrossvalFixtureMap() (map[string]opusdecCrossvalFixtureEntry, error) {
+	opusdecCrossvalFixtureOnce.Do(func() {
+		data, err := os.ReadFile(opusdecCrossvalFixturePath)
+		if err != nil {
+			opusdecCrossvalFixtureErr = err
+			return
+		}
+		var fixture opusdecCrossvalFixtureFile
+		if err := json.Unmarshal(data, &fixture); err != nil {
+			opusdecCrossvalFixtureErr = err
+			return
+		}
+		if fixture.Version != 1 {
+			opusdecCrossvalFixtureErr = fmt.Errorf("unsupported opusdec crossval fixture version %d", fixture.Version)
+			return
+		}
+		m := make(map[string]opusdecCrossvalFixtureEntry, len(fixture.Entries))
+		for _, e := range fixture.Entries {
+			if e.SHA256 == "" {
+				opusdecCrossvalFixtureErr = fmt.Errorf("fixture entry with empty sha256")
+				return
+			}
+			m[e.SHA256] = e
+		}
+		opusdecCrossvalFixtureMap = m
+	})
+	return opusdecCrossvalFixtureMap, opusdecCrossvalFixtureErr
+}
+
+func decodeFloat32LEBase64(src string) ([]float32, error) {
+	raw, err := base64.StdEncoding.DecodeString(src)
+	if err != nil {
+		return nil, err
+	}
+	if len(raw)%4 != 0 {
+		return nil, fmt.Errorf("invalid float32le fixture length %d", len(raw))
+	}
+	out := make([]float32, len(raw)/4)
+	for i := 0; i < len(out); i++ {
+		out[i] = math.Float32frombits(binary.LittleEndian.Uint32(raw[i*4 : i*4+4]))
+	}
+	return out, nil
+}
+
+func decodeWithOpusdecFixture(oggData []byte) ([]float32, error) {
+	entries, err := loadOpusdecCrossvalFixtureMap()
+	if err != nil {
+		return nil, err
+	}
+	hash := oggSHA256Hex(oggData)
+	entry, ok := entries[hash]
+	if !ok {
+		return nil, fmt.Errorf("missing opusdec fixture for ogg sha256=%s", hash)
+	}
+	return decodeFloat32LEBase64(entry.DecodedF32Base64)
 }
 
 // writeOggPage writes a single Ogg page to the writer.
@@ -239,6 +327,24 @@ func addCELTTOCForTest(packet []byte, channels int) []byte {
 // attributes that can cause opusdec to fail with certain paths.
 // This function uses /tmp directly for macOS compatibility.
 func decodeWithOpusdec(oggData []byte) ([]float32, error) {
+	if os.Getenv("GOPUS_DISABLE_OPUSDEC") == "1" {
+		return decodeWithOpusdecFixture(oggData)
+	}
+	if checkOpusdecAvailable() {
+		samples, err := decodeWithOpusdecCLI(oggData)
+		if err == nil {
+			return samples, nil
+		}
+		fallback, ferr := decodeWithOpusdecFixture(oggData)
+		if ferr == nil {
+			return fallback, nil
+		}
+		return nil, fmt.Errorf("opusdec decode failed (%v) and fixture fallback failed (%v)", err, ferr)
+	}
+	return decodeWithOpusdecFixture(oggData)
+}
+
+func decodeWithOpusdecCLI(oggData []byte) ([]float32, error) {
 	opusdec := getOpusdecPath()
 
 	// Use /tmp directly for macOS compatibility
