@@ -812,8 +812,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	e.frameCounter++
 	e.isPreviousFrameVoiced = (signalType == typeVoiced)
 	copy(e.prevLSFQ15, lsfQ15)
-
-	if e.trace != nil && e.trace.Frame != nil {
+	captureFrameTrace := func() {
+		if e.trace == nil || e.trace.Frame == nil {
+			return
+		}
 		tr := e.trace.Frame
 		tr.SignalType = signalType
 		tr.LagIndex = pitchParams.lagIdx
@@ -825,10 +827,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		tr.SNRDBQ7 = e.snrDBQ7
 		tr.NBitsExceeded = e.nBitsExceeded
 		tr.NFramesPerPacket = e.nFramesPerPacket
-		// Use nFramesEncoded+1 to match libopus capture timing: the libopus
-		// "after frame i" snapshot is taken after opus_encode_float returns,
-		// where nFramesEncoded has already been incremented.
-		tr.NFramesEncoded = e.nFramesEncoded + 1
+		tr.NFramesEncoded = e.nFramesEncoded
 		for i := 0; i < maxNbSubfr; i++ {
 			tr.GainIndices[i] = frameIndices.GainsIndices[i]
 			tr.PitchL[i] = 0
@@ -836,11 +835,8 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 				tr.PitchL[i] = pitchLags[i]
 			}
 		}
-		tr.PrevLag = 0
-		if numSubframes > 0 && len(pitchLags) >= numSubframes {
-			tr.PrevLag = pitchLags[numSubframes-1]
-		}
-		tr.PrevSignalType = signalType
+		tr.PrevLag = e.pitchState.prevLag
+		tr.PrevSignalType = e.ecPrevSignalType
 		tr.LTPCorr = e.ltpCorr
 		tr.SpeechActivityQ8 = speechActivityQ8
 		tr.InputTiltQ15 = e.inputTiltQ15
@@ -861,6 +857,16 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			tr.NSQSLTPShpHash = hashInt32Slice(e.nsqState.sLTPShpQ14[:])
 			tr.NSQSLPCHash = hashInt32Slice(e.nsqState.sLPCQ14[:])
 			tr.NSQSAR2Hash = hashInt32Slice(e.nsqState.sAR2Q14[:])
+		}
+		tr.PitchBufLen, tr.PitchBufHash, tr.PitchWinLen, tr.PitchWinHash = e.tracePitchBufferState(frameSamples, numSubframes)
+		if tr.PitchBufLen > 0 {
+			tr.PitchBuf = ensureFloat32Slice(&tr.PitchBuf, tr.PitchBufLen)
+			scale := float32(silkSampleScale)
+			for i := 0; i < tr.PitchBufLen; i++ {
+				tr.PitchBuf[i] = e.inputBuffer[i] * scale
+			}
+		} else {
+			tr.PitchBuf = tr.PitchBuf[:0]
 		}
 	}
 
@@ -885,6 +891,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	e.lastRng = e.rangeEncoder.Range()
 
 	if useSharedEncoder {
+		captureFrameTrace()
 		// In libopus, nBitsExceeded is only updated once per packet at the
 		// enc_API.c level (lines 555-557), after all frames in the packet are
 		// encoded.  The per-frame encode function does NOT update nBitsExceeded.
@@ -923,6 +930,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			e.nBitsExceeded = 10000
 		}
 	}
+	captureFrameTrace()
 	e.rangeEncoder = nil
 	return result
 }
