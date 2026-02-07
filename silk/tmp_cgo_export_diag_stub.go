@@ -1,9 +1,6 @@
-//go:build !cgo_libopus
-
 package silk
 
-// LibopusLPCInterpDebugResult is the stub type for non-cgo builds.
-// The real definition is in cgo_libopus.go (cgo_libopus build tag).
+// LibopusLPCInterpDebugResult holds debug outputs for LPC interpolation analysis.
 type LibopusLPCInterpDebugResult struct {
 	NLSF         []int16
 	InterpQ2     int
@@ -12,8 +9,7 @@ type LibopusLPCInterpDebugResult struct {
 	ResNrgInterp [4]float32
 }
 
-// TmpLibopusFindLPCInterpDebug is a no-op stub for non-cgo builds.
-// The real implementation is in tmp_cgo_export_diag.go (cgo_libopus build tag).
+// TmpLibopusFindLPCInterpDebug is currently a no-op placeholder.
 func TmpLibopusFindLPCInterpDebug(
 	x []float32,
 	nbSubfr, subfrLen, lpcOrder int,

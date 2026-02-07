@@ -61,7 +61,7 @@ func longFrameFixtureTargets() []longFrameFixtureTarget {
 
 // TestLongFrameLibopusReferenceParityFromFixture validates long-frame SILK/Hybrid
 // quality against frozen libopus reference packets. This keeps parity coverage
-// available even when cgo_libopus is disabled.
+// available without requiring live libopus bindings.
 func TestLongFrameLibopusReferenceParityFromFixture(t *testing.T) {
 	if !checkOpusdecAvailableEncoder() {
 		t.Skip("opusdec not found in PATH")

@@ -223,7 +223,7 @@ func TestEncoderComplianceSummary(t *testing.T) {
 		t.Log("===========================")
 		t.Logf("%-35s %10s %10s %s", "Configuration", "Q", "SNR(dB)", "Status")
 		t.Logf("%-35s %10s %10s %s", "--------------", "----", "------", "------")
-		t.Log("INFO: libopus reference unavailable (run with -tags cgo_libopus for gap metrics)")
+		t.Log("INFO: libopus reference fixture unavailable; using absolute quality thresholds")
 	}
 
 	passed := 0

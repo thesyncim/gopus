@@ -358,7 +358,7 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 	// int16 input (different lsb_depth, float precision).
 	cgoPackets := encodeWithLibopusFloat(original, sampleRate, channels, bitrate, frameSize, 2052 /* OPUS_APPLICATION_RESTRICTED_SILK */)
 	if len(cgoPackets) == 0 {
-		t.Skip("CGO libopus encoder not available; build with -tags cgo_libopus")
+		t.Skip("libopus reference encoder unavailable")
 	}
 	libPackets := make([][]byte, len(cgoPackets))
 	for i, p := range cgoPackets {
