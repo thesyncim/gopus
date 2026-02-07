@@ -965,7 +965,16 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 		vadFlags, _ := e.computeSilkVADFlags(mono, fsKHz)
 		e.silkEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.silkVAD.InputQualityBandsQ15)
 		if e.silkSideEncoder != nil {
-			e.silkSideEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.silkVAD.InputQualityBandsQ15)
+			// Side channel has different activity/tilt than mid; keep a separate VAD state.
+			for i := 0; i < len(left); i++ {
+				mono[i] = (left[i] - right[i]) * 0.5
+			}
+			_ = e.computeSilkVADSide(mono, len(mono), fsKHz)
+			if e.silkVADSide != nil {
+				e.silkSideEncoder.SetVADState(e.silkVADSide.SpeechActivityQ8, e.silkVADSide.InputTiltQ15, e.silkVADSide.InputQualityBandsQ15)
+			} else {
+				e.silkSideEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.silkVAD.InputQualityBandsQ15)
+			}
 		}
 		return silk.EncodeStereoWithEncoderVADFlags(e.silkEncoder, e.silkSideEncoder, left, right, e.silkBandwidth(), vadFlags)
 	}

@@ -302,8 +302,9 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, celtPCM []float64, lookahead 
 //
 // In libopus, the SILK rate is derived from bits_target (which subtracts 8 bits
 // for TOC overhead) rather than the raw bitrate:
-//   bits_target = min(8*(max_data_bytes-1), bitrate*frame_size/Fs) - 8
-//   total_bitRate = bits_target * Fs / frame_size = bitrate - 8*Fs/frame_size
+//
+//	bits_target = min(8*(max_data_bytes-1), bitrate*frame_size/Fs) - 8
+//	total_bitRate = bits_target * Fs / frame_size = bitrate - 8*Fs/frame_size
 func (e *Encoder) computeHybridBitAllocation(frame20ms bool) (silkBitrate, celtBitrate int) {
 	// Apply TOC overhead correction matching libopus bits_target -> bits_to_bitrate roundtrip.
 	// For 48kHz/10ms: overhead = 8*48000/480 = 800 bps
@@ -854,12 +855,16 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, lookahead []float32, sil
 	vadMid := e.computeSilkVAD(mid, len(mid), fsKHz)
 	e.silkEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.lastVADInputQualityBandsQ15)
 
-	vadSide := vadMid
-	if midOnly {
-		vadSide = false
+	vadSide := false
+	if !midOnly {
+		vadSide = e.computeSilkVADSide(side, len(side), fsKHz)
 	}
 	if e.silkSideEncoder != nil {
-		e.silkSideEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.lastVADInputQualityBandsQ15)
+		if e.silkVADSide != nil {
+			e.silkSideEncoder.SetVADState(e.silkVADSide.SpeechActivityQ8, e.silkVADSide.InputTiltQ15, e.silkVADSide.InputQualityBandsQ15)
+		} else {
+			e.silkSideEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.lastVADInputQualityBandsQ15)
+		}
 	}
 
 	// Get shared range encoder
