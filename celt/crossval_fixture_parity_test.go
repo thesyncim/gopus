@@ -15,6 +15,8 @@ type crossvalFixtureScenario struct {
 	input             []float64
 	expectNearSilence bool
 	minEnergyRatio    float64
+	minSNRDB          float64
+	minCorr           float64
 }
 
 func clonePacket(packet []byte) []byte {
@@ -95,7 +97,7 @@ func buildStereoFrameDualTone(samples int, fL, fR float64) []float64 {
 func buildCrossvalFixtureScenarios(t *testing.T) []crossvalFixtureScenario {
 	t.Helper()
 
-	makeScenario := func(name string, channels int, packets [][]byte, input []float64, expectNearSilence bool, minEnergyRatio float64) crossvalFixtureScenario {
+	makeScenario := func(name string, channels int, packets [][]byte, input []float64, expectNearSilence bool, minEnergyRatio, minSNRDB, minCorr float64) crossvalFixtureScenario {
 		var ogg bytes.Buffer
 		if err := writeOggOpus(&ogg, packets, 48000, channels); err != nil {
 			t.Fatalf("%s: writeOggOpus failed: %v", name, err)
@@ -109,30 +111,32 @@ func buildCrossvalFixtureScenarios(t *testing.T) []crossvalFixtureScenario {
 			input:             input,
 			expectNearSilence: expectNearSilence,
 			minEnergyRatio:    minEnergyRatio,
+			minSNRDB:          minSNRDB,
+			minCorr:           minCorr,
 		}
 	}
 
-	encodeMonoFrame := func(name string, bitrate int, input []float64, expectNearSilence bool, minEnergyRatio float64) crossvalFixtureScenario {
+	encodeMonoFrame := func(name string, bitrate int, input []float64, expectNearSilence bool, minEnergyRatio, minSNRDB, minCorr float64) crossvalFixtureScenario {
 		enc := NewEncoder(1)
 		enc.SetBitrate(bitrate)
 		packet, err := enc.EncodeFrame(input, 960)
 		if err != nil {
 			t.Fatalf("%s: encode failed: %v", name, err)
 		}
-		return makeScenario(name, 1, [][]byte{clonePacket(packet)}, input, expectNearSilence, minEnergyRatio)
+		return makeScenario(name, 1, [][]byte{clonePacket(packet)}, input, expectNearSilence, minEnergyRatio, minSNRDB, minCorr)
 	}
 
-	encodeStereoFrame := func(name string, bitrate int, input []float64, expectNearSilence bool, minEnergyRatio float64) crossvalFixtureScenario {
+	encodeStereoFrame := func(name string, bitrate int, input []float64, expectNearSilence bool, minEnergyRatio, minSNRDB, minCorr float64) crossvalFixtureScenario {
 		enc := NewEncoder(2)
 		enc.SetBitrate(bitrate)
 		packet, err := enc.EncodeFrame(input, 960)
 		if err != nil {
 			t.Fatalf("%s: encode failed: %v", name, err)
 		}
-		return makeScenario(name, 2, [][]byte{clonePacket(packet)}, input, expectNearSilence, minEnergyRatio)
+		return makeScenario(name, 2, [][]byte{clonePacket(packet)}, input, expectNearSilence, minEnergyRatio, minSNRDB, minCorr)
 	}
 
-	encodeMonoFrames := func(name string, bitrate int, frames [][]float64, minEnergyRatio float64) crossvalFixtureScenario {
+	encodeMonoFrames := func(name string, bitrate int, frames [][]float64, minEnergyRatio, minSNRDB, minCorr float64) crossvalFixtureScenario {
 		enc := NewEncoder(1)
 		enc.SetBitrate(bitrate)
 		packets := make([][]byte, len(frames))
@@ -143,10 +147,10 @@ func buildCrossvalFixtureScenarios(t *testing.T) []crossvalFixtureScenario {
 			}
 			packets[i] = clonePacket(packet)
 		}
-		return makeScenario(name, 1, packets, flattenFrames(frames), false, minEnergyRatio)
+		return makeScenario(name, 1, packets, flattenFrames(frames), false, minEnergyRatio, minSNRDB, minCorr)
 	}
 
-	encodeStereoFrames := func(name string, bitrate int, frames [][]float64, minEnergyRatio float64) crossvalFixtureScenario {
+	encodeStereoFrames := func(name string, bitrate int, frames [][]float64, minEnergyRatio, minSNRDB, minCorr float64) crossvalFixtureScenario {
 		enc := NewEncoder(2)
 		enc.SetBitrate(bitrate)
 		packets := make([][]byte, len(frames))
@@ -157,32 +161,32 @@ func buildCrossvalFixtureScenarios(t *testing.T) []crossvalFixtureScenario {
 			}
 			packets[i] = clonePacket(packet)
 		}
-		return makeScenario(name, 2, packets, flattenFrames(frames), false, minEnergyRatio)
+		return makeScenario(name, 2, packets, flattenFrames(frames), false, minEnergyRatio, minSNRDB, minCorr)
 	}
 
 	return []crossvalFixtureScenario{
-		encodeMonoFrame("mono_20ms_single", 64000, generateSineWave(440.0, 960), false, 0.20),
-		encodeStereoFrame("stereo_20ms_single", 128000, generateStereoSineWave(440.0, 880.0, 960), false, 0.20),
-		encodeMonoFrame("mono_20ms_silence", 64000, make([]float64, 960), true, 0),
+		encodeMonoFrame("mono_20ms_single", 64000, generateSineWave(440.0, 960), false, 0.20, 25.0, 0.995),
+		encodeStereoFrame("stereo_20ms_single", 128000, generateStereoSineWave(440.0, 880.0, 960), false, 0.20, 24.0, 0.995),
+		encodeMonoFrame("mono_20ms_silence", 64000, make([]float64, 960), true, 0, 0, 0),
 		encodeMonoFrames("mono_20ms_multiframe", 64000, [][]float64{
 			generateSineWave(440.0, 960),
 			generateSineWave(540.0, 960),
 			generateSineWave(640.0, 960),
 			generateSineWave(740.0, 960),
 			generateSineWave(840.0, 960),
-		}, 0.20),
-		encodeMonoFrame("mono_20ms_chirp", 64000, buildMonoFrameChirp(960, 180.0, 5200.0), false, 0.20),
-		encodeMonoFrame("mono_20ms_impulse", 48000, buildMonoFrameImpulse(960), false, 0.10),
-		encodeMonoFrame("mono_20ms_noise", 32000, buildMonoFramePseudoNoise(960), false, 0.08),
-		encodeMonoFrame("mono_20ms_lowamp", 24000, scaleSignal(generateSineWave(880.0, 960), 0.12), false, 0.05),
-		encodeStereoFrame("stereo_20ms_chirp", 96000, buildStereoFrameChirp(960), false, 0.15),
-		encodeStereoFrame("stereo_20ms_silence", 96000, make([]float64, 960*2), true, 0),
+		}, 0.20, 2.0, 0.68),
+		encodeMonoFrame("mono_20ms_chirp", 64000, buildMonoFrameChirp(960, 180.0, 5200.0), false, 0.20, 20.0, 0.99),
+		encodeMonoFrame("mono_20ms_impulse", 48000, buildMonoFrameImpulse(960), false, 0.10, 6.0, 0.88),
+		encodeMonoFrame("mono_20ms_noise", 32000, buildMonoFramePseudoNoise(960), false, 0.08, 0.8, 0.55),
+		encodeMonoFrame("mono_20ms_lowamp", 24000, scaleSignal(generateSineWave(880.0, 960), 0.12), false, 0.05, 18.0, 0.99),
+		encodeStereoFrame("stereo_20ms_chirp", 96000, buildStereoFrameChirp(960), false, 0.15, 20.0, 0.99),
+		encodeStereoFrame("stereo_20ms_silence", 96000, make([]float64, 960*2), true, 0, 0, 0),
 		encodeStereoFrames("stereo_20ms_multiframe", 96000, [][]float64{
 			buildStereoFrameDualTone(960, 300.0, 500.0),
 			buildStereoFrameDualTone(960, 520.0, 920.0),
 			buildStereoFrameDualTone(960, 760.0, 1240.0),
 			buildStereoFrameDualTone(960, 990.0, 1670.0),
-		}, 0.15),
+		}, 0.15, 20.0, 0.99),
 	}
 }
 
@@ -192,6 +196,70 @@ func scaleSignal(in []float64, gain float64) []float64 {
 		out[i] = v * gain
 	}
 	return out
+}
+
+func computeAlignedQualityMetrics(input []float64, decoded []float32) (snrDB float64, corr float64, energyRatio float64) {
+	in := float32Slice(input)
+	n := len(in)
+	if len(decoded) < n {
+		n = len(decoded)
+	}
+	if n == 0 {
+		return 0, 0, 0
+	}
+
+	trimStart := 64
+	if trimStart > n/4 {
+		trimStart = n / 4
+	}
+	trimEnd := 32
+	if trimEnd > n/8 {
+		trimEnd = n / 8
+	}
+	start := trimStart
+	end := n - trimEnd
+	if end-start < 128 {
+		start = 0
+		end = n
+	}
+	if end <= start {
+		return 0, 0, 0
+	}
+
+	var sigPow, noisePow float64
+	var sx, sy, sxx, syy, sxy float64
+	for i := start; i < end; i++ {
+		x := float64(in[i])
+		y := float64(decoded[i])
+		sigPow += x * x
+		d := y - x
+		noisePow += d * d
+		sx += x
+		sy += y
+		sxx += x * x
+		syy += y * y
+		sxy += x * y
+	}
+	count := float64(end - start)
+	if sigPow > 0 && noisePow > 0 {
+		snrDB = 10 * math.Log10(sigPow/noisePow)
+	} else if noisePow == 0 {
+		snrDB = 120
+	}
+
+	num := count*sxy - sx*sy
+	denX := count*sxx - sx*sx
+	denY := count*syy - sy*sy
+	if denX > 0 && denY > 0 {
+		corr = num / math.Sqrt(denX*denY)
+	}
+
+	inE := computeEnergy(in[start:end])
+	outE := computeEnergy(decoded[start:end])
+	if inE > 0 {
+		energyRatio = outE / inE
+	}
+	return snrDB, corr, energyRatio
 }
 
 func TestOpusdecCrossvalFixtureCoverage(t *testing.T) {
@@ -334,6 +402,17 @@ func TestOpusdecCrossvalFixtureMatrix(t *testing.T) {
 			ratio := outputEnergy / inputEnergy
 			if ratio < sc.minEnergyRatio {
 				t.Fatalf("energy ratio too low: got %.4f want >= %.4f", ratio, sc.minEnergyRatio)
+			}
+
+			snrDB, corr, alignedRatio := computeAlignedQualityMetrics(sc.input, decoded)
+			if snrDB < sc.minSNRDB {
+				t.Fatalf("SNR too low: got %.3f dB want >= %.3f dB", snrDB, sc.minSNRDB)
+			}
+			if corr < sc.minCorr {
+				t.Fatalf("correlation too low: got %.5f want >= %.5f", corr, sc.minCorr)
+			}
+			if alignedRatio < sc.minEnergyRatio {
+				t.Fatalf("aligned energy ratio too low: got %.4f want >= %.4f", alignedRatio, sc.minEnergyRatio)
 			}
 		})
 	}
