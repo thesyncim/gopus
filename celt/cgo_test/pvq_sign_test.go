@@ -182,6 +182,77 @@ func TestEncoderOutputCorrelationAfterWarmup(t *testing.T) {
 	}
 }
 
+// TestEncoderOutputCorrelationMultiFrame checks that CELT encoder output remains
+// highly correlated with input after startup frame effects settle.
+func TestEncoderOutputCorrelationMultiFrame(t *testing.T) {
+	SetLibopusDebugRange(false)
+
+	const (
+		sampleRate = 48000
+		frameSize  = 960
+		frames     = 6
+	)
+
+	pcm := make([]float64, frameSize*frames)
+	for f := 0; f < frames; f++ {
+		for i := 0; i < frameSize; i++ {
+			n := f*frameSize + i
+			ti := float64(n) / float64(sampleRate)
+			// Use a deterministic multi-tone signal so lag-only matching is robust.
+			pcm[n] = 0.35*math.Sin(2*math.Pi*440*ti) + 0.15*math.Sin(2*math.Pi*660*ti+0.2)
+		}
+	}
+
+	enc := encoder.NewEncoder(48000, 1)
+	enc.SetMode(encoder.ModeCELT)
+	enc.SetBandwidth(gopus.BandwidthFullband)
+	enc.SetBitrate(64000)
+
+	libDec, err := NewLibopusDecoder(48000, 1)
+	if err != nil {
+		t.Fatalf("NewLibopusDecoder failed: %v", err)
+	}
+	defer libDec.Destroy()
+
+	for f := 0; f < frames; f++ {
+		start := f * frameSize
+		in := pcm[start : start+frameSize]
+
+		pkt, err := enc.Encode(in, frameSize)
+		if err != nil {
+			t.Fatalf("frame %d encode failed: %v", f, err)
+		}
+
+		decoded, samples := libDec.DecodeFloat(pkt, frameSize)
+		if samples <= 0 {
+			t.Fatalf("frame %d decode failed: %d", f, samples)
+		}
+
+		corr, lag := maxLagCorrelation(in, decoded, 120)
+		t.Logf("Frame %d corr=%.4f lag=%d", f+1, corr, lag)
+
+		if f == 0 {
+			// Startup frame can be weaker because of CELT lookahead/overlap history.
+			if corr < 0.2 {
+				t.Fatalf("frame1 very low correlation: %.4f", corr)
+			}
+			continue
+		}
+
+		if corr < 0 {
+			t.Fatalf("frame %d signal inverted: corr=%.4f", f+1, corr)
+		}
+		minCorr := 0.9
+		if f == 1 {
+			// Frame 2 can still carry some startup influence.
+			minCorr = 0.8
+		}
+		if corr < minCorr {
+			t.Fatalf("frame %d low correlation: %.4f (expected > %.1f)", f+1, corr, minCorr)
+		}
+	}
+}
+
 func maxLagCorrelation(original []float64, decoded []float32, maxLag int) (bestCorr float64, bestLag int) {
 	bestCorr = -1.0
 	if maxLag < 0 {
