@@ -136,14 +136,9 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// libopus detects transient on first frame due to energy increase from silence.
 	// Reference: libopus patch_transient_decision() and first frame handling.
 	//
-	// IMPORTANT: Only force transient if transient_analysis didn't already detect one.
-	// If transient_analysis returned is_transient=true, USE ITS tf_estimate.
-	// The tf_estimate=0.2 override in libopus (line 2230) only happens in
-	// patch_transient_decision, which is only called when !isTransient.
-	if e.frameCount == 0 && lm > 0 && !transient {
-		transient = true
-		tfEstimate = 0.2
-	}
+	// Do not force first-frame transient here. libopus only applies the
+	// tf_estimate=0.2 override through patch_transient_decision() after MDCT
+	// analysis, not unconditionally at frame start.
 
 	// Save current frame's tail (last overlap samples) for next frame's transient analysis
 	// For mono: last 'overlap' samples
