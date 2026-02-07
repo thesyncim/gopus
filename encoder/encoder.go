@@ -52,6 +52,7 @@ type Encoder struct {
 	// Sub-encoders (created lazily)
 	silkEncoder     *silk.Encoder
 	silkSideEncoder *silk.Encoder // For stereo side channel in hybrid mode
+	silkTrace       *silk.EncoderTrace
 	celtEncoder     *celt.Encoder
 
 	// Configuration
@@ -1229,18 +1230,29 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 
 // ensureSILKEncoder creates the SILK encoder if it doesn't exist.
 func (e *Encoder) ensureSILKEncoder() {
-	if e.silkEncoder == nil {
-		e.silkEncoder = silk.NewEncoder(e.silkBandwidth())
-		e.silkEncoder.SetComplexity(e.complexity)
+	bw := e.silkBandwidth()
+	if e.silkEncoder != nil && e.silkEncoder.Bandwidth() == bw {
+		return
 	}
+	e.silkEncoder = silk.NewEncoder(bw)
+	e.silkEncoder.SetComplexity(e.complexity)
+	e.silkEncoder.SetTrace(e.silkTrace)
+	// The WB mono handoff state is specific to 16 kHz SILK input alignment.
+	// Reset it whenever the SILK core bandwidth/sample-rate changes.
+	e.silkMonoInputHist = [2]float32{}
 }
 
 // ensureSILKSideEncoder creates the SILK side channel encoder for stereo hybrid mode.
 func (e *Encoder) ensureSILKSideEncoder() {
-	if e.silkSideEncoder == nil && e.channels == 2 {
-		e.silkSideEncoder = silk.NewEncoder(e.silkBandwidth())
-		e.silkSideEncoder.SetComplexity(e.complexity)
+	if e.channels != 2 {
+		return
 	}
+	bw := e.silkBandwidth()
+	if e.silkSideEncoder != nil && e.silkSideEncoder.Bandwidth() == bw {
+		return
+	}
+	e.silkSideEncoder = silk.NewEncoder(bw)
+	e.silkSideEncoder.SetComplexity(e.complexity)
 }
 
 func (e *Encoder) ensureSILKResampler(rate int) {
@@ -1502,8 +1514,9 @@ func (e *Encoder) LastSilkLTPCorr() float32 {
 // SetSilkTrace enables SILK encoder tracing for parity debugging.
 // Only applies when the SILK encoder is active.
 func (e *Encoder) SetSilkTrace(trace *silk.EncoderTrace) {
+	e.silkTrace = trace
 	e.ensureSILKEncoder()
-	e.silkEncoder.SetTrace(trace)
+	e.silkEncoder.SetTrace(e.silkTrace)
 }
 
 // SetMaxBandwidth sets the maximum bandwidth limit.
