@@ -71,5 +71,8 @@ func TestTransientAnalysisParityAgainstLibopus(t *testing.T) {
 
 	t.Logf("iters=%d transientMismatch=%d tfChanMismatch=%d tfEstimateDrift=%d maskMetricDrift=%d maxTfDiff=%.6f maxMaskDiff=%.2f",
 		iters, transientMismatch, tfChanMismatch, tfEstimateDrift, maskMetricDrift, maxTfDiff, maxMaskDiff)
+	if transientMismatch != 0 || tfChanMismatch != 0 || tfEstimateDrift != 0 || maskMetricDrift != 0 {
+		t.Fatalf("transient parity mismatch: transient=%d tfChan=%d tfEstimate=%d maskMetric=%d maxTfDiff=%.6f maxMaskDiff=%.2f",
+			transientMismatch, tfChanMismatch, tfEstimateDrift, maskMetricDrift, maxTfDiff, maxMaskDiff)
+	}
 }
-
