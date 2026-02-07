@@ -1,11 +1,38 @@
 package testvectors
 
 import (
+	"bytes"
+	"encoding/base64"
+	"encoding/binary"
+	"fmt"
 	"math"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 
 	gopus "github.com/thesyncim/gopus"
 )
+
+type decoderParityThresholds struct {
+	minQ    float64
+	minCorr float64
+	minRMS  float64
+	maxRMS  float64
+}
+
+var decoderParityByCase = map[string]decoderParityThresholds{
+	"silk-nb-10ms-mono-16k":     {minQ: 45.0, minCorr: 0.997, minRMS: 0.98, maxRMS: 1.02},
+	"silk-nb-20ms-mono-16k":     {minQ: 45.0, minCorr: 0.997, minRMS: 0.98, maxRMS: 1.02},
+	"silk-wb-20ms-mono-32k":     {minQ: 45.0, minCorr: 0.997, minRMS: 0.98, maxRMS: 1.02},
+	"silk-wb-20ms-stereo-48k":   {minQ: 45.0, minCorr: 0.997, minRMS: 0.98, maxRMS: 1.02},
+	"celt-fb-10ms-mono-64k":     {minQ: 45.0, minCorr: 0.998, minRMS: 0.98, maxRMS: 1.02},
+	"celt-fb-20ms-mono-64k":     {minQ: 45.0, minCorr: 0.998, minRMS: 0.98, maxRMS: 1.02},
+	"celt-fb-20ms-stereo-128k":  {minQ: 45.0, minCorr: 0.998, minRMS: 0.98, maxRMS: 1.02},
+	"hybrid-swb-10ms-mono-24k":  {minQ: -80.0, minCorr: 0.980, minRMS: 0.97, maxRMS: 1.03},
+	"hybrid-fb-10ms-mono-24k":   {minQ: -80.0, minCorr: 0.980, minRMS: 0.97, maxRMS: 1.03},
+	"hybrid-fb-10ms-stereo-24k": {minQ: -70.0, minCorr: 0.990, minRMS: 0.97, maxRMS: 1.03},
+}
 
 func decodeWithInternalDecoder(t *testing.T, packets [][]byte, channels int) []float32 {
 	t.Helper()
@@ -29,99 +56,229 @@ func decodeWithInternalDecoder(t *testing.T, packets [][]byte, channels int) []f
 	return decoded
 }
 
-func TestDecoderParitySILKWB(t *testing.T) {
-	const (
-		sampleRate = 48000
-		channels   = 1
-		frameSize  = 960
-		bitrate    = 32000
-	)
+func decoderParityStats(a, b []float32) (corr, rmsRatio float64) {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	if n == 0 {
+		return 0, 0
+	}
+	var sumA, sumB, sumASq, sumBSq float64
+	for i := 0; i < n; i++ {
+		fa := float64(a[i])
+		fb := float64(b[i])
+		sumA += fa
+		sumB += fb
+		sumASq += fa * fa
+		sumBSq += fb * fb
+	}
+	meanA := sumA / float64(n)
+	meanB := sumB / float64(n)
+	var cov, varA, varB float64
+	for i := 0; i < n; i++ {
+		da := float64(a[i]) - meanA
+		db := float64(b[i]) - meanB
+		cov += da * db
+		varA += da * da
+		varB += db * db
+	}
+	if varA > 0 && varB > 0 {
+		corr = cov / math.Sqrt(varA*varB)
+	}
+	rmsA := math.Sqrt(sumASq / float64(n))
+	rmsB := math.Sqrt(sumBSq / float64(n))
+	if rmsA > 0 {
+		rmsRatio = rmsB / rmsA
+	}
+	return corr, rmsRatio
+}
 
-	libPackets, packetMeta, err := loadSILKWBFloatPacketFixturePackets()
+func TestDecoderParityLibopusMatrix(t *testing.T) {
+	fixture, err := loadLibopusDecoderMatrixFixture()
 	if err != nil {
-		t.Fatalf("load SILK WB packet fixture: %v", err)
+		t.Fatalf("load decoder matrix fixture: %v", err)
 	}
-	if packetMeta.Version != 1 ||
-		packetMeta.SampleRate != sampleRate ||
-		packetMeta.Channels != channels ||
-		packetMeta.FrameSize != frameSize ||
-		packetMeta.Bitrate != bitrate {
-		t.Fatalf("invalid SILK WB packet fixture metadata: %+v", packetMeta)
+	if fixture.Version != 1 {
+		t.Fatalf("unsupported decoder matrix fixture version: %d", fixture.Version)
 	}
-	if packetMeta.Frames != len(libPackets) {
-		t.Fatalf("invalid SILK WB packet fixture frame count: header=%d packets=%d", packetMeta.Frames, len(libPackets))
+	if fixture.SampleRate != 48000 {
+		t.Fatalf("unsupported sample rate: %d", fixture.SampleRate)
 	}
-
-	packets := make([][]byte, len(libPackets))
-	for i := range libPackets {
-		packets[i] = libPackets[i].data
+	if len(fixture.Cases) == 0 {
+		t.Fatal("decoder matrix fixture has no cases")
 	}
 
-	libDecoded, decodedMeta, err := loadSILKWBFloatDecodedFixtureSamples()
+	for _, c := range fixture.Cases {
+		c := c
+		t.Run(c.Name, func(t *testing.T) {
+			thr, ok := decoderParityByCase[c.Name]
+			if !ok {
+				t.Fatalf("missing decoder parity thresholds for case %q", c.Name)
+			}
+			packets, err := decodeLibopusDecoderMatrixPackets(c)
+			if err != nil {
+				t.Fatalf("decode fixture packets: %v", err)
+			}
+			refDecoded, err := decodeLibopusDecoderMatrixSamples(c)
+			if err != nil {
+				t.Fatalf("decode fixture f32 samples: %v", err)
+			}
+			internalDecoded := decodeWithInternalDecoder(t, packets, c.Channels)
+			if len(refDecoded) == 0 || len(internalDecoded) == 0 {
+				t.Fatalf("decoded streams empty: ref=%d internal=%d", len(refDecoded), len(internalDecoded))
+			}
+
+			compareLen := len(refDecoded)
+			if len(internalDecoded) < compareLen {
+				compareLen = len(internalDecoded)
+			}
+			maxDelay := 4 * c.FrameSize
+			if maxDelay < 960 {
+				maxDelay = 960
+			}
+			q, delay := ComputeQualityFloat32WithDelay(refDecoded[:compareLen], internalDecoded[:compareLen], fixture.SampleRate, maxDelay)
+			corr, rmsRatio := decoderParityStats(refDecoded[:compareLen], internalDecoded[:compareLen])
+			t.Logf("Q=%.2f SNR=%.2f delay=%d corr=%.6f rms_ratio=%.6f", q, SNRFromQuality(q), delay, corr, rmsRatio)
+
+			if q < thr.minQ {
+				t.Fatalf("decoder parity quality regression: Q=%.2f < %.2f", q, thr.minQ)
+			}
+			if corr < thr.minCorr {
+				t.Fatalf("decoder parity correlation regression: corr=%.6f < %.6f", corr, thr.minCorr)
+			}
+			if rmsRatio < thr.minRMS || rmsRatio > thr.maxRMS {
+				t.Fatalf("decoder parity RMS ratio regression: ratio=%.6f outside [%.6f, %.6f]", rmsRatio, thr.minRMS, thr.maxRMS)
+			}
+		})
+	}
+}
+
+func TestDecoderParityMatrixCoverage(t *testing.T) {
+	fixture, err := loadLibopusDecoderMatrixFixture()
 	if err != nil {
-		t.Fatalf("load SILK WB decoded fixture: %v", err)
+		t.Fatalf("load decoder matrix fixture: %v", err)
 	}
-	if decodedMeta.Version != 1 ||
-		decodedMeta.SampleRate != sampleRate ||
-		decodedMeta.Channels != channels ||
-		decodedMeta.FrameSize != frameSize ||
-		decodedMeta.Bitrate != bitrate {
-		t.Fatalf("invalid SILK WB decoded fixture metadata: %+v", decodedMeta)
-	}
-	if decodedMeta.Frames != len(libPackets) {
-		t.Fatalf("decoded fixture frame count mismatch: packets=%d decodedFrames=%d", len(libPackets), decodedMeta.Frames)
-	}
-	if len(libDecoded) == 0 {
-		t.Fatal("decoded fixture contains no samples")
-	}
-
-	// Decode with internal decoder.
-	internalDecoded := decodeWithInternalDecoder(t, packets, channels)
-	if len(internalDecoded) == 0 {
-		t.Fatal("internal decoder returned no samples")
-	}
-
-	// Align lengths and compute quality between decoders.
-	compareLen := len(libDecoded)
-	if len(internalDecoded) < compareLen {
-		compareLen = len(internalDecoded)
-	}
-	q, delay := ComputeQualityFloat32WithDelay(libDecoded[:compareLen], internalDecoded[:compareLen], sampleRate, 2000)
-	t.Logf("decoder parity: Q=%.2f (SNR=%.2f dB), delay=%d samples", q, SNRFromQuality(q), delay)
-
-	// Basic RMS and correlation diagnostics.
-	var sumLib, sumInt, sumLibSq, sumIntSq, sumCross float64
-	for i := 0; i < compareLen; i++ {
-		a := float64(libDecoded[i])
-		b := float64(internalDecoded[i])
-		sumLib += a
-		sumInt += b
-		sumLibSq += a * a
-		sumIntSq += b * b
-		sumCross += a * b
-	}
-	n := float64(compareLen)
-	if n > 0 {
-		meanLib := sumLib / n
-		meanInt := sumInt / n
-		var cov, varLib, varInt float64
-		for i := 0; i < compareLen; i++ {
-			a := float64(libDecoded[i]) - meanLib
-			b := float64(internalDecoded[i]) - meanInt
-			cov += a * b
-			varLib += a * a
-			varInt += b * b
+	seenModes := map[string]bool{"silk": false, "hybrid": false, "celt": false}
+	seenStereo := false
+	seenLongFrame := false
+	for _, c := range fixture.Cases {
+		if c.Channels == 2 {
+			seenStereo = true
 		}
-		corr := 0.0
-		if varLib > 0 && varInt > 0 {
-			corr = cov / math.Sqrt(varLib*varInt)
+		if c.FrameSize >= 960 {
+			seenLongFrame = true
 		}
-		rmsLib := math.Sqrt(sumLibSq / n)
-		rmsInt := math.Sqrt(sumIntSq / n)
-		ratio := 0.0
-		if rmsLib > 0 {
-			ratio = rmsInt / rmsLib
+		for mode, count := range c.ModeHistogram {
+			if count > 0 {
+				seenModes[mode] = true
+			}
 		}
-		t.Logf("decoder parity stats: corr=%.4f rms(lib)=%.4f rms(int)=%.4f ratio=%.4f", corr, rmsLib, rmsInt, ratio)
+	}
+	var missing []string
+	for _, mode := range []string{"silk", "hybrid", "celt"} {
+		if !seenModes[mode] {
+			missing = append(missing, mode)
+		}
+	}
+	if len(missing) > 0 {
+		t.Fatalf("decoder matrix missing mode coverage: %v", missing)
+	}
+	if !seenStereo {
+		t.Fatal("decoder matrix missing stereo coverage")
+	}
+	if !seenLongFrame {
+		t.Fatal("decoder matrix missing >=20ms frame coverage")
+	}
+	if len(fixture.Cases) != len(decoderParityByCase) {
+		t.Fatalf("decoder threshold coverage mismatch: cases=%d thresholds=%d", len(fixture.Cases), len(decoderParityByCase))
+	}
+	for _, c := range fixture.Cases {
+		if _, ok := decoderParityByCase[c.Name]; !ok {
+			t.Fatalf("missing thresholds for case: %s", c.Name)
+		}
+	}
+}
+
+func buildOpusDemoBitstreamFromFixtureCase(c libopusDecoderMatrixCaseFile) ([]byte, error) {
+	packets, err := decodeLibopusDecoderMatrixPackets(c)
+	if err != nil {
+		return nil, err
+	}
+	total := 0
+	for _, p := range packets {
+		total += 8 + len(p)
+	}
+	out := make([]byte, 0, total)
+	lenField := make([]byte, 4)
+	rangeField := make([]byte, 4)
+	for i, p := range packets {
+		binary.BigEndian.PutUint32(lenField, uint32(len(p)))
+		binary.BigEndian.PutUint32(rangeField, c.Packets[i].FinalRange)
+		out = append(out, lenField...)
+		out = append(out, rangeField...)
+		out = append(out, p...)
+	}
+	return out, nil
+}
+
+func getFixtureOpusDemoPath() (string, bool) {
+	candidates := []string{
+		filepath.Join("tmp_check", "opus-1.6.1", "opus_demo"),
+		filepath.Join("..", "tmp_check", "opus-1.6.1", "opus_demo"),
+		filepath.Join("..", "..", "tmp_check", "opus-1.6.1", "opus_demo"),
+	}
+	for _, path := range candidates {
+		if st, err := os.Stat(path); err == nil && (st.Mode()&0111) != 0 {
+			return path, true
+		}
+	}
+	return "", false
+}
+
+func TestDecoderParityMatrixFixtureHonestyWithOpusDemo1601(t *testing.T) {
+	opusDemo, ok := getFixtureOpusDemoPath()
+	if !ok {
+		t.Skip("tmp_check opus_demo not found; skipping fixture honesty check")
+	}
+	fixture, err := loadLibopusDecoderMatrixFixture()
+	if err != nil {
+		t.Fatalf("load decoder matrix fixture: %v", err)
+	}
+	tmpDir, err := os.MkdirTemp("", "gopus-fixture-honesty-*")
+	if err != nil {
+		t.Fatalf("create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	for _, c := range fixture.Cases {
+		c := c
+		t.Run(c.Name, func(t *testing.T) {
+			bitstream, err := buildOpusDemoBitstreamFromFixtureCase(c)
+			if err != nil {
+				t.Fatalf("build fixture bitstream: %v", err)
+			}
+			bitPath := filepath.Join(tmpDir, fmt.Sprintf("%s.bit", c.Name))
+			outPath := filepath.Join(tmpDir, fmt.Sprintf("%s.f32", c.Name))
+			if err := os.WriteFile(bitPath, bitstream, 0o644); err != nil {
+				t.Fatalf("write bitstream: %v", err)
+			}
+			cmd := exec.Command(opusDemo, "-d", "48000", fmt.Sprintf("%d", c.Channels), "-f32", bitPath, outPath)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("opus_demo decode failed: %v (%s)", err, out)
+			}
+			gotRaw, err := os.ReadFile(outPath)
+			if err != nil {
+				t.Fatalf("read opus_demo output: %v", err)
+			}
+			wantRaw, err := base64.StdEncoding.DecodeString(c.DecodedF32B64)
+			if err != nil {
+				t.Fatalf("decode fixture decoded payload: %v", err)
+			}
+			if !bytes.Equal(gotRaw, wantRaw) {
+				t.Fatalf("fixture drift vs tmp_check opus_demo 1.6.1: got=%d bytes want=%d bytes", len(gotRaw), len(wantRaw))
+			}
+		})
 	}
 }
