@@ -13,7 +13,7 @@ import (
 func TestSILK10msDelaySearch(t *testing.T) {
 	opusdec := findOpusdec()
 	if opusdec == "" {
-		t.Skip("opusdec not found")
+		t.Log("opusdec not found; using internal SILK decode fallback")
 	}
 
 	for _, tc := range []struct {

@@ -13,7 +13,7 @@ import (
 func TestSILK10msBitrateStudy(t *testing.T) {
 	opusdec := findOpusdec()
 	if opusdec == "" {
-		t.Skip("opusdec not found")
+		t.Log("opusdec not found; using internal SILK decode fallback")
 	}
 
 	for _, bitrate := range []int{16000, 24000, 32000, 48000, 64000} {
