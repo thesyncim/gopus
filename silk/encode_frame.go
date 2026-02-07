@@ -22,6 +22,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		frameSamples = len(pcm)
 	}
 	payloadSizeMs := (frameSamples * 1000) / config.SampleRate
+	packetPayloadSizeMs := payloadSizeMs
+	if e.nFramesPerPacket > 1 {
+		packetPayloadSizeMs = payloadSizeMs * e.nFramesPerPacket
+	}
 
 	// Match libopus packet control ordering:
 	// packet/frame counters are reset before target-rate/SNR control for
@@ -128,7 +132,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	// Matches libopus silk/enc_API.c rate control logic (lines 411-443).
 	if e.targetRateBps > 0 {
 		// Total target bits for packet
-		nBits := (e.targetRateBps * payloadSizeMs) / 1000
+		nBits := (e.targetRateBps * packetPayloadSizeMs) / 1000
 
 		// Subtract bits used for LBRR (exponential moving average).
 		// Matches libopus enc_API.c line 425: nBits -= psEnc->nBitsUsedLBRR;
