@@ -8,6 +8,8 @@
 // Reference: RFC 6716 Section 2.1.9, libopus silk/VAD.c
 package encoder
 
+import "github.com/thesyncim/gopus/types"
+
 // DTX Constants matching libopus silk/define.h
 const (
 	// DTXComfortNoiseIntervalMs is how often to send comfort noise during DTX.
@@ -248,24 +250,46 @@ func (e *Encoder) encodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	actualMode := e.selectMode(frameSize, e.signalType)
 
 	// Route to appropriate encoder
+	var frameData []byte
+	var packet []byte
+	var err error
 	switch actualMode {
 	case ModeSILK:
-		res, err := e.encodeSILKFrame(pcm, nil, frameSize)
+		frameData, err = e.encodeSILKFrame(pcm, nil, frameSize)
 		if err == nil {
 			e.updateDelayBuffer(pcm, frameSize)
 		}
-		return res, err
 	case ModeHybrid:
 		celtPCM := e.applyDelayCompensation(pcm, frameSize)
-		return e.encodeHybridFrame(pcm, celtPCM, nil, frameSize)
+		frameData, err = e.encodeHybridFrame(pcm, celtPCM, nil, frameSize)
 	case ModeCELT:
 		celtPCM := e.applyDelayCompensation(pcm, frameSize)
-		return e.encodeCELTFrame(celtPCM, frameSize)
+		if frameSize > 960 {
+			packet, err = e.encodeCELTMultiFramePacket(celtPCM, frameSize)
+		} else {
+			frameData, err = e.encodeCELTFrame(celtPCM, frameSize)
+		}
 	default:
 		return nil, ErrEncodingFailed
 	}
-}
+	if err != nil {
+		return nil, err
+	}
+	if packet != nil {
+		return packet, nil
+	}
 
+	stereo := e.channels == 2
+	packetBW := e.effectiveBandwidth()
+	if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
+		packetBW = types.BandwidthWideband
+	}
+	packetLen, err := BuildPacketInto(e.scratchPacket, frameData, modeToTypes(actualMode), packetBW, frameSize, stereo)
+	if err != nil {
+		return nil, err
+	}
+	return e.scratchPacket[:packetLen], nil
+}
 
 // classifySignal determines signal type using energy-based detection.
 // This is a legacy function kept for compatibility; new code uses VAD.
