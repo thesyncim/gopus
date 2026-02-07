@@ -501,6 +501,22 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Use mid-side stereo by default: dualStereo=false, intensity=nbBands (disabled)
 	intensity := nbBands
 	dualStereo := false
+	if e.channels == 2 {
+		var xy, xx, yy float64
+		for i := 0; i+1 < len(preemph); i += 2 {
+			l := preemph[i]
+			r := preemph[i+1]
+			xy += l * r
+			xx += l * l
+			yy += r * r
+		}
+		if xx > 0 && yy > 0 {
+			corr := math.Abs(xy / math.Sqrt(xx*yy))
+			dualStereo = corr < 0.85
+		} else {
+			dualStereo = true
+		}
+	}
 
 	// Step 11: Encode coarse energy
 	// Use scratch buffer for prev1LogE
@@ -778,6 +794,13 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			0.0, // surroundTrim - not implemented yet
 			0.0, // tonalitySlope - not implemented yet
 		)
+
+		if dualStereo {
+			allocTrim += 1
+			if allocTrim > 10 {
+				allocTrim = 10
+			}
+		}
 
 		re.EncodeICDF(allocTrim, trimICDF, 7)
 	}
