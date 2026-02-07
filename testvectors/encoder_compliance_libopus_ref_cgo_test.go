@@ -71,6 +71,52 @@ func encodeWithLibopusComplianceReference(
 		return nil
 	}
 
+	// For 40/60ms hybrid frames, mirror gopus packetization: encode 20ms
+	// hybrid frames and wrap them in a single code-3 packet.
+	if mode == encoder.ModeHybrid && frameSize > 960 && frameSize%960 == 0 {
+		subframesPerPacket := frameSize / 960
+		if subframesPerPacket < 2 || subframesPerPacket > 3 {
+			return nil
+		}
+		subframeSamples := 960 * channels
+		packets := make([][]byte, 0, numFrames)
+		for i := 0; i < numFrames; i++ {
+			frames := make([][]byte, 0, subframesPerPacket)
+			sameSize := true
+			prevSize := -1
+			packetBase := i * samplesPerFrame
+			for j := 0; j < subframesPerPacket; j++ {
+				start := packetBase + j*subframeSamples
+				end := start + subframeSamples
+				data, n := enc.EncodeFloat(samples[start:end], 960)
+				if n <= 0 || len(data) < 1 {
+					return nil
+				}
+				// BuildMultiFramePacket expects frame payloads without TOC.
+				payload := make([]byte, len(data)-1)
+				copy(payload, data[1:])
+				frames = append(frames, payload)
+				if prevSize >= 0 && len(payload) != prevSize {
+					sameSize = false
+				}
+				prevSize = len(payload)
+			}
+			packet, err := encoder.BuildMultiFramePacket(
+				frames,
+				types.ModeHybrid,
+				bandwidth,
+				960,
+				channels == 2,
+				!sameSize,
+			)
+			if err != nil {
+				return nil
+			}
+			packets = append(packets, packet)
+		}
+		return packets
+	}
+
 	packets := make([][]byte, 0, numFrames)
 	for i := 0; i < numFrames; i++ {
 		start := i * samplesPerFrame

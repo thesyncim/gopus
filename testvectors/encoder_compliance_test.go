@@ -202,8 +202,10 @@ func TestEncoderComplianceSummary(t *testing.T) {
 		// Hybrid
 		{"Hybrid-SWB-10ms-mono-48k", encoder.ModeHybrid, types.BandwidthSuperwideband, 480, 1, 48000},
 		{"Hybrid-SWB-20ms-mono-48k", encoder.ModeHybrid, types.BandwidthSuperwideband, 960, 1, 48000},
+		{"Hybrid-SWB-40ms-mono-48k", encoder.ModeHybrid, types.BandwidthSuperwideband, 1920, 1, 48000},
 		{"Hybrid-FB-10ms-mono-64k", encoder.ModeHybrid, types.BandwidthFullband, 480, 1, 64000},
 		{"Hybrid-FB-20ms-mono-64k", encoder.ModeHybrid, types.BandwidthFullband, 960, 1, 64000},
+		{"Hybrid-FB-60ms-mono-64k", encoder.ModeHybrid, types.BandwidthFullband, 2880, 1, 64000},
 		{"Hybrid-FB-20ms-stereo-96k", encoder.ModeHybrid, types.BandwidthFullband, 960, 2, 96000},
 	}
 
@@ -232,19 +234,19 @@ func TestEncoderComplianceSummary(t *testing.T) {
 		if refAvailable {
 			libQ, libDecoded, ok := runLibopusComplianceReferenceTest(t, tc.mode, tc.bandwidth, tc.frameSize, tc.channels, tc.bitrate)
 			_ = libDecoded // decoded samples available for debugging if needed
-				if ok {
-					libSNR := SNRFromQuality(libQ)
-					gapDB := snr - libSNR
-					speechMode := tc.mode == encoder.ModeSILK || tc.mode == encoder.ModeHybrid
-					if speechMode && math.Abs(gapDB) > EncoderLibopusSpeechGapTightDB {
-						status = "FAIL"
-						failed++
-					} else if gapDB >= EncoderLibopusGapGoodDB {
-						status = "GOOD"
-						passed++
-					} else if gapDB >= EncoderLibopusGapBaseDB {
-						status = "BASE"
-						passed++
+			if ok {
+				libSNR := SNRFromQuality(libQ)
+				gapDB := snr - libSNR
+				speechMode := tc.mode == encoder.ModeSILK || tc.mode == encoder.ModeHybrid
+				if speechMode && math.Abs(gapDB) > EncoderLibopusSpeechGapTightDB {
+					status = "FAIL"
+					failed++
+				} else if gapDB >= EncoderLibopusGapGoodDB {
+					status = "GOOD"
+					passed++
+				} else if gapDB >= EncoderLibopusGapBaseDB {
+					status = "BASE"
+					passed++
 				} else {
 					status = "FAIL"
 					failed++
