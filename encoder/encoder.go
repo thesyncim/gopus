@@ -719,17 +719,19 @@ func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
 			return e.mode
 		}
 		bw := e.effectiveBandwidth()
-		switch signalHint {
+		// Respect explicit signal hints from controls.
+		switch e.signalType {
 		case types.SignalVoice:
 			return ModeSILK
 		case types.SignalMusic:
 			return ModeCELT
-		default:
-			if bw == types.BandwidthSuperwideband || bw == types.BandwidthFullband {
-				return ModeCELT
-			}
-			return ModeSILK
 		}
+		// In auto-signal mode for long frames, bias by bandwidth instead of the
+		// per-frame classifier to avoid unstable SILK/CELT switching.
+		if bw == types.BandwidthSuperwideband || bw == types.BandwidthFullband {
+			return ModeCELT
+		}
+		return ModeSILK
 	}
 	if e.mode != ModeAuto {
 		return e.mode

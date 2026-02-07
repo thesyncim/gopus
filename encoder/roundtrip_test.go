@@ -1065,6 +1065,91 @@ func TestHighLevelSILKStereoLongFramesRoundTripSanity(t *testing.T) {
 	}
 }
 
+func TestHighLevelAudioLongFramesUseCELTAndRoundTripMusic(t *testing.T) {
+	const (
+		sampleRate    = 48000
+		channels      = 2
+		frameCount    = 30
+		searchDelay   = 800
+		minSNRDB      = 10.0
+		targetBitrate = 64000
+	)
+
+	for _, frameSize := range []int{1920, 2880} {
+		t.Run(frameSizeName(frameSize), func(t *testing.T) {
+			enc, err := gopus.NewEncoder(sampleRate, channels, gopus.ApplicationAudio)
+			if err != nil {
+				t.Fatalf("NewEncoder: %v", err)
+			}
+			if err := enc.SetFrameSize(frameSize); err != nil {
+				t.Fatalf("SetFrameSize: %v", err)
+			}
+			if err := enc.SetBitrate(targetBitrate); err != nil {
+				t.Fatalf("SetBitrate: %v", err)
+			}
+
+			decCfg := gopus.DefaultDecoderConfig(sampleRate, channels)
+			dec, err := gopus.NewDecoder(decCfg)
+			if err != nil {
+				t.Fatalf("NewDecoder: %v", err)
+			}
+
+			original := generateMusicLikeSignal(frameSize*frameCount, channels, sampleRate)
+			original32 := make([]float32, len(original))
+			for i := range original {
+				original32[i] = float32(original[i])
+			}
+
+			packetBuf := make([]byte, 4000)
+			decodedBuf := make([]float32, decCfg.MaxPacketSamples*channels)
+			decoded := make([]float64, 0, len(original))
+			expectedFramesPerPacket := frameSize / 960
+
+			for i := 0; i < frameCount; i++ {
+				start := i * frameSize * channels
+				end := start + frameSize*channels
+
+				n, err := enc.Encode(original32[start:end], packetBuf)
+				if err != nil {
+					t.Fatalf("encode frame %d: %v", i, err)
+				}
+				if n == 0 {
+					t.Fatalf("encode frame %d produced empty packet", i)
+				}
+
+				toc := gopus.ParseTOC(packetBuf[0])
+				if toc.Mode != gopus.ModeCELT {
+					t.Fatalf("frame %d mode=%v, want CELT", i, toc.Mode)
+				}
+				if toc.FrameCode != 3 {
+					t.Fatalf("frame %d frameCode=%d, want 3", i, toc.FrameCode)
+				}
+				info, err := gopus.ParsePacket(packetBuf[:n])
+				if err != nil {
+					t.Fatalf("frame %d ParsePacket: %v", i, err)
+				}
+				if info.FrameCount != expectedFramesPerPacket {
+					t.Fatalf("frame %d packet frameCount=%d, want %d", i, info.FrameCount, expectedFramesPerPacket)
+				}
+
+				written, err := dec.Decode(packetBuf[:n], decodedBuf)
+				if err != nil {
+					t.Fatalf("decode frame %d: %v", i, err)
+				}
+				for j := 0; j < written*channels; j++ {
+					decoded = append(decoded, float64(decodedBuf[j]))
+				}
+			}
+
+			snr, delay := computeSNRWithDelay(original, decoded, searchDelay)
+			t.Logf("frame=%d snr=%.2f dB delay=%d", frameSize, snr, delay)
+			if snr < minSNRDB {
+				t.Fatalf("frame=%d roundtrip quality too low: SNR %.2f dB < %.2f dB", frameSize, snr, minSNRDB)
+			}
+		})
+	}
+}
+
 // =============================================================================
 // High-Level API Round-Trip Test
 // =============================================================================
