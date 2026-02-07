@@ -169,14 +169,14 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		preCh := pre[ch*perChanLen : (ch+1)*perChanLen]
 		outCh := out[ch*perChanLen : (ch+1)*perChanLen]
 		for i := 0; i < frameSize; i++ {
-			before[ch] += math.Abs(preCh[maxPeriod+i]) * (1.0 / 4096.0)
+			before[ch] += math.Abs(preCh[maxPeriod+i])
 		}
 		if offset > 0 {
 			combFilterWithInput(outCh, preCh, maxPeriod, e.prefilterPeriod, e.prefilterPeriod, offset, -e.prefilterGain, -e.prefilterGain, e.prefilterTapset, e.prefilterTapset, nil, 0)
 		}
 		combFilterWithInput(outCh, preCh, maxPeriod+offset, e.prefilterPeriod, pitchIndex, frameSize-offset, -e.prefilterGain, -gain1, e.prefilterTapset, tapset, window, overlap)
 		for i := 0; i < frameSize; i++ {
-			after[ch] += math.Abs(outCh[maxPeriod+i]) * (1.0 / 4096.0)
+			after[ch] += math.Abs(outCh[maxPeriod+i])
 		}
 	}
 
