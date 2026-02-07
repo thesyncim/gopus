@@ -130,3 +130,37 @@ func TestNoCGOSourceDirectives(t *testing.T) {
 		t.Fatalf("cgo usage is disallowed:\n%s", strings.Join(violations, "\n"))
 	}
 }
+
+// TestNoCGOTestArtifacts prevents reintroducing legacy cgo test scaffolding.
+// Equivalent parity tests must live in pure-Go fixture tests.
+func TestNoCGOTestArtifacts(t *testing.T) {
+	var violations []string
+
+	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", "tmp_check":
+				return filepath.SkipDir
+			case "cgo_test", "cgo":
+				violations = append(violations, path+": cgo test directory is disallowed")
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		base := strings.ToLower(filepath.Base(path))
+		if strings.Contains(base, "cgo") || strings.Contains(base, "_wrapper.go") {
+			violations = append(violations, path+": cgo-style test artifact is disallowed")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("scan source tree: %v", err)
+	}
+	if len(violations) > 0 {
+		t.Fatalf("remove cgo test artifacts and replace with pure-Go fixtures:\n%s", strings.Join(violations, "\n"))
+	}
+}

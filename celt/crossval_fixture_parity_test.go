@@ -10,6 +10,7 @@ type crossvalFixtureScenario struct {
 	name              string
 	sampleRate        int
 	channels          int
+	numFrames         int
 	ogg               []byte
 	input             []float64
 	expectNearSilence bool
@@ -103,6 +104,7 @@ func buildCrossvalFixtureScenarios(t *testing.T) []crossvalFixtureScenario {
 			name:              name,
 			sampleRate:        48000,
 			channels:          channels,
+			numFrames:         len(packets),
 			ogg:               ogg.Bytes(),
 			input:             input,
 			expectNearSilence: expectNearSilence,
@@ -199,11 +201,26 @@ func TestOpusdecCrossvalFixtureCoverage(t *testing.T) {
 	}
 
 	scenarios := buildCrossvalFixtureScenarios(t)
+	if len(entries) != len(scenarios) {
+		t.Fatalf("fixture entry count mismatch: got %d want %d", len(entries), len(scenarios))
+	}
+
+	scenarioByName := make(map[string]crossvalFixtureScenario, len(scenarios))
+	for _, sc := range scenarios {
+		if _, ok := scenarioByName[sc.name]; ok {
+			t.Fatalf("duplicate scenario name %q", sc.name)
+		}
+		scenarioByName[sc.name] = sc
+	}
+
 	for _, sc := range scenarios {
 		hash := oggSHA256Hex(sc.ogg)
 		entry, ok := entries[hash]
 		if !ok {
 			t.Fatalf("%s: missing fixture entry for ogg sha256=%s", sc.name, hash)
+		}
+		if entry.Name != sc.name {
+			t.Fatalf("%s: fixture name mismatch for sha %s: got %q", sc.name, hash, entry.Name)
 		}
 		if entry.SampleRate != sc.sampleRate {
 			t.Fatalf("%s: fixture sample_rate=%d want %d", sc.name, entry.SampleRate, sc.sampleRate)
@@ -217,6 +234,16 @@ func TestOpusdecCrossvalFixtureCoverage(t *testing.T) {
 		}
 		if len(samples) == 0 {
 			t.Fatalf("%s: fixture samples are empty", sc.name)
+		}
+		expected := (sc.numFrames*960 - 312) * sc.channels
+		if len(samples) != expected {
+			t.Fatalf("%s: fixture decoded length mismatch: got %d want %d", sc.name, len(samples), expected)
+		}
+	}
+
+	for _, e := range entries {
+		if _, ok := scenarioByName[e.Name]; !ok {
+			t.Fatalf("fixture has stale or unknown entry name %q", e.Name)
 		}
 	}
 }
@@ -278,6 +305,10 @@ func TestOpusdecCrossvalFixtureMatrix(t *testing.T) {
 			}
 			if len(decoded)%sc.channels != 0 {
 				t.Fatalf("decoded sample count %d not divisible by channels %d", len(decoded), sc.channels)
+			}
+			expected := (sc.numFrames*960 - 312) * sc.channels
+			if len(decoded) != expected {
+				t.Fatalf("decoded length mismatch: got %d want %d", len(decoded), expected)
 			}
 			for i, s := range decoded {
 				if math.IsNaN(float64(s)) || math.IsInf(float64(s), 0) {
