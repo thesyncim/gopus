@@ -94,8 +94,10 @@ func TestMDCTRoundtrip(t *testing.T) {
 	// Compute forward MDCT
 	coeffs := celt.MDCTForwardWithOverlap(samples, overlap)
 
-	// Compute inverse MDCT
-	reconstructed := celt.IMDCT(coeffs)
+	// Compute inverse transform with CELT short-overlap reconstruction path.
+	// MDCTForwardWithOverlap() expects this overlap-aware inverse rather than
+	// the generic IMDCT() (which returns 2N samples for the full MDCT basis).
+	reconstructed := celt.IMDCTOverlapWithPrev(coeffs, make([]float64, overlap), overlap)
 
 	// The IMDCT output should match the original (windowed) signal
 	// after proper overlap handling
