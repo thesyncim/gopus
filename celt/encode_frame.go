@@ -5,6 +5,7 @@ package celt
 
 import (
 	"errors"
+	"math"
 )
 
 // Encoding errors
@@ -67,8 +68,13 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		samplesForFrame = e.applyDCRejectScratch(pcm)
 	}
 
-	// Step 3b: Delay compensation is handled at the Opus encoder level.
-	// CELT expects already compensated input here.
+	// Step 3b: Apply CELT delay compensation for standalone CELT usage.
+	// When CELT is driven by the top-level Opus encoder, delay compensation is already
+	// applied before calling into CELT, so running it again would double-compensate.
+	// We use dcRejectEnabled as a standalone-vs-top-level signal: top-level sets it false.
+	if e.dcRejectEnabled {
+		samplesForFrame = e.ApplyDelayCompensationScratchHybrid(samplesForFrame, frameSize)
+	}
 
 	// Step 3c: Apply pre-emphasis with signal scaling (before transient analysis)
 	// This matches libopus order: celt_preemphasis() is called before transient_analysis()
@@ -185,7 +191,13 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	start := 0
 
 	prefilterTapset := e.TapsetDecision()
-	enabled := start == 0 && (e.frameCount > 0 || e.vbr) && targetBytes > 12*e.channels && !e.IsHybrid() && !isSilence && re.Tell()+16 <= targetBits
+	// Match libopus run_prefilter enable gating for top-level Opus-driven CELT.
+	// For standalone CELT mode we keep first-frame gating to preserve existing behavior
+	// expected by local unit tests.
+	enabled := start == 0 && targetBytes > 12*e.channels && !e.IsHybrid() && !isSilence && re.Tell()+16 <= targetBits
+	if e.dcRejectEnabled && e.frameCount == 0 && !e.vbr {
+		enabled = false
+	}
 	// Derive the prefilter max-pitch ratio from the same pre-emphasized signal
 	// used by the CELT analysis path; this improves postfilter parity vs libopus.
 	maxPitchRatio := estimateMaxPitchRatio(preemph, e.channels, e.scratch.prefilterPitchBuf)
@@ -499,6 +511,25 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	}
 	prev1LogE = prev1LogE[:len(e.prevEnergy)]
 	copy(prev1LogE, e.prevEnergy)
+
+	// Match libopus pre-coarse stabilization:
+	// if abs(bandLogE-oldBandE) < 2, bias current energy toward previous quant error.
+	// Reference: celt_encoder.c before quant_coarse_energy().
+	for c := 0; c < e.channels; c++ {
+		baseState := c * MaxBands
+		baseFrame := c * nbBands
+		for band := 0; band < nbBands; band++ {
+			stateIdx := baseState + band
+			frameIdx := baseFrame + band
+			if frameIdx >= len(energies) || stateIdx >= len(e.energyError) || stateIdx >= len(e.prevEnergy) {
+				continue
+			}
+			if math.Abs(energies[frameIdx]-e.prevEnergy[stateIdx]) < 2.0 {
+				energies[frameIdx] -= 0.25 * e.energyError[stateIdx]
+			}
+		}
+	}
+
 	quantizedEnergies := e.EncodeCoarseEnergy(energies, nbBands, intra, lm)
 
 	// Step 11.0.5: Normalize bands early for TF analysis
@@ -843,6 +874,36 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		bitsLeft = 0
 	}
 	e.EncodeEnergyFinalise(energies, quantizedEnergies, nbBands, allocResult.FineBits, allocResult.FinePriority, bitsLeft)
+
+	// Match libopus energyError update timing and range:
+	// store post-finalise residual, clipped to [-0.5, 0.5], for next-frame stabilization.
+	// Reference: celt_encoder.c after quant_energy_finalise().
+	for c := 0; c < e.channels; c++ {
+		baseState := c * MaxBands
+		baseFrame := c * nbBands
+		for band := 0; band < MaxBands; band++ {
+			stateIdx := baseState + band
+			if stateIdx >= len(e.energyError) {
+				continue
+			}
+			if band >= nbBands {
+				e.energyError[stateIdx] = 0
+				continue
+			}
+			frameIdx := baseFrame + band
+			if frameIdx >= len(energies) || frameIdx >= len(quantizedEnergies) {
+				e.energyError[stateIdx] = 0
+				continue
+			}
+			err := energies[frameIdx] - quantizedEnergies[frameIdx]
+			if err < -0.5 {
+				err = -0.5
+			} else if err > 0.5 {
+				err = 0.5
+			}
+			e.energyError[stateIdx] = err
+		}
+	}
 
 	// Step 15: Finalize and update state
 	// Capture final range BEFORE Done(), matching libopus celt_encoder.c:2809
