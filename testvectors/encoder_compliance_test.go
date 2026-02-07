@@ -53,6 +53,10 @@ const (
 	// Gap is reported as (gopus SNR - libopus SNR).
 	EncoderLibopusGapGoodDB = -1.5
 	EncoderLibopusGapBaseDB = -4.0
+
+	// For SILK/Hybrid, we expect close libopus alignment after parity fixes.
+	// This is an absolute gap bound: |gopus SNR - libopus SNR| <= 1.0 dB.
+	EncoderLibopusSpeechGapTightDB = 1.0
 )
 
 var encoderComplianceLogOnce sync.Once
@@ -223,15 +227,19 @@ func TestEncoderComplianceSummary(t *testing.T) {
 		if refAvailable {
 			libQ, libDecoded, ok := runLibopusComplianceReferenceTest(t, tc.mode, tc.bandwidth, tc.frameSize, tc.channels, tc.bitrate)
 			_ = libDecoded // decoded samples available for debugging if needed
-			if ok {
-				libSNR := SNRFromQuality(libQ)
-				gapDB := snr - libSNR
-				if gapDB >= EncoderLibopusGapGoodDB {
-					status = "GOOD"
-					passed++
-				} else if gapDB >= EncoderLibopusGapBaseDB {
-					status = "BASE"
-					passed++
+				if ok {
+					libSNR := SNRFromQuality(libQ)
+					gapDB := snr - libSNR
+					speechMode := tc.mode == encoder.ModeSILK || tc.mode == encoder.ModeHybrid
+					if speechMode && math.Abs(gapDB) > EncoderLibopusSpeechGapTightDB {
+						status = "FAIL"
+						failed++
+					} else if gapDB >= EncoderLibopusGapGoodDB {
+						status = "GOOD"
+						passed++
+					} else if gapDB >= EncoderLibopusGapBaseDB {
+						status = "BASE"
+						passed++
 				} else {
 					status = "FAIL"
 					failed++
@@ -277,6 +285,7 @@ func TestEncoderComplianceSummary(t *testing.T) {
 	t.Logf("Total: %d passed, %d failed", passed, failed)
 	if refAvailable {
 		t.Logf("Gap thresholds (gopus SNR - libopus SNR): GOOD >= %.1f dB, BASE >= %.1f dB", EncoderLibopusGapGoodDB, EncoderLibopusGapBaseDB)
+		t.Logf("SILK/Hybrid parity guard: |gap| <= %.1f dB", EncoderLibopusSpeechGapTightDB)
 	}
 }
 
