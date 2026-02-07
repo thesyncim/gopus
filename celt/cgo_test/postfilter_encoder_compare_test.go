@@ -90,6 +90,22 @@ func convertPCMToFloat32(pcm []int16) []float32 {
 	return out
 }
 
+func resolveVectorDecPath(vector string) (string, error) {
+	filename := vector + ".dec"
+	candidates := []string{
+		filepath.Join("..", "..", "testvectors", "testdata", "opus_testvectors", filename),
+		filepath.Join("..", "..", "..", "internal", "testvectors", "testdata", "opus_testvectors", filename),
+		filepath.Join("testvectors", "testdata", "opus_testvectors", filename),
+		filepath.Join("internal", "testvectors", "testdata", "opus_testvectors", filename),
+	}
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			return p, nil
+		}
+	}
+	return "", fmt.Errorf("vector %s not found in known testdata locations", vector)
+}
+
 func TestPostfilterParamsVsLibopusLowBitrate(t *testing.T) {
 	const (
 		sampleRate = 48000
@@ -107,10 +123,9 @@ func TestPostfilterParamsVsLibopusLowBitrate(t *testing.T) {
 	bitrates := []int{12000, 16000, 24000, 32000}
 
 	for _, vector := range vectors {
-		decFile := filepath.Join("..", "..", "testvectors", "testdata", "opus_testvectors", vector+".dec")
-		if _, err := os.Stat(decFile); err != nil {
-			t.Skipf("missing %s: %v", decFile, err)
-			return
+		decFile, err := resolveVectorDecPath(vector)
+		if err != nil {
+			t.Fatalf("resolve %s: %v", vector, err)
 		}
 
 		raw, err := readPCMFile(decFile)
