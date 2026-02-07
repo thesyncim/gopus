@@ -48,7 +48,7 @@ func TestCompareHeaderFlags(t *testing.T) {
 	libEnc.SetBitrate(bitrate)
 	libEnc.SetComplexity(10)
 	libEnc.SetBandwidth(OpusBandwidthFullband)
-	libEnc.SetVBR(true)
+	libEnc.SetVBR(false)
 
 	libPacket, libLen := libEnc.EncodeFloat(pcm32, frameSize)
 	if libLen <= 0 {
@@ -69,6 +69,12 @@ func TestCompareHeaderFlags(t *testing.T) {
 
 	goPostfilter := rdGo.DecodeBit(1)
 	t.Logf("postfilter: %d", goPostfilter)
+	if goPostfilter == 1 {
+		octave := int(rdGo.DecodeUniform(6))
+		_ = rdGo.DecodeRawBits(uint(4 + octave))
+		_ = rdGo.DecodeRawBits(3)
+		_ = rdGo.DecodeICDF([]uint8{2, 1, 0}, 2)
+	}
 
 	goTransient := rdGo.DecodeBit(3)
 	t.Logf("transient: %d", goTransient)
@@ -89,6 +95,12 @@ func TestCompareHeaderFlags(t *testing.T) {
 
 	libPostfilter := rdLib.DecodeBit(1)
 	t.Logf("postfilter: %d", libPostfilter)
+	if libPostfilter == 1 {
+		octave := int(rdLib.DecodeUniform(6))
+		_ = rdLib.DecodeRawBits(uint(4 + octave))
+		_ = rdLib.DecodeRawBits(3)
+		_ = rdLib.DecodeICDF([]uint8{2, 1, 0}, 2)
+	}
 
 	libTransient := rdLib.DecodeBit(3)
 	t.Logf("transient: %d", libTransient)

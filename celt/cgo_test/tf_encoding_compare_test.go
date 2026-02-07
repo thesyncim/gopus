@@ -148,6 +148,12 @@ func decodePacketState(t *testing.T, payload []byte, nbBands, lm int, name strin
 	// Postfilter flag (logp=1)
 	state.postfilter = rd.DecodeBit(1)
 	t.Logf("[%s] postfilter=%d, tell=%d", name, state.postfilter, rd.Tell())
+	if state.postfilter == 1 {
+		octave := int(rd.DecodeUniform(6))
+		_ = rd.DecodeRawBits(uint(4 + octave))
+		_ = rd.DecodeRawBits(3)
+		_ = rd.DecodeICDF([]uint8{2, 1, 0}, 2)
+	}
 
 	// Transient flag (logp=3) - for LM>0
 	if lm > 0 {
@@ -255,7 +261,13 @@ func decodePostTF(t *testing.T, payload []byte, nbBands, lm, totalBits int, name
 
 	// Decode header flags
 	_ = rd.DecodeBit(15) // silence
-	_ = rd.DecodeBit(1)  // postfilter
+	postfilter := rd.DecodeBit(1)
+	if postfilter == 1 {
+		octave := int(rd.DecodeUniform(6))
+		_ = rd.DecodeRawBits(uint(4 + octave))
+		_ = rd.DecodeRawBits(3)
+		_ = rd.DecodeICDF([]uint8{2, 1, 0}, 2)
+	}
 
 	transient := false
 	if lm > 0 {
