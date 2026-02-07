@@ -38,7 +38,7 @@ func TestPrefilterPitchCoreParityAgainstLibopus(t *testing.T) {
 			pre[i] = (rng.Float64()*2.0 - 1.0) * CELTSigScale
 		}
 
-		prevPeriod := rng.Intn(400)
+		prevPeriod := rng.Intn(maxPeriod)
 		prevGain := rng.Float64() * 0.8
 
 		// Go path used by runPrefilter.
@@ -74,4 +74,3 @@ func TestPrefilterPitchCoreParityAgainstLibopus(t *testing.T) {
 	t.Logf("iters=%d pitchMismatch=%d gainMismatch=%d maxPitchDiff=%d maxGainDiff=%.6f",
 		iters, pitchMismatch, gainMismatch, maxPitchDiff, maxGainDiff)
 }
-
