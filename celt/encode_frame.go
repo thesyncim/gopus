@@ -186,7 +186,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	prefilterTapset := e.TapsetDecision()
 	enabled := start == 0 && targetBytes > 12*e.channels && !e.IsHybrid() && !isSilence && re.Tell()+16 <= targetBits
-	maxPitchRatio := estimateMaxPitchRatio(pcm, e.channels)
+	maxPitchRatio := estimateMaxPitchRatio(preemph, e.channels, e.scratch.prefilterPitchBuf)
 	pfResult := e.runPrefilter(preemph, frameSize, prefilterTapset, enabled, tfEstimate, targetBytes, toneFreq, toneishness, maxPitchRatio)
 	if !e.IsHybrid() && start == 0 && re.Tell()+16 <= targetBits {
 		if !pfResult.on {
