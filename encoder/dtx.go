@@ -128,18 +128,15 @@ func (e *Encoder) shouldUseDTX(pcm []float64) (bool, bool) {
 		}
 	}
 
-	// Determine sample rate in kHz for VAD
-	fsKHz := 16 // Default to 16kHz
-	switch {
-	case frameLength <= 80:
-		fsKHz = 8
-	case frameLength <= 120:
-		fsKHz = 12
-	case frameLength <= 160:
-		fsKHz = 16
-	case frameLength <= 240:
-		fsKHz = 24
-	case frameLength <= 480:
+	// Determine sample rate in kHz for VAD from encoder configuration.
+	// Frame length is duration-dependent, so deriving Fs from frame length causes
+	// incorrect timing for 40/60ms packets.
+	fsKHz := e.sampleRate / 1000
+	switch fsKHz {
+	case 8, 12, 16, 24, 48:
+		// Supported Opus rates.
+	default:
+		// Fall back to 48kHz on unexpected values.
 		fsKHz = 48
 	}
 
