@@ -19,8 +19,10 @@ func encodeWithLibopusComplianceReference(
 	bandwidth types.Bandwidth,
 ) [][]byte {
 	// SILK analysis in gopus enters through PCM16-rounded samples. Quantize the
-	// libopus reference input the same way for apples-to-apples compliance stats.
-	if mode == encoder.ModeSILK || mode == encoder.ModeHybrid {
+	// libopus reference input the same way for apples-to-apples compliance stats
+	// where this has shown measurable drift in harness parity.
+	if mode == encoder.ModeHybrid ||
+		(mode == encoder.ModeSILK && (bandwidth == types.BandwidthNarrowband || bandwidth == types.BandwidthMediumband)) {
 		samples = quantizeFloat32SignalToPCM16(samples)
 	}
 
