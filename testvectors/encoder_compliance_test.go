@@ -320,6 +320,12 @@ func runEncoderComplianceTest(t *testing.T, mode encoder.Mode, bandwidth types.B
 	enc.SetMode(mode)
 	enc.SetBandwidth(bandwidth)
 	enc.SetBitrate(bitrate)
+	switch mode {
+	case encoder.ModeSILK, encoder.ModeHybrid:
+		enc.SetSignalType(types.SignalVoice)
+	case encoder.ModeCELT:
+		enc.SetSignalType(types.SignalMusic)
+	}
 
 	// Encode all frames
 	packets := make([][]byte, numFrames)
