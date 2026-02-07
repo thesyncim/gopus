@@ -201,6 +201,7 @@ func writeOggOpus(w io.Writer, packets [][]byte, sampleRate, channels int) error
 	// Write audio packets
 	granulePos := int64(0)
 	for i, packet := range packets {
+		packet = addCELTTOCForTest(packet, channels)
 		granulePos += int64(samplesPerFrame)
 
 		// Determine header type
@@ -216,6 +217,19 @@ func writeOggOpus(w io.Writer, packets [][]byte, sampleRate, channels int) error
 	}
 
 	return nil
+}
+
+func addCELTTOCForTest(packet []byte, channels int) []byte {
+	// celt.Encode* returns raw CELT payload for 20ms fullband frames.
+	// Add a one-frame CELT TOC to make a valid Opus packet for Ogg wrapping.
+	toc := byte(0xF8) // CELT-only, fullband, 20ms, mono, 1 frame
+	if channels == 2 {
+		toc = 0xFC // same with stereo bit set
+	}
+	out := make([]byte, len(packet)+1)
+	out[0] = toc
+	copy(out[1:], packet)
+	return out
 }
 
 // decodeWithOpusdec decodes Ogg Opus data using the opusdec command-line tool.
@@ -326,6 +340,15 @@ func parseWAV(data []byte) ([]float32, int, int, error) {
 			numChannels = binary.LittleEndian.Uint16(data[offset+10 : offset+12])
 			sampleRate = binary.LittleEndian.Uint32(data[offset+12 : offset+16])
 			bitsPerSample = binary.LittleEndian.Uint16(data[offset+22 : offset+24])
+
+			// Handle WAVE_FORMAT_EXTENSIBLE (0xFFFE) by mapping to PCM (1) or IEEE float (3).
+			// SubFormat GUID starts at byte 24 within the fmt payload.
+			if audioFormat == 0xFFFE && chunkSize >= 40 {
+				subFormat := binary.LittleEndian.Uint16(data[offset+32 : offset+34])
+				if subFormat == 1 || subFormat == 3 {
+					audioFormat = subFormat
+				}
+			}
 		} else if chunkID == "data" {
 			// Found data chunk
 			dataStart := offset + 8
