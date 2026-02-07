@@ -453,18 +453,19 @@ func equalPacketSets(a, b [][]byte) bool {
 
 // TestAnalyzeLibopusPacket decodes a libopus packet to understand its structure.
 func TestAnalyzeLibopusPacket(t *testing.T) {
-	if !checkOpusencAvailable() {
-		t.Skip("opusenc not found")
+	packets, err := loadBitexactFixturePackets("440Hz-20ms-mono-64k", 440, 960, 1, 64000)
+	if err != nil {
+		if checkOpusencAvailable() {
+			// Fall back to live encoding if fixture is unavailable in this environment.
+			pcmF32 := generateSineWave(960, 1, 440, 48000, 0.5)
+			pcmS16 := float32ToInt16(pcmF32)
+			packets = encodeWithLibopus(t, pcmS16, 960, 1, 64000)
+		} else {
+			t.Fatalf("load bitexact fixture: %v", err)
+		}
 	}
-
-	// Generate a simple test signal
-	pcmF32 := generateSineWave(960, 1, 440, 48000, 0.5)
-	pcmS16 := float32ToInt16(pcmF32)
-
-	// Encode with libopus
-	packets := encodeWithLibopus(t, pcmS16, 960, 1, 64000)
 	if len(packets) == 0 {
-		t.Fatal("No packets from libopus")
+		t.Fatal("No libopus packets available")
 	}
 
 	pkt := packets[0]
