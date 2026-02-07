@@ -591,3 +591,88 @@ func captureOpusSilkPitchXBufAtFrame(samples []float32, sampleRate, channels, bi
 	}
 	return out, true
 }
+
+// CaptureStateFromExistingEncoder captures internal SILK encoder state from
+// an existing libopus OpusEncoder pointer (e.g. from LibopusEncoder.enc).
+// This avoids re-creating the encoder and re-encoding all frames.
+func CaptureStateFromExistingEncoder(encPtr unsafe.Pointer) (OpusSilkEncoderStateSnapshot, bool) {
+	if encPtr == nil {
+		return OpusSilkEncoderStateSnapshot{}, false
+	}
+	var out C.opus_silk_encoder_state_snapshot
+	C.fill_opus_silk_encoder_state_snapshot((*C.OpusEncoder)(encPtr), &out)
+	frameLength := int(out.frame_length)
+	if frameLength < 0 {
+		frameLength = 0
+	}
+	maxFrameLength := int(C.MAX_FRAME_LENGTH)
+	if frameLength > maxFrameLength {
+		frameLength = maxFrameLength
+	}
+	inputBufLen := frameLength + 2
+	if inputBufLen < 0 {
+		inputBufLen = 0
+	}
+	if inputBufLen > maxFrameLength+2 {
+		inputBufLen = maxFrameLength + 2
+	}
+	inputBuf := make([]int16, inputBufLen)
+	for i := 0; i < inputBufLen; i++ {
+		inputBuf[i] = int16(out.input_buf[i])
+	}
+	return OpusSilkEncoderStateSnapshot{
+		SignalType:           int(out.signal_type),
+		LagIndex:             int(out.lag_index),
+		ContourIndex:         int(out.contour_index),
+		PrevLag:              int(out.prev_lag),
+		PrevSignalType:       int(out.prev_signal_type),
+		LTPCorr:              float32(out.ltp_corr),
+		FirstFrameAfterReset: int(out.first_frame_after_reset),
+		NSQLagPrev:           int(out.nsq_lag_prev),
+		NSQSLTPBufIdx:        int(out.nsq_sltp_buf_idx),
+		NSQSLTPShpBufIdx:     int(out.nsq_sltp_shp_buf_idx),
+		NSQPrevGainQ16:       int32(out.nsq_prev_gain_q16),
+		NSQRandSeed:          int32(out.nsq_rand_seed),
+		NSQRewhiteFlag:       int(out.nsq_rewhite_flag),
+		ECPrevLagIndex:       int(out.ec_prev_lag_index),
+		ECPrevSignalType:     int(out.ec_prev_signal_type),
+		SilkModeSignal:       int(out.silk_mode_signal_type),
+		SilkInternalHz:       int(out.silk_mode_internal_sample_rate),
+		SilkPayloadSizeMs:    int(out.silk_mode_payload_size_ms),
+		SilkModeUseCBR:       int(out.silk_mode_use_cbr),
+		SilkModeMaxBits:      int(out.silk_mode_max_bits),
+		SilkModeBitRate:      int(out.silk_mode_bit_rate),
+		NFramesPerPacket:     int(out.n_frames_per_packet),
+		NFramesEncoded:       int(out.n_frames_encoded),
+		SpeechActivityQ8:     int(out.speech_activity_q8),
+		InputTiltQ15:         int(out.input_tilt_q15),
+		PitchEstThresQ16:     int32(out.pitch_estimation_threshold_q16),
+		NStatesDelayedDec:    int(out.n_states_delayed_decision),
+		WarpingQ16:           int(out.warping_q16),
+		SumLogGainQ7:         int32(out.sum_log_gain_q7),
+		TargetRateBps:        int(out.target_rate_bps),
+		SNRDBQ7:              int(out.snr_db_q7),
+		NBitsExceeded:        int(out.n_bits_exceeded),
+		LPMode:               int(out.lp_mode),
+		LPTransitionFrame:    int(out.lp_transition_frame_no),
+		LPState0:             int32(out.lp_state_0),
+		LPState1:             int32(out.lp_state_1),
+		FrameLength:          frameLength,
+		InputBufQ0:           inputBuf,
+		GainIndices: [4]int8{
+			int8(out.gain_indices[0]),
+			int8(out.gain_indices[1]),
+			int8(out.gain_indices[2]),
+			int8(out.gain_indices[3]),
+		},
+		LastGainIndex:  int(out.last_gain_index),
+		NSQXQHash:      uint64(out.nsq_xq_hash),
+		NSQSLTPShpHash: uint64(out.nsq_sltp_shp_hash),
+		NSQSLPCHash:    uint64(out.nsq_slpc_hash),
+		NSQSAR2Hash:    uint64(out.nsq_sar2_hash),
+		PitchXBufHash:  uint64(out.pitch_x_buf_hash),
+		PitchBufLen:    int(out.pitch_buf_len),
+		PitchWinHash:   uint64(out.pitch_win_hash),
+		PitchWinLen:    int(out.pitch_win_len),
+	}, true
+}

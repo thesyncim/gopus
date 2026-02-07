@@ -3362,6 +3362,15 @@ func (e *LibopusEncoder) GetFinalRange() uint32 {
 	return uint32(rng)
 }
 
+// GetEncoderPtr returns the raw C encoder pointer for state capture.
+// This is used by tests to capture SILK encoder state from a running encoder.
+func (e *LibopusEncoder) GetEncoderPtr() unsafe.Pointer {
+	if e == nil || e.enc == nil {
+		return nil
+	}
+	return unsafe.Pointer(e.enc)
+}
+
 // EncodeFloat encodes float32 samples.
 func (e *LibopusEncoder) EncodeFloat(pcm []float32, frameSize int) ([]byte, int) {
 	if e.enc == nil || len(pcm) == 0 {
