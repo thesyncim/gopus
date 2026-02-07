@@ -512,7 +512,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		}
 		if xx > 0 && yy > 0 {
 			corr := math.Abs(xy / math.Sqrt(xx*yy))
-			dualStereo = corr < 0.85
+			dualStereo = corr < 0.95
 		} else {
 			dualStereo = true
 		}
