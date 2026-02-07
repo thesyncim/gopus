@@ -3,25 +3,48 @@
 package testvectors
 
 import (
+	"encoding/base64"
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/encoder"
 	"github.com/thesyncim/gopus/types"
 )
 
+const bitexactPacketFixturePath = "testdata/bitexact_libopus_packets_fixture.json"
+
+type bitexactPacketFixtureFile struct {
+	Version    int                       `json:"version"`
+	SampleRate int                       `json:"sample_rate"`
+	Cases      []bitexactPacketFixtureTC `json:"cases"`
+}
+
+type bitexactPacketFixtureTC struct {
+	Name      string   `json:"name"`
+	FreqHz    float64  `json:"freq_hz"`
+	FrameSize int      `json:"frame_size"`
+	Channels  int      `json:"channels"`
+	Bitrate   int      `json:"bitrate"`
+	Packets   []string `json:"packets_base64"`
+}
+
+var (
+	bitexactFixtureOnce sync.Once
+	bitexactFixtureData bitexactPacketFixtureFile
+	bitexactFixtureErr  error
+)
+
 // TestBitExactComparison compares gopus encoder output with libopus byte-by-byte.
 func TestBitExactComparison(t *testing.T) {
-	if !checkOpusencAvailable() {
-		t.Skip("opusenc not found in PATH")
-	}
-
 	// Test with simple sine wave - easiest to debug
 	tests := []struct {
 		name      string
@@ -37,13 +60,13 @@ func TestBitExactComparison(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			compareBitExact(t, tc.freq, tc.frameSize, tc.channels, tc.bitrate)
+			compareBitExact(t, tc.name, tc.freq, tc.frameSize, tc.channels, tc.bitrate)
 		})
 	}
 }
 
 // compareBitExact encodes the same audio with both encoders and compares packets.
-func compareBitExact(t *testing.T, freq float64, frameSize, channels, bitrate int) {
+func compareBitExact(t *testing.T, name string, freq float64, frameSize, channels, bitrate int) {
 	// Generate test signal - single frame for simplicity
 	numFrames := 5 // Encode a few frames
 	totalSamples := numFrames * frameSize * channels
@@ -57,8 +80,21 @@ func compareBitExact(t *testing.T, freq float64, frameSize, channels, bitrate in
 	// Encode with gopus
 	gopusPackets := encodeWithGopus(t, pcmF32, frameSize, channels, bitrate)
 
-	// Encode with libopus
-	libopusPackets := encodeWithLibopus(t, pcmS16, frameSize, channels, bitrate)
+	libopusPackets, err := loadBitexactFixturePackets(name, freq, frameSize, channels, bitrate)
+	if err != nil {
+		if checkOpusencAvailable() {
+			t.Logf("fixture unavailable (%v), using live opusenc output", err)
+			libopusPackets = encodeWithLibopus(t, pcmS16, frameSize, channels, bitrate)
+		} else {
+			t.Fatalf("load libopus fixture: %v", err)
+		}
+	} else if checkOpusencAvailable() {
+		// Keep fixture honest when tools are available.
+		livePackets := encodeWithLibopus(t, pcmS16, frameSize, channels, bitrate)
+		if !equalPacketSets(libopusPackets, livePackets) {
+			t.Fatalf("bitexact fixture drift for %s: live opusenc output changed", name)
+		}
+	}
 
 	// Compare packets
 	t.Logf("gopus packets: %d, libopus packets: %d", len(gopusPackets), len(libopusPackets))
@@ -359,6 +395,60 @@ func extractOggOpusPackets(data []byte) [][]byte {
 func checkOpusencAvailable() bool {
 	_, err := exec.LookPath("opusenc")
 	return err == nil
+}
+
+func loadBitexactFixture() (bitexactPacketFixtureFile, error) {
+	bitexactFixtureOnce.Do(func() {
+		path := filepath.Join(bitexactPacketFixturePath)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			bitexactFixtureErr = err
+			return
+		}
+		var fixture bitexactPacketFixtureFile
+		if err := json.Unmarshal(data, &fixture); err != nil {
+			bitexactFixtureErr = err
+			return
+		}
+		bitexactFixtureData = fixture
+	})
+	return bitexactFixtureData, bitexactFixtureErr
+}
+
+func loadBitexactFixturePackets(name string, freq float64, frameSize, channels, bitrate int) ([][]byte, error) {
+	fixture, err := loadBitexactFixture()
+	if err != nil {
+		return nil, err
+	}
+	if fixture.Version != 1 || fixture.SampleRate != 48000 {
+		return nil, fmt.Errorf("invalid bitexact fixture metadata: version=%d sample_rate=%d", fixture.Version, fixture.SampleRate)
+	}
+	for _, c := range fixture.Cases {
+		if c.Name == name && c.FreqHz == freq && c.FrameSize == frameSize && c.Channels == channels && c.Bitrate == bitrate {
+			out := make([][]byte, len(c.Packets))
+			for i := range c.Packets {
+				pkt, err := base64.StdEncoding.DecodeString(c.Packets[i])
+				if err != nil {
+					return nil, fmt.Errorf("decode fixture packet[%d]: %w", i, err)
+				}
+				out[i] = pkt
+			}
+			return out, nil
+		}
+	}
+	return nil, fmt.Errorf("fixture case not found: %s", name)
+}
+
+func equalPacketSets(a, b [][]byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if !bytes.Equal(a[i], b[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 // TestAnalyzeLibopusPacket decodes a libopus packet to understand its structure.
