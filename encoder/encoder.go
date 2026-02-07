@@ -734,8 +734,8 @@ func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
 			return e.mode
 		}
 		bw := e.effectiveBandwidth()
-		// Respect explicit signal hints from controls.
-		switch e.signalType {
+		// Respect explicit or analyzed signal hints.
+		switch signalHint {
 		case types.SignalVoice:
 			return ModeSILK
 		case types.SignalMusic:
@@ -813,6 +813,19 @@ func (e *Encoder) autoSignalFromPCM(pcm []float64, frameSize int) types.Signal {
 	pcm32 := e.scratchPCM32[:len(pcm)]
 	for i, v := range pcm {
 		pcm32[i] = float32(v)
+	}
+	if frameSize > 960 && e.analyzer != nil {
+		info := e.analyzer.RunAnalysis(pcm32, frameSize, e.channels)
+		if info.Valid {
+			// Only trust clear decisions for long-frame mode selection.
+			if info.MusicProb >= 0.65 {
+				return types.SignalMusic
+			}
+			if info.MusicProb <= 0.60 {
+				return types.SignalVoice
+			}
+			return types.SignalAuto
+		}
 	}
 	signalType, _ := classifySignal(pcm32)
 	if signalType == 0 {

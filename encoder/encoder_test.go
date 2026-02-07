@@ -449,6 +449,37 @@ func TestLargeFrameSizeModeSelectionAndPacketization(t *testing.T) {
 	}
 }
 
+func TestAutoLongFrameSpeechLikePrefersSILK(t *testing.T) {
+	const frameSize = 1920
+
+	enc := encoder.NewEncoder(48000, 1)
+	enc.SetMode(encoder.ModeAuto)
+	enc.SetSignalType(types.SignalAuto)
+	enc.SetBandwidth(types.BandwidthFullband)
+
+	pcm := make([]float64, frameSize)
+	for i := range pcm {
+		tsec := float64(i) / 48000.0
+		voiced := 0.35 * math.Sin(2*math.Pi*150*tsec)
+		voiced += 0.15 * math.Sin(2*math.Pi*300*tsec)
+		noise := 0.08 * math.Sin(2*math.Pi*1900*tsec+0.31)
+		pcm[i] = voiced + noise
+	}
+
+	packet, err := enc.Encode(pcm, frameSize)
+	if err != nil {
+		t.Fatalf("Encode failed: %v", err)
+	}
+	if len(packet) == 0 {
+		t.Fatal("Encode returned empty packet")
+	}
+
+	toc := gopus.ParseTOC(packet[0])
+	if toc.Mode != gopus.ModeSILK {
+		t.Fatalf("TOC mode = %v, want %v", toc.Mode, gopus.ModeSILK)
+	}
+}
+
 // TestDownsample48to16 tests the downsampling function.
 func TestDownsample48to16(t *testing.T) {
 	// 960 samples at 48kHz should become 320 samples at 16kHz
