@@ -637,7 +637,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			// to determine optimal spreading.
 			// Reference: libopus celt_encoder.c spreading_decision() call with
 			// pf_on&&!shortBlocks as updateHF condition.
-			updateHF := shortBlocks == 1
+			updateHF := pfResult.on && shortBlocks == 1
 			// Compute dynamic spread weights based on masking analysis (matches libopus dynalloc_analysis)
 			// Use lsbDepth derived above to match libopus float input.
 			spreadWeights := ComputeSpreadWeights(energies, nbBands, e.channels, lsbDepth)
