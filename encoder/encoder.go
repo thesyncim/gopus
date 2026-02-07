@@ -936,12 +936,12 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 		for i := 0; i < len(left); i++ {
 			mono[i] = (left[i] + right[i]) * 0.5
 		}
-		vadFlag := e.computeSilkVAD(mono, len(left), fsKHz)
+		vadFlags, _ := e.computeSilkVADFlags(mono, fsKHz)
 		e.silkEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.silkVAD.InputQualityBandsQ15)
 		if e.silkSideEncoder != nil {
 			e.silkSideEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.silkVAD.InputQualityBandsQ15)
 		}
-		return silk.EncodeStereoWithEncoder(e.silkEncoder, e.silkSideEncoder, left, right, e.silkBandwidth(), vadFlag)
+		return silk.EncodeStereoWithEncoderVADFlags(e.silkEncoder, e.silkSideEncoder, left, right, e.silkBandwidth(), vadFlags)
 	}
 	var lookaheadOut []float32
 	if targetRate != 48000 {

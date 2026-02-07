@@ -50,10 +50,10 @@ func generateSineWave(samples, channels int, frequency, amplitude float64, sampl
 // It includes fundamental frequency, formants, and amplitude modulation.
 func generateSpeechLikeSignal(samples, channels int, sampleRate int) []float64 {
 	pcm := make([]float64, samples*channels)
-	f0 := 120.0   // Fundamental frequency (typical male voice)
-	f1 := 700.0   // First formant
-	f2 := 1100.0  // Second formant
-	f3 := 2500.0  // Third formant
+	f0 := 120.0    // Fundamental frequency (typical male voice)
+	f1 := 700.0    // First formant
+	f2 := 1100.0   // Second formant
+	f3 := 2500.0   // Third formant
 	modFreq := 5.0 // Amplitude modulation (syllabic rate)
 
 	for i := 0; i < samples; i++ {
@@ -948,6 +948,118 @@ func TestComprehensiveRoundTrip(t *testing.T) {
 					successFrames, numFrames, avgBytes, avgBitrate/1000)
 			} else {
 				t.Log("No frames successfully encoded")
+			}
+		})
+	}
+}
+
+func TestSILKStereoLongFrameBitrateStability(t *testing.T) {
+	const (
+		sampleRate    = 48000
+		channels      = 2
+		targetBitrate = 64000
+		totalSamples  = 57600 // 1.2s, divisible by 960/1920/2880
+	)
+
+	measureBitrate := func(frameSize int) float64 {
+		t.Helper()
+		enc := encoder.NewEncoder(sampleRate, channels)
+		enc.SetMode(encoder.ModeSILK)
+		enc.SetBandwidth(types.BandwidthWideband)
+		enc.SetBitrate(targetBitrate)
+
+		pcm := generateSpeechLikeSignal(totalSamples, channels, sampleRate)
+		frames := totalSamples / frameSize
+		if frames < 1 {
+			t.Fatalf("invalid frame count for frameSize=%d", frameSize)
+		}
+
+		totalBytes := 0
+		for i := 0; i < frames; i++ {
+			start := i * frameSize * channels
+			end := start + frameSize*channels
+			packet, err := enc.Encode(pcm[start:end], frameSize)
+			if err != nil {
+				t.Fatalf("encode frameSize=%d frame=%d: %v", frameSize, i, err)
+			}
+			totalBytes += len(packet)
+		}
+
+		return float64(totalBytes*8*sampleRate) / float64(frames*frameSize)
+	}
+
+	rate20 := measureBitrate(960)
+	for _, frameSize := range []int{1920, 2880} {
+		rateLong := measureBitrate(frameSize)
+		ratio := rateLong / rate20
+		t.Logf("frame=%d: %.1f kbps (20ms reference %.1f kbps, ratio %.2f)",
+			frameSize, rateLong/1000, rate20/1000, ratio)
+		if ratio < 0.5 {
+			t.Fatalf("frame=%d bitrate collapse: got %.1f kbps vs %.1f kbps reference",
+				frameSize, rateLong/1000, rate20/1000)
+		}
+	}
+}
+
+func TestHighLevelSILKStereoLongFramesRoundTripSanity(t *testing.T) {
+	const (
+		sampleRate    = 48000
+		channels      = 2
+		frameCount    = 30
+		searchDelay   = 800
+		minSNRDB      = 5.0
+		targetBitrate = 64000
+	)
+
+	for _, frameSize := range []int{1920, 2880} {
+		t.Run(frameSizeName(frameSize), func(t *testing.T) {
+			enc, err := gopus.NewEncoder(sampleRate, channels, gopus.ApplicationAudio)
+			if err != nil {
+				t.Fatalf("NewEncoder: %v", err)
+			}
+			if err := enc.SetFrameSize(frameSize); err != nil {
+				t.Fatalf("SetFrameSize: %v", err)
+			}
+			if err := enc.SetBitrate(targetBitrate); err != nil {
+				t.Fatalf("SetBitrate: %v", err)
+			}
+
+			decCfg := gopus.DefaultDecoderConfig(sampleRate, channels)
+			dec, err := gopus.NewDecoder(decCfg)
+			if err != nil {
+				t.Fatalf("NewDecoder: %v", err)
+			}
+
+			original := generateSineWave(frameSize*frameCount, channels, 440, 0.5, sampleRate)
+			original32 := make([]float32, len(original))
+			for i := range original {
+				original32[i] = float32(original[i])
+			}
+
+			packetBuf := make([]byte, 4000)
+			decodedBuf := make([]float32, decCfg.MaxPacketSamples*channels)
+			decoded := make([]float64, 0, len(original))
+
+			for i := 0; i < frameCount; i++ {
+				start := i * frameSize * channels
+				end := start + frameSize*channels
+				n, err := enc.Encode(original32[start:end], packetBuf)
+				if err != nil {
+					t.Fatalf("encode frame %d: %v", i, err)
+				}
+				written, err := dec.Decode(packetBuf[:n], decodedBuf)
+				if err != nil {
+					t.Fatalf("decode frame %d: %v", i, err)
+				}
+				for j := 0; j < written*channels; j++ {
+					decoded = append(decoded, float64(decodedBuf[j]))
+				}
+			}
+
+			snr, delay := computeSNRWithDelay(original, decoded, searchDelay)
+			t.Logf("frame=%d snr=%.2f dB delay=%d", frameSize, snr, delay)
+			if snr < minSNRDB {
+				t.Fatalf("frame=%d roundtrip sanity failed: SNR %.2f dB < %.2f dB", frameSize, snr, minSNRDB)
 			}
 		})
 	}

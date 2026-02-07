@@ -61,19 +61,46 @@ func EncodeStereo(left, right []float32, bandwidth Bandwidth, vadFlag bool) ([]b
 // vadFlag: True if frame contains voice activity
 // Returns: Encoded SILK stereo frame bytes
 func EncodeStereoWithEncoder(enc, sideEnc *Encoder, left, right []float32, bandwidth Bandwidth, vadFlag bool) ([]byte, error) {
+	return EncodeStereoWithEncoderVADFlags(enc, sideEnc, left, right, bandwidth, []bool{vadFlag})
+}
+
+// EncodeStereoWithEncoderVADFlags is the multi-frame variant of
+// EncodeStereoWithEncoder. It accepts per-20ms VAD flags for 40/60ms packets.
+func EncodeStereoWithEncoderVADFlags(enc, sideEnc *Encoder, left, right []float32, bandwidth Bandwidth, vadFlags []bool) ([]byte, error) {
 	if sideEnc == nil {
 		sideEnc = NewEncoder(bandwidth)
 	}
+	if len(left) == 0 || len(right) == 0 {
+		return nil, ErrInvalidPacket
+	}
+	if len(right) < len(left) {
+		left = left[:len(right)]
+	} else if len(left) < len(right) {
+		right = right[:len(left)]
+	}
 
 	config := GetBandwidthConfig(bandwidth)
-	frameLength := len(left)
 	fsKHz := config.SampleRate / 1000
+	frameLength20ms := config.SampleRate * 20 / 1000
+	if frameLength20ms <= 0 {
+		frameLength20ms = len(left)
+	}
+	if len(left) < frameLength20ms {
+		frameLength20ms = len(left)
+	}
+	nFrames := len(left) / frameLength20ms
+	if nFrames < 1 {
+		nFrames = 1
+	}
+	if nFrames > maxFramesPerPacket {
+		nFrames = maxFramesPerPacket
+	}
 
 	// Reset packet state for both encoders
 	enc.ResetPacketState()
 	sideEnc.ResetPacketState()
-	enc.nFramesPerPacket = 1
-	sideEnc.nFramesPerPacket = 1
+	enc.nFramesPerPacket = nFrames
+	sideEnc.nFramesPerPacket = nFrames
 
 	// Use the mid channel's speech activity for stereo decision.
 	speechActQ8 := enc.speechActivityQ8
@@ -88,7 +115,7 @@ func EncodeStereoWithEncoder(enc, sideEnc *Encoder, left, right []float32, bandw
 	}
 
 	// Create shared range encoder for the stereo packet.
-	bufSize := frameLength + 200
+	bufSize := len(left) + 200
 	if bufSize < maxSilkPacketBytes {
 		bufSize = maxSilkPacketBytes
 	}
@@ -99,7 +126,6 @@ func EncodeStereoWithEncoder(enc, sideEnc *Encoder, left, right []float32, bandw
 	// Reserve header bits for 2 channels: (nFramesPerPacket + 1) * 2 = 4 bits
 	// This reserves space for VAD flags + LBRR flags for both channels.
 	nChannels := 2
-	nFrames := 1
 	headerBits := (nFrames + 1) * nChannels
 	iCDF := []uint16{
 		uint16(256 - (256 >> headerBits)),
@@ -146,83 +172,74 @@ func EncodeStereoWithEncoder(enc, sideEnc *Encoder, left, right []float32, bandw
 		sideEnc.lbrrFlags[i] = 0
 	}
 
-	// Ensure we have lookahead samples (need frameLength + 2 for LP filter).
-	// When explicit lookahead isn't available, extend with the tail sample
-	// instead of zeros to avoid frame-boundary predictor discontinuities.
-	if len(left) < frameLength+2 {
-		pad := make([]float32, frameLength+2)
-		copy(pad, left)
-		fill := float32(0)
-		if len(left) > 0 {
-			fill = left[len(left)-1]
+	var midVAD [maxFramesPerPacket]int
+	var sideVAD [maxFramesPerPacket]int
+	for i := 0; i < nFrames; i++ {
+		start := i * frameLength20ms
+		end := start + frameLength20ms
+		if end > len(left) {
+			end = len(left)
 		}
-		for i := len(left); i < len(pad); i++ {
-			pad[i] = fill
+		frameLength := end - start
+		if frameLength <= 0 {
+			continue
 		}
-		left = pad
-	}
-	if len(right) < frameLength+2 {
-		pad := make([]float32, frameLength+2)
-		copy(pad, right)
-		fill := float32(0)
-		if len(right) > 0 {
-			fill = right[len(right)-1]
+
+		leftFrame := stereoFrameWithLookahead(left, start, frameLength)
+		rightFrame := stereoFrameWithLookahead(right, start, frameLength)
+
+		// Convert L/R to M/S with stereo prediction, rate allocation, and width decision.
+		// This matches libopus silk_stereo_LR_to_MS.
+		midOut, sideOut, ix, midOnly, _, _, _ := enc.StereoLRToMSWithRates(
+			leftFrame, rightFrame, frameLength, fsKHz,
+			totalRate, speechActQ8, false,
+		)
+		EncodeStereoIndices(re, ix)
+
+		frameVAD := stereoVADFlagAt(vadFlags, i)
+		if frameVAD {
+			midVAD[i] = 1
 		}
-		for i := len(right); i < len(pad); i++ {
-			pad[i] = fill
+
+		// For long packets (40/60ms), always code the side channel to keep
+		// side-frame conditional coding aligned across 20ms subframes.
+		forceSideCoding := nFrames > 1
+		sideFrameVAD := frameVAD && !midOnly
+		if forceSideCoding {
+			midOnly = false
+			sideFrameVAD = frameVAD
 		}
-		right = pad
-	}
-
-	// Convert L/R to M/S with stereo prediction, rate allocation, and width decision.
-	// This matches libopus silk_stereo_LR_to_MS.
-	midOut, sideOut, ix, midOnly, _, _, _ := enc.StereoLRToMSWithRates(
-		left, right, frameLength, fsKHz,
-		totalRate, speechActQ8, false,
-	)
-
-	// Encode stereo prediction indices into the shared range encoder.
-	EncodeStereoIndices(re, ix)
-
-	// Encode mid-only flag if side VAD is inactive.
-	// In libopus, mid-only is encoded when side VAD flag is 0.
-	// For simplicity, if we decided mid-only, encode it. Otherwise the side is coded.
-	sideVAD := vadFlag && !midOnly
-	if !sideVAD {
-		midOnlyVal := 0
-		if midOnly {
-			midOnlyVal = 1
+		if sideFrameVAD {
+			sideVAD[i] = 1
 		}
-		EncodeStereoMidOnly(re, midOnlyVal)
-	}
+		if !sideFrameVAD {
+			midOnlyVal := 0
+			if midOnly {
+				midOnlyVal = 1
+			}
+			EncodeStereoMidOnly(re, midOnlyVal)
+		}
 
-	// Set up shared range encoder for mid channel encoding.
-	enc.SetRangeEncoder(re)
-	_ = enc.EncodeFrame(midOut, nil, vadFlag)
+		// Set up shared range encoder for mid channel encoding.
+		enc.SetRangeEncoder(re)
+		_ = enc.EncodeFrame(midOut, nil, frameVAD)
 
-	// Encode side channel if not mid-only.
-	if !midOnly {
-		sideEnc.SetRangeEncoder(re)
-		_ = sideEnc.EncodeFrame(sideOut, nil, vadFlag)
-	} else {
-		// When mid-only, the side VAD flag should be 0.
-		// We still need to track state properly.
-		sideVAD = false
+		// Encode side channel if not mid-only.
+		if !midOnly {
+			sideEnc.SetRangeEncoder(re)
+			_ = sideEnc.EncodeFrame(sideOut, nil, frameVAD)
+		}
 	}
 
 	// Patch header bits: VAD flags + LBRR flags for both channels.
-	// Format: [mid_VAD | mid_LBRR | side_VAD | side_LBRR]
-	// For 1 frame per packet: (1+1) * 2 = 4 bits
+	// Format: [mid_VAD[0..N-1] | mid_LBRR | side_VAD[0..N-1] | side_LBRR]
 	flags := uint32(0)
-	// Mid channel: VAD flag + LBRR flag
-	if vadFlag {
-		flags = 1
+	for i := 0; i < nFrames; i++ {
+		flags = (flags << 1) | uint32(midVAD[i]&1)
 	}
 	flags = (flags << 1) | uint32(midLBRRFlag&1)
-	// Side channel: VAD flag + LBRR flag
-	flags <<= 1
-	if sideVAD {
-		flags |= 1
+	for i := 0; i < nFrames; i++ {
+		flags = (flags << 1) | uint32(sideVAD[i]&1)
 	}
 	flags = (flags << 1) | uint32(sideLBRRFlag&1)
 	re.PatchInitialBits(flags, uint(headerBits))
@@ -240,6 +257,35 @@ func EncodeStereoWithEncoder(enc, sideEnc *Encoder, left, right []float32, bandw
 	sideEnc.rangeEncoder = nil
 
 	return result, nil
+}
+
+func stereoVADFlagAt(vadFlags []bool, frame int) bool {
+	if len(vadFlags) == 0 {
+		return true
+	}
+	if frame < len(vadFlags) {
+		return vadFlags[frame]
+	}
+	return vadFlags[len(vadFlags)-1]
+}
+
+func stereoFrameWithLookahead(src []float32, start, frameLength int) []float32 {
+	out := make([]float32, frameLength+2)
+	end := start + frameLength
+	copy(out, src[start:end])
+	fill := float32(0)
+	if frameLength > 0 {
+		fill = out[frameLength-1]
+	}
+	for i := 0; i < 2; i++ {
+		idx := end + i
+		if idx < len(src) {
+			out[frameLength+i] = src[idx]
+		} else {
+			out[frameLength+i] = fill
+		}
+	}
+	return out
 }
 
 // DecodeStereoEncoded decodes a range-coded SILK stereo packet back to
