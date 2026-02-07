@@ -56,5 +56,8 @@ func TestToneDetectParityAgainstLibopus(t *testing.T) {
 
 	t.Logf("iters=%d freqMismatch=%d toneMismatch=%d maxFreqDiff=%.8f maxToneDiff=%.8f",
 		iters, freqMismatch, toneMismatch, maxFreqDiff, maxToneDiff)
+	if freqMismatch != 0 || toneMismatch != 0 {
+		t.Fatalf("tone_detect parity mismatch: freq=%d tone=%d maxFreqDiff=%.8f maxToneDiff=%.8f",
+			freqMismatch, toneMismatch, maxFreqDiff, maxToneDiff)
+	}
 }
-

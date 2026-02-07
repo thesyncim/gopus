@@ -73,4 +73,8 @@ func TestPrefilterPitchCoreParityAgainstLibopus(t *testing.T) {
 
 	t.Logf("iters=%d pitchMismatch=%d gainMismatch=%d maxPitchDiff=%d maxGainDiff=%.6f",
 		iters, pitchMismatch, gainMismatch, maxPitchDiff, maxGainDiff)
+	if pitchMismatch != 0 || gainMismatch != 0 {
+		t.Fatalf("prefilter pitch parity mismatch: pitch=%d gain=%d maxPitchDiff=%d maxGainDiff=%.6f",
+			pitchMismatch, gainMismatch, maxPitchDiff, maxGainDiff)
+	}
 }
