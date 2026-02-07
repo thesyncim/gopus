@@ -17,6 +17,8 @@ import (
 	"os"
 	"os/exec"
 	"testing"
+
+	oggcontainer "github.com/thesyncim/gopus/container/ogg"
 )
 
 // Ogg CRC-32 lookup table (polynomial 0x04c11db7)
@@ -228,6 +230,10 @@ func getOpusdecPath() string {
 // decodeWithOpusdec decodes an Ogg Opus file using libopus opusdec.
 // Returns the decoded PCM samples as float32.
 func decodeWithOpusdec(oggData []byte) ([]float32, error) {
+	if !checkOpusdec() {
+		return decodeWithInternalMultistream(oggData)
+	}
+
 	// Write to temp Opus file
 	tmpOpus, err := os.CreateTemp("", "gopus_ms_*.opus")
 	if err != nil {
@@ -263,7 +269,7 @@ func decodeWithOpusdec(oggData []byte) ([]float32, error) {
 			bytes.Contains(output, []byte("killed")) ||
 			bytes.Contains(output, []byte("Operation not permitted")) ||
 			bytes.Contains(output, []byte("Failed to open")) {
-			return nil, &skipError{msg: string(output)}
+			return decodeWithInternalMultistream(oggData)
 		}
 		return nil, err
 	}
@@ -277,13 +283,64 @@ func decodeWithOpusdec(oggData []byte) ([]float32, error) {
 	return parseWAVSamples(wavData), nil
 }
 
-// skipError indicates test should be skipped (macOS provenance issues).
-type skipError struct {
-	msg string
-}
+func decodeWithInternalMultistream(oggData []byte) ([]float32, error) {
+	r, err := oggcontainer.NewReader(bytes.NewReader(oggData))
+	if err != nil {
+		return nil, fmt.Errorf("new ogg reader: %w", err)
+	}
+	if r.Header == nil {
+		return nil, fmt.Errorf("missing opus header")
+	}
 
-func (e *skipError) Error() string {
-	return e.msg
+	channels := int(r.Header.Channels)
+	streams := int(r.Header.StreamCount)
+	coupled := int(r.Header.CoupledCount)
+	mapping := r.Header.ChannelMapping
+	if len(mapping) == 0 {
+		var err error
+		streams, coupled, mapping, err = DefaultMapping(channels)
+		if err != nil {
+			return nil, fmt.Errorf("default mapping: %w", err)
+		}
+	}
+
+	dec, err := NewDecoder(48000, channels, streams, coupled, mapping)
+	if err != nil {
+		return nil, fmt.Errorf("new multistream decoder: %w", err)
+	}
+
+	decoded := make([]float32, 0, 48000*channels)
+	var prevGranule uint64
+	for {
+		packet, granule, err := r.ReadPacket()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read packet: %w", err)
+		}
+
+		frameSize := 960
+		if granule > prevGranule {
+			frameSize = int(granule - prevGranule)
+		}
+		prevGranule = granule
+
+		pcm64, err := dec.Decode(packet, frameSize)
+		if err != nil {
+			return nil, fmt.Errorf("decode packet: %w", err)
+		}
+		for _, s := range pcm64 {
+			decoded = append(decoded, float32(s))
+		}
+	}
+
+	preSkip := int(r.PreSkip()) * channels
+	if preSkip > 0 && len(decoded) > preSkip {
+		decoded = decoded[preSkip:]
+	}
+
+	return decoded, nil
 }
 
 // parseWAVSamples extracts float32 samples from WAV data.
@@ -416,9 +473,6 @@ func runLibopusSurroundTest(t *testing.T, label string, channels, bitrate int) {
 
 	decoded, err := decodeWithOpusdec(ogg.Bytes())
 	if err != nil {
-		if _, ok := err.(*skipError); ok {
-			t.Skipf("opusdec blocked (likely macOS provenance): %v", err)
-		}
 		t.Fatalf("decodeWithOpusdec failed: %v", err)
 	}
 
@@ -442,10 +496,6 @@ func runLibopusSurroundTest(t *testing.T, label string, channels, bitrate int) {
 
 // TestLibopus_Stereo tests stereo multistream encoding with libopus.
 func TestLibopus_Stereo(t *testing.T) {
-	if !checkOpusdec() {
-		t.Skip("opusdec not available in PATH")
-	}
-
 	// Create stereo encoder (2 channels, 1 stream, 1 coupled)
 	enc, err := NewEncoderDefault(48000, 2)
 	if err != nil {
@@ -502,9 +552,6 @@ func TestLibopus_Stereo(t *testing.T) {
 	// Decode with opusdec
 	decoded, err := decodeWithOpusdec(ogg.Bytes())
 	if err != nil {
-		if _, ok := err.(*skipError); ok {
-			t.Skipf("opusdec blocked (likely macOS provenance): %v", err)
-		}
 		t.Fatalf("decodeWithOpusdec failed: %v", err)
 	}
 
@@ -529,19 +576,11 @@ func TestLibopus_Stereo(t *testing.T) {
 
 // TestLibopus_51Surround tests 5.1 surround multistream encoding with libopus.
 func TestLibopus_51Surround(t *testing.T) {
-	if !checkOpusdec() {
-		t.Skip("opusdec not available in PATH")
-	}
-
 	runLibopusSurroundTest(t, "5.1", 6, 256000)
 }
 
 // TestLibopus_71Surround tests 7.1 surround multistream encoding with libopus.
 func TestLibopus_71Surround(t *testing.T) {
-	if !checkOpusdec() {
-		t.Skip("opusdec not available in PATH")
-	}
-
 	runLibopusSurroundTest(t, "7.1", 8, 384000)
 }
 
@@ -549,10 +588,6 @@ func TestLibopus_71Surround(t *testing.T) {
 // This test validates that libopus can decode at various bitrate levels and logs
 // informational metrics about actual vs target bitrate.
 func TestLibopus_BitrateQuality(t *testing.T) {
-	if !checkOpusdec() {
-		t.Skip("opusdec not available in PATH")
-	}
-
 	// Test bitrates for 5.1 surround (appropriate for multichannel)
 	bitrates := []struct {
 		name       string
@@ -630,9 +665,6 @@ func TestLibopus_BitrateQuality(t *testing.T) {
 			// Decode with opusdec
 			decoded, err := decodeWithOpusdec(ogg.Bytes())
 			if err != nil {
-				if _, ok := err.(*skipError); ok {
-					t.Skipf("opusdec blocked (likely macOS provenance): %v", err)
-				}
 				t.Fatalf("decodeWithOpusdec failed: %v", err)
 			}
 
