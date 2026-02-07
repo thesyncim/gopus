@@ -195,28 +195,8 @@ func writeOggOpus(w io.Writer, packets [][]byte, sampleRate, channels int) error
 	}
 	pageSeq++
 
-	// Calculate samples per frame (assume 48kHz, 20ms = 960 samples)
-	// This is used for granule position tracking
+	// These tests only emit 20ms frames; keep granule tracking fixed.
 	samplesPerFrame := 960
-	if len(packets) > 0 && len(packets[0]) > 0 {
-		// Try to determine frame size from first packet TOC
-		// TOC byte config bits indicate frame size
-		toc := packets[0][0]
-		config := (toc >> 3) & 0x1F
-		if config >= 16 {
-			// CELT-only mode
-			switch config & 0x03 {
-			case 0:
-				samplesPerFrame = 120 // 2.5ms
-			case 1:
-				samplesPerFrame = 240 // 5ms
-			case 2:
-				samplesPerFrame = 480 // 10ms
-			case 3:
-				samplesPerFrame = 960 // 20ms
-			}
-		}
-	}
 
 	// Write audio packets
 	granulePos := int64(0)
