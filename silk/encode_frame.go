@@ -1298,23 +1298,25 @@ func (e *Encoder) EncodePacketWithFEC(pcm []float32, lookahead []float32, vadFla
 func (e *Encoder) encodeFrameType(vadFlag bool, signalType, quantOffset int) {
 	typeOffset := 2*signalType + quantOffset
 	if vadFlag {
-		if typeOffset < 2 {
-			typeOffset = 2
+		sym := typeOffset - 2
+		if sym < 0 {
+			sym = 0
 		}
-		if typeOffset > 5 {
-			typeOffset = 5
+		if sym >= len(silk_type_offset_VAD_iCDF) {
+			sym = len(silk_type_offset_VAD_iCDF) - 1
 		}
-		e.rangeEncoder.EncodeICDF16(typeOffset-2, ICDFFrameTypeVADActive, 8)
+		e.rangeEncoder.EncodeICDF(sym, silk_type_offset_VAD_iCDF, 8)
 		return
 	}
 	// VAD inactive uses a dedicated 2-symbol table (typeOffset 0 or 1).
-	if typeOffset < 0 {
-		typeOffset = 0
+	sym := typeOffset
+	if sym < 0 {
+		sym = 0
 	}
-	if typeOffset > 1 {
-		typeOffset = 1
+	if sym >= len(silk_type_offset_no_VAD_iCDF) {
+		sym = len(silk_type_offset_no_VAD_iCDF) - 1
 	}
-	e.rangeEncoder.EncodeICDF16(typeOffset, ICDFFrameTypeVADInactive, 8)
+	e.rangeEncoder.EncodeICDF(sym, silk_type_offset_no_VAD_iCDF, 8)
 }
 
 func (e *Encoder) quantizePCMToInt16(pcm []float32) []float32 {

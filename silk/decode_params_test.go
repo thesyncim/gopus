@@ -53,6 +53,48 @@ func TestFrameTypeInactive(t *testing.T) {
 	}
 }
 
+func TestFrameTypeInactiveHighOffsetRoundtrip(t *testing.T) {
+	e := NewEncoder(BandwidthWideband)
+	var enc rangecoding.Encoder
+	buf := make([]byte, 32)
+	enc.Init(buf)
+	e.SetRangeEncoder(&enc)
+
+	// VAD inactive with typeOffset=1 (signal=0, quantOffset=1).
+	e.encodeFrameType(false, typeNoVoiceActivity, 1)
+	raw := enc.Done()
+
+	d := NewDecoder()
+	rd := &rangecoding.Decoder{}
+	rd.Init(raw)
+	d.SetRangeDecoder(rd)
+	sig, quant := d.DecodeFrameType(false)
+	if sig != typeNoVoiceActivity || quant != 1 {
+		t.Errorf("Inactive frame typeOffset=1: got (%d, %d), want (%d, %d)", sig, quant, typeNoVoiceActivity, 1)
+	}
+}
+
+func TestFrameTypeActiveVoicedHighOffsetRoundtrip(t *testing.T) {
+	e := NewEncoder(BandwidthWideband)
+	var enc rangecoding.Encoder
+	buf := make([]byte, 32)
+	enc.Init(buf)
+	e.SetRangeEncoder(&enc)
+
+	// VAD active with typeOffset=5 (signal=2, quantOffset=1).
+	e.encodeFrameType(true, typeVoiced, 1)
+	raw := enc.Done()
+
+	d := NewDecoder()
+	rd := &rangecoding.Decoder{}
+	rd.Init(raw)
+	d.SetRangeDecoder(rd)
+	sig, quant := d.DecodeFrameType(true)
+	if sig != typeVoiced || quant != 1 {
+		t.Errorf("Active frame typeOffset=5: got (%d, %d), want (%d, %d)", sig, quant, typeVoiced, 1)
+	}
+}
+
 func TestFrameParamsStruct(t *testing.T) {
 	// Verify FrameParams can be instantiated with expected fields
 	params := FrameParams{
