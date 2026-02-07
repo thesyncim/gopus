@@ -847,8 +847,12 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, lookahead []float32, sil
 		e.silkEncoder.SetBitrate(totalRateBps)
 	}
 	perChannelRate := totalRateBps / 2
-	if e.silkSideEncoder != nil && perChannelRate > 0 {
-		e.silkSideEncoder.SetBitrate(perChannelRate)
+	if e.silkSideEncoder != nil {
+		if totalRateBps > 0 {
+			e.silkSideEncoder.SetBitrate(totalRateBps)
+		} else if perChannelRate > 0 {
+			e.silkSideEncoder.SetBitrate(perChannelRate)
+		}
 	}
 
 	// Compute VAD flags

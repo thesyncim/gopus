@@ -893,7 +893,9 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 		e.silkEncoder.SetFEC(e.fecEnabled)
 		e.silkEncoder.SetPacketLoss(e.packetLoss)
 		e.ensureSILKSideEncoder()
-		if perChannelRate > 0 {
+		if totalSilkRate > 0 {
+			e.silkSideEncoder.SetBitrate(totalSilkRate)
+		} else if perChannelRate > 0 {
 			e.silkSideEncoder.SetBitrate(perChannelRate)
 		}
 		e.silkSideEncoder.SetFEC(e.fecEnabled)
