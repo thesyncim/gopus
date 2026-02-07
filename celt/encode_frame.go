@@ -109,6 +109,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	transientResult := e.TransientAnalysis(transientInput, frameSize+overlap, false /* allowWeakTransients */)
 	transient := transientResult.IsTransient
 	tfEstimate := transientResult.TfEstimate
+	tfChannel := transientResult.TfChannel
 	toneFreq := transientResult.ToneFreq
 	toneishness := transientResult.Toneishness
 
@@ -590,9 +591,13 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		// Reference: libopus celt/celt_encoder.c dynalloc_analysis() -> importance
 		importance := dynallocResult.Importance
 
-		// Use the normalized coefficients for TF analysis (zero-alloc version)
-		// For stereo, use the left channel (similar to libopus tf_chan approach)
-		tfRes, tfSelect = TFAnalysisWithScratch(normL, len(normL), nbBands, transient, lm, useTfEstimate, effectiveBytes, importance, &e.tfScratch)
+		// Use the normalized coefficients for TF analysis (zero-alloc version).
+		// In stereo, match libopus by selecting the channel flagged by transient analysis.
+		tfInput := normL
+		if e.channels == 2 && tfChannel == 1 {
+			tfInput = normR
+		}
+		tfRes, tfSelect = TFAnalysisWithScratch(tfInput, len(tfInput), nbBands, transient, lm, useTfEstimate, effectiveBytes, importance, &e.tfScratch)
 
 		// Encode TF decisions using the computed values
 		TFEncodeWithSelect(re, start, end, transient, tfRes, lm, tfSelect)
