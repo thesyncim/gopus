@@ -24,11 +24,11 @@ func TestLibopusCrossValidationMono(t *testing.T) {
 	inputPeak := findPeak(float32Slice(pcm))
 	t.Logf("Input: %d samples, energy=%.4f, peak=%.4f", frameSize, inputEnergy, inputPeak)
 
-	// Reset encoder for clean state
-	ResetMonoEncoder()
+	enc := NewEncoder(1)
+	enc.SetBitrate(64000)
 
 	// Encode with gopus
-	encoded, err := Encode(pcm, frameSize)
+	encoded, err := enc.EncodeFrame(pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}
@@ -85,11 +85,11 @@ func TestLibopusCrossValidationStereo(t *testing.T) {
 	inputPeak := findPeak(float32Slice(pcm))
 	t.Logf("Input: %d stereo samples, energy=%.4f, peak=%.4f", frameSize*2, inputEnergy, inputPeak)
 
-	// Reset encoder for clean state
-	ResetStereoEncoder()
+	enc := NewEncoder(2)
+	enc.SetBitrate(128000)
 
 	// Encode with gopus
-	encoded, err := EncodeStereo(pcm, frameSize)
+	encoded, err := enc.EncodeFrame(pcm, frameSize)
 	if err != nil {
 		t.Fatalf("EncodeStereo failed: %v", err)
 	}
@@ -213,11 +213,11 @@ func TestLibopusCrossValidationSilence(t *testing.T) {
 	frameSize := 960
 	pcm := make([]float64, frameSize)
 
-	// Reset encoder
-	ResetMonoEncoder()
+	enc := NewEncoder(1)
+	enc.SetBitrate(64000)
 
 	// Encode
-	encoded, err := Encode(pcm, frameSize)
+	encoded, err := enc.EncodeFrame(pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}
@@ -271,7 +271,9 @@ func TestLibopusCrossValidationMultipleFrames(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Frame %d: EncodeFrame failed: %v", i, err)
 		}
-		packets[i] = encoded
+		packetCopy := make([]byte, len(encoded))
+		copy(packetCopy, encoded)
+		packets[i] = packetCopy
 		t.Logf("Frame %d: %.0fHz -> %d bytes", i, freq, len(encoded))
 	}
 
@@ -317,24 +319,17 @@ func TestLibopusCrossValidationMultipleFrames(t *testing.T) {
 func TestLibopusCrossValidationFixtureFallback(t *testing.T) {
 	t.Setenv("GOPUS_DISABLE_OPUSDEC", "1")
 
-	frameSize := 960
-	pcm := generateSineWave(440.0, frameSize)
-	enc := NewEncoder(1)
-	encoded, err := enc.EncodeFrame(pcm, frameSize)
-	if err != nil {
-		t.Fatalf("EncodeFrame failed: %v", err)
-	}
-
-	var ogg bytes.Buffer
-	if err := writeOggOpus(&ogg, [][]byte{encoded}, 48000, 1); err != nil {
-		t.Fatalf("writeOggOpus failed: %v", err)
-	}
-
-	decoded, err := decodeWithOpusdec(ogg.Bytes())
-	if err != nil {
-		t.Fatalf("fixture fallback decode failed: %v", err)
-	}
-	if len(decoded) == 0 {
-		t.Fatal("fixture fallback decode returned no samples")
+	scenarios := buildCrossvalFixtureScenarios(t)
+	for _, sc := range scenarios {
+		sc := sc
+		t.Run(sc.name, func(t *testing.T) {
+			decoded, err := decodeWithOpusdec(sc.ogg)
+			if err != nil {
+				t.Fatalf("fixture fallback decode failed: %v", err)
+			}
+			if len(decoded) == 0 {
+				t.Fatal("fixture fallback decode returned no samples")
+			}
+		})
 	}
 }
