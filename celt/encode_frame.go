@@ -185,7 +185,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	start := 0
 
 	prefilterTapset := e.TapsetDecision()
-	enabled := start == 0 && targetBytes > 12*e.channels && !e.IsHybrid() && !isSilence && re.Tell()+16 <= targetBits
+	enabled := start == 0 && (e.frameCount > 0 || e.vbr) && targetBytes > 12*e.channels && !e.IsHybrid() && !isSilence && re.Tell()+16 <= targetBits
 	// Derive the prefilter max-pitch ratio from the same pre-emphasized signal
 	// used by the CELT analysis path; this improves postfilter parity vs libopus.
 	maxPitchRatio := estimateMaxPitchRatio(preemph, e.channels, e.scratch.prefilterPitchBuf)

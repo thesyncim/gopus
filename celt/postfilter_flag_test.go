@@ -7,7 +7,7 @@ import (
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
-func TestPostfilterFlagEnabledForTone(t *testing.T) {
+func TestPostfilterFlagDisabledOnFirstTransientToneFrame(t *testing.T) {
 	const (
 		frameSize  = 960
 		sampleRate = 48000
@@ -24,6 +24,7 @@ func TestPostfilterFlagEnabledForTone(t *testing.T) {
 
 	enc := NewEncoder(1)
 	enc.SetBitrate(bitrate)
+	enc.SetVBR(false)
 
 	packet, err := enc.EncodeFrame(pcm, frameSize)
 	if err != nil {
@@ -39,7 +40,9 @@ func TestPostfilterFlagEnabledForTone(t *testing.T) {
 	}
 
 	postfilter := rd.DecodeBit(1)
-	if postfilter == 0 {
-		t.Fatalf("postfilter flag=0 for tone at %d bps", bitrate)
+	// Match libopus behavior: first 20 ms tone frame is transient and does not
+	// signal the postfilter bitstream parameters.
+	if postfilter != 0 {
+		t.Fatalf("postfilter flag=%d, want 0 on first tone frame at %d bps", postfilter, bitrate)
 	}
 }
