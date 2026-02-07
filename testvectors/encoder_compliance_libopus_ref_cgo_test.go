@@ -24,12 +24,17 @@ func encodeWithLibopusComplianceReference(
 
 	switch mode {
 	case encoder.ModeSILK:
-		app = cgowrap.OpusApplicationVoIP
+		// Use libopus' SILK-only application mode for the reference path.
+		// This matches our direct SILK parity tests and avoids VoIP-specific
+		// control behavior skewing the compliance baseline.
+		app = cgowrap.OpusApplicationRestrictedSilk
 		signal = cgowrap.OpusSignalVoice
 		forceMode = cgowrap.ModeSilkOnly
 	case encoder.ModeHybrid:
-		app = cgowrap.OpusApplicationVoIP
-		signal = cgowrap.OpusSignalVoice
+		// Hybrid in gopus is currently tuned through the general Opus path
+		// rather than VoIP-specific control logic.
+		app = cgowrap.OpusApplicationAudio
+		signal = cgowrap.OpusSignalMusic
 		forceMode = cgowrap.ModeHybrid
 	case encoder.ModeCELT:
 		app = cgowrap.OpusApplicationAudio
