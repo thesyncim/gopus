@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	gopus "github.com/thesyncim/gopus"
@@ -21,17 +22,37 @@ type decoderParityThresholds struct {
 	maxRMS  float64
 }
 
-var decoderParityByCase = map[string]decoderParityThresholds{
-	"silk-nb-10ms-mono-16k":     {minQ: 45.0, minCorr: 0.997, minRMS: 0.98, maxRMS: 1.02},
-	"silk-nb-20ms-mono-16k":     {minQ: 45.0, minCorr: 0.997, minRMS: 0.98, maxRMS: 1.02},
-	"silk-wb-20ms-mono-32k":     {minQ: 45.0, minCorr: 0.997, minRMS: 0.98, maxRMS: 1.02},
-	"silk-wb-20ms-stereo-48k":   {minQ: 45.0, minCorr: 0.997, minRMS: 0.98, maxRMS: 1.02},
-	"celt-fb-10ms-mono-64k":     {minQ: 45.0, minCorr: 0.998, minRMS: 0.98, maxRMS: 1.02},
-	"celt-fb-20ms-mono-64k":     {minQ: 45.0, minCorr: 0.998, minRMS: 0.98, maxRMS: 1.02},
-	"celt-fb-20ms-stereo-128k":  {minQ: 45.0, minCorr: 0.998, minRMS: 0.98, maxRMS: 1.02},
-	"hybrid-swb-10ms-mono-24k":  {minQ: -80.0, minCorr: 0.980, minRMS: 0.97, maxRMS: 1.03},
-	"hybrid-fb-10ms-mono-24k":   {minQ: -80.0, minCorr: 0.980, minRMS: 0.97, maxRMS: 1.03},
-	"hybrid-fb-10ms-stereo-24k": {minQ: -70.0, minCorr: 0.990, minRMS: 0.97, maxRMS: 1.03},
+func decoderDominantMode(hist map[string]int) string {
+	bestMode := "unknown"
+	bestCount := -1
+	for _, mode := range []string{"silk", "hybrid", "celt"} {
+		if count := hist[mode]; count > bestCount {
+			bestMode = mode
+			bestCount = count
+		}
+	}
+	return bestMode
+}
+
+func decoderParityThresholdForCase(c libopusDecoderMatrixCaseFile) decoderParityThresholds {
+	if strings.HasPrefix(c.Name, "hybrid-") || c.ModeHistogram["hybrid"] > 0 {
+		// Hybrid decoding parity is currently looser than SILK/CELT; keep
+		// this strict enough for non-regression while allowing active tuning.
+		if c.Channels == 2 {
+			return decoderParityThresholds{minQ: -65.0, minCorr: 0.990, minRMS: 0.97, maxRMS: 1.03}
+		}
+		return decoderParityThresholds{minQ: -72.0, minCorr: 0.985, minRMS: 0.97, maxRMS: 1.03}
+	}
+
+	mode := decoderDominantMode(c.ModeHistogram)
+	switch mode {
+	case "silk":
+		return decoderParityThresholds{minQ: 45.0, minCorr: 0.997, minRMS: 0.98, maxRMS: 1.02}
+	case "celt":
+		return decoderParityThresholds{minQ: 45.0, minCorr: 0.998, minRMS: 0.98, maxRMS: 1.02}
+	default:
+		return decoderParityThresholds{minQ: -72.0, minCorr: 0.985, minRMS: 0.97, maxRMS: 1.03}
+	}
 }
 
 func decodeWithInternalDecoder(t *testing.T, packets [][]byte, channels int) []float32 {
@@ -112,10 +133,7 @@ func TestDecoderParityLibopusMatrix(t *testing.T) {
 	for _, c := range fixture.Cases {
 		c := c
 		t.Run(c.Name, func(t *testing.T) {
-			thr, ok := decoderParityByCase[c.Name]
-			if !ok {
-				t.Fatalf("missing decoder parity thresholds for case %q", c.Name)
-			}
+			thr := decoderParityThresholdForCase(c)
 			packets, err := decodeLibopusDecoderMatrixPackets(c)
 			if err != nil {
 				t.Fatalf("decode fixture packets: %v", err)
@@ -189,14 +207,6 @@ func TestDecoderParityMatrixCoverage(t *testing.T) {
 	}
 	if !seenLongFrame {
 		t.Fatal("decoder matrix missing >=20ms frame coverage")
-	}
-	if len(fixture.Cases) != len(decoderParityByCase) {
-		t.Fatalf("decoder threshold coverage mismatch: cases=%d thresholds=%d", len(fixture.Cases), len(decoderParityByCase))
-	}
-	for _, c := range fixture.Cases {
-		if _, ok := decoderParityByCase[c.Name]; !ok {
-			t.Fatalf("missing thresholds for case: %s", c.Name)
-		}
 	}
 }
 

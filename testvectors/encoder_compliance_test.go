@@ -399,19 +399,30 @@ func runLibopusComplianceReferenceTest(t *testing.T, mode encoder.Mode, bandwidt
 }
 
 func decodeCompliancePackets(packets [][]byte, channels, frameSize int) ([]float32, error) {
-	// Prefer libopus CLI decode when available to preserve historical compliance semantics.
-	if checkOpusdecAvailableEncoder() {
+	useOpusdec := checkOpusdecAvailableEncoder()
+	useFFmpeg := checkFFmpegAvailable()
+	if useOpusdec || useFFmpeg {
 		var oggBuf bytes.Buffer
 		if err := writeOggOpusEncoder(&oggBuf, packets, channels, 48000, frameSize); err != nil {
 			return nil, fmt.Errorf("write ogg opus: %w", err)
 		}
-		decoded, err := decodeWithOpusdec(oggBuf.Bytes())
-		if err == nil {
-			return decoded, nil
+
+		// Prefer opusdec for strict libopus workflow. If blocked by provenance or unavailable,
+		// ffmpeg is a no-cgo external decoder fallback.
+		if useOpusdec {
+			decoded, err := decodeWithOpusdec(oggBuf.Bytes())
+			if err == nil {
+				return decoded, nil
+			}
+			if err.Error() != "opusdec blocked by macOS provenance" {
+				return nil, err
+			}
 		}
-		// If opusdec exists but is blocked in this environment (e.g. macOS provenance),
-		// fall back to internal decode rather than skipping the full compliance suite.
-		if err.Error() != "opusdec blocked by macOS provenance" {
+		if useFFmpeg {
+			decoded, err := decodeWithFFmpeg(oggBuf.Bytes(), channels)
+			if err == nil {
+				return decoded, nil
+			}
 			return nil, err
 		}
 	}

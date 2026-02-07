@@ -46,12 +46,13 @@ type decoderMatrixFixturePacket struct {
 }
 
 type decoderCaseConfig struct {
-	Name        string
-	Application string
-	Bandwidth   string
-	FrameSize   int
-	Channels    int
-	Bitrate     int
+	Name         string
+	Application  string
+	Bandwidth    string
+	FrameSize    int
+	Channels     int
+	Bitrate      int
+	ExpectedMode string
 }
 
 func fixtureModeFromTOC(toc byte) string {
@@ -170,7 +171,10 @@ func getOpusDemoPath() string {
 }
 
 func runCase(opusDemoPath string, tmpDir string, c decoderCaseConfig) (decoderMatrixFixtureCase, error) {
-	frameMs := c.FrameSize * 1000 / generatorSampleRate
+	frameSizeArg, err := frameSizeArgFromSamples(c.FrameSize)
+	if err != nil {
+		return decoderMatrixFixtureCase{}, err
+	}
 	totalSamples := frameRuns * c.FrameSize * c.Channels
 	signal := generateEncoderTestSignal(totalSamples, c.Channels)
 
@@ -183,7 +187,7 @@ func runCase(opusDemoPath string, tmpDir string, c decoderCaseConfig) (decoderMa
 
 	encArgs := []string{
 		"-e", c.Application, strconv.Itoa(generatorSampleRate), strconv.Itoa(c.Channels), strconv.Itoa(c.Bitrate),
-		"-f32", "-cbr", "-complexity", "10", "-bandwidth", c.Bandwidth, "-framesize", strconv.Itoa(frameMs),
+		"-f32", "-cbr", "-complexity", "10", "-bandwidth", c.Bandwidth, "-framesize", frameSizeArg,
 		inputPath, bitPath,
 	}
 	if out, err := exec.Command(opusDemoPath, encArgs...).CombinedOutput(); err != nil {
@@ -193,6 +197,9 @@ func runCase(opusDemoPath string, tmpDir string, c decoderCaseConfig) (decoderMa
 	packets, modeHist, err := parseOpusDemoBitstream(bitPath)
 	if err != nil {
 		return decoderMatrixFixtureCase{}, fmt.Errorf("parse bitstream: %w", err)
+	}
+	if c.ExpectedMode != "" && modeHist[c.ExpectedMode] == 0 {
+		return decoderMatrixFixtureCase{}, fmt.Errorf("expected mode %q not present (hist=%v)", c.ExpectedMode, modeHist)
 	}
 
 	decArgs := []string{"-d", strconv.Itoa(generatorSampleRate), strconv.Itoa(c.Channels), "-f32", bitPath, decodedPath}
@@ -219,6 +226,31 @@ func runCase(opusDemoPath string, tmpDir string, c decoderCaseConfig) (decoderMa
 	}, nil
 }
 
+func frameSizeArgFromSamples(frameSize int) (string, error) {
+	switch frameSize {
+	case 120:
+		return "2.5", nil
+	case 240:
+		return "5", nil
+	case 480:
+		return "10", nil
+	case 960:
+		return "20", nil
+	case 1920:
+		return "40", nil
+	case 2880:
+		return "60", nil
+	case 3840:
+		return "80", nil
+	case 4800:
+		return "100", nil
+	case 5760:
+		return "120", nil
+	default:
+		return "", fmt.Errorf("unsupported frame size for fixture generation: %d", frameSize)
+	}
+}
+
 func main() {
 	opusDemoPath := getOpusDemoPath()
 	if opusDemoPath == "" {
@@ -227,16 +259,28 @@ func main() {
 	}
 
 	cases := []decoderCaseConfig{
-		{Name: "silk-nb-10ms-mono-16k", Application: "restricted-silk", Bandwidth: "NB", FrameSize: 480, Channels: 1, Bitrate: 16000},
-		{Name: "silk-nb-20ms-mono-16k", Application: "restricted-silk", Bandwidth: "NB", FrameSize: 960, Channels: 1, Bitrate: 16000},
-		{Name: "silk-wb-20ms-mono-32k", Application: "restricted-silk", Bandwidth: "WB", FrameSize: 960, Channels: 1, Bitrate: 32000},
-		{Name: "silk-wb-20ms-stereo-48k", Application: "restricted-silk", Bandwidth: "WB", FrameSize: 960, Channels: 2, Bitrate: 48000},
-		{Name: "celt-fb-10ms-mono-64k", Application: "restricted-celt", Bandwidth: "FB", FrameSize: 480, Channels: 1, Bitrate: 64000},
-		{Name: "celt-fb-20ms-mono-64k", Application: "restricted-celt", Bandwidth: "FB", FrameSize: 960, Channels: 1, Bitrate: 64000},
-		{Name: "celt-fb-20ms-stereo-128k", Application: "restricted-celt", Bandwidth: "FB", FrameSize: 960, Channels: 2, Bitrate: 128000},
-		{Name: "hybrid-swb-10ms-mono-24k", Application: "audio", Bandwidth: "SWB", FrameSize: 480, Channels: 1, Bitrate: 24000},
-		{Name: "hybrid-fb-10ms-mono-24k", Application: "audio", Bandwidth: "FB", FrameSize: 480, Channels: 1, Bitrate: 24000},
-		{Name: "hybrid-fb-10ms-stereo-24k", Application: "audio", Bandwidth: "FB", FrameSize: 480, Channels: 2, Bitrate: 24000},
+		{Name: "silk-nb-10ms-mono-16k", Application: "restricted-silk", Bandwidth: "NB", FrameSize: 480, Channels: 1, Bitrate: 16000, ExpectedMode: "silk"},
+		{Name: "silk-nb-20ms-mono-16k", Application: "restricted-silk", Bandwidth: "NB", FrameSize: 960, Channels: 1, Bitrate: 16000, ExpectedMode: "silk"},
+		{Name: "silk-nb-40ms-mono-16k", Application: "restricted-silk", Bandwidth: "NB", FrameSize: 1920, Channels: 1, Bitrate: 16000, ExpectedMode: "silk"},
+		{Name: "silk-nb-60ms-mono-16k", Application: "restricted-silk", Bandwidth: "NB", FrameSize: 2880, Channels: 1, Bitrate: 16000, ExpectedMode: "silk"},
+		{Name: "silk-mb-20ms-mono-24k", Application: "restricted-silk", Bandwidth: "MB", FrameSize: 960, Channels: 1, Bitrate: 24000, ExpectedMode: "silk"},
+		{Name: "silk-wb-10ms-mono-32k", Application: "restricted-silk", Bandwidth: "WB", FrameSize: 480, Channels: 1, Bitrate: 32000, ExpectedMode: "silk"},
+		{Name: "silk-wb-20ms-mono-32k", Application: "restricted-silk", Bandwidth: "WB", FrameSize: 960, Channels: 1, Bitrate: 32000, ExpectedMode: "silk"},
+		{Name: "silk-wb-40ms-mono-32k", Application: "restricted-silk", Bandwidth: "WB", FrameSize: 1920, Channels: 1, Bitrate: 32000, ExpectedMode: "silk"},
+		{Name: "silk-wb-60ms-mono-32k", Application: "restricted-silk", Bandwidth: "WB", FrameSize: 2880, Channels: 1, Bitrate: 32000, ExpectedMode: "silk"},
+		{Name: "silk-wb-20ms-stereo-48k", Application: "restricted-silk", Bandwidth: "WB", FrameSize: 960, Channels: 2, Bitrate: 48000, ExpectedMode: "silk"},
+		{Name: "celt-fb-2p5ms-mono-64k", Application: "restricted-celt", Bandwidth: "FB", FrameSize: 120, Channels: 1, Bitrate: 64000, ExpectedMode: "celt"},
+		{Name: "celt-fb-5ms-mono-64k", Application: "restricted-celt", Bandwidth: "FB", FrameSize: 240, Channels: 1, Bitrate: 64000, ExpectedMode: "celt"},
+		{Name: "celt-fb-10ms-mono-64k", Application: "restricted-celt", Bandwidth: "FB", FrameSize: 480, Channels: 1, Bitrate: 64000, ExpectedMode: "celt"},
+		{Name: "celt-fb-20ms-mono-64k", Application: "restricted-celt", Bandwidth: "FB", FrameSize: 960, Channels: 1, Bitrate: 64000, ExpectedMode: "celt"},
+		{Name: "celt-fb-20ms-stereo-128k", Application: "restricted-celt", Bandwidth: "FB", FrameSize: 960, Channels: 2, Bitrate: 128000, ExpectedMode: "celt"},
+		{Name: "celt-swb-20ms-mono-48k", Application: "restricted-celt", Bandwidth: "SWB", FrameSize: 960, Channels: 1, Bitrate: 48000, ExpectedMode: "celt"},
+		{Name: "hybrid-swb-10ms-mono-24k", Application: "audio", Bandwidth: "SWB", FrameSize: 480, Channels: 1, Bitrate: 24000, ExpectedMode: "hybrid"},
+		{Name: "hybrid-swb-20ms-mono-24k", Application: "audio", Bandwidth: "SWB", FrameSize: 960, Channels: 1, Bitrate: 24000, ExpectedMode: "hybrid"},
+		{Name: "hybrid-fb-10ms-mono-24k", Application: "audio", Bandwidth: "FB", FrameSize: 480, Channels: 1, Bitrate: 24000, ExpectedMode: "hybrid"},
+		{Name: "hybrid-fb-10ms-stereo-24k", Application: "audio", Bandwidth: "FB", FrameSize: 480, Channels: 2, Bitrate: 24000, ExpectedMode: "hybrid"},
+		{Name: "hybrid-fb-20ms-mono-24k", Application: "audio", Bandwidth: "FB", FrameSize: 960, Channels: 1, Bitrate: 24000, ExpectedMode: "hybrid"},
+		{Name: "hybrid-fb-20ms-stereo-24k", Application: "audio", Bandwidth: "FB", FrameSize: 960, Channels: 2, Bitrate: 24000, ExpectedMode: "hybrid"},
 	}
 
 	tmpDir, err := os.MkdirTemp("", "gopus-decoder-fixture-*")
