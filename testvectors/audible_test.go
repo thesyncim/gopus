@@ -16,10 +16,6 @@ import (
 // TestAudioAudibility encodes audio with gopus, decodes with libopus,
 // and measures quality. Run with: go test -v -run TestAudioAudibility ./internal/testvectors/
 func TestAudioAudibility(t *testing.T) {
-	if !checkOpusdecAvailable() {
-		t.Skip("opusdec not found in PATH")
-	}
-
 	// Generate a 0.1-second test signal: A major chord + sweep
 	sampleRate := 48000
 	duration := 0.1
@@ -96,20 +92,33 @@ func TestAudioAudibility(t *testing.T) {
 	}
 	t.Logf("Opus file saved: %s", opusFile)
 
-	// Decode with libopus
 	decodedWav := "/tmp/gopus_decoded.wav"
-	cmd := exec.Command("opusdec", "--quiet", opusFile, decodedWav)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("opusdec failed: %v\nOutput: %s", err, output)
-	}
-	t.Logf("Decoded WAV saved: %s", decodedWav)
+	var decoded []float32
+	if checkOpusdecAvailable() {
+		cmd := exec.Command("opusdec", "--quiet", opusFile, decodedWav)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("opusdec failed: %v\nOutput: %s", err, output)
+		}
+		t.Logf("Decoded WAV saved: %s", decodedWav)
 
-	// Read decoded and compute quality
-	decoded := readTestWAV(decodedWav)
-	// opusdec already applies pre-skip from OpusHead. Only trim if it's still present.
-	if len(decoded) >= len(pcm)+preSkip {
-		decoded = decoded[preSkip:]
+		decoded = readTestWAV(decodedWav)
+		// opusdec already applies pre-skip from OpusHead. Only trim if it's still present.
+		if len(decoded) >= len(pcm)+preSkip {
+			decoded = decoded[preSkip:]
+		}
+	} else {
+		t.Log("opusdec not found; using internal decoder fallback")
+		internal, err := decodeComplianceWithInternalDecoder(packets, 1)
+		if err != nil {
+			t.Fatalf("internal decode failed: %v", err)
+		}
+		if len(internal) > preSkip {
+			internal = internal[preSkip:]
+		}
+		decoded = internal
+		saveTestWAV(decodedWav, decoded, sampleRate, 1)
+		t.Logf("Decoded WAV saved (internal): %s", decodedWav)
 	}
 
 	compareLen := len(pcm)
@@ -136,7 +145,9 @@ func TestAudioAudibility(t *testing.T) {
 	t.Logf("\n=== TO LISTEN ===")
 	t.Logf("Original: afplay %s  (or: play %s)", originalWav, originalWav)
 	t.Logf("Decoded:  afplay %s  (or: play %s)", decodedWav, decodedWav)
-	t.Logf("Opus:     opusdec %s - | play -", opusFile)
+	if checkOpusdecAvailable() {
+		t.Logf("Opus:     opusdec %s - | play -", opusFile)
+	}
 
 	// Fail if SNR is too low
 	if snr < 0 {
