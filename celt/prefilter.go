@@ -645,31 +645,31 @@ func celtFIR5(x []float64, num [5]float64) {
 
 func lpcFromAutocorr(ac [5]float64) [4]float64 {
 	var lpc [4]float64
-	if ac[0] == 0 {
+	if ac[0] <= 1e-10 {
 		return lpc
 	}
 	err := ac[0]
+	ac0 := ac[0]
 	for i := 0; i < 4; i++ {
-		r := -ac[i+1]
+		rr := 0.0
 		for j := 0; j < i; j++ {
-			r -= lpc[j] * ac[i-j]
+			rr += lpc[j] * ac[i-j]
 		}
+		rr += ac[i+1]
+		r := 0.0
 		if err != 0 {
-			r /= err
-		} else {
-			r = 0
+			r = -rr / err
 		}
 		lpc[i] = r
-		for j := 0; j < i/2; j++ {
+		for j := 0; j < (i+1)>>1; j++ {
 			tmp := lpc[j]
-			lpc[j] += r * lpc[i-1-j]
-			lpc[i-1-j] += r * tmp
+			other := lpc[i-1-j]
+			lpc[j] = tmp + r*other
+			lpc[i-1-j] = other + r*tmp
 		}
-		if i%2 == 1 {
-			lpc[i/2] += r * lpc[i/2]
-		}
-		err *= 1 - r*r
-		if err <= 0 {
+		err -= r * r * err
+		// Match libopus _celt_lpc() float bailout criterion.
+		if err <= 0.001*ac0 {
 			break
 		}
 	}
