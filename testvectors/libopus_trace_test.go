@@ -2,11 +2,7 @@ package testvectors
 
 import (
 	"bytes"
-	"encoding/binary"
-	"fmt"
 	"math"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/thesyncim/gopus/encoder"
@@ -14,80 +10,6 @@ import (
 	"github.com/thesyncim/gopus/silk"
 	"github.com/thesyncim/gopus/types"
 )
-
-func findOpusDemo(t *testing.T) string {
-	t.Helper()
-	if path := os.Getenv("OPUS_DEMO"); path != "" {
-		if _, err := os.Stat(path); err == nil {
-			return path
-		}
-	}
-	root := "."
-	if gomod := os.Getenv("GOMOD"); gomod != "" {
-		root = filepath.Dir(gomod)
-	} else {
-		if wd, err := os.Getwd(); err == nil {
-			root = wd
-			for {
-				if _, err := os.Stat(filepath.Join(root, "go.mod")); err == nil {
-					break
-				}
-				parent := filepath.Dir(root)
-				if parent == root {
-					break
-				}
-				root = parent
-			}
-		}
-	}
-	path := filepath.Join(root, "tmp_check", "opus-1.6.1", "opus_demo")
-	if _, err := os.Stat(path); err != nil {
-		t.Skipf("opus_demo not found at %s (set OPUS_DEMO to override)", path)
-	}
-	return path
-}
-
-func writeRawPCM16(path string, pcm []float32) error {
-	buf := &bytes.Buffer{}
-	for _, s := range pcm {
-		v := int32(math.RoundToEven(float64(s * 32768.0)))
-		if v > 32767 {
-			v = 32767
-		} else if v < -32768 {
-			v = -32768
-		}
-		if err := binary.Write(buf, binary.LittleEndian, int16(v)); err != nil {
-			return err
-		}
-	}
-	return os.WriteFile(path, buf.Bytes(), 0o644)
-}
-
-func parseOpusDemoBitstream(path string) ([]libopusPacket, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var packets []libopusPacket
-	offset := 0
-	for {
-		if offset+8 > len(data) {
-			break
-		}
-		length := binary.BigEndian.Uint32(data[offset : offset+4])
-		offset += 4
-		finalRange := binary.BigEndian.Uint32(data[offset : offset+4])
-		offset += 4
-		if offset+int(length) > len(data) {
-			return nil, fmt.Errorf("truncated packet: need %d bytes, have %d", length, len(data)-offset)
-		}
-		payload := make([]byte, length)
-		copy(payload, data[offset:offset+int(length)])
-		offset += int(length)
-		packets = append(packets, libopusPacket{data: payload, finalRange: finalRange})
-	}
-	return packets, nil
-}
 
 func TestLibopusTraceSILKWB(t *testing.T) {
 	const (
