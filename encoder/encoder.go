@@ -458,6 +458,11 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	switch actualMode {
 	case ModeSILK:
 		frameData, err = e.encodeSILKFrame(framePCM, lookaheadSlice, frameSize)
+		if err == nil {
+			// Match libopus opus_encoder.c SILK-only behavior:
+			// strip trailing zero bytes after range coder finalization.
+			frameData = trimSilkTrailingZeros(frameData)
+		}
 		e.updateDelayBuffer(framePCM, frameSize)
 	case ModeHybrid:
 		celtPCM := e.applyDelayCompensation(framePCM, frameSize)
@@ -551,6 +556,13 @@ func (e *Encoder) ensureDCPCM(size int) []float64 {
 		e.scratchDCPCM = make([]float64, size)
 	}
 	return e.scratchDCPCM[:size]
+}
+
+func trimSilkTrailingZeros(frameData []byte) []byte {
+	for len(frameData) > 2 && frameData[len(frameData)-1] == 0 {
+		frameData = frameData[:len(frameData)-1]
+	}
+	return frameData
 }
 
 func (e *Encoder) ensureDelayedPCM(size int) []float64 {
