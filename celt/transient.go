@@ -255,7 +255,7 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 		forwardDecay = 0.03125
 	}
 
-	var maxMaskMetric float64
+	var maxMaskMetric int
 	tfChannel := 0
 
 	// Inverse table for computing harmonic mean (6*64/x, trained on real data)
@@ -380,12 +380,12 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 			unmask += invTable[id]
 		}
 
-		// Normalize: compensate for 1/4 sampling and factor of 6 in inverse table
-		numSamples := (len2 - 17) / 4
-		if numSamples < 1 {
-			numSamples = 1
+		// Use the exact integer normalization from libopus:
+		// mask_metric = 64*unmask*4/(6*(len2-17))
+		maskMetric := 0
+		if len2 > 17 {
+			maskMetric = 64 * unmask * 4 / (6 * (len2 - 17))
 		}
-		maskMetric := float64(64*unmask*4) / float64(6*numSamples*4)
 
 		if maskMetric > maxMaskMetric {
 			tfChannel = c
@@ -393,7 +393,7 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 		}
 	}
 
-	result.MaskMetric = maxMaskMetric
+	result.MaskMetric = float64(maxMaskMetric)
 	result.TfChannel = tfChannel
 
 	// Transient decision: mask_metric > 200
@@ -428,7 +428,7 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 	// Which simplifies to (in Q14 for tf_estimate):
 	// tf_estimate = sqrt(max(0, 0.0069 * min(163, tf_max) - 0.139))
 
-	tfMax := math.Max(0, math.Sqrt(27*maxMaskMetric)-42)
+	tfMax := math.Max(0, math.Sqrt(27*float64(maxMaskMetric))-42)
 	clampedTfMax := math.Min(163, tfMax)
 	tfEstimateSquared := 0.0069*clampedTfMax - 0.139
 	if tfEstimateSquared < 0 {
