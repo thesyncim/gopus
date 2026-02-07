@@ -15,6 +15,7 @@ import (
 	"sync"
 	"testing"
 
+	gopus "github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/encoder"
 	"github.com/thesyncim/gopus/types"
 )
@@ -74,9 +75,6 @@ func logEncoderComplianceStatus(t *testing.T) {
 
 // TestEncoderComplianceCELT tests CELT mode encoding at various frame sizes.
 func TestEncoderComplianceCELT(t *testing.T) {
-	if !checkOpusdecAvailableEncoder() {
-		t.Skip("opusdec not found in PATH")
-	}
 	logEncoderComplianceStatus(t)
 
 	tests := []struct {
@@ -101,9 +99,6 @@ func TestEncoderComplianceCELT(t *testing.T) {
 
 // TestEncoderComplianceSILK tests SILK mode encoding at various bandwidths.
 func TestEncoderComplianceSILK(t *testing.T) {
-	if !checkOpusdecAvailableEncoder() {
-		t.Skip("opusdec not found in PATH")
-	}
 	logEncoderComplianceStatus(t)
 
 	tests := []struct {
@@ -129,9 +124,6 @@ func TestEncoderComplianceSILK(t *testing.T) {
 
 // TestEncoderComplianceHybrid tests Hybrid mode encoding.
 func TestEncoderComplianceHybrid(t *testing.T) {
-	if !checkOpusdecAvailableEncoder() {
-		t.Skip("opusdec not found in PATH")
-	}
 	logEncoderComplianceStatus(t)
 
 	tests := []struct {
@@ -157,9 +149,6 @@ func TestEncoderComplianceHybrid(t *testing.T) {
 
 // TestEncoderComplianceBitrates tests encoding at various bitrate targets.
 func TestEncoderComplianceBitrates(t *testing.T) {
-	if !checkOpusdecAvailableEncoder() {
-		t.Skip("opusdec not found in PATH")
-	}
 	logEncoderComplianceStatus(t)
 
 	bitrates := []int{32000, 64000, 128000, 256000}
@@ -173,9 +162,6 @@ func TestEncoderComplianceBitrates(t *testing.T) {
 
 // TestEncoderComplianceSummary runs all configurations and outputs a summary table.
 func TestEncoderComplianceSummary(t *testing.T) {
-	if !checkOpusdecAvailableEncoder() {
-		t.Skip("opusdec not found in PATH")
-	}
 	logEncoderComplianceStatus(t)
 
 	type testCase struct {
@@ -359,21 +345,9 @@ func runEncoderComplianceTest(t *testing.T, mode encoder.Mode, bandwidth types.B
 		packets[i] = packetCopy
 	}
 
-	// Write to Ogg Opus container
-	var oggBuf bytes.Buffer
-	err := writeOggOpusEncoder(&oggBuf, packets, channels, 48000, frameSize)
+	decoded, err := decodeCompliancePackets(packets, channels, frameSize)
 	if err != nil {
-		t.Fatalf("writeOggOpus failed: %v", err)
-	}
-
-	// Decode with opusdec
-	decoded, err = decodeWithOpusdec(oggBuf.Bytes())
-	if err != nil {
-		// Check for macOS provenance issues
-		if err.Error() == "opusdec blocked by macOS provenance" {
-			t.Skip("opusdec blocked by macOS provenance - skipping")
-		}
-		t.Fatalf("decodeWithOpusdec failed: %v", err)
+		t.Fatalf("decode reference failed: %v", err)
 	}
 
 	if len(decoded) == 0 {
@@ -418,6 +392,59 @@ func runLibopusComplianceReferenceTest(t *testing.T, mode encoder.Mode, bandwidt
 		}
 	}
 	return 0, nil, false
+}
+
+func decodeCompliancePackets(packets [][]byte, channels, frameSize int) ([]float32, error) {
+	// Prefer libopus CLI decode when available to preserve historical compliance semantics.
+	if checkOpusdecAvailableEncoder() {
+		var oggBuf bytes.Buffer
+		if err := writeOggOpusEncoder(&oggBuf, packets, channels, 48000, frameSize); err != nil {
+			return nil, fmt.Errorf("write ogg opus: %w", err)
+		}
+		decoded, err := decodeWithOpusdec(oggBuf.Bytes())
+		if err == nil {
+			return decoded, nil
+		}
+		// If opusdec exists but is blocked in this environment (e.g. macOS provenance),
+		// fall back to internal decode rather than skipping the full compliance suite.
+		if err.Error() != "opusdec blocked by macOS provenance" {
+			return nil, err
+		}
+	}
+
+	decoded, err := decodeComplianceWithInternalDecoder(packets, channels)
+	if err != nil {
+		return nil, err
+	}
+	if len(decoded) == 0 {
+		return nil, fmt.Errorf("internal decoder returned no samples")
+	}
+	preSkip := OpusPreSkip * channels
+	if len(decoded) > preSkip {
+		decoded = decoded[preSkip:]
+	}
+	return decoded, nil
+}
+
+func decodeComplianceWithInternalDecoder(packets [][]byte, channels int) ([]float32, error) {
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
+	if err != nil {
+		return nil, fmt.Errorf("create decoder: %w", err)
+	}
+
+	outBuf := make([]float32, 5760*channels)
+	var decoded []float32
+	for i, pkt := range packets {
+		n, err := dec.Decode(pkt, outBuf)
+		if err != nil {
+			return nil, fmt.Errorf("decode frame %d: %w", i, err)
+		}
+		if n == 0 {
+			continue
+		}
+		decoded = append(decoded, outBuf[:n*channels]...)
+	}
+	return decoded, nil
 }
 
 // Test signal generators
