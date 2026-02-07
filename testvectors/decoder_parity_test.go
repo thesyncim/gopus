@@ -1,13 +1,10 @@
 package testvectors
 
 import (
-	"bytes"
 	"math"
 	"testing"
 
 	gopus "github.com/thesyncim/gopus"
-	"github.com/thesyncim/gopus/encoder"
-	"github.com/thesyncim/gopus/types"
 )
 
 func decodeWithInternalDecoder(t *testing.T, packets [][]byte, channels int) []float32 {
@@ -33,10 +30,6 @@ func decodeWithInternalDecoder(t *testing.T, packets [][]byte, channels int) []f
 }
 
 func TestDecoderParitySILKWB(t *testing.T) {
-	if !checkOpusdecAvailableEncoder() {
-		t.Skip("opusdec not found in PATH")
-	}
-
 	const (
 		sampleRate = 48000
 		channels   = 1
@@ -44,58 +37,48 @@ func TestDecoderParitySILKWB(t *testing.T) {
 		bitrate    = 32000
 	)
 
-	// Generate 1 second of test signal.
-	numFrames := sampleRate / frameSize
-	totalSamples := numFrames * frameSize * channels
-	original := generateEncoderTestSignal(totalSamples, channels)
-
-	// Encode with gopus.
-	enc := encoder.NewEncoder(sampleRate, channels)
-	enc.SetMode(encoder.ModeSILK)
-	enc.SetBandwidth(types.BandwidthWideband)
-	enc.SetBitrate(bitrate)
-
-	packets := make([][]byte, 0, numFrames)
-	samplesPerFrame := frameSize * channels
-	for i := 0; i < numFrames; i++ {
-		start := i * samplesPerFrame
-		end := start + samplesPerFrame
-		pcm := float32ToFloat64(original[start:end])
-		packet, err := enc.Encode(pcm, frameSize)
-		if err != nil {
-			t.Fatalf("encode frame %d failed: %v", i, err)
-		}
-		packetCopy := make([]byte, len(packet))
-		copy(packetCopy, packet)
-		packets = append(packets, packetCopy)
+	libPackets, packetMeta, err := loadSILKWBFloatPacketFixturePackets()
+	if err != nil {
+		t.Fatalf("load SILK WB packet fixture: %v", err)
+	}
+	if packetMeta.Version != 1 ||
+		packetMeta.SampleRate != sampleRate ||
+		packetMeta.Channels != channels ||
+		packetMeta.FrameSize != frameSize ||
+		packetMeta.Bitrate != bitrate {
+		t.Fatalf("invalid SILK WB packet fixture metadata: %+v", packetMeta)
+	}
+	if packetMeta.Frames != len(libPackets) {
+		t.Fatalf("invalid SILK WB packet fixture frame count: header=%d packets=%d", packetMeta.Frames, len(libPackets))
 	}
 
-	// Decode with opusdec (libopus) via Ogg container.
-	oggBuf, err := buildOggForPackets(packets, channels, sampleRate, frameSize)
-	if err != nil {
-		t.Fatalf("build Ogg: %v", err)
+	packets := make([][]byte, len(libPackets))
+	for i := range libPackets {
+		packets[i] = libPackets[i].data
 	}
-	libDecoded, err := decodeWithOpusdec(oggBuf.Bytes())
+
+	libDecoded, decodedMeta, err := loadSILKWBFloatDecodedFixtureSamples()
 	if err != nil {
-		if err.Error() == "opusdec blocked by macOS provenance" {
-			t.Skip("opusdec blocked by macOS provenance - skipping")
-		}
-		t.Fatalf("decode with opusdec: %v", err)
+		t.Fatalf("load SILK WB decoded fixture: %v", err)
+	}
+	if decodedMeta.Version != 1 ||
+		decodedMeta.SampleRate != sampleRate ||
+		decodedMeta.Channels != channels ||
+		decodedMeta.FrameSize != frameSize ||
+		decodedMeta.Bitrate != bitrate {
+		t.Fatalf("invalid SILK WB decoded fixture metadata: %+v", decodedMeta)
+	}
+	if decodedMeta.Frames != len(libPackets) {
+		t.Fatalf("decoded fixture frame count mismatch: packets=%d decodedFrames=%d", len(libPackets), decodedMeta.Frames)
 	}
 	if len(libDecoded) == 0 {
-		t.Fatal("opusdec returned no samples")
+		t.Fatal("decoded fixture contains no samples")
 	}
 
 	// Decode with internal decoder.
 	internalDecoded := decodeWithInternalDecoder(t, packets, channels)
 	if len(internalDecoded) == 0 {
 		t.Fatal("internal decoder returned no samples")
-	}
-
-	// Apply the same pre-skip to internal decode for parity.
-	preSkip := OpusPreSkip * channels
-	if len(internalDecoded) > preSkip {
-		internalDecoded = internalDecoded[preSkip:]
 	}
 
 	// Align lengths and compute quality between decoders.
@@ -141,12 +124,4 @@ func TestDecoderParitySILKWB(t *testing.T) {
 		}
 		t.Logf("decoder parity stats: corr=%.4f rms(lib)=%.4f rms(int)=%.4f ratio=%.4f", corr, rmsLib, rmsInt, ratio)
 	}
-}
-
-func buildOggForPackets(packets [][]byte, channels, sampleRate, frameSize int) (*bytes.Buffer, error) {
-	var oggBuf bytes.Buffer
-	if err := writeOggOpusEncoder(&oggBuf, packets, channels, sampleRate, frameSize); err != nil {
-		return nil, err
-	}
-	return &oggBuf, nil
 }
