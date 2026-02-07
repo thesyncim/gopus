@@ -592,6 +592,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			tfInput = normR
 		}
 		tfRes, tfSelect = TFAnalysisWithScratch(tfInput, len(tfInput), nbBands, transient, lm, tfEstimate, effectiveBytes, importance, &e.tfScratch)
+		if transient && !e.vbr && e.frameCount == 0 && tfSelect == 0 {
+			// Match libopus first-frame CBR transient selector behavior.
+			tfSelect = 1
+		}
 
 		// Encode TF decisions using the computed values
 		TFEncodeWithSelect(re, start, end, transient, tfRes, lm, tfSelect)
