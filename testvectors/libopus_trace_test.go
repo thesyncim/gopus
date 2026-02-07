@@ -353,15 +353,28 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 		}
 	}
 
-	// Encode with libopus via CGO float path (opus_encode_float, restricted-silk application).
-	// This matches gopus's float input path exactly, unlike opus_demo -16 which uses
-	// int16 input (different lsb_depth, float precision).
-	cgoPackets := encodeWithLibopusFloat(original, sampleRate, channels, bitrate, frameSize, 2052 /* OPUS_APPLICATION_RESTRICTED_SILK */)
-	if len(cgoPackets) == 0 {
-		t.Skip("libopus reference encoder unavailable")
+	fixturePackets, fixtureMeta, err := loadSILKWBFloatPacketFixturePackets()
+	if err != nil {
+		t.Fatalf("load SILK WB libopus float fixture: %v", err)
 	}
-	libPackets := make([][]byte, len(cgoPackets))
-	for i, p := range cgoPackets {
+	if fixtureMeta.Version != 1 ||
+		fixtureMeta.SampleRate != sampleRate ||
+		fixtureMeta.Channels != channels ||
+		fixtureMeta.FrameSize != frameSize ||
+		fixtureMeta.Bitrate != bitrate {
+		t.Fatalf("invalid SILK WB fixture metadata: %+v", fixtureMeta)
+	}
+	if fixtureMeta.Frames != len(fixturePackets) {
+		t.Fatalf("invalid SILK WB fixture frame count: header=%d packets=%d", fixtureMeta.Frames, len(fixturePackets))
+	}
+	if len(fixturePackets) == 0 {
+		t.Fatal("SILK WB fixture contains no packets")
+	}
+
+	t.Logf("using SILK WB libopus float fixture: %d packets", len(fixturePackets))
+
+	libPackets := make([][]byte, len(fixturePackets))
+	for i, p := range fixturePackets {
 		libPackets[i] = p.data
 	}
 
