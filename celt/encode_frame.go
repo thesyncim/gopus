@@ -800,7 +800,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			trimBoost++
 		}
 		if dualStereo {
-			trimBoost += 3
+			trimBoost += 4
 		}
 		if trimBoost > 0 {
 			allocTrim += trimBoost
