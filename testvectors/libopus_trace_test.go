@@ -351,7 +351,7 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 		}
 	}
 	if firstPktSizeDiffFrame == -1 {
-		t.Log("All packet sizes match between gopus and libopus (float CGO)")
+		t.Log("All packet sizes match between gopus and libopus fixture")
 	}
 	// Log packet sizes for first 10 frames
 	for i := 0; i < compareCount && i < 10; i++ {
@@ -1295,10 +1295,10 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 	if prePitchWinHashDiff > 2 {
 		t.Fatalf("pre-state pitch window hash mismatches regressed: got %d/%d, want <= 2", prePitchWinHashDiff, compareCount)
 	}
-	// Regression guard: with CGO float restricted-silk encoding, gain indices
+	// Regression guard: with restricted-silk float fixture packets, gain indices
 	// should match exactly (no GainsID mismatch) for this canonical WB signal.
 	if firstGainsIDMismatchFrame >= 0 {
-		t.Errorf("unexpected GainsID mismatch at frame %d (expect no gain mismatches with float CGO comparison)", firstGainsIDMismatchFrame)
+		t.Errorf("unexpected GainsID mismatch at frame %d (expect no gain mismatches with fixture comparison)", firstGainsIDMismatchFrame)
 	}
 	// Keep tiny tolerance for rare 1-LSB trace noise while enforcing near-exact parity.
 	if seedDiff > 2 {

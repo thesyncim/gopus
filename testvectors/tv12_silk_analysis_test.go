@@ -270,7 +270,7 @@ func analyzePacketWithFreshDecoder(t *testing.T, packets []Packet, reference []i
 	}
 }
 
-// TestTV12LibopusComparison decodes TV12 using libopus via CGO and compares
+// TestTV12CheckPacketContent inspects TV12 packet content for diagnostic analysis.
 func TestTV12CheckPacketContent(t *testing.T) {
 	if err := ensureTestVectors(t); err != nil {
 		t.Skipf("Skipping: %v", err)
