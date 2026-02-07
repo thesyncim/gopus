@@ -195,9 +195,12 @@ func TestEncoderComplianceSummary(t *testing.T) {
 		// SILK
 		{"SILK-NB-10ms-mono-16k", encoder.ModeSILK, types.BandwidthNarrowband, 480, 1, 16000},
 		{"SILK-NB-20ms-mono-16k", encoder.ModeSILK, types.BandwidthNarrowband, 960, 1, 16000},
+		{"SILK-NB-40ms-mono-16k", encoder.ModeSILK, types.BandwidthNarrowband, 1920, 1, 16000},
 		{"SILK-MB-20ms-mono-24k", encoder.ModeSILK, types.BandwidthMediumband, 960, 1, 24000},
 		{"SILK-WB-10ms-mono-32k", encoder.ModeSILK, types.BandwidthWideband, 480, 1, 32000},
 		{"SILK-WB-20ms-mono-32k", encoder.ModeSILK, types.BandwidthWideband, 960, 1, 32000},
+		{"SILK-WB-40ms-mono-32k", encoder.ModeSILK, types.BandwidthWideband, 1920, 1, 32000},
+		{"SILK-WB-60ms-mono-32k", encoder.ModeSILK, types.BandwidthWideband, 2880, 1, 32000},
 		{"SILK-WB-20ms-stereo-48k", encoder.ModeSILK, types.BandwidthWideband, 960, 2, 48000},
 		// Hybrid
 		{"Hybrid-SWB-10ms-mono-48k", encoder.ModeHybrid, types.BandwidthSuperwideband, 480, 1, 48000},
