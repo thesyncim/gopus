@@ -184,6 +184,21 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 	if len(frame8kHz) > frameLength8kHz {
 		frame8kHz = frame8kHz[:frameLength8kHz]
 	}
+	// Match libopus pitch_analysis_core_FLP.c: at Fs=8 kHz the stage-2 search
+	// uses the original float input "frame" (not the int16-roundtrip frame_8kHz).
+	// This avoids extra quantization in NB mode.
+	stage2Frame := frame8kHz
+	if fsKHz == 8 {
+		stage2Len := frameLength8kHz
+		if stage2Len > len(pcm) {
+			stage2Len = len(pcm)
+		}
+		if stage2Len > 0 {
+			stage2Frame = pcm[:stage2Len]
+		} else {
+			stage2Frame = nil
+		}
+	}
 
 	// Decimate to 4kHz using down2
 	frame4Fix := ensureInt16Slice(&e.scratchFrame4Fix, len(frame8Fix)/2)
@@ -440,16 +455,16 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 	targetStart8k := peLTPMemLengthMS * 8
 	targetIdx := targetStart8k
 	for k := 0; k < numSubframes; k++ {
-		if targetIdx+sfLength8kHz > len(frame8kHz) {
+		if targetIdx+sfLength8kHz > len(stage2Frame) {
 			break
 		}
-		target := frame8kHz[targetIdx : targetIdx+sfLength8kHz]
+		target := stage2Frame[targetIdx : targetIdx+sfLength8kHz]
 		energyTmp := energyFLP(target) + 1.0
 		for j := 0; j < lengthDComp; j++ {
 			d := int(dCompLags[j])
 			basisIdx := targetIdx - d
-			if basisIdx >= 0 && basisIdx+sfLength8kHz <= len(frame8kHz) {
-				basis := frame8kHz[basisIdx : basisIdx+sfLength8kHz]
+			if basisIdx >= 0 && basisIdx+sfLength8kHz <= len(stage2Frame) {
+				basis := stage2Frame[basisIdx : basisIdx+sfLength8kHz]
 				xcorr := innerProductFLP(basis, target, sfLength8kHz)
 				if xcorr > 0 {
 					energy := energyFLP(basis)
@@ -668,6 +683,8 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 			var cbOffset int8
 			if lagCBPtr != nil && k < peMaxNbSubfr && CBimax < cbkSize {
 				cbOffset = lagCBPtr[k][CBimax]
+			} else if lagCBPtr10ms != nil && k < 2 && CBimax < cbkSize {
+				cbOffset = lagCBPtr10ms[k][CBimax]
 			}
 			pitchLags[k] = lag + int(cbOffset)
 

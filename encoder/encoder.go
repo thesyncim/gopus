@@ -8,6 +8,7 @@ package encoder
 
 import (
 	"errors"
+	"math"
 
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/silk"
@@ -572,6 +573,20 @@ func trimSilkTrailingZeros(frameData []byte) []byte {
 	return frameData
 }
 
+func quantizeFloat32ToInt16InPlace(samples []float32) {
+	const scale = float32(32768.0)
+	const invScale = float32(1.0 / 32768.0)
+	for i, v := range samples {
+		scaled := float64(v * scale)
+		if scaled > 32767.0 {
+			scaled = 32767.0
+		} else if scaled < -32768.0 {
+			scaled = -32768.0
+		}
+		samples[i] = float32(math.RoundToEven(scaled)) * invScale
+	}
+}
+
 func (e *Encoder) ensureDelayedPCM(size int) []float64 {
 	if cap(e.scratchDelayedPCM) < size {
 		e.scratchDelayedPCM = make([]float64, size)
@@ -872,6 +887,10 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 			lookahead32[i] = float32(v)
 		}
 	}
+	// Match libopus enc_API.c float path: quantize to int16 precision
+	// before SILK resampling/input buffering.
+	quantizeFloat32ToInt16InPlace(pcm32)
+	quantizeFloat32ToInt16InPlace(lookahead32)
 
 	cfg := silk.GetBandwidthConfig(e.silkBandwidth())
 	targetRate := cfg.SampleRate

@@ -208,6 +208,7 @@ static int test_capture_opus_silk_encoder_state(
     int sample_rate,
     int channels,
     int bitrate,
+    int bandwidth,
     int frame_size,
     int frame_index,
     int capture_before,
@@ -223,7 +224,10 @@ static int test_capture_opus_silk_encoder_state(
     }
 
     opus_encoder_ctl(enc, OPUS_SET_BITRATE(bitrate));
-    opus_encoder_ctl(enc, OPUS_SET_BANDWIDTH(OPUS_BANDWIDTH_WIDEBAND));
+    if (opus_encoder_ctl(enc, OPUS_SET_BANDWIDTH(bandwidth)) != OPUS_OK) {
+        opus_encoder_destroy(enc);
+        return -5;
+    }
     opus_encoder_ctl(enc, OPUS_SET_COMPLEXITY(10));
     opus_encoder_ctl(enc, OPUS_SET_INBAND_FEC(0));
     opus_encoder_ctl(enc, OPUS_SET_DTX(0));
@@ -303,6 +307,7 @@ static int test_capture_opus_silk_pitch_xbuf(
     int sample_rate,
     int channels,
     int bitrate,
+    int bandwidth,
     int frame_size,
     int frame_index,
     int capture_before,
@@ -320,7 +325,10 @@ static int test_capture_opus_silk_pitch_xbuf(
     }
 
     opus_encoder_ctl(enc, OPUS_SET_BITRATE(bitrate));
-    opus_encoder_ctl(enc, OPUS_SET_BANDWIDTH(OPUS_BANDWIDTH_WIDEBAND));
+    if (opus_encoder_ctl(enc, OPUS_SET_BANDWIDTH(bandwidth)) != OPUS_OK) {
+        opus_encoder_destroy(enc);
+        return -5;
+    }
     opus_encoder_ctl(enc, OPUS_SET_COMPLEXITY(10));
     opus_encoder_ctl(enc, OPUS_SET_INBAND_FEC(0));
     opus_encoder_ctl(enc, OPUS_SET_DTX(0));
@@ -429,16 +437,28 @@ type OpusSilkEncoderStateSnapshot struct {
 // CaptureOpusSilkEncoderStateAtFrame captures internal SILK encoder state from
 // libopus top-level Opus encoder after encoding the specified frame index.
 func CaptureOpusSilkEncoderStateAtFrame(samples []float32, sampleRate, channels, bitrate, frameSize, frameIndex int) (OpusSilkEncoderStateSnapshot, bool) {
-	return captureOpusSilkEncoderStateAtFrame(samples, sampleRate, channels, bitrate, frameSize, frameIndex, false)
+	return captureOpusSilkEncoderStateAtFrame(samples, sampleRate, channels, bitrate, OpusBandwidthWideband, frameSize, frameIndex, false)
 }
 
 // CaptureOpusSilkEncoderStateBeforeFrame captures internal SILK encoder state from
 // libopus top-level Opus encoder before encoding the specified frame index.
 func CaptureOpusSilkEncoderStateBeforeFrame(samples []float32, sampleRate, channels, bitrate, frameSize, frameIndex int) (OpusSilkEncoderStateSnapshot, bool) {
-	return captureOpusSilkEncoderStateAtFrame(samples, sampleRate, channels, bitrate, frameSize, frameIndex, true)
+	return captureOpusSilkEncoderStateAtFrame(samples, sampleRate, channels, bitrate, OpusBandwidthWideband, frameSize, frameIndex, true)
 }
 
-func captureOpusSilkEncoderStateAtFrame(samples []float32, sampleRate, channels, bitrate, frameSize, frameIndex int, before bool) (OpusSilkEncoderStateSnapshot, bool) {
+// CaptureOpusSilkEncoderStateAtFrameWithBandwidth captures state after the specified
+// frame index while forcing a specific Opus bandwidth.
+func CaptureOpusSilkEncoderStateAtFrameWithBandwidth(samples []float32, sampleRate, channels, bitrate, bandwidth, frameSize, frameIndex int) (OpusSilkEncoderStateSnapshot, bool) {
+	return captureOpusSilkEncoderStateAtFrame(samples, sampleRate, channels, bitrate, bandwidth, frameSize, frameIndex, false)
+}
+
+// CaptureOpusSilkEncoderStateBeforeFrameWithBandwidth captures state before the
+// specified frame index while forcing a specific Opus bandwidth.
+func CaptureOpusSilkEncoderStateBeforeFrameWithBandwidth(samples []float32, sampleRate, channels, bitrate, bandwidth, frameSize, frameIndex int) (OpusSilkEncoderStateSnapshot, bool) {
+	return captureOpusSilkEncoderStateAtFrame(samples, sampleRate, channels, bitrate, bandwidth, frameSize, frameIndex, true)
+}
+
+func captureOpusSilkEncoderStateAtFrame(samples []float32, sampleRate, channels, bitrate, bandwidth, frameSize, frameIndex int, before bool) (OpusSilkEncoderStateSnapshot, bool) {
 	if len(samples) == 0 || frameSize <= 0 || channels <= 0 || frameIndex < 0 {
 		return OpusSilkEncoderStateSnapshot{}, false
 	}
@@ -453,6 +473,7 @@ func captureOpusSilkEncoderStateAtFrame(samples []float32, sampleRate, channels,
 		C.int(sampleRate),
 		C.int(channels),
 		C.int(bitrate),
+		C.int(bandwidth),
 		C.int(frameSize),
 		C.int(frameIndex),
 		captureBefore,
@@ -540,10 +561,16 @@ func captureOpusSilkEncoderStateAtFrame(samples []float32, sampleRate, channels,
 // CaptureOpusSilkPitchXBufBeforeFrame captures the internal libopus x_buf
 // immediately before encoding the specified frame index.
 func CaptureOpusSilkPitchXBufBeforeFrame(samples []float32, sampleRate, channels, bitrate, frameSize, frameIndex int) ([]float32, bool) {
-	return captureOpusSilkPitchXBufAtFrame(samples, sampleRate, channels, bitrate, frameSize, frameIndex, true)
+	return captureOpusSilkPitchXBufAtFrame(samples, sampleRate, channels, bitrate, OpusBandwidthWideband, frameSize, frameIndex, true)
 }
 
-func captureOpusSilkPitchXBufAtFrame(samples []float32, sampleRate, channels, bitrate, frameSize, frameIndex int, before bool) ([]float32, bool) {
+// CaptureOpusSilkPitchXBufBeforeFrameWithBandwidth captures x_buf before the
+// specified frame index while forcing a specific Opus bandwidth.
+func CaptureOpusSilkPitchXBufBeforeFrameWithBandwidth(samples []float32, sampleRate, channels, bitrate, bandwidth, frameSize, frameIndex int) ([]float32, bool) {
+	return captureOpusSilkPitchXBufAtFrame(samples, sampleRate, channels, bitrate, bandwidth, frameSize, frameIndex, true)
+}
+
+func captureOpusSilkPitchXBufAtFrame(samples []float32, sampleRate, channels, bitrate, bandwidth, frameSize, frameIndex int, before bool) ([]float32, bool) {
 	if len(samples) == 0 || frameSize <= 0 || channels <= 0 || frameIndex < 0 {
 		return nil, false
 	}
@@ -559,6 +586,7 @@ func captureOpusSilkPitchXBufAtFrame(samples []float32, sampleRate, channels, bi
 		C.int(sampleRate),
 		C.int(channels),
 		C.int(bitrate),
+		C.int(bandwidth),
 		C.int(frameSize),
 		C.int(frameIndex),
 		captureBefore,
@@ -579,6 +607,7 @@ func captureOpusSilkPitchXBufAtFrame(samples []float32, sampleRate, channels, bi
 		C.int(sampleRate),
 		C.int(channels),
 		C.int(bitrate),
+		C.int(bandwidth),
 		C.int(frameSize),
 		C.int(frameIndex),
 		captureBefore,

@@ -16,8 +16,16 @@ func captureLibopusOpusSilkStateBeforeFrame(samples []float32, sampleRate, chann
 	return cgowrap.CaptureOpusSilkEncoderStateBeforeFrame(samples, sampleRate, channels, bitrate, frameSize, frameIndex)
 }
 
+func captureLibopusOpusSilkStateBeforeFrameWithBandwidth(samples []float32, sampleRate, channels, bitrate, bandwidth, frameSize, frameIndex int) (libopusOpusStateSnapshot, bool) {
+	return cgowrap.CaptureOpusSilkEncoderStateBeforeFrameWithBandwidth(samples, sampleRate, channels, bitrate, bandwidth, frameSize, frameIndex)
+}
+
 func captureLibopusOpusPitchXBufBeforeFrame(samples []float32, sampleRate, channels, bitrate, frameSize, frameIndex int) ([]float32, bool) {
 	return cgowrap.CaptureOpusSilkPitchXBufBeforeFrame(samples, sampleRate, channels, bitrate, frameSize, frameIndex)
+}
+
+func captureLibopusOpusPitchXBufBeforeFrameWithBandwidth(samples []float32, sampleRate, channels, bitrate, bandwidth, frameSize, frameIndex int) ([]float32, bool) {
+	return cgowrap.CaptureOpusSilkPitchXBufBeforeFrameWithBandwidth(samples, sampleRate, channels, bitrate, bandwidth, frameSize, frameIndex)
 }
 
 func captureLibopusOpusNSQStateBeforeFrame(samples []float32, sampleRate, channels, bitrate, frameSize, frameIndex int) (libopusOpusNSQStateSnapshot, bool) {
