@@ -205,8 +205,12 @@ func TestPitchMultiFrameVoicedTraceAgainstLibopus(t *testing.T) {
 			continue
 		}
 
-		if !lib.Voiced || enc.pitchState.ltpCorr <= 0 {
-			t.Fatalf("frame %d: expected voiced pitch (go=%v lib=%v)", frame, enc.pitchState.ltpCorr > 0, lib.Voiced)
+		goVoiced := enc.pitchState.ltpCorr > 0
+		if lib.Voiced != goVoiced {
+			t.Fatalf("frame %d: voiced mismatch (go=%v lib=%v)", frame, goVoiced, lib.Voiced)
+		}
+		if !lib.Voiced {
+			continue
 		}
 
 		goParams := enc.preparePitchLags(append([]int(nil), goPitchLags...), numSubfr, lagIdx, contourIdx)

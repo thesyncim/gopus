@@ -19,6 +19,12 @@ const DelayCompensation = 192
 // for internal processing, matching libopus CELT_SIG_SCALE.
 const CELTSigScale = 32768.0
 
+// noFMA32Mul forces float32 multiplication with an intermediate rounding step.
+// This matches libopus float paths that perform mul and add/sub as separate ops.
+func noFMA32Mul(a, b float32) float32 {
+	return float32(float64(a) * float64(b))
+}
+
 // ApplyPreemphasis applies the pre-emphasis filter to PCM input samples.
 // Pre-emphasis boosts high frequencies to improve coding efficiency.
 //
@@ -128,7 +134,7 @@ func (e *Encoder) applyPreemphasisWithScalingCore(pcm, output []float64) {
 			// Scale input to signal scale and apply pre-emphasis
 			// Match libopus float math: cast to float32 before scaling.
 			scaled := float32(pcm[i]) * float32(CELTSigScale)
-			output[i] = float64(scaled - coef*state)
+			output[i] = float64(scaled - noFMA32Mul(coef, state))
 			state = scaled
 		}
 		e.preemphState[0] = float64(state)
@@ -140,12 +146,12 @@ func (e *Encoder) applyPreemphasisWithScalingCore(pcm, output []float64) {
 		for i := 0; i < len(pcm)-1; i += 2 {
 			// Left channel
 			scaledL := float32(pcm[i]) * float32(CELTSigScale)
-			output[i] = float64(scaledL - coef*stateL)
+			output[i] = float64(scaledL - noFMA32Mul(coef, stateL))
 			stateL = scaledL
 
 			// Right channel
 			scaledR := float32(pcm[i+1]) * float32(CELTSigScale)
-			output[i+1] = float64(scaledR - coef*stateR)
+			output[i+1] = float64(scaledR - noFMA32Mul(coef, stateR))
 			stateR = scaledR
 		}
 

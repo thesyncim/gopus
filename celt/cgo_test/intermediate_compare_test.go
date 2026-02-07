@@ -46,7 +46,7 @@ func TestIntermediateValuesComparison(t *testing.T) {
 	gopusPreemph := enc.ApplyPreemphasisWithScaling(pcm)
 
 	// Libopus pre-emphasis
-	libPreemph := ApplyLibopusPreemphasis(pcmF32, 0.85)
+	libPreemph := ApplyLibopusPreemphasis(pcmF32, float32(celt.PreemphCoef))
 
 	t.Log("Pre-emphasis comparison (first 10 samples):")
 	t.Log("Sample | Gopus       | Libopus     | Diff")
@@ -130,7 +130,7 @@ func TestPreemphasisOnly(t *testing.T) {
 	gopus := enc.ApplyPreemphasisWithScaling(pcm)
 
 	// Libopus pre-emphasis
-	libopus := ApplyLibopusPreemphasis(pcmF32, 0.85)
+	libopus := ApplyLibopusPreemphasis(pcmF32, float32(celt.PreemphCoef))
 
 	// Also compute manual reference
 	manual := make([]float64, frameSize)

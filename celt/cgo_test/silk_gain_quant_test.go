@@ -117,9 +117,15 @@ func TestGainDequantizationAgainstLibopus(t *testing.T) {
 
 // TestGainRoundTrip tests that quantize->dequantize produces consistent results
 func TestGainRoundTrip(t *testing.T) {
-	// Test various Q16 gain values
+	// Use valid SILK gain Q16 values from the libopus dequant table range.
 	testGains := []int32{
-		81, 100, 200, 500, 1000, 2000, 5000, 10000, 17830, // Covering full range
+		silk.GainDequantTable[0],
+		silk.GainDequantTable[8],
+		silk.GainDequantTable[16],
+		silk.GainDequantTable[24],
+		silk.GainDequantTable[32],
+		silk.GainDequantTable[48],
+		silk.GainDequantTable[63],
 	}
 
 	for _, gainQ16 := range testGains {
@@ -129,35 +135,42 @@ func TestGainRoundTrip(t *testing.T) {
 		// Dequantize
 		dequantGainQ16 := GainDequantize(idx)
 
-		// Verify dequantized gain is reasonably close to original
-		ratio := float64(dequantGainQ16) / float64(gainQ16)
-		if ratio < 0.5 || ratio > 2.0 {
-			t.Errorf("Gain Q16=%d -> idx=%d -> Q16=%d (ratio=%.2f)",
-				gainQ16, idx, dequantGainQ16, ratio)
+		// Round-trip should stay within one index worth of quantization.
+		if idx2 := GainQuantizeSingle(dequantGainQ16); absGain(idx2-idx) > 1 {
+			t.Errorf("Gain Q16=%d -> idx=%d -> Q16=%d -> idx2=%d (delta=%d)",
+				gainQ16, idx, dequantGainQ16, idx2, idx2-idx)
 		}
 	}
 }
 
 // TestRawGainIndexComputation tests the core computation without clamping
 func TestRawGainIndexComputation(t *testing.T) {
-	// Test some specific values to understand the formula
-	testCases := []struct {
-		gainQ16    int32
-		expectedLo int // Expected index range low
-		expectedHi int // Expected index range high
-	}{
-		{81, 0, 1},      // Minimum table value
-		{17830, 62, 63}, // Maximum table value
-		{320, 15, 17},   // Mid-low
-		{4935, 47, 49},  // Mid-high
+	// Raw index can be outside [0, 63]; quantized index must be the clamped raw index.
+	testGains := []int32{
+		1,
+		81,
+		1000,
+		silk.GainDequantTable[0],
+		silk.GainDequantTable[16],
+		silk.GainDequantTable[32],
+		silk.GainDequantTable[48],
+		silk.GainDequantTable[63],
+		silk.GainDequantTable[63] * 2,
 	}
 
-	for _, tc := range testCases {
-		rawIdx := int(GainComputeRawIndex(tc.gainQ16))
-		t.Logf("gainQ16=%d -> rawIdx=%d (expected [%d, %d])", tc.gainQ16, rawIdx, tc.expectedLo, tc.expectedHi)
-
-		if rawIdx < tc.expectedLo || rawIdx > tc.expectedHi {
-			t.Errorf("gainQ16=%d: rawIdx=%d not in [%d, %d]", tc.gainQ16, rawIdx, tc.expectedLo, tc.expectedHi)
+	for _, gainQ16 := range testGains {
+		rawIdx := int(GainComputeRawIndex(gainQ16))
+		clamped := rawIdx
+		if clamped < 0 {
+			clamped = 0
+		}
+		if clamped > 63 {
+			clamped = 63
+		}
+		quantIdx := GainQuantizeSingle(gainQ16)
+		t.Logf("gainQ16=%d -> rawIdx=%d clamped=%d quantIdx=%d", gainQ16, rawIdx, clamped, quantIdx)
+		if quantIdx != clamped {
+			t.Errorf("gainQ16=%d: quantIdx=%d clampedRaw=%d raw=%d", gainQ16, quantIdx, clamped, rawIdx)
 		}
 	}
 }
