@@ -68,6 +68,11 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		tr.SNRDBQ7 = e.snrDBQ7
 		tr.NBitsExceeded = e.nBitsExceeded
 		tr.NFramesPerPacket = preResetNFramesPerPacket
+		if firstFrameAfterReset {
+			// libopus pre-frame snapshot sees packet state before first control,
+			// where nFramesPerPacket is still zero-initialized.
+			tr.NFramesPerPacket = 0
+		}
 		tr.NFramesEncoded = preResetNFramesEncoded
 		tr.PrevLag = e.pitchState.prevLag
 		tr.PrevSignalType = e.ecPrevSignalType
