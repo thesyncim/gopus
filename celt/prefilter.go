@@ -33,6 +33,20 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 
 	maxPeriod := combFilterMaxPeriod
 	minPeriod := combFilterMinPeriod
+	prevPeriod := e.prefilterPeriod
+	if prevPeriod < minPeriod {
+		prevPeriod = minPeriod
+	}
+	if prevPeriod > maxPeriod-2 {
+		prevPeriod = maxPeriod - 2
+	}
+	prevTapset := e.prefilterTapset
+	if prevTapset < 0 {
+		prevTapset = 0
+	}
+	if prevTapset >= len(combFilterGains) {
+		prevTapset = len(combFilterGains) - 1
+	}
 	perChanLen := maxPeriod + frameSize
 	pre := ensureFloat64Slice(&e.scratch.prefilterPre, perChanLen*channels)
 	out := ensureFloat64Slice(&e.scratch.prefilterOut, perChanLen*channels)
@@ -172,9 +186,9 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			before[ch] += math.Abs(preCh[maxPeriod+i])
 		}
 		if offset > 0 {
-			combFilterWithInput(outCh, preCh, maxPeriod, e.prefilterPeriod, e.prefilterPeriod, offset, -e.prefilterGain, -e.prefilterGain, e.prefilterTapset, e.prefilterTapset, nil, 0)
+			combFilterWithInput(outCh, preCh, maxPeriod, prevPeriod, prevPeriod, offset, -e.prefilterGain, -e.prefilterGain, prevTapset, prevTapset, nil, 0)
 		}
-		combFilterWithInput(outCh, preCh, maxPeriod+offset, e.prefilterPeriod, pitchIndex, frameSize-offset, -e.prefilterGain, -gain1, e.prefilterTapset, tapset, window, overlap)
+		combFilterWithInput(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, frameSize-offset, -e.prefilterGain, -gain1, prevTapset, tapset, window, overlap)
 		for i := 0; i < frameSize; i++ {
 			after[ch] += math.Abs(outCh[maxPeriod+i])
 		}
@@ -201,7 +215,7 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			preCh := pre[ch*perChanLen : (ch+1)*perChanLen]
 			outCh := out[ch*perChanLen : (ch+1)*perChanLen]
 			copy(outCh[maxPeriod:maxPeriod+frameSize], preCh[maxPeriod:maxPeriod+frameSize])
-			combFilterWithInput(outCh, preCh, maxPeriod+offset, e.prefilterPeriod, pitchIndex, overlap, -e.prefilterGain, -0, e.prefilterTapset, tapset, window, overlap)
+			combFilterWithInput(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, overlap, -e.prefilterGain, -0, prevTapset, tapset, window, overlap)
 		}
 		gain1 = 0
 		pfOn = false
