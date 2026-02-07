@@ -133,16 +133,23 @@ func TestStereoConvertLRToMSFloat(t *testing.T) {
 
 	mid, side := stereoConvertLRToMSFloat(left, right, 2)
 
-	// M[0] = (1.0 + 1.0) / 2 = 1.0
-	// S[0] = (1.0 - 1.0) / 2 = 0.0
-	// M[1] = (0.5 - 0.5) / 2 = 0.0
-	// S[1] = (0.5 + 0.5) / 2 = 0.5
-
-	if math.Abs(float64(mid[0]-1.0)) > 0.001 {
-		t.Errorf("mid[0] = %f, want 1.0", mid[0])
+	// silk_stereo_LR_to_MS semantics: output index n maps to input n-2.
+	// n=0..1 are history slots and filled by caller state afterwards.
+	// n=2 -> input[0], n=3 -> input[1].
+	if math.Abs(float64(mid[0])) > 0.001 || math.Abs(float64(side[0])) > 0.001 {
+		t.Errorf("history slots should be zero before state injection, got mid[0]=%f side[0]=%f", mid[0], side[0])
 	}
-	if math.Abs(float64(side[0])) > 0.001 {
-		t.Errorf("side[0] = %f, want 0.0", side[0])
+	if math.Abs(float64(mid[2]-1.0)) > 0.001 {
+		t.Errorf("mid[2] = %f, want 1.0", mid[2])
+	}
+	if math.Abs(float64(side[2])) > 0.001 {
+		t.Errorf("side[2] = %f, want 0.0", side[2])
+	}
+	if math.Abs(float64(mid[3])) > 0.001 {
+		t.Errorf("mid[3] = %f, want 0.0", mid[3])
+	}
+	if math.Abs(float64(side[3]-0.5)) > 0.001 {
+		t.Errorf("side[3] = %f, want 0.5", side[3])
 	}
 }
 

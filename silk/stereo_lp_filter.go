@@ -68,16 +68,22 @@ func stereoConvertLRToMS(left, right []int16, mid, side []int16, frameLength int
 	}
 }
 
-// stereoConvertLRToMSFloat converts left/right float signals to mid/side.
-// Output arrays have length frameLength+2 to include 2 samples of look-ahead.
+// stereoConvertLRToMSFloat converts left/right float signals to mid/side using
+// the same indexing as libopus silk_stereo_LR_to_MS:
+// mid/side[n] is computed from input[n-2], with n=0..1 supplied by history.
+//
+// Callers provide current-frame samples in left/right (at least frameLength),
+// then overwrite mid/side[0..1] with the stored history state.
+// This avoids a 2-sample shift versus the libopus pointer arithmetic path.
 func stereoConvertLRToMSFloat(left, right []float32, frameLength int) (mid, side []float32) {
 	mid = make([]float32, frameLength+2)
 	side = make([]float32, frameLength+2)
 
 	for n := 0; n < frameLength+2; n++ {
-		if n < len(left) && n < len(right) {
-			mid[n] = (left[n] + right[n]) / 2
-			side[n] = (left[n] - right[n]) / 2
+		src := n - 2
+		if src >= 0 && src < len(left) && src < len(right) {
+			mid[n] = (left[src] + right[src]) / 2
+			side[n] = (left[src] - right[src]) / 2
 		}
 	}
 
