@@ -754,6 +754,9 @@ func (e *Encoder) encodeSILKHybridMono(pcm []float32, lookahead []float32, silkS
 		e.silkEncoder.SetBitrate(totalRateBps)
 	}
 	inputSamples := pcm[:min(len(pcm), silkSamples)]
+	// Match standalone SILK mono buffering: encoder consumes inputBuf+1 with
+	// a 1-sample handoff across frames.
+	inputSamples = e.alignSilkMonoInput(inputSamples)
 	vadFlag := e.computeSilkVAD(inputSamples, len(inputSamples), 16)
 	e.silkEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.lastVADInputQualityBandsQ15)
 	lbrrFlag := false
