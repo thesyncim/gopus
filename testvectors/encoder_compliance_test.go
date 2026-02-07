@@ -193,11 +193,16 @@ func TestEncoderComplianceSummary(t *testing.T) {
 		{"CELT-FB-20ms-stereo-128k", encoder.ModeCELT, types.BandwidthFullband, 960, 2, 128000},
 		{"CELT-FB-10ms-mono-64k", encoder.ModeCELT, types.BandwidthFullband, 480, 1, 64000},
 		// SILK
+		{"SILK-NB-10ms-mono-16k", encoder.ModeSILK, types.BandwidthNarrowband, 480, 1, 16000},
 		{"SILK-NB-20ms-mono-16k", encoder.ModeSILK, types.BandwidthNarrowband, 960, 1, 16000},
+		{"SILK-MB-20ms-mono-24k", encoder.ModeSILK, types.BandwidthMediumband, 960, 1, 24000},
+		{"SILK-WB-10ms-mono-32k", encoder.ModeSILK, types.BandwidthWideband, 480, 1, 32000},
 		{"SILK-WB-20ms-mono-32k", encoder.ModeSILK, types.BandwidthWideband, 960, 1, 32000},
 		{"SILK-WB-20ms-stereo-48k", encoder.ModeSILK, types.BandwidthWideband, 960, 2, 48000},
 		// Hybrid
+		{"Hybrid-SWB-10ms-mono-48k", encoder.ModeHybrid, types.BandwidthSuperwideband, 480, 1, 48000},
 		{"Hybrid-SWB-20ms-mono-48k", encoder.ModeHybrid, types.BandwidthSuperwideband, 960, 1, 48000},
+		{"Hybrid-FB-10ms-mono-64k", encoder.ModeHybrid, types.BandwidthFullband, 480, 1, 64000},
 		{"Hybrid-FB-20ms-mono-64k", encoder.ModeHybrid, types.BandwidthFullband, 960, 1, 64000},
 		{"Hybrid-FB-20ms-stereo-96k", encoder.ModeHybrid, types.BandwidthFullband, 960, 2, 96000},
 	}
