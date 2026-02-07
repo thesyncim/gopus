@@ -34,6 +34,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	// starts (which resets it to 0 inside silk_Encode).  We capture the
 	// pre-reset value here so the FramePre trace matches libopus.
 	preResetNFramesEncoded := e.nFramesEncoded
+	preResetNFramesPerPacket := e.nFramesPerPacket
 	if !useSharedEncoder {
 		e.ResetPacketState()
 		e.nFramesPerPacket = 1
@@ -56,11 +57,17 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		}
 		tr.LastGainIndex = e.previousGainIndex
 		tr.SumLogGainQ7 = e.sumLogGainQ7
+		// Match libopus pre-frame snapshot timing: on the very first frame after
+		// reset, silk_mode.bitRate is still at the init default (25000) before
+		// the Opus-level control path applies the configured bitrate.
 		tr.InputRateBps = e.targetRateBps
+		if firstFrameAfterReset {
+			tr.InputRateBps = 25000
+		}
 		tr.TargetRateBps = e.lastControlTargetRateBps
 		tr.SNRDBQ7 = e.snrDBQ7
 		tr.NBitsExceeded = e.nBitsExceeded
-		tr.NFramesPerPacket = e.nFramesPerPacket
+		tr.NFramesPerPacket = preResetNFramesPerPacket
 		tr.NFramesEncoded = preResetNFramesEncoded
 		tr.PrevLag = e.pitchState.prevLag
 		tr.PrevSignalType = e.ecPrevSignalType
@@ -419,6 +426,11 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		gainTrace.WarpingQ16 = e.warpingQ16
 		gainTrace.NStatesDelayedDecision = e.nStatesDelayedDecision
 		gainTrace.MaxBits = maxBits
+		if firstFrameAfterReset {
+			// libopus pre-frame snapshot still has silk_mode.maxBits at 0 before
+			// the first Opus control pass populates packet budget.
+			gainTrace.MaxBits = 0
+		}
 		gainTrace.UseCBR = e.useCBR
 		gainTrace.ConditionalCoding = condCoding == codeConditionally
 		gainTrace.NumSubframes = numSubframes
