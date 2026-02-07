@@ -1,7 +1,6 @@
 package encoder_test
 
 import (
-	"fmt"
 	"math"
 	"math/rand"
 	"testing"
@@ -390,28 +389,63 @@ func TestInvalidHybridFrameSize(t *testing.T) {
 	}
 }
 
-// TestLargeFrameSizeFallsBackToSILK tests that 40ms/60ms frame sizes produce
-// valid output by falling back to SILK, even when another mode is requested.
-func TestLargeFrameSizeFallsBackToSILK(t *testing.T) {
-	for _, mode := range []encoder.Mode{encoder.ModeAuto, encoder.ModeCELT, encoder.ModeHybrid, encoder.ModeSILK} {
-		for _, frameSize := range []int{1920, 2880} {
-			t.Run(fmt.Sprintf("mode=%d/frameSize=%d", mode, frameSize), func(t *testing.T) {
-				enc := encoder.NewEncoder(48000, 1)
-				enc.SetMode(mode)
-				pcm := make([]float64, frameSize)
-				// Generate a simple signal
-				for i := range pcm {
-					pcm[i] = 0.5 * math.Sin(2*math.Pi*440*float64(i)/48000)
-				}
-				data, err := enc.Encode(pcm, frameSize)
-				if err != nil {
-					t.Fatalf("Encode failed for frameSize=%d mode=%d: %v", frameSize, mode, err)
-				}
-				if len(data) == 0 {
-					t.Fatalf("Encode returned empty packet for frameSize=%d mode=%d", frameSize, mode)
-				}
-			})
-		}
+// TestLargeFrameSizeModeSelectionAndPacketization verifies long-frame behavior:
+// SILK remains single-frame, Hybrid falls back to SILK, and CELT uses code-3
+// multi-frame packetization for 40/60ms packets.
+func TestLargeFrameSizeModeSelectionAndPacketization(t *testing.T) {
+	tests := []struct {
+		name           string
+		mode           encoder.Mode
+		signalType     types.Signal
+		frameSize      int
+		wantMode       gopus.Mode
+		wantFrameCode  uint8
+		wantFrameCount int
+	}{
+		{"silk_40ms", encoder.ModeSILK, types.SignalAuto, 1920, gopus.ModeSILK, 0, 1},
+		{"hybrid_fallback_40ms", encoder.ModeHybrid, types.SignalAuto, 1920, gopus.ModeSILK, 0, 1},
+		{"celt_40ms", encoder.ModeCELT, types.SignalAuto, 1920, gopus.ModeCELT, 3, 2},
+		{"celt_60ms", encoder.ModeCELT, types.SignalAuto, 2880, gopus.ModeCELT, 3, 3},
+		{"auto_music_40ms", encoder.ModeAuto, types.SignalMusic, 1920, gopus.ModeCELT, 3, 2},
+		{"auto_voice_40ms", encoder.ModeAuto, types.SignalVoice, 1920, gopus.ModeSILK, 0, 1},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			enc := encoder.NewEncoder(48000, 1)
+			enc.SetMode(tc.mode)
+			enc.SetSignalType(tc.signalType)
+			enc.SetBandwidth(types.BandwidthFullband)
+
+			pcm := make([]float64, tc.frameSize)
+			for i := range pcm {
+				pcm[i] = 0.5 * math.Sin(2*math.Pi*440*float64(i)/48000)
+			}
+
+			packet, err := enc.Encode(pcm, tc.frameSize)
+			if err != nil {
+				t.Fatalf("Encode failed: %v", err)
+			}
+			if len(packet) == 0 {
+				t.Fatal("Encode returned empty packet")
+			}
+
+			toc := gopus.ParseTOC(packet[0])
+			if toc.Mode != tc.wantMode {
+				t.Fatalf("TOC mode = %v, want %v", toc.Mode, tc.wantMode)
+			}
+			if toc.FrameCode != tc.wantFrameCode {
+				t.Fatalf("TOC frame code = %d, want %d", toc.FrameCode, tc.wantFrameCode)
+			}
+
+			info, err := gopus.ParsePacket(packet)
+			if err != nil {
+				t.Fatalf("ParsePacket failed: %v", err)
+			}
+			if info.FrameCount != tc.wantFrameCount {
+				t.Fatalf("FrameCount = %d, want %d", info.FrameCount, tc.wantFrameCount)
+			}
+		})
 	}
 }
 

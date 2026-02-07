@@ -454,6 +454,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	}
 
 	var frameData []byte
+	var packet []byte
 	var err error
 	switch actualMode {
 	case ModeSILK:
@@ -469,7 +470,11 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		frameData, err = e.encodeHybridFrame(framePCM, celtPCM, lookaheadSlice, frameSize)
 	case ModeCELT:
 		celtPCM := e.applyDelayCompensation(framePCM, frameSize)
-		frameData, err = e.encodeCELTFrame(celtPCM, frameSize)
+		if frameSize > 960 {
+			packet, err = e.encodeCELTMultiFramePacket(celtPCM, frameSize)
+		} else {
+			frameData, err = e.encodeCELTFrame(celtPCM, frameSize)
+		}
 	default:
 		return nil, ErrEncodingFailed
 	}
@@ -477,16 +482,18 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		return nil, err
 	}
 	e.inputBuffer = e.inputBuffer[frameEnd:]
-	stereo := e.channels == 2
-	packetBW := e.effectiveBandwidth()
-	if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
-		packetBW = types.BandwidthWideband
+	if packet == nil {
+		stereo := e.channels == 2
+		packetBW := e.effectiveBandwidth()
+		if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
+			packetBW = types.BandwidthWideband
+		}
+		packetLen, pktErr := BuildPacketInto(e.scratchPacket, frameData, modeToTypes(actualMode), packetBW, frameSize, stereo)
+		if pktErr != nil {
+			return nil, pktErr
+		}
+		packet = e.scratchPacket[:packetLen]
 	}
-	packetLen, err := BuildPacketInto(e.scratchPacket, frameData, modeToTypes(actualMode), packetBW, frameSize, stereo)
-	if err != nil {
-		return nil, err
-	}
-	packet := e.scratchPacket[:packetLen]
 	switch e.bitrateMode {
 	case ModeCBR:
 		packet = padToSize(packet, targetBytesForBitrate(e.bitrate, frameSize))
@@ -702,10 +709,27 @@ func (e *Encoder) updateDelayBufferInternal(pcm []float64, frameSamples, delaySa
 
 // selectMode determines the actual encoding mode based on settings and content.
 func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
-	// Frame sizes > 960 samples (40ms, 60ms) can ONLY use SILK mode per RFC 6716.
-	// CELT supports up to 20ms (960 samples) and Hybrid supports up to 20ms (960 samples).
 	if frameSize > 960 {
-		return ModeSILK
+		if e.mode != ModeAuto {
+			// Hybrid has no native 40/60ms config, so fall back to SILK.
+			if e.mode == ModeHybrid {
+				return ModeSILK
+			}
+			// CELT 40/60ms is encoded as multi-frame (2/3 x 20ms) packets.
+			return e.mode
+		}
+		bw := e.effectiveBandwidth()
+		switch signalHint {
+		case types.SignalVoice:
+			return ModeSILK
+		case types.SignalMusic:
+			return ModeCELT
+		default:
+			if bw == types.BandwidthSuperwideband || bw == types.BandwidthFullband {
+				return ModeCELT
+			}
+			return ModeSILK
+		}
 	}
 	if e.mode != ModeAuto {
 		return e.mode
@@ -1037,6 +1061,50 @@ func (e *Encoder) encodeCELTFrame(pcm []float64, frameSize int) ([]byte, error) 
 		e.celtEncoder.SetConstrainedVBR(false)
 	}
 	return e.celtEncoder.EncodeFrame(pcm, frameSize)
+}
+
+// encodeCELTMultiFramePacket encodes 40/60ms CELT packets by splitting into
+// 20ms CELT frames and packing them using code-3 framing.
+func (e *Encoder) encodeCELTMultiFramePacket(celtPCM []float64, frameSize int) ([]byte, error) {
+	if frameSize <= 960 || frameSize%960 != 0 {
+		return nil, ErrInvalidFrameSize
+	}
+	frameCount := frameSize / 960
+	if frameCount < 2 || frameCount > 3 {
+		return nil, ErrInvalidFrameSize
+	}
+	if len(celtPCM) != frameSize*e.channels {
+		return nil, ErrInvalidFrameSize
+	}
+
+	frameStride := 960 * e.channels
+	frames := make([][]byte, frameCount)
+	sameSize := true
+	prevSize := -1
+	for i := 0; i < frameCount; i++ {
+		start := i * frameStride
+		end := start + frameStride
+		frameData, err := e.encodeCELTFrame(celtPCM[start:end], 960)
+		if err != nil {
+			return nil, err
+		}
+		// Keep a stable copy because the range coder output buffer is reused.
+		frameCopy := append([]byte(nil), frameData...)
+		frames[i] = frameCopy
+		if prevSize >= 0 && len(frameCopy) != prevSize {
+			sameSize = false
+		}
+		prevSize = len(frameCopy)
+	}
+
+	return BuildMultiFramePacket(
+		frames,
+		types.ModeCELT,
+		e.effectiveBandwidth(),
+		960,
+		e.channels == 2,
+		!sameSize,
+	)
 }
 
 // ensureSILKEncoder creates the SILK encoder if it doesn't exist.
