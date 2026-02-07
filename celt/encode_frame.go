@@ -578,15 +578,6 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	var tfSelect int
 
 	if enableTFAnalysis {
-		// tf_estimate was computed by TransientAnalysis using libopus algorithm
-		// It measures temporal variation: 0.0 = steady (favor freq), 1.0 = transient (favor time)
-		// Note: For forced transient mode (e.g., hybrid weak transients), override to 0.2
-		useTfEstimate := tfEstimate
-		if transient && tfEstimate < 0.2 {
-			// Ensure transient frames have at least minimal time-favoring bias
-			useTfEstimate = 0.2
-		}
-
 		// Use importance from dynalloc analysis for TF decision weighting
 		// This weights perceptually important bands higher in the Viterbi search
 		// Reference: libopus celt/celt_encoder.c dynalloc_analysis() -> importance
@@ -598,7 +589,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		if e.channels == 2 && tfChannel == 1 {
 			tfInput = normR
 		}
-		tfRes, tfSelect = TFAnalysisWithScratch(tfInput, len(tfInput), nbBands, transient, lm, useTfEstimate, effectiveBytes, importance, &e.tfScratch)
+		tfRes, tfSelect = TFAnalysisWithScratch(tfInput, len(tfInput), nbBands, transient, lm, tfEstimate, effectiveBytes, importance, &e.tfScratch)
 
 		// Encode TF decisions using the computed values
 		TFEncodeWithSelect(re, start, end, transient, tfRes, lm, tfSelect)
