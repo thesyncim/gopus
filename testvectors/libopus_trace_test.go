@@ -1357,33 +1357,49 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 		preNSQTopXQDiff, preNSQTopSLTPShpDiff, preNSQTopSLPCDiff, preNSQTopSAR2Diff, preNSQTopScalarDiff)
 	t.Logf("Pre-NSQ top-level input diffs (prev frame): x16=%d pred=%d ltp=%d ar=%d harm=%d tilt=%d lf=%d gains=%d pitch=%d scalar=%d",
 		preNSQInputX16Diff, preNSQInputPredDiff, preNSQInputLTPDiff, preNSQInputARDiff, preNSQInputHarmDiff, preNSQInputTiltDiff, preNSQInputLFDiff, preNSQInputGainsDiff, preNSQInputPitchDiff, preNSQInputScalarDiff)
-	if preNSQPrevGainDiff > 10 {
-		t.Fatalf("pre-state NSQ prevGain mismatches regressed: got %d/%d, want <= 10", preNSQPrevGainDiff, compareCount)
+	if ltpScaleDiff != 0 {
+		t.Fatalf("LTP scale index mismatches regressed: got %d/%d, want 0", ltpScaleDiff, compareCount)
 	}
-	if preLastGainDiff > 10 {
-		t.Fatalf("pre-state lastGain mismatches regressed: got %d/%d, want <= 10", preLastGainDiff, compareCount)
+	if perIndexDiff != 0 {
+		t.Fatalf("PER index mismatches regressed: got %d/%d, want 0", perIndexDiff, compareCount)
+	}
+	if lagIndexDiff != 0 {
+		t.Fatalf("pitch lag mismatches regressed: got %d/%d, want 0", lagIndexDiff, compareCount)
+	}
+	if contourIndexDiff != 0 {
+		t.Fatalf("pitch contour mismatches regressed: got %d/%d, want 0", contourIndexDiff, compareCount)
+	}
+	if ltpIndexDiff != 0 {
+		t.Fatalf("LTP index mismatches regressed: got %d/%d, want 0", ltpIndexDiff, ltpIndexCount)
+	}
+	if signalTypeDiff != 0 {
+		t.Fatalf("signal type mismatches regressed: got %d/%d, want 0", signalTypeDiff, compareCount)
+	}
+	if preNSQPrevGainDiff > 2 {
+		t.Fatalf("pre-state NSQ prevGain mismatches regressed: got %d/%d, want <= 2", preNSQPrevGainDiff, compareCount)
+	}
+	if preLastGainDiff > 2 {
+		t.Fatalf("pre-state lastGain mismatches regressed: got %d/%d, want <= 2", preLastGainDiff, compareCount)
 	}
 	// Regression guard: this test used to diverge for nearly every frame before
 	// SILK mono handoff alignment was fixed.
-	if prePitchBufHashDiff > 10 {
-		t.Fatalf("pre-state pitch x_buf hash mismatches regressed: got %d/%d, want <= 10", prePitchBufHashDiff, compareCount)
+	if prePitchBufHashDiff > 2 {
+		t.Fatalf("pre-state pitch x_buf hash mismatches regressed: got %d/%d, want <= 2", prePitchBufHashDiff, compareCount)
 	}
-	if prePitchWinHashDiff > 10 {
-		t.Fatalf("pre-state pitch window hash mismatches regressed: got %d/%d, want <= 10", prePitchWinHashDiff, compareCount)
+	if prePitchWinHashDiff > 2 {
+		t.Fatalf("pre-state pitch window hash mismatches regressed: got %d/%d, want <= 2", prePitchWinHashDiff, compareCount)
 	}
 	// Regression guard: with CGO float restricted-silk encoding, gain indices
 	// should match exactly (no GainsID mismatch) for this canonical WB signal.
 	if firstGainsIDMismatchFrame >= 0 {
 		t.Errorf("unexpected GainsID mismatch at frame %d (expect no gain mismatches with float CGO comparison)", firstGainsIDMismatchFrame)
 	}
-	// Regression guard: seed mismatches should remain at 8 or fewer (from 2 NLSF
-	// interp mismatches due to 1-LSB x16 input precision differences).
-	if seedDiff > 12 {
-		t.Fatalf("seed mismatches regressed: got %d/%d, want <= 12", seedDiff, compareCount)
+	// Keep tiny tolerance for rare 1-LSB trace noise while enforcing near-exact parity.
+	if seedDiff > 2 {
+		t.Fatalf("seed mismatches regressed: got %d/%d, want <= 2", seedDiff, compareCount)
 	}
-	// Regression guard: NLSF interp mismatches should remain at 2 or fewer.
-	if interpDiff > 4 {
-		t.Fatalf("NLSF interp mismatches regressed: got %d/%d, want <= 4", interpDiff, compareCount)
+	if interpDiff > 1 {
+		t.Fatalf("NLSF interp mismatches regressed: got %d/%d, want <= 1", interpDiff, compareCount)
 	}
 }
 
