@@ -367,6 +367,11 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 	}
 	enc.SetComplexity(10)
 	enc.stereo.smthWidthQ14 = 16384
+	// Match Opus-level init timing: before first control pass, libopus keeps
+	// sNSQ zero-initialized. control_codec sets prev_gain_Q16 on first frame.
+	if enc.nsqState != nil {
+		enc.nsqState.prevGainQ16 = 0
+	}
 	// Set default bitrate matching libopus (opus_encoder.c: silk_mode.bitRate = 25000).
 	// This ensures controlSNR is called on the first frame, matching libopus behavior
 	// where silk_control_SNR is always invoked before encoding.
@@ -406,6 +411,9 @@ func (e *Encoder) Reset() {
 	}
 	if e.nsqState != nil {
 		e.nsqState.Reset() // Reset NSQ state
+		// Match Opus-level reset timing: prev_gain_Q16 is applied during first
+		// control pass after reset, not immediately on Reset().
+		e.nsqState.prevGainQ16 = 0
 	}
 	if e.noiseShapeState != nil {
 		e.noiseShapeState = NewNoiseShapeState() // Reset noise shaping state

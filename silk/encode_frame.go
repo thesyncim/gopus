@@ -106,6 +106,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	// uses the post-control_encoder state (10).
 	if firstFrameAfterReset {
 		e.previousGainIndex = 10
+		// control_codec sets sNSQ.prev_gain_Q16 during first-frame reset path.
+		if e.nsqState != nil && e.nsqState.prevGainQ16 == 0 {
+			e.nsqState.prevGainQ16 = 1 << 16
+		}
 	}
 
 	// Update target SNR based on configured bitrate and frame size.
