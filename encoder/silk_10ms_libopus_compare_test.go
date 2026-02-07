@@ -2,6 +2,10 @@ package encoder
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/binary"
+	"encoding/json"
+	"fmt"
 	"math"
 	"os"
 	"os/exec"
@@ -10,16 +14,29 @@ import (
 	"github.com/thesyncim/gopus/types"
 )
 
+const silk10msLibopusDecodedFixturePath = "testdata/silk_10ms_libopus_decoded_fixture.json"
+
+type silk10msLibopusDecodedFixture struct {
+	Version         int                              `json:"version"`
+	SampleRate      int                              `json:"sample_rate"`
+	Channels        int                              `json:"channels"`
+	DurationSamples int                              `json:"duration_samples"`
+	PreSkip         int                              `json:"pre_skip"`
+	Cases           []silk10msLibopusDecodedCaseFile `json:"cases"`
+}
+
+type silk10msLibopusDecodedCaseFile struct {
+	FrameSize int    `json:"frame_size"`
+	PCMBase64 string `json:"pcm_s16le_base64"`
+}
+
 // TestSILK10msGopusVsLibopusPackets encodes with gopus and libopus, decodes
 // both with opusdec, and compares quality. This isolates the encoder from decoder.
 func TestSILK10msGopusVsLibopusPackets(t *testing.T) {
 	opusdec := findOpusdec()
-	if opusdec == "" {
-		t.Skip("opusdec not found")
-	}
 	opusenc := findOpusenc()
-	if opusenc == "" {
-		t.Skip("opusenc not found")
+	if opusdec == "" || opusenc == "" {
+		t.Log("opusenc/opusdec not found; using frozen libopus decoded fixture")
 	}
 
 	for _, frameSize := range []int{480, 960} {
@@ -39,43 +56,37 @@ func TestSILK10msGopusVsLibopusPackets(t *testing.T) {
 				origSamples[i] = 0.5 * float32(math.Sin(phase))
 			}
 
-			// Encode with libopus via opusenc
-			tmpWav, _ := os.CreateTemp("", "silk_compare_*.wav")
-			tmpWav.Write(wavData)
-			tmpWav.Close()
-			defer os.Remove(tmpWav.Name())
-
-			tmpLibOpus, _ := os.CreateTemp("", "silk_libopus_*.opus")
-			tmpLibOpus.Close()
-			defer os.Remove(tmpLibOpus.Name())
-
-			cmd := exec.Command(opusenc,
-				"--bitrate", "32",
-				"--speech",
-				"--framesize", fsName[:len(fsName)-2], // "10" or "20"
-				"--comp", "10",
-				tmpWav.Name(),
-				tmpLibOpus.Name(),
-			)
-			out, err := cmd.CombinedOutput()
+			libopusSamples, err := loadSILK10msLibopusDecodedFixture(frameSize)
 			if err != nil {
-				t.Logf("opusenc output: %s", out)
-				t.Fatalf("opusenc failed: %v", err)
+				if opusenc == "" || opusdec == "" {
+					t.Fatalf("load fixture for frameSize=%d: %v", frameSize, err)
+				}
+				libopusSamples, err = generateLibopusDecodedViaCLI(opusenc, opusdec, frameSize, wavData)
+				if err != nil {
+					t.Fatalf("generate libopus reference: %v", err)
+				}
+			} else if opusenc != "" && opusdec != "" {
+				// Best-effort drift visibility when CLI tools are available.
+				live, err := generateLibopusDecodedViaCLI(opusenc, opusdec, frameSize, wavData)
+				if err == nil {
+					compareLen := len(live)
+					if len(libopusSamples) < compareLen {
+						compareLen = len(libopusSamples)
+					}
+					if compareLen > 0 {
+						var mad float64
+						for i := 0; i < compareLen; i++ {
+							diff := float64(live[i] - libopusSamples[i])
+							if diff < 0 {
+								diff = -diff
+							}
+							mad += diff
+						}
+						mad /= float64(compareLen)
+						t.Logf("fixture drift check (%s): mean abs diff=%.8f", fsName, mad)
+					}
+				}
 			}
-
-			// Decode libopus file with opusdec
-			tmpDecoded, _ := os.CreateTemp("", "silk_decoded_*.wav")
-			tmpDecoded.Close()
-			defer os.Remove(tmpDecoded.Name())
-
-			cmd = exec.Command(opusdec, tmpLibOpus.Name(), tmpDecoded.Name())
-			out, err = cmd.CombinedOutput()
-			if err != nil {
-				t.Logf("opusdec output: %s", out)
-				t.Fatalf("opusdec failed: %v", err)
-			}
-			decodedWavData, _ := os.ReadFile(tmpDecoded.Name())
-			libopusSamples := parseWAVFloat32(decodedWavData)
 
 			// Encode with gopus
 			enc := NewEncoder(48000, 1)
@@ -157,6 +168,96 @@ func TestSILK10msGopusVsLibopusPackets(t *testing.T) {
 			}
 		})
 	}
+}
+
+func generateLibopusDecodedViaCLI(opusenc, opusdec string, frameSize int, wavData []byte) ([]float32, error) {
+	fs := "10"
+	if frameSize == 960 {
+		fs = "20"
+	}
+
+	tmpWav, err := os.CreateTemp("", "silk_compare_*.wav")
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(tmpWav.Name())
+	if _, err := tmpWav.Write(wavData); err != nil {
+		tmpWav.Close()
+		return nil, err
+	}
+	if err := tmpWav.Close(); err != nil {
+		return nil, err
+	}
+
+	tmpLibOpus, err := os.CreateTemp("", "silk_libopus_*.opus")
+	if err != nil {
+		return nil, err
+	}
+	tmpLibOpus.Close()
+	defer os.Remove(tmpLibOpus.Name())
+
+	cmd := exec.Command(opusenc,
+		"--bitrate", "32",
+		"--speech",
+		"--framesize", fs,
+		"--comp", "10",
+		tmpWav.Name(),
+		tmpLibOpus.Name(),
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("opusenc failed: %v (%s)", err, string(out))
+	}
+
+	tmpDecoded, err := os.CreateTemp("", "silk_decoded_*.wav")
+	if err != nil {
+		return nil, err
+	}
+	tmpDecoded.Close()
+	defer os.Remove(tmpDecoded.Name())
+
+	cmd = exec.Command(opusdec, tmpLibOpus.Name(), tmpDecoded.Name())
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("opusdec failed: %v (%s)", err, string(out))
+	}
+
+	decodedWavData, err := os.ReadFile(tmpDecoded.Name())
+	if err != nil {
+		return nil, err
+	}
+	return parseWAVFloat32(decodedWavData), nil
+}
+
+func loadSILK10msLibopusDecodedFixture(frameSize int) ([]float32, error) {
+	data, err := os.ReadFile(silk10msLibopusDecodedFixturePath)
+	if err != nil {
+		return nil, err
+	}
+
+	var fixture silk10msLibopusDecodedFixture
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		return nil, err
+	}
+	if fixture.Version != 1 {
+		return nil, fmt.Errorf("unsupported fixture version %d", fixture.Version)
+	}
+
+	for _, c := range fixture.Cases {
+		if c.FrameSize != frameSize {
+			continue
+		}
+		pcmBytes, err := base64.StdEncoding.DecodeString(c.PCMBase64)
+		if err != nil {
+			return nil, err
+		}
+		samples := make([]float32, len(pcmBytes)/2)
+		for i := 0; i < len(samples); i++ {
+			s := int16(binary.LittleEndian.Uint16(pcmBytes[i*2 : i*2+2]))
+			samples[i] = float32(s) / 32768.0
+		}
+		return samples, nil
+	}
+
+	return nil, fmt.Errorf("fixture frame_size=%d not found", frameSize)
 }
 
 func findOpusenc() string {
