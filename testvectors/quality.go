@@ -235,9 +235,9 @@ func ComputeQualityFloat32WithDelay(decoded, reference []float32, sampleRate int
 	bestQ := math.Inf(-1)
 	bestDelay := 0
 
-	// Search for optimal delay (only non-negative: a causal codec can only
-	// delay the output, never advance it relative to the input).
-	for d := 0; d <= maxDelay; d++ {
+	// Search for optimal delay in both directions. External decoders may have
+	// already stripped codec pre-skip and can appear slightly "ahead".
+	for d := -maxDelay; d <= maxDelay; d++ {
 		var signalPower, noisePower float64
 		count := 0
 
@@ -256,10 +256,13 @@ func ComputeQualityFloat32WithDelay(decoded, reference []float32, sampleRate int
 			}
 		}
 
-		if count > 0 && signalPower > 0 && noisePower > 0 {
-			snr := 10.0 * math.Log10(signalPower/noisePower)
-			candidateQ := (snr - TargetSNR) * QualityScale
-			if candidateQ > bestQ {
+		if count > 0 && signalPower > 0 {
+			candidateQ := 100.0
+			if noisePower > 0 {
+				snr := 10.0 * math.Log10(signalPower/noisePower)
+				candidateQ = (snr - TargetSNR) * QualityScale
+			}
+			if candidateQ > bestQ || (candidateQ == bestQ && qualityAbsInt(d) < qualityAbsInt(bestDelay)) {
 				bestQ = candidateQ
 				bestDelay = d
 			}
@@ -267,6 +270,13 @@ func ComputeQualityFloat32WithDelay(decoded, reference []float32, sampleRate int
 	}
 
 	return bestQ, bestDelay
+}
+
+func qualityAbsInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 // CompareSamplesFloat32 computes the mean squared error (MSE) between two float32 sample slices.
