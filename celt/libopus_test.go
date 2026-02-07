@@ -312,3 +312,29 @@ func TestLibopusCrossValidationMultipleFrames(t *testing.T) {
 
 	t.Logf("Cross-validation PASSED: %d consecutive frames", numFrames)
 }
+
+// TestLibopusCrossValidationFixtureFallback ensures fixture decode path remains valid.
+func TestLibopusCrossValidationFixtureFallback(t *testing.T) {
+	t.Setenv("GOPUS_DISABLE_OPUSDEC", "1")
+
+	frameSize := 960
+	pcm := generateSineWave(440.0, frameSize)
+	enc := NewEncoder(1)
+	encoded, err := enc.EncodeFrame(pcm, frameSize)
+	if err != nil {
+		t.Fatalf("EncodeFrame failed: %v", err)
+	}
+
+	var ogg bytes.Buffer
+	if err := writeOggOpus(&ogg, [][]byte{encoded}, 48000, 1); err != nil {
+		t.Fatalf("writeOggOpus failed: %v", err)
+	}
+
+	decoded, err := decodeWithOpusdec(ogg.Bytes())
+	if err != nil {
+		t.Fatalf("fixture fallback decode failed: %v", err)
+	}
+	if len(decoded) == 0 {
+		t.Fatal("fixture fallback decode returned no samples")
+	}
+}

@@ -624,19 +624,14 @@ func TestEnergyCorrelation(t *testing.T) {
 				inputEnergy += s * s
 			}
 
-			// Skip if encoder not working (focus is decoder)
-			if enc == nil {
-				t.Skip("Encoder not available")
-			}
-
 			// Encode
 			encoded, err := enc.EncodeFrame(samples, frameSize)
 			if err != nil {
-				t.Skipf("Encode failed (expected if encoder has issues): %v", err)
+				t.Fatalf("EncodeFrame failed: %v", err)
 			}
 
 			if len(encoded) == 0 {
-				t.Skip("Encoded empty frame")
+				t.Fatal("Encoded empty frame")
 			}
 
 			// Decode
