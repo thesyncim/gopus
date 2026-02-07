@@ -1020,10 +1020,9 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 	} else {
 		lookaheadOut = lookahead32
 	}
-	// Match libopus mono SILK input buffering in enc_API.c:
-	// the encoder prepends a 2-sample history and encodes from inputBuf + 1.
-	// This introduces a 1-sample handoff across frames.
-	if e.channels == 1 {
+	// Match libopus mono SILK handoff for WB/SWB paths where the 16 kHz
+	// encoder input uses inputBuf+1 semantics across frames.
+	if e.channels == 1 && targetRate == 16000 {
 		pcm32 = e.alignSilkMonoInput(pcm32)
 	}
 	if e.bitrate > 0 {
