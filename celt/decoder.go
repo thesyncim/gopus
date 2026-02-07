@@ -99,6 +99,8 @@ type Decoder struct {
 	scratchSynthR         []float64
 	scratchStereo         []float64
 	scratchShortCoeffs    []float64
+	scratchMonoToStereoR  []float64 // For coeffsR in decodeMonoPacketToStereo (must not alias scratchSynthR used by SynthesizeStereo)
+	scratchMonoMix        []float64 // For coeffsMono in decodeStereoPacketToMono (must not alias scratchShortCoeffs used by Synthesize)
 	postfilterScratch     []float64
 	scratchPLC            []float64 // Scratch buffer for PLC concealment samples
 }
@@ -1430,8 +1432,11 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	denormalizeCoeffs(coeffsMono, monoEnergies, end, frameSize)
 
 	// Duplicate mono coefficients to stereo for synthesis.
+	// NOTE: coeffsR must NOT use scratchSynthR because SynthesizeStereo
+	// also uses scratchSynthR internally for its outR buffer, which would
+	// overwrite coeffsR before synthesis completes.
 	coeffsL := coeffsMono
-	coeffsR := ensureFloat64Slice(&d.scratchSynthR, len(coeffsMono))
+	coeffsR := ensureFloat64Slice(&d.scratchMonoToStereoR, len(coeffsMono))
 	copy(coeffsR, coeffsMono)
 
 	// Restore original channels for stereo synthesis
@@ -1696,7 +1701,10 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	energiesR := energies[end:]
 	denormalizeCoeffs(coeffsL, energiesL, end, frameSize)
 	denormalizeCoeffs(coeffsR, energiesR, end, frameSize)
-	coeffsMono := ensureFloat64Slice(&d.scratchShortCoeffs, len(coeffsL))
+	// NOTE: coeffsMono must NOT use scratchShortCoeffs because Synthesize
+	// also uses scratchShortCoeffs internally, which would overwrite
+	// coeffsMono before synthesis completes.
+	coeffsMono := ensureFloat64Slice(&d.scratchMonoMix, len(coeffsL))
 	for i := range coeffsMono {
 		coeffsMono[i] = 0.5 * (coeffsL[i] + coeffsR[i])
 	}

@@ -148,6 +148,10 @@ type GainLoopTrace struct {
 	QuantOffsetBefore      int
 	QuantOffsetAfter       int
 	GainsBefore            [maxNbSubfr]float32
+	GainsPre               [maxNbSubfr]float32 // pre gain_mult/gain_add
+	GainMult               float32
+	GainAdd                float32
+	SNRAdjDB               float32
 	ResNrgBefore           [maxNbSubfr]float32
 	GainsAfter             [maxNbSubfr]float32
 }

@@ -315,8 +315,26 @@ func (e *Encoder) computeShapingARAndGains(
 	// Match libopus: gain_mult = (silk_float)pow(2.0f, -0.16f * SNR_adj_dB)
 	gainMult := float32(math.Pow(2.0, float64(-0.16*SNRAdjDB)))
 	gainAdd := float32(math.Pow(2.0, float64(0.16*float32(minQGainDb))))
+
+	// Capture pre-gain values in trace before applying gain_mult/gain_add
+	if e.trace != nil && e.trace.GainLoop != nil {
+		for k := 0; k < numSubframes && k < len(e.trace.GainLoop.GainsPre); k++ {
+			e.trace.GainLoop.GainsPre[k] = gains[k]
+		}
+		e.trace.GainLoop.GainMult = gainMult
+		e.trace.GainLoop.GainAdd = gainAdd
+		e.trace.GainLoop.SNRAdjDB = SNRAdjDB
+	}
+
 	for k := 0; k < numSubframes; k++ {
-		gains[k] = gains[k]*gainMult + gainAdd
+		// Match libopus two-step operation:
+		//   psEncCtrl->Gains[k] *= gain_mult;   // step 1: multiply with intermediate rounding
+		//   psEncCtrl->Gains[k] += gain_add;     // step 2: add
+		// Go's compiler can fuse sequential *= then += into a single FMADDS
+		// instruction (one rounding), but clang compiles these as separate
+		// FMUL + FADD (two roundings). Use noFMA32 to force intermediate
+		// rounding and match the C behavior exactly.
+		gains[k] = noFMA32(gains[k], gainMult) + gainAdd
 	}
 
 	return gains, arShpQ13

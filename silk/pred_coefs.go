@@ -145,7 +145,6 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 		halfOffset := (maxNbSubfr / 2) * subfrLen
 		if halfOffset+subfrLen*(maxNbSubfr/2) <= totalLen {
 			aLast, resNrgLast := e.burgModifiedFLPZeroAllocF32(ltpRes[halfOffset:], minInvGain32, subfrLen, maxNbSubfr/2, order)
-			resNrgLast32 := float32(resNrgLast)
 			lsfLast := ensureInt16Slice(&e.scratchNLSFTempQ15, order)
 			for i := 0; i < order; i++ {
 				a32 := float32(aLast[i])
@@ -158,7 +157,10 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 			e.lastInvGain = fullInvGain
 			e.lastNumSamples = fullNumSamples
 
-			resNrg32 -= resNrgLast32
+			// Match C float -= double semantics: the float is promoted to
+			// double before subtracting the double burg result, then truncated
+			// back to float. This avoids premature truncation of resNrgLast.
+			resNrg32 = float32(float64(resNrg32) - resNrgLast)
 			if e.trace != nil && e.trace.NLSF != nil {
 				tr := e.trace.NLSF
 				tr.InterpBaseResNrg = resNrg32

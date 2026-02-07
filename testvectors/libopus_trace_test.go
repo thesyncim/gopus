@@ -434,6 +434,25 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 	var preNSQInputPitchDiff int
 	var preNSQInputScalarDiff int
 
+	// Log first packet size difference
+	firstPktSizeDiffFrame := -1
+	for i := 0; i < compareCount; i++ {
+		if len(gopusPackets[i]) != len(libPackets[i]) {
+			firstPktSizeDiffFrame = i
+			t.Logf("First packet size diff at frame %d: go=%d lib=%d (diff=%d bytes)",
+				i, len(gopusPackets[i]), len(libPackets[i]), len(gopusPackets[i])-len(libPackets[i]))
+			break
+		}
+	}
+	if firstPktSizeDiffFrame == -1 {
+		t.Log("All packet sizes match between gopus and libopus (float CGO)")
+	}
+	// Log packet sizes for first 10 frames
+	for i := 0; i < compareCount && i < 10; i++ {
+		t.Logf("Frame %d: go=%d bytes, lib=%d bytes (diff=%+d)",
+			i, len(gopusPackets[i]), len(libPackets[i]), len(gopusPackets[i])-len(libPackets[i]))
+	}
+
 	for i := 0; i < compareCount; i++ {
 		goPayload := gopusPackets[i]
 		libPayload := libPackets[i]
@@ -554,8 +573,8 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 				}
 				if pre.NBitsExceeded != snapPre.NBitsExceeded {
 					preNBitsExceededDiff++
-					if preNBitsExceededDiff <= 5 {
-						t.Logf("Frame %d pre-state nBitsExceeded mismatch: go=%d lib=%d", i, pre.NBitsExceeded, snapPre.NBitsExceeded)
+					if preNBitsExceededDiff <= 25 {
+						t.Logf("Frame %d pre-state nBitsExceeded mismatch: go=%d lib=%d (delta=%d)", i, pre.NBitsExceeded, snapPre.NBitsExceeded, pre.NBitsExceeded-snapPre.NBitsExceeded)
 					}
 				}
 				if pre.NFramesPerPacket != snapPre.NFramesPerPacket {
@@ -849,17 +868,9 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 					}
 				}
 				// Early-frame NSQ input comparison (unconditional)
-				samplesInt16Diag := make([]int16, len(original))
-				for si, s := range original {
-					v := int32(math.RoundToEven(float64(s * 32768.0)))
-					if v > 32767 {
-						v = 32767
-					} else if v < -32768 {
-						v = -32768
-					}
-					samplesInt16Diag[si] = int16(v)
-				}
-				if libNSQ, ok := captureLibopusOpusNSQInputsAtFrameInt16(samplesInt16Diag, sampleRate, channels, bitrate, frameSize, i); ok {
+				// Use the float path (opus_encode_float) to match gopus encoder path.
+				// The int16 path (opus_encode24) uses a different signal pipeline.
+				if libNSQ, ok := captureLibopusOpusNSQInputsAtFrame(original, sampleRate, channels, bitrate, frameSize, i); ok {
 					x16Diff := 0
 					x16MaxDiff := int16(0)
 					x16MinLen := len(tr.InputQ0)

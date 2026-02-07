@@ -3,9 +3,21 @@ package silk
 import "math"
 
 func autocorrelationF32(out, in []float32, length, order int) {
+	// Match libopus silk_inner_product_FLP_c: 4x unrolled loop where the
+	// four products are summed in a single expression before being added
+	// to the accumulator.  This preserves floating-point associativity
+	// and avoids sub-ULP drift that can flip NLSF interpolation decisions.
 	for k := 0; k < order; k++ {
 		var sum float64
-		for n := 0; n < length-k; n++ {
+		cnt := length - k
+		n := 0
+		for ; n < cnt-3; n += 4 {
+			sum += float64(in[n])*float64(in[n+k]) +
+				float64(in[n+1])*float64(in[n+1+k]) +
+				float64(in[n+2])*float64(in[n+2+k]) +
+				float64(in[n+3])*float64(in[n+3+k])
+		}
+		for ; n < cnt; n++ {
 			sum += float64(in[n]) * float64(in[n+k])
 		}
 		out[k] = float32(sum)
