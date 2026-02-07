@@ -629,9 +629,6 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			} else {
 				spread = spreadNormal
 			}
-			// Reset tapset decision when spread analysis is skipped
-			// Reference: libopus celt_encoder.c line 2306: st->tapset_decision = 0
-			e.SetTapsetDecision(0)
 		} else {
 			// For non-transient frames with sufficient bits, analyze the signal
 			// to determine optimal spreading.
