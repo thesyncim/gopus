@@ -91,11 +91,6 @@ func parseOpusDemoBitstream(path string) ([]libopusPacket, error) {
 }
 
 func TestLibopusTraceSILKWB(t *testing.T) {
-	if !checkOpusdecAvailableEncoder() {
-		t.Skip("opusdec not found in PATH")
-	}
-	opusDemo := findOpusDemo(t)
-
 	const (
 		sampleRate = 48000
 		channels   = 1
@@ -131,37 +126,22 @@ func TestLibopusTraceSILKWB(t *testing.T) {
 		gopusRanges = append(gopusRanges, goEnc.FinalRange())
 	}
 
-	// Encode with libopus (opus_demo).
-	tmpdir := t.TempDir()
-	inRaw := filepath.Join(tmpdir, "input.pcm")
-	outBit := filepath.Join(tmpdir, "output.bit")
-	if err := writeRawPCM16(inRaw, original); err != nil {
-		t.Fatalf("write input pcm: %v", err)
-	}
-
-	args := []string{
-		"-e", "restricted-silk",
-		fmt.Sprintf("%d", sampleRate),
-		fmt.Sprintf("%d", channels),
-		fmt.Sprintf("%d", bitrate),
-		"-bandwidth", "WB",
-		"-framesize", "20",
-		"-16",
-		inRaw, outBit,
-	}
-	cmd := exec.Command(opusDemo, args...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("opus_demo failed: %v\n%s", err, stderr.String())
-	}
-
-	libPackets, err := parseOpusDemoBitstream(outBit)
+	libPackets, fixtureMeta, err := loadSILKWBFloatPacketFixturePackets()
 	if err != nil {
-		t.Fatalf("parse opus_demo output: %v", err)
+		t.Fatalf("load SILK WB libopus float fixture: %v", err)
+	}
+	if fixtureMeta.Version != 1 ||
+		fixtureMeta.SampleRate != sampleRate ||
+		fixtureMeta.Channels != channels ||
+		fixtureMeta.FrameSize != frameSize ||
+		fixtureMeta.Bitrate != bitrate {
+		t.Fatalf("invalid SILK WB fixture metadata: %+v", fixtureMeta)
+	}
+	if fixtureMeta.Frames != len(libPackets) {
+		t.Fatalf("invalid SILK WB fixture frame count: header=%d packets=%d", fixtureMeta.Frames, len(libPackets))
 	}
 
-	t.Logf("gopus packets: %d, libopus packets: %d", len(gopusPackets), len(libPackets))
+	t.Logf("gopus packets: %d, libopus fixture packets: %d", len(gopusPackets), len(libPackets))
 
 	compareCount := len(gopusPackets)
 	if len(libPackets) < compareCount {
@@ -182,15 +162,31 @@ func TestLibopusTraceSILKWB(t *testing.T) {
 	}
 
 	var totalDiff int
+	var sizeMismatch int
+	var rangeMismatch int
+	var payloadMismatch int
 	for i := 0; i < compareCount; i++ {
 		diff := len(gopusPackets[i]) - len(libPackets[i].data)
 		if diff < 0 {
 			diff = -diff
 		}
 		totalDiff += diff
+		if len(gopusPackets[i]) != len(libPackets[i].data) {
+			sizeMismatch++
+		}
+		if gopusRanges[i] != libPackets[i].finalRange {
+			rangeMismatch++
+		}
+		if bytes.Equal(gopusPackets[i], libPackets[i].data) {
+			continue
+		}
+		payloadMismatch++
 	}
 	avgDiff := float64(totalDiff) / float64(compareCount)
 	t.Logf("avg packet size diff: %.2f bytes", avgDiff)
+	if sizeMismatch != 0 || rangeMismatch != 0 || payloadMismatch != 0 {
+		t.Fatalf("SILK WB packet parity mismatch vs fixture: size=%d range=%d payload=%d", sizeMismatch, rangeMismatch, payloadMismatch)
+	}
 }
 
 func TestDecoderParityLibopusPacketsSILKWB(t *testing.T) {
