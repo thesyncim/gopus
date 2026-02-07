@@ -91,9 +91,8 @@ func AllocTrimAnalysis(
 				// Weight each band by its position relative to center
 				// Lower bands (small i) get negative weights, higher bands get positive weights
 				// libopus: diff += (bandLogE[i+c*nbEBands] >> 5) * (2 + 2*i - end)
-				// In float builds this is effectively division by 32.0.
 				weight := float64(2 + 2*i - end)
-				diff += (bandLogE[idx] / 32.0) * weight
+				diff += bandLogE[idx] * weight
 			}
 		}
 	}
