@@ -182,15 +182,17 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 	for ch := 0; ch < channels; ch++ {
 		preCh := pre[ch*perChanLen : (ch+1)*perChanLen]
 		outCh := out[ch*perChanLen : (ch+1)*perChanLen]
-		for i := 0; i < frameSize; i++ {
-			before[ch] += math.Abs(preCh[maxPeriod+i])
+		preSub := preCh[maxPeriod : maxPeriod+frameSize]
+		for _, v := range preSub {
+			before[ch] += math.Abs(v)
 		}
 		if offset > 0 {
 			combFilterWithInput(outCh, preCh, maxPeriod, prevPeriod, prevPeriod, offset, -e.prefilterGain, -e.prefilterGain, prevTapset, prevTapset, nil, 0)
 		}
 		combFilterWithInput(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, frameSize-offset, -e.prefilterGain, -gain1, prevTapset, tapset, window, overlap)
-		for i := 0; i < frameSize; i++ {
-			after[ch] += math.Abs(outCh[maxPeriod+i])
+		outSub := outCh[maxPeriod : maxPeriod+frameSize]
+		for _, v := range outSub {
+			after[ch] += math.Abs(v)
 		}
 	}
 
@@ -232,8 +234,9 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			copy(mem, mem[frameSize:])
 			copy(mem[maxPeriod-frameSize:], preCh[maxPeriod:maxPeriod+frameSize])
 		}
-		for i := 0; i < frameSize; i++ {
-			preemph[i*channels+ch] = outCh[maxPeriod+i]
+		outSub2 := outCh[maxPeriod : maxPeriod+frameSize]
+		for i, v := range outSub2 {
+			preemph[i*channels+ch] = v
 		}
 	}
 
@@ -385,13 +388,29 @@ func pitchDownsample(x []float64, xLP []float64, length, channels, factor int) {
 		xLP[0] += 0.25*x1[offset] + 0.5*x1[0]
 	}
 
+	// Compute all 5 autocorrelation lags in a single pass.
+	// The tail elements (length-4..length-1) contribute to fewer lags.
 	var ac [5]float64
-	for lag := 0; lag <= 4; lag++ {
-		sum := 0.0
-		for i := 0; i < length-lag; i++ {
-			sum += xLP[i] * xLP[i+lag]
+	n := length - 4
+	if n < 0 {
+		n = 0
+	}
+	lp := xLP[:length]
+	_ = lp[n+3] // BCE
+	for i := 0; i < n; i++ {
+		xi := lp[i]
+		ac[0] += xi * lp[i]
+		ac[1] += xi * lp[i+1]
+		ac[2] += xi * lp[i+2]
+		ac[3] += xi * lp[i+3]
+		ac[4] += xi * lp[i+4]
+	}
+	// Remaining elements contribute to lags 0..3, 0..2, 0..1, 0 respectively.
+	for i := n; i < length; i++ {
+		xi := lp[i]
+		for lag := 0; lag <= 4 && i+lag < length; lag++ {
+			ac[lag] += xi * lp[i+lag]
 		}
-		ac[lag] = sum
 	}
 
 	ac[0] *= 1.0001
@@ -500,36 +519,6 @@ func findBestPitch(xcorr []float64, y []float64, length, maxPitch int, bestPitch
 	}
 }
 
-func celtPitchXcorr(x []float64, y []float64, xcorr []float64, length, maxPitch int) {
-	if length <= 0 || maxPitch <= 0 {
-		return
-	}
-	_ = x[length-1]           // BCE hint
-	_ = xcorr[maxPitch-1]     // BCE hint
-	_ = y[maxPitch+length-2]  // BCE hint
-	i := 0
-	for ; i+3 < maxPitch; i += 4 {
-		var s0, s1, s2, s3 float64
-		for j := 0; j < length; j++ {
-			xj := x[j]
-			s0 += xj * y[i+j]
-			s1 += xj * y[i+1+j]
-			s2 += xj * y[i+2+j]
-			s3 += xj * y[i+3+j]
-		}
-		xcorr[i] = s0
-		xcorr[i+1] = s1
-		xcorr[i+2] = s2
-		xcorr[i+3] = s3
-	}
-	for ; i < maxPitch; i++ {
-		sum := 0.0
-		for j := 0; j < length; j++ {
-			sum += x[j] * y[i+j]
-		}
-		xcorr[i] = sum
-	}
-}
 
 func removeDoubling(x []float64, maxPeriod, minPeriod, N int, T0 *int, prevPeriod int, prevGain float64, scratch *encoderScratch) float64 {
 	minPeriod0 := minPeriod
@@ -645,34 +634,6 @@ func computePitchGain(xy, xx, yy float64) float64 {
 	return xy / math.Sqrt(1+xx*yy)
 }
 
-func dualInnerProd(x, y1, y2 []float64, length int) (float64, float64) {
-	if length <= 0 {
-		return 0, 0
-	}
-	_ = x[length-1]  // BCE hint
-	_ = y1[length-1] // BCE hint
-	_ = y2[length-1] // BCE hint
-	sum1 := 0.0
-	sum2 := 0.0
-	for i := 0; i < length; i++ {
-		sum1 += x[i] * y1[i]
-		sum2 += x[i] * y2[i]
-	}
-	return sum1, sum2
-}
-
-func celtInnerProd(x, y []float64, length int) float64 {
-	if length <= 0 {
-		return 0
-	}
-	_ = x[length-1] // BCE hint
-	_ = y[length-1] // BCE hint
-	sum := 0.0
-	for i := 0; i < length; i++ {
-		sum += x[i] * y[i]
-	}
-	return sum
-}
 
 func celtFIR5(x []float64, num [5]float64) {
 	mem0, mem1, mem2, mem3, mem4 := 0.0, 0.0, 0.0, 0.0, 0.0

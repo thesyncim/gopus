@@ -38,7 +38,7 @@ func main() {
 	input := flag.String("in", "", "Input Ogg Opus file (to be used as PCM source)")
 	url := flag.String("url", "", "Download Ogg Opus file from URL (overrides -sample)")
 	sample := flag.String("sample", "stereo", "Preset sample to download: stereo or speech")
-	iters := flag.Int("iters", 1, "Number of timed iterations per encoder")
+	iters := flag.Int("iters", 10, "Number of timed iterations per encoder")
 	warmup := flag.Int("warmup", 0, "Warmup iterations per encoder")
 	mode := flag.String("mode", "both", "Benchmark mode: gopus, ffmpeg, or both")
 	ffmpegBin := flag.String("ffmpeg", "ffmpeg", "Path to ffmpeg binary")

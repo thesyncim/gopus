@@ -386,6 +386,7 @@ func unext(u []uint32, length int, u0 uint32) {
 	if length < 2 {
 		return
 	}
+	_ = u[length-1] // BCE
 	for j := 1; j < length; j++ {
 		u1 := u[j] + u[j-1] + u0
 		u[j-1] = u0
@@ -634,6 +635,7 @@ func icwrs(n, k int, y []int, u []uint32) (uint32, uint32) {
 	if n < 2 || k <= 0 || len(y) < n || len(u) < k+2 {
 		return 0, 0
 	}
+	_ = u[k+1] // BCE
 	u[0] = 0
 	for kk := 1; kk <= k+1; kk++ {
 		u[kk] = uint32((kk << 1) - 1)

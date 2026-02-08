@@ -116,7 +116,7 @@ func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]int, yBuf 
 		for j := 0; j < n; j++ {
 			// It's important to round towards zero here (floor for positive values)
 			// Reference: libopus vq.c line 274
-			iy[j] = int(math.Floor(float64(rcp * absX[j])))
+			iy[j] = int(rcp * absX[j]) // rcp >= 0, absX >= 0: truncation == floor
 			y[j] = float32(iy[j])
 			yy += y[j] * y[j]
 			xy += absX[j] * y[j]

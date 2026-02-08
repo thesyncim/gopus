@@ -464,14 +464,24 @@ func noiseShapeQuantizerDelDec(
 ) {
 	var psSampleState [maxDelDecStates]nsqSamplePair
 
-	shpLagPtrIdx := nsq.sLTPShpBufIdx - lag + harmShapeFirTaps/2
-	predLagPtrIdx := nsq.sLTPBufIdx - lag + ltpOrderConst/2
+	// Hoist NSQ buffer indices to local variables to avoid repeated
+	// pointer dereference through nsq on every iteration.
+	localShpBufIdx := nsq.sLTPShpBufIdx
+	localLTPBufIdx := nsq.sLTPBufIdx
+
+	shpLagPtrIdx := localShpBufIdx - lag + harmShapeFirTaps/2
+	predLagPtrIdx := localLTPBufIdx - lag + ltpOrderConst/2
 	gainQ10 := int32(gainQ16 >> 6)
 
-	// BCE hints for hot loop arrays
-	if length > 0 {
-		_ = xQ10[length-1]
+	// Cap nStatesDelayedDecision so the compiler can prove psSampleState[k] is in bounds.
+	if nStatesDelayedDecision > maxDelDecStates {
+		nStatesDelayedDecision = maxDelDecStates
 	}
+
+	// Sub-slice to length so the compiler can prove all i < length accesses are in bounds.
+	xQ10 = xQ10[:length]
+	// Sub-slice psDelDec so the compiler eliminates psDelDec[k] bounds checks in k < len(psDelDec).
+	psDelDec = psDelDec[:nStatesDelayedDecision]
 	if len(bQ14) >= ltpOrderConst {
 		_ = bQ14[ltpOrderConst-1]
 	}
@@ -495,6 +505,13 @@ func noiseShapeQuantizerDelDec(
 	lfShpQ14Lo := int64(int16(lfShpQ14))
 	lfShpQ14Hi := int64(lfShpQ14 >> 16)
 	tiltQ14i64 := int64(int16(tiltQ14))
+
+	// Hoist RDO offset computation (loop-invariant).
+	useRDO := lambdaQ10 > 2048
+	var rdoOffset int32
+	if useRDO {
+		rdoOffset = int32(lambdaQ10/2 - 512)
+	}
 
 	for i := 0; i < length; i++ {
 		var ltpPredQ14 int32
@@ -538,6 +555,7 @@ func noiseShapeQuantizerDelDec(
 		}
 
 		xQ10i := xQ10[i]
+		xQ10i4 := xQ10i << 4 // hoisted from k-loop (loop-invariant)
 
 		for k := 0; k < nStatesDelayedDecision; k++ {
 			psDD := &psDelDec[k]
@@ -579,24 +597,21 @@ func noiseShapeQuantizerDelDec(
 			nLFQ14 += int32((int64(psDD.lfARQ14) * lfShpQ14Hi) >> 16)
 			nLFQ14 <<= 2
 
-			tmpA := nARQ14 + nLFQ14 // No saturation needed: bounded Q14 shaping values
+			tmpA := nARQ14 + nLFQ14      // No saturation needed: bounded Q14 shaping values
 			tmpB := nLTPQ14 + lpcPredQ14 // silk_ADD32_ovflw
-			tmpA = tmpB - tmpA // No saturation needed: bounded Q14 prediction values
+			tmpA = tmpB - tmpA           // No saturation needed: bounded Q14 prediction values
 			tmpA = silk_RSHIFT_ROUND(tmpA, 4)
 			rQ10 := xQ10i - tmpA
-			if psDD.seed < 0 {
-				rQ10 = -rQ10
-			}
-			if rQ10 < -(31 << 10) {
-				rQ10 = -(31 << 10)
-			} else if rQ10 > 30<<10 {
-				rQ10 = 30 << 10
-			}
+			// Branchless conditional negation: seed is a LCG (~50% negative),
+			// so the branch mispredicts ~50%. seedSign is -1 or 0.
+			seedSign := psDD.seed >> 31
+			rQ10 = (rQ10 ^ seedSign) - seedSign
+			// Branchless clamp: Go builtins emit CSEL on arm64, avoiding branch mispredictions.
+			rQ10 = max(-(31 << 10), min(rQ10, 30<<10))
 
 			q1Q10 := rQ10 - offsetQ10i32
 			q1Q0 := q1Q10 >> 10
-			if lambdaQ10 > 2048 {
-				rdoOffset := int32(lambdaQ10/2 - 512)
+			if useRDO {
 				if q1Q10 > rdoOffset {
 					q1Q0 = (q1Q10 - rdoOffset) >> 10
 				} else if q1Q10 < -rdoOffset {
@@ -607,28 +622,22 @@ func noiseShapeQuantizerDelDec(
 					q1Q0 = 0
 				}
 			}
-			var q2Q10, rd1Q10, rd2Q10 int32
-			if q1Q0 > 0 {
-				q1Q10 = (q1Q0 << 10) - quantLevelAdjQ10 + offsetQ10i32
-				q2Q10 = q1Q10 + 1024
-				rd1Q10 = silk_SMULBB(q1Q10, lambdaQ10i32)
-				rd2Q10 = silk_SMULBB(q2Q10, lambdaQ10i32)
-			} else if q1Q0 == 0 {
-				q1Q10 = offsetQ10i32
-				q2Q10 = q1Q10 + 1024 - quantLevelAdjQ10
-				rd1Q10 = silk_SMULBB(q1Q10, lambdaQ10i32)
-				rd2Q10 = silk_SMULBB(q2Q10, lambdaQ10i32)
-			} else if q1Q0 == -1 {
-				q2Q10 = offsetQ10i32
-				q1Q10 = q2Q10 - 1024 + quantLevelAdjQ10
-				rd1Q10 = silk_SMULBB(-q1Q10, lambdaQ10i32)
-				rd2Q10 = silk_SMULBB(q2Q10, lambdaQ10i32)
-			} else {
-				q1Q10 = (q1Q0 << 10) + quantLevelAdjQ10 + offsetQ10i32
-				q2Q10 = q1Q10 + 1024
-				rd1Q10 = silk_SMULBB(-q1Q10, lambdaQ10i32)
-				rd2Q10 = silk_SMULBB(-q2Q10, lambdaQ10i32)
-			}
+			// Branchless quantization: replaces 4-way if/else chain on q1Q0.
+			// adjSign: -1 when q1Q0>0, 0 when q1Q0==0, +1 when q1Q0<0
+			negSign := (-q1Q0) >> 31
+			posSign := q1Q0 >> 31
+			adjSign := negSign - posSign
+			q1Q10 = (q1Q0 << 10) + offsetQ10i32 + adjSign*quantLevelAdjQ10
+			q2Q10 := q1Q10 + 1024
+			// Subtract quantLevelAdjQ10 when |q1Q0| <= 1 (q1Q0 == 0 or -1).
+			prod := q1Q0 * (q1Q0 + 1) // zero iff q1Q0 ∈ {0, -1}
+			smallMask := ^((prod | (-prod)) >> 31)
+			q2Q10 -= quantLevelAdjQ10 & smallMask
+			// rd = abs(q) * lambda (branchless abs via sign-extend XOR).
+			s1 := q1Q10 >> 31
+			s2 := q2Q10 >> 31
+			rd1Q10 := silk_SMULBB((q1Q10^s1)-s1, lambdaQ10i32)
+			rd2Q10 := silk_SMULBB((q2Q10^s2)-s2, lambdaQ10i32)
 			rrQ10 := rQ10 - q1Q10
 			rd1Q10 = silk_SMLABB(rd1Q10, rrQ10, rrQ10) >> 10
 			rrQ10 = rQ10 - q2Q10
@@ -646,12 +655,8 @@ func noiseShapeQuantizerDelDec(
 				psSS[1].qQ10 = q1Q10
 			}
 
-			xQ10i4 := xQ10i << 4 // pre-compute for both candidates
-
 			excQ14 := psSS[0].qQ10 << 4
-			if psDD.seed < 0 {
-				excQ14 = -excQ14
-			}
+			excQ14 = (excQ14 ^ seedSign) - seedSign
 			lpcExcQ14 := excQ14 + ltpPredQ14
 			xqQ14 := lpcExcQ14 + lpcPredQ14
 			psSS[0].diffQ14 = xqQ14 - xQ10i4
@@ -662,9 +667,7 @@ func noiseShapeQuantizerDelDec(
 			psSS[0].xqQ14 = xqQ14
 
 			excQ14 = psSS[1].qQ10 << 4
-			if psDD.seed < 0 {
-				excQ14 = -excQ14
-			}
+			excQ14 = (excQ14 ^ seedSign) - seedSign
 			lpcExcQ14 = excQ14 + ltpPredQ14
 			xqQ14 = lpcExcQ14 + lpcPredQ14
 			psSS[1].diffQ14 = xqQ14 - xQ10i4
@@ -717,24 +720,10 @@ func noiseShapeQuantizerDelDec(
 		}
 
 		if rdMin2 < rdMax {
-			// Partial struct copy matching libopus NSQ_del_dec.c:605-607.
-			// The C code treats the struct as a flat int32 array and copies
-			// from offset i onward, skipping sLPCQ14[0:i] which will be
-			// overwritten in the next iteration anyway.
-			src := &psDelDec[rdMinInd]
-			dst := &psDelDec[rdMaxInd]
-			copy(dst.sLPCQ14[i:], src.sLPCQ14[i:])
-			dst.randState = src.randState
-			dst.qQ10 = src.qQ10
-			dst.xqQ14 = src.xqQ14
-			dst.predQ15 = src.predQ15
-			dst.shapeQ14 = src.shapeQ14
-			dst.sAR2Q14 = src.sAR2Q14
-			dst.lfARQ14 = src.lfARQ14
-			dst.diffQ14 = src.diffQ14
-			dst.seed = src.seed
-			dst.seedInit = src.seedInit
-			dst.rdQ10 = src.rdQ10
+			// Replace worst first-candidate state with best second-candidate.
+			// Single struct copy (1 memmove) is faster than 7 separate field copies.
+			// Copies sLPCQ14[0:i] redundantly but those values are never read again.
+			psDelDec[rdMaxInd] = psDelDec[rdMinInd]
 			psSampleState[rdMaxInd][0] = psSampleState[rdMinInd][1]
 		}
 
@@ -745,17 +734,17 @@ func noiseShapeQuantizerDelDec(
 				pulses[outIdx] = int8(silk_RSHIFT_ROUND(psDD.qQ10[lastSmplIdx], 10))
 				xq[outIdx] = int16(silk_SAT16(silk_RSHIFT_ROUND(silk_SMULWW(psDD.xqQ14[lastSmplIdx], delayedGainQ10[lastSmplIdx]), 8)))
 			}
-			shpOutIdx := nsq.sLTPShpBufIdx - decisionDelayActive
+			shpOutIdx := localShpBufIdx - decisionDelayActive
 			if shpOutIdx >= 0 && shpOutIdx < sLTPShpLen {
 				nsq.sLTPShpQ14[shpOutIdx] = psDD.shapeQ14[lastSmplIdx]
 			}
-			ltpOutIdx := nsq.sLTPBufIdx - decisionDelayActive
+			ltpOutIdx := localLTPBufIdx - decisionDelayActive
 			if ltpOutIdx >= 0 && ltpOutIdx < sLTPQ15Len {
 				sLTPQ15[ltpOutIdx] = psDD.predQ15[lastSmplIdx]
 			}
 		}
-		nsq.sLTPShpBufIdx++
-		nsq.sLTPBufIdx++
+		localShpBufIdx++
+		localLTPBufIdx++
 
 		for k := 0; k < nStatesDelayedDecision; k++ {
 			psDD = &psDelDec[k]
@@ -774,7 +763,9 @@ func noiseShapeQuantizerDelDec(
 		delayedGainQ10[localSmplBufIdx] = gainQ10
 	}
 
-	// Write back local index.
+	// Write back local indices.
+	nsq.sLTPShpBufIdx = localShpBufIdx
+	nsq.sLTPBufIdx = localLTPBufIdx
 	*smplBufIdx = localSmplBufIdx
 
 	for k := 0; k < nStatesDelayedDecision; k++ {
@@ -803,4 +794,3 @@ func warpedARFeedbackGeneric(sAR []int32, diffQ14 int32, arShpQ13 []int16, warpQ
 	acc += int32((int64(tmp1) * int64(arShpQ13[order-1])) >> 16)
 	return acc
 }
-
