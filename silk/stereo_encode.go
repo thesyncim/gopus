@@ -24,8 +24,8 @@ type StereoQuantIndices struct {
 // Per RFC 6716 Section 4.2.8.
 func (e *Encoder) encodeStereo(left, right []float32) (mid []float32, side []float32, weights [2]int32) {
 	n := len(left)
-	mid = make([]float32, n)
-	side = make([]float32, n)
+	mid = ensureFloat32Slice(&e.scratchStereoMid, n)
+	side = ensureFloat32Slice(&e.scratchStereoSide, n)
 
 	// Compute mid and side channels
 	for i := 0; i < n; i++ {
@@ -262,38 +262,34 @@ func (e *Encoder) encodeStereoWithLPFilter(left, right []float32, frameLength, f
 	// Ensure we have enough samples (need frameLength + 2 for LP filter)
 	inputLen := len(left)
 	if inputLen < frameLength+2 {
-		// Pad with zeros if needed
-		padLeft := make([]float32, frameLength+2)
-		padRight := make([]float32, frameLength+2)
+		// Pad with zeros if needed using scratch buffers
+		padLeft := ensureFloat32Slice(&e.scratchStereoPadLeft, frameLength+2)
+		padRight := ensureFloat32Slice(&e.scratchStereoPadRight, frameLength+2)
 		copy(padLeft, left)
+		for i := len(left); i < frameLength+2; i++ {
+			padLeft[i] = 0
+		}
 		copy(padRight, right)
+		for i := len(right); i < frameLength+2; i++ {
+			padRight[i] = 0
+		}
 		left = padLeft
 		right = padRight
 	}
 
-	// Convert L/R to basic M/S with look-ahead samples
-	mid, side = stereoConvertLRToMSFloat(left, right, frameLength)
-
-	// Prepare mid/side with history for LP filtering
-	// We need to prepend history from previous frame
-	midWithHistory := make([]float32, frameLength+2)
-	sideWithHistory := make([]float32, frameLength+2)
-
-	// Copy state (history) from previous frame
-	midWithHistory[0] = float32(e.stereo.sMid[0]) / 32768.0
-	midWithHistory[1] = float32(e.stereo.sMid[1]) / 32768.0
-	sideWithHistory[0] = float32(e.stereo.sSide[0]) / 32768.0
-	sideWithHistory[1] = float32(e.stereo.sSide[1]) / 32768.0
-
-	// Copy current frame
-	copy(midWithHistory[2:], mid[2:frameLength+2])
-	copy(sideWithHistory[2:], side[2:frameLength+2])
+	// Convert L/R to basic M/S with look-ahead samples using scratch buffers
+	msLen := frameLength + 2
+	mid = ensureFloat32Slice(&e.scratchStereoMid, msLen)
+	side = ensureFloat32Slice(&e.scratchStereoSide, msLen)
+	stereoConvertLRToMSFloatInto(left, right, mid, side, frameLength)
 
 	// Overwrite beginning of mid/side with history for correct LP filtering
-	mid[0] = midWithHistory[0]
-	mid[1] = midWithHistory[1]
-	side[0] = sideWithHistory[0]
-	side[1] = sideWithHistory[1]
+	// (midWithHistory and sideWithHistory were separate buffers, but we can
+	// just patch mid/side in place since we only need the first 2 samples)
+	mid[0] = float32(e.stereo.sMid[0]) / 32768.0
+	mid[1] = float32(e.stereo.sMid[1]) / 32768.0
+	side[0] = float32(e.stereo.sSide[0]) / 32768.0
+	side[1] = float32(e.stereo.sSide[1]) / 32768.0
 
 	// Update state with last 2 samples for next frame
 	e.stereo.sMid[0] = int16(mid[frameLength] * 32768)
@@ -301,9 +297,14 @@ func (e *Encoder) encodeStereoWithLPFilter(left, right []float32, frameLength, f
 	e.stereo.sSide[0] = int16(side[frameLength] * 32768)
 	e.stereo.sSide[1] = int16(side[frameLength+1] * 32768)
 
-	// Apply LP/HP filtering
-	lpMid, hpMid := stereoLPFilterFloat(mid, frameLength)
-	lpSide, hpSide := stereoLPFilterFloat(side, frameLength)
+	// Apply LP/HP filtering using scratch buffers
+	lpMid := ensureFloat32Slice(&e.scratchStereoLPMid, frameLength)
+	hpMid := ensureFloat32Slice(&e.scratchStereoHPMid, frameLength)
+	stereoLPFilterFloatInto(mid, lpMid, hpMid, frameLength)
+
+	lpSide := ensureFloat32Slice(&e.scratchStereoLPSide, frameLength)
+	hpSide := ensureFloat32Slice(&e.scratchStereoHPSide, frameLength)
+	stereoLPFilterFloatInto(side, lpSide, hpSide, frameLength)
 
 	// Find predictors for LP and HP bands
 	predLP := stereoFindPredictorFloat(lpMid, lpSide, frameLength)
@@ -339,9 +340,9 @@ func (e *Encoder) StereoEncodeLRToMSWithInterp(left, right []float32, frameLengt
 	// First compute predictors using LP/HP filtering
 	mid, side, predQ13 := e.encodeStereoWithLPFilter(left, right, frameLength, fsKHz)
 
-	// Create output buffers
-	midOut = make([]float32, frameLength)
-	sideOut = make([]float32, frameLength)
+	// Use scratch output buffers
+	midOut = ensureFloat32Slice(&e.scratchStereoMidOut, frameLength)
+	sideOut = ensureFloat32Slice(&e.scratchStereoSideOut, frameLength)
 
 	// Copy mid channel (offset by 1 to account for the history sample alignment)
 	for n := 0; n < frameLength; n++ {
@@ -432,9 +433,9 @@ func (e *Encoder) StereoEncodeLRToMSWithInterpQuantized(left, right []float32, f
 	// Quantize predictors (80-level) and keep indices for encoding
 	predQ13, ix = QuantizeStereoWeights(predQ13)
 
-	// Create output buffers
-	midOut = make([]float32, frameLength)
-	sideOut = make([]float32, frameLength)
+	// Use scratch output buffers
+	midOut = ensureFloat32Slice(&e.scratchStereoMidOut, frameLength)
+	sideOut = ensureFloat32Slice(&e.scratchStereoSideOut, frameLength)
 
 	// Copy mid channel (offset by 1 to account for history alignment)
 	for n := 0; n < frameLength; n++ {
@@ -516,18 +517,27 @@ func (e *Encoder) StereoLRToMSWithRates(
 
 	// Ensure lookahead samples exist.
 	if len(left) < frameLength+2 {
-		pad := make([]float32, frameLength+2)
+		pad := ensureFloat32Slice(&e.scratchStereoPadLeft, frameLength+2)
 		copy(pad, left)
+		for i := len(left); i < frameLength+2; i++ {
+			pad[i] = 0
+		}
 		left = pad
 	}
 	if len(right) < frameLength+2 {
-		pad := make([]float32, frameLength+2)
+		pad := ensureFloat32Slice(&e.scratchStereoPadRight, frameLength+2)
 		copy(pad, right)
+		for i := len(right); i < frameLength+2; i++ {
+			pad[i] = 0
+		}
 		right = pad
 	}
 
-	// Convert to mid/side and apply history buffering.
-	mid, side := stereoConvertLRToMSFloat(left, right, frameLength)
+	// Convert to mid/side and apply history buffering using scratch buffers.
+	msLen := frameLength + 2
+	mid := ensureFloat32Slice(&e.scratchStereoMid, msLen)
+	side := ensureFloat32Slice(&e.scratchStereoSide, msLen)
+	stereoConvertLRToMSFloatInto(left, right, mid, side, frameLength)
 	mid[0] = float32(e.stereo.sMid[0]) / 32768.0
 	mid[1] = float32(e.stereo.sMid[1]) / 32768.0
 	side[0] = float32(e.stereo.sSide[0]) / 32768.0
@@ -538,9 +548,13 @@ func (e *Encoder) StereoLRToMSWithRates(
 	e.stereo.sSide[0] = float32ToInt16(side[frameLength])
 	e.stereo.sSide[1] = float32ToInt16(side[frameLength+1])
 
-	// LP/HP filters.
-	lpMid, hpMid := stereoLPFilterFloat(mid, frameLength)
-	lpSide, hpSide := stereoLPFilterFloat(side, frameLength)
+	// LP/HP filters using scratch buffers.
+	lpMid := ensureFloat32Slice(&e.scratchStereoLPMid, frameLength)
+	hpMid := ensureFloat32Slice(&e.scratchStereoHPMid, frameLength)
+	stereoLPFilterFloatInto(mid, lpMid, hpMid, frameLength)
+	lpSide := ensureFloat32Slice(&e.scratchStereoLPSide, frameLength)
+	hpSide := ensureFloat32Slice(&e.scratchStereoHPSide, frameLength)
+	stereoLPFilterFloatInto(side, lpSide, hpSide, frameLength)
 
 	// Predictor smoothing coefficient.
 	smoothCoef := stereoRatioSmoothCoef
@@ -675,8 +689,8 @@ func (e *Encoder) StereoLRToMSWithRates(
 	// sum = (mid[n]+2*mid[n+1]+mid[n+2]) << 9 produces Q11 in int32.
 	// Our float mid values are in [-1,1] (= int16/32768), so we convert to
 	// int16 scale first (multiply by 32768), then apply the << 9 shift.
-	midOut = make([]float32, frameLength)
-	sideOut = make([]float32, frameLength)
+	midOut = ensureFloat32Slice(&e.scratchStereoMidOut, frameLength)
+	sideOut = ensureFloat32Slice(&e.scratchStereoSideOut, frameLength)
 	for n := 0; n < frameLength; n++ {
 		midOut[n] = mid[n+1]
 	}

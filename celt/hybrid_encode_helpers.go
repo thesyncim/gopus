@@ -368,6 +368,83 @@ func (e *Encoder) RoundFloat64ToFloat32(x []float64) {
 	roundFloat64ToFloat32(x)
 }
 
+// MDCTScratch computes the MDCT using the encoder's pre-allocated scratch buffers.
+// This is the zero-allocation equivalent of the public MDCT function.
+// EnsureScratch must have been called with an appropriate frameSize first.
+func (e *Encoder) MDCTScratch(samples []float64) []float64 {
+	return mdctScratch(samples, &e.scratch)
+}
+
+// MDCTShortScratch computes the short-block MDCT using scratch buffers.
+// This is the zero-allocation equivalent of MDCTShort.
+// EnsureScratch must have been called with an appropriate frameSize first.
+func (e *Encoder) MDCTShortScratch(samples []float64, shortBlocks int) []float64 {
+	return mdctShortScratch(samples, shortBlocks, &e.scratch)
+}
+
+// ComputeMDCTWithHistoryScratch computes MDCT with history using scratch buffers.
+// inputScratch is used to assemble [history|samples] before the transform.
+// history is updated in-place with the current frame's tail.
+// EnsureScratch must have been called first.
+func (e *Encoder) ComputeMDCTWithHistoryScratch(inputScratch, samples, history []float64, shortBlocks int) []float64 {
+	if len(samples) == 0 {
+		return nil
+	}
+
+	overlap := Overlap
+	if overlap > len(samples) {
+		overlap = len(samples)
+	}
+	input := inputScratch[:len(samples)+overlap]
+
+	// Copy history overlap into the head of the input buffer.
+	if overlap > 0 && len(history) > 0 {
+		if len(history) >= overlap {
+			copy(input[:overlap], history[len(history)-overlap:])
+		} else {
+			start := overlap - len(history)
+			for i := 0; i < start; i++ {
+				input[i] = 0
+			}
+			copy(input[start:overlap], history)
+		}
+	} else {
+		for i := 0; i < overlap; i++ {
+			input[i] = 0
+		}
+	}
+
+	// Append current frame samples after the overlap.
+	copy(input[overlap:], samples)
+
+	// Update history with the current frame tail (overlap samples).
+	if overlap > 0 && len(history) > 0 {
+		if len(history) >= overlap {
+			copy(history, samples[len(samples)-overlap:])
+		} else {
+			copy(history, samples[len(samples)-len(history):])
+		}
+	}
+
+	if shortBlocks > 1 {
+		return mdctShortScratch(input, shortBlocks, &e.scratch)
+	}
+	return mdctScratch(input, &e.scratch)
+}
+
+// ComputeMDCTWithHistoryScratchStereoL computes MDCT for the left channel using
+// separate scratch output buffers. The result is written to scratch.mdctLeft so it
+// survives a subsequent right-channel call.
+func (e *Encoder) ComputeMDCTWithHistoryScratchStereoL(samples, history []float64, shortBlocks int) []float64 {
+	return computeMDCTWithHistoryScratchStereoL(samples, history, shortBlocks, &e.scratch)
+}
+
+// ComputeMDCTWithHistoryScratchStereoR computes MDCT for the right channel using
+// separate scratch output buffers. The result is written to scratch.mdctRight.
+func (e *Encoder) ComputeMDCTWithHistoryScratchStereoR(samples, history []float64, shortBlocks int) []float64 {
+	return computeMDCTWithHistoryScratchStereoR(samples, history, shortBlocks, &e.scratch)
+}
+
 // ApplyDCRejectScratchHybrid applies DC rejection using the encoder scratch buffers.
 func (e *Encoder) ApplyDCRejectScratchHybrid(pcm []float64) []float64 {
 	return e.applyDCRejectScratch(pcm)

@@ -145,6 +145,10 @@ type TonalityAnalysisState struct {
 	RNNState         [MaxNeurons]float32
 	DownmixState     [3]float32
 	Info             [DetectSize]AnalysisInfo
+
+	// Scratch buffers for zero-allocation analysis
+	scratchMono        []float32
+	scratchDownsampled []float32
 }
 
 func NewTonalityAnalysisState(fs int) *TonalityAnalysisState {
@@ -187,7 +191,10 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	}
 
 	// 1. Downmix current frame to mono for analysis
-	mono := make([]float32, frameSize)
+	if cap(s.scratchMono) < frameSize {
+		s.scratchMono = make([]float32, frameSize)
+	}
+	mono := s.scratchMono[:frameSize]
 	if channels == 2 {
 		for i := 0; i < frameSize; i++ {
 			mono[i] = (pcm[2*i] + pcm[2*i+1]) * 0.5
@@ -205,7 +212,10 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	// 48kHz mono -> 24kHz downsampled
 	var downsampledBuf []float32
 	if s.Fs == 48000 {
-		downsampledBuf = make([]float32, frameSize/2)
+		if cap(s.scratchDownsampled) < frameSize/2 {
+			s.scratchDownsampled = make([]float32, frameSize/2)
+		}
+		downsampledBuf = s.scratchDownsampled[:frameSize/2]
 		_ = silkResamplerDown2HP(s.DownmixState[:], downsampledBuf, mono)
 	} else if s.Fs == 24000 {
 		downsampledBuf = mono

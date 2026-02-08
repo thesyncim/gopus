@@ -796,11 +796,24 @@ type encoderScratch struct {
 	// MDCT input buffer for ComputeMDCTWithHistory
 	mdctInput []float64
 
+	// Pitch ratio FFT scratch buffers
+	pitchFFTIn  []complex64 // size: fft N (e.g. 480)
+	pitchFFTOut []complex64 // size: fft N
+	pitchFFTTmp []kissCpx   // FFT workspace, size: fft N
+	pitchDown   []float64   // downsampled signal, size: fft N
+
 	// Band encode scratch (for quantAllBandsEncode)
 	bandEncode bandEncodeScratch
 
 	// Range encoder (reused between frames)
 	rangeEncoder rangecoding.Encoder
+}
+
+// EnsureScratch ensures all scratch buffers are properly sized for the given frame size.
+// Call this before using the encoder's scratch-aware methods from an external path
+// (e.g., hybrid encoding) that does not go through EncodeFrame.
+func (e *Encoder) EnsureScratch(frameSize int) {
+	e.ensureScratch(frameSize)
 }
 
 // ensureScratch ensures all scratch buffers are properly sized for the given frame parameters.

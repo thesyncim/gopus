@@ -254,7 +254,7 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 // downsampling step (48 kHz -> 24 kHz) with a split at bin 64 (~3.2 kHz).
 // It uses the same down2 all-pass structure as libopus analysis and adds the
 // high-pass residual energy to the "above max pitch" side.
-func estimateMaxPitchRatio(pcm []float64, channels int, scratch []float64) float64 {
+func estimateMaxPitchRatio(pcm []float64, channels int, scratch *encoderScratch) float64 {
 	if channels <= 0 || len(pcm) < channels {
 		return 1
 	}
@@ -264,12 +264,7 @@ func estimateMaxPitchRatio(pcm []float64, channels int, scratch []float64) float
 		return 1
 	}
 
-	var down []float64
-	if len(scratch) >= n {
-		down = scratch[:n]
-	} else {
-		down = make([]float64, n)
-	}
+	down := ensureFloat64Slice(&scratch.pitchDown, n)
 
 	// Downmix and downsample by 2 (matching the 24 kHz analysis bandwidth).
 	// This mirrors silk_resampler_down2_hp() from libopus analysis.c.
@@ -305,12 +300,22 @@ func estimateMaxPitchRatio(pcm []float64, channels int, scratch []float64) float
 		down[i] = 0.5 * out
 	}
 
-	// Apply a light Hann window to reduce spectral leakage.
+	// Apply a light Hann window using incremental oscillator (2 muls + 1 add
+	// per sample instead of math.Cos transcendental).
 	if n > 1 {
-		inv := 1.0 / float64(n-1)
+		// Hann window: w[i] = 0.5 - 0.5*cos(2*pi*i/(n-1))
+		// Incremental: cos(a+d) = cos(a)*cos(d) - sin(a)*sin(d)
+		ang := 2.0 * math.Pi / float64(n-1)
+		cosStep := math.Cos(ang)
+		sinStep := math.Sin(ang)
+		cosCurr := 1.0 // cos(0) = 1
+		sinCurr := 0.0 // sin(0) = 0
 		for i := 0; i < n; i++ {
-			w := 0.5 - 0.5*math.Cos(2.0*math.Pi*float64(i)*inv)
+			w := 0.5 - 0.5*cosCurr
 			down[i] *= w
+			nextCos := cosCurr*cosStep - sinCurr*sinStep
+			sinCurr = cosCurr*sinStep + sinCurr*cosStep
+			cosCurr = nextCos
 		}
 	}
 
@@ -320,25 +325,21 @@ func estimateMaxPitchRatio(pcm []float64, channels int, scratch []float64) float
 		splitBin = half
 	}
 
+	// Use FFT instead of O(n²) DFT.
+	fftIn := ensureComplex64Slice(&scratch.pitchFFTIn, n)
+	fftOut := ensureComplex64Slice(&scratch.pitchFFTOut, n)
+	fftTmp := ensureKissCpxSlice(&scratch.pitchFFTTmp, n)
+
+	for i := 0; i < n; i++ {
+		fftIn[i] = complex(float32(down[i]), 0)
+	}
+
+	kissFFT32To(fftOut, fftIn, fftTmp)
+
 	var below, above float64
 	for k := 0; k < half; k++ {
-		ang := -2.0 * math.Pi * float64(k) / float64(n)
-		cosStep := math.Cos(ang)
-		sinStep := math.Sin(ang)
-		cosCurr := 1.0
-		sinCurr := 0.0
-		var re, im float64
-
-		for t := 0; t < n; t++ {
-			v := down[t]
-			re += v * cosCurr
-			im += v * sinCurr
-
-			nextCos := cosCurr*cosStep - sinCurr*sinStep
-			sinCurr = cosCurr*sinStep + sinCurr*cosStep
-			cosCurr = nextCos
-		}
-
+		re := float64(real(fftOut[k]))
+		im := float64(imag(fftOut[k]))
 		p := re*re + im*im
 		if k < splitBin {
 			below += p
@@ -503,7 +504,25 @@ func celtPitchXcorr(x []float64, y []float64, xcorr []float64, length, maxPitch 
 	if length <= 0 || maxPitch <= 0 {
 		return
 	}
-	for i := 0; i < maxPitch; i++ {
+	_ = x[length-1]           // BCE hint
+	_ = xcorr[maxPitch-1]     // BCE hint
+	_ = y[maxPitch+length-2]  // BCE hint
+	i := 0
+	for ; i+3 < maxPitch; i += 4 {
+		var s0, s1, s2, s3 float64
+		for j := 0; j < length; j++ {
+			xj := x[j]
+			s0 += xj * y[i+j]
+			s1 += xj * y[i+1+j]
+			s2 += xj * y[i+2+j]
+			s3 += xj * y[i+3+j]
+		}
+		xcorr[i] = s0
+		xcorr[i+1] = s1
+		xcorr[i+2] = s2
+		xcorr[i+3] = s3
+	}
+	for ; i < maxPitch; i++ {
 		sum := 0.0
 		for j := 0; j < length; j++ {
 			sum += x[j] * y[i+j]
@@ -627,6 +646,12 @@ func computePitchGain(xy, xx, yy float64) float64 {
 }
 
 func dualInnerProd(x, y1, y2 []float64, length int) (float64, float64) {
+	if length <= 0 {
+		return 0, 0
+	}
+	_ = x[length-1]  // BCE hint
+	_ = y1[length-1] // BCE hint
+	_ = y2[length-1] // BCE hint
 	sum1 := 0.0
 	sum2 := 0.0
 	for i := 0; i < length; i++ {
@@ -637,6 +662,11 @@ func dualInnerProd(x, y1, y2 []float64, length int) (float64, float64) {
 }
 
 func celtInnerProd(x, y []float64, length int) float64 {
+	if length <= 0 {
+		return 0
+	}
+	_ = x[length-1] // BCE hint
+	_ = y[length-1] // BCE hint
 	sum := 0.0
 	for i := 0; i < length; i++ {
 		sum += x[i] * y[i]

@@ -436,7 +436,8 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 
 	suppressFrame, sendComfortNoise := e.shouldUseDTX(framePCM)
 	if suppressFrame {
-		e.inputBuffer = e.inputBuffer[frameEnd:]
+		remaining := copy(e.inputBuffer, e.inputBuffer[frameEnd:])
+		e.inputBuffer = e.inputBuffer[:remaining]
 		if sendComfortNoise {
 			return e.encodeComfortNoise(frameSize)
 		}
@@ -487,7 +488,8 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	e.inputBuffer = e.inputBuffer[frameEnd:]
+	remaining := copy(e.inputBuffer, e.inputBuffer[frameEnd:])
+	e.inputBuffer = e.inputBuffer[:remaining]
 	if packet == nil {
 		stereo := e.channels == 2
 		packetBW := e.effectiveBandwidth()

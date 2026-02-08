@@ -261,6 +261,13 @@ func (e *Encoder) applyDCRejectScratch(pcm []float64) []float64 {
 	return output
 }
 
+// ApplyPreemphasisWithScalingScratch applies pre-emphasis with scaling using
+// pre-allocated scratch buffers. This is the zero-allocation version of
+// ApplyPreemphasisWithScaling, suitable for use from the hybrid encoding path.
+func (e *Encoder) ApplyPreemphasisWithScalingScratch(pcm []float64) []float64 {
+	return e.applyPreemphasisWithScalingScratch(pcm)
+}
+
 // applyPreemphasisWithScalingScratch applies pre-emphasis with scaling using scratch buffer.
 func (e *Encoder) applyPreemphasisWithScalingScratch(pcm []float64) []float64 {
 	if len(pcm) == 0 {

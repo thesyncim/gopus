@@ -338,6 +338,11 @@ func energyF32(x []float32, length int) float64 {
 
 // innerProductF32 computes the inner product of float32 signals using libopus ordering.
 func innerProductF32(a, b []float32, length int) float64 {
+	if length <= 0 {
+		return 0
+	}
+	_ = a[length-1] // BCE hint
+	_ = b[length-1] // BCE hint
 	var result float64
 	i := 0
 	for i < length-3 {
@@ -356,21 +361,38 @@ func innerProductF32(a, b []float32, length int) float64 {
 // a2nlsfFLP converts LPC coefficients to NLSF using floating point.
 // This matches libopus silk_A2NLSF_FLP / silk_A2NLSF.
 func a2nlsfFLP(a []float64, order int) []int16 {
-	// Convert float64 LPC to Q16 for the fixed-point A2NLSF
 	aQ16 := make([]int32, order)
+	nlsfQ15 := make([]int16, order)
+	dd := order >> 1
+	P := make([]int32, dd+1)
+	Q := make([]int32, dd+1)
+	a2nlsfFLPInto(nlsfQ15, aQ16, P, Q, a, order)
+	return nlsfQ15
+}
+
+// a2nlsfFLPInto converts LPC coefficients to NLSF using pre-allocated buffers.
+// nlsfOut must have length >= order, aQ16Buf must have length >= order,
+// P and Q must have capacity >= dd+1 where dd = order>>1.
+func a2nlsfFLPInto(nlsfOut []int16, aQ16Buf []int32, P, Q []int32, a []float64, order int) {
 	for k := 0; k < order; k++ {
 		a32 := float32(a[k])
-		aQ16[k] = float64ToInt32Round(float64(a32 * 65536.0))
+		aQ16Buf[k] = float64ToInt32Round(float64(a32 * 65536.0))
 	}
-
-	nlsfQ15 := make([]int16, order)
-	silkA2NLSF(nlsfQ15, aQ16, order)
-	return nlsfQ15
+	silkA2NLSFInto(nlsfOut, aQ16Buf, order, P, Q)
 }
 
 // silkA2NLSF converts LPC coefficients to NLSF.
 // This is a Go implementation matching libopus silk/A2NLSF.c
 func silkA2NLSF(NLSF []int16, aQ16 []int32, d int) {
+	dd := d >> 1
+	P := make([]int32, dd+1)
+	Q := make([]int32, dd+1)
+	silkA2NLSFInto(NLSF, aQ16, d, P, Q)
+}
+
+// silkA2NLSFInto converts LPC coefficients to NLSF using pre-allocated P and Q buffers.
+// P and Q must have capacity >= dd+1 where dd = d>>1.
+func silkA2NLSFInto(NLSF []int16, aQ16 []int32, d int, P, Q []int32) {
 	const (
 		binDivSteps   = 3
 		maxIterations = 16
@@ -378,9 +400,9 @@ func silkA2NLSF(NLSF []int16, aQ16 []int32, d int) {
 
 	dd := d >> 1
 
-	// Initialize P and Q polynomials
-	P := make([]int32, dd+1)
-	Q := make([]int32, dd+1)
+	// Use pre-allocated P and Q polynomials
+	P = P[:dd+1]
+	Q = Q[:dd+1]
 
 	a2nlsfInit(aQ16, P, Q, dd)
 
@@ -541,15 +563,38 @@ func a2nlsfTransPoly(p []int32, dd int) {
 
 // a2nlsfEvalPoly evaluates polynomial at point x.
 func a2nlsfEvalPoly(p []int32, x int32, dd int) int32 {
-	y32 := p[dd]
 	xQ16 := x << 4
-
-	for n := dd - 1; n >= 0; n-- {
-		// y32 = p[n] + (y32 * x_Q16) >> 16
-		y32 = int32(int64(p[n]) + ((int64(y32) * int64(xQ16)) >> 16))
+	switch dd {
+	case 5:
+		// Unrolled for order=10 (dd = order>>1 = 5)
+		_ = p[5]
+		y32 := p[5]
+		y32 = int32(int64(p[4]) + ((int64(y32) * int64(xQ16)) >> 16))
+		y32 = int32(int64(p[3]) + ((int64(y32) * int64(xQ16)) >> 16))
+		y32 = int32(int64(p[2]) + ((int64(y32) * int64(xQ16)) >> 16))
+		y32 = int32(int64(p[1]) + ((int64(y32) * int64(xQ16)) >> 16))
+		y32 = int32(int64(p[0]) + ((int64(y32) * int64(xQ16)) >> 16))
+		return y32
+	case 8:
+		// Unrolled for order=16 (dd = order>>1 = 8)
+		_ = p[8]
+		y32 := p[8]
+		y32 = int32(int64(p[7]) + ((int64(y32) * int64(xQ16)) >> 16))
+		y32 = int32(int64(p[6]) + ((int64(y32) * int64(xQ16)) >> 16))
+		y32 = int32(int64(p[5]) + ((int64(y32) * int64(xQ16)) >> 16))
+		y32 = int32(int64(p[4]) + ((int64(y32) * int64(xQ16)) >> 16))
+		y32 = int32(int64(p[3]) + ((int64(y32) * int64(xQ16)) >> 16))
+		y32 = int32(int64(p[2]) + ((int64(y32) * int64(xQ16)) >> 16))
+		y32 = int32(int64(p[1]) + ((int64(y32) * int64(xQ16)) >> 16))
+		y32 = int32(int64(p[0]) + ((int64(y32) * int64(xQ16)) >> 16))
+		return y32
+	default:
+		y32 := p[dd]
+		for n := dd - 1; n >= 0; n-- {
+			y32 = int32(int64(p[n]) + ((int64(y32) * int64(xQ16)) >> 16))
+		}
+		return y32
 	}
-
-	return y32
 }
 
 // silkBwExpander32AQ16 applies bandwidth expansion to Q16 LPC coefficients.
@@ -1014,8 +1059,11 @@ func (e *Encoder) FindLPCWithInterpolation(x []float32, prevNLSFQ15 []int16, use
 	// Default: no interpolation
 	interpCoef := 4
 
-	// Convert to float64
-	xF64 := make([]float64, len(x))
+	// Convert to float64 using scratch buffer
+	if cap(e.scratchLpcXF64) < len(x) {
+		e.scratchLpcXF64 = make([]float64, len(x))
+	}
+	xF64 := e.scratchLpcXF64[:len(x)]
 	for i := range x {
 		xF64[i] = float64(x[i])
 	}
@@ -1025,9 +1073,8 @@ func (e *Encoder) FindLPCWithInterpolation(x []float32, prevNLSFQ15 []int16, use
 	// but for simplicity, we use the basic subframe length here
 	subfrLength := len(x) / nbSubfr
 	if subfrLength < order+1 {
-		// Not enough samples per subframe
-		nlsfQ15 := make([]int16, order)
-		// Return white spectrum
+		// Not enough samples per subframe - return white spectrum using scratch
+		nlsfQ15 := e.scratchA2nlsfNLSF[:order]
 		for i := 0; i < order; i++ {
 			nlsfQ15[i] = int16((i + 1) * 32767 / (order + 1))
 		}
@@ -1048,8 +1095,9 @@ func (e *Encoder) FindLPCWithInterpolation(x []float32, prevNLSFQ15 []int16, use
 			resNrg -= float32(resNrgLastF64)
 		}
 
-		// Convert to NLSF
-		nlsfQ15 := a2nlsfFLP(a, order)
+		// Convert to NLSF using scratch buffers
+		nlsfQ15 := e.scratchA2nlsfNLSF[:order]
+		a2nlsfFLPInto(nlsfQ15, e.scratchA2nlsfAQ16[:order], e.scratchA2nlsfP[:], e.scratchA2nlsfQ[:], a, order)
 
 		// Search for best interpolation index
 		// Match libopus: res_nrg, res_nrg_2nd, res_nrg_interp are all silk_float (float32)
@@ -1060,16 +1108,19 @@ func (e *Encoder) FindLPCWithInterpolation(x []float32, prevNLSFQ15 []int16, use
 		analyzeLen := 2 * subfrLength
 		if analyzeLen <= len(xF64) {
 			for k := 3; k >= 0; k-- {
-				// Interpolate NLSF for first half
-				nlsf0Q15 := make([]int16, order)
+				// Interpolate NLSF for first half using scratch
+				nlsf0Q15 := e.scratchNlsf0Q15[:order]
 				interpolateNLSF(nlsf0Q15, prevNLSFQ15, nlsfQ15, k, order)
 
-				// Convert to LPC
-				aTmp := make([]float64, order)
+				// Convert to LPC using scratch
+				aTmp := e.scratchLpcATmp[:order]
 				nlsfToLPCFloat(aTmp, nlsf0Q15, order)
 
-				// Calculate residual energy with interpolation
-				lpcRes := make([]float64, analyzeLen)
+				// Calculate residual energy with interpolation using scratch
+				if cap(e.scratchLpcResidual) < analyzeLen {
+					e.scratchLpcResidual = make([]float64, analyzeLen)
+				}
+				lpcRes := e.scratchLpcResidual[:analyzeLen]
 				lpcAnalysisFilterFLP(lpcRes, aTmp, xF64, analyzeLen, order)
 
 				// Compute energy of residual (excluding initial order samples)
@@ -1095,8 +1146,9 @@ func (e *Encoder) FindLPCWithInterpolation(x []float32, prevNLSFQ15 []int16, use
 		}
 	}
 
-	// Convert LPC to NLSF
-	nlsfQ15 := a2nlsfFLP(a, order)
+	// Convert LPC to NLSF using scratch buffers
+	nlsfQ15 := e.scratchA2nlsfNLSF[:order]
+	a2nlsfFLPInto(nlsfQ15, e.scratchA2nlsfAQ16[:order], e.scratchA2nlsfP[:], e.scratchA2nlsfQ[:], a, order)
 	return nlsfQ15, interpCoef
 }
 

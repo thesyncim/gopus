@@ -468,14 +468,35 @@ func noiseShapeQuantizerDelDec(
 	predLagPtrIdx := nsq.sLTPBufIdx - lag + ltpOrderConst/2
 	gainQ10 := int32(gainQ16 >> 6)
 
+	// BCE hints for hot loop arrays
+	if length > 0 {
+		_ = xQ10[length-1]
+	}
+	if len(bQ14) >= ltpOrderConst {
+		_ = bQ14[ltpOrderConst-1]
+	}
+	if shapingLPCOrder > 0 {
+		_ = arShpQ13[shapingLPCOrder-1]
+	}
+
 	for i := 0; i < length; i++ {
 		var ltpPredQ14 int32
 		if signalType == typeVoiced {
+			// Unrolled 5-tap LTP filter (ltpOrderConst == 5)
 			ltpPredQ14 = 2
-			for tap := 0; tap < ltpOrderConst; tap++ {
-				idx := predLagPtrIdx - tap
-				if idx >= 0 && idx < len(sLTPQ15) {
-					ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[idx], int32(bQ14[tap]))
+			if predLagPtrIdx >= 0 && predLagPtrIdx < len(sLTPQ15) &&
+				predLagPtrIdx-4 >= 0 {
+				ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[predLagPtrIdx-0], int32(bQ14[0]))
+				ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[predLagPtrIdx-1], int32(bQ14[1]))
+				ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[predLagPtrIdx-2], int32(bQ14[2]))
+				ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[predLagPtrIdx-3], int32(bQ14[3]))
+				ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[predLagPtrIdx-4], int32(bQ14[4]))
+			} else {
+				for tap := 0; tap < ltpOrderConst; tap++ {
+					idx := predLagPtrIdx - tap
+					if idx >= 0 && idx < len(sLTPQ15) {
+						ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[idx], int32(bQ14[tap]))
+					}
 				}
 			}
 			ltpPredQ14 = silk_LSHIFT32(ltpPredQ14, 1)
@@ -709,73 +730,8 @@ func noiseShapeQuantizerDelDec(
 	}
 }
 
-// copyDelDecStateFromOffset copies src into dst starting at an int32 offset,
-// matching libopus' partial memcpy in NSQ_del_dec.
-func copyDelDecStateFromOffset(dst, src *nsqDelDecState, offset int) {
-	if offset <= 0 {
-		*dst = *src
-		return
-	}
-	idx := 0
-	for i := 0; i < len(dst.sLPCQ14); i++ {
-		if idx >= offset {
-			dst.sLPCQ14[i] = src.sLPCQ14[i]
-		}
-		idx++
-	}
-	for i := 0; i < len(dst.randState); i++ {
-		if idx >= offset {
-			dst.randState[i] = src.randState[i]
-		}
-		idx++
-	}
-	for i := 0; i < len(dst.qQ10); i++ {
-		if idx >= offset {
-			dst.qQ10[i] = src.qQ10[i]
-		}
-		idx++
-	}
-	for i := 0; i < len(dst.xqQ14); i++ {
-		if idx >= offset {
-			dst.xqQ14[i] = src.xqQ14[i]
-		}
-		idx++
-	}
-	for i := 0; i < len(dst.predQ15); i++ {
-		if idx >= offset {
-			dst.predQ15[i] = src.predQ15[i]
-		}
-		idx++
-	}
-	for i := 0; i < len(dst.shapeQ14); i++ {
-		if idx >= offset {
-			dst.shapeQ14[i] = src.shapeQ14[i]
-		}
-		idx++
-	}
-	for i := 0; i < len(dst.sAR2Q14); i++ {
-		if idx >= offset {
-			dst.sAR2Q14[i] = src.sAR2Q14[i]
-		}
-		idx++
-	}
-	if idx >= offset {
-		dst.lfARQ14 = src.lfARQ14
-	}
-	idx++
-	if idx >= offset {
-		dst.diffQ14 = src.diffQ14
-	}
-	idx++
-	if idx >= offset {
-		dst.seed = src.seed
-	}
-	idx++
-	if idx >= offset {
-		dst.seedInit = src.seedInit
-	}
-	idx++
-	if idx >= offset {
-		dst.rdQ10 = src.rdQ10
-	}
+// copyDelDecStateFromOffset copies src into dst.
+// In libopus this is a flat memcpy of the entire struct.
+func copyDelDecStateFromOffset(dst, src *nsqDelDecState, _ int) {
+	*dst = *src
 }

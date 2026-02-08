@@ -863,6 +863,12 @@ func energyFLP(data []float32) float64 {
 // innerProductFLP computes inner product of two float32 arrays.
 // Matches libopus silk_inner_product_FLP (float precision accumulation).
 func innerProductFLP(a, b []float32, length int) float64 {
+	if length <= 0 {
+		return 0
+	}
+	_ = a[length-1] // BCE hint
+	_ = b[length-1] // BCE hint
+
 	// Match libopus silk_inner_product_FLP: return double precision.
 	var result float64
 
@@ -884,6 +890,11 @@ func innerProductFLP(a, b []float32, length int) float64 {
 }
 
 func innerProductF32Acc(a, b []float32, length int) float32 {
+	if length <= 0 {
+		return 0
+	}
+	_ = a[length-1] // BCE hint
+	_ = b[length-1] // BCE hint
 	var result float32
 	for i := 0; i < length; i++ {
 		result += a[i] * b[i]

@@ -558,13 +558,61 @@ func noiseShapeQuantizerSubframe(
 // shortTermPrediction computes LPC prediction.
 // Matches libopus silk_noise_shape_quantizer_short_prediction_c.
 func shortTermPrediction(sLPCQ14 []int32, idx int, aQ12 []int16, order int) int32 {
-	// Rounding bias
-	out := int32(order >> 1)
-
-	for k := 0; k < order && idx-k >= 0; k++ {
-		out = silk_SMLAWB(out, sLPCQ14[idx-k], int32(aQ12[k]))
+	switch order {
+	case 16:
+		return shortTermPrediction16(sLPCQ14, idx, aQ12)
+	case 10:
+		return shortTermPrediction10(sLPCQ14, idx, aQ12)
+	default:
+		out := int32(order >> 1)
+		for k := 0; k < order && idx-k >= 0; k++ {
+			out = silk_SMLAWB(out, sLPCQ14[idx-k], int32(aQ12[k]))
+		}
+		return out
 	}
+}
 
+// shortTermPrediction16 is a fully unrolled version for order=16.
+func shortTermPrediction16(sLPCQ14 []int32, idx int, aQ12 []int16) int32 {
+	_ = sLPCQ14[idx]
+	_ = sLPCQ14[idx-15]
+	_ = aQ12[15]
+	out := int32(8) // order>>1 = 16>>1
+	out = silk_SMLAWB(out, sLPCQ14[idx-0], int32(aQ12[0]))
+	out = silk_SMLAWB(out, sLPCQ14[idx-1], int32(aQ12[1]))
+	out = silk_SMLAWB(out, sLPCQ14[idx-2], int32(aQ12[2]))
+	out = silk_SMLAWB(out, sLPCQ14[idx-3], int32(aQ12[3]))
+	out = silk_SMLAWB(out, sLPCQ14[idx-4], int32(aQ12[4]))
+	out = silk_SMLAWB(out, sLPCQ14[idx-5], int32(aQ12[5]))
+	out = silk_SMLAWB(out, sLPCQ14[idx-6], int32(aQ12[6]))
+	out = silk_SMLAWB(out, sLPCQ14[idx-7], int32(aQ12[7]))
+	out = silk_SMLAWB(out, sLPCQ14[idx-8], int32(aQ12[8]))
+	out = silk_SMLAWB(out, sLPCQ14[idx-9], int32(aQ12[9]))
+	out = silk_SMLAWB(out, sLPCQ14[idx-10], int32(aQ12[10]))
+	out = silk_SMLAWB(out, sLPCQ14[idx-11], int32(aQ12[11]))
+	out = silk_SMLAWB(out, sLPCQ14[idx-12], int32(aQ12[12]))
+	out = silk_SMLAWB(out, sLPCQ14[idx-13], int32(aQ12[13]))
+	out = silk_SMLAWB(out, sLPCQ14[idx-14], int32(aQ12[14]))
+	out = silk_SMLAWB(out, sLPCQ14[idx-15], int32(aQ12[15]))
+	return out
+}
+
+// shortTermPrediction10 is a fully unrolled version for order=10.
+func shortTermPrediction10(sLPCQ14 []int32, idx int, aQ12 []int16) int32 {
+	_ = sLPCQ14[idx]
+	_ = sLPCQ14[idx-9]
+	_ = aQ12[9]
+	out := int32(5) // order>>1 = 10>>1
+	out = silk_SMLAWB(out, sLPCQ14[idx-0], int32(aQ12[0]))
+	out = silk_SMLAWB(out, sLPCQ14[idx-1], int32(aQ12[1]))
+	out = silk_SMLAWB(out, sLPCQ14[idx-2], int32(aQ12[2]))
+	out = silk_SMLAWB(out, sLPCQ14[idx-3], int32(aQ12[3]))
+	out = silk_SMLAWB(out, sLPCQ14[idx-4], int32(aQ12[4]))
+	out = silk_SMLAWB(out, sLPCQ14[idx-5], int32(aQ12[5]))
+	out = silk_SMLAWB(out, sLPCQ14[idx-6], int32(aQ12[6]))
+	out = silk_SMLAWB(out, sLPCQ14[idx-7], int32(aQ12[7]))
+	out = silk_SMLAWB(out, sLPCQ14[idx-8], int32(aQ12[8]))
+	out = silk_SMLAWB(out, sLPCQ14[idx-9], int32(aQ12[9]))
 	return out
 }
 
@@ -866,18 +914,27 @@ func silk_SUB32(a, b int32) int32 {
 }
 
 func silk_ADD_SAT32(a, b int32) int32 {
-	result := int64(a) + int64(b)
-	if result > 0x7FFFFFFF {
-		return 0x7FFFFFFF
-	}
-	if result < -0x80000000 {
+	res := a + b
+	// Overflow if a and b have the same sign but res has a different sign.
+	if (a^b) >= 0 && (a^res) < 0 {
+		if a >= 0 {
+			return 0x7FFFFFFF
+		}
 		return -0x80000000
 	}
-	return int32(result)
+	return res
 }
 
 func silk_SUB_SAT32(a, b int32) int32 {
-	return silk_ADD_SAT32(a, -b)
+	res := a - b
+	// Overflow if a and b have different signs and res differs from a.
+	if (a^b) < 0 && (a^res) < 0 {
+		if a >= 0 {
+			return 0x7FFFFFFF
+		}
+		return -0x80000000
+	}
+	return res
 }
 
 func silk_ADD_LSHIFT32(a, b int32, shift int) int32 {

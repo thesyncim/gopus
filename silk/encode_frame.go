@@ -939,8 +939,9 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 
 	raw := e.rangeEncoder.Done()
 
-	result := make([]byte, len(raw))
-	copy(result, raw)
+	// Return a slice of the range encoder's buffer directly.
+	// The caller must consume the data before the next EncodeFrame call.
+	result := raw
 
 	if e.targetRateBps > 0 && payloadSizeMs > 0 {
 		// Match libopus enc_API.c nBitsExceeded update exactly:

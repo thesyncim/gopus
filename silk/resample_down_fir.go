@@ -89,6 +89,8 @@ type DownsamplingResampler struct {
 
 	// Scratch buffers
 	scratchBuf []int32
+	scratchIn  []int16 // ProcessInto: input int16 conversion
+	scratchOut []int16 // ProcessInto: output int16 buffer
 }
 
 // DownsamplingResamplerState holds the internal state of the downsampling resampler.
@@ -246,15 +248,20 @@ func (r *DownsamplingResampler) Process(in []float32) []float32 {
 
 // ProcessInto resamples into a pre-allocated buffer.
 func (r *DownsamplingResampler) ProcessInto(in []float32, out []float32) int {
-	// Convert float32 to int16
-	inInt := make([]int16, len(in))
+	// Convert float32 to int16 using scratch buffer
+	inNeeded := len(in)
+	if inNeeded < int(r.fsInKHz) {
+		inNeeded = int(r.fsInKHz)
+	}
+	if cap(r.scratchIn) < inNeeded {
+		r.scratchIn = make([]int16, inNeeded)
+	}
+	inInt := r.scratchIn[:inNeeded]
 	for i, v := range in {
 		inInt[i] = float32ToInt16(v)
 	}
-	if len(inInt) < int(r.fsInKHz) {
-		padded := make([]int16, r.fsInKHz)
-		copy(padded, inInt)
-		inInt = padded
+	if len(in) < int(r.fsInKHz) {
+		clear(inInt[len(in):])
 	}
 
 	// Calculate output length
@@ -262,7 +269,10 @@ func (r *DownsamplingResampler) ProcessInto(in []float32, out []float32) int {
 	if outLen > len(out) {
 		outLen = len(out)
 	}
-	outInt := make([]int16, outLen)
+	if cap(r.scratchOut) < outLen {
+		r.scratchOut = make([]int16, outLen)
+	}
+	outInt := r.scratchOut[:outLen]
 
 	// Process with libopus-style delay handling
 	r.processWithDelay(outInt, inInt)

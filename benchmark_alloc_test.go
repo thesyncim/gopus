@@ -291,6 +291,11 @@ func BenchmarkEncoderEncode_Stereo(b *testing.B) {
 	}
 	packet := make([]byte, 4000)
 
+	// Warmup: initialize all scratch buffers before timing
+	for i := 0; i < 5; i++ {
+		enc.Encode(pcm, packet)
+	}
+
 	b.ResetTimer()
 	b.ReportAllocs()
 

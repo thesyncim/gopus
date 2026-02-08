@@ -385,6 +385,10 @@ func warpedAutocorrelationFLP32(out, state, in []float32, warping float32, lengt
 	var corr [maxShapeLpcOrder + 1]float64
 	w := float64(warping)
 
+	if length > 0 {
+		_ = in[length-1] // BCE hint
+	}
+
 	for n := 0; n < length; n++ {
 		tmp1 := float64(in[n])
 		for i := 0; i < order; i += 2 {

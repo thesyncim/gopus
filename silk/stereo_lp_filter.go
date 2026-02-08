@@ -56,6 +56,31 @@ func stereoLPFilterFloat(signal []float32, frameLength int) (lp, hp []float32) {
 	return lp, hp
 }
 
+// stereoLPFilterFloatInto applies the [1,2,1]/4 lowpass filter writing into pre-allocated lp/hp.
+// lp and hp must each have length >= frameLength.
+func stereoLPFilterFloatInto(signal, lp, hp []float32, frameLength int) {
+	for n := 0; n < frameLength; n++ {
+		lpVal := (signal[n] + 2*signal[n+1] + signal[n+2]) / 4.0
+		lp[n] = lpVal
+		hp[n] = signal[n+1] - lpVal
+	}
+}
+
+// stereoConvertLRToMSFloatInto converts left/right float signals to mid/side,
+// writing into pre-allocated mid and side slices (length >= frameLength+2).
+func stereoConvertLRToMSFloatInto(left, right, mid, side []float32, frameLength int) {
+	for n := 0; n < frameLength+2; n++ {
+		src := n - 2
+		if src >= 0 && src < len(left) && src < len(right) {
+			mid[n] = (left[src] + right[src]) / 2
+			side[n] = (left[src] - right[src]) / 2
+		} else {
+			mid[n] = 0
+			side[n] = 0
+		}
+	}
+}
+
 // stereoConvertLRToMS converts left/right signals to mid/side.
 // Output mid and side arrays must have length frameLength+2 to hold history samples.
 // This matches libopus stereo_LR_to_MS.c lines 62-68.

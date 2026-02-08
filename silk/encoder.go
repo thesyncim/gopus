@@ -196,6 +196,18 @@ type Encoder struct {
 	scratchPredCoefF64A []float64 // Gain processing: LPC coeffs (first half)
 	scratchPredCoefF64B []float64 // Gain processing: LPC coeffs (second half)
 
+	// A2NLSF scratch buffers (used by a2nlsfFLPInto / silkA2NLSFInto)
+	scratchA2nlsfP    [9]int32  // silkA2NLSFInto: P polynomial (dd+1, max dd=8)
+	scratchA2nlsfQ    [9]int32  // silkA2NLSFInto: Q polynomial
+	scratchA2nlsfAQ16 [16]int32 // a2nlsfFLPInto: LPC Q16 conversion
+	scratchA2nlsfNLSF [16]int16 // a2nlsfFLPInto: NLSF result
+
+	// FindLPC interpolation scratch buffers
+	scratchLpcXF64     []float64   // float32->float64 conversion
+	scratchNlsf0Q15   [16]int16   // interpolated NLSF
+	scratchLpcATmp     [16]float64 // LPC from NLSF
+	scratchLpcResidual []float64   // LPC residual for energy
+
 	// LSF quantization scratch buffers
 	scratchLsfResiduals   []int   // computeStage2ResidualsLibopus: residuals
 	scratchEcIx           []int16 // computeStage2ResidualsLibopus / NLSF decode: ecIx
@@ -223,6 +235,18 @@ type Encoder struct {
 	// Output buffer scratch (standalone SILK mode)
 	scratchOutput       []byte              // EncodeFrame: range encoder output
 	scratchRangeEncoder rangecoding.Encoder // EncodeFrame: reusable range encoder
+
+	// Stereo scratch buffers for zero-allocation stereo encoding
+	scratchStereoMid      []float32 // mid channel (frameLength+2)
+	scratchStereoSide     []float32 // side channel (frameLength+2)
+	scratchStereoMidOut   []float32 // mid output (frameLength)
+	scratchStereoSideOut  []float32 // side output (frameLength)
+	scratchStereoLPMid    []float32 // LP filtered mid
+	scratchStereoHPMid    []float32 // HP filtered mid
+	scratchStereoLPSide   []float32 // LP filtered side
+	scratchStereoHPSide   []float32 // HP filtered side
+	scratchStereoPadLeft  []float32 // padding buffer for left
+	scratchStereoPadRight []float32 // padding buffer for right
 }
 
 // ensureInt8Slice ensures the slice has at least n elements.

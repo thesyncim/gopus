@@ -137,7 +137,7 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 		a32 := float32(aFull[i])
 		lpcQ16[i] = float64ToInt32Round(float64(a32 * 65536.0))
 	}
-	silkA2NLSF(lsfQ15, lpcQ16, order)
+	silkA2NLSFInto(lsfQ15, lpcQ16, order, e.scratchA2nlsfP[:], e.scratchA2nlsfQ[:])
 
 	interpIdx := 4
 	useInterp := e.complexity >= 4 && e.haveEncoded && numSubframes == maxNbSubfr
@@ -150,7 +150,7 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 				a32 := float32(aLast[i])
 				lpcQ16[i] = float64ToInt32Round(float64(a32 * 65536.0))
 			}
-			silkA2NLSF(lsfLast, lpcQ16, order)
+			silkA2NLSFInto(lsfLast, lpcQ16, order, e.scratchA2nlsfP[:], e.scratchA2nlsfQ[:])
 
 			// Restore full-frame energy stats for gain processing.
 			e.lastTotalEnergy = fullTotalEnergy

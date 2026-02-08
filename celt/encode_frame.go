@@ -195,7 +195,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	}
 	// Derive the prefilter max-pitch ratio from the same pre-emphasized signal
 	// used by the CELT analysis path; this improves postfilter parity vs libopus.
-	maxPitchRatio := estimateMaxPitchRatio(preemph, e.channels, e.scratch.prefilterPitchBuf)
+	maxPitchRatio := estimateMaxPitchRatio(preemph, e.channels, &e.scratch)
 	pfResult := e.runPrefilter(preemph, frameSize, prefilterTapset, enabled, tfEstimate, targetBytes, toneFreq, toneishness, maxPitchRatio)
 	if !e.IsHybrid() && start == 0 && re.Tell()+16 <= targetBits {
 		if !pfResult.on {
@@ -350,7 +350,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	energies := e.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
 	roundFloat64ToFloat32(energies)
 	if !secondMdct {
-		bandLogE2 = make([]float64, len(energies))
+		bandLogE2 = ensureFloat64Slice(&e.scratch.bandLogE2, len(energies))
 		copy(bandLogE2, energies)
 	}
 
@@ -643,7 +643,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		TFEncodeWithSelect(re, start, end, transient, tfRes, lm, tfSelect)
 	} else {
 		// Use default TF settings when analysis is disabled
-		tfRes = make([]int, nbBands)
+		tfRes = ensureIntSlice(&e.scratch.tfRes, nbBands)
 		tfSelect = 0
 		if transient {
 			// For transients without analysis, use tf_res=1 (favor time resolution)
@@ -1007,6 +1007,56 @@ func ComputeMDCTWithHistory(samples, history []float64, shortBlocks int) []float
 			copy(input[:overlap], history[len(history)-overlap:])
 		} else {
 			copy(input[overlap-len(history):overlap], history)
+		}
+	}
+
+	// Append current frame samples after the overlap.
+	copy(input[overlap:], samples)
+
+	// Update history with the current frame tail (overlap samples).
+	if overlap > 0 && len(history) > 0 {
+		if len(history) >= overlap {
+			copy(history, samples[len(samples)-overlap:])
+		} else {
+			copy(history, samples[len(samples)-len(history):])
+		}
+	}
+
+	if shortBlocks > 1 {
+		return MDCTShort(input, shortBlocks)
+	}
+	return MDCT(input)
+}
+
+// ComputeMDCTWithHistoryInto computes MDCT using a history buffer for overlap,
+// assembling the input into the caller-provided scratch buffer.
+// scratch must have capacity >= len(samples)+Overlap.
+// history is updated in-place with the current frame's tail.
+func ComputeMDCTWithHistoryInto(scratch, samples, history []float64, shortBlocks int) []float64 {
+	if len(samples) == 0 {
+		return nil
+	}
+
+	overlap := Overlap
+	if overlap > len(samples) {
+		overlap = len(samples)
+	}
+	input := scratch[:len(samples)+overlap]
+
+	// Copy history overlap into the head of the input buffer.
+	if overlap > 0 && len(history) > 0 {
+		if len(history) >= overlap {
+			copy(input[:overlap], history[len(history)-overlap:])
+		} else {
+			start := overlap - len(history)
+			for i := 0; i < start; i++ {
+				input[i] = 0
+			}
+			copy(input[start:overlap], history)
+		}
+	} else {
+		for i := 0; i < overlap; i++ {
+			input[i] = 0
 		}
 	}
 

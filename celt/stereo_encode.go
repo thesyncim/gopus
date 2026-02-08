@@ -272,6 +272,16 @@ func deinterleaveStereoScratch(interleaved []float64, leftBuf, rightBuf *[]float
 	return left, right
 }
 
+// DeinterleaveStereoInto separates interleaved stereo samples into pre-allocated L and R slices.
+// left and right must each have capacity >= len(interleaved)/2.
+func DeinterleaveStereoInto(interleaved, left, right []float64) {
+	n := len(interleaved) / 2
+	for i := 0; i < n; i++ {
+		left[i] = interleaved[i*2]
+		right[i] = interleaved[i*2+1]
+	}
+}
+
 // InterleaveStereo combines separate L and R arrays into interleaved format.
 // Input: [L0, L1, ...], [R0, R1, ...]
 // Output: [L0, R0, L1, R1, ...]

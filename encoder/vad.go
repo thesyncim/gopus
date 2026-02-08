@@ -106,6 +106,10 @@ type VADState struct {
 
 	// Previous activity decision for hysteresis
 	PrevActivity bool
+
+	// Scratch buffers for zero-allocation processing
+	scratchInput []int16
+	scratchX     []int16
 }
 
 // VADTrace captures intermediate values for VAD parity debugging.
@@ -213,7 +217,10 @@ func (v *VADState) getSpeechActivity(pcm []float32, frameLength int, fsKHz int, 
 	}
 
 	// Convert float32 samples to int16 for fixed-point processing
-	input := make([]int16, frameLength)
+	if cap(v.scratchInput) < frameLength {
+		v.scratchInput = make([]int16, frameLength)
+	}
+	input := v.scratchInput[:frameLength]
 	for i := 0; i < frameLength; i++ {
 		// Clamp to int16 range
 		sample := float64(pcm[i]) * 32768.0
@@ -234,7 +241,11 @@ func (v *VADState) getSpeechActivity(pcm []float32, frameLength int, fsKHz int, 
 		decimatedFrameLength + decimatedFrameLength2 + decimatedFrameLength + decimatedFrameLength2,
 	}
 	xLen := xOffset[3] + decimatedFrameLength1
-	X := make([]int16, xLen)
+	if cap(v.scratchX) < xLen {
+		v.scratchX = make([]int16, xLen)
+	}
+	X := v.scratchX[:xLen]
+	clear(X)
 
 	// Filter and decimate into 4 bands
 
