@@ -2,12 +2,7 @@ package testvectors
 
 import (
 	"bytes"
-	"encoding/binary"
-	"fmt"
 	"math"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"testing"
 
 	"github.com/thesyncim/gopus/encoder"
@@ -16,86 +11,7 @@ import (
 	"github.com/thesyncim/gopus/types"
 )
 
-func findOpusDemo(t *testing.T) string {
-	t.Helper()
-	if path := os.Getenv("OPUS_DEMO"); path != "" {
-		if _, err := os.Stat(path); err == nil {
-			return path
-		}
-	}
-	root := "."
-	if gomod := os.Getenv("GOMOD"); gomod != "" {
-		root = filepath.Dir(gomod)
-	} else {
-		if wd, err := os.Getwd(); err == nil {
-			root = wd
-			for {
-				if _, err := os.Stat(filepath.Join(root, "go.mod")); err == nil {
-					break
-				}
-				parent := filepath.Dir(root)
-				if parent == root {
-					break
-				}
-				root = parent
-			}
-		}
-	}
-	path := filepath.Join(root, "tmp_check", "opus-1.6.1", "opus_demo")
-	if _, err := os.Stat(path); err != nil {
-		t.Skipf("opus_demo not found at %s (set OPUS_DEMO to override)", path)
-	}
-	return path
-}
-
-func writeRawPCM16(path string, pcm []float32) error {
-	buf := &bytes.Buffer{}
-	for _, s := range pcm {
-		v := int32(math.RoundToEven(float64(s * 32768.0)))
-		if v > 32767 {
-			v = 32767
-		} else if v < -32768 {
-			v = -32768
-		}
-		if err := binary.Write(buf, binary.LittleEndian, int16(v)); err != nil {
-			return err
-		}
-	}
-	return os.WriteFile(path, buf.Bytes(), 0o644)
-}
-
-func parseOpusDemoBitstream(path string) ([]libopusPacket, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var packets []libopusPacket
-	offset := 0
-	for {
-		if offset+8 > len(data) {
-			break
-		}
-		length := binary.BigEndian.Uint32(data[offset : offset+4])
-		offset += 4
-		finalRange := binary.BigEndian.Uint32(data[offset : offset+4])
-		offset += 4
-		if offset+int(length) > len(data) {
-			return nil, fmt.Errorf("truncated packet: need %d bytes, have %d", length, len(data)-offset)
-		}
-		payload := make([]byte, length)
-		copy(payload, data[offset:offset+int(length)])
-		offset += int(length)
-		packets = append(packets, libopusPacket{data: payload, finalRange: finalRange})
-	}
-	return packets, nil
-}
-
 func TestLibopusTraceSILKWB(t *testing.T) {
-	if !checkOpusdecAvailableEncoder() {
-		t.Skip("opusdec not found in PATH")
-	}
-	opusDemo := findOpusDemo(t)
-
 	const (
 		sampleRate = 48000
 		channels   = 1
@@ -131,37 +47,22 @@ func TestLibopusTraceSILKWB(t *testing.T) {
 		gopusRanges = append(gopusRanges, goEnc.FinalRange())
 	}
 
-	// Encode with libopus (opus_demo).
-	tmpdir := t.TempDir()
-	inRaw := filepath.Join(tmpdir, "input.pcm")
-	outBit := filepath.Join(tmpdir, "output.bit")
-	if err := writeRawPCM16(inRaw, original); err != nil {
-		t.Fatalf("write input pcm: %v", err)
-	}
-
-	args := []string{
-		"-e", "restricted-silk",
-		fmt.Sprintf("%d", sampleRate),
-		fmt.Sprintf("%d", channels),
-		fmt.Sprintf("%d", bitrate),
-		"-bandwidth", "WB",
-		"-framesize", "20",
-		"-16",
-		inRaw, outBit,
-	}
-	cmd := exec.Command(opusDemo, args...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("opus_demo failed: %v\n%s", err, stderr.String())
-	}
-
-	libPackets, err := parseOpusDemoBitstream(outBit)
+	libPackets, fixtureMeta, err := loadSILKWBFloatPacketFixturePackets()
 	if err != nil {
-		t.Fatalf("parse opus_demo output: %v", err)
+		t.Fatalf("load SILK WB libopus float fixture: %v", err)
+	}
+	if fixtureMeta.Version != 1 ||
+		fixtureMeta.SampleRate != sampleRate ||
+		fixtureMeta.Channels != channels ||
+		fixtureMeta.FrameSize != frameSize ||
+		fixtureMeta.Bitrate != bitrate {
+		t.Fatalf("invalid SILK WB fixture metadata: %+v", fixtureMeta)
+	}
+	if fixtureMeta.Frames != len(libPackets) {
+		t.Fatalf("invalid SILK WB fixture frame count: header=%d packets=%d", fixtureMeta.Frames, len(libPackets))
 	}
 
-	t.Logf("gopus packets: %d, libopus packets: %d", len(gopusPackets), len(libPackets))
+	t.Logf("gopus packets: %d, libopus fixture packets: %d", len(gopusPackets), len(libPackets))
 
 	compareCount := len(gopusPackets)
 	if len(libPackets) < compareCount {
@@ -182,23 +83,34 @@ func TestLibopusTraceSILKWB(t *testing.T) {
 	}
 
 	var totalDiff int
+	var sizeMismatch int
+	var rangeMismatch int
+	var payloadMismatch int
 	for i := 0; i < compareCount; i++ {
 		diff := len(gopusPackets[i]) - len(libPackets[i].data)
 		if diff < 0 {
 			diff = -diff
 		}
 		totalDiff += diff
+		if len(gopusPackets[i]) != len(libPackets[i].data) {
+			sizeMismatch++
+		}
+		if gopusRanges[i] != libPackets[i].finalRange {
+			rangeMismatch++
+		}
+		if bytes.Equal(gopusPackets[i], libPackets[i].data) {
+			continue
+		}
+		payloadMismatch++
 	}
 	avgDiff := float64(totalDiff) / float64(compareCount)
 	t.Logf("avg packet size diff: %.2f bytes", avgDiff)
+	if sizeMismatch != 0 || rangeMismatch != 0 || payloadMismatch != 0 {
+		t.Fatalf("SILK WB packet parity mismatch vs fixture: size=%d range=%d payload=%d", sizeMismatch, rangeMismatch, payloadMismatch)
+	}
 }
 
 func TestDecoderParityLibopusPacketsSILKWB(t *testing.T) {
-	if !checkOpusdecAvailableEncoder() {
-		t.Skip("opusdec not found in PATH")
-	}
-	opusDemo := findOpusDemo(t)
-
 	const (
 		sampleRate = 48000
 		channels   = 1
@@ -206,40 +118,22 @@ func TestDecoderParityLibopusPacketsSILKWB(t *testing.T) {
 		bitrate    = 32000
 	)
 
-	// Generate 1 second of test signal.
-	numFrames := sampleRate / frameSize
-	totalSamples := numFrames * frameSize * channels
-	original := generateEncoderTestSignal(totalSamples, channels)
-
-	// Encode with libopus (opus_demo).
-	tmpdir := t.TempDir()
-	inRaw := filepath.Join(tmpdir, "input.pcm")
-	outBit := filepath.Join(tmpdir, "output.bit")
-	if err := writeRawPCM16(inRaw, original); err != nil {
-		t.Fatalf("write input pcm: %v", err)
-	}
-	args := []string{
-		"-e", "restricted-silk",
-		fmt.Sprintf("%d", sampleRate),
-		fmt.Sprintf("%d", channels),
-		fmt.Sprintf("%d", bitrate),
-		"-bandwidth", "WB",
-		"-framesize", "20",
-		"-16",
-		inRaw, outBit,
-	}
-	cmd := exec.Command(opusDemo, args...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("opus_demo failed: %v\n%s", err, stderr.String())
-	}
-	libPackets, err := parseOpusDemoBitstream(outBit)
+	libPackets, packetMeta, err := loadSILKWBFloatPacketFixturePackets()
 	if err != nil {
-		t.Fatalf("parse opus_demo output: %v", err)
+		t.Fatalf("load SILK WB packet fixture: %v", err)
+	}
+	if packetMeta.Version != 1 ||
+		packetMeta.SampleRate != sampleRate ||
+		packetMeta.Channels != channels ||
+		packetMeta.FrameSize != frameSize ||
+		packetMeta.Bitrate != bitrate {
+		t.Fatalf("invalid SILK WB packet fixture metadata: %+v", packetMeta)
+	}
+	if packetMeta.Frames != len(libPackets) {
+		t.Fatalf("invalid SILK WB packet fixture frame count: header=%d packets=%d", packetMeta.Frames, len(libPackets))
 	}
 	if len(libPackets) == 0 {
-		t.Fatal("no libopus packets produced")
+		t.Fatal("SILK WB packet fixture contains no packets")
 	}
 
 	// Convert to [][]byte for decoder.
@@ -248,20 +142,22 @@ func TestDecoderParityLibopusPacketsSILKWB(t *testing.T) {
 		packetBytes[i] = libPackets[i].data
 	}
 
-	// Decode with opusdec (libopus) via Ogg container.
-	oggBuf, err := buildOggForPackets(packetBytes, channels, sampleRate, frameSize)
+	libDecoded, decodedMeta, err := loadSILKWBFloatDecodedFixtureSamples()
 	if err != nil {
-		t.Fatalf("build Ogg: %v", err)
+		t.Fatalf("load SILK WB decoded fixture: %v", err)
 	}
-	libDecoded, err := decodeWithOpusdec(oggBuf.Bytes())
-	if err != nil {
-		if err.Error() == "opusdec blocked by macOS provenance" {
-			t.Skip("opusdec blocked by macOS provenance - skipping")
-		}
-		t.Fatalf("decode with opusdec: %v", err)
+	if decodedMeta.Version != 1 ||
+		decodedMeta.SampleRate != sampleRate ||
+		decodedMeta.Channels != channels ||
+		decodedMeta.FrameSize != frameSize ||
+		decodedMeta.Bitrate != bitrate {
+		t.Fatalf("invalid SILK WB decoded fixture metadata: %+v", decodedMeta)
+	}
+	if decodedMeta.Frames != len(libPackets) {
+		t.Fatalf("decoded fixture frame count mismatch: packets=%d decodedFrames=%d", len(libPackets), decodedMeta.Frames)
 	}
 	if len(libDecoded) == 0 {
-		t.Fatal("opusdec returned no samples")
+		t.Fatal("SILK WB decoded fixture contains no samples")
 	}
 
 	// Decode the same packets with the internal decoder.
@@ -270,18 +166,15 @@ func TestDecoderParityLibopusPacketsSILKWB(t *testing.T) {
 		t.Fatal("internal decoder returned no samples")
 	}
 
-	// Apply pre-skip to internal decode for parity.
-	preSkip := OpusPreSkip * channels
-	if len(internalDecoded) > preSkip {
-		internalDecoded = internalDecoded[preSkip:]
-	}
-
 	compareLen := len(libDecoded)
 	if len(internalDecoded) < compareLen {
 		compareLen = len(internalDecoded)
 	}
 	q, delay := ComputeQualityFloat32WithDelay(libDecoded[:compareLen], internalDecoded[:compareLen], sampleRate, 2000)
 	t.Logf("decoder parity (libopus packets): Q=%.2f (SNR=%.2f dB), delay=%d samples", q, SNRFromQuality(q), delay)
+	if q < 20.0 {
+		t.Fatalf("decoder parity regressed: Q=%.2f (SNR=%.2f dB), want Q>=20.0", q, SNRFromQuality(q))
+	}
 }
 
 func TestSILKParamTraceAgainstLibopus(t *testing.T) {
@@ -353,15 +246,28 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 		}
 	}
 
-	// Encode with libopus via CGO float path (opus_encode_float, restricted-silk application).
-	// This matches gopus's float input path exactly, unlike opus_demo -16 which uses
-	// int16 input (different lsb_depth, float precision).
-	cgoPackets := encodeWithLibopusFloat(original, sampleRate, channels, bitrate, frameSize, 2052 /* OPUS_APPLICATION_RESTRICTED_SILK */)
-	if len(cgoPackets) == 0 {
-		t.Skip("CGO libopus encoder not available; build with -tags cgo_libopus")
+	fixturePackets, fixtureMeta, err := loadSILKWBFloatPacketFixturePackets()
+	if err != nil {
+		t.Fatalf("load SILK WB libopus float fixture: %v", err)
 	}
-	libPackets := make([][]byte, len(cgoPackets))
-	for i, p := range cgoPackets {
+	if fixtureMeta.Version != 1 ||
+		fixtureMeta.SampleRate != sampleRate ||
+		fixtureMeta.Channels != channels ||
+		fixtureMeta.FrameSize != frameSize ||
+		fixtureMeta.Bitrate != bitrate {
+		t.Fatalf("invalid SILK WB fixture metadata: %+v", fixtureMeta)
+	}
+	if fixtureMeta.Frames != len(fixturePackets) {
+		t.Fatalf("invalid SILK WB fixture frame count: header=%d packets=%d", fixtureMeta.Frames, len(fixturePackets))
+	}
+	if len(fixturePackets) == 0 {
+		t.Fatal("SILK WB fixture contains no packets")
+	}
+
+	t.Logf("using SILK WB libopus float fixture: %d packets", len(fixturePackets))
+
+	libPackets := make([][]byte, len(fixturePackets))
+	for i, p := range fixturePackets {
 		libPackets[i] = p.data
 	}
 
@@ -445,7 +351,7 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 		}
 	}
 	if firstPktSizeDiffFrame == -1 {
-		t.Log("All packet sizes match between gopus and libopus (float CGO)")
+		t.Log("All packet sizes match between gopus and libopus fixture")
 	}
 	// Log packet sizes for first 10 frames
 	for i := 0; i < compareCount && i < 10; i++ {
@@ -1389,10 +1295,10 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 	if prePitchWinHashDiff > 2 {
 		t.Fatalf("pre-state pitch window hash mismatches regressed: got %d/%d, want <= 2", prePitchWinHashDiff, compareCount)
 	}
-	// Regression guard: with CGO float restricted-silk encoding, gain indices
+	// Regression guard: with restricted-silk float fixture packets, gain indices
 	// should match exactly (no GainsID mismatch) for this canonical WB signal.
 	if firstGainsIDMismatchFrame >= 0 {
-		t.Errorf("unexpected GainsID mismatch at frame %d (expect no gain mismatches with float CGO comparison)", firstGainsIDMismatchFrame)
+		t.Errorf("unexpected GainsID mismatch at frame %d (expect no gain mismatches with fixture comparison)", firstGainsIDMismatchFrame)
 	}
 	// Keep tiny tolerance for rare 1-LSB trace noise while enforcing near-exact parity.
 	if seedDiff > 2 {

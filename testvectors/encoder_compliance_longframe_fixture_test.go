@@ -1,7 +1,6 @@
 package testvectors
 
 import (
-	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -61,12 +60,8 @@ func longFrameFixtureTargets() []longFrameFixtureTarget {
 
 // TestLongFrameLibopusReferenceParityFromFixture validates long-frame SILK/Hybrid
 // quality against frozen libopus reference packets. This keeps parity coverage
-// available even when cgo_libopus is disabled.
+// available without requiring live libopus bindings.
 func TestLongFrameLibopusReferenceParityFromFixture(t *testing.T) {
-	if !checkOpusdecAvailableEncoder() {
-		t.Skip("opusdec not found in PATH")
-	}
-
 	fixture, err := loadLongFrameFixtureCached()
 	if err != nil {
 		t.Fatalf("load long-frame fixture: %v", err)
@@ -161,13 +156,9 @@ func findLongFrameFixtureCase(mode encoder.Mode, bandwidth types.Bandwidth, fram
 }
 
 func computeComplianceQualityFromPackets(packets [][]byte, original []float32, channels, frameSize int) (float64, error) {
-	var oggBuf bytes.Buffer
-	if err := writeOggOpusEncoder(&oggBuf, packets, channels, 48000, frameSize); err != nil {
-		return 0, fmt.Errorf("write ogg opus: %w", err)
-	}
-	decoded, err := decodeWithOpusdec(oggBuf.Bytes())
+	decoded, err := decodeCompliancePackets(packets, channels, frameSize)
 	if err != nil {
-		return 0, fmt.Errorf("decode with opusdec: %w", err)
+		return 0, fmt.Errorf("decode compliance packets: %w", err)
 	}
 	if len(decoded) == 0 {
 		return 0, fmt.Errorf("no decoded samples")

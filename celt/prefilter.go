@@ -17,7 +17,7 @@ type prefilterResult struct {
 // runPrefilter applies the CELT prefilter (comb filter) and returns the
 // postfilter parameters to signal in the bitstream.
 // This mirrors libopus run_prefilter() in celt_encoder.c.
-func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, enabled bool, tfEstimate float64, nbAvailableBytes int, toneFreq, toneishness float64) prefilterResult {
+func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, enabled bool, tfEstimate float64, nbAvailableBytes int, toneFreq, toneishness, maxPitchRatio float64) prefilterResult {
 	result := prefilterResult{on: false, pitch: combFilterMinPeriod, qg: 0, tapset: tapset, gain: 0}
 	channels := e.channels
 	if channels <= 0 || frameSize <= 0 || len(preemph) == 0 {
@@ -33,6 +33,20 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 
 	maxPeriod := combFilterMaxPeriod
 	minPeriod := combFilterMinPeriod
+	prevPeriod := e.prefilterPeriod
+	if prevPeriod < minPeriod {
+		prevPeriod = minPeriod
+	}
+	if prevPeriod > maxPeriod-2 {
+		prevPeriod = maxPeriod - 2
+	}
+	prevTapset := e.prefilterTapset
+	if prevTapset < 0 {
+		prevTapset = 0
+	}
+	if prevTapset >= len(combFilterGains) {
+		prevTapset = len(combFilterGains) - 1
+	}
 	perChanLen := maxPeriod + frameSize
 	pre := ensureFloat64Slice(&e.scratch.prefilterPre, perChanLen*channels)
 	out := ensureFloat64Slice(&e.scratch.prefilterOut, perChanLen*channels)
@@ -99,6 +113,14 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		gain1 = 0
 		pitchIndex = minPeriod
 	}
+	// Match libopus run_prefilter() scaling by analysis->max_pitch_ratio.
+	if maxPitchRatio < 0 {
+		maxPitchRatio = 0
+	}
+	if maxPitchRatio > 1 {
+		maxPitchRatio = 1
+	}
+	gain1 *= maxPitchRatio
 
 	// Gain threshold for enabling the prefilter/postfilter
 	pfThreshold := 0.2
@@ -161,14 +183,14 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		preCh := pre[ch*perChanLen : (ch+1)*perChanLen]
 		outCh := out[ch*perChanLen : (ch+1)*perChanLen]
 		for i := 0; i < frameSize; i++ {
-			before[ch] += math.Abs(preCh[maxPeriod+i]) * (1.0 / 4096.0)
+			before[ch] += math.Abs(preCh[maxPeriod+i])
 		}
 		if offset > 0 {
-			combFilterWithInput(outCh, preCh, maxPeriod, e.prefilterPeriod, e.prefilterPeriod, offset, -e.prefilterGain, -e.prefilterGain, e.prefilterTapset, e.prefilterTapset, nil, 0)
+			combFilterWithInput(outCh, preCh, maxPeriod, prevPeriod, prevPeriod, offset, -e.prefilterGain, -e.prefilterGain, prevTapset, prevTapset, nil, 0)
 		}
-		combFilterWithInput(outCh, preCh, maxPeriod+offset, e.prefilterPeriod, pitchIndex, frameSize-offset, -e.prefilterGain, -gain1, e.prefilterTapset, tapset, window, overlap)
+		combFilterWithInput(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, frameSize-offset, -e.prefilterGain, -gain1, prevTapset, tapset, window, overlap)
 		for i := 0; i < frameSize; i++ {
-			after[ch] += math.Abs(outCh[maxPeriod+i]) * (1.0 / 4096.0)
+			after[ch] += math.Abs(outCh[maxPeriod+i])
 		}
 	}
 
@@ -193,7 +215,7 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			preCh := pre[ch*perChanLen : (ch+1)*perChanLen]
 			outCh := out[ch*perChanLen : (ch+1)*perChanLen]
 			copy(outCh[maxPeriod:maxPeriod+frameSize], preCh[maxPeriod:maxPeriod+frameSize])
-			combFilterWithInput(outCh, preCh, maxPeriod+offset, e.prefilterPeriod, pitchIndex, overlap, -e.prefilterGain, -0, e.prefilterTapset, tapset, window, overlap)
+			combFilterWithInput(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, overlap, -e.prefilterGain, -0, prevTapset, tapset, window, overlap)
 		}
 		gain1 = 0
 		pfOn = false
@@ -225,6 +247,118 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 	result.tapset = tapset
 	result.gain = gain1
 	return result
+}
+
+// estimateMaxPitchRatio approximates libopus analysis->max_pitch_ratio by
+// comparing low-frequency and high-frequency spectral energy after a 2x
+// downsampling step (48 kHz -> 24 kHz) with a split at bin 64 (~3.2 kHz).
+// It uses the same down2 all-pass structure as libopus analysis and adds the
+// high-pass residual energy to the "above max pitch" side.
+func estimateMaxPitchRatio(pcm []float64, channels int, scratch []float64) float64 {
+	if channels <= 0 || len(pcm) < channels {
+		return 1
+	}
+	monoLen := len(pcm) / channels
+	n := monoLen / 2
+	if n < 8 {
+		return 1
+	}
+
+	var down []float64
+	if len(scratch) >= n {
+		down = scratch[:n]
+	} else {
+		down = make([]float64, n)
+	}
+
+	// Downmix and downsample by 2 (matching the 24 kHz analysis bandwidth).
+	// This mirrors silk_resampler_down2_hp() from libopus analysis.c.
+	var s0, s1, s2 float64
+	var hpEner float64
+	for i := 0; i < n; i++ {
+		idx0 := (2 * i) * channels
+		idx1 := idx0 + channels
+
+		in0 := pcm[idx0]
+		in1 := pcm[idx1]
+		if channels == 2 {
+			in0 = 0.5 * (pcm[idx0] + pcm[idx0+1])
+			in1 = 0.5 * (pcm[idx1] + pcm[idx1+1])
+		}
+
+		y := in0 - s0
+		x := 0.6074371 * y
+		out0 := s0 + x
+		s0 = in0 + x
+
+		y = in1 - s1
+		x = 0.15063 * y
+		out := out0 + s1 + x
+		s1 = in1 + x
+
+		y = -in1 - s2
+		x = 0.15063 * y
+		outHP := out0 + s2 + x
+		s2 = -in1 + x
+
+		hpEner += outHP * outHP
+		down[i] = 0.5 * out
+	}
+
+	// Apply a light Hann window to reduce spectral leakage.
+	if n > 1 {
+		inv := 1.0 / float64(n-1)
+		for i := 0; i < n; i++ {
+			w := 0.5 - 0.5*math.Cos(2.0*math.Pi*float64(i)*inv)
+			down[i] *= w
+		}
+	}
+
+	half := n / 2
+	splitBin := 64
+	if splitBin > half {
+		splitBin = half
+	}
+
+	var below, above float64
+	for k := 0; k < half; k++ {
+		ang := -2.0 * math.Pi * float64(k) / float64(n)
+		cosStep := math.Cos(ang)
+		sinStep := math.Sin(ang)
+		cosCurr := 1.0
+		sinCurr := 0.0
+		var re, im float64
+
+		for t := 0; t < n; t++ {
+			v := down[t]
+			re += v * cosCurr
+			im += v * sinCurr
+
+			nextCos := cosCurr*cosStep - sinCurr*sinStep
+			sinCurr = cosCurr*sinStep + sinCurr*cosStep
+			cosCurr = nextCos
+		}
+
+		p := re*re + im*im
+		if k < splitBin {
+			below += p
+		} else {
+			above += p
+		}
+	}
+	above += hpEner * (1.0 / (60.0 * 60.0))
+
+	if above > below && above > 1e-20 {
+		r := below / above
+		if r < 0 {
+			return 0
+		}
+		if r > 1 {
+			return 1
+		}
+		return r
+	}
+	return 1
 }
 
 func pitchDownsample(x []float64, xLP []float64, length, channels, factor int) {

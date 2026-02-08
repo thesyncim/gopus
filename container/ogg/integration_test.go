@@ -3,6 +3,7 @@ package ogg
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -56,18 +57,13 @@ func getOpusdecPath() string {
 	return "opusdec"
 }
 
-// skipError indicates test should be skipped (macOS provenance issues).
-type skipError struct {
-	msg string
-}
-
-func (e *skipError) Error() string {
-	return e.msg
-}
-
 // decodeWithOpusdec decodes an Ogg Opus file using libopus opusdec.
 // Returns the decoded PCM samples as float32.
 func decodeWithOpusdec(oggData []byte) ([]float32, error) {
+	if !checkOpusdec() {
+		return decodeWithInternalDecoder(oggData)
+	}
+
 	// Write to temp Opus file.
 	tmpOpus, err := os.CreateTemp("", "gopus_ogg_*.opus")
 	if err != nil {
@@ -103,7 +99,7 @@ func decodeWithOpusdec(oggData []byte) ([]float32, error) {
 			bytes.Contains(output, []byte("killed")) ||
 			bytes.Contains(output, []byte("Operation not permitted")) ||
 			bytes.Contains(output, []byte("Failed to open")) {
-			return nil, &skipError{msg: string(output)}
+			return decodeWithInternalDecoder(oggData)
 		}
 		return nil, err
 	}
@@ -115,6 +111,49 @@ func decodeWithOpusdec(oggData []byte) ([]float32, error) {
 	}
 
 	return parseWAVSamples(wavData), nil
+}
+
+func decodeWithInternalDecoder(oggData []byte) ([]float32, error) {
+	r, err := NewReader(bytes.NewReader(oggData))
+	if err != nil {
+		return nil, fmt.Errorf("new reader: %w", err)
+	}
+
+	channels := int(r.Channels())
+	if channels <= 0 {
+		channels = 1
+	}
+
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
+	if err != nil {
+		return nil, fmt.Errorf("new decoder: %w", err)
+	}
+
+	out := make([]float32, 5760*channels)
+	decoded := make([]float32, 0, 48000*channels)
+	for {
+		packet, _, err := r.ReadPacket()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read packet: %w", err)
+		}
+		n, err := dec.Decode(packet, out)
+		if err != nil {
+			return nil, fmt.Errorf("decode packet: %w", err)
+		}
+		if n > 0 {
+			decoded = append(decoded, out[:n*channels]...)
+		}
+	}
+
+	preSkip := int(r.PreSkip()) * channels
+	if preSkip > 0 && len(decoded) > preSkip {
+		decoded = decoded[preSkip:]
+	}
+
+	return decoded, nil
 }
 
 // parseWAVSamples extracts float32 samples from WAV data.
@@ -196,10 +235,6 @@ func computeEnergy(samples []float32) float64 {
 
 // TestIntegration_WriterOpusdec_Mono tests that mono Writer output is accepted by opusdec.
 func TestIntegration_WriterOpusdec_Mono(t *testing.T) {
-	if !checkOpusdec() {
-		t.Skip("opusdec not available in PATH")
-	}
-
 	// Create encoder.
 	enc, err := gopus.NewEncoder(48000, 1, gopus.ApplicationAudio)
 	if err != nil {
@@ -248,9 +283,6 @@ func TestIntegration_WriterOpusdec_Mono(t *testing.T) {
 	// Decode with opusdec.
 	decoded, err := decodeWithOpusdec(oggBuf.Bytes())
 	if err != nil {
-		if _, ok := err.(*skipError); ok {
-			t.Skipf("opusdec blocked (likely macOS provenance): %v", err)
-		}
 		t.Fatalf("decodeWithOpusdec failed: %v", err)
 	}
 
@@ -274,10 +306,6 @@ func TestIntegration_WriterOpusdec_Mono(t *testing.T) {
 
 // TestIntegration_WriterOpusdec_Stereo tests that stereo Writer output is accepted by opusdec.
 func TestIntegration_WriterOpusdec_Stereo(t *testing.T) {
-	if !checkOpusdec() {
-		t.Skip("opusdec not available in PATH")
-	}
-
 	// Create encoder.
 	enc, err := gopus.NewEncoder(48000, 2, gopus.ApplicationAudio)
 	if err != nil {
@@ -325,9 +353,6 @@ func TestIntegration_WriterOpusdec_Stereo(t *testing.T) {
 	// Decode with opusdec.
 	decoded, err := decodeWithOpusdec(oggBuf.Bytes())
 	if err != nil {
-		if _, ok := err.(*skipError); ok {
-			t.Skipf("opusdec blocked (likely macOS provenance): %v", err)
-		}
 		t.Fatalf("decodeWithOpusdec failed: %v", err)
 	}
 
@@ -351,10 +376,6 @@ func TestIntegration_WriterOpusdec_Stereo(t *testing.T) {
 
 // TestIntegration_WriterOpusdec_Multistream tests 5.1 Writer output with opusdec.
 func TestIntegration_WriterOpusdec_Multistream(t *testing.T) {
-	if !checkOpusdec() {
-		t.Skip("opusdec not available in PATH")
-	}
-
 	// Import multistream encoder.
 	// For this test, we use the internal multistream encoder.
 	// Skip if multistream encoder is not available via gopus package.

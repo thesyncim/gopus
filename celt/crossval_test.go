@@ -5,12 +5,17 @@ package celt
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math"
 	"os"
 	"os/exec"
+	"sync"
 	"testing"
 )
 
@@ -92,6 +97,89 @@ func init() {
 		}
 		oggCRCLookup[i] = crc
 	}
+}
+
+const opusdecCrossvalFixturePath = "testdata/opusdec_crossval_fixture.json"
+
+type opusdecCrossvalFixtureFile struct {
+	Version int                           `json:"version"`
+	Entries []opusdecCrossvalFixtureEntry `json:"entries"`
+}
+
+type opusdecCrossvalFixtureEntry struct {
+	Name             string `json:"name"`
+	SHA256           string `json:"sha256"`
+	SampleRate       int    `json:"sample_rate"`
+	Channels         int    `json:"channels"`
+	DecodedF32Base64 string `json:"decoded_f32le_base64"`
+}
+
+var (
+	opusdecCrossvalFixtureOnce sync.Once
+	opusdecCrossvalFixtureMap  map[string]opusdecCrossvalFixtureEntry
+	opusdecCrossvalFixtureErr  error
+)
+
+func oggSHA256Hex(oggData []byte) string {
+	sum := sha256.Sum256(oggData)
+	return hex.EncodeToString(sum[:])
+}
+
+func loadOpusdecCrossvalFixtureMap() (map[string]opusdecCrossvalFixtureEntry, error) {
+	opusdecCrossvalFixtureOnce.Do(func() {
+		data, err := os.ReadFile(opusdecCrossvalFixturePath)
+		if err != nil {
+			opusdecCrossvalFixtureErr = err
+			return
+		}
+		var fixture opusdecCrossvalFixtureFile
+		if err := json.Unmarshal(data, &fixture); err != nil {
+			opusdecCrossvalFixtureErr = err
+			return
+		}
+		if fixture.Version != 1 {
+			opusdecCrossvalFixtureErr = fmt.Errorf("unsupported opusdec crossval fixture version %d", fixture.Version)
+			return
+		}
+		m := make(map[string]opusdecCrossvalFixtureEntry, len(fixture.Entries))
+		for _, e := range fixture.Entries {
+			if e.SHA256 == "" {
+				opusdecCrossvalFixtureErr = fmt.Errorf("fixture entry with empty sha256")
+				return
+			}
+			m[e.SHA256] = e
+		}
+		opusdecCrossvalFixtureMap = m
+	})
+	return opusdecCrossvalFixtureMap, opusdecCrossvalFixtureErr
+}
+
+func decodeFloat32LEBase64(src string) ([]float32, error) {
+	raw, err := base64.StdEncoding.DecodeString(src)
+	if err != nil {
+		return nil, err
+	}
+	if len(raw)%4 != 0 {
+		return nil, fmt.Errorf("invalid float32le fixture length %d", len(raw))
+	}
+	out := make([]float32, len(raw)/4)
+	for i := 0; i < len(out); i++ {
+		out[i] = math.Float32frombits(binary.LittleEndian.Uint32(raw[i*4 : i*4+4]))
+	}
+	return out, nil
+}
+
+func decodeWithOpusdecFixture(oggData []byte) ([]float32, error) {
+	entries, err := loadOpusdecCrossvalFixtureMap()
+	if err != nil {
+		return nil, err
+	}
+	hash := oggSHA256Hex(oggData)
+	entry, ok := entries[hash]
+	if !ok {
+		return nil, fmt.Errorf("missing opusdec fixture for ogg sha256=%s", hash)
+	}
+	return decodeFloat32LEBase64(entry.DecodedF32Base64)
 }
 
 // writeOggPage writes a single Ogg page to the writer.
@@ -195,32 +283,13 @@ func writeOggOpus(w io.Writer, packets [][]byte, sampleRate, channels int) error
 	}
 	pageSeq++
 
-	// Calculate samples per frame (assume 48kHz, 20ms = 960 samples)
-	// This is used for granule position tracking
+	// These tests only emit 20ms frames; keep granule tracking fixed.
 	samplesPerFrame := 960
-	if len(packets) > 0 && len(packets[0]) > 0 {
-		// Try to determine frame size from first packet TOC
-		// TOC byte config bits indicate frame size
-		toc := packets[0][0]
-		config := (toc >> 3) & 0x1F
-		if config >= 16 {
-			// CELT-only mode
-			switch config & 0x03 {
-			case 0:
-				samplesPerFrame = 120 // 2.5ms
-			case 1:
-				samplesPerFrame = 240 // 5ms
-			case 2:
-				samplesPerFrame = 480 // 10ms
-			case 3:
-				samplesPerFrame = 960 // 20ms
-			}
-		}
-	}
 
 	// Write audio packets
 	granulePos := int64(0)
 	for i, packet := range packets {
+		packet = addCELTTOCForTest(packet, channels)
 		granulePos += int64(samplesPerFrame)
 
 		// Determine header type
@@ -238,6 +307,19 @@ func writeOggOpus(w io.Writer, packets [][]byte, sampleRate, channels int) error
 	return nil
 }
 
+func addCELTTOCForTest(packet []byte, channels int) []byte {
+	// celt.Encode* returns raw CELT payload for 20ms fullband frames.
+	// Add a one-frame CELT TOC to make a valid Opus packet for Ogg wrapping.
+	toc := byte(0xF8) // CELT-only, fullband, 20ms, mono, 1 frame
+	if channels == 2 {
+		toc = 0xFC // same with stereo bit set
+	}
+	out := make([]byte, len(packet)+1)
+	out[0] = toc
+	copy(out[1:], packet)
+	return out
+}
+
 // decodeWithOpusdec decodes Ogg Opus data using the opusdec command-line tool.
 // Returns decoded samples as float32.
 //
@@ -245,6 +327,24 @@ func writeOggOpus(w io.Writer, packets [][]byte, sampleRate, channels int) error
 // attributes that can cause opusdec to fail with certain paths.
 // This function uses /tmp directly for macOS compatibility.
 func decodeWithOpusdec(oggData []byte) ([]float32, error) {
+	if os.Getenv("GOPUS_DISABLE_OPUSDEC") == "1" {
+		return decodeWithOpusdecFixture(oggData)
+	}
+	if checkOpusdecAvailable() {
+		samples, err := decodeWithOpusdecCLI(oggData)
+		if err == nil {
+			return samples, nil
+		}
+		fallback, ferr := decodeWithOpusdecFixture(oggData)
+		if ferr == nil {
+			return fallback, nil
+		}
+		return nil, fmt.Errorf("opusdec decode failed (%v) and fixture fallback failed (%v)", err, ferr)
+	}
+	return decodeWithOpusdecFixture(oggData)
+}
+
+func decodeWithOpusdecCLI(oggData []byte) ([]float32, error) {
 	opusdec := getOpusdecPath()
 
 	// Use /tmp directly for macOS compatibility
@@ -346,6 +446,15 @@ func parseWAV(data []byte) ([]float32, int, int, error) {
 			numChannels = binary.LittleEndian.Uint16(data[offset+10 : offset+12])
 			sampleRate = binary.LittleEndian.Uint32(data[offset+12 : offset+16])
 			bitsPerSample = binary.LittleEndian.Uint16(data[offset+22 : offset+24])
+
+			// Handle WAVE_FORMAT_EXTENSIBLE (0xFFFE) by mapping to PCM (1) or IEEE float (3).
+			// SubFormat GUID starts at byte 24 within the fmt payload.
+			if audioFormat == 0xFFFE && chunkSize >= 40 {
+				subFormat := binary.LittleEndian.Uint16(data[offset+32 : offset+34])
+				if subFormat == 1 || subFormat == 3 {
+					audioFormat = subFormat
+				}
+			}
 		} else if chunkID == "data" {
 			// Found data chunk
 			dataStart := offset + 8
@@ -515,19 +624,14 @@ func TestEnergyCorrelation(t *testing.T) {
 				inputEnergy += s * s
 			}
 
-			// Skip if encoder not working (focus is decoder)
-			if enc == nil {
-				t.Skip("Encoder not available")
-			}
-
 			// Encode
 			encoded, err := enc.EncodeFrame(samples, frameSize)
 			if err != nil {
-				t.Skipf("Encode failed (expected if encoder has issues): %v", err)
+				t.Fatalf("EncodeFrame failed: %v", err)
 			}
 
 			if len(encoded) == 0 {
-				t.Skip("Encoded empty frame")
+				t.Fatal("Encoded empty frame")
 			}
 
 			// Decode

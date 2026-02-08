@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "sample_rate": 48000,
+  "cases": [
+    {
+      "name": "440Hz-20ms-mono-64k",
+      "freq_hz": 440,
+      "frame_size": 960,
+      "channels": 1,
+      "bitrate": 64000,
+      "packets_base64": [
+        "+DpQU5Ip2rEwSlG9fXGxkumCipDHDsTYTfj6WT3aYkOT5V6dmAk4wuUaG7cHU9J3X20PlboldI9KlHVNlrlke4UHFoS4l9DYCmsABMNtkUNXsgxeJban/ZnBpn/8Qb6rcPS4Qgub83TCOiwy7Fhcogu5TdaSvBgVSKp+WnVFJLLUHDSx7QO92HPH9G6bwJUbej4TirY25Wj+8qOcGhXNrQ==",
+        "+LLqMZpzKhFu8iT/6SbPT/aAeHWEt7ejPqLEFGghqJ7oShAtjGwRPM68GJKaeM5Cbe5HBOivsG7qMzKGPkhl+gi3/AHCrzO2N0h99dsFtmVKeIFW3Zq+3TOoXuRDbM8iXNpYYoDb0nmvGRPDACcB79k9LiaiAEvxNdVsdQPESxUPJkOgqNIbG6IpTfyFne3R/LqDNgR/Iqc39zrq+VVJ7g==",
+        "+LNZmQ/aGf9rAxb0LD5kfrt+uOBnsf+An7VPLRKz/L8Dkjo+8lMmP9WthjfGKvmnw07/kFNu+MXdFMhy2drVa2gqJuCq7pX4hznzYjDpqdzhFRCwiQ+OcsF3sJYoXy1th3UnlAjUNLGx4gv2EI1n5AE7wJsLyhHhQKqZUJJdrSSNs/FDeVx+9UmKsqnycYPIgY7hCgVeKNVkjJIZoJ5t7g==",
+        "+KsmHUgoQk2p0o11+GOXra6QyIiHIe0bSrY06rp5GgR/qHdf9RVzGleEx77r2TVNKd000iyDdz9oaFnAJMBbf7oK1hQKfOsL5djaGoDkoXvAX8FixGGv+qcbOGSoxtJGIhRM8hvuRs7ov17qzd1YBcg+kez1B1T5UsIu6y0Ime2PKP+d0zsIYNs4PBZjzT5D2YfNBX6ZZWD79BHGlF7H7g==",
+        "+Kys3S1yyCPZu+quZtBtPD5Cmg7HMQk8brVoC9DUuL8+tV7/x76+XxJzhap3oe46WUSTkSq6IZNCMMwvjj2/w0yfqyLDIGOQyUSPycDvaDRAPSRFP7p0rGLQoazsFjitDCo8kuxM1nIphloZRFv/sMLzQwPM7htNASs5FeFQ38PDR3e4+uW+reAeJ8fwiFn8sJCT6gJJXWUSuLYJonrd7g==",
+        "+A+s9jg3OfAe+vWhI8SELZxG6eu94950Q2nPovK/09ue9mjal2Njm8AI3O/pizHBiD5ugamROapoHQc9nDz+ngN5HS0/iGNjcPhjVzpMDPNbp0kXrINObZk03EC0HQCa98dYAuMC784QhCZW+9R+CyEGF0hHuDd9QS/70Fwz49ZpuTykBvQf8ZwT42NlHnODHOqEW6MsQhb4HolxEq/hTA=="
+      ]
+    },
+    {
+      "name": "1kHz-20ms-mono-64k",
+      "freq_hz": 1000,
+      "frame_size": 960,
+      "channels": 1,
+      "bitrate": 64000,
+      "packets_base64": [
+        "+AVrCmUCjOoBzd7fV9CATkhrm+ezzXfXDEby635qHVCpWtNYwRLuw9JRyNmorXfJw4aTPC31ziT3oRdEw4VTFN9VBa0ChvnUXL4f7bL4cLS7v9X36dntqvT35G4A7NJP4xA4Cbum6iumn+oAAnjBQjwN6ubqvrhQXpVhGQKuiAHBpYC4gVTOWv1wkKLpVrbyCSIn/Za2FpNXkF4Wa6eq6g==",
+        "+J5W4C9cZasQYu8Thho6NB2LzQoowYTMw9R7bOwWm2z5UvQXi1lFvVXorwLQopGd5vqR3coPRAP14Fu2VYJvUwGTTGatqFyfAPzcRWLieuhj9pij8xQU2NfXuildd1R+0y+j3d79/aaRzO3FqRStayGo9Tm4nFnmi7CUSYxgMNp5SWxkJlYOBO6A9erbXmXy6Ct4XrUfPgsE7HVWffLk8Q==",
+        "+J6BXqblpCBT+bl2OBLHNBUI9bI5sG4SkTujWLKxdKhDblQZIq1ptxA9CbuyGT+j1QEJbolUqg+fqo+DFeKHs+svbuZqoKmGj7/wjObN1A3pbiKxcT10Izgt2fmKCmtQ7UpCvci7wy+nW+2W/Zrst7hba+O92FPLbj9bk6JH7CeoyAMGIn4dn8Ne9xL4o4npvMXfgYLHz02JzuU6wOrN8Q==",
+        "+J6BXqblpCBT+bl2OBLHNBUI9baGTW4SkTujWLKxdKhDblQZIq1ptxA9CbuyGT+j1QEJbolUqg+fqo+DFeKHs+svbuZqoKmGj7/wjObN1A3pbiKxcT10Izgt2fmKCmxHLUpCvci7wy+nW+2W/Zrst7hba+O92FPLbj9bk6JH7CeoyAMGIn4dn8Ne9xL4o4npvMXfiMpZz02JzuU6wOrL8Q==",
+        "+Jwcw5X10hEaWDWqa/HLNMT713s7hbkQ9c2O0BhRads50v2+VCb22BMfcEP9gwG2FlNpYhvakwGHjtErZxjwDbNq/c9gwRc+CZ9uSWx91gVK2CyXQjd9rzUPRnBbsPP6ChexeXfbC2wy+g7fbLfs12fNELbXx3uwp5aRgadEo/YSpqMfBiJ+HZ/DUhd58UcT03Y6ElW4mBYjonPnvqNa8Q==",
+        "+JxMkjtroltmWD5KSkDqPDfqDHOyykIi3Vts2FL85wJRrUlbVn3floOmm9l8ETUcOv9VL1Q1oBs0avutNDzeEC9TQ6KCWVMl4M1Vvpdm7uQGAyulZAcz6PJ7pZnFYihLDPEwHY412hfo8tfrh3kE+ftKh9Oyr6JuAXHR0GF1HDvsXgxogB7BvI/QL5G+cRIJI8Bz2rNvhaaJh8YV27A+8Q=="
+      ]
+    },
+    {
+      "name": "440Hz-10ms-mono-64k",
+      "freq_hz": 440,
+      "frame_size": 480,
+      "channels": 1,
+      "bitrate": 64000,
+      "packets_base64": [
+        "8Fhf3/1HmodPVQtei+/PIqofVG0EJY2YmywkDa+mrM8Ofqi79gAnAQTN0p+rG0eeQNLAfeBqgIkPrSy8DYit7XbMGCUT/aJzBtCuAFxSB8g=",
+        "8LMyIn1ZHYyjaP+h7S0x4Rc8UR0RDacsbX1J5FLLRLMnlNoPcuITeIw3SQdYh+/ysCc+R1a6ktFwf/G1SkwYt8zJ/TYZDE+lzryATlV6ne4=",
+        "8LMQnAdcEUx6x01R2xQb15w59wHCZOuy7TGp7RchnhCLUv02X2bnEE+Go6QfHlqJQWrb9LfQ7wQG8RwQHAnarxttLCrYHGRXI5p+RSDL7e4=",
+        "8LMQnVh8/xQXZmY5Pt0WokoiNp3sXf6bEsCmeocymh1aWrHbungKwjmlQMAFm3tV/LnYCv0hHfWDD5fdDm8q6nvdG8XnYs4/I5u7DrkQY+4=",
+        "8K4ucs2seNaxYmmOSbH6enXzIYD9R0X9LM+/xBy0Ehxvyuthb8xtFV4Vj6bSHp7Qj0kzQ/j/kMn42XnXdGes4OWWWc+hJVrzB9lZk/bff+4=",
+        "8BbsRzy1jE311cw7JM5O8nx9BXE3b7oLJrsVL4lUQZ/JY/xlpuUxc4NYRonLICQhYCm8qY77gn0K8BDCRFsOYW1woPlnhSNt7FhCzZz/RSc="
+      ]
+    }
+  ]
+}

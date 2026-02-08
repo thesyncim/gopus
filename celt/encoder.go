@@ -32,6 +32,7 @@ type Encoder struct {
 	// Energy state (persists across frames, mirrors decoder)
 	prevEnergy  []float64 // Previous frame band energies [MaxBands * channels]
 	prevEnergy2 []float64 // Two frames ago energies (for anti-collapse)
+	energyError []float64 // Previous coarse quantization residuals [MaxBands * channels]
 
 	// Analysis state for overlap (mirrors decoder's synthesis state)
 	overlapBuffer []float64 // MDCT overlap [Overlap * channels]
@@ -189,6 +190,7 @@ func NewEncoder(channels int) *Encoder {
 		// Allocate energy arrays for all bands and channels
 		prevEnergy:  make([]float64, MaxBands*channels),
 		prevEnergy2: make([]float64, MaxBands*channels),
+		energyError: make([]float64, MaxBands*channels),
 
 		// Overlap buffer for MDCT overlap-add analysis
 		// Size is Overlap (120) samples per channel
@@ -233,6 +235,7 @@ func NewEncoder(channels int) *Encoder {
 		delayBuffer: make([]float64, DelayCompensation*channels),
 
 		// Prefilter state (comb filter history) for postfilter signaling.
+		// libopus zero-initializes this state on reset.
 		prefilterPeriod: combFilterMinPeriod,
 		prefilterGain:   0,
 		prefilterTapset: 0,
@@ -254,6 +257,7 @@ func (e *Encoder) Reset() {
 	for i := range e.prevEnergy {
 		e.prevEnergy[i] = 0
 		e.prevEnergy2[i] = 0
+		e.energyError[i] = 0
 	}
 
 	// Clear overlap buffer
@@ -726,6 +730,8 @@ type encoderScratch struct {
 	// Normalized coefficient buffers
 	normL []float64
 	normR []float64
+	// Interleaved stereo normalized coefficients for spread analysis.
+	normStereo []float64
 
 	// Allocation-related buffers
 	caps    []int
@@ -889,6 +895,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	// Normalized coefficients
 	s.normL = ensureFloat64Slice(&s.normL, frameSize)
 	s.normR = ensureFloat64Slice(&s.normR, frameSize)
+	s.normStereo = ensureFloat64Slice(&s.normStereo, frameSize*2)
 
 	// Allocation buffers
 	s.caps = ensureIntSlice(&s.caps, MaxBands)

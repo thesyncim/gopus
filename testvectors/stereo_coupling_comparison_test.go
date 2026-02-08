@@ -2,10 +2,8 @@ package testvectors
 
 import (
 	"encoding/binary"
-	"fmt"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -15,12 +13,6 @@ import (
 // TestStereoCouplingVsLibopus compares stereo decoding with libopus per-frame.
 // This test decodes stereo CELT packets and compares the PCM output with libopus.
 func TestStereoCouplingVsLibopus(t *testing.T) {
-	// Check if opus_demo is available
-	opusDemoPath := filepath.Join("..", "tmp_check", "opus-1.6.1", "opus_demo")
-	if _, err := os.Stat(opusDemoPath); os.IsNotExist(err) {
-		t.Skipf("opus_demo not found at %s", opusDemoPath)
-	}
-
 	// Ensure test vectors are available
 	if err := ensureTestVectors(t); err != nil {
 		t.Skipf("Skipping test: %v", err)
@@ -47,10 +39,16 @@ func TestStereoCouplingVsLibopus(t *testing.T) {
 
 	t.Logf("Test vector %s: %d packets, stereo=%v", testVector, len(packets), toc.Stereo)
 
-	// Decode entire stream once with libopus to preserve decoder state
-	libSamples, err := decodeBitstreamWithLibopus(opusDemoPath, bitFile, 2)
+	// Load libopus reference PCM from the .dec artifact.
+	decFile := filepath.Join(testVectorDir, testVector+".dec")
+	decData, err := os.ReadFile(decFile)
 	if err != nil {
-		t.Fatalf("libopus decode failed: %v", err)
+		t.Fatalf("read reference %s: %v", decFile, err)
+	}
+	libSamples := make([]float32, len(decData)/2)
+	for i := range libSamples {
+		s16 := int16(binary.LittleEndian.Uint16(decData[i*2:]))
+		libSamples[i] = float32(s16) / 32768.0
 	}
 
 	// Create Go decoder
@@ -152,37 +150,6 @@ func TestStereoCouplingVsLibopus(t *testing.T) {
 	if passedFrames < totalFrames {
 		t.Errorf("FAIL: Only %d/%d frames meet acceptance criteria", passedFrames, totalFrames)
 	}
-}
-
-// decodeBitstreamWithLibopus decodes an entire .bit file using opus_demo.
-func decodeBitstreamWithLibopus(opusDemoPath string, bitFile string, channels int) ([]float32, error) {
-	pcmFile := filepath.Join(os.TempDir(), "stereo_test.pcm")
-
-	defer os.Remove(pcmFile)
-
-	// Run opus_demo to decode
-	// opus_demo -d <samplerate> <channels> <input.bit> <output.pcm>
-	cmd := exec.Command(opusDemoPath, "-d", "48000", fmt.Sprintf("%d", channels), bitFile, pcmFile)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("opus_demo failed: %v\n%s", err, output)
-	}
-
-	// Read PCM output (16-bit signed)
-	pcmData, err := os.ReadFile(pcmFile)
-	if err != nil {
-		return nil, err
-	}
-
-	// Convert to float32
-	numSamples := len(pcmData) / 2
-	samples := make([]float32, numSamples)
-	for i := 0; i < numSamples; i++ {
-		s16 := int16(binary.LittleEndian.Uint16(pcmData[i*2:]))
-		samples[i] = float32(s16) / 32768.0
-	}
-
-	return samples, nil
 }
 
 // quantizeTo16 matches opus_demo 16-bit PCM output for comparison.

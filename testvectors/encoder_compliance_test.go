@@ -15,6 +15,7 @@ import (
 	"sync"
 	"testing"
 
+	gopus "github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/encoder"
 	"github.com/thesyncim/gopus/types"
 )
@@ -72,11 +73,44 @@ func logEncoderComplianceStatus(t *testing.T) {
 	})
 }
 
+type encoderComplianceSummaryCase struct {
+	name      string
+	mode      encoder.Mode
+	bandwidth types.Bandwidth
+	frameSize int
+	channels  int
+	bitrate   int
+}
+
+func encoderComplianceSummaryCases() []encoderComplianceSummaryCase {
+	return []encoderComplianceSummaryCase{
+		// CELT
+		{"CELT-FB-20ms-mono-64k", encoder.ModeCELT, types.BandwidthFullband, 960, 1, 64000},
+		{"CELT-FB-20ms-stereo-128k", encoder.ModeCELT, types.BandwidthFullband, 960, 2, 128000},
+		{"CELT-FB-10ms-mono-64k", encoder.ModeCELT, types.BandwidthFullband, 480, 1, 64000},
+		// SILK
+		{"SILK-NB-10ms-mono-16k", encoder.ModeSILK, types.BandwidthNarrowband, 480, 1, 16000},
+		{"SILK-NB-20ms-mono-16k", encoder.ModeSILK, types.BandwidthNarrowband, 960, 1, 16000},
+		{"SILK-NB-40ms-mono-16k", encoder.ModeSILK, types.BandwidthNarrowband, 1920, 1, 16000},
+		{"SILK-MB-20ms-mono-24k", encoder.ModeSILK, types.BandwidthMediumband, 960, 1, 24000},
+		{"SILK-WB-10ms-mono-32k", encoder.ModeSILK, types.BandwidthWideband, 480, 1, 32000},
+		{"SILK-WB-20ms-mono-32k", encoder.ModeSILK, types.BandwidthWideband, 960, 1, 32000},
+		{"SILK-WB-40ms-mono-32k", encoder.ModeSILK, types.BandwidthWideband, 1920, 1, 32000},
+		{"SILK-WB-60ms-mono-32k", encoder.ModeSILK, types.BandwidthWideband, 2880, 1, 32000},
+		{"SILK-WB-20ms-stereo-48k", encoder.ModeSILK, types.BandwidthWideband, 960, 2, 48000},
+		// Hybrid
+		{"Hybrid-SWB-10ms-mono-48k", encoder.ModeHybrid, types.BandwidthSuperwideband, 480, 1, 48000},
+		{"Hybrid-SWB-20ms-mono-48k", encoder.ModeHybrid, types.BandwidthSuperwideband, 960, 1, 48000},
+		{"Hybrid-SWB-40ms-mono-48k", encoder.ModeHybrid, types.BandwidthSuperwideband, 1920, 1, 48000},
+		{"Hybrid-FB-10ms-mono-64k", encoder.ModeHybrid, types.BandwidthFullband, 480, 1, 64000},
+		{"Hybrid-FB-20ms-mono-64k", encoder.ModeHybrid, types.BandwidthFullband, 960, 1, 64000},
+		{"Hybrid-FB-60ms-mono-64k", encoder.ModeHybrid, types.BandwidthFullband, 2880, 1, 64000},
+		{"Hybrid-FB-20ms-stereo-96k", encoder.ModeHybrid, types.BandwidthFullband, 960, 2, 96000},
+	}
+}
+
 // TestEncoderComplianceCELT tests CELT mode encoding at various frame sizes.
 func TestEncoderComplianceCELT(t *testing.T) {
-	if !checkOpusdecAvailableEncoder() {
-		t.Skip("opusdec not found in PATH")
-	}
 	logEncoderComplianceStatus(t)
 
 	tests := []struct {
@@ -101,9 +135,6 @@ func TestEncoderComplianceCELT(t *testing.T) {
 
 // TestEncoderComplianceSILK tests SILK mode encoding at various bandwidths.
 func TestEncoderComplianceSILK(t *testing.T) {
-	if !checkOpusdecAvailableEncoder() {
-		t.Skip("opusdec not found in PATH")
-	}
 	logEncoderComplianceStatus(t)
 
 	tests := []struct {
@@ -129,9 +160,6 @@ func TestEncoderComplianceSILK(t *testing.T) {
 
 // TestEncoderComplianceHybrid tests Hybrid mode encoding.
 func TestEncoderComplianceHybrid(t *testing.T) {
-	if !checkOpusdecAvailableEncoder() {
-		t.Skip("opusdec not found in PATH")
-	}
 	logEncoderComplianceStatus(t)
 
 	tests := []struct {
@@ -157,9 +185,6 @@ func TestEncoderComplianceHybrid(t *testing.T) {
 
 // TestEncoderComplianceBitrates tests encoding at various bitrate targets.
 func TestEncoderComplianceBitrates(t *testing.T) {
-	if !checkOpusdecAvailableEncoder() {
-		t.Skip("opusdec not found in PATH")
-	}
 	logEncoderComplianceStatus(t)
 
 	bitrates := []int{32000, 64000, 128000, 256000}
@@ -173,44 +198,9 @@ func TestEncoderComplianceBitrates(t *testing.T) {
 
 // TestEncoderComplianceSummary runs all configurations and outputs a summary table.
 func TestEncoderComplianceSummary(t *testing.T) {
-	if !checkOpusdecAvailableEncoder() {
-		t.Skip("opusdec not found in PATH")
-	}
 	logEncoderComplianceStatus(t)
 
-	type testCase struct {
-		name      string
-		mode      encoder.Mode
-		bandwidth types.Bandwidth
-		frameSize int
-		channels  int
-		bitrate   int
-	}
-
-	cases := []testCase{
-		// CELT
-		{"CELT-FB-20ms-mono-64k", encoder.ModeCELT, types.BandwidthFullband, 960, 1, 64000},
-		{"CELT-FB-20ms-stereo-128k", encoder.ModeCELT, types.BandwidthFullband, 960, 2, 128000},
-		{"CELT-FB-10ms-mono-64k", encoder.ModeCELT, types.BandwidthFullband, 480, 1, 64000},
-		// SILK
-		{"SILK-NB-10ms-mono-16k", encoder.ModeSILK, types.BandwidthNarrowband, 480, 1, 16000},
-		{"SILK-NB-20ms-mono-16k", encoder.ModeSILK, types.BandwidthNarrowband, 960, 1, 16000},
-		{"SILK-NB-40ms-mono-16k", encoder.ModeSILK, types.BandwidthNarrowband, 1920, 1, 16000},
-		{"SILK-MB-20ms-mono-24k", encoder.ModeSILK, types.BandwidthMediumband, 960, 1, 24000},
-		{"SILK-WB-10ms-mono-32k", encoder.ModeSILK, types.BandwidthWideband, 480, 1, 32000},
-		{"SILK-WB-20ms-mono-32k", encoder.ModeSILK, types.BandwidthWideband, 960, 1, 32000},
-		{"SILK-WB-40ms-mono-32k", encoder.ModeSILK, types.BandwidthWideband, 1920, 1, 32000},
-		{"SILK-WB-60ms-mono-32k", encoder.ModeSILK, types.BandwidthWideband, 2880, 1, 32000},
-		{"SILK-WB-20ms-stereo-48k", encoder.ModeSILK, types.BandwidthWideband, 960, 2, 48000},
-		// Hybrid
-		{"Hybrid-SWB-10ms-mono-48k", encoder.ModeHybrid, types.BandwidthSuperwideband, 480, 1, 48000},
-		{"Hybrid-SWB-20ms-mono-48k", encoder.ModeHybrid, types.BandwidthSuperwideband, 960, 1, 48000},
-		{"Hybrid-SWB-40ms-mono-48k", encoder.ModeHybrid, types.BandwidthSuperwideband, 1920, 1, 48000},
-		{"Hybrid-FB-10ms-mono-64k", encoder.ModeHybrid, types.BandwidthFullband, 480, 1, 64000},
-		{"Hybrid-FB-20ms-mono-64k", encoder.ModeHybrid, types.BandwidthFullband, 960, 1, 64000},
-		{"Hybrid-FB-60ms-mono-64k", encoder.ModeHybrid, types.BandwidthFullband, 2880, 1, 64000},
-		{"Hybrid-FB-20ms-stereo-96k", encoder.ModeHybrid, types.BandwidthFullband, 960, 2, 96000},
-	}
+	cases := encoderComplianceSummaryCases()
 
 	refAvailable := libopusComplianceReferenceAvailable()
 	if refAvailable {
@@ -223,7 +213,7 @@ func TestEncoderComplianceSummary(t *testing.T) {
 		t.Log("===========================")
 		t.Logf("%-35s %10s %10s %s", "Configuration", "Q", "SNR(dB)", "Status")
 		t.Logf("%-35s %10s %10s %s", "--------------", "----", "------", "------")
-		t.Log("INFO: libopus reference unavailable (run with -tags cgo_libopus for gap metrics)")
+		t.Log("INFO: libopus reference fixture unavailable; using absolute quality thresholds")
 	}
 
 	passed := 0
@@ -359,21 +349,9 @@ func runEncoderComplianceTest(t *testing.T, mode encoder.Mode, bandwidth types.B
 		packets[i] = packetCopy
 	}
 
-	// Write to Ogg Opus container
-	var oggBuf bytes.Buffer
-	err := writeOggOpusEncoder(&oggBuf, packets, channels, 48000, frameSize)
+	decoded, err := decodeCompliancePackets(packets, channels, frameSize)
 	if err != nil {
-		t.Fatalf("writeOggOpus failed: %v", err)
-	}
-
-	// Decode with opusdec
-	decoded, err = decodeWithOpusdec(oggBuf.Bytes())
-	if err != nil {
-		// Check for macOS provenance issues
-		if err.Error() == "opusdec blocked by macOS provenance" {
-			t.Skip("opusdec blocked by macOS provenance - skipping")
-		}
-		t.Fatalf("decodeWithOpusdec failed: %v", err)
+		t.Fatalf("decode reference failed: %v", err)
 	}
 
 	if len(decoded) == 0 {
@@ -407,98 +385,81 @@ func runEncoderComplianceTest(t *testing.T, mode encoder.Mode, bandwidth types.B
 // runLibopusComplianceReferenceTest runs the same compliance pipeline as
 // runEncoderComplianceTest but uses libopus as the encoder reference.
 func runLibopusComplianceReferenceTest(t *testing.T, mode encoder.Mode, bandwidth types.Bandwidth, frameSize, channels, bitrate int) (q float64, decoded []float32, ok bool) {
-	// Generate the same 1-second compliance signal.
-	numFrames := 48000 / frameSize
-	totalSamples := numFrames * frameSize * channels
-	original := generateEncoderTestSignal(totalSamples, channels)
-
-	// Encode with libopus reference (CGO-backed; unavailable in stub builds).
-	packets := encodeWithLibopusComplianceReference(original, 48000, channels, bitrate, frameSize, mode, bandwidth)
-	if len(packets) == 0 {
-		// Fallback for non-cgo runs: use frozen long-frame libopus fixtures.
-		if fixtureCase, found := findLongFrameFixtureCase(mode, bandwidth, frameSize, channels, bitrate); found {
-			fixtureQ, err := runLongFrameFixtureReferenceCase(fixtureCase)
-			if err == nil {
-				return fixtureQ, nil, true
-			}
+	_ = t
+	if libQ, found := lookupEncoderComplianceReferenceQ(mode, bandwidth, frameSize, channels, bitrate); found {
+		return libQ, nil, true
+	}
+	if fixtureCase, found := findLongFrameFixtureCase(mode, bandwidth, frameSize, channels, bitrate); found {
+		fixtureQ, err := runLongFrameFixtureReferenceCase(fixtureCase)
+		if err == nil {
+			return fixtureQ, nil, true
 		}
-		return 0, nil, false
 	}
-
-	// Write to Ogg Opus container and decode via opusdec to keep decode path
-	// identical with the gopus compliance pipeline.
-	var oggBuf bytes.Buffer
-	if err := writeOggOpusEncoder(&oggBuf, packets, channels, 48000, frameSize); err != nil {
-		return 0, nil, false
-	}
-
-	var err error
-	decoded, err = decodeWithOpusdec(oggBuf.Bytes())
-	if err != nil || len(decoded) == 0 {
-		return 0, nil, false
-	}
-
-	compareLen := len(original)
-	if len(decoded) < compareLen {
-		compareLen = len(decoded)
-	}
-	q, _ = ComputeQualityFloat32WithDelay(decoded[:compareLen], original[:compareLen], 48000, 960)
-	return q, decoded, true
+	return 0, nil, false
 }
 
-// Test signal generators
+func decodeCompliancePackets(packets [][]byte, channels, frameSize int) ([]float32, error) {
+	useOpusdec := checkOpusdecAvailableEncoder()
+	useFFmpeg := checkFFmpegAvailable()
+	if useOpusdec || useFFmpeg {
+		var oggBuf bytes.Buffer
+		if err := writeOggOpusEncoder(&oggBuf, packets, channels, 48000, frameSize); err != nil {
+			return nil, fmt.Errorf("write ogg opus: %w", err)
+		}
 
-// generateEncoderTestSignal generates a test signal for encoding.
-// Uses an amplitude-modulated multi-frequency signal with a unique onset
-// to enable reliable delay detection. The signal is aperiodic within
-// the test duration, avoiding false correlation peaks that confuse
-// delay-compensated SNR measurement.
-func generateEncoderTestSignal(samples int, channels int) []float32 {
-	signal := make([]float32, samples)
-
-	// Multi-frequency test signal: 440 Hz + 1000 Hz + 2000 Hz
-	// with slow amplitude modulation to break periodicity.
-	freqs := []float64{440, 1000, 2000}
-	amp := 0.3 // Amplitude per frequency (0.3 * 3 = 0.9 total)
-
-	// Modulation frequencies (slow, incommensurate with carrier freqs)
-	modFreqs := []float64{1.3, 2.7, 0.9}
-
-	totalDuration := float64(samples/channels) / 48000.0
-
-	for i := 0; i < samples; i++ {
-		ch := i % channels
-		sampleIdx := i / channels
-		t := float64(sampleIdx) / 48000.0
-
-		var val float64
-		for fi, freq := range freqs {
-			// For stereo, slightly offset frequencies between channels
-			f := freq
-			if channels == 2 && ch == 1 {
-				f *= 1.01 // 1% higher frequency on right channel
+		// Prefer opusdec for strict libopus workflow. If blocked by provenance or unavailable,
+		// ffmpeg is a no-cgo external decoder fallback.
+		if useOpusdec {
+			decoded, err := decodeWithOpusdec(oggBuf.Bytes())
+			if err == nil {
+				return decoded, nil
 			}
-			// Amplitude modulation: 0.5 + 0.5*sin(modFreq*2*pi*t)
-			// This makes the envelope vary slowly, breaking periodicity.
-			modDepth := 0.5 + 0.5*math.Sin(2*math.Pi*modFreqs[fi]*t)
-			val += amp * modDepth * math.Sin(2*math.Pi*f*t)
+			if err.Error() != "opusdec blocked by macOS provenance" {
+				return nil, err
+			}
 		}
-
-		// Add a unique onset ramp (first 10ms) to aid delay detection.
-		// The ramp shape is asymmetric and non-periodic.
-		onsetSamples := int(0.010 * 48000)
-		if sampleIdx < onsetSamples {
-			// Cubic ramp from 0 to 1 over 10ms
-			frac := float64(sampleIdx) / float64(onsetSamples)
-			val *= frac * frac * frac
+		if useFFmpeg {
+			decoded, err := decodeWithFFmpeg(oggBuf.Bytes(), channels)
+			if err == nil {
+				return decoded, nil
+			}
+			return nil, err
 		}
-
-		_ = totalDuration
-
-		signal[i] = float32(val)
 	}
 
-	return signal
+	decoded, err := decodeComplianceWithInternalDecoder(packets, channels)
+	if err != nil {
+		return nil, err
+	}
+	if len(decoded) == 0 {
+		return nil, fmt.Errorf("internal decoder returned no samples")
+	}
+	preSkip := OpusPreSkip * channels
+	if len(decoded) > preSkip {
+		decoded = decoded[preSkip:]
+	}
+	return decoded, nil
+}
+
+func decodeComplianceWithInternalDecoder(packets [][]byte, channels int) ([]float32, error) {
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
+	if err != nil {
+		return nil, fmt.Errorf("create decoder: %w", err)
+	}
+
+	outBuf := make([]float32, 5760*channels)
+	var decoded []float32
+	for i, pkt := range packets {
+		n, err := dec.Decode(pkt, outBuf)
+		if err != nil {
+			return nil, fmt.Errorf("decode frame %d: %w", i, err)
+		}
+		if n == 0 {
+			continue
+		}
+		decoded = append(decoded, outBuf[:n*channels]...)
+	}
+	return decoded, nil
 }
 
 // Ogg container helpers

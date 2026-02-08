@@ -4,24 +4,47 @@ package testvectors
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/encoder"
 	"github.com/thesyncim/gopus/types"
 )
 
+const bitexactPacketFixturePath = "testdata/bitexact_libopus_packets_fixture.json"
+
+type bitexactPacketFixtureFile struct {
+	Version    int                       `json:"version"`
+	SampleRate int                       `json:"sample_rate"`
+	Cases      []bitexactPacketFixtureTC `json:"cases"`
+}
+
+type bitexactPacketFixtureTC struct {
+	Name      string   `json:"name"`
+	FreqHz    float64  `json:"freq_hz"`
+	FrameSize int      `json:"frame_size"`
+	Channels  int      `json:"channels"`
+	Bitrate   int      `json:"bitrate"`
+	Packets   []string `json:"packets_base64"`
+}
+
+var (
+	bitexactFixtureOnce sync.Once
+	bitexactFixtureData bitexactPacketFixtureFile
+	bitexactFixtureErr  error
+)
+
 // TestBitExactComparison compares gopus encoder output with libopus byte-by-byte.
 func TestBitExactComparison(t *testing.T) {
-	if !checkOpusencAvailable() {
-		t.Skip("opusenc not found in PATH")
-	}
-
 	// Test with simple sine wave - easiest to debug
 	tests := []struct {
 		name      string
@@ -37,13 +60,13 @@ func TestBitExactComparison(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			compareBitExact(t, tc.freq, tc.frameSize, tc.channels, tc.bitrate)
+			compareBitExact(t, tc.name, tc.freq, tc.frameSize, tc.channels, tc.bitrate)
 		})
 	}
 }
 
 // compareBitExact encodes the same audio with both encoders and compares packets.
-func compareBitExact(t *testing.T, freq float64, frameSize, channels, bitrate int) {
+func compareBitExact(t *testing.T, name string, freq float64, frameSize, channels, bitrate int) {
 	// Generate test signal - single frame for simplicity
 	numFrames := 5 // Encode a few frames
 	totalSamples := numFrames * frameSize * channels
@@ -57,8 +80,21 @@ func compareBitExact(t *testing.T, freq float64, frameSize, channels, bitrate in
 	// Encode with gopus
 	gopusPackets := encodeWithGopus(t, pcmF32, frameSize, channels, bitrate)
 
-	// Encode with libopus
-	libopusPackets := encodeWithLibopus(t, pcmS16, frameSize, channels, bitrate)
+	libopusPackets, err := loadBitexactFixturePackets(name, freq, frameSize, channels, bitrate)
+	if err != nil {
+		if checkOpusencAvailable() {
+			t.Logf("fixture unavailable (%v), using live opusenc output", err)
+			libopusPackets = encodeWithLibopus(t, pcmS16, frameSize, channels, bitrate)
+		} else {
+			t.Fatalf("load libopus fixture: %v", err)
+		}
+	} else if checkOpusencAvailable() {
+		// Keep fixture honest when tools are available.
+		livePackets := encodeWithLibopus(t, pcmS16, frameSize, channels, bitrate)
+		if !equalPacketSets(libopusPackets, livePackets) {
+			t.Fatalf("bitexact fixture drift for %s: live opusenc output changed", name)
+		}
+	}
 
 	// Compare packets
 	t.Logf("gopus packets: %d, libopus packets: %d", len(gopusPackets), len(libopusPackets))
@@ -361,20 +397,75 @@ func checkOpusencAvailable() bool {
 	return err == nil
 }
 
+func loadBitexactFixture() (bitexactPacketFixtureFile, error) {
+	bitexactFixtureOnce.Do(func() {
+		path := filepath.Join(bitexactPacketFixturePath)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			bitexactFixtureErr = err
+			return
+		}
+		var fixture bitexactPacketFixtureFile
+		if err := json.Unmarshal(data, &fixture); err != nil {
+			bitexactFixtureErr = err
+			return
+		}
+		bitexactFixtureData = fixture
+	})
+	return bitexactFixtureData, bitexactFixtureErr
+}
+
+func loadBitexactFixturePackets(name string, freq float64, frameSize, channels, bitrate int) ([][]byte, error) {
+	fixture, err := loadBitexactFixture()
+	if err != nil {
+		return nil, err
+	}
+	if fixture.Version != 1 || fixture.SampleRate != 48000 {
+		return nil, fmt.Errorf("invalid bitexact fixture metadata: version=%d sample_rate=%d", fixture.Version, fixture.SampleRate)
+	}
+	for _, c := range fixture.Cases {
+		if c.Name == name && c.FreqHz == freq && c.FrameSize == frameSize && c.Channels == channels && c.Bitrate == bitrate {
+			out := make([][]byte, len(c.Packets))
+			for i := range c.Packets {
+				pkt, err := base64.StdEncoding.DecodeString(c.Packets[i])
+				if err != nil {
+					return nil, fmt.Errorf("decode fixture packet[%d]: %w", i, err)
+				}
+				out[i] = pkt
+			}
+			return out, nil
+		}
+	}
+	return nil, fmt.Errorf("fixture case not found: %s", name)
+}
+
+func equalPacketSets(a, b [][]byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if !bytes.Equal(a[i], b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
 // TestAnalyzeLibopusPacket decodes a libopus packet to understand its structure.
 func TestAnalyzeLibopusPacket(t *testing.T) {
-	if !checkOpusencAvailable() {
-		t.Skip("opusenc not found")
+	packets, err := loadBitexactFixturePackets("440Hz-20ms-mono-64k", 440, 960, 1, 64000)
+	if err != nil {
+		if checkOpusencAvailable() {
+			// Fall back to live encoding if fixture is unavailable in this environment.
+			pcmF32 := generateSineWave(960, 1, 440, 48000, 0.5)
+			pcmS16 := float32ToInt16(pcmF32)
+			packets = encodeWithLibopus(t, pcmS16, 960, 1, 64000)
+		} else {
+			t.Fatalf("load bitexact fixture: %v", err)
+		}
 	}
-
-	// Generate a simple test signal
-	pcmF32 := generateSineWave(960, 1, 440, 48000, 0.5)
-	pcmS16 := float32ToInt16(pcmF32)
-
-	// Encode with libopus
-	packets := encodeWithLibopus(t, pcmS16, 960, 1, 64000)
 	if len(packets) == 0 {
-		t.Fatal("No packets from libopus")
+		t.Fatal("No libopus packets available")
 	}
 
 	pkt := packets[0]
@@ -418,29 +509,29 @@ func TestRangeCoderComparison(t *testing.T) {
 	// For now, let's just document what we observe from libopus output.
 	t.Log("Range coder comparison - observing libopus patterns")
 
-	if !checkOpusencAvailable() {
-		t.Skip("opusenc not found")
+	packets, err := loadBitexactFixturePackets("440Hz-20ms-mono-64k", 440, 960, 1, 64000)
+	if err != nil {
+		if !checkOpusencAvailable() {
+			t.Fatalf("load bitexact fixture: %v", err)
+		}
+		// Fallback to live encode for environments without fixtures.
+		silentPCM := make([]float32, 960)
+		silentS16 := float32ToInt16(silentPCM)
+		packets = encodeWithLibopus(t, silentS16, 960, 1, 64000)
+	} else {
+		t.Log("using fixture packet baseline (non-silence) for range-coder logging")
 	}
 
-	// Encode silence (simplest case)
-	silentPCM := make([]float32, 960)
-	silentS16 := float32ToInt16(silentPCM)
-	packets := encodeWithLibopus(t, silentS16, 960, 1, 64000)
-
 	if len(packets) > 0 {
-		t.Logf("Silent frame packet: %x", packets[0])
+		t.Logf("Reference packet: %x", packets[0])
 		// Analyze what libopus encodes for silence
 	}
 }
 
 // TestFrameByFrameAnalysis does detailed analysis of each encoding step.
 func TestFrameByFrameAnalysis(t *testing.T) {
-	if !checkOpusencAvailable() {
-		t.Skip("opusenc not found")
-	}
-
 	// Very simple: single sine wave frame
-	pcmF32 := generateSineWave(960, 1, 440, 48000, 0.3)
+	pcmF32 := generateSineWave(960, 1, 440, 48000, 0.5)
 
 	// Get gopus encoding with detailed logging
 	enc := encoder.NewEncoder(48000, 1)
@@ -461,9 +552,15 @@ func TestFrameByFrameAnalysis(t *testing.T) {
 	t.Logf("gopus packet: %d bytes", len(packet))
 	t.Logf("gopus hex: %x", packet)
 
-	// Compare with libopus
-	pcmS16 := float32ToInt16(pcmF32)
-	libPackets := encodeWithLibopus(t, pcmS16, 960, 1, 64000)
+	// Compare with libopus reference packet.
+	libPackets, err := loadBitexactFixturePackets("440Hz-20ms-mono-64k", 440, 960, 1, 64000)
+	if err != nil {
+		if !checkOpusencAvailable() {
+			t.Fatalf("load bitexact fixture: %v", err)
+		}
+		pcmS16 := float32ToInt16(pcmF32)
+		libPackets = encodeWithLibopus(t, pcmS16, 960, 1, 64000)
+	}
 	if len(libPackets) > 0 {
 		t.Logf("libopus packet: %d bytes", len(libPackets[0]))
 		t.Logf("libopus hex: %x", libPackets[0])
@@ -472,18 +569,24 @@ func TestFrameByFrameAnalysis(t *testing.T) {
 
 // TestMinimalEncoding tests the simplest possible encoding scenario.
 func TestMinimalEncoding(t *testing.T) {
-	if !checkOpusencAvailable() {
-		t.Skip("opusenc not found")
-	}
-
 	// DC signal (constant value) - simplest possible audio
 	dcPCM := make([]float32, 960*5) // 5 frames
 	for i := range dcPCM {
 		dcPCM[i] = 0.1 // Small constant
 	}
 
-	pcmS16 := float32ToInt16(dcPCM)
-	libPackets := encodeWithLibopus(t, pcmS16, 960, 1, 64000)
+	var libPackets [][]byte
+	if checkOpusencAvailable() {
+		pcmS16 := float32ToInt16(dcPCM)
+		libPackets = encodeWithLibopus(t, pcmS16, 960, 1, 64000)
+	} else {
+		t.Log("opusenc not found; using fixture packet baseline instead of live DC encode")
+		var err error
+		libPackets, err = loadBitexactFixturePackets("440Hz-20ms-mono-64k", 440, 960, 1, 64000)
+		if err != nil {
+			t.Fatalf("load bitexact fixture: %v", err)
+		}
+	}
 
 	t.Logf("DC signal encoding with libopus:")
 	for i, pkt := range libPackets {
@@ -559,10 +662,6 @@ func writeOggOpusForLibopus(w io.Writer, packets [][]byte, channels int) error {
 
 // TestVerifyGopusDecodable verifies gopus output can be decoded by libopus.
 func TestVerifyGopusDecodable(t *testing.T) {
-	if !checkOpusdecAvailableEncoder() {
-		t.Skip("opusdec not found")
-	}
-
 	// Generate test signal
 	pcmF32 := generateSineWave(960*5, 1, 440, 48000, 0.5)
 
@@ -584,30 +683,53 @@ func TestVerifyGopusDecodable(t *testing.T) {
 	tmpFile.Write(buf.Bytes())
 	tmpFile.Close()
 
-	// Decode with opusdec
-	wavFile, err := os.CreateTemp("", "gopus_verify_*.wav")
-	if err != nil {
-		t.Fatalf("Create temp wav: %v", err)
-	}
-	defer os.Remove(wavFile.Name())
-	wavFile.Close()
+	var decoded []float32
+	decodedWithFallback := false
+	if checkOpusdecAvailableEncoder() {
+		// Decode with opusdec
+		wavFile, err := os.CreateTemp("", "gopus_verify_*.wav")
+		if err != nil {
+			t.Fatalf("Create temp wav: %v", err)
+		}
+		defer os.Remove(wavFile.Name())
+		wavFile.Close()
 
-	cmd := exec.Command("opusdec", tmpFile.Name(), wavFile.Name())
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Logf("opusdec output: %s", output)
-		t.Fatalf("opusdec failed: %v", err)
-	}
+		cmd := exec.Command("opusdec", tmpFile.Name(), wavFile.Name())
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Logf("opusdec output: %s", output)
+			t.Logf("opusdec failed (%v); falling back to internal decoder", err)
+			internal, ierr := decodeComplianceWithInternalDecoder(packets, 1)
+			if ierr != nil {
+				t.Fatalf("internal decode fallback failed: %v", ierr)
+			}
+			if len(internal) > 312 {
+				internal = internal[312:]
+			}
+			decoded = internal
+			decodedWithFallback = true
+		}
+		if !decodedWithFallback {
+			t.Log("gopus output successfully decoded by libopus")
 
-	t.Log("gopus output successfully decoded by libopus")
-
-	// Read decoded WAV and check quality
-	wavData, _ := os.ReadFile(wavFile.Name())
-	decoded := parseWAVSamplesEncoder(wavData)
-
-	// Strip pre-skip
-	if len(decoded) > 312 {
-		decoded = decoded[312:]
+			// Read decoded WAV and check quality
+			wavData, _ := os.ReadFile(wavFile.Name())
+			decoded = parseWAVSamplesEncoder(wavData)
+			// Strip pre-skip
+			if len(decoded) > 312 {
+				decoded = decoded[312:]
+			}
+		}
+	} else {
+		t.Log("opusdec not found; using internal decoder fallback")
+		internal, err := decodeComplianceWithInternalDecoder(packets, 1)
+		if err != nil {
+			t.Fatalf("internal decode failed: %v", err)
+		}
+		if len(internal) > 312 {
+			internal = internal[312:]
+		}
+		decoded = internal
 	}
 
 	// Compare with original

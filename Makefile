@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix test build build-nopgo pgo-generate pgo-build
+.PHONY: lint lint-fix test test-fast test-parity test-exhaustive test-provenance fixtures-gen fixtures-gen-decoder fixtures-gen-encoder fixtures-gen-variants build build-nopgo pgo-generate pgo-build
 
 GO ?= go
 PGO_FILE ?= default.pgo
@@ -20,6 +20,34 @@ lint-fix:
 # Run tests
 test:
 	$(GO) test ./...
+
+# Fast inner-loop tests (skips parity/exhaustive tier checks)
+test-fast:
+	$(GO) test -short ./...
+
+# Parity tier (default for focused quality work)
+test-parity:
+	GOPUS_TEST_TIER=parity $(GO) test ./testvectors -run 'TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard|TestDecoderParityLibopusMatrix|TestDecoderParityMatrixWithFFmpeg|TestEncoderVariantProfileParityAgainstLibopusFixture' -count=1
+
+# Exhaustive tier includes fixture honesty checks against tmp_check opus_demo/opusdec.
+test-exhaustive:
+	GOPUS_TEST_TIER=exhaustive $(GO) test ./testvectors -run 'TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo1601|TestEncoderVariantsFixtureHonestyWithOpusDemo1601|TestDecoderParityMatrixFixtureHonestyWithOpusDemo1601|TestLongFrameReferenceFixtureHonestyWithLiveOpusdec' -count=1
+
+# Exhaustive provenance audit for encoder variant parity.
+test-provenance:
+	GOPUS_TEST_TIER=exhaustive $(GO) test ./testvectors -run 'TestEncoderVariantProfileProvenanceAudit' -count=1
+
+# Regenerate fixture files from tmp_check/opus-1.6.1/opus_demo.
+fixtures-gen: fixtures-gen-decoder fixtures-gen-encoder fixtures-gen-variants
+
+fixtures-gen-decoder:
+	$(GO) run tools/gen_libopus_decoder_matrix_fixture.go
+
+fixtures-gen-encoder:
+	$(GO) run tools/gen_libopus_encoder_packet_fixture.go
+
+fixtures-gen-variants:
+	$(GO) run tools/gen_libopus_encoder_variants_fixture.go
 
 # Build with profile-guided optimization (default.pgo auto-discovered by Go toolchain)
 build:

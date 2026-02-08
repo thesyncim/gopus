@@ -1,27 +1,47 @@
 package celt_test
 
 import (
-	"bytes"
+	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"math"
 	"os"
-	"os/exec"
-	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus"
+)
+
+const antiCollapseFixturePath = "testdata/anticollapse_libopus_fixture.json"
+
+type antiCollapseFixtureFile struct {
+	Version int                       `json:"version"`
+	Cases   []antiCollapseFixtureCase `json:"cases"`
+}
+
+type antiCollapseFixtureCase struct {
+	Name             string   `json:"name"`
+	FrameSize        int      `json:"frame_size"`
+	Bitrate          int      `json:"bitrate"`
+	NumFrames        int      `json:"num_frames"`
+	PreSkip          int      `json:"pre_skip"`
+	PacketsBase64    []string `json:"packets_base64"`
+	DecodedF32Base64 string   `json:"decoded_f32le_base64"`
+}
+
+var (
+	antiCollapseFixtureOnce sync.Once
+	antiCollapseFixtureData antiCollapseFixtureFile
+	antiCollapseFixtureErr  error
 )
 
 // TestAntiCollapseVsLibopus compares anti-collapse behavior against libopus.
 // This test generates audio, encodes with libopus (which may trigger anti-collapse),
 // and decodes with both libopus and gopus to compare outputs.
 func TestAntiCollapseVsLibopus(t *testing.T) {
-	if !checkOpusdecAvailableAnticollapse() {
-		t.Skip("opusdec not found in PATH")
-	}
-	if !checkOpusencAvailableAnticollapse() {
-		t.Skip("opusenc not found in PATH")
+	if _, err := loadAntiCollapseFixture(); err != nil {
+		t.Fatalf("anti-collapse fixture unavailable: %v", err)
 	}
 
 	// Create a test signal that's likely to trigger anti-collapse:
@@ -57,7 +77,7 @@ func TestAntiCollapseVsLibopus(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			compareAntiCollapseOutput(t, tc.signal, tc.frameSize, tc.bitrate)
+			compareAntiCollapseOutput(t, tc.name, tc.signal, tc.frameSize, tc.bitrate)
 		})
 	}
 }
@@ -87,81 +107,51 @@ func generateImpulseSignal(length int) []float32 {
 	return pcm
 }
 
-func compareAntiCollapseOutput(t *testing.T, signalGen func(int) []float32, frameSize, bitrate int) {
-	numFrames := 10
-	totalSamples := numFrames * frameSize
+func compareAntiCollapseOutput(t *testing.T, name string, signalGen func(int) []float32, frameSize, bitrate int) {
+	var (
+		opusPackets    [][]byte
+		libopusDecoded []float32
+		preSkip        int
+		err            error
+	)
 
-	// Generate test signal
-	pcmF32 := signalGen(totalSamples)
-	pcmS16 := float32ToInt16Samples(pcmF32)
-
-	// Create temp directory for files
-	tmpDir, err := os.MkdirTemp("", "anticollapse_test")
+	fixture, ferr := getAntiCollapseFixtureCase(name)
+	if ferr != nil {
+		t.Fatalf("load anti-collapse fixture case %s: %v", name, ferr)
+	}
+	if fixture.FrameSize != frameSize || fixture.Bitrate != bitrate {
+		t.Fatalf("fixture metadata mismatch for %s", name)
+	}
+	opusPackets, err = decodeFixturePacketsBase64(fixture.PacketsBase64)
 	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
+		t.Fatalf("decode fixture packets: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
-
-	// Save as raw PCM for libopus encoding
-	rawPath := filepath.Join(tmpDir, "input.raw")
-	opusPath := filepath.Join(tmpDir, "encoded.opus")
-	decPath := filepath.Join(tmpDir, "decoded.raw")
-
-	// Write raw PCM file
-	if err := writeRawPCM(rawPath, pcmS16); err != nil {
-		t.Fatalf("Failed to write raw PCM: %v", err)
-	}
-
-	// Convert frame size to milliseconds string
-	frameSizeMs := float64(frameSize) / 48.0
-	frameSizeMsStr := "20"
-	switch frameSize {
-	case 120:
-		frameSizeMsStr = "2.5"
-	case 240:
-		frameSizeMsStr = "5"
-	case 480:
-		frameSizeMsStr = "10"
-	case 960:
-		frameSizeMsStr = "20"
-	case 1920:
-		frameSizeMsStr = "40"
-	case 2880:
-		frameSizeMsStr = "60"
-	default:
-		t.Logf("Warning: non-standard frame size %.1f ms, using 20", frameSizeMs)
-	}
-
-	// Encode with libopus using opusenc
-	cmd := exec.Command("opusenc",
-		"--raw", "--raw-rate", "48000", "--raw-chan", "1",
-		"--hard-cbr", "--bitrate", fmt.Sprintf("%d", bitrate/1000),
-		"--framesize", frameSizeMsStr,
-		rawPath, opusPath)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("opusenc failed: %v\n%s", err, out)
-	}
-
-	// Decode with libopus using opusdec
-	cmd = exec.Command("opusdec", "--float", "--force-wav", opusPath, decPath)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("opusdec failed: %v\n%s", err, out)
-	}
-
-	// Read libopus decoded output (skip WAV header)
-	libopusDecoded, err := readWavFloat32(decPath)
+	libopusDecoded, err = decodeFixtureFloat32Base64(fixture.DecodedF32Base64)
 	if err != nil {
-		t.Fatalf("Failed to read libopus decoded: %v", err)
+		t.Fatalf("decode fixture pcm: %v", err)
+	}
+	preSkip = fixture.PreSkip
+
+	expectedSamples := fixture.NumFrames * frameSize
+	if expectedSamples > 0 && len(libopusDecoded) != expectedSamples {
+		t.Fatalf("fixture decoded sample length mismatch for %s: got %d want %d", name, len(libopusDecoded), expectedSamples)
+	}
+	if signalGen != nil {
+		signal := signalGen(expectedSamples)
+		if len(signal) != expectedSamples {
+			t.Fatalf("signal generator length mismatch for %s: got %d want %d", name, len(signal), expectedSamples)
+		}
 	}
 
-	// Extract opus packets and decode with gopus
-	opusPackets, preSkip, err := extractOpusPackets(opusPath)
-	if err != nil {
-		t.Fatalf("Failed to extract packets: %v", err)
+	for _, pkt := range opusPackets {
+		if len(pkt) == 0 {
+			t.Fatalf("empty packet found in fixture for %s", name)
+		}
 	}
+
 	for _, pkt := range opusPackets {
 		if !isCELTPacket(pkt) {
-			t.Skip("non-CELT packets detected; skipping CELT anti-collapse compare")
+			t.Fatalf("non-CELT packet detected in fixture/reference for %s (toc=0x%02x)", name, pkt[0])
 		}
 	}
 
@@ -245,139 +235,62 @@ func isCELTPacket(pkt []byte) bool {
 	return config >= 16
 }
 
-func checkOpusdecAvailableAnticollapse() bool {
-	_, err := exec.LookPath("opusdec")
-	return err == nil
-}
-
-func checkOpusencAvailableAnticollapse() bool {
-	_, err := exec.LookPath("opusenc")
-	return err == nil
-}
-
-func float32ToInt16Samples(f32 []float32) []int16 {
-	s16 := make([]int16, len(f32))
-	for i, v := range f32 {
-		// Clamp and convert
-		sample := v * 32767
-		if sample > 32767 {
-			sample = 32767
+func loadAntiCollapseFixture() (antiCollapseFixtureFile, error) {
+	antiCollapseFixtureOnce.Do(func() {
+		data, err := os.ReadFile(antiCollapseFixturePath)
+		if err != nil {
+			antiCollapseFixtureErr = err
+			return
 		}
-		if sample < -32768 {
-			sample = -32768
+		if err := json.Unmarshal(data, &antiCollapseFixtureData); err != nil {
+			antiCollapseFixtureErr = err
+			return
 		}
-		s16[i] = int16(sample)
-	}
-	return s16
+		if antiCollapseFixtureData.Version != 1 {
+			antiCollapseFixtureErr = fmt.Errorf("unsupported anti-collapse fixture version %d", antiCollapseFixtureData.Version)
+			return
+		}
+	})
+	return antiCollapseFixtureData, antiCollapseFixtureErr
 }
 
-func writeRawPCM(path string, samples []int16) error {
-	f, err := os.Create(path)
+func getAntiCollapseFixtureCase(name string) (antiCollapseFixtureCase, error) {
+	fixture, err := loadAntiCollapseFixture()
 	if err != nil {
-		return err
+		return antiCollapseFixtureCase{}, err
 	}
-	defer f.Close()
-	return binary.Write(f, binary.LittleEndian, samples)
+	for _, c := range fixture.Cases {
+		if c.Name == name {
+			return c, nil
+		}
+	}
+	return antiCollapseFixtureCase{}, fmt.Errorf("case %q not found in fixture", name)
 }
 
-func readWavFloat32(path string) ([]float32, error) {
-	data, err := os.ReadFile(path)
+func decodeFixturePacketsBase64(src []string) ([][]byte, error) {
+	out := make([][]byte, len(src))
+	for i, s := range src {
+		pkt, err := base64.StdEncoding.DecodeString(s)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = pkt
+	}
+	return out, nil
+}
+
+func decodeFixtureFloat32Base64(s string) ([]float32, error) {
+	raw, err := base64.StdEncoding.DecodeString(s)
 	if err != nil {
 		return nil, err
 	}
-
-	// Find "data" chunk
-	dataIdx := bytes.Index(data, []byte("data"))
-	if dataIdx == -1 {
-		return nil, fmt.Errorf("no data chunk found")
+	if len(raw)%4 != 0 {
+		return nil, fmt.Errorf("invalid float32 fixture byte length %d", len(raw))
 	}
-
-	// Read chunk size
-	chunkSize := binary.LittleEndian.Uint32(data[dataIdx+4:])
-	audioData := data[dataIdx+8 : dataIdx+8+int(chunkSize)]
-
-	// Parse as float32
-	numSamples := len(audioData) / 4
-	samples := make([]float32, numSamples)
-	for i := 0; i < numSamples; i++ {
-		bits := binary.LittleEndian.Uint32(audioData[i*4:])
-		samples[i] = math.Float32frombits(bits)
+	out := make([]float32, len(raw)/4)
+	for i := 0; i < len(out); i++ {
+		bits := binary.LittleEndian.Uint32(raw[i*4:])
+		out[i] = math.Float32frombits(bits)
 	}
-
-	return samples, nil
-}
-
-func extractOpusPackets(opusPath string) ([][]byte, int, error) {
-	data, err := os.ReadFile(opusPath)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	var packets [][]byte
-	preSkip := 0
-
-	// Parse OGG pages to extract Opus packets
-	offset := 0
-	pktNum := 0
-	var currentPacket []byte
-	for offset < len(data)-27 {
-		// Check for OggS magic
-		if !bytes.Equal(data[offset:offset+4], []byte("OggS")) {
-			offset++
-			continue
-		}
-
-		// Parse OGG page header
-		numSegments := int(data[offset+26])
-		if offset+27+numSegments > len(data) {
-			break
-		}
-
-		segmentTable := data[offset+27 : offset+27+numSegments]
-		pageDataStart := offset + 27 + numSegments
-
-		// Calculate total page data size
-		totalSize := 0
-		for _, s := range segmentTable {
-			totalSize += int(s)
-		}
-
-		if pageDataStart+totalSize > len(data) {
-			break
-		}
-
-		// Extract packet(s) from this page
-		pageData := data[pageDataStart : pageDataStart+totalSize]
-
-		// Handle packet segmentation with continuation across pages.
-		packetStart := 0
-		for _, segSize := range segmentTable {
-			if packetStart+int(segSize) > len(pageData) {
-				break
-			}
-			if segSize > 0 {
-				currentPacket = append(currentPacket, pageData[packetStart:packetStart+int(segSize)]...)
-			}
-			packetStart += int(segSize)
-			// segSize < 255 indicates end of packet
-			if segSize < 255 {
-				// Skip OpusHead and OpusTags packets
-				if pktNum == 0 {
-					// Parse pre-skip from OpusHead
-					if len(currentPacket) >= 12 && bytes.Equal(currentPacket[0:8], []byte("OpusHead")) {
-						preSkip = int(binary.LittleEndian.Uint16(currentPacket[10:12]))
-					}
-				}
-				if pktNum >= 2 && len(currentPacket) > 0 {
-					packets = append(packets, append([]byte(nil), currentPacket...))
-				}
-				pktNum++
-				currentPacket = currentPacket[:0]
-			}
-		}
-
-		offset = pageDataStart + totalSize
-	}
-
-	return packets, preSkip, nil
+	return out, nil
 }

@@ -14,7 +14,7 @@ import (
 func TestSILK10msComplexityEffect(t *testing.T) {
 	opusdec := findOpusdec()
 	if opusdec == "" {
-		t.Skip("opusdec not found")
+		t.Log("opusdec not found; using internal SILK decode fallback")
 	}
 
 	for _, complexity := range []int{0, 5, 10} {

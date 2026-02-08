@@ -13,7 +13,7 @@ import (
 func TestSILK10msEnergyCheck(t *testing.T) {
 	opusdec := findOpusdec()
 	if opusdec == "" {
-		t.Skip("opusdec not found")
+		t.Log("opusdec not found; using internal SILK decode fallback")
 	}
 
 	signals := []struct {

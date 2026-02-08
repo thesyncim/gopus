@@ -220,13 +220,14 @@ func ComputeImportance(bandLogE, oldBandE []float64, nbBands, channels, lm, lsbD
 //
 // Reference: libopus celt/celt_encoder.c l1_metric()
 func l1Metric(tmp []float64, N int, LM int, bias float64) float64 {
-	var L1 float64
+	var L1 float32
+	bias32 := float32(bias)
 	for i := 0; i < N && i < len(tmp); i++ {
-		L1 += math.Abs(tmp[i])
+		L1 += float32(math.Abs(tmp[i]))
 	}
 	// When in doubt, prefer good frequency resolution
-	L1 = L1 + float64(LM)*bias*L1
-	return L1
+	L1 = L1 + float32(LM)*bias32*L1
+	return float64(L1)
 }
 
 // TFAnalysis performs time-frequency analysis to determine optimal TF resolution per band.
@@ -264,7 +265,8 @@ func TFAnalysis(X []float64, N0, nbEBands int, isTransient bool, lm int, tfEstim
 
 	// Compute bias: slightly prefer frequency resolution when uncertain
 	// bias = 0.04 * max(-0.25, 0.5 - tfEstimate)
-	bias := 0.04 * math.Max(-0.25, 0.5-tfEstimate)
+	// Keep TF metric arithmetic in float32 to mirror libopus float path.
+	bias := float64(float32(0.04 * math.Max(-0.25, 0.5-tfEstimate)))
 
 	// Compute per-band metric
 	metric := make([]int, nbEBands)
@@ -521,7 +523,8 @@ func TFAnalysisWithScratch(X []float64, N0, nbEBands int, isTransient bool, lm i
 		lambda = max(80, 20480/effectiveBytes+2)
 	}
 
-	bias := 0.04 * math.Max(-0.25, 0.5-tfEstimate)
+	// Keep TF metric arithmetic in float32 to mirror libopus float path.
+	bias := float64(float32(0.04 * math.Max(-0.25, 0.5-tfEstimate)))
 
 	metric := scratch.Metric[:nbEBands]
 	tmp := scratch.Tmp

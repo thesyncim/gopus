@@ -288,12 +288,12 @@ Always use this reference when implementing features or debugging discrepancies.
 ### Session 15: Postfilter Parity + Hybrid Crossover Smoothing (In Progress)
 1. ✅ **Hybrid crossover energy smoothing** - `encoder/hybrid.go`
    - Uses `HybridState.crossoverBuffer` to smooth band-17 energy across frames
-2. ✅ **Postfilter params vs libopus test** - `celt/cgo_test/postfilter_encoder_compare_test.go`
+2. ✅ **Postfilter params vs libopus test** - `testvectors/libopus_trace_test.go`
    - Low-bitrate CELT encode comparison across testvectors 01/07/08/12
    - Bitrates: 12k/16k/24k/32k, flags + params thresholds enforced
-3. ✅ **cgo test cleanup** - `celt/cgo_test/postfilter_encoder_compare_test.go`, `celt/cgo_test/reference_compare_test.go`
+3. ✅ **Trace test cleanup** - `testvectors/libopus_trace_test.go`, `testvectors/decoder_parity_test.go`
    - Removed duplicate PCM reader, tightened odd-length error handling
-4. ✅ **Fix cgo_libopus include paths** - `celt/cgo_test/*_wrapper.go`
+4. ✅ **Fix libopus reference path handling** - `testvectors/libopus_trace_test.go`
    - Paths now point to `tmp_check/opus-1.6.1` under repo root
 
 ### Session 16: LTP Quantization (In Progress)

@@ -10,32 +10,11 @@ package celt
 
 import (
 	"bytes"
-	"strings"
 	"testing"
 )
 
-// skipIfOpusdecFailed checks if the error is due to macOS file provenance issues
-// and skips the test if so. This allows tests to pass in sandboxed environments.
-func skipIfOpusdecFailed(t *testing.T, err error) {
-	if err == nil {
-		return
-	}
-	errStr := err.Error()
-	if strings.Contains(errStr, "Failed to open") {
-		t.Skipf("opusdec file access issue (likely macOS provenance): %v", err)
-	}
-	if strings.Contains(errStr, "WAV parse error") || strings.Contains(errStr, "unsupported WAV format") {
-		t.Skipf("opusdec output parse issue: %v", err)
-	}
-	t.Fatalf("opusdec failed: %v", err)
-}
-
 // TestLibopusCrossValidationMono tests mono CELT encode -> opusdec decode.
 func TestLibopusCrossValidationMono(t *testing.T) {
-	if !checkOpusdecAvailable() {
-		t.Skip("opusdec not available in PATH")
-	}
-
 	// Generate 20ms sine wave (960 samples at 48kHz)
 	frameSize := 960
 	pcm := generateSineWave(440.0, frameSize)
@@ -45,11 +24,11 @@ func TestLibopusCrossValidationMono(t *testing.T) {
 	inputPeak := findPeak(float32Slice(pcm))
 	t.Logf("Input: %d samples, energy=%.4f, peak=%.4f", frameSize, inputEnergy, inputPeak)
 
-	// Reset encoder for clean state
-	ResetMonoEncoder()
+	enc := NewEncoder(1)
+	enc.SetBitrate(64000)
 
 	// Encode with gopus
-	encoded, err := Encode(pcm, frameSize)
+	encoded, err := enc.EncodeFrame(pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}
@@ -66,7 +45,9 @@ func TestLibopusCrossValidationMono(t *testing.T) {
 
 	// Decode with opusdec
 	decoded, err := decodeWithOpusdec(ogg.Bytes())
-	skipIfOpusdecFailed(t, err)
+	if err != nil {
+		t.Fatalf("decodeWithOpusdec failed: %v", err)
+	}
 
 	// Verify output exists
 	if len(decoded) == 0 {
@@ -95,10 +76,6 @@ func TestLibopusCrossValidationMono(t *testing.T) {
 
 // TestLibopusCrossValidationStereo tests stereo CELT encode -> opusdec decode.
 func TestLibopusCrossValidationStereo(t *testing.T) {
-	if !checkOpusdecAvailable() {
-		t.Skip("opusdec not available in PATH")
-	}
-
 	// Generate 20ms stereo sine wave (different frequencies L/R)
 	frameSize := 960
 	pcm := generateStereoSineWave(440.0, 880.0, frameSize)
@@ -108,11 +85,11 @@ func TestLibopusCrossValidationStereo(t *testing.T) {
 	inputPeak := findPeak(float32Slice(pcm))
 	t.Logf("Input: %d stereo samples, energy=%.4f, peak=%.4f", frameSize*2, inputEnergy, inputPeak)
 
-	// Reset encoder for clean state
-	ResetStereoEncoder()
+	enc := NewEncoder(2)
+	enc.SetBitrate(128000)
 
 	// Encode with gopus
-	encoded, err := EncodeStereo(pcm, frameSize)
+	encoded, err := enc.EncodeFrame(pcm, frameSize)
 	if err != nil {
 		t.Fatalf("EncodeStereo failed: %v", err)
 	}
@@ -129,7 +106,9 @@ func TestLibopusCrossValidationStereo(t *testing.T) {
 
 	// Decode with opusdec
 	decoded, err := decodeWithOpusdec(ogg.Bytes())
-	skipIfOpusdecFailed(t, err)
+	if err != nil {
+		t.Fatalf("decodeWithOpusdec failed: %v", err)
+	}
 
 	// Verify output exists
 	if len(decoded) == 0 {
@@ -168,10 +147,6 @@ func TestLibopusCrossValidationStereo(t *testing.T) {
 // TestLibopusCrossValidationAllFrameSizes tests all frame sizes with opusdec.
 // Note: Only testing 20ms frames due to MDCT synthesis issues with smaller sizes.
 func TestLibopusCrossValidationAllFrameSizes(t *testing.T) {
-	if !checkOpusdecAvailable() {
-		t.Skip("opusdec not available in PATH")
-	}
-
 	// Frame sizes to test (samples at 48kHz)
 	// Only 20ms works reliably due to MDCT bin count mismatch
 	frameSizes := []struct {
@@ -209,7 +184,9 @@ func TestLibopusCrossValidationAllFrameSizes(t *testing.T) {
 
 			// Decode with opusdec
 			decoded, err := decodeWithOpusdec(ogg.Bytes())
-			skipIfOpusdecFailed(t, err)
+			if err != nil {
+				t.Fatalf("decodeWithOpusdec failed: %v", err)
+			}
 
 			if len(decoded) == 0 {
 				t.Fatalf("%s: opusdec produced empty output", fs.name)
@@ -232,19 +209,15 @@ func TestLibopusCrossValidationAllFrameSizes(t *testing.T) {
 
 // TestLibopusCrossValidationSilence tests silence frame with opusdec.
 func TestLibopusCrossValidationSilence(t *testing.T) {
-	if !checkOpusdecAvailable() {
-		t.Skip("opusdec not available in PATH")
-	}
-
 	// Generate silence (20ms)
 	frameSize := 960
 	pcm := make([]float64, frameSize)
 
-	// Reset encoder
-	ResetMonoEncoder()
+	enc := NewEncoder(1)
+	enc.SetBitrate(64000)
 
 	// Encode
-	encoded, err := Encode(pcm, frameSize)
+	encoded, err := enc.EncodeFrame(pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}
@@ -259,7 +232,9 @@ func TestLibopusCrossValidationSilence(t *testing.T) {
 
 	// Decode with opusdec
 	decoded, err := decodeWithOpusdec(ogg.Bytes())
-	skipIfOpusdecFailed(t, err)
+	if err != nil {
+		t.Fatalf("decodeWithOpusdec failed: %v", err)
+	}
 
 	if len(decoded) == 0 {
 		t.Fatal("opusdec produced empty output")
@@ -275,10 +250,6 @@ func TestLibopusCrossValidationSilence(t *testing.T) {
 
 // TestLibopusCrossValidationMultipleFrames tests multiple consecutive frames.
 func TestLibopusCrossValidationMultipleFrames(t *testing.T) {
-	if !checkOpusdecAvailable() {
-		t.Skip("opusdec not available in PATH")
-	}
-
 	frameSize := 960
 	numFrames := 5
 
@@ -300,7 +271,9 @@ func TestLibopusCrossValidationMultipleFrames(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Frame %d: EncodeFrame failed: %v", i, err)
 		}
-		packets[i] = encoded
+		packetCopy := make([]byte, len(encoded))
+		copy(packetCopy, encoded)
+		packets[i] = packetCopy
 		t.Logf("Frame %d: %.0fHz -> %d bytes", i, freq, len(encoded))
 	}
 
@@ -318,7 +291,9 @@ func TestLibopusCrossValidationMultipleFrames(t *testing.T) {
 
 	// Decode with opusdec
 	decoded, err := decodeWithOpusdec(ogg.Bytes())
-	skipIfOpusdecFailed(t, err)
+	if err != nil {
+		t.Fatalf("decodeWithOpusdec failed: %v", err)
+	}
 
 	if len(decoded) == 0 {
 		t.Fatal("opusdec produced empty output")
@@ -338,4 +313,23 @@ func TestLibopusCrossValidationMultipleFrames(t *testing.T) {
 	}
 
 	t.Logf("Cross-validation PASSED: %d consecutive frames", numFrames)
+}
+
+// TestLibopusCrossValidationFixtureFallback ensures fixture decode path remains valid.
+func TestLibopusCrossValidationFixtureFallback(t *testing.T) {
+	t.Setenv("GOPUS_DISABLE_OPUSDEC", "1")
+
+	scenarios := buildCrossvalFixtureScenarios(t)
+	for _, sc := range scenarios {
+		sc := sc
+		t.Run(sc.name, func(t *testing.T) {
+			decoded, err := decodeWithOpusdec(sc.ogg)
+			if err != nil {
+				t.Fatalf("fixture fallback decode failed: %v", err)
+			}
+			if len(decoded) == 0 {
+				t.Fatal("fixture fallback decode returned no samples")
+			}
+		})
+	}
 }
