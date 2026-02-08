@@ -473,14 +473,15 @@ func decodeWorker(packets <-chan []byte) {
 
 ## Benchmarks
 
-gopus includes decode benchmark coverage and an end-to-end decode benchmark example:
+gopus includes decode and encode benchmark coverage and end-to-end benchmark examples:
 
 ```bash
 # Microbenchmarks
-go test -run='^$' -bench='^BenchmarkDecoderDecode_' -benchmem ./...
+go test -run='^$' -bench='^Benchmark(DecoderDecode|EncoderEncode)_' -benchmem ./...
 
-# End-to-end sample benchmark vs ffmpeg/libopus
+# End-to-end sample benchmarks vs ffmpeg/libopus
 go run ./examples/bench-decode
+go run ./examples/bench-encode
 ```
 
 ### Profile-Guided Optimization (PGO)

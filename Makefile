@@ -2,7 +2,7 @@
 
 GO ?= go
 PGO_FILE ?= default.pgo
-PGO_BENCH ?= ^BenchmarkDecoderDecode_(CELT|Hybrid|SILK|Stereo|MultiFrame)$
+PGO_BENCH ?= ^Benchmark(DecoderDecode|EncoderEncode)_(CELT|Hybrid|SILK|Stereo|MultiFrame|VoIP|LowDelay)$
 PGO_PKG ?= .
 PGO_BENCHTIME ?= 20s
 PGO_COUNT ?= 1
