@@ -72,6 +72,8 @@ func decodeWithFFmpeg(oggData []byte, channels int) ([]float32, error) {
 }
 
 func TestDecoderParityMatrixWithFFmpeg(t *testing.T) {
+	requireTestTier(t, testTierParity)
+
 	if !checkFFmpegAvailable() {
 		t.Skip("ffmpeg not available")
 	}

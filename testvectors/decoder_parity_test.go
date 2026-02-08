@@ -11,8 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	gopus "github.com/thesyncim/gopus"
 )
 
 type decoderParityThresholds struct {
@@ -55,28 +53,6 @@ func decoderParityThresholdForCase(c libopusDecoderMatrixCaseFile) decoderParity
 	}
 }
 
-func decodeWithInternalDecoder(t *testing.T, packets [][]byte, channels int) []float32 {
-	t.Helper()
-	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
-	if err != nil {
-		t.Fatalf("create decoder: %v", err)
-	}
-
-	outBuf := make([]float32, 5760*channels)
-	var decoded []float32
-	for i, pkt := range packets {
-		n, err := dec.Decode(pkt, outBuf)
-		if err != nil {
-			t.Fatalf("decode frame %d failed: %v", i, err)
-		}
-		if n == 0 {
-			continue
-		}
-		decoded = append(decoded, outBuf[:n*channels]...)
-	}
-	return decoded
-}
-
 func decoderParityStats(a, b []float32) (corr, rmsRatio float64) {
 	n := len(a)
 	if len(b) < n {
@@ -116,6 +92,8 @@ func decoderParityStats(a, b []float32) (corr, rmsRatio float64) {
 }
 
 func TestDecoderParityLibopusMatrix(t *testing.T) {
+	requireTestTier(t, testTierParity)
+
 	fixture, err := loadLibopusDecoderMatrixFixture()
 	if err != nil {
 		t.Fatalf("load decoder matrix fixture: %v", err)
@@ -247,6 +225,8 @@ func getFixtureOpusDemoPath() (string, bool) {
 }
 
 func TestDecoderParityMatrixFixtureHonestyWithOpusDemo1601(t *testing.T) {
+	requireTestTier(t, testTierExhaustive)
+
 	opusDemo, ok := getFixtureOpusDemoPath()
 	if !ok {
 		t.Skip("tmp_check opus_demo not found; skipping fixture honesty check")

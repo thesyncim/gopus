@@ -549,6 +549,18 @@ Contributions are welcome! Please:
 # Run tests
 go test ./...
 
+# Fast inner-loop tests
+make test-fast
+
+# Libopus parity tier (decoder/encoder parity + variant profile)
+make test-parity
+
+# Exhaustive honesty checks against tmp_check/opus-1.6.1 tooling
+make test-exhaustive
+
+# Regenerate all libopus-backed fixtures
+make fixtures-gen
+
 # Run with race detector
 go test -race ./...
 

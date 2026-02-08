@@ -462,61 +462,6 @@ func decodeComplianceWithInternalDecoder(packets [][]byte, channels int) ([]floa
 	return decoded, nil
 }
 
-// Test signal generators
-
-// generateEncoderTestSignal generates a test signal for encoding.
-// Uses an amplitude-modulated multi-frequency signal with a unique onset
-// to enable reliable delay detection. The signal is aperiodic within
-// the test duration, avoiding false correlation peaks that confuse
-// delay-compensated SNR measurement.
-func generateEncoderTestSignal(samples int, channels int) []float32 {
-	signal := make([]float32, samples)
-
-	// Multi-frequency test signal: 440 Hz + 1000 Hz + 2000 Hz
-	// with slow amplitude modulation to break periodicity.
-	freqs := []float64{440, 1000, 2000}
-	amp := 0.3 // Amplitude per frequency (0.3 * 3 = 0.9 total)
-
-	// Modulation frequencies (slow, incommensurate with carrier freqs)
-	modFreqs := []float64{1.3, 2.7, 0.9}
-
-	totalDuration := float64(samples/channels) / 48000.0
-
-	for i := 0; i < samples; i++ {
-		ch := i % channels
-		sampleIdx := i / channels
-		t := float64(sampleIdx) / 48000.0
-
-		var val float64
-		for fi, freq := range freqs {
-			// For stereo, slightly offset frequencies between channels
-			f := freq
-			if channels == 2 && ch == 1 {
-				f *= 1.01 // 1% higher frequency on right channel
-			}
-			// Amplitude modulation: 0.5 + 0.5*sin(modFreq*2*pi*t)
-			// This makes the envelope vary slowly, breaking periodicity.
-			modDepth := 0.5 + 0.5*math.Sin(2*math.Pi*modFreqs[fi]*t)
-			val += amp * modDepth * math.Sin(2*math.Pi*f*t)
-		}
-
-		// Add a unique onset ramp (first 10ms) to aid delay detection.
-		// The ramp shape is asymmetric and non-periodic.
-		onsetSamples := int(0.010 * 48000)
-		if sampleIdx < onsetSamples {
-			// Cubic ramp from 0 to 1 over 10ms
-			frac := float64(sampleIdx) / float64(onsetSamples)
-			val *= frac * frac * frac
-		}
-
-		_ = totalDuration
-
-		signal[i] = float32(val)
-	}
-
-	return signal
-}
-
 // Ogg container helpers
 
 // writeOggOpusEncoder writes Opus packets to an Ogg container.

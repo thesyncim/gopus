@@ -2,6 +2,7 @@ package testvectors
 
 import (
 	"sync"
+	"testing"
 
 	"github.com/thesyncim/gopus"
 )
@@ -45,4 +46,26 @@ func decodeInt16(dec *gopus.Decoder, packet []byte) ([]int16, error) {
 		return nil, err
 	}
 	return scratch.i16[:n*dec.Channels()], nil
+}
+
+func decodeWithInternalDecoder(t *testing.T, packets [][]byte, channels int) []float32 {
+	t.Helper()
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
+	if err != nil {
+		t.Fatalf("create decoder: %v", err)
+	}
+
+	outBuf := make([]float32, 5760*channels)
+	var decoded []float32
+	for i, pkt := range packets {
+		n, err := dec.Decode(pkt, outBuf)
+		if err != nil {
+			t.Fatalf("decode frame %d failed: %v", i, err)
+		}
+		if n == 0 {
+			continue
+		}
+		decoded = append(decoded, outBuf[:n*channels]...)
+	}
+	return decoded
 }

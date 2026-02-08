@@ -76,6 +76,8 @@ func TestLongFrameReferenceFixtureCoverage(t *testing.T) {
 }
 
 func TestLongFrameReferenceFixtureHonestyWithLiveOpusdec(t *testing.T) {
+	requireTestTier(t, testTierExhaustive)
+
 	if !checkOpusdecAvailableEncoder() {
 		t.Skip("opusdec not available; skipping live fixture honesty validation")
 	}
