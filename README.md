@@ -558,6 +558,9 @@ make test-parity
 # Exhaustive honesty checks against tmp_check/opus-1.6.1 tooling
 make test-exhaustive
 
+# Exhaustive provenance audit (matches opus_demo app/CBR semantics)
+make test-provenance
+
 # Regenerate all libopus-backed fixtures
 make fixtures-gen
 
