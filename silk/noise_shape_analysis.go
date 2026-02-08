@@ -388,19 +388,189 @@ func warpedAutocorrelationFLP32(out, state, in []float32, warping float32, lengt
 	if length > 0 {
 		_ = in[length-1] // BCE hint
 	}
+	_ = st[order]   // BCE hint for inner loop array access
+	_ = corr[order] // BCE hint for inner loop array access
 
-	for n := 0; n < length; n++ {
-		tmp1 := float64(in[n])
-		for i := 0; i < order; i += 2 {
-			tmp2 := st[i] + w*st[i+1] - w*tmp1
-			st[i] = tmp1
-			corr[i] += st[0] * tmp1
-			tmp1 = st[i+1] + w*st[i+2] - w*tmp2
-			st[i+1] = tmp2
-			corr[i+1] += st[0] * tmp2
+	if order == 24 {
+		// Fully unrolled inner loop for order 24 (default complexity 10).
+		for n := 0; n < length; n++ {
+			tmp1 := float64(in[n])
+			tmp2 := st[0] + w*st[1] - w*tmp1
+			st[0] = tmp1
+			st0 := tmp1
+			corr[0] += st0 * tmp1
+			// pair 1
+			tmp1 = st[1] + w*st[2] - w*tmp2
+			st[1] = tmp2
+			corr[1] += st0 * tmp2
+			// pair 2
+			tmp2 = st[2] + w*st[3] - w*tmp1
+			st[2] = tmp1
+			corr[2] += st0 * tmp1
+			tmp1 = st[3] + w*st[4] - w*tmp2
+			st[3] = tmp2
+			corr[3] += st0 * tmp2
+			// pair 4
+			tmp2 = st[4] + w*st[5] - w*tmp1
+			st[4] = tmp1
+			corr[4] += st0 * tmp1
+			tmp1 = st[5] + w*st[6] - w*tmp2
+			st[5] = tmp2
+			corr[5] += st0 * tmp2
+			// pair 6
+			tmp2 = st[6] + w*st[7] - w*tmp1
+			st[6] = tmp1
+			corr[6] += st0 * tmp1
+			tmp1 = st[7] + w*st[8] - w*tmp2
+			st[7] = tmp2
+			corr[7] += st0 * tmp2
+			// pair 8
+			tmp2 = st[8] + w*st[9] - w*tmp1
+			st[8] = tmp1
+			corr[8] += st0 * tmp1
+			tmp1 = st[9] + w*st[10] - w*tmp2
+			st[9] = tmp2
+			corr[9] += st0 * tmp2
+			// pair 10
+			tmp2 = st[10] + w*st[11] - w*tmp1
+			st[10] = tmp1
+			corr[10] += st0 * tmp1
+			tmp1 = st[11] + w*st[12] - w*tmp2
+			st[11] = tmp2
+			corr[11] += st0 * tmp2
+			// pair 12
+			tmp2 = st[12] + w*st[13] - w*tmp1
+			st[12] = tmp1
+			corr[12] += st0 * tmp1
+			tmp1 = st[13] + w*st[14] - w*tmp2
+			st[13] = tmp2
+			corr[13] += st0 * tmp2
+			// pair 14
+			tmp2 = st[14] + w*st[15] - w*tmp1
+			st[14] = tmp1
+			corr[14] += st0 * tmp1
+			tmp1 = st[15] + w*st[16] - w*tmp2
+			st[15] = tmp2
+			corr[15] += st0 * tmp2
+			// pair 16
+			tmp2 = st[16] + w*st[17] - w*tmp1
+			st[16] = tmp1
+			corr[16] += st0 * tmp1
+			tmp1 = st[17] + w*st[18] - w*tmp2
+			st[17] = tmp2
+			corr[17] += st0 * tmp2
+			// pair 18
+			tmp2 = st[18] + w*st[19] - w*tmp1
+			st[18] = tmp1
+			corr[18] += st0 * tmp1
+			tmp1 = st[19] + w*st[20] - w*tmp2
+			st[19] = tmp2
+			corr[19] += st0 * tmp2
+			// pair 20
+			tmp2 = st[20] + w*st[21] - w*tmp1
+			st[20] = tmp1
+			corr[20] += st0 * tmp1
+			tmp1 = st[21] + w*st[22] - w*tmp2
+			st[21] = tmp2
+			corr[21] += st0 * tmp2
+			// pair 22
+			tmp2 = st[22] + w*st[23] - w*tmp1
+			st[22] = tmp1
+			corr[22] += st0 * tmp1
+			tmp1 = st[23] + w*st[24] - w*tmp2
+			st[23] = tmp2
+			corr[23] += st0 * tmp2
+			// final
+			st[24] = tmp1
+			corr[24] += st0 * tmp1
 		}
-		st[order] = tmp1
-		corr[order] += st[0] * tmp1
+	} else if order == 16 {
+		// Fully unrolled inner loop for order 16 (WB SILK / hybrid at complexity < 6).
+		for n := 0; n < length; n++ {
+			tmp1 := float64(in[n])
+			tmp2 := st[0] + w*st[1] - w*tmp1
+			st[0] = tmp1
+			st0 := tmp1
+			corr[0] += st0 * tmp1
+			// pair 1
+			tmp1 = st[1] + w*st[2] - w*tmp2
+			st[1] = tmp2
+			corr[1] += st0 * tmp2
+			// pair 2
+			tmp2 = st[2] + w*st[3] - w*tmp1
+			st[2] = tmp1
+			corr[2] += st0 * tmp1
+			tmp1 = st[3] + w*st[4] - w*tmp2
+			st[3] = tmp2
+			corr[3] += st0 * tmp2
+			// pair 4
+			tmp2 = st[4] + w*st[5] - w*tmp1
+			st[4] = tmp1
+			corr[4] += st0 * tmp1
+			tmp1 = st[5] + w*st[6] - w*tmp2
+			st[5] = tmp2
+			corr[5] += st0 * tmp2
+			// pair 6
+			tmp2 = st[6] + w*st[7] - w*tmp1
+			st[6] = tmp1
+			corr[6] += st0 * tmp1
+			tmp1 = st[7] + w*st[8] - w*tmp2
+			st[7] = tmp2
+			corr[7] += st0 * tmp2
+			// pair 8
+			tmp2 = st[8] + w*st[9] - w*tmp1
+			st[8] = tmp1
+			corr[8] += st0 * tmp1
+			tmp1 = st[9] + w*st[10] - w*tmp2
+			st[9] = tmp2
+			corr[9] += st0 * tmp2
+			// pair 10
+			tmp2 = st[10] + w*st[11] - w*tmp1
+			st[10] = tmp1
+			corr[10] += st0 * tmp1
+			tmp1 = st[11] + w*st[12] - w*tmp2
+			st[11] = tmp2
+			corr[11] += st0 * tmp2
+			// pair 12
+			tmp2 = st[12] + w*st[13] - w*tmp1
+			st[12] = tmp1
+			corr[12] += st0 * tmp1
+			tmp1 = st[13] + w*st[14] - w*tmp2
+			st[13] = tmp2
+			corr[13] += st0 * tmp2
+			// pair 14
+			tmp2 = st[14] + w*st[15] - w*tmp1
+			st[14] = tmp1
+			corr[14] += st0 * tmp1
+			tmp1 = st[15] + w*st[16] - w*tmp2
+			st[15] = tmp2
+			corr[15] += st0 * tmp2
+			// final
+			st[16] = tmp1
+			corr[16] += st0 * tmp1
+		}
+	} else {
+		for n := 0; n < length; n++ {
+			tmp1 := float64(in[n])
+			// First iteration (i=0): sets st[0] then uses it for all remaining.
+			tmp2 := st[0] + w*st[1] - w*tmp1
+			st[0] = tmp1
+			st0 := tmp1 // Cache st[0] in a register for the inner loop.
+			corr[0] += st0 * tmp1
+			tmp1 = st[1] + w*st[2] - w*tmp2
+			st[1] = tmp2
+			corr[1] += st0 * tmp2
+			for i := 2; i < order; i += 2 {
+				tmp2 = st[i] + w*st[i+1] - w*tmp1
+				st[i] = tmp1
+				corr[i] += st0 * tmp1
+				tmp1 = st[i+1] + w*st[i+2] - w*tmp2
+				st[i+1] = tmp2
+				corr[i+1] += st0 * tmp2
+			}
+			st[order] = tmp1
+			corr[order] += st0 * tmp1
+		}
 	}
 
 	maxOut := order + 1

@@ -99,6 +99,10 @@ func lpcAnalysisFilterF32(rLPC, predCoef, s []float32, length, order int) {
 	if order > length {
 		return
 	}
+	// BCE hints: ensure all slice accesses in the unrolled loops are in-bounds.
+	_ = rLPC[length-1]
+	_ = s[length-1]
+	_ = predCoef[order-1]
 	switch order {
 	case 6:
 		for ix := 6; ix < length; ix++ {
@@ -153,23 +157,16 @@ func lpcAnalysisFilterF32(rLPC, predCoef, s []float32, length, order int) {
 			rLPC[ix] = s[ix] - lpcPred
 		}
 	case 16:
+		// Cache coefficients in locals to avoid repeated slice indexing.
+		p0, p1, p2, p3 := predCoef[0], predCoef[1], predCoef[2], predCoef[3]
+		p4, p5, p6, p7 := predCoef[4], predCoef[5], predCoef[6], predCoef[7]
+		p8, p9, p10, p11 := predCoef[8], predCoef[9], predCoef[10], predCoef[11]
+		p12, p13, p14, p15 := predCoef[12], predCoef[13], predCoef[14], predCoef[15]
 		for ix := 16; ix < length; ix++ {
-			lpcPred := s[ix-1]*predCoef[0] +
-				s[ix-2]*predCoef[1] +
-				s[ix-3]*predCoef[2] +
-				s[ix-4]*predCoef[3] +
-				s[ix-5]*predCoef[4] +
-				s[ix-6]*predCoef[5] +
-				s[ix-7]*predCoef[6] +
-				s[ix-8]*predCoef[7] +
-				s[ix-9]*predCoef[8] +
-				s[ix-10]*predCoef[9] +
-				s[ix-11]*predCoef[10] +
-				s[ix-12]*predCoef[11] +
-				s[ix-13]*predCoef[12] +
-				s[ix-14]*predCoef[13] +
-				s[ix-15]*predCoef[14] +
-				s[ix-16]*predCoef[15]
+			lpcPred := s[ix-1]*p0 + s[ix-2]*p1 + s[ix-3]*p2 + s[ix-4]*p3 +
+				s[ix-5]*p4 + s[ix-6]*p5 + s[ix-7]*p6 + s[ix-8]*p7 +
+				s[ix-9]*p8 + s[ix-10]*p9 + s[ix-11]*p10 + s[ix-12]*p11 +
+				s[ix-13]*p12 + s[ix-14]*p13 + s[ix-15]*p14 + s[ix-16]*p15
 			rLPC[ix] = s[ix] - lpcPred
 		}
 	default:

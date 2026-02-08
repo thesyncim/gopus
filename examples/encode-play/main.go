@@ -31,7 +31,7 @@ const (
 func main() {
 	outPath := flag.String("out", "", "Output Ogg Opus file path (defaults to temp when -play is set)")
 	duration := flag.Float64("duration", 2.0, "Duration in seconds")
-	bitrate := flag.Int("bitrate", 64000, "Target bitrate in bps")
+	bitrate := flag.Int("bitrate", 128000, "Target bitrate in bps")
 	channels := flag.Int("channels", 2, "Number of channels (1 or 2)")
 	signal := flag.String("signal", "chord", "Signal type: sine, sweep, noise, chord, speech")
 	frameSize := flag.Int("frame", 960, "Frame size in samples at 48kHz (e.g., 480, 960, 1920)")

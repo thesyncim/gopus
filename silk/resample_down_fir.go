@@ -390,24 +390,25 @@ func (r *DownsamplingResampler) processInt16(out []int16, in []int16) {
 func (r *DownsamplingResampler) ar2Filter(out []int32, in []int16) {
 	A0Q14 := int32(r.coefs[0]) // Q14 coefficient
 	A1Q14 := int32(r.coefs[1]) // Q14 coefficient
-
-	for k := 0; k < len(in); k++ {
-		// out32 = S[0] + (in[k] << 8)
-		out32 := r.sIIR[0] + (int32(in[k]) << 8)
-
-		// Store output in Q8 format
-		out[k] = out32
-
-		// out32 = out32 << 2 (for filter coefficient application)
-		out32 = out32 << 2
-
-		// S[0] = S[1] + silk_SMULWB(out32, A_Q14[0])
-		// silk_SMULWB: (a * (int16)b) >> 16
-		r.sIIR[0] = r.sIIR[1] + silkSMULWB(out32, A0Q14)
-
-		// S[1] = silk_SMULWB(out32, A_Q14[1])
-		r.sIIR[1] = silkSMULWB(out32, A1Q14)
+	n := len(in)
+	if n == 0 {
+		return
 	}
+	_ = in[n-1]  // BCE hint
+	_ = out[n-1] // BCE hint
+
+	// Pre-cast coefficients to int64 for inlined SMULWB.
+	a0 := int64(int16(A0Q14))
+	a1 := int64(int16(A1Q14))
+	s0, s1 := r.sIIR[0], r.sIIR[1]
+	for k := 0; k < n; k++ {
+		out32 := s0 + (int32(in[k]) << 8)
+		out[k] = out32
+		out32 <<= 2
+		s0 = s1 + int32((int64(out32)*a0)>>16)
+		s1 = int32((int64(out32) * a1) >> 16)
+	}
+	r.sIIR[0], r.sIIR[1] = s0, s1
 }
 
 // firInterpolate performs FIR interpolation on the filtered signal.

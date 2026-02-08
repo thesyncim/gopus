@@ -234,9 +234,9 @@ func NoiseShapeQuantizeDelDec(nsq *NSQState, input []int16, params *NSQParams) (
 					psDD := &psDelDec[winner]
 					lastSmplIdx := smplBufIdx + decDelay
 					for i := 0; i < decDelay; i++ {
-						lastSmplIdx = (lastSmplIdx - 1) % decisionDelay
+						lastSmplIdx--
 						if lastSmplIdx < 0 {
-							lastSmplIdx += decisionDelay
+							lastSmplIdx = decisionDelay - 1
 						}
 						outIdx := frameOffset - decDelay + i
 						if outIdx >= 0 && outIdx < len(pulses) {
@@ -289,9 +289,9 @@ func NoiseShapeQuantizeDelDec(nsq *NSQState, input []int16, params *NSQParams) (
 	lastSmplIdx := smplBufIdx + decDelay
 	gainQ10 := int32(params.GainsQ16[nbSubfr-1] >> 6)
 	for i := 0; i < decDelay; i++ {
-		lastSmplIdx = (lastSmplIdx - 1) % decisionDelay
+		lastSmplIdx--
 		if lastSmplIdx < 0 {
-			lastSmplIdx += decisionDelay
+			lastSmplIdx = decisionDelay - 1
 		}
 		outIdx := frameLength - decDelay + i
 		if outIdx >= 0 && outIdx < len(pulses) {
@@ -479,13 +479,29 @@ func noiseShapeQuantizerDelDec(
 		_ = arShpQ13[shapingLPCOrder-1]
 	}
 
+	// Local copy of smplBufIdx to avoid pointer dereference per iteration.
+	localSmplBufIdx := *smplBufIdx
+
+	// Pre-extract warpingQ16 as int16 for silk_SMLAWB calls (avoids repeated int16 cast).
+	warpQ16i16 := int32(int16(warpingQ16))
+	offsetQ10i32 := int32(offsetQ10)
+	lambdaQ10i32 := int32(lambdaQ10)
+
+	// Pre-compute sLTPShpQ14 slice bounds for the shaping harmonic FIR.
+	sLTPShpLen := len(nsq.sLTPShpQ14)
+	sLTPQ15Len := len(sLTPQ15)
+
+	// Pre-compute loop-invariant int64 values to avoid repeated casts/shifts.
+	lfShpQ14Lo := int64(int16(lfShpQ14))
+	lfShpQ14Hi := int64(lfShpQ14 >> 16)
+	tiltQ14i64 := int64(int16(tiltQ14))
+
 	for i := 0; i < length; i++ {
 		var ltpPredQ14 int32
 		if signalType == typeVoiced {
 			// Unrolled 5-tap LTP filter (ltpOrderConst == 5)
 			ltpPredQ14 = 2
-			if predLagPtrIdx >= 0 && predLagPtrIdx < len(sLTPQ15) &&
-				predLagPtrIdx-4 >= 0 {
+			if predLagPtrIdx >= 4 && predLagPtrIdx < sLTPQ15Len {
 				ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[predLagPtrIdx-0], int32(bQ14[0]))
 				ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[predLagPtrIdx-1], int32(bQ14[1]))
 				ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[predLagPtrIdx-2], int32(bQ14[2]))
@@ -494,84 +510,97 @@ func noiseShapeQuantizerDelDec(
 			} else {
 				for tap := 0; tap < ltpOrderConst; tap++ {
 					idx := predLagPtrIdx - tap
-					if idx >= 0 && idx < len(sLTPQ15) {
+					if idx >= 0 && idx < sLTPQ15Len {
 						ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[idx], int32(bQ14[tap]))
 					}
 				}
 			}
-			ltpPredQ14 = silk_LSHIFT32(ltpPredQ14, 1)
+			ltpPredQ14 <<= 1
 			predLagPtrIdx++
 		}
 
 		var nLTPQ14 int32
 		if lag > 0 {
 			shp0, shp1, shp2 := int32(0), int32(0), int32(0)
-			if shpLagPtrIdx >= 0 && shpLagPtrIdx < len(nsq.sLTPShpQ14) {
+			if shpLagPtrIdx >= 0 && shpLagPtrIdx < sLTPShpLen {
 				shp0 = nsq.sLTPShpQ14[shpLagPtrIdx]
 			}
-			if shpLagPtrIdx-1 >= 0 && shpLagPtrIdx-1 < len(nsq.sLTPShpQ14) {
+			if shpLagPtrIdx >= 1 && shpLagPtrIdx-1 < sLTPShpLen {
 				shp1 = nsq.sLTPShpQ14[shpLagPtrIdx-1]
 			}
-			if shpLagPtrIdx-2 >= 0 && shpLagPtrIdx-2 < len(nsq.sLTPShpQ14) {
+			if shpLagPtrIdx >= 2 && shpLagPtrIdx-2 < sLTPShpLen {
 				shp2 = nsq.sLTPShpQ14[shpLagPtrIdx-2]
 			}
-			nLTPQ14 = silk_SMULWB(silk_ADD_SAT32(shp0, shp2), harmShapeFIRPackedQ14)
+			nLTPQ14 = silk_SMULWB(shp0+shp2, harmShapeFIRPackedQ14) // No saturation needed: Q14 values, sum fits int32
 			nLTPQ14 = silk_SMLAWT(nLTPQ14, shp1, harmShapeFIRPackedQ14)
-			nLTPQ14 = silk_SUB_LSHIFT32(ltpPredQ14, nLTPQ14, 2)
+			nLTPQ14 = ltpPredQ14 - (nLTPQ14 << 2)
 			shpLagPtrIdx++
 		}
+
+		xQ10i := xQ10[i]
 
 		for k := 0; k < nStatesDelayedDecision; k++ {
 			psDD := &psDelDec[k]
 			psSS := &psSampleState[k]
 
-			psDD.seed = silk_RAND(psDD.seed)
+			psDD.seed = psDD.seed*196314165 + 907633515 // silk_RAND inline
 
 			psLPCIdx := nsqLpcBufLength - 1 + i
-			lpcPredQ14 := shortTermPrediction(psDD.sLPCQ14[:], psLPCIdx, aQ12, predictLPCOrder)
-			lpcPredQ14 = silk_LSHIFT32(lpcPredQ14, 4)
-
-			tmp2 := silk_SMLAWB(psDD.diffQ14, psDD.sAR2Q14[0], int32(warpingQ16))
-			tmp1 := silk_SMLAWB(psDD.sAR2Q14[0], silk_SUB32_ovflw(psDD.sAR2Q14[1], tmp2), int32(warpingQ16))
-			psDD.sAR2Q14[0] = tmp2
-			nARQ14 := int32(shapingLPCOrder >> 1)
-			nARQ14 = silk_SMLAWB(nARQ14, tmp2, int32(arShpQ13[0]))
-			for j := 2; j < shapingLPCOrder; j += 2 {
-				tmp2 = silk_SMLAWB(psDD.sAR2Q14[j-1], silk_SUB32_ovflw(psDD.sAR2Q14[j+0], tmp1), int32(warpingQ16))
-				psDD.sAR2Q14[j-1] = tmp1
-				nARQ14 = silk_SMLAWB(nARQ14, tmp1, int32(arShpQ13[j-1]))
-				tmp1 = silk_SMLAWB(psDD.sAR2Q14[j+0], silk_SUB32_ovflw(psDD.sAR2Q14[j+1], tmp2), int32(warpingQ16))
-				psDD.sAR2Q14[j+0] = tmp2
-				nARQ14 = silk_SMLAWB(nARQ14, tmp2, int32(arShpQ13[j]))
+			// Call assembly LPC prediction directly, bypassing the
+			// shortTermPrediction dispatcher (which can't be inlined
+			// and adds a stack-check preemption point per call).
+			// predictLPCOrder is constant per subframe.
+			var lpcPredQ14 int32
+			switch predictLPCOrder {
+			case 16:
+				lpcPredQ14 = shortTermPrediction16(psDD.sLPCQ14[:], psLPCIdx, aQ12)
+			case 10:
+				lpcPredQ14 = shortTermPrediction10(psDD.sLPCQ14[:], psLPCIdx, aQ12)
+			default:
+				lpcPredQ14 = shortTermPrediction(psDD.sLPCQ14[:], psLPCIdx, aQ12, predictLPCOrder)
 			}
-			psDD.sAR2Q14[shapingLPCOrder-1] = tmp1
-			nARQ14 = silk_SMLAWB(nARQ14, tmp1, int32(arShpQ13[shapingLPCOrder-1]))
-			nARQ14 = silk_LSHIFT32(nARQ14, 1)
-			nARQ14 = silk_SMLAWB(nARQ14, psDD.lfARQ14, int32(tiltQ14))
-			nARQ14 = silk_LSHIFT32(nARQ14, 2)
+			lpcPredQ14 <<= 4
 
-			nLFQ14 := silk_SMULWB(psDD.shapeQ14[*smplBufIdx], lfShpQ14)
-			nLFQ14 = silk_SMLAWT(nLFQ14, psDD.lfARQ14, lfShpQ14)
-			nLFQ14 = silk_LSHIFT32(nLFQ14, 2)
+			// Warped AR noise shaping filter — dispatched to assembly.
+			var nARQ14 int32
+			switch shapingLPCOrder {
+			case 24:
+				nARQ14 = warpedARFeedback24(&psDD.sAR2Q14, psDD.diffQ14, arShpQ13, warpQ16i16)
+			case 16:
+				nARQ14 = warpedARFeedback16(&psDD.sAR2Q14, psDD.diffQ14, arShpQ13, warpQ16i16)
+			default:
+				nARQ14 = warpedARFeedbackGeneric(psDD.sAR2Q14[:], psDD.diffQ14, arShpQ13, warpQ16i16, shapingLPCOrder)
+			}
+			nARQ14 <<= 1
+			nARQ14 += int32((int64(psDD.lfARQ14) * tiltQ14i64) >> 16)
+			nARQ14 <<= 2
 
-			tmpA := silk_ADD_SAT32(nARQ14, nLFQ14)
-			tmpB := silk_ADD32_ovflw(nLTPQ14, lpcPredQ14)
-			tmpA = silk_SUB_SAT32(tmpB, tmpA)
+			nLFQ14 := int32((int64(psDD.shapeQ14[localSmplBufIdx]) * lfShpQ14Lo) >> 16)
+			nLFQ14 += int32((int64(psDD.lfARQ14) * lfShpQ14Hi) >> 16)
+			nLFQ14 <<= 2
+
+			tmpA := nARQ14 + nLFQ14 // No saturation needed: bounded Q14 shaping values
+			tmpB := nLTPQ14 + lpcPredQ14 // silk_ADD32_ovflw
+			tmpA = tmpB - tmpA // No saturation needed: bounded Q14 prediction values
 			tmpA = silk_RSHIFT_ROUND(tmpA, 4)
-			rQ10 := silk_SUB32(xQ10[i], tmpA)
+			rQ10 := xQ10i - tmpA
 			if psDD.seed < 0 {
 				rQ10 = -rQ10
 			}
-			rQ10 = silk_LIMIT_32(rQ10, -(31 << 10), 30<<10)
+			if rQ10 < -(31 << 10) {
+				rQ10 = -(31 << 10)
+			} else if rQ10 > 30<<10 {
+				rQ10 = 30 << 10
+			}
 
-			q1Q10 := silk_SUB32(rQ10, int32(offsetQ10))
-			q1Q0 := silk_RSHIFT(q1Q10, 10)
+			q1Q10 := rQ10 - offsetQ10i32
+			q1Q0 := q1Q10 >> 10
 			if lambdaQ10 > 2048 {
-				rdoOffset := lambdaQ10/2 - 512
-				if q1Q10 > int32(rdoOffset) {
-					q1Q0 = silk_RSHIFT(q1Q10-int32(rdoOffset), 10)
-				} else if q1Q10 < -int32(rdoOffset) {
-					q1Q0 = silk_RSHIFT(q1Q10+int32(rdoOffset), 10)
+				rdoOffset := int32(lambdaQ10/2 - 512)
+				if q1Q10 > rdoOffset {
+					q1Q0 = (q1Q10 - rdoOffset) >> 10
+				} else if q1Q10 < -rdoOffset {
+					q1Q0 = (q1Q10 + rdoOffset) >> 10
 				} else if q1Q10 < 0 {
 					q1Q0 = -1
 				} else {
@@ -580,77 +609,80 @@ func noiseShapeQuantizerDelDec(
 			}
 			var q2Q10, rd1Q10, rd2Q10 int32
 			if q1Q0 > 0 {
-				q1Q10 = silk_SUB32(silk_LSHIFT32(q1Q0, 10), quantLevelAdjQ10)
-				q1Q10 = silk_ADD32(q1Q10, int32(offsetQ10))
-				q2Q10 = silk_ADD32(q1Q10, 1024)
-				rd1Q10 = silk_SMULBB(q1Q10, int32(lambdaQ10))
-				rd2Q10 = silk_SMULBB(q2Q10, int32(lambdaQ10))
+				q1Q10 = (q1Q0 << 10) - quantLevelAdjQ10 + offsetQ10i32
+				q2Q10 = q1Q10 + 1024
+				rd1Q10 = silk_SMULBB(q1Q10, lambdaQ10i32)
+				rd2Q10 = silk_SMULBB(q2Q10, lambdaQ10i32)
 			} else if q1Q0 == 0 {
-				q1Q10 = int32(offsetQ10)
-				q2Q10 = silk_ADD32(q1Q10, 1024-quantLevelAdjQ10)
-				rd1Q10 = silk_SMULBB(q1Q10, int32(lambdaQ10))
-				rd2Q10 = silk_SMULBB(q2Q10, int32(lambdaQ10))
+				q1Q10 = offsetQ10i32
+				q2Q10 = q1Q10 + 1024 - quantLevelAdjQ10
+				rd1Q10 = silk_SMULBB(q1Q10, lambdaQ10i32)
+				rd2Q10 = silk_SMULBB(q2Q10, lambdaQ10i32)
 			} else if q1Q0 == -1 {
-				q2Q10 = int32(offsetQ10)
-				q1Q10 = silk_SUB32(q2Q10, 1024-quantLevelAdjQ10)
-				rd1Q10 = silk_SMULBB(-q1Q10, int32(lambdaQ10))
-				rd2Q10 = silk_SMULBB(q2Q10, int32(lambdaQ10))
+				q2Q10 = offsetQ10i32
+				q1Q10 = q2Q10 - 1024 + quantLevelAdjQ10
+				rd1Q10 = silk_SMULBB(-q1Q10, lambdaQ10i32)
+				rd2Q10 = silk_SMULBB(q2Q10, lambdaQ10i32)
 			} else {
-				q1Q10 = silk_ADD32(silk_LSHIFT32(q1Q0, 10), quantLevelAdjQ10)
-				q1Q10 = silk_ADD32(q1Q10, int32(offsetQ10))
-				q2Q10 = silk_ADD32(q1Q10, 1024)
-				rd1Q10 = silk_SMULBB(-q1Q10, int32(lambdaQ10))
-				rd2Q10 = silk_SMULBB(-q2Q10, int32(lambdaQ10))
+				q1Q10 = (q1Q0 << 10) + quantLevelAdjQ10 + offsetQ10i32
+				q2Q10 = q1Q10 + 1024
+				rd1Q10 = silk_SMULBB(-q1Q10, lambdaQ10i32)
+				rd2Q10 = silk_SMULBB(-q2Q10, lambdaQ10i32)
 			}
-			rrQ10 := silk_SUB32(rQ10, q1Q10)
-			rd1Q10 = silk_RSHIFT(silk_SMLABB(rd1Q10, rrQ10, rrQ10), 10)
-			rrQ10 = silk_SUB32(rQ10, q2Q10)
-			rd2Q10 = silk_RSHIFT(silk_SMLABB(rd2Q10, rrQ10, rrQ10), 10)
+			rrQ10 := rQ10 - q1Q10
+			rd1Q10 = silk_SMLABB(rd1Q10, rrQ10, rrQ10) >> 10
+			rrQ10 = rQ10 - q2Q10
+			rd2Q10 = silk_SMLABB(rd2Q10, rrQ10, rrQ10) >> 10
 
 			if rd1Q10 < rd2Q10 {
-				psSS[0].rdQ10 = silk_ADD32(psDD.rdQ10, rd1Q10)
-				psSS[1].rdQ10 = silk_ADD32(psDD.rdQ10, rd2Q10)
+				psSS[0].rdQ10 = psDD.rdQ10 + rd1Q10
+				psSS[1].rdQ10 = psDD.rdQ10 + rd2Q10
 				psSS[0].qQ10 = q1Q10
 				psSS[1].qQ10 = q2Q10
 			} else {
-				psSS[0].rdQ10 = silk_ADD32(psDD.rdQ10, rd2Q10)
-				psSS[1].rdQ10 = silk_ADD32(psDD.rdQ10, rd1Q10)
+				psSS[0].rdQ10 = psDD.rdQ10 + rd2Q10
+				psSS[1].rdQ10 = psDD.rdQ10 + rd1Q10
 				psSS[0].qQ10 = q2Q10
 				psSS[1].qQ10 = q1Q10
 			}
 
-			excQ14 := silk_LSHIFT32(psSS[0].qQ10, 4)
+			xQ10i4 := xQ10i << 4 // pre-compute for both candidates
+
+			excQ14 := psSS[0].qQ10 << 4
 			if psDD.seed < 0 {
 				excQ14 = -excQ14
 			}
-			lpcExcQ14 := silk_ADD32(excQ14, ltpPredQ14)
-			xqQ14 := silk_ADD32_ovflw(lpcExcQ14, lpcPredQ14)
-			psSS[0].diffQ14 = silk_SUB32_ovflw(xqQ14, silk_LSHIFT32(xQ10[i], 4))
-			sLFAR := silk_SUB32_ovflw(psSS[0].diffQ14, nARQ14)
-			psSS[0].sLTPShpQ14 = silk_SUB_SAT32(sLFAR, nLFQ14)
+			lpcExcQ14 := excQ14 + ltpPredQ14
+			xqQ14 := lpcExcQ14 + lpcPredQ14
+			psSS[0].diffQ14 = xqQ14 - xQ10i4
+			sLFAR := psSS[0].diffQ14 - nARQ14
+			psSS[0].sLTPShpQ14 = sLFAR - nLFQ14 // No saturation needed: bounded Q14 shaping residual
 			psSS[0].lfARQ14 = sLFAR
 			psSS[0].lpcExcQ14 = lpcExcQ14
 			psSS[0].xqQ14 = xqQ14
 
-			excQ14 = silk_LSHIFT32(psSS[1].qQ10, 4)
+			excQ14 = psSS[1].qQ10 << 4
 			if psDD.seed < 0 {
 				excQ14 = -excQ14
 			}
-			lpcExcQ14 = silk_ADD32(excQ14, ltpPredQ14)
-			xqQ14 = silk_ADD32_ovflw(lpcExcQ14, lpcPredQ14)
-			psSS[1].diffQ14 = silk_SUB32_ovflw(xqQ14, silk_LSHIFT32(xQ10[i], 4))
-			sLFAR = silk_SUB32_ovflw(psSS[1].diffQ14, nARQ14)
-			psSS[1].sLTPShpQ14 = silk_SUB_SAT32(sLFAR, nLFQ14)
+			lpcExcQ14 = excQ14 + ltpPredQ14
+			xqQ14 = lpcExcQ14 + lpcPredQ14
+			psSS[1].diffQ14 = xqQ14 - xQ10i4
+			sLFAR = psSS[1].diffQ14 - nARQ14
+			psSS[1].sLTPShpQ14 = sLFAR - nLFQ14 // No saturation needed: bounded Q14 shaping residual
 			psSS[1].lfARQ14 = sLFAR
 			psSS[1].lpcExcQ14 = lpcExcQ14
 			psSS[1].xqQ14 = xqQ14
 		}
 
-		*smplBufIdx = (*smplBufIdx - 1) % decisionDelay
-		if *smplBufIdx < 0 {
-			*smplBufIdx += decisionDelay
+		localSmplBufIdx--
+		if localSmplBufIdx < 0 {
+			localSmplBufIdx = decisionDelay - 1
 		}
-		lastSmplIdx := (*smplBufIdx + decisionDelayActive) % decisionDelay
+		lastSmplIdx := localSmplBufIdx + decisionDelayActive
+		if lastSmplIdx >= decisionDelay {
+			lastSmplIdx -= decisionDelay
+		}
 
 		rdMin := psSampleState[0][0].rdQ10
 		winner := 0
@@ -664,8 +696,8 @@ func noiseShapeQuantizerDelDec(
 		winnerRand := psDelDec[winner].randState[lastSmplIdx]
 		for k := 0; k < nStatesDelayedDecision; k++ {
 			if psDelDec[k].randState[lastSmplIdx] != winnerRand {
-				psSampleState[k][0].rdQ10 = silk_ADD32(psSampleState[k][0].rdQ10, silk_int32_MAX>>4)
-				psSampleState[k][1].rdQ10 = silk_ADD32(psSampleState[k][1].rdQ10, silk_int32_MAX>>4)
+				psSampleState[k][0].rdQ10 += silk_int32_MAX >> 4
+				psSampleState[k][1].rdQ10 += silk_int32_MAX >> 4
 			}
 		}
 
@@ -685,7 +717,24 @@ func noiseShapeQuantizerDelDec(
 		}
 
 		if rdMin2 < rdMax {
-			copyDelDecStateFromOffset(&psDelDec[rdMaxInd], &psDelDec[rdMinInd], i)
+			// Partial struct copy matching libopus NSQ_del_dec.c:605-607.
+			// The C code treats the struct as a flat int32 array and copies
+			// from offset i onward, skipping sLPCQ14[0:i] which will be
+			// overwritten in the next iteration anyway.
+			src := &psDelDec[rdMinInd]
+			dst := &psDelDec[rdMaxInd]
+			copy(dst.sLPCQ14[i:], src.sLPCQ14[i:])
+			dst.randState = src.randState
+			dst.qQ10 = src.qQ10
+			dst.xqQ14 = src.xqQ14
+			dst.predQ15 = src.predQ15
+			dst.shapeQ14 = src.shapeQ14
+			dst.sAR2Q14 = src.sAR2Q14
+			dst.lfARQ14 = src.lfARQ14
+			dst.diffQ14 = src.diffQ14
+			dst.seed = src.seed
+			dst.seedInit = src.seedInit
+			dst.rdQ10 = src.rdQ10
 			psSampleState[rdMaxInd][0] = psSampleState[rdMinInd][1]
 		}
 
@@ -696,11 +745,12 @@ func noiseShapeQuantizerDelDec(
 				pulses[outIdx] = int8(silk_RSHIFT_ROUND(psDD.qQ10[lastSmplIdx], 10))
 				xq[outIdx] = int16(silk_SAT16(silk_RSHIFT_ROUND(silk_SMULWW(psDD.xqQ14[lastSmplIdx], delayedGainQ10[lastSmplIdx]), 8)))
 			}
-			if nsq.sLTPShpBufIdx-decisionDelayActive >= 0 && nsq.sLTPShpBufIdx-decisionDelayActive < len(nsq.sLTPShpQ14) {
-				nsq.sLTPShpQ14[nsq.sLTPShpBufIdx-decisionDelayActive] = psDD.shapeQ14[lastSmplIdx]
+			shpOutIdx := nsq.sLTPShpBufIdx - decisionDelayActive
+			if shpOutIdx >= 0 && shpOutIdx < sLTPShpLen {
+				nsq.sLTPShpQ14[shpOutIdx] = psDD.shapeQ14[lastSmplIdx]
 			}
 			ltpOutIdx := nsq.sLTPBufIdx - decisionDelayActive
-			if ltpOutIdx >= 0 && ltpOutIdx < len(sLTPQ15) {
+			if ltpOutIdx >= 0 && ltpOutIdx < sLTPQ15Len {
 				sLTPQ15[ltpOutIdx] = psDD.predQ15[lastSmplIdx]
 			}
 		}
@@ -713,16 +763,19 @@ func noiseShapeQuantizerDelDec(
 			psDD.lfARQ14 = psSS.lfARQ14
 			psDD.diffQ14 = psSS.diffQ14
 			psDD.sLPCQ14[nsqLpcBufLength+i] = psSS.xqQ14
-			psDD.xqQ14[*smplBufIdx] = psSS.xqQ14
-			psDD.qQ10[*smplBufIdx] = psSS.qQ10
-			psDD.predQ15[*smplBufIdx] = silk_LSHIFT32(psSS.lpcExcQ14, 1)
-			psDD.shapeQ14[*smplBufIdx] = psSS.sLTPShpQ14
-			psDD.seed = silk_ADD32_ovflw(psDD.seed, silk_RSHIFT_ROUND(psSS.qQ10, 10))
-			psDD.randState[*smplBufIdx] = psDD.seed
+			psDD.xqQ14[localSmplBufIdx] = psSS.xqQ14
+			psDD.qQ10[localSmplBufIdx] = psSS.qQ10
+			psDD.predQ15[localSmplBufIdx] = psSS.lpcExcQ14 << 1
+			psDD.shapeQ14[localSmplBufIdx] = psSS.sLTPShpQ14
+			psDD.seed += silk_RSHIFT_ROUND(psSS.qQ10, 10)
+			psDD.randState[localSmplBufIdx] = psDD.seed
 			psDD.rdQ10 = psSS.rdQ10
 		}
-		delayedGainQ10[*smplBufIdx] = gainQ10
+		delayedGainQ10[localSmplBufIdx] = gainQ10
 	}
+
+	// Write back local index.
+	*smplBufIdx = localSmplBufIdx
 
 	for k := 0; k < nStatesDelayedDecision; k++ {
 		psDD := &psDelDec[k]
@@ -730,8 +783,24 @@ func noiseShapeQuantizerDelDec(
 	}
 }
 
-// copyDelDecStateFromOffset copies src into dst.
-// In libopus this is a flat memcpy of the entire struct.
-func copyDelDecStateFromOffset(dst, src *nsqDelDecState, _ int) {
-	*dst = *src
+// warpedARFeedbackGeneric computes warped AR feedback for arbitrary even order.
+// Used as fallback when shapingLPCOrder is neither 24 nor 16.
+func warpedARFeedbackGeneric(sAR []int32, diffQ14 int32, arShpQ13 []int16, warpQ16 int32, order int) int32 {
+	w := int64(warpQ16)
+	tmp2 := diffQ14 + int32((int64(sAR[0])*w)>>16)
+	tmp1 := sAR[0] + int32((int64(sAR[1]-tmp2)*w)>>16)
+	sAR[0] = tmp2
+	acc := int32(order>>1) + int32((int64(tmp2)*int64(arShpQ13[0]))>>16)
+	for j := 2; j < order; j += 2 {
+		tmp2 = sAR[j-1] + int32((int64(sAR[j]-tmp1)*w)>>16)
+		sAR[j-1] = tmp1
+		acc += int32((int64(tmp1) * int64(arShpQ13[j-1])) >> 16)
+		tmp1 = sAR[j] + int32((int64(sAR[j+1]-tmp2)*w)>>16)
+		sAR[j] = tmp2
+		acc += int32((int64(tmp2) * int64(arShpQ13[j])) >> 16)
+	}
+	sAR[order-1] = tmp1
+	acc += int32((int64(tmp1) * int64(arShpQ13[order-1])) >> 16)
+	return acc
 }
+

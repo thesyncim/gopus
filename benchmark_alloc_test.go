@@ -235,8 +235,13 @@ func BenchmarkEncoderEncode(b *testing.B) {
 		b.Fatalf("NewEncoder: %v", err)
 	}
 
-	pcm := generateBenchSineWave(960)  // 20ms at 48kHz mono
+	pcm := generateBenchSineWave(960) // 20ms at 48kHz mono
 	packet := make([]byte, 4000)
+
+	// Warmup: initialize all scratch buffers before timing
+	for i := 0; i < 5; i++ {
+		enc.Encode(pcm, packet)
+	}
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -263,6 +268,11 @@ func BenchmarkEncoderEncodeInt16(b *testing.B) {
 		pcm[i] = int16(16384 * math.Sin(2*math.Pi*440*float64(i)/48000))
 	}
 	packet := make([]byte, 4000)
+
+	// Warmup: initialize all scratch buffers before timing
+	for i := 0; i < 5; i++ {
+		enc.EncodeInt16(pcm, packet)
+	}
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -318,6 +328,11 @@ func BenchmarkEncoderEncode_VoIP(b *testing.B) {
 	pcm := generateBenchSineWave(960)
 	packet := make([]byte, 4000)
 
+	// Warmup: initialize all scratch buffers before timing
+	for i := 0; i < 5; i++ {
+		enc.Encode(pcm, packet)
+	}
+
 	b.ResetTimer()
 	b.ReportAllocs()
 
@@ -339,6 +354,11 @@ func BenchmarkEncoderEncode_LowDelay(b *testing.B) {
 
 	pcm := generateBenchSineWave(960)
 	packet := make([]byte, 4000)
+
+	// Warmup: initialize all scratch buffers before timing
+	for i := 0; i < 5; i++ {
+		enc.Encode(pcm, packet)
+	}
 
 	b.ResetTimer()
 	b.ReportAllocs()
