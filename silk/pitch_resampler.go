@@ -29,6 +29,11 @@ func floatToInt16SliceScaled(out []int16, in []float32, scale float32) {
 	if len(out) < n {
 		n = len(out)
 	}
+	if n <= 0 {
+		return
+	}
+	_ = in[n-1]  // BCE hint
+	_ = out[n-1] // BCE hint
 	for i := 0; i < n; i++ {
 		out[i] = float64ToInt16Round(float64(in[i] * scale))
 	}
@@ -39,6 +44,11 @@ func int16ToFloat32Slice(out []float32, in []int16) {
 	if len(out) < n {
 		n = len(out)
 	}
+	if n <= 0 {
+		return
+	}
+	_ = in[n-1]  // BCE hint
+	_ = out[n-1] // BCE hint
 	for i := 0; i < n; i++ {
 		out[i] = float32(in[i])
 	}
@@ -50,6 +60,11 @@ func resamplerDown2(state *[2]int32, out []int16, in []int16) int {
 	if outLen > len(out) {
 		outLen = len(out)
 	}
+	if outLen <= 0 {
+		return 0
+	}
+	_ = in[2*outLen-1] // BCE hint: prove all in[2*k] and in[2*k+1] accesses are valid
+	_ = out[outLen-1]  // BCE hint
 	for k := 0; k < outLen; k++ {
 		in32 := int32(in[2*k]) << 10
 		y := in32 - state[0]

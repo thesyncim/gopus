@@ -264,10 +264,7 @@ func deinterleaveStereoScratch(interleaved []float64, leftBuf, rightBuf *[]float
 	}
 	right = (*rightBuf)[:n]
 
-	for i := 0; i < n; i++ {
-		left[i] = interleaved[i*2]
-		right[i] = interleaved[i*2+1]
-	}
+	DeinterleaveStereoInto(interleaved, left, right)
 
 	return left, right
 }
@@ -276,9 +273,29 @@ func deinterleaveStereoScratch(interleaved []float64, leftBuf, rightBuf *[]float
 // left and right must each have capacity >= len(interleaved)/2.
 func DeinterleaveStereoInto(interleaved, left, right []float64) {
 	n := len(interleaved) / 2
-	for i := 0; i < n; i++ {
-		left[i] = interleaved[i*2]
-		right[i] = interleaved[i*2+1]
+	if n <= 0 {
+		return
+	}
+	// BCE hints: prove to the compiler that all accesses are in-bounds.
+	_ = interleaved[2*n-1]
+	_ = left[n-1]
+	_ = right[n-1]
+	i := 0
+	for ; i+3 < n; i += 4 {
+		b0 := i * 2
+		left[i] = interleaved[b0]
+		right[i] = interleaved[b0+1]
+		left[i+1] = interleaved[b0+2]
+		right[i+1] = interleaved[b0+3]
+		left[i+2] = interleaved[b0+4]
+		right[i+2] = interleaved[b0+5]
+		left[i+3] = interleaved[b0+6]
+		right[i+3] = interleaved[b0+7]
+	}
+	for ; i < n; i++ {
+		b := i * 2
+		left[i] = interleaved[b]
+		right[i] = interleaved[b+1]
 	}
 }
 

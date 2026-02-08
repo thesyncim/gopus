@@ -63,30 +63,43 @@ func toneLPC(x []float32, delay int) (float32, float32, bool) {
 		return 0, 0, false
 	}
 
+	// BCE hint: the maximum index accessed in the correlation loop is (cnt-1)+2*delay = n-1.
+	_ = x[n-1]
+
 	// Compute correlations using forward prediction covariance method.
+	cnt := n - 2*delay
+	delay2 := 2 * delay
 	var r00, r01, r02 float32
-	for i := 0; i < n-2*delay; i++ {
-		r00 += x[i] * x[i]
-		r01 += x[i] * x[i+delay]
-		r02 += x[i] * x[i+2*delay]
+	for i := 0; i < cnt; i++ {
+		xi := x[i]
+		r00 += xi * xi
+		r01 += xi * x[i+delay]
+		r02 += xi * x[i+delay2]
 	}
 
 	// Edge corrections for r11, r22, r12.
+	// Precompute base offsets to avoid repeated arithmetic.
+	base1 := n - delay2 // n-2*delay
+	base2 := n - delay
 	var edges float32
 	for i := 0; i < delay; i++ {
-		edges += x[n+i-2*delay]*x[n+i-2*delay] - x[i]*x[i]
+		a := x[base1+i]
+		b := x[i]
+		edges += a*a - b*b
 	}
 	r11 := r00 + edges
 
 	edges = 0
 	for i := 0; i < delay; i++ {
-		edges += x[n+i-delay]*x[n+i-delay] - x[i+delay]*x[i+delay]
+		a := x[base2+i]
+		b := x[i+delay]
+		edges += a*a - b*b
 	}
 	r22 := r11 + edges
 
 	edges = 0
 	for i := 0; i < delay; i++ {
-		edges += x[n+i-2*delay]*x[n+i-delay] - x[i]*x[i+delay]
+		edges += x[base1+i]*x[base2+i] - x[i]*x[i+delay]
 	}
 	r12 := r01 + edges
 
@@ -219,6 +232,19 @@ func (e *Encoder) TransientAnalysis(pcm []float64, frameSize int, allowWeakTrans
 		e.scratch.transientEnergy)
 }
 
+// transientInvTable is the inverse table for computing harmonic mean (6*64/x, trained on real data).
+// Hoisted to package level to avoid re-initializing on every call. This matches libopus exactly.
+var transientInvTable = [128]int{
+	255, 255, 156, 110, 86, 70, 59, 51, 45, 40, 37, 33, 31, 28, 26, 25,
+	23, 22, 21, 20, 19, 18, 17, 16, 16, 15, 15, 14, 13, 13, 12, 12,
+	12, 12, 11, 11, 11, 10, 10, 10, 9, 9, 9, 9, 9, 9, 8, 8,
+	8, 8, 8, 7, 7, 7, 7, 7, 7, 6, 6, 6, 6, 6, 6, 6,
+	6, 6, 6, 6, 6, 6, 6, 6, 6, 5, 5, 5, 5, 5, 5, 5,
+	5, 5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+	4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 3, 3,
+	3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2,
+}
+
 // transientAnalysisScratch is the scratch-aware version of TransientAnalysis.
 func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWeakTransients bool,
 	toneBuf []float32, channelBuf []float64, tmpBuf []float64, energyBuf []float64) TransientAnalysisResult {
@@ -250,26 +276,16 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 	// At 48kHz, we process pairs of samples, so decay per pair:
 	// Default: forward_decay = 0.0625 (1/16)
 	// Weak: forward_decay = 0.03125 (1/32)
+	// Precompute retain = 1 - decay to avoid per-iteration subtraction.
 	forwardDecay := 0.0625
+	forwardRetain := 1.0 - 0.0625
 	if allowWeakTransients {
 		forwardDecay = 0.03125
+		forwardRetain = 1.0 - 0.03125
 	}
 
 	var maxMaskMetric int
 	tfChannel := 0
-
-	// Inverse table for computing harmonic mean (6*64/x, trained on real data)
-	// This matches libopus exactly
-	invTable := [128]int{
-		255, 255, 156, 110, 86, 70, 59, 51, 45, 40, 37, 33, 31, 28, 26, 25,
-		23, 22, 21, 20, 19, 18, 17, 16, 16, 15, 15, 14, 13, 13, 12, 12,
-		12, 12, 11, 11, 11, 10, 10, 10, 9, 9, 9, 9, 9, 9, 8, 8,
-		8, 8, 8, 7, 7, 7, 7, 7, 7, 6, 6, 6, 6, 6, 6, 6,
-		6, 6, 6, 6, 6, 6, 6, 6, 6, 5, 5, 5, 5, 5, 5, 5,
-		5, 5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
-		4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 3, 3,
-		3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2,
-	}
 
 	// Ensure scratch buffers are large enough
 	var channelSamples []float64
@@ -296,13 +312,21 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 
 	// Process each channel
 	for c := 0; c < channels; c++ {
-		// Extract channel samples
-		for i := 0; i < samplesPerChannel; i++ {
-			channelSamples[i] = pcm[i*channels+c]
+		// Extract channel samples with optimized mono fast-path
+		if channels == 1 {
+			copy(channelSamples[:samplesPerChannel], pcm[:samplesPerChannel])
+		} else {
+			_ = pcm[(samplesPerChannel-1)*channels+c] // BCE hint
+			_ = channelSamples[samplesPerChannel-1]    // BCE hint
+			for i := 0; i < samplesPerChannel; i++ {
+				channelSamples[i] = pcm[i*channels+c]
+			}
 		}
 
 		// High-pass filter: (1 - 2*z^-1 + z^-2) / (1 - z^-1 + 0.5*z^-2)
 		// This removes DC and low frequencies to focus on transient energy
+		_ = channelSamples[samplesPerChannel-1] // BCE hint
+		_ = tmp[samplesPerChannel-1]            // BCE hint
 		var mem0, mem1 float64
 		for i := 0; i < samplesPerChannel; i++ {
 			x := channelSamples[i]
@@ -311,31 +335,44 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 			mem00 := mem0
 			mem0 = mem0 - x + 0.5*mem1
 			mem1 = x - mem00
-			// In float builds, SROUND16 is a no-op (see libopus arch.h),
-			// so we should not scale the high-pass output.
 			tmp[i] = y
 		}
 
-		// Clear first few samples (filter warm-up)
-		for i := 0; i < 12 && i < len(tmp); i++ {
-			tmp[i] = 0
+		// Clear first few samples (filter warm-up) -- unrolled for the common case
+		if samplesPerChannel >= 12 {
+			tmp[0] = 0
+			tmp[1] = 0
+			tmp[2] = 0
+			tmp[3] = 0
+			tmp[4] = 0
+			tmp[5] = 0
+			tmp[6] = 0
+			tmp[7] = 0
+			tmp[8] = 0
+			tmp[9] = 0
+			tmp[10] = 0
+			tmp[11] = 0
+		} else {
+			for i := 0; i < 12 && i < samplesPerChannel; i++ {
+				tmp[i] = 0
+			}
 		}
 
 		// Forward pass: compute post-echo threshold with forward masking
 		// Group by two to reduce complexity
-		// Note: In libopus FLOAT mode, PSHR32 is a no-op, so no scaling is applied
+		_ = tmp[2*len2-1]  // BCE hint for tmp[2*i] and tmp[2*i+1]
+		_ = energy[len2-1] // BCE hint
 		var mean float64
 		mem0 = 0
 		for i := 0; i < len2; i++ {
 			// Energy of pair of samples
-			// libopus FLOAT: x2 = tmp[2*i]² + tmp[2*i+1]² (no PSHR32 scaling)
-			x2 := tmp[2*i]*tmp[2*i] + tmp[2*i+1]*tmp[2*i+1]
+			t0, t1 := tmp[2*i], tmp[2*i+1]
+			x2 := t0*t0 + t1*t1
 
-			// libopus FLOAT: mean += x2 (no PSHR32 scaling)
 			mean += x2
 
 			// Forward masking: exponential decay
-			mem0 = x2 + (1.0-forwardDecay)*mem0
+			mem0 = x2 + forwardRetain*mem0
 			energy[i] = forwardDecay * mem0
 		}
 
@@ -345,9 +382,10 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 		mem0 = 0
 		for i := len2 - 1; i >= 0; i-- {
 			mem0 = energy[i] + 0.875*mem0
-			energy[i] = 0.125 * mem0
-			if 0.125*mem0 > maxE {
-				maxE = 0.125 * mem0
+			ei := 0.125 * mem0
+			energy[i] = ei
+			if ei > maxE {
+				maxE = ei
 			}
 		}
 
@@ -356,28 +394,23 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 		mean = math.Sqrt(mean * maxE * 0.5 * float64(len2))
 
 		// Inverse of mean energy (with epsilon to avoid division by zero)
-		// libopus FLOAT path uses:
-		//   norm = SHL32(len2, 6+14) / (EPSILON + SHR32(mean,1))
-		// but SHL32/SHR32 are no-ops in float builds, so:
-		//   norm = len2 / (EPSILON + mean/2)
-		// Using the fixed-point scaling here would over-normalize and
-		// suppress the mask metric.
-		epsilon := 1e-15
+		const epsilon = 1e-15
 		norm := float64(len2) / (mean*0.5 + epsilon)
 
 		// Compute harmonic mean using inverse table
 		// Skip unreliable boundaries, sample every 4th point
+		// Hoist the constant multiplier: normE = 64 * norm
+		normE := 64.0 * norm
 		var unmask int
 		for i := 12; i < len2-5; i += 4 {
 			// Map energy to table index
-			id := int(math.Floor(64 * norm * (energy[i] + epsilon)))
-			if id < 0 {
-				id = 0
-			}
+			// For non-negative values, int(x) truncates toward zero which equals floor.
+			// energy[i] + epsilon is always >= 0, so int() is equivalent to math.Floor.
+			id := int(normE * (energy[i] + epsilon))
 			if id > 127 {
 				id = 127
 			}
-			unmask += invTable[id]
+			unmask += transientInvTable[id]
 		}
 
 		// Use the exact integer normalization from libopus:
@@ -418,19 +451,17 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 	}
 
 	// Compute tf_estimate from mask_metric
-	// This is the key formula from libopus:
 	// tf_max = max(0, sqrt(27 * mask_metric) - 42)
 	// tf_estimate = sqrt(max(0, 0.0069 * min(163, tf_max) - 0.139))
-	//
-	// In fixed-point terms from libopus:
-	// tf_max = MAX16(0, celt_sqrt(27*mask_metric) - 42)
-	// tf_estimate = celt_sqrt(MAX32(0, SHL32(MULT16_16(0.0069*2^14, MIN16(163, tf_max)), 14) - 0.139*2^28))
-	// Which simplifies to (in Q14 for tf_estimate):
-	// tf_estimate = sqrt(max(0, 0.0069 * min(163, tf_max) - 0.139))
-
-	tfMax := math.Max(0, math.Sqrt(27*float64(maxMaskMetric))-42)
-	clampedTfMax := math.Min(163, tfMax)
-	tfEstimateSquared := 0.0069*clampedTfMax - 0.139
+	// Avoid math.Max/math.Min calls -- use branchless clamping.
+	tfMax := math.Sqrt(27*float64(maxMaskMetric)) - 42
+	if tfMax < 0 {
+		tfMax = 0
+	}
+	if tfMax > 163 {
+		tfMax = 163
+	}
+	tfEstimateSquared := 0.0069*tfMax - 0.139
 	if tfEstimateSquared < 0 {
 		tfEstimateSquared = 0
 	}

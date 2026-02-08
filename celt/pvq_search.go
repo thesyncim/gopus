@@ -73,16 +73,22 @@ func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]int, yBuf 
 		absX = make([]float32, n)
 	}
 
-	// Initialize buffers
+	// Initialize buffers with BCE hints for all arrays.
+	_ = iy[n-1]
+	_ = signx[n-1]
+	_ = y[n-1]
+	_ = absX[n-1]
+	_ = x[n-1]
 	for j := 0; j < n; j++ {
 		iy[j] = 0
 		signx[j] = 0
 		y[j] = 0
-		if x[j] < 0 {
+		xj := x[j]
+		if xj < 0 {
 			signx[j] = 1
-			absX[j] = float32(-x[j])
+			absX[j] = float32(-xj)
 		} else {
-			absX[j] = float32(x[j])
+			absX[j] = float32(xj)
 		}
 	}
 
@@ -141,6 +147,10 @@ func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]int, yBuf 
 	// Main greedy search loop: place remaining pulses one at a time.
 	// For each pulse, find the position that maximizes Rxy/sqrt(Ryy).
 	// Reference: libopus vq.c lines 299-362
+	//
+	// BCE hints: prove to compiler that absX[0..n-1] and y[0..n-1] are in-bounds.
+	_ = absX[n-1]
+	_ = y[n-1]
 	for i := 0; i < pulsesLeft; i++ {
 		bestID := 0
 		// The squared magnitude term gets added anyway, so we add it outside the loop

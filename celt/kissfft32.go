@@ -393,6 +393,13 @@ func kfBfly4(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
 	}
 	_ = fout[N*mm-1] // BCE for idx+{0,m,m2,m3}
 	w := st.w
+	// Precompute stride multiples to replace per-iteration multiplications.
+	fstride2 := fstride * 2
+	fstride3 := fstride * 3
+	// BCE hint for twiddle array access
+	if m > 0 {
+		_ = w[(m-1)*fstride3]
+	}
 	for i := 0; i < N; i++ {
 		base := i * mm
 		tw1, tw2, tw3 := 0, 0, 0
@@ -437,8 +444,8 @@ func kfBfly4(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
 			fout[idx+m3].i = s5i + s4r
 
 			tw1 += fstride
-			tw2 += fstride * 2
-			tw3 += fstride * 3
+			tw2 += fstride2
+			tw3 += fstride3
 		}
 	}
 }
@@ -453,6 +460,12 @@ func kfBfly3(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
 	w := st.w
 	const half = float32(0.5)
 	epi3i := epi3.i
+	// Precompute stride multiple to replace per-iteration multiplication.
+	fstride2 := fstride * 2
+	// BCE hint for twiddle array access
+	if m > 0 {
+		_ = w[(m-1)*fstride2]
+	}
 	for i := 0; i < N; i++ {
 		base := i * mm
 		tw1, tw2 := 0, 0
@@ -485,7 +498,7 @@ func kfBfly3(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
 			fout[idx+m].i = f1i + s0r
 
 			tw1 += fstride
-			tw2 += fstride * 2
+			tw2 += fstride2
 		}
 	}
 }
@@ -500,6 +513,14 @@ func kfBfly5(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
 	ybr, ybi := yb.r, yb.i
 	_ = fout[N*mm-1] // BCE for idx+{0..4m}
 	w := st.w
+	// Precompute stride multiples to replace per-iteration multiplications.
+	fstride2 := fstride * 2
+	fstride3 := fstride * 3
+	fstride4 := fstride * 4
+	// BCE hint for twiddle array access: the maximum tw index is (m-1)*fstride*4.
+	if m > 0 {
+		_ = w[(m-1)*fstride4]
+	}
 	for i := 0; i < N; i++ {
 		base := i * mm
 		idx0, idx1, idx2, idx3, idx4 := base, base+m, base+2*m, base+3*m, base+4*m
@@ -552,9 +573,9 @@ func kfBfly5(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
 			idx3++
 			idx4++
 			tw1 += fstride
-			tw2 += fstride * 2
-			tw3 += fstride * 3
-			tw4 += fstride * 4
+			tw2 += fstride2
+			tw3 += fstride3
+			tw4 += fstride4
 		}
 	}
 }
@@ -642,9 +663,13 @@ func kissFFT32To(out []complex64, x []complex64, scratch []kissCpx) {
 	}
 
 	// Convert to kissCpx and apply bit-reversal
+	bitrev := st.bitrev
+	_ = x[n-1]       // BCE hint
+	_ = bitrev[n-1]   // BCE hint
+	_ = scratch[n-1]  // BCE hint
 	for i := 0; i < n; i++ {
 		v := x[i]
-		idx := st.bitrev[i]
+		idx := bitrev[i]
 		scratch[idx].r = real(v)
 		scratch[idx].i = imag(v)
 	}
@@ -653,6 +678,7 @@ func kissFFT32To(out []complex64, x []complex64, scratch []kissCpx) {
 	st.fftImpl(scratch[:n])
 
 	// Convert back to complex64
+	_ = out[n-1] // BCE hint
 	for i := 0; i < n; i++ {
 		out[i] = complex(scratch[i].r, scratch[i].i)
 	}
@@ -687,9 +713,13 @@ func kissFFT32ToInterleaved(outRI []float32, x []complex64, scratch []kissCpx) {
 	}
 
 	// Convert to kissCpx and apply bit-reversal.
+	bitrev := st.bitrev
+	_ = x[n-1]       // BCE hint
+	_ = bitrev[n-1]   // BCE hint
+	_ = scratch[n-1]  // BCE hint
 	for i := 0; i < n; i++ {
 		v := x[i]
-		idx := st.bitrev[i]
+		idx := bitrev[i]
 		scratch[idx].r = real(v)
 		scratch[idx].i = imag(v)
 	}
@@ -698,6 +728,8 @@ func kissFFT32ToInterleaved(outRI []float32, x []complex64, scratch []kissCpx) {
 	st.fftImpl(scratch[:n])
 
 	// Interleave output directly into float32 buffer.
+	_ = outRI[2*n-1] // BCE hint
+	_ = scratch[n-1]  // BCE hint
 	j := 0
 	for i := 0; i < n; i++ {
 		v := scratch[i]

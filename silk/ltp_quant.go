@@ -23,6 +23,10 @@ func corrMatrixFLP(x []float64, subfrLen, order int, out []float64) {
 	// ptr1 points to &x[order-1] (start of column 0 of X)
 	ptr1Idx := order - 1
 
+	// BCE hints: x is accessed from index 0 to ptr1Idx+subfrLen-1
+	_ = x[ptr1Idx+subfrLen-1]
+	_ = out[order*order-1]
+
 	// Calculate X[:,0]'*X[:,0]
 	energy := energyF64(x[ptr1Idx:ptr1Idx+subfrLen], subfrLen)
 	// Match libopus: store as silk_float (float32) to match C precision.
@@ -40,14 +44,24 @@ func corrMatrixFLP(x []float64, subfrLen, order int, out []float64) {
 	ptr2Idx := order - 2 // First sample of column 1 of X
 	for lag := 1; lag < order; lag++ {
 		// Calculate X[:,0]'*X[:,lag]
+		xPtr1 := x[ptr1Idx:]
+		xPtr2 := x[ptr2Idx:]
 		inner := 0.0
-		for n := 0; n < subfrLen; n++ {
-			inner += x[ptr1Idx+n] * x[ptr2Idx+n]
+		// 4x unrolled inner product
+		n := 0
+		for ; n < subfrLen-3; n += 4 {
+			inner += xPtr1[n]*xPtr2[n] +
+				xPtr1[n+1]*xPtr2[n+1] +
+				xPtr1[n+2]*xPtr2[n+2] +
+				xPtr1[n+3]*xPtr2[n+3]
+		}
+		for ; n < subfrLen; n++ {
+			inner += xPtr1[n] * xPtr2[n]
 		}
 		// Match libopus: cast to float32 before storing.
 		f32inner := float64(float32(inner))
-		out[lag*order+0] = f32inner
-		out[0*order+lag] = f32inner
+		out[lag*order] = f32inner
+		out[lag] = f32inner
 
 		// Calculate X[:,j]'*X[:,j+lag]
 		for j := 1; j < order-lag; j++ {
@@ -73,11 +87,25 @@ func corrVectorFLP(x, y []float64, subfrLen, order int, out []float64) {
 		return
 	}
 
+	// BCE hints
+	_ = out[order-1]
+	_ = y[subfrLen-1]
+	_ = x[order-1+subfrLen-1]
+
 	ptr1Idx := order - 1
 	for lag := 0; lag < order; lag++ {
 		sum := 0.0
-		for n := 0; n < subfrLen; n++ {
-			sum += x[ptr1Idx+n] * y[n]
+		xSlice := x[ptr1Idx:]
+		// 4x unrolled inner product
+		n := 0
+		for ; n < subfrLen-3; n += 4 {
+			sum += xSlice[n]*y[n] +
+				xSlice[n+1]*y[n+1] +
+				xSlice[n+2]*y[n+2] +
+				xSlice[n+3]*y[n+3]
+		}
+		for ; n < subfrLen; n++ {
+			sum += xSlice[n] * y[n]
 		}
 		// Match libopus: silk_corrVector_FLP stores as silk_float (float32).
 		out[lag] = float64(float32(sum))
@@ -126,11 +154,21 @@ func findLTPFLP(XX, xX []float64, residual []float64, resStart int, lag []int, s
 		tempF32 := 1.0 / denomF32
 		// Match libopus: silk_scale_vector_FLP(XX_ptr, temp, LTP_ORDER * LTP_ORDER)
 		// silk_scale_vector_FLP multiplies silk_float by silk_float.
-		for i := 0; i < ltpOrderConst*ltpOrderConst; i++ {
-			XX[xxIdx+i] = float64(float32(XX[xxIdx+i]) * tempF32)
+		// Use sub-slices with BCE hints for better bounds check elimination.
+		{
+			xxSub := XX[xxIdx : xxIdx+25]
+			_ = xxSub[24] // BCE hint
+			for i := 0; i < 25; i++ {
+				xxSub[i] = float64(float32(xxSub[i]) * tempF32)
+			}
 		}
-		for i := 0; i < ltpOrderConst; i++ {
-			xX[xXIdx+i] = float64(float32(xX[xXIdx+i]) * tempF32)
+		{
+			xXSub := xX[xXIdx : xXIdx+5]
+			xXSub[0] = float64(float32(xXSub[0]) * tempF32)
+			xXSub[1] = float64(float32(xXSub[1]) * tempF32)
+			xXSub[2] = float64(float32(xXSub[2]) * tempF32)
+			xXSub[3] = float64(float32(xXSub[3]) * tempF32)
+			xXSub[4] = float64(float32(xXSub[4]) * tempF32)
 		}
 
 		rPtrStart += subfrLen

@@ -40,12 +40,7 @@ func (e *Encoder) buildLTPResidual(pitchBuf []float32, frameStart int, gains []f
 	// The input buffer is already int16-quantized (from quantizePCMToInt16),
 	// scaled to [-1,1]. We scale to int16 range without redundant quantization.
 	scale := float32(silkSampleScale)
-	getSample := func(idx int) float32 {
-		if idx < 0 || idx >= len(pitchBuf) {
-			return 0
-		}
-		return pitchBuf[idx] * scale
-	}
+	pitchBufLen := len(pitchBuf)
 
 	for k := 0; k < numSubframes; k++ {
 		outBase := k * (subframeSamples + preLen)
@@ -54,30 +49,91 @@ func (e *Encoder) buildLTPResidual(pitchBuf []float32, frameStart int, gains []f
 		if k < len(gains) && gains[k] > 0 {
 			invGain = 1.0 / gains[k]
 		}
+		loopLen := subframeSamples + preLen
 		if signalType == typeVoiced && k < len(pitchLags) {
 			pitchLag := pitchLags[k]
-			for i := 0; i < subframeSamples+preLen; i++ {
-				xIdx := xStart + i
-				x := getSample(xIdx)
-				lagBase := xIdx - pitchLag
-				// Match libopus operation order:
-				//   LTP_res[i] = x[i];
-				//   for j: LTP_res[i] -= B[j] * x_lag[...];
-				//   LTP_res[i] *= inv_gain;
-				// Avoid summing predictor taps separately, which changes float
-				// associativity and can flip NLSF decisions in late frames.
-				res := x
-				for j := 0; j < ltpOrderConst; j++ {
-					lagIdx := lagBase + (ltpOrderConst/2 - j)
-					b := float32(ltpCoeffs[k][j]) / 128.0
-					res -= b * getSample(lagIdx)
+			// Pre-compute LTP coefficients (invariant across samples in this subframe).
+			var b0, b1, b2, b3, b4 float32
+			b0 = float32(ltpCoeffs[k][0]) / 128.0
+			b1 = float32(ltpCoeffs[k][1]) / 128.0
+			b2 = float32(ltpCoeffs[k][2]) / 128.0
+			b3 = float32(ltpCoeffs[k][3]) / 128.0
+			b4 = float32(ltpCoeffs[k][4]) / 128.0
+
+			// Compute bounds for the fast path (no per-sample bounds checks).
+			// xIdx ranges from xStart to xStart+loopLen-1.
+			// lagBase ranges from xStart-pitchLag to xStart+loopLen-1-pitchLag.
+			// lagIdx ranges from lagBase-(ltpOrderConst/2) to lagBase+(ltpOrderConst/2).
+			minAccess := xStart
+			lagBaseMin := xStart - pitchLag
+			lagMinAccess := lagBaseMin - ltpOrderConst/2
+			if lagMinAccess < minAccess {
+				minAccess = lagMinAccess
+			}
+			maxAccess := xStart + loopLen - 1
+			lagBaseMax := maxAccess - pitchLag
+			lagMaxAccess := lagBaseMax + ltpOrderConst/2
+			if lagMaxAccess > maxAccess {
+				maxAccess = lagMaxAccess
+			}
+
+			if minAccess >= 0 && maxAccess < pitchBufLen {
+				// Fast path: all accesses are in bounds, no per-sample checks needed.
+				_ = pitchBuf[maxAccess] // BCE hint
+				_ = ltpRes[outBase+loopLen-1]
+				for i := 0; i < loopLen; i++ {
+					xIdx := xStart + i
+					x := pitchBuf[xIdx] * scale
+					lagBase := xIdx - pitchLag
+					// Match libopus operation order:
+					//   LTP_res[i] = x[i];
+					//   for j: LTP_res[i] -= B[j] * x_lag[...];
+					//   LTP_res[i] *= inv_gain;
+					res := x
+					res -= b0 * pitchBuf[lagBase+ltpOrderConst/2] * scale
+					res -= b1 * pitchBuf[lagBase+ltpOrderConst/2-1] * scale
+					res -= b2 * pitchBuf[lagBase+ltpOrderConst/2-2] * scale
+					res -= b3 * pitchBuf[lagBase+ltpOrderConst/2-3] * scale
+					res -= b4 * pitchBuf[lagBase+ltpOrderConst/2-4] * scale
+					ltpRes[outBase+i] = res * invGain
 				}
-				ltpRes[outBase+i] = res * invGain
+			} else {
+				// Slow path: need per-sample bounds checking.
+				for i := 0; i < loopLen; i++ {
+					xIdx := xStart + i
+					var x float32
+					if xIdx >= 0 && xIdx < pitchBufLen {
+						x = pitchBuf[xIdx] * scale
+					}
+					lagBase := xIdx - pitchLag
+					res := x
+					for j := 0; j < ltpOrderConst; j++ {
+						lagIdx := lagBase + (ltpOrderConst/2 - j)
+						bj := float32(ltpCoeffs[k][j]) / 128.0
+						if lagIdx >= 0 && lagIdx < pitchBufLen {
+							res -= bj * pitchBuf[lagIdx] * scale
+						}
+					}
+					ltpRes[outBase+i] = res * invGain
+				}
 			}
 		} else {
-			for i := 0; i < subframeSamples+preLen; i++ {
-				xIdx := xStart + i
-				ltpRes[outBase+i] = getSample(xIdx) * invGain
+			// Unvoiced: simple scaling without LTP prediction.
+			// Check if all accesses are in bounds for fast path.
+			xEnd := xStart + loopLen - 1
+			if xStart >= 0 && xEnd < pitchBufLen {
+				_ = pitchBuf[xEnd] // BCE hint
+				_ = ltpRes[outBase+loopLen-1]
+				for i := 0; i < loopLen; i++ {
+					ltpRes[outBase+i] = pitchBuf[xStart+i] * scale * invGain
+				}
+			} else {
+				for i := 0; i < loopLen; i++ {
+					xIdx := xStart + i
+					if xIdx >= 0 && xIdx < pitchBufLen {
+						ltpRes[outBase+i] = pitchBuf[xIdx] * scale * invGain
+					}
+				}
 			}
 		}
 	}

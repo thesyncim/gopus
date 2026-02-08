@@ -394,13 +394,22 @@ func nsqDelDecScaleStates(
 
 	if gainsQ16[subfr] != nsq.prevGainQ16 {
 		gainAdjQ16 := silk_DIV32_varQ(nsq.prevGainQ16, gainsQ16[subfr], 16)
+		// Pre-compute as int64 to avoid repeated cast inside loops.
+		gainAdj64 := int64(gainAdjQ16)
 
 		start := nsq.sLTPShpBufIdx - ltpMemLength
 		if start < 0 {
 			start = 0
 		}
-		for i := start; i < nsq.sLTPShpBufIdx && i < len(nsq.sLTPShpQ14); i++ {
-			nsq.sLTPShpQ14[i] = silk_SMULWW(gainAdjQ16, nsq.sLTPShpQ14[i])
+		{
+			end := nsq.sLTPShpBufIdx
+			if end > len(nsq.sLTPShpQ14) {
+				end = len(nsq.sLTPShpQ14)
+			}
+			shpSlice := nsq.sLTPShpQ14[start:end]
+			for i := range shpSlice {
+				shpSlice[i] = int32((int64(shpSlice[i]) * gainAdj64) >> 16)
+			}
 		}
 
 		if signalType == typeVoiced && nsq.rewhiteFlag == 0 {
@@ -408,24 +417,38 @@ func nsqDelDecScaleStates(
 			if start < 0 {
 				start = 0
 			}
-			for i := start; i < nsq.sLTPBufIdx-decisionDelayActive && i < len(sLTPQ15); i++ {
-				sLTPQ15[i] = silk_SMULWW(gainAdjQ16, sLTPQ15[i])
+			end := nsq.sLTPBufIdx - decisionDelayActive
+			if end > len(sLTPQ15) {
+				end = len(sLTPQ15)
+			}
+			if start < end {
+				ltpSlice := sLTPQ15[start:end]
+				for i := range ltpSlice {
+					ltpSlice[i] = int32((int64(ltpSlice[i]) * gainAdj64) >> 16)
+				}
 			}
 		}
 
 		for k := 0; k < nStatesDelayedDecision; k++ {
 			psDD := &psDelDec[k]
-			psDD.lfARQ14 = silk_SMULWW(gainAdjQ16, psDD.lfARQ14)
-			psDD.diffQ14 = silk_SMULWW(gainAdjQ16, psDD.diffQ14)
-			for i := 0; i < nsqLpcBufLength; i++ {
-				psDD.sLPCQ14[i] = silk_SMULWW(gainAdjQ16, psDD.sLPCQ14[i])
+			psDD.lfARQ14 = int32((int64(psDD.lfARQ14) * gainAdj64) >> 16)
+			psDD.diffQ14 = int32((int64(psDD.diffQ14) * gainAdj64) >> 16)
+			// BCE hint: compiler knows len(psDD.sLPCQ14) >= nsqLpcBufLength.
+			lpc := psDD.sLPCQ14[:nsqLpcBufLength]
+			for i := range lpc {
+				lpc[i] = int32((int64(lpc[i]) * gainAdj64) >> 16)
 			}
-			for i := 0; i < maxShapeLpcOrder; i++ {
-				psDD.sAR2Q14[i] = silk_SMULWW(gainAdjQ16, psDD.sAR2Q14[i])
+			// BCE hint: compiler knows len(psDD.sAR2Q14) == maxShapeLpcOrder.
+			ar := psDD.sAR2Q14[:]
+			for i := range ar {
+				ar[i] = int32((int64(ar[i]) * gainAdj64) >> 16)
 			}
-			for i := 0; i < decisionDelay; i++ {
-				psDD.predQ15[i] = silk_SMULWW(gainAdjQ16, psDD.predQ15[i])
-				psDD.shapeQ14[i] = silk_SMULWW(gainAdjQ16, psDD.shapeQ14[i])
+			// Combined loop for predQ15 and shapeQ14 (same iteration range).
+			pred := psDD.predQ15[:]
+			shp := psDD.shapeQ14[:]
+			for i := range pred {
+				pred[i] = int32((int64(pred[i]) * gainAdj64) >> 16)
+				shp[i] = int32((int64(shp[i]) * gainAdj64) >> 16)
 			}
 		}
 
@@ -622,22 +645,28 @@ func noiseShapeQuantizerDelDec(
 					q1Q0 = 0
 				}
 			}
-			// Branchless quantization: replaces 4-way if/else chain on q1Q0.
-			// adjSign: -1 when q1Q0>0, 0 when q1Q0==0, +1 when q1Q0<0
-			negSign := (-q1Q0) >> 31
-			posSign := q1Q0 >> 31
-			adjSign := negSign - posSign
-			q1Q10 = (q1Q0 << 10) + offsetQ10i32 + adjSign*quantLevelAdjQ10
-			q2Q10 := q1Q10 + 1024
-			// Subtract quantLevelAdjQ10 when |q1Q0| <= 1 (q1Q0 == 0 or -1).
-			prod := q1Q0 * (q1Q0 + 1) // zero iff q1Q0 ∈ {0, -1}
-			smallMask := ^((prod | (-prod)) >> 31)
-			q2Q10 -= quantLevelAdjQ10 & smallMask
-			// rd = abs(q) * lambda (branchless abs via sign-extend XOR).
-			s1 := q1Q10 >> 31
-			s2 := q2Q10 >> 31
-			rd1Q10 := silk_SMULBB((q1Q10^s1)-s1, lambdaQ10i32)
-			rd2Q10 := silk_SMULBB((q2Q10^s2)-s2, lambdaQ10i32)
+			var q2Q10, rd1Q10, rd2Q10 int32
+			if q1Q0 > 0 {
+				q1Q10 = (q1Q0 << 10) - quantLevelAdjQ10 + offsetQ10i32
+				q2Q10 = q1Q10 + 1024
+				rd1Q10 = silk_SMULBB(q1Q10, lambdaQ10i32)
+				rd2Q10 = silk_SMULBB(q2Q10, lambdaQ10i32)
+			} else if q1Q0 == 0 {
+				q1Q10 = offsetQ10i32
+				q2Q10 = q1Q10 + 1024 - quantLevelAdjQ10
+				rd1Q10 = silk_SMULBB(q1Q10, lambdaQ10i32)
+				rd2Q10 = silk_SMULBB(q2Q10, lambdaQ10i32)
+			} else if q1Q0 == -1 {
+				q2Q10 = offsetQ10i32
+				q1Q10 = q2Q10 - 1024 + quantLevelAdjQ10
+				rd1Q10 = silk_SMULBB(-q1Q10, lambdaQ10i32)
+				rd2Q10 = silk_SMULBB(q2Q10, lambdaQ10i32)
+			} else {
+				q1Q10 = (q1Q0 << 10) + quantLevelAdjQ10 + offsetQ10i32
+				q2Q10 = q1Q10 + 1024
+				rd1Q10 = silk_SMULBB(-q1Q10, lambdaQ10i32)
+				rd2Q10 = silk_SMULBB(-q2Q10, lambdaQ10i32)
+			}
 			rrQ10 := rQ10 - q1Q10
 			rd1Q10 = silk_SMLABB(rd1Q10, rrQ10, rrQ10) >> 10
 			rrQ10 = rQ10 - q2Q10
@@ -721,9 +750,24 @@ func noiseShapeQuantizerDelDec(
 
 		if rdMin2 < rdMax {
 			// Replace worst first-candidate state with best second-candidate.
-			// Single struct copy (1 memmove) is faster than 7 separate field copies.
-			// Copies sLPCQ14[0:i] redundantly but those values are never read again.
-			psDelDec[rdMaxInd] = psDelDec[rdMinInd]
+			// Partial copy: skip dead sLPCQ14 elements [0..i) that are never
+			// read again by the LPC predictor (it reads [i..nsqLpcBufLength+i-1]).
+			// This saves up to (maxSubFrameLength-1)*4 = 316 bytes per prune.
+			src := &psDelDec[rdMinInd]
+			dst := &psDelDec[rdMaxInd]
+			// Copy only the live LPC window: indices [i .. nsqLpcBufLength+i-1].
+			copy(dst.sLPCQ14[i:nsqLpcBufLength+i], src.sLPCQ14[i:nsqLpcBufLength+i])
+			dst.randState = src.randState
+			dst.qQ10 = src.qQ10
+			dst.xqQ14 = src.xqQ14
+			dst.predQ15 = src.predQ15
+			dst.shapeQ14 = src.shapeQ14
+			dst.sAR2Q14 = src.sAR2Q14
+			dst.lfARQ14 = src.lfARQ14
+			dst.diffQ14 = src.diffQ14
+			dst.seed = src.seed
+			dst.seedInit = src.seedInit
+			dst.rdQ10 = src.rdQ10
 			psSampleState[rdMaxInd][0] = psSampleState[rdMinInd][1]
 		}
 

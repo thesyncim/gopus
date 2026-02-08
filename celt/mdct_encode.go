@@ -242,6 +242,10 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 	}
 
 	scale := float32(1.0 / float64(n4))
+	// BCE hints for pre-twiddle loop
+	_ = f[2*n4-1]     // BCE hint
+	_ = trig[n4+n4-1] // BCE hint: trig needs n2 entries
+	_ = fftIn[n4-1]   // BCE hint
 	for i = 0; i < n4; i++ {
 		re := f[2*i]
 		im := f[2*i+1]
@@ -253,6 +257,9 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 	}
 
 	kissFFT32To(fftOut, fftIn[:n4], fftTmp)
+	// BCE hints for post-twiddle loop
+	_ = fftOut[n4-1]   // BCE hint
+	_ = coeffs[n2-1]   // BCE hint
 	for i = 0; i < n4; i++ {
 		re := real(fftOut[i])
 		im := imag(fftOut[i])

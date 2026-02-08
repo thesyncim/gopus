@@ -207,6 +207,9 @@ type Encoder struct {
 	scratchNlsf0Q15   [16]int16   // interpolated NLSF
 	scratchLpcATmp     [16]float64 // LPC from NLSF
 	scratchLpcResidual []float64   // LPC residual for energy
+	scratchNlsfCos     [16]float64 // nlsfToLPCFloat: cosine values
+	scratchNlsfP       [10]float64 // nlsfToLPCFloat: P polynomial (halfOrder+2, max 10)
+	scratchNlsfQ       [10]float64 // nlsfToLPCFloat: Q polynomial (halfOrder+2, max 10)
 
 	// LSF quantization scratch buffers
 	scratchLsfResiduals   []int   // computeStage2ResidualsLibopus: residuals

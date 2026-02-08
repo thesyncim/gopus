@@ -74,29 +74,50 @@ func silkResamplerDown2HP(s []float32, out []float32, in []float32) float32 {
 	if len(out) < len2 {
 		len2 = len(out)
 	}
+	if len2 <= 0 {
+		return 0
+	}
+	// BCE hints: ensure all accesses are in bounds
+	_ = in[2*len2-1]
+	_ = out[len2-1]
+	_ = s[2]
+
+	// Hoist filter state into locals to avoid repeated slice access
+	s0, s1, s2 := s[0], s[1], s[2]
+
+	// Use float32 constants to avoid repeated float64 conversion
+	const (
+		coef0 = float32(0.6074371)
+		coef1 = float32(0.15063)
+	)
+
 	var hpEner float64
 	for k := 0; k < len2; k++ {
 		in32 := in[2*k]
-		y := in32 - s[0]
-		x := 0.6074371 * float64(y)
-		out32 := s[0] + float32(x)
-		s[0] = in32 + float32(x)
+		y := in32 - s0
+		xf := coef0 * y
+		out32 := s0 + xf
+		s0 = in32 + xf
 		out32HP := out32
 
 		in32 = in[2*k+1]
-		y = in32 - s[1]
-		x = 0.15063 * float64(y)
-		out32 = out32 + s[1] + float32(x)
-		s[1] = in32 + float32(x)
+		y = in32 - s1
+		xf = coef1 * y
+		out32 = out32 + s1 + xf
+		s1 = in32 + xf
 
-		y = -in32 - s[2]
-		x = 0.15063 * float64(y)
-		out32HP = out32HP + s[2] + float32(x)
-		s[2] = -in32 + float32(x)
+		y = -in32 - s2
+		xf = coef1 * y
+		out32HP = out32HP + s2 + xf
+		s2 = -in32 + xf
 
 		hpEner += float64(out32HP * out32HP)
 		out[k] = 0.5 * out32
 	}
+
+	// Write back filter state
+	s[0], s[1], s[2] = s0, s1, s2
+
 	return float32(hpEner / 256.0)
 }
 

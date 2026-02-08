@@ -120,8 +120,9 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []float64, nbBands, channel
 			tcount := [3]int{0, 0, 0}
 			Nf := float64(N)
 
+			bandX := normX[xOffset : xOffset+N : xOffset+N]
 			for j := 0; j < N; j++ {
-				x := normX[xOffset+j]
+				x := bandX[j]
 				x2N := x * x * Nf
 
 				if x2N < 0.25 {

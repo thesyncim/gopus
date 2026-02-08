@@ -272,14 +272,35 @@ func (s *KissFFT64State) fftImpl(fout []complex128) {
 
 // bfly2 performs radix-2 butterfly with twiddle factors.
 func (s *KissFFT64State) bfly2(fout []complex128, fstride, m, n, mm int) {
+	if n <= 0 || mm <= 0 || m <= 0 {
+		return
+	}
+	// BCE hint: maximum index is (n-1)*mm + (m-1) + m = (n-1)*mm + 2*m - 1
+	maxIdx := (n-1)*mm + 2*m - 1
+	if maxIdx >= len(fout) {
+		// Fallback with per-element bounds checking
+		twIdx := 0
+		for j := 0; j < m; j++ {
+			tw := s.twiddles[twIdx]
+			for i := 0; i < n; i++ {
+				idx := j + mm*i
+				if idx+m >= len(fout) {
+					break
+				}
+				t := fout[idx+m] * tw
+				fout[idx+m] = fout[idx] - t
+				fout[idx] = fout[idx] + t
+			}
+			twIdx += fstride
+		}
+		return
+	}
+	_ = fout[maxIdx]
 	twIdx := 0
 	for j := 0; j < m; j++ {
 		tw := s.twiddles[twIdx]
 		for i := 0; i < n; i++ {
 			idx := j + mm*i
-			if idx+m >= len(fout) {
-				break
-			}
 			t := fout[idx+m] * tw
 			fout[idx+m] = fout[idx] - t
 			fout[idx] = fout[idx] + t
@@ -292,29 +313,35 @@ func (s *KissFFT64State) bfly2(fout []complex128, fstride, m, n, mm int) {
 func (s *KissFFT64State) bfly3(fout []complex128, fstride int, m, n, mm int) {
 	m2 := 2 * m
 	epi3 := s.twiddles[fstride*m]
+	if n <= 0 || mm <= 0 {
+		return
+	}
 
+	_ = fout[n*mm-1] // BCE hint
+	tw := s.twiddles
+	epi3i := imag(epi3)
+	fstride2 := fstride * 2
+	if m > 0 {
+		_ = tw[(m-1)*fstride2] // BCE hint for twiddle access
+	}
 	for i := 0; i < n; i++ {
 		foutBase := i * mm
 		tw1Idx := 0
 		tw2Idx := 0
 
 		for k := 0; k < m; k++ {
-			if foutBase+m2 >= len(fout) {
-				break
-			}
-
-			scratch1 := fout[foutBase+m] * s.twiddles[tw1Idx]
-			scratch2 := fout[foutBase+m2] * s.twiddles[tw2Idx]
+			scratch1 := fout[foutBase+m] * tw[tw1Idx]
+			scratch2 := fout[foutBase+m2] * tw[tw2Idx]
 
 			scratch3 := scratch1 + scratch2
 			scratch0 := scratch1 - scratch2
 
 			tw1Idx += fstride
-			tw2Idx += fstride * 2
+			tw2Idx += fstride2
 
 			fout[foutBase+m] = fout[foutBase] - complex(0.5*real(scratch3), 0.5*imag(scratch3))
 
-			scratch0 = complex(real(scratch0)*imag(epi3), imag(scratch0)*imag(epi3))
+			scratch0 = complex(real(scratch0)*epi3i, imag(scratch0)*epi3i)
 
 			fout[foutBase] = fout[foutBase] + scratch3
 
@@ -357,6 +384,16 @@ func (s *KissFFT64State) bfly4(fout []complex128, fstride int, m, n, mm int) {
 			fout[base+3] = complex(real(scratch0)-imag(scratch1), imag(scratch0)+real(scratch1))
 		}
 	} else {
+		if n <= 0 || mm <= 0 {
+			return
+		}
+		_ = fout[n*mm-1] // BCE hint
+		tw := s.twiddles
+		fstride2 := fstride * 2
+		fstride3 := fstride * 3
+		if m > 0 {
+			_ = tw[(m-1)*fstride3] // BCE hint for twiddle access
+		}
 		for i := 0; i < n; i++ {
 			foutBase := i * mm
 			tw1Idx := 0
@@ -364,13 +401,9 @@ func (s *KissFFT64State) bfly4(fout []complex128, fstride int, m, n, mm int) {
 			tw3Idx := 0
 
 			for j := 0; j < m; j++ {
-				if foutBase+m3 >= len(fout) {
-					break
-				}
-
-				scratch0 := fout[foutBase+m] * s.twiddles[tw1Idx]
-				scratch1 := fout[foutBase+m2] * s.twiddles[tw2Idx]
-				scratch2 := fout[foutBase+m3] * s.twiddles[tw3Idx]
+				scratch0 := fout[foutBase+m] * tw[tw1Idx]
+				scratch1 := fout[foutBase+m2] * tw[tw2Idx]
+				scratch2 := fout[foutBase+m3] * tw[tw3Idx]
 
 				scratch5 := fout[foutBase] - scratch1
 				fout[foutBase] = fout[foutBase] + scratch1
@@ -379,8 +412,8 @@ func (s *KissFFT64State) bfly4(fout []complex128, fstride int, m, n, mm int) {
 				fout[foutBase+m2] = fout[foutBase] - scratch3
 
 				tw1Idx += fstride
-				tw2Idx += fstride * 2
-				tw3Idx += fstride * 3
+				tw2Idx += fstride2
+				tw3Idx += fstride3
 
 				fout[foutBase] = fout[foutBase] + scratch3
 
@@ -401,10 +434,26 @@ func (s *KissFFT64State) bfly4(fout []complex128, fstride int, m, n, mm int) {
 
 // bfly5 performs radix-5 butterfly.
 func (s *KissFFT64State) bfly5(fout []complex128, fstride int, m, n, mm int) {
-	// Radix-5 constants
-	ya := complex(0.30901699437494742, -0.95105651629515353)  // exp(-2*pi*i/5)
-	yb := complex(-0.80901699437494742, -0.58778525229247313) // exp(-4*pi*i/5)
+	if n <= 0 || mm <= 0 {
+		return
+	}
+	// Radix-5 constants -- extract real/imag scalars to avoid repeated complex decomposition.
+	const (
+		yaR = 0.30901699437494742
+		yaI = -0.95105651629515353
+		ybR = -0.80901699437494742
+		ybI = -0.58778525229247313
+	)
 
+	_ = fout[n*mm-1] // BCE hint
+	tw := s.twiddles
+	fstride2 := fstride * 2
+	fstride3 := fstride * 3
+	fstride4 := fstride * 4
+	// BCE hint for twiddle access
+	if m > 0 {
+		_ = tw[(m-1)*fstride4]
+	}
 	for i := 0; i < n; i++ {
 		foutBase := i * mm
 		fout0 := foutBase
@@ -412,18 +461,15 @@ func (s *KissFFT64State) bfly5(fout []complex128, fstride int, m, n, mm int) {
 		fout2 := fout0 + 2*m
 		fout3 := fout0 + 3*m
 		fout4 := fout0 + 4*m
+		tw1, tw2, tw3, tw4 := 0, 0, 0, 0
 
 		for u := 0; u < m; u++ {
-			if fout4 >= len(fout) {
-				break
-			}
-
 			scratch0 := fout[fout0]
 
-			scratch1 := fout[fout1] * s.twiddles[u*fstride]
-			scratch2 := fout[fout2] * s.twiddles[2*u*fstride]
-			scratch3 := fout[fout3] * s.twiddles[3*u*fstride]
-			scratch4 := fout[fout4] * s.twiddles[4*u*fstride]
+			scratch1 := fout[fout1] * tw[tw1]
+			scratch2 := fout[fout2] * tw[tw2]
+			scratch3 := fout[fout3] * tw[tw3]
+			scratch4 := fout[fout4] * tw[tw4]
 
 			scratch7 := scratch1 + scratch4
 			scratch10 := scratch1 - scratch4
@@ -432,37 +478,37 @@ func (s *KissFFT64State) bfly5(fout []complex128, fstride int, m, n, mm int) {
 
 			fout[fout0] = scratch0 + scratch7 + scratch8
 
-			scratch5 := complex(
-				real(scratch0)+real(ya)*real(scratch7)+real(yb)*real(scratch8),
-				imag(scratch0)+real(ya)*imag(scratch7)+real(yb)*imag(scratch8),
-			)
+			s0r, s0i := real(scratch0), imag(scratch0)
+			s7r, s7i := real(scratch7), imag(scratch7)
+			s8r, s8i := real(scratch8), imag(scratch8)
+			s10r, s10i := real(scratch10), imag(scratch10)
+			s9r, s9i := real(scratch9), imag(scratch9)
 
-			scratch6 := complex(
-				imag(ya)*imag(scratch10)+imag(yb)*imag(scratch9),
-				-(imag(ya)*real(scratch10) + imag(yb)*real(scratch9)),
-			)
+			s5r := s0r + yaR*s7r + ybR*s8r
+			s5i := s0i + yaR*s7i + ybR*s8i
+			s6r := yaI*s10i + ybI*s9i
+			s6i := -(yaI*s10r + ybI*s9r)
 
-			fout[fout1] = scratch5 - scratch6
-			fout[fout4] = scratch5 + scratch6
+			fout[fout1] = complex(s5r-s6r, s5i-s6i)
+			fout[fout4] = complex(s5r+s6r, s5i+s6i)
 
-			scratch11 := complex(
-				real(scratch0)+real(yb)*real(scratch7)+real(ya)*real(scratch8),
-				imag(scratch0)+real(yb)*imag(scratch7)+real(ya)*imag(scratch8),
-			)
+			s11r := s0r + ybR*s7r + yaR*s8r
+			s11i := s0i + ybR*s7i + yaR*s8i
+			s12r := -ybI*s10i + yaI*s9i
+			s12i := ybI*s10r - yaI*s9r
 
-			scratch12 := complex(
-				-imag(yb)*imag(scratch10)+imag(ya)*imag(scratch9),
-				imag(yb)*real(scratch10)-imag(ya)*real(scratch9),
-			)
-
-			fout[fout2] = scratch11 + scratch12
-			fout[fout3] = scratch11 - scratch12
+			fout[fout2] = complex(s11r+s12r, s11i+s12i)
+			fout[fout3] = complex(s11r-s12r, s11i-s12i)
 
 			fout0++
 			fout1++
 			fout2++
 			fout3++
 			fout4++
+			tw1 += fstride
+			tw2 += fstride2
+			tw3 += fstride3
+			tw4 += fstride4
 		}
 	}
 }
@@ -473,8 +519,12 @@ func kissFFT64Forward(out []complex128, in []complex128, state *KissFFT64State) 
 	n := state.nfft
 
 	// Bit-reverse copy (no scaling for unscaled forward FFT)
+	bitrev := state.bitrev
+	_ = in[n-1]     // BCE hint
+	_ = bitrev[n-1] // BCE hint
+	_ = out[n-1]    // BCE hint
 	for i := 0; i < n; i++ {
-		out[state.bitrev[i]] = in[i]
+		out[bitrev[i]] = in[i]
 	}
 
 	// Perform the FFT using the same implementation

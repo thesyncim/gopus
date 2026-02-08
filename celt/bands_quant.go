@@ -260,11 +260,32 @@ func interleaveHadamardScratchBuf(x []float64, n0, stride int, hadamard bool, de
 
 func haar1(x []float64, n0, stride int) {
 	n0 >>= 1
-	invSqrt2 := float32(0.7071067811865476)
+	if n0 <= 0 || stride <= 0 {
+		return
+	}
+
+	// Fast path for stride == 1: consecutive pairs, no index arithmetic.
+	// On ARM64 this dispatches to hand-written scalar ASM.
+	if stride == 1 {
+		maxIdx := 1 + (n0-1)*2
+		if maxIdx >= len(x) {
+			return
+		}
+		haar1Stride1Asm(x, n0)
+		return
+	}
+	const invSqrt2 = float32(0.7071067811865476)
+
+	step := stride * 2
+	// BCE hint: maximum index accessed is (stride-1) + stride + (n0-1)*step
+	maxIdx := stride - 1 + stride + (n0-1)*step
+	if maxIdx >= len(x) {
+		return
+	}
+	_ = x[maxIdx]
 	for i := 0; i < stride; i++ {
 		idx0 := i
 		idx1 := i + stride
-		step := stride * 2
 		for j := 0; j < n0; j++ {
 			tmp1 := invSqrt2 * float32(x[idx0])
 			tmp2 := invSqrt2 * float32(x[idx1])
@@ -329,13 +350,37 @@ func expRotation1(x []float64, length, stride int, c, s float64) {
 
 	if stride == 2 {
 		end := length - 2
-		for i := 0; i < end; i++ {
+		i := 0
+		for ; i+1 < end; i += 2 {
+			x1 := x[i]
+			x2 := x[i+2]
+			x[i+2] = c*x2 + s*x1
+			x[i] = c*x1 + ms*x2
+
+			x3 := x[i+1]
+			x4 := x[i+3]
+			x[i+3] = c*x4 + s*x3
+			x[i+1] = c*x3 + ms*x4
+		}
+		for ; i < end; i++ {
 			x1 := x[i]
 			x2 := x[i+2]
 			x[i+2] = c*x2 + s*x1
 			x[i] = c*x1 + ms*x2
 		}
-		for i := length - 5; i >= 0; i-- {
+		i = length - 5
+		for ; i-1 >= 0; i -= 2 {
+			x1 := x[i]
+			x2 := x[i+2]
+			x[i+2] = c*x2 + s*x1
+			x[i] = c*x1 + ms*x2
+
+			x3 := x[i-1]
+			x4 := x[i+1]
+			x[i+1] = c*x4 + s*x3
+			x[i-1] = c*x3 + ms*x4
+		}
+		for ; i >= 0; i-- {
 			x1 := x[i]
 			x2 := x[i+2]
 			x[i+2] = c*x2 + s*x1
@@ -413,18 +458,27 @@ func extractCollapseMask(pulses []int, n, b int) int {
 		return 1
 	}
 	pulses = pulses[:n:n]
-	_ = pulses[n-1]
+	_ = pulses[n-1] // BCE
 	n0 := celtUdiv(n, b)
+	if n0 <= 0 {
+		return 0
+	}
 	mask := 0
+	base := 0
 	for i := 0; i < b; i++ {
 		tmp := 0
-		base := i * n0
-		for j := 0; j < n0; j++ {
-			tmp |= pulses[base+j]
+		end := base + n0
+		j := base
+		for ; j+3 < end; j += 4 {
+			tmp |= pulses[j] | pulses[j+1] | pulses[j+2] | pulses[j+3]
+		}
+		for ; j < end; j++ {
+			tmp |= pulses[j]
 		}
 		if tmp != 0 {
 			mask |= 1 << i
 		}
+		base = end
 	}
 	return mask
 }
@@ -767,7 +821,7 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []float64, n, k, sprea
 			var refineVal int
 			up := (1 << extraBits) - 1
 			pulses, upPulses, refineVal = opPVQSearchN2(x, k, up)
-			index := EncodePulsesScratch(pulses, n, k, uBuf)
+			index := encodePulsesFast(pulses, n, k, uBuf)
 			vSize := PVQ_V(n, k)
 			if vSize == 0 {
 				return 0
@@ -779,7 +833,7 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []float64, n, k, sprea
 		} else {
 			up := (1 << extraBits) - 1
 			pulses, upPulses, refine = opPVQSearchExtra(x, k, up)
-			index := EncodePulsesScratch(pulses, n, k, uBuf)
+			index := encodePulsesFast(pulses, n, k, uBuf)
 			vSize := PVQ_V(n, k)
 			if vSize == 0 {
 				return 0
@@ -801,7 +855,7 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []float64, n, k, sprea
 		}
 	} else {
 		pulses, yy = opPVQSearchScratch(x, k, iyBuf, signxBuf, yBuf, absXBuf)
-		index := EncodePulsesScratch(pulses, n, k, uBuf)
+		index := encodePulsesFast(pulses, n, k, uBuf)
 		vSize := PVQ_V(n, k)
 		if vSize == 0 {
 			return 0
@@ -1072,16 +1126,13 @@ func computeChannelWeights(ex, ey float64) (w0, w1 float64) {
 
 // innerProduct computes the inner product of two vectors.
 // Used for distortion measurement in theta RDO.
+// Delegates to celtInnerProd which has assembly implementations on arm64/amd64.
 func innerProduct(x, y []float64) float64 {
 	n := len(x)
 	if len(y) < n {
 		n = len(y)
 	}
-	sum := 0.0
-	for i := 0; i < n; i++ {
-		sum += x[i] * y[i]
-	}
-	return sum
+	return celtInnerProd(x[:n], y[:n], n)
 }
 
 func (ctx *bandCtx) bandEnergy(channel int) float64 {

@@ -388,28 +388,24 @@ func pitchDownsample(x []float64, xLP []float64, length, channels, factor int) {
 		xLP[0] += 0.25*x1[offset] + 0.5*x1[0]
 	}
 
-	// Compute all 5 autocorrelation lags in a single pass.
-	// The tail elements (length-4..length-1) contribute to fewer lags.
+	// Compute 5 autocorrelation lags using ASM-backed inner products.
+	// ac[k] = innerProduct(lp[0:length-k], lp[k:length]) for k=0..4.
 	var ac [5]float64
-	n := length - 4
-	if n < 0 {
-		n = 0
-	}
 	lp := xLP[:length]
-	_ = lp[n+3] // BCE
-	for i := 0; i < n; i++ {
-		xi := lp[i]
-		ac[0] += xi * lp[i]
-		ac[1] += xi * lp[i+1]
-		ac[2] += xi * lp[i+2]
-		ac[3] += xi * lp[i+3]
-		ac[4] += xi * lp[i+4]
-	}
-	// Remaining elements contribute to lags 0..3, 0..2, 0..1, 0 respectively.
-	for i := n; i < length; i++ {
-		xi := lp[i]
-		for lag := 0; lag <= 4 && i+lag < length; lag++ {
-			ac[lag] += xi * lp[i+lag]
+	if length > 4 {
+		ac[0], ac[1] = dualInnerProd(lp, lp, lp[1:], length-1)
+		// ac[0] misses the last element's self-product; add it.
+		ac[0] += lp[length-1] * lp[length-1]
+		ac2partial, ac3 := dualInnerProd(lp, lp[2:], lp[3:], length-3)
+		// ac[2] needs length-2 terms but dualInnerProd used length-3; add the missing term.
+		ac[2] = ac2partial + lp[length-3]*lp[length-1]
+		ac[3] = ac3
+		ac[4] = celtInnerProd(lp, lp[4:], length-4)
+	} else {
+		for i := 0; i < length; i++ {
+			for lag := 0; lag <= 4 && i+lag < length; lag++ {
+				ac[lag] += lp[i] * lp[i+lag]
+			}
 		}
 	}
 

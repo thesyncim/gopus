@@ -175,9 +175,11 @@ func computeBandRMS(coeffs []float64, start, end int) float64 {
 	}
 
 	// Compute sum of squares with libopus epsilon.
+	// BCE hint: we verified end <= len(coeffs) above.
+	c := coeffs[start:end:end]
 	sumSq := float32(1e-27)
-	for i := start; i < end; i++ {
-		v := float32(coeffs[i])
+	for _, cv := range c {
+		v := float32(cv)
 		sumSq += v * v
 	}
 

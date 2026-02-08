@@ -83,6 +83,9 @@ func silkNLSFDelDecQuant(indices []int8, xQ10 []int16, wQ5 []int16, predQ8 []uin
 	var out0Table [2 * nlsfQuantMaxAmplitudeExt]int32
 	var out1Table [2 * nlsfQuantMaxAmplitudeExt]int32
 
+	// Pre-truncate quantStepSizeQ16 to int16 once (matches silkSMULBB semantics).
+	qssQ16 := int32(int16(quantStepSizeQ16))
+
 	for i := -nlsfQuantMaxAmplitudeExt; i <= nlsfQuantMaxAmplitudeExt-1; i++ {
 		out0Q10 := int32(i) << 10
 		out1Q10 := out0Q10 + 1024
@@ -97,8 +100,28 @@ func silkNLSFDelDecQuant(indices []int8, xQ10 []int16, wQ5 []int16, predQ8 []uin
 			out0Q10 += nlsfQuantLevelAdjQ10
 			out1Q10 += nlsfQuantLevelAdjQ10
 		}
-		out0Table[i+nlsfQuantMaxAmplitudeExt] = int32(silkRSHIFT(silkSMULBB(out0Q10, int32(quantStepSizeQ16)), 16))
-		out1Table[i+nlsfQuantMaxAmplitudeExt] = int32(silkRSHIFT(silkSMULBB(out1Q10, int32(quantStepSizeQ16)), 16))
+		// Inline silkRSHIFT(silkSMULBB(outQ10, qss), 16).
+		// out0Q10/out1Q10 are in [-10138, 10142], fit int16; qssQ16 already truncated.
+		idx := i + nlsfQuantMaxAmplitudeExt
+		out0Table[idx] = (int32(int16(out0Q10)) * qssQ16) >> 16
+		out1Table[idx] = (int32(int16(out1Q10)) * qssQ16) >> 16
+	}
+
+	// Pre-truncate invQuantStepSizeQ6 to int16 once.
+	invQssQ6 := int32(int16(invQuantStepSizeQ6))
+	// Pre-truncate muQ20 to int16 once for silkSMLABB.
+	muQ20_16 := int32(int16(muQ20))
+
+	// BCE hints for slice accesses in the main loop.
+	_ = xQ10[0]
+	_ = wQ5[0]
+	_ = predQ8[0]
+	_ = ecIx[0]
+	if order > 0 {
+		_ = xQ10[order-1]
+		_ = wQ5[order-1]
+		_ = predQ8[order-1]
+		_ = ecIx[order-1]
 	}
 
 	nStates := 1
@@ -107,47 +130,68 @@ func silkNLSFDelDecQuant(indices []int8, xQ10 []int16, wQ5 []int16, predQ8 []uin
 	for i := order - 1; i >= 0; i-- {
 		rates := ecRatesQ5[ecIx[i]:]
 		inQ10 := int32(xQ10[i])
+		predQ8i := int32(predQ8[i])
+		wQ5i := int32(wQ5[i])
+
 		for j := 0; j < nStates; j++ {
-			predQ10 := int32(silkRSHIFT(silkSMULBB(int32(predQ8[i]), int32(prevOutQ10[j])), 8))
+			// Inline: predQ10 = silkRSHIFT(silkSMULBB(predQ8[i], prevOutQ10[j]), 8)
+			// predQ8[i] is uint8 (0-255), prevOutQ10[j] is int16 — both fit int16, no truncation needed.
+			predQ10 := (predQ8i * int32(prevOutQ10[j])) >> 8
 			resQ10 := inQ10 - predQ10
-			indTmp := int(silkRSHIFT(silkSMULBB(int32(invQuantStepSizeQ6), resQ10), 16))
-			indTmp = silkLimitInt(indTmp, -nlsfQuantMaxAmplitudeExt, nlsfQuantMaxAmplitudeExt-1)
+
+			// Inline: indTmp = silkRSHIFT(silkSMULBB(invQssQ6, resQ10), 16)
+			// invQssQ6 already truncated. resQ10 gets truncated to int16.
+			indTmp := int((invQssQ6 * int32(int16(resQ10))) >> 16)
+
+			// Inline silkLimitInt (clamp).
+			if indTmp < -nlsfQuantMaxAmplitudeExt {
+				indTmp = -nlsfQuantMaxAmplitudeExt
+			} else if indTmp > nlsfQuantMaxAmplitudeExt-1 {
+				indTmp = nlsfQuantMaxAmplitudeExt - 1
+			}
 			ind[j][i] = int8(indTmp)
 
-			out0Q10 := out0Table[indTmp+nlsfQuantMaxAmplitudeExt] + predQ10
-			out1Q10 := out1Table[indTmp+nlsfQuantMaxAmplitudeExt] + predQ10
+			tableIdx := indTmp + nlsfQuantMaxAmplitudeExt
+			out0Q10 := out0Table[tableIdx] + predQ10
+			out1Q10 := out1Table[tableIdx] + predQ10
 			prevOutQ10[j] = int16(out0Q10)
 			prevOutQ10[j+nStates] = int16(out1Q10)
 
-			var rate0Q5 int32
-			var rate1Q5 int32
-			if indTmp+1 >= nlsfQuantMaxAmplitude {
-				if indTmp+1 == nlsfQuantMaxAmplitude {
+			// Rate lookup — indTmp is in [-10, 9], nlsfQuantMaxAmplitude = 4.
+			var rate0Q5, rate1Q5 int32
+			indTmpPlus1 := indTmp + 1
+			if indTmpPlus1 >= nlsfQuantMaxAmplitude {
+				if indTmpPlus1 == nlsfQuantMaxAmplitude {
 					rate0Q5 = int32(rates[indTmp+nlsfQuantMaxAmplitude])
 					rate1Q5 = 280
 				} else {
-					rate0Q5 = 280 - 43*int32(nlsfQuantMaxAmplitude) + 43*int32(indTmp)
+					rate0Q5 = 280 + 43*int32(indTmp-nlsfQuantMaxAmplitude)
 					rate1Q5 = rate0Q5 + 43
 				}
 			} else if indTmp <= -nlsfQuantMaxAmplitude {
 				if indTmp == -nlsfQuantMaxAmplitude {
 					rate0Q5 = 280
-					rate1Q5 = int32(rates[indTmp+1+nlsfQuantMaxAmplitude])
+					rate1Q5 = int32(rates[indTmpPlus1+nlsfQuantMaxAmplitude])
 				} else {
-					rate0Q5 = 280 - 43*int32(nlsfQuantMaxAmplitude) - 43*int32(indTmp)
+					rate0Q5 = 280 - 43*int32(nlsfQuantMaxAmplitude+indTmp)
 					rate1Q5 = rate0Q5 - 43
 				}
 			} else {
-				rate0Q5 = int32(rates[indTmp+nlsfQuantMaxAmplitude])
-				rate1Q5 = int32(rates[indTmp+1+nlsfQuantMaxAmplitude])
+				rateIdx := indTmp + nlsfQuantMaxAmplitude
+				rate0Q5 = int32(rates[rateIdx])
+				rate1Q5 = int32(rates[rateIdx+1])
 			}
 
+			// RD computation — inline silkSMLABB(silkMLA(rdTmp, silkSMULBB(diff, diff), wQ5i), muQ20, rate).
+			// silkSMULBB(diff, diff) = int32(int16(diff)) * int32(int16(diff))
+			// silkMLA(a, b, c) = a + b*c
+			// silkSMLABB(a, b, c) = a + int32(int16(b))*int32(int16(c))
 			rdTmp := rdQ25[j]
-			diffQ10 := inQ10 - out0Q10
-			rdQ25[j] = silkSMLABB(silkMLA(rdTmp, silkSMULBB(diffQ10, diffQ10), int32(wQ5[i])), muQ20, rate0Q5)
+			diffQ10 := int32(int16(inQ10 - out0Q10))
+			rdQ25[j] = rdTmp + diffQ10*diffQ10*wQ5i + muQ20_16*int32(int16(rate0Q5))
 
-			diffQ10 = inQ10 - out1Q10
-			rdQ25[j+nStates] = silkSMLABB(silkMLA(rdTmp, silkSMULBB(diffQ10, diffQ10), int32(wQ5[i])), muQ20, rate1Q5)
+			diffQ10 = int32(int16(inQ10 - out1Q10))
+			rdQ25[j+nStates] = rdTmp + diffQ10*diffQ10*wQ5i + muQ20_16*int32(int16(rate1Q5))
 		}
 
 		if nStates <= nlsfQuantDelDecStates/2 {
@@ -159,19 +203,22 @@ func silkNLSFDelDecQuant(indices []int8, xQ10 []int16, wQ5 []int16, predQ8 []uin
 				ind[j][i] = ind[j-nStates][i]
 			}
 		} else {
+			// Sort/prune: for each state pair, put min in [j], max in [j+N].
 			for j := 0; j < nlsfQuantDelDecStates; j++ {
-				if rdQ25[j] > rdQ25[j+nlsfQuantDelDecStates] {
-					rdMaxQ25[j] = rdQ25[j]
-					rdMinQ25[j] = rdQ25[j+nlsfQuantDelDecStates]
-					rdQ25[j] = rdMinQ25[j]
-					rdQ25[j+nlsfQuantDelDecStates] = rdMaxQ25[j]
+				rdLo := rdQ25[j]
+				rdHi := rdQ25[j+nlsfQuantDelDecStates]
+				if rdLo > rdHi {
+					rdQ25[j] = rdHi
+					rdQ25[j+nlsfQuantDelDecStates] = rdLo
+					rdMinQ25[j] = rdHi
+					rdMaxQ25[j] = rdLo
 					out0 := prevOutQ10[j]
 					prevOutQ10[j] = prevOutQ10[j+nlsfQuantDelDecStates]
 					prevOutQ10[j+nlsfQuantDelDecStates] = out0
 					indSort[j] = j + nlsfQuantDelDecStates
 				} else {
-					rdMinQ25[j] = rdQ25[j]
-					rdMaxQ25[j] = rdQ25[j+nlsfQuantDelDecStates]
+					rdMinQ25[j] = rdLo
+					rdMaxQ25[j] = rdHi
 					indSort[j] = j
 				}
 			}
@@ -198,7 +245,7 @@ func silkNLSFDelDecQuant(indices []int8, xQ10 []int16, wQ5 []int16, predQ8 []uin
 				prevOutQ10[indMaxMin] = prevOutQ10[indMinMax+nlsfQuantDelDecStates]
 				rdMinQ25[indMaxMin] = 0
 				rdMaxQ25[indMinMax] = math.MaxInt32
-				copy(ind[indMaxMin][:], ind[indMinMax][:])
+				ind[indMaxMin] = ind[indMinMax]
 			}
 			for j := 0; j < nlsfQuantDelDecStates; j++ {
 				ind[j][i] += int8(indSort[j] >> nlsfQuantDelDecStatesLog2)
@@ -215,8 +262,9 @@ func silkNLSFDelDecQuant(indices []int8, xQ10 []int16, wQ5 []int16, predQ8 []uin
 		}
 	}
 
+	bestInd := &ind[indTmp&(nlsfQuantDelDecStates-1)]
 	for j := 0; j < order; j++ {
-		indices[j] = ind[indTmp&(nlsfQuantDelDecStates-1)][j]
+		indices[j] = bestInd[j]
 	}
 	indices[0] += int8(indTmp >> nlsfQuantDelDecStatesLog2)
 	return minQ25
