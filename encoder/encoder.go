@@ -203,6 +203,9 @@ func (e *Encoder) Mode() Mode {
 // SetBandwidth sets the target audio bandwidth.
 func (e *Encoder) SetBandwidth(bandwidth types.Bandwidth) {
 	e.bandwidth = bandwidth
+	if e.celtEncoder != nil {
+		e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
+	}
 }
 
 // Bandwidth returns the current bandwidth setting.
@@ -1116,6 +1119,7 @@ func (e *Encoder) encodeCELTFrame(pcm []float64, frameSize int) ([]byte, error) 
 func (e *Encoder) encodeCELTFrameWithBitrate(pcm []float64, frameSize int, bitrate int) ([]byte, error) {
 	e.ensureCELTEncoder()
 	e.celtEncoder.SetBitrate(bitrate)
+	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 	e.celtEncoder.SetHybrid(false)
 	e.celtEncoder.SetPacketLoss(e.packetLoss)
 	e.celtEncoder.SetLSBDepth(e.lsbDepth)
@@ -1460,6 +1464,7 @@ func (e *Encoder) ensureCELTEncoder() {
 		// Opus encoder already applies CELT delay compensation at the top level.
 		e.celtEncoder.SetDelayCompensationEnabled(false)
 	}
+	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 }
 
 // silkBandwidth converts the Opus bandwidth to SILK bandwidth.
@@ -1551,6 +1556,9 @@ func (e *Encoder) SetCELTTargetStatsHook(fn func(celt.CeltTargetStats)) {
 // SetMaxBandwidth sets the maximum bandwidth limit.
 func (e *Encoder) SetMaxBandwidth(bw types.Bandwidth) {
 	e.maxBandwidth = bw
+	if e.celtEncoder != nil {
+		e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
+	}
 }
 
 // MaxBandwidth returns the maximum bandwidth limit.

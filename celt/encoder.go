@@ -38,9 +38,10 @@ type Encoder struct {
 	rangeEncoder *rangecoding.Encoder
 
 	// Configuration (mirrors decoder)
-	channels   int // 1 or 2
-	sampleRate int // Always 48000
-	lsbDepth   int // Input LSB depth (8-24 bits)
+	channels   int           // 1 or 2
+	sampleRate int           // Always 48000
+	lsbDepth   int           // Input LSB depth (8-24 bits)
+	bandwidth  CELTBandwidth // Active bandwidth cap (NB..FB)
 
 	// Energy state (persists across frames, mirrors decoder)
 	prevEnergy  []float64 // Previous frame band energies [MaxBands * channels]
@@ -209,6 +210,7 @@ func NewEncoder(channels int) *Encoder {
 		channels:   channels,
 		sampleRate: 48000, // CELT always operates at 48kHz internally
 		lsbDepth:   24,    // Default to full 24-bit depth
+		bandwidth:  CELTFullband,
 
 		// Allocate energy arrays for all bands and channels
 		prevEnergy:  make([]float64, MaxBands*channels),
@@ -239,11 +241,11 @@ func NewEncoder(channels int) *Encoder {
 		hfAverage:      0,
 		tapsetDecision: 0,
 
-			// Initialize tonality analysis state
-			prevBandLogEnergy: make([]float64, MaxBands*channels),
-			lastTonality:      0.5, // Start with neutral tonality estimate
-			lastStereoSaving:  0.0,
-			lastPitchChange:   false,
+		// Initialize tonality analysis state
+		prevBandLogEnergy: make([]float64, MaxBands*channels),
+		lastTonality:      0.5, // Start with neutral tonality estimate
+		lastStereoSaving:  0.0,
+		lastPitchChange:   false,
 
 		// Pre-emphasized signal buffer for transient analysis overlap
 		// Size is Overlap samples per channel (interleaved for stereo)
@@ -630,6 +632,34 @@ func (e *Encoder) LSBDepth() int {
 		return 24
 	}
 	return e.lsbDepth
+}
+
+// SetBandwidth sets the CELT bandwidth cap used for band allocation.
+func (e *Encoder) SetBandwidth(bw CELTBandwidth) {
+	if bw < CELTNarrowband || bw > CELTFullband {
+		bw = CELTFullband
+	}
+	e.bandwidth = bw
+}
+
+// Bandwidth returns the active CELT bandwidth cap.
+func (e *Encoder) Bandwidth() CELTBandwidth {
+	return e.bandwidth
+}
+
+func (e *Encoder) effectiveBandCount(frameSize int) int {
+	nbBands := GetModeConfig(frameSize).EffBands
+	bwBands := EffectiveBandsForFrameSize(e.bandwidth, frameSize)
+	if bwBands < nbBands {
+		nbBands = bwBands
+	}
+	if nbBands < 1 {
+		nbBands = 1
+	}
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+	return nbBands
 }
 
 // TapsetDecision returns the current tapset decision (0, 1, or 2).

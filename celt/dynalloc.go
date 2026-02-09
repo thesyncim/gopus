@@ -721,8 +721,14 @@ func DynallocAnalysisWithScratch(
 
 	var oldBandE32 []float32
 	if oldBandE != nil {
-		oldBandE32 = scratch.OldBandE32[:len(oldBandE)]
-		for i, v := range oldBandE {
+		oldLen := len(oldBandE)
+		maxOldLen := nbBands * channels
+		if oldLen > maxOldLen {
+			oldLen = maxOldLen
+		}
+		oldBandE32 = scratch.OldBandE32[:oldLen]
+		for i := 0; i < oldLen; i++ {
+			v := oldBandE[i]
 			oldBandE32[i] = float32(v)
 		}
 	}
@@ -993,43 +999,43 @@ func DynallocAnalysisWithScratch(
 			}
 		}
 
-			totBoost := 0
-			for i := start; i < end; i++ {
-				if follower[i] > 4.0 {
-					follower[i] = 4.0
-				}
-				followerVal := follower[i]
-
-				width := channels * ScaledBandWidth(i, 120<<lm)
-				if width <= 0 {
-					width = 1
-				}
-
-				var boost, boostBits int
-				if width < 6 {
-					boost = int(followerVal)
-					boostBits = boost * width << bitRes
-				} else if width > 48 {
-					boost = int(followerVal * 8.0)
-					boostBits = (boost * width << bitRes) / 8
-				} else {
-					boost = int(followerVal * float32(width) / 6.0)
-					boostBits = boost * 6 << bitRes
-				}
-
-				if (!vbr || (constrainedVBR && !isTransient)) &&
-					(totBoost+boostBits)>>bitRes>>3 > 2*effectiveBytes/3 {
-					cap := (2 * effectiveBytes / 3) << bitRes << 3
-					result.Offsets[i] = cap - totBoost
-					totBoost = cap
-					break
-				}
-
-				result.Offsets[i] = boost
-				totBoost += boostBits
+		totBoost := 0
+		for i := start; i < end; i++ {
+			if follower[i] > 4.0 {
+				follower[i] = 4.0
 			}
-			result.TotBoost = totBoost
-		} else {
+			followerVal := follower[i]
+
+			width := channels * ScaledBandWidth(i, 120<<lm)
+			if width <= 0 {
+				width = 1
+			}
+
+			var boost, boostBits int
+			if width < 6 {
+				boost = int(followerVal)
+				boostBits = boost * width << bitRes
+			} else if width > 48 {
+				boost = int(followerVal * 8.0)
+				boostBits = (boost * width << bitRes) / 8
+			} else {
+				boost = int(followerVal * float32(width) / 6.0)
+				boostBits = boost * 6 << bitRes
+			}
+
+			if (!vbr || (constrainedVBR && !isTransient)) &&
+				(totBoost+boostBits)>>bitRes>>3 > 2*effectiveBytes/3 {
+				cap := (2 * effectiveBytes / 3) << bitRes << 3
+				result.Offsets[i] = cap - totBoost
+				totBoost = cap
+				break
+			}
+
+			result.Offsets[i] = boost
+			totBoost += boostBits
+		}
+		result.TotBoost = totBoost
+	} else {
 		for i := start; i < end; i++ {
 			result.Importance[i] = 13
 		}

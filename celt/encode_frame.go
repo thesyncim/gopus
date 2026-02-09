@@ -53,7 +53,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	// Step 2: Get mode configuration
 	mode := GetModeConfig(frameSize)
-	nbBands := mode.EffBands
+	nbBands := e.effectiveBandCount(frameSize)
 	lm := mode.LM
 
 	// Ensure scratch buffers are properly sized for this frame
@@ -608,8 +608,12 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	if bandLogE2 != nil {
 		bandLogE2Use = bandLogE2
 	}
+	oldBandELen := nbBands * e.channels
+	if oldBandELen > len(prev1LogE) {
+		oldBandELen = len(prev1LogE)
+	}
 	dynallocResult := DynallocAnalysisWithScratch(
-		energies, bandLogE2Use, prev1LogE,
+		energies, bandLogE2Use, prev1LogE[:oldBandELen],
 		nbBands, start, end, e.channels, lsbDepth, lm,
 		logN,
 		effectiveBytes,
@@ -781,12 +785,12 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// The trim value affects bit allocation bias between lower and higher frequency bands.
 	allocTrim := 5
 	tellForTrim := re.TellFrac()
-		if tellForTrim+(6<<bitRes) <= totalBitsQ3ForDynalloc-totalBoost {
-			effectiveBytesForTrim := targetBits / 8
-			equivRate := ComputeEquivRate(effectiveBytesForTrim, e.channels, lm, e.targetBitrate)
-			allocTrim = AllocTrimAnalysis(
-				normL,
-				energies,
+	if tellForTrim+(6<<bitRes) <= totalBitsQ3ForDynalloc-totalBoost {
+		effectiveBytesForTrim := targetBits / 8
+		equivRate := ComputeEquivRate(effectiveBytesForTrim, e.channels, lm, e.targetBitrate)
+		allocTrim = AllocTrimAnalysis(
+			normL,
+			energies,
 			nbBands,
 			lm,
 			e.channels,
@@ -794,28 +798,28 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			intensity,
 			tfEstimate,
 			equivRate,
-				0.0, // surroundTrim - not implemented yet
-				0.0, // tonalitySlope - not implemented yet
-			)
-			if e.channels == 2 {
-				e.lastStereoSaving = UpdateStereoSaving(e.lastStereoSaving, normL, normR, nbBands, lm, intensity)
-			}
-			trimBoost := 0
-			if e.channels == 1 {
-				trimBoost++
-			}
-			if dualStereo {
-				trimBoost += 5
-			}
-			if trimBoost > 0 {
-				allocTrim += trimBoost
-				if allocTrim > 10 {
-					allocTrim = 10
-				}
-			}
-
-			re.EncodeICDF(allocTrim, trimICDF, 7)
+			0.0, // surroundTrim - not implemented yet
+			0.0, // tonalitySlope - not implemented yet
+		)
+		if e.channels == 2 {
+			e.lastStereoSaving = UpdateStereoSaving(e.lastStereoSaving, normL, normR, nbBands, lm, intensity)
 		}
+		trimBoost := 0
+		if e.channels == 1 {
+			trimBoost++
+		}
+		if dualStereo {
+			trimBoost += 5
+		}
+		if trimBoost > 0 {
+			allocTrim += trimBoost
+			if allocTrim > 10 {
+				allocTrim = 10
+			}
+		}
+
+		re.EncodeICDF(allocTrim, trimICDF, 7)
+	}
 
 	// Step 12: Compute bit allocation
 	bitsUsed := re.TellFrac()
@@ -1406,7 +1410,7 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float64, pitchChange bool, stats *CeltTargetStats) int {
 	mode := GetModeConfig(frameSize)
 	lm := mode.LM
-	nbBands := mode.EffBands
+	nbBands := e.effectiveBandCount(frameSize)
 
 	codedBands := nbBands
 	if e.lastCodedBands > 0 && e.lastCodedBands < nbBands {

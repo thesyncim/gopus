@@ -91,7 +91,7 @@ type HybridState struct {
 	scratchNextEnergy []float64 // next energy for state update
 
 	// MDCT scratch buffers for computeMDCTForHybridScratch.
-	scratchMDCTInput []float64 // overlap+samples assembly buffer
+	scratchMDCTInput  []float64 // overlap+samples assembly buffer
 	scratchMDCTResult []float64 // combined L+R MDCT output
 	scratchDeintLeft  []float64 // deinterleaved left channel
 	scratchDeintRight []float64 // deinterleaved right channel
@@ -113,6 +113,7 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, celtPCM []float64, lookahead 
 		e.ensureSILKSideEncoder()
 	}
 	e.ensureCELTEncoder()
+	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 
 	// Initialize hybrid state if needed
 	if e.hybridState == nil {
