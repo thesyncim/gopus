@@ -54,6 +54,7 @@ type Encoder struct {
 	silkSideEncoder *silk.Encoder // For stereo side channel in hybrid mode
 	silkTrace       *silk.EncoderTrace
 	celtEncoder     *celt.Encoder
+	celtStatsHook   func(celt.CeltTargetStats)
 
 	// Configuration
 	mode       Mode
@@ -476,7 +477,12 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 			frameData, err = e.encodeHybridFrame(framePCM, celtPCM, lookaheadSlice, frameSize)
 		}
 	case ModeCELT:
-		celtPCM := e.applyDelayCompensation(framePCM, frameSize)
+		celtPCM := framePCM
+		// Sub-10ms CELT frames follow a low-delay path in libopus wrappers.
+		// Avoid injecting Opus delay compensation for 2.5/5ms CELT packets.
+		if frameSize >= 240 {
+			celtPCM = e.applyDelayCompensation(framePCM, frameSize)
+		}
 		if frameSize > 960 {
 			packet, err = e.encodeCELTMultiFramePacket(celtPCM, frameSize)
 		} else {
@@ -1439,6 +1445,7 @@ func (e *Encoder) ensureCELTEncoder() {
 	if e.celtEncoder == nil {
 		e.celtEncoder = celt.NewEncoder(e.channels)
 		e.celtEncoder.SetComplexity(e.complexity)
+		e.celtEncoder.SetTargetStatsHook(e.celtStatsHook)
 		// Opus encoder already applies dc_reject at the top level.
 		e.celtEncoder.SetDCRejectEnabled(false)
 	}
@@ -1519,6 +1526,15 @@ func (e *Encoder) SetSilkTrace(trace *silk.EncoderTrace) {
 	e.silkTrace = trace
 	e.ensureSILKEncoder()
 	e.silkEncoder.SetTrace(e.silkTrace)
+}
+
+// SetCELTTargetStatsHook installs a callback for per-frame CELT VBR target diagnostics.
+// Only applies when the CELT encoder is active.
+func (e *Encoder) SetCELTTargetStatsHook(fn func(celt.CeltTargetStats)) {
+	e.celtStatsHook = fn
+	if e.celtEncoder != nil {
+		e.celtEncoder.SetTargetStatsHook(fn)
+	}
 }
 
 // SetMaxBandwidth sets the maximum bandwidth limit.

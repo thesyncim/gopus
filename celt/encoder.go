@@ -8,6 +8,18 @@ import (
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
+// CeltTargetStats captures per-frame VBR target diagnostics for CELT.
+type CeltTargetStats struct {
+	FrameSize     int
+	BaseBits      int
+	TargetBits    int
+	Tonality      float64
+	DynallocBoost int
+	TFBoost       int
+	FloorLimited  bool
+	MaxDepth      float64
+}
+
 // Encoder encodes audio frames using CELT transform coding.
 // It maintains state across frames for proper audio continuity via energy
 // prediction and overlap-add analysis.
@@ -76,6 +88,9 @@ type Encoder struct {
 	// These are computed from the previous frame and used for current frame's VBR target.
 	// Reference: libopus celt_encoder.c dynalloc_analysis()
 	lastDynalloc DynallocResult
+
+	// Debug hook for capturing per-frame CELT VBR target stats.
+	targetStatsHook func(CeltTargetStats)
 
 	// Hybrid mode flag
 	// When true, postfilter flag encoding is skipped per RFC 6716 Section 3.2
@@ -248,6 +263,20 @@ func NewEncoder(channels int) *Encoder {
 	// Energy arrays default to zero after allocation (matches libopus init).
 
 	return e
+}
+
+// SetTargetStatsHook installs a callback that receives per-frame CELT VBR targets.
+func (e *Encoder) SetTargetStatsHook(fn func(CeltTargetStats)) {
+	e.targetStatsHook = fn
+}
+
+func (e *Encoder) emitTargetStats(stats CeltTargetStats, baseBits, targetBits int) {
+	if e.targetStatsHook == nil {
+		return
+	}
+	stats.BaseBits = baseBits
+	stats.TargetBits = targetBits
+	e.targetStatsHook(stats)
 }
 
 // Reset clears encoder state for a new stream.

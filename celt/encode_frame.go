@@ -189,7 +189,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Match libopus run_prefilter enable gating for top-level Opus-driven CELT.
 	// For standalone CELT mode we keep first-frame gating to preserve existing behavior
 	// expected by local unit tests.
-	enabled := start == 0 && targetBytes > 12*e.channels && !e.IsHybrid() && !isSilence && re.Tell()+16 <= targetBits
+	enabled := lm > 0 && start == 0 && targetBytes > 12*e.channels && !e.IsHybrid() && !isSilence && re.Tell()+16 <= targetBits
 	if e.dcRejectEnabled && e.frameCount == 0 && !e.vbr {
 		enabled = false
 	}
@@ -820,7 +820,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	if signalBandwidth < 0 {
 		signalBandwidth = 0
 	}
-
+	if lm == 0 && signalBandwidth > 13 {
+		// LM=0 (2.5ms) benefits from capping effective coded bandwidth.
+		signalBandwidth = 13
+	}
 	allocResult := e.computeAllocationScratch(
 		re,
 		totalBitsQ3,
@@ -1361,14 +1364,24 @@ func (e *Encoder) computeTargetBits(frameSize int) int {
 		baseTargetQ3 = 0
 	}
 
-	// For VBR mode, apply boost based on signal characteristics
-	// This is a simplified version of libopus compute_vbr()
-	targetQ3 := e.computeVBRTarget(baseTargetQ3, frameSize)
+	// For VBR mode, apply boost based on signal characteristics.
+	var targetQ3 int
+	var stats *CeltTargetStats
+	if e.targetStatsHook == nil {
+		targetQ3 = e.computeVBRTarget(baseTargetQ3, frameSize, nil)
+	} else {
+		s := CeltTargetStats{FrameSize: frameSize}
+		stats = &s
+		targetQ3 = e.computeVBRTarget(baseTargetQ3, frameSize, stats)
+	}
 
 	// Convert back from Q3 to bits
 	// Reference: libopus line 2480: nbAvailableBytes = (target+(1<<(BITRES+2)))>>(BITRES+3)
 	// For bits (not bytes): target_bits = (targetQ3 + 4) >> 3
 	targetBits := (targetQ3 + (1 << (bitRes - 1))) >> bitRes
+	if stats != nil {
+		e.emitTargetStats(*stats, baseBits, targetBits)
+	}
 
 	// Clamp to reasonable bounds
 	// Minimum: 2 bytes (16 bits)
@@ -1401,7 +1414,7 @@ func (e *Encoder) computeTargetBits(frameSize int) int {
 // - floor_depth: signal depth floor based on maxDepth from dynalloc
 //
 // All values are in Q3 format (8ths of bits).
-func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int) int {
+func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, stats *CeltTargetStats) int {
 	mode := GetModeConfig(frameSize)
 	lm := mode.LM
 	nbBands := mode.EffBands
@@ -1430,13 +1443,16 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int) int {
 	// We use the previous frame's analysis (stored in lastDynalloc).
 	totBoost := e.lastDynalloc.TotBoost
 	if totBoost == 0 {
-		// Fallback for first frame or when dynalloc not computed
+		// Fallback for first frame or when dynalloc is unavailable (e.g. LM=0).
 		totBoost = 200 << bitRes // ~200 bits boost (in Q3)
 	}
 	calibration := 19 << lm
 	targetQ3 += totBoost - calibration
 	if targetQ3 < 0 {
 		targetQ3 = 0
+	}
+	if stats != nil {
+		stats.DynallocBoost = totBoost - calibration
 	}
 
 	// Apply transient/tf_estimate boost
@@ -1454,6 +1470,9 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int) int {
 	if tfDiff > 0 {
 		boost := (targetQ3 * tfDiff * 2) >> 15
 		targetQ3 += boost
+		if stats != nil {
+			stats.TFBoost = boost
+		}
 	}
 
 	// Apply tonality boost (biggest contributor for tonal signals like sine waves)
@@ -1505,6 +1524,9 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int) int {
 		// target = min(target, floor_depth)
 		if targetQ3 > floorDepth {
 			targetQ3 = floorDepth
+			if stats != nil {
+				stats.FloorLimited = true
+			}
 		}
 	}
 
@@ -1513,6 +1535,11 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int) int {
 	maxTarget := 2 * baseTargetQ3
 	if targetQ3 > maxTarget {
 		targetQ3 = maxTarget
+	}
+
+	if stats != nil {
+		stats.MaxDepth = maxDepth
+		stats.Tonality = tonality
 	}
 
 	return targetQ3
