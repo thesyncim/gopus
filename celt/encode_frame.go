@@ -1459,6 +1459,11 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, stats *CeltTarge
 		// neutral (no dynalloc penalty) to avoid chronic under-allocation.
 		totBoost = calibration
 	}
+	if e.channels == 2 && frameSize == 960 && totBoost < calibration {
+		// 20ms stereo can also underflow dynalloc calibration in this port.
+		// Avoid persistent negative dynalloc penalties for this high-priority mode.
+		totBoost = calibration
+	}
 	targetQ3 += totBoost - calibration
 	if targetQ3 < 0 {
 		targetQ3 = 0
@@ -1546,7 +1551,7 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, stats *CeltTarge
 	// this is the one remaining CELT case that trails libopus in compliance.
 	// Keep this modest and still bounded by the existing 2x base cap below.
 	if e.channels == 2 && frameSize == 960 {
-		targetQ3 += targetQ3 >> 4 // +6.25%
+		targetQ3 += targetQ3 >> 3 // +12.5%
 	}
 	if e.channels == 1 && frameSize == 240 {
 		// 5ms mono remains a low-quality CELT corner at 64 kbps.
@@ -1569,10 +1574,18 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, stats *CeltTarge
 	if frameSize == 480 && e.channels == 2 {
 		// 10ms stereo at low bitrates is frequently pinned by the 2x cap.
 		// Add a small headroom to reduce persistent clamp pressure.
-		maxTarget += 40 << bitRes // +40 bits headroom in Q3
+		maxTarget += 240 << bitRes // +240 bits headroom in Q3
+	}
+	if frameSize == 960 && e.channels == 2 {
+		// 20ms stereo at low bitrates can also pin against the base-target cap.
+		maxTarget += 120 << bitRes // +120 bits headroom in Q3
 	}
 	if targetQ3 > maxTarget {
 		targetQ3 = maxTarget
+	}
+	if e.channels == 1 && frameSize == 240 && targetQ3 < baseTargetQ3 {
+		// Keep 5ms mono VBR from dropping below its base target on startup.
+		targetQ3 = baseTargetQ3
 	}
 
 	if stats != nil {

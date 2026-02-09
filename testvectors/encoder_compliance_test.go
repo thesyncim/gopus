@@ -402,7 +402,10 @@ func runEncoderComplianceTest(t *testing.T, mode encoder.Mode, bandwidth types.B
 	case encoder.ModeCELT:
 		enc.SetSignalType(types.SignalMusic)
 	}
-	captureCELTTargetStats := mode == encoder.ModeCELT && (frameSize == 120 || (frameSize == 480 && channels == 2))
+	captureCELTTargetStats := mode == encoder.ModeCELT && (frameSize == 120 ||
+		(frameSize == 240 && channels == 1) ||
+		(frameSize == 480 && channels == 2) ||
+		(frameSize == 960 && channels == 2))
 	var celtTargetStats []celt.CeltTargetStats
 	if captureCELTTargetStats {
 		celtTargetStats = make([]celt.CeltTargetStats, 0, numFrames)
