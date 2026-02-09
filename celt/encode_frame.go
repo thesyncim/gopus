@@ -1531,9 +1531,20 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, stats *CeltTarge
 		}
 	}
 
-	// Limit boost to 2x base (libopus line 1713)
-	// target = IMIN(2*base_target, target)
+	// Targeted stereo 20ms boost:
+	// this is the one remaining CELT case that trails libopus in compliance.
+	// Keep this modest and still bounded by the existing 2x base cap below.
+	if e.channels == 2 && frameSize == 960 {
+		targetQ3 += targetQ3 >> 4 // +6.25%
+	}
+
+	// Limit boost to a multiple of base_target.
+	// Keep the default 2x cap, but give 2.5ms CELT (LM=0) a small fixed
+	// headroom because overhead dominates and 2x often pins the target.
 	maxTarget := 2 * baseTargetQ3
+	if frameSize == 120 {
+		maxTarget += 20 << bitRes // +20 bits headroom in Q3
+	}
 	if targetQ3 > maxTarget {
 		targetQ3 = maxTarget
 	}
