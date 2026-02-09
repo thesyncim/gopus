@@ -1294,12 +1294,14 @@ func computeThetaExt(ctx *bandCtx, sctx *splitCtx, x, y []float64, n int, b *int
 	itheta := 0
 	ithetaQ30 := 0
 	inv := 0
+	if ctx.encode {
+		// Match libopus: derive raw theta before qn decisions so qn==1
+		// can still drive phase inversion signaling.
+		ithetaQ30 = stereoIthetaQ30(x, y, stereo)
+		itheta = ithetaQ30 >> 16
+	}
 	if qn != 1 {
 		if ctx.encode {
-			// Compute Q30 precision theta for extended encoding
-			ithetaQ30 = stereoIthetaQ30(x, y, stereo)
-			itheta = ithetaQ30 >> 16
-
 			// Apply theta biasing for stereo RDO.
 			// When thetaRound == 0: normal rounding (default)
 			// When thetaRound != 0: bias toward 0/16384 (away from equal split)
@@ -1477,25 +1479,38 @@ func computeThetaExt(ctx *bandCtx, sctx *splitCtx, x, y []float64, n int, b *int
 			}
 		}
 	} else if stereo {
+		if ctx.encode {
+			// Match libopus: for intensity stereo bands, inversion is selected
+			// from the raw theta and then entropy-coded as a single flag.
+			if itheta > 8192 && !ctx.disableInv {
+				inv = 1
+			} else {
+				inv = 0
+			}
+			if inv != 0 && y != nil {
+				for i := range y {
+					y[i] = -y[i]
+				}
+			}
+			intensityStereoWeighted(x, y, ctx.bandEnergy(0), ctx.bandEnergy(1))
+		}
 		if *b > 2<<bitRes && ctx.remainingBits > 2<<bitRes {
 			if ctx.encode {
 				if ctx.re != nil {
-					ctx.re.EncodeBit(0, 2)
+					if inv != 0 {
+						ctx.re.EncodeBit(1, 2)
+					} else {
+						ctx.re.EncodeBit(0, 2)
+					}
 				}
 			} else if ctx.rd != nil {
 				inv = ctx.rd.DecodeBit(2)
 			}
+		} else {
+			inv = 0
 		}
 		if ctx.disableInv {
 			inv = 0
-		}
-		if ctx.encode && stereo && inv != 0 && y != nil {
-			for i := range y {
-				y[i] = -y[i]
-			}
-		}
-		if ctx.encode && stereo {
-			intensityStereoWeighted(x, y, ctx.bandEnergy(0), ctx.bandEnergy(1))
 		}
 		itheta = 0
 		ithetaQ30 = 0
@@ -2615,7 +2630,7 @@ func quantAllBandsDecodeWithScratch(rd *rangecoding.Decoder, channels, frameSize
 // quantAllBandsEncodeScratch is the scratch-aware version of quantAllBandsEncode.
 func quantAllBandsEncodeScratch(re *rangecoding.Encoder, channels, frameSize, lm int, start, end int,
 	x, y []float64, pulses []int, shortBlocks int, spread int, tapset int, dualStereo, intensity int,
-	tfRes []int, totalBitsQ3 int, balance int, codedBands int, seed *uint32, complexity int,
+	tfRes []int, totalBitsQ3 int, balance int, codedBands int, disableInv bool, seed *uint32, complexity int,
 	bandE []float64, extEnc *rangecoding.Encoder, extraBits []int, scratch *bandEncodeScratch) (collapse []byte) {
 	if re == nil {
 		return nil
@@ -2696,7 +2711,7 @@ func quantAllBandsEncodeScratch(re *rangecoding.Encoder, channels, frameSize, lm
 		// Resynth must be enabled so lowband folding uses reconstructed data.
 		// This matches libopus builds with RESYNTH enabled and improves quality.
 		resynth:         true,
-		disableInv:      false,
+		disableInv:      disableInv,
 		avoidSplitNoise: B > 1,
 		tapset:          tapset,
 		encScratch:      scratch,

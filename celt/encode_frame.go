@@ -879,6 +879,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		totalBitsAllQ3,
 		allocResult.Balance,
 		allocResult.CodedBands,
+		e.phaseInversionDisabled,
 		&e.rng,
 		e.complexity,
 		bandE,
