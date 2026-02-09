@@ -1451,6 +1451,8 @@ func (e *Encoder) ensureCELTEncoder() {
 		e.celtEncoder.SetTargetStatsHook(e.celtStatsHook)
 		// Opus encoder already applies dc_reject at the top level.
 		e.celtEncoder.SetDCRejectEnabled(false)
+		// Opus encoder already applies CELT delay compensation at the top level.
+		e.celtEncoder.SetDelayCompensationEnabled(false)
 	}
 }
 

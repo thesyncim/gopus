@@ -167,7 +167,7 @@ func buildScenarios() ([]scenario, error) {
 		}
 	}
 
-	add(encodeMonoFrame("mono_20ms_single", 64000, generateSineWave(440.0, 960)))
+	add(encodeMonoFrames("mono_20ms_single", 64000, buildMonoSineFrames(440.0, 960, 3)))
 	add(encodeStereoFrame("stereo_20ms_single", 128000, generateStereoSineWave(440.0, 880.0, 960)))
 	add(encodeMonoFrame("mono_20ms_silence", 64000, make([]float64, 960)))
 	add(encodeMonoFrames("mono_20ms_multiframe", 64000, [][]float64{
@@ -177,7 +177,7 @@ func buildScenarios() ([]scenario, error) {
 		generateSineWave(740.0, 960),
 		generateSineWave(840.0, 960),
 	}))
-	add(encodeMonoFrame("mono_20ms_chirp", 64000, buildMonoFrameChirp(960, 180.0, 5200.0)))
+	add(encodeMonoFrames("mono_20ms_chirp", 64000, buildMonoChirpFrames(960, 3, 180.0, 5200.0)))
 	add(encodeMonoFrame("mono_20ms_impulse", 48000, buildMonoFrameImpulse(960)))
 	add(encodeMonoFrame("mono_20ms_noise", 32000, buildMonoFramePseudoNoise(960)))
 	add(encodeMonoFrame("mono_20ms_lowamp", 24000, scaleSignal(generateSineWave(880.0, 960), 0.12)))
@@ -233,6 +233,45 @@ func buildMonoFrameChirp(samples int, startHz, endHz float64) []float64 {
 		out[i] = amp * math.Sin(2*math.Pi*freq*t)
 	}
 	return out
+}
+
+func buildMonoSineFrames(freqHz float64, frameSize, numFrames int) [][]float64 {
+	total := frameSize * numFrames
+	all := make([]float64, total)
+	for i := 0; i < total; i++ {
+		t := float64(i) / 48000.0
+		all[i] = 0.5 * math.Sin(2*math.Pi*freqHz*t)
+	}
+	frames := make([][]float64, numFrames)
+	for i := 0; i < numFrames; i++ {
+		start := i * frameSize
+		end := start + frameSize
+		frame := make([]float64, frameSize)
+		copy(frame, all[start:end])
+		frames[i] = frame
+	}
+	return frames
+}
+
+func buildMonoChirpFrames(frameSize, numFrames int, startHz, endHz float64) [][]float64 {
+	total := frameSize * numFrames
+	all := make([]float64, total)
+	for i := 0; i < total; i++ {
+		t := float64(i) / 48000.0
+		progress := float64(i) / float64(total-1)
+		freq := startHz + (endHz-startHz)*progress
+		amp := 0.48 * (0.7 + 0.3*math.Sin(2*math.Pi*2.0*t))
+		all[i] = amp * math.Sin(2*math.Pi*freq*t)
+	}
+	frames := make([][]float64, numFrames)
+	for i := 0; i < numFrames; i++ {
+		start := i * frameSize
+		end := start + frameSize
+		frame := make([]float64, frameSize)
+		copy(frame, all[start:end])
+		frames[i] = frame
+	}
+	return frames
 }
 
 func buildMonoFrameImpulse(samples int) []float64 {

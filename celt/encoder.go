@@ -122,6 +122,11 @@ type Encoder struct {
 	// so this should be false to avoid double filtering.
 	dcRejectEnabled bool
 
+	// delayCompensationEnabled controls whether EncodeFrame prepends the
+	// Fs/250 CELT lookahead history. Standalone CELT defaults this to true;
+	// top-level Opus wiring should disable it to avoid double-compensation.
+	delayCompensationEnabled bool
+
 	// Delay buffer for lookahead compensation (matches libopus delay_compensation)
 	// libopus uses Fs/250 = 192 samples at 48kHz for delay compensation.
 	// This provides a 4ms lookahead that allows for better transient handling.
@@ -244,6 +249,10 @@ func NewEncoder(channels int) *Encoder {
 
 		// Apply dc_reject by default for standalone CELT usage
 		dcRejectEnabled: true,
+
+		// Standalone CELT defaults to Opus-style delay compensation.
+		// Top-level Opus integration should disable this to avoid double-applying.
+		delayCompensationEnabled: true,
 
 		// Delay buffer for lookahead (192 samples at 48kHz = 4ms)
 		// This matches libopus delay_compensation
@@ -402,6 +411,18 @@ func (e *Encoder) SetDCRejectEnabled(enabled bool) {
 // DCRejectEnabled reports whether dc_reject is applied in EncodeFrame.
 func (e *Encoder) DCRejectEnabled() bool {
 	return e.dcRejectEnabled
+}
+
+// SetDelayCompensationEnabled controls whether EncodeFrame prepends Fs/250
+// lookahead history before CELT analysis/quantization.
+func (e *Encoder) SetDelayCompensationEnabled(enabled bool) {
+	e.delayCompensationEnabled = enabled
+}
+
+// DelayCompensationEnabled reports whether EncodeFrame applies lookahead
+// delay compensation.
+func (e *Encoder) DelayCompensationEnabled() bool {
+	return e.delayCompensationEnabled
 }
 
 // Complexity returns the current complexity setting.

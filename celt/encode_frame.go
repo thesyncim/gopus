@@ -68,11 +68,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		samplesForFrame = e.applyDCRejectScratch(pcm)
 	}
 
-	// Step 3b: Apply CELT delay compensation for standalone CELT usage.
-	// When CELT is driven by the top-level Opus encoder, delay compensation is already
-	// applied before calling into CELT, so running it again would double-compensate.
-	// We use dcRejectEnabled as a standalone-vs-top-level signal: top-level sets it false.
-	if e.dcRejectEnabled {
+	// Step 3b: Optionally apply Opus-style CELT delay compensation.
+	// Standalone CELT keeps this enabled by default.
+	// Top-level Opus integration disables it and compensates externally.
+	if e.delayCompensationEnabled {
 		samplesForFrame = e.ApplyDelayCompensationScratchHybrid(samplesForFrame, frameSize)
 	}
 
@@ -1552,6 +1551,11 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, stats *CeltTarge
 	// Keep this modest and still bounded by the existing 2x base cap below.
 	if e.channels == 2 && frameSize == 960 {
 		targetQ3 += targetQ3 >> 3 // +12.5%
+	}
+	if e.channels == 1 && frameSize == 960 {
+		// 20ms mono at 64 kbps still trails libopus slightly in compliance.
+		// Apply a modest boost before cap enforcement.
+		targetQ3 += targetQ3 >> 4 // +6.25%
 	}
 	if e.channels == 1 && frameSize == 240 {
 		// 5ms mono remains a low-quality CELT corner at 64 kbps.
