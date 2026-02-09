@@ -478,14 +478,17 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		}
 	case ModeCELT:
 		celtPCM := framePCM
-		// Sub-10ms CELT frames follow a low-delay path in libopus wrappers.
-		// Avoid injecting Opus delay compensation for 2.5/5ms CELT packets.
-		if frameSize >= 240 {
-			celtPCM = e.applyDelayCompensation(framePCM, frameSize)
-		}
 		if frameSize > 960 {
+			// Long CELT packets are encoded as multi-frame packets.
+			// Keep delay compensation enabled for this path.
+			celtPCM = e.applyDelayCompensation(framePCM, frameSize)
 			packet, err = e.encodeCELTMultiFramePacket(celtPCM, frameSize)
 		} else {
+			// Sub-10ms CELT frames follow a low-delay path in libopus wrappers.
+			// Avoid injecting Opus delay compensation for 2.5ms packets.
+			if frameSize >= 240 {
+				celtPCM = e.applyDelayCompensation(framePCM, frameSize)
+			}
 			frameData, err = e.encodeCELTFrame(celtPCM, frameSize)
 		}
 	default:
