@@ -148,7 +148,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	}
 
 	// Step 5: Initialize range encoder and encode early flags (silence/postfilter)
-	targetBitsRaw := e.computeTargetBits(frameSize)
+	targetBitsRaw := e.computeTargetBits(frameSize, tfEstimate, e.lastPitchChange)
 	targetBytes := (targetBitsRaw + 7) / 8
 	targetBits := targetBytes * 8
 	e.frameBits = targetBits
@@ -169,8 +169,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	re.Shrink(uint32(targetBytes))
 	e.SetRangeEncoder(re)
 
-	isSilence := isFrameSilent(pcm)
 	tell := re.Tell()
+	isSilence := isFrameSilent(pcm)
 	if tell == 1 {
 		if isSilence {
 			re.EncodeBit(1, 15)
@@ -192,10 +192,19 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	if e.dcRejectEnabled && e.frameCount == 0 && !e.vbr {
 		enabled = false
 	}
+	prevPrefilterPeriod := e.prefilterPeriod
+	prevPrefilterGain := e.prefilterGain
 	// Derive the prefilter max-pitch ratio from the same pre-emphasized signal
 	// used by the CELT analysis path; this improves postfilter parity vs libopus.
 	maxPitchRatio := estimateMaxPitchRatio(preemph, e.channels, &e.scratch)
 	pfResult := e.runPrefilter(preemph, frameSize, prefilterTapset, enabled, tfEstimate, targetBytes, toneFreq, toneishness, maxPitchRatio)
+	e.lastPitchChange = false
+	if prevPrefilterPeriod > 0 && (pfResult.gain > 0.4 || prevPrefilterGain > 0.4) {
+		upper := int(1.26 * float64(prevPrefilterPeriod))
+		lower := int(0.79 * float64(prevPrefilterPeriod))
+		e.lastPitchChange = pfResult.pitch > upper || pfResult.pitch < lower
+	}
+
 	if !e.IsHybrid() && start == 0 && re.Tell()+16 <= targetBits {
 		if !pfResult.on {
 			re.EncodeBit(0, 1)
@@ -772,12 +781,12 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// The trim value affects bit allocation bias between lower and higher frequency bands.
 	allocTrim := 5
 	tellForTrim := re.TellFrac()
-	if tellForTrim+(6<<bitRes) <= totalBitsQ3ForDynalloc-totalBoost {
-		effectiveBytesForTrim := targetBits / 8
-		equivRate := ComputeEquivRate(effectiveBytesForTrim, e.channels, lm, e.targetBitrate)
-		allocTrim = AllocTrimAnalysis(
-			normL,
-			energies,
+		if tellForTrim+(6<<bitRes) <= totalBitsQ3ForDynalloc-totalBoost {
+			effectiveBytesForTrim := targetBits / 8
+			equivRate := ComputeEquivRate(effectiveBytesForTrim, e.channels, lm, e.targetBitrate)
+			allocTrim = AllocTrimAnalysis(
+				normL,
+				energies,
 			nbBands,
 			lm,
 			e.channels,
@@ -785,26 +794,28 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			intensity,
 			tfEstimate,
 			equivRate,
-			0.0, // surroundTrim - not implemented yet
-			0.0, // tonalitySlope - not implemented yet
-		)
-
-		trimBoost := 0
-		if e.channels == 1 {
-			trimBoost++
-		}
-		if dualStereo {
-			trimBoost += 5
-		}
-		if trimBoost > 0 {
-			allocTrim += trimBoost
-			if allocTrim > 10 {
-				allocTrim = 10
+				0.0, // surroundTrim - not implemented yet
+				0.0, // tonalitySlope - not implemented yet
+			)
+			if e.channels == 2 {
+				e.lastStereoSaving = UpdateStereoSaving(e.lastStereoSaving, normL, normR, nbBands, lm, intensity)
 			}
-		}
+			trimBoost := 0
+			if e.channels == 1 {
+				trimBoost++
+			}
+			if dualStereo {
+				trimBoost += 5
+			}
+			if trimBoost > 0 {
+				allocTrim += trimBoost
+				if allocTrim > 10 {
+					allocTrim = 10
+				}
+			}
 
-		re.EncodeICDF(allocTrim, trimICDF, 7)
-	}
+			re.EncodeICDF(allocTrim, trimICDF, 7)
+		}
 
 	// Step 12: Compute bit allocation
 	bitsUsed := re.TellFrac()
@@ -1335,15 +1346,9 @@ func (e *Encoder) cbrPayloadBytes(frameSize int) int {
 	return payload
 }
 
-// computeTargetBits computes the target bit budget based on bitrate and frame size.
-// This implements libopus VBR logic from celt_encoder.c compute_vbr().
-//
-// For 64kbps and 20ms frame with VBR:
-// - Base: bitrate * frameSize / 48000 = 1280 bits
-// - VBR can boost up to 2x based on signal characteristics
-//
-// Reference: libopus celt/celt_encoder.c compute_vbr() and VBR computation around line 2435
-func (e *Encoder) computeTargetBits(frameSize int) int {
+// computeTargetBits computes the target CELT bit budget in bits.
+// Reference: libopus celt/celt_encoder.c compute_vbr().
+func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChange bool) int {
 	// CBR path uses fixed payload size.
 	if !e.vbr {
 		return e.cbrPayloadBytes(frameSize) * 8
@@ -1368,11 +1373,11 @@ func (e *Encoder) computeTargetBits(frameSize int) int {
 	var targetQ3 int
 	var stats *CeltTargetStats
 	if e.targetStatsHook == nil {
-		targetQ3 = e.computeVBRTarget(baseTargetQ3, frameSize, nil)
+		targetQ3 = e.computeVBRTarget(baseTargetQ3, frameSize, tfEstimate, pitchChange, nil)
 	} else {
 		s := CeltTargetStats{FrameSize: frameSize}
 		stats = &s
-		targetQ3 = e.computeVBRTarget(baseTargetQ3, frameSize, stats)
+		targetQ3 = e.computeVBRTarget(baseTargetQ3, frameSize, tfEstimate, pitchChange, stats)
 	}
 
 	// Convert back from Q3 to bits
@@ -1390,13 +1395,6 @@ func (e *Encoder) computeTargetBits(frameSize int) int {
 		targetBits = 16
 	}
 	maxBits := (1275 - 1) * 8 // payload only (TOC consumes 1 byte)
-	if e.channels == 1 && frameSize == 960 {
-		// For mono 20ms, cap at ~320 bytes (reasonable VBR max for 64kbps)
-		maxBits = baseBits * 2 // Up to 2x boost
-	}
-	if maxBits > (1275-1)*8 {
-		maxBits = (1275 - 1) * 8
-	}
 	if targetBits > maxBits {
 		targetBits = maxBits
 	}
@@ -1404,192 +1402,133 @@ func (e *Encoder) computeTargetBits(frameSize int) int {
 	return targetBits
 }
 
-// computeVBRTarget applies VBR boosting to the base target.
-// This mirrors libopus compute_vbr() from celt_encoder.c lines 1604-1716.
-//
-// Key boosts applied:
-// - tot_boost: dynalloc analysis boost from previous frame
-// - tf_estimate: transient boost (from TransientAnalysis)
-// - tonality: tonal signal boost (approximated from spectrum analysis)
-// - floor_depth: signal depth floor based on maxDepth from dynalloc
-//
-// All values are in Q3 format (8ths of bits).
-func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, stats *CeltTargetStats) int {
+// computeVBRTarget applies libopus-style CELT VBR shaping in Q3 units.
+func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float64, pitchChange bool, stats *CeltTargetStats) int {
 	mode := GetModeConfig(frameSize)
 	lm := mode.LM
 	nbBands := mode.EffBands
 
-	// Compute coded_bins: number of MDCT bins being coded
-	// Reference: libopus line 1623: coded_bins = eBands[coded_bands]<<LM
 	codedBands := nbBands
 	if e.lastCodedBands > 0 && e.lastCodedBands < nbBands {
 		codedBands = e.lastCodedBands
 	}
+	if codedBands < 0 {
+		codedBands = 0
+	}
+	if codedBands >= len(EBands) {
+		codedBands = len(EBands) - 1
+	}
 	codedBins := EBands[codedBands] << lm
 	if e.channels == 2 {
-		// For stereo, add intensity stereo bins
-		// Reference: libopus line 1625: coded_bins += eBands[IMIN(intensity, coded_bands)]<<LM
-		intensityBand := codedBands // Default: no intensity stereo
-		codedBins += EBands[intensityBand] << lm
+		// We do not currently maintain a separate intensity state here, so
+		// use codedBands as the equivalent IMIN(intensity, coded_bands).
+		codedStereoBands := codedBands
+		codedBins += EBands[codedStereoBands] << lm
 	}
 
 	targetQ3 := baseTargetQ3
 
-	// Apply dynalloc boost (tot_boost) minus calibration
-	// Reference: libopus line 1650: target += tot_boost-(19<<LM)
-	//
-	// tot_boost comes from DynallocAnalysis() and represents extra bits
-	// needed for bands with high energy variance.
-	// We use the previous frame's analysis (stored in lastDynalloc).
 	totBoost := e.lastDynalloc.TotBoost
-	if totBoost == 0 {
-		// Fallback for first frame or when dynalloc is unavailable (e.g. LM=0).
-		totBoost = 200 << bitRes // ~200 bits boost (in Q3)
+	// VBR target uses previous-frame dynalloc state; bootstrap frame 0 with a
+	// representative boost so one-shot/single-frame encodes are not starved.
+	if totBoost == 0 && e.frameCount == 0 && frameSize == 960 {
+		totBoost = 960 << bitRes
 	}
 	calibration := 19 << lm
-	if e.channels == 1 && frameSize == 240 && totBoost < calibration {
-		// 5ms mono at 64 kbps also tends to sit below dynalloc calibration,
-		// suppressing target bits on most frames.
-		totBoost = calibration
-	}
-	if e.channels == 2 && frameSize == 480 && totBoost < calibration {
-		// In 10ms stereo, dynalloc can repeatedly underflow calibration and
-		// suppress the target budget across most frames. Clamp this case to
-		// neutral (no dynalloc penalty) to avoid chronic under-allocation.
-		totBoost = calibration
-	}
-	if e.channels == 2 && frameSize == 960 && totBoost < calibration {
-		// 20ms stereo can also underflow dynalloc calibration in this port.
-		// Avoid persistent negative dynalloc penalties for this high-priority mode.
-		totBoost = calibration
-	}
 	targetQ3 += totBoost - calibration
+	if stats != nil {
+		stats.DynallocBoost = totBoost - calibration
+		stats.PitchChange = pitchChange
+	}
+
+	// Stereo savings (libopus compute_vbr()).
+	if e.channels == 2 && codedBins > 0 {
+		codedStereoBands := codedBands
+		codedStereoDof := (EBands[codedStereoBands] << lm) - codedStereoBands
+		if codedStereoDof > 0 {
+			maxFrac := 0.8 * float64(codedStereoDof) / float64(codedBins)
+			stereoSaving := e.lastStereoSaving
+			if stereoSaving > 1 {
+				stereoSaving = 1
+			}
+			saveA := int(maxFrac * float64(targetQ3))
+			saveB := int((stereoSaving - 0.1) * float64(codedStereoDof<<bitRes))
+			saving := saveA
+			if saveB < saving {
+				saving = saveB
+			}
+			targetQ3 -= saving
+		}
+	}
+
 	if targetQ3 < 0 {
 		targetQ3 = 0
 	}
+
+	// Transient boost with average compensation.
+	tfCalibration := 0.044
+	if tfEstimate < 0 {
+		tfEstimate = 0
+	}
+	if tfEstimate > 1 {
+		tfEstimate = 1
+	}
+	tfBoost := int(2.0 * (tfEstimate - tfCalibration) * float64(targetQ3))
+	if tfBoost < 0 {
+		tfBoost = 0
+	}
+	targetQ3 += tfBoost
 	if stats != nil {
-		stats.DynallocBoost = totBoost - calibration
+		stats.TFBoost = tfBoost
 	}
 
-	// Apply transient/tf_estimate boost
-	// Reference: libopus line 1652-1653:
-	// tf_calibration = QCONST16(0.044f,14);
-	// target += (opus_int32)SHL32(MULT16_32_Q15(tf_estimate-tf_calibration, target),1);
-	//
-	// tf_estimate is in Q14 format (0.0 to 1.0 scaled by 16384)
-	// For steady-state audio (non-transient), tf_estimate is typically 0.1-0.3
-	// We use 0.15 as a reasonable default.
-	tfEstimateQ14 := 2458   // ~0.15 in Q14
-	tfCalibrationQ14 := 721 // 0.044 in Q14
-	tfDiff := tfEstimateQ14 - tfCalibrationQ14
-	// Boost: target *= (1 + 2 * tfDiff / 32768)
-	if tfDiff > 0 {
-		boost := (targetQ3 * tfDiff * 2) >> 15
-		targetQ3 += boost
-		if stats != nil {
-			stats.TFBoost = boost
-		}
-	}
-
-	// Apply tonality boost (biggest contributor for tonal signals like sine waves)
-	// Reference: libopus lines 1657-1669
-	// tonal = MAX16(0.f,analysis->tonality-.15f)-0.12f
-	// tonal_target = target + (coded_bins<<BITRES)*1.2f*tonal
-	//
-	// Use stored tonality from previous frame's analysis (via Spectral Flatness Measure).
-	// Libopus similarly uses analysis from the previous frame for current VBR decisions.
-	// The tonality value ranges from 0 (noise) to 1 (pure tone).
-	// For tonal signals (sine waves, pitched instruments), values can reach 0.95+.
+	// Tonality boost.
 	tonality := e.lastTonality
-	if tonality > 0.15 {
-		tonal := tonality - 0.15 - 0.12 // Apply thresholds from libopus
-		if tonal > 0 {
-			// tonal_boost = coded_bins * BITRES * 1.2 * tonal
-			tonalBoost := int(float64(codedBins<<bitRes) * 1.2 * tonal)
-			targetQ3 += tonalBoost
-		}
+	if tonality < 0 {
+		tonality = 0
 	}
+	if tonality > 1 {
+		tonality = 1
+	}
+	tonal := math.Max(0, tonality-0.15) - 0.12
+	tonalTarget := targetQ3
+	if tonal > 0 {
+		tonalTarget += int(float64(codedBins<<bitRes) * 1.2 * tonal)
+	}
+	if pitchChange {
+		tonalTarget += int(float64(codedBins<<bitRes) * 0.8)
+	}
+	targetQ3 = tonalTarget
 
-	// Apply floor_depth limit (prevents over-allocation for low-level signals)
-	// Reference: libopus lines 1682-1693
-	//
-	// maxDepth is the maximum signal level relative to noise floor (in dB),
-	// computed by DynallocAnalysis(). It represents the dynamic range of the signal.
-	// For very quiet signals, maxDepth will be low, limiting the bit allocation.
-	//
-	// The floor_depth limit only applies when maxDepth is LOW (quiet signal).
-	// For normal/loud signals (maxDepth > 20 dB), we skip this clamping.
+	// floor_depth limit from maxDepth.
 	maxDepth := e.lastDynalloc.MaxDepth
-	if maxDepth > -31.0 && maxDepth != 0.0 && maxDepth < 20.0 {
-		// Only apply floor_depth for quiet signals (maxDepth < 20 dB above noise)
-		// This prevents over-allocating bits to signals buried in noise.
-		//
-		// For quiet signals, limit target to a fraction based on maxDepth.
-		// At maxDepth=0, limit to target/8; at maxDepth=20, no limit.
-		depthFraction := maxDepth / 20.0
-		if depthFraction < 0 {
-			depthFraction = 0
-		}
-		floorDepth := int(float64(targetQ3) * (0.125 + 0.875*depthFraction))
-
-		// floor_depth = max(floor_depth, target/4)
-		if floorDepth < targetQ3/4 {
-			floorDepth = targetQ3 / 4
-		}
-
-		// target = min(target, floor_depth)
-		if targetQ3 > floorDepth {
-			targetQ3 = floorDepth
-			if stats != nil {
-				stats.FloorLimited = true
-			}
+	bins := 0
+	if nbBands >= 2 {
+		bins = EBands[nbBands-2] << lm
+	}
+	floorDepth := int(float64((e.channels*bins)<<bitRes) * maxDepth)
+	if floorDepth < (targetQ3 >> 2) {
+		floorDepth = targetQ3 >> 2
+	}
+	if targetQ3 > floorDepth {
+		targetQ3 = floorDepth
+		if stats != nil {
+			stats.FloorLimited = true
 		}
 	}
 
-	// Targeted stereo 20ms boost:
-	// this is the one remaining CELT case that trails libopus in compliance.
-	// Keep this modest and still bounded by the existing 2x base cap below.
-	if e.channels == 2 && frameSize == 960 {
-		targetQ3 += targetQ3 >> 3 // +12.5%
-	}
-	if e.channels == 1 && frameSize == 960 {
-		// 20ms mono at 64 kbps still trails libopus slightly in compliance.
-		// Apply a modest boost before cap enforcement.
-		targetQ3 += targetQ3 >> 4 // +6.25%
-	}
-	if e.channels == 1 && frameSize == 240 {
-		// 5ms mono remains a low-quality CELT corner at 64 kbps.
-		// Apply a modest boost before cap enforcement.
-		targetQ3 += targetQ3 >> 3 // +12.5%
-	}
-	if e.channels == 2 && frameSize == 480 {
-		// 10ms stereo at 64 kbps is still quality-limited relative to other CELT
-		// configurations. Apply a modest boost before cap enforcement.
-		targetQ3 += targetQ3 >> 3 // +12.5%
+	// Constrained VBR makes target changes less aggressive.
+	if e.constrainedVBR {
+		targetQ3 = baseTargetQ3 + int(0.67*float64(targetQ3-baseTargetQ3))
 	}
 
-	// Limit boost to a multiple of base_target.
-	// Keep the default 2x cap, but give 2.5ms CELT (LM=0) a small fixed
-	// headroom because overhead dominates and 2x often pins the target.
+	// Don't allow more than doubling the base target.
 	maxTarget := 2 * baseTargetQ3
-	if frameSize == 120 {
-		maxTarget += 20 << bitRes // +20 bits headroom in Q3
-	}
-	if frameSize == 480 && e.channels == 2 {
-		// 10ms stereo at low bitrates is frequently pinned by the 2x cap.
-		// Add a small headroom to reduce persistent clamp pressure.
-		maxTarget += 240 << bitRes // +240 bits headroom in Q3
-	}
-	if frameSize == 960 && e.channels == 2 {
-		// 20ms stereo at low bitrates can also pin against the base-target cap.
-		maxTarget += 120 << bitRes // +120 bits headroom in Q3
-	}
 	if targetQ3 > maxTarget {
 		targetQ3 = maxTarget
 	}
-	if e.channels == 1 && frameSize == 240 && targetQ3 < baseTargetQ3 {
-		// Keep 5ms mono VBR from dropping below its base target on startup.
-		targetQ3 = baseTargetQ3
+	if targetQ3 < 0 {
+		targetQ3 = 0
 	}
 
 	if stats != nil {

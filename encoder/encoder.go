@@ -484,9 +484,15 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 			celtPCM = e.applyDelayCompensation(framePCM, frameSize)
 			packet, err = e.encodeCELTMultiFramePacket(celtPCM, frameSize)
 		} else {
-			// Sub-10ms CELT frames follow a low-delay path in libopus wrappers.
-			// Avoid injecting Opus delay compensation for 2.5ms packets.
-			if frameSize >= 240 {
+			// Forced CELT mode maps to low-delay/restricted-CELT behavior in
+			// libopus (no top-level Fs/250 delay compensation). For auto-selected
+			// CELT in regular audio mode, keep delay compensation for >=5ms frames.
+			applyDelayComp := frameSize >= 240
+			if e.mode == ModeCELT {
+				applyDelayComp = false
+			}
+			// Sub-10ms CELT frames follow a low-delay path.
+			if applyDelayComp {
 				celtPCM = e.applyDelayCompensation(framePCM, frameSize)
 			}
 			frameData, err = e.encodeCELTFrame(celtPCM, frameSize)

@@ -160,7 +160,6 @@ func computeStereoCorrelationTrim(normL, normR []float64, nbBands, lm, intensity
 	// libopus uses inner product of normalized coefficients between channels
 
 	var sum float64
-	var count int
 
 	// Compute correlation for first 8 bands
 	for band := 0; band < 8 && band < nbBands; band++ {
@@ -182,12 +181,9 @@ func computeStereoCorrelationTrim(normL, normR []float64, nbBands, lm, intensity
 			partial += normL[j] * normR[j]
 		}
 		sum += partial
-		count++
 	}
-
-	if count > 0 {
-		sum /= float64(count)
-	}
+	// Match libopus: always divide by 8 low bands in the average.
+	sum *= 1.0 / 8.0
 
 	// Clamp sum to [-1, 1]
 	if sum > 1.0 {
@@ -230,6 +226,86 @@ func computeStereoCorrelationTrim(normL, normR []float64, nbBands, lm, intensity
 	logXC := math.Log2(1.001 - sum*sum)
 
 	return logXC
+}
+
+// UpdateStereoSaving updates the running stereo_saving estimate used by libopus
+// compute_vbr(). The state is updated once per frame after alloc-trim analysis.
+func UpdateStereoSaving(prev float64, normL, normR []float64, nbBands, lm, intensity int) float64 {
+	if len(normL) == 0 || len(normR) == 0 || nbBands <= 0 {
+		return prev
+	}
+	if intensity < 0 {
+		intensity = 0
+	}
+	if intensity > nbBands {
+		intensity = nbBands
+	}
+
+	var sum float64
+	for band := 0; band < 8 && band < nbBands; band++ {
+		bandStart := EBands[band] << lm
+		bandEnd := EBands[band+1] << lm
+		if bandStart >= len(normL) || bandStart >= len(normR) {
+			break
+		}
+		if bandEnd > len(normL) {
+			bandEnd = len(normL)
+		}
+		if bandEnd > len(normR) {
+			bandEnd = len(normR)
+		}
+		var partial float64
+		for j := bandStart; j < bandEnd; j++ {
+			partial += normL[j] * normR[j]
+		}
+		sum += partial
+	}
+	sum *= 1.0 / 8.0
+	sum = math.Abs(sum)
+	if sum > 1.0 {
+		sum = 1.0
+	}
+
+	minXC := sum
+	for band := 8; band < intensity && band < nbBands; band++ {
+		bandStart := EBands[band] << lm
+		bandEnd := EBands[band+1] << lm
+		if bandStart >= len(normL) || bandStart >= len(normR) {
+			break
+		}
+		if bandEnd > len(normL) {
+			bandEnd = len(normL)
+		}
+		if bandEnd > len(normR) {
+			bandEnd = len(normR)
+		}
+		var partial float64
+		for j := bandStart; j < bandEnd; j++ {
+			partial += normL[j] * normR[j]
+		}
+		partial = math.Abs(partial)
+		if partial < minXC {
+			minXC = partial
+		}
+	}
+	if minXC > 1.0 {
+		minXC = 1.0
+	}
+
+	logXC := math.Log2(math.Max(1e-9, 1.001-sum*sum))
+	logXC2 := math.Max(0.5*logXC, math.Log2(math.Max(1e-9, 1.001-minXC*minXC)))
+	limit := -0.5 * logXC2
+	next := prev + 0.25
+	if next > limit {
+		next = limit
+	}
+	if next < 0 {
+		next = 0
+	}
+	if next > 1 {
+		next = 1
+	}
+	return next
 }
 
 // ComputeEquivRate computes the equivalent bitrate for allocation trim analysis.

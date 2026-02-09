@@ -327,6 +327,7 @@ func logCELTTargetStatsSummary(t *testing.T, frameSize int, stats []celt.CeltTar
 	sumDepth := 0.0
 	floorLimited := 0
 	nonPositiveDynalloc := 0
+	pitchChangeCount := 0
 	lowDepth := 0
 	targetBelowBase := 0
 
@@ -360,6 +361,9 @@ func logCELTTargetStatsSummary(t *testing.T, frameSize int, stats []celt.CeltTar
 		if s.DynallocBoost <= 0 {
 			nonPositiveDynalloc++
 		}
+		if s.PitchChange {
+			pitchChangeCount++
+		}
 		if s.MaxDepth < 0 {
 			lowDepth++
 		}
@@ -370,7 +374,7 @@ func logCELTTargetStatsSummary(t *testing.T, frameSize int, stats []celt.CeltTar
 
 	n := float64(len(stats))
 	t.Logf(
-		"CELT %.1fms target stats: frames=%d base(avg=%d,min=%d,max=%d) target(avg=%d,min=%d,max=%d) floor=%d(%.1f%%) maxDepth(avg=%.2f,min=%.2f,max=%.2f) dynalloc(avg=%.1f,<=0=%d) tf(avg=%.1f) lowDepth=%d target<base=%d",
+		"CELT %.1fms target stats: frames=%d base(avg=%d,min=%d,max=%d) target(avg=%d,min=%d,max=%d) floor=%d(%.1f%%) maxDepth(avg=%.2f,min=%.2f,max=%.2f) dynalloc(avg=%.1f,<=0=%d) tf(avg=%.1f) pitch_change=%d(%.1f%%) lowDepth=%d target<base=%d",
 		float64(frameSize)/48.0,
 		len(stats),
 		int(float64(sumBase)/n), minBase, maxBase,
@@ -379,6 +383,7 @@ func logCELTTargetStatsSummary(t *testing.T, frameSize int, stats []celt.CeltTar
 		sumDepth/n, minDepth, maxDepth,
 		float64(sumDynalloc)/n, nonPositiveDynalloc,
 		float64(sumTF)/n,
+		pitchChangeCount, 100.0*float64(pitchChangeCount)/n,
 		lowDepth,
 		targetBelowBase,
 	)

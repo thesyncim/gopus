@@ -16,6 +16,7 @@ type CeltTargetStats struct {
 	Tonality      float64
 	DynallocBoost int
 	TFBoost       int
+	PitchChange   bool
 	FloorLimited  bool
 	MaxDepth      float64
 }
@@ -83,6 +84,8 @@ type Encoder struct {
 	// Tonality analysis state (for VBR decisions)
 	prevBandLogEnergy []float64 // Previous frame log-energy per band for spectral flux
 	lastTonality      float64   // Running average tonality for smoothing
+	lastStereoSaving  float64   // Running stereo_saving estimate from alloc_trim analysis
+	lastPitchChange   bool      // Previous frame pitch_change flag for VBR targeting
 
 	// Dynamic allocation analysis state (for VBR decisions)
 	// These are computed from the previous frame and used for current frame's VBR target.
@@ -236,9 +239,11 @@ func NewEncoder(channels int) *Encoder {
 		hfAverage:      0,
 		tapsetDecision: 0,
 
-		// Initialize tonality analysis state
-		prevBandLogEnergy: make([]float64, MaxBands*channels),
-		lastTonality:      0.5, // Start with neutral tonality estimate
+			// Initialize tonality analysis state
+			prevBandLogEnergy: make([]float64, MaxBands*channels),
+			lastTonality:      0.5, // Start with neutral tonality estimate
+			lastStereoSaving:  0.0,
+			lastPitchChange:   false,
 
 		// Pre-emphasized signal buffer for transient analysis overlap
 		// Size is Overlap samples per channel (interleaved for stereo)
@@ -344,6 +349,8 @@ func (e *Encoder) Reset() {
 		e.prevBandLogEnergy[i] = 0
 	}
 	e.lastTonality = 0.5
+	e.lastStereoSaving = 0
+	e.lastPitchChange = false
 
 	// Clear pre-emphasis buffer for transient analysis
 	for i := range e.preemphBuffer {
