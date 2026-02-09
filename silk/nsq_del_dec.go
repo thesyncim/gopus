@@ -505,12 +505,15 @@ func noiseShapeQuantizerDelDec(
 	xQ10 = xQ10[:length]
 	// Sub-slice psDelDec so the compiler eliminates psDelDec[k] bounds checks in k < len(psDelDec).
 	psDelDec = psDelDec[:nStatesDelayedDecision]
-	if len(bQ14) >= ltpOrderConst {
-		_ = bQ14[ltpOrderConst-1]
-	}
+	// Unconditional sub-slice: callers always pass >= ltpOrderConst elements.
+	// Must be unconditional (no if-guard) to avoid SSA phi nodes that block BCE.
+	bQ14 = bQ14[:ltpOrderConst:ltpOrderConst]
 	if shapingLPCOrder > 0 {
 		_ = arShpQ13[shapingLPCOrder-1]
 	}
+	// Unconditional sub-slice: caller always passes [decisionDelay]int32 array slice.
+	// Must be unconditional to avoid SSA phi nodes that block BCE.
+	delayedGainQ10 = delayedGainQ10[:decisionDelay:decisionDelay]
 
 	// Local copy of smplBufIdx to avoid pointer dereference per iteration.
 	localSmplBufIdx := *smplBufIdx
@@ -520,9 +523,9 @@ func noiseShapeQuantizerDelDec(
 	offsetQ10i32 := int32(offsetQ10)
 	lambdaQ10i32 := int32(lambdaQ10)
 
-	// Pre-compute sLTPShpQ14 slice bounds for the shaping harmonic FIR.
-	sLTPShpLen := len(nsq.sLTPShpQ14)
-	sLTPQ15Len := len(sLTPQ15)
+	// NOTE: We intentionally use len(sLTPQ15) and len(nsq.sLTPShpQ14) inline
+	// in guard checks rather than caching them in local variables. This lets
+	// the compiler prove bounds and eliminate bounds checks on the guarded accesses.
 
 	// Pre-compute loop-invariant int64 values to avoid repeated casts/shifts.
 	lfShpQ14Lo := int64(int16(lfShpQ14))
@@ -541,7 +544,7 @@ func noiseShapeQuantizerDelDec(
 		if signalType == typeVoiced {
 			// Unrolled 5-tap LTP filter (ltpOrderConst == 5)
 			ltpPredQ14 = 2
-			if predLagPtrIdx >= 4 && predLagPtrIdx < sLTPQ15Len {
+			if predLagPtrIdx >= 4 && predLagPtrIdx < len(sLTPQ15) {
 				ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[predLagPtrIdx-0], int32(bQ14[0]))
 				ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[predLagPtrIdx-1], int32(bQ14[1]))
 				ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[predLagPtrIdx-2], int32(bQ14[2]))
@@ -550,7 +553,7 @@ func noiseShapeQuantizerDelDec(
 			} else {
 				for tap := 0; tap < ltpOrderConst; tap++ {
 					idx := predLagPtrIdx - tap
-					if idx >= 0 && idx < sLTPQ15Len {
+					if idx >= 0 && idx < len(sLTPQ15) {
 						ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[idx], int32(bQ14[tap]))
 					}
 				}
@@ -562,13 +565,13 @@ func noiseShapeQuantizerDelDec(
 		var nLTPQ14 int32
 		if lag > 0 {
 			shp0, shp1, shp2 := int32(0), int32(0), int32(0)
-			if shpLagPtrIdx >= 0 && shpLagPtrIdx < sLTPShpLen {
+			if shpLagPtrIdx >= 0 && shpLagPtrIdx < len(nsq.sLTPShpQ14) {
 				shp0 = nsq.sLTPShpQ14[shpLagPtrIdx]
 			}
-			if shpLagPtrIdx >= 1 && shpLagPtrIdx-1 < sLTPShpLen {
+			if shpLagPtrIdx >= 1 && shpLagPtrIdx-1 < len(nsq.sLTPShpQ14) {
 				shp1 = nsq.sLTPShpQ14[shpLagPtrIdx-1]
 			}
-			if shpLagPtrIdx >= 2 && shpLagPtrIdx-2 < sLTPShpLen {
+			if shpLagPtrIdx >= 2 && shpLagPtrIdx-2 < len(nsq.sLTPShpQ14) {
 				shp2 = nsq.sLTPShpQ14[shpLagPtrIdx-2]
 			}
 			nLTPQ14 = silk_SMULWB(shp0+shp2, harmShapeFIRPackedQ14) // No saturation needed: Q14 values, sum fits int32
@@ -579,6 +582,10 @@ func noiseShapeQuantizerDelDec(
 
 		xQ10i := xQ10[i]
 		xQ10i4 := xQ10i << 4 // hoisted from k-loop (loop-invariant)
+
+		// BCE hint: localSmplBufIdx is in [0, decisionDelay-1] (ring buffer index).
+		// This eliminates psDD.shapeQ14[localSmplBufIdx] checks inside the k-loop.
+		_ = psDelDec[0].shapeQ14[localSmplBufIdx]
 
 		for k := 0; k < nStatesDelayedDecision; k++ {
 			psDD := &psDelDec[k]
@@ -716,6 +723,12 @@ func noiseShapeQuantizerDelDec(
 			lastSmplIdx -= decisionDelay
 		}
 
+		// BCE hints: prove to the compiler that localSmplBufIdx and lastSmplIdx
+		// are in [0, decisionDelay-1]. This eliminates bounds checks on
+		// the [decisionDelay]int32 ring buffer arrays in the state update loop.
+		_ = psDelDec[0].shapeQ14[localSmplBufIdx]
+		_ = psDelDec[0].shapeQ14[lastSmplIdx]
+
 		rdMin := psSampleState[0][0].rdQ10
 		winner := 0
 		for k := 1; k < nStatesDelayedDecision; k++ {
@@ -757,12 +770,14 @@ func noiseShapeQuantizerDelDec(
 			dst := &psDelDec[rdMaxInd]
 			// Copy only the live LPC window: indices [i .. nsqLpcBufLength+i-1].
 			copy(dst.sLPCQ14[i:nsqLpcBufLength+i], src.sLPCQ14[i:nsqLpcBufLength+i])
-			dst.randState = src.randState
-			dst.qQ10 = src.qQ10
-			dst.xqQ14 = src.xqQ14
-			dst.predQ15 = src.predQ15
-			dst.shapeQ14 = src.shapeQ14
-			dst.sAR2Q14 = src.sAR2Q14
+			// Use copy() instead of array assignment to get vectorized memmove
+			// instead of duffcopy for these [decisionDelay]int32 (160-byte) arrays.
+			copy(dst.randState[:], src.randState[:])
+			copy(dst.qQ10[:], src.qQ10[:])
+			copy(dst.xqQ14[:], src.xqQ14[:])
+			copy(dst.predQ15[:], src.predQ15[:])
+			copy(dst.shapeQ14[:], src.shapeQ14[:])
+			copy(dst.sAR2Q14[:], src.sAR2Q14[:])
 			dst.lfARQ14 = src.lfARQ14
 			dst.diffQ14 = src.diffQ14
 			dst.seed = src.seed
@@ -779,11 +794,11 @@ func noiseShapeQuantizerDelDec(
 				xq[outIdx] = int16(silk_SAT16(silk_RSHIFT_ROUND(silk_SMULWW(psDD.xqQ14[lastSmplIdx], delayedGainQ10[lastSmplIdx]), 8)))
 			}
 			shpOutIdx := localShpBufIdx - decisionDelayActive
-			if shpOutIdx >= 0 && shpOutIdx < sLTPShpLen {
+			if shpOutIdx >= 0 && shpOutIdx < len(nsq.sLTPShpQ14) {
 				nsq.sLTPShpQ14[shpOutIdx] = psDD.shapeQ14[lastSmplIdx]
 			}
 			ltpOutIdx := localLTPBufIdx - decisionDelayActive
-			if ltpOutIdx >= 0 && ltpOutIdx < sLTPQ15Len {
+			if ltpOutIdx >= 0 && ltpOutIdx < len(sLTPQ15) {
 				sLTPQ15[ltpOutIdx] = psDD.predQ15[lastSmplIdx]
 			}
 		}

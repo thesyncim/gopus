@@ -552,16 +552,6 @@ func (e *Encoder) downsample48to16Hybrid(samples []float64, frameSize int) []flo
 		return nil
 	}
 
-	// Convert input to float32 using the shared scratch buffer.
-	totalSamples := frameSize * e.channels
-	if totalSamples > len(samples) {
-		totalSamples = len(samples)
-	}
-	pcm32 := e.scratchPCM32[:totalSamples]
-	for i := 0; i < totalSamples; i++ {
-		pcm32[i] = float32(samples[i])
-	}
-
 	targetSamples := frameSize / 3 // 48kHz -> 16kHz
 	if targetSamples <= 0 {
 		return nil
@@ -570,17 +560,37 @@ func (e *Encoder) downsample48to16Hybrid(samples []float64, frameSize int) []flo
 	e.ensureSILKResampler(16000)
 
 	if e.channels == 1 {
+		// Mono: convert float64 -> float32 into scratch buffer.
+		if frameSize > len(samples) {
+			frameSize = len(samples)
+		}
+		pcm32 := e.scratchPCM32[:frameSize]
+		_ = pcm32[frameSize-1]   // BCE hint
+		_ = samples[frameSize-1] // BCE hint
+		for i := 0; i < frameSize; i++ {
+			pcm32[i] = float32(samples[i])
+		}
 		out := e.ensureSilkResampled(targetSamples)
-		n := e.silkResampler.ProcessInto(pcm32[:frameSize], out)
+		n := e.silkResampler.ProcessInto(pcm32, out)
 		return out[:n]
 	}
 
-	// Stereo: deinterleave, resample per channel, then interleave.
+	// Stereo: convert float64 -> float32 and deinterleave in a single pass.
+	// This avoids a separate full-buffer conversion + separate deinterleave loop.
+	totalSamples := frameSize * 2
+	if totalSamples > len(samples) {
+		totalSamples = len(samples)
+		frameSize = totalSamples / 2
+	}
 	left := e.scratchLeft[:frameSize]
 	right := e.scratchRight[:frameSize]
+	// Trim samples to exact stereo length for BCE elimination.
+	stereoSamples := samples[:frameSize*2]
 	for i := 0; i < frameSize; i++ {
-		left[i] = pcm32[i*2]
-		right[i] = pcm32[i*2+1]
+		// Use two-element sub-slice to prove both accesses in bounds with one check.
+		pair := stereoSamples[i*2 : i*2+2 : i*2+2]
+		left[i] = float32(pair[0])
+		right[i] = float32(pair[1])
 	}
 
 	leftOut := e.ensureSilkResampled(targetSamples)
@@ -596,9 +606,13 @@ func (e *Encoder) downsample48to16Hybrid(samples []float64, frameSize int) []flo
 	}
 
 	interleaved := e.scratchPCM32[:n*2]
+	leftOut = leftOut[:n]
+	rightOut = rightOut[:n]
 	for i := 0; i < n; i++ {
-		interleaved[i*2] = leftOut[i]
-		interleaved[i*2+1] = rightOut[i]
+		// Use two-element sub-slice to prove both accesses in bounds with one check.
+		pair := interleaved[i*2 : i*2+2 : i*2+2]
+		pair[0] = leftOut[i]
+		pair[1] = rightOut[i]
 	}
 
 	return interleaved
