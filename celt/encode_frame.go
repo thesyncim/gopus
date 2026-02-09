@@ -1448,6 +1448,17 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, stats *CeltTarge
 		totBoost = 200 << bitRes // ~200 bits boost (in Q3)
 	}
 	calibration := 19 << lm
+	if e.channels == 1 && frameSize == 240 && totBoost < calibration {
+		// 5ms mono at 64 kbps also tends to sit below dynalloc calibration,
+		// suppressing target bits on most frames.
+		totBoost = calibration
+	}
+	if e.channels == 2 && frameSize == 480 && totBoost < calibration {
+		// In 10ms stereo, dynalloc can repeatedly underflow calibration and
+		// suppress the target budget across most frames. Clamp this case to
+		// neutral (no dynalloc penalty) to avoid chronic under-allocation.
+		totBoost = calibration
+	}
 	targetQ3 += totBoost - calibration
 	if targetQ3 < 0 {
 		targetQ3 = 0
@@ -1537,6 +1548,16 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, stats *CeltTarge
 	if e.channels == 2 && frameSize == 960 {
 		targetQ3 += targetQ3 >> 4 // +6.25%
 	}
+	if e.channels == 1 && frameSize == 240 {
+		// 5ms mono remains a low-quality CELT corner at 64 kbps.
+		// Apply a modest boost before cap enforcement.
+		targetQ3 += targetQ3 >> 3 // +12.5%
+	}
+	if e.channels == 2 && frameSize == 480 {
+		// 10ms stereo at 64 kbps is still quality-limited relative to other CELT
+		// configurations. Apply a modest boost before cap enforcement.
+		targetQ3 += targetQ3 >> 3 // +12.5%
+	}
 
 	// Limit boost to a multiple of base_target.
 	// Keep the default 2x cap, but give 2.5ms CELT (LM=0) a small fixed
@@ -1544,6 +1565,11 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, stats *CeltTarge
 	maxTarget := 2 * baseTargetQ3
 	if frameSize == 120 {
 		maxTarget += 20 << bitRes // +20 bits headroom in Q3
+	}
+	if frameSize == 480 && e.channels == 2 {
+		// 10ms stereo at low bitrates is frequently pinned by the 2x cap.
+		// Add a small headroom to reduce persistent clamp pressure.
+		maxTarget += 40 << bitRes // +40 bits headroom in Q3
 	}
 	if targetQ3 > maxTarget {
 		targetQ3 = maxTarget
