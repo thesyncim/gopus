@@ -466,18 +466,64 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		signalHint = e.autoSignalFromPCM(framePCM, frameSize)
 		// For long-frame SWB auto mode, use VAD probability to pick the
 		// SILK/hybrid-vs-CELT branch, with mild hysteresis to reduce flapping.
+		// Include an edge-energy cue so transient SWB content can leave CELT-only.
 		if e.mode == ModeAuto &&
 			frameSize > 960 &&
 			e.effectiveBandwidth() == types.BandwidthSuperwideband &&
 			e.lastAnalysisValid {
-			vadProb := e.lastAnalysisInfo.VADProb
-			if e.prevLongSWBAutoMode == ModeHybrid {
-				vadProb += 0.15
+			channels := e.channels
+			if channels < 1 {
+				channels = 1
 			}
-			if vadProb >= 0.35 {
+			var energy, diffEnergy float64
+			var prev float64
+			samples := frameSize
+			for i := 0; i < samples; i++ {
+				var s float64
+				if channels == 2 {
+					idx := i * 2
+					if idx+1 >= len(framePCM) {
+						break
+					}
+					s = 0.5 * (framePCM[idx] + framePCM[idx+1])
+				} else {
+					if i >= len(framePCM) {
+						break
+					}
+					s = framePCM[i]
+				}
+				energy += s * s
+				if i > 0 {
+					d := s - prev
+					diffEnergy += d * d
+				}
+				prev = s
+			}
+			edgeRatio := 0.0
+			if energy > 0 {
+				edgeRatio = diffEnergy / (energy + 1e-12)
+			}
+
+			vadProb := e.lastAnalysisInfo.VADProb
+			// Strong transient-like SWB content often needs hybrid coding even at
+			// moderate activity scores.
+			edgeVoice := edgeRatio >= 0.08 && e.lastAnalysisInfo.MusicProb >= 0.90
+			// Once in hybrid due transient evidence, require weaker evidence to stay
+			// there to avoid single-frame flapping on borderline blocks.
+			if !edgeVoice && e.prevLongSWBAutoMode == ModeHybrid && edgeRatio >= 0.06 {
+				edgeVoice = true
+			}
+			if edgeVoice {
 				signalHint = types.SignalVoice
 			} else {
-				signalHint = types.SignalMusic
+				if e.prevLongSWBAutoMode == ModeHybrid {
+					vadProb += 0.15
+				}
+				if vadProb >= 0.35 {
+					signalHint = types.SignalVoice
+				} else {
+					signalHint = types.SignalMusic
+				}
 			}
 		}
 	} else {
@@ -1319,16 +1365,9 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 		subPCM := pcm[start:end]
 		subCELTPCM := celtPCM[start:end]
 
-		var subLookahead []float64
-		if i < frameCount-1 {
-			nextStart := end
-			nextEnd := nextStart + frameStride
-			if nextEnd <= len(pcm) {
-				subLookahead = pcm[nextStart:nextEnd]
-			}
-		} else {
-			subLookahead = lookahead
-		}
+		// Hybrid subframes in multi-frame packets should be encoded exactly like
+		// independent 20ms frames. Do not leak future subframe samples as lookahead.
+		subLookahead := lookahead
 
 		frameData, err := e.encodeHybridFrame(subPCM, subCELTPCM, subLookahead, 960)
 		if err != nil {
