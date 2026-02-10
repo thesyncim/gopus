@@ -313,7 +313,20 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Step 5: Compute MDCT with proper overlap handling
 	var mdctCoeffs []float64
 	var mdctLeft, mdctRight []float64
+	var patchHistMono []float64
+	var patchHistLeft, patchHistRight []float64
 	if e.channels == 1 {
+		// patch_transient_decision may request recomputing MDCT with short blocks.
+		// Snapshot the pre-MDCT overlap history so the recompute uses the same
+		// analysis input as libopus instead of a zero-padded/stateless path.
+		if lm > 0 && !transient && e.complexity >= 5 && !e.IsHybrid() {
+			overlap := Overlap
+			if overlap > frameSize {
+				overlap = frameSize
+			}
+			patchHistMono = e.scratch.leftHist[:overlap]
+			copy(patchHistMono, e.overlapBuffer[:overlap])
+		}
 		// Mono: MDCT directly with overlap buffer for continuity
 		mdctCoeffs = e.computeMDCTWithOverlap(preemph, shortBlocks)
 	} else {
@@ -337,6 +350,12 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		// Split overlap buffer for left and right
 		leftHistory := e.overlapBuffer[:overlap]
 		rightHistory := e.overlapBuffer[overlap : 2*overlap]
+		if lm > 0 && !transient && e.complexity >= 5 && !e.IsHybrid() {
+			patchHistLeft = e.scratch.leftHist[:overlap]
+			patchHistRight = e.scratch.rightHist[:overlap]
+			copy(patchHistLeft, leftHistory)
+			copy(patchHistRight, rightHistory)
+		}
 
 		// Use overlap-aware MDCT for both channels with scratch buffers
 		mdctLeft = computeMDCTWithHistoryScratchStereoL(left, leftHistory, shortBlocks, &e.scratch)
@@ -380,10 +399,16 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 			// Recompute MDCT with short blocks
 			if e.channels == 1 {
-				// For mono, we need to restore overlap buffer state before recomputing
-				// Since computeMDCTWithOverlap updates the buffer, we can just call it again
-				// with the new shortBlocks value
-				mdctCoeffs = computeMDCTForEncoding(preemph, frameSize, shortBlocks)
+				overlap := Overlap
+				if overlap > frameSize {
+					overlap = frameSize
+				}
+				hist := patchHistMono
+				if len(hist) < overlap {
+					hist = e.scratch.leftHist[:overlap]
+					copy(hist, e.overlapBuffer[:overlap])
+				}
+				mdctCoeffs = computeMDCTWithHistoryScratch(preemph, hist, shortBlocks, &e.scratch)
 			} else {
 				// For stereo, recompute both channels - use scratch buffers
 				left, right := deinterleaveStereoScratch(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
@@ -391,7 +416,6 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 				if overlap > frameSize {
 					overlap = frameSize
 				}
-				// Use scratch history slices to avoid double-update issues
 				leftHist := e.scratch.leftHist
 				rightHist := e.scratch.rightHist
 				if len(leftHist) < overlap {
@@ -404,7 +428,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 				}
 				leftHist = leftHist[:overlap]
 				rightHist = rightHist[:overlap]
-				if len(e.overlapBuffer) >= 2*overlap {
+				if len(patchHistLeft) >= overlap && len(patchHistRight) >= overlap {
+					copy(leftHist, patchHistLeft[:overlap])
+					copy(rightHist, patchHistRight[:overlap])
+				} else if len(e.overlapBuffer) >= 2*overlap {
 					copy(leftHist, e.overlapBuffer[:overlap])
 					copy(rightHist, e.overlapBuffer[overlap:2*overlap])
 				}

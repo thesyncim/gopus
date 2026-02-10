@@ -8,7 +8,6 @@ import (
 
 	"github.com/thesyncim/gopus/encoder"
 	"github.com/thesyncim/gopus/internal/testsignal"
-	"github.com/thesyncim/gopus/types"
 )
 
 type variantProvenanceAuditRow struct {
@@ -31,27 +30,17 @@ func encodeGopusForVariantsCaseWithProvenance(c encoderComplianceVariantsFixture
 	}
 
 	enc := encoder.NewEncoder(48000, c.Channels)
+	// Fixture rows tagged as "hybrid" are generated with opus_demo "audio"
+	// application, which allows adaptive SILK/CELT mode selection.
+	encMode := mode
+	if mode == encoder.ModeHybrid {
+		encMode = encoder.ModeAuto
+	}
+	enc.SetMode(encMode)
 	enc.SetBandwidth(bandwidth)
 	enc.SetBitrate(c.Bitrate)
 	enc.SetBitrateMode(encoder.ModeCBR)
-
-	// Match fixture generation provenance:
-	// - CELT rows use opus_demo restricted-celt
-	// - SILK rows use opus_demo restricted-silk
-	// - "hybrid" rows use opus_demo audio app (mode auto)
-	switch mode {
-	case encoder.ModeCELT:
-		enc.SetMode(encoder.ModeCELT)
-		enc.SetSignalType(types.SignalMusic)
-	case encoder.ModeSILK:
-		enc.SetMode(encoder.ModeSILK)
-		enc.SetSignalType(types.SignalVoice)
-	case encoder.ModeHybrid:
-		enc.SetMode(encoder.ModeAuto)
-		enc.SetSignalType(types.SignalAuto)
-	default:
-		return nil, fmt.Errorf("unsupported mode %v", mode)
-	}
+	// Match fixture generation provenance: do not force signal-type hints.
 
 	packets := make([][]byte, c.SignalFrames)
 	samplesPerFrame := c.FrameSize * c.Channels

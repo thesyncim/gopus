@@ -515,29 +515,28 @@ func (e *Encoder) StereoLRToMSWithRates(
 		return nil, nil, StereoQuantIndices{}, false, 0, 0, 0
 	}
 
-	// Ensure lookahead samples exist.
-	if len(left) < frameLength+2 {
-		pad := ensureFloat32Slice(&e.scratchStereoPadLeft, frameLength+2)
-		copy(pad, left)
-		for i := len(left); i < frameLength+2; i++ {
-			pad[i] = 0
-		}
-		left = pad
+	if len(left) < frameLength || len(right) < frameLength {
+		return nil, nil, StereoQuantIndices{}, false, 0, 0, 0
 	}
-	if len(right) < frameLength+2 {
-		pad := ensureFloat32Slice(&e.scratchStereoPadRight, frameLength+2)
-		copy(pad, right)
-		for i := len(right); i < frameLength+2; i++ {
-			pad[i] = 0
-		}
-		right = pad
+	if len(left) > frameLength {
+		left = left[:frameLength]
+	}
+	if len(right) > frameLength {
+		right = right[:frameLength]
 	}
 
 	// Convert to mid/side and apply history buffering using scratch buffers.
+	// Match libopus indexing in stereo_LR_to_MS.c:
+	// mid[n] and side[n] correspond to x[n-2], with n=0..1 overwritten by state.
 	msLen := frameLength + 2
 	mid := ensureFloat32Slice(&e.scratchStereoMid, msLen)
 	side := ensureFloat32Slice(&e.scratchStereoSide, msLen)
-	stereoConvertLRToMSFloatInto(left, right, mid, side, frameLength)
+	for n := 0; n < frameLength; n++ {
+		m := 0.5 * (left[n] + right[n])
+		s := 0.5 * (left[n] - right[n])
+		mid[n+2] = m
+		side[n+2] = s
+	}
 	mid[0] = float32(e.stereo.sMid[0]) / 32768.0
 	mid[1] = float32(e.stereo.sMid[1]) / 32768.0
 	side[0] = float32(e.stereo.sSide[0]) / 32768.0
@@ -587,6 +586,13 @@ func (e *Encoder) StereoLRToMSWithRates(
 
 	// Rate split and width decision.
 	total := totalRateBps
+	// Match libopus stereo_LR_to_MS.c: reserve bits for stereo side-info
+	// before computing mid/side allocation.
+	if frameLength == 10*fsKHz {
+		total -= 1200
+	} else {
+		total -= 600
+	}
 	if total < 1 {
 		total = 1
 	}

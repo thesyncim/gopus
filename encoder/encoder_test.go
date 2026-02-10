@@ -397,18 +397,20 @@ func TestLargeFrameSizeModeSelectionAndPacketization(t *testing.T) {
 		name           string
 		mode           encoder.Mode
 		signalType     types.Signal
+		bandwidth      types.Bandwidth
 		frameSize      int
 		wantMode       gopus.Mode
 		wantFrameCode  uint8
 		wantFrameCount int
 	}{
-		{"silk_40ms", encoder.ModeSILK, types.SignalAuto, 1920, gopus.ModeSILK, 0, 1},
-		{"hybrid_40ms", encoder.ModeHybrid, types.SignalAuto, 1920, gopus.ModeHybrid, 3, 2},
-		{"hybrid_60ms", encoder.ModeHybrid, types.SignalAuto, 2880, gopus.ModeHybrid, 3, 3},
-		{"celt_40ms", encoder.ModeCELT, types.SignalAuto, 1920, gopus.ModeCELT, 3, 2},
-		{"celt_60ms", encoder.ModeCELT, types.SignalAuto, 2880, gopus.ModeCELT, 3, 3},
-		{"auto_music_40ms", encoder.ModeAuto, types.SignalMusic, 1920, gopus.ModeCELT, 3, 2},
-		{"auto_voice_40ms", encoder.ModeAuto, types.SignalVoice, 1920, gopus.ModeSILK, 0, 1},
+		{"silk_40ms", encoder.ModeSILK, types.SignalAuto, types.BandwidthFullband, 1920, gopus.ModeSILK, 0, 1},
+		{"hybrid_40ms", encoder.ModeHybrid, types.SignalAuto, types.BandwidthFullband, 1920, gopus.ModeHybrid, 3, 2},
+		{"hybrid_60ms", encoder.ModeHybrid, types.SignalAuto, types.BandwidthFullband, 2880, gopus.ModeHybrid, 3, 3},
+		{"celt_40ms", encoder.ModeCELT, types.SignalAuto, types.BandwidthFullband, 1920, gopus.ModeCELT, 3, 2},
+		{"celt_60ms", encoder.ModeCELT, types.SignalAuto, types.BandwidthFullband, 2880, gopus.ModeCELT, 3, 3},
+		{"auto_music_40ms", encoder.ModeAuto, types.SignalMusic, types.BandwidthFullband, 1920, gopus.ModeCELT, 3, 2},
+		{"auto_voice_40ms", encoder.ModeAuto, types.SignalVoice, types.BandwidthFullband, 1920, gopus.ModeCELT, 3, 2},
+		{"auto_voice_swb_40ms", encoder.ModeAuto, types.SignalVoice, types.BandwidthSuperwideband, 1920, gopus.ModeHybrid, 3, 2},
 	}
 
 	for _, tc := range tests {
@@ -416,7 +418,7 @@ func TestLargeFrameSizeModeSelectionAndPacketization(t *testing.T) {
 			enc := encoder.NewEncoder(48000, 1)
 			enc.SetMode(tc.mode)
 			enc.SetSignalType(tc.signalType)
-			enc.SetBandwidth(types.BandwidthFullband)
+			enc.SetBandwidth(tc.bandwidth)
 
 			pcm := make([]float64, tc.frameSize)
 			for i := range pcm {
@@ -450,7 +452,7 @@ func TestLargeFrameSizeModeSelectionAndPacketization(t *testing.T) {
 	}
 }
 
-func TestAutoLongFrameSpeechLikePrefersSILK(t *testing.T) {
+func TestAutoLongFrameSpeechLikePrefersCELTAtFullband(t *testing.T) {
 	const frameSize = 1920
 
 	enc := encoder.NewEncoder(48000, 1)
@@ -476,8 +478,8 @@ func TestAutoLongFrameSpeechLikePrefersSILK(t *testing.T) {
 	}
 
 	toc := gopus.ParseTOC(packet[0])
-	if toc.Mode != gopus.ModeSILK {
-		t.Fatalf("TOC mode = %v, want %v", toc.Mode, gopus.ModeSILK)
+	if toc.Mode != gopus.ModeCELT {
+		t.Fatalf("TOC mode = %v, want %v", toc.Mode, gopus.ModeCELT)
 	}
 }
 

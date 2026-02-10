@@ -67,6 +67,13 @@ func EncodeStereoWithEncoder(enc, sideEnc *Encoder, left, right []float32, bandw
 // EncodeStereoWithEncoderVADFlags is the multi-frame variant of
 // EncodeStereoWithEncoder. It accepts per-20ms VAD flags for 40/60ms packets.
 func EncodeStereoWithEncoderVADFlags(enc, sideEnc *Encoder, left, right []float32, bandwidth Bandwidth, vadFlags []bool) ([]byte, error) {
+	return EncodeStereoWithEncoderVADFlagsWithSide(enc, sideEnc, left, right, bandwidth, vadFlags, nil)
+}
+
+// EncodeStereoWithEncoderVADFlagsWithSide is like EncodeStereoWithEncoderVADFlags,
+// but accepts optional side-channel VAD flags.
+// When sideVADFlags is nil, side VAD defaults to mid VAD gating for backward compatibility.
+func EncodeStereoWithEncoderVADFlagsWithSide(enc, sideEnc *Encoder, left, right []float32, bandwidth Bandwidth, vadFlags []bool, sideVADFlags []bool) ([]byte, error) {
 	if sideEnc == nil {
 		sideEnc = NewEncoder(bandwidth)
 	}
@@ -101,6 +108,16 @@ func EncodeStereoWithEncoderVADFlags(enc, sideEnc *Encoder, left, right []float3
 	sideEnc.ResetPacketState()
 	enc.nFramesPerPacket = nFrames
 	sideEnc.nFramesPerPacket = nFrames
+	// Preserve base rate-control settings; we override maxBits/useCBR per
+	// channel per block to mirror libopus enc_API.c.
+	baseMidMaxBits := enc.maxBits
+	baseSideMaxBits := sideEnc.maxBits
+	baseMidUseCBR := enc.useCBR
+	baseSideUseCBR := sideEnc.useCBR
+	basePacketMaxBits := baseMidMaxBits
+	if basePacketMaxBits <= 0 {
+		basePacketMaxBits = baseSideMaxBits
+	}
 
 	// Use the mid channel's speech activity for stereo decision.
 	speechActQ8 := enc.speechActivityQ8
@@ -185,8 +202,8 @@ func EncodeStereoWithEncoderVADFlags(enc, sideEnc *Encoder, left, right []float3
 			continue
 		}
 
-		leftFrame := stereoFrameWithLookahead(left, start, frameLength)
-		rightFrame := stereoFrameWithLookahead(right, start, frameLength)
+		leftFrame := left[start:end]
+		rightFrame := right[start:end]
 
 		// Convert L/R to M/S with stereo prediction, rate allocation, and width decision.
 		// This matches libopus silk_stereo_LR_to_MS.
@@ -206,18 +223,28 @@ func EncodeStereoWithEncoderVADFlags(enc, sideEnc *Encoder, left, right []float3
 			sideEnc.SetBitrate(sideRate)
 		}
 
-		frameVAD := stereoVADFlagAt(vadFlags, i)
-		if frameVAD {
+		midFrameVAD := stereoVADFlagAt(vadFlags, i)
+		if midFrameVAD {
 			midVAD[i] = 1
 		}
 
 		// For long packets (40/60ms), always code the side channel to keep
 		// side-frame conditional coding aligned across 20ms subframes.
 		forceSideCoding := nFrames > 1
-		sideFrameVAD := frameVAD && !midOnly
+		sideFrameVAD := midFrameVAD && !midOnly
+		if len(sideVADFlags) > 0 {
+			sideFrameVAD = stereoVADFlagAt(sideVADFlags, i)
+			if midOnly {
+				sideFrameVAD = false
+			}
+		}
 		if forceSideCoding {
 			midOnly = false
-			sideFrameVAD = frameVAD
+			if len(sideVADFlags) == 0 {
+				sideFrameVAD = midFrameVAD
+			} else {
+				sideFrameVAD = stereoVADFlagAt(sideVADFlags, i)
+			}
 		}
 		if sideFrameVAD {
 			sideVAD[i] = 1
@@ -230,16 +257,58 @@ func EncodeStereoWithEncoderVADFlags(enc, sideEnc *Encoder, left, right []float3
 			EncodeStereoMidOnly(re, midOnlyVal)
 		}
 
+		// Match libopus enc_API.c channel budgeting:
+		// 1) scale block maxBits for 40/60 ms packets
+		// 2) side present => mid uses non-CBR and gives side headroom.
+		frameMaxBits := basePacketMaxBits
+		switch nFrames {
+		case 2:
+			if i == 0 {
+				frameMaxBits = frameMaxBits * 3 / 5
+			}
+		case 3:
+			if i == 0 {
+				frameMaxBits = frameMaxBits * 2 / 5
+			} else if i == 1 {
+				frameMaxBits = frameMaxBits * 3 / 4
+			}
+		}
+		midMaxBits := frameMaxBits
+		sideMaxBits := frameMaxBits
+		if frameMaxBits > 0 {
+			if !midOnly && sideRate > 0 {
+				reserve := basePacketMaxBits / (nFrames * 2)
+				midMaxBits -= reserve
+				if midMaxBits < 1 {
+					midMaxBits = 1
+				}
+			}
+			enc.maxBits = midMaxBits
+			sideEnc.maxBits = sideMaxBits
+		}
+		frameUseCBR := baseMidUseCBR && i == nFrames-1
+		enc.useCBR = frameUseCBR
+		if !midOnly && sideRate > 0 {
+			enc.useCBR = false
+		}
+		sideEnc.useCBR = baseSideUseCBR && i == nFrames-1
+
 		// Set up shared range encoder for mid channel encoding.
 		enc.SetRangeEncoder(re)
-		_ = enc.EncodeFrame(midOut, nil, frameVAD)
+		_ = enc.EncodeFrame(midOut, nil, midFrameVAD)
 
 		// Encode side channel if not mid-only.
+		// Use the side-channel VAD decision (not the mid flag) so the
+		// frame type coding stays consistent with patched side VAD header bits.
 		if !midOnly {
 			sideEnc.SetRangeEncoder(re)
-			_ = sideEnc.EncodeFrame(sideOut, nil, frameVAD)
+			_ = sideEnc.EncodeFrame(sideOut, nil, sideFrameVAD)
 		}
 	}
+	enc.maxBits = baseMidMaxBits
+	sideEnc.maxBits = baseSideMaxBits
+	enc.useCBR = baseMidUseCBR
+	sideEnc.useCBR = baseSideUseCBR
 
 	// Patch header bits: VAD flags + LBRR flags for both channels.
 	// Format: [mid_VAD[0..N-1] | mid_LBRR | side_VAD[0..N-1] | side_LBRR]
@@ -280,22 +349,17 @@ func stereoVADFlagAt(vadFlags []bool, frame int) bool {
 }
 
 func stereoFrameWithLookahead(src []float32, start, frameLength int) []float32 {
-	out := make([]float32, frameLength+2)
 	end := start + frameLength
-	copy(out, src[start:end])
-	fill := float32(0)
-	if frameLength > 0 {
-		fill = out[frameLength-1]
+	if start < 0 {
+		start = 0
 	}
-	for i := 0; i < 2; i++ {
-		idx := end + i
-		if idx < len(src) {
-			out[frameLength+i] = src[idx]
-		} else {
-			out[frameLength+i] = fill
-		}
+	if end < start {
+		end = start
 	}
-	return out
+	if end > len(src) {
+		end = len(src)
+	}
+	return src[start:end]
 }
 
 // DecodeStereoEncoded decodes a range-coded SILK stereo packet back to
