@@ -1439,6 +1439,14 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 		targetQ3 = e.computeVBRTarget(baseTargetQ3, frameSize, tfEstimate, pitchChange, stats)
 	}
 
+	// libopus compute_vbr() adds `tell` (already-written side bits) before
+	// converting target bits to bytes. Our target computation runs earlier.
+	// For LM=0 (2.5ms, frameSize=120), missing this bookkeeping term starves
+	// the frame budget, so restore it there.
+	if frameSize == 120 {
+		targetQ3 += overheadQ3
+	}
+
 	// Convert back from Q3 to bits
 	// Reference: libopus line 2480: nbAvailableBytes = (target+(1<<(BITRES+2)))>>(BITRES+3)
 	// For bits (not bytes): target_bits = (targetQ3 + 4) >> 3

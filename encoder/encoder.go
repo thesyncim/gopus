@@ -512,22 +512,13 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 			frameData, err = e.encodeHybridFrame(framePCM, celtPCM, lookaheadSlice, frameSize)
 		}
 	case ModeCELT:
-		celtPCM := framePCM
+		// Opus CELT path always uses delay-compensated input (Fs/250), including
+		// 2.5ms frames. This matches libopus encoder behavior.
+		celtPCM := e.applyDelayCompensation(framePCM, frameSize)
 		if frameSize > 960 {
 			// Long CELT packets are encoded as multi-frame packets.
-			// Keep delay compensation enabled for this path.
-			celtPCM = e.applyDelayCompensation(framePCM, frameSize)
 			packet, err = e.encodeCELTMultiFramePacket(celtPCM, frameSize)
 		} else {
-			// Forced CELT mode maps to low-delay/restricted-CELT behavior in
-			// libopus when explicitly requested by application. For Opus-level
-			// CELT parity (including fixture provenance cases), keep delay
-			// compensation for >=5ms frames.
-			applyDelayComp := frameSize >= 240
-			// Sub-10ms CELT frames follow a low-delay path.
-			if applyDelayComp {
-				celtPCM = e.applyDelayCompensation(framePCM, frameSize)
-			}
 			frameData, err = e.encodeCELTFrame(celtPCM, frameSize)
 		}
 	default:
