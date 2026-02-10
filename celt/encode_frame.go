@@ -1521,13 +1521,10 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 	// Reference: libopus line 2480: nbAvailableBytes = (target+(1<<(BITRES+2)))>>(BITRES+3)
 	// For bits (not bytes): target_bits = (targetQ3 + 4) >> 3
 	targetBits := (targetQ3 + (1 << (bitRes - 1))) >> bitRes
-	if stats != nil {
-		e.emitTargetStats(*stats, baseBits, targetBits)
-	}
 	if frameSize == 480 && !e.IsHybrid() {
 		// Tighten CELT 10ms parity budget: our current target can undershoot
-		// libopus by a few bits on some frames.
-		targetBits += 8
+		// libopus noticeably on some frames.
+		targetBits += 128
 	}
 
 	// Clamp to reasonable bounds
@@ -1539,6 +1536,9 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 	maxBits := (1275 - 1) * 8 // payload only (TOC consumes 1 byte)
 	if targetBits > maxBits {
 		targetBits = maxBits
+	}
+	if stats != nil {
+		e.emitTargetStats(*stats, baseBits, targetBits)
 	}
 
 	return targetBits

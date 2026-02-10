@@ -184,7 +184,7 @@ func (d *Decoder) decodeOpusFrameInto(
 	// Hybrid->CELT transition fade. For 10ms this fade can create a single-frame
 	// artifact on the first CELT frame after Hybrid.
 	if data != nil && d.haveDecoded && ((mode == ModeCELT && d.prevMode != ModeCELT &&
-		!d.prevRedundancy && !(d.prevMode == ModeHybrid && audiosize == F10)) ||
+		!d.prevRedundancy && !(d.prevMode == ModeHybrid && audiosize == F10 && d.channels == 1)) ||
 		(mode != ModeCELT && d.prevMode == ModeCELT)) {
 		transition = true
 		if mode == ModeCELT {
@@ -192,17 +192,20 @@ func (d *Decoder) decodeOpusFrameInto(
 			if len(d.scratchTransition) < transSize*d.channels {
 				return 0, ErrBufferTooSmall
 			}
-			transMode := d.prevMode
-			if d.prevMode == ModeHybrid && audiosize == F10 {
-				// For hybrid->CELT 10ms transitions, drive the bridge with CELT PLC
-				// so the CELT overlap continuity dominates the first 5ms handoff.
-				transMode = ModeCELT
+			if d.prevMode == ModeHybrid {
+				samples, err := d.celtDecoder.DecodeFrameWithPacketStereo(nil, transSize, packetStereoLocal)
+				if err != nil {
+					return 0, err
+				}
+				copyFloat64ToFloat32(d.scratchTransition[:transSize*d.channels], samples)
+				pcmTransition = d.scratchTransition[:transSize*d.channels]
+			} else {
+				n, err := d.decodeOpusFrameInto(d.scratchTransition, nil, transSize, packetFrameSize, d.prevMode, d.lastBandwidth, packetStereoLocal)
+				if err != nil {
+					return 0, err
+				}
+				pcmTransition = d.scratchTransition[:n*d.channels]
 			}
-			n, err := d.decodeOpusFrameInto(d.scratchTransition, nil, transSize, packetFrameSize, transMode, d.lastBandwidth, packetStereoLocal)
-			if err != nil {
-				return 0, err
-			}
-			pcmTransition = d.scratchTransition[:n*d.channels]
 		}
 	}
 
