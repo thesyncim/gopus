@@ -122,6 +122,7 @@ type Encoder struct {
 	// Last frame analysis info from RunAnalysis(), used by mode heuristics.
 	lastAnalysisInfo    AnalysisInfo
 	lastAnalysisValid   bool
+	lastAnalysisFresh   bool
 	prevLongSWBAutoMode Mode
 
 	inputBuffer []float64
@@ -266,6 +267,8 @@ func (e *Encoder) Reset() {
 	if e.analyzer != nil {
 		e.analyzer.Reset()
 	}
+	e.lastAnalysisValid = false
+	e.lastAnalysisFresh = false
 }
 
 // SetFEC enables or disables in-band Forward Error Correction.
@@ -472,6 +475,8 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 				signalHint = types.SignalMusic
 			}
 		}
+	} else {
+		e.lastAnalysisFresh = false
 	}
 	actualMode := e.selectMode(frameSize, signalHint)
 	if e.mode == ModeAuto &&
@@ -868,6 +873,7 @@ func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
 // autoSignalFromPCM is kept for backward compatibility but RunAnalysis is preferred.
 func (e *Encoder) autoSignalFromPCM(pcm []float64, frameSize int) types.Signal {
 	e.lastAnalysisValid = false
+	e.lastAnalysisFresh = false
 	if len(pcm) == 0 || frameSize <= 0 {
 		return types.SignalAuto
 	}
@@ -880,7 +886,8 @@ func (e *Encoder) autoSignalFromPCM(pcm []float64, frameSize int) types.Signal {
 		if info.Valid {
 			e.lastAnalysisInfo = info
 			e.lastAnalysisValid = true
-			// Only trust clear decisions for long-frame mode selection.
+			e.lastAnalysisFresh = true
+			// Only trust clear decisions from analysis probabilities.
 			if info.MusicProb >= 0.65 {
 				return types.SignalMusic
 			}
@@ -1369,6 +1376,13 @@ func (e *Encoder) alignSilkMonoInput(in []float32) []float32 {
 // updateOpusVAD updates the Opus-level VAD activity state from the tonality analyzer.
 // This mirrors opus_encoder.c behavior where SILK VAD is suppressed if Opus VAD is inactive.
 func (e *Encoder) updateOpusVAD(pcm []float64, frameSize int) {
+	if e.lastAnalysisFresh && e.lastAnalysisValid {
+		e.lastAnalysisFresh = false
+		e.lastOpusVADProb = e.lastAnalysisInfo.VADProb
+		e.lastOpusVADValid = true
+		e.lastOpusVADActive = e.lastAnalysisInfo.VADProb >= DTXActivityThreshold
+		return
+	}
 	if e.analyzer == nil || frameSize <= 0 || len(pcm) == 0 {
 		e.lastOpusVADValid = false
 		e.lastOpusVADActive = true

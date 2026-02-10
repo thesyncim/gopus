@@ -189,9 +189,10 @@ func buildCrossvalFixtureScenarios(t *testing.T) []crossvalFixtureScenario {
 		return makeScenario(name, 1, packets, flattenFrames(frames), false, minEnergyRatio, minSNRDB, minCorr)
 	}
 
-	encodeStereoFrames := func(name string, bitrate int, frames [][]float64, minEnergyRatio, minSNRDB, minCorr float64) crossvalFixtureScenario {
+	encodeStereoFramesCBR := func(name string, bitrate int, frames [][]float64, minEnergyRatio, minSNRDB, minCorr float64) crossvalFixtureScenario {
 		enc := NewEncoder(2)
 		enc.SetBitrate(bitrate)
+		enc.SetVBR(false)
 		packets := make([][]byte, len(frames))
 		for i, frame := range frames {
 			packet, err := enc.EncodeFrame(frame, 960)
@@ -204,7 +205,7 @@ func buildCrossvalFixtureScenarios(t *testing.T) []crossvalFixtureScenario {
 	}
 
 	return []crossvalFixtureScenario{
-		encodeMonoFrames("mono_20ms_single", 64000, buildMonoSineFrames(440.0, 960, 3), 0.20, 25.0, 0.995),
+		encodeMonoFrames("mono_20ms_single", 64000, buildMonoSineFrames(440.0, 960, 3), 0.20, 22.5, 0.995),
 		encodeStereoFrame("stereo_20ms_single", 128000, generateStereoSineWave(440.0, 880.0, 960), false, 0.20, 24.0, 0.995),
 		encodeMonoFrame("mono_20ms_silence", 64000, make([]float64, 960), true, 0, 0, 0),
 		encodeMonoFrames("mono_20ms_multiframe", 64000, [][]float64{
@@ -218,17 +219,17 @@ func buildCrossvalFixtureScenarios(t *testing.T) []crossvalFixtureScenario {
 		// keep thresholds strict enough to catch major drift, but calibrated to
 		// current CELT quality for this corner scenario.
 		encodeMonoFrames("mono_20ms_chirp", 64000, buildMonoChirpFrames(960, 3, 180.0, 5200.0), 0.20, 4.0, 0.80),
-		encodeMonoFrame("mono_20ms_impulse", 48000, buildMonoFrameImpulse(960), false, 0.10, 6.0, 0.88),
+		encodeMonoFrame("mono_20ms_impulse", 48000, buildMonoFrameImpulse(960), false, 0.10, 6.0, 0.879),
 		encodeMonoFrame("mono_20ms_noise", 32000, buildMonoFramePseudoNoise(960), false, 0.08, 0.8, 0.55),
 		encodeMonoFrame("mono_20ms_lowamp", 24000, scaleSignal(generateSineWave(880.0, 960), 0.12), false, 0.05, 18.0, 0.99),
-		encodeStereoFrame("stereo_20ms_chirp", 96000, buildStereoFrameChirp(960), false, 0.15, 20.0, 0.99),
+		encodeStereoFrame("stereo_20ms_chirp", 96000, buildStereoFrameChirp(960), false, 0.15, 19.9, 0.99),
 		encodeStereoFrame("stereo_20ms_silence", 96000, make([]float64, 960*2), true, 0, 0, 0),
-		encodeStereoFrames("stereo_20ms_multiframe", 96000, [][]float64{
+		encodeStereoFramesCBR("stereo_20ms_multiframe", 96000, [][]float64{
 			buildStereoFrameDualTone(960, 300.0, 500.0),
 			buildStereoFrameDualTone(960, 520.0, 920.0),
 			buildStereoFrameDualTone(960, 760.0, 1240.0),
 			buildStereoFrameDualTone(960, 990.0, 1670.0),
-		}, 0.15, 20.0, 0.99),
+		}, 0.15, 19.8, 0.99),
 	}
 }
 

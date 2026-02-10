@@ -19,6 +19,87 @@ var EMeans = [25]float64{
 	3.750000, 3.750000, 3.750000, 3.750000, 3.750000,
 }
 
+const (
+	leakBands      = 19
+	leakageOffset  = float32(2.5)
+	leakageSlope   = float32(2.0)
+	leakageDivisor = float32(4.0)
+)
+
+func minF32(a, b float32) float32 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxF32(a, b float32) float32 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// applyLeakBoostApprox mirrors the libopus leak_boost shaping used by dynalloc.
+// It derives per-band boosts from the current band log-energies and adds them
+// to follower[] for the first LEAK_BANDS bands.
+func applyLeakBoostApprox(
+	follower, bandLogE32 []float32,
+	nbBands, start, end, channels, lm int,
+	bandLog2, leakFrom, leakTo []float32,
+) {
+	leakEnd := end
+	if leakEnd > leakBands {
+		leakEnd = leakBands
+	}
+	if leakEnd <= start || leakEnd <= 0 || len(follower) < leakEnd {
+		return
+	}
+	if len(bandLog2) < leakEnd || len(leakFrom) < leakEnd || len(leakTo) < leakEnd {
+		return
+	}
+
+	// Build a per-band log-energy track (max across channels for stereo).
+	for b := 0; b < leakEnd; b++ {
+		v := float32(0)
+		if b < len(bandLogE32) {
+			v = bandLogE32[b]
+		}
+		if channels == 2 {
+			idx := nbBands + b
+			if idx < len(bandLogE32) && bandLogE32[idx] > v {
+				v = bandLogE32[idx]
+			}
+		}
+		// bandLogE32 is mean-relative (amp2Log2 - eMeans). Add eMeans back to
+		// better approximate analysis.c absolute band_log2 for leak_boost.
+		if b < len(EMeans) {
+			v += float32(EMeans[b])
+		}
+		bandLog2[b] = v
+	}
+
+	leakFrom[0] = bandLog2[0]
+	leakTo[0] = bandLog2[0] - leakageOffset
+	for b := 1; b < leakEnd; b++ {
+		width := ScaledBandWidth(b-1, 120<<lm)
+		leakSlope := leakageSlope * float32(width) / leakageDivisor
+		leakFrom[b] = minF32(leakFrom[b-1]+leakSlope, bandLog2[b])
+		leakTo[b] = maxF32(leakTo[b-1]-leakSlope, bandLog2[b]-leakageOffset)
+	}
+	for b := leakEnd - 2; b >= 0; b-- {
+		width := ScaledBandWidth(b, 120<<lm)
+		leakSlope := leakageSlope * float32(width) / leakageDivisor
+		leakFrom[b] = minF32(leakFrom[b], leakFrom[b+1]+leakSlope)
+		leakTo[b] = maxF32(leakTo[b], leakTo[b+1]-leakSlope)
+	}
+
+	for b := start; b < leakEnd; b++ {
+		boost := maxF32(0, leakTo[b]-bandLog2[b]) + maxF32(0, bandLog2[b]-(leakFrom[b]+leakageOffset))
+		follower[b] += boost
+	}
+}
+
 // DynallocResult contains the output of dynalloc_analysis.
 // These values are used for VBR target computation and bit allocation.
 type DynallocResult struct {
@@ -434,10 +515,19 @@ func DynallocAnalysis(
 			result.Importance[i] = int(math.Floor(0.5 + imp))
 		}
 
-		// For non-transient CBR/CVBR frames, halve the dynalloc contribution
+		// For non-transient CBR/CVBR frames, libopus halves dynalloc.
+		// Keep the bounded tonal fallback to avoid severe under-allocation on
+		// AM-like inputs while leak_boost is still approximate.
 		if (!vbr || constrainedVBR) && !isTransient {
+			cbrScale := float32(0.5)
+			if toneishness < 0.98 {
+				cbrScale += 1.0 * float32((0.98-toneishness)/0.98)
+				if cbrScale > 1.0 {
+					cbrScale = 1.0
+				}
+			}
 			for i := start; i < end; i++ {
-				follower[i] /= 2.0
+				follower[i] *= cbrScale
 			}
 		}
 
@@ -473,6 +563,20 @@ func DynallocAnalysis(
 				if end-2 >= start {
 					follower[end-2] += 1.0
 				}
+			}
+		}
+
+		// Approximate analysis->leak_boost contribution used by libopus dynalloc.
+		{
+			leakEnd := end
+			if leakEnd > leakBands {
+				leakEnd = leakBands
+			}
+			if leakEnd > start {
+				bandLog2 := make([]float32, leakEnd)
+				leakFrom := make([]float32, leakEnd)
+				leakTo := make([]float32, leakEnd)
+				applyLeakBoostApprox(follower, bandLogE32, nbBands, start, end, channels, lm, bandLog2, leakFrom, leakTo)
 			}
 		}
 
@@ -960,9 +1064,19 @@ func DynallocAnalysisWithScratch(
 			result.Importance[i] = int(math.Floor(0.5 + imp))
 		}
 
+		// For non-transient CBR/CVBR frames, libopus halves dynalloc.
+		// Keep the bounded tonal fallback to avoid severe under-allocation on
+		// AM-like inputs while leak_boost is still approximate.
 		if (!vbr || constrainedVBR) && !isTransient {
+			cbrScale := float32(0.5)
+			if toneishness < 0.98 {
+				cbrScale += 1.0 * float32((0.98-toneishness)/0.98)
+				if cbrScale > 1.0 {
+					cbrScale = 1.0
+				}
+			}
 			for i := start; i < end; i++ {
-				follower[i] /= 2.0
+				follower[i] *= cbrScale
 			}
 		}
 
@@ -996,6 +1110,20 @@ func DynallocAnalysisWithScratch(
 				if end-2 >= start {
 					follower[end-2] += 1.0
 				}
+			}
+		}
+
+		// Approximate analysis->leak_boost contribution used by libopus dynalloc.
+		{
+			leakEnd := end
+			if leakEnd > leakBands {
+				leakEnd = leakBands
+			}
+			if leakEnd > start {
+				bandLog2 := mask[:leakEnd]
+				leakFrom := sig[:leakEnd]
+				leakTo := noiseFloor[:leakEnd]
+				applyLeakBoostApprox(follower, bandLogE32, nbBands, start, end, channels, lm, bandLog2, leakFrom, leakTo)
 			}
 		}
 

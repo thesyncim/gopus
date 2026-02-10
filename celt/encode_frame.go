@@ -512,11 +512,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		shortBlocks = 1
 	}
 
-	// Intra energy flag: only encode if budget allows
-	// Reference: libopus celt_decoder.c line 1377
-	// intra_ener = tell+3<=total_bits ? ec_dec_bit_logp(dec, 3) : 0
-	intra := e.IsIntraFrame()
+	// Intra energy flag: choose via libopus-style two-pass intra/inter decision.
+	intra := false
 	if re.Tell()+3 <= targetBits {
+		intra = e.DecideIntraMode(energies, nbBands, lm)
 		var intraBit int
 		if intra {
 			intraBit = 1
@@ -527,29 +526,12 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		intra = false
 	}
 
-	// Step 10: Prepare stereo params (encoded during allocation)
-	// Use mid-side stereo by default: dualStereo=false, intensity=nbBands (disabled)
-	intensity := nbBands
+	// Step 10: Prepare stereo params (encoded during allocation).
+	// Defaults mirror libopus behavior: MS stereo, no intensity.
+	intensity := 0
 	dualStereo := false
-	if e.channels == 2 {
-		var xy, xx, yy float64
-		for i := 0; i+1 < len(preemph); i += 2 {
-			l := preemph[i]
-			r := preemph[i+1]
-			xy += l * r
-			xx += l * l
-			yy += r * r
-		}
-		if xx > 0 && yy > 0 {
-			corr := math.Abs(xy / math.Sqrt(xx*yy))
-			dualStereo = corr < 0.95
-		} else {
-			dualStereo = true
-		}
-	}
 
-	// Step 11: Encode coarse energy
-	// Use scratch buffer for prev1LogE
+	// Step 11.0: Snapshot previous energies used by dynalloc/coarse decisions.
 	prev1LogE := e.scratch.prev1LogE
 	if len(prev1LogE) < len(e.prevEnergy) {
 		prev1LogE = make([]float64, len(e.prevEnergy))
@@ -558,6 +540,11 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	prev1LogE = prev1LogE[:len(e.prevEnergy)]
 	copy(prev1LogE, e.prevEnergy)
 
+	// dynalloc/spread analysis in libopus uses pre-stabilization energies.
+	analysisEnergies := ensureFloat64Slice(&e.scratch.analysisEnergies, len(energies))
+	copy(analysisEnergies, energies)
+
+	// Step 11: Encode coarse energy
 	// Match libopus pre-coarse stabilization:
 	// if abs(bandLogE-oldBandE) < 2, bias current energy toward previous quant error.
 	// Reference: celt_encoder.c before quant_coarse_energy().
@@ -598,7 +585,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// We compute tonality here using Spectral Flatness Measure (SFM) and store it
 	// for use in the next frame's computeVBRTarget (similar to how libopus uses
 	// analysis from the previous frame).
-	e.updateTonalityAnalysis(normL, energies, nbBands, frameSize)
+	e.updateTonalityAnalysis(normL, analysisEnergies, nbBands, frameSize)
 
 	// Step 11.1: Compute and encode TF (time-frequency) resolution
 	// Note: 'end' was already set earlier during patch_transient_decision
@@ -609,6 +596,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	} else {
 		effectiveBytes = e.cbrPayloadBytes(frameSize)
 	}
+	equivRate := ComputeEquivRate(effectiveBytes, e.channels, lm, e.targetBitrate)
 
 	// Step 11.0.7: Compute dynalloc analysis for VBR and bit allocation
 	// This computes maxDepth, offsets, importance, and spread_weight.
@@ -631,7 +619,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Determine VBR mode (match encoder settings)
 	isVBR := e.vbr
 	isConstrainedVBR := e.constrainedVBR
-	bandLogE2Use := energies
+	bandLogE2Use := analysisEnergies
 	if bandLogE2 != nil {
 		bandLogE2Use = bandLogE2
 	}
@@ -640,7 +628,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		oldBandELen = len(prev1LogE)
 	}
 	dynallocResult := DynallocAnalysisWithScratch(
-		energies, bandLogE2Use, prev1LogE[:oldBandELen],
+		analysisEnergies, bandLogE2Use, prev1LogE[:oldBandELen],
 		nbBands, start, end, e.channels, lsbDepth, lm,
 		logN,
 		effectiveBytes,
@@ -651,6 +639,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Store for next frame's VBR computation
 	e.lastDynalloc = dynallocResult
 
+	// Step 11.2: Compute and encode TF (time-frequency) resolution.
 	// Enable TF analysis when we have enough bits and reasonable complexity.
 	// Reference: libopus enable_tf_analysis = effectiveBytes>=15*C && !hybrid && st->complexity>=2 && !st->lfe && toneishness < QCONST32(.98f, 29)
 	// Note: libopus does NOT have an LM>0 check here - TF analysis runs for all frame sizes including LM=0
@@ -726,9 +715,12 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			// Reference: libopus celt_encoder.c spreading_decision() call with
 			// pf_on&&!shortBlocks as updateHF condition.
 			updateHF := pfResult.on && shortBlocks == 1
-			// Compute dynamic spread weights based on masking analysis (matches libopus dynalloc_analysis)
-			// Use lsbDepth derived above to match libopus float input.
-			spreadWeights := ComputeSpreadWeights(energies, nbBands, e.channels, lsbDepth)
+			// Use spread weights from dynalloc_analysis(), matching libopus wiring.
+			spreadWeights := dynallocResult.SpreadWeight
+			if len(spreadWeights) < nbBands {
+				// Defensive fallback for unexpected sizing issues.
+				spreadWeights = ComputeSpreadWeights(analysisEnergies, nbBands, e.channels, lsbDepth)
+			}
 			spread = e.SpreadingDecisionWithWeights(normSpread, nbBands, e.channels, frameSize, updateHF, spreadWeights)
 		}
 		re.EncodeICDF(spread, spreadICDF, 5)
@@ -807,44 +799,56 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		// Update offsets[i] to reflect actual boost applied (for allocation)
 		offsets[i] = boost
 	}
+	// Step 11.4.5: Decide stereo mode parameters (libopus hysteresis + stereo analysis).
+	if e.channels == 2 {
+		// Always use MS for LM=0 (2.5ms), matching libopus.
+		if lm != 0 {
+			dualStereo = stereoAnalysisDecision(normL, normR, lm, nbBands)
+		} else {
+			dualStereo = false
+		}
+		e.intensity = hysteresisDecisionInt(
+			equivRate/1000,
+			celtIntensityThresholds[:],
+			celtIntensityHysteresis[:],
+			e.intensity,
+		)
+		if e.intensity < start {
+			e.intensity = start
+		}
+		if e.intensity > end {
+			e.intensity = end
+		}
+		intensity = e.intensity
+	}
+
 	// Step 11.5: Compute and encode allocation trim (only if budget allows)
 	// Reference: libopus celt_encoder.c line 2408-2417
 	// The trim value affects bit allocation bias between lower and higher frequency bands.
 	allocTrim := 5
 	tellForTrim := re.TellFrac()
 	if tellForTrim+(6<<bitRes) <= totalBitsQ3ForDynalloc-totalBoost {
-		effectiveBytesForTrim := targetBits / 8
-		equivRate := ComputeEquivRate(effectiveBytesForTrim, e.channels, lm, e.targetBitrate)
-		allocTrim = AllocTrimAnalysis(
-			normL,
-			energies,
-			nbBands,
-			lm,
-			e.channels,
-			normR,
-			intensity,
-			tfEstimate,
-			equivRate,
-			0.0, // surroundTrim - not implemented yet
-			0.0, // tonalitySlope - not implemented yet
-		)
-		if e.channels == 2 {
-			e.lastStereoSaving = UpdateStereoSaving(e.lastStereoSaving, normL, normR, nbBands, lm, intensity)
-		}
-		trimBoost := 0
-		if e.channels == 1 {
-			trimBoost++
-		}
-		if dualStereo {
-			trimBoost += 5
-		}
-		if trimBoost > 0 {
-			allocTrim += trimBoost
-			if allocTrim > 10 {
-				allocTrim = 10
+		if start > 0 {
+			e.lastStereoSaving = 0
+			allocTrim = 5
+		} else {
+			allocTrim = AllocTrimAnalysis(
+				normL,
+				energies,
+				nbBands,
+				lm,
+				e.channels,
+				normR,
+				intensity,
+				tfEstimate,
+				equivRate,
+				0.0, // surroundTrim - not implemented yet
+				0.0, // tonalitySlope - not implemented yet
+			)
+			if e.channels == 2 {
+				e.lastStereoSaving = UpdateStereoSaving(e.lastStereoSaving, normL, normR, nbBands, lm, intensity)
 			}
 		}
-
 		re.EncodeICDF(allocTrim, trimICDF, 7)
 	}
 
@@ -861,9 +865,13 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	if signalBandwidth < 0 {
 		signalBandwidth = 0
 	}
-	if lm == 0 && signalBandwidth > 13 {
-		// LM=0 (2.5ms) benefits from capping effective coded bandwidth.
-		signalBandwidth = 13
+	if e.analysisValid {
+		minBandwidth := celtMinSignalBandwidth(equivRate, e.channels)
+		if e.analysisBandwidth > minBandwidth {
+			signalBandwidth = e.analysisBandwidth
+		} else {
+			signalBandwidth = minBandwidth
+		}
 	}
 	allocResult := e.computeAllocationScratch(
 		re,
@@ -883,6 +891,13 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	} else {
 		e.lastCodedBands = allocResult.CodedBands
 	}
+	if e.channels == 2 {
+		e.intensity = allocResult.Intensity
+		intensity = allocResult.Intensity
+	}
+	// Update analysis bandwidth for the next frame after allocation decisions.
+	e.analysisBandwidth = estimateSignalBandwidthFromBandLogE(analysisEnergies, nbBands, e.channels, e.analysisBandwidth, lsbDepth)
+	e.analysisValid = true
 
 	// Step 13: Encode fine energy
 	e.EncodeFineEnergy(energies, quantizedEnergies, nbBands, allocResult.FineBits)
@@ -1382,7 +1397,20 @@ func (e *Encoder) cbrPayloadBytes(frameSize int) int {
 func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChange bool) int {
 	// CBR path uses fixed payload size.
 	if !e.vbr {
-		return e.cbrPayloadBytes(frameSize) * 8
+		targetBits := e.cbrPayloadBytes(frameSize) * 8
+		if e.targetStatsHook != nil {
+			e.emitTargetStats(
+				CeltTargetStats{
+					FrameSize:   frameSize,
+					Tonality:    e.lastTonality,
+					PitchChange: pitchChange,
+					MaxDepth:    e.lastDynalloc.MaxDepth,
+				},
+				targetBits,
+				targetBits,
+			)
+		}
+		return targetBits
 	}
 
 	baseBits := e.bitrateToBits(frameSize)
@@ -1451,9 +1479,13 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float
 	}
 	codedBins := EBands[codedBands] << lm
 	if e.channels == 2 {
-		// We do not currently maintain a separate intensity state here, so
-		// use codedBands as the equivalent IMIN(intensity, coded_bands).
 		codedStereoBands := codedBands
+		if e.intensity < codedStereoBands {
+			codedStereoBands = e.intensity
+		}
+		if codedStereoBands < 0 {
+			codedStereoBands = 0
+		}
 		codedBins += EBands[codedStereoBands] << lm
 	}
 
@@ -1475,6 +1507,12 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float
 	// Stereo savings (libopus compute_vbr()).
 	if e.channels == 2 && codedBins > 0 {
 		codedStereoBands := codedBands
+		if e.intensity < codedStereoBands {
+			codedStereoBands = e.intensity
+		}
+		if codedStereoBands < 0 {
+			codedStereoBands = 0
+		}
 		codedStereoDof := (EBands[codedStereoBands] << lm) - codedStereoBands
 		if codedStereoDof > 0 {
 			maxFrac := 0.8 * float64(codedStereoDof) / float64(codedBins)

@@ -122,17 +122,18 @@ func silkResamplerDown2HP(s []float32, out []float32, in []float32) float32 {
 }
 
 type AnalysisInfo struct {
-	Valid        bool
-	Tonality     float32
-	TonalitySlope float32
-	NoisySpeech  float32
+	Valid            bool
+	Tonality         float32
+	TonalitySlope    float32
+	NoisySpeech      float32
 	StationarySpeech float32
-	MusicProb    float32
-	VADProb      float32
-	Loudness     float32
-	Bandwidth    types.Bandwidth
-	Activity     float32
-	MaxPitchRatio float32
+	MusicProb        float32
+	VADProb          float32
+	Loudness         float32
+	BandwidthIndex   int
+	Bandwidth        types.Bandwidth
+	Activity         float32
+	MaxPitchRatio    float32
 }
 
 type TonalityAnalysisState struct {
@@ -205,7 +206,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	}
 
 	frameSize := len(pcm) / channels
-	
+
 	// Ensure we only process frames we can handle (standard Opus frame sizes)
 	if frameSize < 120 {
 		return
@@ -228,16 +229,17 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	// tonalityAnalysis is called with a new frame.
 	// We need 480 samples at 24kHz for one analysis iteration.
 	// But frames can be 2.5, 5, 10, 20ms.
-	
+
 	// libopus downsamples to 24kHz before buffering.
 	// 48kHz mono -> 24kHz downsampled
 	var downsampledBuf []float32
+	var hpEner float32
 	if s.Fs == 48000 {
 		if cap(s.scratchDownsampled) < frameSize/2 {
 			s.scratchDownsampled = make([]float32, frameSize/2)
 		}
 		downsampledBuf = s.scratchDownsampled[:frameSize/2]
-		_ = silkResamplerDown2HP(s.DownmixState[:], downsampledBuf, mono)
+		hpEner = silkResamplerDown2HP(s.DownmixState[:], downsampledBuf, mono)
 	} else if s.Fs == 24000 {
 		downsampledBuf = mono
 	} else {
@@ -275,6 +277,8 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	var logE [NbTBands]float32
 	var BFCC [8]float32
 	var features [25]float32
+	var bandEnergy [NbTBands]float32
+	var maxBandEnergy float32
 
 	// Band energies
 	for b := 0; b < NbTBands; b++ {
@@ -285,6 +289,10 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 			bandE += magSq
 		}
 		s.E[s.ECount][b] = bandE
+		bandEnergy[b] = bandE
+		if bandE > maxBandEnergy {
+			maxBandEnergy = bandE
+		}
 		logE[b] = float32(math.Log(float64(bandE) + 1e-10))
 		s.LogE[s.ECount][b] = logE[b]
 	}
@@ -316,10 +324,100 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	info.MusicProb = frameProbs[0]
 	info.VADProb = frameProbs[1]
 	info.Activity = alphaE*frameProbs[1] + (1-alphaE)*info.Activity
+	info.BandwidthIndex = detectBandwidthIndex(bandEnergy[:], maxBandEnergy, s.PrevBandwidth, hpEner, int(s.Fs), 24, s.Count)
+	info.Bandwidth = bandwidthTypeFromIndex(info.BandwidthIndex)
+	s.PrevBandwidth = info.BandwidthIndex
 
 	s.WritePos = (s.WritePos + 1) % DetectSize
 	s.Count = min(s.Count+1, 10000)
 	s.ECount = (s.ECount + 1) % NbFrames
+}
+
+func bandwidthTypeFromIndex(bandwidth int) types.Bandwidth {
+	switch {
+	case bandwidth <= 12:
+		return types.BandwidthNarrowband
+	case bandwidth <= 14:
+		return types.BandwidthMediumband
+	case bandwidth <= 16:
+		return types.BandwidthWideband
+	case bandwidth <= 18:
+		return types.BandwidthSuperwideband
+	default:
+		return types.BandwidthFullband
+	}
+}
+
+func detectBandwidthIndex(bandEnergy []float32, maxBandEnergy float32, prevBandwidth int, hpEner float32, fs int, lsbDepth int, frameCount int) int {
+	if len(bandEnergy) == 0 {
+		return 20
+	}
+	if lsbDepth < 8 {
+		lsbDepth = 8
+	}
+	noiseFloor := float32(5.7e-4 / float64(uint(1)<<uint(lsbDepth-8)))
+	noiseFloor *= noiseFloor
+
+	bandwidthMask := float32(0)
+	bandwidth := 0
+	var masked [NbTBands + 1]bool
+
+	for b := 0; b < len(bandEnergy); b++ {
+		E := bandEnergy[b]
+		width := tbands[b+1] - tbands[b]
+		if width < 1 {
+			width = 1
+		}
+		if E*1e9 > maxBandEnergy && E > noiseFloor*float32(width) {
+			bandwidth = b + 1
+		}
+		maskThresh := float32(0.05)
+		if prevBandwidth >= b+1 {
+			maskThresh = 0.01
+		}
+		masked[b] = E < maskThresh*bandwidthMask
+		bandwidthMask = maxf(0.05*bandwidthMask, E)
+	}
+
+	// High-band detector from the downsampler high-pass residual (48kHz path).
+	if fs == 48000 {
+		E := hpEner * (1.0 / (60.0 * 60.0))
+		noiseRatio := float32(30.0)
+		if prevBandwidth == 20 {
+			noiseRatio = 10.0
+		}
+		if E > noiseRatio*noiseFloor*160 {
+			bandwidth = 20
+		}
+		maskThresh := float32(0.05)
+		if prevBandwidth == 20 {
+			maskThresh = 0.01
+		}
+		masked[NbTBands] = E < maskThresh*bandwidthMask
+	}
+
+	if bandwidth == 20 && masked[NbTBands] {
+		bandwidth -= 2
+	} else if bandwidth > 0 && bandwidth <= NbTBands && masked[bandwidth-1] {
+		bandwidth--
+	}
+	if frameCount <= 2 {
+		bandwidth = 20
+	}
+	if bandwidth < 1 {
+		bandwidth = 1
+	}
+	if bandwidth > 20 {
+		bandwidth = 20
+	}
+	return bandwidth
+}
+
+func maxf(a, b float32) float32 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func (s *TonalityAnalysisState) RunAnalysis(pcm []float32, frameSize int, channels int) AnalysisInfo {

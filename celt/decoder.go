@@ -700,6 +700,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 			dynallocLoopLogp = 1
 		}
 		offsets[i] = boost
+		traceAllocation(i, boost, -1)
 		if boost > 0 {
 			dynallocLogp = max(2, dynallocLogp-1)
 		}
@@ -1374,6 +1375,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 			dynallocLoopLogp = 1
 		}
 		offsets[i] = boost
+		traceAllocation(i, boost, -1)
 		if boost > 0 {
 			dynallocLogp = max(2, dynallocLogp-1)
 		}
@@ -1632,6 +1634,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 			dynallocLoopLogp = 1
 		}
 		offsets[i] = boost
+		traceAllocation(i, boost, -1)
 		if boost > 0 {
 			dynallocLogp = max(2, dynallocLogp-1)
 		}
@@ -1887,6 +1890,7 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 			dynallocLoopLogp = 1
 		}
 		offsets[i] = boost
+		traceAllocation(i, boost, -1)
 		if boost > 0 {
 			dynallocLogp = max(2, dynallocLogp-1)
 		}
@@ -2159,6 +2163,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 			dynallocLoopLogp = 1
 		}
 		offsets[i] = boost
+		traceAllocation(i, boost, -1)
 		if boost > 0 {
 			dynallocLogp = max(2, dynallocLogp-1)
 		}
@@ -2426,6 +2431,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 			dynallocLoopLogp = 1
 		}
 		offsets[i] = boost
+		traceAllocation(i, boost, -1)
 		if boost > 0 {
 			dynallocLogp = max(2, dynallocLogp-1)
 		}
@@ -2659,6 +2665,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 			dynallocLoopLogp = 1
 		}
 		offsets[i] = boost
+		traceAllocation(i, boost, -1)
 		if boost > 0 {
 			dynallocLogp = max(2, dynallocLogp-1)
 		}

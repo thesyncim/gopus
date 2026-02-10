@@ -61,11 +61,15 @@ type Encoder struct {
 
 	// Frame counting for intra mode decisions
 	frameCount int // Number of frames encoded (0 = first frame uses intra mode)
+	// Coarse-energy intra/inter decision state (libopus delayedIntra).
+	delayedIntra float64
+	forceIntra   bool
 	// Consecutive transient frames (used for anti-collapse flag)
 	consecTransient int
 
 	// Allocation history for skip decisions
 	lastCodedBands int // Previous coded band count (0 = uninitialized)
+	intensity      int // Previous intensity stereo decision (libopus hysteresis state)
 
 	// Bitrate control
 	targetBitrate  int // Target bitrate in bits per second (0 = use buffer size)
@@ -87,6 +91,11 @@ type Encoder struct {
 	lastTonality      float64   // Running average tonality for smoothing
 	lastStereoSaving  float64   // Running stereo_saving estimate from alloc_trim analysis
 	lastPitchChange   bool      // Previous frame pitch_change flag for VBR targeting
+
+	// Analysis bandwidth state used by bit allocation gating.
+	// This mirrors libopus use of st->analysis.bandwidth for clt_compute_allocation().
+	analysisBandwidth int  // 1..20 bandwidth index from previous frame analysis
+	analysisValid     bool // True after at least one analysis update
 
 	// Dynamic allocation analysis state (for VBR decisions)
 	// These are computed from the previous frame and used for current frame's VBR target.
@@ -233,6 +242,8 @@ func NewEncoder(channels int) *Encoder {
 
 		// Complexity defaults to max quality (libopus default)
 		complexity: 10,
+		// libopus initializes delayedIntra to 1.
+		delayedIntra: 1.0,
 
 		// Initialize spread decision state (libopus defaults to SPREAD_NORMAL)
 		// Reference: libopus celt_encoder.c line 3088-3089
@@ -246,6 +257,8 @@ func NewEncoder(channels int) *Encoder {
 		lastTonality:      0.5, // Start with neutral tonality estimate
 		lastStereoSaving:  0.0,
 		lastPitchChange:   false,
+		analysisBandwidth: 20,
+		analysisValid:     false,
 
 		// Pre-emphasized signal buffer for transient analysis overlap
 		// Size is Overlap samples per channel (interleaved for stereo)
@@ -284,6 +297,28 @@ func NewEncoder(channels int) *Encoder {
 // SetTargetStatsHook installs a callback that receives per-frame CELT VBR targets.
 func (e *Encoder) SetTargetStatsHook(fn func(CeltTargetStats)) {
 	e.targetStatsHook = fn
+}
+
+// SetAnalysisBandwidth provides the analysis-derived bandwidth index (1..20)
+// used by allocation gating in clt_compute_allocation().
+func (e *Encoder) SetAnalysisBandwidth(bandwidth int, valid bool) {
+	if !valid {
+		e.analysisValid = false
+		return
+	}
+	if bandwidth < 1 {
+		bandwidth = 1
+	}
+	if bandwidth > 20 {
+		bandwidth = 20
+	}
+	e.analysisBandwidth = bandwidth
+	e.analysisValid = true
+}
+
+// AnalysisBandwidth returns the current analysis-derived bandwidth index.
+func (e *Encoder) AnalysisBandwidth() int {
+	return e.analysisBandwidth
 }
 
 func (e *Encoder) emitTargetStats(stats CeltTargetStats, baseBits, targetBits int) {
@@ -336,7 +371,9 @@ func (e *Encoder) Reset() {
 	// Reset frame counter
 	e.frameCount = 0
 	e.frameBits = 0
+	e.delayedIntra = 1.0
 	e.lastCodedBands = 0
+	e.intensity = 0
 	e.consecTransient = 0
 
 	// Reset spread decision state (match libopus init values)
@@ -353,6 +390,8 @@ func (e *Encoder) Reset() {
 	e.lastTonality = 0.5
 	e.lastStereoSaving = 0
 	e.lastPitchChange = false
+	e.analysisBandwidth = 20
+	e.analysisValid = false
 
 	// Clear pre-emphasis buffer for transient analysis
 	for i := range e.preemphBuffer {
@@ -812,6 +851,7 @@ type encoderScratch struct {
 
 	// Quantized energies
 	quantizedEnergies []float64
+	analysisEnergies  []float64
 	prev1LogE         []float64
 
 	// Normalized coefficient buffers
@@ -894,6 +934,10 @@ type encoderScratch struct {
 
 	// Range encoder (reused between frames)
 	rangeEncoder rangecoding.Encoder
+
+	// Coarse-energy two-pass scratch
+	coarseStartState rangecoding.EncoderState
+	coarseOldStart   []float64
 }
 
 // EnsureScratch ensures all scratch buffers are properly sized for the given frame size.

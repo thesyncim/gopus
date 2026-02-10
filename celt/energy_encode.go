@@ -188,6 +188,273 @@ func computeBandRMS(coeffs []float64, start, end int) float64 {
 	return float64(celtLog2(amp))
 }
 
+func celtAbsInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+// coarseLossDistortion mirrors libopus loss_distortion() for float mode.
+// It estimates how expensive packet loss would be if we keep using inter prediction.
+func coarseLossDistortion(energies, oldEBands []float64, nbBands, channels int) float64 {
+	if nbBands <= 0 || channels <= 0 {
+		return 0
+	}
+	var dist float64
+	for c := 0; c < channels; c++ {
+		base := c * nbBands
+		oldBase := c * MaxBands
+		for band := 0; band < nbBands; band++ {
+			idx := base + band
+			oldIdx := oldBase + band
+			if idx >= len(energies) || oldIdx >= len(oldEBands) {
+				continue
+			}
+			d := energies[idx] - oldEBands[oldIdx]
+			dist += d * d
+		}
+	}
+	if dist > 200.0 {
+		return 200.0
+	}
+	return dist
+}
+
+func (e *Encoder) encodeCoarseEnergyPass(energies []float64, nbBands int, intra bool, lm int, budget int, maxDecay32 float32, encodeIntraFlag bool) ([]float64, int) {
+	if e.rangeEncoder == nil {
+		return energies, 0
+	}
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+	if nbBands < 0 {
+		nbBands = 0
+	}
+	if lm < 0 {
+		lm = 0
+	}
+	if lm > 3 {
+		lm = 3
+	}
+
+	channels := e.channels
+	if len(energies) < nbBands*channels {
+		channels = 1
+	}
+
+	quantizedEnergies := ensureFloat64Slice(&e.scratch.quantizedEnergies, nbBands*channels)
+
+	if encodeIntraFlag && e.rangeEncoder.Tell()+3 <= budget {
+		bit := 0
+		if intra {
+			bit = 1
+		}
+		e.rangeEncoder.EncodeBit(bit, 3)
+	}
+
+	var coef, beta float64
+	if intra {
+		coef = 0.0
+		beta = BetaIntra
+	} else {
+		coef = AlphaCoef[lm]
+		beta = BetaCoefInter[lm]
+	}
+	coef32 := float32(coef)
+	beta32 := float32(beta)
+
+	prob := eProbModel[lm][0]
+	if intra {
+		prob = eProbModel[lm][1]
+	}
+
+	var prevBandEnergy [2]float32
+	badness := 0
+	for band := 0; band < nbBands; band++ {
+		for c := 0; c < channels; c++ {
+			idx := c*nbBands + band
+			if idx >= len(energies) {
+				continue
+			}
+
+			x := float32(energies[idx])
+			oldEBand := float32(e.prevEnergy[c*MaxBands+band])
+			oldE := oldEBand
+			minEnergy := float32(-9.0 * DB6)
+			if oldE < minEnergy {
+				oldE = minEnergy
+			}
+
+			f := x - coef32*oldE - prevBandEnergy[c]
+			qi := int(math.Floor(float64(f/float32(DB6) + 0.5)))
+			qi0 := qi
+
+			decayBound := oldEBand
+			minDecay := float32(-28.0 * DB6)
+			if decayBound < minDecay {
+				decayBound = minDecay
+			}
+			decayBound -= maxDecay32
+			if qi < 0 && x < decayBound {
+				adjust := int((decayBound - x) / float32(DB6))
+				qi += adjust
+				if qi > 0 {
+					qi = 0
+				}
+			}
+
+			tell := e.rangeEncoder.Tell()
+			bitsLeft := budget - tell - 3*channels*(nbBands-band)
+			if band != 0 && bitsLeft < 30 {
+				if bitsLeft < 24 && qi > 1 {
+					qi = 1
+				}
+				if bitsLeft < 16 && qi < -1 {
+					qi = -1
+				}
+			}
+
+			if budget-tell >= 15 {
+				pi := 2 * band
+				if pi > 40 {
+					pi = 40
+				}
+				fs := int(prob[pi]) << 7
+				decay := int(prob[pi+1]) << 6
+				qi = e.encodeLaplace(qi, fs, decay)
+			} else if budget-tell >= 2 {
+				if qi > 1 {
+					qi = 1
+				}
+				if qi < -1 {
+					qi = -1
+				}
+				var s int
+				if qi < 0 {
+					s = -2*qi - 1
+				} else {
+					s = 2 * qi
+				}
+				e.rangeEncoder.EncodeICDF(s, smallEnergyICDF, 2)
+			} else if budget-tell >= 1 {
+				if qi > 0 {
+					qi = 0
+				}
+				e.rangeEncoder.EncodeBit(-qi, 1)
+			} else {
+				qi = -1
+			}
+
+			badness += celtAbsInt(qi0 - qi)
+
+			q := float32(qi) * float32(DB6)
+			quantizedEnergy := coef32*oldE + prevBandEnergy[c] + q
+			quantizedEnergies[idx] = float64(quantizedEnergy)
+			prevBandEnergy[c] = prevBandEnergy[c] + q - beta32*q
+		}
+	}
+
+	for c := 0; c < channels; c++ {
+		for band := 0; band < nbBands; band++ {
+			idx := c*nbBands + band
+			if idx >= len(quantizedEnergies) {
+				continue
+			}
+			e.prevEnergy[c*MaxBands+band] = quantizedEnergies[idx]
+		}
+	}
+
+	return quantizedEnergies, badness
+}
+
+// DecideIntraMode runs libopus-style two-pass intra/inter selection for coarse energy.
+// It performs trial encodes on a saved range coder state and restores state before returning.
+func (e *Encoder) DecideIntraMode(energies []float64, nbBands int, lm int) bool {
+	if e.rangeEncoder == nil {
+		return false
+	}
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+	if nbBands <= 0 {
+		return false
+	}
+	if lm < 0 {
+		lm = 0
+	}
+	if lm > 3 {
+		lm = 3
+	}
+
+	channels := e.channels
+	if channels < 1 {
+		channels = 1
+	}
+
+	budget := e.rangeEncoder.StorageBits()
+	if e.frameBits > 0 && e.frameBits < budget {
+		budget = e.frameBits
+	}
+	nbAvailableBytes := budget / 8
+
+	twoPass := e.complexity >= 4
+	intra := e.forceIntra || (!twoPass &&
+		e.delayedIntra > float64(2*channels*nbBands) &&
+		nbAvailableBytes > nbBands*channels)
+
+	intraBias := 0
+	if channels > 0 {
+		intraBias = int(float64(budget) * e.delayedIntra * float64(e.packetLoss) / float64(channels*512))
+	}
+
+	tell := e.rangeEncoder.Tell()
+	if tell+3 > budget {
+		twoPass = false
+		intra = false
+	}
+
+	maxDecay32 := float32(16.0 * DB6)
+	if nbBands > 10 {
+		limit := float32(0.125 * float64(nbAvailableBytes) * DB6)
+		if limit < maxDecay32 {
+			maxDecay32 = limit
+		}
+	}
+
+	startState := &e.scratch.coarseStartState
+	e.rangeEncoder.SaveStateInto(startState)
+
+	oldStart := ensureFloat64Slice(&e.scratch.coarseOldStart, len(e.prevEnergy))
+	copy(oldStart, e.prevEnergy)
+
+	badnessIntra := 0
+	tellIntra := 0
+	if twoPass || intra {
+		_, badnessIntra = e.encodeCoarseEnergyPass(energies, nbBands, true, lm, budget, maxDecay32, true)
+		tellIntra = e.rangeEncoder.TellFrac()
+		e.rangeEncoder.RestoreState(startState)
+		copy(e.prevEnergy, oldStart)
+	}
+
+	if !intra {
+		_, badnessInter := e.encodeCoarseEnergyPass(energies, nbBands, false, lm, budget, maxDecay32, true)
+		useIntra := badnessIntra < badnessInter
+		if badnessIntra == badnessInter && e.rangeEncoder.TellFrac()+intraBias > tellIntra {
+			useIntra = true
+		}
+		if twoPass && useIntra {
+			intra = true
+		} else {
+			intra = false
+		}
+		e.rangeEncoder.RestoreState(startState)
+		copy(e.prevEnergy, oldStart)
+	}
+
+	return intra
+}
+
 // EncodeCoarseEnergy encodes coarse (6dB step) band energies.
 // This mirrors decoder's DecodeCoarseEnergy exactly (in reverse).
 // intra=true: no inter-frame prediction (first frame or after loss)
@@ -218,25 +485,7 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 		channels = 1
 	}
 
-	// Use scratch buffer for quantized energies (zero-alloc)
-	quantizedEnergies := ensureFloat64Slice(&e.scratch.quantizedEnergies, nbBands*channels)
-
-	// Prediction coefficients (libopus quant_coarse_energy_impl).
-	var coef, beta float64
-	if intra {
-		coef = 0.0
-		beta = BetaIntra
-	} else {
-		coef = AlphaCoef[lm]
-		beta = BetaCoefInter[lm]
-	}
-	coef32 := float32(coef)
-	beta32 := float32(beta)
-
-	prob := eProbModel[lm][0]
-	if intra {
-		prob = eProbModel[lm][1]
-	}
+	newDistortion := coarseLossDistortion(energies, e.prevEnergy, nbBands, channels)
 
 	budget := e.rangeEncoder.StorageBits()
 	if e.frameBits > 0 && e.frameBits < budget {
@@ -253,110 +502,13 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 		}
 	}
 
-	prevBandEnergy := make([]float32, channels)
-	for band := 0; band < nbBands; band++ {
-		for c := 0; c < channels; c++ {
-			idx := c*nbBands + band
-			if idx >= len(energies) {
-				continue
-			}
+	quantizedEnergies, _ := e.encodeCoarseEnergyPass(energies, nbBands, intra, lm, budget, maxDecay32, false)
 
-			x := float32(energies[idx])
-
-			// Previous frame energy (for prediction and decay bound).
-			oldEBand := float32(e.prevEnergy[c*MaxBands+band])
-			oldE := oldEBand
-			minEnergy := float32(-9.0 * DB6)
-			if oldE < minEnergy {
-				oldE = minEnergy
-			}
-
-			// Prediction residual.
-			f := x - coef32*oldE - prevBandEnergy[c]
-			qi := int(math.Floor(float64(f/float32(DB6) + 0.5)))
-
-			// Prevent energy from decaying too quickly.
-			decayBound := oldEBand
-			minDecay := float32(-28.0 * DB6)
-			if decayBound < minDecay {
-				decayBound = minDecay
-			}
-			decayBound -= maxDecay32
-			if qi < 0 && x < decayBound {
-				adjust := int((decayBound - x) / float32(DB6))
-				qi += adjust
-				if qi > 0 {
-					qi = 0
-				}
-			}
-
-			tell := e.rangeEncoder.Tell()
-			bitsLeft := budget - tell - 3*channels*(nbBands-band)
-			if band != 0 && bitsLeft < 30 {
-				if bitsLeft < 24 && qi > 1 {
-					qi = 1
-				}
-				if bitsLeft < 16 && qi < -1 {
-					qi = -1
-				}
-			}
-
-			// Encode with Laplace or fallback models.
-			if budget-tell >= 15 {
-				pi := 2 * band
-				if pi > 40 {
-					pi = 40
-				}
-				fs := int(prob[pi]) << 7
-				decay := int(prob[pi+1]) << 6
-				qi = e.encodeLaplace(qi, fs, decay)
-			} else if budget-tell >= 2 {
-				if qi > 1 {
-					qi = 1
-				}
-				if qi < -1 {
-					qi = -1
-				}
-				// Encode using zigzag mapping to match decoder's decoding:
-				// Decoder: qi = (s >> 1) ^ -(s & 1)
-				//   s=0 -> qi=0, s=1 -> qi=-1, s=2 -> qi=1
-				// Encoder (inverse): qi=0 -> s=0, qi=-1 -> s=1, qi=1 -> s=2
-				var s int
-				if qi < 0 {
-					s = -2*qi - 1 // For qi=-1: s = 2 - 1 = 1
-				} else {
-					s = 2 * qi // For qi=0: s=0, qi=1: s=2
-				}
-				e.rangeEncoder.EncodeICDF(s, smallEnergyICDF, 2)
-			} else if budget-tell >= 1 {
-				if qi > 0 {
-					qi = 0
-				}
-				e.rangeEncoder.EncodeBit(-qi, 1)
-			} else {
-				qi = -1
-			}
-
-			q := float32(qi) * float32(DB6)
-			quantizedEnergy := coef32*oldE + prevBandEnergy[c] + q
-			quantizedEnergies[idx] = float64(quantizedEnergy)
-
-			// Update inter-band predictor.
-			prevBandEnergy[c] = prevBandEnergy[c] + q - beta32*q
-		}
-	}
-
-	// Update previous-frame energy state after encoding completes.
-	for c := 0; c < channels; c++ {
-		for band := 0; band < nbBands; band++ {
-			idx := c*nbBands + band
-			if idx >= len(quantizedEnergies) {
-				continue
-			}
-			if band < MaxBands {
-				e.prevEnergy[c*MaxBands+band] = quantizedEnergies[idx]
-			}
-		}
+	alpha := AlphaCoef[lm]
+	if intra {
+		e.delayedIntra = newDistortion
+	} else {
+		e.delayedIntra = alpha*alpha*e.delayedIntra + newDistortion
 	}
 
 	return quantizedEnergies

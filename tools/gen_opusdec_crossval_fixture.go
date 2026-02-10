@@ -140,9 +140,10 @@ func buildScenarios() ([]scenario, error) {
 		return makeScenario(name, 1, packets)
 	}
 
-	encodeStereoFrames := func(name string, bitrate int, frames [][]float64) (scenario, error) {
+	encodeStereoFramesCBR := func(name string, bitrate int, frames [][]float64) (scenario, error) {
 		enc := celt.NewEncoder(2)
 		enc.SetBitrate(bitrate)
+		enc.SetVBR(false)
 		packets := make([][]byte, len(frames))
 		for i, frame := range frames {
 			packet, err := enc.EncodeFrame(frame, 960)
@@ -183,7 +184,7 @@ func buildScenarios() ([]scenario, error) {
 	add(encodeMonoFrame("mono_20ms_lowamp", 24000, scaleSignal(generateSineWave(880.0, 960), 0.12)))
 	add(encodeStereoFrame("stereo_20ms_chirp", 96000, buildStereoFrameChirp(960)))
 	add(encodeStereoFrame("stereo_20ms_silence", 96000, make([]float64, 960*2)))
-	add(encodeStereoFrames("stereo_20ms_multiframe", 96000, [][]float64{
+	add(encodeStereoFramesCBR("stereo_20ms_multiframe", 96000, [][]float64{
 		buildStereoFrameDualTone(960, 300.0, 500.0),
 		buildStereoFrameDualTone(960, 520.0, 920.0),
 		buildStereoFrameDualTone(960, 760.0, 1240.0),

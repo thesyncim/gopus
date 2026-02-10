@@ -113,6 +113,7 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, celtPCM []float64, lookahead 
 		e.ensureSILKSideEncoder()
 	}
 	e.ensureCELTEncoder()
+	e.celtEncoder.SetAnalysisBandwidth(0, false)
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 
 	// Initialize hybrid state if needed
@@ -1184,8 +1185,8 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 		shortBlocks = 1
 	}
 
-	// Encode intra flag
-	intra := e.celtEncoder.IsIntraFrame()
+	// Encode intra flag using libopus-style coarse-energy two-pass decision.
+	intra := e.celtEncoder.DecideIntraMode(energies, nbBands, lm)
 	if re.Tell()+3 <= totalBits {
 		if intra {
 			re.EncodeBit(1, 3)
