@@ -21,6 +21,42 @@ type CeltTargetStats struct {
 	MaxDepth      float64
 }
 
+// PrefilterDebugStats captures per-frame prefilter diagnostics.
+type PrefilterDebugStats struct {
+	Frame          int
+	Enabled        bool
+	UsedTonePath   bool
+	UsedPitchPath  bool
+	TFEstimate     float64
+	NBBytes        int
+	ToneFreq       float64
+	Toneishness    float64
+	MaxPitchRatio  float64
+	PitchSearchOut int
+	PitchBeforeRD  int
+	PitchAfterRD   int
+	PFOn           bool
+	QG             int
+	Gain           float64
+}
+
+// CoarseDecisionStats captures per-band coarse energy quantization decisions.
+// This is intended for diagnostics and is only emitted when a hook is installed.
+type CoarseDecisionStats struct {
+	Frame     int
+	Band      int
+	Channel   int
+	Intra     bool
+	LM        int
+	X         float64
+	Pred      float64
+	Residual  float64
+	QIInitial int
+	QIFinal   int
+	Tell      int
+	BitsLeft  int
+}
+
 // Encoder encodes audio frames using CELT transform coding.
 // It maintains state across frames for proper audio continuity via energy
 // prediction and overlap-add analysis.
@@ -51,6 +87,9 @@ type Encoder struct {
 	// Analysis state for overlap (mirrors decoder's synthesis state)
 	overlapBuffer []float64 // MDCT overlap [Overlap * channels]
 	preemphState  []float64 // Pre-emphasis filter state [channels]
+	// overlapMax mirrors libopus st->overlap_max for CELT silence detection.
+	// It tracks max absolute amplitude over the last overlap region.
+	overlapMax float64
 
 	// RNG state (for deterministic folding decisions)
 	rng uint32
@@ -104,6 +143,10 @@ type Encoder struct {
 
 	// Debug hook for capturing per-frame CELT VBR target stats.
 	targetStatsHook func(CeltTargetStats)
+	// Debug hook for capturing prefilter decisions.
+	prefilterDebugHook func(PrefilterDebugStats)
+	// Debug hook for capturing coarse energy quantization decisions.
+	coarseDecisionHook func(CoarseDecisionStats)
 
 	// Hybrid mode flag
 	// When true, postfilter flag encoding is skipped per RFC 6716 Section 3.2
@@ -152,6 +195,12 @@ type Encoder struct {
 	prefilterGain   float64
 	prefilterTapset int
 	prefilterMem    []float64
+	// Approximate analysis->max_pitch_ratio state for run_prefilter().
+	maxPitchDownState   [3]float64
+	maxPitchInmem       []float64
+	maxPitchMemFill     int
+	maxPitchHPEnerAccum float64
+	maxPitchRatio       float64
 
 	// Packet loss expectation (0-100) for prefilter gain scaling.
 	packetLoss int
@@ -280,10 +329,16 @@ func NewEncoder(channels int) *Encoder {
 
 		// Prefilter state (comb filter history) for postfilter signaling.
 		// libopus zero-initializes this state on reset.
-		prefilterPeriod: combFilterMinPeriod,
+		prefilterPeriod: 0,
 		prefilterGain:   0,
 		prefilterTapset: 0,
 		prefilterMem:    make([]float64, combFilterMaxPeriod*channels),
+		// analysis starts with 10 ms history and max_pitch_ratio defaults to 1.
+		maxPitchInmem:   make([]float64, 720),
+		maxPitchMemFill: 240,
+		// Match libopus startup behavior: analysis info starts invalid, so
+		// max_pitch_ratio defaults to 0 until analysis becomes available.
+		maxPitchRatio: 0.0,
 
 		// Default to VBR enabled to mirror libopus behavior.
 		vbr: true,
@@ -292,6 +347,17 @@ func NewEncoder(channels int) *Encoder {
 	// Energy arrays default to zero after allocation (matches libopus init).
 
 	return e
+}
+
+// SetPrefilterDebugHook installs a callback that receives per-frame prefilter stats.
+func (e *Encoder) SetPrefilterDebugHook(fn func(PrefilterDebugStats)) {
+	e.prefilterDebugHook = fn
+}
+
+// SetCoarseDecisionHook installs a callback that receives per-band coarse
+// quantization decisions during EncodeCoarseEnergy.
+func (e *Encoder) SetCoarseDecisionHook(fn func(CoarseDecisionStats)) {
+	e.coarseDecisionHook = fn
 }
 
 // SetTargetStatsHook installs a callback that receives per-frame CELT VBR targets.
@@ -344,14 +410,23 @@ func (e *Encoder) Reset() {
 	for i := range e.overlapBuffer {
 		e.overlapBuffer[i] = 0
 	}
+	e.overlapMax = 0
 
 	// Reset prefilter state
-	e.prefilterPeriod = combFilterMinPeriod
+	e.prefilterPeriod = 0
 	e.prefilterGain = 0
 	e.prefilterTapset = 0
 	for i := range e.prefilterMem {
 		e.prefilterMem[i] = 0
 	}
+	e.maxPitchDownState = [3]float64{}
+	for i := range e.maxPitchInmem {
+		e.maxPitchInmem[i] = 0
+	}
+	e.maxPitchMemFill = 240
+	e.maxPitchHPEnerAccum = 0
+	// Match libopus reset behavior (analysis invalid -> max_pitch_ratio = 0).
+	e.maxPitchRatio = 0.0
 
 	// Clear pre-emphasis state
 	for i := range e.preemphState {
@@ -825,6 +900,7 @@ type encoderScratch struct {
 	prefilterPre      []float64
 	prefilterOut      []float64
 	prefilterPitchBuf []float64
+	pitchHPPrefix     []float64
 	prefilterXLP4     []float64
 	prefilterYLP4     []float64
 	prefilterXcorr    []float64
@@ -851,6 +927,7 @@ type encoderScratch struct {
 
 	// Quantized energies
 	quantizedEnergies []float64
+	coarseError       []float64
 	analysisEnergies  []float64
 	prev1LogE         []float64
 
@@ -1019,6 +1096,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.energies = ensureFloat64Slice(&s.energies, bandCount)
 	s.bandLogE2 = ensureFloat64Slice(&s.bandLogE2, bandCount)
 	s.bandE = ensureFloat64Slice(&s.bandE, bandCount)
+	s.coarseError = ensureFloat64Slice(&s.coarseError, bandCount)
 	s.bandEL = ensureFloat64Slice(&s.bandEL, MaxBands)
 	s.bandER = ensureFloat64Slice(&s.bandER, MaxBands)
 

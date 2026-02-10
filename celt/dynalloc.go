@@ -24,6 +24,9 @@ const (
 	leakageOffset  = float32(2.5)
 	leakageSlope   = float32(2.0)
 	leakageDivisor = float32(4.0)
+	// libopus applies leak_boost from external analysis state only when valid.
+	// Keep the local approximation disabled by default for parity.
+	approxLeakBoostEnabled = false
 )
 
 func minF32(a, b float32) float32 {
@@ -516,18 +519,9 @@ func DynallocAnalysis(
 		}
 
 		// For non-transient CBR/CVBR frames, libopus halves dynalloc.
-		// Keep the bounded tonal fallback to avoid severe under-allocation on
-		// AM-like inputs while leak_boost is still approximate.
 		if (!vbr || constrainedVBR) && !isTransient {
-			cbrScale := float32(0.5)
-			if toneishness < 0.98 {
-				cbrScale += 1.0 * float32((0.98-toneishness)/0.98)
-				if cbrScale > 1.0 {
-					cbrScale = 1.0
-				}
-			}
 			for i := start; i < end; i++ {
-				follower[i] *= cbrScale
+				follower[i] *= 0.5
 			}
 		}
 
@@ -566,8 +560,10 @@ func DynallocAnalysis(
 			}
 		}
 
-		// Approximate analysis->leak_boost contribution used by libopus dynalloc.
-		{
+		if approxLeakBoostEnabled {
+			// Approximate analysis->leak_boost contribution used by libopus dynalloc.
+			// This intentionally targets the first LEAK_BANDS where libopus applies
+			// analysis leak compensation.
 			leakEnd := end
 			if leakEnd > leakBands {
 				leakEnd = leakBands
@@ -704,6 +700,9 @@ type DynallocScratch struct {
 	Sig       []float32
 	Follower  []float32
 	BandLogE3 []float32
+	LeakBand  []float32
+	LeakFrom  []float32
+	LeakTo    []float32
 }
 
 // EnsureDynallocScratch ensures scratch buffers are large enough.
@@ -763,6 +762,21 @@ func (s *DynallocScratch) EnsureDynallocScratch(nbBands, channels int) {
 		s.BandLogE3 = make([]float32, nbBands)
 	} else {
 		s.BandLogE3 = s.BandLogE3[:nbBands]
+	}
+	if cap(s.LeakBand) < nbBands {
+		s.LeakBand = make([]float32, nbBands)
+	} else {
+		s.LeakBand = s.LeakBand[:nbBands]
+	}
+	if cap(s.LeakFrom) < nbBands {
+		s.LeakFrom = make([]float32, nbBands)
+	} else {
+		s.LeakFrom = s.LeakFrom[:nbBands]
+	}
+	if cap(s.LeakTo) < nbBands {
+		s.LeakTo = make([]float32, nbBands)
+	} else {
+		s.LeakTo = s.LeakTo[:nbBands]
 	}
 }
 
@@ -1065,18 +1079,9 @@ func DynallocAnalysisWithScratch(
 		}
 
 		// For non-transient CBR/CVBR frames, libopus halves dynalloc.
-		// Keep the bounded tonal fallback to avoid severe under-allocation on
-		// AM-like inputs while leak_boost is still approximate.
 		if (!vbr || constrainedVBR) && !isTransient {
-			cbrScale := float32(0.5)
-			if toneishness < 0.98 {
-				cbrScale += 1.0 * float32((0.98-toneishness)/0.98)
-				if cbrScale > 1.0 {
-					cbrScale = 1.0
-				}
-			}
 			for i := start; i < end; i++ {
-				follower[i] *= cbrScale
+				follower[i] *= 0.5
 			}
 		}
 
@@ -1113,16 +1118,16 @@ func DynallocAnalysisWithScratch(
 			}
 		}
 
-		// Approximate analysis->leak_boost contribution used by libopus dynalloc.
-		{
+		if approxLeakBoostEnabled {
+			// Approximate analysis->leak_boost contribution used by libopus dynalloc.
 			leakEnd := end
 			if leakEnd > leakBands {
 				leakEnd = leakBands
 			}
 			if leakEnd > start {
-				bandLog2 := mask[:leakEnd]
-				leakFrom := sig[:leakEnd]
-				leakTo := noiseFloor[:leakEnd]
+				bandLog2 := scratch.LeakBand[:leakEnd]
+				leakFrom := scratch.LeakFrom[:leakEnd]
+				leakTo := scratch.LeakTo[:leakEnd]
 				applyLeakBoostApprox(follower, bandLogE32, nbBands, start, end, channels, lm, bandLog2, leakFrom, leakTo)
 			}
 		}

@@ -689,7 +689,8 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 		quanta := min(width<<bitRes, max(6<<bitRes, width))
 		dynallocLoopLogp := dynallocLogp
 		boost := 0
-		for tellFrac+(dynallocLoopLogp<<bitRes) < totalBitsQ3 && boost < cap[i] {
+		j := 0
+		for ; tellFrac+(dynallocLoopLogp<<bitRes) < totalBitsQ3 && boost < cap[i]; j++ {
 			flag := rd.DecodeBit(uint(dynallocLoopLogp))
 			tellFrac = rd.TellFrac()
 			if flag == 0 {
@@ -701,7 +702,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 		}
 		offsets[i] = boost
 		traceAllocation(i, boost, -1)
-		if boost > 0 {
+		if j > 0 {
 			dynallocLogp = max(2, dynallocLogp-1)
 		}
 	}
@@ -1364,7 +1365,8 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 		quanta := min(width<<bitRes, max(6<<bitRes, width))
 		dynallocLoopLogp := dynallocLogp
 		boost := 0
-		for tellFrac+(dynallocLoopLogp<<bitRes) < totalBitsQ3 && boost < cap[i] {
+		j := 0
+		for ; tellFrac+(dynallocLoopLogp<<bitRes) < totalBitsQ3 && boost < cap[i]; j++ {
 			flag := rd.DecodeBit(uint(dynallocLoopLogp))
 			tellFrac = rd.TellFrac()
 			if flag == 0 {
@@ -1376,7 +1378,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 		}
 		offsets[i] = boost
 		traceAllocation(i, boost, -1)
-		if boost > 0 {
+		if j > 0 {
 			dynallocLogp = max(2, dynallocLogp-1)
 		}
 	}
@@ -1623,7 +1625,8 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 		quanta := min(width<<bitRes, max(6<<bitRes, width))
 		dynallocLoopLogp := dynallocLogp
 		boost := 0
-		for tellFrac+(dynallocLoopLogp<<bitRes) < totalBitsQ3 && boost < cap[i] {
+		j := 0
+		for ; tellFrac+(dynallocLoopLogp<<bitRes) < totalBitsQ3 && boost < cap[i]; j++ {
 			flag := rd.DecodeBit(uint(dynallocLoopLogp))
 			tellFrac = rd.TellFrac()
 			if flag == 0 {
@@ -1635,7 +1638,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 		}
 		offsets[i] = boost
 		traceAllocation(i, boost, -1)
-		if boost > 0 {
+		if j > 0 {
 			dynallocLogp = max(2, dynallocLogp-1)
 		}
 	}
@@ -1879,7 +1882,8 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 		quanta := min(width<<bitRes, max(6<<bitRes, width))
 		dynallocLoopLogp := dynallocLogp
 		boost := 0
-		for tellFrac+(dynallocLoopLogp<<bitRes) < totalBitsQ3 && boost < cap[i] {
+		j := 0
+		for ; tellFrac+(dynallocLoopLogp<<bitRes) < totalBitsQ3 && boost < cap[i]; j++ {
 			flag := rd.DecodeBit(uint(dynallocLoopLogp))
 			tellFrac = rd.TellFrac()
 			if flag == 0 {
@@ -1891,7 +1895,7 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 		}
 		offsets[i] = boost
 		traceAllocation(i, boost, -1)
-		if boost > 0 {
+		if j > 0 {
 			dynallocLogp = max(2, dynallocLogp-1)
 		}
 	}
@@ -2152,7 +2156,8 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 		quanta := min(width<<bitRes, max(6<<bitRes, width))
 		dynallocLoopLogp := dynallocLogp
 		boost := 0
-		for tellFrac+(dynallocLoopLogp<<bitRes) < totalBitsQ3 && boost < cap[i] {
+		j := 0
+		for ; tellFrac+(dynallocLoopLogp<<bitRes) < totalBitsQ3 && boost < cap[i]; j++ {
 			flag := rd.DecodeBit(uint(dynallocLoopLogp))
 			tellFrac = rd.TellFrac()
 			if flag == 0 {
@@ -2164,7 +2169,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 		}
 		offsets[i] = boost
 		traceAllocation(i, boost, -1)
-		if boost > 0 {
+		if j > 0 {
 			dynallocLogp = max(2, dynallocLogp-1)
 		}
 	}
@@ -2420,7 +2425,8 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 		quanta := min(width<<bitRes, max(6<<bitRes, width))
 		dynallocLoopLogp := dynallocLogp
 		boost := 0
-		for tellFrac+(dynallocLoopLogp<<bitRes) < totalBitsQ3 && boost < cap[i] {
+		j := 0
+		for ; tellFrac+(dynallocLoopLogp<<bitRes) < totalBitsQ3 && boost < cap[i]; j++ {
 			flag := rd.DecodeBit(uint(dynallocLoopLogp))
 			tellFrac = rd.TellFrac()
 			if flag == 0 {
@@ -2432,7 +2438,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 		}
 		offsets[i] = boost
 		traceAllocation(i, boost, -1)
-		if boost > 0 {
+		if j > 0 {
 			dynallocLogp = max(2, dynallocLogp-1)
 		}
 	}
@@ -2654,7 +2660,8 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 		quanta := min(width<<bitRes, max(6<<bitRes, width))
 		dynallocLoopLogp := dynallocLogp
 		boost := 0
-		for tellFrac+(dynallocLoopLogp<<bitRes) < totalBitsQ3 && boost < cap[i] {
+		j := 0
+		for ; tellFrac+(dynallocLoopLogp<<bitRes) < totalBitsQ3 && boost < cap[i]; j++ {
 			flag := rd.DecodeBit(uint(dynallocLoopLogp))
 			tellFrac = rd.TellFrac()
 			if flag == 0 {
@@ -2666,7 +2673,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 		}
 		offsets[i] = boost
 		traceAllocation(i, boost, -1)
-		if boost > 0 {
+		if j > 0 {
 			dynallocLogp = max(2, dynallocLogp-1)
 		}
 	}

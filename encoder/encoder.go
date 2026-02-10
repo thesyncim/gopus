@@ -124,6 +124,8 @@ type Encoder struct {
 	lastAnalysisValid   bool
 	lastAnalysisFresh   bool
 	prevLongSWBAutoMode Mode
+	prevSWB10AutoMode   Mode
+	swb10TransientScore int
 	prevSWB20AutoMode   Mode
 	swb20ModeHoldFrames int
 
@@ -195,6 +197,7 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		scratchRight:           make([]float32, 2880),
 		scratchMono:            make([]float32, 2880),
 		scratchPacket:          make([]byte, 1276),
+		prevSWB10AutoMode:      ModeCELT,
 		prevSWB20AutoMode:      ModeHybrid,
 	}
 }
@@ -272,6 +275,8 @@ func (e *Encoder) Reset() {
 	}
 	e.lastAnalysisValid = false
 	e.lastAnalysisFresh = false
+	e.prevSWB10AutoMode = ModeCELT
+	e.swb10TransientScore = 0
 	e.prevSWB20AutoMode = ModeHybrid
 	e.swb20ModeHoldFrames = 0
 }
@@ -537,6 +542,12 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		e.prevLongSWBAutoMode = actualMode
 	}
 	if e.mode == ModeAuto &&
+		frameSize == 480 &&
+		e.effectiveBandwidth() == types.BandwidthSuperwideband &&
+		(actualMode == ModeHybrid || actualMode == ModeCELT) {
+		e.prevSWB10AutoMode = actualMode
+	}
+	if e.mode == ModeAuto &&
 		frameSize == 960 &&
 		e.effectiveBandwidth() == types.BandwidthSuperwideband &&
 		(actualMode == ModeHybrid || actualMode == ModeCELT) {
@@ -574,9 +585,13 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 			frameData, err = e.encodeHybridFrame(framePCM, celtPCM, lookaheadSlice, frameSize)
 		}
 	case ModeCELT:
-		// Opus CELT path always uses delay-compensated input (Fs/250), including
-		// 2.5ms frames. This matches libopus encoder behavior.
-		celtPCM := e.applyDelayCompensation(framePCM, frameSize)
+		// Match libopus application behavior:
+		// - Explicit CELT mode maps to restricted-celt (delay_compensation=0)
+		// - Auto-selected CELT uses audio application path (delay_compensation=Fs/250)
+		celtPCM := framePCM
+		if e.mode != ModeCELT {
+			celtPCM = e.applyDelayCompensation(framePCM, frameSize)
+		}
 		if frameSize > 960 {
 			// Long CELT packets are encoded as multi-frame packets.
 			packet, err = e.encodeCELTMultiFramePacket(celtPCM, frameSize)
@@ -876,7 +891,7 @@ func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
 	}
 	// Keep high-rate Fullband in CELT. For SWB 20ms auto mode, allow
 	// signal-driven Hybrid/CELT selection with hysteresis.
-	if perChanRate >= 48000 && (bw == types.BandwidthFullband || (bw == types.BandwidthSuperwideband && frameSize != 960)) {
+	if perChanRate >= 48000 && (bw == types.BandwidthFullband || (bw == types.BandwidthSuperwideband && frameSize != 960 && frameSize != 480)) {
 		return ModeCELT
 	}
 
@@ -958,9 +973,10 @@ func (e *Encoder) autoSignalFromPCM(pcm []float64, frameSize int) types.Signal {
 			}
 		}
 	}
+	swb10Auto := e.mode == ModeAuto && frameSize == 480 && e.effectiveBandwidth() == types.BandwidthSuperwideband
 	swb20Auto := e.mode == ModeAuto && frameSize == 960 && e.effectiveBandwidth() == types.BandwidthSuperwideband
 	signalType, _ := classifySignal(pcm32)
-	if signalType == 0 && !swb20Auto {
+	if signalType == 0 && !swb10Auto && !swb20Auto {
 		return types.SignalVoice
 	}
 	channels := e.channels
@@ -998,6 +1014,39 @@ func (e *Encoder) autoSignalFromPCM(pcm []float64, frameSize int) types.Signal {
 		return types.SignalVoice
 	}
 	ratio := diffEnergy / (energy + 1e-12)
+	avgEnergy := energy / float64(samples)
+
+	// SWB 10ms transient gate.
+	// Keep CELT by default, but allow transition to Hybrid for sustained
+	// sparse/transient content where libopus tends to switch later in the run.
+	if swb10Auto {
+		if ratio >= 0.9 && avgEnergy <= 0.03 {
+			e.swb10TransientScore += 2
+		} else if ratio >= 0.5 && avgEnergy <= 0.015 {
+			e.swb10TransientScore++
+		} else {
+			e.swb10TransientScore--
+			if e.swb10TransientScore < 0 {
+				e.swb10TransientScore = 0
+			}
+		}
+		if e.swb10TransientScore > 100 {
+			e.swb10TransientScore = 100
+		}
+		desired := e.prevSWB10AutoMode
+		if desired != ModeCELT && desired != ModeHybrid {
+			desired = ModeCELT
+		}
+		if e.swb10TransientScore >= 30 {
+			desired = ModeHybrid
+		} else if e.swb10TransientScore <= 10 {
+			desired = ModeCELT
+		}
+		if desired == ModeHybrid {
+			return types.SignalVoice
+		}
+		return types.SignalMusic
+	}
 
 	// SWB 20ms auto-mode hysteresis.
 	// This mirrors libopus-style transition penalties by requiring sustained
@@ -1271,6 +1320,7 @@ func (e *Encoder) encodeCELTFrameWithBitrate(pcm []float64, frameSize int, bitra
 	e.celtEncoder.SetBitrate(bitrate)
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 	e.celtEncoder.SetHybrid(false)
+	e.celtEncoder.SetDCRejectEnabled(false)
 	e.celtEncoder.SetPacketLoss(e.packetLoss)
 	e.celtEncoder.SetLSBDepth(e.lsbDepth)
 	switch e.bitrateMode {

@@ -180,7 +180,11 @@ func (d *Decoder) decodeOpusFrameInto(
 
 	transition := false
 	var pcmTransition []float32
-	if data != nil && d.haveDecoded && ((mode == ModeCELT && d.prevMode != ModeCELT && !d.prevRedundancy) ||
+	// Keep transition smoothing for CELT<->(SILK/Hybrid), but skip the 10ms
+	// Hybrid->CELT transition fade. For 10ms this fade can create a single-frame
+	// artifact on the first CELT frame after Hybrid.
+	if data != nil && d.haveDecoded && ((mode == ModeCELT && d.prevMode != ModeCELT &&
+		!d.prevRedundancy && !(d.prevMode == ModeHybrid && audiosize == F10)) ||
 		(mode != ModeCELT && d.prevMode == ModeCELT)) {
 		transition = true
 		if mode == ModeCELT {

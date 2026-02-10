@@ -277,11 +277,11 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 	// Default: forward_decay = 0.0625 (1/16)
 	// Weak: forward_decay = 0.03125 (1/32)
 	// Precompute retain = 1 - decay to avoid per-iteration subtraction.
-	forwardDecay := 0.0625
-	forwardRetain := 1.0 - 0.0625
+	forwardDecay := float32(0.0625)
+	forwardRetain := float32(1.0) - forwardDecay
 	if allowWeakTransients {
 		forwardDecay = 0.03125
-		forwardRetain = 1.0 - 0.03125
+		forwardRetain = float32(1.0) - forwardDecay
 	}
 
 	var maxMaskMetric int
@@ -327,15 +327,15 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 		// This removes DC and low frequencies to focus on transient energy
 		_ = channelSamples[samplesPerChannel-1] // BCE hint
 		_ = tmp[samplesPerChannel-1]            // BCE hint
-		var mem0, mem1 float64
+		var mem0, mem1 float32
 		for i := 0; i < samplesPerChannel; i++ {
-			x := channelSamples[i]
+			x := float32(channelSamples[i])
 			y := mem0 + x
 			// Modified code to shorten dependency chains (matches libopus float)
 			mem00 := mem0
 			mem0 = mem0 - x + 0.5*mem1
 			mem1 = x - mem00
-			tmp[i] = y
+			tmp[i] = float64(y)
 		}
 
 		// Clear first few samples (filter warm-up) -- unrolled for the common case
@@ -362,28 +362,29 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 		// Group by two to reduce complexity
 		_ = tmp[2*len2-1]  // BCE hint for tmp[2*i] and tmp[2*i+1]
 		_ = energy[len2-1] // BCE hint
-		var mean float64
+		var mean float32
 		mem0 = 0
 		for i := 0; i < len2; i++ {
 			// Energy of pair of samples
-			t0, t1 := tmp[2*i], tmp[2*i+1]
+			t0 := float32(tmp[2*i])
+			t1 := float32(tmp[2*i+1])
 			x2 := t0*t0 + t1*t1
 
 			mean += x2
 
 			// Forward masking: exponential decay
 			mem0 = x2 + forwardRetain*mem0
-			energy[i] = forwardDecay * mem0
+			energy[i] = float64(forwardDecay * mem0)
 		}
 
 		// Backward pass: compute pre-echo threshold
 		// Backward masking: 13.9 dB/ms (decay = 0.125)
-		var maxE float64
+		var maxE float32
 		mem0 = 0
 		for i := len2 - 1; i >= 0; i-- {
-			mem0 = energy[i] + 0.875*mem0
-			ei := 0.125 * mem0
-			energy[i] = ei
+			mem0 = float32(energy[i]) + 0.875*mem0
+			ei := float32(0.125) * mem0
+			energy[i] = float64(ei)
 			if ei > maxE {
 				maxE = ei
 			}
@@ -391,11 +392,11 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 
 		// Compute frame energy as geometric mean of mean and max
 		// This is a compromise between old and new transient detectors
-		mean = math.Sqrt(mean * maxE * 0.5 * float64(len2))
+		meanGeom := math.Sqrt(float64(mean * maxE * float32(0.5*float64(len2))))
 
 		// Inverse of mean energy (with epsilon to avoid division by zero)
 		const epsilon = 1e-15
-		norm := float64(len2) / (mean*0.5 + epsilon)
+		norm := float64(len2) / (meanGeom*0.5 + epsilon)
 
 		// Compute harmonic mean using inverse table
 		// Skip unreliable boundaries, sample every 4th point
@@ -426,7 +427,6 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 		}
 	}
 
-	result.MaskMetric = float64(maxMaskMetric)
 	result.TfChannel = tfChannel
 
 	// Transient decision: mask_metric > 200
@@ -441,7 +441,7 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 	// especially on the first frame where pre-emphasis buffer is empty.
 	if result.Toneishness > 0.98 && result.ToneFreq >= 0 && result.ToneFreq < 0.026 {
 		result.IsTransient = false
-		result.MaskMetric = 0
+		maxMaskMetric = 0
 	}
 
 	// Weak transient handling for hybrid mode
@@ -449,6 +449,7 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 		result.IsTransient = false
 		result.WeakTransient = true
 	}
+	result.MaskMetric = float64(maxMaskMetric)
 
 	// Compute tf_estimate from mask_metric
 	// tf_max = max(0, sqrt(27 * mask_metric) - 42)

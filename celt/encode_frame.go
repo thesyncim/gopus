@@ -170,7 +170,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	e.SetRangeEncoder(re)
 
 	tell := re.Tell()
-	isSilence := isFrameSilent(pcm)
+	isSilence := e.computeSilenceFlag(samplesForFrame, frameSize, overlap)
 	if tell == 1 {
 		if isSilence {
 			re.EncodeBit(1, 15)
@@ -185,19 +185,16 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	start := 0
 
 	prefilterTapset := e.TapsetDecision()
-	// Match libopus run_prefilter enable gating for top-level Opus-driven CELT.
-	// For standalone CELT mode we keep first-frame gating to preserve existing behavior
-	// expected by local unit tests.
+	// Match libopus run_prefilter enable gating.
 	enabled := lm > 0 && start == 0 && targetBytes > 12*e.channels && !e.IsHybrid() && !isSilence && re.Tell()+16 <= targetBits
-	if e.dcRejectEnabled && e.frameCount == 0 && !e.vbr {
-		enabled = false
-	}
 	prevPrefilterPeriod := e.prefilterPeriod
 	prevPrefilterGain := e.prefilterGain
 	// Derive the prefilter max-pitch ratio from the same pre-emphasized signal
 	// used by the CELT analysis path; this improves postfilter parity vs libopus.
-	maxPitchRatio := estimateMaxPitchRatio(preemph, e.channels, &e.scratch)
+	maxPitchRatio := e.estimateMaxPitchRatioStateful(samplesForFrame)
 	pfResult := e.runPrefilter(preemph, frameSize, prefilterTapset, enabled, tfEstimate, targetBytes, toneFreq, toneishness, maxPitchRatio)
+	// Keep stateful prefilter output on float32 precision to match libopus float path.
+	roundFloat64ToFloat32(preemph)
 	e.lastPitchChange = false
 	if prevPrefilterPeriod > 0 && (pfResult.gain > 0.4 || prevPrefilterGain > 0.4) {
 		upper := int(1.26 * float64(prevPrefilterPeriod))
@@ -512,20 +509,6 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		shortBlocks = 1
 	}
 
-	// Intra energy flag: choose via libopus-style two-pass intra/inter decision.
-	intra := false
-	if re.Tell()+3 <= targetBits {
-		intra = e.DecideIntraMode(energies, nbBands, lm)
-		var intraBit int
-		if intra {
-			intraBit = 1
-		}
-		re.EncodeBit(intraBit, 3)
-	} else {
-		// Budget doesn't allow intra flag, force inter mode
-		intra = false
-	}
-
 	// Step 10: Prepare stereo params (encoded during allocation).
 	// Defaults mirror libopus behavior: MS stereo, no intensity.
 	intensity := 0
@@ -547,6 +530,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Step 11: Encode coarse energy
 	// Match libopus pre-coarse stabilization:
 	// if abs(bandLogE-oldBandE) < 2, bias current energy toward previous quant error.
+	// Keep this feedback path in float32 precision to mirror libopus float behavior.
 	// Reference: celt_encoder.c before quant_coarse_energy().
 	for c := 0; c < e.channels; c++ {
 		baseState := c * MaxBands
@@ -557,14 +541,31 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			if frameIdx >= len(energies) || stateIdx >= len(e.energyError) || stateIdx >= len(e.prevEnergy) {
 				continue
 			}
-			if math.Abs(energies[frameIdx]-e.prevEnergy[stateIdx]) < 2.0 {
-				energies[frameIdx] -= 0.25 * e.energyError[stateIdx]
+			oldE := float32(e.prevEnergy[stateIdx])
+			curE := float32(energies[frameIdx])
+			diff := curE - oldE
+			if diff < 0 {
+				diff = -diff
+			}
+			if diff < 2.0 {
+				energies[frameIdx] = float64(curE - 0.25*float32(e.energyError[stateIdx]))
 			}
 		}
 	}
 
-	quantizedEnergies := e.EncodeCoarseEnergy(energies, nbBands, intra, lm)
+	intra := false
+	if re.Tell()+3 <= targetBits {
+		intra = e.DecideIntraMode(energies, nbBands, lm)
+		var intraBit int
+		if intra {
+			intraBit = 1
+		}
+		re.EncodeBit(intraBit, 3)
+	} else {
+		intra = false
+	}
 
+	quantizedEnergies := e.EncodeCoarseEnergy(energies, nbBands, intra, lm)
 	// Step 11.0.5: Normalize bands early for TF analysis
 	// TF analysis needs normalized coefficients to determine optimal time-frequency resolution
 	var normL, normR []float64
@@ -662,10 +663,6 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			tfInput = normR
 		}
 		tfRes, tfSelect = TFAnalysisWithScratch(tfInput, len(tfInput), nbBands, transient, lm, tfEstimate, effectiveBytes, importance, &e.tfScratch)
-		if transient && !e.vbr && e.frameCount == 0 && tfSelect == 0 {
-			// Match libopus first-frame CBR transient selector behavior.
-			tfSelect = 1
-		}
 
 		// Encode TF decisions using the computed values
 		TFEncodeWithSelect(re, start, end, transient, tfRes, lm, tfSelect)
@@ -772,9 +769,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 		dynallocLoopLogp := dynallocLogp
 		boost := 0
+		j := 0
 
 		// Loop encoding boost bits while j < offsets[i]
-		for j := 0; tellFracDynalloc+(dynallocLoopLogp<<bitRes) < totalBitsQ3ForDynalloc-totalBoost && boost < caps[i]; j++ {
+		for ; tellFracDynalloc+(dynallocLoopLogp<<bitRes) < totalBitsQ3ForDynalloc-totalBoost && boost < caps[i]; j++ {
 			flag := 0
 			if j < offsets[i] {
 				flag = 1
@@ -789,8 +787,9 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			dynallocLoopLogp = 1 // After first bit, use logp=1
 		}
 
-		// Making dynalloc more likely for subsequent bands if we boosted this one
-		if boost > 0 {
+		// Match libopus: make dynalloc more likely if we encoded any dynalloc bit
+		// for this band (even if the first flag was 0).
+		if j > 0 {
 			if dynallocLogp > 2 {
 				dynallocLogp--
 			}
@@ -962,6 +961,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	// Match libopus energyError update timing and range:
 	// store post-finalise residual, clipped to [-0.5, 0.5], for next-frame stabilization.
+	// Keep this in float32 precision to mirror libopus float behavior.
 	// Reference: celt_encoder.c after quant_energy_finalise().
 	for c := 0; c < e.channels; c++ {
 		baseState := c * MaxBands
@@ -980,13 +980,13 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 				e.energyError[stateIdx] = 0
 				continue
 			}
-			err := energies[frameIdx] - quantizedEnergies[frameIdx]
+			err := float32(energies[frameIdx] - quantizedEnergies[frameIdx])
 			if err < -0.5 {
 				err = -0.5
 			} else if err > 0.5 {
 				err = 0.5
 			}
-			e.energyError[stateIdx] = err
+			e.energyError[stateIdx] = float64(err)
 		}
 	}
 
@@ -1290,16 +1290,68 @@ func computeMDCTWithHistoryScratchStereoR(samples, history []float64, shortBlock
 	return mdctScratchInto(input, coeffs, scratch)
 }
 
-// isFrameSilent checks if all samples are effectively zero.
-func isFrameSilent(pcm []float64) bool {
-	const silenceThreshold = 1e-10
+// computeSilenceFlag mirrors libopus CELT silence gating:
+// sample_max = max(previous overlap_max, maxabs(non-overlap part), new overlap_max)
+// silence = sample_max <= 1/(1<<lsb_depth).
+func (e *Encoder) computeSilenceFlag(pcm []float64, frameSize, overlap int) bool {
+	if frameSize <= 0 || e.channels <= 0 || len(pcm) == 0 {
+		e.overlapMax = 0
+		return true
+	}
+	if overlap < 0 {
+		overlap = 0
+	}
+	if overlap > frameSize {
+		overlap = frameSize
+	}
 
-	for _, s := range pcm {
-		if s > silenceThreshold || s < -silenceThreshold {
-			return false
+	total := frameSize * e.channels
+	if total > len(pcm) {
+		total = len(pcm)
+	}
+	if total <= 0 {
+		e.overlapMax = 0
+		return true
+	}
+
+	split := (frameSize - overlap) * e.channels
+	if split < 0 {
+		split = 0
+	}
+	if split > total {
+		split = total
+	}
+
+	sampleMax := e.overlapMax
+	if split > 0 {
+		firstMax := maxAbsSliceF64(pcm[:split])
+		if firstMax > sampleMax {
+			sampleMax = firstMax
 		}
 	}
-	return true
+
+	newOverlapMax := 0.0
+	if split < total {
+		newOverlapMax = maxAbsSliceF64(pcm[split:total])
+	}
+	e.overlapMax = newOverlapMax
+	if newOverlapMax > sampleMax {
+		sampleMax = newOverlapMax
+	}
+
+	silenceThreshold := math.Ldexp(1.0, -e.lsbDepth)
+	return sampleMax <= silenceThreshold
+}
+
+func maxAbsSliceF64(x []float64) float64 {
+	maxAbs := 0.0
+	for _, v := range x {
+		a := math.Abs(v)
+		if a > maxAbs {
+			maxAbs = a
+		}
+	}
+	return maxAbs
 }
 
 // EncodeFrameWithOptions encodes a frame with additional control options.
