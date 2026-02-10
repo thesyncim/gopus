@@ -215,6 +215,8 @@ func coarseLossDistortion(energies, oldEBands []float64, nbBands, channels int) 
 			dist += d * d
 		}
 	}
+	// Match libopus loss_distortion(): normalize accumulated squared error.
+	dist /= 128.0
 	if dist > 200.0 {
 		return 200.0
 	}
@@ -290,7 +292,8 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []float64, nbBands int, intra 
 				oldE = minEnergy
 			}
 
-			f := x - coef32*oldE - prevBandEnergy[c]
+			pred := noFMA32Mul(coef32, oldE) + prevBandEnergy[c]
+			f := x - pred
 			qi := int(math.Floor(float64(f/float32(DB6) + 0.5)))
 			qi0 := qi
 
@@ -349,7 +352,6 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []float64, nbBands int, intra 
 			} else {
 				qi = -1
 			}
-
 			badness += celtAbsInt(qi0 - qi)
 
 			if e.coarseDecisionHook != nil {
@@ -360,7 +362,7 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []float64, nbBands int, intra 
 					Intra:     intra,
 					LM:        lm,
 					X:         float64(x),
-					Pred:      float64(coef32*oldE + prevBandEnergy[c]),
+					Pred:      float64(pred),
 					Residual:  float64(f),
 					QIInitial: qi0,
 					QIFinal:   qi,
@@ -371,9 +373,9 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []float64, nbBands int, intra 
 
 			q := float32(qi) * float32(DB6)
 			coarseError[idx] = float64(f - q)
-			quantizedEnergy := coef32*oldE + prevBandEnergy[c] + q
+			quantizedEnergy := pred + q
 			quantizedEnergies[idx] = float64(quantizedEnergy)
-			prevBandEnergy[c] = prevBandEnergy[c] + q - beta32*q
+			prevBandEnergy[c] = prevBandEnergy[c] + q - noFMA32Mul(beta32, q)
 		}
 	}
 
@@ -625,7 +627,8 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 			}
 
 			// Prediction residual.
-			f := x - coef32*oldE - prevBandEnergy[c]
+			pred := noFMA32Mul(coef32, oldE) + prevBandEnergy[c]
+			f := x - pred
 			qi := int(math.Floor(float64(f/float32(DB6) + 0.5)))
 
 			// Prevent energy from decaying too quickly.
@@ -691,9 +694,9 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 
 			// Update energy and prediction state.
 			q := float32(qi) * float32(DB6)
-			energy := float32(coef32*oldE+prevBandEnergy[c]) + q
+			energy := pred + q
 			quantizedEnergies[idx] = float64(energy)
-			prevBandEnergy[c] = prevBandEnergy[c] + q - beta32*q
+			prevBandEnergy[c] = prevBandEnergy[c] + q - noFMA32Mul(beta32, q)
 		}
 	}
 

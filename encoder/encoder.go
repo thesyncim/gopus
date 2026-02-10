@@ -654,6 +654,10 @@ func (e *Encoder) dcReject(in []float64, frameSize int) []float64 {
 	coef := float32(6.3) * float32(3) / float32(fs)
 	coef2 := float32(1.0) - coef
 	const verySmall = float32(1e-30)
+	// Keep mul/add sequencing split to mirror libopus float-path behavior.
+	noFMA32Mul := func(a, b float32) float32 {
+		return float32(float64(a) * float64(b))
+	}
 	if channels == 2 {
 		m0 := e.hpMem[0]
 		m2 := e.hpMem[2]
@@ -662,8 +666,8 @@ func (e *Encoder) dcReject(in []float64, frameSize int) []float64 {
 			x1 := float32(in[2*i+1])
 			out0 := x0 - m0
 			out1 := x1 - m2
-			m0 = coef*x0 + verySmall + coef2*m0
-			m2 = coef*x1 + verySmall + coef2*m2
+			m0 = noFMA32Mul(coef, x0) + verySmall + noFMA32Mul(coef2, m0)
+			m2 = noFMA32Mul(coef, x1) + verySmall + noFMA32Mul(coef2, m2)
 			out[2*i] = float64(out0)
 			out[2*i+1] = float64(out1)
 		}
@@ -674,7 +678,7 @@ func (e *Encoder) dcReject(in []float64, frameSize int) []float64 {
 		for i := 0; i < n; i++ {
 			x := float32(in[i])
 			y := x - m0
-			m0 = coef*x + verySmall + coef2*m0
+			m0 = noFMA32Mul(coef, x) + verySmall + noFMA32Mul(coef2, m0)
 			out[i] = float64(y)
 		}
 		e.hpMem[0] = m0

@@ -329,13 +329,9 @@ func (d *Decoder) decodePLC(frameSize int, stereo bool) ([]float64, error) {
 		}
 	}
 
-	// Apply delay compensation to SILK
-	var silkDelayed []float64
-	if stereo {
-		silkDelayed = d.applyDelayStereo(silkUpsampled)
-	} else {
-		silkDelayed = d.applyDelayMono(silkUpsampled)
-	}
+	// Keep PLC alignment consistent with normal hybrid decode.
+	// The SILK decoder/resampler path already provides API-rate alignment.
+	silkAligned := silkUpsampled
 
 	// Generate CELT PLC (bands 17-21 only for hybrid)
 	// Pass celtDecoder as both state and synthesizer (implements both interfaces)
@@ -347,8 +343,8 @@ func (d *Decoder) decodePLC(frameSize int, stereo bool) ([]float64, error) {
 		silkSample := float64(0)
 		celtSample := float64(0)
 
-		if i < len(silkDelayed) {
-			silkSample = silkDelayed[i]
+		if i < len(silkAligned) {
+			silkSample = silkAligned[i]
 		}
 		if i < len(celtConcealed) {
 			celtSample = celtConcealed[i]

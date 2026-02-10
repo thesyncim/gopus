@@ -192,7 +192,13 @@ func (d *Decoder) decodeOpusFrameInto(
 			if len(d.scratchTransition) < transSize*d.channels {
 				return 0, ErrBufferTooSmall
 			}
-			n, err := d.decodeOpusFrameInto(d.scratchTransition, nil, transSize, packetFrameSize, d.prevMode, d.lastBandwidth, packetStereoLocal)
+			transMode := d.prevMode
+			if d.prevMode == ModeHybrid && audiosize == F10 {
+				// For hybrid->CELT 10ms transitions, drive the bridge with CELT PLC
+				// so the CELT overlap continuity dominates the first 5ms handoff.
+				transMode = ModeCELT
+			}
+			n, err := d.decodeOpusFrameInto(d.scratchTransition, nil, transSize, packetFrameSize, transMode, d.lastBandwidth, packetStereoLocal)
 			if err != nil {
 				return 0, err
 			}

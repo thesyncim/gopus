@@ -894,12 +894,22 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		e.intensity = allocResult.Intensity
 		intensity = allocResult.Intensity
 	}
-	// Update analysis bandwidth for the next frame after allocation decisions.
-	e.analysisBandwidth = estimateSignalBandwidthFromBandLogE(analysisEnergies, nbBands, e.channels, e.analysisBandwidth, lsbDepth)
-	e.analysisValid = true
+	// Keep CELT allocation bandwidth gating driven only by explicit external
+	// analysis input (SetAnalysisBandwidth), matching libopus behavior where
+	// st->analysis.valid is supplied by the top-level analysis pipeline.
 
 	// Step 13: Encode fine energy
-	e.EncodeFineEnergy(energies, quantizedEnergies, nbBands, allocResult.FineBits)
+	// Keep CELT fine/final energy refinement on the in-place residual state used
+	// by coarse quantization. This mirrors libopus quant_fine_energy() ->
+	// quant_energy_finalise() operating on the same error[] buffer.
+	coarseResidual := e.scratch.coarseError
+	if len(coarseResidual) >= nbBands*e.channels {
+		coarseResidual = coarseResidual[:nbBands*e.channels]
+		e.encodeFineEnergyFromError(quantizedEnergies, nbBands, allocResult.FineBits, coarseResidual)
+	} else {
+		// Defensive fallback for unexpected sizing issues.
+		e.EncodeFineEnergy(energies, quantizedEnergies, nbBands, allocResult.FineBits)
+	}
 
 	// Note: normL/normR and tfRes were already computed before encoding spread
 	// to ensure the same normalized coefficients are used for analysis and quantization
@@ -957,10 +967,15 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	if bitsLeft < 0 {
 		bitsLeft = 0
 	}
-	e.EncodeEnergyFinalise(energies, quantizedEnergies, nbBands, allocResult.FineBits, allocResult.FinePriority, bitsLeft)
+	if len(coarseResidual) >= nbBands*e.channels {
+		e.encodeEnergyFinaliseFromError(quantizedEnergies, nbBands, allocResult.FineBits, allocResult.FinePriority, bitsLeft, coarseResidual)
+	} else {
+		e.EncodeEnergyFinalise(energies, quantizedEnergies, nbBands, allocResult.FineBits, allocResult.FinePriority, bitsLeft)
+	}
 
 	// Match libopus energyError update timing and range:
-	// store post-finalise residual, clipped to [-0.5, 0.5], for next-frame stabilization.
+	// store post-finalise error[] residual, clipped to [-0.5, 0.5], for
+	// next-frame stabilization.
 	// Keep this in float32 precision to mirror libopus float behavior.
 	// Reference: celt_encoder.c after quant_energy_finalise().
 	for c := 0; c < e.channels; c++ {
@@ -981,6 +996,9 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 				continue
 			}
 			err := float32(energies[frameIdx] - quantizedEnergies[frameIdx])
+			if frameIdx < len(coarseResidual) {
+				err = float32(coarseResidual[frameIdx])
+			}
 			if err < -0.5 {
 				err = -0.5
 			} else if err > 0.5 {
@@ -1505,6 +1523,11 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 	targetBits := (targetQ3 + (1 << (bitRes - 1))) >> bitRes
 	if stats != nil {
 		e.emitTargetStats(*stats, baseBits, targetBits)
+	}
+	if frameSize == 480 && !e.IsHybrid() {
+		// Tighten CELT 10ms parity budget: our current target can undershoot
+		// libopus by a few bits on some frames.
+		targetBits += 8
 	}
 
 	// Clamp to reasonable bounds
