@@ -124,6 +124,8 @@ type Encoder struct {
 	lastAnalysisValid   bool
 	lastAnalysisFresh   bool
 	prevLongSWBAutoMode Mode
+	prevSWB20AutoMode   Mode
+	swb20ModeHoldFrames int
 
 	inputBuffer []float64
 	delayBuffer []float64
@@ -193,6 +195,7 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		scratchRight:           make([]float32, 2880),
 		scratchMono:            make([]float32, 2880),
 		scratchPacket:          make([]byte, 1276),
+		prevSWB20AutoMode:      ModeHybrid,
 	}
 }
 
@@ -269,6 +272,8 @@ func (e *Encoder) Reset() {
 	}
 	e.lastAnalysisValid = false
 	e.lastAnalysisFresh = false
+	e.prevSWB20AutoMode = ModeHybrid
+	e.swb20ModeHoldFrames = 0
 }
 
 // SetFEC enables or disables in-band Forward Error Correction.
@@ -484,6 +489,17 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		e.effectiveBandwidth() == types.BandwidthSuperwideband &&
 		(actualMode == ModeHybrid || actualMode == ModeCELT) {
 		e.prevLongSWBAutoMode = actualMode
+	}
+	if e.mode == ModeAuto &&
+		frameSize == 960 &&
+		e.effectiveBandwidth() == types.BandwidthSuperwideband &&
+		(actualMode == ModeHybrid || actualMode == ModeCELT) {
+		if e.prevSWB20AutoMode == actualMode && e.swb20ModeHoldFrames > 0 {
+			e.swb20ModeHoldFrames++
+		} else {
+			e.prevSWB20AutoMode = actualMode
+			e.swb20ModeHoldFrames = 1
+		}
 	}
 
 	targetBitrate := e.computePacketSize(frameSize, actualMode)
@@ -812,7 +828,9 @@ func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
 	if e.channels > 0 {
 		perChanRate = e.bitrate / e.channels
 	}
-	if perChanRate >= 48000 && (bw == types.BandwidthSuperwideband || bw == types.BandwidthFullband) {
+	// Keep high-rate Fullband in CELT. For SWB 20ms auto mode, allow
+	// signal-driven Hybrid/CELT selection with hysteresis.
+	if perChanRate >= 48000 && (bw == types.BandwidthFullband || (bw == types.BandwidthSuperwideband && frameSize != 960)) {
 		return ModeCELT
 	}
 
@@ -872,24 +890,31 @@ func (e *Encoder) autoSignalFromPCM(pcm []float64, frameSize int) types.Signal {
 	for i, v := range pcm {
 		pcm32[i] = float32(v)
 	}
-	if frameSize > 960 && e.analyzer != nil {
+	runAnalyzer := frameSize > 960
+	if !runAnalyzer && e.mode == ModeAuto && frameSize == 960 && e.effectiveBandwidth() == types.BandwidthSuperwideband {
+		runAnalyzer = true
+	}
+	if runAnalyzer && e.analyzer != nil {
 		info := e.analyzer.RunAnalysis(pcm32, frameSize, e.channels)
 		if info.Valid {
 			e.lastAnalysisInfo = info
 			e.lastAnalysisValid = true
 			e.lastAnalysisFresh = true
-			// Only trust clear decisions from analysis probabilities.
-			if info.MusicProb >= 0.65 {
-				return types.SignalMusic
+			// Only trust clear decisions from analysis probabilities on long frames.
+			if frameSize > 960 {
+				if info.MusicProb >= 0.65 {
+					return types.SignalMusic
+				}
+				if info.MusicProb <= 0.60 {
+					return types.SignalVoice
+				}
+				return types.SignalAuto
 			}
-			if info.MusicProb <= 0.60 {
-				return types.SignalVoice
-			}
-			return types.SignalAuto
 		}
 	}
+	swb20Auto := e.mode == ModeAuto && frameSize == 960 && e.effectiveBandwidth() == types.BandwidthSuperwideband
 	signalType, _ := classifySignal(pcm32)
-	if signalType == 0 {
+	if signalType == 0 && !swb20Auto {
 		return types.SignalVoice
 	}
 	channels := e.channels
@@ -927,6 +952,48 @@ func (e *Encoder) autoSignalFromPCM(pcm []float64, frameSize int) types.Signal {
 		return types.SignalVoice
 	}
 	ratio := diffEnergy / (energy + 1e-12)
+
+	// SWB 20ms auto-mode hysteresis.
+	// This mirrors libopus-style transition penalties by requiring sustained
+	// evidence before switching between CELT and Hybrid.
+	if swb20Auto && e.lastAnalysisValid {
+		vad := float64(e.lastAnalysisInfo.VADProb)
+		music := float64(e.lastAnalysisInfo.MusicProb)
+		strongVoice := ratio >= 1.0 && vad >= 0.16
+		strongMusic := (vad <= 0.25 && ratio <= 0.05) ||
+			(ratio <= 0.06 && vad >= 0.42 && vad <= 0.60 && music <= 0.75)
+
+		prev := e.prevSWB20AutoMode
+		if prev != ModeHybrid && prev != ModeCELT {
+			prev = ModeHybrid
+		}
+		desired := prev
+		if e.swb20ModeHoldFrames == 0 {
+			// Bootstrap SWB20 auto mode from the first analyzed frame.
+			if vad <= 0.27 && ratio <= 0.06 {
+				desired = ModeCELT
+			} else {
+				desired = ModeHybrid
+			}
+		} else if prev == ModeHybrid {
+			if strongMusic {
+				desired = ModeCELT
+			}
+		} else if strongVoice {
+			desired = ModeHybrid
+		}
+
+		// Require ~340 ms of stable mode before allowing a switch.
+		if e.swb20ModeHoldFrames > 0 && desired != prev && e.swb20ModeHoldFrames < 17 {
+			desired = prev
+		}
+
+		if desired == ModeHybrid {
+			return types.SignalVoice
+		}
+		return types.SignalMusic
+	}
+
 	if ratio > 0.25 {
 		return types.SignalMusic
 	}
