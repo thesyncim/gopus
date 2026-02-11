@@ -10,6 +10,7 @@ import (
 const (
 	NbFrames        = 8
 	NbTBands        = 18
+	NbTonalSkipBands = 9
 	AnalysisBufSize = 720 // 30ms at 24kHz
 	DetectSize      = 100
 	celtSigScale    = float32(32768.0)
@@ -327,30 +328,101 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		leakageDivisor = float32(4.0)
 	)
 
+	var tonality [240]float32
+	var tonality2 [240]float32
+	var noisiness [240]float32
+	const (
+		atanScale = float32(0.5 / math.Pi)
+		pi4       = float32(math.Pi * math.Pi * math.Pi * math.Pi)
+	)
+	for i := 1; i < 240; i++ {
+		x1r := real(out[i]) + real(out[480-i])
+		x1i := imag(out[i]) - imag(out[480-i])
+		x2r := imag(out[i]) + imag(out[480-i])
+		x2i := real(out[480-i]) - real(out[i])
+
+		angle := atanScale * float32(math.Atan2(float64(x1i), float64(x1r)))
+		dAngle := angle - s.Angle[i]
+		d2Angle := dAngle - s.DAngle[i]
+
+		angle2 := atanScale * float32(math.Atan2(float64(x2i), float64(x2r)))
+		dAngle2 := angle2 - angle
+		d2Angle2 := dAngle2 - dAngle
+
+		mod1 := d2Angle - float32(math.Round(float64(d2Angle)))
+		if mod1 < 0 {
+			noisiness[i] = -mod1
+		} else {
+			noisiness[i] = mod1
+		}
+		mod1 *= mod1
+		mod1 *= mod1
+
+		mod2 := d2Angle2 - float32(math.Round(float64(d2Angle2)))
+		if mod2 < 0 {
+			noisiness[i] += -mod2
+		} else {
+			noisiness[i] += mod2
+		}
+		mod2 *= mod2
+		mod2 *= mod2
+
+		avgMod := 0.25 * (s.D2Angle[i] + mod1 + 2*mod2)
+		tonality[i] = 1.0/(1.0+40.0*16.0*pi4*avgMod) - 0.015
+		tonality2[i] = 1.0/(1.0+40.0*16.0*pi4*mod2) - 0.015
+
+		s.Angle[i] = angle2
+		s.DAngle[i] = dAngle2
+		s.D2Angle[i] = mod2
+	}
+	for i := 2; i < 239; i++ {
+		tt := minf(tonality2[i], maxf(tonality2[i-1], tonality2[i+1]))
+		tonality[i] = 0.9 * maxf(tonality[i], tt-0.1)
+	}
+
+	frameNoisiness := float32(0)
+	frameStationarity := float32(0)
+	frameTonality := float32(0)
+	maxFrameTonality := float32(0)
+	relativeE := float32(0)
+	frameLoudness := float32(0)
+	slope := float32(0)
+	var bandTonality [NbTBands]float32
+
+	if s.Count == 0 {
+		for b := 0; b < NbTBands; b++ {
+			s.LowE[b] = 1e10
+			s.HighE[b] = -1e10
+		}
+	}
+
 	// Match libopus special handling for the first band (DC/Nyquist bins).
-		{
-			X1r := 2 * real(out[0])
-			X2r := 2 * imag(out[0])
-			E := X1r*X1r + X2r*X2r
-			for i := 1; i < 4; i++ {
-				binE := real(out[i])*real(out[i]) + real(out[480-i])*real(out[480-i]) +
-					imag(out[i])*imag(out[i]) + imag(out[480-i])*imag(out[480-i])
-				E += binE
-			}
-			E *= (1.0 / (celtSigScale * celtSigScale)) * analysisFFTEnergyScale
-			bandLog2[0] = log2Scale * float32(math.Log(float64(E)+1e-10))
+	{
+		x1r := 2 * real(out[0])
+		x2r := 2 * imag(out[0])
+		E := x1r*x1r + x2r*x2r
+		for i := 1; i < 4; i++ {
+			binE := real(out[i])*real(out[i]) + real(out[480-i])*real(out[480-i]) +
+				imag(out[i])*imag(out[i]) + imag(out[480-i])*imag(out[480-i])
+			E += binE
+		}
+		E *= (1.0 / (celtSigScale * celtSigScale)) * analysisFFTEnergyScale
+		bandLog2[0] = log2Scale * float32(math.Log(float64(E)+1e-10))
+	}
+
+	// Band energies and tonal metrics.
+	for b := 0; b < NbTBands; b++ {
+		var bandE, tE, nE float32
+		for i := tbands[b]; i < tbands[b+1]; i++ {
+			binE := real(out[i])*real(out[i]) + real(out[480-i])*real(out[480-i]) +
+				imag(out[i])*imag(out[i]) + imag(out[480-i])*imag(out[480-i])
+			binE *= (1.0 / (celtSigScale * celtSigScale)) * analysisFFTEnergyScale
+			bandE += binE
+			tE += binE * maxf(0, tonality[i])
+			nE += binE * 2.0 * (0.5 - noisiness[i])
 		}
 
-	// Band energies
-		for b := 0; b < NbTBands; b++ {
-			var bandE float32
-			for i := tbands[b]; i < tbands[b+1]; i++ {
-				magSq := real(out[i])*real(out[i]) + imag(out[i])*imag(out[i]) +
-					real(out[480-i])*real(out[480-i]) + imag(out[480-i])*imag(out[480-i])
-				bandE += magSq
-			}
-			bandE *= (1.0 / (celtSigScale * celtSigScale)) * analysisFFTEnergyScale
-			s.E[s.ECount][b] = bandE
+		s.E[s.ECount][b] = bandE
 		bandEnergy[b] = bandE
 		if bandE > maxBandEnergy {
 			maxBandEnergy = bandE
@@ -358,7 +430,52 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		logE[b] = float32(math.Log(float64(bandE) + 1e-10))
 		bandLog2[b+1] = log2Scale * float32(math.Log(float64(bandE)+1e-10))
 		s.LogE[s.ECount][b] = logE[b]
+
+		frameNoisiness += nE / (1e-15 + bandE)
+		frameLoudness += float32(math.Sqrt(float64(bandE + 1e-10)))
+
+		if s.Count == 0 {
+			s.HighE[b] = logE[b]
+			s.LowE[b] = logE[b]
+		}
+		if s.HighE[b] > s.LowE[b]+7.5 {
+			if s.HighE[b]-logE[b] > logE[b]-s.LowE[b] {
+				s.HighE[b] -= 0.01
+			} else {
+				s.LowE[b] += 0.01
+			}
+		}
+		if logE[b] > s.HighE[b] {
+			s.HighE[b] = logE[b]
+			s.LowE[b] = maxf(s.LowE[b], s.HighE[b]-15)
+		} else if logE[b] < s.LowE[b] {
+			s.LowE[b] = logE[b]
+			s.HighE[b] = minf(s.HighE[b], s.LowE[b]+15)
+		}
+		relativeE += (logE[b] - s.LowE[b]) / (1e-5 + (s.HighE[b] - s.LowE[b]))
+
+		var L1, L2 float32
+		for i := 0; i < NbFrames; i++ {
+			L1 += float32(math.Sqrt(float64(s.E[i][b])))
+			L2 += s.E[i][b]
+		}
+		stationarity := minf(0.99, L1/float32(math.Sqrt(float64(1e-15+float32(NbFrames)*L2))))
+		stationarity *= stationarity
+		stationarity *= stationarity
+		frameStationarity += stationarity
+
+		bandTonality[b] = maxf(tE/(1e-15+bandE), stationarity*s.PrevBandTonality[b])
+		frameTonality += bandTonality[b]
+		if b >= NbTBands-NbTonalSkipBands {
+			frameTonality -= bandTonality[b-NbTBands+NbTonalSkipBands]
+		}
+		maxFrameTonality = maxf(maxFrameTonality, (1.0+0.03*float32(b-NbTBands))*frameTonality)
+		slope += bandTonality[b] * float32(b-8)
+		s.PrevBandTonality[b] = bandTonality[b]
 	}
+	frameNoisiness /= NbTBands
+	frameStationarity /= NbTBands
+	relativeE /= NbTBands
 
 	// Compute analysis leak_boost[] exactly as libopus analysis.c does.
 	leakageFrom[0] = bandLog2[0]
@@ -396,8 +513,19 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	layer1.ComputeGRU(s.RNNState[:], layerOut[:])
 	layer2.ComputeDense(frameProbs[:], s.RNNState[:])
 
+	_ = frameLoudness
+	_ = frameNoisiness
+	_ = frameStationarity
+	_ = relativeE
+	frameTonality = maxFrameTonality / float32(NbTBands-NbTonalSkipBands)
+	frameTonality = maxf(frameTonality, s.PrevTonality*0.8)
+	s.PrevTonality = frameTonality
+	slope /= 64.0
+
 	info := &s.Info[s.WritePos]
 	info.Valid = true
+	info.Tonality = frameTonality
+	info.TonalitySlope = slope
 	info.MusicProb = frameProbs[0]
 	info.VADProb = frameProbs[1]
 	info.Activity = alphaE*frameProbs[1] + (1-alphaE)*info.Activity

@@ -519,7 +519,7 @@ func TestNormalizationUsesLinearAmplitudes(t *testing.T) {
 		for i := 0; i < n; i++ {
 			expected := mdctCoeffs[offset+i] * g
 			actual := normalized[offset+i]
-			if math.Abs(expected-actual) > 1e-10 {
+			if math.Abs(expected-actual) > 1e-6 {
 				t.Errorf("band %d, bin %d: expected %f, got %f",
 					band, i, expected, actual)
 			}

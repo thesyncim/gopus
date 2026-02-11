@@ -8,7 +8,9 @@ package encoder
 
 import (
 	"errors"
+	"fmt"
 	"math"
+	"os"
 
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/silk"
@@ -753,10 +755,28 @@ func (e *Encoder) syncCELTAnalysisToCELT() {
 		return
 	}
 	if !e.lastAnalysisValid {
-		e.celtEncoder.SetAnalysisInfo(0, [19]uint8{}, false)
+		e.celtEncoder.SetAnalysisInfo(0, [19]uint8{}, 0, false)
 		return
 	}
-	e.celtEncoder.SetAnalysisInfo(e.lastAnalysisInfo.BandwidthIndex, e.lastAnalysisInfo.LeakBoost, true)
+	if os.Getenv("GOPUS_TMP_ANALYSISDBG") == "1" {
+		frame := e.celtEncoder.FrameCount()
+		if frame >= 45 && frame <= 80 {
+			fmt.Fprintf(os.Stderr, "ANDBG frame=%d tonality=%.6f slope=%.6f music=%.6f vad=%.6f bw=%d\n",
+				frame,
+				e.lastAnalysisInfo.Tonality,
+				e.lastAnalysisInfo.TonalitySlope,
+				e.lastAnalysisInfo.MusicProb,
+				e.lastAnalysisInfo.VADProb,
+				e.lastAnalysisInfo.BandwidthIndex,
+			)
+		}
+	}
+	e.celtEncoder.SetAnalysisInfo(
+		e.lastAnalysisInfo.BandwidthIndex,
+		e.lastAnalysisInfo.LeakBoost,
+		float64(e.lastAnalysisInfo.TonalitySlope),
+		true,
+	)
 }
 
 func quantizeFloat32ToInt16InPlace(samples []float32) {

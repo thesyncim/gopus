@@ -68,6 +68,8 @@ type Decoder struct {
 
 	// Error recovery / deterministic randomness
 	rng uint32 // RNG state for PLC and folding
+	// Frame counter used by debug instrumentation to correlate per-frame traces.
+	decodeFrameIndex int
 
 	// Band processing state
 	collapseMask uint32 // Tracks which bands received pulses (for anti-collapse)
@@ -173,6 +175,7 @@ func (d *Decoder) Reset() {
 
 	// Reset RNG (libopus resets to zero)
 	d.rng = 0
+	d.decodeFrameIndex = 0
 
 	// Clear range decoder reference
 	d.rangeDecoder = nil
@@ -569,6 +572,10 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	if !ValidFrameSize(frameSize) {
 		return nil, ErrInvalidFrameSize
 	}
+	currentFrame := d.decodeFrameIndex
+	d.decodeFrameIndex++
+	tmpQDbgDecodeFrame = currentFrame
+	tmpPVQCallSeq = 0
 
 	d.prepareMonoEnergyFromStereo()
 
@@ -676,6 +683,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	if tell+4 <= totalBits {
 		spread = rd.DecodeICDF(spreadICDF, 5)
 	}
+	traceFlag("spread", spread)
 	traceRange("spread", rd)
 
 	cap := ensureIntSlice(&d.scratchCaps, end)
@@ -713,6 +721,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	if encodedTrim {
 		allocTrim = rd.DecodeICDF(trimICDF, 7)
 	}
+	traceFlag("alloc_trim", allocTrim)
 	traceRange("trim", rd)
 
 	bitsQ3 := (totalBits << bitRes) - rd.TellFrac() - 1
@@ -1352,6 +1361,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	if tell+4 <= totalBits {
 		spread = rd.DecodeICDF(spreadICDF, 5)
 	}
+	traceFlag("spread", spread)
 	traceRange("spread", rd)
 
 	cap := ensureIntSlice(&d.scratchCaps, end)
@@ -1388,6 +1398,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	if tellFrac+(6<<bitRes) <= totalBitsQ3 {
 		allocTrim = rd.DecodeICDF(trimICDF, 7)
 	}
+	traceFlag("alloc_trim", allocTrim)
 	traceRange("trim", rd)
 
 	bitsQ3 := (totalBits << bitRes) - rd.TellFrac() - 1
@@ -1612,6 +1623,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	if tell+4 <= totalBits {
 		spread = rd.DecodeICDF(spreadICDF, 5)
 	}
+	traceFlag("spread", spread)
 	traceRange("spread", rd)
 
 	cap := ensureIntSlice(&d.scratchCaps, end)
@@ -1648,6 +1660,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	if tellFrac+(6<<bitRes) <= totalBitsQ3 {
 		allocTrim = rd.DecodeICDF(trimICDF, 7)
 	}
+	traceFlag("alloc_trim", allocTrim)
 	traceRange("trim", rd)
 
 	bitsQ3 := (totalBits << bitRes) - rd.TellFrac() - 1
@@ -1869,6 +1882,7 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 	if tell+4 <= totalBits {
 		spread = rd.DecodeICDF(spreadICDF, 5)
 	}
+	traceFlag("spread", spread)
 	traceRange("spread", rd)
 
 	cap := ensureIntSlice(&d.scratchCaps, end)
@@ -1906,6 +1920,7 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 	if encodedTrim {
 		allocTrim = rd.DecodeICDF(trimICDF, 7)
 	}
+	traceFlag("alloc_trim", allocTrim)
 	traceRange("trim", rd)
 
 	bitsQ3 := (totalBits << bitRes) - rd.TellFrac() - 1
@@ -2140,6 +2155,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	if tell+4 <= totalBits {
 		spread = rd.DecodeICDF(spreadICDF, 5)
 	}
+	traceFlag("spread", spread)
 	traceRange("spread", rd)
 
 	cap := ensureIntSlice(&d.scratchCaps, end)
@@ -2179,6 +2195,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	if tellFrac+(6<<bitRes) <= totalBitsQ3 {
 		allocTrim = rd.DecodeICDF(trimICDF, 7)
 	}
+	traceFlag("alloc_trim", allocTrim)
 	traceRange("trim", rd)
 
 	bitsQ3 := (totalBits << bitRes) - rd.TellFrac() - 1
@@ -2413,6 +2430,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	if tell+4 <= totalBits {
 		spread = rd.DecodeICDF(spreadICDF, 5)
 	}
+	traceFlag("spread", spread)
 	traceRange("spread", rd)
 
 	cap := initCaps(end, lm, 1)
@@ -2448,6 +2466,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	if tellFrac+(6<<bitRes) <= totalBitsQ3 {
 		allocTrim = rd.DecodeICDF(trimICDF, 7)
 	}
+	traceFlag("alloc_trim", allocTrim)
 	traceRange("trim", rd)
 
 	bitsQ3 := (totalBits << bitRes) - rd.TellFrac() - 1
@@ -2648,6 +2667,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	if tell+4 <= totalBits {
 		spread = rd.DecodeICDF(spreadICDF, 5)
 	}
+	traceFlag("spread", spread)
 	traceRange("spread", rd)
 
 	cap := initCaps(end, lm, d.channels)
@@ -2683,6 +2703,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	if tellFrac+(6<<bitRes) <= totalBitsQ3 {
 		allocTrim = rd.DecodeICDF(trimICDF, 7)
 	}
+	traceFlag("alloc_trim", allocTrim)
 	traceRange("trim", rd)
 
 	bitsQ3 := (totalBits << bitRes) - rd.TellFrac() - 1

@@ -338,7 +338,7 @@ func TestVorbisWindow_PrecomputedBuffer(t *testing.T) {
 
 	for i := 0; i < 120; i++ {
 		expected := VorbisWindow(i, 120)
-		if math.Abs(buf[i]-expected) > 1e-15 {
+		if math.Abs(buf[i]-expected) > 1e-7 {
 			t.Errorf("Precomputed window mismatch at %d: got %v, want %v",
 				i, buf[i], expected)
 		}

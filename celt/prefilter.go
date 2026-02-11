@@ -1,7 +1,10 @@
 package celt
 
 import (
+	"encoding/binary"
+	"fmt"
 	"math"
+	"os"
 
 	"github.com/thesyncim/gopus/util"
 )
@@ -72,7 +75,9 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		}
 	}
 	// Keep prefilter inputs at float32 precision to match libopus celt_sig path.
-	roundFloat64ToFloat32(pre)
+	if os.Getenv("GOPUS_TMP_SKIP_PREF_INPUT_ROUND") != "1" {
+		roundFloat64ToFloat32(pre)
+	}
 
 	pitchIndex := minPeriod
 	gain1 := 0.0
@@ -217,9 +222,24 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			before[ch] += math.Abs(v)
 		}
 		if offset > 0 {
-			combFilterWithInputF32(outCh, preCh, maxPeriod, prevPeriod, prevPeriod, offset, -e.prefilterGain, -e.prefilterGain, prevTapset, prevTapset, nil, 0)
+			if os.Getenv("GOPUS_TMP_PREFILTER_F64") == "1" {
+				combFilterWithInput(outCh, preCh, maxPeriod, prevPeriod, prevPeriod, offset, -e.prefilterGain, -e.prefilterGain, prevTapset, prevTapset, nil, 0)
+			} else {
+				combFilterWithInputF32(outCh, preCh, maxPeriod, prevPeriod, prevPeriod, offset, -e.prefilterGain, -e.prefilterGain, prevTapset, prevTapset, nil, 0)
+			}
 		}
-		combFilterWithInputF32(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, frameSize-offset, -e.prefilterGain, -gain1, prevTapset, tapset, window, overlap)
+		if os.Getenv("GOPUS_TMP_PREFILTER_F64") == "1" {
+			combFilterWithInput(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, frameSize-offset, -e.prefilterGain, -gain1, prevTapset, tapset, window, overlap)
+		} else {
+			combFilterWithInputF32(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, frameSize-offset, -e.prefilterGain, -gain1, prevTapset, tapset, window, overlap)
+		}
+		if os.Getenv("GOPUS_TMP_PREF_COMB_DUMP") == "1" && channels == 1 && frameSize == 480 && e.frameCount < 32 {
+			dumpFloat64AsF32Raw(fmt.Sprintf("/tmp/go_prefcomb_pre_call%d.f32", e.frameCount), preCh)
+			dumpFloat64AsF32Raw(fmt.Sprintf("/tmp/go_prefcomb_out_call%d.f32", e.frameCount), outCh)
+			metaPath := fmt.Sprintf("/tmp/go_prefcomb_meta_call%d.txt", e.frameCount)
+			_ = os.WriteFile(metaPath, []byte(fmt.Sprintf("start=%d n=%d overlap=%d t0=%d t1=%d g0=%.9g g1=%.9g tap0=%d tap1=%d offset=%d frame=%d\n",
+				maxPeriod+offset, frameSize-offset, overlap, prevPeriod, pitchIndex, -e.prefilterGain, -gain1, prevTapset, tapset, offset, e.frameCount)), 0o644)
+		}
 		outSub := outCh[maxPeriod : maxPeriod+frameSize]
 		for _, v := range outSub {
 			after[ch] += math.Abs(v)
@@ -247,7 +267,11 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			preCh := pre[ch*perChanLen : (ch+1)*perChanLen]
 			outCh := out[ch*perChanLen : (ch+1)*perChanLen]
 			copy(outCh[maxPeriod:maxPeriod+frameSize], preCh[maxPeriod:maxPeriod+frameSize])
-			combFilterWithInputF32(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, overlap, -e.prefilterGain, -0, prevTapset, tapset, window, overlap)
+			if os.Getenv("GOPUS_TMP_PREFILTER_F64") == "1" {
+				combFilterWithInput(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, overlap, -e.prefilterGain, -0, prevTapset, tapset, window, overlap)
+			} else {
+				combFilterWithInputF32(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, overlap, -e.prefilterGain, -0, prevTapset, tapset, window, overlap)
+			}
 		}
 		gain1 = 0
 		pfOn = false
@@ -273,7 +297,9 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			copy(mem, mem[frameSize:])
 			copy(mem[maxPeriod-frameSize:], preCh[maxPeriod:maxPeriod+frameSize])
 		}
-		roundFloat64ToFloat32(mem)
+		if os.Getenv("GOPUS_TMP_SKIP_PREF_MEM_ROUND") != "1" {
+			roundFloat64ToFloat32(mem)
+		}
 		outSub2 := outCh[maxPeriod : maxPeriod+frameSize]
 		for i, v := range outSub2 {
 			preemph[i*channels+ch] = v
@@ -281,7 +307,9 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		if overlap > 0 && len(e.overlapBuffer) >= (ch+1)*overlap && frameSize >= overlap {
 			hist := e.overlapBuffer[ch*overlap : (ch+1)*overlap]
 			copy(hist, outSub2[frameSize-overlap:])
-			roundFloat64ToFloat32(hist)
+			if os.Getenv("GOPUS_TMP_SKIP_PREF_MEM_ROUND") != "1" {
+				roundFloat64ToFloat32(hist)
+			}
 		}
 	}
 
@@ -302,6 +330,17 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		e.prefilterDebugHook(*dbg)
 	}
 	return result
+}
+
+func dumpFloat64AsF32Raw(path string, vals []float64) {
+	if len(vals) == 0 {
+		return
+	}
+	buf := make([]byte, len(vals)*4)
+	for i, v := range vals {
+		binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(float32(v)))
+	}
+	_ = os.WriteFile(path, buf, 0o644)
 }
 
 // estimateMaxPitchRatio approximates libopus analysis->max_pitch_ratio by

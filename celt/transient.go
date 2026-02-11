@@ -30,7 +30,9 @@
 
 package celt
 
-import "math"
+import (
+	"math"
+)
 
 // TransientThreshold is the energy ratio threshold for transient detection.
 // A ratio > 4.0 (6dB difference) between adjacent sub-blocks triggers short blocks.
@@ -317,7 +319,7 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 			copy(channelSamples[:samplesPerChannel], pcm[:samplesPerChannel])
 		} else {
 			_ = pcm[(samplesPerChannel-1)*channels+c] // BCE hint
-			_ = channelSamples[samplesPerChannel-1]    // BCE hint
+			_ = channelSamples[samplesPerChannel-1]   // BCE hint
 			for i := 0; i < samplesPerChannel; i++ {
 				channelSamples[i] = pcm[i*channels+c]
 			}
@@ -396,7 +398,7 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 
 		// Inverse of mean energy (with epsilon to avoid division by zero)
 		const epsilon = 1e-15
-		norm := float64(len2) / (meanGeom*0.5 + epsilon)
+		norm := float64(len2) / (meanGeom + epsilon)
 
 		// Compute harmonic mean using inverse table
 		// Skip unreliable boundaries, sample every 4th point
@@ -478,10 +480,10 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 
 // TransientAnalysisWithState performs enhanced transient analysis using persistent state.
 // This improves detection of percussive sounds by:
-//   1. Using persistent HP filter state across frames for better attack detection
-//   2. Tracking attack duration for multi-frame transient handling
-//   3. Applying hysteresis to prevent rapid toggling
-//   4. Adaptive thresholding based on signal level
+//  1. Using persistent HP filter state across frames for better attack detection
+//  2. Tracking attack duration for multi-frame transient handling
+//  3. Applying hysteresis to prevent rapid toggling
+//  4. Adaptive thresholding based on signal level
 //
 // This function updates the encoder's transient state and should be used
 // when encoding sequences of frames for optimal percussive sound quality.
@@ -608,7 +610,7 @@ func (e *Encoder) TransientAnalysisWithState(pcm []float64, frameSize int, allow
 		// Inverse of mean energy
 		var norm float32
 		if geoMean > 1e-15 {
-			norm = float32(len2) / (geoMean*0.5 + 1e-15)
+			norm = float32(len2) / (geoMean + 1e-15)
 		}
 
 		// Compute harmonic mean using inverse table
@@ -1004,9 +1006,9 @@ func PatchTransientDecision(newE, oldE []float64, nbEBands, start, end, channels
 //   - attackStrength: measure of attack sharpness (0.0 to 1.0)
 //
 // This can be used to:
-//   1. Force transient mode even when standard detection misses it
-//   2. Adjust TF resolution for optimal attack preservation
-//   3. Guide pre-echo reduction in VBR mode
+//  1. Force transient mode even when standard detection misses it
+//  2. Adjust TF resolution for optimal attack preservation
+//  3. Guide pre-echo reduction in VBR mode
 func (e *Encoder) DetectPercussiveAttack(pcm []float64, frameSize int) (bool, int, float64) {
 	if len(pcm) == 0 || frameSize <= 0 {
 		return false, 0, 0

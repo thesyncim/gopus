@@ -136,6 +136,7 @@ type Encoder struct {
 	analysisBandwidth int  // 1..20 bandwidth index from previous frame analysis
 	analysisValid     bool // True after at least one analysis update
 	analysisLeakBoost [leakBands]uint8
+	analysisTonalitySlope float64
 	// Bootstrap leak boost used when external analysis is valid but doesn't yet
 	// provide leak_boost (matches early-frame libopus behavior more closely).
 	analysisLeakBootstrap [leakBands]uint8
@@ -312,6 +313,7 @@ func NewEncoder(channels int) *Encoder {
 		lastPitchChange:   false,
 		analysisBandwidth: 20,
 		analysisValid:     false,
+		analysisTonalitySlope: 0.0,
 
 		// Pre-emphasized signal buffer for transient analysis overlap
 		// Size is Overlap samples per channel (interleaved for stereo)
@@ -374,6 +376,7 @@ func (e *Encoder) SetTargetStatsHook(fn func(CeltTargetStats)) {
 func (e *Encoder) SetAnalysisBandwidth(bandwidth int, valid bool) {
 	if !valid {
 		e.analysisValid = false
+		e.analysisTonalitySlope = 0
 		for i := range e.analysisLeakBoost {
 			e.analysisLeakBoost[i] = 0
 		}
@@ -387,6 +390,7 @@ func (e *Encoder) SetAnalysisBandwidth(bandwidth int, valid bool) {
 	}
 	e.analysisBandwidth = bandwidth
 	e.analysisValid = true
+	e.analysisTonalitySlope = 0
 	for i := range e.analysisLeakBoost {
 		e.analysisLeakBoost[i] = 0
 	}
@@ -394,7 +398,7 @@ func (e *Encoder) SetAnalysisBandwidth(bandwidth int, valid bool) {
 
 // SetAnalysisInfo provides analysis-derived state from the top-level Opus analysis
 // pipeline. This mirrors libopus use of AnalysisInfo in CELT dynalloc.
-func (e *Encoder) SetAnalysisInfo(bandwidth int, leakBoost [leakBands]uint8, valid bool) {
+func (e *Encoder) SetAnalysisInfo(bandwidth int, leakBoost [leakBands]uint8, tonalitySlope float64, valid bool) {
 	if !valid {
 		e.SetAnalysisBandwidth(0, false)
 		return
@@ -408,6 +412,7 @@ func (e *Encoder) SetAnalysisInfo(bandwidth int, leakBoost [leakBands]uint8, val
 	e.analysisBandwidth = bandwidth
 	e.analysisValid = true
 	e.analysisLeakBoost = leakBoost
+	e.analysisTonalitySlope = tonalitySlope
 }
 
 // AnalysisBandwidth returns the current analysis-derived bandwidth index.
@@ -517,6 +522,7 @@ func (e *Encoder) Reset() {
 	e.lastPitchChange = false
 	e.analysisBandwidth = 20
 	e.analysisValid = false
+	e.analysisTonalitySlope = 0
 	for i := range e.analysisLeakBoost {
 		e.analysisLeakBoost[i] = 0
 	}

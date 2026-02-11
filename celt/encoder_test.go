@@ -354,9 +354,10 @@ func TestPreemphasisState(t *testing.T) {
 	input1 := []float64{1.0, 2.0, 3.0}
 	_ = enc.ApplyPreemphasis(input1)
 
-	// State should be the last input sample
-	if enc.PreemphState()[0] != 3.0 {
-		t.Errorf("PreemphState after first call = %f, want 3.0", enc.PreemphState()[0])
+	// State tracks PreemphCoef * last input sample.
+	expectedState := PreemphCoef * 3.0
+	if math.Abs(enc.PreemphState()[0]-expectedState) > 1e-10 {
+		t.Errorf("PreemphState after first call = %f, want %f", enc.PreemphState()[0], expectedState)
 	}
 
 	// Second call should use state from first call

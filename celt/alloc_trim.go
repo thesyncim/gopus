@@ -5,6 +5,16 @@ package celt
 
 import "math"
 
+type allocTrimDetail struct {
+	base    float64
+	stereo  float64
+	tilt    float64
+	surround float64
+	tf      float64
+	tonal   float64
+	raw     float64
+}
+
 // AllocTrimAnalysis computes the optimal allocation trim value for a CELT frame.
 // The trim value biases bit allocation between lower and higher frequency bands.
 // A higher trim value allocates more bits to lower frequencies.
@@ -45,19 +55,53 @@ func AllocTrimAnalysis(
 	surroundTrim float64,
 	tonalitySlope float64,
 ) int {
+	trimIndex, _ := allocTrimAnalysisDetailed(
+		normCoeffs,
+		bandLogE,
+		nbBands,
+		lm,
+		channels,
+		normCoeffsRight,
+		intensity,
+		tfEstimate,
+		equivRate,
+		surroundTrim,
+		tonalitySlope,
+	)
+	return trimIndex
+}
+
+func allocTrimAnalysisDetailed(
+	normCoeffs []float64,
+	bandLogE []float64,
+	nbBands int,
+	lm int,
+	channels int,
+	normCoeffsRight []float64,
+	intensity int,
+	tfEstimate float64,
+	equivRate int,
+	surroundTrim float64,
+	tonalitySlope float64,
+) (int, allocTrimDetail) {
+	detail := allocTrimDetail{}
+
 	// Start with default trim of 5
 	trim := 5.0
+	detail.base = trim
 
 	// At low bitrate, reducing the trim seems to help. At higher bitrates, it's less
 	// clear what's best, so we're keeping it as it was before, at least for now.
 	// Reference: libopus lines 877-883
 	if equivRate < 64000 {
 		trim = 4.0
+		detail.base = trim
 	} else if equivRate < 80000 {
 		// Linear interpolation from 4.0 to 5.0 between 64kbps and 80kbps
 		// libopus: trim = 4.f + (equiv_rate-64000)/16000
 		frac := float64(equivRate-64000) / 16000.0
 		trim = 4.0 + frac
+		detail.base = trim
 	}
 
 	// Stereo correlation adjustment
@@ -71,6 +115,7 @@ func AllocTrimAnalysis(
 			stereoAdjust = -4.0
 		}
 		trim += stereoAdjust
+		detail.stereo = stereoAdjust
 	}
 
 	// Spectral tilt adjustment
@@ -111,17 +156,20 @@ func AllocTrimAnalysis(
 	}
 
 	trim -= tiltAdjust
+	detail.tilt = tiltAdjust
 
 	// Surround trim adjustment
 	// Reference: libopus line 932
 	// surround_trim is in dB, typically 0 for non-surround encoding
 	trim -= surroundTrim
+	detail.surround = surroundTrim
 
 	// TF estimate adjustment
 	// Reference: libopus line 933: trim -= 2*SHR16(tf_estimate, 14-8)
 	// tf_estimate is in Q14 format in libopus, we use float [0, 1]
 	// So: trim -= 2 * tf_estimate
 	trim -= 2.0 * tfEstimate
+	detail.tf = 2.0 * tfEstimate
 
 	// Tonality slope adjustment (optional, from analysis)
 	// Reference: libopus lines 935-939
@@ -136,7 +184,9 @@ func AllocTrimAnalysis(
 			tonalAdjust = 2.0
 		}
 		trim -= tonalAdjust
+		detail.tonal = tonalAdjust
 	}
+	detail.raw = trim
 
 	// Convert to integer with rounding and clamp to valid range
 	// Reference: libopus lines 947-949
@@ -148,7 +198,7 @@ func AllocTrimAnalysis(
 		trimIndex = 10
 	}
 
-	return trimIndex
+	return trimIndex, detail
 }
 
 // computeStereoCorrelationTrim computes the stereo correlation adjustment for alloc_trim.

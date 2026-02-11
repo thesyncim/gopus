@@ -1,9 +1,13 @@
 package celt
 
+import "math"
+
+var negZeroFloat32 = math.Float32frombits(0x80000000)
+
 // fftTwiddles48000_960Static mirrors libopus static_modes_float.h
 // fft_twiddles48000_960[480] exactly.
 var fftTwiddles48000_960Static = [480]kissCpx{
-	{r: float32(1), i: float32(-0)},
+	{r: float32(1), i: negZeroFloat32},
 	{r: float32(0.99991433), i: float32(-0.013089596)},
 	{r: float32(0.99965732), i: float32(-0.026176948)},
 	{r: float32(0.99922904), i: float32(-0.039259816)},

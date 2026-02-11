@@ -1,8 +1,13 @@
 package celt
 
 import (
+	"encoding/binary"
+	"fmt"
 	"math"
+	"os"
+	"runtime"
 	"sync"
+	"sync/atomic"
 )
 
 // NOTE ON APPARENT CODE DUPLICATION:
@@ -34,7 +39,106 @@ type kissFFTState struct {
 var (
 	kissFFTCache   = map[int]*kissFFTState{}
 	kissFFTCacheMu sync.Mutex
+
+	kissFFTM1FastPathOnce    sync.Once
+	kissFFTM1FastPathEnabled bool
+
+	kissFFTNoFMAMulOnce sync.Once
+	kissFFTNoFMAMul     bool
+
+	kissFFTFMALikeOnce sync.Once
+	kissFFTFMALike     bool
+
+	kissFFTStageDumpCounter uint32
 )
+
+func kissFFTM1Enabled() bool {
+	kissFFTM1FastPathOnce.Do(func() {
+		kissFFTM1FastPathEnabled = os.Getenv("GOPUS_TMP_KISSFFT_DISABLE_M1_FASTPATHS") != "1"
+	})
+	return kissFFTM1FastPathEnabled
+}
+
+func kissFFTNoFMAMulEnabled() bool {
+	kissFFTNoFMAMulOnce.Do(func() {
+		kissFFTNoFMAMul = os.Getenv("GOPUS_TMP_KISSFFT_NOFMA_MUL") == "1"
+	})
+	return kissFFTNoFMAMul
+}
+
+func kissFFTFMALikeEnabled() bool {
+	kissFFTFMALikeOnce.Do(func() {
+		if v, ok := os.LookupEnv("GOPUS_TMP_KISSFFT_FMALIKE"); ok {
+			kissFFTFMALike = v == "1"
+			return
+		}
+		kissFFTFMALike = runtime.GOARCH == "arm64"
+	})
+	return kissFFTFMALike
+}
+
+func kissMul(a, b float32) float32 {
+	if kissFFTNoFMAMulEnabled() {
+		return noFMA32Mul(a, b)
+	}
+	return a * b
+}
+
+// kissMulAddSource computes a*b + c*d using source-order semantics.
+// In FMAlike mode this mirrors libopus arm64 codegen (round c*d first).
+//
+//go:noinline
+func kissMulAddSource(a, b, c, d float32) float32 {
+	if kissFFTFMALikeEnabled() {
+		t := noFMA32Mul(c, d)
+		return float32(float64(a)*float64(b) + float64(t))
+	}
+	return a*b + c*d
+}
+
+// kissMulSubSource computes a*b - c*d using source-order semantics.
+// In FMAlike mode this mirrors libopus arm64 codegen (round c*d first).
+//
+//go:noinline
+func kissMulSubSource(a, b, c, d float32) float32 {
+	if kissFFTFMALikeEnabled() {
+		t := noFMA32Mul(c, d)
+		return float32(float64(a)*float64(b) - float64(t))
+	}
+	return a*b - c*d
+}
+
+//go:noinline
+func kissHalfSub(a, b float32) float32 {
+	return a - 0.5*b
+}
+
+//go:noinline
+func kissScaleMul(a, b float32) float32 {
+	return a * b
+}
+
+//go:noinline
+func kissAdd(a, b float32) float32 {
+	return a + b
+}
+
+//go:noinline
+func kissSub(a, b float32) float32 {
+	return a - b
+}
+
+func dumpKissCpxRaw(path string, vals []kissCpx) {
+	if len(vals) == 0 {
+		return
+	}
+	buf := make([]byte, len(vals)*8)
+	for i, v := range vals {
+		binary.LittleEndian.PutUint32(buf[i*8:], math.Float32bits(v.r))
+		binary.LittleEndian.PutUint32(buf[i*8+4:], math.Float32bits(v.i))
+	}
+	_ = os.WriteFile(path, buf, 0o644)
+}
 
 func getKissFFTState(nfft int) *kissFFTState {
 	kissFFTCacheMu.Lock()
@@ -388,8 +492,21 @@ func kfBfly5M1(fout []kissCpx, tw []kissCpx, fstride, n, mm int) {
 }
 
 func kfBfly2(fout []kissCpx, m, N int) {
-	if m == 1 {
+	if m == 1 && kissFFTM1Enabled() {
 		kfBfly2M1(fout, N)
+		return
+	}
+	if m == 1 {
+		// Mirrors libopus CUSTOM_MODES branch for radix-2 m==1.
+		for i := 0; i < N; i++ {
+			fout2 := fout[1:]
+			t := fout2[0]
+			fout2[0].r = fout[0].r - t.r
+			fout2[0].i = fout[0].i - t.i
+			fout[0].r += t.r
+			fout[0].i += t.i
+			fout = fout[2:]
+		}
 		return
 	}
 	// m==4 degenerate radix-2 after radix-4
@@ -428,7 +545,7 @@ func kfBfly2(fout []kissCpx, m, N int) {
 }
 
 func kfBfly4(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
-	if m == 1 {
+	if m == 1 && kissFFTM1Enabled() {
 		kfBfly4M1(fout, N)
 		return
 	}
@@ -461,12 +578,12 @@ func kfBfly4(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
 			w2 := w[tw2]
 			w3 := w[tw3]
 
-			s0r := b1.r*w1.r - b1.i*w1.i
-			s0i := b1.r*w1.i + b1.i*w1.r
-			s1r := b2.r*w2.r - b2.i*w2.i
-			s1i := b2.r*w2.i + b2.i*w2.r
-			s2r := b3.r*w3.r - b3.i*w3.i
-			s2i := b3.r*w3.i + b3.i*w3.r
+			s0r := kissMulSubSource(b1.r, w1.r, b1.i, w1.i)
+			s0i := kissMulAddSource(b1.r, w1.i, b1.i, w1.r)
+			s1r := kissMulSubSource(b2.r, w2.r, b2.i, w2.i)
+			s1i := kissMulAddSource(b2.r, w2.i, b2.i, w2.r)
+			s2r := kissMulSubSource(b3.r, w3.r, b3.i, w3.i)
+			s2i := kissMulAddSource(b3.r, w3.i, b3.i, w3.r)
 
 			s5r := f0r - s1r
 			s5i := f0i - s1i
@@ -506,7 +623,6 @@ func kfBfly3(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
 	}
 	_ = fout[N*mm-1] // BCE for idx+{0,m,m2}
 	w := st.w
-	const half = float32(0.5)
 	epi3i := epi3.i
 	fstride2 := fstride * 2
 	if m > 0 {
@@ -526,10 +642,10 @@ func kfBfly3(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
 			w1 := w[tw1]
 			w2 := w[tw2]
 
-			s1r := b1.r*w1.r - b1.i*w1.i
-			s1i := b1.r*w1.i + b1.i*w1.r
-			s2r := b2.r*w2.r - b2.i*w2.i
-			s2i := b2.r*w2.i + b2.i*w2.r
+			s1r := kissMulSubSource(b1.r, w1.r, b1.i, w1.i)
+			s1i := kissMulAddSource(b1.r, w1.i, b1.i, w1.r)
+			s2r := kissMulSubSource(b2.r, w2.r, b2.i, w2.i)
+			s2i := kissMulAddSource(b2.r, w2.i, b2.i, w2.r)
 
 			s3r := s1r + s2r
 			s3i := s1i + s2i
@@ -539,11 +655,11 @@ func kfBfly3(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
 			tw1 += fstride
 			tw2 += fstride2
 
-			fout[idx1].r = a0r - half*s3r
-			fout[idx1].i = a0i - half*s3i
+			fout[idx1].r = kissHalfSub(a0r, s3r)
+			fout[idx1].i = kissHalfSub(a0i, s3i)
 
-			s0r *= epi3i
-			s0i *= epi3i
+			s0r = kissScaleMul(s0r, epi3i)
+			s0i = kissScaleMul(s0i, epi3i)
 
 			fout[idx0].r = a0r + s3r
 			fout[idx0].i = a0i + s3i
@@ -587,36 +703,36 @@ func kfBfly5(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
 			w3 := w[tw3]
 			w4 := w[tw4]
 
-			s1r := b1.r*w1.r - b1.i*w1.i
-			s1i := b1.r*w1.i + b1.i*w1.r
-			s2r := b2.r*w2.r - b2.i*w2.i
-			s2i := b2.r*w2.i + b2.i*w2.r
-			s3r := b3.r*w3.r - b3.i*w3.i
-			s3i := b3.r*w3.i + b3.i*w3.r
-			s4r := b4.r*w4.r - b4.i*w4.i
-			s4i := b4.r*w4.i + b4.i*w4.r
+			s1r := kissMulSubSource(b1.r, w1.r, b1.i, w1.i)
+			s1i := kissMulAddSource(b1.r, w1.i, b1.i, w1.r)
+			s2r := kissMulSubSource(b2.r, w2.r, b2.i, w2.i)
+			s2i := kissMulAddSource(b2.r, w2.i, b2.i, w2.r)
+			s3r := kissMulSubSource(b3.r, w3.r, b3.i, w3.i)
+			s3i := kissMulAddSource(b3.r, w3.i, b3.i, w3.r)
+			s4r := kissMulSubSource(b4.r, w4.r, b4.i, w4.i)
+			s4i := kissMulAddSource(b4.r, w4.i, b4.i, w4.r)
 
 			s7r, s7i := s1r+s4r, s1i+s4i
 			s10r, s10i := s1r-s4r, s1i-s4i
 			s8r, s8i := s2r+s3r, s2i+s3i
 			s9r, s9i := s2r-s3r, s2i-s3i
 
-			fout[idx0].r = s0.r + (s7r + s8r)
-			fout[idx0].i = s0.i + (s7i + s8i)
+			fout[idx0].r = kissAdd(s0.r, kissAdd(s7r, s8r))
+			fout[idx0].i = kissAdd(s0.i, kissAdd(s7i, s8i))
 
-			s5r := s0.r + (s7r*yar + s8r*ybr)
-			s5i := s0.i + (s7i*yar + s8i*ybr)
-			s6r := s10i*yai + s9i*ybi
-			s6i := -(s10r*yai + s9r*ybi)
-			fout[idx1].r, fout[idx1].i = s5r-s6r, s5i-s6i
-			fout[idx4].r, fout[idx4].i = s5r+s6r, s5i+s6i
+			s5r := kissAdd(s0.r, kissMulAddSource(s7r, yar, s8r, ybr))
+			s5i := kissAdd(s0.i, kissMulAddSource(s7i, yar, s8i, ybr))
+			s6r := kissMulAddSource(s10i, yai, s9i, ybi)
+			s6i := -kissMulAddSource(s10r, yai, s9r, ybi)
+			fout[idx1].r, fout[idx1].i = kissSub(s5r, s6r), kissSub(s5i, s6i)
+			fout[idx4].r, fout[idx4].i = kissAdd(s5r, s6r), kissAdd(s5i, s6i)
 
-			s11r := s0.r + (s7r*ybr + s8r*yar)
-			s11i := s0.i + (s7i*ybr + s8i*yar)
-			s12r := s9i*yai - s10i*ybi
-			s12i := s10r*ybi - s9r*yai
-			fout[idx2].r, fout[idx2].i = s11r+s12r, s11i+s12i
-			fout[idx3].r, fout[idx3].i = s11r-s12r, s11i-s12i
+			s11r := kissAdd(s0.r, kissMulAddSource(s7r, ybr, s8r, yar))
+			s11i := kissAdd(s0.i, kissMulAddSource(s7i, ybr, s8i, yar))
+			s12r := kissMulSubSource(s9i, yai, s10i, ybi)
+			s12i := kissMulSubSource(s10r, ybi, s9r, yai)
+			fout[idx2].r, fout[idx2].i = kissAdd(s11r, s12r), kissAdd(s11i, s12i)
+			fout[idx3].r, fout[idx3].i = kissSub(s11r, s12r), kissSub(s11i, s12i)
 
 			idx0++
 			idx1++
@@ -662,23 +778,42 @@ func (st *kissFFTState) fftImpl(fout []kissCpx) {
 	if shift < 0 {
 		shift = 0
 	}
+	doDump := false
+	dumpIdx := uint32(0)
+	if os.Getenv("GOPUS_TMP_KISSFFT_STAGE_DUMP") == "1" && st.nfft == 240 {
+		dumpIdx = atomic.LoadUint32(&kissFFTStageDumpCounter)
+		doDump = dumpIdx < 96
+	}
+	stageIdx := 0
 	for i := L - 1; i >= 0; i-- {
 		m2 := 1
 		if i != 0 {
 			m2 = st.factors[2*i-1]
 		}
 		twFstride := fstride[i] << shift
+		radix := st.factors[2*i]
+		N := fstride[i]
 		switch st.factors[2*i] {
 		case 2:
-			kfBfly2(fout, m, fstride[i])
+			kfBfly2(fout, m, N)
 		case 4:
-			kfBfly4(fout, twFstride, st, m, fstride[i], m2)
+			kfBfly4(fout, twFstride, st, m, N, m2)
 		case 3:
-			kfBfly3(fout, twFstride, st, m, fstride[i], m2)
+			kfBfly3(fout, twFstride, st, m, N, m2)
 		case 5:
-			kfBfly5(fout, twFstride, st, m, fstride[i], m2)
+			kfBfly5(fout, twFstride, st, m, N, m2)
+		}
+		if doDump {
+			dumpKissCpxRaw(
+				fmt.Sprintf("/tmp/go_kiss_stage_call%d_stage%d_rad%d_m%d_N%d_mm%d.f32", dumpIdx, stageIdx, radix, m, N, m2),
+				fout,
+			)
 		}
 		m = m2
+		stageIdx++
+	}
+	if doDump {
+		atomic.AddUint32(&kissFFTStageDumpCounter, 1)
 	}
 }
 
@@ -710,6 +845,10 @@ func KissFFT32To(out []complex64, x []complex64) {
 func kissFFT32To(out []complex64, x []complex64, scratch []kissCpx) {
 	n := len(x)
 	if n == 0 || len(out) < n {
+		return
+	}
+	if os.Getenv("GOPUS_TMP_KISSFFT_DFT") == "1" {
+		dft32FallbackTo(out, x)
 		return
 	}
 
