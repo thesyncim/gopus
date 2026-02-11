@@ -114,17 +114,7 @@ func findEncoderCompliancePacketsFixtureCase(mode encoder.Mode, bandwidth types.
 }
 
 func getFixtureOpusDemoPathForEncoder() (string, bool) {
-	candidates := []string{
-		filepath.Join("tmp_check", "opus-1.6.1", "opus_demo"),
-		filepath.Join("..", "tmp_check", "opus-1.6.1", "opus_demo"),
-		filepath.Join("..", "..", "tmp_check", "opus-1.6.1", "opus_demo"),
-	}
-	for _, p := range candidates {
-		if st, err := os.Stat(p); err == nil && (st.Mode()&0111) != 0 {
-			return p, true
-		}
-	}
-	return "", false
+	return getFixtureOpusDemoPathAuto()
 }
 
 func modeToOpusDemoApp(mode string) (string, error) {

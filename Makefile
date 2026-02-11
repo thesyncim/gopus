@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix test test-fast test-parity test-exhaustive test-provenance fixtures-gen fixtures-gen-decoder fixtures-gen-encoder fixtures-gen-variants build build-nopgo pgo-generate pgo-build clean clean-vectors
+.PHONY: lint lint-fix test test-fast test-parity test-exhaustive test-provenance ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-encoder fixtures-gen-variants build build-nopgo pgo-generate pgo-build clean clean-vectors
 
 GO ?= go
 PGO_FILE ?= default.pgo
@@ -6,6 +6,7 @@ PGO_BENCH ?= ^Benchmark(DecoderDecode|EncoderEncode)_(CELT|Hybrid|SILK|Stereo|Mu
 PGO_PKG ?= .
 PGO_BENCHTIME ?= 20s
 PGO_COUNT ?= 1
+LIBOPUS_VERSION ?= 1.6.1
 
 # Run golangci-lint
 lint:
@@ -29,16 +30,20 @@ test-fast:
 test-parity:
 	GOPUS_TEST_TIER=parity $(GO) test ./testvectors -run 'TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard|TestDecoderParityLibopusMatrix|TestDecoderParityMatrixWithFFmpeg|TestEncoderVariantProfileParityAgainstLibopusFixture' -count=1
 
+# Ensure tmp_check/opus-$(LIBOPUS_VERSION)/opus_demo exists (fetch + build if missing).
+ensure-libopus:
+	LIBOPUS_VERSION=$(LIBOPUS_VERSION) ./tools/ensure_libopus.sh
+
 # Exhaustive tier includes fixture honesty checks against tmp_check opus_demo/opusdec.
-test-exhaustive:
+test-exhaustive: ensure-libopus
 	GOPUS_TEST_TIER=exhaustive $(GO) test ./testvectors -run 'TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo1601|TestEncoderVariantsFixtureHonestyWithOpusDemo1601|TestDecoderParityMatrixFixtureHonestyWithOpusDemo1601|TestLongFrameReferenceFixtureHonestyWithLiveOpusdec' -count=1
 
 # Exhaustive provenance audit for encoder variant parity.
-test-provenance:
+test-provenance: ensure-libopus
 	GOPUS_TEST_TIER=exhaustive $(GO) test ./testvectors -run 'TestEncoderVariantProfileProvenanceAudit' -count=1
 
 # Regenerate fixture files from tmp_check/opus-1.6.1/opus_demo.
-fixtures-gen: fixtures-gen-decoder fixtures-gen-encoder fixtures-gen-variants
+fixtures-gen: ensure-libopus fixtures-gen-decoder fixtures-gen-encoder fixtures-gen-variants
 
 fixtures-gen-decoder:
 	$(GO) run tools/gen_libopus_decoder_matrix_fixture.go

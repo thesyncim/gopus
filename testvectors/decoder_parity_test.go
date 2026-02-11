@@ -211,17 +211,7 @@ func buildOpusDemoBitstreamFromFixtureCase(c libopusDecoderMatrixCaseFile) ([]by
 }
 
 func getFixtureOpusDemoPath() (string, bool) {
-	candidates := []string{
-		filepath.Join("tmp_check", "opus-1.6.1", "opus_demo"),
-		filepath.Join("..", "tmp_check", "opus-1.6.1", "opus_demo"),
-		filepath.Join("..", "..", "tmp_check", "opus-1.6.1", "opus_demo"),
-	}
-	for _, path := range candidates {
-		if st, err := os.Stat(path); err == nil && (st.Mode()&0111) != 0 {
-			return path, true
-		}
-	}
-	return "", false
+	return getFixtureOpusDemoPathAuto()
 }
 
 func TestDecoderParityMatrixFixtureHonestyWithOpusDemo1601(t *testing.T) {

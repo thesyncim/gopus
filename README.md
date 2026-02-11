@@ -556,13 +556,19 @@ make test-fast
 # Libopus parity tier (decoder/encoder parity + variant profile)
 make test-parity
 
+# Fetch/build exact libopus 1.6.1 tooling under tmp_check/ if missing
+make ensure-libopus
+
 # Exhaustive honesty checks against tmp_check/opus-1.6.1 tooling
+# (auto-runs ensure-libopus first)
 make test-exhaustive
 
 # Exhaustive provenance audit (matches opus_demo app/CBR semantics)
+# (auto-runs ensure-libopus first)
 make test-provenance
 
 # Regenerate all libopus-backed fixtures
+# (auto-runs ensure-libopus first)
 make fixtures-gen
 
 # Run with race detector
