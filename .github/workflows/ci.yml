@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+env:
+  LIBOPUS_VERSION: "1.6.1"
+  GOPUS_DISABLE_OPUSDEC: "1"
+  GOPUS_DISABLE_OPUSENC: "1"
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -28,8 +33,20 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Bootstrap pinned libopus
+        run: make ensure-libopus
+
       - name: Run test suite
         run: go test ./... -count=1
+
+      - name: Verify libopus fixture provenance
+        run: |
+          GOPUS_TEST_TIER=exhaustive go test ./testvectors -run 'TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureHonestyWithOpusDemo|TestDecoderParityMatrixFixtureHonestyWithOpusDemo' -count=1
 
   test-macos:
     name: test-macos
@@ -44,6 +61,14 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Install ffmpeg
+        run: |
+          brew update
+          brew install ffmpeg
+
+      - name: Bootstrap pinned libopus
+        run: make ensure-libopus
 
       - name: Run test suite
         run: go test ./... -count=1
@@ -61,6 +86,11 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Install ffmpeg
+        shell: pwsh
+        run: |
+          choco install -y ffmpeg
 
       - name: Run test suite
         shell: pwsh

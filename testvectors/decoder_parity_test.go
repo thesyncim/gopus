@@ -216,7 +216,7 @@ func getFixtureOpusDemoPath() (string, bool) {
 	return libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
 }
 
-func TestDecoderParityMatrixFixtureHonestyWithOpusDemo1601(t *testing.T) {
+func TestDecoderParityMatrixFixtureHonestyWithOpusDemo(t *testing.T) {
 	requireTestTier(t, testTierExhaustive)
 
 	opusDemo, ok := getFixtureOpusDemoPath()
@@ -259,7 +259,7 @@ func TestDecoderParityMatrixFixtureHonestyWithOpusDemo1601(t *testing.T) {
 				t.Fatalf("decode fixture decoded payload: %v", err)
 			}
 			if !bytes.Equal(gotRaw, wantRaw) {
-				t.Fatalf("fixture drift vs tmp_check opus_demo 1.6.1: got=%d bytes want=%d bytes", len(gotRaw), len(wantRaw))
+				t.Fatalf("fixture drift vs tmp_check opus_demo %s: got=%d bytes want=%d bytes", libopustooling.DefaultVersion, len(gotRaw), len(wantRaw))
 			}
 		})
 	}

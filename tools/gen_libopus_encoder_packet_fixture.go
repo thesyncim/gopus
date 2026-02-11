@@ -21,7 +21,8 @@ import (
 const (
 	encoderFixtureSampleRate = 48000
 	refQFixturePath          = "testvectors/testdata/encoder_compliance_libopus_ref_q.json"
-	outputFixturePath        = "testvectors/testdata/encoder_compliance_libopus_packets_fixture.json"
+	defaultOutputFixturePath = "testvectors/testdata/encoder_compliance_libopus_packets_fixture.json"
+	outputFixtureEnv         = "GOPUS_ENCODER_PACKETS_FIXTURE_OUT"
 )
 
 type refQFixtureFile struct {
@@ -69,6 +70,13 @@ func getOpusDemoPath() string {
 		return p
 	}
 	return ""
+}
+
+func outputFixturePath() string {
+	if v := os.Getenv(outputFixtureEnv); v != "" {
+		return v
+	}
+	return defaultOutputFixturePath
 }
 
 func modeFromTOC(toc byte) string {
@@ -281,7 +289,7 @@ func runCase(opusDemoPath string, tmpDir string, row refQCaseRow) (encoderPacket
 func main() {
 	opusDemoPath := getOpusDemoPath()
 	if opusDemoPath == "" {
-		fmt.Fprintln(os.Stderr, "opus_demo not found. expected tmp_check/opus-1.6.1/opus_demo (run: make ensure-libopus)")
+		fmt.Fprintf(os.Stderr, "opus_demo not found. expected tmp_check/opus-%s/opus_demo (run: make ensure-libopus)\n", libopustooling.DefaultVersion)
 		os.Exit(1)
 	}
 	refFixture, err := loadRefQFixture()
@@ -334,9 +342,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "marshal fixture: %v\n", err)
 		os.Exit(1)
 	}
-	if err := os.WriteFile(outputFixturePath, append(data, '\n'), 0o644); err != nil {
+	outPath := outputFixturePath()
+	if err := os.WriteFile(outPath, append(data, '\n'), 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "write fixture: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Fprintf(os.Stderr, "wrote %s (%d cases)\n", outputFixturePath, len(out.Cases))
+	fmt.Fprintf(os.Stderr, "wrote %s (%d cases)\n", outPath, len(out.Cases))
 }

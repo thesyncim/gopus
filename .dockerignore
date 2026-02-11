@@ -1,0 +1,10 @@
+.git
+.github
+.idea
+.claude
+.planning
+tmp_check
+*.test
+*.prof
+coverage.out
+coverage.html

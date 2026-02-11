@@ -271,6 +271,10 @@ make ensure-libopus
 make test-exhaustive
 make test-provenance
 make fixtures-gen
+make fixtures-gen-amd64
+make docker-build
+make docker-test
+make docker-test-exhaustive
 ```
 
 ## Examples

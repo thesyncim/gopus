@@ -1,0 +1,32 @@
+# syntax=docker/dockerfile:1
+
+ARG GO_VERSION=1.25
+FROM golang:${GO_VERSION}-bookworm
+
+ARG LIBOPUS_VERSION=1.6.1
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PATH=/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    LIBOPUS_VERSION=${LIBOPUS_VERSION} \
+    GOPUS_DISABLE_OPUSDEC=1 \
+    GOMODCACHE=/go/pkg/mod \
+    GOCACHE=/root/.cache/go-build
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        autoconf \
+        automake \
+        ca-certificates \
+        curl \
+        ffmpeg \
+        gcc \
+        g++ \
+        libtool \
+        make \
+        opus-tools \
+        pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+CMD ["bash"]
