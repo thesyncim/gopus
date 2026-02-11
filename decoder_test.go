@@ -75,6 +75,22 @@ func TestNewDecoder_InvalidChannels(t *testing.T) {
 	}
 }
 
+func TestNewDecoder_DefaultMaxPacketLimits(t *testing.T) {
+	dec, err := NewDecoder(DecoderConfig{
+		SampleRate: 48000,
+		Channels:   2,
+	})
+	if err != nil {
+		t.Fatalf("NewDecoder() unexpected error: %v", err)
+	}
+	if dec.maxPacketSamples != defaultMaxPacketSamples {
+		t.Fatalf("maxPacketSamples=%d want %d", dec.maxPacketSamples, defaultMaxPacketSamples)
+	}
+	if dec.maxPacketBytes != defaultMaxPacketBytes {
+		t.Fatalf("maxPacketBytes=%d want %d", dec.maxPacketBytes, defaultMaxPacketBytes)
+	}
+}
+
 // minimalHybridTestPacket20ms creates a test packet for Hybrid FB 20ms mono (config 15).
 // This is a manually constructed packet that produces valid decoder output.
 // The TOC byte (0x78) indicates: config=15 (Hybrid FB 20ms), mono, code 0 (single frame).
