@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,8 +22,24 @@ import (
 )
 
 const encoderComplianceVariantsFixturePath = "testdata/encoder_compliance_libopus_variants_fixture.json"
+const encoderComplianceVariantsFixturePathAMD64 = "testdata/encoder_compliance_libopus_variants_fixture_amd64.json"
 const encoderVariantsBaselinePath = "testdata/encoder_compliance_variants_ratchet_baseline.json"
+const encoderVariantsBaselinePathAMD64 = "testdata/encoder_compliance_variants_ratchet_baseline_amd64.json"
 const updateVariantsBaselineEnv = "GOPUS_UPDATE_VARIANT_BASELINE"
+
+func encoderComplianceVariantsFixturePathForArch() string {
+	if runtime.GOARCH == "amd64" {
+		return encoderComplianceVariantsFixturePathAMD64
+	}
+	return encoderComplianceVariantsFixturePath
+}
+
+func encoderVariantsBaselinePathForArch() string {
+	if runtime.GOARCH == "amd64" {
+		return encoderVariantsBaselinePathAMD64
+	}
+	return encoderVariantsBaselinePath
+}
 
 type encoderComplianceVariantsFixtureFile struct {
 	Version    int                                    `json:"version"`
@@ -76,7 +93,7 @@ var (
 
 func loadEncoderComplianceVariantsFixture() (encoderComplianceVariantsFixtureFile, error) {
 	encoderComplianceVariantsFixtureOnce.Do(func() {
-		data, err := os.ReadFile(filepath.Join(encoderComplianceVariantsFixturePath))
+		data, err := os.ReadFile(filepath.Join(encoderComplianceVariantsFixturePathForArch()))
 		if err != nil {
 			encoderComplianceVariantsFixtureErr = err
 			return
@@ -235,7 +252,7 @@ func TestEncoderVariantsFixtureSignalHash(t *testing.T) {
 	}
 }
 
-func TestEncoderVariantsFixtureHonestyWithOpusDemo1601(t *testing.T) {
+func TestEncoderVariantsFixtureHonestyWithOpusDemo(t *testing.T) {
 	requireTestTier(t, testTierExhaustive)
 
 	opusDemo, ok := getFixtureOpusDemoPathForEncoder()
@@ -371,7 +388,7 @@ func encoderVariantCaseKey(name, variant string) string {
 }
 
 func loadEncoderVariantsBaseline() (map[string]encoderVariantsBaselineTC, error) {
-	data, err := os.ReadFile(filepath.Join(encoderVariantsBaselinePath))
+	data, err := os.ReadFile(filepath.Join(encoderVariantsBaselinePathForArch()))
 	if err != nil {
 		return nil, err
 	}
@@ -608,7 +625,7 @@ func TestEncoderVariantProfileParityAgainstLibopusFixture(t *testing.T) {
 	if !updateBaseline {
 		baseline, err = loadEncoderVariantsBaseline()
 		if err != nil {
-			t.Fatalf("load encoder variants baseline: %v (set %s=1 to regenerate)", err, updateVariantsBaselineEnv)
+			t.Fatalf("load encoder variants baseline %q: %v (set %s=1 to regenerate)", encoderVariantsBaselinePathForArch(), err, updateVariantsBaselineEnv)
 		}
 	}
 	generatedBaseline := make(map[string]encoderVariantsBaselineTC, len(fixture.Cases))
@@ -726,10 +743,11 @@ func TestEncoderVariantProfileParityAgainstLibopusFixture(t *testing.T) {
 		if err != nil {
 			t.Fatalf("marshal generated baseline: %v", err)
 		}
-		if err := os.WriteFile(filepath.Join(encoderVariantsBaselinePath), append(data, '\n'), 0o644); err != nil {
+		baselinePath := encoderVariantsBaselinePathForArch()
+		if err := os.WriteFile(filepath.Join(baselinePath), append(data, '\n'), 0o644); err != nil {
 			t.Fatalf("write generated baseline: %v", err)
 		}
-		t.Fatalf("updated baseline at %s; rerun without %s", encoderVariantsBaselinePath, updateVariantsBaselineEnv)
+		t.Fatalf("updated baseline at %s; rerun without %s", baselinePath, updateVariantsBaselineEnv)
 	}
 
 	if len(baseline) != len(seenBaseline) {

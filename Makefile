@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix test test-fast test-parity test-exhaustive test-provenance ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-encoder fixtures-gen-variants build build-nopgo pgo-generate pgo-build clean clean-vectors
+.PHONY: lint lint-fix test test-fast test-parity test-exhaustive test-provenance ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors
 
 GO ?= go
 PGO_FILE ?= default.pgo
@@ -7,6 +7,21 @@ PGO_PKG ?= .
 PGO_BENCHTIME ?= 20s
 PGO_COUNT ?= 1
 LIBOPUS_VERSION ?= 1.6.1
+DOCKER_IMAGE ?= gopus-ci
+DOCKERFILE_CI ?= Dockerfile.ci
+DOCKER_DISABLE_OPUSDEC ?= 0
+DOCKER_DISABLE_OPUSENC ?= 1
+UNAME_M := $(shell uname -m)
+ifeq ($(UNAME_M),arm64)
+DOCKER_PLATFORM ?= linux/arm64
+else ifeq ($(UNAME_M),aarch64)
+DOCKER_PLATFORM ?= linux/arm64
+else
+DOCKER_PLATFORM ?= linux/amd64
+endif
+DOCKER_CACHE_SUFFIX := $(subst /,-,$(DOCKER_PLATFORM))
+DOCKER_EXHAUSTIVE_PLATFORM ?= linux/amd64
+DOCKER_EXHAUSTIVE_CACHE_SUFFIX := $(subst /,-,$(DOCKER_EXHAUSTIVE_PLATFORM))
 
 # Run golangci-lint
 lint:
@@ -34,15 +49,65 @@ test-parity:
 ensure-libopus:
 	LIBOPUS_VERSION=$(LIBOPUS_VERSION) ./tools/ensure_libopus.sh
 
-# Exhaustive tier includes fixture honesty checks against tmp_check opus_demo/opusdec.
+# Build pinned Linux CI image with codec/tooling dependencies.
+docker-build:
+	docker build --platform $(DOCKER_PLATFORM) --build-arg LIBOPUS_VERSION=$(LIBOPUS_VERSION) -f $(DOCKERFILE_CI) -t $(DOCKER_IMAGE) .
+
+# Build image for exhaustive fixture-honesty checks (defaults to linux/amd64).
+docker-build-exhaustive:
+	docker build --platform $(DOCKER_EXHAUSTIVE_PLATFORM) --build-arg LIBOPUS_VERSION=$(LIBOPUS_VERSION) -f $(DOCKERFILE_CI) -t $(DOCKER_IMAGE) .
+
+# Run full test suite in cached Linux container (modules/build/libopus volumes).
+docker-test: docker-build
+	docker run --rm --platform $(DOCKER_PLATFORM) \
+		-v "$(CURDIR):/workspace" \
+		-v gopus-gomod:/go/pkg/mod \
+		-v gopus-gobuild-$(DOCKER_CACHE_SUFFIX):/root/.cache/go-build \
+		-v gopus-libopus-$(DOCKER_CACHE_SUFFIX):/workspace/tmp_check \
+		-w /workspace \
+		-e LIBOPUS_VERSION=$(LIBOPUS_VERSION) \
+		-e GOPUS_DISABLE_OPUSDEC=$(DOCKER_DISABLE_OPUSDEC) \
+		-e GOPUS_DISABLE_OPUSENC=$(DOCKER_DISABLE_OPUSENC) \
+		$(DOCKER_IMAGE) \
+		bash -c "make ensure-libopus && go test ./... -count=1"
+
+# Run exhaustive fixture honesty/provenance checks in cached Linux container.
+docker-test-exhaustive: docker-build-exhaustive
+	docker run --rm --platform $(DOCKER_EXHAUSTIVE_PLATFORM) \
+		-v "$(CURDIR):/workspace" \
+		-v gopus-gomod:/go/pkg/mod \
+		-v gopus-gobuild-$(DOCKER_EXHAUSTIVE_CACHE_SUFFIX):/root/.cache/go-build \
+		-v gopus-libopus-$(DOCKER_EXHAUSTIVE_CACHE_SUFFIX):/workspace/tmp_check \
+		-w /workspace \
+		-e LIBOPUS_VERSION=$(LIBOPUS_VERSION) \
+		-e GOPUS_DISABLE_OPUSDEC=$(DOCKER_DISABLE_OPUSDEC) \
+		-e GOPUS_DISABLE_OPUSENC=$(DOCKER_DISABLE_OPUSENC) \
+		$(DOCKER_IMAGE) \
+		bash -c "make ensure-libopus && GOPUS_TEST_TIER=exhaustive go test ./testvectors -run 'TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureHonestyWithOpusDemo|TestDecoderParityMatrixFixtureHonestyWithOpusDemo|TestLongFrameReferenceFixtureHonestyWithLiveOpusdec' -count=1"
+
+# Open an interactive shell with the same cached Docker environment.
+docker-shell: docker-build
+	docker run --rm -it --platform $(DOCKER_PLATFORM) \
+		-v "$(CURDIR):/workspace" \
+		-v gopus-gomod:/go/pkg/mod \
+		-v gopus-gobuild-$(DOCKER_CACHE_SUFFIX):/root/.cache/go-build \
+		-v gopus-libopus-$(DOCKER_CACHE_SUFFIX):/workspace/tmp_check \
+		-w /workspace \
+		-e LIBOPUS_VERSION=$(LIBOPUS_VERSION) \
+		-e GOPUS_DISABLE_OPUSDEC=$(DOCKER_DISABLE_OPUSDEC) \
+		-e GOPUS_DISABLE_OPUSENC=$(DOCKER_DISABLE_OPUSENC) \
+		$(DOCKER_IMAGE) \
+		bash
+
+# Exhaustive tier includes fixture honesty checks against pinned tmp_check opus_demo/opusdec.
 test-exhaustive: ensure-libopus
-	GOPUS_TEST_TIER=exhaustive $(GO) test ./testvectors -run 'TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo1601|TestEncoderVariantsFixtureHonestyWithOpusDemo1601|TestDecoderParityMatrixFixtureHonestyWithOpusDemo1601|TestLongFrameReferenceFixtureHonestyWithLiveOpusdec' -count=1
+	GOPUS_TEST_TIER=exhaustive $(GO) test ./testvectors -run 'TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureHonestyWithOpusDemo|TestDecoderParityMatrixFixtureHonestyWithOpusDemo|TestLongFrameReferenceFixtureHonestyWithLiveOpusdec' -count=1
 
 # Exhaustive provenance audit for encoder variant parity.
 test-provenance: ensure-libopus
 	GOPUS_TEST_TIER=exhaustive $(GO) test ./testvectors -run 'TestEncoderVariantProfileProvenanceAudit' -count=1
 
-# Regenerate fixture files from tmp_check/opus-1.6.1/opus_demo.
+# Regenerate fixture files from tmp_check/opus-$(LIBOPUS_VERSION)/opus_demo.
 fixtures-gen: ensure-libopus fixtures-gen-decoder fixtures-gen-encoder fixtures-gen-variants
 
 fixtures-gen-decoder:
@@ -53,6 +118,21 @@ fixtures-gen-encoder:
 
 fixtures-gen-variants:
 	$(GO) run tools/gen_libopus_encoder_variants_fixture.go
+
+# Regenerate amd64-specific fixture files in a cached linux/amd64 container.
+fixtures-gen-amd64: docker-build-exhaustive
+	docker run --rm --platform $(DOCKER_EXHAUSTIVE_PLATFORM) \
+		-v "$(CURDIR):/workspace" \
+		-v gopus-gomod:/go/pkg/mod \
+		-v gopus-gobuild-$(DOCKER_EXHAUSTIVE_CACHE_SUFFIX):/root/.cache/go-build \
+		-v gopus-libopus-$(DOCKER_EXHAUSTIVE_CACHE_SUFFIX):/workspace/tmp_check \
+		-w /workspace \
+		-e LIBOPUS_VERSION=$(LIBOPUS_VERSION) \
+		$(DOCKER_IMAGE) \
+		bash -c "make ensure-libopus && \
+			GOPUS_DECODER_MATRIX_FIXTURE_OUT=testvectors/testdata/libopus_decoder_matrix_fixture_amd64.json go run tools/gen_libopus_decoder_matrix_fixture.go && \
+			GOPUS_ENCODER_PACKETS_FIXTURE_OUT=testvectors/testdata/encoder_compliance_libopus_packets_fixture_amd64.json go run tools/gen_libopus_encoder_packet_fixture.go && \
+			GOPUS_ENCODER_VARIANTS_FIXTURE_OUT=testvectors/testdata/encoder_compliance_libopus_variants_fixture_amd64.json go run tools/gen_libopus_encoder_variants_fixture.go"
 
 # Build with profile-guided optimization (default.pgo auto-discovered by Go toolchain)
 build:

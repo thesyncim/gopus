@@ -21,6 +21,8 @@ import (
 const (
 	generatorSampleRate = 48000
 	frameRuns           = 50
+	defaultOutputPath   = "testvectors/testdata/libopus_decoder_matrix_fixture.json"
+	outputPathEnv       = "GOPUS_DECODER_MATRIX_FIXTURE_OUT"
 )
 
 type decoderMatrixFixtureFile struct {
@@ -171,6 +173,13 @@ func getOpusDemoPath() string {
 	return ""
 }
 
+func outputPath() string {
+	if v := os.Getenv(outputPathEnv); v != "" {
+		return v
+	}
+	return defaultOutputPath
+}
+
 func runCase(opusDemoPath string, tmpDir string, c decoderCaseConfig) (decoderMatrixFixtureCase, error) {
 	frameSizeArg, err := frameSizeArgFromSamples(c.FrameSize)
 	if err != nil {
@@ -255,7 +264,7 @@ func frameSizeArgFromSamples(frameSize int) (string, error) {
 func main() {
 	opusDemoPath := getOpusDemoPath()
 	if opusDemoPath == "" {
-		fmt.Fprintln(os.Stderr, "opus_demo not found. expected tmp_check/opus-1.6.1/opus_demo (run: make ensure-libopus)")
+		fmt.Fprintf(os.Stderr, "opus_demo not found. expected tmp_check/opus-%s/opus_demo (run: make ensure-libopus)\n", libopustooling.DefaultVersion)
 		os.Exit(1)
 	}
 
@@ -311,7 +320,7 @@ func main() {
 
 	sort.Slice(fixture.Cases, func(i, j int) bool { return fixture.Cases[i].Name < fixture.Cases[j].Name })
 
-	outPath := filepath.Join("testvectors", "testdata", "libopus_decoder_matrix_fixture.json")
+	outPath := outputPath()
 	encoded, err := json.MarshalIndent(fixture, "", "  ")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "marshal json:", err)

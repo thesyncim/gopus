@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 func TestFixtureGeneratorScriptsBuildIgnore(t *testing.T) {
@@ -78,6 +80,9 @@ func TestFixtureGeneratorsUseLibopusOpusDemo(t *testing.T) {
 	if !strings.Contains(strings.ToLower(variants.Generator), "opus_demo") {
 		t.Fatalf("variants fixture generator must reference opus_demo, got %q", variants.Generator)
 	}
+	if !strings.Contains(strings.ToLower(variants.Generator), "opus-"+libopustooling.DefaultVersion) {
+		t.Fatalf("variants fixture generator must reference pinned libopus %s, got %q", libopustooling.DefaultVersion, variants.Generator)
+	}
 
 	packets, err := loadEncoderCompliancePacketsFixture()
 	if err != nil {
@@ -86,6 +91,9 @@ func TestFixtureGeneratorsUseLibopusOpusDemo(t *testing.T) {
 	if !strings.Contains(strings.ToLower(packets.Generator), "opus_demo") {
 		t.Fatalf("packets fixture generator must reference opus_demo, got %q", packets.Generator)
 	}
+	if !strings.Contains(strings.ToLower(packets.Generator), "opus-"+libopustooling.DefaultVersion) {
+		t.Fatalf("packets fixture generator must reference pinned libopus %s, got %q", libopustooling.DefaultVersion, packets.Generator)
+	}
 
 	decoderMatrix, err := loadLibopusDecoderMatrixFixture()
 	if err != nil {
@@ -93,5 +101,8 @@ func TestFixtureGeneratorsUseLibopusOpusDemo(t *testing.T) {
 	}
 	if !strings.Contains(strings.ToLower(decoderMatrix.Generator), "opus_demo") {
 		t.Fatalf("decoder matrix fixture generator must reference opus_demo, got %q", decoderMatrix.Generator)
+	}
+	if !strings.Contains(strings.ToLower(decoderMatrix.Generator), "opus-"+libopustooling.DefaultVersion) {
+		t.Fatalf("decoder matrix fixture generator must reference pinned libopus %s, got %q", libopustooling.DefaultVersion, decoderMatrix.Generator)
 	}
 }
