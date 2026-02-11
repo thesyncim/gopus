@@ -6,8 +6,8 @@
 # Test binaries
 *.test
 
-# Test vector cache (downloaded at runtime)
-testvectors/testdata/
+# Downloaded official test vectors (runtime cache)
+testvectors/testdata/opus_testvectors/
 
 # Build artifacts
 tmp_check

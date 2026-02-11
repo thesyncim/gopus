@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix test test-fast test-parity test-exhaustive test-provenance fixtures-gen fixtures-gen-decoder fixtures-gen-encoder fixtures-gen-variants build build-nopgo pgo-generate pgo-build
+.PHONY: lint lint-fix test test-fast test-parity test-exhaustive test-provenance fixtures-gen fixtures-gen-decoder fixtures-gen-encoder fixtures-gen-variants build build-nopgo pgo-generate pgo-build clean clean-vectors
 
 GO ?= go
 PGO_FILE ?= default.pgo
@@ -63,3 +63,11 @@ pgo-generate:
 
 # Refresh default.pgo then build with PGO enabled
 pgo-build: pgo-generate build
+
+# Remove local build/test artifacts generated during development.
+clean:
+	find . -maxdepth 1 -type f \( -name '*.test' -o -name '*.prof' -o -name '*.out' -o -name '*.o' -o -name '*.trace' -o -name 'coverage.out' -o -name 'coverage.html' \) -delete
+
+# Remove downloaded official Opus test vectors cache.
+clean-vectors:
+	rm -rf testvectors/testdata/opus_testvectors/
