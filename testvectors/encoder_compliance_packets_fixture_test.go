@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/encoder"
+	"github.com/thesyncim/gopus/internal/libopustooling"
 	"github.com/thesyncim/gopus/types"
 )
 
@@ -114,7 +115,7 @@ func findEncoderCompliancePacketsFixtureCase(mode encoder.Mode, bandwidth types.
 }
 
 func getFixtureOpusDemoPathForEncoder() (string, bool) {
-	return getFixtureOpusDemoPathAuto()
+	return libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
 }
 
 func modeToOpusDemoApp(mode string) (string, error) {

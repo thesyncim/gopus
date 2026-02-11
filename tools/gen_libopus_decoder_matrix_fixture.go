@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+
+	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 const (
@@ -163,21 +165,8 @@ func writeRawFloat32(path string, samples []float32) error {
 }
 
 func getOpusDemoPath() string {
-	candidate := filepath.Join("tmp_check", "opus-1.6.1", "opus_demo")
-	if st, err := os.Stat(candidate); err == nil && (st.Mode()&0111) != 0 {
-		return candidate
-	}
-
-	// Auto-bootstrap the exact libopus reference source/build used by fixtures.
-	script := filepath.Join("tools", "ensure_libopus.sh")
-	if st, err := os.Stat(script); err == nil && !st.IsDir() {
-		cmd := exec.Command("sh", script)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: ensure_libopus.sh failed: %v (%s)\n", err, out)
-		}
-		if st, err := os.Stat(candidate); err == nil && (st.Mode()&0111) != 0 {
-			return candidate
-		}
+	if p, ok := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots()); ok {
+		return p
 	}
 	return ""
 }

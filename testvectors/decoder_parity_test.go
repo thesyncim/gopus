@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 type decoderParityThresholds struct {
@@ -211,7 +213,7 @@ func buildOpusDemoBitstreamFromFixtureCase(c libopusDecoderMatrixCaseFile) ([]by
 }
 
 func getFixtureOpusDemoPath() (string, bool) {
-	return getFixtureOpusDemoPathAuto()
+	return libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
 }
 
 func TestDecoderParityMatrixFixtureHonestyWithOpusDemo1601(t *testing.T) {
