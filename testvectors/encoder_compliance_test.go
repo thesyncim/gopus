@@ -21,20 +21,14 @@ import (
 	"github.com/thesyncim/gopus/types"
 )
 
-// Quality thresholds for encoder compliance
+// Quality thresholds for encoder compliance.
 //
-// Note: The gopus encoder is under active development. Current quality levels
-// are significantly below production targets. These thresholds track progress
-// toward production-quality encoding.
+// Primary compliance target: relative parity against libopus reference fixtures.
+// Gap is measured as (gopus SNR - libopus SNR), and parity thresholds are used
+// whenever libopus reference fixtures are available.
 //
-// Production targets (libopus-comparable):
-//   - Music (CELT): Q >= 0 (48 dB SNR)
-//   - Speech (SILK): Q >= -15 (40 dB SNR)
-//
-// Current baseline (gopus as of 2026-02):
-//   - CELT: ~31-39 dB SNR (Q ~ -35 to -19)
-//   - SILK: ~-5 to 0 dB SNR (Q ~ -110 to -100)
-//   - Hybrid: ~-7 to -3 dB SNR (Q ~ -115 to -105)
+// Absolute Q thresholds are fallback-only and are used when libopus fixtures
+// are unavailable for a given case.
 const (
 	// EncoderQualityThreshold is the minimum Q value for passing encoder tests.
 	// This tracks the current baseline - tests fail if quality regresses below this.
@@ -42,10 +36,12 @@ const (
 	// threshold to allow for some variance while catching significant regressions.
 	EncoderQualityThreshold = -125.0 // ~-12 dB SNR - current baseline with margin
 
-	// EncoderStrictThreshold is the production target for high-quality encoding.
-	EncoderStrictThreshold = 0.0 // 48 dB SNR - libopus comparable
+	// EncoderStrictThreshold is a fallback absolute production target, used only
+	// when libopus reference fixtures are unavailable.
+	EncoderStrictThreshold = 0.0 // 48 dB SNR
 
 	// EncoderGoodThreshold indicates acceptable quality for basic use cases.
+	// This is also fallback-only when libopus fixture data is unavailable.
 	EncoderGoodThreshold = -50.0 // 24 dB SNR
 
 	// Pre-skip samples as defined in Ogg Opus header
@@ -65,7 +61,10 @@ var encoderComplianceLogOnce sync.Once
 
 func logEncoderComplianceStatus(t *testing.T) {
 	encoderComplianceLogOnce.Do(func() {
-		t.Log("KNOWN: Encoder compliance currently below 48 dB (Q>=0) for SILK/Hybrid and CELT 2.5ms.")
+		t.Log("TARGET: Encoder compliance is parity-first against libopus fixture references.")
+		t.Logf("TARGET: Gap thresholds (gopus SNR - libopus SNR): GOOD >= %.1f dB, BASE >= %.1f dB", EncoderLibopusGapGoodDB, EncoderLibopusGapBaseDB)
+		t.Logf("TARGET: SILK/Hybrid parity guard: |gap| <= %.1f dB", EncoderLibopusSpeechGapTightDB)
+		t.Log("FALLBACK: Absolute Q thresholds apply only if libopus reference fixtures are unavailable.")
 		t.Log("ATTEMPTED: Moved Opus delay compensation to Opus encoder (CELT expects compensated input).")
 		t.Log("ATTEMPTED: Removed CELT internal delay buffer and hybrid delay compensation path.")
 		t.Log("ATTEMPTED: SILK frame-type coding aligned to libopus type_offset tables.")
@@ -808,8 +807,12 @@ func TestEncoderComplianceInfo(t *testing.T) {
 	t.Log("| Hybrid | SWB, FB                 | 10ms, 20ms            | mono, stereo|")
 	t.Log("| CELT   | FB                      | 2.5ms, 5ms, 10ms, 20ms| mono, stereo|")
 	t.Log("")
-	t.Log("Quality Thresholds:")
-	t.Logf("  PASS (Production): Q >= %.1f (%.1f dB SNR) - libopus comparable", EncoderStrictThreshold, SNRFromQuality(EncoderStrictThreshold))
-	t.Logf("  GOOD (Acceptable): Q >= %.1f (%.1f dB SNR) - usable quality", EncoderGoodThreshold, SNRFromQuality(EncoderGoodThreshold))
-	t.Logf("  BASE (Current):    Q >= %.1f (%.1f dB SNR) - development baseline", EncoderQualityThreshold, SNRFromQuality(EncoderQualityThreshold))
+	t.Log("Primary Compliance Thresholds (libopus parity):")
+	t.Logf("  GOOD: gopus SNR - libopus SNR >= %.1f dB", EncoderLibopusGapGoodDB)
+	t.Logf("  BASE: gopus SNR - libopus SNR >= %.1f dB", EncoderLibopusGapBaseDB)
+	t.Logf("  SILK/Hybrid guard: |gopus SNR - libopus SNR| <= %.1f dB", EncoderLibopusSpeechGapTightDB)
+	t.Log("Fallback Absolute Thresholds (only when libopus fixture unavailable):")
+	t.Logf("  PASS (Production): Q >= %.1f (%.1f dB SNR)", EncoderStrictThreshold, SNRFromQuality(EncoderStrictThreshold))
+	t.Logf("  GOOD (Acceptable): Q >= %.1f (%.1f dB SNR)", EncoderGoodThreshold, SNRFromQuality(EncoderGoodThreshold))
+	t.Logf("  BASE (Current):    Q >= %.1f (%.1f dB SNR)", EncoderQualityThreshold, SNRFromQuality(EncoderQualityThreshold))
 }
