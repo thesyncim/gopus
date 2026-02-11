@@ -138,7 +138,7 @@ func (e *Encoder) applyPreemphasisWithScalingCore(pcm, output []float64) {
 			// Match libopus float math: cast to float32 before scaling.
 			scaled := float32(pcm[i]) * float32(CELTSigScale)
 			output[i] = float64(scaled - state)
-			state = noFMA32Mul(coef, scaled)
+			state = coef * scaled
 		}
 		e.preemphState[0] = float64(state)
 	} else {
@@ -150,12 +150,12 @@ func (e *Encoder) applyPreemphasisWithScalingCore(pcm, output []float64) {
 			// Left channel
 			scaledL := float32(pcm[i]) * float32(CELTSigScale)
 			output[i] = float64(scaledL - stateL)
-			stateL = noFMA32Mul(coef, scaledL)
+			stateL = coef * scaledL
 
 			// Right channel
 			scaledR := float32(pcm[i+1]) * float32(CELTSigScale)
 			output[i+1] = float64(scaledR - stateR)
-			stateR = noFMA32Mul(coef, scaledR)
+			stateR = coef * scaledR
 		}
 
 		e.preemphState[0] = float64(stateL)
@@ -184,8 +184,8 @@ func (e *Encoder) ApplyPreemphasisWithScaling(pcm []float64) []float64 {
 func (e *Encoder) applyDCRejectCore(pcm, output []float64) {
 	// Coefficients: coef = 6.3 * cutoff / Fs
 	// For 48kHz and 3Hz cutoff: coef = 6.3 * 3 / 48000 = 0.00039375
-	// Use float32 math to match libopus float path.
-	coef := float32(6.3 * float64(DCRejectCutoffHz) / float64(e.sampleRate))
+	// Use float32 math to match libopus float path: coef = 6.3f*cutoff_Hz/Fs.
+	coef := float32(6.3) * float32(DCRejectCutoffHz) / float32(e.sampleRate)
 	coef2 := float32(1.0) - coef
 	verySmall := float32(1e-30) // Matches VERY_SMALL in libopus float build
 
@@ -195,7 +195,7 @@ func (e *Encoder) applyDCRejectCore(pcm, output []float64) {
 			x := float32(pcm[i])
 			y := x - m0
 			output[i] = float64(y)
-			m0 = noFMA32Mul(coef, x) + verySmall + noFMA32Mul(coef2, m0)
+			m0 = coef*x + verySmall + coef2*m0
 		}
 		e.hpMem[0] = float64(m0)
 	} else {
@@ -207,8 +207,8 @@ func (e *Encoder) applyDCRejectCore(pcm, output []float64) {
 			x1 := float32(pcm[i+1])
 			output[i] = float64(x0 - m0)
 			output[i+1] = float64(x1 - m1)
-			m0 = noFMA32Mul(coef, x0) + verySmall + noFMA32Mul(coef2, m0)
-			m1 = noFMA32Mul(coef, x1) + verySmall + noFMA32Mul(coef2, m1)
+			m0 = coef*x0 + verySmall + coef2*m0
+			m1 = coef*x1 + verySmall + coef2*m1
 		}
 		e.hpMem[0] = float64(m0)
 		e.hpMem[1] = float64(m1)

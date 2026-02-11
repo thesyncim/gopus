@@ -4,8 +4,11 @@
 package celt
 
 import (
+	"encoding/binary"
 	"errors"
+	"fmt"
 	"math"
+	"os"
 )
 
 // Encoding errors
@@ -16,6 +19,55 @@ var (
 	// ErrEncodingFailed indicates a general encoding failure.
 	ErrEncodingFailed = errors.New("celt: encoding failed")
 )
+
+func dumpFloat32File(path string, vals []float64) {
+	if len(vals) == 0 {
+		return
+	}
+	buf := make([]byte, len(vals)*4)
+	for i, v := range vals {
+		binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(float32(v)))
+	}
+	_ = os.WriteFile(path, buf, 0o644)
+}
+
+// fillMDCTHistoryFromPrefilter mirrors libopus overlap sourcing for CELT MDCT:
+// in[0:overlap] comes from the previous filtered output tail (st->in_mem).
+func (e *Encoder) fillMDCTHistoryFromPrefilter(channel, overlap int, dst []float64) {
+	if overlap <= 0 || len(dst) < overlap || channel < 0 {
+		return
+	}
+	for i := 0; i < overlap; i++ {
+		dst[i] = 0
+	}
+	if len(e.overlapBuffer) < (channel+1)*overlap {
+		return
+	}
+	start := channel * overlap
+	src := e.overlapBuffer[start : start+overlap]
+	for i := 0; i < overlap; i++ {
+		// libopus keeps this state in float; quantize to float32 when feeding MDCT history.
+		dst[i] = float64(float32(src[i]))
+	}
+}
+
+// quantizeInputToLSBDepthScratch mirrors opus_demo -f32 ingestion when fixtures
+// are generated via opus_encode24: round to the configured LSB depth before
+// dc_reject/pre-emphasis.
+func (e *Encoder) quantizeInputToLSBDepthScratch(pcm []float64) []float64 {
+	if len(pcm) == 0 {
+		return pcm
+	}
+	depth := e.LSBDepth()
+	scale := math.Ldexp(1.0, depth-1)
+	invScale := 1.0 / scale
+	out := ensureFloat64Slice(&e.scratch.quantizedInput, len(pcm))
+	for i, v := range pcm {
+		x := float64(float32(v))
+		out[i] = math.Floor(0.5+x*scale) * invScale
+	}
+	return out[:len(pcm)]
+}
 
 // EncodeFrame encodes a complete CELT frame from PCM samples.
 // pcm: input samples (interleaved if stereo), length = frameSize * channels
@@ -60,12 +112,12 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	e.ensureScratch(frameSize)
 
 	// Step 3a: Optionally apply DC rejection (high-pass) to match libopus Opus encoder.
-	// libopus applies dc_reject() at the Opus encoder level before CELT mode selection.
-	// When CELT is driven directly, keep this enabled to match the full Opus path.
+	// libopus float path runs dc_reject() directly on float samples. Do not pre-quantize
+	// here; float32 precision is already matched by the dc_reject/preemphasis stages.
 	// Reference: libopus src/opus_encoder.c line 2008: dc_reject(pcm, 3, ...)
 	samplesForFrame := pcm
 	if e.dcRejectEnabled {
-		samplesForFrame = e.applyDCRejectScratch(pcm)
+		samplesForFrame = e.applyDCRejectScratch(samplesForFrame)
 	}
 
 	// Step 3b: Optionally apply Opus-style CELT delay compensation.
@@ -90,6 +142,12 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	overlap := Overlap
 	if overlap > frameSize {
 		overlap = frameSize
+	}
+	var mdctPrevL [Overlap]float64
+	var mdctPrevR [Overlap]float64
+	e.fillMDCTHistoryFromPrefilter(0, overlap, mdctPrevL[:])
+	if e.channels == 2 {
+		e.fillMDCTHistoryFromPrefilter(1, overlap, mdctPrevR[:])
 	}
 
 	// Ensure preemphBuffer is properly sized
@@ -192,7 +250,13 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Derive the prefilter max-pitch ratio from the same pre-emphasized signal
 	// used by the CELT analysis path; this improves postfilter parity vs libopus.
 	maxPitchRatio := e.estimateMaxPitchRatioStateful(samplesForFrame)
+	if os.Getenv("GOPUS_TMP_XB19_DUMP") == "1" && frameSize == 480 && e.channels == 1 && e.frameCount < 2 {
+		dumpFloat32File(fmt.Sprintf("/tmp/go_top_pfin_call%d.f32", e.frameCount), preemph[:frameSize])
+	}
 	pfResult := e.runPrefilter(preemph, frameSize, prefilterTapset, enabled, tfEstimate, targetBytes, toneFreq, toneishness, maxPitchRatio)
+	if os.Getenv("GOPUS_TMP_XB19_DUMP") == "1" && frameSize == 480 && e.channels == 1 && e.frameCount < 2 {
+		dumpFloat32File(fmt.Sprintf("/tmp/go_top_pfout_call%d.f32", e.frameCount), preemph[:frameSize])
+	}
 	// Keep stateful prefilter output on float32 precision to match libopus float path.
 	roundFloat64ToFloat32(preemph)
 	e.lastPitchChange = false
@@ -246,7 +310,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 				e.scratch.leftHist = hist
 			}
 			hist = hist[:overlap]
-			copy(hist, e.overlapBuffer[:overlap])
+			copy(hist, mdctPrevL[:overlap])
 			mdctLong := computeMDCTWithHistoryScratch(preemph, hist, 1, &e.scratch)
 			// Use bandLogE2 scratch buffer to avoid aliasing with energies
 			bandLogE2 = ensureFloat64Slice(&e.scratch.bandLogE2, nbBands*e.channels)
@@ -257,13 +321,6 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			overlap := Overlap
 			if overlap > frameSize {
 				overlap = frameSize
-			}
-			if len(e.overlapBuffer) < 2*overlap {
-				newBuf := make([]float64, 2*overlap)
-				if len(e.overlapBuffer) > 0 {
-					copy(newBuf, e.overlapBuffer)
-				}
-				e.overlapBuffer = newBuf
 			}
 			// Use scratch for hist buffers
 			leftHist := e.scratch.leftHist
@@ -278,8 +335,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			}
 			leftHist = leftHist[:overlap]
 			rightHist = rightHist[:overlap]
-			copy(leftHist, e.overlapBuffer[:overlap])
-			copy(rightHist, e.overlapBuffer[overlap:2*overlap])
+			copy(leftHist, mdctPrevL[:overlap])
+			copy(rightHist, mdctPrevR[:overlap])
 			mdctLeftLong := computeMDCTWithHistoryScratchStereoL(left, leftHist, 1, &e.scratch)
 			mdctRightLong := computeMDCTWithHistoryScratchStereoR(right, rightHist, 1, &e.scratch)
 			// Use scratch for combined mdct
@@ -310,22 +367,11 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Step 5: Compute MDCT with proper overlap handling
 	var mdctCoeffs []float64
 	var mdctLeft, mdctRight []float64
-	var patchHistMono []float64
-	var patchHistLeft, patchHistRight []float64
 	if e.channels == 1 {
-		// patch_transient_decision may request recomputing MDCT with short blocks.
-		// Snapshot the pre-MDCT overlap history so the recompute uses the same
-		// analysis input as libopus instead of a zero-padded/stateless path.
-		if lm > 0 && !transient && e.complexity >= 5 && !e.IsHybrid() {
-			overlap := Overlap
-			if overlap > frameSize {
-				overlap = frameSize
-			}
-			patchHistMono = e.scratch.leftHist[:overlap]
-			copy(patchHistMono, e.overlapBuffer[:overlap])
-		}
-		// Mono: MDCT directly with overlap buffer for continuity
-		mdctCoeffs = e.computeMDCTWithOverlap(preemph, shortBlocks)
+		hist := ensureFloat64Slice(&e.scratch.leftHist, overlap)
+		hist = hist[:overlap]
+		copy(hist, mdctPrevL[:overlap])
+		mdctCoeffs = computeMDCTWithHistoryScratch(preemph, hist, shortBlocks, &e.scratch)
 	} else {
 		// Stereo: MDCT Left and Right directly - use scratch buffers
 		left, right := deinterleaveStereoScratch(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
@@ -335,24 +381,12 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			overlap = frameSize
 		}
 
-		// Ensure overlap buffer is large enough for both channels
-		if len(e.overlapBuffer) < 2*overlap {
-			newBuf := make([]float64, 2*overlap)
-			if len(e.overlapBuffer) > 0 {
-				copy(newBuf, e.overlapBuffer)
-			}
-			e.overlapBuffer = newBuf
-		}
-
-		// Split overlap buffer for left and right
-		leftHistory := e.overlapBuffer[:overlap]
-		rightHistory := e.overlapBuffer[overlap : 2*overlap]
-		if lm > 0 && !transient && e.complexity >= 5 && !e.IsHybrid() {
-			patchHistLeft = e.scratch.leftHist[:overlap]
-			patchHistRight = e.scratch.rightHist[:overlap]
-			copy(patchHistLeft, leftHistory)
-			copy(patchHistRight, rightHistory)
-		}
+		leftHistory := ensureFloat64Slice(&e.scratch.leftHist, overlap)
+		rightHistory := ensureFloat64Slice(&e.scratch.rightHist, overlap)
+		leftHistory = leftHistory[:overlap]
+		rightHistory = rightHistory[:overlap]
+		copy(leftHistory, mdctPrevL[:overlap])
+		copy(rightHistory, mdctPrevR[:overlap])
 
 		// Use overlap-aware MDCT for both channels with scratch buffers
 		mdctLeft = computeMDCTWithHistoryScratchStereoL(left, leftHistory, shortBlocks, &e.scratch)
@@ -378,6 +412,15 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		copy(bandLogE2, energies)
 	}
 
+	if os.Getenv("GOPUS_TMP_XB19_DUMP") == "1" && frameSize == 480 && e.channels == 1 && e.frameCount < 2 {
+		if len(e.scratch.mdctInput) >= frameSize+overlap {
+			dumpFloat32File(fmt.Sprintf("/tmp/go_fixture_mdct_input_call%d.f32", e.frameCount), e.scratch.mdctInput[:frameSize+overlap])
+		}
+		if len(mdctCoeffs) >= frameSize {
+			dumpFloat32File(fmt.Sprintf("/tmp/go_fixture_mdct_coeff_call%d.f32", e.frameCount), mdctCoeffs[:frameSize])
+		}
+	}
+
 	// Step 6.5: Patch transient decision based on band energy comparison
 	// This is a "second chance" to detect transients that time-domain analysis missed.
 	// Particularly important for the first frame where buffer initialization may cause
@@ -400,11 +443,9 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 				if overlap > frameSize {
 					overlap = frameSize
 				}
-				hist := patchHistMono
-				if len(hist) < overlap {
-					hist = e.scratch.leftHist[:overlap]
-					copy(hist, e.overlapBuffer[:overlap])
-				}
+				hist := ensureFloat64Slice(&e.scratch.leftHist, overlap)
+				hist = hist[:overlap]
+				copy(hist, mdctPrevL[:overlap])
 				mdctCoeffs = computeMDCTWithHistoryScratch(preemph, hist, shortBlocks, &e.scratch)
 			} else {
 				// For stereo, recompute both channels - use scratch buffers
@@ -425,13 +466,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 				}
 				leftHist = leftHist[:overlap]
 				rightHist = rightHist[:overlap]
-				if len(patchHistLeft) >= overlap && len(patchHistRight) >= overlap {
-					copy(leftHist, patchHistLeft[:overlap])
-					copy(rightHist, patchHistRight[:overlap])
-				} else if len(e.overlapBuffer) >= 2*overlap {
-					copy(leftHist, e.overlapBuffer[:overlap])
-					copy(rightHist, e.overlapBuffer[overlap:2*overlap])
-				}
+				copy(leftHist, mdctPrevL[:overlap])
+				copy(rightHist, mdctPrevR[:overlap])
 				mdctLeft = computeMDCTWithHistoryScratchStereoL(left, leftHist, shortBlocks, &e.scratch)
 				mdctRight = computeMDCTWithHistoryScratchStereoR(right, rightHist, shortBlocks, &e.scratch)
 				// Use scratch buffer for combined coefficients
@@ -635,6 +671,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		effectiveBytes,
 		transient, isVBR, isConstrainedVBR,
 		toneFreq, toneishness,
+		e.analysisValid, e.dynallocLeakBoost(),
 		&e.dynallocScratch,
 	)
 	// Store for next frame's VBR computation
@@ -925,6 +962,15 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		dualStereoVal = 1
 	}
 	tapset := e.TapsetDecision()
+	if os.Getenv("GOPUS_TMP_XB19_DUMP") == "1" && frameSize == 480 && e.channels == 1 && e.frameCount < 2 {
+		b0 := EBands[19] << lm
+		b1 := EBands[20] << lm
+		fmt.Fprintf(os.Stderr, "GOXB19 call=%d", e.frameCount)
+		for i := b0; i < b1 && i < len(normL); i++ {
+			fmt.Fprintf(os.Stderr, " %.8f", float32(normL[i]))
+		}
+		fmt.Fprintln(os.Stderr)
+	}
 	quantAllBandsEncodeScratch(
 		re,
 		e.channels,

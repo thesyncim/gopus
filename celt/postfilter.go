@@ -463,8 +463,6 @@ func combFilterWithInputF32(dst, src []float64, start int, t0, t1, n int, g0, g1
 		tapset1 = 0
 	}
 
-	copy(dst[start:start+n], src[start:start+n])
-
 	g00 := float32(g0 * combFilterGains[tapset0][0])
 	g01 := float32(g0 * combFilterGains[tapset0][1])
 	g02 := float32(g0 * combFilterGains[tapset0][2])
@@ -481,19 +479,23 @@ func combFilterWithInputF32(dst, src []float64, start int, t0, t1, n int, g0, g1
 		overlap = 0
 	}
 
-	for i := 0; i < overlap; i++ {
+	i := 0
+	for ; i < overlap; i++ {
 		w := float32(window[i])
 		f := w * w
 		oneMinus := float32(1.0) - f
 		idx := start + i
 		x0 := float32(src[idx-t1+2])
-		res := (oneMinus*g00)*float32(src[idx-t0]) +
+
+		sum := float32(src[idx]) +
+			(oneMinus*g00)*float32(src[idx-t0]) +
 			(oneMinus*g01)*(float32(src[idx-t0-1])+float32(src[idx-t0+1])) +
 			(oneMinus*g02)*(float32(src[idx-t0-2])+float32(src[idx-t0+2])) +
 			(f*g10)*x2 +
-			(f*g11)*(x3+x1) +
-			(f*g12)*(x4+x0)
-		dst[idx] = float64(float32(dst[idx]) + res)
+			(f*g11)*(x1+x3) +
+			(f*g12)*(x0+x4)
+		dst[idx] = float64(sum)
+
 		x4 = x3
 		x3 = x2
 		x2 = x1
@@ -501,10 +503,12 @@ func combFilterWithInputF32(dst, src []float64, start int, t0, t1, n int, g0, g1
 	}
 
 	if g1 == 0 {
+		if i < n {
+			copy(dst[start+i:start+n], src[start+i:start+n])
+		}
 		return
 	}
 
-	i := overlap
 	x4 = float32(src[start+i-t1-2])
 	x3 = float32(src[start+i-t1-1])
 	x2 = float32(src[start+i-t1])
@@ -512,8 +516,13 @@ func combFilterWithInputF32(dst, src []float64, start int, t0, t1, n int, g0, g1
 	for ; i < n; i++ {
 		idx := start + i
 		x0 := float32(src[idx-t1+2])
-		res := g10*x2 + g11*(x3+x1) + g12*(x4+x0)
-		dst[idx] = float64(float32(dst[idx]) + res)
+
+		sum := float32(src[idx]) +
+			g10*x2 +
+			g11*(x3+x1) +
+			g12*(x4+x0)
+		dst[idx] = float64(sum)
+
 		x4 = x3
 		x3 = x2
 		x2 = x1

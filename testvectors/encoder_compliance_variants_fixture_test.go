@@ -525,7 +525,7 @@ func encodeGopusForVariantsCase(c encoderComplianceVariantsFixtureCase, signal [
 	for i := 0; i < c.SignalFrames; i++ {
 		start := i * samplesPerFrame
 		end := start + samplesPerFrame
-		frame := float32ToFloat64(signal[start:end])
+		frame := float32ToFloat64OpusDemoF32(signal[start:end])
 		pkt, err := enc.Encode(frame, c.FrameSize)
 		if err != nil {
 			return nil, fmt.Errorf("encode frame %d: %w", i, err)
@@ -557,6 +557,19 @@ func encodeGopusForVariantsCase(c encoderComplianceVariantsFixtureCase, signal [
 		}
 	}
 	return packets, nil
+}
+
+// float32ToFloat64OpusDemoF32 mirrors opus_demo -f32 input conversion:
+// in[i] = floor(.5 + sample*8388608) followed by opus_encode24 scaling back.
+// This keeps variant-fixture parity aligned with how the libopus fixture is generated.
+func float32ToFloat64OpusDemoF32(in []float32) []float64 {
+	const inv24 = 1.0 / 8388608.0
+	out := make([]float64, len(in))
+	for i, s := range in {
+		q := math.Floor(0.5 + float64(s)*8388608.0)
+		out[i] = q * inv24
+	}
+	return out
 }
 
 func qualityFromPacketsInternal(packets [][]byte, original []float32, channels, frameSize int) (float64, error) {

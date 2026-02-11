@@ -47,7 +47,7 @@ func encodeGopusForVariantsCaseWithProvenance(c encoderComplianceVariantsFixture
 	for i := 0; i < c.SignalFrames; i++ {
 		start := i * samplesPerFrame
 		end := start + samplesPerFrame
-		frame := float32ToFloat64(signal[start:end])
+		frame := float32ToFloat64OpusDemoF32(signal[start:end])
 		pkt, err := enc.Encode(frame, c.FrameSize)
 		if err != nil {
 			return nil, fmt.Errorf("encode frame %d: %w", i, err)

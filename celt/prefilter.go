@@ -254,6 +254,15 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		qg = 0
 	}
 
+	if overlap > 0 {
+		need := channels * overlap
+		if len(e.overlapBuffer) < need {
+			newBuf := make([]float64, need)
+			copy(newBuf, e.overlapBuffer)
+			e.overlapBuffer = newBuf
+		}
+	}
+
 	for ch := 0; ch < channels; ch++ {
 		preCh := pre[ch*perChanLen : (ch+1)*perChanLen]
 		outCh := out[ch*perChanLen : (ch+1)*perChanLen]
@@ -268,6 +277,11 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		outSub2 := outCh[maxPeriod : maxPeriod+frameSize]
 		for i, v := range outSub2 {
 			preemph[i*channels+ch] = v
+		}
+		if overlap > 0 && len(e.overlapBuffer) >= (ch+1)*overlap && frameSize >= overlap {
+			hist := e.overlapBuffer[ch*overlap : (ch+1)*overlap]
+			copy(hist, outSub2[frameSize-overlap:])
+			roundFloat64ToFloat32(hist)
 		}
 	}
 

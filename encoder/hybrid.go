@@ -113,7 +113,7 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, celtPCM []float64, lookahead 
 		e.ensureSILKSideEncoder()
 	}
 	e.ensureCELTEncoder()
-	e.celtEncoder.SetAnalysisBandwidth(0, false)
+	e.syncCELTAnalysisToCELT()
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 
 	// Initialize hybrid state if needed

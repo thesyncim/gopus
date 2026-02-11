@@ -292,7 +292,7 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []float64, nbBands int, intra 
 				oldE = minEnergy
 			}
 
-			pred := noFMA32Mul(coef32, oldE) + prevBandEnergy[c]
+			pred := coef32*oldE + prevBandEnergy[c]
 			f := x - pred
 			qi := int(math.Floor(float64(f/float32(DB6) + 0.5)))
 			qi0 := qi
@@ -375,7 +375,7 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []float64, nbBands int, intra 
 			coarseError[idx] = float64(f - q)
 			quantizedEnergy := pred + q
 			quantizedEnergies[idx] = float64(quantizedEnergy)
-			prevBandEnergy[c] = prevBandEnergy[c] + q - noFMA32Mul(beta32, q)
+			prevBandEnergy[c] = prevBandEnergy[c] + q - beta32*q
 		}
 	}
 

@@ -135,6 +135,10 @@ type Encoder struct {
 	// This mirrors libopus use of st->analysis.bandwidth for clt_compute_allocation().
 	analysisBandwidth int  // 1..20 bandwidth index from previous frame analysis
 	analysisValid     bool // True after at least one analysis update
+	analysisLeakBoost [leakBands]uint8
+	// Bootstrap leak boost used when external analysis is valid but doesn't yet
+	// provide leak_boost (matches early-frame libopus behavior more closely).
+	analysisLeakBootstrap [leakBands]uint8
 
 	// Dynamic allocation analysis state (for VBR decisions)
 	// These are computed from the previous frame and used for current frame's VBR target.
@@ -370,6 +374,9 @@ func (e *Encoder) SetTargetStatsHook(fn func(CeltTargetStats)) {
 func (e *Encoder) SetAnalysisBandwidth(bandwidth int, valid bool) {
 	if !valid {
 		e.analysisValid = false
+		for i := range e.analysisLeakBoost {
+			e.analysisLeakBoost[i] = 0
+		}
 		return
 	}
 	if bandwidth < 1 {
@@ -380,11 +387,54 @@ func (e *Encoder) SetAnalysisBandwidth(bandwidth int, valid bool) {
 	}
 	e.analysisBandwidth = bandwidth
 	e.analysisValid = true
+	for i := range e.analysisLeakBoost {
+		e.analysisLeakBoost[i] = 0
+	}
+}
+
+// SetAnalysisInfo provides analysis-derived state from the top-level Opus analysis
+// pipeline. This mirrors libopus use of AnalysisInfo in CELT dynalloc.
+func (e *Encoder) SetAnalysisInfo(bandwidth int, leakBoost [leakBands]uint8, valid bool) {
+	if !valid {
+		e.SetAnalysisBandwidth(0, false)
+		return
+	}
+	if bandwidth < 1 {
+		bandwidth = 1
+	}
+	if bandwidth > 20 {
+		bandwidth = 20
+	}
+	e.analysisBandwidth = bandwidth
+	e.analysisValid = true
+	e.analysisLeakBoost = leakBoost
 }
 
 // AnalysisBandwidth returns the current analysis-derived bandwidth index.
 func (e *Encoder) AnalysisBandwidth() int {
 	return e.analysisBandwidth
+}
+
+func (e *Encoder) dynallocLeakBoost() []uint8 {
+	leak := e.analysisLeakBoost[:]
+	if !e.analysisValid {
+		return leak
+	}
+	for i := 0; i < leakBands; i++ {
+		if leak[i] != 0 {
+			return leak
+		}
+	}
+	// Bootstrap early valid-analysis frames when leak_boost is unavailable.
+	// Frame count is pre-increment at this point in EncodeFrame.
+	if e.frameCount <= 2 {
+		for i := range e.analysisLeakBootstrap {
+			e.analysisLeakBootstrap[i] = 0
+		}
+		e.analysisLeakBootstrap[2] = 64 // +1.0 at band 2 (Q6)
+		return e.analysisLeakBootstrap[:]
+	}
+	return leak
 }
 
 func (e *Encoder) emitTargetStats(stats CeltTargetStats, baseBits, targetBits int) {
@@ -467,6 +517,12 @@ func (e *Encoder) Reset() {
 	e.lastPitchChange = false
 	e.analysisBandwidth = 20
 	e.analysisValid = false
+	for i := range e.analysisLeakBoost {
+		e.analysisLeakBoost[i] = 0
+	}
+	for i := range e.analysisLeakBootstrap {
+		e.analysisLeakBootstrap[i] = 0
+	}
 
 	// Clear pre-emphasis buffer for transient analysis
 	for i := range e.preemphBuffer {
@@ -884,6 +940,9 @@ func (e *Encoder) PhaseInversionDisabled() bool {
 // encoderScratch holds pre-allocated scratch buffers for the encoder hot path.
 // These buffers are reused across frames to eliminate heap allocations during encoding.
 type encoderScratch struct {
+	// LSB-depth quantized input buffer
+	quantizedInput []float64
+
 	// DC rejection output buffer
 	dcRejected []float64
 
@@ -1037,6 +1096,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s := &e.scratch
 
 	// DC rejection output
+	s.quantizedInput = ensureFloat64Slice(&s.quantizedInput, expectedLen)
 	s.dcRejected = ensureFloat64Slice(&s.dcRejected, expectedLen)
 
 	// Combined delay buffer

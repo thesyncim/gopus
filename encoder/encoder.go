@@ -153,6 +153,7 @@ type Encoder struct {
 	scratchPacket     []byte    // Output packet buffer
 	scratchDelayedPCM []float64 // Delay-compensated CELT input
 	scratchDelayTail  []float64 // Snapshot of delay buffer tail
+	scratchQuantPCM   []float64 // LSB-depth quantized input
 }
 
 // NewEncoder creates a new unified Opus encoder.
@@ -445,7 +446,12 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	if len(pcm) != expectedLen {
 		return nil, ErrInvalidFrameSize
 	}
+	// Run Opus analysis on the original input frame (before top-level dc_reject
+	// and LSB quantization) to match libopus run_analysis ordering.
+	rawPCM := pcm
+	e.refreshFrameAnalysis(rawPCM, frameSize)
 	lookaheadSamples := 0
+	pcm = e.quantizeInputToLSBDepth(pcm)
 	pcm = e.dcReject(pcm, frameSize)
 	e.inputBuffer = append(e.inputBuffer, pcm...)
 	samplesNeeded := (frameSize * e.channels) + lookaheadSamples
@@ -531,8 +537,6 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 				}
 			}
 		}
-	} else {
-		e.lastAnalysisFresh = false
 	}
 	actualMode := e.selectMode(frameSize, signalHint)
 	if e.mode == ModeAuto &&
@@ -650,14 +654,9 @@ func (e *Encoder) dcReject(in []float64, frameSize int) []float64 {
 	if fs <= 0 {
 		fs = 48000
 	}
-	// Match libopus dc_reject(): coef = 6.3f * cutoff_Hz / Fs (float math).
 	coef := float32(6.3) * float32(3) / float32(fs)
 	coef2 := float32(1.0) - coef
 	const verySmall = float32(1e-30)
-	// Keep mul/add sequencing split to mirror libopus float-path behavior.
-	noFMA32Mul := func(a, b float32) float32 {
-		return float32(float64(a) * float64(b))
-	}
 	if channels == 2 {
 		m0 := e.hpMem[0]
 		m2 := e.hpMem[2]
@@ -666,8 +665,8 @@ func (e *Encoder) dcReject(in []float64, frameSize int) []float64 {
 			x1 := float32(in[2*i+1])
 			out0 := x0 - m0
 			out1 := x1 - m2
-			m0 = noFMA32Mul(coef, x0) + verySmall + noFMA32Mul(coef2, m0)
-			m2 = noFMA32Mul(coef, x1) + verySmall + noFMA32Mul(coef2, m2)
+			m0 = coef*x0 + verySmall + coef2*m0
+			m2 = coef*x1 + verySmall + coef2*m2
 			out[2*i] = float64(out0)
 			out[2*i+1] = float64(out1)
 		}
@@ -678,12 +677,41 @@ func (e *Encoder) dcReject(in []float64, frameSize int) []float64 {
 		for i := 0; i < n; i++ {
 			x := float32(in[i])
 			y := x - m0
-			m0 = noFMA32Mul(coef, x) + verySmall + noFMA32Mul(coef2, m0)
+			m0 = coef*x + verySmall + coef2*m0
 			out[i] = float64(y)
 		}
 		e.hpMem[0] = m0
 	}
 	return out
+}
+
+func quantizeFloat64ToLSBDepthInPlace(samples []float64, depth int) {
+	if depth < 8 {
+		depth = 8
+	}
+	if depth > 24 {
+		depth = 24
+	}
+	scale := math.Ldexp(1.0, depth-1)
+	invScale := 1.0 / scale
+	for i, v := range samples {
+		x := float64(float32(v))
+		samples[i] = math.Floor(0.5+x*scale) * invScale
+	}
+}
+
+func (e *Encoder) quantizeInputToLSBDepth(pcm []float64) []float64 {
+	out := e.ensureQuantPCM(len(pcm))
+	copy(out, pcm)
+	quantizeFloat64ToLSBDepthInPlace(out, e.LSBDepth())
+	return out
+}
+
+func (e *Encoder) ensureQuantPCM(size int) []float64 {
+	if cap(e.scratchQuantPCM) < size {
+		e.scratchQuantPCM = make([]float64, size)
+	}
+	return e.scratchQuantPCM[:size]
 }
 
 func (e *Encoder) ensureDCPCM(size int) []float64 {
@@ -698,6 +726,37 @@ func trimSilkTrailingZeros(frameData []byte) []byte {
 		frameData = frameData[:len(frameData)-1]
 	}
 	return frameData
+}
+
+func (e *Encoder) refreshFrameAnalysis(pcm []float64, frameSize int) {
+	e.lastAnalysisValid = false
+	e.lastAnalysisFresh = false
+	if e.analyzer == nil || frameSize <= 0 || len(pcm) == 0 {
+		return
+	}
+	pcm32 := e.scratchPCM32[:len(pcm)]
+	for i, v := range pcm {
+		pcm32[i] = float32(v)
+	}
+	// Keep analysis on float-domain samples to match opus_encode_float / opus_demo -f32.
+	info := e.analyzer.RunAnalysis(pcm32, frameSize, e.channels)
+	if !info.Valid {
+		return
+	}
+	e.lastAnalysisInfo = info
+	e.lastAnalysisValid = true
+	e.lastAnalysisFresh = true
+}
+
+func (e *Encoder) syncCELTAnalysisToCELT() {
+	if e.celtEncoder == nil {
+		return
+	}
+	if !e.lastAnalysisValid {
+		e.celtEncoder.SetAnalysisInfo(0, [19]uint8{}, false)
+		return
+	}
+	e.celtEncoder.SetAnalysisInfo(e.lastAnalysisInfo.BandwidthIndex, e.lastAnalysisInfo.LeakBoost, true)
 }
 
 func quantizeFloat32ToInt16InPlace(samples []float32) {
@@ -946,39 +1005,44 @@ func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
 
 // autoSignalFromPCM is kept for backward compatibility but RunAnalysis is preferred.
 func (e *Encoder) autoSignalFromPCM(pcm []float64, frameSize int) types.Signal {
-	e.lastAnalysisValid = false
-	e.lastAnalysisFresh = false
 	if len(pcm) == 0 || frameSize <= 0 {
 		return types.SignalAuto
 	}
+	if !e.lastAnalysisFresh {
+		pcm32 := e.scratchPCM32[:len(pcm)]
+		for i, v := range pcm {
+			pcm32[i] = float32(v)
+		}
+		runAnalyzer := frameSize > 960
+		if !runAnalyzer && e.mode == ModeAuto && frameSize == 960 && e.effectiveBandwidth() == types.BandwidthSuperwideband {
+			runAnalyzer = true
+		}
+		if runAnalyzer && e.analyzer != nil {
+			info := e.analyzer.RunAnalysis(pcm32, frameSize, e.channels)
+			if info.Valid {
+				e.lastAnalysisInfo = info
+				e.lastAnalysisValid = true
+				e.lastAnalysisFresh = true
+			}
+		}
+	}
+
+	// Only trust clear decisions from analysis probabilities on long frames.
+	if frameSize > 960 && e.lastAnalysisValid {
+		if e.lastAnalysisInfo.MusicProb >= 0.65 {
+			return types.SignalMusic
+		}
+		if e.lastAnalysisInfo.MusicProb <= 0.60 {
+			return types.SignalVoice
+		}
+		return types.SignalAuto
+	}
+	swb10Auto := e.mode == ModeAuto && frameSize == 480 && e.effectiveBandwidth() == types.BandwidthSuperwideband
+	swb20Auto := e.mode == ModeAuto && frameSize == 960 && e.effectiveBandwidth() == types.BandwidthSuperwideband
 	pcm32 := e.scratchPCM32[:len(pcm)]
 	for i, v := range pcm {
 		pcm32[i] = float32(v)
 	}
-	runAnalyzer := frameSize > 960
-	if !runAnalyzer && e.mode == ModeAuto && frameSize == 960 && e.effectiveBandwidth() == types.BandwidthSuperwideband {
-		runAnalyzer = true
-	}
-	if runAnalyzer && e.analyzer != nil {
-		info := e.analyzer.RunAnalysis(pcm32, frameSize, e.channels)
-		if info.Valid {
-			e.lastAnalysisInfo = info
-			e.lastAnalysisValid = true
-			e.lastAnalysisFresh = true
-			// Only trust clear decisions from analysis probabilities on long frames.
-			if frameSize > 960 {
-				if info.MusicProb >= 0.65 {
-					return types.SignalMusic
-				}
-				if info.MusicProb <= 0.60 {
-					return types.SignalVoice
-				}
-				return types.SignalAuto
-			}
-		}
-	}
-	swb10Auto := e.mode == ModeAuto && frameSize == 480 && e.effectiveBandwidth() == types.BandwidthSuperwideband
-	swb20Auto := e.mode == ModeAuto && frameSize == 960 && e.effectiveBandwidth() == types.BandwidthSuperwideband
 	signalType, _ := classifySignal(pcm32)
 	if signalType == 0 && !swb10Auto && !swb20Auto {
 		return types.SignalVoice
@@ -1321,6 +1385,7 @@ func (e *Encoder) encodeCELTFrame(pcm []float64, frameSize int) ([]byte, error) 
 
 func (e *Encoder) encodeCELTFrameWithBitrate(pcm []float64, frameSize int, bitrate int) ([]byte, error) {
 	e.ensureCELTEncoder()
+	e.syncCELTAnalysisToCELT()
 	e.celtEncoder.SetBitrate(bitrate)
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 	e.celtEncoder.SetHybrid(false)

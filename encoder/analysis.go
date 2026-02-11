@@ -3,6 +3,7 @@ package encoder
 import (
 	"math"
 
+	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/types"
 )
 
@@ -11,6 +12,8 @@ const (
 	NbTBands        = 18
 	AnalysisBufSize = 720 // 30ms at 24kHz
 	DetectSize      = 100
+	celtSigScale    = float32(32768.0)
+	analysisFFTEnergyScale = float32(1.0 / (480.0 * 480.0))
 )
 
 var dctTable = [128]float32{
@@ -118,7 +121,9 @@ func silkResamplerDown2HP(s []float32, out []float32, in []float32) float32 {
 	// Write back filter state
 	s[0], s[1], s[2] = s0, s1, s2
 
-	return float32(hpEner / 256.0)
+	// In libopus float builds, SHR64() is identity, so hp_ener accumulates the
+	// raw squared high-pass output (no /256 shift). Keep that behavior here.
+	return float32(hpEner)
 }
 
 type AnalysisInfo struct {
@@ -134,6 +139,7 @@ type AnalysisInfo struct {
 	Bandwidth        types.Bandwidth
 	Activity         float32
 	MaxPitchRatio    float32
+	LeakBoost        [19]uint8
 }
 
 type TonalityAnalysisState struct {
@@ -185,7 +191,9 @@ func (s *TonalityAnalysisState) Reset() {
 	s.Count = 0
 	s.ECount = 0
 	s.MemFill = 0
-	s.Initialized = true
+	// Match libopus tonality_analysis_reset(): initialized is cleared and the
+	// first tonalityAnalysis() call bootstraps MemFill=240.
+	s.Initialized = false
 	s.AnalysisOffset = 0
 	s.WritePos = 0
 	s.ReadPos = 0
@@ -197,6 +205,11 @@ func (s *TonalityAnalysisState) Reset() {
 	for i := range s.InMem {
 		s.InMem[i] = 0
 	}
+}
+
+// fft480 computes a 480-point complex forward FFT using the shared CELT KISS FFT.
+func fft480(out, in *[480]complex64) {
+	celt.KissFFT32To(out[:], in[:])
 }
 
 func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
@@ -219,10 +232,12 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	mono := s.scratchMono[:frameSize]
 	if channels == 2 {
 		for i := 0; i < frameSize; i++ {
-			mono[i] = (pcm[2*i] + pcm[2*i+1]) * 0.5
+			mono[i] = (pcm[2*i] + pcm[2*i+1]) * (0.5 * celtSigScale)
 		}
 	} else {
-		copy(mono, pcm)
+		for i := 0; i < frameSize; i++ {
+			mono[i] = pcm[i] * celtSigScale
+		}
 	}
 
 	// 2. Buffer mono samples into InMem
@@ -240,6 +255,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		}
 		downsampledBuf = s.scratchDownsampled[:frameSize/2]
 		hpEner = silkResamplerDown2HP(s.DownmixState[:], downsampledBuf, mono)
+		hpEner *= 1.0 / (celtSigScale * celtSigScale)
 	} else if s.Fs == 24000 {
 		downsampledBuf = mono
 	} else {
@@ -247,54 +263,115 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		return
 	}
 
-	// Copy to circular InMem buffer
-	for i := 0; i < len(downsampledBuf); i++ {
-		if s.MemFill < AnalysisBufSize {
-			s.InMem[s.MemFill] = downsampledBuf[i]
-			s.MemFill++
-		}
+	// Match libopus buffering:
+	// - Keep a 720-sample analysis buffer at 24 kHz.
+	// - Only run analysis when mem_fill+len reaches 720.
+	oldMemFill := s.MemFill
+	fillNeeded := AnalysisBufSize - oldMemFill
+	if fillNeeded < 0 {
+		fillNeeded = 0
 	}
-
-	// Only proceed if we have 480 new samples (analysis frame size)
-	if s.MemFill < 480 {
+	toCopy := len(downsampledBuf)
+	if toCopy > fillNeeded {
+		toCopy = fillNeeded
+	}
+	if toCopy > 0 {
+		copy(s.InMem[oldMemFill:oldMemFill+toCopy], downsampledBuf[:toCopy])
+	}
+	remaining := len(downsampledBuf) - toCopy
+	hpUsed := hpEner
+	hpRemain := float32(0)
+	if len(downsampledBuf) > 0 && remaining > 0 {
+		fracRemain := float32(remaining) / float32(len(downsampledBuf))
+		hpRemain = hpEner * fracRemain
+		hpUsed = hpEner - hpRemain
+	}
+	if oldMemFill+toCopy < AnalysisBufSize {
+		s.MemFill = oldMemFill + toCopy
+		s.HPEnerAccum += hpEner
 		return
 	}
+	hpEner = s.HPEnerAccum + hpUsed
+	s.HPEnerAccum = hpRemain
 
 	alphaE := 1.0 / float32(min(25, 1+s.Count))
-
-	var out [480]complex64
+	var in [480]complex64
 	// Use 480 samples from InMem for FFT
 	for i := 0; i < 240; i++ {
 		w := analysisWindow[i]
-		out[i] = complex(w*s.InMem[i], w*s.InMem[240+i])
-		out[480-i-1] = complex(w*s.InMem[480-i-1], w*s.InMem[480+240-i-1])
+		in[i] = complex(w*s.InMem[i], w*s.InMem[240+i])
+		in[480-i-1] = complex(w*s.InMem[480-i-1], w*s.InMem[480+240-i-1])
 	}
+	var out [480]complex64
+	fft480(&out, &in)
 
-	// Shift buffer left by 240 (libopus parity)
-	copy(s.InMem[:], s.InMem[240:])
-	s.MemFill -= 240
+	// Shift buffer and keep the residual input for the next analysis step.
+	copy(s.InMem[:240], s.InMem[AnalysisBufSize-240:AnalysisBufSize])
+	if remaining > 0 {
+		copy(s.InMem[240:], downsampledBuf[toCopy:])
+	}
+	s.MemFill = 240 + remaining
 
 	var logE [NbTBands]float32
+	var bandLog2 [NbTBands + 1]float32
+	var leakageFrom [NbTBands + 1]float32
+	var leakageTo [NbTBands + 1]float32
 	var BFCC [8]float32
 	var features [25]float32
 	var bandEnergy [NbTBands]float32
 	var maxBandEnergy float32
+	const (
+		log2Scale      = float32(0.7213475) // 0.5*log2(e)
+		leakageOffset  = float32(2.5)
+		leakageSlope   = float32(2.0)
+		leakageDivisor = float32(4.0)
+	)
+
+	// Match libopus special handling for the first band (DC/Nyquist bins).
+		{
+			X1r := 2 * real(out[0])
+			X2r := 2 * imag(out[0])
+			E := X1r*X1r + X2r*X2r
+			for i := 1; i < 4; i++ {
+				binE := real(out[i])*real(out[i]) + real(out[480-i])*real(out[480-i]) +
+					imag(out[i])*imag(out[i]) + imag(out[480-i])*imag(out[480-i])
+				E += binE
+			}
+			E *= (1.0 / (celtSigScale * celtSigScale)) * analysisFFTEnergyScale
+			bandLog2[0] = log2Scale * float32(math.Log(float64(E)+1e-10))
+		}
 
 	// Band energies
-	for b := 0; b < NbTBands; b++ {
-		var bandE float32
-		for i := tbands[b]; i < tbands[b+1]; i++ {
-			magSq := real(out[i])*real(out[i]) + imag(out[i])*imag(out[i]) +
-				real(out[480-i])*real(out[480-i]) + imag(out[480-i])*imag(out[480-i])
-			bandE += magSq
-		}
-		s.E[s.ECount][b] = bandE
+		for b := 0; b < NbTBands; b++ {
+			var bandE float32
+			for i := tbands[b]; i < tbands[b+1]; i++ {
+				magSq := real(out[i])*real(out[i]) + imag(out[i])*imag(out[i]) +
+					real(out[480-i])*real(out[480-i]) + imag(out[480-i])*imag(out[480-i])
+				bandE += magSq
+			}
+			bandE *= (1.0 / (celtSigScale * celtSigScale)) * analysisFFTEnergyScale
+			s.E[s.ECount][b] = bandE
 		bandEnergy[b] = bandE
 		if bandE > maxBandEnergy {
 			maxBandEnergy = bandE
 		}
 		logE[b] = float32(math.Log(float64(bandE) + 1e-10))
+		bandLog2[b+1] = log2Scale * float32(math.Log(float64(bandE)+1e-10))
 		s.LogE[s.ECount][b] = logE[b]
+	}
+
+	// Compute analysis leak_boost[] exactly as libopus analysis.c does.
+	leakageFrom[0] = bandLog2[0]
+	leakageTo[0] = bandLog2[0] - leakageOffset
+	for b := 1; b < NbTBands+1; b++ {
+		leakSlope := leakageSlope * float32(tbands[b]-tbands[b-1]) / leakageDivisor
+		leakageFrom[b] = minf(leakageFrom[b-1]+leakSlope, bandLog2[b])
+		leakageTo[b] = maxf(leakageTo[b-1]-leakSlope, bandLog2[b]-leakageOffset)
+	}
+	for b := NbTBands - 2; b >= 0; b-- {
+		leakSlope := leakageSlope * float32(tbands[b+1]-tbands[b]) / leakageDivisor
+		leakageFrom[b] = minf(leakageFrom[b], leakageFrom[b+1]+leakSlope)
+		leakageTo[b] = maxf(leakageTo[b], leakageTo[b+1]-leakSlope)
 	}
 
 	// BFCC extraction
@@ -326,6 +403,17 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	info.Activity = alphaE*frameProbs[1] + (1-alphaE)*info.Activity
 	info.BandwidthIndex = detectBandwidthIndex(bandEnergy[:], maxBandEnergy, s.PrevBandwidth, hpEner, int(s.Fs), 24, s.Count)
 	info.Bandwidth = bandwidthTypeFromIndex(info.BandwidthIndex)
+	for b := 0; b < NbTBands+1; b++ {
+		boost := maxf(0, leakageTo[b]-bandLog2[b]) + maxf(0, bandLog2[b]-(leakageFrom[b]+leakageOffset))
+		q6 := int(math.Floor(0.5 + 64.0*float64(boost)))
+		if q6 > 255 {
+			q6 = 255
+		}
+		if q6 < 0 {
+			q6 = 0
+		}
+		info.LeakBoost[b] = uint8(q6)
+	}
 	s.PrevBandwidth = info.BandwidthIndex
 
 	s.WritePos = (s.WritePos + 1) % DetectSize
@@ -415,6 +503,13 @@ func detectBandwidthIndex(bandEnergy []float32, maxBandEnergy float32, prevBandw
 
 func maxf(a, b float32) float32 {
 	if a > b {
+		return a
+	}
+	return b
+}
+
+func minf(a, b float32) float32 {
+	if a < b {
 		return a
 	}
 	return b

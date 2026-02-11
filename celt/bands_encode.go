@@ -167,10 +167,11 @@ func ComputeLinearBandAmplitudesInto(mdctCoeffs []float64, nbBands, frameSize in
 			sum += v * v
 		}
 
-		// sqrt(sum) gives the amplitude (L2 norm)
-		// Reference: libopus bands.c line 165:
-		//   bandE[i+c*m->nbEBands] = celt_sqrt(sum)
-		bandE[band] = float64(math.Sqrt(float64(sum)))
+			// sqrt(sum) gives the amplitude (L2 norm)
+			// Reference: libopus bands.c line 165:
+			//   bandE[i+c*m->nbEBands] = celt_sqrt(sum)
+			// Keep float-path precision: celt_ener is float in libopus.
+			bandE[band] = float64(float32(math.Sqrt(float64(sum))))
 		offset += n
 	}
 }
@@ -211,19 +212,20 @@ func NormalizeBandsToArrayInto(mdctCoeffs []float64, nbBands, frameSize int, nor
 		// Get linear amplitude for this band
 		// Reference: libopus bands.c line 182:
 		//   opus_val16 g = 1.f/(1e-27f+bandE[i+c*m->nbEBands])
-		amplitude := bandE[band]
-		if amplitude < 1e-27 {
-			amplitude = 1e-27
-		}
-		g := 1.0 / amplitude
+			amplitude := float32(bandE[band])
+			if amplitude < float32(1e-27) {
+				amplitude = float32(1e-27)
+			}
+			g := float32(1.0) / amplitude
 
 		// Normalize: X[j] = freq[j] * g
 		// Reference: libopus bands.c lines 183-184:
 		//   for (j=M*eBands[i];j<M*eBands[i+1];j++)
 		//      X[j+c*N] = freq[j+c*N]*g;
 		for i := 0; i < n; i++ {
-			norm[offset+i] = mdctCoeffs[offset+i] * g
-		}
+				// Match libopus float path: freq and gains are float.
+				norm[offset+i] = float64(float32(mdctCoeffs[offset+i]) * g)
+			}
 		offset += n
 	}
 }
