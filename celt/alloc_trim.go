@@ -5,6 +5,16 @@ package celt
 
 import "math"
 
+type allocTrimDetail struct {
+	base    float64
+	stereo  float64
+	tilt    float64
+	surround float64
+	tf      float64
+	tonal   float64
+	raw     float64
+}
+
 // AllocTrimAnalysis computes the optimal allocation trim value for a CELT frame.
 // The trim value biases bit allocation between lower and higher frequency bands.
 // A higher trim value allocates more bits to lower frequencies.
@@ -45,19 +55,53 @@ func AllocTrimAnalysis(
 	surroundTrim float64,
 	tonalitySlope float64,
 ) int {
+	trimIndex, _ := allocTrimAnalysisDetailed(
+		normCoeffs,
+		bandLogE,
+		nbBands,
+		lm,
+		channels,
+		normCoeffsRight,
+		intensity,
+		tfEstimate,
+		equivRate,
+		surroundTrim,
+		tonalitySlope,
+	)
+	return trimIndex
+}
+
+func allocTrimAnalysisDetailed(
+	normCoeffs []float64,
+	bandLogE []float64,
+	nbBands int,
+	lm int,
+	channels int,
+	normCoeffsRight []float64,
+	intensity int,
+	tfEstimate float64,
+	equivRate int,
+	surroundTrim float64,
+	tonalitySlope float64,
+) (int, allocTrimDetail) {
+	detail := allocTrimDetail{}
+
 	// Start with default trim of 5
 	trim := 5.0
+	detail.base = trim
 
 	// At low bitrate, reducing the trim seems to help. At higher bitrates, it's less
 	// clear what's best, so we're keeping it as it was before, at least for now.
 	// Reference: libopus lines 877-883
 	if equivRate < 64000 {
 		trim = 4.0
+		detail.base = trim
 	} else if equivRate < 80000 {
 		// Linear interpolation from 4.0 to 5.0 between 64kbps and 80kbps
 		// libopus: trim = 4.f + (equiv_rate-64000)/16000
 		frac := float64(equivRate-64000) / 16000.0
 		trim = 4.0 + frac
+		detail.base = trim
 	}
 
 	// Stereo correlation adjustment
@@ -71,6 +115,7 @@ func AllocTrimAnalysis(
 			stereoAdjust = -4.0
 		}
 		trim += stereoAdjust
+		detail.stereo = stereoAdjust
 	}
 
 	// Spectral tilt adjustment
@@ -111,17 +156,20 @@ func AllocTrimAnalysis(
 	}
 
 	trim -= tiltAdjust
+	detail.tilt = tiltAdjust
 
 	// Surround trim adjustment
 	// Reference: libopus line 932
 	// surround_trim is in dB, typically 0 for non-surround encoding
 	trim -= surroundTrim
+	detail.surround = surroundTrim
 
 	// TF estimate adjustment
 	// Reference: libopus line 933: trim -= 2*SHR16(tf_estimate, 14-8)
 	// tf_estimate is in Q14 format in libopus, we use float [0, 1]
 	// So: trim -= 2 * tf_estimate
 	trim -= 2.0 * tfEstimate
+	detail.tf = 2.0 * tfEstimate
 
 	// Tonality slope adjustment (optional, from analysis)
 	// Reference: libopus lines 935-939
@@ -136,7 +184,9 @@ func AllocTrimAnalysis(
 			tonalAdjust = 2.0
 		}
 		trim -= tonalAdjust
+		detail.tonal = tonalAdjust
 	}
+	detail.raw = trim
 
 	// Convert to integer with rounding and clamp to valid range
 	// Reference: libopus lines 947-949
@@ -148,7 +198,7 @@ func AllocTrimAnalysis(
 		trimIndex = 10
 	}
 
-	return trimIndex
+	return trimIndex, detail
 }
 
 // computeStereoCorrelationTrim computes the stereo correlation adjustment for alloc_trim.
@@ -160,7 +210,6 @@ func computeStereoCorrelationTrim(normL, normR []float64, nbBands, lm, intensity
 	// libopus uses inner product of normalized coefficients between channels
 
 	var sum float64
-	var count int
 
 	// Compute correlation for first 8 bands
 	for band := 0; band < 8 && band < nbBands; band++ {
@@ -182,12 +231,9 @@ func computeStereoCorrelationTrim(normL, normR []float64, nbBands, lm, intensity
 			partial += normL[j] * normR[j]
 		}
 		sum += partial
-		count++
 	}
-
-	if count > 0 {
-		sum /= float64(count)
-	}
+	// Match libopus: always divide by 8 low bands in the average.
+	sum *= 1.0 / 8.0
 
 	// Clamp sum to [-1, 1]
 	if sum > 1.0 {
@@ -230,6 +276,86 @@ func computeStereoCorrelationTrim(normL, normR []float64, nbBands, lm, intensity
 	logXC := math.Log2(1.001 - sum*sum)
 
 	return logXC
+}
+
+// UpdateStereoSaving updates the running stereo_saving estimate used by libopus
+// compute_vbr(). The state is updated once per frame after alloc-trim analysis.
+func UpdateStereoSaving(prev float64, normL, normR []float64, nbBands, lm, intensity int) float64 {
+	if len(normL) == 0 || len(normR) == 0 || nbBands <= 0 {
+		return prev
+	}
+	if intensity < 0 {
+		intensity = 0
+	}
+	if intensity > nbBands {
+		intensity = nbBands
+	}
+
+	var sum float64
+	for band := 0; band < 8 && band < nbBands; band++ {
+		bandStart := EBands[band] << lm
+		bandEnd := EBands[band+1] << lm
+		if bandStart >= len(normL) || bandStart >= len(normR) {
+			break
+		}
+		if bandEnd > len(normL) {
+			bandEnd = len(normL)
+		}
+		if bandEnd > len(normR) {
+			bandEnd = len(normR)
+		}
+		var partial float64
+		for j := bandStart; j < bandEnd; j++ {
+			partial += normL[j] * normR[j]
+		}
+		sum += partial
+	}
+	sum *= 1.0 / 8.0
+	sum = math.Abs(sum)
+	if sum > 1.0 {
+		sum = 1.0
+	}
+
+	minXC := sum
+	for band := 8; band < intensity && band < nbBands; band++ {
+		bandStart := EBands[band] << lm
+		bandEnd := EBands[band+1] << lm
+		if bandStart >= len(normL) || bandStart >= len(normR) {
+			break
+		}
+		if bandEnd > len(normL) {
+			bandEnd = len(normL)
+		}
+		if bandEnd > len(normR) {
+			bandEnd = len(normR)
+		}
+		var partial float64
+		for j := bandStart; j < bandEnd; j++ {
+			partial += normL[j] * normR[j]
+		}
+		partial = math.Abs(partial)
+		if partial < minXC {
+			minXC = partial
+		}
+	}
+	if minXC > 1.0 {
+		minXC = 1.0
+	}
+
+	logXC := math.Log2(math.Max(1e-9, 1.001-sum*sum))
+	logXC2 := math.Max(0.5*logXC, math.Log2(math.Max(1e-9, 1.001-minXC*minXC)))
+	limit := -0.5 * logXC2
+	next := prev + 0.25
+	if next > limit {
+		next = limit
+	}
+	if next < 0 {
+		next = 0
+	}
+	if next > 1 {
+		next = 1
+	}
+	return next
 }
 
 // ComputeEquivRate computes the equivalent bitrate for allocation trim analysis.

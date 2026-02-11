@@ -5,6 +5,8 @@ package celt
 
 import (
 	"math"
+	"os"
+	"strconv"
 
 	"github.com/thesyncim/gopus/rangecoding"
 )
@@ -175,15 +177,319 @@ func computeBandRMS(coeffs []float64, start, end int) float64 {
 	}
 
 	// Compute sum of squares with libopus epsilon.
+	// BCE hint: we verified end <= len(coeffs) above.
+	c := coeffs[start:end:end]
 	sumSq := float32(1e-27)
-	for i := start; i < end; i++ {
-		v := float32(coeffs[i])
+	for _, cv := range c {
+		v := float32(cv)
 		sumSq += v * v
 	}
 
 	// log2(sqrt(sumSq)) = log2(amp) with libopus FLOAT_APPROX log2.
 	amp := float32(math.Sqrt(float64(sumSq)))
 	return float64(celtLog2(amp))
+}
+
+func celtAbsInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+// coarseLossDistortion mirrors libopus loss_distortion() for float mode.
+// It estimates how expensive packet loss would be if we keep using inter prediction.
+func coarseLossDistortion(energies, oldEBands []float64, nbBands, channels int) float64 {
+	if nbBands <= 0 || channels <= 0 {
+		return 0
+	}
+	var dist float64
+	for c := 0; c < channels; c++ {
+		base := c * nbBands
+		oldBase := c * MaxBands
+		for band := 0; band < nbBands; band++ {
+			idx := base + band
+			oldIdx := oldBase + band
+			if idx >= len(energies) || oldIdx >= len(oldEBands) {
+				continue
+			}
+			d := energies[idx] - oldEBands[oldIdx]
+			dist += d * d
+		}
+	}
+	// Match libopus loss_distortion(): normalize accumulated squared error.
+	dist /= 128.0
+	if dist > 200.0 {
+		return 200.0
+	}
+	return dist
+}
+
+func (e *Encoder) encodeCoarseEnergyPass(energies []float64, nbBands int, intra bool, lm int, budget int, maxDecay32 float32, encodeIntraFlag bool) ([]float64, int) {
+	if e.rangeEncoder == nil {
+		return energies, 0
+	}
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+	if nbBands < 0 {
+		nbBands = 0
+	}
+	if lm < 0 {
+		lm = 0
+	}
+	if lm > 3 {
+		lm = 3
+	}
+
+	channels := e.channels
+	if len(energies) < nbBands*channels {
+		channels = 1
+	}
+
+	quantizedEnergies := ensureFloat64Slice(&e.scratch.quantizedEnergies, nbBands*channels)
+	coarseError := ensureFloat64Slice(&e.scratch.coarseError, nbBands*channels)
+	for i := range coarseError {
+		coarseError[i] = 0
+	}
+
+	if encodeIntraFlag && e.rangeEncoder.Tell()+3 <= budget {
+		bit := 0
+		if intra {
+			bit = 1
+		}
+		e.rangeEncoder.EncodeBit(bit, 3)
+	}
+
+	var coef, beta float64
+	if intra {
+		coef = 0.0
+		beta = BetaIntra
+	} else {
+		coef = AlphaCoef[lm]
+		beta = BetaCoefInter[lm]
+	}
+	coef32 := float32(coef)
+	beta32 := float32(beta)
+
+	prob := eProbModel[lm][0]
+	if intra {
+		prob = eProbModel[lm][1]
+	}
+
+	var prevBandEnergy [2]float32
+	badness := 0
+	for band := 0; band < nbBands; band++ {
+		for c := 0; c < channels; c++ {
+			idx := c*nbBands + band
+			if idx >= len(energies) {
+				continue
+			}
+
+			x := float32(energies[idx])
+			oldEBand := float32(e.prevEnergy[c*MaxBands+band])
+			oldE := oldEBand
+			minEnergy := float32(-9.0 * DB6)
+			if oldE < minEnergy {
+				oldE = minEnergy
+			}
+
+				predMul := noFMA32Mul(coef32, oldE)
+				if os.Getenv("GOPUS_TMP_ENERGY_PRED_MUL_NATIVE") == "1" {
+					predMul = coef32 * oldE
+				}
+				pred := predMul + prevBandEnergy[c]
+			f := x - pred
+			qi := int(math.Floor(float64(f/float32(DB6) + 0.5)))
+			qi0 := qi
+
+			decayBound := oldEBand
+			minDecay := float32(-28.0 * DB6)
+			if decayBound < minDecay {
+				decayBound = minDecay
+			}
+			decayBound -= maxDecay32
+			if qi < 0 && x < decayBound {
+				adjust := int((decayBound - x) / float32(DB6))
+				qi += adjust
+				if qi > 0 {
+					qi = 0
+				}
+			}
+
+			tell := e.rangeEncoder.Tell()
+			bitsLeft := budget - tell - 3*channels*(nbBands-band)
+			if band != 0 && bitsLeft < 30 {
+				if bitsLeft < 24 && qi > 1 {
+					qi = 1
+				}
+				if bitsLeft < 16 && qi < -1 {
+					qi = -1
+				}
+			}
+
+			if budget-tell >= 15 {
+				pi := 2 * band
+				if pi > 40 {
+					pi = 40
+				}
+				fs := int(prob[pi]) << 7
+				decay := int(prob[pi+1]) << 6
+				qi = e.encodeLaplace(qi, fs, decay)
+			} else if budget-tell >= 2 {
+				if qi > 1 {
+					qi = 1
+				}
+				if qi < -1 {
+					qi = -1
+				}
+				var s int
+				if qi < 0 {
+					s = -2*qi - 1
+				} else {
+					s = 2 * qi
+				}
+				e.rangeEncoder.EncodeICDF(s, smallEnergyICDF, 2)
+			} else if budget-tell >= 1 {
+				if qi > 0 {
+					qi = 0
+				}
+				e.rangeEncoder.EncodeBit(-qi, 1)
+			} else {
+				qi = -1
+			}
+			badness += celtAbsInt(qi0 - qi)
+
+			if e.coarseDecisionHook != nil {
+				e.coarseDecisionHook(CoarseDecisionStats{
+					Frame:     e.frameCount,
+					Band:      band,
+					Channel:   c,
+					Intra:     intra,
+					LM:        lm,
+					X:         float64(x),
+					Pred:      float64(pred),
+					Residual:  float64(f),
+					QIInitial: qi0,
+					QIFinal:   qi,
+					Tell:      tell,
+					BitsLeft:  bitsLeft,
+				})
+			}
+
+			q := float32(qi) * float32(DB6)
+			coarseError[idx] = float64(f - q)
+			quantizedEnergy := pred + q
+			quantizedEnergies[idx] = float64(quantizedEnergy)
+			if os.Getenv("GOPUS_TMP_COARSE_DUMP") == "1" && e.frameCount >= 74 && e.frameCount <= 80 && band == 18 && c == 0 {
+				println("COARSE_DUMP frame", e.frameCount, "band", band, "x", x, "oldE", oldEBand, "pred", pred, "f", f, "qi", qi, "err", float32(coarseError[idx]), "tell", tell, "bitsLeft", bitsLeft)
+			}
+				betaMul := noFMA32Mul(beta32, q)
+				if os.Getenv("GOPUS_TMP_ENERGY_PRED_MUL_NATIVE") == "1" {
+					betaMul = beta32 * q
+				}
+				prevBandEnergy[c] = prevBandEnergy[c] + q - betaMul
+		}
+	}
+
+	for c := 0; c < channels; c++ {
+		for band := 0; band < nbBands; band++ {
+			idx := c*nbBands + band
+			if idx >= len(quantizedEnergies) {
+				continue
+			}
+			e.prevEnergy[c*MaxBands+band] = quantizedEnergies[idx]
+		}
+	}
+
+	return quantizedEnergies, badness
+}
+
+// DecideIntraMode runs libopus-style two-pass intra/inter selection for coarse energy.
+// It performs trial encodes on a saved range coder state and restores state before returning.
+func (e *Encoder) DecideIntraMode(energies []float64, nbBands int, lm int) bool {
+	if e.rangeEncoder == nil {
+		return false
+	}
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+	if nbBands <= 0 {
+		return false
+	}
+	if lm < 0 {
+		lm = 0
+	}
+	if lm > 3 {
+		lm = 3
+	}
+
+	channels := e.channels
+	if channels < 1 {
+		channels = 1
+	}
+
+	budget := e.rangeEncoder.StorageBits()
+	if e.frameBits > 0 && e.frameBits < budget {
+		budget = e.frameBits
+	}
+	nbAvailableBytes := budget / 8
+
+	twoPass := e.complexity >= 4
+	intra := e.forceIntra || (!twoPass &&
+		e.delayedIntra > float64(2*channels*nbBands) &&
+		nbAvailableBytes > nbBands*channels)
+
+	intraBias := 0
+	if channels > 0 {
+		intraBias = int(float64(budget) * e.delayedIntra * float64(e.packetLoss) / float64(channels*512))
+	}
+
+	tell := e.rangeEncoder.Tell()
+	if tell+3 > budget {
+		twoPass = false
+		intra = false
+	}
+
+	maxDecay32 := float32(16.0 * DB6)
+	if nbBands > 10 {
+		limit := float32(0.125 * float64(nbAvailableBytes) * DB6)
+		if limit < maxDecay32 {
+			maxDecay32 = limit
+		}
+	}
+
+	startState := &e.scratch.coarseStartState
+	e.rangeEncoder.SaveStateInto(startState)
+
+	oldStart := ensureFloat64Slice(&e.scratch.coarseOldStart, len(e.prevEnergy))
+	copy(oldStart, e.prevEnergy)
+
+	badnessIntra := 0
+	tellIntra := 0
+	if twoPass || intra {
+		_, badnessIntra = e.encodeCoarseEnergyPass(energies, nbBands, true, lm, budget, maxDecay32, true)
+		tellIntra = e.rangeEncoder.TellFrac()
+		e.rangeEncoder.RestoreState(startState)
+		copy(e.prevEnergy, oldStart)
+	}
+
+	if !intra {
+		_, badnessInter := e.encodeCoarseEnergyPass(energies, nbBands, false, lm, budget, maxDecay32, true)
+		useIntra := badnessIntra < badnessInter
+		if badnessIntra == badnessInter && e.rangeEncoder.TellFrac()+intraBias > tellIntra {
+			useIntra = true
+		}
+		if twoPass && useIntra {
+			intra = true
+		} else {
+			intra = false
+		}
+		e.rangeEncoder.RestoreState(startState)
+		copy(e.prevEnergy, oldStart)
+	}
+
+	return intra
 }
 
 // EncodeCoarseEnergy encodes coarse (6dB step) band energies.
@@ -216,25 +522,7 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 		channels = 1
 	}
 
-	// Use scratch buffer for quantized energies (zero-alloc)
-	quantizedEnergies := ensureFloat64Slice(&e.scratch.quantizedEnergies, nbBands*channels)
-
-	// Prediction coefficients (libopus quant_coarse_energy_impl).
-	var coef, beta float64
-	if intra {
-		coef = 0.0
-		beta = BetaIntra
-	} else {
-		coef = AlphaCoef[lm]
-		beta = BetaCoefInter[lm]
-	}
-	coef32 := float32(coef)
-	beta32 := float32(beta)
-
-	prob := eProbModel[lm][0]
-	if intra {
-		prob = eProbModel[lm][1]
-	}
+	newDistortion := coarseLossDistortion(energies, e.prevEnergy, nbBands, channels)
 
 	budget := e.rangeEncoder.StorageBits()
 	if e.frameBits > 0 && e.frameBits < budget {
@@ -251,110 +539,13 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 		}
 	}
 
-	prevBandEnergy := make([]float32, channels)
-	for band := 0; band < nbBands; band++ {
-		for c := 0; c < channels; c++ {
-			idx := c*nbBands + band
-			if idx >= len(energies) {
-				continue
-			}
+	quantizedEnergies, _ := e.encodeCoarseEnergyPass(energies, nbBands, intra, lm, budget, maxDecay32, false)
 
-			x := float32(energies[idx])
-
-			// Previous frame energy (for prediction and decay bound).
-			oldEBand := float32(e.prevEnergy[c*MaxBands+band])
-			oldE := oldEBand
-			minEnergy := float32(-9.0 * DB6)
-			if oldE < minEnergy {
-				oldE = minEnergy
-			}
-
-			// Prediction residual.
-			f := x - coef32*oldE - prevBandEnergy[c]
-			qi := int(math.Floor(float64(f/float32(DB6) + 0.5)))
-
-			// Prevent energy from decaying too quickly.
-			decayBound := oldEBand
-			minDecay := float32(-28.0 * DB6)
-			if decayBound < minDecay {
-				decayBound = minDecay
-			}
-			decayBound -= maxDecay32
-			if qi < 0 && x < decayBound {
-				adjust := int((decayBound - x) / float32(DB6))
-				qi += adjust
-				if qi > 0 {
-					qi = 0
-				}
-			}
-
-			tell := e.rangeEncoder.Tell()
-			bitsLeft := budget - tell - 3*channels*(nbBands-band)
-			if band != 0 && bitsLeft < 30 {
-				if bitsLeft < 24 && qi > 1 {
-					qi = 1
-				}
-				if bitsLeft < 16 && qi < -1 {
-					qi = -1
-				}
-			}
-
-			// Encode with Laplace or fallback models.
-			if budget-tell >= 15 {
-				pi := 2 * band
-				if pi > 40 {
-					pi = 40
-				}
-				fs := int(prob[pi]) << 7
-				decay := int(prob[pi+1]) << 6
-				qi = e.encodeLaplace(qi, fs, decay)
-			} else if budget-tell >= 2 {
-				if qi > 1 {
-					qi = 1
-				}
-				if qi < -1 {
-					qi = -1
-				}
-				// Encode using zigzag mapping to match decoder's decoding:
-				// Decoder: qi = (s >> 1) ^ -(s & 1)
-				//   s=0 -> qi=0, s=1 -> qi=-1, s=2 -> qi=1
-				// Encoder (inverse): qi=0 -> s=0, qi=-1 -> s=1, qi=1 -> s=2
-				var s int
-				if qi < 0 {
-					s = -2*qi - 1 // For qi=-1: s = 2 - 1 = 1
-				} else {
-					s = 2 * qi // For qi=0: s=0, qi=1: s=2
-				}
-				e.rangeEncoder.EncodeICDF(s, smallEnergyICDF, 2)
-			} else if budget-tell >= 1 {
-				if qi > 0 {
-					qi = 0
-				}
-				e.rangeEncoder.EncodeBit(-qi, 1)
-			} else {
-				qi = -1
-			}
-
-			q := float32(qi) * float32(DB6)
-			quantizedEnergy := coef32*oldE + prevBandEnergy[c] + q
-			quantizedEnergies[idx] = float64(quantizedEnergy)
-
-			// Update inter-band predictor.
-			prevBandEnergy[c] = prevBandEnergy[c] + q - beta32*q
-		}
-	}
-
-	// Update previous-frame energy state after encoding completes.
-	for c := 0; c < channels; c++ {
-		for band := 0; band < nbBands; band++ {
-			idx := c*nbBands + band
-			if idx >= len(quantizedEnergies) {
-				continue
-			}
-			if band < MaxBands {
-				e.prevEnergy[c*MaxBands+band] = quantizedEnergies[idx]
-			}
-		}
+	alpha := AlphaCoef[lm]
+	if intra {
+		e.delayedIntra = newDistortion
+	} else {
+		e.delayedIntra = alpha*alpha*e.delayedIntra + newDistortion
 	}
 
 	return quantizedEnergies
@@ -449,7 +640,12 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 			}
 
 			// Prediction residual.
-			f := x - coef32*oldE - prevBandEnergy[c]
+			predMul := noFMA32Mul(coef32, oldE)
+			if os.Getenv("GOPUS_TMP_ENERGY_PRED_MUL_NATIVE") == "1" {
+				predMul = coef32 * oldE
+			}
+			pred := predMul + prevBandEnergy[c]
+			f := x - pred
 			qi := int(math.Floor(float64(f/float32(DB6) + 0.5)))
 
 			// Prevent energy from decaying too quickly.
@@ -515,9 +711,13 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 
 			// Update energy and prediction state.
 			q := float32(qi) * float32(DB6)
-			energy := float32(coef32*oldE+prevBandEnergy[c]) + q
+			energy := pred + q
 			quantizedEnergies[idx] = float64(energy)
-			prevBandEnergy[c] = prevBandEnergy[c] + q - beta32*q
+			betaMul := noFMA32Mul(beta32, q)
+			if os.Getenv("GOPUS_TMP_ENERGY_PRED_MUL_NATIVE") == "1" {
+				betaMul = beta32 * q
+			}
+			prevBandEnergy[c] = prevBandEnergy[c] + q - betaMul
 		}
 	}
 
@@ -619,18 +819,18 @@ func (e *Encoder) EncodeFineEnergy(energies []float64, quantizedCoarse []float64
 		}
 
 		ft := 1 << bits
-		scale := float64(ft)
+		scale32 := float32(ft)
 		for c := 0; c < channels; c++ {
 			idx := c*nbBands + band
 			if idx >= len(energies) || idx >= len(quantizedCoarse) {
 				continue
 			}
 
-			// Compute residual: fine = energy - quantizedCoarse
-			fine := energies[idx] - quantizedCoarse[idx]
+			// Keep fine-energy quantization in float32 precision to mirror libopus float path.
+			fine := float32(energies[idx] - quantizedCoarse[idx])
 
 			// Quantize to fineBits[band] levels
-			q := int(math.Floor((fine/DB6+0.5)*scale + 1e-9))
+			q := int(math.Floor(float64((fine + 0.5) * scale32)))
 
 			// Clamp to valid range
 			if q < 0 {
@@ -644,8 +844,75 @@ func (e *Encoder) EncodeFineEnergy(energies []float64, quantizedCoarse []float64
 			re.EncodeRawBits(uint32(q), uint(bits))
 
 			// Apply decoded offset to quantized energies for remainder coding
-			offset := (float64(q)+0.5)/scale - 0.5
-			quantizedCoarse[idx] += offset * DB6
+			offset := (float32(q)+0.5)/scale32 - 0.5
+			quantizedCoarse[idx] = float64(float32(quantizedCoarse[idx]) + offset)
+		}
+	}
+}
+
+// encodeFineEnergyFromError mirrors libopus quant_fine_energy() with prev_quant=NULL.
+// It consumes and updates errorVals in-place so the same residual state can be used
+// by energy finalisation and next-frame energyError clipping.
+func (e *Encoder) encodeFineEnergyFromError(quantizedEnergies []float64, nbBands int, fineBits []int, errorVals []float64) {
+	if e.rangeEncoder == nil {
+		return
+	}
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+	if nbBands > len(fineBits) {
+		nbBands = len(fineBits)
+	}
+
+	channels := e.channels
+	if len(quantizedEnergies) < nbBands*channels || len(errorVals) < nbBands*channels {
+		channels = 1
+	}
+
+	re := e.rangeEncoder
+
+	for band := 0; band < nbBands; band++ {
+		bits := fineBits[band]
+		if bits <= 0 {
+			continue
+		}
+		// Match libopus quant_fine_energy(): if there is not enough storage
+		// left to code this band's fine bits for all channels, skip the band.
+		if re.Tell()+channels*bits > re.StorageBits() {
+			continue
+		}
+		extra := 1 << bits
+		scale32 := float32(extra)
+		for c := 0; c < channels; c++ {
+			idx := c*nbBands + band
+			if idx >= len(quantizedEnergies) || idx >= len(errorVals) {
+				continue
+			}
+
+			// libopus float: q2 = floor((error + 0.5) * extra)
+			err := float32(errorVals[idx])
+			qExpr := float64((err + 0.5) * scale32)
+			if s := os.Getenv("GOPUS_TMP_FINE_Q_EPS"); s != "" {
+				if eps, perr := strconv.ParseFloat(s, 64); perr == nil {
+					qExpr -= eps
+				}
+			}
+			q2 := int(math.Floor(qExpr))
+			if q2 < 0 {
+				q2 = 0
+			}
+			if q2 > extra-1 {
+				q2 = extra - 1
+			}
+
+			re.EncodeRawBits(uint32(q2), uint(bits))
+
+			offset := (float32(q2)+0.5)/scale32 - 0.5
+			quantizedEnergies[idx] = float64(float32(quantizedEnergies[idx]) + offset)
+			errorVals[idx] = float64(err - offset)
+			if os.Getenv("GOPUS_TMP_FINE_DUMP") == "1" && e.frameCount >= 74 && e.frameCount <= 80 && band == 18 && c == 0 {
+				println("FINE_DUMP frame", e.frameCount, "band", band, "bits", bits, "err", err, "q2", q2, "offset", offset, "qexpr", qExpr)
+			}
 		}
 	}
 }
@@ -684,15 +951,15 @@ func (e *Encoder) EncodeFineEnergyRange(energies []float64, quantizedCoarse []fl
 		}
 
 		ft := 1 << bits
-		scale := float64(ft)
+		scale32 := float32(ft)
 		for c := 0; c < channels; c++ {
 			idx := c*nbBands + band
 			if idx >= len(energies) || idx >= len(quantizedCoarse) {
 				continue
 			}
 
-			fine := energies[idx] - quantizedCoarse[idx]
-			q := int(math.Floor((fine/DB6+0.5)*scale + 1e-9))
+			fine := float32(energies[idx] - quantizedCoarse[idx])
+			q := int(math.Floor(float64((fine + 0.5) * scale32)))
 
 			if q < 0 {
 				q = 0
@@ -703,8 +970,8 @@ func (e *Encoder) EncodeFineEnergyRange(energies []float64, quantizedCoarse []fl
 
 			re.EncodeRawBits(uint32(q), uint(bits))
 
-			offset := (float64(q)+0.5)/scale - 0.5
-			quantizedCoarse[idx] += offset * DB6
+			offset := (float32(q)+0.5)/scale32 - 0.5
+			quantizedCoarse[idx] = float64(float32(quantizedCoarse[idx]) + offset)
 		}
 	}
 }
@@ -813,14 +1080,66 @@ func (e *Encoder) EncodeEnergyFinalise(energies []float64, quantizedEnergies []f
 				if idx >= len(energies) || idx >= len(quantizedEnergies) {
 					continue
 				}
-				errorVal := energies[idx] - quantizedEnergies[idx]
+				errorVal := float32(energies[idx] - quantizedEnergies[idx])
 				q2 := 0
 				if errorVal >= 0 {
 					q2 = 1
 				}
 				re.EncodeRawBits(uint32(q2), 1)
-				offset := (float64(q2) - 0.5) / float64(uint(1)<<(fineQuant[band]+1))
-				quantizedEnergies[idx] += offset * DB6
+				offset := (float32(q2) - 0.5) / float32(uint(1)<<(fineQuant[band]+1))
+				quantizedEnergies[idx] = float64(float32(quantizedEnergies[idx]) + offset)
+				bitsLeft--
+			}
+		}
+	}
+}
+
+// encodeEnergyFinaliseFromError mirrors libopus quant_energy_finalise().
+// It consumes the remaining bit budget using the in-place residual state.
+func (e *Encoder) encodeEnergyFinaliseFromError(quantizedEnergies []float64, nbBands int, fineQuant []int, finePriority []int, bitsLeft int, errorVals []float64) {
+	if e.rangeEncoder == nil {
+		return
+	}
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+	if nbBands <= 0 {
+		return
+	}
+	if bitsLeft < 0 {
+		bitsLeft = 0
+	}
+
+	channels := e.channels
+	if len(quantizedEnergies) < nbBands*channels || len(errorVals) < nbBands*channels {
+		channels = 1
+	}
+
+	re := e.rangeEncoder
+
+	for prio := 0; prio < 2; prio++ {
+		for band := 0; band < nbBands && bitsLeft >= channels; band++ {
+			if band >= len(fineQuant) || band >= len(finePriority) {
+				continue
+			}
+			if fineQuant[band] >= maxFineBits || finePriority[band] != prio {
+				continue
+			}
+			for c := 0; c < channels; c++ {
+				idx := c*nbBands + band
+				if idx >= len(quantizedEnergies) || idx >= len(errorVals) {
+					continue
+				}
+
+				q2 := 0
+				if float32(errorVals[idx]) >= 0 {
+					q2 = 1
+				}
+				re.EncodeRawBits(uint32(q2), 1)
+
+				offset := (float32(q2) - 0.5) / float32(uint(1)<<(fineQuant[band]+1))
+				quantizedEnergies[idx] = float64(float32(quantizedEnergies[idx]) + offset)
+				errorVals[idx] = float64(float32(errorVals[idx]) - offset)
 				bitsLeft--
 			}
 		}
@@ -866,14 +1185,14 @@ func (e *Encoder) EncodeEnergyFinaliseRange(energies []float64, quantizedEnergie
 				if idx >= len(energies) || idx >= len(quantizedEnergies) {
 					continue
 				}
-				errorVal := energies[idx] - quantizedEnergies[idx]
+				errorVal := float32(energies[idx] - quantizedEnergies[idx])
 				q2 := 0
 				if errorVal >= 0 {
 					q2 = 1
 				}
 				re.EncodeRawBits(uint32(q2), 1)
-				offset := (float64(q2) - 0.5) / float64(uint(1)<<(fineQuant[band]+1))
-				quantizedEnergies[idx] += offset * DB6
+				offset := (float32(q2) - 0.5) / float32(uint(1)<<(fineQuant[band]+1))
+				quantizedEnergies[idx] = float64(float32(quantizedEnergies[idx]) + offset)
 				bitsLeft--
 			}
 		}

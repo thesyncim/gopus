@@ -386,7 +386,18 @@ func unext(u []uint32, length int, u0 uint32) {
 	if length < 2 {
 		return
 	}
-	for j := 1; j < length; j++ {
+	_ = u[length-1] // BCE
+	j := 1
+	// Unroll by 2: the recurrence is sequential (each step depends on previous),
+	// but we can reduce loop overhead by processing two iterations per cycle.
+	for ; j+1 < length; j += 2 {
+		u1 := u[j] + u[j-1] + u0
+		u[j-1] = u0
+		u2 := u[j+1] + u[j] + u1
+		u[j] = u1
+		u0 = u2
+	}
+	for ; j < length; j++ {
 		u1 := u[j] + u[j-1] + u0
 		u[j-1] = u0
 		u0 = u1
@@ -401,7 +412,16 @@ func uprev(u []uint32, length int, u0 uint32) {
 	if length < 2 {
 		return
 	}
-	for j := 1; j < length; j++ {
+	_ = u[length-1] // BCE
+	j := 1
+	for ; j+1 < length; j += 2 {
+		u1 := u[j] - u[j-1] - u0
+		u[j-1] = u0
+		u2 := u[j+1] - u[j] - u1
+		u[j] = u1
+		u0 = u2
+	}
+	for ; j < length; j++ {
 		u1 := u[j] - u[j-1] - u0
 		u[j-1] = u0
 		u0 = u1
@@ -439,9 +459,15 @@ func ncwrsUrow(n, k int, u []uint32) uint32 {
 	if n < 2 || k <= 0 || len(u) < k+2 {
 		return 0
 	}
+	_ = u[k+1] // BCE
 	u[0] = 0
 	u[1] = 1
-	for j := 2; j < k+2; j++ {
+	j := 2
+	for ; j+1 < k+2; j += 2 {
+		u[j] = uint32((j << 1) - 1)
+		u[j+1] = uint32(((j + 1) << 1) - 1)
+	}
+	for ; j < k+2; j++ {
 		u[j] = uint32((j << 1) - 1)
 	}
 	for j := 2; j < n; j++ {
@@ -634,8 +660,15 @@ func icwrs(n, k int, y []int, u []uint32) (uint32, uint32) {
 	if n < 2 || k <= 0 || len(y) < n || len(u) < k+2 {
 		return 0, 0
 	}
+	_ = u[k+1] // BCE
+	_ = y[n-1] // BCE
 	u[0] = 0
-	for kk := 1; kk <= k+1; kk++ {
+	kk := 1
+	for ; kk+1 <= k+1; kk += 2 {
+		u[kk] = uint32((kk << 1) - 1)
+		u[kk+1] = uint32(((kk + 1) << 1) - 1)
+	}
+	for ; kk <= k+1; kk++ {
 		u[kk] = uint32((kk << 1) - 1)
 	}
 	i, k1 := icwrs1(y[n-1])
@@ -784,6 +817,28 @@ func EncodePulsesScratch(y []int, n, k int, uBuf *[]uint32) uint32 {
 		return 0
 	}
 
+	var u []uint32
+	if uBuf != nil {
+		u = ensureUint32Slice(uBuf, k+2)
+	} else {
+		u = make([]uint32, k+2)
+	}
+	index, _ := icwrs(n, k, y, u)
+	return index
+}
+
+// encodePulsesFast is an internal fast path that skips sum-of-abs validation.
+// Only call when the pulse vector is known to be valid (e.g., from opPVQSearch).
+func encodePulsesFast(y []int, n, k int, uBuf *[]uint32) uint32 {
+	if n <= 0 || k < 0 {
+		return 0
+	}
+	if n == 1 {
+		if y[0] < 0 {
+			return 1
+		}
+		return 0
+	}
 	var u []uint32
 	if uBuf != nil {
 		u = ensureUint32Slice(uBuf, k+2)

@@ -8,7 +8,9 @@ package encoder
 
 import (
 	"errors"
+	"fmt"
 	"math"
+	"os"
 
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/silk"
@@ -54,6 +56,7 @@ type Encoder struct {
 	silkSideEncoder *silk.Encoder // For stereo side channel in hybrid mode
 	silkTrace       *silk.EncoderTrace
 	celtEncoder     *celt.Encoder
+	celtStatsHook   func(celt.CeltTargetStats)
 
 	// Configuration
 	mode       Mode
@@ -118,6 +121,15 @@ type Encoder struct {
 
 	// Audio scene analyzer (The "Brain")
 	analyzer *TonalityAnalysisState
+	// Last frame analysis info from RunAnalysis(), used by mode heuristics.
+	lastAnalysisInfo    AnalysisInfo
+	lastAnalysisValid   bool
+	lastAnalysisFresh   bool
+	prevLongSWBAutoMode Mode
+	prevSWB10AutoMode   Mode
+	swb10TransientScore int
+	prevSWB20AutoMode   Mode
+	swb20ModeHoldFrames int
 
 	inputBuffer []float64
 	delayBuffer []float64
@@ -139,9 +151,11 @@ type Encoder struct {
 	scratchRight      []float32 // Right channel deinterleave buffer
 	scratchMono       []float32 // Mono mix buffer (VAD)
 	scratchVADFlags   [silk.MaxFramesPerPacket]bool
+	scratchSideVAD    [silk.MaxFramesPerPacket]bool
 	scratchPacket     []byte    // Output packet buffer
 	scratchDelayedPCM []float64 // Delay-compensated CELT input
 	scratchDelayTail  []float64 // Snapshot of delay buffer tail
+	scratchQuantPCM   []float64 // LSB-depth quantized input
 }
 
 // NewEncoder creates a new unified Opus encoder.
@@ -186,6 +200,8 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		scratchRight:           make([]float32, 2880),
 		scratchMono:            make([]float32, 2880),
 		scratchPacket:          make([]byte, 1276),
+		prevSWB10AutoMode:      ModeCELT,
+		prevSWB20AutoMode:      ModeHybrid,
 	}
 }
 
@@ -202,6 +218,9 @@ func (e *Encoder) Mode() Mode {
 // SetBandwidth sets the target audio bandwidth.
 func (e *Encoder) SetBandwidth(bandwidth types.Bandwidth) {
 	e.bandwidth = bandwidth
+	if e.celtEncoder != nil {
+		e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
+	}
 }
 
 // Bandwidth returns the current bandwidth setting.
@@ -257,6 +276,12 @@ func (e *Encoder) Reset() {
 	if e.analyzer != nil {
 		e.analyzer.Reset()
 	}
+	e.lastAnalysisValid = false
+	e.lastAnalysisFresh = false
+	e.prevSWB10AutoMode = ModeCELT
+	e.swb10TransientScore = 0
+	e.prevSWB20AutoMode = ModeHybrid
+	e.swb20ModeHoldFrames = 0
 }
 
 // SetFEC enables or disables in-band Forward Error Correction.
@@ -423,7 +448,12 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	if len(pcm) != expectedLen {
 		return nil, ErrInvalidFrameSize
 	}
+	// Run Opus analysis on the original input frame (before top-level dc_reject
+	// and LSB quantization) to match libopus run_analysis ordering.
+	rawPCM := pcm
+	e.refreshFrameAnalysis(rawPCM, frameSize)
 	lookaheadSamples := 0
+	pcm = e.quantizeInputToLSBDepth(pcm)
 	pcm = e.dcReject(pcm, frameSize)
 	e.inputBuffer = append(e.inputBuffer, pcm...)
 	samplesNeeded := (frameSize * e.channels) + lookaheadSamples
@@ -436,7 +466,8 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 
 	suppressFrame, sendComfortNoise := e.shouldUseDTX(framePCM)
 	if suppressFrame {
-		e.inputBuffer = e.inputBuffer[frameEnd:]
+		remaining := copy(e.inputBuffer, e.inputBuffer[frameEnd:])
+		e.inputBuffer = e.inputBuffer[:remaining]
 		if sendComfortNoise {
 			return e.encodeComfortNoise(frameSize)
 		}
@@ -446,8 +477,93 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	signalHint := e.signalType
 	if signalHint == types.SignalAuto {
 		signalHint = e.autoSignalFromPCM(framePCM, frameSize)
+		// For long-frame SWB auto mode, use VAD probability to pick the
+		// SILK/hybrid-vs-CELT branch, with mild hysteresis to reduce flapping.
+		// Include an edge-energy cue so transient SWB content can leave CELT-only.
+		if e.mode == ModeAuto &&
+			frameSize > 960 &&
+			e.effectiveBandwidth() == types.BandwidthSuperwideband &&
+			e.lastAnalysisValid {
+			channels := e.channels
+			if channels < 1 {
+				channels = 1
+			}
+			var energy, diffEnergy float64
+			var prev float64
+			samples := frameSize
+			for i := 0; i < samples; i++ {
+				var s float64
+				if channels == 2 {
+					idx := i * 2
+					if idx+1 >= len(framePCM) {
+						break
+					}
+					s = 0.5 * (framePCM[idx] + framePCM[idx+1])
+				} else {
+					if i >= len(framePCM) {
+						break
+					}
+					s = framePCM[i]
+				}
+				energy += s * s
+				if i > 0 {
+					d := s - prev
+					diffEnergy += d * d
+				}
+				prev = s
+			}
+			edgeRatio := 0.0
+			if energy > 0 {
+				edgeRatio = diffEnergy / (energy + 1e-12)
+			}
+
+			vadProb := e.lastAnalysisInfo.VADProb
+			// Strong transient-like SWB content often needs hybrid coding even at
+			// moderate activity scores.
+			edgeVoice := edgeRatio >= 0.08 && e.lastAnalysisInfo.MusicProb >= 0.90
+			// Once in hybrid due transient evidence, require weaker evidence to stay
+			// there to avoid single-frame flapping on borderline blocks.
+			if !edgeVoice && e.prevLongSWBAutoMode == ModeHybrid && edgeRatio >= 0.06 {
+				edgeVoice = true
+			}
+			if edgeVoice {
+				signalHint = types.SignalVoice
+			} else {
+				if e.prevLongSWBAutoMode == ModeHybrid {
+					vadProb += 0.15
+				}
+				if vadProb >= 0.35 {
+					signalHint = types.SignalVoice
+				} else {
+					signalHint = types.SignalMusic
+				}
+			}
+		}
 	}
 	actualMode := e.selectMode(frameSize, signalHint)
+	if e.mode == ModeAuto &&
+		frameSize > 960 &&
+		e.effectiveBandwidth() == types.BandwidthSuperwideband &&
+		(actualMode == ModeHybrid || actualMode == ModeCELT) {
+		e.prevLongSWBAutoMode = actualMode
+	}
+	if e.mode == ModeAuto &&
+		frameSize == 480 &&
+		e.effectiveBandwidth() == types.BandwidthSuperwideband &&
+		(actualMode == ModeHybrid || actualMode == ModeCELT) {
+		e.prevSWB10AutoMode = actualMode
+	}
+	if e.mode == ModeAuto &&
+		frameSize == 960 &&
+		e.effectiveBandwidth() == types.BandwidthSuperwideband &&
+		(actualMode == ModeHybrid || actualMode == ModeCELT) {
+		if e.prevSWB20AutoMode == actualMode && e.swb20ModeHoldFrames > 0 {
+			e.swb20ModeHoldFrames++
+		} else {
+			e.prevSWB20AutoMode = actualMode
+			e.swb20ModeHoldFrames = 1
+		}
+	}
 
 	targetBitrate := e.computePacketSize(frameSize, actualMode)
 	if actualMode == ModeSILK {
@@ -475,8 +591,15 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 			frameData, err = e.encodeHybridFrame(framePCM, celtPCM, lookaheadSlice, frameSize)
 		}
 	case ModeCELT:
-		celtPCM := e.applyDelayCompensation(framePCM, frameSize)
+		// Match libopus application behavior:
+		// - Explicit CELT mode maps to restricted-celt (delay_compensation=0)
+		// - Auto-selected CELT uses audio application path (delay_compensation=Fs/250)
+		celtPCM := framePCM
+		if e.mode != ModeCELT {
+			celtPCM = e.applyDelayCompensation(framePCM, frameSize)
+		}
 		if frameSize > 960 {
+			// Long CELT packets are encoded as multi-frame packets.
 			packet, err = e.encodeCELTMultiFramePacket(celtPCM, frameSize)
 		} else {
 			frameData, err = e.encodeCELTFrame(celtPCM, frameSize)
@@ -487,7 +610,8 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	e.inputBuffer = e.inputBuffer[frameEnd:]
+	remaining := copy(e.inputBuffer, e.inputBuffer[frameEnd:])
+	e.inputBuffer = e.inputBuffer[:remaining]
 	if packet == nil {
 		stereo := e.channels == 2
 		packetBW := e.effectiveBandwidth()
@@ -532,7 +656,6 @@ func (e *Encoder) dcReject(in []float64, frameSize int) []float64 {
 	if fs <= 0 {
 		fs = 48000
 	}
-	// Match libopus dc_reject(): coef = 6.3f * cutoff_Hz / Fs (float math).
 	coef := float32(6.3) * float32(3) / float32(fs)
 	coef2 := float32(1.0) - coef
 	const verySmall = float32(1e-30)
@@ -564,6 +687,35 @@ func (e *Encoder) dcReject(in []float64, frameSize int) []float64 {
 	return out
 }
 
+func quantizeFloat64ToLSBDepthInPlace(samples []float64, depth int) {
+	if depth < 8 {
+		depth = 8
+	}
+	if depth > 24 {
+		depth = 24
+	}
+	scale := math.Ldexp(1.0, depth-1)
+	invScale := 1.0 / scale
+	for i, v := range samples {
+		x := float64(float32(v))
+		samples[i] = math.Floor(0.5+x*scale) * invScale
+	}
+}
+
+func (e *Encoder) quantizeInputToLSBDepth(pcm []float64) []float64 {
+	out := e.ensureQuantPCM(len(pcm))
+	copy(out, pcm)
+	quantizeFloat64ToLSBDepthInPlace(out, e.LSBDepth())
+	return out
+}
+
+func (e *Encoder) ensureQuantPCM(size int) []float64 {
+	if cap(e.scratchQuantPCM) < size {
+		e.scratchQuantPCM = make([]float64, size)
+	}
+	return e.scratchQuantPCM[:size]
+}
+
 func (e *Encoder) ensureDCPCM(size int) []float64 {
 	if cap(e.scratchDCPCM) < size {
 		e.scratchDCPCM = make([]float64, size)
@@ -576,6 +728,55 @@ func trimSilkTrailingZeros(frameData []byte) []byte {
 		frameData = frameData[:len(frameData)-1]
 	}
 	return frameData
+}
+
+func (e *Encoder) refreshFrameAnalysis(pcm []float64, frameSize int) {
+	e.lastAnalysisValid = false
+	e.lastAnalysisFresh = false
+	if e.analyzer == nil || frameSize <= 0 || len(pcm) == 0 {
+		return
+	}
+	pcm32 := e.scratchPCM32[:len(pcm)]
+	for i, v := range pcm {
+		pcm32[i] = float32(v)
+	}
+	// Keep analysis on float-domain samples to match opus_encode_float / opus_demo -f32.
+	info := e.analyzer.RunAnalysis(pcm32, frameSize, e.channels)
+	if !info.Valid {
+		return
+	}
+	e.lastAnalysisInfo = info
+	e.lastAnalysisValid = true
+	e.lastAnalysisFresh = true
+}
+
+func (e *Encoder) syncCELTAnalysisToCELT() {
+	if e.celtEncoder == nil {
+		return
+	}
+	if !e.lastAnalysisValid {
+		e.celtEncoder.SetAnalysisInfo(0, [19]uint8{}, 0, false)
+		return
+	}
+	if os.Getenv("GOPUS_TMP_ANALYSISDBG") == "1" {
+		frame := e.celtEncoder.FrameCount()
+		if frame >= 45 && frame <= 80 {
+			fmt.Fprintf(os.Stderr, "ANDBG frame=%d tonality=%.6f slope=%.6f music=%.6f vad=%.6f bw=%d\n",
+				frame,
+				e.lastAnalysisInfo.Tonality,
+				e.lastAnalysisInfo.TonalitySlope,
+				e.lastAnalysisInfo.MusicProb,
+				e.lastAnalysisInfo.VADProb,
+				e.lastAnalysisInfo.BandwidthIndex,
+			)
+		}
+	}
+	e.celtEncoder.SetAnalysisInfo(
+		e.lastAnalysisInfo.BandwidthIndex,
+		e.lastAnalysisInfo.LeakBoost,
+		float64(e.lastAnalysisInfo.TonalitySlope),
+		true,
+	)
 }
 
 func quantizeFloat32ToInt16InPlace(samples []float32) {
@@ -739,16 +940,26 @@ func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
 			return e.mode
 		}
 		bw := e.effectiveBandwidth()
+
+		// Fullband long frames in auto mode follow CELT-only path in libopus audio app.
+		if bw == types.BandwidthFullband {
+			return ModeCELT
+		}
 		// Respect explicit or analyzed signal hints.
 		switch signalHint {
 		case types.SignalVoice:
+			// In SWB long-frame auto mode, libopus only uses Hybrid or CELT.
+			// Avoid raw SILK packets in this lane.
+			if bw == types.BandwidthSuperwideband {
+				return ModeHybrid
+			}
 			return ModeSILK
 		case types.SignalMusic:
 			return ModeCELT
 		}
 		// In auto-signal mode for long frames, bias by bandwidth instead of the
 		// per-frame classifier to avoid unstable SILK/CELT switching.
-		if bw == types.BandwidthSuperwideband || bw == types.BandwidthFullband {
+		if bw == types.BandwidthSuperwideband {
 			return ModeCELT
 		}
 		return ModeSILK
@@ -761,7 +972,9 @@ func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
 	if e.channels > 0 {
 		perChanRate = e.bitrate / e.channels
 	}
-	if perChanRate >= 48000 && (bw == types.BandwidthSuperwideband || bw == types.BandwidthFullband) {
+	// Keep high-rate Fullband in CELT. For SWB 20ms auto mode, allow
+	// signal-driven Hybrid/CELT selection with hysteresis.
+	if perChanRate >= 48000 && (bw == types.BandwidthFullband || (bw == types.BandwidthSuperwideband && frameSize != 960 && frameSize != 480)) {
 		return ModeCELT
 	}
 
@@ -815,25 +1028,43 @@ func (e *Encoder) autoSignalFromPCM(pcm []float64, frameSize int) types.Signal {
 	if len(pcm) == 0 || frameSize <= 0 {
 		return types.SignalAuto
 	}
+	if !e.lastAnalysisFresh {
+		pcm32 := e.scratchPCM32[:len(pcm)]
+		for i, v := range pcm {
+			pcm32[i] = float32(v)
+		}
+		runAnalyzer := frameSize > 960
+		if !runAnalyzer && e.mode == ModeAuto && frameSize == 960 && e.effectiveBandwidth() == types.BandwidthSuperwideband {
+			runAnalyzer = true
+		}
+		if runAnalyzer && e.analyzer != nil {
+			info := e.analyzer.RunAnalysis(pcm32, frameSize, e.channels)
+			if info.Valid {
+				e.lastAnalysisInfo = info
+				e.lastAnalysisValid = true
+				e.lastAnalysisFresh = true
+			}
+		}
+	}
+
+	// Only trust clear decisions from analysis probabilities on long frames.
+	if frameSize > 960 && e.lastAnalysisValid {
+		if e.lastAnalysisInfo.MusicProb >= 0.65 {
+			return types.SignalMusic
+		}
+		if e.lastAnalysisInfo.MusicProb <= 0.60 {
+			return types.SignalVoice
+		}
+		return types.SignalAuto
+	}
+	swb10Auto := e.mode == ModeAuto && frameSize == 480 && e.effectiveBandwidth() == types.BandwidthSuperwideband
+	swb20Auto := e.mode == ModeAuto && frameSize == 960 && e.effectiveBandwidth() == types.BandwidthSuperwideband
 	pcm32 := e.scratchPCM32[:len(pcm)]
 	for i, v := range pcm {
 		pcm32[i] = float32(v)
 	}
-	if frameSize > 960 && e.analyzer != nil {
-		info := e.analyzer.RunAnalysis(pcm32, frameSize, e.channels)
-		if info.Valid {
-			// Only trust clear decisions for long-frame mode selection.
-			if info.MusicProb >= 0.65 {
-				return types.SignalMusic
-			}
-			if info.MusicProb <= 0.60 {
-				return types.SignalVoice
-			}
-			return types.SignalAuto
-		}
-	}
 	signalType, _ := classifySignal(pcm32)
-	if signalType == 0 {
+	if signalType == 0 && !swb10Auto && !swb20Auto {
 		return types.SignalVoice
 	}
 	channels := e.channels
@@ -871,6 +1102,81 @@ func (e *Encoder) autoSignalFromPCM(pcm []float64, frameSize int) types.Signal {
 		return types.SignalVoice
 	}
 	ratio := diffEnergy / (energy + 1e-12)
+	avgEnergy := energy / float64(samples)
+
+	// SWB 10ms transient gate.
+	// Keep CELT by default, but allow transition to Hybrid for sustained
+	// sparse/transient content where libopus tends to switch later in the run.
+	if swb10Auto {
+		if ratio >= 0.9 && avgEnergy <= 0.03 {
+			e.swb10TransientScore += 2
+		} else if ratio >= 0.5 && avgEnergy <= 0.015 {
+			e.swb10TransientScore++
+		} else {
+			e.swb10TransientScore--
+			if e.swb10TransientScore < 0 {
+				e.swb10TransientScore = 0
+			}
+		}
+		if e.swb10TransientScore > 100 {
+			e.swb10TransientScore = 100
+		}
+		desired := e.prevSWB10AutoMode
+		if desired != ModeCELT && desired != ModeHybrid {
+			desired = ModeCELT
+		}
+		if e.swb10TransientScore >= 30 {
+			desired = ModeHybrid
+		} else if e.swb10TransientScore <= 10 {
+			desired = ModeCELT
+		}
+		if desired == ModeHybrid {
+			return types.SignalVoice
+		}
+		return types.SignalMusic
+	}
+
+	// SWB 20ms auto-mode hysteresis.
+	// This mirrors libopus-style transition penalties by requiring sustained
+	// evidence before switching between CELT and Hybrid.
+	if swb20Auto && e.lastAnalysisValid {
+		vad := float64(e.lastAnalysisInfo.VADProb)
+		music := float64(e.lastAnalysisInfo.MusicProb)
+		strongVoice := ratio >= 1.0 && vad >= 0.16
+		strongMusic := (vad <= 0.25 && ratio <= 0.05) ||
+			(ratio <= 0.06 && vad >= 0.42 && vad <= 0.60 && music <= 0.75)
+
+		prev := e.prevSWB20AutoMode
+		if prev != ModeHybrid && prev != ModeCELT {
+			prev = ModeHybrid
+		}
+		desired := prev
+		if e.swb20ModeHoldFrames == 0 {
+			// Bootstrap SWB20 auto mode from the first analyzed frame.
+			if vad <= 0.27 && ratio <= 0.06 {
+				desired = ModeCELT
+			} else {
+				desired = ModeHybrid
+			}
+		} else if prev == ModeHybrid {
+			if strongMusic {
+				desired = ModeCELT
+			}
+		} else if strongVoice {
+			desired = ModeHybrid
+		}
+
+		// Require ~340 ms of stable mode before allowing a switch.
+		if e.swb20ModeHoldFrames > 0 && desired != prev && e.swb20ModeHoldFrames < 17 {
+			desired = prev
+		}
+
+		if desired == ModeHybrid {
+			return types.SignalVoice
+		}
+		return types.SignalMusic
+	}
+
 	if ratio > 0.25 {
 		return types.SignalMusic
 	}
@@ -1002,20 +1308,21 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 			mono[i] = (left[i] + right[i]) * 0.5
 		}
 		vadFlags, _ := e.computeSilkVADFlags(mono, fsKHz)
+		var sideVADFlags []bool
 		e.silkEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.silkVAD.InputQualityBandsQ15)
 		if e.silkSideEncoder != nil {
 			// Side channel has different activity/tilt than mid; keep a separate VAD state.
 			for i := 0; i < len(left); i++ {
 				mono[i] = (left[i] - right[i]) * 0.5
 			}
-			_ = e.computeSilkVADSide(mono, len(mono), fsKHz)
+			sideVADFlags, _ = e.computeSilkVADSideFlags(mono, fsKHz)
 			if e.silkVADSide != nil {
 				e.silkSideEncoder.SetVADState(e.silkVADSide.SpeechActivityQ8, e.silkVADSide.InputTiltQ15, e.silkVADSide.InputQualityBandsQ15)
 			} else {
 				e.silkSideEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.silkVAD.InputQualityBandsQ15)
 			}
 		}
-		return silk.EncodeStereoWithEncoderVADFlags(e.silkEncoder, e.silkSideEncoder, left, right, e.silkBandwidth(), vadFlags)
+		return silk.EncodeStereoWithEncoderVADFlagsWithSide(e.silkEncoder, e.silkSideEncoder, left, right, e.silkBandwidth(), vadFlags, sideVADFlags)
 	}
 	var lookaheadOut []float32
 	if targetRate != 48000 {
@@ -1098,8 +1405,11 @@ func (e *Encoder) encodeCELTFrame(pcm []float64, frameSize int) ([]byte, error) 
 
 func (e *Encoder) encodeCELTFrameWithBitrate(pcm []float64, frameSize int, bitrate int) ([]byte, error) {
 	e.ensureCELTEncoder()
+	e.syncCELTAnalysisToCELT()
 	e.celtEncoder.SetBitrate(bitrate)
+	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 	e.celtEncoder.SetHybrid(false)
+	e.celtEncoder.SetDCRejectEnabled(false)
 	e.celtEncoder.SetPacketLoss(e.packetLoss)
 	e.celtEncoder.SetLSBDepth(e.lsbDepth)
 	switch e.bitrateMode {
@@ -1194,16 +1504,9 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 		subPCM := pcm[start:end]
 		subCELTPCM := celtPCM[start:end]
 
-		var subLookahead []float64
-		if i < frameCount-1 {
-			nextStart := end
-			nextEnd := nextStart + frameStride
-			if nextEnd <= len(pcm) {
-				subLookahead = pcm[nextStart:nextEnd]
-			}
-		} else {
-			subLookahead = lookahead
-		}
+		// Hybrid subframes in multi-frame packets should be encoded exactly like
+		// independent 20ms frames. Do not leak future subframe samples as lookahead.
+		subLookahead := lookahead
 
 		frameData, err := e.encodeHybridFrame(subPCM, subCELTPCM, subLookahead, 960)
 		if err != nil {
@@ -1309,6 +1612,13 @@ func (e *Encoder) alignSilkMonoInput(in []float32) []float32 {
 // updateOpusVAD updates the Opus-level VAD activity state from the tonality analyzer.
 // This mirrors opus_encoder.c behavior where SILK VAD is suppressed if Opus VAD is inactive.
 func (e *Encoder) updateOpusVAD(pcm []float64, frameSize int) {
+	if e.lastAnalysisFresh && e.lastAnalysisValid {
+		e.lastAnalysisFresh = false
+		e.lastOpusVADProb = e.lastAnalysisInfo.VADProb
+		e.lastOpusVADValid = true
+		e.lastOpusVADActive = e.lastAnalysisInfo.VADProb >= DTXActivityThreshold
+		return
+	}
 	if e.analyzer == nil || frameSize <= 0 || len(pcm) == 0 {
 		e.lastOpusVADValid = false
 		e.lastOpusVADActive = true
@@ -1329,22 +1639,14 @@ func (e *Encoder) updateOpusVAD(pcm []float64, frameSize int) {
 	e.lastOpusVADActive = info.VADProb >= DTXActivityThreshold
 }
 
-func computeSilkVADWithState(state *VADState, mono []float32, frameSamples, fsKHz int, opusActive, opusValid bool) (int, bool) {
+func computeSilkVADWithState(state *VADState, mono []float32, frameSamples, fsKHz int) (int, bool) {
 	if state == nil || frameSamples <= 0 || fsKHz <= 0 {
 		return 0, false
 	}
 	if len(mono) < frameSamples {
 		return 0, false
 	}
-	activityQ8, active := state.GetSpeechActivity(mono, frameSamples, fsKHz)
-	if opusValid && !opusActive {
-		if activityQ8 >= speechActivityThresholdQ8 {
-			activityQ8 = speechActivityThresholdQ8 - 1
-			state.SpeechActivityQ8 = activityQ8
-		}
-		active = false
-	}
-	return activityQ8, active
+	return state.GetSpeechActivity(mono, frameSamples, fsKHz)
 }
 
 func (e *Encoder) computeSilkVAD(mono []float32, frameSamples, fsKHz int) bool {
@@ -1353,7 +1655,7 @@ func (e *Encoder) computeSilkVAD(mono []float32, frameSamples, fsKHz int) bool {
 		return false
 	}
 	e.ensureSilkVAD()
-	activityQ8, active := computeSilkVADWithState(e.silkVAD, mono, frameSamples, fsKHz, e.lastOpusVADActive, e.lastOpusVADValid)
+	activityQ8, active := computeSilkVADWithState(e.silkVAD, mono, frameSamples, fsKHz)
 	e.lastVADActivityQ8 = activityQ8
 	e.lastVADInputTiltQ15 = e.silkVAD.InputTiltQ15
 	e.lastVADInputQualityBandsQ15 = e.silkVAD.InputQualityBandsQ15
@@ -1367,7 +1669,7 @@ func (e *Encoder) computeSilkVADSide(mono []float32, frameSamples, fsKHz int) bo
 		return false
 	}
 	e.ensureSilkVADSide()
-	activityQ8, active := computeSilkVADWithState(e.silkVADSide, mono, frameSamples, fsKHz, e.lastOpusVADActive, e.lastOpusVADValid)
+	activityQ8, active := computeSilkVADWithState(e.silkVADSide, mono, frameSamples, fsKHz)
 	_ = activityQ8
 	return active
 }
@@ -1412,6 +1714,24 @@ func (e *Encoder) computeSilkVADFlags(pcm []float32, fsKHz int) ([]bool, int) {
 	return flags, nFrames
 }
 
+func (e *Encoder) computeSilkVADSideFlags(pcm []float32, fsKHz int) ([]bool, int) {
+	frameSamples, nFrames := computeSilkFrameLayout(len(pcm), fsKHz)
+	if nFrames == 0 {
+		return nil, 0
+	}
+	flags := e.scratchSideVAD[:nFrames]
+	for i := 0; i < nFrames; i++ {
+		start := i * frameSamples
+		end := start + frameSamples
+		if end > len(pcm) {
+			end = len(pcm)
+		}
+		framePCM := pcm[start:end]
+		flags[i] = e.computeSilkVADSide(framePCM, len(framePCM), fsKHz)
+	}
+	return flags, nFrames
+}
+
 func (e *Encoder) ensureSilkResampled(size int) []float32 {
 	if size <= 0 {
 		return nil
@@ -1437,9 +1757,13 @@ func (e *Encoder) ensureCELTEncoder() {
 	if e.celtEncoder == nil {
 		e.celtEncoder = celt.NewEncoder(e.channels)
 		e.celtEncoder.SetComplexity(e.complexity)
+		e.celtEncoder.SetTargetStatsHook(e.celtStatsHook)
 		// Opus encoder already applies dc_reject at the top level.
 		e.celtEncoder.SetDCRejectEnabled(false)
+		// Opus encoder already applies CELT delay compensation at the top level.
+		e.celtEncoder.SetDelayCompensationEnabled(false)
 	}
+	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 }
 
 // silkBandwidth converts the Opus bandwidth to SILK bandwidth.
@@ -1519,9 +1843,21 @@ func (e *Encoder) SetSilkTrace(trace *silk.EncoderTrace) {
 	e.silkEncoder.SetTrace(e.silkTrace)
 }
 
+// SetCELTTargetStatsHook installs a callback for per-frame CELT VBR target diagnostics.
+// Only applies when the CELT encoder is active.
+func (e *Encoder) SetCELTTargetStatsHook(fn func(celt.CeltTargetStats)) {
+	e.celtStatsHook = fn
+	if e.celtEncoder != nil {
+		e.celtEncoder.SetTargetStatsHook(fn)
+	}
+}
+
 // SetMaxBandwidth sets the maximum bandwidth limit.
 func (e *Encoder) SetMaxBandwidth(bw types.Bandwidth) {
 	e.maxBandwidth = bw
+	if e.celtEncoder != nil {
+		e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
+	}
 }
 
 // MaxBandwidth returns the maximum bandwidth limit.

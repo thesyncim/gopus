@@ -68,6 +68,33 @@ type HybridState struct {
 
 	// prevDecodeOnlyMiddle tracks the previous mid-only (no side) decision.
 	prevDecodeOnlyMiddle bool
+
+	// --- Scratch buffers for zero-allocation hybrid encoding ---
+
+	// rangeEncoder is reused across frames to avoid heap allocation.
+	rangeEncoder rangecoding.Encoder
+
+	// scratchPacket is the shared range encoder output buffer.
+	scratchPacket [maxHybridPacketSize]byte
+
+	// Lookahead resampling scratch buffers.
+	scratchLookahead32   []float32 // float64 -> float32 conversion
+	scratchSilkLookahead []float32 // resampled lookahead output
+	scratchLaLeft        []float32 // deinterleaved left lookahead
+	scratchLaRight       []float32 // deinterleaved right lookahead
+	scratchLaOutLeft     []float32 // resampled left lookahead
+	scratchLaOutRight    []float32 // resampled right lookahead
+
+	// Energy tracking scratch buffers.
+	scratchBandLogE2  []float64 // bandLogE2 for transient analysis
+	scratchPrevEnergy []float64 // copy of prev energy
+	scratchNextEnergy []float64 // next energy for state update
+
+	// MDCT scratch buffers for computeMDCTForHybridScratch.
+	scratchMDCTInput  []float64 // overlap+samples assembly buffer
+	scratchMDCTResult []float64 // combined L+R MDCT output
+	scratchDeintLeft  []float64 // deinterleaved left channel
+	scratchDeintRight []float64 // deinterleaved right channel
 }
 
 // encodeHybridFrame encodes a frame using combined SILK and CELT.
@@ -86,6 +113,8 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, celtPCM []float64, lookahead 
 		e.ensureSILKSideEncoder()
 	}
 	e.ensureCELTEncoder()
+	e.syncCELTAnalysisToCELT()
+	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 
 	// Initialize hybrid state if needed
 	if e.hybridState == nil {
@@ -154,9 +183,9 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, celtPCM []float64, lookahead 
 		maxTargetBytes = maxHybridPacketSize - 1
 	}
 
-	// Initialize shared range encoder
-	buf := make([]byte, maxHybridPacketSize)
-	re := &rangecoding.Encoder{}
+	// Initialize shared range encoder (use scratch packet buffer from HybridState)
+	buf := e.hybridState.scratchPacket[:]
+	re := &e.hybridState.rangeEncoder
 	re.Init(buf)
 	if e.bitrateMode == ModeCBR {
 		re.Shrink(uint32(maxTargetBytes))
@@ -170,31 +199,52 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, celtPCM []float64, lookahead 
 	// Resample lookahead if available (save/restore state)
 	var silkLookahead []float32
 	if len(lookahead) > 0 {
-		// Create temp buffer for float32 lookahead
-		// reusing scratch if possible? No, lookahead is small
-		lookahead32 := make([]float32, len(lookahead))
+		// Convert to float32 using scratch buffer
+		needed := len(lookahead)
+		if cap(e.hybridState.scratchLookahead32) < needed {
+			e.hybridState.scratchLookahead32 = make([]float32, needed)
+		}
+		lookahead32 := e.hybridState.scratchLookahead32[:needed]
 		for i, v := range lookahead {
 			lookahead32[i] = float32(v)
 		}
 
 		targetLaSamples := len(lookahead) / 3
-		silkLookahead = make([]float32, targetLaSamples*e.channels)
+		neededOut := targetLaSamples * e.channels
+		if cap(e.hybridState.scratchSilkLookahead) < neededOut {
+			e.hybridState.scratchSilkLookahead = make([]float32, neededOut)
+		}
+		silkLookahead = e.hybridState.scratchSilkLookahead[:neededOut]
 
 		if e.channels == 1 {
 			state := e.silkResampler.State()
 			e.silkResampler.ProcessInto(lookahead32, silkLookahead)
 			e.silkResampler.SetState(state)
 		} else {
-			// Stereo lookahead resampling
-			leftLa := make([]float32, len(lookahead32)/2)
-			rightLa := make([]float32, len(lookahead32)/2)
-			for i := 0; i < len(leftLa); i++ {
+			// Stereo lookahead resampling with scratch buffers
+			halfLen := len(lookahead32) / 2
+			if cap(e.hybridState.scratchLaLeft) < halfLen {
+				e.hybridState.scratchLaLeft = make([]float32, halfLen)
+			}
+			if cap(e.hybridState.scratchLaRight) < halfLen {
+				e.hybridState.scratchLaRight = make([]float32, halfLen)
+			}
+			leftLa := e.hybridState.scratchLaLeft[:halfLen]
+			rightLa := e.hybridState.scratchLaRight[:halfLen]
+			for i := 0; i < halfLen; i++ {
 				leftLa[i] = lookahead32[i*2]
 				rightLa[i] = lookahead32[i*2+1]
 			}
 
-			leftOut := make([]float32, targetLaSamples/2)
-			rightOut := make([]float32, targetLaSamples/2)
+			halfOut := targetLaSamples / 2
+			if cap(e.hybridState.scratchLaOutLeft) < halfOut {
+				e.hybridState.scratchLaOutLeft = make([]float32, halfOut)
+			}
+			if cap(e.hybridState.scratchLaOutRight) < halfOut {
+				e.hybridState.scratchLaOutRight = make([]float32, halfOut)
+			}
+			leftOut := e.hybridState.scratchLaOutLeft[:halfOut]
+			rightOut := e.hybridState.scratchLaOutRight[:halfOut]
 
 			stateL := e.silkResampler.State()
 			stateR := e.silkResamplerRight.State()
@@ -204,7 +254,7 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, celtPCM []float64, lookahead 
 			e.silkResamplerRight.SetState(stateR)
 
 			// Interleave into silkLookahead
-			for i := 0; i < targetLaSamples/2; i++ {
+			for i := 0; i < halfOut; i++ {
 				silkLookahead[i*2] = leftOut[i]
 				silkLookahead[i*2+1] = rightOut[i]
 			}
@@ -504,16 +554,6 @@ func (e *Encoder) downsample48to16Hybrid(samples []float64, frameSize int) []flo
 		return nil
 	}
 
-	// Convert input to float32 using the shared scratch buffer.
-	totalSamples := frameSize * e.channels
-	if totalSamples > len(samples) {
-		totalSamples = len(samples)
-	}
-	pcm32 := e.scratchPCM32[:totalSamples]
-	for i := 0; i < totalSamples; i++ {
-		pcm32[i] = float32(samples[i])
-	}
-
 	targetSamples := frameSize / 3 // 48kHz -> 16kHz
 	if targetSamples <= 0 {
 		return nil
@@ -522,17 +562,37 @@ func (e *Encoder) downsample48to16Hybrid(samples []float64, frameSize int) []flo
 	e.ensureSILKResampler(16000)
 
 	if e.channels == 1 {
+		// Mono: convert float64 -> float32 into scratch buffer.
+		if frameSize > len(samples) {
+			frameSize = len(samples)
+		}
+		pcm32 := e.scratchPCM32[:frameSize]
+		_ = pcm32[frameSize-1]   // BCE hint
+		_ = samples[frameSize-1] // BCE hint
+		for i := 0; i < frameSize; i++ {
+			pcm32[i] = float32(samples[i])
+		}
 		out := e.ensureSilkResampled(targetSamples)
-		n := e.silkResampler.ProcessInto(pcm32[:frameSize], out)
+		n := e.silkResampler.ProcessInto(pcm32, out)
 		return out[:n]
 	}
 
-	// Stereo: deinterleave, resample per channel, then interleave.
+	// Stereo: convert float64 -> float32 and deinterleave in a single pass.
+	// This avoids a separate full-buffer conversion + separate deinterleave loop.
+	totalSamples := frameSize * 2
+	if totalSamples > len(samples) {
+		totalSamples = len(samples)
+		frameSize = totalSamples / 2
+	}
 	left := e.scratchLeft[:frameSize]
 	right := e.scratchRight[:frameSize]
+	// Trim samples to exact stereo length for BCE elimination.
+	stereoSamples := samples[:frameSize*2]
 	for i := 0; i < frameSize; i++ {
-		left[i] = pcm32[i*2]
-		right[i] = pcm32[i*2+1]
+		// Use two-element sub-slice to prove both accesses in bounds with one check.
+		pair := stereoSamples[i*2 : i*2+2 : i*2+2]
+		left[i] = float32(pair[0])
+		right[i] = float32(pair[1])
 	}
 
 	leftOut := e.ensureSilkResampled(targetSamples)
@@ -548,9 +608,13 @@ func (e *Encoder) downsample48to16Hybrid(samples []float64, frameSize int) []flo
 	}
 
 	interleaved := e.scratchPCM32[:n*2]
+	leftOut = leftOut[:n]
+	rightOut = rightOut[:n]
 	for i := 0; i < n; i++ {
-		interleaved[i*2] = leftOut[i]
-		interleaved[i*2+1] = rightOut[i]
+		// Use two-element sub-slice to prove both accesses in bounds with one check.
+		pair := interleaved[i*2 : i*2+2 : i*2+2]
+		pair[0] = leftOut[i]
+		pair[1] = rightOut[i]
 	}
 
 	return interleaved
@@ -1010,12 +1074,16 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 	// Set hybrid mode flag on CELT encoder
 	e.celtEncoder.SetHybrid(true)
 
+	// Ensure CELT scratch buffers are properly sized for this frame.
+	// The hybrid path bypasses EncodeFrame, so we must initialize them here.
+	e.celtEncoder.EnsureScratch(frameSize)
+
 	// Get mode configuration
 	mode := celt.GetModeConfig(frameSize)
 	lm := mode.LM
 
-	// Apply pre-emphasis with signal scaling
-	preemph := e.celtEncoder.ApplyPreemphasisWithScaling(pcm)
+	// Apply pre-emphasis with signal scaling (zero-alloc scratch version)
+	preemph := e.celtEncoder.ApplyPreemphasisWithScalingScratch(pcm)
 
 	// Get the range encoder
 	re := e.celtEncoder.RangeEncoder()
@@ -1051,7 +1119,7 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 	transient, tfEstimate, toneFreq, toneishness, shortBlocks, bandLogE2 := e.celtEncoder.TransientAnalysisHybrid(preemph, frameSize, nbBands, lm)
 
 	// Compute MDCT with overlap history using the selected block size.
-	mdctCoeffs := computeMDCTForHybrid(preemph, frameSize, e.channels, e.celtEncoder.OverlapBuffer(), shortBlocks)
+	mdctCoeffs := computeMDCTForHybridScratch(preemph, frameSize, e.channels, e.celtEncoder.OverlapBuffer(), shortBlocks, e.hybridState, e.celtEncoder)
 	if len(mdctCoeffs) == 0 {
 		return
 	}
@@ -1060,7 +1128,10 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 	energies := e.celtEncoder.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
 	e.celtEncoder.RoundFloat64ToFloat32(energies)
 	if bandLogE2 == nil {
-		bandLogE2 = make([]float64, len(energies))
+		if cap(e.hybridState.scratchBandLogE2) < len(energies) {
+			e.hybridState.scratchBandLogE2 = make([]float64, len(energies))
+		}
+		bandLogE2 = e.hybridState.scratchBandLogE2[:len(energies)]
 		copy(bandLogE2, energies)
 	}
 
@@ -1114,8 +1185,8 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 		shortBlocks = 1
 	}
 
-	// Encode intra flag
-	intra := e.celtEncoder.IsIntraFrame()
+	// Encode intra flag using libopus-style coarse-energy two-pass decision.
+	intra := e.celtEncoder.DecideIntraMode(energies, nbBands, lm)
 	if re.Tell()+3 <= totalBits {
 		if intra {
 			re.EncodeBit(1, 3)
@@ -1127,7 +1198,11 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 	}
 
 	// Encode coarse energy
-	prevEnergy := make([]float64, len(e.celtEncoder.PrevEnergy()))
+	prevEnergyLen := len(e.celtEncoder.PrevEnergy())
+	if cap(e.hybridState.scratchPrevEnergy) < prevEnergyLen {
+		e.hybridState.scratchPrevEnergy = make([]float64, prevEnergyLen)
+	}
+	prevEnergy := e.hybridState.scratchPrevEnergy[:prevEnergyLen]
 	copy(prevEnergy, e.celtEncoder.PrevEnergy())
 	oldBandE := prevEnergy
 	if maxLen := nbBands * e.channels; maxLen > 0 && len(oldBandE) > maxLen {
@@ -1371,7 +1446,14 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 	e.celtEncoder.EncodeEnergyFinaliseRange(energies, quantizedEnergies, start, end, allocResult.FineBits, allocResult.FinePriority, bitsLeft)
 
 	// Update state: prev energy, RNG, frame count, transient history.
-	nextEnergy := make([]float64, len(prevEnergy))
+	if cap(e.hybridState.scratchNextEnergy) < len(prevEnergy) {
+		e.hybridState.scratchNextEnergy = make([]float64, len(prevEnergy))
+	}
+	nextEnergy := e.hybridState.scratchNextEnergy[:len(prevEnergy)]
+	// Zero-fill since we only populate bands start..end
+	for i := range nextEnergy {
+		nextEnergy[i] = 0
+	}
 	for c := 0; c < e.channels; c++ {
 		base := c * celt.MaxBands
 		for band := start; band < end; band++ {
@@ -1460,8 +1542,10 @@ func (e *Encoder) matchCrossoverEnergy(energies []float64, startBand int) []floa
 	return energies
 }
 
-// computeMDCTForHybrid computes MDCT for hybrid mode encoding.
-func computeMDCTForHybrid(samples []float64, frameSize, channels int, history []float64, shortBlocks int) []float64 {
+// computeMDCTForHybridScratch computes MDCT for hybrid mode encoding using scratch buffers.
+// ce provides the CELT encoder's scratch buffers for the MDCT transform.
+// hs provides hybrid-specific scratch buffers for deinterleaving and assembly.
+func computeMDCTForHybridScratch(samples []float64, frameSize, channels int, history []float64, shortBlocks int, hs *HybridState, ce *celt.Encoder) []float64 {
 	if len(samples) == 0 {
 		return nil
 	}
@@ -1473,41 +1557,94 @@ func computeMDCTForHybrid(samples []float64, frameSize, channels int, history []
 
 	if channels == 1 {
 		if len(history) >= overlap {
-			return celt.ComputeMDCTWithHistory(samples, history[:overlap], shortBlocks)
+			// Use scratch for the input assembly buffer
+			needed := len(samples) + overlap
+			if cap(hs.scratchMDCTInput) < needed {
+				hs.scratchMDCTInput = make([]float64, needed)
+			}
+			return ce.ComputeMDCTWithHistoryScratch(hs.scratchMDCTInput[:needed], samples, history[:overlap], shortBlocks)
 		}
-		input := append(make([]float64, overlap), samples...)
+		// No history: zero-pad and compute
+		needed := overlap + len(samples)
+		if cap(hs.scratchMDCTInput) < needed {
+			hs.scratchMDCTInput = make([]float64, needed)
+		}
+		input := hs.scratchMDCTInput[:needed]
+		for i := 0; i < overlap; i++ {
+			input[i] = 0
+		}
+		copy(input[overlap:], samples)
 		if shortBlocks > 1 {
-			return celt.MDCTShort(input, shortBlocks)
+			return ce.MDCTShortScratch(input, shortBlocks)
 		}
-		return celt.MDCT(input)
+		return ce.MDCTScratch(input)
 	}
 
-	// Stereo: MDCT each channel separately (L/R)
-	left, right := celt.DeinterleaveStereo(samples)
+	// Stereo: MDCT each channel separately (L/R) using scratch deinterleave buffers
+	n := len(samples) / 2
+	if cap(hs.scratchDeintLeft) < n {
+		hs.scratchDeintLeft = make([]float64, n)
+	}
+	if cap(hs.scratchDeintRight) < n {
+		hs.scratchDeintRight = make([]float64, n)
+	}
+	left := hs.scratchDeintLeft[:n]
+	right := hs.scratchDeintRight[:n]
+	celt.DeinterleaveStereoInto(samples, left, right)
 
 	if len(history) >= overlap*2 {
-		mdctLeft := celt.ComputeMDCTWithHistory(left, history[:overlap], shortBlocks)
-		mdctRight := celt.ComputeMDCTWithHistory(right, history[overlap:overlap*2], shortBlocks)
-		result := make([]float64, len(mdctLeft)+len(mdctRight))
+		// Use L/R scratch methods so left result survives right-channel call
+		mdctLeft := ce.ComputeMDCTWithHistoryScratchStereoL(left, history[:overlap], shortBlocks)
+		mdctRight := ce.ComputeMDCTWithHistoryScratchStereoR(right, history[overlap:overlap*2], shortBlocks)
+		// Combine into result scratch
+		resultLen := len(mdctLeft) + len(mdctRight)
+		if cap(hs.scratchMDCTResult) < resultLen {
+			hs.scratchMDCTResult = make([]float64, resultLen)
+		}
+		result := hs.scratchMDCTResult[:resultLen]
 		copy(result[:len(mdctLeft)], mdctLeft)
 		copy(result[len(mdctLeft):], mdctRight)
 		return result
 	}
 
-	leftInput := append(make([]float64, overlap), left...)
-	rightInput := append(make([]float64, overlap), right...)
+	// No history: zero-pad and compute each channel using L/R scratch methods
+	needed := overlap + n
+	if cap(hs.scratchMDCTInput) < needed {
+		hs.scratchMDCTInput = make([]float64, needed)
+	}
+	input := hs.scratchMDCTInput[:needed]
+	// Left channel
+	for i := 0; i < overlap; i++ {
+		input[i] = 0
+	}
+	copy(input[overlap:], left)
 	var mdctLeft, mdctRight []float64
 	if shortBlocks > 1 {
-		mdctLeft = celt.MDCTShort(leftInput, shortBlocks)
-		mdctRight = celt.MDCTShort(rightInput, shortBlocks)
+		mdctLeft = ce.MDCTShortScratch(input, shortBlocks)
 	} else {
-		mdctLeft = celt.MDCT(leftInput)
-		mdctRight = celt.MDCT(rightInput)
+		mdctLeft = ce.MDCTScratch(input)
 	}
+	// Copy left result before computing right (they share the same mdctCoeffs scratch)
+	leftLen := len(mdctLeft)
+	rightLen := n // will be same size
+	resultLen := leftLen + rightLen
+	if cap(hs.scratchMDCTResult) < resultLen {
+		hs.scratchMDCTResult = make([]float64, resultLen)
+	}
+	result := hs.scratchMDCTResult[:resultLen]
+	copy(result[:leftLen], mdctLeft)
 
-	result := make([]float64, len(mdctLeft)+len(mdctRight))
-	copy(result[:len(mdctLeft)], mdctLeft)
-	copy(result[len(mdctLeft):], mdctRight)
+	// Right channel
+	for i := 0; i < overlap; i++ {
+		input[i] = 0
+	}
+	copy(input[overlap:], right)
+	if shortBlocks > 1 {
+		mdctRight = ce.MDCTShortScratch(input, shortBlocks)
+	} else {
+		mdctRight = ce.MDCTScratch(input)
+	}
+	copy(result[leftLen:], mdctRight)
 
 	return result
 }

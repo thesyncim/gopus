@@ -110,6 +110,14 @@ func getMDCTTrigF32(n int) []float32 {
 		return trig
 	}
 
+	// Use exact libopus twiddle segment for 48kHz 10ms long-block MDCT.
+	if n == 960 {
+		trig := make([]float32, len(mdctTrig960F32Static))
+		copy(trig, mdctTrig960F32Static[:])
+		mdctTrigCacheF32[n] = trig
+		return trig
+	}
+
 	n2 := n / 2
 	trig := make([]float32, n2)
 	for i := 0; i < n2; i++ {

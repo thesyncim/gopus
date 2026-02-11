@@ -106,6 +106,10 @@ type VADState struct {
 
 	// Previous activity decision for hysteresis
 	PrevActivity bool
+
+	// Scratch buffers for zero-allocation processing
+	scratchInput []int16
+	scratchX     []int16
 }
 
 // VADTrace captures intermediate values for VAD parity debugging.
@@ -213,7 +217,10 @@ func (v *VADState) getSpeechActivity(pcm []float32, frameLength int, fsKHz int, 
 	}
 
 	// Convert float32 samples to int16 for fixed-point processing
-	input := make([]int16, frameLength)
+	if cap(v.scratchInput) < frameLength {
+		v.scratchInput = make([]int16, frameLength)
+	}
+	input := v.scratchInput[:frameLength]
 	for i := 0; i < frameLength; i++ {
 		// Clamp to int16 range
 		sample := float64(pcm[i]) * 32768.0
@@ -234,7 +241,11 @@ func (v *VADState) getSpeechActivity(pcm []float32, frameLength int, fsKHz int, 
 		decimatedFrameLength + decimatedFrameLength2 + decimatedFrameLength + decimatedFrameLength2,
 	}
 	xLen := xOffset[3] + decimatedFrameLength1
-	X := make([]int16, xLen)
+	if cap(v.scratchX) < xLen {
+		v.scratchX = make([]int16, xLen)
+	}
+	X := v.scratchX[:xLen]
+	clear(X)
 
 	// Filter and decimate into 4 bands
 
@@ -533,40 +544,63 @@ func anaFiltBank1(in []int16, S *[2]int32, outL, outH []int16, N int) {
 		return
 	}
 
-	// Internal variables and state are in Q10 format
+	// Clamp N2 to available buffer lengths.
+	if 2*N2 > len(in) {
+		N2 = len(in) / 2
+	}
+	if N2 > len(outL) {
+		N2 = len(outL)
+	}
+	if N2 > len(outH) {
+		N2 = len(outH)
+	}
+	if N2 == 0 {
+		return
+	}
+
+	// Trim slices to exact required lengths for BCE.
+	in = in[:2*N2]
+	outL = outL[:N2]
+	outH = outH[:N2]
+
+	// Cache allpass coefficients as int64 to avoid repeated conversions.
+	coefEven := int64(int16(aFB1_21))
+	coefOdd := int64(int16(aFB1_20))
+
+	s0, s1 := S[0], S[1]
+
+	// Internal variables and state are in Q10 format.
+	// Process pairs from the input slice with stepping index k.
 	for k := 0; k < N2; k++ {
-		if 2*k >= len(in) || 2*k+1 >= len(in) {
-			break
-		}
+		// Access pair at [2*k, 2*k+1] using a two-element sub-slice for BCE.
+		pair := in[2*k : 2*k+2 : 2*k+2]
 
 		// Convert to Q10
-		in32 := int32(in[2*k]) << 10
+		in32 := int32(pair[0]) << 10
 
 		// All-pass section for even input sample
-		Y := in32 - S[0]
-		X := smlawb(Y, Y, int32(aFB1_21))
-		out1 := S[0] + X
-		S[0] = in32 + X
+		Y := in32 - s0
+		X := Y + int32((int64(Y)*coefEven)>>16)
+		out1 := s0 + X
+		s0 = in32 + X
 
 		// Convert to Q10
-		in32 = int32(in[2*k+1]) << 10
+		in32 = int32(pair[1]) << 10
 
 		// All-pass section for odd input sample
-		Y = in32 - S[1]
-		X = smulwb(Y, int32(aFB1_20))
-		out2 := S[1] + X
-		S[1] = in32 + X
+		Y = in32 - s1
+		X = int32((int64(Y) * coefOdd) >> 16)
+		out2 := s1 + X
+		s1 = in32 + X
 
 		// Add/subtract, convert back to int16 and store
-		if k < len(outL) {
-			sum := rshiftRound(out2+out1, 11)
-			outL[k] = satInt16(sum)
-		}
-		if k < len(outH) {
-			diff := rshiftRound(out2-out1, 11)
-			outH[k] = satInt16(diff)
-		}
+		sum := rshiftRound(out2+out1, 11)
+		outL[k] = satInt16(sum)
+		diff := rshiftRound(out2-out1, 11)
+		outH[k] = satInt16(diff)
 	}
+
+	S[0], S[1] = s0, s1
 }
 
 // Helper functions for fixed-point arithmetic

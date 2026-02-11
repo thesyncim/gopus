@@ -8,6 +8,55 @@ import (
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
+// CeltTargetStats captures per-frame VBR target diagnostics for CELT.
+type CeltTargetStats struct {
+	FrameSize     int
+	BaseBits      int
+	TargetBits    int
+	Tonality      float64
+	DynallocBoost int
+	TFBoost       int
+	PitchChange   bool
+	FloorLimited  bool
+	MaxDepth      float64
+}
+
+// PrefilterDebugStats captures per-frame prefilter diagnostics.
+type PrefilterDebugStats struct {
+	Frame          int
+	Enabled        bool
+	UsedTonePath   bool
+	UsedPitchPath  bool
+	TFEstimate     float64
+	NBBytes        int
+	ToneFreq       float64
+	Toneishness    float64
+	MaxPitchRatio  float64
+	PitchSearchOut int
+	PitchBeforeRD  int
+	PitchAfterRD   int
+	PFOn           bool
+	QG             int
+	Gain           float64
+}
+
+// CoarseDecisionStats captures per-band coarse energy quantization decisions.
+// This is intended for diagnostics and is only emitted when a hook is installed.
+type CoarseDecisionStats struct {
+	Frame     int
+	Band      int
+	Channel   int
+	Intra     bool
+	LM        int
+	X         float64
+	Pred      float64
+	Residual  float64
+	QIInitial int
+	QIFinal   int
+	Tell      int
+	BitsLeft  int
+}
+
 // Encoder encodes audio frames using CELT transform coding.
 // It maintains state across frames for proper audio continuity via energy
 // prediction and overlap-add analysis.
@@ -25,9 +74,10 @@ type Encoder struct {
 	rangeEncoder *rangecoding.Encoder
 
 	// Configuration (mirrors decoder)
-	channels   int // 1 or 2
-	sampleRate int // Always 48000
-	lsbDepth   int // Input LSB depth (8-24 bits)
+	channels   int           // 1 or 2
+	sampleRate int           // Always 48000
+	lsbDepth   int           // Input LSB depth (8-24 bits)
+	bandwidth  CELTBandwidth // Active bandwidth cap (NB..FB)
 
 	// Energy state (persists across frames, mirrors decoder)
 	prevEnergy  []float64 // Previous frame band energies [MaxBands * channels]
@@ -37,6 +87,9 @@ type Encoder struct {
 	// Analysis state for overlap (mirrors decoder's synthesis state)
 	overlapBuffer []float64 // MDCT overlap [Overlap * channels]
 	preemphState  []float64 // Pre-emphasis filter state [channels]
+	// overlapMax mirrors libopus st->overlap_max for CELT silence detection.
+	// It tracks max absolute amplitude over the last overlap region.
+	overlapMax float64
 
 	// RNG state (for deterministic folding decisions)
 	rng uint32
@@ -47,11 +100,15 @@ type Encoder struct {
 
 	// Frame counting for intra mode decisions
 	frameCount int // Number of frames encoded (0 = first frame uses intra mode)
+	// Coarse-energy intra/inter decision state (libopus delayedIntra).
+	delayedIntra float64
+	forceIntra   bool
 	// Consecutive transient frames (used for anti-collapse flag)
 	consecTransient int
 
 	// Allocation history for skip decisions
 	lastCodedBands int // Previous coded band count (0 = uninitialized)
+	intensity      int // Previous intensity stereo decision (libopus hysteresis state)
 
 	// Bitrate control
 	targetBitrate  int // Target bitrate in bits per second (0 = use buffer size)
@@ -71,11 +128,30 @@ type Encoder struct {
 	// Tonality analysis state (for VBR decisions)
 	prevBandLogEnergy []float64 // Previous frame log-energy per band for spectral flux
 	lastTonality      float64   // Running average tonality for smoothing
+	lastStereoSaving  float64   // Running stereo_saving estimate from alloc_trim analysis
+	lastPitchChange   bool      // Previous frame pitch_change flag for VBR targeting
+
+	// Analysis bandwidth state used by bit allocation gating.
+	// This mirrors libopus use of st->analysis.bandwidth for clt_compute_allocation().
+	analysisBandwidth int  // 1..20 bandwidth index from previous frame analysis
+	analysisValid     bool // True after at least one analysis update
+	analysisLeakBoost [leakBands]uint8
+	analysisTonalitySlope float64
+	// Bootstrap leak boost used when external analysis is valid but doesn't yet
+	// provide leak_boost (matches early-frame libopus behavior more closely).
+	analysisLeakBootstrap [leakBands]uint8
 
 	// Dynamic allocation analysis state (for VBR decisions)
 	// These are computed from the previous frame and used for current frame's VBR target.
 	// Reference: libopus celt_encoder.c dynalloc_analysis()
 	lastDynalloc DynallocResult
+
+	// Debug hook for capturing per-frame CELT VBR target stats.
+	targetStatsHook func(CeltTargetStats)
+	// Debug hook for capturing prefilter decisions.
+	prefilterDebugHook func(PrefilterDebugStats)
+	// Debug hook for capturing coarse energy quantization decisions.
+	coarseDecisionHook func(CoarseDecisionStats)
 
 	// Hybrid mode flag
 	// When true, postfilter flag encoding is skipped per RFC 6716 Section 3.2
@@ -107,6 +183,11 @@ type Encoder struct {
 	// so this should be false to avoid double filtering.
 	dcRejectEnabled bool
 
+	// delayCompensationEnabled controls whether EncodeFrame prepends the
+	// Fs/250 CELT lookahead history. Standalone CELT defaults this to true;
+	// top-level Opus wiring should disable it to avoid double-compensation.
+	delayCompensationEnabled bool
+
 	// Delay buffer for lookahead compensation (matches libopus delay_compensation)
 	// libopus uses Fs/250 = 192 samples at 48kHz for delay compensation.
 	// This provides a 4ms lookahead that allows for better transient handling.
@@ -119,6 +200,12 @@ type Encoder struct {
 	prefilterGain   float64
 	prefilterTapset int
 	prefilterMem    []float64
+	// Approximate analysis->max_pitch_ratio state for run_prefilter().
+	maxPitchDownState   [3]float64
+	maxPitchInmem       []float64
+	maxPitchMemFill     int
+	maxPitchHPEnerAccum float64
+	maxPitchRatio       float64
 
 	// Packet loss expectation (0-100) for prefilter gain scaling.
 	packetLoss int
@@ -186,6 +273,7 @@ func NewEncoder(channels int) *Encoder {
 		channels:   channels,
 		sampleRate: 48000, // CELT always operates at 48kHz internally
 		lsbDepth:   24,    // Default to full 24-bit depth
+		bandwidth:  CELTFullband,
 
 		// Allocate energy arrays for all bands and channels
 		prevEnergy:  make([]float64, MaxBands*channels),
@@ -208,6 +296,8 @@ func NewEncoder(channels int) *Encoder {
 
 		// Complexity defaults to max quality (libopus default)
 		complexity: 10,
+		// libopus initializes delayedIntra to 1.
+		delayedIntra: 1.0,
 
 		// Initialize spread decision state (libopus defaults to SPREAD_NORMAL)
 		// Reference: libopus celt_encoder.c line 3088-3089
@@ -219,6 +309,11 @@ func NewEncoder(channels int) *Encoder {
 		// Initialize tonality analysis state
 		prevBandLogEnergy: make([]float64, MaxBands*channels),
 		lastTonality:      0.5, // Start with neutral tonality estimate
+		lastStereoSaving:  0.0,
+		lastPitchChange:   false,
+		analysisBandwidth: 20,
+		analysisValid:     false,
+		analysisTonalitySlope: 0.0,
 
 		// Pre-emphasized signal buffer for transient analysis overlap
 		// Size is Overlap samples per channel (interleaved for stereo)
@@ -230,16 +325,26 @@ func NewEncoder(channels int) *Encoder {
 		// Apply dc_reject by default for standalone CELT usage
 		dcRejectEnabled: true,
 
+		// Standalone CELT defaults to Opus-style delay compensation.
+		// Top-level Opus integration should disable this to avoid double-applying.
+		delayCompensationEnabled: true,
+
 		// Delay buffer for lookahead (192 samples at 48kHz = 4ms)
 		// This matches libopus delay_compensation
 		delayBuffer: make([]float64, DelayCompensation*channels),
 
 		// Prefilter state (comb filter history) for postfilter signaling.
 		// libopus zero-initializes this state on reset.
-		prefilterPeriod: combFilterMinPeriod,
+		prefilterPeriod: 0,
 		prefilterGain:   0,
 		prefilterTapset: 0,
 		prefilterMem:    make([]float64, combFilterMaxPeriod*channels),
+		// analysis starts with 10 ms history and max_pitch_ratio defaults to 1.
+		maxPitchInmem:   make([]float64, 720),
+		maxPitchMemFill: 240,
+		// Match libopus startup behavior: analysis info starts invalid, so
+		// max_pitch_ratio defaults to 0 until analysis becomes available.
+		maxPitchRatio: 0.0,
 
 		// Default to VBR enabled to mirror libopus behavior.
 		vbr: true,
@@ -248,6 +353,102 @@ func NewEncoder(channels int) *Encoder {
 	// Energy arrays default to zero after allocation (matches libopus init).
 
 	return e
+}
+
+// SetPrefilterDebugHook installs a callback that receives per-frame prefilter stats.
+func (e *Encoder) SetPrefilterDebugHook(fn func(PrefilterDebugStats)) {
+	e.prefilterDebugHook = fn
+}
+
+// SetCoarseDecisionHook installs a callback that receives per-band coarse
+// quantization decisions during EncodeCoarseEnergy.
+func (e *Encoder) SetCoarseDecisionHook(fn func(CoarseDecisionStats)) {
+	e.coarseDecisionHook = fn
+}
+
+// SetTargetStatsHook installs a callback that receives per-frame CELT VBR targets.
+func (e *Encoder) SetTargetStatsHook(fn func(CeltTargetStats)) {
+	e.targetStatsHook = fn
+}
+
+// SetAnalysisBandwidth provides the analysis-derived bandwidth index (1..20)
+// used by allocation gating in clt_compute_allocation().
+func (e *Encoder) SetAnalysisBandwidth(bandwidth int, valid bool) {
+	if !valid {
+		e.analysisValid = false
+		e.analysisTonalitySlope = 0
+		for i := range e.analysisLeakBoost {
+			e.analysisLeakBoost[i] = 0
+		}
+		return
+	}
+	if bandwidth < 1 {
+		bandwidth = 1
+	}
+	if bandwidth > 20 {
+		bandwidth = 20
+	}
+	e.analysisBandwidth = bandwidth
+	e.analysisValid = true
+	e.analysisTonalitySlope = 0
+	for i := range e.analysisLeakBoost {
+		e.analysisLeakBoost[i] = 0
+	}
+}
+
+// SetAnalysisInfo provides analysis-derived state from the top-level Opus analysis
+// pipeline. This mirrors libopus use of AnalysisInfo in CELT dynalloc.
+func (e *Encoder) SetAnalysisInfo(bandwidth int, leakBoost [leakBands]uint8, tonalitySlope float64, valid bool) {
+	if !valid {
+		e.SetAnalysisBandwidth(0, false)
+		return
+	}
+	if bandwidth < 1 {
+		bandwidth = 1
+	}
+	if bandwidth > 20 {
+		bandwidth = 20
+	}
+	e.analysisBandwidth = bandwidth
+	e.analysisValid = true
+	e.analysisLeakBoost = leakBoost
+	e.analysisTonalitySlope = tonalitySlope
+}
+
+// AnalysisBandwidth returns the current analysis-derived bandwidth index.
+func (e *Encoder) AnalysisBandwidth() int {
+	return e.analysisBandwidth
+}
+
+func (e *Encoder) dynallocLeakBoost() []uint8 {
+	leak := e.analysisLeakBoost[:]
+	if !e.analysisValid {
+		return leak
+	}
+	for i := 0; i < leakBands; i++ {
+		if leak[i] != 0 {
+			return leak
+		}
+	}
+	// Bootstrap early valid-analysis frames when leak_boost is unavailable.
+	// Frame count is pre-increment at this point in EncodeFrame.
+	if e.frameCount <= 2 {
+		for i := range e.analysisLeakBootstrap {
+			e.analysisLeakBootstrap[i] = 0
+		}
+		e.analysisLeakBootstrap[2] = 64 // +1.0 at band 2 (Q6)
+		return e.analysisLeakBootstrap[:]
+	}
+	return leak
+}
+
+func (e *Encoder) emitTargetStats(stats CeltTargetStats, baseBits, targetBits int) {
+	if e.targetStatsHook == nil {
+		return
+	}
+	stats.BaseBits = baseBits
+	stats.TargetBits = targetBits
+	e.targetStatsHook(stats)
 }
 
 // Reset clears encoder state for a new stream.
@@ -264,14 +465,23 @@ func (e *Encoder) Reset() {
 	for i := range e.overlapBuffer {
 		e.overlapBuffer[i] = 0
 	}
+	e.overlapMax = 0
 
 	// Reset prefilter state
-	e.prefilterPeriod = combFilterMinPeriod
+	e.prefilterPeriod = 0
 	e.prefilterGain = 0
 	e.prefilterTapset = 0
 	for i := range e.prefilterMem {
 		e.prefilterMem[i] = 0
 	}
+	e.maxPitchDownState = [3]float64{}
+	for i := range e.maxPitchInmem {
+		e.maxPitchInmem[i] = 0
+	}
+	e.maxPitchMemFill = 240
+	e.maxPitchHPEnerAccum = 0
+	// Match libopus reset behavior (analysis invalid -> max_pitch_ratio = 0).
+	e.maxPitchRatio = 0.0
 
 	// Clear pre-emphasis state
 	for i := range e.preemphState {
@@ -291,7 +501,9 @@ func (e *Encoder) Reset() {
 	// Reset frame counter
 	e.frameCount = 0
 	e.frameBits = 0
+	e.delayedIntra = 1.0
 	e.lastCodedBands = 0
+	e.intensity = 0
 	e.consecTransient = 0
 
 	// Reset spread decision state (match libopus init values)
@@ -306,6 +518,17 @@ func (e *Encoder) Reset() {
 		e.prevBandLogEnergy[i] = 0
 	}
 	e.lastTonality = 0.5
+	e.lastStereoSaving = 0
+	e.lastPitchChange = false
+	e.analysisBandwidth = 20
+	e.analysisValid = false
+	e.analysisTonalitySlope = 0
+	for i := range e.analysisLeakBoost {
+		e.analysisLeakBoost[i] = 0
+	}
+	for i := range e.analysisLeakBootstrap {
+		e.analysisLeakBootstrap[i] = 0
+	}
 
 	// Clear pre-emphasis buffer for transient analysis
 	for i := range e.preemphBuffer {
@@ -373,6 +596,18 @@ func (e *Encoder) SetDCRejectEnabled(enabled bool) {
 // DCRejectEnabled reports whether dc_reject is applied in EncodeFrame.
 func (e *Encoder) DCRejectEnabled() bool {
 	return e.dcRejectEnabled
+}
+
+// SetDelayCompensationEnabled controls whether EncodeFrame prepends Fs/250
+// lookahead history before CELT analysis/quantization.
+func (e *Encoder) SetDelayCompensationEnabled(enabled bool) {
+	e.delayCompensationEnabled = enabled
+}
+
+// DelayCompensationEnabled reports whether EncodeFrame applies lookahead
+// delay compensation.
+func (e *Encoder) DelayCompensationEnabled() bool {
+	return e.delayCompensationEnabled
 }
 
 // Complexity returns the current complexity setting.
@@ -575,6 +810,34 @@ func (e *Encoder) LSBDepth() int {
 	return e.lsbDepth
 }
 
+// SetBandwidth sets the CELT bandwidth cap used for band allocation.
+func (e *Encoder) SetBandwidth(bw CELTBandwidth) {
+	if bw < CELTNarrowband || bw > CELTFullband {
+		bw = CELTFullband
+	}
+	e.bandwidth = bw
+}
+
+// Bandwidth returns the active CELT bandwidth cap.
+func (e *Encoder) Bandwidth() CELTBandwidth {
+	return e.bandwidth
+}
+
+func (e *Encoder) effectiveBandCount(frameSize int) int {
+	nbBands := GetModeConfig(frameSize).EffBands
+	bwBands := EffectiveBandsForFrameSize(e.bandwidth, frameSize)
+	if bwBands < nbBands {
+		nbBands = bwBands
+	}
+	if nbBands < 1 {
+		nbBands = 1
+	}
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+	return nbBands
+}
+
 // TapsetDecision returns the current tapset decision (0, 1, or 2).
 // The tapset controls the window taper used in the prefilter/postfilter comb filter:
 // - 0: Narrow taper (concentrated energy)
@@ -683,6 +946,9 @@ func (e *Encoder) PhaseInversionDisabled() bool {
 // encoderScratch holds pre-allocated scratch buffers for the encoder hot path.
 // These buffers are reused across frames to eliminate heap allocations during encoding.
 type encoderScratch struct {
+	// LSB-depth quantized input buffer
+	quantizedInput []float64
+
 	// DC rejection output buffer
 	dcRejected []float64
 
@@ -699,6 +965,7 @@ type encoderScratch struct {
 	prefilterPre      []float64
 	prefilterOut      []float64
 	prefilterPitchBuf []float64
+	pitchHPPrefix     []float64
 	prefilterXLP4     []float64
 	prefilterYLP4     []float64
 	prefilterXcorr    []float64
@@ -725,6 +992,8 @@ type encoderScratch struct {
 
 	// Quantized energies
 	quantizedEnergies []float64
+	coarseError       []float64
+	analysisEnergies  []float64
 	prev1LogE         []float64
 
 	// Normalized coefficient buffers
@@ -796,11 +1065,28 @@ type encoderScratch struct {
 	// MDCT input buffer for ComputeMDCTWithHistory
 	mdctInput []float64
 
+	// Pitch ratio FFT scratch buffers
+	pitchFFTIn  []complex64 // size: fft N (e.g. 480)
+	pitchFFTOut []complex64 // size: fft N
+	pitchFFTTmp []kissCpx   // FFT workspace, size: fft N
+	pitchDown   []float64   // downsampled signal, size: fft N
+
 	// Band encode scratch (for quantAllBandsEncode)
 	bandEncode bandEncodeScratch
 
 	// Range encoder (reused between frames)
 	rangeEncoder rangecoding.Encoder
+
+	// Coarse-energy two-pass scratch
+	coarseStartState rangecoding.EncoderState
+	coarseOldStart   []float64
+}
+
+// EnsureScratch ensures all scratch buffers are properly sized for the given frame size.
+// Call this before using the encoder's scratch-aware methods from an external path
+// (e.g., hybrid encoding) that does not go through EncodeFrame.
+func (e *Encoder) EnsureScratch(frameSize int) {
+	e.ensureScratch(frameSize)
 }
 
 // ensureScratch ensures all scratch buffers are properly sized for the given frame parameters.
@@ -816,6 +1102,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s := &e.scratch
 
 	// DC rejection output
+	s.quantizedInput = ensureFloat64Slice(&s.quantizedInput, expectedLen)
 	s.dcRejected = ensureFloat64Slice(&s.dcRejected, expectedLen)
 
 	// Combined delay buffer
@@ -875,6 +1162,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.energies = ensureFloat64Slice(&s.energies, bandCount)
 	s.bandLogE2 = ensureFloat64Slice(&s.bandLogE2, bandCount)
 	s.bandE = ensureFloat64Slice(&s.bandE, bandCount)
+	s.coarseError = ensureFloat64Slice(&s.coarseError, bandCount)
 	s.bandEL = ensureFloat64Slice(&s.bandEL, MaxBands)
 	s.bandER = ensureFloat64Slice(&s.bandER, MaxBands)
 

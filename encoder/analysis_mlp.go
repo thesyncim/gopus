@@ -56,10 +56,19 @@ func sigmoidApprox(x float32) float32 {
 
 // gemmAccum performs matrix-vector multiplication and accumulation.
 // out[i] += weights[j*col_stride + i] * x[j]
+// Loop order: j-outer for sequential weights access (stride-1) and x[j] reuse.
 func gemmAccum(out []float32, weights []int8, rows, cols, colStride int, x []float32) {
-	for i := 0; i < rows; i++ {
-		for j := 0; j < cols; j++ {
-			out[i] += float32(weights[j*colStride+i]) * x[j]
+	if rows <= 0 || cols <= 0 {
+		return
+	}
+	_ = out[rows-1] // BCE hint
+	_ = x[cols-1]   // BCE hint
+	for j := 0; j < cols; j++ {
+		xj := x[j]
+		wOff := j * colStride
+		w := weights[wOff : wOff+rows]
+		for i := 0; i < rows; i++ {
+			out[i] += float32(w[i]) * xj
 		}
 	}
 }

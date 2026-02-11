@@ -106,7 +106,7 @@ func TestKissFFT_Twiddles(t *testing.T) {
 	for _, nfft := range testSizes {
 		t.Run("", func(t *testing.T) {
 			st := getKissFFTState(nfft)
-			if st == nil || len(st.w) != nfft {
+			if st == nil || len(st.w) == 0 {
 				t.Fatalf("Failed to get state for nfft=%d", nfft)
 			}
 
@@ -114,11 +114,15 @@ func TestKissFFT_Twiddles(t *testing.T) {
 			const pi = 3.14159265358979323846264338327
 			var maxDiff float64
 			for i := 0; i < nfft; i++ {
+				twIdx := i << st.shift
+				if twIdx >= len(st.w) {
+					t.Fatalf("nfft=%d: twiddle index out of range: i=%d shift=%d len=%d", nfft, i, st.shift, len(st.w))
+				}
 				phase := (-2.0 * pi / float64(nfft)) * float64(i)
 				expR := float32(math.Cos(phase))
 				expI := float32(math.Sin(phase))
-				diffR := math.Abs(float64(st.w[i].r - expR))
-				diffI := math.Abs(float64(st.w[i].i - expI))
+				diffR := math.Abs(float64(st.w[twIdx].r - expR))
+				diffI := math.Abs(float64(st.w[twIdx].i - expI))
 				if diffR > maxDiff {
 					maxDiff = diffR
 				}

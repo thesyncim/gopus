@@ -385,8 +385,13 @@ func writeInt16AsFloat32(dst []float32, src []int16) int {
 	if written > len(dst) {
 		written = len(dst)
 	}
-	for i := 0; i < written; i++ {
-		dst[i] = float32(src[i]) / 32768.0
+	if written > 0 {
+		_ = dst[written-1] // BCE hint
+		_ = src[written-1] // BCE hint
+		const inv32768 = 1.0 / 32768.0
+		for i := 0; i < written; i++ {
+			dst[i] = float32(src[i]) * inv32768
+		}
 	}
 	return written
 }

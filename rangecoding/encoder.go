@@ -352,7 +352,7 @@ func (e *Encoder) Done() []byte {
 
 	// Calculate packed size
 	padSize := 0
-	if used > 0 && e.offs+e.endOffs < e.storage {
+	if !e.shrunk && used > 0 && e.offs+e.endOffs < e.storage {
 		padSize = 1
 		if int(e.offs) < len(e.buf) {
 			e.buf[e.offs] = byte(window)
@@ -365,7 +365,10 @@ func (e *Encoder) Done() []byte {
 		packedSize = int(e.storage)
 	}
 
-	if e.endOffs > 0 {
+	// In CBR/shrunk mode, keep the exact libopus layout:
+	// range-coded bytes at the front, raw/end bytes at the very end, zero gap in between.
+	// Non-shrunk mode returns a packed slice for convenience.
+	if e.endOffs > 0 && !e.shrunk {
 		dst := int(e.offs) + padSize
 		copy(e.buf[dst:], e.buf[e.storage-e.endOffs:e.storage])
 	}

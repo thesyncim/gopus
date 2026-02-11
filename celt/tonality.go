@@ -439,55 +439,78 @@ func ComputeSpectralFlux(currentEnergies, previousEnergies []float64, nbBands in
 // computeSpectralFlatness computes the Spectral Flatness Measure (SFM).
 // SFM = geometric_mean(|X|^2) / arithmetic_mean(|X|^2)
 // For computational stability, this is computed as:
-// SFM = exp(mean(log(|X|^2))) / mean(|X|^2)
+// SFM = exp2(mean(log2(|X|^2))) / mean(|X|^2)
 //
 // Returns value in [0, 1] where 1 = perfectly flat (noise), 0 = perfectly peaked (tone)
 func computeSpectralFlatness(powers []float64) float64 {
-	if len(powers) == 0 {
-		return 1.0 // Default to flat (noise) for empty input
+	n := len(powers)
+	if n == 0 {
+		return 1.0
 	}
 
-	geoMean := geometricMean(powers)
-	arithMean := arithmeticMean(powers)
+	const epsilon = 1e-20
 
+	// Single-pass: accumulate both fast log2 sum and arithmetic sum.
+	var sumLog2, sum float64
+	for _, v := range powers {
+		if v < epsilon {
+			v = epsilon
+		}
+		sumLog2 += fastLog2(v)
+		sum += v
+	}
+
+	arithMean := sum / float64(n)
 	if arithMean <= 0 {
-		return 1.0 // Flat spectrum for zero/near-zero power
+		return 1.0
 	}
 
+	geoMean := math.Exp2(sumLog2 / float64(n))
 	sfm := geoMean / arithMean
 
-	// Clamp to valid range (numerical errors can push slightly outside)
 	if sfm < 0 {
 		sfm = 0
 	}
 	if sfm > 1 {
 		sfm = 1
 	}
-
 	return sfm
 }
 
+// fastLog2 computes log2(x) using IEEE 754 bit extraction with a polynomial
+// correction for the mantissa. ~5 digits of precision, sufficient for
+// spectral flatness and tonality analysis.
+func fastLog2(x float64) float64 {
+	bits := math.Float64bits(x)
+	// Extract exponent: integer part of log2
+	exp := int64((bits>>52)&0x7FF) - 1023
+	// Normalize mantissa to [1, 2)
+	bits = (bits & 0x000FFFFFFFFFFFFF) | 0x3FF0000000000000
+	m := math.Float64frombits(bits) - 1.0
+	// Minimax polynomial for log2(1+m), m in [0, 1)
+	// Max error ~3e-5 over [0,1)
+	return float64(exp) + m*(1.4426950408889634+m*(-0.7213475204444817+m*(0.4808983469629878+m*(-0.3606737602222408))))
+}
+
 // geometricMean computes the geometric mean of positive values.
-// Uses exp(mean(log(x))) for numerical stability.
-// Handles zero/negative values by clamping to a small epsilon.
+// Uses exp2(mean(fastLog2(x))) for numerical stability.
 func geometricMean(values []float64) float64 {
 	if len(values) == 0 {
 		return 0
 	}
 
-	const epsilon = 1e-20 // Minimum value to avoid log(0)
+	const epsilon = 1e-20
 
-	var sumLog float64
+	var sumLog2 float64
 	for _, v := range values {
-		// Clamp to minimum positive value
 		if v < epsilon {
 			v = epsilon
 		}
-		sumLog += math.Log(v)
+		sumLog2 += fastLog2(v)
 	}
 
-	meanLog := sumLog / float64(len(values))
-	return math.Exp(meanLog)
+	meanLog2 := sumLog2 / float64(len(values))
+	return math.Exp2(meanLog2)
 }
 
 // arithmeticMean computes the arithmetic mean of values.

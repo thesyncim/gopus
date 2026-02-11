@@ -67,3 +67,31 @@ func TestEncoderPacketFixtureStableOrdering(t *testing.T) {
 		prev = key
 	}
 }
+
+func TestFixtureGeneratorsUseLibopusOpusDemo(t *testing.T) {
+	requireTestTier(t, testTierFast)
+
+	variants, err := loadEncoderComplianceVariantsFixture()
+	if err != nil {
+		t.Fatalf("load variants fixture: %v", err)
+	}
+	if !strings.Contains(strings.ToLower(variants.Generator), "opus_demo") {
+		t.Fatalf("variants fixture generator must reference opus_demo, got %q", variants.Generator)
+	}
+
+	packets, err := loadEncoderCompliancePacketsFixture()
+	if err != nil {
+		t.Fatalf("load packets fixture: %v", err)
+	}
+	if !strings.Contains(strings.ToLower(packets.Generator), "opus_demo") {
+		t.Fatalf("packets fixture generator must reference opus_demo, got %q", packets.Generator)
+	}
+
+	decoderMatrix, err := loadLibopusDecoderMatrixFixture()
+	if err != nil {
+		t.Fatalf("load decoder matrix fixture: %v", err)
+	}
+	if !strings.Contains(strings.ToLower(decoderMatrix.Generator), "opus_demo") {
+		t.Fatalf("decoder matrix fixture generator must reference opus_demo, got %q", decoderMatrix.Generator)
+	}
+}

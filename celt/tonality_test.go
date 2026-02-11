@@ -186,6 +186,8 @@ func getNbBandsForFrameSize(frameSize int) int {
 
 // TestGeometricMean verifies the geometric mean helper function.
 func TestGeometricMean(t *testing.T) {
+	// geometricMean uses fastLog2 (IEEE 754 polynomial approximation)
+	// which has ~3e-5 relative error. Tolerances reflect this.
 	tests := []struct {
 		name     string
 		values   []float64
@@ -196,31 +198,31 @@ func TestGeometricMean(t *testing.T) {
 			name:     "single value",
 			values:   []float64{4.0},
 			expected: 4.0,
-			epsilon:  1e-10,
+			epsilon:  1e-3,
 		},
 		{
 			name:     "two equal values",
 			values:   []float64{4.0, 4.0},
 			expected: 4.0,
-			epsilon:  1e-10,
+			epsilon:  1e-3,
 		},
 		{
 			name:     "two different values",
 			values:   []float64{4.0, 16.0},
 			expected: 8.0, // sqrt(4*16) = 8
-			epsilon:  1e-10,
+			epsilon:  1e-3,
 		},
 		{
 			name:     "three values",
 			values:   []float64{2.0, 4.0, 8.0},
 			expected: 4.0, // (2*4*8)^(1/3) = 64^(1/3) = 4
-			epsilon:  1e-10,
+			epsilon:  1e-3,
 		},
 		{
 			name:     "with small values",
 			values:   []float64{0.01, 0.01, 0.01},
 			expected: 0.01,
-			epsilon:  1e-10,
+			epsilon:  1e-4,
 		},
 	}
 

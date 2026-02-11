@@ -1,7 +1,10 @@
 package celt
 
 import (
+	"encoding/binary"
+	"fmt"
 	"math"
+	"os"
 
 	"github.com/thesyncim/gopus/util"
 )
@@ -22,6 +25,19 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 	channels := e.channels
 	if channels <= 0 || frameSize <= 0 || len(preemph) == 0 {
 		return result
+	}
+	var dbg *PrefilterDebugStats
+	if e.prefilterDebugHook != nil {
+		d := PrefilterDebugStats{
+			Frame:         e.frameCount,
+			Enabled:       enabled,
+			TFEstimate:    tfEstimate,
+			NBBytes:       nbAvailableBytes,
+			ToneFreq:      toneFreq,
+			Toneishness:   toneishness,
+			MaxPitchRatio: maxPitchRatio,
+		}
+		dbg = &d
 	}
 
 	if tapset < 0 {
@@ -58,6 +74,10 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			pre[ch*perChanLen+maxPeriod+i] = preemph[i*channels+ch]
 		}
 	}
+	// Keep prefilter inputs at float32 precision to match libopus celt_sig path.
+	if os.Getenv("GOPUS_TMP_SKIP_PREF_INPUT_ROUND") != "1" {
+		roundFloat64ToFloat32(pre)
+	}
 
 	pitchIndex := minPeriod
 	gain1 := 0.0
@@ -65,6 +85,9 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 	pfOn := false
 
 	if enabled && toneishness > 0.99 {
+		if dbg != nil {
+			dbg.UsedTonePath = true
+		}
 		freq := toneFreq
 		if freq >= math.Pi {
 			freq = math.Pi - freq
@@ -83,6 +106,9 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		}
 		gain1 = 0.75
 	} else if enabled && e.complexity >= 5 {
+		if dbg != nil {
+			dbg.UsedPitchPath = true
+		}
 		pitchBufLen := (maxPeriod + frameSize) >> 1
 		if pitchBufLen < 1 {
 			pitchBufLen = 1
@@ -93,9 +119,19 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		if maxPitch < 1 {
 			maxPitch = 1
 		}
-		pitchIndex = pitchSearch(pitchBuf[maxPeriod>>1:], pitchBuf, frameSize, maxPitch, &e.scratch)
+		searchOut := pitchSearch(pitchBuf[maxPeriod>>1:], pitchBuf, frameSize, maxPitch, &e.scratch)
+		if dbg != nil {
+			dbg.PitchSearchOut = searchOut
+		}
+		pitchIndex = searchOut
 		pitchIndex = maxPeriod - pitchIndex
+		if dbg != nil {
+			dbg.PitchBeforeRD = pitchIndex
+		}
 		gain1 = removeDoubling(pitchBuf, maxPeriod, minPeriod, frameSize, &pitchIndex, e.prefilterPeriod, e.prefilterGain, &e.scratch)
+		if dbg != nil {
+			dbg.PitchAfterRD = pitchIndex
+		}
 		if pitchIndex > maxPeriod-2 {
 			pitchIndex = maxPeriod - 2
 		}
@@ -145,7 +181,6 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 	if pfThreshold < 0.2 {
 		pfThreshold = 0.2
 	}
-
 	if gain1 < pfThreshold {
 		gain1 = 0
 		pfOn = false
@@ -182,15 +217,32 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 	for ch := 0; ch < channels; ch++ {
 		preCh := pre[ch*perChanLen : (ch+1)*perChanLen]
 		outCh := out[ch*perChanLen : (ch+1)*perChanLen]
-		for i := 0; i < frameSize; i++ {
-			before[ch] += math.Abs(preCh[maxPeriod+i])
+		preSub := preCh[maxPeriod : maxPeriod+frameSize]
+		for _, v := range preSub {
+			before[ch] += math.Abs(v)
 		}
 		if offset > 0 {
-			combFilterWithInput(outCh, preCh, maxPeriod, prevPeriod, prevPeriod, offset, -e.prefilterGain, -e.prefilterGain, prevTapset, prevTapset, nil, 0)
+			if os.Getenv("GOPUS_TMP_PREFILTER_F64") == "1" {
+				combFilterWithInput(outCh, preCh, maxPeriod, prevPeriod, prevPeriod, offset, -e.prefilterGain, -e.prefilterGain, prevTapset, prevTapset, nil, 0)
+			} else {
+				combFilterWithInputF32(outCh, preCh, maxPeriod, prevPeriod, prevPeriod, offset, -e.prefilterGain, -e.prefilterGain, prevTapset, prevTapset, nil, 0)
+			}
 		}
-		combFilterWithInput(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, frameSize-offset, -e.prefilterGain, -gain1, prevTapset, tapset, window, overlap)
-		for i := 0; i < frameSize; i++ {
-			after[ch] += math.Abs(outCh[maxPeriod+i])
+		if os.Getenv("GOPUS_TMP_PREFILTER_F64") == "1" {
+			combFilterWithInput(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, frameSize-offset, -e.prefilterGain, -gain1, prevTapset, tapset, window, overlap)
+		} else {
+			combFilterWithInputF32(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, frameSize-offset, -e.prefilterGain, -gain1, prevTapset, tapset, window, overlap)
+		}
+		if os.Getenv("GOPUS_TMP_PREF_COMB_DUMP") == "1" && channels == 1 && frameSize == 480 && e.frameCount < 32 {
+			dumpFloat64AsF32Raw(fmt.Sprintf("/tmp/go_prefcomb_pre_call%d.f32", e.frameCount), preCh)
+			dumpFloat64AsF32Raw(fmt.Sprintf("/tmp/go_prefcomb_out_call%d.f32", e.frameCount), outCh)
+			metaPath := fmt.Sprintf("/tmp/go_prefcomb_meta_call%d.txt", e.frameCount)
+			_ = os.WriteFile(metaPath, []byte(fmt.Sprintf("start=%d n=%d overlap=%d t0=%d t1=%d g0=%.9g g1=%.9g tap0=%d tap1=%d offset=%d frame=%d\n",
+				maxPeriod+offset, frameSize-offset, overlap, prevPeriod, pitchIndex, -e.prefilterGain, -gain1, prevTapset, tapset, offset, e.frameCount)), 0o644)
+		}
+		outSub := outCh[maxPeriod : maxPeriod+frameSize]
+		for _, v := range outSub {
+			after[ch] += math.Abs(v)
 		}
 	}
 
@@ -215,11 +267,24 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			preCh := pre[ch*perChanLen : (ch+1)*perChanLen]
 			outCh := out[ch*perChanLen : (ch+1)*perChanLen]
 			copy(outCh[maxPeriod:maxPeriod+frameSize], preCh[maxPeriod:maxPeriod+frameSize])
-			combFilterWithInput(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, overlap, -e.prefilterGain, -0, prevTapset, tapset, window, overlap)
+			if os.Getenv("GOPUS_TMP_PREFILTER_F64") == "1" {
+				combFilterWithInput(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, overlap, -e.prefilterGain, -0, prevTapset, tapset, window, overlap)
+			} else {
+				combFilterWithInputF32(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, overlap, -e.prefilterGain, -0, prevTapset, tapset, window, overlap)
+			}
 		}
 		gain1 = 0
 		pfOn = false
 		qg = 0
+	}
+
+	if overlap > 0 {
+		need := channels * overlap
+		if len(e.overlapBuffer) < need {
+			newBuf := make([]float64, need)
+			copy(newBuf, e.overlapBuffer)
+			e.overlapBuffer = newBuf
+		}
 	}
 
 	for ch := 0; ch < channels; ch++ {
@@ -232,8 +297,19 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			copy(mem, mem[frameSize:])
 			copy(mem[maxPeriod-frameSize:], preCh[maxPeriod:maxPeriod+frameSize])
 		}
-		for i := 0; i < frameSize; i++ {
-			preemph[i*channels+ch] = outCh[maxPeriod+i]
+		if os.Getenv("GOPUS_TMP_SKIP_PREF_MEM_ROUND") != "1" {
+			roundFloat64ToFloat32(mem)
+		}
+		outSub2 := outCh[maxPeriod : maxPeriod+frameSize]
+		for i, v := range outSub2 {
+			preemph[i*channels+ch] = v
+		}
+		if overlap > 0 && len(e.overlapBuffer) >= (ch+1)*overlap && frameSize >= overlap {
+			hist := e.overlapBuffer[ch*overlap : (ch+1)*overlap]
+			copy(hist, outSub2[frameSize-overlap:])
+			if os.Getenv("GOPUS_TMP_SKIP_PREF_MEM_ROUND") != "1" {
+				roundFloat64ToFloat32(hist)
+			}
 		}
 	}
 
@@ -246,36 +322,114 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 	result.qg = qg
 	result.tapset = tapset
 	result.gain = gain1
+	if dbg != nil {
+		dbg.PitchAfterRD = pitchIndex
+		dbg.PFOn = pfOn
+		dbg.QG = qg
+		dbg.Gain = gain1
+		e.prefilterDebugHook(*dbg)
+	}
 	return result
+}
+
+func dumpFloat64AsF32Raw(path string, vals []float64) {
+	if len(vals) == 0 {
+		return
+	}
+	buf := make([]byte, len(vals)*4)
+	for i, v := range vals {
+		binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(float32(v)))
+	}
+	_ = os.WriteFile(path, buf, 0o644)
 }
 
 // estimateMaxPitchRatio approximates libopus analysis->max_pitch_ratio by
 // comparing low-frequency and high-frequency spectral energy after a 2x
 // downsampling step (48 kHz -> 24 kHz) with a split at bin 64 (~3.2 kHz).
-// It uses the same down2 all-pass structure as libopus analysis and adds the
-// high-pass residual energy to the "above max pitch" side.
-func estimateMaxPitchRatio(pcm []float64, channels int, scratch []float64) float64 {
+// This stateless helper is kept for diagnostics/tests. EncodeFrame uses a
+// stateful variant to better match analysis-window cadence in libopus.
+func estimateMaxPitchRatio(pcm []float64, channels int, scratch *encoderScratch) float64 {
 	if channels <= 0 || len(pcm) < channels {
 		return 1
 	}
-	monoLen := len(pcm) / channels
-	n := monoLen / 2
+	n := (len(pcm) / channels) / 2
 	if n < 8 {
 		return 1
 	}
+	down := ensureFloat64Slice(&scratch.pitchDown, n)
+	hpPrefix := ensureFloat64Slice(&scratch.pitchHPPrefix, n+1)
+	state := [3]float64{}
+	downmixAndDown2HP(pcm, channels, down, hpPrefix, &state)
+	return maxPitchRatioFromDownsampled(down, hpPrefix[n], scratch)
+}
 
-	var down []float64
-	if len(scratch) >= n {
-		down = scratch[:n]
-	} else {
-		down = make([]float64, n)
+// estimateMaxPitchRatioStateful tracks analysis history so max_pitch_ratio is
+// updated on window boundaries instead of independently for each frame.
+func (e *Encoder) estimateMaxPitchRatioStateful(pcm []float64) float64 {
+	channels := e.channels
+	if channels <= 0 || len(pcm) < channels {
+		return 1
+	}
+	n := (len(pcm) / channels) / 2
+	if n < 8 {
+		return e.maxPitchRatio
+	}
+	down := ensureFloat64Slice(&e.scratch.pitchDown, n)
+	hpPrefix := ensureFloat64Slice(&e.scratch.pitchHPPrefix, n+1)
+	downmixAndDown2HP(pcm, channels, down, hpPrefix, &e.maxPitchDownState)
+
+	const (
+		analysisSize  = 720
+		analysisFrame = 480
+		analysisHist  = 240
+	)
+	if len(e.maxPitchInmem) < analysisSize {
+		e.maxPitchInmem = make([]float64, analysisSize)
+	}
+	if e.maxPitchMemFill < analysisHist || e.maxPitchMemFill > analysisSize {
+		e.maxPitchMemFill = analysisHist
 	}
 
-	// Downmix and downsample by 2 (matching the 24 kHz analysis bandwidth).
-	// This mirrors silk_resampler_down2_hp() from libopus analysis.c.
-	var s0, s1, s2 float64
-	var hpEner float64
-	for i := 0; i < n; i++ {
+	pos := 0
+	for pos < n {
+		need := analysisSize - e.maxPitchMemFill
+		if need <= 0 {
+			copy(e.maxPitchInmem[:analysisHist], e.maxPitchInmem[analysisFrame:analysisSize])
+			e.maxPitchMemFill = analysisHist
+			e.maxPitchHPEnerAccum = 0
+			need = analysisSize - e.maxPitchMemFill
+		}
+		take := n - pos
+		if take > need {
+			take = need
+		}
+		copy(e.maxPitchInmem[e.maxPitchMemFill:e.maxPitchMemFill+take], down[pos:pos+take])
+		e.maxPitchHPEnerAccum += hpPrefix[pos+take] - hpPrefix[pos]
+		e.maxPitchMemFill += take
+		pos += take
+
+		if e.maxPitchMemFill == analysisSize {
+			e.maxPitchRatio = maxPitchRatioFromDownsampled(e.maxPitchInmem[:analysisFrame], e.maxPitchHPEnerAccum, &e.scratch)
+			copy(e.maxPitchInmem[:analysisHist], e.maxPitchInmem[analysisFrame:analysisSize])
+			e.maxPitchMemFill = analysisHist
+			e.maxPitchHPEnerAccum = 0
+		}
+	}
+	if e.maxPitchRatio < 0 {
+		return 0
+	}
+	if e.maxPitchRatio > 1 {
+		return 1
+	}
+	return e.maxPitchRatio
+}
+
+// downmixAndDown2HP mirrors the analysis downmix path used to derive
+// max_pitch_ratio: downmix to mono, downsample by 2, and track hp energy.
+func downmixAndDown2HP(pcm []float64, channels int, down []float64, hpPrefix []float64, state *[3]float64) {
+	s0, s1, s2 := state[0], state[1], state[2]
+	hpPrefix[0] = 0
+	for i := 0; i < len(down); i++ {
 		idx0 := (2 * i) * channels
 		idx1 := idx0 + channels
 
@@ -301,44 +455,54 @@ func estimateMaxPitchRatio(pcm []float64, channels int, scratch []float64) float
 		outHP := out0 + s2 + x
 		s2 = -in1 + x
 
-		hpEner += outHP * outHP
 		down[i] = 0.5 * out
+		hpPrefix[i+1] = hpPrefix[i] + outHP*outHP
 	}
+	state[0], state[1], state[2] = s0, s1, s2
+}
 
-	// Apply a light Hann window to reduce spectral leakage.
+func maxPitchRatioFromDownsampled(down []float64, hpEner float64, scratch *encoderScratch) float64 {
+	n := len(down)
+	if n < 8 {
+		return 1
+	}
+	// Apply Hann window using incremental oscillator.
 	if n > 1 {
-		inv := 1.0 / float64(n-1)
-		for i := 0; i < n; i++ {
-			w := 0.5 - 0.5*math.Cos(2.0*math.Pi*float64(i)*inv)
-			down[i] *= w
-		}
-	}
-
-	half := n / 2
-	splitBin := 64
-	if splitBin > half {
-		splitBin = half
-	}
-
-	var below, above float64
-	for k := 0; k < half; k++ {
-		ang := -2.0 * math.Pi * float64(k) / float64(n)
+		ang := 2.0 * math.Pi / float64(n-1)
 		cosStep := math.Cos(ang)
 		sinStep := math.Sin(ang)
 		cosCurr := 1.0
 		sinCurr := 0.0
-		var re, im float64
-
-		for t := 0; t < n; t++ {
-			v := down[t]
-			re += v * cosCurr
-			im += v * sinCurr
-
+		for i := 0; i < n; i++ {
+			w := 0.5 - 0.5*cosCurr
+			down[i] *= w
 			nextCos := cosCurr*cosStep - sinCurr*sinStep
 			sinCurr = cosCurr*sinStep + sinCurr*cosStep
 			cosCurr = nextCos
 		}
+	}
 
+	half := n / 2
+	splitBin := (64*n + 240) / 480
+	if splitBin < 1 {
+		splitBin = 1
+	}
+	if splitBin > half {
+		splitBin = half
+	}
+
+	fftIn := ensureComplex64Slice(&scratch.pitchFFTIn, n)
+	fftOut := ensureComplex64Slice(&scratch.pitchFFTOut, n)
+	fftTmp := ensureKissCpxSlice(&scratch.pitchFFTTmp, n)
+	for i := 0; i < n; i++ {
+		fftIn[i] = complex(float32(down[i]), 0)
+	}
+	kissFFT32To(fftOut, fftIn, fftTmp)
+
+	var below, above float64
+	for k := 0; k < half; k++ {
+		re := float64(real(fftOut[k]))
+		im := float64(imag(fftOut[k]))
 		p := re*re + im*im
 		if k < splitBin {
 			below += p
@@ -384,13 +548,25 @@ func pitchDownsample(x []float64, xLP []float64, length, channels, factor int) {
 		xLP[0] += 0.25*x1[offset] + 0.5*x1[0]
 	}
 
+	// Compute 5 autocorrelation lags using ASM-backed inner products.
+	// ac[k] = innerProduct(lp[0:length-k], lp[k:length]) for k=0..4.
 	var ac [5]float64
-	for lag := 0; lag <= 4; lag++ {
-		sum := 0.0
-		for i := 0; i < length-lag; i++ {
-			sum += xLP[i] * xLP[i+lag]
+	lp := xLP[:length]
+	if length > 4 {
+		ac[0], ac[1] = prefilterDualInnerProd(lp, lp, lp[1:], length-1)
+		// ac[0] misses the last element's self-product; add it.
+		ac[0] += lp[length-1] * lp[length-1]
+		ac2partial, ac3 := prefilterDualInnerProd(lp, lp[2:], lp[3:], length-3)
+		// ac[2] needs length-2 terms but dualInnerProd used length-3; add the missing term.
+		ac[2] = ac2partial + lp[length-3]*lp[length-1]
+		ac[3] = ac3
+		ac[4] = prefilterInnerProd(lp, lp[4:], length-4)
+	} else {
+		for i := 0; i < length; i++ {
+			for lag := 0; lag <= 4 && i+lag < length; lag++ {
+				ac[lag] += lp[i] * lp[i+lag]
+			}
 		}
-		ac[lag] = sum
 	}
 
 	ac[0] *= 1.0001
@@ -433,7 +609,7 @@ func pitchSearch(xLP []float64, y []float64, length, maxPitch int, scratch *enco
 		yLP4[j] = y[2*j]
 	}
 
-	celtPitchXcorr(xLP4, yLP4, xcorr, length>>2, maxPitch>>2)
+	prefilterPitchXcorr(xLP4, yLP4, xcorr, length>>2, maxPitch>>2)
 	bestPitch := [2]int{0, 0}
 	findBestPitch(xcorr, yLP4, length>>2, maxPitch>>2, &bestPitch)
 
@@ -442,7 +618,7 @@ func pitchSearch(xLP []float64, y []float64, length, maxPitch int, scratch *enco
 		if util.Abs(i-2*bestPitch[0]) > 2 && util.Abs(i-2*bestPitch[1]) > 2 {
 			continue
 		}
-		sum := celtInnerProd(xLP, y[i:], length>>1)
+		sum := prefilterInnerProd(xLP, y[i:], length>>1)
 		if sum < -1 {
 			sum = -1
 		}
@@ -499,19 +675,6 @@ func findBestPitch(xcorr []float64, y []float64, length, maxPitch int, bestPitch
 	}
 }
 
-func celtPitchXcorr(x []float64, y []float64, xcorr []float64, length, maxPitch int) {
-	if length <= 0 || maxPitch <= 0 {
-		return
-	}
-	for i := 0; i < maxPitch; i++ {
-		sum := 0.0
-		for j := 0; j < length; j++ {
-			sum += x[j] * y[i+j]
-		}
-		xcorr[i] = sum
-	}
-}
-
 func removeDoubling(x []float64, maxPeriod, minPeriod, N int, T0 *int, prevPeriod int, prevGain float64, scratch *encoderScratch) float64 {
 	minPeriod0 := minPeriod
 	maxPeriod >>= 1
@@ -529,7 +692,7 @@ func removeDoubling(x []float64, maxPeriod, minPeriod, N int, T0 *int, prevPerio
 	}
 	T0val := *T0
 	x0 := xBase[maxPeriod:]
-	xx, xy := dualInnerProd(x0, x0, xBase[maxPeriod-T0val:maxPeriod-T0val+N], N)
+	xx, xy := prefilterDualInnerProd(x0, x0, xBase[maxPeriod-T0val:maxPeriod-T0val+N], N)
 
 	yyLookup := ensureFloat64Slice(&scratch.prefilterYYLookup, maxPeriod+1)
 	yy := xx
@@ -566,7 +729,7 @@ func removeDoubling(x []float64, maxPeriod, minPeriod, N int, T0 *int, prevPerio
 		} else {
 			T1b = (2*secondCheck[k]*T0val + k) / (2 * k)
 		}
-		xy1, xy2 := dualInnerProd(x0, xBase[maxPeriod-T1:maxPeriod-T1+N], xBase[maxPeriod-T1b:maxPeriod-T1b+N], N)
+		xy1, xy2 := prefilterDualInnerProd(x0, xBase[maxPeriod-T1:maxPeriod-T1+N], xBase[maxPeriod-T1b:maxPeriod-T1b+N], N)
 		xy = 0.5 * (xy1 + xy2)
 		yy = 0.5 * (yyLookup[T1] + yyLookup[T1b])
 		g1 := computePitchGain(xy, xx, yy)
@@ -604,7 +767,7 @@ func removeDoubling(x []float64, maxPeriod, minPeriod, N int, T0 *int, prevPerio
 	var xcorr [3]float64
 	for k := 0; k < 3; k++ {
 		lag := T + k - 1
-		xcorr[k] = celtInnerProd(x0, xBase[maxPeriod-lag:maxPeriod-lag+N], N)
+		xcorr[k] = prefilterInnerProd(x0, xBase[maxPeriod-lag:maxPeriod-lag+N], N)
 	}
 	offset := 0
 	if (xcorr[2] - xcorr[0]) > 0.7*(xcorr[1]-xcorr[0]) {
@@ -624,24 +787,6 @@ func computePitchGain(xy, xx, yy float64) float64 {
 		return 0
 	}
 	return xy / math.Sqrt(1+xx*yy)
-}
-
-func dualInnerProd(x, y1, y2 []float64, length int) (float64, float64) {
-	sum1 := 0.0
-	sum2 := 0.0
-	for i := 0; i < length; i++ {
-		sum1 += x[i] * y1[i]
-		sum2 += x[i] * y2[i]
-	}
-	return sum1, sum2
-}
-
-func celtInnerProd(x, y []float64, length int) float64 {
-	sum := 0.0
-	for i := 0; i < length; i++ {
-		sum += x[i] * y[i]
-	}
-	return sum
 }
 
 func celtFIR5(x []float64, num [5]float64) {
@@ -691,3 +836,55 @@ func lpcFromAutocorr(ac [5]float64) [4]float64 {
 }
 
 var secondCheck = [16]int{0, 0, 3, 2, 3, 2, 5, 2, 3, 2, 3, 2, 5, 2, 3, 2}
+
+// prefilterInnerProd uses float32 accumulation to match libopus float-path
+// numerics in pitch/pre-filter analysis.
+func prefilterInnerProd(x, y []float64, length int) float64 {
+	if length <= 0 {
+		return 0
+	}
+	_ = x[length-1]
+	_ = y[length-1]
+	sum := float32(0)
+	for i := 0; i < length; i++ {
+		sum += float32(x[i]) * float32(y[i])
+	}
+	return float64(sum)
+}
+
+// prefilterDualInnerProd computes two float32-accumulated dot products.
+func prefilterDualInnerProd(x, y1, y2 []float64, length int) (float64, float64) {
+	if length <= 0 {
+		return 0, 0
+	}
+	_ = x[length-1]
+	_ = y1[length-1]
+	_ = y2[length-1]
+	sum1 := float32(0)
+	sum2 := float32(0)
+	for i := 0; i < length; i++ {
+		xi := float32(x[i])
+		sum1 += xi * float32(y1[i])
+		sum2 += xi * float32(y2[i])
+	}
+	return float64(sum1), float64(sum2)
+}
+
+// prefilterPitchXcorr computes lagged correlations with float32 accumulation.
+// Keeping the prefilter pitch path consistently float32 reduces tie-break drift
+// versus libopus on tonal sweep inputs.
+func prefilterPitchXcorr(x, y, xcorr []float64, length, maxPitch int) {
+	if length <= 0 || maxPitch <= 0 {
+		return
+	}
+	_ = x[length-1]
+	_ = xcorr[maxPitch-1]
+	_ = y[maxPitch+length-2]
+	for i := 0; i < maxPitch; i++ {
+		sum := float32(0)
+		for j := 0; j < length; j++ {
+			sum += float32(x[j]) * float32(y[i+j])
+		}
+		xcorr[i] = float64(sum)
+	}
+}

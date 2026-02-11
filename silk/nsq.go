@@ -473,7 +473,7 @@ func noiseShapeQuantizerSubframe(
 			if shpLagPtr-2 >= 0 && shpLagPtr-2 < len(nsq.sLTPShpQ14) {
 				shp2 = nsq.sLTPShpQ14[shpLagPtr-2]
 			}
-			nLTPQ13 = silk_SMULWB(silk_ADD_SAT32(shp0, shp2), harmShapeFIRPackedQ14)
+			nLTPQ13 = silk_SMULWB(shp0+shp2, harmShapeFIRPackedQ14) // No saturation needed: Q14 values, sum fits int32
 			nLTPQ13 = silk_SMLAWT(nLTPQ13, shp1, harmShapeFIRPackedQ14)
 			nLTPQ13 = silk_LSHIFT32(nLTPQ13, 1)
 			shpLagPtr++
@@ -558,15 +558,23 @@ func noiseShapeQuantizerSubframe(
 // shortTermPrediction computes LPC prediction.
 // Matches libopus silk_noise_shape_quantizer_short_prediction_c.
 func shortTermPrediction(sLPCQ14 []int32, idx int, aQ12 []int16, order int) int32 {
-	// Rounding bias
-	out := int32(order >> 1)
-
-	for k := 0; k < order && idx-k >= 0; k++ {
-		out = silk_SMLAWB(out, sLPCQ14[idx-k], int32(aQ12[k]))
+	switch order {
+	case 16:
+		return shortTermPrediction16(sLPCQ14, idx, aQ12)
+	case 10:
+		return shortTermPrediction10(sLPCQ14, idx, aQ12)
+	default:
+		out := int32(order >> 1)
+		for k := 0; k < order && idx-k >= 0; k++ {
+			out = silk_SMLAWB(out, sLPCQ14[idx-k], int32(aQ12[k]))
+		}
+		return out
 	}
-
-	return out
 }
+
+// shortTermPrediction16 and shortTermPrediction10 are implemented in:
+//   - nsq_pred_arm64.s / nsq_pred_amd64.s (assembly, arm64 || amd64)
+//   - nsq_pred_default.go (pure Go fallback, !arm64 && !amd64)
 
 // noiseShapeFeedback computes AR noise shaping feedback.
 // Matches libopus silk_NSQ_noise_shape_feedback_loop_c.
@@ -866,18 +874,27 @@ func silk_SUB32(a, b int32) int32 {
 }
 
 func silk_ADD_SAT32(a, b int32) int32 {
-	result := int64(a) + int64(b)
-	if result > 0x7FFFFFFF {
-		return 0x7FFFFFFF
-	}
-	if result < -0x80000000 {
+	res := a + b
+	// Overflow if a and b have the same sign but res has a different sign.
+	if (a^b) >= 0 && (a^res) < 0 {
+		if a >= 0 {
+			return 0x7FFFFFFF
+		}
 		return -0x80000000
 	}
-	return int32(result)
+	return res
 }
 
 func silk_SUB_SAT32(a, b int32) int32 {
-	return silk_ADD_SAT32(a, -b)
+	res := a - b
+	// Overflow if a and b have different signs and res differs from a.
+	if (a^b) < 0 && (a^res) < 0 {
+		if a >= 0 {
+			return 0x7FFFFFFF
+		}
+		return -0x80000000
+	}
+	return res
 }
 
 func silk_ADD_LSHIFT32(a, b int32, shift int) int32 {
@@ -897,23 +914,11 @@ func silk_SUB32_ovflw(a, b int32) int32 {
 }
 
 func silk_LIMIT_32(val, minVal, maxVal int32) int32 {
-	if val < minVal {
-		return minVal
-	}
-	if val > maxVal {
-		return maxVal
-	}
-	return val
+	return max(minVal, min(val, maxVal))
 }
 
 func silk_SAT16(a int32) int32 {
-	if a > 32767 {
-		return 32767
-	}
-	if a < -32768 {
-		return -32768
-	}
-	return a
+	return max(-32768, min(a, 32767))
 }
 
 func silk_max(a, b int32) int32 {

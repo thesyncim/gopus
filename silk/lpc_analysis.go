@@ -310,67 +310,58 @@ func lpcAnalysisFilterFLP(rLPC, predCoef, s []float64, length, order int) {
 
 // energyF64 computes energy of a float64 signal.
 func energyF64(x []float64, length int) float64 {
+	if length <= 0 {
+		return 0
+	}
+	_ = x[length-1] // BCE hint
 	var energy float64
-	for i := 0; i < length; i++ {
+	i := 0
+	for ; i < length-3; i += 4 {
+		energy += x[i]*x[i] + x[i+1]*x[i+1] + x[i+2]*x[i+2] + x[i+3]*x[i+3]
+	}
+	for ; i < length; i++ {
 		energy += x[i] * x[i]
 	}
 	return energy
 }
 
-// energyF32 computes energy of a float32 signal using libopus-style unrolling.
-func energyF32(x []float32, length int) float64 {
-	var energy float64
-	i := 0
-	for i < length-3 {
-		d0 := float64(x[i+0])
-		d1 := float64(x[i+1])
-		d2 := float64(x[i+2])
-		d3 := float64(x[i+3])
-		energy += d0*d0 + d1*d1 + d2*d2 + d3*d3
-		i += 4
-	}
-	for ; i < length; i++ {
-		d := float64(x[i])
-		energy += d * d
-	}
-	return energy
-}
-
-// innerProductF32 computes the inner product of float32 signals using libopus ordering.
-func innerProductF32(a, b []float32, length int) float64 {
-	var result float64
-	i := 0
-	for i < length-3 {
-		result += float64(a[i+0])*float64(b[i+0]) +
-			float64(a[i+1])*float64(b[i+1]) +
-			float64(a[i+2])*float64(b[i+2]) +
-			float64(a[i+3])*float64(b[i+3])
-		i += 4
-	}
-	for ; i < length; i++ {
-		result += float64(a[i]) * float64(b[i])
-	}
-	return result
-}
+// energyF32, innerProductF32 are in inner_prod_asm.go (arm64) / inner_prod_default.go (other).
 
 // a2nlsfFLP converts LPC coefficients to NLSF using floating point.
 // This matches libopus silk_A2NLSF_FLP / silk_A2NLSF.
 func a2nlsfFLP(a []float64, order int) []int16 {
-	// Convert float64 LPC to Q16 for the fixed-point A2NLSF
 	aQ16 := make([]int32, order)
+	nlsfQ15 := make([]int16, order)
+	dd := order >> 1
+	P := make([]int32, dd+1)
+	Q := make([]int32, dd+1)
+	a2nlsfFLPInto(nlsfQ15, aQ16, P, Q, a, order)
+	return nlsfQ15
+}
+
+// a2nlsfFLPInto converts LPC coefficients to NLSF using pre-allocated buffers.
+// nlsfOut must have length >= order, aQ16Buf must have length >= order,
+// P and Q must have capacity >= dd+1 where dd = order>>1.
+func a2nlsfFLPInto(nlsfOut []int16, aQ16Buf []int32, P, Q []int32, a []float64, order int) {
 	for k := 0; k < order; k++ {
 		a32 := float32(a[k])
-		aQ16[k] = float64ToInt32Round(float64(a32 * 65536.0))
+		aQ16Buf[k] = float64ToInt32Round(float64(a32 * 65536.0))
 	}
-
-	nlsfQ15 := make([]int16, order)
-	silkA2NLSF(nlsfQ15, aQ16, order)
-	return nlsfQ15
+	silkA2NLSFInto(nlsfOut, aQ16Buf, order, P, Q)
 }
 
 // silkA2NLSF converts LPC coefficients to NLSF.
 // This is a Go implementation matching libopus silk/A2NLSF.c
 func silkA2NLSF(NLSF []int16, aQ16 []int32, d int) {
+	dd := d >> 1
+	P := make([]int32, dd+1)
+	Q := make([]int32, dd+1)
+	silkA2NLSFInto(NLSF, aQ16, d, P, Q)
+}
+
+// silkA2NLSFInto converts LPC coefficients to NLSF using pre-allocated P and Q buffers.
+// P and Q must have capacity >= dd+1 where dd = d>>1.
+func silkA2NLSFInto(NLSF []int16, aQ16 []int32, d int, P, Q []int32) {
 	const (
 		binDivSteps   = 3
 		maxIterations = 16
@@ -378,9 +369,9 @@ func silkA2NLSF(NLSF []int16, aQ16 []int32, d int) {
 
 	dd := d >> 1
 
-	// Initialize P and Q polynomials
-	P := make([]int32, dd+1)
-	Q := make([]int32, dd+1)
+	// Use pre-allocated P and Q polynomials
+	P = P[:dd+1]
+	Q = Q[:dd+1]
 
 	a2nlsfInit(aQ16, P, Q, dd)
 
@@ -388,7 +379,15 @@ func silkA2NLSF(NLSF []int16, aQ16 []int32, d int) {
 	p := P
 	PQ := [2][]int32{P, Q}
 
-	xlo := int32(silk_LSFCosTab_FIX_Q12[0])
+	// BCE hint: cosine table has lsfCosTabSizeFix+1 = 129 entries.
+	// All accesses use k in [0, lsfCosTabSizeFix].
+	cosTab := silk_LSFCosTab_FIX_Q12
+	_ = cosTab[lsfCosTabSizeFix] // BCE hint
+
+	// BCE hint: NLSF output has d entries
+	_ = NLSF[d-1]
+
+	xlo := int32(cosTab[0])
 	ylo := a2nlsfEvalPoly(p, xlo, dd)
 
 	var rootIx int
@@ -405,7 +404,7 @@ func silkA2NLSF(NLSF []int16, aQ16 []int32, d int) {
 
 	for {
 		// Evaluate polynomial at next table position
-		xhi := int32(silk_LSFCosTab_FIX_Q12[k])
+		xhi := int32(cosTab[k])
 		yhi := a2nlsfEvalPoly(p, xhi, dd)
 
 		// Detect zero crossing
@@ -419,7 +418,9 @@ func silkA2NLSF(NLSF []int16, aQ16 []int32, d int) {
 			// Binary division to refine root location
 			ffrac := int32(-256)
 			for m := 0; m < binDivSteps; m++ {
-				xmid := silkRSHIFT_ROUND(xlo+xhi, 1)
+				// Inline silkRSHIFT_ROUND(xlo+xhi, 1) for shift=1
+				sum := xlo + xhi
+				xmid := (sum >> 1) + (sum & 1)
 				ymid := a2nlsfEvalPoly(p, xmid, dd)
 
 				if (ylo <= 0 && ymid >= 0) || (ylo >= 0 && ymid <= 0) {
@@ -432,17 +433,21 @@ func silkA2NLSF(NLSF []int16, aQ16 []int32, d int) {
 				}
 			}
 
-			// Interpolate
-			if silkAbs32(ylo) < 65536 {
+			// Interpolate - inline abs and div to avoid function call overhead
+			absYlo := ylo
+			if absYlo < 0 {
+				absYlo = -absYlo
+			}
+			if absYlo < 65536 {
 				den := ylo - yhi
 				nom := (ylo << (8 - binDivSteps)) + (den >> 1)
 				if den != 0 {
-					ffrac += silkDiv32(nom, den)
+					ffrac += nom / den
 				}
 			} else {
 				den := (ylo - yhi) >> (8 - binDivSteps)
 				if den != 0 {
-					ffrac += silkDiv32(ylo, den)
+					ffrac += ylo / den
 				}
 			}
 
@@ -462,7 +467,7 @@ func silkA2NLSF(NLSF []int16, aQ16 []int32, d int) {
 			p = PQ[rootIx&1]
 
 			// Restart search from previous position
-			xlo = int32(silk_LSFCosTab_FIX_Q12[k-1])
+			xlo = int32(cosTab[k-1])
 			if rootIx&2 == 0 {
 				ylo = 1 << 12
 			} else {
@@ -491,7 +496,7 @@ func silkA2NLSF(NLSF []int16, aQ16 []int32, d int) {
 				a2nlsfInit(aQ16, P, Q, dd)
 
 				p = P
-				xlo = int32(silk_LSFCosTab_FIX_Q12[0])
+				xlo = int32(cosTab[0])
 				ylo = a2nlsfEvalPoly(p, xlo, dd)
 				if ylo < 0 {
 					NLSF[0] = 0
@@ -510,6 +515,13 @@ func silkA2NLSF(NLSF []int16, aQ16 []int32, d int) {
 // a2nlsfInit initializes P and Q polynomials for A2NLSF.
 func a2nlsfInit(aQ16 []int32, P, Q []int32, dd int) {
 	// Convert filter coefs to even and odd polynomials
+	// BCE hints: P and Q have dd+1 elements, aQ16 has 2*dd elements
+	_ = P[dd]
+	_ = Q[dd]
+	if dd > 0 {
+		_ = aQ16[2*dd-1]
+	}
+
 	P[dd] = 1 << 16
 	Q[dd] = 1 << 16
 
@@ -531,6 +543,10 @@ func a2nlsfInit(aQ16 []int32, P, Q []int32, dd int) {
 
 // a2nlsfTransPoly transforms polynomial from cos(n*f) to cos(f)^n.
 func a2nlsfTransPoly(p []int32, dd int) {
+	if dd < 2 {
+		return
+	}
+	_ = p[dd] // BCE hint
 	for k := 2; k <= dd; k++ {
 		for n := dd; n > k; n-- {
 			p[n-2] -= p[n]
@@ -541,15 +557,38 @@ func a2nlsfTransPoly(p []int32, dd int) {
 
 // a2nlsfEvalPoly evaluates polynomial at point x.
 func a2nlsfEvalPoly(p []int32, x int32, dd int) int32 {
-	y32 := p[dd]
 	xQ16 := x << 4
-
-	for n := dd - 1; n >= 0; n-- {
-		// y32 = p[n] + (y32 * x_Q16) >> 16
-		y32 = int32(int64(p[n]) + ((int64(y32) * int64(xQ16)) >> 16))
+	switch dd {
+	case 5:
+		// Unrolled for order=10 (dd = order>>1 = 5)
+		_ = p[5]
+		y32 := p[5]
+		y32 = int32(int64(p[4]) + ((int64(y32) * int64(xQ16)) >> 16))
+		y32 = int32(int64(p[3]) + ((int64(y32) * int64(xQ16)) >> 16))
+		y32 = int32(int64(p[2]) + ((int64(y32) * int64(xQ16)) >> 16))
+		y32 = int32(int64(p[1]) + ((int64(y32) * int64(xQ16)) >> 16))
+		y32 = int32(int64(p[0]) + ((int64(y32) * int64(xQ16)) >> 16))
+		return y32
+	case 8:
+		// Unrolled for order=16 (dd = order>>1 = 8)
+		_ = p[8]
+		y32 := p[8]
+		y32 = int32(int64(p[7]) + ((int64(y32) * int64(xQ16)) >> 16))
+		y32 = int32(int64(p[6]) + ((int64(y32) * int64(xQ16)) >> 16))
+		y32 = int32(int64(p[5]) + ((int64(y32) * int64(xQ16)) >> 16))
+		y32 = int32(int64(p[4]) + ((int64(y32) * int64(xQ16)) >> 16))
+		y32 = int32(int64(p[3]) + ((int64(y32) * int64(xQ16)) >> 16))
+		y32 = int32(int64(p[2]) + ((int64(y32) * int64(xQ16)) >> 16))
+		y32 = int32(int64(p[1]) + ((int64(y32) * int64(xQ16)) >> 16))
+		y32 = int32(int64(p[0]) + ((int64(y32) * int64(xQ16)) >> 16))
+		return y32
+	default:
+		y32 := p[dd]
+		for n := dd - 1; n >= 0; n-- {
+			y32 = int32(int64(p[n]) + ((int64(y32) * int64(xQ16)) >> 16))
+		}
+		return y32
 	}
-
-	return y32
 }
 
 // silkBwExpander32AQ16 applies bandwidth expansion to Q16 LPC coefficients.
@@ -557,12 +596,16 @@ func silkBwExpander32AQ16(ar []int32, order int, chirpQ16 int32) {
 	if order <= 0 {
 		return
 	}
+	_ = ar[order-1] // BCE hint
 	chirpMinusOneQ16 := chirpQ16 - 65536
 	for i := 0; i < order-1; i++ {
-		ar[i] = silkSMULWW(chirpQ16, ar[i])
-		chirpQ16 += silkRSHIFT_ROUND(silkMUL(chirpQ16, chirpMinusOneQ16), 16)
+		// Inline silkSMULWW: (a*b) >> 16
+		ar[i] = int32((int64(chirpQ16) * int64(ar[i])) >> 16)
+		// Inline silkMUL (truncates to int32) + silkRSHIFT_ROUND(x, 16)
+		mulResult := int32(int64(chirpQ16) * int64(chirpMinusOneQ16))
+		chirpQ16 += ((mulResult >> 15) + 1) >> 1
 	}
-	ar[order-1] = silkSMULWW(chirpQ16, ar[order-1])
+	ar[order-1] = int32((int64(chirpQ16) * int64(ar[order-1])) >> 16)
 }
 
 // applyBandwidthExpansionFloat applies chirp factor to LPC coefficients.
@@ -883,14 +926,26 @@ func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32
 	reachedMaxGain := false
 	minInvGain := float64(minInvGainVal)
 
+	// BCE hints for the entire Burg iteration: x has totalLen elements,
+	// and all accesses are within [0, totalLen-1].
+	_ = x[totalLen-1]
+	_ = Af[order-1]
+	_ = CFirstRow[order-1]
+	_ = CLastRow[order-1]
+	_ = CAf[order]
+	_ = CAb[order]
+
 	for n := 0; n < order; n++ {
 		for s := 0; s < nbSubfr; s++ {
 			xPtr := s * subfrLength
+			// BCE hint: prove all accesses within this subframe are in bounds.
+			// Max forward access: xPtr+subfrLength-1 (when n=0, k=0 in second loop).
+			// This is always < totalLen since xPtr+subfrLength <= totalLen.
+			_ = x[xPtr+subfrLength-1]
 			xn := x[xPtr+n]
 			xend := x[xPtr+subfrLength-n-1]
 			tmp1 := float64(xn)
 			tmp2 := float64(xend)
-
 			for k := 0; k < n; k++ {
 				xnk := x[xPtr+n-k-1]
 				xbk := x[xPtr+subfrLength-n+k]
@@ -1014,8 +1069,11 @@ func (e *Encoder) FindLPCWithInterpolation(x []float32, prevNLSFQ15 []int16, use
 	// Default: no interpolation
 	interpCoef := 4
 
-	// Convert to float64
-	xF64 := make([]float64, len(x))
+	// Convert to float64 using scratch buffer
+	if cap(e.scratchLpcXF64) < len(x) {
+		e.scratchLpcXF64 = make([]float64, len(x))
+	}
+	xF64 := e.scratchLpcXF64[:len(x)]
 	for i := range x {
 		xF64[i] = float64(x[i])
 	}
@@ -1025,9 +1083,8 @@ func (e *Encoder) FindLPCWithInterpolation(x []float32, prevNLSFQ15 []int16, use
 	// but for simplicity, we use the basic subframe length here
 	subfrLength := len(x) / nbSubfr
 	if subfrLength < order+1 {
-		// Not enough samples per subframe
-		nlsfQ15 := make([]int16, order)
-		// Return white spectrum
+		// Not enough samples per subframe - return white spectrum using scratch
+		nlsfQ15 := e.scratchA2nlsfNLSF[:order]
 		for i := 0; i < order; i++ {
 			nlsfQ15[i] = int16((i + 1) * 32767 / (order + 1))
 		}
@@ -1048,8 +1105,9 @@ func (e *Encoder) FindLPCWithInterpolation(x []float32, prevNLSFQ15 []int16, use
 			resNrg -= float32(resNrgLastF64)
 		}
 
-		// Convert to NLSF
-		nlsfQ15 := a2nlsfFLP(a, order)
+		// Convert to NLSF using scratch buffers
+		nlsfQ15 := e.scratchA2nlsfNLSF[:order]
+		a2nlsfFLPInto(nlsfQ15, e.scratchA2nlsfAQ16[:order], e.scratchA2nlsfP[:], e.scratchA2nlsfQ[:], a, order)
 
 		// Search for best interpolation index
 		// Match libopus: res_nrg, res_nrg_2nd, res_nrg_interp are all silk_float (float32)
@@ -1060,16 +1118,19 @@ func (e *Encoder) FindLPCWithInterpolation(x []float32, prevNLSFQ15 []int16, use
 		analyzeLen := 2 * subfrLength
 		if analyzeLen <= len(xF64) {
 			for k := 3; k >= 0; k-- {
-				// Interpolate NLSF for first half
-				nlsf0Q15 := make([]int16, order)
+				// Interpolate NLSF for first half using scratch
+				nlsf0Q15 := e.scratchNlsf0Q15[:order]
 				interpolateNLSF(nlsf0Q15, prevNLSFQ15, nlsfQ15, k, order)
 
-				// Convert to LPC
-				aTmp := make([]float64, order)
-				nlsfToLPCFloat(aTmp, nlsf0Q15, order)
+				// Convert to LPC using scratch buffers
+				aTmp := e.scratchLpcATmp[:order]
+				nlsfToLPCFloatInto(aTmp, nlsf0Q15, order, e.scratchNlsfCos[:order], e.scratchNlsfP[:order/2+2], e.scratchNlsfQ[:order/2+2])
 
-				// Calculate residual energy with interpolation
-				lpcRes := make([]float64, analyzeLen)
+				// Calculate residual energy with interpolation using scratch
+				if cap(e.scratchLpcResidual) < analyzeLen {
+					e.scratchLpcResidual = make([]float64, analyzeLen)
+				}
+				lpcRes := e.scratchLpcResidual[:analyzeLen]
 				lpcAnalysisFilterFLP(lpcRes, aTmp, xF64, analyzeLen, order)
 
 				// Compute energy of residual (excluding initial order samples)
@@ -1095,8 +1156,9 @@ func (e *Encoder) FindLPCWithInterpolation(x []float32, prevNLSFQ15 []int16, use
 		}
 	}
 
-	// Convert LPC to NLSF
-	nlsfQ15 := a2nlsfFLP(a, order)
+	// Convert LPC to NLSF using scratch buffers
+	nlsfQ15 := e.scratchA2nlsfNLSF[:order]
+	a2nlsfFLPInto(nlsfQ15, e.scratchA2nlsfAQ16[:order], e.scratchA2nlsfP[:], e.scratchA2nlsfQ[:], a, order)
 	return nlsfQ15, interpCoef
 }
 
@@ -1118,8 +1180,17 @@ func interpolateNLSF(out, prevNLSF, curNLSF []int16, interpCoef, order int) {
 // nlsfToLPCFloat converts NLSF Q15 to LPC float coefficients.
 // This is a simplified version for interpolation search.
 func nlsfToLPCFloat(a []float64, nlsfQ15 []int16, order int) {
+	var cosBuf [16]float64
+	var pBuf, qBuf [10]float64
+	nlsfToLPCFloatInto(a, nlsfQ15, order, cosBuf[:order], pBuf[:order/2+2], qBuf[:order/2+2])
+}
+
+// nlsfToLPCFloatInto converts NLSF Q15 to LPC float coefficients using pre-allocated scratch buffers.
+// cos must have length >= order, P and Q must have length >= halfOrder+2.
+func nlsfToLPCFloatInto(a []float64, nlsfQ15 []int16, order int, cos, P, Q []float64) {
 	// Convert Q15 NLSF to cosines
-	cos := make([]float64, order)
+	cosTab := silk_LSFCosTab_FIX_Q12
+	_ = cosTab[128] // BCE hint
 	for i := 0; i < order; i++ {
 		// Linear interpolation in cosine table
 		idx := int(nlsfQ15[i]) >> 8
@@ -1131,16 +1202,21 @@ func nlsfToLPCFloat(a []float64, nlsfQ15 []int16, order int) {
 		}
 		frac := float64(nlsfQ15[i]&0xFF) / 256.0
 
-		c0 := float64(silk_LSFCosTab_FIX_Q12[idx]) / 4096.0
-		c1 := float64(silk_LSFCosTab_FIX_Q12[idx+1]) / 4096.0
+		c0 := float64(cosTab[idx]) / 4096.0
+		c1 := float64(cosTab[idx+1]) / 4096.0
 		cos[i] = c0 + (c1-c0)*frac
 	}
 
 	// Build P and Q polynomials (size halfOrder+2 to avoid bounds issues)
 	halfOrder := order / 2
-	P := make([]float64, halfOrder+2)
-	Q := make([]float64, halfOrder+2)
 
+	// Clear scratch buffers
+	for i := range P[:halfOrder+2] {
+		P[i] = 0
+	}
+	for i := range Q[:halfOrder+2] {
+		Q[i] = 0
+	}
 	P[0] = 1.0
 	Q[0] = 1.0
 

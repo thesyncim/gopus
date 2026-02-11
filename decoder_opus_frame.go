@@ -2,6 +2,7 @@ package gopus
 
 import (
 	"github.com/thesyncim/gopus/celt"
+	"github.com/thesyncim/gopus/plc"
 	"github.com/thesyncim/gopus/rangecoding"
 	"github.com/thesyncim/gopus/silk"
 )
@@ -180,7 +181,11 @@ func (d *Decoder) decodeOpusFrameInto(
 
 	transition := false
 	var pcmTransition []float32
-	if data != nil && d.haveDecoded && ((mode == ModeCELT && d.prevMode != ModeCELT && !d.prevRedundancy) ||
+	// Keep transition smoothing for CELT<->(SILK/Hybrid), but skip the 10ms
+	// Hybrid->CELT transition fade on fullband mono. For that case this fade can
+	// create a single-frame artifact on the first CELT frame after Hybrid.
+	if data != nil && d.haveDecoded && ((mode == ModeCELT && d.prevMode != ModeCELT &&
+		!d.prevRedundancy && !(d.prevMode == ModeHybrid && audiosize == F10 && d.channels == 1 && bandwidth == BandwidthFullband)) ||
 		(mode != ModeCELT && d.prevMode == ModeCELT)) {
 		transition = true
 		if mode == ModeCELT {
@@ -188,11 +193,20 @@ func (d *Decoder) decodeOpusFrameInto(
 			if len(d.scratchTransition) < transSize*d.channels {
 				return 0, ErrBufferTooSmall
 			}
-			n, err := d.decodeOpusFrameInto(d.scratchTransition, nil, transSize, packetFrameSize, d.prevMode, d.lastBandwidth, packetStereoLocal)
-			if err != nil {
-				return 0, err
+			if d.prevMode == ModeHybrid {
+				bridge := make([]float64, transSize*d.channels)
+				plc.ConcealCELTInto(bridge, d.celtDecoder, d.celtDecoder, transSize, 1.0)
+				for i := 0; i < len(bridge) && i < transSize*d.channels; i++ {
+					d.scratchTransition[i] = float32(bridge[i] * (1.0 / 32768.0))
+				}
+				pcmTransition = d.scratchTransition[:transSize*d.channels]
+			} else {
+				n, err := d.decodeOpusFrameInto(d.scratchTransition, nil, transSize, packetFrameSize, d.prevMode, d.lastBandwidth, packetStereoLocal)
+				if err != nil {
+					return 0, err
+				}
+				pcmTransition = d.scratchTransition[:n*d.channels]
 			}
-			pcmTransition = d.scratchTransition[:n*d.channels]
 		}
 	}
 
@@ -512,7 +526,12 @@ func (d *Decoder) decodeOpusFrameInto(
 	}
 
 	if transition && len(pcmTransition) > 0 {
-		if audiosize >= F5 {
+		if mode == ModeCELT && d.prevMode == ModeHybrid && audiosize == F10 && audiosize >= F5 {
+			transitionSamples := min(F5*d.channels, min(len(out), len(pcmTransition)))
+			if transitionSamples > 0 {
+				smoothFade(pcmTransition[:transitionSamples], out[:transitionSamples], out[:transitionSamples], transitionSamples/d.channels, d.channels, fs)
+			}
+		} else if audiosize >= F5 {
 			copy(out[:F2_5*d.channels], pcmTransition[:F2_5*d.channels])
 			smoothFade(pcmTransition[F2_5*d.channels:], out[F2_5*d.channels:], out[F2_5*d.channels:], F2_5, d.channels, fs)
 		} else {

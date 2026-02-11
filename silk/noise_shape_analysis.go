@@ -385,18 +385,34 @@ func warpedAutocorrelationFLP32(out, state, in []float32, warping float32, lengt
 	var corr [maxShapeLpcOrder + 1]float64
 	w := float64(warping)
 
-	for n := 0; n < length; n++ {
-		tmp1 := float64(in[n])
-		for i := 0; i < order; i += 2 {
-			tmp2 := st[i] + w*st[i+1] - w*tmp1
+	// Clamp input slice so the compiler proves all in[n] accesses are in bounds.
+	if length > len(in) {
+		length = len(in)
+	}
+	in = in[:length]
+	_ = st[order]   // BCE hint for inner loop array access
+	_ = corr[order] // BCE hint for inner loop array access
+
+	for _, sample := range in {
+		tmp1 := float64(sample)
+		// First iteration (i=0): sets st[0] then uses it for all remaining.
+		tmp2 := st[0] + w*st[1] - w*tmp1
+		st[0] = tmp1
+		st0 := tmp1 // Cache st[0] in a register for the inner loop.
+		corr[0] += st0 * tmp1
+		tmp1 = st[1] + w*st[2] - w*tmp2
+		st[1] = tmp2
+		corr[1] += st0 * tmp2
+		for i := 2; i < order; i += 2 {
+			tmp2 = st[i] + w*st[i+1] - w*tmp1
 			st[i] = tmp1
-			corr[i] += st[0] * tmp1
+			corr[i] += st0 * tmp1
 			tmp1 = st[i+1] + w*st[i+2] - w*tmp2
 			st[i+1] = tmp2
-			corr[i+1] += st[0] * tmp2
+			corr[i+1] += st0 * tmp2
 		}
 		st[order] = tmp1
-		corr[order] += st[0] * tmp1
+		corr[order] += st0 * tmp1
 	}
 
 	maxOut := order + 1

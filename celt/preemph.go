@@ -56,8 +56,9 @@ func (e *Encoder) ApplyPreemphasis(pcm []float64) []float64 {
 		// Mono pre-emphasis
 		state := e.preemphState[0]
 		for i := range pcm {
-			output[i] = pcm[i] - PreemphCoef*state
-			state = pcm[i]
+			x := pcm[i]
+			output[i] = x - state
+			state = PreemphCoef * x
 		}
 		e.preemphState[0] = state
 	} else {
@@ -67,12 +68,14 @@ func (e *Encoder) ApplyPreemphasis(pcm []float64) []float64 {
 
 		for i := 0; i < len(pcm)-1; i += 2 {
 			// Left channel
-			output[i] = pcm[i] - PreemphCoef*stateL
-			stateL = pcm[i]
+			xL := pcm[i]
+			output[i] = xL - stateL
+			stateL = PreemphCoef * xL
 
 			// Right channel
-			output[i+1] = pcm[i+1] - PreemphCoef*stateR
-			stateR = pcm[i+1]
+			xR := pcm[i+1]
+			output[i+1] = xR - stateR
+			stateR = PreemphCoef * xR
 		}
 
 		e.preemphState[0] = stateL
@@ -94,8 +97,8 @@ func (e *Encoder) ApplyPreemphasisInPlace(pcm []float64) {
 		state := e.preemphState[0]
 		for i := range pcm {
 			x := pcm[i]
-			pcm[i] = x - PreemphCoef*state
-			state = x
+			pcm[i] = x - state
+			state = PreemphCoef * x
 		}
 		e.preemphState[0] = state
 	} else {
@@ -106,13 +109,13 @@ func (e *Encoder) ApplyPreemphasisInPlace(pcm []float64) {
 		for i := 0; i < len(pcm)-1; i += 2 {
 			// Left channel
 			xL := pcm[i]
-			pcm[i] = xL - PreemphCoef*stateL
-			stateL = xL
+			pcm[i] = xL - stateL
+			stateL = PreemphCoef * xL
 
 			// Right channel
 			xR := pcm[i+1]
-			pcm[i+1] = xR - PreemphCoef*stateR
-			stateR = xR
+			pcm[i+1] = xR - stateR
+			stateR = PreemphCoef * xR
 		}
 
 		e.preemphState[0] = stateL
@@ -134,8 +137,8 @@ func (e *Encoder) applyPreemphasisWithScalingCore(pcm, output []float64) {
 			// Scale input to signal scale and apply pre-emphasis
 			// Match libopus float math: cast to float32 before scaling.
 			scaled := float32(pcm[i]) * float32(CELTSigScale)
-			output[i] = float64(scaled - noFMA32Mul(coef, state))
-			state = scaled
+			output[i] = float64(scaled - state)
+			state = coef * scaled
 		}
 		e.preemphState[0] = float64(state)
 	} else {
@@ -146,13 +149,13 @@ func (e *Encoder) applyPreemphasisWithScalingCore(pcm, output []float64) {
 		for i := 0; i < len(pcm)-1; i += 2 {
 			// Left channel
 			scaledL := float32(pcm[i]) * float32(CELTSigScale)
-			output[i] = float64(scaledL - noFMA32Mul(coef, stateL))
-			stateL = scaledL
+			output[i] = float64(scaledL - stateL)
+			stateL = coef * scaledL
 
 			// Right channel
 			scaledR := float32(pcm[i+1]) * float32(CELTSigScale)
-			output[i+1] = float64(scaledR - noFMA32Mul(coef, stateR))
-			stateR = scaledR
+			output[i+1] = float64(scaledR - stateR)
+			stateR = coef * scaledR
 		}
 
 		e.preemphState[0] = float64(stateL)
@@ -181,8 +184,8 @@ func (e *Encoder) ApplyPreemphasisWithScaling(pcm []float64) []float64 {
 func (e *Encoder) applyDCRejectCore(pcm, output []float64) {
 	// Coefficients: coef = 6.3 * cutoff / Fs
 	// For 48kHz and 3Hz cutoff: coef = 6.3 * 3 / 48000 = 0.00039375
-	// Use float32 math to match libopus float path.
-	coef := float32(6.3 * float64(DCRejectCutoffHz) / float64(e.sampleRate))
+	// Use float32 math to match libopus float path: coef = 6.3f*cutoff_Hz/Fs.
+	coef := float32(6.3) * float32(DCRejectCutoffHz) / float32(e.sampleRate)
 	coef2 := float32(1.0) - coef
 	verySmall := float32(1e-30) // Matches VERY_SMALL in libopus float build
 
@@ -259,6 +262,13 @@ func (e *Encoder) applyDCRejectScratch(pcm []float64) []float64 {
 
 	e.applyDCRejectCore(pcm, output)
 	return output
+}
+
+// ApplyPreemphasisWithScalingScratch applies pre-emphasis with scaling using
+// pre-allocated scratch buffers. This is the zero-allocation version of
+// ApplyPreemphasisWithScaling, suitable for use from the hybrid encoding path.
+func (e *Encoder) ApplyPreemphasisWithScalingScratch(pcm []float64) []float64 {
+	return e.applyPreemphasisWithScalingScratch(pcm)
 }
 
 // applyPreemphasisWithScalingScratch applies pre-emphasis with scaling using scratch buffer.

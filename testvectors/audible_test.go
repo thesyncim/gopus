@@ -126,8 +126,11 @@ func TestAudioAudibility(t *testing.T) {
 		compareLen = len(decoded)
 	}
 
-	snr := computeTestSNR(pcm[:compareLen], decoded[:compareLen])
+	// Align before scoring to avoid penalizing codec lookahead/pre-skip drift.
+	q, delay := ComputeQualityFloat32WithDelay(decoded[:compareLen], pcm[:compareLen], sampleRate, frameSize)
+	snr := SNRFromQuality(q)
 	t.Logf("\n=== AUDIO QUALITY RESULTS ===")
+	t.Logf("Quality: Q=%.2f (delay=%d samples)", q, delay)
 	t.Logf("SNR: %.2f dB", snr)
 
 	if snr > 20 {

@@ -31,7 +31,7 @@ const (
 func main() {
 	outPath := flag.String("out", "", "Output Ogg Opus file path (defaults to temp when -play is set)")
 	duration := flag.Float64("duration", 2.0, "Duration in seconds")
-	bitrate := flag.Int("bitrate", 64000, "Target bitrate in bps")
+	bitrate := flag.Int("bitrate", 128000, "Target bitrate in bps")
 	channels := flag.Int("channels", 2, "Number of channels (1 or 2)")
 	signal := flag.String("signal", "chord", "Signal type: sine, sweep, noise, chord, speech")
 	frameSize := flag.Int("frame", 960, "Frame size in samples at 48kHz (e.g., 480, 960, 1920)")
@@ -277,6 +277,31 @@ type signalGenerator struct {
 	totalSamples int
 	channels     int
 	seed         uint32
+
+	// Source-filter speech state.
+	glottalPhase float64        // glottal oscillator phase [0,1)
+	biquads      [5]biquadState // formant resonator states
+	radHPState   [2]float64     // radiation HP filter state
+	prevF0       float64        // previous pitch for smoothing
+}
+
+// biquadState holds the delay-line state for a second-order IIR resonator.
+type biquadState struct {
+	y1, y2 float64 // output history
+}
+
+// biquadResonator applies a single biquad formant resonator.
+// H(z) = 1 / (1 - 2r·cos(θ)z⁻¹ + r²z⁻²)
+// Unconditionally stable for bandwidth > 0.
+func (b *biquadState) process(x float64, freq, bw float64) float64 {
+	r := math.Exp(-math.Pi * bw / float64(sampleRate))
+	theta := 2.0 * math.Pi * freq / float64(sampleRate)
+	a1 := -2.0 * r * math.Cos(theta)
+	a2 := r * r
+	y := x - a1*b.y1 - a2*b.y2
+	b.y2 = b.y1
+	b.y1 = y
+	return y
 }
 
 func newSignalGenerator(signal string, totalSamples int, channels int) *signalGenerator {
@@ -324,10 +349,7 @@ func (g *signalGenerator) fillFrame(pcm []float32, startSample int, frameSize in
 			left = g.nextNoiseSample(0.4)
 			right = g.nextNoiseSample(0.4)
 		case "speech":
-			voiced := 0.35 * math.Sin(2*math.Pi*150*t)
-			voiced += 0.15 * math.Sin(2*math.Pi*300*t)
-			noise := float64(g.nextNoiseSample(0.15))
-			left = float32(voiced + noise)
+			left = g.speechSample(t, sampleIndex)
 			right = left
 		case "chord":
 			left, right = g.chordSample(t, progress)
@@ -366,6 +388,121 @@ func (g *signalGenerator) nextNoiseSample(scale float32) float32 {
 	g.seed = g.seed*1103515245 + 12345
 	val := float32((g.seed>>16)&0x7FFF)/32768.0 - 0.5
 	return val * scale
+}
+
+// speechSample generates speech using a source-filter model:
+//  1. Glottal source: Rosenberg pulse (asymmetric open/close phases)
+//  2. Formant filter: cascade of 5 biquad resonators (unconditionally stable)
+//  3. Radiation: first-order high-pass (lip radiation effect)
+func (g *signalGenerator) speechSample(t float64, _ int) float32 {
+	// --- Pitch contour ---
+	f0 := 120.0 + 15.0*math.Sin(2*math.Pi*0.35*t) + // intonation
+		4.0*math.Sin(2*math.Pi*5.5*t) // vibrato
+	if f0 < 60 {
+		f0 = 60
+	}
+	// Smooth pitch to avoid clicks.
+	if g.prevF0 == 0 {
+		g.prevF0 = f0
+	}
+	f0 = g.prevF0 + 0.1*(f0-g.prevF0)
+	g.prevF0 = f0
+
+	// --- Syllable envelope (~3 syl/sec) ---
+	syllableRate := 3.0
+	syllablePhase := math.Mod(t*syllableRate, 1.0)
+	var syllableAmp float64
+	switch {
+	case syllablePhase < 0.10:
+		syllableAmp = 0.5 - 0.5*math.Cos(math.Pi*syllablePhase/0.10)
+	case syllablePhase < 0.55:
+		syllableAmp = 1.0
+	case syllablePhase < 0.75:
+		syllableAmp = 0.5 + 0.5*math.Cos(math.Pi*(syllablePhase-0.55)/0.20)
+	default:
+		syllableAmp = 0.0
+	}
+
+	// --- Glottal source (Rosenberg pulse model) ---
+	// Advance glottal phase.
+	g.glottalPhase += f0 / float64(sampleRate)
+	if g.glottalPhase >= 1.0 {
+		g.glottalPhase -= math.Floor(g.glottalPhase)
+	}
+
+	var source float64
+	tp := 0.40 // open phase ratio
+	tn := 0.16 // closing phase ratio
+	phase := g.glottalPhase
+	if phase < tp {
+		// Opening phase: half-cosine rise.
+		source = 0.5 - 0.5*math.Cos(math.Pi*phase/tp)
+	} else if phase < tp+tn {
+		// Closing phase: cosine fall.
+		source = math.Cos(0.5 * math.Pi * (phase - tp) / tn)
+	} else {
+		// Closed phase.
+		source = 0.0
+	}
+
+	// Add aspiration noise modulated by glottal open phase.
+	if syllableAmp > 0.05 {
+		aspiration := float64(g.nextNoiseSample(1.0))
+		if phase < tp+tn {
+			source += 0.04 * aspiration // more noise during open phase
+		} else {
+			source += 0.01 * aspiration
+		}
+	}
+
+	source *= syllableAmp
+
+	// --- Vowel formants (smooth interpolation) ---
+	type fmtSet struct{ f, bw [5]float64 }
+	vowels := [5]fmtSet{
+		{f: [5]float64{730, 1090, 2440, 3300, 3750}, bw: [5]float64{90, 110, 170, 250, 300}}, // /a/
+		{f: [5]float64{270, 2290, 3010, 3500, 4100}, bw: [5]float64{60, 100, 150, 200, 280}}, // /i/
+		{f: [5]float64{300, 870, 2240, 3200, 3700}, bw: [5]float64{65, 100, 140, 220, 280}},  // /u/
+		{f: [5]float64{530, 1840, 2480, 3300, 3900}, bw: [5]float64{70, 110, 150, 230, 290}}, // /e/
+		{f: [5]float64{570, 840, 2410, 3250, 3750}, bw: [5]float64{80, 105, 155, 240, 300}},  // /o/
+	}
+
+	vowelPos := math.Mod(t*syllableRate, 5.0)
+	idx0 := int(vowelPos) % 5
+	idx1 := (idx0 + 1) % 5
+	frac := vowelPos - math.Floor(vowelPos)
+	alpha := 0.5 - 0.5*math.Cos(math.Pi*frac) // cosine interpolation
+
+	// --- Apply cascade of 5 biquad resonators ---
+	sample := source
+	for i := 0; i < 5; i++ {
+		freq := vowels[idx0].f[i] + alpha*(vowels[idx1].f[i]-vowels[idx0].f[i])
+		bw := vowels[idx0].bw[i] + alpha*(vowels[idx1].bw[i]-vowels[idx0].bw[i])
+		// Gain reduction for higher formants.
+		gain := 1.0
+		switch i {
+		case 1:
+			gain = 0.5
+		case 2:
+			gain = 0.25
+		case 3:
+			gain = 0.12
+		case 4:
+			gain = 0.06
+		}
+		sample = gain * g.biquads[i].process(sample, freq, bw)
+	}
+
+	// --- Radiation filter (first-order high-pass: y[n] = x[n] - x[n-1]) ---
+	radiated := sample - g.radHPState[0]
+	g.radHPState[0] = sample
+
+	// Scale output.
+	radiated *= 0.0003
+
+	// Soft-clip.
+	radiated = math.Tanh(radiated)
+	return float32(radiated)
 }
 
 func playEncoded(path string) error {

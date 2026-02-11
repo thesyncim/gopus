@@ -60,6 +60,14 @@ type NoiseShapeState struct {
 
 	// Last gain index for conditional coding
 	LastGainIndex int8
+
+	// Pre-allocated parameter buffers (max 4 subframes)
+	harmBuf [4]int
+	tiltBuf [4]int
+	lfBuf   [4]int32
+
+	// Embedded params to avoid heap allocation
+	params NoiseShapeParams
 }
 
 // NoiseShapeParams holds the computed noise shaping parameters for a frame.
@@ -120,11 +128,12 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 	fsKHz int,
 	nStatesDelayedDecision int,
 ) *NoiseShapeParams {
-	params := &NoiseShapeParams{
-		HarmShapeGainQ14: make([]int, numSubframes),
-		TiltQ14:          make([]int, numSubframes),
-		LFShpQ14:         make([]int32, numSubframes),
+	s.params = NoiseShapeParams{
+		HarmShapeGainQ14: s.harmBuf[:numSubframes],
+		TiltQ14:          s.tiltBuf[:numSubframes],
+		LFShpQ14:         s.lfBuf[:numSubframes],
 	}
+	params := &s.params
 
 	// Compute coding quality from ORIGINAL SNR (sigmoid mapping)
 	// coding_quality = sigmoid(0.25 * (SNR_dB - 20))

@@ -4,8 +4,89 @@
 package celt
 
 import (
+	"encoding/binary"
+	"fmt"
 	"math"
+	"os"
+	"runtime"
+	"sync/atomic"
 )
+
+var mdctStageDumpCounter uint32
+var mdctUseNativeMul = os.Getenv("GOPUS_TMP_MDCT_NATIVE_MUL") == "1"
+var mdctUseF64Mix = os.Getenv("GOPUS_TMP_MDCT_MIX_F64") == "1"
+var mdctUseFMALikeMix = func() bool {
+	if v, ok := os.LookupEnv("GOPUS_TMP_MDCT_FMALIKE"); ok {
+		return v == "1"
+	}
+	return runtime.GOARCH == "arm64"
+}()
+
+func mdctMul(a, b float32) float32 {
+	if mdctUseNativeMul {
+		return a * b
+	}
+	return noFMA32Mul(a, b)
+}
+
+func mdctMulAddMix(a, b, c, d float32) float32 {
+	if mdctUseNativeMul {
+		return a*c + b*d
+	}
+	if mdctUseFMALikeMix {
+		// Match libopus arm64 codegen pattern for a*c + b*d:
+		// round b*d to float32, then perform fused-like add with a*c and one final rounding.
+		t := mdctMul(b, d)
+		return float32(float64(a)*float64(c) + float64(t))
+	}
+	if mdctUseF64Mix {
+		return float32(float64(a)*float64(c) + float64(b)*float64(d))
+	}
+	return mdctMul(a, c) + mdctMul(b, d)
+}
+
+func mdctMulSubMix(a, b, c, d float32) float32 {
+	if mdctUseNativeMul {
+		return a*c - b*d
+	}
+	if mdctUseFMALikeMix {
+		// Match libopus arm64 codegen pattern for a*c - b*d:
+		// round b*d to float32, then subtract with one final rounding.
+		t := mdctMul(b, d)
+		return float32(float64(a)*float64(c) - float64(t))
+	}
+	if mdctUseF64Mix {
+		return float32(float64(a)*float64(c) - float64(b)*float64(d))
+	}
+	return mdctMul(a, c) - mdctMul(b, d)
+}
+
+func mdctMulSubMixAlt(a, b, c, d float32) float32 {
+	if mdctUseNativeMul {
+		return a*c - b*d
+	}
+	if mdctUseFMALikeMix {
+		// This branch matches the third fold equation codegen shape in libopus:
+		// round a*c first, then subtract b*d with one final rounding.
+		t := mdctMul(a, c)
+		return float32(float64(t) - float64(b)*float64(d))
+	}
+	if mdctUseF64Mix {
+		return float32(float64(a)*float64(c) - float64(b)*float64(d))
+	}
+	return mdctMul(a, c) - mdctMul(b, d)
+}
+
+func dumpFloat32Raw(path string, vals []float32) {
+	if len(vals) == 0 {
+		return
+	}
+	buf := make([]byte, len(vals)*4)
+	for i, v := range vals {
+		binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(v))
+	}
+	_ = os.WriteFile(path, buf, 0o644)
+}
 
 // MDCT computes the forward Modified Discrete Cosine Transform.
 // For CELT-typical inputs (frameSize+Overlap), this uses the short-overlap
@@ -207,6 +288,13 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 		coeffs = make([]float64, n2)
 	}
 
+	doDump := false
+	dumpIdx := uint32(0)
+	if os.Getenv("GOPUS_TMP_MDCT_STAGE_DUMP") == "1" && frameSize == 480 && overlap == 120 {
+		dumpIdx = atomic.LoadUint32(&mdctStageDumpCounter)
+		doDump = dumpIdx < 96
+	}
+
 	xp1 := overlap / 2
 	xp2 := n2 - 1 + overlap/2
 	wp1 := overlap / 2
@@ -215,8 +303,8 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 	limit1 := (overlap + 3) >> 2
 
 	for ; i < limit1; i++ {
-		f[2*i] = float32(samples[xp1+n2])*window[wp2] + float32(samples[xp2])*window[wp1]
-		f[2*i+1] = float32(samples[xp1])*window[wp1] - float32(samples[xp2-n2])*window[wp2]
+		f[2*i] = mdctMulAddMix(float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
+		f[2*i+1] = mdctMulSubMix(float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
 		xp1 += 2
 		xp2 -= 2
 		wp1 += 2
@@ -233,35 +321,93 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 	}
 
 	for ; i < n4; i++ {
-		f[2*i] = -float32(samples[xp1-n2])*window[wp1] + float32(samples[xp2])*window[wp2]
-		f[2*i+1] = float32(samples[xp1])*window[wp2] + float32(samples[xp2+n2])*window[wp1]
+		f[2*i] = mdctMulSubMixAlt(float32(samples[xp2]), float32(samples[xp1-n2]), window[wp2], window[wp1])
+		f[2*i+1] = mdctMulAddMix(float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
 		xp1 += 2
 		xp2 -= 2
 		wp1 += 2
 		wp2 -= 2
 	}
 
-	scale := float32(1.0 / float64(n4))
+	if doDump {
+		inF32 := make([]float32, len(samples))
+		for k := range samples {
+			inF32[k] = float32(samples[k])
+		}
+		dumpFloat32Raw(fmt.Sprintf("/tmp/go_actual_stage_input_call%d.f32", dumpIdx), inF32)
+		dumpFloat32Raw(fmt.Sprintf("/tmp/go_actual_stage_f_call%d.f32", dumpIdx), f[:n2])
+	}
+
+	// Match libopus st->scale initialization in float builds (1.f/nfft).
+	scale := float32(1.0) / float32(n4)
+	// BCE hints for pre-twiddle loop
+	_ = f[2*n4-1]     // BCE hint
+	_ = trig[n4+n4-1] // BCE hint: trig needs n2 entries
+	_ = fftIn[n4-1]   // BCE hint
 	for i = 0; i < n4; i++ {
 		re := f[2*i]
 		im := f[2*i+1]
 		t0 := trig[i]
 		t1 := trig[n4+i]
-		yr := re*t0 - im*t1
-		yi := im*t0 + re*t1
+		yr := mdctMul(re, t0) - mdctMul(im, t1)
+		yi := mdctMul(im, t0) + mdctMul(re, t1)
+		if mdctUseFMALikeMix {
+			// Match libopus arm64 codegen pattern that rounds one product and uses FMADD.
+			yr = float32(float64(re)*float64(t0) - float64(mdctMul(im, t1)))
+			yi = float32(float64(im)*float64(t0) + float64(mdctMul(re, t1)))
+		}
 		fftIn[i] = complex(yr*scale, yi*scale)
 	}
 
+	if doDump {
+		st := getKissFFTState(n4)
+		if st != nil && len(st.bitrev) >= n4 {
+			pre := make([]float32, 2*n4)
+			for k := 0; k < n4; k++ {
+				idx := st.bitrev[k]
+				v := fftIn[k]
+				pre[2*idx] = real(v)
+				pre[2*idx+1] = imag(v)
+			}
+			dumpFloat32Raw(fmt.Sprintf("/tmp/go_actual_stage_prebitrev_ri_call%d.f32", dumpIdx), pre)
+		}
+	}
+
 	kissFFT32To(fftOut, fftIn[:n4], fftTmp)
+
+	if doDump {
+		fftRI := make([]float32, 2*n4)
+		for k := 0; k < n4; k++ {
+			fftRI[2*k] = real(fftOut[k])
+			fftRI[2*k+1] = imag(fftOut[k])
+		}
+		dumpFloat32Raw(fmt.Sprintf("/tmp/go_actual_stage_fft_ri_call%d.f32", dumpIdx), fftRI)
+	}
+	// BCE hints for post-twiddle loop
+	_ = fftOut[n4-1] // BCE hint
+	_ = coeffs[n2-1] // BCE hint
 	for i = 0; i < n4; i++ {
 		re := real(fftOut[i])
 		im := imag(fftOut[i])
 		t0 := trig[i]
 		t1 := trig[n4+i]
-		yr := im*t1 - re*t0
-		yi := re*t1 + im*t0
+		yr := mdctMul(im, t1) - mdctMul(re, t0)
+		yi := mdctMul(re, t1) + mdctMul(im, t0)
+		if mdctUseFMALikeMix {
+			yr = float32(float64(im)*float64(t1) - float64(mdctMul(re, t0)))
+			yi = float32(float64(re)*float64(t1) + float64(mdctMul(im, t0)))
+		}
 		coeffs[2*i] = float64(yr)
 		coeffs[n2-1-2*i] = float64(yi)
+	}
+
+	if doDump {
+		coeffF32 := make([]float32, n2)
+		for k := 0; k < n2; k++ {
+			coeffF32[k] = float32(coeffs[k])
+		}
+		dumpFloat32Raw(fmt.Sprintf("/tmp/go_actual_stage_coeff_call%d.f32", dumpIdx), coeffF32)
+		atomic.AddUint32(&mdctStageDumpCounter, 1)
 	}
 }
 

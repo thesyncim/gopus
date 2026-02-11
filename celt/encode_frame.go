@@ -4,8 +4,11 @@
 package celt
 
 import (
+	"encoding/binary"
 	"errors"
+	"fmt"
 	"math"
+	"os"
 )
 
 // Encoding errors
@@ -16,6 +19,59 @@ var (
 	// ErrEncodingFailed indicates a general encoding failure.
 	ErrEncodingFailed = errors.New("celt: encoding failed")
 )
+
+func dumpFloat32File(path string, vals []float64) {
+	if len(vals) == 0 {
+		return
+	}
+	buf := make([]byte, len(vals)*4)
+	for i, v := range vals {
+		binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(float32(v)))
+	}
+	_ = os.WriteFile(path, buf, 0o644)
+}
+
+// fillMDCTHistoryFromPrefilter mirrors libopus overlap sourcing for CELT MDCT:
+// in[0:overlap] comes from the previous filtered output tail (st->in_mem).
+func (e *Encoder) fillMDCTHistoryFromPrefilter(channel, overlap int, dst []float64) {
+	if overlap <= 0 || len(dst) < overlap || channel < 0 {
+		return
+	}
+	for i := 0; i < overlap; i++ {
+		dst[i] = 0
+	}
+	if len(e.overlapBuffer) < (channel+1)*overlap {
+		return
+	}
+	start := channel * overlap
+	src := e.overlapBuffer[start : start+overlap]
+	for i := 0; i < overlap; i++ {
+		// libopus keeps this state in float; quantize to float32 when feeding MDCT history.
+		if os.Getenv("GOPUS_TMP_SKIP_MDCT_HIST_ROUND") == "1" {
+			dst[i] = src[i]
+		} else {
+			dst[i] = float64(float32(src[i]))
+		}
+	}
+}
+
+// quantizeInputToLSBDepthScratch mirrors opus_demo -f32 ingestion when fixtures
+// are generated via opus_encode24: round to the configured LSB depth before
+// dc_reject/pre-emphasis.
+func (e *Encoder) quantizeInputToLSBDepthScratch(pcm []float64) []float64 {
+	if len(pcm) == 0 {
+		return pcm
+	}
+	depth := e.LSBDepth()
+	scale := math.Ldexp(1.0, depth-1)
+	invScale := 1.0 / scale
+	out := ensureFloat64Slice(&e.scratch.quantizedInput, len(pcm))
+	for i, v := range pcm {
+		x := float64(float32(v))
+		out[i] = math.Floor(0.5+x*scale) * invScale
+	}
+	return out[:len(pcm)]
+}
 
 // EncodeFrame encodes a complete CELT frame from PCM samples.
 // pcm: input samples (interleaved if stereo), length = frameSize * channels
@@ -53,26 +109,28 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	// Step 2: Get mode configuration
 	mode := GetModeConfig(frameSize)
-	nbBands := mode.EffBands
+	nbBands := e.effectiveBandCount(frameSize)
 	lm := mode.LM
 
 	// Ensure scratch buffers are properly sized for this frame
 	e.ensureScratch(frameSize)
 
 	// Step 3a: Optionally apply DC rejection (high-pass) to match libopus Opus encoder.
-	// libopus applies dc_reject() at the Opus encoder level before CELT mode selection.
-	// When CELT is driven directly, keep this enabled to match the full Opus path.
+	// libopus float path runs dc_reject() directly on float samples. Do not pre-quantize
+	// here; float32 precision is already matched by the dc_reject/preemphasis stages.
 	// Reference: libopus src/opus_encoder.c line 2008: dc_reject(pcm, 3, ...)
 	samplesForFrame := pcm
-	if e.dcRejectEnabled {
-		samplesForFrame = e.applyDCRejectScratch(pcm)
+	if os.Getenv("GOPUS_TMP_QUANT_INPUT_LSB") == "1" {
+		samplesForFrame = e.quantizeInputToLSBDepthScratch(samplesForFrame)
+	}
+	if e.dcRejectEnabled && os.Getenv("GOPUS_TMP_DISABLE_DCREJECT") != "1" {
+		samplesForFrame = e.applyDCRejectScratch(samplesForFrame)
 	}
 
-	// Step 3b: Apply CELT delay compensation for standalone CELT usage.
-	// When CELT is driven by the top-level Opus encoder, delay compensation is already
-	// applied before calling into CELT, so running it again would double-compensate.
-	// We use dcRejectEnabled as a standalone-vs-top-level signal: top-level sets it false.
-	if e.dcRejectEnabled {
+	// Step 3b: Optionally apply Opus-style CELT delay compensation.
+	// Standalone CELT keeps this enabled by default.
+	// Top-level Opus integration disables it and compensates externally.
+	if e.delayCompensationEnabled {
 		samplesForFrame = e.ApplyDelayCompensationScratchHybrid(samplesForFrame, frameSize)
 	}
 
@@ -91,6 +149,12 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	overlap := Overlap
 	if overlap > frameSize {
 		overlap = frameSize
+	}
+	var mdctPrevL [Overlap]float64
+	var mdctPrevR [Overlap]float64
+	e.fillMDCTHistoryFromPrefilter(0, overlap, mdctPrevL[:])
+	if e.channels == 2 {
+		e.fillMDCTHistoryFromPrefilter(1, overlap, mdctPrevR[:])
 	}
 
 	// Ensure preemphBuffer is properly sized
@@ -149,7 +213,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	}
 
 	// Step 5: Initialize range encoder and encode early flags (silence/postfilter)
-	targetBitsRaw := e.computeTargetBits(frameSize)
+	targetBitsRaw := e.computeTargetBits(frameSize, tfEstimate, e.lastPitchChange)
 	targetBytes := (targetBitsRaw + 7) / 8
 	targetBits := targetBytes * 8
 	e.frameBits = targetBits
@@ -170,8 +234,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	re.Shrink(uint32(targetBytes))
 	e.SetRangeEncoder(re)
 
-	isSilence := isFrameSilent(pcm)
 	tell := re.Tell()
+	isSilence := e.computeSilenceFlag(samplesForFrame, frameSize, overlap)
 	if tell == 1 {
 		if isSilence {
 			re.EncodeBit(1, 15)
@@ -186,17 +250,37 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	start := 0
 
 	prefilterTapset := e.TapsetDecision()
-	// Match libopus run_prefilter enable gating for top-level Opus-driven CELT.
-	// For standalone CELT mode we keep first-frame gating to preserve existing behavior
-	// expected by local unit tests.
-	enabled := start == 0 && targetBytes > 12*e.channels && !e.IsHybrid() && !isSilence && re.Tell()+16 <= targetBits
-	if e.dcRejectEnabled && e.frameCount == 0 && !e.vbr {
+	// Match libopus run_prefilter enable gating.
+	enabled := lm > 0 && start == 0 && targetBytes > 12*e.channels && !e.IsHybrid() && !isSilence && re.Tell()+16 <= targetBits
+	if os.Getenv("GOPUS_TMP_DISABLE_PREFILTER") == "1" {
 		enabled = false
 	}
+	prevPrefilterPeriod := e.prefilterPeriod
+	prevPrefilterGain := e.prefilterGain
 	// Derive the prefilter max-pitch ratio from the same pre-emphasized signal
 	// used by the CELT analysis path; this improves postfilter parity vs libopus.
-	maxPitchRatio := estimateMaxPitchRatio(preemph, e.channels, e.scratch.prefilterPitchBuf)
+	maxPitchRatio := e.estimateMaxPitchRatioStateful(samplesForFrame)
+	if os.Getenv("GOPUS_TMP_FORCE_MAX_PITCH_RATIO_1") == "1" {
+		maxPitchRatio = 1
+	}
+	if os.Getenv("GOPUS_TMP_XB19_DUMP") == "1" && frameSize == 480 && e.channels == 1 && e.frameCount < 32 {
+		dumpFloat32File(fmt.Sprintf("/tmp/go_top_pfin_call%d.f32", e.frameCount), preemph[:frameSize])
+	}
 	pfResult := e.runPrefilter(preemph, frameSize, prefilterTapset, enabled, tfEstimate, targetBytes, toneFreq, toneishness, maxPitchRatio)
+	if os.Getenv("GOPUS_TMP_XB19_DUMP") == "1" && frameSize == 480 && e.channels == 1 && e.frameCount < 32 {
+		dumpFloat32File(fmt.Sprintf("/tmp/go_top_pfout_call%d.f32", e.frameCount), preemph[:frameSize])
+	}
+	// Keep stateful prefilter output on float32 precision to match libopus float path.
+	if os.Getenv("GOPUS_TMP_SKIP_PREF_OUT_ROUND") != "1" {
+		roundFloat64ToFloat32(preemph)
+	}
+	e.lastPitchChange = false
+	if prevPrefilterPeriod > 0 && (pfResult.gain > 0.4 || prevPrefilterGain > 0.4) {
+		upper := int(1.26 * float64(prevPrefilterPeriod))
+		lower := int(0.79 * float64(prevPrefilterPeriod))
+		e.lastPitchChange = pfResult.pitch > upper || pfResult.pitch < lower
+	}
+
 	if !e.IsHybrid() && start == 0 && re.Tell()+16 <= targetBits {
 		if !pfResult.on {
 			re.EncodeBit(0, 1)
@@ -241,7 +325,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 				e.scratch.leftHist = hist
 			}
 			hist = hist[:overlap]
-			copy(hist, e.overlapBuffer[:overlap])
+			copy(hist, mdctPrevL[:overlap])
 			mdctLong := computeMDCTWithHistoryScratch(preemph, hist, 1, &e.scratch)
 			// Use bandLogE2 scratch buffer to avoid aliasing with energies
 			bandLogE2 = ensureFloat64Slice(&e.scratch.bandLogE2, nbBands*e.channels)
@@ -252,13 +336,6 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			overlap := Overlap
 			if overlap > frameSize {
 				overlap = frameSize
-			}
-			if len(e.overlapBuffer) < 2*overlap {
-				newBuf := make([]float64, 2*overlap)
-				if len(e.overlapBuffer) > 0 {
-					copy(newBuf, e.overlapBuffer)
-				}
-				e.overlapBuffer = newBuf
 			}
 			// Use scratch for hist buffers
 			leftHist := e.scratch.leftHist
@@ -273,8 +350,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			}
 			leftHist = leftHist[:overlap]
 			rightHist = rightHist[:overlap]
-			copy(leftHist, e.overlapBuffer[:overlap])
-			copy(rightHist, e.overlapBuffer[overlap:2*overlap])
+			copy(leftHist, mdctPrevL[:overlap])
+			copy(rightHist, mdctPrevR[:overlap])
 			mdctLeftLong := computeMDCTWithHistoryScratchStereoL(left, leftHist, 1, &e.scratch)
 			mdctRightLong := computeMDCTWithHistoryScratchStereoR(right, rightHist, 1, &e.scratch)
 			// Use scratch for combined mdct
@@ -306,8 +383,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	var mdctCoeffs []float64
 	var mdctLeft, mdctRight []float64
 	if e.channels == 1 {
-		// Mono: MDCT directly with overlap buffer for continuity
-		mdctCoeffs = e.computeMDCTWithOverlap(preemph, shortBlocks)
+		hist := ensureFloat64Slice(&e.scratch.leftHist, overlap)
+		hist = hist[:overlap]
+		copy(hist, mdctPrevL[:overlap])
+		mdctCoeffs = computeMDCTWithHistoryScratch(preemph, hist, shortBlocks, &e.scratch)
 	} else {
 		// Stereo: MDCT Left and Right directly - use scratch buffers
 		left, right := deinterleaveStereoScratch(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
@@ -317,18 +396,12 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			overlap = frameSize
 		}
 
-		// Ensure overlap buffer is large enough for both channels
-		if len(e.overlapBuffer) < 2*overlap {
-			newBuf := make([]float64, 2*overlap)
-			if len(e.overlapBuffer) > 0 {
-				copy(newBuf, e.overlapBuffer)
-			}
-			e.overlapBuffer = newBuf
-		}
-
-		// Split overlap buffer for left and right
-		leftHistory := e.overlapBuffer[:overlap]
-		rightHistory := e.overlapBuffer[overlap : 2*overlap]
+		leftHistory := ensureFloat64Slice(&e.scratch.leftHist, overlap)
+		rightHistory := ensureFloat64Slice(&e.scratch.rightHist, overlap)
+		leftHistory = leftHistory[:overlap]
+		rightHistory = rightHistory[:overlap]
+		copy(leftHistory, mdctPrevL[:overlap])
+		copy(rightHistory, mdctPrevR[:overlap])
 
 		// Use overlap-aware MDCT for both channels with scratch buffers
 		mdctLeft = computeMDCTWithHistoryScratchStereoL(left, leftHistory, shortBlocks, &e.scratch)
@@ -350,8 +423,25 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	energies := e.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
 	roundFloat64ToFloat32(energies)
 	if !secondMdct {
-		bandLogE2 = make([]float64, len(energies))
+		bandLogE2 = ensureFloat64Slice(&e.scratch.bandLogE2, len(energies))
 		copy(bandLogE2, energies)
+	}
+
+	if os.Getenv("GOPUS_TMP_XB19_DUMP") == "1" && frameSize == 480 && e.channels == 1 && e.frameCount < 32 {
+		if len(e.scratch.mdctInput) >= frameSize+overlap {
+			dumpFloat32File(fmt.Sprintf("/tmp/go_fixture_mdct_input_call%d.f32", e.frameCount), e.scratch.mdctInput[:frameSize+overlap])
+		}
+		if len(mdctCoeffs) >= frameSize {
+			dumpFloat32File(fmt.Sprintf("/tmp/go_fixture_mdct_coeff_call%d.f32", e.frameCount), mdctCoeffs[:frameSize])
+		}
+	}
+	if os.Getenv("GOPUS_TMP_MDCT56_DUMP") == "1" && frameSize == 480 && e.channels == 1 && e.frameCount >= 54 && e.frameCount <= 58 {
+		if len(e.scratch.mdctInput) >= frameSize+overlap {
+			dumpFloat32File(fmt.Sprintf("/tmp/go_mdct56_input_call%d.f32", e.frameCount), e.scratch.mdctInput[:frameSize+overlap])
+		}
+		if len(mdctCoeffs) >= frameSize {
+			dumpFloat32File(fmt.Sprintf("/tmp/go_mdct56_coeff_call%d.f32", e.frameCount), mdctCoeffs[:frameSize])
+		}
 	}
 
 	// Step 6.5: Patch transient decision based on band energy comparison
@@ -372,10 +462,14 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 			// Recompute MDCT with short blocks
 			if e.channels == 1 {
-				// For mono, we need to restore overlap buffer state before recomputing
-				// Since computeMDCTWithOverlap updates the buffer, we can just call it again
-				// with the new shortBlocks value
-				mdctCoeffs = computeMDCTForEncoding(preemph, frameSize, shortBlocks)
+				overlap := Overlap
+				if overlap > frameSize {
+					overlap = frameSize
+				}
+				hist := ensureFloat64Slice(&e.scratch.leftHist, overlap)
+				hist = hist[:overlap]
+				copy(hist, mdctPrevL[:overlap])
+				mdctCoeffs = computeMDCTWithHistoryScratch(preemph, hist, shortBlocks, &e.scratch)
 			} else {
 				// For stereo, recompute both channels - use scratch buffers
 				left, right := deinterleaveStereoScratch(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
@@ -383,7 +477,6 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 				if overlap > frameSize {
 					overlap = frameSize
 				}
-				// Use scratch history slices to avoid double-update issues
 				leftHist := e.scratch.leftHist
 				rightHist := e.scratch.rightHist
 				if len(leftHist) < overlap {
@@ -396,10 +489,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 				}
 				leftHist = leftHist[:overlap]
 				rightHist = rightHist[:overlap]
-				if len(e.overlapBuffer) >= 2*overlap {
-					copy(leftHist, e.overlapBuffer[:overlap])
-					copy(rightHist, e.overlapBuffer[overlap:2*overlap])
-				}
+				copy(leftHist, mdctPrevL[:overlap])
+				copy(rightHist, mdctPrevR[:overlap])
 				mdctLeft = computeMDCTWithHistoryScratchStereoL(left, leftHist, shortBlocks, &e.scratch)
 				mdctRight = computeMDCTWithHistoryScratchStereoR(right, rightHist, shortBlocks, &e.scratch)
 				// Use scratch buffer for combined coefficients
@@ -477,44 +568,12 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		shortBlocks = 1
 	}
 
-	// Intra energy flag: only encode if budget allows
-	// Reference: libopus celt_decoder.c line 1377
-	// intra_ener = tell+3<=total_bits ? ec_dec_bit_logp(dec, 3) : 0
-	intra := e.IsIntraFrame()
-	if re.Tell()+3 <= targetBits {
-		var intraBit int
-		if intra {
-			intraBit = 1
-		}
-		re.EncodeBit(intraBit, 3)
-	} else {
-		// Budget doesn't allow intra flag, force inter mode
-		intra = false
-	}
-
-	// Step 10: Prepare stereo params (encoded during allocation)
-	// Use mid-side stereo by default: dualStereo=false, intensity=nbBands (disabled)
-	intensity := nbBands
+	// Step 10: Prepare stereo params (encoded during allocation).
+	// Defaults mirror libopus behavior: MS stereo, no intensity.
+	intensity := 0
 	dualStereo := false
-	if e.channels == 2 {
-		var xy, xx, yy float64
-		for i := 0; i+1 < len(preemph); i += 2 {
-			l := preemph[i]
-			r := preemph[i+1]
-			xy += l * r
-			xx += l * l
-			yy += r * r
-		}
-		if xx > 0 && yy > 0 {
-			corr := math.Abs(xy / math.Sqrt(xx*yy))
-			dualStereo = corr < 0.95
-		} else {
-			dualStereo = true
-		}
-	}
 
-	// Step 11: Encode coarse energy
-	// Use scratch buffer for prev1LogE
+	// Step 11.0: Snapshot previous energies used by dynalloc/coarse decisions.
 	prev1LogE := e.scratch.prev1LogE
 	if len(prev1LogE) < len(e.prevEnergy) {
 		prev1LogE = make([]float64, len(e.prevEnergy))
@@ -523,8 +582,18 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	prev1LogE = prev1LogE[:len(e.prevEnergy)]
 	copy(prev1LogE, e.prevEnergy)
 
+	// dynalloc/spread analysis in libopus uses pre-stabilization energies.
+	analysisEnergies := ensureFloat64Slice(&e.scratch.analysisEnergies, len(energies))
+	copy(analysisEnergies, energies)
+	if os.Getenv("GOPUS_TMP_ENERGY_INPUT_F32") == "1" {
+		roundFloat64ToFloat32(energies)
+		roundFloat64ToFloat32(analysisEnergies)
+	}
+
+	// Step 11: Encode coarse energy
 	// Match libopus pre-coarse stabilization:
 	// if abs(bandLogE-oldBandE) < 2, bias current energy toward previous quant error.
+	// Keep this feedback path in float32 precision to mirror libopus float behavior.
 	// Reference: celt_encoder.c before quant_coarse_energy().
 	for c := 0; c < e.channels; c++ {
 		baseState := c * MaxBands
@@ -535,21 +604,39 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			if frameIdx >= len(energies) || stateIdx >= len(e.energyError) || stateIdx >= len(e.prevEnergy) {
 				continue
 			}
-			if math.Abs(energies[frameIdx]-e.prevEnergy[stateIdx]) < 2.0 {
-				energies[frameIdx] -= 0.25 * e.energyError[stateIdx]
+			oldE := float32(e.prevEnergy[stateIdx])
+			curE := float32(energies[frameIdx])
+			diff := curE - oldE
+			if diff < 0 {
+				diff = -diff
+			}
+			if diff < 2.0 {
+				energies[frameIdx] = float64(curE - 0.25*float32(e.energyError[stateIdx]))
 			}
 		}
 	}
 
-	quantizedEnergies := e.EncodeCoarseEnergy(energies, nbBands, intra, lm)
+	intra := false
+	if re.Tell()+3 <= targetBits {
+		intra = e.DecideIntraMode(energies, nbBands, lm)
+		var intraBit int
+		if intra {
+			intraBit = 1
+		}
+		re.EncodeBit(intraBit, 3)
+	} else {
+		intra = false
+	}
 
+	quantizedEnergies := e.EncodeCoarseEnergy(energies, nbBands, intra, lm)
 	// Step 11.0.5: Normalize bands early for TF analysis
 	// TF analysis needs normalized coefficients to determine optimal time-frequency resolution
 	var normL, normR []float64
+	var normBandEScratch []float64
 	if e.channels == 1 {
 		normL = ensureFloat64Slice(&e.scratch.normL, frameSize)
-		bandEScratch := ensureFloat64Slice(&e.scratch.bandE, nbBands)
-		NormalizeBandsToArrayInto(mdctCoeffs, nbBands, frameSize, normL, bandEScratch)
+		normBandEScratch = ensureFloat64Slice(&e.scratch.bandE, nbBands)
+		NormalizeBandsToArrayInto(mdctCoeffs, nbBands, frameSize, normL, normBandEScratch)
 	} else {
 		normL = ensureFloat64Slice(&e.scratch.normL, frameSize)
 		normR = ensureFloat64Slice(&e.scratch.normR, frameSize)
@@ -558,12 +645,44 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		NormalizeBandsToArrayInto(mdctLeft, nbBands, frameSize, normL, bandEL)
 		NormalizeBandsToArrayInto(mdctRight, nbBands, frameSize, normR, bandER)
 	}
+	if os.Getenv("GOPUS_TMP_NORM56_DUMP") == "1" && frameSize == 480 && e.channels == 1 && e.frameCount >= 54 && e.frameCount <= 58 && len(normBandEScratch) > 18 {
+		start := 0
+		for b := 0; b < 18; b++ {
+			start += ScaledBandWidth(b, frameSize)
+		}
+		nBand := ScaledBandWidth(18, frameSize)
+		if start+nBand <= len(mdctCoeffs) && start+nBand <= len(normL) {
+			amp := float32(normBandEScratch[18])
+			if amp < float32(1e-27) {
+				amp = float32(1e-27)
+			}
+			g := float32(1.0) / amp
+			fmt.Fprintf(os.Stderr, "GONORM frame=%d band=18 g=%.8f freq=", e.frameCount, g)
+			for j := 0; j < nBand; j++ {
+				fmt.Fprintf(os.Stderr, " %.8f", float32(mdctCoeffs[start+j]))
+			}
+			fmt.Fprintf(os.Stderr, " X=")
+			for j := 0; j < nBand; j++ {
+				fmt.Fprintf(os.Stderr, " %.8f", float32(normL[start+j]))
+			}
+			fmt.Fprintln(os.Stderr)
+		}
+	}
+	if os.Getenv("GOPUS_TMP_ROUND_NORM_F32") == "1" {
+		roundFloat64ToFloat32(normL)
+		if e.channels == 2 {
+			roundFloat64ToFloat32(normR)
+		}
+	}
+	if os.Getenv("GOPUS_TMP_NORM_DUMP") == "1" && frameSize == 480 && e.channels == 1 && e.frameCount < 32 {
+		dumpFloat32File(fmt.Sprintf("/tmp/go_norm_call%d.f32", e.frameCount), normL[:frameSize])
+	}
 
 	// Step 11.0.6: Compute tonality analysis for next frame's VBR decisions
 	// We compute tonality here using Spectral Flatness Measure (SFM) and store it
 	// for use in the next frame's computeVBRTarget (similar to how libopus uses
 	// analysis from the previous frame).
-	e.updateTonalityAnalysis(normL, energies, nbBands, frameSize)
+	e.updateTonalityAnalysis(normL, analysisEnergies, nbBands, frameSize)
 
 	// Step 11.1: Compute and encode TF (time-frequency) resolution
 	// Note: 'end' was already set earlier during patch_transient_decision
@@ -574,6 +693,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	} else {
 		effectiveBytes = e.cbrPayloadBytes(frameSize)
 	}
+	equivRate := ComputeEquivRate(effectiveBytes, e.channels, lm, e.targetBitrate)
 
 	// Step 11.0.7: Compute dynalloc analysis for VBR and bit allocation
 	// This computes maxDepth, offsets, importance, and spread_weight.
@@ -596,22 +716,28 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Determine VBR mode (match encoder settings)
 	isVBR := e.vbr
 	isConstrainedVBR := e.constrainedVBR
-	bandLogE2Use := energies
+	bandLogE2Use := analysisEnergies
 	if bandLogE2 != nil {
 		bandLogE2Use = bandLogE2
 	}
+	oldBandELen := nbBands * e.channels
+	if oldBandELen > len(prev1LogE) {
+		oldBandELen = len(prev1LogE)
+	}
 	dynallocResult := DynallocAnalysisWithScratch(
-		energies, bandLogE2Use, prev1LogE,
+		analysisEnergies, bandLogE2Use, prev1LogE[:oldBandELen],
 		nbBands, start, end, e.channels, lsbDepth, lm,
 		logN,
 		effectiveBytes,
 		transient, isVBR, isConstrainedVBR,
 		toneFreq, toneishness,
+		e.analysisValid, e.dynallocLeakBoost(),
 		&e.dynallocScratch,
 	)
 	// Store for next frame's VBR computation
 	e.lastDynalloc = dynallocResult
 
+	// Step 11.2: Compute and encode TF (time-frequency) resolution.
 	// Enable TF analysis when we have enough bits and reasonable complexity.
 	// Reference: libopus enable_tf_analysis = effectiveBytes>=15*C && !hybrid && st->complexity>=2 && !st->lfe && toneishness < QCONST32(.98f, 29)
 	// Note: libopus does NOT have an LM>0 check here - TF analysis runs for all frame sizes including LM=0
@@ -634,16 +760,12 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			tfInput = normR
 		}
 		tfRes, tfSelect = TFAnalysisWithScratch(tfInput, len(tfInput), nbBands, transient, lm, tfEstimate, effectiveBytes, importance, &e.tfScratch)
-		if transient && !e.vbr && e.frameCount == 0 && tfSelect == 0 {
-			// Match libopus first-frame CBR transient selector behavior.
-			tfSelect = 1
-		}
 
 		// Encode TF decisions using the computed values
 		TFEncodeWithSelect(re, start, end, transient, tfRes, lm, tfSelect)
 	} else {
 		// Use default TF settings when analysis is disabled
-		tfRes = make([]int, nbBands)
+		tfRes = ensureIntSlice(&e.scratch.tfRes, nbBands)
 		tfSelect = 0
 		if transient {
 			// For transients without analysis, use tf_res=1 (favor time resolution)
@@ -687,9 +809,12 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			// Reference: libopus celt_encoder.c spreading_decision() call with
 			// pf_on&&!shortBlocks as updateHF condition.
 			updateHF := pfResult.on && shortBlocks == 1
-			// Compute dynamic spread weights based on masking analysis (matches libopus dynalloc_analysis)
-			// Use lsbDepth derived above to match libopus float input.
-			spreadWeights := ComputeSpreadWeights(energies, nbBands, e.channels, lsbDepth)
+			// Use spread weights from dynalloc_analysis(), matching libopus wiring.
+			spreadWeights := dynallocResult.SpreadWeight
+			if len(spreadWeights) < nbBands {
+				// Defensive fallback for unexpected sizing issues.
+				spreadWeights = ComputeSpreadWeights(analysisEnergies, nbBands, e.channels, lsbDepth)
+			}
 			spread = e.SpreadingDecisionWithWeights(normSpread, nbBands, e.channels, frameSize, updateHF, spreadWeights)
 		}
 		re.EncodeICDF(spread, spreadICDF, 5)
@@ -741,9 +866,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 		dynallocLoopLogp := dynallocLogp
 		boost := 0
+		j := 0
 
 		// Loop encoding boost bits while j < offsets[i]
-		for j := 0; tellFracDynalloc+(dynallocLoopLogp<<bitRes) < totalBitsQ3ForDynalloc-totalBoost && boost < caps[i]; j++ {
+		for ; tellFracDynalloc+(dynallocLoopLogp<<bitRes) < totalBitsQ3ForDynalloc-totalBoost && boost < caps[i]; j++ {
 			flag := 0
 			if j < offsets[i] {
 				flag = 1
@@ -758,8 +884,9 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			dynallocLoopLogp = 1 // After first bit, use logp=1
 		}
 
-		// Making dynalloc more likely for subsequent bands if we boosted this one
-		if boost > 0 {
+		// Match libopus: make dynalloc more likely if we encoded any dynalloc bit
+		// for this band (even if the first flag was 0).
+		if j > 0 {
 			if dynallocLogp > 2 {
 				dynallocLogp--
 			}
@@ -768,42 +895,72 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		// Update offsets[i] to reflect actual boost applied (for allocation)
 		offsets[i] = boost
 	}
+	// Step 11.4.5: Decide stereo mode parameters (libopus hysteresis + stereo analysis).
+	if e.channels == 2 {
+		// Always use MS for LM=0 (2.5ms), matching libopus.
+		if lm != 0 {
+			dualStereo = stereoAnalysisDecision(normL, normR, lm, nbBands)
+		} else {
+			dualStereo = false
+		}
+		e.intensity = hysteresisDecisionInt(
+			equivRate/1000,
+			celtIntensityThresholds[:],
+			celtIntensityHysteresis[:],
+			e.intensity,
+		)
+		if e.intensity < start {
+			e.intensity = start
+		}
+		if e.intensity > end {
+			e.intensity = end
+		}
+		intensity = e.intensity
+	}
+
 	// Step 11.5: Compute and encode allocation trim (only if budget allows)
 	// Reference: libopus celt_encoder.c line 2408-2417
 	// The trim value affects bit allocation bias between lower and higher frequency bands.
 	allocTrim := 5
 	tellForTrim := re.TellFrac()
 	if tellForTrim+(6<<bitRes) <= totalBitsQ3ForDynalloc-totalBoost {
-		effectiveBytesForTrim := targetBits / 8
-		equivRate := ComputeEquivRate(effectiveBytesForTrim, e.channels, lm, e.targetBitrate)
-		allocTrim = AllocTrimAnalysis(
-			normL,
-			energies,
-			nbBands,
-			lm,
-			e.channels,
-			normR,
-			intensity,
-			tfEstimate,
-			equivRate,
-			0.0, // surroundTrim - not implemented yet
-			0.0, // tonalitySlope - not implemented yet
-		)
-
-		trimBoost := 0
-		if e.channels == 1 {
-			trimBoost++
-		}
-		if dualStereo {
-			trimBoost += 5
-		}
-		if trimBoost > 0 {
-			allocTrim += trimBoost
-			if allocTrim > 10 {
-				allocTrim = 10
+		if start > 0 {
+			e.lastStereoSaving = 0
+			allocTrim = 5
+		} else {
+			tonalitySlope := 0.0
+			if e.analysisValid {
+				tonalitySlope = e.analysisTonalitySlope
+			}
+			trimBandLogE := energies
+			if os.Getenv("GOPUS_TMP_TRIM_USE_ANALYSIS") == "1" {
+				trimBandLogE = analysisEnergies
+			}
+			trimDetail := allocTrimDetail{}
+			allocTrim, trimDetail = allocTrimAnalysisDetailed(
+				normL,
+				trimBandLogE,
+				nbBands,
+				lm,
+				e.channels,
+				normR,
+				intensity,
+				tfEstimate,
+				equivRate,
+				0.0, // surroundTrim - not implemented yet
+				tonalitySlope,
+			)
+			if os.Getenv("GOPUS_TMP_TRIMDBG") == "1" && e.channels == 1 && frameSize == 480 && e.frameCount >= 45 && e.frameCount <= 80 {
+				fmt.Fprintf(os.Stderr, "TRIMDBG frame=%d analysisValid=%v equivRate=%d tf=%.6f lastTonality=%.6f tonalitySlope=%.6f trim=%d base=%.6f stereo=%.6f tilt=%.6f surround=%.6f tonal=%.6f raw=%.6f spread=%d transient=%v shortBlocks=%d totalBoost=%d tell=%d\n",
+					e.frameCount, e.analysisValid, equivRate, tfEstimate, e.lastTonality, tonalitySlope, allocTrim,
+					trimDetail.base, trimDetail.stereo, trimDetail.tilt, trimDetail.surround, trimDetail.tonal, trimDetail.raw,
+					spread, transient, shortBlocks, totalBoost, tellForTrim,
+				)
+			}
+			if e.channels == 2 {
+				e.lastStereoSaving = UpdateStereoSaving(e.lastStereoSaving, normL, normR, nbBands, lm, intensity)
 			}
 		}
-
 		re.EncodeICDF(allocTrim, trimICDF, 7)
 	}
 
@@ -820,7 +977,14 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	if signalBandwidth < 0 {
 		signalBandwidth = 0
 	}
-
+	if e.analysisValid {
+		minBandwidth := celtMinSignalBandwidth(equivRate, e.channels)
+		if e.analysisBandwidth > minBandwidth {
+			signalBandwidth = e.analysisBandwidth
+		} else {
+			signalBandwidth = minBandwidth
+		}
+	}
 	allocResult := e.computeAllocationScratch(
 		re,
 		totalBitsQ3,
@@ -839,9 +1003,26 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	} else {
 		e.lastCodedBands = allocResult.CodedBands
 	}
+	if e.channels == 2 {
+		e.intensity = allocResult.Intensity
+		intensity = allocResult.Intensity
+	}
+	// Keep CELT allocation bandwidth gating driven only by explicit external
+	// analysis input (SetAnalysisBandwidth), matching libopus behavior where
+	// st->analysis.valid is supplied by the top-level analysis pipeline.
 
 	// Step 13: Encode fine energy
-	e.EncodeFineEnergy(energies, quantizedEnergies, nbBands, allocResult.FineBits)
+	// Keep CELT fine/final energy refinement on the in-place residual state used
+	// by coarse quantization. This mirrors libopus quant_fine_energy() ->
+	// quant_energy_finalise() operating on the same error[] buffer.
+	coarseResidual := e.scratch.coarseError
+	if len(coarseResidual) >= nbBands*e.channels {
+		coarseResidual = coarseResidual[:nbBands*e.channels]
+		e.encodeFineEnergyFromError(quantizedEnergies, nbBands, allocResult.FineBits, coarseResidual)
+	} else {
+		// Defensive fallback for unexpected sizing issues.
+		e.EncodeFineEnergy(energies, quantizedEnergies, nbBands, allocResult.FineBits)
+	}
 
 	// Note: normL/normR and tfRes were already computed before encoding spread
 	// to ensure the same normalized coefficients are used for analysis and quantization
@@ -857,6 +1038,17 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		dualStereoVal = 1
 	}
 	tapset := e.TapsetDecision()
+	tmpPVQDumpFrame = e.frameCount
+	tmpPVQCallSeq = 0
+	if os.Getenv("GOPUS_TMP_XB19_DUMP") == "1" && frameSize == 480 && e.channels == 1 && e.frameCount < 32 {
+		b0 := EBands[19] << lm
+		b1 := EBands[20] << lm
+		fmt.Fprintf(os.Stderr, "GOXB19 call=%d", e.frameCount)
+		for i := b0; i < b1 && i < len(normL); i++ {
+			fmt.Fprintf(os.Stderr, " %.8f", float32(normL[i]))
+		}
+		fmt.Fprintln(os.Stderr)
+	}
 	quantAllBandsEncodeScratch(
 		re,
 		e.channels,
@@ -876,6 +1068,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		totalBitsAllQ3,
 		allocResult.Balance,
 		allocResult.CodedBands,
+		e.phaseInversionDisabled,
 		&e.rng,
 		e.complexity,
 		bandE,
@@ -898,10 +1091,16 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	if bitsLeft < 0 {
 		bitsLeft = 0
 	}
-	e.EncodeEnergyFinalise(energies, quantizedEnergies, nbBands, allocResult.FineBits, allocResult.FinePriority, bitsLeft)
+	if len(coarseResidual) >= nbBands*e.channels {
+		e.encodeEnergyFinaliseFromError(quantizedEnergies, nbBands, allocResult.FineBits, allocResult.FinePriority, bitsLeft, coarseResidual)
+	} else {
+		e.EncodeEnergyFinalise(energies, quantizedEnergies, nbBands, allocResult.FineBits, allocResult.FinePriority, bitsLeft)
+	}
 
 	// Match libopus energyError update timing and range:
-	// store post-finalise residual, clipped to [-0.5, 0.5], for next-frame stabilization.
+	// store post-finalise error[] residual, clipped to [-0.5, 0.5], for
+	// next-frame stabilization.
+	// Keep this in float32 precision to mirror libopus float behavior.
 	// Reference: celt_encoder.c after quant_energy_finalise().
 	for c := 0; c < e.channels; c++ {
 		baseState := c * MaxBands
@@ -920,13 +1119,16 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 				e.energyError[stateIdx] = 0
 				continue
 			}
-			err := energies[frameIdx] - quantizedEnergies[frameIdx]
+			err := float32(energies[frameIdx] - quantizedEnergies[frameIdx])
+			if frameIdx < len(coarseResidual) {
+				err = float32(coarseResidual[frameIdx])
+			}
 			if err < -0.5 {
 				err = -0.5
 			} else if err > 0.5 {
 				err = 0.5
 			}
-			e.energyError[stateIdx] = err
+			e.energyError[stateIdx] = float64(err)
 		}
 	}
 
@@ -1007,6 +1209,56 @@ func ComputeMDCTWithHistory(samples, history []float64, shortBlocks int) []float
 			copy(input[:overlap], history[len(history)-overlap:])
 		} else {
 			copy(input[overlap-len(history):overlap], history)
+		}
+	}
+
+	// Append current frame samples after the overlap.
+	copy(input[overlap:], samples)
+
+	// Update history with the current frame tail (overlap samples).
+	if overlap > 0 && len(history) > 0 {
+		if len(history) >= overlap {
+			copy(history, samples[len(samples)-overlap:])
+		} else {
+			copy(history, samples[len(samples)-len(history):])
+		}
+	}
+
+	if shortBlocks > 1 {
+		return MDCTShort(input, shortBlocks)
+	}
+	return MDCT(input)
+}
+
+// ComputeMDCTWithHistoryInto computes MDCT using a history buffer for overlap,
+// assembling the input into the caller-provided scratch buffer.
+// scratch must have capacity >= len(samples)+Overlap.
+// history is updated in-place with the current frame's tail.
+func ComputeMDCTWithHistoryInto(scratch, samples, history []float64, shortBlocks int) []float64 {
+	if len(samples) == 0 {
+		return nil
+	}
+
+	overlap := Overlap
+	if overlap > len(samples) {
+		overlap = len(samples)
+	}
+	input := scratch[:len(samples)+overlap]
+
+	// Copy history overlap into the head of the input buffer.
+	if overlap > 0 && len(history) > 0 {
+		if len(history) >= overlap {
+			copy(input[:overlap], history[len(history)-overlap:])
+		} else {
+			start := overlap - len(history)
+			for i := 0; i < start; i++ {
+				input[i] = 0
+			}
+			copy(input[start:overlap], history)
+		}
+	} else {
+		for i := 0; i < overlap; i++ {
+			input[i] = 0
 		}
 	}
 
@@ -1180,16 +1432,68 @@ func computeMDCTWithHistoryScratchStereoR(samples, history []float64, shortBlock
 	return mdctScratchInto(input, coeffs, scratch)
 }
 
-// isFrameSilent checks if all samples are effectively zero.
-func isFrameSilent(pcm []float64) bool {
-	const silenceThreshold = 1e-10
+// computeSilenceFlag mirrors libopus CELT silence gating:
+// sample_max = max(previous overlap_max, maxabs(non-overlap part), new overlap_max)
+// silence = sample_max <= 1/(1<<lsb_depth).
+func (e *Encoder) computeSilenceFlag(pcm []float64, frameSize, overlap int) bool {
+	if frameSize <= 0 || e.channels <= 0 || len(pcm) == 0 {
+		e.overlapMax = 0
+		return true
+	}
+	if overlap < 0 {
+		overlap = 0
+	}
+	if overlap > frameSize {
+		overlap = frameSize
+	}
 
-	for _, s := range pcm {
-		if s > silenceThreshold || s < -silenceThreshold {
-			return false
+	total := frameSize * e.channels
+	if total > len(pcm) {
+		total = len(pcm)
+	}
+	if total <= 0 {
+		e.overlapMax = 0
+		return true
+	}
+
+	split := (frameSize - overlap) * e.channels
+	if split < 0 {
+		split = 0
+	}
+	if split > total {
+		split = total
+	}
+
+	sampleMax := e.overlapMax
+	if split > 0 {
+		firstMax := maxAbsSliceF64(pcm[:split])
+		if firstMax > sampleMax {
+			sampleMax = firstMax
 		}
 	}
-	return true
+
+	newOverlapMax := 0.0
+	if split < total {
+		newOverlapMax = maxAbsSliceF64(pcm[split:total])
+	}
+	e.overlapMax = newOverlapMax
+	if newOverlapMax > sampleMax {
+		sampleMax = newOverlapMax
+	}
+
+	silenceThreshold := math.Ldexp(1.0, -e.lsbDepth)
+	return sampleMax <= silenceThreshold
+}
+
+func maxAbsSliceF64(x []float64) float64 {
+	maxAbs := 0.0
+	for _, v := range x {
+		a := math.Abs(v)
+		if a > maxAbs {
+			maxAbs = a
+		}
+	}
+	return maxAbs
 }
 
 // EncodeFrameWithOptions encodes a frame with additional control options.
@@ -1282,18 +1586,25 @@ func (e *Encoder) cbrPayloadBytes(frameSize int) int {
 	return payload
 }
 
-// computeTargetBits computes the target bit budget based on bitrate and frame size.
-// This implements libopus VBR logic from celt_encoder.c compute_vbr().
-//
-// For 64kbps and 20ms frame with VBR:
-// - Base: bitrate * frameSize / 48000 = 1280 bits
-// - VBR can boost up to 2x based on signal characteristics
-//
-// Reference: libopus celt/celt_encoder.c compute_vbr() and VBR computation around line 2435
-func (e *Encoder) computeTargetBits(frameSize int) int {
+// computeTargetBits computes the target CELT bit budget in bits.
+// Reference: libopus celt/celt_encoder.c compute_vbr().
+func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChange bool) int {
 	// CBR path uses fixed payload size.
 	if !e.vbr {
-		return e.cbrPayloadBytes(frameSize) * 8
+		targetBits := e.cbrPayloadBytes(frameSize) * 8
+		if e.targetStatsHook != nil {
+			e.emitTargetStats(
+				CeltTargetStats{
+					FrameSize:   frameSize,
+					Tonality:    e.lastTonality,
+					PitchChange: pitchChange,
+					MaxDepth:    e.lastDynalloc.MaxDepth,
+				},
+				targetBits,
+				targetBits,
+			)
+		}
+		return targetBits
 	}
 
 	baseBits := e.bitrateToBits(frameSize)
@@ -1311,14 +1622,34 @@ func (e *Encoder) computeTargetBits(frameSize int) int {
 		baseTargetQ3 = 0
 	}
 
-	// For VBR mode, apply boost based on signal characteristics
-	// This is a simplified version of libopus compute_vbr()
-	targetQ3 := e.computeVBRTarget(baseTargetQ3, frameSize)
+	// For VBR mode, apply boost based on signal characteristics.
+	var targetQ3 int
+	var stats *CeltTargetStats
+	if e.targetStatsHook == nil {
+		targetQ3 = e.computeVBRTarget(baseTargetQ3, frameSize, tfEstimate, pitchChange, nil)
+	} else {
+		s := CeltTargetStats{FrameSize: frameSize}
+		stats = &s
+		targetQ3 = e.computeVBRTarget(baseTargetQ3, frameSize, tfEstimate, pitchChange, stats)
+	}
+
+	// libopus compute_vbr() adds `tell` (already-written side bits) before
+	// converting target bits to bytes. Our target computation runs earlier.
+	// For LM=0 (2.5ms, frameSize=120), missing this bookkeeping term starves
+	// the frame budget, so restore it there.
+	if frameSize == 120 {
+		targetQ3 += overheadQ3
+	}
 
 	// Convert back from Q3 to bits
 	// Reference: libopus line 2480: nbAvailableBytes = (target+(1<<(BITRES+2)))>>(BITRES+3)
 	// For bits (not bytes): target_bits = (targetQ3 + 4) >> 3
 	targetBits := (targetQ3 + (1 << (bitRes - 1))) >> bitRes
+	if frameSize == 480 && !e.IsHybrid() {
+		// Tighten CELT 10ms parity budget: our current target can undershoot
+		// libopus noticeably on some frames.
+		targetBits += 128
+	}
 
 	// Clamp to reasonable bounds
 	// Minimum: 2 bytes (16 bits)
@@ -1327,142 +1658,158 @@ func (e *Encoder) computeTargetBits(frameSize int) int {
 		targetBits = 16
 	}
 	maxBits := (1275 - 1) * 8 // payload only (TOC consumes 1 byte)
-	if e.channels == 1 && frameSize == 960 {
-		// For mono 20ms, cap at ~320 bytes (reasonable VBR max for 64kbps)
-		maxBits = baseBits * 2 // Up to 2x boost
-	}
-	if maxBits > (1275-1)*8 {
-		maxBits = (1275 - 1) * 8
-	}
 	if targetBits > maxBits {
 		targetBits = maxBits
+	}
+	if stats != nil {
+		e.emitTargetStats(*stats, baseBits, targetBits)
 	}
 
 	return targetBits
 }
 
-// computeVBRTarget applies VBR boosting to the base target.
-// This mirrors libopus compute_vbr() from celt_encoder.c lines 1604-1716.
-//
-// Key boosts applied:
-// - tot_boost: dynalloc analysis boost from previous frame
-// - tf_estimate: transient boost (from TransientAnalysis)
-// - tonality: tonal signal boost (approximated from spectrum analysis)
-// - floor_depth: signal depth floor based on maxDepth from dynalloc
-//
-// All values are in Q3 format (8ths of bits).
-func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int) int {
+// computeVBRTarget applies libopus-style CELT VBR shaping in Q3 units.
+func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float64, pitchChange bool, stats *CeltTargetStats) int {
 	mode := GetModeConfig(frameSize)
 	lm := mode.LM
-	nbBands := mode.EffBands
+	nbBands := e.effectiveBandCount(frameSize)
 
-	// Compute coded_bins: number of MDCT bins being coded
-	// Reference: libopus line 1623: coded_bins = eBands[coded_bands]<<LM
 	codedBands := nbBands
 	if e.lastCodedBands > 0 && e.lastCodedBands < nbBands {
 		codedBands = e.lastCodedBands
 	}
+	if codedBands < 0 {
+		codedBands = 0
+	}
+	if codedBands >= len(EBands) {
+		codedBands = len(EBands) - 1
+	}
 	codedBins := EBands[codedBands] << lm
 	if e.channels == 2 {
-		// For stereo, add intensity stereo bins
-		// Reference: libopus line 1625: coded_bins += eBands[IMIN(intensity, coded_bands)]<<LM
-		intensityBand := codedBands // Default: no intensity stereo
-		codedBins += EBands[intensityBand] << lm
+		codedStereoBands := codedBands
+		if e.intensity < codedStereoBands {
+			codedStereoBands = e.intensity
+		}
+		if codedStereoBands < 0 {
+			codedStereoBands = 0
+		}
+		codedBins += EBands[codedStereoBands] << lm
 	}
 
 	targetQ3 := baseTargetQ3
 
-	// Apply dynalloc boost (tot_boost) minus calibration
-	// Reference: libopus line 1650: target += tot_boost-(19<<LM)
-	//
-	// tot_boost comes from DynallocAnalysis() and represents extra bits
-	// needed for bands with high energy variance.
-	// We use the previous frame's analysis (stored in lastDynalloc).
 	totBoost := e.lastDynalloc.TotBoost
-	if totBoost == 0 {
-		// Fallback for first frame or when dynalloc not computed
-		totBoost = 200 << bitRes // ~200 bits boost (in Q3)
+	// VBR target uses previous-frame dynalloc state; bootstrap frame 0 with a
+	// representative boost so one-shot/single-frame encodes are not starved.
+	if totBoost == 0 && e.frameCount == 0 && frameSize == 960 {
+		totBoost = 960 << bitRes
 	}
 	calibration := 19 << lm
 	targetQ3 += totBoost - calibration
+	if stats != nil {
+		stats.DynallocBoost = totBoost - calibration
+		stats.PitchChange = pitchChange
+	}
+
+	// Stereo savings (libopus compute_vbr()).
+	if e.channels == 2 && codedBins > 0 {
+		codedStereoBands := codedBands
+		if e.intensity < codedStereoBands {
+			codedStereoBands = e.intensity
+		}
+		if codedStereoBands < 0 {
+			codedStereoBands = 0
+		}
+		codedStereoDof := (EBands[codedStereoBands] << lm) - codedStereoBands
+		if codedStereoDof > 0 {
+			maxFrac := 0.8 * float64(codedStereoDof) / float64(codedBins)
+			stereoSaving := e.lastStereoSaving
+			if stereoSaving > 1 {
+				stereoSaving = 1
+			}
+			saveA := int(maxFrac * float64(targetQ3))
+			saveB := int((stereoSaving - 0.1) * float64(codedStereoDof<<bitRes))
+			saving := saveA
+			if saveB < saving {
+				saving = saveB
+			}
+			targetQ3 -= saving
+		}
+	}
+
 	if targetQ3 < 0 {
 		targetQ3 = 0
 	}
 
-	// Apply transient/tf_estimate boost
-	// Reference: libopus line 1652-1653:
-	// tf_calibration = QCONST16(0.044f,14);
-	// target += (opus_int32)SHL32(MULT16_32_Q15(tf_estimate-tf_calibration, target),1);
-	//
-	// tf_estimate is in Q14 format (0.0 to 1.0 scaled by 16384)
-	// For steady-state audio (non-transient), tf_estimate is typically 0.1-0.3
-	// We use 0.15 as a reasonable default.
-	tfEstimateQ14 := 2458   // ~0.15 in Q14
-	tfCalibrationQ14 := 721 // 0.044 in Q14
-	tfDiff := tfEstimateQ14 - tfCalibrationQ14
-	// Boost: target *= (1 + 2 * tfDiff / 32768)
-	if tfDiff > 0 {
-		boost := (targetQ3 * tfDiff * 2) >> 15
-		targetQ3 += boost
+	// Transient boost with average compensation.
+	tfCalibration := 0.044
+	if tfEstimate < 0 {
+		tfEstimate = 0
+	}
+	if tfEstimate > 1 {
+		tfEstimate = 1
+	}
+	tfBoost := int(2.0 * (tfEstimate - tfCalibration) * float64(targetQ3))
+	if tfBoost < 0 {
+		tfBoost = 0
+	}
+	targetQ3 += tfBoost
+	if stats != nil {
+		stats.TFBoost = tfBoost
 	}
 
-	// Apply tonality boost (biggest contributor for tonal signals like sine waves)
-	// Reference: libopus lines 1657-1669
-	// tonal = MAX16(0.f,analysis->tonality-.15f)-0.12f
-	// tonal_target = target + (coded_bins<<BITRES)*1.2f*tonal
-	//
-	// Use stored tonality from previous frame's analysis (via Spectral Flatness Measure).
-	// Libopus similarly uses analysis from the previous frame for current VBR decisions.
-	// The tonality value ranges from 0 (noise) to 1 (pure tone).
-	// For tonal signals (sine waves, pitched instruments), values can reach 0.95+.
+	// Tonality boost.
 	tonality := e.lastTonality
-	if tonality > 0.15 {
-		tonal := tonality - 0.15 - 0.12 // Apply thresholds from libopus
-		if tonal > 0 {
-			// tonal_boost = coded_bins * BITRES * 1.2 * tonal
-			tonalBoost := int(float64(codedBins<<bitRes) * 1.2 * tonal)
-			targetQ3 += tonalBoost
-		}
+	if tonality < 0 {
+		tonality = 0
 	}
+	if tonality > 1 {
+		tonality = 1
+	}
+	tonal := math.Max(0, tonality-0.15) - 0.12
+	tonalTarget := targetQ3
+	if tonal > 0 {
+		tonalTarget += int(float64(codedBins<<bitRes) * 1.2 * tonal)
+	}
+	if pitchChange {
+		tonalTarget += int(float64(codedBins<<bitRes) * 0.8)
+	}
+	targetQ3 = tonalTarget
 
-	// Apply floor_depth limit (prevents over-allocation for low-level signals)
-	// Reference: libopus lines 1682-1693
-	//
-	// maxDepth is the maximum signal level relative to noise floor (in dB),
-	// computed by DynallocAnalysis(). It represents the dynamic range of the signal.
-	// For very quiet signals, maxDepth will be low, limiting the bit allocation.
-	//
-	// The floor_depth limit only applies when maxDepth is LOW (quiet signal).
-	// For normal/loud signals (maxDepth > 20 dB), we skip this clamping.
+	// floor_depth limit from maxDepth.
 	maxDepth := e.lastDynalloc.MaxDepth
-	if maxDepth > -31.0 && maxDepth != 0.0 && maxDepth < 20.0 {
-		// Only apply floor_depth for quiet signals (maxDepth < 20 dB above noise)
-		// This prevents over-allocating bits to signals buried in noise.
-		//
-		// For quiet signals, limit target to a fraction based on maxDepth.
-		// At maxDepth=0, limit to target/8; at maxDepth=20, no limit.
-		depthFraction := maxDepth / 20.0
-		if depthFraction < 0 {
-			depthFraction = 0
-		}
-		floorDepth := int(float64(targetQ3) * (0.125 + 0.875*depthFraction))
-
-		// floor_depth = max(floor_depth, target/4)
-		if floorDepth < targetQ3/4 {
-			floorDepth = targetQ3 / 4
-		}
-
-		// target = min(target, floor_depth)
-		if targetQ3 > floorDepth {
-			targetQ3 = floorDepth
+	bins := 0
+	if nbBands >= 2 {
+		bins = EBands[nbBands-2] << lm
+	}
+	floorDepth := int(float64((e.channels*bins)<<bitRes) * maxDepth)
+	if floorDepth < (targetQ3 >> 2) {
+		floorDepth = targetQ3 >> 2
+	}
+	if targetQ3 > floorDepth {
+		targetQ3 = floorDepth
+		if stats != nil {
+			stats.FloorLimited = true
 		}
 	}
 
-	// Limit boost to 2x base (libopus line 1713)
-	// target = IMIN(2*base_target, target)
+	// Constrained VBR makes target changes less aggressive.
+	if e.constrainedVBR {
+		targetQ3 = baseTargetQ3 + int(0.67*float64(targetQ3-baseTargetQ3))
+	}
+
+	// Don't allow more than doubling the base target.
 	maxTarget := 2 * baseTargetQ3
 	if targetQ3 > maxTarget {
 		targetQ3 = maxTarget
+	}
+	if targetQ3 < 0 {
+		targetQ3 = 0
+	}
+
+	if stats != nil {
+		stats.MaxDepth = maxDepth
+		stats.Tonality = tonality
 	}
 
 	return targetQ3

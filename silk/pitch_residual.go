@@ -3,24 +3,14 @@ package silk
 import "math"
 
 func autocorrelationF32(out, in []float32, length, order int) {
-	// Match libopus silk_inner_product_FLP_c: 4x unrolled loop where the
-	// four products are summed in a single expression before being added
-	// to the accumulator.  This preserves floating-point associativity
-	// and avoids sub-ULP drift that can flip NLSF interpolation decisions.
+	if length <= 0 || order <= 0 {
+		return
+	}
+	_ = in[length-1]
+	_ = out[order-1]
 	for k := 0; k < order; k++ {
-		var sum float64
 		cnt := length - k
-		n := 0
-		for ; n < cnt-3; n += 4 {
-			sum += float64(in[n])*float64(in[n+k]) +
-				float64(in[n+1])*float64(in[n+1+k]) +
-				float64(in[n+2])*float64(in[n+2+k]) +
-				float64(in[n+3])*float64(in[n+3+k])
-		}
-		for ; n < cnt; n++ {
-			sum += float64(in[n]) * float64(in[n+k])
-		}
-		out[k] = float32(sum)
+		out[k] = float32(innerProductF32(in[:cnt], in[k:k+cnt], cnt))
 	}
 }
 
@@ -51,11 +41,11 @@ func schurF32(refl, autoCorr []float32, order int) float32 {
 		C[k][0] = float64(autoCorr[k])
 		C[k][1] = float64(autoCorr[k])
 	}
+	// Match libopus silk_max_float(C[0][1], 1e-9f):
+	// compare against float32 literal, then use that exact value in double domain.
+	minDen := float64(float32(1e-9))
 	for k := 0; k < order; k++ {
 		den := C[0][1]
-		// Match libopus silk_max_float(C[0][1], 1e-9f):
-		// compare against float32 literal, then use that exact value in double domain.
-		minDen := float64(float32(1e-9))
 		if den < minDen {
 			den = minDen
 		}
@@ -99,77 +89,59 @@ func lpcAnalysisFilterF32(rLPC, predCoef, s []float32, length, order int) {
 	if order > length {
 		return
 	}
+	// BCE hints: ensure all slice accesses in the unrolled loops are in-bounds.
+	_ = rLPC[length-1]
+	_ = s[length-1]
+	_ = predCoef[order-1]
 	switch order {
 	case 6:
+		// Cache coefficients in locals to avoid repeated slice indexing.
+		a0, a1, a2, a3, a4, a5 := predCoef[0], predCoef[1], predCoef[2], predCoef[3], predCoef[4], predCoef[5]
 		for ix := 6; ix < length; ix++ {
-			lpcPred := s[ix-1]*predCoef[0] +
-				s[ix-2]*predCoef[1] +
-				s[ix-3]*predCoef[2] +
-				s[ix-4]*predCoef[3] +
-				s[ix-5]*predCoef[4] +
-				s[ix-6]*predCoef[5]
+			lpcPred := s[ix-1]*a0 + s[ix-2]*a1 + s[ix-3]*a2 +
+				s[ix-4]*a3 + s[ix-5]*a4 + s[ix-6]*a5
 			rLPC[ix] = s[ix] - lpcPred
 		}
 	case 8:
+		// Cache coefficients in locals to avoid repeated slice indexing.
+		b0, b1, b2, b3 := predCoef[0], predCoef[1], predCoef[2], predCoef[3]
+		b4, b5, b6, b7 := predCoef[4], predCoef[5], predCoef[6], predCoef[7]
 		for ix := 8; ix < length; ix++ {
-			lpcPred := s[ix-1]*predCoef[0] +
-				s[ix-2]*predCoef[1] +
-				s[ix-3]*predCoef[2] +
-				s[ix-4]*predCoef[3] +
-				s[ix-5]*predCoef[4] +
-				s[ix-6]*predCoef[5] +
-				s[ix-7]*predCoef[6] +
-				s[ix-8]*predCoef[7]
+			lpcPred := s[ix-1]*b0 + s[ix-2]*b1 + s[ix-3]*b2 + s[ix-4]*b3 +
+				s[ix-5]*b4 + s[ix-6]*b5 + s[ix-7]*b6 + s[ix-8]*b7
 			rLPC[ix] = s[ix] - lpcPred
 		}
 	case 10:
+		// Cache coefficients in locals to avoid repeated slice indexing.
+		q0, q1, q2, q3, q4 := predCoef[0], predCoef[1], predCoef[2], predCoef[3], predCoef[4]
+		q5, q6, q7, q8, q9 := predCoef[5], predCoef[6], predCoef[7], predCoef[8], predCoef[9]
 		for ix := 10; ix < length; ix++ {
-			lpcPred := s[ix-1]*predCoef[0] +
-				s[ix-2]*predCoef[1] +
-				s[ix-3]*predCoef[2] +
-				s[ix-4]*predCoef[3] +
-				s[ix-5]*predCoef[4] +
-				s[ix-6]*predCoef[5] +
-				s[ix-7]*predCoef[6] +
-				s[ix-8]*predCoef[7] +
-				s[ix-9]*predCoef[8] +
-				s[ix-10]*predCoef[9]
+			lpcPred := s[ix-1]*q0 + s[ix-2]*q1 + s[ix-3]*q2 + s[ix-4]*q3 + s[ix-5]*q4 +
+				s[ix-6]*q5 + s[ix-7]*q6 + s[ix-8]*q7 + s[ix-9]*q8 + s[ix-10]*q9
 			rLPC[ix] = s[ix] - lpcPred
 		}
 	case 12:
+		// Cache coefficients in locals to avoid repeated slice indexing.
+		r0, r1, r2, r3 := predCoef[0], predCoef[1], predCoef[2], predCoef[3]
+		r4, r5, r6, r7 := predCoef[4], predCoef[5], predCoef[6], predCoef[7]
+		r8, r9, r10, r11 := predCoef[8], predCoef[9], predCoef[10], predCoef[11]
 		for ix := 12; ix < length; ix++ {
-			lpcPred := s[ix-1]*predCoef[0] +
-				s[ix-2]*predCoef[1] +
-				s[ix-3]*predCoef[2] +
-				s[ix-4]*predCoef[3] +
-				s[ix-5]*predCoef[4] +
-				s[ix-6]*predCoef[5] +
-				s[ix-7]*predCoef[6] +
-				s[ix-8]*predCoef[7] +
-				s[ix-9]*predCoef[8] +
-				s[ix-10]*predCoef[9] +
-				s[ix-11]*predCoef[10] +
-				s[ix-12]*predCoef[11]
+			lpcPred := s[ix-1]*r0 + s[ix-2]*r1 + s[ix-3]*r2 + s[ix-4]*r3 +
+				s[ix-5]*r4 + s[ix-6]*r5 + s[ix-7]*r6 + s[ix-8]*r7 +
+				s[ix-9]*r8 + s[ix-10]*r9 + s[ix-11]*r10 + s[ix-12]*r11
 			rLPC[ix] = s[ix] - lpcPred
 		}
 	case 16:
+		// Cache coefficients in locals to avoid repeated slice indexing.
+		p0, p1, p2, p3 := predCoef[0], predCoef[1], predCoef[2], predCoef[3]
+		p4, p5, p6, p7 := predCoef[4], predCoef[5], predCoef[6], predCoef[7]
+		p8, p9, p10, p11 := predCoef[8], predCoef[9], predCoef[10], predCoef[11]
+		p12, p13, p14, p15 := predCoef[12], predCoef[13], predCoef[14], predCoef[15]
 		for ix := 16; ix < length; ix++ {
-			lpcPred := s[ix-1]*predCoef[0] +
-				s[ix-2]*predCoef[1] +
-				s[ix-3]*predCoef[2] +
-				s[ix-4]*predCoef[3] +
-				s[ix-5]*predCoef[4] +
-				s[ix-6]*predCoef[5] +
-				s[ix-7]*predCoef[6] +
-				s[ix-8]*predCoef[7] +
-				s[ix-9]*predCoef[8] +
-				s[ix-10]*predCoef[9] +
-				s[ix-11]*predCoef[10] +
-				s[ix-12]*predCoef[11] +
-				s[ix-13]*predCoef[12] +
-				s[ix-14]*predCoef[13] +
-				s[ix-15]*predCoef[14] +
-				s[ix-16]*predCoef[15]
+			lpcPred := s[ix-1]*p0 + s[ix-2]*p1 + s[ix-3]*p2 + s[ix-4]*p3 +
+				s[ix-5]*p4 + s[ix-6]*p5 + s[ix-7]*p6 + s[ix-8]*p7 +
+				s[ix-9]*p8 + s[ix-10]*p9 + s[ix-11]*p10 + s[ix-12]*p11 +
+				s[ix-13]*p12 + s[ix-14]*p13 + s[ix-15]*p14 + s[ix-16]*p15
 			rLPC[ix] = s[ix] - lpcPred
 		}
 	default:
@@ -309,12 +281,20 @@ func (e *Encoder) computePitchResidual(numSubframes int) ([]float64, []float32, 
 	// by the LA_SHAPE region (LA_SHAPE >= LA_PITCH).
 	input32 := ensureFloat32Slice(&e.scratchPitchInput32, needed)
 	src := e.inputBuffer
-	for i := 0; i < needed; i++ {
-		if i < len(src) {
+	// Split into two loops to eliminate per-sample bounds check.
+	copyLen := needed
+	if copyLen > len(src) {
+		copyLen = len(src)
+	}
+	if copyLen > 0 {
+		_ = src[copyLen-1]    // BCE hint
+		_ = input32[needed-1] // BCE hint
+		for i := 0; i < copyLen; i++ {
 			input32[i] = src[i] * silkSampleScale
-		} else {
-			input32[i] = 0
 		}
+	}
+	for i := copyLen; i < needed; i++ {
+		input32[i] = 0
 	}
 
 	order := e.pitchEstimationLPCOrder
@@ -373,7 +353,11 @@ func (e *Encoder) computePitchResidual(numSubframes int) ([]float64, []float32, 
 	// Prediction gain (matching libopus silk_find_pitch_lags_FLP)
 	// libopus: psEncCtrl->predGain = auto_corr[0] / silk_max_float(res_nrg, 1.0f)
 	// This is silk_float / silk_float = float32 division.
-	predGainF32 := autoCorr[0] / float32(math.Max(float64(resNrg), 1.0))
+	resNrgClamped := resNrg
+	if resNrgClamped < 1.0 {
+		resNrgClamped = 1.0
+	}
+	predGainF32 := autoCorr[0] / resNrgClamped
 	e.lastLPCGain = float64(predGainF32)
 
 	a := ensureFloat32Slice(&e.scratchPitchA32, order)
@@ -386,7 +370,15 @@ func (e *Encoder) computePitchResidual(numSubframes int) ([]float64, []float32, 
 	residual32 := ensureFloat32Slice(&e.scratchPitchRes32, needed)
 	lpcAnalysisFilterF32(residual32, a, input32, needed, order)
 	residual := ensureFloat64Slice(&e.scratchLtpRes, needed)
-	for i := 0; i < needed; i++ {
+	// 4x unrolled float32->float64 conversion.
+	i := 0
+	for ; i < needed-3; i += 4 {
+		residual[i+0] = float64(residual32[i+0])
+		residual[i+1] = float64(residual32[i+1])
+		residual[i+2] = float64(residual32[i+2])
+		residual[i+3] = float64(residual32[i+3])
+	}
+	for ; i < needed; i++ {
 		residual[i] = float64(residual32[i])
 	}
 

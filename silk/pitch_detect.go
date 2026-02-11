@@ -223,10 +223,6 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		C[i] = 0 // Clear
 	}
 
-	// DEBUG: Print frame4kHz samples for frame 23
-	if debugPitchFrameCount == 23 {
-	}
-
 	targetStart := sfLength4kHz * 4 // Start after LTP memory
 	if targetStart >= len(frame4kHz) {
 		targetStart = len(frame4kHz) / 2
@@ -242,10 +238,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		target := frame4kHz[targetIdx : targetIdx+sfLength8kHz]
 
 		// Compute energy of target (double, matches silk_energy_FLP)
-		var targetEnergy float64
-		for _, s := range target {
-			targetEnergy += float64(s) * float64(s)
-		}
+		targetEnergy := energyFLP(target)
 
 		// Search all lags with recursive energy update
 		basisIdx := targetIdx - minLag4kHz
@@ -254,11 +247,11 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		}
 
 		// Initial energy at minimum lag
-		var basisEnergy float64
-		for i := 0; i < sfLength8kHz && basisIdx+i < len(frame4kHz); i++ {
-			v := frame4kHz[basisIdx+i]
-			basisEnergy += float64(v) * float64(v)
+		basisEnd := basisIdx + sfLength8kHz
+		if basisEnd > len(frame4kHz) {
+			basisEnd = len(frame4kHz)
 		}
+		basisEnergy := energyFLP(frame4kHz[basisIdx:basisEnd])
 
 		// Compute normalizer with bias scaled to float input.
 		normBias := float64(sfLength8kHz) * 4000.0
@@ -836,54 +829,19 @@ func lagrangianInterpolate(corrMinus, corrCenter, corrPlus float64) float64 {
 
 // energyFLP computes sum of squares of a float32 array.
 // Matches libopus silk_energy_FLP (float precision accumulation).
+// Delegates to energyF32 which has ARM64 assembly on supported platforms.
 func energyFLP(data []float32) float64 {
-	// Match libopus silk_energy_FLP: accumulate in double precision.
-	var result float64
-
-	// 4x unrolled loop for performance
-	n := len(data)
-	i := 0
-	for ; i < n-3; i += 4 {
-		d0 := float64(data[i+0])
-		d1 := float64(data[i+1])
-		d2 := float64(data[i+2])
-		d3 := float64(data[i+3])
-		result += d0*d0 + d1*d1 + d2*d2 + d3*d3
-	}
-
-	// Handle remaining samples
-	for ; i < n; i++ {
-		d := float64(data[i])
-		result += d * d
-	}
-
-	return result
+	return energyF32(data, len(data))
 }
 
-// innerProductFLP computes inner product of two float32 arrays.
-// Matches libopus silk_inner_product_FLP (float precision accumulation).
-func innerProductFLP(a, b []float32, length int) float64 {
-	// Match libopus silk_inner_product_FLP: return double precision.
-	var result float64
-
-	// 4x unrolled loop for performance
-	i := 0
-	for ; i < length-3; i += 4 {
-		result += float64(a[i+0])*float64(b[i+0]) +
-			float64(a[i+1])*float64(b[i+1]) +
-			float64(a[i+2])*float64(b[i+2]) +
-			float64(a[i+3])*float64(b[i+3])
-	}
-
-	// Handle remaining samples
-	for ; i < length; i++ {
-		result += float64(a[i]) * float64(b[i])
-	}
-
-	return result
-}
+// innerProductFLP is in inner_prod_asm.go (arm64) / inner_prod_default.go (other).
 
 func innerProductF32Acc(a, b []float32, length int) float32 {
+	if length <= 0 {
+		return 0
+	}
+	_ = a[length-1] // BCE hint
+	_ = b[length-1] // BCE hint
 	var result float32
 	for i := 0; i < length; i++ {
 		result += a[i] * b[i]
@@ -895,6 +853,9 @@ func xcorrKernelFloat(x, y []float32, sum *[4]float32, length int) {
 	if length < 3 {
 		return
 	}
+	// BCE hints: x needs length elements, y needs length+3 elements.
+	_ = x[length-1]
+	_ = y[length+2]
 	xIdx := 0
 	yIdx := 0
 	y0 := y[yIdx]
@@ -1003,6 +964,7 @@ func celtPitchXcorrFloat(x, y []float32, out []float32, length, maxPitch int) {
 		return
 	}
 
+	_ = out[maxPitch-1] // BCE hint
 	i := 0
 	for ; i < maxPitch-3; i += 4 {
 		if len(y)-i < length+3 {

@@ -2,6 +2,8 @@ package celt
 
 import (
 	"math"
+	"os"
+	"strconv"
 
 	"github.com/thesyncim/gopus/util"
 	"github.com/thesyncim/gopus/rangecoding"
@@ -34,6 +36,14 @@ func opPVQSearch(x []float64, k int) ([]int, float64) {
 // It uses pre-allocated buffers to avoid allocations in the hot path.
 func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]int, yBuf *[]float32, absXBuf *[]float32) ([]int, float64) {
 	n := len(x)
+	idxBias := float32(0)
+	if s := os.Getenv("GOPUS_TMP_PVQ_IDX_BIAS"); s != "" && s != "0" {
+		if s == "1" {
+			idxBias = 0.000003
+		} else if v, err := strconv.ParseFloat(s, 32); err == nil {
+			idxBias = float32(v)
+		}
+	}
 
 	// Ensure output buffer
 	var iy []int
@@ -73,16 +83,32 @@ func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]int, yBuf 
 		absX = make([]float32, n)
 	}
 
-	// Initialize buffers
+	// Initialize buffers with BCE hints for all arrays.
+	_ = iy[n-1]
+	_ = signx[n-1]
+	_ = y[n-1]
+	_ = absX[n-1]
+	_ = x[n-1]
 	for j := 0; j < n; j++ {
 		iy[j] = 0
 		signx[j] = 0
 		y[j] = 0
-		if x[j] < 0 {
+		xj := x[j]
+		if xj < 0 {
 			signx[j] = 1
-			absX[j] = float32(-x[j])
+			absX[j] = float32(-xj)
 		} else {
-			absX[j] = float32(x[j])
+			absX[j] = float32(xj)
+		}
+		if os.Getenv("GOPUS_TMP_PVQ_ABS_Q15") == "1" {
+			q := int(absX[j]*32768.0 + 0.5)
+			absX[j] = float32(q) * (1.0 / 32768.0)
+		}
+		if idxBias != 0 {
+			absX[j] -= float32(j) * idxBias
+			if absX[j] < 0 {
+				absX[j] = 0
+			}
 		}
 	}
 
@@ -116,7 +142,7 @@ func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]int, yBuf 
 		for j := 0; j < n; j++ {
 			// It's important to round towards zero here (floor for positive values)
 			// Reference: libopus vq.c line 274
-			iy[j] = int(math.Floor(float64(rcp * absX[j])))
+			iy[j] = int(rcp * absX[j]) // rcp >= 0, absX >= 0: truncation == floor
 			y[j] = float32(iy[j])
 			yy += y[j] * y[j]
 			xy += absX[j] * y[j]
@@ -141,6 +167,10 @@ func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]int, yBuf 
 	// Main greedy search loop: place remaining pulses one at a time.
 	// For each pulse, find the position that maximizes Rxy/sqrt(Ryy).
 	// Reference: libopus vq.c lines 299-362
+	//
+	// BCE hints: prove to compiler that absX[0..n-1] and y[0..n-1] are in-bounds.
+	_ = absX[n-1]
+	_ = y[n-1]
 	for i := 0; i < pulsesLeft; i++ {
 		bestID := 0
 		// The squared magnitude term gets added anyway, so we add it outside the loop

@@ -939,8 +939,9 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 
 	raw := e.rangeEncoder.Done()
 
-	result := make([]byte, len(raw))
-	copy(result, raw)
+	// Return a slice of the range encoder's buffer directly.
+	// The caller must consume the data before the next EncodeFrame call.
+	result := raw
 
 	if e.targetRateBps > 0 && payloadSizeMs > 0 {
 		// Match libopus enc_API.c nBitsExceeded update exactly:
@@ -1269,8 +1270,32 @@ func (e *Encoder) EncodePacketWithFEC(pcm []float32, lookahead []float32, vadFla
 	e.scratchRangeEncoder.Init(output)
 	e.rangeEncoder = &e.scratchRangeEncoder
 	e.encodeLBRRData(e.rangeEncoder, 1, true)
+	baseMaxBits := e.maxBits
+	baseUseCBR := e.useCBR
 	var vadUsed [maxFramesPerPacket]int
 	for i := 0; i < nFrames; i++ {
+		// Match libopus enc_API.c per-block maxBits/useCBR handling for
+		// 40/60 ms packets in CBR mode.
+		frameMaxBits := baseMaxBits
+		switch nFrames {
+		case 2:
+			if i == 0 {
+				frameMaxBits = frameMaxBits * 3 / 5
+			}
+		case 3:
+			if i == 0 {
+				frameMaxBits = frameMaxBits * 2 / 5
+			} else if i == 1 {
+				frameMaxBits = frameMaxBits * 3 / 4
+			}
+		}
+		if frameMaxBits > 0 {
+			e.maxBits = frameMaxBits
+		}
+		if baseUseCBR && nFrames > 1 {
+			e.useCBR = i == nFrames-1
+		}
+
 		startSample := i * frameSamples
 		endSample := startSample + frameSamples
 		if endSample > len(pcm) {
@@ -1286,20 +1311,17 @@ func (e *Encoder) EncodePacketWithFEC(pcm []float32, lookahead []float32, vadFla
 		} else {
 			vadUsed[i] = 0
 		}
+		// For multi-frame packets, libopus feeds contiguous input through the
+		// internal buffers frame by frame. Only the final frame needs external
+		// lookahead from outside this packet.
 		var frameLookahead []float32
-		if i < nFrames-1 {
-			nextStart := (i + 1) * frameSamples
-			if nextStart < len(pcm) {
-				frameLookahead = pcm[nextStart:]
-				if len(frameLookahead) > frameSamples {
-					frameLookahead = frameLookahead[:frameSamples]
-				}
-			}
-		} else {
+		if i == nFrames-1 {
 			frameLookahead = lookahead
 		}
 		_ = e.EncodeFrame(framePCM, frameLookahead, vadFlag)
 	}
+	e.maxBits = baseMaxBits
+	e.useCBR = baseUseCBR
 	// Patch SILK header bits (VAD + LBRR) at start of bitstream.
 	flags := uint32(0)
 	for i := 0; i < nFrames; i++ {

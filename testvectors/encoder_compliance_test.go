@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	gopus "github.com/thesyncim/gopus"
+	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/encoder"
 	"github.com/thesyncim/gopus/types"
 )
@@ -308,6 +309,86 @@ func testEncoderCompliance(t *testing.T, mode encoder.Mode, bandwidth types.Band
 	}
 }
 
+func logCELTTargetStatsSummary(t *testing.T, frameSize int, stats []celt.CeltTargetStats) {
+	if len(stats) == 0 {
+		t.Logf("CELT %.1fms target stats: no frames captured", float64(frameSize)/48.0)
+		return
+	}
+	minBase := stats[0].BaseBits
+	maxBase := stats[0].BaseBits
+	minTarget := stats[0].TargetBits
+	maxTarget := stats[0].TargetBits
+	minDepth := stats[0].MaxDepth
+	maxDepth := stats[0].MaxDepth
+	sumBase := 0
+	sumTarget := 0
+	sumDynalloc := 0
+	sumTF := 0
+	sumDepth := 0.0
+	floorLimited := 0
+	nonPositiveDynalloc := 0
+	pitchChangeCount := 0
+	lowDepth := 0
+	targetBelowBase := 0
+
+	for _, s := range stats {
+		if s.BaseBits < minBase {
+			minBase = s.BaseBits
+		}
+		if s.BaseBits > maxBase {
+			maxBase = s.BaseBits
+		}
+		if s.TargetBits < minTarget {
+			minTarget = s.TargetBits
+		}
+		if s.TargetBits > maxTarget {
+			maxTarget = s.TargetBits
+		}
+		if s.MaxDepth < minDepth {
+			minDepth = s.MaxDepth
+		}
+		if s.MaxDepth > maxDepth {
+			maxDepth = s.MaxDepth
+		}
+		sumBase += s.BaseBits
+		sumTarget += s.TargetBits
+		sumDynalloc += s.DynallocBoost
+		sumTF += s.TFBoost
+		sumDepth += s.MaxDepth
+		if s.FloorLimited {
+			floorLimited++
+		}
+		if s.DynallocBoost <= 0 {
+			nonPositiveDynalloc++
+		}
+		if s.PitchChange {
+			pitchChangeCount++
+		}
+		if s.MaxDepth < 0 {
+			lowDepth++
+		}
+		if s.TargetBits < s.BaseBits {
+			targetBelowBase++
+		}
+	}
+
+	n := float64(len(stats))
+	t.Logf(
+		"CELT %.1fms target stats: frames=%d base(avg=%d,min=%d,max=%d) target(avg=%d,min=%d,max=%d) floor=%d(%.1f%%) maxDepth(avg=%.2f,min=%.2f,max=%.2f) dynalloc(avg=%.1f,<=0=%d) tf(avg=%.1f) pitch_change=%d(%.1f%%) lowDepth=%d target<base=%d",
+		float64(frameSize)/48.0,
+		len(stats),
+		int(float64(sumBase)/n), minBase, maxBase,
+		int(float64(sumTarget)/n), minTarget, maxTarget,
+		floorLimited, 100.0*float64(floorLimited)/n,
+		sumDepth/n, minDepth, maxDepth,
+		float64(sumDynalloc)/n, nonPositiveDynalloc,
+		float64(sumTF)/n,
+		pitchChangeCount, 100.0*float64(pitchChangeCount)/n,
+		lowDepth,
+		targetBelowBase,
+	)
+}
+
 // runEncoderComplianceTest runs the full encode→decode→compare pipeline.
 func runEncoderComplianceTest(t *testing.T, mode encoder.Mode, bandwidth types.Bandwidth, frameSize, channels, bitrate int) (q float64, decoded []float32) {
 	// Generate 1 second of test signal
@@ -325,6 +406,21 @@ func runEncoderComplianceTest(t *testing.T, mode encoder.Mode, bandwidth types.B
 		enc.SetSignalType(types.SignalVoice)
 	case encoder.ModeCELT:
 		enc.SetSignalType(types.SignalMusic)
+	}
+	captureCELTTargetStats := mode == encoder.ModeCELT && (frameSize == 120 ||
+		(frameSize == 240 && channels == 1) ||
+		(frameSize == 480 && channels == 1) ||
+		(frameSize == 480 && channels == 2) ||
+		(frameSize == 960 && channels == 2))
+	var celtTargetStats []celt.CeltTargetStats
+	if captureCELTTargetStats {
+		celtTargetStats = make([]celt.CeltTargetStats, 0, numFrames)
+		enc.SetCELTTargetStatsHook(func(stats celt.CeltTargetStats) {
+			if stats.FrameSize == frameSize {
+				celtTargetStats = append(celtTargetStats, stats)
+			}
+		})
+		defer enc.SetCELTTargetStatsHook(nil)
 	}
 
 	// Encode all frames
@@ -347,6 +443,9 @@ func runEncoderComplianceTest(t *testing.T, mode encoder.Mode, bandwidth types.B
 		packetCopy := make([]byte, len(packet))
 		copy(packetCopy, packet)
 		packets[i] = packetCopy
+	}
+	if captureCELTTargetStats {
+		logCELTTargetStatsSummary(t, frameSize, celtTargetStats)
 	}
 
 	decoded, err := decodeCompliancePackets(packets, channels, frameSize)

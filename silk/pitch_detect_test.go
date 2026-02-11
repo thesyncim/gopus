@@ -563,18 +563,6 @@ func TestEnergyFLP(t *testing.T) {
 	}
 }
 
-// TestInnerProductFLP tests the inner product computation.
-func TestInnerProductFLP(t *testing.T) {
-	a := []float32{1, 2, 3, 4}
-	b := []float32{2, 3, 4, 5}
-	result := innerProductFLP(a, b, 4)
-
-	// Expected: 1*2 + 2*3 + 3*4 + 4*5 = 2 + 6 + 12 + 20 = 40
-	if math.Abs(float64(result)-40.0) > 0.001 {
-		t.Errorf("expected inner product 40, got %f", result)
-	}
-}
-
 // TestPitchContourTables verifies the contour table dimensions match libopus.
 func TestPitchContourTables(t *testing.T) {
 	// Stage 2 contours should have 4 subframes x 11 entries
