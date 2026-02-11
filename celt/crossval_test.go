@@ -15,6 +15,7 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"runtime"
 	"sync"
 	"testing"
 )
@@ -100,6 +101,14 @@ func init() {
 }
 
 const opusdecCrossvalFixturePath = "testdata/opusdec_crossval_fixture.json"
+const opusdecCrossvalFixturePathAMD64 = "testdata/opusdec_crossval_fixture_amd64.json"
+
+func opusdecCrossvalFixturePathForArch() string {
+	if runtime.GOARCH == "amd64" {
+		return opusdecCrossvalFixturePathAMD64
+	}
+	return opusdecCrossvalFixturePath
+}
 
 type opusdecCrossvalFixtureFile struct {
 	Version int                           `json:"version"`
@@ -127,7 +136,7 @@ func oggSHA256Hex(oggData []byte) string {
 
 func loadOpusdecCrossvalFixtureMap() (map[string]opusdecCrossvalFixtureEntry, error) {
 	opusdecCrossvalFixtureOnce.Do(func() {
-		data, err := os.ReadFile(opusdecCrossvalFixturePath)
+		data, err := os.ReadFile(opusdecCrossvalFixturePathForArch())
 		if err != nil {
 			opusdecCrossvalFixtureErr = err
 			return

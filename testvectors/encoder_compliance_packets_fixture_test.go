@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,6 +20,7 @@ import (
 )
 
 const encoderCompliancePacketsFixturePath = "testdata/encoder_compliance_libopus_packets_fixture.json"
+const encoderCompliancePacketsFixturePathAMD64 = "testdata/encoder_compliance_libopus_packets_fixture_amd64.json"
 
 type encoderCompliancePacketsFixtureFile struct {
 	Version    int                                 `json:"version"`
@@ -54,7 +56,7 @@ var (
 
 func loadEncoderCompliancePacketsFixture() (encoderCompliancePacketsFixtureFile, error) {
 	encoderCompliancePacketsFixtureOnce.Do(func() {
-		data, err := os.ReadFile(filepath.Join(encoderCompliancePacketsFixturePath))
+		data, err := os.ReadFile(filepath.Join(encoderCompliancePacketsFixturePathForArch()))
 		if err != nil {
 			encoderCompliancePacketsFixtureErr = err
 			return
@@ -79,6 +81,13 @@ func loadEncoderCompliancePacketsFixture() (encoderCompliancePacketsFixtureFile,
 		encoderCompliancePacketsFixtureData = fixture
 	})
 	return encoderCompliancePacketsFixtureData, encoderCompliancePacketsFixtureErr
+}
+
+func encoderCompliancePacketsFixturePathForArch() string {
+	if runtime.GOARCH == "amd64" {
+		return encoderCompliancePacketsFixturePathAMD64
+	}
+	return encoderCompliancePacketsFixturePath
 }
 
 func decodeEncoderPacketsFixturePackets(c encoderCompliancePacketsFixtureTC) ([][]byte, []uint32, error) {
@@ -217,7 +226,7 @@ func TestEncoderCompliancePacketsFixtureCoverage(t *testing.T) {
 	}
 }
 
-func TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo1601(t *testing.T) {
+func TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo(t *testing.T) {
 	requireTestTier(t, testTierExhaustive)
 
 	opusDemo, ok := getFixtureOpusDemoPathForEncoder()

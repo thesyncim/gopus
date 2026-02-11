@@ -559,7 +559,7 @@ make test-parity
 # Fetch/build exact libopus 1.6.1 tooling under tmp_check/ if missing
 make ensure-libopus
 
-# Exhaustive honesty checks against tmp_check/opus-1.6.1 tooling
+# Exhaustive honesty checks against pinned tmp_check/opus-$(LIBOPUS_VERSION) tooling
 # (auto-runs ensure-libopus first)
 make test-exhaustive
 
@@ -567,9 +567,34 @@ make test-exhaustive
 # (auto-runs ensure-libopus first)
 make test-provenance
 
+# Build cached Linux CI image with toolchain/deps
+make docker-build
+
+# Run full suite in cached Linux container
+make docker-test
+
+# Run exhaustive libopus honesty/provenance checks in cached Linux container
+# (defaults to linux/amd64 fixture reference platform)
+make docker-test-exhaustive
+
+# Override container architecture when needed (default follows host arch)
+make docker-test DOCKER_PLATFORM=linux/amd64
+
+# Override exhaustive fixture platform when needed
+make docker-test-exhaustive DOCKER_EXHAUSTIVE_PLATFORM=linux/arm64
+
+# Force fixture fallback instead of live opusdec if desired
+make docker-test DOCKER_DISABLE_OPUSDEC=1
+
+# Allow live opusenc comparisons (default disables them for cross-distro stability)
+make docker-test DOCKER_DISABLE_OPUSENC=0
+
 # Regenerate all libopus-backed fixtures
 # (auto-runs ensure-libopus first)
 make fixtures-gen
+
+# Regenerate amd64-specific libopus fixtures in cached linux/amd64 Docker
+make fixtures-gen-amd64
 
 # Run with race detector
 go test -race ./...
