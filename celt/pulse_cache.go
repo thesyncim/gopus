@@ -1,0 +1,111 @@
+package celt
+
+const (
+	maxPseudo    = 40
+	logMaxPseudo = 6
+)
+
+func getPulses(i int) int {
+	if i < 8 {
+		return i
+	}
+	return (8 + (i & 7)) << ((i >> 3) - 1)
+}
+
+func pulseCacheForBand(band, lm int) ([]uint8, bool) {
+	if band < 0 || band >= MaxBands {
+		return nil, false
+	}
+	if lm < -1 {
+		return nil, false
+	}
+	idx := (lm + 1) * MaxBands
+	if idx < 0 || idx >= len(cacheIndex50) {
+		return nil, false
+	}
+	start := int(cacheIndex50[idx+band])
+	if start < 0 || start >= len(cacheBits50) {
+		return nil, false
+	}
+	cache := cacheBits50[start:]
+	if len(cache) == 0 {
+		return nil, false
+	}
+	maxPseudo := int(cache[0])
+	if maxPseudo <= 0 || maxPseudo >= len(cache) {
+		return nil, false
+	}
+	return cache, true
+}
+
+func bitsToPulses(band, lm, bitsQ3 int) int {
+	if bitsQ3 <= 0 {
+		return 0
+	}
+	if lut := pulseCacheLUTForBand(band, lm); lut != nil {
+		if bitsQ3 < len(lut.bitsToPulses) {
+			return int(lut.bitsToPulses[bitsQ3])
+		}
+		return lut.maxPseudo
+	}
+	cache, ok := pulseCacheForBand(band, lm)
+	if !ok {
+		return 0
+	}
+	return bitsToPulsesCached(cache, bitsQ3)
+}
+
+func pulsesToBits(band, lm, pulses int) int {
+	if pulses <= 0 {
+		return 0
+	}
+	if lut := pulseCacheLUTForBand(band, lm); lut != nil {
+		return pulsesToBitsCached(lut.cache, pulses)
+	}
+	cache, ok := pulseCacheForBand(band, lm)
+	if !ok {
+		return 0
+	}
+	return pulsesToBitsCached(cache, pulses)
+}
+
+func bitsToPulsesCached(cache []uint8, bitsQ3 int) int {
+	if bitsQ3 <= 0 || len(cache) == 0 {
+		return 0
+	}
+	return bitsToPulsesCachedFast(cache, bitsQ3)
+}
+
+func pulsesToBitsCached(cache []uint8, pulses int) int {
+	if pulses <= 0 || len(cache) == 0 {
+		return 0
+	}
+	maxPseudo := int(cache[0])
+	if pulses > maxPseudo {
+		pulses = maxPseudo
+	}
+	return int(cache[pulses]) + 1
+}
+
+func bitsToPulsesCachedFast(cache []uint8, bitsQ3 int) int {
+	bitsQ3--
+	lo := 0
+	hi := int(cache[0])
+	for i := 0; i < logMaxPseudo; i++ {
+		mid := (lo + hi + 1) >> 1
+		if int(cache[mid]) >= bitsQ3 {
+			hi = mid
+		} else {
+			lo = mid
+		}
+	}
+
+	loBits := -1
+	if lo > 0 {
+		loBits = int(cache[lo])
+	}
+	if bitsQ3-loBits <= int(cache[hi])-bitsQ3 {
+		return lo
+	}
+	return hi
+}

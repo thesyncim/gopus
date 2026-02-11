@@ -1,0 +1,37 @@
+# IDE
+.idea
+.goland-state.json
+.vscode
+
+# Test binaries
+*.test
+
+# Downloaded official test vectors (runtime cache)
+testvectors/testdata/opus_testvectors/
+
+# Build artifacts
+tmp_check
+*.o
+*.a
+*.so
+*.dylib
+
+# Profiling
+*.prof
+*.pprof
+*.trace
+
+# Example binaries
+examples/*/bench-*
+examples/*/*.exe
+
+# Planning/debug docs (not needed in repo)
+.planning/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Coverage
+coverage.out
+coverage.html

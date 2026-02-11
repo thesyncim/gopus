@@ -1,0 +1,36 @@
+package celt
+
+// BitsToPulsesExport exposes bitsToPulses for testing.
+func BitsToPulsesExport(band, lm, bitsQ3 int) int {
+	return bitsToPulses(band, lm, bitsQ3)
+}
+
+// GetPulsesExport exposes getPulses for testing.
+func GetPulsesExport(q int) int {
+	return getPulses(q)
+}
+
+// PulsesToBitsExport exposes pulsesToBits for testing.
+func PulsesToBitsExport(band, lm, pulses int) int {
+	return pulsesToBits(band, lm, pulses)
+}
+
+// ExpRotationExport exposes expRotation for testing.
+func ExpRotationExport(x []float64, length, dir, stride, k, spread int) {
+	expRotation(x, length, dir, stride, k, spread)
+}
+
+// OpPVQSearchExport exposes opPVQSearch for testing.
+func OpPVQSearchExport(x []float64, k int) ([]int, float64) {
+	return opPVQSearch(x, k)
+}
+
+// NormalizeResidualExport exposes normalizeResidual for testing.
+func NormalizeResidualExport(pulses []int, gain float64, yy float64) []float64 {
+	return normalizeResidual(pulses, gain, yy)
+}
+
+// NormalizeResidualIntoExport exposes normalizeResidualInto for testing.
+func NormalizeResidualIntoExport(out []float64, pulses []int, gain float64, yy float64) {
+	normalizeResidualInto(out, pulses, gain, yy)
+}

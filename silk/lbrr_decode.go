@@ -1,0 +1,217 @@
+// Package silk implements LBRR (Low Bitrate Redundancy) decoding for FEC.
+// LBRR provides forward error correction by including redundant data
+// for the previous frame at a lower quality in the current packet.
+//
+// Reference: libopus silk/decode_frame.c, silk/dec_API.c
+
+package silk
+
+import (
+	"github.com/thesyncim/gopus/rangecoding"
+)
+
+// DecodeFEC decodes LBRR (Low Bitrate Redundancy) frames for Forward Error Correction.
+// This function decodes the FEC data from a packet to recover a lost frame.
+//
+// Parameters:
+//   - data: The Opus packet data containing LBRR
+//   - bandwidth: Audio bandwidth (NB/MB/WB)
+//   - frameSizeSamples: Expected frame size in samples at 48kHz
+//   - stereo: Whether the packet contains stereo data
+//   - outputChannels: Number of output channels (1 or 2)
+//
+// Returns decoded samples at 48kHz, or an error if no LBRR data available.
+//
+// Reference: libopus silk/dec_API.c silk_Decode with lostFlag=FLAG_DECODE_LBRR
+func (d *Decoder) DecodeFEC(
+	data []byte,
+	bandwidth Bandwidth,
+	frameSizeSamples int,
+	stereo bool,
+	outputChannels int,
+) ([]float32, error) {
+	if data == nil || len(data) == 0 {
+		return nil, ErrDecodeFailed
+	}
+
+	// Initialize range decoder
+	var rd rangecoding.Decoder
+	rd.Init(data)
+
+	// Get frame parameters
+	duration := FrameDurationFromTOC(frameSizeSamples)
+	framesPerPacket, nbSubfr, err := frameParams(duration)
+	if err != nil {
+		return nil, err
+	}
+
+	config := GetBandwidthConfig(bandwidth)
+	fsKHz := config.SampleRate / 1000
+
+	// Set up decoder state for FEC decoding
+	stMid := &d.state[0]
+	stMid.nFramesDecoded = 0
+	stMid.nFramesPerPacket = framesPerPacket
+	stMid.nbSubfr = nbSubfr
+	silkDecoderSetFs(stMid, fsKHz)
+
+	if stereo && outputChannels == 2 {
+		stSide := &d.state[1]
+		stSide.nFramesDecoded = 0
+		stSide.nFramesPerPacket = framesPerPacket
+		stSide.nbSubfr = nbSubfr
+		silkDecoderSetFs(stSide, fsKHz)
+	}
+
+	// Decode VAD and LBRR flags
+	decodeVADAndLBRRFlags(&rd, stMid, framesPerPacket)
+
+	if stereo && outputChannels == 2 {
+		decodeVADAndLBRRFlags(&rd, &d.state[1], framesPerPacket)
+	}
+
+	// Check if LBRR data is available
+	if stMid.LBRRFlag == 0 {
+		return nil, ErrNoLBRRData
+	}
+
+	// Decode LBRR frames
+	frameLength := stMid.frameLength
+	totalLen := framesPerPacket * frameLength
+
+	// Use pre-allocated outInt16 buffer if available
+	var outInt16 []int16
+	if d.scratchOutInt16 != nil && len(d.scratchOutInt16) >= totalLen {
+		outInt16 = d.scratchOutInt16[:totalLen]
+		for j := range outInt16 {
+			outInt16[j] = 0
+		}
+	} else {
+		outInt16 = make([]int16, totalLen)
+	}
+
+	// Skip main frame LBRR data and decode each frame using LBRR
+	for i := 0; i < framesPerPacket; i++ {
+		if stMid.LBRRFlags[i] == 0 {
+			// No LBRR for this frame, use PLC or zeros
+			frameOut := outInt16[i*frameLength : (i+1)*frameLength]
+			for j := range frameOut {
+				frameOut[j] = 0
+			}
+			stMid.nFramesDecoded++
+			continue
+		}
+
+		// Decode LBRR indices and pulses
+		condCoding := codeIndependently
+		if i > 0 && stMid.LBRRFlags[i-1] != 0 {
+			condCoding = codeConditionally
+		}
+
+		// Stereo: decode stereo predictor for LBRR
+		if stereo && outputChannels == 2 {
+			predQ13 := make([]int32, 2)
+			silkStereoDecodePred(&rd, predQ13)
+			if d.state[1].LBRRFlags[i] == 0 {
+				_ = silkStereoDecodeMidOnly(&rd)
+			}
+		}
+
+		// Decode LBRR indices (same as regular indices but with decode_LBRR=true)
+		vadFlag := true // LBRR always uses VAD=true for signal type
+		silkDecodeIndices(stMid, &rd, vadFlag, condCoding)
+
+		// Decode LBRR pulses
+		pulsesLen := roundUpShellFrame(stMid.frameLength)
+		var pulses []int16
+		if d.scratchPulses != nil && len(d.scratchPulses) >= pulsesLen {
+			pulses = d.scratchPulses[:pulsesLen]
+			for j := range pulses {
+				pulses[j] = 0
+			}
+		} else {
+			pulses = make([]int16, pulsesLen)
+		}
+		silkDecodePulsesWithScratch(&rd, pulses, int(stMid.indices.signalType), int(stMid.indices.quantOffsetType), stMid.frameLength, stMid.scratchSumPulses, stMid.scratchNLshifts)
+
+		// Decode frame
+		var ctrl decoderControl
+		silkDecodeParameters(stMid, &ctrl, condCoding)
+
+		frameOut := outInt16[i*frameLength : (i+1)*frameLength]
+		silkDecodeCore(stMid, &ctrl, frameOut, pulses)
+		silkUpdateOutBuf(stMid, frameOut)
+
+		// Apply PLC glue frames for smooth transition
+		silkPLCGlueFrames(stMid, frameOut, frameLength)
+
+		stMid.lossCnt = 0
+		stMid.lagPrev = ctrl.pitchL[stMid.nbSubfr-1]
+		stMid.prevSignalType = int(stMid.indices.signalType)
+		stMid.firstFrameAfterReset = false
+		stMid.nFramesDecoded++
+	}
+
+	// Convert to float32 and upsample to 48kHz
+	nativeSamples := make([]float32, len(outInt16))
+	for i, v := range outInt16 {
+		nativeSamples[i] = float32(v) / 32768.0
+	}
+
+	// Resample from native rate to 48kHz
+	resampler := d.GetResampler(bandwidth)
+	output := make([]float32, 0, frameSizeSamples*outputChannels)
+
+	for f := 0; f < framesPerPacket; f++ {
+		start := f * frameLength
+		end := start + frameLength
+		if end > len(nativeSamples) {
+			end = len(nativeSamples)
+		}
+		frameNative := nativeSamples[start:end]
+
+		// Apply sMid buffering before resampling
+		resamplerInput := d.BuildMonoResamplerInput(frameNative)
+		frameSamples := resampler.Process(resamplerInput)
+		output = append(output, frameSamples...)
+	}
+
+	// Handle channel expansion/reduction
+	if outputChannels == 2 && !stereo {
+		// Mono to stereo: duplicate samples
+		stereoOutput := make([]float32, len(output)*2)
+		for i, s := range output {
+			stereoOutput[i*2] = s
+			stereoOutput[i*2+1] = s
+		}
+		output = stereoOutput
+	}
+
+	d.haveDecoded = true
+	return output, nil
+}
+
+// HasLBRR checks if the given packet contains LBRR (FEC) data.
+// This can be used to check if FEC recovery is possible before attempting it.
+func (d *Decoder) HasLBRR(data []byte, bandwidth Bandwidth, frameSizeSamples int) bool {
+	if data == nil || len(data) == 0 {
+		return false
+	}
+
+	// Initialize range decoder
+	var rd rangecoding.Decoder
+	rd.Init(data)
+
+	// Get frame parameters
+	duration := FrameDurationFromTOC(frameSizeSamples)
+	framesPerPacket, _, err := frameParams(duration)
+	if err != nil {
+		return false
+	}
+
+	// Decode VAD and LBRR flags
+	st := &decoderState{}
+	decodeVADAndLBRRFlags(&rd, st, framesPerPacket)
+
+	return st.LBRRFlag != 0
+}
