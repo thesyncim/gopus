@@ -67,3 +67,4 @@ Ship `gopus` as a dependable production codec library with:
   - `make verify-production`
   - `make verify-production-exhaustive`
   - `make release-evidence`
+- Added scheduled exhaustive CI with release-evidence artifact upload.

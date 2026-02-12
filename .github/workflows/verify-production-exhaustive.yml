@@ -41,5 +41,13 @@ jobs:
       - name: Bootstrap pinned libopus
         run: make ensure-libopus
 
-      - name: Run exhaustive production verification gate
-        run: make verify-production-exhaustive
+      - name: Generate release evidence bundle
+        run: make release-evidence
+
+      - name: Upload release evidence artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-evidence-${{ github.run_id }}
+          path: reports/release/*.md
+          if-no-files-found: error
