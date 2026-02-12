@@ -31,7 +31,6 @@ package celt
 
 import (
 	"math"
-	"sync"
 )
 
 // KissFFT64State holds the precomputed state for mixed-radix FFT (float64).
@@ -46,26 +45,29 @@ type KissFFT64State struct {
 	fstride  []int        // Pre-computed fstride array for fftImpl (avoids per-call allocation)
 }
 
-// kissFFT64Cache caches FFT states for commonly used sizes
 var (
-	kissFFT64Cache   = make(map[int]*KissFFT64State)
-	kissFFT64CacheMu sync.Mutex
+	// Common CELT FFT sizes are prebuilt and reused lock-free.
+	kissFFT64State60  = newKissFFT64State(60)
+	kissFFT64State120 = newKissFFT64State(120)
+	kissFFT64State240 = newKissFFT64State(240)
+	kissFFT64State480 = newKissFFT64State(480)
 )
 
 // GetKissFFT64State returns a cached or newly created FFT state for the given size.
 func GetKissFFT64State(nfft int) *KissFFT64State {
-	kissFFT64CacheMu.Lock()
-	defer kissFFT64CacheMu.Unlock()
-
-	if state, ok := kissFFT64Cache[nfft]; ok {
-		return state
+	switch nfft {
+	case 60:
+		return kissFFT64State60
+	case 120:
+		return kissFFT64State120
+	case 240:
+		return kissFFT64State240
+	case 480:
+		return kissFFT64State480
+	default:
+		// Keep uncommon/test-only sizes working without mutable global caches.
+		return newKissFFT64State(nfft)
 	}
-
-	state := newKissFFT64State(nfft)
-	if state != nil {
-		kissFFT64Cache[nfft] = state
-	}
-	return state
 }
 
 // newKissFFT64State creates a new FFT state for the given size.
