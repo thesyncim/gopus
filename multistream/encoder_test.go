@@ -4,6 +4,7 @@ import (
 	"math"
 	"testing"
 
+	encpkg "github.com/thesyncim/gopus/encoder"
 	"github.com/thesyncim/gopus/types"
 )
 
@@ -181,14 +182,14 @@ func TestNewEncoderDefault(t *testing.T) {
 		wantMappingLen int
 		wantErr        error
 	}{
-		{1, 1, 0, 1, nil},   // Mono
-		{2, 1, 1, 2, nil},   // Stereo
-		{3, 2, 1, 3, nil},   // 3.0
-		{4, 2, 2, 4, nil},   // Quad
-		{5, 3, 2, 5, nil},   // 5.0
-		{6, 4, 2, 6, nil},   // 5.1
-		{7, 5, 2, 7, nil},   // 6.1
-		{8, 5, 3, 8, nil},   // 7.1
+		{1, 1, 0, 1, nil}, // Mono
+		{2, 1, 1, 2, nil}, // Stereo
+		{3, 2, 1, 3, nil}, // 3.0
+		{4, 2, 2, 4, nil}, // Quad
+		{5, 3, 2, 5, nil}, // 5.0
+		{6, 4, 2, 6, nil}, // 5.1
+		{7, 5, 2, 7, nil}, // 6.1
+		{8, 5, 3, 8, nil}, // 7.1
 		{9, 0, 0, 0, ErrUnsupportedChannels},
 		{0, 0, 0, 0, ErrInvalidChannels},
 	}
@@ -457,23 +458,23 @@ func TestRouteChannelsToStreams_RoundTrip(t *testing.T) {
 // TestWriteSelfDelimitedLength tests length encoding.
 func TestWriteSelfDelimitedLength(t *testing.T) {
 	tests := []struct {
-		length       int
-		wantBytes    int
-		wantFirst    byte
-		wantSecond   byte
+		length     int
+		wantBytes  int
+		wantFirst  byte
+		wantSecond byte
 	}{
 		{0, 1, 0, 0},
 		{1, 1, 1, 0},
 		{100, 1, 100, 0},
 		{251, 1, 251, 0},
-		{252, 2, 252, 0},  // 4*0 + 252 = 252
-		{253, 2, 253, 0},  // 4*0 + 253 = 253
-		{254, 2, 254, 0},  // 4*0 + 254 = 254
-		{255, 2, 255, 0},  // 4*0 + 255 = 255
-		{256, 2, 252, 1},  // 4*1 + 252 = 256
-		{257, 2, 253, 1},  // 4*1 + 253 = 257
-		{260, 2, 252, 2},  // 4*2 + 252 = 260
-		{500, 2, 252, 62}, // 4*62 + 252 = 500
+		{252, 2, 252, 0},    // 4*0 + 252 = 252
+		{253, 2, 253, 0},    // 4*0 + 253 = 253
+		{254, 2, 254, 0},    // 4*0 + 254 = 254
+		{255, 2, 255, 0},    // 4*0 + 255 = 255
+		{256, 2, 252, 1},    // 4*1 + 252 = 256
+		{257, 2, 253, 1},    // 4*1 + 253 = 257
+		{260, 2, 252, 2},    // 4*2 + 252 = 260
+		{500, 2, 252, 62},   // 4*62 + 252 = 500
 		{1000, 2, 252, 187}, // 4*187 + 252 = 1000
 	}
 
@@ -546,9 +547,9 @@ func TestAssembleMultistreamPacket(t *testing.T) {
 	t.Run("four streams", func(t *testing.T) {
 		// First 3 packets have length prefix, last doesn't
 		packets := [][]byte{
-			{1, 2},       // 2 bytes
-			{3, 4, 5},    // 3 bytes
-			{6},          // 1 byte
+			{1, 2},        // 2 bytes
+			{3, 4, 5},     // 3 bytes
+			{6},           // 1 byte
 			{7, 8, 9, 10}, // 4 bytes
 		}
 		result := assembleMultistreamPacket(packets)
@@ -826,8 +827,8 @@ func TestEncode_InputValidation(t *testing.T) {
 		wantError bool
 	}{
 		{"correct length", frameSize * 2, false},
-		{"too short", frameSize * 2 - 1, true},
-		{"too long", frameSize * 2 + 1, true},
+		{"too short", frameSize*2 - 1, true},
+		{"too long", frameSize*2 + 1, true},
 		{"half length", frameSize, true},
 		{"double length", frameSize * 4, true},
 		{"empty", 0, true},
@@ -876,6 +877,145 @@ func TestSetBitrate_Distribution(t *testing.T) {
 	// Verify via internal encoder bitrates (if accessible)
 	// For now, verify the total is correct
 	t.Logf("5.1 bitrate distribution: %d bps total", enc.Bitrate())
+}
+
+func TestAllocateRates_SurroundLFEAware(t *testing.T) {
+	enc, err := NewEncoderDefault(48000, 6)
+	if err != nil {
+		t.Fatalf("NewEncoderDefault error: %v", err)
+	}
+
+	enc.SetBitrate(128000)
+	rates := enc.allocateRates(960)
+	if len(rates) != 4 {
+		t.Fatalf("len(rates) = %d, want 4", len(rates))
+	}
+	if enc.lfeStream != 3 {
+		t.Fatalf("lfeStream = %d, want 3", enc.lfeStream)
+	}
+	if rates[enc.lfeStream] >= rates[2] {
+		t.Fatalf("LFE rate should be below mono center: lfe=%d center=%d", rates[enc.lfeStream], rates[2])
+	}
+	if rates[enc.lfeStream] >= rates[0] {
+		t.Fatalf("LFE rate should be below coupled stream: lfe=%d coupled=%d", rates[enc.lfeStream], rates[0])
+	}
+}
+
+func TestEncode_SurroundPerStreamPolicy(t *testing.T) {
+	enc, err := NewEncoderDefault(48000, 6)
+	if err != nil {
+		t.Fatalf("NewEncoderDefault error: %v", err)
+	}
+	enc.SetBitrate(256000)
+
+	frameSize := 960
+	pcm := make([]float64, frameSize*6)
+	for i := 0; i < frameSize; i++ {
+		tm := float64(i) / 48000.0
+		pcm[i*6+0] = 0.8 * math.Sin(2*math.Pi*1500*tm) // FL
+		pcm[i*6+1] = 0.2 * math.Sin(2*math.Pi*120*tm)  // C
+		pcm[i*6+2] = 0.8 * math.Sin(2*math.Pi*200*tm)  // FR
+		pcm[i*6+3] = 0.8 * math.Sin(2*math.Pi*1900*tm) // RL
+		pcm[i*6+4] = 0.6 * math.Sin(2*math.Pi*260*tm)  // RR
+		pcm[i*6+5] = 0.9 * math.Sin(2*math.Pi*50*tm)   // LFE
+	}
+
+	if _, err := enc.Encode(pcm, frameSize); err != nil {
+		t.Fatalf("Encode failed: %v", err)
+	}
+
+	for i := 0; i < enc.CoupledStreams(); i++ {
+		if got := enc.encoders[i].Mode(); got != encpkg.ModeCELT {
+			t.Fatalf("stream %d mode = %v, want ModeCELT", i, got)
+		}
+		if got := enc.encoders[i].ForceChannels(); got != 2 {
+			t.Fatalf("stream %d force channels = %d, want 2", i, got)
+		}
+	}
+
+	if got := enc.encoders[enc.lfeStream].Mode(); got != encpkg.ModeCELT {
+		t.Fatalf("LFE mode = %v, want ModeCELT", got)
+	}
+	if got := enc.encoders[enc.lfeStream].Bandwidth(); got != types.BandwidthNarrowband {
+		t.Fatalf("LFE bandwidth = %v, want BandwidthNarrowband", got)
+	}
+	if got := enc.encoders[enc.lfeStream].CELTSurroundTrim(); got != 0 {
+		t.Fatalf("LFE surround trim = %f, want 0", got)
+	}
+	if got := enc.encoders[2].ForceChannels(); got != -1 {
+		t.Fatalf("mono surround stream force channels = %d, want -1", got)
+	}
+}
+
+func TestEncode_SurroundTrimProduced(t *testing.T) {
+	enc, err := NewEncoderDefault(48000, 6)
+	if err != nil {
+		t.Fatalf("NewEncoderDefault error: %v", err)
+	}
+	enc.SetBitrate(256000)
+
+	frameSize := 960
+	pcm := make([]float64, frameSize*6)
+	for i := 0; i < frameSize; i++ {
+		tm := float64(i) / 48000.0
+		if i%2 == 0 {
+			pcm[i*6+0] = 0.9
+		} else {
+			pcm[i*6+0] = -0.9
+		}
+		pcm[i*6+1] = 0.2 * math.Sin(2*math.Pi*90*tm)
+		pcm[i*6+2] = 0.7 * math.Sin(2*math.Pi*220*tm)
+		pcm[i*6+3] = 0.8 * math.Sin(2*math.Pi*2400*tm)
+		pcm[i*6+4] = 0.5 * math.Sin(2*math.Pi*180*tm)
+		pcm[i*6+5] = 0.9 * math.Sin(2*math.Pi*45*tm)
+	}
+
+	if _, err := enc.Encode(pcm, frameSize); err != nil {
+		t.Fatalf("Encode failed: %v", err)
+	}
+
+	nonZero := false
+	for s := 0; s < enc.streams; s++ {
+		got := enc.encoders[s].CELTSurroundTrim()
+		if s == enc.lfeStream {
+			if got != 0 {
+				t.Fatalf("LFE stream trim = %f, want 0", got)
+			}
+			continue
+		}
+		if math.Abs(got) > 1e-6 {
+			nonZero = true
+		}
+	}
+	if !nonZero {
+		t.Fatalf("expected at least one non-LFE stream to receive non-zero surround trim")
+	}
+}
+
+func TestEncode_AmbisonicsForcesCELTMode(t *testing.T) {
+	enc, err := NewEncoderAmbisonics(48000, 4, 2)
+	if err != nil {
+		t.Fatalf("NewEncoderAmbisonics error: %v", err)
+	}
+
+	frameSize := 960
+	pcm := make([]float64, frameSize*4)
+	for i := 0; i < frameSize; i++ {
+		tm := float64(i) / 48000.0
+		for ch := 0; ch < 4; ch++ {
+			pcm[i*4+ch] = 0.4 * math.Sin(2*math.Pi*float64(220+ch*90)*tm)
+		}
+	}
+
+	if _, err := enc.Encode(pcm, frameSize); err != nil {
+		t.Fatalf("Encode failed: %v", err)
+	}
+
+	for i := 0; i < enc.Streams(); i++ {
+		if got := enc.encoders[i].Mode(); got != encpkg.ModeCELT {
+			t.Fatalf("stream %d mode = %v, want ModeCELT", i, got)
+		}
+	}
 }
 
 // TestEncoderControlMethods tests all control methods propagate to stream encoders.

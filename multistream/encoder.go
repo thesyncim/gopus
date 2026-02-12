@@ -9,6 +9,7 @@ package multistream
 import (
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/thesyncim/gopus/encoder"
 	"github.com/thesyncim/gopus/types"
@@ -68,6 +69,83 @@ type Encoder struct {
 	//   3: Ambisonics with projection (paired stereo streams)
 	//   255: Discrete channels (no predefined mapping)
 	mappingFamily int
+
+	// lfeStream is the stream index that carries LFE, or -1 when absent.
+	lfeStream int
+
+	// streamBitrates stores per-stream rates computed by allocation policy.
+	streamBitrates []int
+
+	// streamSurroundTrim stores per-stream surround trim derived from surround masks.
+	streamSurroundTrim []float64
+
+	// surroundBandSMR stores per-channel surround masks (21 bands per channel).
+	surroundBandSMR []float64
+}
+
+const surroundBands = 21
+
+var surroundEBands = [surroundBands + 1]int{
+	0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 13, 15, 17, 20, 23, 27, 32, 38, 46, 56, 69,
+}
+
+func mappingEqual(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func inferMappingFamily(channels, streams, coupledStreams int, mapping []byte) int {
+	if channels >= 1 && channels <= 8 {
+		ds, dc, dm, err := DefaultMapping(channels)
+		if err == nil && ds == streams && dc == coupledStreams && mappingEqual(dm, mapping) {
+			return 1
+		}
+	}
+
+	if channels > 0 {
+		ds, dc, err := ValidateAmbisonics(channels)
+		if err == nil && ds == streams && dc == coupledStreams {
+			if dm, derr := AmbisonicsMapping(channels); derr == nil && mappingEqual(dm, mapping) {
+				return 2
+			}
+		}
+
+		ds, dc, err = ValidateAmbisonicsFamily3(channels)
+		if err == nil && ds == streams && dc == coupledStreams {
+			if dm, derr := AmbisonicsMappingFamily3(channels); derr == nil && mappingEqual(dm, mapping) {
+				return 3
+			}
+		}
+	}
+
+	if streams == channels && coupledStreams == 0 {
+		discrete := true
+		for i := 0; i < channels; i++ {
+			if mapping[i] != byte(i) {
+				discrete = false
+				break
+			}
+		}
+		if discrete {
+			return 255
+		}
+	}
+
+	return 0
+}
+
+func inferLFEStream(mappingFamily, channels, streams int) int {
+	if mappingFamily == 1 && channels >= 6 {
+		return streams - 1
+	}
+	return -1
 }
 
 // NewEncoder creates a new multistream encoder.
@@ -141,14 +219,22 @@ func NewEncoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 	mappingCopy := make([]byte, len(mapping))
 	copy(mappingCopy, mapping)
 
+	mappingFamily := inferMappingFamily(channels, streams, coupledStreams, mappingCopy)
+	lfeStream := inferLFEStream(mappingFamily, channels, streams)
+
 	return &Encoder{
-		sampleRate:     sampleRate,
-		inputChannels:  channels,
-		streams:        streams,
-		coupledStreams: coupledStreams,
-		mapping:        mappingCopy,
-		encoders:       encoders,
-		bitrate:        256000, // Default 256 kbps total
+		sampleRate:         sampleRate,
+		inputChannels:      channels,
+		streams:            streams,
+		coupledStreams:     coupledStreams,
+		mapping:            mappingCopy,
+		encoders:           encoders,
+		bitrate:            256000, // Default 256 kbps total
+		mappingFamily:      mappingFamily,
+		lfeStream:          lfeStream,
+		streamBitrates:     make([]int, streams),
+		streamSurroundTrim: make([]float64, streams),
+		surroundBandSMR:    make([]float64, channels*surroundBands),
 	}, nil
 }
 
@@ -177,6 +263,7 @@ func NewEncoderDefault(sampleRate, channels int) (*Encoder, error) {
 		return nil, err
 	}
 	enc.mappingFamily = 1 // Vorbis-style mapping
+	enc.lfeStream = inferLFEStream(enc.mappingFamily, channels, streams)
 	return enc, nil
 }
 
@@ -237,14 +324,22 @@ func NewEncoderAmbisonics(sampleRate, channels, mappingFamily int) (*Encoder, er
 		return nil, err
 	}
 	enc.mappingFamily = mappingFamily
+	enc.lfeStream = -1
 	return enc, nil
 }
 
 // Reset clears all encoder state for a new stream.
 // Call this when starting to encode a new audio stream.
 func (e *Encoder) Reset() {
-	for _, enc := range e.encoders {
+	for i, enc := range e.encoders {
 		enc.Reset()
+		enc.SetCELTSurroundTrim(0)
+		if i < len(e.streamSurroundTrim) {
+			e.streamSurroundTrim[i] = 0
+		}
+	}
+	if len(e.surroundBandSMR) > 0 {
+		clear(e.surroundBandSMR)
 	}
 }
 
@@ -289,30 +384,466 @@ func (e *Encoder) MappingFamily() int {
 //   - Mono streams: 2 units (e.g., 64 kbps at typical settings)
 func (e *Encoder) SetBitrate(totalBitrate int) {
 	e.bitrate = totalBitrate
-
-	// Calculate per-stream allocation
-	// Coupled streams get more bits (stereo benefit)
-	monoStreams := e.streams - e.coupledStreams
-	totalUnits := e.coupledStreams*3 + monoStreams*2
-
-	if totalUnits == 0 {
-		return
-	}
-
-	unitBitrate := totalBitrate / totalUnits
-
-	for i := 0; i < e.streams; i++ {
-		if i < e.coupledStreams {
-			e.encoders[i].SetBitrate(unitBitrate * 3) // ~1.5x for stereo
-		} else {
-			e.encoders[i].SetBitrate(unitBitrate * 2)
-		}
+	rates := e.allocateRates(960)
+	for i := 0; i < e.streams && i < len(rates); i++ {
+		e.encoders[i].SetBitrate(rates[i])
 	}
 }
 
 // Bitrate returns the total bitrate in bits per second.
 func (e *Encoder) Bitrate() int {
 	return e.bitrate
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func clampFloat(v, lo, hi float64) float64 {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
+func logSum(a, b float64) float64 {
+	if a < b {
+		a, b = b, a
+	}
+	if math.IsInf(b, -1) {
+		return a
+	}
+	return a + math.Log2(1.0+math.Exp2(b-a))
+}
+
+func (e *Encoder) isSurroundMapping() bool {
+	return e.mappingFamily == 1 && e.inputChannels > 2
+}
+
+func (e *Encoder) isAmbisonicsMapping() bool {
+	return e.mappingFamily == 2 || e.mappingFamily == 3
+}
+
+func (e *Encoder) bitrateForAllocation(frameSize int) int {
+	if e.bitrate > 0 {
+		return e.bitrate
+	}
+	if frameSize <= 0 {
+		frameSize = 960
+	}
+	fs := e.sampleRate
+	if fs <= 0 {
+		fs = 48000
+	}
+	nbLFE := 0
+	if e.lfeStream >= 0 {
+		nbLFE = 1
+	}
+	nbUncoupled := e.streams - e.coupledStreams - nbLFE
+	if nbUncoupled < 0 {
+		nbUncoupled = 0
+	}
+	nbNormal := 2*e.coupledStreams + nbUncoupled
+	channelOffset := 40 * maxInt(50, fs/frameSize)
+	return nbNormal*(channelOffset+fs+10000) + 8000*nbLFE
+}
+
+func (e *Encoder) allocateSurroundRates(rates []int, frameSize int) {
+	fs := e.sampleRate
+	if fs <= 0 {
+		fs = 48000
+	}
+	if frameSize <= 0 {
+		frameSize = 960
+	}
+
+	nbLFE := 0
+	if e.lfeStream >= 0 {
+		nbLFE = 1
+	}
+	nbCoupled := e.coupledStreams
+	nbUncoupled := e.streams - nbCoupled - nbLFE
+	if nbUncoupled < 0 {
+		nbUncoupled = 0
+	}
+	nbNormal := 2*nbCoupled + nbUncoupled
+
+	bitrate := e.bitrateForAllocation(frameSize)
+	if nbNormal <= 0 {
+		per := bitrate / maxInt(1, e.streams)
+		per = maxInt(per, 500)
+		for i := 0; i < e.streams; i++ {
+			rates[i] = per
+		}
+		return
+	}
+
+	channelOffset := 40 * maxInt(50, fs/frameSize)
+	lfeOffset := minInt(bitrate/20, 3000) + 15*maxInt(50, fs/frameSize)
+	if nbLFE == 0 {
+		lfeOffset = 0
+	}
+
+	streamOffset := (bitrate - channelOffset*nbNormal - lfeOffset*nbLFE) / nbNormal / 2
+	streamOffset = maxInt(0, minInt(20000, streamOffset))
+
+	const coupledRatio = 512
+	const lfeRatio = 32
+	total := (nbUncoupled << 8) + coupledRatio*nbCoupled + nbLFE*lfeRatio
+	if total <= 0 {
+		total = 1
+	}
+	numerator := bitrate - lfeOffset*nbLFE - streamOffset*(nbCoupled+nbUncoupled) - channelOffset*nbNormal
+	channelRate := (256 * numerator) / total
+
+	for i := 0; i < e.streams; i++ {
+		var rate int
+		if i < e.coupledStreams {
+			rate = 2*channelOffset + maxInt(0, streamOffset+((channelRate*coupledRatio)>>8))
+		} else if i != e.lfeStream {
+			rate = channelOffset + maxInt(0, streamOffset+channelRate)
+		} else {
+			rate = maxInt(0, lfeOffset+((channelRate*lfeRatio)>>8))
+		}
+		rates[i] = maxInt(rate, 500)
+	}
+}
+
+func (e *Encoder) allocateRates(frameSize int) []int {
+	if frameSize <= 0 {
+		frameSize = 960
+	}
+	if cap(e.streamBitrates) < e.streams {
+		e.streamBitrates = make([]int, e.streams)
+	}
+	rates := e.streamBitrates[:e.streams]
+
+	switch {
+	case e.isSurroundMapping():
+		e.allocateSurroundRates(rates, frameSize)
+	case e.isAmbisonicsMapping():
+		totalRate := e.bitrateForAllocation(frameSize)
+		per := totalRate / maxInt(1, e.streams)
+		per = maxInt(per, 500)
+		for i := 0; i < e.streams; i++ {
+			rates[i] = per
+		}
+	default:
+		totalRate := e.bitrateForAllocation(frameSize)
+		monoStreams := e.streams - e.coupledStreams
+		totalUnits := e.coupledStreams*3 + monoStreams*2
+		if totalUnits <= 0 {
+			per := maxInt(totalRate/maxInt(1, e.streams), 500)
+			for i := 0; i < e.streams; i++ {
+				rates[i] = per
+			}
+			return rates
+		}
+		unitRate := totalRate / totalUnits
+		for i := 0; i < e.streams; i++ {
+			if i < e.coupledStreams {
+				rates[i] = maxInt(unitRate*3, 500)
+			} else {
+				rates[i] = maxInt(unitRate*2, 500)
+			}
+		}
+	}
+
+	return rates
+}
+
+func (e *Encoder) surroundBandwidth(frameSize int) types.Bandwidth {
+	fs := e.sampleRate
+	if fs <= 0 {
+		fs = 48000
+	}
+	totalRate := e.bitrateForAllocation(frameSize)
+	equivRate := totalRate
+	if frameSize > 0 && frameSize*50 < fs {
+		equivRate -= 60 * (fs/frameSize - 50) * e.inputChannels
+	}
+	if equivRate > 10000*e.inputChannels {
+		return types.BandwidthFullband
+	}
+	if equivRate > 7000*e.inputChannels {
+		return types.BandwidthSuperwideband
+	}
+	if equivRate > 5000*e.inputChannels {
+		return types.BandwidthWideband
+	}
+	return types.BandwidthNarrowband
+}
+
+func channelPositions(channels int, pos []int) bool {
+	if len(pos) < channels {
+		return false
+	}
+	for i := 0; i < channels; i++ {
+		pos[i] = 0
+	}
+	switch channels {
+	case 4:
+		pos[0], pos[1], pos[2], pos[3] = 1, 3, 1, 3
+	case 3, 5, 6:
+		pos[0], pos[1], pos[2], pos[3], pos[4] = 1, 2, 3, 1, 3
+		if channels == 6 {
+			pos[5] = 0
+		}
+	case 7:
+		pos[0], pos[1], pos[2], pos[3], pos[4], pos[5], pos[6] = 1, 2, 3, 1, 3, 2, 0
+	case 8:
+		pos[0], pos[1], pos[2], pos[3], pos[4], pos[5], pos[6], pos[7] = 1, 2, 3, 1, 3, 1, 3, 0
+	default:
+		return false
+	}
+	return true
+}
+
+func channelMaskShape(pcm []float64, frameSize, channels, channel int) (base, slope float64) {
+	var low, high float64
+	prev := 0.0
+	for i := 0; i < frameSize; i++ {
+		x := pcm[i*channels+channel]
+		low += x * x
+		if i > 0 {
+			d := x - prev
+			high += d * d
+		}
+		prev = x
+	}
+	low = low/float64(maxInt(frameSize, 1)) + 1e-12
+	high = high/float64(maxInt(frameSize-1, 1)) + 1e-12
+	base = math.Log2(low)
+	slope = clampFloat(0.5*math.Log2(high/low), -1.0, 1.0)
+	return base, slope
+}
+
+func surroundTrimFromMask(maskL, maskR []float64) float64 {
+	if len(maskL) < surroundBands {
+		return 0
+	}
+	channels := 1
+	if len(maskR) >= surroundBands {
+		channels = 2
+	}
+	maskEnd := 17
+	if maskEnd > surroundBands {
+		maskEnd = surroundBands
+	}
+
+	maskAvg := 0.0
+	count := 0
+	diff := 0.0
+	for c := 0; c < channels; c++ {
+		mask := maskL
+		if c == 1 {
+			mask = maskR
+		}
+		for i := 0; i < maskEnd; i++ {
+			m := clampFloat(mask[i], -2.0, 0.25)
+			if m > 0 {
+				m *= 0.5
+			}
+			width := surroundEBands[i+1] - surroundEBands[i]
+			maskAvg += m * float64(width)
+			count += width
+			diff += m * float64(1+2*i-maskEnd)
+		}
+	}
+	if count <= 0 {
+		return 0
+	}
+	maskAvg = maskAvg/float64(count) + 0.2
+	_ = maskAvg
+
+	denom := float64(channels * (maskEnd - 1) * (maskEnd + 1) * maskEnd)
+	if denom <= 0 {
+		return 0
+	}
+	diff = diff * 6.0 / denom
+	diff *= 0.5
+	diff = clampFloat(diff, -0.031, 0.031)
+	return 64.0 * diff
+}
+
+func (e *Encoder) inputChannelForMapping(mappingIdx byte) int {
+	for i, v := range e.mapping {
+		if v == mappingIdx {
+			return i
+		}
+	}
+	return -1
+}
+
+func (e *Encoder) updateSurroundTrimFromPCM(pcm []float64, frameSize int) {
+	if cap(e.streamSurroundTrim) < e.streams {
+		e.streamSurroundTrim = make([]float64, e.streams)
+	}
+	trim := e.streamSurroundTrim[:e.streams]
+	for i := range trim {
+		trim[i] = 0
+	}
+	if !e.isSurroundMapping() || frameSize <= 0 || e.inputChannels < 3 || e.inputChannels > 8 {
+		return
+	}
+
+	needed := e.inputChannels * surroundBands
+	if cap(e.surroundBandSMR) < needed {
+		e.surroundBandSMR = make([]float64, needed)
+	}
+	bandSMR := e.surroundBandSMR[:needed]
+	clear(bandSMR)
+
+	var pos [8]int
+	if !channelPositions(e.inputChannels, pos[:]) {
+		return
+	}
+
+	var leftMask [surroundBands]float64
+	var rightMask [surroundBands]float64
+	var centerMask [surroundBands]float64
+	for i := 0; i < surroundBands; i++ {
+		leftMask[i] = -28.0
+		rightMask[i] = -28.0
+	}
+
+	var base [8]float64
+	var slope [8]float64
+	for c := 0; c < e.inputChannels; c++ {
+		if pos[c] == 0 {
+			continue
+		}
+		base[c], slope[c] = channelMaskShape(pcm, frameSize, e.inputChannels, c)
+		for i := 0; i < surroundBands; i++ {
+			v := base[c] + slope[c]*(float64(i)-10.0)/10.0
+			bandSMR[c*surroundBands+i] = v
+			switch pos[c] {
+			case 1:
+				leftMask[i] = logSum(leftMask[i], v)
+			case 3:
+				rightMask[i] = logSum(rightMask[i], v)
+			case 2:
+				leftMask[i] = logSum(leftMask[i], v-0.5)
+				rightMask[i] = logSum(rightMask[i], v-0.5)
+			}
+		}
+	}
+
+	channelOffset := 0.0
+	if e.inputChannels > 1 {
+		channelOffset = 0.5 * math.Log2(2.0/float64(e.inputChannels-1))
+	}
+	for i := 0; i < surroundBands; i++ {
+		leftMask[i] += channelOffset
+		rightMask[i] += channelOffset
+		if leftMask[i] < rightMask[i] {
+			centerMask[i] = leftMask[i]
+		} else {
+			centerMask[i] = rightMask[i]
+		}
+	}
+
+	for c := 0; c < e.inputChannels; c++ {
+		if pos[c] == 0 {
+			for i := 0; i < surroundBands; i++ {
+				bandSMR[c*surroundBands+i] = 0
+			}
+			continue
+		}
+		for i := 0; i < surroundBands; i++ {
+			mask := centerMask[i]
+			if pos[c] == 1 {
+				mask = leftMask[i]
+			} else if pos[c] == 3 {
+				mask = rightMask[i]
+			}
+			bandSMR[c*surroundBands+i] -= mask
+		}
+	}
+
+	for s := 0; s < e.streams; s++ {
+		if s == e.lfeStream {
+			trim[s] = 0
+			continue
+		}
+		if s < e.coupledStreams {
+			left := e.inputChannelForMapping(byte(2 * s))
+			right := e.inputChannelForMapping(byte(2*s + 1))
+			if left < 0 || right < 0 {
+				continue
+			}
+			trim[s] = surroundTrimFromMask(
+				bandSMR[left*surroundBands:(left+1)*surroundBands],
+				bandSMR[right*surroundBands:(right+1)*surroundBands],
+			)
+		} else {
+			mappingIdx := byte(2*e.coupledStreams + (s - e.coupledStreams))
+			mono := e.inputChannelForMapping(mappingIdx)
+			if mono < 0 {
+				continue
+			}
+			trim[s] = surroundTrimFromMask(
+				bandSMR[mono*surroundBands:(mono+1)*surroundBands],
+				nil,
+			)
+		}
+	}
+}
+
+func (e *Encoder) applyPerStreamPolicy(frameSize int, pcm []float64) {
+	rates := e.allocateRates(frameSize)
+	if e.isSurroundMapping() {
+		e.updateSurroundTrimFromPCM(pcm, frameSize)
+	}
+
+	surroundBandwidth := e.surroundBandwidth(frameSize)
+	for i := 0; i < e.streams; i++ {
+		enc := e.encoders[i]
+		enc.SetBitrate(rates[i])
+
+		switch {
+		case e.isSurroundMapping():
+			if i == e.lfeStream {
+				enc.SetMode(encoder.ModeCELT)
+				enc.SetForceChannels(1)
+				enc.SetBandwidth(types.BandwidthNarrowband)
+				enc.SetCELTSurroundTrim(0)
+				continue
+			}
+			enc.SetBandwidth(surroundBandwidth)
+			if i < e.coupledStreams {
+				// Preserve surround image parity with libopus on coupled streams.
+				enc.SetMode(encoder.ModeCELT)
+				enc.SetForceChannels(2)
+			} else {
+				enc.SetForceChannels(-1)
+			}
+			if i < len(e.streamSurroundTrim) {
+				enc.SetCELTSurroundTrim(e.streamSurroundTrim[i])
+			} else {
+				enc.SetCELTSurroundTrim(0)
+			}
+		case e.isAmbisonicsMapping():
+			enc.SetMode(encoder.ModeCELT)
+			enc.SetForceChannels(-1)
+			enc.SetCELTSurroundTrim(0)
+		default:
+			enc.SetCELTSurroundTrim(0)
+		}
+	}
 }
 
 // routeChannelsToStreams routes interleaved input to stream buffers.
@@ -453,6 +984,9 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 			ErrInvalidInput, len(pcm), expectedLen, frameSize, e.inputChannels)
 	}
 
+	// Mirror libopus per-stream rate/control policy ahead of stream encodes.
+	e.applyPerStreamPolicy(frameSize, pcm)
+
 	// Route input channels to stream buffers
 	streamBuffers := routeChannelsToStreams(pcm, e.mapping, e.coupledStreams, frameSize, e.inputChannels, e.streams)
 
@@ -461,7 +995,6 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	allNil := true
 
 	for i := 0; i < e.streams; i++ {
-		chans := streamChannels(i, e.coupledStreams)
 		packet, err := e.encoders[i].Encode(streamBuffers[i], frameSize)
 		if err != nil {
 			return nil, fmt.Errorf("stream %d encode failed: %w", i, err)
@@ -477,8 +1010,6 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 			streamPackets[i] = packet
 			allNil = false
 		}
-
-		_ = chans // Used only for buffer sizing in routeChannelsToStreams
 	}
 
 	// If all streams returned nil (DTX), return nil to signal silence

@@ -108,6 +108,9 @@ type Encoder struct {
 	// Phase inversion disabled (for stereo decorrelation)
 	phaseInversionDisabled bool
 
+	// celtSurroundTrim carries multistream surround-trim bias into CELT alloc-trim.
+	celtSurroundTrim float64
+
 	// DC rejection filter state
 	hpMem [4]float32
 
@@ -1749,6 +1752,7 @@ func (e *Encoder) ensureCELTEncoder() {
 		// Opus encoder already applies CELT delay compensation at the top level.
 		e.celtEncoder.SetDelayCompensationEnabled(false)
 	}
+	e.celtEncoder.SetSurroundTrim(e.celtSurroundTrim)
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 }
 
@@ -1906,4 +1910,17 @@ func (e *Encoder) SetPhaseInversionDisabled(disabled bool) {
 // PhaseInversionDisabled returns whether stereo phase inversion is disabled.
 func (e *Encoder) PhaseInversionDisabled() bool {
 	return e.phaseInversionDisabled
+}
+
+// SetCELTSurroundTrim sets the CELT alloc-trim surround bias.
+func (e *Encoder) SetCELTSurroundTrim(trim float64) {
+	e.celtSurroundTrim = trim
+	if e.celtEncoder != nil {
+		e.celtEncoder.SetSurroundTrim(trim)
+	}
+}
+
+// CELTSurroundTrim returns the current CELT alloc-trim surround bias.
+func (e *Encoder) CELTSurroundTrim() float64 {
+	return e.celtSurroundTrim
 }
