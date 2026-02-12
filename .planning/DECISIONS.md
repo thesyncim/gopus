@@ -20,6 +20,20 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-12
+topic: Encoder precision guard ratchet (general)
+decision: Raise `encoderLibopusGapFloorDB` by +0.30 dB across all summary profiles so quality regressions are caught earlier while preserving a small measurement cushion.
+evidence: Updated `testvectors/encoder_precision_guard_test.go`; `TestEncoderCompliancePrecisionGuard`, `TestEncoderComplianceSummary`, and `TestEncoderVariantProfileParityAgainstLibopusFixture` all passed after ratchet.
+do_not_repeat_until: A new quality uplift lands and measured gaps are re-baselined, or cross-arch stability evidence requires relaxing specific floors.
+owner: codex
+
+date: 2026-02-12
+topic: CELT 5ms short-frame bit budget uplift
+decision: Keep non-hybrid CELT `frameSize==240` target-bit uplift at `+64` in `celt/encode_frame.go` (`computeTargetBits`).
+evidence: `TestEncoderComplianceCELT` improved `FB-5ms-mono` from `Q=-18.10` to `Q=-14.05` (~+1.94 dB SNR); parity/guardrails remained green (`TestEncoderComplianceSummary`, `TestEncoderCompliancePrecisionGuard`, `TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestCELTLongFrameVBRBitrateBudget`, `make verify-production`, `make bench-guard`).
+do_not_repeat_until: Short-frame interoperability/bitrate regressions appear or libopus-referenced parity evidence shows this uplift is too aggressive.
+owner: codex
+
+date: 2026-02-12
 topic: libopus source-of-truth policy (version pin)
 decision: When codec behavior is uncertain or gopus/libopus differ, resolve against `tmp_check/opus-1.6.1/` C source first and align gopus to that version before heuristic tuning.
 evidence: Explicitly reinforced in agent guidance (`AGENTS.md`, `CODEX.md`, `CLAUDE.md`) during CELT quality tuning session.

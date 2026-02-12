@@ -33,3 +33,4 @@ Quick commands:
 - claim: id=codex-20260212-200240; agent=codex; status=released; paths=tools/,celt/,Makefile; updated=2026-02-12T20:09:24Z; expires=2026-02-12T20:09:24Z; note=fix amd64 opusdec crossval fixture generation for CI parity
 - claim: id=codex-20260212-200806; agent=codex; status=released; paths=.planning/ACTIVE.md,.planning/DECISIONS.md,.planning/WORK_CLAIMS.md; updated=2026-02-12T20:09:24Z; expires=2026-02-12T20:09:24Z; note=record amd64 crossval CI-fix evidence and decision
 - claim: id=codex-20260212-201823; agent=codex; status=released; paths=encoder/,silk/,testvectors/; updated=2026-02-12T20:25:48Z; expires=2026-02-12T20:25:48Z; note=next big issue: SILK/Hybrid absolute quality uplift
+- claim: id=codex-20260212-203618; agent=codex; status=released; paths=celt/,testvectors/,.planning/; updated=2026-02-12T20:42:30Z; expires=2026-02-12T20:42:30Z; note=post-merge ratchet + next short-frame quality fix
