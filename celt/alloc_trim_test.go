@@ -7,13 +7,13 @@ import (
 func TestAllocTrimAnalysis(t *testing.T) {
 	// Test cases for allocation trim analysis
 	tests := []struct {
-		name            string
-		equivRate       int
-		channels        int
-		tfEstimate      float64
-		expectMinTrim   int
-		expectMaxTrim   int
-		description     string
+		name          string
+		equivRate     int
+		channels      int
+		tfEstimate    float64
+		expectMinTrim int
+		expectMaxTrim int
+		description   string
 	}{
 		{
 			name:          "Low bitrate mono",
@@ -224,5 +224,25 @@ func TestAllocTrimTFEstimate(t *testing.T) {
 	}
 	if trimHighTransient > trimLowTransient {
 		t.Errorf("TF 0.8 trim (%d) should be <= TF 0.3 trim (%d)", trimHighTransient, trimLowTransient)
+	}
+}
+
+func TestAllocTrimSurroundTrimAdjustment(t *testing.T) {
+	nbBands := 21
+	lm := 3
+	numCoeffs := EBands[nbBands] << lm
+	normL := make([]float64, numCoeffs)
+	bandLogE := make([]float64, nbBands)
+	equivRate := 80000
+
+	base := AllocTrimAnalysis(normL, bandLogE, nbBands, lm, 1, nil, nbBands, 0.0, equivRate, 0.0, 0.0)
+	plus := AllocTrimAnalysis(normL, bandLogE, nbBands, lm, 1, nil, nbBands, 0.0, equivRate, 1.0, 0.0)
+	minus := AllocTrimAnalysis(normL, bandLogE, nbBands, lm, 1, nil, nbBands, 0.0, equivRate, -1.0, 0.0)
+
+	if plus > base {
+		t.Fatalf("positive surroundTrim should not increase trim: base=%d plus=%d", base, plus)
+	}
+	if minus < base {
+		t.Fatalf("negative surroundTrim should not decrease trim: base=%d minus=%d", base, minus)
 	}
 }

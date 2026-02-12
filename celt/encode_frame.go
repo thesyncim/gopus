@@ -947,7 +947,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 				intensity,
 				tfEstimate,
 				equivRate,
-				0.0, // surroundTrim - not implemented yet
+				e.surroundTrim,
 				tonalitySlope,
 			)
 			if tmpTrimDebugEnabled && e.channels == 1 && frameSize == 480 && e.frameCount >= 45 && e.frameCount <= 80 {

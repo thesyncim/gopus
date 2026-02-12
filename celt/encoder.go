@@ -142,6 +142,9 @@ type Encoder struct {
 	// Bootstrap leak boost used when external analysis is valid but doesn't yet
 	// provide leak_boost (matches early-frame libopus behavior more closely).
 	analysisLeakBootstrap [leakBands]uint8
+	// Surround trim adjustment (in trim units) used by alloc_trim analysis.
+	// This mirrors libopus alloc_trim_analysis() surround_trim contribution.
+	surroundTrim float64
 
 	// Dynamic allocation analysis state (for VBR decisions)
 	// These are computed from the previous frame and used for current frame's VBR target.
@@ -532,6 +535,7 @@ func (e *Encoder) Reset() {
 	for i := range e.analysisLeakBootstrap {
 		e.analysisLeakBootstrap[i] = 0
 	}
+	e.surroundTrim = 0
 
 	// Clear pre-emphasis buffer for transient analysis
 	for i := range e.preemphBuffer {
@@ -556,6 +560,17 @@ func (e *Encoder) Reset() {
 	e.attackDuration = 0
 	e.lastMaskMetric = 0
 	e.peakEnergy = 0
+}
+
+// SetSurroundTrim sets the surround trim adjustment used by alloc_trim analysis.
+// Positive values reduce alloc_trim (favoring higher bands), matching libopus.
+func (e *Encoder) SetSurroundTrim(trim float64) {
+	e.surroundTrim = trim
+}
+
+// SurroundTrim returns the current surround trim adjustment.
+func (e *Encoder) SurroundTrim() float64 {
+	return e.surroundTrim
 }
 
 // SetComplexity sets encoder complexity (0-10).
