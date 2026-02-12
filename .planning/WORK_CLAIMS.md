@@ -37,3 +37,4 @@ Quick commands:
 - claim: id=codex-20260212-204240; agent=codex; status=released; paths=README.md,docs/,AGENTS.md,.planning/; updated=2026-02-12T20:49:22Z; expires=2026-02-12T20:49:22Z; note=sync README/docs/assembly docs with current code and commands
 - claim: id=codex-20260212-211003; agent=codex; status=released; paths=celt/,testvectors/,.planning/; updated=2026-02-12T21:15:52Z; expires=2026-02-12T21:15:52Z; note=next issue: CELT 2.5ms short-frame quality uplift round 2
 - claim: id=codex-20260212-211731; agent=codex; status=released; paths=testvectors/; updated=2026-02-12T21:22:37Z; expires=2026-02-12T21:22:37Z; note=tighten precision floors generally after celt short-frame uplift
+- claim: id=codex-20260212-214208; agent=codex; status=released; paths=celt/,testvectors/; updated=2026-02-12T21:48:42Z; expires=2026-02-12T21:48:42Z; note=next issue: celt short-frame stereo quality uplift after PR31 merge
