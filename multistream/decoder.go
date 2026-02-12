@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/thesyncim/gopus/hybrid"
+	"github.com/thesyncim/gopus/plc"
 )
 
 // Errors for multistream decoder creation and operation.
@@ -101,6 +102,9 @@ type Decoder struct {
 	// First M decoders are stereo (for coupled streams).
 	// Remaining N-M decoders are mono (for uncoupled streams).
 	decoders []streamDecoder
+
+	// Per-decoder PLC state (do not share across decoder instances).
+	plcState *plc.State
 }
 
 // NewDecoder creates a new multistream decoder.
@@ -178,6 +182,7 @@ func NewDecoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 		coupledStreams: coupledStreams,
 		mapping:        mappingCopy,
 		decoders:       decoders,
+		plcState:       plc.NewState(),
 	}, nil
 }
 
@@ -187,6 +192,10 @@ func (d *Decoder) Reset() {
 	for _, dec := range d.decoders {
 		dec.Reset()
 	}
+	if d.plcState == nil {
+		d.plcState = plc.NewState()
+	}
+	d.plcState.Reset()
 }
 
 // Channels returns the total number of output channels.
