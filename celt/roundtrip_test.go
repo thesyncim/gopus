@@ -72,9 +72,6 @@ func TestCELTRoundTripMono(t *testing.T) {
 	frameSize := 960
 	pcm := generateSineWave(440.0, frameSize)
 
-	// Reset encoder for clean state
-	ResetMonoEncoder()
-
 	// Encode
 	encoded, err := Encode(pcm, frameSize)
 	if err != nil {
@@ -117,9 +114,6 @@ func TestCELTRoundTripStereo(t *testing.T) {
 	// Generate 20ms stereo sine wave (different frequencies L/R)
 	frameSize := 960
 	pcm := generateStereoSineWave(440.0, 880.0, frameSize)
-
-	// Reset encoder for clean state
-	ResetStereoEncoder()
 
 	// Encode
 	encoded, err := EncodeStereo(pcm, frameSize)
@@ -253,9 +247,6 @@ func TestCELTRoundTripTransient(t *testing.T) {
 func TestCELTRoundTripSilence(t *testing.T) {
 	frameSize := 960
 	pcm := make([]float64, frameSize) // All zeros
-
-	// Reset encoder for clean state
-	ResetMonoEncoder()
 
 	// Encode
 	encoded, err := Encode(pcm, frameSize)

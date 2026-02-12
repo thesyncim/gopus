@@ -7,12 +7,6 @@ import (
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
-// DebugDualStereoAlloc enables tracing of dual-stereo allocation decisions.
-var DebugDualStereoAlloc = false
-
-// Ensure fmt is used
-var _ = fmt.Sprint
-
 // AllocationResult holds the output of bit allocation computation.
 type AllocationResult struct {
 	BandBits     []int // PVQ bit budget per band in Q3 (a.k.a. pulses[] in libopus)
@@ -146,7 +140,7 @@ func cltComputeAllocationWithScratch(start, end int, offsets, cap []int, allocTr
 			}
 		}
 	}
-	if DebugDualStereoAlloc {
+	if debugDualStereoAllocEnabled() {
 		fmt.Printf("cltComputeAllocation: start=%d, end=%d, channels=%d, origTotalBits=%d, intensityRsv=%d, dualStereoRsv=%d\n",
 			start, end, channels, origTotalBits, intensityRsv, dualStereoRsv)
 	}
@@ -348,13 +342,13 @@ func interpBits2Pulses(start, end, skipStart int, bits1, bits2, thresh, cap []in
 	if dualStereoRsv > 0 {
 		if rd != nil {
 			*dualStereo = rd.DecodeBit(1)
-			if DebugDualStereoAlloc {
+			if debugDualStereoAllocEnabled() {
 				fmt.Printf("  Decoded dualStereo=%d from bitstream\n", *dualStereo)
 			}
 		}
 	} else {
 		*dualStereo = 0
-		if DebugDualStereoAlloc {
+		if debugDualStereoAllocEnabled() {
 			fmt.Printf("  dualStereoRsv=0, forcing dualStereo=0\n")
 		}
 	}
