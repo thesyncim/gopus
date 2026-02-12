@@ -17,6 +17,15 @@ The highest ROI is targeted SILK/Hybrid quality tuning first, validated against 
 2. Run only the narrowest parity/compliance tests needed for that profile before code edits.
 3. Capture a short evidence note in this file with command, result, and next decision.
 
+## Feature Parity Plan (libopus 1.6.1)
+
+- [ ] Complete: Wire full multistream surround-analysis and energy-mask production into `surroundTrim` control flow for alloc-trim parity (encoder-side `surroundTrim` state plumbing is done; producer/control path is still pending).
+- [ ] Complete: Implement LFE-aware multistream handling parity (stream detection, mapping policy, and allocation effects).
+- [ ] Complete: Match libopus surround per-stream control policy parity (mode forcing, channel decisions, and bandwidth policy).
+- [ ] Complete: Close remaining public CTL/API parity gaps versus libopus request/set/get surfaces.
+- [ ] Complete: Add repacketizer API parity coverage with fixture-validated behavior.
+- [ ] Complete: Tighten ambisonics behavior parity (mapping/control/packet behavior parity tests).
+
 ## Explicit Skips For This Session
 
 - Skip re-debugging SILK decoder correctness unless decoder-path files are touched.
