@@ -49,8 +49,8 @@ owner: codex
 
 date: 2026-02-12
 topic: CELT 2.5ms short-frame bit budget boost
-decision: Keep non-hybrid CELT `frameSize==120` target-bit uplift at `+128` in `celt/encode_frame.go` (`computeTargetBits`).
-evidence: `TestEncoderComplianceCELT` improved `FB-2.5ms-mono` from `Q=-43.27` to `Q=-30.98` (~+5.9 dB SNR); guardrails remained green: `TestCeltTargetBits25ms`, `TestCELTLongFrameVBRBitrateBudget`, `TestEncoderComplianceSummary`, `TestEncoderCompliancePrecisionGuard`, `TestEncoderVariantProfileParityAgainstLibopusFixture`, `make verify-production`, and `make bench-guard`.
+decision: Keep non-hybrid CELT `frameSize==120` target-bit uplift at `+192` in `celt/encode_frame.go` (`computeTargetBits`).
+evidence: First uplift moved `FB-2.5ms-mono` from `Q=-43.27` to `Q=-30.98`; second uplift to `+192` improved further to `Q=-25.58` (~+8.5 dB total vs original baseline). Guardrails remained green: `TestCeltTargetBits25ms`, `TestCELTLongFrameVBRBitrateBudget`, `TestEncoderComplianceSummary`, `TestEncoderCompliancePrecisionGuard`, `TestEncoderVariantProfileParityAgainstLibopusFixture`, `make verify-production`, and `make bench-guard`.
 do_not_repeat_until: Short-frame parity/bitrate/interoperability guards regress or libopus-referenced fixture evidence indicates over-allocation side effects.
 owner: codex
 

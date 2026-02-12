@@ -35,3 +35,4 @@ Quick commands:
 - claim: id=codex-20260212-201823; agent=codex; status=released; paths=encoder/,silk/,testvectors/; updated=2026-02-12T20:25:48Z; expires=2026-02-12T20:25:48Z; note=next big issue: SILK/Hybrid absolute quality uplift
 - claim: id=codex-20260212-203618; agent=codex; status=released; paths=celt/,testvectors/,.planning/; updated=2026-02-12T20:42:30Z; expires=2026-02-12T20:42:30Z; note=post-merge ratchet + next short-frame quality fix
 - claim: id=codex-20260212-204240; agent=codex; status=released; paths=README.md,docs/,AGENTS.md,.planning/; updated=2026-02-12T20:49:22Z; expires=2026-02-12T20:49:22Z; note=sync README/docs/assembly docs with current code and commands
+- claim: id=codex-20260212-211003; agent=codex; status=released; paths=celt/,testvectors/,.planning/; updated=2026-02-12T21:15:52Z; expires=2026-02-12T21:15:52Z; note=next issue: CELT 2.5ms short-frame quality uplift round 2
