@@ -20,6 +20,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-12
+topic: AMD64 opusdec crossval fixture provenance
+decision: Always regenerate `celt/testdata/opusdec_crossval_fixture_amd64.json` as part of `make fixtures-gen-amd64` using `GOPUS_OPUSDEC_CROSSVAL_FIXTURE_OUT`; do not ship CELT packet/fixture changes with only the non-amd64 crossval fixture refreshed.
+evidence: PR #28 CI failures in linux/windows (`TestOpusdecCrossvalFixtureCoverage`, fixture honesty checks) were caused by missing `_amd64` SHA mappings. After wiring `tools/gen_opusdec_crossval_fixture.go` into `fixtures-gen-amd64` and regenerating, linux/amd64 `go test ./celt -run 'TestOpusdecCrossvalFixtureCoverage|TestOpusdecCrossvalFixtureHonestyAgainstLiveOpusdec' -count=1 -v` and `make verify-production` both passed.
+do_not_repeat_until: Crossval tests stop selecting architecture-specific fixture files or generator/output conventions are changed.
+owner: codex
+
+date: 2026-02-12
 topic: CELT 20ms high-budget boost ceiling
 decision: Keep non-hybrid 20ms high-budget boost capped at `+1216` bits (`baseBits >= 1024`) and do not raise to `+1280`+ yet.
 evidence: Sweep validated by `TestEncoderCompliancePrecisionGuard`, `TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestCELTLongFrameVBRBitrateBudget`; libopus interoperability check failed at `+1280` (`go run ./tools/gen_opusdec_crossval_fixture.go` failed on `stereo_20ms_silence`), while `+1216` passes fixture generation + `TestOpusdecCrossvalFixtureHonestyAgainstLiveOpusdec` and `make verify-production`.

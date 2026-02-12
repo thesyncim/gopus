@@ -29,4 +29,6 @@ Quick commands:
 ## Active Claims
 
 - claim: id=template; agent=none; status=released; paths=; updated=2026-02-12T00:00:00Z; expires=2026-02-12T00:00:00Z; note=replace when claiming work
-- claim: id=codex-20260212-185901; agent=codex; status=active; paths=encoder/,celt/,hybrid/,testvectors/; updated=2026-02-12T23:28:00Z; expires=2026-02-13T02:00:00Z; note=CELT quality uplift finalized with full parity/bench/race validation
+- claim: id=codex-20260212-185901; agent=codex; status=released; paths=encoder/,celt/,hybrid/,testvectors/; updated=2026-02-12T20:09:24Z; expires=2026-02-12T20:09:24Z; note=CELT quality uplift finalized with full parity/bench/race validation
+- claim: id=codex-20260212-200240; agent=codex; status=released; paths=tools/,celt/,Makefile; updated=2026-02-12T20:09:24Z; expires=2026-02-12T20:09:24Z; note=fix amd64 opusdec crossval fixture generation for CI parity
+- claim: id=codex-20260212-200806; agent=codex; status=released; paths=.planning/ACTIVE.md,.planning/DECISIONS.md,.planning/WORK_CLAIMS.md; updated=2026-02-12T20:09:24Z; expires=2026-02-12T20:09:24Z; note=record amd64 crossval CI-fix evidence and decision

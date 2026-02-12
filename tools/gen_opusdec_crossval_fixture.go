@@ -12,10 +12,14 @@ import (
 	"math"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sort"
 
 	"github.com/thesyncim/gopus/celt"
+)
+
+const (
+	defaultOpusdecCrossvalFixturePath = "celt/testdata/opusdec_crossval_fixture.json"
+	opusdecCrossvalFixtureOutEnv      = "GOPUS_OPUSDEC_CROSSVAL_FIXTURE_OUT"
 )
 
 type fixtureFile struct {
@@ -83,13 +87,20 @@ func main() {
 	}
 	js = append(js, '\n')
 
-	targetPath := filepath.Join("celt", "testdata", "opusdec_crossval_fixture.json")
+	targetPath := outputFixturePath()
 	if err := os.WriteFile(targetPath, js, 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "write fixture: %v\n", err)
 		os.Exit(1)
 	}
 
 	fmt.Printf("wrote %d entries to %s\n", len(entries), targetPath)
+}
+
+func outputFixturePath() string {
+	if path := os.Getenv(opusdecCrossvalFixtureOutEnv); path != "" {
+		return path
+	}
+	return defaultOpusdecCrossvalFixturePath
 }
 
 func buildScenarios() ([]scenario, error) {
