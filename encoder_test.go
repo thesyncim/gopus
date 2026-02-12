@@ -249,6 +249,136 @@ func TestEncoder_SetComplexity(t *testing.T) {
 	}
 }
 
+func TestEncoder_SetBitrateMode(t *testing.T) {
+	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	validModes := []BitrateMode{BitrateModeVBR, BitrateModeCVBR, BitrateModeCBR}
+	for _, mode := range validModes {
+		t.Run(fmt.Sprintf("mode_%d", mode), func(t *testing.T) {
+			if err := enc.SetBitrateMode(mode); err != nil {
+				t.Fatalf("SetBitrateMode(%d) error: %v", mode, err)
+			}
+			if got := enc.BitrateMode(); got != mode {
+				t.Fatalf("BitrateMode()=%d want=%d", got, mode)
+			}
+		})
+	}
+
+	if err := enc.SetBitrateMode(BitrateMode(999)); err != ErrInvalidBitrateMode {
+		t.Fatalf("SetBitrateMode(invalid) error=%v want=%v", err, ErrInvalidBitrateMode)
+	}
+}
+
+func TestEncoder_SetVBRAndConstraint(t *testing.T) {
+	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	enc.SetVBR(false)
+	if enc.VBR() {
+		t.Fatal("VBR()=true after SetVBR(false)")
+	}
+	if got := enc.BitrateMode(); got != BitrateModeCBR {
+		t.Fatalf("BitrateMode()=%d want=%d", got, BitrateModeCBR)
+	}
+
+	enc.SetVBR(true)
+	if !enc.VBR() {
+		t.Fatal("VBR()=false after SetVBR(true)")
+	}
+	if got := enc.BitrateMode(); got != BitrateModeVBR {
+		t.Fatalf("BitrateMode()=%d want=%d", got, BitrateModeVBR)
+	}
+
+	enc.SetVBRConstraint(true)
+	if !enc.VBRConstraint() {
+		t.Fatal("VBRConstraint()=false after SetVBRConstraint(true)")
+	}
+	if got := enc.BitrateMode(); got != BitrateModeCVBR {
+		t.Fatalf("BitrateMode()=%d want=%d", got, BitrateModeCVBR)
+	}
+
+	enc.SetVBRConstraint(false)
+	if enc.VBRConstraint() {
+		t.Fatal("VBRConstraint()=true after SetVBRConstraint(false)")
+	}
+	if got := enc.BitrateMode(); got != BitrateModeVBR {
+		t.Fatalf("BitrateMode()=%d want=%d", got, BitrateModeVBR)
+	}
+}
+
+func TestEncoder_SetPacketLoss(t *testing.T) {
+	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	for _, loss := range []int{0, 5, 25, 100} {
+		if err := enc.SetPacketLoss(loss); err != nil {
+			t.Fatalf("SetPacketLoss(%d) error: %v", loss, err)
+		}
+		if got := enc.PacketLoss(); got != loss {
+			t.Fatalf("PacketLoss()=%d want=%d", got, loss)
+		}
+	}
+
+	for _, loss := range []int{-1, 101} {
+		if err := enc.SetPacketLoss(loss); err != ErrInvalidPacketLoss {
+			t.Fatalf("SetPacketLoss(%d) error=%v want=%v", loss, err, ErrInvalidPacketLoss)
+		}
+	}
+}
+
+func TestEncoder_SetBandwidth(t *testing.T) {
+	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	for _, bw := range []Bandwidth{
+		BandwidthNarrowband,
+		BandwidthMediumband,
+		BandwidthWideband,
+		BandwidthSuperwideband,
+		BandwidthFullband,
+	} {
+		if err := enc.SetBandwidth(bw); err != nil {
+			t.Fatalf("SetBandwidth(%d) error: %v", bw, err)
+		}
+		if got := enc.Bandwidth(); got != bw {
+			t.Fatalf("Bandwidth()=%d want=%d", got, bw)
+		}
+	}
+
+	if err := enc.SetBandwidth(Bandwidth(255)); err != ErrInvalidBandwidth {
+		t.Fatalf("SetBandwidth(invalid) error=%v want=%v", err, ErrInvalidBandwidth)
+	}
+}
+
+func TestEncoder_SetApplication(t *testing.T) {
+	enc, err := NewEncoder(48000, 1, ApplicationVoIP)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	for _, app := range []Application{ApplicationVoIP, ApplicationAudio, ApplicationLowDelay} {
+		if err := enc.SetApplication(app); err != nil {
+			t.Fatalf("SetApplication(%d) error: %v", app, err)
+		}
+		if got := enc.Application(); got != app {
+			t.Fatalf("Application()=%d want=%d", got, app)
+		}
+	}
+
+	if err := enc.SetApplication(Application(99)); err != ErrInvalidApplication {
+		t.Fatalf("SetApplication(invalid) error=%v want=%v", err, ErrInvalidApplication)
+	}
+}
+
 func TestEncoder_DTX_Silence(t *testing.T) {
 	enc, err := NewEncoder(48000, 1, ApplicationVoIP)
 	if err != nil {

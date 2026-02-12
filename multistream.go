@@ -297,6 +297,22 @@ func (e *MultistreamEncoder) DTXEnabled() bool {
 	return e.enc.DTXEnabled()
 }
 
+// SetPacketLoss sets expected packet loss percentage for all stream encoders.
+//
+// lossPercent must be in the range [0, 100].
+func (e *MultistreamEncoder) SetPacketLoss(lossPercent int) error {
+	if lossPercent < 0 || lossPercent > 100 {
+		return ErrInvalidPacketLoss
+	}
+	e.enc.SetPacketLoss(lossPercent)
+	return nil
+}
+
+// PacketLoss returns expected packet loss percentage.
+func (e *MultistreamEncoder) PacketLoss() int {
+	return e.enc.PacketLoss()
+}
+
 // Reset clears the encoder state for a new stream.
 // Call this when starting to encode a new audio stream.
 func (e *MultistreamEncoder) Reset() {
@@ -329,6 +345,11 @@ func (e *MultistreamEncoder) CoupledStreams() int {
 // Must be called after Encode() to get a meaningful value.
 func (e *MultistreamEncoder) GetFinalRange() uint32 {
 	return e.enc.GetFinalRange()
+}
+
+// FinalRange returns the final range coder state.
+func (e *MultistreamEncoder) FinalRange() uint32 {
+	return e.GetFinalRange()
 }
 
 // Lookahead returns the encoder's algorithmic delay in samples at 48kHz.
