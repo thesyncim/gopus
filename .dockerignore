@@ -4,6 +4,7 @@
 .claude
 .planning
 tmp_check
+.docker-cache
 *.test
 *.prof
 coverage.out
