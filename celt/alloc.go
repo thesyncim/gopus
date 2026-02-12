@@ -140,7 +140,7 @@ func cltComputeAllocationWithScratch(start, end int, offsets, cap []int, allocTr
 			}
 		}
 	}
-	if debugDualStereoAllocEnabled() {
+	if debugDualStereoAllocEnabled {
 		fmt.Printf("cltComputeAllocation: start=%d, end=%d, channels=%d, origTotalBits=%d, intensityRsv=%d, dualStereoRsv=%d\n",
 			start, end, channels, origTotalBits, intensityRsv, dualStereoRsv)
 	}
@@ -342,13 +342,13 @@ func interpBits2Pulses(start, end, skipStart int, bits1, bits2, thresh, cap []in
 	if dualStereoRsv > 0 {
 		if rd != nil {
 			*dualStereo = rd.DecodeBit(1)
-			if debugDualStereoAllocEnabled() {
+			if debugDualStereoAllocEnabled {
 				fmt.Printf("  Decoded dualStereo=%d from bitstream\n", *dualStereo)
 			}
 		}
 	} else {
 		*dualStereo = 0
-		if debugDualStereoAllocEnabled() {
+		if debugDualStereoAllocEnabled {
 			fmt.Printf("  dualStereoRsv=0, forcing dualStereo=0\n")
 		}
 	}

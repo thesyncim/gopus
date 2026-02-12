@@ -1,7 +1,5 @@
 package silk
 
-import "sync/atomic"
-
 // LibopusResampler implements the exact SILK resampler from libopus.
 // This uses a combination of 2x allpass upsampling followed by FIR interpolation.
 type LibopusResampler struct {
@@ -39,8 +37,6 @@ type LibopusResampler struct {
 	scratchOut    []int16   // Size: max output samples
 	scratchResult []float32 // Size: max output samples
 }
-
-var debugResamplerNextID int64
 
 // resampleIIRFIRSliceWithScratch is like resampleIIRFIRSlice but uses a pre-allocated scratch buffer.
 func (r *LibopusResampler) resampleIIRFIRSliceWithScratch(out []int16, in []int16, scratch []int16) {
@@ -188,8 +184,8 @@ func NewLibopusResampler(fsIn, fsOut int) *LibopusResampler {
 	r.scratchOut = make([]int16, maxOutputSamples)
 	r.scratchResult = make([]float32, maxOutputSamples)
 
-	// Assign unique ID for debugging
-	r.debugID = int(atomic.AddInt64(&debugResamplerNextID, 1))
+	// Deterministic debug identifier derived from configuration.
+	r.debugID = fsIn*1000 + fsOut
 
 	return r
 }

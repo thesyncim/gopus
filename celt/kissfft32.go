@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"runtime"
 	"sync"
-	"sync/atomic"
 )
 
 // NOTE ON APPARENT CODE DUPLICATION:
@@ -39,46 +37,10 @@ type kissFFTState struct {
 var (
 	kissFFTCache   = map[int]*kissFFTState{}
 	kissFFTCacheMu sync.Mutex
-
-	kissFFTM1FastPathOnce    sync.Once
-	kissFFTM1FastPathEnabled bool
-
-	kissFFTNoFMAMulOnce sync.Once
-	kissFFTNoFMAMul     bool
-
-	kissFFTFMALikeOnce sync.Once
-	kissFFTFMALike     bool
-
-	kissFFTStageDumpCounter uint32
 )
 
-func kissFFTM1Enabled() bool {
-	kissFFTM1FastPathOnce.Do(func() {
-		kissFFTM1FastPathEnabled = tmpGetenv("GOPUS_TMP_KISSFFT_DISABLE_M1_FASTPATHS") != "1"
-	})
-	return kissFFTM1FastPathEnabled
-}
-
-func kissFFTNoFMAMulEnabled() bool {
-	kissFFTNoFMAMulOnce.Do(func() {
-		kissFFTNoFMAMul = tmpGetenv("GOPUS_TMP_KISSFFT_NOFMA_MUL") == "1"
-	})
-	return kissFFTNoFMAMul
-}
-
-func kissFFTFMALikeEnabled() bool {
-	kissFFTFMALikeOnce.Do(func() {
-		if v, ok := tmpLookupEnv("GOPUS_TMP_KISSFFT_FMALIKE"); ok {
-			kissFFTFMALike = v == "1"
-			return
-		}
-		kissFFTFMALike = runtime.GOARCH == "arm64"
-	})
-	return kissFFTFMALike
-}
-
 func kissMul(a, b float32) float32 {
-	if kissFFTNoFMAMulEnabled() {
+	if kissFFTNoFMAMulEnabled {
 		return noFMA32Mul(a, b)
 	}
 	return a * b
@@ -89,7 +51,7 @@ func kissMul(a, b float32) float32 {
 //
 //go:noinline
 func kissMulAddSource(a, b, c, d float32) float32 {
-	if kissFFTFMALikeEnabled() {
+	if kissFFTFMALikeEnabled {
 		t := noFMA32Mul(c, d)
 		return float32(float64(a)*float64(b) + float64(t))
 	}
@@ -101,7 +63,7 @@ func kissMulAddSource(a, b, c, d float32) float32 {
 //
 //go:noinline
 func kissMulSubSource(a, b, c, d float32) float32 {
-	if kissFFTFMALikeEnabled() {
+	if kissFFTFMALikeEnabled {
 		t := noFMA32Mul(c, d)
 		return float32(float64(a)*float64(b) - float64(t))
 	}
@@ -492,7 +454,7 @@ func kfBfly5M1(fout []kissCpx, tw []kissCpx, fstride, n, mm int) {
 }
 
 func kfBfly2(fout []kissCpx, m, N int) {
-	if m == 1 && kissFFTM1Enabled() {
+	if m == 1 && kissFFTM1FastPathEnabled {
 		kfBfly2M1(fout, N)
 		return
 	}
@@ -545,7 +507,7 @@ func kfBfly2(fout []kissCpx, m, N int) {
 }
 
 func kfBfly4(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
-	if m == 1 && kissFFTM1Enabled() {
+	if m == 1 && kissFFTM1FastPathEnabled {
 		kfBfly4M1(fout, N)
 		return
 	}
@@ -780,9 +742,8 @@ func (st *kissFFTState) fftImpl(fout []kissCpx) {
 	}
 	doDump := false
 	dumpIdx := uint32(0)
-	if tmpGetenv("GOPUS_TMP_KISSFFT_STAGE_DUMP") == "1" && st.nfft == 240 {
-		dumpIdx = atomic.LoadUint32(&kissFFTStageDumpCounter)
-		doDump = dumpIdx < 96
+	if kissFFTStageDumpEnabled && st.nfft == 240 {
+		doDump = true
 	}
 	stageIdx := 0
 	for i := L - 1; i >= 0; i-- {
@@ -811,9 +772,6 @@ func (st *kissFFTState) fftImpl(fout []kissCpx) {
 		}
 		m = m2
 		stageIdx++
-	}
-	if doDump {
-		atomic.AddUint32(&kissFFTStageDumpCounter, 1)
 	}
 }
 

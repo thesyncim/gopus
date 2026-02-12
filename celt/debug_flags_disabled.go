@@ -2,10 +2,14 @@
 
 package celt
 
-func debugStereoMergeEnabled() bool { return false }
+const debugStereoMergeEnabled = false
 
-func debugDualStereoEnabled() bool { return false }
+const debugDualStereoEnabled = false
 
-func debugDualStereoAllocEnabled() bool { return false }
+const debugDualStereoAllocEnabled = false
 
-func debugEnergyDecodingEnabled() bool { return false }
+const debugEnergyDecodingEnabled = false
+
+const mdctStageDumpEnabled = false
+
+const kissFFTStageDumpEnabled = false
