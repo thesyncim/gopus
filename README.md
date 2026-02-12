@@ -271,7 +271,17 @@ make ensure-libopus
 make test-exhaustive
 make test-provenance
 make fixtures-gen
+make fixtures-gen-amd64
+make docker-build
+make docker-test
+make docker-test-exhaustive
 ```
+
+Docker targets use persistent caches:
+- build layers in `.docker-cache/` (buildx local cache)
+- Go modules in `gopus-gomod` volume
+- Go build cache in `gopus-gobuild-*` volumes
+- pinned libopus artifacts in `gopus-libopus-*` volumes
 
 ## Examples
 

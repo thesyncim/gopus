@@ -7,6 +7,8 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/encoder"
@@ -47,7 +49,7 @@ func TestAudioAudibility(t *testing.T) {
 	}
 
 	// Save original WAV
-	originalWav := "/tmp/gopus_original.wav"
+	originalWav := audibleTempPath("gopus_original.wav")
 	saveTestWAV(originalWav, pcm, sampleRate, 1)
 	t.Logf("Original audio saved: %s", originalWav)
 
@@ -86,13 +88,13 @@ func TestAudioAudibility(t *testing.T) {
 	preSkip := enc.Lookahead()
 	writeOggOpusAudible(&buf, packets, 1, preSkip)
 
-	opusFile := "/tmp/gopus_output.opus"
+	opusFile := audibleTempPath("gopus_output.opus")
 	if err := os.WriteFile(opusFile, buf.Bytes(), 0644); err != nil {
 		t.Fatalf("Write opus file: %v", err)
 	}
 	t.Logf("Opus file saved: %s", opusFile)
 
-	decodedWav := "/tmp/gopus_decoded.wav"
+	decodedWav := audibleTempPath("gopus_decoded.wav")
 	var decoded []float32
 	if checkOpusdecAvailable() {
 		cmd := exec.Command("opusdec", "--quiet", opusFile, decodedWav)
@@ -164,6 +166,13 @@ func avgSize(packets [][]byte) float64 {
 		total += len(p)
 	}
 	return float64(total) / float64(len(packets))
+}
+
+func audibleTempPath(name string) string {
+	if runtime.GOOS == "darwin" {
+		return filepath.Join("/tmp", name)
+	}
+	return filepath.Join(os.TempDir(), name)
 }
 
 func computeTestSNR(original, decoded []float32) float64 {

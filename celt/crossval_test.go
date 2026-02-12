@@ -15,6 +15,8 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 )
@@ -100,6 +102,14 @@ func init() {
 }
 
 const opusdecCrossvalFixturePath = "testdata/opusdec_crossval_fixture.json"
+const opusdecCrossvalFixturePathAMD64 = "testdata/opusdec_crossval_fixture_amd64.json"
+
+func opusdecCrossvalFixturePathForArch() string {
+	if runtime.GOARCH == "amd64" {
+		return opusdecCrossvalFixturePathAMD64
+	}
+	return opusdecCrossvalFixturePath
+}
 
 type opusdecCrossvalFixtureFile struct {
 	Version int                           `json:"version"`
@@ -127,7 +137,7 @@ func oggSHA256Hex(oggData []byte) string {
 
 func loadOpusdecCrossvalFixtureMap() (map[string]opusdecCrossvalFixtureEntry, error) {
 	opusdecCrossvalFixtureOnce.Do(func() {
-		data, err := os.ReadFile(opusdecCrossvalFixturePath)
+		data, err := os.ReadFile(opusdecCrossvalFixturePathForArch())
 		if err != nil {
 			opusdecCrossvalFixtureErr = err
 			return
@@ -327,34 +337,54 @@ func addCELTTOCForTest(packet []byte, channels int) []byte {
 // attributes that can cause opusdec to fail with certain paths.
 // This function uses /tmp directly for macOS compatibility.
 func decodeWithOpusdec(oggData []byte) ([]float32, error) {
+	decodeFallback := func() ([]float32, error) {
+		fixture, ferr := decodeWithOpusdecFixture(oggData)
+		if ferr == nil {
+			return fixture, nil
+		}
+		if checkFFmpegAvailable() {
+			ff, ffErr := decodeWithFFmpegCLI(oggData)
+			if ffErr == nil {
+				return ff, nil
+			}
+			return nil, fmt.Errorf("fixture fallback failed (%v) and ffmpeg decode failed (%v)", ferr, ffErr)
+		}
+		return nil, ferr
+	}
+
 	if os.Getenv("GOPUS_DISABLE_OPUSDEC") == "1" {
-		return decodeWithOpusdecFixture(oggData)
+		return decodeFallback()
 	}
 	if checkOpusdecAvailable() {
 		samples, err := decodeWithOpusdecCLI(oggData)
 		if err == nil {
 			return samples, nil
 		}
-		fallback, ferr := decodeWithOpusdecFixture(oggData)
+		fallback, ferr := decodeFallback()
 		if ferr == nil {
 			return fallback, nil
 		}
-		return nil, fmt.Errorf("opusdec decode failed (%v) and fixture fallback failed (%v)", err, ferr)
+		return nil, fmt.Errorf("opusdec decode failed (%v) and fallback decode failed (%v)", err, ferr)
 	}
-	return decodeWithOpusdecFixture(oggData)
+	return decodeFallback()
 }
 
 func decodeWithOpusdecCLI(oggData []byte) ([]float32, error) {
 	opusdec := getOpusdecPath()
 
-	// Use /tmp directly for macOS compatibility
-	// Generate unique filenames using process ID and a counter
+	// Use /tmp directly on macOS to avoid provenance/xattr issues.
+	tmpDir := os.TempDir()
+	if runtime.GOOS == "darwin" {
+		tmpDir = "/tmp"
+	}
+
+	// Generate unique filenames using process ID.
 	pid := os.Getpid()
-	inputPath := fmt.Sprintf("/tmp/gopus_crossval_%d_in.opus", pid)
-	outputPath := fmt.Sprintf("/tmp/gopus_crossval_%d_out.wav", pid)
+	inputPath := filepath.Join(tmpDir, fmt.Sprintf("gopus_crossval_%d_in.opus", pid))
+	outputPath := filepath.Join(tmpDir, fmt.Sprintf("gopus_crossval_%d_out.wav", pid))
 
 	// Also save a persistent copy for debugging
-	debugPath := "/tmp/gopus_debug_last.opus"
+	debugPath := filepath.Join(tmpDir, "gopus_debug_last.opus")
 
 	// Clean up any existing files
 	os.Remove(inputPath)
@@ -396,6 +426,43 @@ func decodeWithOpusdecCLI(oggData []byte) ([]float32, error) {
 	}
 
 	// Parse WAV
+	samples, _, _, err := parseWAV(wavData)
+	return samples, err
+}
+
+func checkFFmpegAvailable() bool {
+	_, err := exec.LookPath("ffmpeg")
+	return err == nil
+}
+
+func decodeWithFFmpegCLI(oggData []byte) ([]float32, error) {
+	tmpDir := os.TempDir()
+	if runtime.GOOS == "darwin" {
+		tmpDir = "/tmp"
+	}
+
+	pid := os.Getpid()
+	inputPath := filepath.Join(tmpDir, fmt.Sprintf("gopus_ffmpeg_%d_in.opus", pid))
+	outputPath := filepath.Join(tmpDir, fmt.Sprintf("gopus_ffmpeg_%d_out.wav", pid))
+
+	os.Remove(inputPath)
+	os.Remove(outputPath)
+	defer os.Remove(inputPath)
+	defer os.Remove(outputPath)
+
+	if err := os.WriteFile(inputPath, oggData, 0o644); err != nil {
+		return nil, err
+	}
+
+	cmd := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", inputPath, "-f", "wav", "-acodec", "pcm_f32le", outputPath)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("ffmpeg decode failed: %v (%s)", err, out)
+	}
+
+	wavData, err := os.ReadFile(outputPath)
+	if err != nil {
+		return nil, err
+	}
 	samples, _, _, err := parseWAV(wavData)
 	return samples, err
 }
