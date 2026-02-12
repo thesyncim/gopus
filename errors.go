@@ -35,9 +35,21 @@ var (
 	// Valid bitrates are 6000 to 510000 bits per second.
 	ErrInvalidBitrate = errors.New("gopus: invalid bitrate (must be 6000-510000)")
 
+	// ErrInvalidBitrateMode indicates an invalid bitrate mode.
+	// Valid modes are BitrateModeVBR, BitrateModeCVBR, and BitrateModeCBR.
+	ErrInvalidBitrateMode = errors.New("gopus: invalid bitrate mode")
+
 	// ErrInvalidComplexity indicates the complexity is out of valid range.
 	// Valid complexity values are 0 to 10.
 	ErrInvalidComplexity = errors.New("gopus: invalid complexity (must be 0-10)")
+
+	// ErrInvalidApplication indicates an invalid application hint.
+	// Valid values are ApplicationVoIP, ApplicationAudio, or ApplicationLowDelay.
+	ErrInvalidApplication = errors.New("gopus: invalid application")
+
+	// ErrInvalidPacketLoss indicates an invalid packet loss percentage.
+	// Valid range is 0 to 100.
+	ErrInvalidPacketLoss = errors.New("gopus: invalid packet loss percentage (must be 0-100)")
 
 	// ErrInvalidStreams indicates an invalid stream count for multistream encoding/decoding.
 	// Valid stream counts are 1 to 255.
@@ -71,6 +83,9 @@ var (
 	// This occurs when FEC decode is requested but the previous packet
 	// was CELT-only mode or didn't contain LBRR data.
 	ErrNoFECData = errors.New("gopus: no FEC data available for recovery")
+
+	// ErrInvalidArgument indicates one or more function arguments are invalid.
+	ErrInvalidArgument = errors.New("gopus: invalid argument")
 )
 
 // validSampleRate returns true if the sample rate is valid for Opus.

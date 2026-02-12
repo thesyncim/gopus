@@ -37,6 +37,18 @@ const (
 	SignalMusic = types.SignalMusic
 )
 
+// BitrateMode controls how the encoder sizes packets.
+type BitrateMode = encoder.BitrateMode
+
+const (
+	// BitrateModeVBR enables unconstrained variable bitrate mode.
+	BitrateModeVBR = encoder.ModeVBR
+	// BitrateModeCVBR enables constrained variable bitrate mode.
+	BitrateModeCVBR = encoder.ModeCVBR
+	// BitrateModeCBR enables constant bitrate mode.
+	BitrateModeCBR = encoder.ModeCBR
+)
+
 // Encoder encodes PCM audio samples into Opus packets.
 //
 // An Encoder instance maintains internal state and is NOT safe for concurrent use.
@@ -98,8 +110,27 @@ func NewEncoder(sampleRate, channels int, application Application) (*Encoder, er
 	return enc, nil
 }
 
+// SetApplication updates the encoder application hint.
+//
+// Valid values are ApplicationVoIP, ApplicationAudio, and ApplicationLowDelay.
+func (e *Encoder) SetApplication(application Application) error {
+	switch application {
+	case ApplicationVoIP, ApplicationAudio, ApplicationLowDelay:
+		e.applyApplication(application)
+		return nil
+	default:
+		return ErrInvalidApplication
+	}
+}
+
+// Application returns the current encoder application hint.
+func (e *Encoder) Application() Application {
+	return e.application
+}
+
 // applyApplication configures the encoder based on the application hint.
 func (e *Encoder) applyApplication(app Application) {
+	e.application = app
 	switch app {
 	case ApplicationVoIP:
 		// Prefer SILK for speech
@@ -248,6 +279,54 @@ func (e *Encoder) Complexity() int {
 	return e.enc.Complexity()
 }
 
+// SetBitrateMode sets the encoder bitrate control mode.
+func (e *Encoder) SetBitrateMode(mode BitrateMode) error {
+	switch mode {
+	case BitrateModeVBR, BitrateModeCVBR, BitrateModeCBR:
+		e.enc.SetBitrateMode(mode)
+		return nil
+	default:
+		return ErrInvalidBitrateMode
+	}
+}
+
+// BitrateMode returns the active encoder bitrate control mode.
+func (e *Encoder) BitrateMode() BitrateMode {
+	return e.enc.GetBitrateMode()
+}
+
+// SetVBR enables or disables VBR mode.
+//
+// Disabling VBR switches to CBR. Enabling VBR switches to unconstrained VBR.
+func (e *Encoder) SetVBR(enabled bool) {
+	if enabled {
+		e.enc.SetBitrateMode(encoder.ModeVBR)
+		return
+	}
+	e.enc.SetBitrateMode(encoder.ModeCBR)
+}
+
+// VBR returns whether VBR mode is enabled.
+func (e *Encoder) VBR() bool {
+	return e.enc.GetBitrateMode() != encoder.ModeCBR
+}
+
+// SetVBRConstraint enables or disables VBR constraint.
+//
+// Enabling constraint switches to CVBR. Disabling constraint switches to VBR.
+func (e *Encoder) SetVBRConstraint(constrained bool) {
+	if constrained {
+		e.enc.SetBitrateMode(encoder.ModeCVBR)
+		return
+	}
+	e.enc.SetBitrateMode(encoder.ModeVBR)
+}
+
+// VBRConstraint returns whether VBR constraint is enabled.
+func (e *Encoder) VBRConstraint() bool {
+	return e.enc.GetBitrateMode() == encoder.ModeCVBR
+}
+
 // SetFEC enables or disables in-band Forward Error Correction.
 //
 // When enabled, the encoder includes redundant information for loss recovery.
@@ -259,6 +338,22 @@ func (e *Encoder) SetFEC(enabled bool) {
 // FECEnabled returns whether FEC is enabled.
 func (e *Encoder) FECEnabled() bool {
 	return e.enc.FECEnabled()
+}
+
+// SetPacketLoss sets the expected packet loss percentage.
+//
+// lossPercent must be in the range [0, 100].
+func (e *Encoder) SetPacketLoss(lossPercent int) error {
+	if lossPercent < 0 || lossPercent > 100 {
+		return ErrInvalidPacketLoss
+	}
+	e.enc.SetPacketLoss(lossPercent)
+	return nil
+}
+
+// PacketLoss returns the configured expected packet loss percentage.
+func (e *Encoder) PacketLoss() int {
+	return e.enc.PacketLoss()
 }
 
 // SetDTX enables or disables Discontinuous Transmission.
@@ -351,6 +446,22 @@ func (e *Encoder) SetSignal(signal Signal) error {
 // Signal returns the current signal type hint.
 func (e *Encoder) Signal() Signal {
 	return e.enc.SignalType()
+}
+
+// SetBandwidth sets the target audio bandwidth.
+func (e *Encoder) SetBandwidth(bandwidth Bandwidth) error {
+	switch bandwidth {
+	case BandwidthNarrowband, BandwidthMediumband, BandwidthWideband, BandwidthSuperwideband, BandwidthFullband:
+		e.enc.SetBandwidth(bandwidth)
+		return nil
+	default:
+		return ErrInvalidBandwidth
+	}
+}
+
+// Bandwidth returns the currently configured target bandwidth.
+func (e *Encoder) Bandwidth() Bandwidth {
+	return e.enc.Bandwidth()
 }
 
 // SetMaxBandwidth sets the maximum audio bandwidth.

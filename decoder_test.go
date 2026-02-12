@@ -741,3 +741,48 @@ func TestDecodeWithFEC_ResetClearsFEC(t *testing.T) {
 
 	t.Log("Reset correctly clears FEC state")
 }
+
+func TestDecoder_BandwidthAndLastPacketDuration(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	packet := minimalHybridTestPacket20ms()
+	pcm := make([]float32, 960)
+	n, err := dec.Decode(packet, pcm)
+	if err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	if n != 960 {
+		t.Fatalf("Decode returned %d samples, want 960", n)
+	}
+
+	if got := dec.Bandwidth(); got != BandwidthFullband {
+		t.Fatalf("Bandwidth()=%v want=%v", got, BandwidthFullband)
+	}
+	if got := dec.LastPacketDuration(); got != 960 {
+		t.Fatalf("LastPacketDuration()=%d want=960", got)
+	}
+}
+
+func TestDecoder_InDTX(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	if dec.InDTX() {
+		t.Fatal("InDTX()=true before any packet")
+	}
+
+	dec.lastDataLen = 2
+	if !dec.InDTX() {
+		t.Fatal("InDTX()=false for 2-byte packet length")
+	}
+
+	dec.lastDataLen = 3
+	if dec.InDTX() {
+		t.Fatal("InDTX()=true for 3-byte packet length")
+	}
+}
