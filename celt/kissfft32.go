@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"sync"
 )
 
 // NOTE ON APPARENT CODE DUPLICATION:
@@ -35,8 +34,11 @@ type kissFFTState struct {
 }
 
 var (
-	kissFFTCache   = map[int]*kissFFTState{}
-	kissFFTCacheMu sync.Mutex
+	// Common CELT FFT sizes are prebuilt once and reused lock-free.
+	kissFFTState60  = newKissFFTState(60)
+	kissFFTState120 = newKissFFTState(120)
+	kissFFTState240 = newKissFFTState(240)
+	kissFFTState480 = newKissFFTState(480)
 )
 
 func kissMul(a, b float32) float32 {
@@ -103,14 +105,19 @@ func dumpKissCpxRaw(path string, vals []kissCpx) {
 }
 
 func getKissFFTState(nfft int) *kissFFTState {
-	kissFFTCacheMu.Lock()
-	defer kissFFTCacheMu.Unlock()
-	if st, ok := kissFFTCache[nfft]; ok {
-		return st
+	switch nfft {
+	case 60:
+		return kissFFTState60
+	case 120:
+		return kissFFTState120
+	case 240:
+		return kissFFTState240
+	case 480:
+		return kissFFTState480
+	default:
+		// Keep uncommon/test-only sizes working without global mutable caches.
+		return newKissFFTState(nfft)
 	}
-	st := newKissFFTState(nfft)
-	kissFFTCache[nfft] = st
-	return st
 }
 
 func newKissFFTState(nfft int) *kissFFTState {
@@ -816,7 +823,7 @@ func kissFFT32To(out []complex64, x []complex64, scratch []kissCpx) {
 	if n == 0 || len(out) < n {
 		return
 	}
-	if tmpGetenv("GOPUS_TMP_KISSFFT_DFT") == "1" {
+	if kissFFTDFTFallbackEnabled {
 		dft32FallbackTo(out, x)
 		return
 	}

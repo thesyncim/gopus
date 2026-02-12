@@ -3,7 +3,6 @@ package celt
 import (
 	"math"
 	"math/cmplx"
-	"sync"
 )
 
 // IMDCT (Inverse Modified Discrete Cosine Transform) implementation for CELT.
@@ -15,11 +14,6 @@ import (
 //
 // Reference: RFC 6716 Section 4.3.5, libopus celt/mdct.c
 
-// mdctTwiddles contains precomputed twiddle factors for IMDCT.
-// Key: MDCT size (number of frequency bins)
-// Generated lazily for each supported size.
-var mdctTwiddles = make(map[int]*mdctTwiddleSet)
-
 // mdctTwiddleSet holds precomputed twiddles for a specific IMDCT size.
 type mdctTwiddleSet struct {
 	n      int          // Number of frequency bins
@@ -28,12 +22,8 @@ type mdctTwiddleSet struct {
 	fftTw  []complex128 // FFT twiddle factors
 }
 
-// initMDCTTwiddles initializes twiddle factors for a given IMDCT size.
-func initMDCTTwiddles(n int) *mdctTwiddleSet {
-	if tw, ok := mdctTwiddles[n]; ok {
-		return tw
-	}
-
+// buildMDCTTwiddles initializes twiddle factors for a given IMDCT size.
+func buildMDCTTwiddles(n int) *mdctTwiddleSet {
 	tw := &mdctTwiddleSet{
 		n:      n,
 		preTw:  make([]complex128, n/2),
@@ -62,81 +52,85 @@ func initMDCTTwiddles(n int) *mdctTwiddleSet {
 		tw.fftTw[k] = complex(math.Cos(angle), math.Sin(angle))
 	}
 
-	mdctTwiddles[n] = tw
 	return tw
 }
 
 var (
-	imdctCosMu    sync.Mutex
-	imdctCosCache = map[int][]float64{}
+	// CELT hot path trig tables (n = 2*frameSize) are precomputed once.
+	// These are immutable and avoid map+mutex work in per-frame transforms.
+	mdctTrig240F64Static  = buildMDCTTrig(240)
+	mdctTrig480F64Static  = buildMDCTTrig(480)
+	mdctTrig960F64Static  = buildMDCTTrig(960)
+	mdctTrig1920F64Static = buildMDCTTrig(1920)
+	mdctTrig240F32Static  = buildMDCTTrigF32(240)
+	mdctTrig480F32Static  = buildMDCTTrigF32(480)
+	mdctTrig1920F32Static = buildMDCTTrigF32(1920)
 )
 
-var (
-	mdctTrigMu    sync.Mutex
-	mdctTrigCache = map[int][]float64{}
-)
-
-var (
-	mdctTrigMuF32    sync.Mutex
-	mdctTrigCacheF32 = map[int][]float32{}
-)
-
-func getMDCTTrig(n int) []float64 {
-	mdctTrigMu.Lock()
-	defer mdctTrigMu.Unlock()
-
-	if trig, ok := mdctTrigCache[n]; ok {
-		return trig
+func buildMDCTTrig(n int) []float64 {
+	if n <= 0 {
+		return nil
 	}
-
 	n2 := n / 2
 	trig := make([]float64, n2)
 	for i := 0; i < n2; i++ {
-		// Twiddle factor for IMDCT pre/post rotation
-		// Formula: cos(2*π*(i+0.125)/n) where n is the output size (2*N)
+		// Twiddle factor for IMDCT pre/post rotation:
+		// cos(2*pi*(i+0.125)/n), where n is the output size (2*N).
 		angle := 2.0 * math.Pi * (float64(i) + 0.125) / float64(n)
 		trig[i] = math.Cos(angle)
 	}
-
-	mdctTrigCache[n] = trig
 	return trig
 }
 
-func getMDCTTrigF32(n int) []float32 {
-	mdctTrigMuF32.Lock()
-	defer mdctTrigMuF32.Unlock()
-
-	if trig, ok := mdctTrigCacheF32[n]; ok {
-		return trig
+func buildMDCTTrigF32(n int) []float32 {
+	if n <= 0 {
+		return nil
 	}
-
-	// Use exact libopus twiddle segment for 48kHz 10ms long-block MDCT.
-	if n == 960 {
-		trig := make([]float32, len(mdctTrig960F32Static))
-		copy(trig, mdctTrig960F32Static[:])
-		mdctTrigCacheF32[n] = trig
-		return trig
-	}
-
 	n2 := n / 2
 	trig := make([]float32, n2)
 	for i := 0; i < n2; i++ {
 		angle := 2.0 * math.Pi * (float64(i) + 0.125) / float64(n)
 		trig[i] = float32(math.Cos(angle))
 	}
-
-	mdctTrigCacheF32[n] = trig
 	return trig
 }
 
-func getIMDCTCosTable(n int) []float64 {
-	imdctCosMu.Lock()
-	defer imdctCosMu.Unlock()
-
-	if table, ok := imdctCosCache[n]; ok {
-		return table
+func getMDCTTrig(n int) []float64 {
+	switch n {
+	case 240:
+		return mdctTrig240F64Static
+	case 480:
+		return mdctTrig480F64Static
+	case 960:
+		return mdctTrig960F64Static
+	case 1920:
+		return mdctTrig1920F64Static
+	default:
+		// Keep uncommon/test-only sizes working without mutable global caches.
+		return buildMDCTTrig(n)
 	}
+}
 
+func getMDCTTrigF32(n int) []float32 {
+	switch n {
+	case 240:
+		return mdctTrig240F32Static
+	case 480:
+		return mdctTrig480F32Static
+	case 960:
+		// Use exact libopus twiddle segment for 48kHz 10ms long-block MDCT.
+		return mdctTrig960F32Static[:]
+	case 1920:
+		return mdctTrig1920F32Static
+	default:
+		return buildMDCTTrigF32(n)
+	}
+}
+
+func getIMDCTCosTable(n int) []float64 {
+	if n <= 0 {
+		return nil
+	}
 	n2 := n * 2
 	table := make([]float64, n2*n)
 	base := math.Pi / float64(n)
@@ -149,8 +143,6 @@ func getIMDCTCosTable(n int) []float64 {
 			row[k] = math.Cos(angle)
 		}
 	}
-
-	imdctCosCache[n] = table
 	return table
 }
 
@@ -715,8 +707,8 @@ func isPowerOfTwo(n int) bool {
 
 // imdctFFT computes IMDCT using FFT for power-of-2 sizes.
 func imdctFFT(spectrum []float64, n, n2, n4 int) []float64 {
-	// Get or compute twiddles
-	tw := initMDCTTwiddles(n)
+	// Build twiddles for this size.
+	tw := buildMDCTTwiddles(n)
 
 	// Step 1: Pre-twiddle and combine pairs
 	// Combine X[k] and X[n-1-k] into complex values
