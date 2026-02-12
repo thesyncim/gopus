@@ -2,7 +2,6 @@ package celt
 
 import (
 	"errors"
-	"os"
 
 	"github.com/thesyncim/gopus/plc"
 	"github.com/thesyncim/gopus/rangecoding"
@@ -68,6 +67,8 @@ type Decoder struct {
 	rng uint32 // RNG state for PLC and folding
 	// Frame counter used by debug instrumentation to correlate per-frame traces.
 	decodeFrameIndex int
+	// Per-decoder debug counters for PVQ/theta diagnostics.
+	bandDebug bandDebugState
 
 	// Per-decoder PLC state (do not share across decoder instances).
 	plcState *plc.State
@@ -178,6 +179,7 @@ func (d *Decoder) Reset() {
 	// Reset RNG (libopus resets to zero)
 	d.rng = 0
 	d.decodeFrameIndex = 0
+	d.bandDebug = bandDebugState{}
 
 	// Clear range decoder reference
 	d.rangeDecoder = nil
@@ -581,9 +583,9 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	}
 	currentFrame := d.decodeFrameIndex
 	d.decodeFrameIndex++
-	if os.Getenv("GOPUS_TMP_PVQCALL_DBG") == "1" {
-		tmpQDbgDecodeFrame = currentFrame
-		tmpPVQCallSeq = 0
+	if tmpGetenv("GOPUS_TMP_PVQCALL_DBG") == "1" {
+		d.bandDebug.qDbgDecodeFrame = currentFrame
+		d.bandDebug.pvqCallSeq = 0
 	}
 
 	d.prepareMonoEnergyFromStereo()
@@ -768,7 +770,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	traceRange("fine", rd)
 
 	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.channels == 1, &d.rng, &d.scratchBands)
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.channels == 1, &d.rng, &d.scratchBands, &d.bandDebug)
 	traceRange("pvq", rd)
 
 	antiCollapseOn := false
@@ -1434,7 +1436,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 
 	// Decode bands for mono
 	coeffsMono, _, collapse := quantAllBandsDecodeWithScratch(rd, 1, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, false, &d.rng, &d.scratchBands)
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, false, &d.rng, &d.scratchBands, &d.bandDebug)
 	traceRange("pvq", rd)
 
 	antiCollapseOn := false
@@ -1706,7 +1708,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	traceRange("fine", rd)
 
 	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, origChannels == 1, &d.rng, &d.scratchBands)
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, origChannels == 1, &d.rng, &d.scratchBands, &d.bandDebug)
 	traceRange("pvq", rd)
 
 	antiCollapseOn := false
@@ -1967,7 +1969,7 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 	traceRange("fine", rd)
 
 	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.channels == 1, &d.rng, &d.scratchBands)
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.channels == 1, &d.rng, &d.scratchBands, &d.bandDebug)
 	traceRange("pvq", rd)
 
 	antiCollapseOn := false
@@ -2229,7 +2231,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	traceRange("fine", rd)
 
 	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.channels == 1, &d.rng, &d.scratchBands)
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.channels == 1, &d.rng, &d.scratchBands, &d.bandDebug)
 	traceRange("pvq", rd)
 
 	antiCollapseOn := false
@@ -2500,7 +2502,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	traceRange("fine", rd)
 
 	coeffsMono, _, collapse := quantAllBandsDecodeWithScratch(rd, 1, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, false, &d.rng, &d.scratchBands)
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, false, &d.rng, &d.scratchBands, &d.bandDebug)
 	traceRange("pvq", rd)
 
 	antiCollapseOn := false
@@ -2737,7 +2739,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	traceRange("fine", rd)
 
 	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, origChannels == 1, &d.rng, &d.scratchBands)
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, origChannels == 1, &d.rng, &d.scratchBands, &d.bandDebug)
 	traceRange("pvq", rd)
 
 	antiCollapseOn := false

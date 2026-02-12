@@ -47,7 +47,7 @@ func (e *Encoder) fillMDCTHistoryFromPrefilter(channel, overlap int, dst []float
 	src := e.overlapBuffer[start : start+overlap]
 	for i := 0; i < overlap; i++ {
 		// libopus keeps this state in float; quantize to float32 when feeding MDCT history.
-		if os.Getenv("GOPUS_TMP_SKIP_MDCT_HIST_ROUND") == "1" {
+		if tmpGetenv("GOPUS_TMP_SKIP_MDCT_HIST_ROUND") == "1" {
 			dst[i] = src[i]
 		} else {
 			dst[i] = float64(float32(src[i]))
@@ -120,10 +120,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// here; float32 precision is already matched by the dc_reject/preemphasis stages.
 	// Reference: libopus src/opus_encoder.c line 2008: dc_reject(pcm, 3, ...)
 	samplesForFrame := pcm
-	if os.Getenv("GOPUS_TMP_QUANT_INPUT_LSB") == "1" {
+	if tmpGetenv("GOPUS_TMP_QUANT_INPUT_LSB") == "1" {
 		samplesForFrame = e.quantizeInputToLSBDepthScratch(samplesForFrame)
 	}
-	if e.dcRejectEnabled && os.Getenv("GOPUS_TMP_DISABLE_DCREJECT") != "1" {
+	if e.dcRejectEnabled && tmpGetenv("GOPUS_TMP_DISABLE_DCREJECT") != "1" {
 		samplesForFrame = e.applyDCRejectScratch(samplesForFrame)
 	}
 
@@ -252,7 +252,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	prefilterTapset := e.TapsetDecision()
 	// Match libopus run_prefilter enable gating.
 	enabled := lm > 0 && start == 0 && targetBytes > 12*e.channels && !e.IsHybrid() && !isSilence && re.Tell()+16 <= targetBits
-	if os.Getenv("GOPUS_TMP_DISABLE_PREFILTER") == "1" {
+	if tmpGetenv("GOPUS_TMP_DISABLE_PREFILTER") == "1" {
 		enabled = false
 	}
 	prevPrefilterPeriod := e.prefilterPeriod
@@ -260,18 +260,18 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Derive the prefilter max-pitch ratio from the same pre-emphasized signal
 	// used by the CELT analysis path; this improves postfilter parity vs libopus.
 	maxPitchRatio := e.estimateMaxPitchRatioStateful(samplesForFrame)
-	if os.Getenv("GOPUS_TMP_FORCE_MAX_PITCH_RATIO_1") == "1" {
+	if tmpGetenv("GOPUS_TMP_FORCE_MAX_PITCH_RATIO_1") == "1" {
 		maxPitchRatio = 1
 	}
-	if os.Getenv("GOPUS_TMP_XB19_DUMP") == "1" && frameSize == 480 && e.channels == 1 && e.frameCount < 32 {
+	if tmpGetenv("GOPUS_TMP_XB19_DUMP") == "1" && frameSize == 480 && e.channels == 1 && e.frameCount < 32 {
 		dumpFloat32File(fmt.Sprintf("/tmp/go_top_pfin_call%d.f32", e.frameCount), preemph[:frameSize])
 	}
 	pfResult := e.runPrefilter(preemph, frameSize, prefilterTapset, enabled, tfEstimate, targetBytes, toneFreq, toneishness, maxPitchRatio)
-	if os.Getenv("GOPUS_TMP_XB19_DUMP") == "1" && frameSize == 480 && e.channels == 1 && e.frameCount < 32 {
+	if tmpGetenv("GOPUS_TMP_XB19_DUMP") == "1" && frameSize == 480 && e.channels == 1 && e.frameCount < 32 {
 		dumpFloat32File(fmt.Sprintf("/tmp/go_top_pfout_call%d.f32", e.frameCount), preemph[:frameSize])
 	}
 	// Keep stateful prefilter output on float32 precision to match libopus float path.
-	if os.Getenv("GOPUS_TMP_SKIP_PREF_OUT_ROUND") != "1" {
+	if tmpGetenv("GOPUS_TMP_SKIP_PREF_OUT_ROUND") != "1" {
 		roundFloat64ToFloat32(preemph)
 	}
 	e.lastPitchChange = false
@@ -427,7 +427,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		copy(bandLogE2, energies)
 	}
 
-	if os.Getenv("GOPUS_TMP_XB19_DUMP") == "1" && frameSize == 480 && e.channels == 1 && e.frameCount < 32 {
+	if tmpGetenv("GOPUS_TMP_XB19_DUMP") == "1" && frameSize == 480 && e.channels == 1 && e.frameCount < 32 {
 		if len(e.scratch.mdctInput) >= frameSize+overlap {
 			dumpFloat32File(fmt.Sprintf("/tmp/go_fixture_mdct_input_call%d.f32", e.frameCount), e.scratch.mdctInput[:frameSize+overlap])
 		}
@@ -435,7 +435,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			dumpFloat32File(fmt.Sprintf("/tmp/go_fixture_mdct_coeff_call%d.f32", e.frameCount), mdctCoeffs[:frameSize])
 		}
 	}
-	if os.Getenv("GOPUS_TMP_MDCT56_DUMP") == "1" && frameSize == 480 && e.channels == 1 && e.frameCount >= 54 && e.frameCount <= 58 {
+	if tmpGetenv("GOPUS_TMP_MDCT56_DUMP") == "1" && frameSize == 480 && e.channels == 1 && e.frameCount >= 54 && e.frameCount <= 58 {
 		if len(e.scratch.mdctInput) >= frameSize+overlap {
 			dumpFloat32File(fmt.Sprintf("/tmp/go_mdct56_input_call%d.f32", e.frameCount), e.scratch.mdctInput[:frameSize+overlap])
 		}
@@ -585,7 +585,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// dynalloc/spread analysis in libopus uses pre-stabilization energies.
 	analysisEnergies := ensureFloat64Slice(&e.scratch.analysisEnergies, len(energies))
 	copy(analysisEnergies, energies)
-	if os.Getenv("GOPUS_TMP_ENERGY_INPUT_F32") == "1" {
+	if tmpGetenv("GOPUS_TMP_ENERGY_INPUT_F32") == "1" {
 		roundFloat64ToFloat32(energies)
 		roundFloat64ToFloat32(analysisEnergies)
 	}
@@ -645,7 +645,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		NormalizeBandsToArrayInto(mdctLeft, nbBands, frameSize, normL, bandEL)
 		NormalizeBandsToArrayInto(mdctRight, nbBands, frameSize, normR, bandER)
 	}
-	if os.Getenv("GOPUS_TMP_NORM56_DUMP") == "1" && frameSize == 480 && e.channels == 1 && e.frameCount >= 54 && e.frameCount <= 58 && len(normBandEScratch) > 18 {
+	if tmpGetenv("GOPUS_TMP_NORM56_DUMP") == "1" && frameSize == 480 && e.channels == 1 && e.frameCount >= 54 && e.frameCount <= 58 && len(normBandEScratch) > 18 {
 		start := 0
 		for b := 0; b < 18; b++ {
 			start += ScaledBandWidth(b, frameSize)
@@ -668,13 +668,13 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			fmt.Fprintln(os.Stderr)
 		}
 	}
-	if os.Getenv("GOPUS_TMP_ROUND_NORM_F32") == "1" {
+	if tmpGetenv("GOPUS_TMP_ROUND_NORM_F32") == "1" {
 		roundFloat64ToFloat32(normL)
 		if e.channels == 2 {
 			roundFloat64ToFloat32(normR)
 		}
 	}
-	if os.Getenv("GOPUS_TMP_NORM_DUMP") == "1" && frameSize == 480 && e.channels == 1 && e.frameCount < 32 {
+	if tmpGetenv("GOPUS_TMP_NORM_DUMP") == "1" && frameSize == 480 && e.channels == 1 && e.frameCount < 32 {
 		dumpFloat32File(fmt.Sprintf("/tmp/go_norm_call%d.f32", e.frameCount), normL[:frameSize])
 	}
 
@@ -933,7 +933,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 				tonalitySlope = e.analysisTonalitySlope
 			}
 			trimBandLogE := energies
-			if os.Getenv("GOPUS_TMP_TRIM_USE_ANALYSIS") == "1" {
+			if tmpGetenv("GOPUS_TMP_TRIM_USE_ANALYSIS") == "1" {
 				trimBandLogE = analysisEnergies
 			}
 			trimDetail := allocTrimDetail{}
@@ -950,7 +950,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 				0.0, // surroundTrim - not implemented yet
 				tonalitySlope,
 			)
-			if os.Getenv("GOPUS_TMP_TRIMDBG") == "1" && e.channels == 1 && frameSize == 480 && e.frameCount >= 45 && e.frameCount <= 80 {
+			if tmpGetenv("GOPUS_TMP_TRIMDBG") == "1" && e.channels == 1 && frameSize == 480 && e.frameCount >= 45 && e.frameCount <= 80 {
 				fmt.Fprintf(os.Stderr, "TRIMDBG frame=%d analysisValid=%v equivRate=%d tf=%.6f lastTonality=%.6f tonalitySlope=%.6f trim=%d base=%.6f stereo=%.6f tilt=%.6f surround=%.6f tonal=%.6f raw=%.6f spread=%d transient=%v shortBlocks=%d totalBoost=%d tell=%d\n",
 					e.frameCount, e.analysisValid, equivRate, tfEstimate, e.lastTonality, tonalitySlope, allocTrim,
 					trimDetail.base, trimDetail.stereo, trimDetail.tilt, trimDetail.surround, trimDetail.tonal, trimDetail.raw,
@@ -1038,15 +1038,15 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		dualStereoVal = 1
 	}
 	tapset := e.TapsetDecision()
-	if os.Getenv("GOPUS_TMP_XB19_DUMP") == "1" ||
-		os.Getenv("GOPUS_TMP_PVQ_DUMP56") == "1" ||
-		os.Getenv("GOPUS_TMP_PVQCALL_DBG") == "1" ||
-		os.Getenv("GOPUS_TMP_THDBG") == "1" ||
-		os.Getenv("GOPUS_TMP_QDBG") == "1" {
-		tmpPVQDumpFrame = e.frameCount
-		tmpPVQCallSeq = 0
+	if tmpGetenv("GOPUS_TMP_XB19_DUMP") == "1" ||
+		tmpGetenv("GOPUS_TMP_PVQ_DUMP56") == "1" ||
+		tmpGetenv("GOPUS_TMP_PVQCALL_DBG") == "1" ||
+		tmpGetenv("GOPUS_TMP_THDBG") == "1" ||
+		tmpGetenv("GOPUS_TMP_QDBG") == "1" {
+		e.bandDebug.pvqDumpFrame = e.frameCount
+		e.bandDebug.pvqCallSeq = 0
 	}
-	if os.Getenv("GOPUS_TMP_XB19_DUMP") == "1" && frameSize == 480 && e.channels == 1 && e.frameCount < 32 {
+	if tmpGetenv("GOPUS_TMP_XB19_DUMP") == "1" && frameSize == 480 && e.channels == 1 && e.frameCount < 32 {
 		b0 := EBands[19] << lm
 		b1 := EBands[20] << lm
 		fmt.Fprintf(os.Stderr, "GOXB19 call=%d", e.frameCount)
@@ -1081,6 +1081,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		nil,
 		nil,
 		&e.bandEncScratch,
+		&e.bandDebug,
 	)
 
 	// Step 14.5: Encode anti-collapse flag if reserved

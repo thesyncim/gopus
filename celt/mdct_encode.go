@@ -8,70 +8,58 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"runtime"
-	"sync/atomic"
 )
 
-var mdctStageDumpCounter uint32
-var mdctUseNativeMul = os.Getenv("GOPUS_TMP_MDCT_NATIVE_MUL") == "1"
-var mdctUseF64Mix = os.Getenv("GOPUS_TMP_MDCT_MIX_F64") == "1"
-var mdctUseFMALikeMix = func() bool {
-	if v, ok := os.LookupEnv("GOPUS_TMP_MDCT_FMALIKE"); ok {
-		return v == "1"
-	}
-	return runtime.GOARCH == "arm64"
-}()
-
 func mdctMul(a, b float32) float32 {
-	if mdctUseNativeMul {
+	if mdctUseNativeMulEnabled {
 		return a * b
 	}
 	return noFMA32Mul(a, b)
 }
 
 func mdctMulAddMix(a, b, c, d float32) float32 {
-	if mdctUseNativeMul {
+	if mdctUseNativeMulEnabled {
 		return a*c + b*d
 	}
-	if mdctUseFMALikeMix {
+	if mdctUseFMALikeMixEnabled {
 		// Match libopus arm64 codegen pattern for a*c + b*d:
 		// round b*d to float32, then perform fused-like add with a*c and one final rounding.
 		t := mdctMul(b, d)
 		return float32(float64(a)*float64(c) + float64(t))
 	}
-	if mdctUseF64Mix {
+	if mdctUseF64MixEnabled {
 		return float32(float64(a)*float64(c) + float64(b)*float64(d))
 	}
 	return mdctMul(a, c) + mdctMul(b, d)
 }
 
 func mdctMulSubMix(a, b, c, d float32) float32 {
-	if mdctUseNativeMul {
+	if mdctUseNativeMulEnabled {
 		return a*c - b*d
 	}
-	if mdctUseFMALikeMix {
+	if mdctUseFMALikeMixEnabled {
 		// Match libopus arm64 codegen pattern for a*c - b*d:
 		// round b*d to float32, then subtract with one final rounding.
 		t := mdctMul(b, d)
 		return float32(float64(a)*float64(c) - float64(t))
 	}
-	if mdctUseF64Mix {
+	if mdctUseF64MixEnabled {
 		return float32(float64(a)*float64(c) - float64(b)*float64(d))
 	}
 	return mdctMul(a, c) - mdctMul(b, d)
 }
 
 func mdctMulSubMixAlt(a, b, c, d float32) float32 {
-	if mdctUseNativeMul {
+	if mdctUseNativeMulEnabled {
 		return a*c - b*d
 	}
-	if mdctUseFMALikeMix {
+	if mdctUseFMALikeMixEnabled {
 		// This branch matches the third fold equation codegen shape in libopus:
 		// round a*c first, then subtract b*d with one final rounding.
 		t := mdctMul(a, c)
 		return float32(float64(t) - float64(b)*float64(d))
 	}
-	if mdctUseF64Mix {
+	if mdctUseF64MixEnabled {
 		return float32(float64(a)*float64(c) - float64(b)*float64(d))
 	}
 	return mdctMul(a, c) - mdctMul(b, d)
@@ -290,9 +278,8 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 
 	doDump := false
 	dumpIdx := uint32(0)
-	if os.Getenv("GOPUS_TMP_MDCT_STAGE_DUMP") == "1" && frameSize == 480 && overlap == 120 {
-		dumpIdx = atomic.LoadUint32(&mdctStageDumpCounter)
-		doDump = dumpIdx < 96
+	if mdctStageDumpEnabled && frameSize == 480 && overlap == 120 {
+		doDump = true
 	}
 
 	xp1 := overlap / 2
@@ -351,7 +338,7 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 		t1 := trig[n4+i]
 		yr := mdctMul(re, t0) - mdctMul(im, t1)
 		yi := mdctMul(im, t0) + mdctMul(re, t1)
-		if mdctUseFMALikeMix {
+		if mdctUseFMALikeMixEnabled {
 			// Match libopus arm64 codegen pattern that rounds one product and uses FMADD.
 			yr = float32(float64(re)*float64(t0) - float64(mdctMul(im, t1)))
 			yi = float32(float64(im)*float64(t0) + float64(mdctMul(re, t1)))
@@ -393,7 +380,7 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 		t1 := trig[n4+i]
 		yr := mdctMul(im, t1) - mdctMul(re, t0)
 		yi := mdctMul(re, t1) + mdctMul(im, t0)
-		if mdctUseFMALikeMix {
+		if mdctUseFMALikeMixEnabled {
 			yr = float32(float64(im)*float64(t1) - float64(mdctMul(re, t0)))
 			yi = float32(float64(re)*float64(t1) + float64(mdctMul(im, t0)))
 		}
@@ -407,7 +394,6 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 			coeffF32[k] = float32(coeffs[k])
 		}
 		dumpFloat32Raw(fmt.Sprintf("/tmp/go_actual_stage_coeff_call%d.f32", dumpIdx), coeffF32)
-		atomic.AddUint32(&mdctStageDumpCounter, 1)
 	}
 }
 

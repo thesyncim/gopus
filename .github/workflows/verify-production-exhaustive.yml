@@ -33,13 +33,22 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Install ffmpeg
+      - name: Cache pinned libopus build
+        uses: actions/cache@v4
+        with:
+          path: |
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+          key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
+
+      - name: Install codec tools (if missing)
         run: |
+          if command -v ffmpeg >/dev/null 2>&1 && command -v opusdec >/dev/null 2>&1; then
+            echo "ffmpeg and opusdec already present; skipping apt install"
+            exit 0
+          fi
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ffmpeg opus-tools
-
-      - name: Bootstrap pinned libopus
-        run: make ensure-libopus
 
       - name: Generate release evidence bundle
         run: make release-evidence
