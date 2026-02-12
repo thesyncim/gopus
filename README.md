@@ -14,6 +14,7 @@ No cgo. No C toolchain. Caller-owned buffers in the encode/decode hot path.
 
 - Pure Go codec stack (encode + decode), interoperable with libopus.
 - Full Opus modes: SILK, CELT, Hybrid.
+- Architecture-tuned assembly kernels on `amd64`/`arm64` with pure Go fallbacks on other targets.
 - Core hot path is zero-allocation with caller-provided buffers.
 - Ogg Opus container reader/writer (`container/ogg`).
 - Multistream support (default mappings for 1-8 channels, explicit mappings up to 255 channels).
@@ -254,6 +255,23 @@ make pgo-generate
 make build
 ```
 
+## Assembly Optimizations
+
+`gopus` includes native assembly kernels for `amd64` and `arm64` in CELT and SILK hot paths.
+Other architectures use pure Go fallbacks with matching behavior.
+
+Implemented assembly surfaces:
+
+- CELT:
+  - `celt/haar1_amd64.s`, `celt/haar1_arm64.s` (`haar1Stride1Asm`)
+  - `celt/xcorr_amd64.s`, `celt/xcorr_arm64.s` (`celtInnerProd`, `dualInnerProd`, `celtPitchXcorr`)
+- SILK:
+  - `silk/inner_prod_amd64.s`, `silk/inner_prod_arm64.s` (`innerProductF32Asm`, `energyF32Asm`)
+  - `silk/nsq_pred_amd64.s`, `silk/nsq_pred_arm64.s` (`shortTermPrediction16`, `shortTermPrediction10`)
+  - `silk/nsq_warp_amd64.s`, `silk/nsq_warp_arm64.s` (`warpedARFeedback24`, `warpedARFeedback16`)
+
+For build-tag details and maintenance guidance, see [`ASSEMBLY.md`](ASSEMBLY.md).
+
 ## Parity and Compliance Workflow
 
 ```bash
@@ -316,6 +334,7 @@ See [`examples/README.md`](examples/README.md) for details.
 - `hybrid/`: SILK/CELT bridge
 - `testvectors/`: parity/compliance fixtures and tests
 - `container/ogg/`: Ogg Opus reader/writer
+- `ASSEMBLY.md`: architecture-specific assembly coverage and fallbacks
 - `tmp_check/opus-1.6.1/`: libopus 1.6.1 reference tooling
 
 ## Thread Safety

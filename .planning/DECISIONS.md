@@ -20,6 +20,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-12
+topic: Assembly documentation source of truth
+decision: Keep `ASSEMBLY.md` as the canonical inventory for architecture-specific assembly kernels and fallback mappings, and keep `README.md` linked to it instead of duplicating maintenance details elsewhere.
+evidence: Added `ASSEMBLY.md`; updated `README.md`, `examples/README.md`, `CODEX.md`, and `CLAUDE.md`; validation gates `make verify-production` and `make bench-guard` passed.
+do_not_repeat_until: Any assembly surface changes (`*.s`, `*_asm.go`, build tags, or fallback wiring) or docs structure changes require re-baselining this inventory.
+owner: codex
+
+date: 2026-02-12
 topic: Encoder precision guard ratchet (general)
 decision: Raise `encoderLibopusGapFloorDB` by +0.30 dB across all summary profiles so quality regressions are caught earlier while preserving a small measurement cushion.
 evidence: Updated `testvectors/encoder_precision_guard_test.go`; `TestEncoderCompliancePrecisionGuard`, `TestEncoderComplianceSummary`, and `TestEncoderVariantProfileParityAgainstLibopusFixture` all passed after ratchet.
