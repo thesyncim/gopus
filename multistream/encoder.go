@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/encoder"
 	"github.com/thesyncim/gopus/types"
 )
@@ -81,6 +82,21 @@ type Encoder struct {
 
 	// surroundBandSMR stores per-channel surround masks (21 bands per channel).
 	surroundBandSMR []float64
+
+	// surroundWindowMem mirrors libopus surround_analysis overlap history (per channel).
+	surroundWindowMem []float64
+
+	// surroundPreemphMem mirrors libopus surround_analysis preemphasis memory (per channel).
+	surroundPreemphMem []float64
+
+	// surroundInputScratch holds per-channel overlap+frame analysis input.
+	surroundInputScratch []float64
+
+	// surroundBandScratch stores temporary per-band energies for one channel.
+	surroundBandScratch [surroundBands]float64
+
+	// surroundAnalysisEncoder computes CELT band energies for surround analysis.
+	surroundAnalysisEncoder *celt.Encoder
 }
 
 const surroundBands = 21
@@ -223,18 +239,21 @@ func NewEncoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 	lfeStream := inferLFEStream(mappingFamily, channels, streams)
 
 	return &Encoder{
-		sampleRate:         sampleRate,
-		inputChannels:      channels,
-		streams:            streams,
-		coupledStreams:     coupledStreams,
-		mapping:            mappingCopy,
-		encoders:           encoders,
-		bitrate:            256000, // Default 256 kbps total
-		mappingFamily:      mappingFamily,
-		lfeStream:          lfeStream,
-		streamBitrates:     make([]int, streams),
-		streamSurroundTrim: make([]float64, streams),
-		surroundBandSMR:    make([]float64, channels*surroundBands),
+		sampleRate:              sampleRate,
+		inputChannels:           channels,
+		streams:                 streams,
+		coupledStreams:          coupledStreams,
+		mapping:                 mappingCopy,
+		encoders:                encoders,
+		bitrate:                 256000, // Default 256 kbps total
+		mappingFamily:           mappingFamily,
+		lfeStream:               lfeStream,
+		streamBitrates:          make([]int, streams),
+		streamSurroundTrim:      make([]float64, streams),
+		surroundBandSMR:         make([]float64, channels*surroundBands),
+		surroundWindowMem:       make([]float64, channels*celt.Overlap),
+		surroundPreemphMem:      make([]float64, channels),
+		surroundAnalysisEncoder: celt.NewEncoder(1),
 	}, nil
 }
 
@@ -343,6 +362,12 @@ func (e *Encoder) Reset() {
 	if len(e.surroundBandSMR) > 0 {
 		clear(e.surroundBandSMR)
 	}
+	if len(e.surroundWindowMem) > 0 {
+		clear(e.surroundWindowMem)
+	}
+	if len(e.surroundPreemphMem) > 0 {
+		clear(e.surroundPreemphMem)
+	}
 }
 
 // Channels returns the total number of input channels.
@@ -428,7 +453,9 @@ func logSum(a, b float64) float64 {
 	if math.IsInf(b, -1) {
 		return a
 	}
-	return a + math.Log2(1.0+math.Exp2(b-a))
+	// Match libopus float logSum() in opus_multistream_encoder.c:
+	// log2(4^a + 4^b) / 2
+	return a + 0.5*math.Log2(1.0+math.Exp2(2.0*(b-a)))
 }
 
 func (e *Encoder) isSurroundMapping() bool {
@@ -614,23 +641,33 @@ func channelPositions(channels int, pos []int) bool {
 	return true
 }
 
-func channelMaskShape(pcm []float64, frameSize, channels, channel int) (base, slope float64) {
-	var low, high float64
-	prev := 0.0
-	for i := 0; i < frameSize; i++ {
-		x := pcm[i*channels+channel]
-		low += x * x
-		if i > 0 {
-			d := x - prev
-			high += d * d
-		}
-		prev = x
+func resamplingFactor(rate int) int {
+	switch rate {
+	case 48000:
+		return 1
+	case 24000:
+		return 2
+	case 16000:
+		return 3
+	case 12000:
+		return 4
+	case 8000:
+		return 6
+	default:
+		return 0
 	}
-	low = low/float64(maxInt(frameSize, 1)) + 1e-12
-	high = high/float64(maxInt(frameSize-1, 1)) + 1e-12
-	base = math.Log2(low)
-	slope = clampFloat(0.5*math.Log2(high/low), -1.0, 1.0)
-	return base, slope
+}
+
+func surroundAnalysisFreqSize(frameSize int) (int, bool) {
+	switch frameSize {
+	case 120, 240, 480, 960:
+		return frameSize, true
+	default:
+		if frameSize > 0 && frameSize%960 == 0 {
+			return 960, true
+		}
+		return 0, false
+	}
 }
 
 func surroundTrimFromMask(maskL, maskR []float64) float64 {
@@ -690,6 +727,163 @@ func (e *Encoder) inputChannelForMapping(mappingIdx byte) int {
 	return -1
 }
 
+func (e *Encoder) ensureSurroundInputScratch(size int) []float64 {
+	if cap(e.surroundInputScratch) < size {
+		e.surroundInputScratch = make([]float64, size)
+	}
+	return e.surroundInputScratch[:size]
+}
+
+func (e *Encoder) computeSurroundBandSMR(pcm []float64, frameSize int, bandSMR []float64) bool {
+	if frameSize <= 0 || e.inputChannels < 3 || e.inputChannels > 8 {
+		return false
+	}
+	if len(pcm) < frameSize*e.inputChannels {
+		return false
+	}
+	if len(bandSMR) < e.inputChannels*surroundBands {
+		return false
+	}
+
+	var pos [8]int
+	if !channelPositions(e.inputChannels, pos[:]) {
+		return false
+	}
+
+	upsample := resamplingFactor(e.sampleRate)
+	if upsample <= 0 {
+		return false
+	}
+	analysisFrameSize := frameSize * upsample
+	freqSize, ok := surroundAnalysisFreqSize(analysisFrameSize)
+	if !ok || analysisFrameSize%freqSize != 0 {
+		return false
+	}
+	nbFrames := analysisFrameSize / freqSize
+	overlap := celt.Overlap
+
+	if cap(e.surroundWindowMem) < e.inputChannels*overlap {
+		e.surroundWindowMem = make([]float64, e.inputChannels*overlap)
+	}
+	if cap(e.surroundPreemphMem) < e.inputChannels {
+		e.surroundPreemphMem = make([]float64, e.inputChannels)
+	}
+	if e.surroundAnalysisEncoder == nil {
+		e.surroundAnalysisEncoder = celt.NewEncoder(1)
+	}
+
+	in := e.ensureSurroundInputScratch(overlap + analysisFrameSize)
+
+	var maskLogE [3][surroundBands]float64
+	for c := 0; c < 3; c++ {
+		for i := 0; i < surroundBands; i++ {
+			maskLogE[c][i] = -28.0
+		}
+	}
+
+	for ch := 0; ch < e.inputChannels; ch++ {
+		copy(in[:overlap], e.surroundWindowMem[ch*overlap:(ch+1)*overlap])
+		clear(in[overlap:])
+
+		for i := 0; i < frameSize; i++ {
+			in[overlap+i*upsample] = pcm[i*e.inputChannels+ch] * celt.CELTSigScale
+		}
+
+		m := e.surroundPreemphMem[ch]
+		for i := 0; i < analysisFrameSize; i++ {
+			x := in[overlap+i]
+			in[overlap+i] = x - m
+			m = celt.PreemphCoef * x
+		}
+		e.surroundPreemphMem[ch] = m
+
+		for i := 0; i < surroundBands; i++ {
+			e.surroundBandScratch[i] = math.Inf(-1)
+		}
+
+		for frame := 0; frame < nbFrames; frame++ {
+			start := frame * freqSize
+			end := start + freqSize + overlap
+			coeffs := celt.MDCTForwardWithOverlap(in[start:end], overlap)
+			if upsample != 1 {
+				bound := freqSize / upsample
+				if bound > len(coeffs) {
+					bound = len(coeffs)
+				}
+				for i := 0; i < bound; i++ {
+					coeffs[i] *= float64(upsample)
+				}
+				for i := bound; i < len(coeffs); i++ {
+					coeffs[i] = 0
+				}
+			}
+
+			var tmp [surroundBands]float64
+			e.surroundAnalysisEncoder.ComputeBandEnergiesInto(coeffs, surroundBands, freqSize, tmp[:])
+			for i := 0; i < surroundBands; i++ {
+				if tmp[i] > e.surroundBandScratch[i] {
+					e.surroundBandScratch[i] = tmp[i]
+				}
+			}
+		}
+
+		for i := 1; i < surroundBands; i++ {
+			if e.surroundBandScratch[i-1]-1.0 > e.surroundBandScratch[i] {
+				e.surroundBandScratch[i] = e.surroundBandScratch[i-1] - 1.0
+			}
+		}
+		for i := surroundBands - 2; i >= 0; i-- {
+			if e.surroundBandScratch[i+1]-2.0 > e.surroundBandScratch[i] {
+				e.surroundBandScratch[i] = e.surroundBandScratch[i+1] - 2.0
+			}
+		}
+
+		copy(bandSMR[ch*surroundBands:(ch+1)*surroundBands], e.surroundBandScratch[:])
+
+		switch pos[ch] {
+		case 1:
+			for i := 0; i < surroundBands; i++ {
+				maskLogE[0][i] = logSum(maskLogE[0][i], e.surroundBandScratch[i])
+			}
+		case 3:
+			for i := 0; i < surroundBands; i++ {
+				maskLogE[2][i] = logSum(maskLogE[2][i], e.surroundBandScratch[i])
+			}
+		case 2:
+			for i := 0; i < surroundBands; i++ {
+				maskLogE[0][i] = logSum(maskLogE[0][i], e.surroundBandScratch[i]-0.5)
+				maskLogE[2][i] = logSum(maskLogE[2][i], e.surroundBandScratch[i]-0.5)
+			}
+		}
+
+		copy(e.surroundWindowMem[ch*overlap:(ch+1)*overlap], in[analysisFrameSize:analysisFrameSize+overlap])
+	}
+
+	for i := 0; i < surroundBands; i++ {
+		maskLogE[1][i] = math.Min(maskLogE[0][i], maskLogE[2][i])
+	}
+	channelOffset := 0.5 * math.Log2(2.0/float64(e.inputChannels-1))
+	for c := 0; c < 3; c++ {
+		for i := 0; i < surroundBands; i++ {
+			maskLogE[c][i] += channelOffset
+		}
+	}
+
+	for ch := 0; ch < e.inputChannels; ch++ {
+		row := bandSMR[ch*surroundBands : (ch+1)*surroundBands]
+		if pos[ch] == 0 {
+			clear(row)
+			continue
+		}
+		mask := maskLogE[pos[ch]-1][:]
+		for i := 0; i < surroundBands; i++ {
+			row[i] -= mask[i]
+		}
+	}
+
+	return true
+}
+
 func (e *Encoder) updateSurroundTrimFromPCM(pcm []float64, frameSize int) {
 	if cap(e.streamSurroundTrim) < e.streams {
 		e.streamSurroundTrim = make([]float64, e.streams)
@@ -698,7 +892,7 @@ func (e *Encoder) updateSurroundTrimFromPCM(pcm []float64, frameSize int) {
 	for i := range trim {
 		trim[i] = 0
 	}
-	if !e.isSurroundMapping() || frameSize <= 0 || e.inputChannels < 3 || e.inputChannels > 8 {
+	if !e.isSurroundMapping() {
 		return
 	}
 
@@ -708,72 +902,8 @@ func (e *Encoder) updateSurroundTrimFromPCM(pcm []float64, frameSize int) {
 	}
 	bandSMR := e.surroundBandSMR[:needed]
 	clear(bandSMR)
-
-	var pos [8]int
-	if !channelPositions(e.inputChannels, pos[:]) {
+	if !e.computeSurroundBandSMR(pcm, frameSize, bandSMR) {
 		return
-	}
-
-	var leftMask [surroundBands]float64
-	var rightMask [surroundBands]float64
-	var centerMask [surroundBands]float64
-	for i := 0; i < surroundBands; i++ {
-		leftMask[i] = -28.0
-		rightMask[i] = -28.0
-	}
-
-	var base [8]float64
-	var slope [8]float64
-	for c := 0; c < e.inputChannels; c++ {
-		if pos[c] == 0 {
-			continue
-		}
-		base[c], slope[c] = channelMaskShape(pcm, frameSize, e.inputChannels, c)
-		for i := 0; i < surroundBands; i++ {
-			v := base[c] + slope[c]*(float64(i)-10.0)/10.0
-			bandSMR[c*surroundBands+i] = v
-			switch pos[c] {
-			case 1:
-				leftMask[i] = logSum(leftMask[i], v)
-			case 3:
-				rightMask[i] = logSum(rightMask[i], v)
-			case 2:
-				leftMask[i] = logSum(leftMask[i], v-0.5)
-				rightMask[i] = logSum(rightMask[i], v-0.5)
-			}
-		}
-	}
-
-	channelOffset := 0.0
-	if e.inputChannels > 1 {
-		channelOffset = 0.5 * math.Log2(2.0/float64(e.inputChannels-1))
-	}
-	for i := 0; i < surroundBands; i++ {
-		leftMask[i] += channelOffset
-		rightMask[i] += channelOffset
-		if leftMask[i] < rightMask[i] {
-			centerMask[i] = leftMask[i]
-		} else {
-			centerMask[i] = rightMask[i]
-		}
-	}
-
-	for c := 0; c < e.inputChannels; c++ {
-		if pos[c] == 0 {
-			for i := 0; i < surroundBands; i++ {
-				bandSMR[c*surroundBands+i] = 0
-			}
-			continue
-		}
-		for i := 0; i < surroundBands; i++ {
-			mask := centerMask[i]
-			if pos[c] == 1 {
-				mask = leftMask[i]
-			} else if pos[c] == 3 {
-				mask = rightMask[i]
-			}
-			bandSMR[c*surroundBands+i] -= mask
-		}
 	}
 
 	for s := 0; s < e.streams; s++ {
