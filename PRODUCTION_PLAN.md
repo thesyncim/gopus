@@ -66,3 +66,4 @@ Ship `gopus` as a dependable production codec library with:
   - `make test-fuzz-smoke`
   - `make verify-production`
   - `make verify-production-exhaustive`
+  - `make release-evidence`

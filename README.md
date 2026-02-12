@@ -273,6 +273,7 @@ make test-fuzz-smoke
 make test-parity
 make verify-production
 make verify-production-exhaustive
+make release-evidence
 make ensure-libopus
 make test-exhaustive
 make test-provenance
