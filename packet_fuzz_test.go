@@ -22,10 +22,16 @@ func FuzzParsePacket_NoPanic(f *testing.F) {
 		if len(info.FrameSizes) != info.FrameCount {
 			t.Fatalf("frame size metadata mismatch: count=%d sizes=%d", info.FrameCount, len(info.FrameSizes))
 		}
+		total := 0
 		for i, n := range info.FrameSizes {
-			if n <= 0 {
-				t.Fatalf("invalid frame size[%d]=%d", i, n)
+			// Zero-length frames are valid in some packet layouts; only negatives are invalid.
+			if n < 0 {
+				t.Fatalf("invalid negative frame size[%d]=%d", i, n)
 			}
+			total += n
+		}
+		if total > len(data)-1 {
+			t.Fatalf("frame bytes exceed payload: frames=%d payload=%d", total, len(data)-1)
 		}
 	})
 }

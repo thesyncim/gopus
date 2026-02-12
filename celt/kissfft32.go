@@ -840,6 +840,17 @@ func KissFFT32To(out []complex64, x []complex64) {
 	kissFFT32To(out, x, nil)
 }
 
+// KissCpx is an exported alias of the internal Kiss FFT complex scratch type.
+// It allows callers to provide reusable scratch buffers and avoid per-call
+// allocations in hot paths.
+type KissCpx = kissCpx
+
+// KissFFT32ToWithScratch performs a forward complex FFT into out using caller-
+// provided scratch. scratch should have length >= len(x) to avoid allocations.
+func KissFFT32ToWithScratch(out []complex64, x []complex64, scratch []KissCpx) {
+	kissFFT32To(out, x, scratch)
+}
+
 // kissFFT32To performs the Kiss FFT into a caller-provided output buffer.
 // scratch must be at least len(x) to avoid allocations.
 func kissFFT32To(out []complex64, x []complex64, scratch []kissCpx) {

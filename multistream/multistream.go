@@ -12,9 +12,6 @@ import (
 	"github.com/thesyncim/gopus/plc"
 )
 
-// multistreamPLCState tracks packet loss concealment state for multistream decoding.
-var multistreamPLCState = plc.NewState()
-
 // applyChannelMapping routes decoded stream audio to output channels according to the mapping table.
 //
 // Parameters:
@@ -123,8 +120,8 @@ func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
 	output := applyChannelMapping(decodedStreams, d.mapping, d.coupledStreams, frameSize, d.outputChannels)
 
 	// Reset PLC state after successful decode
-	multistreamPLCState.Reset()
-	multistreamPLCState.SetLastFrameParams(plc.ModeHybrid, frameSize, d.outputChannels)
+	d.plcState.Reset()
+	d.plcState.SetLastFrameParams(plc.ModeHybrid, frameSize, d.outputChannels)
 
 	return output, nil
 }
@@ -133,7 +130,7 @@ func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
 // Each stream generates its own PLC output, then channel mapping is applied.
 func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
 	// Record loss and get fade factor
-	fadeFactor := multistreamPLCState.RecordLoss()
+	fadeFactor := d.plcState.RecordLoss()
 
 	// Total output samples
 	totalSamples := frameSize * d.outputChannels
@@ -233,10 +230,4 @@ func float64ToFloat32(samples []float64) []float32 {
 		output[i] = float32(s)
 	}
 	return output
-}
-
-// MultistreamPLCState returns the PLC state for external access.
-// This can be used to check loss statistics or manually reset state.
-func MultistreamPLCState() *plc.State {
-	return multistreamPLCState
 }

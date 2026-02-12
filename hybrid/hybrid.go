@@ -8,9 +8,6 @@ import (
 	"github.com/thesyncim/gopus/silk"
 )
 
-// hybridPLCState tracks packet loss concealment state for Hybrid decoding.
-var hybridPLCState = plc.NewState()
-
 // Decode decodes a Hybrid mono frame and returns 48kHz PCM samples.
 // If data is nil, performs Packet Loss Concealment (PLC) instead of decoding.
 //
@@ -43,8 +40,8 @@ func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
 	}
 
 	// Reset PLC state after successful decode
-	hybridPLCState.Reset()
-	hybridPLCState.SetLastFrameParams(plc.ModeHybrid, frameSize, 1)
+	d.plcState.Reset()
+	d.plcState.SetLastFrameParams(plc.ModeHybrid, frameSize, 1)
 
 	return samples, nil
 }
@@ -72,8 +69,8 @@ func (d *Decoder) DecodeWithPacketStereo(data []byte, frameSize int, packetStere
 	}
 
 	// Reset PLC state after successful decode
-	hybridPLCState.Reset()
-	hybridPLCState.SetLastFrameParams(plc.ModeHybrid, frameSize, d.channels)
+	d.plcState.Reset()
+	d.plcState.SetLastFrameParams(plc.ModeHybrid, frameSize, d.channels)
 
 	return samples, nil
 }
@@ -113,8 +110,8 @@ func (d *Decoder) DecodeStereo(data []byte, frameSize int) ([]float64, error) {
 	}
 
 	// Reset PLC state after successful decode
-	hybridPLCState.Reset()
-	hybridPLCState.SetLastFrameParams(plc.ModeHybrid, frameSize, 2)
+	d.plcState.Reset()
+	d.plcState.SetLastFrameParams(plc.ModeHybrid, frameSize, 2)
 
 	return samples, nil
 }
@@ -211,8 +208,8 @@ func (d *Decoder) DecodeWithDecoderHook(rd *rangecoding.Decoder, frameSize int, 
 		return nil, err
 	}
 
-	hybridPLCState.Reset()
-	hybridPLCState.SetLastFrameParams(plc.ModeHybrid, frameSize, d.channels)
+	d.plcState.Reset()
+	d.plcState.SetLastFrameParams(plc.ModeHybrid, frameSize, d.channels)
 
 	return samples, nil
 }
@@ -261,7 +258,7 @@ func (d *Decoder) decodePLC(frameSize int, stereo bool) ([]float64, error) {
 	}
 
 	// Get fade factor for this loss
-	fadeFactor := hybridPLCState.RecordLoss()
+	fadeFactor := d.plcState.RecordLoss()
 
 	// Total samples for output
 	totalSamples := frameSize * d.channels
@@ -354,9 +351,4 @@ func (d *Decoder) decodePLC(frameSize int, stereo bool) ([]float64, error) {
 	}
 
 	return output, nil
-}
-
-// HybridPLCState returns the PLC state for external access.
-func HybridPLCState() *plc.State {
-	return hybridPLCState
 }

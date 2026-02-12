@@ -531,9 +531,6 @@ func TestValidateStreamDurations(t *testing.T) {
 
 // TestDecodePLC tests packet loss concealment.
 func TestDecodePLC(t *testing.T) {
-	// Reset PLC state for clean test
-	multistreamPLCState.Reset()
-
 	streams, coupled, mapping, _ := DefaultMapping(2) // stereo
 	dec, err := NewDecoder(48000, 2, streams, coupled, mapping)
 	if err != nil {
@@ -567,9 +564,6 @@ func TestDecodePLC(t *testing.T) {
 
 // TestDecodeToInt16 tests int16 conversion wrapper.
 func TestDecodeToInt16(t *testing.T) {
-	// Reset PLC state
-	multistreamPLCState.Reset()
-
 	streams, coupled, mapping, _ := DefaultMapping(1) // mono
 	dec, err := NewDecoder(48000, 1, streams, coupled, mapping)
 	if err != nil {
@@ -597,9 +591,6 @@ func TestDecodeToInt16(t *testing.T) {
 
 // TestDecodeToFloat32 tests float32 conversion wrapper.
 func TestDecodeToFloat32(t *testing.T) {
-	// Reset PLC state
-	multistreamPLCState.Reset()
-
 	streams, coupled, mapping, _ := DefaultMapping(1) // mono
 	dec, err := NewDecoder(48000, 1, streams, coupled, mapping)
 	if err != nil {
@@ -682,16 +673,20 @@ func TestDecoderReset(t *testing.T) {
 	dec.Reset()
 }
 
-// TestMultistreamPLCState tests the PLC state accessor.
-func TestMultistreamPLCState(t *testing.T) {
-	state := MultistreamPLCState()
-	if state == nil {
-		t.Fatal("MultistreamPLCState() returned nil")
+// TestDecoderPLCState verifies per-decoder PLC state behavior.
+func TestDecoderPLCState(t *testing.T) {
+	streams, coupled, mapping, _ := DefaultMapping(2)
+	dec, err := NewDecoder(48000, 2, streams, coupled, mapping)
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	if dec.plcState == nil {
+		t.Fatal("decoder plcState is nil")
 	}
 
 	// Reset and verify
-	state.Reset()
-	if state.LostCount() != 0 {
-		t.Errorf("LostCount after reset = %d, want 0", state.LostCount())
+	dec.plcState.Reset()
+	if dec.plcState.LostCount() != 0 {
+		t.Errorf("LostCount after reset = %d, want 0", dec.plcState.LostCount())
 	}
 }

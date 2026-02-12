@@ -41,11 +41,28 @@ jobs:
       - name: Bootstrap pinned libopus
         run: make ensure-libopus
 
-      - name: Run test suite
-        run: go test ./... -count=1
+      - name: Run production verification gate
+        run: make verify-production
 
       - name: Verify libopus fixture provenance (pinned Docker env)
         run: make docker-test-exhaustive
+
+  perf-linux:
+    name: perf-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Enforce benchmark guardrails
+        run: make bench-guard
 
   test-macos:
     name: test-macos
