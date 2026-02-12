@@ -20,6 +20,20 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-12
+topic: libopus source-of-truth policy (version pin)
+decision: When codec behavior is uncertain or gopus/libopus differ, resolve against `tmp_check/opus-1.6.1/` C source first and align gopus to that version before heuristic tuning.
+evidence: Explicitly reinforced in agent guidance (`AGENTS.md`, `CODEX.md`, `CLAUDE.md`) during CELT quality tuning session.
+do_not_repeat_until: The pinned libopus version changes or project parity policy is formally revised.
+owner: codex
+
+date: 2026-02-12
+topic: CELT 2.5ms short-frame bit budget boost
+decision: Keep non-hybrid CELT `frameSize==120` target-bit uplift at `+128` in `celt/encode_frame.go` (`computeTargetBits`).
+evidence: `TestEncoderComplianceCELT` improved `FB-2.5ms-mono` from `Q=-43.27` to `Q=-30.98` (~+5.9 dB SNR); guardrails remained green: `TestCeltTargetBits25ms`, `TestCELTLongFrameVBRBitrateBudget`, `TestEncoderComplianceSummary`, `TestEncoderCompliancePrecisionGuard`, `TestEncoderVariantProfileParityAgainstLibopusFixture`, `make verify-production`, and `make bench-guard`.
+do_not_repeat_until: Short-frame parity/bitrate/interoperability guards regress or libopus-referenced fixture evidence indicates over-allocation side effects.
+owner: codex
+
+date: 2026-02-12
 topic: AMD64 opusdec crossval fixture provenance
 decision: Always regenerate `celt/testdata/opusdec_crossval_fixture_amd64.json` as part of `make fixtures-gen-amd64` using `GOPUS_OPUSDEC_CROSSVAL_FIXTURE_OUT`; do not ship CELT packet/fixture changes with only the non-amd64 crossval fixture refreshed.
 evidence: PR #28 CI failures in linux/windows (`TestOpusdecCrossvalFixtureCoverage`, fixture honesty checks) were caused by missing `_amd64` SHA mappings. After wiring `tools/gen_opusdec_crossval_fixture.go` into `fixtures-gen-amd64` and regenerating, linux/amd64 `go test ./celt -run 'TestOpusdecCrossvalFixtureCoverage|TestOpusdecCrossvalFixtureHonestyAgainstLiveOpusdec' -count=1 -v` and `make verify-production` both passed.

@@ -39,6 +39,7 @@ Canonical project context for agent sessions.
 
 ## Implementation Rules
 - Always cross-check codec math/bitstream decisions against libopus C sources first.
+- If there is any uncertainty or conflicting behavior, treat `tmp_check/opus-1.6.1/` source code as the authoritative truth and align gopus to that exact libopus version before trying heuristic fixes.
 - Prefer targeted parity tests before broad refactors.
 - API direction is zero-allocation caller-owned buffers:
   - `func (d *Decoder) Decode(data []byte, pcm []float32) (int, error)`
