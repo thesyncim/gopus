@@ -381,6 +381,20 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
 	}
 
+	// Test application control
+	if got := enc.Application(); got != ApplicationAudio {
+		t.Fatalf("Application()=%v want=%v", got, ApplicationAudio)
+	}
+	if err := enc.SetApplication(ApplicationVoIP); err != nil {
+		t.Fatalf("SetApplication(ApplicationVoIP) error: %v", err)
+	}
+	if got := enc.Application(); got != ApplicationVoIP {
+		t.Fatalf("Application()=%v want=%v after SetApplication", got, ApplicationVoIP)
+	}
+	if err := enc.SetApplication(Application(-1)); err != ErrInvalidApplication {
+		t.Fatalf("SetApplication(invalid) error=%v want=%v", err, ErrInvalidApplication)
+	}
+
 	// Test SetBitrate
 	err = enc.SetBitrate(256000)
 	if err != nil {
@@ -403,6 +417,29 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 	err = enc.SetComplexity(11)
 	if err != ErrInvalidComplexity {
 		t.Errorf("SetComplexity(11) error = %v, want ErrInvalidComplexity", err)
+	}
+
+	// Test bitrate mode controls
+	if err := enc.SetBitrateMode(BitrateModeCBR); err != nil {
+		t.Errorf("SetBitrateMode(BitrateModeCBR) error: %v", err)
+	}
+	if got := enc.BitrateMode(); got != BitrateModeCBR {
+		t.Errorf("BitrateMode() = %v, want %v", got, BitrateModeCBR)
+	}
+	enc.SetVBR(true)
+	if !enc.VBR() {
+		t.Error("VBR() should be true after SetVBR(true)")
+	}
+	enc.SetVBRConstraint(true)
+	if !enc.VBRConstraint() {
+		t.Error("VBRConstraint() should be true after SetVBRConstraint(true)")
+	}
+	enc.SetVBRConstraint(false)
+	if got := enc.BitrateMode(); got != BitrateModeVBR {
+		t.Errorf("BitrateMode() = %v, want %v after SetVBRConstraint(false)", got, BitrateModeVBR)
+	}
+	if err := enc.SetBitrateMode(BitrateMode(99)); err != ErrInvalidBitrateMode {
+		t.Errorf("SetBitrateMode(invalid) error = %v, want %v", err, ErrInvalidBitrateMode)
 	}
 
 	// Test SetFEC
@@ -438,6 +475,49 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 		t.Errorf("SetPacketLoss(101) error = %v, want ErrInvalidPacketLoss", err)
 	}
 
+	// Test bandwidth control
+	if err := enc.SetBandwidth(BandwidthWideband); err != nil {
+		t.Errorf("SetBandwidth(BandwidthWideband) error: %v", err)
+	}
+	if got := enc.Bandwidth(); got != BandwidthWideband {
+		t.Errorf("Bandwidth() = %v, want %v", got, BandwidthWideband)
+	}
+	if err := enc.SetBandwidth(Bandwidth(255)); err != ErrInvalidBandwidth {
+		t.Errorf("SetBandwidth(invalid) error = %v, want %v", err, ErrInvalidBandwidth)
+	}
+
+	// Test force channels control
+	for _, ch := range []int{1, 2, -1} {
+		if err := enc.SetForceChannels(ch); err != nil {
+			t.Errorf("SetForceChannels(%d) error: %v", ch, err)
+		}
+		if got := enc.ForceChannels(); got != ch {
+			t.Errorf("ForceChannels() = %d, want %d", got, ch)
+		}
+	}
+	if err := enc.SetForceChannels(0); err != ErrInvalidForceChannels {
+		t.Errorf("SetForceChannels(0) error = %v, want %v", err, ErrInvalidForceChannels)
+	}
+
+	// Test prediction and phase inversion controls
+	enc.SetPredictionDisabled(true)
+	if !enc.PredictionDisabled() {
+		t.Error("PredictionDisabled() should be true after SetPredictionDisabled(true)")
+	}
+	enc.SetPredictionDisabled(false)
+	if enc.PredictionDisabled() {
+		t.Error("PredictionDisabled() should be false after SetPredictionDisabled(false)")
+	}
+
+	enc.SetPhaseInversionDisabled(true)
+	if !enc.PhaseInversionDisabled() {
+		t.Error("PhaseInversionDisabled() should be true after SetPhaseInversionDisabled(true)")
+	}
+	enc.SetPhaseInversionDisabled(false)
+	if enc.PhaseInversionDisabled() {
+		t.Error("PhaseInversionDisabled() should be false after SetPhaseInversionDisabled(false)")
+	}
+
 	// Encode a frame after setting controls to verify no errors
 	frameSize := 960
 	pcm := generateSurroundTestSignal(48000, frameSize, channels)
@@ -452,8 +532,8 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 		t.Errorf("FinalRange() = %d, want %d", enc.FinalRange(), enc.GetFinalRange())
 	}
 
-	t.Logf("Controls verified: bitrate=%d, complexity=%d, FEC=%v, DTX=%v",
-		enc.Bitrate(), enc.Complexity(), enc.FECEnabled(), enc.DTXEnabled())
+	t.Logf("Controls verified: app=%v bitrate=%d complexity=%d mode=%v FEC=%v DTX=%v",
+		enc.Application(), enc.Bitrate(), enc.Complexity(), enc.BitrateMode(), enc.FECEnabled(), enc.DTXEnabled())
 }
 
 // TestMultistreamDecoder_PLC tests packet loss concealment.

@@ -86,6 +86,10 @@ var (
 
 	// ErrInvalidArgument indicates one or more function arguments are invalid.
 	ErrInvalidArgument = errors.New("gopus: invalid argument")
+
+	// ErrInvalidGain indicates an invalid decoder gain value.
+	// Valid range is -32768 to 32767 (Q8 dB).
+	ErrInvalidGain = errors.New("gopus: invalid gain (must be -32768 to 32767)")
 )
 
 // validSampleRate returns true if the sample rate is valid for Opus.

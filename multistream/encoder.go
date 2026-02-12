@@ -1041,6 +1041,49 @@ func (e *Encoder) Complexity() int {
 	return 10 // Default
 }
 
+// SetBitrateMode sets the bitrate mode for all stream encoders.
+func (e *Encoder) SetBitrateMode(mode encoder.BitrateMode) {
+	for _, enc := range e.encoders {
+		enc.SetBitrateMode(mode)
+	}
+}
+
+// BitrateMode returns the current bitrate mode (from first stream encoder).
+func (e *Encoder) BitrateMode() encoder.BitrateMode {
+	if len(e.encoders) > 0 {
+		return e.encoders[0].GetBitrateMode()
+	}
+	return encoder.ModeVBR
+}
+
+// SetVBR enables or disables VBR mode for all stream encoders.
+func (e *Encoder) SetVBR(enabled bool) {
+	if enabled {
+		e.SetBitrateMode(encoder.ModeVBR)
+		return
+	}
+	e.SetBitrateMode(encoder.ModeCBR)
+}
+
+// VBR reports whether VBR mode is enabled.
+func (e *Encoder) VBR() bool {
+	return e.BitrateMode() != encoder.ModeCBR
+}
+
+// SetVBRConstraint enables or disables constrained VBR mode.
+func (e *Encoder) SetVBRConstraint(constrained bool) {
+	if constrained {
+		e.SetBitrateMode(encoder.ModeCVBR)
+		return
+	}
+	e.SetBitrateMode(encoder.ModeVBR)
+}
+
+// VBRConstraint reports whether constrained VBR is enabled.
+func (e *Encoder) VBRConstraint() bool {
+	return e.BitrateMode() == encoder.ModeCVBR
+}
+
 // SetFEC enables or disables in-band Forward Error Correction for all streams.
 // When enabled, encoders include LBRR data for loss recovery.
 func (e *Encoder) SetFEC(enabled bool) {
@@ -1085,6 +1128,66 @@ func (e *Encoder) SetDTX(enabled bool) {
 func (e *Encoder) DTXEnabled() bool {
 	if len(e.encoders) > 0 {
 		return e.encoders[0].DTXEnabled()
+	}
+	return false
+}
+
+// SetBandwidth sets the target bandwidth for all stream encoders.
+func (e *Encoder) SetBandwidth(bw types.Bandwidth) {
+	for _, enc := range e.encoders {
+		enc.SetBandwidth(bw)
+	}
+}
+
+// Bandwidth returns the target bandwidth from the first stream encoder.
+func (e *Encoder) Bandwidth() types.Bandwidth {
+	if len(e.encoders) > 0 {
+		return e.encoders[0].Bandwidth()
+	}
+	return types.BandwidthFullband
+}
+
+// SetForceChannels sets forced channel count on all stream encoders.
+func (e *Encoder) SetForceChannels(channels int) {
+	for _, enc := range e.encoders {
+		enc.SetForceChannels(channels)
+	}
+}
+
+// ForceChannels returns forced channel count from the first stream encoder.
+func (e *Encoder) ForceChannels() int {
+	if len(e.encoders) > 0 {
+		return e.encoders[0].ForceChannels()
+	}
+	return -1
+}
+
+// SetPredictionDisabled toggles inter-frame prediction for all stream encoders.
+func (e *Encoder) SetPredictionDisabled(disabled bool) {
+	for _, enc := range e.encoders {
+		enc.SetPredictionDisabled(disabled)
+	}
+}
+
+// PredictionDisabled reports whether inter-frame prediction is disabled.
+func (e *Encoder) PredictionDisabled() bool {
+	if len(e.encoders) > 0 {
+		return e.encoders[0].PredictionDisabled()
+	}
+	return false
+}
+
+// SetPhaseInversionDisabled toggles stereo phase inversion on all stream encoders.
+func (e *Encoder) SetPhaseInversionDisabled(disabled bool) {
+	for _, enc := range e.encoders {
+		enc.SetPhaseInversionDisabled(disabled)
+	}
+}
+
+// PhaseInversionDisabled reports whether stereo phase inversion is disabled.
+func (e *Encoder) PhaseInversionDisabled() bool {
+	if len(e.encoders) > 0 {
+		return e.encoders[0].PhaseInversionDisabled()
 	}
 	return false
 }

@@ -2,6 +2,7 @@ package gopus
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 )
@@ -784,5 +785,109 @@ func TestDecoder_InDTX(t *testing.T) {
 	dec.lastDataLen = 3
 	if dec.InDTX() {
 		t.Fatal("InDTX()=true for 3-byte packet length")
+	}
+}
+
+func TestDecoder_SetGainBounds(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	if err := dec.SetGain(-32769); err != ErrInvalidGain {
+		t.Fatalf("SetGain(-32769) error=%v want=%v", err, ErrInvalidGain)
+	}
+	if err := dec.SetGain(32768); err != ErrInvalidGain {
+		t.Fatalf("SetGain(32768) error=%v want=%v", err, ErrInvalidGain)
+	}
+
+	for _, gain := range []int{-32768, 0, 256, 32767} {
+		if err := dec.SetGain(gain); err != nil {
+			t.Fatalf("SetGain(%d) unexpected error: %v", gain, err)
+		}
+		if got := dec.Gain(); got != gain {
+			t.Fatalf("Gain()=%d want=%d", got, gain)
+		}
+	}
+}
+
+func TestDecoder_GainAppliedToDecodeOutput(t *testing.T) {
+	packet := minimalHybridTestPacket20ms()
+
+	base, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder base error: %v", err)
+	}
+	withGain, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder withGain error: %v", err)
+	}
+	if err := withGain.SetGain(256); err != nil {
+		t.Fatalf("SetGain(+1dB) error: %v", err)
+	}
+
+	pcmBase := make([]float32, 960)
+	pcmGain := make([]float32, 960)
+
+	nBase, err := base.Decode(packet, pcmBase)
+	if err != nil {
+		t.Fatalf("base Decode error: %v", err)
+	}
+	nGain, err := withGain.Decode(packet, pcmGain)
+	if err != nil {
+		t.Fatalf("withGain Decode error: %v", err)
+	}
+	if nBase != nGain {
+		t.Fatalf("decode sample mismatch: base=%d gain=%d", nBase, nGain)
+	}
+
+	rms := func(x []float32) float64 {
+		if len(x) == 0 {
+			return 0
+		}
+		var sum float64
+		for _, v := range x {
+			f := float64(v)
+			sum += f * f
+		}
+		return math.Sqrt(sum / float64(len(x)))
+	}
+
+	baseRMS := rms(pcmBase[:nBase])
+	gainRMS := rms(pcmGain[:nGain])
+	if baseRMS == 0 || gainRMS == 0 {
+		t.Fatalf("unexpected zero RMS: base=%.8f gain=%.8f", baseRMS, gainRMS)
+	}
+
+	gotRatio := gainRMS / baseRMS
+	wantRatio := float64(decodeGainLinear(256))
+	if math.Abs(gotRatio-wantRatio) > 0.02 {
+		t.Fatalf("gain RMS ratio=%.6f want≈%.6f (tol=0.02)", gotRatio, wantRatio)
+	}
+}
+
+func TestDecoder_PitchGetter(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	if got := dec.Pitch(); got != 0 {
+		t.Fatalf("Pitch()=%d want=0 before decode", got)
+	}
+
+	packet := minimalHybridTestPacket20ms()
+	pcm := make([]float32, 960)
+	if _, err := dec.Decode(packet, pcm); err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+
+	got := dec.Pitch()
+	want := dec.celtDecoder.PostfilterPeriod()
+	if got != want {
+		t.Fatalf("Pitch()=%d want=%d", got, want)
+	}
+	if got < 0 {
+		t.Fatalf("Pitch() should not be negative: %d", got)
 	}
 }
