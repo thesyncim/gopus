@@ -243,6 +243,7 @@ Benchmarks:
 ```bash
 go test -run='^$' -bench='^Benchmark(DecoderDecode|EncoderEncode)_' -benchmem ./...
 go test -bench=. -benchmem ./...
+go test -run '^TestHotPathAllocs' -count=1 .
 ```
 
 PGO:
@@ -266,7 +267,12 @@ go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v
 
 # Project shortcuts
 make test-fast
+make test-race
+make test-race-parity
+make test-fuzz-smoke
 make test-parity
+make verify-production
+make verify-production-exhaustive
 make ensure-libopus
 make test-exhaustive
 make test-provenance
