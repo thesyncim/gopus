@@ -47,45 +47,93 @@ type CELTBandInfo struct {
 	Overlap int
 }
 
-// DefaultCELTBandInfo provides default CELT band configuration.
-// This should be set by the celt package during initialization.
-var DefaultCELTBandInfo = &CELTBandInfo{
-	MaxBands:        21,
-	HybridStartBand: 17,
-	Overlap:         120,
-	EffBands: func(frameSize int) int {
-		// Default effective bands by frame size
-		switch frameSize {
-		case 120:
-			return 13
-		case 240:
-			return 17
-		case 480:
-			return 19
-		case 960:
-			return 21
-		default:
-			return 21
-		}
-	},
-	BandStart: func(band, frameSize int) int {
-		// Default band start offsets (simplified)
-		eBands := []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 20, 24, 28, 34, 40, 48, 60, 78, 100}
-		if band < 0 || band >= len(eBands) {
-			return 0
-		}
-		return eBands[band] * frameSize / 960
-	},
-	BandEnd: func(band, frameSize int) int {
-		eBands := []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 20, 24, 28, 34, 40, 48, 60, 78, 100}
-		if band < 0 || band >= len(eBands)-1 {
-			return frameSize
-		}
-		return eBands[band+1] * frameSize / 960
-	},
-	ValidFrameSize: func(frameSize int) bool {
-		return frameSize == 120 || frameSize == 240 || frameSize == 480 || frameSize == 960
-	},
+func defaultCELTEffBands(frameSize int) int {
+	switch frameSize {
+	case 120:
+		return 13
+	case 240:
+		return 17
+	case 480:
+		return 19
+	case 960:
+		return 21
+	default:
+		return 21
+	}
+}
+
+func defaultCELTBandStart(band, frameSize int) int {
+	switch band {
+	case 0:
+		return 0
+	case 1:
+		return frameSize / 960
+	case 2:
+		return (2 * frameSize) / 960
+	case 3:
+		return (3 * frameSize) / 960
+	case 4:
+		return (4 * frameSize) / 960
+	case 5:
+		return (5 * frameSize) / 960
+	case 6:
+		return (6 * frameSize) / 960
+	case 7:
+		return (7 * frameSize) / 960
+	case 8:
+		return (8 * frameSize) / 960
+	case 9:
+		return (10 * frameSize) / 960
+	case 10:
+		return (12 * frameSize) / 960
+	case 11:
+		return (14 * frameSize) / 960
+	case 12:
+		return (16 * frameSize) / 960
+	case 13:
+		return (20 * frameSize) / 960
+	case 14:
+		return (24 * frameSize) / 960
+	case 15:
+		return (28 * frameSize) / 960
+	case 16:
+		return (34 * frameSize) / 960
+	case 17:
+		return (40 * frameSize) / 960
+	case 18:
+		return (48 * frameSize) / 960
+	case 19:
+		return (60 * frameSize) / 960
+	case 20:
+		return (78 * frameSize) / 960
+	case 21:
+		return (100 * frameSize) / 960
+	default:
+		return 0
+	}
+}
+
+func defaultCELTBandEnd(band, frameSize int) int {
+	if band < 0 || band >= 21 {
+		return frameSize
+	}
+	return defaultCELTBandStart(band+1, frameSize)
+}
+
+func defaultCELTValidFrameSize(frameSize int) bool {
+	return frameSize == 120 || frameSize == 240 || frameSize == 480 || frameSize == 960
+}
+
+func defaultCELTBandInfo() CELTBandInfo {
+	return CELTBandInfo{
+		MaxBands:        21,
+		HybridStartBand: 17,
+		EffBands:        defaultCELTEffBands,
+		BandStart:       defaultCELTBandStart,
+		BandEnd:         defaultCELTBandEnd,
+		ValidFrameSize:  defaultCELTValidFrameSize,
+		Overlap:         120,
+	}
 }
 
 // CELTSynthesizer provides synthesis functionality for CELT PLC.
@@ -125,7 +173,7 @@ func ConcealCELT(dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fad
 		return make([]float64, frameSize*channels)
 	}
 
-	bandInfo := DefaultCELTBandInfo
+	bandInfo := defaultCELTBandInfo()
 	nbBands := bandInfo.EffBands(frameSize)
 
 	// Get previous frame energy (will be decayed)
@@ -146,11 +194,11 @@ func ConcealCELT(dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fad
 
 	if channels == 2 {
 		// Stereo: generate coefficients for both channels
-		coeffsL = generateNoiseBands(concealEnergy[:bandInfo.MaxBands], nbBands, frameSize, &rng, fadeFactor, bandInfo)
-		coeffsR = generateNoiseBands(concealEnergy[bandInfo.MaxBands:], nbBands, frameSize, &rng, fadeFactor, bandInfo)
+		coeffsL = generateNoiseBands(concealEnergy[:bandInfo.MaxBands], nbBands, frameSize, &rng, fadeFactor, &bandInfo)
+		coeffsR = generateNoiseBands(concealEnergy[bandInfo.MaxBands:], nbBands, frameSize, &rng, fadeFactor, &bandInfo)
 	} else {
 		// Mono: single set of coefficients
-		coeffs = generateNoiseBands(concealEnergy, nbBands, frameSize, &rng, fadeFactor, bandInfo)
+		coeffs = generateNoiseBands(concealEnergy, nbBands, frameSize, &rng, fadeFactor, &bandInfo)
 	}
 
 	// Synthesize using IMDCT + window + overlap-add
@@ -205,7 +253,7 @@ func ConcealCELTInto(dst []float64, dec CELTDecoderState, synth CELTSynthesizer,
 		return
 	}
 
-	bandInfo := DefaultCELTBandInfo
+	bandInfo := defaultCELTBandInfo()
 	nbBands := bandInfo.EffBands(frameSize)
 
 	// Get previous frame energy (will be decayed)
@@ -227,11 +275,11 @@ func ConcealCELTInto(dst []float64, dec CELTDecoderState, synth CELTSynthesizer,
 
 	if channels == 2 {
 		// Stereo: generate coefficients for both channels
-		coeffsL = generateNoiseBands(concealEnergy[:bandInfo.MaxBands], nbBands, frameSize, &rng, fadeFactor, bandInfo)
-		coeffsR = generateNoiseBands(concealEnergy[bandInfo.MaxBands:], nbBands, frameSize, &rng, fadeFactor, bandInfo)
+		coeffsL = generateNoiseBands(concealEnergy[:bandInfo.MaxBands], nbBands, frameSize, &rng, fadeFactor, &bandInfo)
+		coeffsR = generateNoiseBands(concealEnergy[bandInfo.MaxBands:], nbBands, frameSize, &rng, fadeFactor, &bandInfo)
 	} else {
 		// Mono: single set of coefficients
-		coeffs = generateNoiseBands(concealEnergy, nbBands, frameSize, &rng, fadeFactor, bandInfo)
+		coeffs = generateNoiseBands(concealEnergy, nbBands, frameSize, &rng, fadeFactor, &bandInfo)
 	}
 
 	// Synthesize using IMDCT + window + overlap-add
@@ -410,7 +458,7 @@ func ConcealCELTHybrid(dec CELTDecoderState, synth CELTSynthesizer, frameSize in
 		return make([]float64, frameSize*channels)
 	}
 
-	bandInfo := DefaultCELTBandInfo
+	bandInfo := defaultCELTBandInfo()
 	nbBands := bandInfo.EffBands(frameSize)
 
 	// Get previous frame energy
@@ -429,10 +477,10 @@ func ConcealCELTHybrid(dec CELTDecoderState, synth CELTSynthesizer, frameSize in
 	var coeffsL, coeffsR []float64
 
 	if channels == 2 {
-		coeffsL = generateNoiseHybridBands(concealEnergy[:bandInfo.MaxBands], nbBands, frameSize, &rng, fadeFactor, bandInfo)
-		coeffsR = generateNoiseHybridBands(concealEnergy[bandInfo.MaxBands:], nbBands, frameSize, &rng, fadeFactor, bandInfo)
+		coeffsL = generateNoiseHybridBands(concealEnergy[:bandInfo.MaxBands], nbBands, frameSize, &rng, fadeFactor, &bandInfo)
+		coeffsR = generateNoiseHybridBands(concealEnergy[bandInfo.MaxBands:], nbBands, frameSize, &rng, fadeFactor, &bandInfo)
 	} else {
-		coeffs = generateNoiseHybridBands(concealEnergy, nbBands, frameSize, &rng, fadeFactor, bandInfo)
+		coeffs = generateNoiseHybridBands(concealEnergy, nbBands, frameSize, &rng, fadeFactor, &bandInfo)
 	}
 
 	// Synthesize

@@ -7,12 +7,6 @@ import (
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
-// DebugEnergyDecoding enables debug output for energy decoding.
-var DebugEnergyDecoding = false
-
-// Ensure fmt is used
-var _ = fmt.Sprint
-
 // Laplace decoding constants per libopus celt/laplace.c.
 const (
 	laplaceLogMinP = 0
@@ -168,7 +162,7 @@ func (d *Decoder) decodeCoarseEnergyInto(dst []float64, nbBands int, intra bool,
 
 	budget := rd.StorageBits()
 
-	if DebugEnergyDecoding {
+	if debugEnergyDecodingEnabled {
 		fmt.Printf("DecodeCoarseEnergy: nbBands=%d, channels=%d, intra=%v, lm=%d, alpha=%.4f, beta=%.4f, budget=%d\n",
 			nbBands, d.channels, intra, lm, alpha, beta, budget)
 	}
@@ -201,7 +195,7 @@ func (d *Decoder) decodeCoarseEnergyInto(dst []float64, nbBands int, intra bool,
 				qi = -1
 			}
 
-			if DebugEnergyDecoding {
+			if debugEnergyDecodingEnabled {
 				ch := "L"
 				if c == 1 {
 					ch = "R"
@@ -222,7 +216,7 @@ func (d *Decoder) decodeCoarseEnergyInto(dst []float64, nbBands int, intra bool,
 			q := float64(qi) * DB6
 			energy := pred + q
 
-			if DebugEnergyDecoding {
+			if debugEnergyDecodingEnabled {
 				ch := "L"
 				if c == 1 {
 					ch = "R"

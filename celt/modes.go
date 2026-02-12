@@ -12,53 +12,62 @@ type ModeConfig struct {
 	MDCTSize    int // MDCT window size for long blocks
 }
 
-// Mode configurations for each supported frame size.
-// Source: libopus celt/modes.c
-var modeConfigs = map[int]ModeConfig{
-	120: { // 2.5ms frame
-		FrameSize:   120,
-		ShortBlocks: 1,
-		LM:          0,
-		EffBands:    21, // CELT uses full band set for 48kHz mode
-		MDCTSize:    120,
-	},
-	240: { // 5ms frame
-		FrameSize:   240,
-		ShortBlocks: 2,
-		LM:          1,
-		EffBands:    21,
-		MDCTSize:    240,
-	},
-	480: { // 10ms frame
-		FrameSize:   480,
-		ShortBlocks: 4,
-		LM:          2,
-		EffBands:    21,
-		MDCTSize:    480,
-	},
-	960: { // 20ms frame
-		FrameSize:   960,
-		ShortBlocks: 8,
-		LM:          3,
-		EffBands:    21, // Full 21 bands
-		MDCTSize:    960,
-	},
-}
-
 // GetModeConfig returns the mode configuration for the given frame size.
 // Valid frame sizes are 120, 240, 480, and 960 samples at 48kHz.
 func GetModeConfig(frameSize int) ModeConfig {
-	if cfg, ok := modeConfigs[frameSize]; ok {
-		return cfg
+	switch frameSize {
+	case 120: // 2.5ms frame
+		return ModeConfig{
+			FrameSize:   120,
+			ShortBlocks: 1,
+			LM:          0,
+			EffBands:    21,
+			MDCTSize:    120,
+		}
+	case 240: // 5ms frame
+		return ModeConfig{
+			FrameSize:   240,
+			ShortBlocks: 2,
+			LM:          1,
+			EffBands:    21,
+			MDCTSize:    240,
+		}
+	case 480: // 10ms frame
+		return ModeConfig{
+			FrameSize:   480,
+			ShortBlocks: 4,
+			LM:          2,
+			EffBands:    21,
+			MDCTSize:    480,
+		}
+	case 960: // 20ms frame
+		return ModeConfig{
+			FrameSize:   960,
+			ShortBlocks: 8,
+			LM:          3,
+			EffBands:    21,
+			MDCTSize:    960,
+		}
+	default:
+		// Default to 20ms frame for invalid sizes.
+		return ModeConfig{
+			FrameSize:   960,
+			ShortBlocks: 8,
+			LM:          3,
+			EffBands:    21,
+			MDCTSize:    960,
+		}
 	}
-	// Default to 20ms frame for invalid sizes
-	return modeConfigs[960]
 }
 
 // ValidFrameSize returns true if the frame size is valid for CELT.
 func ValidFrameSize(frameSize int) bool {
-	_, ok := modeConfigs[frameSize]
-	return ok
+	switch frameSize {
+	case 120, 240, 480, 960:
+		return true
+	default:
+		return false
+	}
 }
 
 // FrameSizeFromDuration returns the frame size in samples for a given
@@ -135,25 +144,24 @@ func (bw CELTBandwidth) MaxFrequency() int {
 	}
 }
 
-// bandwidthToBands maps bandwidth to effective band count for 20ms frames.
-// For shorter frames, effective bands may be reduced.
-// Source: libopus celt/modes.c
-var bandwidthToBands = map[CELTBandwidth]int{
-	CELTNarrowband:    13, // Up to ~4kHz
-	CELTMediumband:    15, // Up to ~6kHz
-	CELTWideband:      17, // Up to ~8kHz
-	CELTSuperwideband: 19, // Up to ~12kHz
-	CELTFullband:      21, // Up to ~20kHz (all bands)
-}
-
 // EffectiveBands returns the number of coded bands for the given bandwidth.
 // This is the maximum number of bands; actual coded bands may be fewer
 // depending on frame size and bit allocation.
 func (bw CELTBandwidth) EffectiveBands() int {
-	if bands, ok := bandwidthToBands[bw]; ok {
-		return bands
+	switch bw {
+	case CELTNarrowband:
+		return 13
+	case CELTMediumband:
+		return 15
+	case CELTWideband:
+		return 17
+	case CELTSuperwideband:
+		return 19
+	case CELTFullband:
+		return 21
+	default:
+		return MaxBands
 	}
-	return MaxBands // Default to full
 }
 
 // EffectiveBandsForFrameSize returns the effective band count considering

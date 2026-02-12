@@ -100,6 +100,8 @@ type Encoder struct {
 
 	// Frame counting for intra mode decisions
 	frameCount int // Number of frames encoded (0 = first frame uses intra mode)
+	// Per-encoder debug counters for PVQ/theta diagnostics.
+	bandDebug bandDebugState
 	// Coarse-energy intra/inter decision state (libopus delayedIntra).
 	delayedIntra float64
 	forceIntra   bool
@@ -133,9 +135,9 @@ type Encoder struct {
 
 	// Analysis bandwidth state used by bit allocation gating.
 	// This mirrors libopus use of st->analysis.bandwidth for clt_compute_allocation().
-	analysisBandwidth int  // 1..20 bandwidth index from previous frame analysis
-	analysisValid     bool // True after at least one analysis update
-	analysisLeakBoost [leakBands]uint8
+	analysisBandwidth     int  // 1..20 bandwidth index from previous frame analysis
+	analysisValid         bool // True after at least one analysis update
+	analysisLeakBoost     [leakBands]uint8
 	analysisTonalitySlope float64
 	// Bootstrap leak boost used when external analysis is valid but doesn't yet
 	// provide leak_boost (matches early-frame libopus behavior more closely).
@@ -307,12 +309,12 @@ func NewEncoder(channels int) *Encoder {
 		tapsetDecision: 0,
 
 		// Initialize tonality analysis state
-		prevBandLogEnergy: make([]float64, MaxBands*channels),
-		lastTonality:      0.5, // Start with neutral tonality estimate
-		lastStereoSaving:  0.0,
-		lastPitchChange:   false,
-		analysisBandwidth: 20,
-		analysisValid:     false,
+		prevBandLogEnergy:     make([]float64, MaxBands*channels),
+		lastTonality:          0.5, // Start with neutral tonality estimate
+		lastStereoSaving:      0.0,
+		lastPitchChange:       false,
+		analysisBandwidth:     20,
+		analysisValid:         false,
 		analysisTonalitySlope: 0.0,
 
 		// Pre-emphasized signal buffer for transient analysis overlap
@@ -500,6 +502,7 @@ func (e *Encoder) Reset() {
 
 	// Reset frame counter
 	e.frameCount = 0
+	e.bandDebug = bandDebugState{}
 	e.frameBits = 0
 	e.delayedIntra = 1.0
 	e.lastCodedBands = 0

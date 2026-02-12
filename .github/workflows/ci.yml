@@ -19,8 +19,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test-linux:
-    name: test-linux
+  test-linux-verify:
+    name: test-linux-verify
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -33,19 +33,63 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Install ffmpeg
+      - name: Cache pinned libopus build
+        uses: actions/cache@v4
+        with:
+          path: |
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+          key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
+
+      - name: Install codec tools (if missing)
         run: |
+          if command -v ffmpeg >/dev/null 2>&1 && command -v opusdec >/dev/null 2>&1; then
+            echo "ffmpeg and opusdec already present; skipping apt install"
+            exit 0
+          fi
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ffmpeg opus-tools
-
-      - name: Bootstrap pinned libopus
-        run: make ensure-libopus
 
       - name: Run production verification gate
         run: make verify-production
 
+  test-linux-provenance:
+    name: test-linux-provenance
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Cache Docker buildx layers
+        uses: actions/cache@v4
+        with:
+          path: .docker-cache/buildx-linux-amd64
+          key: buildx-exhaustive-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Dockerfile.ci', 'go.mod', 'go.sum', 'Makefile') }}
+          restore-keys: |
+            buildx-exhaustive-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Verify libopus fixture provenance (pinned Docker env)
         run: make docker-test-exhaustive
+
+  test-linux:
+    name: test-linux
+    if: always()
+    needs:
+      - test-linux-verify
+      - test-linux-provenance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate Linux gates
+        run: |
+          echo "test-linux-verify: ${{ needs.test-linux-verify.result }}"
+          echo "test-linux-provenance: ${{ needs.test-linux-provenance.result }}"
+          if [ "${{ needs.test-linux-verify.result }}" != "success" ]; then
+            exit 1
+          fi
+          if [ "${{ needs.test-linux-provenance.result }}" != "success" ]; then
+            exit 1
+          fi
 
   perf-linux:
     name: perf-linux
@@ -78,9 +122,20 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Install ffmpeg
+      - name: Cache pinned libopus build
+        uses: actions/cache@v4
+        with:
+          path: |
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+          key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
+
+      - name: Install codec tools (if missing)
         run: |
-          brew update
+          if command -v ffmpeg >/dev/null 2>&1 && command -v opusdec >/dev/null 2>&1; then
+            echo "ffmpeg and opusdec already present; skipping brew install"
+            exit 0
+          fi
           brew install ffmpeg opus-tools
 
       - name: Bootstrap pinned libopus
@@ -109,7 +164,11 @@ jobs:
       - name: Install ffmpeg
         shell: pwsh
         run: |
-          choco install -y ffmpeg
+          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
+            choco install -y ffmpeg
+          } else {
+            Write-Host "ffmpeg already present; skipping chocolatey install"
+          }
 
       - name: Run test suite
         shell: pwsh

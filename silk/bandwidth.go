@@ -28,16 +28,18 @@ type BandwidthConfig struct {
 	PitchLagMax int
 }
 
-// bandwidthConfigs maps bandwidth to configuration.
-var bandwidthConfigs = map[Bandwidth]BandwidthConfig{
-	BandwidthNarrowband:  {8000, 10, 40, 16, 144},
-	BandwidthMediumband:  {12000, 10, 60, 24, 216},
-	BandwidthWideband:    {16000, 16, 80, 32, 288},
-}
-
 // GetBandwidthConfig returns the configuration for the given bandwidth.
 func GetBandwidthConfig(bw Bandwidth) BandwidthConfig {
-	return bandwidthConfigs[bw]
+	switch bw {
+	case BandwidthNarrowband:
+		return BandwidthConfig{SampleRate: 8000, LPCOrder: 10, SubframeSamples: 40, PitchLagMin: 16, PitchLagMax: 144}
+	case BandwidthMediumband:
+		return BandwidthConfig{SampleRate: 12000, LPCOrder: 10, SubframeSamples: 60, PitchLagMin: 24, PitchLagMax: 216}
+	case BandwidthWideband:
+		return BandwidthConfig{SampleRate: 16000, LPCOrder: 16, SubframeSamples: 80, PitchLagMin: 32, PitchLagMax: 288}
+	default:
+		return BandwidthConfig{SampleRate: 16000, LPCOrder: 16, SubframeSamples: 80, PitchLagMin: 32, PitchLagMax: 288}
+	}
 }
 
 // String returns the string representation of the bandwidth.

@@ -149,6 +149,7 @@ func (e *Encoder) QuantAllBandsEncodeScratch(re *rangecoding.Encoder, channels, 
 		nil,
 		nil,
 		&e.bandEncScratch,
+		&e.bandDebug,
 	)
 }
 
