@@ -1,3 +1,5 @@
+//go:build gopus_tmp_env
+
 // Package celt implements the CELT decoder per RFC 6716 Section 4.3.
 //
 // This file provides the minimal tracing infrastructure for the CELT decoder.
