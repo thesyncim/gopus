@@ -111,6 +111,8 @@ func encoderComplianceSummaryCases() []encoderComplianceSummaryCase {
 
 // TestEncoderComplianceCELT tests CELT mode encoding at various frame sizes.
 func TestEncoderComplianceCELT(t *testing.T) {
+	requireTestTier(t, testTierParity)
+
 	logEncoderComplianceStatus(t)
 
 	tests := []struct {
@@ -135,6 +137,8 @@ func TestEncoderComplianceCELT(t *testing.T) {
 
 // TestEncoderComplianceSILK tests SILK mode encoding at various bandwidths.
 func TestEncoderComplianceSILK(t *testing.T) {
+	requireTestTier(t, testTierParity)
+
 	logEncoderComplianceStatus(t)
 
 	tests := []struct {
@@ -160,6 +164,8 @@ func TestEncoderComplianceSILK(t *testing.T) {
 
 // TestEncoderComplianceHybrid tests Hybrid mode encoding.
 func TestEncoderComplianceHybrid(t *testing.T) {
+	requireTestTier(t, testTierParity)
+
 	logEncoderComplianceStatus(t)
 
 	tests := []struct {
@@ -185,6 +191,8 @@ func TestEncoderComplianceHybrid(t *testing.T) {
 
 // TestEncoderComplianceBitrates tests encoding at various bitrate targets.
 func TestEncoderComplianceBitrates(t *testing.T) {
+	requireTestTier(t, testTierParity)
+
 	logEncoderComplianceStatus(t)
 
 	bitrates := []int{32000, 64000, 128000, 256000}
@@ -198,6 +206,8 @@ func TestEncoderComplianceBitrates(t *testing.T) {
 
 // TestEncoderComplianceSummary runs all configurations and outputs a summary table.
 func TestEncoderComplianceSummary(t *testing.T) {
+	requireTestTier(t, testTierParity)
+
 	logEncoderComplianceStatus(t)
 
 	cases := encoderComplianceSummaryCases()

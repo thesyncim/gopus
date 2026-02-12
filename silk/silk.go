@@ -14,10 +14,6 @@ var (
 	ErrDecodeFailed     = errors.New("silk: frame decode failed")
 )
 
-// plcState tracks packet loss concealment state for the decoder.
-// Managed internally to provide seamless PLC when data is nil.
-var plcState = plc.NewState()
-
 // Decode decodes a SILK mono frame and returns 48kHz PCM samples.
 // If data is nil, performs Packet Loss Concealment (PLC) instead of decoding.
 //
@@ -108,8 +104,8 @@ func (d *Decoder) Decode(
 	}
 
 	// Reset PLC state after successful decode
-	plcState.Reset()
-	plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 1)
+	d.plcState.Reset()
+	d.plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 1)
 
 	return output, nil
 }
@@ -164,8 +160,8 @@ func (d *Decoder) DecodeStereo(
 	}
 
 	// Reset PLC state after successful decode
-	plcState.Reset()
-	plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 2)
+	d.plcState.Reset()
+	d.plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 2)
 
 	return output, nil
 }
@@ -236,8 +232,8 @@ func (d *Decoder) DecodeStereoToMono(
 	}
 
 	// Reset PLC state after successful decode
-	plcState.Reset()
-	plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 1)
+	d.plcState.Reset()
+	d.plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 1)
 
 	return output, nil
 }
@@ -328,8 +324,8 @@ func (d *Decoder) DecodeMonoToStereo(
 		}
 	}
 
-	plcState.Reset()
-	plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 2)
+	d.plcState.Reset()
+	d.plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 2)
 
 	return out, nil
 }
@@ -402,8 +398,8 @@ func (d *Decoder) DecodeWithDecoder(
 		output = append(output, processOutput...)
 	}
 
-	plcState.Reset()
-	plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 1)
+	d.plcState.Reset()
+	d.plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 1)
 
 	return output, nil
 }
@@ -479,8 +475,8 @@ func (d *Decoder) DecodeWithDecoderInto(
 		outputOffset += n
 	}
 
-	plcState.Reset()
-	plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 1)
+	d.plcState.Reset()
+	d.plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 1)
 
 	return outputOffset, nil
 }
@@ -520,8 +516,8 @@ func (d *Decoder) DecodeStereoWithDecoder(
 		output[i*2+1] = right[i]
 	}
 
-	plcState.Reset()
-	plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 2)
+	d.plcState.Reset()
+	d.plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 2)
 
 	return output, nil
 }
@@ -580,8 +576,8 @@ func (d *Decoder) DecodeStereoToMonoWithDecoder(
 		output = append(output, resampler.Process(resamplerInput)...)
 	}
 
-	plcState.Reset()
-	plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 1)
+	d.plcState.Reset()
+	d.plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 1)
 
 	return output, nil
 }
@@ -666,8 +662,8 @@ func (d *Decoder) DecodeMonoToStereoWithDecoder(
 		}
 	}
 
-	plcState.Reset()
-	plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 2)
+	d.plcState.Reset()
+	d.plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 2)
 
 	return out, nil
 }
@@ -752,7 +748,7 @@ func BandwidthFromOpus(opusBandwidth int) (Bandwidth, bool) {
 // decodePLC generates concealment audio for a lost mono packet.
 func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float32, error) {
 	// Get fade factor for this loss
-	fadeFactor := plcState.RecordLoss()
+	fadeFactor := d.plcState.RecordLoss()
 
 	// Get native sample count from 48kHz frame size
 	config := GetBandwidthConfig(bandwidth)
@@ -784,7 +780,7 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 // decodePLCStereo generates concealment audio for a lost stereo packet.
 func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]float32, error) {
 	// Get fade factor for this loss
-	fadeFactor := plcState.RecordLoss()
+	fadeFactor := d.plcState.RecordLoss()
 
 	// Get native sample count from 48kHz frame size
 	config := GetBandwidthConfig(bandwidth)
@@ -842,9 +838,4 @@ func float32ToInt16(v float32) int16 {
 		return -32768
 	}
 	return int16(math.RoundToEven(float64(scaled)))
-}
-
-// PLCState returns the PLC state for external access (e.g., hybrid mode).
-func PLCState() *plc.State {
-	return plcState
 }

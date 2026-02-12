@@ -1,6 +1,9 @@
 package silk
 
-import "github.com/thesyncim/gopus/rangecoding"
+import (
+	"github.com/thesyncim/gopus/plc"
+	"github.com/thesyncim/gopus/rangecoding"
+)
 
 // Decoder decodes SILK frames from an Opus packet.
 // It maintains state across frames for proper speech continuity.
@@ -50,6 +53,9 @@ type Decoder struct {
 	// Resamplers for each bandwidth (created on demand).
 	// Separate resampler state per channel to match libopus.
 	resamplers map[Bandwidth]*resamplerPair
+
+	// Per-decoder PLC state (do not share across decoder instances).
+	plcState *plc.State
 
 	// Debug flag to track if reset was called (for testing)
 	debugResetCalled bool
@@ -172,6 +178,7 @@ func NewDecoder() *Decoder {
 		monoResamplerIn:        make([]int16, maxOutInt16Size),
 		monoOutput:             make([]int16, maxOutInt16Size),
 		buildMonoInputScratch:  make([]float32, maxOutInt16Size),
+		plcState:               plc.NewState(),
 	}
 	resetDecoderState(&d.state[0])
 	resetDecoderState(&d.state[1])
@@ -332,6 +339,11 @@ func (d *Decoder) Reset() {
 
 	// Re-wire scratch buffers after resetDecoderState cleared them
 	d.setupScratchBuffers()
+
+	if d.plcState == nil {
+		d.plcState = plc.NewState()
+	}
+	d.plcState.Reset()
 }
 
 // applyMonoDelay applies libopus-compatible delay compensation for mono SILK output.

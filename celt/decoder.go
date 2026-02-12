@@ -2,6 +2,7 @@ package celt
 
 import (
 	"errors"
+	"os"
 
 	"github.com/thesyncim/gopus/plc"
 	"github.com/thesyncim/gopus/rangecoding"
@@ -18,9 +19,6 @@ var (
 	// ErrNilDecoder indicates a nil range decoder was passed.
 	ErrNilDecoder = errors.New("celt: nil range decoder")
 )
-
-// celtPLCState tracks packet loss concealment state for CELT decoding.
-var celtPLCState = plc.NewState()
 
 // Decoder decodes CELT frames from an Opus packet.
 // It maintains state across frames for proper audio continuity via overlap-add
@@ -70,6 +68,9 @@ type Decoder struct {
 	rng uint32 // RNG state for PLC and folding
 	// Frame counter used by debug instrumentation to correlate per-frame traces.
 	decodeFrameIndex int
+
+	// Per-decoder PLC state (do not share across decoder instances).
+	plcState *plc.State
 
 	// Band processing state
 	collapseMask uint32 // Tracks which bands received pulses (for anti-collapse)
@@ -141,6 +142,7 @@ func NewDecoder(channels int) *Decoder {
 		rng: 0,
 
 		bandwidth: CELTFullband,
+		plcState:  plc.NewState(),
 	}
 
 	// Match libopus init/reset defaults (oldLogE/oldLogE2 = -28, buffers cleared).
@@ -185,6 +187,11 @@ func (d *Decoder) Reset() {
 
 	// Reset channel transition tracking
 	d.prevStreamChannels = 0
+
+	if d.plcState == nil {
+		d.plcState = plc.NewState()
+	}
+	d.plcState.Reset()
 }
 
 // SetRangeDecoder sets the range decoder for the current frame.
@@ -574,8 +581,10 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	}
 	currentFrame := d.decodeFrameIndex
 	d.decodeFrameIndex++
-	tmpQDbgDecodeFrame = currentFrame
-	tmpPVQCallSeq = 0
+	if os.Getenv("GOPUS_TMP_PVQCALL_DBG") == "1" {
+		tmpQDbgDecodeFrame = currentFrame
+		tmpPVQCallSeq = 0
+	}
 
 	d.prepareMonoEnergyFromStereo()
 
@@ -627,8 +636,8 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 		if traceLen > 0 {
 			traceSynthesis("final", samples[:traceLen])
 		}
-		celtPLCState.Reset()
-		celtPLCState.SetLastFrameParams(plc.ModeCELT, frameSize, d.channels)
+		d.plcState.Reset()
+		d.plcState.SetLastFrameParams(plc.ModeCELT, frameSize, d.channels)
 		d.rng = rd.Range()
 		return samples, nil
 	}
@@ -830,8 +839,8 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	d.rng = rd.Range()
 
 	// Reset PLC state after successful decode
-	celtPLCState.Reset()
-	celtPLCState.SetLastFrameParams(plc.ModeCELT, frameSize, d.channels)
+	d.plcState.Reset()
+	d.plcState.SetLastFrameParams(plc.ModeCELT, frameSize, d.channels)
 
 	return samples, nil
 }
@@ -1309,8 +1318,8 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 			d.prevEnergy[i] = -28.0
 		}
 		d.updateLogE(silenceE, MaxBands, false)
-		celtPLCState.Reset()
-		celtPLCState.SetLastFrameParams(plc.ModeCELT, frameSize, origChannels)
+		d.plcState.Reset()
+		d.plcState.SetLastFrameParams(plc.ModeCELT, frameSize, origChannels)
 		d.rng = rd.Range()
 		return samples, nil
 	}
@@ -1505,8 +1514,8 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	}
 
 	d.rng = rd.Range()
-	celtPLCState.Reset()
-	celtPLCState.SetLastFrameParams(plc.ModeCELT, frameSize, origChannels)
+	d.plcState.Reset()
+	d.plcState.SetLastFrameParams(plc.ModeCELT, frameSize, origChannels)
 
 	return samples, nil
 }
@@ -1573,8 +1582,8 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 		d.updateLogE(silenceE, MaxBands, false)
 		d.SetPrevEnergyWithPrev(prev1Energy, silenceE)
 		d.rng = rd.Range()
-		celtPLCState.Reset()
-		celtPLCState.SetLastFrameParams(plc.ModeCELT, frameSize, origChannels)
+		d.plcState.Reset()
+		d.plcState.SetLastFrameParams(plc.ModeCELT, frameSize, origChannels)
 		return samples, nil
 	}
 
@@ -1745,7 +1754,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 		}
 	}
 	d.rng = rd.Range()
-	celtPLCState.Reset()
+	d.plcState.Reset()
 
 	// Restore output channel count for synthesis/postfilter.
 	d.channels = origChannels
@@ -1762,7 +1771,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
 	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
 
-	celtPLCState.SetLastFrameParams(plc.ModeCELT, frameSize, origChannels)
+	d.plcState.SetLastFrameParams(plc.ModeCELT, frameSize, origChannels)
 
 	return samples, nil
 }
@@ -1827,8 +1836,8 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 		if traceLen > 0 {
 			traceSynthesis("final", samples[:traceLen])
 		}
-		celtPLCState.Reset()
-		celtPLCState.SetLastFrameParams(plc.ModeCELT, frameSize, d.channels)
+		d.plcState.Reset()
+		d.plcState.SetLastFrameParams(plc.ModeCELT, frameSize, d.channels)
 		d.rng = rd.Range()
 		return samples, nil
 	}
@@ -2026,8 +2035,8 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 	d.rng = rd.Range()
 
 	// Reset PLC state after successful decode
-	celtPLCState.Reset()
-	celtPLCState.SetLastFrameParams(plc.ModeCELT, frameSize, d.channels)
+	d.plcState.Reset()
+	d.plcState.SetLastFrameParams(plc.ModeCELT, frameSize, d.channels)
 
 	return samples, nil
 }
@@ -2800,7 +2809,7 @@ func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
 	}
 
 	// Get fade factor for this loss
-	fadeFactor := celtPLCState.RecordLoss()
+	fadeFactor := d.plcState.RecordLoss()
 
 	// Ensure scratch buffer is large enough
 	outLen := frameSize * d.channels
@@ -2812,9 +2821,4 @@ func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
 	scaleSamples(d.scratchPLC, 1.0/32768.0)
 
 	return d.scratchPLC, nil
-}
-
-// CELTPLCState returns the PLC state for external access (e.g., hybrid mode).
-func CELTPLCState() *plc.State {
-	return celtPLCState
 }

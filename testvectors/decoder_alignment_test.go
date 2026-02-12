@@ -11,6 +11,8 @@ import (
 // TestDecoderAlignmentVectors checks if decoder output is time-shifted vs RFC 8251 reference.
 // A consistent non-zero bestShift suggests delay compensation mismatch (not an audio quality bug).
 func TestDecoderAlignmentVectors(t *testing.T) {
+	requireTestTier(t, testTierParity)
+
 	if err := ensureTestVectors(t); err != nil {
 		t.Skipf("Skipping: %v", err)
 		return

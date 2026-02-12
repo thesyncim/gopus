@@ -1038,8 +1038,14 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		dualStereoVal = 1
 	}
 	tapset := e.TapsetDecision()
-	tmpPVQDumpFrame = e.frameCount
-	tmpPVQCallSeq = 0
+	if os.Getenv("GOPUS_TMP_XB19_DUMP") == "1" ||
+		os.Getenv("GOPUS_TMP_PVQ_DUMP56") == "1" ||
+		os.Getenv("GOPUS_TMP_PVQCALL_DBG") == "1" ||
+		os.Getenv("GOPUS_TMP_THDBG") == "1" ||
+		os.Getenv("GOPUS_TMP_QDBG") == "1" {
+		tmpPVQDumpFrame = e.frameCount
+		tmpPVQCallSeq = 0
+	}
 	if os.Getenv("GOPUS_TMP_XB19_DUMP") == "1" && frameSize == 480 && e.channels == 1 && e.frameCount < 32 {
 		b0 := EBands[19] << lm
 		b1 := EBands[20] << lm
