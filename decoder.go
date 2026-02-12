@@ -3,6 +3,8 @@
 package gopus
 
 import (
+	"math"
+
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/hybrid"
 	"github.com/thesyncim/gopus/rangecoding"
@@ -66,6 +68,7 @@ type Decoder struct {
 	redundantRng       uint32 // Range from redundancy decoding, XORed with final range
 	lastDataLen        int    // Length of last packet data
 	mainDecodeRng      uint32 // Final range from main decode (before any redundancy processing)
+	decodeGainQ8       int    // Output gain in Q8 dB (libopus OPUS_SET_GAIN semantics)
 
 	// FEC (Forward Error Correction) state
 	// Stores LBRR data from the current packet for use by the next packet's FEC decode.
@@ -184,6 +187,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 			offset += n
 			remaining -= n
 		}
+		d.applyOutputGain(pcm[:frameSize*d.channels])
 
 		d.lastFrameSize = frameSize
 		d.lastPacketDuration = frameSize
@@ -367,6 +371,8 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		d.hasFEC = false
 	}
 
+	d.applyOutputGain(pcm[:totalSamples*d.channels])
+
 	return totalSamples, nil
 }
 
@@ -468,6 +474,7 @@ func (d *Decoder) decodeFECFrame(pcm []float32) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	d.applyOutputGain(pcm[:n*d.channels])
 
 	// Clear FEC data after use to prevent reuse
 	d.hasFEC = false
@@ -633,6 +640,20 @@ func packetFrameCount(data []byte) (TOC, int, error) {
 	}
 }
 
+func decodeGainLinear(gainQ8 int) float32 {
+	return float32(math.Pow(10.0, float64(gainQ8)/(20.0*256.0)))
+}
+
+func (d *Decoder) applyOutputGain(samples []float32) {
+	if d.decodeGainQ8 == 0 || len(samples) == 0 {
+		return
+	}
+	g := decodeGainLinear(d.decodeGainQ8)
+	for i := range samples {
+		samples[i] *= g
+	}
+}
+
 // Reset clears the decoder state for a new stream.
 // Call this when starting to decode a new audio stream.
 func (d *Decoder) Reset() {
@@ -693,6 +714,33 @@ func (d *Decoder) DebugPrevRedundancy() bool {
 // This is intended for testing/debugging parity with libopus.
 func (d *Decoder) DebugPrevPacketStereo() bool {
 	return d.prevPacketStereo
+}
+
+// SetGain sets output gain in Q8 dB units (libopus OPUS_SET_GAIN semantics).
+//
+// Valid range is [-32768, 32767], where 256 = +1 dB and -256 = -1 dB.
+func (d *Decoder) SetGain(gainQ8 int) error {
+	if gainQ8 < -32768 || gainQ8 > 32767 {
+		return ErrInvalidGain
+	}
+	d.decodeGainQ8 = gainQ8
+	return nil
+}
+
+// Gain returns the current decoder output gain in Q8 dB units.
+func (d *Decoder) Gain() int {
+	return d.decodeGainQ8
+}
+
+// Pitch returns the most recent CELT postfilter pitch period.
+//
+// This mirrors OPUS_GET_PITCH behavior for decoded CELT/hybrid content.
+// Returns 0 when no pitch information is available.
+func (d *Decoder) Pitch() int {
+	if d.celtDecoder == nil {
+		return 0
+	}
+	return d.celtDecoder.PostfilterPeriod()
 }
 
 // Bandwidth returns the bandwidth of the last successfully decoded packet.

@@ -17,10 +17,11 @@ import (
 //
 // Reference: RFC 6716 Appendix B, RFC 7845 Section 5.1.1
 type MultistreamEncoder struct {
-	enc        *multistream.Encoder
-	sampleRate int
-	channels   int
-	frameSize  int
+	enc         *multistream.Encoder
+	sampleRate  int
+	channels    int
+	frameSize   int
+	application Application
 }
 
 // NewMultistreamEncoder creates a new multistream encoder with explicit configuration.
@@ -70,10 +71,11 @@ func NewMultistreamEncoder(sampleRate, channels, streams, coupledStreams int, ma
 	}
 
 	mse := &MultistreamEncoder{
-		enc:        enc,
-		sampleRate: sampleRate,
-		channels:   channels,
-		frameSize:  960, // Default 20ms at 48kHz
+		enc:         enc,
+		sampleRate:  sampleRate,
+		channels:    channels,
+		frameSize:   960, // Default 20ms at 48kHz
+		application: application,
 	}
 
 	// Apply application hints via bitrate/complexity settings
@@ -111,10 +113,11 @@ func NewMultistreamEncoderDefault(sampleRate, channels int, application Applicat
 	}
 
 	mse := &MultistreamEncoder{
-		enc:        enc,
-		sampleRate: sampleRate,
-		channels:   channels,
-		frameSize:  960, // Default 20ms at 48kHz
+		enc:         enc,
+		sampleRate:  sampleRate,
+		channels:    channels,
+		frameSize:   960, // Default 20ms at 48kHz
+		application: application,
 	}
 
 	// Apply application hints
@@ -125,6 +128,7 @@ func NewMultistreamEncoderDefault(sampleRate, channels int, application Applicat
 
 // applyApplication configures the encoder based on the application hint.
 func (e *MultistreamEncoder) applyApplication(app Application) {
+	e.application = app
 	switch app {
 	case ApplicationVoIP:
 		// VoIP: lower bitrate, focus on speech
@@ -139,6 +143,24 @@ func (e *MultistreamEncoder) applyApplication(app Application) {
 		e.enc.SetBitrate(80000 * e.channels / 2)
 		e.enc.SetComplexity(10)
 	}
+}
+
+// SetApplication updates the encoder application hint.
+//
+// Valid values are ApplicationVoIP, ApplicationAudio, and ApplicationLowDelay.
+func (e *MultistreamEncoder) SetApplication(application Application) error {
+	switch application {
+	case ApplicationVoIP, ApplicationAudio, ApplicationLowDelay:
+		e.applyApplication(application)
+		return nil
+	default:
+		return ErrInvalidApplication
+	}
+}
+
+// Application returns the current encoder application hint.
+func (e *MultistreamEncoder) Application() Application {
+	return e.application
 }
 
 // Encode encodes float32 PCM samples into an Opus multistream packet.
@@ -271,6 +293,44 @@ func (e *MultistreamEncoder) Complexity() int {
 	return e.enc.Complexity()
 }
 
+// SetBitrateMode sets the multistream encoder bitrate control mode.
+func (e *MultistreamEncoder) SetBitrateMode(mode BitrateMode) error {
+	switch mode {
+	case BitrateModeVBR, BitrateModeCVBR, BitrateModeCBR:
+		e.enc.SetBitrateMode(mode)
+		return nil
+	default:
+		return ErrInvalidBitrateMode
+	}
+}
+
+// BitrateMode returns the active bitrate control mode.
+func (e *MultistreamEncoder) BitrateMode() BitrateMode {
+	return e.enc.BitrateMode()
+}
+
+// SetVBR enables or disables VBR mode.
+//
+// Disabling VBR switches to CBR. Enabling VBR switches to unconstrained VBR.
+func (e *MultistreamEncoder) SetVBR(enabled bool) {
+	e.enc.SetVBR(enabled)
+}
+
+// VBR reports whether VBR mode is enabled.
+func (e *MultistreamEncoder) VBR() bool {
+	return e.enc.VBR()
+}
+
+// SetVBRConstraint enables or disables constrained VBR mode.
+func (e *MultistreamEncoder) SetVBRConstraint(constrained bool) {
+	e.enc.SetVBRConstraint(constrained)
+}
+
+// VBRConstraint reports whether constrained VBR mode is enabled.
+func (e *MultistreamEncoder) VBRConstraint() bool {
+	return e.enc.VBRConstraint()
+}
+
 // SetFEC enables or disables in-band Forward Error Correction for all streams.
 //
 // When enabled, the encoders include redundant information for loss recovery.
@@ -311,6 +371,58 @@ func (e *MultistreamEncoder) SetPacketLoss(lossPercent int) error {
 // PacketLoss returns expected packet loss percentage.
 func (e *MultistreamEncoder) PacketLoss() int {
 	return e.enc.PacketLoss()
+}
+
+// SetBandwidth sets the target audio bandwidth.
+func (e *MultistreamEncoder) SetBandwidth(bw Bandwidth) error {
+	switch bw {
+	case BandwidthNarrowband, BandwidthMediumband, BandwidthWideband, BandwidthSuperwideband, BandwidthFullband:
+		e.enc.SetBandwidth(types.Bandwidth(bw))
+		return nil
+	default:
+		return ErrInvalidBandwidth
+	}
+}
+
+// Bandwidth returns the currently configured target bandwidth.
+func (e *MultistreamEncoder) Bandwidth() Bandwidth {
+	return Bandwidth(e.enc.Bandwidth())
+}
+
+// SetForceChannels forces channel count on all stream encoders.
+//
+// channels must be -1 (auto), 1 (mono), or 2 (stereo).
+func (e *MultistreamEncoder) SetForceChannels(channels int) error {
+	if channels != -1 && channels != 1 && channels != 2 {
+		return ErrInvalidForceChannels
+	}
+	e.enc.SetForceChannels(channels)
+	return nil
+}
+
+// ForceChannels returns the forced channel count (-1 = auto).
+func (e *MultistreamEncoder) ForceChannels() int {
+	return e.enc.ForceChannels()
+}
+
+// SetPredictionDisabled toggles inter-frame prediction on all stream encoders.
+func (e *MultistreamEncoder) SetPredictionDisabled(disabled bool) {
+	e.enc.SetPredictionDisabled(disabled)
+}
+
+// PredictionDisabled reports whether inter-frame prediction is disabled.
+func (e *MultistreamEncoder) PredictionDisabled() bool {
+	return e.enc.PredictionDisabled()
+}
+
+// SetPhaseInversionDisabled toggles stereo phase inversion on all stream encoders.
+func (e *MultistreamEncoder) SetPhaseInversionDisabled(disabled bool) {
+	e.enc.SetPhaseInversionDisabled(disabled)
+}
+
+// PhaseInversionDisabled reports whether stereo phase inversion is disabled.
+func (e *MultistreamEncoder) PhaseInversionDisabled() bool {
+	return e.enc.PhaseInversionDisabled()
 }
 
 // Reset clears the encoder state for a new stream.
