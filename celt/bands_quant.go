@@ -1759,12 +1759,11 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 		}
 	}
 
-	var lut *pulseCacheLUT
+	cache, hasCache := pulseCacheForBand(ctx.band, lm)
 	maxBits := 0
-	if l := pulseCacheLUTForBand(ctx.band, lm); l != nil {
-		lut = l
+	if hasCache {
 		if lm != -1 {
-			maxBits = l.maxBits
+			maxBits = pulseCacheMaxBits(cache)
 		}
 	}
 
@@ -1850,20 +1849,16 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 	currBits := 0
 	remBefore := ctx.remainingBits
 	qInit := 0
-	if lut != nil {
+	if hasCache {
 		if b > 0 {
-			if b < len(lut.bitsToPulses) {
-				q = int(lut.bitsToPulses[b])
-			} else {
-				q = lut.maxPseudo
-			}
+			q = bitsToPulsesCached(cache, b)
 			qInit = q
-			currBits = pulsesToBitsCached(lut.cache, q)
+			currBits = pulsesToBitsCached(cache, q)
 			ctx.remainingBits -= currBits
 			for ctx.remainingBits < 0 && q > 0 {
 				ctx.remainingBits += currBits
 				q--
-				currBits = pulsesToBitsCached(lut.cache, q)
+				currBits = pulsesToBitsCached(cache, q)
 				ctx.remainingBits -= currBits
 			}
 		}
@@ -1950,12 +1945,11 @@ func quantPartitionDecode(ctx *bandCtx, x []float64, n, b, B int, lowband []floa
 		_ = x[n-1]
 	}
 
-	var lut *pulseCacheLUT
+	cache, hasCache := pulseCacheForBand(ctx.band, lm)
 	maxBits := 0
-	if l := pulseCacheLUTForBand(ctx.band, lm); l != nil {
-		lut = l
+	if hasCache {
 		if lm != -1 {
-			maxBits = l.maxBits
+			maxBits = pulseCacheMaxBits(cache)
 		}
 	}
 
@@ -2020,20 +2014,16 @@ func quantPartitionDecode(ctx *bandCtx, x []float64, n, b, B int, lowband []floa
 	currBits := 0
 	remBefore := ctx.remainingBits
 	qInit := 0
-	if lut != nil {
+	if hasCache {
 		if b > 0 {
-			if b < len(lut.bitsToPulses) {
-				q = int(lut.bitsToPulses[b])
-			} else {
-				q = lut.maxPseudo
-			}
+			q = bitsToPulsesCached(cache, b)
 			qInit = q
-			currBits = pulsesToBitsCached(lut.cache, q)
+			currBits = pulsesToBitsCached(cache, q)
 			ctx.remainingBits -= currBits
 			for ctx.remainingBits < 0 && q > 0 {
 				ctx.remainingBits += currBits
 				q--
-				currBits = pulsesToBitsCached(lut.cache, q)
+				currBits = pulsesToBitsCached(cache, q)
 				ctx.remainingBits -= currBits
 			}
 		}

@@ -42,12 +42,6 @@ func bitsToPulses(band, lm, bitsQ3 int) int {
 	if bitsQ3 <= 0 {
 		return 0
 	}
-	if lut := pulseCacheLUTForBand(band, lm); lut != nil {
-		if bitsQ3 < len(lut.bitsToPulses) {
-			return int(lut.bitsToPulses[bitsQ3])
-		}
-		return lut.maxPseudo
-	}
 	cache, ok := pulseCacheForBand(band, lm)
 	if !ok {
 		return 0
@@ -58,9 +52,6 @@ func bitsToPulses(band, lm, bitsQ3 int) int {
 func pulsesToBits(band, lm, pulses int) int {
 	if pulses <= 0 {
 		return 0
-	}
-	if lut := pulseCacheLUTForBand(band, lm); lut != nil {
-		return pulsesToBitsCached(lut.cache, pulses)
 	}
 	cache, ok := pulseCacheForBand(band, lm)
 	if !ok {
@@ -85,6 +76,17 @@ func pulsesToBitsCached(cache []uint8, pulses int) int {
 		pulses = maxPseudo
 	}
 	return int(cache[pulses]) + 1
+}
+
+func pulseCacheMaxBits(cache []uint8) int {
+	if len(cache) == 0 {
+		return 0
+	}
+	maxPseudo := int(cache[0])
+	if maxPseudo <= 0 || maxPseudo >= len(cache) {
+		return 0
+	}
+	return int(cache[maxPseudo])
 }
 
 func bitsToPulsesCachedFast(cache []uint8, bitsQ3 int) int {
