@@ -41,8 +41,8 @@ jobs:
       - name: Bootstrap pinned libopus
         run: make ensure-libopus
 
-      - name: Run test suite
-        run: go test ./... -count=1
+      - name: Run production verification gate
+        run: make verify-production
 
       - name: Verify libopus fixture provenance (pinned Docker env)
         run: make docker-test-exhaustive

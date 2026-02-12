@@ -8,12 +8,12 @@ import (
 )
 
 const (
-	NbFrames        = 8
-	NbTBands        = 18
-	NbTonalSkipBands = 9
-	AnalysisBufSize = 720 // 30ms at 24kHz
-	DetectSize      = 100
-	celtSigScale    = float32(32768.0)
+	NbFrames               = 8
+	NbTBands               = 18
+	NbTonalSkipBands       = 9
+	AnalysisBufSize        = 720 // 30ms at 24kHz
+	DetectSize             = 100
+	celtSigScale           = float32(32768.0)
 	analysisFFTEnergyScale = float32(1.0 / (480.0 * 480.0))
 )
 
@@ -178,11 +178,13 @@ type TonalityAnalysisState struct {
 	// Scratch buffers for zero-allocation analysis
 	scratchMono        []float32
 	scratchDownsampled []float32
+	scratchFFTKiss     []celt.KissCpx
 }
 
 func NewTonalityAnalysisState(fs int) *TonalityAnalysisState {
 	s := &TonalityAnalysisState{
-		Fs: int32(fs),
+		Fs:             int32(fs),
+		scratchFFTKiss: make([]celt.KissCpx, 480),
 	}
 	s.Reset()
 	return s
@@ -209,8 +211,8 @@ func (s *TonalityAnalysisState) Reset() {
 }
 
 // fft480 computes a 480-point complex forward FFT using the shared CELT KISS FFT.
-func fft480(out, in *[480]complex64) {
-	celt.KissFFT32To(out[:], in[:])
+func fft480(out, in *[480]complex64, scratch []celt.KissCpx) {
+	celt.KissFFT32ToWithScratch(out[:], in[:], scratch)
 }
 
 func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
@@ -303,8 +305,11 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		in[i] = complex(w*s.InMem[i], w*s.InMem[240+i])
 		in[480-i-1] = complex(w*s.InMem[480-i-1], w*s.InMem[480+240-i-1])
 	}
+	if cap(s.scratchFFTKiss) < 480 {
+		s.scratchFFTKiss = make([]celt.KissCpx, 480)
+	}
 	var out [480]complex64
-	fft480(&out, &in)
+	fft480(&out, &in, s.scratchFFTKiss[:480])
 
 	// Shift buffer and keep the residual input for the next analysis step.
 	copy(s.InMem[:240], s.InMem[AnalysisBufSize-240:AnalysisBufSize])
