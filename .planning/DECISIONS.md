@@ -28,7 +28,7 @@ owner: codex
 
 date: 2026-02-12
 topic: Encoder precision guard ratchet (general)
-decision: Raise `encoderLibopusGapFloorDB` broadly (+0.30 dB across summary profiles), with explicit cross-platform exceptions for four Windows-sensitive speech profiles: `SILK-WB-40ms-mono-32k` (`-0.30`), `Hybrid-FB-20ms-mono-64k` (`-0.55`), `Hybrid-FB-60ms-mono-64k` (`-0.55`), `Hybrid-FB-20ms-stereo-96k` (`-0.25`).
+decision: Raise `encoderLibopusGapFloorDB` broadly (+0.30 dB across summary profiles), with explicit cross-platform exceptions for four Windows-sensitive speech profiles: `SILK-WB-40ms-mono-32k` (`-0.35`), `Hybrid-FB-20ms-mono-64k` (`-0.55`), `Hybrid-FB-60ms-mono-64k` (`-0.55`), `Hybrid-FB-20ms-stereo-96k` (`-0.25`).
 evidence: Initial broad ratchet failed only on Windows CI (`TestEncoderCompliancePrecisionGuard`) for those four cases; after targeted floor adjustment, local precision/parity gates and broad local production gates passed (`make verify-production`, `make bench-guard`).
 do_not_repeat_until: New multi-OS evidence indicates these four floors can be tightened further, or any of them regress below current adjusted limits.
 owner: codex

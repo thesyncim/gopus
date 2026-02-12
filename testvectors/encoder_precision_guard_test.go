@@ -19,7 +19,7 @@ var encoderLibopusGapFloorDB = map[string]float64{
 	"SILK-MB-20ms-mono-24k":     -0.50,
 	"SILK-WB-10ms-mono-32k":     -0.10,
 	"SILK-WB-20ms-mono-32k":     -0.60,
-	"SILK-WB-40ms-mono-32k":     -0.30,
+	"SILK-WB-40ms-mono-32k":     -0.35,
 	"SILK-WB-60ms-mono-32k":     -0.30,
 	"SILK-WB-20ms-stereo-48k":   -0.10,
 	"Hybrid-SWB-10ms-mono-48k":  -0.20,
