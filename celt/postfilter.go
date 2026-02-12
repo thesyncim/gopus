@@ -2,7 +2,6 @@ package celt
 
 import (
 	"math"
-	"os"
 )
 
 const (
@@ -498,7 +497,7 @@ func combFilterWithInputF32(dst, src []float64, start int, t0, t1, n int, g0, g1
 		idx := start + i
 		x0 := float32(src[idx-t1+2])
 		var sum float32
-		if os.Getenv("GOPUS_TMP_COMBFILTER_SEQ_ACCUM") == "1" {
+		if tmpGetenv("GOPUS_TMP_COMBFILTER_SEQ_ACCUM") == "1" {
 			sum = float32(src[idx])
 			sum += (oneMinus * g00) * float32(src[idx-t0])
 			sum += (oneMinus * g01) * (float32(src[idx-t0-1]) + float32(src[idx-t0+1]))
@@ -506,7 +505,7 @@ func combFilterWithInputF32(dst, src []float64, start int, t0, t1, n int, g0, g1
 			sum += (f * g10) * x2
 			sum += (f * g11) * (x1 + x3)
 			sum += (f * g12) * (x0 + x4)
-		} else if os.Getenv("GOPUS_TMP_COMBFILTER_FMA_OVERLAP") == "1" {
+		} else if tmpGetenv("GOPUS_TMP_COMBFILTER_FMA_OVERLAP") == "1" {
 			sum = float32(src[idx])
 			sum = fma32(oneMinus*g00, float32(src[idx-t0]), sum)
 			sum = fma32(oneMinus*g01, float32(src[idx-t0+1])+float32(src[idx-t0-1]), sum)
@@ -546,7 +545,7 @@ func combFilterWithInputF32(dst, src []float64, start int, t0, t1, n int, g0, g1
 		idx := start + i
 		x0 := float32(src[idx-t1+2])
 		var sum float32
-		if os.Getenv("GOPUS_TMP_COMBFILTER_SEQ_ACCUM") == "1" {
+		if tmpGetenv("GOPUS_TMP_COMBFILTER_SEQ_ACCUM") == "1" {
 			sum = float32(src[idx])
 			sum += g10 * x2
 			sum += g11 * (x3 + x1)

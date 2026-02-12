@@ -2,7 +2,6 @@ package celt
 
 import (
 	"errors"
-	"os"
 
 	"github.com/thesyncim/gopus/plc"
 	"github.com/thesyncim/gopus/rangecoding"
@@ -581,7 +580,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	}
 	currentFrame := d.decodeFrameIndex
 	d.decodeFrameIndex++
-	if os.Getenv("GOPUS_TMP_PVQCALL_DBG") == "1" {
+	if tmpGetenv("GOPUS_TMP_PVQCALL_DBG") == "1" {
 		tmpQDbgDecodeFrame = currentFrame
 		tmpPVQCallSeq = 0
 	}

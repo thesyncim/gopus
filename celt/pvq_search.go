@@ -2,11 +2,10 @@ package celt
 
 import (
 	"math"
-	"os"
 	"strconv"
 
-	"github.com/thesyncim/gopus/util"
 	"github.com/thesyncim/gopus/rangecoding"
+	"github.com/thesyncim/gopus/util"
 )
 
 // EPSILON is the minimum value used to prevent division by zero and similar issues.
@@ -37,7 +36,7 @@ func opPVQSearch(x []float64, k int) ([]int, float64) {
 func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]int, yBuf *[]float32, absXBuf *[]float32) ([]int, float64) {
 	n := len(x)
 	idxBias := float32(0)
-	if s := os.Getenv("GOPUS_TMP_PVQ_IDX_BIAS"); s != "" && s != "0" {
+	if s := tmpGetenv("GOPUS_TMP_PVQ_IDX_BIAS"); s != "" && s != "0" {
 		if s == "1" {
 			idxBias = 0.000003
 		} else if v, err := strconv.ParseFloat(s, 32); err == nil {
@@ -100,7 +99,7 @@ func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]int, yBuf 
 		} else {
 			absX[j] = float32(xj)
 		}
-		if os.Getenv("GOPUS_TMP_PVQ_ABS_Q15") == "1" {
+		if tmpGetenv("GOPUS_TMP_PVQ_ABS_Q15") == "1" {
 			q := int(absX[j]*32768.0 + 0.5)
 			absX[j] = float32(q) * (1.0 / 32768.0)
 		}

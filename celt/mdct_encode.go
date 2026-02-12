@@ -13,10 +13,10 @@ import (
 )
 
 var mdctStageDumpCounter uint32
-var mdctUseNativeMul = os.Getenv("GOPUS_TMP_MDCT_NATIVE_MUL") == "1"
-var mdctUseF64Mix = os.Getenv("GOPUS_TMP_MDCT_MIX_F64") == "1"
+var mdctUseNativeMul = tmpGetenv("GOPUS_TMP_MDCT_NATIVE_MUL") == "1"
+var mdctUseF64Mix = tmpGetenv("GOPUS_TMP_MDCT_MIX_F64") == "1"
 var mdctUseFMALikeMix = func() bool {
-	if v, ok := os.LookupEnv("GOPUS_TMP_MDCT_FMALIKE"); ok {
+	if v, ok := tmpLookupEnv("GOPUS_TMP_MDCT_FMALIKE"); ok {
 		return v == "1"
 	}
 	return runtime.GOARCH == "arm64"
@@ -290,7 +290,7 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 
 	doDump := false
 	dumpIdx := uint32(0)
-	if os.Getenv("GOPUS_TMP_MDCT_STAGE_DUMP") == "1" && frameSize == 480 && overlap == 120 {
+	if tmpGetenv("GOPUS_TMP_MDCT_STAGE_DUMP") == "1" && frameSize == 480 && overlap == 120 {
 		dumpIdx = atomic.LoadUint32(&mdctStageDumpCounter)
 		doDump = dumpIdx < 96
 	}
