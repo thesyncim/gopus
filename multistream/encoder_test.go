@@ -992,6 +992,100 @@ func TestEncode_SurroundTrimProduced(t *testing.T) {
 	}
 }
 
+func TestEncode_SurroundBandSMRProduced(t *testing.T) {
+	enc, err := NewEncoderDefault(48000, 6)
+	if err != nil {
+		t.Fatalf("NewEncoderDefault error: %v", err)
+	}
+	enc.SetBitrate(192000)
+
+	frameSize := 960
+	pcm := make([]float64, frameSize*6)
+	for i := 0; i < frameSize; i++ {
+		tm := float64(i) / 48000.0
+		pcm[i*6+0] = 0.8 * math.Sin(2*math.Pi*2100*tm) // FL
+		pcm[i*6+1] = 0.5 * math.Sin(2*math.Pi*260*tm)  // C
+		pcm[i*6+2] = 0.7 * math.Sin(2*math.Pi*460*tm)  // FR
+		pcm[i*6+3] = 0.9 * math.Sin(2*math.Pi*1800*tm) // RL
+		pcm[i*6+4] = 0.6 * math.Sin(2*math.Pi*320*tm)  // RR
+		pcm[i*6+5] = 0.9 * math.Sin(2*math.Pi*50*tm)   // LFE
+	}
+
+	if _, err := enc.Encode(pcm, frameSize); err != nil {
+		t.Fatalf("Encode failed: %v", err)
+	}
+
+	if got, want := len(enc.surroundBandSMR), 6*surroundBands; got < want {
+		t.Fatalf("surroundBandSMR len=%d want>=%d", got, want)
+	}
+
+	nonZeroChannels := 0
+	for ch := 0; ch < 5; ch++ { // Exclude LFE channel (index 5)
+		row := enc.surroundBandSMR[ch*surroundBands : (ch+1)*surroundBands]
+		rowNonZero := false
+		for _, v := range row {
+			if math.Abs(v) > 1e-6 {
+				rowNonZero = true
+				break
+			}
+		}
+		if rowNonZero {
+			nonZeroChannels++
+		}
+	}
+	if nonZeroChannels < 3 {
+		t.Fatalf("expected surround analysis to produce non-zero masks on multiple channels, got %d", nonZeroChannels)
+	}
+
+	lfeRow := enc.surroundBandSMR[5*surroundBands : 6*surroundBands]
+	for i, v := range lfeRow {
+		if math.Abs(v) > 1e-9 {
+			t.Fatalf("LFE surroundBandSMR[%d]=%f want=0", i, v)
+		}
+	}
+}
+
+func TestEncode_SurroundTrimProducedAt24k(t *testing.T) {
+	enc, err := NewEncoderDefault(24000, 6)
+	if err != nil {
+		t.Fatalf("NewEncoderDefault error: %v", err)
+	}
+	enc.SetBitrate(128000)
+
+	frameSize := 480 // 20 ms at 24 kHz
+	pcm := make([]float64, frameSize*6)
+	for i := 0; i < frameSize; i++ {
+		tm := float64(i) / 24000.0
+		pcm[i*6+0] = 0.9 * math.Sin(2*math.Pi*1800*tm)
+		pcm[i*6+1] = 0.3 * math.Sin(2*math.Pi*120*tm)
+		pcm[i*6+2] = 0.8 * math.Sin(2*math.Pi*260*tm)
+		pcm[i*6+3] = 0.9 * math.Sin(2*math.Pi*2100*tm)
+		pcm[i*6+4] = 0.5 * math.Sin(2*math.Pi*300*tm)
+		pcm[i*6+5] = 0.9 * math.Sin(2*math.Pi*45*tm)
+	}
+
+	if _, err := enc.Encode(pcm, frameSize); err != nil {
+		t.Fatalf("Encode failed: %v", err)
+	}
+
+	nonZero := false
+	for s := 0; s < enc.streams; s++ {
+		got := enc.encoders[s].CELTSurroundTrim()
+		if s == enc.lfeStream {
+			if got != 0 {
+				t.Fatalf("LFE stream trim = %f, want 0", got)
+			}
+			continue
+		}
+		if math.Abs(got) > 1e-6 {
+			nonZero = true
+		}
+	}
+	if !nonZero {
+		t.Fatalf("expected non-LFE streams to receive non-zero surround trim at 24k")
+	}
+}
+
 func TestEncode_AmbisonicsForcesCELTMode(t *testing.T) {
 	enc, err := NewEncoderAmbisonics(48000, 4, 2)
 	if err != nil {

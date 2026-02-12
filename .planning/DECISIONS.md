@@ -20,6 +20,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-12
+topic: Multistream surround-analysis producer parity into surroundTrim flow
+decision: Keep the libopus-style surround-analysis producer path in `multistream/encoder.go`: per-channel preemphasis + overlap memory, sample-rate resampling-factor handling, short-overlap MDCT energy analysis, band spreading, and channel-position masking to produce surround band-SMR that feeds per-stream `surroundTrim`.
+evidence: Replaced heuristic `channelMaskShape` producer with MDCT/band-energy-based analysis and persisted per-channel analysis memories; updated tests with `TestEncode_SurroundBandSMRProduced` and `TestEncode_SurroundTrimProducedAt24k`, while existing surround policy/trim tests remained green. Validation: focused multistream slice PASS, `make verify-production` PASS, `make bench-guard` PASS.
+do_not_repeat_until: libopus-parity evidence indicates analysis/mask math divergence, or remaining LFE/per-stream policy work requires altering this producer flow.
+owner: codex
+
+date: 2026-02-12
 topic: CTL/API parity closure slice (multistream + decoder gain/pitch)
 decision: Keep the added multistream public control wrappers and internal stream propagation for application, bitrate-mode/VBR/CVBR, bandwidth, force-channels, prediction disable, and phase inversion disable. Keep decoder output-gain/pitch CTLs (`SetGain`, `Gain`, `Pitch`) with Q8 dB gain range validation and decode-time gain application across regular decode, PLC, and FEC paths.
 evidence: Updated `multistream.go`, `multistream/encoder.go`, `decoder.go`, and `errors.go`; expanded `TestMultistreamEncoder_Controls`; added `TestDecoder_SetGainBounds`, `TestDecoder_GainAppliedToDecodeOutput`, and `TestDecoder_PitchGetter`. Validation: focused CTL tests PASS, focused multistream surround-policy tests PASS, `make verify-production` PASS, `make bench-guard` PASS.
