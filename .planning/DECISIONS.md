@@ -20,6 +20,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-12
+topic: Encoder precision guard ratchet (general, round 2)
+decision: Tighten `encoderLibopusGapFloorDB` across the stable profiles after short-frame quality uplift (14/19 floors increased), while holding the four known Windows-sensitive speech floors unchanged: `SILK-WB-40ms-mono-32k=-0.35`, `Hybrid-FB-20ms-mono-64k=-0.55`, `Hybrid-FB-60ms-mono-64k=-0.55`, `Hybrid-FB-20ms-stereo-96k=-0.25`.
+evidence: `go test ./testvectors -run 'TestEncoderCompliancePrecisionGuard|TestEncoderComplianceSummary|TestEncoderVariantProfileParityAgainstLibopusFixture' -count=1 -v` PASS after ratchet; merge-level gates `make verify-production` PASS and `make bench-guard` PASS.
+do_not_repeat_until: Any of the tightened profiles regress in CI or new multi-OS evidence shows additional safe headroom for the four held Windows-sensitive floors.
+owner: codex
+
+date: 2026-02-12
 topic: Assembly documentation source of truth
 decision: Keep `ASSEMBLY.md` as the canonical inventory for architecture-specific assembly kernels and fallback mappings, and keep `README.md` linked to it instead of duplicating maintenance details elsewhere.
 evidence: Added `ASSEMBLY.md`; updated `README.md`, `examples/README.md`, `CODEX.md`, and `CLAUDE.md`; validation gates `make verify-production` and `make bench-guard` passed.
