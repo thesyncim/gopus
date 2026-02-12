@@ -20,6 +20,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-12
+topic: CTL/API parity closure slice (multistream + decoder gain/pitch)
+decision: Keep the added multistream public control wrappers and internal stream propagation for application, bitrate-mode/VBR/CVBR, bandwidth, force-channels, prediction disable, and phase inversion disable. Keep decoder output-gain/pitch CTLs (`SetGain`, `Gain`, `Pitch`) with Q8 dB gain range validation and decode-time gain application across regular decode, PLC, and FEC paths.
+evidence: Updated `multistream.go`, `multistream/encoder.go`, `decoder.go`, and `errors.go`; expanded `TestMultistreamEncoder_Controls`; added `TestDecoder_SetGainBounds`, `TestDecoder_GainAppliedToDecodeOutput`, and `TestDecoder_PitchGetter`. Validation: focused CTL tests PASS, focused multistream surround-policy tests PASS, `make verify-production` PASS, `make bench-guard` PASS.
+do_not_repeat_until: libopus fixture/interoperability evidence shows semantic mismatch in these surfaces, or remaining surround producer/LFE policy work requires refining these control semantics.
+owner: codex
+
+date: 2026-02-12
 topic: Ambisonics family-3 parity bounds + behavior guards
 decision: Keep family-3 ambisonics validation restricted to libopus projection-supported orders 1..5 (order+1 in [2,6]) and reject order 0 / >5 channel sets for mapping/init. Keep encode-time per-stream ambisonics policy guarded by tests: CELT-only mode, auto force-channels, zero surround trim, and valid multistream packet framing.
 evidence: Updated `ValidateAmbisonicsFamily3` in `multistream/ambisonics.go` with order bounds; expanded `multistream/ambisonics_test.go` with `TestAmbisonicsMappingFamily3_UnsupportedOrders`, `TestValidateAmbisonicsFamily3_UnsupportedOrders`, extended valid family-3 mapping/stream-count cases through 5th order (+non-diegetic), and encode coverage (`TestEncoderAmbisonics_Encode`) that now asserts per-stream control policy + parsed packet stream counts. Validation: focused ambisonics slice PASS and `go test ./multistream -count=1` PASS.
