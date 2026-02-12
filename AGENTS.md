@@ -57,6 +57,12 @@ Canonical project context for agent sessions.
   - what focused test slice runs first,
   - when broad gate `make verify-production` will be run.
 
+### Effective Use (Natural)
+- Keep kickoff messages short. Example: "Use AGENTS + planning files, run preflight, claim scope if parallel, then start with one narrow test."
+- Avoid long pasted templates. One clear sentence of intent plus one concrete scope is enough.
+- Ask for one decision at a time (for example: "optimize SILK gain path first" vs "improve all quality").
+- Prefer short loops: focused test -> edit -> focused re-test -> brief evidence note.
+
 ## Parallel Agent Workflow
 - Claim surfaces before edits:
   - `make agent-claim AGENT=<name> PATHS='silk/,testvectors/' NOTE='short scope note'`
