@@ -6,7 +6,7 @@ Purpose: prevent repeated validation by recording what was tested, what was rule
 
 ## Entry Template
 
-Use this exact shape:
+Preferred shape:
 
 ```text
 date: YYYY-MM-DD
@@ -18,6 +18,13 @@ owner: <initials or handle>
 ```
 
 ## Current Decisions
+
+date: 2026-02-12
+topic: CELT 20ms high-budget boost ceiling
+decision: Keep non-hybrid 20ms high-budget boost capped at `+1216` bits (`baseBits >= 1024`) and do not raise to `+1280`+ yet.
+evidence: Sweep validated by `TestEncoderCompliancePrecisionGuard`, `TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestCELTLongFrameVBRBitrateBudget`; libopus interoperability check failed at `+1280` (`go run ./tools/gen_opusdec_crossval_fixture.go` failed on `stereo_20ms_silence`), while `+1216` passes fixture generation + `TestOpusdecCrossvalFixtureHonestyAgainstLiveOpusdec` and `make verify-production`.
+do_not_repeat_until: Silence-packet interoperability root cause is identified and fixed with explicit libopus `opusdec` validation on stereo silence and broad gate rerun.
+owner: codex
 
 date: 2026-02-12
 topic: SILK decoder correctness path
@@ -39,3 +46,10 @@ decision: Treat ~0.576 RMS constant-DC behavior as expected dithering behavior, 
 evidence: Explicitly listed under "Verified Areas (Do Not Re-Debug First)" in AGENTS context.
 do_not_repeat_until: New targeted parity evidence shows mismatch against libopus for non-synthetic speech signals.
 owner: team
+
+date: 2026-02-12
+topic: SWB long-frame ModeAuto heuristic retuning
+decision: Do not retune long-frame SWB ModeAuto signal-hint heuristics in this pass; prior tweaks increased mode flapping and degraded ratchet parity on fixture variants.
+evidence: Focused runs of `TestEncoderVariantProfileParityAgainstLibopusFixture` SWB-40ms/FB-60ms subsets showed worse gap/mismatch after heuristic edits; reverted.
+do_not_repeat_until: New per-frame analyzer trace evidence (music/vad/edge metrics) is captured for the affected fixtures and a bounded hysteresis plan is defined.
+owner: codex
