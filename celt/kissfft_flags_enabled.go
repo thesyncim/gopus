@@ -14,3 +14,5 @@ var kissFFTFMALikeEnabled = func() bool {
 	}
 	return runtime.GOARCH == "arm64"
 }()
+
+var kissFFTDFTFallbackEnabled = tmpGetenv("GOPUS_TMP_KISSFFT_DFT") == "1"
