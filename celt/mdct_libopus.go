@@ -1,62 +1,18 @@
 package celt
 
-import (
-	"math"
-	"sync"
-)
-
 // This file contains a libopus-style IMDCT implementation.
 // Based on libopus celt/mdct.c clt_mdct_backward_c structure.
-
-var (
-	libopusTrigMu    sync.Mutex
-	libopusTrigCache = map[int][]float64{}
-)
-
-var (
-	libopusTrigMuF32    sync.Mutex
-	libopusTrigCacheF32 = map[int][]float32{}
-)
 
 // getLibopusTrig returns the trig table matching libopus's format.
 // trig[i] = cos(2*pi*(i+0.125)/N) for i=0..N/2-1
 func getLibopusTrig(n int) []float64 {
-	libopusTrigMu.Lock()
-	defer libopusTrigMu.Unlock()
-
-	if trig, ok := libopusTrigCache[n]; ok {
-		return trig
-	}
-
-	n2 := n / 2
-	trig := make([]float64, n2)
-	for i := 0; i < n2; i++ {
-		trig[i] = math.Cos(2.0 * math.Pi * (float64(i) + 0.125) / float64(n))
-	}
-
-	libopusTrigCache[n] = trig
-	return trig
+	return getMDCTTrig(n)
 }
 
 // getLibopusTrigF32 returns the trig table matching libopus's format in float32.
 // trig[i] = cos(2*pi*(i+0.125)/N) for i=0..N/2-1
 func getLibopusTrigF32(n int) []float32 {
-	libopusTrigMuF32.Lock()
-	defer libopusTrigMuF32.Unlock()
-
-	if trig, ok := libopusTrigCacheF32[n]; ok {
-		return trig
-	}
-
-	n2 := n / 2
-	trig := make([]float32, n2)
-	for i := 0; i < n2; i++ {
-		// Compute in float64 then cast to float32, matching libopus initialization
-		trig[i] = float32(math.Cos(2.0 * math.Pi * (float64(i) + 0.125) / float64(n)))
-	}
-
-	libopusTrigCacheF32[n] = trig
-	return trig
+	return getMDCTTrigF32(n)
 }
 
 // libopusIMDCT implements IMDCT following libopus clt_mdct_backward_c structure.
