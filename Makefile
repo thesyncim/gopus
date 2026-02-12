@@ -69,11 +69,9 @@ bench-guard:
 
 # Default production verification gate.
 verify-production: ensure-libopus
-	$(GO) test ./... -count=1
-	$(GO) test -run '^TestHotPathAllocs' -count=1 .
+	GOPUS_TEST_TIER=parity $(GO) test ./... -count=1
 	$(MAKE) bench-guard
 	$(MAKE) test-race
-	$(MAKE) test-parity
 
 # Extended production gate (includes fuzz + exhaustive fixture honesty).
 verify-production-exhaustive: verify-production

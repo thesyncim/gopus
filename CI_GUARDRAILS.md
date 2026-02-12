@@ -12,6 +12,11 @@ Block correctness and hot-path performance regressions before merge.
 - `make verify-production`
 - `make docker-test-exhaustive`
 - Internally split into parallel jobs (`test-linux-verify`, `test-linux-provenance`) and aggregated by `test-linux`.
+- `verify-production` runs:
+  - parity-tier full suite: `GOPUS_TEST_TIER=parity go test ./... -count=1`
+  - benchmark guardrails: `make bench-guard`
+  - race sweep: `make test-race`
+  - without redundant re-runs of hot-path alloc or parity subsets already covered by the full suite.
 
 2. Performance gate (`perf-linux`)
 - `make bench-guard`
