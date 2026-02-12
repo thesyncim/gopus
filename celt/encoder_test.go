@@ -120,6 +120,32 @@ func TestEncoderReset(t *testing.T) {
 	}
 }
 
+func TestEncoderSetSurroundTrim(t *testing.T) {
+	enc := NewEncoder(2)
+	if got := enc.SurroundTrim(); got != 0 {
+		t.Fatalf("initial SurroundTrim() = %v, want 0", got)
+	}
+
+	enc.SetSurroundTrim(0.75)
+	if got := enc.SurroundTrim(); got != 0.75 {
+		t.Fatalf("SurroundTrim() after set = %v, want 0.75", got)
+	}
+
+	enc.SetSurroundTrim(-0.5)
+	if got := enc.SurroundTrim(); got != -0.5 {
+		t.Fatalf("SurroundTrim() after update = %v, want -0.5", got)
+	}
+}
+
+func TestEncoderResetClearsSurroundTrim(t *testing.T) {
+	enc := NewEncoder(2)
+	enc.SetSurroundTrim(1.25)
+	enc.Reset()
+	if got := enc.SurroundTrim(); got != 0 {
+		t.Fatalf("SurroundTrim() after reset = %v, want 0", got)
+	}
+}
+
 // TestEncoderNextRNG verifies RNG produces expected sequence.
 func TestEncoderNextRNG(t *testing.T) {
 	enc := NewEncoder(1)
