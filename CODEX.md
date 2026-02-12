@@ -1,19 +1,14 @@
 # Codex Context
 
-Mandatory read order before any investigation or code edits:
-
-1. `/Users/thesyncim/GolandProjects/gopus/AGENTS.md`
-2. `/Users/thesyncim/GolandProjects/gopus/.planning/ACTIVE.md`
-3. `/Users/thesyncim/GolandProjects/gopus/.planning/DECISIONS.md`
-4. `/Users/thesyncim/GolandProjects/gopus/.planning/WORK_CLAIMS.md`
-
-Mandatory preflight:
-
-- Run `make agent-preflight`.
-- If work is parallel, claim path surfaces in `.planning/WORK_CLAIMS.md` before edits.
-- In the first response, explicitly list what will not be re-validated and why.
-
-Authority:
-
-Use `/Users/thesyncim/GolandProjects/gopus/AGENTS.md` as the canonical project context.
+Use `AGENTS.md` as the canonical project context.
 If this file and `AGENTS.md` differ, `AGENTS.md` is authoritative.
+
+Session quick start:
+
+1. Read: `AGENTS.md`, `.planning/ACTIVE.md`, `.planning/DECISIONS.md`, `.planning/WORK_CLAIMS.md`.
+2. Run `make agent-preflight`.
+3. If working in parallel, claim surfaces before edits:
+   - `make agent-claim AGENT=codex PATHS='silk/,testvectors/' NOTE='short scope note'`
+4. In the first reply, state:
+   - what will not be re-validated,
+   - what focused test slice runs first.

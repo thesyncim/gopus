@@ -29,7 +29,7 @@ require_file ".planning/DECISIONS.md"
 require_file ".planning/WORK_CLAIMS.md"
 
 echo "== Gopus Agent Preflight =="
-echo "repo: $ROOT_DIR"
+echo "repo: $(basename "$ROOT_DIR")"
 echo "branch: $(git rev-parse --abbrev-ref HEAD)"
 echo
 
@@ -100,7 +100,9 @@ fi
 if [[ "$conflicts" -eq 1 ]]; then
   echo
   echo "Preflight result: WARN (overlapping active claims found)"
+  echo "Tip: use 'make agent-claims' and 'make agent-release CLAIM_ID=<id>' to resolve overlaps."
   exit 0
 fi
 
 echo "Preflight result: OK"
+echo "Tip: claim scope with 'make agent-claim AGENT=<name> PATHS=\"silk/,testvectors/\" NOTE=\"short note\"'"

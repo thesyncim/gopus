@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix test test-fast test-race test-race-parity test-fuzz-smoke test-parity test-exhaustive test-provenance bench-guard agent-preflight verify-production verify-production-exhaustive release-evidence ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors
+.PHONY: lint lint-fix test test-fast test-race test-race-parity test-fuzz-smoke test-parity test-exhaustive test-provenance bench-guard agent-preflight agent-claims agent-claim agent-release verify-production verify-production-exhaustive release-evidence ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors
 
 GO ?= go
 PGO_FILE ?= default.pgo
@@ -70,6 +70,21 @@ bench-guard:
 # Session memory + overlap preflight for concurrent agent work.
 agent-preflight:
 	bash ./tools/agent_preflight.sh
+
+# List current claims.
+agent-claims:
+	bash ./tools/agent_claim.sh list
+
+# Add a claim (required vars: AGENT, PATHS; optional: NOTE, HOURS, CLAIM_ID).
+agent-claim:
+	@test -n "$(AGENT)" || { echo "AGENT is required"; exit 1; }
+	@test -n "$(PATHS)" || { echo "PATHS is required"; exit 1; }
+	bash ./tools/agent_claim.sh claim "$(AGENT)" "$(PATHS)" "$(NOTE)" "$(HOURS)" "$(CLAIM_ID)"
+
+# Release a claim (required var: CLAIM_ID).
+agent-release:
+	@test -n "$(CLAIM_ID)" || { echo "CLAIM_ID is required"; exit 1; }
+	bash ./tools/agent_claim.sh release "$(CLAIM_ID)"
 
 # Default production verification gate.
 verify-production: ensure-libopus
