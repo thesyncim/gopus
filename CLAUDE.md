@@ -12,4 +12,5 @@ Session quick start:
    - `make agent-claim AGENT=claude PATHS='silk/,testvectors/' NOTE='short scope note'`
 4. In the first reply, state:
    - what will not be re-validated,
-   - what focused test slice runs first.
+   - what focused test slice runs first,
+   - when broad gate `make verify-production` will be run.

@@ -1661,6 +1661,11 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 			// Restore some coding headroom so short-frame quality does not lag
 			// disproportionately behind 5/10/20ms CELT profiles.
 			targetBits += 128
+		case 240:
+			// 5ms frames still carry relatively high per-frame side signaling.
+			// Apply a smaller uplift than 2.5ms to reduce short-frame quality
+			// loss while preserving rate discipline.
+			targetBits += 64
 		case 480:
 			targetBits += 128
 		case 960:

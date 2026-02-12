@@ -4,7 +4,7 @@ Practical examples demonstrating gopus usage patterns for real-world application
 
 ## Prerequisites
 
-- Go 1.21+
+- Go 1.25+
 - ffmpeg/ffprobe (optional, for interoperability verification)
 - ffplay/afplay/aplay/paplay (optional, for decode-play audio playback)
 
@@ -269,7 +269,7 @@ packet, granule, err := r.ReadPacket()
 
 ## Notes
 
-- **Development status:** gopus is in active development. Decoder quality metrics may vary; see `.planning/STATE.md` for known limitations.
+- **Development status:** gopus is in active development; check the repository `README.md` status snapshot for current parity/compliance markers.
 - **Sample rate:** Opus internally operates at 48kHz. Other rates are converted.
 - **Frame sizes:** Standard frame is 960 samples (20ms at 48kHz). Supported: 120, 240, 480, 960, 1920, 2880.
 - **Applications:** Use `ApplicationVoIP` for speech, `ApplicationAudio` for music, `ApplicationLowDelay` for real-time.
@@ -281,10 +281,10 @@ packet, granule, err := r.ReadPacket()
 - Check that the file isn't truncated (look for EOS page)
 
 **Quality metrics are poor:**
-- This reflects the current decoder implementation status
+- Compare against profile-specific compliance outputs in `go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`
 - See roundtrip example for detailed quality analysis
 - Compare with libopus reference encoder for baseline
 
 **Build errors:**
-- Ensure Go 1.21+ is installed
+- Ensure Go 1.25+ is installed
 - Run `go mod tidy` in the repository root
