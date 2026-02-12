@@ -22,7 +22,8 @@ import (
 const (
 	encoderVariantsFixtureSampleRate = 48000
 	encoderVariantsRefQFixturePath   = "testvectors/testdata/encoder_compliance_libopus_ref_q.json"
-	encoderVariantsOutputFixturePath = "testvectors/testdata/encoder_compliance_libopus_variants_fixture.json"
+	encoderVariantsDefaultOutputPath = "testvectors/testdata/encoder_compliance_libopus_variants_fixture.json"
+	encoderVariantsOutputEnv         = "GOPUS_ENCODER_VARIANTS_FIXTURE_OUT"
 )
 
 type encoderVariantsRefQFixtureFile struct {
@@ -73,6 +74,13 @@ func getVariantsOpusDemoPath() string {
 		return p
 	}
 	return ""
+}
+
+func variantsOutputPath() string {
+	if v := os.Getenv(encoderVariantsOutputEnv); v != "" {
+		return v
+	}
+	return encoderVariantsDefaultOutputPath
 }
 
 func variantsModeFromTOC(toc byte) string {
@@ -299,7 +307,7 @@ func runVariantsCase(opusDemoPath, tmpDir string, row encoderVariantsRefQRow, va
 func main() {
 	opusDemoPath := getVariantsOpusDemoPath()
 	if opusDemoPath == "" {
-		fmt.Fprintln(os.Stderr, "opus_demo not found. expected tmp_check/opus-1.6.1/opus_demo (run: make ensure-libopus)")
+		fmt.Fprintf(os.Stderr, "opus_demo not found. expected tmp_check/opus-%s/opus_demo (run: make ensure-libopus)\n", libopustooling.DefaultVersion)
 		os.Exit(1)
 	}
 
@@ -352,13 +360,14 @@ func main() {
 		fmt.Fprintf(os.Stderr, "marshal fixture: %v\n", err)
 		os.Exit(1)
 	}
-	if err := os.WriteFile(encoderVariantsOutputFixturePath, append(data, '\n'), 0o644); err != nil {
+	outPath := variantsOutputPath()
+	if err := os.WriteFile(outPath, append(data, '\n'), 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "write fixture: %v\n", err)
 		os.Exit(1)
 	}
 
 	fmt.Fprintf(os.Stderr, "wrote %s (%d cases, %d variants)\n",
-		encoderVariantsOutputFixturePath,
+		outPath,
 		len(out.Cases),
 		len(variants),
 	)

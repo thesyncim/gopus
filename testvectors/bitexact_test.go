@@ -393,6 +393,9 @@ func extractOggOpusPackets(data []byte) [][]byte {
 
 // checkOpusencAvailable checks if opusenc is available.
 func checkOpusencAvailable() bool {
+	if os.Getenv("GOPUS_DISABLE_OPUSENC") == "1" {
+		return false
+	}
 	_, err := exec.LookPath("opusenc")
 	return err == nil
 }
