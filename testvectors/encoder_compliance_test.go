@@ -69,7 +69,7 @@ func logEncoderComplianceStatus(t *testing.T) {
 		t.Log("ATTEMPTED: Removed CELT internal delay buffer and hybrid delay compensation path.")
 		t.Log("ATTEMPTED: SILK frame-type coding aligned to libopus type_offset tables.")
 		t.Log("ATTEMPTED: SILK noise-shape window origin aligned to libopus x - la_shape.")
-		t.Log("NEXT: Port remaining SILK analysis parity (pitch residual, noise shaping, gain path) and CELT 2.5ms bit budget.")
+		t.Log("NEXT: Port remaining SILK analysis parity (pitch residual, noise shaping, gain path) and CELT short-frame stereo budget.")
 	})
 }
 
