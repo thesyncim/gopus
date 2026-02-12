@@ -711,7 +711,7 @@ func stereoMerge(x, y []float64, mid float64) {
 	mid2 := mid * mid
 	el := mid2 + side - 2.0*xp
 	er := mid2 + side + 2.0*xp
-	if debugStereoMergeEnabled() {
+	if debugStereoMergeEnabled {
 		fmt.Printf("stereoMerge: n=%d, mid=%.6f, ||x||²=%.6f, ||y||²=%.6f, <x,y>=%.6f\n",
 			n, mid, xNorm, side, xp/mid)
 		fmt.Printf("  el=%.6f, er=%.6f, lgain=%.6f, rgain=%.6f\n",
@@ -2647,7 +2647,7 @@ func quantAllBandsDecodeWithScratch(rd *rangecoding.Decoder, channels, frameSize
 	pulses []int, shortBlocks int, spread int, dualStereo, intensity int,
 	tfRes []int, totalBitsQ3 int, balance int, codedBands int, disableInv bool, seed *uint32,
 	scratch *bandDecodeScratch, debug *bandDebugState) (left, right []float64, collapse []byte) {
-	if debugDualStereoEnabled() {
+	if debugDualStereoEnabled {
 		fmt.Printf("quantAllBandsDecode: dualStereo=%d, intensity=%d, channels=%d, start=%d, end=%d\n",
 			dualStereo, intensity, channels, start, end)
 	}
@@ -2842,19 +2842,19 @@ func quantAllBandsDecodeWithScratch(rd *rangecoding.Decoder, channels, frameSize
 		}
 
 		if dualStereo != 0 {
-			if debugDualStereoEnabled() {
+			if debugDualStereoEnabled {
 				fmt.Printf("DualStereo band %d: n=%d, b=%d, B=%d, tell=%d\n",
 					i, nBand, b, B, ctx.rd.TellFrac())
 				fmt.Printf("  lowbandX nil=%v, lowbandY nil=%v\n", lowbandX == nil, lowbandY == nil)
 			}
 			xCM = quantBandDecode(&ctx, x, nBand, b/2, B, lowbandX, lm, lowbandOutX, 1.0, lowbandScratch, xCM)
-			if debugDualStereoEnabled() {
+			if debugDualStereoEnabled {
 				fmt.Printf("  After L: tell=%d, first 3 coeffs: %.4f %.4f %.4f\n",
 					ctx.rd.TellFrac(), x[0], x[1], x[2])
 			}
 			if channels == 2 {
 				yCM = quantBandDecode(&ctx, y, nBand, b/2, B, lowbandY, lm, lowbandOutY, 1.0, lowbandScratch, yCM)
-				if debugDualStereoEnabled() {
+				if debugDualStereoEnabled {
 					fmt.Printf("  After R: tell=%d, first 3 coeffs: %.4f %.4f %.4f\n",
 						ctx.rd.TellFrac(), y[0], y[1], y[2])
 				}
