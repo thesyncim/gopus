@@ -289,6 +289,8 @@ func NewEncoderDefault(sampleRate, channels int) (*Encoder, error) {
 //   - Projection-based encoding
 //   - Channels are paired into stereo coupled streams
 //   - streams = (channels+1)/2, coupled = channels/2
+//   - libopus parity support is limited to orders 1..5
+//     (valid channels: 4, 6, 9, 11, 16, 18, 25, 27, 36, 38)
 //
 // Reference: RFC 7845 Section 5.1.1.2, libopus opus_multistream_encoder.c
 func NewEncoderAmbisonics(sampleRate, channels, mappingFamily int) (*Encoder, error) {

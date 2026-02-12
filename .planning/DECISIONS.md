@@ -20,6 +20,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-12
+topic: Ambisonics family-3 parity bounds + behavior guards
+decision: Keep family-3 ambisonics validation restricted to libopus projection-supported orders 1..5 (order+1 in [2,6]) and reject order 0 / >5 channel sets for mapping/init. Keep encode-time per-stream ambisonics policy guarded by tests: CELT-only mode, auto force-channels, zero surround trim, and valid multistream packet framing.
+evidence: Updated `ValidateAmbisonicsFamily3` in `multistream/ambisonics.go` with order bounds; expanded `multistream/ambisonics_test.go` with `TestAmbisonicsMappingFamily3_UnsupportedOrders`, `TestValidateAmbisonicsFamily3_UnsupportedOrders`, extended valid family-3 mapping/stream-count cases through 5th order (+non-diegetic), and encode coverage (`TestEncoderAmbisonics_Encode`) that now asserts per-stream control policy + parsed packet stream counts. Validation: focused ambisonics slice PASS and `go test ./multistream -count=1` PASS.
+do_not_repeat_until: libopus projection family-3 support range changes (new mapping-matrix orders) or packet/control parity evidence indicates a divergence in family-3 behavior.
+owner: codex
+
+date: 2026-02-12
 topic: Public CTL/API wrapper parity + repacketizer fixture surface
 decision: Keep new root-level control wrappers (`encoder.go`, `multistream.go`, `decoder.go`) and packet/repacketizer API surface (`packet.go`) aligned to libopus request/set/get semantics for the implemented subset: bitrate-mode controls, packet-loss controls, explicit bandwidth setters/getters, application setter/getter, decoder bandwidth/duration/DTX getters, repacketizer cat/out/out_range, and packet pad/unpad helpers.
 evidence: Added tests `TestEncoder_SetBitrateMode`, `TestEncoder_SetVBRAndConstraint`, `TestEncoder_SetPacketLoss`, `TestEncoder_SetBandwidth`, `TestEncoder_SetApplication`, `TestMultistreamEncoder_Controls` (packet-loss + final-range alias assertion), `TestDecoder_BandwidthAndLastPacketDuration`, `TestDecoder_InDTX`, and fixture-backed `TestRepacketizerParityWithLibopusFixture` using `testdata/repacketizer_libopus_fixture.json` generated from libopus 1.6.1 behavior. Validation: focused tests PASS, `make verify-production` PASS, `make bench-guard` PASS.

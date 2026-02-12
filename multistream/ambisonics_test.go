@@ -3,6 +3,8 @@ package multistream
 import (
 	"math"
 	"testing"
+
+	encpkg "github.com/thesyncim/gopus/encoder"
 )
 
 func assertAmbisonicsMapping(t *testing.T, name string, channels int, want []byte, fn func(int) ([]byte, error)) {
@@ -44,6 +46,22 @@ func assertNewEncoderAmbisonics(t *testing.T, family int, channels, wantStreams,
 	}
 }
 
+func assertAmbisonicsPerStreamControlPolicy(t *testing.T, enc *Encoder) {
+	t.Helper()
+
+	for i := 0; i < enc.Streams(); i++ {
+		if got := enc.encoders[i].Mode(); got != encpkg.ModeCELT {
+			t.Fatalf("stream %d mode = %v, want ModeCELT", i, got)
+		}
+		if got := enc.encoders[i].ForceChannels(); got != -1 {
+			t.Fatalf("stream %d force channels = %d, want -1", i, got)
+		}
+		if got := enc.encoders[i].CELTSurroundTrim(); got != 0 {
+			t.Fatalf("stream %d surround trim = %f, want 0", i, got)
+		}
+	}
+}
+
 func encodeAmbisonicsAndCheck(t *testing.T, label string, channels, family int, baseFreq, amplitude float64) {
 	t.Helper()
 
@@ -81,6 +99,8 @@ func encodeAmbisonicsAndCheck(t *testing.T, label string, channels, family int, 
 	if len(streamPackets) != enc.Streams() {
 		t.Errorf("parsed %d streams, want %d", len(streamPackets), enc.Streams())
 	}
+
+	assertAmbisonicsPerStreamControlPolicy(t, enc)
 }
 
 // TestIsqrt32 tests the integer square root function.
@@ -319,16 +339,32 @@ func TestAmbisonicsMappingFamily3(t *testing.T) {
 		channels    int
 		wantMapping []byte
 	}{
-		{1, []byte{0}},
 		{4, []byte{0, 1, 2, 3}},
-		{9, []byte{0, 1, 2, 3, 4, 5, 6, 7, 8}},
 		{6, []byte{0, 1, 2, 3, 4, 5}},
+		{9, []byte{0, 1, 2, 3, 4, 5, 6, 7, 8}},
 		{11, []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10}},
+		{16, []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}},
+		{18, []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17}},
+		{25, []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24}},
+		{27, []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26}},
+		{36, []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35}},
+		{38, []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37}},
 	}
 
 	for _, tc := range tests {
 		t.Run("", func(t *testing.T) {
 			assertAmbisonicsMapping(t, "AmbisonicsMappingFamily3", tc.channels, tc.wantMapping, AmbisonicsMappingFamily3)
+		})
+	}
+}
+
+func TestAmbisonicsMappingFamily3_UnsupportedOrders(t *testing.T) {
+	unsupported := []int{1, 3, 49, 51, 64, 66, 225, 227}
+	for _, channels := range unsupported {
+		t.Run("", func(t *testing.T) {
+			if _, err := AmbisonicsMappingFamily3(channels); err == nil {
+				t.Fatalf("AmbisonicsMappingFamily3(%d) expected error, got nil", channels)
+			}
 		})
 	}
 }
@@ -342,7 +378,6 @@ func TestValidateAmbisonicsFamily3(t *testing.T) {
 	}{
 		// streams = (channels + 1) / 2
 		// coupled = channels / 2
-		{1, 1, 0},   // 1 mono stream
 		{4, 2, 2},   // 2 streams, both coupled
 		{6, 3, 3},   // 3 streams, all coupled
 		{9, 5, 4},   // 5 streams, 4 coupled + 1 mono
@@ -350,6 +385,9 @@ func TestValidateAmbisonicsFamily3(t *testing.T) {
 		{16, 8, 8},  // 8 streams, all coupled
 		{18, 9, 9},  // 9 streams, all coupled
 		{25, 13, 12}, // 13 streams, 12 coupled + 1 mono
+		{27, 14, 13}, // 14 streams, 13 coupled + 1 mono
+		{36, 18, 18}, // 18 streams, all coupled
+		{38, 19, 19}, // 19 streams, all coupled
 	}
 
 	for _, tc := range tests {
@@ -363,6 +401,18 @@ func TestValidateAmbisonicsFamily3(t *testing.T) {
 			}
 			if coupled != tc.wantCoupled {
 				t.Errorf("ValidateAmbisonicsFamily3(%d) coupled = %d, want %d", tc.channels, coupled, tc.wantCoupled)
+			}
+		})
+	}
+}
+
+func TestValidateAmbisonicsFamily3_UnsupportedOrders(t *testing.T) {
+	unsupported := []int{1, 3, 49, 51, 64, 66, 81, 83, 225, 227}
+	for _, channels := range unsupported {
+		t.Run("", func(t *testing.T) {
+			_, _, err := ValidateAmbisonicsFamily3(channels)
+			if err == nil {
+				t.Fatalf("ValidateAmbisonicsFamily3(%d) expected error, got nil", channels)
 			}
 		})
 	}
@@ -436,6 +486,10 @@ func TestNewEncoderAmbisonics_Family3(t *testing.T) {
 		{"SOA+nondiegetic", 11, 6, 5},
 		{"TOA", 16, 8, 8},
 		{"TOA+nondiegetic", 18, 9, 9},
+		{"FOURTHOA", 25, 13, 12},
+		{"FOURTHOA+nondiegetic", 27, 14, 13},
+		{"FIFTHOA", 36, 18, 18},
+		{"FIFTHOA+nondiegetic", 38, 19, 19},
 	}
 
 	for _, tc := range tests {
@@ -462,15 +516,19 @@ func TestNewEncoderAmbisonics_InvalidFamily(t *testing.T) {
 // TestNewEncoderAmbisonics_InvalidChannels tests that invalid channel counts are rejected.
 func TestNewEncoderAmbisonics_InvalidChannels(t *testing.T) {
 	// Note: 3 is valid (order 0 + 2 non-diegetic = 1 + 2 = 3)
-	invalidChannels := []int{0, 2, 5, 7, 8, 10, 228}
+	invalidFamily2 := []int{0, 2, 5, 7, 8, 10, 228}
+	invalidFamily3 := []int{0, 1, 2, 3, 5, 7, 8, 10, 49, 51, 64, 66, 225, 227, 228}
 
-	for _, channels := range invalidChannels {
+	for _, channels := range invalidFamily2 {
 		t.Run("family2", func(t *testing.T) {
 			_, err := NewEncoderAmbisonics(48000, channels, 2)
 			if err == nil {
 				t.Errorf("NewEncoderAmbisonics(%d, 2) expected error, got nil", channels)
 			}
 		})
+	}
+
+	for _, channels := range invalidFamily3 {
 		t.Run("family3", func(t *testing.T) {
 			_, err := NewEncoderAmbisonics(48000, channels, 3)
 			if err == nil {
@@ -492,6 +550,10 @@ func TestEncoderAmbisonics_Encode(t *testing.T) {
 
 	t.Run("SOA Family 2", func(t *testing.T) {
 		encodeAmbisonicsAndCheck(t, "SOA", 9, 2, 110, 0.3)
+	})
+
+	t.Run("SOA Family 3", func(t *testing.T) {
+		encodeAmbisonicsAndCheck(t, "SOA", 11, 3, 110, 0.3)
 	})
 }
 
