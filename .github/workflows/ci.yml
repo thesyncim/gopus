@@ -11,8 +11,8 @@ permissions:
 
 env:
   LIBOPUS_VERSION: "1.6.1"
-  GOPUS_DISABLE_OPUSDEC: "1"
-  GOPUS_DISABLE_OPUSENC: "1"
+  GOPUS_DISABLE_OPUSDEC: "0"
+  GOPUS_DISABLE_OPUSENC: "0"
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -36,7 +36,7 @@ jobs:
       - name: Install ffmpeg
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ffmpeg
+          sudo apt-get install -y --no-install-recommends ffmpeg opus-tools
 
       - name: Bootstrap pinned libopus
         run: make ensure-libopus
@@ -44,9 +44,8 @@ jobs:
       - name: Run test suite
         run: go test ./... -count=1
 
-      - name: Verify libopus fixture provenance
-        run: |
-          GOPUS_TEST_TIER=exhaustive go test ./testvectors -run 'TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureHonestyWithOpusDemo|TestDecoderParityMatrixFixtureHonestyWithOpusDemo' -count=1
+      - name: Verify libopus fixture provenance (pinned Docker env)
+        run: make docker-test-exhaustive
 
   test-macos:
     name: test-macos
@@ -65,7 +64,7 @@ jobs:
       - name: Install ffmpeg
         run: |
           brew update
-          brew install ffmpeg
+          brew install ffmpeg opus-tools
 
       - name: Bootstrap pinned libopus
         run: make ensure-libopus
@@ -77,6 +76,9 @@ jobs:
     name: test-windows
     runs-on: windows-latest
     timeout-minutes: 45
+    env:
+      GOPUS_DISABLE_OPUSDEC: "1"
+      GOPUS_DISABLE_OPUSENC: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v5
