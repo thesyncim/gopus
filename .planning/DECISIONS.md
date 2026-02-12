@@ -20,6 +20,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-12
+topic: Encoder precision guard ratchet (general, round 2)
+decision: Tighten `encoderLibopusGapFloorDB` across stable profiles after short-frame quality uplift (initially 14/19 floors increased), then apply Windows-calibrated adjustments for three newly-sensitive cases while still remaining tighter than the previous baseline: `SILK-WB-10ms-mono-32k=-0.05`, `SILK-WB-60ms-mono-32k=-0.25`, `Hybrid-SWB-10ms-mono-48k=-0.15`. Keep previously held Windows-sensitive floors unchanged: `SILK-WB-40ms-mono-32k=-0.35`, `Hybrid-FB-20ms-mono-64k=-0.55`, `Hybrid-FB-60ms-mono-64k=-0.55`, `Hybrid-FB-20ms-stereo-96k=-0.25`.
+evidence: Local ratchet validation `go test ./testvectors -run 'TestEncoderCompliancePrecisionGuard|TestEncoderComplianceSummary|TestEncoderVariantProfileParityAgainstLibopusFixture' -count=1 -v` PASS; PR #31 `test-windows` failure identified these three cases; post-adjustment reruns of the same local tests plus `make verify-production` and `make bench-guard` all PASS.
+do_not_repeat_until: Any calibrated floor regresses in CI or fresh multi-OS evidence shows safe headroom to tighten the seven Windows-calibrated/held speech floors further.
+owner: codex
+
+date: 2026-02-12
 topic: Assembly documentation source of truth
 decision: Keep `ASSEMBLY.md` as the canonical inventory for architecture-specific assembly kernels and fallback mappings, and keep `README.md` linked to it instead of duplicating maintenance details elsewhere.
 evidence: Added `ASSEMBLY.md`; updated `README.md`, `examples/README.md`, `CODEX.md`, and `CLAUDE.md`; validation gates `make verify-production` and `make bench-guard` passed.
@@ -49,8 +56,8 @@ owner: codex
 
 date: 2026-02-12
 topic: CELT 2.5ms short-frame bit budget boost
-decision: Keep non-hybrid CELT `frameSize==120` target-bit uplift at `+128` in `celt/encode_frame.go` (`computeTargetBits`).
-evidence: `TestEncoderComplianceCELT` improved `FB-2.5ms-mono` from `Q=-43.27` to `Q=-30.98` (~+5.9 dB SNR); guardrails remained green: `TestCeltTargetBits25ms`, `TestCELTLongFrameVBRBitrateBudget`, `TestEncoderComplianceSummary`, `TestEncoderCompliancePrecisionGuard`, `TestEncoderVariantProfileParityAgainstLibopusFixture`, `make verify-production`, and `make bench-guard`.
+decision: Keep non-hybrid CELT `frameSize==120` target-bit uplift at `+192` in `celt/encode_frame.go` (`computeTargetBits`).
+evidence: First uplift moved `FB-2.5ms-mono` from `Q=-43.27` to `Q=-30.98`; second uplift to `+192` improved further to `Q=-25.58` (~+8.5 dB total vs original baseline). Guardrails remained green: `TestCeltTargetBits25ms`, `TestCELTLongFrameVBRBitrateBudget`, `TestEncoderComplianceSummary`, `TestEncoderCompliancePrecisionGuard`, `TestEncoderVariantProfileParityAgainstLibopusFixture`, `make verify-production`, and `make bench-guard`.
 do_not_repeat_until: Short-frame parity/bitrate/interoperability guards regress or libopus-referenced fixture evidence indicates over-allocation side effects.
 owner: codex
 
