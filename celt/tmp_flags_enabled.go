@@ -1,0 +1,26 @@
+//go:build gopus_tmp_env
+
+package celt
+
+var tmpSkipMDCTHistRoundEnabled = tmpGetenv("GOPUS_TMP_SKIP_MDCT_HIST_ROUND") == "1"
+var tmpQuantInputLSBEnabled = tmpGetenv("GOPUS_TMP_QUANT_INPUT_LSB") == "1"
+var tmpDisableDCRejectEnabled = tmpGetenv("GOPUS_TMP_DISABLE_DCREJECT") == "1"
+var tmpDisablePrefilterEnabled = tmpGetenv("GOPUS_TMP_DISABLE_PREFILTER") == "1"
+var tmpForceMaxPitchRatio1Enabled = tmpGetenv("GOPUS_TMP_FORCE_MAX_PITCH_RATIO_1") == "1"
+var tmpDumpXB19Enabled = tmpGetenv("GOPUS_TMP_XB19_DUMP") == "1"
+var tmpSkipPrefOutRoundEnabled = tmpGetenv("GOPUS_TMP_SKIP_PREF_OUT_ROUND") == "1"
+var tmpDumpMDCT56Enabled = tmpGetenv("GOPUS_TMP_MDCT56_DUMP") == "1"
+var tmpEnergyInputF32Enabled = tmpGetenv("GOPUS_TMP_ENERGY_INPUT_F32") == "1"
+var tmpDumpNorm56Enabled = tmpGetenv("GOPUS_TMP_NORM56_DUMP") == "1"
+var tmpRoundNormF32Enabled = tmpGetenv("GOPUS_TMP_ROUND_NORM_F32") == "1"
+var tmpDumpNormEnabled = tmpGetenv("GOPUS_TMP_NORM_DUMP") == "1"
+var tmpTrimUseAnalysisEnabled = tmpGetenv("GOPUS_TMP_TRIM_USE_ANALYSIS") == "1"
+var tmpTrimDebugEnabled = tmpGetenv("GOPUS_TMP_TRIMDBG") == "1"
+var tmpPVQDump56Enabled = tmpGetenv("GOPUS_TMP_PVQ_DUMP56") == "1"
+var tmpPVQCallDebugEnabled = tmpGetenv("GOPUS_TMP_PVQCALL_DBG") == "1"
+var tmpTHDebugEnabled = tmpGetenv("GOPUS_TMP_THDBG") == "1"
+var tmpQDebugEnabled = tmpGetenv("GOPUS_TMP_QDBG") == "1"
+var tmpSkipPrefInputRoundEnabled = tmpGetenv("GOPUS_TMP_SKIP_PREF_INPUT_ROUND") == "1"
+var tmpPrefilterF64Enabled = tmpGetenv("GOPUS_TMP_PREFILTER_F64") == "1"
+var tmpPrefCombDumpEnabled = tmpGetenv("GOPUS_TMP_PREF_COMB_DUMP") == "1"
+var tmpSkipPrefMemRoundEnabled = tmpGetenv("GOPUS_TMP_SKIP_PREF_MEM_ROUND") == "1"
