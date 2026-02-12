@@ -2,7 +2,6 @@ package celt
 
 import (
 	"math"
-	"strconv"
 
 	"github.com/thesyncim/gopus/rangecoding"
 	"github.com/thesyncim/gopus/util"
@@ -36,12 +35,8 @@ func opPVQSearch(x []float64, k int) ([]int, float64) {
 func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]int, yBuf *[]float32, absXBuf *[]float32) ([]int, float64) {
 	n := len(x)
 	idxBias := float32(0)
-	if s := tmpGetenv("GOPUS_TMP_PVQ_IDX_BIAS"); s != "" && s != "0" {
-		if s == "1" {
-			idxBias = 0.000003
-		} else if v, err := strconv.ParseFloat(s, 32); err == nil {
-			idxBias = float32(v)
-		}
+	if tmpPVQIdxBiasEnabled {
+		idxBias = tmpPVQIdxBiasValue
 	}
 
 	// Ensure output buffer
@@ -99,7 +94,7 @@ func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]int, yBuf 
 		} else {
 			absX[j] = float32(xj)
 		}
-		if tmpGetenv("GOPUS_TMP_PVQ_ABS_Q15") == "1" {
+		if tmpPVQAbsQ15Enabled {
 			q := int(absX[j]*32768.0 + 0.5)
 			absX[j] = float32(q) * (1.0 / 32768.0)
 		}
