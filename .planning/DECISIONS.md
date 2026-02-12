@@ -21,9 +21,9 @@ owner: <initials or handle>
 
 date: 2026-02-12
 topic: Encoder precision guard ratchet (general, round 2)
-decision: Tighten `encoderLibopusGapFloorDB` across the stable profiles after short-frame quality uplift (14/19 floors increased), while holding the four known Windows-sensitive speech floors unchanged: `SILK-WB-40ms-mono-32k=-0.35`, `Hybrid-FB-20ms-mono-64k=-0.55`, `Hybrid-FB-60ms-mono-64k=-0.55`, `Hybrid-FB-20ms-stereo-96k=-0.25`.
-evidence: `go test ./testvectors -run 'TestEncoderCompliancePrecisionGuard|TestEncoderComplianceSummary|TestEncoderVariantProfileParityAgainstLibopusFixture' -count=1 -v` PASS after ratchet; merge-level gates `make verify-production` PASS and `make bench-guard` PASS.
-do_not_repeat_until: Any of the tightened profiles regress in CI or new multi-OS evidence shows additional safe headroom for the four held Windows-sensitive floors.
+decision: Tighten `encoderLibopusGapFloorDB` across stable profiles after short-frame quality uplift (initially 14/19 floors increased), then apply Windows-calibrated adjustments for three newly-sensitive cases while still remaining tighter than the previous baseline: `SILK-WB-10ms-mono-32k=-0.05`, `SILK-WB-60ms-mono-32k=-0.25`, `Hybrid-SWB-10ms-mono-48k=-0.15`. Keep previously held Windows-sensitive floors unchanged: `SILK-WB-40ms-mono-32k=-0.35`, `Hybrid-FB-20ms-mono-64k=-0.55`, `Hybrid-FB-60ms-mono-64k=-0.55`, `Hybrid-FB-20ms-stereo-96k=-0.25`.
+evidence: Local ratchet validation `go test ./testvectors -run 'TestEncoderCompliancePrecisionGuard|TestEncoderComplianceSummary|TestEncoderVariantProfileParityAgainstLibopusFixture' -count=1 -v` PASS; PR #31 `test-windows` failure identified these three cases; post-adjustment reruns of the same local tests plus `make verify-production` and `make bench-guard` all PASS.
+do_not_repeat_until: Any calibrated floor regresses in CI or fresh multi-OS evidence shows safe headroom to tighten the seven Windows-calibrated/held speech floors further.
 owner: codex
 
 date: 2026-02-12
