@@ -4,9 +4,6 @@ import (
 	"math"
 )
 
-var debugPitchFrameCount int
-var debugPitchCapture bool
-
 // Pitch estimation constants from libopus pitch_est_defines.h
 const (
 	peMaxNbSubfr       = 4
@@ -129,7 +126,6 @@ type pitchEncodeParams struct {
 // Stage 2: Refined search at 8kHz with contour codebook
 // Stage 3: Fine search at full rate with interpolation
 func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, searchThres2 float64) ([]int, int, int) {
-	debugPitchFrameCount++
 	config := GetBandwidthConfig(e.bandwidth)
 	fsKHz := config.SampleRate / 1000
 

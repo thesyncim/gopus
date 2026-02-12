@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix test test-fast test-parity test-exhaustive test-provenance ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors
+.PHONY: lint lint-fix test test-fast test-race test-race-parity test-fuzz-smoke test-parity test-exhaustive test-provenance bench-guard verify-production verify-production-exhaustive release-evidence ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors
 
 GO ?= go
 PGO_FILE ?= default.pgo
@@ -26,6 +26,7 @@ DOCKER_EXHAUSTIVE_PLATFORM ?= linux/amd64
 DOCKER_EXHAUSTIVE_CACHE_SUFFIX := $(subst /,-,$(DOCKER_EXHAUSTIVE_PLATFORM))
 DOCKER_BUILDX_CACHE_DIR := $(DOCKER_CACHE_DIR)/buildx-$(DOCKER_CACHE_SUFFIX)
 DOCKER_EXHAUSTIVE_BUILDX_CACHE_DIR := $(DOCKER_CACHE_DIR)/buildx-$(DOCKER_EXHAUSTIVE_CACHE_SUFFIX)
+RELEASE_EVIDENCE_DIR ?= reports/release
 
 # Run golangci-lint
 lint:
@@ -45,9 +46,44 @@ test:
 test-fast:
 	$(GO) test -short ./...
 
+# Race detector sweep across all packages at fast test tier (keeps runtime bounded).
+test-race:
+	GOPUS_TEST_TIER=fast $(GO) test -race ./... -count=1 -timeout=20m
+
+# Deeper race sweep at parity tier.
+test-race-parity:
+	GOPUS_TEST_TIER=parity $(GO) test -race ./... -count=1 -timeout=30m
+
+# Fuzz smoke run for packet/fixture parsers.
+test-fuzz-smoke:
+	$(GO) test . -run='^$$' -fuzz='FuzzParsePacket_NoPanic' -fuzztime=10s -count=1
+	$(GO) test ./testvectors -run='^$$' -fuzz='FuzzParseOpusDemoBitstream' -fuzztime=10s -count=1
+
 # Parity tier (default for focused quality work)
 test-parity:
 	GOPUS_TEST_TIER=parity $(GO) test ./testvectors -run 'TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard|TestDecoderParityLibopusMatrix|TestDecoderParityMatrixWithFFmpeg|TestEncoderVariantProfileParityAgainstLibopusFixture' -count=1
+
+# Hot-path performance guardrail checks (median benchmark thresholds + alloc bounds).
+bench-guard:
+	$(GO) run ./tools/benchguard -config tools/bench_guardrails.json
+
+# Default production verification gate.
+verify-production: ensure-libopus
+	$(GO) test ./... -count=1
+	$(GO) test -run '^TestHotPathAllocs' -count=1 .
+	$(MAKE) bench-guard
+	$(MAKE) test-race
+	$(MAKE) test-parity
+
+# Extended production gate (includes fuzz + exhaustive fixture honesty).
+verify-production-exhaustive: verify-production
+	$(MAKE) test-fuzz-smoke
+	$(MAKE) test-exhaustive
+	$(MAKE) test-provenance
+
+# Generate a release evidence bundle (gates + key benchmarks).
+release-evidence: ensure-libopus
+	./tools/gen_release_evidence.sh $(RELEASE_EVIDENCE_DIR)
 
 # Ensure tmp_check/opus-$(LIBOPUS_VERSION)/opus_demo exists (fetch + build if missing).
 ensure-libopus:
