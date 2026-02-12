@@ -124,6 +124,9 @@ func ValidateAmbisonics(channels int) (streams, coupledStreams int, err error) {
 //   - streams = (channels + 1) / 2
 //   - coupled = channels / 2
 //
+// libopus projection encoding currently supports only orders 1..5
+// (order+1 in [2, 6]), with optional non-diegetic stereo channels.
+//
 // Reference: libopus opus_projection_encoder.c:get_streams_from_channels
 func ValidateAmbisonicsFamily3(channels int) (streams, coupledStreams int, err error) {
 	if channels < 1 {
@@ -139,6 +142,9 @@ func ValidateAmbisonicsFamily3(channels int) (streams, coupledStreams int, err e
 	nondiegeticChannels := channels - acnChannels
 
 	if nondiegeticChannels != 0 && nondiegeticChannels != 2 {
+		return 0, 0, ErrInvalidAmbisonicsChannels
+	}
+	if orderPlusOne < 2 || orderPlusOne > 6 {
 		return 0, 0, ErrInvalidAmbisonicsChannels
 	}
 
