@@ -75,7 +75,7 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		}
 	}
 	// Keep prefilter inputs at float32 precision to match libopus celt_sig path.
-	if tmpGetenv("GOPUS_TMP_SKIP_PREF_INPUT_ROUND") != "1" {
+	if !tmpSkipPrefInputRoundEnabled {
 		roundFloat64ToFloat32(pre)
 	}
 
@@ -222,18 +222,18 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			before[ch] += math.Abs(v)
 		}
 		if offset > 0 {
-			if tmpGetenv("GOPUS_TMP_PREFILTER_F64") == "1" {
+			if tmpPrefilterF64Enabled {
 				combFilterWithInput(outCh, preCh, maxPeriod, prevPeriod, prevPeriod, offset, -e.prefilterGain, -e.prefilterGain, prevTapset, prevTapset, nil, 0)
 			} else {
 				combFilterWithInputF32(outCh, preCh, maxPeriod, prevPeriod, prevPeriod, offset, -e.prefilterGain, -e.prefilterGain, prevTapset, prevTapset, nil, 0)
 			}
 		}
-		if tmpGetenv("GOPUS_TMP_PREFILTER_F64") == "1" {
+		if tmpPrefilterF64Enabled {
 			combFilterWithInput(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, frameSize-offset, -e.prefilterGain, -gain1, prevTapset, tapset, window, overlap)
 		} else {
 			combFilterWithInputF32(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, frameSize-offset, -e.prefilterGain, -gain1, prevTapset, tapset, window, overlap)
 		}
-		if tmpGetenv("GOPUS_TMP_PREF_COMB_DUMP") == "1" && channels == 1 && frameSize == 480 && e.frameCount < 32 {
+		if tmpPrefCombDumpEnabled && channels == 1 && frameSize == 480 && e.frameCount < 32 {
 			dumpFloat64AsF32Raw(fmt.Sprintf("/tmp/go_prefcomb_pre_call%d.f32", e.frameCount), preCh)
 			dumpFloat64AsF32Raw(fmt.Sprintf("/tmp/go_prefcomb_out_call%d.f32", e.frameCount), outCh)
 			metaPath := fmt.Sprintf("/tmp/go_prefcomb_meta_call%d.txt", e.frameCount)
@@ -267,7 +267,7 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			preCh := pre[ch*perChanLen : (ch+1)*perChanLen]
 			outCh := out[ch*perChanLen : (ch+1)*perChanLen]
 			copy(outCh[maxPeriod:maxPeriod+frameSize], preCh[maxPeriod:maxPeriod+frameSize])
-			if tmpGetenv("GOPUS_TMP_PREFILTER_F64") == "1" {
+			if tmpPrefilterF64Enabled {
 				combFilterWithInput(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, overlap, -e.prefilterGain, -0, prevTapset, tapset, window, overlap)
 			} else {
 				combFilterWithInputF32(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, overlap, -e.prefilterGain, -0, prevTapset, tapset, window, overlap)
@@ -297,7 +297,7 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			copy(mem, mem[frameSize:])
 			copy(mem[maxPeriod-frameSize:], preCh[maxPeriod:maxPeriod+frameSize])
 		}
-		if tmpGetenv("GOPUS_TMP_SKIP_PREF_MEM_ROUND") != "1" {
+		if !tmpSkipPrefMemRoundEnabled {
 			roundFloat64ToFloat32(mem)
 		}
 		outSub2 := outCh[maxPeriod : maxPeriod+frameSize]
@@ -307,7 +307,7 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		if overlap > 0 && len(e.overlapBuffer) >= (ch+1)*overlap && frameSize >= overlap {
 			hist := e.overlapBuffer[ch*overlap : (ch+1)*overlap]
 			copy(hist, outSub2[frameSize-overlap:])
-			if tmpGetenv("GOPUS_TMP_SKIP_PREF_MEM_ROUND") != "1" {
+			if !tmpSkipPrefMemRoundEnabled {
 				roundFloat64ToFloat32(hist)
 			}
 		}
