@@ -54,21 +54,21 @@ var (
 
 func kissFFTM1Enabled() bool {
 	kissFFTM1FastPathOnce.Do(func() {
-		kissFFTM1FastPathEnabled = os.Getenv("GOPUS_TMP_KISSFFT_DISABLE_M1_FASTPATHS") != "1"
+		kissFFTM1FastPathEnabled = tmpGetenv("GOPUS_TMP_KISSFFT_DISABLE_M1_FASTPATHS") != "1"
 	})
 	return kissFFTM1FastPathEnabled
 }
 
 func kissFFTNoFMAMulEnabled() bool {
 	kissFFTNoFMAMulOnce.Do(func() {
-		kissFFTNoFMAMul = os.Getenv("GOPUS_TMP_KISSFFT_NOFMA_MUL") == "1"
+		kissFFTNoFMAMul = tmpGetenv("GOPUS_TMP_KISSFFT_NOFMA_MUL") == "1"
 	})
 	return kissFFTNoFMAMul
 }
 
 func kissFFTFMALikeEnabled() bool {
 	kissFFTFMALikeOnce.Do(func() {
-		if v, ok := os.LookupEnv("GOPUS_TMP_KISSFFT_FMALIKE"); ok {
+		if v, ok := tmpLookupEnv("GOPUS_TMP_KISSFFT_FMALIKE"); ok {
 			kissFFTFMALike = v == "1"
 			return
 		}
@@ -780,7 +780,7 @@ func (st *kissFFTState) fftImpl(fout []kissCpx) {
 	}
 	doDump := false
 	dumpIdx := uint32(0)
-	if os.Getenv("GOPUS_TMP_KISSFFT_STAGE_DUMP") == "1" && st.nfft == 240 {
+	if tmpGetenv("GOPUS_TMP_KISSFFT_STAGE_DUMP") == "1" && st.nfft == 240 {
 		dumpIdx = atomic.LoadUint32(&kissFFTStageDumpCounter)
 		doDump = dumpIdx < 96
 	}
@@ -858,7 +858,7 @@ func kissFFT32To(out []complex64, x []complex64, scratch []kissCpx) {
 	if n == 0 || len(out) < n {
 		return
 	}
-	if os.Getenv("GOPUS_TMP_KISSFFT_DFT") == "1" {
+	if tmpGetenv("GOPUS_TMP_KISSFFT_DFT") == "1" {
 		dft32FallbackTo(out, x)
 		return
 	}

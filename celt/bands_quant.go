@@ -272,7 +272,7 @@ func haar1(x []float64, n0, stride int) {
 
 	// Fast path for stride == 1: consecutive pairs, no index arithmetic.
 	// On ARM64 this dispatches to hand-written scalar ASM.
-	if stride == 1 && os.Getenv("GOPUS_TMP_DISABLE_HAAR_ASM") != "1" {
+	if stride == 1 && tmpGetenv("GOPUS_TMP_DISABLE_HAAR_ASM") != "1" {
 		maxIdx := 1 + (n0-1)*2
 		if maxIdx >= len(x) {
 			return
@@ -309,7 +309,7 @@ func expRotation1(x []float64, length, stride int, c, s float64) {
 	}
 	x = x[:length:length]
 	_ = x[length-1]
-	if os.Getenv("GOPUS_TMP_EXP_ROT_F32") == "1" {
+	if tmpGetenv("GOPUS_TMP_EXP_ROT_F32") == "1" {
 		cf := float32(c)
 		sf := float32(s)
 		msf := -sf
@@ -638,7 +638,7 @@ func renormalizeVector(x []float64, gain float64) {
 	if len(x) == 0 {
 		return
 	}
-	if os.Getenv("GOPUS_TMP_RENORM_F32_REF") == "1" {
+	if tmpGetenv("GOPUS_TMP_RENORM_F32_REF") == "1" {
 		// Match libopus float-path renormalise_vector accumulation/update order.
 		energy32 := float32(1e-15)
 		for i := 0; i < len(x); i++ {
@@ -818,7 +818,7 @@ func algUnquantInto(shape []float64, rd *rangecoding.Decoder, band, n, k, spread
 		return 0
 	}
 	idx := rd.DecodeUniform(vSize)
-	if os.Getenv("GOPUS_TMP_PVQCALL_DBG") == "1" {
+	if tmpGetenv("GOPUS_TMP_PVQCALL_DBG") == "1" {
 		fmt.Fprintf(os.Stderr, "PVQCALL_DEC frame=%d seq=%d band=%d n=%d k=%d idx=%d\n",
 			tmpQDbgDecodeFrame, tmpPVQCallSeq, band, n, k, idx)
 		tmpPVQCallSeq++
@@ -845,7 +845,7 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []float64, n, k, sprea
 	dumpID := 0
 	var dumpPreX []float64
 	var dumpX []float64
-	if os.Getenv("GOPUS_TMP_PVQ_DUMP") == "1" && band == 19 && n == 36 && k == 7 {
+	if tmpGetenv("GOPUS_TMP_PVQ_DUMP") == "1" && band == 19 && n == 36 && k == 7 {
 		dumpID = tmpPVQDumpCounter
 		tmpPVQDumpCounter++
 		if dumpID < 24 {
@@ -854,14 +854,14 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []float64, n, k, sprea
 			copy(dumpPreX, x[:n])
 		}
 	}
-	if os.Getenv("GOPUS_TMP_PVQ_DUMP56") == "1" && band == 18 && n == 48 && k == 6 && tmpPVQDumpFrame >= 54 && tmpPVQDumpFrame <= 58 {
+	if tmpGetenv("GOPUS_TMP_PVQ_DUMP56") == "1" && band == 18 && n == 48 && k == 6 && tmpPVQDumpFrame >= 54 && tmpPVQDumpFrame <= 58 {
 		dumpThis = true
 		dumpID = tmpPVQDumpFrame
 		dumpPreX = make([]float64, n)
 		copy(dumpPreX, x[:n])
 	}
 	expRotation(x, n, 1, b, k, spread)
-	if os.Getenv("GOPUS_TMP_PVQ_INPUT_F32") == "1" {
+	if tmpGetenv("GOPUS_TMP_PVQ_INPUT_F32") == "1" {
 		for i := 0; i < n; i++ {
 			x[i] = float64(float32(x[i]))
 		}
@@ -970,7 +970,7 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []float64, n, k, sprea
 		}
 		fmt.Fprintln(os.Stderr)
 	}
-	if os.Getenv("GOPUS_TMP_PVQCALL_DBG") == "1" {
+	if tmpGetenv("GOPUS_TMP_PVQCALL_DBG") == "1" {
 		fmt.Fprintf(os.Stderr, "PVQCALL_ENC frame=%d seq=%d band=%d n=%d k=%d idx=%d\n",
 			tmpPVQDumpFrame, tmpPVQCallSeq, band, n, k, encodedIndex)
 		tmpPVQCallSeq++
@@ -1025,7 +1025,7 @@ func stereoIthetaQ30(x, y []float64, stereo bool) int {
 	_ = x[n-1]
 	_ = y[n-1]
 
-	if os.Getenv("GOPUS_TMP_ITHETA_F32") == "1" {
+	if tmpGetenv("GOPUS_TMP_ITHETA_F32") == "1" {
 		var emid32, eside32 float32
 		if stereo {
 			for i := 0; i < n; i++ {
@@ -1424,7 +1424,7 @@ func computeThetaDecode(ctx *bandCtx, sctx *splitCtx, x, y []float64, n int, b *
 	sctx.delta = delta
 	sctx.itheta = itheta
 	sctx.ithetaQ30 = ithetaQ30
-	if os.Getenv("GOPUS_TMP_THDBG") == "1" && !stereo && tmpQDbgDecodeFrame >= 21 && tmpQDbgDecodeFrame <= 22 {
+	if tmpGetenv("GOPUS_TMP_THDBG") == "1" && !stereo && tmpQDbgDecodeFrame >= 21 && tmpQDbgDecodeFrame <= 22 {
 		fmt.Fprintf(os.Stderr, "TH_DEC frame=%d band=%d n=%d lm=%d b_in=%d b_out=%d qn=%d itheta=%d delta=%d qalloc=%d fill=%d\n",
 			tmpQDbgDecodeFrame, ctx.band, n, lm, bIn, *b, qn, itheta, delta, qalloc, *fill)
 	}
@@ -1725,14 +1725,14 @@ func computeThetaExt(ctx *bandCtx, sctx *splitCtx, x, y []float64, n int, b *int
 	sctx.delta = delta
 	sctx.itheta = itheta
 	sctx.ithetaQ30 = ithetaQ30
-	if os.Getenv("GOPUS_TMP_THDBG") == "1" && ctx.encode && !stereo && tmpPVQDumpFrame >= 21 && tmpPVQDumpFrame <= 22 {
+	if tmpGetenv("GOPUS_TMP_THDBG") == "1" && ctx.encode && !stereo && tmpPVQDumpFrame >= 21 && tmpPVQDumpFrame <= 22 {
 		fmt.Fprintf(os.Stderr, "TH_ENC frame=%d band=%d n=%d lm=%d b_in=%d b_out=%d qn=%d rawItheta=%d itheta=%d delta=%d qalloc=%d fill=%d\n",
 			tmpPVQDumpFrame, ctx.band, n, lm, bIn, *b, qn, rawItheta, itheta, delta, qalloc, *fill)
 	}
 }
 
 func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int, gain float64, fill int) (int, []float64) {
-	if os.Getenv("GOPUS_TMP_GAIN_F32") == "1" {
+	if tmpGetenv("GOPUS_TMP_GAIN_F32") == "1" {
 		gain = float64(float32(gain))
 	}
 	if n == 1 {
@@ -1741,7 +1741,7 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 	if n > 0 {
 		x = x[:n:n]
 		_ = x[n-1]
-		if os.Getenv("GOPUS_TMP_QUANT_PART_F32") == "1" {
+		if tmpGetenv("GOPUS_TMP_QUANT_PART_F32") == "1" {
 			for i := 0; i < n; i++ {
 				x[i] = float64(float32(x[i]))
 			}
@@ -1771,7 +1771,7 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 		computeTheta(ctx, &sctx, x[:nHalf], y, nHalf, &b, B, B0, lm, false, &fill)
 		mid := float64(sctx.imid) / 32768.0
 		side := float64(sctx.iside) / 32768.0
-		if os.Getenv("GOPUS_TMP_USE_Q30_COS_SPLIT") == "1" {
+		if tmpGetenv("GOPUS_TMP_USE_Q30_COS_SPLIT") == "1" {
 			theta := float64(sctx.ithetaQ30) * (1.0 / float64(1<<30))
 			mid = celtCosNorm2(theta)
 			side = celtCosNorm2(1.0 - theta)
@@ -1800,7 +1800,7 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 		var cm int
 		if mbits >= sbits {
 			midGain := gain * mid
-			if os.Getenv("GOPUS_TMP_GAIN_F32") == "1" {
+			if tmpGetenv("GOPUS_TMP_GAIN_F32") == "1" {
 				midGain = float64(float32(midGain))
 			}
 			cm, _ = quantPartition(ctx, x[:nHalf], nHalf, mbits, B, lowband1, lm, midGain, fill)
@@ -1809,14 +1809,14 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 				sbits += rebalance - (3 << bitRes)
 			}
 			sideGain := gain * side
-			if os.Getenv("GOPUS_TMP_GAIN_F32") == "1" {
+			if tmpGetenv("GOPUS_TMP_GAIN_F32") == "1" {
 				sideGain = float64(float32(sideGain))
 			}
 			scm, _ := quantPartition(ctx, y, nHalf, sbits, B, lowband2, lm, sideGain, fill>>B)
 			cm |= scm << (B0 >> 1)
 		} else {
 			sideGain := gain * side
-			if os.Getenv("GOPUS_TMP_GAIN_F32") == "1" {
+			if tmpGetenv("GOPUS_TMP_GAIN_F32") == "1" {
 				sideGain = float64(float32(sideGain))
 			}
 			cm, _ = quantPartition(ctx, y, nHalf, sbits, B, lowband2, lm, sideGain, fill>>B)
@@ -1826,7 +1826,7 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 				mbits += rebalance - (3 << bitRes)
 			}
 			midGain := gain * mid
-			if os.Getenv("GOPUS_TMP_GAIN_F32") == "1" {
+			if tmpGetenv("GOPUS_TMP_GAIN_F32") == "1" {
 				midGain = float64(float32(midGain))
 			}
 			scm, _ := quantPartition(ctx, x[:nHalf], nHalf, mbits, B, lowband1, lm, midGain, fill)
@@ -1868,14 +1868,14 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 			ctx.remainingBits -= currBits
 		}
 	}
-	if os.Getenv("GOPUS_TMP_QDBG") == "1" && ctx.encode && tmpPVQDumpFrame >= 20 && tmpPVQDumpFrame <= 23 {
+	if tmpGetenv("GOPUS_TMP_QDBG") == "1" && ctx.encode && tmpPVQDumpFrame >= 20 && tmpPVQDumpFrame <= 23 {
 		fmt.Fprintf(os.Stderr, "QDBG frame=%d band=%d n=%d B=%d lm=%d b=%d rem_before=%d q_init=%d q_final=%d k=%d currBits=%d rem_after=%d\n",
 			tmpPVQDumpFrame, ctx.band, n, B, lm, b, remBefore, qInit, q, getPulses(q), currBits, ctx.remainingBits)
 	}
 	if q != 0 {
 		k := getPulses(q)
 		if ctx.encode {
-			if os.Getenv("GOPUS_TMP_ROUND_BEFORE_PVQ") == "1" {
+			if tmpGetenv("GOPUS_TMP_ROUND_BEFORE_PVQ") == "1" {
 				for i := 0; i < n; i++ {
 					x[i] = float64(float32(x[i]))
 				}
@@ -2034,7 +2034,7 @@ func quantPartitionDecode(ctx *bandCtx, x []float64, n, b, B int, lowband []floa
 			ctx.remainingBits -= currBits
 		}
 	}
-	if os.Getenv("GOPUS_TMP_QDBG_DEC") == "1" && !ctx.encode && tmpQDbgDecodeFrame >= 20 && tmpQDbgDecodeFrame <= 23 {
+	if tmpGetenv("GOPUS_TMP_QDBG_DEC") == "1" && !ctx.encode && tmpQDbgDecodeFrame >= 20 && tmpQDbgDecodeFrame <= 23 {
 		fmt.Fprintf(os.Stderr, "QDBG_DEC frame=%d band=%d n=%d B=%d lm=%d b=%d rem_before=%d q_init=%d q_final=%d k=%d currBits=%d rem_after=%d\n",
 			tmpQDbgDecodeFrame, ctx.band, n, B, lm, b, remBefore, qInit, q, getPulses(q), currBits, ctx.remainingBits)
 	}
@@ -2181,7 +2181,7 @@ func quantBandN1DecodeStereo(ctx *bandCtx, x, y []float64, b int, lowbandOut []f
 }
 
 func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int, lowbandOut []float64, gain float64, lowbandScratch []float64, fill int) int {
-	if os.Getenv("GOPUS_TMP_GAIN_F32") == "1" {
+	if tmpGetenv("GOPUS_TMP_GAIN_F32") == "1" {
 		gain = float64(float32(gain))
 	}
 	if n == 1 {
@@ -2246,7 +2246,7 @@ func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int
 			deinterleaveHadamardScratchBuf(lowband, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch, ctx.encScratch)
 		}
 	}
-	if os.Getenv("GOPUS_TMP_QUANT_BAND_F32") == "1" {
+	if tmpGetenv("GOPUS_TMP_QUANT_BAND_F32") == "1" {
 		for i := 0; i < n; i++ {
 			x[i] = float64(float32(x[i]))
 		}
@@ -2278,7 +2278,7 @@ func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int
 		B <<= recombine
 
 		if lowbandOut != nil && len(lowbandOut) >= N0 {
-			if os.Getenv("GOPUS_TMP_LOWBAND_OUT_F32") == "1" {
+			if tmpGetenv("GOPUS_TMP_LOWBAND_OUT_F32") == "1" {
 				norm32 := float32(math.Sqrt(float64(N0)))
 				for j := 0; j < N0; j++ {
 					lowbandOut[j] = float64(norm32 * float32(x[j]))
@@ -2371,7 +2371,7 @@ func quantBandDecode(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, 
 		B <<= recombine
 
 		if lowbandOut != nil && len(lowbandOut) >= N0 {
-			if os.Getenv("GOPUS_TMP_LOWBAND_OUT_F32") == "1" {
+			if tmpGetenv("GOPUS_TMP_LOWBAND_OUT_F32") == "1" {
 				norm32 := float32(math.Sqrt(float64(N0)))
 				for j := 0; j < N0; j++ {
 					lowbandOut[j] = float64(norm32 * float32(x[j]))
@@ -2492,13 +2492,13 @@ func quantBandStereo(ctx *bandCtx, x, y []float64, n, b, B int, lowband []float6
 			sbits += rebalance - (3 << bitRes)
 		}
 		sideGain := side
-		if os.Getenv("GOPUS_TMP_GAIN_F32") == "1" {
+		if tmpGetenv("GOPUS_TMP_GAIN_F32") == "1" {
 			sideGain = float64(float32(sideGain))
 		}
 		cm |= quantBand(ctx, y, n, sbits, B, nil, lm, nil, sideGain, nil, fill>>B)
 	} else {
 		sideGain := side
-		if os.Getenv("GOPUS_TMP_GAIN_F32") == "1" {
+		if tmpGetenv("GOPUS_TMP_GAIN_F32") == "1" {
 			sideGain = float64(float32(sideGain))
 		}
 		cm = quantBand(ctx, y, n, sbits, B, nil, lm, nil, sideGain, nil, fill>>B)
@@ -3243,7 +3243,7 @@ func quantAllBandsEncodeScratch(re *rangecoding.Encoder, channels, frameSize, lm
 			}
 		}
 
-		if os.Getenv("GOPUS_TMP_ROUND_BAND_STATE_F32") == "1" {
+		if tmpGetenv("GOPUS_TMP_ROUND_BAND_STATE_F32") == "1" {
 			roundFloat64ToFloat32(xBand)
 			if yBand != nil {
 				roundFloat64ToFloat32(yBand)
