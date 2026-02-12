@@ -1656,6 +1656,11 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 		// Increase short/medium CELT frame budgets to reduce avoidable
 		// quantization loss in compliance-quality profiles.
 		switch frameSize {
+		case 120:
+			// 2.5ms CELT frames spend a larger fraction on signaling overhead.
+			// Restore some coding headroom so short-frame quality does not lag
+			// disproportionately behind 5/10/20ms CELT profiles.
+			targetBits += 128
 		case 480:
 			targetBits += 128
 		case 960:
