@@ -26,7 +26,8 @@ func TestNoCBindingsUsageInRepositoryTests(t *testing.T) {
 		if !strings.HasSuffix(path, ".go") {
 			return nil
 		}
-		if strings.HasSuffix(path, "testvectors/purego_guard_test.go") {
+		normalizedPath := filepath.ToSlash(path)
+		if strings.HasSuffix(normalizedPath, "testvectors/purego_guard_test.go") {
 			return nil
 		}
 		raw, err := os.ReadFile(path)
@@ -35,7 +36,7 @@ func TestNoCBindingsUsageInRepositoryTests(t *testing.T) {
 		}
 		s := string(raw)
 		if strings.Contains(s, `import "C"`) || strings.Contains(s, "//go:build cgo") {
-			hits = append(hits, path)
+			hits = append(hits, normalizedPath)
 		}
 		return nil
 	})
