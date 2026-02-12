@@ -20,6 +20,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-12
+topic: CELT surround-trim plumbing
+decision: Keep `surroundTrim` as explicit CELT encoder state used by alloc-trim analysis (`celt/encode_frame.go`) instead of a hardcoded zero, with default reset-to-zero semantics and focused tests. Do not infer non-zero surround trim heuristically until a libopus-parity surround-mask producer is wired.
+evidence: Added `SetSurroundTrim`/`SurroundTrim` in `celt/encoder.go`; replaced hardcoded call-site value in `celt/encode_frame.go`; added `TestEncoderSetSurroundTrim`, `TestEncoderResetClearsSurroundTrim`, and `TestAllocTrimSurroundTrimAdjustment`. Validation: focused CELT tests PASS; `TestEncoderComplianceSummary`, `TestEncoderCompliancePrecisionGuard`, `TestEncoderVariantProfileParityAgainstLibopusFixture` PASS; `make verify-production` and `make bench-guard` PASS.
+do_not_repeat_until: Surround-mask production/control flow is implemented (or libopus parity evidence requires changing the trim source/units semantics).
+owner: codex
+
+date: 2026-02-12
 topic: CELT 10ms stereo short-frame budget uplift
 decision: Keep a stereo-only 10ms CELT budget uplift in `computeTargetBits` (`frameSize==480`, `channels==2`: additional `+128` bits on top of the existing 10ms boost) to reduce the largest remaining CELT short-frame stereo quality gap without perturbing mono/long-frame behavior.
 evidence: Focused compliance slice improved `FB-10ms-stereo` from `Q=-26.80` to `Q=-22.48` (`go test ./testvectors -run 'TestEncoderComplianceCELT/FB-10ms-stereo' -count=1 -v`); broad guards remained green: `TestEncoderComplianceCELT`, `TestEncoderComplianceSummary`, `TestEncoderCompliancePrecisionGuard`, `TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestCELTLongFrameVBRBitrateBudget`, `make verify-production`, and `make bench-guard`.
