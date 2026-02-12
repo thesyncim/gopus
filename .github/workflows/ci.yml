@@ -47,6 +47,23 @@ jobs:
       - name: Verify libopus fixture provenance (pinned Docker env)
         run: make docker-test-exhaustive
 
+  perf-linux:
+    name: perf-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Enforce benchmark guardrails
+        run: make bench-guard
+
   test-macos:
     name: test-macos
     runs-on: macos-latest

@@ -13,6 +13,9 @@ Last updated: 2026-02-12
 - [x] Add `make release-evidence` artifact generator (gates + key benchmark bundle).
 - [x] Add CI artifact upload for generated release evidence bundles.
 - [x] Document production plan and verification workflow.
+- [x] Add deterministic benchmark regression guard tooling (`tools/benchguard` + `tools/bench_guardrails.json`).
+- [x] Add explicit CI performance gate (`perf-linux`) and wire `make bench-guard` into `verify-production`.
+- [x] Document CI guardrail/branch-protection policy (`CI_GUARDRAILS.md`) and agent rules (`AGENTS.md`).
 
 ## Next high-impact items
 

@@ -244,6 +244,7 @@ Benchmarks:
 go test -run='^$' -bench='^Benchmark(DecoderDecode|EncoderEncode)_' -benchmem ./...
 go test -bench=. -benchmem ./...
 go test -run '^TestHotPathAllocs' -count=1 .
+make bench-guard
 ```
 
 PGO:
@@ -271,6 +272,7 @@ make test-race
 make test-race-parity
 make test-fuzz-smoke
 make test-parity
+make bench-guard
 make verify-production
 make verify-production-exhaustive
 make release-evidence
@@ -328,6 +330,8 @@ Use one instance per goroutine.
 2. Add or update focused tests.
 3. Verify parity/compliance commands for affected areas.
 4. Submit a PR with a clear problem statement and tradeoffs.
+
+See [`CI_GUARDRAILS.md`](CI_GUARDRAILS.md) for merge-blocking CI checks and branch-protection requirements.
 
 ## License
 

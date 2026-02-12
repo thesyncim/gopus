@@ -25,6 +25,7 @@ Ship `gopus` as a dependable production codec library with:
 
 2. Real-time performance
 - Hot-path `Encode`/`Decode` and int16 variants stay at `0 allocs/op`.
+- Benchmark guardrails stay within CI thresholds (`make bench-guard`).
 - No race detector failures on fast-tier full package sweep.
 - Optional deeper parity-tier race sweep remains available.
 
@@ -66,5 +67,7 @@ Ship `gopus` as a dependable production codec library with:
   - `make test-fuzz-smoke`
   - `make verify-production`
   - `make verify-production-exhaustive`
+  - `make bench-guard`
   - `make release-evidence`
 - Added scheduled exhaustive CI with release-evidence artifact upload.
+- Added dedicated CI performance gate (`perf-linux`) using deterministic benchmark guardrails (`tools/bench_guardrails.json`).
