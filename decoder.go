@@ -46,25 +46,26 @@ func DefaultDecoderConfig(sampleRate, channels int) DecoderConfig {
 // The decoder supports all Opus modes (SILK, Hybrid, CELT) and automatically
 // detects the mode from the TOC byte in each packet.
 type Decoder struct {
-	silkDecoder       *silk.Decoder   // SILK-only mode decoder
-	celtDecoder       *celt.Decoder   // CELT-only mode decoder
-	hybridDecoder     *hybrid.Decoder // Hybrid mode decoder
-	sampleRate        int
-	channels          int
-	maxPacketSamples  int
-	maxPacketBytes    int
-	scratchPCM        []float32
-	scratchTransition []float32
-	scratchRedundant  []float32
-	lastFrameSize     int
-	prevMode          Mode // Track last mode for PLC
-	lastBandwidth     Bandwidth
-	prevRedundancy    bool
-	prevPacketStereo  bool
-	haveDecoded       bool
-	redundantRng      uint32 // Range from redundancy decoding, XORed with final range
-	lastDataLen       int    // Length of last packet data
-	mainDecodeRng     uint32 // Final range from main decode (before any redundancy processing)
+	silkDecoder        *silk.Decoder   // SILK-only mode decoder
+	celtDecoder        *celt.Decoder   // CELT-only mode decoder
+	hybridDecoder      *hybrid.Decoder // Hybrid mode decoder
+	sampleRate         int
+	channels           int
+	maxPacketSamples   int
+	maxPacketBytes     int
+	scratchPCM         []float32
+	scratchTransition  []float32
+	scratchRedundant   []float32
+	lastFrameSize      int
+	lastPacketDuration int
+	prevMode           Mode // Track last mode for PLC
+	lastBandwidth      Bandwidth
+	prevRedundancy     bool
+	prevPacketStereo   bool
+	haveDecoded        bool
+	redundantRng       uint32 // Range from redundancy decoding, XORed with final range
+	lastDataLen        int    // Length of last packet data
+	mainDecodeRng      uint32 // Final range from main decode (before any redundancy processing)
 
 	// FEC (Forward Error Correction) state
 	// Stores LBRR data from the current packet for use by the next packet's FEC decode.
@@ -185,6 +186,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		}
 
 		d.lastFrameSize = frameSize
+		d.lastPacketDuration = frameSize
 		d.lastDataLen = 0 // PLC: set len to 0 so FinalRange returns 0
 		return frameSize, nil
 	}
@@ -352,6 +354,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 	}
 
 	d.lastFrameSize = frameSize
+	d.lastPacketDuration = totalSamples
 	d.lastBandwidth = toc.Bandwidth
 	// Set the full packet length for FinalRange check (per libopus: len <= 1 means rangeFinal = 0)
 	d.lastDataLen = len(data)
@@ -637,6 +640,7 @@ func (d *Decoder) Reset() {
 	d.celtDecoder.Reset()
 	d.hybridDecoder.Reset()
 	d.lastFrameSize = 960
+	d.lastPacketDuration = 0
 	d.prevMode = ModeHybrid
 	d.lastBandwidth = BandwidthFullband
 	d.prevRedundancy = false
@@ -689,6 +693,25 @@ func (d *Decoder) DebugPrevRedundancy() bool {
 // This is intended for testing/debugging parity with libopus.
 func (d *Decoder) DebugPrevPacketStereo() bool {
 	return d.prevPacketStereo
+}
+
+// Bandwidth returns the bandwidth of the last successfully decoded packet.
+func (d *Decoder) Bandwidth() Bandwidth {
+	return d.lastBandwidth
+}
+
+// LastPacketDuration returns the duration (in samples per channel at 48kHz scale)
+// of the last decoded packet.
+func (d *Decoder) LastPacketDuration() int {
+	if d.lastPacketDuration > 0 {
+		return d.lastPacketDuration
+	}
+	return d.lastFrameSize
+}
+
+// InDTX reports whether the most recently decoded packet was a DTX packet.
+func (d *Decoder) InDTX() bool {
+	return d.lastDataLen > 0 && d.lastDataLen <= 2
 }
 
 // FinalRange returns the final range coder state after decoding.

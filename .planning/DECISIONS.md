@@ -20,6 +20,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-12
+topic: Public CTL/API wrapper parity + repacketizer fixture surface
+decision: Keep new root-level control wrappers (`encoder.go`, `multistream.go`, `decoder.go`) and packet/repacketizer API surface (`packet.go`) aligned to libopus request/set/get semantics for the implemented subset: bitrate-mode controls, packet-loss controls, explicit bandwidth setters/getters, application setter/getter, decoder bandwidth/duration/DTX getters, repacketizer cat/out/out_range, and packet pad/unpad helpers.
+evidence: Added tests `TestEncoder_SetBitrateMode`, `TestEncoder_SetVBRAndConstraint`, `TestEncoder_SetPacketLoss`, `TestEncoder_SetBandwidth`, `TestEncoder_SetApplication`, `TestMultistreamEncoder_Controls` (packet-loss + final-range alias assertion), `TestDecoder_BandwidthAndLastPacketDuration`, `TestDecoder_InDTX`, and fixture-backed `TestRepacketizerParityWithLibopusFixture` using `testdata/repacketizer_libopus_fixture.json` generated from libopus 1.6.1 behavior. Validation: focused tests PASS, `make verify-production` PASS, `make bench-guard` PASS.
+do_not_repeat_until: libopus 1.6.1 fixture evidence or interoperability tests show divergence in these added wrapper/repacketizer surfaces, or remaining CTL/API parity work requires signature/semantics refinement.
+owner: codex
+
+date: 2026-02-12
 topic: Multistream surround/LFE per-stream control parity slice
 decision: Keep libopus-style multistream per-frame stream policy in `multistream/encoder.go`: surround-aware per-stream rate allocation (including LFE stream weighting), surround bandwidth forcing thresholds, coupled-stream CELT+stereo forcing, ambisonics CELT forcing, and surround-mask-derived `surroundTrim` propagation via `encoder.SetCELTSurroundTrim`.
 evidence: Added `SetCELTSurroundTrim`/`CELTSurroundTrim` in `encoder/encoder.go`; implemented surround/ambisonics mapping inference, LFE stream detection, per-frame allocation/control, and surround-mask trim production in `multistream/encoder.go`; added focused tests `TestAllocateRates_SurroundLFEAware`, `TestEncode_SurroundPerStreamPolicy`, `TestEncode_SurroundTrimProduced`, `TestEncode_AmbisonicsForcesCELTMode` in `multistream/encoder_test.go`. Validation: focused multistream tests PASS, `TestEncoderComplianceSummary` PASS, `make verify-production` PASS, `make bench-guard` PASS.

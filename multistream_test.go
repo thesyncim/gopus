@@ -425,6 +425,19 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 		t.Error("DTX should be disabled")
 	}
 
+	// Test SetPacketLoss
+	err = enc.SetPacketLoss(15)
+	if err != nil {
+		t.Errorf("SetPacketLoss(15) error: %v", err)
+	}
+	if enc.PacketLoss() != 15 {
+		t.Errorf("PacketLoss() = %d, want 15", enc.PacketLoss())
+	}
+	err = enc.SetPacketLoss(101)
+	if err != ErrInvalidPacketLoss {
+		t.Errorf("SetPacketLoss(101) error = %v, want ErrInvalidPacketLoss", err)
+	}
+
 	// Encode a frame after setting controls to verify no errors
 	frameSize := 960
 	pcm := generateSurroundTestSignal(48000, frameSize, channels)
@@ -434,6 +447,9 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 	}
 	if len(packet) == 0 {
 		t.Error("Encode after controls produced empty packet")
+	}
+	if enc.FinalRange() != enc.GetFinalRange() {
+		t.Errorf("FinalRange() = %d, want %d", enc.FinalRange(), enc.GetFinalRange())
 	}
 
 	t.Logf("Controls verified: bitrate=%d, complexity=%d, FEC=%v, DTX=%v",
