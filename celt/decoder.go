@@ -583,7 +583,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	}
 	currentFrame := d.decodeFrameIndex
 	d.decodeFrameIndex++
-	if tmpGetenv("GOPUS_TMP_PVQCALL_DBG") == "1" {
+	if tmpPVQCallDebugEnabled {
 		d.bandDebug.qDbgDecodeFrame = currentFrame
 		d.bandDebug.pvqCallSeq = 0
 	}
