@@ -14,6 +14,7 @@ Run from repository root and keep command output for release evidence.
 
 - [ ] `make verify-production`
 - [ ] `make verify-production-exhaustive`
+- [ ] `make release-evidence` (captures a timestamped evidence bundle in `reports/release/` by default)
 
 ## Required Evidence to Attach
 
