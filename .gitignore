@@ -26,8 +26,11 @@ tmp_check
 examples/*/bench-*
 examples/*/*.exe
 
-# Planning/debug docs (not needed in repo)
-.planning/
+# Planning/debug docs (keep session memory files, ignore deep debug logs)
+.planning/*
+!.planning/ACTIVE.md
+!.planning/DECISIONS.md
+!.planning/WORK_CLAIMS.md
 
 # OS files
 .DS_Store

@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix test test-fast test-race test-race-parity test-fuzz-smoke test-parity test-exhaustive test-provenance bench-guard verify-production verify-production-exhaustive release-evidence ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors
+.PHONY: lint lint-fix test test-fast test-race test-race-parity test-fuzz-smoke test-parity test-exhaustive test-provenance bench-guard agent-preflight verify-production verify-production-exhaustive release-evidence ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors
 
 GO ?= go
 PGO_FILE ?= default.pgo
@@ -66,6 +66,10 @@ test-parity:
 # Hot-path performance guardrail checks (median benchmark thresholds + alloc bounds).
 bench-guard:
 	$(GO) run ./tools/benchguard -config tools/bench_guardrails.json
+
+# Session memory + overlap preflight for concurrent agent work.
+agent-preflight:
+	bash ./tools/agent_preflight.sh
 
 # Default production verification gate.
 verify-production: ensure-libopus

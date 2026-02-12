@@ -45,6 +45,29 @@ Canonical project context for agent sessions.
   - `func (e *Encoder) Encode(pcm []float32, data []byte) (int, error)`
 - Avoid introducing allocation-heavy convenience wrappers in hot paths.
 
+## Session Startup Contract (Mandatory)
+- Read files in this order before any new investigation:
+  1. `AGENTS.md`
+  2. `.planning/ACTIVE.md`
+  3. `.planning/DECISIONS.md`
+  4. `.planning/WORK_CLAIMS.md`
+- Run `make agent-preflight` before running tests or editing files.
+- In first response, state:
+  - what will be explicitly skipped (with reason),
+  - what focused test slice will run first,
+  - what condition triggers broad gate (`make verify-production`).
+
+## Concurrent Agent Coordination (Mandatory)
+- If multiple agents are active, each agent must claim path surfaces in `.planning/WORK_CLAIMS.md` before edits.
+- Use stable surfaces for claims: `encoder/`, `silk/`, `celt/`, `hybrid/`, `testvectors/`, `tools/`, root docs.
+- Do not edit surfaces with overlapping active claims unless coordinated and claim lines are updated.
+- Release or mark blocked claims when handing off work.
+
+## Investigation Memory Discipline
+- Update `.planning/ACTIVE.md` evidence log for each meaningful hypothesis/result step.
+- Record durable keep/skip decisions in `.planning/DECISIONS.md` with explicit `do_not_repeat_until`.
+- Move resolved deep-dives into `.planning/debug/resolved/` and keep active debug notes scoped to current blockers.
+
 ## CI Regression Guardrails (Mandatory)
 - Treat CI as merge-blocking for correctness and performance; do not bypass failing checks.
 - Before proposing merge-ready changes, run:
