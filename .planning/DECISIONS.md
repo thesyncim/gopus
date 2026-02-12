@@ -20,6 +20,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-12
+topic: Multistream surround/LFE per-stream control parity slice
+decision: Keep libopus-style multistream per-frame stream policy in `multistream/encoder.go`: surround-aware per-stream rate allocation (including LFE stream weighting), surround bandwidth forcing thresholds, coupled-stream CELT+stereo forcing, ambisonics CELT forcing, and surround-mask-derived `surroundTrim` propagation via `encoder.SetCELTSurroundTrim`.
+evidence: Added `SetCELTSurroundTrim`/`CELTSurroundTrim` in `encoder/encoder.go`; implemented surround/ambisonics mapping inference, LFE stream detection, per-frame allocation/control, and surround-mask trim production in `multistream/encoder.go`; added focused tests `TestAllocateRates_SurroundLFEAware`, `TestEncode_SurroundPerStreamPolicy`, `TestEncode_SurroundTrimProduced`, `TestEncode_AmbisonicsForcesCELTMode` in `multistream/encoder_test.go`. Validation: focused multistream tests PASS, `TestEncoderComplianceSummary` PASS, `make verify-production` PASS, `make bench-guard` PASS.
+do_not_repeat_until: libopus fixture-driven parity evidence indicates surround mask/trim producer math should be adjusted, or remaining multistream CTL/repacketizer/ambisonics parity work changes these control surfaces.
+owner: codex
+
+date: 2026-02-12
 topic: CELT surround-trim plumbing
 decision: Keep `surroundTrim` as explicit CELT encoder state used by alloc-trim analysis (`celt/encode_frame.go`) instead of a hardcoded zero, with default reset-to-zero semantics and focused tests. Do not infer non-zero surround trim heuristically until a libopus-parity surround-mask producer is wired.
 evidence: Added `SetSurroundTrim`/`SurroundTrim` in `celt/encoder.go`; replaced hardcoded call-site value in `celt/encode_frame.go`; added `TestEncoderSetSurroundTrim`, `TestEncoderResetClearsSurroundTrim`, and `TestAllocTrimSurroundTrimAdjustment`. Validation: focused CELT tests PASS; `TestEncoderComplianceSummary`, `TestEncoderCompliancePrecisionGuard`, `TestEncoderVariantProfileParityAgainstLibopusFixture` PASS; `make verify-production` and `make bench-guard` PASS.
