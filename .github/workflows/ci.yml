@@ -12,7 +12,7 @@ permissions:
 env:
   LIBOPUS_VERSION: "1.6.1"
   GOPUS_DISABLE_OPUSDEC: "0"
-  GOPUS_DISABLE_OPUSENC: "0"
+  GOPUS_DISABLE_OPUSENC: "1"
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
