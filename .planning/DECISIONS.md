@@ -20,6 +20,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-12
+topic: CELT 10ms stereo short-frame budget uplift
+decision: Keep a stereo-only 10ms CELT budget uplift in `computeTargetBits` (`frameSize==480`, `channels==2`: additional `+128` bits on top of the existing 10ms boost) to reduce the largest remaining CELT short-frame stereo quality gap without perturbing mono/long-frame behavior.
+evidence: Focused compliance slice improved `FB-10ms-stereo` from `Q=-26.80` to `Q=-22.48` (`go test ./testvectors -run 'TestEncoderComplianceCELT/FB-10ms-stereo' -count=1 -v`); broad guards remained green: `TestEncoderComplianceCELT`, `TestEncoderComplianceSummary`, `TestEncoderCompliancePrecisionGuard`, `TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestCELTLongFrameVBRBitrateBudget`, `make verify-production`, and `make bench-guard`.
+do_not_repeat_until: CELT 10ms stereo bitrate/interoperability regressions appear, or libopus-referenced parity evidence indicates this uplift is overly aggressive.
+owner: codex
+
+date: 2026-02-12
 topic: Encoder precision guard ratchet (general, round 2)
 decision: Tighten `encoderLibopusGapFloorDB` across stable profiles after short-frame quality uplift (initially 14/19 floors increased), then apply Windows-calibrated adjustments for three newly-sensitive cases while still remaining tighter than the previous baseline: `SILK-WB-10ms-mono-32k=-0.05`, `SILK-WB-60ms-mono-32k=-0.25`, `Hybrid-SWB-10ms-mono-48k=-0.15`. Keep previously held Windows-sensitive floors unchanged: `SILK-WB-40ms-mono-32k=-0.35`, `Hybrid-FB-20ms-mono-64k=-0.55`, `Hybrid-FB-60ms-mono-64k=-0.55`, `Hybrid-FB-20ms-stereo-96k=-0.25`.
 evidence: Local ratchet validation `go test ./testvectors -run 'TestEncoderCompliancePrecisionGuard|TestEncoderComplianceSummary|TestEncoderVariantProfileParityAgainstLibopusFixture' -count=1 -v` PASS; PR #31 `test-windows` failure identified these three cases; post-adjustment reruns of the same local tests plus `make verify-production` and `make bench-guard` all PASS.
