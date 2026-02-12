@@ -20,6 +20,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-12
+topic: CI Linux gate parallelization (no coverage reduction)
+decision: Keep Linux correctness checks split into parallel jobs (`test-linux-parity`, `test-linux-race`, `test-linux-provenance`) and aggregate with `test-linux`; do not re-consolidate parity + race into a single serialized job.
+evidence: Recent successful CI telemetry (`gh run view 21964360695`, `gh run view 21964143086`, `gh run view 21963310494`) showed serialized `test-linux-verify` as critical path (~5m51s to ~6m28s), while `perf-linux` benchmark guardrails were already independent. Workflow update preserves full parity/race/provenance checks and removes serialized Linux gating.
+do_not_repeat_until: Linux required checks materially change (new required job surface), or post-change CI timing evidence shows no wall-clock benefit over three consecutive successful runs.
+owner: codex
+
+date: 2026-02-12
 topic: Assembly documentation source of truth
 decision: Keep `ASSEMBLY.md` as the canonical inventory for architecture-specific assembly kernels and fallback mappings, and keep `README.md` linked to it instead of duplicating maintenance details elsewhere.
 evidence: Added `ASSEMBLY.md`; updated `README.md`, `examples/README.md`, `CODEX.md`, and `CLAUDE.md`; validation gates `make verify-production` and `make bench-guard` passed.
