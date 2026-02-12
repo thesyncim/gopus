@@ -1,0 +1,45 @@
+name: Verify Production Exhaustive
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly on Monday at 07:00 UTC.
+    - cron: "0 7 * * 1"
+
+permissions:
+  contents: read
+
+env:
+  LIBOPUS_VERSION: "1.6.1"
+  GOPUS_DISABLE_OPUSDEC: "0"
+  GOPUS_DISABLE_OPUSENC: "1"
+
+concurrency:
+  group: exhaustive-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-exhaustive-linux:
+    name: verify-exhaustive-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg opus-tools
+
+      - name: Bootstrap pinned libopus
+        run: make ensure-libopus
+
+      - name: Run exhaustive production verification gate
+        run: make verify-production-exhaustive
