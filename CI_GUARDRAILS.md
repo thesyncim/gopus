@@ -9,14 +9,11 @@ Block correctness and hot-path performance regressions before merge.
 ## What CI Enforces
 
 1. Correctness gate (`test-linux`)
-- `make verify-production`
-- `make docker-test-exhaustive`
-- Internally split into parallel jobs (`test-linux-verify`, `test-linux-provenance`) and aggregated by `test-linux`.
-- `verify-production` runs:
-  - parity-tier full suite: `GOPUS_TEST_TIER=parity go test ./... -count=1`
-  - benchmark guardrails: `make bench-guard`
-  - race sweep: `make test-race`
-  - without redundant re-runs of hot-path alloc or parity subsets already covered by the full suite.
+- `test-linux-parity`: `make ensure-libopus && GOPUS_TEST_TIER=parity go test ./... -count=1`
+- `test-linux-race`: `make ensure-libopus && make test-race`
+- `make docker-test-exhaustive` via `test-linux-provenance`
+- Internally split into parallel jobs (`test-linux-parity`, `test-linux-race`, `test-linux-provenance`) and aggregated by `test-linux`.
+- This keeps parity/race/provenance coverage intact while removing serialized Linux checks from a single job.
 
 2. Performance gate (`perf-linux`)
 - `make bench-guard`
