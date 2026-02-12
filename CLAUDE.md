@@ -2,6 +2,7 @@
 
 Use `AGENTS.md` as the canonical project context.
 If this file and `AGENTS.md` differ, `AGENTS.md` is authoritative.
+When in doubt, use `tmp_check/opus-1.6.1/` libopus source as the source of truth.
 
 Session quick start:
 
