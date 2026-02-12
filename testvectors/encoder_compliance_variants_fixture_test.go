@@ -659,101 +659,109 @@ func TestEncoderVariantProfileParityAgainstLibopusFixture(t *testing.T) {
 	}
 	generatedBaseline := make(map[string]encoderVariantsBaselineTC, len(fixture.Cases))
 	seenBaseline := make(map[string]struct{}, len(fixture.Cases))
+	var baselineMu sync.Mutex
 
-	for _, c := range fixture.Cases {
-		c := c
-		name := fmt.Sprintf("%s-%s", c.Name, c.Variant)
-		t.Run(name, func(t *testing.T) {
-			totalSamples := c.SignalFrames * c.FrameSize * c.Channels
-			signal, err := testsignal.GenerateEncoderSignalVariant(c.Variant, 48000, totalSamples, c.Channels)
-			if err != nil {
-				t.Fatalf("generate signal: %v", err)
-			}
-			if hash := testsignal.HashFloat32LE(signal); hash != c.SignalSHA256 {
-				t.Fatalf("signal hash mismatch for %s", name)
-			}
+	t.Run("cases", func(t *testing.T) {
+		for _, c := range fixture.Cases {
+			c := c
+			name := fmt.Sprintf("%s-%s", c.Name, c.Variant)
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
 
-			libPackets, _, err := decodeEncoderVariantsFixturePackets(c)
-			if err != nil {
-				t.Fatalf("decode fixture packets: %v", err)
-			}
-			goPackets, err := encodeGopusForVariantsCase(c, signal)
-			if err != nil {
-				t.Fatalf("encode gopus packets: %v", err)
-			}
-			packetCountDiff := len(goPackets) - len(libPackets)
-			if packetCountDiff < 0 {
-				packetCountDiff = -packetCountDiff
-			}
-			if packetCountDiff > 1 {
-				t.Fatalf("packet count mismatch: go=%d lib=%d", len(goPackets), len(libPackets))
-			}
+				totalSamples := c.SignalFrames * c.FrameSize * c.Channels
+				signal, err := testsignal.GenerateEncoderSignalVariant(c.Variant, 48000, totalSamples, c.Channels)
+				if err != nil {
+					t.Fatalf("generate signal: %v", err)
+				}
+				if hash := testsignal.HashFloat32LE(signal); hash != c.SignalSHA256 {
+					t.Fatalf("signal hash mismatch for %s", name)
+				}
 
-			stats := computeEncoderPacketProfileStats(libPackets, goPackets)
-			goQ, err := qualityFromPacketsInternal(goPackets, signal, c.Channels, c.FrameSize)
-			if err != nil {
-				t.Fatalf("compute gopus quality: %v", err)
-			}
-			libQ, err := qualityFromPacketsInternal(libPackets, signal, c.Channels, c.FrameSize)
-			if err != nil {
-				t.Fatalf("compute libopus quality from fixture: %v", err)
-			}
-			goSNR := SNRFromQuality(goQ)
-			libSNR := SNRFromQuality(libQ)
-			gapDB := goSNR - libSNR
+				libPackets, _, err := decodeEncoderVariantsFixturePackets(c)
+				if err != nil {
+					t.Fatalf("decode fixture packets: %v", err)
+				}
+				goPackets, err := encodeGopusForVariantsCase(c, signal)
+				if err != nil {
+					t.Fatalf("encode gopus packets: %v", err)
+				}
+				packetCountDiff := len(goPackets) - len(libPackets)
+				if packetCountDiff < 0 {
+					packetCountDiff = -packetCountDiff
+				}
+				if packetCountDiff > 1 {
+					t.Fatalf("packet count mismatch: go=%d lib=%d", len(goPackets), len(libPackets))
+				}
 
-			thr := encoderVariantThreshold(c)
-			t.Logf("gap=%.2fdB meanAbs=%.2f p95Abs=%.2f mismatch=%.2f%% histL1=%.3f",
-				gapDB,
-				stats.meanAbsPacketLen,
-				stats.p95AbsPacketLen,
-				100*stats.modeMismatchRate,
-				stats.histogramL1,
-			)
+				stats := computeEncoderPacketProfileStats(libPackets, goPackets)
+				goQ, err := qualityFromPacketsInternal(goPackets, signal, c.Channels, c.FrameSize)
+				if err != nil {
+					t.Fatalf("compute gopus quality: %v", err)
+				}
+				libQ, err := qualityFromPacketsInternal(libPackets, signal, c.Channels, c.FrameSize)
+				if err != nil {
+					t.Fatalf("compute libopus quality from fixture: %v", err)
+				}
+				goSNR := SNRFromQuality(goQ)
+				libSNR := SNRFromQuality(libQ)
+				gapDB := goSNR - libSNR
 
-			if gapDB < thr.minGapDB {
-				t.Fatalf("quality gap regression: gap=%.2f dB < floor %.2f dB", gapDB, thr.minGapDB)
-			}
-			if stats.meanAbsPacketLen > thr.maxMeanAbsPacketLen {
-				t.Fatalf("mean abs packet length diff regression: %.2f > %.2f", stats.meanAbsPacketLen, thr.maxMeanAbsPacketLen)
-			}
-			if stats.p95AbsPacketLen > thr.maxP95AbsPacketLen {
-				t.Fatalf("p95 abs packet length diff regression: %.2f > %.2f", stats.p95AbsPacketLen, thr.maxP95AbsPacketLen)
-			}
-			if stats.modeMismatchRate > thr.maxModeMismatchRate {
-				t.Fatalf("mode mismatch regression: %.4f > %.4f", stats.modeMismatchRate, thr.maxModeMismatchRate)
-			}
-			if stats.histogramL1 > thr.maxHistogramL1 {
-				t.Fatalf("mode histogram L1 regression: %.3f > %.3f", stats.histogramL1, thr.maxHistogramL1)
-			}
+				thr := encoderVariantThreshold(c)
+				t.Logf("gap=%.2fdB meanAbs=%.2f p95Abs=%.2f mismatch=%.2f%% histL1=%.3f",
+					gapDB,
+					stats.meanAbsPacketLen,
+					stats.p95AbsPacketLen,
+					100*stats.modeMismatchRate,
+					stats.histogramL1,
+				)
 
-			key := encoderVariantCaseKey(c.Name, c.Variant)
-			seenBaseline[key] = struct{}{}
-			if updateBaseline {
-				generatedBaseline[key] = buildBaselineCase(c, gapDB, stats)
-				return
-			}
-			b, ok := baseline[key]
-			if !ok {
-				t.Fatalf("missing ratchet baseline for %s", key)
-			}
-			if gapDB < b.MinGapDB {
-				t.Fatalf("ratchet gap regression: %.2f < %.2f", gapDB, b.MinGapDB)
-			}
-			if stats.meanAbsPacketLen > b.MaxMeanAbsPacket {
-				t.Fatalf("ratchet meanAbs regression: %.2f > %.2f", stats.meanAbsPacketLen, b.MaxMeanAbsPacket)
-			}
-			if stats.p95AbsPacketLen > b.MaxP95AbsPacket {
-				t.Fatalf("ratchet p95 regression: %.2f > %.2f", stats.p95AbsPacketLen, b.MaxP95AbsPacket)
-			}
-			if stats.modeMismatchRate > b.MaxModeMismatch {
-				t.Fatalf("ratchet mode mismatch regression: %.4f > %.4f", stats.modeMismatchRate, b.MaxModeMismatch)
-			}
-			if stats.histogramL1 > b.MaxHistogramL1 {
-				t.Fatalf("ratchet histogram L1 regression: %.3f > %.3f", stats.histogramL1, b.MaxHistogramL1)
-			}
-		})
-	}
+				if gapDB < thr.minGapDB {
+					t.Fatalf("quality gap regression: gap=%.2f dB < floor %.2f dB", gapDB, thr.minGapDB)
+				}
+				if stats.meanAbsPacketLen > thr.maxMeanAbsPacketLen {
+					t.Fatalf("mean abs packet length diff regression: %.2f > %.2f", stats.meanAbsPacketLen, thr.maxMeanAbsPacketLen)
+				}
+				if stats.p95AbsPacketLen > thr.maxP95AbsPacketLen {
+					t.Fatalf("p95 abs packet length diff regression: %.2f > %.2f", stats.p95AbsPacketLen, thr.maxP95AbsPacketLen)
+				}
+				if stats.modeMismatchRate > thr.maxModeMismatchRate {
+					t.Fatalf("mode mismatch regression: %.4f > %.4f", stats.modeMismatchRate, thr.maxModeMismatchRate)
+				}
+				if stats.histogramL1 > thr.maxHistogramL1 {
+					t.Fatalf("mode histogram L1 regression: %.3f > %.3f", stats.histogramL1, thr.maxHistogramL1)
+				}
+
+				key := encoderVariantCaseKey(c.Name, c.Variant)
+				baselineMu.Lock()
+				seenBaseline[key] = struct{}{}
+				if updateBaseline {
+					generatedBaseline[key] = buildBaselineCase(c, gapDB, stats)
+					baselineMu.Unlock()
+					return
+				}
+				baselineMu.Unlock()
+				b, ok := baseline[key]
+				if !ok {
+					t.Fatalf("missing ratchet baseline for %s", key)
+				}
+				if gapDB < b.MinGapDB {
+					t.Fatalf("ratchet gap regression: %.2f < %.2f", gapDB, b.MinGapDB)
+				}
+				if stats.meanAbsPacketLen > b.MaxMeanAbsPacket {
+					t.Fatalf("ratchet meanAbs regression: %.2f > %.2f", stats.meanAbsPacketLen, b.MaxMeanAbsPacket)
+				}
+				if stats.p95AbsPacketLen > b.MaxP95AbsPacket {
+					t.Fatalf("ratchet p95 regression: %.2f > %.2f", stats.p95AbsPacketLen, b.MaxP95AbsPacket)
+				}
+				if stats.modeMismatchRate > b.MaxModeMismatch {
+					t.Fatalf("ratchet mode mismatch regression: %.4f > %.4f", stats.modeMismatchRate, b.MaxModeMismatch)
+				}
+				if stats.histogramL1 > b.MaxHistogramL1 {
+					t.Fatalf("ratchet histogram L1 regression: %.3f > %.3f", stats.histogramL1, b.MaxHistogramL1)
+				}
+			})
+		}
+	})
 
 	if updateBaseline {
 		keys := make([]string, 0, len(generatedBaseline))

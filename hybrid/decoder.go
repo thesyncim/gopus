@@ -9,6 +9,7 @@ import (
 	"errors"
 
 	"github.com/thesyncim/gopus/celt"
+	"github.com/thesyncim/gopus/plc"
 	"github.com/thesyncim/gopus/rangecoding"
 	"github.com/thesyncim/gopus/silk"
 )
@@ -67,6 +68,9 @@ type Decoder struct {
 	// Channel count (1 for mono, 2 for stereo)
 	channels int
 
+	// Per-decoder PLC state (do not share across decoder instances).
+	plcState *plc.State
+
 	// Scratch buffers to reduce per-frame allocations (decoder is not thread-safe).
 	// Max frame size is 960 samples at 48kHz (20ms), stereo needs 960*2 = 1920 samples.
 	scratchSilkUpsampled []float64 // SILK upsampled output (max 960*2 for stereo 20ms)
@@ -99,6 +103,7 @@ func NewDecoder(channels int) *Decoder {
 		silkDelayBuffer: make([]float64, SilkCELTDelay*channels),
 
 		channels: channels,
+		plcState: plc.NewState(),
 
 		// Pre-allocate scratch buffers for zero-alloc decode path
 		scratchSilkUpsampled: make([]float64, maxSamples),
@@ -132,6 +137,9 @@ func (d *Decoder) Reset() {
 	}
 
 	d.prevPacketStereo = false
+	if d.plcState != nil {
+		d.plcState.Reset()
+	}
 }
 
 // SetPrevPacketStereo synchronizes the previous packet stereo flag.

@@ -55,6 +55,8 @@ func logDecoderComplianceStatus(t *testing.T) {
 //   - Compute quality metric against both references
 //   - Pass if either Q >= 0 (RFC 8251 allows either reference)
 func TestDecoderCompliance(t *testing.T) {
+	requireTestTier(t, testTierParity)
+
 	logDecoderComplianceStatus(t)
 	// Ensure test vectors are available
 	if err := ensureTestVectors(t); err != nil {
@@ -382,6 +384,8 @@ func extractTarGz(r io.Reader) error {
 // TestSingleVector allows running a single test vector for debugging.
 // Usage: go test -v -run TestSingleVector/testvector01
 func TestSingleVector(t *testing.T) {
+	requireTestTier(t, testTierParity)
+
 	logDecoderComplianceStatus(t)
 	if err := ensureTestVectors(t); err != nil {
 		t.Skipf("Skipping: %v", err)
@@ -469,6 +473,8 @@ type vectorResult struct {
 // TestComplianceSummary runs all vectors and prints a summary table.
 // This provides an overview of compliance status and verifies the hybrid mode assumption.
 func TestComplianceSummary(t *testing.T) {
+	requireTestTier(t, testTierParity)
+
 	if err := ensureTestVectors(t); err != nil {
 		t.Skipf("Skipping: %v", err)
 		return

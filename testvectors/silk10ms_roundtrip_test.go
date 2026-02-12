@@ -13,6 +13,8 @@ import (
 // using the gopus decoder directly (no Ogg container, no opusdec).
 // This isolates encoder quality from container/tool issues.
 func TestSilk10msRoundtrip(t *testing.T) {
+	requireTestTier(t, testTierParity)
+
 	for _, tc := range []struct {
 		name      string
 		bandwidth types.Bandwidth

@@ -63,6 +63,8 @@ func longFrameFixtureTargets() []longFrameFixtureTarget {
 // quality against frozen libopus reference packets. This keeps parity coverage
 // available without requiring live libopus bindings.
 func TestLongFrameLibopusReferenceParityFromFixture(t *testing.T) {
+	requireTestTier(t, testTierParity)
+
 	fixture, err := loadLongFrameFixtureCached()
 	if err != nil {
 		t.Fatalf("load long-frame fixture: %v", err)
