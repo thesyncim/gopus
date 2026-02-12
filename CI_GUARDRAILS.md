@@ -11,6 +11,7 @@ Block correctness and hot-path performance regressions before merge.
 1. Correctness gate (`test-linux`)
 - `make verify-production`
 - `make docker-test-exhaustive`
+- Internally split into parallel jobs (`test-linux-verify`, `test-linux-provenance`) and aggregated by `test-linux`.
 
 2. Performance gate (`perf-linux`)
 - `make bench-guard`
