@@ -1,0 +1,29 @@
+{
+  "package": ".",
+  "bench_regex": "^(BenchmarkDecoderDecode_CELT|BenchmarkDecoderDecodeInt16|BenchmarkEncoderEncode$|BenchmarkEncoderEncodeInt16)$",
+  "count": 5,
+  "benchtime": "200ms",
+  "cpu": 1,
+  "benchmarks": {
+    "BenchmarkDecoderDecode_CELT": {
+      "max_ns_op": 70000,
+      "max_b_op": 16,
+      "max_allocs_op": 0
+    },
+    "BenchmarkDecoderDecodeInt16": {
+      "max_ns_op": 80000,
+      "max_b_op": 16,
+      "max_allocs_op": 0
+    },
+    "BenchmarkEncoderEncode": {
+      "max_ns_op": 650000,
+      "max_b_op": 0,
+      "max_allocs_op": 0
+    },
+    "BenchmarkEncoderEncodeInt16": {
+      "max_ns_op": 700000,
+      "max_b_op": 0,
+      "max_allocs_op": 0
+    }
+  }
+}

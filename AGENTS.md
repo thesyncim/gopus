@@ -45,6 +45,18 @@ Canonical project context for agent sessions.
   - `func (e *Encoder) Encode(pcm []float32, data []byte) (int, error)`
 - Avoid introducing allocation-heavy convenience wrappers in hot paths.
 
+## CI Regression Guardrails (Mandatory)
+- Treat CI as merge-blocking for correctness and performance; do not bypass failing checks.
+- Before proposing merge-ready changes, run:
+  - `make verify-production`
+  - `make bench-guard`
+- If a change is performance-sensitive (encoder/decoder hot path, SILK/CELT/Hybrid core, resamplers, packet loops), include benchmark guard evidence in the PR notes.
+- Never relax benchmark thresholds in `tools/bench_guardrails.json` without:
+  - measured evidence from `make bench-guard`,
+  - a short rationale in the PR/commit message,
+  - explicit reviewer sign-off for the threshold change.
+- Never disable parity/race/fuzz guard targets to make CI pass; fix root causes or document a scoped, temporary exception with owner and expiry.
+
 ## Key Paths
 - Core encoder: `encoder/`
 - SILK: `silk/`
@@ -66,6 +78,9 @@ go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v
 
 # Allocation checks
 go test -bench=. -benchmem ./...
+
+# Benchmark guardrails (CI perf gate)
+make bench-guard
 ```
 
 ## Commit Rules

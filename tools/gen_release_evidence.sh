@@ -50,6 +50,7 @@ cd "${ROOT_DIR}"
 
 run_cmd "Production Gate" make verify-production
 run_cmd "Exhaustive Gate" make verify-production-exhaustive
+run_cmd "Benchmark Guardrails" make bench-guard
 run_cmd "Hot-Path Benchmarks" go test -run '^$' -bench '^Benchmark(DecoderDecode_CELT|EncoderEncode|DecoderDecodeInt16|EncoderEncodeInt16)$' -benchmem -count=1 .
 
 echo "wrote ${OUT_FILE}"
