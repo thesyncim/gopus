@@ -7,10 +7,6 @@ package celt
 
 import "github.com/thesyncim/gopus/rangecoding"
 
-// Decoder tracing is compiled out on the hot decode path for performance.
-// Enable for diagnostics by changing this constant locally when needed.
-const decodeTracingEnabled = true
-
 // Tracer defines the interface for CELT decoder debug tracing.
 type Tracer interface {
 	TraceHeader(frameSize, channels, lm, intra, transient int)
