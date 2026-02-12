@@ -327,42 +327,61 @@ func bitsToK(bits, n int) int {
 	return getPulses(q)
 }
 
-const maxBandWidthLookup = 1024
-
-var (
-	bandByWidth [maxBandWidthLookup + 1]int8
-	lmByWidth   [maxBandWidthLookup + 1]int8
-)
-
-func init() {
-	for i := range bandByWidth {
-		bandByWidth[i] = -1
-		lmByWidth[i] = -1
-	}
-	// Preserve existing lookup behavior: first match wins with lm ascending.
-	for lm := 0; lm <= 3; lm++ {
-		for band := 0; band < MaxBands; band++ {
-			width := (EBands[band+1] - EBands[band]) << lm
-			if width <= 0 || width > maxBandWidthLookup {
-				continue
-			}
-			if bandByWidth[width] < 0 {
-				bandByWidth[width] = int8(band)
-				lmByWidth[width] = int8(lm)
-			}
-		}
-	}
-}
-
 func bandFromWidth(width int) (band int, lm int, ok bool) {
 	if width <= 0 {
 		return 0, 0, false
 	}
-	if width <= maxBandWidthLookup {
-		b := bandByWidth[width]
-		if b >= 0 {
-			return int(b), int(lmByWidth[width]), true
-		}
+	// Mapping preserves prior lookup behavior from init-built tables:
+	// first match wins with lm ascending.
+	switch width {
+	case 1:
+		return 0, 0, true
+	case 2:
+		return 9, 0, true
+	case 4:
+		return 11, 0, true
+	case 8:
+		return 14, 0, true
+	case 10:
+		return 16, 0, true
+	case 12:
+		return 17, 0, true
+	case 16:
+		return 18, 0, true
+	case 20:
+		return 16, 1, true
+	case 21:
+		return 19, 0, true
+	case 24:
+		return 17, 1, true
+	case 26:
+		return 20, 0, true
+	case 32:
+		return 18, 1, true
+	case 40:
+		return 16, 2, true
+	case 42:
+		return 19, 1, true
+	case 48:
+		return 17, 2, true
+	case 52:
+		return 20, 1, true
+	case 64:
+		return 18, 2, true
+	case 80:
+		return 16, 3, true
+	case 84:
+		return 19, 2, true
+	case 96:
+		return 17, 3, true
+	case 104:
+		return 20, 2, true
+	case 128:
+		return 18, 3, true
+	case 168:
+		return 19, 3, true
+	case 208:
+		return 20, 3, true
 	}
 	for lm = 0; lm <= 3; lm++ {
 		for band = 0; band < MaxBands; band++ {
