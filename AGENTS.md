@@ -45,28 +45,30 @@ Canonical project context for agent sessions.
   - `func (e *Encoder) Encode(pcm []float32, data []byte) (int, error)`
 - Avoid introducing allocation-heavy convenience wrappers in hot paths.
 
-## Session Startup Contract (Mandatory)
-- Read files in this order before any new investigation:
+## Session Quick Start
+- Read in order before new investigation:
   1. `AGENTS.md`
   2. `.planning/ACTIVE.md`
   3. `.planning/DECISIONS.md`
   4. `.planning/WORK_CLAIMS.md`
-- Run `make agent-preflight` before running tests or editing files.
+- Run `make agent-preflight` before tests or edits.
 - In first response, state:
-  - what will be explicitly skipped (with reason),
-  - what focused test slice will run first,
-  - what condition triggers broad gate (`make verify-production`).
+  - what will be skipped from re-validation (and why),
+  - what focused test slice runs first,
+  - when broad gate `make verify-production` will be run.
 
-## Concurrent Agent Coordination (Mandatory)
-- If multiple agents are active, each agent must claim path surfaces in `.planning/WORK_CLAIMS.md` before edits.
-- Use stable surfaces for claims: `encoder/`, `silk/`, `celt/`, `hybrid/`, `testvectors/`, `tools/`, root docs.
-- Do not edit surfaces with overlapping active claims unless coordinated and claim lines are updated.
-- Release or mark blocked claims when handing off work.
+## Parallel Agent Workflow
+- Claim surfaces before edits:
+  - `make agent-claim AGENT=<name> PATHS='silk/,testvectors/' NOTE='short scope note'`
+- Preferred claim surfaces: `encoder/`, `silk/`, `celt/`, `hybrid/`, `testvectors/`, `tools/`, root docs.
+- Avoid overlapping active claims unless coordinated.
+- Release claims when done:
+  - `make agent-release CLAIM_ID=<id>`
 
-## Investigation Memory Discipline
-- Update `.planning/ACTIVE.md` evidence log for each meaningful hypothesis/result step.
+## Memory Discipline
+- Update `.planning/ACTIVE.md` evidence log for meaningful hypothesis/result steps.
 - Record durable keep/skip decisions in `.planning/DECISIONS.md` with explicit `do_not_repeat_until`.
-- Move resolved deep-dives into `.planning/debug/resolved/` and keep active debug notes scoped to current blockers.
+- Keep active debug notes scoped to current blockers; move resolved deep-dives into `.planning/debug/resolved/`.
 
 ## CI Regression Guardrails (Mandatory)
 - Treat CI as merge-blocking for correctness and performance; do not bypass failing checks.
