@@ -4,19 +4,7 @@ import "math/bits"
 
 const bitexactThetaMax = 16384
 
-var bitexactCosTable [bitexactThetaMax + 1]int
-var bitexactLog2tanThetaTable [bitexactThetaMax + 1]int
-
-func init() {
-	for i := 0; i <= bitexactThetaMax; i++ {
-		bitexactCosTable[i] = bitexactCosCalc(i)
-	}
-	for i := 1; i < bitexactThetaMax; i++ {
-		isin := bitexactCosTable[bitexactThetaMax-i]
-		icos := bitexactCosTable[i]
-		bitexactLog2tanThetaTable[i] = bitexactLog2tanCalc(isin, icos)
-	}
-}
+//go:generate go run ../tools/gen_math_utils_tables.go -out math_utils_tables_static.go
 
 func celtUdiv(n, d int) int {
 	if d <= 0 {
