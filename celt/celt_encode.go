@@ -3,14 +3,7 @@
 
 package celt
 
-import "sync"
-
-// Package-level encoder instances for simple API
-var (
-	monoEncoder   *Encoder
-	stereoEncoder *Encoder
-	encoderMu     sync.Mutex
-)
+// Package-level stateless helpers for simple API.
 
 // Encode encodes mono PCM samples to a CELT packet.
 // pcm: float64 samples at 48kHz
@@ -22,13 +15,7 @@ var (
 //
 // Reference: RFC 6716 Section 4.3
 func Encode(pcm []float64, frameSize int) ([]byte, error) {
-	encoderMu.Lock()
-	if monoEncoder == nil {
-		monoEncoder = NewEncoder(1)
-	}
-	enc := monoEncoder
-	encoderMu.Unlock()
-
+	enc := NewEncoder(1)
 	return enc.EncodeFrame(pcm, frameSize)
 }
 
@@ -44,13 +31,7 @@ func Encode(pcm []float64, frameSize int) ([]byte, error) {
 //
 // Reference: RFC 6716 Section 4.3
 func EncodeStereo(pcm []float64, frameSize int) ([]byte, error) {
-	encoderMu.Lock()
-	if stereoEncoder == nil {
-		stereoEncoder = NewEncoder(2)
-	}
-	enc := stereoEncoder
-	encoderMu.Unlock()
-
+	enc := NewEncoder(2)
 	return enc.EncodeFrame(pcm, frameSize)
 }
 
@@ -75,38 +56,6 @@ func EncodeStereoWithEncoder(enc *Encoder, pcm []float64, frameSize int) ([]byte
 	return enc.EncodeFrame(pcm, frameSize)
 }
 
-// ResetMonoEncoder resets the package-level mono encoder state.
-// Call this when starting to encode a new stream.
-func ResetMonoEncoder() {
-	encoderMu.Lock()
-	defer encoderMu.Unlock()
-	if monoEncoder != nil {
-		monoEncoder.Reset()
-	}
-}
-
-// ResetStereoEncoder resets the package-level stereo encoder state.
-// Call this when starting to encode a new stream.
-func ResetStereoEncoder() {
-	encoderMu.Lock()
-	defer encoderMu.Unlock()
-	if stereoEncoder != nil {
-		stereoEncoder.Reset()
-	}
-}
-
-// SetBitrate updates the bitrate on the package-level encoders.
-func SetBitrate(bitrate int) {
-	encoderMu.Lock()
-	defer encoderMu.Unlock()
-	if monoEncoder != nil {
-		monoEncoder.SetBitrate(bitrate)
-	}
-	if stereoEncoder != nil {
-		stereoEncoder.SetBitrate(bitrate)
-	}
-}
-
 // EncodeFrames encodes multiple consecutive frames.
 // Useful for encoding a stream of audio data.
 // pcmFrames: slice of PCM frames, each with frameSize samples
@@ -117,15 +66,7 @@ func EncodeFrames(pcmFrames [][]float64, frameSize int) ([][]byte, error) {
 		return nil, nil
 	}
 
-	encoderMu.Lock()
-	if monoEncoder == nil {
-		monoEncoder = NewEncoder(1)
-	}
-	enc := monoEncoder
-	encoderMu.Unlock()
-
-	// Reset for new stream
-	enc.Reset()
+	enc := NewEncoder(1)
 
 	packets := make([][]byte, len(pcmFrames))
 	for i, pcm := range pcmFrames {
@@ -148,15 +89,7 @@ func EncodeStereoFrames(pcmFrames [][]float64, frameSize int) ([][]byte, error) 
 		return nil, nil
 	}
 
-	encoderMu.Lock()
-	if stereoEncoder == nil {
-		stereoEncoder = NewEncoder(2)
-	}
-	enc := stereoEncoder
-	encoderMu.Unlock()
-
-	// Reset for new stream
-	enc.Reset()
+	enc := NewEncoder(2)
 
 	packets := make([][]byte, len(pcmFrames))
 	for i, pcm := range pcmFrames {
