@@ -1652,10 +1652,21 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 	// Reference: libopus line 2480: nbAvailableBytes = (target+(1<<(BITRES+2)))>>(BITRES+3)
 	// For bits (not bytes): target_bits = (targetQ3 + 4) >> 3
 	targetBits := (targetQ3 + (1 << (bitRes - 1))) >> bitRes
-	if frameSize == 480 && !e.IsHybrid() {
-		// Tighten CELT 10ms parity budget: our current target can undershoot
-		// libopus noticeably on some frames.
-		targetBits += 128
+	if !e.IsHybrid() {
+		// Increase short/medium CELT frame budgets to reduce avoidable
+		// quantization loss in compliance-quality profiles.
+		switch frameSize {
+		case 480:
+			targetBits += 128
+		case 960:
+			// Multi-frame 40/60ms CELT packets are internally encoded as 20ms
+			// subframes at a reduced subframe bitrate; keep their boost capped.
+			if baseBits >= 1024 {
+				targetBits += 1216
+			} else {
+				targetBits += 256
+			}
+		}
 	}
 
 	// Clamp to reasonable bounds
