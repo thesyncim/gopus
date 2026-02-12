@@ -11,6 +11,7 @@ testvectors/testdata/opus_testvectors/
 
 # Build artifacts
 tmp_check
+.docker-cache/
 *.o
 *.a
 *.so

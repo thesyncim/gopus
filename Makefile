@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix test test-fast test-parity test-exhaustive test-provenance ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors
+.PHONY: lint lint-fix test test-fast test-parity test-exhaustive test-provenance ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors
 
 GO ?= go
 PGO_FILE ?= default.pgo
@@ -11,6 +11,8 @@ DOCKER_IMAGE ?= gopus-ci
 DOCKERFILE_CI ?= Dockerfile.ci
 DOCKER_DISABLE_OPUSDEC ?= 0
 DOCKER_DISABLE_OPUSENC ?= 1
+DOCKER_CACHE_DIR ?= .docker-cache
+DOCKER_BUILDER ?= gopus-buildx
 UNAME_M := $(shell uname -m)
 ifeq ($(UNAME_M),arm64)
 DOCKER_PLATFORM ?= linux/arm64
@@ -22,6 +24,8 @@ endif
 DOCKER_CACHE_SUFFIX := $(subst /,-,$(DOCKER_PLATFORM))
 DOCKER_EXHAUSTIVE_PLATFORM ?= linux/amd64
 DOCKER_EXHAUSTIVE_CACHE_SUFFIX := $(subst /,-,$(DOCKER_EXHAUSTIVE_PLATFORM))
+DOCKER_BUILDX_CACHE_DIR := $(DOCKER_CACHE_DIR)/buildx-$(DOCKER_CACHE_SUFFIX)
+DOCKER_EXHAUSTIVE_BUILDX_CACHE_DIR := $(DOCKER_CACHE_DIR)/buildx-$(DOCKER_EXHAUSTIVE_CACHE_SUFFIX)
 
 # Run golangci-lint
 lint:
@@ -50,12 +54,25 @@ ensure-libopus:
 	LIBOPUS_VERSION=$(LIBOPUS_VERSION) ./tools/ensure_libopus.sh
 
 # Build pinned Linux CI image with codec/tooling dependencies.
-docker-build:
-	docker build --platform $(DOCKER_PLATFORM) --build-arg LIBOPUS_VERSION=$(LIBOPUS_VERSION) -f $(DOCKERFILE_CI) -t $(DOCKER_IMAGE) .
+docker-buildx-bootstrap:
+	@docker buildx inspect $(DOCKER_BUILDER) >/dev/null 2>&1 || docker buildx create --name $(DOCKER_BUILDER) --driver docker-container >/dev/null
+	@docker buildx inspect $(DOCKER_BUILDER) --bootstrap >/dev/null
+
+# Build pinned Linux CI image with codec/tooling dependencies.
+docker-build: docker-buildx-bootstrap
+	@mkdir -p $(DOCKER_BUILDX_CACHE_DIR)
+	@rm -rf $(DOCKER_BUILDX_CACHE_DIR)-new
+	docker buildx build --builder $(DOCKER_BUILDER) --load --platform $(DOCKER_PLATFORM) --cache-from type=local,src=$(DOCKER_BUILDX_CACHE_DIR) --cache-to type=local,dest=$(DOCKER_BUILDX_CACHE_DIR)-new,mode=max --build-arg LIBOPUS_VERSION=$(LIBOPUS_VERSION) -f $(DOCKERFILE_CI) -t $(DOCKER_IMAGE) .
+	@rm -rf $(DOCKER_BUILDX_CACHE_DIR)
+	@mv $(DOCKER_BUILDX_CACHE_DIR)-new $(DOCKER_BUILDX_CACHE_DIR)
 
 # Build image for exhaustive fixture-honesty checks (defaults to linux/amd64).
-docker-build-exhaustive:
-	docker build --platform $(DOCKER_EXHAUSTIVE_PLATFORM) --build-arg LIBOPUS_VERSION=$(LIBOPUS_VERSION) -f $(DOCKERFILE_CI) -t $(DOCKER_IMAGE) .
+docker-build-exhaustive: docker-buildx-bootstrap
+	@mkdir -p $(DOCKER_EXHAUSTIVE_BUILDX_CACHE_DIR)
+	@rm -rf $(DOCKER_EXHAUSTIVE_BUILDX_CACHE_DIR)-new
+	docker buildx build --builder $(DOCKER_BUILDER) --load --platform $(DOCKER_EXHAUSTIVE_PLATFORM) --cache-from type=local,src=$(DOCKER_EXHAUSTIVE_BUILDX_CACHE_DIR) --cache-to type=local,dest=$(DOCKER_EXHAUSTIVE_BUILDX_CACHE_DIR)-new,mode=max --build-arg LIBOPUS_VERSION=$(LIBOPUS_VERSION) -f $(DOCKERFILE_CI) -t $(DOCKER_IMAGE) .
+	@rm -rf $(DOCKER_EXHAUSTIVE_BUILDX_CACHE_DIR)
+	@mv $(DOCKER_EXHAUSTIVE_BUILDX_CACHE_DIR)-new $(DOCKER_EXHAUSTIVE_BUILDX_CACHE_DIR)
 
 # Run full test suite in cached Linux container (modules/build/libopus volumes).
 docker-test: docker-build

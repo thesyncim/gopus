@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.7-labs
 
 ARG GO_VERSION=1.25
 FROM golang:${GO_VERSION}-bookworm
@@ -12,7 +12,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
     GOMODCACHE=/go/pkg/mod \
     GOCACHE=/root/.cache/go-build
 
-RUN apt-get update \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    apt-get update \
     && apt-get install -y --no-install-recommends \
         autoconf \
         automake \
@@ -28,5 +30,10 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace
+
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go mod download
 
 CMD ["bash"]
