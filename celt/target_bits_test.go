@@ -59,3 +59,24 @@ func TestCeltTargetBits25ms(t *testing.T) {
 		}
 	}
 }
+
+func TestComputeTargetBitsLFEAvoidsNonLFEBudgets(t *testing.T) {
+	nonLFE := NewEncoder(1)
+	nonLFE.SetVBR(true)
+	nonLFE.SetHybrid(false)
+	nonLFE.SetBitrate(64000)
+
+	lfe := NewEncoder(1)
+	lfe.SetVBR(true)
+	lfe.SetHybrid(false)
+	lfe.SetBitrate(64000)
+	lfe.SetLFE(true)
+
+	frameSize := 960
+	nonLFEBits := nonLFE.computeTargetBits(frameSize, 0.3, false)
+	lfeBits := lfe.computeTargetBits(frameSize, 0.3, false)
+
+	if lfeBits >= nonLFEBits {
+		t.Fatalf("LFE target bits should be below non-LFE target bits: lfe=%d nonLFE=%d", lfeBits, nonLFEBits)
+	}
+}
