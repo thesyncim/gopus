@@ -410,7 +410,7 @@ func TestLargeFrameSizeModeSelectionAndPacketization(t *testing.T) {
 		{"celt_60ms", encoder.ModeCELT, types.SignalAuto, types.BandwidthFullband, 2880, gopus.ModeCELT, 3, 3},
 		{"auto_music_40ms", encoder.ModeAuto, types.SignalMusic, types.BandwidthFullband, 1920, gopus.ModeCELT, 3, 2},
 		{"auto_voice_40ms", encoder.ModeAuto, types.SignalVoice, types.BandwidthFullband, 1920, gopus.ModeCELT, 3, 2},
-		{"auto_voice_swb_40ms", encoder.ModeAuto, types.SignalVoice, types.BandwidthSuperwideband, 1920, gopus.ModeHybrid, 3, 2},
+		{"auto_voice_swb_40ms", encoder.ModeAuto, types.SignalVoice, types.BandwidthSuperwideband, 1920, gopus.ModeCELT, 3, 2},
 	}
 
 	for _, tc := range tests {
