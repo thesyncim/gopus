@@ -372,6 +372,10 @@ func TestEncoder_SetApplication(t *testing.T) {
 		if got := enc.Application(); got != app {
 			t.Fatalf("Application()=%d want=%d", got, app)
 		}
+		wantLowDelay := app == ApplicationLowDelay
+		if got := enc.enc.LowDelay(); got != wantLowDelay {
+			t.Fatalf("enc.LowDelay()=%v want=%v for app=%d", got, wantLowDelay, app)
+		}
 	}
 
 	if err := enc.SetApplication(Application(99)); err != ErrInvalidApplication {
@@ -395,6 +399,9 @@ func TestEncoder_SetApplication(t *testing.T) {
 	enc.Reset()
 	if err := enc.SetApplication(ApplicationLowDelay); err != nil {
 		t.Fatalf("SetApplication(after reset) error: %v", err)
+	}
+	if !enc.enc.LowDelay() {
+		t.Fatalf("enc.LowDelay() should be true after reset+lowdelay application")
 	}
 }
 
