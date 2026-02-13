@@ -126,23 +126,12 @@ func NewMultistreamEncoderDefault(sampleRate, channels int, application Applicat
 	return mse, nil
 }
 
-// applyApplication configures the encoder based on the application hint.
+// applyApplication records the application hint.
+//
+// Match libopus OPUS_SET_APPLICATION behavior for control surfaces: changing
+// application does not implicitly overwrite bitrate/complexity controls.
 func (e *MultistreamEncoder) applyApplication(app Application) {
 	e.application = app
-	switch app {
-	case ApplicationVoIP:
-		// VoIP: lower bitrate, focus on speech
-		e.enc.SetBitrate(64000 * e.channels / 2)
-		e.enc.SetComplexity(5)
-	case ApplicationAudio:
-		// Audio: higher bitrate for music quality
-		e.enc.SetBitrate(96000 * e.channels / 2)
-		e.enc.SetComplexity(10)
-	case ApplicationLowDelay:
-		// Low delay: moderate bitrate, high complexity
-		e.enc.SetBitrate(80000 * e.channels / 2)
-		e.enc.SetComplexity(10)
-	}
 }
 
 // SetApplication updates the encoder application hint.

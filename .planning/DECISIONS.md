@@ -20,6 +20,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-13
+topic: Multistream application ctl parity (no side effects)
+decision: Keep root multistream `SetApplication`/constructor application handling side-effect free for bitrate/complexity controls: `multistream.go:applyApplication` should only store the application hint and must not rewrite bitrate or complexity settings.
+evidence: Libopus 1.6.1 `opus_multistream_encoder.c` handles `OPUS_SET_APPLICATION_REQUEST` by forwarding to stream encoders without resetting other CTLs. Added regression test `TestMultistreamEncoder_SetApplicationPreservesControls` in `multistream_test.go`; validated by `go test . -run 'TestMultistreamEncoder_Controls|TestMultistreamEncoder_SetApplicationPreservesControls' -count=1 -v`, `go test ./multistream -count=1`, `make verify-production`, and `make bench-guard` (all PASS).
+do_not_repeat_until: libopus changes application-ctl side effects or new interoperability/fixture evidence shows application changes must mutate bitrate/complexity in gopus.
+owner: codex
+
+date: 2026-02-13
 topic: Analyzer output-field parity slice (non-regressing)
 decision: Keep the libopus-aligned analyzer output-field updates in `encoder/analysis.go` (`relativeE=.5` warmup, activity formula parity, and `NoisySpeech`/`StationarySpeech`/`MaxPitchRatio` population), but do not ship strict long-frame `run_analysis` chunking/`tonality_get_info` control-path integration in this slice because it destabilizes long-SWB mode ratchets.
 evidence: Field updates and invariants validated by `go test ./encoder -count=1`; parity/regression guards validated by `GOPUS_TEST_TIER=parity go test ./testvectors -run 'TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard|TestEncoderVariantProfileParityAgainstLibopusFixture' -count=1 -v`; merge gates `make verify-production` and `make bench-guard` PASS.
