@@ -118,6 +118,9 @@ type Encoder struct {
 	// celtSurroundTrim carries multistream surround-trim bias into CELT alloc-trim.
 	celtSurroundTrim float64
 
+	// celtEnergyMask carries per-band surround masking into CELT dynalloc control.
+	celtEnergyMask []float64
+
 	// DC rejection filter state
 	hpMem [4]float32
 
@@ -294,6 +297,10 @@ func (e *Encoder) Reset() {
 	}
 	if e.celtEncoder != nil {
 		e.celtEncoder.Reset()
+	}
+	if len(e.celtEnergyMask) > 0 {
+		clear(e.celtEnergyMask)
+		e.celtEnergyMask = e.celtEnergyMask[:0]
 	}
 	e.silkMonoInputHist = [2]float32{}
 	e.resetFECState()
@@ -1897,6 +1904,7 @@ func (e *Encoder) ensureCELTEncoder() {
 	}
 	e.celtEncoder.SetLFE(e.lfe)
 	e.celtEncoder.SetSurroundTrim(e.celtSurroundTrim)
+	e.celtEncoder.SetEnergyMask(e.celtEnergyMask)
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 }
 
@@ -2084,4 +2092,34 @@ func (e *Encoder) SetCELTSurroundTrim(trim float64) {
 // CELTSurroundTrim returns the current CELT alloc-trim surround bias.
 func (e *Encoder) CELTSurroundTrim() float64 {
 	return e.celtSurroundTrim
+}
+
+// SetCELTEnergyMask sets per-band CELT surround masking (21 mono, 42 stereo).
+func (e *Encoder) SetCELTEnergyMask(mask []float64) {
+	needed := celt.MaxBands * e.channels
+	if needed <= 0 || len(mask) < needed {
+		if len(e.celtEnergyMask) > 0 {
+			clear(e.celtEnergyMask)
+			e.celtEnergyMask = e.celtEnergyMask[:0]
+		}
+		if e.celtEncoder != nil {
+			e.celtEncoder.SetEnergyMask(nil)
+		}
+		return
+	}
+	if cap(e.celtEnergyMask) < needed {
+		e.celtEnergyMask = make([]float64, needed)
+	} else {
+		e.celtEnergyMask = e.celtEnergyMask[:needed]
+	}
+	copy(e.celtEnergyMask, mask[:needed])
+	if e.celtEncoder != nil {
+		e.celtEncoder.SetEnergyMask(e.celtEnergyMask)
+	}
+}
+
+// CELTEnergyMask returns the current CELT energy mask.
+// The returned slice aliases encoder state and must not be modified by callers.
+func (e *Encoder) CELTEnergyMask() []float64 {
+	return e.celtEnergyMask
 }
