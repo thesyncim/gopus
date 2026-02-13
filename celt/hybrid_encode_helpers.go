@@ -339,6 +339,7 @@ func (e *Encoder) DynallocAnalysisHybridScratch(bandLogE, bandLogE2, oldBandE []
 		constrainedVBR,
 		toneFreq,
 		toneishness,
+		nil,
 		e.analysisValid,
 		e.dynallocLeakBoost(),
 		&e.dynallocScratch,

@@ -259,6 +259,7 @@ func DynallocAnalysis(
 	effectiveBytes int,
 	isTransient, vbr, constrainedVBR bool,
 	toneFreq, toneishness float64,
+	surroundDynalloc []float64,
 	analysisValid bool,
 	analysisLeakBoost []uint8,
 ) DynallocResult {
@@ -521,6 +522,15 @@ func DynallocAnalysis(
 			}
 		}
 
+		for i := start; i < end; i++ {
+			if i < len(surroundDynalloc) {
+				v := float32(surroundDynalloc[i])
+				if v > follower[i] {
+					follower[i] = v
+				}
+			}
+		}
+
 		// Compute importance weights
 		for i := start; i < end; i++ {
 			expArg := follower[i]
@@ -698,6 +708,7 @@ func DynallocAnalysisSimple(bandLogE []float64, nbBands, lm, effectiveBytes int)
 		effectiveBytes,
 		false, true, false, // not transient, VBR, not constrained
 		-1.0, 0.0,
+		nil,
 		false,
 		nil,
 	)
@@ -817,6 +828,7 @@ func DynallocAnalysisWithScratch(
 	effectiveBytes int,
 	isTransient, vbr, constrainedVBR bool,
 	toneFreq, toneishness float64,
+	surroundDynalloc []float64,
 	analysisValid bool,
 	analysisLeakBoost []uint8,
 	scratch *DynallocScratch,
@@ -839,6 +851,7 @@ func DynallocAnalysisWithScratch(
 			constrainedVBR,
 			toneFreq,
 			toneishness,
+			surroundDynalloc,
 			analysisValid,
 			analysisLeakBoost,
 		)
@@ -1115,6 +1128,15 @@ func DynallocAnalysisWithScratch(
 					if follower[i] < 0 {
 						follower[i] = 0
 					}
+				}
+			}
+		}
+
+		for i := start; i < end; i++ {
+			if i < len(surroundDynalloc) {
+				v := float32(surroundDynalloc[i])
+				if v > follower[i] {
+					follower[i] = v
 				}
 			}
 		}

@@ -1133,6 +1133,76 @@ func TestEncode_SurroundBandSMRProduced(t *testing.T) {
 	}
 }
 
+func TestEncode_SurroundEnergyMaskPerStream(t *testing.T) {
+	enc, err := NewEncoderDefault(48000, 6)
+	if err != nil {
+		t.Fatalf("NewEncoderDefault error: %v", err)
+	}
+	enc.SetBitrate(192000)
+
+	frameSize := 960
+	pcm := make([]float64, frameSize*6)
+	for i := 0; i < frameSize; i++ {
+		tm := float64(i) / 48000.0
+		pcm[i*6+0] = 0.8 * math.Sin(2*math.Pi*2100*tm) // FL
+		pcm[i*6+1] = 0.5 * math.Sin(2*math.Pi*260*tm)  // C
+		pcm[i*6+2] = 0.7 * math.Sin(2*math.Pi*460*tm)  // FR
+		pcm[i*6+3] = 0.9 * math.Sin(2*math.Pi*1800*tm) // RL
+		pcm[i*6+4] = 0.6 * math.Sin(2*math.Pi*320*tm)  // RR
+		pcm[i*6+5] = 0.9 * math.Sin(2*math.Pi*50*tm)   // LFE
+	}
+
+	if _, err := enc.Encode(pcm, frameSize); err != nil {
+		t.Fatalf("Encode failed: %v", err)
+	}
+
+	for s := 0; s < enc.streams; s++ {
+		gotMask := enc.encoders[s].CELTEnergyMask()
+		if s == enc.lfeStream {
+			if len(gotMask) != 0 {
+				t.Fatalf("LFE stream energy mask len=%d, want 0", len(gotMask))
+			}
+			continue
+		}
+
+		if s < enc.coupledStreams {
+			if len(gotMask) != 2*surroundBands {
+				t.Fatalf("stream %d coupled mask len=%d want=%d", s, len(gotMask), 2*surroundBands)
+			}
+			left := enc.inputChannelForMapping(byte(2 * s))
+			right := enc.inputChannelForMapping(byte(2*s + 1))
+			if left < 0 || right < 0 {
+				t.Fatalf("stream %d missing coupled channels left=%d right=%d", s, left, right)
+			}
+			wantLeft := enc.surroundBandSMR[left*surroundBands : (left+1)*surroundBands]
+			wantRight := enc.surroundBandSMR[right*surroundBands : (right+1)*surroundBands]
+			for i := 0; i < surroundBands; i++ {
+				if gotMask[i] != wantLeft[i] {
+					t.Fatalf("stream %d left mask[%d]=%f want=%f", s, i, gotMask[i], wantLeft[i])
+				}
+				if gotMask[surroundBands+i] != wantRight[i] {
+					t.Fatalf("stream %d right mask[%d]=%f want=%f", s, i, gotMask[surroundBands+i], wantRight[i])
+				}
+			}
+		} else {
+			if len(gotMask) != surroundBands {
+				t.Fatalf("stream %d mono mask len=%d want=%d", s, len(gotMask), surroundBands)
+			}
+			mappingIdx := byte(2*enc.coupledStreams + (s - enc.coupledStreams))
+			mono := enc.inputChannelForMapping(mappingIdx)
+			if mono < 0 {
+				t.Fatalf("stream %d missing mono channel mapping", s)
+			}
+			wantMono := enc.surroundBandSMR[mono*surroundBands : (mono+1)*surroundBands]
+			for i := 0; i < surroundBands; i++ {
+				if gotMask[i] != wantMono[i] {
+					t.Fatalf("stream %d mono mask[%d]=%f want=%f", s, i, gotMask[i], wantMono[i])
+				}
+			}
+		}
+	}
+}
+
 func TestEncode_SurroundTrimProducedAt24k(t *testing.T) {
 	enc, err := NewEncoderDefault(24000, 6)
 	if err != nil {

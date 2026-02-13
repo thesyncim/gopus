@@ -147,6 +147,10 @@ type Encoder struct {
 	// This mirrors libopus alloc_trim_analysis() surround_trim contribution.
 	surroundTrim float64
 
+	// energyMask stores per-band surround masking provided by multistream control.
+	// Layout matches libopus OPUS_SET_ENERGY_MASK: [21] for mono, [42] for stereo.
+	energyMask []float64
+
 	// Dynamic allocation analysis state (for VBR decisions)
 	// These are computed from the previous frame and used for current frame's VBR target.
 	// Reference: libopus celt_encoder.c dynalloc_analysis()
@@ -552,6 +556,10 @@ func (e *Encoder) Reset() {
 		e.analysisLeakBootstrap[i] = 0
 	}
 	e.surroundTrim = 0
+	if len(e.energyMask) > 0 {
+		clear(e.energyMask)
+		e.energyMask = e.energyMask[:0]
+	}
 
 	// Clear pre-emphasis buffer for transient analysis
 	for i := range e.preemphBuffer {
@@ -587,6 +595,32 @@ func (e *Encoder) SetSurroundTrim(trim float64) {
 // SurroundTrim returns the current surround trim adjustment.
 func (e *Encoder) SurroundTrim() float64 {
 	return e.surroundTrim
+}
+
+// SetEnergyMask sets per-band surround masking for CELT surround control.
+// Expected sizes: 21 values for mono, 42 values for stereo.
+// Invalid sizes clear the mask.
+func (e *Encoder) SetEnergyMask(mask []float64) {
+	needed := MaxBands * e.channels
+	if needed <= 0 || len(mask) < needed {
+		if len(e.energyMask) > 0 {
+			clear(e.energyMask)
+			e.energyMask = e.energyMask[:0]
+		}
+		return
+	}
+	if cap(e.energyMask) < needed {
+		e.energyMask = make([]float64, needed)
+	} else {
+		e.energyMask = e.energyMask[:needed]
+	}
+	copy(e.energyMask, mask[:needed])
+}
+
+// EnergyMask returns the current per-band surround mask.
+// The returned slice aliases encoder state and must not be modified by callers.
+func (e *Encoder) EnergyMask() []float64 {
+	return e.energyMask
 }
 
 // SetComplexity sets encoder complexity (0-10).
