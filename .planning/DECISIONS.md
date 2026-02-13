@@ -75,6 +75,12 @@ topic: Multistream OPUS_SET_SIGNAL validation parity
 decision: Keep `MultistreamEncoder.SetSignal` strict and reject invalid values with `ErrInvalidSignal` (do not silently coerce unknown signal hints).
 evidence: Updated `multistream.go` setter semantics and expanded `TestMultistreamEncoder_Controls` to assert valid voice/music transitions and invalid-signal rejection; `make verify-production` passed.
 do_not_repeat_until: libopus changes `OPUS_SET_SIGNAL_REQUEST` accepted values/return semantics or fixture/interoperability evidence shows this validation behavior diverges.
+
+date: 2026-02-13
+topic: OPUS_SET_MAX_BANDWIDTH validation parity (root wrappers)
+decision: Keep `Encoder.SetMaxBandwidth` and `MultistreamEncoder.SetMaxBandwidth` strict: only NB/MB/WB/SWB/FB are accepted; invalid values must return `ErrInvalidBandwidth`.
+evidence: Updated wrapper signatures/validation in `encoder.go` and `multistream.go`; added invalid-value assertions in `TestEncoder_SetMaxBandwidth` and `TestMultistreamEncoder_Controls`; updated API roundtrip setup (`TestSILK10msOpusRoundTrip`) for the error-returning setter; `make verify-production` passed.
+do_not_repeat_until: libopus changes `OPUS_SET_MAX_BANDWIDTH_REQUEST` accepted values/return semantics, or fixture/interoperability evidence shows divergent behavior.
 owner: codex
 
 date: 2026-02-13

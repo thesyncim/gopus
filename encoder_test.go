@@ -666,11 +666,17 @@ func TestEncoder_SetMaxBandwidth(t *testing.T) {
 	}
 	for _, bw := range bandwidths {
 		t.Run(fmt.Sprintf("bandwidth_%d", bw), func(t *testing.T) {
-			enc.SetMaxBandwidth(bw)
+			if err := enc.SetMaxBandwidth(bw); err != nil {
+				t.Fatalf("SetMaxBandwidth(%d) error: %v", bw, err)
+			}
 			if enc.MaxBandwidth() != bw {
 				t.Errorf("MaxBandwidth() = %d, want %d", enc.MaxBandwidth(), bw)
 			}
 		})
+	}
+
+	if err := enc.SetMaxBandwidth(Bandwidth(255)); err != ErrInvalidBandwidth {
+		t.Errorf("SetMaxBandwidth(invalid) error = %v, want %v", err, ErrInvalidBandwidth)
 	}
 }
 
@@ -935,7 +941,9 @@ func TestEncoder_MaxBandwidth_ClampsOutput(t *testing.T) {
 	}
 
 	// Limit to wideband (instead of narrowband to avoid SILK frame size restrictions)
-	enc.SetMaxBandwidth(BandwidthWideband)
+	if err := enc.SetMaxBandwidth(BandwidthWideband); err != nil {
+		t.Fatalf("SetMaxBandwidth(BandwidthWideband) error: %v", err)
+	}
 
 	frameSize := 960
 	pcm := generateSineWave(48000, 440, frameSize)

@@ -511,8 +511,14 @@ func (e *MultistreamEncoder) SetSignal(signal Signal) error {
 
 // SetMaxBandwidth sets the maximum bandwidth limit for all stream encoders.
 // The actual bandwidth will be clamped to this limit.
-func (e *MultistreamEncoder) SetMaxBandwidth(bw Bandwidth) {
-	e.enc.SetMaxBandwidth(types.Bandwidth(bw))
+func (e *MultistreamEncoder) SetMaxBandwidth(bw Bandwidth) error {
+	switch bw {
+	case BandwidthNarrowband, BandwidthMediumband, BandwidthWideband, BandwidthSuperwideband, BandwidthFullband:
+		e.enc.SetMaxBandwidth(types.Bandwidth(bw))
+		return nil
+	default:
+		return ErrInvalidBandwidth
+	}
 }
 
 // MaxBandwidth returns the maximum bandwidth limit.

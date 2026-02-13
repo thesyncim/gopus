@@ -486,8 +486,14 @@ func (e *Encoder) Bandwidth() Bandwidth {
 //   - BandwidthWideband (8kHz)
 //   - BandwidthSuperwideband (12kHz)
 //   - BandwidthFullband (20kHz)
-func (e *Encoder) SetMaxBandwidth(bandwidth Bandwidth) {
-	e.enc.SetMaxBandwidth(bandwidth)
+func (e *Encoder) SetMaxBandwidth(bandwidth Bandwidth) error {
+	switch bandwidth {
+	case BandwidthNarrowband, BandwidthMediumband, BandwidthWideband, BandwidthSuperwideband, BandwidthFullband:
+		e.enc.SetMaxBandwidth(bandwidth)
+		return nil
+	default:
+		return ErrInvalidBandwidth
+	}
 }
 
 // MaxBandwidth returns the current maximum bandwidth limit.
