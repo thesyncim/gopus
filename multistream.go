@@ -3,6 +3,7 @@
 package gopus
 
 import (
+	"github.com/thesyncim/gopus/encoder"
 	"github.com/thesyncim/gopus/multistream"
 	"github.com/thesyncim/gopus/types"
 )
@@ -127,12 +128,23 @@ func NewMultistreamEncoderDefault(sampleRate, channels int, application Applicat
 	return mse, nil
 }
 
-// applyApplication records the application hint.
+// applyApplication records the application hint and forwards per-stream policy.
 //
-// Match libopus OPUS_SET_APPLICATION behavior for control surfaces: changing
-// application does not implicitly overwrite bitrate/complexity controls.
+// Match libopus multistream OPUS_SET_APPLICATION forwarding semantics while
+// preserving bitrate/complexity controls.
 func (e *MultistreamEncoder) applyApplication(app Application) {
 	e.application = app
+	switch app {
+	case ApplicationVoIP:
+		e.enc.SetMode(encoder.ModeAuto)
+		e.enc.SetBandwidth(types.BandwidthWideband)
+	case ApplicationAudio:
+		e.enc.SetMode(encoder.ModeAuto)
+		e.enc.SetBandwidth(types.BandwidthFullband)
+	case ApplicationLowDelay:
+		e.enc.SetMode(encoder.ModeCELT)
+		e.enc.SetBandwidth(types.BandwidthFullband)
+	}
 }
 
 // SetApplication updates the encoder application hint.
