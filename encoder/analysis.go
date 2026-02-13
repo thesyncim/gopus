@@ -13,6 +13,7 @@ const (
 	NbTonalSkipBands       = 9
 	AnalysisBufSize        = 720 // 30ms at 24kHz
 	DetectSize             = 100
+	transitionPenalty      = float32(10.0)
 	celtSigScale           = float32(32768.0)
 	analysisFFTEnergyScale = float32(1.0 / (480.0 * 480.0))
 )
@@ -134,6 +135,8 @@ type AnalysisInfo struct {
 	NoisySpeech      float32
 	StationarySpeech float32
 	MusicProb        float32
+	MusicProbMin     float32
+	MusicProbMax     float32
 	VADProb          float32
 	Loudness         float32
 	BandwidthIndex   int
@@ -297,7 +300,6 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	hpEner = s.HPEnerAccum + hpUsed
 	s.HPEnerAccum = hpRemain
 
-	alphaE := 1.0 / float32(min(25, 1+s.Count))
 	var in [480]complex64
 	// Use 480 samples from InMem for FFT
 	for i := 0; i < 240; i++ {
@@ -481,6 +483,9 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	frameNoisiness /= NbTBands
 	frameStationarity /= NbTBands
 	relativeE /= NbTBands
+	if s.Count < 10 {
+		relativeE = 0.5
+	}
 
 	// Compute analysis leak_boost[] exactly as libopus analysis.c does.
 	leakageFrom[0] = bandLog2[0]
@@ -519,9 +524,6 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	layer2.ComputeDense(frameProbs[:], s.RNNState[:])
 
 	_ = frameLoudness
-	_ = frameNoisiness
-	_ = frameStationarity
-	_ = relativeE
 	frameTonality = maxFrameTonality / float32(NbTBands-NbTonalSkipBands)
 	frameTonality = maxf(frameTonality, s.PrevTonality*0.8)
 	s.PrevTonality = frameTonality
@@ -533,7 +535,10 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	info.TonalitySlope = slope
 	info.MusicProb = frameProbs[0]
 	info.VADProb = frameProbs[1]
-	info.Activity = alphaE*frameProbs[1] + (1-alphaE)*info.Activity
+	info.NoisySpeech = frameNoisiness
+	info.StationarySpeech = frameStationarity
+	info.Activity = frameNoisiness + (1.0-frameNoisiness)*relativeE
+	info.MaxPitchRatio = 1.0
 	info.BandwidthIndex = detectBandwidthIndex(bandEnergy[:], maxBandEnergy, s.PrevBandwidth, hpEner, int(s.Fs), 24, s.Count)
 	info.Bandwidth = bandwidthTypeFromIndex(info.BandwidthIndex)
 	for b := 0; b < NbTBands+1; b++ {
@@ -648,10 +653,194 @@ func minf(a, b float32) float32 {
 	return b
 }
 
+// tonalityGetInfo mirrors libopus tonality_get_info() and derives the
+// smoothed music-probability thresholds used for mode switching.
+func (s *TonalityAnalysisState) tonalityGetInfo(frameSize int) AnalysisInfo {
+	out := AnalysisInfo{}
+
+	pos := s.ReadPos
+	currLookahead := s.WritePos - s.ReadPos
+	if currLookahead < 0 {
+		currLookahead += DetectSize
+	}
+
+	subframe := int(s.Fs) / 400
+	if subframe <= 0 {
+		subframe = 1
+	}
+	s.ReadSubframe += frameSize / subframe
+	for s.ReadSubframe >= 8 {
+		s.ReadSubframe -= 8
+		s.ReadPos++
+	}
+	if s.ReadPos >= DetectSize {
+		s.ReadPos -= DetectSize
+	}
+
+	// On long frames, inspect the second analysis window.
+	if frameSize > int(s.Fs)/50 && pos != s.WritePos {
+		pos++
+		if pos == DetectSize {
+			pos = 0
+		}
+	}
+	if pos == s.WritePos {
+		pos--
+	}
+	if pos < 0 {
+		pos = DetectSize - 1
+	}
+	pos0 := pos
+
+	out = s.Info[pos]
+	if !out.Valid {
+		return out
+	}
+
+	tonalityMax := out.Tonality
+	tonalityAvg := out.Tonality
+	tonalityCount := 1
+	bandwidthSpan := 6
+
+	// Look ahead for tonality and safe bandwidth.
+	for i := 0; i < 3; i++ {
+		pos++
+		if pos == DetectSize {
+			pos = 0
+		}
+		if pos == s.WritePos {
+			break
+		}
+		if s.Info[pos].Tonality > tonalityMax {
+			tonalityMax = s.Info[pos].Tonality
+		}
+		tonalityAvg += s.Info[pos].Tonality
+		tonalityCount++
+		if s.Info[pos].BandwidthIndex > out.BandwidthIndex {
+			out.BandwidthIndex = s.Info[pos].BandwidthIndex
+		}
+		bandwidthSpan--
+	}
+
+	// Look back for wider bandwidth evidence.
+	pos = pos0
+	for i := 0; i < bandwidthSpan; i++ {
+		pos--
+		if pos < 0 {
+			pos = DetectSize - 1
+		}
+		if pos == s.WritePos {
+			break
+		}
+		if s.Info[pos].BandwidthIndex > out.BandwidthIndex {
+			out.BandwidthIndex = s.Info[pos].BandwidthIndex
+		}
+	}
+	out.Bandwidth = bandwidthTypeFromIndex(out.BandwidthIndex)
+
+	tonalityMean := tonalityAvg / float32(tonalityCount)
+	out.Tonality = maxf(tonalityMean, tonalityMax-0.2)
+
+	mpos := pos0
+	vpos := pos0
+	// Compensate music-prob (~5 frames) and VAD (~1 frame) delay when lookahead exists.
+	if currLookahead > 15 {
+		mpos += 5
+		if mpos >= DetectSize {
+			mpos -= DetectSize
+		}
+		vpos++
+		if vpos >= DetectSize {
+			vpos -= DetectSize
+		}
+	}
+
+	probMin := float32(1.0)
+	probMax := float32(0.0)
+	vadProb := s.Info[vpos].VADProb
+	activityWeight := maxf(0.1, vadProb)
+	probCount := activityWeight
+	probAvg := activityWeight * s.Info[mpos].MusicProb
+
+	for {
+		mpos++
+		if mpos == DetectSize {
+			mpos = 0
+		}
+		if mpos == s.WritePos {
+			break
+		}
+		vpos++
+		if vpos == DetectSize {
+			vpos = 0
+		}
+		if vpos == s.WritePos {
+			break
+		}
+
+		posVAD := s.Info[vpos].VADProb
+		posWeight := maxf(0.1, posVAD)
+		denom := probCount
+		if denom < 1e-9 {
+			denom = 1e-9
+		}
+		probMin = minf((probAvg-transitionPenalty*(vadProb-posVAD))/denom, probMin)
+		probMax = maxf((probAvg+transitionPenalty*(vadProb-posVAD))/denom, probMax)
+
+		probCount += posWeight
+		probAvg += posWeight * s.Info[mpos].MusicProb
+	}
+
+	if probCount < 1e-9 {
+		probCount = 1e-9
+	}
+	out.MusicProb = probAvg / probCount
+	probMin = minf(out.MusicProb, probMin)
+	probMax = maxf(out.MusicProb, probMax)
+	probMin = maxf(probMin, 0.0)
+	probMax = minf(probMax, 1.0)
+
+	// With little/no lookahead, use recent history as fallback.
+	if currLookahead < 10 {
+		pmin := probMin
+		pmax := probMax
+		pos = pos0
+		history := s.Count - 1
+		if history > 15 {
+			history = 15
+		}
+		if history < 0 {
+			history = 0
+		}
+		for i := 0; i < history; i++ {
+			pos--
+			if pos < 0 {
+				pos = DetectSize - 1
+			}
+			pmin = minf(pmin, s.Info[pos].MusicProb)
+			pmax = maxf(pmax, s.Info[pos].MusicProb)
+		}
+
+		pmin = maxf(0.0, pmin-0.1*vadProb)
+		pmax = minf(1.0, pmax+0.1*vadProb)
+		blend := float32(1.0) - 0.1*float32(currLookahead)
+		probMin += blend * (pmin - probMin)
+		probMax += blend * (pmax - probMax)
+	}
+
+	out.MusicProbMin = probMin
+	out.MusicProbMax = probMax
+
+	return out
+}
+
 func (s *TonalityAnalysisState) RunAnalysis(pcm []float32, frameSize int, channels int) AnalysisInfo {
 	s.tonalityAnalysis(pcm, channels)
 	readPos := (s.WritePos + DetectSize - 1) % DetectSize
-	return s.Info[readPos]
+	info := s.Info[readPos]
+	info.MusicProbMin = info.MusicProb
+	info.MusicProbMax = info.MusicProb
+	return info
 }
 
 func (s *TonalityAnalysisState) GetInfo() AnalysisInfo {
