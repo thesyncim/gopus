@@ -146,6 +146,29 @@ func TestEncoderResetClearsSurroundTrim(t *testing.T) {
 	}
 }
 
+func TestEncoderSetLFE(t *testing.T) {
+	enc := NewEncoder(1)
+	if enc.LFE() {
+		t.Fatalf("initial LFE() = true, want false")
+	}
+
+	enc.SetLFE(true)
+	if !enc.LFE() {
+		t.Fatalf("LFE() after SetLFE(true) = false, want true")
+	}
+
+	// LFE is a control state and should survive stream-state reset.
+	enc.Reset()
+	if !enc.LFE() {
+		t.Fatalf("LFE() after Reset() = false, want true")
+	}
+
+	enc.SetLFE(false)
+	if enc.LFE() {
+		t.Fatalf("LFE() after SetLFE(false) = true, want false")
+	}
+}
+
 // TestEncoderNextRNG verifies RNG produces expected sequence.
 func TestEncoderNextRNG(t *testing.T) {
 	enc := NewEncoder(1)

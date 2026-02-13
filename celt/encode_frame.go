@@ -251,7 +251,12 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	prefilterTapset := e.TapsetDecision()
 	// Match libopus run_prefilter enable gating.
-	enabled := lm > 0 && start == 0 && targetBytes > 12*e.channels && !e.IsHybrid() && !isSilence && re.Tell()+16 <= targetBits
+	enabled := lm > 0 &&
+		start == 0 &&
+		(targetBytes > 12*e.channels || (e.lfe && targetBytes > 3)) &&
+		!e.IsHybrid() &&
+		!isSilence &&
+		re.Tell()+16 <= targetBits
 	if tmpDisablePrefilterEnabled {
 		enabled = false
 	}
@@ -450,7 +455,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// false negatives in transient_analysis().
 	// Reference: libopus celt/celt_encoder.c lines 2215-2231
 	end := nbBands
-	if lm > 0 && !transient && e.complexity >= 5 && !e.IsHybrid() {
+	if lm > 0 && !transient && e.complexity >= 5 && !e.IsHybrid() && !e.lfe {
 		// Get previous frame's band energies (oldBandE in libopus)
 		oldBandE := e.prevEnergy
 
@@ -742,7 +747,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Reference: libopus enable_tf_analysis = effectiveBytes>=15*C && !hybrid && st->complexity>=2 && !st->lfe && toneishness < QCONST32(.98f, 29)
 	// Note: libopus does NOT have an LM>0 check here - TF analysis runs for all frame sizes including LM=0
 	// CRITICAL: toneishness >= 0.98 disables TF analysis (pure tones use simple fallback)
-	enableTFAnalysis := effectiveBytes >= 15*e.channels && e.complexity >= 2 && toneishness < 0.98
+	enableTFAnalysis := effectiveBytes >= 15*e.channels && e.complexity >= 2 && !e.lfe && toneishness < 0.98
 
 	var tfRes []int
 	var tfSelect int
@@ -924,7 +929,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	allocTrim := 5
 	tellForTrim := re.TellFrac()
 	if tellForTrim+(6<<bitRes) <= totalBitsQ3ForDynalloc-totalBoost {
-		if start > 0 {
+		if start > 0 || e.lfe {
 			e.lastStereoSaving = 0
 			allocTrim = 5
 		} else {
@@ -1652,7 +1657,7 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 	// Reference: libopus line 2480: nbAvailableBytes = (target+(1<<(BITRES+2)))>>(BITRES+3)
 	// For bits (not bytes): target_bits = (targetQ3 + 4) >> 3
 	targetBits := (targetQ3 + (1 << (bitRes - 1))) >> bitRes
-	if !e.IsHybrid() {
+	if !e.IsHybrid() && !e.lfe {
 		// Increase short/medium CELT frame budgets to reduce avoidable
 		// quantization loss in compliance-quality profiles.
 		switch frameSize {
@@ -1704,6 +1709,15 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 
 // computeVBRTarget applies libopus-style CELT VBR shaping in Q3 units.
 func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float64, pitchChange bool, stats *CeltTargetStats) int {
+	if e.lfe {
+		if stats != nil {
+			stats.PitchChange = pitchChange
+			stats.MaxDepth = e.lastDynalloc.MaxDepth
+			stats.Tonality = e.lastTonality
+		}
+		return baseTargetQ3
+	}
+
 	mode := GetModeConfig(frameSize)
 	lm := mode.LM
 	nbBands := e.effectiveBandCount(frameSize)

@@ -901,6 +901,36 @@ func TestAllocateRates_SurroundLFEAware(t *testing.T) {
 	}
 }
 
+func TestNewEncoderDefault_SetsLFEFlags(t *testing.T) {
+	tests := []struct {
+		name     string
+		channels int
+		lfe      int
+	}{
+		{name: "5.1", channels: 6, lfe: 3},
+		{name: "6.1", channels: 7, lfe: 4},
+		{name: "7.1", channels: 8, lfe: 4},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			enc, err := NewEncoderDefault(48000, tc.channels)
+			if err != nil {
+				t.Fatalf("NewEncoderDefault error: %v", err)
+			}
+			if enc.lfeStream != tc.lfe {
+				t.Fatalf("lfeStream = %d, want %d", enc.lfeStream, tc.lfe)
+			}
+			for s := 0; s < enc.streams; s++ {
+				want := s == enc.lfeStream
+				if got := enc.encoders[s].LFE(); got != want {
+					t.Fatalf("stream %d LFE = %v, want %v", s, got, want)
+				}
+			}
+		})
+	}
+}
+
 func TestEncode_SurroundPerStreamPolicy(t *testing.T) {
 	enc, err := NewEncoderDefault(48000, 6)
 	if err != nil {
@@ -936,11 +966,22 @@ func TestEncode_SurroundPerStreamPolicy(t *testing.T) {
 	if got := enc.encoders[enc.lfeStream].Mode(); got != encpkg.ModeCELT {
 		t.Fatalf("LFE mode = %v, want ModeCELT", got)
 	}
+	if got := enc.encoders[enc.lfeStream].LFE(); !got {
+		t.Fatalf("LFE stream LFE flag = %v, want true", got)
+	}
 	if got := enc.encoders[enc.lfeStream].Bandwidth(); got != types.BandwidthNarrowband {
 		t.Fatalf("LFE bandwidth = %v, want BandwidthNarrowband", got)
 	}
 	if got := enc.encoders[enc.lfeStream].CELTSurroundTrim(); got != 0 {
 		t.Fatalf("LFE surround trim = %f, want 0", got)
+	}
+	for s := 0; s < enc.streams; s++ {
+		if s == enc.lfeStream {
+			continue
+		}
+		if got := enc.encoders[s].LFE(); got {
+			t.Fatalf("non-LFE stream %d LFE flag = true, want false", s)
+		}
 	}
 	if got := enc.encoders[2].ForceChannels(); got != -1 {
 		t.Fatalf("mono surround stream force channels = %d, want -1", got)
