@@ -126,6 +126,13 @@ do_not_repeat_until: new analyzer trace evidence demonstrates non-regressing str
 owner: codex
 
 date: 2026-02-13
+topic: Analyzer full MLP feature-vector wiring gate
+decision: Defer full libopus 25-feature assembly wiring in `encoder/analysis.go` until analyzer state/feature inputs are trace-parity validated; keep narrowed source-ported math (bandwidth masking, `max_pitch_ratio`, loudness tracker) on top of existing feature-vector wiring.
+evidence: Direct full-feature wiring caused broad ratchet regressions in `TestEncoderVariantProfileParityAgainstLibopusFixture` (`HYBRID-SWB-20/40ms-*`, including 100% mode mismatch on chirp); narrowing to non-regressing math slice restored green fixture parity plus `make verify-production`.
+do_not_repeat_until: dedicated analyzer trace fixtures show gopus feature/state cadence matches libopus 1.6.1 for the same inputs.
+owner: codex
+
+date: 2026-02-13
 topic: Long-frame tonality residual bound
 decision: Keep analysis residual carry-over bounded to the 480-sample post-shift window and scale HP-energy carry to the retained residual fraction only.
 evidence: In `encoder/analysis.go`, long-frame paths could leave `MemFill` logically larger than the analysis window and misalign `HPEnerAccum` versus retained samples; clamping retained residual and matching HP carry restored bounded state while keeping fixture parity green (`TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestEncoderComplianceSummary`, `TestEncoderCompliancePrecisionGuard`, `make verify-production`, `make bench-guard`).
