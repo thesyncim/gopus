@@ -1657,7 +1657,7 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 	// Reference: libopus line 2480: nbAvailableBytes = (target+(1<<(BITRES+2)))>>(BITRES+3)
 	// For bits (not bytes): target_bits = (targetQ3 + 4) >> 3
 	targetBits := (targetQ3 + (1 << (bitRes - 1))) >> bitRes
-	if !e.IsHybrid() && !e.lfe {
+	if e.vbr && !e.constrainedVBR && !e.IsHybrid() && !e.lfe {
 		// Increase short/medium CELT frame budgets to reduce avoidable
 		// quantization loss in compliance-quality profiles.
 		switch frameSize {
@@ -1691,6 +1691,18 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 			} else {
 				targetBits += 256
 			}
+		}
+	}
+
+	// Constrained VBR should respect a bounded packet-size envelope.
+	// Keep this clamp scoped to constrained mode so unconstrained VBR behavior
+	// and existing quality tuning for that path are unchanged.
+	if e.vbr && e.constrainedVBR {
+		const constrainedVBRTolerance = 0.15
+		baseBitsCVBR := e.bitrateToBits(frameSize)
+		cvbrMaxBits := int(float64(baseBitsCVBR) * (1.0 + constrainedVBRTolerance))
+		if cvbrMaxBits > 0 && targetBits > cvbrMaxBits {
+			targetBits = cvbrMaxBits
 		}
 	}
 
