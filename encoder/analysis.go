@@ -285,10 +285,15 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		copy(s.InMem[oldMemFill:oldMemFill+toCopy], downsampledBuf[:toCopy])
 	}
 	remaining := len(downsampledBuf) - toCopy
+	maxResidual := AnalysisBufSize - 240
+	storedRemaining := remaining
+	if storedRemaining > maxResidual {
+		storedRemaining = maxResidual
+	}
 	hpUsed := hpEner
 	hpRemain := float32(0)
-	if len(downsampledBuf) > 0 && remaining > 0 {
-		fracRemain := float32(remaining) / float32(len(downsampledBuf))
+	if len(downsampledBuf) > 0 && storedRemaining > 0 {
+		fracRemain := float32(storedRemaining) / float32(len(downsampledBuf))
 		hpRemain = hpEner * fracRemain
 		hpUsed = hpEner - hpRemain
 	}
@@ -315,10 +320,10 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 
 	// Shift buffer and keep the residual input for the next analysis step.
 	copy(s.InMem[:240], s.InMem[AnalysisBufSize-240:AnalysisBufSize])
-	if remaining > 0 {
-		copy(s.InMem[240:], downsampledBuf[toCopy:])
+	if storedRemaining > 0 {
+		copy(s.InMem[240:], downsampledBuf[toCopy:toCopy+storedRemaining])
 	}
-	s.MemFill = 240 + remaining
+	s.MemFill = 240 + storedRemaining
 
 	var logE [NbTBands]float32
 	var bandLog2 [NbTBands + 1]float32

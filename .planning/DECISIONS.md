@@ -119,6 +119,13 @@ do_not_repeat_until: new analyzer trace evidence demonstrates non-regressing str
 owner: codex
 
 date: 2026-02-13
+topic: Long-frame tonality residual bound
+decision: Keep analysis residual carry-over bounded to the 480-sample post-shift window and scale HP-energy carry to the retained residual fraction only.
+evidence: In `encoder/analysis.go`, long-frame paths could leave `MemFill` logically larger than the analysis window and misalign `HPEnerAccum` versus retained samples; clamping retained residual and matching HP carry restored bounded state while keeping fixture parity green (`TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestEncoderComplianceSummary`, `TestEncoderCompliancePrecisionGuard`, `make verify-production`, `make bench-guard`).
+do_not_repeat_until: tonality buffering/cadence is redesigned to a full libopus `run_analysis`/`tonality_get_info` port.
+owner: codex
+
+date: 2026-02-13
 topic: amd64 SWB-40 speech ratchet calibration
 decision: Keep calibrated amd64 floor (`-2.32`) for `HYBRID-SWB-40ms-mono-48k/speech_like_v1`.
 evidence: CI run `21986775206` failed at `-2.30 dB`; calibrated threshold restored stable gates.
