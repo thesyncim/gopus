@@ -22,17 +22,24 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-13
+topic: Analyzer trace fixture + full 25-feature wiring parity
+decision: Keep full libopus 25-feature analyzer assembly enabled (`midE`, `spec_variability`, `cmean/mem/std` cadence, feature slot mapping) and guard it with fixture-backed `AnalysisInfo` parity tests generated from libopus 1.6.1 `run_analysis`/`tonality_get_info`.
+evidence: Added `tmp_check/gen_libopus_analysis_trace_fixture.go` (build-ignore), `encoder/testdata/libopus_analysis_trace_fixture.json`, and `encoder/analysis_trace_fixture_test.go`; `TestAnalysisTraceFixtureParityWithLibopus` now reports 0 bad frames across all SWB 10/20/40 ms fixture cases. Focused encoder tests, variant/compliance slices, and `make verify-production` passed.
+do_not_repeat_until: libopus changes analyzer feature extraction/MLP input semantics in `analysis.c`, or fixture evidence shows renewed analyzer divergence.
+owner: codex
+
+date: 2026-02-13
+topic: SWB auto-mode threshold control parity (20/40 ms)
+decision: Use libopus mode-threshold policy directly for SWB auto control: previous-mode `music_prob` min/max selection, voice-ratio conversion (`*327>>8`), audio clamp to 115, and `-4000/+4000` hysteresis; remove custom tonality/ratio hold heuristics from SWB 20 ms control path.
+evidence: Updated `encoder/encoder.go` (`selectLongSWBAutoMode`, SWB20 path in `autoSignalFromPCM`), restored fixture parity in `TestEncoderVariantProfileParityAgainstLibopusFixture` while retaining analyzer parity and full production gates.
+do_not_repeat_until: libopus changes SWB auto mode-threshold logic in `opus_encoder.c`, or fixture/interoperability evidence indicates this control policy diverges.
+owner: codex
+
+date: 2026-02-13
 topic: Analyzer phase-angle math parity (`fast_atan2f` + `float2int`)
 decision: Keep analyzer phase-angle extraction and phase-delta wrapping aligned with libopus `analysis.c` (`fast_atan2f` approximation and `float2int` ties-to-even wrapping), replacing generic `atan2`/`Round` behavior.
 evidence: Updated `encoder/analysis.go` math path; added `TestAnalysisFloat2IntRoundToEven` and `TestAnalysisFastAtan2fParityShape`; focused encoder tests, fixture parity/compliance slices, `make verify-production`, and `make bench-guard` all passed.
 do_not_repeat_until: libopus changes analyzer phase math in `analysis.c`/`mathops.h`, or fixture evidence shows divergence from this path.
-owner: codex
-
-date: 2026-02-13
-topic: Analyzer full MLP feature-vector wiring gate (revalidated)
-decision: Keep full 25-feature MLP assembly wiring deferred until analyzer trace fixtures validate state/feature cadence parity versus libopus; keep non-regressing analyzer math ports in place.
-evidence: Reattempting strict full feature wiring regressed `TestEncoderVariantProfileParityAgainstLibopusFixture` on `HYBRID-SWB-20/40ms-*` (including chirp 100% mode mismatch). Rolling back to the existing feature wiring while keeping math ports restored green focused parity/compliance and full production gates.
-do_not_repeat_until: dedicated analyzer trace fixtures exist and show parity for `analysis_info`/feature cadence on long-SWB cases.
 owner: codex
 
 date: 2026-02-13

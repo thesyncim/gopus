@@ -1069,6 +1069,7 @@ func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
 // auto mode (Celt-only vs Silk/Hybrid lane), using analysis-derived voice estimate
 // and previous-mode hysteresis.
 func (e *Encoder) selectLongSWBAutoMode(frameSize int, signalHint types.Signal) Mode {
+	_ = signalHint
 	frameRate := e.sampleRate / frameSize
 	if frameRate <= 0 {
 		frameRate = 50
@@ -1083,21 +1084,23 @@ func (e *Encoder) selectLongSWBAutoMode(frameSize int, signalHint types.Signal) 
 		voiceEst = 0
 	} else if e.lastAnalysisValid {
 		prob := float64(e.lastAnalysisInfo.MusicProb)
+		if e.prevLongSWBAutoMode == ModeCELT {
+			prob = float64(e.lastAnalysisInfo.MusicProbMax)
+		} else if e.prevLongSWBAutoMode == ModeHybrid {
+			prob = float64(e.lastAnalysisInfo.MusicProbMin)
+		}
 		if prob < 0 {
 			prob = 0
 		}
 		if prob > 1 {
 			prob = 1
 		}
-		voiceEst = int(math.Floor(0.5 + prob*127.0))
-		// Audio application never assumes >90% speech confidence in auto mode.
+		voiceRatio := int(math.Floor(0.5 + 100.0*(1.0-prob)))
+		voiceEst = (voiceRatio * 327) >> 8
+		// OPUS_APPLICATION_AUDIO clamp.
 		if voiceEst > 115 {
 			voiceEst = 115
 		}
-	} else if signalHint == types.SignalVoice {
-		voiceEst = 127
-	} else if signalHint == types.SignalMusic {
-		voiceEst = 0
 	}
 
 	modeVoice := 64000
@@ -1109,27 +1112,9 @@ func (e *Encoder) selectLongSWBAutoMode(frameSize int, signalHint types.Signal) 
 
 	// libopus hysteresis: bias against rapid CELT<->SILK/HYBRID switching.
 	if e.prevLongSWBAutoMode == ModeCELT {
-		threshold -= 2000
+		threshold -= 4000
 	} else if e.prevLongSWBAutoMode == ModeHybrid {
 		threshold += 4000
-	}
-	// Stabilize long-SWB mode in the mid-tonality transition band to avoid
-	// short CELT ratchets during hybrid-vs-CELT boundaries.
-	if e.prevLongSWBAutoMode == ModeHybrid &&
-		e.lastAnalysisValid &&
-		e.lastAnalysisInfo.Tonality >= 0.30 &&
-		e.lastAnalysisInfo.Tonality < 0.60 {
-		return ModeHybrid
-	}
-	// Keep strongly tonal long-SWB content in CELT-only mode.
-	if e.lastAnalysisValid &&
-		e.lastAnalysisInfo.Tonality >= 0.60 {
-		return ModeCELT
-	}
-	if e.lastAnalysisValid &&
-		e.lastAnalysisInfo.MusicProb < 0.90 &&
-		e.lastAnalysisInfo.Tonality < 0.12 {
-		return ModeCELT
 	}
 
 	if equivRate >= threshold {
@@ -1251,45 +1236,62 @@ func (e *Encoder) autoSignalFromPCM(pcm []float64, frameSize int) types.Signal {
 		return types.SignalMusic
 	}
 
-	// SWB 20ms auto-mode hysteresis.
-	// This mirrors libopus-style transition penalties by requiring sustained
-	// evidence before switching between CELT and Hybrid.
+	// SWB 20ms auto-mode control mirrors libopus thresholding: derive a speech
+	// estimate from analysis probabilities (with prev-mode min/max hysteresis)
+	// and compare equivalent rate against mode thresholds.
 	if swb20Auto && e.lastAnalysisValid {
-		vad := float64(e.lastAnalysisInfo.VADProb)
-		music := float64(e.lastAnalysisInfo.MusicProb)
-		strongVoice := ratio >= 1.0 && vad >= 0.16
-		strongMusic := (vad <= 0.25 && ratio <= 0.05) ||
-			(ratio <= 0.06 && vad >= 0.42 && vad <= 0.60 && music <= 0.75)
-
 		prev := e.prevSWB20AutoMode
-		if prev != ModeHybrid && prev != ModeCELT {
-			prev = ModeHybrid
+		if prev != ModeHybrid && prev != ModeCELT && prev != ModeAuto {
+			prev = ModeAuto
 		}
-		desired := prev
-		if e.swb20ModeHoldFrames == 0 {
-			// Bootstrap SWB20 auto mode from the first analyzed frame.
-			if vad <= 0.27 && ratio <= 0.06 {
-				desired = ModeCELT
-			} else {
-				desired = ModeHybrid
+
+		frameRate := e.sampleRate / frameSize
+		if frameRate <= 0 {
+			frameRate = 50
+		}
+		useVBR := e.bitrateMode != ModeCBR
+		equivRate := e.computeEquivRate(e.bitrate, e.channels, frameRate, useVBR, ModeAuto, e.complexity, e.packetLoss)
+
+		voiceEst := 48
+		if e.signalType == types.SignalVoice {
+			voiceEst = 127
+		} else if e.signalType == types.SignalMusic {
+			voiceEst = 0
+		} else {
+			prob := float64(e.lastAnalysisInfo.MusicProb)
+			if prev == ModeCELT {
+				prob = float64(e.lastAnalysisInfo.MusicProbMax)
+			} else if prev == ModeHybrid {
+				prob = float64(e.lastAnalysisInfo.MusicProbMin)
 			}
+			if prob < 0 {
+				prob = 0
+			}
+			if prob > 1 {
+				prob = 1
+			}
+			voiceRatio := int(math.Floor(0.5 + 100.0*(1.0-prob)))
+			voiceEst = (voiceRatio * 327) >> 8
+			if voiceEst > 115 {
+				voiceEst = 115
+			}
+		}
+
+		modeVoice := 64000
+		if e.channels == 2 {
+			modeVoice = 44000
+		}
+		const modeMusic = 10000
+		threshold := modeMusic + (voiceEst*voiceEst*(modeVoice-modeMusic))/16384
+		if prev == ModeCELT {
+			threshold -= 4000
 		} else if prev == ModeHybrid {
-			if strongMusic {
-				desired = ModeCELT
-			}
-		} else if strongVoice {
-			desired = ModeHybrid
+			threshold += 4000
 		}
-
-		// Require ~340 ms of stable mode before allowing a switch.
-		if e.swb20ModeHoldFrames > 0 && desired != prev && e.swb20ModeHoldFrames < 17 {
-			desired = prev
+		if equivRate >= threshold {
+			return types.SignalMusic
 		}
-
-		if desired == ModeHybrid {
-			return types.SignalVoice
-		}
-		return types.SignalMusic
+		return types.SignalVoice
 	}
 
 	if ratio > 0.25 {
