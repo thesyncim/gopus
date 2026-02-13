@@ -44,4 +44,16 @@ func TestAnalysisSmoke(t *testing.T) {
 	if info.MusicProb > info.MusicProbMax {
 		t.Errorf("MusicProb > MusicProbMax (%f > %f)", info.MusicProb, info.MusicProbMax)
 	}
+	if info.Activity < 0 || info.Activity > 1 {
+		t.Errorf("Invalid Activity: %f", info.Activity)
+	}
+	if math.IsNaN(float64(info.NoisySpeech)) || math.IsInf(float64(info.NoisySpeech), 0) {
+		t.Errorf("Invalid NoisySpeech: %f", info.NoisySpeech)
+	}
+	if math.IsNaN(float64(info.StationarySpeech)) || math.IsInf(float64(info.StationarySpeech), 0) {
+		t.Errorf("Invalid StationarySpeech: %f", info.StationarySpeech)
+	}
+	if info.MaxPitchRatio <= 0 {
+		t.Errorf("Invalid MaxPitchRatio: %f", info.MaxPitchRatio)
+	}
 }

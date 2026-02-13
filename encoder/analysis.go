@@ -300,7 +300,6 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	hpEner = s.HPEnerAccum + hpUsed
 	s.HPEnerAccum = hpRemain
 
-	alphaE := 1.0 / float32(min(25, 1+s.Count))
 	var in [480]complex64
 	// Use 480 samples from InMem for FFT
 	for i := 0; i < 240; i++ {
@@ -484,6 +483,9 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	frameNoisiness /= NbTBands
 	frameStationarity /= NbTBands
 	relativeE /= NbTBands
+	if s.Count < 10 {
+		relativeE = 0.5
+	}
 
 	// Compute analysis leak_boost[] exactly as libopus analysis.c does.
 	leakageFrom[0] = bandLog2[0]
@@ -522,9 +524,6 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	layer2.ComputeDense(frameProbs[:], s.RNNState[:])
 
 	_ = frameLoudness
-	_ = frameNoisiness
-	_ = frameStationarity
-	_ = relativeE
 	frameTonality = maxFrameTonality / float32(NbTBands-NbTonalSkipBands)
 	frameTonality = maxf(frameTonality, s.PrevTonality*0.8)
 	s.PrevTonality = frameTonality
@@ -536,7 +535,10 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	info.TonalitySlope = slope
 	info.MusicProb = frameProbs[0]
 	info.VADProb = frameProbs[1]
-	info.Activity = alphaE*frameProbs[1] + (1-alphaE)*info.Activity
+	info.NoisySpeech = frameNoisiness
+	info.StationarySpeech = frameStationarity
+	info.Activity = frameNoisiness + (1.0-frameNoisiness)*relativeE
+	info.MaxPitchRatio = 1.0
 	info.BandwidthIndex = detectBandwidthIndex(bandEnergy[:], maxBandEnergy, s.PrevBandwidth, hpEner, int(s.Fs), 24, s.Count)
 	info.Bandwidth = bandwidthTypeFromIndex(info.BandwidthIndex)
 	for b := 0; b < NbTBands+1; b++ {
