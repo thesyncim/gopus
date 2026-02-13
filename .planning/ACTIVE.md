@@ -13,8 +13,8 @@ With feature-parity checklist items complete, remaining gaps should be closed by
 
 ## Next 3 Actions (Targeted)
 
-1. Reproduce the current worst profile from `TestEncoderComplianceSummary`.
-2. Identify the exact corresponding libopus path in `tmp_check/opus-1.6.1` and port it directly (no heuristic substitutes).
+1. Add analyzer trace parity fixture coverage (`analysis_info`/MLP feature cadence) against libopus 1.6.1 for long-SWB profiles.
+2. Use that fixture to port the deferred full 25-feature MLP assembly path in `encoder/analysis.go` without mode-ratchet regressions.
 3. Rerun focused parity fixtures, then run `make verify-production` and `make bench-guard`.
 
 ## Feature Parity Plan (libopus 1.6.1)
@@ -39,6 +39,8 @@ With feature-parity checklist items complete, remaining gaps should be closed by
 
 ## Evidence Log (Newest First)
 
+- 2026-02-13: Ported libopus analyzer phase math primitives in `encoder/analysis.go`: switched angle extraction to libopus `fast_atan2f` approximation and wrapped second-derivative phase deltas with libopus-style `float2int` semantics (ties-to-even) instead of generic `atan2` + `Round`. Added focused math coverage in `encoder/analysis_test.go` (`TestAnalysisFloat2IntRoundToEven`, `TestAnalysisFastAtan2fParityShape`). Validation: `go test ./encoder -run 'TestAnalysis|TestRunAnalysis|TestTonality' -count=1`, `go test ./testvectors -run 'TestEncoderVariantProfileParityAgainstLibopusFixture|TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard' -count=1`, `make verify-production`, and `make bench-guard` passed.
+- 2026-02-13: Re-validated deferred analyzer full-feature gate: direct full 25-feature MLP assembly wiring in `encoder/analysis.go` still regresses long-SWB mode ratchets (`HYBRID-SWB-20/40ms-*` mismatch spikes, including chirp 100% mismatch). Kept non-regressing math ports and deferred full feature wiring until analyzer trace fixtures are added for state/feature cadence parity.
 - 2026-02-13: Ported analyzer LSB-depth parity in `encoder/analysis.go` and `encoder/encoder.go`: analyzer now tracks configured `LSBDepth`, uses it in libopus-style noise-floor calculation for bandwidth masking, and preserves it across `Reset()`. `Encoder.SetLSBDepth()` now propagates to analyzer state. Added coverage in `encoder/analysis_test.go` (`TestTonalityAnalysisResetPreservesLSBDepth`, `TestRunAnalysisNoiseFloorRespectsLSBDepth`, `TestEncoderSetLSBDepthPropagatesToAnalyzer`). Validation: focused encoder analysis tests, `TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestEncoderComplianceSummary`, `make verify-production`, and `make bench-guard` passed.
 - 2026-02-13: Ported libopus `tonality_analysis_reset()` behavior in `encoder/analysis.go`: `Reset()` now clears full reset-scoped analyzer state (angles/history/energy trackers/info queues/RNN state/downmix state) while preserving reusable configuration and scratch allocations. Added `TestTonalityAnalysisResetClearsState` in `encoder/analysis_test.go`. Validation: focused encoder analysis tests, `TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestEncoderComplianceSummary`, `make verify-production`, and `make bench-guard` passed.
 - 2026-02-13: Ported libopus analyzer NaN guard behavior in `encoder/analysis.go`: after FFT, if output is NaN (`out[0].r`), the current analysis slot is marked invalid and returned immediately without feature/MLP updates or counter increments, matching `analysis.c` (`info->valid = 0; return`). Added focused coverage in `encoder/analysis_test.go` (`TestRunAnalysisNaNInputMarksInfoInvalid`). Validation: focused encoder analysis tests, `TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestEncoderComplianceSummary`, `make verify-production`, and `make bench-guard` passed.

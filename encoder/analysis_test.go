@@ -6,6 +6,47 @@ import (
 	"testing"
 )
 
+func TestAnalysisFloat2IntRoundToEven(t *testing.T) {
+	tests := []struct {
+		in   float32
+		want int32
+	}{
+		{0.5, 0},
+		{1.5, 2},
+		{2.5, 2},
+		{-0.5, 0},
+		{-1.5, -2},
+		{-2.5, -2},
+		{1.4, 1},
+		{1.6, 2},
+	}
+	for _, tc := range tests {
+		if got := analysisFloat2Int(tc.in); got != tc.want {
+			t.Fatalf("analysisFloat2Int(%f)=%d, want %d", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestAnalysisFastAtan2fParityShape(t *testing.T) {
+	const eps = 0.05
+	tests := []struct {
+		y    float32
+		x    float32
+		want float32
+	}{
+		{1, 1, float32(math.Pi / 4)},
+		{-1, 1, float32(-math.Pi / 4)},
+		{1, -1, float32(3 * math.Pi / 4)},
+		{-1, -1, float32(-3 * math.Pi / 4)},
+	}
+	for _, tc := range tests {
+		got := analysisFastAtan2f(tc.y, tc.x)
+		if math.Abs(float64(got-tc.want)) > eps {
+			t.Fatalf("analysisFastAtan2f(%f,%f)=%.6f, want %.6f (+/- %.3f)", tc.y, tc.x, got, tc.want, eps)
+		}
+	}
+}
+
 func TestAnalysisSmoke(t *testing.T) {
 	s := NewTonalityAnalysisState(48000)
 
