@@ -20,6 +20,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-13
+topic: CELT 10ms mono budget uplift (post-parity quality slice)
+decision: Keep non-hybrid/non-LFE CELT `frameSize==480` mono target-bit uplift at `+256` in `celt/encode_frame.go` (`computeTargetBits`) while leaving stereo and other frame-size uplifts unchanged.
+evidence: Focused slice `go test ./testvectors -run 'TestEncoderComplianceCELT/FB-10ms-mono' -count=1 -v` improved from `Q=-11.84` to `Q=-11.14` with average target bits `1229 -> 1358`. Regressions remained clean: `TestEncoderComplianceCELT`, `TestEncoderComplianceSummary`, `TestEncoderCompliancePrecisionGuard`, `TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestOpusdecCrossvalFixtureCoverage`, `TestOpusdecCrossvalFixtureHonestyAgainstLiveOpusdec`, `make verify-production`, and `make bench-guard` all PASS.
+do_not_repeat_until: CELT 10ms mono bitrate/interoperability regression appears, or fixture-backed parity evidence indicates this uplift is over-aggressive.
+owner: codex
+
+date: 2026-02-13
 topic: Surround per-stream control policy parity
 decision: Keep multistream per-frame control aligned with libopus: for surround mappings, always apply surround bandwidth policy to each stream but force mode/channel only for coupled streams (`ModeCELT` + `ForceChannels(2)`); do not reset mono/LFE force-channels each frame. For ambisonics mappings, force CELT mode only and preserve caller-configured force-channels.
 evidence: Updated `multistream/encoder.go` `applyPerStreamPolicy` to remove mono/ambisonics `ForceChannels(-1)` resets and remove per-frame LFE `ModeCELT`/`ForceChannels(1)`/NB override. Added/updated tests in `multistream/encoder_test.go`: `TestEncode_SurroundPerStreamPolicy`, `TestEncode_SurroundPolicyPreservesMonoForceChannels`, `TestEncode_AmbisonicsForcesCELTMode` (force-channel preservation assertions). Validation: focused multistream policy slice PASS, `go test . -run TestMultistreamEncoder_Controls -count=1` PASS, `make verify-production` PASS, `make bench-guard` PASS.
