@@ -45,9 +45,12 @@ rg -n "TestSILKParamTraceAgainstLibopus|TestEncoderComplianceSummary" AGENTS.md 
 echo
 
 echo "Open debug investigations:"
-open_debug="$(
-  rg -l '^status:\s*(investigating|verifying|diagnosed|active|blocked)\b' .planning/debug -g '*.md' -g '!**/resolved/**' || true
-)"
+open_debug=""
+if [[ -d ".planning/debug" ]]; then
+  open_debug="$(
+    rg -l '^status:\s*(investigating|verifying|diagnosed|active|blocked)\b' .planning/debug -g '*.md' -g '!**/resolved/**' || true
+  )"
+fi
 if [[ -z "$open_debug" ]]; then
   echo "- none"
 else
