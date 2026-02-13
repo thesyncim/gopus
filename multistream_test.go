@@ -3,6 +3,8 @@ package gopus
 import (
 	"math"
 	"testing"
+
+	encodercore "github.com/thesyncim/gopus/encoder"
 )
 
 // generateSurroundTestSignal generates a multi-channel test signal with unique frequency per channel.
@@ -563,6 +565,40 @@ func TestMultistreamEncoder_SetApplicationPreservesControls(t *testing.T) {
 	}
 	if got := enc.Complexity(); got != wantComplexity {
 		t.Fatalf("Complexity() after SetApplication = %d, want %d", got, wantComplexity)
+	}
+}
+
+func TestMultistreamEncoder_SetApplicationForwardsModeAndBandwidth(t *testing.T) {
+	enc, err := NewMultistreamEncoderDefault(48000, 6, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
+	}
+
+	if got := enc.enc.Mode(); got != encodercore.ModeAuto {
+		t.Fatalf("initial Mode() = %v, want %v", got, encodercore.ModeAuto)
+	}
+	if got := enc.Bandwidth(); got != BandwidthFullband {
+		t.Fatalf("initial Bandwidth() = %v, want %v", got, BandwidthFullband)
+	}
+
+	if err := enc.SetApplication(ApplicationVoIP); err != nil {
+		t.Fatalf("SetApplication(ApplicationVoIP) error: %v", err)
+	}
+	if got := enc.enc.Mode(); got != encodercore.ModeAuto {
+		t.Fatalf("Mode() after VoIP = %v, want %v", got, encodercore.ModeAuto)
+	}
+	if got := enc.Bandwidth(); got != BandwidthWideband {
+		t.Fatalf("Bandwidth() after VoIP = %v, want %v", got, BandwidthWideband)
+	}
+
+	if err := enc.SetApplication(ApplicationLowDelay); err != nil {
+		t.Fatalf("SetApplication(ApplicationLowDelay) error: %v", err)
+	}
+	if got := enc.enc.Mode(); got != encodercore.ModeCELT {
+		t.Fatalf("Mode() after LowDelay = %v, want %v", got, encodercore.ModeCELT)
+	}
+	if got := enc.Bandwidth(); got != BandwidthFullband {
+		t.Fatalf("Bandwidth() after LowDelay = %v, want %v", got, BandwidthFullband)
 	}
 }
 

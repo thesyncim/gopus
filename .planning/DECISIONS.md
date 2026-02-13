@@ -20,6 +20,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-13
+topic: Multistream application ctl forwarding parity
+decision: Keep root multistream application controls forwarding per-stream policy semantics instead of wrapper-only metadata: application updates must propagate to all stream encoders without clobbering bitrate/complexity controls. Preserve mapping `VoIP -> ModeAuto + Wideband`, `Audio -> ModeAuto + Fullband`, `LowDelay -> ModeCELT + Fullband`.
+evidence: Added multistream internal propagation helpers `SetMode`/`Mode` in `multistream/encoder.go`; updated root `multistream.go:applyApplication` to apply mode/bandwidth policy to the internal multistream encoder. Added regression `TestMultistreamEncoder_SetApplicationForwardsModeAndBandwidth` and revalidated existing control-preservation and post-encode lock tests. Validation: `go test . -run 'TestMultistreamEncoder_SetApplicationPreservesControls|TestMultistreamEncoder_SetApplicationForwardsModeAndBandwidth|TestMultistreamEncoder_SetApplicationAfterEncodeRejected|TestMultistreamEncoder_Lookahead|TestMultistreamEncoder_Controls' -count=1 -v`, `go test ./multistream -count=1`, `make verify-production`, and `make bench-guard` (all PASS). Source of truth: libopus `opus_multistream_encoder_ctl_va_list` forwards `OPUS_SET_APPLICATION_REQUEST` to all streams.
+do_not_repeat_until: libopus multistream application forwarding semantics change, or encoder policy mapping rules are revised with fixture-backed evidence.
+owner: codex
+
+date: 2026-02-13
 topic: Public lookahead ctl parity by application
 decision: Keep public wrapper lookahead behavior aligned with libopus `OPUS_GET_LOOKAHEAD`: `Fs/400` for low-delay application and `Fs/400 + Fs/250` for VoIP/Audio. Do not use loose bounds for this surface; keep exact expected-value tests for representative sample rates and application transitions.
 evidence: Updated `encoder.go` and `multistream.go` lookahead wrappers to compute by application semantics (per `opus_encoder.c` `OPUS_GET_LOOKAHEAD_REQUEST`). Added `TestEncoder_Lookahead` and `TestMultistreamEncoder_Lookahead` exact checks (48k/24k, Audio/VoIP/LowDelay, and pre-encode `SetApplication` transitions). Validation: `go test . -run 'TestEncoder_Lookahead|TestMultistreamEncoder_Lookahead' -count=1 -v`, `go test . -run 'TestEncoder_SetApplication|TestMultistreamEncoder_Controls|TestMultistreamEncoder_SetApplicationAfterEncodeRejected|TestEncoder_Lookahead|TestMultistreamEncoder_Lookahead' -count=1 -v`, `make verify-production`, and `make bench-guard` (all PASS).

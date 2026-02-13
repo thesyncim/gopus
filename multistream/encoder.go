@@ -433,6 +433,21 @@ func (e *Encoder) Bitrate() int {
 	return e.bitrate
 }
 
+// SetMode sets the base mode for all stream encoders.
+func (e *Encoder) SetMode(mode encoder.Mode) {
+	for _, enc := range e.encoders {
+		enc.SetMode(mode)
+	}
+}
+
+// Mode returns the base mode from the first stream encoder.
+func (e *Encoder) Mode() encoder.Mode {
+	if len(e.encoders) > 0 {
+		return e.encoders[0].Mode()
+	}
+	return encoder.ModeAuto
+}
+
 func maxInt(a, b int) int {
 	if a > b {
 		return a
