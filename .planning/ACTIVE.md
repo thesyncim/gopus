@@ -39,6 +39,7 @@ With feature-parity checklist items complete, the best ROI is targeted quality u
 
 ## Evidence Log (Newest First)
 
+- 2026-02-13: Closed libopus max-bandwidth CTL validation gap in root wrappers: `Encoder.SetMaxBandwidth` and `MultistreamEncoder.SetMaxBandwidth` now reject invalid bandwidth values with `ErrInvalidBandwidth` instead of silently accepting unknown enums. Added/updated tests in `encoder_test.go`, `multistream_test.go`, and API roundtrip coverage in `api_test.go`; `make verify-production` passed.
 - 2026-02-13: Closed a concrete multistream CTL parity gap: `MultistreamEncoder.SetSignal` now mirrors libopus `OPUS_SET_SIGNAL_REQUEST` validation semantics by rejecting invalid signal values with `ErrInvalidSignal` instead of silently accepting arbitrary integers. Added coverage in `TestMultistreamEncoder_Controls` for valid voice/music transitions and invalid-value rejection. Validation: focused root/multistream control tests plus `make verify-production` (includes parity + bench-guard + race) passed.
 - 2026-02-13: Compacted planning docs to reduce context load; full history archived in `.planning/archive/ACTIVE_2026-02-13_full.txt`, `.planning/archive/DECISIONS_2026-02-13_full.txt`, and `.planning/archive/WORK_CLAIMS_2026-02-13_full.txt`.
 - 2026-02-13: Closed delay-compensation parity gap by gating on low-delay application state instead of forced CELT mode; focused tests + `make verify-production` + `make bench-guard` passed.
