@@ -536,6 +536,36 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 		enc.Application(), enc.Bitrate(), enc.Complexity(), enc.BitrateMode(), enc.FECEnabled(), enc.DTXEnabled())
 }
 
+// TestMultistreamEncoder_SetApplicationPreservesControls verifies application
+// updates do not clobber other encoder CTLs.
+func TestMultistreamEncoder_SetApplicationPreservesControls(t *testing.T) {
+	enc, err := NewMultistreamEncoderDefault(48000, 6, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
+	}
+
+	const wantBitrate = 210000
+	const wantComplexity = 3
+
+	if err := enc.SetBitrate(wantBitrate); err != nil {
+		t.Fatalf("SetBitrate(%d) error: %v", wantBitrate, err)
+	}
+	if err := enc.SetComplexity(wantComplexity); err != nil {
+		t.Fatalf("SetComplexity(%d) error: %v", wantComplexity, err)
+	}
+
+	if err := enc.SetApplication(ApplicationVoIP); err != nil {
+		t.Fatalf("SetApplication(ApplicationVoIP) error: %v", err)
+	}
+
+	if got := enc.Bitrate(); got != wantBitrate {
+		t.Fatalf("Bitrate() after SetApplication = %d, want %d", got, wantBitrate)
+	}
+	if got := enc.Complexity(); got != wantComplexity {
+		t.Fatalf("Complexity() after SetApplication = %d, want %d", got, wantComplexity)
+	}
+}
+
 // TestMultistreamDecoder_PLC tests packet loss concealment.
 func TestMultistreamDecoder_PLC(t *testing.T) {
 	channels := 6
