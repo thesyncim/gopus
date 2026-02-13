@@ -322,7 +322,8 @@ func (e *MultistreamEncoder) BitrateMode() BitrateMode {
 
 // SetVBR enables or disables VBR mode.
 //
-// Disabling VBR switches to CBR. Enabling VBR switches to unconstrained VBR.
+// Disabling VBR switches to CBR. Enabling VBR restores VBR while preserving
+// the current VBR constraint state.
 func (e *MultistreamEncoder) SetVBR(enabled bool) {
 	e.enc.SetVBR(enabled)
 }
@@ -333,6 +334,7 @@ func (e *MultistreamEncoder) VBR() bool {
 }
 
 // SetVBRConstraint enables or disables constrained VBR mode.
+// This setting is remembered even while VBR is disabled.
 func (e *MultistreamEncoder) SetVBRConstraint(constrained bool) {
 	e.enc.SetVBRConstraint(constrained)
 }

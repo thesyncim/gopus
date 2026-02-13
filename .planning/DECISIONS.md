@@ -84,6 +84,20 @@ do_not_repeat_until: libopus changes `OPUS_SET_MAX_BANDWIDTH_REQUEST` accepted v
 owner: codex
 
 date: 2026-02-13
+topic: CVBR framing parity guard
+decision: Do not pad undersized packets in CVBR post-processing; preserve encoder-produced framing/TOC and avoid rewriting single-frame SILK packets into code-3 packets.
+evidence: `TestSILK10msTOCByteCorrectness`, `TestLargeFrameSizeModeSelectionAndPacketization`, and `TestLibopusPacketValidation` regress when undersized CVBR packets are padded; removing lower-bound padding restores parity and `make verify-production` passes.
+do_not_repeat_until: CVBR upper/lower budget handling is reworked end-to-end with fixture-backed parity evidence.
+owner: codex
+
+date: 2026-02-13
+topic: VBR default-mode flip gate
+decision: Keep current default encoder bitrate mode at VBR for now; defer default CVBR flip until constrained-VBR behavior is fixture-parity-safe.
+evidence: Default CVBR flip caused broad `testvectors` parity regressions (`TestSILKParamTraceAgainstLibopus`, `TestEncoderCompliancePrecisionGuard`, long-frame parity). Rolling back the default while keeping safe control-transition semantics restores green `make verify-production`.
+do_not_repeat_until: constrained-VBR implementation has dedicated parity fixtures proving no regression in SILK/Hybrid/CELT packet and trace parity.
+owner: codex
+
+date: 2026-02-13
 topic: Long-SWB strict analyzer control wiring gate
 decision: Keep stable long-SWB auto policy; defer strict voice-ratio wiring until dedicated fixture-backed evidence avoids mode regressions.
 evidence: strict wiring attempts regressed `HYBRID-SWB-40ms-*` mode parity; rollback restored passing parity guards.
