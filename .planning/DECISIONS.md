@@ -20,6 +20,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-13
+topic: CELT 20ms high-budget uplift split (stereo-only continuation, round 2)
+decision: Keep non-hybrid/non-LFE CELT `frameSize==960` high-budget uplift split in `celt/encode_frame.go` (`computeTargetBits`) at `mono=+1280` and `stereo=+1408` (low-budget subframe branch unchanged at `+256`).
+evidence: Raised only stereo high-budget branch `+1344 -> +1408`. Focused `go test ./testvectors -run TestEncoderComplianceCELT -count=1 -v` improved `FB-20ms-stereo` (`Q=-12.97 -> -12.80`, target bits avg `3680 -> 3744`) with `FB-20ms-mono` unchanged (`Q=-8.20`). `go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` improved `CELT-FB-20ms-stereo-128k` (`Q=-8.88 -> -8.67`) with mono unchanged. Guards/interoperability passed: `go test ./testvectors -run 'TestEncoderCompliancePrecisionGuard|TestEncoderVariantProfileParityAgainstLibopusFixture' -count=1 -v`, regenerated fixtures (`go run ./tools/gen_opusdec_crossval_fixture.go`, `make fixtures-gen-amd64`), `go test ./celt -run 'TestOpusdecCrossvalFixtureCoverage|TestOpusdecCrossvalFixtureHonestyAgainstLiveOpusdec' -count=1 -v`, `make verify-production`, and `make bench-guard`.
+do_not_repeat_until: CELT 20ms stereo bitrate/interoperability regressions appear, or fixture-backed parity evidence indicates `+1408` is over-aggressive.
+owner: codex
+
+date: 2026-02-13
 topic: CELT 20ms high-budget uplift split (stereo-only continuation)
 decision: Keep non-hybrid/non-LFE CELT `frameSize==960` high-budget uplift split by channel count in `celt/encode_frame.go` (`computeTargetBits`): mono stays at `+1280`, stereo uses `+1344`. Keep 10ms stereo uplift at `+832` (do not raise to `+848`).
 evidence: Rejected focused `frameSize==480` stereo probe `+832 -> +848` due regression in `go test ./testvectors -run 'TestEncoderComplianceCELT/FB-10ms-stereo' -count=1 -v` (`Q=-16.19 -> -16.22`). Accepted `frameSize==960` channel-aware split after `go test ./testvectors -run TestEncoderComplianceCELT -count=1 -v` improved `FB-20ms-stereo` (`Q=-13.12 -> -12.97`) with `FB-20ms-mono` unchanged (`Q=-8.20`), and `go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` improved `CELT-FB-20ms-stereo-128k` (`Q=-8.92 -> -8.88`) with mono unchanged. Regression/interoperability guards passed: `go test ./testvectors -run 'TestEncoderCompliancePrecisionGuard|TestEncoderVariantProfileParityAgainstLibopusFixture' -count=1 -v`, regenerated fixtures (`go run ./tools/gen_opusdec_crossval_fixture.go`, `make fixtures-gen-amd64`), `go test ./celt -run 'TestOpusdecCrossvalFixtureCoverage|TestOpusdecCrossvalFixtureHonestyAgainstLiveOpusdec' -count=1 -v`, `make verify-production`, and `make bench-guard`.
