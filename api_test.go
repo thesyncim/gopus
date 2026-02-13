@@ -464,10 +464,12 @@ func TestSILK10msOpusRoundTrip(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewEncoder error: %v", err)
 			}
-			enc.SetBitrate(tc.bitrate)
-			enc.SetFrameSize(tc.frameSize)
-			enc.SetSignal(SignalVoice)
-			enc.SetMaxBandwidth(BandwidthWideband)
+				enc.SetBitrate(tc.bitrate)
+				enc.SetFrameSize(tc.frameSize)
+				enc.SetSignal(SignalVoice)
+				if err := enc.SetMaxBandwidth(BandwidthWideband); err != nil {
+					t.Fatalf("SetMaxBandwidth(BandwidthWideband) error: %v", err)
+				}
 
 			cfg := DefaultDecoderConfig(48000, 1)
 			dec, err := NewDecoder(cfg)
