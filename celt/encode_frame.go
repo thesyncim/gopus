@@ -262,9 +262,12 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	}
 	prevPrefilterPeriod := e.prefilterPeriod
 	prevPrefilterGain := e.prefilterGain
-	// Derive the prefilter max-pitch ratio from the same pre-emphasized signal
-	// used by the CELT analysis path; this improves postfilter parity vs libopus.
+	// Match libopus run_prefilter(): prefer external analysis->max_pitch_ratio
+	// when available, otherwise fall back to CELT-local estimation.
 	maxPitchRatio := e.estimateMaxPitchRatioStateful(samplesForFrame)
+	if e.analysisValid {
+		maxPitchRatio = e.analysisMaxPitchRatio
+	}
 	if tmpForceMaxPitchRatio1Enabled {
 		maxPitchRatio = 1
 	}

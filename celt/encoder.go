@@ -139,6 +139,7 @@ type Encoder struct {
 	analysisValid         bool // True after at least one analysis update
 	analysisLeakBoost     [leakBands]uint8
 	analysisTonalitySlope float64
+	analysisMaxPitchRatio float64
 	// Bootstrap leak boost used when external analysis is valid but doesn't yet
 	// provide leak_boost (matches early-frame libopus behavior more closely).
 	analysisLeakBootstrap [leakBands]uint8
@@ -323,6 +324,7 @@ func NewEncoder(channels int) *Encoder {
 		analysisBandwidth:     20,
 		analysisValid:         false,
 		analysisTonalitySlope: 0.0,
+		analysisMaxPitchRatio: 0.0,
 
 		// Pre-emphasized signal buffer for transient analysis overlap
 		// Size is Overlap samples per channel (interleaved for stereo)
@@ -386,6 +388,7 @@ func (e *Encoder) SetAnalysisBandwidth(bandwidth int, valid bool) {
 	if !valid {
 		e.analysisValid = false
 		e.analysisTonalitySlope = 0
+		e.analysisMaxPitchRatio = 0
 		for i := range e.analysisLeakBoost {
 			e.analysisLeakBoost[i] = 0
 		}
@@ -400,6 +403,7 @@ func (e *Encoder) SetAnalysisBandwidth(bandwidth int, valid bool) {
 	e.analysisBandwidth = bandwidth
 	e.analysisValid = true
 	e.analysisTonalitySlope = 0
+	e.analysisMaxPitchRatio = 1.0
 	for i := range e.analysisLeakBoost {
 		e.analysisLeakBoost[i] = 0
 	}
@@ -407,7 +411,7 @@ func (e *Encoder) SetAnalysisBandwidth(bandwidth int, valid bool) {
 
 // SetAnalysisInfo provides analysis-derived state from the top-level Opus analysis
 // pipeline. This mirrors libopus use of AnalysisInfo in CELT dynalloc.
-func (e *Encoder) SetAnalysisInfo(bandwidth int, leakBoost [leakBands]uint8, tonalitySlope float64, valid bool) {
+func (e *Encoder) SetAnalysisInfo(bandwidth int, leakBoost [leakBands]uint8, tonalitySlope float64, maxPitchRatio float64, valid bool) {
 	if !valid {
 		e.SetAnalysisBandwidth(0, false)
 		return
@@ -422,6 +426,13 @@ func (e *Encoder) SetAnalysisInfo(bandwidth int, leakBoost [leakBands]uint8, ton
 	e.analysisValid = true
 	e.analysisLeakBoost = leakBoost
 	e.analysisTonalitySlope = tonalitySlope
+	if maxPitchRatio < 0 {
+		maxPitchRatio = 0
+	}
+	if maxPitchRatio > 1 {
+		maxPitchRatio = 1
+	}
+	e.analysisMaxPitchRatio = maxPitchRatio
 }
 
 // AnalysisBandwidth returns the current analysis-derived bandwidth index.
@@ -533,6 +544,7 @@ func (e *Encoder) Reset() {
 	e.analysisBandwidth = 20
 	e.analysisValid = false
 	e.analysisTonalitySlope = 0
+	e.analysisMaxPitchRatio = 0
 	for i := range e.analysisLeakBoost {
 		e.analysisLeakBoost[i] = 0
 	}
