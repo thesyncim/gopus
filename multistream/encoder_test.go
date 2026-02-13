@@ -954,6 +954,7 @@ func TestEncode_SurroundPerStreamPolicy(t *testing.T) {
 		t.Fatalf("Encode failed: %v", err)
 	}
 
+	wantBW := enc.surroundBandwidth(frameSize)
 	for i := 0; i < enc.CoupledStreams(); i++ {
 		if got := enc.encoders[i].Mode(); got != encpkg.ModeCELT {
 			t.Fatalf("stream %d mode = %v, want ModeCELT", i, got)
@@ -961,16 +962,22 @@ func TestEncode_SurroundPerStreamPolicy(t *testing.T) {
 		if got := enc.encoders[i].ForceChannels(); got != 2 {
 			t.Fatalf("stream %d force channels = %d, want 2", i, got)
 		}
+		if got := enc.encoders[i].Bandwidth(); got != wantBW {
+			t.Fatalf("stream %d bandwidth = %v, want %v", i, got, wantBW)
+		}
 	}
 
-	if got := enc.encoders[enc.lfeStream].Mode(); got != encpkg.ModeCELT {
-		t.Fatalf("LFE mode = %v, want ModeCELT", got)
-	}
 	if got := enc.encoders[enc.lfeStream].LFE(); !got {
 		t.Fatalf("LFE stream LFE flag = %v, want true", got)
 	}
-	if got := enc.encoders[enc.lfeStream].Bandwidth(); got != types.BandwidthNarrowband {
-		t.Fatalf("LFE bandwidth = %v, want BandwidthNarrowband", got)
+	if got := enc.encoders[enc.lfeStream].Bandwidth(); got != wantBW {
+		t.Fatalf("LFE stream bandwidth = %v, want %v", got, wantBW)
+	}
+	if got := enc.encoders[enc.lfeStream].Mode(); got != encpkg.ModeAuto {
+		t.Fatalf("LFE mode = %v, want ModeAuto", got)
+	}
+	if got := enc.encoders[enc.lfeStream].ForceChannels(); got != -1 {
+		t.Fatalf("LFE force channels = %d, want -1", got)
 	}
 	if got := enc.encoders[enc.lfeStream].CELTSurroundTrim(); got != 0 {
 		t.Fatalf("LFE surround trim = %f, want 0", got)
@@ -985,6 +992,46 @@ func TestEncode_SurroundPerStreamPolicy(t *testing.T) {
 	}
 	if got := enc.encoders[2].ForceChannels(); got != -1 {
 		t.Fatalf("mono surround stream force channels = %d, want -1", got)
+	}
+	if got := enc.encoders[2].Mode(); got != encpkg.ModeAuto {
+		t.Fatalf("mono surround stream mode = %v, want ModeAuto", got)
+	}
+}
+
+func TestEncode_SurroundPolicyPreservesMonoForceChannels(t *testing.T) {
+	enc, err := NewEncoderDefault(48000, 6)
+	if err != nil {
+		t.Fatalf("NewEncoderDefault error: %v", err)
+	}
+	enc.SetBitrate(192000)
+	enc.SetForceChannels(1)
+
+	frameSize := 960
+	pcm := make([]float64, frameSize*6)
+	for i := 0; i < frameSize; i++ {
+		tm := float64(i) / 48000.0
+		pcm[i*6+0] = 0.4 * math.Sin(2*math.Pi*600*tm)
+		pcm[i*6+1] = 0.3 * math.Sin(2*math.Pi*220*tm)
+		pcm[i*6+2] = 0.4 * math.Sin(2*math.Pi*900*tm)
+		pcm[i*6+3] = 0.4 * math.Sin(2*math.Pi*1200*tm)
+		pcm[i*6+4] = 0.4 * math.Sin(2*math.Pi*1400*tm)
+		pcm[i*6+5] = 0.6 * math.Sin(2*math.Pi*60*tm)
+	}
+
+	if _, err := enc.Encode(pcm, frameSize); err != nil {
+		t.Fatalf("Encode failed: %v", err)
+	}
+
+	for i := 0; i < enc.CoupledStreams(); i++ {
+		if got := enc.encoders[i].ForceChannels(); got != 2 {
+			t.Fatalf("coupled stream %d force channels = %d, want 2", i, got)
+		}
+	}
+	if got := enc.encoders[2].ForceChannels(); got != 1 {
+		t.Fatalf("mono center stream force channels = %d, want 1", got)
+	}
+	if got := enc.encoders[enc.lfeStream].ForceChannels(); got != 1 {
+		t.Fatalf("LFE stream force channels = %d, want 1", got)
 	}
 }
 
@@ -1132,6 +1179,7 @@ func TestEncode_AmbisonicsForcesCELTMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewEncoderAmbisonics error: %v", err)
 	}
+	enc.SetForceChannels(1)
 
 	frameSize := 960
 	pcm := make([]float64, frameSize*4)
@@ -1149,6 +1197,9 @@ func TestEncode_AmbisonicsForcesCELTMode(t *testing.T) {
 	for i := 0; i < enc.Streams(); i++ {
 		if got := enc.encoders[i].Mode(); got != encpkg.ModeCELT {
 			t.Fatalf("stream %d mode = %v, want ModeCELT", i, got)
+		}
+		if got := enc.encoders[i].ForceChannels(); got != 1 {
+			t.Fatalf("stream %d force channels = %d, want 1", i, got)
 		}
 	}
 }
