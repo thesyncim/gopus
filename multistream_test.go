@@ -520,6 +520,23 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 		t.Error("PhaseInversionDisabled() should be false after SetPhaseInversionDisabled(false)")
 	}
 
+	// Test signal hint control parity (libopus OPUS_SET_SIGNAL semantics).
+	if err := enc.SetSignal(SignalVoice); err != nil {
+		t.Errorf("SetSignal(SignalVoice) error: %v", err)
+	}
+	if got := enc.Signal(); got != SignalVoice {
+		t.Errorf("Signal() = %v, want %v", got, SignalVoice)
+	}
+	if err := enc.SetSignal(SignalMusic); err != nil {
+		t.Errorf("SetSignal(SignalMusic) error: %v", err)
+	}
+	if got := enc.Signal(); got != SignalMusic {
+		t.Errorf("Signal() = %v, want %v", got, SignalMusic)
+	}
+	if err := enc.SetSignal(Signal(9999)); err != ErrInvalidSignal {
+		t.Errorf("SetSignal(invalid) error = %v, want %v", err, ErrInvalidSignal)
+	}
+
 	// Encode a frame after setting controls to verify no errors
 	frameSize := 960
 	pcm := generateSurroundTestSignal(48000, frameSize, channels)
