@@ -20,6 +20,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-13
+topic: Public lookahead ctl parity by application
+decision: Keep public wrapper lookahead behavior aligned with libopus `OPUS_GET_LOOKAHEAD`: `Fs/400` for low-delay application and `Fs/400 + Fs/250` for VoIP/Audio. Do not use loose bounds for this surface; keep exact expected-value tests for representative sample rates and application transitions.
+evidence: Updated `encoder.go` and `multistream.go` lookahead wrappers to compute by application semantics (per `opus_encoder.c` `OPUS_GET_LOOKAHEAD_REQUEST`). Added `TestEncoder_Lookahead` and `TestMultistreamEncoder_Lookahead` exact checks (48k/24k, Audio/VoIP/LowDelay, and pre-encode `SetApplication` transitions). Validation: `go test . -run 'TestEncoder_Lookahead|TestMultistreamEncoder_Lookahead' -count=1 -v`, `go test . -run 'TestEncoder_SetApplication|TestMultistreamEncoder_Controls|TestMultistreamEncoder_SetApplicationAfterEncodeRejected|TestEncoder_Lookahead|TestMultistreamEncoder_Lookahead' -count=1 -v`, `make verify-production`, and `make bench-guard` (all PASS).
+do_not_repeat_until: libopus changes `OPUS_GET_LOOKAHEAD` application semantics, or internal application propagation changes require moving this logic from wrappers into lower encoder layers with equivalent fixture-backed behavior.
+owner: codex
+
+date: 2026-02-13
 topic: Application ctl change lock after first encode (wrapper parity)
 decision: Keep public wrapper application controls (`Encoder.SetApplication`, `MultistreamEncoder.SetApplication`) aligned with libopus first-frame semantics: after the first successful encode call, changing application to a different value must return `ErrInvalidApplication`; setting the same value remains allowed; `Reset()` re-enables application changes.
 evidence: Implemented wrapper-level `encodedOnce` gating in `encoder.go` and `multistream.go` (set on successful encode, cleared on reset). Added/updated tests: `TestEncoder_SetApplication` and `TestMultistreamEncoder_SetApplicationAfterEncodeRejected`. Validated by `go test . -run 'TestEncoder_SetApplication|TestMultistreamEncoder_Controls|TestMultistreamEncoder_SetApplicationPreservesControls|TestMultistreamEncoder_SetApplicationAfterEncodeRejected' -count=1 -v`, `make verify-production`, and `make bench-guard` (all PASS). Source of truth: `opus_encoder.c` `OPUS_SET_APPLICATION_REQUEST` check on `st->first`.
