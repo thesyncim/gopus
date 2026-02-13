@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-13
+topic: Analyzer digital-silence parity
+decision: Keep libopus-style digital-silence handling in `tonalityAnalysis`: when the 30 ms analysis buffer is digital silence, copy the previous analysis slot, advance write position, and skip FFT/feature/MLP updates and counter increments.
+evidence: Added `TestRunAnalysisSilenceCopiesPreviousInfo` and `TestRunAnalysisInitialSilenceKeepsInvalidInfo`; parity/compliance and broad gates passed (`TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestEncoderComplianceSummary`, `make verify-production`, `make bench-guard`).
+do_not_repeat_until: libopus `analysis.c` changes `is_digital_silence32`/silence-early-return behavior or fixture evidence shows divergence.
+owner: codex
+
+date: 2026-02-13
 topic: Analyzer 16 kHz resample parity
 decision: Keep `Fs==16000` tonality-analysis support aligned with libopus `downmix_and_resample()` (16 kHz -> 24 kHz via 3x repeat + `silk_resampler_down2_hp`), including first-fill and residual-buffer paths.
 evidence: Added `TestRunAnalysis16kProducesValidInfo` and `TestRunAnalysis16kLongFrameUses20msChunks`; parity/compliance and broad gates passed (`TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestEncoderComplianceSummary`, `make verify-production`, `make bench-guard`).
