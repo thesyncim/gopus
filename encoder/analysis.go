@@ -204,22 +204,20 @@ func NewTonalityAnalysisState(fs int) *TonalityAnalysisState {
 }
 
 func (s *TonalityAnalysisState) Reset() {
-	s.Count = 0
-	s.ECount = 0
-	s.MemFill = 0
-	// Match libopus tonality_analysis_reset(): initialized is cleared and the
-	// first tonalityAnalysis() call bootstraps MemFill=240.
-	s.Initialized = false
-	s.AnalysisOffset = 0
-	s.WritePos = 0
-	s.ReadPos = 0
-	s.ReadSubframe = 0
-	s.HPEnerAccum = 0
-	for i := range s.RNNState {
-		s.RNNState[i] = 0
-	}
-	for i := range s.InMem {
-		s.InMem[i] = 0
+	// Match libopus tonality_analysis_reset(): clear all reset-scoped analysis
+	// state while preserving reusable configuration/scratch allocations.
+	fs := s.Fs
+	scratchMono := s.scratchMono[:0]
+	scratchDownsampled := s.scratchDownsampled[:0]
+	scratchResample3x := s.scratchResample3x[:0]
+	scratchFFTKiss := s.scratchFFTKiss
+
+	*s = TonalityAnalysisState{
+		Fs:                 fs,
+		scratchMono:        scratchMono,
+		scratchDownsampled: scratchDownsampled,
+		scratchResample3x:  scratchResample3x,
+		scratchFFTKiss:     scratchFFTKiss,
 	}
 }
 
