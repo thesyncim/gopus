@@ -1672,12 +1672,12 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 			// loss while preserving rate discipline.
 			targetBits += 64
 		case 480:
-			// 10ms stereo currently trails mono quality more than desired.
-			// Keep mono uplift unchanged, but give stereo extra headroom.
+			// 10ms CELT is still quality-constrained by per-frame signaling.
+			// Keep stereo uplift as-is and raise mono modestly.
 			if e.channels == 2 {
 				targetBits += 256
 			} else {
-				targetBits += 128
+				targetBits += 256
 			}
 		case 960:
 			// Multi-frame 40/60ms CELT packets are internally encoded as 20ms
