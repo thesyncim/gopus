@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-13
+topic: Analyzer reset semantics parity
+decision: Keep `TonalityAnalysisState.Reset()` aligned with libopus `tonality_analysis_reset()`: clear all reset-scoped analyzer state while preserving reusable config/scratch allocations.
+evidence: Added `TestTonalityAnalysisResetClearsState`; focused analyzer tests and parity/compliance/full gates passed (`TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestEncoderComplianceSummary`, `make verify-production`, `make bench-guard`).
+do_not_repeat_until: libopus changes analyzer reset semantics or fixture evidence indicates reset-state divergence.
+owner: codex
+
+date: 2026-02-13
 topic: Analyzer FFT NaN guard parity
 decision: Keep libopus-style NaN guard in `tonalityAnalysis`: if FFT output is NaN, mark current info slot invalid, advance write position, and return before feature extraction/MLP/counter updates.
 evidence: Added `TestRunAnalysisNaNInputMarksInfoInvalid`; parity/compliance and broad gates passed (`TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestEncoderComplianceSummary`, `make verify-production`, `make bench-guard`).

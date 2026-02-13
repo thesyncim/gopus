@@ -192,6 +192,55 @@ func TestRunAnalysis16kLongFrameUses20msChunks(t *testing.T) {
 	}
 }
 
+func TestTonalityAnalysisResetClearsState(t *testing.T) {
+	s := NewTonalityAnalysisState(48000)
+
+	const frameSize = 960
+	pcm := make([]float32, frameSize)
+	for i := range pcm {
+		pcm[i] = 0.6 * float32(math.Sin(2*math.Pi*440.0*float64(i)/48000.0))
+	}
+	for i := 0; i < 3; i++ {
+		_ = s.RunAnalysis(pcm, frameSize, 1)
+	}
+	if s.Count == 0 {
+		t.Fatal("expected non-zero analyzer count before reset")
+	}
+
+	s.Reset()
+
+	if s.Fs != 48000 {
+		t.Fatalf("reset should preserve sample rate: got %d want 48000", s.Fs)
+	}
+	if s.Count != 0 || s.ECount != 0 || s.MemFill != 0 {
+		t.Fatalf("reset should clear counters/memfill: count=%d ecount=%d memfill=%d", s.Count, s.ECount, s.MemFill)
+	}
+	if s.AnalysisOffset != 0 || s.WritePos != 0 || s.ReadPos != 0 || s.ReadSubframe != 0 {
+		t.Fatalf("reset should clear analysis cursors: offset=%d write=%d read=%d subframe=%d", s.AnalysisOffset, s.WritePos, s.ReadPos, s.ReadSubframe)
+	}
+	if s.HPEnerAccum != 0 || s.PrevTonality != 0 || s.PrevBandwidth != 0 || s.ETracker != 0 || s.LowECount != 0 {
+		t.Fatalf("reset should clear scalar state: hp=%.6f tonality=%.6f bw=%d etracker=%.6f lowE=%.6f", s.HPEnerAccum, s.PrevTonality, s.PrevBandwidth, s.ETracker, s.LowECount)
+	}
+	if s.Angle[10] != 0 || s.DAngle[10] != 0 || s.D2Angle[10] != 0 {
+		t.Fatal("reset should clear angle history")
+	}
+	if s.E[0][0] != 0 || s.LogE[0][0] != 0 || s.LowE[0] != 0 || s.HighE[0] != 0 || s.MeanE[0] != 0 {
+		t.Fatal("reset should clear energy history and trackers")
+	}
+	if s.Mem[0] != 0 || s.CMean[0] != 0 || s.Std[0] != 0 {
+		t.Fatal("reset should clear feature history state")
+	}
+	if s.RNNState[0] != 0 || s.DownmixState[0] != 0 || s.InMem[0] != 0 {
+		t.Fatal("reset should clear runtime buffers/state")
+	}
+	if s.Info[0].Valid {
+		t.Fatal("reset should clear queued analysis info")
+	}
+	if cap(s.scratchFFTKiss) < 480 {
+		t.Fatalf("reset should preserve reusable FFT scratch capacity: got %d", cap(s.scratchFFTKiss))
+	}
+}
+
 func TestRunAnalysisSilenceCopiesPreviousInfo(t *testing.T) {
 	s := NewTonalityAnalysisState(48000)
 
