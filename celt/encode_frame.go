@@ -1670,7 +1670,7 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 			// 5ms frames still carry relatively high per-frame side signaling.
 			// Apply a smaller uplift than 2.5ms to reduce short-frame quality
 			// loss while preserving rate discipline.
-			targetBits += 64
+			targetBits += 128
 		case 480:
 			// 10ms CELT is still quality-constrained by per-frame signaling.
 			// Keep mono uplift and give stereo extra headroom.
