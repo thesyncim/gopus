@@ -2,6 +2,7 @@ package encoder
 
 import (
 	"math"
+	"reflect"
 	"testing"
 )
 
@@ -188,5 +189,68 @@ func TestRunAnalysis16kLongFrameUses20msChunks(t *testing.T) {
 	}
 	if s.AnalysisOffset != 0 {
 		t.Fatalf("unexpected analysis offset: got %d want 0", s.AnalysisOffset)
+	}
+}
+
+func TestRunAnalysisSilenceCopiesPreviousInfo(t *testing.T) {
+	s := NewTonalityAnalysisState(48000)
+
+	const frameSize = 960
+	prevInfo := AnalysisInfo{
+		Valid:          true,
+		MusicProb:      0.42,
+		VADProb:        0.11,
+		Tonality:       0.33,
+		BandwidthIndex: 18,
+		MaxPitchRatio:  0.77,
+	}
+	prevInfo.LeakBoost[0] = 7
+	prevInfo.LeakBoost[1] = 3
+	s.Info[DetectSize-1] = prevInfo
+	s.Count = 7
+	s.ECount = 3
+
+	countBefore := s.Count
+	eCountBefore := s.ECount
+	writeBefore := s.WritePos
+
+	silence := make([]float32, frameSize)
+	_ = s.RunAnalysis(silence, frameSize, 1)
+
+	if s.Count != countBefore {
+		t.Fatalf("silence should not advance analysis count: got %d want %d", s.Count, countBefore)
+	}
+	if s.ECount != eCountBefore {
+		t.Fatalf("silence should not advance energy history count: got %d want %d", s.ECount, eCountBefore)
+	}
+	if s.WritePos != (writeBefore+1)%DetectSize {
+		t.Fatalf("silence should advance write pos by one slot: got %d want %d", s.WritePos, (writeBefore+1)%DetectSize)
+	}
+
+	copiedSlot := (s.WritePos + DetectSize - 1) % DetectSize
+	if !reflect.DeepEqual(s.Info[copiedSlot], prevInfo) {
+		t.Fatal("silence frame should copy previous analysis info slot")
+	}
+}
+
+func TestRunAnalysisInitialSilenceKeepsInvalidInfo(t *testing.T) {
+	s := NewTonalityAnalysisState(48000)
+
+	const frameSize = 960
+	silence := make([]float32, frameSize)
+	info := s.RunAnalysis(silence, frameSize, 1)
+
+	if info.Valid {
+		t.Fatal("first silence frame should not produce valid analysis info")
+	}
+	if s.Count != 0 {
+		t.Fatalf("silence should not advance analysis count from reset: got %d want 0", s.Count)
+	}
+	if s.ECount != 0 {
+		t.Fatalf("silence should not advance energy count from reset: got %d want 0", s.ECount)
+	}
+	copiedSlot := (s.WritePos + DetectSize - 1) % DetectSize
+	if s.Info[copiedSlot].Valid {
+		t.Fatal("copied silence info slot should remain invalid after reset")
 	}
 }
