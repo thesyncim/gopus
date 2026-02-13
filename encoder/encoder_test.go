@@ -691,6 +691,28 @@ func TestBitrateModeCVBR(t *testing.T) {
 	}
 }
 
+func TestBitrateModeCVBR_CELTStereoEnvelope(t *testing.T) {
+	enc := encoder.NewEncoder(48000, 2)
+	enc.SetMode(encoder.ModeCELT)
+	enc.SetBitrateMode(encoder.ModeCVBR)
+	enc.SetBitrate(95000)
+
+	baseBits := (enc.Bitrate() * 960) / 48000
+	maxBits := int(float64(baseBits) * (1 + encoder.CVBRTolerance))
+	// Allow one extra byte for packet/header rounding.
+	maxBytes := (maxBits+7)/8 + 1
+
+	for i := 0; i < 10; i++ {
+		packet, err := enc.Encode(generateTestSignal(960, 2), 960)
+		if err != nil {
+			t.Fatalf("Encode frame %d failed: %v", i, err)
+		}
+		if len(packet) > maxBytes {
+			t.Fatalf("CVBR CELT stereo packet %d: %d bytes > max %d bytes", i, len(packet), maxBytes)
+		}
+	}
+}
+
 // TestBitrateRange tests bitrate clamping via SetBitrate.
 func TestBitrateRange(t *testing.T) {
 	enc := encoder.NewEncoder(48000, 1)

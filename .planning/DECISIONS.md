@@ -98,6 +98,20 @@ do_not_repeat_until: constrained-VBR implementation has dedicated parity fixture
 owner: codex
 
 date: 2026-02-13
+topic: CELT constrained-VBR target envelope
+decision: Keep custom short/medium CELT uplifts disabled in constrained-VBR mode and cap constrained-VBR CELT target bits to +15% above base bitrate target.
+evidence: Without this gate/cap, CVBR produced severe bitrate overshoot (for example stereo CELT 95 kbps yielding ~250 kbps-class packets) and multistream surround interop failures at moderate bitrates. With the gate/cap, new tests (`TestBitrateModeCVBR_CELTStereoEnvelope`, `TestMultistreamEncoder_CVBRPacketEnvelope`) pass and `TestLibopus_BitrateQuality` reports near-target bitrates with full decode.
+do_not_repeat_until: libopus-equivalent constrained-VBR internals are fully ported and validated with fixture-level parity for CELT target evolution.
+owner: codex
+
+date: 2026-02-13
+topic: Multistream default VBR-constraint policy
+decision: Initialize multistream stream encoders with VBR constraint enabled by default to align multistream control behavior with libopus expectations while leaving single-stream default untouched.
+evidence: Updated `multistream/encoder.go` constructor initialization; control tests and full `make verify-production` remained green; libopus multistream bitrate-quality interop no longer shows decode truncation from oversized packets in this slice.
+do_not_repeat_until: single-stream default policy is revisited with dedicated fixture-backed migration plan.
+owner: codex
+
+date: 2026-02-13
 topic: Long-SWB strict analyzer control wiring gate
 decision: Keep stable long-SWB auto policy; defer strict voice-ratio wiring until dedicated fixture-backed evidence avoids mode regressions.
 evidence: strict wiring attempts regressed `HYBRID-SWB-40ms-*` mode parity; rollback restored passing parity guards.

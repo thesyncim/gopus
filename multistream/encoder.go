@@ -228,7 +228,10 @@ func NewEncoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 		} else {
 			chans = 1 // Uncoupled stream = mono
 		}
-		encoders[i] = encoder.NewEncoder(sampleRate, chans)
+		streamEnc := encoder.NewEncoder(sampleRate, chans)
+		// Match libopus multistream defaults: VBR enabled with constraint on.
+		streamEnc.SetVBRConstraint(true)
+		encoders[i] = streamEnc
 	}
 
 	// Copy mapping to avoid external mutation
@@ -1215,7 +1218,7 @@ func (e *Encoder) BitrateMode() encoder.BitrateMode {
 	if len(e.encoders) > 0 {
 		return e.encoders[0].GetBitrateMode()
 	}
-	return encoder.ModeVBR
+	return encoder.ModeCVBR
 }
 
 // SetVBR enables or disables VBR mode for all stream encoders.
