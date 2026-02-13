@@ -60,3 +60,36 @@ func TestDelayCompensation_StreamDelayStereo(t *testing.T) {
 		}
 	}
 }
+
+func TestPrepareCELTPCM_DelayCompensationGatedByLowDelay(t *testing.T) {
+	const frameSize = 960
+	in := make([]float64, frameSize)
+	for i := range in {
+		in[i] = float64(i + 1)
+	}
+
+	normal := NewEncoder(48000, 1)
+	normal.SetMode(ModeCELT)
+	normal.SetLowDelay(false)
+	outNormal := normal.prepareCELTPCM(in, frameSize)
+	delaySamples := 48000 / 250
+	for i := range outNormal {
+		var want float64
+		if i >= delaySamples {
+			want = in[i-delaySamples]
+		}
+		if outNormal[i] != want {
+			t.Fatalf("normal sample %d: got=%.0f want=%.0f", i, outNormal[i], want)
+		}
+	}
+
+	lowDelay := NewEncoder(48000, 1)
+	lowDelay.SetMode(ModeCELT)
+	lowDelay.SetLowDelay(true)
+	outLowDelay := lowDelay.prepareCELTPCM(in, frameSize)
+	for i := range outLowDelay {
+		if outLowDelay[i] != in[i] {
+			t.Fatalf("lowdelay sample %d: got=%.0f want=%.0f", i, outLowDelay[i], in[i])
+		}
+	}
+}

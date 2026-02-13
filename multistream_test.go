@@ -577,6 +577,9 @@ func TestMultistreamEncoder_SetApplicationForwardsModeAndBandwidth(t *testing.T)
 	if got := enc.enc.Mode(); got != encodercore.ModeAuto {
 		t.Fatalf("initial Mode() = %v, want %v", got, encodercore.ModeAuto)
 	}
+	if enc.enc.LowDelay() {
+		t.Fatalf("initial LowDelay() = true, want false")
+	}
 	if got := enc.Bandwidth(); got != BandwidthFullband {
 		t.Fatalf("initial Bandwidth() = %v, want %v", got, BandwidthFullband)
 	}
@@ -587,6 +590,9 @@ func TestMultistreamEncoder_SetApplicationForwardsModeAndBandwidth(t *testing.T)
 	if got := enc.enc.Mode(); got != encodercore.ModeAuto {
 		t.Fatalf("Mode() after VoIP = %v, want %v", got, encodercore.ModeAuto)
 	}
+	if enc.enc.LowDelay() {
+		t.Fatalf("LowDelay() after VoIP = true, want false")
+	}
 	if got := enc.Bandwidth(); got != BandwidthWideband {
 		t.Fatalf("Bandwidth() after VoIP = %v, want %v", got, BandwidthWideband)
 	}
@@ -596,6 +602,9 @@ func TestMultistreamEncoder_SetApplicationForwardsModeAndBandwidth(t *testing.T)
 	}
 	if got := enc.enc.Mode(); got != encodercore.ModeCELT {
 		t.Fatalf("Mode() after LowDelay = %v, want %v", got, encodercore.ModeCELT)
+	}
+	if !enc.enc.LowDelay() {
+		t.Fatalf("LowDelay() after LowDelay app = false, want true")
 	}
 	if got := enc.Bandwidth(); got != BandwidthFullband {
 		t.Fatalf("Bandwidth() after LowDelay = %v, want %v", got, BandwidthFullband)

@@ -448,6 +448,21 @@ func (e *Encoder) Mode() encoder.Mode {
 	return encoder.ModeAuto
 }
 
+// SetLowDelay toggles low-delay application behavior for all stream encoders.
+func (e *Encoder) SetLowDelay(enabled bool) {
+	for _, enc := range e.encoders {
+		enc.SetLowDelay(enabled)
+	}
+}
+
+// LowDelay reports low-delay application behavior from the first stream encoder.
+func (e *Encoder) LowDelay() bool {
+	if len(e.encoders) > 0 {
+		return e.encoders[0].LowDelay()
+	}
+	return false
+}
+
 func maxInt(a, b int) int {
 	if a > b {
 		return a

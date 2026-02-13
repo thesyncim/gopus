@@ -260,7 +260,7 @@ func (e *Encoder) encodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		celtPCM := e.applyDelayCompensation(pcm, frameSize)
 		frameData, err = e.encodeHybridFrame(pcm, celtPCM, nil, frameSize)
 	case ModeCELT:
-		celtPCM := e.applyDelayCompensation(pcm, frameSize)
+		celtPCM := e.prepareCELTPCM(pcm, frameSize)
 		if frameSize > 960 {
 			packet, err = e.encodeCELTMultiFramePacket(celtPCM, frameSize)
 		} else {

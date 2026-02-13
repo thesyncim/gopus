@@ -62,6 +62,7 @@ type Encoder struct {
 	sampleRate int
 	channels   int
 	frameSize  int // In samples at 48kHz
+	lowDelay   bool
 
 	// Bitrate controls
 	bitrateMode BitrateMode
@@ -183,6 +184,7 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		sampleRate:             sampleRate,
 		channels:               channels,
 		frameSize:              960,
+		lowDelay:               false,
 		bitrateMode:            ModeVBR,
 		bitrate:                64000,
 		fecEnabled:             false,
@@ -218,6 +220,19 @@ func (e *Encoder) SetMode(mode Mode) {
 // Mode returns the current encoding mode.
 func (e *Encoder) Mode() Mode {
 	return e.mode
+}
+
+// SetLowDelay toggles low-delay application behavior.
+//
+// When enabled, CELT delay compensation is disabled to match restricted
+// low-delay semantics.
+func (e *Encoder) SetLowDelay(enabled bool) {
+	e.lowDelay = enabled
+}
+
+// LowDelay reports whether low-delay application behavior is enabled.
+func (e *Encoder) LowDelay() bool {
+	return e.lowDelay
 }
 
 // SetBandwidth sets the target audio bandwidth.
@@ -542,13 +557,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 			frameData, err = e.encodeHybridFrame(framePCM, celtPCM, lookaheadSlice, frameSize)
 		}
 	case ModeCELT:
-		// Match libopus application behavior:
-		// - Explicit CELT mode maps to restricted-celt (delay_compensation=0)
-		// - Auto-selected CELT uses audio application path (delay_compensation=Fs/250)
-		celtPCM := framePCM
-		if e.mode != ModeCELT {
-			celtPCM = e.applyDelayCompensation(framePCM, frameSize)
-		}
+		celtPCM := e.prepareCELTPCM(framePCM, frameSize)
 		if frameSize > 960 {
 			// Long CELT packets are encoded as multi-frame packets.
 			packet, err = e.encodeCELTMultiFramePacket(celtPCM, frameSize)
@@ -865,6 +874,14 @@ func (e *Encoder) updateDelayBufferInternal(pcm []float64, frameSamples, delaySa
 		}
 	}
 	copy(e.delayBuffer, pcm[pcmStart:pcmStart+encoderBufferSamples])
+}
+
+// prepareCELTPCM applies CELT delay compensation unless low-delay mode is active.
+func (e *Encoder) prepareCELTPCM(framePCM []float64, frameSize int) []float64 {
+	if e.lowDelay {
+		return framePCM
+	}
+	return e.applyDelayCompensation(framePCM, frameSize)
 }
 
 // selectMode determines the actual encoding mode based on settings and content.
