@@ -181,6 +181,7 @@ type TonalityAnalysisState struct {
 	// Scratch buffers for zero-allocation analysis
 	scratchMono        []float32
 	scratchDownsampled []float32
+	scratchResample3x  []float32
 	scratchFFTKiss     []celt.KissCpx
 }
 
@@ -291,6 +292,40 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		if firstCopy > 0 {
 			copy(s.InMem[oldMemFill:oldMemFill+firstCopy], mono[:firstCopy])
 		}
+	case 16000:
+		analysisLen = (frameSize * 3) / 2
+		firstCopy = analysisLen
+		if firstCopy > space {
+			firstCopy = space
+		}
+		if firstCopy > 0 {
+			firstInput := (firstCopy * 2) / 3
+			if firstInput > 0 {
+				firstOutput := (firstInput * 3) / 2
+				if cap(s.scratchDownsampled) < firstOutput {
+					s.scratchDownsampled = make([]float32, firstOutput)
+				}
+				if cap(s.scratchResample3x) < firstInput*3 {
+					s.scratchResample3x = make([]float32, firstInput*3)
+				}
+				first := s.scratchDownsampled[:firstOutput]
+				tmp3x := s.scratchResample3x[:firstInput*3]
+				for i := 0; i < firstInput; i++ {
+					v := mono[i]
+					j := 3 * i
+					tmp3x[j] = v
+					tmp3x[j+1] = v
+					tmp3x[j+2] = v
+				}
+				hp := silkResamplerDown2HP(s.DownmixState[:], first, tmp3x)
+				hp *= 1.0 / (celtSigScale * celtSigScale)
+				s.HPEnerAccum += hp
+				copy(s.InMem[oldMemFill:oldMemFill+firstOutput], first)
+				firstCopy = firstOutput
+			} else {
+				firstCopy = 0
+			}
+		}
 	default:
 		// Handle supported float-analysis rates only.
 		return
@@ -340,6 +375,44 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 			copy(s.InMem[240:240+remaining], mono[firstCopy:firstCopy+remaining])
 		}
 		s.HPEnerAccum = 0
+	case 16000:
+		if remaining > 0 {
+			restInput := (remaining * 2) / 3
+			restSrcStart := (firstCopy * 2) / 3
+			restSrcEnd := restSrcStart + restInput
+			if restSrcEnd > frameSize {
+				restSrcEnd = frameSize
+			}
+			restInput = restSrcEnd - restSrcStart
+			if restInput > 0 {
+				restOutput := (restInput * 3) / 2
+				if cap(s.scratchDownsampled) < restOutput {
+					s.scratchDownsampled = make([]float32, restOutput)
+				}
+				if cap(s.scratchResample3x) < restInput*3 {
+					s.scratchResample3x = make([]float32, restInput*3)
+				}
+				rest := s.scratchDownsampled[:restOutput]
+				tmp3x := s.scratchResample3x[:restInput*3]
+				for i := 0; i < restInput; i++ {
+					v := mono[restSrcStart+i]
+					j := 3 * i
+					tmp3x[j] = v
+					tmp3x[j+1] = v
+					tmp3x[j+2] = v
+				}
+				hp := silkResamplerDown2HP(s.DownmixState[:], rest, tmp3x)
+				hp *= 1.0 / (celtSigScale * celtSigScale)
+				s.HPEnerAccum = hp
+				copy(s.InMem[240:240+restOutput], rest)
+				remaining = restOutput
+			} else {
+				remaining = 0
+				s.HPEnerAccum = 0
+			}
+		} else {
+			s.HPEnerAccum = 0
+		}
 	}
 	s.MemFill = 240 + remaining
 
