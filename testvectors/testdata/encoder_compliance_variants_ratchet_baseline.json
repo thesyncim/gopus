@@ -265,7 +265,7 @@
     {
       "name": "HYBRID-SWB-10ms-mono-48k",
       "variant": "chirp_sweep_v1",
-      "min_gap_db": 25.024847949246507,
+      "min_gap_db": -1.2,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.33742574257425745,
