@@ -20,6 +20,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-13
+topic: CELT 5ms budget uplift (strict-quality continuation, round 10)
+decision: Keep non-hybrid/non-LFE CELT `frameSize==240` target-bit uplift at `+128` in `celt/encode_frame.go` (`computeTargetBits`) while keeping other short/medium-frame uplifts unchanged (`2.5ms=+320`, `10ms mono=+256`, `10ms stereo=+832`).
+evidence: Focused `go test ./testvectors -run TestEncoderComplianceCELT -count=1 -v` improved `FB-5ms-mono` from `Q=-14.05` to `Q=-12.50` with average target bits `548 -> 634`, while adjacent CELT profiles were unchanged in the same run (`FB-2.5ms-mono=-10.21`, `FB-10ms-mono=-11.14`, `FB-10ms-stereo=-16.19`, `FB-20ms-stereo=-13.60`). Regression guards stayed clean: `TestEncoderComplianceSummary`, `TestEncoderCompliancePrecisionGuard`, `TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestOpusdecCrossvalFixtureCoverage`, `TestOpusdecCrossvalFixtureHonestyAgainstLiveOpusdec`, `make verify-production`, and `make bench-guard` all PASS.
+do_not_repeat_until: CELT 5ms bitrate/interoperability regressions appear, or fixture-backed parity evidence indicates `+128` is over-aggressive.
+owner: codex
+
+date: 2026-02-13
 topic: CELT short-frame budget pivot (strict-quality continuation, round 9)
 decision: Keep non-hybrid/non-LFE CELT `frameSize==120` uplift at `+320` in `celt/encode_frame.go` (`computeTargetBits`) and hold 10ms stereo uplift at `+832` (do not raise to `+896`).
 evidence: Rejected candidate `frameSize==480` stereo `+896` after focused regression in `go test ./testvectors -run 'TestEncoderComplianceCELT/FB-10ms-stereo' -count=1 -v` (`Q=-16.19 -> -16.47`). Accepted `frameSize==120` uplift `+256 -> +320` after focused improvement in `go test ./testvectors -run 'TestEncoderComplianceCELT/FB-2.5ms-mono' -count=1 -v` (target bits avg `500 -> 564`, `Q=-19.59` / `38.60 dB` -> `Q=-10.21` / `43.10 dB`). Regression guards stayed clean: `TestEncoderComplianceCELT`, `TestEncoderComplianceSummary`, `TestEncoderCompliancePrecisionGuard`, `TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestOpusdecCrossvalFixtureCoverage`, `TestOpusdecCrossvalFixtureHonestyAgainstLiveOpusdec`, `make verify-production`, and `make bench-guard` all PASS.
