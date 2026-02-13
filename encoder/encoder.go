@@ -141,7 +141,6 @@ type Encoder struct {
 	analysisReadBakSet  bool
 	prevLongSWBAutoMode Mode
 	prevSWB10AutoMode   Mode
-	swb10TransientScore int
 	prevSWB20AutoMode   Mode
 	swb20ModeHoldFrames int
 
@@ -314,7 +313,6 @@ func (e *Encoder) Reset() {
 	e.lastAnalysisFresh = false
 	e.analysisReadBakSet = false
 	e.prevSWB10AutoMode = ModeCELT
-	e.swb10TransientScore = 0
 	e.prevSWB20AutoMode = ModeHybrid
 	e.swb20ModeHoldFrames = 0
 }
@@ -1166,6 +1164,12 @@ func (e *Encoder) autoSignalFromPCM(pcm []float64, frameSize int) types.Signal {
 	}
 	swb10Auto := e.mode == ModeAuto && frameSize == 480 && e.effectiveBandwidth() == types.BandwidthSuperwideband
 	swb20Auto := e.mode == ModeAuto && frameSize == 960 && e.effectiveBandwidth() == types.BandwidthSuperwideband
+	if swb10Auto {
+		return e.selectSWBAutoSignal(frameSize, e.prevSWB10AutoMode)
+	}
+	if swb20Auto {
+		return e.selectSWBAutoSignal(frameSize, e.prevSWB20AutoMode)
+	}
 	pcm32 := e.scratchPCM32[:len(pcm)]
 	for i, v := range pcm {
 		pcm32[i] = float32(v)
@@ -1209,99 +1213,64 @@ func (e *Encoder) autoSignalFromPCM(pcm []float64, frameSize int) types.Signal {
 		return types.SignalVoice
 	}
 	ratio := diffEnergy / (energy + 1e-12)
-	avgEnergy := energy / float64(samples)
-
-	// SWB 10ms transient gate.
-	// Keep CELT by default, but allow transition to Hybrid for sustained
-	// sparse/transient content where libopus tends to switch later in the run.
-	if swb10Auto {
-		if ratio >= 0.9 && avgEnergy <= 0.03 {
-			e.swb10TransientScore += 2
-		} else if ratio >= 0.5 && avgEnergy <= 0.015 {
-			e.swb10TransientScore++
-		} else {
-			e.swb10TransientScore--
-			if e.swb10TransientScore < 0 {
-				e.swb10TransientScore = 0
-			}
-		}
-		if e.swb10TransientScore > 100 {
-			e.swb10TransientScore = 100
-		}
-		desired := e.prevSWB10AutoMode
-		if desired != ModeCELT && desired != ModeHybrid {
-			desired = ModeCELT
-		}
-		if e.swb10TransientScore >= 30 {
-			desired = ModeHybrid
-		} else if e.swb10TransientScore <= 10 {
-			desired = ModeCELT
-		}
-		if desired == ModeHybrid {
-			return types.SignalVoice
-		}
+	if ratio > 0.25 {
 		return types.SignalMusic
 	}
+	return types.SignalVoice
+}
 
-	// SWB 20ms auto-mode control mirrors libopus thresholding: derive a speech
-	// estimate from analysis probabilities (with prev-mode min/max hysteresis)
-	// and compare equivalent rate against mode thresholds.
-	if swb20Auto && e.lastAnalysisValid {
-		prev := e.prevSWB20AutoMode
-		if prev != ModeHybrid && prev != ModeCELT && prev != ModeAuto {
-			prev = ModeAuto
-		}
+// selectSWBAutoSignal mirrors libopus auto-mode thresholding for SWB 10/20ms:
+// derive voice estimate from analysis (with prev-mode hysteresis), then compare
+// equivalent rate against voice/music thresholds with CELT/SILK-hybrid hysteresis.
+func (e *Encoder) selectSWBAutoSignal(frameSize int, prev Mode) types.Signal {
+	if prev != ModeCELT && prev != ModeHybrid && prev != ModeAuto {
+		prev = ModeAuto
+	}
+	frameRate := e.sampleRate / frameSize
+	if frameRate <= 0 {
+		frameRate = 50
+	}
+	useVBR := e.bitrateMode != ModeCBR
+	equivRate := e.computeEquivRate(e.bitrate, e.channels, frameRate, useVBR, ModeAuto, e.complexity, e.packetLoss)
 
-		frameRate := e.sampleRate / frameSize
-		if frameRate <= 0 {
-			frameRate = 50
-		}
-		useVBR := e.bitrateMode != ModeCBR
-		equivRate := e.computeEquivRate(e.bitrate, e.channels, frameRate, useVBR, ModeAuto, e.complexity, e.packetLoss)
-
-		voiceEst := 48
-		if e.signalType == types.SignalVoice {
-			voiceEst = 127
-		} else if e.signalType == types.SignalMusic {
-			voiceEst = 0
-		} else {
-			prob := float64(e.lastAnalysisInfo.MusicProb)
-			if prev == ModeCELT {
-				prob = float64(e.lastAnalysisInfo.MusicProbMax)
-			} else if prev == ModeHybrid {
-				prob = float64(e.lastAnalysisInfo.MusicProbMin)
-			}
-			if prob < 0 {
-				prob = 0
-			}
-			if prob > 1 {
-				prob = 1
-			}
-			voiceRatio := int(math.Floor(0.5 + 100.0*(1.0-prob)))
-			voiceEst = (voiceRatio * 327) >> 8
-			if voiceEst > 115 {
-				voiceEst = 115
-			}
-		}
-
-		modeVoice := 64000
-		if e.channels == 2 {
-			modeVoice = 44000
-		}
-		const modeMusic = 10000
-		threshold := modeMusic + (voiceEst*voiceEst*(modeVoice-modeMusic))/16384
+	voiceEst := 48 // OPUS_APPLICATION_AUDIO fallback.
+	if e.signalType == types.SignalVoice {
+		voiceEst = 127
+	} else if e.signalType == types.SignalMusic {
+		voiceEst = 0
+	} else if e.lastAnalysisValid {
+		prob := float64(e.lastAnalysisInfo.MusicProb)
 		if prev == ModeCELT {
-			threshold -= 4000
+			prob = float64(e.lastAnalysisInfo.MusicProbMax)
 		} else if prev == ModeHybrid {
-			threshold += 4000
+			prob = float64(e.lastAnalysisInfo.MusicProbMin)
 		}
-		if equivRate >= threshold {
-			return types.SignalMusic
+		if prob < 0 {
+			prob = 0
 		}
-		return types.SignalVoice
+		if prob > 1 {
+			prob = 1
+		}
+		voiceRatio := int(math.Floor(0.5 + 100.0*(1.0-prob)))
+		voiceEst = (voiceRatio * 327) >> 8
+		// OPUS_APPLICATION_AUDIO clamp.
+		if voiceEst > 115 {
+			voiceEst = 115
+		}
 	}
 
-	if ratio > 0.25 {
+	modeVoice := 64000
+	if e.channels == 2 {
+		modeVoice = 44000
+	}
+	const modeMusic = 10000
+	threshold := modeMusic + (voiceEst*voiceEst*(modeVoice-modeMusic))/16384
+	if prev == ModeCELT {
+		threshold -= 4000
+	} else if prev == ModeHybrid {
+		threshold += 4000
+	}
+	if equivRate >= threshold {
 		return types.SignalMusic
 	}
 	return types.SignalVoice

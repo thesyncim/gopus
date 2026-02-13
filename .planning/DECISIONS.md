@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-13
+topic: SWB 10 ms auto-mode control parity
+decision: Keep SWB 10 ms auto-mode signal/mode hinting on the same libopus threshold policy used for SWB auto decisions (equivalent-rate threshold with analysis-derived voice estimate, prev-mode `music_prob_min/max`, and `-4000/+4000` hysteresis); do not reintroduce the custom transient-score gate.
+evidence: Updated `encoder/encoder.go` (`autoSignalFromPCM`, new `selectSWBAutoSignal`); removed `swb10TransientScore`; added `TestSelectSWBAutoSignal10msHysteresis` and `TestAutoSignalFromPCMSWB10UsesThresholdPolicy`; parity slice now shows `HYBRID-SWB-10ms-mono-48k/chirp_sweep_v1` mismatch `0.00%` with corrected gap and full variant/compliance parity tests pass.
+do_not_repeat_until: libopus changes mode-threshold/voice-estimation semantics in `opus_encoder.c`, or fixture/interoperability evidence shows SWB 10 ms divergence under this policy.
+owner: codex
+
+date: 2026-02-13
 topic: Multistream surround energy-mask control parity
 decision: Keep per-stream surround energy-mask wiring active: multistream surround analysis produces per-stream masks (coupled=42, mono=21, LFE cleared), forwards via encoder/celt mask controls, and CELT uses libopus-style mask->surround_dynalloc/surround_trim derivation in dynalloc/alloc-trim control flow.
 evidence: Updated `multistream/encoder.go`, `encoder/encoder.go`, `celt/encoder.go`, `celt/encode_frame.go`, `celt/dynalloc.go`; added `TestEncode_SurroundEnergyMaskPerStream`, `TestEncoderSetEnergyMask`, and `TestComputeSurroundDynallocFromMask`; focused package tests and parity fixture slice passed.
