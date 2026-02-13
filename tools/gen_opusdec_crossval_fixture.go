@@ -356,23 +356,22 @@ func writeOggPage(w io.Writer, pageSeq uint32, headerType byte, granulePos int64
 	if err := binary.Write(&page, binary.LittleEndian, uint32(0)); err != nil {
 		return err
 	}
-	page.WriteByte(byte(1))
-	if len(data) > 255 {
-		numSegs := (len(data) + 254) / 255
-		page.Truncate(page.Len() - 1)
-		page.WriteByte(byte(numSegs))
-		remaining := len(data)
-		for remaining > 0 {
-			segLen := remaining
-			if segLen > 255 {
-				segLen = 255
-			}
-			page.WriteByte(byte(segLen))
-			remaining -= segLen
-		}
-	} else {
-		page.WriteByte(byte(len(data)))
+	// Build Ogg lacing values. Packets with size % 255 == 0 must include
+	// a trailing zero-length segment to terminate the packet.
+	lacing := make([]byte, 0, (len(data)+254)/255+1)
+	remaining := len(data)
+	for remaining >= 255 {
+		lacing = append(lacing, 255)
+		remaining -= 255
 	}
+	if remaining > 0 || len(data) == 0 || len(data)%255 == 0 {
+		lacing = append(lacing, byte(remaining))
+	}
+	if len(lacing) > 255 {
+		return fmt.Errorf("ogg page has too many lacing segments: %d", len(lacing))
+	}
+	page.WriteByte(byte(len(lacing)))
+	page.Write(lacing)
 	page.Write(data)
 
 	pageData := page.Bytes()
