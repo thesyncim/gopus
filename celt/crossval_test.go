@@ -210,27 +210,22 @@ func writeOggPage(w io.Writer, pageSeq uint32, headerType byte, granulePos int64
 	binary.Write(&page, binary.LittleEndian, serial)     // bitstream serial
 	binary.Write(&page, binary.LittleEndian, pageSeq)    // page sequence
 	binary.Write(&page, binary.LittleEndian, uint32(0))  // CRC placeholder
-	page.WriteByte(byte(1))                              // number of segments
-
-	// Segment table: one segment with payload length
-	// For packets larger than 255 bytes, we'd need multiple segments
-	if len(data) > 255 {
-		// Split into multiple segments
-		numSegs := (len(data) + 254) / 255
-		page.Truncate(page.Len() - 1) // Remove the "1" we just wrote
-		page.WriteByte(byte(numSegs))
-		remaining := len(data)
-		for remaining > 0 {
-			segLen := remaining
-			if segLen > 255 {
-				segLen = 255
-			}
-			page.WriteByte(byte(segLen))
-			remaining -= segLen
-		}
-	} else {
-		page.WriteByte(byte(len(data)))
+	// Segment table (lacing values). Packets with size % 255 == 0 must
+	// include a trailing zero-length segment to terminate the packet.
+	lacing := make([]byte, 0, (len(data)+254)/255+1)
+	remaining := len(data)
+	for remaining >= 255 {
+		lacing = append(lacing, 255)
+		remaining -= 255
 	}
+	if remaining > 0 || len(data) == 0 || len(data)%255 == 0 {
+		lacing = append(lacing, byte(remaining))
+	}
+	if len(lacing) > 255 {
+		return fmt.Errorf("ogg page has too many lacing segments: %d", len(lacing))
+	}
+	page.WriteByte(byte(len(lacing)))
+	page.Write(lacing)
 
 	// Payload
 	page.Write(data)

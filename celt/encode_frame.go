@@ -1683,7 +1683,7 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 			// Multi-frame 40/60ms CELT packets are internally encoded as 20ms
 			// subframes at a reduced subframe bitrate; keep their boost capped.
 			if baseBits >= 1024 {
-				targetBits += 1216
+				targetBits += 1280
 			} else {
 				targetBits += 256
 			}

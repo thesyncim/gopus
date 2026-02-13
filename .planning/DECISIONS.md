@@ -20,6 +20,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-13
+topic: CELT 20ms high-budget uplift ceiling (post-lacing-fix)
+decision: Keep non-hybrid/non-LFE CELT `frameSize==960` high-budget uplift at `+1280` in `celt/encode_frame.go` (`computeTargetBits`) and keep corrected Ogg lacing generation for packets where `len(data)%255==0` in both fixture tooling and the crossval test helper.
+evidence: Raised `+1216 -> +1280` then fixed Ogg page lacing in `tools/gen_opusdec_crossval_fixture.go` and `celt/crossval_test.go` by emitting a trailing zero-length lacing segment when needed and bounding lacing count. Regenerated fixtures via `go run ./tools/gen_opusdec_crossval_fixture.go` and `make fixtures-gen-amd64`. Interop/parity validation passed: `go test ./celt -run 'TestOpusdecCrossvalFixtureCoverage|TestOpusdecCrossvalFixtureHonestyAgainstLiveOpusdec' -count=1 -v` (including `stereo_20ms_silence`), `go test ./testvectors -run TestEncoderComplianceCELT -count=1 -v`, `go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `go test ./testvectors -run 'TestEncoderCompliancePrecisionGuard|TestEncoderVariantProfileParityAgainstLibopusFixture' -count=1 -v`, `make verify-production`, and `make bench-guard`.
+do_not_repeat_until: libopus opusdec interoperability or fixture parity evidence regresses for 20ms high-budget packets, or Ogg packet/page framing conventions are changed.
+owner: codex
+
+date: 2026-02-13
 topic: CELT 2.5ms budget uplift (strict-quality continuation, round 12)
 decision: Keep non-hybrid/non-LFE CELT `frameSize==120` uplift at `+384` in `celt/encode_frame.go` (`computeTargetBits`), while keeping 5ms (`+128`) and 10ms settings (`stereo=+832`, `mono=+256`) unchanged.
 evidence: Focused `go test ./testvectors -run 'TestEncoderComplianceCELT/FB-2.5ms-mono' -count=1 -v` improved target bits avg `596 -> 628`, `Q=-8.11` / `44.11 dB` -> `Q=-6.65` / `44.81 dB`. Reconfirmed 10ms stereo `+864` remains a regression (`Q=-16.90`, target avg `1934`) versus kept `+832` (`Q=-16.19`, target avg `1902`). Regression guards stayed clean: `TestEncoderComplianceCELT`, `TestEncoderComplianceSummary`, `TestEncoderCompliancePrecisionGuard`, `TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestOpusdecCrossvalFixtureCoverage`, `TestOpusdecCrossvalFixtureHonestyAgainstLiveOpusdec`, `make verify-production`, and `make bench-guard` all PASS.
