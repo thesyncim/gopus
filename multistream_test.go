@@ -881,6 +881,80 @@ func TestMultistreamRoundTrip_AllApplications(t *testing.T) {
 	}
 }
 
+func TestMultistreamEncoder_Lookahead(t *testing.T) {
+	tests := []struct {
+		name        string
+		sampleRate  int
+		application Application
+		want        int
+	}{
+		{
+			name:        "audio_48k",
+			sampleRate:  48000,
+			application: ApplicationAudio,
+			want:        48000/400 + 48000/250,
+		},
+		{
+			name:        "voip_48k",
+			sampleRate:  48000,
+			application: ApplicationVoIP,
+			want:        48000/400 + 48000/250,
+		},
+		{
+			name:        "lowdelay_48k",
+			sampleRate:  48000,
+			application: ApplicationLowDelay,
+			want:        48000 / 400,
+		},
+		{
+			name:        "audio_24k",
+			sampleRate:  24000,
+			application: ApplicationAudio,
+			want:        24000/400 + 24000/250,
+		},
+		{
+			name:        "lowdelay_24k",
+			sampleRate:  24000,
+			application: ApplicationLowDelay,
+			want:        24000 / 400,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			enc, err := NewMultistreamEncoderDefault(tc.sampleRate, 6, tc.application)
+			if err != nil {
+				t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
+			}
+			if got := enc.Lookahead(); got != tc.want {
+				t.Fatalf("Lookahead() = %d, want %d", got, tc.want)
+			}
+		})
+	}
+
+	t.Run("set_application_updates_lookahead_before_encode", func(t *testing.T) {
+		enc, err := NewMultistreamEncoderDefault(48000, 6, ApplicationAudio)
+		if err != nil {
+			t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
+		}
+		if got, want := enc.Lookahead(), 48000/400+48000/250; got != want {
+			t.Fatalf("Lookahead(audio) = %d, want %d", got, want)
+		}
+		if err := enc.SetApplication(ApplicationLowDelay); err != nil {
+			t.Fatalf("SetApplication(LowDelay) error: %v", err)
+		}
+		if got, want := enc.Lookahead(), 48000/400; got != want {
+			t.Fatalf("Lookahead(lowdelay) = %d, want %d", got, want)
+		}
+		if err := enc.SetApplication(ApplicationAudio); err != nil {
+			t.Fatalf("SetApplication(Audio) error: %v", err)
+		}
+		if got, want := enc.Lookahead(), 48000/400+48000/250; got != want {
+			t.Fatalf("Lookahead(audio after reset) = %d, want %d", got, want)
+		}
+	})
+}
+
 // TestMultistreamRoundTrip_Mono tests mono (1 channel) multistream as edge case.
 func TestMultistreamRoundTrip_Mono(t *testing.T) {
 	channels := 1

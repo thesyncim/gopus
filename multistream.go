@@ -461,11 +461,18 @@ func (e *MultistreamEncoder) FinalRange() uint32 {
 	return e.GetFinalRange()
 }
 
-// Lookahead returns the encoder's algorithmic delay in samples at 48kHz.
-// This includes both CELT delay compensation and mode-specific delay.
-// Reference: libopus OPUS_GET_LOOKAHEAD
+// Lookahead returns the encoder's algorithmic delay in samples.
+//
+// Matches libopus OPUS_GET_LOOKAHEAD behavior:
+//   - Base lookahead is Fs/400 (2.5ms)
+//   - Delay compensation Fs/250 is included for VoIP/Audio
+//   - Delay compensation is omitted for LowDelay
 func (e *MultistreamEncoder) Lookahead() int {
-	return e.enc.Lookahead()
+	base := e.sampleRate / 400
+	if e.application == ApplicationLowDelay {
+		return base
+	}
+	return base + e.sampleRate/250
 }
 
 // Signal returns the current signal type hint.

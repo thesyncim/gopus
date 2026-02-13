@@ -516,16 +516,18 @@ func (e *Encoder) ForceChannels() int {
 	return e.enc.ForceChannels()
 }
 
-// Lookahead returns the encoder's algorithmic delay in samples at 48kHz.
+// Lookahead returns the encoder's algorithmic delay in samples.
 //
-// This is the total look-ahead used by the encoder, including:
-//   - Base lookahead (2.5ms = 120 samples at 48kHz)
-//   - CELT delay compensation (130 samples)
-//
-// The returned value is approximately 250 samples (5.2ms) at 48kHz.
-// For other sample rates, scale proportionally.
+// Matches libopus OPUS_GET_LOOKAHEAD behavior:
+//   - Base lookahead is Fs/400 (2.5ms)
+//   - Delay compensation Fs/250 is included for VoIP/Audio
+//   - Delay compensation is omitted for LowDelay
 func (e *Encoder) Lookahead() int {
-	return e.enc.Lookahead()
+	base := e.sampleRate / 400
+	if e.application == ApplicationLowDelay {
+		return base
+	}
+	return base + e.sampleRate/250
 }
 
 // SetLSBDepth sets the bit depth of the input signal.
