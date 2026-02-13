@@ -140,14 +140,17 @@ func (e *Encoder) applyApplication(app Application) {
 	switch app {
 	case ApplicationVoIP:
 		// Prefer SILK for speech
+		e.enc.SetLowDelay(false)
 		e.enc.SetMode(encoder.ModeAuto)
 		e.enc.SetBandwidth(types.BandwidthWideband) // 16kHz max
 	case ApplicationAudio:
 		// Prefer CELT/Hybrid for music
+		e.enc.SetLowDelay(false)
 		e.enc.SetMode(encoder.ModeAuto)
 		e.enc.SetBandwidth(types.BandwidthFullband) // 48kHz
 	case ApplicationLowDelay:
 		// CELT only with small frames
+		e.enc.SetLowDelay(true)
 		e.enc.SetMode(encoder.ModeCELT)
 		e.enc.SetBandwidth(types.BandwidthFullband)
 	}
