@@ -440,6 +440,11 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	}
 	var out [480]complex64
 	fft480(&out, &in, s.scratchFFTKiss[:480])
+	if math.IsNaN(float64(real(out[0]))) {
+		s.Info[infoPos].Valid = false
+		s.WritePos = nextWritePos
+		return
+	}
 
 	var logE [NbTBands]float32
 	var bandLog2 [NbTBands + 1]float32

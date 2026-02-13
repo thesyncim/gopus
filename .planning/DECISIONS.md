@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-13
+topic: Analyzer FFT NaN guard parity
+decision: Keep libopus-style NaN guard in `tonalityAnalysis`: if FFT output is NaN, mark current info slot invalid, advance write position, and return before feature extraction/MLP/counter updates.
+evidence: Added `TestRunAnalysisNaNInputMarksInfoInvalid`; parity/compliance and broad gates passed (`TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestEncoderComplianceSummary`, `make verify-production`, `make bench-guard`).
+do_not_repeat_until: libopus `analysis.c` changes NaN guard semantics or fixture evidence shows divergence.
+owner: codex
+
+date: 2026-02-13
 topic: Analyzer digital-silence parity
 decision: Keep libopus-style digital-silence handling in `tonalityAnalysis`: when the 30 ms analysis buffer is digital silence, copy the previous analysis slot, advance write position, and skip FFT/feature/MLP updates and counter increments.
 evidence: Added `TestRunAnalysisSilenceCopiesPreviousInfo` and `TestRunAnalysisInitialSilenceKeepsInvalidInfo`; parity/compliance and broad gates passed (`TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestEncoderComplianceSummary`, `make verify-production`, `make bench-guard`).
