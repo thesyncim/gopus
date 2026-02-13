@@ -20,6 +20,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-13
+topic: CELT 2.5ms budget uplift (strict-quality continuation, round 12)
+decision: Keep non-hybrid/non-LFE CELT `frameSize==120` uplift at `+384` in `celt/encode_frame.go` (`computeTargetBits`), while keeping 5ms (`+128`) and 10ms settings (`stereo=+832`, `mono=+256`) unchanged.
+evidence: Focused `go test ./testvectors -run 'TestEncoderComplianceCELT/FB-2.5ms-mono' -count=1 -v` improved target bits avg `596 -> 628`, `Q=-8.11` / `44.11 dB` -> `Q=-6.65` / `44.81 dB`. Reconfirmed 10ms stereo `+864` remains a regression (`Q=-16.90`, target avg `1934`) versus kept `+832` (`Q=-16.19`, target avg `1902`). Regression guards stayed clean: `TestEncoderComplianceCELT`, `TestEncoderComplianceSummary`, `TestEncoderCompliancePrecisionGuard`, `TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestOpusdecCrossvalFixtureCoverage`, `TestOpusdecCrossvalFixtureHonestyAgainstLiveOpusdec`, `make verify-production`, and `make bench-guard` all PASS.
+do_not_repeat_until: CELT 2.5ms bitrate/interoperability regressions appear, or fixture-backed parity evidence indicates `+384` is over-aggressive.
+owner: codex
+
+date: 2026-02-13
 topic: CELT 2.5ms budget uplift (strict-quality continuation, round 11)
 decision: Keep non-hybrid/non-LFE CELT `frameSize==120` uplift at `+352` in `celt/encode_frame.go` (`computeTargetBits`), and keep `frameSize==480` settings at `stereo=+832` / `mono=+256` after rejecting this round’s 10ms probes.
 evidence: Rejected `frameSize==480` stereo `+864` after focused regression in `go test ./testvectors -run 'TestEncoderComplianceCELT/FB-10ms-stereo' -count=1 -v` (`Q=-16.19 -> -16.90`). Rejected `frameSize==480` mono `+320` after focused regression in `go test ./testvectors -run 'TestEncoderComplianceCELT/FB-10ms-mono' -count=1 -v` (`Q=-11.14 -> -11.16`). Accepted `frameSize==120` uplift `+320 -> +352` after focused improvement in `go test ./testvectors -run 'TestEncoderComplianceCELT/FB-2.5ms-mono' -count=1 -v` (target bits avg `564 -> 596`, `Q=-10.21` / `43.10 dB` -> `Q=-8.11` / `44.11 dB`). Regression guards stayed clean: `TestEncoderComplianceCELT`, `TestEncoderComplianceSummary`, `TestEncoderCompliancePrecisionGuard`, `TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestOpusdecCrossvalFixtureCoverage`, `TestOpusdecCrossvalFixtureHonestyAgainstLiveOpusdec`, `make verify-production`, and `make bench-guard` all PASS.
