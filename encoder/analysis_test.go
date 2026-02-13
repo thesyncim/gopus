@@ -254,3 +254,29 @@ func TestRunAnalysisInitialSilenceKeepsInvalidInfo(t *testing.T) {
 		t.Fatal("copied silence info slot should remain invalid after reset")
 	}
 }
+
+func TestRunAnalysisNaNInputMarksInfoInvalid(t *testing.T) {
+	s := NewTonalityAnalysisState(48000)
+
+	const frameSize = 960
+	pcm := make([]float32, frameSize)
+	pcm[0] = float32(math.NaN())
+
+	info := s.RunAnalysis(pcm, frameSize, 1)
+	if info.Valid {
+		t.Fatal("NaN analysis input should yield invalid analysis info")
+	}
+	if s.Count != 0 {
+		t.Fatalf("NaN analysis input should not advance analysis count: got %d want 0", s.Count)
+	}
+	if s.ECount != 0 {
+		t.Fatalf("NaN analysis input should not advance energy count: got %d want 0", s.ECount)
+	}
+	if s.WritePos != 1 {
+		t.Fatalf("NaN analysis input should advance write position by one slot: got %d want 1", s.WritePos)
+	}
+	slot := (s.WritePos + DetectSize - 1) % DetectSize
+	if s.Info[slot].Valid {
+		t.Fatal("NaN analysis slot must be marked invalid")
+	}
+}
