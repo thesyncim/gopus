@@ -66,3 +66,4 @@ Quick commands:
 - claim: id=codex-20260213-065318; agent=codex; status=released; paths=celt/,testvectors/,.planning/; updated=2026-02-13T12:19:59Z; expires=2026-02-13T12:19:59Z; note=next loop: continue strict-quality closure after PR59 merge
 - claim: id=codex-20260213-125333; agent=codex; status=released; paths=encoder/,testvectors/,.planning/; updated=2026-02-13T12:53:33Z; expires=2026-02-13T12:53:33Z; note=analyzer output-field parity + amd64 windows ratchet calibration after CI run 21986775206 failure
 - claim: id=codex-20260213-125839; agent=codex; status=released; paths=encoder/,multistream/,testvectors/; updated=2026-02-13T13:08:15Z; expires=2026-02-13T13:08:15Z; note=libopus surroundTrim producer/control parity slice
+- claim: id=codex-20260213-132213; agent=codex; status=released; paths=encoder/,multistream/,.planning/; updated=2026-02-13T13:22:24Z; expires=2026-02-13T13:22:24Z; note=libopus application ctl first-frame lock parity in wrappers

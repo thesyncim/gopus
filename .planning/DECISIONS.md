@@ -20,6 +20,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-13
+topic: Application ctl change lock after first encode (wrapper parity)
+decision: Keep public wrapper application controls (`Encoder.SetApplication`, `MultistreamEncoder.SetApplication`) aligned with libopus first-frame semantics: after the first successful encode call, changing application to a different value must return `ErrInvalidApplication`; setting the same value remains allowed; `Reset()` re-enables application changes.
+evidence: Implemented wrapper-level `encodedOnce` gating in `encoder.go` and `multistream.go` (set on successful encode, cleared on reset). Added/updated tests: `TestEncoder_SetApplication` and `TestMultistreamEncoder_SetApplicationAfterEncodeRejected`. Validated by `go test . -run 'TestEncoder_SetApplication|TestMultistreamEncoder_Controls|TestMultistreamEncoder_SetApplicationPreservesControls|TestMultistreamEncoder_SetApplicationAfterEncodeRejected' -count=1 -v`, `make verify-production`, and `make bench-guard` (all PASS). Source of truth: `opus_encoder.c` `OPUS_SET_APPLICATION_REQUEST` check on `st->first`.
+do_not_repeat_until: libopus changes `OPUS_SET_APPLICATION_REQUEST` first-frame semantics, or interoperability evidence shows wrapper-level lock behavior diverges from expected libopus control behavior.
+owner: codex
+
+date: 2026-02-13
 topic: Multistream application ctl parity (no side effects)
 decision: Keep root multistream `SetApplication`/constructor application handling side-effect free for bitrate/complexity controls: `multistream.go:applyApplication` should only store the application hint and must not rewrite bitrate or complexity settings.
 evidence: Libopus 1.6.1 `opus_multistream_encoder.c` handles `OPUS_SET_APPLICATION_REQUEST` by forwarding to stream encoders without resetting other CTLs. Added regression test `TestMultistreamEncoder_SetApplicationPreservesControls` in `multistream_test.go`; validated by `go test . -run 'TestMultistreamEncoder_Controls|TestMultistreamEncoder_SetApplicationPreservesControls' -count=1 -v`, `go test ./multistream -count=1`, `make verify-production`, and `make bench-guard` (all PASS).

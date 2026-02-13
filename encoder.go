@@ -70,6 +70,7 @@ type Encoder struct {
 	channels    int
 	frameSize   int
 	application Application
+	encodedOnce bool
 
 	// Scratch buffers for zero-allocation encoding
 	scratchPCM64 []float64 // float32 to float64 conversion buffer
@@ -116,6 +117,11 @@ func NewEncoder(sampleRate, channels int, application Application) (*Encoder, er
 func (e *Encoder) SetApplication(application Application) error {
 	switch application {
 	case ApplicationVoIP, ApplicationAudio, ApplicationLowDelay:
+		// Match libopus ctl semantics: after first successful encode call,
+		// changing application is rejected (setting the same value remains valid).
+		if e.encodedOnce && e.application != application {
+			return ErrInvalidApplication
+		}
 		e.applyApplication(application)
 		return nil
 	default:
@@ -173,6 +179,7 @@ func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	e.encodedOnce = true
 
 	// DTX: nil packet means silence suppressed
 	if packet == nil {
@@ -406,6 +413,7 @@ func (e *Encoder) FrameSize() int {
 // Call this when starting to encode a new audio stream.
 func (e *Encoder) Reset() {
 	e.enc.Reset()
+	e.encodedOnce = false
 }
 
 // Channels returns the number of audio channels (1 or 2).
