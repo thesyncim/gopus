@@ -2038,6 +2038,9 @@ func (e *Encoder) SetLSBDepth(depth int) {
 		depth = 24
 	}
 	e.lsbDepth = depth
+	if e.analyzer != nil {
+		e.analyzer.SetLSBDepth(depth)
+	}
 }
 
 // LSBDepth returns the current LSB depth setting.
