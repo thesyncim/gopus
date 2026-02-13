@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-13
+topic: SILK maxBits payload budget parity
+decision: Keep SILK max-bit budgeting aligned to libopus by reserving the Opus TOC byte from SILK payload budget (`(maxPacketBytes-1)*8`) and apply this in SILK encode paths instead of pre-setting from whole-packet bitrate bits in `Encode()`.
+evidence: Added `silkPayloadMaxBits()` and wired it in `encoder/encoder.go` SILK mono/stereo max-bits setup; added `TestSILKMaxBitsReservesTOCByte`; focused encoder controls/SILK tests, variant/compliance parity suite, and `make verify-production` all passed. Provenance evidence improved `SILK-MB-20ms-mono-24k/am_multisine_v1` gap from ~`-0.68dB` to ~`-0.09dB`.
+do_not_repeat_until: libopus changes SILK payload bit-budget semantics in `opus_encoder.c`/SILK control flow, or fixture/interoperability evidence shows this TOC-reserved budgeting diverges.
+owner: codex
+
+date: 2026-02-13
 topic: SWB 10 ms auto-mode control parity
 decision: Keep SWB 10 ms auto-mode signal/mode hinting on the same libopus threshold policy used for SWB auto decisions (equivalent-rate threshold with analysis-derived voice estimate, prev-mode `music_prob_min/max`, and `-4000/+4000` hysteresis); do not reintroduce the custom transient-score gate.
 evidence: Updated `encoder/encoder.go` (`autoSignalFromPCM`, new `selectSWBAutoSignal`); removed `swb10TransientScore`; added `TestSelectSWBAutoSignal10msHysteresis` and `TestAutoSignalFromPCMSWB10UsesThresholdPolicy`; parity slice now shows `HYBRID-SWB-10ms-mono-48k/chirp_sweep_v1` mismatch `0.00%` with corrected gap and full variant/compliance parity tests pass.
