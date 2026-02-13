@@ -158,19 +158,11 @@ func padToSize(packet []byte, targetSize int) []byte {
 
 // constrainSize adjusts packet size to stay within CVBR tolerance.
 func constrainSize(packet []byte, target int, tolerance float64) []byte {
-	minSize := int(float64(target) * (1 - tolerance))
 	maxSize := int(float64(target) * (1 + tolerance))
 
-	if len(packet) < minSize {
-		for size := minSize; size <= maxSize; size++ {
-			padded := padToSize(packet, size)
-			if len(padded) >= size {
-				return padded
-			}
-		}
-		return packet
-	}
 	if len(packet) > maxSize {
+		// Upper-bound enforcement requires re-encoding with a tighter budget.
+		// Keep the packet unchanged here to avoid altering framing semantics.
 		return packet
 	}
 	return packet

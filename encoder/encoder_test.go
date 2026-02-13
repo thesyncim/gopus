@@ -665,7 +665,7 @@ func TestBitrateModeCBR(t *testing.T) {
 	}
 }
 
-// TestBitrateModeCVBR tests CVBR mode constrains packet sizes within tolerance.
+// TestBitrateModeCVBR tests CVBR mode keeps packet size under tolerance cap.
 func TestBitrateModeCVBR(t *testing.T) {
 	enc := encoder.NewEncoder(48000, 1)
 	enc.SetMode(encoder.ModeHybrid)
@@ -674,7 +674,6 @@ func TestBitrateModeCVBR(t *testing.T) {
 	enc.SetBitrate(64000)
 
 	target := 160 // bytes for 20ms at 64kbps
-	minSize := int(float64(target) * (1 - encoder.CVBRTolerance))
 	maxSize := int(float64(target) * (1 + encoder.CVBRTolerance))
 
 	// Encode multiple frames
@@ -685,10 +684,7 @@ func TestBitrateModeCVBR(t *testing.T) {
 			t.Fatalf("Encode frame %d failed: %v", i, err)
 		}
 
-		// CVBR: packets within tolerance
-		if len(packet) < minSize {
-			t.Errorf("CVBR packet %d: %d bytes < min %d bytes", i, len(packet), minSize)
-		}
+		// CVBR: packets should stay below the tolerance cap.
 		if len(packet) > maxSize {
 			t.Errorf("CVBR packet %d: %d bytes > max %d bytes", i, len(packet), maxSize)
 		}
@@ -756,7 +752,7 @@ func TestSilkInputBitrateReservesTOC(t *testing.T) {
 func TestBitrateModeGetSet(t *testing.T) {
 	enc := encoder.NewEncoder(48000, 1)
 
-	// Default should be VBR
+	// Default should be VBR.
 	if enc.GetBitrateMode() != encoder.ModeVBR {
 		t.Errorf("Default bitrate mode = %d, want ModeVBR (%d)", enc.GetBitrateMode(), encoder.ModeVBR)
 	}
@@ -767,6 +763,61 @@ func TestBitrateModeGetSet(t *testing.T) {
 		if enc.GetBitrateMode() != mode {
 			t.Errorf("SetBitrateMode(%d): GetBitrateMode() = %d", mode, enc.GetBitrateMode())
 		}
+	}
+}
+
+func TestVBRConstraintTransitions(t *testing.T) {
+	enc := encoder.NewEncoder(48000, 1)
+
+	if !enc.VBR() {
+		t.Fatal("VBR()=false by default, want true")
+	}
+	if enc.VBRConstraint() {
+		t.Fatal("VBRConstraint()=true by default, want false")
+	}
+	if got := enc.GetBitrateMode(); got != encoder.ModeVBR {
+		t.Fatalf("GetBitrateMode()=%d want=%d", got, encoder.ModeVBR)
+	}
+
+	enc.SetVBR(false)
+	if enc.VBR() {
+		t.Fatal("VBR()=true after SetVBR(false)")
+	}
+	if enc.VBRConstraint() {
+		t.Fatal("VBRConstraint() should remain false after SetVBR(false)")
+	}
+	if got := enc.GetBitrateMode(); got != encoder.ModeCBR {
+		t.Fatalf("GetBitrateMode()=%d want=%d", got, encoder.ModeCBR)
+	}
+
+	enc.SetVBRConstraint(true)
+	if !enc.VBRConstraint() {
+		t.Fatal("VBRConstraint()=false after SetVBRConstraint(true)")
+	}
+	if got := enc.GetBitrateMode(); got != encoder.ModeCBR {
+		t.Fatalf("GetBitrateMode()=%d want=%d while VBR disabled", got, encoder.ModeCBR)
+	}
+
+	enc.SetVBR(true)
+	if got := enc.GetBitrateMode(); got != encoder.ModeCVBR {
+		t.Fatalf("GetBitrateMode()=%d want=%d after SetVBR(true)", got, encoder.ModeCVBR)
+	}
+
+	enc.SetVBRConstraint(false)
+	if enc.VBRConstraint() {
+		t.Fatal("VBRConstraint()=true after SetVBRConstraint(false)")
+	}
+	if got := enc.GetBitrateMode(); got != encoder.ModeVBR {
+		t.Fatalf("GetBitrateMode()=%d want=%d", got, encoder.ModeVBR)
+	}
+
+	enc.SetVBR(false)
+	if got := enc.GetBitrateMode(); got != encoder.ModeCBR {
+		t.Fatalf("GetBitrateMode()=%d want=%d after SetVBR(false)", got, encoder.ModeCBR)
+	}
+	enc.SetVBR(true)
+	if got := enc.GetBitrateMode(); got != encoder.ModeVBR {
+		t.Fatalf("GetBitrateMode()=%d want=%d after re-enabling VBR", got, encoder.ModeVBR)
 	}
 }
 

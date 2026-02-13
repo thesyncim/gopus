@@ -307,34 +307,27 @@ func (e *Encoder) BitrateMode() BitrateMode {
 
 // SetVBR enables or disables VBR mode.
 //
-// Disabling VBR switches to CBR. Enabling VBR switches to unconstrained VBR.
+// Disabling VBR switches to CBR. Enabling VBR restores VBR while preserving
+// the current VBR constraint state.
 func (e *Encoder) SetVBR(enabled bool) {
-	if enabled {
-		e.enc.SetBitrateMode(encoder.ModeVBR)
-		return
-	}
-	e.enc.SetBitrateMode(encoder.ModeCBR)
+	e.enc.SetVBR(enabled)
 }
 
 // VBR returns whether VBR mode is enabled.
 func (e *Encoder) VBR() bool {
-	return e.enc.GetBitrateMode() != encoder.ModeCBR
+	return e.enc.VBR()
 }
 
 // SetVBRConstraint enables or disables VBR constraint.
 //
-// Enabling constraint switches to CVBR. Disabling constraint switches to VBR.
+// This setting is remembered even while VBR is disabled.
 func (e *Encoder) SetVBRConstraint(constrained bool) {
-	if constrained {
-		e.enc.SetBitrateMode(encoder.ModeCVBR)
-		return
-	}
-	e.enc.SetBitrateMode(encoder.ModeVBR)
+	e.enc.SetVBRConstraint(constrained)
 }
 
 // VBRConstraint returns whether VBR constraint is enabled.
 func (e *Encoder) VBRConstraint() bool {
-	return e.enc.GetBitrateMode() == encoder.ModeCVBR
+	return e.enc.VBRConstraint()
 }
 
 // SetFEC enables or disables in-band Forward Error Correction.

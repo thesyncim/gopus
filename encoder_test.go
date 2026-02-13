@@ -278,9 +278,22 @@ func TestEncoder_SetVBRAndConstraint(t *testing.T) {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
 
+	if !enc.VBR() {
+		t.Fatal("VBR()=false by default, want true")
+	}
+	if enc.VBRConstraint() {
+		t.Fatal("VBRConstraint()=true by default, want false")
+	}
+	if got := enc.BitrateMode(); got != BitrateModeVBR {
+		t.Fatalf("BitrateMode()=%d want=%d by default", got, BitrateModeVBR)
+	}
+
 	enc.SetVBR(false)
 	if enc.VBR() {
 		t.Fatal("VBR()=true after SetVBR(false)")
+	}
+	if enc.VBRConstraint() {
+		t.Fatal("VBRConstraint() should remain false after SetVBR(false)")
 	}
 	if got := enc.BitrateMode(); got != BitrateModeCBR {
 		t.Fatalf("BitrateMode()=%d want=%d", got, BitrateModeCBR)
@@ -308,6 +321,15 @@ func TestEncoder_SetVBRAndConstraint(t *testing.T) {
 	}
 	if got := enc.BitrateMode(); got != BitrateModeVBR {
 		t.Fatalf("BitrateMode()=%d want=%d", got, BitrateModeVBR)
+	}
+
+	enc.SetVBR(false)
+	if got := enc.BitrateMode(); got != BitrateModeCBR {
+		t.Fatalf("BitrateMode()=%d want=%d after SetVBR(false)", got, BitrateModeCBR)
+	}
+	enc.SetVBR(true)
+	if got := enc.BitrateMode(); got != BitrateModeVBR {
+		t.Fatalf("BitrateMode()=%d want=%d after re-enable", got, BitrateModeVBR)
 	}
 }
 

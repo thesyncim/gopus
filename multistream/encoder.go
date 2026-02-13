@@ -1220,30 +1220,32 @@ func (e *Encoder) BitrateMode() encoder.BitrateMode {
 
 // SetVBR enables or disables VBR mode for all stream encoders.
 func (e *Encoder) SetVBR(enabled bool) {
-	if enabled {
-		e.SetBitrateMode(encoder.ModeVBR)
-		return
+	for _, enc := range e.encoders {
+		enc.SetVBR(enabled)
 	}
-	e.SetBitrateMode(encoder.ModeCBR)
 }
 
 // VBR reports whether VBR mode is enabled.
 func (e *Encoder) VBR() bool {
-	return e.BitrateMode() != encoder.ModeCBR
+	if len(e.encoders) > 0 {
+		return e.encoders[0].VBR()
+	}
+	return true
 }
 
 // SetVBRConstraint enables or disables constrained VBR mode.
 func (e *Encoder) SetVBRConstraint(constrained bool) {
-	if constrained {
-		e.SetBitrateMode(encoder.ModeCVBR)
-		return
+	for _, enc := range e.encoders {
+		enc.SetVBRConstraint(constrained)
 	}
-	e.SetBitrateMode(encoder.ModeVBR)
 }
 
 // VBRConstraint reports whether constrained VBR is enabled.
 func (e *Encoder) VBRConstraint() bool {
-	return e.BitrateMode() == encoder.ModeCVBR
+	if len(e.encoders) > 0 {
+		return e.encoders[0].VBRConstraint()
+	}
+	return true
 }
 
 // SetFEC enables or disables in-band Forward Error Correction for all streams.

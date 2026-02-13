@@ -422,6 +422,15 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 	}
 
 	// Test bitrate mode controls
+	if got := enc.BitrateMode(); got != BitrateModeVBR {
+		t.Errorf("BitrateMode() = %v, want %v by default", got, BitrateModeVBR)
+	}
+	if !enc.VBR() {
+		t.Error("VBR() should be true by default")
+	}
+	if enc.VBRConstraint() {
+		t.Error("VBRConstraint() should be false by default")
+	}
 	if err := enc.SetBitrateMode(BitrateModeCBR); err != nil {
 		t.Errorf("SetBitrateMode(BitrateModeCBR) error: %v", err)
 	}
@@ -432,6 +441,9 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 	if !enc.VBR() {
 		t.Error("VBR() should be true after SetVBR(true)")
 	}
+	if got := enc.BitrateMode(); got != BitrateModeVBR {
+		t.Errorf("BitrateMode() = %v, want %v after SetVBR(true) with retained constraint", got, BitrateModeVBR)
+	}
 	enc.SetVBRConstraint(true)
 	if !enc.VBRConstraint() {
 		t.Error("VBRConstraint() should be true after SetVBRConstraint(true)")
@@ -439,6 +451,14 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 	enc.SetVBRConstraint(false)
 	if got := enc.BitrateMode(); got != BitrateModeVBR {
 		t.Errorf("BitrateMode() = %v, want %v after SetVBRConstraint(false)", got, BitrateModeVBR)
+	}
+	enc.SetVBR(false)
+	if got := enc.BitrateMode(); got != BitrateModeCBR {
+		t.Errorf("BitrateMode() = %v, want %v after SetVBR(false)", got, BitrateModeCBR)
+	}
+	enc.SetVBR(true)
+	if got := enc.BitrateMode(); got != BitrateModeVBR {
+		t.Errorf("BitrateMode() = %v, want %v after re-enabling VBR with constraint=false", got, BitrateModeVBR)
 	}
 	if err := enc.SetBitrateMode(BitrateMode(99)); err != ErrInvalidBitrateMode {
 		t.Errorf("SetBitrateMode(invalid) error = %v, want %v", err, ErrInvalidBitrateMode)

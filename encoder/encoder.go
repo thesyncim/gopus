@@ -65,8 +65,10 @@ type Encoder struct {
 	lowDelay   bool
 
 	// Bitrate controls
-	bitrateMode BitrateMode
-	bitrate     int // Target bits per second
+	bitrateMode   BitrateMode
+	useVBR        bool
+	vbrConstraint bool
+	bitrate       int // Target bits per second
 
 	// FEC controls
 	fecEnabled                  bool
@@ -186,6 +188,8 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		frameSize:              960,
 		lowDelay:               false,
 		bitrateMode:            ModeVBR,
+		useVBR:                 true,
+		vbrConstraint:          false,
 		bitrate:                64000,
 		fecEnabled:             false,
 		packetLoss:             0,
@@ -387,12 +391,57 @@ func (e *Encoder) FinalRange() uint32 {
 
 // SetBitrateMode sets the bitrate mode (VBR, CVBR, or CBR).
 func (e *Encoder) SetBitrateMode(mode BitrateMode) {
-	e.bitrateMode = mode
+	switch mode {
+	case ModeCBR:
+		e.useVBR = false
+	case ModeCVBR:
+		e.useVBR = true
+		e.vbrConstraint = true
+	case ModeVBR:
+		e.useVBR = true
+		e.vbrConstraint = false
+	default:
+		e.useVBR = true
+		e.vbrConstraint = false
+	}
+	e.bitrateMode = modeFromVBRFlags(e.useVBR, e.vbrConstraint)
 }
 
 // BitrateMode returns the current bitrate mode.
 func (e *Encoder) GetBitrateMode() BitrateMode {
-	return e.bitrateMode
+	return modeFromVBRFlags(e.useVBR, e.vbrConstraint)
+}
+
+// SetVBR enables/disables VBR while preserving the existing constraint setting.
+func (e *Encoder) SetVBR(enabled bool) {
+	e.useVBR = enabled
+	e.bitrateMode = modeFromVBRFlags(e.useVBR, e.vbrConstraint)
+}
+
+// VBR reports whether VBR is enabled.
+func (e *Encoder) VBR() bool {
+	return e.useVBR
+}
+
+// SetVBRConstraint toggles VBR constraint without forcing VBR on/off.
+func (e *Encoder) SetVBRConstraint(constrained bool) {
+	e.vbrConstraint = constrained
+	e.bitrateMode = modeFromVBRFlags(e.useVBR, e.vbrConstraint)
+}
+
+// VBRConstraint reports whether constrained VBR is enabled.
+func (e *Encoder) VBRConstraint() bool {
+	return e.vbrConstraint
+}
+
+func modeFromVBRFlags(useVBR, vbrConstraint bool) BitrateMode {
+	if !useVBR {
+		return ModeCBR
+	}
+	if vbrConstraint {
+		return ModeCVBR
+	}
+	return ModeVBR
 }
 
 // SetBitrate sets the target bitrate in bits per second.
