@@ -422,14 +422,14 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 	}
 
 	// Test bitrate mode controls
-	if got := enc.BitrateMode(); got != BitrateModeVBR {
-		t.Errorf("BitrateMode() = %v, want %v by default", got, BitrateModeVBR)
+	if got := enc.BitrateMode(); got != BitrateModeCVBR {
+		t.Errorf("BitrateMode() = %v, want %v by default", got, BitrateModeCVBR)
 	}
 	if !enc.VBR() {
 		t.Error("VBR() should be true by default")
 	}
-	if enc.VBRConstraint() {
-		t.Error("VBRConstraint() should be false by default")
+	if !enc.VBRConstraint() {
+		t.Error("VBRConstraint() should be true by default")
 	}
 	if err := enc.SetBitrateMode(BitrateModeCBR); err != nil {
 		t.Errorf("SetBitrateMode(BitrateModeCBR) error: %v", err)
@@ -441,8 +441,8 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 	if !enc.VBR() {
 		t.Error("VBR() should be true after SetVBR(true)")
 	}
-	if got := enc.BitrateMode(); got != BitrateModeVBR {
-		t.Errorf("BitrateMode() = %v, want %v after SetVBR(true) with retained constraint", got, BitrateModeVBR)
+	if got := enc.BitrateMode(); got != BitrateModeCVBR {
+		t.Errorf("BitrateMode() = %v, want %v after SetVBR(true) with retained constraint", got, BitrateModeCVBR)
 	}
 	enc.SetVBRConstraint(true)
 	if !enc.VBRConstraint() {
@@ -582,6 +582,45 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 
 	t.Logf("Controls verified: app=%v bitrate=%d complexity=%d mode=%v FEC=%v DTX=%v",
 		enc.Application(), enc.Bitrate(), enc.Complexity(), enc.BitrateMode(), enc.FECEnabled(), enc.DTXEnabled())
+}
+
+func TestMultistreamEncoder_CVBRPacketEnvelope(t *testing.T) {
+	enc, err := NewMultistreamEncoderDefault(48000, 6, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
+	}
+
+	if got := enc.BitrateMode(); got != BitrateModeCVBR {
+		t.Fatalf("BitrateMode() = %v, want %v", got, BitrateModeCVBR)
+	}
+
+	frameSize := 960
+	pcm := generateSurroundTestSignal(48000, frameSize, 6)
+	data := make([]byte, 4000*enc.Streams())
+
+	for _, bitrate := range []int{128000, 256000, 384000} {
+		if err := enc.SetBitrateMode(BitrateModeCVBR); err != nil {
+			t.Fatalf("SetBitrateMode(CVBR) error: %v", err)
+		}
+		if err := enc.SetBitrate(bitrate); err != nil {
+			t.Fatalf("SetBitrate(%d) error: %v", bitrate, err)
+		}
+		enc.Reset()
+
+		maxPacket := 0
+		for i := 0; i < 10; i++ {
+			n, err := enc.Encode(pcm, data)
+			if err != nil {
+				t.Fatalf("Encode bitrate=%d frame=%d error: %v", bitrate, i, err)
+			}
+			if n > maxPacket {
+				maxPacket = n
+			}
+		}
+		if maxPacket > 1275 {
+			t.Fatalf("bitrate=%d max packet=%d exceeds 1275-byte envelope", bitrate, maxPacket)
+		}
+	}
 }
 
 // TestMultistreamEncoder_SetApplicationPreservesControls verifies application
