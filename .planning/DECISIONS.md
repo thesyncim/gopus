@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-13
+topic: Analyzer 16 kHz resample parity
+decision: Keep `Fs==16000` tonality-analysis support aligned with libopus `downmix_and_resample()` (16 kHz -> 24 kHz via 3x repeat + `silk_resampler_down2_hp`), including first-fill and residual-buffer paths.
+evidence: Added `TestRunAnalysis16kProducesValidInfo` and `TestRunAnalysis16kLongFrameUses20msChunks`; parity/compliance and broad gates passed (`TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestEncoderComplianceSummary`, `make verify-production`, `make bench-guard`).
+do_not_repeat_until: libopus `analysis.c` changes 16 kHz analysis resampling semantics or fixture evidence shows divergence.
+owner: codex
+
+date: 2026-02-13
 topic: Parity implementation method (no trial-and-error)
 decision: For libopus parity gaps, implement by directly porting the corresponding libopus 1.6.1 logic first; do not use heuristic tuning as the primary fix path.
 evidence: Repeated mode/quality regressions occurred when threshold-only tuning was attempted without full source-parity state/model alignment.

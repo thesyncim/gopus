@@ -136,3 +136,57 @@ func TestRunAnalysisLowEnergyCounterIncreasesAfterLoudnessDrop(t *testing.T) {
 		t.Fatalf("expected low-energy counter to increase after loudness drop: before=%.6f after=%.6f", lowEBefore, s.LowECount)
 	}
 }
+
+func TestRunAnalysis16kProducesValidInfo(t *testing.T) {
+	s := NewTonalityAnalysisState(16000)
+
+	const frameSize = 320 // 20 ms at 16 kHz
+	pcm := make([]float32, frameSize)
+	for i := range pcm {
+		pcm[i] = float32(math.Sin(2 * math.Pi * 440.0 * float64(i) / 16000.0))
+	}
+
+	info := s.RunAnalysis(pcm, frameSize, 1)
+	if !info.Valid {
+		t.Fatal("expected valid analysis info at 16 kHz")
+	}
+	if s.Count != 1 {
+		t.Fatalf("unexpected analysis count: got %d want 1", s.Count)
+	}
+	if s.WritePos != 1 {
+		t.Fatalf("unexpected write pos: got %d want 1", s.WritePos)
+	}
+	if s.ReadPos != 1 {
+		t.Fatalf("unexpected read pos: got %d want 1", s.ReadPos)
+	}
+}
+
+func TestRunAnalysis16kLongFrameUses20msChunks(t *testing.T) {
+	s := NewTonalityAnalysisState(16000)
+
+	const frameSize = 640 // 40 ms at 16 kHz
+	pcm := make([]float32, frameSize)
+	for i := range pcm {
+		pcm[i] = float32(math.Sin(2 * math.Pi * 330.0 * float64(i) / 16000.0))
+	}
+
+	info := s.RunAnalysis(pcm, frameSize, 1)
+	if !info.Valid {
+		t.Fatal("expected valid analysis info")
+	}
+	if s.Count != 2 {
+		t.Fatalf("unexpected analysis count: got %d want 2", s.Count)
+	}
+	if s.WritePos != 2 {
+		t.Fatalf("unexpected write pos: got %d want 2", s.WritePos)
+	}
+	if s.ReadPos != 2 {
+		t.Fatalf("unexpected read pos: got %d want 2", s.ReadPos)
+	}
+	if s.ReadSubframe != 0 {
+		t.Fatalf("unexpected read subframe: got %d want 0", s.ReadSubframe)
+	}
+	if s.AnalysisOffset != 0 {
+		t.Fatalf("unexpected analysis offset: got %d want 0", s.AnalysisOffset)
+	}
+}
