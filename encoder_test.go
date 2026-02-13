@@ -705,22 +705,77 @@ func TestEncoder_SetForceChannels(t *testing.T) {
 }
 
 func TestEncoder_Lookahead(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
-	if err != nil {
-		t.Fatalf("NewEncoder error: %v", err)
+	tests := []struct {
+		name        string
+		sampleRate  int
+		application Application
+		want        int
+	}{
+		{
+			name:        "audio_48k",
+			sampleRate:  48000,
+			application: ApplicationAudio,
+			want:        48000/400 + 48000/250,
+		},
+		{
+			name:        "voip_48k",
+			sampleRate:  48000,
+			application: ApplicationVoIP,
+			want:        48000/400 + 48000/250,
+		},
+		{
+			name:        "lowdelay_48k",
+			sampleRate:  48000,
+			application: ApplicationLowDelay,
+			want:        48000 / 400,
+		},
+		{
+			name:        "audio_24k",
+			sampleRate:  24000,
+			application: ApplicationAudio,
+			want:        24000/400 + 24000/250,
+		},
+		{
+			name:        "lowdelay_24k",
+			sampleRate:  24000,
+			application: ApplicationLowDelay,
+			want:        24000 / 400,
+		},
 	}
 
-	lookahead := enc.Lookahead()
-
-	// Lookahead should be positive and reasonable (250 samples at 48kHz ~ 5.2ms)
-	if lookahead <= 0 {
-		t.Errorf("Lookahead() = %d, want > 0", lookahead)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			enc, err := NewEncoder(tc.sampleRate, 1, tc.application)
+			if err != nil {
+				t.Fatalf("NewEncoder error: %v", err)
+			}
+			if got := enc.Lookahead(); got != tc.want {
+				t.Fatalf("Lookahead() = %d, want %d", got, tc.want)
+			}
+		})
 	}
-	if lookahead > 1000 {
-		t.Errorf("Lookahead() = %d, unexpectedly large", lookahead)
-	}
 
-	t.Logf("Lookahead: %d samples (%.2fms at 48kHz)", lookahead, float64(lookahead)/48.0)
+	t.Run("set_application_updates_lookahead_before_encode", func(t *testing.T) {
+		enc, err := NewEncoder(48000, 1, ApplicationAudio)
+		if err != nil {
+			t.Fatalf("NewEncoder error: %v", err)
+		}
+		if got, want := enc.Lookahead(), 48000/400+48000/250; got != want {
+			t.Fatalf("Lookahead(audio) = %d, want %d", got, want)
+		}
+		if err := enc.SetApplication(ApplicationLowDelay); err != nil {
+			t.Fatalf("SetApplication(LowDelay) error: %v", err)
+		}
+		if got, want := enc.Lookahead(), 48000/400; got != want {
+			t.Fatalf("Lookahead(lowdelay) = %d, want %d", got, want)
+		}
+		if err := enc.SetApplication(ApplicationAudio); err != nil {
+			t.Fatalf("SetApplication(Audio) error: %v", err)
+		}
+		if got, want := enc.Lookahead(), 48000/400+48000/250; got != want {
+			t.Fatalf("Lookahead(audio after reset) = %d, want %d", got, want)
+		}
+	})
 }
 
 func TestEncoder_SetLSBDepth(t *testing.T) {
