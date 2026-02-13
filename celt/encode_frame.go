@@ -1684,7 +1684,7 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 			// subframes at a reduced subframe bitrate; keep their boost capped.
 			if baseBits >= 1024 {
 				if e.channels == 2 {
-					targetBits += 1344
+					targetBits += 1408
 				} else {
 					targetBits += 1280
 				}
