@@ -57,3 +57,33 @@ func TestAnalysisSmoke(t *testing.T) {
 		t.Errorf("Invalid MaxPitchRatio: %f", info.MaxPitchRatio)
 	}
 }
+
+func TestRunAnalysisLongFrameUses20msChunks(t *testing.T) {
+	s := NewTonalityAnalysisState(48000)
+
+	const frameSize = 1920
+	pcm := make([]float32, frameSize)
+	for i := range pcm {
+		pcm[i] = float32(math.Sin(2 * math.Pi * 330.0 * float64(i) / 48000.0))
+	}
+
+	info := s.RunAnalysis(pcm, frameSize, 1)
+	if !info.Valid {
+		t.Fatal("expected valid analysis info")
+	}
+	if s.Count != 2 {
+		t.Fatalf("unexpected analysis count: got %d want 2", s.Count)
+	}
+	if s.WritePos != 2 {
+		t.Fatalf("unexpected write pos: got %d want 2", s.WritePos)
+	}
+	if s.ReadPos != 2 {
+		t.Fatalf("unexpected read pos: got %d want 2", s.ReadPos)
+	}
+	if s.ReadSubframe != 0 {
+		t.Fatalf("unexpected read subframe: got %d want 0", s.ReadSubframe)
+	}
+	if s.AnalysisOffset != 0 {
+		t.Fatalf("unexpected analysis offset: got %d want 0", s.AnalysisOffset)
+	}
+}

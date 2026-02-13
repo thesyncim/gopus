@@ -31,11 +31,11 @@ func TestLongHybridMultiframeReusesAnalysisCadence(t *testing.T) {
 		t.Fatal("expected analyzer state")
 	}
 
-	if enc.analyzer.Count != 1 {
-		t.Fatalf("unexpected analyzer count: got %d want 1", enc.analyzer.Count)
+	if enc.analyzer.Count != 2 {
+		t.Fatalf("unexpected analyzer count: got %d want 2", enc.analyzer.Count)
 	}
-	if enc.analyzer.WritePos != 1 {
-		t.Fatalf("unexpected analyzer write pos: got %d want 1", enc.analyzer.WritePos)
+	if enc.analyzer.WritePos != 2 {
+		t.Fatalf("unexpected analyzer write pos: got %d want 2", enc.analyzer.WritePos)
 	}
 	if enc.analyzer.ReadPos != 2 {
 		t.Fatalf("unexpected analyzer read pos: got %d want 2", enc.analyzer.ReadPos)

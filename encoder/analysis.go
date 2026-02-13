@@ -226,11 +226,6 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 
 	frameSize := len(pcm) / channels
 
-	// Ensure we only process frames we can handle (standard Opus frame sizes)
-	if frameSize < 120 {
-		return
-	}
-
 	// 1. Downmix current frame to mono for analysis
 	if cap(s.scratchMono) < frameSize {
 		s.scratchMono = make([]float32, frameSize)
@@ -251,59 +246,57 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	// We need 480 samples at 24kHz for one analysis iteration.
 	// But frames can be 2.5, 5, 10, 20ms.
 
-	// libopus downsamples to 24kHz before buffering.
-	// 48kHz mono -> 24kHz downsampled
-	var downsampledBuf []float32
-	var hpEner float32
-	if s.Fs == 48000 {
-		if cap(s.scratchDownsampled) < frameSize/2 {
-			s.scratchDownsampled = make([]float32, frameSize/2)
+	var (
+		analysisLen int
+		firstCopy   int
+		hpEner      float32
+	)
+	oldMemFill := s.MemFill
+	space := AnalysisBufSize - oldMemFill
+	if space < 0 {
+		space = 0
+	}
+
+	// Match libopus downmix_and_resample split:
+	// fill remaining analysis buffer first, and only then process residual.
+	switch s.Fs {
+	case 48000:
+		analysisLen = frameSize / 2
+		firstCopy = analysisLen
+		if firstCopy > space {
+			firstCopy = space
 		}
-		downsampledBuf = s.scratchDownsampled[:frameSize/2]
-		hpEner = silkResamplerDown2HP(s.DownmixState[:], downsampledBuf, mono)
-		hpEner *= 1.0 / (celtSigScale * celtSigScale)
-	} else if s.Fs == 24000 {
-		downsampledBuf = mono
-	} else {
-		// handle other rates...
+		if firstCopy > 0 {
+			if cap(s.scratchDownsampled) < firstCopy {
+				s.scratchDownsampled = make([]float32, firstCopy)
+			}
+			first := s.scratchDownsampled[:firstCopy]
+			firstSrc := firstCopy * 2
+			hp := silkResamplerDown2HP(s.DownmixState[:], first, mono[:firstSrc])
+			hp *= 1.0 / (celtSigScale * celtSigScale)
+			s.HPEnerAccum += hp
+			copy(s.InMem[oldMemFill:oldMemFill+firstCopy], first)
+		}
+	case 24000:
+		analysisLen = frameSize
+		firstCopy = analysisLen
+		if firstCopy > space {
+			firstCopy = space
+		}
+		if firstCopy > 0 {
+			copy(s.InMem[oldMemFill:oldMemFill+firstCopy], mono[:firstCopy])
+		}
+	default:
+		// Handle supported float-analysis rates only.
 		return
 	}
 
-	// Match libopus buffering:
-	// - Keep a 720-sample analysis buffer at 24 kHz.
-	// - Only run analysis when mem_fill+len reaches 720.
-	oldMemFill := s.MemFill
-	fillNeeded := AnalysisBufSize - oldMemFill
-	if fillNeeded < 0 {
-		fillNeeded = 0
-	}
-	toCopy := len(downsampledBuf)
-	if toCopy > fillNeeded {
-		toCopy = fillNeeded
-	}
-	if toCopy > 0 {
-		copy(s.InMem[oldMemFill:oldMemFill+toCopy], downsampledBuf[:toCopy])
-	}
-	remaining := len(downsampledBuf) - toCopy
-	maxResidual := AnalysisBufSize - 240
-	storedRemaining := remaining
-	if storedRemaining > maxResidual {
-		storedRemaining = maxResidual
-	}
-	hpUsed := hpEner
-	hpRemain := float32(0)
-	if len(downsampledBuf) > 0 && storedRemaining > 0 {
-		fracRemain := float32(storedRemaining) / float32(len(downsampledBuf))
-		hpRemain = hpEner * fracRemain
-		hpUsed = hpEner - hpRemain
-	}
-	if oldMemFill+toCopy < AnalysisBufSize {
-		s.MemFill = oldMemFill + toCopy
-		s.HPEnerAccum += hpEner
+	if oldMemFill+analysisLen < AnalysisBufSize {
+		s.MemFill = oldMemFill + analysisLen
 		return
 	}
-	hpEner = s.HPEnerAccum + hpUsed
-	s.HPEnerAccum = hpRemain
+
+	hpEner = s.HPEnerAccum
 
 	var in [480]complex64
 	// Use 480 samples from InMem for FFT
@@ -320,10 +313,30 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 
 	// Shift buffer and keep the residual input for the next analysis step.
 	copy(s.InMem[:240], s.InMem[AnalysisBufSize-240:AnalysisBufSize])
-	if storedRemaining > 0 {
-		copy(s.InMem[240:], downsampledBuf[toCopy:toCopy+storedRemaining])
+	remaining := analysisLen - firstCopy
+	switch s.Fs {
+	case 48000:
+		if remaining > 0 {
+			if cap(s.scratchDownsampled) < remaining {
+				s.scratchDownsampled = make([]float32, remaining)
+			}
+			rest := s.scratchDownsampled[:remaining]
+			restSrcStart := firstCopy * 2
+			restSrcEnd := restSrcStart + remaining*2
+			hp := silkResamplerDown2HP(s.DownmixState[:], rest, mono[restSrcStart:restSrcEnd])
+			hp *= 1.0 / (celtSigScale * celtSigScale)
+			s.HPEnerAccum = hp
+			copy(s.InMem[240:240+remaining], rest)
+		} else {
+			s.HPEnerAccum = 0
+		}
+	case 24000:
+		if remaining > 0 {
+			copy(s.InMem[240:240+remaining], mono[firstCopy:firstCopy+remaining])
+		}
+		s.HPEnerAccum = 0
 	}
-	s.MemFill = 240 + storedRemaining
+	s.MemFill = 240 + remaining
 
 	var logE [NbTBands]float32
 	var bandLog2 [NbTBands + 1]float32
@@ -840,12 +853,69 @@ func (s *TonalityAnalysisState) tonalityGetInfo(frameSize int) AnalysisInfo {
 }
 
 func (s *TonalityAnalysisState) RunAnalysis(pcm []float32, frameSize int, channels int) AnalysisInfo {
-	s.tonalityAnalysis(pcm, channels)
-	readPos := (s.WritePos + DetectSize - 1) % DetectSize
-	info := s.Info[readPos]
-	info.MusicProbMin = info.MusicProb
-	info.MusicProbMax = info.MusicProb
-	return info
+	if channels <= 0 {
+		channels = 1
+	}
+
+	analysisFrameSize := 0
+	if len(pcm) > 0 {
+		analysisFrameSize = len(pcm) / channels
+		analysisFrameSize -= analysisFrameSize & 1
+		maxAnalysisFrameSize := (DetectSize - 5) * int(s.Fs) / 50
+		if maxAnalysisFrameSize > 0 && analysisFrameSize > maxAnalysisFrameSize {
+			analysisFrameSize = maxAnalysisFrameSize
+		}
+	}
+
+	if analysisFrameSize > 0 {
+		pcmLen := analysisFrameSize - s.AnalysisOffset
+		offset := s.AnalysisOffset
+		chunkSize := int(s.Fs) / 50
+		if chunkSize <= 0 {
+			chunkSize = analysisFrameSize
+		}
+
+		for pcmLen > 0 {
+			// libopus can pass negative offsets when analysis uses external
+			// lookahead. Skip unavailable prefix when only current PCM is present.
+			if offset < 0 {
+				advance := -offset
+				if advance > pcmLen {
+					advance = pcmLen
+				}
+				offset += advance
+				pcmLen -= advance
+				continue
+			}
+
+			chunk := chunkSize
+			if chunk > pcmLen {
+				chunk = pcmLen
+			}
+			if chunk <= 0 {
+				break
+			}
+
+			start := offset * channels
+			if start >= len(pcm) {
+				break
+			}
+			end := start + chunk*channels
+			if end > len(pcm) {
+				end = len(pcm)
+			}
+			if end > start {
+				s.tonalityAnalysis(pcm[start:end], channels)
+			}
+
+			offset += chunkSize
+			pcmLen -= chunkSize
+		}
+
+		s.AnalysisOffset = analysisFrameSize - frameSize
+	}
+
+	return s.tonalityGetInfo(frameSize)
 }
 
 func (s *TonalityAnalysisState) GetInfo() AnalysisInfo {

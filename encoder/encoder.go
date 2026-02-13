@@ -1112,25 +1112,23 @@ func (e *Encoder) selectLongSWBAutoMode(frameSize int, signalHint types.Signal) 
 	} else if e.prevLongSWBAutoMode == ModeHybrid {
 		threshold += 4000
 	}
-
-	// Keep strongly tonal long SWB content in CELT-only mode.
-	if e.lastAnalysisValid && e.lastAnalysisInfo.Tonality >= 0.42 {
+	// Stabilize long-SWB mode in the mid-tonality transition band to avoid
+	// short CELT ratchets during hybrid-vs-CELT boundaries.
+	if e.prevLongSWBAutoMode == ModeHybrid &&
+		e.lastAnalysisValid &&
+		e.lastAnalysisInfo.Tonality >= 0.30 &&
+		e.lastAnalysisInfo.Tonality < 0.60 {
+		return ModeHybrid
+	}
+	// Keep strongly tonal long-SWB content in CELT-only mode.
+	if e.lastAnalysisValid &&
+		e.lastAnalysisInfo.Tonality >= 0.60 {
 		return ModeCELT
 	}
 	if e.lastAnalysisValid &&
 		e.lastAnalysisInfo.MusicProb < 0.90 &&
 		e.lastAnalysisInfo.Tonality < 0.12 {
 		return ModeCELT
-	}
-	// Keep near-threshold voiced transients in Hybrid to avoid premature
-	// long-frame CELT flips when analysis lookahead is sparse.
-	if e.lastAnalysisValid &&
-		e.lastAnalysisInfo.VADProb >= 0.95 &&
-		e.lastAnalysisInfo.Tonality >= 0.14 &&
-		e.lastAnalysisInfo.Tonality <= 0.20 &&
-		e.lastAnalysisInfo.MusicProb >= 0.62 &&
-		e.lastAnalysisInfo.MusicProb <= 0.75 {
-		return ModeHybrid
 	}
 
 	if equivRate >= threshold {
