@@ -128,6 +128,15 @@ func silkResamplerDown2HP(s []float32, out []float32, in []float32) float32 {
 	return float32(hpEner)
 }
 
+func isDigitalSilence32(pcm []float32) bool {
+	for i := range pcm {
+		if pcm[i] != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 type AnalysisInfo struct {
 	Valid            bool
 	Tonality         float32
@@ -337,6 +346,12 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	}
 
 	hpEner = s.HPEnerAccum
+	infoPos := s.WritePos
+	nextWritePos := infoPos + 1
+	if nextWritePos >= DetectSize {
+		nextWritePos = 0
+	}
+	isSilence := isDigitalSilence32(s.InMem[:AnalysisBufSize])
 
 	var in [480]complex64
 	// Use 480 samples from InMem for FFT
@@ -345,11 +360,6 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		in[i] = complex(w*s.InMem[i], w*s.InMem[240+i])
 		in[480-i-1] = complex(w*s.InMem[480-i-1], w*s.InMem[480+240-i-1])
 	}
-	if cap(s.scratchFFTKiss) < 480 {
-		s.scratchFFTKiss = make([]celt.KissCpx, 480)
-	}
-	var out [480]complex64
-	fft480(&out, &in, s.scratchFFTKiss[:480])
 
 	// Shift buffer and keep the residual input for the next analysis step.
 	copy(s.InMem[:240], s.InMem[AnalysisBufSize-240:AnalysisBufSize])
@@ -415,6 +425,21 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		}
 	}
 	s.MemFill = 240 + remaining
+	if isSilence {
+		prevPos := infoPos - 1
+		if prevPos < 0 {
+			prevPos = DetectSize - 1
+		}
+		s.Info[infoPos] = s.Info[prevPos]
+		s.WritePos = nextWritePos
+		return
+	}
+
+	if cap(s.scratchFFTKiss) < 480 {
+		s.scratchFFTKiss = make([]celt.KissCpx, 480)
+	}
+	var out [480]complex64
+	fft480(&out, &in, s.scratchFFTKiss[:480])
 
 	var logE [NbTBands]float32
 	var bandLog2 [NbTBands + 1]float32
@@ -684,7 +709,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	s.ECount = (s.ECount + 1) % NbFrames
 	s.Count = min(s.Count+1, 10000)
 
-	info := &s.Info[s.WritePos]
+	info := &s.Info[infoPos]
 	info.Valid = true
 	info.Tonality = frameTonality
 	info.TonalitySlope = slope
@@ -721,7 +746,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		info.LeakBoost[b] = uint8(q6)
 	}
 	s.PrevBandwidth = bandwidth
-	s.WritePos = (s.WritePos + 1) % DetectSize
+	s.WritePos = nextWritePos
 }
 
 func bandwidthTypeFromIndex(bandwidth int) types.Bandwidth {
