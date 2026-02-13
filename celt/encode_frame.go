@@ -1665,7 +1665,7 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 			// 2.5ms CELT frames spend a larger fraction on signaling overhead.
 			// Restore some coding headroom so short-frame quality does not lag
 			// disproportionately behind 5/10/20ms CELT profiles.
-			targetBits += 320
+			targetBits += 352
 		case 240:
 			// 5ms frames still carry relatively high per-frame side signaling.
 			// Apply a smaller uplift than 2.5ms to reduce short-frame quality
