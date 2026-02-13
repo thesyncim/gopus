@@ -22,6 +22,7 @@ type MultistreamEncoder struct {
 	channels    int
 	frameSize   int
 	application Application
+	encodedOnce bool
 }
 
 // NewMultistreamEncoder creates a new multistream encoder with explicit configuration.
@@ -78,7 +79,7 @@ func NewMultistreamEncoder(sampleRate, channels, streams, coupledStreams int, ma
 		application: application,
 	}
 
-	// Apply application hints via bitrate/complexity settings
+	// Apply application hint
 	mse.applyApplication(application)
 
 	return mse, nil
@@ -140,6 +141,11 @@ func (e *MultistreamEncoder) applyApplication(app Application) {
 func (e *MultistreamEncoder) SetApplication(application Application) error {
 	switch application {
 	case ApplicationVoIP, ApplicationAudio, ApplicationLowDelay:
+		// Match libopus ctl semantics: after first successful encode call,
+		// changing application is rejected (setting the same value remains valid).
+		if e.encodedOnce && e.application != application {
+			return ErrInvalidApplication
+		}
 		e.applyApplication(application)
 		return nil
 	default:
@@ -176,6 +182,7 @@ func (e *MultistreamEncoder) Encode(pcm []float32, data []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	e.encodedOnce = true
 
 	// DTX: nil packet means all streams suppressed
 	if packet == nil {
@@ -418,6 +425,7 @@ func (e *MultistreamEncoder) PhaseInversionDisabled() bool {
 // Call this when starting to encode a new audio stream.
 func (e *MultistreamEncoder) Reset() {
 	e.enc.Reset()
+	e.encodedOnce = false
 }
 
 // Channels returns the number of audio channels.

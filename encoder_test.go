@@ -377,6 +377,25 @@ func TestEncoder_SetApplication(t *testing.T) {
 	if err := enc.SetApplication(Application(99)); err != ErrInvalidApplication {
 		t.Fatalf("SetApplication(invalid) error=%v want=%v", err, ErrInvalidApplication)
 	}
+
+	// Match libopus ctl semantics: after first successful encode, application
+	// changes are rejected unless value is unchanged.
+	pcm := make([]float32, enc.FrameSize()*enc.Channels())
+	packet := make([]byte, 4000)
+	if _, err := enc.Encode(pcm, packet); err != nil {
+		t.Fatalf("Encode before application lock test error: %v", err)
+	}
+	if err := enc.SetApplication(ApplicationVoIP); err != ErrInvalidApplication {
+		t.Fatalf("SetApplication(change after encode) error=%v want=%v", err, ErrInvalidApplication)
+	}
+	if err := enc.SetApplication(enc.Application()); err != nil {
+		t.Fatalf("SetApplication(same after encode) error: %v", err)
+	}
+
+	enc.Reset()
+	if err := enc.SetApplication(ApplicationLowDelay); err != nil {
+		t.Fatalf("SetApplication(after reset) error: %v", err)
+	}
 }
 
 func TestEncoder_DTX_Silence(t *testing.T) {

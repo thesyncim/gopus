@@ -566,6 +566,31 @@ func TestMultistreamEncoder_SetApplicationPreservesControls(t *testing.T) {
 	}
 }
 
+func TestMultistreamEncoder_SetApplicationAfterEncodeRejected(t *testing.T) {
+	enc, err := NewMultistreamEncoderDefault(48000, 6, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
+	}
+
+	pcm := generateSurroundTestSignal(48000, 960, 6)
+	packet := make([]byte, 4000*enc.Streams())
+	if _, err := enc.Encode(pcm, packet); err != nil {
+		t.Fatalf("Encode before application lock test error: %v", err)
+	}
+
+	if err := enc.SetApplication(ApplicationVoIP); err != ErrInvalidApplication {
+		t.Fatalf("SetApplication(change after encode) error=%v want=%v", err, ErrInvalidApplication)
+	}
+	if err := enc.SetApplication(enc.Application()); err != nil {
+		t.Fatalf("SetApplication(same after encode) error: %v", err)
+	}
+
+	enc.Reset()
+	if err := enc.SetApplication(ApplicationVoIP); err != nil {
+		t.Fatalf("SetApplication(after reset) error: %v", err)
+	}
+}
+
 // TestMultistreamDecoder_PLC tests packet loss concealment.
 func TestMultistreamDecoder_PLC(t *testing.T) {
 	channels := 6
