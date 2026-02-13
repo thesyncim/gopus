@@ -71,6 +71,13 @@ do_not_repeat_until: libopus fixture or interoperability evidence shows surface 
 owner: codex
 
 date: 2026-02-13
+topic: Multistream OPUS_SET_SIGNAL validation parity
+decision: Keep `MultistreamEncoder.SetSignal` strict and reject invalid values with `ErrInvalidSignal` (do not silently coerce unknown signal hints).
+evidence: Updated `multistream.go` setter semantics and expanded `TestMultistreamEncoder_Controls` to assert valid voice/music transitions and invalid-signal rejection; `make verify-production` passed.
+do_not_repeat_until: libopus changes `OPUS_SET_SIGNAL_REQUEST` accepted values/return semantics or fixture/interoperability evidence shows this validation behavior diverges.
+owner: codex
+
+date: 2026-02-13
 topic: Long-SWB strict analyzer control wiring gate
 decision: Keep stable long-SWB auto policy; defer strict voice-ratio wiring until dedicated fixture-backed evidence avoids mode regressions.
 evidence: strict wiring attempts regressed `HYBRID-SWB-40ms-*` mode parity; rollback restored passing parity guards.

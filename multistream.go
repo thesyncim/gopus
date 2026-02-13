@@ -499,8 +499,14 @@ func (e *MultistreamEncoder) Signal() Signal {
 // SetSignal sets the signal type hint for all stream encoders.
 // Use SignalVoice for speech content, SignalMusic for music content,
 // or SignalAuto (default) for automatic detection.
-func (e *MultistreamEncoder) SetSignal(signal Signal) {
-	e.enc.SetSignal(types.Signal(signal))
+func (e *MultistreamEncoder) SetSignal(signal Signal) error {
+	switch signal {
+	case SignalAuto, SignalVoice, SignalMusic:
+		e.enc.SetSignal(types.Signal(signal))
+		return nil
+	default:
+		return ErrInvalidSignal
+	}
 }
 
 // SetMaxBandwidth sets the maximum bandwidth limit for all stream encoders.
