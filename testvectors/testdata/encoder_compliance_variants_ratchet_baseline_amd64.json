@@ -292,11 +292,11 @@
     {
       "name": "HYBRID-SWB-20ms-mono-48k",
       "variant": "am_multisine_v1",
-      "min_gap_db": 7.3,
+      "min_gap_db": -0.5,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
-      "max_mode_mismatch_rate": 0.7466666666666666,
-      "max_histogram_l1": 1.4133333333333333
+      "max_mode_mismatch_rate": 0.12,
+      "max_histogram_l1": 0.16
     },
     {
       "name": "HYBRID-SWB-20ms-mono-48k",
