@@ -81,6 +81,11 @@ Canonical project context for agent sessions.
 
 ## CI Regression Guardrails (Mandatory)
 - Treat CI as merge-blocking for correctness and performance; do not bypass failing checks.
+- PR cadence for faster iteration:
+  - After focused/relevant slice tests pass, open/push a PR immediately so CI can run in parallel with local validation.
+  - Focused/relevant local runs must mirror CI env/tier flags for that surface (e.g., `GOPUS_TEST_TIER=parity` for parity gates).
+  - Continue running local broad gates (`make verify-production`, `make bench-guard`) while CI is running.
+  - Do not merge until broad gates and required CI checks are green.
 - Before proposing merge-ready changes, run:
   - `make verify-production`
   - `make bench-guard`

@@ -13,9 +13,9 @@ With feature-parity checklist items complete, remaining gaps should be closed by
 
 ## Next 3 Actions (Targeted)
 
-1. Add analyzer trace parity fixture coverage (`analysis_info`/MLP feature cadence) against libopus 1.6.1 for long-SWB profiles.
-2. Use that fixture to port the deferred full 25-feature MLP assembly path in `encoder/analysis.go` without mode-ratchet regressions.
-3. Rerun focused parity fixtures, then run `make verify-production` and `make bench-guard`.
+1. Extend analyzer trace fixture coverage beyond SWB mono (stereo + additional frame profiles) to keep control-policy ports source-backed.
+2. Continue removing remaining SWB auto-mode heuristic branches in favor of direct libopus mode-threshold flow.
+3. Keep merge loop fast: run focused parity slice first, open PR, then complete `make verify-production` + `make bench-guard` before merge.
 
 ## Feature Parity Plan (libopus 1.6.1)
 
@@ -39,6 +39,7 @@ With feature-parity checklist items complete, remaining gaps should be closed by
 
 ## Evidence Log (Newest First)
 
+- 2026-02-13: Added libopus analyzer trace fixture workflow and closed the deferred analyzer feature-vector parity gap. New generator: `tmp_check/gen_libopus_analysis_trace_fixture.go` (build-ignore, libopus 1.6.1 `run_analysis`/`tonality_get_info`), fixture: `encoder/testdata/libopus_analysis_trace_fixture.json`, and new parity guards: `encoder/analysis_trace_fixture_test.go` (`TestAnalysisTraceFixtureParityWithLibopus`, `TestAnalysisTraceFixtureMetadata`). Ported full libopus 25-feature MLP assembly in `encoder/analysis.go` (`midE`, `spec_variability`, `cmean/mem/std` state cadence, feature slot mapping) and aligned SWB auto control thresholds in `encoder/encoder.go` (prev-mode `music_prob` min/max selection + `-4000/+4000` hysteresis). Tightened ratchet entry for `HYBRID-SWB-20ms-mono-48k/am_multisine_v1` in `testvectors/testdata/encoder_compliance_variants_ratchet_baseline.json` to reflect reduced mode mismatch after source parity. Validation: focused encoder analysis tests, `TestEncoderVariantProfileParityAgainstLibopusFixture|TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard`, and full `make verify-production` (includes bench-guard + race) passed.
 - 2026-02-13: Ported libopus analyzer phase math primitives in `encoder/analysis.go`: switched angle extraction to libopus `fast_atan2f` approximation and wrapped second-derivative phase deltas with libopus-style `float2int` semantics (ties-to-even) instead of generic `atan2` + `Round`. Added focused math coverage in `encoder/analysis_test.go` (`TestAnalysisFloat2IntRoundToEven`, `TestAnalysisFastAtan2fParityShape`). Validation: `go test ./encoder -run 'TestAnalysis|TestRunAnalysis|TestTonality' -count=1`, `go test ./testvectors -run 'TestEncoderVariantProfileParityAgainstLibopusFixture|TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard' -count=1`, `make verify-production`, and `make bench-guard` passed.
 - 2026-02-13: Re-validated deferred analyzer full-feature gate: direct full 25-feature MLP assembly wiring in `encoder/analysis.go` still regresses long-SWB mode ratchets (`HYBRID-SWB-20/40ms-*` mismatch spikes, including chirp 100% mismatch). Kept non-regressing math ports and deferred full feature wiring until analyzer trace fixtures are added for state/feature cadence parity.
 - 2026-02-13: Ported analyzer LSB-depth parity in `encoder/analysis.go` and `encoder/encoder.go`: analyzer now tracks configured `LSBDepth`, uses it in libopus-style noise-floor calculation for bandwidth masking, and preserves it across `Reset()`. `Encoder.SetLSBDepth()` now propagates to analyzer state. Added coverage in `encoder/analysis_test.go` (`TestTonalityAnalysisResetPreservesLSBDepth`, `TestRunAnalysisNoiseFloorRespectsLSBDepth`, `TestEncoderSetLSBDepthPropagatesToAnalyzer`). Validation: focused encoder analysis tests, `TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestEncoderComplianceSummary`, `make verify-production`, and `make bench-guard` passed.

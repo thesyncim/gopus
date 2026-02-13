@@ -20,6 +20,11 @@ const (
 	analysisPi4            = float32(math.Pi * math.Pi * math.Pi * math.Pi)
 )
 
+var stdFeatureBias = [9]float32{
+	5.684947, 3.475288, 1.770634, 1.599784, 3.773215,
+	2.163313, 1.260756, 1.116868, 1.918795,
+}
+
 var dctTable = [128]float32{
 	0.250000, 0.250000, 0.250000, 0.250000, 0.250000, 0.250000, 0.250000, 0.250000,
 	0.250000, 0.250000, 0.250000, 0.250000, 0.250000, 0.250000, 0.250000, 0.250000,
@@ -283,6 +288,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		s.MemFill = 240
 		s.Initialized = true
 	}
+	alpha := float32(1.0 / float32(min(10, 1+s.Count)))
 	alphaE := float32(1.0 / float32(min(25, 1+s.Count)))
 	alphaE2 := float32(1.0 / float32(min(100, 1+s.Count)))
 	if s.Count <= 1 {
@@ -501,6 +507,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	var leakageFrom [NbTBands + 1]float32
 	var leakageTo [NbTBands + 1]float32
 	var BFCC [8]float32
+	var midE [8]float32
 	var features [25]float32
 	var masked [NbTBands + 1]bool
 	const (
@@ -509,6 +516,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		leakageSlope   = float32(2.0)
 		leakageDivisor = float32(4.0)
 	)
+	specVariability := float32(0)
 
 	var tonality [240]float32
 	var tonality2 [240]float32
@@ -676,6 +684,21 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		leakageFrom[b] = minf(leakageFrom[b], leakageFrom[b+1]+leakSlope)
 		leakageTo[b] = maxf(leakageTo[b], leakageTo[b+1]-leakSlope)
 	}
+	for i := 0; i < NbFrames; i++ {
+		mindist := float32(1e15)
+		for j := 0; j < NbFrames; j++ {
+			dist := float32(0)
+			for k := 0; k < NbTBands; k++ {
+				d := s.LogE[i][k] - s.LogE[j][k]
+				dist += d * d
+			}
+			if j != i {
+				mindist = minf(mindist, dist)
+			}
+		}
+		specVariability += mindist
+	}
+	specVariability = float32(math.Sqrt(float64(specVariability / (NbFrames * NbTBands))))
 
 	for b := 0; b < NbTBands; b++ {
 		bandStart := tbands[b]
@@ -743,13 +766,20 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		s.LowECount += alphaE
 	}
 
-	// BFCC extraction
+	// BFCC and mid-energy extraction
 	for i := 0; i < 8; i++ {
 		var sum float32
 		for b := 0; b < 16; b++ {
 			sum += dctTable[i*16+b] * logE[b]
 		}
 		BFCC[i] = sum
+	}
+	for i := 0; i < 8; i++ {
+		var sum float32
+		for b := 0; b < 16; b++ {
+			sum += dctTable[i*16+b] * 0.5 * (s.HighE[b] + s.LowE[b])
+		}
+		midE[i] = sum
 	}
 
 	frameStationarity /= NbTBands
@@ -780,10 +810,46 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	info.Bandwidth = bandwidthTypeFromIndex(bandwidth)
 	info.Loudness = frameLoudness
 
+	for i := 0; i < 4; i++ {
+		features[i] = -0.12299*(BFCC[i]+s.Mem[i+24]) +
+			0.49195*(s.Mem[i]+s.Mem[i+16]) +
+			0.69693*s.Mem[i+8] -
+			1.4349*s.CMean[i]
+	}
+	for i := 0; i < 4; i++ {
+		s.CMean[i] = (1.0-alpha)*s.CMean[i] + alpha*BFCC[i]
+	}
+	for i := 0; i < 4; i++ {
+		features[4+i] = 0.63246*(BFCC[i]-s.Mem[i+24]) + 0.31623*(s.Mem[i]-s.Mem[i+16])
+	}
+	for i := 0; i < 3; i++ {
+		features[8+i] = 0.53452*(BFCC[i]+s.Mem[i+24]) -
+			0.26726*(s.Mem[i]+s.Mem[i+16]) -
+			0.53452*s.Mem[i+8]
+	}
+	if s.Count > 5 {
+		for i := 0; i < 9; i++ {
+			s.Std[i] = (1.0-alpha)*s.Std[i] + alpha*features[i]*features[i]
+		}
+	}
+	for i := 0; i < 4; i++ {
+		features[i] = BFCC[i] - midE[i]
+	}
 	for i := 0; i < 8; i++ {
-		features[i] = BFCC[i]
+		s.Mem[i+24] = s.Mem[i+16]
+		s.Mem[i+16] = s.Mem[i+8]
+		s.Mem[i+8] = s.Mem[i]
 		s.Mem[i] = BFCC[i]
 	}
+	for i := 0; i < 9; i++ {
+		features[11+i] = float32(math.Sqrt(float64(s.Std[i]))) - stdFeatureBias[i]
+	}
+	features[18] = specVariability - 0.78
+	features[20] = info.Tonality - 0.154723
+	features[21] = info.Activity - 0.724643
+	features[22] = info.StationarySpeech - 0.743717
+	features[23] = info.TonalitySlope + 0.069216
+	features[24] = s.LowECount - 0.067930
 
 	// Run MLP
 	var layerOut [32]float32
