@@ -241,6 +241,79 @@ func TestTonalityAnalysisResetClearsState(t *testing.T) {
 	}
 }
 
+func TestTonalityAnalysisResetPreservesLSBDepth(t *testing.T) {
+	s := NewTonalityAnalysisState(48000)
+	s.SetLSBDepth(12)
+	_ = s.RunAnalysis(make([]float32, 960), 960, 1)
+	s.Reset()
+	if s.LSBDepth != 12 {
+		t.Fatalf("reset should preserve configured LSB depth: got %d want 12", s.LSBDepth)
+	}
+}
+
+func TestRunAnalysisNoiseFloorRespectsLSBDepth(t *testing.T) {
+	const (
+		frameSize = 960
+		freq      = 10500.0
+		amp       = 0.0015
+	)
+
+	makeFrame := func() []float32 {
+		pcm := make([]float32, frameSize)
+		for i := range pcm {
+			pcm[i] = amp * float32(math.Sin(2*math.Pi*freq*float64(i)/48000.0))
+		}
+		return pcm
+	}
+
+	s24 := NewTonalityAnalysisState(48000)
+	s24.SetLSBDepth(24)
+	s8 := NewTonalityAnalysisState(48000)
+	s8.SetLSBDepth(8)
+
+	var info24, info8 AnalysisInfo
+	for i := 0; i < 8; i++ {
+		pcm := makeFrame()
+		info24 = s24.RunAnalysis(pcm, frameSize, 1)
+		info8 = s8.RunAnalysis(pcm, frameSize, 1)
+	}
+	if !info24.Valid || !info8.Valid {
+		t.Fatal("expected valid analysis info")
+	}
+	if info8.BandwidthIndex > info24.BandwidthIndex {
+		t.Fatalf("lower LSB depth should not increase detected bandwidth: lsb8=%d lsb24=%d", info8.BandwidthIndex, info24.BandwidthIndex)
+	}
+}
+
+func TestEncoderSetLSBDepthPropagatesToAnalyzer(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	if enc.analyzer == nil {
+		t.Fatal("expected analyzer")
+	}
+	if enc.analyzer.LSBDepth != 24 {
+		t.Fatalf("unexpected default analyzer LSB depth: got %d want 24", enc.analyzer.LSBDepth)
+	}
+
+	enc.SetLSBDepth(12)
+	if enc.analyzer.LSBDepth != 12 {
+		t.Fatalf("analyzer LSB depth should follow encoder setting: got %d want 12", enc.analyzer.LSBDepth)
+	}
+
+	enc.Reset()
+	if enc.analyzer.LSBDepth != 12 {
+		t.Fatalf("encoder reset should keep analyzer LSB depth: got %d want 12", enc.analyzer.LSBDepth)
+	}
+
+	enc.SetLSBDepth(4)
+	if enc.analyzer.LSBDepth != 8 {
+		t.Fatalf("analyzer LSB depth should clamp low values: got %d want 8", enc.analyzer.LSBDepth)
+	}
+	enc.SetLSBDepth(30)
+	if enc.analyzer.LSBDepth != 24 {
+		t.Fatalf("analyzer LSB depth should clamp high values: got %d want 24", enc.analyzer.LSBDepth)
+	}
+}
+
 func TestRunAnalysisSilenceCopiesPreviousInfo(t *testing.T) {
 	s := NewTonalityAnalysisState(48000)
 
