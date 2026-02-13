@@ -157,6 +157,7 @@ type AnalysisInfo struct {
 
 type TonalityAnalysisState struct {
 	Fs               int32
+	LSBDepth         int
 	Angle            [240]float32
 	DAngle           [240]float32
 	D2Angle          [240]float32
@@ -197,6 +198,7 @@ type TonalityAnalysisState struct {
 func NewTonalityAnalysisState(fs int) *TonalityAnalysisState {
 	s := &TonalityAnalysisState{
 		Fs:             int32(fs),
+		LSBDepth:       24,
 		scratchFFTKiss: make([]celt.KissCpx, 480),
 	}
 	s.Reset()
@@ -207,6 +209,7 @@ func (s *TonalityAnalysisState) Reset() {
 	// Match libopus tonality_analysis_reset(): clear all reset-scoped analysis
 	// state while preserving reusable configuration/scratch allocations.
 	fs := s.Fs
+	lsbDepth := s.LSBDepth
 	scratchMono := s.scratchMono[:0]
 	scratchDownsampled := s.scratchDownsampled[:0]
 	scratchResample3x := s.scratchResample3x[:0]
@@ -214,11 +217,22 @@ func (s *TonalityAnalysisState) Reset() {
 
 	*s = TonalityAnalysisState{
 		Fs:                 fs,
+		LSBDepth:           lsbDepth,
 		scratchMono:        scratchMono,
 		scratchDownsampled: scratchDownsampled,
 		scratchResample3x:  scratchResample3x,
 		scratchFFTKiss:     scratchFFTKiss,
 	}
+}
+
+func (s *TonalityAnalysisState) SetLSBDepth(depth int) {
+	if depth < 8 {
+		depth = 8
+	}
+	if depth > 24 {
+		depth = 24
+	}
+	s.LSBDepth = depth
 }
 
 // fft480 computes a 480-point complex forward FFT using the shared CELT KISS FFT.
@@ -520,7 +534,14 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	bandwidthMask := float32(0)
 	bandwidth := 0
 	maxE := float32(0)
-	noiseFloor := float32(5.7e-4 / float64(uint(1)<<uint(24-8)))
+	lsbDepth := s.LSBDepth
+	if lsbDepth < 8 {
+		lsbDepth = 8
+	}
+	if lsbDepth > 24 {
+		lsbDepth = 24
+	}
+	noiseFloor := float32(5.7e-4 / float64(uint(1)<<uint(max(0, lsbDepth-8))))
 	belowMaxPitch := float32(0)
 	aboveMaxPitch := float32(0)
 	var bandTonality [NbTBands]float32

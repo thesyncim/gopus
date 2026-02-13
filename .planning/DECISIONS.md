@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-13
+topic: Analyzer LSB-depth noise-floor parity
+decision: Keep analyzer noise-floor computation tied to configured `LSBDepth` (libopus-style scaling by `max(0, lsb_depth-8)`) and propagate encoder `SetLSBDepth()` into analyzer state; preserve analyzer LSB depth across reset.
+evidence: Added `TestTonalityAnalysisResetPreservesLSBDepth`, `TestRunAnalysisNoiseFloorRespectsLSBDepth`, and `TestEncoderSetLSBDepthPropagatesToAnalyzer`; parity/compliance/full gates passed (`TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestEncoderComplianceSummary`, `make verify-production`, `make bench-guard`).
+do_not_repeat_until: libopus changes analyzer noise-floor/lsb-depth semantics or fixture evidence shows divergence.
+owner: codex
+
+date: 2026-02-13
 topic: Analyzer reset semantics parity
 decision: Keep `TonalityAnalysisState.Reset()` aligned with libopus `tonality_analysis_reset()`: clear all reset-scoped analyzer state while preserving reusable config/scratch allocations.
 evidence: Added `TestTonalityAnalysisResetClearsState`; focused analyzer tests and parity/compliance/full gates passed (`TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestEncoderComplianceSummary`, `make verify-production`, `make bench-guard`).
