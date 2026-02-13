@@ -325,6 +325,9 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []float64, nbBands int, intra 
 					qi = -1
 				}
 			}
+			if e.lfe && band >= 2 && qi > 0 {
+				qi = 0
+			}
 
 			if budget-tell >= 15 {
 				pi := 2 * band
@@ -400,6 +403,9 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []float64, nbBands int, intra 
 		}
 	}
 
+	if e.lfe {
+		return quantizedEnergies, 0
+	}
 	return quantizedEnergies, badness
 }
 
@@ -455,6 +461,9 @@ func (e *Encoder) DecideIntraMode(energies []float64, nbBands int, lm int) bool 
 		if limit < maxDecay32 {
 			maxDecay32 = limit
 		}
+	}
+	if e.lfe {
+		maxDecay32 = float32(3.0 * DB6)
 	}
 
 	startState := &e.scratch.coarseStartState
@@ -535,6 +544,9 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 		if limit < maxDecay32 {
 			maxDecay32 = limit
 		}
+	}
+	if e.lfe {
+		maxDecay32 = float32(3.0 * DB6)
 	}
 
 	quantizedEnergies, _ := e.encodeCoarseEnergyPass(energies, nbBands, intra, lm, budget, maxDecay32, false)
@@ -619,6 +631,9 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 			maxDecay32 = limit
 		}
 	}
+	if e.lfe {
+		maxDecay32 = float32(3.0 * DB6)
+	}
 
 	var prevBandEnergy [2]float32
 	for band := start; band < end; band++ {
@@ -670,6 +685,9 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 				if bitsLeft < 16 && qi < -1 {
 					qi = -1
 				}
+			}
+			if e.lfe && band >= 2 && qi > 0 {
+				qi = 0
 			}
 
 			// Encode with Laplace or fallback models.

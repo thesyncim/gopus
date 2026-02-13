@@ -238,7 +238,7 @@ func NewEncoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 	mappingFamily := inferMappingFamily(channels, streams, coupledStreams, mappingCopy)
 	lfeStream := inferLFEStream(mappingFamily, channels, streams)
 
-	return &Encoder{
+	enc := &Encoder{
 		sampleRate:              sampleRate,
 		inputChannels:           channels,
 		streams:                 streams,
@@ -254,7 +254,9 @@ func NewEncoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 		surroundWindowMem:       make([]float64, channels*celt.Overlap),
 		surroundPreemphMem:      make([]float64, channels),
 		surroundAnalysisEncoder: celt.NewEncoder(1),
-	}, nil
+	}
+	enc.applyLFEFlags()
+	return enc, nil
 }
 
 // NewEncoderDefault creates a multistream encoder with default Vorbis-style mapping
@@ -283,6 +285,7 @@ func NewEncoderDefault(sampleRate, channels int) (*Encoder, error) {
 	}
 	enc.mappingFamily = 1 // Vorbis-style mapping
 	enc.lfeStream = inferLFEStream(enc.mappingFamily, channels, streams)
+	enc.applyLFEFlags()
 	return enc, nil
 }
 
@@ -346,6 +349,7 @@ func NewEncoderAmbisonics(sampleRate, channels, mappingFamily int) (*Encoder, er
 	}
 	enc.mappingFamily = mappingFamily
 	enc.lfeStream = -1
+	enc.applyLFEFlags()
 	return enc, nil
 }
 
@@ -354,6 +358,7 @@ func NewEncoderAmbisonics(sampleRate, channels, mappingFamily int) (*Encoder, er
 func (e *Encoder) Reset() {
 	for i, enc := range e.encoders {
 		enc.Reset()
+		enc.SetLFE(i == e.lfeStream)
 		enc.SetCELTSurroundTrim(0)
 		if i < len(e.streamSurroundTrim) {
 			e.streamSurroundTrim[i] = 0
@@ -367,6 +372,12 @@ func (e *Encoder) Reset() {
 	}
 	if len(e.surroundPreemphMem) > 0 {
 		clear(e.surroundPreemphMem)
+	}
+}
+
+func (e *Encoder) applyLFEFlags() {
+	for i, enc := range e.encoders {
+		enc.SetLFE(i == e.lfeStream)
 	}
 }
 
@@ -945,6 +956,7 @@ func (e *Encoder) applyPerStreamPolicy(frameSize int, pcm []float64) {
 	for i := 0; i < e.streams; i++ {
 		enc := e.encoders[i]
 		enc.SetBitrate(rates[i])
+		enc.SetLFE(i == e.lfeStream)
 
 		switch {
 		case e.isSurroundMapping():
