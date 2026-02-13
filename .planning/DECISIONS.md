@@ -22,6 +22,20 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-13
+topic: Analyzer phase-angle math parity (`fast_atan2f` + `float2int`)
+decision: Keep analyzer phase-angle extraction and phase-delta wrapping aligned with libopus `analysis.c` (`fast_atan2f` approximation and `float2int` ties-to-even wrapping), replacing generic `atan2`/`Round` behavior.
+evidence: Updated `encoder/analysis.go` math path; added `TestAnalysisFloat2IntRoundToEven` and `TestAnalysisFastAtan2fParityShape`; focused encoder tests, fixture parity/compliance slices, `make verify-production`, and `make bench-guard` all passed.
+do_not_repeat_until: libopus changes analyzer phase math in `analysis.c`/`mathops.h`, or fixture evidence shows divergence from this path.
+owner: codex
+
+date: 2026-02-13
+topic: Analyzer full MLP feature-vector wiring gate (revalidated)
+decision: Keep full 25-feature MLP assembly wiring deferred until analyzer trace fixtures validate state/feature cadence parity versus libopus; keep non-regressing analyzer math ports in place.
+evidence: Reattempting strict full feature wiring regressed `TestEncoderVariantProfileParityAgainstLibopusFixture` on `HYBRID-SWB-20/40ms-*` (including chirp 100% mode mismatch). Rolling back to the existing feature wiring while keeping math ports restored green focused parity/compliance and full production gates.
+do_not_repeat_until: dedicated analyzer trace fixtures exist and show parity for `analysis_info`/feature cadence on long-SWB cases.
+owner: codex
+
+date: 2026-02-13
 topic: Analyzer LSB-depth noise-floor parity
 decision: Keep analyzer noise-floor computation tied to configured `LSBDepth` (libopus-style scaling by `max(0, lsb_depth-8)`) and propagate encoder `SetLSBDepth()` into analyzer state; preserve analyzer LSB depth across reset.
 evidence: Added `TestTonalityAnalysisResetPreservesLSBDepth`, `TestRunAnalysisNoiseFloorRespectsLSBDepth`, and `TestEncoderSetLSBDepthPropagatesToAnalyzer`; parity/compliance/full gates passed (`TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestEncoderComplianceSummary`, `make verify-production`, `make bench-guard`).
