@@ -39,3 +39,4 @@ Quick commands:
 - claim: id=codex-20260213-132816; agent=codex; status=released; paths=encoder/,multistream/,.planning/; updated=2026-02-13T13:37:56Z; expires=2026-02-13T13:37:56Z; note=lookahead parity by application
 - claim: id=codex-20260213-132213; agent=codex; status=released; paths=encoder/,multistream/,.planning/; updated=2026-02-13T13:22:24Z; expires=2026-02-13T13:22:24Z; note=application ctl first-frame lock parity
 - claim: id=codex-20260213-125839; agent=codex; status=released; paths=encoder/,multistream/,testvectors/; updated=2026-02-13T13:08:15Z; expires=2026-02-13T13:08:15Z; note=surroundTrim producer/control parity slice
+- claim: id=codex-20260213-151510; agent=codex; status=released; paths=encoder/,multistream/,testvectors/, .planning/; updated=2026-02-13T15:30:17Z; expires=2026-02-13T15:30:17Z; note=libopus vbr/cvbr default and control transition parity
