@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-13
+topic: Parity implementation method (no trial-and-error)
+decision: For libopus parity gaps, implement by directly porting the corresponding libopus 1.6.1 logic first; do not use heuristic tuning as the primary fix path.
+evidence: Repeated mode/quality regressions occurred when threshold-only tuning was attempted without full source-parity state/model alignment.
+do_not_repeat_until: libopus parity scope is complete or policy is explicitly revised with team sign-off.
+owner: codex
+
+date: 2026-02-13
 topic: libopus source of truth (version pin)
 decision: Treat `tmp_check/opus-1.6.1/` as the authoritative reference for parity decisions.
 evidence: AGENTS policy; recent parity fixes all cross-checked against this tree.
