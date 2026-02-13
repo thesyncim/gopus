@@ -20,6 +20,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-13
+topic: CELT 10ms stereo budget uplift (strict-quality continuation, round 4)
+decision: Keep non-hybrid/non-LFE CELT `frameSize==480` stereo target-bit uplift at `+576` in `celt/encode_frame.go` (`computeTargetBits`), with mono held at `+256` and all other frame-size/LFE paths unchanged.
+evidence: Focused slice `go test ./testvectors -run 'TestEncoderComplianceCELT/FB-10ms-stereo' -count=1 -v` improved from `Q=-19.66` to `Q=-18.75` with average target bits `1582 -> 1646`. Regressions remained clean: `TestEncoderComplianceCELT`, `TestEncoderComplianceSummary`, `TestEncoderCompliancePrecisionGuard`, `TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestOpusdecCrossvalFixtureCoverage`, `TestOpusdecCrossvalFixtureHonestyAgainstLiveOpusdec`, `make verify-production`, and `make bench-guard` all PASS.
+do_not_repeat_until: CELT 10ms stereo bitrate/interoperability regressions appear, or fixture-backed parity evidence indicates this uplift is over-aggressive.
+owner: codex
+
+date: 2026-02-13
 topic: CELT 10ms stereo budget uplift (strict-quality continuation, round 3)
 decision: Keep non-hybrid/non-LFE CELT `frameSize==480` stereo target-bit uplift at `+512` in `celt/encode_frame.go` (`computeTargetBits`), with mono held at `+256` and all other frame-size/LFE paths unchanged.
 evidence: Focused slice `go test ./testvectors -run 'TestEncoderComplianceCELT/FB-10ms-stereo' -count=1 -v` improved from `Q=-20.54` to `Q=-19.66` with average target bits `1518 -> 1582`. Regressions remained clean: `TestEncoderComplianceCELT`, `TestEncoderComplianceSummary`, `TestEncoderCompliancePrecisionGuard`, `TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestOpusdecCrossvalFixtureCoverage`, `TestOpusdecCrossvalFixtureHonestyAgainstLiveOpusdec`, `make verify-production`, and `make bench-guard` all PASS.
