@@ -16,6 +16,8 @@ const (
 	transitionPenalty      = float32(10.0)
 	celtSigScale           = float32(32768.0)
 	analysisFFTEnergyScale = float32(1.0 / (480.0 * 480.0))
+	analysisAtanScale      = float32(0.5 / math.Pi)
+	analysisPi4            = float32(math.Pi * math.Pi * math.Pi * math.Pi)
 )
 
 var dctTable = [128]float32{
@@ -135,6 +137,42 @@ func isDigitalSilence32(pcm []float32) bool {
 		}
 	}
 	return true
+}
+
+func analysisFloat2Int(x float32) int32 {
+	return int32(math.RoundToEven(float64(x)))
+}
+
+func analysisFastAtan2f(y, x float32) float32 {
+	const (
+		cA = float32(0.43157974)
+		cB = float32(0.67848403)
+		cC = float32(0.08595542)
+		cE = float32(math.Pi / 2)
+	)
+	x2 := x * x
+	y2 := y * y
+	if x2+y2 < 1e-18 {
+		return 0
+	}
+	if x2 < y2 {
+		den := (y2 + cB*x2) * (y2 + cC*x2)
+		if y < 0 {
+			return -x*y*(y2+cA*x2)/den - cE
+		}
+		return -x*y*(y2+cA*x2)/den + cE
+	}
+	den := (x2 + cB*y2) * (x2 + cC*y2)
+	if y < 0 {
+		if x*y < 0 {
+			return x * y * (x2 + cA*y2) / den
+		}
+		return x*y*(x2+cA*y2)/den - cE - cE
+	}
+	if x*y < 0 {
+		return x*y*(x2+cA*y2)/den + cE + cE
+	}
+	return x * y * (x2 + cA*y2) / den
 }
 
 type AnalysisInfo struct {
@@ -475,25 +513,21 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	var tonality [240]float32
 	var tonality2 [240]float32
 	var noisiness [240]float32
-	const (
-		atanScale = float32(0.5 / math.Pi)
-		pi4       = float32(math.Pi * math.Pi * math.Pi * math.Pi)
-	)
 	for i := 1; i < 240; i++ {
 		x1r := real(out[i]) + real(out[480-i])
 		x1i := imag(out[i]) - imag(out[480-i])
 		x2r := imag(out[i]) + imag(out[480-i])
 		x2i := real(out[480-i]) - real(out[i])
 
-		angle := atanScale * float32(math.Atan2(float64(x1i), float64(x1r)))
+		angle := analysisAtanScale * analysisFastAtan2f(x1i, x1r)
 		dAngle := angle - s.Angle[i]
 		d2Angle := dAngle - s.DAngle[i]
 
-		angle2 := atanScale * float32(math.Atan2(float64(x2i), float64(x2r)))
+		angle2 := analysisAtanScale * analysisFastAtan2f(x2i, x2r)
 		dAngle2 := angle2 - angle
 		d2Angle2 := dAngle2 - dAngle
 
-		mod1 := d2Angle - float32(math.Round(float64(d2Angle)))
+		mod1 := d2Angle - float32(analysisFloat2Int(d2Angle))
 		if mod1 < 0 {
 			noisiness[i] = -mod1
 		} else {
@@ -502,7 +536,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		mod1 *= mod1
 		mod1 *= mod1
 
-		mod2 := d2Angle2 - float32(math.Round(float64(d2Angle2)))
+		mod2 := d2Angle2 - float32(analysisFloat2Int(d2Angle2))
 		if mod2 < 0 {
 			noisiness[i] += -mod2
 		} else {
@@ -512,8 +546,8 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		mod2 *= mod2
 
 		avgMod := 0.25 * (s.D2Angle[i] + mod1 + 2*mod2)
-		tonality[i] = 1.0/(1.0+40.0*16.0*pi4*avgMod) - 0.015
-		tonality2[i] = 1.0/(1.0+40.0*16.0*pi4*mod2) - 0.015
+		tonality[i] = 1.0/(1.0+40.0*16.0*analysisPi4*avgMod) - 0.015
+		tonality2[i] = 1.0/(1.0+40.0*16.0*analysisPi4*mod2) - 0.015
 
 		s.Angle[i] = angle2
 		s.DAngle[i] = dAngle2
@@ -717,6 +751,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		}
 		BFCC[i] = sum
 	}
+
 	frameStationarity /= NbTBands
 	relativeE /= NbTBands
 	if s.Count < 10 {
