@@ -797,7 +797,7 @@ func (e *Encoder) syncCELTAnalysisToCELT() {
 		return
 	}
 	if !e.lastAnalysisValid {
-		e.celtEncoder.SetAnalysisInfo(0, [19]uint8{}, 0, false)
+		e.celtEncoder.SetAnalysisInfo(0, [19]uint8{}, 0, 0, false)
 		return
 	}
 	maybeLogAnalysisDebug(e.celtEncoder.FrameCount(), e.lastAnalysisInfo)
@@ -805,6 +805,7 @@ func (e *Encoder) syncCELTAnalysisToCELT() {
 		e.lastAnalysisInfo.BandwidthIndex,
 		e.lastAnalysisInfo.LeakBoost,
 		float64(e.lastAnalysisInfo.TonalitySlope),
+		float64(e.lastAnalysisInfo.MaxPitchRatio),
 		true,
 	)
 }

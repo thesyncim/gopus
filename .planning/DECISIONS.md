@@ -133,6 +133,13 @@ do_not_repeat_until: dedicated analyzer trace fixtures show gopus feature/state 
 owner: codex
 
 date: 2026-02-13
+topic: CELT prefilter max_pitch_ratio source parity
+decision: When analysis is valid, use analyzer-provided `max_pitch_ratio` for CELT `runPrefilter()` scaling; keep the CELT-local estimator only as fallback when analysis is unavailable.
+evidence: libopus `run_prefilter()` scales gain by `analysis->max_pitch_ratio` when `analysis->valid`; wired top-level analysis forwarding into CELT state and updated encode path accordingly; focused tests (`TestSetAnalysisInfoClampsMaxPitchRatio`, `TestEncodeFrameUsesAnalysisMaxPitchRatioWhenValid`, `TestRunPrefilterParityAgainstLibopusFixture`) and fixture parity/compliance suites passed.
+do_not_repeat_until: libopus changes `run_prefilter()` analysis-valid scaling semantics, or fixture parity shows a regression from this source selection policy.
+owner: codex
+
+date: 2026-02-13
 topic: Long-frame tonality residual bound
 decision: Keep analysis residual carry-over bounded to the 480-sample post-shift window and scale HP-energy carry to the retained residual fraction only.
 evidence: In `encoder/analysis.go`, long-frame paths could leave `MemFill` logically larger than the analysis window and misalign `HPEnerAccum` versus retained samples; clamping retained residual and matching HP carry restored bounded state while keeping fixture parity green (`TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestEncoderComplianceSummary`, `TestEncoderCompliancePrecisionGuard`, `make verify-production`, `make bench-guard`).
