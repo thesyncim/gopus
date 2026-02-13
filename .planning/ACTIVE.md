@@ -9,13 +9,13 @@ Close the remaining strict encoder quality gap (`Q >= 0`) while preserving libop
 
 ## Current Hypothesis
 
-With feature-parity checklist items complete, the best ROI is targeted quality uplift on the current worst compliance profiles, always validated against libopus fixtures.
+With feature-parity checklist items complete, remaining gaps should be closed by direct libopus 1.6.1 source ports (math/control flow/state cadence), not heuristic retuning, and then validated against libopus fixtures.
 
 ## Next 3 Actions (Targeted)
 
 1. Reproduce the current worst profile from `TestEncoderComplianceSummary`.
-2. Diff the exact encoder control/math path against `tmp_check/opus-1.6.1`.
-3. Apply one bounded change, rerun focused tests, then run `make verify-production` and `make bench-guard`.
+2. Identify the exact corresponding libopus path in `tmp_check/opus-1.6.1` and port it directly (no heuristic substitutes).
+3. Rerun focused parity fixtures, then run `make verify-production` and `make bench-guard`.
 
 ## Feature Parity Plan (libopus 1.6.1)
 

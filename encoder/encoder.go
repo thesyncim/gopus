@@ -133,6 +133,9 @@ type Encoder struct {
 	lastAnalysisInfo    AnalysisInfo
 	lastAnalysisValid   bool
 	lastAnalysisFresh   bool
+	analysisReadPosBak  int
+	analysisSubframeBak int
+	analysisReadBakSet  bool
 	prevLongSWBAutoMode Mode
 	prevSWB10AutoMode   Mode
 	swb10TransientScore int
@@ -302,6 +305,7 @@ func (e *Encoder) Reset() {
 	}
 	e.lastAnalysisValid = false
 	e.lastAnalysisFresh = false
+	e.analysisReadBakSet = false
 	e.prevSWB10AutoMode = ModeCELT
 	e.swb10TransientScore = 0
 	e.prevSWB20AutoMode = ModeHybrid
@@ -522,6 +526,9 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	if len(pcm) != expectedLen {
 		return nil, ErrInvalidFrameSize
 	}
+	defer func() {
+		e.analysisReadBakSet = false
+	}()
 	// Run Opus analysis on the original input frame (before top-level dc_reject
 	// and LSB quantization) to match libopus run_analysis ordering.
 	rawPCM := pcm
@@ -742,6 +749,7 @@ func trimSilkTrailingZeros(frameData []byte) []byte {
 func (e *Encoder) refreshFrameAnalysis(pcm []float64, frameSize int) {
 	e.lastAnalysisValid = false
 	e.lastAnalysisFresh = false
+	e.analysisReadBakSet = false
 	if e.analyzer == nil || frameSize <= 0 || len(pcm) == 0 {
 		return
 	}
@@ -749,6 +757,11 @@ func (e *Encoder) refreshFrameAnalysis(pcm []float64, frameSize int) {
 	for i, v := range pcm {
 		pcm32[i] = float32(v)
 	}
+	// Mirror libopus opus_encoder.c: back up analysis read cursor before
+	// run_analysis() so long packets can consume per-subframe info later.
+	e.analysisReadPosBak = e.analyzer.ReadPos
+	e.analysisSubframeBak = e.analyzer.ReadSubframe
+	e.analysisReadBakSet = true
 	// Keep analysis on float-domain samples to match opus_encode_float / opus_demo -f32.
 	info := e.analyzer.RunAnalysis(pcm32, frameSize, e.channels)
 	if !info.Valid {
@@ -757,6 +770,26 @@ func (e *Encoder) refreshFrameAnalysis(pcm []float64, frameSize int) {
 	e.lastAnalysisInfo = info
 	e.lastAnalysisValid = true
 	e.lastAnalysisFresh = true
+}
+
+// primeSubframeAnalysis advances tonality_get_info() for long packets and keeps
+// a reusable per-subframe analysis snapshot for downstream VAD/CELT decisions.
+func (e *Encoder) primeSubframeAnalysis(frameSize int) {
+	if !e.analysisReadBakSet || e.analyzer == nil {
+		return
+	}
+	info := e.analyzer.tonalityGetInfo(frameSize)
+	if info.Valid {
+		e.lastAnalysisInfo = info
+		e.lastAnalysisValid = true
+		e.lastAnalysisFresh = true
+		return
+	}
+	// Keep the last valid snapshot to avoid forcing a fallback RunAnalysis()
+	// mid-packet when tonality_get_info has insufficient lookahead.
+	if e.lastAnalysisValid {
+		e.lastAnalysisFresh = true
+	}
 }
 
 func (e *Encoder) syncCELTAnalysisToCELT() {
@@ -1088,6 +1121,16 @@ func (e *Encoder) selectLongSWBAutoMode(frameSize int, signalHint types.Signal) 
 		e.lastAnalysisInfo.MusicProb < 0.90 &&
 		e.lastAnalysisInfo.Tonality < 0.12 {
 		return ModeCELT
+	}
+	// Keep near-threshold voiced transients in Hybrid to avoid premature
+	// long-frame CELT flips when analysis lookahead is sparse.
+	if e.lastAnalysisValid &&
+		e.lastAnalysisInfo.VADProb >= 0.95 &&
+		e.lastAnalysisInfo.Tonality >= 0.14 &&
+		e.lastAnalysisInfo.Tonality <= 0.20 &&
+		e.lastAnalysisInfo.MusicProb >= 0.62 &&
+		e.lastAnalysisInfo.MusicProb <= 0.75 {
+		return ModeHybrid
 	}
 
 	if equivRate >= threshold {
@@ -1515,6 +1558,10 @@ func (e *Encoder) encodeCELTMultiFramePacket(celtPCM []float64, frameSize int) (
 	if len(celtPCM) != frameSize*e.channels {
 		return nil, ErrInvalidFrameSize
 	}
+	if e.analysisReadBakSet && e.analyzer != nil {
+		e.analyzer.ReadPos = e.analysisReadPosBak
+		e.analyzer.ReadSubframe = e.analysisSubframeBak
+	}
 
 	frameStride := 960 * e.channels
 	frames := make([][]byte, frameCount)
@@ -1531,6 +1578,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(celtPCM []float64, frameSize int) (
 		}
 	}
 	for i := 0; i < frameCount; i++ {
+		e.primeSubframeAnalysis(960)
 		start := i * frameStride
 		end := start + frameStride
 		frameData, err := e.encodeCELTFrameWithBitrate(celtPCM[start:end], 960, subframeBitrate)
@@ -1545,6 +1593,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(celtPCM []float64, frameSize int) (
 		}
 		prevSize = len(frameCopy)
 	}
+	e.analysisReadBakSet = false
 
 	return BuildMultiFramePacket(
 		frames,
@@ -1569,12 +1618,17 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 	if len(pcm) != frameSize*e.channels || len(celtPCM) != frameSize*e.channels {
 		return nil, ErrInvalidFrameSize
 	}
+	if e.analysisReadBakSet && e.analyzer != nil {
+		e.analyzer.ReadPos = e.analysisReadPosBak
+		e.analyzer.ReadSubframe = e.analysisSubframeBak
+	}
 
 	frameStride := 960 * e.channels
 	frames := make([][]byte, frameCount)
 	sameSize := true
 	prevSize := -1
 	for i := 0; i < frameCount; i++ {
+		e.primeSubframeAnalysis(960)
 		start := i * frameStride
 		end := start + frameStride
 		subPCM := pcm[start:end]
@@ -1596,6 +1650,7 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 		}
 		prevSize = len(frameCopy)
 	}
+	e.analysisReadBakSet = false
 
 	return BuildMultiFramePacket(
 		frames,
