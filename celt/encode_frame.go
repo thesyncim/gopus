@@ -73,6 +73,126 @@ func (e *Encoder) quantizeInputToLSBDepthScratch(pcm []float64) []float64 {
 	return out[:len(pcm)]
 }
 
+// computeSurroundDynallocFromMask mirrors libopus surround masking reduction in
+// celt_encoder.c: derive per-band dynalloc floors and surround trim from
+// externally supplied energy masks.
+func (e *Encoder) computeSurroundDynallocFromMask(nbBands int, out []float64) (float64, bool) {
+	if nbBands <= 0 || len(out) < nbBands {
+		return e.surroundTrim, false
+	}
+	for i := 0; i < nbBands; i++ {
+		out[i] = 0
+	}
+	if e.lfe || e.hybrid {
+		return e.surroundTrim, false
+	}
+
+	maskBands := MaxBands
+	needed := maskBands * e.channels
+	if len(e.energyMask) < needed {
+		return e.surroundTrim, false
+	}
+
+	maskEnd := e.lastCodedBands
+	if maskEnd < 2 {
+		maskEnd = 2
+	}
+	if maskEnd > nbBands {
+		maskEnd = nbBands
+	}
+	if maskEnd > maskBands {
+		maskEnd = maskBands
+	}
+	if maskEnd <= 0 {
+		return e.surroundTrim, false
+	}
+
+	maskAvg := 0.0
+	diff := 0.0
+	count := 0
+	for c := 0; c < e.channels; c++ {
+		base := c * maskBands
+		for i := 0; i < maskEnd; i++ {
+			mask := e.energyMask[base+i]
+			if mask > 0.25 {
+				mask = 0.25
+			}
+			if mask < -2.0 {
+				mask = -2.0
+			}
+			if mask > 0 {
+				mask *= 0.5
+			}
+			width := EBands[i+1] - EBands[i]
+			maskAvg += mask * float64(width)
+			count += width
+			diff += mask * float64(1+2*i-maskEnd)
+		}
+	}
+	if count <= 0 {
+		return e.surroundTrim, false
+	}
+	maskAvg = maskAvg/float64(count) + 0.2
+
+	denom := float64(e.channels * (maskEnd - 1) * (maskEnd + 1) * maskEnd)
+	if denom > 0 {
+		diff = (diff * 6.0 / denom) * 0.5
+	} else {
+		diff = 0
+	}
+	if diff > 0.031 {
+		diff = 0.031
+	}
+	if diff < -0.031 {
+		diff = -0.031
+	}
+	surroundTrim := 64.0 * diff
+
+	midband := 0
+	for midband+1 < len(EBands) && EBands[midband+1] < EBands[maskEnd]/2 {
+		midband++
+	}
+
+	countDynalloc := 0
+	for i := 0; i < maskEnd; i++ {
+		lin := maskAvg + diff*float64(i-midband)
+		unmask := e.energyMask[i]
+		if e.channels == 2 {
+			other := e.energyMask[maskBands+i]
+			if other > unmask {
+				unmask = other
+			}
+		}
+		if unmask > 0 {
+			unmask = 0
+		}
+		unmask -= lin
+		if unmask > 0.25 {
+			out[i] = unmask - 0.25
+			countDynalloc++
+		}
+	}
+
+	if countDynalloc >= 3 {
+		maskAvg += 0.25
+		if maskAvg > 0 {
+			for i := 0; i < maskEnd; i++ {
+				out[i] = 0
+			}
+		} else {
+			for i := 0; i < maskEnd; i++ {
+				v := out[i] - 0.25
+				if v < 0 {
+					v = 0
+				}
+				out[i] = v
+			}
+		}
+	}
+
+	return surroundTrim, true
+}
+
 // EncodeFrame encodes a complete CELT frame from PCM samples.
 // pcm: input samples (interleaved if stereo), length = frameSize * channels
 // frameSize: 120, 240, 480, or 960 samples
@@ -732,6 +852,13 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	if oldBandELen > len(prev1LogE) {
 		oldBandELen = len(prev1LogE)
 	}
+	surroundTrimForAlloc := e.surroundTrim
+	var surroundDynalloc []float64
+	var surroundDynallocScratch [MaxBands]float64
+	if trim, ok := e.computeSurroundDynallocFromMask(nbBands, surroundDynallocScratch[:nbBands]); ok {
+		surroundTrimForAlloc = trim
+		surroundDynalloc = surroundDynallocScratch[:nbBands]
+	}
 	dynallocResult := DynallocAnalysisWithScratch(
 		analysisEnergies, bandLogE2Use, prev1LogE[:oldBandELen],
 		nbBands, start, end, e.channels, lsbDepth, lm,
@@ -739,6 +866,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		effectiveBytes,
 		transient, isVBR, isConstrainedVBR,
 		toneFreq, toneishness,
+		surroundDynalloc,
 		e.analysisValid, e.dynallocLeakBoost(),
 		&e.dynallocScratch,
 	)
@@ -955,7 +1083,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 				intensity,
 				tfEstimate,
 				equivRate,
-				e.surroundTrim,
+				surroundTrimForAlloc,
 				tonalitySlope,
 			)
 			if tmpTrimDebugEnabled && e.channels == 1 && frameSize == 480 && e.frameCount >= 45 && e.frameCount <= 80 {

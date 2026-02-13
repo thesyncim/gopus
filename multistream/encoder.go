@@ -80,6 +80,9 @@ type Encoder struct {
 	// streamSurroundTrim stores per-stream surround trim derived from surround masks.
 	streamSurroundTrim []float64
 
+	// streamEnergyMask stores per-stream CELT energy masks (max 42 values/stream).
+	streamEnergyMask []float64
+
 	// surroundBandSMR stores per-channel surround masks (21 bands per channel).
 	surroundBandSMR []float64
 
@@ -253,6 +256,7 @@ func NewEncoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 		lfeStream:               lfeStream,
 		streamBitrates:          make([]int, streams),
 		streamSurroundTrim:      make([]float64, streams),
+		streamEnergyMask:        make([]float64, streams*2*surroundBands),
 		surroundBandSMR:         make([]float64, channels*surroundBands),
 		surroundWindowMem:       make([]float64, channels*celt.Overlap),
 		surroundPreemphMem:      make([]float64, channels),
@@ -369,6 +373,9 @@ func (e *Encoder) Reset() {
 	}
 	if len(e.surroundBandSMR) > 0 {
 		clear(e.surroundBandSMR)
+	}
+	if len(e.streamEnergyMask) > 0 {
+		clear(e.streamEnergyMask)
 	}
 	if len(e.surroundWindowMem) > 0 {
 		clear(e.surroundWindowMem)
@@ -928,7 +935,7 @@ func (e *Encoder) computeSurroundBandSMR(pcm []float64, frameSize int, bandSMR [
 	return true
 }
 
-func (e *Encoder) updateSurroundTrimFromPCM(pcm []float64, frameSize int) {
+func (e *Encoder) updateSurroundTrimFromPCM(pcm []float64, frameSize int) bool {
 	if cap(e.streamSurroundTrim) < e.streams {
 		e.streamSurroundTrim = make([]float64, e.streams)
 	}
@@ -937,7 +944,7 @@ func (e *Encoder) updateSurroundTrimFromPCM(pcm []float64, frameSize int) {
 		trim[i] = 0
 	}
 	if !e.isSurroundMapping() {
-		return
+		return false
 	}
 
 	needed := e.inputChannels * surroundBands
@@ -947,7 +954,7 @@ func (e *Encoder) updateSurroundTrimFromPCM(pcm []float64, frameSize int) {
 	bandSMR := e.surroundBandSMR[:needed]
 	clear(bandSMR)
 	if !e.computeSurroundBandSMR(pcm, frameSize, bandSMR) {
-		return
+		return false
 	}
 
 	for s := 0; s < e.streams; s++ {
@@ -977,12 +984,23 @@ func (e *Encoder) updateSurroundTrimFromPCM(pcm []float64, frameSize int) {
 			)
 		}
 	}
+	return true
 }
 
 func (e *Encoder) applyPerStreamPolicy(frameSize int, pcm []float64) {
 	rates := e.allocateRates(frameSize)
+	hasSurroundMask := false
 	if e.isSurroundMapping() {
-		e.updateSurroundTrimFromPCM(pcm, frameSize)
+		hasSurroundMask = e.updateSurroundTrimFromPCM(pcm, frameSize)
+	}
+	var streamMasks []float64
+	if hasSurroundMask {
+		needed := e.streams * 2 * surroundBands
+		if cap(e.streamEnergyMask) < needed {
+			e.streamEnergyMask = make([]float64, needed)
+		}
+		streamMasks = e.streamEnergyMask[:needed]
+		clear(streamMasks)
 	}
 
 	surroundBandwidth := e.surroundBandwidth(frameSize)
@@ -1004,11 +1022,35 @@ func (e *Encoder) applyPerStreamPolicy(frameSize int, pcm []float64) {
 			} else {
 				enc.SetCELTSurroundTrim(0)
 			}
+			enc.SetCELTEnergyMask(nil)
+			if hasSurroundMask && i != e.lfeStream {
+				base := i * 2 * surroundBands
+				if i < e.coupledStreams {
+					left := e.inputChannelForMapping(byte(2 * i))
+					right := e.inputChannelForMapping(byte(2*i + 1))
+					if left >= 0 && right >= 0 {
+						dst := streamMasks[base : base+2*surroundBands]
+						copy(dst[:surroundBands], e.surroundBandSMR[left*surroundBands:(left+1)*surroundBands])
+						copy(dst[surroundBands:], e.surroundBandSMR[right*surroundBands:(right+1)*surroundBands])
+						enc.SetCELTEnergyMask(dst)
+					}
+				} else {
+					mappingIdx := byte(2*e.coupledStreams + (i - e.coupledStreams))
+					mono := e.inputChannelForMapping(mappingIdx)
+					if mono >= 0 {
+						dst := streamMasks[base : base+surroundBands]
+						copy(dst, e.surroundBandSMR[mono*surroundBands:(mono+1)*surroundBands])
+						enc.SetCELTEnergyMask(dst)
+					}
+				}
+			}
 		case e.isAmbisonicsMapping():
 			enc.SetMode(encoder.ModeCELT)
 			enc.SetCELTSurroundTrim(0)
+			enc.SetCELTEnergyMask(nil)
 		default:
 			enc.SetCELTSurroundTrim(0)
+			enc.SetCELTEnergyMask(nil)
 		}
 	}
 }

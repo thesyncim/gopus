@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-13
+topic: Multistream surround energy-mask control parity
+decision: Keep per-stream surround energy-mask wiring active: multistream surround analysis produces per-stream masks (coupled=42, mono=21, LFE cleared), forwards via encoder/celt mask controls, and CELT uses libopus-style mask->surround_dynalloc/surround_trim derivation in dynalloc/alloc-trim control flow.
+evidence: Updated `multistream/encoder.go`, `encoder/encoder.go`, `celt/encoder.go`, `celt/encode_frame.go`, `celt/dynalloc.go`; added `TestEncode_SurroundEnergyMaskPerStream`, `TestEncoderSetEnergyMask`, and `TestComputeSurroundDynallocFromMask`; focused package tests and parity fixture slice passed.
+do_not_repeat_until: libopus surround masking semantics change in `opus_multistream_encoder.c`/`celt_encoder.c`, or fixture/interoperability evidence indicates divergence.
+owner: codex
+
+date: 2026-02-13
 topic: Analyzer trace fixture + full 25-feature wiring parity
 decision: Keep full libopus 25-feature analyzer assembly enabled (`midE`, `spec_variability`, `cmean/mem/std` cadence, feature slot mapping) and guard it with fixture-backed `AnalysisInfo` parity tests generated from libopus 1.6.1 `run_analysis`/`tonality_get_info`.
 evidence: Added `tmp_check/gen_libopus_analysis_trace_fixture.go` (build-ignore), `encoder/testdata/libopus_analysis_trace_fixture.json`, and `encoder/analysis_trace_fixture_test.go`; `TestAnalysisTraceFixtureParityWithLibopus` now reports 0 bad frames across all SWB 10/20/40 ms fixture cases. Focused encoder tests, variant/compliance slices, and `make verify-production` passed.
