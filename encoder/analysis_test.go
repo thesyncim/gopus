@@ -87,3 +87,52 @@ func TestRunAnalysisLongFrameUses20msChunks(t *testing.T) {
 		t.Fatalf("unexpected analysis offset: got %d want 0", s.AnalysisOffset)
 	}
 }
+
+func TestRunAnalysisMaxPitchRatioTracksHighBandEnergy(t *testing.T) {
+	s := NewTonalityAnalysisState(48000)
+
+	const frameSize = 960
+	pcm := make([]float32, frameSize)
+	for i := range pcm {
+		pcm[i] = 0.7 * float32(math.Sin(2*math.Pi*10000.0*float64(i)/48000.0))
+	}
+
+	var info AnalysisInfo
+	for i := 0; i < 8; i++ {
+		info = s.RunAnalysis(pcm, frameSize, 1)
+	}
+	if !info.Valid {
+		t.Fatal("expected valid analysis info")
+	}
+	if info.MaxPitchRatio >= 0.98 {
+		t.Fatalf("expected high-band dominant frame to reduce max pitch ratio, got %.4f", info.MaxPitchRatio)
+	}
+}
+
+func TestRunAnalysisLowEnergyCounterIncreasesAfterLoudnessDrop(t *testing.T) {
+	s := NewTonalityAnalysisState(48000)
+
+	const frameSize = 960
+	loud := make([]float32, frameSize)
+	quiet := make([]float32, frameSize)
+	for i := 0; i < frameSize; i++ {
+		loud[i] = 0.8 * float32(math.Sin(2*math.Pi*220.0*float64(i)/48000.0))
+		quiet[i] = 1e-4 * float32(math.Sin(2*math.Pi*220.0*float64(i)/48000.0))
+	}
+
+	for i := 0; i < 12; i++ {
+		_ = s.RunAnalysis(loud, frameSize, 1)
+	}
+	lowEBefore := s.LowECount
+
+	var info AnalysisInfo
+	for i := 0; i < 12; i++ {
+		info = s.RunAnalysis(quiet, frameSize, 1)
+	}
+	if !info.Valid {
+		t.Fatal("expected valid analysis info")
+	}
+	if s.LowECount <= lowEBefore {
+		t.Fatalf("expected low-energy counter to increase after loudness drop: before=%.6f after=%.6f", lowEBefore, s.LowECount)
+	}
+}

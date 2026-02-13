@@ -223,6 +223,11 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		s.MemFill = 240
 		s.Initialized = true
 	}
+	alphaE := float32(1.0 / float32(min(25, 1+s.Count)))
+	alphaE2 := float32(1.0 / float32(min(100, 1+s.Count)))
+	if s.Count <= 1 {
+		alphaE2 = 1.0
+	}
 
 	frameSize := len(pcm) / channels
 
@@ -344,8 +349,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	var leakageTo [NbTBands + 1]float32
 	var BFCC [8]float32
 	var features [25]float32
-	var bandEnergy [NbTBands]float32
-	var maxBandEnergy float32
+	var masked [NbTBands + 1]bool
 	const (
 		log2Scale      = float32(0.7213475) // 0.5*log2(e)
 		leakageOffset  = float32(2.5)
@@ -412,7 +416,14 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	relativeE := float32(0)
 	frameLoudness := float32(0)
 	slope := float32(0)
+	bandwidthMask := float32(0)
+	bandwidth := 0
+	maxE := float32(0)
+	noiseFloor := float32(5.7e-4 / float64(uint(1)<<uint(24-8)))
+	belowMaxPitch := float32(0)
+	aboveMaxPitch := float32(0)
 	var bandTonality [NbTBands]float32
+	maxPitchRatio := float32(1.0)
 
 	if s.Count == 0 {
 		for b := 0; b < NbTBands; b++ {
@@ -420,6 +431,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 			s.HighE[b] = -1e10
 		}
 	}
+	noiseFloor *= noiseFloor
 
 	// Match libopus special handling for the first band (DC/Nyquist bins).
 	{
@@ -448,10 +460,6 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		}
 
 		s.E[s.ECount][b] = bandE
-		bandEnergy[b] = bandE
-		if bandE > maxBandEnergy {
-			maxBandEnergy = bandE
-		}
 		logE[b] = float32(math.Log(float64(bandE) + 1e-10))
 		bandLog2[b+1] = log2Scale * float32(math.Log(float64(bandE)+1e-10))
 		s.LogE[s.ECount][b] = logE[b]
@@ -498,12 +506,6 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		slope += bandTonality[b] * float32(b-8)
 		s.PrevBandTonality[b] = bandTonality[b]
 	}
-	frameNoisiness /= NbTBands
-	frameStationarity /= NbTBands
-	relativeE /= NbTBands
-	if s.Count < 10 {
-		relativeE = 0.5
-	}
 
 	// Compute analysis leak_boost[] exactly as libopus analysis.c does.
 	leakageFrom[0] = bandLog2[0]
@@ -519,6 +521,72 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		leakageTo[b] = maxf(leakageTo[b], leakageTo[b+1]-leakSlope)
 	}
 
+	for b := 0; b < NbTBands; b++ {
+		bandStart := tbands[b]
+		bandEnd := tbands[b+1]
+		E := float32(0)
+		for i := bandStart; i < bandEnd; i++ {
+			binE := real(out[i])*real(out[i]) + real(out[480-i])*real(out[480-i]) +
+				imag(out[i])*imag(out[i]) + imag(out[480-i])*imag(out[480-i])
+			E += binE
+		}
+		E *= (1.0 / (celtSigScale * celtSigScale)) * analysisFFTEnergyScale
+		maxE = maxf(maxE, E)
+		if bandStart < 64 {
+			belowMaxPitch += E
+		} else {
+			aboveMaxPitch += E
+		}
+		s.MeanE[b] = maxf((1.0-alphaE2)*s.MeanE[b], E)
+		Em := maxf(E, s.MeanE[b])
+		width := float32(bandEnd - bandStart)
+		if E*1e9 > maxE && (Em > 3*noiseFloor*width || E > noiseFloor*width) {
+			bandwidth = b + 1
+		}
+		maskThresh := float32(0.05)
+		if s.PrevBandwidth >= b+1 {
+			maskThresh = 0.01
+		}
+		masked[b] = E < maskThresh*bandwidthMask
+		bandwidthMask = maxf(0.05*bandwidthMask, E)
+	}
+	if s.Fs == 48000 {
+		E := hpEner * (1.0 / (60.0 * 60.0))
+		noiseRatio := float32(30.0)
+		if s.PrevBandwidth == 20 {
+			noiseRatio = 10.0
+		}
+		aboveMaxPitch += E
+		s.MeanE[NbTBands] = maxf((1.0-alphaE2)*s.MeanE[NbTBands], E)
+		Em := maxf(E, s.MeanE[NbTBands])
+		if Em > 3*noiseRatio*noiseFloor*160 || E > noiseRatio*noiseFloor*160 {
+			bandwidth = 20
+		}
+		maskThresh := float32(0.05)
+		if s.PrevBandwidth == 20 {
+			maskThresh = 0.01
+		}
+		masked[NbTBands] = E < maskThresh*bandwidthMask
+	}
+	if aboveMaxPitch > belowMaxPitch {
+		maxPitchRatio = belowMaxPitch / aboveMaxPitch
+	}
+	if bandwidth == 20 && masked[NbTBands] {
+		bandwidth -= 2
+	} else if bandwidth > 0 && bandwidth <= NbTBands && masked[bandwidth-1] {
+		bandwidth--
+	}
+	if s.Count <= 2 {
+		bandwidth = 20
+	}
+
+	frameLoudness = 20.0 * float32(math.Log10(float64(frameLoudness)))
+	s.ETracker = maxf(s.ETracker-0.003, frameLoudness)
+	s.LowECount *= 1.0 - alphaE
+	if frameLoudness < s.ETracker-30.0 {
+		s.LowECount += alphaE
+	}
+
 	// BFCC extraction
 	for i := 0; i < 8; i++ {
 		var sum float32
@@ -527,8 +595,34 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		}
 		BFCC[i] = sum
 	}
+	frameStationarity /= NbTBands
+	relativeE /= NbTBands
+	if s.Count < 10 {
+		relativeE = 0.5
+	}
+	frameNoisiness /= NbTBands
 
-	// Feature assembly (simplified)
+	activity := frameNoisiness + (1.0-frameNoisiness)*relativeE
+	frameTonality = maxFrameTonality / float32(NbTBands-NbTonalSkipBands)
+	frameTonality = maxf(frameTonality, s.PrevTonality*0.8)
+	s.PrevTonality = frameTonality
+	slope /= 64.0
+
+	s.ECount = (s.ECount + 1) % NbFrames
+	s.Count = min(s.Count+1, 10000)
+
+	info := &s.Info[s.WritePos]
+	info.Valid = true
+	info.Tonality = frameTonality
+	info.TonalitySlope = slope
+	info.NoisySpeech = frameNoisiness
+	info.StationarySpeech = frameStationarity
+	info.Activity = activity
+	info.MaxPitchRatio = maxPitchRatio
+	info.BandwidthIndex = bandwidth
+	info.Bandwidth = bandwidthTypeFromIndex(bandwidth)
+	info.Loudness = frameLoudness
+
 	for i := 0; i < 8; i++ {
 		features[i] = BFCC[i]
 		s.Mem[i] = BFCC[i]
@@ -540,25 +634,8 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	layer0.ComputeDense(layerOut[:], features[:])
 	layer1.ComputeGRU(s.RNNState[:], layerOut[:])
 	layer2.ComputeDense(frameProbs[:], s.RNNState[:])
-
-	_ = frameLoudness
-	frameTonality = maxFrameTonality / float32(NbTBands-NbTonalSkipBands)
-	frameTonality = maxf(frameTonality, s.PrevTonality*0.8)
-	s.PrevTonality = frameTonality
-	slope /= 64.0
-
-	info := &s.Info[s.WritePos]
-	info.Valid = true
-	info.Tonality = frameTonality
-	info.TonalitySlope = slope
 	info.MusicProb = frameProbs[0]
 	info.VADProb = frameProbs[1]
-	info.NoisySpeech = frameNoisiness
-	info.StationarySpeech = frameStationarity
-	info.Activity = frameNoisiness + (1.0-frameNoisiness)*relativeE
-	info.MaxPitchRatio = 1.0
-	info.BandwidthIndex = detectBandwidthIndex(bandEnergy[:], maxBandEnergy, s.PrevBandwidth, hpEner, int(s.Fs), 24, s.Count)
-	info.Bandwidth = bandwidthTypeFromIndex(info.BandwidthIndex)
 	for b := 0; b < NbTBands+1; b++ {
 		boost := maxf(0, leakageTo[b]-bandLog2[b]) + maxf(0, bandLog2[b]-(leakageFrom[b]+leakageOffset))
 		q6 := int(math.Floor(0.5 + 64.0*float64(boost)))
@@ -570,11 +647,8 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		}
 		info.LeakBoost[b] = uint8(q6)
 	}
-	s.PrevBandwidth = info.BandwidthIndex
-
+	s.PrevBandwidth = bandwidth
 	s.WritePos = (s.WritePos + 1) % DetectSize
-	s.Count = min(s.Count+1, 10000)
-	s.ECount = (s.ECount + 1) % NbFrames
 }
 
 func bandwidthTypeFromIndex(bandwidth int) types.Bandwidth {
@@ -590,71 +664,6 @@ func bandwidthTypeFromIndex(bandwidth int) types.Bandwidth {
 	default:
 		return types.BandwidthFullband
 	}
-}
-
-func detectBandwidthIndex(bandEnergy []float32, maxBandEnergy float32, prevBandwidth int, hpEner float32, fs int, lsbDepth int, frameCount int) int {
-	if len(bandEnergy) == 0 {
-		return 20
-	}
-	if lsbDepth < 8 {
-		lsbDepth = 8
-	}
-	noiseFloor := float32(5.7e-4 / float64(uint(1)<<uint(lsbDepth-8)))
-	noiseFloor *= noiseFloor
-
-	bandwidthMask := float32(0)
-	bandwidth := 0
-	var masked [NbTBands + 1]bool
-
-	for b := 0; b < len(bandEnergy); b++ {
-		E := bandEnergy[b]
-		width := tbands[b+1] - tbands[b]
-		if width < 1 {
-			width = 1
-		}
-		if E*1e9 > maxBandEnergy && E > noiseFloor*float32(width) {
-			bandwidth = b + 1
-		}
-		maskThresh := float32(0.05)
-		if prevBandwidth >= b+1 {
-			maskThresh = 0.01
-		}
-		masked[b] = E < maskThresh*bandwidthMask
-		bandwidthMask = maxf(0.05*bandwidthMask, E)
-	}
-
-	// High-band detector from the downsampler high-pass residual (48kHz path).
-	if fs == 48000 {
-		E := hpEner * (1.0 / (60.0 * 60.0))
-		noiseRatio := float32(30.0)
-		if prevBandwidth == 20 {
-			noiseRatio = 10.0
-		}
-		if E > noiseRatio*noiseFloor*160 {
-			bandwidth = 20
-		}
-		maskThresh := float32(0.05)
-		if prevBandwidth == 20 {
-			maskThresh = 0.01
-		}
-		masked[NbTBands] = E < maskThresh*bandwidthMask
-	}
-
-	if bandwidth == 20 && masked[NbTBands] {
-		bandwidth -= 2
-	} else if bandwidth > 0 && bandwidth <= NbTBands && masked[bandwidth-1] {
-		bandwidth--
-	}
-	if frameCount <= 2 {
-		bandwidth = 20
-	}
-	if bandwidth < 1 {
-		bandwidth = 1
-	}
-	if bandwidth > 20 {
-		bandwidth = 20
-	}
-	return bandwidth
 }
 
 func maxf(a, b float32) float32 {
