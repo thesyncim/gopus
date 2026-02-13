@@ -99,6 +99,10 @@ type Encoder struct {
 	// Force channels (-1=auto, 1=mono, 2=stereo)
 	forceChannels int
 
+	// LFE mode flag.
+	// When true, force CELT-only narrowband behavior for this stream.
+	lfe bool
+
 	// LSB depth of input signal (8-24 bits, affects DTX sensitivity)
 	lsbDepth int
 
@@ -542,6 +546,9 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		}
 	}
 	actualMode := e.selectMode(frameSize, signalHint)
+	if e.lfe {
+		actualMode = ModeCELT
+	}
 	if e.mode == ModeAuto &&
 		frameSize > 960 &&
 		e.effectiveBandwidth() == types.BandwidthSuperwideband &&
@@ -1174,6 +1181,9 @@ func (e *Encoder) autoSignalFromPCM(pcm []float64, frameSize int) types.Signal {
 
 // effectiveBandwidth returns the actual bandwidth to use, considering maxBandwidth limit.
 func (e *Encoder) effectiveBandwidth() types.Bandwidth {
+	if e.lfe {
+		return types.BandwidthNarrowband
+	}
 	if e.bandwidth > e.maxBandwidth {
 		return e.maxBandwidth
 	}
@@ -1752,6 +1762,7 @@ func (e *Encoder) ensureCELTEncoder() {
 		// Opus encoder already applies CELT delay compensation at the top level.
 		e.celtEncoder.SetDelayCompensationEnabled(false)
 	}
+	e.celtEncoder.SetLFE(e.lfe)
 	e.celtEncoder.SetSurroundTrim(e.celtSurroundTrim)
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 }
@@ -1863,6 +1874,20 @@ func (e *Encoder) SetForceChannels(channels int) {
 // ForceChannels returns the forced channel count (-1 = auto).
 func (e *Encoder) ForceChannels() int {
 	return e.forceChannels
+}
+
+// SetLFE enables or disables LFE mode.
+func (e *Encoder) SetLFE(enabled bool) {
+	e.lfe = enabled
+	if e.celtEncoder != nil {
+		e.celtEncoder.SetLFE(enabled)
+		e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
+	}
+}
+
+// LFE reports whether LFE mode is enabled.
+func (e *Encoder) LFE() bool {
+	return e.lfe
 }
 
 // Lookahead returns the encoder's algorithmic delay in samples at 48kHz.

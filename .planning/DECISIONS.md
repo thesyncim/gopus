@@ -1,6 +1,6 @@
 # Investigation Decisions
 
-Last updated: 2026-02-12
+Last updated: 2026-02-13
 
 Purpose: prevent repeated validation by recording what was tested, what was ruled out, and when re-validation is allowed.
 
@@ -18,6 +18,13 @@ owner: <initials or handle>
 ```
 
 ## Current Decisions
+
+date: 2026-02-13
+topic: LFE-aware multistream parity control propagation
+decision: Keep explicit per-stream LFE flag propagation from multistream mapping detection into encoder/CELT state, with LFE enforcing CELT-only narrowband effective behavior. Keep CELT-side LFE gates for TF analysis/alloc-trim and coarse-energy constraints to match libopus LFE handling intent.
+evidence: Added `SetLFE`/`LFE` in `encoder/encoder.go` and `celt/encoder.go`, wired `multistream/encoder.go` to mark only the detected LFE stream (`SetLFE(i==lfeStream)`), and applied LFE guards in `celt/encode_frame.go` / `celt/energy_encode.go`. Added tests `TestNewEncoderDefault_SetsLFEFlags`, `TestEncode_SurroundPerStreamPolicy` LFE-flag assertions, `TestLFEEffectiveBandwidthClamp`, `TestLFEModeForcesCELTPath`, `TestEncoderSetLFE`, and `TestComputeTargetBitsLFEAvoidsNonLFEBudgets`. Validation: focused multistream/encoder/celt LFE tests PASS, `go test . -run TestMultistreamEncoder_Controls -count=1` PASS, `make verify-production` PASS, `make bench-guard` PASS.
+do_not_repeat_until: libopus fixture/interoperability evidence shows divergence for LFE stream behavior, or remaining surround per-stream policy parity work requires adjusting LFE control semantics.
+owner: codex
 
 date: 2026-02-12
 topic: Multistream surround-analysis producer parity into surroundTrim flow

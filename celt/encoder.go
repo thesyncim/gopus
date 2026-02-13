@@ -163,6 +163,10 @@ type Encoder struct {
 	// Reference: libopus celt_encoder.c line 2047-2048
 	hybrid bool
 
+	// LFE mode flag.
+	// When true, encoder applies low-frequency-effects constraints.
+	lfe bool
+
 	// Pre-emphasized signal buffer for transient analysis overlap
 	// Stores the previous frame's pre-emphasized samples (last Overlap samples per channel)
 	// This matches libopus behavior where transient_analysis() is called with
@@ -897,6 +901,16 @@ func (e *Encoder) SetHybrid(hybrid bool) {
 // IsHybrid returns true if the encoder is in hybrid mode.
 func (e *Encoder) IsHybrid() bool {
 	return e.hybrid
+}
+
+// SetLFE enables or disables LFE mode constraints.
+func (e *Encoder) SetLFE(enabled bool) {
+	e.lfe = enabled
+}
+
+// LFE reports whether LFE mode constraints are enabled.
+func (e *Encoder) LFE() bool {
+	return e.lfe
 }
 
 // SetForceTransient forces short blocks for testing/debugging.
