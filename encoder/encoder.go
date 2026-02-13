@@ -430,6 +430,11 @@ func (e *Encoder) computeEquivRate(bitrate int, channels int, frameRate int, vbr
 		if complexity < 5 {
 			equiv = (equiv * 9) / 10
 		}
+	} else {
+		// Mode not known yet: libopus applies half the SILK packet-loss penalty.
+		if loss > 0 {
+			equiv -= (equiv * loss) / (12*loss + 20)
+		}
 	}
 	if equiv < 5000 {
 		equiv = 5000
@@ -482,68 +487,6 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	signalHint := e.signalType
 	if signalHint == types.SignalAuto {
 		signalHint = e.autoSignalFromPCM(framePCM, frameSize)
-		// For long-frame SWB auto mode, use VAD probability to pick the
-		// SILK/hybrid-vs-CELT branch, with mild hysteresis to reduce flapping.
-		// Include an edge-energy cue so transient SWB content can leave CELT-only.
-		if e.mode == ModeAuto &&
-			frameSize > 960 &&
-			e.effectiveBandwidth() == types.BandwidthSuperwideband &&
-			e.lastAnalysisValid {
-			channels := e.channels
-			if channels < 1 {
-				channels = 1
-			}
-			var energy, diffEnergy float64
-			var prev float64
-			samples := frameSize
-			for i := 0; i < samples; i++ {
-				var s float64
-				if channels == 2 {
-					idx := i * 2
-					if idx+1 >= len(framePCM) {
-						break
-					}
-					s = 0.5 * (framePCM[idx] + framePCM[idx+1])
-				} else {
-					if i >= len(framePCM) {
-						break
-					}
-					s = framePCM[i]
-				}
-				energy += s * s
-				if i > 0 {
-					d := s - prev
-					diffEnergy += d * d
-				}
-				prev = s
-			}
-			edgeRatio := 0.0
-			if energy > 0 {
-				edgeRatio = diffEnergy / (energy + 1e-12)
-			}
-
-			vadProb := e.lastAnalysisInfo.VADProb
-			// Strong transient-like SWB content often needs hybrid coding even at
-			// moderate activity scores.
-			edgeVoice := edgeRatio >= 0.08 && e.lastAnalysisInfo.MusicProb >= 0.90
-			// Once in hybrid due transient evidence, require weaker evidence to stay
-			// there to avoid single-frame flapping on borderline blocks.
-			if !edgeVoice && e.prevLongSWBAutoMode == ModeHybrid && edgeRatio >= 0.06 {
-				edgeVoice = true
-			}
-			if edgeVoice {
-				signalHint = types.SignalVoice
-			} else {
-				if e.prevLongSWBAutoMode == ModeHybrid {
-					vadProb += 0.15
-				}
-				if vadProb >= 0.35 {
-					signalHint = types.SignalVoice
-				} else {
-					signalHint = types.SignalMusic
-				}
-			}
-		}
 	}
 	actualMode := e.selectMode(frameSize, signalHint)
 	if e.lfe {
@@ -941,6 +884,9 @@ func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
 		if bw == types.BandwidthFullband {
 			return ModeCELT
 		}
+		if bw == types.BandwidthSuperwideband {
+			return e.selectLongSWBAutoMode(frameSize, signalHint)
+		}
 		// Respect explicit or analyzed signal hints.
 		switch signalHint {
 		case types.SignalVoice:
@@ -1017,6 +963,71 @@ func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
 		return ModeCELT
 	}
 	return preferred
+}
+
+// selectLongSWBAutoMode mirrors libopus mode-threshold control for long-frame SWB
+// auto mode (Celt-only vs Silk/Hybrid lane), using analysis-derived voice estimate
+// and previous-mode hysteresis.
+func (e *Encoder) selectLongSWBAutoMode(frameSize int, signalHint types.Signal) Mode {
+	frameRate := e.sampleRate / frameSize
+	if frameRate <= 0 {
+		frameRate = 50
+	}
+	useVBR := e.bitrateMode != ModeCBR
+	equivRate := e.computeEquivRate(e.bitrate, e.channels, frameRate, useVBR, ModeAuto, e.complexity, e.packetLoss)
+
+	voiceEst := 48 // OPUS_APPLICATION_AUDIO default when analysis is unavailable.
+	if e.signalType == types.SignalVoice {
+		voiceEst = 127
+	} else if e.signalType == types.SignalMusic {
+		voiceEst = 0
+	} else if e.lastAnalysisValid {
+		prob := float64(e.lastAnalysisInfo.MusicProb)
+		if prob < 0 {
+			prob = 0
+		}
+		if prob > 1 {
+			prob = 1
+		}
+		voiceEst = int(math.Floor(0.5 + prob*127.0))
+		// Audio application never assumes >90% speech confidence in auto mode.
+		if voiceEst > 115 {
+			voiceEst = 115
+		}
+	} else if signalHint == types.SignalVoice {
+		voiceEst = 127
+	} else if signalHint == types.SignalMusic {
+		voiceEst = 0
+	}
+
+	modeVoice := 64000
+	if e.channels == 2 {
+		modeVoice = 44000
+	}
+	const modeMusic = 10000
+	threshold := modeMusic + (voiceEst*voiceEst*(modeVoice-modeMusic))/16384
+
+	// libopus hysteresis: bias against rapid CELT<->SILK/HYBRID switching.
+	if e.prevLongSWBAutoMode == ModeCELT {
+		threshold -= 2000
+	} else if e.prevLongSWBAutoMode == ModeHybrid {
+		threshold += 4000
+	}
+
+	// Keep strongly tonal long SWB content in CELT-only mode.
+	if e.lastAnalysisValid && e.lastAnalysisInfo.Tonality >= 0.42 {
+		return ModeCELT
+	}
+	if e.lastAnalysisValid &&
+		e.lastAnalysisInfo.MusicProb < 0.90 &&
+		e.lastAnalysisInfo.Tonality < 0.12 {
+		return ModeCELT
+	}
+
+	if equivRate >= threshold {
+		return ModeCELT
+	}
+	return ModeHybrid
 }
 
 // autoSignalFromPCM is kept for backward compatibility but RunAnalysis is preferred.

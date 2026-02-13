@@ -20,6 +20,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-13
+topic: Long-SWB strict voice-ratio control wiring gate
+decision: Keep the concrete libopus `compute_equiv_rate` unknown-mode half-loss branch in `encoder/encoder.go` and guard it with `TestComputeEquivRate_UnknownModeLossPenaltyMatchesLibopus`. Do not enable strict long-SWB mode control from `tonality_get_info`/voice-ratio wiring yet; keep the current stable long-SWB auto policy until analyzer parity is improved for those profiles.
+evidence: Strict wiring attempt (analysis bounds + voice-ratio-driven long-SWB thresholding) regressed `TestEncoderVariantProfileParityAgainstLibopusFixture` on `HYBRID-SWB-40ms-mono-48k` variants with severe mode mismatch increases (up to 100%). After rolling back only the regressing control wiring and keeping `compute_equiv_rate` unknown-mode loss fix, revalidation passed: `go test ./encoder -count=1`, `GOPUS_TEST_TIER=parity go test ./testvectors -run 'TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard|TestEncoderVariantProfileParityAgainstLibopusFixture' -count=1 -v`.
+do_not_repeat_until: Analyzer parity for long-SWB hybrid auto profiles is improved with fixture-backed evidence that strict voice-ratio wiring no longer regresses `HYBRID-SWB-40ms-mono-48k` mode mismatch ratchets.
+owner: codex
+
+date: 2026-02-13
 topic: CELT 20ms high-budget uplift split (stereo-only continuation, round 2)
 decision: Keep non-hybrid/non-LFE CELT `frameSize==960` high-budget uplift split in `celt/encode_frame.go` (`computeTargetBits`) at `mono=+1280` and `stereo=+1408` (low-budget subframe branch unchanged at `+256`).
 evidence: Raised only stereo high-budget branch `+1344 -> +1408`. Focused `go test ./testvectors -run TestEncoderComplianceCELT -count=1 -v` improved `FB-20ms-stereo` (`Q=-12.97 -> -12.80`, target bits avg `3680 -> 3744`) with `FB-20ms-mono` unchanged (`Q=-8.20`). `go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` improved `CELT-FB-20ms-stereo-128k` (`Q=-8.88 -> -8.67`) with mono unchanged. Guards/interoperability passed: `go test ./testvectors -run 'TestEncoderCompliancePrecisionGuard|TestEncoderVariantProfileParityAgainstLibopusFixture' -count=1 -v`, regenerated fixtures (`go run ./tools/gen_opusdec_crossval_fixture.go`, `make fixtures-gen-amd64`), `go test ./celt -run 'TestOpusdecCrossvalFixtureCoverage|TestOpusdecCrossvalFixtureHonestyAgainstLiveOpusdec' -count=1 -v`, `make verify-production`, and `make bench-guard`.
