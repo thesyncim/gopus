@@ -1673,9 +1673,9 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 			targetBits += 64
 		case 480:
 			// 10ms CELT is still quality-constrained by per-frame signaling.
-			// Keep stereo uplift as-is and raise mono modestly.
+			// Keep mono uplift and give stereo extra headroom.
 			if e.channels == 2 {
-				targetBits += 256
+				targetBits += 384
 			} else {
 				targetBits += 256
 			}
