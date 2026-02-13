@@ -20,6 +20,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-13
+topic: Surround per-stream control policy parity
+decision: Keep multistream per-frame control aligned with libopus: for surround mappings, always apply surround bandwidth policy to each stream but force mode/channel only for coupled streams (`ModeCELT` + `ForceChannels(2)`); do not reset mono/LFE force-channels each frame. For ambisonics mappings, force CELT mode only and preserve caller-configured force-channels.
+evidence: Updated `multistream/encoder.go` `applyPerStreamPolicy` to remove mono/ambisonics `ForceChannels(-1)` resets and remove per-frame LFE `ModeCELT`/`ForceChannels(1)`/NB override. Added/updated tests in `multistream/encoder_test.go`: `TestEncode_SurroundPerStreamPolicy`, `TestEncode_SurroundPolicyPreservesMonoForceChannels`, `TestEncode_AmbisonicsForcesCELTMode` (force-channel preservation assertions). Validation: focused multistream policy slice PASS, `go test . -run TestMultistreamEncoder_Controls -count=1` PASS, `make verify-production` PASS, `make bench-guard` PASS.
+do_not_repeat_until: libopus fixture/interoperability evidence indicates per-stream mode/channel/bandwidth control divergence in surround or ambisonics mappings.
+owner: codex
+
+date: 2026-02-13
 topic: LFE-aware multistream parity control propagation
 decision: Keep explicit per-stream LFE flag propagation from multistream mapping detection into encoder/CELT state, with LFE enforcing CELT-only narrowband effective behavior. Keep CELT-side LFE gates for TF analysis/alloc-trim and coarse-energy constraints to match libopus LFE handling intent.
 evidence: Added `SetLFE`/`LFE` in `encoder/encoder.go` and `celt/encoder.go`, wired `multistream/encoder.go` to mark only the detected LFE stream (`SetLFE(i==lfeStream)`), and applied LFE guards in `celt/encode_frame.go` / `celt/energy_encode.go`. Added tests `TestNewEncoderDefault_SetsLFEFlags`, `TestEncode_SurroundPerStreamPolicy` LFE-flag assertions, `TestLFEEffectiveBandwidthClamp`, `TestLFEModeForcesCELTPath`, `TestEncoderSetLFE`, and `TestComputeTargetBitsLFEAvoidsNonLFEBudgets`. Validation: focused multistream/encoder/celt LFE tests PASS, `go test . -run TestMultistreamEncoder_Controls -count=1` PASS, `make verify-production` PASS, `make bench-guard` PASS.

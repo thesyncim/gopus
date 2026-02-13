@@ -960,20 +960,11 @@ func (e *Encoder) applyPerStreamPolicy(frameSize int, pcm []float64) {
 
 		switch {
 		case e.isSurroundMapping():
-			if i == e.lfeStream {
-				enc.SetMode(encoder.ModeCELT)
-				enc.SetForceChannels(1)
-				enc.SetBandwidth(types.BandwidthNarrowband)
-				enc.SetCELTSurroundTrim(0)
-				continue
-			}
 			enc.SetBandwidth(surroundBandwidth)
 			if i < e.coupledStreams {
 				// Preserve surround image parity with libopus on coupled streams.
 				enc.SetMode(encoder.ModeCELT)
 				enc.SetForceChannels(2)
-			} else {
-				enc.SetForceChannels(-1)
 			}
 			if i < len(e.streamSurroundTrim) {
 				enc.SetCELTSurroundTrim(e.streamSurroundTrim[i])
@@ -982,7 +973,6 @@ func (e *Encoder) applyPerStreamPolicy(frameSize int, pcm []float64) {
 			}
 		case e.isAmbisonicsMapping():
 			enc.SetMode(encoder.ModeCELT)
-			enc.SetForceChannels(-1)
 			enc.SetCELTSurroundTrim(0)
 		default:
 			enc.SetCELTSurroundTrim(0)
