@@ -592,12 +592,6 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		}
 	}
 
-	targetBitrate := e.computePacketSize(frameSize, actualMode)
-	if actualMode == ModeSILK {
-		e.ensureSILKEncoder()
-		e.silkEncoder.SetMaxBits(bitrateToBits(targetBitrate, frameSize))
-	}
-
 	var frameData []byte
 	var packet []byte
 	var err error
@@ -1366,8 +1360,9 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 					maxBytes = maxSilkPacketBytes
 				}
 			}
-			e.silkEncoder.SetMaxBits(maxBytes * 8)
-			e.silkSideEncoder.SetMaxBits(maxBytes * 8)
+			maxBits := silkPayloadMaxBits(maxBytes)
+			e.silkEncoder.SetMaxBits(maxBits)
+			e.silkSideEncoder.SetMaxBits(maxBits)
 		}
 
 		left := e.scratchLeft[:frameSize]
@@ -1476,7 +1471,7 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 		case ModeCBR:
 			// keep targetBytes
 		}
-		e.silkEncoder.SetMaxBits(maxBytes * 8)
+		e.silkEncoder.SetMaxBits(silkPayloadMaxBits(maxBytes))
 	}
 	e.silkEncoder.SetFEC(e.fecEnabled)
 	e.silkEncoder.SetPacketLoss(e.packetLoss)

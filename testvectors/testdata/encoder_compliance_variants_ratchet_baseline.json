@@ -4,7 +4,7 @@
     {
       "name": "CELT-FB-10ms-mono-64k",
       "variant": "am_multisine_v1",
-      "min_gap_db": -0.75,
+      "min_gap_db": -0.6117093917245455,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.03,
@@ -13,7 +13,7 @@
     {
       "name": "CELT-FB-10ms-mono-64k",
       "variant": "chirp_sweep_v1",
-      "min_gap_db": -0.75,
+      "min_gap_db": -1.2315533940683778,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.03,
@@ -22,7 +22,7 @@
     {
       "name": "CELT-FB-10ms-mono-64k",
       "variant": "impulse_train_v1",
-      "min_gap_db": -0.7505642979324634,
+      "min_gap_db": 2.012172191755077,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.03,
@@ -31,7 +31,7 @@
     {
       "name": "CELT-FB-10ms-mono-64k",
       "variant": "speech_like_v1",
-      "min_gap_db": -0.7507340980327015,
+      "min_gap_db": -0.7345638479884258,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.03,
@@ -40,7 +40,7 @@
     {
       "name": "CELT-FB-20ms-mono-64k",
       "variant": "am_multisine_v1",
-      "min_gap_db": -0.7517562135320759,
+      "min_gap_db": -0.7034269652331631,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.03,
@@ -49,7 +49,7 @@
     {
       "name": "CELT-FB-20ms-mono-64k",
       "variant": "chirp_sweep_v1",
-      "min_gap_db": -0.7444505397929859,
+      "min_gap_db": -0.6711587884489063,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.03,
@@ -58,7 +58,7 @@
     {
       "name": "CELT-FB-20ms-mono-64k",
       "variant": "impulse_train_v1",
-      "min_gap_db": -0.9734376584205648,
+      "min_gap_db": -0.36643999158197715,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.03,
@@ -67,7 +67,7 @@
     {
       "name": "CELT-FB-20ms-mono-64k",
       "variant": "speech_like_v1",
-      "min_gap_db": -0.7571901230150857,
+      "min_gap_db": -0.8927580750644495,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.03,
@@ -76,7 +76,7 @@
     {
       "name": "CELT-FB-20ms-stereo-128k",
       "variant": "am_multisine_v1",
-      "min_gap_db": -0.7606829914074211,
+      "min_gap_db": -0.07413320974852411,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.03,
@@ -85,7 +85,7 @@
     {
       "name": "CELT-FB-20ms-stereo-128k",
       "variant": "chirp_sweep_v1",
-      "min_gap_db": -0.7243135577712749,
+      "min_gap_db": -0.5370004294328012,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.03,
@@ -94,7 +94,7 @@
     {
       "name": "CELT-FB-20ms-stereo-128k",
       "variant": "impulse_train_v1",
-      "min_gap_db": -0.7485222571970986,
+      "min_gap_db": -0.4746420334655852,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.03,
@@ -103,7 +103,7 @@
     {
       "name": "CELT-FB-20ms-stereo-128k",
       "variant": "speech_like_v1",
-      "min_gap_db": -0.756872397331243,
+      "min_gap_db": -0.8054977987969707,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.03,
@@ -139,7 +139,7 @@
     {
       "name": "HYBRID-FB-10ms-mono-64k",
       "variant": "speech_like_v1",
-      "min_gap_db": -2.039160606867938,
+      "min_gap_db": -1.9996463686640524,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.08,
@@ -175,7 +175,7 @@
     {
       "name": "HYBRID-FB-20ms-mono-64k",
       "variant": "speech_like_v1",
-      "min_gap_db": -1.9853445416455031,
+      "min_gap_db": -2.000128440124456,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.08,
@@ -193,7 +193,7 @@
     {
       "name": "HYBRID-FB-20ms-stereo-96k",
       "variant": "chirp_sweep_v1",
-      "min_gap_db": -1.9590095071339135,
+      "min_gap_db": -2.0002150037297426,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.08,
@@ -220,7 +220,7 @@
     {
       "name": "HYBRID-FB-60ms-mono-64k",
       "variant": "am_multisine_v1",
-      "min_gap_db": -9.1908464337371,
+      "min_gap_db": -2.1192576683589692,
       "max_mean_abs_packet_len": 1.2,
       "max_p95_abs_packet_len": 1.2,
       "max_mode_mismatch_rate": 0.08,
@@ -229,7 +229,7 @@
     {
       "name": "HYBRID-FB-60ms-mono-64k",
       "variant": "chirp_sweep_v1",
-      "min_gap_db": -1.7761638909978075,
+      "min_gap_db": -1.9203172108390447,
       "max_mean_abs_packet_len": 1.2,
       "max_p95_abs_packet_len": 1.2,
       "max_mode_mismatch_rate": 0.08,
@@ -238,7 +238,7 @@
     {
       "name": "HYBRID-FB-60ms-mono-64k",
       "variant": "impulse_train_v1",
-      "min_gap_db": -1.597551759237355,
+      "min_gap_db": -2.00118435877593,
       "max_mean_abs_packet_len": 1.2,
       "max_p95_abs_packet_len": 1.2,
       "max_mode_mismatch_rate": 0.08,
@@ -247,7 +247,7 @@
     {
       "name": "HYBRID-FB-60ms-mono-64k",
       "variant": "speech_like_v1",
-      "min_gap_db": -2.053880418934085,
+      "min_gap_db": -1.9920978169794665,
       "max_mean_abs_packet_len": 1.2,
       "max_p95_abs_packet_len": 1.2,
       "max_mode_mismatch_rate": 0.08,
@@ -265,38 +265,38 @@
     {
       "name": "HYBRID-SWB-10ms-mono-48k",
       "variant": "chirp_sweep_v1",
-      "min_gap_db": -1.2,
+      "min_gap_db": -1.1956363587475778,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
-      "max_mode_mismatch_rate": 0.33742574257425745,
-      "max_histogram_l1": 0.5948514851485148
+      "max_mode_mismatch_rate": 0.08,
+      "max_histogram_l1": 0.08
     },
     {
       "name": "HYBRID-SWB-10ms-mono-48k",
       "variant": "impulse_train_v1",
-      "min_gap_db": -2.1120713064248093,
+      "min_gap_db": -2.2450378622813716,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
-      "max_mode_mismatch_rate": 0.13940594059405942,
-      "max_histogram_l1": 0.19881188118811882
+      "max_mode_mismatch_rate": 0.08,
+      "max_histogram_l1": 0.08
     },
     {
       "name": "HYBRID-SWB-10ms-mono-48k",
       "variant": "speech_like_v1",
-      "min_gap_db": -2.998924559502278,
+      "min_gap_db": -2.012132289578659,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
-      "max_mode_mismatch_rate": 0.1889108910891089,
-      "max_histogram_l1": 0.2978217821782178
+      "max_mode_mismatch_rate": 0.08,
+      "max_histogram_l1": 0.08
     },
     {
       "name": "HYBRID-SWB-20ms-mono-48k",
       "variant": "am_multisine_v1",
-      "min_gap_db": 4.0,
+      "min_gap_db": 4.410718427640305,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
-      "max_mode_mismatch_rate": 0.12,
-      "max_histogram_l1": 0.16
+      "max_mode_mismatch_rate": 0.0996078431372549,
+      "max_histogram_l1": 0.1192156862745098
     },
     {
       "name": "HYBRID-SWB-20ms-mono-48k",
@@ -310,11 +310,11 @@
     {
       "name": "HYBRID-SWB-20ms-mono-48k",
       "variant": "impulse_train_v1",
-      "min_gap_db": -1.8448977102015647,
+      "min_gap_db": -2.2663024597155115,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
-      "max_mode_mismatch_rate": 0.4329411764705883,
-      "max_histogram_l1": 0.7858823529411765
+      "max_mode_mismatch_rate": 0.08,
+      "max_histogram_l1": 0.08
     },
     {
       "name": "HYBRID-SWB-20ms-mono-48k",
@@ -328,11 +328,11 @@
     {
       "name": "HYBRID-SWB-40ms-mono-48k",
       "variant": "am_multisine_v1",
-      "min_gap_db": -15.738538945245807,
+      "min_gap_db": -1.9695399414383488,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
-      "max_mode_mismatch_rate": 1,
-      "max_histogram_l1": 2
+      "max_mode_mismatch_rate": 0.08,
+      "max_histogram_l1": 0.08
     },
     {
       "name": "HYBRID-SWB-40ms-mono-48k",
@@ -346,53 +346,53 @@
     {
       "name": "HYBRID-SWB-40ms-mono-48k",
       "variant": "impulse_train_v1",
-      "min_gap_db": -2.038115946944856,
+      "min_gap_db": -2.459520696458803,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
-      "max_mode_mismatch_rate": 0.42615384615384616,
-      "max_histogram_l1": 0.7723076923076923
+      "max_mode_mismatch_rate": 0.08,
+      "max_histogram_l1": 0.08
     },
     {
       "name": "HYBRID-SWB-40ms-mono-48k",
       "variant": "speech_like_v1",
-      "min_gap_db": -2.2779636845021614,
+      "min_gap_db": -2.0208837125147525,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
-      "max_mode_mismatch_rate": 0.15692307692307694,
-      "max_histogram_l1": 0.23384615384615387
+      "max_mode_mismatch_rate": 0.11846153846153847,
+      "max_histogram_l1": 0.15692307692307694
     },
     {
       "name": "SILK-MB-20ms-mono-24k",
       "variant": "am_multisine_v1",
-      "min_gap_db": -1.1836169349022683,
-      "max_mean_abs_packet_len": 0.7027450980392157,
-      "max_p95_abs_packet_len": 2.24,
-      "max_mode_mismatch_rate": 0.02,
-      "max_histogram_l1": 0.02
-    },
-    {
-      "name": "SILK-MB-20ms-mono-24k",
-      "variant": "chirp_sweep_v1",
-      "min_gap_db": -0.5619621922449554,
+      "min_gap_db": -0.5935126197356055,
       "max_mean_abs_packet_len": 0.6368627450980393,
-      "max_p95_abs_packet_len": 1.12,
-      "max_mode_mismatch_rate": 0.02,
-      "max_histogram_l1": 0.02
-    },
-    {
-      "name": "SILK-MB-20ms-mono-24k",
-      "variant": "impulse_train_v1",
-      "min_gap_db": -0.5099806958095172,
-      "max_mean_abs_packet_len": 0.8564705882352941,
       "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
       "max_histogram_l1": 0.02
     },
     {
       "name": "SILK-MB-20ms-mono-24k",
+      "variant": "chirp_sweep_v1",
+      "min_gap_db": -0.5861610755500379,
+      "max_mean_abs_packet_len": 0.48313725490196086,
+      "max_p95_abs_packet_len": 2.24,
+      "max_mode_mismatch_rate": 0.02,
+      "max_histogram_l1": 0.02
+    },
+    {
+      "name": "SILK-MB-20ms-mono-24k",
+      "variant": "impulse_train_v1",
+      "min_gap_db": -0.537246066875035,
+      "max_mean_abs_packet_len": 0.7686274509803922,
+      "max_p95_abs_packet_len": 2.24,
+      "max_mode_mismatch_rate": 0.02,
+      "max_histogram_l1": 0.02
+    },
+    {
+      "name": "SILK-MB-20ms-mono-24k",
       "variant": "speech_like_v1",
-      "min_gap_db": -0.49726816772376736,
-      "max_mean_abs_packet_len": 0.8345098039215687,
+      "min_gap_db": -0.5037928671532583,
+      "max_mean_abs_packet_len": 0.5270588235294118,
       "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
       "max_histogram_l1": 0.02
@@ -400,152 +400,152 @@
     {
       "name": "SILK-NB-10ms-mono-16k",
       "variant": "am_multisine_v1",
-      "min_gap_db": 6.033739026659006,
-      "max_mean_abs_packet_len": 0.8982178217821783,
-      "max_p95_abs_packet_len": 1.12,
+      "min_gap_db": 2.736019407820393,
+      "max_mean_abs_packet_len": 0.5544554455445545,
+      "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
       "max_histogram_l1": 0.02
     },
     {
       "name": "SILK-NB-10ms-mono-16k",
       "variant": "chirp_sweep_v1",
-      "min_gap_db": -0.2975005894987177,
-      "max_mean_abs_packet_len": 0.6542574257425743,
-      "max_p95_abs_packet_len": 1.12,
-      "max_mode_mismatch_rate": 0.02,
-      "max_histogram_l1": 0.02
-    },
-    {
-      "name": "SILK-NB-10ms-mono-16k",
-      "variant": "impulse_train_v1",
-      "min_gap_db": -0.42398295724728285,
-      "max_mean_abs_packet_len": 0.7873267326732674,
+      "min_gap_db": -0.36705885316885656,
+      "max_mean_abs_packet_len": 0.49900990099009906,
       "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
       "max_histogram_l1": 0.02
     },
     {
       "name": "SILK-NB-10ms-mono-16k",
-      "variant": "speech_like_v1",
-      "min_gap_db": -0.23168918485794165,
-      "max_mean_abs_packet_len": 0.864950495049505,
-      "max_p95_abs_packet_len": 1.12,
-      "max_mode_mismatch_rate": 0.02,
-      "max_histogram_l1": 0.02
-    },
-    {
-      "name": "SILK-NB-20ms-mono-16k",
-      "variant": "am_multisine_v1",
-      "min_gap_db": 23.704436815704657,
-      "max_mean_abs_packet_len": 0.8564705882352941,
-      "max_p95_abs_packet_len": 2.24,
-      "max_mode_mismatch_rate": 0.02,
-      "max_histogram_l1": 0.02
-    },
-    {
-      "name": "SILK-NB-20ms-mono-16k",
-      "variant": "chirp_sweep_v1",
-      "min_gap_db": -0.4732588730923126,
-      "max_mean_abs_packet_len": 0.6368627450980393,
-      "max_p95_abs_packet_len": 1.12,
-      "max_mode_mismatch_rate": 0.02,
-      "max_histogram_l1": 0.02
-    },
-    {
-      "name": "SILK-NB-20ms-mono-16k",
       "variant": "impulse_train_v1",
-      "min_gap_db": -0.296423534623635,
-      "max_mean_abs_packet_len": 0.5490196078431373,
-      "max_p95_abs_packet_len": 1.12,
-      "max_mode_mismatch_rate": 0.02,
-      "max_histogram_l1": 0.02
-    },
-    {
-      "name": "SILK-NB-20ms-mono-16k",
-      "variant": "speech_like_v1",
-      "min_gap_db": -0.33853082873056195,
-      "max_mean_abs_packet_len": 0.9003921568627452,
-      "max_p95_abs_packet_len": 2.24,
-      "max_mode_mismatch_rate": 0.02,
-      "max_histogram_l1": 0.02
-    },
-    {
-      "name": "SILK-NB-40ms-mono-16k",
-      "variant": "am_multisine_v1",
-      "min_gap_db": 0.2701799257535562,
-      "max_mean_abs_packet_len": 0.6892307692307693,
-      "max_p95_abs_packet_len": 1.12,
-      "max_mode_mismatch_rate": 0.02,
-      "max_histogram_l1": 0.02
-    },
-    {
-      "name": "SILK-NB-40ms-mono-16k",
-      "variant": "chirp_sweep_v1",
-      "min_gap_db": -0.44388949526408084,
-      "max_mean_abs_packet_len": 0.56,
-      "max_p95_abs_packet_len": 2.24,
-      "max_mode_mismatch_rate": 0.02,
-      "max_histogram_l1": 0.02
-    },
-    {
-      "name": "SILK-NB-40ms-mono-16k",
-      "variant": "impulse_train_v1",
-      "min_gap_db": -0.944137760065658,
-      "max_mean_abs_packet_len": 0.6892307692307693,
-      "max_p95_abs_packet_len": 2.24,
-      "max_mode_mismatch_rate": 0.02,
-      "max_histogram_l1": 0.02
-    },
-    {
-      "name": "SILK-NB-40ms-mono-16k",
-      "variant": "speech_like_v1",
-      "min_gap_db": -0.3536418057957462,
-      "max_mean_abs_packet_len": 0.516923076923077,
-      "max_p95_abs_packet_len": 2.24,
-      "max_mode_mismatch_rate": 0.02,
-      "max_histogram_l1": 0.02
-    },
-    {
-      "name": "SILK-WB-10ms-mono-32k",
-      "variant": "am_multisine_v1",
-      "min_gap_db": 6.955715435223958,
+      "min_gap_db": -0.34606053865866926,
       "max_mean_abs_packet_len": 0.7540594059405942,
       "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
       "max_histogram_l1": 0.02
     },
     {
+      "name": "SILK-NB-10ms-mono-16k",
+      "variant": "speech_like_v1",
+      "min_gap_db": -0.2877736107476352,
+      "max_mean_abs_packet_len": 0.5655445544554456,
+      "max_p95_abs_packet_len": 2.24,
+      "max_mode_mismatch_rate": 0.02,
+      "max_histogram_l1": 0.02
+    },
+    {
+      "name": "SILK-NB-20ms-mono-16k",
+      "variant": "am_multisine_v1",
+      "min_gap_db": 24.187743792739596,
+      "max_mean_abs_packet_len": 0.7466666666666667,
+      "max_p95_abs_packet_len": 2.24,
+      "max_mode_mismatch_rate": 0.02,
+      "max_histogram_l1": 0.02
+    },
+    {
+      "name": "SILK-NB-20ms-mono-16k",
+      "variant": "chirp_sweep_v1",
+      "min_gap_db": -0.4715195180050671,
+      "max_mean_abs_packet_len": 0.6368627450980393,
+      "max_p95_abs_packet_len": 2.24,
+      "max_mode_mismatch_rate": 0.02,
+      "max_histogram_l1": 0.02
+    },
+    {
+      "name": "SILK-NB-20ms-mono-16k",
+      "variant": "impulse_train_v1",
+      "min_gap_db": -0.4657845497452655,
+      "max_mean_abs_packet_len": 0.8125490196078432,
+      "max_p95_abs_packet_len": 2.24,
+      "max_mode_mismatch_rate": 0.02,
+      "max_histogram_l1": 0.02
+    },
+    {
+      "name": "SILK-NB-20ms-mono-16k",
+      "variant": "speech_like_v1",
+      "min_gap_db": -0.35304730884693925,
+      "max_mean_abs_packet_len": 0.9443137254901962,
+      "max_p95_abs_packet_len": 2.24,
+      "max_mode_mismatch_rate": 0.02,
+      "max_histogram_l1": 0.02
+    },
+    {
+      "name": "SILK-NB-40ms-mono-16k",
+      "variant": "am_multisine_v1",
+      "min_gap_db": 0.2752905880036245,
+      "max_mean_abs_packet_len": 0.6461538461538462,
+      "max_p95_abs_packet_len": 2.24,
+      "max_mode_mismatch_rate": 0.02,
+      "max_histogram_l1": 0.02
+    },
+    {
+      "name": "SILK-NB-40ms-mono-16k",
+      "variant": "chirp_sweep_v1",
+      "min_gap_db": -0.5022125543512104,
+      "max_mean_abs_packet_len": 0.2584615384615385,
+      "max_p95_abs_packet_len": 1.12,
+      "max_mode_mismatch_rate": 0.02,
+      "max_histogram_l1": 0.02
+    },
+    {
+      "name": "SILK-NB-40ms-mono-16k",
+      "variant": "impulse_train_v1",
+      "min_gap_db": -0.9005408723706338,
+      "max_mean_abs_packet_len": 0.7753846153846154,
+      "max_p95_abs_packet_len": 2.24,
+      "max_mode_mismatch_rate": 0.02,
+      "max_histogram_l1": 0.02
+    },
+    {
+      "name": "SILK-NB-40ms-mono-16k",
+      "variant": "speech_like_v1",
+      "min_gap_db": -0.3691004050382958,
+      "max_mean_abs_packet_len": 0.43076923076923085,
+      "max_p95_abs_packet_len": 1.12,
+      "max_mode_mismatch_rate": 0.02,
+      "max_histogram_l1": 0.02
+    },
+    {
+      "name": "SILK-WB-10ms-mono-32k",
+      "variant": "am_multisine_v1",
+      "min_gap_db": 6.889557246273803,
+      "max_mean_abs_packet_len": 0.6653465346534654,
+      "max_p95_abs_packet_len": 2.24,
+      "max_mode_mismatch_rate": 0.02,
+      "max_histogram_l1": 0.02
+    },
+    {
       "name": "SILK-WB-10ms-mono-32k",
       "variant": "chirp_sweep_v1",
-      "min_gap_db": -0.5175172594543653,
+      "min_gap_db": -0.5152753014720162,
+      "max_mean_abs_packet_len": 0.731881188118812,
+      "max_p95_abs_packet_len": 2.24,
+      "max_mode_mismatch_rate": 0.02,
+      "max_histogram_l1": 0.02
+    },
+    {
+      "name": "SILK-WB-10ms-mono-32k",
+      "variant": "impulse_train_v1",
+      "min_gap_db": -0.5,
+      "max_mean_abs_packet_len": 0.9203960396039604,
+      "max_p95_abs_packet_len": 2.24,
+      "max_mode_mismatch_rate": 0.02,
+      "max_histogram_l1": 0.02
+    },
+    {
+      "name": "SILK-WB-10ms-mono-32k",
+      "variant": "speech_like_v1",
+      "min_gap_db": -0.4924935647022721,
       "max_mean_abs_packet_len": 0.7651485148514853,
       "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
       "max_histogram_l1": 0.02
     },
     {
-      "name": "SILK-WB-10ms-mono-32k",
-      "variant": "impulse_train_v1",
-      "min_gap_db": -0.4532911728900757,
-      "max_mean_abs_packet_len": 0.986930693069307,
-      "max_p95_abs_packet_len": 2.24,
-      "max_mode_mismatch_rate": 0.02,
-      "max_histogram_l1": 0.02
-    },
-    {
-      "name": "SILK-WB-10ms-mono-32k",
-      "variant": "speech_like_v1",
-      "min_gap_db": -0.4940760092196754,
-      "max_mean_abs_packet_len": 0.7984158415841585,
-      "max_p95_abs_packet_len": 2.24,
-      "max_mode_mismatch_rate": 0.02,
-      "max_histogram_l1": 0.02
-    },
-    {
       "name": "SILK-WB-20ms-mono-32k",
       "variant": "am_multisine_v1",
-      "min_gap_db": 13.459840248952819,
-      "max_mean_abs_packet_len": 0.8345098039215687,
+      "min_gap_db": 12.667977767430656,
+      "max_mean_abs_packet_len": 0.8125490196078432,
       "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
       "max_histogram_l1": 0.02
@@ -553,8 +553,8 @@
     {
       "name": "SILK-WB-20ms-mono-32k",
       "variant": "chirp_sweep_v1",
-      "min_gap_db": -0.4779704568801293,
-      "max_mean_abs_packet_len": 0.6588235294117648,
+      "min_gap_db": -0.5034022622960777,
+      "max_mean_abs_packet_len": 0.5050980392156863,
       "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
       "max_histogram_l1": 0.02
@@ -562,8 +562,8 @@
     {
       "name": "SILK-WB-20ms-mono-32k",
       "variant": "impulse_train_v1",
-      "min_gap_db": -0.49366742971019306,
-      "max_mean_abs_packet_len": 0.8564705882352941,
+      "min_gap_db": -0.5001082354542348,
+      "max_mean_abs_packet_len": 0.41725490196078435,
       "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
       "max_histogram_l1": 0.02
@@ -571,8 +571,8 @@
     {
       "name": "SILK-WB-20ms-mono-32k",
       "variant": "speech_like_v1",
-      "min_gap_db": -0.5020633325965846,
-      "max_mean_abs_packet_len": 0.6807843137254902,
+      "min_gap_db": -0.49985744443969793,
+      "max_mean_abs_packet_len": 0.9443137254901962,
       "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
       "max_histogram_l1": 0.02
@@ -580,8 +580,8 @@
     {
       "name": "SILK-WB-20ms-stereo-48k",
       "variant": "am_multisine_v1",
-      "min_gap_db": -0.4232063915962101,
-      "max_mean_abs_packet_len": 0.7905882352941178,
+      "min_gap_db": -0.5372496591256954,
+      "max_mean_abs_packet_len": 0.6149019607843138,
       "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
       "max_histogram_l1": 0.02
@@ -589,8 +589,8 @@
     {
       "name": "SILK-WB-20ms-stereo-48k",
       "variant": "chirp_sweep_v1",
-      "min_gap_db": 1.4578156983055592,
-      "max_mean_abs_packet_len": 0.7905882352941178,
+      "min_gap_db": 1.446527444144543,
+      "max_mean_abs_packet_len": 0.5929411764705883,
       "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
       "max_histogram_l1": 0.02
@@ -598,8 +598,8 @@
     {
       "name": "SILK-WB-20ms-stereo-48k",
       "variant": "impulse_train_v1",
-      "min_gap_db": -0.5746052354546336,
-      "max_mean_abs_packet_len": 0.6807843137254902,
+      "min_gap_db": -0.5782679099471011,
+      "max_mean_abs_packet_len": 0.6149019607843138,
       "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
       "max_histogram_l1": 0.02
@@ -607,16 +607,34 @@
     {
       "name": "SILK-WB-20ms-stereo-48k",
       "variant": "speech_like_v1",
-      "min_gap_db": -0.4998741584366755,
+      "min_gap_db": -0.4982827328297148,
       "max_mean_abs_packet_len": 0.5709803921568628,
-      "max_p95_abs_packet_len": 1.12,
+      "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
       "max_histogram_l1": 0.02
     },
     {
       "name": "SILK-WB-40ms-mono-32k",
       "variant": "am_multisine_v1",
-      "min_gap_db": 9.66070605275089,
+      "min_gap_db": 11.4266371067296,
+      "max_mean_abs_packet_len": 0.34461538461538466,
+      "max_p95_abs_packet_len": 2.24,
+      "max_mode_mismatch_rate": 0.02,
+      "max_histogram_l1": 0.02
+    },
+    {
+      "name": "SILK-WB-40ms-mono-32k",
+      "variant": "chirp_sweep_v1",
+      "min_gap_db": -0.48329874316180366,
+      "max_mean_abs_packet_len": 0.47384615384615386,
+      "max_p95_abs_packet_len": 2.24,
+      "max_mode_mismatch_rate": 0.02,
+      "max_histogram_l1": 0.02
+    },
+    {
+      "name": "SILK-WB-40ms-mono-32k",
+      "variant": "impulse_train_v1",
+      "min_gap_db": -0.8239625824068071,
       "max_mean_abs_packet_len": 0.43076923076923085,
       "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
@@ -624,27 +642,9 @@
     },
     {
       "name": "SILK-WB-40ms-mono-32k",
-      "variant": "chirp_sweep_v1",
-      "min_gap_db": -0.4772392258981242,
-      "max_mean_abs_packet_len": 0.516923076923077,
-      "max_p95_abs_packet_len": 2.24,
-      "max_mode_mismatch_rate": 0.02,
-      "max_histogram_l1": 0.02
-    },
-    {
-      "name": "SILK-WB-40ms-mono-32k",
-      "variant": "impulse_train_v1",
-      "min_gap_db": -0.7505568548643282,
-      "max_mean_abs_packet_len": 0.8615384615384617,
-      "max_p95_abs_packet_len": 2.24,
-      "max_mode_mismatch_rate": 0.02,
-      "max_histogram_l1": 0.02
-    },
-    {
-      "name": "SILK-WB-40ms-mono-32k",
       "variant": "speech_like_v1",
-      "min_gap_db": -0.49696543951516503,
-      "max_mean_abs_packet_len": 0.8615384615384617,
+      "min_gap_db": -0.4963142512329668,
+      "max_mean_abs_packet_len": 0.516923076923077,
       "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
       "max_histogram_l1": 0.02
@@ -652,17 +652,17 @@
     {
       "name": "SILK-WB-60ms-mono-32k",
       "variant": "am_multisine_v1",
-      "min_gap_db": 11.980898260675211,
-      "max_mean_abs_packet_len": 0.4611764705882353,
-      "max_p95_abs_packet_len": 1.12,
+      "min_gap_db": 11.92787004790532,
+      "max_mean_abs_packet_len": 0.2635294117647059,
+      "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
       "max_histogram_l1": 0.02
     },
     {
       "name": "SILK-WB-60ms-mono-32k",
       "variant": "chirp_sweep_v1",
-      "min_gap_db": -0.473120895733004,
-      "max_mean_abs_packet_len": 0.9223529411764706,
+      "min_gap_db": -0.48635541779299274,
+      "max_mean_abs_packet_len": 0.5929411764705883,
       "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
       "max_histogram_l1": 0.02
@@ -670,17 +670,17 @@
     {
       "name": "SILK-WB-60ms-mono-32k",
       "variant": "impulse_train_v1",
-      "min_gap_db": -0.8327807561293028,
+      "min_gap_db": -0.7273778213362121,
       "max_mean_abs_packet_len": 0.3294117647058824,
-      "max_p95_abs_packet_len": 1.12,
+      "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
       "max_histogram_l1": 0.02
     },
     {
       "name": "SILK-WB-60ms-mono-32k",
       "variant": "speech_like_v1",
-      "min_gap_db": -0.49818348155922365,
-      "max_mean_abs_packet_len": 0.3952941176470589,
+      "min_gap_db": -0.5009114185123877,
+      "max_mean_abs_packet_len": 0.7247058823529413,
       "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
       "max_histogram_l1": 0.02
