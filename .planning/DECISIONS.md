@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-14
+topic: Decoder loss/FEC fixture workflow + decode_fec semantics parity
+decision: Keep `DecodeWithFEC` honoring provided packet data when `fec=true` (libopus-style decode_fec path from packet N+1 with PLC fallback), and keep the dedicated libopus loss fixture workflow (`tools/gen_libopus_decoder_loss_fixture.go`, `testvectors/testdata/libopus_decoder_loss_fixture*.json`) with parity ratchet guards plus fixture honesty checks.
+evidence: Updated `decoder.go` FEC path, added focused API tests (`TestDecodeWithFEC_UsesProvidedPacketAndPreservesNormalDecode`, `TestDecodeWithFEC_ProvidedCELTPacketFallsBackToPLC`), added loss fixture loader/parity/honesty tests (`testvectors/libopus_decoder_loss_fixture_test.go`, `testvectors/decoder_loss_parity_test.go`), wired governance + Makefile fixture targets; focused parity/exhaustive tests and full `make verify-production` passed.
+do_not_repeat_until: libopus decode_fec/loss recovery semantics in `opus_demo.c`/decoder API change, fixture generator inputs/patterns change, or loss parity ratchet/honesty tests report regression.
+owner: codex
+
+date: 2026-02-14
 topic: Frame-level mode-trace parity guard and short-frame auto-mode control
 decision: Keep the libopus 1.6.1 frame-level mode-trace fixture workflow (`tmp_check/gen_libopus_mode_trace_fixture.go` + `encoder/testdata/libopus_mode_trace_fixture.json`) and the short-frame auto-mode port in `encoder/encoder.go` (libopus threshold/hysteresis with analysis-driven `voice_est`, previous-mode state, VoIP threshold bias, and FEC/DTX SILK forcing conditions).
 evidence: Added `encoder/mode_trace_fixture_test.go` parity/metadata guards over 32 fixture cases; mode drift collapsed from large WB/SWB mismatches to <=2% max per case; focused mode/FEC tests, parity/compliance slice, `make verify-production`, and `make bench-guard` passed.
