@@ -673,6 +673,106 @@ func TestDecodeWithFEC_Recovery(t *testing.T) {
 	t.Logf("FEC recovery produced %d samples", n)
 }
 
+func TestDecodeWithFEC_UsesProvidedPacketAndPreservesNormalDecode(t *testing.T) {
+	enc, err := NewEncoder(48000, 1, ApplicationVoIP)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+	enc.SetFEC(true)
+	if err := enc.SetPacketLoss(15); err != nil {
+		t.Fatalf("SetPacketLoss error: %v", err)
+	}
+	if err := enc.SetBitrate(24000); err != nil {
+		t.Fatalf("SetBitrate error: %v", err)
+	}
+
+	frameSize := 960
+	makeFrame := func(phase float64) []float32 {
+		pcm := make([]float32, frameSize)
+		for i := range pcm {
+			tm := (float64(i) + phase) / 48000.0
+			pcm[i] = float32(0.5*math.Sin(2*math.Pi*440*tm) + 0.2*math.Sin(2*math.Pi*880*tm))
+		}
+		return pcm
+	}
+
+	pktBuf := make([]byte, 4000)
+	encodeFrame := func(pcm []float32) []byte {
+		n, err := enc.Encode(pcm, pktBuf)
+		if err != nil {
+			t.Fatalf("Encode error: %v", err)
+		}
+		if n == 0 {
+			t.Fatal("unexpected DTX suppression while generating FEC test packet")
+		}
+		packet := make([]byte, n)
+		copy(packet, pktBuf[:n])
+		return packet
+	}
+
+	packet0 := encodeFrame(makeFrame(0))
+	_ = encodeFrame(makeFrame(960)) // packet 1 intentionally "lost" in decode sequence
+	packet2 := encodeFrame(makeFrame(1920))
+
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	pcm0 := make([]float32, frameSize)
+	if _, err := dec.Decode(packet0, pcm0); err != nil {
+		t.Fatalf("Decode packet0 error: %v", err)
+	}
+
+	// Recover the missing packet using packet2's LBRR.
+	pcmFEC := make([]float32, frameSize)
+	nFEC, err := dec.DecodeWithFEC(packet2, pcmFEC, true)
+	if err != nil {
+		t.Fatalf("DecodeWithFEC(packet2, fec=true) error: %v", err)
+	}
+	if nFEC != frameSize {
+		t.Fatalf("DecodeWithFEC(packet2, fec=true) samples=%d want=%d", nFEC, frameSize)
+	}
+
+	// The same packet must still decode normally after FEC recovery.
+	pcm2 := make([]float32, frameSize)
+	n2, err := dec.Decode(packet2, pcm2)
+	if err != nil {
+		t.Fatalf("Decode packet2 after FEC recovery error: %v", err)
+	}
+	if n2 != frameSize {
+		t.Fatalf("Decode packet2 after FEC recovery samples=%d want=%d", n2, frameSize)
+	}
+}
+
+func TestDecodeWithFEC_ProvidedCELTPacketFallsBackToPLC(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	// Seed last frame size/state with a normal decode.
+	celtPacket := make([]byte, 100)
+	celtPacket[0] = GenerateTOC(31, false, 0) // CELT FB 20ms
+	for i := 1; i < len(celtPacket); i++ {
+		celtPacket[i] = byte(i)
+	}
+
+	pcm := make([]float32, 960)
+	if _, err := dec.Decode(celtPacket, pcm); err != nil {
+		t.Fatalf("Decode CELT packet error: %v", err)
+	}
+
+	// CELT has no LBRR, so this should transparently fall back to PLC.
+	n, err := dec.DecodeWithFEC(celtPacket, pcm, true)
+	if err != nil {
+		t.Fatalf("DecodeWithFEC(CELT packet, fec=true) error: %v", err)
+	}
+	if n != 960 {
+		t.Fatalf("DecodeWithFEC(CELT packet, fec=true) samples=%d want=%d", n, 960)
+	}
+}
+
 // TestDecodeWithFEC_NoFECRequested verifies that when fec=false, DecodeWithFEC
 // behaves identically to Decode.
 func TestDecodeWithFEC_NoFECRequested(t *testing.T) {
