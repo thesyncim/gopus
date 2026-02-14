@@ -1782,10 +1782,12 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 	// Reference: libopus celt_encoder.c line 1903
 	vbrRateQ3 := baseBits << bitRes
 
-	// Compute base_target with overhead subtraction
-	// Reference: libopus celt_encoder.c line 2448
-	// base_target = vbr_rate - ((40*C+20)<<BITRES)
+	// Compute base_target with overhead subtraction.
+	// Reference: libopus celt_encoder.c lines 2448-2451.
 	overheadQ3 := (40*e.channels + 20) << bitRes
+	if e.IsHybrid() {
+		overheadQ3 = (9*e.channels + 4) << bitRes
+	}
 	baseTargetQ3 := vbrRateQ3 - overheadQ3
 	if baseTargetQ3 < 0 {
 		baseTargetQ3 = 0
