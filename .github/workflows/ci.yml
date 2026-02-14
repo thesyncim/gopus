@@ -2,9 +2,15 @@ name: CI
 
 on:
   pull_request:
+    # No docs-only bypasses: full CI must run even when a PR changes only markdown files.
+    paths:
+      - '**'
   push:
     branches:
       - master
+    # Keep push behavior aligned with PRs: run CI for every changed file type.
+    paths:
+      - '**'
 
 permissions:
   contents: read
