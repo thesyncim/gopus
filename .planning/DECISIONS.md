@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-14
+topic: decode_fec single-frame output sizing parity
+decision: Keep `decodeFECFrame` output sizing/limits based on a single recovered frame (`frameSize`) instead of packet frame-count (`frameSize * frameCount`) so multi-frame packet metadata does not force spurious PLC fallback from buffer checks.
+evidence: Updated `decoder.go` `decodeFECFrame` required-sample and packet-size checks; added `TestDecodeFECFrame_BufferSizingUsesSingleFrame` in `decoder_test.go`; validated with focused root FEC tests (`TestDecodeFECFrame_BufferSizingUsesSingleFrame|TestDecodeWithFEC_UsesProvidedPacketAndPreservesNormalDecode|TestDecodeWithFEC_ProvidedCELTPacketFallsBackToPLC|TestDecodeWithFEC_NoFECRequested`) plus parity guard `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`.
+do_not_repeat_until: libopus changes `opus_decode(..., decode_fec=1)` recovered-frame sizing semantics or fixture/interoperability evidence shows `decodeFECFrame` output sizing drift.
+owner: codex
+
+date: 2026-02-14
 topic: Decoder loss/FEC fixture workflow + decode_fec semantics parity
 decision: Keep `DecodeWithFEC` honoring provided packet data when `fec=true` (libopus-style decode_fec path from packet N+1 with PLC fallback), and keep the dedicated libopus loss fixture workflow (`tools/gen_libopus_decoder_loss_fixture.go`, `testvectors/testdata/libopus_decoder_loss_fixture*.json`) with parity ratchet guards plus fixture honesty checks.
 evidence: Updated `decoder.go` FEC path, added focused API tests (`TestDecodeWithFEC_UsesProvidedPacketAndPreservesNormalDecode`, `TestDecodeWithFEC_ProvidedCELTPacketFallsBackToPLC`), added loss fixture loader/parity/honesty tests (`testvectors/libopus_decoder_loss_fixture_test.go`, `testvectors/decoder_loss_parity_test.go`), wired governance + Makefile fixture targets; focused parity/exhaustive tests and full `make verify-production` passed.
