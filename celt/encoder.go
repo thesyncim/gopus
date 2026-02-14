@@ -142,6 +142,8 @@ type Encoder struct {
 	lastTonality      float64   // Running average tonality for smoothing
 	lastStereoSaving  float64   // Running stereo_saving estimate from alloc_trim analysis
 	lastPitchChange   bool      // Previous frame pitch_change flag for VBR targeting
+	specAvg           float64   // Smoothed spectral average for temporal VBR (libopus st->spec_avg)
+	lastTemporalVBR   float64   // Previous frame's temporal_vbr for VBR target adjustment
 
 	// Analysis bandwidth state used by bit allocation gating.
 	// This mirrors libopus use of st->analysis.bandwidth for clt_compute_allocation().

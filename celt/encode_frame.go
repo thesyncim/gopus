@@ -828,6 +828,50 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// analysis from the previous frame).
 	e.updateTonalityAnalysis(normL, analysisEnergies, nbBands, frameSize)
 
+	// Step 11.0.7: Compute temporal VBR from current frame band energies.
+	// Reference: libopus celt_encoder.c lines 2186-2202.
+	// Stores the result for next frame's VBR target (one-frame lag is negligible
+	// due to the slow IIR coefficient of 0.02).
+	if !e.lfe {
+		follow := -10.0
+		frameAvg := 0.0
+		offset := 0.0
+		if shortBlocks != 0 {
+			offset = float64(lm) * 0.5
+		}
+		bandEnd := end
+		if bandEnd > nbBands {
+			bandEnd = nbBands
+		}
+		for i := start; i < bandEnd; i++ {
+			v := analysisEnergies[i]/32.0 - offset
+			if follow-1.0 > v {
+				follow = follow - 1.0
+			} else {
+				follow = v
+			}
+			if e.channels == 2 && nbBands+i < len(analysisEnergies) {
+				v2 := analysisEnergies[nbBands+i] / 32.0
+				if v2 > follow {
+					follow = v2
+				}
+			}
+			frameAvg += follow
+		}
+		if bandEnd > start {
+			frameAvg /= float64(bandEnd - start)
+		}
+		temporalVBR := frameAvg*32.0 - e.specAvg
+		if temporalVBR > 3.0 {
+			temporalVBR = 3.0
+		}
+		if temporalVBR < -1.5 {
+			temporalVBR = -1.5
+		}
+		e.specAvg += 0.02 * temporalVBR
+		e.lastTemporalVBR = temporalVBR
+	}
+
 	// Step 11.1: Compute and encode TF (time-frequency) resolution
 	// Note: 'end' was already set earlier during patch_transient_decision
 	effectiveBytes := 0
@@ -1922,20 +1966,7 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float
 		targetQ3 -= int(float64(codedBins<<bitRes) * (0.4 - e.analysisActivity))
 	}
 
-	totBoost := e.lastDynalloc.TotBoost
-	// VBR target uses previous-frame dynalloc state; bootstrap frame 0 with a
-	// representative boost so one-shot/single-frame encodes are not starved.
-	if totBoost == 0 && e.frameCount == 0 && frameSize == 960 {
-		totBoost = 960 << bitRes
-	}
-	calibration := 19 << lm
-	targetQ3 += totBoost - calibration
-	if stats != nil {
-		stats.DynallocBoost = totBoost - calibration
-		stats.PitchChange = pitchChange
-	}
-
-	// Stereo savings (libopus compute_vbr()).
+	// Stereo savings (libopus compute_vbr(): applied before dynalloc boost).
 	if e.channels == 2 && codedBins > 0 {
 		codedStereoBands := codedBands
 		if e.intensity < codedStereoBands {
@@ -1961,8 +1992,18 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float
 		}
 	}
 
-	if targetQ3 < 0 {
-		targetQ3 = 0
+	// Boost the rate according to dynalloc (minus the dynalloc average for calibration).
+	totBoost := e.lastDynalloc.TotBoost
+	// VBR target uses previous-frame dynalloc state; bootstrap frame 0 with a
+	// representative boost so one-shot/single-frame encodes are not starved.
+	if totBoost == 0 && e.frameCount == 0 && frameSize == 960 {
+		totBoost = 960 << bitRes
+	}
+	calibration := 19 << lm
+	targetQ3 += totBoost - calibration
+	if stats != nil {
+		stats.DynallocBoost = totBoost - calibration
+		stats.PitchChange = pitchChange
 	}
 
 	// Transient boost with average compensation.
@@ -2019,6 +2060,22 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float
 	// Constrained VBR makes target changes less aggressive.
 	if e.constrainedVBR && (len(e.energyMask) == 0 || e.lfe) {
 		targetQ3 = baseTargetQ3 + int(0.67*float64(targetQ3-baseTargetQ3))
+	}
+
+	// Temporal VBR: adjust target based on frame-to-frame spectral variation.
+	// Reference: libopus celt_encoder.c lines 1703-1710.
+	// In float domain: target += temporal_vbr * 0.0000031 * clamp(96000-bitrate,0,32000) * target
+	if len(e.energyMask) == 0 && tfEstimate < 0.2 {
+		bitrate := e.bitrateToBits(frameSize) * (48000 / frameSize) // approximate bps
+		clampedBR := 96000 - bitrate
+		if clampedBR < 0 {
+			clampedBR = 0
+		}
+		if clampedBR > 32000 {
+			clampedBR = 32000
+		}
+		amount := 0.0000031 * float64(clampedBR)
+		targetQ3 += int(e.lastTemporalVBR * amount * float64(targetQ3))
 	}
 
 	// Don't allow more than doubling the base target.
