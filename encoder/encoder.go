@@ -599,33 +599,36 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		signalHint = e.autoSignalFromPCM(framePCM, frameSize)
 	}
 	actualMode := e.selectMode(frameSize, signalHint)
+	nextPrevAutoMode := actualMode
+	actualMode, nextPrevAutoMode = e.applySilkToCeltTransition(frameSize, actualMode)
 	if e.lfe {
 		actualMode = ModeCELT
+		nextPrevAutoMode = ModeCELT
 	}
 	if e.mode == ModeAuto &&
-		(actualMode == ModeSILK || actualMode == ModeHybrid || actualMode == ModeCELT) {
-		e.prevAutoMode = actualMode
+		(nextPrevAutoMode == ModeSILK || nextPrevAutoMode == ModeHybrid || nextPrevAutoMode == ModeCELT) {
+		e.prevAutoMode = nextPrevAutoMode
 	}
 	if e.mode == ModeAuto &&
 		frameSize > 960 &&
 		e.effectiveBandwidth() == types.BandwidthSuperwideband &&
-		(actualMode == ModeHybrid || actualMode == ModeCELT) {
-		e.prevLongSWBAutoMode = actualMode
+		(nextPrevAutoMode == ModeHybrid || nextPrevAutoMode == ModeCELT) {
+		e.prevLongSWBAutoMode = nextPrevAutoMode
 	}
 	if e.mode == ModeAuto &&
 		frameSize == 480 &&
 		e.effectiveBandwidth() == types.BandwidthSuperwideband &&
-		(actualMode == ModeHybrid || actualMode == ModeCELT) {
-		e.prevSWB10AutoMode = actualMode
+		(nextPrevAutoMode == ModeHybrid || nextPrevAutoMode == ModeCELT) {
+		e.prevSWB10AutoMode = nextPrevAutoMode
 	}
 	if e.mode == ModeAuto &&
 		frameSize == 960 &&
 		e.effectiveBandwidth() == types.BandwidthSuperwideband &&
-		(actualMode == ModeHybrid || actualMode == ModeCELT) {
-		if e.prevSWB20AutoMode == actualMode && e.swb20ModeHoldFrames > 0 {
+		(nextPrevAutoMode == ModeHybrid || nextPrevAutoMode == ModeCELT) {
+		if e.prevSWB20AutoMode == nextPrevAutoMode && e.swb20ModeHoldFrames > 0 {
 			e.swb20ModeHoldFrames++
 		} else {
-			e.prevSWB20AutoMode = actualMode
+			e.prevSWB20AutoMode = nextPrevAutoMode
 			e.swb20ModeHoldFrames = 1
 		}
 	}
@@ -1048,6 +1051,27 @@ func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
 		return e.mode
 	}
 	return e.selectShortAutoMode(frameSize, signalHint)
+}
+
+// applySilkToCeltTransition mirrors the libopus transition gate used when
+// switching from SILK/Hybrid to CELT in auto mode: encode one frame in the
+// previous non-CELT mode, but advance prev-mode state to CELT for next frame.
+func (e *Encoder) applySilkToCeltTransition(frameSize int, selected Mode) (encodeMode Mode, nextPrev Mode) {
+	encodeMode = selected
+	nextPrev = selected
+	if e.mode != ModeAuto || e.lowDelay {
+		return encodeMode, nextPrev
+	}
+	if selected != ModeCELT {
+		return encodeMode, nextPrev
+	}
+	if e.prevAutoMode != ModeSILK && e.prevAutoMode != ModeHybrid {
+		return encodeMode, nextPrev
+	}
+	if frameSize < e.sampleRate/100 {
+		return encodeMode, nextPrev
+	}
+	return e.prevAutoMode, ModeCELT
 }
 
 // selectShortAutoMode ports libopus auto mode-threshold control for 10/20 ms
@@ -1641,6 +1665,23 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 	frames := make([][]byte, frameCount)
 	sameSize := true
 	prevSize := -1
+	packetTargetBytes := targetBytesForBitrate(e.bitrate, frameSize)
+	if packetTargetBytes < 1 {
+		packetTargetBytes = 1
+	}
+	maxHeaderBytes := 3
+	if frameCount > 2 {
+		maxHeaderBytes = 2 + (frameCount-1)*2
+	}
+	maxLenSum := frameCount + packetTargetBytes - maxHeaderBytes
+	if maxLenSum < frameCount {
+		maxLenSum = frameCount
+	}
+	currMaxByRate := e.bitrate * 960 / 48000 / 8
+	if currMaxByRate < 2 {
+		currMaxByRate = 2
+	}
+	totSize := 0
 	for i := 0; i < frameCount; i++ {
 		e.primeSubframeAnalysis(960)
 		start := i * frameStride
@@ -1652,13 +1693,27 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 		// independent 20ms frames. Do not leak future subframe samples as lookahead.
 		subLookahead := lookahead
 
-		frameData, err := e.encodeHybridFrame(subPCM, subCELTPCM, subLookahead, 960)
+		currMax := currMaxByRate
+		capPerFrame := maxLenSum / frameCount
+		if currMax > capPerFrame {
+			currMax = capPerFrame
+		}
+		remainingCap := maxLenSum - totSize
+		if currMax > remainingCap {
+			currMax = remainingCap
+		}
+		if currMax < 2 {
+			currMax = 2
+		}
+
+		frameData, err := e.encodeHybridFrameWithMaxPacket(subPCM, subCELTPCM, subLookahead, 960, currMax)
 		if err != nil {
 			return nil, err
 		}
 		// Keep a stable copy because encoder scratch buffers are reused.
 		frameCopy := append([]byte(nil), frameData...)
 		frames[i] = frameCopy
+		totSize += len(frameCopy) + 1
 		if prevSize >= 0 && len(frameCopy) != prevSize {
 			sameSize = false
 		}

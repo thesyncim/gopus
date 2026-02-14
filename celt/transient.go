@@ -114,7 +114,7 @@ func toneLPC(x []float32, delay int) (float32, float32, bool) {
 
 	// Solve A*x=b where A=[R00, R01; R01, R11] and b=[R02; R12].
 	den := R00*R11 - R01*R01
-	if den < 0.001*R00*R11 {
+	if den < float32(0.001)*R00*R11 {
 		return 0, 0, false
 	}
 
@@ -130,9 +130,9 @@ func toneLPC(x []float32, delay int) (float32, float32, bool) {
 
 	num0 := R00*R12 - R02*R01
 	var lpc0 float32
-	if 0.5*num0 >= den {
+	if float32(0.5)*num0 >= den {
 		lpc0 = 1.999999
-	} else if 0.5*num0 <= -den {
+	} else if float32(0.5)*num0 <= -den {
 		lpc0 = -1.999999
 	} else {
 		lpc0 = num0 / den
@@ -187,7 +187,7 @@ func toneDetectScratch(in []float64, channels int, sampleRate int, xBuf []float3
 	if maxDelay < 1 {
 		maxDelay = 1
 	}
-	for delay <= maxDelay && (!success || (lpc0 > 1.0 && lpc1 < 0)) {
+	for delay <= maxDelay && (!success || (lpc0 > float32(1.0) && lpc1 < 0)) {
 		delay *= 2
 		if 2*delay >= n {
 			break
@@ -197,12 +197,12 @@ func toneDetectScratch(in []float64, channels int, sampleRate int, xBuf []float3
 
 	// Check that our filter has complex roots: lpc0^2 + 4*lpc1 < 0
 	// This indicates a resonant (tonal) system
-	if success && float64(lpc0*lpc0+3.999999*lpc1) < 0 {
+	if success && (lpc0*lpc0+float32(3.999999)*lpc1) < 0 {
 		// Toneishness is the squared radius of the poles.
 		toneishness := -lpc1
 		// Frequency from the angle of the complex pole.
-		freq := math.Acos(0.5*float64(lpc0)) / float64(delay)
-		return freq, float64(toneishness)
+		freq := float32(math.Acos(float64(float32(0.5)*lpc0)) / float64(delay))
+		return float64(freq), float64(toneishness)
 	}
 
 	return -1, 0
