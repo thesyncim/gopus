@@ -88,7 +88,7 @@ Canonical project context for agent sessions.
 
 ## CI Regression Guardrails (Mandatory)
 - Treat CI as merge-blocking for correctness and performance; do not bypass failing checks.
-- CI test and perf gates are required for code-impacting PRs; markdown-only/doc-only changes may skip CI via workflow filters.
+- CI test and perf gates are required for every PR, including markdown-only/doc-only changes; do not add markdown/docs-only CI exemptions.
 - PR cadence for faster iteration:
   - After focused/relevant slice tests pass, open/push a PR immediately so CI can run in parallel with local validation.
   - Focused/relevant local runs must mirror CI env/tier flags for that surface (e.g., `GOPUS_TEST_TIER=parity` for parity gates).
