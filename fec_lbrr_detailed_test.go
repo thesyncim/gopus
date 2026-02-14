@@ -29,6 +29,9 @@ func TestFEC_LBRRActualRecovery(t *testing.T) {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
 	enc.SetFEC(true)
+	if err := enc.SetPacketLoss(15); err != nil {
+		t.Fatalf("SetPacketLoss error: %v", err)
+	}
 
 	frameSize := 960
 	numFrames := 10
@@ -138,6 +141,9 @@ func TestFEC_LBRRActualRecovery(t *testing.T) {
 func TestFEC_HasLBRRCheck(t *testing.T) {
 	enc, _ := NewEncoder(48000, 1, ApplicationVoIP)
 	enc.SetFEC(true)
+	if err := enc.SetPacketLoss(15); err != nil {
+		t.Fatalf("SetPacketLoss error: %v", err)
+	}
 
 	dec, _ := NewDecoder(DefaultDecoderConfig(48000, 1))
 
@@ -179,6 +185,9 @@ func TestFEC_SILKEncoderLBRREnabled(t *testing.T) {
 
 	// Enable FEC
 	enc.SetFEC(true)
+	if err := enc.SetPacketLoss(15); err != nil {
+		t.Fatalf("SetPacketLoss error: %v", err)
+	}
 	if !enc.FECEnabled() {
 		t.Error("FEC should be enabled after SetFEC(true)")
 	}
