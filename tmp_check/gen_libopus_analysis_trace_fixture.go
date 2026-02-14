@@ -113,17 +113,64 @@ func frameSizeLabel(frameSize int) string {
 }
 
 func buildSpecs() []analysisCaseSpec {
-	frames := []int{480, 960, 1920}
-	specs := make([]analysisCaseSpec, 0, len(frames))
-	for _, fs := range frames {
-		specs = append(specs, analysisCaseSpec{
-			Name:      fmt.Sprintf("HYBRID-SWB-%s-mono-48k", frameSizeLabel(fs)),
-			FrameSize: fs,
+	// Keep analyzer trace coverage aligned with active libopus parity profiles
+	// so mode-control updates are source-backed across mono/stereo and long frames.
+	return []analysisCaseSpec{
+		{
+			Name:      fmt.Sprintf("HYBRID-SWB-%s-mono-48k", frameSizeLabel(480)),
+			FrameSize: 480,
 			Channels:  1,
 			Bitrate:   48000,
-		})
+		},
+		{
+			Name:      fmt.Sprintf("HYBRID-SWB-%s-mono-48k", frameSizeLabel(960)),
+			FrameSize: 960,
+			Channels:  1,
+			Bitrate:   48000,
+		},
+		{
+			Name:      fmt.Sprintf("HYBRID-SWB-%s-mono-48k", frameSizeLabel(1920)),
+			FrameSize: 1920,
+			Channels:  1,
+			Bitrate:   48000,
+		},
+		{
+			Name:      fmt.Sprintf("HYBRID-FB-%s-mono-64k", frameSizeLabel(480)),
+			FrameSize: 480,
+			Channels:  1,
+			Bitrate:   64000,
+		},
+		{
+			Name:      fmt.Sprintf("HYBRID-FB-%s-mono-64k", frameSizeLabel(960)),
+			FrameSize: 960,
+			Channels:  1,
+			Bitrate:   64000,
+		},
+		{
+			Name:      fmt.Sprintf("HYBRID-FB-%s-mono-64k", frameSizeLabel(2880)),
+			FrameSize: 2880,
+			Channels:  1,
+			Bitrate:   64000,
+		},
+		{
+			Name:      fmt.Sprintf("HYBRID-FB-%s-stereo-96k", frameSizeLabel(960)),
+			FrameSize: 960,
+			Channels:  2,
+			Bitrate:   96000,
+		},
+		{
+			Name:      fmt.Sprintf("CELT-FB-%s-stereo-128k", frameSizeLabel(960)),
+			FrameSize: 960,
+			Channels:  2,
+			Bitrate:   128000,
+		},
+		{
+			Name:      fmt.Sprintf("SILK-WB-%s-stereo-48k", frameSizeLabel(960)),
+			FrameSize: 960,
+			Channels:  2,
+			Bitrate:   48000,
+		},
 	}
-	return specs
 }
 
 func clampToOpusDemoF32(in []float32) {
