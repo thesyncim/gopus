@@ -698,18 +698,29 @@ func TestBitrateModeCVBR_CELTStereoEnvelope(t *testing.T) {
 	enc.SetBitrate(95000)
 
 	baseBits := (enc.Bitrate() * 960) / 48000
-	maxBits := int(float64(baseBits) * (1 + encoder.CVBRTolerance))
-	// Allow one extra byte for packet/header rounding.
-	maxBytes := (maxBits+7)/8 + 1
+	targetBytes := (baseBits + 7) / 8
+	// libopus constrained-VBR can spike individual CELT packets up to roughly
+	// 2x base_target, but should stay near target on average.
+	maxBits := 2 * baseBits
+	maxBytes := (maxBits + 7) / 8
+	totalBytes := 0
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 60; i++ {
 		packet, err := enc.Encode(generateTestSignal(960, 2), 960)
 		if err != nil {
 			t.Fatalf("Encode frame %d failed: %v", i, err)
 		}
+		totalBytes += len(packet)
 		if len(packet) > maxBytes {
 			t.Fatalf("CVBR CELT stereo packet %d: %d bytes > max %d bytes", i, len(packet), maxBytes)
 		}
+	}
+	avgBytes := float64(totalBytes) / 60.0
+	if avgBytes > float64(targetBytes)*1.15 {
+		t.Fatalf("CVBR CELT stereo avg bytes %.2f exceeds +15%% envelope around target %d", avgBytes, targetBytes)
+	}
+	if avgBytes < float64(targetBytes)*0.85 {
+		t.Fatalf("CVBR CELT stereo avg bytes %.2f below -15%% envelope around target %d", avgBytes, targetBytes)
 	}
 }
 
