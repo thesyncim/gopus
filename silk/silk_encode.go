@@ -74,6 +74,23 @@ func EncodeStereoWithEncoderVADFlags(enc, sideEnc *Encoder, left, right []float3
 // but accepts optional side-channel VAD flags.
 // When sideVADFlags is nil, side VAD defaults to mid VAD gating for backward compatibility.
 func EncodeStereoWithEncoderVADFlagsWithSide(enc, sideEnc *Encoder, left, right []float32, bandwidth Bandwidth, vadFlags []bool, sideVADFlags []bool) ([]byte, error) {
+	return EncodeStereoWithEncoderVADFlagsAndStatesWithSide(
+		enc, sideEnc, left, right, bandwidth, vadFlags, nil, sideVADFlags, nil,
+	)
+}
+
+// EncodeStereoWithEncoderVADFlagsAndStatesWithSide is like
+// EncodeStereoWithEncoderVADFlagsWithSide, but also applies optional per-frame
+// VAD-derived state for mid/side encoders.
+func EncodeStereoWithEncoderVADFlagsAndStatesWithSide(
+	enc, sideEnc *Encoder,
+	left, right []float32,
+	bandwidth Bandwidth,
+	vadFlags []bool,
+	vadStates []VADFrameState,
+	sideVADFlags []bool,
+	sideVADStates []VADFrameState,
+) ([]byte, error) {
 	if sideEnc == nil {
 		sideEnc = NewEncoder(bandwidth)
 	}
@@ -293,6 +310,11 @@ func EncodeStereoWithEncoderVADFlagsWithSide(enc, sideEnc *Encoder, left, right 
 		}
 		sideEnc.useCBR = baseSideUseCBR && i == nFrames-1
 
+		if i < len(vadStates) && vadStates[i].Valid {
+			state := vadStates[i]
+			enc.SetVADState(state.SpeechActivityQ8, state.InputTiltQ15, state.InputQualityBandsQ15)
+		}
+
 		// Set up shared range encoder for mid channel encoding.
 		enc.SetRangeEncoder(re)
 		_ = enc.EncodeFrame(midOut, nil, midFrameVAD)
@@ -301,6 +323,10 @@ func EncodeStereoWithEncoderVADFlagsWithSide(enc, sideEnc *Encoder, left, right 
 		// Use the side-channel VAD decision (not the mid flag) so the
 		// frame type coding stays consistent with patched side VAD header bits.
 		if !midOnly {
+			if i < len(sideVADStates) && sideVADStates[i].Valid {
+				state := sideVADStates[i]
+				sideEnc.SetVADState(state.SpeechActivityQ8, state.InputTiltQ15, state.InputQualityBandsQ15)
+			}
 			sideEnc.SetRangeEncoder(re)
 			_ = sideEnc.EncodeFrame(sideOut, nil, sideFrameVAD)
 		}
