@@ -49,6 +49,20 @@ func decoderLossThresholdForCase(c libopusDecoderLossCaseFile, pattern string) d
 	}
 }
 
+func decoderLossStressThresholdForCase(c libopusDecoderLossCaseFile) decoderLossThresholds {
+	// Stress patterns intentionally apply harsher and denser loss masks than the
+	// baked fixture patterns; use dedicated floors to catch regressions without
+	// forcing unrealistic parity under heavy concealment drift.
+	switch {
+	case strings.HasPrefix(c.Name, "hybrid-"):
+		return decoderLossThresholds{minQ: -110.0, minCorr: 0.25, minRMS: 0.80, maxRMS: 3.20}
+	case strings.HasPrefix(c.Name, "silk-"):
+		return decoderLossThresholds{minQ: -110.0, minCorr: 0.30, minRMS: 0.60, maxRMS: 1.35}
+	default:
+		return decoderLossThresholds{minQ: -95.0, minCorr: 0.80, minRMS: 0.80, maxRMS: 1.20}
+	}
+}
+
 func decodeWithInternalDecoderLossPattern(
 	t *testing.T,
 	sampleRate int,
@@ -111,6 +125,77 @@ func lossAbsInt(v int) int {
 		return -v
 	}
 	return v
+}
+
+type decoderLossPattern struct {
+	name string
+	bits string
+}
+
+func buildDecoderLossStressPatterns(frames int) []decoderLossPattern {
+	if frames < 4 {
+		return nil
+	}
+
+	newBits := func() []byte {
+		return bytes.Repeat([]byte{'0'}, frames)
+	}
+	markLoss := func(bits []byte, idx int) {
+		if idx >= 0 && idx < len(bits) {
+			bits[idx] = '1'
+		}
+	}
+	finalize := func(name string, bits []byte) (decoderLossPattern, bool) {
+		// Match fixture behavior: do not end the stream with a lost frame.
+		bits[len(bits)-1] = '0'
+		ones := 0
+		for _, b := range bits {
+			if b == '1' {
+				ones++
+			}
+		}
+		if ones == 0 {
+			return decoderLossPattern{}, false
+		}
+		return decoderLossPattern{name: name, bits: string(bits)}, true
+	}
+
+	patterns := make([]decoderLossPattern, 0, 4)
+	mid := frames / 2
+
+	burst3 := newBits()
+	markLoss(burst3, mid-1)
+	markLoss(burst3, mid)
+	markLoss(burst3, mid+1)
+	if p, ok := finalize("burst3_mid", burst3); ok {
+		patterns = append(patterns, p)
+	}
+
+	periodic5 := newBits()
+	for i := 4; i < frames-1; i += 5 {
+		markLoss(periodic5, i)
+	}
+	if p, ok := finalize("periodic5", periodic5); ok {
+		patterns = append(patterns, p)
+	}
+
+	edgeThenMid := newBits()
+	markLoss(edgeThenMid, 1)
+	markLoss(edgeThenMid, mid)
+	if p, ok := finalize("edge_then_mid", edgeThenMid); ok {
+		patterns = append(patterns, p)
+	}
+
+	doubletStride7 := newBits()
+	for i := 7; i < frames-2; i += 7 {
+		markLoss(doubletStride7, i)
+		markLoss(doubletStride7, i+1)
+	}
+	if p, ok := finalize("doublet_stride7", doubletStride7); ok {
+		patterns = append(patterns, p)
+	}
+
+	return patterns
 }
 
 func TestDecoderLossParityLibopusFixture(t *testing.T) {
@@ -188,6 +273,127 @@ func TestDecoderLossParityLibopusFixture(t *testing.T) {
 					}
 					if rmsRatio < thr.minRMS || rmsRatio > thr.maxRMS {
 						t.Fatalf("decoder loss parity RMS ratio regression: ratio=%.6f outside [%.6f, %.6f]",
+							rmsRatio, thr.minRMS, thr.maxRMS)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestDecoderLossStressPatternsAgainstOpusDemo(t *testing.T) {
+	requireTestTier(t, testTierExhaustive)
+
+	opusDemo, ok := getFixtureOpusDemoPath()
+	if !ok {
+		t.Skip("tmp_check opus_demo not found; skipping decoder loss stress parity check")
+	}
+
+	fixture, err := loadLibopusDecoderLossFixture()
+	if err != nil {
+		t.Fatalf("load decoder loss fixture: %v", err)
+	}
+	if fixture.SampleRate != 48000 {
+		t.Fatalf("unsupported decoder loss fixture sample rate: %d", fixture.SampleRate)
+	}
+
+	tmpDir, err := os.MkdirTemp("", "gopus-decoder-loss-stress-*")
+	if err != nil {
+		t.Fatalf("create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	for _, c := range fixture.Cases {
+		c := c
+		t.Run(c.Name, func(t *testing.T) {
+			packets, err := decodeLibopusDecoderLossPackets(c)
+			if err != nil {
+				t.Fatalf("decode fixture packets: %v", err)
+			}
+			if len(packets) == 0 {
+				t.Fatal("fixture case has no packets")
+			}
+
+			bitstream, err := buildDecoderLossBitstream(c)
+			if err != nil {
+				t.Fatalf("build fixture bitstream: %v", err)
+			}
+			bitPath := filepath.Join(tmpDir, fmt.Sprintf("%s.stress.bit", c.Name))
+			if err := os.WriteFile(bitPath, bitstream, 0o644); err != nil {
+				t.Fatalf("write bitstream: %v", err)
+			}
+
+			patterns := buildDecoderLossStressPatterns(c.Frames)
+			if len(patterns) == 0 {
+				t.Fatalf("no stress loss patterns generated for %d frames", c.Frames)
+			}
+
+			for _, p := range patterns {
+				p := p
+				t.Run(p.name, func(t *testing.T) {
+					lossPath := filepath.Join(tmpDir, fmt.Sprintf("%s.%s.loss", c.Name, p.name))
+					outPath := filepath.Join(tmpDir, fmt.Sprintf("%s.%s.f32", c.Name, p.name))
+					if err := writeLossBitsFile(lossPath, p.bits); err != nil {
+						t.Fatalf("write lossfile: %v", err)
+					}
+
+					cmd := exec.Command(
+						opusDemo, "-d", "48000", fmt.Sprintf("%d", c.Channels),
+						"-f32", "-lossfile", lossPath, bitPath, outPath,
+					)
+					cmdOut, err := cmd.CombinedOutput()
+					if err != nil {
+						t.Fatalf("opus_demo decode failed: %v (%s)", err, cmdOut)
+					}
+
+					refRaw, err := os.ReadFile(outPath)
+					if err != nil {
+						t.Fatalf("read opus_demo output: %v", err)
+					}
+					refDecoded, err := decodeRawFloat32LE(refRaw)
+					if err != nil {
+						t.Fatalf("decode opus_demo output: %v", err)
+					}
+
+					gotDecoded := decodeWithInternalDecoderLossPattern(
+						t,
+						fixture.SampleRate,
+						c.Channels,
+						packets,
+						parseLossBits(p.bits),
+					)
+					if len(refDecoded) == 0 || len(gotDecoded) == 0 {
+						t.Fatalf("decoded streams empty: ref=%d got=%d", len(refDecoded), len(gotDecoded))
+					}
+
+					maxLenDrift := c.FrameSize * c.Channels
+					if d := lossAbsInt(len(refDecoded) - len(gotDecoded)); d > maxLenDrift {
+						t.Fatalf("decoded length drift too large: ref=%d got=%d drift=%d max=%d",
+							len(refDecoded), len(gotDecoded), d, maxLenDrift)
+					}
+
+					compareLen := len(refDecoded)
+					if len(gotDecoded) < compareLen {
+						compareLen = len(gotDecoded)
+					}
+					thr := decoderLossStressThresholdForCase(c)
+					maxDelay := 4 * c.FrameSize
+					if maxDelay < 960 {
+						maxDelay = 960
+					}
+					q, delay := ComputeQualityFloat32WithDelay(refDecoded[:compareLen], gotDecoded[:compareLen], fixture.SampleRate, maxDelay)
+					corr, rmsRatio := decoderParityStats(refDecoded[:compareLen], gotDecoded[:compareLen])
+					t.Logf("Q=%.2f SNR=%.2f delay=%d corr=%.6f rms_ratio=%.6f len_ref=%d len_got=%d",
+						q, SNRFromQuality(q), delay, corr, rmsRatio, len(refDecoded), len(gotDecoded))
+
+					if q < thr.minQ {
+						t.Fatalf("decoder loss stress parity quality regression: Q=%.2f < %.2f", q, thr.minQ)
+					}
+					if corr < thr.minCorr {
+						t.Fatalf("decoder loss stress parity correlation regression: corr=%.6f < %.6f", corr, thr.minCorr)
+					}
+					if rmsRatio < thr.minRMS || rmsRatio > thr.maxRMS {
+						t.Fatalf("decoder loss stress parity RMS ratio regression: ratio=%.6f outside [%.6f, %.6f]",
 							rmsRatio, thr.minRMS, thr.maxRMS)
 					}
 				})
