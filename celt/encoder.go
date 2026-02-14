@@ -113,10 +113,11 @@ type Encoder struct {
 	intensity      int // Previous intensity stereo decision (libopus hysteresis state)
 
 	// Bitrate control
-	targetBitrate  int // Target bitrate in bits per second (0 = use buffer size)
-	frameBits      int // Per-frame bit budget for coarse energy (set during encoding)
-	vbr            bool
-	constrainedVBR bool
+	targetBitrate   int // Target bitrate in bits per second (0 = use buffer size)
+	frameBits       int // Per-frame bit budget for coarse energy (set during encoding)
+	maxPayloadBytes int // Optional per-frame payload cap (excludes TOC byte)
+	vbr             bool
+	constrainedVBR  bool
 	// constrainedVBRBoundScale scales libopus vbr_bound for constrained-VBR
 	// max-allowed computation. 1.0 matches libopus single-stream behavior.
 	constrainedVBRBoundScale float64
@@ -146,6 +147,7 @@ type Encoder struct {
 	// This mirrors libopus use of st->analysis.bandwidth for clt_compute_allocation().
 	analysisBandwidth     int  // 1..20 bandwidth index from previous frame analysis
 	analysisValid         bool // True after at least one analysis update
+	analysisActivity      float64
 	analysisLeakBoost     [leakBands]uint8
 	analysisTonalitySlope float64
 	analysisMaxPitchRatio float64
@@ -336,6 +338,7 @@ func NewEncoder(channels int) *Encoder {
 		lastPitchChange:       false,
 		analysisBandwidth:     20,
 		analysisValid:         false,
+		analysisActivity:      0.0,
 		analysisTonalitySlope: 0.0,
 		analysisMaxPitchRatio: 0.0,
 
@@ -401,6 +404,7 @@ func (e *Encoder) SetTargetStatsHook(fn func(CeltTargetStats)) {
 func (e *Encoder) SetAnalysisBandwidth(bandwidth int, valid bool) {
 	if !valid {
 		e.analysisValid = false
+		e.analysisActivity = 0
 		e.analysisTonalitySlope = 0
 		e.analysisMaxPitchRatio = 0
 		for i := range e.analysisLeakBoost {
@@ -416,6 +420,7 @@ func (e *Encoder) SetAnalysisBandwidth(bandwidth int, valid bool) {
 	}
 	e.analysisBandwidth = bandwidth
 	e.analysisValid = true
+	e.analysisActivity = 0
 	e.analysisTonalitySlope = 0
 	e.analysisMaxPitchRatio = 1.0
 	for i := range e.analysisLeakBoost {
@@ -425,7 +430,7 @@ func (e *Encoder) SetAnalysisBandwidth(bandwidth int, valid bool) {
 
 // SetAnalysisInfo provides analysis-derived state from the top-level Opus analysis
 // pipeline. This mirrors libopus use of AnalysisInfo in CELT dynalloc.
-func (e *Encoder) SetAnalysisInfo(bandwidth int, leakBoost [leakBands]uint8, tonalitySlope float64, maxPitchRatio float64, valid bool) {
+func (e *Encoder) SetAnalysisInfo(bandwidth int, leakBoost [leakBands]uint8, activity, tonalitySlope float64, maxPitchRatio float64, valid bool) {
 	if !valid {
 		e.SetAnalysisBandwidth(0, false)
 		return
@@ -438,6 +443,7 @@ func (e *Encoder) SetAnalysisInfo(bandwidth int, leakBoost [leakBands]uint8, ton
 	}
 	e.analysisBandwidth = bandwidth
 	e.analysisValid = true
+	e.analysisActivity = activity
 	e.analysisLeakBoost = leakBoost
 	e.analysisTonalitySlope = tonalitySlope
 	if maxPitchRatio < 0 {
@@ -536,6 +542,7 @@ func (e *Encoder) Reset() {
 	e.frameCount = 0
 	e.bandDebug = bandDebugState{}
 	e.frameBits = 0
+	e.maxPayloadBytes = 0
 	e.delayedIntra = 1.0
 	e.lastCodedBands = 0
 	e.intensity = 0
@@ -561,6 +568,7 @@ func (e *Encoder) Reset() {
 	e.lastPitchChange = false
 	e.analysisBandwidth = 20
 	e.analysisValid = false
+	e.analysisActivity = 0
 	e.analysisTonalitySlope = 0
 	e.analysisMaxPitchRatio = 0
 	for i := range e.analysisLeakBoost {
@@ -864,6 +872,15 @@ func (e *Encoder) SetBitrate(bps int) {
 // Bitrate returns the current target bitrate in bits per second.
 func (e *Encoder) Bitrate() int {
 	return e.targetBitrate
+}
+
+// SetMaxPayloadBytes sets an optional payload cap for the next CELT frame.
+// The value excludes the Opus TOC byte. A value <= 0 disables the cap.
+func (e *Encoder) SetMaxPayloadBytes(maxPayloadBytes int) {
+	if maxPayloadBytes < 0 {
+		maxPayloadBytes = 0
+	}
+	e.maxPayloadBytes = maxPayloadBytes
 }
 
 // SetPacketLoss sets the expected packet loss percentage (0-100).
