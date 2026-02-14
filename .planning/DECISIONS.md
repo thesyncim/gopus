@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-14
+topic: Decoder loss stress-pattern parity guard
+decision: Keep additional deterministic loss-mask coverage in `TestDecoderLossStressPatternsAgainstOpusDemo` (`burst3_mid`, `periodic5`, `edge_then_mid`, `doublet_stride7`) with live `opus_demo` reference decode and dedicated stress thresholds by codec family.
+evidence: Added stress-pattern generator and exhaustive-tier parity test in `testvectors/decoder_loss_parity_test.go`; validated with `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run 'TestDecoderLossStressPatternsAgainstOpusDemo|TestDecoderLossFixtureHonestyWithOpusDemo' -count=1 -v` and `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`.
+do_not_repeat_until: loss fixture corpus/pattern policy changes, libopus `opus_demo` loss decode semantics change, or stress-pattern parity regressions are observed.
+owner: codex
+
+date: 2026-02-14
 topic: decode_fec single-frame output sizing parity
 decision: Keep `decodeFECFrame` output sizing/limits based on a single recovered frame (`frameSize`) instead of packet frame-count (`frameSize * frameCount`) so multi-frame packet metadata does not force spurious PLC fallback from buffer checks.
 evidence: Updated `decoder.go` `decodeFECFrame` required-sample and packet-size checks; added `TestDecodeFECFrame_BufferSizingUsesSingleFrame` in `decoder_test.go`; validated with focused root FEC tests (`TestDecodeFECFrame_BufferSizingUsesSingleFrame|TestDecodeWithFEC_UsesProvidedPacketAndPreservesNormalDecode|TestDecodeWithFEC_ProvidedCELTPacketFallsBackToPLC|TestDecodeWithFEC_NoFECRequested`) plus parity guard `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`.
