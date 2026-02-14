@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-14
+topic: Frame-level mode-trace parity guard and short-frame auto-mode control
+decision: Keep the libopus 1.6.1 frame-level mode-trace fixture workflow (`tmp_check/gen_libopus_mode_trace_fixture.go` + `encoder/testdata/libopus_mode_trace_fixture.json`) and the short-frame auto-mode port in `encoder/encoder.go` (libopus threshold/hysteresis with analysis-driven `voice_est`, previous-mode state, VoIP threshold bias, and FEC/DTX SILK forcing conditions).
+evidence: Added `encoder/mode_trace_fixture_test.go` parity/metadata guards over 32 fixture cases; mode drift collapsed from large WB/SWB mismatches to <=2% max per case; focused mode/FEC tests, parity/compliance slice, `make verify-production`, and `make bench-guard` passed.
+do_not_repeat_until: libopus mode-selection semantics change in `opus_encoder.c` (thresholds/hysteresis/voice_est/FEC forcing/application bias) or the mode-trace fixture reports >2% drift on any covered case.
+owner: codex
+
+date: 2026-02-14
 topic: Analyzer trace fixture coverage matrix (stereo + 60ms)
 decision: Keep the expanded libopus analyzer trace fixture matrix in `tmp_check/gen_libopus_analysis_trace_fixture.go` and `encoder/testdata/libopus_analysis_trace_fixture.json`, including stereo FB profiles and 60 ms mono FB coverage, so analyzer/control parity remains source-backed beyond SWB mono.
 evidence: Generator now emits 36 cases across SWB mono, FB mono/stereo, and 60 ms lanes; `TestAnalysisTraceFixtureParityWithLibopus` reported `badFrames=0` on all cases; parity/compliance slice and full gates (`make verify-production`, `make bench-guard`) passed after regeneration.
