@@ -31,6 +31,7 @@ type Encoder struct {
 	isPreviousFrameVoiced bool  // Was previous frame voiced
 	ecPrevLagIndex        int   // Previous lag index for conditional pitch coding
 	ecPrevSignalType      int   // Previous signal type for conditional pitch coding
+	lastQuantOffsetType   int   // Last frame's quantization offset type (for hybrid silk_info)
 	frameCounter          int   // Frame counter for seed generation (seed = frameCounter & 3)
 
 	// LPC state
@@ -717,6 +718,24 @@ func (e *Encoder) GetLastInvGain() float64 {
 // GetLastNumSamples returns the number of samples analyzed in the last LPC Burg analysis.
 func (e *Encoder) GetLastNumSamples() int {
 	return e.lastNumSamples
+}
+
+// LastEncodedSignalInfo returns the signal type and quantization offset from
+// the most recently encoded frame. Used by the hybrid encoder to provide
+// silk_info feedback to CELT (libopus celt_encoder.c line 2466-2467).
+//
+// The offset is computed from silk_Quantization_Offsets_Q10[signalType>>1][quantOffsetType]:
+//   Unvoiced Low:  100, Unvoiced High: 240
+//   Voiced Low:     32, Voiced High:   100
+func (e *Encoder) LastEncodedSignalInfo() (signalType, offset int) {
+	return e.ecPrevSignalType, GetQuantizationOffset(e.ecPrevSignalType, e.lastQuantOffsetType)
+}
+
+// GetQuantizationOffset returns the quantization offset Q10 value for a given
+// signal type and quantization offset type. This matches libopus
+// silk_Quantization_Offsets_Q10[signalType>>1][quantOffsetType].
+func GetQuantizationOffset(signalType, quantOffsetType int) int {
+	return getQuantizationOffset(signalType, quantOffsetType)
 }
 
 // SetBitrate sets the target bitrate in bps (per channel).

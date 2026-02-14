@@ -131,18 +131,16 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 	}
 
 	// Propagate bitrate mode to CELT encoder for hybrid mode.
-	// Per libopus opus_encoder.c line 2450-2461: the outer encoder's
-	// use_vbr and vbr_constraint flags are forwarded to the CELT encoder.
+	// Per libopus opus_encoder.c line 2450-2455: in hybrid mode, CELT VBR
+	// constraint is ALWAYS disabled regardless of the top-level vbr_constraint.
+	// The constraint is applied at the opus level (via SILK maxBits), not CELT.
 	switch e.bitrateMode {
 	case ModeCBR:
 		e.celtEncoder.SetVBR(false)
 		e.celtEncoder.SetConstrainedVBR(false)
-	case ModeCVBR:
+	case ModeCVBR, ModeVBR:
 		e.celtEncoder.SetVBR(true)
-		e.celtEncoder.SetConstrainedVBR(true)
-	case ModeVBR:
-		e.celtEncoder.SetVBR(true)
-		e.celtEncoder.SetConstrainedVBR(false)
+		e.celtEncoder.SetConstrainedVBR(false) // Always false in hybrid (libopus line 2455)
 	}
 
 	// Compute bit allocation between SILK and CELT
@@ -316,6 +314,11 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 	}
 	e.encodeSILKHybrid(silkInput, silkLookahead, frameSize, silkBitrate)
 
+	// Retrieve SILK signal info for CELT VBR target feedback.
+	// Per libopus opus_encoder.c line 2420-2424: after SILK encodes, its signal
+	// type and quantization offset are forwarded to CELT via silk_info.
+	silkSignalType, silkOffset := e.silkEncoder.LastEncodedSignalInfo()
+
 	// Step 2b: Encode redundancy flag between SILK and CELT.
 	// Per libopus opus_encoder.c: in hybrid mode, a redundancy flag is always
 	// written between the SILK and CELT portions (logp=12, value=0 for no redundancy).
@@ -345,7 +348,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 	e.celtEncoder.SetRangeEncoder(re)
 	e.celtEncoder.SetBitrate(celtBitrate)
 	e.celtEncoder.SetLSBDepth(e.lsbDepth)
-	e.encodeCELTHybridImproved(celtInput, frameSize, payloadTarget)
+	e.encodeCELTHybridImproved(celtInput, frameSize, payloadTarget, silkSignalType, silkOffset)
 
 	// Update state for next frame
 	e.hybridState.prevHBGain = hbGain
@@ -1077,7 +1080,9 @@ func celtBandwidthFromTypes(bw types.Bandwidth) celt.CELTBandwidth {
 // encodeCELTHybridImproved encodes CELT data for hybrid mode with improvements.
 // Implements proper energy matching at the crossover frequency.
 // targetPayloadBytes is the desired total payload budget (excluding TOC) for the full packet.
-func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetPayloadBytes int) {
+// silkSignalType and silkOffset are the SILK encoder's signal classification,
+// used for VBR target adjustment per libopus celt_encoder.c line 2463-2475.
+func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetPayloadBytes int, silkSignalType, silkOffset int) {
 	// Set hybrid mode flag on CELT encoder
 	e.celtEncoder.SetHybrid(true)
 
@@ -1125,6 +1130,39 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 	// Transient analysis (pre-MDCT) to decide short blocks and tf metrics.
 	transient, tfEstimate, toneFreq, toneishness, shortBlocks, bandLogE2 := e.celtEncoder.TransientAnalysisHybrid(preemph, frameSize, nbBands, lm)
 
+	// Apply hybrid CELT VBR target adjustment based on SILK signal info.
+	// Per libopus celt_encoder.c line 2463-2475:
+	// - Tonal frames (offset < 100) get more bits
+	// - Noisy frames (offset > 100) get fewer bits
+	// - tf_estimate-based transient boost
+	// The shift (3-LM) scales the adjustment to the frame size.
+	if e.bitrateMode != ModeCBR {
+		shift := 3 - lm
+		if shift < 0 {
+			shift = 0
+		}
+		if silkOffset < 100 {
+			totalBits += 12 >> shift // Tonal boost: +12 bits for 20ms, +6 for 10ms
+		}
+		if silkOffset > 100 {
+			totalBits -= 18 >> shift // Noise reduction: -18 bits for 20ms, -9 for 10ms
+		}
+		// Transient/vowel temporal spike boost (libopus line 2470).
+		// (tf_estimate - 0.25) * 50 bits, where tf_estimate is [0, 1].
+		tfAdj := int((tfEstimate - 0.25) * 50.0)
+		totalBits += tfAdj
+		// Minimum target for strong transients (libopus line 2473).
+		// Ensure at least 50 bits for CELT when tf_estimate > 0.7.
+		silkUsedBits := re.Tell()
+		if tfEstimate > 0.7 && totalBits-silkUsedBits < 50 {
+			totalBits = silkUsedBits + 50
+		}
+		// Don't let adjustment make totalBits negative or below SILK usage.
+		if totalBits < silkUsedBits+8 {
+			totalBits = silkUsedBits + 8
+		}
+	}
+
 	// Compute MDCT with overlap history using the selected block size.
 	mdctCoeffs := computeMDCTForHybridScratch(preemph, frameSize, e.channels, e.celtEncoder.OverlapBuffer(), shortBlocks, e.hybridState, e.celtEncoder)
 	if len(mdctCoeffs) == 0 {
@@ -1154,11 +1192,9 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 		}
 	}
 
-	// Apply crossover energy matching
-	// Ensure smooth transition at band 17 (the first CELT band in hybrid)
-	if start < len(energies) {
-		energies = e.matchCrossoverEnergy(energies, start)
-	}
+	// NOTE: No crossover energy matching. libopus does not apply any energy
+	// smoothing at the SILK/CELT boundary (band 17). The band energies are
+	// used directly as computed from the MDCT coefficients.
 
 	// Normalize bands to arrays (linear amplitudes) for PVQ input.
 	var normL, normR, bandE []float64
@@ -1247,28 +1283,36 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 		toneishness,
 	)
 
-	// TF analysis (enable with sufficient bits/complexity).
-	enableTFAnalysis := effectiveBytes >= 15*e.channels && e.celtEncoder.Complexity() >= 2 && toneishness < 0.98
+	// TF resolution for hybrid mode.
+	// Per libopus celt_encoder.c line 2242: variable TF analysis is DISABLED
+	// for hybrid mode (!hybrid flag). Instead, use fixed TF patterns based on
+	// transient detection and signal type.
+	// Reference: libopus celt_encoder.c lines 2261-2279.
 	var tfRes []int
-	if enableTFAnalysis {
-		useTfEstimate := tfEstimate
-		if transient && tfEstimate < 0.2 {
-			useTfEstimate = 0.2
-		}
-		tfRes, tfSelect := e.celtEncoder.TFAnalysisHybridScratch(normL, nbBands, transient, lm, useTfEstimate, effectiveBytes, dynallocResult.Importance)
-		celt.TFEncodeWithSelect(re, start, end, transient, tfRes, lm, tfSelect)
-	} else {
-		tfRes = e.celtEncoder.TFResScratch(nbBands)
+	tfRes = e.celtEncoder.TFResScratch(nbBands)
+	tfSelect := 0
+	if effectiveBytes < 15 && silkSignalType != 2 {
+		// Low bitrate hybrid with non-voiced signal: force 5ms resolution.
+		// Per libopus line 2269-2274.
 		for i := range tfRes {
 			tfRes[i] = 0
 		}
 		if transient {
-			for i := 0; i < nbBands; i++ {
+			tfSelect = 1
+		}
+	} else {
+		// Default hybrid TF: all bands follow the transient flag.
+		// Per libopus line 2276-2278.
+		for i := 0; i < nbBands; i++ {
+			if transient {
 				tfRes[i] = 1
+			} else {
+				tfRes[i] = 0
 			}
 		}
-		celt.TFEncodeWithSelect(re, start, end, transient, tfRes, lm, 0)
+		tfSelect = 0
 	}
+	celt.TFEncodeWithSelect(re, start, end, transient, tfRes, lm, tfSelect)
 
 	// Encode spread decision (analysis-based) only if budget allows.
 	spread := celt.SpreadNormal
