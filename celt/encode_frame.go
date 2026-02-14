@@ -55,6 +55,36 @@ func (e *Encoder) fillMDCTHistoryFromPrefilter(channel, overlap int, dst []float
 	}
 }
 
+// fillTransientHistoryFromPrefilter mirrors libopus transient/tone analysis
+// overlap sourcing (prefilter_mem tail), with interleaved output layout.
+func (e *Encoder) fillTransientHistoryFromPrefilter(overlap int, dst []float64) {
+	if overlap <= 0 || e.channels <= 0 {
+		return
+	}
+	need := overlap * e.channels
+	if len(dst) < need {
+		return
+	}
+	for i := 0; i < need; i++ {
+		dst[i] = 0
+	}
+	maxPeriod := combFilterMaxPeriod
+	if len(e.prefilterMem) < maxPeriod*e.channels {
+		return
+	}
+	base := maxPeriod - overlap
+	for ch := 0; ch < e.channels; ch++ {
+		chBase := ch * maxPeriod
+		for i := 0; i < overlap; i++ {
+			v := e.prefilterMem[chBase+base+i]
+			if !tmpSkipPrefMemRoundEnabled {
+				v = float64(float32(v))
+			}
+			dst[i*e.channels+ch] = v
+		}
+	}
+}
+
 // quantizeInputToLSBDepthScratch mirrors opus_demo -f32 ingestion when fixtures
 // are generated via opus_encode24: round to the configured LSB depth before
 // dc_reject/pre-emphasis.
@@ -277,14 +307,9 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		e.fillMDCTHistoryFromPrefilter(1, overlap, mdctPrevR[:])
 	}
 
-	// Ensure preemphBuffer is properly sized
-	preemphBufSize := overlap * e.channels
-	if len(e.preemphBuffer) < preemphBufSize {
-		e.preemphBuffer = make([]float64, preemphBufSize)
-	}
-
 	// Build combined signal for transient analysis: [overlap from previous frame] + [current frame]
 	// Total length: (overlap + frameSize) * channels - use scratch buffer
+	preemphBufSize := overlap * e.channels
 	transientLen := (overlap + frameSize) * e.channels
 	transientInput := e.scratch.transientInput
 	if len(transientInput) < transientLen {
@@ -292,7 +317,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		e.scratch.transientInput = transientInput
 	}
 	transientInput = transientInput[:transientLen]
-	copy(transientInput[:preemphBufSize], e.preemphBuffer[:preemphBufSize])
+	e.fillTransientHistoryFromPrefilter(overlap, transientInput[:preemphBufSize])
 	copy(transientInput[preemphBufSize:], preemph)
 
 	// Call transient analysis with the pre-emphasized signal (N+overlap samples)
@@ -323,14 +348,6 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Do not force first-frame transient here. libopus only applies the
 	// tf_estimate=0.2 override through patch_transient_decision() after MDCT
 	// analysis, not unconditionally at frame start.
-
-	// Save current frame's tail (last overlap samples) for next frame's transient analysis
-	// For mono: last 'overlap' samples
-	// For stereo: last 'overlap' interleaved pairs
-	tailStart := len(preemph) - preemphBufSize
-	if tailStart >= 0 {
-		copy(e.preemphBuffer[:preemphBufSize], preemph[tailStart:])
-	}
 
 	// Step 5: Initialize range encoder and encode early flags (silence/postfilter)
 	targetBitsRaw := e.computeTargetBits(frameSize, tfEstimate, e.lastPitchChange)

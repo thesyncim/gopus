@@ -535,59 +535,63 @@ func pitchDownsample(x []float64, xLP []float64, length, channels, factor int) {
 	}
 	for i := 1; i < length; i++ {
 		idx := factor * i
-		xLP[i] = 0.25*x[idx-offset] + 0.25*x[idx+offset] + 0.5*x[idx]
+		v := float32(0.25)*float32(x[idx-offset]) +
+			float32(0.25)*float32(x[idx+offset]) +
+			float32(0.5)*float32(x[idx])
+		xLP[i] = float64(v)
 	}
-	xLP[0] = 0.25*x[offset] + 0.5*x[0]
+	xLP[0] = float64(float32(0.25)*float32(x[offset]) + float32(0.5)*float32(x[0]))
 	if channels == 2 {
 		chStride := len(x) / 2
 		x1 := x[chStride:]
 		for i := 1; i < length; i++ {
 			idx := factor * i
-			xLP[i] += 0.25*x1[idx-offset] + 0.25*x1[idx+offset] + 0.5*x1[idx]
+			v := float32(0.25)*float32(x1[idx-offset]) +
+				float32(0.25)*float32(x1[idx+offset]) +
+				float32(0.5)*float32(x1[idx])
+			xLP[i] = float64(float32(xLP[i]) + v)
 		}
-		xLP[0] += 0.25*x1[offset] + 0.5*x1[0]
+		xLP[0] = float64(float32(xLP[0]) + float32(0.25)*float32(x1[offset]) + float32(0.5)*float32(x1[0]))
 	}
 
-	// Compute 5 autocorrelation lags using ASM-backed inner products.
-	// ac[k] = innerProduct(lp[0:length-k], lp[k:length]) for k=0..4.
+	// Match libopus _celt_autocorr() order for lag=4, overlap=0.
+	// This preserves float-path accumulation behavior used by tone/pitch analysis.
 	var ac [5]float64
 	lp := xLP[:length]
-	if length > 4 {
-		ac[0], ac[1] = prefilterDualInnerProd(lp, lp, lp[1:], length-1)
-		// ac[0] misses the last element's self-product; add it.
-		ac[0] += lp[length-1] * lp[length-1]
-		ac2partial, ac3 := prefilterDualInnerProd(lp, lp[2:], lp[3:], length-3)
-		// ac[2] needs length-2 terms but dualInnerProd used length-3; add the missing term.
-		ac[2] = ac2partial + lp[length-3]*lp[length-1]
-		ac[3] = ac3
-		ac[4] = prefilterInnerProd(lp, lp[4:], length-4)
-	} else {
-		for i := 0; i < length; i++ {
-			for lag := 0; lag <= 4 && i+lag < length; lag++ {
-				ac[lag] += lp[i] * lp[i+lag]
-			}
+	fastN := length - 4
+	if fastN < 0 {
+		fastN = 0
+	}
+	for lag := 0; lag <= 4; lag++ {
+		sum := float32(0)
+		for i := 0; i < fastN; i++ {
+			sum += float32(lp[i]) * float32(lp[i+lag])
 		}
+		for i := lag + fastN; i < length; i++ {
+			sum += float32(lp[i]) * float32(lp[i-lag])
+		}
+		ac[lag] = float64(sum)
 	}
 
-	ac[0] *= 1.0001
+	ac[0] = float64(float32(ac[0]) * float32(1.0001))
 	for i := 1; i <= 4; i++ {
-		f := 0.008 * float64(i)
-		ac[i] -= ac[i] * f * f
+		f := float32(0.008) * float32(i)
+		ac[i] = float64(float32(ac[i]) - float32(ac[i])*f*f)
 	}
 
 	lpc := lpcFromAutocorr(ac)
-	tmp := 1.0
+	tmp := float32(1.0)
 	for i := 0; i < 4; i++ {
-		tmp *= 0.9
-		lpc[i] *= tmp
+		tmp *= float32(0.9)
+		lpc[i] = float64(float32(lpc[i]) * tmp)
 	}
-	c1 := 0.8
+	c1 := float32(0.8)
 	lpc2 := [5]float64{
-		lpc[0] + 0.8,
-		lpc[1] + c1*lpc[0],
-		lpc[2] + c1*lpc[1],
-		lpc[3] + c1*lpc[2],
-		c1 * lpc[3],
+		float64(float32(lpc[0]) + float32(0.8)),
+		float64(float32(lpc[1]) + c1*float32(lpc[0])),
+		float64(float32(lpc[2]) + c1*float32(lpc[1])),
+		float64(float32(lpc[3]) + c1*float32(lpc[2])),
+		float64(c1 * float32(lpc[3])),
 	}
 	celtFIR5(xLP, lpc2)
 }
@@ -641,17 +645,19 @@ func pitchSearch(xLP []float64, y []float64, length, maxPitch int, scratch *enco
 }
 
 func findBestPitch(xcorr []float64, y []float64, length, maxPitch int, bestPitch *[2]int) {
-	Syy := 1.0
-	bestNum := [2]float64{-1, -1}
-	bestDen := [2]float64{0, 0}
+	Syy := float32(1)
+	bestNum := [2]float32{-1, -1}
+	bestDen := [2]float32{0, 0}
 	bestPitch[0] = 0
 	bestPitch[1] = 1
 	for j := 0; j < length; j++ {
-		Syy += y[j] * y[j]
+		yj := float32(y[j])
+		Syy += yj * yj
 	}
 	for i := 0; i < maxPitch; i++ {
-		if xcorr[i] > 0 {
-			xcorr16 := xcorr[i] * 1e-12
+		xc := float32(xcorr[i])
+		if xc > 0 {
+			xcorr16 := xc * float32(1e-12)
 			num := xcorr16 * xcorr16
 			if num*bestDen[1] > bestNum[1]*Syy {
 				if num*bestDen[0] > bestNum[0]*Syy {
@@ -668,7 +674,9 @@ func findBestPitch(xcorr []float64, y []float64, length, maxPitch int, bestPitch
 				}
 			}
 		}
-		Syy += y[i+length]*y[i+length] - y[i]*y[i]
+		yi := float32(y[i])
+		yil := float32(y[i+length])
+		Syy += yil*yil - yi*yi
 		if Syy < 1 {
 			Syy = 1
 		}
@@ -692,22 +700,24 @@ func removeDoubling(x []float64, maxPeriod, minPeriod, N int, T0 *int, prevPerio
 	}
 	T0val := *T0
 	x0 := xBase[maxPeriod:]
-	xx, xy := prefilterDualInnerProd(x0, x0, xBase[maxPeriod-T0val:maxPeriod-T0val+N], N)
+	xx64, xy64 := prefilterDualInnerProd(x0, x0, xBase[maxPeriod-T0val:maxPeriod-T0val+N], N)
+	xx := float32(xx64)
+	xy := float32(xy64)
 
 	yyLookup := ensureFloat64Slice(&scratch.prefilterYYLookup, maxPeriod+1)
 	yy := xx
-	yyLookup[0] = xx
+	yyLookup[0] = float64(yy)
 	for i := 1; i <= maxPeriod; i++ {
-		v1 := xBase[maxPeriod-i]
-		v2 := xBase[maxPeriod+N-i]
+		v1 := float32(xBase[maxPeriod-i])
+		v2 := float32(xBase[maxPeriod+N-i])
 		yy += v1*v1 - v2*v2
 		if yy < 0 {
 			yy = 0
 		}
-		yyLookup[i] = yy
+		yyLookup[i] = float64(yy)
 	}
 
-	yy = yyLookup[T0val]
+	yy = float32(yyLookup[T0val])
 	bestXY := xy
 	bestYY := yy
 	g := computePitchGain(xy, xx, yy)
@@ -730,20 +740,20 @@ func removeDoubling(x []float64, maxPeriod, minPeriod, N int, T0 *int, prevPerio
 			T1b = (2*secondCheck[k]*T0val + k) / (2 * k)
 		}
 		xy1, xy2 := prefilterDualInnerProd(x0, xBase[maxPeriod-T1:maxPeriod-T1+N], xBase[maxPeriod-T1b:maxPeriod-T1b+N], N)
-		xy = 0.5 * (xy1 + xy2)
-		yy = 0.5 * (yyLookup[T1] + yyLookup[T1b])
+		xy = float32(0.5) * (float32(xy1) + float32(xy2))
+		yy = float32(0.5) * (float32(yyLookup[T1]) + float32(yyLookup[T1b]))
 		g1 := computePitchGain(xy, xx, yy)
-		cont := 0.0
+		cont := float32(0)
 		if util.Abs(T1-prevPeriod) <= 1 {
-			cont = prevGain
+			cont = float32(prevGain)
 		} else if util.Abs(T1-prevPeriod) <= 2 && 5*k*k < T0val {
-			cont = 0.5 * prevGain
+			cont = float32(0.5) * float32(prevGain)
 		}
-		thresh := math.Max(0.3, 0.7*g0-cont)
+		thresh := maxFloat32(float32(0.3), float32(0.7)*g0-cont)
 		if T1 < 3*minPeriod {
-			thresh = math.Max(0.4, 0.85*g0-cont)
+			thresh = maxFloat32(float32(0.4), float32(0.85)*g0-cont)
 		} else if T1 < 2*minPeriod {
-			thresh = math.Max(0.5, 0.9*g0-cont)
+			thresh = maxFloat32(float32(0.5), float32(0.9)*g0-cont)
 		}
 		if g1 > thresh {
 			bestXY = xy
@@ -758,79 +768,96 @@ func removeDoubling(x []float64, maxPeriod, minPeriod, N int, T0 *int, prevPerio
 	}
 	pg := g
 	if bestYY > bestXY {
-		pg = bestXY / (bestYY + 1)
+		pg = bestXY / (bestYY + float32(1))
 		if pg > g {
 			pg = g
 		}
 	}
 
-	var xcorr [3]float64
+	var xcorr [3]float32
 	for k := 0; k < 3; k++ {
 		lag := T + k - 1
-		xcorr[k] = prefilterInnerProd(x0, xBase[maxPeriod-lag:maxPeriod-lag+N], N)
+		xcorr[k] = float32(prefilterInnerProd(x0, xBase[maxPeriod-lag:maxPeriod-lag+N], N))
 	}
 	offset := 0
-	if (xcorr[2] - xcorr[0]) > 0.7*(xcorr[1]-xcorr[0]) {
+	if (xcorr[2] - xcorr[0]) > float32(0.7)*(xcorr[1]-xcorr[0]) {
 		offset = 1
-	} else if (xcorr[0] - xcorr[2]) > 0.7*(xcorr[1]-xcorr[2]) {
+	} else if (xcorr[0] - xcorr[2]) > float32(0.7)*(xcorr[1]-xcorr[2]) {
 		offset = -1
 	}
 	*T0 = 2*T + offset
 	if *T0 < minPeriod0 {
 		*T0 = minPeriod0
 	}
-	return pg
+	return float64(pg)
 }
 
-func computePitchGain(xy, xx, yy float64) float64 {
+func maxFloat32(a, b float32) float32 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func computePitchGain(xy, xx, yy float32) float32 {
 	if xy == 0 || xx == 0 || yy == 0 {
 		return 0
 	}
-	return xy / math.Sqrt(1+xx*yy)
+	return xy / float32(math.Sqrt(float64(1+xx*yy)))
 }
 
 func celtFIR5(x []float64, num [5]float64) {
-	mem0, mem1, mem2, mem3, mem4 := 0.0, 0.0, 0.0, 0.0, 0.0
+	n0 := float32(num[0])
+	n1 := float32(num[1])
+	n2 := float32(num[2])
+	n3 := float32(num[3])
+	n4 := float32(num[4])
+	mem0 := float32(0)
+	mem1 := float32(0)
+	mem2 := float32(0)
+	mem3 := float32(0)
+	mem4 := float32(0)
 	for i := 0; i < len(x); i++ {
-		sum := x[i] + num[0]*mem0 + num[1]*mem1 + num[2]*mem2 + num[3]*mem3 + num[4]*mem4
+		xi := float32(x[i])
+		sum := xi + n0*mem0 + n1*mem1 + n2*mem2 + n3*mem3 + n4*mem4
 		mem4 = mem3
 		mem3 = mem2
 		mem2 = mem1
 		mem1 = mem0
-		mem0 = x[i]
-		x[i] = sum
+		mem0 = xi
+		x[i] = float64(sum)
 	}
 }
 
 func lpcFromAutocorr(ac [5]float64) [4]float64 {
 	var lpc [4]float64
-	if ac[0] == 0 {
+	if ac[0] <= 1e-10 {
 		return lpc
 	}
-	err := ac[0]
+	var lpc32 [4]float32
+	ac0 := float32(ac[0])
+	err := ac0
 	for i := 0; i < 4; i++ {
-		r := -ac[i+1]
+		rr := float32(0)
 		for j := 0; j < i; j++ {
-			r -= lpc[j] * ac[i-j]
+			rr += lpc32[j] * float32(ac[i-j])
 		}
-		if err != 0 {
-			r /= err
-		} else {
-			r = 0
+		rr += float32(ac[i+1])
+		r := -rr / err
+		lpc32[i] = r
+		for j := 0; j < (i+1)>>1; j++ {
+			tmp1 := lpc32[j]
+			tmp2 := lpc32[i-1-j]
+			lpc32[j] = tmp1 + r*tmp2
+			lpc32[i-1-j] = tmp2 + r*tmp1
 		}
-		lpc[i] = r
-		for j := 0; j < i/2; j++ {
-			tmp := lpc[j]
-			lpc[j] += r * lpc[i-1-j]
-			lpc[i-1-j] += r * tmp
-		}
-		if i%2 == 1 {
-			lpc[i/2] += r * lpc[i/2]
-		}
-		err *= 1 - r*r
-		if err <= 0 {
+		err = err - r*r*err
+		if err <= float32(0.001)*ac0 {
 			break
 		}
+	}
+	for i := range lpc {
+		lpc[i] = float64(lpc32[i])
 	}
 	return lpc
 }

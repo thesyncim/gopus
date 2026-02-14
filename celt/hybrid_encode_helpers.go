@@ -186,10 +186,6 @@ func (e *Encoder) TransientAnalysisHybrid(preemph []float64, frameSize, nbBands,
 	}
 
 	preemphBufSize := overlap * e.channels
-	if len(e.preemphBuffer) < preemphBufSize {
-		e.preemphBuffer = make([]float64, preemphBufSize)
-	}
-
 	transientLen := (overlap + frameSize) * e.channels
 	transientInput := e.scratch.transientInput
 	if len(transientInput) < transientLen {
@@ -197,7 +193,7 @@ func (e *Encoder) TransientAnalysisHybrid(preemph []float64, frameSize, nbBands,
 		e.scratch.transientInput = transientInput
 	}
 	transientInput = transientInput[:transientLen]
-	copy(transientInput[:preemphBufSize], e.preemphBuffer[:preemphBufSize])
+	e.fillTransientHistoryFromPrefilter(overlap, transientInput[:preemphBufSize])
 	copy(transientInput[preemphBufSize:], preemph)
 
 	result := e.TransientAnalysis(transientInput, frameSize+overlap, false)
@@ -223,11 +219,6 @@ func (e *Encoder) TransientAnalysisHybrid(preemph []float64, frameSize, nbBands,
 	if transient {
 		mode := GetModeConfig(frameSize)
 		shortBlocks = mode.ShortBlocks
-	}
-
-	tailStart := len(preemph) - preemphBufSize
-	if tailStart >= 0 {
-		copy(e.preemphBuffer[:preemphBufSize], preemph[tailStart:])
 	}
 
 	secondMdct := shortBlocks > 1 && e.complexity >= 8
