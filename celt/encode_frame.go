@@ -1041,6 +1041,9 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	totalBitsQ3ForDynalloc := targetBits << bitRes
 	totalBoost := 0
 	tellFracDynalloc := re.TellFrac()
+	// Store tell at the VBR decision point for next frame's target estimation.
+	// In libopus, compute_vbr receives tell at this point and adds it to the target.
+	e.lastTellFrac = tellFracDynalloc
 	for i := start; i < end; i++ {
 		// Compute band width and quanta (how many bits per boost step)
 		// Reference: libopus lines 2366-2369
@@ -1850,13 +1853,17 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 		targetQ3 = e.computeVBRTarget(baseTargetQ3, frameSize, tfEstimate, pitchChange, stats)
 	}
 
-	// libopus compute_vbr() adds `tell` (already-written side bits) before
-	// converting target bits to bytes. Our target computation runs earlier.
-	// For LM=0 (2.5ms, frameSize=120), missing this bookkeeping term starves
-	// the frame budget, so restore it there.
-	if frameSize == 120 {
-		targetQ3 += overheadQ3
+	// libopus adds ec_tell_frac(enc) to the VBR target before converting to
+	// bytes (line 2478). This accounts for side information already written
+	// (silence, postfilter, TF, trim, energy, etc.). Since gopus computes
+	// the VBR target before encoding side information, we use the previous
+	// frame's tell as an estimate. For frame 0, fall back to the static
+	// overhead estimate.
+	tellEstQ3 := e.lastTellFrac
+	if tellEstQ3 == 0 {
+		tellEstQ3 = overheadQ3
 	}
+	targetQ3 += tellEstQ3
 
 	// libopus line 2480: nbAvailableBytes = (target+(1<<(BITRES+2)))>>(BITRES+3)
 	targetBytes := (targetQ3 + (1 << (bitRes + 2))) >> (bitRes + 3)
