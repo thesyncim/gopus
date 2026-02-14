@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-14
+topic: decode_fec frame-size transition granularity
+decision: Keep provided-packet FEC recovery in `DecodeWithFEC` keyed to the provided packet TOC frame size (with fallback only when TOC frame size is unavailable), not `lastFrameSize`, so frame-size downshifts do not return oversized PLC-only output.
+evidence: Updated `decoder.go` provided-packet FEC path and added `TestDecodeWithFEC_FrameSizeTransitionUsesProvidedPacketGranularity` in `decoder_test.go`; validated with focused root FEC tests plus decoder loss parity and stress suites (`GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`, `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`).
+do_not_repeat_until: libopus decode_fec frame-size semantics for provided packets change or fixture/interoperability evidence shows this packet-granularity policy regresses.
+owner: codex
+
+date: 2026-02-14
 topic: Decoder loss stress-pattern parity guard
 decision: Keep additional deterministic loss-mask coverage in `TestDecoderLossStressPatternsAgainstOpusDemo` (`burst3_mid`, `periodic5`, `edge_then_mid`, `doublet_stride7`) with live `opus_demo` reference decode and dedicated stress thresholds by codec family.
 evidence: Added stress-pattern generator and exhaustive-tier parity test in `testvectors/decoder_loss_parity_test.go`; validated with `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run 'TestDecoderLossStressPatternsAgainstOpusDemo|TestDecoderLossFixtureHonestyWithOpusDemo' -count=1 -v` and `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`.
