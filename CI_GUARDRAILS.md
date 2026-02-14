@@ -24,6 +24,10 @@ Block correctness and hot-path performance regressions before merge.
 - `test-macos`: `go test ./... -count=1`
 - `test-windows`: `go test ./... -count=1`
 
+4. Markdown-only bypass
+- CI is skipped when a PR changes only markdown files.
+- Code-impacting changes must still pass required test/perf checks before merge.
+
 ## Benchmark Guardrails
 
 Benchmark command is orchestrated by `tools/benchguard`:
