@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix test test-fast test-race test-race-parity test-fuzz-smoke test-parity test-exhaustive test-provenance bench-guard agent-preflight agent-claims agent-claim agent-release verify-production verify-production-exhaustive release-evidence ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors
+.PHONY: lint lint-fix test test-fast test-race test-race-parity test-fuzz-smoke test-parity test-exhaustive test-provenance bench-guard agent-preflight agent-claims agent-claim agent-release verify-production verify-production-exhaustive release-evidence ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors
 
 GO ?= go
 PGO_FILE ?= default.pgo
@@ -171,17 +171,20 @@ docker-shell: docker-build
 
 # Exhaustive tier includes fixture honesty checks against pinned tmp_check opus_demo/opusdec.
 test-exhaustive: ensure-libopus
-	GOPUS_TEST_TIER=exhaustive $(GO) test ./testvectors -run 'TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureHonestyWithOpusDemo|TestDecoderParityMatrixFixtureHonestyWithOpusDemo|TestLongFrameReferenceFixtureHonestyWithLiveOpusdec' -count=1
+	GOPUS_TEST_TIER=exhaustive $(GO) test ./testvectors -run 'TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureHonestyWithOpusDemo|TestDecoderParityMatrixFixtureHonestyWithOpusDemo|TestDecoderLossFixtureHonestyWithOpusDemo|TestLongFrameReferenceFixtureHonestyWithLiveOpusdec' -count=1
 
 # Exhaustive provenance audit for encoder variant parity.
 test-provenance: ensure-libopus
 	GOPUS_TEST_TIER=exhaustive $(GO) test ./testvectors -run 'TestEncoderVariantProfileProvenanceAudit' -count=1
 
 # Regenerate fixture files from tmp_check/opus-$(LIBOPUS_VERSION)/opus_demo.
-fixtures-gen: ensure-libopus fixtures-gen-decoder fixtures-gen-encoder fixtures-gen-variants
+fixtures-gen: ensure-libopus fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants
 
 fixtures-gen-decoder:
 	$(GO) run tools/gen_libopus_decoder_matrix_fixture.go
+
+fixtures-gen-decoder-loss:
+	$(GO) run tools/gen_libopus_decoder_loss_fixture.go
 
 fixtures-gen-encoder:
 	$(GO) run tools/gen_libopus_encoder_packet_fixture.go
@@ -201,6 +204,7 @@ fixtures-gen-amd64: docker-build-exhaustive
 		$(DOCKER_IMAGE) \
 		bash -c "make ensure-libopus && \
 			GOPUS_DECODER_MATRIX_FIXTURE_OUT=testvectors/testdata/libopus_decoder_matrix_fixture_amd64.json go run tools/gen_libopus_decoder_matrix_fixture.go && \
+			GOPUS_DECODER_LOSS_FIXTURE_OUT=testvectors/testdata/libopus_decoder_loss_fixture_amd64.json go run tools/gen_libopus_decoder_loss_fixture.go && \
 			GOPUS_ENCODER_PACKETS_FIXTURE_OUT=testvectors/testdata/encoder_compliance_libopus_packets_fixture_amd64.json go run tools/gen_libopus_encoder_packet_fixture.go && \
 			GOPUS_ENCODER_VARIANTS_FIXTURE_OUT=testvectors/testdata/encoder_compliance_libopus_variants_fixture_amd64.json go run tools/gen_libopus_encoder_variants_fixture.go && \
 			GOPUS_OPUSDEC_CROSSVAL_FIXTURE_OUT=celt/testdata/opusdec_crossval_fixture_amd64.json go run tools/gen_opusdec_crossval_fixture.go"

@@ -378,17 +378,19 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 
 // DecodeWithFEC decodes an Opus packet, optionally recovering a lost frame using FEC.
 //
-// If fec is true and the previous packet contained LBRR redundancy data, the decoder
-// will use that data to recover the lost frame instead of using PLC extrapolation.
-// This produces better audio quality during packet loss.
+// If fec is true and data contains packet N+1, this decodes packet N from N+1's
+// LBRR data (when available), matching libopus decode_fec semantics. This
+// produces better audio quality during packet loss.
 //
-// If fec is true but no LBRR data is available, the decoder falls back to standard PLC.
-// If fec is false, this behaves identically to Decode().
+// If fec is true but no LBRR data is available, the decoder falls back to
+// standard PLC for the missing frame. If fec is false, this behaves
+// identically to Decode().
 //
 // Parameters:
-//   - data: Opus packet data, or nil to trigger FEC/PLC for a lost packet
+//   - data: Opus packet data (typically packet N+1), or nil to trigger
+//     fallback FEC/PLC behavior for a lost packet
 //   - pcm: Output buffer for decoded samples
-//   - fec: If true and data is nil, attempt FEC recovery before falling back to PLC
+//   - fec: If true, attempt FEC recovery before falling back to PLC
 //
 // Returns the number of samples per channel decoded, or an error.
 //
@@ -404,9 +406,34 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 // at the encoder side when the encoder has FEC enabled. LBRR data is only
 // available in SILK and Hybrid modes, not in CELT-only mode.
 func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, error) {
-	// If not requesting FEC or we have actual data with fec=false, use normal decode
-	if !fec || (data != nil && len(data) > 0) {
+	// If not requesting FEC, behave exactly like Decode().
+	if !fec {
 		return d.Decode(data, pcm)
+	}
+
+	// Preferred libopus-style flow: decode missing frame from provided packet's LBRR.
+	if data != nil && len(data) > 0 {
+		toc, frameCount, err := packetFrameCount(data)
+		if err != nil {
+			return 0, err
+		}
+
+		// LBRR is only available in SILK/Hybrid. CELT-only falls back to PLC.
+		if toc.Mode == ModeSILK || toc.Mode == ModeHybrid {
+			// decode_fec granularity follows the provided packet's frame size.
+			frameSize := toc.FrameSize
+			if frameSize <= 0 {
+				frameSize = d.lastFrameSize
+			}
+			if frameSize <= 0 {
+				frameSize = 960
+			}
+			d.storeFECData(data, toc, frameCount, frameSize)
+			if n, err := d.decodeFECFrame(pcm); err == nil {
+				return n, nil
+			}
+		}
+		return d.Decode(nil, pcm)
 	}
 
 	// FEC decode requested for a lost packet (data is nil)
@@ -459,12 +486,13 @@ func (d *Decoder) decodeFECFrame(pcm []float32) (int, error) {
 		frameSize = 960
 	}
 
-	totalSamples := frameSize * d.fecFrameCount
-	if totalSamples > d.maxPacketSamples {
+	// libopus decode_fec recovers exactly one lost frame from packet N+1.
+	// Packet frame count does not increase the decoded sample count here.
+	if frameSize > d.maxPacketSamples {
 		return 0, ErrPacketTooLarge
 	}
 
-	needed := totalSamples * d.channels
+	needed := frameSize * d.channels
 	if len(pcm) < needed {
 		return 0, ErrBufferTooSmall
 	}

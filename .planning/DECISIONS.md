@@ -36,6 +36,34 @@ do_not_repeat_until: fixture generation mode changes away from `opus_demo -e res
 owner: codex
 
 date: 2026-02-14
+topic: decode_fec frame-size transition granularity
+decision: Keep provided-packet FEC recovery in `DecodeWithFEC` keyed to the provided packet TOC frame size (with fallback only when TOC frame size is unavailable), not `lastFrameSize`, so frame-size downshifts do not return oversized PLC-only output.
+evidence: Updated `decoder.go` provided-packet FEC path and added `TestDecodeWithFEC_FrameSizeTransitionUsesProvidedPacketGranularity` in `decoder_test.go`; validated with focused root FEC tests plus decoder loss parity and stress suites (`GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`, `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`).
+do_not_repeat_until: libopus decode_fec frame-size semantics for provided packets change or fixture/interoperability evidence shows this packet-granularity policy regresses.
+owner: codex
+
+date: 2026-02-14
+topic: Decoder loss stress-pattern parity guard
+decision: Keep additional deterministic loss-mask coverage in `TestDecoderLossStressPatternsAgainstOpusDemo` (`burst3_mid`, `periodic5`, `edge_then_mid`, `doublet_stride7`) with live `opus_demo` reference decode and dedicated stress thresholds by codec family.
+evidence: Added stress-pattern generator and exhaustive-tier parity test in `testvectors/decoder_loss_parity_test.go`; validated with `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run 'TestDecoderLossStressPatternsAgainstOpusDemo|TestDecoderLossFixtureHonestyWithOpusDemo' -count=1 -v` and `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`.
+do_not_repeat_until: loss fixture corpus/pattern policy changes, libopus `opus_demo` loss decode semantics change, or stress-pattern parity regressions are observed.
+owner: codex
+
+date: 2026-02-14
+topic: decode_fec single-frame output sizing parity
+decision: Keep `decodeFECFrame` output sizing/limits based on a single recovered frame (`frameSize`) instead of packet frame-count (`frameSize * frameCount`) so multi-frame packet metadata does not force spurious PLC fallback from buffer checks.
+evidence: Updated `decoder.go` `decodeFECFrame` required-sample and packet-size checks; added `TestDecodeFECFrame_BufferSizingUsesSingleFrame` in `decoder_test.go`; validated with focused root FEC tests (`TestDecodeFECFrame_BufferSizingUsesSingleFrame|TestDecodeWithFEC_UsesProvidedPacketAndPreservesNormalDecode|TestDecodeWithFEC_ProvidedCELTPacketFallsBackToPLC|TestDecodeWithFEC_NoFECRequested`) plus parity guard `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`.
+do_not_repeat_until: libopus changes `opus_decode(..., decode_fec=1)` recovered-frame sizing semantics or fixture/interoperability evidence shows `decodeFECFrame` output sizing drift.
+owner: codex
+
+date: 2026-02-14
+topic: Decoder loss/FEC fixture workflow + decode_fec semantics parity
+decision: Keep `DecodeWithFEC` honoring provided packet data when `fec=true` (libopus-style decode_fec path from packet N+1 with PLC fallback), and keep the dedicated libopus loss fixture workflow (`tools/gen_libopus_decoder_loss_fixture.go`, `testvectors/testdata/libopus_decoder_loss_fixture*.json`) with parity ratchet guards plus fixture honesty checks.
+evidence: Updated `decoder.go` FEC path, added focused API tests (`TestDecodeWithFEC_UsesProvidedPacketAndPreservesNormalDecode`, `TestDecodeWithFEC_ProvidedCELTPacketFallsBackToPLC`), added loss fixture loader/parity/honesty tests (`testvectors/libopus_decoder_loss_fixture_test.go`, `testvectors/decoder_loss_parity_test.go`), wired governance + Makefile fixture targets; focused parity/exhaustive tests and full `make verify-production` passed.
+do_not_repeat_until: libopus decode_fec/loss recovery semantics in `opus_demo.c`/decoder API change, fixture generator inputs/patterns change, or loss parity ratchet/honesty tests report regression.
+owner: codex
+
+date: 2026-02-14
 topic: Frame-level mode-trace parity guard and short-frame auto-mode control
 decision: Keep the libopus 1.6.1 frame-level mode-trace fixture workflow (`tmp_check/gen_libopus_mode_trace_fixture.go` + `encoder/testdata/libopus_mode_trace_fixture.json`) and the short-frame auto-mode port in `encoder/encoder.go` (libopus threshold/hysteresis with analysis-driven `voice_est`, previous-mode state, VoIP threshold bias, and FEC/DTX SILK forcing conditions).
 evidence: Added `encoder/mode_trace_fixture_test.go` parity/metadata guards over 32 fixture cases; mode drift collapsed from large WB/SWB mismatches to <=2% max per case; focused mode/FEC tests, parity/compliance slice, `make verify-production`, and `make bench-guard` passed.
