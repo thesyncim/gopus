@@ -785,9 +785,9 @@ func TestSilkInputBitrateReservesTOC(t *testing.T) {
 func TestBitrateModeGetSet(t *testing.T) {
 	enc := encoder.NewEncoder(48000, 1)
 
-	// Default should be VBR.
-	if enc.GetBitrateMode() != encoder.ModeVBR {
-		t.Errorf("Default bitrate mode = %d, want ModeVBR (%d)", enc.GetBitrateMode(), encoder.ModeVBR)
+	// Default should be CVBR (matching libopus default: use_vbr=1, vbr_constraint=1).
+	if enc.GetBitrateMode() != encoder.ModeCVBR {
+		t.Errorf("Default bitrate mode = %d, want ModeCVBR (%d)", enc.GetBitrateMode(), encoder.ModeCVBR)
 	}
 
 	modes := []encoder.BitrateMode{encoder.ModeVBR, encoder.ModeCVBR, encoder.ModeCBR}
@@ -805,19 +805,19 @@ func TestVBRConstraintTransitions(t *testing.T) {
 	if !enc.VBR() {
 		t.Fatal("VBR()=false by default, want true")
 	}
-	if enc.VBRConstraint() {
-		t.Fatal("VBRConstraint()=true by default, want false")
+	if !enc.VBRConstraint() {
+		t.Fatal("VBRConstraint()=false by default, want true (CVBR default)")
 	}
-	if got := enc.GetBitrateMode(); got != encoder.ModeVBR {
-		t.Fatalf("GetBitrateMode()=%d want=%d", got, encoder.ModeVBR)
+	if got := enc.GetBitrateMode(); got != encoder.ModeCVBR {
+		t.Fatalf("GetBitrateMode()=%d want=%d", got, encoder.ModeCVBR)
 	}
 
 	enc.SetVBR(false)
 	if enc.VBR() {
 		t.Fatal("VBR()=true after SetVBR(false)")
 	}
-	if enc.VBRConstraint() {
-		t.Fatal("VBRConstraint() should remain false after SetVBR(false)")
+	if !enc.VBRConstraint() {
+		t.Fatal("VBRConstraint() should remain true after SetVBR(false)")
 	}
 	if got := enc.GetBitrateMode(); got != encoder.ModeCBR {
 		t.Fatalf("GetBitrateMode()=%d want=%d", got, encoder.ModeCBR)
