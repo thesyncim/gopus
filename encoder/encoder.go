@@ -143,6 +143,7 @@ type Encoder struct {
 	analysisReadPosBak  int
 	analysisSubframeBak int
 	analysisReadBakSet  bool
+	prevMode            Mode
 	prevLongSWBAutoMode Mode
 	prevAutoMode        Mode
 	prevSWB10AutoMode   Mode
@@ -224,6 +225,8 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		scratchRight:           make([]float32, 2880),
 		scratchMono:            make([]float32, 2880),
 		scratchPacket:          make([]byte, 1276),
+		prevMode:               ModeAuto,
+		prevLongSWBAutoMode:    ModeAuto,
 		prevSWB10AutoMode:      ModeCELT,
 		prevSWB20AutoMode:      ModeHybrid,
 		prevAutoMode:           ModeAuto,
@@ -334,6 +337,8 @@ func (e *Encoder) Reset() {
 	e.prevSWB10AutoMode = ModeCELT
 	e.prevSWB20AutoMode = ModeHybrid
 	e.swb20ModeHoldFrames = 0
+	e.prevMode = ModeAuto
+	e.prevLongSWBAutoMode = ModeAuto
 	e.prevAutoMode = ModeAuto
 }
 
@@ -598,40 +603,11 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	if signalHint == types.SignalAuto {
 		signalHint = e.autoSignalFromPCM(framePCM, frameSize)
 	}
-	actualMode := e.selectMode(frameSize, signalHint)
-	nextPrevAutoMode := actualMode
-	actualMode, nextPrevAutoMode = e.applySilkToCeltTransition(frameSize, actualMode)
+	requestedMode := e.selectMode(frameSize, signalHint)
 	if e.lfe {
-		actualMode = ModeCELT
-		nextPrevAutoMode = ModeCELT
+		requestedMode = ModeCELT
 	}
-	if e.mode == ModeAuto &&
-		(nextPrevAutoMode == ModeSILK || nextPrevAutoMode == ModeHybrid || nextPrevAutoMode == ModeCELT) {
-		e.prevAutoMode = nextPrevAutoMode
-	}
-	if e.mode == ModeAuto &&
-		frameSize > 960 &&
-		e.effectiveBandwidth() == types.BandwidthSuperwideband &&
-		(nextPrevAutoMode == ModeHybrid || nextPrevAutoMode == ModeCELT) {
-		e.prevLongSWBAutoMode = nextPrevAutoMode
-	}
-	if e.mode == ModeAuto &&
-		frameSize == 480 &&
-		e.effectiveBandwidth() == types.BandwidthSuperwideband &&
-		(nextPrevAutoMode == ModeHybrid || nextPrevAutoMode == ModeCELT) {
-		e.prevSWB10AutoMode = nextPrevAutoMode
-	}
-	if e.mode == ModeAuto &&
-		frameSize == 960 &&
-		e.effectiveBandwidth() == types.BandwidthSuperwideband &&
-		(nextPrevAutoMode == ModeHybrid || nextPrevAutoMode == ModeCELT) {
-		if e.prevSWB20AutoMode == nextPrevAutoMode && e.swb20ModeHoldFrames > 0 {
-			e.swb20ModeHoldFrames++
-		} else {
-			e.prevSWB20AutoMode = nextPrevAutoMode
-			e.swb20ModeHoldFrames = 1
-		}
-	}
+	actualMode, prevModeNext := e.applyCELTTransitionDelay(frameSize, requestedMode)
 
 	var frameData []byte
 	var packet []byte
@@ -679,6 +655,32 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 			return nil, pktErr
 		}
 		packet = e.scratchPacket[:packetLen]
+	}
+	if isConcreteMode(prevModeNext) {
+		e.prevMode = prevModeNext
+		if e.mode == ModeAuto {
+			e.prevAutoMode = prevModeNext
+			if frameSize > 960 &&
+				e.effectiveBandwidth() == types.BandwidthSuperwideband &&
+				(prevModeNext == ModeHybrid || prevModeNext == ModeCELT) {
+				e.prevLongSWBAutoMode = prevModeNext
+			}
+			if frameSize == 480 &&
+				e.effectiveBandwidth() == types.BandwidthSuperwideband &&
+				(prevModeNext == ModeHybrid || prevModeNext == ModeCELT) {
+				e.prevSWB10AutoMode = prevModeNext
+			}
+			if frameSize == 960 &&
+				e.effectiveBandwidth() == types.BandwidthSuperwideband &&
+				(prevModeNext == ModeHybrid || prevModeNext == ModeCELT) {
+				if e.prevSWB20AutoMode == prevModeNext && e.swb20ModeHoldFrames > 0 {
+					e.swb20ModeHoldFrames++
+				} else {
+					e.prevSWB20AutoMode = prevModeNext
+					e.swb20ModeHoldFrames = 1
+				}
+			}
+		}
 	}
 	switch e.bitrateMode {
 	case ModeCBR:
@@ -1053,25 +1055,40 @@ func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
 	return e.selectShortAutoMode(frameSize, signalHint)
 }
 
-// applySilkToCeltTransition mirrors the libopus transition gate used when
-// switching from SILK/Hybrid to CELT in auto mode: encode one frame in the
-// previous non-CELT mode, but advance prev-mode state to CELT for next frame.
-func (e *Encoder) applySilkToCeltTransition(frameSize int, selected Mode) (encodeMode Mode, nextPrev Mode) {
-	encodeMode = selected
-	nextPrev = selected
-	if e.mode != ModeAuto || e.lowDelay {
-		return encodeMode, nextPrev
+func isConcreteMode(mode Mode) bool {
+	return mode == ModeSILK || mode == ModeHybrid || mode == ModeCELT
+}
+
+// applyCELTTransitionDelay mirrors libopus to_celt handling:
+// when switching from SILK/Hybrid to CELT on >=10 ms frames, hold one frame in
+// the previous non-CELT mode but advance prev-mode state to CELT for next frame.
+func (e *Encoder) applyCELTTransitionDelay(frameSize int, requested Mode) (actual Mode, prevNext Mode) {
+	actual = requested
+	prevNext = requested
+
+	prev := e.prevMode
+	if !isConcreteMode(prev) || !isConcreteMode(requested) {
+		return actual, prevNext
 	}
-	if selected != ModeCELT {
-		return encodeMode, nextPrev
+
+	switchingAcrossCELT := (requested == ModeCELT && prev != ModeCELT) ||
+		(requested != ModeCELT && prev == ModeCELT)
+	if !switchingAcrossCELT {
+		return actual, prevNext
 	}
-	if e.prevAutoMode != ModeSILK && e.prevAutoMode != ModeHybrid {
-		return encodeMode, nextPrev
+
+	// libopus delays SILK/Hybrid->CELT transition for 10ms+ frames.
+	if requested == ModeCELT {
+		minDelayFrame := e.sampleRate / 100
+		if minDelayFrame <= 0 {
+			minDelayFrame = 480
+		}
+		if frameSize >= minDelayFrame {
+			actual = prev
+			prevNext = ModeCELT
+		}
 	}
-	if frameSize < e.sampleRate/100 {
-		return encodeMode, nextPrev
-	}
-	return e.prevAutoMode, ModeCELT
+	return actual, prevNext
 }
 
 // selectShortAutoMode ports libopus auto mode-threshold control for 10/20 ms
@@ -1153,7 +1170,11 @@ func (e *Encoder) selectLongSWBAutoMode(frameSize int, signalHint types.Signal) 
 	useVBR := e.bitrateMode != ModeCBR
 	equivRate := e.computeEquivRate(e.bitrate, e.channels, frameRate, useVBR, ModeAuto, e.complexity, e.packetLoss)
 
-	voiceEst := e.autoVoiceEstimate(e.prevLongSWBAutoMode)
+	prev := e.prevAutoMode
+	if prev != ModeCELT && prev != ModeSILK && prev != ModeHybrid {
+		prev = ModeAuto
+	}
+	voiceEst := e.autoVoiceEstimate(prev)
 
 	modeVoice := 64000
 	if e.channels == 2 {
@@ -1162,17 +1183,32 @@ func (e *Encoder) selectLongSWBAutoMode(frameSize int, signalHint types.Signal) 
 	const modeMusic = 10000
 	threshold := modeMusic + (voiceEst*voiceEst*(modeVoice-modeMusic))/16384
 
+	// Match libopus auto-mode threshold bias for VoIP.
+	if e.voipApp {
+		threshold += 8000
+	}
+
 	// libopus hysteresis: bias against rapid CELT<->SILK/HYBRID switching.
-	if e.prevLongSWBAutoMode == ModeCELT {
+	if prev == ModeCELT {
 		threshold -= 4000
-	} else if e.prevLongSWBAutoMode == ModeHybrid {
+	} else if prev == ModeSILK || prev == ModeHybrid {
 		threshold += 4000
 	}
 
+	mode := ModeHybrid
 	if equivRate >= threshold {
-		return ModeCELT
+		mode = ModeCELT
 	}
-	return ModeHybrid
+	// Match libopus behavior: with in-band FEC and sufficient expected loss,
+	// force SILK lane (maps to Hybrid at SWB).
+	if e.fecEnabled && e.packetLoss > ((128-voiceEst)>>4) {
+		mode = ModeHybrid
+	}
+	// Match libopus behavior: when DTX is enabled for voiced content, favor SILK lane.
+	if e.dtxEnabled && voiceEst > 100 {
+		mode = ModeHybrid
+	}
+	return mode
 }
 
 // autoSignalFromPCM is kept for backward compatibility but RunAnalysis is preferred.
