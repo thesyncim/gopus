@@ -1825,6 +1825,17 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 
 	baseBits := e.bitrateToBits(frameSize)
 
+	// Frame-size-dependent maximum payload bytes (510 kb/s physical limit).
+	// Reference: libopus celt_encoder.c line 2445:
+	//   nbCompressedBytes = IMIN(nbCompressedBytes, packet_size_cap >> (3-LM))
+	// packet_size_cap = 1275 (total); subtract 1 for TOC-excluded payload.
+	// In libopus VBR mode, nbCompressedBytes is the buffer cap (not bitrate-derived).
+	// The per-bitrate constraint comes from CVBR reservoir tracking.
+	vbrMaxBytes := (1275 >> (3 - lm)) - 1
+	if vbrMaxBytes < 2 {
+		vbrMaxBytes = 2
+	}
+
 	// Convert to Q3 format (8ths of bits) for VBR computation
 	// Reference: libopus celt_encoder.c line 1903
 	vbrRateQ3 := baseBits << bitRes
@@ -1871,6 +1882,20 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 		targetBytes = 2
 	}
 
+	// libopus line 2428: min_allowed = ((tell+total_boost+(1<<(BITRES+3))-1)>>(BITRES+3)) + 2
+	// Use estimated tell and previous frame's total_boost since gopus computes
+	// VBR target before encoding side information.
+	totalBoostEst := e.lastDynalloc.TotBoost
+	minAllowed := ((tellEstQ3 + totalBoostEst + (1 << (bitRes + 3)) - 1) >> (bitRes + 3)) + 2
+	if targetBytes < minAllowed {
+		targetBytes = minAllowed
+	}
+	// libopus line 2482: nbAvailableBytes = IMIN(nbCompressedBytes, nbAvailableBytes)
+	// Cap VBR target to CBR-derived maximum payload.
+	if targetBytes > vbrMaxBytes {
+		targetBytes = vbrMaxBytes
+	}
+
 	if e.constrainedVBR {
 		// libopus line 1949-1952: bound packet size from reservoir state.
 		boundScale := e.constrainedVBRBoundScale
@@ -1913,6 +1938,11 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 			targetBytes += adjust
 			e.vbrReservoir = 0
 		}
+		// libopus line 2529: nbCompressedBytes = IMIN(nbCompressedBytes, nbAvailableBytes)
+		// Final cap after reservoir adjustment.
+		if targetBytes > vbrMaxBytes {
+			targetBytes = vbrMaxBytes
+		}
 	}
 
 	targetBits := targetBytes * 8
@@ -1923,13 +1953,13 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 		}
 	}
 
-	// Clamp to reasonable bounds
-	// Minimum: 2 bytes (16 bits)
-	// Maximum: 1275 bytes * 8 = 10200 bits (max Opus packet)
+	// Clamp to reasonable bounds.
+	// Minimum: 2 bytes (16 bits).
+	// Maximum: frame-size-dependent cap (libopus packet_size_cap >> (3-LM)).
 	if targetBits < 16 {
 		targetBits = 16
 	}
-	maxBits := (1275 - 1) * 8 // payload only (TOC consumes 1 byte)
+	maxBits := vbrMaxBytes * 8
 	if targetBits > maxBits {
 		targetBits = maxBits
 	}
