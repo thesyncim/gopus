@@ -131,14 +131,16 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 	}
 
 	// Propagate bitrate mode to CELT encoder for hybrid mode.
-	// Per libopus opus_encoder.c: in hybrid VBR mode, the CELT VBR constraint
-	// is always disabled (OPUS_SET_VBR_CONSTRAINT(0)), regardless of whether
-	// the outer encoder uses CVBR. The SILK portion handles rate control.
+	// Per libopus opus_encoder.c line 2450-2461: the outer encoder's
+	// use_vbr and vbr_constraint flags are forwarded to the CELT encoder.
 	switch e.bitrateMode {
 	case ModeCBR:
 		e.celtEncoder.SetVBR(false)
 		e.celtEncoder.SetConstrainedVBR(false)
-	case ModeCVBR, ModeVBR:
+	case ModeCVBR:
+		e.celtEncoder.SetVBR(true)
+		e.celtEncoder.SetConstrainedVBR(true)
+	case ModeVBR:
 		e.celtEncoder.SetVBR(true)
 		e.celtEncoder.SetConstrainedVBR(false)
 	}
@@ -169,15 +171,11 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 	switch e.bitrateMode {
 	case ModeCBR:
 		maxTargetBytes = payloadTarget
-	case ModeCVBR:
-		maxAllowed := int(float64(baseTargetBytes) * (1 + CVBRTolerance))
-		if maxAllowed < 2 {
-			maxAllowed = 2
-		}
-		// Reserve one extra byte to account for range coder end bits.
-		maxTargetBytes = maxAllowed - 2
-	case ModeVBR:
-		// Allow up to 2x target in VBR (matches libopus compute_vbr cap).
+	case ModeCVBR, ModeVBR:
+		// Allow up to 2x target for both VBR and CVBR. In libopus, the
+		// range encoder buffer is large (up to 1275 bytes) regardless of
+		// CVBR mode. The CELT encoder's internal CVBR reservoir tracking
+		// constrains actual byte usage per frame.
 		maxAllowed := int(float64(baseTargetBytes) * 2.0)
 		if maxAllowed < 2 {
 			maxAllowed = 2
