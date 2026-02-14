@@ -473,6 +473,21 @@ func (e *Encoder) LowDelay() bool {
 	return false
 }
 
+// SetVoIPApplication toggles VoIP application bias for all stream encoders.
+func (e *Encoder) SetVoIPApplication(enabled bool) {
+	for _, enc := range e.encoders {
+		enc.SetVoIPApplication(enabled)
+	}
+}
+
+// VoIPApplication reports VoIP application bias from the first stream encoder.
+func (e *Encoder) VoIPApplication() bool {
+	if len(e.encoders) > 0 {
+		return e.encoders[0].VoIPApplication()
+	}
+	return false
+}
+
 func maxInt(a, b int) int {
 	if a > b {
 		return a

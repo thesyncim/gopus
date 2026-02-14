@@ -137,16 +137,22 @@ func (e *MultistreamEncoder) applyApplication(app Application) {
 	switch app {
 	case ApplicationVoIP:
 		e.enc.SetLowDelay(false)
+		e.enc.SetVoIPApplication(true)
 		e.enc.SetMode(encoder.ModeAuto)
 		e.enc.SetBandwidth(types.BandwidthWideband)
+		e.enc.SetSignal(types.SignalAuto)
 	case ApplicationAudio:
 		e.enc.SetLowDelay(false)
+		e.enc.SetVoIPApplication(false)
 		e.enc.SetMode(encoder.ModeAuto)
 		e.enc.SetBandwidth(types.BandwidthFullband)
+		e.enc.SetSignal(types.SignalAuto)
 	case ApplicationLowDelay:
 		e.enc.SetLowDelay(true)
+		e.enc.SetVoIPApplication(false)
 		e.enc.SetMode(encoder.ModeCELT)
 		e.enc.SetBandwidth(types.BandwidthFullband)
+		e.enc.SetSignal(types.SignalAuto)
 	}
 }
 
