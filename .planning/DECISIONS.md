@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-14
+topic: Variants restricted-celt application parity
+decision: Keep CELT rows in `TestEncoderVariantProfileParityAgainstLibopusFixture` configured as restricted-celt semantics (`SetMode(ModeCELT)` + `SetLowDelay(true)`), while keeping HYBRID rows mapped to `ModeAuto` (`opus_demo -e audio` parity). Do not compare CELT fixture rows with default audio-delay compensation enabled.
+evidence: Reproduced prior CELT chirp/impulse prefilter trace drift and verified that low-delay parity collapses symbol mismatch to 0 in focused trace tests; updated `testvectors/encoder_compliance_variants_fixture_test.go` to set low-delay for CELT rows; refreshed `testvectors/testdata/encoder_compliance_variants_ratchet_baseline.json`; parity slice, `make verify-production`, and `make bench-guard` passed.
+do_not_repeat_until: fixture generation mode changes away from `opus_demo -e restricted-celt` for CELT rows, or libopus changes restricted-celt delay-compensation semantics.
+owner: codex
+
+date: 2026-02-14
 topic: Frame-level mode-trace parity guard and short-frame auto-mode control
 decision: Keep the libopus 1.6.1 frame-level mode-trace fixture workflow (`tmp_check/gen_libopus_mode_trace_fixture.go` + `encoder/testdata/libopus_mode_trace_fixture.json`) and the short-frame auto-mode port in `encoder/encoder.go` (libopus threshold/hysteresis with analysis-driven `voice_est`, previous-mode state, VoIP threshold bias, and FEC/DTX SILK forcing conditions).
 evidence: Added `encoder/mode_trace_fixture_test.go` parity/metadata guards over 32 fixture cases; mode drift collapsed from large WB/SWB mismatches to <=2% max per case; focused mode/FEC tests, parity/compliance slice, `make verify-production`, and `make bench-guard` passed.
