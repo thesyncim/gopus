@@ -1002,6 +1002,35 @@ func (e *Encoder) updateSurroundTrimFromPCM(pcm []float64, frameSize int) bool {
 	return true
 }
 
+// multistreamCVBRBoundScale computes a constrained-VBR burst scale that keeps
+// aggregate multistream packet bursts within the Opus 1275-byte packet cap.
+// A scale of 1 keeps libopus single-stream behavior (~2x base burst ceiling).
+func multistreamCVBRBoundScale(totalBitrate, sampleRate, frameSize int) float64 {
+	if totalBitrate <= 0 || sampleRate <= 0 || frameSize <= 0 {
+		return 1.0
+	}
+	targetBytes := (totalBitrate * frameSize) / (8 * sampleRate)
+	if targetBytes <= 0 {
+		return 1.0
+	}
+	const maxPacketBytes = 1275
+	// Reserve a small framing margin for self-delimited multistream headers and
+	// per-stream TOC/entropy tail variance.
+	const framingMarginBytes = 16
+	maxBurstBytes := maxPacketBytes - framingMarginBytes
+	if maxBurstBytes < 1 {
+		maxBurstBytes = 1
+	}
+	burstMultiple := float64(maxBurstBytes) / float64(targetBytes)
+	if burstMultiple >= 2.0 {
+		return 1.0
+	}
+	if burstMultiple <= 1.0 {
+		return 0.0
+	}
+	return burstMultiple - 1.0
+}
+
 func (e *Encoder) applyPerStreamPolicy(frameSize int, pcm []float64) {
 	rates := e.allocateRates(frameSize)
 	hasSurroundMask := false
@@ -1017,12 +1046,17 @@ func (e *Encoder) applyPerStreamPolicy(frameSize int, pcm []float64) {
 		streamMasks = e.streamEnergyMask[:needed]
 		clear(streamMasks)
 	}
+	cvbrBoundScale := 1.0
+	if len(e.encoders) > 0 && e.encoders[0].GetBitrateMode() == encoder.ModeCVBR {
+		cvbrBoundScale = multistreamCVBRBoundScale(e.bitrateForAllocation(frameSize), e.sampleRate, frameSize)
+	}
 
 	surroundBandwidth := e.surroundBandwidth(frameSize)
 	for i := 0; i < e.streams; i++ {
 		enc := e.encoders[i]
 		enc.SetBitrate(rates[i])
 		enc.SetLFE(i == e.lfeStream)
+		enc.SetCELTCVBRBoundScale(cvbrBoundScale)
 
 		switch {
 		case e.isSurroundMapping():

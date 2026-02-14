@@ -1750,6 +1750,13 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 		return targetBits
 	}
 
+	mode := GetModeConfig(frameSize)
+	lm := mode.LM
+	lmDiff := 3 - lm
+	if lmDiff < 0 {
+		lmDiff = 0
+	}
+
 	baseBits := e.bitrateToBits(frameSize)
 
 	// Convert to Q3 format (8ths of bits) for VBR computation
@@ -1763,6 +1770,10 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 	baseTargetQ3 := vbrRateQ3 - overheadQ3
 	if baseTargetQ3 < 0 {
 		baseTargetQ3 = 0
+	}
+	if e.constrainedVBR {
+		// libopus line 2453-2454: base_target += (vbr_offset >> lm_diff)
+		baseTargetQ3 += e.vbrOffset >> lmDiff
 	}
 
 	// For VBR mode, apply boost based on signal characteristics.
@@ -1784,58 +1795,57 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 		targetQ3 += overheadQ3
 	}
 
-	// Convert back from Q3 to bits
-	// Reference: libopus line 2480: nbAvailableBytes = (target+(1<<(BITRES+2)))>>(BITRES+3)
-	// For bits (not bytes): target_bits = (targetQ3 + 4) >> 3
-	targetBits := (targetQ3 + (1 << (bitRes - 1))) >> bitRes
-	if e.vbr && !e.constrainedVBR && !e.IsHybrid() && !e.lfe {
-		// Increase short/medium CELT frame budgets to reduce avoidable
-		// quantization loss in compliance-quality profiles.
-		switch frameSize {
-		case 120:
-			// 2.5ms CELT frames spend a larger fraction on signaling overhead.
-			// Restore some coding headroom so short-frame quality does not lag
-			// disproportionately behind 5/10/20ms CELT profiles.
-			targetBits += 384
-		case 240:
-			// 5ms frames still carry relatively high per-frame side signaling.
-			// Apply a smaller uplift than 2.5ms to reduce short-frame quality
-			// loss while preserving rate discipline.
-			targetBits += 128
-		case 480:
-			// 10ms CELT is still quality-constrained by per-frame signaling.
-			// Keep mono uplift and give stereo extra headroom.
-			if e.channels == 2 {
-				targetBits += 832
-			} else {
-				targetBits += 256
-			}
-		case 960:
-			// Multi-frame 40/60ms CELT packets are internally encoded as 20ms
-			// subframes at a reduced subframe bitrate; keep their boost capped.
-			if baseBits >= 1024 {
-				if e.channels == 2 {
-					targetBits += 1408
-				} else {
-					targetBits += 1280
-				}
-			} else {
-				targetBits += 256
-			}
+	// libopus line 2480: nbAvailableBytes = (target+(1<<(BITRES+2)))>>(BITRES+3)
+	targetBytes := (targetQ3 + (1 << (bitRes + 2))) >> (bitRes + 3)
+	if targetBytes < 2 {
+		targetBytes = 2
+	}
+
+	if e.constrainedVBR {
+		// libopus line 1949-1952: bound packet size from reservoir state.
+		boundScale := e.constrainedVBRBoundScale
+		if boundScale <= 0 {
+			boundScale = 0
+		} else if boundScale > 1 {
+			boundScale = 1
+		}
+		vbrBoundQ3 := int(float64(vbrRateQ3) * boundScale)
+		maxAllowedBytes := (vbrRateQ3 + vbrBoundQ3 - e.vbrReservoir) >> (bitRes + 3)
+		if maxAllowedBytes < 2 {
+			maxAllowedBytes = 2
+		}
+		if targetBytes > maxAllowedBytes {
+			targetBytes = maxAllowedBytes
+		}
+
+		// libopus line 2485: delta = target - vbr_rate (Q3 units).
+		deltaQ3 := targetQ3 - vbrRateQ3
+		targetQ3 = targetBytes << (bitRes + 3)
+
+		// libopus line 2501-2506: adaptive smoothing factor.
+		if e.vbrCount < 970 {
+			e.vbrCount++
+		}
+		alpha := 0.001
+		if e.vbrCount < 970 {
+			alpha = 1.0 / float64(e.vbrCount+20)
+		}
+
+		// libopus line 2508-2517: reservoir and drift/offset update.
+		e.vbrReservoir += targetQ3 - vbrRateQ3
+		driftDelta := ((deltaQ3 << lmDiff) - e.vbrOffset - e.vbrDrift)
+		e.vbrDrift += int(alpha * float64(driftDelta))
+		e.vbrOffset = -e.vbrDrift
+
+		// libopus line 2520-2528: refill from min reservoir if needed.
+		if e.vbrReservoir < 0 {
+			adjust := (-e.vbrReservoir) / (8 << bitRes)
+			targetBytes += adjust
+			e.vbrReservoir = 0
 		}
 	}
 
-	// Constrained VBR should respect a bounded packet-size envelope.
-	// Keep this clamp scoped to constrained mode so unconstrained VBR behavior
-	// and existing quality tuning for that path are unchanged.
-	if e.vbr && e.constrainedVBR {
-		const constrainedVBRTolerance = 0.15
-		baseBitsCVBR := e.bitrateToBits(frameSize)
-		cvbrMaxBits := int(float64(baseBitsCVBR) * (1.0 + constrainedVBRTolerance))
-		if cvbrMaxBits > 0 && targetBits > cvbrMaxBits {
-			targetBits = cvbrMaxBits
-		}
-	}
+	targetBits := targetBytes * 8
 
 	// Clamp to reasonable bounds
 	// Minimum: 2 bytes (16 bits)
@@ -1856,15 +1866,6 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 
 // computeVBRTarget applies libopus-style CELT VBR shaping in Q3 units.
 func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float64, pitchChange bool, stats *CeltTargetStats) int {
-	if e.lfe {
-		if stats != nil {
-			stats.PitchChange = pitchChange
-			stats.MaxDepth = e.lastDynalloc.MaxDepth
-			stats.Tonality = e.lastTonality
-		}
-		return baseTargetQ3
-	}
-
 	mode := GetModeConfig(frameSize)
 	lm := mode.LM
 	nbBands := e.effectiveBandCount(frameSize)
@@ -1961,15 +1962,17 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float
 	if tonality > 1 {
 		tonality = 1
 	}
-	tonal := math.Max(0, tonality-0.15) - 0.12
-	tonalTarget := targetQ3
-	if tonal > 0 {
-		tonalTarget += int(float64(codedBins<<bitRes) * 1.2 * tonal)
+	if !e.lfe {
+		tonal := math.Max(0, tonality-0.15) - 0.12
+		tonalTarget := targetQ3
+		if tonal > 0 {
+			tonalTarget += int(float64(codedBins<<bitRes) * 1.2 * tonal)
+		}
+		if pitchChange {
+			tonalTarget += int(float64(codedBins<<bitRes) * 0.8)
+		}
+		targetQ3 = tonalTarget
 	}
-	if pitchChange {
-		tonalTarget += int(float64(codedBins<<bitRes) * 0.8)
-	}
-	targetQ3 = tonalTarget
 
 	// floor_depth limit from maxDepth.
 	maxDepth := e.lastDynalloc.MaxDepth
@@ -1989,7 +1992,7 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float
 	}
 
 	// Constrained VBR makes target changes less aggressive.
-	if e.constrainedVBR {
+	if e.constrainedVBR && (len(e.energyMask) == 0 || e.lfe) {
 		targetQ3 = baseTargetQ3 + int(0.67*float64(targetQ3-baseTargetQ3))
 	}
 
