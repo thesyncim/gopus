@@ -146,10 +146,6 @@ type Encoder struct {
 	prevMode            Mode
 	prevLongSWBAutoMode Mode
 	prevAutoMode        Mode
-	prevSWB10AutoMode   Mode
-	prevSWB20AutoMode   Mode
-	swb20ModeHoldFrames int
-
 	inputBuffer []float64
 	delayBuffer []float64
 
@@ -227,8 +223,6 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		scratchPacket:          make([]byte, 1276),
 		prevMode:               ModeAuto,
 		prevLongSWBAutoMode:    ModeAuto,
-		prevSWB10AutoMode:      ModeCELT,
-		prevSWB20AutoMode:      ModeHybrid,
 		prevAutoMode:           ModeAuto,
 	}
 }
@@ -334,9 +328,6 @@ func (e *Encoder) Reset() {
 	e.lastAnalysisValid = false
 	e.lastAnalysisFresh = false
 	e.analysisReadBakSet = false
-	e.prevSWB10AutoMode = ModeCELT
-	e.prevSWB20AutoMode = ModeHybrid
-	e.swb20ModeHoldFrames = 0
 	e.prevMode = ModeAuto
 	e.prevLongSWBAutoMode = ModeAuto
 	e.prevAutoMode = ModeAuto
@@ -664,21 +655,6 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 				e.effectiveBandwidth() == types.BandwidthSuperwideband &&
 				(prevModeNext == ModeHybrid || prevModeNext == ModeCELT) {
 				e.prevLongSWBAutoMode = prevModeNext
-			}
-			if frameSize == 480 &&
-				e.effectiveBandwidth() == types.BandwidthSuperwideband &&
-				(prevModeNext == ModeHybrid || prevModeNext == ModeCELT) {
-				e.prevSWB10AutoMode = prevModeNext
-			}
-			if frameSize == 960 &&
-				e.effectiveBandwidth() == types.BandwidthSuperwideband &&
-				(prevModeNext == ModeHybrid || prevModeNext == ModeCELT) {
-				if e.prevSWB20AutoMode == prevModeNext && e.swb20ModeHoldFrames > 0 {
-					e.swb20ModeHoldFrames++
-				} else {
-					e.prevSWB20AutoMode = prevModeNext
-					e.swb20ModeHoldFrames = 1
-				}
 			}
 		}
 	}
@@ -1245,50 +1221,9 @@ func (e *Encoder) autoSignalFromPCM(pcm []float64, frameSize int) types.Signal {
 		}
 		return types.SignalAuto
 	}
-	swb10Auto := e.mode == ModeAuto && frameSize == 480 && e.effectiveBandwidth() == types.BandwidthSuperwideband
-	swb20Auto := e.mode == ModeAuto && frameSize == 960 && e.effectiveBandwidth() == types.BandwidthSuperwideband
-	if swb10Auto {
-		return e.selectSWBAutoSignal(frameSize, e.prevSWB10AutoMode)
-	}
-	if swb20Auto {
-		return e.selectSWBAutoSignal(frameSize, e.prevSWB20AutoMode)
-	}
 	// libopus mode-auto fallback when analysis is unavailable/invalid is to keep
 	// OPUS_SIGNAL_AUTO and rely on threshold control with default voice estimate.
 	return types.SignalAuto
-}
-
-// selectSWBAutoSignal mirrors libopus auto-mode thresholding for SWB 10/20ms:
-// derive voice estimate from analysis (with prev-mode hysteresis), then compare
-// equivalent rate against voice/music thresholds with CELT/SILK-hybrid hysteresis.
-func (e *Encoder) selectSWBAutoSignal(frameSize int, prev Mode) types.Signal {
-	if prev != ModeCELT && prev != ModeHybrid && prev != ModeAuto {
-		prev = ModeAuto
-	}
-	frameRate := e.sampleRate / frameSize
-	if frameRate <= 0 {
-		frameRate = 50
-	}
-	useVBR := e.bitrateMode != ModeCBR
-	equivRate := e.computeEquivRate(e.bitrate, e.channels, frameRate, useVBR, ModeAuto, e.complexity, e.packetLoss)
-
-	voiceEst := e.autoVoiceEstimate(prev)
-
-	modeVoice := 64000
-	if e.channels == 2 {
-		modeVoice = 44000
-	}
-	const modeMusic = 10000
-	threshold := modeMusic + (voiceEst*voiceEst*(modeVoice-modeMusic))/16384
-	if prev == ModeCELT {
-		threshold -= 4000
-	} else if prev == ModeHybrid {
-		threshold += 4000
-	}
-	if equivRate >= threshold {
-		return types.SignalMusic
-	}
-	return types.SignalVoice
 }
 
 func (e *Encoder) autoVoiceEstimate(prev Mode) int {
