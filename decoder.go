@@ -420,11 +420,13 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 
 		// LBRR is only available in SILK/Hybrid. CELT-only falls back to PLC.
 		if toc.Mode == ModeSILK || toc.Mode == ModeHybrid {
-			// FEC recovers the prior frame duration; if unknown, fall back to
-			// the current packet's frame size.
-			frameSize := d.lastFrameSize
+			// decode_fec granularity follows the provided packet's frame size.
+			frameSize := toc.FrameSize
 			if frameSize <= 0 {
-				frameSize = toc.FrameSize
+				frameSize = d.lastFrameSize
+			}
+			if frameSize <= 0 {
+				frameSize = 960
 			}
 			d.storeFECData(data, toc, frameCount, frameSize)
 			if n, err := d.decodeFECFrame(pcm); err == nil {
