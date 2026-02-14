@@ -20,15 +20,15 @@ var encoderLibopusGapFloorDB = map[string]float64{
 	"SILK-WB-10ms-mono-32k":     -0.05,
 	"SILK-WB-20ms-mono-32k":     -0.50,
 	"SILK-WB-40ms-mono-32k":     -0.35,
-	"SILK-WB-60ms-mono-32k":     -0.40,
+	"SILK-WB-60ms-mono-32k":     -0.20,
 	"SILK-WB-20ms-stereo-48k":   -0.10,
-	"Hybrid-SWB-10ms-mono-48k":  -0.15,
-	"Hybrid-SWB-20ms-mono-48k":  -0.55,
-	"Hybrid-SWB-40ms-mono-48k":  -0.55,
+	"Hybrid-SWB-10ms-mono-48k":  0.00,
+	"Hybrid-SWB-20ms-mono-48k":  -0.15,
+	"Hybrid-SWB-40ms-mono-48k":  -0.25,
 	"Hybrid-FB-10ms-mono-64k":   -0.40,
-	"Hybrid-FB-20ms-mono-64k":   -0.55,
-	"Hybrid-FB-60ms-mono-64k":   -0.55,
-	"Hybrid-FB-20ms-stereo-96k": -0.25,
+	"Hybrid-FB-20ms-mono-64k":   -0.35,
+	"Hybrid-FB-60ms-mono-64k":   -0.35,
+	"Hybrid-FB-20ms-stereo-96k": -0.15,
 }
 
 // Small tolerance for platform/decoder variance in measured SNR gaps.
