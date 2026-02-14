@@ -2,6 +2,15 @@ package silk
 
 import "github.com/thesyncim/gopus/rangecoding"
 
+// VADFrameState carries per-frame SILK VAD-derived controls.
+// It mirrors the state produced by silk_encode_do_VAD_Fxx in libopus.
+type VADFrameState struct {
+	SpeechActivityQ8     int
+	InputTiltQ15         int
+	InputQualityBandsQ15 [4]int
+	Valid                bool
+}
+
 // Encoder encodes PCM audio to SILK frames.
 // It maintains state across frames that mirrors the decoder for proper
 // synchronized prediction of gains, LSF, and stereo weights.
@@ -204,7 +213,7 @@ type Encoder struct {
 
 	// FindLPC interpolation scratch buffers
 	scratchLpcXF64     []float64   // float32->float64 conversion
-	scratchNlsf0Q15   [16]int16   // interpolated NLSF
+	scratchNlsf0Q15    [16]int16   // interpolated NLSF
 	scratchLpcATmp     [16]float64 // LPC from NLSF
 	scratchLpcResidual []float64   // LPC residual for energy
 	scratchNlsfCos     [16]float64 // nlsfToLPCFloat: cosine values
@@ -227,10 +236,10 @@ type Encoder struct {
 
 	// Rate control loop scratch buffers
 	// Bit reservoir and rate control state (libopus parity)
-	nBitsExceeded  int // Bits produced in excess of target
-	nBitsUsedLBRR  int // Exponential moving average of LBRR overhead bits
-	maxBits        int // Maximum bits allowed for current frame
-	useVBR         bool
+	nBitsExceeded int // Bits produced in excess of target
+	nBitsUsedLBRR int // Exponential moving average of LBRR overhead bits
+	maxBits       int // Maximum bits allowed for current frame
+	useVBR        bool
 
 	// LP variable cutoff filter scratch buffer
 	scratchLPInt16 []int16 // LP filter: int16 conversion for biquad filter

@@ -1245,6 +1245,10 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 }
 
 func (e *Encoder) EncodePacketWithFEC(pcm []float32, lookahead []float32, vadFlags []bool) []byte {
+	return e.EncodePacketWithFECWithVADStates(pcm, lookahead, vadFlags, nil)
+}
+
+func (e *Encoder) EncodePacketWithFECWithVADStates(pcm []float32, lookahead []float32, vadFlags []bool, vadStates []VADFrameState) []byte {
 	e.ResetPacketState()
 	config := GetBandwidthConfig(e.bandwidth)
 	frameSamples := config.SampleRate * 20 / 1000
@@ -1310,6 +1314,10 @@ func (e *Encoder) EncodePacketWithFEC(pcm []float32, lookahead []float32, vadFla
 			vadUsed[i] = 1
 		} else {
 			vadUsed[i] = 0
+		}
+		if i < len(vadStates) && vadStates[i].Valid {
+			state := vadStates[i]
+			e.SetVADState(state.SpeechActivityQ8, state.InputTiltQ15, state.InputQualityBandsQ15)
 		}
 		// For multi-frame packets, libopus feeds contiguous input through the
 		// internal buffers frame by frame. Only the final frame needs external

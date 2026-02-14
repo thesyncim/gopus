@@ -1,6 +1,6 @@
 # Investigation Decisions
 
-Last updated: 2026-02-13
+Last updated: 2026-02-14
 
 Purpose: prevent repeated validation by recording what was tested, what was ruled out, and when re-validation is allowed.
 
@@ -26,6 +26,20 @@ topic: Analyzer trace fixture coverage matrix (stereo + 60ms)
 decision: Keep the expanded libopus analyzer trace fixture matrix in `tmp_check/gen_libopus_analysis_trace_fixture.go` and `encoder/testdata/libopus_analysis_trace_fixture.json`, including stereo FB profiles and 60 ms mono FB coverage, so analyzer/control parity remains source-backed beyond SWB mono.
 evidence: Generator now emits 36 cases across SWB mono, FB mono/stereo, and 60 ms lanes; `TestAnalysisTraceFixtureParityWithLibopus` reported `badFrames=0` on all cases; parity/compliance slice and full gates (`make verify-production`, `make bench-guard`) passed after regeneration.
 do_not_repeat_until: Active parity profile matrix changes (new mode/bandwidth/frame-size/channel lanes) or libopus `run_analysis` semantics change and require updating trace coverage.
+owner: codex
+
+date: 2026-02-14
+topic: Multi-frame SILK per-frame VAD state cadence parity
+decision: Keep per-20ms VAD state snapshots (speech activity, input tilt, quality bands) applied before each SILK subframe encode in 40/60ms packets; do not reuse the last-frame VAD state across the whole packet.
+evidence: Ported packet control flow in `encoder/encoder.go`, `silk/encode_frame.go`, and `silk/silk_encode.go` to apply frame-local VAD state before each `EncodeFrame` call; added `TestEncodePacketWithFECWithVADStatesUsesPerFrameState`; parity/provenance suites passed and long SILK impulse-heavy negatives dropped from provenance worst-list.
+do_not_repeat_until: libopus changes `silk_encode_do_VAD_Fxx`/`enc_API.c` per-frame VAD cadence semantics, or fixture/interoperability evidence shows this per-frame state application diverges.
+owner: codex
+
+date: 2026-02-14
+topic: Ratchet baseline refresh for SILK long-packet packet-length profile after source parity port
+decision: Keep updated ratchet limits for affected SILK NB/WB long-packet variants (`SILK-NB-40ms-*`, `SILK-WB-40ms-*`, `SILK-WB-60ms-*`, `SILK-WB-20ms-stereo/chirp`) to reflect source-backed per-frame VAD cadence, while preserving mode-mismatch/histogram guards.
+evidence: Updated `testvectors/testdata/encoder_compliance_variants_ratchet_baseline.json`; `GOPUS_TEST_TIER=parity go test ./testvectors -run 'TestEncoderVariantProfileParityAgainstLibopusFixture|TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard' -count=1` and provenance audit passed.
+do_not_repeat_until: the SILK packet VAD control path changes again, or fixture-level evidence warrants re-tightening these specific packet-length thresholds.
 owner: codex
 
 date: 2026-02-13
