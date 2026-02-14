@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-14
+topic: CELT hybrid VBR overhead constant parity
+decision: Keep `computeTargetBits()` overhead subtraction split by hybrid mode in `celt/encode_frame.go`: non-hybrid uses `(40*C+20)<<BITRES`, hybrid uses `(9*C+4)<<BITRES`, matching libopus `celt_encoder.c` hybrid branch.
+evidence: Updated `celt/encode_frame.go` overhead selection and aligned `encoder/hybrid_test.go` for current hybrid total-rate helper usage; parity suite `GOPUS_TEST_TIER=parity go test ./testvectors -run 'TestEncoderVariantProfileParityAgainstLibopusFixture|TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard' -count=1` passed.
+do_not_repeat_until: libopus changes hybrid/non-hybrid VBR overhead constants in `celt_encoder.c`, or fixture evidence shows this split regresses parity.
+owner: codex
+
+date: 2026-02-14
 topic: Hybrid CBR CELT bitrate control parity
 decision: Keep hybrid CBR CELT control aligned to libopus by running CELT with max bitrate in hybrid CBR and letting the shared range-coder packet cap enforce the true per-frame byte budget; only apply SILK-split CELT bitrate in hybrid VBR/CVBR.
 evidence: Updated `encoder/hybrid.go` `encodeHybridFrameWithMaxPacket()` to set CELT bitrate to `MaxBitrate` in `ModeCBR` and keep split `celtBitrate` only for `ModeCVBR/ModeVBR`; focused provenance on worst lanes improved (`HYBRID-SWB-20ms-mono-48k[speech_like_v1] -0.98dB -> -0.81dB`, `HYBRID-SWB-40ms-mono-48k[speech_like_v1] -1.15dB -> -1.10dB`) with zero mode mismatch drift; full parity/provenance plus `make verify-production` and `make bench-guard` passed.
