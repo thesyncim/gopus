@@ -29,6 +29,13 @@ do_not_repeat_until: libopus mode-selection semantics change in `opus_encoder.c`
 owner: codex
 
 date: 2026-02-14
+topic: CELT constrained-VBR reservoir parity
+decision: Keep CELT constrained-VBR budgeting on direct libopus state cadence (`vbr_reservoir`, `vbr_offset`, `vbr_drift`, `vbr_count`) and remove custom guardrails (`+15%` hard cap and frame-size bitrate uplifts) from `computeTargetBits`. For multistream CVBR only, keep bounded `vbr_bound` scaling to respect the Opus 1275-byte aggregate packet cap while preserving single-stream libopus behavior at scale `1.0`.
+evidence: Updated `celt/encode_frame.go`/`celt/encoder.go`, added CELT bound-scale propagation in `encoder/encoder.go` and `multistream/encoder.go`, and updated CVBR envelope coverage in `encoder/encoder_test.go`; regenerated `celt/testdata/opusdec_crossval_fixture.json`; focused CVBR/crossval tests, parity/compliance slice, `make verify-production`, and `make bench-guard` all passed.
+do_not_repeat_until: libopus changes constrained-VBR reservoir/offset cadence in `celt_encoder.c`, or fixture/interoperability evidence shows renewed constrained-VBR target divergence.
+owner: codex
+
+date: 2026-02-14
 topic: ModeAuto analyzer-invalid fallback parity
 decision: Keep `autoSignalFromPCM()` fallback aligned to libopus by returning `SignalAuto` when analysis is unavailable/invalid (outside SWB 10/20 ms threshold lanes), and do not reintroduce PCM classifier/energy-ratio voice/music forcing in this path.
 evidence: Updated `encoder/encoder.go` fallback path and added `TestAutoSignalFromPCMAnalyzerInvalidFallsBackToAuto` plus `TestAutoSignalFromPCMAnalyzerUnavailableFallsBackToAuto` in `encoder/auto_mode_policy_test.go`; focused auto-mode tests, parity/compliance slice, `make verify-production`, and `make bench-guard` passed.

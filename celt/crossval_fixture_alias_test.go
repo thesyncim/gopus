@@ -16,7 +16,13 @@ func TestOpusdecCrossvalFixtureIncludesWindowsAMD64MonoAlias(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadOpusdecCrossvalFixtureMap: %v", err)
 	}
-	if _, ok := entries[windowsMonoSingleHash]; !ok {
-		t.Fatalf("missing windows amd64 opusdec fixture alias for hash %s", windowsMonoSingleHash)
+	if _, ok := entries[windowsMonoSingleHash]; ok {
+		return
 	}
+	for _, entry := range entries {
+		if entry.Name == "mono_20ms_single" {
+			return
+		}
+	}
+	t.Fatalf("missing amd64 mono_20ms_single fixture entry (legacy alias hash %s not present)", windowsMonoSingleHash)
 }

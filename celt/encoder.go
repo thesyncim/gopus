@@ -117,6 +117,15 @@ type Encoder struct {
 	frameBits      int // Per-frame bit budget for coarse energy (set during encoding)
 	vbr            bool
 	constrainedVBR bool
+	// constrainedVBRBoundScale scales libopus vbr_bound for constrained-VBR
+	// max-allowed computation. 1.0 matches libopus single-stream behavior.
+	constrainedVBRBoundScale float64
+	// Constrained-VBR state mirrors libopus CELT encoder cadence.
+	// Units are Q3 bits unless noted.
+	vbrReservoir int
+	vbrOffset    int
+	vbrDrift     int
+	vbrCount     int
 
 	// Complexity control (0-10)
 	complexity int
@@ -362,7 +371,8 @@ func NewEncoder(channels int) *Encoder {
 		maxPitchRatio: 0.0,
 
 		// Default to VBR enabled to mirror libopus behavior.
-		vbr: true,
+		vbr:                      true,
+		constrainedVBRBoundScale: 1.0,
 	}
 
 	// Energy arrays default to zero after allocation (matches libopus init).
@@ -530,6 +540,10 @@ func (e *Encoder) Reset() {
 	e.lastCodedBands = 0
 	e.intensity = 0
 	e.consecTransient = 0
+	e.vbrReservoir = 0
+	e.vbrOffset = 0
+	e.vbrDrift = 0
+	e.vbrCount = 0
 
 	// Reset spread decision state (match libopus init values)
 	// Reference: libopus celt_encoder.c line 3088-3089
@@ -653,6 +667,17 @@ func (e *Encoder) SetConstrainedVBR(enabled bool) {
 // ConstrainedVBR reports whether constrained VBR mode is enabled.
 func (e *Encoder) ConstrainedVBR() bool {
 	return e.constrainedVBR
+}
+
+// SetConstrainedVBRBoundScale sets a scale for constrained-VBR vbr_bound.
+// Valid range is [0, 1], where 1 matches libopus single-stream behavior.
+func (e *Encoder) SetConstrainedVBRBoundScale(scale float64) {
+	if scale < 0 {
+		scale = 0
+	} else if scale > 1 {
+		scale = 1
+	}
+	e.constrainedVBRBoundScale = scale
 }
 
 // SetDCRejectEnabled controls whether EncodeFrame applies dc_reject().
