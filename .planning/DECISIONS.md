@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-14
+topic: ModeAuto analyzer-invalid fallback parity
+decision: Keep `autoSignalFromPCM()` fallback aligned to libopus by returning `SignalAuto` when analysis is unavailable/invalid (outside SWB 10/20 ms threshold lanes), and do not reintroduce PCM classifier/energy-ratio voice/music forcing in this path.
+evidence: Updated `encoder/encoder.go` fallback path and added `TestAutoSignalFromPCMAnalyzerInvalidFallsBackToAuto` plus `TestAutoSignalFromPCMAnalyzerUnavailableFallsBackToAuto` in `encoder/auto_mode_policy_test.go`; focused auto-mode tests, parity/compliance slice, `make verify-production`, and `make bench-guard` passed.
+do_not_repeat_until: libopus changes auto-mode fallback semantics around `voice_ratio`/analysis validity in `opus_encoder.c`, or fixture/interoperability evidence shows renewed mode divergence when analysis is invalid.
+owner: codex
+
+date: 2026-02-14
 topic: Analyzer trace fixture full profile matrix
 decision: Keep analyzer trace fixtures aligned to the complete active encoder parity profile set (19 lanes), not a SWB-only subset. Maintain generator coverage in `tmp_check/gen_libopus_analysis_trace_fixture.go` for CELT/HYBRID/SILK mono+stereo profiles and long-frame lanes, and enforce with `TestAnalysisTraceFixtureProfileCoverage`.
 evidence: Regenerated `encoder/testdata/libopus_analysis_trace_fixture.json` to 76 cases (19 profiles x 4 variants), and verified no profile coverage gaps against the parity fixture matrix; `TestAnalysisTraceFixtureParityWithLibopus` reported 0 bad frames for all cases; parity slice + `make verify-production` + `make bench-guard` passed.
