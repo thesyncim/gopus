@@ -167,6 +167,8 @@ type Encoder struct {
 	scratchMono       []float32 // Mono mix buffer (VAD)
 	scratchVADFlags   [silk.MaxFramesPerPacket]bool
 	scratchSideVAD    [silk.MaxFramesPerPacket]bool
+	scratchVADStates  [silk.MaxFramesPerPacket]silk.VADFrameState
+	scratchSideStates [silk.MaxFramesPerPacket]silk.VADFrameState
 	scratchPacket     []byte    // Output packet buffer
 	scratchDelayedPCM []float64 // Delay-compensated CELT input
 	scratchDelayTail  []float64 // Snapshot of delay buffer tail
@@ -1417,22 +1419,27 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 		for i := 0; i < len(left); i++ {
 			mono[i] = (left[i] + right[i]) * 0.5
 		}
-		vadFlags, _ := e.computeSilkVADFlags(mono, fsKHz)
+		vadFlags, vadStates, _ := e.computeSilkVADFlagsAndStates(mono, fsKHz)
 		var sideVADFlags []bool
-		e.silkEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.silkVAD.InputQualityBandsQ15)
+		var sideVADStates []silk.VADFrameState
 		if e.silkSideEncoder != nil {
 			// Side channel has different activity/tilt than mid; keep a separate VAD state.
 			for i := 0; i < len(left); i++ {
 				mono[i] = (left[i] - right[i]) * 0.5
 			}
-			sideVADFlags, _ = e.computeSilkVADSideFlags(mono, fsKHz)
-			if e.silkVADSide != nil {
-				e.silkSideEncoder.SetVADState(e.silkVADSide.SpeechActivityQ8, e.silkVADSide.InputTiltQ15, e.silkVADSide.InputQualityBandsQ15)
-			} else {
-				e.silkSideEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.silkVAD.InputQualityBandsQ15)
-			}
+			sideVADFlags, sideVADStates, _ = e.computeSilkVADSideFlagsAndStates(mono, fsKHz)
 		}
-		return silk.EncodeStereoWithEncoderVADFlagsWithSide(e.silkEncoder, e.silkSideEncoder, left, right, e.silkBandwidth(), vadFlags, sideVADFlags)
+		return silk.EncodeStereoWithEncoderVADFlagsAndStatesWithSide(
+			e.silkEncoder,
+			e.silkSideEncoder,
+			left,
+			right,
+			e.silkBandwidth(),
+			vadFlags,
+			vadStates,
+			sideVADFlags,
+			sideVADStates,
+		)
 	}
 	var lookaheadOut []float32
 	if targetRate != 48000 {
@@ -1495,14 +1502,18 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 	e.silkEncoder.SetFEC(e.fecEnabled)
 	e.silkEncoder.SetPacketLoss(e.packetLoss)
 	fsKHz := targetRate / 1000
-	vadFlags, nFrames := e.computeSilkVADFlags(pcm32, fsKHz)
-	e.silkEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.lastVADInputQualityBandsQ15)
+	vadFlags, vadStates, nFrames := e.computeSilkVADFlagsAndStates(pcm32, fsKHz)
 	if e.fecEnabled || nFrames > 1 {
-		return e.silkEncoder.EncodePacketWithFEC(pcm32, lookaheadOut, vadFlags), nil
+		return e.silkEncoder.EncodePacketWithFECWithVADStates(pcm32, lookaheadOut, vadFlags, vadStates), nil
 	}
 	vadFlag := false
 	if len(vadFlags) > 0 {
 		vadFlag = vadFlags[0]
+	}
+	if len(vadStates) > 0 {
+		applySilkVADFrameState(e.silkEncoder, vadStates[0])
+	} else if e.lastVADValid {
+		e.silkEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.lastVADInputQualityBandsQ15)
 	}
 	res := e.silkEncoder.EncodeFrame(pcm32, lookaheadOut, vadFlag)
 	return res, nil
@@ -1771,16 +1782,40 @@ func computeSilkVADWithState(state *VADState, mono []float32, frameSamples, fsKH
 	return state.GetSpeechActivity(mono, frameSamples, fsKHz)
 }
 
+func computeSilkVADFrameState(state *VADState, mono []float32, frameSamples, fsKHz int) (silk.VADFrameState, bool) {
+	activityQ8, active := computeSilkVADWithState(state, mono, frameSamples, fsKHz)
+	if state == nil || frameSamples <= 0 || fsKHz <= 0 || len(mono) < frameSamples {
+		return silk.VADFrameState{}, false
+	}
+	return silk.VADFrameState{
+		SpeechActivityQ8:     activityQ8,
+		InputTiltQ15:         state.InputTiltQ15,
+		InputQualityBandsQ15: state.InputQualityBandsQ15,
+		Valid:                true,
+	}, active
+}
+
+func applySilkVADFrameState(enc *silk.Encoder, state silk.VADFrameState) {
+	if enc == nil || !state.Valid {
+		return
+	}
+	enc.SetVADState(state.SpeechActivityQ8, state.InputTiltQ15, state.InputQualityBandsQ15)
+}
+
 func (e *Encoder) computeSilkVAD(mono []float32, frameSamples, fsKHz int) bool {
 	if frameSamples <= 0 || fsKHz <= 0 {
 		e.lastVADValid = false
 		return false
 	}
 	e.ensureSilkVAD()
-	activityQ8, active := computeSilkVADWithState(e.silkVAD, mono, frameSamples, fsKHz)
-	e.lastVADActivityQ8 = activityQ8
-	e.lastVADInputTiltQ15 = e.silkVAD.InputTiltQ15
-	e.lastVADInputQualityBandsQ15 = e.silkVAD.InputQualityBandsQ15
+	state, active := computeSilkVADFrameState(e.silkVAD, mono, frameSamples, fsKHz)
+	if !state.Valid {
+		e.lastVADValid = false
+		return false
+	}
+	e.lastVADActivityQ8 = state.SpeechActivityQ8
+	e.lastVADInputTiltQ15 = state.InputTiltQ15
+	e.lastVADInputQualityBandsQ15 = state.InputQualityBandsQ15
 	e.lastVADActive = active
 	e.lastVADValid = true
 	return active
@@ -1791,8 +1826,7 @@ func (e *Encoder) computeSilkVADSide(mono []float32, frameSamples, fsKHz int) bo
 		return false
 	}
 	e.ensureSilkVADSide()
-	activityQ8, active := computeSilkVADWithState(e.silkVADSide, mono, frameSamples, fsKHz)
-	_ = activityQ8
+	_, active := computeSilkVADFrameState(e.silkVADSide, mono, frameSamples, fsKHz)
 	return active
 }
 
@@ -1818,30 +1852,19 @@ func computeSilkFrameLayout(pcmLen, fsKHz int) (frameSamples, nFrames int) {
 }
 
 func (e *Encoder) computeSilkVADFlags(pcm []float32, fsKHz int) ([]bool, int) {
-	frameSamples, nFrames := computeSilkFrameLayout(len(pcm), fsKHz)
-	if nFrames == 0 {
-		e.lastVADValid = false
-		return nil, 0
-	}
-	flags := e.scratchVADFlags[:nFrames]
-	for i := 0; i < nFrames; i++ {
-		start := i * frameSamples
-		end := start + frameSamples
-		if end > len(pcm) {
-			end = len(pcm)
-		}
-		framePCM := pcm[start:end]
-		flags[i] = e.computeSilkVAD(framePCM, len(framePCM), fsKHz)
-	}
+	flags, _, nFrames := e.computeSilkVADFlagsAndStates(pcm, fsKHz)
 	return flags, nFrames
 }
 
-func (e *Encoder) computeSilkVADSideFlags(pcm []float32, fsKHz int) ([]bool, int) {
+func (e *Encoder) computeSilkVADFlagsAndStates(pcm []float32, fsKHz int) ([]bool, []silk.VADFrameState, int) {
 	frameSamples, nFrames := computeSilkFrameLayout(len(pcm), fsKHz)
 	if nFrames == 0 {
-		return nil, 0
+		e.lastVADValid = false
+		return nil, nil, 0
 	}
-	flags := e.scratchSideVAD[:nFrames]
+	e.ensureSilkVAD()
+	flags := e.scratchVADFlags[:nFrames]
+	states := e.scratchVADStates[:nFrames]
 	for i := 0; i < nFrames; i++ {
 		start := i * frameSamples
 		end := start + frameSamples
@@ -1849,9 +1872,47 @@ func (e *Encoder) computeSilkVADSideFlags(pcm []float32, fsKHz int) ([]bool, int
 			end = len(pcm)
 		}
 		framePCM := pcm[start:end]
-		flags[i] = e.computeSilkVADSide(framePCM, len(framePCM), fsKHz)
+		state, active := computeSilkVADFrameState(e.silkVAD, framePCM, len(framePCM), fsKHz)
+		flags[i] = active
+		states[i] = state
+		if state.Valid {
+			e.lastVADActivityQ8 = state.SpeechActivityQ8
+			e.lastVADInputTiltQ15 = state.InputTiltQ15
+			e.lastVADInputQualityBandsQ15 = state.InputQualityBandsQ15
+			e.lastVADValid = true
+			e.lastVADActive = active
+		} else {
+			e.lastVADValid = false
+		}
 	}
+	return flags, states, nFrames
+}
+
+func (e *Encoder) computeSilkVADSideFlags(pcm []float32, fsKHz int) ([]bool, int) {
+	flags, _, nFrames := e.computeSilkVADSideFlagsAndStates(pcm, fsKHz)
 	return flags, nFrames
+}
+
+func (e *Encoder) computeSilkVADSideFlagsAndStates(pcm []float32, fsKHz int) ([]bool, []silk.VADFrameState, int) {
+	frameSamples, nFrames := computeSilkFrameLayout(len(pcm), fsKHz)
+	if nFrames == 0 {
+		return nil, nil, 0
+	}
+	e.ensureSilkVADSide()
+	flags := e.scratchSideVAD[:nFrames]
+	states := e.scratchSideStates[:nFrames]
+	for i := 0; i < nFrames; i++ {
+		start := i * frameSamples
+		end := start + frameSamples
+		if end > len(pcm) {
+			end = len(pcm)
+		}
+		framePCM := pcm[start:end]
+		state, active := computeSilkVADFrameState(e.silkVADSide, framePCM, len(framePCM), fsKHz)
+		flags[i] = active
+		states[i] = state
+	}
+	return flags, states, nFrames
 }
 
 func (e *Encoder) ensureSilkResampled(size int) []float32 {
