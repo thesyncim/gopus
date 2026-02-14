@@ -382,9 +382,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	}
 	prevPrefilterPeriod := e.prefilterPeriod
 	prevPrefilterGain := e.prefilterGain
-	// Match libopus run_prefilter(): prefer external analysis->max_pitch_ratio
-	// when available, otherwise fall back to CELT-local estimation.
-	maxPitchRatio := e.estimateMaxPitchRatioStateful(samplesForFrame)
+	// Match libopus run_prefilter(): scale only when analysis is valid.
+	maxPitchRatio := 1.0
 	if e.analysisValid {
 		maxPitchRatio = e.analysisMaxPitchRatio
 	}
@@ -1726,6 +1725,9 @@ func (e *Encoder) cbrPayloadBytes(frameSize int) int {
 	if payload < 0 {
 		payload = 0
 	}
+	if e.maxPayloadBytes > 0 && payload > e.maxPayloadBytes {
+		payload = e.maxPayloadBytes
+	}
 	return payload
 }
 
@@ -1846,6 +1848,12 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 	}
 
 	targetBits := targetBytes * 8
+	if e.maxPayloadBytes > 0 {
+		maxBits := e.maxPayloadBytes * 8
+		if targetBits > maxBits {
+			targetBits = maxBits
+		}
+	}
 
 	// Clamp to reasonable bounds
 	// Minimum: 2 bytes (16 bits)
@@ -1893,6 +1901,9 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float
 	}
 
 	targetQ3 := baseTargetQ3
+	if e.analysisValid && e.analysisActivity < 0.4 {
+		targetQ3 -= int(float64(codedBins<<bitRes) * (0.4 - e.analysisActivity))
+	}
 
 	totBoost := e.lastDynalloc.TotBoost
 	// VBR target uses previous-frame dynalloc state; bootstrap frame 0 with a
