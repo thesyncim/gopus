@@ -880,7 +880,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		nbBands, start, end, e.channels, lsbDepth, lm,
 		logN,
 		effectiveBytes,
-		transient, isVBR, isConstrainedVBR,
+		transient, isVBR, isConstrainedVBR, e.lfe,
 		toneFreq, toneishness,
 		surroundDynalloc,
 		e.analysisValid, e.dynallocLeakBoost(),
@@ -894,7 +894,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Reference: libopus enable_tf_analysis = effectiveBytes>=15*C && !hybrid && st->complexity>=2 && !st->lfe && toneishness < QCONST32(.98f, 29)
 	// Note: libopus does NOT have an LM>0 check here - TF analysis runs for all frame sizes including LM=0
 	// CRITICAL: toneishness >= 0.98 disables TF analysis (pure tones use simple fallback)
-	enableTFAnalysis := effectiveBytes >= 15*e.channels && e.complexity >= 2 && !e.lfe && toneishness < 0.98
+	enableTFAnalysis := effectiveBytes >= 15*e.channels && !e.IsHybrid() && e.complexity >= 2 && !e.lfe && toneishness < 0.98
 
 	var tfRes []int
 	var tfSelect int
@@ -1974,9 +1974,6 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float
 		tfEstimate = 1
 	}
 	tfBoost := int(2.0 * (tfEstimate - tfCalibration) * float64(targetQ3))
-	if tfBoost < 0 {
-		tfBoost = 0
-	}
 	targetQ3 += tfBoost
 	if stats != nil {
 		stats.TFBoost = tfBoost

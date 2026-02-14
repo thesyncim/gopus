@@ -257,7 +257,7 @@ func DynallocAnalysis(
 	nbBands, start, end, channels, lsbDepth, lm int,
 	logN []int16,
 	effectiveBytes int,
-	isTransient, vbr, constrainedVBR bool,
+	isTransient, vbr, constrainedVBR, lfe bool,
 	toneFreq, toneishness float64,
 	surroundDynalloc []float64,
 	analysisValid bool,
@@ -385,9 +385,9 @@ func DynallocAnalysis(
 
 	// Make sure dynamic allocation doesn't bust the budget
 	// Enable starting at 24 kb/s for 20ms frames, 96 kb/s for 2.5ms frames
-	// Reference: libopus line 1121
+	// Reference: libopus line 1121: if (effectiveBytes >= (30 + 5*LM) && !lfe)
 	minBytes := 30 + 5*lm
-	if effectiveBytes >= minBytes {
+	if effectiveBytes >= minBytes && !lfe {
 		// Compute follower (smoothed band energies for dynamic allocation)
 		follower := make([]float32, channels*nbBands)
 
@@ -706,7 +706,7 @@ func DynallocAnalysisSimple(bandLogE []float64, nbBands, lm, effectiveBytes int)
 		nbBands, 0, nbBands, 1, 16, lm,
 		logN,
 		effectiveBytes,
-		false, true, false, // not transient, VBR, not constrained
+		false, true, false, false, // not transient, VBR, not constrained, not LFE
 		-1.0, 0.0,
 		nil,
 		false,
@@ -826,7 +826,7 @@ func DynallocAnalysisWithScratch(
 	nbBands, start, end, channels, lsbDepth, lm int,
 	logN []int16,
 	effectiveBytes int,
-	isTransient, vbr, constrainedVBR bool,
+	isTransient, vbr, constrainedVBR, lfe bool,
 	toneFreq, toneishness float64,
 	surroundDynalloc []float64,
 	analysisValid bool,
@@ -849,6 +849,7 @@ func DynallocAnalysisWithScratch(
 			isTransient,
 			vbr,
 			constrainedVBR,
+			lfe,
 			toneFreq,
 			toneishness,
 			surroundDynalloc,
@@ -1003,8 +1004,9 @@ func DynallocAnalysisWithScratch(
 	}
 
 	// Dynamic allocation (budget permitting)
+	// Reference: libopus line 1121: if (effectiveBytes >= (30 + 5*LM) && !lfe)
 	minBytes := 30 + 5*lm
-	if effectiveBytes >= minBytes {
+	if effectiveBytes >= minBytes && !lfe {
 		follower := scratch.Follower[:channels*nbBands]
 		for i := range follower {
 			follower[i] = 0

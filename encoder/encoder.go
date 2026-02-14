@@ -1408,13 +1408,9 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 			case ModeVBR:
 				maxBytes = maxSilkPacketBytes
 			case ModeCVBR:
-				maxBytes = int(float64(targetBytes) * (1 + CVBRTolerance))
-				if maxBytes < 1 {
-					maxBytes = 1
-				}
-				if maxBytes > maxSilkPacketBytes {
-					maxBytes = maxSilkPacketBytes
-				}
+				// libopus does not apply vbr_constraint to SILK maxBits;
+				// SILK VBR is unconstrained even in CVBR mode.
+				maxBytes = maxSilkPacketBytes
 			}
 			maxBits := silkPayloadMaxBits(maxBytes)
 			e.silkEncoder.SetMaxBits(maxBits)
@@ -1522,13 +1518,9 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 		case ModeVBR:
 			maxBytes = maxSilkPacketBytes
 		case ModeCVBR:
-			maxBytes = int(float64(targetBytes) * (1 + CVBRTolerance))
-			if maxBytes < 1 {
-				maxBytes = 1
-			}
-			if maxBytes > maxSilkPacketBytes {
-				maxBytes = maxSilkPacketBytes
-			}
+			// libopus does not apply vbr_constraint to SILK maxBits;
+			// SILK VBR is unconstrained even in CVBR mode.
+			maxBytes = maxSilkPacketBytes
 		case ModeCBR:
 			// keep targetBytes
 		}
