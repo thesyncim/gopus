@@ -113,63 +113,37 @@ func frameSizeLabel(frameSize int) string {
 }
 
 func buildSpecs() []analysisCaseSpec {
+	spec := func(name string, frameSize, channels, bitrate int) analysisCaseSpec {
+		return analysisCaseSpec{
+			Name:      name,
+			FrameSize: frameSize,
+			Channels:  channels,
+			Bitrate:   bitrate,
+		}
+	}
+
 	// Keep analyzer trace coverage aligned with active libopus parity profiles
 	// so mode-control updates are source-backed across mono/stereo and long frames.
 	return []analysisCaseSpec{
-		{
-			Name:      fmt.Sprintf("HYBRID-SWB-%s-mono-48k", frameSizeLabel(480)),
-			FrameSize: 480,
-			Channels:  1,
-			Bitrate:   48000,
-		},
-		{
-			Name:      fmt.Sprintf("HYBRID-SWB-%s-mono-48k", frameSizeLabel(960)),
-			FrameSize: 960,
-			Channels:  1,
-			Bitrate:   48000,
-		},
-		{
-			Name:      fmt.Sprintf("HYBRID-SWB-%s-mono-48k", frameSizeLabel(1920)),
-			FrameSize: 1920,
-			Channels:  1,
-			Bitrate:   48000,
-		},
-		{
-			Name:      fmt.Sprintf("HYBRID-FB-%s-mono-64k", frameSizeLabel(480)),
-			FrameSize: 480,
-			Channels:  1,
-			Bitrate:   64000,
-		},
-		{
-			Name:      fmt.Sprintf("HYBRID-FB-%s-mono-64k", frameSizeLabel(960)),
-			FrameSize: 960,
-			Channels:  1,
-			Bitrate:   64000,
-		},
-		{
-			Name:      fmt.Sprintf("HYBRID-FB-%s-mono-64k", frameSizeLabel(2880)),
-			FrameSize: 2880,
-			Channels:  1,
-			Bitrate:   64000,
-		},
-		{
-			Name:      fmt.Sprintf("HYBRID-FB-%s-stereo-96k", frameSizeLabel(960)),
-			FrameSize: 960,
-			Channels:  2,
-			Bitrate:   96000,
-		},
-		{
-			Name:      fmt.Sprintf("CELT-FB-%s-stereo-128k", frameSizeLabel(960)),
-			FrameSize: 960,
-			Channels:  2,
-			Bitrate:   128000,
-		},
-		{
-			Name:      fmt.Sprintf("SILK-WB-%s-stereo-48k", frameSizeLabel(960)),
-			FrameSize: 960,
-			Channels:  2,
-			Bitrate:   48000,
-		},
+		spec(fmt.Sprintf("CELT-FB-%s-mono-64k", frameSizeLabel(480)), 480, 1, 64000),
+		spec(fmt.Sprintf("CELT-FB-%s-mono-64k", frameSizeLabel(960)), 960, 1, 64000),
+		spec(fmt.Sprintf("CELT-FB-%s-stereo-128k", frameSizeLabel(960)), 960, 2, 128000),
+		spec(fmt.Sprintf("HYBRID-FB-%s-mono-64k", frameSizeLabel(480)), 480, 1, 64000),
+		spec(fmt.Sprintf("HYBRID-FB-%s-mono-64k", frameSizeLabel(960)), 960, 1, 64000),
+		spec(fmt.Sprintf("HYBRID-FB-%s-stereo-96k", frameSizeLabel(960)), 960, 2, 96000),
+		spec(fmt.Sprintf("HYBRID-FB-%s-mono-64k", frameSizeLabel(2880)), 2880, 1, 64000),
+		spec(fmt.Sprintf("HYBRID-SWB-%s-mono-48k", frameSizeLabel(480)), 480, 1, 48000),
+		spec(fmt.Sprintf("HYBRID-SWB-%s-mono-48k", frameSizeLabel(960)), 960, 1, 48000),
+		spec(fmt.Sprintf("HYBRID-SWB-%s-mono-48k", frameSizeLabel(1920)), 1920, 1, 48000),
+		spec(fmt.Sprintf("SILK-MB-%s-mono-24k", frameSizeLabel(960)), 960, 1, 24000),
+		spec(fmt.Sprintf("SILK-NB-%s-mono-16k", frameSizeLabel(480)), 480, 1, 16000),
+		spec(fmt.Sprintf("SILK-NB-%s-mono-16k", frameSizeLabel(960)), 960, 1, 16000),
+		spec(fmt.Sprintf("SILK-NB-%s-mono-16k", frameSizeLabel(1920)), 1920, 1, 16000),
+		spec(fmt.Sprintf("SILK-WB-%s-mono-32k", frameSizeLabel(480)), 480, 1, 32000),
+		spec(fmt.Sprintf("SILK-WB-%s-mono-32k", frameSizeLabel(960)), 960, 1, 32000),
+		spec(fmt.Sprintf("SILK-WB-%s-stereo-48k", frameSizeLabel(960)), 960, 2, 48000),
+		spec(fmt.Sprintf("SILK-WB-%s-mono-32k", frameSizeLabel(1920)), 1920, 1, 32000),
+		spec(fmt.Sprintf("SILK-WB-%s-mono-32k", frameSizeLabel(2880)), 2880, 1, 32000),
 	}
 }
 
