@@ -834,6 +834,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	e.previousGainIndex = int32(currentPrevInd)
 	e.previousLogGain = int32(currentPrevInd)
 	e.ecPrevSignalType = signalType
+	e.lastQuantOffsetType = int(frameIndices.quantOffsetType)
 	e.frameCounter++
 	e.isPreviousFrameVoiced = (signalType == typeVoiced)
 	copy(e.prevLSFQ15, lsfQ15)
