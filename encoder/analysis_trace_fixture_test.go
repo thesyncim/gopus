@@ -210,6 +210,53 @@ func TestAnalysisTraceFixtureMetadata(t *testing.T) {
 	}
 }
 
+func TestAnalysisTraceFixtureProfileCoverage(t *testing.T) {
+	requireTestTier(t, testTierFast)
+
+	fixture, err := loadAnalysisTraceFixture()
+	if err != nil {
+		t.Fatalf("load analysis trace fixture: %v", err)
+	}
+
+	want := map[string]struct{}{
+		"CELT-FB-10ms-mono-64k":     {},
+		"CELT-FB-20ms-mono-64k":     {},
+		"CELT-FB-20ms-stereo-128k":  {},
+		"HYBRID-FB-10ms-mono-64k":   {},
+		"HYBRID-FB-20ms-mono-64k":   {},
+		"HYBRID-FB-20ms-stereo-96k": {},
+		"HYBRID-FB-60ms-mono-64k":   {},
+		"HYBRID-SWB-10ms-mono-48k":  {},
+		"HYBRID-SWB-20ms-mono-48k":  {},
+		"HYBRID-SWB-40ms-mono-48k":  {},
+		"SILK-MB-20ms-mono-24k":     {},
+		"SILK-NB-10ms-mono-16k":     {},
+		"SILK-NB-20ms-mono-16k":     {},
+		"SILK-NB-40ms-mono-16k":     {},
+		"SILK-WB-10ms-mono-32k":     {},
+		"SILK-WB-20ms-mono-32k":     {},
+		"SILK-WB-20ms-stereo-48k":   {},
+		"SILK-WB-40ms-mono-32k":     {},
+		"SILK-WB-60ms-mono-32k":     {},
+	}
+
+	got := make(map[string]struct{}, len(want))
+	for _, c := range fixture.Cases {
+		got[c.Name] = struct{}{}
+	}
+
+	for name := range want {
+		if _, ok := got[name]; !ok {
+			t.Fatalf("missing fixture profile %q", name)
+		}
+	}
+	for name := range got {
+		if _, ok := want[name]; !ok {
+			t.Fatalf("unexpected fixture profile %q", name)
+		}
+	}
+}
+
 func clampToOpusDemoF32InPlace(in []float32) {
 	const inv24 = 1.0 / 8388608.0
 	for i, s := range in {
