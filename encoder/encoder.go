@@ -143,9 +143,8 @@ type Encoder struct {
 	analysisReadPosBak  int
 	analysisSubframeBak int
 	analysisReadBakSet  bool
-	prevMode            Mode
-	prevLongSWBAutoMode Mode
-	prevAutoMode        Mode
+	prevMode     Mode
+	prevAutoMode Mode
 	inputBuffer []float64
 	delayBuffer []float64
 
@@ -222,8 +221,7 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		scratchMono:            make([]float32, 2880),
 		scratchPacket:          make([]byte, 1276),
 		prevMode:               ModeAuto,
-		prevLongSWBAutoMode:    ModeAuto,
-		prevAutoMode:           ModeAuto,
+		prevAutoMode: ModeAuto,
 	}
 }
 
@@ -329,7 +327,6 @@ func (e *Encoder) Reset() {
 	e.lastAnalysisFresh = false
 	e.analysisReadBakSet = false
 	e.prevMode = ModeAuto
-	e.prevLongSWBAutoMode = ModeAuto
 	e.prevAutoMode = ModeAuto
 }
 
@@ -539,9 +536,6 @@ func (e *Encoder) computeEquivRate(bitrate int, channels int, frameRate int, vbr
 			equiv -= (equiv * loss) / (12*loss + 20)
 		}
 	}
-	if equiv < 5000 {
-		equiv = 5000
-	}
 	return equiv
 }
 
@@ -651,11 +645,6 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		e.prevMode = prevModeNext
 		if e.mode == ModeAuto {
 			e.prevAutoMode = prevModeNext
-			if frameSize > 960 &&
-				e.effectiveBandwidth() == types.BandwidthSuperwideband &&
-				(prevModeNext == ModeHybrid || prevModeNext == ModeCELT) {
-				e.prevLongSWBAutoMode = prevModeNext
-			}
 		}
 	}
 	switch e.bitrateMode {
