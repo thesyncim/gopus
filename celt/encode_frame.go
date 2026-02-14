@@ -851,7 +851,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 				follow = v
 			}
 			if e.channels == 2 && nbBands+i < len(analysisEnergies) {
-				v2 := analysisEnergies[nbBands+i] / 32.0
+				v2 := analysisEnergies[nbBands+i]/32.0 - offset
 				if v2 > follow {
 					follow = v2
 				}
