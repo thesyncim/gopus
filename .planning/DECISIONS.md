@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-14
+topic: Hybrid CBR CELT bitrate control parity
+decision: Keep hybrid CBR CELT control aligned to libopus by running CELT with max bitrate in hybrid CBR and letting the shared range-coder packet cap enforce the true per-frame byte budget; only apply SILK-split CELT bitrate in hybrid VBR/CVBR.
+evidence: Updated `encoder/hybrid.go` `encodeHybridFrameWithMaxPacket()` to set CELT bitrate to `MaxBitrate` in `ModeCBR` and keep split `celtBitrate` only for `ModeCVBR/ModeVBR`; focused provenance on worst lanes improved (`HYBRID-SWB-20ms-mono-48k[speech_like_v1] -0.98dB -> -0.81dB`, `HYBRID-SWB-40ms-mono-48k[speech_like_v1] -1.15dB -> -1.10dB`) with zero mode mismatch drift; full parity/provenance plus `make verify-production` and `make bench-guard` passed.
+do_not_repeat_until: libopus hybrid CBR CELT control flow changes in `opus_encoder.c` (especially around hybrid `OPUS_SET_BITRATE`/`OPUS_SET_VBR` handling), or fixture/interoperability evidence shows this max-bitrate CBR policy diverges.
+owner: codex
+
+date: 2026-02-14
 topic: SILK/Hybrid->CELT transition-delay parity (`to_celt`)
 decision: Keep libopus `to_celt` transition-delay behavior in `encoder/encoder.go`: when switching from non-CELT to CELT at frame sizes `>=10 ms`, encode one packet in the previous non-CELT mode, but advance next-frame previous-mode state to CELT so subsequent mode decisions transition on the same cadence as libopus.
 evidence: Added `prevMode` state and `applyCELTTransitionDelay()` in `encoder/encoder.go`; added focused tests `TestApplyCELTTransitionDelayPolicy` and `TestForcedHybridToCELTTransitionHoldsOneFrame` in `encoder/mode_transition_policy_test.go`; validated with `go test ./encoder -run 'TestApplyCELTTransitionDelayPolicy|TestForcedHybridToCELTTransitionHoldsOneFrame|TestModeTraceFixtureParityWithLibopus' -count=1 -v` and `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderVariantProfileParityAgainstLibopusFixture -count=1 -v`, where prior one-frame drifts in `HYBRID-SWB-20ms-mono-48k/am_multisine_v1` and `HYBRID-SWB-40ms-mono-48k/speech_like_v1` dropped to `mismatch=0.00%`.

@@ -143,14 +143,6 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 		e.celtEncoder.SetConstrainedVBR(false)
 	}
 
-	// Compute bit allocation between SILK and CELT
-	frame20ms := frameSize == 960
-	silkBitrate, celtBitrate := e.computeHybridBitAllocation(frame20ms)
-
-	// Compute HB_gain based on CELT bitrate allocation
-	// Lower CELT bitrate means we should attenuate high frequencies
-	hbGain := e.computeHBGain(celtBitrate)
-
 	// Compute target buffer size based on bitrate mode.
 	// baseTargetBytes includes the TOC byte; payloadTarget is the shared range payload.
 	baseTargetBytes := targetBytesForBitrate(e.bitrate, frameSize)
@@ -164,6 +156,16 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 	if payloadTarget < 1 {
 		payloadTarget = 1
 	}
+
+	// Compute bit allocation between SILK and CELT.
+	// Mirror libopus bits_target -> bits_to_bitrate cadence, including max_data_bytes caps.
+	frame20ms := frameSize == 960
+	totalBitrate := e.hybridTotalBitrate(frameSize, baseTargetBytes)
+	silkBitrate, celtBitrate := e.computeHybridBitAllocation(frame20ms, totalBitrate)
+
+	// Compute HB_gain based on CELT bitrate allocation
+	// Lower CELT bitrate means we should attenuate high frequencies
+	hbGain := e.computeHBGain(celtBitrate)
 
 	maxTargetBytes := payloadTarget
 	switch e.bitrateMode {
@@ -345,7 +347,15 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 
 	// Step 4: CELT encodes high frequencies (bands 17-21)
 	e.celtEncoder.SetRangeEncoder(re)
-	e.celtEncoder.SetBitrate(celtBitrate)
+	// Match libopus control flow:
+	// - Hybrid CBR: CELT runs unconstrained by split bitrate; byte budget comes from
+	//   the shared range coder limit.
+	// - Hybrid VBR/CVBR: CELT bitrate is the SILK-split remainder.
+	if e.bitrateMode == ModeCBR {
+		e.celtEncoder.SetBitrate(MaxBitrate)
+	} else {
+		e.celtEncoder.SetBitrate(celtBitrate)
+	}
 	e.celtEncoder.SetLSBDepth(e.lsbDepth)
 	e.encodeCELTHybridImproved(celtInput, frameSize, payloadTarget)
 
@@ -364,16 +374,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 //
 //	bits_target = min(8*(max_data_bytes-1), bitrate*frame_size/Fs) - 8
 //	total_bitRate = bits_target * Fs / frame_size = bitrate - 8*Fs/frame_size
-func (e *Encoder) computeHybridBitAllocation(frame20ms bool) (silkBitrate, celtBitrate int) {
-	// Apply TOC overhead correction matching libopus bits_target -> bits_to_bitrate roundtrip.
-	// For 48kHz/10ms: overhead = 8*48000/480 = 800 bps
-	// For 48kHz/20ms: overhead = 8*48000/960 = 400 bps
-	frameSize := 480
-	if frame20ms {
-		frameSize = 960
-	}
-	tocOverhead := 8 * 48000 / frameSize
-	totalRate := e.bitrate - tocOverhead
+func (e *Encoder) computeHybridBitAllocation(frame20ms bool, totalRate int) (silkBitrate, celtBitrate int) {
 	if totalRate < 0 {
 		totalRate = 0
 	}
@@ -452,6 +453,25 @@ func (e *Encoder) computeHybridBitAllocation(frame20ms bool) (silkBitrate, celtB
 	}
 
 	return silkBitrate, celtBitrate
+}
+
+// hybridTotalBitrate mirrors libopus per-frame `bits_target` to bitrate conversion:
+// bits_target = min(8*max_data_bytes, bitrate_to_bits(bitrate)) - 8
+// total_bitRate = bits_to_bitrate(bits_target, Fs, frame_size)
+func (e *Encoder) hybridTotalBitrate(frameSize int, maxDataBytes int) int {
+	if frameSize <= 0 || maxDataBytes <= 0 {
+		return 0
+	}
+	targetBits := bitrateToBits(e.bitrate, frameSize)
+	maxBits := maxDataBytes * 8
+	if targetBits > maxBits {
+		targetBits = maxBits
+	}
+	targetBits -= 8
+	if targetBits < 0 {
+		targetBits = 0
+	}
+	return (targetBits * 48000) / frameSize
 }
 
 // computeSilkRateForMax computes the SILK rate corresponding to a maximum available
