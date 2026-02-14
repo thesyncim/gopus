@@ -605,6 +605,29 @@ func TestStoreFECData_ReusesBackingBuffer(t *testing.T) {
 	}
 }
 
+func TestDecodeFECFrame_BufferSizingUsesSingleFrame(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	// Simulate stored FEC metadata from a 2-frame packet. decode_fec should still
+	// only require one frame of output buffer.
+	dec.hasFEC = true
+	dec.fecData = []byte{0x01, 0x02, 0x03, 0x04}
+	dec.fecMode = ModeSILK
+	dec.fecBandwidth = BandwidthWideband
+	dec.fecStereo = false
+	dec.fecFrameSize = 960
+	dec.fecFrameCount = 2
+
+	pcm := make([]float32, 960)
+	_, err = dec.decodeFECFrame(pcm)
+	if err == ErrBufferTooSmall {
+		t.Fatal("decodeFECFrame rejected single-frame output buffer for multi-frame packet metadata")
+	}
+}
+
 // TestDecodeWithFEC_HybridStoresFEC verifies that Hybrid packets store FEC data.
 func TestDecodeWithFEC_HybridStoresFEC(t *testing.T) {
 	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))

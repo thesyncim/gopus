@@ -484,12 +484,13 @@ func (d *Decoder) decodeFECFrame(pcm []float32) (int, error) {
 		frameSize = 960
 	}
 
-	totalSamples := frameSize * d.fecFrameCount
-	if totalSamples > d.maxPacketSamples {
+	// libopus decode_fec recovers exactly one lost frame from packet N+1.
+	// Packet frame count does not increase the decoded sample count here.
+	if frameSize > d.maxPacketSamples {
 		return 0, ErrPacketTooLarge
 	}
 
-	needed := totalSamples * d.channels
+	needed := frameSize * d.channels
 	if len(pcm) < needed {
 		return 0, ErrBufferTooSmall
 	}
