@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-14
+topic: CELT constrained-VBR reservoir parity
+decision: Keep CELT constrained-VBR budgeting on direct libopus state cadence (`vbr_reservoir`, `vbr_offset`, `vbr_drift`, `vbr_count`) and remove custom guardrails (`+15%` hard cap and frame-size bitrate uplifts) from `computeTargetBits`. For multistream CVBR only, keep bounded `vbr_bound` scaling to respect the Opus 1275-byte aggregate packet cap while preserving single-stream libopus behavior at scale `1.0`.
+evidence: Updated `celt/encode_frame.go`/`celt/encoder.go`, added CELT bound-scale propagation in `encoder/encoder.go` and `multistream/encoder.go`, and updated CVBR envelope coverage in `encoder/encoder_test.go`; regenerated `celt/testdata/opusdec_crossval_fixture.json`; focused CVBR/crossval tests, parity/compliance slice, `make verify-production`, and `make bench-guard` all passed.
+do_not_repeat_until: libopus changes constrained-VBR reservoir/offset cadence in `celt_encoder.c`, or fixture/interoperability evidence shows renewed constrained-VBR target divergence.
+owner: codex
+
+date: 2026-02-14
 topic: Analyzer trace fixture coverage matrix (stereo + 60ms)
 decision: Keep the expanded libopus analyzer trace fixture matrix in `tmp_check/gen_libopus_analysis_trace_fixture.go` and `encoder/testdata/libopus_analysis_trace_fixture.json`, including stereo FB profiles and 60 ms mono FB coverage, so analyzer/control parity remains source-backed beyond SWB mono.
 evidence: Generator now emits 36 cases across SWB mono, FB mono/stereo, and 60 ms lanes; `TestAnalysisTraceFixtureParityWithLibopus` reported `badFrames=0` on all cases; parity/compliance slice and full gates (`make verify-production`, `make bench-guard`) passed after regeneration.
