@@ -1701,6 +1701,23 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 	frames := make([][]byte, frameCount)
 	sameSize := true
 	prevSize := -1
+	packetTargetBytes := targetBytesForBitrate(e.bitrate, frameSize)
+	if packetTargetBytes < 1 {
+		packetTargetBytes = 1
+	}
+	maxHeaderBytes := 3
+	if frameCount > 2 {
+		maxHeaderBytes = 2 + (frameCount-1)*2
+	}
+	maxLenSum := frameCount + packetTargetBytes - maxHeaderBytes
+	if maxLenSum < frameCount {
+		maxLenSum = frameCount
+	}
+	currMaxByRate := e.bitrate * 960 / 48000 / 8
+	if currMaxByRate < 2 {
+		currMaxByRate = 2
+	}
+	totSize := 0
 	for i := 0; i < frameCount; i++ {
 		e.primeSubframeAnalysis(960)
 		start := i * frameStride
@@ -1712,13 +1729,27 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 		// independent 20ms frames. Do not leak future subframe samples as lookahead.
 		subLookahead := lookahead
 
-		frameData, err := e.encodeHybridFrame(subPCM, subCELTPCM, subLookahead, 960)
+		currMax := currMaxByRate
+		capPerFrame := maxLenSum / frameCount
+		if currMax > capPerFrame {
+			currMax = capPerFrame
+		}
+		remainingCap := maxLenSum - totSize
+		if currMax > remainingCap {
+			currMax = remainingCap
+		}
+		if currMax < 2 {
+			currMax = 2
+		}
+
+		frameData, err := e.encodeHybridFrameWithMaxPacket(subPCM, subCELTPCM, subLookahead, 960, currMax)
 		if err != nil {
 			return nil, err
 		}
 		// Keep a stable copy because encoder scratch buffers are reused.
 		frameCopy := append([]byte(nil), frameData...)
 		frames[i] = frameCopy
+		totSize += len(frameCopy) + 1
 		if prevSize >= 0 && len(frameCopy) != prevSize {
 			sameSize = false
 		}

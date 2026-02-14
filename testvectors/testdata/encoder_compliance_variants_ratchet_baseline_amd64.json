@@ -22,7 +22,7 @@
     {
       "name": "CELT-FB-10ms-mono-64k",
       "variant": "impulse_train_v1",
-      "min_gap_db": 2.0123452596355804,
+      "min_gap_db": -0.7505642979324634,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.03,

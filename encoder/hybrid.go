@@ -99,6 +99,12 @@ type HybridState struct {
 
 // encodeHybridFrame encodes a frame using combined SILK and CELT.
 func (e *Encoder) encodeHybridFrame(pcm []float64, celtPCM []float64, lookahead []float64, frameSize int) ([]byte, error) {
+	return e.encodeHybridFrameWithMaxPacket(pcm, celtPCM, lookahead, frameSize, 0)
+}
+
+// encodeHybridFrameWithMaxPacket mirrors opus_encode_native() per-frame caps for
+// multi-frame packet assembly. maxPacketBytes includes TOC and must be >=2 when set.
+func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float64, lookahead []float64, frameSize int, maxPacketBytes int) ([]byte, error) {
 	// Validate: only 480 (10ms) or 960 (20ms) for hybrid
 	if frameSize != 480 && frameSize != 960 {
 		return nil, ErrInvalidHybridFrameSize
@@ -148,6 +154,9 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, celtPCM []float64, lookahead 
 	// Compute target buffer size based on bitrate mode.
 	// baseTargetBytes includes the TOC byte; payloadTarget is the shared range payload.
 	baseTargetBytes := targetBytesForBitrate(e.bitrate, frameSize)
+	if maxPacketBytes > 0 && baseTargetBytes > maxPacketBytes {
+		baseTargetBytes = maxPacketBytes
+	}
 	if baseTargetBytes < 2 {
 		baseTargetBytes = 2
 	}
