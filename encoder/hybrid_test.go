@@ -157,37 +157,6 @@ func TestGainFadeSmoothing(t *testing.T) {
 	}
 }
 
-// TestCrossoverEnergyMatching verifies smooth energy transition at 8kHz.
-func TestCrossoverEnergyMatching(t *testing.T) {
-	e := &Encoder{}
-
-	// Create energies with a peak at the crossover band
-	energies := make([]float64, 21)
-	for i := range energies {
-		energies[i] = -20.0 // Base energy
-	}
-
-	// Simulate a spike at crossover (band 17)
-	startBand := 17
-	energies[startBand] = -5.0   // Much higher than surroundings
-	energies[startBand+1] = -18.0
-
-	result := e.matchCrossoverEnergy(energies, startBand)
-
-	t.Logf("Before: band17=%.2f, band18=%.2f", -5.0, -18.0)
-	t.Logf("After:  band17=%.2f, band18=%.2f", result[startBand], result[startBand+1])
-
-	// The crossover energy should be reduced when there's a big difference
-	if result[startBand] > -5.0+0.1 {
-		t.Error("Crossover band should be reduced to match neighboring bands")
-	}
-
-	// Should not create negative artifacts
-	if result[startBand] < -28.0 {
-		t.Error("Crossover band over-attenuated")
-	}
-}
-
 // TestStereoWidthComputation verifies stereo width calculation.
 func TestStereoWidthComputation(t *testing.T) {
 	testCases := []struct {

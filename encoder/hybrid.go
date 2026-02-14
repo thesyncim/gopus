@@ -62,10 +62,6 @@ type HybridState struct {
 	// Reduced at low bitrates to improve coding efficiency.
 	stereoWidthQ14 int
 
-	// crossoverBuffer stores smoothed crossover-band energies (per channel)
-	// to reduce frame-to-frame discontinuities at the SILK/CELT boundary.
-	crossoverBuffer []float64
-
 	// prevDecodeOnlyMiddle tracks the previous mid-only (no side) decision.
 	prevDecodeOnlyMiddle bool
 
@@ -1518,79 +1514,6 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 	e.celtEncoder.SetRNG(re.Range())
 	e.celtEncoder.IncrementFrameCount()
 	e.celtEncoder.UpdateConsecTransient(transient)
-}
-
-// matchCrossoverEnergy ensures smooth energy transition at the SILK/CELT boundary.
-// This prevents audible artifacts at the crossover frequency (8kHz).
-func (e *Encoder) matchCrossoverEnergy(energies []float64, startBand int) []float64 {
-	if len(energies) <= startBand {
-		return energies
-	}
-
-	// Get the energy at the crossover band (band 17)
-	crossoverEnergy := energies[startBand]
-
-	// If crossover energy is too high relative to neighbors, smooth it
-	// This prevents "peaky" artifacts at 8kHz
-	if startBand+1 < len(energies) {
-		nextBandEnergy := energies[startBand+1]
-
-		// If crossover band is much higher than the next band, blend
-		diff := crossoverEnergy - nextBandEnergy
-		if diff > 6.0 { // More than 6dB difference
-			// Blend toward the higher band's energy
-			blendFactor := 0.5
-			energies[startBand] = crossoverEnergy*(1-blendFactor) + (nextBandEnergy+3.0)*blendFactor
-		}
-	}
-
-	// Apply a gentle rolloff to the first few CELT bands
-	// This helps smooth the transition from SILK
-	rolloffBands := 3
-	if startBand+rolloffBands > len(energies) {
-		rolloffBands = len(energies) - startBand
-	}
-
-	for i := 0; i < rolloffBands; i++ {
-		band := startBand + i
-		if band < len(energies) {
-			// Gentle boost (0.5-1.5 dB) to compensate for crossover filtering
-			boost := 0.5 * (1.0 - float64(i)/float64(rolloffBands))
-			energies[band] += boost
-		}
-	}
-
-	// Smooth the crossover band over time to avoid abrupt energy changes.
-	if e.hybridState != nil && e.channels > 0 {
-		channels := e.channels
-		if len(e.hybridState.crossoverBuffer) != channels {
-			e.hybridState.crossoverBuffer = make([]float64, channels)
-			for i := range e.hybridState.crossoverBuffer {
-				e.hybridState.crossoverBuffer[i] = math.NaN()
-			}
-		}
-
-		bandsPerChannel := len(energies) / channels
-		if bandsPerChannel > 0 && startBand < bandsPerChannel {
-			const alpha = 0.2
-			for c := 0; c < channels; c++ {
-				idx := c*bandsPerChannel + startBand
-				if idx >= len(energies) {
-					continue
-				}
-				prev := e.hybridState.crossoverBuffer[c]
-				if math.IsNaN(prev) {
-					e.hybridState.crossoverBuffer[c] = energies[idx]
-					continue
-				}
-				smoothed := prev + alpha*(energies[idx]-prev)
-				energies[idx] = smoothed
-				e.hybridState.crossoverBuffer[c] = smoothed
-			}
-		}
-	}
-
-	return energies
 }
 
 // computeMDCTForHybridScratch computes MDCT for hybrid mode encoding using scratch buffers.
