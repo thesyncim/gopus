@@ -106,6 +106,75 @@ func padToSize(packet []byte, targetSize int) []byte {
 		}
 	}
 
+	// Preserve code-3 CBR framing when possible (matches libopus packet padding
+	// layout for multi-frame CBR packets).
+	if (toc&0x03) == 0x03 && len(packet) >= 2 {
+		countByte := packet[1]
+		m := int(countByte & 0x3F)
+		isVBR := (countByte & 0x80) != 0
+		hasPadding := (countByte & 0x40) != 0
+		if !isVBR && !hasPadding && m == len(frames) && m > 1 {
+			equal := true
+			for i := 1; i < len(frames); i++ {
+				if len(frames[i]) != len(frames[0]) {
+					equal = false
+					break
+				}
+			}
+			if equal {
+				base := 1 + 1 + totalFrameBytes
+				if base >= targetSize {
+					return packet
+				}
+				extraNeeded := targetSize - base
+				padding := 0
+				padLenBytes := 0
+				for k := 1; k <= 10; k++ {
+					p := extraNeeded - k
+					if p < 0 {
+						continue
+					}
+					minP := 254 * (k - 1)
+					maxP := 254 * k
+					if p >= minP && p <= maxP {
+						padding = p
+						padLenBytes = k
+						break
+					}
+				}
+				if padLenBytes == 0 {
+					return packet
+				}
+				newLen := base + padLenBytes + padding
+				if newLen != targetSize {
+					return packet
+				}
+				padded := make([]byte, newLen)
+				padded[0] = (toc & 0xFC) | 0x03
+				padded[1] = byte(len(frames)&0x3F) | 0x40
+
+				offset := 2
+				remainingPad := padding
+				for remainingPad > 254 {
+					padded[offset] = 255
+					offset++
+					remainingPad -= 254
+				}
+				padded[offset] = byte(remainingPad)
+				offset++
+
+				for _, frame := range frames {
+					copy(padded[offset:], frame)
+					offset += len(frame)
+				}
+				for i := 0; i < padding; i++ {
+					padded[offset+i] = 0
+				}
+				return padded
+			}
+		}
+	}
+
 	base := 1 + 1 + lengthBytes + totalFrameBytes
 	if base >= targetSize {
 		return packet

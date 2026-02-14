@@ -834,13 +834,14 @@ func (e *Encoder) syncCELTAnalysisToCELT() {
 		return
 	}
 	if !e.lastAnalysisValid {
-		e.celtEncoder.SetAnalysisInfo(0, [19]uint8{}, 0, 0, false)
+		e.celtEncoder.SetAnalysisInfo(0, [19]uint8{}, 0, 0, 0, false)
 		return
 	}
 	maybeLogAnalysisDebug(e.celtEncoder.FrameCount(), e.lastAnalysisInfo)
 	e.celtEncoder.SetAnalysisInfo(
 		e.lastAnalysisInfo.BandwidthIndex,
 		e.lastAnalysisInfo.LeakBoost,
+		float64(e.lastAnalysisInfo.Activity),
 		float64(e.lastAnalysisInfo.TonalitySlope),
 		float64(e.lastAnalysisInfo.MaxPitchRatio),
 		true,
@@ -1495,13 +1496,18 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 
 // encodeCELTFrame encodes a frame using CELT-only mode.
 func (e *Encoder) encodeCELTFrame(pcm []float64, frameSize int) ([]byte, error) {
-	return e.encodeCELTFrameWithBitrate(pcm, frameSize, e.bitrate)
+	return e.encodeCELTFrameWithBitrateAndMaxPayload(pcm, frameSize, e.bitrate, 0)
 }
 
 func (e *Encoder) encodeCELTFrameWithBitrate(pcm []float64, frameSize int, bitrate int) ([]byte, error) {
+	return e.encodeCELTFrameWithBitrateAndMaxPayload(pcm, frameSize, bitrate, 0)
+}
+
+func (e *Encoder) encodeCELTFrameWithBitrateAndMaxPayload(pcm []float64, frameSize int, bitrate int, maxPayloadBytes int) ([]byte, error) {
 	e.ensureCELTEncoder()
 	e.syncCELTAnalysisToCELT()
 	e.celtEncoder.SetBitrate(bitrate)
+	e.celtEncoder.SetMaxPayloadBytes(maxPayloadBytes)
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 	e.celtEncoder.SetHybrid(false)
 	e.celtEncoder.SetDCRejectEnabled(false)
@@ -1518,6 +1524,7 @@ func (e *Encoder) encodeCELTFrameWithBitrate(pcm []float64, frameSize int, bitra
 		e.celtEncoder.SetVBR(true)
 		e.celtEncoder.SetConstrainedVBR(false)
 	}
+	defer e.celtEncoder.SetMaxPayloadBytes(0)
 	return e.celtEncoder.EncodeFrame(pcm, frameSize)
 }
 
@@ -1543,6 +1550,23 @@ func (e *Encoder) encodeCELTMultiFramePacket(celtPCM []float64, frameSize int) (
 	frames := make([][]byte, frameCount)
 	sameSize := true
 	prevSize := -1
+	packetTargetBytes := targetBytesForBitrate(e.bitrate, frameSize)
+	if packetTargetBytes < 1 {
+		packetTargetBytes = 1
+	}
+	maxHeaderBytes := 3
+	if frameCount > 2 {
+		maxHeaderBytes = 2 + (frameCount-1)*2
+	}
+	maxLenSum := frameCount + packetTargetBytes - maxHeaderBytes
+	if maxLenSum < frameCount {
+		maxLenSum = frameCount
+	}
+	currMaxByRate := e.bitrate * 960 / 48000 / 8
+	if currMaxByRate < 2 {
+		currMaxByRate = 2
+	}
+	totSize := 0
 	subframeBitrate := e.bitrate
 	if e.bitrateMode == ModeVBR {
 		// For 40/60ms CELT VBR packets, encode each 20ms subframe with a
@@ -1557,10 +1581,24 @@ func (e *Encoder) encodeCELTMultiFramePacket(celtPCM []float64, frameSize int) (
 		e.primeSubframeAnalysis(960)
 		start := i * frameStride
 		end := start + frameStride
-		frameData, err := e.encodeCELTFrameWithBitrate(celtPCM[start:end], 960, subframeBitrate)
+		currMax := currMaxByRate
+		capPerFrame := maxLenSum / frameCount
+		if currMax > capPerFrame {
+			currMax = capPerFrame
+		}
+		remainingCap := maxLenSum - totSize
+		if currMax > remainingCap {
+			currMax = remainingCap
+		}
+		if currMax < 2 {
+			currMax = 2
+		}
+		maxPayload := currMax - 1
+		frameData, err := e.encodeCELTFrameWithBitrateAndMaxPayload(celtPCM[start:end], 960, subframeBitrate, maxPayload)
 		if err != nil {
 			return nil, err
 		}
+		totSize += len(frameData) + 1
 		// Keep a stable copy because the range coder output buffer is reused.
 		frameCopy := append([]byte(nil), frameData...)
 		frames[i] = frameCopy

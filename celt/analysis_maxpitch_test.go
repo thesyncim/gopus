@@ -8,17 +8,17 @@ import (
 func TestSetAnalysisInfoClampsMaxPitchRatio(t *testing.T) {
 	enc := NewEncoder(1)
 
-	enc.SetAnalysisInfo(20, [leakBands]uint8{}, 0, 1.5, true)
+	enc.SetAnalysisInfo(20, [leakBands]uint8{}, 0, 0, 1.5, true)
 	if got := enc.analysisMaxPitchRatio; got != 1.0 {
 		t.Fatalf("analysisMaxPitchRatio clamp high: got %.2f want 1.00", got)
 	}
 
-	enc.SetAnalysisInfo(20, [leakBands]uint8{}, 0, -0.5, true)
+	enc.SetAnalysisInfo(20, [leakBands]uint8{}, 0, 0, -0.5, true)
 	if got := enc.analysisMaxPitchRatio; got != 0.0 {
 		t.Fatalf("analysisMaxPitchRatio clamp low: got %.2f want 0.00", got)
 	}
 
-	enc.SetAnalysisInfo(0, [leakBands]uint8{}, 0, 0, false)
+	enc.SetAnalysisInfo(0, [leakBands]uint8{}, 0, 0, 0, false)
 	if enc.analysisValid {
 		t.Fatal("analysis should be invalid after SetAnalysisInfo(..., valid=false)")
 	}
@@ -40,7 +40,7 @@ func TestEncodeFrameUsesAnalysisMaxPitchRatioWhenValid(t *testing.T) {
 		stats = s
 	})
 
-	enc.SetAnalysisInfo(20, [leakBands]uint8{}, 0, 0.25, true)
+	enc.SetAnalysisInfo(20, [leakBands]uint8{}, 0, 0, 0.25, true)
 
 	const frameSize = 960
 	pcm := make([]float64, frameSize)
