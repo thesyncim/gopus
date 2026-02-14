@@ -80,3 +80,22 @@ func TestComputeTargetBitsLFEAvoidsNonLFEBudgets(t *testing.T) {
 		t.Fatalf("LFE target bits should be below non-LFE target bits: lfe=%d nonLFE=%d", lfeBits, nonLFEBits)
 	}
 }
+
+func TestComputeTargetBitsUsesAnalysisActivityPenalty(t *testing.T) {
+	frameSize := 960
+
+	noAnalysis := NewEncoder(1)
+	noAnalysis.SetVBR(true)
+	noAnalysis.SetBitrate(64000)
+
+	withActivityPenalty := NewEncoder(1)
+	withActivityPenalty.SetVBR(true)
+	withActivityPenalty.SetBitrate(64000)
+	withActivityPenalty.SetAnalysisInfo(20, [leakBands]uint8{}, 0.0, 0.0, 1.0, true)
+
+	bitsNoAnalysis := noAnalysis.computeTargetBits(frameSize, 0.2, false)
+	bitsWithPenalty := withActivityPenalty.computeTargetBits(frameSize, 0.2, false)
+	if bitsWithPenalty >= bitsNoAnalysis {
+		t.Fatalf("analysis activity penalty should reduce target bits: withPenalty=%d noAnalysis=%d", bitsWithPenalty, bitsNoAnalysis)
+	}
+}
