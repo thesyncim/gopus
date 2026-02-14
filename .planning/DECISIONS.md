@@ -21,6 +21,13 @@ owner: <initials or handle>
 
 ## Current Decisions
 
+date: 2026-02-14
+topic: Analyzer trace fixture coverage matrix (stereo + 60ms)
+decision: Keep the expanded libopus analyzer trace fixture matrix in `tmp_check/gen_libopus_analysis_trace_fixture.go` and `encoder/testdata/libopus_analysis_trace_fixture.json`, including stereo FB profiles and 60 ms mono FB coverage, so analyzer/control parity remains source-backed beyond SWB mono.
+evidence: Generator now emits 36 cases across SWB mono, FB mono/stereo, and 60 ms lanes; `TestAnalysisTraceFixtureParityWithLibopus` reported `badFrames=0` on all cases; parity/compliance slice and full gates (`make verify-production`, `make bench-guard`) passed after regeneration.
+do_not_repeat_until: Active parity profile matrix changes (new mode/bandwidth/frame-size/channel lanes) or libopus `run_analysis` semantics change and require updating trace coverage.
+owner: codex
+
 date: 2026-02-13
 topic: SILK maxBits payload budget parity
 decision: Keep SILK max-bit budgeting aligned to libopus by reserving the Opus TOC byte from SILK payload budget (`(maxPacketBytes-1)*8`) and apply this in SILK encode paths instead of pre-setting from whole-packet bitrate bits in `Encode()`.
