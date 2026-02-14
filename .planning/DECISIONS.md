@@ -29,6 +29,13 @@ do_not_repeat_until: libopus changes auto-mode fallback semantics around `voice_
 owner: codex
 
 date: 2026-02-14
+topic: Analyzer trace fixture full profile matrix
+decision: Keep analyzer trace fixtures aligned to the complete active encoder parity profile set (19 lanes), not a SWB-only subset. Maintain generator coverage in `tmp_check/gen_libopus_analysis_trace_fixture.go` for CELT/HYBRID/SILK mono+stereo profiles and long-frame lanes, and enforce with `TestAnalysisTraceFixtureProfileCoverage`.
+evidence: Regenerated `encoder/testdata/libopus_analysis_trace_fixture.json` to 76 cases (19 profiles x 4 variants), and verified no profile coverage gaps against the parity fixture matrix; `TestAnalysisTraceFixtureParityWithLibopus` reported 0 bad frames for all cases; parity slice + `make verify-production` + `make bench-guard` passed.
+do_not_repeat_until: Parity profile matrix changes (new case lanes added/removed) or libopus analyzer interface/semantics change and require fixture shape updates.
+owner: codex
+
+date: 2026-02-14
 topic: Analyzer trace fixture coverage matrix (stereo + 60ms)
 decision: Keep the expanded libopus analyzer trace fixture matrix in `tmp_check/gen_libopus_analysis_trace_fixture.go` and `encoder/testdata/libopus_analysis_trace_fixture.json`, including stereo FB profiles and 60 ms mono FB coverage, so analyzer/control parity remains source-backed beyond SWB mono.
 evidence: Generator now emits 36 cases across SWB mono, FB mono/stereo, and 60 ms lanes; `TestAnalysisTraceFixtureParityWithLibopus` reported `badFrames=0` on all cases; parity/compliance slice and full gates (`make verify-production`, `make bench-guard`) passed after regeneration.
