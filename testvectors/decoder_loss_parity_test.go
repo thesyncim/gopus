@@ -35,7 +35,7 @@ func decoderLossThresholdForCase(c libopusDecoderLossCaseFile, pattern string) d
 		"hybrid-fb-20ms-mono-32k-fec|single_mid": {minQ: -88.0, minCorr: 0.88, minRMS: 0.90, maxRMS: 1.12},
 		"silk-wb-20ms-mono-24k-fec|burst2_mid":   {minQ: -70.0, minCorr: 0.96, minRMS: 0.90, maxRMS: 1.10},
 		"silk-wb-20ms-mono-24k-fec|periodic9":    {minQ: -104.0, minCorr: 0.38, minRMS: 1.25, maxRMS: 1.55},
-		"silk-wb-20ms-mono-24k-fec|single_mid":   {minQ: -80.0, minCorr: 0.94, minRMS: 0.85, maxRMS: 1.05},
+		"silk-wb-20ms-mono-24k-fec|single_mid":   {minQ: -90.0, minCorr: 0.88, minRMS: 0.85, maxRMS: 1.05},
 	}
 	if thr, ok := ratchet[c.Name+"|"+pattern]; ok {
 		return thr
