@@ -1174,53 +1174,9 @@ func (e *Encoder) autoSignalFromPCM(pcm []float64, frameSize int) types.Signal {
 	if swb20Auto {
 		return e.selectSWBAutoSignal(frameSize, e.prevSWB20AutoMode)
 	}
-	pcm32 := e.scratchPCM32[:len(pcm)]
-	for i, v := range pcm {
-		pcm32[i] = float32(v)
-	}
-	signalType, _ := classifySignal(pcm32)
-	if signalType == 0 && !swb10Auto && !swb20Auto {
-		return types.SignalVoice
-	}
-	channels := e.channels
-	if channels < 1 {
-		channels = 1
-	}
-	samples := frameSize
-	if samples <= 1 {
-		return types.SignalVoice
-	}
-	var energy, diffEnergy float64
-	var prev float64
-	for i := 0; i < samples; i++ {
-		var s float64
-		if channels == 2 {
-			idx := i * 2
-			if idx+1 >= len(pcm) {
-				break
-			}
-			s = 0.5 * (pcm[idx] + pcm[idx+1])
-		} else {
-			if i >= len(pcm) {
-				break
-			}
-			s = pcm[i]
-		}
-		energy += s * s
-		if i > 0 {
-			d := s - prev
-			diffEnergy += d * d
-		}
-		prev = s
-	}
-	if energy <= 0 {
-		return types.SignalVoice
-	}
-	ratio := diffEnergy / (energy + 1e-12)
-	if ratio > 0.25 {
-		return types.SignalMusic
-	}
-	return types.SignalVoice
+	// libopus mode-auto fallback when analysis is unavailable/invalid is to keep
+	// OPUS_SIGNAL_AUTO and rely on threshold control with default voice estimate.
+	return types.SignalAuto
 }
 
 // selectSWBAutoSignal mirrors libopus auto-mode thresholding for SWB 10/20ms:
