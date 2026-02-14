@@ -67,12 +67,19 @@ Canonical project context for agent sessions.
 - Prefer short loops: focused test -> edit -> focused re-test -> brief evidence note.
 
 ## Parallel Agent Workflow
-- Claim surfaces before edits:
+- Claim surfaces before edits, then immediately publish the claim in a dedicated commit before touching claimed code:
   - `make agent-claim AGENT=<name> PATHS='silk/,testvectors/' NOTE='short scope note'`
+  - `git add .planning/WORK_CLAIMS.md`
+  - `git commit --only .planning/WORK_CLAIMS.md -m "chore(claims): <agent> claim <paths>"`
+  - `git push`
 - Preferred claim surfaces: `encoder/`, `silk/`, `celt/`, `hybrid/`, `testvectors/`, `tools/`, root docs.
 - Avoid overlapping active claims unless coordinated.
-- Release claims when done:
+- Do not start code edits until the claim commit is pushed and visible to other active worktrees.
+- Release claims when done, then immediately publish the release in a dedicated commit:
   - `make agent-release CLAIM_ID=<id>`
+  - `git add .planning/WORK_CLAIMS.md`
+  - `git commit --only .planning/WORK_CLAIMS.md -m "chore(claims): release <claim_id>"`
+  - `git push`
 
 ## Memory Discipline
 - Update `.planning/ACTIVE.md` evidence log for meaningful hypothesis/result steps.
@@ -81,6 +88,7 @@ Canonical project context for agent sessions.
 
 ## CI Regression Guardrails (Mandatory)
 - Treat CI as merge-blocking for correctness and performance; do not bypass failing checks.
+- CI test and perf gates are required for code-impacting PRs; markdown-only/doc-only changes may skip CI via workflow filters.
 - PR cadence for faster iteration:
   - After focused/relevant slice tests pass, open/push a PR immediately so CI can run in parallel with local validation.
   - Focused/relevant local runs must mirror CI env/tier flags for that surface (e.g., `GOPUS_TEST_TIER=parity` for parity gates).
