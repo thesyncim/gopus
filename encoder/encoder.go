@@ -63,6 +63,7 @@ type Encoder struct {
 	channels   int
 	frameSize  int // In samples at 48kHz
 	lowDelay   bool
+	voipApp    bool
 
 	// Bitrate controls
 	bitrateMode   BitrateMode
@@ -140,6 +141,7 @@ type Encoder struct {
 	analysisSubframeBak int
 	analysisReadBakSet  bool
 	prevLongSWBAutoMode Mode
+	prevAutoMode        Mode
 	prevSWB10AutoMode   Mode
 	prevSWB20AutoMode   Mode
 	swb20ModeHoldFrames int
@@ -220,6 +222,7 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		scratchPacket:          make([]byte, 1276),
 		prevSWB10AutoMode:      ModeCELT,
 		prevSWB20AutoMode:      ModeHybrid,
+		prevAutoMode:           ModeAuto,
 	}
 }
 
@@ -244,6 +247,16 @@ func (e *Encoder) SetLowDelay(enabled bool) {
 // LowDelay reports whether low-delay application behavior is enabled.
 func (e *Encoder) LowDelay() bool {
 	return e.lowDelay
+}
+
+// SetVoIPApplication toggles VoIP application bias for mode decisions.
+func (e *Encoder) SetVoIPApplication(enabled bool) {
+	e.voipApp = enabled
+}
+
+// VoIPApplication reports whether VoIP application bias is enabled.
+func (e *Encoder) VoIPApplication() bool {
+	return e.voipApp
 }
 
 // SetBandwidth sets the target audio bandwidth.
@@ -317,6 +330,7 @@ func (e *Encoder) Reset() {
 	e.prevSWB10AutoMode = ModeCELT
 	e.prevSWB20AutoMode = ModeHybrid
 	e.swb20ModeHoldFrames = 0
+	e.prevAutoMode = ModeAuto
 }
 
 // SetFEC enables or disables in-band Forward Error Correction.
@@ -569,6 +583,10 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	actualMode := e.selectMode(frameSize, signalHint)
 	if e.lfe {
 		actualMode = ModeCELT
+	}
+	if e.mode == ModeAuto &&
+		(actualMode == ModeSILK || actualMode == ModeHybrid || actualMode == ModeCELT) {
+		e.prevAutoMode = actualMode
 	}
 	if e.mode == ModeAuto &&
 		frameSize > 960 &&
@@ -1010,51 +1028,65 @@ func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
 	if e.mode != ModeAuto {
 		return e.mode
 	}
+	return e.selectShortAutoMode(frameSize, signalHint)
+}
+
+// selectShortAutoMode ports libopus auto mode-threshold control for 10/20 ms
+// frames (SILK/hybrid vs CELT), including previous-mode hysteresis.
+func (e *Encoder) selectShortAutoMode(frameSize int, signalHint types.Signal) Mode {
+	_ = signalHint
 	bw := e.effectiveBandwidth()
-	perChanRate := e.bitrate
-	if e.channels > 0 {
-		perChanRate = e.bitrate / e.channels
+
+	frameRate := e.sampleRate / frameSize
+	if frameRate <= 0 {
+		frameRate = 50
 	}
-	// Keep high-rate Fullband in CELT. For SWB 20ms auto mode, allow
-	// signal-driven Hybrid/CELT selection with hysteresis.
-	if perChanRate >= 48000 && (bw == types.BandwidthFullband || (bw == types.BandwidthSuperwideband && frameSize != 960 && frameSize != 480)) {
-		return ModeCELT
+	useVBR := e.bitrateMode != ModeCBR
+	equivRate := e.computeEquivRate(e.bitrate, e.channels, frameRate, useVBR, ModeAuto, e.complexity, e.packetLoss)
+
+	prev := e.prevAutoMode
+	if prev != ModeSILK && prev != ModeHybrid && prev != ModeCELT {
+		prev = ModeAuto
 	}
 
-	// Determine the preferred mode based on signal hint and bandwidth.
-	preferred := ModeCELT
-	switch signalHint {
-	case types.SignalVoice:
-		switch bw {
-		case types.BandwidthNarrowband, types.BandwidthMediumband, types.BandwidthWideband:
-			preferred = ModeSILK
-		case types.BandwidthSuperwideband, types.BandwidthFullband:
-			if frameSize == 480 || frameSize == 960 {
-				preferred = ModeHybrid
-			} else {
-				preferred = ModeSILK
-			}
-		}
-	case types.SignalMusic:
-		preferred = ModeCELT
-	default:
-		switch bw {
-		case types.BandwidthNarrowband, types.BandwidthMediumband, types.BandwidthWideband:
-			preferred = ModeSILK
-		case types.BandwidthSuperwideband:
-			if frameSize == 480 || frameSize == 960 {
-				preferred = ModeHybrid
-			} else {
-				preferred = ModeCELT
-			}
-		case types.BandwidthFullband:
-			preferred = ModeCELT
-		}
+	voiceEst := e.autoVoiceEstimate(prev)
+	modeVoice := 64000
+	if e.channels == 2 {
+		modeVoice = 44000
+	}
+	const modeMusic = 10000
+	threshold := modeMusic + (voiceEst*voiceEst*(modeVoice-modeMusic))/16384
+	if e.voipApp {
+		threshold += 8000
+	}
+	if prev == ModeCELT {
+		threshold -= 4000
+	} else if prev == ModeSILK || prev == ModeHybrid {
+		threshold += 4000
 	}
 
-	// Validate that the selected mode supports the requested frame size.
-	// If not, fall back to a compatible mode.
-	if !ValidFrameSize(frameSize, preferred) {
+	mode := ModeSILK
+	if equivRate >= threshold {
+		mode = ModeCELT
+	}
+	// Match libopus behavior: with in-band FEC and sufficient expected loss,
+	// force SILK lane so LBRR can be emitted.
+	if e.fecEnabled && e.packetLoss > ((128-voiceEst)>>4) {
+		mode = ModeSILK
+	}
+	// Match libopus behavior: when DTX is enabled for voiced content, favor SILK.
+	if e.dtxEnabled && voiceEst > 100 {
+		mode = ModeSILK
+	}
+	// For SWB/FB lanes, SILK-only maps to hybrid in libopus.
+	if mode == ModeSILK && bw > types.BandwidthWideband {
+		mode = ModeHybrid
+	}
+	if mode == ModeHybrid && bw <= types.BandwidthWideband {
+		mode = ModeSILK
+	}
+
+	if !ValidFrameSize(frameSize, mode) {
 		if ValidFrameSize(frameSize, ModeCELT) {
 			return ModeCELT
 		}
@@ -1063,7 +1095,7 @@ func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
 		}
 		return ModeCELT
 	}
-	return preferred
+	return mode
 }
 
 // selectLongSWBAutoMode mirrors libopus mode-threshold control for long-frame SWB
@@ -1078,31 +1110,7 @@ func (e *Encoder) selectLongSWBAutoMode(frameSize int, signalHint types.Signal) 
 	useVBR := e.bitrateMode != ModeCBR
 	equivRate := e.computeEquivRate(e.bitrate, e.channels, frameRate, useVBR, ModeAuto, e.complexity, e.packetLoss)
 
-	voiceEst := 48 // OPUS_APPLICATION_AUDIO default when analysis is unavailable.
-	if e.signalType == types.SignalVoice {
-		voiceEst = 127
-	} else if e.signalType == types.SignalMusic {
-		voiceEst = 0
-	} else if e.lastAnalysisValid {
-		prob := float64(e.lastAnalysisInfo.MusicProb)
-		if e.prevLongSWBAutoMode == ModeCELT {
-			prob = float64(e.lastAnalysisInfo.MusicProbMax)
-		} else if e.prevLongSWBAutoMode == ModeHybrid {
-			prob = float64(e.lastAnalysisInfo.MusicProbMin)
-		}
-		if prob < 0 {
-			prob = 0
-		}
-		if prob > 1 {
-			prob = 1
-		}
-		voiceRatio := int(math.Floor(0.5 + 100.0*(1.0-prob)))
-		voiceEst = (voiceRatio * 327) >> 8
-		// OPUS_APPLICATION_AUDIO clamp.
-		if voiceEst > 115 {
-			voiceEst = 115
-		}
-	}
+	voiceEst := e.autoVoiceEstimate(e.prevLongSWBAutoMode)
 
 	modeVoice := 64000
 	if e.channels == 2 {
@@ -1185,31 +1193,7 @@ func (e *Encoder) selectSWBAutoSignal(frameSize int, prev Mode) types.Signal {
 	useVBR := e.bitrateMode != ModeCBR
 	equivRate := e.computeEquivRate(e.bitrate, e.channels, frameRate, useVBR, ModeAuto, e.complexity, e.packetLoss)
 
-	voiceEst := 48 // OPUS_APPLICATION_AUDIO fallback.
-	if e.signalType == types.SignalVoice {
-		voiceEst = 127
-	} else if e.signalType == types.SignalMusic {
-		voiceEst = 0
-	} else if e.lastAnalysisValid {
-		prob := float64(e.lastAnalysisInfo.MusicProb)
-		if prev == ModeCELT {
-			prob = float64(e.lastAnalysisInfo.MusicProbMax)
-		} else if prev == ModeHybrid {
-			prob = float64(e.lastAnalysisInfo.MusicProbMin)
-		}
-		if prob < 0 {
-			prob = 0
-		}
-		if prob > 1 {
-			prob = 1
-		}
-		voiceRatio := int(math.Floor(0.5 + 100.0*(1.0-prob)))
-		voiceEst = (voiceRatio * 327) >> 8
-		// OPUS_APPLICATION_AUDIO clamp.
-		if voiceEst > 115 {
-			voiceEst = 115
-		}
-	}
+	voiceEst := e.autoVoiceEstimate(prev)
 
 	modeVoice := 64000
 	if e.channels == 2 {
@@ -1226,6 +1210,41 @@ func (e *Encoder) selectSWBAutoSignal(frameSize int, prev Mode) types.Signal {
 		return types.SignalMusic
 	}
 	return types.SignalVoice
+}
+
+func (e *Encoder) autoVoiceEstimate(prev Mode) int {
+	voiceEst := 48 // OPUS_APPLICATION_AUDIO fallback.
+	if e.voipApp {
+		voiceEst = 115
+	}
+	if e.signalType == types.SignalVoice {
+		return 127
+	}
+	if e.signalType == types.SignalMusic {
+		return 0
+	}
+	if !e.lastAnalysisValid {
+		return voiceEst
+	}
+	prob := float64(e.lastAnalysisInfo.MusicProb)
+	if prev == ModeCELT {
+		prob = float64(e.lastAnalysisInfo.MusicProbMax)
+	} else if prev == ModeSILK || prev == ModeHybrid {
+		prob = float64(e.lastAnalysisInfo.MusicProbMin)
+	}
+	if prob < 0 {
+		prob = 0
+	}
+	if prob > 1 {
+		prob = 1
+	}
+	voiceRatio := int(math.Floor(0.5 + 100.0*(1.0-prob)))
+	voiceEst = (voiceRatio * 327) >> 8
+	// OPUS_APPLICATION_AUDIO clamp.
+	if voiceEst > 115 {
+		voiceEst = 115
+	}
+	return voiceEst
 }
 
 // effectiveBandwidth returns the actual bandwidth to use, considering maxBandwidth limit.

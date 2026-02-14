@@ -1,0 +1,7197 @@
+{
+  "version": 1,
+  "sample_rate": 48000,
+  "generator": "libopus-1.6.1 opus_encode_float mode-trace (darwin/arm64)",
+  "cases": [
+    {
+      "name": "AUTO-FB-20ms-mono-64k",
+      "variant": "am_multisine_v1",
+      "frame_size": 960,
+      "channels": 1,
+      "bitrate": 64000,
+      "bandwidth": "fullband",
+      "signal_frames": 50,
+      "signal_sha256": "1fd318ae21aa8f28a6d4c63a1c6d04c487db65973535606730cc950f0ebadea4",
+      "frames": [
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        }
+      ]
+    },
+    {
+      "name": "AUTO-FB-20ms-mono-64k",
+      "variant": "chirp_sweep_v1",
+      "frame_size": 960,
+      "channels": 1,
+      "bitrate": 64000,
+      "bandwidth": "fullband",
+      "signal_frames": 50,
+      "signal_sha256": "6f1ce6bfc84c4c939ed582601fafcea82e9dfc2b4b464ad16d0e64b23e6f9487",
+      "frames": [
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        }
+      ]
+    },
+    {
+      "name": "AUTO-FB-20ms-mono-64k",
+      "variant": "impulse_train_v1",
+      "frame_size": 960,
+      "channels": 1,
+      "bitrate": 64000,
+      "bandwidth": "fullband",
+      "signal_frames": 50,
+      "signal_sha256": "021468e3df03a94c83f5daec62211f7b53eeb00afbc4c05ccbd2b11f20e4f349",
+      "frames": [
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        }
+      ]
+    },
+    {
+      "name": "AUTO-FB-20ms-mono-64k",
+      "variant": "speech_like_v1",
+      "frame_size": 960,
+      "channels": 1,
+      "bitrate": 64000,
+      "bandwidth": "fullband",
+      "signal_frames": 50,
+      "signal_sha256": "264067a93ed9bfb3a5cb4e5d05a7666348527211c888e65b2bb07ca890623996",
+      "frames": [
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        }
+      ]
+    },
+    {
+      "name": "AUTO-FB-20ms-stereo-96k",
+      "variant": "am_multisine_v1",
+      "frame_size": 960,
+      "channels": 2,
+      "bitrate": 96000,
+      "bandwidth": "fullband",
+      "signal_frames": 50,
+      "signal_sha256": "f27df0237b7ca56fc7dba7cd27a02f593e349af0a2f31e081547c4102b30d0c1",
+      "frames": [
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        }
+      ]
+    },
+    {
+      "name": "AUTO-FB-20ms-stereo-96k",
+      "variant": "chirp_sweep_v1",
+      "frame_size": 960,
+      "channels": 2,
+      "bitrate": 96000,
+      "bandwidth": "fullband",
+      "signal_frames": 50,
+      "signal_sha256": "d1cc7c25c351a8df05b58a67e5de2bbe2b9c6e4fa5b1f8541ee89029f283e7d0",
+      "frames": [
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        }
+      ]
+    },
+    {
+      "name": "AUTO-FB-20ms-stereo-96k",
+      "variant": "impulse_train_v1",
+      "frame_size": 960,
+      "channels": 2,
+      "bitrate": 96000,
+      "bandwidth": "fullband",
+      "signal_frames": 50,
+      "signal_sha256": "d75b4ba067cde7884a53ab0b50afb3003255fefe470d9d68a76e83b56a1a005b",
+      "frames": [
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        }
+      ]
+    },
+    {
+      "name": "AUTO-FB-20ms-stereo-96k",
+      "variant": "speech_like_v1",
+      "frame_size": 960,
+      "channels": 2,
+      "bitrate": 96000,
+      "bandwidth": "fullband",
+      "signal_frames": 50,
+      "signal_sha256": "02ad8934197e0a25dc6700f54ee4ecc3e455d20307680fdf73ab0adc55ec1610",
+      "frames": [
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        },
+        {
+          "mode": "celt",
+          "toc_config": 31
+        }
+      ]
+    },
+    {
+      "name": "AUTO-NB-20ms-mono-12k",
+      "variant": "am_multisine_v1",
+      "frame_size": 960,
+      "channels": 1,
+      "bitrate": 12000,
+      "bandwidth": "narrowband",
+      "signal_frames": 50,
+      "signal_sha256": "1fd318ae21aa8f28a6d4c63a1c6d04c487db65973535606730cc950f0ebadea4",
+      "frames": [
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        }
+      ]
+    },
+    {
+      "name": "AUTO-NB-20ms-mono-12k",
+      "variant": "chirp_sweep_v1",
+      "frame_size": 960,
+      "channels": 1,
+      "bitrate": 12000,
+      "bandwidth": "narrowband",
+      "signal_frames": 50,
+      "signal_sha256": "6f1ce6bfc84c4c939ed582601fafcea82e9dfc2b4b464ad16d0e64b23e6f9487",
+      "frames": [
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        }
+      ]
+    },
+    {
+      "name": "AUTO-NB-20ms-mono-12k",
+      "variant": "impulse_train_v1",
+      "frame_size": 960,
+      "channels": 1,
+      "bitrate": 12000,
+      "bandwidth": "narrowband",
+      "signal_frames": 50,
+      "signal_sha256": "021468e3df03a94c83f5daec62211f7b53eeb00afbc4c05ccbd2b11f20e4f349",
+      "frames": [
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        }
+      ]
+    },
+    {
+      "name": "AUTO-NB-20ms-mono-12k",
+      "variant": "speech_like_v1",
+      "frame_size": 960,
+      "channels": 1,
+      "bitrate": 12000,
+      "bandwidth": "narrowband",
+      "signal_frames": 50,
+      "signal_sha256": "264067a93ed9bfb3a5cb4e5d05a7666348527211c888e65b2bb07ca890623996",
+      "frames": [
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        },
+        {
+          "mode": "silk",
+          "toc_config": 1
+        }
+      ]
+    },
+    {
+      "name": "AUTO-SWB-10ms-mono-48k",
+      "variant": "am_multisine_v1",
+      "frame_size": 480,
+      "channels": 1,
+      "bitrate": 48000,
+      "bandwidth": "superwideband",
+      "signal_frames": 100,
+      "signal_sha256": "1fd318ae21aa8f28a6d4c63a1c6d04c487db65973535606730cc950f0ebadea4",
+      "frames": [
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        }
+      ]
+    },
+    {
+      "name": "AUTO-SWB-10ms-mono-48k",
+      "variant": "chirp_sweep_v1",
+      "frame_size": 480,
+      "channels": 1,
+      "bitrate": 48000,
+      "bandwidth": "superwideband",
+      "signal_frames": 100,
+      "signal_sha256": "6f1ce6bfc84c4c939ed582601fafcea82e9dfc2b4b464ad16d0e64b23e6f9487",
+      "frames": [
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        }
+      ]
+    },
+    {
+      "name": "AUTO-SWB-10ms-mono-48k",
+      "variant": "impulse_train_v1",
+      "frame_size": 480,
+      "channels": 1,
+      "bitrate": 48000,
+      "bandwidth": "superwideband",
+      "signal_frames": 100,
+      "signal_sha256": "021468e3df03a94c83f5daec62211f7b53eeb00afbc4c05ccbd2b11f20e4f349",
+      "frames": [
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 12
+        }
+      ]
+    },
+    {
+      "name": "AUTO-SWB-10ms-mono-48k",
+      "variant": "speech_like_v1",
+      "frame_size": 480,
+      "channels": 1,
+      "bitrate": 48000,
+      "bandwidth": "superwideband",
+      "signal_frames": 100,
+      "signal_sha256": "264067a93ed9bfb3a5cb4e5d05a7666348527211c888e65b2bb07ca890623996",
+      "frames": [
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        },
+        {
+          "mode": "celt",
+          "toc_config": 26
+        }
+      ]
+    },
+    {
+      "name": "AUTO-SWB-20ms-mono-48k",
+      "variant": "am_multisine_v1",
+      "frame_size": 960,
+      "channels": 1,
+      "bitrate": 48000,
+      "bandwidth": "superwideband",
+      "signal_frames": 50,
+      "signal_sha256": "1fd318ae21aa8f28a6d4c63a1c6d04c487db65973535606730cc950f0ebadea4",
+      "frames": [
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        }
+      ]
+    },
+    {
+      "name": "AUTO-SWB-20ms-mono-48k",
+      "variant": "chirp_sweep_v1",
+      "frame_size": 960,
+      "channels": 1,
+      "bitrate": 48000,
+      "bandwidth": "superwideband",
+      "signal_frames": 50,
+      "signal_sha256": "6f1ce6bfc84c4c939ed582601fafcea82e9dfc2b4b464ad16d0e64b23e6f9487",
+      "frames": [
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        }
+      ]
+    },
+    {
+      "name": "AUTO-SWB-20ms-mono-48k",
+      "variant": "impulse_train_v1",
+      "frame_size": 960,
+      "channels": 1,
+      "bitrate": 48000,
+      "bandwidth": "superwideband",
+      "signal_frames": 50,
+      "signal_sha256": "021468e3df03a94c83f5daec62211f7b53eeb00afbc4c05ccbd2b11f20e4f349",
+      "frames": [
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        }
+      ]
+    },
+    {
+      "name": "AUTO-SWB-20ms-mono-48k",
+      "variant": "speech_like_v1",
+      "frame_size": 960,
+      "channels": 1,
+      "bitrate": 48000,
+      "bandwidth": "superwideband",
+      "signal_frames": 50,
+      "signal_sha256": "264067a93ed9bfb3a5cb4e5d05a7666348527211c888e65b2bb07ca890623996",
+      "frames": [
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        }
+      ]
+    },
+    {
+      "name": "AUTO-SWB-20ms-stereo-64k",
+      "variant": "am_multisine_v1",
+      "frame_size": 960,
+      "channels": 2,
+      "bitrate": 64000,
+      "bandwidth": "superwideband",
+      "signal_frames": 50,
+      "signal_sha256": "f27df0237b7ca56fc7dba7cd27a02f593e349af0a2f31e081547c4102b30d0c1",
+      "frames": [
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        }
+      ]
+    },
+    {
+      "name": "AUTO-SWB-20ms-stereo-64k",
+      "variant": "chirp_sweep_v1",
+      "frame_size": 960,
+      "channels": 2,
+      "bitrate": 64000,
+      "bandwidth": "superwideband",
+      "signal_frames": 50,
+      "signal_sha256": "d1cc7c25c351a8df05b58a67e5de2bbe2b9c6e4fa5b1f8541ee89029f283e7d0",
+      "frames": [
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        }
+      ]
+    },
+    {
+      "name": "AUTO-SWB-20ms-stereo-64k",
+      "variant": "impulse_train_v1",
+      "frame_size": 960,
+      "channels": 2,
+      "bitrate": 64000,
+      "bandwidth": "superwideband",
+      "signal_frames": 50,
+      "signal_sha256": "d75b4ba067cde7884a53ab0b50afb3003255fefe470d9d68a76e83b56a1a005b",
+      "frames": [
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        }
+      ]
+    },
+    {
+      "name": "AUTO-SWB-20ms-stereo-64k",
+      "variant": "speech_like_v1",
+      "frame_size": 960,
+      "channels": 2,
+      "bitrate": 64000,
+      "bandwidth": "superwideband",
+      "signal_frames": 50,
+      "signal_sha256": "02ad8934197e0a25dc6700f54ee4ecc3e455d20307680fdf73ab0adc55ec1610",
+      "frames": [
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        }
+      ]
+    },
+    {
+      "name": "AUTO-SWB-40ms-mono-48k",
+      "variant": "am_multisine_v1",
+      "frame_size": 1920,
+      "channels": 1,
+      "bitrate": 48000,
+      "bandwidth": "superwideband",
+      "signal_frames": 25,
+      "signal_sha256": "1fd318ae21aa8f28a6d4c63a1c6d04c487db65973535606730cc950f0ebadea4",
+      "frames": [
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        }
+      ]
+    },
+    {
+      "name": "AUTO-SWB-40ms-mono-48k",
+      "variant": "chirp_sweep_v1",
+      "frame_size": 1920,
+      "channels": 1,
+      "bitrate": 48000,
+      "bandwidth": "superwideband",
+      "signal_frames": 25,
+      "signal_sha256": "6f1ce6bfc84c4c939ed582601fafcea82e9dfc2b4b464ad16d0e64b23e6f9487",
+      "frames": [
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        }
+      ]
+    },
+    {
+      "name": "AUTO-SWB-40ms-mono-48k",
+      "variant": "impulse_train_v1",
+      "frame_size": 1920,
+      "channels": 1,
+      "bitrate": 48000,
+      "bandwidth": "superwideband",
+      "signal_frames": 25,
+      "signal_sha256": "021468e3df03a94c83f5daec62211f7b53eeb00afbc4c05ccbd2b11f20e4f349",
+      "frames": [
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        },
+        {
+          "mode": "hybrid",
+          "toc_config": 13
+        }
+      ]
+    },
+    {
+      "name": "AUTO-SWB-40ms-mono-48k",
+      "variant": "speech_like_v1",
+      "frame_size": 1920,
+      "channels": 1,
+      "bitrate": 48000,
+      "bandwidth": "superwideband",
+      "signal_frames": 25,
+      "signal_sha256": "264067a93ed9bfb3a5cb4e5d05a7666348527211c888e65b2bb07ca890623996",
+      "frames": [
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        },
+        {
+          "mode": "celt",
+          "toc_config": 27
+        }
+      ]
+    },
+    {
+      "name": "AUTO-WB-20ms-mono-24k",
+      "variant": "am_multisine_v1",
+      "frame_size": 960,
+      "channels": 1,
+      "bitrate": 24000,
+      "bandwidth": "wideband",
+      "signal_frames": 50,
+      "signal_sha256": "1fd318ae21aa8f28a6d4c63a1c6d04c487db65973535606730cc950f0ebadea4",
+      "frames": [
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        },
+        {
+          "mode": "celt",
+          "toc_config": 23
+        }
+      ]
+    },
+    {
+      "name": "AUTO-WB-20ms-mono-24k",
+      "variant": "chirp_sweep_v1",
+      "frame_size": 960,
+      "channels": 1,
+      "bitrate": 24000,
+      "bandwidth": "wideband",
+      "signal_frames": 50,
+      "signal_sha256": "6f1ce6bfc84c4c939ed582601fafcea82e9dfc2b4b464ad16d0e64b23e6f9487",
+      "frames": [
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        }
+      ]
+    },
+    {
+      "name": "AUTO-WB-20ms-mono-24k",
+      "variant": "impulse_train_v1",
+      "frame_size": 960,
+      "channels": 1,
+      "bitrate": 24000,
+      "bandwidth": "wideband",
+      "signal_frames": 50,
+      "signal_sha256": "021468e3df03a94c83f5daec62211f7b53eeb00afbc4c05ccbd2b11f20e4f349",
+      "frames": [
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        }
+      ]
+    },
+    {
+      "name": "AUTO-WB-20ms-mono-24k",
+      "variant": "speech_like_v1",
+      "frame_size": 960,
+      "channels": 1,
+      "bitrate": 24000,
+      "bandwidth": "wideband",
+      "signal_frames": 50,
+      "signal_sha256": "264067a93ed9bfb3a5cb4e5d05a7666348527211c888e65b2bb07ca890623996",
+      "frames": [
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        },
+        {
+          "mode": "silk",
+          "toc_config": 9
+        }
+      ]
+    }
+  ],
+  "variants": [
+    "am_multisine_v1",
+    "chirp_sweep_v1",
+    "impulse_train_v1",
+    "speech_like_v1"
+  ]
+}

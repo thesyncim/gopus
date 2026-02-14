@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-14
+topic: Frame-level mode-trace parity guard and short-frame auto-mode control
+decision: Keep the libopus 1.6.1 frame-level mode-trace fixture workflow (`tmp_check/gen_libopus_mode_trace_fixture.go` + `encoder/testdata/libopus_mode_trace_fixture.json`) and the short-frame auto-mode port in `encoder/encoder.go` (libopus threshold/hysteresis with analysis-driven `voice_est`, previous-mode state, VoIP threshold bias, and FEC/DTX SILK forcing conditions).
+evidence: Added `encoder/mode_trace_fixture_test.go` parity/metadata guards over 32 fixture cases; mode drift collapsed from large WB/SWB mismatches to <=2% max per case; focused mode/FEC tests, parity/compliance slice, `make verify-production`, and `make bench-guard` passed.
+do_not_repeat_until: libopus mode-selection semantics change in `opus_encoder.c` (thresholds/hysteresis/voice_est/FEC forcing/application bias) or the mode-trace fixture reports >2% drift on any covered case.
+owner: codex
+
+date: 2026-02-14
 topic: ModeAuto analyzer-invalid fallback parity
 decision: Keep `autoSignalFromPCM()` fallback aligned to libopus by returning `SignalAuto` when analysis is unavailable/invalid (outside SWB 10/20 ms threshold lanes), and do not reintroduce PCM classifier/energy-ratio voice/music forcing in this path.
 evidence: Updated `encoder/encoder.go` fallback path and added `TestAutoSignalFromPCMAnalyzerInvalidFallsBackToAuto` plus `TestAutoSignalFromPCMAnalyzerUnavailableFallsBackToAuto` in `encoder/auto_mode_policy_test.go`; focused auto-mode tests, parity/compliance slice, `make verify-production`, and `make bench-guard` passed.
