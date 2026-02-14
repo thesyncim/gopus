@@ -328,6 +328,7 @@ func (e *Encoder) DynallocAnalysisHybridScratch(bandLogE, bandLogE2, oldBandE []
 		isTransient,
 		vbr,
 		constrainedVBR,
+		e.lfe,
 		toneFreq,
 		toneishness,
 		nil,
