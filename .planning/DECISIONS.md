@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-14
+topic: SILK/Hybrid->CELT transition-delay parity (`to_celt`)
+decision: Keep libopus `to_celt` transition-delay behavior in `encoder/encoder.go`: when switching from non-CELT to CELT at frame sizes `>=10 ms`, encode one packet in the previous non-CELT mode, but advance next-frame previous-mode state to CELT so subsequent mode decisions transition on the same cadence as libopus.
+evidence: Added `prevMode` state and `applyCELTTransitionDelay()` in `encoder/encoder.go`; added focused tests `TestApplyCELTTransitionDelayPolicy` and `TestForcedHybridToCELTTransitionHoldsOneFrame` in `encoder/mode_transition_policy_test.go`; validated with `go test ./encoder -run 'TestApplyCELTTransitionDelayPolicy|TestForcedHybridToCELTTransitionHoldsOneFrame|TestModeTraceFixtureParityWithLibopus' -count=1 -v` and `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderVariantProfileParityAgainstLibopusFixture -count=1 -v`, where prior one-frame drifts in `HYBRID-SWB-20ms-mono-48k/am_multisine_v1` and `HYBRID-SWB-40ms-mono-48k/speech_like_v1` dropped to `mismatch=0.00%`.
+do_not_repeat_until: libopus mode-transition/redundancy semantics around `to_celt` change in `opus_encoder.c`, or fixture/interoperability evidence shows this one-frame hold cadence diverges.
+owner: codex
+
+date: 2026-02-14
 topic: decode_fec frame-size transition granularity
 decision: Keep provided-packet FEC recovery in `DecodeWithFEC` keyed to the provided packet TOC frame size (with fallback only when TOC frame size is unavailable), not `lastFrameSize`, so frame-size downshifts do not return oversized PLC-only output.
 evidence: Updated `decoder.go` provided-packet FEC path and added `TestDecodeWithFEC_FrameSizeTransitionUsesProvidedPacketGranularity` in `decoder_test.go`; validated with focused root FEC tests plus decoder loss parity and stress suites (`GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`, `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`).
