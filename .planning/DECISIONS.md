@@ -22,10 +22,10 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-14
-topic: Auto-mode SILK/Hybrid->CELT transition parity
-decision: Keep the libopus one-frame CELT transition gate in auto mode: when selected mode switches from SILK/Hybrid to CELT at frame sizes `>= 10 ms`, encode the current frame in the previous non-CELT mode and advance previous-mode state to CELT for the next frame.
-evidence: Added `applySilkToCeltTransition()` in `encoder/encoder.go` and wired previous-mode trackers (`prevAutoMode`, `prevSWB20AutoMode`, `prevLongSWBAutoMode`) to use the post-transition next-prev mode. This removed remaining CBR SWB variant mode drift (`HYBRID-SWB-20ms-mono-48k/am_multisine_v1`, `HYBRID-SWB-40ms-mono-48k/speech_like_v1`) to `mismatch=0.00%` and `histL1=0.000`; parity slice, `make verify-production`, and `make bench-guard` passed.
-do_not_repeat_until: libopus changes the `to_celt` transition semantics in `opus_encoder.c` (mode handoff and `prev_mode` update behavior) or fixture-level parity evidence shows this gate diverges.
+topic: SILK/Hybrid->CELT transition-delay parity (`to_celt`)
+decision: Keep libopus `to_celt` transition-delay behavior in `encoder/encoder.go`: when switching from non-CELT to CELT at frame sizes `>=10 ms`, encode one packet in the previous non-CELT mode, but advance next-frame previous-mode state to CELT so subsequent mode decisions transition on the same cadence as libopus.
+evidence: Added `prevMode` state and `applyCELTTransitionDelay()` in `encoder/encoder.go`; added focused tests `TestApplyCELTTransitionDelayPolicy` and `TestForcedHybridToCELTTransitionHoldsOneFrame` in `encoder/mode_transition_policy_test.go`; validated with `go test ./encoder -run 'TestApplyCELTTransitionDelayPolicy|TestForcedHybridToCELTTransitionHoldsOneFrame|TestModeTraceFixtureParityWithLibopus' -count=1 -v` and `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderVariantProfileParityAgainstLibopusFixture -count=1 -v`, where prior one-frame drifts in `HYBRID-SWB-20ms-mono-48k/am_multisine_v1` and `HYBRID-SWB-40ms-mono-48k/speech_like_v1` dropped to `mismatch=0.00%`.
+do_not_repeat_until: libopus mode-transition/redundancy semantics around `to_celt` change in `opus_encoder.c`, or fixture/interoperability evidence shows this one-frame hold cadence diverges.
 owner: codex
 
 date: 2026-02-14
