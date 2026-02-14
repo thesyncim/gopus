@@ -25,8 +25,54 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: detect-change-scope
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.scope.outputs.docs_only }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Detect markdown-only change set
+        id: scope
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+          else
+            base="${{ github.event.before }}"
+            head="${{ github.sha }}"
+          fi
+
+          # New branch pushes use an all-zero "before" SHA.
+          if [[ "$base" == "0000000000000000000000000000000000000000" ]]; then
+            base="$(git rev-list --max-parents=0 "$head" | tail -n 1)"
+          fi
+
+          git diff --name-only "$base" "$head" | tee /tmp/changed_files.txt
+
+          if [[ ! -s /tmp/changed_files.txt ]]; then
+            docs_only=true
+          elif awk 'BEGIN { docs=1 } $0 !~ /\.md$/ { docs=0 } END { exit docs ? 0 : 1 }' /tmp/changed_files.txt; then
+            docs_only=true
+          else
+            docs_only=false
+          fi
+
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+          echo "docs_only=$docs_only"
+
   test-linux-parity:
     name: test-linux-parity
+    needs:
+      - changes
+    if: ${{ needs.changes.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -63,6 +109,9 @@ jobs:
 
   test-linux-race:
     name: test-linux-race
+    needs:
+      - changes
+    if: ${{ needs.changes.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -99,6 +148,9 @@ jobs:
 
   test-linux-provenance:
     name: test-linux-provenance
+    needs:
+      - changes
+    if: ${{ needs.changes.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -120,6 +172,7 @@ jobs:
     name: test-linux
     if: always()
     needs:
+      - changes
       - test-linux-parity
       - test-linux-race
       - test-linux-provenance
@@ -127,6 +180,11 @@ jobs:
     steps:
       - name: Validate Linux gates
         run: |
+          if [ "${{ needs.changes.outputs.docs_only }}" = "true" ]; then
+            echo "Markdown-only change set: skipping Linux gate jobs."
+            exit 0
+          fi
+
           echo "test-linux-parity: ${{ needs.test-linux-parity.result }}"
           echo "test-linux-race: ${{ needs.test-linux-race.result }}"
           echo "test-linux-provenance: ${{ needs.test-linux-provenance.result }}"
@@ -142,23 +200,36 @@ jobs:
 
   perf-linux:
     name: perf-linux
+    needs:
+      - changes
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - name: Skip benchmark guardrails for markdown-only changes
+        if: ${{ needs.changes.outputs.docs_only == 'true' }}
+        run: |
+          echo "Markdown-only change set: skipping perf bench gate."
+
       - name: Checkout
+        if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: actions/checkout@v5
 
       - name: Setup Go
+        if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
 
       - name: Enforce benchmark guardrails
+        if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: make bench-guard
 
   test-macos:
     name: test-macos
+    needs:
+      - changes
+    if: ${{ needs.changes.outputs.docs_only != 'true' }}
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
@@ -195,6 +266,9 @@ jobs:
 
   test-windows:
     name: test-windows
+    needs:
+      - changes
+    if: ${{ needs.changes.outputs.docs_only != 'true' }}
     runs-on: windows-latest
     timeout-minutes: 45
     env:
