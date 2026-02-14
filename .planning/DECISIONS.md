@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-14
+topic: Auto-mode SILK/Hybrid->CELT transition parity
+decision: Keep the libopus one-frame CELT transition gate in auto mode: when selected mode switches from SILK/Hybrid to CELT at frame sizes `>= 10 ms`, encode the current frame in the previous non-CELT mode and advance previous-mode state to CELT for the next frame.
+evidence: Added `applySilkToCeltTransition()` in `encoder/encoder.go` and wired previous-mode trackers (`prevAutoMode`, `prevSWB20AutoMode`, `prevLongSWBAutoMode`) to use the post-transition next-prev mode. This removed remaining CBR SWB variant mode drift (`HYBRID-SWB-20ms-mono-48k/am_multisine_v1`, `HYBRID-SWB-40ms-mono-48k/speech_like_v1`) to `mismatch=0.00%` and `histL1=0.000`; parity slice, `make verify-production`, and `make bench-guard` passed.
+do_not_repeat_until: libopus changes the `to_celt` transition semantics in `opus_encoder.c` (mode handoff and `prev_mode` update behavior) or fixture-level parity evidence shows this gate diverges.
+owner: codex
+
+date: 2026-02-14
 topic: Variants restricted-celt application parity
 decision: Keep CELT rows in `TestEncoderVariantProfileParityAgainstLibopusFixture` configured as restricted-celt semantics (`SetMode(ModeCELT)` + `SetLowDelay(true)`), while keeping HYBRID rows mapped to `ModeAuto` (`opus_demo -e audio` parity). Do not compare CELT fixture rows with default audio-delay compensation enabled.
 evidence: Reproduced prior CELT chirp/impulse prefilter trace drift and verified that low-delay parity collapses symbol mismatch to 0 in focused trace tests; updated `testvectors/encoder_compliance_variants_fixture_test.go` to set low-delay for CELT rows; refreshed `testvectors/testdata/encoder_compliance_variants_ratchet_baseline.json`; parity slice, `make verify-production`, and `make bench-guard` passed.
