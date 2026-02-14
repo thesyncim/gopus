@@ -24,9 +24,10 @@ Block correctness and hot-path performance regressions before merge.
 - `test-macos`: `go test ./... -count=1`
 - `test-windows`: `go test ./... -count=1`
 
-4. Markdown-only bypass
-- CI is skipped when a PR changes only markdown files.
-- Code-impacting changes must still pass required test/perf checks before merge.
+4. Markdown-only optimization (without blocking merges)
+- Keep the CI workflow trigger active for markdown/docs-only pull requests so required checks still report status.
+- Use in-workflow docs-only detection to skip heavy test/perf jobs for markdown-only changes.
+- Do not use top-level workflow filters that suppress all required checks and leave PRs in "Expected" state.
 
 ## Benchmark Guardrails
 
