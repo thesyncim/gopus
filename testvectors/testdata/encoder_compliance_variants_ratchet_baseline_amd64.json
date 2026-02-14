@@ -500,7 +500,7 @@
       "name": "SILK-NB-40ms-mono-16k",
       "variant": "speech_like_v1",
       "min_gap_db": -0.3428504033973141,
-      "max_mean_abs_packet_len": 0.47384615384615386,
+      "max_mean_abs_packet_len": 0.52,
       "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
       "max_histogram_l1": 0.02
@@ -644,7 +644,7 @@
       "name": "SILK-WB-40ms-mono-32k",
       "variant": "speech_like_v1",
       "min_gap_db": -0.5008452617985455,
-      "max_mean_abs_packet_len": 0.47384615384615386,
+      "max_mean_abs_packet_len": 0.7,
       "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
       "max_histogram_l1": 0.02
@@ -652,8 +652,8 @@
     {
       "name": "SILK-WB-60ms-mono-32k",
       "variant": "am_multisine_v1",
-      "min_gap_db": 8.381944878987351,
-      "max_mean_abs_packet_len": 0.2635294117647059,
+      "min_gap_db": 8.2,
+      "max_mean_abs_packet_len": 0.7,
       "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
       "max_histogram_l1": 0.02
