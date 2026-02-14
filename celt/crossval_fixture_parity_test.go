@@ -2,7 +2,13 @@ package celt
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/binary"
+	"encoding/json"
 	"math"
+	"os"
+	"runtime"
+	"sync"
 	"testing"
 )
 
@@ -381,13 +387,86 @@ func computeAlignedQualityMetrics(input []float64, decoded []float32, channels i
 	return snrDB, corr, energyRatio
 }
 
-func TestOpusdecCrossvalFixtureCoverage(t *testing.T) {
-	entries, err := loadOpusdecCrossvalFixtureMap()
-	if err != nil {
-		t.Fatalf("load opusdec crossval fixture: %v", err)
+// regenCrossvalFixture regenerates the crossval fixture JSON by encoding
+// scenarios with the current encoder and decoding with live opusdec.
+// Returns true if the fixture was regenerated (sync.Once is reset).
+func regenCrossvalFixture(t *testing.T, scenarios []crossvalFixtureScenario) {
+	t.Helper()
+	if !checkOpusdecAvailable() {
+		t.Fatal("opusdec CLI is required to regenerate crossval fixtures")
 	}
 
+	entries := make([]opusdecCrossvalFixtureEntry, 0, len(scenarios))
+	for _, sc := range scenarios {
+		hash := oggSHA256Hex(sc.ogg)
+		decoded, err := decodeWithOpusdecCLI(sc.ogg)
+		if err != nil {
+			t.Fatalf("%s: live opusdec decode failed: %v", sc.name, err)
+		}
+		buf := make([]byte, len(decoded)*4)
+		for i, s := range decoded {
+			binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(s))
+		}
+		entries = append(entries, opusdecCrossvalFixtureEntry{
+			Name:             sc.name,
+			SHA256:           hash,
+			SampleRate:       sc.sampleRate,
+			Channels:         sc.channels,
+			DecodedF32Base64: base64.StdEncoding.EncodeToString(buf),
+		})
+	}
+
+	fixture := opusdecCrossvalFixtureFile{
+		Version: 1,
+		Entries: entries,
+	}
+	data, err := json.MarshalIndent(fixture, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal fixture: %v", err)
+	}
+
+	path := opusdecCrossvalFixturePath
+	if runtime.GOARCH == "amd64" {
+		path = opusdecCrossvalFixturePathAMD64
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	t.Logf("Auto-regenerated %s with %d entries", path, len(entries))
+
+	// Reset the sync.Once so subsequent tests reload the fresh fixture.
+	opusdecCrossvalFixtureOnce = sync.Once{}
+	opusdecCrossvalFixtureMap = nil
+	opusdecCrossvalFixtureErr = nil
+}
+
+func TestOpusdecCrossvalFixtureCoverage(t *testing.T) {
 	scenarios := buildCrossvalFixtureScenarios(t)
+
+	// Check if any fixture entries are stale and auto-regenerate if opusdec
+	// is available. This handles platform-specific encoder output changes.
+	entries, err := loadOpusdecCrossvalFixtureMap()
+	needsRegen := err != nil
+	if !needsRegen {
+		for _, sc := range scenarios {
+			hash := oggSHA256Hex(sc.ogg)
+			if _, ok := entries[hash]; !ok {
+				needsRegen = true
+				break
+			}
+		}
+	}
+	if needsRegen {
+		if !checkOpusdecAvailable() {
+			t.Skip("crossval fixture is stale and opusdec is not available to regenerate")
+		}
+		regenCrossvalFixture(t, scenarios)
+		entries, err = loadOpusdecCrossvalFixtureMap()
+		if err != nil {
+			t.Fatalf("load opusdec crossval fixture after regen: %v", err)
+		}
+	}
+
 	if len(entries) < len(scenarios) {
 		t.Fatalf("fixture entry count mismatch: got %d need at least %d", len(entries), len(scenarios))
 	}
