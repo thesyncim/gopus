@@ -228,11 +228,6 @@ func (e *Encoder) EncodeICDF16(s int, icdf []uint16, ftb uint) {
 		e.rng -= r * uint32(icdf[s])
 	}
 
-	// Safety: ensure rng doesn't become 0 (would cause infinite loop)
-	if e.rng == 0 {
-		e.rng = 1
-	}
-
 	e.normalize()
 }
 
