@@ -26,7 +26,15 @@ Use shared path surfaces so overlap detection stays deterministic:
 Quick commands:
 - list claims: `make agent-claims`
 - add claim: `make agent-claim AGENT=<name> PATHS='silk/,testvectors/' NOTE='short scope note'`
+- publish claim immediately (required before edits):
+  - `git add .planning/WORK_CLAIMS.md`
+  - `git commit --only .planning/WORK_CLAIMS.md -m "chore(claims): <agent> claim <paths>"`
+  - `git push`
 - release claim: `make agent-release CLAIM_ID=<id>`
+- publish release immediately (required):
+  - `git add .planning/WORK_CLAIMS.md`
+  - `git commit --only .planning/WORK_CLAIMS.md -m "chore(claims): release <claim_id>"`
+  - `git push`
 
 ## Active Claims
 
