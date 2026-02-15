@@ -46,9 +46,9 @@ func TestHybridBitAllocation(t *testing.T) {
 				fecEnabled: tc.fecEnabled,
 			}
 
-			silkBitrate, celtBitrate := e.computeHybridBitAllocation(tc.frame20ms)
+			silkBitrate, celtBitrate, celtBitrateHBGain := e.computeHybridBitAllocation(tc.frame20ms)
 
-			t.Logf("Total: %d, SILK: %d, CELT: %d", tc.totalBitrate, silkBitrate, celtBitrate)
+			t.Logf("Total: %d, SILK: %d, CELT: %d, CELT(HB): %d", tc.totalBitrate, silkBitrate, celtBitrate, celtBitrateHBGain)
 
 			// Verify SILK bitrate is in expected range
 			if silkBitrate < tc.minSilkBitrate || silkBitrate > tc.maxSilkBitrate {
@@ -56,18 +56,24 @@ func TestHybridBitAllocation(t *testing.T) {
 					silkBitrate, tc.minSilkBitrate, tc.maxSilkBitrate)
 			}
 
-			// Verify total adds up to bitrate minus TOC overhead.
-			// Per libopus, bits_target = bitrate_to_bits(bitrate, Fs, frame_size) - 8,
-			// so total_bitRate = bitrate - 8*Fs/frame_size.
+			// Verify CELT encoder rate: silk + celt = raw bitrate
+			// Per libopus line 2454: CELT bitrate = st->bitrate_bps - silk_rate
+			if silkBitrate+celtBitrate != tc.totalBitrate {
+				t.Errorf("SILK (%d) + CELT (%d) = %d, expected %d (raw bitrate)",
+					silkBitrate, celtBitrate, silkBitrate+celtBitrate, tc.totalBitrate)
+			}
+
+			// Verify HB gain rate: silk + celtHBGain = bitrate - TOC overhead
+			// Per libopus line 2060: celt_rate = total_bitRate - silk_rate
 			frameSize := 480
 			if tc.frame20ms {
 				frameSize = 960
 			}
 			tocOverhead := 8 * 48000 / frameSize
-			expectedTotal := tc.totalBitrate - tocOverhead
-			if silkBitrate+celtBitrate != expectedTotal {
-				t.Errorf("SILK (%d) + CELT (%d) = %d, expected %d (bitrate %d - TOC overhead %d)",
-					silkBitrate, celtBitrate, silkBitrate+celtBitrate, expectedTotal, tc.totalBitrate, tocOverhead)
+			expectedHBTotal := tc.totalBitrate - tocOverhead
+			if silkBitrate+celtBitrateHBGain != expectedHBTotal {
+				t.Errorf("SILK (%d) + CELT_HB (%d) = %d, expected %d (TOC-adjusted)",
+					silkBitrate, celtBitrateHBGain, silkBitrate+celtBitrateHBGain, expectedHBTotal)
 			}
 
 			// Verify CELT gets at least minimum bitrate

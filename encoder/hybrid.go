@@ -141,11 +141,11 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 
 	// Compute bit allocation between SILK and CELT
 	frame20ms := frameSize == 960
-	silkBitrate, celtBitrate := e.computeHybridBitAllocation(frame20ms)
+	silkBitrate, celtBitrate, celtBitrateHBGain := e.computeHybridBitAllocation(frame20ms)
 
-	// Compute HB_gain based on CELT bitrate allocation
+	// Compute HB_gain based on TOC-adjusted CELT bitrate (matching libopus line 2060)
 	// Lower CELT bitrate means we should attenuate high frequencies
-	hbGain := e.computeHBGain(celtBitrate)
+	hbGain := e.computeHBGain(celtBitrateHBGain)
 
 	// Compute target buffer size based on bitrate mode.
 	// baseTargetBytes includes the TOC byte; payloadTarget is the shared range payload.
@@ -361,7 +361,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 //
 //	bits_target = min(8*(max_data_bytes-1), bitrate*frame_size/Fs) - 8
 //	total_bitRate = bits_target * Fs / frame_size = bitrate - 8*Fs/frame_size
-func (e *Encoder) computeHybridBitAllocation(frame20ms bool) (silkBitrate, celtBitrate int) {
+func (e *Encoder) computeHybridBitAllocation(frame20ms bool) (silkBitrate, celtBitrate, celtBitrateHBGain int) {
 	// Apply TOC overhead correction matching libopus bits_target -> bits_to_bitrate roundtrip.
 	// For 48kHz/10ms: overhead = 8*48000/480 = 800 bps
 	// For 48kHz/20ms: overhead = 8*48000/960 = 400 bps
@@ -439,16 +439,22 @@ func (e *Encoder) computeHybridBitAllocation(frame20ms bool) (silkBitrate, celtB
 		silkBitrate -= 1000
 	}
 
-	celtBitrate = totalRate - silkBitrate
+	// HB gain uses TOC-adjusted celt rate (matching libopus opus_encoder.c line 2060).
+	celtBitrateHBGain = totalRate - silkBitrate
+
+	// CELT encoder uses raw bitrate minus SILK rate (matching libopus line 2454:
+	// OPUS_SET_BITRATE(st->bitrate_bps - st->silk_mode.bitRate)).
+	celtBitrate = e.bitrate - silkBitrate
 
 	// Ensure minimum CELT bitrate for acceptable quality
 	minCeltBitrate := 2000 * channels
 	if celtBitrate < minCeltBitrate {
 		celtBitrate = minCeltBitrate
-		silkBitrate = totalRate - celtBitrate
+		silkBitrate = e.bitrate - celtBitrate
+		celtBitrateHBGain = totalRate - silkBitrate
 	}
 
-	return silkBitrate, celtBitrate
+	return silkBitrate, celtBitrate, celtBitrateHBGain
 }
 
 // computeSilkRateForMax computes the SILK rate corresponding to a maximum available
