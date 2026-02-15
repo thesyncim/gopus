@@ -126,6 +126,13 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		if e.nsqState != nil && e.nsqState.prevGainQ16 == 0 {
 			e.nsqState.prevGainQ16 = 1 << 16
 		}
+		// Match libopus control_codec.c:254,257: prevLag and lagPrev are set to
+		// 100 when fs_kHz changes (including the very first call).  These affect
+		// pitch prediction and LTP state in the NSQ loop for the first frame.
+		e.pitchState.prevLag = 100
+		if e.nsqState != nil {
+			e.nsqState.lagPrev = 100
+		}
 	}
 
 	// Update target SNR based on configured bitrate and frame size.
