@@ -149,19 +149,9 @@ bfly5_inner:
 	MOVSS (SI)(R9*1), X10
 	MOVSS 4(SI)(R9*1), X11
 	// s4 = cmul(b4, w4)
-	MOVSS X8, X3              // save b4.r (will reuse X3)
-	// Hmm, running out of XMM registers. AMD64 has X0-X15.
-	// Current usage: X0,X1=s0  X2,X3=s1  X4,X5=s2  X6,X7=s3
-	// Need to compute s4 and store in... we need 2 more.
-	// Let's spill s0 to the stack temporarily.
-
-	// Actually, let me reorganize. After computing s3, I no longer need the raw b3/w3.
-	// X8,X9 = b4; X10,X11 = w4. Free: nothing extra.
-	// s4 needs to go somewhere. Use X8,X9 (overwrite b4).
-	MOVSS X8, X3              // temp: b4.r in X3 (overwriting s1.i which we'll recompute)
-	// No wait, X2=s1.r, X3=s1.i. Can't overwrite those yet.
-	// This is the register pressure issue the plan warned about.
-	// Let me use a stack spill approach.
+	// X8,X9 = b4; X10,X11 = w4.
+	// Must preserve X2=s1.r, X3=s1.i, X4=s2.r, X5=s2.i, X6=s3.r, X7=s3.i.
+	// Spill s0 to stack to free X0,X1 for s4 result.
 
 	// Spill s0 to stack to free X0,X1
 	SUBQ $16, SP
@@ -216,65 +206,7 @@ bfly5_inner:
 	MOVSS X6, (BX)
 	MOVSS X7, 4(BX)
 
-	// s5.r = s0.r + (s7.r*yar + s8.r*ybr)
-	MOVSS X2, X6
-	MULSS X12, X6            // s7.r*yar
-	MOVSS X4, X7
-	MULSS X14, X7            // s8.r*ybr
-	ADDSS X7, X6             // s7.r*yar + s8.r*ybr
-	ADDSS X0, X6             // s5.r
-	// s5.i
-	MOVSS X3, X7
-	MULSS X12, X7
-	MOVSS X5, X6              // temp
-	// Hmm, I need more registers. Let me spill.
-	// Actually let me just push to stack for s5 when computing s6.
-
-	// s5.r → store on stack for later
-	SUBQ $16, SP
-	MOVSS X2, X6
-	MULSS X12, X6            // s7.r*yar
-	MOVSS X4, X7
-	MULSS X14, X7            // s8.r*ybr
-	ADDSS X7, X6
-	ADDSS X0, X6             // s5.r
-	MOVSS X6, (SP)
-
-	// s5.i
-	MOVSS X3, X6
-	MULSS X12, X6            // s7.i*yar
-	MOVSS X5, X7
-	MULSS X14, X7            // s8.i*ybr
-	ADDSS X7, X6
-	ADDSS X1, X6             // s5.i
-	MOVSS X6, 4(SP)
-
-	// s6.r = s10.i*yai + s9.i*ybi
-	MOVSS X9, X6
-	MULSS X13, X6            // s10.i*yai
-	MOVSS X11, X7
-	MULSS X15, X7            // s9.i*ybi
-	ADDSS X7, X6             // s6.r
-
-	// s6.i = -(s10.r*yai + s9.r*ybi)
-	MOVSS X8, X7
-	MULSS X13, X7            // s10.r*yai
-	MOVSS X10, X8             // need s10.r later, save it
-	// X10 was s9.r, X8 was s10.r — now X8 is clobbered with a partial product
-	// Let me re-think the register usage.
-	// Actually the issue is that X8=s10.r gets clobbered when computing s6.i.
-	// I need s10.r and s10.i for the s12 computation later.
-	// Let me spill s10 too.
-	MOVSS X8, 8(SP)          // spill s10.r (before clobbering)
-	MOVSS X9, 12(SP)         // spill s10.i
-	// Wait, X8 was already used for s10.r*yai above. It's already clobbered.
-	// I need to reorder: save X8 before using it.
-
-	ADDQ $16, SP             // undo stack adjustment, restart this section
-
-	// OK this is getting messy with AMD64 register pressure.
-	// Let me use a cleaner approach with more stack space.
-	// Reserve 32 bytes of stack for temporaries.
+	// Reserve 32 bytes of stack for s5, s6, s10 spills (register pressure).
 
 	SUBQ $32, SP
 
