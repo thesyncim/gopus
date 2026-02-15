@@ -1176,17 +1176,11 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 		copy(bandLogE2, energies)
 	}
 
-	// In hybrid mode, set low bands (0-16) to very low energy.
-	// These bands are handled by SILK.
-	for c := 0; c < e.channels; c++ {
-		base := c * nbBands
-		for band := 0; band < start && base+band < len(energies); band++ {
-			energies[base+band] = -28.0
-			if bandLogE2 != nil && base+band < len(bandLogE2) {
-				bandLogE2[base+band] = -28.0
-			}
-		}
-	}
+	// Keep natural MDCT-derived band energies for bands 0-16.
+	// In libopus, compute_band_energies runs on the full MDCT output and
+	// dynalloc_analysis uses all band energies (0 to end) even in hybrid mode.
+	// Previously this code set bands 0-16 to -28 dB, which caused maxDepth,
+	// masking model, and spread_weight to diverge from libopus.
 
 	// NOTE: No crossover energy matching. libopus does not apply any energy
 	// smoothing at the SILK/CELT boundary (band 17). The band energies are
@@ -1225,7 +1219,7 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 	}
 
 	// Encode intra flag using libopus-style coarse-energy two-pass decision.
-	intra := e.celtEncoder.DecideIntraMode(energies, nbBands, lm)
+	intra := e.celtEncoder.DecideIntraMode(energies, start, nbBands, lm)
 	if re.Tell()+3 <= totalBits {
 		if intra {
 			re.EncodeBit(1, 3)
