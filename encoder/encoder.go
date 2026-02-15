@@ -158,6 +158,8 @@ type Encoder struct {
 	lbrrCoded         bool            // Previous frame FEC coding decision
 	userBandwidth     types.Bandwidth // User-set bandwidth (0 = auto)
 	widthMem          StereoWidthMem  // Stateful stereo width computation memory
+	toMono            int             // Stereo→mono transition countdown (0=inactive)
+	fecConfig         int             // FEC config: 0=auto, 1=force-on, 2=music-safe
 
 	// SILK downsampling
 	silkResampler       *silk.DownsamplingResampler
@@ -353,6 +355,7 @@ func (e *Encoder) Reset() {
 	e.first = true
 	e.lbrrCoded = false
 	e.widthMem = StereoWidthMem{}
+	e.toMono = 0
 }
 
 // SetFEC enables or disables in-band Forward Error Correction.
