@@ -162,39 +162,17 @@ func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]int, yBuf 
 	// For each pulse, find the position that maximizes Rxy/sqrt(Ryy).
 	// Reference: libopus vq.c lines 299-362
 	//
+	// The inner search is extracted to pvqSearchBestPos for SIMD/assembly optimization.
 	// BCE hints: prove to compiler that absX[0..n-1] and y[0..n-1] are in-bounds.
 	_ = absX[n-1]
 	_ = y[n-1]
 	for i := 0; i < pulsesLeft; i++ {
-		bestID := 0
 		// The squared magnitude term gets added anyway, so we add it outside the loop
 		// Reference: libopus vq.c line 314
 		yy += 1
 
-		// Calculations for position 0 are out of the loop to reduce branch mispredictions
-		// Reference: libopus vq.c lines 318-328
-		rxy := xy + absX[0]
-		ryy := yy + y[0] // y[j] is pre-multiplied by 2
-		// Approximate score: we maximise Rxy/sqrt(Ryy)
-		// Rxy is guaranteed positive because signs are pre-computed
-		bestNum := rxy * rxy
-		bestDen := ryy
-
-		// Search remaining positions
-		// Reference: libopus vq.c lines 329-351
-		for j := 1; j < n; j++ {
-			rxy = xy + absX[j]
-			ryy = yy + y[j]
-			num := rxy * rxy
-			// Compare num/den vs bestNum/bestDen without division:
-			// num/den > bestNum/bestDen  <=>  den*num > bestDen*bestNum (for positive den, bestDen)
-			// Reference: libopus vq.c line 345
-			if bestDen*num > ryy*bestNum {
-				bestDen = ryy
-				bestNum = num
-				bestID = j
-			}
-		}
+		// Find best position using optimized search (assembly on arm64/amd64)
+		bestID := pvqSearchBestPos(absX[:n], y[:n], float64(xy), float64(yy), n)
 
 		// Update running sums for the chosen position
 		// Reference: libopus vq.c lines 353-361

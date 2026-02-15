@@ -71,13 +71,7 @@ func toneLPC(x []float32, delay int) (float32, float32, bool) {
 	// Compute correlations using forward prediction covariance method.
 	cnt := n - 2*delay
 	delay2 := 2 * delay
-	var r00, r01, r02 float32
-	for i := 0; i < cnt; i++ {
-		xi := x[i]
-		r00 += xi * xi
-		r01 += xi * x[i+delay]
-		r02 += xi * x[i+delay2]
-	}
+	r00, r01, r02 := toneLPCCorr(x, cnt, delay, delay2)
 
 	// Edge corrections for r11, r22, r12.
 	// Precompute base offsets to avoid repeated arithmetic.

@@ -558,20 +558,7 @@ func pitchDownsample(x []float64, xLP []float64, length, channels, factor int) {
 	// This preserves float-path accumulation behavior used by tone/pitch analysis.
 	var ac [5]float64
 	lp := xLP[:length]
-	fastN := length - 4
-	if fastN < 0 {
-		fastN = 0
-	}
-	for lag := 0; lag <= 4; lag++ {
-		sum := float32(0)
-		for i := 0; i < fastN; i++ {
-			sum += float32(lp[i]) * float32(lp[i+lag])
-		}
-		for i := lag + fastN; i < length; i++ {
-			sum += float32(lp[i]) * float32(lp[i-lag])
-		}
-		ac[lag] = float64(sum)
-	}
+	pitchAutocorr5(lp, length, &ac)
 
 	ac[0] = float64(float32(ac[0]) * float32(1.0001))
 	for i := 1; i <= 4; i++ {
@@ -862,38 +849,9 @@ func lpcFromAutocorr(ac [5]float64) [4]float64 {
 	return lpc
 }
 
-// prefilterInnerProd uses float32 accumulation to match libopus float-path
-// numerics in pitch/pre-filter analysis.
-func prefilterInnerProd(x, y []float64, length int) float64 {
-	if length <= 0 {
-		return 0
-	}
-	_ = x[length-1]
-	_ = y[length-1]
-	sum := float32(0)
-	for i := 0; i < length; i++ {
-		sum += float32(x[i]) * float32(y[i])
-	}
-	return float64(sum)
-}
-
-// prefilterDualInnerProd computes two float32-accumulated dot products.
-func prefilterDualInnerProd(x, y1, y2 []float64, length int) (float64, float64) {
-	if length <= 0 {
-		return 0, 0
-	}
-	_ = x[length-1]
-	_ = y1[length-1]
-	_ = y2[length-1]
-	sum1 := float32(0)
-	sum2 := float32(0)
-	for i := 0; i < length; i++ {
-		xi := float32(x[i])
-		sum1 += xi * float32(y1[i])
-		sum2 += xi * float32(y2[i])
-	}
-	return float64(sum1), float64(sum2)
-}
+// prefilterInnerProd and prefilterDualInnerProd are implemented in:
+//   prefilter_innerprod_asm.go + prefilter_innerprod_{arm64,amd64}.s  (SIMD path)
+//   prefilter_innerprod_default.go                                     (Go fallback)
 
 var secondCheck = [16]int{0, 0, 3, 2, 3, 2, 5, 2, 3, 2, 3, 2, 5, 2, 3, 2}
 

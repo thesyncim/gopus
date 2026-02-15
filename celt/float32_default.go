@@ -1,3 +1,5 @@
+//go:build !arm64 && !amd64
+
 package celt
 
 // roundFloat64ToFloat32 rounds each element to float32 precision and back.
