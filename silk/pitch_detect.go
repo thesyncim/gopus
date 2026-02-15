@@ -139,9 +139,9 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 	minLag := peMinLagMS * fsKHz
 	minLag4kHz := peMinLagMS * 4
 	minLag8kHz := peMinLagMS * 8
-	maxLag := peMaxLagMS*fsKHz - 1
+	maxLag := peMaxLagMS * fsKHz
 	maxLag4kHz := peMaxLagMS * 4
-	maxLag8kHz := peMaxLagMS*8 - 1
+	maxLag8kHz := peMaxLagMS * 8
 
 	// Ensure we have enough samples
 	if len(pcm) < frameLength {
