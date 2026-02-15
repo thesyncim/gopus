@@ -1,3 +1,5 @@
+//go:build !arm64
+
 package silk
 
 // innerProductF32 computes the inner product of float32 signals using libopus ordering.
@@ -26,24 +28,9 @@ func innerProductF32(a, b []float32, length int) float64 {
 // innerProductFLP computes inner product of two float32 arrays.
 // Matches libopus silk_inner_product_FLP (float precision accumulation).
 func innerProductFLP(a, b []float32, length int) float64 {
-	if length <= 0 {
-		return 0
-	}
-	a = a[:length:length]
-	b = b[:length:length]
-	var s0, s1, s2, s3 float64
-	i := 0
-	n := len(a) - 3
-	for ; i < n; i += 4 {
-		s0 += float64(a[i]) * float64(b[i])
-		s1 += float64(a[i+1]) * float64(b[i+1])
-		s2 += float64(a[i+2]) * float64(b[i+2])
-		s3 += float64(a[i+3]) * float64(b[i+3])
-	}
-	for ; i < len(a); i++ {
-		s0 += float64(a[i]) * float64(b[i])
-	}
-	return s0 + s1 + s2 + s3
+	// For now, mapping to the same implementation as innerProductF32
+	// since the Go version was identical.
+	return innerProductF32(a, b, length)
 }
 
 // energyF32 computes energy (sum of squares) of a float32 signal.

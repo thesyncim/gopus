@@ -37,27 +37,33 @@ This file tracks what is implemented and how fallback behavior works.
 1. Float32 inner product / energy
 - Wrapper: `silk/inner_prod_asm.go`
 - Native sources:
-  - `silk/inner_prod_amd64.s`
   - `silk/inner_prod_arm64.s`
 - Fallback: `silk/inner_prod_default.go`
 - Entry points:
-  - `innerProductF32Asm`
-  - `energyF32Asm`
+  - `innerProductF32`
+  - `innerProductFLP`
+  - `energyF32`
 
-2. NSQ short-term prediction
+2. Pitch cross-correlation
+- Wrapper: `silk/pitch_xcorr_asm.go` (and `pitch_xcorr.go`)
+- Native sources:
+  - `silk/pitch_xcorr_arm64.s`
+- Fallback: `silk/pitch_xcorr_impl_default.go`
+- Entry points:
+  - `celtPitchXcorrFloatImpl`
+
+3. NSQ short-term prediction
 - Wrapper: `silk/nsq_pred_asm.go`
 - Native sources:
-  - `silk/nsq_pred_amd64.s`
   - `silk/nsq_pred_arm64.s`
 - Fallback: `silk/nsq_pred_default.go`
 - Entry points:
   - `shortTermPrediction16`
   - `shortTermPrediction10`
 
-3. NSQ warped AR feedback
+4. NSQ warped AR feedback
 - Wrapper: `silk/nsq_warp_asm.go`
 - Native sources:
-  - `silk/nsq_warp_amd64.s`
   - `silk/nsq_warp_arm64.s`
 - Fallback: `silk/nsq_warp_default.go`
 - Entry points:

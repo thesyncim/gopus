@@ -1,3 +1,5 @@
+//go:build !arm64
+
 package silk
 
 // warpedARFeedback24 computes 24-tap warped AR noise shaping feedback.
