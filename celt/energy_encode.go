@@ -223,7 +223,7 @@ func coarseLossDistortion(energies, oldEBands []float64, nbBands, channels int) 
 	return dist
 }
 
-func (e *Encoder) encodeCoarseEnergyPass(energies []float64, nbBands int, intra bool, lm int, budget int, maxDecay32 float32, encodeIntraFlag bool) ([]float64, int) {
+func (e *Encoder) encodeCoarseEnergyPass(energies []float64, startBand, nbBands int, intra bool, lm int, budget int, maxDecay32 float32, encodeIntraFlag bool) ([]float64, int) {
 	if e.rangeEncoder == nil {
 		return energies, 0
 	}
@@ -275,9 +275,12 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []float64, nbBands int, intra 
 		prob = eProbModel[lm][1]
 	}
 
+	if startBand < 0 {
+		startBand = 0
+	}
 	var prevBandEnergy [2]float32
 	badness := 0
-	for band := 0; band < nbBands; band++ {
+	for band := startBand; band < nbBands; band++ {
 		for c := 0; c < channels; c++ {
 			idx := c*nbBands + band
 			if idx >= len(energies) {
@@ -411,7 +414,9 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []float64, nbBands int, intra 
 
 // DecideIntraMode runs libopus-style two-pass intra/inter selection for coarse energy.
 // It performs trial encodes on a saved range coder state and restores state before returning.
-func (e *Encoder) DecideIntraMode(energies []float64, nbBands int, lm int) bool {
+// startBand specifies the first band to encode (0 for CELT-only, 17 for hybrid mode).
+// This matches libopus quant_coarse_energy which iterates from start to end.
+func (e *Encoder) DecideIntraMode(energies []float64, startBand, nbBands int, lm int) bool {
 	if e.rangeEncoder == nil {
 		return false
 	}
@@ -439,10 +444,14 @@ func (e *Encoder) DecideIntraMode(energies []float64, nbBands int, lm int) bool 
 	}
 	nbAvailableBytes := budget / 8
 
+	codedBands := nbBands - startBand
+	if codedBands < 0 {
+		codedBands = 0
+	}
 	twoPass := e.complexity >= 4
 	intra := e.forceIntra || (!twoPass &&
-		e.delayedIntra > float64(2*channels*nbBands) &&
-		nbAvailableBytes > nbBands*channels)
+		e.delayedIntra > float64(2*channels*codedBands) &&
+		nbAvailableBytes > codedBands*channels)
 
 	intraBias := 0
 	if channels > 0 {
@@ -475,14 +484,14 @@ func (e *Encoder) DecideIntraMode(energies []float64, nbBands int, lm int) bool 
 	badnessIntra := 0
 	tellIntra := 0
 	if twoPass || intra {
-		_, badnessIntra = e.encodeCoarseEnergyPass(energies, nbBands, true, lm, budget, maxDecay32, true)
+		_, badnessIntra = e.encodeCoarseEnergyPass(energies, startBand, nbBands, true, lm, budget, maxDecay32, true)
 		tellIntra = e.rangeEncoder.TellFrac()
 		e.rangeEncoder.RestoreState(startState)
 		copy(e.prevEnergy, oldStart)
 	}
 
 	if !intra {
-		_, badnessInter := e.encodeCoarseEnergyPass(energies, nbBands, false, lm, budget, maxDecay32, true)
+		_, badnessInter := e.encodeCoarseEnergyPass(energies, startBand, nbBands, false, lm, budget, maxDecay32, true)
 		useIntra := badnessIntra < badnessInter
 		if badnessIntra == badnessInter && e.rangeEncoder.TellFrac()+intraBias > tellIntra {
 			useIntra = true
@@ -549,7 +558,7 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 		maxDecay32 = float32(3.0 * DB6)
 	}
 
-	quantizedEnergies, _ := e.encodeCoarseEnergyPass(energies, nbBands, intra, lm, budget, maxDecay32, false)
+	quantizedEnergies, _ := e.encodeCoarseEnergyPass(energies, 0, nbBands, intra, lm, budget, maxDecay32, false)
 
 	alpha := AlphaCoef[lm]
 	if intra {

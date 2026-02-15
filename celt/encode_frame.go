@@ -762,7 +762,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	intra := false
 	if re.Tell()+3 <= targetBits {
-		intra = e.DecideIntraMode(energies, nbBands, lm)
+		intra = e.DecideIntraMode(energies, 0, nbBands, lm)
 		var intraBit int
 		if intra {
 			intraBit = 1
