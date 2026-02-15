@@ -63,8 +63,8 @@ pvq_loop2:
 	VMULSS X1, X12, X4           // rhs = ryy * bestNum
 	VUCOMISS X4, X3
 	JBE  pvq_skip1
-	VMOVSS X1, X13               // bestDen = ryy
-	VMOVSS X2, X12               // bestNum = num
+	MOVSS  X1, X13               // bestDen = ryy
+	MOVSS  X2, X12               // bestNum = num
 	MOVQ   DX, R8                // bestID = j
 pvq_skip1:
 
@@ -79,8 +79,8 @@ pvq_skip1:
 	VMULSS X1, X12, X4
 	VUCOMISS X4, X3
 	JBE  pvq_skip2
-	VMOVSS X1, X13
-	VMOVSS X2, X12
+	MOVSS  X1, X13
+	MOVSS  X2, X12
 	MOVQ   SI, R8
 pvq_skip2:
 
@@ -102,8 +102,8 @@ pvq_tail:
 	VMULSS X1, X12, X4
 	VUCOMISS X4, X3
 	JBE  pvq_done
-	VMOVSS X1, X13
-	VMOVSS X2, X12
+	MOVSS  X1, X13
+	MOVSS  X2, X12
 	MOVQ   DX, R8
 
 pvq_done:
