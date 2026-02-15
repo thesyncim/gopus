@@ -131,7 +131,9 @@ func silkNLSFStabilize(nlsfQ15 []int16, deltaMinQ15 []int16, order int) {
 		nlsfQ15[0] = deltaMinQ15[0]
 	}
 	for i := 1; i < order; i++ {
-		minVal := int16(int32(nlsfQ15[i-1]) + int32(deltaMinQ15[i]))
+		// Match libopus silk_ADD_SAT16: saturated int16 addition prevents
+		// wrap-around when nlsfQ15[i-1] + deltaMinQ15[i] exceeds 32767.
+		minVal := silkSAT16(int32(nlsfQ15[i-1]) + int32(deltaMinQ15[i]))
 		if nlsfQ15[i] < minVal {
 			nlsfQ15[i] = minVal
 		}
