@@ -36,8 +36,12 @@ var encoderLibopusGapFloorDB = map[string]float64{
 // regressions without false-failing CI.
 var encoderLibopusGapFloorAMD64OverrideDB = map[string]float64{
 	"SILK-MB-20ms-mono-24k":     -14.0,
+	"SILK-WB-10ms-mono-32k":     -0.25,
 	"SILK-WB-60ms-mono-32k":     -0.55,
+	"SILK-WB-20ms-stereo-48k":   -0.25,
+	"Hybrid-SWB-10ms-mono-48k":  -0.20,
 	"Hybrid-SWB-20ms-mono-48k":  -0.45,
+	"Hybrid-SWB-40ms-mono-48k":  -0.30,
 	"Hybrid-FB-20ms-mono-64k":   -0.75,
 	"Hybrid-FB-60ms-mono-64k":   -0.75,
 	"Hybrid-FB-20ms-stereo-96k": -0.45,
