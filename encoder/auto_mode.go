@@ -317,8 +317,10 @@ func (e *Encoder) autoModeDecision(stereoWidth float64, voiceEst, equivRate, fra
 	}
 
 	// FEC guard: with in-band FEC and sufficient loss, use SILK.
-	// fec_config != 2 guard: don't force SILK if confident about music.
-	if e.fecEnabled && e.packetLoss > (128-voiceEst)>>4 {
+	// When fec_config == 2, don't force SILK unless voice_est > 25 (music-safe mode).
+	// Matches libopus opus_encoder.c line 1517.
+	if e.fecEnabled && e.packetLoss > (128-voiceEst)>>4 &&
+		(e.fecConfig != 2 || voiceEst > 25) {
 		mode = ModeSILK
 	}
 
@@ -531,10 +533,14 @@ func (e *Encoder) autoModeAndBandwidthDecision(pcm []float64, frameSize int) Mod
 	}
 
 	// Step 11: Stereo→mono transition delay (lines 1562-1570).
-	// When switching from stereo to mono, delay by one frame for smooth SILK downmix.
-	if e.streamChannels == 1 && e.prevChannels == 2 &&
+	// When switching from stereo to mono, delay by two frames for smooth SILK downmix.
+	// toMono is set to 1 on the first frame, then cleared on the next.
+	if e.streamChannels == 1 && e.prevChannels == 2 && e.toMono == 0 &&
 		mode != ModeCELT && e.prevMode != ModeCELT {
+		e.toMono = 1
 		e.streamChannels = 2
+	} else {
+		e.toMono = 0
 	}
 
 	// Step 12: Recompute equiv_rate with mode decision (lines 1572-1574).
@@ -543,11 +549,17 @@ func (e *Encoder) autoModeAndBandwidthDecision(pcm []float64, frameSize int) Mod
 
 	// Step 13: Auto bandwidth selection (lines 1583-1627).
 	// Run when CELT-only, first frame, or SILK allows bandwidth switch.
-	// We always allow bandwidth switch since we don't track SILK internal state.
-	if mode == ModeCELT || e.first {
+	allowBWSwitch := e.silkAllowBandwidthSwitch()
+	if mode == ModeCELT || e.first || allowBWSwitch {
 		bw := e.autoSelectBandwidth(voiceEst, equivRate)
 		e.bandwidth = bw
 		e.autoBandwidth = bw
+	}
+
+	// Prevent SWB/FB until SILK LP filter is inactive (lines 1625-1626).
+	if !e.first && mode != ModeCELT && !e.silkInWBModeWithoutVariableLP() &&
+		e.bandwidth > types.BandwidthWideband {
+		e.bandwidth = types.BandwidthWideband
 	}
 
 	// Step 14: Bandwidth clamping (lines 1629-1684).
@@ -568,4 +580,26 @@ func (e *Encoder) autoModeAndBandwidthDecision(pcm []float64, frameSize int) Mod
 	e.prevChannels = e.streamChannels
 
 	return mode
+}
+
+// silkAllowBandwidthSwitch checks if the SILK encoder allows bandwidth switching.
+// In libopus, this is set when SILK's internal sample rate is below the API rate.
+// Matches libopus silk_encode_frame_FLP.c allowBandwidthSwitch output.
+func (e *Encoder) silkAllowBandwidthSwitch() bool {
+	if e.silkEncoder == nil {
+		return false
+	}
+	// SILK allows bandwidth switch when its internal rate is below the Opus API rate
+	// and it has completed encoding (2 subframes for 10ms, signaling readiness).
+	silkRate := e.silkEncoder.SampleRate()
+	return silkRate > 0 && e.sampleRate/1000 > silkRate/1000
+}
+
+// silkInWBModeWithoutVariableLP checks if SILK is in WB mode with LP filter inactive.
+// Matches libopus: silk_mode.inWBmodeWithoutVariableLP = (fs_kHz == 16 && sLP.mode == 0).
+func (e *Encoder) silkInWBModeWithoutVariableLP() bool {
+	if e.silkEncoder == nil {
+		return true // Conservative: don't restrict bandwidth if SILK not initialized.
+	}
+	return e.silkEncoder.InWBModeWithoutVariableLP()
 }
