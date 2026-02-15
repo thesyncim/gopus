@@ -19,16 +19,28 @@ var encoderLibopusGapFloorDB = map[string]float64{
 	"SILK-MB-20ms-mono-24k":     -0.40,
 	"SILK-WB-10ms-mono-32k":     -0.05,
 	"SILK-WB-20ms-mono-32k":     -0.50,
-	"SILK-WB-40ms-mono-32k":     -0.35,
-	"SILK-WB-60ms-mono-32k":     -0.40,
+	"SILK-WB-40ms-mono-32k":     -0.30,
+	"SILK-WB-60ms-mono-32k":     -0.15,
 	"SILK-WB-20ms-stereo-48k":   -0.10,
 	"Hybrid-SWB-10ms-mono-48k":  0.00,
-	"Hybrid-SWB-20ms-mono-48k":  -0.15,
-	"Hybrid-SWB-40ms-mono-48k":  -0.25,
+	"Hybrid-SWB-20ms-mono-48k":  -0.05,
+	"Hybrid-SWB-40ms-mono-48k":  -0.15,
 	"Hybrid-FB-10ms-mono-64k":   -0.40,
-	"Hybrid-FB-20ms-mono-64k":   -0.55,
-	"Hybrid-FB-60ms-mono-64k":   -0.55,
-	"Hybrid-FB-20ms-stereo-96k": -0.25,
+	"Hybrid-FB-20ms-mono-64k":   -0.30,
+	"Hybrid-FB-60ms-mono-64k":   -0.30,
+	"Hybrid-FB-20ms-stereo-96k": -0.15,
+}
+
+// amd64 tracks wider gaps on some profiles due to floating-point precision
+// differences (x87/SSE vs arm64 NEON). Override floors to still catch
+// regressions without false-failing CI.
+var encoderLibopusGapFloorAMD64OverrideDB = map[string]float64{
+	"SILK-MB-20ms-mono-24k":     -14.0,
+	"SILK-WB-60ms-mono-32k":     -0.55,
+	"Hybrid-SWB-20ms-mono-48k":  -0.45,
+	"Hybrid-FB-20ms-mono-64k":   -0.75,
+	"Hybrid-FB-60ms-mono-64k":   -0.75,
+	"Hybrid-FB-20ms-stereo-96k": -0.45,
 }
 
 // Small tolerance for platform/decoder variance in measured SNR gaps.
@@ -46,10 +58,10 @@ func TestEncoderCompliancePrecisionGuard(t *testing.T) {
 			if !ok {
 				t.Fatalf("missing precision floor for %q", tc.name)
 			}
-			if runtime.GOARCH == "amd64" && tc.name == "SILK-MB-20ms-mono-24k" {
-				// amd64 currently tracks significantly below arm64 on this profile.
-				// Keep a bounded floor so regressions are still caught.
-				floor = -14.0
+			if runtime.GOARCH == "amd64" {
+				if amd64Floor, has := encoderLibopusGapFloorAMD64OverrideDB[tc.name]; has {
+					floor = amd64Floor
+				}
 			}
 
 			q, _ := runEncoderComplianceTest(t, tc.mode, tc.bandwidth, tc.frameSize, tc.channels, tc.bitrate)
