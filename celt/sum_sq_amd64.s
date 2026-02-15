@@ -27,7 +27,7 @@ TEXT ·sumOfSquaresF64toF32(SB), NOSPLIT, $0-40
 
 sq_loop2:
 	VMOVUPD (AX), X0              // load 2 float64
-	VCVTPD2PS X0, X0              // narrow to 2 float32 in lower lanes
+	VCVTPD2PSX X0, X0             // narrow to 2 float32 in lower lanes
 	VMULPS  X0, X0, X0            // v * v (only lower 2 lanes meaningful)
 	VADDPS  X0, X8, X8            // acc += v*v
 	ADDQ    $16, AX
