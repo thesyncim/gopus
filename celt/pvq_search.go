@@ -77,31 +77,37 @@ func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]int, yBuf 
 		absX = make([]float32, n)
 	}
 
-	// Initialize buffers with BCE hints for all arrays.
-	_ = iy[n-1]
-	_ = signx[n-1]
-	_ = y[n-1]
-	_ = absX[n-1]
-	_ = x[n-1]
-	for j := 0; j < n; j++ {
-		iy[j] = 0
-		signx[j] = 0
-		y[j] = 0
-		xj := x[j]
-		if xj < 0 {
-			signx[j] = 1
-			absX[j] = float32(-xj)
-		} else {
-			absX[j] = float32(xj)
-		}
-		if tmpPVQAbsQ15Enabled {
-			q := int(absX[j]*32768.0 + 0.5)
-			absX[j] = float32(q) * (1.0 / 32768.0)
-		}
-		if idxBias != 0 {
-			absX[j] -= float32(j) * idxBias
-			if absX[j] < 0 {
-				absX[j] = 0
+	// Initialize buffers: extract abs values and signs from float64 input.
+	if idxBias == 0 && !tmpPVQAbsQ15Enabled {
+		// Fast path: SIMD-accelerated extraction (assembly on arm64/amd64)
+		pvqExtractAbsSign(x, absX, y, signx, iy, n)
+	} else {
+		// Slow path with optional idx bias and Q15 quantization
+		_ = iy[n-1]
+		_ = signx[n-1]
+		_ = y[n-1]
+		_ = absX[n-1]
+		_ = x[n-1]
+		for j := 0; j < n; j++ {
+			iy[j] = 0
+			signx[j] = 0
+			y[j] = 0
+			xj := x[j]
+			if xj < 0 {
+				signx[j] = 1
+				absX[j] = float32(-xj)
+			} else {
+				absX[j] = float32(xj)
+			}
+			if tmpPVQAbsQ15Enabled {
+				q := int(absX[j]*32768.0 + 0.5)
+				absX[j] = float32(q) * (1.0 / 32768.0)
+			}
+			if idxBias != 0 {
+				absX[j] -= float32(j) * idxBias
+				if absX[j] < 0 {
+					absX[j] = 0
+				}
 			}
 		}
 	}
@@ -162,24 +168,13 @@ func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]int, yBuf 
 	// For each pulse, find the position that maximizes Rxy/sqrt(Ryy).
 	// Reference: libopus vq.c lines 299-362
 	//
-	// The inner search is extracted to pvqSearchBestPos for SIMD/assembly optimization.
-	// BCE hints: prove to compiler that absX[0..n-1] and y[0..n-1] are in-bounds.
-	_ = absX[n-1]
-	_ = y[n-1]
-	for i := 0; i < pulsesLeft; i++ {
-		// The squared magnitude term gets added anyway, so we add it outside the loop
-		// Reference: libopus vq.c line 314
-		yy += 1
-
-		// Find best position using optimized search (assembly on arm64/amd64)
-		bestID := pvqSearchBestPos(absX[:n], y[:n], float64(xy), float64(yy), n)
-
-		// Update running sums for the chosen position
-		// Reference: libopus vq.c lines 353-361
-		xy += absX[bestID]
-		yy += y[bestID]
-		y[bestID] += 2 // Keep y[j] = 2*iy[j] invariant
-		iy[bestID]++
+	// The entire outer pulse loop + inner position search is merged into
+	// pvqSearchPulseLoop (assembly on arm64/amd64) to eliminate per-pulse
+	// Go→asm transition overhead.
+	if pulsesLeft > 0 && n > 0 {
+		xyOut, yyOut := pvqSearchPulseLoop(absX[:n], y[:n], iy[:n], float64(xy), float64(yy), n, pulsesLeft)
+		xy = float32(xyOut)
+		yy = float32(yyOut)
 	}
 
 	// Put the original signs back

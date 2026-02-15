@@ -161,11 +161,7 @@ func ComputeLinearBandAmplitudesInto(mdctCoeffs []float64, nbBands, frameSize in
 		// Compute sum of squares with libopus epsilon
 		// Reference: libopus bands.c line 164:
 		//   sum = 1e-27f + celt_inner_prod(&X[...], &X[...], ...)
-		sum := float32(1e-27)
-		for i := 0; i < n; i++ {
-			v := float32(mdctCoeffs[offset+i])
-			sum += v * v
-		}
+		sum := float32(1e-27) + float32(sumOfSquaresF64toF32(mdctCoeffs[offset:offset+n], n))
 
 			// sqrt(sum) gives the amplitude (L2 norm)
 			// Reference: libopus bands.c line 165:

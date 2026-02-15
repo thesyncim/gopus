@@ -1155,6 +1155,7 @@ type encoderScratch struct {
 	transientEnergy       []float64
 	transientChannelSamps []float64
 	transientX            []float32
+	transientX2           []float32
 
 	// Tonality analysis scratch
 	tonalityPowers       []float64
@@ -1346,6 +1347,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.transientEnergy = ensureFloat64Slice(&s.transientEnergy, samplesPerChannel/2)
 	s.transientChannelSamps = ensureFloat64Slice(&s.transientChannelSamps, samplesPerChannel)
 	s.transientX = ensureFloat32Slice(&s.transientX, samplesPerChannel)
+	s.transientX2 = ensureFloat32Slice(&s.transientX2, samplesPerChannel/2)
 
 	// Tonality analysis scratch
 	s.tonalityPowers = ensureFloat64Slice(&s.tonalityPowers, frameSize)

@@ -218,9 +218,7 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		preCh := pre[ch*perChanLen : (ch+1)*perChanLen]
 		outCh := out[ch*perChanLen : (ch+1)*perChanLen]
 		preSub := preCh[maxPeriod : maxPeriod+frameSize]
-		for _, v := range preSub {
-			before[ch] += math.Abs(v)
-		}
+		before[ch] = absSum(preSub)
 		if offset > 0 {
 			if tmpPrefilterF64Enabled {
 				combFilterWithInput(outCh, preCh, maxPeriod, prevPeriod, prevPeriod, offset, -e.prefilterGain, -e.prefilterGain, prevTapset, prevTapset, nil, 0)
@@ -241,9 +239,7 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 				maxPeriod+offset, frameSize-offset, overlap, prevPeriod, pitchIndex, -e.prefilterGain, -gain1, prevTapset, tapset, offset, e.frameCount)), 0o644)
 		}
 		outSub := outCh[maxPeriod : maxPeriod+frameSize]
-		for _, v := range outSub {
-			after[ch] += math.Abs(v)
-		}
+		after[ch] = absSum(outSub)
 	}
 
 	cancelPitch := false
