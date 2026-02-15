@@ -1,9 +1,7 @@
-//go:build !arm64 && !amd64
-
 package silk
 
-// shortTermPrediction16 is a fully unrolled version for order=16.
-// Pure Go fallback for architectures without assembly.
+// shortTermPrediction16 computes 16-tap LPC prediction.
+// Returns 8 + sum((sLPCQ14[idx-k] * int16(aQ12[k])) >> 16) for k=0..15.
 func shortTermPrediction16(sLPCQ14 []int32, idx int, aQ12 []int16) int32 {
 	_ = sLPCQ14[idx]
 	_ = sLPCQ14[idx-15]
@@ -28,8 +26,8 @@ func shortTermPrediction16(sLPCQ14 []int32, idx int, aQ12 []int16) int32 {
 	return out
 }
 
-// shortTermPrediction10 is a fully unrolled version for order=10.
-// Pure Go fallback for architectures without assembly.
+// shortTermPrediction10 computes 10-tap LPC prediction.
+// Returns 5 + sum((sLPCQ14[idx-k] * int16(aQ12[k])) >> 16) for k=0..9.
 func shortTermPrediction10(sLPCQ14 []int32, idx int, aQ12 []int16) int32 {
 	_ = sLPCQ14[idx]
 	_ = sLPCQ14[idx-9]

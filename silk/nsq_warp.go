@@ -1,8 +1,7 @@
-//go:build !arm64 && !amd64
-
 package silk
 
-// warpedARFeedback24 computes 24-tap warped AR noise shaping feedback (pure Go).
+// warpedARFeedback24 computes 24-tap warped AR noise shaping feedback.
+// Sequential dependencies prevent SIMD parallelism.
 func warpedARFeedback24(sAR2Q14 *[maxShapeLpcOrder]int32, diffQ14 int32, arShpQ13 []int16, warpQ16 int32) int32 {
 	sAR := sAR2Q14
 	w := int64(warpQ16)
@@ -98,7 +97,8 @@ func warpedARFeedback24(sAR2Q14 *[maxShapeLpcOrder]int32, diffQ14 int32, arShpQ1
 	return acc
 }
 
-// warpedARFeedback16 computes 16-tap warped AR noise shaping feedback (pure Go).
+// warpedARFeedback16 computes 16-tap warped AR noise shaping feedback.
+// Sequential dependencies prevent SIMD parallelism.
 func warpedARFeedback16(sAR2Q14 *[maxShapeLpcOrder]int32, diffQ14 int32, arShpQ13 []int16, warpQ16 int32) int32 {
 	sAR := sAR2Q14
 	w := int64(warpQ16)
