@@ -516,8 +516,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	}
 
 	// Prepare LBRR data for the next packet if FEC is enabled (before bitrate loop).
+	// Pass currentPrevInd (the current frame's quantized gain index) matching libopus
+	// which reads sShape.LastGainIndex (already updated by silk_gains_quant).
 	if e.lbrrEnabled {
-		e.lbrrEncode(framePCM, frameIndices, lpcQ12, predCoefQ12, interpIdx, pitchLags, ltpCoeffs, ltpScaleIndex, noiseParams, seed, numSubframes, subframeSamples, frameSamples, speechActivityQ8)
+		e.lbrrEncode(framePCM, frameIndices, lpcQ12, predCoefQ12, interpIdx, pitchLags, ltpCoeffs, ltpScaleIndex, noiseParams, seed, numSubframes, subframeSamples, frameSamples, speechActivityQ8, currentPrevInd)
 	}
 
 	ltpScaleQ14 := 0

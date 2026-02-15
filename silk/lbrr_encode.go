@@ -11,8 +11,9 @@ import (
 
 // lbrrSpeechActivityThresholdQ8 is the minimum speech activity for LBRR.
 // Frames with lower activity are not LBRR-encoded.
-// Reference: libopus tuning_parameters.h LBRR_SPEECH_ACTIVITY_THRES
-const lbrrSpeechActivityThresholdQ8 = 128 // 0.5 in Q8
+// Reference: libopus tuning_parameters.h LBRR_SPEECH_ACTIVITY_THRES = 0.3f
+// SILK_FIX_CONST(0.3, 8) = (int32)(0.3 * 256 + 0.5) = 77
+const lbrrSpeechActivityThresholdQ8 = 77
 
 // lbrrEncode encodes LBRR (low bitrate redundancy) data for the current frame.
 // This creates a lower-quality version of the frame that can be used for
@@ -38,13 +39,15 @@ func (e *Encoder) lbrrEncode(
 	seed int,
 	numSubframes, subframeSamples, frameSamples int,
 	speechActivityQ8 int,
+	currentLastGainIndex int8,
 ) {
 	if !e.lbrrEnabled {
 		return
 	}
 
 	// Only encode LBRR for frames with sufficient speech activity
-	if speechActivityQ8 < lbrrSpeechActivityThresholdQ8 {
+	// Match libopus: speech_activity_Q8 > SILK_FIX_CONST(LBRR_SPEECH_ACTIVITY_THRES, 8)
+	if speechActivityQ8 <= lbrrSpeechActivityThresholdQ8 {
 		e.lbrrFlags[e.nFramesEncoded] = 0
 		return
 	}
@@ -65,8 +68,10 @@ func (e *Encoder) lbrrEncode(
 
 	// For first LBRR frame or after non-LBRR, increase first gain
 	if frameIdx == 0 || e.lbrrFlags[frameIdx-1] == 0 {
-		// Save gain index for next LBRR frame
-		e.lbrrPrevLastGainIdx = int8(e.previousGainIndex)
+		// Save current frame's gain index for next LBRR frame.
+		// Match libopus: LBRRprevLastGainIndex = sShape.LastGainIndex
+		// which is already updated by silk_gains_quant for the current frame.
+		e.lbrrPrevLastGainIdx = currentLastGainIndex
 
 		// Increase gain by LBRR_GainIncreases steps
 		gainIdx := int(e.lbrrIndices[frameIdx].GainsIndices[0])
