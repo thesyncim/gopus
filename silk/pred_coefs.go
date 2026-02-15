@@ -14,7 +14,7 @@ func computeMinInvGain(predGainQ7 int32, codingQuality float32, firstFrame bool)
 	// LTPredCodGain / 3 is float32 in C (float / int promotes to float).
 	powArg := predGainF32 / 3.0
 	// pow(2, double) returns double, then (silk_float) casts to float.
-	minInvGain := float32(math.Pow(2.0, float64(powArg))) / float32(maxPredictionPowerGain)
+	minInvGain := float32(math.Exp2(float64(powArg))) / float32(maxPredictionPowerGain)
 	// float / float in C.
 	minInvGain /= float32(0.25) + float32(0.75)*codingQuality
 
@@ -411,7 +411,7 @@ func applyGainProcessing(gains []float32, resNrg []float64, predGainQ7 int32, sn
 	// Match libopus: InvMaxSqrVal = (silk_float)(pow(2.0f, 0.33f * (21.0f - SNR_dB_Q7 * (1/128.0f))) / subfr_length)
 	// pow arg is float32, pow returns double, division by subfr_length is in double, then cast to float32.
 	powArg := float32(0.33) * (float32(21.0) - snrDB)
-	invMaxSqrVal := float32(math.Pow(2.0, float64(powArg)) / float64(subframeSamples))
+	invMaxSqrVal := float32(math.Exp2(float64(powArg)) / float64(subframeSamples))
 
 	for k := range gains {
 		energy := gains[k] * gains[k]
