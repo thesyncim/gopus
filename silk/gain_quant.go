@@ -66,12 +66,18 @@ func silkGainsQuantInto(ind []int8, gainQ16 []int32, prevInd int8, conditional b
 			ind[k] = int8(delta)
 
 			// Accumulate deltas
+			// Match libopus: in the double-step branch, only apply upper-bound clamp.
+			// In the normal branch, NO clamping — prev_ind can go negative.
+			// The dequant function clamps to [0, N_LEVELS_QGAIN-1], but the encoder
+			// quantizer intentionally allows negative prev_ind to produce lower gains.
 			if int(ind[k]) > doubleStepThreshold {
 				currentPrevInd += 2*int(ind[k]) - doubleStepThreshold
+				if currentPrevInd > nLevelsQGain-1 {
+					currentPrevInd = nLevelsQGain - 1
+				}
 			} else {
 				currentPrevInd += int(ind[k])
 			}
-			currentPrevInd = silkLimitInt(currentPrevInd, 0, nLevelsQGain-1)
 
 			// Shift to make non-negative (for encoding)
 			ind[k] -= int8(minDeltaGainQuant)
