@@ -473,7 +473,7 @@ func noiseShapeQuantizerSubframe(
 			if shpLagPtr-2 >= 0 && shpLagPtr-2 < len(nsq.sLTPShpQ14) {
 				shp2 = nsq.sLTPShpQ14[shpLagPtr-2]
 			}
-			nLTPQ13 = silk_SMULWB(shp0+shp2, harmShapeFIRPackedQ14) // No saturation needed: Q14 values, sum fits int32
+			nLTPQ13 = silk_SMULWB(silk_ADD_SAT32(shp0, shp2), harmShapeFIRPackedQ14)
 			nLTPQ13 = silk_SMLAWT(nLTPQ13, shp1, harmShapeFIRPackedQ14)
 			nLTPQ13 = silk_LSHIFT32(nLTPQ13, 1)
 			shpLagPtr++
