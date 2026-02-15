@@ -574,7 +574,7 @@ func noiseShapeQuantizerDelDec(
 			if shpLagPtrIdx >= 2 && shpLagPtrIdx-2 < len(nsq.sLTPShpQ14) {
 				shp2 = nsq.sLTPShpQ14[shpLagPtrIdx-2]
 			}
-			nLTPQ14 = silk_SMULWB(shp0+shp2, harmShapeFIRPackedQ14) // No saturation needed: Q14 values, sum fits int32
+			nLTPQ14 = silk_SMULWB(silk_ADD_SAT32(shp0, shp2), harmShapeFIRPackedQ14)
 			nLTPQ14 = silk_SMLAWT(nLTPQ14, shp1, harmShapeFIRPackedQ14)
 			nLTPQ14 = ltpPredQ14 - (nLTPQ14 << 2)
 			shpLagPtrIdx++
@@ -627,9 +627,9 @@ func noiseShapeQuantizerDelDec(
 			nLFQ14 += int32((int64(psDD.lfARQ14) * lfShpQ14Hi) >> 16)
 			nLFQ14 <<= 2
 
-			tmpA := nARQ14 + nLFQ14      // No saturation needed: bounded Q14 shaping values
+			tmpA := silk_ADD_SAT32(nARQ14, nLFQ14)
 			tmpB := nLTPQ14 + lpcPredQ14 // silk_ADD32_ovflw
-			tmpA = tmpB - tmpA           // No saturation needed: bounded Q14 prediction values
+			tmpA = silk_SUB_SAT32(tmpB, tmpA)
 			tmpA = silk_RSHIFT_ROUND(tmpA, 4)
 			rQ10 := xQ10i - tmpA
 			// Branchless conditional negation: seed is a LCG (~50% negative),
@@ -697,7 +697,7 @@ func noiseShapeQuantizerDelDec(
 			xqQ14 := lpcExcQ14 + lpcPredQ14
 			psSS[0].diffQ14 = xqQ14 - xQ10i4
 			sLFAR := psSS[0].diffQ14 - nARQ14
-			psSS[0].sLTPShpQ14 = sLFAR - nLFQ14 // No saturation needed: bounded Q14 shaping residual
+			psSS[0].sLTPShpQ14 = silk_SUB_SAT32(sLFAR, nLFQ14)
 			psSS[0].lfARQ14 = sLFAR
 			psSS[0].lpcExcQ14 = lpcExcQ14
 			psSS[0].xqQ14 = xqQ14
@@ -708,7 +708,7 @@ func noiseShapeQuantizerDelDec(
 			xqQ14 = lpcExcQ14 + lpcPredQ14
 			psSS[1].diffQ14 = xqQ14 - xQ10i4
 			sLFAR = psSS[1].diffQ14 - nARQ14
-			psSS[1].sLTPShpQ14 = sLFAR - nLFQ14 // No saturation needed: bounded Q14 shaping residual
+			psSS[1].sLTPShpQ14 = silk_SUB_SAT32(sLFAR, nLFQ14)
 			psSS[1].lfARQ14 = sLFAR
 			psSS[1].lpcExcQ14 = lpcExcQ14
 			psSS[1].xqQ14 = xqQ14
