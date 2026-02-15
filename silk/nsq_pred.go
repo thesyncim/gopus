@@ -1,5 +1,3 @@
-//go:build !arm64
-
 package silk
 
 // shortTermPrediction16 computes 16-tap LPC prediction.

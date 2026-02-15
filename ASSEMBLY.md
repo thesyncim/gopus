@@ -53,22 +53,10 @@ This file tracks what is implemented and how fallback behavior works.
   - `celtPitchXcorrFloatImpl`
 
 3. NSQ short-term prediction
-- Wrapper: `silk/nsq_pred_asm.go`
-- Native sources:
-  - `silk/nsq_pred_arm64.s`
-- Fallback: `silk/nsq_pred_default.go`
-- Entry points:
-  - `shortTermPrediction16`
-  - `shortTermPrediction10`
+- Fallback: `silk/nsq_pred.go` (Pure Go)
 
 4. NSQ warped AR feedback
-- Wrapper: `silk/nsq_warp_asm.go`
-- Native sources:
-  - `silk/nsq_warp_arm64.s`
-- Fallback: `silk/nsq_warp_default.go`
-- Entry points:
-  - `warpedARFeedback24`
-  - `warpedARFeedback16`
+- Fallback: `silk/nsq_warp.go` (Pure Go)
 
 ## Validation Guidance
 
