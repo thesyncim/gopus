@@ -25,12 +25,33 @@ pxc_outer1:
 	SHLQ   $3, R9
 	ADDQ   BX, R9
 
+	// 8-wide main loop: process 8 elements per iteration
 	MOVQ DX, R10
-	SHRQ $2, R10
+	SHRQ $3, R10
 	TESTQ R10, R10
+	JZ   pxc_mid1
+
+pxc_inner1_8:
+	VMOVUPD (R8), Y0
+	VCVTPD2PSY Y0, X0
+	VMOVUPD (R9), Y1
+	VCVTPD2PSY Y1, X1
+	VFMADD231PS X0, X1, X8
+	VMOVUPD 32(R8), Y2
+	VCVTPD2PSY Y2, X2
+	VMOVUPD 32(R9), Y3
+	VCVTPD2PSY Y3, X3
+	VFMADD231PS X2, X3, X8
+	ADDQ $64, R8
+	ADDQ $64, R9
+	DECQ R10
+	JNZ  pxc_inner1_8
+
+pxc_mid1:
+	// Handle 4-element remainder
+	TESTQ $4, DX
 	JZ   pxc_tail1
 
-pxc_inner1:
 	VMOVUPD (R8), Y0
 	VCVTPD2PSY Y0, X0
 	VMOVUPD (R9), Y1
@@ -38,8 +59,6 @@ pxc_inner1:
 	VFMADD231PS X0, X1, X8
 	ADDQ $32, R8
 	ADDQ $32, R9
-	DECQ R10
-	JNZ  pxc_inner1
 
 pxc_tail1:
 	MOVQ DX, R10

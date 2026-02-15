@@ -41,47 +41,108 @@ pxc_outer4:
 	ADD  $16, R8, R10
 	ADD  $24, R8, R11
 
-	// R12 = length / 4
-	LSR  $2, R3, R12
-	CBZ  R12, pxc_tail4
+	// R12 = length / 8 (8-wide main loop)
+	LSR  $3, R3, R12
+	CBZ  R12, pxc_mid4
 
-pxc_inner4:
+pxc_inner8:
+	// --- First 4 elements ---
 	// Load 4 float64 from x, convert to 4 float32
 	VLD1.P (R7)(R15), [V0.D2]
 	VLD1.P (R7)(R15), [V1.D2]
 	WORD $0x0E616804                    // FCVTN  V4.2S, V0.D2
 	WORD $0x4E616824                    // FCVTN2 V4.4S, V1.D2
 
-	// y0: load, convert, FMA into V16
+	// Load next 4 float64 from x, convert to 4 float32
+	VLD1.P (R7)(R15), [V2.D2]
+	VLD1.P (R7)(R15), [V3.D2]
+	WORD $0x0E616845                    // FCVTN  V5.2S, V2.D2
+	WORD $0x4E616865                    // FCVTN2 V5.4S, V3.D2
+
+	// y0: 2×(load, convert, FMA into V16)
+	VLD1.P (R8)(R15), [V0.D2]
+	VLD1.P (R8)(R15), [V1.D2]
+	WORD $0x0E616806                    // FCVTN  V6.2S, V0.D2
+	WORD $0x4E616826                    // FCVTN2 V6.4S, V1.D2
+	VFMLA V4.S4, V6.S4, V16.S4
+	VLD1.P (R8)(R15), [V2.D2]
+	VLD1.P (R8)(R15), [V3.D2]
+	WORD $0x0E616847                    // FCVTN  V7.2S, V2.D2
+	WORD $0x4E616867                    // FCVTN2 V7.4S, V3.D2
+	VFMLA V5.S4, V7.S4, V16.S4
+
+	// y1: 2×(load, convert, FMA into V17)
+	VLD1.P (R9)(R15), [V0.D2]
+	VLD1.P (R9)(R15), [V1.D2]
+	WORD $0x0E616806                    // FCVTN  V6.2S, V0.D2
+	WORD $0x4E616826                    // FCVTN2 V6.4S, V1.D2
+	VFMLA V4.S4, V6.S4, V17.S4
+	VLD1.P (R9)(R15), [V2.D2]
+	VLD1.P (R9)(R15), [V3.D2]
+	WORD $0x0E616847                    // FCVTN  V7.2S, V2.D2
+	WORD $0x4E616867                    // FCVTN2 V7.4S, V3.D2
+	VFMLA V5.S4, V7.S4, V17.S4
+
+	// y2: 2×(load, convert, FMA into V18)
+	VLD1.P (R10)(R15), [V0.D2]
+	VLD1.P (R10)(R15), [V1.D2]
+	WORD $0x0E616806                    // FCVTN  V6.2S, V0.D2
+	WORD $0x4E616826                    // FCVTN2 V6.4S, V1.D2
+	VFMLA V4.S4, V6.S4, V18.S4
+	VLD1.P (R10)(R15), [V2.D2]
+	VLD1.P (R10)(R15), [V3.D2]
+	WORD $0x0E616847                    // FCVTN  V7.2S, V2.D2
+	WORD $0x4E616867                    // FCVTN2 V7.4S, V3.D2
+	VFMLA V5.S4, V7.S4, V18.S4
+
+	// y3: 2×(load, convert, FMA into V19)
+	VLD1.P (R11)(R15), [V0.D2]
+	VLD1.P (R11)(R15), [V1.D2]
+	WORD $0x0E616806                    // FCVTN  V6.2S, V0.D2
+	WORD $0x4E616826                    // FCVTN2 V6.4S, V1.D2
+	VFMLA V4.S4, V6.S4, V19.S4
+	VLD1.P (R11)(R15), [V2.D2]
+	VLD1.P (R11)(R15), [V3.D2]
+	WORD $0x0E616847                    // FCVTN  V7.2S, V2.D2
+	WORD $0x4E616867                    // FCVTN2 V7.4S, V3.D2
+	VFMLA V5.S4, V7.S4, V19.S4
+
+	SUBS $1, R12, R12
+	BNE  pxc_inner8
+
+pxc_mid4:
+	// Handle 4-element remainder (length%8 >= 4)
+	TST  $4, R3
+	BEQ  pxc_tail4
+
+	VLD1.P (R7)(R15), [V0.D2]
+	VLD1.P (R7)(R15), [V1.D2]
+	WORD $0x0E616804                    // FCVTN  V4.2S, V0.D2
+	WORD $0x4E616824                    // FCVTN2 V4.4S, V1.D2
+
 	VLD1.P (R8)(R15), [V0.D2]
 	VLD1.P (R8)(R15), [V1.D2]
 	WORD $0x0E616805                    // FCVTN  V5.2S, V0.D2
 	WORD $0x4E616825                    // FCVTN2 V5.4S, V1.D2
 	VFMLA V4.S4, V5.S4, V16.S4
 
-	// y1: load, convert, FMA into V17
 	VLD1.P (R9)(R15), [V0.D2]
 	VLD1.P (R9)(R15), [V1.D2]
 	WORD $0x0E616805                    // FCVTN  V5.2S, V0.D2
 	WORD $0x4E616825                    // FCVTN2 V5.4S, V1.D2
 	VFMLA V4.S4, V5.S4, V17.S4
 
-	// y2: load, convert, FMA into V18
 	VLD1.P (R10)(R15), [V0.D2]
 	VLD1.P (R10)(R15), [V1.D2]
 	WORD $0x0E616805                    // FCVTN  V5.2S, V0.D2
 	WORD $0x4E616825                    // FCVTN2 V5.4S, V1.D2
 	VFMLA V4.S4, V5.S4, V18.S4
 
-	// y3: load, convert, FMA into V19
 	VLD1.P (R11)(R15), [V0.D2]
 	VLD1.P (R11)(R15), [V1.D2]
 	WORD $0x0E616805                    // FCVTN  V5.2S, V0.D2
 	WORD $0x4E616825                    // FCVTN2 V5.4S, V1.D2
 	VFMLA V4.S4, V5.S4, V19.S4
-
-	SUBS $1, R12, R12
-	BNE  pxc_inner4
 
 pxc_tail4:
 	// Handle 2-element remainder (length%4 >= 2)
@@ -194,23 +255,48 @@ pxc_outer1:
 	LSL  $3, R5, R13
 	ADD  R1, R13, R8
 
-	LSR  $2, R3, R12
-	CBZ  R12, pxc_tail1
+	// 8-wide main loop for single correlation
+	LSR  $3, R3, R12
+	CBZ  R12, pxc_mid1
 
-pxc_inner1:
+pxc_inner1_8:
 	VLD1.P (R7)(R15), [V0.D2]
 	VLD1.P (R7)(R15), [V1.D2]
 	WORD $0x0E616804                    // FCVTN  V4.2S, V0.D2
 	WORD $0x4E616824                    // FCVTN2 V4.4S, V1.D2
+	VLD1.P (R7)(R15), [V2.D2]
+	VLD1.P (R7)(R15), [V3.D2]
+	WORD $0x0E616845                    // FCVTN  V5.2S, V2.D2
+	WORD $0x4E616865                    // FCVTN2 V5.4S, V3.D2
 
+	VLD1.P (R8)(R15), [V0.D2]
+	VLD1.P (R8)(R15), [V1.D2]
+	WORD $0x0E616806                    // FCVTN  V6.2S, V0.D2
+	WORD $0x4E616826                    // FCVTN2 V6.4S, V1.D2
+	VFMLA V4.S4, V6.S4, V16.S4
+	VLD1.P (R8)(R15), [V2.D2]
+	VLD1.P (R8)(R15), [V3.D2]
+	WORD $0x0E616847                    // FCVTN  V7.2S, V2.D2
+	WORD $0x4E616867                    // FCVTN2 V7.4S, V3.D2
+	VFMLA V5.S4, V7.S4, V16.S4
+
+	SUBS $1, R12, R12
+	BNE  pxc_inner1_8
+
+pxc_mid1:
+	// Handle 4-element remainder
+	TST  $4, R3
+	BEQ  pxc_tail1
+
+	VLD1.P (R7)(R15), [V0.D2]
+	VLD1.P (R7)(R15), [V1.D2]
+	WORD $0x0E616804                    // FCVTN  V4.2S, V0.D2
+	WORD $0x4E616824                    // FCVTN2 V4.4S, V1.D2
 	VLD1.P (R8)(R15), [V0.D2]
 	VLD1.P (R8)(R15), [V1.D2]
 	WORD $0x0E616805                    // FCVTN  V5.2S, V0.D2
 	WORD $0x4E616825                    // FCVTN2 V5.4S, V1.D2
 	VFMLA V4.S4, V5.S4, V16.S4
-
-	SUBS $1, R12, R12
-	BNE  pxc_inner1
 
 pxc_tail1:
 	// Handle 2-element remainder (use .S4 to preserve V16.S[2:3])

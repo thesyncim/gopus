@@ -139,7 +139,13 @@ pl_outer:
 
 	MOVD  $1, R5                  // j = 1
 
-pl_inner:
+	// Check if we can do 2x unrolled loop (need j+1 < n, i.e. j < n-1)
+	SUB   $1, R3, R9             // R9 = n-1
+	CMP   R9, R5
+	BGE   pl_inner_tail
+
+pl_inner2:
+	// --- Iteration j ---
 	FMOVS (R0)(R5<<2), F0        // absX[j]
 	FADDS F16, F0, F0             // rxy
 	FMOVS (R1)(R5<<2), F1        // y[j]
@@ -148,15 +154,49 @@ pl_inner:
 	FMULS F19, F2, F3             // lhs = bestDen * num
 	FMULS F1, F18, F4             // rhs = ryy * bestNum
 	FCMPS F4, F3
-	BLE   pl_inner_next
+	BLE   pl_skip1
 	FMOVS F1, F19                 // bestDen = ryy
 	FMOVS F2, F18                 // bestNum = num
 	MOVD  R5, R6                  // bestID = j
+pl_skip1:
 
-pl_inner_next:
-	ADD   $1, R5
+	// --- Iteration j+1 ---
+	ADD   $1, R5, R7             // R7 = j+1
+	FMOVS (R0)(R7<<2), F0        // absX[j+1]
+	FADDS F16, F0, F0
+	FMOVS (R1)(R7<<2), F1        // y[j+1]
+	FADDS F17, F1, F1
+	FMULS F0, F0, F2
+	FMULS F19, F2, F3
+	FMULS F1, F18, F4
+	FCMPS F4, F3
+	BLE   pl_skip2
+	FMOVS F1, F19
+	FMOVS F2, F18
+	MOVD  R7, R6                  // bestID = j+1
+pl_skip2:
+
+	ADD   $2, R5
+	CMP   R9, R5
+	BLT   pl_inner2
+
+pl_inner_tail:
+	// Handle last element if n is even (j == n-1)
 	CMP   R3, R5
-	BLT   pl_inner
+	BGE   pl_update
+
+	FMOVS (R0)(R5<<2), F0
+	FADDS F16, F0, F0
+	FMOVS (R1)(R5<<2), F1
+	FADDS F17, F1, F1
+	FMULS F0, F0, F2
+	FMULS F19, F2, F3
+	FMULS F1, F18, F4
+	FCMPS F4, F3
+	BLE   pl_update
+	FMOVS F1, F19
+	FMOVS F2, F18
+	MOVD  R5, R6
 
 pl_update:
 	// xy += absX[bestID]
