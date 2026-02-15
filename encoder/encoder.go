@@ -145,8 +145,19 @@ type Encoder struct {
 	analysisReadBakSet  bool
 	prevMode     Mode
 	prevAutoMode Mode
-	inputBuffer []float64
-	delayBuffer []float64
+	inputBuffer  []float64
+	delayBuffer  []float64
+
+	// Auto-mode state (matching libopus OpusEncoder fields)
+	voiceRatio        int             // Persistent voice ratio (-1 = unset, 0-100)
+	detectedBandwidth types.Bandwidth // Analysis-detected bandwidth (0 = undetected)
+	streamChannels    int             // Actual encoding channels (1 or 2)
+	prevChannels      int             // Previous frame's streamChannels
+	autoBandwidth     types.Bandwidth // Last auto-selected bandwidth (for hysteresis)
+	first             bool            // First frame flag
+	lbrrCoded         bool            // Previous frame FEC coding decision
+	userBandwidth     types.Bandwidth // User-set bandwidth (0 = auto)
+	widthMem          StereoWidthMem  // Stateful stereo width computation memory
 
 	// SILK downsampling
 	silkResampler       *silk.DownsamplingResampler
@@ -221,7 +232,12 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		scratchMono:            make([]float32, 2880),
 		scratchPacket:          make([]byte, 1276),
 		prevMode:               ModeAuto,
-		prevAutoMode: ModeAuto,
+		prevAutoMode:           ModeAuto,
+		voiceRatio:             -1,
+		streamChannels:         channels,
+		prevChannels:           channels,
+		autoBandwidth:          types.BandwidthFullband,
+		first:                  true,
 	}
 }
 
@@ -261,6 +277,7 @@ func (e *Encoder) VoIPApplication() bool {
 // SetBandwidth sets the target audio bandwidth.
 func (e *Encoder) SetBandwidth(bandwidth types.Bandwidth) {
 	e.bandwidth = bandwidth
+	e.userBandwidth = bandwidth
 	if e.celtEncoder != nil {
 		e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 	}
@@ -328,6 +345,14 @@ func (e *Encoder) Reset() {
 	e.analysisReadBakSet = false
 	e.prevMode = ModeAuto
 	e.prevAutoMode = ModeAuto
+	e.voiceRatio = -1
+	e.detectedBandwidth = 0
+	e.streamChannels = e.channels
+	e.prevChannels = e.channels
+	e.autoBandwidth = types.BandwidthFullband
+	e.first = true
+	e.lbrrCoded = false
+	e.widthMem = StereoWidthMem{}
 }
 
 // SetFEC enables or disables in-band Forward Error Correction.
@@ -584,13 +609,21 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		return nil, nil
 	}
 
-	signalHint := e.signalType
-	if signalHint == types.SignalAuto {
-		signalHint = e.autoSignalFromPCM(framePCM, frameSize)
-	}
-	requestedMode := e.selectMode(frameSize, signalHint)
-	if e.lfe {
-		requestedMode = ModeCELT
+	var requestedMode Mode
+	if e.mode == ModeAuto {
+		// Full libopus auto-mode decision chain: voice_ratio, stereo_width,
+		// stream_channels, mode threshold interpolation, auto-bandwidth,
+		// bandwidth clamping, decide_fec, mode fixup.
+		requestedMode = e.autoModeAndBandwidthDecision(framePCM, frameSize)
+	} else {
+		signalHint := e.signalType
+		if signalHint == types.SignalAuto {
+			signalHint = e.autoSignalFromPCM(framePCM, frameSize)
+		}
+		requestedMode = e.selectMode(frameSize, signalHint)
+		if e.lfe {
+			requestedMode = ModeCELT
+		}
 	}
 	actualMode, prevModeNext := e.applyCELTTransitionDelay(frameSize, requestedMode)
 

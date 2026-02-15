@@ -970,8 +970,10 @@ func TestEncode_SurroundPerStreamPolicy(t *testing.T) {
 	if got := enc.encoders[enc.lfeStream].LFE(); !got {
 		t.Fatalf("LFE stream LFE flag = %v, want true", got)
 	}
-	if got := enc.encoders[enc.lfeStream].Bandwidth(); got != wantBW {
-		t.Fatalf("LFE stream bandwidth = %v, want %v", got, wantBW)
+	// After encoding, LFE bandwidth is clamped to NB by the auto-mode path
+	// (matching libopus: st->lfe forces OPUS_BANDWIDTH_NARROWBAND).
+	if got := enc.encoders[enc.lfeStream].Bandwidth(); got != types.BandwidthNarrowband {
+		t.Fatalf("LFE stream bandwidth = %v, want %v (narrowband)", got, types.BandwidthNarrowband)
 	}
 	if got := enc.encoders[enc.lfeStream].Mode(); got != encpkg.ModeAuto {
 		t.Fatalf("LFE mode = %v, want ModeAuto", got)
