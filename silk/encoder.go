@@ -616,6 +616,19 @@ func (e *Encoder) SampleRate() int {
 	return e.sampleRate
 }
 
+// LPMode returns the LP variable cutoff filter mode.
+// 0 = idle, <0 = switching down, >0 = switching up.
+func (e *Encoder) LPMode() int {
+	return e.lpState.Mode
+}
+
+// InWBModeWithoutVariableLP returns true when the SILK encoder is in
+// wideband (16kHz) mode with the variable LP filter inactive (mode==0).
+// This matches libopus silk_mode.inWBmodeWithoutVariableLP.
+func (e *Encoder) InWBModeWithoutVariableLP() bool {
+	return e.sampleRate == 16000 && e.lpState.Mode == 0
+}
+
 // PreviousLogGain returns the previous frame's log gain value.
 func (e *Encoder) PreviousLogGain() int32 {
 	return e.previousLogGain
