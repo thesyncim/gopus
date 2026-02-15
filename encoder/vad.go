@@ -614,7 +614,9 @@ func smulwb(a, b int32) int32 {
 }
 
 func smulww(a, b int32) int32 {
-	return smulwb(a, b) + int32(int64(a)*int64(rshiftRound(b, 16)))
+	// Use the OPUS_FAST_INT64 path matching libopus on 64-bit platforms:
+	// (opus_int32)(((opus_int64)(a) * (b)) >> 16)
+	return int32((int64(a) * int64(b)) >> 16)
 }
 
 func smlawb(a, b, c int32) int32 {
