@@ -862,8 +862,6 @@ func lpcFromAutocorr(ac [5]float64) [4]float64 {
 	return lpc
 }
 
-var secondCheck = [16]int{0, 0, 3, 2, 3, 2, 5, 2, 3, 2, 3, 2, 5, 2, 3, 2}
-
 // prefilterInnerProd uses float32 accumulation to match libopus float-path
 // numerics in pitch/pre-filter analysis.
 func prefilterInnerProd(x, y []float64, length int) float64 {
@@ -897,21 +895,5 @@ func prefilterDualInnerProd(x, y1, y2 []float64, length int) (float64, float64) 
 	return float64(sum1), float64(sum2)
 }
 
-// prefilterPitchXcorr computes lagged correlations with float32 accumulation.
-// Keeping the prefilter pitch path consistently float32 reduces tie-break drift
-// versus libopus on tonal sweep inputs.
-func prefilterPitchXcorr(x, y, xcorr []float64, length, maxPitch int) {
-	if length <= 0 || maxPitch <= 0 {
-		return
-	}
-	_ = x[length-1]
-	_ = xcorr[maxPitch-1]
-	_ = y[maxPitch+length-2]
-	for i := 0; i < maxPitch; i++ {
-		sum := float32(0)
-		for j := 0; j < length; j++ {
-			sum += float32(x[j]) * float32(y[i+j])
-		}
-		xcorr[i] = float64(sum)
-	}
-}
+var secondCheck = [16]int{0, 0, 3, 2, 3, 2, 5, 2, 3, 2, 3, 2, 5, 2, 3, 2}
+
