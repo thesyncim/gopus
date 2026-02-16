@@ -604,6 +604,10 @@ func runLibopusSurroundTest(t *testing.T, label string, channels, bitrate int) {
 	t.Logf("Ogg container: %d bytes", ogg.Len())
 
 	decoded := decodeWithOpusdecForTest(t, ogg.Bytes())
+	internalDecoded, err := decodeWithInternalMultistream(ogg.Bytes())
+	if err != nil {
+		t.Fatalf("decodeWithInternalMultistream failed: %v", err)
+	}
 
 	if len(decoded) == 0 {
 		t.Fatal("opusdec produced empty output")
@@ -611,6 +615,9 @@ func runLibopusSurroundTest(t *testing.T, label string, channels, bitrate int) {
 	wantSamples := expectedDecodedSampleCount(numFrames, frameSize, channels)
 	if len(decoded) != wantSamples {
 		t.Fatalf("decoded sample count mismatch: got=%d want=%d", len(decoded), wantSamples)
+	}
+	if len(internalDecoded) != wantSamples {
+		t.Fatalf("internal decoded sample count mismatch: got=%d want=%d", len(internalDecoded), wantSamples)
 	}
 
 	outputEnergy := computeEnergyF32(decoded)
@@ -625,83 +632,52 @@ func runLibopusSurroundTest(t *testing.T, label string, channels, bitrate int) {
 	} else {
 		t.Logf("PASS: %s multistream validated with libopus", label)
 	}
+
+	head := oggcontainer.DefaultOpusHeadMultistreamWithFamily(
+		48000,
+		uint8(channels),
+		1,
+		uint8(streams),
+		uint8(coupled),
+		mapping,
+	)
+
+	libopusRefDecoded, err := decodeWithLibopusReferencePackets(
+		1,
+		channels,
+		streams,
+		coupled,
+		frameSize,
+		head.ChannelMapping,
+		head.DemixingMatrix,
+		packets,
+	)
+	if err != nil {
+		t.Skipf("libopus reference decode helper unavailable: %v", err)
+	}
+
+	preSkip := int(head.PreSkip) * channels
+	if preSkip > 0 && len(libopusRefDecoded) > preSkip {
+		libopusRefDecoded = libopusRefDecoded[preSkip:]
+	}
+	if len(libopusRefDecoded) != wantSamples {
+		t.Fatalf("libopus reference decoded sample count mismatch: got=%d want=%d", len(libopusRefDecoded), wantSamples)
+	}
+
+	meanSquareDiff, maxAbsDiff := computeDiffStatsF32(internalDecoded, libopusRefDecoded)
+	relDiff := 0.0
+	libopusRefEnergy := computeEnergyF32(libopusRefDecoded)
+	if libopusRefEnergy > 0 {
+		relDiff = meanSquareDiff / libopusRefEnergy
+	}
+	if relDiff > 0.05 {
+		t.Fatalf("%s internal/libopus decode drift too high: rel=%.4f meanSq=%.6f maxAbs=%.6f", label, relDiff, meanSquareDiff, maxAbsDiff)
+	}
 }
 
 // TestLibopus_Stereo tests stereo multistream encoding with libopus.
 func TestLibopus_Stereo(t *testing.T) {
-	// Create stereo encoder (2 channels, 1 stream, 1 coupled)
-	enc, err := NewEncoderDefault(48000, 2)
-	if err != nil {
-		t.Fatalf("NewEncoderDefault failed: %v", err)
-	}
-	enc.Reset()
-	enc.SetBitrate(128000) // 128 kbps
-
-	frameSize := 960 // 20ms at 48kHz
-	numFrames := 20
-
-	// Generate test audio
-	var allInput []float64
-	packets := make([][]byte, numFrames)
-
-	for i := 0; i < numFrames; i++ {
-		pcm := generateMultichannelSine(2, frameSize)
-		allInput = append(allInput, pcm...)
-
-		packet, err := enc.Encode(pcm, frameSize)
-		if err != nil {
-			t.Fatalf("Frame %d: Encode failed: %v", i, err)
-		}
-		if packet == nil {
-			t.Logf("Frame %d: DTX (silence)", i)
-			// Create minimal packet for DTX
-			packet = []byte{0xF8, 0xFF, 0xFE} // CELT silence
-		}
-		packets[i] = packet
-		if i == 0 {
-			t.Logf("Frame %d: %d bytes", i, len(packet))
-		}
-	}
-
-	// Compute input energy
-	inputF32 := make([]float32, len(allInput))
-	for i, v := range allInput {
-		inputF32[i] = float32(v)
-	}
-	inputEnergy := computeEnergyF32(inputF32)
-	t.Logf("Input: %d frames, %d samples, energy=%.6f", numFrames, len(allInput), inputEnergy)
-
-	// Get mapping for stereo
-	streams, coupled, mapping, _ := DefaultMapping(2)
-
-	// Write Ogg Opus container
-	var ogg bytes.Buffer
-	err = writeOggOpusMultistream(&ogg, packets, 48000, 2, streams, coupled, mapping, frameSize)
-	if err != nil {
-		t.Fatalf("writeOggOpusMultistream failed: %v", err)
-	}
-	t.Logf("Ogg container: %d bytes", ogg.Len())
-
-	// Decode with opusdec
-	decoded := decodeWithOpusdecForTest(t, ogg.Bytes())
-
-	if len(decoded) == 0 {
-		t.Fatal("opusdec produced empty output")
-	}
-
-	// Compute output energy
-	outputEnergy := computeEnergyF32(decoded)
-	t.Logf("Decoded: %d samples, energy=%.6f", len(decoded), outputEnergy)
-
-	// Energy ratio check (>10% threshold)
-	energyRatio := outputEnergy / inputEnergy * 100
-	t.Logf("Energy ratio: %.1f%% (threshold: 10%%)", energyRatio)
-
-	if energyRatio < 10.0 {
-		t.Errorf("Energy ratio too low: %.1f%% < 10%%", energyRatio)
-	} else {
-		t.Logf("PASS: Stereo multistream validated with libopus")
-	}
+	runLibopusSurroundTest(t, "stereo", 2, 128000)
 }
 
 // TestLibopus_51Surround tests 5.1 surround multistream encoding with libopus.
