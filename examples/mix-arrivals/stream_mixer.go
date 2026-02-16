@@ -11,6 +11,8 @@ var (
 	ErrFrameTooLate      = errors.New("frame is late for current mixer cursor")
 	ErrFrameTooFarAhead  = errors.New("frame start is beyond mixer lookahead window")
 	ErrOutputBufferSmall = errors.New("output buffer is smaller than one mix frame")
+	ErrTrackAlreadyAdded = errors.New("track is already registered")
+	ErrUnknownTrack      = errors.New("track is not registered")
 )
 
 // StreamMixerConfig configures WebRTC-style streaming frame mixing.
@@ -21,10 +23,27 @@ type StreamMixerConfig struct {
 	StartSample       int64
 }
 
+// TrackConfig controls runtime track behavior.
+type TrackConfig struct {
+	Gain  float32
+	Muted bool
+}
+
+// RuntimeTrackMixer defines explicit runtime track lifecycle operations.
+type RuntimeTrackMixer interface {
+	AddTrack(trackID string, cfg TrackConfig) error
+	RemoveTrack(trackID string) bool
+	SetTrackGain(trackID string, gain float32) error
+	SetTrackMuted(trackID string, muted bool) error
+	PushFrame(trackID string, startSample int64, pcm []float32) error
+	MixNext(out []float32) (int64, error)
+}
+
 // StreamMixer ingests timestamped PCM frames and emits fixed-size mixed frames.
 //
 // Intended for real-time "tracks arrive at different times" scenarios where
 // packetization is out of scope and frames are already decoded to PCM.
+// Tracks must be registered explicitly with AddTrack before PushFrame.
 type StreamMixer struct {
 	mu sync.Mutex
 
@@ -36,6 +55,8 @@ type StreamMixer struct {
 	tracks map[string]*streamTrack
 	stats  StreamMixerStats
 }
+
+var _ RuntimeTrackMixer = (*StreamMixer)(nil)
 
 // StreamMixerStats reports frame acceptance behavior.
 type StreamMixerStats struct {
@@ -87,24 +108,56 @@ func (m *StreamMixer) Stats() StreamMixerStats {
 	return m.stats
 }
 
-func (m *StreamMixer) SetTrackGain(trackID string, gain float32) {
+func (m *StreamMixer) AddTrack(trackID string, cfg TrackConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	tr := m.ensureTrack(trackID)
+	if trackID == "" {
+		return fmt.Errorf("track id is required")
+	}
+	if _, ok := m.tracks[trackID]; ok {
+		return ErrTrackAlreadyAdded
+	}
+	gain := cfg.Gain
+	if gain == 0 {
+		gain = 1
+	}
+	m.tracks[trackID] = &streamTrack{
+		gain:  gain,
+		muted: cfg.Muted,
+	}
+	return nil
+}
+
+func (m *StreamMixer) SetTrackGain(trackID string, gain float32) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	tr, ok := m.tracks[trackID]
+	if !ok {
+		return ErrUnknownTrack
+	}
 	tr.gain = gain
+	return nil
 }
 
-func (m *StreamMixer) SetTrackMuted(trackID string, muted bool) {
+func (m *StreamMixer) SetTrackMuted(trackID string, muted bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	tr := m.ensureTrack(trackID)
+	tr, ok := m.tracks[trackID]
+	if !ok {
+		return ErrUnknownTrack
+	}
 	tr.muted = muted
+	return nil
 }
 
-func (m *StreamMixer) RemoveTrack(trackID string) {
+func (m *StreamMixer) RemoveTrack(trackID string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if _, ok := m.tracks[trackID]; !ok {
+		return false
+	}
 	delete(m.tracks, trackID)
+	return true
 }
 
 func (m *StreamMixer) PushFrame(trackID string, startSample int64, pcm []float32) error {
@@ -139,7 +192,10 @@ func (m *StreamMixer) PushFrame(trackID string, startSample int64, pcm []float32
 	copy(segmentPCM, pcm)
 	seg := streamSegment{startSample: startSample, pcm: segmentPCM}
 
-	tr := m.ensureTrack(trackID)
+	tr, ok := m.tracks[trackID]
+	if !ok {
+		return ErrUnknownTrack
+	}
 	idx := sort.Search(len(tr.queue), func(i int) bool {
 		return tr.queue[i].startSample > startSample
 	})
@@ -200,16 +256,6 @@ func (m *StreamMixer) MixNext(out []float32) (int64, error) {
 	startSample := m.cursor
 	m.cursor = windowEnd
 	return startSample, nil
-}
-
-func (m *StreamMixer) ensureTrack(trackID string) *streamTrack {
-	tr, ok := m.tracks[trackID]
-	if ok {
-		return tr
-	}
-	tr = &streamTrack{gain: 1}
-	m.tracks[trackID] = tr
-	return tr
 }
 
 func (t *streamTrack) discardBefore(sample int64, channels int) {

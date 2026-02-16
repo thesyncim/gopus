@@ -220,6 +220,7 @@ Mixes WebRTC-like tracks that arrive at different times into one output.
 3. Simulates jittered/out-of-order frame arrival per track
 4. Uses a streaming mixer with per-track gain, bounded lookahead, and late-frame accounting
 5. Normalizes peak level and writes one Ogg Opus file
+6. Registers tracks explicitly at runtime (`AddTrack`/`RemoveTrack`) before ingesting frames
 
 **Usage:**
 ```bash

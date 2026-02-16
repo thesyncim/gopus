@@ -101,10 +101,6 @@ func MixTimedTracksWebRTCStyle(tracks []TimedTrack, mixFrameSamples int) ([]floa
 		return nil, stats, err
 	}
 
-	for i := range tracks {
-		mixer.SetTrackGain(tracks[i].Name, tracks[i].Gain)
-	}
-
 	arrivals, err := buildArrivalSchedule(tracks, mixFrameSamples, totalMixFrames)
 	if err != nil {
 		return nil, stats, err
@@ -113,11 +109,18 @@ func MixTimedTracksWebRTCStyle(tracks []TimedTrack, mixFrameSamples int) ([]floa
 	framePCM := make([]float32, mixFrameSamples*channels)
 	mixed := make([]float32, totalMixFrames*mixFrameSamples*channels)
 	nextArrival := 0
+	trackActive := make(map[string]struct{}, len(tracks))
 	const playoutDelayFrames = 2 // absorb small network jitter before playout
 	for tick := 0; tick < totalMixFrames; tick++ {
 		ingestLimit := tick + playoutDelayFrames
 		for nextArrival < len(arrivals) && arrivals[nextArrival].arrivalTick <= ingestLimit {
 			event := arrivals[nextArrival]
+			if _, ok := trackActive[event.trackID]; !ok {
+				if err := mixer.AddTrack(event.trackID, TrackConfig{Gain: event.trackGain}); err != nil {
+					return nil, stats, fmt.Errorf("add track %s: %w", event.trackID, err)
+				}
+				trackActive[event.trackID] = struct{}{}
+			}
 			err := mixer.PushFrame(event.trackID, event.startSample, event.pcm)
 			if err != nil && err != ErrFrameTooLate {
 				return nil, stats, fmt.Errorf("push frame %s @%d: %w", event.trackID, event.startSample, err)
@@ -145,6 +148,7 @@ type encodeStats struct {
 type arrivalEvent struct {
 	arrivalTick int
 	trackID     string
+	trackGain   float32
 	startSample int64
 	pcm         []float32
 }
@@ -188,6 +192,7 @@ func buildArrivalSchedule(tracks []TimedTrack, mixFrameSamples int, totalMixFram
 			events = append(events, arrivalEvent{
 				arrivalTick: arrivalTick,
 				trackID:     track.Name,
+				trackGain:   track.Gain,
 				startSample: startSample,
 				pcm:         framePCM,
 			})

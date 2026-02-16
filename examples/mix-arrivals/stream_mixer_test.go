@@ -13,6 +13,9 @@ func TestStreamMixerOutOfOrderFrames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStreamMixer error: %v", err)
 	}
+	if err := m.AddTrack("music", TrackConfig{Gain: 1}); err != nil {
+		t.Fatalf("add track error: %v", err)
+	}
 
 	if err := m.PushFrame("music", 2, []float32{10, 10, 20, 20}); err != nil {
 		t.Fatalf("push frame 2 error: %v", err)
@@ -53,6 +56,9 @@ func TestStreamMixerDropsLateFrames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStreamMixer error: %v", err)
 	}
+	if err := m.AddTrack("late", TrackConfig{Gain: 1}); err != nil {
+		t.Fatalf("add track error: %v", err)
+	}
 
 	out := make([]float32, 2)
 	if _, err := m.MixNext(out); err != nil {
@@ -84,6 +90,9 @@ func TestStreamMixerRejectsFarAheadFrames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStreamMixer error: %v", err)
 	}
+	if err := m.AddTrack("voice", TrackConfig{Gain: 1}); err != nil {
+		t.Fatalf("add track error: %v", err)
+	}
 
 	err = m.PushFrame("voice", 5, []float32{1, 2})
 	if err != ErrFrameTooFarAhead {
@@ -108,7 +117,9 @@ func TestStreamMixerGainAndMute(t *testing.T) {
 		t.Fatalf("NewStreamMixer error: %v", err)
 	}
 
-	m.SetTrackGain("voice", 0.5)
+	if err := m.AddTrack("voice", TrackConfig{Gain: 0.5}); err != nil {
+		t.Fatalf("add track error: %v", err)
+	}
 	if err := m.PushFrame("voice", 0, []float32{2, 4}); err != nil {
 		t.Fatalf("push frame error: %v", err)
 	}
@@ -118,7 +129,9 @@ func TestStreamMixerGainAndMute(t *testing.T) {
 	}
 	assertFloat32Slice(t, out, []float32{1, 2})
 
-	m.SetTrackMuted("voice", true)
+	if err := m.SetTrackMuted("voice", true); err != nil {
+		t.Fatalf("set muted error: %v", err)
+	}
 	if err := m.PushFrame("voice", 2, []float32{8, 10}); err != nil {
 		t.Fatalf("push muted frame error: %v", err)
 	}
@@ -144,6 +157,88 @@ func TestStreamMixerOutputBufferValidation(t *testing.T) {
 	if err != ErrOutputBufferSmall {
 		t.Fatalf("err=%v want ErrOutputBufferSmall", err)
 	}
+}
+
+func TestStreamMixerAddTrackLifecycle(t *testing.T) {
+	t.Helper()
+
+	m, err := NewStreamMixer(StreamMixerConfig{
+		Channels:          1,
+		FrameSamples:      2,
+		MaxLookaheadFrame: 8,
+	})
+	if err != nil {
+		t.Fatalf("NewStreamMixer error: %v", err)
+	}
+
+	if err := m.PushFrame("voice", 0, []float32{1, 2}); err != ErrUnknownTrack {
+		t.Fatalf("push err=%v want ErrUnknownTrack", err)
+	}
+
+	if err := m.AddTrack("voice", TrackConfig{Gain: 1}); err != nil {
+		t.Fatalf("add track error: %v", err)
+	}
+	if err := m.AddTrack("voice", TrackConfig{Gain: 1}); err != ErrTrackAlreadyAdded {
+		t.Fatalf("duplicate add err=%v want ErrTrackAlreadyAdded", err)
+	}
+
+	out := make([]float32, 2)
+	if err := m.PushFrame("voice", 0, []float32{2, 4}); err != nil {
+		t.Fatalf("push after add error: %v", err)
+	}
+	if _, err := m.MixNext(out); err != nil {
+		t.Fatalf("mix error: %v", err)
+	}
+	assertFloat32Slice(t, out, []float32{2, 4})
+
+	if removed := m.RemoveTrack("voice"); !removed {
+		t.Fatalf("expected track to be removed")
+	}
+	if removed := m.RemoveTrack("voice"); removed {
+		t.Fatalf("expected second remove to be false")
+	}
+	if err := m.PushFrame("voice", 2, []float32{2, 4}); err != ErrUnknownTrack {
+		t.Fatalf("push removed track err=%v want ErrUnknownTrack", err)
+	}
+}
+
+func TestStreamMixerCanAddTrackAtRuntime(t *testing.T) {
+	t.Helper()
+
+	m, err := NewStreamMixer(StreamMixerConfig{
+		Channels:          1,
+		FrameSamples:      2,
+		MaxLookaheadFrame: 8,
+	})
+	if err != nil {
+		t.Fatalf("NewStreamMixer error: %v", err)
+	}
+	if err := m.AddTrack("bed", TrackConfig{Gain: 1}); err != nil {
+		t.Fatalf("add bed error: %v", err)
+	}
+	if err := m.PushFrame("bed", 0, []float32{1, 1}); err != nil {
+		t.Fatalf("push bed frame 0 error: %v", err)
+	}
+
+	out := make([]float32, 2)
+	if _, err := m.MixNext(out); err != nil {
+		t.Fatalf("mix frame 0 error: %v", err)
+	}
+	assertFloat32Slice(t, out, []float32{1, 1})
+
+	if err := m.AddTrack("speaker", TrackConfig{Gain: 0.5}); err != nil {
+		t.Fatalf("add speaker error: %v", err)
+	}
+	if err := m.PushFrame("speaker", 2, []float32{8, 8}); err != nil {
+		t.Fatalf("push speaker error: %v", err)
+	}
+	if err := m.PushFrame("bed", 2, []float32{2, 2}); err != nil {
+		t.Fatalf("push bed frame 1 error: %v", err)
+	}
+	if _, err := m.MixNext(out); err != nil {
+		t.Fatalf("mix frame 1 error: %v", err)
+	}
+	assertFloat32Slice(t, out, []float32{6, 6})
 }
 
 func assertFloat32Slice(t *testing.T, got, want []float32) {
