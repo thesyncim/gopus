@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-16
+topic: Surround (stereo/5.1/7.1) direct libopus waveform parity guards
+decision: Keep surround libopus multistream parity (`TestLibopus_Stereo`, `TestLibopus_51Surround`, `TestLibopus_71Surround`) on direct libopus API decode comparison with waveform-level drift assertions, not only `opusdec` energy thresholds.
+evidence: Updated `runLibopusSurroundTest` in `multistream/libopus_test.go` to assert internal decode sample-count parity, decode via `decodeWithLibopusReferencePackets` for mapping family 1, trim `PreSkip`, and enforce internal-vs-libopus relative mean-square drift thresholds with max-abs diagnostics; routed `TestLibopus_Stereo` through the shared surround path. Validation: `go test ./multistream -run 'TestLibopus_(Stereo|51Surround|71Surround)' -count=1 -v`, `go test ./multistream -run 'TestLibopus_' -count=1 -v`, `go test ./multistream -count=1`, and `go test . -run 'TestMultistream' -count=1` passed.
+do_not_repeat_until: libopus helper protocol/decode APIs change, mapping-family-1 surround semantics change, or fixture evidence indicates waveform drift in these surround slices.
+owner: codex
+
+date: 2026-02-16
 topic: Default mapping + frame-duration direct libopus waveform parity guards
 decision: Keep mapping-family-1 default-layout and long-frame duration multistream parity checks on direct libopus API decode with waveform-level drift assertions (relative mean-square + max-abs diagnostics), not only sample-count and energy-floor checks.
 evidence: Updated `TestLibopus_DefaultMappingMatrix` and `TestLibopus_FrameDurationMatrix` in `multistream/libopus_test.go` to call `decodeWithLibopusReferencePackets` for family 1, trim `PreSkip`, and assert internal-vs-libopus decode drift thresholds. Validation: `go test ./multistream -run 'TestLibopus_(DefaultMappingMatrix|FrameDurationMatrix|AmbisonicsFamily2Matrix|AmbisonicsFamily3Matrix)' -count=1 -v`, `go test ./multistream -count=1`, and `go test . -run 'TestMultistream' -count=1` passed.
