@@ -78,3 +78,4 @@ Quick commands:
 - claim: id=codex-20260216-211407; agent=codex; status=released; paths=multistream/,.planning/; updated=2026-02-16T21:19:58Z; expires=2026-02-16T21:19:58Z; note=add multistream libopus frame-duration matrix coverage (10/20/40/60ms)
 - claim: id=codex-20260216-212713; agent=codex; status=released; paths=multistream/,.planning/; updated=2026-02-16T21:46:19Z; expires=2026-02-16T21:46:19Z; note=add libopus ambisonics family 2/3 multistream parity coverage
 - claim: id=codex-20260216-214743; agent=codex; status=released; paths=container/ogg/,multistream/,.planning/; updated=2026-02-16T21:59:53Z; expires=2026-02-16T21:59:53Z; note=family3 demixing-matrix metadata for Ogg interop parity
+- claim: id=codex-20260216-220216; agent=codex; status=active; paths=container/ogg/,multistream/,testvectors/,.planning/; updated=2026-02-16T22:02:16Z; expires=2026-02-17T02:02:16Z; note=port libopus family3 default projection matrix parity slice
