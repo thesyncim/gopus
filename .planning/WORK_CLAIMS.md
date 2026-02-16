@@ -85,3 +85,4 @@ Quick commands:
 - claim: id=codex-20260216-223510; agent=codex; status=released; paths=examples/,README.md,.planning/; updated=2026-02-16T22:39:24Z; expires=2026-02-16T22:39:24Z; note=harden mix-arrivals for webrtc-like streaming tracks
 - claim: id=codex-20260216-224750; agent=codex; status=released; paths=multistream/,tools/,tmp_check/opus-1.6.1/src/,.planning/; updated=2026-02-16T23:02:53Z; expires=2026-02-16T23:02:53Z; note=replace opusdec family2/3 parity with direct libopus decoder helper
 - claim: id=codex-20260216-225446; agent=codex; status=released; paths=examples/,README.md,.planning/; updated=2026-02-16T22:56:53Z; expires=2026-02-16T22:56:53Z; note=add explicit runtime AddTrack interface for stream mixer
+- claim: id=codex-20260216-231420; agent=codex; status=active; paths=examples/,README.md,.planning/; updated=2026-02-16T23:14:20Z; expires=2026-02-17T03:14:20Z; note=add playback mode for mix-arrivals sample
