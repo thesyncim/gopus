@@ -26,17 +26,25 @@ type WriterConfig struct {
 	// MappingFamily specifies the channel mapping:
 	//   0: Mono/stereo (implicit order) - for 1-2 channels
 	//   1: Surround 1-8 channels (Vorbis order)
+	//   2: Ambisonics ACN/SN3D
+	//   3: Projection-based ambisonics
 	//   255: Discrete (no defined relationship)
 	MappingFamily uint8
 
-	// StreamCount is the number of Opus streams in the packet (for family 1/255).
+	// StreamCount is the number of Opus streams in the packet (for non-RTP mappings).
 	StreamCount uint8
 
-	// CoupledCount is the number of coupled (stereo) streams (for family 1/255).
+	// CoupledCount is the number of coupled (stereo) streams (for non-RTP mappings).
 	CoupledCount uint8
 
-	// ChannelMapping maps output channels to decoder channels (for family 1/255).
+	// ChannelMapping maps output channels to decoder channels (for family 1/2/255).
 	ChannelMapping []byte
+
+	// DemixingMatrix stores RFC 8486 family-3 demixing metadata.
+	// If empty for family 3, libopus default projection matrices are emitted
+	// when (channels,streams,coupled) matches a valid projection layout;
+	// otherwise an identity matrix is emitted.
+	DemixingMatrix []byte
 }
 
 // Writer writes Opus packets to an Ogg container.
@@ -78,7 +86,7 @@ func NewWriter(w io.Writer, sampleRate uint32, channels uint8) (*Writer, error) 
 }
 
 // NewWriterWithConfig creates a new OggWriter with explicit configuration.
-// This supports multistream configurations (family 1/255).
+// This supports all multistream mapping families (1/2/3/255).
 func NewWriterWithConfig(w io.Writer, config WriterConfig) (*Writer, error) {
 	// Validate config.
 	if config.Channels == 0 {
@@ -90,7 +98,7 @@ func NewWriterWithConfig(w io.Writer, config WriterConfig) (*Writer, error) {
 		return nil, ErrInvalidHeader
 	}
 
-	// Validate family 1/255 requirements.
+	// Validate non-RTP multistream requirements.
 	if config.MappingFamily != 0 {
 		if config.StreamCount == 0 {
 			return nil, ErrInvalidHeader
@@ -98,14 +106,31 @@ func NewWriterWithConfig(w io.Writer, config WriterConfig) (*Writer, error) {
 		if int(config.CoupledCount) > int(config.StreamCount) {
 			return nil, ErrInvalidHeader
 		}
-		if len(config.ChannelMapping) != int(config.Channels) {
-			return nil, ErrInvalidHeader
-		}
-		// Validate mapping values.
-		maxStream := config.StreamCount + config.CoupledCount
-		for _, m := range config.ChannelMapping {
-			if m >= maxStream && m != 255 { // 255 = silence
+
+		if config.MappingFamily == MappingFamilyProjection {
+			expected := expectedDemixingMatrixSize(config.Channels, config.StreamCount, config.CoupledCount)
+			if len(config.DemixingMatrix) == 0 {
+				if matrix, gain, ok := defaultProjectionDemixingMatrix(config.Channels, config.StreamCount, config.CoupledCount); ok {
+					config.DemixingMatrix = matrix
+					if config.OutputGain == 0 {
+						config.OutputGain = gain
+					}
+				} else {
+					config.DemixingMatrix = identityDemixingMatrix(config.Channels, config.StreamCount, config.CoupledCount)
+				}
+			} else if len(config.DemixingMatrix) != expected {
 				return nil, ErrInvalidHeader
+			}
+		} else {
+			if len(config.ChannelMapping) != int(config.Channels) {
+				return nil, ErrInvalidHeader
+			}
+			// Validate mapping values.
+			maxStream := config.StreamCount + config.CoupledCount
+			for _, m := range config.ChannelMapping {
+				if m >= maxStream && m != 255 { // 255 = silence
+					return nil, ErrInvalidHeader
+				}
 			}
 		}
 	}
@@ -146,13 +171,17 @@ func (ow *Writer) writeHeaders() error {
 		head.PreSkip = ow.config.PreSkip
 		head.OutputGain = ow.config.OutputGain
 	} else {
-		head = DefaultOpusHeadMultistream(
+		head = DefaultOpusHeadMultistreamWithFamily(
 			ow.config.SampleRate,
 			ow.config.Channels,
+			ow.config.MappingFamily,
 			ow.config.StreamCount,
 			ow.config.CoupledCount,
 			ow.config.ChannelMapping,
 		)
+		if ow.config.MappingFamily == MappingFamilyProjection && len(ow.config.DemixingMatrix) > 0 {
+			head.DemixingMatrix = ow.config.DemixingMatrix
+		}
 		head.PreSkip = ow.config.PreSkip
 		head.OutputGain = ow.config.OutputGain
 	}

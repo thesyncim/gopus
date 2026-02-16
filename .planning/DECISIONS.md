@@ -22,6 +22,34 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-16
+topic: Ogg mapping-family-3 demixing-matrix metadata handling
+decision: Keep OpusHead family-3 handling on RFC 8486 demixing-matrix payload semantics (`2*channels*(streams+coupled)` bytes after stream/coupled fields), and use libopus 1.6.1 default projection demixing matrices/gain for valid projection layouts instead of identity fallback. Keep identity fallback only for non-libopus-valid `(channels,streams,coupled)` tuples.
+evidence: Added libopus-derived defaults in `container/ogg/projection_demixing_defaults_data.go` and lookup logic in `container/ogg/projection_demixing_defaults.go`; updated `container/ogg/header.go` to apply defaults in family-3 head construction/encoding paths; updated `container/ogg/writer.go` to auto-fill missing family-3 demixing metadata and default gain from the same source; updated `multistream/libopus_test.go` header helper to use `DefaultOpusHeadMultistreamWithFamily`; added checksum/gain parity guards in `container/ogg/projection_demixing_defaults_test.go` and expanded writer assertions in `container/ogg/writer_test.go`; focused slices plus full `make verify-production` passed.
+do_not_repeat_until: libopus projection default matrices/gain change (version bump beyond 1.6.1), or fixture/interoperability evidence shows family-3 matrix/value drift.
+owner: codex
+
+date: 2026-02-16
+topic: Multistream family-3 projection demixing application
+decision: Keep multistream decoder projection demixing explicit and opt-in via `SetProjectionDemixingMatrix`, applying the matrix after channel mapping on both normal decode and PLC paths; do not silently infer projection demixing for non-trivial mappings.
+evidence: Added `SetProjectionDemixingMatrix` in `multistream/decoder.go` with strict size/mapping validation and S16LE coefficient normalization; added projection demixing application in `multistream/multistream.go` decode paths; updated `multistream/libopus_test.go` internal Ogg decode helper to load family-3 demixing metadata from `OpusHead`; added focused tests in `multistream/projection_decoder_test.go` covering invalid-matrix rejection, matrix application behavior, and family-3 header matrix acceptance.
+do_not_repeat_until: projection decoder API/mapping semantics change, or fixture/interoperability evidence shows family-3 post-map demixing cadence/value drift.
+owner: codex
+
+date: 2026-02-16
+topic: Ogg Writer mapping-family parity preservation
+decision: Keep `container/ogg` OpusHead emission using the configured `WriterConfig.MappingFamily` for multistream headers; do not hardcode mapping family `1` in `writeHeaders` for non-RTP mappings.
+evidence: Added `DefaultOpusHeadMultistreamWithFamily` in `container/ogg/header.go` and updated `container/ogg/writer.go` to pass `config.MappingFamily`; added regression coverage `TestWriterWithConfig_PreservesMappingFamily` in `container/ogg/writer_test.go` (family 2) and validated with focused container tests plus full `make verify-production`.
+do_not_repeat_until: Ogg Opus header construction in `container/ogg` is redesigned, or fixture/interoperability evidence shows mapping-family drift between configured writer state and emitted `OpusHead`.
+owner: codex
+
+date: 2026-02-16
+topic: Ambisonics family 2/3 libopus tooling parity guards
+decision: Keep family-2 and family-3 multistream ambisonics parity checks on libopus tooling header inspection (`opusinfo`) + internal decoded sample-count/energy checks in `TestLibopus_AmbisonicsFamily2Matrix` and `TestLibopus_AmbisonicsFamily3Matrix`, with opportunistic `opusdec` decode validation when available.
+evidence: Updated `multistream/libopus_test.go` to inspect `opusinfo` output for `Channel Mapping Family`, `Streams/Coupled`, and channel count on both family-2 and family-3 Ogg files, then assert internal decoder sample-count parity and energy floor; observed `opusdec` still refusing to decode these files in this environment despite successful `opusinfo` parsing. Focused multistream slices and full `make verify-production` passed.
+do_not_repeat_until: libopus tooling decode support for ambisonics families changes in this environment, or container mapping semantics/decoder wiring for families 2/3 change and require updated parity assertions.
+owner: codex
+
+date: 2026-02-16
 topic: Multistream 40/60ms decode-side subframe handling parity
 decision: Keep multistream stream decode handling for long packets (`40ms`/`60ms`) on sequential per-frame decode at valid hybrid subframe sizes (`10ms`/`20ms`) after packet frame parsing, rather than passing aggregate packet duration directly into hybrid stream decode.
 evidence: Updated `multistream/decoder.go` `hybridStreamDecoder` to parse multi-frame packets and decode each frame with reconstructed single-frame TOC packets, then concatenate decoded PCM; added `TestLibopus_FrameDurationMatrix` in `multistream/libopus_test.go` covering stereo+5.1 at `10/20/40/60ms` with libopus/internal decoded sample-count parity checks; validated with focused multistream libopus slices and full `make verify-production`.
