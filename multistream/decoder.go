@@ -52,12 +52,12 @@ type hybridStreamDecoder struct {
 
 // Decode decodes a packet using the hybrid decoder.
 func (h *hybridStreamDecoder) Decode(data []byte, frameSize int) ([]float64, error) {
-	return h.dec.Decode(data, frameSize)
+	return h.decodePacket(data, frameSize, false)
 }
 
 // DecodeStereo decodes a stereo packet using the hybrid decoder.
 func (h *hybridStreamDecoder) DecodeStereo(data []byte, frameSize int) ([]float64, error) {
-	return h.dec.DecodeStereo(data, frameSize)
+	return h.decodePacket(data, frameSize, true)
 }
 
 // Reset resets the hybrid decoder state.
@@ -68,6 +68,66 @@ func (h *hybridStreamDecoder) Reset() {
 // Channels returns the channel count for this decoder.
 func (h *hybridStreamDecoder) Channels() int {
 	return h.dec.Channels()
+}
+
+func (h *hybridStreamDecoder) decodePacket(data []byte, frameSize int, stereo bool) ([]float64, error) {
+	if data == nil || len(data) == 0 || frameSize <= 960 {
+		if stereo {
+			return h.dec.DecodeStereo(data, frameSize)
+		}
+		return h.dec.Decode(data, frameSize)
+	}
+
+	parsed, err := parseOpusPacket(data, false)
+	if err != nil {
+		return nil, err
+	}
+
+	frameCount := len(parsed.frames)
+	if frameCount <= 1 {
+		if stereo {
+			return h.dec.DecodeStereo(data, frameSize)
+		}
+		return h.dec.Decode(data, frameSize)
+	}
+	if frameSize%frameCount != 0 {
+		return nil, fmt.Errorf("multistream: frameSize %d not divisible by packet frame count %d", frameSize, frameCount)
+	}
+
+	subFrameSize := frameSize / frameCount
+	if !hybrid.ValidHybridFrameSize(subFrameSize) {
+		if stereo {
+			return h.dec.DecodeStereo(data, frameSize)
+		}
+		return h.dec.Decode(data, frameSize)
+	}
+
+	channels := 1
+	if stereo {
+		channels = 2
+	}
+
+	out := make([]float64, 0, frameSize*channels)
+	for i := 0; i < frameCount; i++ {
+		// Rewrap each elementary frame as a single-frame Opus packet by using
+		// the original TOC base (config + stereo bit) with code 0.
+		framePacket := make([]byte, 1+len(parsed.frames[i]))
+		framePacket[0] = parsed.tocBase
+		copy(framePacket[1:], parsed.frames[i])
+
+		var frameDecoded []float64
+		if stereo {
+			frameDecoded, err = h.dec.DecodeStereo(framePacket, subFrameSize)
+		} else {
+			frameDecoded, err = h.dec.Decode(framePacket, subFrameSize)
+		}
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, frameDecoded...)
+	}
+
+	return out, nil
 }
 
 // Decoder decodes Opus multistream packets containing multiple elementary streams.
