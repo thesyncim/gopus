@@ -72,9 +72,9 @@ func makeOggPage(serialNo, pageNo uint32, headerType byte, granulePos uint64, se
 
 	// Build header (27 bytes + segment table)
 	header := make([]byte, 27+len(segmentTable))
-	copy(header[0:4], "OggS")           // Capture pattern
-	header[4] = 0                       // Version
-	header[5] = headerType              // Header type
+	copy(header[0:4], "OggS") // Capture pattern
+	header[4] = 0             // Version
+	header[5] = headerType    // Header type
 	binary.LittleEndian.PutUint64(header[6:14], granulePos)
 	binary.LittleEndian.PutUint32(header[14:18], serialNo)
 	binary.LittleEndian.PutUint32(header[18:22], pageNo)
@@ -118,15 +118,15 @@ func makeOpusHeadMultistream(channels, sampleRate int, streams, coupledStreams i
 	head := make([]byte, size)
 
 	copy(head[0:8], "OpusHead")
-	head[8] = 1                                                // Version
-	head[9] = byte(channels)                                   // Channel count
-	binary.LittleEndian.PutUint16(head[10:12], 312)            // Pre-skip (standard value)
+	head[8] = 1                                     // Version
+	head[9] = byte(channels)                        // Channel count
+	binary.LittleEndian.PutUint16(head[10:12], 312) // Pre-skip (standard value)
 	binary.LittleEndian.PutUint32(head[12:16], uint32(sampleRate))
-	binary.LittleEndian.PutUint16(head[16:18], 0)              // Output gain
-	head[18] = 1                                               // Mapping family 1 (surround)
-	head[19] = byte(streams)                                   // Stream count
-	head[20] = byte(coupledStreams)                            // Coupled stream count
-	copy(head[21:], mapping)                                   // Channel mapping table
+	binary.LittleEndian.PutUint16(head[16:18], 0) // Output gain
+	head[18] = 1                                  // Mapping family 1 (surround)
+	head[19] = byte(streams)                      // Stream count
+	head[20] = byte(coupledStreams)               // Coupled stream count
+	copy(head[21:], mapping)                      // Channel mapping table
 
 	return head
 }
@@ -231,7 +231,7 @@ func getOpusdecPath() string {
 // Returns the decoded PCM samples as float32.
 func decodeWithOpusdec(oggData []byte) ([]float32, error) {
 	if !checkOpusdec() {
-		return decodeWithInternalMultistream(oggData)
+		return nil, fmt.Errorf("opusdec not available")
 	}
 
 	// Write to temp Opus file
@@ -269,9 +269,12 @@ func decodeWithOpusdec(oggData []byte) ([]float32, error) {
 			bytes.Contains(output, []byte("killed")) ||
 			bytes.Contains(output, []byte("Operation not permitted")) ||
 			bytes.Contains(output, []byte("Failed to open")) {
-			return decodeWithInternalMultistream(oggData)
+			return nil, fmt.Errorf("opusdec blocked by macOS provenance")
 		}
-		return nil, err
+		return nil, fmt.Errorf("opusdec failed: %w (%s)", err, bytes.TrimSpace(output))
+	}
+	if bytes.Contains(output, []byte("Decoding error")) || bytes.Contains(output, []byte("Failed to decode")) {
+		return nil, fmt.Errorf("opusdec decode error: %s", bytes.TrimSpace(output))
 	}
 
 	// Read and parse WAV file
@@ -280,7 +283,11 @@ func decodeWithOpusdec(oggData []byte) ([]float32, error) {
 		return nil, err
 	}
 
-	return parseWAVSamples(wavData), nil
+	samples := parseWAVSamples(wavData)
+	if len(samples) == 0 {
+		return nil, fmt.Errorf("opusdec produced no PCM samples")
+	}
+	return samples, nil
 }
 
 func decodeWithInternalMultistream(oggData []byte) ([]float32, error) {
@@ -343,6 +350,24 @@ func decodeWithInternalMultistream(oggData []byte) ([]float32, error) {
 	return decoded, nil
 }
 
+func decodeWithOpusdecForTest(t *testing.T, oggData []byte) []float32 {
+	t.Helper()
+
+	decoded, err := decodeWithOpusdec(oggData)
+	if err == nil {
+		return decoded
+	}
+
+	switch err.Error() {
+	case "opusdec not available":
+		t.Skip("opusdec not available; skipping libopus cross-validation")
+	case "opusdec blocked by macOS provenance":
+		t.Skip("opusdec blocked by macOS provenance")
+	}
+	t.Fatalf("decodeWithOpusdec failed: %v", err)
+	return nil
+}
+
 // parseWAVSamples extracts float32 samples from WAV data.
 func parseWAVSamples(data []byte) []float32 {
 	if len(data) < 44 {
@@ -351,7 +376,7 @@ func parseWAVSamples(data []byte) []float32 {
 
 	// Find data chunk
 	offset := 12
-	for offset < len(data)-8 {
+	for offset <= len(data)-8 {
 		chunkID := string(data[offset : offset+4])
 		chunkSize := binary.LittleEndian.Uint32(data[offset+4 : offset+8])
 
@@ -377,14 +402,7 @@ func parseWAVSamples(data []byte) []float32 {
 		}
 	}
 
-	// Fallback: skip WAV header
-	data = data[44:]
-	samples := make([]float32, len(data)/2)
-	for i := 0; i < len(data)/2; i++ {
-		s := int16(binary.LittleEndian.Uint16(data[i*2 : i*2+2]))
-		samples[i] = float32(s) / 32768.0
-	}
-	return samples
+	return nil
 }
 
 // generateMultichannelSine creates interleaved multi-channel sine wave.
@@ -471,10 +489,7 @@ func runLibopusSurroundTest(t *testing.T, label string, channels, bitrate int) {
 	}
 	t.Logf("Ogg container: %d bytes", ogg.Len())
 
-	decoded, err := decodeWithOpusdec(ogg.Bytes())
-	if err != nil {
-		t.Fatalf("decodeWithOpusdec failed: %v", err)
-	}
+	decoded := decodeWithOpusdecForTest(t, ogg.Bytes())
 
 	if len(decoded) == 0 {
 		t.Fatal("opusdec produced empty output")
@@ -550,10 +565,7 @@ func TestLibopus_Stereo(t *testing.T) {
 	t.Logf("Ogg container: %d bytes", ogg.Len())
 
 	// Decode with opusdec
-	decoded, err := decodeWithOpusdec(ogg.Bytes())
-	if err != nil {
-		t.Fatalf("decodeWithOpusdec failed: %v", err)
-	}
+	decoded := decodeWithOpusdecForTest(t, ogg.Bytes())
 
 	if len(decoded) == 0 {
 		t.Fatal("opusdec produced empty output")
@@ -663,10 +675,7 @@ func TestLibopus_BitrateQuality(t *testing.T) {
 			}
 
 			// Decode with opusdec
-			decoded, err := decodeWithOpusdec(ogg.Bytes())
-			if err != nil {
-				t.Fatalf("decodeWithOpusdec failed: %v", err)
-			}
+			decoded := decodeWithOpusdecForTest(t, ogg.Bytes())
 
 			if len(decoded) == 0 {
 				t.Fatal("opusdec produced empty output")

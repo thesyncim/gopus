@@ -1,6 +1,6 @@
 # Investigation Decisions
 
-Last updated: 2026-02-14
+Last updated: 2026-02-16
 
 Purpose: prevent repeated validation by recording what was tested, what was ruled out, and when re-validation is allowed.
 
@@ -20,6 +20,13 @@ owner: <initials or handle>
 ```
 
 ## Current Decisions
+
+date: 2026-02-16
+topic: Multistream RFC 6716 self-delimited framing parity
+decision: Keep multistream packet assembly/parsing on exact RFC 6716 Appendix B semantics: streams `0..N-2` must be emitted as self-delimited Opus packets (no external per-stream length prefix), last stream remains standard framing. Keep decoder-side parsing aligned by consuming self-delimited packets and normalizing to standard elementary packets before stream decode.
+evidence: Added framing parser/builder in `multistream/framing.go`; updated assembly in `multistream/encoder.go`; updated packet splitting in `multistream/stream.go`; updated multistream framing tests in `multistream/encoder_test.go` and `multistream/multistream_test.go`; tightened libopus harness in `multistream/libopus_test.go` to fail on textual `opusdec` decode errors and fixed WAV `data` chunk boundary scan. Validation passed with `go test ./multistream -run 'TestLibopus_(Stereo|51Surround|71Surround|BitrateQuality|ContainerFormat|Info)' -count=1 -v`, `go test ./multistream -count=1`, `go test . -run 'TestMultistream' -count=1 -v`, and full `make verify-production`.
+do_not_repeat_until: libopus changes multistream self-delimited packet semantics (`opus_multistream_encoder.c`, `opus_multistream_decoder.c`, `repacketizer.c`) or fixture/interoperability evidence shows drift.
+owner: codex
 
 date: 2026-02-14
 topic: SILK/Hybrid->CELT transition-delay parity (`to_celt`)

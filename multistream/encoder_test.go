@@ -1,6 +1,7 @@
 package multistream
 
 import (
+	"bytes"
 	"math"
 	"testing"
 
@@ -481,16 +482,16 @@ func TestWriteSelfDelimitedLength(t *testing.T) {
 	for _, tt := range tests {
 		t.Run("", func(t *testing.T) {
 			dst := make([]byte, 2)
-			n := writeSelfDelimitedLength(dst, tt.length)
+			n := writeFrameLength(dst, tt.length)
 
 			if n != tt.wantBytes {
-				t.Errorf("writeSelfDelimitedLength(%d) returned %d bytes, want %d", tt.length, n, tt.wantBytes)
+				t.Errorf("writeFrameLength(%d) returned %d bytes, want %d", tt.length, n, tt.wantBytes)
 			}
 			if dst[0] != tt.wantFirst {
-				t.Errorf("writeSelfDelimitedLength(%d) first byte = %d, want %d", tt.length, dst[0], tt.wantFirst)
+				t.Errorf("writeFrameLength(%d) first byte = %d, want %d", tt.length, dst[0], tt.wantFirst)
 			}
 			if tt.wantBytes == 2 && dst[1] != tt.wantSecond {
-				t.Errorf("writeSelfDelimitedLength(%d) second byte = %d, want %d", tt.length, dst[1], tt.wantSecond)
+				t.Errorf("writeFrameLength(%d) second byte = %d, want %d", tt.length, dst[1], tt.wantSecond)
 			}
 
 			// Verify by decoding
@@ -511,14 +512,16 @@ func TestWriteSelfDelimitedLength(t *testing.T) {
 // TestAssembleMultistreamPacket tests packet assembly.
 func TestAssembleMultistreamPacket(t *testing.T) {
 	t.Run("single stream", func(t *testing.T) {
-		packets := [][]byte{{1, 2, 3}}
-		result := assembleMultistreamPacket(packets)
-
-		// Single stream: no length prefix needed
-		if len(result) != 3 {
-			t.Fatalf("len = %d, want 3", len(result))
+		packets := [][]byte{{0xF8, 1, 2, 3}}
+		result, err := assembleMultistreamPacket(packets)
+		if err != nil {
+			t.Fatalf("assembleMultistreamPacket error: %v", err)
 		}
-		for i, v := range []byte{1, 2, 3} {
+
+		if len(result) != 4 {
+			t.Fatalf("len = %d, want 4", len(result))
+		}
+		for i, v := range []byte{0xF8, 1, 2, 3} {
 			if result[i] != v {
 				t.Errorf("result[%d] = %d, want %d", i, result[i], v)
 			}
@@ -526,65 +529,74 @@ func TestAssembleMultistreamPacket(t *testing.T) {
 	})
 
 	t.Run("two streams", func(t *testing.T) {
-		// First packet with length prefix, second without
-		packets := [][]byte{{1, 2, 3}, {4, 5}}
-		result := assembleMultistreamPacket(packets)
-
-		// First packet: 1-byte length (3) + data (3 bytes) = 4 bytes
-		// Second packet: no length + data (2 bytes) = 2 bytes
-		// Total: 6 bytes
-		expected := []byte{3, 1, 2, 3, 4, 5}
-		if len(result) != len(expected) {
-			t.Fatalf("len = %d, want %d", len(result), len(expected))
+		packets := [][]byte{
+			{0xF8, 1, 2, 3},
+			{0xF8, 4, 5, 6},
 		}
-		for i, v := range expected {
-			if result[i] != v {
-				t.Errorf("result[%d] = %d, want %d", i, result[i], v)
+		result, err := assembleMultistreamPacket(packets)
+		if err != nil {
+			t.Fatalf("assembleMultistreamPacket error: %v", err)
+		}
+
+		parsedPackets, err := parseMultistreamPacket(result, 2)
+		if err != nil {
+			t.Fatalf("parseMultistreamPacket error: %v", err)
+		}
+		if len(parsedPackets) != len(packets) {
+			t.Fatalf("parsed packet count = %d, want %d", len(parsedPackets), len(packets))
+		}
+		for i := range packets {
+			if !bytes.Equal(parsedPackets[i], packets[i]) {
+				t.Errorf("stream %d round-trip mismatch: got=%v want=%v", i, parsedPackets[i], packets[i])
 			}
 		}
 	})
 
 	t.Run("four streams", func(t *testing.T) {
-		// First 3 packets have length prefix, last doesn't
 		packets := [][]byte{
-			{1, 2},        // 2 bytes
-			{3, 4, 5},     // 3 bytes
-			{6},           // 1 byte
-			{7, 8, 9, 10}, // 4 bytes
+			{0xF8, 1, 2},
+			{0xF8, 3, 4, 5},
+			{0xF8, 6, 7},
+			{0xF8, 8, 9, 10},
 		}
-		result := assembleMultistreamPacket(packets)
+		result, err := assembleMultistreamPacket(packets)
+		if err != nil {
+			t.Fatalf("assembleMultistreamPacket error: %v", err)
+		}
 
-		// Expected: len(2)+data(2) + len(3)+data(3) + len(1)+data(1) + data(4)
-		// = 1+2 + 1+3 + 1+1 + 4 = 13 bytes
-		expected := []byte{2, 1, 2, 3, 3, 4, 5, 1, 6, 7, 8, 9, 10}
-		if len(result) != len(expected) {
-			t.Fatalf("len = %d, want %d", len(result), len(expected))
+		parsedPackets, err := parseMultistreamPacket(result, 4)
+		if err != nil {
+			t.Fatalf("parseMultistreamPacket error: %v", err)
 		}
-		for i, v := range expected {
-			if result[i] != v {
-				t.Errorf("result[%d] = %d, want %d", i, result[i], v)
+		if len(parsedPackets) != len(packets) {
+			t.Fatalf("parsed packet count = %d, want %d", len(parsedPackets), len(packets))
+		}
+		for i := range packets {
+			if !bytes.Equal(parsedPackets[i], packets[i]) {
+				t.Errorf("stream %d round-trip mismatch: got=%v want=%v", i, parsedPackets[i], packets[i])
 			}
 		}
 	})
 
 	t.Run("large packet requiring two-byte length", func(t *testing.T) {
-		// Create a 300-byte packet that needs two-byte length encoding
-		largePacket := make([]byte, 300)
-		for i := range largePacket {
-			largePacket[i] = byte(i % 256)
+		largeFrame := make([]byte, 300)
+		for i := range largeFrame {
+			largeFrame[i] = byte(i % 256)
 		}
-		packets := [][]byte{largePacket, {1, 2, 3}}
+		largePacket := append([]byte{0xF8}, largeFrame...)
+		packets := [][]byte{largePacket, {0xF8, 1, 2, 3}}
 
-		result := assembleMultistreamPacket(packets)
+		result, err := assembleMultistreamPacket(packets)
+		if err != nil {
+			t.Fatalf("assembleMultistreamPacket error: %v", err)
+		}
 
-		// Length 300 = 4*12 + 252 = 300, so first byte = 252, second = 12
-		// Wait, let me recalculate:
-		// 300 = 4*secondByte + firstByte where firstByte in [252, 255]
-		// 300 % 4 = 0, so firstByte = 252 + 0 = 252
-		// secondByte = (300 - 252) / 4 = 48/4 = 12
-		expected := []byte{252, 12}
-		if result[0] != expected[0] || result[1] != expected[1] {
-			t.Errorf("length encoding: got [%d, %d], want [%d, %d]", result[0], result[1], expected[0], expected[1])
+		if len(result) < 3 {
+			t.Fatalf("result too short: %d", len(result))
+		}
+		if result[0] != 0xF8 || result[1] != 252 || result[2] != 12 {
+			t.Errorf("unexpected self-delimited header: got [%d %d %d], want [248 252 12]",
+				result[0], result[1], result[2])
 		}
 
 		// Verify we can parse it back
@@ -592,11 +604,21 @@ func TestAssembleMultistreamPacket(t *testing.T) {
 		if err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
-		if len(parsedPackets[0]) != 300 {
-			t.Errorf("parsed first packet len = %d, want 300", len(parsedPackets[0]))
+		if len(parsedPackets[0]) != len(largePacket) {
+			t.Errorf("parsed first packet len = %d, want %d", len(parsedPackets[0]), len(largePacket))
 		}
-		if len(parsedPackets[1]) != 3 {
-			t.Errorf("parsed second packet len = %d, want 3", len(parsedPackets[1]))
+		if len(parsedPackets[1]) != 4 {
+			t.Errorf("parsed second packet len = %d, want 4", len(parsedPackets[1]))
+		}
+	})
+
+	t.Run("invalid packet returns error", func(t *testing.T) {
+		_, err := assembleMultistreamPacket([][]byte{
+			{0x01, 0x02},
+			{0xF8, 4, 5, 6},
+		})
+		if err == nil {
+			t.Fatal("expected error for invalid packet, got nil")
 		}
 	})
 }
