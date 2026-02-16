@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-16
+topic: Ogg mapping-family-3 demixing-matrix metadata handling
+decision: Keep OpusHead family-3 handling on RFC 8486 demixing-matrix payload semantics (`2*channels*(streams+coupled)` bytes after stream/coupled fields), and keep writer-side family-3 defaults emitting an identity demixing matrix when one is not supplied so generated headers remain valid/parseable for current non-projection stream behavior.
+evidence: Updated `container/ogg/header.go` encode/parse paths with `DemixingMatrix` handling and family-specific branch logic; updated `container/ogg/writer.go` config/validation to support family-3 demixing payloads with default identity generation; added/updated tests in `container/ogg/writer_test.go` and `container/ogg/ogg_test.go` (family-3 round-trip + truncated demixing rejection); updated `multistream/libopus_test.go` family-3 OpusHead emission and restored `TestLibopus_AmbisonicsFamily3Matrix` execution with `opusinfo` acceptance checks; full `make verify-production` passed.
+do_not_repeat_until: family-3 projection matrix generation is ported from libopus defaults (replacing identity fallback), or RFC/libopus tooling changes family-3 OpusHead metadata semantics.
+owner: codex
+
+date: 2026-02-16
 topic: Ogg Writer mapping-family parity preservation
 decision: Keep `container/ogg` OpusHead emission using the configured `WriterConfig.MappingFamily` for multistream headers; do not hardcode mapping family `1` in `writeHeaders` for non-RTP mappings.
 evidence: Added `DefaultOpusHeadMultistreamWithFamily` in `container/ogg/header.go` and updated `container/ogg/writer.go` to pass `config.MappingFamily`; added regression coverage `TestWriterWithConfig_PreservesMappingFamily` in `container/ogg/writer_test.go` (family 2) and validated with focused container tests plus full `make verify-production`.
@@ -29,10 +36,10 @@ do_not_repeat_until: Ogg Opus header construction in `container/ogg` is redesign
 owner: codex
 
 date: 2026-02-16
-topic: Ambisonics family 2 libopus tooling guard and family 3 parity gate
-decision: Keep family-2 multistream ambisonics parity checks on libopus tooling header inspection (`opusinfo`) + internal decoded sample-count/energy checks in `TestLibopus_AmbisonicsFamily2Matrix`, with opportunistic `opusdec` decode validation when available. Keep family-3 libopus Ogg interoperability as explicitly gated until RFC 8486 demixing-matrix metadata emission is implemented.
-evidence: Updated `multistream/libopus_test.go` to inspect `opusinfo` output for `Channel Mapping Family`, `Streams/Coupled`, and channel count on family-2 Ogg files, then assert internal decoder sample-count parity and energy floor; observed `opusdec` refusing to decode these files in this environment despite successful `opusinfo` parsing. Added explicit `TestLibopus_AmbisonicsFamily3Matrix` skip message documenting the missing demixing-matrix metadata requirement; focused multistream slices and full `make verify-production` passed.
-do_not_repeat_until: family-3 RFC 8486 demixing-matrix metadata is implemented and fixture/interoperability evidence confirms tool acceptance (`opusinfo`/decode path), or ambisonics container mapping semantics change in upstream libopus tooling.
+topic: Ambisonics family 2/3 libopus tooling parity guards
+decision: Keep family-2 and family-3 multistream ambisonics parity checks on libopus tooling header inspection (`opusinfo`) + internal decoded sample-count/energy checks in `TestLibopus_AmbisonicsFamily2Matrix` and `TestLibopus_AmbisonicsFamily3Matrix`, with opportunistic `opusdec` decode validation when available.
+evidence: Updated `multistream/libopus_test.go` to inspect `opusinfo` output for `Channel Mapping Family`, `Streams/Coupled`, and channel count on both family-2 and family-3 Ogg files, then assert internal decoder sample-count parity and energy floor; observed `opusdec` still refusing to decode these files in this environment despite successful `opusinfo` parsing. Focused multistream slices and full `make verify-production` passed.
+do_not_repeat_until: libopus tooling decode support for ambisonics families changes in this environment, or container mapping semantics/decoder wiring for families 2/3 change and require updated parity assertions.
 owner: codex
 
 date: 2026-02-16
