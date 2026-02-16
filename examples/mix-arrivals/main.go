@@ -1,4 +1,4 @@
-// Package main demonstrates mixing tracks that start at different times.
+// Package main demonstrates WebRTC-style track mixing with timestamped PCM.
 //
 // Usage:
 //
@@ -11,6 +11,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"sort"
 	"time"
 
 	"github.com/thesyncim/gopus"
@@ -49,7 +50,7 @@ func main() {
 		},
 	}
 
-	mixed, err := MixTimedTracks(tracks, channels)
+	mixed, streamStats, err := MixTimedTracksWebRTCStyle(tracks, frameSize)
 	if err != nil {
 		log.Fatalf("mix tracks: %v", err)
 	}
@@ -67,10 +68,71 @@ func main() {
 		startMs := 1000 * float64(track.StartSample) / sampleRate
 		fmt.Printf("  - %s: start=%.0fms, duration=%.2fs, gain=%.2f\n", track.Name, startMs, trackSeconds, track.Gain)
 	}
+	fmt.Printf("  Stream ingest: accepted=%d, droppedLate=%d, droppedAhead=%d\n",
+		streamStats.AcceptedFrames, streamStats.DroppedLate, streamStats.DroppedAhead)
 	fmt.Printf("  Peak before normalize: %.3f, applied gain: %.3f\n", peakBefore, appliedGain)
 	fmt.Printf("  Output: %s\n", *outPath)
 	fmt.Printf("  Duration: %.2fs, frames: %d, encoded bytes: %d, avg bitrate: %.1f kbps\n",
 		stats.durationSeconds, stats.frames, stats.encodedBytes, stats.avgBitrateKbps)
+}
+
+func MixTimedTracksWebRTCStyle(tracks []TimedTrack, mixFrameSamples int) ([]float32, StreamMixerStats, error) {
+	stats := StreamMixerStats{}
+	if mixFrameSamples < 1 {
+		return nil, stats, fmt.Errorf("mix frame samples must be >= 1")
+	}
+	if len(tracks) == 0 {
+		return make([]float32, 0), stats, nil
+	}
+
+	endSample := maxEndSample(tracks, channels)
+	totalMixFrames := int((endSample + int64(mixFrameSamples) - 1) / int64(mixFrameSamples))
+	if totalMixFrames < 1 {
+		totalMixFrames = 1
+	}
+
+	mixer, err := NewStreamMixer(StreamMixerConfig{
+		Channels:          channels,
+		FrameSamples:      mixFrameSamples,
+		MaxLookaheadFrame: 160, // ~3.2s at 20 ms frames.
+		StartSample:       0,
+	})
+	if err != nil {
+		return nil, stats, err
+	}
+
+	for i := range tracks {
+		mixer.SetTrackGain(tracks[i].Name, tracks[i].Gain)
+	}
+
+	arrivals, err := buildArrivalSchedule(tracks, mixFrameSamples, totalMixFrames)
+	if err != nil {
+		return nil, stats, err
+	}
+
+	framePCM := make([]float32, mixFrameSamples*channels)
+	mixed := make([]float32, totalMixFrames*mixFrameSamples*channels)
+	nextArrival := 0
+	const playoutDelayFrames = 2 // absorb small network jitter before playout
+	for tick := 0; tick < totalMixFrames; tick++ {
+		ingestLimit := tick + playoutDelayFrames
+		for nextArrival < len(arrivals) && arrivals[nextArrival].arrivalTick <= ingestLimit {
+			event := arrivals[nextArrival]
+			err := mixer.PushFrame(event.trackID, event.startSample, event.pcm)
+			if err != nil && err != ErrFrameTooLate {
+				return nil, stats, fmt.Errorf("push frame %s @%d: %w", event.trackID, event.startSample, err)
+			}
+			nextArrival++
+		}
+
+		if _, err := mixer.MixNext(framePCM); err != nil {
+			return nil, stats, fmt.Errorf("mix frame %d: %w", tick, err)
+		}
+		copy(mixed[tick*len(framePCM):], framePCM)
+	}
+
+	stats = mixer.Stats()
+	return mixed[:int(endSample)*channels], stats, nil
 }
 
 type encodeStats struct {
@@ -78,6 +140,95 @@ type encodeStats struct {
 	frames          int
 	encodedBytes    int
 	avgBitrateKbps  float64
+}
+
+type arrivalEvent struct {
+	arrivalTick int
+	trackID     string
+	startSample int64
+	pcm         []float32
+}
+
+func buildArrivalSchedule(tracks []TimedTrack, mixFrameSamples int, totalMixFrames int) ([]arrivalEvent, error) {
+	events := make([]arrivalEvent, 0, len(tracks)*8)
+	if totalMixFrames < 1 {
+		totalMixFrames = 1
+	}
+
+	for i := range tracks {
+		track := tracks[i]
+		if track.StartSample < 0 {
+			return nil, fmt.Errorf("track %q has negative start sample", track.Name)
+		}
+		if len(track.PCM)%channels != 0 {
+			return nil, fmt.Errorf("track %q PCM length (%d) is not aligned to %d channels", track.Name, len(track.PCM), channels)
+		}
+
+		totalTrackSamples := len(track.PCM) / channels
+		for frameIdx, srcSample := 0, 0; srcSample < totalTrackSamples; frameIdx, srcSample = frameIdx+1, srcSample+mixFrameSamples {
+			frameSamples := mixFrameSamples
+			if remain := totalTrackSamples - srcSample; remain < frameSamples {
+				frameSamples = remain
+			}
+
+			framePCM := make([]float32, frameSamples*channels)
+			copy(framePCM, track.PCM[srcSample*channels:(srcSample+frameSamples)*channels])
+
+			startSample := int64(track.StartSample + srcSample)
+			baseTick := int(startSample / int64(mixFrameSamples))
+			jitter := deterministicJitterTick(track.Name, frameIdx)
+			arrivalTick := baseTick + jitter
+			if arrivalTick < 0 {
+				arrivalTick = 0
+			}
+			if arrivalTick >= totalMixFrames {
+				arrivalTick = totalMixFrames - 1
+			}
+
+			events = append(events, arrivalEvent{
+				arrivalTick: arrivalTick,
+				trackID:     track.Name,
+				startSample: startSample,
+				pcm:         framePCM,
+			})
+		}
+	}
+
+	sort.SliceStable(events, func(i, j int) bool {
+		if events[i].arrivalTick != events[j].arrivalTick {
+			return events[i].arrivalTick < events[j].arrivalTick
+		}
+		if events[i].startSample != events[j].startSample {
+			return events[i].startSample < events[j].startSample
+		}
+		return events[i].trackID < events[j].trackID
+	})
+
+	return events, nil
+}
+
+func deterministicJitterTick(track string, frameIdx int) int {
+	seed := uint32(2166136261)
+	for i := 0; i < len(track); i++ {
+		seed ^= uint32(track[i])
+		seed *= 16777619
+	}
+	seed ^= uint32(frameIdx + 1)
+	seed = seed*1664525 + 1013904223
+	return int(seed%3) - 1 // -1,0,+1 frame jitter
+}
+
+func maxEndSample(tracks []TimedTrack, channels int) int64 {
+	var maxEnd int64
+	for i := range tracks {
+		track := tracks[i]
+		samples := int64(len(track.PCM) / channels)
+		end := int64(track.StartSample) + samples
+		if end > maxEnd {
+			maxEnd = end
+		}
+	}
+	return maxEnd
 }
 
 func encodeMixToOgg(path string, pcm []float32, bitrate int) (encodeStats, error) {

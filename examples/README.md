@@ -212,13 +212,14 @@ go build .
 
 ### mix-arrivals
 
-Mixes multiple tracks that start at different times into one output.
+Mixes WebRTC-like tracks that arrive at different times into one output.
 
 **What it does:**
 1. Generates three stereo source tracks (pad, bass, lead)
-2. Applies a different start offset for each track
-3. Mixes them sample-accurately into one timeline
-4. Normalizes peak level and writes one Ogg Opus file
+2. Splits each track into timestamped PCM frames (packetization out of scope)
+3. Simulates jittered/out-of-order frame arrival per track
+4. Uses a streaming mixer with per-track gain, bounded lookahead, and late-frame accounting
+5. Normalizes peak level and writes one Ogg Opus file
 
 **Usage:**
 ```bash
@@ -235,6 +236,7 @@ Mixing timed tracks into one output
   - pad: start=0ms, duration=4.00s, gain=0.70
   - bass: start=350ms, duration=3.20s, gain=0.85
   - lead: start=900ms, duration=2.60s, gain=0.75
+  Stream ingest: accepted=..., droppedLate=..., droppedAhead=...
   Peak before normalize: X.XXX, applied gain: X.XXX
   Output: mixed_arrivals.opus
 ```
