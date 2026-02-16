@@ -397,6 +397,11 @@ func decodeWithInternalMultistream(oggData []byte) ([]float32, error) {
 	if err != nil {
 		return nil, fmt.Errorf("new multistream decoder: %w", err)
 	}
+	if r.Header.MappingFamily == 3 && len(r.Header.DemixingMatrix) > 0 {
+		if err := dec.SetProjectionDemixingMatrix(r.Header.DemixingMatrix); err != nil {
+			return nil, fmt.Errorf("set projection demixing matrix: %w", err)
+		}
+	}
 
 	decoded := make([]float32, 0, 48000*channels)
 	var prevGranule uint64
