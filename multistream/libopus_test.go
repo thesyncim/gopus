@@ -101,70 +101,15 @@ func makeOggPage(serialNo, pageNo uint32, headerType byte, granulePos uint64, se
 
 // makeOpusHeadMultistreamWithFamily creates OpusHead for multistream mapping families.
 func makeOpusHeadMultistreamWithFamily(channels, sampleRate int, streams, coupledStreams, mappingFamily int, mapping []byte) []byte {
-	if mappingFamily == 3 {
-		matrix := makeIdentityDemixingMatrix(channels, streams, coupledStreams)
-		size := 21 + len(matrix)
-		head := make([]byte, size)
-
-		copy(head[0:8], "OpusHead")
-		head[8] = 1                                     // Version
-		head[9] = byte(channels)                        // Channel count
-		binary.LittleEndian.PutUint16(head[10:12], 312) // Pre-skip (standard value)
-		binary.LittleEndian.PutUint32(head[12:16], uint32(sampleRate))
-		binary.LittleEndian.PutUint16(head[16:18], 0) // Output gain
-		head[18] = byte(mappingFamily)
-		head[19] = byte(streams)        // Stream count
-		head[20] = byte(coupledStreams) // Coupled stream count
-		copy(head[21:], matrix)         // RFC 8486 demixing matrix
-
-		return head
-	}
-
-	// OpusHead format (21+ bytes for family != 0):
-	// - 8 bytes: "OpusHead"
-	// - 1 byte: version (1)
-	// - 1 byte: channel count
-	// - 2 bytes: pre-skip (little-endian)
-	// - 4 bytes: input sample rate (little-endian)
-	// - 2 bytes: output gain (little-endian)
-	// - 1 byte: channel mapping family
-	// For multistream families:
-	// - 1 byte: stream count
-	// - 1 byte: coupled stream count
-	// - N bytes: channel mapping table
-
-	size := 21 + len(mapping)
-	head := make([]byte, size)
-
-	copy(head[0:8], "OpusHead")
-	head[8] = 1                                     // Version
-	head[9] = byte(channels)                        // Channel count
-	binary.LittleEndian.PutUint16(head[10:12], 312) // Pre-skip (standard value)
-	binary.LittleEndian.PutUint32(head[12:16], uint32(sampleRate))
-	binary.LittleEndian.PutUint16(head[16:18], 0) // Output gain
-	head[18] = byte(mappingFamily)
-	head[19] = byte(streams)        // Stream count
-	head[20] = byte(coupledStreams) // Coupled stream count
-	copy(head[21:], mapping)        // Channel mapping table
-
-	return head
-}
-
-func makeIdentityDemixingMatrix(channels, streams, coupledStreams int) []byte {
-	cols := streams + coupledStreams
-	rows := channels
-	matrix := make([]byte, 2*rows*cols)
-	for col := 0; col < cols; col++ {
-		for row := 0; row < rows; row++ {
-			var v uint16
-			if row == col {
-				v = 32767
-			}
-			offset := 2 * (col*rows + row)
-			binary.LittleEndian.PutUint16(matrix[offset:offset+2], v)
-		}
-	}
-	return matrix
+	head := oggcontainer.DefaultOpusHeadMultistreamWithFamily(
+		uint32(sampleRate),
+		uint8(channels),
+		uint8(mappingFamily),
+		uint8(streams),
+		uint8(coupledStreams),
+		mapping,
+	)
+	return head.Encode()
 }
 
 // makeOpusHeadMultistream creates OpusHead for mapping family 1 (RFC 7845 Section 5.1.1).

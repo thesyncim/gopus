@@ -8,25 +8,6 @@ func expectedDemixingMatrixSize(channels, streams, coupled uint8) int {
 	return 2 * int(channels) * int(streams+coupled)
 }
 
-func identityDemixingMatrix(channels, streams, coupled uint8) []byte {
-	cols := int(streams + coupled)
-	rows := int(channels)
-	matrix := make([]byte, 2*rows*cols)
-
-	for col := 0; col < cols; col++ {
-		for row := 0; row < rows; row++ {
-			var v uint16
-			if row == col {
-				v = 32767 // Q15 identity coefficient
-			}
-			offset := 2 * (col*rows + row)
-			binary.LittleEndian.PutUint16(matrix[offset:offset+2], v)
-		}
-	}
-
-	return matrix
-}
-
 // Opus header constants per RFC 7845.
 const (
 	// DefaultPreSkip is the standard Opus encoder lookahead at 48kHz.
@@ -131,7 +112,11 @@ func (h *OpusHead) Encode() []byte {
 	if h.MappingFamily == MappingFamilyProjection {
 		matrix := h.DemixingMatrix
 		if len(matrix) == 0 {
-			matrix = identityDemixingMatrix(h.Channels, h.StreamCount, h.CoupledCount)
+			if defaultMatrix, _, ok := defaultProjectionDemixingMatrix(h.Channels, h.StreamCount, h.CoupledCount); ok {
+				matrix = defaultMatrix
+			} else {
+				matrix = identityDemixingMatrix(h.Channels, h.StreamCount, h.CoupledCount)
+			}
 		}
 
 		size := 21 + len(matrix)
@@ -408,7 +393,12 @@ func DefaultOpusHeadMultistreamWithFamily(sampleRate uint32, channels uint8, map
 		CoupledCount:  coupled,
 	}
 	if mappingFamily == MappingFamilyProjection {
-		h.DemixingMatrix = identityDemixingMatrix(channels, streams, coupled)
+		if matrix, gain, ok := defaultProjectionDemixingMatrix(channels, streams, coupled); ok {
+			h.DemixingMatrix = matrix
+			h.OutputGain = gain
+		} else {
+			h.DemixingMatrix = identityDemixingMatrix(channels, streams, coupled)
+		}
 	} else {
 		h.ChannelMapping = mapping
 	}
