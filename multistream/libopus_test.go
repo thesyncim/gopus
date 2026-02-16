@@ -797,6 +797,47 @@ func TestLibopus_DefaultMappingMatrix(t *testing.T) {
 				t.Fatalf("libopus energy ratio too low: %.2f%% < 5%%", libopusEnergyRatio)
 			}
 
+			head := oggcontainer.DefaultOpusHeadMultistreamWithFamily(
+				48000,
+				uint8(tc.channels),
+				1,
+				uint8(streams),
+				uint8(coupled),
+				mapping,
+			)
+
+			libopusRefDecoded, err := decodeWithLibopusReferencePackets(
+				1,
+				tc.channels,
+				streams,
+				coupled,
+				frameSize,
+				head.ChannelMapping,
+				head.DemixingMatrix,
+				packets,
+			)
+			if err != nil {
+				t.Skipf("libopus reference decode helper unavailable: %v", err)
+			}
+
+			preSkip := int(head.PreSkip) * tc.channels
+			if preSkip > 0 && len(libopusRefDecoded) > preSkip {
+				libopusRefDecoded = libopusRefDecoded[preSkip:]
+			}
+			if len(libopusRefDecoded) != wantSamples {
+				t.Fatalf("libopus reference decoded sample count mismatch: got=%d want=%d", len(libopusRefDecoded), wantSamples)
+			}
+
+			meanSquareDiff, maxAbsDiff := computeDiffStatsF32(internalDecoded, libopusRefDecoded)
+			relDiff := 0.0
+			libopusRefEnergy := computeEnergyF32(libopusRefDecoded)
+			if libopusRefEnergy > 0 {
+				relDiff = meanSquareDiff / libopusRefEnergy
+			}
+			if relDiff > 0.05 {
+				t.Fatalf("default-mapping internal/libopus decode drift too high: rel=%.4f meanSq=%.6f maxAbs=%.6f", relDiff, meanSquareDiff, maxAbsDiff)
+			}
+
 			t.Logf("%dch: bitrate=%dkbps libopusEnergy=%.1f%%",
 				tc.channels, tc.bitrate/1000, libopusEnergyRatio)
 		})
@@ -872,6 +913,47 @@ func TestLibopus_FrameDurationMatrix(t *testing.T) {
 				}
 				if len(internalDecoded) != wantSamples {
 					t.Fatalf("internal decoded sample count mismatch: got=%d want=%d", len(internalDecoded), wantSamples)
+				}
+
+				head := oggcontainer.DefaultOpusHeadMultistreamWithFamily(
+					48000,
+					uint8(layout.channels),
+					1,
+					uint8(streams),
+					uint8(coupled),
+					mapping,
+				)
+
+				libopusRefDecoded, err := decodeWithLibopusReferencePackets(
+					1,
+					layout.channels,
+					streams,
+					coupled,
+					fs.frameSize,
+					head.ChannelMapping,
+					head.DemixingMatrix,
+					packets,
+				)
+				if err != nil {
+					t.Skipf("libopus reference decode helper unavailable: %v", err)
+				}
+
+				preSkip := int(head.PreSkip) * layout.channels
+				if preSkip > 0 && len(libopusRefDecoded) > preSkip {
+					libopusRefDecoded = libopusRefDecoded[preSkip:]
+				}
+				if len(libopusRefDecoded) != wantSamples {
+					t.Fatalf("libopus reference decoded sample count mismatch: got=%d want=%d", len(libopusRefDecoded), wantSamples)
+				}
+
+				meanSquareDiff, maxAbsDiff := computeDiffStatsF32(internalDecoded, libopusRefDecoded)
+				relDiff := 0.0
+				libopusRefEnergy := computeEnergyF32(libopusRefDecoded)
+				if libopusRefEnergy > 0 {
+					relDiff = meanSquareDiff / libopusRefEnergy
+				}
+				if relDiff > 0.05 {
+					t.Fatalf("frame-duration internal/libopus decode drift too high: rel=%.4f meanSq=%.6f maxAbs=%.6f", relDiff, meanSquareDiff, maxAbsDiff)
 				}
 
 				t.Logf("%s: decoded=%d samples", tcName, wantSamples)

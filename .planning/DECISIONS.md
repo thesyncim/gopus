@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-16
+topic: Default mapping + frame-duration direct libopus waveform parity guards
+decision: Keep mapping-family-1 default-layout and long-frame duration multistream parity checks on direct libopus API decode with waveform-level drift assertions (relative mean-square + max-abs diagnostics), not only sample-count and energy-floor checks.
+evidence: Updated `TestLibopus_DefaultMappingMatrix` and `TestLibopus_FrameDurationMatrix` in `multistream/libopus_test.go` to call `decodeWithLibopusReferencePackets` for family 1, trim `PreSkip`, and assert internal-vs-libopus decode drift thresholds. Validation: `go test ./multistream -run 'TestLibopus_(DefaultMappingMatrix|FrameDurationMatrix|AmbisonicsFamily2Matrix|AmbisonicsFamily3Matrix)' -count=1 -v`, `go test ./multistream -count=1`, and `go test . -run 'TestMultistream' -count=1` passed.
+do_not_repeat_until: libopus multistream decode APIs/helper protocol changes, mapping-family-1 packet semantics change, or fixture evidence indicates waveform-level drift in these slices.
+owner: codex
+
+date: 2026-02-16
 topic: Multistream per-stream decode mode dispatch parity
 decision: Keep multistream per-stream decoders mode-aware by parsing TOC and dispatching each frame payload to the matching decoder (`CELT`, `SILK`, `Hybrid`), and keep frame payload decode on bytes after TOC (never pass full Opus packet including TOC into frame decoders). Do not use hybrid-only decoding as a universal multistream stream path.
 evidence: Updated `multistream/decoder.go` to introduce `opusStreamDecoder` with TOC-based dispatch and per-mode decode calls (`celt.DecodeFrameWithPacketStereo`, `silk.Decode*`, `hybrid.DecodeWithPacketStereo`), including multi-frame packet splitting and PLC routing by last decoded mode. Tightened `multistream/libopus_test.go` `runLibopusAmbisonicsParityCase` with internal-vs-libopus waveform drift assertion. Validation: `go test ./multistream -run 'TestLibopus_AmbisonicsFamily(2|3)Matrix' -count=1 -v`, `go test ./multistream -count=1`, and `go test . -run 'TestMultistream' -count=1` passed; previously observed internal energy drift (3x-7x vs libopus) collapsed to parity across family-2/3 cases.
