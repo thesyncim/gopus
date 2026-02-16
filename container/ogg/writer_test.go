@@ -423,6 +423,68 @@ func TestWriterWithConfig_Multistream(t *testing.T) {
 	}
 }
 
+func TestWriterWithConfig_PreservesMappingFamily(t *testing.T) {
+	cases := []struct {
+		name          string
+		mappingFamily uint8
+		channels      uint8
+		streams       uint8
+		coupled       uint8
+		mapping       []byte
+	}{
+		{
+			name:          "family2-ambisonics",
+			mappingFamily: MappingFamilyAmbisonics,
+			channels:      6,
+			streams:       5,
+			coupled:       1,
+			mapping:       []byte{2, 3, 4, 5, 0, 1},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			_, err := NewWriterWithConfig(&buf, WriterConfig{
+				SampleRate:     48000,
+				Channels:       tc.channels,
+				PreSkip:        DefaultPreSkip,
+				OutputGain:     0,
+				MappingFamily:  tc.mappingFamily,
+				StreamCount:    tc.streams,
+				CoupledCount:   tc.coupled,
+				ChannelMapping: tc.mapping,
+			})
+			if err != nil {
+				t.Fatalf("NewWriterWithConfig failed: %v", err)
+			}
+
+			page, _, err := ParsePage(buf.Bytes())
+			if err != nil {
+				t.Fatalf("ParsePage failed: %v", err)
+			}
+			packets := page.Packets()
+			if len(packets) == 0 {
+				t.Fatal("OpusHead packet missing")
+			}
+			head, err := ParseOpusHead(packets[0])
+			if err != nil {
+				t.Fatalf("ParseOpusHead failed: %v", err)
+			}
+
+			if head.MappingFamily != tc.mappingFamily {
+				t.Fatalf("MappingFamily = %d, want %d", head.MappingFamily, tc.mappingFamily)
+			}
+			if head.StreamCount != tc.streams {
+				t.Fatalf("StreamCount = %d, want %d", head.StreamCount, tc.streams)
+			}
+			if head.CoupledCount != tc.coupled {
+				t.Fatalf("CoupledCount = %d, want %d", head.CoupledCount, tc.coupled)
+			}
+		})
+	}
+}
+
 // TestWriterWithConfig_InvalidConfig tests that invalid configs are rejected.
 func TestWriterWithConfig_InvalidConfig(t *testing.T) {
 	tests := []struct {
