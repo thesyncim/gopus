@@ -774,14 +774,15 @@ func rewhitenLTP(sLTP []int16, xq []int16, startIdx, offset int, aQ12 []int16, l
 	}
 }
 
+// quantOffsets is a package-level constant table replacing the per-call [][]int literal.
+// Per libopus: silk_Quantization_Offsets_Q10[signalType>>1][quantOffsetType].
+var quantOffsets = [2][2]int{
+	{offsetUVLQ10, offsetUVHQ10}, // Unvoiced (signalType 0, 1)
+	{offsetVLQ10, offsetVHQ10},   // Voiced (signalType 2, 3)
+}
+
 // getQuantizationOffset returns the quantization offset based on signal type and offset type.
 func getQuantizationOffset(signalType, quantOffsetType int) int {
-	// Per libopus: silk_Quantization_Offsets_Q10[signalType>>1][quantOffsetType]
-	offsets := [][]int{
-		{offsetUVLQ10, offsetUVHQ10}, // Unvoiced (signalType 0, 1)
-		{offsetVLQ10, offsetVHQ10},   // Voiced (signalType 2, 3)
-	}
-
 	sigIdx := signalType >> 1
 	if sigIdx < 0 {
 		sigIdx = 0
@@ -796,7 +797,7 @@ func getQuantizationOffset(signalType, quantOffsetType int) int {
 		quantOffsetType = 1
 	}
 
-	return offsets[sigIdx][quantOffsetType]
+	return quantOffsets[sigIdx][quantOffsetType]
 }
 
 // Fixed-point math helpers matching libopus SigProc_FIX.h

@@ -71,13 +71,7 @@ func toneLPC(x []float32, delay int) (float32, float32, bool) {
 	// Compute correlations using forward prediction covariance method.
 	cnt := n - 2*delay
 	delay2 := 2 * delay
-	var r00, r01, r02 float32
-	for i := 0; i < cnt; i++ {
-		xi := x[i]
-		r00 += xi * xi
-		r01 += xi * x[i+delay]
-		r02 += xi * x[i+delay2]
-	}
+	r00, r01, r02 := toneLPCCorr(x, cnt, delay, delay2)
 
 	// Edge corrections for r11, r22, r12.
 	// Precompute base offsets to avoid repeated arithmetic.
@@ -231,7 +225,8 @@ func (e *Encoder) TransientAnalysis(pcm []float64, frameSize int, allowWeakTrans
 		e.scratch.transientX,
 		e.scratch.transientChannelSamps,
 		e.scratch.transientTmp,
-		e.scratch.transientEnergy)
+		e.scratch.transientEnergy,
+		e.scratch.transientX2)
 }
 
 // transientInvTable is the inverse table for computing harmonic mean (6*64/x, trained on real data).
@@ -249,7 +244,7 @@ var transientInvTable = [128]int{
 
 // transientAnalysisScratch is the scratch-aware version of TransientAnalysis.
 func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWeakTransients bool,
-	toneBuf []float32, channelBuf []float64, tmpBuf []float64, energyBuf []float64) TransientAnalysisResult {
+	toneBuf []float32, channelBuf []float64, tmpBuf []float64, energyBuf []float64, x2Buf []float32) TransientAnalysisResult {
 	result := TransientAnalysisResult{
 		TfEstimate:  0.0,
 		TfChannel:   0,
@@ -361,21 +356,23 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 		}
 
 		// Forward pass: compute post-echo threshold with forward masking
-		// Group by two to reduce complexity
-		_ = tmp[2*len2-1]  // BCE hint for tmp[2*i] and tmp[2*i+1]
+		// Group by two to reduce complexity.
+		// Split into two passes:
+		//   Pass 1 (SIMD): compute x2[i] = float32(tmp[2*i])^2 + float32(tmp[2*i+1])^2
+		//   Pass 2 (scalar): apply sequential forward decay
+		var x2 []float32
+		if x2Buf != nil && len(x2Buf) >= len2 {
+			x2 = x2Buf[:len2]
+		} else {
+			x2 = make([]float32, len2)
+		}
+		mean := float32(transientEnergyPairs(tmp[:2*len2], x2, len2))
+
+		// Pass 2: sequential forward decay (data-dependent, cannot vectorize)
 		_ = energy[len2-1] // BCE hint
-		var mean float32
 		mem0 = 0
 		for i := 0; i < len2; i++ {
-			// Energy of pair of samples
-			t0 := float32(tmp[2*i])
-			t1 := float32(tmp[2*i+1])
-			x2 := t0*t0 + t1*t1
-
-			mean += x2
-
-			// Forward masking: exponential decay
-			mem0 = x2 + forwardRetain*mem0
+			mem0 = x2[i] + forwardRetain*mem0
 			energy[i] = float64(forwardDecay * mem0)
 		}
 

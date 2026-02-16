@@ -201,7 +201,7 @@ func ComputeImportance(bandLogE, oldBandE []float64, nbBands, channels, lm, lsbD
 		}
 		// exp2(f) where f is in "dB-like" log2 units
 		// When f=0, importance=13. When f=4, importance=13*16=208
-		imp := 13.0 * math.Pow(2.0, f)
+		imp := 13.0 * math.Exp2(f)
 		importance[i] = int(math.Floor(0.5 + imp))
 		// Clamp to reasonable range
 		if importance[i] < 1 {

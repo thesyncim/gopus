@@ -236,6 +236,7 @@ type TonalityAnalysisState struct {
 	scratchDownsampled []float32
 	scratchResample3x  []float32
 	scratchFFTKiss     []celt.KissCpx
+	scratchBinE        []float32 // precomputed bin energies for band loop
 }
 
 func NewTonalityAnalysisState(fs int) *TonalityAnalysisState {
@@ -611,13 +612,29 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		bandLog2[0] = log2Scale * float32(math.Log(float64(E)+1e-10))
 	}
 
-	// Band energies and tonal metrics.
+	// Precompute bin energies for all analysis bins to improve memory access patterns.
+	// Range: tbands[0]=4 to tbands[NbTBands]=240, so bins 4..239 = 236 entries.
+	const binStart = 4  // tbands[0]
+	const binEnd = 240  // tbands[NbTBands]
+	const numBins = binEnd - binStart
+	if len(s.scratchBinE) < numBins {
+		s.scratchBinE = make([]float32, numBins)
+	}
+	binEArr := s.scratchBinE[:numBins]
+	{
+		const scale = (1.0 / (celtSigScale * celtSigScale)) * analysisFFTEnergyScale
+		for i := binStart; i < binEnd; i++ {
+			binE := real(out[i])*real(out[i]) + real(out[480-i])*real(out[480-i]) +
+				imag(out[i])*imag(out[i]) + imag(out[480-i])*imag(out[480-i])
+			binEArr[i-binStart] = binE * scale
+		}
+	}
+
+	// Band energies and tonal metrics using precomputed bin energies.
 	for b := 0; b < NbTBands; b++ {
 		var bandE, tE, nE float32
 		for i := tbands[b]; i < tbands[b+1]; i++ {
-			binE := real(out[i])*real(out[i]) + real(out[480-i])*real(out[480-i]) +
-				imag(out[i])*imag(out[i]) + imag(out[480-i])*imag(out[480-i])
-			binE *= (1.0 / (celtSigScale * celtSigScale)) * analysisFFTEnergyScale
+			binE := binEArr[i-binStart]
 			bandE += binE
 			tE += binE * maxf(0, tonality[i])
 			nE += binE * 2.0 * (0.5 - noisiness[i])

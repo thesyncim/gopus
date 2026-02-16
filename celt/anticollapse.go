@@ -67,7 +67,7 @@ func antiCollapse(
 		}
 
 		depth := celtUdiv(1+pulses[band], N0) >> lm
-		thresh := 0.5 * math.Exp2(-0.125*float64(depth))
+		thresh := 0.5 * float64(celtExp2(float32(-0.125)*float32(depth)))
 		sqrt1 := 1.0 / math.Sqrt(float64(N0<<lm))
 		bandOffset := EBands[band] << lm
 		bandLen := N0 << lm
@@ -106,7 +106,7 @@ func antiCollapse(
 
 			// r needs to be multiplied by 2 or 2*sqrt(2) depending on LM because
 			// short blocks don't have the same energy as long
-			r := 2.0 * math.Exp2(-ediff)
+			r := 2.0 * float64(celtExp2(float32(-ediff)))
 			if lm == 3 {
 				r *= 1.41421356
 			}

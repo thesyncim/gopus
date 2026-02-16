@@ -183,9 +183,9 @@ func computeBandRMS(coeffs []float64, start, end int) float64 {
 		sumSq += v * v
 	}
 
-	// log2(sqrt(sumSq)) = log2(amp) with libopus FLOAT_APPROX log2.
-	amp := float32(math.Sqrt(float64(sumSq)))
-	return float64(celtLog2(amp))
+	// log2(sqrt(sumSq)) = 0.5 * log2(sumSq).
+	// Use the identity to eliminate math.Sqrt (~10ns/call × 42 bands/frame).
+	return 0.5 * float64(celtLog2(sumSq))
 }
 
 func celtAbsInt(v int) int {
