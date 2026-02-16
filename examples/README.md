@@ -210,6 +210,54 @@ go build .
 - `-play`: Play the encoded file with `ffplay`
 - `-libopus`: Use external libopus encoder (`opusenc`/`ffmpeg`) instead of gopus
 
+### mix-arrivals
+
+Mixes WebRTC-like tracks that arrive at different times into one output.
+
+**What it does:**
+1. Downloads real speech clips from the open-source Free Spoken Digit Dataset (CC BY 4.0)
+2. Resamples and pans clips into three concurrent speaker tracks
+3. Splits each track into timestamped PCM frames (packetization out of scope)
+4. Simulates jittered/out-of-order arrival and frame loss (with optional PLC-style concealment)
+5. Uses a runtime track mixer (`AddTrack`/`RemoveTrack`) with bounded lookahead
+6. Normalizes peak level and writes one Ogg Opus file
+
+**Usage:**
+```bash
+cd examples/mix-arrivals
+go build .
+
+# Mix speech tracks into one Ogg Opus file
+./mix-arrivals -out mixed_arrivals.opus -bitrate 128000
+
+# Increase simulated loss profile
+./mix-arrivals -loss 0.12 -burst-start 0.18 -burst-keep 0.60
+
+# Hear the result immediately
+./mix-arrivals -play
+```
+
+**Important:**
+- This sample downloads clips from GitHub on first run.
+- License source: `https://github.com/Jakobovski/free-spoken-digit-dataset` (CC BY 4.0).
+- Downloaded clips are cached in `.cache/mix-arrivals` by default.
+- `-play` uses `ffplay` when available; otherwise it falls back to local OS players.
+
+**Expected output:**
+```
+Mixing open-source speech tracks into one output
+  Source dataset: Free Spoken Digit Dataset
+  Source license: CC BY 4.0
+  Downloaded clips: 12 (cache: .cache/mix-arrivals)
+  - speaker-george: start=0ms, duration=...
+  - speaker-jackson: start=550ms, duration=...
+  - speaker-nicolas: start=1100ms, duration=...
+  Network simulation: generated=..., dropped=..., concealed=...
+  Stream ingest: accepted=..., droppedLate=..., droppedAhead=...
+  Peak before normalize: X.XXX, applied gain: X.XXX
+  Output: mixed_arrivals.opus
+```
+
 ## Building All Examples
 
 ```bash
@@ -219,6 +267,7 @@ go build ./examples/roundtrip
 go build ./examples/ogg-file
 go build ./examples/decode-play
 go build ./examples/encode-play
+go build ./examples/mix-arrivals
 
 # Or build all at once
 go build ./examples/...
