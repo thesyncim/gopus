@@ -232,12 +232,16 @@ go build .
 
 # Increase simulated loss profile
 ./mix-arrivals -loss 0.12 -burst-start 0.18 -burst-keep 0.60
+
+# Hear the result immediately
+./mix-arrivals -play
 ```
 
 **Important:**
 - This sample downloads clips from GitHub on first run.
 - License source: `https://github.com/Jakobovski/free-spoken-digit-dataset` (CC BY 4.0).
 - Downloaded clips are cached in `.cache/mix-arrivals` by default.
+- `-play` uses `ffplay` when available; otherwise it falls back to local OS players.
 
 **Expected output:**
 ```
