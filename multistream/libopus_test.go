@@ -609,6 +609,88 @@ func TestLibopus_71Surround(t *testing.T) {
 	runLibopusSurroundTest(t, "7.1", 8, 384000)
 }
 
+// TestLibopus_DefaultMappingMatrix validates all default mapping-family channel layouts
+// (1..8 channels) against libopus decode and checks internal decoder agreement.
+func TestLibopus_DefaultMappingMatrix(t *testing.T) {
+	cases := []struct {
+		name     string
+		channels int
+		bitrate  int
+	}{
+		{name: "1ch", channels: 1, bitrate: 64000},
+		{name: "2ch", channels: 2, bitrate: 128000},
+		{name: "3ch", channels: 3, bitrate: 160000},
+		{name: "4ch", channels: 4, bitrate: 192000},
+		{name: "5ch", channels: 5, bitrate: 224000},
+		{name: "6ch", channels: 6, bitrate: 256000},
+		{name: "7ch", channels: 7, bitrate: 320000},
+		{name: "8ch", channels: 8, bitrate: 384000},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			enc, err := NewEncoderDefault(48000, tc.channels)
+			if err != nil {
+				t.Fatalf("NewEncoderDefault failed: %v", err)
+			}
+			enc.Reset()
+			enc.SetBitrate(tc.bitrate)
+
+			frameSize := 960 // 20ms at 48kHz
+			numFrames := 12
+
+			var allInput []float64
+			packets := make([][]byte, numFrames)
+			for i := 0; i < numFrames; i++ {
+				pcm := generateMultichannelSine(tc.channels, frameSize)
+				allInput = append(allInput, pcm...)
+
+				packet, err := enc.Encode(pcm, frameSize)
+				if err != nil {
+					t.Fatalf("Frame %d: Encode failed: %v", i, err)
+				}
+				if packet == nil {
+					packet = []byte{0xF8, 0xFF, 0xFE}
+				}
+				packets[i] = packet
+			}
+
+			streams, coupled, mapping, err := DefaultMapping(tc.channels)
+			if err != nil {
+				t.Fatalf("DefaultMapping(%d) failed: %v", tc.channels, err)
+			}
+
+			var ogg bytes.Buffer
+			err = writeOggOpusMultistream(&ogg, packets, 48000, tc.channels, streams, coupled, mapping, frameSize)
+			if err != nil {
+				t.Fatalf("writeOggOpusMultistream failed: %v", err)
+			}
+
+			libopusDecoded := decodeWithOpusdecForTest(t, ogg.Bytes())
+
+			wantSamples := expectedDecodedSampleCount(numFrames, frameSize, tc.channels)
+			if len(libopusDecoded) != wantSamples {
+				t.Fatalf("libopus decoded sample count mismatch: got=%d want=%d", len(libopusDecoded), wantSamples)
+			}
+
+			inputF32 := make([]float32, len(allInput))
+			for i, v := range allInput {
+				inputF32[i] = float32(v)
+			}
+			inputEnergy := computeEnergyF32(inputF32)
+			libopusEnergy := computeEnergyF32(libopusDecoded)
+
+			libopusEnergyRatio := libopusEnergy / inputEnergy * 100
+			if libopusEnergyRatio < 5.0 {
+				t.Fatalf("libopus energy ratio too low: %.2f%% < 5%%", libopusEnergyRatio)
+			}
+
+			t.Logf("%dch: bitrate=%dkbps libopusEnergy=%.1f%%",
+				tc.channels, tc.bitrate/1000, libopusEnergyRatio)
+		})
+	}
+}
+
 // TestLibopus_BitrateQuality tests encoding at different bitrates and logs quality metrics.
 // This test validates that libopus can decode at various bitrate levels and logs
 // informational metrics about actual vs target bitrate.
