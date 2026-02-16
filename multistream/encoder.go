@@ -74,6 +74,14 @@ type Encoder struct {
 	// lfeStream is the stream index that carries LFE, or -1 when absent.
 	lfeStream int
 
+	// Optional projection-family mixing matrix coefficients (column-major).
+	// Coefficients are normalized to [-1, 1) by dividing S16 entries by 32768.
+	projectionMixing  []float64
+	projectionCols    int
+	projectionRows    int
+	projectionScratch []float64
+	projectionFrame   []float64
+
 	// streamBitrates stores per-stream rates computed by allocation policy.
 	streamBitrates []int
 
@@ -357,6 +365,11 @@ func NewEncoderAmbisonics(sampleRate, channels, mappingFamily int) (*Encoder, er
 	enc.mappingFamily = mappingFamily
 	enc.lfeStream = -1
 	enc.applyLFEFlags()
+	if mappingFamily == 3 {
+		if err := enc.initProjectionMixingDefaults(); err != nil {
+			return nil, err
+		}
+	}
 	return enc, nil
 }
 
@@ -1150,6 +1163,59 @@ func routeChannelsToStreams(
 	return streamBuffers
 }
 
+func (e *Encoder) initProjectionMixingDefaults() error {
+	matrix, ok := defaultProjectionMixingMatrix(e.inputChannels, e.streams, e.coupledStreams)
+	if !ok {
+		return fmt.Errorf("multistream: missing projection mixing defaults for channels=%d streams=%d coupled=%d",
+			e.inputChannels, e.streams, e.coupledStreams)
+	}
+
+	needed := len(matrix)
+	if cap(e.projectionMixing) < needed {
+		e.projectionMixing = make([]float64, needed)
+	}
+	coeffs := e.projectionMixing[:needed]
+	for i, v := range matrix {
+		coeffs[i] = float64(v) / 32768.0
+	}
+
+	e.projectionRows = e.inputChannels
+	e.projectionCols = e.inputChannels
+	return nil
+}
+
+func (e *Encoder) applyProjectionMixing(pcm []float64, frameSize int) []float64 {
+	rows := e.projectionRows
+	cols := e.projectionCols
+	if len(e.projectionMixing) == 0 || rows <= 0 || cols <= 0 {
+		return pcm
+	}
+
+	if cap(e.projectionScratch) < len(pcm) {
+		e.projectionScratch = make([]float64, len(pcm))
+	}
+	mixed := e.projectionScratch[:len(pcm)]
+
+	if cap(e.projectionFrame) < cols {
+		e.projectionFrame = make([]float64, cols)
+	}
+	frame := e.projectionFrame[:cols]
+
+	for s := 0; s < frameSize; s++ {
+		in := pcm[s*cols : (s+1)*cols]
+		out := mixed[s*rows : (s+1)*rows]
+		copy(frame, in)
+		for row := 0; row < rows; row++ {
+			sum := 0.0
+			for col := 0; col < cols; col++ {
+				sum += e.projectionMixing[col*rows+row] * frame[col]
+			}
+			out[row] = sum
+		}
+	}
+	return mixed
+}
+
 // assembleMultistreamPacket combines individual stream packets into a multistream packet.
 // Per RFC 6716 Appendix B:
 //   - First N-1 packets use self-delimited packet framing
@@ -1214,8 +1280,13 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	// Mirror libopus per-stream rate/control policy ahead of stream encodes.
 	e.applyPerStreamPolicy(frameSize, pcm)
 
+	inputPCM := pcm
+	if e.mappingFamily == 3 {
+		inputPCM = e.applyProjectionMixing(pcm, frameSize)
+	}
+
 	// Route input channels to stream buffers
-	streamBuffers := routeChannelsToStreams(pcm, e.mapping, e.coupledStreams, frameSize, e.inputChannels, e.streams)
+	streamBuffers := routeChannelsToStreams(inputPCM, e.mapping, e.coupledStreams, frameSize, e.inputChannels, e.streams)
 
 	// Encode each stream
 	streamPackets := make([][]byte, e.streams)
