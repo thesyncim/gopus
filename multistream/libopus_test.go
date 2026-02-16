@@ -1,10 +1,7 @@
 // Package multistream libopus cross-validation tests.
-// These tests verify gopus multistream encoder produces packets decodable by libopus opusdec.
-//
-// Note: On macOS, tests may skip with "Failed to open" errors due to file provenance
-// restrictions. This is a macOS security feature (com.apple.provenance xattr) that
-// prevents opusdec from opening files created by certain processes (e.g., sandboxed
-// applications). The tests will pass on Linux and non-sandboxed macOS environments.
+// These tests validate gopus multistream packets against libopus tooling/APIs.
+// They use opusdec/opusinfo for container interoperability and a direct libopus
+// reference decoder helper for ambisonics family-2/3 decode parity.
 
 package multistream
 
@@ -942,23 +939,44 @@ func runLibopusAmbisonicsParityCase(t *testing.T, mappingFamily, channels, bitra
 		t.Fatalf("internal energy ratio too low: %.2f%% < 5%%", internalEnergyRatio)
 	}
 
-	if libopusDecoded, err := decodeWithOpusdec(ogg.Bytes()); err == nil {
-		if len(libopusDecoded) != wantSamples {
-			t.Fatalf("libopus decoded sample count mismatch: got=%d want=%d", len(libopusDecoded), wantSamples)
-		}
-		libopusEnergy := computeEnergyF32(libopusDecoded)
-		libopusEnergyRatio := libopusEnergy / inputEnergy * 100
-		if libopusEnergyRatio < 5.0 {
-			t.Fatalf("libopus energy ratio too low: %.2f%% < 5%%", libopusEnergyRatio)
-		}
-		t.Logf("family=%d %dch: streams=%d coupled=%d internalEnergy=%.1f%% libopusEnergy=%.1f%%",
-			mappingFamily, channels, enc.Streams(), enc.CoupledStreams(), internalEnergyRatio, libopusEnergyRatio)
-	} else {
-		// opusdec currently fails to decode some non-family-1 streams while opusinfo
-		// still validates headers; keep this as informative, not a hard failure.
-		t.Logf("family=%d %dch: opusdec decode unavailable (%v); internalEnergy=%.1f%%",
-			mappingFamily, channels, err, internalEnergyRatio)
+	head := oggcontainer.DefaultOpusHeadMultistreamWithFamily(
+		48000,
+		uint8(channels),
+		uint8(mappingFamily),
+		uint8(enc.Streams()),
+		uint8(enc.CoupledStreams()),
+		enc.mapping,
+	)
+
+	libopusDecoded, err := decodeWithLibopusReferencePackets(
+		mappingFamily,
+		channels,
+		enc.Streams(),
+		enc.CoupledStreams(),
+		frameSize,
+		head.ChannelMapping,
+		head.DemixingMatrix,
+		packets,
+	)
+	if err != nil {
+		t.Skipf("libopus reference decode helper unavailable: %v", err)
 	}
+
+	preSkip := int(head.PreSkip) * channels
+	if preSkip > 0 && len(libopusDecoded) > preSkip {
+		libopusDecoded = libopusDecoded[preSkip:]
+	}
+	if len(libopusDecoded) != wantSamples {
+		t.Fatalf("libopus decoded sample count mismatch: got=%d want=%d", len(libopusDecoded), wantSamples)
+	}
+
+	libopusEnergy := computeEnergyF32(libopusDecoded)
+	libopusEnergyRatio := libopusEnergy / inputEnergy * 100
+	if libopusEnergyRatio < 5.0 {
+		t.Fatalf("libopus energy ratio too low: %.2f%% < 5%%", libopusEnergyRatio)
+	}
+	t.Logf("family=%d %dch: streams=%d coupled=%d internalEnergy=%.1f%% libopusEnergy=%.1f%%",
+		mappingFamily, channels, enc.Streams(), enc.CoupledStreams(), internalEnergyRatio, libopusEnergyRatio)
 }
 
 // TestLibopus_AmbisonicsFamily2Matrix validates ambisonics mapping family 2
