@@ -215,28 +215,40 @@ go build .
 Mixes WebRTC-like tracks that arrive at different times into one output.
 
 **What it does:**
-1. Generates three stereo source tracks (pad, bass, lead)
-2. Splits each track into timestamped PCM frames (packetization out of scope)
-3. Simulates jittered/out-of-order frame arrival per track
-4. Uses a streaming mixer with per-track gain, bounded lookahead, and late-frame accounting
-5. Normalizes peak level and writes one Ogg Opus file
-6. Registers tracks explicitly at runtime (`AddTrack`/`RemoveTrack`) before ingesting frames
+1. Downloads real speech clips from the open-source Free Spoken Digit Dataset (CC BY 4.0)
+2. Resamples and pans clips into three concurrent speaker tracks
+3. Splits each track into timestamped PCM frames (packetization out of scope)
+4. Simulates jittered/out-of-order arrival and frame loss (with optional PLC-style concealment)
+5. Uses a runtime track mixer (`AddTrack`/`RemoveTrack`) with bounded lookahead
+6. Normalizes peak level and writes one Ogg Opus file
 
 **Usage:**
 ```bash
 cd examples/mix-arrivals
 go build .
 
-# Mix staggered tracks into one Ogg Opus file
+# Mix speech tracks into one Ogg Opus file
 ./mix-arrivals -out mixed_arrivals.opus -bitrate 128000
+
+# Increase simulated loss profile
+./mix-arrivals -loss 0.12 -burst-start 0.18 -burst-keep 0.60
 ```
+
+**Important:**
+- This sample downloads clips from GitHub on first run.
+- License source: `https://github.com/Jakobovski/free-spoken-digit-dataset` (CC BY 4.0).
+- Downloaded clips are cached in `.cache/mix-arrivals` by default.
 
 **Expected output:**
 ```
-Mixing timed tracks into one output
-  - pad: start=0ms, duration=4.00s, gain=0.70
-  - bass: start=350ms, duration=3.20s, gain=0.85
-  - lead: start=900ms, duration=2.60s, gain=0.75
+Mixing open-source speech tracks into one output
+  Source dataset: Free Spoken Digit Dataset
+  Source license: CC BY 4.0
+  Downloaded clips: 12 (cache: .cache/mix-arrivals)
+  - speaker-george: start=0ms, duration=...
+  - speaker-jackson: start=550ms, duration=...
+  - speaker-nicolas: start=1100ms, duration=...
+  Network simulation: generated=..., dropped=..., concealed=...
   Stream ingest: accepted=..., droppedLate=..., droppedAhead=...
   Peak before normalize: X.XXX, applied gain: X.XXX
   Output: mixed_arrivals.opus
