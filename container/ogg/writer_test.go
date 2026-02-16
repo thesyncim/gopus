@@ -423,6 +423,98 @@ func TestWriterWithConfig_Multistream(t *testing.T) {
 	}
 }
 
+func TestWriterWithConfig_PreservesMappingFamily(t *testing.T) {
+	cases := []struct {
+		name          string
+		mappingFamily uint8
+		channels      uint8
+		streams       uint8
+		coupled       uint8
+		mapping       []byte
+		demixing      []byte
+		wantDemixing  int
+		wantGain      int16
+	}{
+		{
+			name:          "family2-ambisonics",
+			mappingFamily: MappingFamilyAmbisonics,
+			channels:      6,
+			streams:       5,
+			coupled:       1,
+			mapping:       []byte{2, 3, 4, 5, 0, 1},
+			wantDemixing:  0,
+			wantGain:      0,
+		},
+		{
+			name:          "family3-projection",
+			mappingFamily: MappingFamilyProjection,
+			channels:      6,
+			streams:       3,
+			coupled:       3,
+			wantDemixing:  expectedDemixingMatrixSize(6, 3, 3),
+			wantGain:      0,
+		},
+		{
+			name:          "family3-projection-soa-plus",
+			mappingFamily: MappingFamilyProjection,
+			channels:      11,
+			streams:       6,
+			coupled:       5,
+			wantDemixing:  expectedDemixingMatrixSize(11, 6, 5),
+			wantGain:      3050,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			_, err := NewWriterWithConfig(&buf, WriterConfig{
+				SampleRate:     48000,
+				Channels:       tc.channels,
+				PreSkip:        DefaultPreSkip,
+				OutputGain:     0,
+				MappingFamily:  tc.mappingFamily,
+				StreamCount:    tc.streams,
+				CoupledCount:   tc.coupled,
+				ChannelMapping: tc.mapping,
+				DemixingMatrix: tc.demixing,
+			})
+			if err != nil {
+				t.Fatalf("NewWriterWithConfig failed: %v", err)
+			}
+
+			page, _, err := ParsePage(buf.Bytes())
+			if err != nil {
+				t.Fatalf("ParsePage failed: %v", err)
+			}
+			packets := page.Packets()
+			if len(packets) == 0 {
+				t.Fatal("OpusHead packet missing")
+			}
+			head, err := ParseOpusHead(packets[0])
+			if err != nil {
+				t.Fatalf("ParseOpusHead failed: %v", err)
+			}
+
+			if head.MappingFamily != tc.mappingFamily {
+				t.Fatalf("MappingFamily = %d, want %d", head.MappingFamily, tc.mappingFamily)
+			}
+			if head.StreamCount != tc.streams {
+				t.Fatalf("StreamCount = %d, want %d", head.StreamCount, tc.streams)
+			}
+			if head.CoupledCount != tc.coupled {
+				t.Fatalf("CoupledCount = %d, want %d", head.CoupledCount, tc.coupled)
+			}
+			if got := len(head.DemixingMatrix); got != tc.wantDemixing {
+				t.Fatalf("DemixingMatrix length = %d, want %d", got, tc.wantDemixing)
+			}
+			if head.OutputGain != tc.wantGain {
+				t.Fatalf("OutputGain = %d, want %d", head.OutputGain, tc.wantGain)
+			}
+		})
+	}
+}
+
 // TestWriterWithConfig_InvalidConfig tests that invalid configs are rejected.
 func TestWriterWithConfig_InvalidConfig(t *testing.T) {
 	tests := []struct {
@@ -486,6 +578,17 @@ func TestWriterWithConfig_InvalidConfig(t *testing.T) {
 				StreamCount:    4,
 				CoupledCount:   2,
 				ChannelMapping: []byte{0, 1, 2, 3, 4, 100}, // 100 > 4+2
+			},
+		},
+		{
+			name: "family3 invalid demixing size",
+			config: WriterConfig{
+				SampleRate:     48000,
+				Channels:       6,
+				MappingFamily:  MappingFamilyProjection,
+				StreamCount:    3,
+				CoupledCount:   3,
+				DemixingMatrix: []byte{1, 2, 3}, // too short
 			},
 		},
 	}

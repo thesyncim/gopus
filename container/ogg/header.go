@@ -4,6 +4,10 @@ import (
 	"encoding/binary"
 )
 
+func expectedDemixingMatrixSize(channels, streams, coupled uint8) int {
+	return 2 * int(channels) * int(streams+coupled)
+}
+
 // Opus header constants per RFC 7845.
 const (
 	// DefaultPreSkip is the standard Opus encoder lookahead at 48kHz.
@@ -30,6 +34,12 @@ const (
 
 	// MappingFamilyVorbis is for 1-8 channels with Vorbis channel order.
 	MappingFamilyVorbis = 1
+
+	// MappingFamilyAmbisonics is for ambisonics ACN/SN3D channel mapping.
+	MappingFamilyAmbisonics = 2
+
+	// MappingFamilyProjection is for projection-based ambisonics mapping.
+	MappingFamilyProjection = 3
 
 	// MappingFamilyDiscrete is for N channels with no defined relationship.
 	MappingFamilyDiscrete = 255
@@ -59,6 +69,8 @@ type OpusHead struct {
 	// MappingFamily specifies the channel mapping:
 	//   0: Mono/stereo (implicit order)
 	//   1: Surround 1-8 channels (Vorbis order)
+	//   2: Ambisonics ACN/SN3D
+	//   3: Projection-based ambisonics
 	//   255: Discrete (no defined relationship)
 	MappingFamily uint8
 
@@ -72,8 +84,12 @@ type OpusHead struct {
 
 	// ChannelMapping maps output channels to decoder channels.
 	// For mapping family 0, this is implicit (not stored).
-	// For family 1/255, length equals Channels.
+	// For family 1/2/255, length equals Channels.
 	ChannelMapping []byte
+
+	// DemixingMatrix stores RFC 8486 family-3 demixing metadata.
+	// Size is 2*Channels*(StreamCount+CoupledCount) bytes in S16LE format.
+	DemixingMatrix []byte
 }
 
 // Encode serializes the OpusHead to bytes.
@@ -93,8 +109,33 @@ func (h *OpusHead) Encode() []byte {
 		return data
 	}
 
-	// Mapping family 1 or 255: 21 + Channels bytes.
-	size := 21 + int(h.Channels)
+	if h.MappingFamily == MappingFamilyProjection {
+		matrix := h.DemixingMatrix
+		if len(matrix) == 0 {
+			if defaultMatrix, _, ok := defaultProjectionDemixingMatrix(h.Channels, h.StreamCount, h.CoupledCount); ok {
+				matrix = defaultMatrix
+			} else {
+				matrix = identityDemixingMatrix(h.Channels, h.StreamCount, h.CoupledCount)
+			}
+		}
+
+		size := 21 + len(matrix)
+		data := make([]byte, size)
+		copy(data[0:8], opusHeadMagic)
+		data[8] = h.Version
+		data[9] = h.Channels
+		binary.LittleEndian.PutUint16(data[10:12], h.PreSkip)
+		binary.LittleEndian.PutUint32(data[12:16], h.SampleRate)
+		binary.LittleEndian.PutUint16(data[16:18], uint16(h.OutputGain))
+		data[18] = h.MappingFamily
+		data[19] = h.StreamCount
+		data[20] = h.CoupledCount
+		copy(data[21:], matrix)
+		return data
+	}
+
+	// Mapping family 1/2/255: 21 + Channels bytes.
+	size := 21 + len(h.ChannelMapping)
 	data := make([]byte, size)
 	copy(data[0:8], opusHeadMagic)
 	data[8] = h.Version
@@ -141,11 +182,9 @@ func ParseOpusHead(data []byte) (*OpusHead, error) {
 		return nil, ErrInvalidHeader
 	}
 
-	// Parse extended fields for mapping family 1 and 255.
+	// Parse extended fields for non-RTP mapping families.
 	if h.MappingFamily != 0 {
-		// Need at least 21 + Channels bytes.
-		minSize := 21 + int(h.Channels)
-		if len(data) < minSize {
+		if len(data) < 21 {
 			return nil, ErrInvalidHeader
 		}
 
@@ -160,15 +199,30 @@ func ParseOpusHead(data []byte) (*OpusHead, error) {
 			return nil, ErrInvalidHeader
 		}
 
-		// Parse channel mapping table.
-		h.ChannelMapping = make([]byte, h.Channels)
-		copy(h.ChannelMapping, data[21:21+int(h.Channels)])
-
-		// Validate mapping values.
-		maxStream := h.StreamCount + h.CoupledCount
-		for _, m := range h.ChannelMapping {
-			if m >= maxStream && m != 255 { // 255 = silence
+		if h.MappingFamily == MappingFamilyProjection {
+			matrixSize := expectedDemixingMatrixSize(h.Channels, h.StreamCount, h.CoupledCount)
+			if len(data) < 21+matrixSize {
 				return nil, ErrInvalidHeader
+			}
+			h.DemixingMatrix = make([]byte, matrixSize)
+			copy(h.DemixingMatrix, data[21:21+matrixSize])
+		} else {
+			// Need at least 21 + Channels bytes.
+			minSize := 21 + int(h.Channels)
+			if len(data) < minSize {
+				return nil, ErrInvalidHeader
+			}
+
+			// Parse channel mapping table.
+			h.ChannelMapping = make([]byte, h.Channels)
+			copy(h.ChannelMapping, data[21:21+int(h.Channels)])
+
+			// Validate mapping values.
+			maxStream := h.StreamCount + h.CoupledCount
+			for _, m := range h.ChannelMapping {
+				if m >= maxStream && m != 255 { // 255 = silence
+					return nil, ErrInvalidHeader
+				}
 			}
 		}
 	} else {
@@ -326,20 +380,35 @@ func DefaultOpusHead(sampleRate uint32, channels uint8) *OpusHead {
 	return h
 }
 
+// DefaultOpusHeadMultistreamWithFamily returns an OpusHead for multistream mappings.
+func DefaultOpusHeadMultistreamWithFamily(sampleRate uint32, channels uint8, mappingFamily, streams, coupled uint8, mapping []byte) *OpusHead {
+	h := &OpusHead{
+		Version:       opusHeadVersion,
+		Channels:      channels,
+		PreSkip:       DefaultPreSkip,
+		SampleRate:    sampleRate,
+		OutputGain:    0,
+		MappingFamily: mappingFamily,
+		StreamCount:   streams,
+		CoupledCount:  coupled,
+	}
+	if mappingFamily == MappingFamilyProjection {
+		if matrix, gain, ok := defaultProjectionDemixingMatrix(channels, streams, coupled); ok {
+			h.DemixingMatrix = matrix
+			h.OutputGain = gain
+		} else {
+			h.DemixingMatrix = identityDemixingMatrix(channels, streams, coupled)
+		}
+	} else {
+		h.ChannelMapping = mapping
+	}
+	return h
+}
+
 // DefaultOpusHeadMultistream returns an OpusHead for multistream with mapping family 1.
 // This is for surround configurations (1-8 channels).
 func DefaultOpusHeadMultistream(sampleRate uint32, channels uint8, streams, coupled uint8, mapping []byte) *OpusHead {
-	return &OpusHead{
-		Version:        opusHeadVersion,
-		Channels:       channels,
-		PreSkip:        DefaultPreSkip,
-		SampleRate:     sampleRate,
-		OutputGain:     0,
-		MappingFamily:  MappingFamilyVorbis,
-		StreamCount:    streams,
-		CoupledCount:   coupled,
-		ChannelMapping: mapping,
-	}
+	return DefaultOpusHeadMultistreamWithFamily(sampleRate, channels, MappingFamilyVorbis, streams, coupled, mapping)
 }
 
 // DefaultOpusTags returns an OpusTags with gopus vendor string.

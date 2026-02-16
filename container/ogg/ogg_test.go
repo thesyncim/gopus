@@ -1,6 +1,7 @@
 package ogg
 
 import (
+	"bytes"
 	"testing"
 )
 
@@ -642,6 +643,10 @@ func TestOpusHeadRoundTrip(t *testing.T) {
 			name: "5.1 surround",
 			head: DefaultOpusHeadMultistream(48000, 6, 4, 2, []byte{0, 4, 1, 2, 3, 5}),
 		},
+		{
+			name: "family3 projection",
+			head: DefaultOpusHeadMultistreamWithFamily(48000, 4, MappingFamilyProjection, 2, 2, nil),
+		},
 	}
 
 	for _, tc := range tests {
@@ -669,6 +674,11 @@ func TestOpusHeadRoundTrip(t *testing.T) {
 			}
 			if parsed.MappingFamily != tc.head.MappingFamily {
 				t.Errorf("MappingFamily mismatch")
+			}
+			if len(tc.head.DemixingMatrix) > 0 {
+				if !bytes.Equal(parsed.DemixingMatrix, tc.head.DemixingMatrix) {
+					t.Errorf("DemixingMatrix mismatch")
+				}
 			}
 		})
 	}
@@ -788,6 +798,15 @@ func TestOpusHeadErrors(t *testing.T) {
 				d[8] = 1 // Version
 				d[9] = 3 // 3 channels (invalid for family 0)
 				return d
+			}(),
+		},
+		{
+			name: "family 3 truncated demixing matrix",
+			data: func() []byte {
+				// family 3 requires 2*channels*(streams+coupled) matrix bytes.
+				h := DefaultOpusHeadMultistreamWithFamily(48000, 4, MappingFamilyProjection, 2, 2, nil)
+				d := h.Encode()
+				return d[:len(d)-2]
 			}(),
 		},
 	}
