@@ -339,7 +339,6 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 		yr := mdctMul(re, t0) - mdctMul(im, t1)
 		yi := mdctMul(im, t0) + mdctMul(re, t1)
 		if mdctUseFMALikeMixEnabled {
-			// Match libopus arm64 codegen pattern that rounds one product and uses FMADD.
 			yr = float32(float64(re)*float64(t0) - float64(mdctMul(im, t1)))
 			yi = float32(float64(im)*float64(t0) + float64(mdctMul(re, t1)))
 		}

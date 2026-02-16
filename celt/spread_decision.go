@@ -117,24 +117,10 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []float64, nbBands, channel
 			// - tcount[0]: x2N < 0.25 (|x[j]| < 0.5/sqrt(N))
 			// - tcount[1]: x2N < 0.0625 (|x[j]| < 0.25/sqrt(N))
 			// - tcount[2]: x2N < 0.015625 (|x[j]| < 0.125/sqrt(N))
-			tcount := [3]int{0, 0, 0}
 			Nf := float64(N)
-
 			bandX := normX[xOffset : xOffset+N : xOffset+N]
-			for j := 0; j < N; j++ {
-				x := bandX[j]
-				x2N := x * x * Nf
-
-				if x2N < 0.25 {
-					tcount[0]++
-				}
-				if x2N < 0.0625 {
-					tcount[1]++
-				}
-				if x2N < 0.015625 {
-					tcount[2]++
-				}
-			}
+			tc0, tc1, tc2 := spreadCountThresholds(bandX, N, Nf)
+			tcount := [3]int{tc0, tc1, tc2}
 
 			// High frequency bands contribution (last 4 bands, ~8kHz and up)
 			// libopus: if (i > m->nbEBands-4)

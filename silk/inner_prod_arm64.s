@@ -1,182 +1,129 @@
 #include "textflag.h"
 
-// FMADDD operand order in Go Plan 9 ARM64:
-//   FMADDD Fm, Fa, Fn, Fd → Fd = Fa + Fn * Fm
-// So for sum += x * y: FMADDD Fy, Fsum, Fx, Fsum
+// func innerProductF32(a, b []float32, length int) float64
+TEXT ·innerProductF32(SB), NOSPLIT, $0-64
+	MOVD    a_base+0(FP), R0
+	MOVD    b_base+24(FP), R3
+	MOVD    length+48(FP), R6
 
-// func innerProductF32Asm(a, b []float32, length int) float64
-//
-// Computes the inner product of two float32 slices, accumulating in float64.
-// Uses 4 float64 accumulators to break FMA dependency chains.
-// Processes 4 elements per iteration with a scalar tail loop.
-//
-// Frame layout (ABI0):
-//   a_base+0(FP)      *float32
-//   a_len+8(FP)       int
-//   a_cap+16(FP)      int
-//   b_base+24(FP)     *float32
-//   b_len+32(FP)      int
-//   b_cap+40(FP)      int
-//   length+48(FP)     int
-//   ret+56(FP)        float64
-//
-// Register allocation:
-//   R0 = a base pointer
-//   R1 = b base pointer
-//   R2 = remaining count
-//   F0 = accumulator 0
-//   F1 = accumulator 1
-//   F2 = accumulator 2
-//   F3 = accumulator 3
-//   F4-F7 = loaded float32 values from a (promoted to float64)
-//   F8-F11 = loaded float32 values from b (promoted to float64)
-TEXT ·innerProductF32Asm(SB), NOSPLIT, $0-64
-	MOVD	length+48(FP), R2
-	CMP	$1, R2
-	BLT	innerProdF32_zero
+	VEOR    V0.B16, V0.B16, V0.B16
+	VEOR    V1.B16, V1.B16, V1.B16
+	FMOVD   ZR, F20
 
-	MOVD	a_base+0(FP), R0
-	MOVD	b_base+24(FP), R1
+	CMP     $0, R6
+	BLE     done
 
-	FMOVD	ZR, F0	// sum0
-	FMOVD	ZR, F1	// sum1
-	FMOVD	ZR, F2	// sum2
-	FMOVD	ZR, F3	// sum3
+loop4:
+	CMP     $4, R6
+	BLT     tail
 
-	CMP	$4, R2
-	BLT	innerProdF32_tail
+	VLD1.P  16(R0), [V2.D2]
+	VLD1.P  16(R3), [V5.D2]
 
-innerProdF32_loop4:
-	// Load 4 float32 values from a[], convert to float64
-	FMOVS	(R0), F4
-	FCVTSD	F4, F4
-	FMOVS	4(R0), F5
-	FCVTSD	F5, F5
-	FMOVS	8(R0), F6
-	FCVTSD	F6, F6
-	FMOVS	12(R0), F7
-	FCVTSD	F7, F7
+	// FCVTL V3.2D, V2.2S
+	WORD    $0x0e617843
+	// FCVTL2 V4.2D, V2.4S
+	WORD    $0x4e617844
+	// FCVTL V6.2D, V5.2S
+	WORD    $0x0e6178a6
+	// FCVTL2 V7.2D, V5.4S
+	WORD    $0x4e6178a7
 
-	// Load 4 float32 values from b[], convert to float64
-	FMOVS	(R1), F8
-	FCVTSD	F8, F8
-	FMOVS	4(R1), F9
-	FCVTSD	F9, F9
-	FMOVS	8(R1), F10
-	FCVTSD	F10, F10
-	FMOVS	12(R1), F11
-	FCVTSD	F11, F11
+	// FMUL V3.2D, V3.2D, V6.2D (V3 = V3 * V6)
+	WORD    $0x6e66dc63
+	// FMUL V4.2D, V4.2D, V7.2D (V4 = V4 * V7)
+	WORD    $0x6e67dc84
 
-	// FMA: sum_k += a[i+k] * b[i+k], one per accumulator
-	FMADDD	F8, F0, F4, F0		// F0 += F4 * F8
-	FMADDD	F9, F1, F5, F1		// F1 += F5 * F9
-	FMADDD	F10, F2, F6, F2	// F2 += F6 * F10
-	FMADDD	F11, F3, F7, F3	// F3 += F7 * F11
+	// FADD V0.2D, V0.2D, V3.2D (V0 += V3)
+	WORD    $0x4e63d400
+	// FADD V1.2D, V1.2D, V4.2D (V1 += V4)
+	WORD    $0x4e64d421
 
-	ADD	$16, R0		// a ptr += 4 * sizeof(float32)
-	ADD	$16, R1		// b ptr += 4 * sizeof(float32)
-	SUB	$4, R2
-	CMP	$4, R2
-	BGE	innerProdF32_loop4
+	SUB     $4, R6
+	B       loop4
 
-innerProdF32_tail:
-	CBZ	R2, innerProdF32_done
+tail:
+	CMP     $0, R6
+	BEQ     reduce
 
-innerProdF32_tail_loop:
-	FMOVS	(R0), F4
-	FCVTSD	F4, F4
-	FMOVS	(R1), F8
-	FCVTSD	F8, F8
-	FMADDD	F8, F0, F4, F0		// F0 += F4 * F8
-	ADD	$4, R0
-	ADD	$4, R1
-	SUB	$1, R2
-	CBNZ	R2, innerProdF32_tail_loop
+	FMOVS   (R0), F2
+	FMOVS   (R3), F3
+	ADD     $4, R0
+	ADD     $4, R3
 
-innerProdF32_done:
-	// Combine all 4 accumulators
-	FADDD	F1, F0, F0
-	FADDD	F2, F0, F0
-	FADDD	F3, F0, F0
-	FMOVD	F0, ret+56(FP)
+	FCVTSD  F2, F2
+	FCVTSD  F3, F3
+	FMULD   F2, F3, F4
+	FADDD   F4, F20, F20
+
+	SUB     $1, R6
+	B       tail
+
+reduce:
+	WORD    $0x4e60d420 // FADD V0, V1, V0
+	WORD    $0x6e60d400 // FADDP V0, V0, V0
+	FADDD   F20, F0, F0
+
+done:
+	FMOVD   F0, ret+56(FP)
 	RET
 
-innerProdF32_zero:
-	FMOVD	ZR, F0
-	FMOVD	F0, ret+56(FP)
-	RET
+TEXT ·innerProductFLP(SB), NOSPLIT, $0-64
+	B       ·innerProductF32(SB)
 
-// func energyF32Asm(x []float32, length int) float64
-//
-// Computes the energy (sum of squares) of a float32 slice, accumulating in float64.
-// This is equivalent to innerProductF32Asm(x, x, length) but avoids double-loading.
-//
-// Frame layout (ABI0):
-//   x_base+0(FP)      *float32
-//   x_len+8(FP)       int
-//   x_cap+16(FP)      int
-//   length+24(FP)     int
-//   ret+32(FP)        float64
-//
-// Register allocation:
-//   R0 = x base pointer
-//   R2 = remaining count
-//   F0-F3 = accumulators
-//   F4-F7 = loaded float32 values (promoted to float64)
-TEXT ·energyF32Asm(SB), NOSPLIT, $0-40
-	MOVD	length+24(FP), R2
-	CMP	$1, R2
-	BLT	energyF32_zero
+TEXT ·energyF32(SB), NOSPLIT, $0-40
+	MOVD    x_base+0(FP), R0
+	MOVD    length+24(FP), R6
 
-	MOVD	x_base+0(FP), R0
+	VEOR    V0.B16, V0.B16, V0.B16
+	VEOR    V1.B16, V1.B16, V1.B16
+	FMOVD   ZR, F20
 
-	FMOVD	ZR, F0
-	FMOVD	ZR, F1
-	FMOVD	ZR, F2
-	FMOVD	ZR, F3
+	CMP     $0, R6
+	BLE     done_energy
 
-	CMP	$4, R2
-	BLT	energyF32_tail
+loop4_energy:
+	CMP     $4, R6
+	BLT     tail_energy
 
-energyF32_loop4:
-	FMOVS	(R0), F4
-	FCVTSD	F4, F4
-	FMOVS	4(R0), F5
-	FCVTSD	F5, F5
-	FMOVS	8(R0), F6
-	FCVTSD	F6, F6
-	FMOVS	12(R0), F7
-	FCVTSD	F7, F7
+	VLD1.P  16(R0), [V2.D2]
 
-	FMADDD	F4, F0, F4, F0		// F0 += F4 * F4
-	FMADDD	F5, F1, F5, F1		// F1 += F5 * F5
-	FMADDD	F6, F2, F6, F2		// F2 += F6 * F6
-	FMADDD	F7, F3, F7, F3		// F3 += F7 * F7
+	// FCVTL V3.2D, V2.2S
+	WORD    $0x0e617843
+	// FCVTL2 V4.2D, V2.4S
+	WORD    $0x4e617844
 
-	ADD	$16, R0
-	SUB	$4, R2
-	CMP	$4, R2
-	BGE	energyF32_loop4
+	// FMUL V3.2D, V3.2D, V3.2D (Square)
+	WORD    $0x6e63dc63
+	// FMUL V4.2D, V4.2D, V4.2D
+	WORD    $0x6e64dc84
 
-energyF32_tail:
-	CBZ	R2, energyF32_done
+	// FADD V0.2D, V0.2D, V3.2D
+	WORD    $0x4e63d400
+	// FADD V1.2D, V1.2D, V4.2D
+	WORD    $0x4e64d421
 
-energyF32_tail_loop:
-	FMOVS	(R0), F4
-	FCVTSD	F4, F4
-	FMADDD	F4, F0, F4, F0
-	ADD	$4, R0
-	SUB	$1, R2
-	CBNZ	R2, energyF32_tail_loop
+	SUB     $4, R6
+	B       loop4_energy
 
-energyF32_done:
-	FADDD	F1, F0, F0
-	FADDD	F2, F0, F0
-	FADDD	F3, F0, F0
-	FMOVD	F0, ret+32(FP)
-	RET
+tail_energy:
+	CMP     $0, R6
+	BEQ     reduce_energy
 
-energyF32_zero:
-	FMOVD	ZR, F0
-	FMOVD	F0, ret+32(FP)
+	FMOVS   (R0), F2
+	ADD     $4, R0
+	FCVTSD  F2, F2
+	FMULD   F2, F2, F4
+	FADDD   F4, F20, F20
+
+	SUB     $1, R6
+	B       tail_energy
+
+reduce_energy:
+	WORD    $0x4e60d420
+	WORD    $0x6e60d400
+	FADDD   F20, F0, F0
+
+done_energy:
+	FMOVD   F0, ret+32(FP)
 	RET

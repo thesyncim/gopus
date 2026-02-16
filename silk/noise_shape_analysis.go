@@ -313,8 +313,8 @@ func (e *Encoder) computeShapingARAndGains(
 	}
 
 	// Match libopus: gain_mult = (silk_float)pow(2.0f, -0.16f * SNR_adj_dB)
-	gainMult := float32(math.Pow(2.0, float64(-0.16*SNRAdjDB)))
-	gainAdd := float32(math.Pow(2.0, float64(0.16*float32(minQGainDb))))
+	gainMult := float32(math.Exp2(float64(-0.16 * SNRAdjDB)))
+	gainAdd := float32(math.Exp2(float64(0.16 * float32(minQGainDb))))
 
 	// Capture pre-gain values in trace before applying gain_mult/gain_add
 	if e.trace != nil && e.trace.GainLoop != nil {

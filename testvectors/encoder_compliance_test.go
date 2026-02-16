@@ -28,32 +28,38 @@ import (
 // whenever libopus reference fixtures are available.
 //
 // Absolute Q thresholds are fallback-only and are used when libopus fixtures
-// are unavailable for a given case.
+// are unavailable for a given case. These are calibrated against what libopus
+// itself achieves in the same round-trip test (encode → decode → compare):
+//
+//   - CELT best:   Q ≈ -18  (39 dB SNR)
+//   - SILK WB:     Q ≈ -50  (24 dB SNR)
+//   - SILK NB:     Q ≈ -65  (17 dB SNR)
+//   - Hybrid:      Q ≈ -51  (24 dB SNR)
+//
+// Note: Q >= 0 (48 dB SNR) is the RFC 8251 *decoder* compliance threshold.
+// No encoder — including libopus — achieves that in round-trip tests because
+// lossy encoding inherently reduces SNR.
 const (
-	// EncoderQualityThreshold is the minimum Q value for passing encoder tests.
-	// This tracks the current baseline - tests fail if quality regresses below this.
-	// The current encoder produces Q values around -100 to -120, so we set the
-	// threshold to allow for some variance while catching significant regressions.
-	EncoderQualityThreshold = -125.0 // ~-12 dB SNR - current baseline with margin
+	// EncoderQualityThreshold is the absolute regression guard.
+	// Set below the worst libopus case (SILK NB ≈ -65) with margin for
+	// gopus development. Any result below this is a clear regression.
+	EncoderQualityThreshold = -80.0 // 9.6 dB SNR — below worst libopus case
 
-	// EncoderStrictThreshold is a fallback absolute production target, used only
-	// when libopus reference fixtures are unavailable.
-	EncoderStrictThreshold = 0.0 // 48 dB SNR
-
-	// EncoderGoodThreshold indicates acceptable quality for basic use cases.
-	// This is also fallback-only when libopus fixture data is unavailable.
-	EncoderGoodThreshold = -50.0 // 24 dB SNR
+	// EncoderGoodThreshold indicates quality comparable to libopus CELT.
+	// libopus CELT best is Q ≈ -18; this threshold is generous.
+	EncoderGoodThreshold = -30.0 // 33.6 dB SNR
 
 	// Pre-skip samples as defined in Ogg Opus header
 	OpusPreSkip = 312
 
 	// Relative quality targets versus libopus reference (when available).
 	// Gap is reported as (gopus SNR - libopus SNR).
-	EncoderLibopusGapGoodDB = -1.5
-	EncoderLibopusGapBaseDB = -4.0
+	// Current worst observed gap is -0.42 dB (SILK NB 10ms).
+	EncoderLibopusGapGoodDB = -0.5
+	EncoderLibopusGapBaseDB = -1.0
 
 	// For SILK/Hybrid, we expect close libopus alignment after parity fixes.
-	// This is an absolute gap bound: |gopus SNR - libopus SNR| <= 1.0 dB.
+	// Current worst observed absolute gap is 0.69 dB (SILK NB 40ms).
 	EncoderLibopusSpeechGapTightDB = 1.0
 )
 
@@ -64,12 +70,7 @@ func logEncoderComplianceStatus(t *testing.T) {
 		t.Log("TARGET: Encoder compliance is parity-first against libopus fixture references.")
 		t.Logf("TARGET: Gap thresholds (gopus SNR - libopus SNR): GOOD >= %.1f dB, BASE >= %.1f dB", EncoderLibopusGapGoodDB, EncoderLibopusGapBaseDB)
 		t.Logf("TARGET: SILK/Hybrid parity guard: |gap| <= %.1f dB", EncoderLibopusSpeechGapTightDB)
-		t.Log("FALLBACK: Absolute Q thresholds apply only if libopus reference fixtures are unavailable.")
-		t.Log("ATTEMPTED: Moved Opus delay compensation to Opus encoder (CELT expects compensated input).")
-		t.Log("ATTEMPTED: Removed CELT internal delay buffer and hybrid delay compensation path.")
-		t.Log("ATTEMPTED: SILK frame-type coding aligned to libopus type_offset tables.")
-		t.Log("ATTEMPTED: SILK noise-shape window origin aligned to libopus x - la_shape.")
-		t.Log("NEXT: Port remaining SILK analysis parity (pitch residual, noise shaping, gain path) and close remaining CELT sub-10ms stereo budget gaps.")
+		t.Log("FALLBACK: Absolute Q thresholds (calibrated against libopus round-trip values) apply when fixtures unavailable.")
 	})
 }
 
@@ -257,10 +258,7 @@ func TestEncoderComplianceSummary(t *testing.T) {
 				t.Logf("%-35s %10.2f %10.2f %10.2f %10.2f %10.2f %s", tc.name, q, snr, libQ, libSNR, gapDB, status)
 			} else {
 				// Fall back to absolute thresholds if reference encode fails for this case.
-				if q >= EncoderStrictThreshold {
-					status = "PASS"
-					passed++
-				} else if q >= EncoderGoodThreshold {
+				if q >= EncoderGoodThreshold {
 					status = "GOOD"
 					passed++
 				} else if q >= EncoderQualityThreshold {
@@ -273,14 +271,11 @@ func TestEncoderComplianceSummary(t *testing.T) {
 				t.Logf("%-35s %10.2f %10.2f %10s %10s %10s %s", tc.name, q, snr, "-", "-", "-", status)
 			}
 		} else {
-			if q >= EncoderStrictThreshold {
-				status = "PASS" // Production quality
-				passed++
-			} else if q >= EncoderGoodThreshold {
-				status = "GOOD" // Acceptable quality
+			if q >= EncoderGoodThreshold {
+				status = "GOOD" // Near libopus CELT quality
 				passed++
 			} else if q >= EncoderQualityThreshold {
-				status = "BASE" // Current baseline
+				status = "BASE" // Within libopus range
 				passed++
 			} else {
 				status = "FAIL" // Regression
@@ -306,15 +301,12 @@ func testEncoderCompliance(t *testing.T, mode encoder.Mode, bandwidth types.Band
 	snr := SNRFromQuality(q)
 	t.Logf("Quality: Q=%.2f, SNR=%.2f dB", q, snr)
 
-	if q >= EncoderStrictThreshold {
-		t.Logf("PASS: Meets production quality threshold (Q >= 0, 48 dB SNR)")
-	} else if q >= EncoderGoodThreshold {
-		t.Logf("GOOD: Meets acceptable quality threshold (Q >= -50, 24 dB SNR)")
+	if q >= EncoderGoodThreshold {
+		t.Logf("GOOD: Near libopus CELT quality (Q >= %.0f)", EncoderGoodThreshold)
 	} else if q >= EncoderQualityThreshold {
-		t.Logf("BASE: At current baseline quality (encoder under development)")
+		t.Logf("BASE: Within libopus range (Q >= %.0f)", EncoderQualityThreshold)
 	} else {
-		// Log but don't fail during development - this tracks regressions
-		t.Logf("WARN: Below current baseline - possible regression")
+		t.Logf("WARN: Below libopus worst case - possible regression")
 	}
 }
 
@@ -822,7 +814,6 @@ func TestEncoderComplianceInfo(t *testing.T) {
 	t.Logf("  BASE: gopus SNR - libopus SNR >= %.1f dB", EncoderLibopusGapBaseDB)
 	t.Logf("  SILK/Hybrid guard: |gopus SNR - libopus SNR| <= %.1f dB", EncoderLibopusSpeechGapTightDB)
 	t.Log("Fallback Absolute Thresholds (only when libopus fixture unavailable):")
-	t.Logf("  PASS (Production): Q >= %.1f (%.1f dB SNR)", EncoderStrictThreshold, SNRFromQuality(EncoderStrictThreshold))
-	t.Logf("  GOOD (Acceptable): Q >= %.1f (%.1f dB SNR)", EncoderGoodThreshold, SNRFromQuality(EncoderGoodThreshold))
-	t.Logf("  BASE (Current):    Q >= %.1f (%.1f dB SNR)", EncoderQualityThreshold, SNRFromQuality(EncoderQualityThreshold))
+	t.Logf("  GOOD (≈ libopus CELT): Q >= %.1f (%.1f dB SNR)", EncoderGoodThreshold, SNRFromQuality(EncoderGoodThreshold))
+	t.Logf("  BASE (≈ libopus range): Q >= %.1f (%.1f dB SNR)", EncoderQualityThreshold, SNRFromQuality(EncoderQualityThreshold))
 }

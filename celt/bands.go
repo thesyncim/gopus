@@ -109,7 +109,8 @@ func (d *Decoder) DecodeBands(
 		if e > 32*DB6 {
 			e = 32 * DB6
 		}
-		gain := math.Exp2(e / DB6)
+		// Use celtExp2 to match libopus decoder float precision.
+		gain := float64(celtExp2(float32(e / DB6)))
 
 		// Apply gain to shape and write to output
 		for i := 0; i < n && i < len(shape); i++ {
@@ -288,8 +289,8 @@ func (d *Decoder) DecodeBandsStereo(
 		if eR > 32*DB6 {
 			eR = 32 * DB6
 		}
-		gainL := math.Exp2(eL / DB6)
-		gainR := math.Exp2(eR / DB6)
+		gainL := float64(celtExp2(float32(eL / DB6)))
+		gainR := float64(celtExp2(float32(eR / DB6)))
 
 		for i := 0; i < n && i < len(shapeL); i++ {
 			left[offset+i] = shapeL[i] * gainL
@@ -454,7 +455,8 @@ func DenormalizeBand(shape []float64, energy float64) []float64 {
 	if e > 32 {
 		e = 32
 	}
-	gain := math.Exp2(e / DB6)
+	// Use celtExp2 to match libopus decoder float precision.
+	gain := float64(celtExp2(float32(e / DB6)))
 	result := make([]float64, len(shape))
 	for i, x := range shape {
 		result[i] = x * gain
@@ -489,7 +491,8 @@ func denormalizeCoeffs(coeffs []float64, energies []float64, nbBands, frameSize 
 		if e > 32 {
 			e = 32
 		}
-		gain := math.Exp2(e / DB6)
+		// Use celtExp2 to match libopus decoder float precision.
+		gain := float64(celtExp2(float32(e / DB6)))
 		end := offset + width
 		if end > coeffsLen {
 			end = coeffsLen

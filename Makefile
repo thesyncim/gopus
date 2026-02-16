@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix test test-fast test-race test-race-parity test-fuzz-smoke test-parity test-exhaustive test-provenance bench-guard agent-preflight agent-claims agent-claim agent-release verify-production verify-production-exhaustive release-evidence ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors
+.PHONY: lint lint-fix test test-fast test-race test-race-parity test-fuzz-smoke test-parity test-exhaustive test-provenance bench-guard agent-preflight agent-claims agent-claim agent-release verify-production verify-production-exhaustive release-evidence ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
 GO ?= go
 PGO_FILE ?= default.pgo
@@ -231,3 +231,7 @@ clean:
 # Remove downloaded official Opus test vectors cache.
 clean-vectors:
 	rm -rf testvectors/testdata/opus_testvectors/
+
+# Run kernel-level benchmarks for CELT and SILK DSP functions.
+bench-kernels:
+	$(GO) test -bench=. -benchmem -count=5 ./celt/ ./silk/
