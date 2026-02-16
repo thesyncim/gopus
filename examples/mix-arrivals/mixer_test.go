@@ -75,3 +75,40 @@ func TestNormalizePeakInPlaceScalesToTarget(t *testing.T) {
 		}
 	}
 }
+
+func TestMixTimedTracksWebRTCStyleMatchesOfflineMix(t *testing.T) {
+	t.Helper()
+
+	tracks := []TimedTrack{
+		{
+			Name:        "pad",
+			StartSample: 0,
+			Gain:        0.8,
+			PCM:         []float32{1, 1, 2, 2, 3, 3, 4, 4},
+		},
+		{
+			Name:        "lead",
+			StartSample: 1,
+			Gain:        0.5,
+			PCM:         []float32{10, 10, 20, 20, 30, 30},
+		},
+	}
+
+	offline, err := MixTimedTracks(tracks, 2)
+	if err != nil {
+		t.Fatalf("MixTimedTracks error: %v", err)
+	}
+
+	streamed, stats, err := MixTimedTracksWebRTCStyle(tracks, 2)
+	if err != nil {
+		t.Fatalf("MixTimedTracksWebRTCStyle error: %v", err)
+	}
+	if stats.DroppedLate != 0 {
+		t.Fatalf("DroppedLate=%d want 0", stats.DroppedLate)
+	}
+	if stats.DroppedAhead != 0 {
+		t.Fatalf("DroppedAhead=%d want 0", stats.DroppedAhead)
+	}
+
+	assertFloat32Slice(t, streamed, offline)
+}
