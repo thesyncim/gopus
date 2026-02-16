@@ -29,6 +29,13 @@ do_not_repeat_until: libopus projection default matrices/gain change (version bu
 owner: codex
 
 date: 2026-02-16
+topic: Multistream family-3 projection demixing application
+decision: Keep multistream decoder projection demixing explicit and opt-in via `SetProjectionDemixingMatrix`, applying the matrix after channel mapping on both normal decode and PLC paths; do not silently infer projection demixing for non-trivial mappings.
+evidence: Added `SetProjectionDemixingMatrix` in `multistream/decoder.go` with strict size/mapping validation and S16LE coefficient normalization; added projection demixing application in `multistream/multistream.go` decode paths; updated `multistream/libopus_test.go` internal Ogg decode helper to load family-3 demixing metadata from `OpusHead`; added focused tests in `multistream/projection_decoder_test.go` covering invalid-matrix rejection, matrix application behavior, and family-3 header matrix acceptance.
+do_not_repeat_until: projection decoder API/mapping semantics change, or fixture/interoperability evidence shows family-3 post-map demixing cadence/value drift.
+owner: codex
+
+date: 2026-02-16
 topic: Ogg Writer mapping-family parity preservation
 decision: Keep `container/ogg` OpusHead emission using the configured `WriterConfig.MappingFamily` for multistream headers; do not hardcode mapping family `1` in `writeHeaders` for non-RTP mappings.
 evidence: Added `DefaultOpusHeadMultistreamWithFamily` in `container/ogg/header.go` and updated `container/ogg/writer.go` to pass `config.MappingFamily`; added regression coverage `TestWriterWithConfig_PreservesMappingFamily` in `container/ogg/writer_test.go` (family 2) and validated with focused container tests plus full `make verify-production`.
