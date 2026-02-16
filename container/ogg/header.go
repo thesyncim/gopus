@@ -31,6 +31,12 @@ const (
 	// MappingFamilyVorbis is for 1-8 channels with Vorbis channel order.
 	MappingFamilyVorbis = 1
 
+	// MappingFamilyAmbisonics is for ambisonics ACN/SN3D channel mapping.
+	MappingFamilyAmbisonics = 2
+
+	// MappingFamilyProjection is for projection-based ambisonics mapping.
+	MappingFamilyProjection = 3
+
 	// MappingFamilyDiscrete is for N channels with no defined relationship.
 	MappingFamilyDiscrete = 255
 )
@@ -59,6 +65,8 @@ type OpusHead struct {
 	// MappingFamily specifies the channel mapping:
 	//   0: Mono/stereo (implicit order)
 	//   1: Surround 1-8 channels (Vorbis order)
+	//   2: Ambisonics ACN/SN3D
+	//   3: Projection-based ambisonics
 	//   255: Discrete (no defined relationship)
 	MappingFamily uint8
 
@@ -326,20 +334,25 @@ func DefaultOpusHead(sampleRate uint32, channels uint8) *OpusHead {
 	return h
 }
 
-// DefaultOpusHeadMultistream returns an OpusHead for multistream with mapping family 1.
-// This is for surround configurations (1-8 channels).
-func DefaultOpusHeadMultistream(sampleRate uint32, channels uint8, streams, coupled uint8, mapping []byte) *OpusHead {
+// DefaultOpusHeadMultistreamWithFamily returns an OpusHead for multistream mappings.
+func DefaultOpusHeadMultistreamWithFamily(sampleRate uint32, channels uint8, mappingFamily, streams, coupled uint8, mapping []byte) *OpusHead {
 	return &OpusHead{
 		Version:        opusHeadVersion,
 		Channels:       channels,
 		PreSkip:        DefaultPreSkip,
 		SampleRate:     sampleRate,
 		OutputGain:     0,
-		MappingFamily:  MappingFamilyVorbis,
+		MappingFamily:  mappingFamily,
 		StreamCount:    streams,
 		CoupledCount:   coupled,
 		ChannelMapping: mapping,
 	}
+}
+
+// DefaultOpusHeadMultistream returns an OpusHead for multistream with mapping family 1.
+// This is for surround configurations (1-8 channels).
+func DefaultOpusHeadMultistream(sampleRate uint32, channels uint8, streams, coupled uint8, mapping []byte) *OpusHead {
+	return DefaultOpusHeadMultistreamWithFamily(sampleRate, channels, MappingFamilyVorbis, streams, coupled, mapping)
 }
 
 // DefaultOpusTags returns an OpusTags with gopus vendor string.
