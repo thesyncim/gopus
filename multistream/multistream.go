@@ -56,6 +56,31 @@ func applyChannelMapping(decodedStreams [][]float64, mapping []byte, coupledStre
 	return output
 }
 
+func (d *Decoder) applyProjectionDemixing(output []float64, frameSize int) {
+	rows := d.outputChannels
+	cols := d.projectionCols
+	if len(d.projectionDemixing) == 0 || cols <= 0 || rows <= 0 || cols > rows {
+		return
+	}
+
+	if cap(d.projectionScratch) < cols {
+		d.projectionScratch = make([]float64, cols)
+	}
+	tmp := d.projectionScratch[:cols]
+
+	for s := 0; s < frameSize; s++ {
+		frame := output[s*rows : (s+1)*rows]
+		copy(tmp, frame[:cols])
+		for row := 0; row < rows; row++ {
+			sum := 0.0
+			for col := 0; col < cols; col++ {
+				sum += d.projectionDemixing[col*rows+row] * tmp[col]
+			}
+			frame[row] = sum
+		}
+	}
+}
+
 // Decode decodes a multistream Opus packet and returns PCM samples.
 //
 // If data is nil, performs Packet Loss Concealment (PLC) by generating
@@ -118,6 +143,7 @@ func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
 
 	// Apply channel mapping to produce final output
 	output := applyChannelMapping(decodedStreams, d.mapping, d.coupledStreams, frameSize, d.outputChannels)
+	d.applyProjectionDemixing(output, frameSize)
 
 	// Reset PLC state after successful decode
 	d.plcState.Reset()
@@ -164,6 +190,7 @@ func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
 
 	// Apply channel mapping to produce final output
 	output := applyChannelMapping(decodedStreams, d.mapping, d.coupledStreams, frameSize, d.outputChannels)
+	d.applyProjectionDemixing(output, frameSize)
 
 	return output, nil
 }
