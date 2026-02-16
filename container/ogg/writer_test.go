@@ -433,6 +433,7 @@ func TestWriterWithConfig_PreservesMappingFamily(t *testing.T) {
 		mapping       []byte
 		demixing      []byte
 		wantDemixing  int
+		wantGain      int16
 	}{
 		{
 			name:          "family2-ambisonics",
@@ -442,6 +443,7 @@ func TestWriterWithConfig_PreservesMappingFamily(t *testing.T) {
 			coupled:       1,
 			mapping:       []byte{2, 3, 4, 5, 0, 1},
 			wantDemixing:  0,
+			wantGain:      0,
 		},
 		{
 			name:          "family3-projection",
@@ -450,6 +452,16 @@ func TestWriterWithConfig_PreservesMappingFamily(t *testing.T) {
 			streams:       3,
 			coupled:       3,
 			wantDemixing:  expectedDemixingMatrixSize(6, 3, 3),
+			wantGain:      0,
+		},
+		{
+			name:          "family3-projection-soa-plus",
+			mappingFamily: MappingFamilyProjection,
+			channels:      11,
+			streams:       6,
+			coupled:       5,
+			wantDemixing:  expectedDemixingMatrixSize(11, 6, 5),
+			wantGain:      3050,
 		},
 	}
 
@@ -495,6 +507,9 @@ func TestWriterWithConfig_PreservesMappingFamily(t *testing.T) {
 			}
 			if got := len(head.DemixingMatrix); got != tc.wantDemixing {
 				t.Fatalf("DemixingMatrix length = %d, want %d", got, tc.wantDemixing)
+			}
+			if head.OutputGain != tc.wantGain {
+				t.Fatalf("OutputGain = %d, want %d", head.OutputGain, tc.wantGain)
 			}
 		})
 	}
