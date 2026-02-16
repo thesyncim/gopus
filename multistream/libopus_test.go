@@ -436,6 +436,15 @@ func computeEnergyF32(samples []float32) float64 {
 	return sum / float64(len(samples))
 }
 
+func expectedDecodedSampleCount(numFrames, frameSize, channels int) int {
+	total := numFrames * frameSize * channels
+	preSkip := 312 * channels
+	if total < preSkip {
+		return 0
+	}
+	return total - preSkip
+}
+
 func runLibopusSurroundTest(t *testing.T, label string, channels, bitrate int) {
 	t.Helper()
 
@@ -494,10 +503,14 @@ func runLibopusSurroundTest(t *testing.T, label string, channels, bitrate int) {
 	if len(decoded) == 0 {
 		t.Fatal("opusdec produced empty output")
 	}
+	wantSamples := expectedDecodedSampleCount(numFrames, frameSize, channels)
+	if len(decoded) != wantSamples {
+		t.Fatalf("decoded sample count mismatch: got=%d want=%d", len(decoded), wantSamples)
+	}
 
 	outputEnergy := computeEnergyF32(decoded)
-	t.Logf("Decoded: %d samples (should be ~%d for %dch), energy=%.6f",
-		len(decoded), numFrames*frameSize*channels, channels, outputEnergy)
+	t.Logf("Decoded: %d samples (expected %d after pre-skip), energy=%.6f",
+		len(decoded), wantSamples, outputEnergy)
 
 	energyRatio := outputEnergy / inputEnergy * 100
 	t.Logf("Energy ratio: %.1f%% (threshold: 10%%)", energyRatio)
@@ -679,6 +692,10 @@ func TestLibopus_BitrateQuality(t *testing.T) {
 
 			if len(decoded) == 0 {
 				t.Fatal("opusdec produced empty output")
+			}
+			wantSamples := expectedDecodedSampleCount(numFrames, frameSize, tc.channels)
+			if len(decoded) != wantSamples {
+				t.Fatalf("decoded sample count mismatch: got=%d want=%d", len(decoded), wantSamples)
 			}
 
 			// Compute output energy and ratio
