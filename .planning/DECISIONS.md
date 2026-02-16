@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-16
+topic: Multistream packet pad/unpad self-delimited parity
+decision: Keep `MultistreamPacketPad` and `MultistreamPacketUnpad` aligned with libopus multistream packet semantics by parsing/re-emitting self-delimited subpackets for streams `0..N-2` and standard framing for the last stream; do not use legacy raw per-stream length-prefix parsing in these APIs.
+evidence: Updated `packet.go` multistream pad/unpad paths with self-delimited packet parse/rebuild helpers (`parseSelfDelimitedPacket`, `decodeSelfDelimitedPacket`, `makeSelfDelimitedPacket`), added regression tests in `packet_multistream_padding_test.go` for 2-stream/3-stream round-trips and malformed self-delimited rejection, and validated with focused root + multistream/libopus slices and full `make verify-production`.
+do_not_repeat_until: libopus changes multistream packet pad/unpad or self-delimited parsing semantics (`repacketizer.c` / `opus_multistream_*`), or fixture/interoperability evidence shows this behavior drifts.
+owner: codex
+
+date: 2026-02-16
 topic: Multistream RFC 6716 self-delimited framing parity
 decision: Keep multistream packet assembly/parsing on exact RFC 6716 Appendix B semantics: streams `0..N-2` must be emitted as self-delimited Opus packets (no external per-stream length prefix), last stream remains standard framing. Keep decoder-side parsing aligned by consuming self-delimited packets and normalizing to standard elementary packets before stream decode.
 evidence: Added framing parser/builder in `multistream/framing.go`; updated assembly in `multistream/encoder.go`; updated packet splitting in `multistream/stream.go`; updated multistream framing tests in `multistream/encoder_test.go` and `multistream/multistream_test.go`; tightened libopus harness in `multistream/libopus_test.go` to fail on textual `opusdec` decode errors and fixed WAV `data` chunk boundary scan. Validation passed with `go test ./multistream -run 'TestLibopus_(Stereo|51Surround|71Surround|BitrateQuality|ContainerFormat|Info)' -count=1 -v`, `go test ./multistream -count=1`, `go test . -run 'TestMultistream' -count=1 -v`, and full `make verify-production`.
