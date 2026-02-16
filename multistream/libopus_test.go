@@ -101,6 +101,25 @@ func makeOggPage(serialNo, pageNo uint32, headerType byte, granulePos uint64, se
 
 // makeOpusHeadMultistreamWithFamily creates OpusHead for multistream mapping families.
 func makeOpusHeadMultistreamWithFamily(channels, sampleRate int, streams, coupledStreams, mappingFamily int, mapping []byte) []byte {
+	if mappingFamily == 3 {
+		matrix := makeIdentityDemixingMatrix(channels, streams, coupledStreams)
+		size := 21 + len(matrix)
+		head := make([]byte, size)
+
+		copy(head[0:8], "OpusHead")
+		head[8] = 1                                     // Version
+		head[9] = byte(channels)                        // Channel count
+		binary.LittleEndian.PutUint16(head[10:12], 312) // Pre-skip (standard value)
+		binary.LittleEndian.PutUint32(head[12:16], uint32(sampleRate))
+		binary.LittleEndian.PutUint16(head[16:18], 0) // Output gain
+		head[18] = byte(mappingFamily)
+		head[19] = byte(streams)        // Stream count
+		head[20] = byte(coupledStreams) // Coupled stream count
+		copy(head[21:], matrix)         // RFC 8486 demixing matrix
+
+		return head
+	}
+
 	// OpusHead format (21+ bytes for family != 0):
 	// - 8 bytes: "OpusHead"
 	// - 1 byte: version (1)
@@ -129,6 +148,23 @@ func makeOpusHeadMultistreamWithFamily(channels, sampleRate int, streams, couple
 	copy(head[21:], mapping)        // Channel mapping table
 
 	return head
+}
+
+func makeIdentityDemixingMatrix(channels, streams, coupledStreams int) []byte {
+	cols := streams + coupledStreams
+	rows := channels
+	matrix := make([]byte, 2*rows*cols)
+	for col := 0; col < cols; col++ {
+		for row := 0; row < rows; row++ {
+			var v uint16
+			if row == col {
+				v = 32767
+			}
+			offset := 2 * (col*rows + row)
+			binary.LittleEndian.PutUint16(matrix[offset:offset+2], v)
+		}
+	}
+	return matrix
 }
 
 // makeOpusHeadMultistream creates OpusHead for mapping family 1 (RFC 7845 Section 5.1.1).
@@ -397,10 +433,18 @@ func decodeWithInternalMultistream(oggData []byte) ([]float32, error) {
 	coupled := int(r.Header.CoupledCount)
 	mapping := r.Header.ChannelMapping
 	if len(mapping) == 0 {
-		var err error
-		streams, coupled, mapping, err = DefaultMapping(channels)
-		if err != nil {
-			return nil, fmt.Errorf("default mapping: %w", err)
+		switch r.Header.MappingFamily {
+		case 3:
+			mapping = make([]byte, channels)
+			for i := 0; i < channels; i++ {
+				mapping[i] = byte(i)
+			}
+		default:
+			var err error
+			streams, coupled, mapping, err = DefaultMapping(channels)
+			if err != nil {
+				return nil, fmt.Errorf("default mapping: %w", err)
+			}
 		}
 	}
 
@@ -988,10 +1032,25 @@ func TestLibopus_AmbisonicsFamily2Matrix(t *testing.T) {
 	}
 }
 
-// TestLibopus_AmbisonicsFamily3Matrix documents the remaining family-3
-// interoperability gate for Ogg container metadata.
+// TestLibopus_AmbisonicsFamily3Matrix validates ambisonics mapping family 3
+// headers via libopus tooling and checks internal decoder agreement.
 func TestLibopus_AmbisonicsFamily3Matrix(t *testing.T) {
-	t.Skip("mapping family 3 Ogg interoperability requires RFC 8486 demixing-matrix metadata, which is not yet emitted by this harness")
+	cases := []struct {
+		name     string
+		channels int
+		bitrate  int
+	}{
+		{name: "foa-4ch", channels: 4, bitrate: 192000},
+		{name: "foa-plus-6ch", channels: 6, bitrate: 224000},
+		{name: "soa-9ch", channels: 9, bitrate: 320000},
+		{name: "soa-plus-11ch", channels: 11, bitrate: 384000},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			runLibopusAmbisonicsParityCase(t, 3, tc.channels, tc.bitrate)
+		})
+	}
 }
 
 // TestLibopus_BitrateQuality tests encoding at different bitrates and logs quality metrics.
