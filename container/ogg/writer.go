@@ -41,7 +41,9 @@ type WriterConfig struct {
 	ChannelMapping []byte
 
 	// DemixingMatrix stores RFC 8486 family-3 demixing metadata.
-	// If empty for family 3, an identity matrix is emitted.
+	// If empty for family 3, libopus default projection matrices are emitted
+	// when (channels,streams,coupled) matches a valid projection layout;
+	// otherwise an identity matrix is emitted.
 	DemixingMatrix []byte
 }
 
@@ -84,7 +86,7 @@ func NewWriter(w io.Writer, sampleRate uint32, channels uint8) (*Writer, error) 
 }
 
 // NewWriterWithConfig creates a new OggWriter with explicit configuration.
-// This supports multistream configurations (family 1/255).
+// This supports all multistream mapping families (1/2/3/255).
 func NewWriterWithConfig(w io.Writer, config WriterConfig) (*Writer, error) {
 	// Validate config.
 	if config.Channels == 0 {
@@ -108,7 +110,14 @@ func NewWriterWithConfig(w io.Writer, config WriterConfig) (*Writer, error) {
 		if config.MappingFamily == MappingFamilyProjection {
 			expected := expectedDemixingMatrixSize(config.Channels, config.StreamCount, config.CoupledCount)
 			if len(config.DemixingMatrix) == 0 {
-				config.DemixingMatrix = identityDemixingMatrix(config.Channels, config.StreamCount, config.CoupledCount)
+				if matrix, gain, ok := defaultProjectionDemixingMatrix(config.Channels, config.StreamCount, config.CoupledCount); ok {
+					config.DemixingMatrix = matrix
+					if config.OutputGain == 0 {
+						config.OutputGain = gain
+					}
+				} else {
+					config.DemixingMatrix = identityDemixingMatrix(config.Channels, config.StreamCount, config.CoupledCount)
+				}
 			} else if len(config.DemixingMatrix) != expected {
 				return nil, ErrInvalidHeader
 			}

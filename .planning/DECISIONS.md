@@ -23,9 +23,9 @@ owner: <initials or handle>
 
 date: 2026-02-16
 topic: Ogg mapping-family-3 demixing-matrix metadata handling
-decision: Keep OpusHead family-3 handling on RFC 8486 demixing-matrix payload semantics (`2*channels*(streams+coupled)` bytes after stream/coupled fields), and keep writer-side family-3 defaults emitting an identity demixing matrix when one is not supplied so generated headers remain valid/parseable for current non-projection stream behavior.
-evidence: Updated `container/ogg/header.go` encode/parse paths with `DemixingMatrix` handling and family-specific branch logic; updated `container/ogg/writer.go` config/validation to support family-3 demixing payloads with default identity generation; added/updated tests in `container/ogg/writer_test.go` and `container/ogg/ogg_test.go` (family-3 round-trip + truncated demixing rejection); updated `multistream/libopus_test.go` family-3 OpusHead emission and restored `TestLibopus_AmbisonicsFamily3Matrix` execution with `opusinfo` acceptance checks; full `make verify-production` passed.
-do_not_repeat_until: family-3 projection matrix generation is ported from libopus defaults (replacing identity fallback), or RFC/libopus tooling changes family-3 OpusHead metadata semantics.
+decision: Keep OpusHead family-3 handling on RFC 8486 demixing-matrix payload semantics (`2*channels*(streams+coupled)` bytes after stream/coupled fields), and use libopus 1.6.1 default projection demixing matrices/gain for valid projection layouts instead of identity fallback. Keep identity fallback only for non-libopus-valid `(channels,streams,coupled)` tuples.
+evidence: Added libopus-derived defaults in `container/ogg/projection_demixing_defaults_data.go` and lookup logic in `container/ogg/projection_demixing_defaults.go`; updated `container/ogg/header.go` to apply defaults in family-3 head construction/encoding paths; updated `container/ogg/writer.go` to auto-fill missing family-3 demixing metadata and default gain from the same source; updated `multistream/libopus_test.go` header helper to use `DefaultOpusHeadMultistreamWithFamily`; added checksum/gain parity guards in `container/ogg/projection_demixing_defaults_test.go` and expanded writer assertions in `container/ogg/writer_test.go`; focused slices plus full `make verify-production` passed.
+do_not_repeat_until: libopus projection default matrices/gain change (version bump beyond 1.6.1), or fixture/interoperability evidence shows family-3 matrix/value drift.
 owner: codex
 
 date: 2026-02-16
