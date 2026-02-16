@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-16
+topic: Multistream 40/60ms decode-side subframe handling parity
+decision: Keep multistream stream decode handling for long packets (`40ms`/`60ms`) on sequential per-frame decode at valid hybrid subframe sizes (`10ms`/`20ms`) after packet frame parsing, rather than passing aggregate packet duration directly into hybrid stream decode.
+evidence: Updated `multistream/decoder.go` `hybridStreamDecoder` to parse multi-frame packets and decode each frame with reconstructed single-frame TOC packets, then concatenate decoded PCM; added `TestLibopus_FrameDurationMatrix` in `multistream/libopus_test.go` covering stereo+5.1 at `10/20/40/60ms` with libopus/internal decoded sample-count parity checks; validated with focused multistream libopus slices and full `make verify-production`.
+do_not_repeat_until: multistream stream-decoder architecture is replaced with a full per-stream Opus decoder path, or libopus fixture/interoperability evidence shows long-packet frame-cadence drift.
+owner: codex
+
+date: 2026-02-16
 topic: Multistream default mapping matrix decode-side sample-count parity guard
 decision: Keep `TestLibopus_DefaultMappingMatrix` asserting decoded sample-count parity on both sides for default mapping-family layouts (`1..8` channels): libopus (`opusdec`) and internal multistream decode must both match exact post-pre-skip sample counts.
 evidence: Updated `multistream/libopus_test.go` to include `decodeWithInternalMultistream` sample-count checks in `TestLibopus_DefaultMappingMatrix`; validated with `go test ./multistream -run TestLibopus_DefaultMappingMatrix -count=1 -v`, `go test ./multistream -run 'TestLibopus_(Stereo|51Surround|71Surround|DefaultMappingMatrix|BitrateQuality|ContainerFormat|Info)' -count=1`, and full `make verify-production`.
