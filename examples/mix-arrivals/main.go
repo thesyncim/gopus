@@ -25,6 +25,7 @@ const (
 func main() {
 	outPath := flag.String("out", "mixed_arrivals.opus", "Output Ogg Opus file path")
 	bitrate := flag.Int("bitrate", 128000, "Target bitrate in bps")
+	play := flag.Bool("play", false, "Play the mixed output after encoding")
 	cacheDir := flag.String("cache-dir", filepath.Join(".cache", "mix-arrivals"), "Cache directory for downloaded speech clips")
 	loss := flag.Float64("loss", 0.08, "Base random frame-loss probability (0..1)")
 	burstStart := flag.Float64("burst-start", 0.10, "Probability of entering burst-loss state (0..1)")
@@ -79,6 +80,13 @@ func main() {
 	fmt.Printf("  Output: %s\n", *outPath)
 	fmt.Printf("  Duration: %.2fs, frames: %d, encoded bytes: %d, avg bitrate: %.1f kbps\n",
 		stats.durationSeconds, stats.frames, stats.encodedBytes, stats.avgBitrateKbps)
+
+	if *play {
+		if err := playEncodedOutput(*outPath); err != nil {
+			log.Printf("playback unavailable: %v", err)
+			fmt.Printf("Play manually: %s\n", *outPath)
+		}
+	}
 }
 
 type encodeStats struct {
