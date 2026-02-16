@@ -75,3 +75,4 @@ Quick commands:
 - claim: id=codex-20260214-121209; agent=codex; status=released; paths=encoder/,testvectors/,tmp_check/opus-1.6.1/,.planning/; updated=2026-02-14T12:24:38Z; expires=2026-02-14T12:24:38Z; note=close remaining Hybrid-SWB mode mismatch and strict-quality gap with source-port parity
 - claim: id=codex-20260216-205408; agent=codex; status=released; paths=multistream/,.planning/; updated=2026-02-16T20:59:40Z; expires=2026-02-16T20:59:40Z; note=libopus default mapping matrix parity expansion
 - claim: id=codex-20260216-210527; agent=codex; status=released; paths=multistream/,.planning/; updated=2026-02-16T21:08:45Z; expires=2026-02-16T21:08:45Z; note=add multistream decode-side sample-count parity guard in libopus matrix
+- claim: id=codex-20260216-211407; agent=codex; status=active; paths=multistream/,.planning/; updated=2026-02-16T21:14:07Z; expires=2026-02-17T01:14:07Z; note=add multistream libopus frame-duration matrix coverage (10/20/40/60ms)
