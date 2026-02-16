@@ -23,16 +23,20 @@ const (
 )
 
 func main() {
+	defaultNet := DefaultNetworkSimConfig()
+
 	outPath := flag.String("out", "mixed_arrivals.opus", "Output Ogg Opus file path")
 	bitrate := flag.Int("bitrate", 128000, "Target bitrate in bps")
 	play := flag.Bool("play", false, "Play the mixed output after encoding")
 	cacheDir := flag.String("cache-dir", filepath.Join(".cache", "mix-arrivals"), "Cache directory for downloaded speech clips")
-	loss := flag.Float64("loss", 0.08, "Base random frame-loss probability (0..1)")
-	burstStart := flag.Float64("burst-start", 0.10, "Probability of entering burst-loss state (0..1)")
-	burstKeep := flag.Float64("burst-keep", 0.55, "Probability to continue dropping while in burst-loss state (0..1)")
+	loss := flag.Float64("loss", defaultNet.BaseLossProbability, "Base random frame-loss probability (0..1)")
+	burstStart := flag.Float64("burst-start", defaultNet.BurstStartProbability, "Probability of entering burst-loss state (0..1)")
+	burstKeep := flag.Float64("burst-keep", defaultNet.BurstContinueProbability, "Probability to continue dropping while in burst-loss state (0..1)")
 	plc := flag.Bool("plc", true, "Enable simple PLC-style concealment on dropped frames")
-	jitterNeg := flag.Int("jitter-neg", 1, "Max early-arrival jitter in frames")
-	jitterPos := flag.Int("jitter-pos", 2, "Max late-arrival jitter in frames")
+	plcDecay := flag.Float64("plc-decay", float64(defaultNet.PLCDecay), "PLC concealment decay per lost frame (0..1)")
+	jitterNeg := flag.Int("jitter-neg", defaultNet.MaxNegativeJitterFrames, "Max early-arrival jitter in frames")
+	jitterPos := flag.Int("jitter-pos", defaultNet.MaxPositiveJitterFrames, "Max late-arrival jitter in frames")
+	clean := flag.Bool("clean", false, "Disable network loss/jitter simulation for clean listening")
 	seed := flag.Uint("seed", 1337, "Deterministic seed for loss/jitter simulation")
 	flag.Parse()
 
@@ -41,14 +45,23 @@ func main() {
 		log.Fatalf("load open-source speech tracks: %v", err)
 	}
 
-	netCfg := DefaultNetworkSimConfig()
+	netCfg := defaultNet
 	netCfg.BaseLossProbability = *loss
 	netCfg.BurstStartProbability = *burstStart
 	netCfg.BurstContinueProbability = *burstKeep
 	netCfg.EnablePLC = *plc
+	netCfg.PLCDecay = float32(*plcDecay)
 	netCfg.MaxNegativeJitterFrames = *jitterNeg
 	netCfg.MaxPositiveJitterFrames = *jitterPos
 	netCfg.Seed = uint32(*seed)
+	if *clean {
+		netCfg.BaseLossProbability = 0
+		netCfg.BurstStartProbability = 0
+		netCfg.BurstContinueProbability = 0
+		netCfg.EnablePLC = false
+		netCfg.MaxNegativeJitterFrames = 0
+		netCfg.MaxPositiveJitterFrames = 0
+	}
 
 	mixed, streamStats, netStats, err := MixTimedTracksWebRTCWithNetwork(tracks, frameSize, netCfg)
 	if err != nil {

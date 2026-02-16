@@ -99,3 +99,58 @@ func TestMixTimedTracksWebRTCWithNetwork_AllLossNoPLCIsSilence(t *testing.T) {
 		}
 	}
 }
+
+func TestDefaultNetworkSimConfig_ProducesModerateLossRate(t *testing.T) {
+	t.Helper()
+
+	cfg := DefaultNetworkSimConfig()
+	state := newTrackNetworkState("speaker-a", cfg.Seed)
+
+	const frames = 100000
+	dropped := 0
+	for i := 0; i < frames; i++ {
+		if shouldDropFrame(&state, cfg) {
+			dropped++
+		}
+	}
+
+	rate := float64(dropped) / frames
+	if rate < 0.005 {
+		t.Fatalf("drop rate too low: %.4f", rate)
+	}
+	if rate > 0.08 {
+		t.Fatalf("drop rate too high: %.4f", rate)
+	}
+}
+
+func TestConcealFromLastGood_DecaysAcrossRuns(t *testing.T) {
+	t.Helper()
+
+	lastGood := []float32{1, 1, 1, 1, 1, 1}
+	state := uint32(123)
+
+	first := concealFromLastGood(lastGood, 0.8, 0.05, 0, 1, &state)
+	second := concealFromLastGood(lastGood, 0.8, 0.05, 0, 2, &state)
+
+	if avgAbs(second) >= avgAbs(first) {
+		t.Fatalf("concealment did not decay: first=%f second=%f", avgAbs(first), avgAbs(second))
+	}
+	if first[len(first)-1] >= first[0] {
+		t.Fatalf("expected intra-frame fade down, got start=%f end=%f", first[0], first[len(first)-1])
+	}
+}
+
+func avgAbs(samples []float32) float32 {
+	if len(samples) == 0 {
+		return 0
+	}
+	var sum float32
+	for i := range samples {
+		if samples[i] < 0 {
+			sum -= samples[i]
+		} else {
+			sum += samples[i]
+		}
+	}
+	return sum / float32(len(samples))
+}

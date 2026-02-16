@@ -136,6 +136,7 @@ func loadSpeechClipStereo(url string, pan float64, cacheDir string) ([]float32, 
 	if len(mono) == 0 {
 		return nil, fmt.Errorf("clip %q decoded to empty audio", url)
 	}
+	applyFadeInOutMono(mono, durationToSamples(8*time.Millisecond, sampleRate))
 	return monoToStereoPan(mono, pan), nil
 }
 
@@ -356,4 +357,22 @@ func monoToStereoPan(mono []float32, pan float64) []float32 {
 		out[i*2+1] = v * right
 	}
 	return out
+}
+
+func applyFadeInOutMono(samples []float32, fadeSamples int) {
+	if len(samples) == 0 || fadeSamples <= 0 {
+		return
+	}
+	if fadeSamples*2 > len(samples) {
+		fadeSamples = len(samples) / 2
+	}
+	if fadeSamples < 1 {
+		return
+	}
+
+	for i := 0; i < fadeSamples; i++ {
+		g := float32(i+1) / float32(fadeSamples)
+		samples[i] *= g
+		samples[len(samples)-1-i] *= g
+	}
 }

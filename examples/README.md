@@ -230,7 +230,10 @@ go build .
 # Mix speech tracks into one Ogg Opus file
 ./mix-arrivals -out mixed_arrivals.opus -bitrate 128000
 
-# Increase simulated loss profile
+# Listen clean (no simulated network impairments)
+./mix-arrivals -clean -play
+
+# Increase simulated loss profile (rough network)
 ./mix-arrivals -loss 0.12 -burst-start 0.18 -burst-keep 0.60
 
 # Hear the result immediately
@@ -241,6 +244,7 @@ go build .
 - This sample downloads clips from GitHub on first run.
 - License source: `https://github.com/Jakobovski/free-spoken-digit-dataset` (CC BY 4.0).
 - Downloaded clips are cached in `.cache/mix-arrivals` by default.
+- Defaults use a realistic mild impairment profile; use `-clean` for pristine output.
 - `-play` uses `ffplay` when available; otherwise it falls back to local OS players.
 
 **Expected output:**

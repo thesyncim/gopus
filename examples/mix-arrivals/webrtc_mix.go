@@ -23,6 +23,8 @@ type NetworkSimConfig struct {
 	MaxPositiveJitterFrames  int
 	EnablePLC                bool
 	PLCDecay                 float32
+	PLCMinGain               float32
+	PLCNoiseLevel            float32
 	Seed                     uint32
 }
 
@@ -34,13 +36,15 @@ type NetworkSimStats struct {
 
 func DefaultNetworkSimConfig() NetworkSimConfig {
 	return NetworkSimConfig{
-		BaseLossProbability:      0.08,
-		BurstStartProbability:    0.10,
-		BurstContinueProbability: 0.55,
-		MaxNegativeJitterFrames:  1,
-		MaxPositiveJitterFrames:  2,
+		BaseLossProbability:      0.015,
+		BurstStartProbability:    0.020,
+		BurstContinueProbability: 0.45,
+		MaxNegativeJitterFrames:  0,
+		MaxPositiveJitterFrames:  1,
 		EnablePLC:                true,
-		PLCDecay:                 0.92,
+		PLCDecay:                 0.80,
+		PLCMinGain:               0.05,
+		PLCNoiseLevel:            0.003,
 		Seed:                     1337,
 	}
 }
@@ -205,7 +209,7 @@ func buildArrivalScheduleWithNetwork(tracks []TimedTrack, mixFrameSamples int, t
 				stats.DroppedByNetwork++
 				if cfg.EnablePLC && len(state.lastGood) == len(framePCM) {
 					state.concealRun++
-					framePCM = concealFromLastGood(state.lastGood, cfg.PLCDecay, state.concealRun)
+					framePCM = concealFromLastGood(state.lastGood, cfg.PLCDecay, cfg.PLCMinGain, cfg.PLCNoiseLevel, state.concealRun, &state.rand)
 					stats.ConcealedFrames++
 				} else {
 					state.concealRun++
@@ -264,11 +268,11 @@ func shouldDropFrame(state *trackNetworkState, cfg NetworkSimConfig) bool {
 		state.burst = false
 	}
 
-	if randomFloat01(&state.rand) < cfg.BaseLossProbability {
-		return true
-	}
 	if randomFloat01(&state.rand) < cfg.BurstStartProbability {
 		state.burst = true
+	}
+
+	if randomFloat01(&state.rand) < cfg.BaseLossProbability {
 		return true
 	}
 	return false
@@ -288,17 +292,42 @@ func randomJitterTick(state *uint32, maxNegative, maxPositive int) int {
 	return int(nextRand(state)%uint32(span)) - maxNegative
 }
 
-func concealFromLastGood(lastGood []float32, decay float32, concealRun int) []float32 {
+func concealFromLastGood(lastGood []float32, decay, minGain, noiseLevel float32, concealRun int, state *uint32) []float32 {
 	if decay <= 0 || decay >= 1 {
-		decay = 0.92
+		decay = 0.80
 	}
-	gain := float32(math.Pow(float64(decay), float64(concealRun)))
-	if gain < 0.2 {
-		gain = 0.2
+	if minGain < 0 || minGain >= 1 {
+		minGain = 0.05
+	}
+	if noiseLevel < 0 {
+		noiseLevel = 0
+	}
+	if concealRun < 1 {
+		concealRun = 1
+	}
+
+	startGain := float32(math.Pow(float64(decay), float64(concealRun-1)))
+	endGain := startGain * decay
+	if startGain < minGain {
+		startGain = minGain
+	}
+	if endGain < minGain {
+		endGain = minGain
 	}
 	out := make([]float32, len(lastGood))
+	den := len(lastGood) - 1
+	if den < 1 {
+		den = 1
+	}
 	for i := range lastGood {
-		out[i] = lastGood[i] * gain
+		t := float32(i) / float32(den)
+		gain := startGain + (endGain-startGain)*t
+		sample := lastGood[i] * gain
+		if noiseLevel > 0 {
+			noise := (float32(randomFloat01(state))*2 - 1) * noiseLevel * gain
+			sample += noise
+		}
+		out[i] = sample
 	}
 	return out
 }
@@ -308,7 +337,13 @@ func sanitizeNetworkSimConfig(cfg NetworkSimConfig) NetworkSimConfig {
 	cfg.BurstStartProbability = clampProb(cfg.BurstStartProbability)
 	cfg.BurstContinueProbability = clampProb(cfg.BurstContinueProbability)
 	if cfg.PLCDecay <= 0 || cfg.PLCDecay >= 1 {
-		cfg.PLCDecay = 0.92
+		cfg.PLCDecay = 0.80
+	}
+	if cfg.PLCMinGain < 0 || cfg.PLCMinGain >= 1 {
+		cfg.PLCMinGain = 0.05
+	}
+	if cfg.PLCNoiseLevel < 0 {
+		cfg.PLCNoiseLevel = 0
 	}
 	if cfg.Seed == 0 {
 		cfg.Seed = 1337
