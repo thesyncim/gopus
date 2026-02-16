@@ -320,6 +320,7 @@ go run ./examples/ogg-file
 go run ./examples/ffmpeg-interop
 go run ./examples/decode-play
 go run ./examples/encode-play
+go run ./examples/mix-arrivals
 go run ./examples/bench-decode
 go run ./examples/bench-encode
 ```
