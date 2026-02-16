@@ -76,4 +76,4 @@ Quick commands:
 - claim: id=codex-20260216-205408; agent=codex; status=released; paths=multistream/,.planning/; updated=2026-02-16T20:59:40Z; expires=2026-02-16T20:59:40Z; note=libopus default mapping matrix parity expansion
 - claim: id=codex-20260216-210527; agent=codex; status=released; paths=multistream/,.planning/; updated=2026-02-16T21:08:45Z; expires=2026-02-16T21:08:45Z; note=add multistream decode-side sample-count parity guard in libopus matrix
 - claim: id=codex-20260216-211407; agent=codex; status=released; paths=multistream/,.planning/; updated=2026-02-16T21:19:58Z; expires=2026-02-16T21:19:58Z; note=add multistream libopus frame-duration matrix coverage (10/20/40/60ms)
-- claim: id=codex-20260216-214635; agent=codex; status=active; paths=examples/,README.md,.planning/; updated=2026-02-16T21:46:35Z; expires=2026-02-17T01:46:35Z; note=add staggered arrival audio mixing sample and docs
+- claim: id=codex-20260216-214635; agent=codex; status=released; paths=examples/,README.md,.planning/; updated=2026-02-16T21:55:03Z; expires=2026-02-16T21:55:03Z; note=add staggered arrival audio mixing sample and docs
