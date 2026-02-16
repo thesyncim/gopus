@@ -210,6 +210,35 @@ go build .
 - `-play`: Play the encoded file with `ffplay`
 - `-libopus`: Use external libopus encoder (`opusenc`/`ffmpeg`) instead of gopus
 
+### mix-arrivals
+
+Mixes multiple tracks that start at different times into one output.
+
+**What it does:**
+1. Generates three stereo source tracks (pad, bass, lead)
+2. Applies a different start offset for each track
+3. Mixes them sample-accurately into one timeline
+4. Normalizes peak level and writes one Ogg Opus file
+
+**Usage:**
+```bash
+cd examples/mix-arrivals
+go build .
+
+# Mix staggered tracks into one Ogg Opus file
+./mix-arrivals -out mixed_arrivals.opus -bitrate 128000
+```
+
+**Expected output:**
+```
+Mixing timed tracks into one output
+  - pad: start=0ms, duration=4.00s, gain=0.70
+  - bass: start=350ms, duration=3.20s, gain=0.85
+  - lead: start=900ms, duration=2.60s, gain=0.75
+  Peak before normalize: X.XXX, applied gain: X.XXX
+  Output: mixed_arrivals.opus
+```
+
 ## Building All Examples
 
 ```bash
@@ -219,6 +248,7 @@ go build ./examples/roundtrip
 go build ./examples/ogg-file
 go build ./examples/decode-play
 go build ./examples/encode-play
+go build ./examples/mix-arrivals
 
 # Or build all at once
 go build ./examples/...
