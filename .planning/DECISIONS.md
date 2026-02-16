@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-16
+topic: Multistream default mapping matrix decode-side sample-count parity guard
+decision: Keep `TestLibopus_DefaultMappingMatrix` asserting decoded sample-count parity on both sides for default mapping-family layouts (`1..8` channels): libopus (`opusdec`) and internal multistream decode must both match exact post-pre-skip sample counts.
+evidence: Updated `multistream/libopus_test.go` to include `decodeWithInternalMultistream` sample-count checks in `TestLibopus_DefaultMappingMatrix`; validated with `go test ./multistream -run TestLibopus_DefaultMappingMatrix -count=1 -v`, `go test ./multistream -run 'TestLibopus_(Stereo|51Surround|71Surround|DefaultMappingMatrix|BitrateQuality|ContainerFormat|Info)' -count=1`, and full `make verify-production`.
+do_not_repeat_until: multistream pre-skip handling or packet-decode semantics change (`opusdec`/`opus_multistream_decoder.c`/gopus multistream decode path), or fixture/interoperability evidence shows count drift on any default mapping layout.
+owner: codex
+
+date: 2026-02-16
 topic: Multistream default mapping matrix libopus parity guard
 decision: Keep live `opusdec` cross-validation coverage for every default mapping-family layout (`1..8` channels), with exact post-pre-skip decoded sample-count assertions and minimum decoded-energy thresholds per layout. Do not treat 2/6/8-channel-only coverage as sufficient for multistream parity confidence.
 evidence: Added `TestLibopus_DefaultMappingMatrix` in `multistream/libopus_test.go` (default channels 1..8 with libopus decode checks), and validated with `go test ./multistream -run TestLibopus_DefaultMappingMatrix -count=1 -v`, `go test ./multistream -run 'TestLibopus_(Stereo|51Surround|71Surround|DefaultMappingMatrix|BitrateQuality|ContainerFormat|Info)' -count=1 -v`, plus full `make verify-production`.

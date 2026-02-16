@@ -667,10 +667,17 @@ func TestLibopus_DefaultMappingMatrix(t *testing.T) {
 			}
 
 			libopusDecoded := decodeWithOpusdecForTest(t, ogg.Bytes())
+			internalDecoded, err := decodeWithInternalMultistream(ogg.Bytes())
+			if err != nil {
+				t.Fatalf("decodeWithInternalMultistream failed: %v", err)
+			}
 
 			wantSamples := expectedDecodedSampleCount(numFrames, frameSize, tc.channels)
 			if len(libopusDecoded) != wantSamples {
 				t.Fatalf("libopus decoded sample count mismatch: got=%d want=%d", len(libopusDecoded), wantSamples)
+			}
+			if len(internalDecoded) != wantSamples {
+				t.Fatalf("internal decoded sample count mismatch: got=%d want=%d", len(internalDecoded), wantSamples)
 			}
 
 			inputF32 := make([]float32, len(allInput))
