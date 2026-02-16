@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-16
+topic: Ambisonics family-2/3 libopus decode reference path
+decision: For multistream ambisonics parity checks, keep decode-side source-of-truth on direct libopus APIs (`opus_multistream_decode_float` / `opus_projection_decode_float`) via the test helper in `tools/csrc/libopus_refdecode_multistream.c`; do not rely on `opusdec` for family-2/3 decode gates.
+evidence: Added helper-build/invoke harness in `multistream/libopus_refdecode_test.go` and switched `runLibopusAmbisonicsParityCase` in `multistream/libopus_test.go` to decode packet streams with the helper while retaining `opusinfo` header validation. Focused ambisonics/default-mapping/frame-duration slices, package `go test ./multistream -count=1`, and full `make verify-production` passed. Direct helper output removed the prior environment-dependent `opusdec` blind spot and surfaced a real remaining internal ambisonics decode parity drift (tracked in ACTIVE).
+do_not_repeat_until: libopus projection/multistream decode APIs or helper protocol/toolchain assumptions change, or dedicated fixture evidence shows this helper diverges from libopus 1.6.1 decode behavior.
+owner: codex
+
+date: 2026-02-16
 topic: Multistream family-3 projection mixing defaults and encode-path application
 decision: Keep family-3 ambisonics projection mixing initialized from libopus 1.6.1 `mapping_matrix.c` defaults keyed by `(channels,streams,coupled)`, and apply matrix mixing once per frame before stream routing in multistream encode; do not fall back to identity mixing for valid libopus projection layouts.
 evidence: Added generated defaults in `multistream/projection_mixing_defaults_data.go` with lookup/validation in `multistream/projection_mixing_defaults.go`; updated `multistream/encoder.go` to initialize family-3 projection mixing in `NewEncoderAmbisonics` and apply it in `Encode`; added focused tests `TestProjectionMixingDefaultsLibopusParity`, `TestNewEncoderAmbisonicsFamily3InitializesProjectionMixing`, and `TestApplyProjectionMixingSwapsChannels` in `multistream/projection_mixing_test.go`; focused multistream projection + ambisonics slices and full `go test ./multistream -count=1` passed.
