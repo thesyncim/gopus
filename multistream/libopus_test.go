@@ -520,6 +520,27 @@ func computeEnergyF32(samples []float32) float64 {
 	return sum / float64(len(samples))
 }
 
+func computeDiffStatsF32(a, b []float32) (meanSquareDiff, maxAbs float64) {
+	if len(a) == 0 || len(b) == 0 {
+		return 0, 0
+	}
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	sumSquares := 0.0
+	maxAbs = 0
+	for i := 0; i < n; i++ {
+		diff := float64(a[i] - b[i])
+		absDiff := math.Abs(diff)
+		if absDiff > maxAbs {
+			maxAbs = absDiff
+		}
+		sumSquares += diff * diff
+	}
+	return sumSquares / float64(n), maxAbs
+}
+
 func expectedDecodedSampleCount(numFrames, frameSize, channels int) int {
 	total := numFrames * frameSize * channels
 	preSkip := 312 * channels
@@ -975,6 +996,16 @@ func runLibopusAmbisonicsParityCase(t *testing.T, mappingFamily, channels, bitra
 	if libopusEnergyRatio < 5.0 {
 		t.Fatalf("libopus energy ratio too low: %.2f%% < 5%%", libopusEnergyRatio)
 	}
+
+	meanSquareDiff, maxAbsDiff := computeDiffStatsF32(internalDecoded, libopusDecoded)
+	relDiff := 0.0
+	if libopusEnergy > 0 {
+		relDiff = meanSquareDiff / libopusEnergy
+	}
+	if relDiff > 0.05 {
+		t.Fatalf("internal/libopus decode drift too high: rel=%.4f meanSq=%.6f maxAbs=%.6f", relDiff, meanSquareDiff, maxAbsDiff)
+	}
+
 	t.Logf("family=%d %dch: streams=%d coupled=%d internalEnergy=%.1f%% libopusEnergy=%.1f%%",
 		mappingFamily, channels, enc.Streams(), enc.CoupledStreams(), internalEnergyRatio, libopusEnergyRatio)
 }
