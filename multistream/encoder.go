@@ -1150,71 +1150,40 @@ func routeChannelsToStreams(
 	return streamBuffers
 }
 
-// writeSelfDelimitedLength writes a self-delimiting packet length.
-// Per RFC 6716 Section 3.2.1:
-//   - If length < 252: single byte encoding
-//   - If length >= 252: two-byte encoding where length = 4*secondByte + firstByte
-//
-// This is the inverse of parseSelfDelimitedLength in stream.go.
-//
-// Returns the number of bytes written (1 or 2).
-func writeSelfDelimitedLength(dst []byte, length int) int {
-	if length < 252 {
-		dst[0] = byte(length)
-		return 1
-	}
-	// Two-byte encoding: length = 4*secondByte + firstByte
-	// firstByte in range [252, 255], so use 252 + (length % 4)
-	// secondByte = (length - firstByte) / 4
-	firstByte := 252 + (length % 4)
-	secondByte := (length - firstByte) / 4
-	dst[0] = byte(firstByte)
-	dst[1] = byte(secondByte)
-	return 2
-}
-
-// selfDelimitedLengthBytes returns the number of bytes needed to encode a length.
-func selfDelimitedLengthBytes(length int) int {
-	if length < 252 {
-		return 1
-	}
-	return 2
-}
-
 // assembleMultistreamPacket combines individual stream packets into a multistream packet.
 // Per RFC 6716 Appendix B:
-//   - First N-1 packets use self-delimiting framing (length prefix before each packet)
-//   - Last packet uses standard framing (no length prefix, consumes remaining bytes)
-func assembleMultistreamPacket(streamPackets [][]byte) []byte {
+//   - First N-1 packets use self-delimited packet framing
+//   - Last packet uses standard framing
+func assembleMultistreamPacket(streamPackets [][]byte) ([]byte, error) {
 	if len(streamPackets) == 0 {
-		return nil
+		return nil, nil
 	}
 
-	// Calculate total size
+	encoded := make([][]byte, len(streamPackets))
 	totalSize := 0
 	for i, packet := range streamPackets {
-		if i < len(streamPackets)-1 {
-			// First N-1 packets need length prefix
-			totalSize += selfDelimitedLengthBytes(len(packet))
+		if len(packet) == 0 {
+			return nil, ErrInvalidPacket
 		}
+
+		if i < len(streamPackets)-1 {
+			var err error
+			packet, err = makeSelfDelimitedPacket(packet)
+			if err != nil {
+				return nil, err
+			}
+		}
+		encoded[i] = packet
 		totalSize += len(packet)
 	}
 
 	output := make([]byte, totalSize)
 	offset := 0
-
-	// Write first N-1 packets with self-delimiting framing
-	for i := 0; i < len(streamPackets)-1; i++ {
-		n := writeSelfDelimitedLength(output[offset:], len(streamPackets[i]))
-		offset += n
-		copy(output[offset:], streamPackets[i])
-		offset += len(streamPackets[i])
+	for _, packet := range encoded {
+		copy(output[offset:], packet)
+		offset += len(packet)
 	}
-
-	// Last packet uses remaining data (standard framing, no length prefix)
-	copy(output[offset:], streamPackets[len(streamPackets)-1])
-
-	return output
+	return output, nil
 }
 
 // Encode encodes multi-channel PCM samples to an Opus multistream packet.
@@ -1224,7 +1193,7 @@ func assembleMultistreamPacket(streamPackets [][]byte) []byte {
 //   - frameSize: number of samples per channel (must be valid for Opus: 120, 240, 480, 960, 1920, 2880)
 //
 // Returns:
-//   - The encoded multistream packet (N-1 length-prefixed streams + 1 standard stream)
+//   - The encoded multistream packet
 //   - nil, nil if DTX suppresses all frames (silence detected in all streams)
 //   - error if encoding fails
 //
@@ -1275,8 +1244,12 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		return nil, nil
 	}
 
-	// Assemble multistream packet with self-delimiting framing
-	return assembleMultistreamPacket(streamPackets), nil
+	// Assemble multistream packet with RFC 6716 Appendix B framing.
+	packet, err := assembleMultistreamPacket(streamPackets)
+	if err != nil {
+		return nil, err
+	}
+	return packet, nil
 }
 
 // SetComplexity sets encoder complexity (0-10) for all stream encoders.

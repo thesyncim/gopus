@@ -448,6 +448,265 @@ func PacketUnpad(data []byte, length int) (int, error) {
 	return buildRepacketizedPacket(src[0]&0xFC, frames, data[:length])
 }
 
+func parseSelfDelimitedPacket(data []byte) (tocBase byte, frames [][]byte, consumed int, err error) {
+	if len(data) < 1 {
+		return 0, nil, 0, ErrPacketTooShort
+	}
+
+	toc := data[0]
+	code := toc & 0x03
+	offset := 1
+	padding := 0
+	frameCount := 1
+	frameSizes := make([]int, 0, 2)
+
+	switch code {
+	case 0:
+		length, bytesRead, err := parseFrameLength(data, offset)
+		if err != nil {
+			return 0, nil, 0, err
+		}
+		offset += bytesRead
+		frameSizes = append(frameSizes, length)
+
+	case 1:
+		length, bytesRead, err := parseFrameLength(data, offset)
+		if err != nil {
+			return 0, nil, 0, err
+		}
+		offset += bytesRead
+		frameCount = 2
+		frameSizes = append(frameSizes, length, length)
+
+	case 2:
+		length0, bytesRead, err := parseFrameLength(data, offset)
+		if err != nil {
+			return 0, nil, 0, err
+		}
+		offset += bytesRead
+
+		length1, bytesRead, err := parseFrameLength(data, offset)
+		if err != nil {
+			return 0, nil, 0, err
+		}
+		offset += bytesRead
+
+		frameCount = 2
+		frameSizes = append(frameSizes, length0, length1)
+
+	case 3:
+		if offset >= len(data) {
+			return 0, nil, 0, ErrPacketTooShort
+		}
+		frameCountByte := data[offset]
+		offset++
+
+		vbr := (frameCountByte & 0x80) != 0
+		hasPadding := (frameCountByte & 0x40) != 0
+		frameCount = int(frameCountByte & 0x3F)
+		if frameCount == 0 || frameCount > maxRepacketizerFrames {
+			return 0, nil, 0, ErrInvalidPacket
+		}
+
+		frameSizes = make([]int, frameCount)
+		if hasPadding {
+			for {
+				if offset >= len(data) {
+					return 0, nil, 0, ErrPacketTooShort
+				}
+				padByte := int(data[offset])
+				offset++
+				if padByte == 255 {
+					padding += 254
+				} else {
+					padding += padByte
+					break
+				}
+			}
+		}
+
+		if vbr {
+			for i := 0; i < frameCount-1; i++ {
+				length, bytesRead, err := parseFrameLength(data, offset)
+				if err != nil {
+					return 0, nil, 0, err
+				}
+				offset += bytesRead
+				frameSizes[i] = length
+			}
+		}
+
+		lastSize, bytesRead, err := parseFrameLength(data, offset)
+		if err != nil {
+			return 0, nil, 0, err
+		}
+		offset += bytesRead
+
+		if vbr {
+			frameSizes[frameCount-1] = lastSize
+		} else {
+			for i := 0; i < frameCount; i++ {
+				frameSizes[i] = lastSize
+			}
+		}
+
+	default:
+		return 0, nil, 0, ErrInvalidPacket
+	}
+
+	totalFrameBytes := 0
+	for _, size := range frameSizes {
+		if size < 0 {
+			return 0, nil, 0, ErrInvalidPacket
+		}
+		totalFrameBytes += size
+	}
+
+	consumed = offset + totalFrameBytes + padding
+	if consumed > len(data) {
+		return 0, nil, 0, ErrPacketTooShort
+	}
+
+	frames = make([][]byte, frameCount)
+	frameOffset := offset
+	for i := 0; i < frameCount; i++ {
+		next := frameOffset + frameSizes[i]
+		if next > offset+totalFrameBytes {
+			return 0, nil, 0, ErrInvalidPacket
+		}
+		frames[i] = data[frameOffset:next]
+		frameOffset = next
+	}
+
+	return toc & 0xFC, frames, consumed, nil
+}
+
+func buildSelfDelimitedPacketFromFrames(tocBase byte, frames [][]byte, data []byte) (int, error) {
+	count := len(frames)
+	if count < 1 || count > maxRepacketizerFrames {
+		return 0, ErrInvalidArgument
+	}
+
+	lengths := make([]int, count)
+	totalFrameBytes := 0
+	for i := 0; i < count; i++ {
+		lengths[i] = len(frames[i])
+		totalFrameBytes += lengths[i]
+	}
+
+	sdBytes := frameLengthBytes(lengths[count-1])
+	need := 1 + sdBytes + totalFrameBytes
+
+	offset := 0
+	switch count {
+	case 1:
+		if len(data) < need {
+			return 0, ErrBufferTooSmall
+		}
+		data[offset] = tocBase
+		offset++
+		offset += encodeFrameLength(data[offset:], lengths[0])
+		copy(data[offset:], frames[0])
+		offset += lengths[0]
+		return offset, nil
+
+	case 2:
+		if lengths[0] == lengths[1] {
+			if len(data) < need {
+				return 0, ErrBufferTooSmall
+			}
+			data[offset] = tocBase | 0x01
+			offset++
+			offset += encodeFrameLength(data[offset:], lengths[1])
+			copy(data[offset:], frames[0])
+			offset += lengths[0]
+			copy(data[offset:], frames[1])
+			offset += lengths[1]
+			return offset, nil
+		}
+
+		need += frameLengthBytes(lengths[0])
+		if len(data) < need {
+			return 0, ErrBufferTooSmall
+		}
+		data[offset] = tocBase | 0x02
+		offset++
+		offset += encodeFrameLength(data[offset:], lengths[0])
+		offset += encodeFrameLength(data[offset:], lengths[1])
+		copy(data[offset:], frames[0])
+		offset += lengths[0]
+		copy(data[offset:], frames[1])
+		offset += lengths[1]
+		return offset, nil
+	}
+
+	vbr := false
+	for i := 1; i < count; i++ {
+		if lengths[i] != lengths[0] {
+			vbr = true
+			break
+		}
+	}
+	if vbr {
+		for i := 0; i < count-1; i++ {
+			need += frameLengthBytes(lengths[i])
+		}
+	}
+	if len(data) < need+1 {
+		return 0, ErrBufferTooSmall
+	}
+
+	data[offset] = tocBase | 0x03
+	offset++
+	if vbr {
+		data[offset] = byte(count) | 0x80
+		offset++
+		for i := 0; i < count-1; i++ {
+			offset += encodeFrameLength(data[offset:], lengths[i])
+		}
+	} else {
+		data[offset] = byte(count)
+		offset++
+	}
+
+	offset += encodeFrameLength(data[offset:], lengths[count-1])
+	for i := 0; i < count; i++ {
+		copy(data[offset:], frames[i])
+		offset += lengths[i]
+	}
+
+	return offset, nil
+}
+
+func makeSelfDelimitedPacket(packet []byte) ([]byte, error) {
+	_, frames, err := parsePacketFrames(packet)
+	if err != nil {
+		return nil, err
+	}
+
+	// Self-delimited adds at most 2 bytes versus standard framing.
+	dst := make([]byte, len(packet)+2)
+	n, err := buildSelfDelimitedPacketFromFrames(packet[0]&0xFC, frames, dst)
+	if err != nil {
+		return nil, err
+	}
+	return dst[:n], nil
+}
+
+func decodeSelfDelimitedPacket(data []byte) ([]byte, int, error) {
+	tocBase, frames, consumed, err := parseSelfDelimitedPacket(data)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	dst := make([]byte, consumed)
+	n, err := buildRepacketizedPacket(tocBase, frames, dst)
+	if err != nil {
+		return nil, 0, err
+	}
+	return dst[:n], consumed, nil
+}
+
 // MultistreamPacketPad pads the final stream packet inside a multistream packet.
 func MultistreamPacketPad(data []byte, length, newLen, numStreams int) error {
 	if numStreams < 1 || length < 1 || newLen < length {
@@ -468,15 +727,11 @@ func MultistreamPacketPad(data []byte, length, newLen, numStreams int) error {
 
 	offset := 0
 	for s := 0; s < numStreams-1; s++ {
-		packetLen, consumed, err := parseFrameLength(src, offset)
+		_, _, consumed, err := parseSelfDelimitedPacket(src[offset:length])
 		if err != nil {
 			return err
 		}
 		offset += consumed
-		if offset+packetLen > length {
-			return ErrInvalidPacket
-		}
-		offset += packetLen
 	}
 	if offset >= length {
 		return ErrInvalidPacket
@@ -507,16 +762,12 @@ func MultistreamPacketUnpad(data []byte, length, numStreams int) (int, error) {
 
 		var packet []byte
 		if selfDelimited {
-			packetLen, consumed, err := parseFrameLength(src, srcOffset)
+			decoded, consumed, err := decodeSelfDelimitedPacket(src[srcOffset:length])
 			if err != nil {
 				return 0, err
 			}
+			packet = decoded
 			srcOffset += consumed
-			if srcOffset+packetLen > length {
-				return 0, ErrInvalidPacket
-			}
-			packet = src[srcOffset : srcOffset+packetLen]
-			srcOffset += packetLen
 		} else {
 			if srcOffset >= length {
 				return 0, ErrInvalidPacket
@@ -533,11 +784,19 @@ func MultistreamPacketUnpad(data []byte, length, numStreams int) (int, error) {
 		}
 
 		if selfDelimited {
-			if dstOffset+frameLengthBytes(newPacketLen)+newPacketLen > len(data) {
+			selfDelimitedPacket, err := makeSelfDelimitedPacket(packetCopy[:newPacketLen])
+			if err != nil {
+				return 0, err
+			}
+			if dstOffset+len(selfDelimitedPacket) > len(data) {
 				return 0, ErrBufferTooSmall
 			}
-			dstOffset += encodeFrameLength(data[dstOffset:], newPacketLen)
-		} else if dstOffset+newPacketLen > len(data) {
+			copy(data[dstOffset:], selfDelimitedPacket)
+			dstOffset += len(selfDelimitedPacket)
+			continue
+		}
+
+		if dstOffset+newPacketLen > len(data) {
 			return 0, ErrBufferTooSmall
 		}
 

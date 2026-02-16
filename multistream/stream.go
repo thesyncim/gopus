@@ -7,6 +7,9 @@ var (
 	// ErrPacketTooShort indicates insufficient data in the multistream packet.
 	ErrPacketTooShort = errors.New("multistream: packet too short")
 
+	// ErrInvalidPacket indicates malformed Opus packet framing.
+	ErrInvalidPacket = errors.New("multistream: invalid packet framing")
+
 	// ErrDurationMismatch indicates streams have different frame durations.
 	ErrDurationMismatch = errors.New("multistream: streams have different frame durations")
 
@@ -45,7 +48,7 @@ func parseSelfDelimitedLength(data []byte) (length, consumed int, err error) {
 
 // parseMultistreamPacket extracts individual stream packets from a multistream packet.
 // Per RFC 6716 Appendix B:
-//   - First N-1 streams use self-delimiting framing (length prefix before each packet)
+//   - First N-1 streams use self-delimited Opus packet framing
 //   - Last stream uses standard framing (consumes remaining bytes)
 //
 // Parameters:
@@ -53,7 +56,7 @@ func parseSelfDelimitedLength(data []byte) (length, consumed int, err error) {
 //   - numStreams: total number of streams (N)
 //
 // Returns:
-//   - packets: slice of N byte slices, one per stream
+//   - packets: slice of N standard-framed Opus packets, one per stream
 //   - err: parsing error if data is malformed
 func parseMultistreamPacket(data []byte, numStreams int) ([][]byte, error) {
 	if numStreams < 1 {
@@ -63,32 +66,30 @@ func parseMultistreamPacket(data []byte, numStreams int) ([][]byte, error) {
 	packets := make([][]byte, numStreams)
 	offset := 0
 
-	// Parse first N-1 packets with self-delimiting framing
+	// Parse first N-1 packets with self-delimited framing and convert them
+	// back to standard framing for the elementary decoders.
 	for i := 0; i < numStreams-1; i++ {
 		if offset >= len(data) {
 			return nil, ErrPacketTooShort
 		}
 
-		// Parse the length prefix
-		packetLen, consumed, err := parseSelfDelimitedLength(data[offset:])
+		packet, consumed, err := decodeSelfDelimitedPacket(data[offset:])
 		if err != nil {
 			return nil, err
 		}
+		packets[i] = packet
 		offset += consumed
-
-		// Validate and extract packet data
-		if offset+packetLen > len(data) {
-			return nil, ErrPacketTooShort
-		}
-		packets[i] = data[offset : offset+packetLen]
-		offset += packetLen
 	}
 
 	// Last packet uses remaining bytes (standard framing)
-	if offset > len(data) {
+	if offset >= len(data) {
 		return nil, ErrPacketTooShort
 	}
-	packets[numStreams-1] = data[offset:]
+	lastPacket := data[offset:]
+	if _, err := parseOpusPacket(lastPacket, false); err != nil {
+		return nil, err
+	}
+	packets[numStreams-1] = lastPacket
 
 	return packets, nil
 }
@@ -109,9 +110,13 @@ func getFrameDuration(packet []byte) int {
 		return 0
 	}
 
+	parsed, err := parseOpusPacket(packet, false)
+	if err != nil || len(parsed.frames) == 0 {
+		return 0
+	}
+
 	// TOC byte structure: config (5 bits) | stereo (1 bit) | code (2 bits)
-	toc := packet[0]
-	config := toc >> 3 // Top 5 bits
+	config := packet[0] >> 3 // Top 5 bits
 
 	// Frame size table indexed by config (0-31)
 	// Matches gopus.configTable from packet.go
@@ -136,7 +141,7 @@ func getFrameDuration(packet []byte) int {
 		120, 240, 480, 960,
 	}
 
-	return frameSizeTable[config]
+	return frameSizeTable[config] * len(parsed.frames)
 }
 
 // validateStreamDurations checks that all stream packets have the same frame duration.

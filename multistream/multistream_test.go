@@ -313,10 +313,16 @@ func TestParseMultistreamPacket(t *testing.T) {
 	})
 
 	t.Run("two streams", func(t *testing.T) {
-		// Two streams: first has length prefix, second is remainder
-		// Stream 0: length=3, data=[0xFC, 0x01, 0x02]
-		// Stream 1: data=[0xFD, 0x03, 0x04, 0x05]
-		data := []byte{3, 0xFC, 0x01, 0x02, 0xFD, 0x03, 0x04, 0x05}
+		// Two streams: first uses self-delimited framing, second is standard.
+		stream0 := []byte{0xF8, 0x01, 0x02}
+		stream1 := []byte{0xF8, 0x03, 0x04, 0x05}
+
+		selfDelimited0, err := makeSelfDelimitedPacket(stream0)
+		if err != nil {
+			t.Fatalf("makeSelfDelimitedPacket error: %v", err)
+		}
+		data := append(selfDelimited0, stream1...)
+
 		packets, err := parseMultistreamPacket(data, 2)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -347,8 +353,8 @@ func TestParseMultistreamPacket(t *testing.T) {
 	})
 
 	t.Run("insufficient data for length", func(t *testing.T) {
-		// Length says 10 bytes but we only have 3
-		data := []byte{10, 0x01, 0x02}
+		// Self-delimited frame length says 10 bytes but only 1 byte follows.
+		data := []byte{0xF8, 10, 0x01, 0xF8, 0x02}
 		_, err := parseMultistreamPacket(data, 2)
 		if !errors.Is(err, ErrPacketTooShort) {
 			t.Errorf("expected ErrPacketTooShort, got %v", err)
