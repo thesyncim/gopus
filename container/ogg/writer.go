@@ -26,6 +26,8 @@ type WriterConfig struct {
 	// MappingFamily specifies the channel mapping:
 	//   0: Mono/stereo (implicit order) - for 1-2 channels
 	//   1: Surround 1-8 channels (Vorbis order)
+	//   2: Ambisonics ACN/SN3D
+	//   3: Projection-based ambisonics
 	//   255: Discrete (no defined relationship)
 	MappingFamily uint8
 
@@ -146,9 +148,10 @@ func (ow *Writer) writeHeaders() error {
 		head.PreSkip = ow.config.PreSkip
 		head.OutputGain = ow.config.OutputGain
 	} else {
-		head = DefaultOpusHeadMultistream(
+		head = DefaultOpusHeadMultistreamWithFamily(
 			ow.config.SampleRate,
 			ow.config.Channels,
+			ow.config.MappingFamily,
 			ow.config.StreamCount,
 			ow.config.CoupledCount,
 			ow.config.ChannelMapping,

@@ -22,6 +22,20 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-16
+topic: Ogg Writer mapping-family parity preservation
+decision: Keep `container/ogg` OpusHead emission using the configured `WriterConfig.MappingFamily` for multistream headers; do not hardcode mapping family `1` in `writeHeaders` for non-RTP mappings.
+evidence: Added `DefaultOpusHeadMultistreamWithFamily` in `container/ogg/header.go` and updated `container/ogg/writer.go` to pass `config.MappingFamily`; added regression coverage `TestWriterWithConfig_PreservesMappingFamily` in `container/ogg/writer_test.go` (family 2) and validated with focused container tests plus full `make verify-production`.
+do_not_repeat_until: Ogg Opus header construction in `container/ogg` is redesigned, or fixture/interoperability evidence shows mapping-family drift between configured writer state and emitted `OpusHead`.
+owner: codex
+
+date: 2026-02-16
+topic: Ambisonics family 2 libopus tooling guard and family 3 parity gate
+decision: Keep family-2 multistream ambisonics parity checks on libopus tooling header inspection (`opusinfo`) + internal decoded sample-count/energy checks in `TestLibopus_AmbisonicsFamily2Matrix`, with opportunistic `opusdec` decode validation when available. Keep family-3 libopus Ogg interoperability as explicitly gated until RFC 8486 demixing-matrix metadata emission is implemented.
+evidence: Updated `multistream/libopus_test.go` to inspect `opusinfo` output for `Channel Mapping Family`, `Streams/Coupled`, and channel count on family-2 Ogg files, then assert internal decoder sample-count parity and energy floor; observed `opusdec` refusing to decode these files in this environment despite successful `opusinfo` parsing. Added explicit `TestLibopus_AmbisonicsFamily3Matrix` skip message documenting the missing demixing-matrix metadata requirement; focused multistream slices and full `make verify-production` passed.
+do_not_repeat_until: family-3 RFC 8486 demixing-matrix metadata is implemented and fixture/interoperability evidence confirms tool acceptance (`opusinfo`/decode path), or ambisonics container mapping semantics change in upstream libopus tooling.
+owner: codex
+
+date: 2026-02-16
 topic: Multistream 40/60ms decode-side subframe handling parity
 decision: Keep multistream stream decode handling for long packets (`40ms`/`60ms`) on sequential per-frame decode at valid hybrid subframe sizes (`10ms`/`20ms`) after packet frame parsing, rather than passing aggregate packet duration directly into hybrid stream decode.
 evidence: Updated `multistream/decoder.go` `hybridStreamDecoder` to parse multi-frame packets and decode each frame with reconstructed single-frame TOC packets, then concatenate decoded PCM; added `TestLibopus_FrameDurationMatrix` in `multistream/libopus_test.go` covering stereo+5.1 at `10/20/40/60ms` with libopus/internal decoded sample-count parity checks; validated with focused multistream libopus slices and full `make verify-production`.
