@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-16
+topic: Multistream default mapping matrix libopus parity guard
+decision: Keep live `opusdec` cross-validation coverage for every default mapping-family layout (`1..8` channels), with exact post-pre-skip decoded sample-count assertions and minimum decoded-energy thresholds per layout. Do not treat 2/6/8-channel-only coverage as sufficient for multistream parity confidence.
+evidence: Added `TestLibopus_DefaultMappingMatrix` in `multistream/libopus_test.go` (default channels 1..8 with libopus decode checks), and validated with `go test ./multistream -run TestLibopus_DefaultMappingMatrix -count=1 -v`, `go test ./multistream -run 'TestLibopus_(Stereo|51Surround|71Surround|DefaultMappingMatrix|BitrateQuality|ContainerFormat|Info)' -count=1 -v`, plus full `make verify-production`.
+do_not_repeat_until: libopus mapping-family decode semantics change (`opus_multistream_decoder.c`/`opusdec`) or fixture/interoperability evidence shows regressions on an uncovered default channel layout.
+owner: codex
+
+date: 2026-02-16
 topic: Multistream packet pad/unpad self-delimited parity
 decision: Keep `MultistreamPacketPad` and `MultistreamPacketUnpad` aligned with libopus multistream packet semantics by parsing/re-emitting self-delimited subpackets for streams `0..N-2` and standard framing for the last stream; do not use legacy raw per-stream length-prefix parsing in these APIs.
 evidence: Updated `packet.go` multistream pad/unpad paths with self-delimited packet parse/rebuild helpers (`parseSelfDelimitedPacket`, `decodeSelfDelimitedPacket`, `makeSelfDelimitedPacket`), added regression tests in `packet_multistream_padding_test.go` for 2-stream/3-stream round-trips and malformed self-delimited rejection, and validated with focused root + multistream/libopus slices and full `make verify-production`.
