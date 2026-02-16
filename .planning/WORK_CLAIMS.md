@@ -81,3 +81,4 @@ Quick commands:
 - claim: id=codex-20260216-214743; agent=codex; status=released; paths=container/ogg/,multistream/,.planning/; updated=2026-02-16T21:59:53Z; expires=2026-02-16T21:59:53Z; note=family3 demixing-matrix metadata for Ogg interop parity
 - claim: id=codex-20260216-220216; agent=codex; status=released; paths=container/ogg/,multistream/,testvectors/,.planning/; updated=2026-02-16T22:18:28Z; expires=2026-02-16T22:18:28Z; note=port libopus family3 default projection matrix parity slice
 - claim: id=codex-20260216-221858; agent=codex; status=released; paths=multistream/,container/ogg/,testvectors/,.planning/; updated=2026-02-16T22:31:40Z; expires=2026-02-16T22:31:40Z; note=investigate and close family3 opusdec decode interop gap
+- claim: id=codex-20260216-223510; agent=codex; status=active; paths=examples/,README.md,.planning/; updated=2026-02-16T22:35:10Z; expires=2026-02-17T02:35:10Z; note=harden mix-arrivals for webrtc-like streaming tracks
