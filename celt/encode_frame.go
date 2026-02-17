@@ -963,6 +963,12 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		// Use default TF settings when analysis is disabled
 		tfRes = ensureIntSlice(&e.scratch.tfRes, nbBands)
 		tfSelect = 0
+		// Zero all entries: ensureIntSlice reuses memory without zeroing,
+		// so stale values (e.g. -1 from TFAnalysis) can survive and cause
+		// an index-out-of-range panic in the tfSelectTable lookup below.
+		for i := range tfRes {
+			tfRes[i] = 0
+		}
 		if transient {
 			// For transients without analysis, use tf_res=1 (favor time resolution)
 			for i := 0; i < nbBands; i++ {

@@ -628,6 +628,21 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		if e.lfe {
 			requestedMode = ModeCELT
 		}
+		// Run decide_fec for non-auto modes too. In libopus, decide_fec()
+		// runs unconditionally at line 1675 (not just in auto mode).
+		// This controls whether LBRR is actually coded based on bitrate,
+		// bandwidth, packet loss, and hysteresis.
+		frameRate := e.sampleRate / frameSize
+		if frameRate <= 0 {
+			frameRate = 50
+		}
+		useVBR := e.bitrateMode != ModeCBR
+		equivRate := e.computeEquivRate(e.bitrate, e.channels, frameRate,
+			useVBR, requestedMode, e.complexity, e.packetLoss)
+		bw := e.bandwidth
+		e.lbrrCoded = decideFEC(e.fecEnabled, e.packetLoss, e.lbrrCoded,
+			requestedMode, &bw, equivRate)
+		e.bandwidth = bw
 	}
 	actualMode, prevModeNext := e.applyCELTTransitionDelay(frameSize, requestedMode)
 
@@ -1365,7 +1380,7 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 		if totalSilkRate > 0 {
 			e.silkEncoder.SetBitrate(totalSilkRate)
 		}
-		e.silkEncoder.SetFEC(e.fecEnabled)
+		e.silkEncoder.SetFEC(e.lbrrCoded)
 		e.silkEncoder.SetPacketLoss(e.packetLoss)
 		e.ensureSILKSideEncoder()
 		if totalSilkRate > 0 {
@@ -1373,7 +1388,7 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 		} else if perChannelRate > 0 {
 			e.silkSideEncoder.SetBitrate(perChannelRate)
 		}
-		e.silkSideEncoder.SetFEC(e.fecEnabled)
+		e.silkSideEncoder.SetFEC(e.lbrrCoded)
 		e.silkSideEncoder.SetPacketLoss(e.packetLoss)
 
 		// Set VBR mode on both encoders (matching mono path).
@@ -1512,11 +1527,11 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 		}
 		e.silkEncoder.SetMaxBits(silkPayloadMaxBits(maxBytes))
 	}
-	e.silkEncoder.SetFEC(e.fecEnabled)
+	e.silkEncoder.SetFEC(e.lbrrCoded)
 	e.silkEncoder.SetPacketLoss(e.packetLoss)
 	fsKHz := targetRate / 1000
 	vadFlags, vadStates, nFrames := e.computeSilkVADFlagsAndStates(pcm32, fsKHz)
-	if e.fecEnabled || nFrames > 1 {
+	if e.lbrrCoded || nFrames > 1 {
 		return e.silkEncoder.EncodePacketWithFECWithVADStates(pcm32, lookaheadOut, vadFlags, vadStates), nil
 	}
 	vadFlag := false
