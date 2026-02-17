@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>gopus WebRTC Control Panel</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+    background: #0d1117; color: #c9d1d9; font-size: 13px;
+    display: grid; grid-template-columns: 360px 1fr; height: 100vh;
+  }
+  h1 { font-size: 16px; padding: 12px 16px; background: #161b22; border-bottom: 1px solid #30363d; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #8b949e;
+       padding: 10px 16px 4px; }
+
+  .panel { overflow-y: auto; border-right: 1px solid #30363d; }
+  .main { display: flex; flex-direction: column; overflow: hidden; }
+
+  .control { padding: 6px 16px; display: flex; align-items: center; gap: 8px; }
+  .control label { min-width: 110px; color: #8b949e; font-size: 12px; }
+  .control input[type=range] { flex: 1; accent-color: #58a6ff; }
+  .control .val { min-width: 60px; text-align: right; color: #58a6ff; font-size: 12px; }
+  .control select { background: #21262d; color: #c9d1d9; border: 1px solid #30363d;
+                     padding: 3px 6px; border-radius: 4px; font-size: 12px; }
+
+  .radio-group { display: flex; gap: 4px; flex: 1; }
+  .radio-group label {
+    min-width: 0; padding: 3px 8px; background: #21262d; border: 1px solid #30363d;
+    border-radius: 4px; cursor: pointer; text-align: center; font-size: 11px; color: #8b949e;
+  }
+  .radio-group input { display: none; }
+  .radio-group input:checked + span {
+    color: #58a6ff;
+  }
+  .radio-group label:has(input:checked) {
+    border-color: #58a6ff; background: #161b22;
+  }
+
+  .toggle { position: relative; width: 36px; height: 20px; }
+  .toggle input { display: none; }
+  .toggle .slider {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    background: #21262d; border: 1px solid #30363d; border-radius: 10px; cursor: pointer;
+    transition: 0.2s;
+  }
+  .toggle .slider::before {
+    content: ''; position: absolute; width: 14px; height: 14px; left: 2px; top: 2px;
+    background: #8b949e; border-radius: 50%; transition: 0.2s;
+  }
+  .toggle input:checked + .slider { background: #1f6feb; border-color: #58a6ff; }
+  .toggle input:checked + .slider::before { transform: translateX(16px); background: #fff; }
+
+  .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 12px 16px; }
+  .stat-box {
+    background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 10px;
+    text-align: center;
+  }
+  .stat-box .label { font-size: 10px; color: #8b949e; text-transform: uppercase; }
+  .stat-box .value { font-size: 20px; font-weight: bold; color: #58a6ff; margin-top: 2px; }
+
+  .mode-badge {
+    display: inline-block; padding: 2px 10px; border-radius: 4px; font-size: 14px;
+    font-weight: bold; letter-spacing: 1px;
+  }
+  .mode-SILK { background: #1a4b2e; color: #3fb950; }
+  .mode-Hybrid { background: #4a3000; color: #d29922; }
+  .mode-CELT { background: #301a4b; color: #bc8cff; }
+
+  canvas { width: 100%; background: #0d1117; }
+  #waveform { height: 120px; }
+  #packetChart { height: 100px; }
+
+  .viz-section { padding: 8px 16px; flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+
+  .btn {
+    padding: 8px 16px; background: #238636; color: #fff; border: none; border-radius: 6px;
+    cursor: pointer; font-family: inherit; font-size: 13px; font-weight: 600;
+  }
+  .btn:hover { background: #2ea043; }
+  .btn.danger { background: #da3633; }
+  .btn.danger:hover { background: #f85149; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .connect-bar { padding: 12px 16px; display: flex; gap: 8px; align-items: center; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #da3633; }
+  .status-dot.connected { background: #3fb950; }
+
+  .separator { border-top: 1px solid #30363d; margin: 4px 0; }
+</style>
+</head>
+<body>
+
+<div class="panel">
+  <h1>gopus Control Panel</h1>
+
+  <div class="connect-bar">
+    <button id="connectBtn" class="btn" onclick="connect()">Connect</button>
+    <button id="disconnectBtn" class="btn danger" onclick="disconnect()" disabled>Disconnect</button>
+    <div id="statusDot" class="status-dot"></div>
+    <span id="statusText" style="color:#8b949e;font-size:11px">Disconnected</span>
+  </div>
+
+  <div class="separator"></div>
+
+  <h2>Audio Source</h2>
+  <div class="control">
+    <label>Source</label>
+    <select id="audioSource" onchange="sendParam('audioSource', this.value)">
+      <option value="chord" selected>Chord (C Major)</option>
+      <option value="sine">Sine (440Hz)</option>
+      <option value="sweep">Sweep (100-8kHz)</option>
+      <option value="noise">White Noise</option>
+      <option value="speech">Speech (Synth)</option>
+      <option value="loopback">Mic Loopback</option>
+    </select>
+  </div>
+
+  <div class="control">
+    <label>Volume</label>
+    <input type="range" id="volume" min="0" max="1" value="0.8" step="0.01"
+           oninput="setVolume(+this.value);volumeVal.textContent=Math.round(this.value*100)+'%'">
+    <span class="val" id="volumeVal">80%</span>
+  </div>
+
+  <div class="separator"></div>
+  <h2>Application</h2>
+  <div class="control">
+    <div class="radio-group">
+      <label><input type="radio" name="application" value="voip" onchange="sendParam('application','voip')"><span>VoIP</span></label>
+      <label><input type="radio" name="application" value="audio" checked onchange="sendParam('application','audio')"><span>Audio</span></label>
+      <label><input type="radio" name="application" value="lowdelay" onchange="sendParam('application','lowdelay')"><span>LowDelay</span></label>
+    </div>
+  </div>
+
+  <div class="separator"></div>
+  <h2>Encoder Parameters</h2>
+
+  <div class="control">
+    <label>Bitrate</label>
+    <input type="range" id="bitrate" min="6000" max="510000" value="64000" step="1000"
+           oninput="sendParam('bitrate',+this.value);bitrateVal.textContent=Math.round(this.value/1000)+'k'">
+    <span class="val" id="bitrateVal">64k</span>
+  </div>
+
+  <div class="control">
+    <label>Complexity</label>
+    <input type="range" id="complexity" min="0" max="10" value="10" step="1"
+           oninput="sendParam('complexity',+this.value);complexityVal.textContent=this.value">
+    <span class="val" id="complexityVal">10</span>
+  </div>
+
+  <div class="control">
+    <label>Frame Size</label>
+    <select id="frameSize" onchange="sendParam('frameSize',+this.value)">
+      <option value="120">2.5 ms</option>
+      <option value="240">5 ms</option>
+      <option value="480">10 ms</option>
+      <option value="960" selected>20 ms</option>
+      <option value="1920">40 ms</option>
+      <option value="2880">60 ms</option>
+    </select>
+  </div>
+
+  <div class="control">
+    <label>Bitrate Mode</label>
+    <div class="radio-group">
+      <label><input type="radio" name="bitrateMode" value="vbr" checked onchange="sendParam('bitrateMode','vbr')"><span>VBR</span></label>
+      <label><input type="radio" name="bitrateMode" value="cvbr" onchange="sendParam('bitrateMode','cvbr')"><span>CVBR</span></label>
+      <label><input type="radio" name="bitrateMode" value="cbr" onchange="sendParam('bitrateMode','cbr')"><span>CBR</span></label>
+    </div>
+  </div>
+
+  <div class="control">
+    <label>Signal Hint</label>
+    <div class="radio-group">
+      <label><input type="radio" name="signal" value="auto" checked onchange="sendParam('signal','auto')"><span>Auto</span></label>
+      <label><input type="radio" name="signal" value="voice" onchange="sendParam('signal','voice')"><span>Voice</span></label>
+      <label><input type="radio" name="signal" value="music" onchange="sendParam('signal','music')"><span>Music</span></label>
+    </div>
+  </div>
+
+  <div class="control">
+    <label>Max Bandwidth</label>
+    <select id="maxBandwidth" onchange="sendParam('maxBandwidth',this.value)">
+      <option value="nb">Narrowband (4kHz)</option>
+      <option value="mb">Mediumband (6kHz)</option>
+      <option value="wb">Wideband (8kHz)</option>
+      <option value="swb">Superwideband (12kHz)</option>
+      <option value="fb" selected>Fullband (20kHz)</option>
+    </select>
+  </div>
+
+  <div class="control">
+    <label>Force Channels</label>
+    <select id="forceChannels" onchange="sendParam('forceChannels',+this.value)">
+      <option value="-1" selected>Auto</option>
+      <option value="1">Mono</option>
+      <option value="2">Stereo</option>
+    </select>
+  </div>
+
+  <div class="separator"></div>
+  <h2>Error Resilience</h2>
+
+  <div class="control">
+    <label>FEC</label>
+    <div class="toggle">
+      <input type="checkbox" id="fec" onchange="sendParam('fec',this.checked)">
+      <div class="slider"></div>
+    </div>
+  </div>
+
+  <div class="control">
+    <label>Packet Loss %</label>
+    <input type="range" id="packetLoss" min="0" max="100" value="0" step="1"
+           oninput="sendParam('packetLoss',+this.value);packetLossVal.textContent=this.value+'%'">
+    <span class="val" id="packetLossVal">0%</span>
+  </div>
+
+  <div class="control">
+    <label>DTX</label>
+    <div class="toggle">
+      <input type="checkbox" id="dtx" onchange="sendParam('dtx',this.checked)">
+      <div class="slider"></div>
+    </div>
+  </div>
+
+  <div class="separator"></div>
+  <h2>Advanced</h2>
+
+  <div class="control">
+    <label>LSB Depth</label>
+    <input type="range" id="lsbDepth" min="8" max="24" value="24" step="1"
+           oninput="sendParam('lsbDepth',+this.value);lsbDepthVal.textContent=this.value+'-bit'">
+    <span class="val" id="lsbDepthVal">24-bit</span>
+  </div>
+
+  <div class="control">
+    <label>No Prediction</label>
+    <div class="toggle">
+      <input type="checkbox" id="predictionDisabled" onchange="sendParam('predictionDisabled',this.checked)">
+      <div class="slider"></div>
+    </div>
+  </div>
+
+  <div class="control">
+    <label>No Phase Inv</label>
+    <div class="toggle">
+      <input type="checkbox" id="phaseInvDisabled" onchange="sendParam('phaseInvDisabled',this.checked)">
+      <div class="slider"></div>
+    </div>
+  </div>
+
+  <div class="separator"></div>
+  <h2>Simulation</h2>
+
+  <div class="control">
+    <label>Sim Loss %</label>
+    <input type="range" id="simLoss" min="0" max="50" value="0" step="1"
+           oninput="sendParam('simLoss',+this.value);simLossVal.textContent=this.value+'%'">
+    <span class="val" id="simLossVal">0%</span>
+  </div>
+</div>
+
+<div class="main">
+  <h1 style="display:flex;align-items:center;gap:12px">
+    Real-time Stats
+    <span id="modeBadge" class="mode-badge mode-CELT">CELT</span>
+    <span id="bwBadge" style="font-size:12px;color:#8b949e">FB</span>
+  </h1>
+
+  <div class="stats-grid">
+    <div class="stat-box">
+      <div class="label">Bitrate (actual)</div>
+      <div class="value" id="statBitrate">0</div>
+    </div>
+    <div class="stat-box">
+      <div class="label">Packet Size</div>
+      <div class="value" id="statPacketSize">0</div>
+    </div>
+    <div class="stat-box">
+      <div class="label">Frame Size</div>
+      <div class="value" id="statFrameSize">960</div>
+    </div>
+    <div class="stat-box">
+      <div class="label">Packets/sec</div>
+      <div class="value" id="statPps">-</div>
+    </div>
+    <div class="stat-box">
+      <div class="label">TOC Config</div>
+      <div class="value" id="statTocConfig">-</div>
+    </div>
+    <div class="stat-box">
+      <div class="label">TOC Stereo</div>
+      <div class="value" id="statTocStereo">-</div>
+    </div>
+    <div class="stat-box">
+      <div class="label">Mode</div>
+      <div class="value" id="statMode">-</div>
+    </div>
+  </div>
+
+  <div class="viz-section">
+    <h2>Waveform</h2>
+    <canvas id="waveform"></canvas>
+    <h2>Packet Size History</h2>
+    <canvas id="packetChart"></canvas>
+  </div>
+</div>
+
+<audio id="audioPlayer" autoplay></audio>
+
+<script>
+let pc = null;
+let dc = null;
+let audioCtx = null;
+let analyser = null;
+let packetHistory = [];
+const MAX_HISTORY = 200;
+
+// Packets/sec tracking.
+let pktCount = 0;
+let ppsDisplay = 0;
+setInterval(() => {
+  ppsDisplay = pktCount;
+  pktCount = 0;
+  document.getElementById('statPps').textContent = ppsDisplay;
+}, 1000);
+
+// Toggle label click to toggle the checkbox.
+document.querySelectorAll('.toggle').forEach(el => {
+  el.querySelector('.slider').addEventListener('click', () => {
+    const cb = el.querySelector('input');
+    cb.checked = !cb.checked;
+    cb.dispatchEvent(new Event('change'));
+  });
+});
+
+function sendParam(param, value) {
+  if (dc && dc.readyState === 'open') {
+    dc.send(JSON.stringify({ type: 'set_param', param, value }));
+  }
+}
+
+function setVolume(val) {
+  document.getElementById('audioPlayer').volume = val;
+}
+
+async function connect() {
+  document.getElementById('connectBtn').disabled = true;
+
+  // Create AudioContext inside user gesture so the browser allows playback.
+  if (!audioCtx) {
+    audioCtx = new AudioContext();
+  }
+  if (audioCtx.state === 'suspended') {
+    await audioCtx.resume();
+  }
+
+  try {
+    pc = new RTCPeerConnection({ iceServers: [] });
+
+    // Create DataChannel on the browser side so the offer includes SCTP.
+    dc = pc.createDataChannel('control');
+    dc.onopen = () => { console.log('DataChannel open'); };
+    dc.onmessage = (msg) => {
+      try { handleStats(JSON.parse(msg.data)); } catch(e) {}
+    };
+
+    // Receive-only transceiver — we only need to hear audio from the server.
+    // Mic loopback is handled server-side; if the user selects loopback later
+    // we can renegotiate.
+    pc.addTransceiver('audio', { direction: 'recvonly' });
+
+    // Use an <audio> element for reliable playback, plus Web Audio for viz.
+    pc.ontrack = (ev) => {
+      const stream = ev.streams[0] || new MediaStream([ev.track]);
+
+      // Audio element for playback.
+      const audio = document.getElementById('audioPlayer');
+      audio.srcObject = stream;
+      audio.volume = parseFloat(document.getElementById('volume').value);
+      audio.play().catch(e => console.warn('autoplay blocked:', e));
+
+      // Web Audio for waveform visualization only (not connected to destination).
+      const source = audioCtx.createMediaStreamSource(stream);
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+      drawWaveform();
+    };
+
+    pc.onconnectionstatechange = () => {
+      updateStatus(pc.connectionState);
+    };
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    // Wait for ICE gathering to complete.
+    await new Promise((resolve) => {
+      if (pc.iceGatheringState === 'complete') {
+        resolve();
+      } else {
+        pc.onicegatheringstatechange = () => {
+          if (pc.iceGatheringState === 'complete') resolve();
+        };
+      }
+    });
+
+    const resp = await fetch('/offer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(pc.localDescription)
+    });
+
+    if (!resp.ok) {
+      throw new Error('Signaling failed: ' + resp.status);
+    }
+
+    const answer = await resp.json();
+    await pc.setRemoteDescription(answer);
+
+    document.getElementById('disconnectBtn').disabled = false;
+  } catch (e) {
+    console.error('Connect failed:', e);
+    document.getElementById('connectBtn').disabled = false;
+    updateStatus('failed');
+  }
+}
+
+function disconnect() {
+  if (pc) {
+    pc.close();
+    pc = null;
+  }
+  dc = null;
+  analyser = null;
+  const audio = document.getElementById('audioPlayer');
+  audio.srcObject = null;
+  document.getElementById('connectBtn').disabled = false;
+  document.getElementById('disconnectBtn').disabled = true;
+  updateStatus('disconnected');
+}
+
+function updateStatus(state) {
+  const dot = document.getElementById('statusDot');
+  const text = document.getElementById('statusText');
+  dot.className = 'status-dot' + (state === 'connected' ? ' connected' : '');
+  text.textContent = state.charAt(0).toUpperCase() + state.slice(1);
+  if (state === 'failed' || state === 'closed' || state === 'disconnected') {
+    document.getElementById('connectBtn').disabled = false;
+    document.getElementById('disconnectBtn').disabled = true;
+  }
+}
+
+function handleStats(s) {
+  if (s.type !== 'stats') return;
+
+  pktCount++;
+
+  if (s.bitrateKbps !== undefined) {
+    document.getElementById('statBitrate').textContent = s.bitrateKbps.toFixed(1) + ' kbps';
+  }
+  document.getElementById('statPacketSize').textContent = (s.packetSize || 0) + ' B';
+  document.getElementById('statFrameSize').textContent = s.frameSize || '-';
+  document.getElementById('statTocConfig').textContent = s.tocConfig !== undefined ? s.tocConfig : '-';
+  document.getElementById('statTocStereo').textContent = s.tocStereo ? 'Yes' : 'No';
+  document.getElementById('statMode').textContent = s.lastMode || '-';
+
+  // Update mode badge.
+  const badge = document.getElementById('modeBadge');
+  const mode = s.lastMode || 'CELT';
+  badge.textContent = mode;
+  badge.className = 'mode-badge mode-' + mode;
+
+  document.getElementById('bwBadge').textContent = s.lastBandwidth || 'FB';
+
+  // Track packet size history.
+  packetHistory.push(s.packetSize || 0);
+  if (packetHistory.length > MAX_HISTORY) packetHistory.shift();
+  drawPacketChart();
+}
+
+function drawWaveform() {
+  if (!analyser) return;
+  const canvas = document.getElementById('waveform');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = canvas.clientWidth * dpr;
+  canvas.height = canvas.clientHeight * dpr;
+  ctx.scale(dpr, dpr);
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+
+  const bufLen = analyser.frequencyBinCount;
+  const data = new Uint8Array(bufLen);
+
+  function draw() {
+    requestAnimationFrame(draw);
+    analyser.getByteTimeDomainData(data);
+
+    ctx.fillStyle = '#0d1117';
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = '#58a6ff';
+    ctx.beginPath();
+
+    const sliceWidth = w / bufLen;
+    let x = 0;
+    for (let i = 0; i < bufLen; i++) {
+      const v = data[i] / 128.0;
+      const y = (v * h) / 2;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+      x += sliceWidth;
+    }
+    ctx.lineTo(w, h / 2);
+    ctx.stroke();
+
+    // Center line.
+    ctx.strokeStyle = '#30363d';
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(0, h / 2);
+    ctx.lineTo(w, h / 2);
+    ctx.stroke();
+  }
+  draw();
+}
+
+function drawPacketChart() {
+  const canvas = document.getElementById('packetChart');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = canvas.clientWidth * dpr;
+  canvas.height = canvas.clientHeight * dpr;
+  ctx.scale(dpr, dpr);
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+
+  ctx.fillStyle = '#0d1117';
+  ctx.fillRect(0, 0, w, h);
+
+  if (packetHistory.length < 2) return;
+
+  const maxVal = Math.max(...packetHistory, 1);
+  const step = w / MAX_HISTORY;
+
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = '#3fb950';
+  ctx.beginPath();
+
+  for (let i = 0; i < packetHistory.length; i++) {
+    const x = i * step;
+    const y = h - (packetHistory[i] / maxVal) * (h - 10) - 5;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // Scale label.
+  ctx.fillStyle = '#8b949e';
+  ctx.font = '10px monospace';
+  ctx.fillText(maxVal + ' B', 4, 12);
+  ctx.fillText('0 B', 4, h - 2);
+}
+
+// Resize canvases on window resize.
+window.addEventListener('resize', () => {
+  drawPacketChart();
+});
+</script>
+</body>
+</html>
