@@ -334,20 +334,21 @@ func TestSigmQ15(t *testing.T) {
 	}
 }
 
-// TestDTXWithVAD verifies DTX integration with multi-band VAD.
-func TestDTXWithVAD(t *testing.T) {
+// TestDTXActivityDetection verifies DTX integration with digital-silence and
+// energy-based activity detection (matching libopus opus_encoder.c:1911-1930).
+// The SILK multi-band VAD is NOT used for Opus-level DTX decisions.
+func TestDTXActivityDetection(t *testing.T) {
 	enc := NewEncoder(48000, 1)
 	enc.SetDTX(true)
 
 	frameSize := 960 // 20ms at 48kHz
 
-	// Generate silence
+	// True digital silence: all zeros, well below lsbDepth=24 threshold (5.96e-8).
+	// Matches libopus is_digital_silence() from opus_encoder.c:1060-1077.
 	silence := make([]float64, frameSize)
-	for i := range silence {
-		silence[i] = 0.0001 * (rand.Float64() - 0.5)
-	}
 
-	// Process many silent frames until DTX activates
+	// Process silent frames until DTX activates (should take ~11 frames: 10 for
+	// NB_SPEECH_FRAMES_BEFORE_DTX threshold + 1 to exceed it).
 	var dtxActivated bool
 	for i := 0; i < 50; i++ {
 		suppress, _ := enc.shouldUseDTX(silence)
@@ -358,7 +359,7 @@ func TestDTXWithVAD(t *testing.T) {
 	}
 
 	if !dtxActivated {
-		t.Error("DTX did not activate after sustained silence")
+		t.Error("DTX did not activate after sustained digital silence")
 	}
 
 	// Verify InDTX returns true
@@ -366,14 +367,14 @@ func TestDTXWithVAD(t *testing.T) {
 		t.Error("InDTX() returned false after DTX activated")
 	}
 
-	// Generate speech-like signal
+	// Generate speech-like signal (0.3 amplitude sine, well above silence threshold)
 	speech := make([]float64, frameSize)
 	for i := range speech {
-		t := float64(i) / 48000.0
-		speech[i] = 0.3 * math.Sin(2*math.Pi*200*t)
+		tt := float64(i) / 48000.0
+		speech[i] = 0.3 * math.Sin(2*math.Pi*200*tt)
 	}
 
-	// Process speech - should exit DTX
+	// Process speech - should exit DTX immediately
 	for i := 0; i < 5; i++ {
 		enc.shouldUseDTX(speech)
 	}

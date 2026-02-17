@@ -1,21 +1,21 @@
 // Package encoder implements DTX (Discontinuous Transmission) for the Opus encoder.
-// DTX saves bandwidth during silence by suppressing packets and sending periodic
-// comfort noise frames to maintain presence.
+// DTX saves bandwidth during silence by emitting 1-byte TOC-only packets,
+// allowing the decoder to activate its internal Comfort Noise Generation (CNG).
 //
-// This implementation uses multi-band VAD (Voice Activity Detection) matching
-// libopus SILK behavior for accurate speech detection.
+// Activity detection matches libopus opus_encoder.c:1911-1930:
+//  1. is_digital_silence: max sample below quantization floor
+//  2. Analysis-based: tonality analyzer activity_probability >= 0.1
+//  3. CELT fallback: peak-vs-current energy pseudo-SNR check
 //
-// Reference: RFC 6716 Section 2.1.9, libopus silk/VAD.c
+// The SILK multi-band VAD is NOT used for Opus-level DTX (only for SILK-internal DTX).
+//
+// Reference: RFC 6716 Section 2.1.9, libopus opus_encoder.c, silk/define.h
 package encoder
 
-import "github.com/thesyncim/gopus/types"
+import "math"
 
-// DTX Constants matching libopus silk/define.h
+// DTX Constants matching libopus silk/define.h and opus_encoder.c
 const (
-	// DTXComfortNoiseIntervalMs is how often to send comfort noise during DTX.
-	// Per Opus convention, send a comfort noise frame every 400ms of silence.
-	DTXComfortNoiseIntervalMs = 400
-
 	// DTXFrameThresholdMs is the duration of silence before DTX activates.
 	// Matches NB_SPEECH_FRAMES_BEFORE_DTX * 20 = 200ms.
 	DTXFrameThresholdMs = 200
@@ -24,19 +24,19 @@ const (
 	// Matches MAX_CONSECUTIVE_DTX * 20 = 400ms.
 	DTXMaxConsecutiveMs = 400
 
-	// DTXFadeInMs is the fade-in duration when exiting DTX mode.
-	DTXFadeInMs = 10
+	// dtxActivityThreshold matches DTX_ACTIVITY_THRESHOLD = 0.1f from silk/define.h.
+	// Used with the tonality analyzer's activity_probability.
+	dtxActivityThreshold = 0.1
 
-	// DTXFadeOutMs is the fade-out duration when entering DTX mode.
-	DTXFadeOutMs = 10
-
-	// DTXMinBitrate is the minimum bitrate used for comfort noise frames.
-	DTXMinBitrate = 6000
+	// pseudoSNRThreshold matches PSEUDO_SNR_THRESHOLD = 316.23f (10^(25/10))
+	// from opus_encoder.c. If peak energy < threshold * current energy,
+	// the frame is considered active (not silence).
+	pseudoSNRThreshold = 316.23
 )
 
-// dtxState holds state for discontinuous transmission with multi-band VAD.
+// dtxState holds state for discontinuous transmission.
 type dtxState struct {
-	// Multi-band VAD state for accurate speech detection
+	// Multi-band VAD state for SILK-mode DTX speech detection
 	vad *VADState
 
 	// Counter for consecutive no-activity frames in milliseconds (Q1 format)
@@ -45,47 +45,21 @@ type dtxState struct {
 	// Whether currently in DTX mode (suppressing frames)
 	inDTXMode bool
 
-	// Frames since last comfort noise packet
-	msSinceComfortNoise int
-
-	// Saved filter state for CNG (Comfort Noise Generation)
-	cngState *cngState
-
 	// Frame duration in milliseconds (for timing calculations)
 	frameDurationMs int
-}
 
-// cngState holds state for Comfort Noise Generation.
-// Matches silk_CNG_struct from libopus.
-type cngState struct {
-	// Smoothed gain for CNG
-	smthGainQ16 int32
-
-	// Random seed for excitation generation
-	randSeed int32
-
-	// Sample rate in kHz
-	fsKHz int
+	// Peak signal energy tracker (matching libopus st->peak_signal_energy).
+	// Tracks the running peak energy of active frames with slow decay (0.999).
+	peakSignalEnergy float64
 }
 
 // newDTXState creates initial DTX state with multi-band VAD.
 func newDTXState() *dtxState {
 	return &dtxState{
-		vad:                 NewVADState(),
-		noActivityMsQ1:      0,
-		inDTXMode:           false,
-		msSinceComfortNoise: 0,
-		cngState:            newCNGState(),
-		frameDurationMs:     20, // Default 20ms frames
-	}
-}
-
-// newCNGState creates initial CNG state.
-func newCNGState() *cngState {
-	return &cngState{
-		smthGainQ16: 0,
-		randSeed:    22222, // Match libopus
-		fsKHz:       16,
+		vad:             NewVADState(),
+		noActivityMsQ1:  0,
+		inDTXMode:       false,
+		frameDurationMs: 20, // Default 20ms frames
 	}
 }
 
@@ -93,12 +67,54 @@ func newCNGState() *cngState {
 func (d *dtxState) reset() {
 	d.noActivityMsQ1 = 0
 	d.inDTXMode = false
-	d.msSinceComfortNoise = 0
+	d.peakSignalEnergy = 0
 	// Note: VAD state is NOT reset - noise estimates should persist
 }
 
+// isDigitalSilence checks if the PCM frame is true digital silence.
+// Matches libopus is_digital_silence() from opus_encoder.c:1060-1077.
+//
+// For float-point: silence = (sample_max <= 1.0 / (1 << lsb_depth))
+// At 24-bit depth: threshold ≈ 5.96e-8
+func isDigitalSilence(pcm []float64, lsbDepth int) bool {
+	if lsbDepth < 8 {
+		lsbDepth = 8
+	}
+	if lsbDepth > 24 {
+		lsbDepth = 24
+	}
+	threshold := 1.0 / float64(int(1)<<lsbDepth)
+
+	for _, s := range pcm {
+		if s > threshold || s < -threshold {
+			return false
+		}
+	}
+	return true
+}
+
+// computeFrameEnergy computes mean energy of the PCM frame.
+// Matches libopus compute_frame_energy() from opus_encoder.c:1107-1111.
+func computeFrameEnergy(pcm []float64) float64 {
+	if len(pcm) == 0 {
+		return 0
+	}
+	var energy float64
+	for _, s := range pcm {
+		energy += s * s
+	}
+	return energy / float64(len(pcm))
+}
+
 // shouldUseDTX determines if frame should be suppressed (DTX mode).
-// Uses multi-band VAD for accurate speech detection matching libopus.
+//
+// Activity detection matches libopus opus_encoder.c:1911-1930:
+//  1. is_digital_silence → inactive
+//  2. analysis_info.valid → activity_probability >= DTX_ACTIVITY_THRESHOLD,
+//     with pseudo-SNR energy check as safety net
+//  3. CELT-only fallback → peak energy vs current energy pseudo-SNR check
+//
+// The SILK multi-band VAD is NOT used here (it's only for SILK-internal DTX).
 //
 // Returns: (suppressFrame bool, sendComfortNoise bool)
 func (e *Encoder) shouldUseDTX(pcm []float64) (bool, bool) {
@@ -106,86 +122,78 @@ func (e *Encoder) shouldUseDTX(pcm []float64) (bool, bool) {
 		return false, false
 	}
 
-	// Convert to float32 for VAD processing using scratch buffer (zero-alloc)
-	pcm32 := e.scratchPCM32[:len(pcm)]
-	for i, v := range pcm {
-		pcm32[i] = float32(v)
-	}
-
-	// Determine sample rate and frame parameters
-	// For multi-channel, use first channel or mix to mono
-	frameLength := len(pcm32)
+	frameLength := len(pcm)
 	if e.channels == 2 {
 		frameLength /= 2
 	}
-
-	// Mix to mono for VAD analysis (if stereo) using scratch buffer (zero-alloc)
-	mono := pcm32
-	if e.channels == 2 {
-		mono = e.scratchLeft[:frameLength]
-		for i := 0; i < frameLength; i++ {
-			mono[i] = (pcm32[i*2] + pcm32[i*2+1]) * 0.5
-		}
-	}
-
-	// Determine sample rate in kHz for VAD from encoder configuration.
-	// Frame length is duration-dependent, so deriving Fs from frame length causes
-	// incorrect timing for 40/60ms packets.
 	fsKHz := e.sampleRate / 1000
 	switch fsKHz {
 	case 8, 12, 16, 24, 48:
-		// Supported Opus rates.
 	default:
-		// Fall back to 48kHz on unexpected values.
 		fsKHz = 48
 	}
-
-	// Get frame duration in ms
 	frameDurationMs := (frameLength * 1000) / (fsKHz * 1000)
 	if frameDurationMs <= 0 {
-		frameDurationMs = 20 // Default
+		frameDurationMs = 20
 	}
 	e.dtx.frameDurationMs = frameDurationMs
 
-	// Run multi-band VAD
-	_, isActive := e.dtx.vad.GetSpeechActivity(mono, frameLength, fsKHz)
+	// Step 1: Digital silence check (libopus is_digital_silence)
+	isSilence := isDigitalSilence(pcm, e.lsbDepth)
 
-	// DTX decision logic matching libopus decide_dtx_mode
-	frameSizeMsQ1 := frameDurationMs * 2 // Q1 format (multiply by 2)
+	// Step 2: Determine activity using libopus logic (opus_encoder.c:1911-1930)
+	var isActive bool
+	if isSilence {
+		// True digital silence → inactive
+		isActive = false
+	} else if e.lastAnalysisValid {
+		// Analysis-based activity (libopus line 1916-1924)
+		isActive = e.lastAnalysisInfo.Activity >= dtxActivityThreshold
+		if !isActive {
+			// Safety net: mark as active if frame energy is close to peak
+			// (the "noise" is actually loud signal, not background noise)
+			frameEnergy := computeFrameEnergy(pcm)
+			isActive = e.dtx.peakSignalEnergy < pseudoSNRThreshold*frameEnergy
+		}
+	} else {
+		// CELT-only / no-analysis fallback (libopus line 1926-1930)
+		frameEnergy := computeFrameEnergy(pcm)
+		// "Boosting peak energy a bit because we didn't just average the active frames"
+		isActive = e.dtx.peakSignalEnergy < pseudoSNRThreshold*0.5*frameEnergy
+	}
+
+	// Track peak signal energy (libopus opus_encoder.c:1312-1319)
+	// Update peak when frame is active (or analysis says active)
+	shouldTrackPeak := true
+	if e.lastAnalysisValid && e.lastAnalysisInfo.Activity <= dtxActivityThreshold {
+		shouldTrackPeak = false
+	}
+	if shouldTrackPeak && !isSilence {
+		frameEnergy := computeFrameEnergy(pcm)
+		// Slow decay: peak = max(0.999 * peak, current_energy)
+		e.dtx.peakSignalEnergy = math.Max(0.999*e.dtx.peakSignalEnergy, frameEnergy)
+	}
+
+	// DTX decision logic matching libopus decide_dtx_mode (opus_encoder.c:1115)
+	frameSizeMsQ1 := frameDurationMs * 2
 
 	if !isActive {
-		// No activity - increment counter
 		e.dtx.noActivityMsQ1 += frameSizeMsQ1
 
-		// Check if we've been silent long enough for DTX
-		thresholdMsQ1 := NBSpeechFramesBeforeDTX * 20 * 2 // 200ms in Q1
+		thresholdMsQ1 := NBSpeechFramesBeforeDTX * 20 * 2
 		maxDTXMsQ1 := (NBSpeechFramesBeforeDTX + MaxConsecutiveDTX) * 20 * 2
 
 		if e.dtx.noActivityMsQ1 > thresholdMsQ1 {
 			if e.dtx.noActivityMsQ1 <= maxDTXMsQ1 {
-				// Valid DTX frame
 				e.dtx.inDTXMode = true
-				e.dtx.msSinceComfortNoise += frameDurationMs
-
-				// Send comfort noise periodically
-				if e.dtx.msSinceComfortNoise >= DTXComfortNoiseIntervalMs {
-					e.dtx.msSinceComfortNoise = 0
-					return true, true // Suppress but send CNG
-				}
-
-				return true, false // Suppress entirely
-			} else {
-				// Reset counter to threshold (prevent overflow)
-				e.dtx.noActivityMsQ1 = thresholdMsQ1
+				return true, false
 			}
+			e.dtx.noActivityMsQ1 = thresholdMsQ1
+			e.dtx.inDTXMode = false
 		}
 	} else {
-		// Activity detected - exit DTX mode
 		e.dtx.noActivityMsQ1 = 0
-		if e.dtx.inDTXMode {
-			e.dtx.inDTXMode = false
-			e.dtx.msSinceComfortNoise = 0
-		}
+		e.dtx.inDTXMode = false
 	}
 
 	return false, false
@@ -208,86 +216,6 @@ func (e *Encoder) GetVADActivity() int {
 	return e.dtx.vad.SpeechActivityQ8
 }
 
-// encodeComfortNoise encodes a comfort noise frame.
-// Comfort noise provides natural-sounding silence during DTX.
-// This generates low-level shaped noise matching the ambient noise characteristics.
-func (e *Encoder) encodeComfortNoise(frameSize int) ([]byte, error) {
-	// Generate shaped comfort noise based on CNG state
-	noise := make([]float64, frameSize*e.channels)
-
-	// Use CNG state for noise generation
-	cng := e.dtx.cngState
-	if cng == nil {
-		cng = newCNGState()
-		e.dtx.cngState = cng
-	}
-
-	// Generate noise with appropriate spectral shape
-	for i := range noise {
-		// LCG random number generator (matching libopus)
-		cng.randSeed = cng.randSeed*1664525 + 1013904223
-
-		// Convert to float and scale to very low amplitude (-60 dBFS)
-		// CNG level is typically -40 to -60 dBFS
-		randFloat := float64(int32(cng.randSeed)) / float64(1<<31)
-		noise[i] = randFloat * 0.002 // ~-54 dBFS
-	}
-
-	// Encode the comfort noise frame using the current mode
-	// The low energy will result in minimal bits used
-	return e.encodeFrame(noise, frameSize)
-}
-
-// encodeFrame encodes a single frame using the current mode.
-// This is used by both normal encoding and comfort noise generation.
-func (e *Encoder) encodeFrame(pcm []float64, frameSize int) ([]byte, error) {
-	pcm = e.dcReject(pcm, frameSize)
-
-	// Determine actual mode to use
-	actualMode := e.selectMode(frameSize, e.signalType)
-
-	// Route to appropriate encoder
-	var frameData []byte
-	var packet []byte
-	var err error
-	switch actualMode {
-	case ModeSILK:
-		frameData, err = e.encodeSILKFrame(pcm, nil, frameSize)
-		if err == nil {
-			e.updateDelayBuffer(pcm, frameSize)
-		}
-	case ModeHybrid:
-		celtPCM := e.applyDelayCompensation(pcm, frameSize)
-		frameData, err = e.encodeHybridFrame(pcm, celtPCM, nil, frameSize)
-	case ModeCELT:
-		celtPCM := e.prepareCELTPCM(pcm, frameSize)
-		if frameSize > 960 {
-			packet, err = e.encodeCELTMultiFramePacket(celtPCM, frameSize)
-		} else {
-			frameData, err = e.encodeCELTFrame(celtPCM, frameSize)
-		}
-	default:
-		return nil, ErrEncodingFailed
-	}
-	if err != nil {
-		return nil, err
-	}
-	if packet != nil {
-		return packet, nil
-	}
-
-	stereo := e.channels == 2
-	packetBW := e.effectiveBandwidth()
-	if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
-		packetBW = types.BandwidthWideband
-	}
-	packetLen, err := BuildPacketInto(e.scratchPacket, frameData, modeToTypes(actualMode), packetBW, frameSize, stereo)
-	if err != nil {
-		return nil, err
-	}
-	return e.scratchPacket[:packetLen], nil
-}
-
 // classifySignal determines signal type using energy-based detection.
 // This is a legacy function kept for compatibility; new code uses VAD.
 // Returns: 0 = inactive (silence), 1 = unvoiced, 2 = voiced
@@ -296,22 +224,16 @@ func classifySignal(pcm []float32) (int, float32) {
 		return 0, 0
 	}
 
-	// Compute signal energy
 	var energy float64
 	for _, s := range pcm {
 		energy += float64(s) * float64(s)
 	}
 	energy /= float64(len(pcm))
 
-	// Energy threshold for silence detection
-	// -40 dBFS is typical silence threshold
 	const silenceThreshold = 0.0001 // ~-40 dBFS
-
 	if energy < silenceThreshold {
-		return 0, float32(energy) // Inactive
+		return 0, float32(energy)
 	}
 
-	// For now, classify as voiced (2) if above threshold
-	// Full voicing detection requires pitch analysis
 	return 2, float32(energy)
 }

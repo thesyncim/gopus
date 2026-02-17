@@ -143,10 +143,10 @@ type Encoder struct {
 	analysisReadPosBak  int
 	analysisSubframeBak int
 	analysisReadBakSet  bool
-	prevMode     Mode
-	prevAutoMode Mode
-	inputBuffer  []float64
-	delayBuffer  []float64
+	prevMode            Mode
+	prevAutoMode        Mode
+	inputBuffer         []float64
+	delayBuffer         []float64
 
 	// Auto-mode state (matching libopus OpusEncoder fields)
 	voiceRatio        int             // Persistent voice ratio (-1 = unset, 0-100)
@@ -602,14 +602,15 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	framePCM := e.inputBuffer[:frameEnd]
 	lookaheadSlice := e.inputBuffer[frameEnd : frameEnd+lookaheadSamples]
 
-	suppressFrame, sendComfortNoise := e.shouldUseDTX(framePCM)
+	suppressFrame, _ := e.shouldUseDTX(framePCM)
 	if suppressFrame {
 		remaining := copy(e.inputBuffer, e.inputBuffer[frameEnd:])
 		e.inputBuffer = e.inputBuffer[:remaining]
-		if sendComfortNoise {
-			return e.encodeComfortNoise(frameSize)
-		}
-		return nil, nil
+		// Match libopus: return a 1-byte TOC-only packet for DTX frames.
+		// The decoder triggers its own CNG when it sees a TOC with no frame data.
+		// Returning nil here would cause WebRTC to see missing packets and apply
+		// degrading PLC instead of smooth comfort noise.
+		return e.buildDTXPacket(frameSize)
 	}
 
 	var requestedMode Mode
@@ -690,6 +691,31 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		packet = constrainSize(packet, targetBytesForBitrate(e.bitrate, frameSize), CVBRTolerance)
 	}
 	return packet, nil
+}
+
+// buildDTXPacket generates a 1-byte TOC-only Opus packet for DTX frames.
+// This matches libopus opus_encoder.c behavior where DTX returns:
+//
+//	data[0] = gen_toc(mode, Fs/frame_size, bandwidth, channels);
+//	return 1;
+//
+// The decoder's CNG (Comfort Noise Generation) activates when it receives
+// a TOC-only packet, producing natural-sounding silence. This is preferred
+// over returning nil/0 bytes, which WebRTC interprets as packet loss.
+func (e *Encoder) buildDTXPacket(frameSize int) ([]byte, error) {
+	actualMode := e.selectMode(frameSize, e.signalType)
+	packetBW := e.effectiveBandwidth()
+	if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
+		packetBW = types.BandwidthWideband
+	}
+	stereo := e.channels == 2
+
+	// Build TOC-only packet (no frame data) into scratch buffer.
+	n, err := BuildPacketInto(e.scratchPacket, nil, modeToTypes(actualMode), packetBW, frameSize, stereo)
+	if err != nil {
+		return nil, err
+	}
+	return e.scratchPacket[:n], nil
 }
 
 // modeToTypes converts internal encoder Mode to types.Mode.

@@ -1113,9 +1113,11 @@ func TestDTXEnabled(t *testing.T) {
 	}
 }
 
-// TestDTXSuppressesSilence tests that DTX suppresses packets after silence threshold.
+// TestDTXSuppressesSilence tests that DTX emits 1-byte TOC packets after silence threshold.
 // The multi-band VAD requires noise adaptation before it can reliably detect silence.
 // This matches libopus behavior where the VAD counter starts at 15 for initial faster smoothing.
+// In libopus, DTX frames are 1-byte TOC-only packets (not nil/empty), so the decoder
+// can activate its internal CNG (Comfort Noise Generation).
 func TestDTXSuppressesSilence(t *testing.T) {
 	enc := encoder.NewEncoder(48000, 1)
 	enc.SetMode(encoder.ModeSILK)
@@ -1137,7 +1139,8 @@ func TestDTXSuppressesSilence(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Frame %d encode failed: %v", i, err)
 		}
-		if packet == nil {
+		// DTX frames are 1-byte TOC-only packets (matching libopus)
+		if len(packet) == 1 {
 			dtxActivated = true
 			dtxFrame = i
 			break
@@ -1145,7 +1148,7 @@ func TestDTXSuppressesSilence(t *testing.T) {
 	}
 
 	if !dtxActivated {
-		t.Error("DTX should eventually suppress silence frames")
+		t.Error("DTX should eventually emit 1-byte TOC packets for silence frames")
 	} else {
 		t.Logf("DTX activated after %d frames (within expected range)", dtxFrame)
 		// Should activate after noise adaptation (~15 frames) + DTX threshold (10 frames)
@@ -1156,30 +1159,31 @@ func TestDTXSuppressesSilence(t *testing.T) {
 	}
 }
 
-// TestDTXComfortNoise tests that comfort noise frames are sent periodically during DTX.
-func TestDTXComfortNoise(t *testing.T) {
+// TestDTXEmitsTOCOnly tests that DTX frames are 1-byte TOC-only packets.
+// In libopus, comfort noise is handled by the decoder (silk/CNG.c) when it
+// receives a TOC-only packet. The encoder does not generate explicit CNG frames.
+func TestDTXEmitsTOCOnly(t *testing.T) {
 	enc := encoder.NewEncoder(48000, 1)
 	enc.SetMode(encoder.ModeSILK)
 	enc.SetBandwidth(types.BandwidthWideband)
 	enc.SetDTX(true)
 
 	silence := make([]float64, 960)
-	framesPerInterval := encoder.DTXComfortNoiseIntervalMs / 20
 
-	// Encode enough frames to enter DTX and reach comfort noise interval
-	var comfortNoiseCount int
-	totalFrames := encoder.DTXFrameThreshold + framesPerInterval + 5
+	// Encode enough frames to enter DTX
+	totalFrames := encoder.DTXFrameThreshold + 25
+	var tocOnlyCount int
 	for i := 0; i < totalFrames; i++ {
 		packet, _ := enc.Encode(silence, 960)
-		if i >= encoder.DTXFrameThreshold && packet != nil {
-			comfortNoiseCount++
+		if len(packet) == 1 {
+			tocOnlyCount++
 		}
 	}
 
-	if comfortNoiseCount < 1 {
-		t.Errorf("Should send at least one comfort noise packet, got %d", comfortNoiseCount)
+	if tocOnlyCount < 1 {
+		t.Errorf("Should emit at least one 1-byte TOC-only DTX packet, got %d", tocOnlyCount)
 	}
-	t.Logf("Sent %d comfort noise packets over %d frames", comfortNoiseCount, totalFrames)
+	t.Logf("Emitted %d TOC-only DTX packets over %d frames", tocOnlyCount, totalFrames)
 }
 
 // TestDTXExitOnSpeech tests that speech exits DTX mode immediately.
@@ -1197,19 +1201,19 @@ func TestDTXExitOnSpeech(t *testing.T) {
 		enc.Encode(silence, 960)
 	}
 
-	// Verify in DTX mode
+	// Verify in DTX mode (1-byte TOC-only packet)
 	packet, _ := enc.Encode(silence, 960)
-	if packet != nil {
-		t.Log("Warning: Expected nil packet in DTX mode")
+	if len(packet) != 1 {
+		t.Logf("Warning: Expected 1-byte TOC DTX packet, got %d bytes", len(packet))
 	}
 
-	// Send speech - should exit DTX and produce packet
+	// Send speech - should exit DTX and produce a full packet
 	packet, err := enc.Encode(speech, 960)
 	if err != nil {
 		t.Fatalf("Encode speech failed: %v", err)
 	}
-	if packet == nil {
-		t.Error("Speech should exit DTX mode and produce a packet")
+	if len(packet) <= 1 {
+		t.Error("Speech should exit DTX mode and produce a full packet (>1 byte)")
 	}
 }
 
@@ -1284,22 +1288,22 @@ func TestDTXResetOnEncoderReset(t *testing.T) {
 		enc.Encode(silence, 960)
 	}
 
-	// Verify in DTX mode
+	// Verify in DTX mode (1-byte TOC packet)
 	packet, _ := enc.Encode(silence, 960)
-	if packet != nil {
-		t.Log("Warning: Expected nil packet in DTX mode")
+	if len(packet) != 1 {
+		t.Logf("Warning: Expected 1-byte TOC DTX packet, got %d bytes", len(packet))
 	}
 
 	// Reset encoder
 	enc.Reset()
 
-	// After reset, should no longer be in DTX mode - frames should encode
+	// After reset, should no longer be in DTX mode - frames should encode fully
 	packet, err := enc.Encode(silence, 960)
 	if err != nil {
 		t.Fatalf("After reset encode failed: %v", err)
 	}
-	if packet == nil {
-		t.Error("After reset, silent frame should encode (not suppressed)")
+	if len(packet) <= 1 {
+		t.Error("After reset, silent frame should encode fully (not DTX)")
 	}
 }
 
@@ -1336,28 +1340,21 @@ func TestClassifySignal(t *testing.T) {
 	}
 }
 
-// TestDTXConstants verifies DTX constants are set correctly.
-// Updated to match libopus: NB_SPEECH_FRAMES_BEFORE_DTX = 10 frames (200ms at 20ms frames)
+// TestDTXConstants verifies DTX constants match libopus.
 func TestDTXConstants(t *testing.T) {
-	if encoder.DTXComfortNoiseIntervalMs != 400 {
-		t.Errorf("DTXComfortNoiseIntervalMs = %d, want 400", encoder.DTXComfortNoiseIntervalMs)
+	// DTXFrameThresholdMs = 200ms matching NB_SPEECH_FRAMES_BEFORE_DTX * 20
+	if encoder.DTXFrameThresholdMs != 200 {
+		t.Errorf("DTXFrameThresholdMs = %d, want 200", encoder.DTXFrameThresholdMs)
 	}
 
-	// DTXFrameThreshold is now 10 frames (200ms) matching libopus NB_SPEECH_FRAMES_BEFORE_DTX
+	// DTXFrameThreshold is 10 frames (200ms / 20ms) matching libopus NB_SPEECH_FRAMES_BEFORE_DTX
 	if encoder.DTXFrameThreshold != 10 {
 		t.Errorf("DTXFrameThreshold = %d, want 10 (matches libopus NB_SPEECH_FRAMES_BEFORE_DTX)", encoder.DTXFrameThreshold)
 	}
 
-	if encoder.DTXFadeInMs != 10 {
-		t.Errorf("DTXFadeInMs = %d, want 10", encoder.DTXFadeInMs)
-	}
-
-	if encoder.DTXFadeOutMs != 10 {
-		t.Errorf("DTXFadeOutMs = %d, want 10", encoder.DTXFadeOutMs)
-	}
-
-	if encoder.DTXMinBitrate != 6000 {
-		t.Errorf("DTXMinBitrate = %d, want 6000", encoder.DTXMinBitrate)
+	// DTXMaxConsecutiveMs = 400ms matching MAX_CONSECUTIVE_DTX * 20
+	if encoder.DTXMaxConsecutiveMs != 400 {
+		t.Errorf("DTXMaxConsecutiveMs = %d, want 400", encoder.DTXMaxConsecutiveMs)
 	}
 }
 

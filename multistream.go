@@ -364,9 +364,8 @@ func (e *MultistreamEncoder) FECEnabled() bool {
 
 // SetDTX enables or disables Discontinuous Transmission for all streams.
 //
-// When enabled, the encoders reduce bitrate during silence by:
-//   - Suppressing packets entirely during silence
-//   - Sending periodic comfort noise frames
+// When enabled, the encoders reduce bitrate during silence by emitting
+// 1-byte TOC-only packets. The decoder handles CNG (Comfort Noise Generation).
 func (e *MultistreamEncoder) SetDTX(enabled bool) {
 	e.enc.SetDTX(enabled)
 }
