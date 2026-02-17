@@ -168,7 +168,8 @@ func (e *Encoder) applyApplication(app Application) {
 // data: Output buffer for the encoded packet. Recommended size is 4000 bytes.
 //
 // Returns the number of bytes written to data, or an error.
-// Returns 0 bytes written if DTX suppresses the frame (silence detected).
+// When DTX is active during silence, returns a 1-byte TOC-only packet.
+// Returns 0 bytes only when buffering (internal lookahead not yet filled).
 //
 // Buffer sizing: 4000 bytes is sufficient for any Opus packet.
 func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
@@ -190,7 +191,7 @@ func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 	}
 	e.encodedOnce = true
 
-	// DTX: nil packet means silence suppressed
+	// nil packet means internal buffering (lookahead not yet filled)
 	if packet == nil {
 		return 0, nil
 	}
