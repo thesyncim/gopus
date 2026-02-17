@@ -816,7 +816,10 @@ func TestDTXPackets(t *testing.T) {
 			continue
 		}
 
-		if packet == nil {
+		if len(packet) == 1 {
+			dtxFrameCount++
+			t.Logf("Frame %d: DTX active (1-byte TOC)", i)
+		} else if packet == nil {
 			dtxFrameCount++
 			t.Logf("Frame %d: DTX suppressed (nil)", i)
 		} else {

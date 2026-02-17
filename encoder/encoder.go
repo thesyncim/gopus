@@ -143,10 +143,10 @@ type Encoder struct {
 	analysisReadPosBak  int
 	analysisSubframeBak int
 	analysisReadBakSet  bool
-	prevMode     Mode
-	prevAutoMode Mode
-	inputBuffer  []float64
-	delayBuffer  []float64
+	prevMode            Mode
+	prevAutoMode        Mode
+	inputBuffer         []float64
+	delayBuffer         []float64
 
 	// Auto-mode state (matching libopus OpusEncoder fields)
 	voiceRatio        int             // Persistent voice ratio (-1 = unset, 0-100)
@@ -602,14 +602,15 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	framePCM := e.inputBuffer[:frameEnd]
 	lookaheadSlice := e.inputBuffer[frameEnd : frameEnd+lookaheadSamples]
 
-	suppressFrame, sendComfortNoise := e.shouldUseDTX(framePCM)
+	suppressFrame, _ := e.shouldUseDTX(framePCM)
 	if suppressFrame {
 		remaining := copy(e.inputBuffer, e.inputBuffer[frameEnd:])
 		e.inputBuffer = e.inputBuffer[:remaining]
-		if sendComfortNoise {
-			return e.encodeComfortNoise(frameSize)
-		}
-		return nil, nil
+		// Match libopus: return a 1-byte TOC-only packet for DTX frames.
+		// The decoder triggers its own CNG when it sees a TOC with no frame data.
+		// Returning nil here would cause WebRTC to see missing packets and apply
+		// degrading PLC instead of smooth comfort noise.
+		return e.buildDTXPacket(frameSize)
 	}
 
 	var requestedMode Mode
@@ -627,6 +628,21 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		if e.lfe {
 			requestedMode = ModeCELT
 		}
+		// Run decide_fec for non-auto modes too. In libopus, decide_fec()
+		// runs unconditionally at line 1675 (not just in auto mode).
+		// This controls whether LBRR is actually coded based on bitrate,
+		// bandwidth, packet loss, and hysteresis.
+		frameRate := e.sampleRate / frameSize
+		if frameRate <= 0 {
+			frameRate = 50
+		}
+		useVBR := e.bitrateMode != ModeCBR
+		equivRate := e.computeEquivRate(e.bitrate, e.channels, frameRate,
+			useVBR, requestedMode, e.complexity, e.packetLoss)
+		bw := e.bandwidth
+		e.lbrrCoded = decideFEC(e.fecEnabled, e.packetLoss, e.lbrrCoded,
+			requestedMode, &bw, equivRate)
+		e.bandwidth = bw
 	}
 	actualMode, prevModeNext := e.applyCELTTransitionDelay(frameSize, requestedMode)
 
@@ -690,6 +706,31 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		packet = constrainSize(packet, targetBytesForBitrate(e.bitrate, frameSize), CVBRTolerance)
 	}
 	return packet, nil
+}
+
+// buildDTXPacket generates a 1-byte TOC-only Opus packet for DTX frames.
+// This matches libopus opus_encoder.c behavior where DTX returns:
+//
+//	data[0] = gen_toc(mode, Fs/frame_size, bandwidth, channels);
+//	return 1;
+//
+// The decoder's CNG (Comfort Noise Generation) activates when it receives
+// a TOC-only packet, producing natural-sounding silence. This is preferred
+// over returning nil/0 bytes, which WebRTC interprets as packet loss.
+func (e *Encoder) buildDTXPacket(frameSize int) ([]byte, error) {
+	actualMode := e.selectMode(frameSize, e.signalType)
+	packetBW := e.effectiveBandwidth()
+	if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
+		packetBW = types.BandwidthWideband
+	}
+	stereo := e.channels == 2
+
+	// Build TOC-only packet (no frame data) into scratch buffer.
+	n, err := BuildPacketInto(e.scratchPacket, nil, modeToTypes(actualMode), packetBW, frameSize, stereo)
+	if err != nil {
+		return nil, err
+	}
+	return e.scratchPacket[:n], nil
 }
 
 // modeToTypes converts internal encoder Mode to types.Mode.
@@ -1339,7 +1380,7 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 		if totalSilkRate > 0 {
 			e.silkEncoder.SetBitrate(totalSilkRate)
 		}
-		e.silkEncoder.SetFEC(e.fecEnabled)
+		e.silkEncoder.SetFEC(e.lbrrCoded)
 		e.silkEncoder.SetPacketLoss(e.packetLoss)
 		e.ensureSILKSideEncoder()
 		if totalSilkRate > 0 {
@@ -1347,7 +1388,7 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 		} else if perChannelRate > 0 {
 			e.silkSideEncoder.SetBitrate(perChannelRate)
 		}
-		e.silkSideEncoder.SetFEC(e.fecEnabled)
+		e.silkSideEncoder.SetFEC(e.lbrrCoded)
 		e.silkSideEncoder.SetPacketLoss(e.packetLoss)
 
 		// Set VBR mode on both encoders (matching mono path).
@@ -1486,11 +1527,11 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 		}
 		e.silkEncoder.SetMaxBits(silkPayloadMaxBits(maxBytes))
 	}
-	e.silkEncoder.SetFEC(e.fecEnabled)
+	e.silkEncoder.SetFEC(e.lbrrCoded)
 	e.silkEncoder.SetPacketLoss(e.packetLoss)
 	fsKHz := targetRate / 1000
 	vadFlags, vadStates, nFrames := e.computeSilkVADFlagsAndStates(pcm32, fsKHz)
-	if e.fecEnabled || nFrames > 1 {
+	if e.lbrrCoded || nFrames > 1 {
 		return e.silkEncoder.EncodePacketWithFECWithVADStates(pcm32, lookaheadOut, vadFlags, vadStates), nil
 	}
 	vadFlag := false

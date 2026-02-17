@@ -274,7 +274,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 			}
 		}
 	}
-	e.silkEncoder.SetFEC(e.fecEnabled)
+	e.silkEncoder.SetFEC(e.lbrrCoded)
 	e.silkEncoder.SetPacketLoss(e.packetLoss)
 
 	// Per libopus: in hybrid CBR mode, SILK is switched to VBR with a max bits cap.
@@ -303,7 +303,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 	e.silkEncoder.SetMaxBits(silkMaxBits)
 	if e.channels == 2 {
 		e.silkSideEncoder.ResetPacketState()
-		e.silkSideEncoder.SetFEC(e.fecEnabled)
+		e.silkSideEncoder.SetFEC(e.lbrrCoded)
 		e.silkSideEncoder.SetPacketLoss(e.packetLoss)
 		e.silkSideEncoder.SetVBR(true)
 		e.silkSideEncoder.SetMaxBits(silkMaxBits)
@@ -384,8 +384,8 @@ func (e *Encoder) computeHybridBitAllocation(frame20ms bool) (silkBitrate, celtB
 	if frame20ms {
 		entry = 2 // 20ms no FEC
 	}
-	if e.fecEnabled {
-		entry += 2 // Add 2 for FEC entries
+	if e.lbrrCoded {
+		entry += 2 // Add 2 for FEC entries (uses LBRR_coded, not raw fecEnabled)
 	}
 
 	// Find the appropriate row in the rate table.
@@ -468,7 +468,7 @@ func (e *Encoder) computeSilkRateForMax(maxBitrate int, frame20ms bool) int {
 	if frame20ms {
 		entry = 2
 	}
-	if e.fecEnabled {
+	if e.lbrrCoded {
 		entry += 2
 	}
 
@@ -836,7 +836,7 @@ func (e *Encoder) encodeSILKHybridMono(pcm []float32, lookahead []float32, silkS
 	vadFlag := e.computeSilkVAD(inputSamples, len(inputSamples), 16)
 	e.silkEncoder.SetVADState(e.lastVADActivityQ8, e.lastVADInputTiltQ15, e.lastVADInputQualityBandsQ15)
 	lbrrFlag := false
-	if e.fecEnabled {
+	if e.lbrrCoded {
 		lbrrFlag = e.silkEncoder.HasLBRRData()
 	}
 
@@ -953,7 +953,7 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, lookahead []float32, sil
 	// LBRR flags
 	lbrrMid := false
 	lbrrSide := false
-	if e.fecEnabled {
+	if e.lbrrCoded {
 		lbrrMid = e.silkEncoder.HasLBRRData()
 		if e.silkSideEncoder != nil && !midOnly {
 			lbrrSide = e.silkSideEncoder.HasLBRRData()
@@ -968,7 +968,7 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, lookahead []float32, sil
 	e.silkEncoder.EncodeLBRRData(re, 2, true)
 
 	// 2. Encode LBRR Side (no header placeholder; already reserved).
-	if e.fecEnabled && e.silkSideEncoder != nil && !midOnly {
+	if e.lbrrCoded && e.silkSideEncoder != nil && !midOnly {
 		e.silkSideEncoder.EncodeLBRRData(re, 1, false)
 	}
 

@@ -443,24 +443,24 @@ func TestEncoder_DTX_Silence(t *testing.T) {
 	frameSize := 960
 	silence := make([]float32, frameSize)
 
-	// DTX requires several frames of silence before suppressing
-	// The DTXFrameThreshold is 20 frames (400ms)
-	for i := 0; i < 25; i++ {
+	// DTX requires several frames of silence before activating.
+	// After threshold, DTX returns 1-byte TOC-only packets (matching libopus).
+	for i := 0; i < 50; i++ {
 		data := make([]byte, 4000)
 		n, err := enc.Encode(silence, data)
 		if err != nil {
 			t.Fatalf("Encode error on frame %d: %v", i, err)
 		}
 
-		// After threshold, should produce 0 bytes (suppressed)
-		if i > 20 && n == 0 {
-			t.Logf("Frame %d suppressed by DTX (0 bytes)", i)
-			return // Success - DTX suppressed a frame
+		// DTX frames are 1-byte TOC-only packets (not 0 bytes)
+		if n == 1 {
+			t.Logf("Frame %d: DTX active (1-byte TOC packet)", i)
+			return // Success - DTX emitted TOC-only packet
 		}
 	}
 
-	// DTX may or may not suppress depending on implementation details
-	t.Log("DTX did not suppress frames (may need more silence frames)")
+	// DTX may or may not suppress depending on VAD adaptation
+	t.Log("DTX did not activate (may need more silence frames for VAD adaptation)")
 }
 
 func TestEncoder_FEC(t *testing.T) {

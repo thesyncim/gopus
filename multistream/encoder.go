@@ -1260,7 +1260,7 @@ func assembleMultistreamPacket(streamPackets [][]byte) ([]byte, error) {
 //
 // Returns:
 //   - The encoded multistream packet
-//   - nil, nil if DTX suppresses all frames (silence detected in all streams)
+//   - nil, nil if DTX is active for all streams (all returned 1-byte TOC-only packets)
 //   - error if encoding fails
 //
 // The encoding process:
@@ -1290,7 +1290,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 
 	// Encode each stream
 	streamPackets := make([][]byte, e.streams)
-	allNil := true
+	allDTX := true
 
 	for i := 0; i < e.streams; i++ {
 		packet, err := e.encoders[i].Encode(streamBuffers[i], frameSize)
@@ -1298,20 +1298,19 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 			return nil, fmt.Errorf("stream %d encode failed: %w", i, err)
 		}
 
-		// Handle DTX case (nil packet means silence suppressed)
 		if packet == nil {
-			// For DTX, we need to signal silence with a minimal packet
-			// Use a zero-length indicator or skip based on RFC 6716
-			// For now, treat as empty packet - decoder handles this
 			streamPackets[i] = []byte{}
 		} else {
 			streamPackets[i] = packet
-			allNil = false
+			// DTX packets are 1-byte TOC-only; full packets are >1 byte
+			if len(packet) > 1 {
+				allDTX = false
+			}
 		}
 	}
 
-	// If all streams returned nil (DTX), return nil to signal silence
-	if allNil {
+	// If all streams are DTX (1-byte TOC or nil), return nil to signal silence
+	if allDTX {
 		return nil, nil
 	}
 
