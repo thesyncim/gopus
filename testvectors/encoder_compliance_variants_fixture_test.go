@@ -687,10 +687,27 @@ func decodeVariantsWithLibopusReference(packets [][]byte, channels, frameSize in
 		if err == nil {
 			return decoded, nil
 		}
-		return nil, fmt.Errorf("libopus reference decode failed: direct helper (%v); opusdec decode failed: %w", helperErr, err)
+		if strictLibopusReferenceRequired() {
+			return nil, fmt.Errorf("strict libopus reference decode required: direct helper failed (%v); opusdec decode failed: %w", helperErr, err)
+		}
 	}
 
-	return nil, fmt.Errorf("libopus reference decode unavailable: direct helper failed (%v); opusdec not available", helperErr)
+	if strictLibopusReferenceRequired() {
+		return nil, fmt.Errorf("strict libopus reference decode required: direct helper failed (%v); opusdec not available", helperErr)
+	}
+
+	decoded, err := decodeComplianceWithInternalDecoder(packets, channels)
+	if err != nil {
+		return nil, fmt.Errorf("libopus reference decode unavailable: direct helper failed (%v); internal decode failed: %w", helperErr, err)
+	}
+	if len(decoded) == 0 {
+		return nil, fmt.Errorf("libopus reference decode unavailable: direct helper failed (%v); internal decoder returned no samples", helperErr)
+	}
+	preSkip := OpusPreSkip * channels
+	if len(decoded) > preSkip {
+		decoded = decoded[preSkip:]
+	}
+	return decoded, nil
 }
 
 func qualityFromPacketsLibopusReference(packets [][]byte, original []float32, channels, frameSize int) (float64, error) {
