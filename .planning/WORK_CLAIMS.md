@@ -93,3 +93,4 @@ Quick commands:
 - claim: id=codex-20260218-194956; agent=codex; status=released; paths=AGENTS.md,README.md,.planning/; updated=2026-02-18T20:10:44Z; expires=2026-02-18T20:10:44Z; note=drop Q>=0 objective and set parity-first target
 - claim: id=codex-20260218-201052; agent=codex; status=released; paths=testvectors/,.planning/; updated=2026-02-18T20:34:38Z; expires=2026-02-18T20:34:38Z; note=use libopus reference decode in variant parity quality path
 - claim: id=codex-20260218-204458; agent=codex; status=released; paths=encoder/,testvectors/,.planning/; updated=2026-02-18T20:57:31Z; expires=2026-02-18T20:57:31Z; note=port opus_packet_pad code3 no-pad repacketization parity
+- claim: id=codex-20260218-210313; agent=codex; status=active; paths=encoder/,silk/,hybrid/,testvectors/,.planning/; updated=2026-02-18T21:03:13Z; expires=2026-02-19T01:03:13Z; note=close remaining SILK/HYBRID libopus quality gaps
