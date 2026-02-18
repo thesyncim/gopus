@@ -1,6 +1,6 @@
 # Investigation Decisions
 
-Last updated: 2026-02-16
+Last updated: 2026-02-18
 
 Purpose: prevent repeated validation by recording what was tested, what was ruled out, and when re-validation is allowed.
 
@@ -20,6 +20,13 @@ owner: <initials or handle>
 ```
 
 ## Current Decisions
+
+date: 2026-02-18
+topic: Encoder compliance decode fallback parity policy
+decision: Keep encoder compliance reference decode strictly libopus-first (`decodeWithLibopusReferencePacketsSingle`, then `opusdec`), and do not use `ffmpeg` fallback in this path; for non-strict runs only, allow final fallback to internal decode. Keep strict-mode errors explicit with direct-helper failure context plus `opusdec` availability/decoder status.
+evidence: Updated `decodeCompliancePackets` in `testvectors/encoder_compliance_test.go` to remove `ffmpeg` fallback and tighten strict diagnostics, and extended `TestDecodeCompliancePackets_StrictModeRequiresLibopusReferenceDecode` in `testvectors/encoder_compliance_strict_mode_test.go` to assert helper-context + `opusdec` availability messaging. Validation: `go test ./testvectors -run 'TestDecodeCompliancePackets_StrictModeRequiresLibopusReferenceDecode|TestEncoderComplianceSummary' -count=1 -v` passed (`19 passed, 0 failed` summary).
+do_not_repeat_until: compliance decode source-of-truth policy changes (helper/`opusdec` workflow), or fixture evidence shows parity/availability regressions that require reintroducing an alternate external decoder path.
+owner: codex
 
 date: 2026-02-16
 topic: Surround (stereo/5.1/7.1) direct libopus waveform parity guards
