@@ -12,6 +12,7 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"testing"
 
@@ -499,6 +500,8 @@ func runLibopusComplianceReferenceTest(t *testing.T, mode encoder.Mode, bandwidt
 }
 
 func decodeCompliancePackets(packets [][]byte, channels, frameSize int) ([]float32, error) {
+	strictLibopusRef := strictLibopusReferenceRequired()
+
 	// Prefer direct libopus API decode helper to avoid CLI provenance/tooling drift.
 	if decoded, err := decodeWithLibopusReferencePacketsSingle(channels, frameSize, packets); err == nil {
 		preSkip := OpusPreSkip * channels
@@ -507,9 +510,11 @@ func decodeCompliancePackets(packets [][]byte, channels, frameSize int) ([]float
 		}
 		return decoded, nil
 	}
-
 	useOpusdec := checkOpusdecAvailableEncoder()
 	useFFmpeg := checkFFmpegAvailable()
+	if strictLibopusRef && !useOpusdec {
+		return nil, fmt.Errorf("strict libopus reference decode required: opusdec not available")
+	}
 	if useOpusdec || useFFmpeg {
 		var oggBuf bytes.Buffer
 		if err := writeOggOpusEncoder(&oggBuf, packets, channels, 48000, frameSize); err != nil {
@@ -522,6 +527,9 @@ func decodeCompliancePackets(packets [][]byte, channels, frameSize int) ([]float
 			decoded, err := decodeWithOpusdec(oggBuf.Bytes())
 			if err == nil {
 				return decoded, nil
+			}
+			if strictLibopusRef {
+				return nil, fmt.Errorf("strict libopus reference decode required: %w", err)
 			}
 			if err.Error() != "opusdec blocked by macOS provenance" {
 				return nil, err
@@ -539,6 +547,9 @@ func decodeCompliancePackets(packets [][]byte, channels, frameSize int) ([]float
 	decoded, err := decodeComplianceWithInternalDecoder(packets, channels)
 	if err != nil {
 		return nil, err
+	}
+	if strictLibopusRef {
+		return nil, fmt.Errorf("strict libopus reference decode required: internal decoder fallback disallowed")
 	}
 	if len(decoded) == 0 {
 		return nil, fmt.Errorf("internal decoder returned no samples")
@@ -746,6 +757,10 @@ func float32ToFloat64(in []float32) []float64 {
 }
 
 func checkOpusdecAvailableEncoder() bool {
+	if strings.TrimSpace(os.Getenv("GOPUS_DISABLE_OPUSDEC")) == "1" {
+		return false
+	}
+
 	// Check PATH first
 	if _, err := exec.LookPath("opusdec"); err == nil {
 		return true
@@ -765,6 +780,11 @@ func checkOpusdecAvailableEncoder() bool {
 	}
 
 	return false
+}
+
+func strictLibopusReferenceRequired() bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv("GOPUS_STRICT_LIBOPUS_REF")))
+	return v == "1" || v == "true" || v == "yes"
 }
 
 func getOpusdecPathEncoder() string {
