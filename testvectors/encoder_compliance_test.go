@@ -503,7 +503,8 @@ func decodeCompliancePackets(packets [][]byte, channels, frameSize int) ([]float
 	strictLibopusRef := strictLibopusReferenceRequired()
 
 	// Prefer direct libopus API decode helper to avoid CLI provenance/tooling drift.
-	if decoded, err := decodeWithLibopusReferencePacketsSingle(channels, frameSize, packets); err == nil {
+	decoded, helperErr := decodeWithLibopusReferencePacketsSingle(channels, frameSize, packets)
+	if helperErr == nil {
 		preSkip := OpusPreSkip * channels
 		if len(decoded) > preSkip {
 			decoded = decoded[preSkip:]
@@ -511,35 +512,23 @@ func decodeCompliancePackets(packets [][]byte, channels, frameSize int) ([]float
 		return decoded, nil
 	}
 	useOpusdec := checkOpusdecAvailableEncoder()
-	useFFmpeg := checkFFmpegAvailable()
 	if strictLibopusRef && !useOpusdec {
-		return nil, fmt.Errorf("strict libopus reference decode required: opusdec not available")
+		return nil, fmt.Errorf("strict libopus reference decode required: direct helper failed (%v); opusdec not available", helperErr)
 	}
-	if useOpusdec || useFFmpeg {
+	if useOpusdec {
 		var oggBuf bytes.Buffer
 		if err := writeOggOpusEncoder(&oggBuf, packets, channels, 48000, frameSize); err != nil {
 			return nil, fmt.Errorf("write ogg opus: %w", err)
 		}
 
-		// Prefer opusdec for strict libopus workflow. If blocked by provenance or unavailable,
-		// ffmpeg is a no-cgo external decoder fallback.
-		if useOpusdec {
-			decoded, err := decodeWithOpusdec(oggBuf.Bytes())
-			if err == nil {
-				return decoded, nil
-			}
-			if strictLibopusRef {
-				return nil, fmt.Errorf("strict libopus reference decode required: %w", err)
-			}
-			if err.Error() != "opusdec blocked by macOS provenance" {
-				return nil, err
-			}
+		decoded, err := decodeWithOpusdec(oggBuf.Bytes())
+		if err == nil {
+			return decoded, nil
 		}
-		if useFFmpeg {
-			decoded, err := decodeWithFFmpeg(oggBuf.Bytes(), channels)
-			if err == nil {
-				return decoded, nil
-			}
+		if strictLibopusRef {
+			return nil, fmt.Errorf("strict libopus reference decode required: direct helper failed (%v); opusdec decode failed: %w", helperErr, err)
+		}
+		if err.Error() != "opusdec blocked by macOS provenance" {
 			return nil, err
 		}
 	}
@@ -549,7 +538,7 @@ func decodeCompliancePackets(packets [][]byte, channels, frameSize int) ([]float
 		return nil, err
 	}
 	if strictLibopusRef {
-		return nil, fmt.Errorf("strict libopus reference decode required: internal decoder fallback disallowed")
+		return nil, fmt.Errorf("strict libopus reference decode required: direct helper failed (%v); internal decoder fallback disallowed", helperErr)
 	}
 	if len(decoded) == 0 {
 		return nil, fmt.Errorf("internal decoder returned no samples")
