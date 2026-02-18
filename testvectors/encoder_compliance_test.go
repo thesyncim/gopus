@@ -499,6 +499,15 @@ func runLibopusComplianceReferenceTest(t *testing.T, mode encoder.Mode, bandwidt
 }
 
 func decodeCompliancePackets(packets [][]byte, channels, frameSize int) ([]float32, error) {
+	// Prefer direct libopus API decode helper to avoid CLI provenance/tooling drift.
+	if decoded, err := decodeWithLibopusReferencePacketsSingle(channels, frameSize, packets); err == nil {
+		preSkip := OpusPreSkip * channels
+		if len(decoded) > preSkip {
+			decoded = decoded[preSkip:]
+		}
+		return decoded, nil
+	}
+
 	useOpusdec := checkOpusdecAvailableEncoder()
 	useFFmpeg := checkFFmpegAvailable()
 	if useOpusdec || useFFmpeg {
