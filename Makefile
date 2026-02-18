@@ -61,7 +61,7 @@ test-fuzz-smoke:
 
 # Parity tier (default for focused quality work)
 test-parity:
-	GOPUS_TEST_TIER=parity $(GO) test ./testvectors -run 'TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard|TestDecoderParityLibopusMatrix|TestDecoderParityMatrixWithFFmpeg|TestEncoderVariantProfileParityAgainstLibopusFixture' -count=1
+	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO) test ./testvectors -run 'TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard|TestDecoderParityLibopusMatrix|TestDecoderParityMatrixWithFFmpeg|TestEncoderVariantProfileParityAgainstLibopusFixture' -count=1
 
 # Hot-path performance guardrail checks (median benchmark thresholds + alloc bounds).
 bench-guard:
@@ -88,7 +88,7 @@ agent-release:
 
 # Default production verification gate.
 verify-production: ensure-libopus
-	GOPUS_TEST_TIER=parity $(GO) test ./... -count=1
+	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO) test ./... -count=1
 	$(MAKE) bench-guard
 	$(MAKE) test-race
 
