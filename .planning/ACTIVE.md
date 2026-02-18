@@ -5,17 +5,17 @@ Status: active
 
 ## Objective
 
-Close the remaining strict encoder quality gap (`Q >= 0`) while preserving libopus 1.6.1 parity and zero-allocation hot paths.
+Tighten encoder quality/behavior comparison parity against libopus 1.6.1 while preserving zero-allocation hot paths.
 
 ## Current Hypothesis
 
-With feature-parity checklist items complete, remaining gaps should be closed by direct libopus 1.6.1 source ports (math/control flow/state cadence), not heuristic retuning, and then validated against libopus fixtures.
+With feature-parity checklist items complete, remaining gaps should be closed by direct libopus 1.6.1 source ports (math/control flow/state cadence), not heuristic retuning, and then validated against libopus fixtures and parity thresholds.
 
 ## Next 3 Actions (Targeted)
 
-1. Open/push PR for surround (`stereo`/`5.1`/`7.1`) direct-libopus waveform parity hardening.
+1. Continue the next uncovered libopus parity slice (currently ambisonics/multistream hardening).
 2. Run broad gates (`make verify-production`, `make bench-guard`) while CI runs, then merge once required checks are green.
-3. Continue to the next uncovered multistream parity slice after merge.
+3. Tighten parity guards/ratchets only with fixture-backed source-port evidence.
 
 ## Feature Parity Plan (libopus 1.6.1)
 
@@ -39,6 +39,7 @@ With feature-parity checklist items complete, remaining gaps should be closed by
 
 ## Evidence Log (Newest First)
 
+- 2026-02-18: Formalized objective policy: drop `Q >= 0` as an encoder goal and keep libopus comparison parity as the primary target. Updated `AGENTS.md`, `README.md`, and `.planning/ACTIVE.md` wording accordingly. Validation sanity run remains green on parity anchors: `go test ./testvectors -run 'TestSILKParamTraceAgainstLibopus|TestEncoderComplianceSummary' -count=1 -v` (`19 passed, 0 failed`, SILK trace mismatch counters all `0`).
 - 2026-02-18: Removed the non-libopus `ffmpeg` fallback from encoder compliance reference decoding so parity runs stay source-of-truth on direct libopus helper/`opusdec`, with internal decode only as non-strict fallback. Updated `decodeCompliancePackets` in `testvectors/encoder_compliance_test.go` to use decode order: direct helper -> `opusdec` -> internal decoder, and tightened strict-mode errors to include direct-helper failure context plus `opusdec` availability/decoder failure details. Extended `TestDecodeCompliancePackets_StrictModeRequiresLibopusReferenceDecode` in `testvectors/encoder_compliance_strict_mode_test.go` to assert strict diagnostics include helper context and `opusdec` availability context. Validation: `go test ./testvectors -run 'TestDecodeCompliancePackets_StrictModeRequiresLibopusReferenceDecode|TestEncoderComplianceSummary' -count=1 -v` passed (`19 passed, 0 failed` in compliance summary).
 - 2026-02-16: Tightened surround multistream libopus parity guards by extending direct helper waveform assertions to `TestLibopus_Stereo`, `TestLibopus_51Surround`, and `TestLibopus_71Surround`. Updated `runLibopusSurroundTest` in `multistream/libopus_test.go` to: (1) decode with internal multistream decoder and assert sample-count parity, (2) decode with direct libopus helper for mapping family 1 (`decodeWithLibopusReferencePackets` + `PreSkip` trim), and (3) fail on internal-vs-libopus waveform drift via relative mean-square + max-abs diagnostics. Also removed duplicate stereo-specific harness code by routing `TestLibopus_Stereo` through the shared surround parity path. Validation: `go test ./multistream -run 'TestLibopus_(Stereo|51Surround|71Surround)' -count=1 -v`, full `go test ./multistream -run 'TestLibopus_' -count=1 -v`, `go test ./multistream -count=1`, and `go test . -run 'TestMultistream' -count=1` passed.
 - 2026-02-16: Closed the next multistream parity coverage gap by extending direct libopus waveform parity assertions to default mapping-family and frame-duration matrix slices. Updated `multistream/libopus_test.go` `TestLibopus_DefaultMappingMatrix` and `TestLibopus_FrameDurationMatrix` to decode packet streams with the direct libopus helper (`decodeWithLibopusReferencePackets`, mapping family 1), trim pre-skip via `OpusHead.PreSkip`, and fail on internal-vs-libopus decoded waveform drift using relative mean-square error + max-abs diagnostics (not only sample-count/energy floors). Validation: `go test ./multistream -run 'TestLibopus_(DefaultMappingMatrix|FrameDurationMatrix|AmbisonicsFamily2Matrix|AmbisonicsFamily3Matrix)' -count=1 -v`, `go test ./multistream -count=1`, and `go test . -run 'TestMultistream' -count=1` passed.
