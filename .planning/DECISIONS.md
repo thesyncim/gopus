@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-18
+topic: CBR packet-padding parity for short one-frame packets
+decision: Keep `encoder/controls.go` `padToSize` compatible with libopus `opus_packet_pad` by allowing code-3 padding fields with zero payload padding (`padding=0`) when exact CBR size requires only the padding-length byte, and always setting the code-3 padding flag whenever a padding-length field is emitted.
+evidence: Source-aligned fix in `padToSize`; targeted parity evidence on `SILK-WB-20ms-mono-32k/am_multisine_v1` packet-profile drift improved (`meanAbs 0.73 -> 0.22`, `p95 2 -> 1`, mode mismatch `0%` unchanged). Validation passed on `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderVariantProfileParityAgainstLibopusFixture -count=1 -v`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `make verify-production`, and `make bench-guard`.
+do_not_repeat_until: Opus packet assembly/padding logic (`BuildPacketInto`, `padToSize`, parser/frame-layout helpers) is refactored or libopus packet-pad semantics change.
+owner: codex
+
+date: 2026-02-18
 topic: Encoder objective policy (parity-first, no absolute Q target)
 decision: Treat libopus fixture comparison parity as the primary encoder objective; do not use `Q >= 0` as an encoder release target because it is a decoder compliance threshold and not representative of libopus encoder round-trip behavior.
 evidence: Updated objective wording in `AGENTS.md`, `README.md`, and `.planning/ACTIVE.md`; parity sanity validation remains green with `go test ./testvectors -run 'TestSILKParamTraceAgainstLibopus|TestEncoderComplianceSummary' -count=1 -v` (`19 passed, 0 failed`, SILK trace mismatch counters `0`).
