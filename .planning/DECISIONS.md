@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-18
+topic: Encoder variants quality scoring source-of-truth
+decision: Keep encoder variants parity/provenance quality scoring (`TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestEncoderVariantProfileProvenanceAudit`) on libopus reference decode (direct helper first, then `opusdec`) with a tight delay search window (`maxDelay=32`), and do not score variants with internal decoder output by default.
+evidence: Updated `testvectors/encoder_compliance_variants_fixture_test.go` and `testvectors/encoder_compliance_variants_provenance_test.go` to use `decodeWithLibopusReferencePacketsSingle`/`opusdec` for both gopus and fixture packets; added payload mismatch diagnostics in parity logs. Validation passed: `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderVariantProfileParityAgainstLibopusFixture -count=1 -v`, `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestEncoderVariantProfileProvenanceAudit -count=1 -v`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestSILKParamTraceAgainstLibopus -count=1 -v`, and `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`.
+do_not_repeat_until: variant parity policy changes away from libopus-decoded quality comparison, or libopus helper/`opusdec` availability semantics change and require a different reference decode fallback.
+owner: codex
+
+date: 2026-02-18
 topic: CBR packet-padding parity for short one-frame packets
 decision: Keep `encoder/controls.go` `padToSize` aligned with libopus `opus_packet_pad`: for any packet growth, repacketize into code-3 framing; only set the padding flag and emit pad-length bytes when `padAmount > 0`; and encode pad length with libopus semantics (`while remaining > 255 {255}; final byte = remaining-1`).
 evidence: Source-ported `padToSize` flow plus focused tests `TestPadToSize_RepacketizeCode0ToCode3NoPadding`, `TestPadToSize_RepacketizeCode1ToCode3NoPadding`, and `TestPadToSize_Code3PaddingUsesTotalPadAmount` in `encoder/controls_padding_test.go`. Parity matrix now reports packet-profile drift `meanAbs=0.00`, `p95=0.00`, mode mismatch `0.00%` on `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderVariantProfileParityAgainstLibopusFixture -count=1 -v`. Compliance/gates also passed: `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` (`19 passed, 0 failed`), `make verify-production`, and `make bench-guard`.
