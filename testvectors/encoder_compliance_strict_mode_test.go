@@ -9,7 +9,7 @@ func TestDecodeCompliancePackets_StrictModeRequiresLibopusReferenceDecode(t *tes
 	t.Setenv("GOPUS_STRICT_LIBOPUS_REF", "1")
 	t.Setenv("GOPUS_DISABLE_OPUSDEC", "1")
 
-	_, err := decodeCompliancePackets(nil, 1, 960)
+	_, err := decodeCompliancePackets([][]byte{{0xff}}, 1, 960)
 	if err == nil {
 		t.Fatal("expected strict libopus reference decode error, got nil")
 	}
