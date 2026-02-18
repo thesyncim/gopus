@@ -16,4 +16,10 @@ func TestDecodeCompliancePackets_StrictModeRequiresLibopusReferenceDecode(t *tes
 	if !strings.Contains(err.Error(), "strict libopus reference decode required") {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if !strings.Contains(err.Error(), "direct helper failed") {
+		t.Fatalf("strict error missing helper context: %v", err)
+	}
+	if !strings.Contains(err.Error(), "opusdec not available") {
+		t.Fatalf("strict error missing opusdec availability context: %v", err)
+	}
 }
