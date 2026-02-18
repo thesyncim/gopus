@@ -168,6 +168,57 @@ jobs:
       - name: Verify libopus fixture provenance (pinned Docker env)
         run: make docker-test-exhaustive
 
+  test-linux-flake:
+    name: test-linux-flake
+    needs:
+      - changes
+    if: ${{ needs.changes.outputs.docs_only != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Cache pinned libopus build
+        uses: actions/cache@v4
+        with:
+          path: |
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+          key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
+
+      - name: Install codec tools (if missing)
+        run: |
+          if command -v ffmpeg >/dev/null 2>&1 && command -v opusdec >/dev/null 2>&1; then
+            echo "ffmpeg and opusdec already present; skipping apt install"
+            exit 0
+          fi
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg opus-tools
+
+      - name: Run parity flake detector (shuffle+repeat, no skips allowed)
+        run: |
+          set -euo pipefail
+          make ensure-libopus
+          json_out="$(mktemp)"
+          GOPUS_TEST_TIER=parity go test ./testvectors \
+            -run 'TestSILKParamTraceAgainstLibopus|TestDecoderParityLibopusMatrix|TestEncoderComplianceSummary' \
+            -shuffle=on \
+            -count=3 \
+            -json | tee "$json_out"
+
+          if grep -q '"Action":"skip"' "$json_out"; then
+            echo "Unexpected skip detected in critical parity flake lane:"
+            grep '"Action":"skip"' "$json_out"
+            exit 1
+          fi
+
   test-linux:
     name: test-linux
     if: always()
@@ -176,6 +227,7 @@ jobs:
       - test-linux-parity
       - test-linux-race
       - test-linux-provenance
+      - test-linux-flake
     runs-on: ubuntu-latest
     steps:
       - name: Validate Linux gates
@@ -188,6 +240,7 @@ jobs:
           echo "test-linux-parity: ${{ needs.test-linux-parity.result }}"
           echo "test-linux-race: ${{ needs.test-linux-race.result }}"
           echo "test-linux-provenance: ${{ needs.test-linux-provenance.result }}"
+          echo "test-linux-flake: ${{ needs.test-linux-flake.result }}"
           if [ "${{ needs.test-linux-parity.result }}" != "success" ]; then
             exit 1
           fi
@@ -195,6 +248,9 @@ jobs:
             exit 1
           fi
           if [ "${{ needs.test-linux-provenance.result }}" != "success" ]; then
+            exit 1
+          fi
+          if [ "${{ needs.test-linux-flake.result }}" != "success" ]; then
             exit 1
           fi
 

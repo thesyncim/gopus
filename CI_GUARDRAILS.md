@@ -12,7 +12,8 @@ Block correctness and hot-path performance regressions before merge.
 - `test-linux-parity`: `make ensure-libopus && GOPUS_TEST_TIER=parity go test ./... -count=1`
 - `test-linux-race`: `make ensure-libopus && make test-race`
 - `make docker-test-exhaustive` via `test-linux-provenance`
-- Internally split into parallel jobs (`test-linux-parity`, `test-linux-race`, `test-linux-provenance`) and aggregated by `test-linux`.
+- `test-linux-flake`: critical parity subset under shuffle/repeat with go-test JSON skip enforcement
+- Internally split into parallel jobs (`test-linux-parity`, `test-linux-race`, `test-linux-provenance`, `test-linux-flake`) and aggregated by `test-linux`.
 - This keeps parity/race/provenance coverage intact while removing serialized Linux checks from a single job.
 
 2. Performance gate (`perf-linux`)
