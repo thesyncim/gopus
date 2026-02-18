@@ -23,8 +23,8 @@ owner: <initials or handle>
 
 date: 2026-02-18
 topic: CBR packet-padding parity for short one-frame packets
-decision: Keep `encoder/controls.go` `padToSize` compatible with libopus `opus_packet_pad` by allowing code-3 padding fields with zero payload padding (`padding=0`) when exact CBR size requires only the padding-length byte, and always setting the code-3 padding flag whenever a padding-length field is emitted.
-evidence: Source-aligned fix in `padToSize`; targeted parity evidence on `SILK-WB-20ms-mono-32k/am_multisine_v1` packet-profile drift improved (`meanAbs 0.73 -> 0.22`, `p95 2 -> 1`, mode mismatch `0%` unchanged). Validation passed on `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderVariantProfileParityAgainstLibopusFixture -count=1 -v`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `make verify-production`, and `make bench-guard`.
+decision: Keep `encoder/controls.go` `padToSize` aligned with libopus `opus_packet_pad`: for any packet growth, repacketize into code-3 framing; only set the padding flag and emit pad-length bytes when `padAmount > 0`; and encode pad length with libopus semantics (`while remaining > 255 {255}; final byte = remaining-1`).
+evidence: Source-ported `padToSize` flow plus focused tests `TestPadToSize_RepacketizeCode0ToCode3NoPadding`, `TestPadToSize_RepacketizeCode1ToCode3NoPadding`, and `TestPadToSize_Code3PaddingUsesTotalPadAmount` in `encoder/controls_padding_test.go`. Parity matrix now reports packet-profile drift `meanAbs=0.00`, `p95=0.00`, mode mismatch `0.00%` on `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderVariantProfileParityAgainstLibopusFixture -count=1 -v`. Compliance/gates also passed: `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` (`19 passed, 0 failed`), `make verify-production`, and `make bench-guard`.
 do_not_repeat_until: Opus packet assembly/padding logic (`BuildPacketInto`, `padToSize`, parser/frame-layout helpers) is refactored or libopus packet-pad semantics change.
 owner: codex
 
