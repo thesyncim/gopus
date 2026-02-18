@@ -91,4 +91,4 @@ Quick commands:
 - claim: id=codex-20260216-232445; agent=codex; status=released; paths=multistream/,tmp_check/opus-1.6.1/src/,testvectors/,.planning/; updated=2026-02-18T19:31:10Z; expires=2026-02-18T19:31:10Z; note=tighten surround stereo/51/71 direct libopus waveform parity
 - claim: id=codex-20260218-193120; agent=codex; status=released; paths=testvectors/,.planning/; updated=2026-02-18T19:41:10Z; expires=2026-02-18T19:41:10Z; note=remove ffmpeg fallback from compliance decode path
 - claim: id=codex-20260218-194956; agent=codex; status=released; paths=AGENTS.md,README.md,.planning/; updated=2026-02-18T20:10:44Z; expires=2026-02-18T20:10:44Z; note=drop Q>=0 objective and set parity-first target
-- claim: id=codex-20260218-201052; agent=codex; status=active; paths=testvectors/,.planning/; updated=2026-02-18T20:10:52Z; expires=2026-02-19T00:10:52Z; note=use libopus reference decode in variant parity quality path
+- claim: id=codex-20260218-201052; agent=codex; status=released; paths=testvectors/,.planning/; updated=2026-02-18T20:34:38Z; expires=2026-02-18T20:34:38Z; note=use libopus reference decode in variant parity quality path
