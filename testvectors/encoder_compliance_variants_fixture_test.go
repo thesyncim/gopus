@@ -546,6 +546,24 @@ func computeEncoderPacketProfileStats(libPackets, goPackets [][]byte) encoderPac
 	}
 }
 
+func packetPayloadMismatchStats(libPackets, goPackets [][]byte) (mismatches int, compared int, firstMismatch int) {
+	n := len(libPackets)
+	if len(goPackets) < n {
+		n = len(goPackets)
+	}
+	firstMismatch = -1
+	for i := 0; i < n; i++ {
+		compared++
+		if !bytes.Equal(libPackets[i], goPackets[i]) {
+			mismatches++
+			if firstMismatch < 0 {
+				firstMismatch = i
+			}
+		}
+	}
+	return mismatches, compared, firstMismatch
+}
+
 func encodeGopusForVariantsCase(c encoderComplianceVariantsFixtureCase, signal []float32) ([][]byte, error) {
 	mode, err := parseFixtureMode(c.Mode)
 	if err != nil {
@@ -650,6 +668,86 @@ func qualityFromPacketsInternal(packets [][]byte, original []float32, channels, 
 	return q, nil
 }
 
+func decodeVariantsWithLibopusReference(packets [][]byte, channels, frameSize int) ([]float32, error) {
+	decoded, helperErr := decodeWithLibopusReferencePacketsSingle(channels, frameSize, packets)
+	if helperErr == nil {
+		preSkip := OpusPreSkip * channels
+		if len(decoded) > preSkip {
+			decoded = decoded[preSkip:]
+		}
+		return decoded, nil
+	}
+
+	if checkOpusdecAvailableEncoder() {
+		var oggBuf bytes.Buffer
+		if err := writeOggOpusEncoder(&oggBuf, packets, channels, 48000, frameSize); err != nil {
+			return nil, fmt.Errorf("write ogg opus: %w", err)
+		}
+		decoded, err := decodeWithOpusdec(oggBuf.Bytes())
+		if err == nil {
+			return decoded, nil
+		}
+		if strictLibopusReferenceRequired() {
+			return nil, fmt.Errorf("strict libopus reference decode required: direct helper failed (%v); opusdec decode failed: %w", helperErr, err)
+		}
+	}
+
+	if strictLibopusReferenceRequired() {
+		return nil, fmt.Errorf("strict libopus reference decode required: direct helper failed (%v); opusdec not available", helperErr)
+	}
+
+	decoded, err := decodeComplianceWithInternalDecoder(packets, channels)
+	if err != nil {
+		return nil, fmt.Errorf("libopus reference decode unavailable: direct helper failed (%v); internal decode failed: %w", helperErr, err)
+	}
+	if len(decoded) == 0 {
+		return nil, fmt.Errorf("libopus reference decode unavailable: direct helper failed (%v); internal decoder returned no samples", helperErr)
+	}
+	preSkip := OpusPreSkip * channels
+	if len(decoded) > preSkip {
+		decoded = decoded[preSkip:]
+	}
+	return decoded, nil
+}
+
+func qualityFromPacketsLibopusReference(packets [][]byte, original []float32, channels, frameSize int) (float64, error) {
+	res, err := qualityFromPacketsLibopusReferenceDetailed(packets, original, channels, frameSize)
+	if err != nil {
+		return 0, err
+	}
+	return res.q, nil
+}
+
+type packetQualityResult struct {
+	q          float64
+	delay      int
+	decodedLen int
+	compareLen int
+}
+
+func qualityFromPacketsLibopusReferenceDetailed(packets [][]byte, original []float32, channels, frameSize int) (packetQualityResult, error) {
+	decoded, err := decodeVariantsWithLibopusReference(packets, channels, frameSize)
+	if err != nil {
+		return packetQualityResult{}, err
+	}
+	if len(decoded) == 0 {
+		return packetQualityResult{}, fmt.Errorf("no decoded samples")
+	}
+	compareLen := len(original)
+	if len(decoded) < compareLen {
+		compareLen = len(decoded)
+	}
+	// Keep delay search tight to avoid periodic-signal aliasing.
+	maxDelay := 32
+	q, delay := ComputeQualityFloat32WithDelay(decoded[:compareLen], original[:compareLen], 48000, maxDelay)
+	return packetQualityResult{
+		q:          q,
+		delay:      delay,
+		decodedLen: len(decoded),
+		compareLen: compareLen,
+	}, nil
+}
+
 func TestEncoderVariantProfileParityAgainstLibopusFixture(t *testing.T) {
 	requireTestTier(t, testTierParity)
 
@@ -702,25 +800,38 @@ func TestEncoderVariantProfileParityAgainstLibopusFixture(t *testing.T) {
 				}
 
 				stats := computeEncoderPacketProfileStats(libPackets, goPackets)
-				goQ, err := qualityFromPacketsInternal(goPackets, signal, c.Channels, c.FrameSize)
+				goRes, err := qualityFromPacketsLibopusReferenceDetailed(goPackets, signal, c.Channels, c.FrameSize)
 				if err != nil {
-					t.Fatalf("compute gopus quality: %v", err)
+					t.Fatalf("compute gopus quality with libopus decode: %v", err)
 				}
-				libQ, err := qualityFromPacketsInternal(libPackets, signal, c.Channels, c.FrameSize)
+				libRes, err := qualityFromPacketsLibopusReferenceDetailed(libPackets, signal, c.Channels, c.FrameSize)
 				if err != nil {
-					t.Fatalf("compute libopus quality from fixture: %v", err)
+					t.Fatalf("compute libopus quality from fixture with libopus decode: %v", err)
 				}
-				goSNR := SNRFromQuality(goQ)
-				libSNR := SNRFromQuality(libQ)
+				goSNR := SNRFromQuality(goRes.q)
+				libSNR := SNRFromQuality(libRes.q)
 				gapDB := goSNR - libSNR
+				payloadMismatch, payloadCompared, firstPayloadMismatch := packetPayloadMismatchStats(libPackets, goPackets)
 
 				thr := encoderVariantThreshold(c)
-				t.Logf("gap=%.2fdB meanAbs=%.2f p95Abs=%.2f mismatch=%.2f%% histL1=%.3f",
+				t.Logf(
+					"goSNR=%.2fdB(goBestDelay=%d dec=%d cmp=%d) libSNR=%.2fdB(libBestDelay=%d dec=%d cmp=%d) gap=%.2fdB meanAbs=%.2f p95Abs=%.2f mismatch=%.2f%% histL1=%.3f payloadMismatch=%d/%d firstPayloadMismatch=%d",
+					goSNR,
+					goRes.delay,
+					goRes.decodedLen,
+					goRes.compareLen,
+					libSNR,
+					libRes.delay,
+					libRes.decodedLen,
+					libRes.compareLen,
 					gapDB,
 					stats.meanAbsPacketLen,
 					stats.p95AbsPacketLen,
 					100*stats.modeMismatchRate,
 					stats.histogramL1,
+					payloadMismatch,
+					payloadCompared,
+					firstPayloadMismatch,
 				)
 
 				if gapDB < thr.minGapDB {

@@ -115,13 +115,13 @@ func TestEncoderVariantProfileProvenanceAudit(t *testing.T) {
 			}
 
 			stats := computeEncoderPacketProfileStats(libPackets, goPackets)
-			goQ, err := qualityFromPacketsInternal(goPackets, signal, c.Channels, c.FrameSize)
+			goQ, err := qualityFromPacketsLibopusReference(goPackets, signal, c.Channels, c.FrameSize)
 			if err != nil {
-				t.Fatalf("compute gopus quality: %v", err)
+				t.Fatalf("compute gopus quality with libopus decode: %v", err)
 			}
-			libQ, err := qualityFromPacketsInternal(libPackets, signal, c.Channels, c.FrameSize)
+			libQ, err := qualityFromPacketsLibopusReference(libPackets, signal, c.Channels, c.FrameSize)
 			if err != nil {
-				t.Fatalf("compute libopus quality from fixture: %v", err)
+				t.Fatalf("compute libopus quality from fixture with libopus decode: %v", err)
 			}
 			gapDB := SNRFromQuality(goQ) - SNRFromQuality(libQ)
 			if math.IsNaN(gapDB) || math.IsInf(gapDB, 0) {
