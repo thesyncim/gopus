@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-18
+topic: Encoder objective policy (parity-first, no absolute Q target)
+decision: Treat libopus fixture comparison parity as the primary encoder objective; do not use `Q >= 0` as an encoder release target because it is a decoder compliance threshold and not representative of libopus encoder round-trip behavior.
+evidence: Updated objective wording in `AGENTS.md`, `README.md`, and `.planning/ACTIVE.md`; parity sanity validation remains green with `go test ./testvectors -run 'TestSILKParamTraceAgainstLibopus|TestEncoderComplianceSummary' -count=1 -v` (`19 passed, 0 failed`, SILK trace mismatch counters `0`).
+do_not_repeat_until: project parity baseline changes away from libopus 1.6.1 comparison policy, or governance explicitly reintroduces an absolute encoder Q threshold with fixture-backed rationale.
+owner: codex
+
+date: 2026-02-18
 topic: Encoder compliance decode fallback parity policy
 decision: Keep encoder compliance reference decode strictly libopus-first (`decodeWithLibopusReferencePacketsSingle`, then `opusdec`), and do not use `ffmpeg` fallback in this path; for non-strict runs only, allow final fallback to internal decode. Keep strict-mode errors explicit with direct-helper failure context plus `opusdec` availability/decoder status.
 evidence: Updated `decodeCompliancePackets` in `testvectors/encoder_compliance_test.go` to remove `ffmpeg` fallback and tighten strict diagnostics, and extended `TestDecodeCompliancePackets_StrictModeRequiresLibopusReferenceDecode` in `testvectors/encoder_compliance_strict_mode_test.go` to assert helper-context + `opusdec` availability messaging. Validation: `go test ./testvectors -run 'TestDecodeCompliancePackets_StrictModeRequiresLibopusReferenceDecode|TestEncoderComplianceSummary' -count=1 -v` passed (`19 passed, 0 failed` summary).

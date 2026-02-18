@@ -24,11 +24,11 @@ Canonical project context for agent sessions.
   - Seed mismatch: `0/50`
 - `TestEncoderComplianceSummary`: **PASS** (`19 passed, 0 failed`).
   - Current compliance status: "GOOD" against libopus fixtures across tested CELT/SILK/Hybrid profiles.
-  - Known remaining gap: strict production threshold (`Q >= 0`, ~48 dB SNR) is still not met in all profiles.
+  - Remaining focus: continue tightening fixture-backed parity/comparison coverage against libopus in edge profiles.
 
 ## Current Priorities
-1. Raise absolute encoder quality toward strict production target (`Q >= 0`) while keeping parity with libopus behavior.
-2. Focus tuning on SILK/Hybrid speech-bitrate quality and CELT short-frame edge cases.
+1. Keep encoder quality/behavior comparison parity against libopus fixtures as the primary target.
+2. Focus parity hardening on SILK/Hybrid speech-bitrate quality and CELT short-frame edge cases.
 3. Preserve zero-allocation guarantees in all real-time encode/decode paths.
 
 ## Verified Areas (Do Not Re-Debug First)
