@@ -185,10 +185,10 @@ func padToSize(packet []byte, targetSize int) []byte {
 	padLenBytes := 0
 	for k := 1; k <= 10; k++ {
 		p := extraNeeded - k
-		if p <= 0 {
+		if p < 0 {
 			continue
 		}
-		minP := 254*(k-1) + 1
+		minP := 254 * (k - 1)
 		maxP := 254 * k
 		if p >= minP && p <= maxP {
 			padding = p
@@ -196,7 +196,7 @@ func padToSize(packet []byte, targetSize int) []byte {
 			break
 		}
 	}
-	if padding == 0 {
+	if padLenBytes == 0 {
 		return packet
 	}
 
@@ -207,10 +207,7 @@ func padToSize(packet []byte, targetSize int) []byte {
 
 	padded := make([]byte, newLen)
 	padded[0] = (toc & 0xFC) | 0x03
-	countByte := byte(len(frames)&0x3F) | 0x80
-	if padding > 0 {
-		countByte |= 0x40
-	}
+	countByte := byte(len(frames)&0x3F) | 0x80 | 0x40
 	padded[1] = countByte
 
 	offset := 2
