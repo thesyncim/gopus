@@ -363,6 +363,7 @@ func TestEncoderVariantsFixtureHonestyWithOpusDemo(t *testing.T) {
 
 type encoderVariantParityThreshold struct {
 	minGapDB            float64
+	maxGapDB            float64
 	maxMeanAbsPacketLen float64
 	maxP95AbsPacketLen  float64
 	maxModeMismatchRate float64
@@ -372,6 +373,7 @@ type encoderVariantParityThreshold struct {
 func encoderVariantThreshold(c encoderComplianceVariantsFixtureCase) encoderVariantParityThreshold {
 	out := encoderVariantParityThreshold{
 		minGapDB:            -8.0,
+		maxGapDB:            20.0,
 		maxMeanAbsPacketLen: 150.0,
 		maxP95AbsPacketLen:  320.0,
 		maxModeMismatchRate: 1.0,
@@ -384,14 +386,17 @@ func encoderVariantThreshold(c encoderComplianceVariantsFixtureCase) encoderVari
 		out.maxP95AbsPacketLen = 450.0
 		out.maxModeMismatchRate = 0.0
 		out.maxHistogramL1 = 0.0
+		out.maxGapDB = 2.0
 	case "silk":
 		out.minGapDB = -3.0
+		out.maxGapDB = 30.0
 		out.maxMeanAbsPacketLen = 90.0
 		out.maxP95AbsPacketLen = 180.0
 		out.maxModeMismatchRate = 0.0
 		out.maxHistogramL1 = 0.0
 	case "hybrid":
 		out.minGapDB = -35.0
+		out.maxGapDB = 12.0
 		out.maxMeanAbsPacketLen = 45.0
 		out.maxP95AbsPacketLen = 110.0
 		out.maxModeMismatchRate = 1.0
@@ -720,6 +725,9 @@ func TestEncoderVariantProfileParityAgainstLibopusFixture(t *testing.T) {
 
 				if gapDB < thr.minGapDB {
 					t.Fatalf("quality gap regression: gap=%.2f dB < floor %.2f dB", gapDB, thr.minGapDB)
+				}
+				if gapDB > thr.maxGapDB {
+					t.Fatalf("quality gap regression: gap=%.2f dB > ceiling %.2f dB", gapDB, thr.maxGapDB)
 				}
 				if stats.meanAbsPacketLen > thr.maxMeanAbsPacketLen {
 					t.Fatalf("mean abs packet length diff regression: %.2f > %.2f", stats.meanAbsPacketLen, thr.maxMeanAbsPacketLen)
