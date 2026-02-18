@@ -78,8 +78,9 @@ else
 fi
 echo
 
-declare -A seen_paths=()
 conflicts=0
+seen_paths_file="$(mktemp)"
+trap 'rm -f "$seen_paths_file"' EXIT
 
 if [[ -n "$active_claims" ]]; then
   while IFS= read -r line; do
@@ -90,11 +91,12 @@ if [[ -n "$active_claims" ]]; then
     for raw_path in "${paths[@]}"; do
       path="$(echo "$raw_path" | xargs)"
       [[ -z "$path" ]] && continue
-      if [[ -n "${seen_paths[$path]:-}" ]]; then
-        echo "WARN: overlapping claim on '$path' between '$claim_id' and '${seen_paths[$path]}'"
+      if awk -F'\t' -v p="$path" '$1 == p { found=1; exit } END { exit found ? 0 : 1 }' "$seen_paths_file"; then
+        existing_claim="$(awk -F'\t' -v p="$path" '$1 == p {print $2; exit}' "$seen_paths_file")"
+        echo "WARN: overlapping claim on '$path' between '$claim_id' and '$existing_claim'"
         conflicts=1
       else
-        seen_paths["$path"]="$claim_id"
+        printf "%s\t%s\n" "$path" "$claim_id" >>"$seen_paths_file"
       fi
     done
   done <<<"$active_claims"
