@@ -1494,9 +1494,10 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 	} else {
 		lookaheadOut = lookahead32
 	}
-	// Match libopus mono SILK handoff for WB/SWB paths where the 16 kHz
-	// encoder input uses inputBuf+1 semantics across frames.
-	if e.channels == 1 && targetRate == 16000 {
+	// Match libopus mono SILK buffering path (enc_API.c):
+	// mono internal channels use sStereo.sMid history across frames.
+	// This applies to all SILK internal rates (8/12/16 kHz), not only WB.
+	if e.channels == 1 {
 		pcm32 = e.alignSilkMonoInput(pcm32)
 	}
 	if e.bitrate > 0 {
@@ -1769,8 +1770,8 @@ func (e *Encoder) ensureSILKEncoder() {
 	e.silkEncoder = silk.NewEncoder(bw)
 	e.silkEncoder.SetComplexity(e.complexity)
 	e.silkEncoder.SetTrace(e.silkTrace)
-	// The WB mono handoff state is specific to 16 kHz SILK input alignment.
-	// Reset it whenever the SILK core bandwidth/sample-rate changes.
+	// Mono SILK handoff state tracks the two-sample sMid history across frames.
+	// Reset whenever the SILK core bandwidth/sample-rate changes.
 	e.silkMonoInputHist = [2]float32{}
 }
 
