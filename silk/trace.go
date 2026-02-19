@@ -126,7 +126,8 @@ type LTPTrace struct {
 
 // GainLoopTrace captures per-iteration gain search loop state.
 type GainLoopTrace struct {
-	Iterations []GainLoopIter
+	Iterations      []GainLoopIter
+	LockUpdateCount int
 
 	SeedIn                 int
 	SeedOut                int
@@ -161,6 +162,11 @@ type GainLoopIter struct {
 	Iter              int
 	GainMultQ8        int16
 	GainsID           int32
+	GainsIndices      [maxNbSubfr]int8
+	GainsQ16          [maxNbSubfr]int32
+	PulseAbsSum       [maxNbSubfr]int
+	GainLockIn        [maxNbSubfr]bool
+	BestGainMultIn    [maxNbSubfr]int16
 	QuantOffset       int
 	Bits              int
 	BitsBeforeIndices int
