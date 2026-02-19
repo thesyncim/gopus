@@ -548,6 +548,7 @@ type DebugFrameParams struct {
 	NLSFInterpCoefQ2 int
 	LTPScaleIndex    int
 	LagPrev          int
+	QuantOffset      int
 	GainIndices      []int
 	PERIndex         int
 	LTPIndices       []int
@@ -571,6 +572,7 @@ func (d *Decoder) GetLastFrameParams() DebugFrameParams {
 		NLSFInterpCoefQ2: int(st.indices.NLSFInterpCoefQ2),
 		LTPScaleIndex:    int(st.indices.LTPScaleIndex),
 		LagPrev:          st.lagPrev,
+		QuantOffset:      int(st.indices.quantOffsetType),
 		GainIndices:      gains,
 		PERIndex:         int(st.indices.PERIndex),
 		LTPIndices:       ltpIdx,

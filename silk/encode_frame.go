@@ -301,9 +301,6 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			contourIndex = 0
 			e.ltpCorr = 0
 			e.pitchState.ltpCorr = 0
-			e.pitchState.prevLag = 0
-			signalType = typeUnvoiced
-			e.sumLogGainQ7 = 0
 			if e.trace != nil && e.trace.Pitch != nil && e.trace.Pitch.CapturePitchLags {
 				tr := e.trace.Pitch
 				tr.PitchLags = append(tr.PitchLags[:0], pitchLags...)
@@ -436,6 +433,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	if e.trace != nil && e.trace.GainLoop != nil {
 		gainTrace = e.trace.GainLoop
 		gainTrace.Iterations = gainTrace.Iterations[:0]
+		gainTrace.LockUpdateCount = 0
 		gainTrace.SeedIn = seed
 		gainTrace.SeedOut = seed
 		gainTrace.UsedDelayedDecision = e.nStatesDelayedDecision > 1 || e.warpingQ16 > 0
@@ -562,6 +560,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		bitsBeforeIndices := -1
 		bitsAfterIndices := -1
 		bitsAfterPulses := -1
+		var iterPulseAbs [maxNbSubfr]int
+		iterGainLockIn := gainLock
+		var iterBestGainMultIn [maxNbSubfr]int16
+		copy(iterBestGainMultIn[:], bestGainMult[:])
 		seedInIter := int(frameIndices.Seed)
 		seedAfterNSQ := seedInIter
 
@@ -581,7 +583,26 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			}
 
 			// Noise shaping quantization
-			pulses, seedOut := e.computeNSQExcitation(framePCM, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, speechActivityQ8, noiseParams, int(frameIndices.Seed), numSubframes, subframeSamples, frameSamples, e.nsqState)
+			var seedOut int
+			pulses, seedOut = e.computeNSQExcitation(framePCM, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, speechActivityQ8, noiseParams, int(frameIndices.Seed), numSubframes, subframeSamples, frameSamples, e.nsqState)
+			if pulses != nil && subframeSamples > 0 {
+				for gi := 0; gi < numSubframes && gi < maxNbSubfr; gi++ {
+					start := gi * subframeSamples
+					end := start + subframeSamples
+					if end > len(pulses) {
+						end = len(pulses)
+					}
+					sum := 0
+					for pj := start; pj < end; pj++ {
+						v := int(pulses[pj])
+						if v < 0 {
+							v = -v
+						}
+						sum += v
+					}
+					iterPulseAbs[gi] = sum
+				}
+			}
 			frameIndices.Seed = int8(seedOut)
 			seedAfterNSQ = seedOut
 			frameIndices.quantOffsetType = int8(quantOffset)
@@ -674,10 +695,23 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 
 			if !e.useCBR && iter == 0 && nBits <= maxBits {
 				if gainTrace != nil {
+					var iterGainIdx [maxNbSubfr]int8
+					var iterGainsQ16 [maxNbSubfr]int32
+					for gi := 0; gi < numSubframes && gi < maxNbSubfr; gi++ {
+						iterGainIdx[gi] = frameIndices.GainsIndices[gi]
+						if gi < len(gainsQ16) {
+							iterGainsQ16[gi] = gainsQ16[gi]
+						}
+					}
 					gainTrace.Iterations = append(gainTrace.Iterations, GainLoopIter{
 						Iter:              iter,
 						GainMultQ8:        gainMultQ8,
 						GainsID:           gainsID,
+						GainsIndices:      iterGainIdx,
+						GainsQ16:          iterGainsQ16,
+						PulseAbsSum:       iterPulseAbs,
+						GainLockIn:        iterGainLockIn,
+						BestGainMultIn:    iterBestGainMultIn,
 						QuantOffset:       quantOffset,
 						Bits:              nBits,
 						BitsBeforeIndices: bitsBeforeIndices,
@@ -697,10 +731,23 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		}
 
 		if gainTrace != nil {
+			var iterGainIdx [maxNbSubfr]int8
+			var iterGainsQ16 [maxNbSubfr]int32
+			for gi := 0; gi < numSubframes && gi < maxNbSubfr; gi++ {
+				iterGainIdx[gi] = frameIndices.GainsIndices[gi]
+				if gi < len(gainsQ16) {
+					iterGainsQ16[gi] = gainsQ16[gi]
+				}
+			}
 			gainTrace.Iterations = append(gainTrace.Iterations, GainLoopIter{
 				Iter:              iter,
 				GainMultQ8:        gainMultQ8,
 				GainsID:           gainsID,
+				GainsIndices:      iterGainIdx,
+				GainsQ16:          iterGainsQ16,
+				PulseAbsSum:       iterPulseAbs,
+				GainLockIn:        iterGainLockIn,
+				BestGainMultIn:    iterBestGainMultIn,
 				QuantOffset:       quantOffset,
 				Bits:              nBits,
 				BitsBeforeIndices: bitsBeforeIndices,
@@ -769,6 +816,9 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		}
 
 		if !foundLower && nBits > maxBits && pulses != nil {
+			if gainTrace != nil {
+				gainTrace.LockUpdateCount++
+			}
 			for i := 0; i < numSubframes; i++ {
 				sum := 0
 				start := i * subframeSamples
@@ -948,10 +998,15 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	nBytesOut := (e.rangeEncoder.Tell() + 7) >> 3
 
 	raw := e.rangeEncoder.Done()
+	if nBytesOut < 0 {
+		nBytesOut = 0
+	}
+	if nBytesOut > len(raw) {
+		nBytesOut = len(raw)
+	}
 
-	// Return a slice of the range encoder's buffer directly.
-	// The caller must consume the data before the next EncodeFrame call.
-	result := raw
+	// Match libopus: return exactly ec_tell() byte count for the frame.
+	result := raw[:nBytesOut]
 
 	if e.targetRateBps > 0 && payloadSizeMs > 0 {
 		// Match libopus enc_API.c nBitsExceeded update exactly:
@@ -1066,6 +1121,7 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 	if signalType != typeVoiced {
 		ltpScaleQ14 = 0
 	}
+	ltpMemLengthSamples := ltpMemLengthMs * (e.sampleRate / 1000)
 	params := &NSQParams{
 		SignalType:             signalType,
 		QuantOffsetType:        quantOffset,
@@ -1083,7 +1139,7 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 		FrameLength:            frameSamples,
 		SubfrLength:            subframeSamples,
 		NbSubfr:                numSubframes,
-		LTPMemLength:           ltpMemLength,
+		LTPMemLength:           ltpMemLengthSamples,
 		PredLPCOrder:           len(lpcQ12),
 		ShapeLPCOrder:          shapeLPCOrder,
 		WarpingQ16:             e.warpingQ16,
@@ -1107,7 +1163,7 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 		tr.FrameLength = frameSamples
 		tr.SubfrLength = subframeSamples
 		tr.NbSubfr = numSubframes
-		tr.LTPMemLength = ltpMemLength
+		tr.LTPMemLength = ltpMemLengthSamples
 		tr.PredLPCOrder = len(lpcQ12)
 		tr.ShapeLPCOrder = shapeLPCOrder
 		tr.WarpingQ16 = e.warpingQ16
@@ -1351,7 +1407,14 @@ func (e *Encoder) EncodePacketWithFECWithVADStates(pcm []float32, lookahead []fl
 	e.lastRng = e.rangeEncoder.Range()
 	// Capture nBytesOut BEFORE ec_enc_done, matching libopus encode_frame_FLP.c:381.
 	nBytesOut := (e.rangeEncoder.Tell() + 7) >> 3
-	result := e.rangeEncoder.Done()
+	raw := e.rangeEncoder.Done()
+	if nBytesOut < 0 {
+		nBytesOut = 0
+	}
+	if nBytesOut > len(raw) {
+		nBytesOut = len(raw)
+	}
+	result := raw[:nBytesOut]
 	if e.targetRateBps > 0 {
 		payloadSizeMs := (nFrames * frameSamples * 1000) / config.SampleRate
 		if payloadSizeMs > 0 {
