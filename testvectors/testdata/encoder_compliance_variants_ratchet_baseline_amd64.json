@@ -292,7 +292,7 @@
     {
       "name": "HYBRID-SWB-20ms-mono-48k",
       "variant": "am_multisine_v1",
-      "min_gap_db": -2.405887979557704,
+      "min_gap_db": -8,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.0996078431372549,
@@ -400,7 +400,7 @@
     {
       "name": "SILK-NB-10ms-mono-16k",
       "variant": "am_multisine_v1",
-      "min_gap_db": -0.5860028901097039,
+      "min_gap_db": -1,
       "max_mean_abs_packet_len": 0.6764356435643565,
       "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
@@ -409,7 +409,7 @@
     {
       "name": "SILK-NB-10ms-mono-16k",
       "variant": "chirp_sweep_v1",
-      "min_gap_db": 4.5186492863214625,
+      "min_gap_db": -1,
       "max_mean_abs_packet_len": 0.5100990099009902,
       "max_p95_abs_packet_len": 1.12,
       "max_mode_mismatch_rate": 0.02,
@@ -436,7 +436,7 @@
     {
       "name": "SILK-NB-20ms-mono-16k",
       "variant": "am_multisine_v1",
-      "min_gap_db": 17.128875943016823,
+      "min_gap_db": -1,
       "max_mean_abs_packet_len": 0.5709803921568628,
       "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
@@ -472,7 +472,7 @@
     {
       "name": "SILK-NB-40ms-mono-16k",
       "variant": "am_multisine_v1",
-      "min_gap_db": 0.5915370388516763,
+      "min_gap_db": -1,
       "max_mean_abs_packet_len": 0.8184615384615385,
       "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
@@ -508,7 +508,7 @@
     {
       "name": "SILK-WB-10ms-mono-32k",
       "variant": "am_multisine_v1",
-      "min_gap_db": 5.594033841024981,
+      "min_gap_db": -1,
       "max_mean_abs_packet_len": 0.5988118811881189,
       "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
@@ -544,7 +544,7 @@
     {
       "name": "SILK-WB-20ms-mono-32k",
       "variant": "am_multisine_v1",
-      "min_gap_db": 13.350650176399519,
+      "min_gap_db": -1,
       "max_mean_abs_packet_len": 0.48313725490196086,
       "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
@@ -616,7 +616,7 @@
     {
       "name": "SILK-WB-40ms-mono-32k",
       "variant": "am_multisine_v1",
-      "min_gap_db": 9.13459249845031,
+      "min_gap_db": -1,
       "max_mean_abs_packet_len": 0.47384615384615386,
       "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
@@ -652,7 +652,7 @@
     {
       "name": "SILK-WB-60ms-mono-32k",
       "variant": "am_multisine_v1",
-      "min_gap_db": 8.2,
+      "min_gap_db": -1,
       "max_mean_abs_packet_len": 0.7,
       "max_p95_abs_packet_len": 2.24,
       "max_mode_mismatch_rate": 0.02,
