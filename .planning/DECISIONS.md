@@ -21,6 +21,20 @@ owner: <initials or handle>
 
 ## Current Decisions
 
+date: 2026-02-19
+topic: SILK gain-loop lock-update state path
+decision: Keep the gain-loop NSQ pulse capture in `silk/encode_frame.go` assigning into the outer loop-scoped `pulses` slice (`var seedOut int; pulses, seedOut = ...`), not nested short declaration (`:=`). The lock-update branch (`!foundLower && nBits > maxBits && pulses != nil`) depends on outer `pulses`; shadowing it silently disables libopus-equivalent gain-lock behavior and causes restricted-SILK parity drift.
+evidence: Focused trace run (`go test ./testvectors -run TestDebugSILKNBAMMultisineGainLoopTrace -count=1 -v`) showed lock updates restored (`lockUpdates>0`) and frame-3 gains path matching libopus (`gainsID=620759044` at the divergence point). Parity and broad gates passed after the fix: `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderVariantProfileParityAgainstLibopusFixture -count=1`, `go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, and `make verify-production`.
+do_not_repeat_until: the SILK bitrate-control gain loop is refactored and loop-scope variable lifetimes are changed; then re-verify the lock-update condition still receives live NSQ pulse data.
+owner: codex
+
+date: 2026-02-19
+topic: Encoder variant ratchet floors under parity-first policy
+decision: Keep variant ratchet `min_gap_db` floors parity-first (near-zero/negative tolerance) on both arm64 and amd64 baselines; do not preserve legacy positive-gap floors that implicitly require outperforming libopus on selected fixtures.
+evidence: CI parity jobs on amd64/windows failed with stale positive floors in `testvectors/testdata/encoder_compliance_variants_ratchet_baseline_amd64.json` (for example `SILK-NB-20ms-mono-16k/am_multisine_v1`, `SILK-WB-20ms-mono-32k/am_multisine_v1`, `HYBRID-SWB-20ms-mono-48k/am_multisine_v1`) while measured gaps were at/near libopus parity. Updated both arch baseline files to parity-first floors and revalidated local parity slice (`GOPUS_TEST_TIER=parity go test ./testvectors -run 'TestEncoderVariantProfileParityAgainstLibopusFixture|TestEncoderCompliancePrecisionGuard' -count=1`).
+do_not_repeat_until: parity objective changes back to a “beat libopus by +dB” target, or fixture evidence indicates new platform-specific drift requiring re-tightening per-arch floors.
+owner: codex
+
 date: 2026-02-18
 topic: Encoder variants quality scoring source-of-truth
 decision: Keep encoder variants parity/provenance quality scoring (`TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestEncoderVariantProfileProvenanceAudit`) on libopus reference decode (direct helper first, then `opusdec`) with a tight delay search window (`maxDelay=32`). When reference tools are unavailable and strict mode is not required, allow internal decoder fallback so cross-platform parity jobs remain runnable; strict mode must still fail without reference decode.
