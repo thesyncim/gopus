@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-20
+topic: decode_fec Hybrid CELT accumulation units + provided-packet PLC fallback context
+decision: Keep Hybrid FEC CELT accumulation in decoder PCM units by scaling `plc.ConcealCELTHybrid(...)` output by `1/32768` before adding to SILK LBRR output, and keep provided-packet FEC failure fallback PLC keyed to provided packet TOC context (`mode/bandwidth/stereo`) via `decodePLCForFECWithState(...)`, not stale previous-mode state.
+evidence: Updated `decoder.go` (`decodeHybridFEC`, `DecodeWithFEC`, `decodePLCForFECWithState`); validations passed: `go test . -run 'TestDecodeWithFEC|TestDecodeFECFrame' -count=1`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`, `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1`, full parity tier `GOPUS_TEST_TIER=parity go test ./testvectors -count=1`, and `make verify-production`. Hybrid single-loss parity improved (`hybrid-fb-20ms-mono-32k-fec/single_mid Q 52.34 -> 84.02`, corr `1.0`, delay `0`).
+do_not_repeat_until: Hybrid FEC accumulation source/path, decoder PCM unit scaling conventions, or provided-packet decode_fec fallback state semantics are refactored.
+owner: codex
+
+date: 2026-02-20
 topic: Decoder decode_fec first-frame payload semantics + hybrid CELT accumulation
 decision: Keep `Decoder.DecodeWithFEC` aligned with libopus `opus_decode_native(..., decode_fec=1)` semantics by extracting/storing only the first packet frame payload (exclude TOC/framing headers), applying CELT-mode fallback gating (`packet_mode==CELT` or previous decoded mode CELT => PLC), and preserving packet-frame-size PLC granularity for FEC fallback. Keep Hybrid FEC recovery accumulating CELT PLC output on top of SILK LBRR output.
 evidence: Updated `decoder.go` (`extractFirstFramePayload`, `decodePLCForFEC`, `DecodeWithFEC` gating/state cadence, `decodeHybridFEC` CELT accumulation). Validation passed on focused root FEC tests (`go test . -run 'TestDecodeWithFEC|TestDecodeFECFrame' -count=1 -v`), parity loss fixture (`GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`), stress parity (`GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`), and full parity tier (`GOPUS_TEST_TIER=parity go test ./testvectors -count=1`). Measured improvements include SILK periodic loss lane shifting from near-random parity (`Q=-99.15`, `corr=0.4209`) to strong parity (`Q=-65.55`, `corr=0.9889`) and Hybrid single-loss lane reaching near-exact match (`Q=52.34`, `corr=1.0`, `delay=0`).
