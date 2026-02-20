@@ -96,4 +96,4 @@ Quick commands:
 - claim: id=codex-20260218-210313; agent=codex; status=released; paths=encoder/,silk/,hybrid/,testvectors/,.planning/; updated=2026-02-18T22:05:00Z; expires=2026-02-18T22:05:00Z; note=close remaining SILK/HYBRID libopus quality gaps
 - claim: id=codex-20260218-220532; agent=codex; status=released; paths=encoder/,testvectors/,tmp_check/opus-1.6.1/src/,.planning/; updated=2026-02-19T02:10:20Z; expires=2026-02-19T02:10:20Z; note=next gap: restricted-silk fixture parity
 - claim: id=codex-20260220-185206; agent=codex; status=released; paths=encoder/,testvectors/,tmp_check/opus-1.6.1/src/; updated=2026-02-20T19:11:00Z; expires=2026-02-20T19:11:00Z; note=next gap: Hybrid-FB-10ms-mono-64k parity calibration
-- claim: id=codex-20260220-191754; agent=codex; status=active; paths=testvectors/,.planning/; updated=2026-02-20T19:17:54Z; expires=2026-02-20T23:17:54Z; note=compliance no-negative-gap guard + fixture governance hardening
+- claim: id=codex-20260220-191754; agent=codex; status=released; paths=testvectors/,.planning/; updated=2026-02-20T19:31:17Z; expires=2026-02-20T19:31:17Z; note=compliance no-negative-gap guard + fixture governance hardening
