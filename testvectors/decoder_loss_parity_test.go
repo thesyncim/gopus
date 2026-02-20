@@ -30,11 +30,11 @@ func decoderLossThresholdForCase(c libopusDecoderLossCaseFile, pattern string) d
 		"celt-fb-20ms-mono-64k-plc|burst2_mid":   {minQ: -55.0, minCorr: 0.99, minRMS: 0.95, maxRMS: 1.05},
 		"celt-fb-20ms-mono-64k-plc|periodic9":    {minQ: -82.0, minCorr: 0.94, minRMS: 0.90, maxRMS: 1.06},
 		"celt-fb-20ms-mono-64k-plc|single_mid":   {minQ: -70.0, minCorr: 0.97, minRMS: 0.95, maxRMS: 1.05},
-		"hybrid-fb-20ms-mono-32k-fec|burst2_mid": {minQ: -98.0, minCorr: 0.65, minRMS: 1.35, maxRMS: 1.65},
-		"hybrid-fb-20ms-mono-32k-fec|periodic9":  {minQ: -103.0, minCorr: 0.45, minRMS: 1.30, maxRMS: 1.65},
+		"hybrid-fb-20ms-mono-32k-fec|burst2_mid": {minQ: -95.0, minCorr: 0.70, minRMS: 1.15, maxRMS: 1.45},
+		"hybrid-fb-20ms-mono-32k-fec|periodic9":  {minQ: -95.0, minCorr: 0.60, minRMS: 1.10, maxRMS: 1.45},
 		"hybrid-fb-20ms-mono-32k-fec|single_mid": {minQ: -88.0, minCorr: 0.88, minRMS: 0.90, maxRMS: 1.12},
 		"silk-wb-20ms-mono-24k-fec|burst2_mid":   {minQ: -70.0, minCorr: 0.96, minRMS: 0.90, maxRMS: 1.10},
-		"silk-wb-20ms-mono-24k-fec|periodic9":    {minQ: -104.0, minCorr: 0.38, minRMS: 1.25, maxRMS: 1.55},
+		"silk-wb-20ms-mono-24k-fec|periodic9":    {minQ: -90.0, minCorr: 0.90, minRMS: 0.95, maxRMS: 1.10},
 		"silk-wb-20ms-mono-24k-fec|single_mid":   {minQ: -90.0, minCorr: 0.88, minRMS: 0.85, maxRMS: 1.05},
 	}
 	if thr, ok := ratchet[c.Name+"|"+pattern]; ok {
