@@ -4,6 +4,22 @@
     {
       "mode": "celt",
       "bandwidth": "fb",
+      "frame_size": 120,
+      "channels": 1,
+      "bitrate": 64000,
+      "lib_q": -55.02
+    },
+    {
+      "mode": "celt",
+      "bandwidth": "fb",
+      "frame_size": 240,
+      "channels": 1,
+      "bitrate": 64000,
+      "lib_q": -34.24
+    },
+    {
+      "mode": "celt",
+      "bandwidth": "fb",
       "frame_size": 960,
       "channels": 1,
       "bitrate": 64000,
@@ -24,6 +40,22 @@
       "channels": 1,
       "bitrate": 64000,
       "lib_q": -21.66
+    },
+    {
+      "mode": "celt",
+      "bandwidth": "fb",
+      "frame_size": 120,
+      "channels": 2,
+      "bitrate": 128000,
+      "lib_q": -49.56
+    },
+    {
+      "mode": "celt",
+      "bandwidth": "fb",
+      "frame_size": 240,
+      "channels": 2,
+      "bitrate": 128000,
+      "lib_q": -33.26
     },
     {
       "mode": "silk",

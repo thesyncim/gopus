@@ -10,9 +10,13 @@ import (
 // They are intentionally tight to catch small quality regressions while allowing forward progress.
 // Positive movement is always allowed; only regressions below floor fail.
 var encoderLibopusGapFloorDB = map[string]float64{
+	"CELT-FB-2.5ms-mono-64k":    -0.10,
+	"CELT-FB-5ms-mono-64k":      -0.10,
 	"CELT-FB-20ms-mono-64k":     0.05,
 	"CELT-FB-20ms-stereo-128k":  0.05,
 	"CELT-FB-10ms-mono-64k":     -0.05,
+	"CELT-FB-2.5ms-stereo-128k": -0.10,
+	"CELT-FB-5ms-stereo-128k":   -0.10,
 	"SILK-NB-10ms-mono-16k":     -0.50,
 	"SILK-NB-20ms-mono-16k":     -0.10,
 	"SILK-NB-40ms-mono-16k":     -0.05,
