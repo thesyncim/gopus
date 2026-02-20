@@ -27,7 +27,7 @@ func decoderLossThresholdForCase(c libopusDecoderLossCaseFile, pattern string) d
 	// They intentionally track current behavior and prevent regressions while
 	// FEC/PLC quality parity is still being improved.
 	ratchet := map[string]decoderLossThresholds{
-		"celt-fb-20ms-mono-64k-plc|burst2_mid":   {minQ: -54.0, minCorr: 0.992, minRMS: 0.97, maxRMS: 1.03},
+		"celt-fb-20ms-mono-64k-plc|burst2_mid":   {minQ: -55.0, minCorr: 0.992, minRMS: 0.97, maxRMS: 1.03},
 		"celt-fb-20ms-mono-64k-plc|periodic9":    {minQ: -80.0, minCorr: 0.95, minRMS: 0.93, maxRMS: 1.03},
 		"celt-fb-20ms-mono-64k-plc|single_mid":   {minQ: -68.0, minCorr: 0.98, minRMS: 0.96, maxRMS: 1.03},
 		"hybrid-fb-20ms-mono-32k-fec|burst2_mid": {minQ: -68.0, minCorr: 0.98, minRMS: 0.98, maxRMS: 1.04},
