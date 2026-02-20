@@ -41,7 +41,7 @@ var encoderLibopusGapFloorAMD64OverrideDB = map[string]float64{
 	"SILK-WB-20ms-stereo-48k":   -0.25,
 	"Hybrid-SWB-10ms-mono-48k":  -0.20,
 	"Hybrid-SWB-20ms-mono-48k":  -0.45,
-	"Hybrid-SWB-40ms-mono-48k":  -0.30,
+	"Hybrid-SWB-40ms-mono-48k":  -0.50,
 	"Hybrid-FB-20ms-mono-64k":   -0.75,
 	"Hybrid-FB-60ms-mono-64k":   -0.75,
 	"Hybrid-FB-20ms-stereo-96k": -0.45,
