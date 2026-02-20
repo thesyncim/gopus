@@ -59,6 +59,10 @@ const (
 	EncoderLibopusGapGoodDB = -0.5
 	EncoderLibopusGapBaseDB = -1.0
 
+	// No-negative guard tolerance for compliance summary parity checks.
+	// Allows tiny floating-point jitter while preventing meaningful negative gaps.
+	EncoderLibopusNoNegativeGapToleranceDB = 0.01
+
 	// For SILK/Hybrid, we expect close libopus alignment after parity fixes.
 	// Current worst observed absolute gap is 0.69 dB (SILK NB 40ms).
 	EncoderLibopusSpeechGapTightDB = 1.0
@@ -70,6 +74,7 @@ func logEncoderComplianceStatus(t *testing.T) {
 	encoderComplianceLogOnce.Do(func() {
 		t.Log("TARGET: Encoder compliance is parity-first against libopus fixture references.")
 		t.Logf("TARGET: Gap thresholds (gopus SNR - libopus SNR): GOOD >= %.1f dB, BASE >= %.1f dB", EncoderLibopusGapGoodDB, EncoderLibopusGapBaseDB)
+		t.Logf("TARGET: No-negative gap guard: gopus SNR - libopus SNR >= -%.2f dB", EncoderLibopusNoNegativeGapToleranceDB)
 		t.Logf("TARGET: SILK/Hybrid parity guard: |gap| <= %.1f dB", EncoderLibopusSpeechGapTightDB)
 		t.Log("FALLBACK: Absolute Q thresholds (calibrated against libopus round-trip values) apply when fixtures unavailable.")
 	})
@@ -230,6 +235,10 @@ func TestEncoderComplianceSummary(t *testing.T) {
 
 	passed := 0
 	failed := 0
+	enforceNoNegativeGap := refAvailable && !allowNegativeComplianceGap()
+	if refAvailable && !enforceNoNegativeGap {
+		t.Log("INFO: no-negative gap guard disabled by GOPUS_ALLOW_NEGATIVE_COMPLIANCE_GAP")
+	}
 
 	for _, tc := range cases {
 		q, decoded := runEncoderComplianceTest(t, tc.mode, tc.bandwidth, tc.frameSize, tc.channels, tc.bitrate)
@@ -244,6 +253,9 @@ func TestEncoderComplianceSummary(t *testing.T) {
 				gapDB := snr - libSNR
 				speechMode := tc.mode == encoder.ModeSILK || tc.mode == encoder.ModeHybrid
 				if speechMode && math.Abs(gapDB) > EncoderLibopusSpeechGapTightDB {
+					status = "FAIL"
+					failed++
+				} else if enforceNoNegativeGap && gapDB < -EncoderLibopusNoNegativeGapToleranceDB {
 					status = "FAIL"
 					failed++
 				} else if gapDB >= EncoderLibopusGapGoodDB {
@@ -291,6 +303,9 @@ func TestEncoderComplianceSummary(t *testing.T) {
 	t.Logf("Total: %d passed, %d failed", passed, failed)
 	if refAvailable {
 		t.Logf("Gap thresholds (gopus SNR - libopus SNR): GOOD >= %.1f dB, BASE >= %.1f dB", EncoderLibopusGapGoodDB, EncoderLibopusGapBaseDB)
+		if enforceNoNegativeGap {
+			t.Logf("No-negative gap guard: gopus SNR - libopus SNR >= -%.2f dB", EncoderLibopusNoNegativeGapToleranceDB)
+		}
 		t.Logf("SILK/Hybrid parity guard: |gap| <= %.1f dB", EncoderLibopusSpeechGapTightDB)
 	}
 }
@@ -773,6 +788,11 @@ func checkOpusdecAvailableEncoder() bool {
 
 func strictLibopusReferenceRequired() bool {
 	v := strings.TrimSpace(strings.ToLower(os.Getenv("GOPUS_STRICT_LIBOPUS_REF")))
+	return v == "1" || v == "true" || v == "yes"
+}
+
+func allowNegativeComplianceGap() bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv("GOPUS_ALLOW_NEGATIVE_COMPLIANCE_GAP")))
 	return v == "1" || v == "true" || v == "yes"
 }
 

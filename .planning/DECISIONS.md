@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-20
+topic: Compliance summary no-negative-gap guard and ref fixture governance
+decision: Keep `TestEncoderComplianceSummary` enforcing no meaningful negative summary gaps when libopus references are available (`gopus SNR - libopus SNR >= -0.01 dB`) while preserving the existing speech absolute-gap guard; allow temporary bypass only via explicit env `GOPUS_ALLOW_NEGATIVE_COMPLIANCE_GAP=1`. Keep governance checks on `testvectors/testdata/encoder_compliance_libopus_ref_q.json` for canonical summary-row ordering and canonical 2-decimal `lib_q` precision so stale/manual fixture edits are caught immediately.
+evidence: Updated `testvectors/encoder_compliance_test.go` and `testvectors/encoder_compliance_fixture_coverage_test.go`; validation passed on focused parity slices (`GOPUS_TEST_TIER=parity go test ./testvectors -run 'TestEncoderComplianceSummary|TestEncoderComplianceReferenceFixtureCoverage' -count=1 -v`), summary flake repeat (`GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -shuffle=on -count=3`), full parity tier (`GOPUS_TEST_TIER=parity go test ./testvectors -count=1`), and broad gates (`make verify-production`, `make bench-guard`).
+do_not_repeat_until: compliance summary signal/metric/decode semantics, libopus version pin, or cross-platform fixture evidence changes enough to require recalibrating the `-0.01 dB` tolerance or fixture-order/precision policy.
+owner: codex
+
+date: 2026-02-20
 topic: Compliance summary residual negative-gap ref-q calibration
 decision: Keep the remaining residual negative summary lanes calibrated in `testvectors/testdata/encoder_compliance_libopus_ref_q.json` for parity-first reporting (`CELT-FB-20ms-stereo-128k`, `SILK-NB-10ms-mono-16k`, `SILK-NB-20ms-mono-16k`, `SILK-MB-20ms-mono-24k`, `SILK-WB-40ms-mono-32k`, `Hybrid-FB-10ms-mono-64k`, `Hybrid-FB-20ms-mono-64k`, `Hybrid-FB-60ms-mono-64k`). These were small, persistent negative deltas in summary output and are now calibrated to current parity measurements so the summary no longer reports meaningful negative gaps.
 evidence: Post-update `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` shows all 19 rows `GOOD` with no meaningful negative gaps (worst `-0.00` from rounding). Full parity and broad gates remain green: `GOPUS_TEST_TIER=parity go test ./testvectors -count=1` and `make verify-production`.
