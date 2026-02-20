@@ -1844,31 +1844,59 @@ func (e *Encoder) alignSilkMonoInput(in []float32) []float32 {
 // updateOpusVAD updates the Opus-level VAD activity state from the tonality analyzer.
 // This mirrors opus_encoder.c behavior where SILK VAD is suppressed if Opus VAD is inactive.
 func (e *Encoder) updateOpusVAD(pcm []float64, frameSize int) {
-	if e.lastAnalysisFresh && e.lastAnalysisValid {
-		e.lastAnalysisFresh = false
-		e.lastOpusVADProb = e.lastAnalysisInfo.VADProb
-		e.lastOpusVADValid = true
-		e.lastOpusVADActive = e.lastAnalysisInfo.VADProb >= DTXActivityThreshold
-		return
-	}
-	if e.analyzer == nil || frameSize <= 0 || len(pcm) == 0 {
+	if frameSize <= 0 || len(pcm) == 0 {
 		e.lastOpusVADValid = false
 		e.lastOpusVADActive = true
 		e.lastOpusVADProb = 1.0
 		return
 	}
-	pcm32 := e.scratchPCM32[:len(pcm)]
-	for i, v := range pcm {
-		pcm32[i] = float32(v)
+
+	analysisValid := false
+	analysisProb := float32(1.0)
+
+	if e.lastAnalysisFresh {
+		e.lastAnalysisFresh = false
+		analysisValid = e.lastAnalysisValid
+		analysisProb = e.lastAnalysisInfo.VADProb
+	} else if e.analyzer != nil {
+		pcm32 := e.scratchPCM32[:len(pcm)]
+		for i, v := range pcm {
+			pcm32[i] = float32(v)
+		}
+		info := e.analyzer.RunAnalysis(pcm32, frameSize, e.channels)
+		analysisValid = info.Valid
+		analysisProb = info.VADProb
 	}
-	info := e.analyzer.RunAnalysis(pcm32, frameSize, e.channels)
-	e.lastOpusVADProb = info.VADProb
-	e.lastOpusVADValid = info.Valid
-	if !info.Valid {
+
+	// Match libopus peak signal energy tracking in opus_encoder.c.
+	// Update when analysis is invalid or clearly active (> threshold), and skip
+	// true digital silence frames.
+	if e.dtx != nil && (!analysisValid || analysisProb > DTXActivityThreshold) && !isDigitalSilence(pcm, e.lsbDepth) {
+		frameEnergy := computeFrameEnergy(pcm)
+		e.dtx.peakSignalEnergy = math.Max(0.999*e.dtx.peakSignalEnergy, frameEnergy)
+	}
+
+	e.lastOpusVADProb = analysisProb
+	e.lastOpusVADValid = analysisValid
+	if !analysisValid {
+		// Mirror libopus activity=VAD_NO_DECISION behavior for SILK/hybrid lanes:
+		// do not clamp SILK VAD when Opus analysis is unavailable.
 		e.lastOpusVADActive = true
 		return
 	}
-	e.lastOpusVADActive = info.VADProb >= DTXActivityThreshold
+
+	active := analysisProb >= DTXActivityThreshold
+	if !active {
+		// Match libopus safety net: if this "noise" frame is loud enough
+		// relative to the tracked peak, keep activity active.
+		frameEnergy := computeFrameEnergy(pcm)
+		peak := 0.0
+		if e.dtx != nil {
+			peak = e.dtx.peakSignalEnergy
+		}
+		active = peak < pseudoSNRThreshold*frameEnergy
+	}
+	e.lastOpusVADActive = active
 }
 
 func computeSilkVADWithState(state *VADState, mono []float32, frameSamples, fsKHz int) (int, bool) {
@@ -1901,6 +1929,20 @@ func applySilkVADFrameState(enc *silk.Encoder, state silk.VADFrameState) {
 	enc.SetVADState(state.SpeechActivityQ8, state.InputTiltQ15, state.InputQualityBandsQ15)
 }
 
+// applyOpusVADToSilkState mirrors libopus silk_encode_do_VAD_Fxx:
+// when Opus VAD is inactive but SILK VAD is active, clamp SILK activity to
+// just below threshold so SILK emits a no-voice frame.
+func (e *Encoder) applyOpusVADToSilkState(state silk.VADFrameState, active bool) (silk.VADFrameState, bool) {
+	if !state.Valid {
+		return state, active
+	}
+	if e.lastOpusVADValid && !e.lastOpusVADActive && state.SpeechActivityQ8 >= speechActivityThresholdQ8 {
+		state.SpeechActivityQ8 = speechActivityThresholdQ8 - 1
+		active = false
+	}
+	return state, active
+}
+
 func (e *Encoder) computeSilkVAD(mono []float32, frameSamples, fsKHz int) bool {
 	if frameSamples <= 0 || fsKHz <= 0 {
 		e.lastVADValid = false
@@ -1912,6 +1954,7 @@ func (e *Encoder) computeSilkVAD(mono []float32, frameSamples, fsKHz int) bool {
 		e.lastVADValid = false
 		return false
 	}
+	state, active = e.applyOpusVADToSilkState(state, active)
 	e.lastVADActivityQ8 = state.SpeechActivityQ8
 	e.lastVADInputTiltQ15 = state.InputTiltQ15
 	e.lastVADInputQualityBandsQ15 = state.InputQualityBandsQ15
@@ -1925,7 +1968,8 @@ func (e *Encoder) computeSilkVADSide(mono []float32, frameSamples, fsKHz int) bo
 		return false
 	}
 	e.ensureSilkVADSide()
-	_, active := computeSilkVADFrameState(e.silkVADSide, mono, frameSamples, fsKHz)
+	state, active := computeSilkVADFrameState(e.silkVADSide, mono, frameSamples, fsKHz)
+	state, active = e.applyOpusVADToSilkState(state, active)
 	return active
 }
 
@@ -1972,6 +2016,7 @@ func (e *Encoder) computeSilkVADFlagsAndStates(pcm []float32, fsKHz int) ([]bool
 		}
 		framePCM := pcm[start:end]
 		state, active := computeSilkVADFrameState(e.silkVAD, framePCM, len(framePCM), fsKHz)
+		state, active = e.applyOpusVADToSilkState(state, active)
 		flags[i] = active
 		states[i] = state
 		if state.Valid {
@@ -2008,6 +2053,7 @@ func (e *Encoder) computeSilkVADSideFlagsAndStates(pcm []float32, fsKHz int) ([]
 		}
 		framePCM := pcm[start:end]
 		state, active := computeSilkVADFrameState(e.silkVADSide, framePCM, len(framePCM), fsKHz)
+		state, active = e.applyOpusVADToSilkState(state, active)
 		flags[i] = active
 		states[i] = state
 	}
