@@ -870,6 +870,40 @@ func TestDecodeWithFEC_ProvidedCELTPacketFallsBackToPLC(t *testing.T) {
 	}
 }
 
+func TestDecodeWithFEC_ProvidedCELTPacketClearsStoredFECState(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	// Seed FEC state from a SILK packet.
+	silkPacket := make([]byte, 100)
+	silkPacket[0] = GenerateTOC(9, false, 0)
+	for i := 1; i < len(silkPacket); i++ {
+		silkPacket[i] = byte(i)
+	}
+	pcm := make([]float32, 960)
+	if _, err := dec.Decode(silkPacket, pcm); err != nil {
+		t.Fatalf("Decode SILK packet error: %v", err)
+	}
+	if !dec.hasFEC {
+		t.Fatalf("hasFEC should be true after SILK decode")
+	}
+
+	// CELT packet should fallback PLC and clear stale stored FEC state.
+	celtPacket := make([]byte, 100)
+	celtPacket[0] = GenerateTOC(31, false, 0)
+	for i := 1; i < len(celtPacket); i++ {
+		celtPacket[i] = byte(i)
+	}
+	if _, err := dec.DecodeWithFEC(celtPacket, pcm, true); err != nil {
+		t.Fatalf("DecodeWithFEC(CELT packet, fec=true) error: %v", err)
+	}
+	if dec.hasFEC {
+		t.Fatalf("hasFEC should be false after CELT-based decode_fec fallback")
+	}
+}
+
 // TestDecodeWithFEC_NoFECRequested verifies that when fec=false, DecodeWithFEC
 // behaves identically to Decode.
 func TestDecodeWithFEC_NoFECRequested(t *testing.T) {
