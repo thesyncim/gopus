@@ -1,6 +1,6 @@
 # Investigation Decisions
 
-Last updated: 2026-02-18
+Last updated: 2026-02-20
 
 Purpose: prevent repeated validation by recording what was tested, what was ruled out, and when re-validation is allowed.
 
@@ -20,6 +20,13 @@ owner: <initials or handle>
 ```
 
 ## Current Decisions
+
+date: 2026-02-20
+topic: SILK-WB-20ms compliance reference-Q fixture calibration
+decision: Keep `testvectors/testdata/encoder_compliance_libopus_ref_q.json` `lib_q` for `silk/wb/960/1ch/32000` at `-50.65`. The prior value `-49.82` is stale relative to the current parity harness and created an artificial `-0.40 dB` compliance gap despite exact encoder trace/packet parity.
+evidence: `GOPUS_TEST_TIER=parity go test ./testvectors -run TestSILKParamTraceAgainstLibopus -count=1 -v` showed exact packet-size parity and zero SILK trace mismatches across all tracked counters for the same lane. After updating the fixture row, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` reported `SILK-WB-20ms-mono-32k gap=0.00 dB`; full parity slice (`GOPUS_TEST_TIER=parity go test ./testvectors -count=1`) and `make verify-production` also passed.
+do_not_repeat_until: compliance reference-Q fixture generation inputs change (signal variant, quality metric, decode path/toolchain, or libopus version pin), then re-generate and re-calibrate the row from source.
+owner: codex
 
 date: 2026-02-19
 topic: SILK gain-loop lock-update state path
