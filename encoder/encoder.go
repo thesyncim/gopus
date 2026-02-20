@@ -156,7 +156,8 @@ type Encoder struct {
 	autoBandwidth     types.Bandwidth // Last auto-selected bandwidth (for hysteresis)
 	first             bool            // First frame flag
 	lbrrCoded         bool            // Previous frame FEC coding decision
-	userBandwidth     types.Bandwidth // User-set bandwidth (0 = auto)
+	userBandwidth     types.Bandwidth // User-set bandwidth value
+	userBandwidthSet  bool            // Whether userBandwidth is explicitly set
 	widthMem          StereoWidthMem  // Stateful stereo width computation memory
 	toMono            int             // Stereo→mono transition countdown (0=inactive)
 	fecConfig         int             // FEC config: 0=auto, 1=force-on, 2=music-safe
@@ -280,6 +281,7 @@ func (e *Encoder) VoIPApplication() bool {
 func (e *Encoder) SetBandwidth(bandwidth types.Bandwidth) {
 	e.bandwidth = bandwidth
 	e.userBandwidth = bandwidth
+	e.userBandwidthSet = true
 	if e.celtEncoder != nil {
 		e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 	}

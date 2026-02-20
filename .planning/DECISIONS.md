@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-20
+topic: Auto-bandwidth Narrowband user override sentinel fix
+decision: Do not use `types.Bandwidth` zero-value as an "unset/auto" sentinel for user-forced bandwidth. Keep explicit `userBandwidthSet` state so `SetBandwidth(BandwidthNarrowband)` remains a real override in auto-mode clamp logic.
+evidence: Updated `encoder/encoder.go` (`userBandwidthSet` field + `SetBandwidth` assignment) and `encoder/auto_mode.go` (`autoClampBandwidth` checks switched from `userBandwidth==0` logic to explicit flag). Tightened `encoder/mode_trace_fixture_test.go` to fail on TOC config drift (`maxConfigMismatchRatio`). Validation passed: `go test ./encoder -run TestModeTraceFixtureParityWithLibopus -count=1 -v` (all cases now `configMismatch=0`), `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestEncoderVariantProfileProvenanceAudit -count=1 -v`, `GOPUS_TEST_TIER=parity go test ./testvectors -run 'TestEncoderVariantProfileParityAgainstLibopusFixture|TestEncoderComplianceSummary' -count=1 -v`, and `make verify-production`.
+do_not_repeat_until: bandwidth enum definitions, auto-mode clamp semantics, or API contract for `SetBandwidth` are redesigned; if so, re-validate that Narrowband forced-bandwidth requests still produce NB TOC configs in mode-trace fixtures.
+owner: codex
+
+date: 2026-02-20
 topic: Hybrid decoder PLC CELT accumulation unit scaling
 decision: Keep Hybrid `decodePLC` CELT concealment in decoder PCM units by scaling `plc.ConcealCELTHybrid(...)` output by `1/32768` before SILK+CELT accumulation, and keep hybrid decoder-loss parity ratchets for `burst2_mid`/`periodic9` centered near unity RMS (not inflated >1.1 floors from pre-fix behavior).
 evidence: Updated `hybrid/hybrid.go` (`decodePLC` CELT scaling) and `testvectors/decoder_loss_parity_test.go` hybrid ratchet bounds; validations passed: `go test ./hybrid -count=1`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`, `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`, full parity tier `GOPUS_TEST_TIER=parity go test ./testvectors -count=1`, and `make verify-production`. Hybrid weak lanes improved from low-correlation/high-drift behavior to high-correlation near-unity RMS (`burst2_mid corr 0.80 -> 0.9885`, `periodic9 corr 0.83 -> 0.9901`, RMS `~1.006–1.009`).
