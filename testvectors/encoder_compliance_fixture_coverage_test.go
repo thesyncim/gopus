@@ -18,6 +18,12 @@ func TestEncoderComplianceReferenceFixtureCoverage(t *testing.T) {
 	}
 
 	seen := make(map[string]struct{}, len(fixture.Cases))
+	expectedOrder := make(map[string]int, len(encoderComplianceSummaryCases()))
+	for idx, tc := range encoderComplianceSummaryCases() {
+		orderKey := fmt.Sprintf("%d/%d/%d/%d/%d", tc.mode, tc.bandwidth, tc.frameSize, tc.channels, tc.bitrate)
+		expectedOrder[orderKey] = idx
+	}
+	prevOrderIndex := -1
 	for i, row := range fixture.Cases {
 		mode, err := parseFixtureMode(row.Mode)
 		if err != nil {
@@ -32,8 +38,20 @@ func TestEncoderComplianceReferenceFixtureCoverage(t *testing.T) {
 			t.Fatalf("duplicate reference fixture row for key %s", key)
 		}
 		seen[key] = struct{}{}
+		orderIndex, ok := expectedOrder[key]
+		if !ok {
+			t.Fatalf("unexpected reference fixture row not in summary matrix: mode=%s bandwidth=%s frame=%d channels=%d bitrate=%d",
+				row.Mode, row.Bandwidth, row.FrameSize, row.Channels, row.Bitrate)
+		}
+		if i > 0 && orderIndex < prevOrderIndex {
+			t.Fatalf("reference fixture out of canonical summary order at row %d: idx=%d prev=%d", i, orderIndex, prevOrderIndex)
+		}
+		prevOrderIndex = orderIndex
 		if math.IsNaN(row.LibQ) || math.IsInf(row.LibQ, 0) {
 			t.Fatalf("fixture row %d has invalid lib_q %v", i, row.LibQ)
+		}
+		if rounded := math.Round(row.LibQ*100) / 100; math.Abs(row.LibQ-rounded) > 1e-9 {
+			t.Fatalf("fixture row %d has non-canonical lib_q precision %.10f (expected 2 decimals)", i, row.LibQ)
 		}
 	}
 
