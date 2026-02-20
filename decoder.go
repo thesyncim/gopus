@@ -364,9 +364,14 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 	d.lastDataLen = len(data)
 
 	// Store packet info for FEC recovery on next lost packet.
-	// LBRR is only available in SILK and Hybrid modes.
+	// LBRR is only available in SILK and Hybrid modes and uses the first
+	// frame payload bytes (excluding packet-level TOC/framing headers).
 	if toc.Mode == ModeSILK || toc.Mode == ModeHybrid {
-		d.storeFECData(data, toc, frameCount, frameSize)
+		firstFrameData, err := extractFirstFramePayload(data, toc)
+		if err != nil {
+			return 0, err
+		}
+		d.storeFECData(firstFrameData, toc, frameCount, frameSize)
 	} else {
 		d.hasFEC = false
 	}
@@ -417,23 +422,33 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 		if err != nil {
 			return 0, err
 		}
+		frameSize := toc.FrameSize
+		if frameSize <= 0 {
+			frameSize = d.lastFrameSize
+		}
+		if frameSize <= 0 {
+			frameSize = 960
+		}
+
+		// Match libopus decode_fec gating:
+		// - CELT packets have no LBRR.
+		// - If the previous decoded mode was CELT, SILK FEC context is unavailable.
+		if toc.Mode == ModeCELT || d.prevMode == ModeCELT {
+			return d.decodePLCForFEC(pcm, frameSize)
+		}
 
 		// LBRR is only available in SILK/Hybrid. CELT-only falls back to PLC.
 		if toc.Mode == ModeSILK || toc.Mode == ModeHybrid {
-			// decode_fec granularity follows the provided packet's frame size.
-			frameSize := toc.FrameSize
-			if frameSize <= 0 {
-				frameSize = d.lastFrameSize
+			firstFrameData, err := extractFirstFramePayload(data, toc)
+			if err != nil {
+				return 0, err
 			}
-			if frameSize <= 0 {
-				frameSize = 960
-			}
-			d.storeFECData(data, toc, frameCount, frameSize)
+			d.storeFECData(firstFrameData, toc, frameCount, frameSize)
 			if n, err := d.decodeFECFrame(pcm); err == nil {
 				return n, nil
 			}
 		}
-		return d.Decode(nil, pcm)
+		return d.decodePLCForFEC(pcm, frameSize)
 	}
 
 	// FEC decode requested for a lost packet (data is nil)
@@ -447,8 +462,153 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 		// If FEC decode fails, fall back to PLC
 	}
 
-	// No FEC available or FEC failed, fall back to standard PLC
-	return d.Decode(nil, pcm)
+	// No FEC available or FEC failed, fall back to PLC at last known frame size.
+	return d.decodePLCForFEC(pcm, d.lastFrameSize)
+}
+
+// decodePLCForFEC decodes PLC for exactly frameSize samples.
+// This matches libopus decode_fec fallback granularity.
+func (d *Decoder) decodePLCForFEC(pcm []float32, frameSize int) (int, error) {
+	if frameSize <= 0 {
+		frameSize = d.lastFrameSize
+	}
+	if frameSize <= 0 {
+		frameSize = 960
+	}
+	if frameSize > d.maxPacketSamples {
+		return 0, ErrPacketTooLarge
+	}
+	needed := frameSize * d.channels
+	if len(pcm) < needed {
+		return 0, ErrBufferTooSmall
+	}
+
+	remaining := frameSize
+	offset := 0
+	for remaining > 0 {
+		chunk := min(remaining, 48000/50)
+		n, err := d.decodeOpusFrameInto(
+			pcm[offset*d.channels:],
+			nil,
+			chunk,
+			d.lastFrameSize,
+			d.prevMode,
+			d.lastBandwidth,
+			d.prevPacketStereo,
+		)
+		if err != nil {
+			return 0, err
+		}
+		if n == 0 {
+			break
+		}
+		offset += n
+		remaining -= n
+	}
+
+	d.applyOutputGain(pcm[:frameSize*d.channels])
+	d.lastFrameSize = frameSize
+	d.lastPacketDuration = frameSize
+	d.lastDataLen = 0
+	return frameSize, nil
+}
+
+// extractFirstFramePayload extracts the first Opus frame payload bytes from
+// a packet. This excludes packet-level TOC and framing headers.
+func extractFirstFramePayload(data []byte, toc TOC) ([]byte, error) {
+	if len(data) <= 1 {
+		return nil, ErrPacketTooShort
+	}
+
+	switch toc.FrameCode {
+	case 0:
+		return data[1:], nil
+	case 1:
+		frameDataLen := len(data) - 1
+		if frameDataLen%2 != 0 {
+			return nil, ErrInvalidPacket
+		}
+		frameLen := frameDataLen / 2
+		if frameLen <= 0 || 1+frameLen > len(data) {
+			return nil, ErrInvalidPacket
+		}
+		return data[1 : 1+frameLen], nil
+	case 2:
+		if len(data) < 2 {
+			return nil, ErrPacketTooShort
+		}
+		frame1Len, bytesRead, err := parseFrameLength(data, 1)
+		if err != nil {
+			return nil, err
+		}
+		headerLen := 1 + bytesRead
+		if frame1Len <= 0 || headerLen+frame1Len > len(data) {
+			return nil, ErrInvalidPacket
+		}
+		return data[headerLen : headerLen+frame1Len], nil
+	case 3:
+		if len(data) < 2 {
+			return nil, ErrPacketTooShort
+		}
+		frameCountByte := data[1]
+		vbr := (frameCountByte & 0x80) != 0
+		hasPadding := (frameCountByte & 0x40) != 0
+		m := int(frameCountByte & 0x3F)
+		if m == 0 || m > 48 {
+			return nil, ErrInvalidFrameCount
+		}
+
+		offset := 2
+		padding := 0
+		if hasPadding {
+			for {
+				if offset >= len(data) {
+					return nil, ErrPacketTooShort
+				}
+				padByte := int(data[offset])
+				offset++
+				if padByte == 255 {
+					padding += 254
+				} else {
+					padding += padByte
+				}
+				if padByte < 255 {
+					break
+				}
+			}
+		}
+
+		if vbr {
+			frameLen, bytesRead, err := parseFrameLength(data, offset)
+			if err != nil {
+				return nil, err
+			}
+			offset += bytesRead
+			for i := 1; i < m-1; i++ {
+				_, readN, err := parseFrameLength(data, offset)
+				if err != nil {
+					return nil, err
+				}
+				offset += readN
+			}
+			if frameLen <= 0 || offset+frameLen > len(data)-padding {
+				return nil, ErrInvalidPacket
+			}
+			return data[offset : offset+frameLen], nil
+		}
+
+		frameDataLen := len(data) - offset - padding
+		if frameDataLen < 0 || frameDataLen%m != 0 {
+			return nil, ErrInvalidPacket
+		}
+		frameLen := frameDataLen / m
+		if frameLen <= 0 || offset+frameLen > len(data)-padding {
+			return nil, ErrInvalidPacket
+		}
+		return data[offset : offset+frameLen], nil
+	default:
+		return nil, ErrInvalidPacket
+	}
 }
 
 // storeFECData stores the current packet's information for FEC recovery.
@@ -504,6 +664,16 @@ func (d *Decoder) decodeFECFrame(pcm []float32) (int, error) {
 	}
 	d.applyOutputGain(pcm[:n*d.channels])
 
+	// Update decoder state cadence to match libopus decode_fec behavior.
+	d.prevMode = d.fecMode
+	d.lastBandwidth = d.fecBandwidth
+	d.prevPacketStereo = d.fecStereo
+	d.lastFrameSize = frameSize
+	d.lastPacketDuration = frameSize
+	d.lastDataLen = len(d.fecData)
+	d.prevRedundancy = false
+	d.haveDecoded = true
+
 	// Clear FEC data after use to prevent reuse
 	d.hasFEC = false
 
@@ -547,9 +717,6 @@ func (d *Decoder) decodeSILKFEC(pcm []float32, frameSize int) (int, error) {
 	}
 	copy(pcm[:needed], fecSamples)
 
-	d.lastFrameSize = frameSize
-	d.haveDecoded = true
-
 	return frameSize, nil
 }
 
@@ -576,8 +743,20 @@ func (d *Decoder) decodeHybridFEC(pcm []float32, frameSize int) (int, error) {
 	}
 	copy(pcm[:needed], fecSamples)
 
-	d.lastFrameSize = frameSize
-	d.haveDecoded = true
+	// In libopus decode_fec for Hybrid, CELT is decoded with NULL data (PLC)
+	// and accumulated on top of the SILK LBRR output.
+	celtBW := celt.BandwidthFromOpusConfig(int(d.fecBandwidth))
+	d.celtDecoder.SetBandwidth(celtBW)
+	if d.haveDecoded && d.prevMode != ModeHybrid && !d.prevRedundancy {
+		d.celtDecoder.Reset()
+		d.celtDecoder.SetBandwidth(celtBW)
+	}
+	celtSamples, err := d.celtDecoder.DecodeFrameWithPacketStereo(nil, min(frameSize, 48000/50), d.fecStereo)
+	if err != nil {
+		return 0, err
+	}
+	addFloat64ToFloat32(pcm[:needed], celtSamples)
+	d.mainDecodeRng = d.celtDecoder.FinalRange()
 
 	return frameSize, nil
 }
