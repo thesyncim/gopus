@@ -100,3 +100,4 @@ Quick commands:
 - claim: id=codex-20260220-193223; agent=codex; status=released; paths=encoder/,hybrid/,testvectors/,.planning/; updated=2026-02-20T19:42:32Z; expires=2026-02-20T19:42:32Z; note=close HYBRID-SWB-10ms residual variant parity gap
 - claim: id=codex-20260220-194247; agent=codex; status=released; paths=decoder.go,decoder_test.go,testvectors/,.planning/; updated=2026-02-20T19:56:17Z; expires=2026-02-20T19:56:17Z; note=investigate and fix FEC quality/parity gap against libopus
 - claim: id=codex-20260220-205947; agent=codex; status=active; paths=encoder/,hybrid/,testvectors/,.planning/; updated=2026-02-20T20:59:47Z; expires=2026-02-21T00:59:47Z; note=close HYBRID-SWB-10ms residual chirp parity gap via libopus source-port
+- claim: id=codex-20260220-222951; agent=codex; status=active; paths=decoder.go,decoder_test.go; updated=2026-02-20T22:29:51Z; expires=2026-02-21T02:29:51Z; note=align decode_fec CELT gating to libopus mode semantics
