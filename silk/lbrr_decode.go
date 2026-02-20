@@ -7,6 +7,7 @@
 package silk
 
 import (
+	"github.com/thesyncim/gopus/plc"
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
@@ -143,9 +144,8 @@ func (d *Decoder) DecodeFEC(
 		silkUpdateOutBuf(stMid, frameOut)
 
 		// Apply PLC glue frames for smooth transition
-		silkPLCGlueFrames(stMid, frameOut, frameLength)
-
 		stMid.lossCnt = 0
+		silkPLCGlueFrames(stMid, frameOut, frameLength)
 		stMid.lagPrev = ctrl.pitchL[stMid.nbSubfr-1]
 		stMid.prevSignalType = int(stMid.indices.signalType)
 		stMid.firstFrameAfterReset = false
@@ -185,6 +185,13 @@ func (d *Decoder) DecodeFEC(
 			stereoOutput[i*2+1] = s
 		}
 		output = stereoOutput
+	}
+
+	// Match normal SILK decode cadence: successful decode resets PLC loss
+	// accumulator and records last-frame params for subsequent concealment.
+	if d.plcState != nil {
+		d.plcState.Reset()
+		d.plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, outputChannels)
 	}
 
 	d.haveDecoded = true
