@@ -435,6 +435,7 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 		// - CELT packets have no LBRR.
 		// - If the previous decoded mode was CELT, SILK FEC context is unavailable.
 		if toc.Mode == ModeCELT || d.prevMode == ModeCELT {
+			d.clearFECState()
 			return d.decodePLCForFEC(pcm, frameSize)
 		}
 
@@ -448,6 +449,9 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 			if n, err := d.decodeFECFrame(pcm); err == nil {
 				return n, nil
 			}
+			// If decode_fec fails for this provided packet, clear stale state so
+			// the old FEC frame is not reused on later loss packets.
+			d.clearFECState()
 		}
 		// Align decode_fec fallback cadence with the provided packet context.
 		return d.decodePLCForFECWithState(pcm, frameSize, toc.Mode, toc.Bandwidth, toc.Stereo)
@@ -461,6 +465,8 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 		if err == nil {
 			return n, nil
 		}
+		// If FEC decode fails, consume and clear stale state to avoid reuse.
+		d.clearFECState()
 		// If FEC decode fails, fall back to PLC
 	}
 
@@ -689,9 +695,19 @@ func (d *Decoder) decodeFECFrame(pcm []float32) (int, error) {
 	d.haveDecoded = true
 
 	// Clear FEC data after use to prevent reuse
-	d.hasFEC = false
+	d.clearFECState()
 
 	return n, nil
+}
+
+func (d *Decoder) clearFECState() {
+	d.hasFEC = false
+	d.fecFrameSize = 0
+	d.fecFrameCount = 0
+	d.fecData = d.fecData[:0]
+	d.fecMode = ModeHybrid
+	d.fecBandwidth = BandwidthFullband
+	d.fecStereo = false
 }
 
 // decodeLBRRFrames decodes LBRR (FEC) data from the stored packet.
@@ -892,9 +908,7 @@ func (d *Decoder) Reset() {
 	d.softClipMem[1] = 0
 
 	// Clear FEC state
-	d.hasFEC = false
-	d.fecFrameSize = 0
-	d.fecFrameCount = 0
+	d.clearFECState()
 }
 
 // Channels returns the number of audio channels (1 or 2).
