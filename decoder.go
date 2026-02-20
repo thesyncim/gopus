@@ -515,14 +515,15 @@ func (d *Decoder) decodePLCForFECWithState(
 	offset := 0
 	for remaining > 0 {
 		chunk := min(remaining, 48000/50)
-		n, err := d.decodeOpusFrameInto(
+		n, err := d.decodeOpusFrameIntoWithStatePolicy(
 			pcm[offset*d.channels:],
 			nil,
 			chunk,
-			d.lastFrameSize,
+			frameSize,
 			mode,
 			bandwidth,
 			packetStereo,
+			false,
 		)
 		if err != nil {
 			return 0, err
