@@ -336,6 +336,7 @@ func (d *Decoder) decodePLC(frameSize int, stereo bool) ([]float64, error) {
 
 	// Combine SILK and CELT
 	output := make([]float64, totalSamples)
+	celtScale := 1.0 / 32768.0
 	for i := 0; i < totalSamples; i++ {
 		silkSample := float64(0)
 		celtSample := float64(0)
@@ -344,7 +345,7 @@ func (d *Decoder) decodePLC(frameSize int, stereo bool) ([]float64, error) {
 			silkSample = silkAligned[i]
 		}
 		if i < len(celtConcealed) {
-			celtSample = celtConcealed[i]
+			celtSample = celtConcealed[i] * celtScale
 		}
 
 		output[i] = silkSample + celtSample
