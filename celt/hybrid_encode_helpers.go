@@ -177,9 +177,192 @@ func (e *Encoder) UpdateConsecTransient(transient bool) {
 	}
 }
 
+// StabilizeEnergiesBeforeCoarseHybrid mirrors libopus pre-coarse stabilization:
+// if abs(bandLogE-oldBandE) < 2, bias current energy toward previous quant error.
+func (e *Encoder) StabilizeEnergiesBeforeCoarseHybrid(energies []float64, nbBands int) {
+	if nbBands <= 0 || len(energies) == 0 {
+		return
+	}
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+	for c := 0; c < e.channels; c++ {
+		baseState := c * MaxBands
+		baseFrame := c * nbBands
+		for band := 0; band < nbBands; band++ {
+			stateIdx := baseState + band
+			frameIdx := baseFrame + band
+			if frameIdx >= len(energies) || stateIdx >= len(e.energyError) || stateIdx >= len(e.prevEnergy) {
+				continue
+			}
+			oldE := float32(e.prevEnergy[stateIdx])
+			curE := float32(energies[frameIdx])
+			diff := curE - oldE
+			if diff < 0 {
+				diff = -diff
+			}
+			if diff < 2.0 {
+				energies[frameIdx] = float64(curE - 0.25*float32(e.energyError[stateIdx]))
+			}
+		}
+	}
+}
+
+// UpdateEnergyErrorHybrid mirrors libopus energyError cadence in hybrid mode:
+// clear all bands, then store clipped post-finalise residuals for coded bands.
+func (e *Encoder) UpdateEnergyErrorHybrid(energies, quantizedEnergies []float64, start, end, nbBands int) {
+	if len(e.energyError) == 0 || nbBands <= 0 {
+		return
+	}
+	if start < 0 {
+		start = 0
+	}
+	if end > nbBands {
+		end = nbBands
+	}
+	if end > MaxBands {
+		end = MaxBands
+	}
+	if start >= end {
+		for i := range e.energyError {
+			e.energyError[i] = 0
+		}
+		return
+	}
+
+	// libopus clears energyError every frame before writing coded-band residuals.
+	for i := range e.energyError {
+		e.energyError[i] = 0
+	}
+
+	for c := 0; c < e.channels; c++ {
+		baseState := c * MaxBands
+		baseFrame := c * nbBands
+		for band := start; band < end; band++ {
+			stateIdx := baseState + band
+			frameIdx := baseFrame + band
+			if stateIdx >= len(e.energyError) || frameIdx >= len(energies) || frameIdx >= len(quantizedEnergies) {
+				continue
+			}
+			err := float32(energies[frameIdx] - quantizedEnergies[frameIdx])
+			if err < -0.5 {
+				err = -0.5
+			} else if err > 0.5 {
+				err = 0.5
+			}
+			e.energyError[stateIdx] = float64(err)
+		}
+	}
+}
+
+// UpdateEnergyErrorHybridFromError mirrors libopus hybrid cadence exactly:
+// clear all bands, then store clipped post-finalise residual error[] values for
+// coded bands. Residuals come from scratch.coarseError updated by coarse/fine/final.
+func (e *Encoder) UpdateEnergyErrorHybridFromError(start, end, nbBands int) {
+	if len(e.energyError) == 0 || nbBands <= 0 {
+		return
+	}
+	if start < 0 {
+		start = 0
+	}
+	if end > nbBands {
+		end = nbBands
+	}
+	if end > MaxBands {
+		end = MaxBands
+	}
+
+	for i := range e.energyError {
+		e.energyError[i] = 0
+	}
+	if start >= end {
+		return
+	}
+
+	channels := e.channels
+	if channels < 1 {
+		channels = 1
+	}
+	errorVals := ensureFloat64Slice(&e.scratch.coarseError, nbBands*channels)
+
+	for c := 0; c < channels; c++ {
+		baseState := c * MaxBands
+		baseFrame := c * nbBands
+		for band := start; band < end; band++ {
+			stateIdx := baseState + band
+			frameIdx := baseFrame + band
+			if stateIdx >= len(e.energyError) || frameIdx >= len(errorVals) {
+				continue
+			}
+			err := float32(errorVals[frameIdx])
+			if err < -0.5 {
+				err = -0.5
+			} else if err > 0.5 {
+				err = 0.5
+			}
+			e.energyError[stateIdx] = float64(err)
+		}
+	}
+}
+
+// UpdateHybridPrefilterHistory mirrors the run_prefilter() state updates used by
+// libopus hybrid mode when prefilter signaling is disabled.
+func (e *Encoder) UpdateHybridPrefilterHistory(preemph []float64, frameSize int) {
+	if frameSize <= 0 || e.channels <= 0 || len(preemph) < frameSize*e.channels {
+		return
+	}
+
+	maxPeriod := combFilterMaxPeriod
+	needPref := maxPeriod * e.channels
+	if len(e.prefilterMem) < needPref {
+		return
+	}
+
+	overlap := Overlap
+	if overlap > frameSize {
+		overlap = frameSize
+	}
+	needOverlap := overlap * e.channels
+	if overlap > 0 && len(e.overlapBuffer) < needOverlap {
+		newBuf := make([]float64, needOverlap)
+		copy(newBuf, e.overlapBuffer)
+		e.overlapBuffer = newBuf
+	}
+
+	for ch := 0; ch < e.channels; ch++ {
+		mem := e.prefilterMem[ch*maxPeriod : (ch+1)*maxPeriod]
+		if frameSize > maxPeriod {
+			start := frameSize - maxPeriod
+			for i := 0; i < maxPeriod; i++ {
+				mem[i] = preemph[(start+i)*e.channels+ch]
+			}
+		} else {
+			copy(mem, mem[frameSize:])
+			dst := maxPeriod - frameSize
+			for i := 0; i < frameSize; i++ {
+				mem[dst+i] = preemph[i*e.channels+ch]
+			}
+		}
+		if !tmpSkipPrefMemRoundEnabled {
+			roundFloat64ToFloat32(mem)
+		}
+
+		if overlap > 0 {
+			hist := e.overlapBuffer[ch*overlap : (ch+1)*overlap]
+			start := frameSize - overlap
+			for i := 0; i < overlap; i++ {
+				hist[i] = preemph[(start+i)*e.channels+ch]
+			}
+			if !tmpSkipPrefMemRoundEnabled {
+				roundFloat64ToFloat32(hist)
+			}
+		}
+	}
+}
+
 // TransientAnalysisHybrid performs transient analysis and updates preemph overlap state.
 // Returns transient flags, tf/tone metrics, shortBlocks choice, and optional bandLogE2.
-func (e *Encoder) TransientAnalysisHybrid(preemph []float64, frameSize, nbBands, lm int) (transient bool, tfEstimate, toneFreq, toneishness float64, shortBlocks int, bandLogE2 []float64) {
+func (e *Encoder) TransientAnalysisHybrid(preemph []float64, frameSize, nbBands, lm int, allowWeakTransients bool) (transient bool, weakTransient bool, tfEstimate, toneFreq, toneishness float64, shortBlocks int, bandLogE2 []float64) {
 	overlap := Overlap
 	if overlap > frameSize {
 		overlap = frameSize
@@ -196,8 +379,9 @@ func (e *Encoder) TransientAnalysisHybrid(preemph []float64, frameSize, nbBands,
 	e.fillTransientHistoryFromPrefilter(overlap, transientInput[:preemphBufSize])
 	copy(transientInput[preemphBufSize:], preemph)
 
-	result := e.TransientAnalysis(transientInput, frameSize+overlap, false)
+	result := e.TransientAnalysis(transientInput, frameSize+overlap, allowWeakTransients)
 	transient = result.IsTransient
+	weakTransient = result.WeakTransient
 	tfEstimate = result.TfEstimate
 	toneFreq = result.ToneFreq
 	toneishness = result.Toneishness
@@ -210,10 +394,6 @@ func (e *Encoder) TransientAnalysisHybrid(preemph []float64, frameSize, nbBands,
 	if e.forceTransient {
 		transient = true
 	}
-	if e.frameCount == 0 && lm > 0 && !transient {
-		transient = true
-		tfEstimate = 0.2
-	}
 
 	shortBlocks = 1
 	if transient {
@@ -223,7 +403,7 @@ func (e *Encoder) TransientAnalysisHybrid(preemph []float64, frameSize, nbBands,
 
 	secondMdct := shortBlocks > 1 && e.complexity >= 8
 	if !secondMdct {
-		return transient, tfEstimate, toneFreq, toneishness, shortBlocks, nil
+		return transient, weakTransient, tfEstimate, toneFreq, toneishness, shortBlocks, nil
 	}
 
 	if e.channels == 1 {
@@ -285,7 +465,7 @@ func (e *Encoder) TransientAnalysisHybrid(preemph []float64, frameSize, nbBands,
 		roundFloat64ToFloat32(bandLogE2)
 	}
 
-	return transient, tfEstimate, toneFreq, toneishness, shortBlocks, bandLogE2
+	return transient, weakTransient, tfEstimate, toneFreq, toneishness, shortBlocks, bandLogE2
 }
 
 // DynallocAnalysisHybridScratch runs dynalloc analysis using encoder scratch buffers.

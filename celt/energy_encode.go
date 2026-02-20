@@ -600,6 +600,10 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 	}
 
 	quantizedEnergies := ensureFloat64Slice(&e.scratch.quantizedEnergies, nbBands*channels)
+	coarseError := ensureFloat64Slice(&e.scratch.coarseError, nbBands*channels)
+	for i := range coarseError {
+		coarseError[i] = 0
+	}
 	// Initialize with previous energies so bands outside [start,end) remain unchanged.
 	for c := 0; c < channels; c++ {
 		basePrev := c * MaxBands
@@ -736,6 +740,7 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 
 			// Update energy and prediction state.
 			q := float32(qi) * float32(DB6)
+			coarseError[idx] = float64(f - q)
 			energy := pred + q
 			quantizedEnergies[idx] = float64(energy)
 			betaMul := noFMA32Mul(beta32, q)
@@ -999,6 +1004,76 @@ func (e *Encoder) EncodeFineEnergyRange(energies []float64, quantizedCoarse []fl
 	}
 }
 
+// EncodeFineEnergyRangeFromError mirrors libopus quant_fine_energy() for hybrid
+// range coding, consuming the in-place coarse error residual state.
+func (e *Encoder) EncodeFineEnergyRangeFromError(quantizedEnergies []float64, start, end int, fineBits []int) {
+	if e.rangeEncoder == nil {
+		return
+	}
+	if start < 0 {
+		start = 0
+	}
+	if end > MaxBands {
+		end = MaxBands
+	}
+	if end <= start {
+		return
+	}
+
+	nbBands := end
+	if nbBands > len(fineBits) {
+		nbBands = len(fineBits)
+	}
+	channels := e.channels
+	if channels < 1 {
+		channels = 1
+	}
+
+	required := nbBands * channels
+	if len(quantizedEnergies) < required {
+		channels = 1
+		required = nbBands
+	}
+
+	errorVals := ensureFloat64Slice(&e.scratch.coarseError, required)
+	re := e.rangeEncoder
+
+	for band := start; band < nbBands; band++ {
+		bits := fineBits[band]
+		if bits <= 0 {
+			continue
+		}
+		// Match libopus: if there is not enough storage left for this band's
+		// fine bits for all channels, skip this band.
+		if re.Tell()+channels*bits > re.StorageBits() {
+			continue
+		}
+		extra := 1 << bits
+		scale32 := float32(extra)
+		for c := 0; c < channels; c++ {
+			idx := c*nbBands + band
+			if idx >= len(quantizedEnergies) || idx >= len(errorVals) {
+				continue
+			}
+
+			err := float32(errorVals[idx])
+			q2 := int(math.Floor(float64((err + 0.5) * scale32)))
+			if q2 < 0 {
+				q2 = 0
+			}
+			if q2 > extra-1 {
+				q2 = extra - 1
+			}
+
+			re.EncodeRawBits(uint32(q2), uint(bits))
+
+			offset := (float32(q2)+0.5)/scale32 - 0.5
+			quantizedEnergies[idx] = float64(float32(quantizedEnergies[idx]) + offset)
+			errorVals[idx] = float64(err - offset)
+		}
+	}
+}
+
 // EncodeEnergyRemainder encodes any leftover precision bits.
 // Called after PVQ bands decoded, uses leftover bits from bit allocation.
 // This mirrors decoder's DecodeEnergyRemainder exactly (in reverse).
@@ -1216,6 +1291,69 @@ func (e *Encoder) EncodeEnergyFinaliseRange(energies []float64, quantizedEnergie
 				re.EncodeRawBits(uint32(q2), 1)
 				offset := (float32(q2) - 0.5) / float32(uint(1)<<(fineQuant[band]+1))
 				quantizedEnergies[idx] = float64(float32(quantizedEnergies[idx]) + offset)
+				bitsLeft--
+			}
+		}
+	}
+}
+
+// EncodeEnergyFinaliseRangeFromError mirrors libopus quant_energy_finalise() for
+// hybrid range coding, consuming the in-place residual state from coarse/fine.
+func (e *Encoder) EncodeEnergyFinaliseRangeFromError(quantizedEnergies []float64, start, end int, fineQuant []int, finePriority []int, bitsLeft int) {
+	if e.rangeEncoder == nil {
+		return
+	}
+	if start < 0 {
+		start = 0
+	}
+	if end > MaxBands {
+		end = MaxBands
+	}
+	if end <= start {
+		return
+	}
+	if bitsLeft < 0 {
+		bitsLeft = 0
+	}
+
+	nbBands := end
+	channels := e.channels
+	if channels < 1 {
+		channels = 1
+	}
+
+	required := nbBands * channels
+	if len(quantizedEnergies) < required {
+		channels = 1
+		required = nbBands
+	}
+
+	errorVals := ensureFloat64Slice(&e.scratch.coarseError, required)
+	re := e.rangeEncoder
+
+	for prio := 0; prio < 2; prio++ {
+		for band := start; band < nbBands && bitsLeft >= channels; band++ {
+			if band >= len(fineQuant) || band >= len(finePriority) {
+				continue
+			}
+			if fineQuant[band] >= maxFineBits || finePriority[band] != prio {
+				continue
+			}
+			for c := 0; c < channels; c++ {
+				idx := c*nbBands + band
+				if idx >= len(quantizedEnergies) || idx >= len(errorVals) {
+					continue
+				}
+
+				q2 := 0
+				if float32(errorVals[idx]) >= 0 {
+					q2 = 1
+				}
+				re.EncodeRawBits(uint32(q2), 1)
+
+				offset := (float32(q2) - 0.5) / float32(uint(1)<<(fineQuant[band]+1))
+				quantizedEnergies[idx] = float64(float32(quantizedEnergies[idx]) + offset)
+				errorVals[idx] = float64(float32(errorVals[idx]) - offset)
 				bitsLeft--
 			}
 		}

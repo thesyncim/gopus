@@ -738,8 +738,9 @@ func (e *Encoder) GetLastNumSamples() int {
 // silk_info feedback to CELT (libopus celt_encoder.c line 2466-2467).
 //
 // The offset is computed from silk_Quantization_Offsets_Q10[signalType>>1][quantOffsetType]:
-//   Unvoiced Low:  100, Unvoiced High: 240
-//   Voiced Low:     32, Voiced High:   100
+//
+//	Unvoiced Low:  100, Unvoiced High: 240
+//	Voiced Low:     32, Voiced High:   100
 func (e *Encoder) LastEncodedSignalInfo() (signalType, offset int) {
 	return e.ecPrevSignalType, GetQuantizationOffset(e.ecPrevSignalType, e.lastQuantOffsetType)
 }
@@ -754,6 +755,36 @@ func GetQuantizationOffset(signalType, quantOffsetType int) int {
 // SetBitrate sets the target bitrate in bps (per channel).
 func (e *Encoder) SetBitrate(bitrate int) {
 	e.targetRateBps = bitrate
+}
+
+// UpdatePacketBitsExceeded applies libopus packet-level nBitsExceeded update.
+// This must be called once per packet when shared range coding is used.
+func (e *Encoder) UpdatePacketBitsExceeded(nBytesOut, payloadSizeMs, bitRateBps int) {
+	if bitRateBps <= 0 || payloadSizeMs <= 0 {
+		return
+	}
+	e.nBitsExceeded += nBytesOut * 8
+	e.nBitsExceeded -= (bitRateBps * payloadSizeMs) / 1000
+	if e.nBitsExceeded < 0 {
+		e.nBitsExceeded = 0
+	} else if e.nBitsExceeded > 10000 {
+		e.nBitsExceeded = 10000
+	}
+}
+
+// SetBitsExceeded sets packet-level bit reservoir excess state.
+func (e *Encoder) SetBitsExceeded(bits int) {
+	if bits < 0 {
+		bits = 0
+	} else if bits > 10000 {
+		bits = 10000
+	}
+	e.nBitsExceeded = bits
+}
+
+// BitsExceeded returns packet-level bit reservoir excess state.
+func (e *Encoder) BitsExceeded() int {
+	return e.nBitsExceeded
 }
 
 // SetMaxBits sets the maximum number of bits allowed for the current frame.
