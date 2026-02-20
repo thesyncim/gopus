@@ -401,7 +401,7 @@ func (e *Encoder) autoClampBandwidth(bandwidth types.Bandwidth, mode Mode, equiv
 	}
 
 	// User-forced bandwidth overrides auto selection.
-	if e.userBandwidth != 0 {
+	if e.userBandwidthSet {
 		bandwidth = e.userBandwidth
 	}
 
@@ -431,7 +431,7 @@ func (e *Encoder) autoClampBandwidth(bandwidth types.Bandwidth, mode Mode, equiv
 	}
 
 	// Use detected bandwidth to reduce encoded bandwidth (lines 1653-1673).
-	if e.detectedBandwidth > 0 && e.userBandwidth == 0 {
+	if e.detectedBandwidth > 0 && !e.userBandwidthSet {
 		var minDetected types.Bandwidth
 		switch {
 		case equivRate <= 18000*e.streamChannels && mode == ModeCELT:

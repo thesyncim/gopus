@@ -130,6 +130,7 @@ func TestModeTraceFixtureParityWithLibopus(t *testing.T) {
 		t.Fatalf("load mode trace fixture: %v", err)
 	}
 	const maxModeMismatchRatio = 0.02
+	const maxConfigMismatchRatio = 0.02
 
 	for _, c := range fixture.Cases {
 		c := c
@@ -218,6 +219,9 @@ func TestModeTraceFixtureParityWithLibopus(t *testing.T) {
 						modeMismatch, c.SignalFrames, firstModeMismatch, firstModeGot, firstModeWant)
 				}
 				t.Fatalf("mode trace parity drift: mismatches=%d/%d", modeMismatch, c.SignalFrames)
+			}
+			if cfgRatio > maxConfigMismatchRatio {
+				t.Fatalf("toc config parity drift: mismatches=%d/%d", configMismatch, c.SignalFrames)
 			}
 		})
 	}
