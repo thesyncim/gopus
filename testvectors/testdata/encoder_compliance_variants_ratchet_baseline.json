@@ -38,6 +38,78 @@
       "max_histogram_l1": 0.03
     },
     {
+      "name": "CELT-FB-2.5ms-mono-64k",
+      "variant": "am_multisine_v1",
+      "min_gap_db": -0.7512746474090903,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.03,
+      "max_histogram_l1": 0.03
+    },
+    {
+      "name": "CELT-FB-2.5ms-mono-64k",
+      "variant": "chirp_sweep_v1",
+      "min_gap_db": -0.7788827508303839,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.03,
+      "max_histogram_l1": 0.03
+    },
+    {
+      "name": "CELT-FB-2.5ms-mono-64k",
+      "variant": "impulse_train_v1",
+      "min_gap_db": -0.7418781346275836,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.03,
+      "max_histogram_l1": 0.03
+    },
+    {
+      "name": "CELT-FB-2.5ms-mono-64k",
+      "variant": "speech_like_v1",
+      "min_gap_db": -0.7337480036587323,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.03,
+      "max_histogram_l1": 0.03
+    },
+    {
+      "name": "CELT-FB-2.5ms-stereo-128k",
+      "variant": "am_multisine_v1",
+      "min_gap_db": -0.7646671348311926,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.03,
+      "max_histogram_l1": 0.03
+    },
+    {
+      "name": "CELT-FB-2.5ms-stereo-128k",
+      "variant": "chirp_sweep_v1",
+      "min_gap_db": -0.7543283235176688,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.03,
+      "max_histogram_l1": 0.03
+    },
+    {
+      "name": "CELT-FB-2.5ms-stereo-128k",
+      "variant": "impulse_train_v1",
+      "min_gap_db": -0.7417741600882763,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.03,
+      "max_histogram_l1": 0.03
+    },
+    {
+      "name": "CELT-FB-2.5ms-stereo-128k",
+      "variant": "speech_like_v1",
+      "min_gap_db": -0.7428826320893549,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.03,
+      "max_histogram_l1": 0.03
+    },
+    {
       "name": "CELT-FB-20ms-mono-64k",
       "variant": "am_multisine_v1",
       "min_gap_db": -0.7491473556890469,
@@ -104,6 +176,78 @@
       "name": "CELT-FB-20ms-stereo-128k",
       "variant": "speech_like_v1",
       "min_gap_db": -0.737999764433404,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.03,
+      "max_histogram_l1": 0.03
+    },
+    {
+      "name": "CELT-FB-5ms-mono-64k",
+      "variant": "am_multisine_v1",
+      "min_gap_db": -0.7420649612188868,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.03,
+      "max_histogram_l1": 0.03
+    },
+    {
+      "name": "CELT-FB-5ms-mono-64k",
+      "variant": "chirp_sweep_v1",
+      "min_gap_db": -0.746194946358635,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.03,
+      "max_histogram_l1": 0.03
+    },
+    {
+      "name": "CELT-FB-5ms-mono-64k",
+      "variant": "impulse_train_v1",
+      "min_gap_db": -0.7451269790615811,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.03,
+      "max_histogram_l1": 0.03
+    },
+    {
+      "name": "CELT-FB-5ms-mono-64k",
+      "variant": "speech_like_v1",
+      "min_gap_db": -0.7574028696826289,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.03,
+      "max_histogram_l1": 0.03
+    },
+    {
+      "name": "CELT-FB-5ms-stereo-128k",
+      "variant": "am_multisine_v1",
+      "min_gap_db": -0.7541297204635597,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.03,
+      "max_histogram_l1": 0.03
+    },
+    {
+      "name": "CELT-FB-5ms-stereo-128k",
+      "variant": "chirp_sweep_v1",
+      "min_gap_db": -0.7445465918269321,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.03,
+      "max_histogram_l1": 0.03
+    },
+    {
+      "name": "CELT-FB-5ms-stereo-128k",
+      "variant": "impulse_train_v1",
+      "min_gap_db": -0.7505992693593129,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.03,
+      "max_histogram_l1": 0.03
+    },
+    {
+      "name": "CELT-FB-5ms-stereo-128k",
+      "variant": "speech_like_v1",
+      "min_gap_db": -0.7596489268371514,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.03,
