@@ -975,6 +975,37 @@ func TestDecodeWithFEC_ProvidedPacketUsesPacketModeForCELTGate(t *testing.T) {
 	}
 }
 
+func TestDecodeWithFEC_PLCWithProvidedStateUsesProvidedMode(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	frameSize := 960
+	packet := minimalHybridTestPacket20ms()
+	pcmPrime := make([]float32, frameSize)
+	if _, err := dec.Decode(packet, pcmPrime); err != nil {
+		t.Fatalf("Decode prime packet error: %v", err)
+	}
+
+	// Force decoder transient PLC mode to CELT and verify provided state wins.
+	dec.prevMode = ModeCELT
+	dec.prevRedundancy = false
+	dec.haveDecoded = true
+
+	pcmPLC := make([]float32, frameSize)
+	n, err := dec.decodePLCForFECWithState(pcmPLC, frameSize, ModeHybrid, BandwidthFullband, false)
+	if err != nil {
+		t.Fatalf("decodePLCForFECWithState error: %v", err)
+	}
+	if n != frameSize {
+		t.Fatalf("decodePLCForFECWithState samples=%d want=%d", n, frameSize)
+	}
+	if dec.prevMode != ModeHybrid {
+		t.Fatalf("prevMode=%v want=%v (provided PLC mode must be honored)", dec.prevMode, ModeHybrid)
+	}
+}
+
 // TestDecodeWithFEC_NoFECRequested verifies that when fec=false, DecodeWithFEC
 // behaves identically to Decode.
 func TestDecodeWithFEC_NoFECRequested(t *testing.T) {

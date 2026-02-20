@@ -97,6 +97,32 @@ func (d *Decoder) decodeOpusFrameInto(
 	packetBandwidth Bandwidth,
 	packetStereo bool,
 ) (int, error) {
+	return d.decodeOpusFrameIntoWithStatePolicy(
+		out,
+		data,
+		frameSize,
+		packetFrameSize,
+		packetMode,
+		packetBandwidth,
+		packetStereo,
+		true,
+	)
+}
+
+// decodeOpusFrameIntoWithStatePolicy mirrors libopus opus_decode_frame behavior
+// for a single frame and allows callers to control whether nil-data PLC decode
+// should source mode/bandwidth/stereo from decoder state.
+// out must have room for frameSize * channels samples.
+func (d *Decoder) decodeOpusFrameIntoWithStatePolicy(
+	out []float32,
+	data []byte,
+	frameSize int,
+	packetFrameSize int,
+	packetMode Mode,
+	packetBandwidth Bandwidth,
+	packetStereo bool,
+	useDecoderPLCState bool,
+) (int, error) {
 	fs := 48000
 	F20 := fs / 50
 	F10 := F20 >> 1
@@ -133,20 +159,31 @@ func (d *Decoder) decodeOpusFrameInto(
 			return audiosize, nil
 		}
 
-		if d.prevRedundancy {
-			mode = ModeCELT
-		} else {
-			mode = d.prevMode
+		if useDecoderPLCState {
+			if d.prevRedundancy {
+				mode = ModeCELT
+			} else {
+				mode = d.prevMode
+			}
+			bandwidth = d.lastBandwidth
+			packetStereoLocal = d.prevPacketStereo
 		}
-		bandwidth = d.lastBandwidth
-		packetStereoLocal = d.prevPacketStereo
 
 		if audiosize > F20 {
 			remaining := audiosize
 			offset := 0
 			for remaining > 0 {
 				chunk := min(remaining, F20)
-				n, err := d.decodeOpusFrameInto(out[offset*d.channels:], nil, chunk, packetFrameSize, mode, bandwidth, packetStereoLocal)
+				n, err := d.decodeOpusFrameIntoWithStatePolicy(
+					out[offset*d.channels:],
+					nil,
+					chunk,
+					packetFrameSize,
+					mode,
+					bandwidth,
+					packetStereoLocal,
+					useDecoderPLCState,
+				)
 				if err != nil {
 					return 0, err
 				}
@@ -201,7 +238,16 @@ func (d *Decoder) decodeOpusFrameInto(
 				}
 				pcmTransition = d.scratchTransition[:transSize*d.channels]
 			} else {
-				n, err := d.decodeOpusFrameInto(d.scratchTransition, nil, transSize, packetFrameSize, d.prevMode, d.lastBandwidth, packetStereoLocal)
+				n, err := d.decodeOpusFrameIntoWithStatePolicy(
+					d.scratchTransition,
+					nil,
+					transSize,
+					packetFrameSize,
+					d.prevMode,
+					d.lastBandwidth,
+					packetStereoLocal,
+					useDecoderPLCState,
+				)
 				if err != nil {
 					return 0, err
 				}
@@ -458,7 +504,16 @@ func (d *Decoder) decodeOpusFrameInto(
 
 		if transition && !redundancy && len(pcmTransition) == 0 {
 			transSize := min(F5, audiosize)
-			n, err := d.decodeOpusFrameInto(d.scratchTransition, nil, transSize, packetFrameSize, d.prevMode, d.lastBandwidth, packetStereoLocal)
+			n, err := d.decodeOpusFrameIntoWithStatePolicy(
+				d.scratchTransition,
+				nil,
+				transSize,
+				packetFrameSize,
+				d.prevMode,
+				d.lastBandwidth,
+				packetStereoLocal,
+				useDecoderPLCState,
+			)
 			if err != nil {
 				return 0, err
 			}
