@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-20
+topic: Decoder loss FEC/PLC fixture ratchet tightening
+decision: Keep the tighter fixture ratchet floors in `testvectors/decoder_loss_parity_test.go` for the 9 canonical decoder-loss lanes (`celt/hybrid/silk` x `burst2_mid|periodic9|single_mid`) so regressions in Q/correlation/RMS are caught earlier; do not keep legacy loose floors that were calibrated before the recent decode_fec/PLC parity fixes.
+evidence: Focused validation `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v` (before and after ratchet update) passed with parity comfortably above the new floors, including strong FEC lanes (`hybrid-fb-20ms-mono-32k-fec/single_mid Q=84.02 corr=1.000000 rms=1.000000`, `silk-wb-20ms-mono-24k-fec/single_mid Q=100.00 corr=1.000000 rms=1.000000`).
+do_not_repeat_until: decoder loss fixture corpus/pattern definitions change, decode_fec/PLC semantics in `decoder.go` or `hybrid/hybrid.go` are refactored, or new cross-arch fixture evidence shows these tightened floors are no longer stable.
+owner: codex
+
+date: 2026-02-20
 topic: Auto-bandwidth Narrowband user override sentinel fix
 decision: Do not use `types.Bandwidth` zero-value as an "unset/auto" sentinel for user-forced bandwidth. Keep explicit `userBandwidthSet` state so `SetBandwidth(BandwidthNarrowband)` remains a real override in auto-mode clamp logic.
 evidence: Updated `encoder/encoder.go` (`userBandwidthSet` field + `SetBandwidth` assignment) and `encoder/auto_mode.go` (`autoClampBandwidth` checks switched from `userBandwidth==0` logic to explicit flag). Tightened `encoder/mode_trace_fixture_test.go` to fail on TOC config drift (`maxConfigMismatchRatio`). Validation passed: `go test ./encoder -run TestModeTraceFixtureParityWithLibopus -count=1 -v` (all cases now `configMismatch=0`), `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestEncoderVariantProfileProvenanceAudit -count=1 -v`, `GOPUS_TEST_TIER=parity go test ./testvectors -run 'TestEncoderVariantProfileParityAgainstLibopusFixture|TestEncoderComplianceSummary' -count=1 -v`, and `make verify-production`.
