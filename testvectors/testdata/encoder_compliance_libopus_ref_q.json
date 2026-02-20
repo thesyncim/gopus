@@ -71,7 +71,7 @@
       "frame_size": 960,
       "channels": 1,
       "bitrate": 32000,
-      "lib_q": -49.82
+      "lib_q": -50.65
     },
     {
       "mode": "silk",
