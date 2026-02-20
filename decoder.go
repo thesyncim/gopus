@@ -7,6 +7,7 @@ import (
 
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/hybrid"
+	"github.com/thesyncim/gopus/plc"
 	"github.com/thesyncim/gopus/rangecoding"
 	"github.com/thesyncim/gopus/silk"
 )
@@ -448,7 +449,8 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 				return n, nil
 			}
 		}
-		return d.decodePLCForFEC(pcm, frameSize)
+		// Align decode_fec fallback cadence with the provided packet context.
+		return d.decodePLCForFECWithState(pcm, frameSize, toc.Mode, toc.Bandwidth, toc.Stereo)
 	}
 
 	// FEC decode requested for a lost packet (data is nil)
@@ -469,6 +471,18 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 // decodePLCForFEC decodes PLC for exactly frameSize samples.
 // This matches libopus decode_fec fallback granularity.
 func (d *Decoder) decodePLCForFEC(pcm []float32, frameSize int) (int, error) {
+	return d.decodePLCForFECWithState(pcm, frameSize, d.prevMode, d.lastBandwidth, d.prevPacketStereo)
+}
+
+// decodePLCForFECWithState decodes PLC for exactly frameSize samples using
+// the provided mode/bandwidth/stereo state.
+func (d *Decoder) decodePLCForFECWithState(
+	pcm []float32,
+	frameSize int,
+	mode Mode,
+	bandwidth Bandwidth,
+	packetStereo bool,
+) (int, error) {
 	if frameSize <= 0 {
 		frameSize = d.lastFrameSize
 	}
@@ -492,9 +506,9 @@ func (d *Decoder) decodePLCForFEC(pcm []float32, frameSize int) (int, error) {
 			nil,
 			chunk,
 			d.lastFrameSize,
-			d.prevMode,
-			d.lastBandwidth,
-			d.prevPacketStereo,
+			mode,
+			bandwidth,
+			packetStereo,
 		)
 		if err != nil {
 			return 0, err
@@ -743,19 +757,19 @@ func (d *Decoder) decodeHybridFEC(pcm []float32, frameSize int) (int, error) {
 	}
 	copy(pcm[:needed], fecSamples)
 
-	// In libopus decode_fec for Hybrid, CELT is decoded with NULL data (PLC)
-	// and accumulated on top of the SILK LBRR output.
+	// In libopus decode_fec for Hybrid, CELT PLC is accumulated on top of SILK LBRR.
 	celtBW := celt.BandwidthFromOpusConfig(int(d.fecBandwidth))
 	d.celtDecoder.SetBandwidth(celtBW)
 	if d.haveDecoded && d.prevMode != ModeHybrid && !d.prevRedundancy {
 		d.celtDecoder.Reset()
 		d.celtDecoder.SetBandwidth(celtBW)
 	}
-	celtSamples, err := d.celtDecoder.DecodeFrameWithPacketStereo(nil, min(frameSize, 48000/50), d.fecStereo)
-	if err != nil {
-		return 0, err
+	celtSamples := plc.ConcealCELTHybrid(d.celtDecoder, d.celtDecoder, min(frameSize, 48000/50), 1.0)
+	scale := float32(1.0 / 32768.0)
+	n := min(needed, len(celtSamples))
+	for i := 0; i < n; i++ {
+		pcm[i] += float32(celtSamples[i]) * scale
 	}
-	addFloat64ToFloat32(pcm[:needed], celtSamples)
 	d.mainDecodeRng = d.celtDecoder.FinalRange()
 
 	return frameSize, nil
