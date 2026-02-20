@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-20
+topic: Hybrid decoder PLC CELT accumulation unit scaling
+decision: Keep Hybrid `decodePLC` CELT concealment in decoder PCM units by scaling `plc.ConcealCELTHybrid(...)` output by `1/32768` before SILK+CELT accumulation, and keep hybrid decoder-loss parity ratchets for `burst2_mid`/`periodic9` centered near unity RMS (not inflated >1.1 floors from pre-fix behavior).
+evidence: Updated `hybrid/hybrid.go` (`decodePLC` CELT scaling) and `testvectors/decoder_loss_parity_test.go` hybrid ratchet bounds; validations passed: `go test ./hybrid -count=1`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`, `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`, full parity tier `GOPUS_TEST_TIER=parity go test ./testvectors -count=1`, and `make verify-production`. Hybrid weak lanes improved from low-correlation/high-drift behavior to high-correlation near-unity RMS (`burst2_mid corr 0.80 -> 0.9885`, `periodic9 corr 0.83 -> 0.9901`, RMS `~1.006–1.009`).
+do_not_repeat_until: Hybrid PLC path or concealment unit conventions change (for example `plc.ConcealCELTHybrid` output scale semantics or decode-side accumulation path refactors), or fixture/libopus version changes require recalibration.
+owner: codex
+
+date: 2026-02-20
 topic: decode_fec Hybrid CELT accumulation units + provided-packet PLC fallback context
 decision: Keep Hybrid FEC CELT accumulation in decoder PCM units by scaling `plc.ConcealCELTHybrid(...)` output by `1/32768` before adding to SILK LBRR output, and keep provided-packet FEC failure fallback PLC keyed to provided packet TOC context (`mode/bandwidth/stereo`) via `decodePLCForFECWithState(...)`, not stale previous-mode state.
 evidence: Updated `decoder.go` (`decodeHybridFEC`, `DecodeWithFEC`, `decodePLCForFECWithState`); validations passed: `go test . -run 'TestDecodeWithFEC|TestDecodeFECFrame' -count=1`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`, `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1`, full parity tier `GOPUS_TEST_TIER=parity go test ./testvectors -count=1`, and `make verify-production`. Hybrid single-loss parity improved (`hybrid-fb-20ms-mono-32k-fec/single_mid Q 52.34 -> 84.02`, corr `1.0`, delay `0`).
