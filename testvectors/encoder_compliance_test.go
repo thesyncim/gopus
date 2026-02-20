@@ -92,9 +92,13 @@ type encoderComplianceSummaryCase struct {
 func encoderComplianceSummaryCases() []encoderComplianceSummaryCase {
 	return []encoderComplianceSummaryCase{
 		// CELT
+		{"CELT-FB-2.5ms-mono-64k", encoder.ModeCELT, types.BandwidthFullband, 120, 1, 64000},
+		{"CELT-FB-5ms-mono-64k", encoder.ModeCELT, types.BandwidthFullband, 240, 1, 64000},
 		{"CELT-FB-20ms-mono-64k", encoder.ModeCELT, types.BandwidthFullband, 960, 1, 64000},
 		{"CELT-FB-20ms-stereo-128k", encoder.ModeCELT, types.BandwidthFullband, 960, 2, 128000},
 		{"CELT-FB-10ms-mono-64k", encoder.ModeCELT, types.BandwidthFullband, 480, 1, 64000},
+		{"CELT-FB-2.5ms-stereo-128k", encoder.ModeCELT, types.BandwidthFullband, 120, 2, 128000},
+		{"CELT-FB-5ms-stereo-128k", encoder.ModeCELT, types.BandwidthFullband, 240, 2, 128000},
 		// SILK
 		{"SILK-NB-10ms-mono-16k", encoder.ModeSILK, types.BandwidthNarrowband, 480, 1, 16000},
 		{"SILK-NB-20ms-mono-16k", encoder.ModeSILK, types.BandwidthNarrowband, 960, 1, 16000},
