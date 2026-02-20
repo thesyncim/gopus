@@ -453,6 +453,12 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 			if err != nil {
 				return 0, err
 			}
+			// Match libopus opus_packet_has_lbrr gating from opus_demo:
+			// only attempt decode_fec when packet actually carries LBRR.
+			if !packetHasLBRR(firstFrameData, toc) {
+				d.clearFECState()
+				return d.decodePLCForFECWithState(pcm, frameSize, toc.Mode, toc.Bandwidth, toc.Stereo)
+			}
 			d.storeFECData(firstFrameData, toc, frameCount, frameSize)
 			if n, err := d.decodeFECFrame(pcm); err == nil {
 				return n, nil
@@ -638,6 +644,34 @@ func extractFirstFramePayload(data []byte, toc TOC) ([]byte, error) {
 	default:
 		return nil, ErrInvalidPacket
 	}
+}
+
+// packetHasLBRR mirrors libopus opus_packet_has_lbrr() semantics for Opus
+// frame payload bytes (first frame only).
+func packetHasLBRR(firstFrameData []byte, toc TOC) bool {
+	if toc.Mode == ModeCELT || len(firstFrameData) == 0 {
+		return false
+	}
+
+	nbFrames := 1
+	if toc.FrameSize > 960 {
+		nbFrames = toc.FrameSize / 960
+	}
+
+	monoBit := 7 - nbFrames
+	if monoBit < 0 {
+		return false
+	}
+	lbrr := (firstFrameData[0] >> uint(monoBit)) & 0x1
+
+	if toc.Stereo {
+		stereoBit := 6 - 2*nbFrames
+		if stereoBit >= 0 {
+			lbrr |= (firstFrameData[0] >> uint(stereoBit)) & 0x1
+		}
+	}
+
+	return lbrr != 0
 }
 
 // storeFECData stores the current packet's information for FEC recovery.
