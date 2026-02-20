@@ -95,3 +95,4 @@ Quick commands:
 - claim: id=codex-20260218-204458; agent=codex; status=released; paths=encoder/,testvectors/,.planning/; updated=2026-02-18T20:57:31Z; expires=2026-02-18T20:57:31Z; note=port opus_packet_pad code3 no-pad repacketization parity
 - claim: id=codex-20260218-210313; agent=codex; status=released; paths=encoder/,silk/,hybrid/,testvectors/,.planning/; updated=2026-02-18T22:05:00Z; expires=2026-02-18T22:05:00Z; note=close remaining SILK/HYBRID libopus quality gaps
 - claim: id=codex-20260218-220532; agent=codex; status=released; paths=encoder/,testvectors/,tmp_check/opus-1.6.1/src/,.planning/; updated=2026-02-19T02:10:20Z; expires=2026-02-19T02:10:20Z; note=next gap: restricted-silk fixture parity
+- claim: id=codex-20260220-185206; agent=codex; status=active; paths=encoder/,testvectors/,tmp_check/opus-1.6.1/src/; updated=2026-02-20T18:52:06Z; expires=2026-02-20T22:52:06Z; note=next gap: Hybrid-FB-10ms-mono-64k parity calibration

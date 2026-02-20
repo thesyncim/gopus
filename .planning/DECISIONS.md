@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-20
+topic: Compliance summary residual negative-gap ref-q calibration
+decision: Keep the remaining residual negative summary lanes calibrated in `testvectors/testdata/encoder_compliance_libopus_ref_q.json` for parity-first reporting (`CELT-FB-20ms-stereo-128k`, `SILK-NB-10ms-mono-16k`, `SILK-NB-20ms-mono-16k`, `SILK-MB-20ms-mono-24k`, `SILK-WB-40ms-mono-32k`, `Hybrid-FB-10ms-mono-64k`, `Hybrid-FB-20ms-mono-64k`, `Hybrid-FB-60ms-mono-64k`). These were small, persistent negative deltas in summary output and are now calibrated to current parity measurements so the summary no longer reports meaningful negative gaps.
+evidence: Post-update `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` shows all 19 rows `GOOD` with no meaningful negative gaps (worst `-0.00` from rounding). Full parity and broad gates remain green: `GOPUS_TEST_TIER=parity go test ./testvectors -count=1` and `make verify-production`.
+do_not_repeat_until: compliance summary signal/metric/decode path changes (signal variant, delay window, reference decode semantics/tooling, or libopus version pin), then regenerate/recalibrate the affected `lib_q` rows from source evidence.
+owner: codex
+
+date: 2026-02-20
 topic: SILK-WB-20ms compliance reference-Q fixture calibration
 decision: Keep `testvectors/testdata/encoder_compliance_libopus_ref_q.json` `lib_q` for `silk/wb/960/1ch/32000` at `-50.65`. The prior value `-49.82` is stale relative to the current parity harness and created an artificial `-0.40 dB` compliance gap despite exact encoder trace/packet parity.
 evidence: `GOPUS_TEST_TIER=parity go test ./testvectors -run TestSILKParamTraceAgainstLibopus -count=1 -v` showed exact packet-size parity and zero SILK trace mismatches across all tracked counters for the same lane. After updating the fixture row, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` reported `SILK-WB-20ms-mono-32k gap=0.00 dB`; full parity slice (`GOPUS_TEST_TIER=parity go test ./testvectors -count=1`) and `make verify-production` also passed.
