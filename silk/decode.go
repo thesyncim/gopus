@@ -262,6 +262,7 @@ func (d *Decoder) decodeFrameRawInt16(
 		var ctrl decoderControl
 		silkDecodeParameters(st, &ctrl, condCoding)
 		silkDecodeCore(st, &ctrl, frameOut, pulses)
+		d.updateHistoryInt16(frameOut)
 		silkUpdateOutBuf(st, frameOut)
 		st.lossCnt = 0
 		silkPLCGlueFrames(st, frameOut, frameLength)
