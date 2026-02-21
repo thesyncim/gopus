@@ -36,7 +36,7 @@ func (e *Encoder) quantizeLSF(lsfQ15 []int16, bandwidth Bandwidth, signalType in
 	// Only force no interpolation on first frame (can't interpolate without previous NLSF).
 	// Per libopus process_NLSFs.c: doInterpolate = (useInterpolatedNLSFs == 1) && (NLSFInterpCoef_Q2 < 4)
 	// The 10ms frame restriction was incorrect - libopus allows interpolation for all frame sizes.
-	if interpIdx < 4 && !e.haveEncoded {
+	if interpIdx < 4 && e.firstFrameAfterResetActive() {
 		interpIdx = 4
 	}
 
@@ -45,11 +45,11 @@ func (e *Encoder) quantizeLSF(lsfQ15 []int16, bandwidth Bandwidth, signalType in
 	silkNLSFWeightsLaroia(wQ2, lsfQ15, order)
 
 	// Update weights if interpolation is used
-	if interpIdx < 4 && e.haveEncoded {
+	if interpIdx < 4 && !e.firstFrameAfterResetActive() {
 		nlsf0 := ensureInt16Slice(&e.scratchNLSFTempQ15, order)
 		for i := 0; i < order; i++ {
 			diff := int32(lsfQ15[i]) - int32(e.prevLSFQ15[i])
-			nlsf0[i] = int16(int32(e.prevLSFQ15[i]) + (int32(interpIdx)*diff >> 2))
+			nlsf0[i] = int16(int32(e.prevLSFQ15[i]) + (int32(interpIdx) * diff >> 2))
 		}
 		w0Q2 := ensureInt16Slice(&e.scratchNLSFWeightsTmp, order)
 		silkNLSFWeightsLaroia(w0Q2, nlsf0, order)
@@ -97,7 +97,7 @@ func (e *Encoder) quantizeLSFWithInterp(lsfQ15 []int16, bandwidth Bandwidth, sig
 		return 0, residuals, 4
 	}
 
-	if !e.haveEncoded {
+	if e.firstFrameAfterResetActive() {
 		interpIdx = 4
 	}
 	if interpIdx < 0 {
@@ -115,11 +115,11 @@ func (e *Encoder) quantizeLSFWithInterp(lsfQ15 []int16, bandwidth Bandwidth, sig
 	silkNLSFWeightsLaroia(wQ2, lsfQ15, order)
 
 	// Update weights if interpolation is used
-	if interpIdx < 4 && e.haveEncoded {
+	if interpIdx < 4 && !e.firstFrameAfterResetActive() {
 		nlsf0 := ensureInt16Slice(&e.scratchNLSFTempQ15, order)
 		for i := 0; i < order; i++ {
 			diff := int32(lsfQ15[i]) - int32(e.prevLSFQ15[i])
-			nlsf0[i] = int16(int32(e.prevLSFQ15[i]) + (int32(interpIdx)*diff >> 2))
+			nlsf0[i] = int16(int32(e.prevLSFQ15[i]) + (int32(interpIdx) * diff >> 2))
 		}
 		w0Q2 := ensureInt16Slice(&e.scratchNLSFWeightsTmp, order)
 		silkNLSFWeightsLaroia(w0Q2, nlsf0, order)
@@ -188,7 +188,7 @@ func (e *Encoder) computeSymbolRate8(symbol int, icdf []uint8) int {
 // Per RFC 6716 Section 4.2.7.5.3.
 func (e *Encoder) computeInterpolationIndex(lsfQ15 []int16, order int) int {
 	// Compare current LSF with previous frame
-	if !e.haveEncoded {
+	if e.firstFrameAfterResetActive() {
 		return 4 // No interpolation for first frame
 	}
 
@@ -268,11 +268,11 @@ func (e *Encoder) buildPredCoefQ12(predCoefQ12 []int16, nlsfQ15 []int16, interpI
 	}
 
 	// Handle interpolation for first subframes when allowed.
-	if interpIdx < 4 && e.haveEncoded {
+	if interpIdx < 4 && !e.firstFrameAfterResetActive() {
 		var interpNLSF [maxLPCOrder]int16
 		for i := 0; i < order; i++ {
 			diff := int32(nlsfQ15[i]) - int32(e.prevLSFQ15[i])
-			interpNLSF[i] = int16(int32(e.prevLSFQ15[i]) + (int32(interpIdx)*diff >> 2))
+			interpNLSF[i] = int16(int32(e.prevLSFQ15[i]) + (int32(interpIdx) * diff >> 2))
 		}
 		first := predCoefQ12[:order]
 		if !silkNLSF2A(first, interpNLSF[:order], order) {

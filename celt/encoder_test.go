@@ -120,6 +120,55 @@ func TestEncoderReset(t *testing.T) {
 	}
 }
 
+func TestEncoderSetPrediction(t *testing.T) {
+	enc := NewEncoder(1)
+	if got := enc.Prediction(); got != 2 {
+		t.Fatalf("initial Prediction() = %d, want 2", got)
+	}
+
+	enc.SetPrediction(0)
+	if got := enc.Prediction(); got != 0 {
+		t.Fatalf("Prediction() after SetPrediction(0) = %d, want 0", got)
+	}
+	if !enc.forceIntra || !enc.disablePrefilter {
+		t.Fatalf("SetPrediction(0) should set forceIntra+disablePrefilter, got forceIntra=%v disablePrefilter=%v", enc.forceIntra, enc.disablePrefilter)
+	}
+
+	enc.SetPrediction(1)
+	if got := enc.Prediction(); got != 1 {
+		t.Fatalf("Prediction() after SetPrediction(1) = %d, want 1", got)
+	}
+	if enc.forceIntra || !enc.disablePrefilter {
+		t.Fatalf("SetPrediction(1) should set only disablePrefilter, got forceIntra=%v disablePrefilter=%v", enc.forceIntra, enc.disablePrefilter)
+	}
+
+	enc.SetPrediction(2)
+	if got := enc.Prediction(); got != 2 {
+		t.Fatalf("Prediction() after SetPrediction(2) = %d, want 2", got)
+	}
+	if enc.forceIntra || enc.disablePrefilter {
+		t.Fatalf("SetPrediction(2) should clear forceIntra+disablePrefilter, got forceIntra=%v disablePrefilter=%v", enc.forceIntra, enc.disablePrefilter)
+	}
+
+	enc.SetPrediction(-5)
+	if got := enc.Prediction(); got != 0 {
+		t.Fatalf("Prediction() after SetPrediction(-5) = %d, want 0", got)
+	}
+	enc.SetPrediction(7)
+	if got := enc.Prediction(); got != 2 {
+		t.Fatalf("Prediction() after SetPrediction(7) = %d, want 2", got)
+	}
+}
+
+func TestEncoderResetPreservesPredictionControl(t *testing.T) {
+	enc := NewEncoder(1)
+	enc.SetPrediction(0)
+	enc.Reset()
+	if got := enc.Prediction(); got != 0 {
+		t.Fatalf("Prediction() after Reset() = %d, want 0", got)
+	}
+}
+
 func TestEncoderSetSurroundTrim(t *testing.T) {
 	enc := NewEncoder(2)
 	if got := enc.SurroundTrim(); got != 0 {

@@ -105,6 +105,11 @@ type Encoder struct {
 	// Coarse-energy intra/inter decision state (libopus delayedIntra).
 	delayedIntra float64
 	forceIntra   bool
+	// CELT prediction control mirrors CELT_SET_PREDICTION:
+	// 0 => force_intra=1, disable_pf=1
+	// 1 => force_intra=0, disable_pf=1
+	// 2 => force_intra=0, disable_pf=0
+	disablePrefilter bool
 	// Consecutive transient frames (used for anti-collapse flag)
 	consecTransient int
 
@@ -113,11 +118,14 @@ type Encoder struct {
 	intensity      int // Previous intensity stereo decision (libopus hysteresis state)
 
 	// Bitrate control
-	targetBitrate   int // Target bitrate in bits per second (0 = use buffer size)
-	frameBits       int // Per-frame bit budget for coarse energy (set during encoding)
-	maxPayloadBytes int // Optional per-frame payload cap (excludes TOC byte)
-	vbr             bool
-	constrainedVBR  bool
+	targetBitrate int // Target bitrate in bits per second (0 = use buffer size)
+	frameBits     int // Per-frame bit budget for coarse energy (set during encoding)
+	// coarseAvailableBytes mirrors libopus quant_coarse_energy() nbAvailableBytes.
+	// When >0, it overrides budget/8 for coarse intra/decay decisions.
+	coarseAvailableBytes int
+	maxPayloadBytes      int // Optional per-frame payload cap (excludes TOC byte)
+	vbr                  bool
+	constrainedVBR       bool
 	// constrainedVBRBoundScale scales libopus vbr_bound for constrained-VBR
 	// max-allowed computation. 1.0 matches libopus single-stream behavior.
 	constrainedVBRBoundScale float64
@@ -545,6 +553,7 @@ func (e *Encoder) Reset() {
 	e.frameCount = 0
 	e.bandDebug = bandDebugState{}
 	e.frameBits = 0
+	e.coarseAvailableBytes = 0
 	e.maxPayloadBytes = 0
 	e.delayedIntra = 1.0
 	e.lastCodedBands = 0
@@ -689,6 +698,33 @@ func (e *Encoder) SetConstrainedVBRBoundScale(scale float64) {
 		scale = 1
 	}
 	e.constrainedVBRBoundScale = scale
+}
+
+// SetPrediction controls CELT inter-frame prediction behavior.
+// Valid modes mirror libopus CELT_SET_PREDICTION:
+// - 0: disable prediction and force intra (disable_pf=1, force_intra=1)
+// - 1: disable prefilter only (disable_pf=1, force_intra=0)
+// - 2: normal prediction (disable_pf=0, force_intra=0)
+func (e *Encoder) SetPrediction(mode int) {
+	if mode < 0 {
+		mode = 0
+	}
+	if mode > 2 {
+		mode = 2
+	}
+	e.disablePrefilter = mode <= 1
+	e.forceIntra = mode == 0
+}
+
+// Prediction returns the active CELT prediction mode (0, 1, or 2).
+func (e *Encoder) Prediction() int {
+	if e.forceIntra {
+		return 0
+	}
+	if e.disablePrefilter {
+		return 1
+	}
+	return 2
 }
 
 // SetDCRejectEnabled controls whether EncodeFrame applies dc_reject().

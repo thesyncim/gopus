@@ -325,12 +325,15 @@ func (e *Encoder) Reset() {
 	}
 	if e.silkEncoder != nil {
 		e.silkEncoder.Reset()
+		e.silkEncoder.SetReducedDependency(e.predictionDisabled)
 	}
 	if e.silkSideEncoder != nil {
 		e.silkSideEncoder.Reset()
+		e.silkSideEncoder.SetReducedDependency(e.predictionDisabled)
 	}
 	if e.celtEncoder != nil {
 		e.celtEncoder.Reset()
+		e.celtEncoder.SetPrediction(e.celtPredictionMode())
 	}
 	if len(e.celtEnergyMask) > 0 {
 		clear(e.celtEnergyMask)
@@ -1340,6 +1343,13 @@ func (e *Encoder) effectiveBandwidth() types.Bandwidth {
 	return e.bandwidth
 }
 
+func (e *Encoder) celtPredictionMode() int {
+	if e.predictionDisabled {
+		return 0
+	}
+	return 2
+}
+
 // encodeSILKFrame encodes a frame using SILK-only mode.
 func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize int) ([]byte, error) {
 	e.ensureSILKEncoder()
@@ -1566,6 +1576,7 @@ func (e *Encoder) encodeCELTFrameWithBitrateAndMaxPayload(pcm []float64, frameSi
 	e.celtEncoder.SetMaxPayloadBytes(maxPayloadBytes)
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 	e.celtEncoder.SetHybrid(false)
+	e.celtEncoder.SetPrediction(e.celtPredictionMode())
 	e.celtEncoder.SetDCRejectEnabled(false)
 	e.celtEncoder.SetPacketLoss(e.packetLoss)
 	e.celtEncoder.SetLSBDepth(e.lsbDepth)
@@ -1767,11 +1778,13 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 func (e *Encoder) ensureSILKEncoder() {
 	bw := e.silkBandwidth()
 	if e.silkEncoder != nil && e.silkEncoder.Bandwidth() == bw {
+		e.silkEncoder.SetReducedDependency(e.predictionDisabled)
 		return
 	}
 	e.silkEncoder = silk.NewEncoder(bw)
 	e.silkEncoder.SetComplexity(e.complexity)
 	e.silkEncoder.SetTrace(e.silkTrace)
+	e.silkEncoder.SetReducedDependency(e.predictionDisabled)
 	// Mono SILK handoff state tracks the two-sample sMid history across frames.
 	// Reset whenever the SILK core bandwidth/sample-rate changes.
 	e.silkMonoInputHist = [2]float32{}
@@ -1784,10 +1797,12 @@ func (e *Encoder) ensureSILKSideEncoder() {
 	}
 	bw := e.silkBandwidth()
 	if e.silkSideEncoder != nil && e.silkSideEncoder.Bandwidth() == bw {
+		e.silkSideEncoder.SetReducedDependency(e.predictionDisabled)
 		return
 	}
 	e.silkSideEncoder = silk.NewEncoder(bw)
 	e.silkSideEncoder.SetComplexity(e.complexity)
+	e.silkSideEncoder.SetReducedDependency(e.predictionDisabled)
 }
 
 func (e *Encoder) ensureSILKResampler(rate int) {
@@ -2091,6 +2106,7 @@ func (e *Encoder) ensureCELTEncoder() {
 		// Opus encoder already applies CELT delay compensation at the top level.
 		e.celtEncoder.SetDelayCompensationEnabled(false)
 	}
+	e.celtEncoder.SetPrediction(e.celtPredictionMode())
 	e.celtEncoder.SetLFE(e.lfe)
 	e.celtEncoder.SetSurroundTrim(e.celtSurroundTrim)
 	e.celtEncoder.SetEnergyMask(e.celtEnergyMask)
@@ -2251,6 +2267,15 @@ func (e *Encoder) LSBDepth() int {
 // SetPredictionDisabled disables inter-frame prediction.
 func (e *Encoder) SetPredictionDisabled(disabled bool) {
 	e.predictionDisabled = disabled
+	if e.silkEncoder != nil {
+		e.silkEncoder.SetReducedDependency(disabled)
+	}
+	if e.silkSideEncoder != nil {
+		e.silkSideEncoder.SetReducedDependency(disabled)
+	}
+	if e.celtEncoder != nil {
+		e.celtEncoder.SetPrediction(e.celtPredictionMode())
+	}
 }
 
 // PredictionDisabled returns whether inter-frame prediction is disabled.

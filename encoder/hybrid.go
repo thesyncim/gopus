@@ -61,6 +61,9 @@ type HybridState struct {
 	// stereoWidthQ14 is the stereo width in Q14 format.
 	// Reduced at low bitrates to improve coding efficiency.
 	stereoWidthQ14 int
+	// silkStereoWidthQ14 is the current frame SILK stereo width decision (Q14).
+	// Hybrid stereo fade follows this value in libopus.
+	silkStereoWidthQ14 int
 
 	// prevDecodeOnlyMiddle tracks the previous mid-only (no side) decision.
 	prevDecodeOnlyMiddle bool
@@ -83,6 +86,7 @@ type HybridState struct {
 
 	// Energy tracking scratch buffers.
 	scratchBandLogE2  []float64 // bandLogE2 for transient analysis
+	scratchAnalysisE  []float64 // pre-stabilization energies for dynalloc/analysis
 	scratchPrevEnergy []float64 // copy of prev energy
 	scratchNextEnergy []float64 // next energy for state update
 
@@ -121,8 +125,9 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 	// Initialize hybrid state if needed
 	if e.hybridState == nil {
 		e.hybridState = &HybridState{
-			prevHBGain:     1.0,
-			stereoWidthQ14: 16384, // Full width (Q14 = 1.0)
+			prevHBGain:         1.0,
+			stereoWidthQ14:     16384, // Full width (Q14 = 1.0)
+			silkStereoWidthQ14: 16384, // Full width (Q14 = 1.0)
 		}
 	}
 
@@ -330,10 +335,16 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 	// in the caller (Fs/250 = 192 samples). No additional delay is needed here.
 	celtInput := e.applyHBGainFade(celtPCM, hbGain)
 	if e.channels == 2 {
-		frameRate := 48000 / frameSize
-		vbr := e.bitrateMode != ModeCBR
-		equivRate := computeEquivRate(e.bitrate, e.channels, frameRate, vbr, ModeHybrid, e.complexity, e.packetLoss)
-		targetWidthQ14 := computeStereoWidthQ14(equivRate)
+		targetWidthQ14 := 16384
+		if e.hybridState != nil {
+			targetWidthQ14 = e.hybridState.silkStereoWidthQ14
+			if targetWidthQ14 < 0 {
+				targetWidthQ14 = 0
+			}
+			if targetWidthQ14 > 16384 {
+				targetWidthQ14 = 16384
+			}
+		}
 		if e.hybridState.stereoWidthQ14 < (1<<14) || targetWidthQ14 < (1<<14) {
 			celtInput = e.applyStereoWidthFade(celtInput, e.hybridState.stereoWidthQ14, targetWidthQ14)
 		}
@@ -345,7 +356,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 	// Match libopus hybrid CBR behavior: CELT is budgeted by packet bytes,
 	// not by a finite target bitrate clamp.
 	if e.bitrateMode == ModeCBR {
-		e.celtEncoder.SetBitrate(0)
+		e.celtEncoder.SetBitrate(MaxBitrate)
 	} else {
 		e.celtEncoder.SetBitrate(celtBitrate)
 	}
@@ -832,6 +843,9 @@ func (e *Encoder) encodeSILKHybrid(pcm []float32, lookahead []float32, frameSize
 // 3. [LBRR data if LBRR flag set]
 // 4. Frame data
 func (e *Encoder) encodeSILKHybridMono(pcm []float32, lookahead []float32, silkSamples int, totalRateBps int) {
+	if e.hybridState != nil {
+		e.hybridState.silkStereoWidthQ14 = 16384
+	}
 	if totalRateBps > 0 {
 		e.silkEncoder.SetBitrate(totalRateBps)
 	}
@@ -925,9 +939,12 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, lookahead []float32, sil
 
 	// Convert to mid-side with libopus-aligned stereo front-end.
 	fsKHz := 16 // SILK wideband uses 16kHz
-	mid, side, predIdx, midOnly, midRate, sideRate, _ := e.silkEncoder.StereoLRToMSWithRates(
+	mid, side, predIdx, midOnly, midRate, sideRate, widthQ14 := e.silkEncoder.StereoLRToMSWithRates(
 		left, right, silkSamples, fsKHz, totalRateBps, e.lastVADActivityQ8, false,
 	)
+	if e.hybridState != nil {
+		e.hybridState.silkStereoWidthQ14 = int(widthQ14)
+	}
 	// Apply per-channel split from stereo front-end before encoding.
 	if midRate > 0 {
 		e.silkEncoder.SetBitrate(midRate)
@@ -1108,6 +1125,7 @@ func celtBandwidthFromTypes(bw types.Bandwidth) celt.CELTBandwidth {
 func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetPayloadBytes int, silkSignalType, silkOffset int) {
 	// Set hybrid mode flag on CELT encoder
 	e.celtEncoder.SetHybrid(true)
+	e.celtEncoder.SetPrediction(e.celtPredictionMode())
 
 	// Ensure CELT scratch buffers are properly sized for this frame.
 	// The hybrid path bypasses EncodeFrame, so we must initialize them here.
@@ -1134,6 +1152,18 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 		// Ensure we don't end up with negative budgets if SILK used more bits.
 		totalBits = used + 8
 	}
+	// Match libopus quant_coarse_energy() nbAvailableBytes for hybrid CBR:
+	// bytes available to CELT at entry (after already-coded SILK/range bits).
+	e.celtEncoder.SetCoarseEnergyAvailableBytes(0)
+	if e.bitrateMode == ModeCBR {
+		nbFilledBytes := (re.Tell() + 4) >> 3
+		nbAvailableBytes := targetPayloadBytes - nbFilledBytes
+		if nbAvailableBytes < 0 {
+			nbAvailableBytes = 0
+		}
+		e.celtEncoder.SetCoarseEnergyAvailableBytes(nbAvailableBytes)
+	}
+	defer e.celtEncoder.SetCoarseEnergyAvailableBytes(0)
 
 	// Mirror libopus effectiveBytes staging for hybrid before transient analysis.
 	// This feeds low-bitrate weak-transient behavior in celt_encoder.c.
@@ -1250,7 +1280,10 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 
 	// In hybrid mode, postfilter flag is SKIPPED (not encoded)
 
-	// Encode transient flag (only for LM >= 1)
+	// Encode transient flag (only for LM >= 1).
+	// Keep libopus transient_got_disabled state cadence so consecutive-transient
+	// history advances even when budget forces transient coding off.
+	transientGotDisabled := false
 	if lm >= 1 && re.Tell()+3 <= totalBits {
 		if transient {
 			re.EncodeBit(1, 3)
@@ -1258,46 +1291,41 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 			re.EncodeBit(0, 3)
 		}
 	} else if lm >= 1 {
+		if transient {
+			transientGotDisabled = true
+		}
 		transient = false
 		shortBlocks = 1
 	}
 
-	// Match libopus pre-coarse stabilization before intra/coarse energy coding.
-	e.celtEncoder.StabilizeEnergiesBeforeCoarseHybrid(energies, nbBands)
-
-	// Encode intra flag using libopus-style coarse-energy two-pass decision.
-	intra := e.celtEncoder.DecideIntraMode(energies, start, nbBands, lm)
-	if re.Tell()+3 <= totalBits {
-		if intra {
-			re.EncodeBit(1, 3)
-		} else {
-			re.EncodeBit(0, 3)
-		}
-	} else {
-		intra = false
-	}
-
-	// Encode coarse energy
+	// Snapshot previous frame energies for dynalloc/coarse state decisions.
 	prevEnergyLen := len(e.celtEncoder.PrevEnergy())
 	if cap(e.hybridState.scratchPrevEnergy) < prevEnergyLen {
 		e.hybridState.scratchPrevEnergy = make([]float64, prevEnergyLen)
 	}
 	prevEnergy := e.hybridState.scratchPrevEnergy[:prevEnergyLen]
 	copy(prevEnergy, e.celtEncoder.PrevEnergy())
+
+	// dynalloc_analysis in libopus uses pre-stabilization energies.
+	if cap(e.hybridState.scratchAnalysisE) < len(energies) {
+		e.hybridState.scratchAnalysisE = make([]float64, len(energies))
+	}
+	analysisEnergies := e.hybridState.scratchAnalysisE[:len(energies)]
+	copy(analysisEnergies, energies)
+
 	oldBandE := prevEnergy
 	if maxLen := nbBands * e.channels; maxLen > 0 && len(oldBandE) > maxLen {
 		oldBandE = oldBandE[:maxLen]
 	}
-	quantizedEnergies := e.celtEncoder.EncodeCoarseEnergyRange(energies, start, end, intra, lm)
 
 	// Update tonality analysis for next frame's VBR decisions.
-	e.celtEncoder.UpdateTonalityAnalysisHybrid(normL, energies, nbBands, frameSize)
+	e.celtEncoder.UpdateTonalityAnalysisHybrid(normL, analysisEnergies, nbBands, frameSize)
 
 	// Compute dynalloc analysis for TF/spread and offsets.
 	lsbDepth := e.lsbDepth
 
 	dynallocResult := e.celtEncoder.DynallocAnalysisHybridScratch(
-		energies,
+		analysisEnergies,
 		bandLogE2,
 		oldBandE,
 		nbBands,
@@ -1348,6 +1376,25 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 		}
 		tfSelect = 0
 	}
+	// Match libopus pre-coarse stabilization before intra/coarse energy coding.
+	// Apply only on coded bands [start,end).
+	e.celtEncoder.StabilizeEnergiesBeforeCoarseHybrid(energies, start, end, nbBands)
+
+	// Encode intra flag using libopus-style coarse-energy two-pass decision.
+	intra := e.celtEncoder.DecideIntraMode(energies, start, nbBands, lm)
+	if re.Tell()+3 <= totalBits {
+		if intra {
+			re.EncodeBit(1, 3)
+		} else {
+			re.EncodeBit(0, 3)
+		}
+	} else {
+		intra = false
+	}
+
+	// Encode coarse energy.
+	quantizedEnergies := e.celtEncoder.EncodeCoarseEnergyRange(energies, start, end, intra, lm)
+
 	celt.TFEncodeWithSelect(re, start, end, transient, tfRes, lm, tfSelect)
 
 	// Encode spread decision (analysis-based) only if budget allows.
@@ -1439,10 +1486,11 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 
 	intensity := nbBands
 	dualStereo := false
-	signalBandwidth := end - 1
-	if signalBandwidth < 0 {
-		signalBandwidth = 0
-	}
+	// Match libopus: equiv_rate is derived from the total compressed frame bytes
+	// (nbCompressedBytes), not the post-header effective bytes.
+	nbCompressedBytesForEquiv := (totalBits + 7) >> 3
+	equivRate := celt.ComputeEquivRate(nbCompressedBytesForEquiv, e.channels, lm, e.celtEncoder.Bitrate())
+	signalBandwidth := e.celtEncoder.SignalBandwidthForAllocation(nbBands, equivRate)
 
 	allocResult := e.celtEncoder.ComputeAllocationHybridScratch(
 		re,
@@ -1524,7 +1572,7 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 		e.hybridState.scratchNextEnergy = make([]float64, len(prevEnergy))
 	}
 	nextEnergy := e.hybridState.scratchNextEnergy[:len(prevEnergy)]
-	// Zero-fill since we only populate bands start..end
+	// Match libopus oldBandE cadence: bands outside [start,end) are reset.
 	for i := range nextEnergy {
 		nextEnergy[i] = 0
 	}
@@ -1540,7 +1588,7 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 	e.celtEncoder.SetPrevEnergyWithPrev(prevEnergy, nextEnergy)
 	e.celtEncoder.SetRNG(re.Range())
 	e.celtEncoder.IncrementFrameCount()
-	e.celtEncoder.UpdateConsecTransient(transient)
+	e.celtEncoder.UpdateConsecTransientWithDisabled(transient, transientGotDisabled)
 }
 
 // computeMDCTForHybridScratch computes MDCT for hybrid mode encoding using scratch buffers.
