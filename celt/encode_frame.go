@@ -393,7 +393,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		(targetBytes > 12*e.channels || (e.lfe && targetBytes > 3)) &&
 		!e.IsHybrid() &&
 		!isSilence &&
-		re.Tell()+16 <= targetBits
+		re.Tell()+16 <= targetBits &&
+		!e.disablePrefilter
 	if tmpDisablePrefilterEnabled {
 		enabled = false
 	}
@@ -442,13 +443,19 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		}
 	}
 
-	// Determine short blocks based on bit budget
+	// Determine short blocks based on bit budget.
+	// Match libopus transient_got_disabled cadence: if a transient was detected
+	// but disabled due bit budget, consecutive-transient history still advances.
+	transientGotDisabled := false
 	shortBlocks := 1
 	if lm > 0 && re.Tell()+3 <= targetBits {
 		if transient {
 			shortBlocks = mode.ShortBlocks
 		}
 	} else {
+		if transient {
+			transientGotDisabled = true
+		}
 		transient = false
 		shortBlocks = 1
 	}
@@ -708,6 +715,9 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		re.EncodeBit(transientBit, 3)
 	} else if lm > 0 {
 		// Budget doesn't allow transient flag, force non-transient
+		if transient {
+			transientGotDisabled = true
+		}
 		transient = false
 		shortBlocks = 1
 	}
@@ -1352,7 +1362,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	bytes := re.Done()
 	e.SetPrevEnergyWithPrev(prev1LogE, quantizedEnergies)
 	e.IncrementFrameCount()
-	if transient {
+	if transient || transientGotDisabled {
 		e.consecTransient++
 	} else {
 		e.consecTransient = 0

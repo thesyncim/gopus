@@ -511,6 +511,63 @@ func TestEncoderStateUpdates(t *testing.T) {
 	}
 }
 
+func TestEncodeCoarseEnergyRangeUpdatesDelayedIntra(t *testing.T) {
+	mode := GetModeConfig(960)
+	start := HybridCELTStartBand
+	end := mode.EffBands
+	nbBands := end
+	lm := mode.LM
+
+	makeEnergies := func(enc *Encoder) []float64 {
+		energies := make([]float64, nbBands)
+		for band := 0; band < nbBands; band++ {
+			base := 0.02 * float64(band+1)
+			enc.prevEnergy[band] = base
+			energies[band] = base
+			if band >= start {
+				energies[band] += 0.75 + 0.01*float64(band-start)
+			}
+		}
+		return energies
+	}
+
+	t.Run("Inter", func(t *testing.T) {
+		enc := NewEncoder(1)
+		energies := makeEnergies(enc)
+		enc.delayedIntra = 3.25
+		oldDelayed := enc.delayedIntra
+		expectedDist := coarseLossDistortionRange(energies, enc.prevEnergy, start, end, nbBands, 1)
+		expected := AlphaCoef[lm]*AlphaCoef[lm]*oldDelayed + expectedDist
+
+		buf := make([]byte, 512)
+		re := &rangecoding.Encoder{}
+		re.Init(buf)
+		enc.SetRangeEncoder(re)
+		_ = enc.EncodeCoarseEnergyRange(energies, start, end, false, lm)
+
+		if math.Abs(enc.delayedIntra-expected) > 1e-6 {
+			t.Fatalf("inter delayedIntra=%f, want %f", enc.delayedIntra, expected)
+		}
+	})
+
+	t.Run("Intra", func(t *testing.T) {
+		enc := NewEncoder(1)
+		energies := makeEnergies(enc)
+		enc.delayedIntra = 9.0
+		expected := coarseLossDistortionRange(energies, enc.prevEnergy, start, end, nbBands, 1)
+
+		buf := make([]byte, 512)
+		re := &rangecoding.Encoder{}
+		re.Init(buf)
+		enc.SetRangeEncoder(re)
+		_ = enc.EncodeCoarseEnergyRange(energies, start, end, true, lm)
+
+		if math.Abs(enc.delayedIntra-expected) > 1e-6 {
+			t.Fatalf("intra delayedIntra=%f, want %f", enc.delayedIntra, expected)
+		}
+	})
+}
+
 // TestComputeBandEnergiesIntegration verifies computed energies can be encoded.
 func TestComputeBandEnergiesIntegration(t *testing.T) {
 	enc := NewEncoder(1)

@@ -223,6 +223,42 @@ func coarseLossDistortion(energies, oldEBands []float64, nbBands, channels int) 
 	return dist
 }
 
+// coarseLossDistortionRange mirrors libopus loss_distortion() when coarse
+// quantization operates on a band subset [start,end) (hybrid mode).
+func coarseLossDistortionRange(energies, oldEBands []float64, start, end, nbBands, channels int) float64 {
+	if nbBands <= 0 || channels <= 0 {
+		return 0
+	}
+	if start < 0 {
+		start = 0
+	}
+	if end > nbBands {
+		end = nbBands
+	}
+	if end <= start {
+		return 0
+	}
+	var dist float64
+	for c := 0; c < channels; c++ {
+		base := c * nbBands
+		oldBase := c * MaxBands
+		for band := start; band < end; band++ {
+			idx := base + band
+			oldIdx := oldBase + band
+			if idx >= len(energies) || oldIdx >= len(oldEBands) {
+				continue
+			}
+			d := energies[idx] - oldEBands[oldIdx]
+			dist += d * d
+		}
+	}
+	dist /= 128.0
+	if dist > 200.0 {
+		return 200.0
+	}
+	return dist
+}
+
 func (e *Encoder) encodeCoarseEnergyPass(energies []float64, startBand, nbBands int, intra bool, lm int, budget int, maxDecay32 float32, encodeIntraFlag bool) ([]float64, int) {
 	if e.rangeEncoder == nil {
 		return energies, 0
@@ -412,6 +448,21 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []float64, startBand, nbBands 
 	return quantizedEnergies, badness
 }
 
+func (e *Encoder) coarseNbAvailableBytesForBudget(budget int) int {
+	nbAvailableBytes := budget / 8
+	if e.coarseAvailableBytes > 0 {
+		nbAvailableBytes = e.coarseAvailableBytes
+		maxBytes := budget / 8
+		if nbAvailableBytes > maxBytes {
+			nbAvailableBytes = maxBytes
+		}
+	}
+	if nbAvailableBytes < 0 {
+		nbAvailableBytes = 0
+	}
+	return nbAvailableBytes
+}
+
 // DecideIntraMode runs libopus-style two-pass intra/inter selection for coarse energy.
 // It performs trial encodes on a saved range coder state and restores state before returning.
 // startBand specifies the first band to encode (0 for CELT-only, 17 for hybrid mode).
@@ -442,7 +493,7 @@ func (e *Encoder) DecideIntraMode(energies []float64, startBand, nbBands int, lm
 	if e.frameBits > 0 && e.frameBits < budget {
 		budget = e.frameBits
 	}
-	nbAvailableBytes := budget / 8
+	nbAvailableBytes := e.coarseNbAvailableBytesForBudget(budget)
 
 	codedBands := nbBands - startBand
 	if codedBands < 0 {
@@ -547,7 +598,7 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 
 	// Max decay bound (libopus uses nbAvailableBytes-based clamp).
 	maxDecay32 := float32(16.0 * DB6)
-	nbAvailableBytes := budget / 8
+	nbAvailableBytes := e.coarseNbAvailableBytesForBudget(budget)
 	if nbBands > 10 {
 		limit := float32(0.125 * float64(nbAvailableBytes) * DB6)
 		if limit < maxDecay32 {
@@ -598,6 +649,7 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 	if len(energies) < nbBands*channels {
 		channels = 1
 	}
+	newDistortion := coarseLossDistortionRange(energies, e.prevEnergy, start, end, nbBands, channels)
 
 	quantizedEnergies := ensureFloat64Slice(&e.scratch.quantizedEnergies, nbBands*channels)
 	coarseError := ensureFloat64Slice(&e.scratch.coarseError, nbBands*channels)
@@ -637,7 +689,7 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 
 	// Max decay bound (libopus uses nbAvailableBytes-based clamp).
 	maxDecay32 := float32(16.0 * DB6)
-	nbAvailableBytes := budget / 8
+	nbAvailableBytes := e.coarseNbAvailableBytesForBudget(budget)
 	if nbBands > 10 {
 		limit := float32(0.125 * float64(nbAvailableBytes) * DB6)
 		if limit < maxDecay32 {
@@ -749,6 +801,13 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 			}
 			prevBandEnergy[c] = prevBandEnergy[c] + q - betaMul
 		}
+	}
+
+	alpha := AlphaCoef[lm]
+	if intra {
+		e.delayedIntra = newDistortion
+	} else {
+		e.delayedIntra = alpha*alpha*e.delayedIntra + newDistortion
 	}
 
 	return quantizedEnergies
