@@ -174,7 +174,7 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 		tr.NbSubfr = numSubframes
 		tr.SubfrLen = subframeSamples
 		tr.SubfrLenWithOrder = subfrLen
-		tr.FirstFrameAfterReset = !e.haveEncoded
+		tr.FirstFrameAfterReset = e.firstFrameAfterResetActive()
 	}
 
 	aFull, resNrg := e.burgModifiedFLPZeroAllocF32(ltpRes[:totalLen], minInvGain32, subfrLen, numSubframes, order)
@@ -196,7 +196,7 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 	silkA2NLSFInto(lsfQ15, lpcQ16, order, e.scratchA2nlsfP[:], e.scratchA2nlsfQ[:])
 
 	interpIdx := 4
-	useInterp := e.complexity >= 4 && e.haveEncoded && numSubframes == maxNbSubfr
+	useInterp := e.complexity >= 4 && !e.firstFrameAfterResetActive() && numSubframes == maxNbSubfr
 	if useInterp {
 		halfOffset := (maxNbSubfr / 2) * subfrLen
 		if halfOffset+subfrLen*(maxNbSubfr/2) <= totalLen {
