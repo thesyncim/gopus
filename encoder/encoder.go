@@ -143,6 +143,7 @@ type Encoder struct {
 	analysisReadPosBak  int
 	analysisSubframeBak int
 	analysisReadBakSet  bool
+	celtForceIntra      bool
 	prevMode            Mode
 	prevAutoMode        Mode
 	inputBuffer         []float64
@@ -590,6 +591,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	}
 	defer func() {
 		e.analysisReadBakSet = false
+		e.celtForceIntra = false
 	}()
 	// Run Opus analysis on the original input frame (before top-level dc_reject
 	// and LSB quantization) to match libopus run_analysis ordering.
@@ -665,6 +667,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		e.updateDelayBuffer(framePCM, frameSize)
 	case ModeHybrid:
 		celtPCM := e.applyDelayCompensation(framePCM, frameSize)
+		e.maybePrefillCELTOnModeTransition(actualMode, celtPCM, frameSize)
 		if frameSize > 960 {
 			packet, err = e.encodeHybridMultiFramePacket(framePCM, celtPCM, lookaheadSlice, frameSize)
 		} else {
@@ -672,6 +675,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		}
 	case ModeCELT:
 		celtPCM := e.prepareCELTPCM(framePCM, frameSize)
+		e.maybePrefillCELTOnModeTransition(actualMode, celtPCM, frameSize)
 		if frameSize > 960 {
 			// Long CELT packets are encoded as multi-frame packets.
 			packet, err = e.encodeCELTMultiFramePacket(celtPCM, frameSize)
@@ -970,6 +974,65 @@ func (e *Encoder) applyDelayCompensation(pcm []float64, frameSize int) []float64
 
 	e.updateDelayBufferInternal(pcm, frameSamples, delaySamples, encoderBufferSamples, tail)
 	return out
+}
+
+func (e *Encoder) maybePrefillCELTOnModeTransition(actualMode Mode, celtPCM []float64, frameSize int) {
+	e.celtForceIntra = false
+	if actualMode == ModeSILK || e.lowDelay {
+		return
+	}
+	prev := e.prevMode
+	if !isConcreteMode(prev) || prev == actualMode {
+		return
+	}
+
+	prefillFrameSize := e.sampleRate / 400
+	if prefillFrameSize <= 0 || !ValidFrameSize(prefillFrameSize, ModeCELT) {
+		return
+	}
+	prefillSamples := prefillFrameSize * e.channels
+	if prefillSamples <= 0 || len(celtPCM) < prefillSamples {
+		return
+	}
+
+	e.ensureCELTEncoder()
+	e.celtEncoder.Reset()
+	e.celtEncoder.SetHybrid(actualMode == ModeHybrid)
+	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
+	e.celtEncoder.SetPrediction(0)
+	e.celtEncoder.SetLSBDepth(e.lsbDepth)
+
+	switch actualMode {
+	case ModeHybrid:
+		if e.bitrateMode == ModeCBR {
+			e.celtEncoder.SetBitrate(MaxBitrate)
+			e.celtEncoder.SetVBR(false)
+			e.celtEncoder.SetConstrainedVBR(false)
+		} else {
+			frame20ms := frameSize != 480
+			_, celtBitrate, _ := e.computeHybridBitAllocation(frame20ms)
+			e.celtEncoder.SetBitrate(celtBitrate)
+			e.celtEncoder.SetVBR(true)
+			e.celtEncoder.SetConstrainedVBR(false)
+		}
+	case ModeCELT:
+		e.celtEncoder.SetBitrate(e.bitrate)
+		switch e.bitrateMode {
+		case ModeCBR:
+			e.celtEncoder.SetVBR(false)
+			e.celtEncoder.SetConstrainedVBR(false)
+		case ModeCVBR:
+			e.celtEncoder.SetVBR(true)
+			e.celtEncoder.SetConstrainedVBR(true)
+		default:
+			e.celtEncoder.SetVBR(true)
+			e.celtEncoder.SetConstrainedVBR(false)
+		}
+	}
+
+	_, _ = e.celtEncoder.EncodeFrame(celtPCM[:prefillSamples], prefillFrameSize)
+	// Match libopus mode-switch behavior: the next real CELT frame is forced intra.
+	e.celtForceIntra = true
 }
 
 // updateDelayBuffer advances the delay buffer without generating a compensated frame.
@@ -1350,6 +1413,14 @@ func (e *Encoder) celtPredictionMode() int {
 	return 2
 }
 
+func (e *Encoder) celtPredictionModeForFrame() int {
+	if e.celtForceIntra {
+		e.celtForceIntra = false
+		return 0
+	}
+	return e.celtPredictionMode()
+}
+
 // encodeSILKFrame encodes a frame using SILK-only mode.
 func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize int) ([]byte, error) {
 	e.ensureSILKEncoder()
@@ -1576,7 +1647,7 @@ func (e *Encoder) encodeCELTFrameWithBitrateAndMaxPayload(pcm []float64, frameSi
 	e.celtEncoder.SetMaxPayloadBytes(maxPayloadBytes)
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 	e.celtEncoder.SetHybrid(false)
-	e.celtEncoder.SetPrediction(e.celtPredictionMode())
+	e.celtEncoder.SetPrediction(e.celtPredictionModeForFrame())
 	e.celtEncoder.SetDCRejectEnabled(false)
 	e.celtEncoder.SetPacketLoss(e.packetLoss)
 	e.celtEncoder.SetLSBDepth(e.lsbDepth)
