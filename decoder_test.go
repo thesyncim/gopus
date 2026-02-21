@@ -904,6 +904,210 @@ func TestDecodeWithFEC_ProvidedCELTPacketClearsStoredFECState(t *testing.T) {
 	}
 }
 
+func TestDecodeWithFEC_ProvidedPacketUsesPacketModeForCELTGate(t *testing.T) {
+	enc, err := NewEncoder(48000, 1, ApplicationVoIP)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+	enc.SetFEC(true)
+	if err := enc.SetPacketLoss(15); err != nil {
+		t.Fatalf("SetPacketLoss error: %v", err)
+	}
+	if err := enc.SetBitrate(24000); err != nil {
+		t.Fatalf("SetBitrate error: %v", err)
+	}
+
+	frameSize := 960
+	makeFrame := func(phase float64) []float32 {
+		pcm := make([]float32, frameSize)
+		for i := range pcm {
+			tm := (float64(i) + phase) / 48000.0
+			pcm[i] = float32(0.5*math.Sin(2*math.Pi*440*tm) + 0.2*math.Sin(2*math.Pi*880*tm))
+		}
+		return pcm
+	}
+
+	pktBuf := make([]byte, 4000)
+	encodeFrame := func(pcm []float32) []byte {
+		n, err := enc.Encode(pcm, pktBuf)
+		if err != nil {
+			t.Fatalf("Encode error: %v", err)
+		}
+		if n == 0 {
+			t.Fatal("unexpected DTX suppression while generating FEC test packet")
+		}
+		packet := make([]byte, n)
+		copy(packet, pktBuf[:n])
+		return packet
+	}
+
+	packet0 := encodeFrame(makeFrame(0))
+	_ = encodeFrame(makeFrame(960)) // packet 1 intentionally "lost"
+	packet2 := encodeFrame(makeFrame(1920))
+
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	pcm0 := make([]float32, frameSize)
+	if _, err := dec.Decode(packet0, pcm0); err != nil {
+		t.Fatalf("Decode packet0 error: %v", err)
+	}
+	if dec.lastPacketMode == ModeCELT {
+		t.Fatalf("test setup invalid: first packet mode resolved to CELT")
+	}
+
+	// Simulate transient prevMode=CELLT (e.g., after redundancy/PLC path).
+	// decode_fec gating should still use packet-mode state (lastPacketMode).
+	dec.prevMode = ModeCELT
+
+	pcmFEC := make([]float32, frameSize)
+	nFEC, err := dec.DecodeWithFEC(packet2, pcmFEC, true)
+	if err != nil {
+		t.Fatalf("DecodeWithFEC(packet2, fec=true) error: %v", err)
+	}
+	if nFEC != frameSize {
+		t.Fatalf("DecodeWithFEC(packet2, fec=true) samples=%d want=%d", nFEC, frameSize)
+	}
+	if dec.lastDataLen == 0 {
+		t.Fatalf("expected provided-packet decode_fec path, got PLC fallback")
+	}
+}
+
+func TestDecodeWithFEC_ProvidedPacketWithoutLBRRUsesDirectPLCFallback(t *testing.T) {
+	enc, err := NewEncoder(48000, 1, ApplicationVoIP)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+	enc.SetFEC(false)
+	if err := enc.SetBitrate(12000); err != nil {
+		t.Fatalf("SetBitrate error: %v", err)
+	}
+	if err := enc.SetSignal(SignalVoice); err != nil {
+		t.Fatalf("SetSignal error: %v", err)
+	}
+	if err := enc.SetBandwidth(BandwidthWideband); err != nil {
+		t.Fatalf("SetBandwidth error: %v", err)
+	}
+
+	const frameSize = 960
+	makeFrame := func(phase float64) []float32 {
+		pcm := make([]float32, frameSize)
+		for i := range pcm {
+			tm := (float64(i) + phase) / 48000.0
+			pcm[i] = float32(0.4*math.Sin(2*math.Pi*220*tm) + 0.1*math.Sin(2*math.Pi*440*tm))
+		}
+		return pcm
+	}
+
+	pktBuf := make([]byte, 4000)
+	encodeFrame := func(pcm []float32) []byte {
+		n, err := enc.Encode(pcm, pktBuf)
+		if err != nil {
+			t.Fatalf("Encode error: %v", err)
+		}
+		if n == 0 {
+			t.Fatal("unexpected DTX suppression while generating no-LBRR test packet")
+		}
+		packet := make([]byte, n)
+		copy(packet, pktBuf[:n])
+		return packet
+	}
+
+	packet0 := encodeFrame(makeFrame(0))
+	_ = encodeFrame(makeFrame(960)) // packet 1 intentionally "lost"
+	packet2 := encodeFrame(makeFrame(1920))
+
+	toc, _, err := packetFrameCount(packet2)
+	if err != nil {
+		t.Fatalf("packetFrameCount(packet2) error: %v", err)
+	}
+	if toc.Mode == ModeCELT {
+		t.Fatalf("test setup invalid: packet2 mode resolved to CELT")
+	}
+	firstFrameData, err := extractFirstFramePayload(packet2, toc)
+	if err != nil {
+		t.Fatalf("extractFirstFramePayload(packet2) error: %v", err)
+	}
+	if packetHasLBRR(firstFrameData, toc) {
+		t.Fatalf("test setup invalid: packet2 unexpectedly has LBRR")
+	}
+
+	decExpected, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder(expected) error: %v", err)
+	}
+	decActual, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder(actual) error: %v", err)
+	}
+
+	pcm0 := make([]float32, frameSize)
+	if _, err := decExpected.Decode(packet0, pcm0); err != nil {
+		t.Fatalf("Decode packet0 (expected) error: %v", err)
+	}
+	if _, err := decActual.Decode(packet0, pcm0); err != nil {
+		t.Fatalf("Decode packet0 (actual) error: %v", err)
+	}
+
+	pcmExpected := make([]float32, frameSize)
+	nExpected, err := decExpected.decodePLCForFECWithState(pcmExpected, frameSize, toc.Mode, toc.Bandwidth, toc.Stereo)
+	if err != nil {
+		t.Fatalf("decodePLCForFECWithState(expected) error: %v", err)
+	}
+	if nExpected != frameSize {
+		t.Fatalf("decodePLCForFECWithState(expected) samples=%d want=%d", nExpected, frameSize)
+	}
+
+	pcmActual := make([]float32, frameSize)
+	nActual, err := decActual.DecodeWithFEC(packet2, pcmActual, true)
+	if err != nil {
+		t.Fatalf("DecodeWithFEC(packet2, fec=true) error: %v", err)
+	}
+	if nActual != frameSize {
+		t.Fatalf("DecodeWithFEC(packet2, fec=true) samples=%d want=%d", nActual, frameSize)
+	}
+
+	const tol = 1e-7
+	for i := 0; i < frameSize; i++ {
+		if math.Abs(float64(pcmExpected[i]-pcmActual[i])) > tol {
+			t.Fatalf("sample %d mismatch: expected=%v actual=%v", i, pcmExpected[i], pcmActual[i])
+		}
+	}
+}
+
+func TestDecodeWithFEC_PLCWithProvidedStateUsesProvidedMode(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	frameSize := 960
+	packet := minimalHybridTestPacket20ms()
+	pcmPrime := make([]float32, frameSize)
+	if _, err := dec.Decode(packet, pcmPrime); err != nil {
+		t.Fatalf("Decode prime packet error: %v", err)
+	}
+
+	// Force decoder transient PLC mode to CELT and verify provided state wins.
+	dec.prevMode = ModeCELT
+	dec.prevRedundancy = false
+	dec.haveDecoded = true
+
+	pcmPLC := make([]float32, frameSize)
+	n, err := dec.decodePLCForFECWithState(pcmPLC, frameSize, ModeHybrid, BandwidthFullband, false)
+	if err != nil {
+		t.Fatalf("decodePLCForFECWithState error: %v", err)
+	}
+	if n != frameSize {
+		t.Fatalf("decodePLCForFECWithState samples=%d want=%d", n, frameSize)
+	}
+	if dec.prevMode != ModeHybrid {
+		t.Fatalf("prevMode=%v want=%v (provided PLC mode must be honored)", dec.prevMode, ModeHybrid)
+	}
+}
+
 // TestDecodeWithFEC_NoFECRequested verifies that when fec=false, DecodeWithFEC
 // behaves identically to Decode.
 func TestDecodeWithFEC_NoFECRequested(t *testing.T) {

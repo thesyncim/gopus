@@ -62,6 +62,7 @@ type Decoder struct {
 	lastFrameSize      int
 	lastPacketDuration int
 	prevMode           Mode // Track last mode for PLC
+	lastPacketMode     Mode // Track last packet mode (libopus st->mode) for decode_fec gating
 	lastBandwidth      Bandwidth
 	prevRedundancy     bool
 	prevPacketStereo   bool
@@ -133,6 +134,7 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 		scratchRedundant:  make([]float32, transitionSamples*cfg.Channels),
 		lastFrameSize:     960,        // Default 20ms at 48kHz
 		prevMode:          ModeHybrid, // Default for PLC until first decode
+		lastPacketMode:    ModeHybrid,
 		lastBandwidth:     BandwidthFullband,
 		fecData:           make([]byte, maxPacketBytes),
 		scratchFEC:        make([]float32, maxPacketSamples*cfg.Channels),
@@ -361,6 +363,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 	d.lastFrameSize = frameSize
 	d.lastPacketDuration = totalSamples
 	d.lastBandwidth = toc.Bandwidth
+	d.lastPacketMode = toc.Mode
 	// Set the full packet length for FinalRange check (per libopus: len <= 1 means rangeFinal = 0)
 	d.lastDataLen = len(data)
 
@@ -431,19 +434,30 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 			frameSize = 960
 		}
 
+		// Match libopus decode_fec gating semantics: gate on packet mode state,
+		// not transient prevMode/PLC state.
+		prevPacketMode := d.lastPacketMode
 		// Match libopus decode_fec gating:
 		// - CELT packets have no LBRR.
-		// - If the previous decoded mode was CELT, SILK FEC context is unavailable.
-		if toc.Mode == ModeCELT || d.prevMode == ModeCELT {
+		// - If decoder packet mode is CELT, SILK FEC context is unavailable.
+		if toc.Mode == ModeCELT || prevPacketMode == ModeCELT {
 			d.clearFECState()
 			return d.decodePLCForFEC(pcm, frameSize)
 		}
+		// Keep packet-mode cadence aligned with libopus decode_fec path.
+		d.lastPacketMode = toc.Mode
 
 		// LBRR is only available in SILK/Hybrid. CELT-only falls back to PLC.
 		if toc.Mode == ModeSILK || toc.Mode == ModeHybrid {
 			firstFrameData, err := extractFirstFramePayload(data, toc)
 			if err != nil {
 				return 0, err
+			}
+			// Match libopus opus_packet_has_lbrr gating from opus_demo:
+			// only attempt decode_fec when packet actually carries LBRR.
+			if !packetHasLBRR(firstFrameData, toc) {
+				d.clearFECState()
+				return d.decodePLCForFECWithState(pcm, frameSize, toc.Mode, toc.Bandwidth, toc.Stereo)
 			}
 			d.storeFECData(firstFrameData, toc, frameCount, frameSize)
 			if n, err := d.decodeFECFrame(pcm); err == nil {
@@ -507,14 +521,15 @@ func (d *Decoder) decodePLCForFECWithState(
 	offset := 0
 	for remaining > 0 {
 		chunk := min(remaining, 48000/50)
-		n, err := d.decodeOpusFrameInto(
+		n, err := d.decodeOpusFrameIntoWithStatePolicy(
 			pcm[offset*d.channels:],
 			nil,
 			chunk,
-			d.lastFrameSize,
+			frameSize,
 			mode,
 			bandwidth,
 			packetStereo,
+			false,
 		)
 		if err != nil {
 			return 0, err
@@ -631,6 +646,34 @@ func extractFirstFramePayload(data []byte, toc TOC) ([]byte, error) {
 	}
 }
 
+// packetHasLBRR mirrors libopus opus_packet_has_lbrr() semantics for Opus
+// frame payload bytes (first frame only).
+func packetHasLBRR(firstFrameData []byte, toc TOC) bool {
+	if toc.Mode == ModeCELT || len(firstFrameData) == 0 {
+		return false
+	}
+
+	nbFrames := 1
+	if toc.FrameSize > 960 {
+		nbFrames = toc.FrameSize / 960
+	}
+
+	monoBit := 7 - nbFrames
+	if monoBit < 0 {
+		return false
+	}
+	lbrr := (firstFrameData[0] >> uint(monoBit)) & 0x1
+
+	if toc.Stereo {
+		stereoBit := 6 - 2*nbFrames
+		if stereoBit >= 0 {
+			lbrr |= (firstFrameData[0] >> uint(stereoBit)) & 0x1
+		}
+	}
+
+	return lbrr != 0
+}
+
 // storeFECData stores the current packet's information for FEC recovery.
 // This is called after successfully decoding a SILK or Hybrid packet.
 func (d *Decoder) storeFECData(data []byte, toc TOC, frameCount, frameSize int) {
@@ -686,6 +729,7 @@ func (d *Decoder) decodeFECFrame(pcm []float32) (int, error) {
 
 	// Update decoder state cadence to match libopus decode_fec behavior.
 	d.prevMode = d.fecMode
+	d.lastPacketMode = d.fecMode
 	d.lastBandwidth = d.fecBandwidth
 	d.prevPacketStereo = d.fecStereo
 	d.lastFrameSize = frameSize
@@ -900,6 +944,7 @@ func (d *Decoder) Reset() {
 	d.lastFrameSize = 960
 	d.lastPacketDuration = 0
 	d.prevMode = ModeHybrid
+	d.lastPacketMode = ModeHybrid
 	d.lastBandwidth = BandwidthFullband
 	d.prevRedundancy = false
 	d.prevPacketStereo = false
