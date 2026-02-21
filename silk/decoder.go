@@ -543,6 +543,11 @@ func (d *Decoder) GetLastSignalType() int {
 	return int(d.state[0].indices.signalType)
 }
 
+// GetLagPrev returns the previous pitch lag tracked by SILK decode state.
+func (d *Decoder) GetLagPrev() int {
+	return d.state[0].lagPrev
+}
+
 // DebugFrameParams contains decoded frame parameters for debugging.
 type DebugFrameParams struct {
 	NLSFInterpCoefQ2 int

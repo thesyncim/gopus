@@ -61,6 +61,18 @@ type SILKDecoderState interface {
 	HistoryIndex() int
 }
 
+// SILKPitchLagProvider optionally exposes the previous pitch lag from the
+// underlying decoder state.
+type SILKPitchLagProvider interface {
+	GetLagPrev() int
+}
+
+// SILKSignalTypeProvider optionally exposes libopus signal type tracking.
+// Returns 0=inactive, 1=unvoiced, 2=voiced.
+type SILKSignalTypeProvider interface {
+	GetLastSignalType() int
+}
+
 // SILKDecoderStateExtended provides extended SILK decoder state access for LTP-aware PLC.
 // Implementations should provide this interface for full LTP coefficient support.
 type SILKDecoderStateExtended interface {
@@ -591,9 +603,15 @@ func concealVoicedSILK(dec SILKDecoderState, output []float32, prevLPC []float32
 		return
 	}
 
-	// Estimate pitch lag from history (simple autocorrelation)
-	// Use a basic approach: look for periodicity in last ~10ms
-	pitchLag := estimatePitchFromHistory(history, histIdx, histLen)
+	// Prefer decoder-tracked pitch lag (lagPrev) when available.
+	pitchLag := 0
+	if p, ok := dec.(SILKPitchLagProvider); ok {
+		pitchLag = p.GetLagPrev()
+	}
+	if pitchLag <= 0 {
+		// Fallback to autocorrelation estimate.
+		pitchLag = estimatePitchFromHistory(history, histIdx, histLen)
+	}
 	if pitchLag < 10 {
 		pitchLag = 80 // Default to ~5ms at 16kHz if estimation fails
 	}
