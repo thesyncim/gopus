@@ -28,10 +28,10 @@ const (
 // After this many frames, the output should be near-silent.
 const MaxConcealedFrames = 5
 
-// FadePerFrame is the gain reduction per lost frame (linear).
-// Approximately -6dB per frame: 10^(-6/20) ~ 0.5
-// This provides smooth fade-out during extended packet loss.
-const FadePerFrame = 0.5
+// FadePerFrame is the default gain reduction per lost frame (linear).
+// Keep this mild; mode-specific concealment (especially SILK/Hybrid) already
+// applies its own attenuation cadence and should not be hard-faded here.
+const FadePerFrame = 0.57
 
 // State tracks PLC state across frames.
 // It maintains information about consecutive losses and coordinates
@@ -90,7 +90,7 @@ func (s *State) Reset() {
 func (s *State) RecordLoss() float64 {
 	s.lostCount++
 
-	// Apply fade: multiply by FadePerFrame each lost packet
+	// Default fade for extended loss or CELT-mode concealment.
 	s.fadeFactor *= FadePerFrame
 
 	// Clamp to minimum (effectively zero)
