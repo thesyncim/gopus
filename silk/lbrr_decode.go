@@ -35,6 +35,9 @@ func (d *Decoder) DecodeFEC(
 		return nil, ErrDecodeFailed
 	}
 
+	// Keep SILK bandwidth/resampler transition cadence aligned with normal decode.
+	d.NotifyBandwidthChange(bandwidth)
+
 	// Initialize range decoder
 	var rd rangecoding.Decoder
 	rd.Init(data)
@@ -141,6 +144,7 @@ func (d *Decoder) DecodeFEC(
 
 		frameOut := outInt16[i*frameLength : (i+1)*frameLength]
 		silkDecodeCore(stMid, &ctrl, frameOut, pulses)
+		d.updateHistoryInt16(frameOut)
 		silkUpdateOutBuf(stMid, frameOut)
 
 		// Apply PLC glue frames for smooth transition
@@ -149,32 +153,29 @@ func (d *Decoder) DecodeFEC(
 		stMid.lagPrev = ctrl.pitchL[stMid.nbSubfr-1]
 		stMid.prevSignalType = int(stMid.indices.signalType)
 		stMid.firstFrameAfterReset = false
+		d.syncLegacyPLCState(stMid, frameOut)
 		stMid.nFramesDecoded++
 	}
 
-	// Convert to float32 and upsample to 48kHz
-	nativeSamples := make([]float32, len(outInt16))
-	for i, v := range outInt16 {
-		nativeSamples[i] = float32(v) / 32768.0
-	}
-
-	// Resample from native rate to 48kHz
+	// Resample from native rate to 48kHz using the same int16 path as normal decode.
 	resampler := d.GetResampler(bandwidth)
-	output := make([]float32, 0, frameSizeSamples*outputChannels)
+	output := make([]float32, frameSizeSamples*outputChannels)
+	outputOffset := 0
 
 	for f := 0; f < framesPerPacket; f++ {
 		start := f * frameLength
 		end := start + frameLength
-		if end > len(nativeSamples) {
-			end = len(nativeSamples)
+		if end > len(outInt16) {
+			end = len(outInt16)
 		}
-		frameNative := nativeSamples[start:end]
+		frameNative := outInt16[start:end]
 
 		// Apply sMid buffering before resampling
-		resamplerInput := d.BuildMonoResamplerInput(frameNative)
-		frameSamples := resampler.Process(resamplerInput)
-		output = append(output, frameSamples...)
+		resamplerInput := d.BuildMonoResamplerInputInt16(frameNative)
+		n := resampler.ProcessInt16Into(resamplerInput, output[outputOffset:])
+		outputOffset += n
 	}
+	output = output[:outputOffset]
 
 	// Handle channel expansion/reduction
 	if outputChannels == 2 && !stereo {
