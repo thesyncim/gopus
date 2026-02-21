@@ -1125,7 +1125,7 @@ func celtBandwidthFromTypes(bw types.Bandwidth) celt.CELTBandwidth {
 func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetPayloadBytes int, silkSignalType, silkOffset int) {
 	// Set hybrid mode flag on CELT encoder
 	e.celtEncoder.SetHybrid(true)
-	e.celtEncoder.SetPrediction(e.celtPredictionMode())
+	e.celtEncoder.SetPrediction(e.celtPredictionModeForFrame())
 
 	// Ensure CELT scratch buffers are properly sized for this frame.
 	// The hybrid path bypasses EncodeFrame, so we must initialize them here.
