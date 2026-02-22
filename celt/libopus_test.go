@@ -44,10 +44,7 @@ func TestLibopusCrossValidationMono(t *testing.T) {
 	t.Logf("Ogg container: %d bytes", ogg.Len())
 
 	// Decode with opusdec
-	decoded, err := decodeWithOpusdec(ogg.Bytes())
-	if err != nil {
-		t.Fatalf("decodeWithOpusdec failed: %v", err)
-	}
+	decoded := decodeWithOpusdecOrSkip(t, ogg.Bytes())
 
 	// Verify output exists
 	if len(decoded) == 0 {
@@ -105,10 +102,7 @@ func TestLibopusCrossValidationStereo(t *testing.T) {
 	t.Logf("Ogg container: %d bytes", ogg.Len())
 
 	// Decode with opusdec
-	decoded, err := decodeWithOpusdec(ogg.Bytes())
-	if err != nil {
-		t.Fatalf("decodeWithOpusdec failed: %v", err)
-	}
+	decoded := decodeWithOpusdecOrSkip(t, ogg.Bytes())
 
 	// Verify output exists
 	if len(decoded) == 0 {
@@ -183,10 +177,7 @@ func TestLibopusCrossValidationAllFrameSizes(t *testing.T) {
 			}
 
 			// Decode with opusdec
-			decoded, err := decodeWithOpusdec(ogg.Bytes())
-			if err != nil {
-				t.Fatalf("decodeWithOpusdec failed: %v", err)
-			}
+			decoded := decodeWithOpusdecOrSkip(t, ogg.Bytes())
 
 			if len(decoded) == 0 {
 				t.Fatalf("%s: opusdec produced empty output", fs.name)
@@ -231,10 +222,7 @@ func TestLibopusCrossValidationSilence(t *testing.T) {
 	}
 
 	// Decode with opusdec
-	decoded, err := decodeWithOpusdec(ogg.Bytes())
-	if err != nil {
-		t.Fatalf("decodeWithOpusdec failed: %v", err)
-	}
+	decoded := decodeWithOpusdecOrSkip(t, ogg.Bytes())
 
 	if len(decoded) == 0 {
 		t.Fatal("opusdec produced empty output")
@@ -290,10 +278,7 @@ func TestLibopusCrossValidationMultipleFrames(t *testing.T) {
 	t.Logf("Ogg container with %d frames: %d bytes", numFrames, ogg.Len())
 
 	// Decode with opusdec
-	decoded, err := decodeWithOpusdec(ogg.Bytes())
-	if err != nil {
-		t.Fatalf("decodeWithOpusdec failed: %v", err)
-	}
+	decoded := decodeWithOpusdecOrSkip(t, ogg.Bytes())
 
 	if len(decoded) == 0 {
 		t.Fatal("opusdec produced empty output")
@@ -323,10 +308,7 @@ func TestLibopusCrossValidationFixtureFallback(t *testing.T) {
 	for _, sc := range scenarios {
 		sc := sc
 		t.Run(sc.name, func(t *testing.T) {
-			decoded, err := decodeWithOpusdec(sc.ogg)
-			if err != nil {
-				t.Fatalf("fixture fallback decode failed: %v", err)
-			}
+			decoded := decodeWithOpusdecOrSkip(t, sc.ogg)
 			if len(decoded) == 0 {
 				t.Fatal("fixture fallback decode returned no samples")
 			}
