@@ -143,3 +143,31 @@ func (d *Decoder) GetLTPMemoryLength() int {
 	}
 	return d.state[0].ltpMemLength
 }
+
+func (d *Decoder) GetSLPCQ14HistoryQ14() []int32 {
+	st := &d.state[0]
+	order := st.lpcOrder
+	if order <= 0 {
+		return nil
+	}
+	if order > maxLPCOrder {
+		order = maxLPCOrder
+	}
+	start := maxLPCOrder - order
+	if start < 0 {
+		start = 0
+	}
+	return st.sLPCQ14Buf[start:maxLPCOrder]
+}
+
+func (d *Decoder) GetOutBufHistoryQ0() []int16 {
+	st := &d.state[0]
+	mem := st.ltpMemLength
+	if mem <= 0 {
+		return nil
+	}
+	if mem > len(st.outBuf) {
+		mem = len(st.outBuf)
+	}
+	return st.outBuf[:mem]
+}
