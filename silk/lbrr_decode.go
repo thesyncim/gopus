@@ -146,6 +146,7 @@ func (d *Decoder) DecodeFEC(
 		silkDecodeCore(stMid, &ctrl, frameOut, pulses)
 		d.updateHistoryInt16(frameOut)
 		silkUpdateOutBuf(stMid, frameOut)
+		d.updateSILKPLCStateFromCtrl(0, stMid, &ctrl)
 
 		// Apply PLC glue frames for smooth transition
 		stMid.lossCnt = 0

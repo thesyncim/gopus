@@ -100,6 +100,7 @@ func (d *Decoder) DecodeFrame(
 		silkDecodeParameters(st, &ctrl, condCoding)
 		silkDecodeCore(st, &ctrl, frameOut, pulses)
 		silkUpdateOutBuf(st, frameOut)
+		d.updateSILKPLCStateFromCtrl(0, st, &ctrl)
 
 		st.lossCnt = 0
 		// Apply PLC glue frames for smooth transition from concealed to real frames.
@@ -264,6 +265,7 @@ func (d *Decoder) decodeFrameRawInt16(
 		silkDecodeCore(st, &ctrl, frameOut, pulses)
 		d.updateHistoryInt16(frameOut)
 		silkUpdateOutBuf(st, frameOut)
+		d.updateSILKPLCStateFromCtrl(0, st, &ctrl)
 		st.lossCnt = 0
 		silkPLCGlueFrames(st, frameOut, frameLength)
 		st.lagPrev = ctrl.pitchL[st.nbSubfr-1]
@@ -481,6 +483,7 @@ func (d *Decoder) DecodeStereoFrame(
 		silkDecodeParameters(stMid, &ctrlMid, condMid)
 		silkDecodeCore(stMid, &ctrlMid, midOut, pulsesMid)
 		silkUpdateOutBuf(stMid, midOut)
+		d.updateSILKPLCStateFromCtrl(0, stMid, &ctrlMid)
 
 		stMid.lossCnt = 0
 		// Apply PLC glue frames for smooth transition from concealed to real frames.
@@ -507,6 +510,7 @@ func (d *Decoder) DecodeStereoFrame(
 			silkDecodeParameters(stSide, &ctrlSide, condSide)
 			silkDecodeCore(stSide, &ctrlSide, sideOut, pulsesSide)
 			silkUpdateOutBuf(stSide, sideOut)
+			d.updateSILKPLCStateFromCtrl(1, stSide, &ctrlSide)
 
 			stSide.lossCnt = 0
 			// Apply PLC glue frames for side channel.
@@ -637,6 +641,7 @@ func (d *Decoder) decodeStereoMidNative(
 		silkDecodeParameters(stMid, &ctrlMid, condMid)
 		silkDecodeCore(stMid, &ctrlMid, midOut, pulsesMid)
 		silkUpdateOutBuf(stMid, midOut)
+		d.updateSILKPLCStateFromCtrl(0, stMid, &ctrlMid)
 
 		stMid.lossCnt = 0
 		// Apply PLC glue frames for smooth transition from concealed to real frames.
@@ -664,6 +669,7 @@ func (d *Decoder) decodeStereoMidNative(
 			sideOut := make([]int16, frameLength)
 			silkDecodeCore(stSide, &ctrlSide, sideOut, pulsesSide)
 			silkUpdateOutBuf(stSide, sideOut)
+			d.updateSILKPLCStateFromCtrl(1, stSide, &ctrlSide)
 
 			stSide.lossCnt = 0
 			// Apply PLC glue frames for side channel.

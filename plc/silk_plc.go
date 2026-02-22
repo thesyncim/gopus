@@ -506,7 +506,7 @@ func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lo
 	B_Q14 := plcState.LTPCoefQ14
 
 	// Process each subframe
-	sLPCQ14 := make([]int32, subfrLength+maxLPCOrder)
+	sLPCQ14 := make([]int32, frameSize+maxLPCOrder)
 
 	// Initialize sLPC from previous state
 	// (In a full implementation, this would come from decoder state)
