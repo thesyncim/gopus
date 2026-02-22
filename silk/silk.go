@@ -756,10 +756,10 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 	nativeSamples := frameSizeSamples * config.SampleRate / 48000
 
 	// Generate concealment at native rate.
-	// Use LTP-aware concealment for first loss, then fall back to legacy
-	// concealment for longer bursts while parity is being tightened.
+	// Use LTP-aware concealment whenever per-channel SILK PLC state is valid.
+	// Fall back to legacy concealment only when required state is unavailable.
 	var concealed []float32
-	if state := d.ensureSILKPLCState(0); state != nil && d.state[0].nbSubfr > 0 && lossCnt == 0 {
+	if state := d.ensureSILKPLCState(0); state != nil && d.state[0].nbSubfr > 0 {
 		concealedQ0 := plc.ConcealSILKWithLTP(d, state, lossCnt, nativeSamples)
 		if d.scratchOutput != nil && len(d.scratchOutput) >= nativeSamples {
 			concealed = d.scratchOutput[:nativeSamples]
@@ -885,8 +885,7 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 	rightState := d.ensureSILKPLCState(1)
 	leftView := d.plcDecoderView(0)
 	rightView := d.plcDecoderView(1)
-	if lossCnt == 0 &&
-		leftState != nil && rightState != nil &&
+	if leftState != nil && rightState != nil &&
 		leftView != nil && rightView != nil &&
 		d.state[0].nbSubfr > 0 && d.state[1].nbSubfr > 0 {
 		leftQ0 := plc.ConcealSILKWithLTP(leftView, leftState, lossCnt, nativeSamples)
