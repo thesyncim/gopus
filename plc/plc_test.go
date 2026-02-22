@@ -971,3 +971,36 @@ func TestLTPGainBounds(t *testing.T) {
 		t.Error("vPitchGainStartMinQ14 should be < vPitchGainStartMaxQ14")
 	}
 }
+
+func TestComputeEnergyUsesSaturatedScaledExcitation(t *testing.T) {
+	exc := []int32{
+		(1 << 27) - 1, -(1 << 27), (1 << 26), -(1 << 26),
+		123456789, -98765432, 54321098, -43210987,
+	}
+	gainQ10 := int32(1 << 14)
+
+	gotEnergy, gotShift := computeEnergy(exc, gainQ10, len(exc), 0)
+
+	var wantSum int64
+	wantShift := 0
+	for _, x := range exc {
+		scaled := sat16(smulww(x, gainQ10) >> 8)
+		s := int64(scaled)
+		wantSum += s * s
+		if wantSum > 0x3FFFFFFF {
+			wantSum >>= 2
+			wantShift += 2
+		}
+	}
+	for wantSum > 0x7FFFFFFF {
+		wantSum >>= 1
+		wantShift++
+	}
+
+	if gotEnergy != int32(wantSum) || gotShift != wantShift {
+		t.Fatalf(
+			"computeEnergy mismatch: got (energy=%d shift=%d), want (energy=%d shift=%d)",
+			gotEnergy, gotShift, int32(wantSum), wantShift,
+		)
+	}
+}

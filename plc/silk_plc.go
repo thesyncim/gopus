@@ -890,19 +890,37 @@ func bwExpandQ12(ar []int16, coef float64) {
 }
 
 func computeEnergy(exc []int32, gainQ10 int32, length, offset int) (energy int32, shift int) {
+	if length <= 0 || offset >= len(exc) {
+		return 0, 0
+	}
+
+	end := offset + length
+	if end > len(exc) {
+		end = len(exc)
+	}
+
 	var sum int64
-	for i := 0; i < length && offset+i < len(exc); i++ {
-		scaled := (int64(exc[offset+i]) * int64(gainQ10)) >> 8
-		sum += scaled * scaled
+	shft := 0
+	for i := offset; i < end; i++ {
+		// Match silk_PLC_energy():
+		// exc_buf[i] = SAT16( RSHIFT( SMULWW( exc_Q14, prevGain_Q10 ), 8 ) )
+		scaled := sat16(smulww(exc[i], gainQ10) >> 8)
+		s := int64(scaled)
+		sum += s * s
+
+		// Match silk_sum_sqr_shift overflow handling (coarse right shifts).
+		if sum > 0x3FFFFFFF {
+			sum >>= 2
+			shft += 2
+		}
 	}
 
-	// Normalize
-	for sum > math.MaxInt32 && shift < 31 {
+	for sum > 0x7FFFFFFF {
 		sum >>= 1
-		shift++
+		shft++
 	}
 
-	return int32(sum), shift
+	return int32(sum), shft
 }
 
 func lpcAnalysisFilter(out []int16, in []float32, B []int16, length, order, startIdx int) {
