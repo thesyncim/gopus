@@ -63,14 +63,21 @@ type Encoder struct {
 	noiseShapeState *NoiseShapeState // Noise shaping analysis state for adaptive parameters
 
 	// Encoder control parameters (persists across frames)
-	snrDBQ7                  int     // Target SNR in dB (Q7 format, e.g., 25 dB = 25 * 128)
-	targetRateBps            int     // Target bitrate (per channel) for SNR control
-	lastControlTargetRateBps int     // Last per-frame target rate used for SNR control
-	useCBR                   bool    // Constant Bitrate mode
-	ltpCorr                  float32 // LTP correlation from pitch analysis [0, 1]
-	sumLogGainQ7             int32   // Sum log gain for LTP quantization
-	complexity               int     // Encoder complexity (0-10)
-	nStatesDelayedDecision   int     // Delayed decision states (libopus control_codec)
+	snrDBQ7                  int  // Target SNR in dB (Q7 format, e.g., 25 dB = 25 * 128)
+	targetRateBps            int  // Target bitrate (per channel) for SNR control
+	lastControlTargetRateBps int  // Last per-frame target rate used for SNR control
+	useCBR                   bool // Constant Bitrate mode
+	// reducedDependency mirrors libopus encControl->reducedDependency.
+	// When enabled, the first frame of each packet is coded as
+	// first_frame_after_reset without resetting the full encoder state.
+	reducedDependency bool
+	// forceFirstFrameAfterReset is latched at packet start and consumed by the
+	// first encoded frame in that packet.
+	forceFirstFrameAfterReset bool
+	ltpCorr                   float32 // LTP correlation from pitch analysis [0, 1]
+	sumLogGainQ7              int32   // Sum log gain for LTP quantization
+	complexity                int     // Encoder complexity (0-10)
+	nStatesDelayedDecision    int     // Delayed decision states (libopus control_codec)
 
 	// Pitch estimation tuning (mirrors libopus control_codec.c)
 	pitchEstimationComplexity   int
@@ -428,6 +435,7 @@ func (e *Encoder) Reset() {
 	e.lastControlTargetRateBps = 0
 	e.snrDBQ7 = 0
 	e.sumLogGainQ7 = 0
+	e.forceFirstFrameAfterReset = false
 
 	for i := range e.prevLSFQ15 {
 		e.prevLSFQ15[i] = 0
@@ -590,6 +598,10 @@ func (e *Encoder) HaveEncoded() bool {
 	return e.haveEncoded
 }
 
+func (e *Encoder) firstFrameAfterResetActive() bool {
+	return !e.haveEncoded || e.forceFirstFrameAfterReset
+}
+
 // MarkEncoded marks that a frame has been successfully encoded.
 func (e *Encoder) MarkEncoded() {
 	e.haveEncoded = true
@@ -599,6 +611,7 @@ func (e *Encoder) MarkEncoded() {
 // This mirrors the standalone EncodeFrame() packet initialization.
 func (e *Encoder) ResetPacketState() {
 	e.nFramesEncoded = 0
+	e.forceFirstFrameAfterReset = e.reducedDependency
 }
 
 // Bandwidth returns the current bandwidth setting.
@@ -796,6 +809,20 @@ func (e *Encoder) SetMaxBits(maxBits int) {
 func (e *Encoder) SetVBR(vbr bool) {
 	e.useVBR = vbr
 	e.useCBR = !vbr
+}
+
+// SetReducedDependency enables/disables reduced dependency coding.
+// This mirrors libopus OPUS_SET_PREDICTION_DISABLED SILK behavior.
+func (e *Encoder) SetReducedDependency(enabled bool) {
+	e.reducedDependency = enabled
+	if !enabled {
+		e.forceFirstFrameAfterReset = false
+	}
+}
+
+// ReducedDependency reports whether reduced dependency coding is enabled.
+func (e *Encoder) ReducedDependency() bool {
+	return e.reducedDependency
 }
 
 // SetFEC enables or disables in-band Forward Error Correction (LBRR).

@@ -119,6 +119,25 @@ func (e *Encoder) ComputeAllocationHybridScratch(re *rangecoding.Encoder, totalB
 	return result
 }
 
+// SignalBandwidthForAllocation mirrors libopus signal-bandwidth gating used by
+// clt_compute_allocation(). It combines analysis bandwidth with the equivalent
+// bitrate-derived minimum bandwidth floor.
+func (e *Encoder) SignalBandwidthForAllocation(nbBands, equivRate int) int {
+	signalBandwidth := nbBands - 1
+	if signalBandwidth < 0 {
+		signalBandwidth = 0
+	}
+	if e.analysisValid {
+		minBandwidth := celtMinSignalBandwidth(equivRate, e.channels)
+		if e.analysisBandwidth > minBandwidth {
+			signalBandwidth = e.analysisBandwidth
+		} else {
+			signalBandwidth = minBandwidth
+		}
+	}
+	return signalBandwidth
+}
+
 // QuantAllBandsEncodeScratch encodes PVQ bands using the encoder's scratch buffers.
 func (e *Encoder) QuantAllBandsEncodeScratch(re *rangecoding.Encoder, channels, frameSize, lm int, start, end int,
 	normL, normR []float64, pulses []int, shortBlocks int, spread int, tapset int, dualStereo int, intensity int,
@@ -170,7 +189,15 @@ func (e *Encoder) ConsecTransient() int {
 
 // UpdateConsecTransient updates the consecutive transient counter.
 func (e *Encoder) UpdateConsecTransient(transient bool) {
+	e.UpdateConsecTransientWithDisabled(transient, false)
+}
+
+// UpdateConsecTransientWithDisabled mirrors libopus consec_transient state
+// cadence when transients are disabled by bit budget.
+func (e *Encoder) UpdateConsecTransientWithDisabled(transient bool, transientGotDisabled bool) {
 	if transient {
+		e.consecTransient++
+	} else if transientGotDisabled {
 		e.consecTransient++
 	} else {
 		e.consecTransient = 0
@@ -179,8 +206,17 @@ func (e *Encoder) UpdateConsecTransient(transient bool) {
 
 // StabilizeEnergiesBeforeCoarseHybrid mirrors libopus pre-coarse stabilization:
 // if abs(bandLogE-oldBandE) < 2, bias current energy toward previous quant error.
-func (e *Encoder) StabilizeEnergiesBeforeCoarseHybrid(energies []float64, nbBands int) {
+func (e *Encoder) StabilizeEnergiesBeforeCoarseHybrid(energies []float64, start, end, nbBands int) {
 	if nbBands <= 0 || len(energies) == 0 {
+		return
+	}
+	if start < 0 {
+		start = 0
+	}
+	if end > nbBands {
+		end = nbBands
+	}
+	if start >= end {
 		return
 	}
 	if nbBands > MaxBands {
@@ -189,7 +225,7 @@ func (e *Encoder) StabilizeEnergiesBeforeCoarseHybrid(energies []float64, nbBand
 	for c := 0; c < e.channels; c++ {
 		baseState := c * MaxBands
 		baseFrame := c * nbBands
-		for band := 0; band < nbBands; band++ {
+		for band := start; band < end; band++ {
 			stateIdx := baseState + band
 			frameIdx := baseFrame + band
 			if frameIdx >= len(energies) || stateIdx >= len(e.energyError) || stateIdx >= len(e.prevEnergy) {
@@ -358,6 +394,13 @@ func (e *Encoder) UpdateHybridPrefilterHistory(preemph []float64, frameSize int)
 			}
 		}
 	}
+
+	// Match libopus run_prefilter() disabled path state cadence used in hybrid:
+	// pitch_index defaults to COMBFILTER_MINPERIOD, gain1 to 0, and
+	// prefilter_tapset follows the current tapset decision.
+	e.prefilterPeriod = combFilterMinPeriod
+	e.prefilterGain = 0
+	e.prefilterTapset = e.tapsetDecision
 }
 
 // TransientAnalysisHybrid performs transient analysis and updates preemph overlap state.
@@ -538,6 +581,15 @@ func (e *Encoder) BitrateToBits(frameSize int) int {
 // CBRPayloadBytes exposes cbrPayloadBytes for hybrid callers.
 func (e *Encoder) CBRPayloadBytes(frameSize int) int {
 	return e.cbrPayloadBytes(frameSize)
+}
+
+// SetCoarseEnergyAvailableBytes overrides nbAvailableBytes used by coarse
+// energy intra/decay logic. Use 0 to clear the override.
+func (e *Encoder) SetCoarseEnergyAvailableBytes(bytes int) {
+	if bytes < 0 {
+		bytes = 0
+	}
+	e.coarseAvailableBytes = bytes
 }
 
 // RoundFloat64ToFloat32 rounds each element to float32 precision and back.

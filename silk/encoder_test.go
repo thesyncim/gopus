@@ -124,6 +124,38 @@ func TestEncoderStateAccessors(t *testing.T) {
 	}
 }
 
+func TestReducedDependencyPacketCadence(t *testing.T) {
+	enc := NewEncoder(BandwidthWideband)
+	enc.MarkEncoded()
+	if enc.firstFrameAfterResetActive() {
+		t.Fatal("firstFrameAfterResetActive should be false after prior encoding")
+	}
+
+	enc.SetReducedDependency(true)
+	if !enc.ReducedDependency() {
+		t.Fatal("ReducedDependency() should be true after SetReducedDependency(true)")
+	}
+	enc.ResetPacketState()
+	if !enc.firstFrameAfterResetActive() {
+		t.Fatal("firstFrameAfterResetActive should be true at packet start when reduced dependency is enabled")
+	}
+
+	pcm := make([]float32, enc.SampleRate()/50) // 20 ms
+	_ = enc.EncodeFrame(pcm, nil, true)
+	if enc.firstFrameAfterResetActive() {
+		t.Fatal("firstFrameAfterResetActive should be consumed after encoding the first frame")
+	}
+}
+
+func TestReducedDependencyControlSurvivesReset(t *testing.T) {
+	enc := NewEncoder(BandwidthWideband)
+	enc.SetReducedDependency(true)
+	enc.Reset()
+	if !enc.ReducedDependency() {
+		t.Fatal("ReducedDependency() should stay enabled across Reset()")
+	}
+}
+
 func TestClassifyFrame(t *testing.T) {
 	enc := NewEncoder(BandwidthWideband)
 
