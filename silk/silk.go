@@ -770,6 +770,9 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 		for i := 0; i < nativeSamples && i < len(concealedQ0); i++ {
 			concealed[i] = float32(concealedQ0[i]) * scale
 		}
+		if lag := int((state.PitchLQ8 + 128) >> 8); lag > 0 {
+			d.state[0].lagPrev = lag
+		}
 	} else {
 		concealed = plc.ConcealSILK(d, nativeSamples, fadeFactor)
 	}
@@ -900,6 +903,12 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 			if i < len(rightQ0) {
 				right[i] = float32(rightQ0[i]) * scale
 			}
+		}
+		if lag := int((leftState.PitchLQ8 + 128) >> 8); lag > 0 {
+			d.state[0].lagPrev = lag
+		}
+		if lag := int((rightState.PitchLQ8 + 128) >> 8); lag > 0 {
+			d.state[1].lagPrev = lag
 		}
 	} else {
 		left, right = plc.ConcealSILKStereo(d, nativeSamples, fadeFactor)
