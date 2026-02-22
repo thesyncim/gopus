@@ -159,6 +159,90 @@ func (m *mockSILKDecoder) IsPreviousFrameVoiced() bool { return m.wasVoiced }
 func (m *mockSILKDecoder) OutputHistory() []float32    { return m.history }
 func (m *mockSILKDecoder) HistoryIndex() int           { return m.histIdx }
 
+type mockSILKExtendedDecoder struct {
+	mockSILKDecoder
+	signalType   int
+	ltpCoefQ14   [ltpOrder]int16
+	pitchLag     int
+	lastGainQ16  int32
+	ltpScaleQ14  int32
+	excitation   []int32
+	lpcQ12       []int16
+	fsKHz        int
+	subfrLength  int
+	nbSubfr      int
+	ltpMemLength int
+}
+
+func (m *mockSILKExtendedDecoder) GetLastSignalType() int        { return m.signalType }
+func (m *mockSILKExtendedDecoder) GetLTPCoefficients() [5]int16  { return m.ltpCoefQ14 }
+func (m *mockSILKExtendedDecoder) GetPitchLag() int              { return m.pitchLag }
+func (m *mockSILKExtendedDecoder) GetLastGain() int32            { return m.lastGainQ16 }
+func (m *mockSILKExtendedDecoder) GetLTPScale() int32            { return m.ltpScaleQ14 }
+func (m *mockSILKExtendedDecoder) GetExcitationHistory() []int32 { return m.excitation }
+func (m *mockSILKExtendedDecoder) GetLPCCoefficientsQ12() []int16 {
+	return m.lpcQ12
+}
+func (m *mockSILKExtendedDecoder) GetSampleRateKHz() int  { return m.fsKHz }
+func (m *mockSILKExtendedDecoder) GetSubframeLength() int { return m.subfrLength }
+func (m *mockSILKExtendedDecoder) GetNumSubframes() int   { return m.nbSubfr }
+func (m *mockSILKExtendedDecoder) GetLTPMemoryLength() int {
+	return m.ltpMemLength
+}
+
+func TestConcealSILKWithLTPLongFrameNoPanic(t *testing.T) {
+	dec := &mockSILKExtendedDecoder{
+		mockSILKDecoder: mockSILKDecoder{
+			lpcValues: make([]float32, 16),
+			lpcOrder:  16,
+			wasVoiced: true,
+			history:   make([]float32, 322),
+			histIdx:   200,
+		},
+		signalType:   2,
+		pitchLag:     96,
+		lastGainQ16:  65536,
+		ltpScaleQ14:  16384,
+		excitation:   make([]int32, 640),
+		lpcQ12:       make([]int16, 16),
+		fsKHz:        16,
+		subfrLength:  80,
+		nbSubfr:      4,
+		ltpMemLength: 320,
+	}
+	for i := range dec.history {
+		dec.history[i] = float32(math.Sin(float64(i) * 0.09))
+	}
+	for i := range dec.excitation {
+		dec.excitation[i] = int32((i%17)-8) << 8
+	}
+	dec.lpcQ12[0] = 2048
+	dec.lpcQ12[1] = -1024
+	dec.ltpCoefQ14 = [ltpOrder]int16{0, 2048, 8192, 2048, 0}
+
+	state := NewSILKPLCState()
+	pitchL := []int{96, 96, 96, 96}
+	ltpCoefQ14 := make([]int16, ltpOrder*4)
+	for sf := 0; sf < 4; sf++ {
+		copy(ltpCoefQ14[sf*ltpOrder:(sf+1)*ltpOrder], dec.ltpCoefQ14[:])
+	}
+	gainsQ16 := []int32{65536, 65536, 65536, 65536}
+	lpcQ12 := make([]int16, 16)
+	copy(lpcQ12, dec.lpcQ12)
+	state.UpdateFromGoodFrame(2, pitchL, ltpCoefQ14, 16384, gainsQ16, lpcQ12, 16, 4, 80)
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("ConcealSILKWithLTP panicked: %v", r)
+		}
+	}()
+
+	out := ConcealSILKWithLTP(dec, state, 0, 320)
+	if len(out) != 320 {
+		t.Fatalf("concealed length = %d, want 320", len(out))
+	}
+}
+
 // TestSILKPLCOutput tests that SILK PLC produces valid samples.
 func TestSILKPLCOutput(t *testing.T) {
 	// Create mock decoder with some state
