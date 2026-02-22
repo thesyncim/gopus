@@ -364,6 +364,8 @@ jobs:
             Write-Warning "Windows test lane will still fail if ffmpeg is actually required."
           }
 
+          exit 0
+
       - name: Run test suite
         shell: pwsh
         run: go test ./... -count=1
