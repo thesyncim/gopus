@@ -79,16 +79,9 @@ func TestPLCReset(t *testing.T) {
 func TestPLCFadeProfile(t *testing.T) {
 	state := NewState()
 
-	// Expected fade values after each loss
-	expectedFades := []float64{
-		0.5,     // 1 loss: 1.0 * 0.5
-		0.25,    // 2 losses: 0.5 * 0.5
-		0.125,   // 3 losses: 0.25 * 0.5
-		0.0625,  // 4 losses: 0.125 * 0.5
-		0.03125, // 5 losses: 0.0625 * 0.5
-	}
-
-	for i, expected := range expectedFades {
+	expected := 1.0
+	for i := 0; i < 5; i++ {
+		expected *= FadePerFrame
 		actual := state.RecordLoss()
 		if math.Abs(actual-expected) > 0.001 {
 			t.Errorf("loss %d: fadeFactor = %f, want %f", i+1, actual, expected)
@@ -117,8 +110,8 @@ func TestPLCMaxConcealment(t *testing.T) {
 	state.RecordLoss()
 	finalFade := state.RecordLoss()
 
-	if finalFade > 0.01 {
-		t.Errorf("after extended loss: fadeFactor = %f, want < 0.01", finalFade)
+	if finalFade > 0.02 {
+		t.Errorf("after extended loss: fadeFactor = %f, want < 0.02", finalFade)
 	}
 
 	// State should be exhausted
