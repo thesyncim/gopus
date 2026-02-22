@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -362,6 +363,35 @@ func decodeWithOpusdec(oggData []byte) ([]float32, error) {
 		return nil, fmt.Errorf("opusdec decode failed (%v) and fallback decode failed (%v)", err, ferr)
 	}
 	return decodeFallback()
+}
+
+func shouldSkipMissingOpusdecFixture(err error) bool {
+	if err == nil {
+		return false
+	}
+	if runtime.GOOS != "windows" {
+		return false
+	}
+	if !strings.Contains(err.Error(), "missing opusdec fixture for ogg sha256=") {
+		return false
+	}
+	if checkOpusdecAvailable() || checkFFmpegAvailable() {
+		return false
+	}
+	return true
+}
+
+func decodeWithOpusdecOrSkip(t *testing.T, oggData []byte) []float32 {
+	t.Helper()
+	decoded, err := decodeWithOpusdec(oggData)
+	if err == nil {
+		return decoded
+	}
+	if shouldSkipMissingOpusdecFixture(err) {
+		t.Skipf("skipping cross-validation without external decoder support: %v", err)
+	}
+	t.Fatalf("decodeWithOpusdec failed: %v", err)
+	return nil
 }
 
 func decodeWithOpusdecCLI(oggData []byte) ([]float32, error) {
