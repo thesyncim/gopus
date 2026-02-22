@@ -343,11 +343,28 @@ jobs:
       - name: Install ffmpeg
         shell: pwsh
         run: |
-          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
-            choco install -y ffmpeg
-          } else {
+          if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
             Write-Host "ffmpeg already present; skipping chocolatey install"
+            exit 0
           }
+
+          $installed = $false
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            Write-Host "Installing ffmpeg via chocolatey (attempt $attempt/3)"
+            choco install -y ffmpeg
+            if ($LASTEXITCODE -eq 0 -and (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
+              $installed = $true
+              break
+            }
+            Start-Sleep -Seconds 20
+          }
+
+          if (-not $installed -and -not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
+            Write-Warning "ffmpeg install unavailable (network/choco issue); continuing to test step."
+            Write-Warning "Windows test lane will still fail if ffmpeg is actually required."
+          }
+
+          exit 0
 
       - name: Run test suite
         shell: pwsh
