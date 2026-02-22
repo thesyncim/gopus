@@ -279,6 +279,7 @@ func (d *Decoder) decodePLC(frameSize int, stereo bool) ([]float64, error) {
 	var silkConcealed []float32
 	if stereo {
 		left, right := plc.ConcealSILKStereo(d.silkDecoder, silkSamples, fadeFactor)
+		d.silkDecoder.RecordPLCLossStereo(left, right)
 		// Interleave
 		silkConcealed = make([]float32, silkSamples*2)
 		for i := range left {
@@ -287,6 +288,7 @@ func (d *Decoder) decodePLC(frameSize int, stereo bool) ([]float64, error) {
 		}
 	} else {
 		silkConcealed = plc.ConcealSILK(d.silkDecoder, silkSamples, fadeFactor)
+		d.silkDecoder.RecordPLCLossMono(silkConcealed)
 	}
 
 	// Upsample SILK to 48kHz using SILK decoder's resamplers for state continuity

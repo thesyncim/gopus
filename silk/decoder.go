@@ -57,6 +57,9 @@ type Decoder struct {
 	// Per-decoder PLC state (do not share across decoder instances).
 	plcState *plc.State
 
+	// Per-channel SILK PLC state (libopus-style LTP/LPC concealment inputs).
+	silkPLCState [2]*plc.SILKPLCState
+
 	// Debug flag to track if reset was called (for testing)
 	debugResetCalled bool
 
@@ -344,6 +347,12 @@ func (d *Decoder) Reset() {
 		d.plcState = plc.NewState()
 	}
 	d.plcState.Reset()
+
+	for ch := range d.silkPLCState {
+		if d.silkPLCState[ch] != nil {
+			d.silkPLCState[ch].Reset(d.state[ch].frameLength)
+		}
+	}
 }
 
 // applyMonoDelay applies libopus-compatible delay compensation for mono SILK output.
@@ -541,6 +550,11 @@ func (d *Decoder) SetPrevStereoWeights(weights [2]int16) {
 // Returns: 0=inactive, 1=unvoiced, 2=voiced
 func (d *Decoder) GetLastSignalType() int {
 	return int(d.state[0].indices.signalType)
+}
+
+// GetLagPrev returns the previous pitch lag tracked by SILK decode state.
+func (d *Decoder) GetLagPrev() int {
+	return d.state[0].lagPrev
 }
 
 // DebugFrameParams contains decoded frame parameters for debugging.

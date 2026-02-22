@@ -757,24 +757,99 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 	// Generate concealment at native rate
 	concealed := plc.ConcealSILK(d, nativeSamples, fadeFactor)
 
-	// Update decoder state for PLC gluing.
-	// Increment lossCnt so that silkPLCGlueFrames knows this was a lost frame.
-	st := &d.state[0]
-	st.lossCnt++
-
-	// Calculate and store energy for the concealed frame (for gluing on recovery)
-	concealedInt16 := make([]int16, len(concealed))
-	for i, v := range concealed {
-		concealedInt16[i] = float32ToInt16(v)
-	}
-	st.plcConcEnergy, st.plcConcEnergyShift = silkSumSqrShift(concealedInt16, len(concealedInt16))
-	st.plcLastFrameLost = true
+	// Update decoder state for PLC gluing and outBuf cadence.
+	d.recordPLCLossForState(&d.state[0], concealed)
 
 	// Upsample to 48kHz using libopus-compatible resampler
 	resampler := d.GetResampler(bandwidth)
 	output := resampler.Process(concealed)
 
 	return output, nil
+}
+
+// RecordPLCLossMono records a mono SILK PLC loss event for glue-frame tracking.
+// This mirrors the state bookkeeping performed by decodePLC.
+func (d *Decoder) RecordPLCLossMono(concealed []float32) {
+	d.recordPLCLossForState(&d.state[0], concealed)
+}
+
+// RecordPLCLossStereo records stereo SILK PLC loss events for glue-frame tracking.
+// This mirrors the state bookkeeping performed by decodePLCStereo.
+func (d *Decoder) RecordPLCLossStereo(left, right []float32) {
+	d.recordPLCLossForState(&d.state[0], left)
+	d.recordPLCLossForState(&d.state[1], right)
+}
+
+func (d *Decoder) recordPLCLossForState(st *decoderState, concealed []float32) {
+	if st == nil {
+		return
+	}
+
+	st.lossCnt++
+	if len(concealed) == 0 {
+		st.plcConcEnergy = 0
+		st.plcConcEnergyShift = 0
+		st.plcLastFrameLost = true
+		return
+	}
+
+	if cap(d.scratchOutInt16) < len(concealed) {
+		d.scratchOutInt16 = make([]int16, len(concealed))
+	}
+	tmp := d.scratchOutInt16[:len(concealed)]
+	for i, v := range concealed {
+		tmp[i] = float32ToInt16(v)
+	}
+
+	d.updateHistory(concealed)
+
+	st.plcConcEnergy, st.plcConcEnergyShift = silkSumSqrShift(tmp, len(tmp))
+	st.plcLastFrameLost = true
+}
+
+// syncLegacyPLCState aligns legacy PLC helper fields from libopus-style decoder state.
+// ConcealSILK() still reads these legacy fields, so keep them synchronized after
+// successful frame decodes (including LBRR/FEC decodes).
+func (d *Decoder) syncLegacyPLCState(st *decoderState, recent []int16) {
+	if st == nil {
+		return
+	}
+
+	if st.lpcOrder > 0 {
+		d.lpcOrder = st.lpcOrder
+	}
+	d.isPreviousFrameVoiced = int(st.indices.signalType) == typeVoiced
+
+	order := d.lpcOrder
+	if order <= 0 {
+		return
+	}
+	if order > len(d.prevLPCValues) {
+		order = len(d.prevLPCValues)
+	}
+
+	scale := float32(1.0 / 32768.0)
+	if len(recent) >= order {
+		base := len(recent) - order
+		for i := 0; i < order; i++ {
+			d.prevLPCValues[i] = float32(recent[base+i]) * scale
+		}
+		return
+	}
+
+	historyLen := len(d.outputHistory)
+	if historyLen == 0 {
+		return
+	}
+	start := d.historyIndex - order
+	for i := 0; i < order; i++ {
+		idx := start + i
+		for idx < 0 {
+			idx += historyLen
+		}
+		idx %= historyLen
+		d.prevLPCValues[i] = d.outputHistory[idx]
+	}
 }
 
 // decodePLCStereo generates concealment audio for a lost stereo packet.
@@ -789,27 +864,9 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 	// Generate concealment at native rate for both channels
 	left, right := plc.ConcealSILKStereo(d, nativeSamples, fadeFactor)
 
-	// Update decoder state for both channels for PLC gluing.
-	// Increment lossCnt so that silkPLCGlueFrames knows this was a lost frame.
-	stMid := &d.state[0]
-	stSide := &d.state[1]
-	stMid.lossCnt++
-	stSide.lossCnt++
-
-	// Calculate and store energy for the concealed frames (for gluing on recovery)
-	leftInt16 := make([]int16, len(left))
-	for i, v := range left {
-		leftInt16[i] = float32ToInt16(v)
-	}
-	stMid.plcConcEnergy, stMid.plcConcEnergyShift = silkSumSqrShift(leftInt16, len(leftInt16))
-	stMid.plcLastFrameLost = true
-
-	rightInt16 := make([]int16, len(right))
-	for i, v := range right {
-		rightInt16[i] = float32ToInt16(v)
-	}
-	stSide.plcConcEnergy, stSide.plcConcEnergyShift = silkSumSqrShift(rightInt16, len(rightInt16))
-	stSide.plcLastFrameLost = true
+	// Update decoder state for both channels for PLC gluing and outBuf cadence.
+	d.recordPLCLossForState(&d.state[0], left)
+	d.recordPLCLossForState(&d.state[1], right)
 
 	// Upsample to 48kHz using libopus-compatible resampler
 	leftResampler := d.GetResamplerForChannel(bandwidth, 0)

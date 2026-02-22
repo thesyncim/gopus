@@ -824,7 +824,11 @@ func (d *Decoder) decodeHybridFEC(pcm []float32, frameSize int) (int, error) {
 		d.celtDecoder.Reset()
 		d.celtDecoder.SetBandwidth(celtBW)
 	}
-	celtSamples := plc.ConcealCELTHybrid(d.celtDecoder, d.celtDecoder, min(frameSize, 48000/50), 1.0)
+	// In decode_fec Hybrid recovery, CELT receives no packet bits for the lost
+	// frame. Mirror libopus cadence by advancing Hybrid PLC loss state and using
+	// the resulting fade factor instead of a fixed unity gain.
+	celtFade := d.hybridDecoder.RecordPLCLoss()
+	celtSamples := plc.ConcealCELTHybrid(d.celtDecoder, d.celtDecoder, min(frameSize, 48000/50), celtFade)
 	scale := float32(1.0 / 32768.0)
 	n := min(needed, len(celtSamples))
 	for i := 0; i < n; i++ {
