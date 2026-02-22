@@ -386,9 +386,10 @@ func TestDecoderLossStressPatternsAgainstOpusDemo(t *testing.T) {
 					t.Logf("Q=%.2f SNR=%.2f delay=%d corr=%.6f rms_ratio=%.6f len_ref=%d len_got=%d",
 						q, SNRFromQuality(q), delay, corr, rmsRatio, len(refDecoded), len(gotDecoded))
 
-					// FEC/PLC stress parity is highly delay-sensitive on SILK doublet masks.
-					// Keep this lane locked to near-zero delay drift against opus_demo.
-					if strings.HasPrefix(c.Name, "silk-") && p.name == "doublet_stride7" {
+					// FEC/PLC stress parity is highly delay-sensitive on SILK masks.
+					// Keep all SILK FEC stress lanes locked to near-zero delay drift
+					// against opus_demo.
+					if strings.HasPrefix(c.Name, "silk-") && strings.Contains(c.Name, "-fec") {
 						if d := lossAbsInt(delay); d > 1 {
 							t.Fatalf("decoder loss stress delay regression: |delay|=%d > 1", d)
 						}
