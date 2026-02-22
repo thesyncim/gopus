@@ -591,24 +591,26 @@ func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lo
 				predLagPtr++
 
 				// Generate random noise
-				randSeed = silkRand(randSeed)
-				idx := (randSeed >> 25) & randBufMask
-				randExc := randBuf[idx]
+					randSeed = silkRand(randSeed)
+					idx := (randSeed >> 25) & randBufMask
+					randExc := randBuf[idx]
 
-				// Combine LTP prediction with scaled noise
-				sLTPQ15[sLTPBufIdx] = (ltpPredQ12 << 2) + smulwb(int32(randScaleQ14)<<2, randExc)
-				sLTPBufIdx++
+					// Combine LTP prediction with scaled noise.
+					// Match libopus:
+					// sLTP_Q14 = LSHIFT32( SMLAWB(LTP_pred_Q12, rand_ptr[idx], rand_scale_Q14), 2 )
+					sLTPQ15[sLTPBufIdx] = smlawb(ltpPredQ12, randExc, int32(randScaleQ14)) << 2
+					sLTPBufIdx++
+				}
+			} else {
+				// Unvoiced: just noise
+				for i := 0; i < subfrLength; i++ {
+					randSeed = silkRand(randSeed)
+					idx := (randSeed >> 25) & randBufMask
+					randExc := randBuf[idx]
+					sLTPQ15[sLTPBufIdx] = smulwb(randExc, int32(randScaleQ14)) << 2
+					sLTPBufIdx++
+				}
 			}
-		} else {
-			// Unvoiced: just noise
-			for i := 0; i < subfrLength; i++ {
-				randSeed = silkRand(randSeed)
-				idx := (randSeed >> 25) & randBufMask
-				randExc := randBuf[idx]
-				sLTPQ15[sLTPBufIdx] = smulwb(int32(randScaleQ14)<<2, randExc)
-				sLTPBufIdx++
-			}
-		}
 
 		// Attenuate LTP gain
 		for j := 0; j < ltpOrder; j++ {
