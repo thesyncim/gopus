@@ -161,6 +161,7 @@ type mockSILKExtendedDecoder struct {
 	ltpScaleQ14  int32
 	excitation   []int32
 	lpcQ12       []int16
+	slpcQ14      []int32
 	fsKHz        int
 	subfrLength  int
 	nbSubfr      int
@@ -182,6 +183,7 @@ func (m *mockSILKExtendedDecoder) GetNumSubframes() int   { return m.nbSubfr }
 func (m *mockSILKExtendedDecoder) GetLTPMemoryLength() int {
 	return m.ltpMemLength
 }
+func (m *mockSILKExtendedDecoder) GetSLPCQ14HistoryQ14() []int32 { return m.slpcQ14 }
 
 func TestConcealSILKWithLTPLongFrameNoPanic(t *testing.T) {
 	dec := &mockSILKExtendedDecoder{
@@ -198,6 +200,7 @@ func TestConcealSILKWithLTPLongFrameNoPanic(t *testing.T) {
 		ltpScaleQ14:  16384,
 		excitation:   make([]int32, 640),
 		lpcQ12:       make([]int16, 16),
+		slpcQ14:      make([]int32, 16),
 		fsKHz:        16,
 		subfrLength:  80,
 		nbSubfr:      4,
@@ -208,6 +211,9 @@ func TestConcealSILKWithLTPLongFrameNoPanic(t *testing.T) {
 	}
 	for i := range dec.excitation {
 		dec.excitation[i] = int32((i%17)-8) << 8
+	}
+	for i := range dec.slpcQ14 {
+		dec.slpcQ14[i] = int32((i%7)-3) << 12
 	}
 	dec.lpcQ12[0] = 2048
 	dec.lpcQ12[1] = -1024
