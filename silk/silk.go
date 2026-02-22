@@ -873,13 +873,38 @@ func (d *Decoder) syncLegacyPLCState(st *decoderState, recent []int16) {
 func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]float32, error) {
 	// Get fade factor for this loss
 	fadeFactor := d.plcState.RecordLoss()
+	lossCnt := d.plcState.LostCount() - 1
 
 	// Get native sample count from 48kHz frame size
 	config := GetBandwidthConfig(bandwidth)
 	nativeSamples := frameSizeSamples * config.SampleRate / 48000
 
-	// Generate concealment at native rate for both channels
-	left, right := plc.ConcealSILKStereo(d, nativeSamples, fadeFactor)
+	// Generate concealment at native rate for both channels.
+	var left, right []float32
+	leftState := d.ensureSILKPLCState(0)
+	rightState := d.ensureSILKPLCState(1)
+	leftView := d.plcDecoderView(0)
+	rightView := d.plcDecoderView(1)
+	if lossCnt == 0 &&
+		leftState != nil && rightState != nil &&
+		leftView != nil && rightView != nil &&
+		d.state[0].nbSubfr > 0 && d.state[1].nbSubfr > 0 {
+		leftQ0 := plc.ConcealSILKWithLTP(leftView, leftState, lossCnt, nativeSamples)
+		rightQ0 := plc.ConcealSILKWithLTP(rightView, rightState, lossCnt, nativeSamples)
+		left = make([]float32, nativeSamples)
+		right = make([]float32, nativeSamples)
+		scale := float32(fadeFactor / 32768.0)
+		for i := 0; i < nativeSamples; i++ {
+			if i < len(leftQ0) {
+				left[i] = float32(leftQ0[i]) * scale
+			}
+			if i < len(rightQ0) {
+				right[i] = float32(rightQ0[i]) * scale
+			}
+		}
+	} else {
+		left, right = plc.ConcealSILKStereo(d, nativeSamples, fadeFactor)
+	}
 
 	// Update decoder state for both channels for PLC gluing and outBuf cadence.
 	d.recordPLCLossForState(&d.state[0], left)
