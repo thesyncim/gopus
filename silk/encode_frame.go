@@ -43,7 +43,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		e.ResetPacketState()
 		e.nFramesPerPacket = 1
 	}
-	firstFrameAfterReset := !e.haveEncoded
+	firstFrameAfterReset := e.firstFrameAfterResetActive()
 
 	// Capture FramePre trace BEFORE the targetRate/SNR computation to match
 	// libopus capture timing.  The libopus "before frame i" snapshot reads
@@ -973,6 +973,9 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 
 	e.nFramesEncoded++
 	e.MarkEncoded()
+	if e.forceFirstFrameAfterReset {
+		e.forceFirstFrameAfterReset = false
+	}
 	e.lastRng = e.rangeEncoder.Range()
 
 	if useSharedEncoder {
@@ -1543,7 +1546,7 @@ func (e *Encoder) tracePitchBufferState(frameSamples, numSubframes int) (bufLen 
 	// knows its configuration), so we explicitly return 0 for the first
 	// frame to match the libopus "before frame 0" snapshot.
 	const fnvOffsetBasis = 1469598103934665603
-	if !e.haveEncoded {
+	if e.firstFrameAfterResetActive() {
 		return 0, fnvOffsetBasis, 0, fnvOffsetBasis
 	}
 	fsKHz := e.sampleRate / 1000
