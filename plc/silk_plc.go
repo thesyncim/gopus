@@ -2,6 +2,7 @@ package plc
 
 import (
 	"math"
+	"math/bits"
 )
 
 // Constants from libopus silk/PLC.h
@@ -36,6 +37,15 @@ const (
 	// pitchDriftFacQ16 is the pitch lag drift factor (0.01 in Q16).
 	// Pitch lag slowly increases during extended loss.
 	pitchDriftFacQ16 = 655
+
+	// log2InvLPCGainHighThres/log2InvLPCGainLowThres mirror libopus PLC.h.
+	log2InvLPCGainHighThres = 3
+	log2InvLPCGainLowThres  = 8
+
+	// Constants for fixed-point LPC inverse prediction gain.
+	lpcInvPredQA        = 24
+	lpcInvPredALimitQ24 = 16773023 // SILK_FIX_CONST(0.99975, 24)
+	minInvPredGainQ30   = 107374   // SILK_FIX_CONST(1 / 1e4, 30)
 
 	// Attenuation constants (Q15 format)
 	harmAttQ15_0    = 32440 // 0.99 - first lost frame
@@ -456,6 +466,14 @@ func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lo
 			}
 			// Apply LTP scale
 			randScaleQ14 = int16((int32(randScaleQ14) * plcState.PrevLTPScaleQ14) >> 14)
+		} else {
+			// For unvoiced frames, reduce random gain for high LPC gain.
+			// Mirrors libopus silk_PLC_conceal().
+			invGainQ30 := lpcInversePredGainQ30(lpcQ12, lpcOrder)
+			downScaleQ30 := minInt32((1<<30)>>log2InvLPCGainHighThres, invGainQ30)
+			downScaleQ30 = maxInt32((1<<30)>>log2InvLPCGainLowThres, downScaleQ30)
+			downScaleQ30 <<= log2InvLPCGainHighThres
+			randGainQ15 = smulwb(downScaleQ30, randGainQ15) >> 14
 		}
 	}
 
@@ -877,6 +895,141 @@ func inverse32VarQ(b, qRes int32) int32 {
 		return math.MaxInt32
 	}
 	return int32(result)
+}
+
+func smmul(a, b int32) int32 {
+	return int32((int64(a) * int64(b)) >> 32)
+}
+
+func rshiftRound64(a int64, shift int) int64 {
+	if shift <= 0 {
+		return a
+	}
+	if a < 0 {
+		return -(((-a) + (1 << (shift - 1))) >> shift)
+	}
+	return (a + (1 << (shift - 1))) >> shift
+}
+
+func subSat32(a, b int32) int32 {
+	v := int64(a) - int64(b)
+	if v > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	if v < math.MinInt32 {
+		return math.MinInt32
+	}
+	return int32(v)
+}
+
+func mul32FracQ(a, b int32, q uint) int32 {
+	return int32(rshiftRound64(int64(a)*int64(b), int(q)))
+}
+
+func abs32Int(a int32) int32 {
+	if a < 0 {
+		return -a
+	}
+	return a
+}
+
+func clz32(a int32) int {
+	if a == 0 {
+		return 32
+	}
+	return bits.LeadingZeros32(uint32(a))
+}
+
+func lpcInversePredGainQ30(aQ12 []int16, order int) int32 {
+	if order <= 0 {
+		return 1 << 30
+	}
+	if order > len(aQ12) {
+		order = len(aQ12)
+	}
+	if order > maxLPCOrder {
+		order = maxLPCOrder
+	}
+
+	var aQA [maxLPCOrder]int32
+	dcResp := int32(0)
+	for k := 0; k < order; k++ {
+		dcResp += int32(aQ12[k])
+		aQA[k] = int32(aQ12[k]) << (lpcInvPredQA - 12)
+	}
+	if dcResp >= 4096 {
+		return 0
+	}
+	return lpcInversePredGainQAC(aQA[:order], order)
+}
+
+func lpcInversePredGainQAC(aQA []int32, order int) int32 {
+	invGainQ30 := int32(1 << 30)
+
+	for k := order - 1; k > 0; k-- {
+		if aQA[k] > lpcInvPredALimitQ24 || aQA[k] < -lpcInvPredALimitQ24 {
+			return 0
+		}
+
+		rcQ31 := -(aQA[k] << (31 - lpcInvPredQA))
+		rcMult1Q30 := (1 << 30) - smmul(rcQ31, rcQ31)
+		if rcMult1Q30 <= (1<<15) || rcMult1Q30 > (1<<30) {
+			return 0
+		}
+
+		invGainQ30 = smmul(invGainQ30, rcMult1Q30) << 2
+		if invGainQ30 < minInvPredGainQ30 {
+			return 0
+		}
+
+		mult2Q := 32 - clz32(abs32Int(rcMult1Q30))
+		rcMult2 := inverse32VarQ(rcMult1Q30, int32(mult2Q+30))
+
+		for n := 0; n < (k+1)>>1; n++ {
+			tmp1 := aQA[n]
+			tmp2 := aQA[k-n-1]
+
+			v1 := subSat32(tmp1, mul32FracQ(tmp2, rcQ31, 31))
+			upd1 := rshiftRound64(int64(v1)*int64(rcMult2), mult2Q)
+			if upd1 > math.MaxInt32 || upd1 < math.MinInt32 {
+				return 0
+			}
+			aQA[n] = int32(upd1)
+
+			v2 := subSat32(tmp2, mul32FracQ(tmp1, rcQ31, 31))
+			upd2 := rshiftRound64(int64(v2)*int64(rcMult2), mult2Q)
+			if upd2 > math.MaxInt32 || upd2 < math.MinInt32 {
+				return 0
+			}
+			aQA[k-n-1] = int32(upd2)
+		}
+	}
+
+	if aQA[0] > lpcInvPredALimitQ24 || aQA[0] < -lpcInvPredALimitQ24 {
+		return 0
+	}
+	rcQ31 := -(aQA[0] << (31 - lpcInvPredQA))
+	rcMult1Q30 := (1 << 30) - smmul(rcQ31, rcQ31)
+	invGainQ30 = smmul(invGainQ30, rcMult1Q30) << 2
+	if invGainQ30 < minInvPredGainQ30 {
+		return 0
+	}
+
+	return invGainQ30
+}
+
+func minInt32(a, b int32) int32 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxInt32(a, b int32) int32 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func bwExpandQ12(ar []int16, coef float64) {
