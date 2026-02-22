@@ -446,10 +446,11 @@ func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lo
 		}
 	}
 
-	// Apply bandwidth expansion to LPC coefficients for stability
+	// Apply bandwidth expansion to previous LPC in-state, matching libopus
+	// silk_PLC_conceal() cadence across consecutive losses.
+	bwExpandQ12(plcState.PrevLPCQ12[:lpcOrder], bweCoef)
 	lpcQ12 := make([]int16, lpcOrder)
 	copy(lpcQ12, plcState.PrevLPCQ12[:lpcOrder])
-	bwExpandQ12(lpcQ12, bweCoef)
 
 	// Initialize random scale on first lost frame
 	randScaleQ14 := plcState.RandScaleQ14
