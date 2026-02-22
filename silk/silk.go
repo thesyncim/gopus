@@ -749,13 +749,30 @@ func BandwidthFromOpus(opusBandwidth int) (Bandwidth, bool) {
 func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float32, error) {
 	// Get fade factor for this loss
 	fadeFactor := d.plcState.RecordLoss()
+	lossCnt := d.plcState.LostCount() - 1
 
 	// Get native sample count from 48kHz frame size
 	config := GetBandwidthConfig(bandwidth)
 	nativeSamples := frameSizeSamples * config.SampleRate / 48000
 
 	// Generate concealment at native rate.
-	concealed := plc.ConcealSILK(d, nativeSamples, fadeFactor)
+	// Use LTP-aware concealment for first loss, then fall back to legacy
+	// concealment for longer bursts while parity is being tightened.
+	var concealed []float32
+	if state := d.ensureSILKPLCState(0); state != nil && d.state[0].nbSubfr > 0 && lossCnt == 0 {
+		concealedQ0 := plc.ConcealSILKWithLTP(d, state, lossCnt, nativeSamples)
+		if d.scratchOutput != nil && len(d.scratchOutput) >= nativeSamples {
+			concealed = d.scratchOutput[:nativeSamples]
+		} else {
+			concealed = make([]float32, nativeSamples)
+		}
+		scale := float32(fadeFactor / 32768.0)
+		for i := 0; i < nativeSamples && i < len(concealedQ0); i++ {
+			concealed[i] = float32(concealedQ0[i]) * scale
+		}
+	} else {
+		concealed = plc.ConcealSILK(d, nativeSamples, fadeFactor)
+	}
 
 	// Update decoder state for PLC gluing and outBuf cadence.
 	d.recordPLCLossForState(&d.state[0], concealed)
