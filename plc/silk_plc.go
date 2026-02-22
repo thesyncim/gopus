@@ -499,13 +499,21 @@ func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lo
 		// Perform LPC analysis to get sLTP.
 		// Prefer decoder outBuf history (Q0), which matches libopus PLC inputs.
 		sLTP := make([]int16, ltpMemLength)
+		haveOutBufQ0 := false
 		if provider, ok := dec.(SILKOutBufProvider); ok {
 			outBufQ0 := provider.GetOutBufHistoryQ0()
-			if len(outBufQ0) >= ltpMemLength {
-				lpcAnalysisFilterInt16(sLTP[startIdx:], outBufQ0[:ltpMemLength], lpcQ12, ltpMemLength-startIdx, lpcOrder)
+			if len(outBufQ0) >= ltpMemLength && startIdx < ltpMemLength {
+				lpcAnalysisFilterInt16(
+					sLTP[startIdx:],
+					outBufQ0[startIdx:ltpMemLength],
+					lpcQ12,
+					ltpMemLength-startIdx,
+					lpcOrder,
+				)
+				haveOutBufQ0 = true
 			}
 		}
-		if sLTP[startIdx] == 0 {
+		if !haveOutBufQ0 {
 			// Fallback for decoders that don't expose outBuf history.
 			outHistory := dec.OutputHistory()
 			if len(outHistory) > 0 {

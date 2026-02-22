@@ -166,6 +166,7 @@ type mockSILKExtendedDecoder struct {
 	subfrLength  int
 	nbSubfr      int
 	ltpMemLength int
+	outBufQ0     []int16
 }
 
 func (m *mockSILKExtendedDecoder) GetLastSignalType() int        { return m.signalType }
@@ -184,6 +185,7 @@ func (m *mockSILKExtendedDecoder) GetLTPMemoryLength() int {
 	return m.ltpMemLength
 }
 func (m *mockSILKExtendedDecoder) GetSLPCQ14HistoryQ14() []int32 { return m.slpcQ14 }
+func (m *mockSILKExtendedDecoder) GetOutBufHistoryQ0() []int16   { return m.outBufQ0 }
 
 func TestConcealSILKWithLTPLongFrameNoPanic(t *testing.T) {
 	dec := &mockSILKExtendedDecoder{
@@ -239,6 +241,77 @@ func TestConcealSILKWithLTPLongFrameNoPanic(t *testing.T) {
 	out := ConcealSILKWithLTP(dec, state, 0, 320)
 	if len(out) != 320 {
 		t.Fatalf("concealed length = %d, want 320", len(out))
+	}
+}
+
+func TestConcealSILKWithLTPOutBufPathIgnoresFloatHistory(t *testing.T) {
+	newDec := func(historyPhase float64) *mockSILKExtendedDecoder {
+		dec := &mockSILKExtendedDecoder{
+			mockSILKDecoder: mockSILKDecoder{
+				lpcValues: make([]float32, 16),
+				lpcOrder:  16,
+				wasVoiced: true,
+				history:   make([]float32, 322),
+				histIdx:   200,
+			},
+			signalType:   2,
+			pitchLag:     96,
+			lastGainQ16:  65536,
+			ltpScaleQ14:  16384,
+			excitation:   make([]int32, 640),
+			lpcQ12:       make([]int16, 16),
+			slpcQ14:      make([]int32, 16),
+			fsKHz:        16,
+			subfrLength:  80,
+			nbSubfr:      4,
+			ltpMemLength: 320,
+			outBufQ0:     make([]int16, 320),
+		}
+		for i := range dec.history {
+			dec.history[i] = float32(math.Sin(historyPhase + float64(i)*0.13))
+		}
+		for i := range dec.outBufQ0 {
+			dec.outBufQ0[i] = int16(math.Round(math.Sin(float64(i)*0.09) * 12000.0))
+		}
+		for i := range dec.excitation {
+			dec.excitation[i] = int32((i%19)-9) << 8
+		}
+		for i := range dec.slpcQ14 {
+			dec.slpcQ14[i] = int32((i%9)-4) << 12
+		}
+		dec.lpcQ12[0] = 2048
+		dec.lpcQ12[1] = -1024
+		dec.ltpCoefQ14 = [ltpOrder]int16{0, 2048, 8192, 2048, 0}
+		return dec
+	}
+
+	newState := func(dec *mockSILKExtendedDecoder) *SILKPLCState {
+		state := NewSILKPLCState()
+		pitchL := []int{dec.pitchLag, dec.pitchLag, dec.pitchLag, dec.pitchLag}
+		ltpCoefQ14 := make([]int16, ltpOrder*4)
+		for sf := 0; sf < 4; sf++ {
+			copy(ltpCoefQ14[sf*ltpOrder:(sf+1)*ltpOrder], dec.ltpCoefQ14[:])
+		}
+		gainsQ16 := []int32{dec.lastGainQ16, dec.lastGainQ16, dec.lastGainQ16, dec.lastGainQ16}
+		lpcQ12 := make([]int16, 16)
+		copy(lpcQ12, dec.lpcQ12)
+		state.UpdateFromGoodFrame(2, pitchL, ltpCoefQ14, dec.ltpScaleQ14, gainsQ16, lpcQ12, 16, 4, 80)
+		return state
+	}
+
+	decA := newDec(0.0)
+	decB := newDec(1.7) // Different float history, same outBufQ0.
+
+	outA := ConcealSILKWithLTP(decA, newState(decA), 0, 320)
+	outB := ConcealSILKWithLTP(decB, newState(decB), 0, 320)
+
+	if len(outA) != len(outB) {
+		t.Fatalf("length mismatch: %d vs %d", len(outA), len(outB))
+	}
+	for i := range outA {
+		if outA[i] != outB[i] {
+			t.Fatalf("output diverged at sample %d: %d vs %d", i, outA[i], outB[i])
+		}
 	}
 }
 
