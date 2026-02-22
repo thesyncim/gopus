@@ -73,6 +73,12 @@ type SILKSignalTypeProvider interface {
 	GetLastSignalType() int
 }
 
+// SILKSLPCQ14Provider optionally exposes the decoder's LPC synthesis history
+// buffer in Q14 (most recent lpcOrder samples).
+type SILKSLPCQ14Provider interface {
+	GetSLPCQ14HistoryQ14() []int32
+}
+
 // SILKDecoderStateExtended provides extended SILK decoder state access for LTP-aware PLC.
 // Implementations should provide this interface for full LTP coefficient support.
 type SILKDecoderStateExtended interface {
@@ -507,9 +513,24 @@ func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lo
 
 	// Process each subframe
 	sLPCQ14 := make([]int32, frameSize+maxLPCOrder)
-
-	// Initialize sLPC from previous state
-	// (In a full implementation, this would come from decoder state)
+	haveSLPCHistory := false
+	if provider, ok := dec.(SILKSLPCQ14Provider); ok {
+		historyQ14 := provider.GetSLPCQ14HistoryQ14()
+		if len(historyQ14) >= lpcOrder {
+			start := maxLPCOrder - lpcOrder
+			copy(sLPCQ14[start:maxLPCOrder], historyQ14[:lpcOrder])
+			haveSLPCHistory = true
+		}
+	}
+	if !haveSLPCHistory {
+		prev := dec.PrevLPCValues()
+		if len(prev) >= lpcOrder {
+			start := maxLPCOrder - lpcOrder
+			for i := 0; i < lpcOrder; i++ {
+				sLPCQ14[start+i] = int32(math.Round(float64(prev[i] * 16384.0)))
+			}
+		}
+	}
 
 	for k := 0; k < nbSubfr; k++ {
 		// LTP prediction for voiced frames
