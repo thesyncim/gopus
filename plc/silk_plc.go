@@ -79,6 +79,12 @@ type SILKSLPCQ14Provider interface {
 	GetSLPCQ14HistoryQ14() []int32
 }
 
+// SILKOutBufProvider optionally exposes decoder outBuf history in Q0
+// (typically the last ltp_mem_length samples used by libopus PLC rewhitening).
+type SILKOutBufProvider interface {
+	GetOutBufHistoryQ0() []int16
+}
+
 // SILKDecoderStateExtended provides extended SILK decoder state access for LTP-aware PLC.
 // Implementations should provide this interface for full LTP coefficient support.
 type SILKDecoderStateExtended interface {
@@ -483,19 +489,29 @@ func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lo
 	sLTPQ15 := make([]int32, ltpMemLength+frameSize)
 	sLTPBufIdx := ltpMemLength
 
-	// Get output history for LPC analysis
-	outHistory := dec.OutputHistory()
-
 	// Rewhiten LTP state using LPC analysis
-	if len(outHistory) > 0 && signalType == 2 {
+	if signalType == 2 {
 		startIdx := ltpMemLength - lag - lpcOrder - ltpOrder/2
 		if startIdx <= 0 {
 			startIdx = 1
 		}
 
-		// Perform LPC analysis to get sLTP
+		// Perform LPC analysis to get sLTP.
+		// Prefer decoder outBuf history (Q0), which matches libopus PLC inputs.
 		sLTP := make([]int16, ltpMemLength)
-		lpcAnalysisFilter(sLTP[startIdx:], outHistory, lpcQ12, ltpMemLength-startIdx, lpcOrder, startIdx)
+		if provider, ok := dec.(SILKOutBufProvider); ok {
+			outBufQ0 := provider.GetOutBufHistoryQ0()
+			if len(outBufQ0) >= ltpMemLength {
+				lpcAnalysisFilterInt16(sLTP[startIdx:], outBufQ0[:ltpMemLength], lpcQ12, ltpMemLength-startIdx, lpcOrder)
+			}
+		}
+		if sLTP[startIdx] == 0 {
+			// Fallback for decoders that don't expose outBuf history.
+			outHistory := dec.OutputHistory()
+			if len(outHistory) > 0 {
+				lpcAnalysisFilter(sLTP[startIdx:], outHistory, lpcQ12, ltpMemLength-startIdx, lpcOrder, startIdx)
+			}
+		}
 
 		// Scale LTP state
 		invGainQ30 := inverse32VarQ(plcState.PrevGainQ16[1], 46)
@@ -913,5 +929,26 @@ func lpcAnalysisFilter(out []int16, in []float32, B []int16, length, order, star
 
 		out32 := rshiftRound(outQ12, 0)
 		out[ix] = sat16(out32)
+	}
+}
+
+func lpcAnalysisFilterInt16(out []int16, in []int16, B []int16, length, order int) {
+	for i := 0; i < order && i < length; i++ {
+		out[i] = 0
+	}
+
+	for ix := order; ix < length; ix++ {
+		inPos := ix
+		if inPos >= len(in) {
+			break
+		}
+
+		outQ12 := int32(in[inPos-1]) * int32(B[0])
+		for j := 1; j < order; j++ {
+			outQ12 += int32(in[inPos-1-j]) * int32(B[j])
+		}
+
+		outQ12 = (int32(in[inPos]) << 12) - outQ12
+		out[ix] = sat16(rshiftRound(outQ12, 12))
 	}
 }
