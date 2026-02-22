@@ -1004,3 +1004,21 @@ func TestComputeEnergyUsesSaturatedScaledExcitation(t *testing.T) {
 		)
 	}
 }
+
+func TestLPCInversePredGainQ30Stable(t *testing.T) {
+	// Mildly stable LPC (Q12) should yield positive inverse gain.
+	lpcQ12 := []int16{1400, -700, 350, -180, 90, -40, 20, -10, 5, -2}
+	got := lpcInversePredGainQ30(lpcQ12, len(lpcQ12))
+	if got <= 0 {
+		t.Fatalf("expected positive inverse gain for stable LPC, got %d", got)
+	}
+}
+
+func TestLPCInversePredGainQ30UnstableDC(t *testing.T) {
+	// Sum >= 4096 should trigger the same DC instability early-out as libopus.
+	lpcQ12 := []int16{4096, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	got := lpcInversePredGainQ30(lpcQ12, len(lpcQ12))
+	if got != 0 {
+		t.Fatalf("expected zero inverse gain for unstable DC response, got %d", got)
+	}
+}
