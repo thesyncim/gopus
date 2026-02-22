@@ -754,7 +754,7 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 	config := GetBandwidthConfig(bandwidth)
 	nativeSamples := frameSizeSamples * config.SampleRate / 48000
 
-	// Generate concealment at native rate
+	// Generate concealment at native rate.
 	concealed := plc.ConcealSILK(d, nativeSamples, fadeFactor)
 
 	// Update decoder state for PLC gluing and outBuf cadence.
