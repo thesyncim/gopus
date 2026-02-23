@@ -635,6 +635,16 @@ func (e *Encoder) LPMode() int {
 	return e.lpState.Mode
 }
 
+// GetLPState returns a copy of the LP variable cutoff filter state.
+func (e *Encoder) GetLPState() LPState {
+	return e.lpState
+}
+
+// SetLPState restores the LP variable cutoff filter state.
+func (e *Encoder) SetLPState(state LPState) {
+	e.lpState = state
+}
+
 // InWBModeWithoutVariableLP returns true when the SILK encoder is in
 // wideband (16kHz) mode with the variable LP filter inactive (mode==0).
 // This matches libopus silk_mode.inWBmodeWithoutVariableLP.

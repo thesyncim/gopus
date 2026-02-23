@@ -801,6 +801,7 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []float64, n, k, sprea
 	dumpThis := false
 	dumpID := 0
 	dumpFrame := 0
+	dump75This := false
 	if dbg != nil {
 		dumpFrame = dbg.pvqDumpFrame
 	}
@@ -823,13 +824,18 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []float64, n, k, sprea
 		dumpPreX = make([]float64, n)
 		copy(dumpPreX, x[:n])
 	}
+	if tmpPVQDump75Enabled && ((band == 18 && n == 48 && k == 5) || (band == 17 && n == 32 && k == 5)) {
+		dump75This = true
+		dumpPreX = make([]float64, n)
+		copy(dumpPreX, x[:n])
+	}
 	expRotation(x, n, 1, b, k, spread)
 	if tmpPVQInputF32Enabled {
 		for i := 0; i < n; i++ {
 			x[i] = float64(float32(x[i]))
 		}
 	}
-	if dumpThis {
+	if dumpThis || dump75This {
 		dumpX = make([]float64, n)
 		copy(dumpX, x[:n])
 	}
@@ -924,6 +930,26 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []float64, n, k, sprea
 			fmt.Fprintf(os.Stderr, " %.8f", float32(dumpPreX[i]))
 		}
 		fmt.Fprintf(os.Stderr, " x=")
+		for i := 0; i < len(dumpX); i++ {
+			fmt.Fprintf(os.Stderr, " %.8f", float32(dumpX[i]))
+		}
+		fmt.Fprintf(os.Stderr, " pulses=")
+		for i := 0; i < len(pulses); i++ {
+			fmt.Fprintf(os.Stderr, " %d", pulses[i])
+		}
+		fmt.Fprintln(os.Stderr)
+	}
+	if dump75This {
+		seq := 0
+		if dbg != nil {
+			seq = dbg.pvqCallSeq
+		}
+		fmt.Fprintf(os.Stderr, "PVQ75GO frame=%d seq=%d band=%d n=%d k=%d spread=%d B=%d idx=%d pre=",
+			dumpFrame, seq, band, n, k, spread, b, encodedIndex)
+		for i := 0; i < len(dumpPreX); i++ {
+			fmt.Fprintf(os.Stderr, " %.8f", float32(dumpPreX[i]))
+		}
+		fmt.Fprintf(os.Stderr, " post=")
 		for i := 0; i < len(dumpX); i++ {
 			fmt.Fprintf(os.Stderr, " %.8f", float32(dumpX[i]))
 		}
@@ -1842,9 +1868,14 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 	if ctx.debug != nil {
 		encodeFrame = ctx.debug.pvqDumpFrame
 	}
-	if tmpQDebugEnabled && ctx.encode && encodeFrame >= 20 && encodeFrame <= 23 {
-		fmt.Fprintf(os.Stderr, "QDBG frame=%d band=%d n=%d B=%d lm=%d b=%d rem_before=%d q_init=%d q_final=%d k=%d currBits=%d rem_after=%d\n",
-			encodeFrame, ctx.band, n, B, lm, b, remBefore, qInit, q, getPulses(q), currBits, ctx.remainingBits)
+	if tmpQDebugEnabled && ctx.encode &&
+		((encodeFrame >= 20 && encodeFrame <= 23) || (encodeFrame <= 1 && ctx.band >= 17)) {
+		seedVal := uint32(0)
+		if ctx.seed != nil {
+			seedVal = *ctx.seed
+		}
+		fmt.Fprintf(os.Stderr, "QDBG frame=%d band=%d n=%d B=%d lm=%d b=%d rem_before=%d q_init=%d q_final=%d k=%d currBits=%d rem_after=%d seed=%d\n",
+			encodeFrame, ctx.band, n, B, lm, b, remBefore, qInit, q, getPulses(q), currBits, ctx.remainingBits, seedVal)
 	}
 	if q != 0 {
 		k := getPulses(q)
@@ -1862,11 +1893,29 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 		return cm, x
 	}
 
+	dumpZero75 := tmpPVQDump75Enabled && ctx.encode && encodeFrame == 0 && ctx.band >= 17 && (n == 8 || n == 12)
+	dumpZeroState := func(kind string) {
+		if !dumpZero75 {
+			return
+		}
+		seedVal := uint32(0)
+		if ctx.seed != nil {
+			seedVal = *ctx.seed
+		}
+		fmt.Fprintf(os.Stderr, "ZQ75GO frame=%d band=%d n=%d kind=%s fill=%d seed=%d x=",
+			encodeFrame, ctx.band, n, kind, fill, seedVal)
+		for i := 0; i < len(x); i++ {
+			fmt.Fprintf(os.Stderr, " %.8f", float32(x[i]))
+		}
+		fmt.Fprintln(os.Stderr)
+	}
+
 	if ctx.resynth {
 		cmMask := (1 << B) - 1
 		fill &= cmMask
 		if fill == 0 {
 			clear(x)
+			dumpZeroState("clear")
 			return 0, x
 		}
 		if lowband == nil {
@@ -1878,6 +1927,7 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 				}
 			}
 			renormalizeVector(x, gain)
+			dumpZeroState("noise")
 			return cmMask, x
 		}
 		if ctx.seed != nil {
@@ -1895,6 +1945,7 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 			}
 		}
 		renormalizeVector(x, gain)
+		dumpZeroState("fold")
 		return fill, x
 	}
 	return fill, x
@@ -2942,9 +2993,9 @@ func quantAllBandsEncodeScratch(re *rangecoding.Encoder, channels, frameSize, lm
 		remainingBits: 0,
 		intensity:     intensity,
 		seed:          seed,
-		// Resynth must be enabled so lowband folding uses reconstructed data.
-		// This matches libopus builds with RESYNTH enabled and improves quality.
-		resynth:         true,
+		// Match libopus encode-side default: resynth only when theta RDO is active.
+		// (decode path remains resynth=true).
+		resynth:         thetaRDOEnabled,
 		disableInv:      disableInv,
 		avoidSplitNoise: B > 1,
 		tapset:          tapset,

@@ -1029,6 +1029,54 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	return result
 }
 
+// PrefillFrame primes SILK analysis/history buffers without coding a payload.
+// This mirrors libopus prefill behavior used on CELT->SILK/HYBRID transitions.
+func (e *Encoder) PrefillFrame(pcm []float32) {
+	if len(pcm) == 0 {
+		return
+	}
+	config := GetBandwidthConfig(e.bandwidth)
+	subframeSamples := config.SubframeSamples
+	numSubframes := len(pcm) / subframeSamples
+	if numSubframes < 1 {
+		numSubframes = 1
+		subframeSamples = len(pcm)
+	}
+	if numSubframes > maxNbSubfr {
+		numSubframes = maxNbSubfr
+	}
+	frameSamples := numSubframes * subframeSamples
+	if frameSamples > len(pcm) {
+		frameSamples = len(pcm)
+	}
+	if frameSamples <= 0 {
+		return
+	}
+
+	pcm = e.quantizePCMToInt16(pcm)
+
+	// Apply LP variable cutoff when active (same as EncodeFrame).
+	if e.lpState.Mode != 0 {
+		lpBuf := ensureInt16Slice(&e.scratchLPInt16, frameSamples)
+		scale := float32(silkSampleScale)
+		for i := 0; i < frameSamples; i++ {
+			lpBuf[i] = int16(floatToInt16Round(pcm[i] * scale))
+		}
+		e.lpState.LPVariableCutoff(lpBuf, frameSamples)
+		invScale := float32(1.0 / silkSampleScale)
+		for i := 0; i < frameSamples; i++ {
+			pcm[i] = float32(lpBuf[i]) * invScale
+		}
+	}
+
+	// Preload x_buf and advance it exactly like frame-end behavior, but do not
+	// run pitch/noise-shape/quantization or entropy coding.
+	_ = e.updateShapeBuffer(pcm, frameSamples)
+	e.shiftInputBuffer(frameSamples)
+	// libopus prefill still advances frameCounter before exiting encode_frame.
+	e.frameCounter++
+}
+
 func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ12 []int16, nlsfInterpQ2 int, gainsQ16 []int32, pitchLags []int, ltpCoeffs LTPCoeffsArray, ltpScaleQ14 int, signalType, quantOffset, speechActivityQ8 int, noiseParams *NoiseShapeParams, seed, numSubframes, subframeSamples, frameSamples int, nsqState *NSQState) ([]int8, int) {
 	inputQ0 := ensureInt16Slice(&e.scratchInputQ0, frameSamples)
 	for i := 0; i < frameSamples && i < len(pcm); i++ {
