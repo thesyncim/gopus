@@ -221,6 +221,18 @@ func generateStereoSineWave(freqL, freqR float64, samplesPerChannel int) []float
 	return pcm
 }
 
+// generateSurroundSineWave creates a 6-channel (5.1) sine wave (interleaved).
+func generateSurroundSineWave(freqs [6]float64, samplesPerChannel int) []float32 {
+	pcm := make([]float32, samplesPerChannel*6)
+	for i := 0; i < samplesPerChannel; i++ {
+		t := float64(i) / 48000.0
+		for ch := 0; ch < 6; ch++ {
+			pcm[i*6+ch] = float32(0.5 * math.Sin(2*math.Pi*freqs[ch]*t))
+		}
+	}
+	return pcm
+}
+
 // computeEnergy calculates RMS energy of samples.
 func computeEnergy(samples []float32) float64 {
 	if len(samples) == 0 {
@@ -376,15 +388,87 @@ func TestIntegration_WriterOpusdec_Stereo(t *testing.T) {
 
 // TestIntegration_WriterOpusdec_Multistream tests 5.1 Writer output with opusdec.
 func TestIntegration_WriterOpusdec_Multistream(t *testing.T) {
-	// Import multistream encoder.
-	// For this test, we use the internal multistream encoder.
-	// Skip if multistream encoder is not available via gopus package.
+	// Create 5.1 multistream encoder.
+	enc, err := gopus.NewMultistreamEncoderDefault(48000, 6, gopus.ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewMultistreamEncoderDefault failed: %v", err)
+	}
+	_ = enc.SetBitrate(256000) // 256 kbps
 
-	// Try to create a multistream encoder via the multistream package.
-	// Since gopus may not expose multistream directly, we'll test using
-	// the existing test pattern from internal/multistream/libopus_test.go.
+	// Generate test audio (5.1 sine waves)
+	frameSize := 960
+	numFrames := 20
+	var oggBuf bytes.Buffer
 
-	t.Skip("Multistream encoder not exposed via public gopus API yet")
+	// Create Ogg Writer using explicit Multistream config
+	// Family 1 indicates Vorbis surround mapping
+	config := WriterConfig{
+		SampleRate:    48000,
+		Channels:      6,
+		PreSkip:       DefaultPreSkip,
+		MappingFamily: 1,
+		StreamCount:   uint8(enc.Streams()),
+		CoupledCount:  uint8(enc.CoupledStreams()),
+		ChannelMapping: []byte{
+			0, 4, 1, 2, 3, 5, // Default Vorbis mapping for 5.1
+		},
+	}
+	w, err := NewWriterWithConfig(&oggBuf, config)
+	if err != nil {
+		t.Fatalf("NewWriterWithConfig failed: %v", err)
+	}
+
+	freqs := [6]float64{440.0, 554.0, 659.0, 880.0, 1108.0, 1318.0}
+	var allInput []float32
+
+	for i := 0; i < numFrames; i++ {
+		pcm := generateSurroundSineWave(freqs, frameSize)
+		allInput = append(allInput, pcm...)
+
+		packet, err := enc.EncodeFloat32(pcm)
+		if err != nil {
+			t.Fatalf("Encode failed: %v", err)
+		}
+		if len(packet) == 0 {
+			t.Fatalf("Encoder produced empty packet for sine wave")
+		}
+		
+		err = w.WritePacket(packet, frameSize)
+		if err != nil {
+			t.Fatalf("WritePacket failed: %v", err)
+		}
+	}
+
+	err = w.Close()
+	if err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	inputEnergy := computeEnergy(allInput)
+	t.Logf("Input: %d frames, %d samples, energy=%.6f", numFrames, len(allInput), inputEnergy)
+	t.Logf("Ogg container: %d bytes", oggBuf.Len())
+
+	// Decode with opusdec to verify standard compliance
+	decoded, err := decodeWithOpusdec(oggBuf.Bytes())
+	if err != nil {
+		t.Fatalf("decodeWithOpusdec failed: %v", err)
+	}
+	if len(decoded) == 0 {
+		t.Fatal("opusdec produced empty output")
+	}
+
+	outputEnergy := computeEnergy(decoded)
+	t.Logf("Decoded: %d samples, energy=%.6f", len(decoded), outputEnergy)
+
+	// Energy ratio check.
+	energyRatio := outputEnergy / inputEnergy * 100
+	t.Logf("Energy ratio: %.1f%% (threshold: 10%%)", energyRatio)
+
+	if energyRatio < 10.0 {
+		t.Errorf("Energy ratio too low: %.1f%% < 10%%", energyRatio)
+	} else {
+		t.Logf("PASS: 5.1 Multistream Writer output validated with opusdec")
+	}
 }
 
 // TestIntegration_RoundTrip tests writing and reading back packets.
