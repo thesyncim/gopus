@@ -1,6 +1,6 @@
 # Investigation Decisions
 
-Last updated: 2026-02-20
+Last updated: 2026-02-23
 
 Purpose: prevent repeated validation by recording what was tested, what was ruled out, and when re-validation is allowed.
 
@@ -20,6 +20,13 @@ owner: <initials or handle>
 ```
 
 ## Current Decisions
+
+date: 2026-02-23
+topic: CELT->Hybrid transition redundancy signaling and CBR shrink cadence
+decision: Keep CELT->Hybrid transition redundancy in `encoder/hybrid.go` aligned with libopus `opus_encode_native` ordering: compute candidate redundancy bytes early for SILK budget math, but finalize/signaling length only after SILK `ec_tell` using libopus `max_redundancy` clamp against `max_data_bytes-1`. Keep CBR range shrink on the main payload budget after SILK/signaling and before main CELT coding (not at encoder init with pre-reserved redundancy subtraction). Keep transition redundancy frame encoding keyed to the final signaled redundancy length before mode-transition reset/prefill.
+evidence: Updated `encoder/hybrid.go` to (a) defer redundancy-length finalization/signaling until post-SILK tell state, (b) clamp to libopus-equivalent `max_redundancy`, (c) apply CBR `Shrink` after signaling on `payloadTarget-mainRedundancy`, and (d) encode CELT redundancy using the final signaled length. Focused validation passed: `go test ./encoder -run 'TestModeTraceFixtureParityWithLibopus|TestCELTTransitionPrefillForcesOneIntraFrame|TestCELTTransitionPrefillSkippedInLowDelay|TestCELTTransitionPrefillSkippedWithoutModeChange|TestCELTTransitionPrefillSnapshotsLibopusDelayHistoryWindow' -count=1`, `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestEncoderVariantProfileProvenanceAudit -count=1 -v`, and `GOPUS_TEST_TIER=parity go test ./testvectors -run 'TestEncoderVariantProfileParityAgainstLibopusFixture|TestEncoderCompliancePrecisionGuard|TestLongFrameLibopusReferenceParityFromFixture' -count=1 -v`. Provenance uplift on the previously worst lane: `HYBRID-SWB-10ms-mono-48k[impulse_train_v1] gap -0.37 dB -> -0.18 dB`.
+do_not_repeat_until: hybrid transition redundancy layout/signaling rules, shared-range budgeting/shrink stage, or libopus transition ordering around `compute_redundancy_bytes` / `ec_tell` / `celt_encode_with_ec` changes and requires re-validation.
+owner: codex
 
 date: 2026-02-23
 topic: CELT decoder PLC pitch-search history context (libopus DEC_PITCH_BUF_SIZE)
