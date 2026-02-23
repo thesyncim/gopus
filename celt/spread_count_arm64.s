@@ -1,3 +1,5 @@
+//go:build arm64 && gopus_spread_asm && gopus_spread_arm64_asm
+
 #include "textflag.h"
 
 // func spreadCountThresholds(x []float64, n int, nf float64) (t0, t1, t2 int)
