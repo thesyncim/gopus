@@ -825,6 +825,9 @@ func (d *Decoder) recordPLCLossForState(st *decoderState, concealed []float32) {
 	}
 
 	d.updateHistory(concealed)
+	// Keep decoder outBuf cadence aligned with normal decode path so
+	// subsequent PLC rewhitening uses the most recent concealed output.
+	silkUpdateOutBuf(st, tmp)
 
 	st.plcConcEnergy, st.plcConcEnergyShift = silkSumSqrShift(tmp, len(tmp))
 	st.plcLastFrameLost = true
