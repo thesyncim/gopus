@@ -234,6 +234,26 @@ func ConcealCELT(dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fad
 //   - frameSize: samples to generate at 48kHz (120, 240, 480, or 960)
 //   - fadeFactor: gain multiplier (0.0 to 1.0)
 func ConcealCELTInto(dst []float64, dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fadeFactor float64) {
+	ConcealCELTRawInto(dst, dec, synth, frameSize, fadeFactor)
+	if dec == nil {
+		return
+	}
+	channels := dec.Channels()
+	outLen := frameSize * channels
+	if outLen > len(dst) {
+		outLen = len(dst)
+	}
+	if outLen <= 0 {
+		return
+	}
+	// Apply de-emphasis to maintain filter state continuity.
+	applyDeemphasisPLC(dst[:outLen], dec.PreemphState(), channels)
+}
+
+// ConcealCELTRawInto generates concealment audio into a pre-allocated buffer
+// without applying de-emphasis. Decoder-owned paths can use this to apply
+// postfilter/de-emphasis in libopus order.
+func ConcealCELTRawInto(dst []float64, dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fadeFactor float64) {
 	if dec == nil {
 		// Zero the output buffer
 		for i := 0; i < frameSize && i < len(dst); i++ {
@@ -302,9 +322,6 @@ func ConcealCELTInto(dst []float64, dec CELTDecoderState, synth CELTSynthesizer,
 
 	// Copy synthesized samples to destination
 	copy(dst[:outLen], samples)
-
-	// Apply de-emphasis to maintain filter state continuity
-	applyDeemphasisPLC(dst[:outLen], dec.PreemphState(), channels)
 
 	// Update decoder energy state for next concealment
 	dec.SetPrevEnergy(concealEnergy)
