@@ -2,7 +2,6 @@ package celt
 
 import (
 	"errors"
-	"math"
 
 	"github.com/thesyncim/gopus/plc"
 	"github.com/thesyncim/gopus/rangecoding"
@@ -63,6 +62,9 @@ type Decoder struct {
 	postfilterTapsetOld int
 	// Postfilter history buffer (per-channel)
 	postfilterMem []float64
+	// PLC decode history buffer (per-channel), sized to match libopus
+	// DECODE_BUFFER_SIZE cadence used by celt_plc_pitch_search().
+	plcDecodeMem []float64
 
 	// Error recovery / deterministic randomness
 	rng uint32 // RNG state for PLC and folding
@@ -108,6 +110,8 @@ type Decoder struct {
 	scratchMonoMix        []float64 // For coeffsMono in decodeStereoPacketToMono (must not alias scratchShortCoeffs used by Synthesize)
 	postfilterScratch     []float64
 	scratchPLC            []float64 // Scratch buffer for PLC concealment samples
+	scratchPLCPitchLP     []float64
+	scratchPLCPitchSearch encoderScratch
 }
 
 // NewDecoder creates a new CELT decoder with the given number of channels.
@@ -139,6 +143,8 @@ func NewDecoder(channels int) *Decoder {
 
 		// Postfilter history buffer for comb filter
 		postfilterMem: make([]float64, combFilterHistory*channels),
+		// PLC decode history sized to libopus DEC_PITCH_BUF_SIZE.
+		plcDecodeMem: make([]float64, plcDecodeBufferSize*channels),
 
 		// RNG state (libopus initializes to zero)
 		rng: 0,
@@ -172,6 +178,9 @@ func (d *Decoder) Reset() {
 	// Clear de-emphasis state
 	for i := range d.preemphState {
 		d.preemphState[i] = 0
+	}
+	for i := range d.plcDecodeMem {
+		d.plcDecodeMem[i] = 0
 	}
 
 	// Reset postfilter
@@ -2885,6 +2894,7 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int) bo
 	}
 
 	d.updatePostfilterHistory(dst, frameSize, combFilterHistory)
+	d.updatePLCDecodeHistory(dst, frameSize, plcDecodeBufferSize)
 	return true
 }
 
@@ -2893,47 +2903,39 @@ func (d *Decoder) searchPLCPitchPeriod() int {
 	if channels <= 0 {
 		return 0
 	}
-	if len(d.postfilterMem) < combFilterHistory*channels {
+	if len(d.plcDecodeMem) < plcDecodeBufferSize*channels {
 		return 0
 	}
 
-	const searchLen = 240
-	maxLag := combFilterHistory - searchLen
-	if maxLag < combFilterMinPeriod {
+	const (
+		plcPitchLagMax = 720
+		plcPitchLagMin = 100
+	)
+	searchLen := plcDecodeBufferSize - plcPitchLagMax
+	maxPitch := plcPitchLagMax - plcPitchLagMin
+	if searchLen <= 0 || maxPitch <= 0 {
 		return 0
 	}
-	if maxLag > combFilterMaxPeriod {
-		maxLag = combFilterMaxPeriod
-	}
-
-	bestLag := 0
-	bestCorr := -1.0
-
-	for lag := combFilterMinPeriod; lag <= maxLag; lag++ {
-		var corr, e1, e2 float64
-		for ch := 0; ch < channels; ch++ {
-			hist := d.postfilterMem[ch*combFilterHistory : (ch+1)*combFilterHistory]
-			base := combFilterHistory - searchLen
-			for i := 0; i < searchLen; i++ {
-				a := hist[base+i]
-				b := hist[base+i-lag]
-				corr += a * b
-				e1 += a * a
-				e2 += b * b
-			}
-		}
-
-		den := math.Sqrt(e1*e2) + 1e-12
-		normCorr := corr / den
-		if normCorr > bestCorr {
-			bestCorr = normCorr
-			bestLag = lag
-		}
-	}
-
-	// Reject weak matches; fallback to noise PLC in low-periodicity content.
-	if bestCorr < 0.25 {
+	lpLen := plcDecodeBufferSize >> 1
+	if lpLen <= (plcPitchLagMax >> 1) {
 		return 0
 	}
-	return bestLag
+	d.scratchPLCPitchLP = ensureFloat64Slice(&d.scratchPLCPitchLP, lpLen)
+	pitchDownsample(d.plcDecodeMem, d.scratchPLCPitchLP, lpLen, channels, 2)
+
+	searchOut := pitchSearch(
+		d.scratchPLCPitchLP[plcPitchLagMax>>1:],
+		d.scratchPLCPitchLP,
+		searchLen,
+		maxPitch,
+		&d.scratchPLCPitchSearch,
+	)
+	pitch := plcPitchLagMax - searchOut
+	if pitch < combFilterMinPeriod || pitch > combFilterMaxPeriod {
+		return 0
+	}
+	if pitch < plcPitchLagMin || pitch > plcPitchLagMax {
+		return 0
+	}
+	return pitch
 }
