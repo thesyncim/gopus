@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-23
+topic: CELT periodic PLC fade and pitch-carry cadence
+decision: Keep CELT periodic PLC concealment in `celt/decoder.go` using libopus-style consecutive-loss cadence: carry periodic pitch across consecutive periodic losses, use `fade=1.0` on first periodic loss and `fade=0.8` on subsequent consecutive periodic losses, and limit periodic concealment to the early-loss window (~100 ms) before falling back to noise PLC. Do not use exponential per-loss fade (`0.8^(n-1)`) for periodic PLC.
+evidence: Updated `decodePLC`/`concealPeriodicPLC` in `celt/decoder.go` with periodic-loss state (`plcLastPitchPeriod`, `plcPrevLossWasPeriodic`) and early-loss gate. Validation passed: `go test ./celt -count=1`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`, `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`, and full parity tier `GOPUS_TEST_TIER=parity go test ./testvectors -count=1`. CELT stress lanes improved on merged-master baseline (`burst3_mid Q -38.41 -> -34.87`, `doublet_stride7 Q -65.26 -> -64.31`) with `periodic5` stable.
+do_not_repeat_until: CELT PLC decode history/state cadence, pitch-search inputs, or libopus `celt_decode_lost()` periodic fade/pitch-carry semantics change, requiring a fresh source-port comparison.
+owner: codex
+
+date: 2026-02-23
 topic: CELT->Hybrid transition redundancy and prefill cadence
 decision: Keep encoder transition handling aligned with libopus by reserving/signaling CELT redundancy during CELT->Hybrid transitions (including SILK budget impact), applying CBR shrink after SILK + redundancy signaling, and using explicit SILK/CELT transition prefill/reset cadence (SILK prefill history with LP state carryover; CELT prefill with 2-byte max payload and forced-intra next frame).
 evidence: Updated `encoder/hybrid.go` (transition redundancy reservation/signaling ordering, CBR shrink timing, HB-gain input shaping) and `encoder/encoder.go` + `silk/encode_frame.go` + `silk/encoder.go` (transition prefill/reset flow and SILK prefill APIs/state restore). Validation passed: `go test ./encoder -count=1`, `GOPUS_TEST_TIER=parity go test ./testvectors -count=1`, `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestEncoderVariantProfileProvenanceAudit -count=1 -v` with worst lane `HYBRID-SWB-40ms-mono-48k[impulse_train_v1] gap=-0.08dB`.
