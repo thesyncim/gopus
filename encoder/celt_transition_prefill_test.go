@@ -80,3 +80,51 @@ func TestCELTTransitionPrefillSkippedWithoutModeChange(t *testing.T) {
 		t.Fatal("did not expect CELT prefill frame when mode is unchanged")
 	}
 }
+
+func TestCELTTransitionPrefillSnapshotsLibopusDelayHistoryWindow(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.prevMode = ModeHybrid
+
+	frameSize := 480
+	encoderBuffer := enc.sampleRate / 100
+	delayComp := enc.sampleRate / 250
+	prefillFrameSize := enc.sampleRate / 400
+	if encoderBuffer <= 0 || delayComp <= 0 || prefillFrameSize <= 0 {
+		t.Fatal("invalid test setup")
+	}
+
+	enc.delayBuffer = make([]float64, encoderBuffer)
+	for i := range enc.delayBuffer {
+		enc.delayBuffer[i] = float64(i + 1)
+	}
+	origDelay := append([]float64(nil), enc.delayBuffer...)
+
+	frame := make([]float64, frameSize)
+	for i := range frame {
+		frame[i] = 10000 + float64(i)
+	}
+	celtPCM := enc.applyDelayCompensation(frame, frameSize)
+
+	wantStart := encoderBuffer - delayComp - prefillFrameSize
+	if wantStart < 0 {
+		t.Fatalf("invalid prefill window: start=%d", wantStart)
+	}
+	if len(enc.scratchTransitionPrefill) != prefillFrameSize {
+		t.Fatalf("prefill snapshot len=%d want=%d", len(enc.scratchTransitionPrefill), prefillFrameSize)
+	}
+	for i := 0; i < prefillFrameSize; i++ {
+		got := enc.scratchTransitionPrefill[i]
+		want := origDelay[wantStart+i]
+		if got != want {
+			t.Fatalf("prefill[%d]=%.0f want %.0f", i, got, want)
+		}
+	}
+
+	enc.maybePrefillCELTOnModeTransition(ModeCELT, celtPCM, frameSize)
+	if !enc.celtForceIntra {
+		t.Fatal("expected celtForceIntra after transition prefill")
+	}
+	if enc.celtEncoder == nil || enc.celtEncoder.FrameCount() != 1 {
+		t.Fatal("expected one CELT prefill frame")
+	}
+}

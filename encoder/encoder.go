@@ -186,6 +186,8 @@ type Encoder struct {
 	scratchPacket     []byte    // Output packet buffer
 	scratchDelayedPCM []float64 // Delay-compensated CELT input
 	scratchDelayTail  []float64 // Snapshot of delay buffer tail
+	// CELT transition prefill window copied from pre-update delay history.
+	scratchTransitionPrefill []float64
 	scratchQuantPCM   []float64 // LSB-depth quantized input
 }
 
@@ -934,12 +936,20 @@ func (e *Encoder) ensureDelayTail(size int) []float64 {
 	return e.scratchDelayTail[:size]
 }
 
+func (e *Encoder) ensureTransitionPrefill(size int) []float64 {
+	if cap(e.scratchTransitionPrefill) < size {
+		e.scratchTransitionPrefill = make([]float64, size)
+	}
+	return e.scratchTransitionPrefill[:size]
+}
+
 // applyDelayCompensation prepends the Opus delay buffer (Fs/250) to the current frame
 // and returns a frame-sized slice for CELT processing. The delay buffer is updated
 // with the latest samples after constructing the output.
 func (e *Encoder) applyDelayCompensation(pcm []float64, frameSize int) []float64 {
 	delayComp := e.sampleRate / 250
 	if delayComp <= 0 {
+		e.scratchTransitionPrefill = e.scratchTransitionPrefill[:0]
 		return pcm
 	}
 	channels := e.channels
@@ -953,6 +963,7 @@ func (e *Encoder) applyDelayCompensation(pcm []float64, frameSize int) []float64
 		frameSamples = len(pcm)
 	}
 	if delaySamples <= 0 || frameSamples <= 0 {
+		e.scratchTransitionPrefill = e.scratchTransitionPrefill[:0]
 		return pcm
 	}
 	if encoderBufferSamples < delaySamples {
@@ -965,6 +976,22 @@ func (e *Encoder) applyDelayCompensation(pcm []float64, frameSize int) []float64
 	tailStart := encoderBufferSamples - delaySamples
 	tail := e.ensureDelayTail(delaySamples)
 	copy(tail, e.delayBuffer[tailStart:])
+
+	// Match libopus tmp_prefill source window before delay-buffer update:
+	// delay_buffer[encoder_buffer-total_buffer-Fs/400 : +Fs/400].
+	prefillFrameSize := e.sampleRate / 400
+	prefillSamples := prefillFrameSize * channels
+	if prefillSamples > 0 {
+		prefillStart := encoderBufferSamples - delaySamples - prefillSamples
+		if prefillStart >= 0 && prefillStart+prefillSamples <= len(e.delayBuffer) {
+			prefill := e.ensureTransitionPrefill(prefillSamples)
+			copy(prefill, e.delayBuffer[prefillStart:prefillStart+prefillSamples])
+		} else {
+			e.scratchTransitionPrefill = e.scratchTransitionPrefill[:0]
+		}
+	} else {
+		e.scratchTransitionPrefill = e.scratchTransitionPrefill[:0]
+	}
 
 	out := e.ensureDelayedPCM(frameSize * channels)
 	if frameSamples <= delaySamples {
@@ -996,15 +1023,9 @@ func (e *Encoder) maybePrefillCELTOnModeTransition(actualMode Mode, celtPCM []fl
 	if prefillSamples <= 0 || len(celtPCM) < prefillSamples {
 		return
 	}
-	// libopus prefill reads from delay history with an offset (`tmp_prefill`),
-	// not from the first samples of the delay-compensated frame.
-	prefillStart := 0
-	delayComp := e.sampleRate / 250
-	if delayComp > prefillFrameSize {
-		prefillStart = (delayComp - prefillFrameSize) * e.channels
-	}
-	if prefillStart < 0 || prefillStart+prefillSamples > len(celtPCM) {
-		prefillStart = 0
+	prefillInput := celtPCM[:prefillSamples]
+	if len(e.scratchTransitionPrefill) == prefillSamples {
+		prefillInput = e.scratchTransitionPrefill
 	}
 
 	e.ensureCELTEncoder()
@@ -1042,7 +1063,7 @@ func (e *Encoder) maybePrefillCELTOnModeTransition(actualMode Mode, celtPCM []fl
 		}
 	}
 
-	_, _ = e.celtEncoder.EncodeFrame(celtPCM[prefillStart:prefillStart+prefillSamples], prefillFrameSize)
+	_, _ = e.celtEncoder.EncodeFrame(prefillInput, prefillFrameSize)
 	// Match libopus mode-switch behavior: the next real CELT frame is forced intra.
 	e.celtForceIntra = true
 }

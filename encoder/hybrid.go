@@ -162,18 +162,9 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 	// true libopus feature (not FEC/LBRR); it reserves bytes and adjusts SILK budget.
 	frameRate := 48000 / frameSize
 	transitionCeltToHybrid := maxPacketBytes == 0 && !e.lowDelay && isConcreteMode(e.prevMode) && e.prevMode == ModeCELT
-	redundancyBytes := 0
-	var redundancyData []byte
+	transitionRedundancyBytes := 0
 	if transitionCeltToHybrid {
-		redundancyBytes = computeRedundancyBytes(baseTargetBytes, e.bitrate, frameRate, e.channels)
-		if redundancyBytes > 0 {
-			data, err := e.encodeCELTTransitionRedundancy(celtPCM, frameSize, redundancyBytes)
-			if err != nil {
-				return nil, err
-			}
-			redundancyData = data
-			redundancyBytes = len(redundancyData)
-		}
+		transitionRedundancyBytes = computeRedundancyBytes(baseTargetBytes, e.bitrate, frameRate, e.channels)
 	}
 
 	// Compute bit allocation between SILK and CELT.
@@ -182,24 +173,18 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 	// CELT->Hybrid transition redundancy is active.
 	frame20ms := frameSize == 960
 	silkBitrate, celtBitrate, celtBitrateHBGain := e.computeHybridBitAllocation(frame20ms)
-	if transitionCeltToHybrid && redundancyBytes > 0 {
-		silkBitrate, celtBitrate, celtBitrateHBGain = e.computeHybridBitAllocationWithBudget(frameSize, baseTargetBytes, redundancyBytes)
+	if transitionCeltToHybrid && transitionRedundancyBytes > 0 {
+		silkBitrate, celtBitrate, celtBitrateHBGain = e.computeHybridBitAllocationWithBudget(frameSize, baseTargetBytes, transitionRedundancyBytes)
 	}
 
 	// Compute HB_gain based on TOC-adjusted CELT bitrate (matching libopus line 2060).
 	// Lower CELT bitrate means we should attenuate high frequencies.
 	hbGain := e.computeHBGain(celtBitrateHBGain)
 
-	// Main shared-range payload target excludes transition redundancy bytes.
-	payloadTargetMain := payloadTarget - redundancyBytes
-	if payloadTargetMain < 1 {
-		payloadTargetMain = 1
-	}
-
-	maxTargetBytes := payloadTargetMain
+	maxTargetBytes := payloadTarget
 	switch e.bitrateMode {
 	case ModeCBR:
-		maxTargetBytes = payloadTargetMain
+		maxTargetBytes = payloadTarget
 	case ModeCVBR, ModeVBR:
 		// Allow up to 2x target for both VBR and CVBR. In libopus, the
 		// range encoder buffer is large (up to 1275 bytes) regardless of
@@ -212,11 +197,8 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 		// Reserve one extra byte to account for range coder end bits.
 		maxTargetBytes = maxAllowed - 2
 	}
-	if redundancyBytes > 0 {
-		maxTargetBytes -= redundancyBytes
-	}
-	if maxTargetBytes < payloadTargetMain {
-		maxTargetBytes = payloadTargetMain
+	if maxTargetBytes < payloadTarget {
+		maxTargetBytes = payloadTarget
 	}
 	if maxTargetBytes > maxHybridPacketSize-1 {
 		maxTargetBytes = maxHybridPacketSize - 1
@@ -226,9 +208,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 	buf := e.hybridState.scratchPacket[:]
 	re := &e.hybridState.rangeEncoder
 	re.Init(buf)
-	if e.bitrateMode == ModeCBR {
-		re.Shrink(uint32(maxTargetBytes))
-	} else {
+	if e.bitrateMode != ModeCBR {
 		re.Limit(uint32(maxTargetBytes))
 	}
 
@@ -320,9 +300,9 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 	// In hybrid VBR/CVBR mode, SILK's maxBits is constrained to the SILK-appropriate
 	// portion of the available bits.
 	silkMaxBits := (maxTargetBytes) * 8
-	if transitionCeltToHybrid && redundancyBytes >= 2 {
+	if transitionCeltToHybrid && transitionRedundancyBytes >= 2 {
 		// Reserve transition redundancy payload/signaling from SILK's max-bits budget.
-		silkMaxBits -= redundancyBytes*8 + 1 + 20
+		silkMaxBits -= transitionRedundancyBytes*8 + 1 + 20
 		if silkMaxBits < 0 {
 			silkMaxBits = 0
 		}
@@ -363,17 +343,50 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 	// Step 2b: Encode redundancy flag between SILK and CELT.
 	// Per libopus opus_encoder.c: in hybrid mode, a redundancy flag is always
 	// written between the SILK and CELT portions (logp=12).
-	// Condition matches libopus: ec_tell(&enc)+17+20 <= 8*(max_data_bytes-1)
+	// Condition matches libopus: ec_tell(&enc)+17+20 <= 8*(max_data_bytes-1).
 	redundancyActive := false
-	if re.Tell()+17+20 <= 8*maxTargetBytes {
-		if transitionCeltToHybrid && redundancyBytes >= 2 {
+	redundancyBytes := 0
+	if re.Tell()+17+20 <= 8*payloadTarget {
+		if transitionCeltToHybrid && transitionRedundancyBytes >= 2 {
 			redundancyActive = true
 			re.EncodeBit(1, 12)                              // redundancy = 1
 			re.EncodeBit(1, 1)                               // celt_to_silk = 1
+			redundancyBytes = transitionRedundancyBytes
+			// Match libopus max_redundancy clamp after SILK signaling.
+			maxRedundancy := payloadTarget - ((re.Tell() + 8 + 3 + 7) >> 3)
+			if redundancyBytes > maxRedundancy {
+				redundancyBytes = maxRedundancy
+			}
+			if redundancyBytes < 2 {
+				redundancyBytes = 2
+			}
+			if redundancyBytes > 257 {
+				redundancyBytes = 257
+			}
 			re.EncodeUniform(uint32(redundancyBytes-2), 256) // redundancy length
 		} else {
 			re.EncodeBit(0, 12)
 		}
+	}
+	var redundancyData []byte
+	if redundancyActive && redundancyBytes >= 2 {
+		data, err := e.encodeCELTTransitionRedundancy(celtPCM, frameSize, redundancyBytes)
+		if err != nil {
+			return nil, err
+		}
+		if len(data) != redundancyBytes {
+			return nil, ErrEncodingFailed
+		}
+		redundancyData = data
+	}
+
+	// Main shared-range payload target excludes any signaled transition redundancy.
+	payloadTargetMain := payloadTarget - redundancyBytes
+	if payloadTargetMain < 1 {
+		payloadTargetMain = 1
+	}
+	if e.bitrateMode == ModeCBR {
+		re.Shrink(uint32(payloadTargetMain))
 	}
 
 	// libopus resets+prefills CELT for mode transitions before main CELT coding.
@@ -499,10 +512,16 @@ func (e *Encoder) encodeCELTTransitionRedundancy(celtPCM []float64, frameSize, r
 	if len(redundancyData) < 2 {
 		return nil, nil
 	}
-	if len(redundancyData) > len(e.hybridState.scratchRedundancy) {
+	if redundancyBytes > len(e.hybridState.scratchRedundancy) {
 		return nil, ErrEncodingFailed
 	}
-	out := e.hybridState.scratchRedundancy[:len(redundancyData)]
+	out := e.hybridState.scratchRedundancy[:redundancyBytes]
+	for i := range out {
+		out[i] = 0
+	}
+	if len(redundancyData) > redundancyBytes {
+		redundancyData = redundancyData[:redundancyBytes]
+	}
 	copy(out, redundancyData)
 	return out, nil
 }
