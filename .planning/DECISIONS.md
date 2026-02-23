@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-23
+topic: Compliance hybrid-row mode semantics
+decision: Keep encoder compliance/precision/longframe harness treating `ModeHybrid` rows as libopus audio-app semantics (`opus_demo -e audio`) by running gopus with `ModeAuto` in `runEncoderComplianceTest`, instead of forcing `ModeHybrid` packets for those rows. Keep SILK/CELT row behavior unchanged (explicit mode + existing signal hints).
+evidence: Updated `testvectors/encoder_compliance_test.go` (`runEncoderComplianceTest`) to map only hybrid rows to `ModeAuto`. Focused parity gate passed: `GOPUS_TEST_TIER=parity go test ./testvectors -run 'TestLongFrameLibopusReferenceParityFromFixture|TestEncoderCompliancePrecisionGuard' -count=1 -v`. Full parity tier passed: `GOPUS_TEST_TIER=parity go test ./testvectors -count=1`. Broad strict parity sweep excluding unrelated local probe workspace passed: `GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 go test $(go list ./... | grep -v '/tmp_probe$') -count=1`. `make bench-guard` passed.
+do_not_repeat_until: libopus fixture generation policy for summary/precision/longframe rows changes away from `opus_demo -e audio` semantics for hybrid-labeled rows, or compliance harness explicitly switches to forced-hybrid reference fixtures.
+owner: codex
+
+date: 2026-02-23
 topic: CELT decoder loss early-periodic conceal cadence
 decision: Keep CELT decoder loss concealment on a libopus-aligned two-path cadence in `celt/decoder.go`: attempt early-loss periodic conceal first (pitch-period search from decoder history + repeated-loss attenuation + history update), then fall back to noise conceal when periodicity is not reliable. Keep CELT noise fallback synthesis using raw PLC output followed by decoder-side postfilter/de-emphasis order (`plc.ConcealCELTRawInto` + decoder postfilter/de-emphasis), rather than applying deemphasis inside the fallback PLC synth path.
 evidence: Added `plc.ConcealCELTRawInto` in `plc/celt_plc.go` and decoder-side periodic branch + pitch search in `celt/decoder.go` `decodePLC`. Focused validation passed: `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`. CELT stress uplift on worst lanes: `periodic5 Q -84.67 -> -77.38, corr 0.9191 -> 0.9590, rms_ratio 0.9204 -> 1.0151`; `doublet_stride7 Q -88.14 -> -67.75, corr 0.8874 -> 0.9858, rms_ratio 0.8878 -> 1.0032`.
