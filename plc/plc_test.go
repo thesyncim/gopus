@@ -2,6 +2,7 @@ package plc
 
 import (
 	"math"
+	"math/bits"
 	"testing"
 )
 
@@ -981,26 +982,49 @@ func TestComputeEnergyUsesSaturatedScaledExcitation(t *testing.T) {
 
 	gotEnergy, gotShift := computeEnergy(exc, gainQ10, len(exc), 0)
 
-	var wantSum int64
-	wantShift := 0
-	for _, x := range exc {
-		scaled := sat16(smulww(x, gainQ10) >> 8)
-		s := int64(scaled)
-		wantSum += s * s
-		if wantSum > 0x3FFFFFFF {
-			wantSum >>= 2
-			wantShift += 2
-		}
-	}
-	for wantSum > 0x7FFFFFFF {
-		wantSum >>= 1
-		wantShift++
+	// Expected value mirrors libopus silk_sum_sqr_shift() two-pass behavior.
+	scaled := make([]int16, len(exc))
+	for i, x := range exc {
+		scaled[i] = sat16(smulww(x, gainQ10) >> 8)
 	}
 
-	if gotEnergy != int32(wantSum) || gotShift != wantShift {
+	n := len(scaled)
+	wantShift := 31 - bits.LeadingZeros32(uint32(n))
+	wantEnergy := int32(n)
+
+	i := 0
+	for ; i < n-1; i += 2 {
+		s0 := int32(scaled[i])
+		s1 := int32(scaled[i+1])
+		nrgTmp := uint32(s0*s0 + s1*s1)
+		wantEnergy = int32(uint32(wantEnergy) + (nrgTmp >> uint(wantShift)))
+	}
+	if i < n {
+		s0 := int32(scaled[i])
+		nrgTmp := uint32(s0 * s0)
+		wantEnergy = int32(uint32(wantEnergy) + (nrgTmp >> uint(wantShift)))
+	}
+
+	wantShift = max(0, wantShift+3-int(bits.LeadingZeros32(uint32(wantEnergy))))
+
+	wantEnergy = 0
+	i = 0
+	for ; i < n-1; i += 2 {
+		s0 := int32(scaled[i])
+		s1 := int32(scaled[i+1])
+		nrgTmp := uint32(s0*s0 + s1*s1)
+		wantEnergy = int32(uint32(wantEnergy) + (nrgTmp >> uint(wantShift)))
+	}
+	if i < n {
+		s0 := int32(scaled[i])
+		nrgTmp := uint32(s0 * s0)
+		wantEnergy = int32(uint32(wantEnergy) + (nrgTmp >> uint(wantShift)))
+	}
+
+	if gotEnergy != wantEnergy || gotShift != wantShift {
 		t.Fatalf(
 			"computeEnergy mismatch: got (energy=%d shift=%d), want (energy=%d shift=%d)",
-			gotEnergy, gotShift, int32(wantSum), wantShift,
+			gotEnergy, gotShift, wantEnergy, wantShift,
 		)
 	}
 }
