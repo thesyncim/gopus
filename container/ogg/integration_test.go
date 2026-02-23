@@ -124,9 +124,24 @@ func decodeWithInternalDecoder(oggData []byte) ([]float32, error) {
 		channels = 1
 	}
 
-	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
-	if err != nil {
-		return nil, fmt.Errorf("new decoder: %w", err)
+	var decodePacket func([]byte, []float32) (int, error)
+	if r.Header != nil && r.Header.MappingFamily != MappingFamilyRTP {
+		streams := int(r.Header.StreamCount)
+		coupled := int(r.Header.CoupledCount)
+		mapping := make([]byte, len(r.Header.ChannelMapping))
+		copy(mapping, r.Header.ChannelMapping)
+
+		msDec, err := gopus.NewMultistreamDecoder(48000, channels, streams, coupled, mapping)
+		if err != nil {
+			return nil, fmt.Errorf("new multistream decoder: %w", err)
+		}
+		decodePacket = msDec.Decode
+	} else {
+		dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, channels))
+		if err != nil {
+			return nil, fmt.Errorf("new decoder: %w", err)
+		}
+		decodePacket = dec.Decode
 	}
 
 	out := make([]float32, 5760*channels)
@@ -139,7 +154,7 @@ func decodeWithInternalDecoder(oggData []byte) ([]float32, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read packet: %w", err)
 		}
-		n, err := dec.Decode(packet, out)
+		n, err := decodePacket(packet, out)
 		if err != nil {
 			return nil, fmt.Errorf("decode packet: %w", err)
 		}
@@ -432,7 +447,7 @@ func TestIntegration_WriterOpusdec_Multistream(t *testing.T) {
 		if len(packet) == 0 {
 			t.Fatalf("Encoder produced empty packet for sine wave")
 		}
-		
+
 		err = w.WritePacket(packet, frameSize)
 		if err != nil {
 			t.Fatalf("WritePacket failed: %v", err)
