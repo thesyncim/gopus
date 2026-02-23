@@ -576,41 +576,25 @@ func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lo
 	}
 
 	for k := 0; k < nbSubfr; k++ {
-		// LTP prediction for voiced frames
-		if signalType == 2 {
-			predLagPtr := sLTPBufIdx - lag + ltpOrder/2
+		// Match libopus PLC.c cadence:
+		// always run LTP_pred + noise synthesis loop; for unvoiced frames,
+		// B_Q14 is zero so prediction naturally collapses to rounding bias only.
+		predLagPtr := sLTPBufIdx - lag + ltpOrder/2
+		for i := 0; i < subfrLength; i++ {
+			ltpPredQ12 := int32(2) // rounding to avoid negative bias
+			ltpPredQ12 = smlawb(ltpPredQ12, sLTPQ15[predLagPtr+0], int32(B_Q14[0]))
+			ltpPredQ12 = smlawb(ltpPredQ12, sLTPQ15[predLagPtr-1], int32(B_Q14[1]))
+			ltpPredQ12 = smlawb(ltpPredQ12, sLTPQ15[predLagPtr-2], int32(B_Q14[2]))
+			ltpPredQ12 = smlawb(ltpPredQ12, sLTPQ15[predLagPtr-3], int32(B_Q14[3]))
+			ltpPredQ12 = smlawb(ltpPredQ12, sLTPQ15[predLagPtr-4], int32(B_Q14[4]))
+			predLagPtr++
 
-			for i := 0; i < subfrLength; i++ {
-				// 5-tap LTP filter
-				ltpPredQ12 := int32(2) // Rounding
-				ltpPredQ12 = smlawb(ltpPredQ12, sLTPQ15[predLagPtr+0], int32(B_Q14[0]))
-				ltpPredQ12 = smlawb(ltpPredQ12, sLTPQ15[predLagPtr-1], int32(B_Q14[1]))
-				ltpPredQ12 = smlawb(ltpPredQ12, sLTPQ15[predLagPtr-2], int32(B_Q14[2]))
-				ltpPredQ12 = smlawb(ltpPredQ12, sLTPQ15[predLagPtr-3], int32(B_Q14[3]))
-				ltpPredQ12 = smlawb(ltpPredQ12, sLTPQ15[predLagPtr-4], int32(B_Q14[4]))
-				predLagPtr++
-
-				// Generate random noise
-					randSeed = silkRand(randSeed)
-					idx := (randSeed >> 25) & randBufMask
-					randExc := randBuf[idx]
-
-					// Combine LTP prediction with scaled noise.
-					// Match libopus:
-					// sLTP_Q14 = LSHIFT32( SMLAWB(LTP_pred_Q12, rand_ptr[idx], rand_scale_Q14), 2 )
-					sLTPQ15[sLTPBufIdx] = smlawb(ltpPredQ12, randExc, int32(randScaleQ14)) << 2
-					sLTPBufIdx++
-				}
-			} else {
-				// Unvoiced: just noise
-				for i := 0; i < subfrLength; i++ {
-					randSeed = silkRand(randSeed)
-					idx := (randSeed >> 25) & randBufMask
-					randExc := randBuf[idx]
-					sLTPQ15[sLTPBufIdx] = smulwb(randExc, int32(randScaleQ14)) << 2
-					sLTPBufIdx++
-				}
-			}
+			randSeed = silkRand(randSeed)
+			idx := (randSeed >> 25) & randBufMask
+			randExc := randBuf[idx]
+			sLTPQ15[sLTPBufIdx] = smlawb(ltpPredQ12, randExc, int32(randScaleQ14)) << 2
+			sLTPBufIdx++
+		}
 
 		// Attenuate LTP gain
 		for j := 0; j < ltpOrder; j++ {
@@ -1065,29 +1049,45 @@ func computeEnergy(exc []int32, gainQ10 int32, length, offset int) (energy int32
 	if end > len(exc) {
 		end = len(exc)
 	}
-
-	var sum int64
-	shft := 0
-	for i := offset; i < end; i++ {
-		// Match silk_PLC_energy():
-		// exc_buf[i] = SAT16( RSHIFT( SMULWW( exc_Q14, prevGain_Q10 ), 8 ) )
-		scaled := sat16(smulww(exc[i], gainQ10) >> 8)
-		s := int64(scaled)
-		sum += s * s
-
-		// Match silk_sum_sqr_shift overflow handling (coarse right shifts).
-		if sum > 0x3FFFFFFF {
-			sum >>= 2
-			shft += 2
-		}
+	n := end - offset
+	if n <= 0 {
+		return 0, 0
 	}
 
-	for sum > 0x7FFFFFFF {
-		sum >>= 1
-		shft++
+	// Exact silk_sum_sqr_shift() two-pass shift selection from libopus.
+	shft := 31 - bits.LeadingZeros32(uint32(n))
+	nrg := int32(n)
+
+	i := 0
+	for ; i < n-1; i += 2 {
+		s0 := int32(sat16(smulww(exc[offset+i], gainQ10) >> 8))
+		s1 := int32(sat16(smulww(exc[offset+i+1], gainQ10) >> 8))
+		nrgTmp := uint32(s0*s0 + s1*s1)
+		nrg = int32(uint32(nrg) + (nrgTmp >> uint(shft)))
+	}
+	if i < n {
+		s0 := int32(sat16(smulww(exc[offset+i], gainQ10) >> 8))
+		nrgTmp := uint32(s0 * s0)
+		nrg = int32(uint32(nrg) + (nrgTmp >> uint(shft)))
 	}
 
-	return int32(sum), shft
+	shft = max(0, shft+3-int(bits.LeadingZeros32(uint32(nrg))))
+
+	nrg = 0
+	i = 0
+	for ; i < n-1; i += 2 {
+		s0 := int32(sat16(smulww(exc[offset+i], gainQ10) >> 8))
+		s1 := int32(sat16(smulww(exc[offset+i+1], gainQ10) >> 8))
+		nrgTmp := uint32(s0*s0 + s1*s1)
+		nrg = int32(uint32(nrg) + (nrgTmp >> uint(shft)))
+	}
+	if i < n {
+		s0 := int32(sat16(smulww(exc[offset+i], gainQ10) >> 8))
+		nrgTmp := uint32(s0 * s0)
+		nrg = int32(uint32(nrg) + (nrgTmp >> uint(shft)))
+	}
+
+	return nrg, shft
 }
 
 func lpcAnalysisFilter(out []int16, in []float32, B []int16, length, order, startIdx int) {
