@@ -2,6 +2,7 @@ package celt
 
 import (
 	"errors"
+	"math"
 
 	"github.com/thesyncim/gopus/plc"
 	"github.com/thesyncim/gopus/rangecoding"
@@ -2810,17 +2811,129 @@ func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
 		return nil, ErrInvalidFrameSize
 	}
 
-	// Get fade factor for this loss
-	fadeFactor := d.plcState.RecordLoss()
+	// Keep PLC loss cadence bookkeeping.
+	_ = d.plcState.RecordLoss()
 
 	// Ensure scratch buffer is large enough
 	outLen := frameSize * d.channels
 	d.scratchPLC = ensureFloat64Slice(&d.scratchPLC, outLen)
 
-	// Generate concealment using PLC module into scratch buffer
-	// Pass decoder as both state and synthesizer (it implements both interfaces)
-	plc.ConcealCELTInto(d.scratchPLC, d, d, frameSize, fadeFactor)
-	scaleSamples(d.scratchPLC, 1.0/32768.0)
+	// Match libopus decode_lost() mode cadence: favor periodic concealment in the
+	// early loss window and fall back to noise-based concealment when unavailable.
+	if d.concealPeriodicPLC(d.scratchPLC, frameSize, d.plcState.LostCount()) {
+		d.applyDeemphasisAndScale(d.scratchPLC, 1.0/32768.0)
+		return d.scratchPLC, nil
+	}
+
+	// Generate raw concealment, then run postfilter/de-emphasis in decoder order.
+	// Pass decoder as both state and synthesizer (it implements both interfaces).
+	plc.ConcealCELTRawInto(d.scratchPLC, d, d, frameSize, 1.0)
+	mode := GetModeConfig(frameSize)
+	d.applyPostfilter(d.scratchPLC, frameSize, mode.LM, d.postfilterPeriod, d.postfilterGain, d.postfilterTapset)
+	d.applyDeemphasisAndScale(d.scratchPLC, 1.0/32768.0)
 
 	return d.scratchPLC, nil
+}
+
+func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int) bool {
+	if frameSize <= 0 || d.channels <= 0 {
+		return false
+	}
+	if len(dst) < frameSize*d.channels {
+		return false
+	}
+
+	period := d.postfilterPeriod
+	if period < combFilterMinPeriod || period > combFilterMaxPeriod {
+		period = d.postfilterPeriodOld
+	}
+	if period < combFilterMinPeriod || period > combFilterMaxPeriod {
+		period = d.searchPLCPitchPeriod()
+	}
+	if period < combFilterMinPeriod || period > combFilterHistory {
+		return false
+	}
+	if len(d.postfilterMem) < combFilterHistory*d.channels {
+		return false
+	}
+
+	// Mirror libopus periodic PLC attenuation: repeated periodic losses are
+	// softened starting from the second consecutive periodic frame.
+	periodGain := 1.0
+	if lossCount > 1 {
+		periodGain = 0.8
+		for i := 2; i < lossCount; i++ {
+			periodGain *= 0.8
+		}
+	}
+
+	channels := d.channels
+	for ch := 0; ch < channels; ch++ {
+		hist := d.postfilterMem[ch*combFilterHistory : (ch+1)*combFilterHistory]
+		src := combFilterHistory - period
+		j := 0
+		gain := periodGain
+
+		for i := 0; i < frameSize; i++ {
+			dst[i*channels+ch] = hist[src+j] * gain
+			j++
+			if j >= period {
+				j = 0
+				gain *= 0.98
+			}
+		}
+	}
+
+	d.updatePostfilterHistory(dst, frameSize, combFilterHistory)
+	return true
+}
+
+func (d *Decoder) searchPLCPitchPeriod() int {
+	channels := d.channels
+	if channels <= 0 {
+		return 0
+	}
+	if len(d.postfilterMem) < combFilterHistory*channels {
+		return 0
+	}
+
+	const searchLen = 240
+	maxLag := combFilterHistory - searchLen
+	if maxLag < combFilterMinPeriod {
+		return 0
+	}
+	if maxLag > combFilterMaxPeriod {
+		maxLag = combFilterMaxPeriod
+	}
+
+	bestLag := 0
+	bestCorr := -1.0
+
+	for lag := combFilterMinPeriod; lag <= maxLag; lag++ {
+		var corr, e1, e2 float64
+		for ch := 0; ch < channels; ch++ {
+			hist := d.postfilterMem[ch*combFilterHistory : (ch+1)*combFilterHistory]
+			base := combFilterHistory - searchLen
+			for i := 0; i < searchLen; i++ {
+				a := hist[base+i]
+				b := hist[base+i-lag]
+				corr += a * b
+				e1 += a * a
+				e2 += b * b
+			}
+		}
+
+		den := math.Sqrt(e1*e2) + 1e-12
+		normCorr := corr / den
+		if normCorr > bestCorr {
+			bestCorr = normCorr
+			bestLag = lag
+		}
+	}
+
+	// Reject weak matches; fallback to noise PLC in low-periodicity content.
+	if bestCorr < 0.25 {
+		return 0
+	}
+	return bestLag
 }
