@@ -296,6 +296,10 @@ func (e *Encoder) nlsfEncode(nlsfQ15 []int16, cb *nlsfCB, wQ2 []int16, muQ20 int
 		return 0, residuals
 	}
 
+	// Match libopus silk_NLSF_encode: stabilize inside the encoder path,
+	// after weights are prepared by process_NLSFs.
+	silkNLSFStabilize(nlsfQ15[:order], cb.deltaMinQ15, order)
+
 	var errQ24 [32]int32
 	silkNLSFVQ(errQ24[:cb.nVectors], nlsfQ15, cb.cb1NLSFQ8, cb.cb1WghtQ9, cb.nVectors, order)
 
