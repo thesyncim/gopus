@@ -21,6 +21,13 @@ owner: <initials or handle>
 
 ## Current Decisions
 
+date: 2026-02-23
+topic: SILK/Hybrid PLC external fade vs decoder-native conceal cadence
+decision: Keep SILK/Hybrid loss concealment on decoder-native PLC attenuation cadence; do not apply extra external fade scaling on top of `plc.ConcealSILKWithLTP` output. In Hybrid lost-packet decode, use SILK decoder nil-packet PLC (`Decode`/`DecodeStereo`) instead of legacy `plc.ConcealSILK*` path so SILK PLC state/cadence stays aligned with SILK mode behavior.
+evidence: Updated `silk/silk.go` to remove external fade multiplication from LTP conceal output (Q0->float scaling only), and `hybrid/hybrid.go` to source SILK concealment from SILK decoder nil-packet PLC. Focused parity validation `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v` passed with worst-lane uplift: `hybrid-fb-20ms-mono-32k-fec/doublet_stride7 Q -94.37 -> -91.89, corr 0.7994 -> 0.8374, rms_ratio 0.8205 -> 0.8564`; `silk-wb-20ms-mono-24k-fec/doublet_stride7 Q -94.46 -> -93.27, corr 0.8042 -> 0.8095, rms_ratio 0.8074 -> 0.8541`.
+do_not_repeat_until: SILK decoder PLC output scale conventions, Hybrid loss conceal architecture, or libopus decode-side PLC cadence changes in pinned reference (`opus_decoder.c` / `silk/PLC.c`) and requires re-validation.
+owner: codex
+
 date: 2026-02-20
 topic: amd64 Hybrid-SWB-40ms precision override floor
 decision: Keep amd64 precision override for `Hybrid-SWB-40ms-mono-48k` at `-0.50 dB` in `encoderLibopusGapFloorAMD64OverrideDB`; do not reuse the earlier `-0.30 dB` floor for this lane because current cross-platform fixture evidence is stably below it while still parity-first.

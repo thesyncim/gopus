@@ -40,14 +40,10 @@ func silkPLCGlueFrames(st *decoderState, frame []int16, length int) {
 			// Fade in the energy difference
 			// Only apply if recovered frame has higher energy (would cause a "pop")
 			if energy > concEnergy {
-				// Calculate gain and slope
-				// LZ = leading zeros for normalization
-				lz := silkCLZ32(concEnergy)
-				if lz > 0 {
-					lz--
-				}
+				// Match libopus silk_PLC_glue_frames() fixed-point cadence.
+				lz := silkCLZ32(concEnergy) - 1
 				concEnergy = concEnergy << lz
-				shiftAmount := 24 - lz
+				shiftAmount := int32(24) - lz
 				if shiftAmount < 0 {
 					shiftAmount = 0
 				}
@@ -63,7 +59,7 @@ func silkPLCGlueFrames(st *decoderState, frame []int16, length int) {
 				gainQ16 := silkSqrtApproxPLC(fracQ24) << 4
 
 				// slope_Q16 = (1.0 - gain) / length
-				slopeQ16 := silkDiv32((1<<16)-gainQ16, int32(length))
+				slopeQ16 := silkDiv32_16((1<<16)-gainQ16, int32(length))
 
 				// Make slope 4x steeper to avoid missing onsets after DTX
 				slopeQ16 = slopeQ16 << 2
@@ -90,32 +86,48 @@ func silkSumSqrShift(samples []int16, length int) (int32, int) {
 		return 0, 0
 	}
 
-	// Start with no shift
-	var nrg int64
-	shft := 0
-
-	// Calculate energy with overflow detection
-	for i := 0; i < length; i++ {
-		s := int64(samples[i])
-		nrg += s * s
-
-		// Check for potential overflow and shift if needed
-		if nrg > 0x3FFFFFFF {
-			nrg >>= 2
-			shft += 2
-		}
+	// Port of libopus silk_sum_sqr_shift() two-pass shift selection.
+	shft := int(31 - silkCLZ32(int32(length)))
+	nrg := int32(length)
+	i := 0
+	for ; i < length-1; i += 2 {
+		nrgTmp := uint32(silkSMULBB(int32(samples[i]), int32(samples[i])))
+		nrgTmp = uint32(int32(nrgTmp) + silkSMULBB(int32(samples[i+1]), int32(samples[i+1])))
+		nrg = int32(uint32(nrg) + (nrgTmp >> uint(shft)))
+	}
+	if i < length {
+		nrgTmp := uint32(silkSMULBB(int32(samples[i]), int32(samples[i])))
+		nrg = int32(uint32(nrg) + (nrgTmp >> uint(shft)))
 	}
 
-	// Ensure result fits in int32
-	for nrg > 0x7FFFFFFF {
-		nrg >>= 1
-		shft++
+	shft = max(0, shft+3-int(silkCLZ32(nrg)))
+
+	nrg = 0
+	i = 0
+	for ; i < length-1; i += 2 {
+		nrgTmp := uint32(silkSMULBB(int32(samples[i]), int32(samples[i])))
+		nrgTmp = uint32(int32(nrgTmp) + silkSMULBB(int32(samples[i+1]), int32(samples[i+1])))
+		nrg = int32(uint32(nrg) + (nrgTmp >> uint(shft)))
+	}
+	if i < length {
+		nrgTmp := uint32(silkSMULBB(int32(samples[i]), int32(samples[i])))
+		nrg = int32(uint32(nrg) + (nrgTmp >> uint(shft)))
 	}
 
-	return int32(nrg), shft
+	return nrg, shft
 }
 
 // Note: silkCLZ32 and silkDiv32 are defined in libopus_fixed.go
+
+func silkCLZFrac(in int32) (lz, fracQ7 int32) {
+	lz = silkCLZ32(in)
+	if lz <= 24 {
+		fracQ7 = (in >> uint(24-lz)) & 0x7f
+	} else {
+		fracQ7 = (in << uint(lz-24)) & 0x7f
+	}
+	return lz, fracQ7
+}
 
 // silkSqrtApproxPLC approximates square root using the SILK_SQRT_APPROX algorithm.
 // Input is Q24 scaled, output is Q12 scaled (sqrt of Q24 = Q12).
@@ -125,50 +137,19 @@ func silkSqrtApproxPLC(x int32) int32 {
 		return 0
 	}
 
-	// Count leading zeros and get fractional part
-	lz := silkCLZ32(x)
-	if lz < 1 {
-		lz = 1
+	lz, fracQ7 := silkCLZFrac(x)
+
+	var y int32
+	if lz&1 != 0 {
+		y = 32768
+	} else {
+		y = 46214 // sqrt(2) * 32768
 	}
 
-	// Normalize to Q30 range
-	// y = x << (lz - 1) gets us close to 2^30 range
-	_ = x << (lz - 1) // normalized value (unused in simplified implementation)
+	// Get scaling right.
+	y >>= uint(lz >> 1)
 
-	// Initial approximation using linear interpolation
-	// For sqrt, we use: sqrt(y) ~= 0.5 + 0.5*y (normalized to [0.5, 1] range)
-	// But simpler: just use right half of the leading bit position
-
-	// libopus approach: use a lookup or linear approximation
-	// Here we use a simpler Newton-Raphson with better initialization
-
-	// Shift to get into reasonable range for integer sqrt
-	// sqrt(x << (lz-1)) = sqrt(x) * sqrt(2^(lz-1)) = sqrt(x) * 2^((lz-1)/2)
-	// We want sqrt in Q12, input is Q24
-	// sqrt(Q24) = sqrt(val * 2^24) = sqrt(val) * 2^12 = Q12
-
-	// Use integer sqrt approximation
-	// Start with estimate based on bit position
-	estimate := int32(1) << (16 - lz/2)
-	if estimate == 0 {
-		estimate = 1
-	}
-
-	// Newton-Raphson iterations
-	for i := 0; i < 5; i++ {
-		if estimate == 0 {
-			break
-		}
-		estimate = (estimate + x/estimate) >> 1
-	}
-
-	// The result needs to be scaled properly for Q12 output from Q24 input
-	// sqrt(Q24) = sqrt(value * 2^24) = sqrt(value) * 2^12
-	// Our Newton-Raphson gives sqrt(x), we need to adjust
-
-	// Since we're taking sqrt of Q24, the result is naturally Q12
-	// But Newton-Raphson on the raw value gives us sqrt(rawValue)
-	// We need: sqrt(x) where x is Q24, result should be Q12
-
-	return estimate
+	// Increment using fractional part of input.
+	y = silkSMLAWB(y, y, silkSMULBB(213, fracQ7))
+	return y
 }

@@ -766,7 +766,9 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 		} else {
 			concealed = make([]float32, nativeSamples)
 		}
-		scale := float32(fadeFactor / 32768.0)
+		// ConcealSILKWithLTP already applies libopus PLC attenuation cadence.
+		// Keep only Q0 -> float scaling here (no extra external fade).
+		scale := float32(1.0 / 32768.0)
 		for i := 0; i < nativeSamples && i < len(concealedQ0); i++ {
 			concealed[i] = float32(concealedQ0[i]) * scale
 		}
@@ -895,7 +897,9 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 		rightQ0 := plc.ConcealSILKWithLTP(rightView, rightState, lossCnt, nativeSamples)
 		left = make([]float32, nativeSamples)
 		right = make([]float32, nativeSamples)
-		scale := float32(fadeFactor / 32768.0)
+		// ConcealSILKWithLTP already applies libopus PLC attenuation cadence.
+		// Keep only Q0 -> float scaling here (no extra external fade).
+		scale := float32(1.0 / 32768.0)
 		for i := 0; i < nativeSamples; i++ {
 			if i < len(leftQ0) {
 				left[i] = float32(leftQ0[i]) * scale
