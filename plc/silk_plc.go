@@ -189,9 +189,9 @@ func NewSILKPLCState() *SILKPLCState {
 		// Initialize gains to 1.0 (Q16)
 		PrevGainQ16: [2]int32{1 << 16, 1 << 16},
 
-		// Default subframe parameters
-		SubfrLength: 80, // 5ms at 16kHz
-		NbSubfr:     4,
+			// Match libopus silk_PLC_Reset defaults.
+			SubfrLength: 20,
+			NbSubfr:     2,
 		FsKHz:       16,
 		LPCOrder:    16,
 
@@ -210,8 +210,8 @@ func (s *SILKPLCState) Reset(frameLength int) {
 	s.PrevGainQ16[0] = 1 << 16
 	s.PrevGainQ16[1] = 1 << 16
 
-	s.SubfrLength = 80
-	s.NbSubfr = 4
+	s.SubfrLength = 20
+	s.NbSubfr = 2
 
 	for i := range s.LTPCoefQ14 {
 		s.LTPCoefQ14[i] = 0
