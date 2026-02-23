@@ -101,7 +101,10 @@ func computeFrameEnergy(pcm []float64) float64 {
 	}
 	var energy float64
 	for _, s := range pcm {
-		energy += s * s
+		// libopus float API energy path operates in float precision; match that
+		// domain before squaring to avoid threshold-side drift from float64 input.
+		v := float64(float32(s))
+		energy += v * v
 	}
 	return energy / float64(len(pcm))
 }
@@ -148,7 +151,7 @@ func (e *Encoder) shouldUseDTX(pcm []float64) (bool, bool) {
 		isActive = false
 	} else if e.lastAnalysisValid {
 		// Analysis-based activity (libopus line 1916-1924)
-		isActive = e.lastAnalysisInfo.Activity >= dtxActivityThreshold
+		isActive = e.lastAnalysisInfo.VADProb >= dtxActivityThreshold
 		if !isActive {
 			// Safety net: mark as active if frame energy is close to peak
 			// (the "noise" is actually loud signal, not background noise)
@@ -165,7 +168,7 @@ func (e *Encoder) shouldUseDTX(pcm []float64) (bool, bool) {
 	// Track peak signal energy (libopus opus_encoder.c:1312-1319)
 	// Update peak when frame is active (or analysis says active)
 	shouldTrackPeak := true
-	if e.lastAnalysisValid && e.lastAnalysisInfo.Activity <= dtxActivityThreshold {
+	if e.lastAnalysisValid && e.lastAnalysisInfo.VADProb <= dtxActivityThreshold {
 		shouldTrackPeak = false
 	}
 	if shouldTrackPeak && !isSilence {

@@ -385,6 +385,34 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		isSilence = false
 	}
 	start := 0
+	if e.IsHybrid() {
+		start = HybridCELTStartBand
+		if start < 0 {
+			start = 0
+		}
+		if start >= nbBands {
+			start = nbBands - 1
+			if start < 0 {
+				start = 0
+			}
+		}
+	}
+	stageDebug := tmpCELTStageDebugEnabled && start > 0
+	logStage := func(stage string, spread int, transient bool, intra bool) {
+		if !stageDebug {
+			return
+		}
+		tr := 0
+		if transient {
+			tr = 1
+		}
+		in := 0
+		if intra {
+			in = 1
+		}
+		fmt.Fprintf(os.Stderr, "GOCST frame=%d stage=%s tell=%d tellf=%d total=%d start=%d end=%d tr=%d intra=%d spread=%d\n",
+			e.frameCount, stage, re.Tell(), re.TellFrac(), targetBits, start, nbBands, tr, in, spread)
+	}
 
 	prefilterTapset := e.TapsetDecision()
 	// Match libopus run_prefilter enable gating.
@@ -721,6 +749,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		transient = false
 		shortBlocks = 1
 	}
+	logStage("transient_flag", -1, transient, false)
 
 	// Step 10: Prepare stereo params (encoded during allocation).
 	// Defaults mirror libopus behavior: MS stereo, no intensity.
@@ -772,7 +801,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	intra := false
 	if re.Tell()+3 <= targetBits {
-		intra = e.DecideIntraMode(energies, 0, nbBands, lm)
+		intra = e.DecideIntraMode(energies, start, nbBands, lm)
 		var intraBit int
 		if intra {
 			intraBit = 1
@@ -782,7 +811,13 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		intra = false
 	}
 
-	quantizedEnergies := e.EncodeCoarseEnergy(energies, nbBands, intra, lm)
+	var quantizedEnergies []float64
+	if start > 0 {
+		quantizedEnergies = e.EncodeCoarseEnergyRange(energies, start, nbBands, intra, lm)
+	} else {
+		quantizedEnergies = e.EncodeCoarseEnergy(energies, nbBands, intra, lm)
+	}
+	logStage("coarse", -1, transient, intra)
 	// Step 11.0.5: Normalize bands early for TF analysis
 	// TF analysis needs normalized coefficients to determine optimal time-frequency resolution
 	var normL, normR []float64
@@ -993,6 +1028,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			tfRes[i] = int(tfSelectTable[lm][idx])
 		}
 	}
+	logStage("tf", -1, transient, intra)
 
 	// Step 11.2: Compute and encode spread decision
 	// Match libopus gating: only encode if there's budget for the decision.
@@ -1006,10 +1042,21 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	}
 	var spread int
 	if re.Tell()+4 <= targetBits {
-		// For transient frames (shortBlocks), low complexity, or very low bitrate,
-		// skip spreading_decision() analysis and use simple defaults.
-		// Reference: libopus celt_encoder.c line 2316-2321
-		if shortBlocks > 1 || e.complexity < 3 || effectiveBytes < 10*e.channels {
+		// Match libopus spread control policy:
+		// - LFE: fixed normal
+		// - Hybrid: fixed none/normal/aggressive based on complexity+transient
+		// - CELT-only low-complexity/low-rate/transient shortcuts
+		if e.lfe {
+			spread = spreadNormal
+		} else if e.IsHybrid() {
+			if e.complexity == 0 {
+				spread = spreadNone
+			} else if transient {
+				spread = spreadNormal
+			} else {
+				spread = spreadAggressive
+			}
+		} else if shortBlocks > 1 || e.complexity < 3 || effectiveBytes < 10*e.channels {
 			if e.complexity == 0 {
 				spread = spreadNone
 			} else {
@@ -1033,6 +1080,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	} else {
 		spread = spreadNormal
 	}
+	logStage("spread", spread, transient, intra)
 
 	// Step 11.3: Initialize caps for allocation (zero-alloc)
 	caps := ensureIntSlice(&e.scratch.caps, nbBands)
@@ -1110,6 +1158,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		// Update offsets[i] to reflect actual boost applied (for allocation)
 		offsets[i] = boost
 	}
+	logStage("dynalloc", spread, transient, intra)
 	// Step 11.4.5: Decide stereo mode parameters (libopus hysteresis + stereo analysis).
 	if e.channels == 2 {
 		// Always use MS for LM=0 (2.5ms), matching libopus.
@@ -1178,6 +1227,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		}
 		re.EncodeICDF(allocTrim, trimICDF, 7)
 	}
+	logStage("trim", spread, transient, intra)
 
 	// Step 12: Compute bit allocation
 	bitsUsed := re.TellFrac()
@@ -1222,6 +1272,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		e.intensity = allocResult.Intensity
 		intensity = allocResult.Intensity
 	}
+	logStage("alloc", spread, transient, intra)
 	// Keep CELT allocation bandwidth gating driven only by explicit external
 	// analysis input (SetAnalysisBandwidth), matching libopus behavior where
 	// st->analysis.valid is supplied by the top-level analysis pipeline.
@@ -1233,11 +1284,20 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	coarseResidual := e.scratch.coarseError
 	if len(coarseResidual) >= nbBands*e.channels {
 		coarseResidual = coarseResidual[:nbBands*e.channels]
-		e.encodeFineEnergyFromError(quantizedEnergies, nbBands, allocResult.FineBits, coarseResidual)
+		if start > 0 {
+			e.EncodeFineEnergyRangeFromError(quantizedEnergies, start, nbBands, allocResult.FineBits)
+		} else {
+			e.encodeFineEnergyFromError(quantizedEnergies, nbBands, allocResult.FineBits, coarseResidual)
+		}
 	} else {
 		// Defensive fallback for unexpected sizing issues.
-		e.EncodeFineEnergy(energies, quantizedEnergies, nbBands, allocResult.FineBits)
+		if start > 0 {
+			e.EncodeFineEnergyRange(energies, quantizedEnergies, start, nbBands, allocResult.FineBits)
+		} else {
+			e.EncodeFineEnergy(energies, quantizedEnergies, nbBands, allocResult.FineBits)
+		}
 	}
+	logStage("fine", spread, transient, intra)
 
 	// Note: normL/normR and tfRes were already computed before encoding spread
 	// to ensure the same normalized coefficients are used for analysis and quantization
@@ -1298,6 +1358,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		&e.bandEncScratch,
 		&e.bandDebug,
 	)
+	logStage("pvq", spread, transient, intra)
 
 	// Step 14.5: Encode anti-collapse flag if reserved
 	if antiCollapseRsv > 0 {
@@ -1307,6 +1368,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		}
 		re.EncodeRawBits(uint32(antiCollapseOn), 1)
 	}
+	logStage("anticollapse", spread, transient, intra)
 
 	// Step 14.6: Encode energy finalization bits (leftover budget)
 	bitsLeft := targetBits - re.Tell()
@@ -1314,10 +1376,19 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		bitsLeft = 0
 	}
 	if len(coarseResidual) >= nbBands*e.channels {
-		e.encodeEnergyFinaliseFromError(quantizedEnergies, nbBands, allocResult.FineBits, allocResult.FinePriority, bitsLeft, coarseResidual)
+		if start > 0 {
+			e.EncodeEnergyFinaliseRangeFromError(quantizedEnergies, start, nbBands, allocResult.FineBits, allocResult.FinePriority, bitsLeft)
+		} else {
+			e.encodeEnergyFinaliseFromError(quantizedEnergies, nbBands, allocResult.FineBits, allocResult.FinePriority, bitsLeft, coarseResidual)
+		}
 	} else {
-		e.EncodeEnergyFinalise(energies, quantizedEnergies, nbBands, allocResult.FineBits, allocResult.FinePriority, bitsLeft)
+		if start > 0 {
+			e.EncodeEnergyFinaliseRange(energies, quantizedEnergies, start, nbBands, allocResult.FineBits, allocResult.FinePriority, bitsLeft)
+		} else {
+			e.EncodeEnergyFinalise(energies, quantizedEnergies, nbBands, allocResult.FineBits, allocResult.FinePriority, bitsLeft)
+		}
 	}
+	logStage("finalise", spread, transient, intra)
 
 	// Match libopus energyError update timing and range:
 	// store post-finalise error[] residual, clipped to [-0.5, 0.5], for
