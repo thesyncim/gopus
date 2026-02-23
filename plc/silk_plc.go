@@ -883,21 +883,32 @@ func inverse32VarQ(b, qRes int32) int32 {
 	if b == 0 {
 		return math.MaxInt32
 	}
-
-	// Simple approximation
-	bNorm := int32(1)
-	lshift := 0
-	for bNorm < b && lshift < 30 {
-		bNorm <<= 1
-		lshift++
+	if qRes <= 0 {
+		return 0
 	}
 
-	result := int64(1) << qRes
-	result = result / int64(b)
-	if result > math.MaxInt32 {
+	// Port of libopus silk_INVERSE32_varQ() from silk/Inlines.h.
+	bHeadrm := int32(clz32(abs32Int(b)) - 1)
+	bNrm := b << bHeadrm
+
+	den := int16(bNrm >> 16)
+	if den == 0 {
 		return math.MaxInt32
 	}
-	return int32(result)
+	bInv := int32(int64(math.MaxInt32>>2) / int64(den))
+
+	result := bInv << 16
+	errQ32 := (((int32(1) << 29) - smulwb(bNrm, bInv)) << 3)
+	result = result + smulww(errQ32, bInv)
+
+	lshift := int32(61) - bHeadrm - qRes
+	if lshift <= 0 {
+		return lshiftSat32(result, int(-lshift))
+	}
+	if lshift < 32 {
+		return result >> lshift
+	}
+	return 0
 }
 
 func smmul(a, b int32) int32 {
