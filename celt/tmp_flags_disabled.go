@@ -26,3 +26,4 @@ const tmpSkipPrefInputRoundEnabled = false
 const tmpPrefilterF64Enabled = false
 const tmpPrefCombDumpEnabled = false
 const tmpSkipPrefMemRoundEnabled = false
+const tmpCELTStageDebugEnabled = false

@@ -25,3 +25,4 @@ var tmpSkipPrefInputRoundEnabled = tmpGetenv("GOPUS_TMP_SKIP_PREF_INPUT_ROUND") 
 var tmpPrefilterF64Enabled = tmpGetenv("GOPUS_TMP_PREFILTER_F64") == "1"
 var tmpPrefCombDumpEnabled = tmpGetenv("GOPUS_TMP_PREF_COMB_DUMP") == "1"
 var tmpSkipPrefMemRoundEnabled = tmpGetenv("GOPUS_TMP_SKIP_PREF_MEM_ROUND") == "1"
+var tmpCELTStageDebugEnabled = tmpGetenv("GOPUS_TMP_CELT_STAGE_DBG") == "1"
