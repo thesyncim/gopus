@@ -1,3 +1,5 @@
+//go:build amd64 && gopus_spread_asm
+
 #include "textflag.h"
 
 // func spreadCountThresholds(x []float64, n int, nf float64) (t0, t1, t2 int)
@@ -48,9 +50,10 @@ sc_loop2:
 	VMULPD X1, X15, X1              // X1 = x*x*nf
 
 	// Compare: x2N < threshold (VCMPPD $1 = less-than)
-	VCMPPD $1, X12, X1, X2          // X2 = (x2N < 0.25) mask
-	VCMPPD $1, X13, X1, X3          // X3 = (x2N < 0.0625) mask
-	VCMPPD $1, X14, X1, X4          // X4 = (x2N < 0.015625) mask
+	// Go assembler order is VCMPPD imm8, src1, src2, dst => (src1 < src2).
+	VCMPPD $1, X1, X12, X2          // X2 = (x2N < 0.25) mask
+	VCMPPD $1, X1, X13, X3          // X3 = (x2N < 0.0625) mask
+	VCMPPD $1, X1, X14, X4          // X4 = (x2N < 0.015625) mask
 
 	// Extract mask bits and count
 	VMOVMSKPD X2, DX
