@@ -2831,32 +2831,35 @@ func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
 
 	// Ensure scratch buffer is large enough
 	outLen := frameSize * d.channels
-	d.scratchPLC = ensureFloat64Slice(&d.scratchPLC, outLen)
+	plcLen := (frameSize + Overlap) * d.channels
+	d.scratchPLC = ensureFloat64Slice(&d.scratchPLC, plcLen)
 
 	// Match libopus decode_lost() mode cadence: favor periodic concealment in the
 	// early loss window and fall back to noise-based concealment when unavailable.
-	if d.concealPeriodicPLC(d.scratchPLC, frameSize, lossCount) {
+	if d.concealPeriodicPLC(d.scratchPLC[:plcLen], frameSize, lossCount) {
 		d.plcPrevLossWasPeriodic = true
-		d.applyDeemphasisAndScale(d.scratchPLC, 1.0/32768.0)
-		return d.scratchPLC, nil
+		d.updatePLCOverlapBuffer(d.scratchPLC[:plcLen], frameSize)
+		d.applyDeemphasisAndScale(d.scratchPLC[:outLen], 1.0/32768.0)
+		return d.scratchPLC[:outLen], nil
 	}
 	d.plcPrevLossWasPeriodic = false
 
 	// Generate raw concealment, then run postfilter/de-emphasis in decoder order.
 	// Pass decoder as both state and synthesizer (it implements both interfaces).
-	plc.ConcealCELTRawInto(d.scratchPLC, d, d, frameSize, 1.0)
+	plc.ConcealCELTRawInto(d.scratchPLC[:outLen], d, d, frameSize, 1.0)
 	mode := GetModeConfig(frameSize)
-	d.applyPostfilter(d.scratchPLC, frameSize, mode.LM, d.postfilterPeriod, d.postfilterGain, d.postfilterTapset)
-	d.applyDeemphasisAndScale(d.scratchPLC, 1.0/32768.0)
+	d.applyPostfilter(d.scratchPLC[:outLen], frameSize, mode.LM, d.postfilterPeriod, d.postfilterGain, d.postfilterTapset)
+	d.applyDeemphasisAndScale(d.scratchPLC[:outLen], 1.0/32768.0)
 
-	return d.scratchPLC, nil
+	return d.scratchPLC[:outLen], nil
 }
 
 func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int) bool {
 	if frameSize <= 0 || d.channels <= 0 {
 		return false
 	}
-	if len(dst) < frameSize*d.channels {
+	totalSamples := frameSize + Overlap
+	if len(dst) < totalSamples*d.channels {
 		return false
 	}
 	if len(d.postfilterMem) < combFilterHistory*d.channels {
@@ -2897,7 +2900,7 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int) bo
 		attenuation := fade
 		j := 0
 
-		for i := 0; i < frameSize; i++ {
+		for i := 0; i < totalSamples; i++ {
 			dst[i*channels+ch] = hist[src+j] * attenuation
 			j++
 			if j >= period {
@@ -2907,9 +2910,36 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int) bo
 		}
 	}
 
-	d.updatePostfilterHistory(dst, frameSize, combFilterHistory)
-	d.updatePLCDecodeHistory(dst, frameSize, plcDecodeBufferSize)
+	d.updatePostfilterHistory(dst[:frameSize*channels], frameSize, combFilterHistory)
+	d.updatePLCDecodeHistory(dst[:frameSize*channels], frameSize, plcDecodeBufferSize)
 	return true
+}
+
+func (d *Decoder) updatePLCOverlapBuffer(plcSamples []float64, frameSize int) {
+	if Overlap <= 0 || frameSize <= 0 || d.channels <= 0 {
+		return
+	}
+	channels := d.channels
+	totalSamples := frameSize + Overlap
+	if len(plcSamples) < totalSamples*channels {
+		return
+	}
+
+	overlapNeeded := Overlap * channels
+	if len(d.overlapBuffer) < overlapNeeded {
+		d.overlapBuffer = make([]float64, overlapNeeded)
+	}
+
+	if channels == 1 {
+		copy(d.overlapBuffer[:Overlap], plcSamples[frameSize:frameSize+Overlap])
+		return
+	}
+
+	src := frameSize * channels
+	for i := 0; i < Overlap; i++ {
+		d.overlapBuffer[i] = plcSamples[src+i*channels]
+		d.overlapBuffer[Overlap+i] = plcSamples[src+i*channels+1]
+	}
 }
 
 func (d *Decoder) searchPLCPitchPeriod() int {

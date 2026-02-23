@@ -22,10 +22,10 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-23
-topic: CELT periodic PLC fade and pitch-carry cadence
-decision: Keep CELT periodic PLC concealment in `celt/decoder.go` using libopus-style consecutive-loss cadence: carry periodic pitch across consecutive periodic losses, use `fade=1.0` on first periodic loss and `fade=0.8` on subsequent consecutive periodic losses, and limit periodic concealment to the early-loss window (~100 ms) before falling back to noise PLC. Do not use exponential per-loss fade (`0.8^(n-1)`) for periodic PLC.
-evidence: Updated `decodePLC`/`concealPeriodicPLC` in `celt/decoder.go` with periodic-loss state (`plcLastPitchPeriod`, `plcPrevLossWasPeriodic`) and early-loss gate. Validation passed: `go test ./celt -count=1`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`, `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`, and full parity tier `GOPUS_TEST_TIER=parity go test ./testvectors -count=1`. CELT stress lanes improved on merged-master baseline (`burst3_mid Q -38.41 -> -34.87`, `doublet_stride7 Q -65.26 -> -64.31`) with `periodic5` stable.
-do_not_repeat_until: CELT PLC decode history/state cadence, pitch-search inputs, or libopus `celt_decode_lost()` periodic fade/pitch-carry semantics change, requiring a fresh source-port comparison.
+topic: CELT periodic PLC cadence and overlap-tail continuity
+decision: Keep CELT periodic PLC concealment in `celt/decoder.go` on the libopus-aligned cadence already in place (pitch carry on consecutive periodic losses, `fade=1.0` first periodic loss then `fade=0.8` on subsequent consecutive periodic losses, and early-loss periodic window gate), and additionally keep periodic concealment generating `N+Overlap` internal samples with concealed overlap copied into `overlapBuffer` before output deemphasis/scale.
+evidence: Updated `decodePLC`/`concealPeriodicPLC` in `celt/decoder.go` to preserve periodic cadence state (`plcLastPitchPeriod`, `plcPrevLossWasPeriodic`) while adding overlap-tail capture (`updatePLCOverlapBuffer`) and `N+Overlap` periodic synthesis. Validation passed: `go test ./celt -count=1`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`, `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`, and `make bench-guard`. Measured CELT stress uplift vs merged-master baseline: `burst3_mid Q -34.87 -> -12.95`, `periodic5 Q -76.84 -> -45.11`, `doublet_stride7 Q -64.31 -> -37.26`.
+do_not_repeat_until: CELT PLC decode history/state cadence, overlap-add state layout (`overlapBuffer`), or libopus `celt_decode_lost()` periodic fade/pitch-carry and overlap/extrapolation semantics change, requiring a fresh source-port comparison.
 owner: codex
 
 date: 2026-02-23
