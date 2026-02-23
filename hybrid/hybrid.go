@@ -274,58 +274,39 @@ func (d *Decoder) decodePLC(frameSize int, stereo bool) ([]float64, error) {
 		return make([]float64, totalSamples), nil
 	}
 
-	// Generate SILK PLC at 16kHz (WB)
-	silkSamples := plcSilkFrameSize / 3 // 48kHz -> 16kHz
-	var silkConcealed []float32
-	if stereo {
-		left, right := plc.ConcealSILKStereo(d.silkDecoder, silkSamples, fadeFactor)
-		d.silkDecoder.RecordPLCLossStereo(left, right)
-		// Interleave
-		silkConcealed = make([]float32, silkSamples*2)
-		for i := range left {
-			silkConcealed[i*2] = left[i]
-			silkConcealed[i*2+1] = right[i]
-		}
-	} else {
-		silkConcealed = plc.ConcealSILK(d.silkDecoder, silkSamples, fadeFactor)
-		d.silkDecoder.RecordPLCLossMono(silkConcealed)
-	}
-
-	// Upsample SILK to 48kHz using SILK decoder's resamplers for state continuity
-	leftResampler := d.silkDecoder.GetResampler(silk.BandwidthWideband)
-	rightResampler := d.silkDecoder.GetResamplerRightChannel(silk.BandwidthWideband)
-
+	// Generate SILK PLC through the SILK decoder's native nil-packet path.
+	// This keeps concealment cadence/state aligned with SILK-mode PLC.
 	var silkUpsampled []float64
 	if stereo {
-		silkL := make([]float32, silkSamples)
-		silkR := make([]float32, silkSamples)
-		for i := 0; i < silkSamples; i++ {
-			silkL[i] = silkConcealed[i*2]
-			silkR[i] = silkConcealed[i*2+1]
+		silkPCM, err := d.silkDecoder.DecodeStereo(nil, silk.BandwidthWideband, plcSilkFrameSize, false)
+		if err != nil {
+			return nil, err
 		}
-		upL := leftResampler.Process(silkL)
-		upR := rightResampler.Process(silkR)
-		silkUpsampled = make([]float64, len(upL)*2)
-		for i := range upL {
-			silkUpsampled[i*2] = float64(upL[i])
-			silkUpsampled[i*2+1] = float64(upR[i])
+		silkUpsampled = make([]float64, len(silkPCM))
+		for i := range silkPCM {
+			silkUpsampled[i] = float64(silkPCM[i])
 		}
 	} else {
-		resamplerInput := d.silkDecoder.BuildMonoResamplerInput(silkConcealed)
-		up := leftResampler.Process(resamplerInput)
+		silkPCM, err := d.silkDecoder.Decode(nil, silk.BandwidthWideband, plcSilkFrameSize, false)
+		if err != nil {
+			return nil, err
+		}
 		if d.channels == 2 {
-			silkUpsampled = make([]float64, len(up)*2)
-			for i := range up {
-				val := float64(up[i])
+			silkUpsampled = make([]float64, len(silkPCM)*2)
+			for i := range silkPCM {
+				val := float64(silkPCM[i])
 				silkUpsampled[i*2] = val
 				silkUpsampled[i*2+1] = val
 			}
 		} else {
-			silkUpsampled = make([]float64, len(up))
-			for i := range up {
-				silkUpsampled[i] = float64(up[i])
+			silkUpsampled = make([]float64, len(silkPCM))
+			for i := range silkPCM {
+				silkUpsampled[i] = float64(silkPCM[i])
 			}
 		}
+	}
+	if len(silkUpsampled) > totalSamples {
+		silkUpsampled = silkUpsampled[:totalSamples]
 	}
 
 	// Keep PLC alignment consistent with normal hybrid decode.
