@@ -401,12 +401,18 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []float64, startBand, nbBands 
 			badness += celtAbsInt(qi0 - qi)
 
 			if e.coarseDecisionHook != nil {
+				pi := 2 * band
+				if pi > 40 {
+					pi = 40
+				}
 				e.coarseDecisionHook(CoarseDecisionStats{
 					Frame:     e.frameCount,
 					Band:      band,
 					Channel:   c,
 					Intra:     intra,
 					LM:        lm,
+					ProbFS0:   int(prob[pi]),
+					ProbDecay: int(prob[pi+1]),
 					X:         float64(x),
 					Pred:      float64(pred),
 					Residual:  float64(f),
@@ -516,7 +522,9 @@ func (e *Encoder) DecideIntraMode(energies []float64, startBand, nbBands int, lm
 	}
 
 	maxDecay32 := float32(16.0 * DB6)
-	if nbBands > 10 {
+	// Match libopus quant_coarse_energy(): decay clamp is based on coded span
+	// (end-start), not absolute end band index.
+	if codedBands > 10 {
 		limit := float32(0.125 * float64(nbAvailableBytes) * DB6)
 		if limit < maxDecay32 {
 			maxDecay32 = limit
@@ -596,7 +604,7 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 		budget = e.frameBits
 	}
 
-	// Max decay bound (libopus uses nbAvailableBytes-based clamp).
+	// Max decay bound (full-band path: coded span is nbBands-startBand).
 	maxDecay32 := float32(16.0 * DB6)
 	nbAvailableBytes := e.coarseNbAvailableBytesForBudget(budget)
 	if nbBands > 10 {
@@ -687,10 +695,10 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 		budget = e.frameBits
 	}
 
-	// Max decay bound (libopus uses nbAvailableBytes-based clamp).
+	// Max decay bound (range path: clamp based on coded span, not absolute end band).
 	maxDecay32 := float32(16.0 * DB6)
 	nbAvailableBytes := e.coarseNbAvailableBytesForBudget(budget)
-	if nbBands > 10 {
+	if end-start > 10 {
 		limit := float32(0.125 * float64(nbAvailableBytes) * DB6)
 		if limit < maxDecay32 {
 			maxDecay32 = limit
@@ -725,6 +733,7 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 			pred := predMul + prevBandEnergy[c]
 			f := x - pred
 			qi := int(math.Floor(float64(f/float32(DB6) + 0.5)))
+			qi0 := qi
 
 			// Prevent energy from decaying too quickly.
 			decayBound := oldEBand
@@ -788,6 +797,29 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 				e.rangeEncoder.EncodeBit(-qi, 1)
 			} else {
 				qi = -1
+			}
+
+			if e.coarseDecisionHook != nil {
+				pi := 2 * band
+				if pi > 40 {
+					pi = 40
+				}
+				e.coarseDecisionHook(CoarseDecisionStats{
+					Frame:     e.frameCount,
+					Band:      band,
+					Channel:   c,
+					Intra:     intra,
+					LM:        lm,
+					ProbFS0:   int(prob[pi]),
+					ProbDecay: int(prob[pi+1]),
+					X:         float64(x),
+					Pred:      float64(pred),
+					Residual:  float64(f),
+					QIInitial: qi0,
+					QIFinal:   qi,
+					Tell:      tell,
+					BitsLeft:  bitsLeft,
+				})
 			}
 
 			// Update energy and prediction state.

@@ -45,8 +45,10 @@ const (
 	// DTXActivityThreshold is the activity probability threshold for DTX.
 	// Matches libopus DTX_ACTIVITY_THRESHOLD = 0.1f
 	DTXActivityThreshold = 0.1
-	// speechActivityThresholdQ8 matches SILK_FIX_CONST(SPEECH_ACTIVITY_DTX_THRES, 8) with SPEECH_ACTIVITY_DTX_THRES=0.1.
-	speechActivityThresholdQ8 = 26
+	// speechActivityThresholdQ8 is the SILK VAD/no-voice threshold in Q8.
+	// Matches libopus SPEECH_ACTIVITY_DTX_THRES = 0.05f (silk/tuning_parameters.h),
+	// i.e. SILK_FIX_CONST(0.05, 8) = 13.
+	speechActivityThresholdQ8 = 13
 
 	// NBSpeechFramesBeforeDTX is frames of speech required before DTX (200ms).
 	NBSpeechFramesBeforeDTX = 10
