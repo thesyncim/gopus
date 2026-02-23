@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-23
+topic: CELT decoder PLC pitch-search history context (libopus DEC_PITCH_BUF_SIZE)
+decision: Keep CELT periodic PLC pitch search using decoder-owned long history (`plcDecodeMem`, `2048` samples/channel) updated on postfilter output cadence (normal decode and periodic PLC), and run `pitchDownsample` + `pitchSearch` over that long history with libopus PLC lag bounds (`100..720`) before selecting periodic conceal pitch. Do not regress to short-window pitch correlation on `postfilterMem` for primary pitch search.
+evidence: Updated `celt/decoder.go` + `celt/postfilter.go` to add `plcDecodeMem`, wire history updates, and switch `searchPLCPitchPeriod` to long-history `pitchDownsample`/`pitchSearch`. Focused validation passed: `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`. CELT improvements include stress `doublet_stride7 Q -67.75 -> -65.26` and fixture `burst2_mid Q -37.92 -> -32.20`.
+do_not_repeat_until: CELT decoder history buffer architecture (`decode_mem`/postfilter history ownership), periodic PLC pitch-search plumbing, or libopus `celt_plc_pitch_search()`/`pitch_downsample()`/`pitch_search()` semantics change, requiring re-validation of pitch-search input context.
+owner: codex
+
+date: 2026-02-23
 topic: CELT decoder loss early-periodic conceal cadence
 decision: Keep CELT decoder loss concealment on a libopus-aligned two-path cadence in `celt/decoder.go`: attempt early-loss periodic conceal first (pitch-period search from decoder history + repeated-loss attenuation + history update), then fall back to noise conceal when periodicity is not reliable. Keep CELT noise fallback synthesis using raw PLC output followed by decoder-side postfilter/de-emphasis order (`plc.ConcealCELTRawInto` + decoder postfilter/de-emphasis), rather than applying deemphasis inside the fallback PLC synth path.
 evidence: Added `plc.ConcealCELTRawInto` in `plc/celt_plc.go` and decoder-side periodic branch + pitch search in `celt/decoder.go` `decodePLC`. Focused validation passed: `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`. CELT stress uplift on worst lanes: `periodic5 Q -84.67 -> -77.38, corr 0.9191 -> 0.9590, rms_ratio 0.9204 -> 1.0151`; `doublet_stride7 Q -88.14 -> -67.75, corr 0.8874 -> 0.9858, rms_ratio 0.8878 -> 1.0032`.

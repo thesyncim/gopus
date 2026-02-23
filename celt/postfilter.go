@@ -8,6 +8,8 @@ const (
 	combFilterMinPeriod = 15
 	combFilterMaxPeriod = 1024
 	combFilterHistory   = combFilterMaxPeriod + 2
+	// Matches libopus DEC_PITCH_BUF_SIZE used by celt_decode_lost().
+	plcDecodeBufferSize = 2048
 )
 
 var combFilterGains = [3][3]float64{
@@ -106,6 +108,45 @@ func (d *Decoder) updatePostfilterHistory(samples []float64, frameSize int, hist
 	}
 }
 
+func (d *Decoder) updatePLCDecodeHistory(samples []float64, frameSize int, history int) {
+	if frameSize <= 0 || history <= 0 {
+		return
+	}
+	if len(d.plcDecodeMem) != history*d.channels {
+		d.plcDecodeMem = make([]float64, history*d.channels)
+	}
+	if d.channels <= 1 {
+		hist := d.plcDecodeMem[:history]
+		if frameSize >= history {
+			copy(hist, samples[frameSize-history:frameSize])
+			return
+		}
+		copy(hist, hist[frameSize:])
+		copy(hist[history-frameSize:], samples[:frameSize])
+		return
+	}
+
+	channels := d.channels
+	for ch := 0; ch < channels; ch++ {
+		hist := d.plcDecodeMem[ch*history : (ch+1)*history]
+		if frameSize >= history {
+			src := (frameSize-history)*channels + ch
+			for i := 0; i < history; i++ {
+				hist[i] = samples[src]
+				src += channels
+			}
+			continue
+		}
+		copy(hist, hist[frameSize:])
+		src := ch
+		dst := history - frameSize
+		for i := 0; i < frameSize; i++ {
+			hist[dst+i] = samples[src]
+			src += channels
+		}
+	}
+}
+
 func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPeriod int, newGain float64, newTapset int) {
 	if len(samples) == 0 || frameSize <= 0 {
 		return
@@ -124,6 +165,7 @@ func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPerio
 	}
 	if d.postfilterGainOld == 0 && d.postfilterGain == 0 && newGain == 0 {
 		d.updatePostfilterHistory(samples, frameSize, history)
+		d.updatePLCDecodeHistory(samples, frameSize, plcDecodeBufferSize)
 		d.postfilterPeriodOld = d.postfilterPeriod
 		d.postfilterGainOld = d.postfilterGain
 		d.postfilterTapsetOld = d.postfilterTapset
@@ -229,6 +271,7 @@ func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPerio
 		}
 	}
 
+	d.updatePLCDecodeHistory(samples, frameSize, plcDecodeBufferSize)
 	d.postfilterPeriodOld = d.postfilterPeriod
 	d.postfilterGainOld = d.postfilterGain
 	d.postfilterTapsetOld = d.postfilterTapset
