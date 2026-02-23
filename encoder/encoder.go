@@ -667,8 +667,10 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		e.updateDelayBuffer(framePCM, frameSize)
 	case ModeHybrid:
 		celtPCM := e.applyDelayCompensation(framePCM, frameSize)
-		e.maybePrefillCELTOnModeTransition(actualMode, celtPCM, frameSize)
 		if frameSize > 960 {
+			// Long hybrid packets are encoded via 20ms subframes where per-subframe
+			// transition redundancy is not used, so keep packet-level prefill here.
+			e.maybePrefillCELTOnModeTransition(actualMode, celtPCM, frameSize)
 			packet, err = e.encodeHybridMultiFramePacket(framePCM, celtPCM, lookaheadSlice, frameSize)
 		} else {
 			frameData, err = e.encodeHybridFrame(framePCM, celtPCM, lookaheadSlice, frameSize)
@@ -994,6 +996,16 @@ func (e *Encoder) maybePrefillCELTOnModeTransition(actualMode Mode, celtPCM []fl
 	if prefillSamples <= 0 || len(celtPCM) < prefillSamples {
 		return
 	}
+	// libopus prefill reads from delay history with an offset (`tmp_prefill`),
+	// not from the first samples of the delay-compensated frame.
+	prefillStart := 0
+	delayComp := e.sampleRate / 250
+	if delayComp > prefillFrameSize {
+		prefillStart = (delayComp - prefillFrameSize) * e.channels
+	}
+	if prefillStart < 0 || prefillStart+prefillSamples > len(celtPCM) {
+		prefillStart = 0
+	}
 
 	e.ensureCELTEncoder()
 	e.celtEncoder.Reset()
@@ -1030,7 +1042,7 @@ func (e *Encoder) maybePrefillCELTOnModeTransition(actualMode Mode, celtPCM []fl
 		}
 	}
 
-	_, _ = e.celtEncoder.EncodeFrame(celtPCM[:prefillSamples], prefillFrameSize)
+	_, _ = e.celtEncoder.EncodeFrame(celtPCM[prefillStart:prefillStart+prefillSamples], prefillFrameSize)
 	// Match libopus mode-switch behavior: the next real CELT frame is forced intra.
 	e.celtForceIntra = true
 }
