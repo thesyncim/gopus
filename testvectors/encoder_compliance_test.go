@@ -417,17 +417,24 @@ func runEncoderComplianceTest(t *testing.T, mode encoder.Mode, bandwidth types.B
 	totalSamples := numFrames * frameSize * channels
 	original := generateEncoderTestSignal(totalSamples, channels)
 
-	// Create encoder
+	// Create encoder.
 	enc := encoder.NewEncoder(48000, channels)
-	enc.SetMode(mode)
+	if mode == encoder.ModeHybrid {
+		// Compliance reference rows tagged as "hybrid" are generated with
+		// opus_demo app=audio (adaptive mode selection), so mirror that with
+		// ModeAuto instead of forcing Hybrid packets.
+		enc.SetMode(encoder.ModeAuto)
+	} else {
+		enc.SetMode(mode)
+		switch mode {
+		case encoder.ModeSILK:
+			enc.SetSignalType(types.SignalVoice)
+		case encoder.ModeCELT:
+			enc.SetSignalType(types.SignalMusic)
+		}
+	}
 	enc.SetBandwidth(bandwidth)
 	enc.SetBitrate(bitrate)
-	switch mode {
-	case encoder.ModeSILK, encoder.ModeHybrid:
-		enc.SetSignalType(types.SignalVoice)
-	case encoder.ModeCELT:
-		enc.SetSignalType(types.SignalMusic)
-	}
 	captureCELTTargetStats := mode == encoder.ModeCELT && (frameSize == 120 ||
 		(frameSize == 240 && channels == 1) ||
 		(frameSize == 480 && channels == 1) ||
