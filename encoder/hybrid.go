@@ -111,6 +111,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 	if frameSize != 480 && frameSize != 960 {
 		return nil, ErrInvalidHybridFrameSize
 	}
+	e.updateOpusVAD(pcm, frameSize)
 
 	// Ensure sub-encoders exist
 	e.ensureSILKEncoder()
@@ -175,10 +176,15 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 		}
 	}
 
-	// Compute bit allocation between SILK and CELT using the full packet budget
-	// (max_data_bytes, including any reserved transition redundancy).
+	// Compute bit allocation between SILK and CELT.
+	// Keep legacy hybrid allocation for non-transition frames to preserve
+	// established parity baselines; use budget-aware allocation only when
+	// CELT->Hybrid transition redundancy is active.
 	frame20ms := frameSize == 960
-	silkBitrate, celtBitrate, celtBitrateHBGain := e.computeHybridBitAllocationWithBudget(frameSize, baseTargetBytes, redundancyBytes)
+	silkBitrate, celtBitrate, celtBitrateHBGain := e.computeHybridBitAllocation(frame20ms)
+	if transitionCeltToHybrid && redundancyBytes > 0 {
+		silkBitrate, celtBitrate, celtBitrateHBGain = e.computeHybridBitAllocationWithBudget(frameSize, baseTargetBytes, redundancyBytes)
+	}
 
 	// Compute HB_gain based on TOC-adjusted CELT bitrate (matching libopus line 2060).
 	// Lower CELT bitrate means we should attenuate high frequencies.
@@ -313,15 +319,13 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 	// This allows SILK to use fewer bits and CELT to absorb the variation.
 	// In hybrid VBR/CVBR mode, SILK's maxBits is constrained to the SILK-appropriate
 	// portion of the available bits.
-	// Start from max_data_bytes-1 (payload excluding TOC), then subtract transition
-	// redundancy reservation (bytes plus signaling bits) when active.
-	silkMaxBits := payloadTarget * 8
-	if redundancyBytes >= 2 {
-		// 1 bit redundancy position + 20 bits flag+size for hybrid.
+	silkMaxBits := (maxTargetBytes) * 8
+	if transitionCeltToHybrid && redundancyBytes >= 2 {
+		// Reserve transition redundancy payload/signaling from SILK's max-bits budget.
 		silkMaxBits -= redundancyBytes*8 + 1 + 20
-	}
-	if silkMaxBits < 0 {
-		silkMaxBits = 0
+		if silkMaxBits < 0 {
+			silkMaxBits = 0
+		}
 	}
 	if e.bitrateMode == ModeCBR {
 		// Hybrid CBR: switch SILK to VBR with cap (libopus behavior)
@@ -361,7 +365,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 	// written between the SILK and CELT portions (logp=12).
 	// Condition matches libopus: ec_tell(&enc)+17+20 <= 8*(max_data_bytes-1)
 	redundancyActive := false
-	if re.Tell()+17+20 <= 8*payloadTarget {
+	if re.Tell()+17+20 <= 8*maxTargetBytes {
 		if transitionCeltToHybrid && redundancyBytes >= 2 {
 			redundancyActive = true
 			re.EncodeBit(1, 12)                              // redundancy = 1
