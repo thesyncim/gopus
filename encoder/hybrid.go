@@ -75,6 +75,8 @@ type HybridState struct {
 
 	// scratchPacket is the shared range encoder output buffer.
 	scratchPacket [maxHybridPacketSize]byte
+	// scratchRedundancy stores CELT transition redundancy payload (2..257 bytes).
+	scratchRedundancy [257]byte
 
 	// Lookahead resampling scratch buffers.
 	scratchLookahead32   []float32 // float64 -> float32 conversion
@@ -110,9 +112,6 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 		return nil, ErrInvalidHybridFrameSize
 	}
 
-	// Update Opus-level VAD activity (used to gate SILK VAD)
-	e.updateOpusVAD(pcm, frameSize)
-
 	// Ensure sub-encoders exist
 	e.ensureSILKEncoder()
 	if e.channels == 2 {
@@ -144,14 +143,6 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 		e.celtEncoder.SetConstrainedVBR(false) // Always false in hybrid (libopus line 2455)
 	}
 
-	// Compute bit allocation between SILK and CELT
-	frame20ms := frameSize == 960
-	silkBitrate, celtBitrate, celtBitrateHBGain := e.computeHybridBitAllocation(frame20ms)
-
-	// Compute HB_gain based on TOC-adjusted CELT bitrate (matching libopus line 2060)
-	// Lower CELT bitrate means we should attenuate high frequencies
-	hbGain := e.computeHBGain(celtBitrateHBGain)
-
 	// Compute target buffer size based on bitrate mode.
 	// baseTargetBytes includes the TOC byte; payloadTarget is the shared range payload.
 	baseTargetBytes := targetBytesForBitrate(e.bitrate, frameSize)
@@ -166,10 +157,43 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 		payloadTarget = 1
 	}
 
-	maxTargetBytes := payloadTarget
+	// CELT->Hybrid transition uses CELT redundancy for smooth switching. This is a
+	// true libopus feature (not FEC/LBRR); it reserves bytes and adjusts SILK budget.
+	frameRate := 48000 / frameSize
+	transitionCeltToHybrid := maxPacketBytes == 0 && !e.lowDelay && isConcreteMode(e.prevMode) && e.prevMode == ModeCELT
+	redundancyBytes := 0
+	var redundancyData []byte
+	if transitionCeltToHybrid {
+		redundancyBytes = computeRedundancyBytes(baseTargetBytes, e.bitrate, frameRate, e.channels)
+		if redundancyBytes > 0 {
+			data, err := e.encodeCELTTransitionRedundancy(celtPCM, frameSize, redundancyBytes)
+			if err != nil {
+				return nil, err
+			}
+			redundancyData = data
+			redundancyBytes = len(redundancyData)
+		}
+	}
+
+	// Compute bit allocation between SILK and CELT using the full packet budget
+	// (max_data_bytes, including any reserved transition redundancy).
+	frame20ms := frameSize == 960
+	silkBitrate, celtBitrate, celtBitrateHBGain := e.computeHybridBitAllocationWithBudget(frameSize, baseTargetBytes, redundancyBytes)
+
+	// Compute HB_gain based on TOC-adjusted CELT bitrate (matching libopus line 2060).
+	// Lower CELT bitrate means we should attenuate high frequencies.
+	hbGain := e.computeHBGain(celtBitrateHBGain)
+
+	// Main shared-range payload target excludes transition redundancy bytes.
+	payloadTargetMain := payloadTarget - redundancyBytes
+	if payloadTargetMain < 1 {
+		payloadTargetMain = 1
+	}
+
+	maxTargetBytes := payloadTargetMain
 	switch e.bitrateMode {
 	case ModeCBR:
-		maxTargetBytes = payloadTarget
+		maxTargetBytes = payloadTargetMain
 	case ModeCVBR, ModeVBR:
 		// Allow up to 2x target for both VBR and CVBR. In libopus, the
 		// range encoder buffer is large (up to 1275 bytes) regardless of
@@ -182,8 +206,11 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 		// Reserve one extra byte to account for range coder end bits.
 		maxTargetBytes = maxAllowed - 2
 	}
-	if maxTargetBytes < payloadTarget {
-		maxTargetBytes = payloadTarget
+	if redundancyBytes > 0 {
+		maxTargetBytes -= redundancyBytes
+	}
+	if maxTargetBytes < payloadTargetMain {
+		maxTargetBytes = payloadTargetMain
 	}
 	if maxTargetBytes > maxHybridPacketSize-1 {
 		maxTargetBytes = maxHybridPacketSize - 1
@@ -286,7 +313,16 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 	// This allows SILK to use fewer bits and CELT to absorb the variation.
 	// In hybrid VBR/CVBR mode, SILK's maxBits is constrained to the SILK-appropriate
 	// portion of the available bits.
-	silkMaxBits := (maxTargetBytes) * 8
+	// Start from max_data_bytes-1 (payload excluding TOC), then subtract transition
+	// redundancy reservation (bytes plus signaling bits) when active.
+	silkMaxBits := payloadTarget * 8
+	if redundancyBytes >= 2 {
+		// 1 bit redundancy position + 20 bits flag+size for hybrid.
+		silkMaxBits -= redundancyBytes*8 + 1 + 20
+	}
+	if silkMaxBits < 0 {
+		silkMaxBits = 0
+	}
 	if e.bitrateMode == ModeCBR {
 		// Hybrid CBR: switch SILK to VBR with cap (libopus behavior)
 		e.silkEncoder.SetVBR(true)
@@ -322,12 +358,25 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 
 	// Step 2b: Encode redundancy flag between SILK and CELT.
 	// Per libopus opus_encoder.c: in hybrid mode, a redundancy flag is always
-	// written between the SILK and CELT portions (logp=12, value=0 for no redundancy).
-	// The decoder reads this flag in its afterSilk hook; if we don't write it,
-	// the CELT decoder reads shifted data and produces garbage output.
+	// written between the SILK and CELT portions (logp=12).
 	// Condition matches libopus: ec_tell(&enc)+17+20 <= 8*(max_data_bytes-1)
-	if re.Tell()+17+20 <= 8*maxTargetBytes {
-		re.EncodeBit(0, 12) // redundancy = 0 (no redundancy)
+	redundancyActive := false
+	if re.Tell()+17+20 <= 8*payloadTarget {
+		if transitionCeltToHybrid && redundancyBytes >= 2 {
+			redundancyActive = true
+			re.EncodeBit(1, 12)                              // redundancy = 1
+			re.EncodeBit(1, 1)                               // celt_to_silk = 1
+			re.EncodeUniform(uint32(redundancyBytes-2), 256) // redundancy length
+		} else {
+			re.EncodeBit(0, 12)
+		}
+	}
+
+	// libopus resets+prefills CELT for mode transitions before main CELT coding.
+	// For long (40/60ms) packets this prefill is managed once at packet level.
+	if maxPacketBytes == 0 {
+		// For CELT->Hybrid this is intentionally after transition redundancy encoding.
+		e.maybePrefillCELTOnModeTransition(ModeHybrid, celtPCM, frameSize)
 	}
 
 	// Step 3: Apply HB_gain fade on the delay-compensated CELT input.
@@ -353,64 +402,170 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 
 	// Step 4: CELT encodes high frequencies (bands 17-21)
 	e.celtEncoder.SetRangeEncoder(re)
-	// Match libopus hybrid CBR behavior: CELT is budgeted by packet bytes,
-	// not by a finite target bitrate clamp.
 	if e.bitrateMode == ModeCBR {
-		e.celtEncoder.SetBitrate(MaxBitrate)
+		e.celtEncoder.SetBitrate(celtBitrate)
 	} else {
 		e.celtEncoder.SetBitrate(celtBitrate)
 	}
 	e.celtEncoder.SetLSBDepth(e.lsbDepth)
-	e.encodeCELTHybridImproved(celtInput, frameSize, payloadTarget, silkSignalType, silkOffset)
+	e.encodeCELTHybridImproved(celtInput, frameSize, payloadTargetMain, silkSignalType, silkOffset)
 
 	// Update state for next frame
 	e.hybridState.prevHBGain = hbGain
 
-	// Finalize and return encoded bytes
-	return re.Done(), nil
+	// Finalize and append optional CELT->SILK transition redundancy payload.
+	mainPayload := re.Done()
+	if !redundancyActive || len(redundancyData) == 0 {
+		return mainPayload, nil
+	}
+	if len(mainPayload)+len(redundancyData) > len(e.hybridState.scratchPacket) {
+		return nil, ErrEncodingFailed
+	}
+	out := e.hybridState.scratchPacket[:len(mainPayload)+len(redundancyData)]
+	copy(out, mainPayload)
+	copy(out[len(mainPayload):], redundancyData)
+	return out, nil
 }
 
-// computeHybridBitAllocation computes the SILK and CELT bitrates for hybrid mode.
-// This implements libopus compute_silk_rate_for_hybrid() logic.
-//
-// In libopus, the SILK rate is derived from bits_target (which subtracts 8 bits
-// for TOC overhead) rather than the raw bitrate:
-//
-//	bits_target = min(8*(max_data_bytes-1), bitrate*frame_size/Fs) - 8
-//	total_bitRate = bits_target * Fs / frame_size = bitrate - 8*Fs/frame_size
+// computeRedundancyBytes matches libopus compute_redundancy_bytes().
+func computeRedundancyBytes(maxDataBytes, bitrateBps, frameRate, channels int) int {
+	if maxDataBytes <= 0 || bitrateBps <= 0 || frameRate <= 0 || channels <= 0 {
+		return 0
+	}
+	baseBits := 40*channels + 20
+	redundancyRate := bitrateBps + baseBits*(200-frameRate)
+	redundancyRate = (3 * redundancyRate) / 2
+	redundancyBytes := redundancyRate / 1600
+	availableBits := maxDataBytes*8 - 2*baseBits
+	if availableBits <= 0 {
+		return 0
+	}
+	den := 240 + 48000/frameRate
+	if den <= 0 {
+		return 0
+	}
+	redundancyBytesCap := (availableBits*240/den + baseBits) / 8
+	if redundancyBytes > redundancyBytesCap {
+		redundancyBytes = redundancyBytesCap
+	}
+	if redundancyBytes > 4+8*channels {
+		if redundancyBytes > 257 {
+			redundancyBytes = 257
+		}
+		if redundancyBytes < 0 {
+			return 0
+		}
+		return redundancyBytes
+	}
+	return 0
+}
+
+// encodeCELTTransitionRedundancy encodes the 5ms CELT redundancy frame used for
+// CELT->SILK/Hybrid transitions.
+func (e *Encoder) encodeCELTTransitionRedundancy(celtPCM []float64, frameSize, redundancyBytes int) ([]byte, error) {
+	if redundancyBytes < 2 || frameSize <= 0 {
+		return nil, nil
+	}
+	redundancyFrameSize := e.sampleRate / 200 // 5 ms at 48 kHz
+	if redundancyFrameSize <= 0 || frameSize < redundancyFrameSize {
+		return nil, nil
+	}
+	redundancySamples := redundancyFrameSize * e.channels
+	if redundancySamples <= 0 || len(celtPCM) < redundancySamples {
+		return nil, nil
+	}
+
+	e.ensureCELTEncoder()
+	e.syncCELTAnalysisToCELT()
+	e.celtEncoder.SetHybrid(false)
+	e.celtEncoder.SetBitrate(MaxBitrate)
+	e.celtEncoder.SetVBR(false)
+	e.celtEncoder.SetConstrainedVBR(false)
+	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
+	e.celtEncoder.SetLSBDepth(e.lsbDepth)
+	e.celtEncoder.SetDCRejectEnabled(false)
+	e.celtEncoder.SetMaxPayloadBytes(redundancyBytes)
+	redundancyData, err := e.celtEncoder.EncodeFrame(celtPCM[:redundancySamples], redundancyFrameSize)
+	e.celtEncoder.SetMaxPayloadBytes(0)
+	// libopus resets CELT after CELT->SILK redundancy generation.
+	e.celtEncoder.Reset()
+	if err != nil {
+		return nil, err
+	}
+	if len(redundancyData) < 2 {
+		return nil, nil
+	}
+	if len(redundancyData) > len(e.hybridState.scratchRedundancy) {
+		return nil, ErrEncodingFailed
+	}
+	out := e.hybridState.scratchRedundancy[:len(redundancyData)]
+	copy(out, redundancyData)
+	return out, nil
+}
+
+// computeHybridBitAllocation computes SILK/CELT bitrates using the default packet
+// budget for the current frame size (no transition redundancy reservation).
 func (e *Encoder) computeHybridBitAllocation(frame20ms bool) (silkBitrate, celtBitrate, celtBitrateHBGain int) {
-	// Apply TOC overhead correction matching libopus bits_target -> bits_to_bitrate roundtrip.
-	// For 48kHz/10ms: overhead = 8*48000/480 = 800 bps
-	// For 48kHz/20ms: overhead = 8*48000/960 = 400 bps
 	frameSize := 480
 	if frame20ms {
 		frameSize = 960
 	}
-	tocOverhead := 8 * 48000 / frameSize
-	totalRate := e.bitrate - tocOverhead
-	if totalRate < 0 {
-		totalRate = 0
+	maxDataBytes := targetBytesForBitrate(e.bitrate, frameSize)
+	if maxDataBytes < 2 {
+		maxDataBytes = 2
 	}
+	return e.computeHybridBitAllocationWithBudget(frameSize, maxDataBytes, 0)
+}
+
+// computeHybridBitAllocationWithBudget computes SILK/CELT bitrates from the exact
+// per-frame budget, including optional transition redundancy reservation.
+func (e *Encoder) computeHybridBitAllocationWithBudget(frameSize, maxDataBytes, redundancyBytes int) (silkBitrate, celtBitrate, celtBitrateHBGain int) {
+	if frameSize <= 0 {
+		return 0, 0, 0
+	}
+	if maxDataBytes < 2 {
+		maxDataBytes = 2
+	}
+	if redundancyBytes < 0 {
+		redundancyBytes = 0
+	}
+	if redundancyBytes > maxDataBytes-1 {
+		redundancyBytes = maxDataBytes - 1
+	}
+
+	// Match libopus bits_target:
+	// bits_target = min(8*(max_data_bytes-redundancy_bytes), bitrate_to_bits(...)) - 8
+	bitsTarget := 8 * (maxDataBytes - redundancyBytes)
+	bitrateBits := bitrateToBits(e.bitrate, frameSize)
+	if bitsTarget > bitrateBits {
+		bitsTarget = bitrateBits
+	}
+	bitsTarget -= 8
+	if bitsTarget < 0 {
+		bitsTarget = 0
+	}
+	totalRate := bitsTarget * 48000 / frameSize // bits_to_bitrate()
 	channels := e.channels
+	if channels < 1 {
+		channels = 1
+	}
 
 	// Per-channel rate for table lookup
 	ratePerChannel := totalRate / channels
 
-	// Determine table entry based on frame size and FEC
+	// Determine table entry based on frame size and FEC.
 	entry := 1 // 10ms no FEC
-	if frame20ms {
+	if frameSize == 960 {
 		entry = 2 // 20ms no FEC
 	}
 	if e.lbrrCoded {
-		entry += 2 // Add 2 for FEC entries (uses LBRR_coded, not raw fecEnabled)
+		entry += 2 // FEC entries
 	}
 
 	// Find the appropriate row in the rate table.
-	// This matches the libopus loop: find the first entry where rate_table[i][0] > rate,
-	// then interpolate between i-1 and i. If no entry exceeds rate, extrapolate from last.
 	silkRatePerChannel := 0
 	tableLen := len(hybridRateTable)
-	breakIdx := tableLen // Will be set to i if we break
+	breakIdx := tableLen
 	for i := 1; i < tableLen; i++ {
 		if hybridRateTable[i][0] > ratePerChannel {
 			breakIdx = i
@@ -418,13 +573,10 @@ func (e *Encoder) computeHybridBitAllocation(frame20ms bool) (silkBitrate, celtB
 		}
 	}
 	if breakIdx == tableLen {
-		// Past the end of the table: extrapolate from last entry
 		lastRow := hybridRateTable[tableLen-1]
 		silkRatePerChannel = lastRow[entry]
-		// Give 50% of extra bits to SILK (libopus behavior)
 		silkRatePerChannel += (ratePerChannel - lastRow[0]) / 2
 	} else {
-		// Interpolate between breakIdx-1 and breakIdx
 		lo := hybridRateTable[breakIdx-1][entry]
 		hi := hybridRateTable[breakIdx][entry]
 		x0 := hybridRateTable[breakIdx-1][0]
@@ -436,41 +588,29 @@ func (e *Encoder) computeHybridBitAllocation(frame20ms bool) (silkBitrate, celtB
 		}
 	}
 
-	// Apply libopus adjustments to SILK rate (before multiplying by channels)
-
-	// 1. CBR boost: tiny boost for CBR mode (libopus: +100)
+	// CBR/SWB adjustments from libopus compute_silk_rate_for_hybrid().
 	if e.bitrateMode == ModeCBR {
 		silkRatePerChannel += 100
 	}
-
-	// 2. SWB boost: extra bits for superwideband (libopus: +300)
 	if e.effectiveBandwidth() == types.BandwidthSuperwideband {
 		silkRatePerChannel += 300
 	}
 
-	// Multiply by channels
 	silkBitrate = silkRatePerChannel * channels
-
-	// 3. Stereo adjustment: small reduction for stereo at higher rates (libopus: -1000)
 	if channels == 2 && ratePerChannel >= 12000 {
 		silkBitrate -= 1000
 	}
 
-	// HB gain uses TOC-adjusted celt rate (matching libopus opus_encoder.c line 2060).
 	celtBitrateHBGain = totalRate - silkBitrate
-
-	// CELT encoder uses raw bitrate minus SILK rate (matching libopus line 2454:
-	// OPUS_SET_BITRATE(st->bitrate_bps - st->silk_mode.bitRate)).
 	celtBitrate = e.bitrate - silkBitrate
 
-	// Ensure minimum CELT bitrate for acceptable quality
+	// Ensure minimum CELT bitrate for acceptable quality.
 	minCeltBitrate := 2000 * channels
 	if celtBitrate < minCeltBitrate {
 		celtBitrate = minCeltBitrate
 		silkBitrate = e.bitrate - celtBitrate
 		celtBitrateHBGain = totalRate - silkBitrate
 	}
-
 	return silkBitrate, celtBitrate, celtBitrateHBGain
 }
 
@@ -623,7 +763,6 @@ func (e *Encoder) downsample48to16Hybrid(samples []float64, frameSize int) []flo
 		left[i] = float32(pair[0])
 		right[i] = float32(pair[1])
 	}
-
 	leftOut := e.ensureSilkResampled(targetSamples)
 	rightOut := e.ensureSilkResampledR(targetSamples)
 	nL := e.silkResampler.ProcessInto(left, leftOut)
