@@ -176,24 +176,24 @@ type Encoder struct {
 	scratchSilkAligned  []float32
 
 	// Scratch buffers for zero-allocation encoding
-	scratchDCPCM       []float64 // DC rejected PCM buffer
-	scratchPCM32       []float32 // float64 to float32 conversion buffer
-	scratchLeft        []float32 // Left channel deinterleave buffer
-	scratchRight       []float32 // Right channel deinterleave buffer
-	scratchMono        []float32 // Mono mix buffer (VAD)
-	scratchVADFlags    [silk.MaxFramesPerPacket]bool
-	scratchSideVAD     [silk.MaxFramesPerPacket]bool
-	scratchVADStates   [silk.MaxFramesPerPacket]silk.VADFrameState
-	scratchSideStates  [silk.MaxFramesPerPacket]silk.VADFrameState
-	scratchPacket      []byte    // Output packet buffer
-	scratchDelayedPCM  []float64 // Delay-compensated CELT input
-	scratchDelayTail   []float64 // Snapshot of delay buffer tail
+	scratchDCPCM      []float64 // DC rejected PCM buffer
+	scratchPCM32      []float32 // float64 to float32 conversion buffer
+	scratchLeft       []float32 // Left channel deinterleave buffer
+	scratchRight      []float32 // Right channel deinterleave buffer
+	scratchMono       []float32 // Mono mix buffer (VAD)
+	scratchVADFlags   [silk.MaxFramesPerPacket]bool
+	scratchSideVAD    [silk.MaxFramesPerPacket]bool
+	scratchVADStates  [silk.MaxFramesPerPacket]silk.VADFrameState
+	scratchSideStates [silk.MaxFramesPerPacket]silk.VADFrameState
+	scratchPacket     []byte    // Output packet buffer
+	scratchDelayedPCM []float64 // Delay-compensated CELT input
+	scratchDelayTail  []float64 // Snapshot of delay buffer tail
 	// Snapshot of libopus delay-history CELT transition prefill window (Fs/400).
 	scratchTransitionPrefill []float64
-	scratchSilkPrefill []float64
-	scratchCELTPrefill []float64 // CELT transition prefill source (Fs/400 * channels)
-	hasCELTPrefill     bool
-	scratchQuantPCM    []float64 // LSB-depth quantized input
+	scratchSilkPrefill       []float64
+	scratchCELTPrefill       []float64 // CELT transition prefill source (Fs/400 * channels)
+	hasCELTPrefill           bool
+	scratchQuantPCM          []float64 // LSB-depth quantized input
 }
 
 // NewEncoder creates a new unified Opus encoder.
@@ -1115,7 +1115,7 @@ func (e *Encoder) maybePrefillCELTOnModeTransition(actualMode Mode, celtPCM []fl
 		prefillInput[i] = float64(float32(prefillInput[i]))
 	}
 	prefillPacket, _ := e.celtEncoder.EncodeFrame(prefillInput, prefillFrameSize)
-	if os.Getenv("GOPUS_TMP_PREFILL_RNG_DBG") == "1" {
+	if tmpPrefillRNGDebugEnabled {
 		d0, d1 := -1, -1
 		if len(prefillPacket) > 0 {
 			d0 = int(prefillPacket[0])

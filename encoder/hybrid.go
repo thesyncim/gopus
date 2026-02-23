@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"strconv"
 
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/rangecoding"
@@ -388,13 +387,8 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 		// For CELT->Hybrid this is intentionally after transition redundancy encoding.
 		e.maybePrefillCELTOnModeTransition(ModeHybrid, celtPCM, frameSize)
 	}
-	if os.Getenv("GOPUS_TMP_HYB_HB_DBG") == "1" {
-		target := -1
-		if s := os.Getenv("GOPUS_TMP_HYB_HB_FRAME"); s != "" {
-			if v, err := strconv.Atoi(s); err == nil {
-				target = v
-			}
-		}
+	if tmpHybridHBDebugEnabled {
+		target := tmpHybridHBDebugFrame
 		callTag := -1
 		if e.celtEncoder != nil {
 			callTag = e.celtEncoder.FrameCount()
@@ -1425,13 +1419,8 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 	}
 
 	// Compute MDCT with overlap history using the selected block size.
-	if os.Getenv("GOPUS_TMP_HYB_MDCT_IN_DBG") == "1" && e.channels == 1 {
-		target := -1
-		if s := os.Getenv("GOPUS_TMP_HYB_MDCT_CALL"); s != "" {
-			if v, err := strconv.Atoi(s); err == nil {
-				target = v
-			}
-		}
+	if tmpHybridMDCTInDebugEnabled && e.channels == 1 {
+		target := tmpHybridMDCTCall
 		if target < 0 || target == callFrame {
 			overlap := celt.Overlap
 			if overlap > frameSize {
@@ -1466,13 +1455,8 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 	}
 	// Keep float-path cadence aligned with libopus (opus_res/celt_sig are float).
 	e.celtEncoder.RoundFloat64ToFloat32(mdctCoeffs)
-	if os.Getenv("GOPUS_TMP_HYB_MDCT_DBG") == "1" && e.channels == 1 {
-		target := -1
-		if s := os.Getenv("GOPUS_TMP_HYB_MDCT_CALL"); s != "" {
-			if v, err := strconv.Atoi(s); err == nil {
-				target = v
-			}
-		}
+	if tmpHybridMDCTDebugEnabled && e.channels == 1 {
+		target := tmpHybridMDCTCall
 		if target < 0 || target == callFrame {
 			b17 := celt.EBands[17] << lm
 			b18 := celt.EBands[18] << lm
@@ -1494,7 +1478,7 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 	// Compute band energies
 	energies := e.celtEncoder.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
 	e.celtEncoder.RoundFloat64ToFloat32(energies)
-	if os.Getenv("GOPUS_TMP_HYB_AMP_DBG") == "1" && e.channels == 1 {
+	if tmpHybridAMPDebugEnabled && e.channels == 1 {
 		for band := 14; band <= 18 && band < len(energies); band++ {
 			fmt.Fprintf(os.Stderr, "GOAMP call=%d i=%d logE=%.9f\n", callFrame, band, energies[band])
 		}

@@ -397,7 +397,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			}
 		}
 	}
-	stageDebug := os.Getenv("GOPUS_TMP_CELT_STAGE_DBG") == "1" && start > 0
+	stageDebug := tmpCELTStageDebugEnabled && start > 0
 	logStage := func(stage string, spread int, transient bool, intra bool) {
 		if !stageDebug {
 			return
