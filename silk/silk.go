@@ -749,7 +749,8 @@ func BandwidthFromOpus(opusBandwidth int) (Bandwidth, bool) {
 func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float32, error) {
 	// Get fade factor for this loss
 	fadeFactor := d.plcState.RecordLoss()
-	lossCnt := d.plcState.LostCount() - 1
+	// Match libopus silk_PLC_conceal() input cadence: use decoder-state lossCnt.
+	lossCnt := d.state[0].lossCnt
 
 	// Get native sample count from 48kHz frame size
 	config := GetBandwidthConfig(bandwidth)
@@ -878,7 +879,8 @@ func (d *Decoder) syncLegacyPLCState(st *decoderState, recent []int16) {
 func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]float32, error) {
 	// Get fade factor for this loss
 	fadeFactor := d.plcState.RecordLoss()
-	lossCnt := d.plcState.LostCount() - 1
+	// Match libopus silk_PLC_conceal() input cadence: use decoder-state lossCnt.
+	lossCnt := d.state[0].lossCnt
 
 	// Get native sample count from 48kHz frame size
 	config := GetBandwidthConfig(bandwidth)
