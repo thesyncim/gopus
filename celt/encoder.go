@@ -48,6 +48,8 @@ type CoarseDecisionStats struct {
 	Channel   int
 	Intra     bool
 	LM        int
+	ProbFS0   int
+	ProbDecay int
 	X         float64
 	Pred      float64
 	Residual  float64
@@ -162,9 +164,6 @@ type Encoder struct {
 	analysisLeakBoost     [leakBands]uint8
 	analysisTonalitySlope float64
 	analysisMaxPitchRatio float64
-	// Bootstrap leak boost used when external analysis is valid but doesn't yet
-	// provide leak_boost (matches early-frame libopus behavior more closely).
-	analysisLeakBootstrap [leakBands]uint8
 	// Surround trim adjustment (in trim units) used by alloc_trim analysis.
 	// This mirrors libopus alloc_trim_analysis() surround_trim contribution.
 	surroundTrim float64
@@ -405,6 +404,13 @@ func (e *Encoder) SetCoarseDecisionHook(fn func(CoarseDecisionStats)) {
 	e.coarseDecisionHook = fn
 }
 
+// PreparePVQDebugFrame resets per-call PVQ debug sequencing.
+// This is used by temporary parity probes.
+func (e *Encoder) PreparePVQDebugFrame(frame int) {
+	e.bandDebug.pvqDumpFrame = frame
+	e.bandDebug.pvqCallSeq = 0
+}
+
 // SetTargetStatsHook installs a callback that receives per-frame CELT VBR targets.
 func (e *Encoder) SetTargetStatsHook(fn func(CeltTargetStats)) {
 	e.targetStatsHook = fn
@@ -475,20 +481,6 @@ func (e *Encoder) dynallocLeakBoost() []uint8 {
 	leak := e.analysisLeakBoost[:]
 	if !e.analysisValid {
 		return leak
-	}
-	for i := 0; i < leakBands; i++ {
-		if leak[i] != 0 {
-			return leak
-		}
-	}
-	// Bootstrap early valid-analysis frames when leak_boost is unavailable.
-	// Frame count is pre-increment at this point in EncodeFrame.
-	if e.frameCount <= 2 {
-		for i := range e.analysisLeakBootstrap {
-			e.analysisLeakBootstrap[i] = 0
-		}
-		e.analysisLeakBootstrap[2] = 64 // +1.0 at band 2 (Q6)
-		return e.analysisLeakBootstrap[:]
 	}
 	return leak
 }
@@ -585,9 +577,6 @@ func (e *Encoder) Reset() {
 	e.analysisMaxPitchRatio = 0
 	for i := range e.analysisLeakBoost {
 		e.analysisLeakBoost[i] = 0
-	}
-	for i := range e.analysisLeakBootstrap {
-		e.analysisLeakBootstrap[i] = 0
 	}
 	e.surroundTrim = 0
 	if len(e.energyMask) > 0 {
