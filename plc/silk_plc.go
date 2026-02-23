@@ -198,8 +198,8 @@ func NewSILKPLCState() *SILKPLCState {
 		// Initial random scale (1.0 in Q14)
 		RandScaleQ14: 1 << 14,
 
-		// Initial random seed
-		RandSeed: 22222,
+			// Match libopus zero-initialized PLC rand_seed cadence.
+			RandSeed: 0,
 	}
 }
 
@@ -223,7 +223,7 @@ func (s *SILKPLCState) Reset(frameLength int) {
 
 	s.PrevLTPScaleQ14 = 0
 	s.RandScaleQ14 = 1 << 14
-	s.RandSeed = 22222
+	s.RandSeed = 0
 	s.LastFrameLost = false
 }
 
