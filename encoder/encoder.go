@@ -188,6 +188,8 @@ type Encoder struct {
 	scratchPacket      []byte    // Output packet buffer
 	scratchDelayedPCM  []float64 // Delay-compensated CELT input
 	scratchDelayTail   []float64 // Snapshot of delay buffer tail
+	// Snapshot of libopus delay-history CELT transition prefill window (Fs/400).
+	scratchTransitionPrefill []float64
 	scratchSilkPrefill []float64
 	scratchCELTPrefill []float64 // CELT transition prefill source (Fs/400 * channels)
 	hasCELTPrefill     bool
@@ -945,6 +947,13 @@ func (e *Encoder) ensureDelayTail(size int) []float64 {
 	return e.scratchDelayTail[:size]
 }
 
+func (e *Encoder) ensureTransitionPrefill(size int) []float64 {
+	if cap(e.scratchTransitionPrefill) < size {
+		e.scratchTransitionPrefill = make([]float64, size)
+	}
+	return e.scratchTransitionPrefill[:size]
+}
+
 func (e *Encoder) ensureSilkPrefill(size int) []float64 {
 	if cap(e.scratchSilkPrefill) < size {
 		e.scratchSilkPrefill = make([]float64, size)
@@ -991,6 +1000,18 @@ func (e *Encoder) applyDelayCompensation(pcm []float64, frameSize int) []float64
 	tail := e.ensureDelayTail(delaySamples)
 	copy(tail, e.delayBuffer[tailStart:])
 
+	// Preserve the libopus delay-history snapshot window used by CELT transition prefill:
+	// delay_buffer[encoder_buffer-delay_comp-Fs/400 : +Fs/400].
+	prefillFrameSize := e.sampleRate / 400
+	prefillSamples := prefillFrameSize * channels
+	prefillStart := encoderBufferSamples - delaySamples - prefillSamples
+	if prefillSamples > 0 && prefillStart >= 0 && prefillStart+prefillSamples <= len(e.delayBuffer) {
+		prefill := e.ensureTransitionPrefill(prefillSamples)
+		copy(prefill, e.delayBuffer[prefillStart:prefillStart+prefillSamples])
+	} else {
+		e.scratchTransitionPrefill = e.scratchTransitionPrefill[:0]
+	}
+
 	out := e.ensureDelayedPCM(frameSize * channels)
 	if frameSamples <= delaySamples {
 		copy(out, tail[:frameSamples])
@@ -1022,6 +1043,9 @@ func (e *Encoder) maybePrefillCELTOnModeTransition(actualMode Mode, celtPCM []fl
 		return
 	}
 	prefillInput := celtPCM[:prefillSamples]
+	if len(e.scratchTransitionPrefill) == prefillSamples {
+		prefillInput = e.scratchTransitionPrefill
+	}
 	if e.hasCELTPrefill && len(e.scratchCELTPrefill) >= prefillSamples {
 		prefillInput = e.scratchCELTPrefill[:prefillSamples]
 	} else if delayComp := e.sampleRate / 250; delayComp > 0 {
