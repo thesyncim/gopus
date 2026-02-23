@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-23
+topic: CELT decoder loss early-periodic conceal cadence
+decision: Keep CELT decoder loss concealment on a libopus-aligned two-path cadence in `celt/decoder.go`: attempt early-loss periodic conceal first (pitch-period search from decoder history + repeated-loss attenuation + history update), then fall back to noise conceal when periodicity is not reliable. Keep CELT noise fallback synthesis using raw PLC output followed by decoder-side postfilter/de-emphasis order (`plc.ConcealCELTRawInto` + decoder postfilter/de-emphasis), rather than applying deemphasis inside the fallback PLC synth path.
+evidence: Added `plc.ConcealCELTRawInto` in `plc/celt_plc.go` and decoder-side periodic branch + pitch search in `celt/decoder.go` `decodePLC`. Focused validation passed: `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`. CELT stress uplift on worst lanes: `periodic5 Q -84.67 -> -77.38, corr 0.9191 -> 0.9590, rms_ratio 0.9204 -> 1.0151`; `doublet_stride7 Q -88.14 -> -67.75, corr 0.8874 -> 0.9858, rms_ratio 0.8878 -> 1.0032`.
+do_not_repeat_until: CELT decoder history layout/postfilter state cadence, lost-frame mode-selection policy, or libopus `celt_decode_lost()` periodic-vs-noise gating semantics are refactored, requiring re-validation of early-loss periodic conceal behavior.
+owner: codex
+
+date: 2026-02-23
 topic: SILK PLC outBuf state cadence during loss concealment
 decision: Keep PLC loss bookkeeping updating decoder `outBuf` with concealed samples (`silkUpdateOutBuf`) so subsequent PLC rewhitening reads current concealed history, matching libopus decode-path state cadence.
 evidence: Updated `silk/silk.go` `recordPLCLossForState` to call `silkUpdateOutBuf(st, tmp)` after concealment generation. Focused parity validation `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v` passed with large uplifts in previously worst lanes: `hybrid-fb-20ms-mono-32k-fec/doublet_stride7 Q -91.87 -> -58.67, corr 0.8374 -> 0.9948, rms_ratio 0.8574 -> 0.9987`; `silk-wb-20ms-mono-24k-fec/doublet_stride7 Q -93.27 -> -58.52, corr 0.8095 -> 0.9949, rms_ratio 0.8541 -> 0.9982`.
