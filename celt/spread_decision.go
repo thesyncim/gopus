@@ -62,7 +62,6 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []float64, nbBands, channel
 	if nbBands <= 0 || len(normX) == 0 {
 		return spreadNormal
 	}
-
 	// M is the time resolution multiplier (frameSize / shortMdctSize)
 	// shortMdctSize is 120 for 48kHz
 	M := frameSize / 120
@@ -91,7 +90,6 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []float64, nbBands, channel
 	sum := 0
 	nbBandsTotal := 0
 	hfSum := 0
-
 	// Process each channel
 	for c := 0; c < channels; c++ {
 		// Process each band
@@ -122,9 +120,9 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []float64, nbBands, channel
 			tc0, tc1, tc2 := spreadCountThresholds(bandX, N, Nf)
 			tcount := [3]int{tc0, tc1, tc2}
 
-			// High frequency bands contribution (last 4 bands, ~8kHz and up)
-			// libopus: if (i > m->nbEBands-4)
-			if band > nbBands-4 {
+			// High frequency bands contribution (bands above 8kHz).
+			// Match libopus: if (i > m->nbEBands-4), where m->nbEBands is 21.
+			if band > MaxBands-4 {
 				hfSum += (32 * (tcount[1] + tcount[0])) / N
 			}
 
@@ -148,19 +146,14 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []float64, nbBands, channel
 
 	// Update high-frequency average for tapset decision
 	if updateHF {
-		// Count of HF bands that actually contributed to hfSum.
-		// HF bands are those with index > nbBands-4, so at most min(4, nbBands).
-		// Per libopus: hf_sum = celt_udiv(hf_sum, C*(4-m->nbEBands+end))
-		// When end == nbEBands (full analysis), this is 4.
-		hfBandCount := nbBands
-		if hfBandCount > 4 {
-			hfBandCount = 4
-		}
-		if hfBandCount < 1 {
-			hfBandCount = 1
-		}
+		// Match libopus normalization exactly:
+		// hf_sum = celt_udiv(hf_sum, C*(4-m->nbEBands+end))
+		// with m->nbEBands fixed at 21 and end == nbBands.
 		if hfSum > 0 {
-			hfSum = hfSum / (channels * hfBandCount)
+			den := channels * (4 - MaxBands + nbBands)
+			if den > 0 {
+				hfSum = hfSum / den
+			}
 		}
 		e.hfAverage = (e.hfAverage + hfSum) >> 1
 
@@ -188,7 +181,6 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []float64, nbBands, channel
 
 	// Normalize sum to Q8 (multiply by 256, divide by band count)
 	sum = (sum << 8) / nbBandsTotal
-
 	// Recursive averaging with previous
 	sum = (sum + e.tonalAverage) >> 1
 	e.tonalAverage = sum
