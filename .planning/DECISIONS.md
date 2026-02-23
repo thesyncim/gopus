@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-23
+topic: SILK PLC outBuf state cadence during loss concealment
+decision: Keep PLC loss bookkeeping updating decoder `outBuf` with concealed samples (`silkUpdateOutBuf`) so subsequent PLC rewhitening reads current concealed history, matching libopus decode-path state cadence.
+evidence: Updated `silk/silk.go` `recordPLCLossForState` to call `silkUpdateOutBuf(st, tmp)` after concealment generation. Focused parity validation `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v` passed with large uplifts in previously worst lanes: `hybrid-fb-20ms-mono-32k-fec/doublet_stride7 Q -91.87 -> -58.67, corr 0.8374 -> 0.9948, rms_ratio 0.8574 -> 0.9987`; `silk-wb-20ms-mono-24k-fec/doublet_stride7 Q -93.27 -> -58.52, corr 0.8095 -> 0.9949, rms_ratio 0.8541 -> 0.9982`.
+do_not_repeat_until: decoder outBuf maintenance or PLC concealment integration is refactored (especially `recordPLCLossForState`, SILK nil-packet decode path, or rewhitening source history), requiring re-validation of consecutive-loss cadence.
+owner: codex
+
+date: 2026-02-23
 topic: SILK/Hybrid PLC external fade vs decoder-native conceal cadence
 decision: Keep SILK/Hybrid loss concealment on decoder-native PLC attenuation cadence; do not apply extra external fade scaling on top of `plc.ConcealSILKWithLTP` output. In Hybrid lost-packet decode, use SILK decoder nil-packet PLC (`Decode`/`DecodeStereo`) instead of legacy `plc.ConcealSILK*` path so SILK PLC state/cadence stays aligned with SILK mode behavior.
 evidence: Updated `silk/silk.go` to remove external fade multiplication from LTP conceal output (Q0->float scaling only), and `hybrid/hybrid.go` to source SILK concealment from SILK decoder nil-packet PLC. Focused parity validation `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v` passed with worst-lane uplift: `hybrid-fb-20ms-mono-32k-fec/doublet_stride7 Q -94.37 -> -91.89, corr 0.7994 -> 0.8374, rms_ratio 0.8205 -> 0.8564`; `silk-wb-20ms-mono-24k-fec/doublet_stride7 Q -94.46 -> -93.27, corr 0.8042 -> 0.8095, rms_ratio 0.8074 -> 0.8541`.
