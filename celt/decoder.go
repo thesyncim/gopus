@@ -75,6 +75,9 @@ type Decoder struct {
 
 	// Per-decoder PLC state (do not share across decoder instances).
 	plcState *plc.State
+	// Periodic PLC cadence state (mirrors libopus decode_lost() behavior).
+	plcLastPitchPeriod     int
+	plcPrevLossWasPeriodic bool
 
 	// Band processing state
 	collapseMask uint32 // Tracks which bands received pulses (for anti-collapse)
@@ -190,6 +193,8 @@ func (d *Decoder) Reset() {
 	d.rng = 0
 	d.decodeFrameIndex = 0
 	d.bandDebug = bandDebugState{}
+	d.plcLastPitchPeriod = 0
+	d.plcPrevLossWasPeriodic = false
 
 	// Clear range decoder reference
 	d.rangeDecoder = nil
@@ -2822,6 +2827,7 @@ func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
 
 	// Keep PLC loss cadence bookkeeping.
 	_ = d.plcState.RecordLoss()
+	lossCount := d.plcState.LostCount()
 
 	// Ensure scratch buffer is large enough
 	outLen := frameSize * d.channels
@@ -2829,10 +2835,12 @@ func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
 
 	// Match libopus decode_lost() mode cadence: favor periodic concealment in the
 	// early loss window and fall back to noise-based concealment when unavailable.
-	if d.concealPeriodicPLC(d.scratchPLC, frameSize, d.plcState.LostCount()) {
+	if d.concealPeriodicPLC(d.scratchPLC, frameSize, lossCount) {
+		d.plcPrevLossWasPeriodic = true
 		d.applyDeemphasisAndScale(d.scratchPLC, 1.0/32768.0)
 		return d.scratchPLC, nil
 	}
+	d.plcPrevLossWasPeriodic = false
 
 	// Generate raw concealment, then run postfilter/de-emphasis in decoder order.
 	// Pass decoder as both state and synthesizer (it implements both interfaces).
@@ -2851,44 +2859,50 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int) bo
 	if len(dst) < frameSize*d.channels {
 		return false
 	}
-
-	period := d.postfilterPeriod
-	if period < combFilterMinPeriod || period > combFilterMaxPeriod {
-		period = d.postfilterPeriodOld
-	}
-	if period < combFilterMinPeriod || period > combFilterMaxPeriod {
-		period = d.searchPLCPitchPeriod()
-	}
-	if period < combFilterMinPeriod || period > combFilterHistory {
-		return false
-	}
 	if len(d.postfilterMem) < combFilterHistory*d.channels {
 		return false
 	}
+	// Match libopus: prefer periodic PLC only for the early loss window.
+	// celt_decode_lost() switches away once prior PLC duration reaches 40 units
+	// (about 100 ms at 48 kHz).
+	if lossCount > 1 && (lossCount-1)*frameSize >= 4800 {
+		return false
+	}
 
-	// Mirror libopus periodic PLC attenuation: repeated periodic losses are
-	// softened starting from the second consecutive periodic frame.
-	periodGain := 1.0
-	if lossCount > 1 {
-		periodGain = 0.8
-		for i := 2; i < lossCount; i++ {
-			periodGain *= 0.8
+	fade := 1.0
+	period := d.postfilterPeriod
+	if lossCount > 1 &&
+		d.plcPrevLossWasPeriodic &&
+		d.plcLastPitchPeriod >= combFilterMinPeriod &&
+		d.plcLastPitchPeriod <= combFilterMaxPeriod {
+		period = d.plcLastPitchPeriod
+		fade = 0.8
+	} else {
+		if period < combFilterMinPeriod || period > combFilterMaxPeriod {
+			period = d.postfilterPeriodOld
+		}
+		if period < combFilterMinPeriod || period > combFilterMaxPeriod {
+			period = d.searchPLCPitchPeriod()
 		}
 	}
+	if period < combFilterMinPeriod || period > combFilterMaxPeriod || period > combFilterHistory {
+		return false
+	}
+	d.plcLastPitchPeriod = period
 
 	channels := d.channels
 	for ch := 0; ch < channels; ch++ {
 		hist := d.postfilterMem[ch*combFilterHistory : (ch+1)*combFilterHistory]
 		src := combFilterHistory - period
+		attenuation := fade
 		j := 0
-		gain := periodGain
 
 		for i := 0; i < frameSize; i++ {
-			dst[i*channels+ch] = hist[src+j] * gain
+			dst[i*channels+ch] = hist[src+j] * attenuation
 			j++
 			if j >= period {
 				j = 0
-				gain *= 0.98
+				attenuation *= 0.98
 			}
 		}
 	}
