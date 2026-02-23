@@ -649,12 +649,12 @@ func TestSILKPLCStateCreation(t *testing.T) {
 		t.Errorf("RandScaleQ14 = %d, want %d", state.RandScaleQ14, 1<<14)
 	}
 
-	if state.SubfrLength != 80 {
-		t.Errorf("SubfrLength = %d, want 80", state.SubfrLength)
+	if state.SubfrLength != 20 {
+		t.Errorf("SubfrLength = %d, want 20", state.SubfrLength)
 	}
 
-	if state.NbSubfr != 4 {
-		t.Errorf("NbSubfr = %d, want 4", state.NbSubfr)
+	if state.NbSubfr != 2 {
+		t.Errorf("NbSubfr = %d, want 2", state.NbSubfr)
 	}
 }
 
