@@ -1,3 +1,5 @@
+//go:build arm64 && gopus_sum_sq_asm && gopus_sum_sq_arm64_asm
+
 #include "textflag.h"
 
 // WORD-encoded instructions:
