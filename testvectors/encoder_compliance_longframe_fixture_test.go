@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -16,7 +18,10 @@ import (
 	"github.com/thesyncim/gopus/types"
 )
 
-const longFrameFixturePath = "testdata/encoder_compliance_longframe_libopus_ref.json"
+const (
+	longFrameFixturePath      = "testdata/encoder_compliance_longframe_libopus_ref.json"
+	updateLongFrameFixtureEnv = "GOPUS_UPDATE_LONGFRAME_FIXTURE"
+)
 
 var (
 	longFrameFixtureOnce sync.Once
@@ -194,6 +199,16 @@ func loadLongFrameFixture() (longFrameFixtureFile, error) {
 	return fixture, nil
 }
 
+func writeLongFrameFixture(fixture longFrameFixtureFile) error {
+	path := filepath.Join(longFrameFixturePath)
+	data, err := json.MarshalIndent(fixture, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return os.WriteFile(path, data, 0o644)
+}
+
 func loadLongFrameFixtureCached() (longFrameFixtureFile, error) {
 	longFrameFixtureOnce.Do(func() {
 		longFrameFixtureData, longFrameFixtureErr = loadLongFrameFixture()
@@ -204,6 +219,131 @@ func loadLongFrameFixtureCached() (longFrameFixtureFile, error) {
 func longFrameFixtureReferenceAvailable() bool {
 	_, err := loadLongFrameFixtureCached()
 	return err == nil
+}
+
+func TestLongFrameReferenceFixtureHonestyWithLiveOpusDemo(t *testing.T) {
+	requireTestTier(t, testTierExhaustive)
+
+	opusDemo, ok := getFixtureOpusDemoPathForEncoder()
+	if !ok {
+		t.Skip("tmp_check opus_demo not found; skipping long-frame fixture honesty")
+	}
+	if !checkOpusdecAvailableEncoder() {
+		t.Skip("opusdec not available; skipping long-frame fixture honesty")
+	}
+	updateFixture := os.Getenv(updateLongFrameFixtureEnv) == "1"
+
+	existingFixture, err := loadLongFrameFixture()
+	if err != nil {
+		t.Fatalf("load long-frame fixture: %v", err)
+	}
+	existingByName := make(map[string]longFrameFixtureCase, len(existingFixture.Cases))
+	for _, c := range existingFixture.Cases {
+		existingByName[c.Name] = c
+	}
+
+	tmpDir, err := os.MkdirTemp("", "gopus-longframe-fixture-*")
+	if err != nil {
+		t.Fatalf("create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	updated := false
+	newFixture := longFrameFixtureFile{
+		Version: existingFixture.Version,
+		Cases:   make([]longFrameFixtureCase, 0, len(longFrameFixtureTargets())),
+	}
+
+	for _, target := range longFrameFixtureTargets() {
+		target := target
+		t.Run(target.Name, func(t *testing.T) {
+			modeName := fixtureModeName(target.Mode)
+			bwName := fixtureBandwidthName(target.Bandwidth)
+			app, err := modeToOpusDemoApp(modeName)
+			if err != nil {
+				t.Fatalf("map mode to opus_demo app: %v", err)
+			}
+			bwArg, err := bandwidthToOpusDemoArg(bwName)
+			if err != nil {
+				t.Fatalf("map bandwidth to opus_demo arg: %v", err)
+			}
+			frameArg, err := frameSizeSamplesToArg(target.FrameSize)
+			if err != nil {
+				t.Fatalf("map frame size to opus_demo arg: %v", err)
+			}
+
+			numFrames := 48000 / target.FrameSize
+			totalSamples := numFrames * target.FrameSize * target.Channels
+			original := generateEncoderTestSignal(totalSamples, target.Channels)
+			inputPath := filepath.Join(tmpDir, target.Name+".f32")
+			bitPath := filepath.Join(tmpDir, target.Name+".bit")
+			if err := writeFloat32LEFile(inputPath, original); err != nil {
+				t.Fatalf("write raw input: %v", err)
+			}
+
+			cmd := exec.Command(opusDemo,
+				"-e", app, "48000", strconv.Itoa(target.Channels), strconv.Itoa(target.Bitrate),
+				"-f32", "-cbr", "-complexity", "10", "-bandwidth", bwArg, "-framesize", frameArg,
+				inputPath, bitPath,
+			)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("opus_demo encode failed: %v (%s)", err, out)
+			}
+
+			packets, _, err := parseOpusDemoEncodeBitstream(bitPath)
+			if err != nil {
+				t.Fatalf("parse opus_demo bitstream: %v", err)
+			}
+			libQ, err := computeComplianceQualityFromPacketsWithLiveOpusdec(packets, original, target.Channels, target.FrameSize)
+			if err != nil {
+				if strings.Contains(err.Error(), "provenance") {
+					t.Skipf("opusdec blocked by macOS provenance: %v", err)
+				}
+				t.Fatalf("compute live opusdec quality: %v", err)
+			}
+			libQRounded := math.Round(libQ*100) / 100
+
+			encodedPackets := make([]string, len(packets))
+			for i, packet := range packets {
+				encodedPackets[i] = base64.StdEncoding.EncodeToString(packet)
+			}
+			row := longFrameFixtureCase{
+				Name:      target.Name,
+				Mode:      modeName,
+				Bandwidth: bwName,
+				FrameSize: target.FrameSize,
+				Channels:  target.Channels,
+				Bitrate:   target.Bitrate,
+				LibQ:      libQRounded,
+				Packets:   encodedPackets,
+			}
+			newFixture.Cases = append(newFixture.Cases, row)
+
+			existing, hasExisting := existingByName[target.Name]
+			if hasExisting {
+				drift := math.Abs(existing.LibQ - libQRounded)
+				if !updateFixture && drift > 0.35 {
+					t.Fatalf("long-frame fixture lib_q drift: live=%.2f fixture=%.2f", libQRounded, existing.LibQ)
+				}
+				if drift > 1e-9 || len(existing.Packets) != len(row.Packets) {
+					updated = true
+				}
+			} else {
+				updated = true
+			}
+		})
+	}
+
+	if updateFixture {
+		if !updated {
+			t.Log("long-frame fixture already up to date")
+			return
+		}
+		if err := writeLongFrameFixture(newFixture); err != nil {
+			t.Fatalf("write long-frame fixture: %v", err)
+		}
+		t.Logf("updated %s from live opus_demo encode + opusdec decode", longFrameFixturePath)
+	}
 }
 
 func decodeFixturePackets(encodedPackets []string) ([][]byte, error) {
