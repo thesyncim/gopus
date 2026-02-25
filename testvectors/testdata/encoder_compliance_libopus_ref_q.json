@@ -7,7 +7,7 @@
       "frame_size": 120,
       "channels": 1,
       "bitrate": 64000,
-      "lib_q": -55.02
+      "lib_q": -54.99
     },
     {
       "mode": "celt",
@@ -15,7 +15,7 @@
       "frame_size": 240,
       "channels": 1,
       "bitrate": 64000,
-      "lib_q": -34.24
+      "lib_q": -34.19
     },
     {
       "mode": "celt",
@@ -23,7 +23,7 @@
       "frame_size": 960,
       "channels": 1,
       "bitrate": 64000,
-      "lib_q": -18.66
+      "lib_q": -18.64
     },
     {
       "mode": "celt",
@@ -31,7 +31,7 @@
       "frame_size": 960,
       "channels": 2,
       "bitrate": 128000,
-      "lib_q": -19.67
+      "lib_q": -21.58
     },
     {
       "mode": "celt",
@@ -39,7 +39,7 @@
       "frame_size": 480,
       "channels": 1,
       "bitrate": 64000,
-      "lib_q": -21.66
+      "lib_q": -22.8
     },
     {
       "mode": "celt",
@@ -47,7 +47,7 @@
       "frame_size": 120,
       "channels": 2,
       "bitrate": 128000,
-      "lib_q": -49.56
+      "lib_q": -49.54
     },
     {
       "mode": "celt",
@@ -63,7 +63,7 @@
       "frame_size": 480,
       "channels": 1,
       "bitrate": 16000,
-      "lib_q": -65.83
+      "lib_q": -86.31
     },
     {
       "mode": "silk",
@@ -71,7 +71,7 @@
       "frame_size": 960,
       "channels": 1,
       "bitrate": 16000,
-      "lib_q": -63.46
+      "lib_q": -113.15
     },
     {
       "mode": "silk",
@@ -79,7 +79,7 @@
       "frame_size": 1920,
       "channels": 1,
       "bitrate": 16000,
-      "lib_q": -63.06
+      "lib_q": -63.99
     },
     {
       "mode": "silk",
@@ -87,7 +87,7 @@
       "frame_size": 960,
       "channels": 1,
       "bitrate": 24000,
-      "lib_q": -41.48
+      "lib_q": -40.38
     },
     {
       "mode": "silk",
@@ -95,7 +95,7 @@
       "frame_size": 480,
       "channels": 1,
       "bitrate": 32000,
-      "lib_q": -50.45
+      "lib_q": -90.06
     },
     {
       "mode": "silk",
@@ -103,7 +103,7 @@
       "frame_size": 960,
       "channels": 1,
       "bitrate": 32000,
-      "lib_q": -50.65
+      "lib_q": -89.29
     },
     {
       "mode": "silk",
@@ -111,7 +111,7 @@
       "frame_size": 1920,
       "channels": 1,
       "bitrate": 32000,
-      "lib_q": -50.65
+      "lib_q": -82.39
     },
     {
       "mode": "silk",
@@ -119,7 +119,7 @@
       "frame_size": 2880,
       "channels": 1,
       "bitrate": 32000,
-      "lib_q": -50.70
+      "lib_q": -79.15
     },
     {
       "mode": "silk",
@@ -127,7 +127,7 @@
       "frame_size": 960,
       "channels": 2,
       "bitrate": 48000,
-      "lib_q": -52.37
+      "lib_q": -55.87
     },
     {
       "mode": "hybrid",
@@ -135,7 +135,7 @@
       "frame_size": 480,
       "channels": 1,
       "bitrate": 48000,
-      "lib_q": -50.47
+      "lib_q": -33.06
     },
     {
       "mode": "hybrid",
@@ -143,7 +143,7 @@
       "frame_size": 960,
       "channels": 1,
       "bitrate": 48000,
-      "lib_q": -50.61
+      "lib_q": -84.29
     },
     {
       "mode": "hybrid",
@@ -151,7 +151,7 @@
       "frame_size": 1920,
       "channels": 1,
       "bitrate": 48000,
-      "lib_q": -50.61
+      "lib_q": -24.79
     },
     {
       "mode": "hybrid",
@@ -159,7 +159,7 @@
       "frame_size": 480,
       "channels": 1,
       "bitrate": 64000,
-      "lib_q": -51.20
+      "lib_q": -22.5
     },
     {
       "mode": "hybrid",
@@ -167,7 +167,7 @@
       "frame_size": 960,
       "channels": 1,
       "bitrate": 64000,
-      "lib_q": -50.76
+      "lib_q": -18.45
     },
     {
       "mode": "hybrid",
@@ -175,7 +175,7 @@
       "frame_size": 2880,
       "channels": 1,
       "bitrate": 64000,
-      "lib_q": -50.96
+      "lib_q": -18.32
     },
     {
       "mode": "hybrid",
@@ -183,7 +183,7 @@
       "frame_size": 960,
       "channels": 2,
       "bitrate": 96000,
-      "lib_q": -51.95
+      "lib_q": -25.06
     }
   ]
 }

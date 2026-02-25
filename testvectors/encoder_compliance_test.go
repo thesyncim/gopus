@@ -426,15 +426,10 @@ func runEncoderComplianceTest(t *testing.T, mode encoder.Mode, bandwidth types.B
 		enc.SetMode(encoder.ModeAuto)
 	} else {
 		enc.SetMode(mode)
-		switch mode {
-		case encoder.ModeSILK:
-			enc.SetSignalType(types.SignalVoice)
-		case encoder.ModeCELT:
-			enc.SetSignalType(types.SignalMusic)
-		}
 	}
 	enc.SetBandwidth(bandwidth)
 	enc.SetBitrate(bitrate)
+	enc.SetBitrateMode(encoder.ModeCBR)
 	captureCELTTargetStats := mode == encoder.ModeCELT && (frameSize == 120 ||
 		(frameSize == 240 && channels == 1) ||
 		(frameSize == 480 && channels == 1) ||
