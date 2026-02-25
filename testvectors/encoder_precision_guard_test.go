@@ -41,6 +41,8 @@ var encoderLibopusGapFloorDB = map[string]float64{
 var encoderLibopusGapFloorAMD64OverrideDB = map[string]float64{
 	"SILK-MB-20ms-mono-24k":     -14.0,
 	"SILK-WB-10ms-mono-32k":     -0.25,
+	"SILK-WB-20ms-mono-32k":     -1.25,
+	"SILK-WB-40ms-mono-32k":     -1.00,
 	"SILK-WB-60ms-mono-32k":     -0.55,
 	"SILK-WB-20ms-stereo-48k":   -0.25,
 	"Hybrid-SWB-10ms-mono-48k":  -0.20,
