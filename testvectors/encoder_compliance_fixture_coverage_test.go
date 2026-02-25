@@ -2,10 +2,20 @@ package testvectors
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"math"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+)
+
+const (
+	encoderComplianceRefQDriftToleranceDB = 0.35
+	updateEncoderComplianceRefQEnv        = "GOPUS_UPDATE_ENCODER_REF_Q"
 )
 
 func TestEncoderComplianceReferenceFixtureCoverage(t *testing.T) {
@@ -122,11 +132,135 @@ func TestLongFrameReferenceFixtureHonestyWithLiveOpusdec(t *testing.T) {
 				}
 				t.Fatalf("compute live opusdec quality: %v", err)
 			}
-			if math.Abs(q-c.LibQ) > 0.35 {
+			if math.Abs(q-c.LibQ) > encoderComplianceRefQDriftToleranceDB {
 				t.Fatalf("fixture libQ drift for %s: live=%.2f fixture=%.2f", target.Name, q, c.LibQ)
 			}
 		})
 	}
+}
+
+func TestEncoderComplianceReferenceQFixtureHonestyWithLiveOpusdec(t *testing.T) {
+	requireTestTier(t, testTierExhaustive)
+
+	if !checkOpusdecAvailableEncoder() {
+		t.Skip("opusdec not available; skipping encoder compliance ref-q fixture honesty validation")
+	}
+	opusDemo, ok := getFixtureOpusDemoPathForEncoder()
+	if !ok {
+		t.Skip("tmp_check opus_demo not found; skipping encoder compliance ref-q fixture honesty validation")
+	}
+
+	updateFixture := os.Getenv(updateEncoderComplianceRefQEnv) == "1"
+	fixture, err := readEncoderComplianceReferenceQFixtureFile()
+	if err != nil {
+		t.Fatalf("load encoder compliance reference fixture: %v", err)
+	}
+	tmpDir, err := os.MkdirTemp("", "gopus-refq-fixture-honesty-*")
+	if err != nil {
+		t.Fatalf("create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	updated := false
+	for i := range fixture.Cases {
+		row := fixture.Cases[i]
+		liveQ, err := computeComplianceQualityFromLiveLibopusEncode(opusDemo, tmpDir, row)
+		if err != nil {
+			if strings.Contains(err.Error(), "provenance") {
+				t.Skipf("opusdec blocked by macOS provenance: %v", err)
+			}
+			t.Fatalf("compute live opusdec quality for row %d: %v", i, err)
+		}
+		liveQRounded := math.Round(liveQ*100) / 100
+		drift := math.Abs(liveQRounded - row.LibQ)
+		if updateFixture {
+			if drift > 1e-9 {
+				fixture.Cases[i].LibQ = liveQRounded
+				updated = true
+			}
+			t.Logf("row %d %s-%s-%d/%d/%d: live=%.2f fixture=%.2f drift=%.2f (update)",
+				i, row.Mode, row.Bandwidth, row.FrameSize, row.Channels, row.Bitrate, liveQRounded, row.LibQ, drift)
+			continue
+		}
+		if drift > encoderComplianceRefQDriftToleranceDB {
+			t.Fatalf("ref-q fixture drift row %d (%s-%s-%d/%d/%d): live=%.2f fixture=%.2f drift=%.2f",
+				i, row.Mode, row.Bandwidth, row.FrameSize, row.Channels, row.Bitrate, liveQRounded, row.LibQ, drift)
+		}
+	}
+
+	if updateFixture {
+		if !updated {
+			t.Log("encoder compliance ref-q fixture already up to date")
+			return
+		}
+		if err := writeEncoderComplianceReferenceQFixtureFile(fixture); err != nil {
+			t.Fatalf("write encoder compliance reference fixture: %v", err)
+		}
+		t.Logf("updated %s from live opus_demo encode + opusdec decode measurements", encoderComplianceRefQFixturePath)
+	}
+}
+
+func computeComplianceQualityFromLiveLibopusEncode(opusDemoPath, tmpDir string, row encoderComplianceRefQFixtureRow) (float64, error) {
+	app, err := modeToOpusDemoApp(row.Mode)
+	if err != nil {
+		return 0, err
+	}
+	bwArg, err := bandwidthToOpusDemoArg(row.Bandwidth)
+	if err != nil {
+		return 0, err
+	}
+	frameArg, err := frameSizeSamplesToArg(row.FrameSize)
+	if err != nil {
+		return 0, err
+	}
+
+	numFrames := 48000 / row.FrameSize
+	totalSamples := numFrames * row.FrameSize * row.Channels
+	original := generateEncoderTestSignal(totalSamples, row.Channels)
+
+	base := fmt.Sprintf("%s_%s_%d_%d_%d", row.Mode, row.Bandwidth, row.FrameSize, row.Channels, row.Bitrate)
+	inputPath := filepath.Join(tmpDir, base+".f32")
+	bitPath := filepath.Join(tmpDir, base+".bit")
+
+	if err := writeFloat32LEFile(inputPath, original); err != nil {
+		return 0, fmt.Errorf("write raw input: %w", err)
+	}
+	cmd := exec.Command(opusDemoPath,
+		"-e", app, "48000", strconv.Itoa(row.Channels), strconv.Itoa(row.Bitrate),
+		"-f32", "-cbr", "-complexity", "10", "-bandwidth", bwArg, "-framesize", frameArg,
+		inputPath, bitPath,
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return 0, fmt.Errorf("opus_demo encode failed: %v (%s)", err, out)
+	}
+	packets, _, err := parseOpusDemoEncodeBitstream(bitPath)
+	if err != nil {
+		return 0, fmt.Errorf("parse opus_demo bitstream: %w", err)
+	}
+	return computeComplianceQualityFromPacketsWithLiveOpusdec(packets, original, row.Channels, row.FrameSize)
+}
+
+func readEncoderComplianceReferenceQFixtureFile() (encoderComplianceRefQFixtureFile, error) {
+	path := filepath.Join(encoderComplianceRefQFixturePath)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return encoderComplianceRefQFixtureFile{}, err
+	}
+	var fixture encoderComplianceRefQFixtureFile
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		return encoderComplianceRefQFixtureFile{}, err
+	}
+	return fixture, nil
+}
+
+func writeEncoderComplianceReferenceQFixtureFile(fixture encoderComplianceRefQFixtureFile) error {
+	path := filepath.Join(encoderComplianceRefQFixturePath)
+	data, err := json.MarshalIndent(fixture, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return os.WriteFile(path, data, 0o644)
 }
 
 func computeComplianceQualityFromPacketsWithLiveOpusdec(packets [][]byte, original []float32, channels, frameSize int) (float64, error) {
