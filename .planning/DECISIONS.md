@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-26
+topic: DecodeWithFEC no-LBRR fallback and SILK CNG state-order parity
+decision: Keep `DecodeWithFEC` no-LBRR recovery on prior-state PLC cadence (not packet-context FEC decode), and keep SILK good-frame decode ordering aligned to libopus by applying `prevSignalType/lagPrev/firstFrameAfterReset` updates before CNG+glue while CNG-update gating checks `prevSignalType`.
+evidence: Updated `decoder.go` (`DecodeWithFEC` no-LBRR path -> `decodePLCForFEC`), `silk/decode.go` and `silk/lbrr_decode.go` ordering around `applyCNG`/`silkPLCGlueFrames`, and `silk/cng.go` update gate (`prevSignalType`). Focused validations stayed stable with no regressions and no measurable target uplift yet: `go test ./silk -count=1`, `GOPUS_TEST_TIER=parity go test ./testvectors -run 'TestDecoderLossParityLibopusFixture/silk-wb-20ms-mono-24k-fec' -count=1 -v`, `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run 'TestDecoderLossStressPatternsAgainstOpusDemo/silk-wb-20ms-mono-24k-fec/periodic5$' -count=1 -v` (`Q=-28.01`, `delay=0`, `corr=0.999826`).
+do_not_repeat_until: decode-fec fallback policy, SILK decode-frame CNG ordering, or CNG state-update gate semantics are refactored again, or new fixture evidence shows these cadence ports regress across lanes.
+owner: codex
+
+date: 2026-02-26
 topic: CELT periodic PLC recovery overlap prefilter/fold cadence
 decision: Keep libopus-style one-shot `prefilter_and_fold` recovery on the first good CELT/silence synthesis after periodic PLC. Preserve pending-state cadence (`plcPrefilterAndFoldPending`) and apply inverse comb-filter + TDAC overlap fold before synthesis, then clear pending state exactly once.
 evidence: Implemented in `celt/decoder.go` via `applyPendingPLCPrefilterAndFold()` and wired into normal/silence synthesis entry points; periodic PLC path now sets pending, noise PLC clears it, and successful decode cadence reset clears it. Target lane improved from `Q=-39.42` to `Q=79.95` on `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run 'TestDecoderLossStressPatternsAgainstOpusDemo/celt-fb-20ms-mono-64k-plc/periodic5' -count=1 -v`. Broader validation passed: `go test ./celt -count=1`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`, `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`.

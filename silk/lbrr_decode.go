@@ -74,12 +74,8 @@ func (d *Decoder) DecodeFEC(
 		decodeVADAndLBRRFlags(&rd, &d.state[1], framesPerPacket)
 	}
 
-	// Check if LBRR data is available
-	if stMid.LBRRFlag == 0 {
-		return nil, ErrNoLBRRData
-	}
-
-	// Decode LBRR frames
+	// Decode FEC/LBRR frames. Match libopus decode_fec cadence:
+	// if a packet frame has no LBRR, decode that frame as loss concealment.
 	frameLength := stMid.frameLength
 	totalLen := framesPerPacket * frameLength
 
@@ -93,16 +89,16 @@ func (d *Decoder) DecodeFEC(
 	} else {
 		outInt16 = make([]int16, totalLen)
 	}
+	lastFrameLost := false
 
-	// Skip main frame LBRR data and decode each frame using LBRR
+	// Decode each frame using LBRR when present, otherwise run PLC.
 	for i := 0; i < framesPerPacket; i++ {
 		if stMid.LBRRFlags[i] == 0 {
-			// No LBRR for this frame, use PLC or zeros
 			frameOut := outInt16[i*frameLength : (i+1)*frameLength]
-			for j := range frameOut {
-				frameOut[j] = 0
-			}
+			d.decodeFECLostMonoFrameInto(stMid, frameOut)
+			d.syncLegacyPLCState(stMid, frameOut)
 			stMid.nFramesDecoded++
+			lastFrameLost = true
 			continue
 		}
 
@@ -150,13 +146,14 @@ func (d *Decoder) DecodeFEC(
 
 		// Apply PLC glue frames for smooth transition
 		stMid.lossCnt = 0
-		d.applyCNG(0, stMid, &ctrl, frameOut)
-		silkPLCGlueFrames(stMid, frameOut, frameLength)
 		stMid.lagPrev = ctrl.pitchL[stMid.nbSubfr-1]
 		stMid.prevSignalType = int(stMid.indices.signalType)
 		stMid.firstFrameAfterReset = false
+		d.applyCNG(0, stMid, &ctrl, frameOut)
+		silkPLCGlueFrames(stMid, frameOut, frameLength)
 		d.syncLegacyPLCState(stMid, frameOut)
 		stMid.nFramesDecoded++
+		lastFrameLost = false
 	}
 
 	// Resample from native rate to 48kHz using the same int16 path as normal decode.
@@ -190,15 +187,65 @@ func (d *Decoder) DecodeFEC(
 		output = stereoOutput
 	}
 
-	// Match normal SILK decode cadence: successful decode resets PLC loss
-	// accumulator and records last-frame params for subsequent concealment.
+	// Match libopus decode_fec cadence:
+	// - if the recovered frame decoded from LBRR, clear PLC loss accumulator
+	// - if no LBRR was present, keep loss cadence from concealment path
 	if d.plcState != nil {
-		d.plcState.Reset()
-		d.plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, outputChannels)
+		if !lastFrameLost {
+			d.plcState.Reset()
+			d.plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, outputChannels)
+		}
 	}
 
 	d.haveDecoded = true
 	return output, nil
+}
+
+func (d *Decoder) decodeFECLostMonoFrameInto(st *decoderState, frameOut []int16) {
+	if st == nil || len(frameOut) == 0 {
+		return
+	}
+
+	frameLength := len(frameOut)
+	fadeFactor := 1.0
+	if d.plcState != nil {
+		fadeFactor = d.plcState.RecordLoss()
+	}
+
+	lossCnt := st.lossCnt
+	var concealed []float32
+	if d.scratchOutput != nil && len(d.scratchOutput) >= frameLength {
+		concealed = d.scratchOutput[:frameLength]
+		clear(concealed)
+	} else {
+		concealed = make([]float32, frameLength)
+	}
+
+	if state := d.ensureSILKPLCState(0); state != nil && st.nbSubfr > 0 {
+		concealedQ0 := plc.ConcealSILKWithLTP(d, state, lossCnt, frameLength)
+		const scale = float32(1.0 / 32768.0)
+		n := len(concealedQ0)
+		if n > frameLength {
+			n = frameLength
+		}
+		for i := 0; i < n; i++ {
+			concealed[i] = float32(concealedQ0[i]) * scale
+		}
+		if lag := int((state.PitchLQ8 + 128) >> 8); lag > 0 {
+			st.lagPrev = lag
+		}
+	} else {
+		plcOut := plc.ConcealSILK(d, frameLength, fadeFactor)
+		copy(concealed, plcOut)
+		if len(plcOut) < frameLength {
+			clear(concealed[len(plcOut):])
+		}
+	}
+
+	d.recordPLCLossForState(st, concealed)
+	for i := range frameOut {
+		frameOut[i] = float32ToInt16(concealed[i])
+	}
 }
 
 // HasLBRR checks if the given packet contains LBRR (FEC) data.

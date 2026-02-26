@@ -103,12 +103,12 @@ func (d *Decoder) DecodeFrame(
 		d.updateSILKPLCStateFromCtrl(0, st, &ctrl)
 
 		st.lossCnt = 0
-		d.applyCNG(0, st, &ctrl, frameOut)
-		// Apply PLC glue frames for smooth transition from concealed to real frames.
-		silkPLCGlueFrames(st, frameOut, frameLength)
 		st.lagPrev = ctrl.pitchL[st.nbSubfr-1]
 		st.prevSignalType = int(st.indices.signalType)
 		st.firstFrameAfterReset = false
+		d.applyCNG(0, st, &ctrl, frameOut)
+		// Apply PLC glue frames for smooth transition from concealed to real frames.
+		silkPLCGlueFrames(st, frameOut, frameLength)
 		st.nFramesDecoded++
 	}
 
@@ -268,11 +268,11 @@ func (d *Decoder) decodeFrameRawInt16(
 		silkUpdateOutBuf(st, frameOut)
 		d.updateSILKPLCStateFromCtrl(0, st, &ctrl)
 		st.lossCnt = 0
-		d.applyCNG(0, st, &ctrl, frameOut)
-		silkPLCGlueFrames(st, frameOut, frameLength)
 		st.lagPrev = ctrl.pitchL[st.nbSubfr-1]
 		st.prevSignalType = int(st.indices.signalType)
 		st.firstFrameAfterReset = false
+		d.applyCNG(0, st, &ctrl, frameOut)
+		silkPLCGlueFrames(st, frameOut, frameLength)
 		st.nFramesDecoded++
 	}
 
@@ -365,12 +365,12 @@ func (d *Decoder) DecodeFrameWithTrace(
 		silkUpdateOutBuf(st, frameOut)
 
 		st.lossCnt = 0
-		d.applyCNG(0, st, &ctrl, frameOut)
-		// Apply PLC glue frames for smooth transition from concealed to real frames.
-		silkPLCGlueFrames(st, frameOut, frameLength)
 		st.lagPrev = ctrl.pitchL[st.nbSubfr-1]
 		st.prevSignalType = int(st.indices.signalType)
 		st.firstFrameAfterReset = false
+		d.applyCNG(0, st, &ctrl, frameOut)
+		// Apply PLC glue frames for smooth transition from concealed to real frames.
+		silkPLCGlueFrames(st, frameOut, frameLength)
 		st.nFramesDecoded++
 	}
 
@@ -489,12 +489,12 @@ func (d *Decoder) DecodeStereoFrame(
 		d.updateSILKPLCStateFromCtrl(0, stMid, &ctrlMid)
 
 		stMid.lossCnt = 0
-		d.applyCNG(0, stMid, &ctrlMid, midOut)
-		// Apply PLC glue frames for smooth transition from concealed to real frames.
-		silkPLCGlueFrames(stMid, midOut, frameLength)
 		stMid.lagPrev = ctrlMid.pitchL[stMid.nbSubfr-1]
 		stMid.prevSignalType = int(stMid.indices.signalType)
 		stMid.firstFrameAfterReset = false
+		d.applyCNG(0, stMid, &ctrlMid, midOut)
+		// Apply PLC glue frames for smooth transition from concealed to real frames.
+		silkPLCGlueFrames(stMid, midOut, frameLength)
 		stMid.nFramesDecoded++
 
 		if hasSide {
@@ -517,12 +517,12 @@ func (d *Decoder) DecodeStereoFrame(
 			d.updateSILKPLCStateFromCtrl(1, stSide, &ctrlSide)
 
 			stSide.lossCnt = 0
-			d.applyCNG(1, stSide, &ctrlSide, sideOut)
-			// Apply PLC glue frames for side channel.
-			silkPLCGlueFrames(stSide, sideOut, frameLength)
 			stSide.lagPrev = ctrlSide.pitchL[stSide.nbSubfr-1]
 			stSide.prevSignalType = int(stSide.indices.signalType)
 			stSide.firstFrameAfterReset = false
+			d.applyCNG(1, stSide, &ctrlSide, sideOut)
+			// Apply PLC glue frames for side channel.
+			silkPLCGlueFrames(stSide, sideOut, frameLength)
 		} else {
 			for j := range sideOut {
 				sideOut[j] = 0
@@ -649,12 +649,12 @@ func (d *Decoder) decodeStereoMidNative(
 		d.updateSILKPLCStateFromCtrl(0, stMid, &ctrlMid)
 
 		stMid.lossCnt = 0
-		d.applyCNG(0, stMid, &ctrlMid, midOut)
-		// Apply PLC glue frames for smooth transition from concealed to real frames.
-		silkPLCGlueFrames(stMid, midOut, frameLength)
 		stMid.lagPrev = ctrlMid.pitchL[stMid.nbSubfr-1]
 		stMid.prevSignalType = int(stMid.indices.signalType)
 		stMid.firstFrameAfterReset = false
+		d.applyCNG(0, stMid, &ctrlMid, midOut)
+		// Apply PLC glue frames for smooth transition from concealed to real frames.
+		silkPLCGlueFrames(stMid, midOut, frameLength)
 		stMid.nFramesDecoded++
 
 		if hasSide {
@@ -678,12 +678,12 @@ func (d *Decoder) decodeStereoMidNative(
 			d.updateSILKPLCStateFromCtrl(1, stSide, &ctrlSide)
 
 			stSide.lossCnt = 0
-			d.applyCNG(1, stSide, &ctrlSide, sideOut)
-			// Apply PLC glue frames for side channel.
-			silkPLCGlueFrames(stSide, sideOut, frameLength)
 			stSide.lagPrev = ctrlSide.pitchL[stSide.nbSubfr-1]
 			stSide.prevSignalType = int(stSide.indices.signalType)
 			stSide.firstFrameAfterReset = false
+			d.applyCNG(1, stSide, &ctrlSide, sideOut)
+			// Apply PLC glue frames for side channel.
+			silkPLCGlueFrames(stSide, sideOut, frameLength)
 		}
 		stSide.nFramesDecoded++
 
