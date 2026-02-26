@@ -422,6 +422,38 @@ func (d *Decoder) SetBandwidth(bw CELTBandwidth) {
 	d.bandwidth = bw
 }
 
+// DecodeHybridFECPLC generates CELT concealment for hybrid decode_fec cadence.
+// This mirrors the decode_fec behavior where CELT PLC is accumulated on top of
+// SILK LBRR, with decoder-side postfilter/de-emphasis ordering.
+func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float64, error) {
+	if frameSize != 480 && frameSize != 960 {
+		return nil, ErrInvalidFrameSize
+	}
+
+	if d.plcState == nil {
+		d.plcState = plc.NewState()
+	}
+	_ = d.plcState.RecordLoss()
+	prevLossDuration := d.plcLossDuration
+	d.accumulatePLCLossDuration(frameSize)
+	d.plcPrevLossWasPeriodic = false
+	d.plcPrefilterAndFoldPending = false
+
+	outLen := frameSize * d.channels
+	d.scratchPLC = ensureFloat64Slice(&d.scratchPLC, outLen)
+	decayDB := 0.5
+	if prevLossDuration == 0 {
+		decayDB = 1.5
+	}
+	plc.ConcealCELTHybridRawIntoWithDBDecay(d.scratchPLC[:outLen], d, d, frameSize, 1.0, decayDB)
+
+	mode := GetModeConfig(frameSize)
+	d.applyPostfilter(d.scratchPLC[:outLen], frameSize, mode.LM, d.postfilterPeriod, d.postfilterGain, d.postfilterTapset)
+	d.applyDeemphasisAndScale(d.scratchPLC[:outLen], 1.0/32768.0)
+
+	return d.scratchPLC[:outLen], nil
+}
+
 // Bandwidth returns the current CELT bandwidth setting.
 func (d *Decoder) Bandwidth() CELTBandwidth {
 	return d.bandwidth
