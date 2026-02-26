@@ -22,6 +22,20 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-26
+topic: Hybrid decode_fec CELT noise synthesis parity via decoder-native denormalize path
+decision: Keep `celt/decoder.go` `DecodeHybridFECPLC` on the decoder-native `celt_decode_lost()` noise cadence: decay/floor only coded hybrid bands (`start=17`..`end`), generate per-band normalized RNG coefficients (`fillHybridPLCNoiseCoeffs`), denormalize through decoder energy math (`denormalizeCoeffs`), synthesize via `Synthesize`/`SynthesizeStereo`, then apply decoder postfilter + deemphasis ordering. Keep the missing loss-safety clamp call (`applyLossEnergySafety`) enabled in all hybrid decode variants before coarse energy decode.
+evidence: Updated only `celt/decoder.go`. Validation passed: `go test ./celt ./hybrid ./plc -count=1`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`, `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`, and `make bench-guard`. Measured uplifts vs prior loop baseline: parity `burst2_mid Q 98.06 -> 179.05`, `periodic9 Q 76.41 -> 174.98`, `single_mid Q 91.31 -> 179.12`; stress `burst3_mid Q 107.06 -> 186.55`, `periodic5 Q 71.46 -> 173.95`, `doublet_stride7 Q 71.70 -> 171.48`; remaining weak lane `edge_then_mid Q 39.70 -> 38.13`.
+do_not_repeat_until: hybrid decode_fec CELT synthesis ordering, hybrid coded-band start/end handling, or decoder pre-coarse loss-safety cadence is refactored, or new fixture evidence shows this native path regresses another decoder-loss lane.
+owner: codex
+
+date: 2026-02-26
+topic: Hybrid edge-case reset floor experiment (`backgroundEnergy` init/reset)
+decision: Keep decoder `backgroundEnergy` init/reset at `-28` in current gopus cadence; do not switch reset-only defaults to `0` despite libopus reset-memory semantics until fixture evidence shows a net gain across hybrid loss lanes.
+evidence: Targeted A/B on `celt/decoder.go` reset-only `backgroundEnergy=0` regressed hybrid loss parity/stress: stress `edge_then_mid Q 38.13 -> 32.33`, `periodic5 Q 173.95 -> 172.90`, `doublet_stride7 Q 171.48 -> 169.80`; parity also dipped (`burst2_mid Q 179.05 -> 178.64`, `periodic9 Q 174.98 -> 174.62`, `single_mid Q 179.12 -> 178.43`) under `GOPUS_TEST_TIER=parity` and `GOPUS_TEST_TIER=exhaustive` focused hybrid runs.
+do_not_repeat_until: decoder background-floor state layout/cadence is refactored, or new fixture-backed evidence (including edge-first-loss lanes) demonstrates that reset/default `0` improves net parity without regressions.
+owner: codex
+
+date: 2026-02-26
 topic: Hybrid successful-decode PLC cadence reset parity
 decision: Keep `resetPLCCadence(...)` on all successful hybrid CELT decode returns (including silence-success branches) in `celt/decoder.go` (`DecodeFrameHybrid`, `decodeMonoPacketToStereoHybrid`, `decodeStereoPacketToMonoHybrid`) so PLC loss-duration cadence is cleared after good hybrid frames and later isolated losses do not inherit stale consecutive-loss state.
 evidence: Updated `celt/decoder.go` only. Focused validations passed: `go test ./celt ./hybrid ./plc -count=1`, `GOPUS_TEST_TIER=parity go test ./testvectors -run 'TestDecoderLossParityLibopusFixture/hybrid-fb-20ms-mono-32k-fec' -count=1 -v`, and `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run 'TestDecoderLossStressPatternsAgainstOpusDemo/hybrid-fb-20ms-mono-32k-fec/(burst3_mid|periodic5|doublet_stride7|edge_then_mid)$' -count=1 -v`. Measured uplifts: stress `periodic5 Q 69.64 -> 71.46`, `doublet_stride7 Q 69.98 -> 71.70`, parity `periodic9 Q 74.80 -> 76.41`; unchanged on `burst3_mid Q 107.06`, `burst2_mid Q 98.06`, `single_mid Q 91.31`, `edge_then_mid Q 39.70`.

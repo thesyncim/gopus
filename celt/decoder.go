@@ -133,6 +133,8 @@ type Decoder struct {
 	scratchPLCExc         []float64
 	scratchPLCFoldSrc     []float64
 	scratchPLCFoldDst     []float64
+	scratchPLCHybridNormL []float64
+	scratchPLCHybridNormR []float64
 }
 
 // NewDecoder creates a new CELT decoder with the given number of channels.
@@ -452,20 +454,95 @@ func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float64, error) {
 	d.ensureBackgroundEnergyState()
 	d.scratchPrevEnergy = ensureFloat64Slice(&d.scratchPrevEnergy, len(d.prevEnergy))
 	concealEnergy := d.scratchPrevEnergy[:len(d.prevEnergy)]
-	for i := range concealEnergy {
-		e := d.prevEnergy[i] - decayDB
-		if d.backgroundEnergy[i] > e {
-			e = d.backgroundEnergy[i]
-		}
-		concealEnergy[i] = e
-	}
-	plc.ConcealCELTHybridRawIntoFromEnergies(d.scratchPLC[:outLen], d, d, frameSize, 1.0, concealEnergy)
+	copy(concealEnergy, d.prevEnergy)
 
+	// Match libopus celt_decode_lost() noise PLC cadence: in hybrid mode,
+	// only the coded CELT band range [start,end) gets decayed/floored.
 	mode := GetModeConfig(frameSize)
+	start := HybridCELTStartBand
+	end := EffectiveBandsForFrameSize(d.bandwidth, frameSize)
+	if end > mode.EffBands {
+		end = mode.EffBands
+	}
+	if end < start {
+		end = start
+	}
+	for c := 0; c < d.channels; c++ {
+		base := c * MaxBands
+		for band := start; band < end; band++ {
+			idx := base + band
+			e := d.prevEnergy[idx] - decayDB
+			if d.backgroundEnergy[idx] > e {
+				e = d.backgroundEnergy[idx]
+			}
+			concealEnergy[idx] = e
+		}
+	}
+
+	seed := d.rng
+	if d.channels == 2 {
+		d.scratchPLCHybridNormL = ensureFloat64Slice(&d.scratchPLCHybridNormL, frameSize)
+		d.scratchPLCHybridNormR = ensureFloat64Slice(&d.scratchPLCHybridNormR, frameSize)
+		coeffsL := d.scratchPLCHybridNormL[:frameSize]
+		coeffsR := d.scratchPLCHybridNormR[:frameSize]
+		clear(coeffsL)
+		clear(coeffsR)
+		fillHybridPLCNoiseCoeffs(coeffsL, frameSize, start, end, &seed)
+		fillHybridPLCNoiseCoeffs(coeffsR, frameSize, start, end, &seed)
+		denormalizeCoeffs(coeffsL, concealEnergy[:MaxBands], end, frameSize)
+		denormalizeCoeffs(coeffsR, concealEnergy[MaxBands:], end, frameSize)
+		samples := d.SynthesizeStereo(coeffsL, coeffsR, false, 1)
+		copy(d.scratchPLC[:outLen], samples[:min(outLen, len(samples))])
+	} else {
+		d.scratchPLCHybridNormL = ensureFloat64Slice(&d.scratchPLCHybridNormL, frameSize)
+		coeffs := d.scratchPLCHybridNormL[:frameSize]
+		clear(coeffs)
+		fillHybridPLCNoiseCoeffs(coeffs, frameSize, start, end, &seed)
+		denormalizeCoeffs(coeffs, concealEnergy[:MaxBands], end, frameSize)
+		samples := d.Synthesize(coeffs, false, 1)
+		copy(d.scratchPLC[:outLen], samples[:min(outLen, len(samples))])
+	}
+	d.SetPrevEnergy(concealEnergy)
+	d.rng = seed
+
 	d.applyPostfilter(d.scratchPLC[:outLen], frameSize, mode.LM, d.postfilterPeriod, d.postfilterGain, d.postfilterTapset)
 	d.applyDeemphasisAndScale(d.scratchPLC[:outLen], 1.0/32768.0)
 
 	return d.scratchPLC[:outLen], nil
+}
+
+func fillHybridPLCNoiseCoeffs(coeffs []float64, frameSize, startBand, endBand int, seed *uint32) {
+	if len(coeffs) < frameSize || frameSize <= 0 {
+		return
+	}
+	if startBand < 0 {
+		startBand = 0
+	}
+	if endBand > MaxBands {
+		endBand = MaxBands
+	}
+	if endBand < startBand {
+		endBand = startBand
+	}
+
+	for band := startBand; band < endBand; band++ {
+		start := ScaledBandStart(band, frameSize)
+		end := ScaledBandStart(band+1, frameSize)
+		if start < 0 {
+			start = 0
+		}
+		if end > frameSize {
+			end = frameSize
+		}
+		if start >= end {
+			continue
+		}
+		for i := start; i < end; i++ {
+			*seed = *seed*1664525 + 1013904223
+			coeffs[i] = float64(int32(*seed >> 20))
+		}
+		renormalizeVector(coeffs[start:end], 1.0)
+	}
 }
 
 // Bandwidth returns the current CELT bandwidth setting.
@@ -2454,6 +2531,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 		intra = rd.DecodeBit(3) == 1
 	}
 	traceRange("intra", rd)
+	d.applyLossEnergySafety(intra, start, end, lm)
 
 	shortBlocks := 1
 	if transient {
@@ -2736,6 +2814,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 		intra = rd.DecodeBit(3) == 1
 	}
 	traceRange("intra", rd)
+	d.applyLossEnergySafety(intra, start, end, lm)
 
 	shortBlocks := 1
 	if transient {
@@ -2976,6 +3055,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 		intra = rd.DecodeBit(3) == 1
 	}
 	traceRange("intra", rd)
+	d.applyLossEnergySafety(intra, start, end, lm)
 
 	shortBlocks := 1
 	if transient {
