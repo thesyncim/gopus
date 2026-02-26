@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-26
+topic: CELT periodic PLC recovery overlap prefilter/fold cadence
+decision: Keep libopus-style one-shot `prefilter_and_fold` recovery on the first good CELT/silence synthesis after periodic PLC. Preserve pending-state cadence (`plcPrefilterAndFoldPending`) and apply inverse comb-filter + TDAC overlap fold before synthesis, then clear pending state exactly once.
+evidence: Implemented in `celt/decoder.go` via `applyPendingPLCPrefilterAndFold()` and wired into normal/silence synthesis entry points; periodic PLC path now sets pending, noise PLC clears it, and successful decode cadence reset clears it. Target lane improved from `Q=-39.42` to `Q=79.95` on `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run 'TestDecoderLossStressPatternsAgainstOpusDemo/celt-fb-20ms-mono-64k-plc/periodic5' -count=1 -v`. Broader validation passed: `go test ./celt -count=1`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`, `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`.
+do_not_repeat_until: CELT overlap state layout (`overlapBuffer`/decode history), postfilter state cadence, or libopus `prefilter_and_fold` semantics in `celt_decoder.c` change, requiring a fresh source-port comparison.
+owner: codex
+
+date: 2026-02-26
 topic: CELT periodic PLC repeated-loss decay uses libopus float-path math
 decision: Keep repeated-loss periodic replay attenuation in `celt/decoder.go` `concealPeriodicPLC` using `decay = sqrt(E1/E2)` (`E1=min(E1,E2)`) rather than fixed `0.98`, matching libopus float-path `celt_decode_lost()` semantics where `SHR32` is identity in the decay formula.
 evidence: CELT fixture parity improved across all canonical decoder-loss rows: `burst2_mid Q -20.30 -> -17.19`, `periodic9 Q -37.30 -> -35.64`, `single_mid Q -18.90 -> -14.00` under `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`. Stress remained mixed but within thresholds (`periodic5` improved; others slightly regressed) under `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`. Broad gates passed: `go test ./... -count=1`, `make verify-production`.
