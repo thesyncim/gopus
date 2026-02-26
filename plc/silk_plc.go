@@ -842,10 +842,15 @@ func smlawb(a, b, c int32) int32 {
 }
 
 func rshiftRound(a int32, shift int) int32 {
-	if shift == 0 {
+	if shift <= 0 {
 		return a
 	}
-	return (a + (1 << (shift - 1))) >> shift
+	// Match libopus silk_RSHIFT_ROUND macro to avoid overflow in the
+	// rounding add path on large-magnitude values.
+	if shift == 1 {
+		return (a >> 1) + (a & 1)
+	}
+	return ((a >> (shift - 1)) + 1) >> 1
 }
 
 func sat16(a int32) int16 {
@@ -924,10 +929,10 @@ func rshiftRound64(a int64, shift int) int64 {
 	if shift <= 0 {
 		return a
 	}
-	if a < 0 {
-		return -(((-a) + (1 << (shift - 1))) >> shift)
+	if shift == 1 {
+		return (a >> 1) + (a & 1)
 	}
-	return (a + (1 << (shift - 1))) >> shift
+	return ((a >> (shift - 1)) + 1) >> 1
 }
 
 func subSat32(a, b int32) int32 {
@@ -1052,13 +1057,19 @@ func maxInt32(a, b int32) int32 {
 }
 
 func bwExpandQ12(ar []int16, coef float64) {
-	chirpQ16 := int32(coef * 65536.0)
+	if len(ar) == 0 {
+		return
+	}
+	// Match SILK_FIX_CONST(coef, 16) rounding semantics.
+	chirpQ16 := int32(math.Round(coef * 65536.0))
 	chirpMinusOneQ16 := chirpQ16 - 65536
 
-	for i := 0; i < len(ar); i++ {
+	for i := 0; i < len(ar)-1; i++ {
 		ar[i] = int16(rshiftRound(chirpQ16*int32(ar[i]), 16))
 		chirpQ16 = chirpQ16 + rshiftRound(chirpQ16*chirpMinusOneQ16, 16)
 	}
+	last := len(ar) - 1
+	ar[last] = int16(rshiftRound(chirpQ16*int32(ar[last]), 16))
 }
 
 func computeEnergy(exc []int32, gainQ10 int32, length, offset int) (energy int32, shift int) {

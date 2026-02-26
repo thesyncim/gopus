@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-26
+topic: SILK PLC fixed-point rounding and bwexpander Q16 cadence parity
+decision: Keep `plc/silk_plc.go` fixed-point helpers aligned to libopus semantics by (a) using overflow-safe `silk_RSHIFT_ROUND`/`silk_RSHIFT_ROUND64` forms (`((x>>(n-1))+1)>>1` with `n==1` fast path) instead of pre-add rounding that can overflow, and (b) using `silk_bwexpander`-equivalent chirp initialization/cadence (`SILK_FIX_CONST`-style rounded `chirp_Q16`, then update chirp only through coefficient `d-2` and process coefficient `d-1` with the final chirp value).
+evidence: Updated `plc/silk_plc.go` helper paths only; focused and broad decoder-loss validation showed strong uplift with no observed regressions in covered suites: `go test ./plc -count=1`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`, `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run 'TestDecoderLossStressPatternsAgainstOpusDemo/silk-wb-20ms-mono-24k-fec/periodic5$' -count=1 -v` (`Q -28.01 -> 100.00`, `delay=0`, `corr=1.000000`), and `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`.
+do_not_repeat_until: PLC helper arithmetic (`rshiftRound*`, `bwExpandQ12`) or libopus 1.6.1 parity target for `silk/PLC.c` fixed-point semantics changes, or new fixture evidence shows this exact arithmetic port regresses another lane.
+owner: codex
+
+date: 2026-02-26
 topic: DecodeWithFEC no-LBRR fallback and SILK CNG state-order parity
 decision: Keep `DecodeWithFEC` no-LBRR recovery on prior-state PLC cadence (not packet-context FEC decode), and keep SILK decode-frame ordering aligned to libopus: `lossCnt/prevSignalType/firstFrameAfterReset` set before CNG+glue, `lagPrev` updated after CNG+glue, CNG-update gated on `prevSignalType`, and packet-loss PLC resetting `lastGainIndex` to `10`.
 evidence: Updated `decoder.go` no-LBRR fallback cadence, moved `lagPrev` to post-CNG/glue in `silk/decode.go` and `silk/lbrr_decode.go`, and mirrored libopus packet-loss gain-index reset in `silk/silk.go` (`decodePLC`/`decodePLCStereo`). Focused validations stayed stable with no regressions and no measurable target uplift yet: `go test ./silk -count=1`, `GOPUS_TEST_TIER=parity go test ./testvectors -run 'TestDecoderLossParityLibopusFixture/silk-wb-20ms-mono-24k-fec' -count=1 -v`, `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run 'TestDecoderLossStressPatternsAgainstOpusDemo/silk-wb-20ms-mono-24k-fec/periodic5$' -count=1 -v` (`Q=-28.01`, `delay=0`, `corr=0.999826`).
