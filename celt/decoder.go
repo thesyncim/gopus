@@ -78,9 +78,13 @@ type Decoder struct {
 
 	// Per-decoder PLC state (do not share across decoder instances).
 	plcState *plc.State
+	// CELT loss duration in libopus LM units (saturates at 10000).
+	plcLossDuration int
 	// Periodic PLC cadence state (mirrors libopus decode_lost() behavior).
 	plcLastPitchPeriod     int
 	plcPrevLossWasPeriodic bool
+	// Mirrors libopus prefilter_and_fold cadence after periodic PLC.
+	plcPrefilterAndFoldPending bool
 	// Stored LPC coefficients per channel for periodic PLC continuation.
 	plcLPC []float64
 
@@ -125,6 +129,8 @@ type Decoder struct {
 	scratchPLCIIRMem      []float64
 	scratchPLCChannel     []float64
 	scratchPLCExc         []float64
+	scratchPLCFoldSrc     []float64
+	scratchPLCFoldDst     []float64
 }
 
 // NewDecoder creates a new CELT decoder with the given number of channels.
@@ -209,6 +215,8 @@ func (d *Decoder) Reset() {
 	d.bandDebug = bandDebugState{}
 	d.plcLastPitchPeriod = 0
 	d.plcPrevLossWasPeriodic = false
+	d.plcPrefilterAndFoldPending = false
+	d.plcLossDuration = 0
 
 	// Clear range decoder reference
 	d.rangeDecoder = nil
@@ -223,6 +231,164 @@ func (d *Decoder) Reset() {
 		d.plcState = plc.NewState()
 	}
 	d.plcState.Reset()
+}
+
+func (d *Decoder) resetPLCCadence(frameSize, channels int) {
+	d.plcLossDuration = 0
+	d.plcPrefilterAndFoldPending = false
+	if d.plcState == nil {
+		d.plcState = plc.NewState()
+	}
+	d.plcState.Reset()
+	d.plcState.SetLastFrameParams(plc.ModeCELT, frameSize, channels)
+}
+
+func (d *Decoder) applyPendingPLCPrefilterAndFold() {
+	if !d.plcPrefilterAndFoldPending {
+		return
+	}
+	// Match libopus cadence: consume the pending fold exactly once.
+	d.plcPrefilterAndFoldPending = false
+
+	if d.channels <= 0 || Overlap <= 0 {
+		return
+	}
+	if len(d.plcDecodeMem) < plcDecodeBufferSize*d.channels {
+		return
+	}
+	if len(d.overlapBuffer) < Overlap*d.channels {
+		return
+	}
+
+	const history = combFilterHistory
+	const segLen = Overlap
+	if history <= 0 || segLen <= 0 || plcDecodeBufferSize < history {
+		return
+	}
+
+	bufLen := history + segLen
+	d.scratchPLCFoldSrc = ensureFloat64Slice(&d.scratchPLCFoldSrc, bufLen)
+	d.scratchPLCFoldDst = ensureFloat64Slice(&d.scratchPLCFoldDst, bufLen)
+	window := GetWindowBuffer(segLen)
+	half := segLen >> 1
+
+	for ch := 0; ch < d.channels; ch++ {
+		hist := d.plcDecodeMem[ch*plcDecodeBufferSize : (ch+1)*plcDecodeBufferSize]
+		overlap := d.overlapBuffer[ch*segLen : (ch+1)*segLen]
+		src := d.scratchPLCFoldSrc[:bufLen]
+		dst := d.scratchPLCFoldDst[:bufLen]
+
+		copy(src[:history], hist[plcDecodeBufferSize-history:])
+		copy(src[history:], overlap)
+
+		combFilterWithInputF32(
+			dst, src, history,
+			d.postfilterPeriodOld, d.postfilterPeriod, segLen,
+			-d.postfilterGainOld, -d.postfilterGain,
+			d.postfilterTapsetOld, d.postfilterTapset,
+			nil, 0,
+		)
+
+		etmp := dst[history : history+segLen]
+		for i := 0; i < half; i++ {
+			// Simulate TDAC blending exactly where libopus mutates decode_mem.
+			w0 := float32(window[i])
+			w1 := float32(window[segLen-1-i])
+			x0 := float32(etmp[segLen-1-i])
+			x1 := float32(etmp[i])
+			overlap[i] = float64(w0*x0 + w1*x1)
+		}
+	}
+}
+
+func (d *Decoder) accumulatePLCLossDuration(frameSize int) {
+	lm := GetModeConfig(frameSize).LM
+	if lm < 0 {
+		lm = 0
+	}
+	if lm > 30 {
+		lm = 30
+	}
+	d.plcLossDuration += 1 << uint(lm)
+	if d.plcLossDuration > 10000 {
+		d.plcLossDuration = 10000
+	}
+}
+
+func (d *Decoder) applyLossEnergySafety(intra bool, start, end, lm int) {
+	// Port of libopus celt_decode_with_ec() loss-recovery safety before
+	// unquant_coarse_energy(): clamp oldBandE prediction after packet loss.
+	if intra || d.plcLossDuration == 0 {
+		return
+	}
+	if start < 0 {
+		start = 0
+	}
+	if end > MaxBands {
+		end = MaxBands
+	}
+	if start >= end {
+		return
+	}
+	if lm < 0 {
+		lm = 0
+	}
+	if lm > 30 {
+		lm = 30
+	}
+
+	missing := min(10, d.plcLossDuration>>uint(lm))
+	safety := 0.0
+	switch lm {
+	case 0:
+		safety = 1.5
+	case 1:
+		safety = 0.5
+	}
+
+	for c := 0; c < d.channels; c++ {
+		base := c * MaxBands
+		if base+end > len(d.prevEnergy) || base+end > len(d.prevLogE) || base+end > len(d.prevLogE2) {
+			continue
+		}
+		for i := start; i < end; i++ {
+			idx := base + i
+			e0 := d.prevEnergy[idx]
+			e1 := d.prevLogE[idx]
+			e2 := d.prevLogE2[idx]
+
+			maxPrev := e1
+			if e2 > maxPrev {
+				maxPrev = e2
+			}
+			if e0 < maxPrev {
+				slope := e1 - e0
+				halfSlope := 0.5 * (e2 - e0)
+				if halfSlope > slope {
+					slope = halfSlope
+				}
+				if slope > 2.0 {
+					slope = 2.0
+				}
+				dec := float64(1+missing) * slope
+				if dec < 0 {
+					dec = 0
+				}
+				e0 -= dec
+				if e0 < -20.0 {
+					e0 = -20.0
+				}
+			} else {
+				if e1 < e0 {
+					e0 = e1
+				}
+				if e2 < e0 {
+					e0 = e2
+				}
+			}
+			d.prevEnergy[idx] = e0 - safety
+		}
+	}
 }
 
 // SetRangeDecoder sets the range decoder for the current frame.
@@ -667,8 +833,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 		if traceLen > 0 {
 			traceSynthesis("final", samples[:traceLen])
 		}
-		d.plcState.Reset()
-		d.plcState.SetLastFrameParams(plc.ModeCELT, frameSize, d.channels)
+		d.resetPLCCadence(frameSize, d.channels)
 		d.rng = rd.Range()
 		return samples, nil
 	}
@@ -703,6 +868,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 
 	// Trace frame header
 	traceHeader(frameSize, d.channels, lm, boolToInt(intra), boolToInt(transient))
+	d.applyLossEnergySafety(intra, start, end, lm)
 
 	// Determine short blocks for transient mode
 	shortBlocks := 1
@@ -816,6 +982,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	if antiCollapseOn {
 		antiCollapse(coeffsL, coeffsR, collapse, lm, d.channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
 	}
+	d.applyPendingPLCPrefilterAndFold()
 
 	// Step 6: Synthesis (IMDCT + window + overlap-add)
 	var samples []float64
@@ -870,8 +1037,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	d.rng = rd.Range()
 
 	// Reset PLC state after successful decode
-	d.plcState.Reset()
-	d.plcState.SetLastFrameParams(plc.ModeCELT, frameSize, d.channels)
+	d.resetPLCCadence(frameSize, d.channels)
 
 	return samples, nil
 }
@@ -1014,6 +1180,7 @@ func (d *Decoder) synthesizeSilenceStereo(frameSize int) []float64 {
 // decodeSilenceFrame synthesizes a CELT silence frame from overlap state.
 func (d *Decoder) decodeSilenceFrame(frameSize int, newPeriod int, newGain float64, newTapset int) []float64 {
 	mode := GetModeConfig(frameSize)
+	d.applyPendingPLCPrefilterAndFold()
 	var samples []float64
 	if d.channels == 2 {
 		samples = d.synthesizeSilenceStereo(frameSize)
@@ -1349,8 +1516,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 			d.prevEnergy[i] = -28.0
 		}
 		d.updateLogE(silenceE, MaxBands, false)
-		d.plcState.Reset()
-		d.plcState.SetLastFrameParams(plc.ModeCELT, frameSize, origChannels)
+		d.resetPLCCadence(frameSize, origChannels)
 		d.rng = rd.Range()
 		return samples, nil
 	}
@@ -1382,6 +1548,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 		intra = rd.DecodeBit(3) == 1
 	}
 	traceRange("intra", rd)
+	d.applyLossEnergySafety(intra, start, end, lm)
 
 	shortBlocks := 1
 	if transient {
@@ -1497,6 +1664,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	// Restore original channels for stereo synthesis
 	d.channels = origChannels
 	d.prevEnergy = origPrevEnergy
+	d.applyPendingPLCPrefilterAndFold()
 
 	// Synthesize as stereo
 	samples := d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
@@ -1545,8 +1713,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	}
 
 	d.rng = rd.Range()
-	d.plcState.Reset()
-	d.plcState.SetLastFrameParams(plc.ModeCELT, frameSize, origChannels)
+	d.resetPLCCadence(frameSize, origChannels)
 
 	return samples, nil
 }
@@ -1613,8 +1780,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 		d.updateLogE(silenceE, MaxBands, false)
 		d.SetPrevEnergyWithPrev(prev1Energy, silenceE)
 		d.rng = rd.Range()
-		d.plcState.Reset()
-		d.plcState.SetLastFrameParams(plc.ModeCELT, frameSize, origChannels)
+		d.resetPLCCadence(frameSize, origChannels)
 		return samples, nil
 	}
 
@@ -1645,6 +1811,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 		intra = rd.DecodeBit(3) == 1
 	}
 	traceRange("intra", rd)
+	d.applyLossEnergySafety(intra, start, end, lm)
 
 	shortBlocks := 1
 	if transient {
@@ -1785,10 +1952,10 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 		}
 	}
 	d.rng = rd.Range()
-	d.plcState.Reset()
 
 	// Restore output channel count for synthesis/postfilter.
 	d.channels = origChannels
+	d.applyPendingPLCPrefilterAndFold()
 
 	samples := d.Synthesize(coeffsMono, transient, shortBlocks)
 
@@ -1802,7 +1969,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
 	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
 
-	d.plcState.SetLastFrameParams(plc.ModeCELT, frameSize, origChannels)
+	d.resetPLCCadence(frameSize, origChannels)
 
 	return samples, nil
 }
@@ -1867,8 +2034,7 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 		if traceLen > 0 {
 			traceSynthesis("final", samples[:traceLen])
 		}
-		d.plcState.Reset()
-		d.plcState.SetLastFrameParams(plc.ModeCELT, frameSize, d.channels)
+		d.resetPLCCadence(frameSize, d.channels)
 		d.rng = rd.Range()
 		return samples, nil
 	}
@@ -1903,6 +2069,7 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 
 	// Trace frame header
 	traceHeader(frameSize, d.channels, lm, boolToInt(intra), boolToInt(transient))
+	d.applyLossEnergySafety(intra, start, end, lm)
 
 	shortBlocks := 1
 	if transient {
@@ -2015,6 +2182,7 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 	if antiCollapseOn {
 		antiCollapse(coeffsL, coeffsR, collapse, lm, d.channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
 	}
+	d.applyPendingPLCPrefilterAndFold()
 
 	// Step 6: Synthesis (IMDCT + window + overlap-add)
 	var samples []float64
@@ -2066,8 +2234,7 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 	d.rng = rd.Range()
 
 	// Reset PLC state after successful decode
-	d.plcState.Reset()
-	d.plcState.SetLastFrameParams(plc.ModeCELT, frameSize, d.channels)
+	d.resetPLCCadence(frameSize, d.channels)
 
 	return samples, nil
 }
@@ -2281,6 +2448,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	}
 
 	hybridBinStart := ScaledBandStart(HybridCELTStartBand, frameSize)
+	d.applyPendingPLCPrefilterAndFold()
 	var samples []float64
 	if d.channels == 2 {
 		energiesL := energies[:end]
@@ -2561,6 +2729,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	// Restore original channels for stereo synthesis
 	d.channels = origChannels
 	d.prevEnergy = origPrevEnergy
+	d.applyPendingPLCPrefilterAndFold()
 
 	samples := d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
 
@@ -2824,6 +2993,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 
 	// Restore output channel count for synthesis/postfilter.
 	d.channels = origChannels
+	d.applyPendingPLCPrefilterAndFold()
 
 	samples := d.Synthesize(coeffsMono, transient, shortBlocks)
 
@@ -2841,6 +3011,7 @@ func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
 
 	// Keep PLC loss cadence bookkeeping.
 	_ = d.plcState.RecordLoss()
+	d.accumulatePLCLossDuration(frameSize)
 	lossCount := d.plcState.LostCount()
 
 	// Ensure scratch buffer is large enough
@@ -2852,11 +3023,13 @@ func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
 	// early loss window and fall back to noise-based concealment when unavailable.
 	if d.concealPeriodicPLC(d.scratchPLC[:plcLen], frameSize, lossCount) {
 		d.plcPrevLossWasPeriodic = true
+		d.plcPrefilterAndFoldPending = true
 		d.updatePLCOverlapBuffer(d.scratchPLC[:plcLen], frameSize)
 		d.applyDeemphasisAndScale(d.scratchPLC[:outLen], 1.0/32768.0)
 		return d.scratchPLC[:outLen], nil
 	}
 	d.plcPrevLossWasPeriodic = false
+	d.plcPrefilterAndFoldPending = false
 
 	// Generate raw concealment, then run postfilter/de-emphasis in decoder order.
 	// Pass decoder as both state and synthesizer (it implements both interfaces).
@@ -3146,6 +3319,90 @@ func (d *Decoder) updatePLCOverlapBuffer(plcSamples []float64, frameSize int) {
 	}
 }
 
+func pitchXCorrFloat32(x, y, xcorr []float64, length, maxPitch int) {
+	if length <= 0 || maxPitch <= 0 {
+		return
+	}
+	_ = x[length-1]
+	_ = y[maxPitch+length-2]
+	_ = xcorr[maxPitch-1]
+	for i := 0; i < maxPitch; i++ {
+		sum := float32(0)
+		for j := 0; j < length; j++ {
+			sum += float32(x[j]) * float32(y[i+j])
+		}
+		xcorr[i] = float64(sum)
+	}
+}
+
+func innerProdFloat32(x, y []float64, length int) float64 {
+	if length <= 0 {
+		return 0
+	}
+	_ = x[length-1]
+	_ = y[length-1]
+	sum := float32(0)
+	for i := 0; i < length; i++ {
+		sum += float32(x[i]) * float32(y[i])
+	}
+	return float64(sum)
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+func pitchSearchPLC(xLP []float64, y []float64, length, maxPitch int, scratch *encoderScratch) int {
+	if length <= 0 || maxPitch <= 0 {
+		return 0
+	}
+	lag := length + maxPitch
+
+	xLP4 := ensureFloat64Slice(&scratch.prefilterXLP4, length>>2)
+	yLP4 := ensureFloat64Slice(&scratch.prefilterYLP4, lag>>2)
+	xcorr := ensureFloat64Slice(&scratch.prefilterXcorr, maxPitch>>1)
+
+	for j := 0; j < length>>2; j++ {
+		xLP4[j] = xLP[2*j]
+	}
+	for j := 0; j < lag>>2; j++ {
+		yLP4[j] = y[2*j]
+	}
+
+	pitchXCorrFloat32(xLP4, yLP4, xcorr, length>>2, maxPitch>>2)
+	bestPitch := [2]int{0, 0}
+	findBestPitch(xcorr, yLP4, length>>2, maxPitch>>2, &bestPitch)
+
+	for i := 0; i < maxPitch>>1; i++ {
+		xcorr[i] = 0
+		if absInt(i-2*bestPitch[0]) > 2 && absInt(i-2*bestPitch[1]) > 2 {
+			continue
+		}
+		sum := innerProdFloat32(xLP, y[i:], length>>1)
+		if sum < -1 {
+			sum = -1
+		}
+		xcorr[i] = sum
+	}
+	findBestPitch(xcorr, y, length>>1, maxPitch>>1, &bestPitch)
+
+	offset := 0
+	if bestPitch[0] > 0 && bestPitch[0] < (maxPitch>>1)-1 {
+		a := xcorr[bestPitch[0]-1]
+		b := xcorr[bestPitch[0]]
+		c := xcorr[bestPitch[0]+1]
+		if (c - a) > 0.7*(b-a) {
+			offset = 1
+		} else if (a - c) > 0.7*(b-c) {
+			offset = -1
+		}
+	}
+	return 2*bestPitch[0] - offset
+}
+
 func (d *Decoder) searchPLCPitchPeriod() int {
 	channels := d.channels
 	if channels <= 0 {
@@ -3171,7 +3428,7 @@ func (d *Decoder) searchPLCPitchPeriod() int {
 	d.scratchPLCPitchLP = ensureFloat64Slice(&d.scratchPLCPitchLP, lpLen)
 	pitchDownsample(d.plcDecodeMem, d.scratchPLCPitchLP, lpLen, channels, 2)
 
-	searchOut := pitchSearch(
+	searchOut := pitchSearchPLC(
 		d.scratchPLCPitchLP[plcPitchLagMax>>1:],
 		d.scratchPLCPitchLP,
 		searchLen,
