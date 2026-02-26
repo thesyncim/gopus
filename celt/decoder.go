@@ -2,6 +2,7 @@ package celt
 
 import (
 	"errors"
+	"math"
 
 	"github.com/thesyncim/gopus/plc"
 	"github.com/thesyncim/gopus/rangecoding"
@@ -2897,7 +2898,32 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int) bo
 	for ch := 0; ch < channels; ch++ {
 		hist := d.postfilterMem[ch*combFilterHistory : (ch+1)*combFilterHistory]
 		src := combFilterHistory - period
-		attenuation := fade
+		decay := 0.98
+		if lossCount > 1 {
+			// Match libopus float-path decay cadence in celt_decode_lost():
+			// decay = sqrt(min(E1,E2)/E2). (In float builds SHR32() is identity.)
+			excLength := min(2*period, combFilterMaxPeriod)
+			decayLength := excLength >> 1
+			if decayLength > 0 && combFilterHistory >= 2*decayLength {
+				e1 := 1.0
+				e2 := 1.0
+				base1 := combFilterHistory - decayLength
+				base2 := combFilterHistory - 2*decayLength
+				for i := 0; i < decayLength; i++ {
+					v1 := hist[base1+i]
+					v2 := hist[base2+i]
+					e1 += v1 * v1
+					e2 += v2 * v2
+				}
+				if e1 > e2 {
+					e1 = e2
+				}
+				if e2 > 0 {
+					decay = math.Sqrt(e1 / e2)
+				}
+			}
+		}
+		attenuation := fade * decay
 		j := 0
 
 		for i := 0; i < totalSamples; i++ {
@@ -2905,7 +2931,7 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int) bo
 			j++
 			if j >= period {
 				j = 0
-				attenuation *= 0.98
+				attenuation *= decay
 			}
 		}
 	}
