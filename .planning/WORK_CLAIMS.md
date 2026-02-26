@@ -127,3 +127,4 @@ Quick commands:
 - claim: id=codex-20260226-092418; agent=codex; status=released; paths=celt/,plc/,testvectors/,.planning/; updated=2026-02-26T20:12:49Z; expires=2026-02-26T20:12:49Z; note=next decoder loss parity slice after repeated-loss decay merge
 - claim: id=codex-20260226-201303; agent=codex; status=released; paths=silk/,testvectors/,.planning/; updated=2026-02-26T20:43:13Z; expires=2026-02-26T20:43:13Z; note=next decoder loss parity slice after CELT periodic5 merge
 - claim: id=codex-20260226-204923; agent=codex; status=released; paths=silk/,testvectors/,.planning/; updated=2026-02-26T21:22:14Z; expires=2026-02-26T21:22:14Z; note=next no-lbrr periodic-loss parity slice after PR205 merge
+- claim: id=codex-20260226-212220; agent=codex; status=active; paths=hybrid/,silk/,decoder.go,testvectors/,.planning/; updated=2026-02-26T21:22:20Z; expires=2026-02-27T01:22:20Z; note=next decoder-loss parity slice for hybrid edge_then_mid after PR206
