@@ -125,3 +125,4 @@ Quick commands:
 - claim: id=codex-20260226-082241; agent=codex; status=released; paths=silk/,testvectors/,.planning/; updated=2026-02-26T08:54:57Z; expires=2026-02-26T08:54:57Z; note=next decoder loss parity slice after sLPC history writeback merge
 - claim: id=codex-20260226-085514; agent=codex; status=released; paths=celt/,plc/,testvectors/,.planning/; updated=2026-02-26T09:24:12Z; expires=2026-02-26T09:24:12Z; note=next decoder loss parity slice after SILK CNG cadence merge
 - claim: id=codex-20260226-092418; agent=codex; status=released; paths=celt/,plc/,testvectors/,.planning/; updated=2026-02-26T20:12:49Z; expires=2026-02-26T20:12:49Z; note=next decoder loss parity slice after repeated-loss decay merge
+- claim: id=codex-20260226-201303; agent=codex; status=active; paths=silk/,testvectors/,.planning/; updated=2026-02-26T20:13:03Z; expires=2026-02-27T00:13:03Z; note=next decoder loss parity slice after CELT periodic5 merge
