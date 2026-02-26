@@ -146,11 +146,11 @@ func (d *Decoder) DecodeFEC(
 
 		// Apply PLC glue frames for smooth transition
 		stMid.lossCnt = 0
-		stMid.lagPrev = ctrl.pitchL[stMid.nbSubfr-1]
 		stMid.prevSignalType = int(stMid.indices.signalType)
 		stMid.firstFrameAfterReset = false
 		d.applyCNG(0, stMid, &ctrl, frameOut)
 		silkPLCGlueFrames(stMid, frameOut, frameLength)
+		stMid.lagPrev = ctrl.pitchL[stMid.nbSubfr-1]
 		d.syncLegacyPLCState(stMid, frameOut)
 		stMid.nFramesDecoded++
 		lastFrameLost = false
