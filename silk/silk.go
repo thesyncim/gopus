@@ -783,9 +783,30 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 	// Update decoder state for PLC gluing and outBuf cadence.
 	d.recordPLCLossForState(&d.state[0], concealed)
 
-	// Upsample to 48kHz using libopus-compatible resampler
+	// Upsample to 48kHz using the same mono sMid buffering cadence as good frames.
+	duration := FrameDurationFromTOC(frameSizeSamples)
+	framesPerPacket, nbSubfr, err := frameParams(duration)
+	if err != nil || framesPerPacket <= 0 {
+		resampler := d.GetResampler(bandwidth)
+		return resampler.Process(d.BuildMonoResamplerInput(concealed)), nil
+	}
+	frameLength := nbSubfr * subFrameLengthMs * config.SampleRate / 1000
+	if frameLength <= 0 || frameLength*framesPerPacket != len(concealed) {
+		frameLength = len(concealed) / framesPerPacket
+	}
+
 	resampler := d.GetResampler(bandwidth)
-	output := resampler.Process(concealed)
+	output := make([]float32, 0, frameSizeSamples)
+	for f := 0; f < framesPerPacket; f++ {
+		start := f * frameLength
+		end := start + frameLength
+		if start < 0 || end > len(concealed) || frameLength == 0 {
+			break
+		}
+		frame := concealed[start:end]
+		resamplerInput := d.BuildMonoResamplerInput(frame)
+		output = append(output, resampler.Process(resamplerInput)...)
+	}
 
 	return output, nil
 }
