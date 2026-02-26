@@ -635,3 +635,10 @@ decision: Do not re-debug SILK decoder correctness, resampler parity, or NSQ con
 evidence: AGENTS verified-area guidance and sustained passing parity checks.
 do_not_repeat_until: related decoder/resampler/NSQ code paths or fixtures change.
 owner: codex
+
+date: 2026-02-26
+topic: CELT periodic PLC index cadence after `OPUS_MOVE`
+decision: In the CELT periodic PLC port, keep all history references in `concealPeriodicPLC` aligned to libopus `OPUS_MOVE(buf, buf+N, ...)` semantics: `S1` source energy and LPC synthesis memory must reference post-shift-equivalent tail positions (old buffer indices), not pre-shift offsets.
+evidence: Using pre-shift indices caused severe stress regressions (`edge_then_mid`, `doublet_stride7`) in the initial excitation/IIR port; correcting to post-shift-equivalent indices recovered and improved CELT stress/fixture parity (`burst3_mid`, `periodic5`, `doublet_stride7`, and canonical fixture masks).
+do_not_repeat_until: the periodic PLC path is replaced/reworked with a different decode-history model.
+owner: codex
