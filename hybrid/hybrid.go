@@ -314,12 +314,29 @@ func (d *Decoder) decodePLC(frameSize int, stereo bool) ([]float64, error) {
 	silkAligned := silkUpsampled
 
 	// Generate CELT PLC (bands 17-21 only for hybrid)
-	// Pass celtDecoder as both state and synthesizer (implements both interfaces)
-	celtConcealed := plc.ConcealCELTHybrid(d.celtDecoder, d.celtDecoder, frameSize, fadeFactor)
+	// For native hybrid frame sizes, use decoder-owned hybrid PLC cadence.
+	celtScale := 1.0 / 32768.0
+	var celtConcealed []float64
+	if frameSize == 480 || frameSize == 960 {
+		var err error
+		celtConcealed, err = d.celtDecoder.DecodeHybridFECPLC(frameSize)
+		if err != nil {
+			return nil, err
+		}
+		celtScale = 1.0
+		if fadeFactor < 1.0 {
+			for i := range celtConcealed {
+				celtConcealed[i] *= fadeFactor
+			}
+		}
+	} else {
+		// Fallback for non-hybrid frame sizes used by internal cadence paths.
+		// Pass celtDecoder as both state and synthesizer (implements both interfaces).
+		celtConcealed = plc.ConcealCELTHybrid(d.celtDecoder, d.celtDecoder, frameSize, fadeFactor)
+	}
 
 	// Combine SILK and CELT
 	output := make([]float64, totalSamples)
-	celtScale := 1.0 / 32768.0
 	for i := 0; i < totalSamples; i++ {
 		silkSample := float64(0)
 		celtSample := float64(0)
