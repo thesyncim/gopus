@@ -670,3 +670,10 @@ decision: In the CELT periodic PLC port, keep all history references in `conceal
 evidence: Using pre-shift indices caused severe stress regressions (`edge_then_mid`, `doublet_stride7`) in the initial excitation/IIR port; correcting to post-shift-equivalent indices recovered and improved CELT stress/fixture parity (`burst3_mid`, `periodic5`, `doublet_stride7`, and canonical fixture masks).
 do_not_repeat_until: the periodic PLC path is replaced/reworked with a different decode-history model.
 owner: codex
+
+date: 2026-02-26
+topic: Hybrid PLC CELT cadence source
+decision: For native hybrid PLC frame sizes (10/20 ms), source CELT concealment from decoder-owned `DecodeHybridFECPLC` cadence and then apply hybrid fade shaping externally; keep legacy `plc.ConcealCELTHybrid` only as fallback for non-native frame sizes.
+evidence: Directly replacing hybrid PLC with `DecodeHybridFECPLC` without external fade regressed hybrid stress/parity lanes; adding the existing hybrid fade on top of decoder-owned CELT cadence improved covered hybrid slices (`burst3_mid`, `periodic5`, `doublet_stride7`, `burst2_mid`, `periodic9`) while keeping `edge_then_mid` stable and preserving passing parity/stress gates.
+do_not_repeat_until: libopus evidence indicates hybrid PLC should drop external fade shaping or the non-native frame-size fallback path is removed.
+owner: codex
