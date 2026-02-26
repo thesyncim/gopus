@@ -629,6 +629,83 @@ func ConcealCELTHybridRawIntoWithDBDecay(
 	dec.SetRNG(rng)
 }
 
+// ConcealCELTHybridRawIntoFromEnergies generates hybrid raw concealment using
+// caller-supplied per-band log energies.
+func ConcealCELTHybridRawIntoFromEnergies(
+	dst []float64,
+	dec CELTDecoderState,
+	synth CELTSynthesizer,
+	frameSize int,
+	fadeFactor float64,
+	energies []float64,
+) {
+	if dec == nil {
+		limit := frameSize
+		if limit > len(dst) {
+			limit = len(dst)
+		}
+		for i := 0; i < limit; i++ {
+			dst[i] = 0
+		}
+		return
+	}
+
+	channels := dec.Channels()
+	outLen := frameSize * channels
+	if outLen > len(dst) {
+		outLen = len(dst)
+	}
+	if fadeFactor < 0.001 {
+		for i := 0; i < outLen; i++ {
+			dst[i] = 0
+		}
+		return
+	}
+
+	bandInfo := defaultCELTBandInfo()
+	nbBands := bandInfo.EffBands(frameSize)
+
+	prevEnergy := dec.PrevEnergy()
+	concealEnergy := prevEnergy
+	if len(energies) >= len(prevEnergy) {
+		concealEnergy = energies[:len(prevEnergy)]
+	}
+
+	rng := dec.RNG()
+	var coeffs []float64
+	var coeffsL, coeffsR []float64
+	if channels == 2 {
+		coeffsL = generateNoiseHybridBands(concealEnergy[:bandInfo.MaxBands], nbBands, frameSize, &rng, fadeFactor, &bandInfo)
+		coeffsR = generateNoiseHybridBands(concealEnergy[bandInfo.MaxBands:], nbBands, frameSize, &rng, fadeFactor, &bandInfo)
+	} else {
+		coeffs = generateNoiseHybridBands(concealEnergy, nbBands, frameSize, &rng, fadeFactor, &bandInfo)
+	}
+
+	var samples []float64
+	if synth != nil {
+		if channels == 2 {
+			samples = synth.SynthesizeStereo(coeffsL, coeffsR, false, 1)
+		} else {
+			samples = synth.Synthesize(coeffs, false, 1)
+		}
+	}
+	if len(samples) > 0 {
+		copy(dst[:outLen], samples[:minInt(outLen, len(samples))])
+		if len(samples) < outLen {
+			for i := len(samples); i < outLen; i++ {
+				dst[i] = 0
+			}
+		}
+	} else {
+		for i := 0; i < outLen; i++ {
+			dst[i] = 0
+		}
+	}
+
+	dec.SetPrevEnergy(concealEnergy)
+	dec.SetRNG(rng)
+}
+
 func minInt(a, b int) int {
 	if a < b {
 		return a
