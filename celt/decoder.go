@@ -2941,24 +2941,24 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int) bo
 		firTmp := d.scratchPLCFIRTmp[:excLength]
 		for i := 0; i < excLength; i++ {
 			idx := firStart + i
-			sum := exc[idx]
+			sum := float32(exc[idx])
 			for j := 0; j < celtPLCLPCOrder; j++ {
-				sum += lpc[j] * exc[idx-j-1]
+				sum += float32(lpc[j]) * float32(exc[idx-j-1])
 			}
-			firTmp[i] = sum
+			firTmp[i] = float64(sum)
 		}
 		copy(exc[firStart:firStart+excLength], firTmp)
 
-		decay := 1.0
+		decay := float32(1.0)
 		decayLength := excLength >> 1
 		if decayLength > 0 {
-			e1 := 1.0
-			e2 := 1.0
+			e1 := float32(1.0)
+			e2 := float32(1.0)
 			base1 := celtPLCLPCOrder + maxPeriod - decayLength
 			base2 := celtPLCLPCOrder + maxPeriod - 2*decayLength
 			for i := 0; i < decayLength; i++ {
-				v1 := exc[base1+i]
-				v2 := exc[base2+i]
+				v1 := float32(exc[base1+i])
+				v2 := float32(exc[base2+i])
 				e1 += v1 * v1
 				e2 += v2 * v2
 			}
@@ -2966,13 +2966,13 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int) bo
 				e1 = e2
 			}
 			if e2 > 0 {
-				decay = math.Sqrt(e1 / e2)
+				decay = float32(math.Sqrt(float64(e1 / e2)))
 			}
 		}
 
-		attenuation := fade * decay
+		attenuation := float32(fade) * decay
 		chOut := d.scratchPLCChannel[:totalSamples]
-		s1 := 0.0
+		s1 := float32(0)
 		s1Base := plcDecodeBufferSize - maxPeriod + extrapolationOffset
 		j := 0
 		for i := 0; i < totalSamples; i++ {
@@ -2980,10 +2980,10 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int) bo
 				j = 0
 				attenuation *= decay
 			}
-			chOut[i] = attenuation * exc[celtPLCLPCOrder+extrapolationOffset+j]
+			chOut[i] = float64(attenuation * float32(exc[celtPLCLPCOrder+extrapolationOffset+j]))
 			srcIdx := s1Base + j
 			if srcIdx >= 0 && srcIdx < len(hist) {
-				v := hist[srcIdx]
+				v := float32(hist[srcIdx])
 				s1 += v * v
 			}
 			j++
@@ -2995,35 +2995,35 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int) bo
 			iirMem[i] = hist[memBase-i]
 		}
 		for i := 0; i < totalSamples; i++ {
-			sum := chOut[i]
+			sum := float32(chOut[i])
 			for k := 0; k < celtPLCLPCOrder; k++ {
-				sum -= lpc[k] * iirMem[k]
+				sum -= float32(lpc[k]) * float32(iirMem[k])
 			}
 			for k := celtPLCLPCOrder - 1; k >= 1; k-- {
 				iirMem[k] = iirMem[k-1]
 			}
-			iirMem[0] = sum
-			chOut[i] = sum
+			iirMem[0] = float64(sum)
+			chOut[i] = float64(sum)
 		}
 
-		s2 := 0.0
+		s2 := float32(0)
 		for i := 0; i < totalSamples; i++ {
-			v := chOut[i]
+			v := float32(chOut[i])
 			s2 += v * v
 		}
-		if !(s1 > 0.2*s2) {
+		if !(s1 > float32(0.2)*s2) {
 			for i := 0; i < totalSamples; i++ {
 				chOut[i] = 0
 			}
 		} else if s1 < s2 {
-			ratio := math.Sqrt((s1 + 1.0) / (s2 + 1.0))
+			ratio := float32(math.Sqrt(float64((s1 + 1.0) / (s2 + 1.0))))
 			blend := min(Overlap, totalSamples)
 			for i := 0; i < blend; i++ {
-				g := 1.0 - window[i]*(1.0-ratio)
-				chOut[i] *= g
+				g := float32(1.0) - float32(window[i])*(float32(1.0)-ratio)
+				chOut[i] = float64(float32(chOut[i]) * g)
 			}
 			for i := blend; i < totalSamples; i++ {
-				chOut[i] *= ratio
+				chOut[i] = float64(float32(chOut[i]) * ratio)
 			}
 		}
 
@@ -3054,25 +3054,26 @@ func (d *Decoder) computePLCLPC(frame, lpc, window []float64) {
 		overlap = n >> 1
 	}
 	for i := 0; i < overlap && i < len(window); i++ {
-		w := window[i]
-		x[i] *= w
-		x[n-1-i] *= w
+		w := float32(window[i])
+		x[i] = float64(float32(x[i]) * w)
+		x[n-1-i] = float64(float32(x[n-1-i]) * w)
 	}
 
 	var ac [celtPLCLPCOrder + 1]float64
 	for lag := 0; lag <= celtPLCLPCOrder; lag++ {
-		sum := 0.0
+		sum := float32(0)
 		limit := n - lag
 		for i := 0; i < limit; i++ {
-			sum += x[i] * x[i+lag]
+			sum += float32(x[i]) * float32(x[i+lag])
 		}
-		ac[lag] = sum
+		ac[lag] = float64(sum)
 	}
 
 	// Match libopus float path: add a tiny noise floor and lag windowing.
-	ac[0] *= 1.0001
+	ac[0] = float64(float32(ac[0]) * float32(1.0001))
 	for i := 1; i <= celtPLCLPCOrder; i++ {
-		ac[i] -= ac[i] * (0.008 * 0.008) * float64(i*i)
+		f := float32(0.008) * float32(i)
+		ac[i] = float64(float32(ac[i]) - float32(ac[i])*f*f)
 	}
 	plcLPCFromAutocorr(ac[:], lpc)
 }
@@ -3085,32 +3086,36 @@ func plcLPCFromAutocorr(ac []float64, lpc []float64) {
 		return
 	}
 
-	errorPower := ac[0]
-	base := ac[0]
+	var lpc32 [celtPLCLPCOrder]float32
+	base := float32(ac[0])
+	errorPower := base
 	for i := 0; i < len(lpc); i++ {
 		if errorPower <= 0 {
 			break
 		}
-		rr := 0.0
+		rr := float32(0)
 		for j := 0; j < i; j++ {
-			rr += lpc[j] * ac[i-j]
+			rr += lpc32[j] * float32(ac[i-j])
 		}
-		rr += ac[i+1]
+		rr += float32(ac[i+1])
 		r := -rr / errorPower
-		if math.IsNaN(r) || math.IsInf(r, 0) {
+		if math.IsNaN(float64(r)) || math.IsInf(float64(r), 0) {
 			break
 		}
-		lpc[i] = r
+		lpc32[i] = r
 		for j := 0; j < (i+1)>>1; j++ {
-			tmp1 := lpc[j]
-			tmp2 := lpc[i-1-j]
-			lpc[j] = tmp1 + r*tmp2
-			lpc[i-1-j] = tmp2 + r*tmp1
+			tmp1 := lpc32[j]
+			tmp2 := lpc32[i-1-j]
+			lpc32[j] = tmp1 + r*tmp2
+			lpc32[i-1-j] = tmp2 + r*tmp1
 		}
 		errorPower -= (r * r) * errorPower
-		if errorPower <= 0.001*base {
+		if errorPower <= float32(0.001)*base {
 			break
 		}
+	}
+	for i := range lpc {
+		lpc[i] = float64(lpc32[i])
 	}
 }
 
