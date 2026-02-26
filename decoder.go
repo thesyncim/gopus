@@ -7,7 +7,6 @@ import (
 
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/hybrid"
-	"github.com/thesyncim/gopus/plc"
 	"github.com/thesyncim/gopus/rangecoding"
 	"github.com/thesyncim/gopus/silk"
 )
@@ -832,15 +831,15 @@ func (d *Decoder) decodeHybridFEC(pcm []float32, frameSize int) (int, error) {
 		d.celtDecoder.Reset()
 		d.celtDecoder.SetBandwidth(celtBW)
 	}
-	// In libopus decode_fec Hybrid recovery, CELT PLC attenuation is handled
-	// inside CELT concealment logic (no external fade multiplier applied here).
-	// Keep PLC loss cadence bookkeeping, but use unity scale at this call site.
+	// Keep Hybrid PLC bookkeeping in sync with lost-frame cadence.
 	d.hybridDecoder.RecordPLCLoss()
-	celtSamples := plc.ConcealCELTHybrid(d.celtDecoder, d.celtDecoder, min(frameSize, 48000/50), 1.0)
-	scale := float32(1.0 / 32768.0)
+	celtSamples, err := d.celtDecoder.DecodeHybridFECPLC(min(frameSize, 48000/50))
+	if err != nil {
+		return 0, err
+	}
 	n := min(needed, len(celtSamples))
 	for i := 0; i < n; i++ {
-		pcm[i] += float32(celtSamples[i]) * scale
+		pcm[i] += float32(celtSamples[i])
 	}
 	d.mainDecodeRng = d.celtDecoder.FinalRange()
 
