@@ -128,3 +128,4 @@ Quick commands:
 - claim: id=codex-20260226-201303; agent=codex; status=released; paths=silk/,testvectors/,.planning/; updated=2026-02-26T20:43:13Z; expires=2026-02-26T20:43:13Z; note=next decoder loss parity slice after CELT periodic5 merge
 - claim: id=codex-20260226-204923; agent=codex; status=released; paths=silk/,testvectors/,.planning/; updated=2026-02-26T21:22:14Z; expires=2026-02-26T21:22:14Z; note=next no-lbrr periodic-loss parity slice after PR205 merge
 - claim: id=codex-20260226-212220; agent=codex; status=released; paths=hybrid/,silk/,decoder.go,testvectors/,.planning/; updated=2026-02-26T21:35:53Z; expires=2026-02-26T21:35:53Z; note=next decoder-loss parity slice for hybrid edge_then_mid after PR206
+- claim: id=codex-20260226-220853; agent=codex; status=active; paths=celt/,plc/,testvectors/,.planning/; updated=2026-02-26T22:08:53Z; expires=2026-02-27T02:08:53Z; note=next hybrid edge_then_mid parity slice via CELT background floor cadence
