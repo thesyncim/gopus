@@ -50,6 +50,8 @@ type Decoder struct {
 	prevEnergy2 []float64 // Two frames ago energies (for anti-collapse)
 	prevLogE    []float64 // Previous log energies (for anti-collapse history)
 	prevLogE2   []float64 // Two frames ago log energies (for anti-collapse history)
+	// Slow background floor estimate (libopus backgroundLogE cadence).
+	backgroundEnergy []float64
 
 	// Synthesis state (persists for overlap-add)
 	overlapBuffer []float64 // Previous frame overlap tail [Overlap * channels]
@@ -149,10 +151,11 @@ func NewDecoder(channels int) *Decoder {
 		sampleRate: 48000, // CELT always operates at 48kHz internally
 
 		// Allocate energy arrays for all bands and channels
-		prevEnergy:  make([]float64, MaxBands*channels),
-		prevEnergy2: make([]float64, MaxBands*channels),
-		prevLogE:    make([]float64, MaxBands*channels),
-		prevLogE2:   make([]float64, MaxBands*channels),
+		prevEnergy:       make([]float64, MaxBands*channels),
+		prevEnergy2:      make([]float64, MaxBands*channels),
+		prevLogE:         make([]float64, MaxBands*channels),
+		prevLogE2:        make([]float64, MaxBands*channels),
+		backgroundEnergy: make([]float64, MaxBands*channels),
 
 		// Overlap buffer for CELT (full overlap per channel)
 		overlapBuffer: make([]float64, Overlap*channels),
@@ -188,6 +191,7 @@ func (d *Decoder) Reset() {
 		d.prevEnergy2[i] = 0
 		d.prevLogE[i] = -28.0
 		d.prevLogE2[i] = -28.0
+		d.backgroundEnergy[i] = -28.0
 	}
 
 	// Clear overlap buffer
@@ -445,7 +449,17 @@ func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float64, error) {
 	if prevLossDuration == 0 {
 		decayDB = 1.5
 	}
-	plc.ConcealCELTHybridRawIntoWithDBDecay(d.scratchPLC[:outLen], d, d, frameSize, 1.0, decayDB)
+	d.ensureBackgroundEnergyState()
+	d.scratchPrevEnergy = ensureFloat64Slice(&d.scratchPrevEnergy, len(d.prevEnergy))
+	concealEnergy := d.scratchPrevEnergy[:len(d.prevEnergy)]
+	for i := range concealEnergy {
+		e := d.prevEnergy[i] - decayDB
+		if d.backgroundEnergy[i] > e {
+			e = d.backgroundEnergy[i]
+		}
+		concealEnergy[i] = e
+	}
+	plc.ConcealCELTHybridRawIntoFromEnergies(d.scratchPLC[:outLen], d, d, frameSize, 1.0, concealEnergy)
 
 	mode := GetModeConfig(frameSize)
 	d.applyPostfilter(d.scratchPLC[:outLen], frameSize, mode.LM, d.postfilterPeriod, d.postfilterGain, d.postfilterTapset)
@@ -520,6 +534,11 @@ func (d *Decoder) handleChannelTransition(streamChannels int) bool {
 				d.prevLogE2[MaxBands+i] = d.prevLogE2[i]
 			}
 		}
+		if len(d.backgroundEnergy) >= MaxBands*2 {
+			for i := 0; i < MaxBands; i++ {
+				d.backgroundEnergy[MaxBands+i] = d.backgroundEnergy[i]
+			}
+		}
 
 		// NOTE: preemphState is NOT copied during transition.
 		// In libopus, each channel maintains its own independent de-emphasis filter state.
@@ -558,6 +577,14 @@ func (d *Decoder) handleChannelTransition(streamChannels int) bool {
 				right := d.prevLogE2[MaxBands+i]
 				if right > d.prevLogE2[i] {
 					d.prevLogE2[i] = right
+				}
+			}
+		}
+		if len(d.backgroundEnergy) >= MaxBands*2 {
+			for i := 0; i < MaxBands; i++ {
+				right := d.backgroundEnergy[MaxBands+i]
+				if right > d.backgroundEnergy[i] {
+					d.backgroundEnergy[i] = right
 				}
 			}
 		}
@@ -602,6 +629,14 @@ func (d *Decoder) ensureEnergyState(channels int) {
 			prev[i] = -28.0
 		}
 		d.prevLogE2 = prev
+	}
+	if len(d.backgroundEnergy) < needed {
+		prev := make([]float64, needed)
+		copy(prev, d.backgroundEnergy)
+		for i := len(d.backgroundEnergy); i < needed; i++ {
+			prev[i] = -28.0
+		}
+		d.backgroundEnergy = prev
 	}
 }
 
@@ -705,6 +740,46 @@ func (d *Decoder) updateLogE(energies []float64, nbBands int, transient bool) {
 				d.prevLogE[dst] = e
 			}
 		}
+	}
+}
+
+func (d *Decoder) ensureBackgroundEnergyState() {
+	if len(d.backgroundEnergy) == len(d.prevEnergy) {
+		return
+	}
+	if len(d.backgroundEnergy) < len(d.prevEnergy) {
+		prev := make([]float64, len(d.prevEnergy))
+		copy(prev, d.backgroundEnergy)
+		for i := len(d.backgroundEnergy); i < len(prev); i++ {
+			prev[i] = -28.0
+		}
+		d.backgroundEnergy = prev
+		return
+	}
+	d.backgroundEnergy = d.backgroundEnergy[:len(d.prevEnergy)]
+}
+
+func (d *Decoder) updateBackgroundEnergy(lm int) {
+	d.ensureBackgroundEnergyState()
+	if lm < 0 {
+		lm = 0
+	}
+	if lm > 30 {
+		lm = 30
+	}
+	m := 1 << uint(lm)
+	maxIncUnits := d.plcLossDuration + m
+	if maxIncUnits > 160 {
+		maxIncUnits = 160
+	}
+	maxBackgroundIncrease := float64(maxIncUnits) * 0.001
+	for i := range d.backgroundEnergy {
+		bg := d.backgroundEnergy[i] + maxBackgroundIncrease
+		e := d.prevEnergy[i]
+		if bg > e {
+			bg = e
+		}
+		d.backgroundEnergy[i] = bg
 	}
 }
 
@@ -856,6 +931,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 		}
 		d.updateLogE(silenceE, MaxBands, false)
 		d.SetPrevEnergyWithPrev(prev1Energy, silenceE)
+		d.updateBackgroundEnergy(lm)
 		traceHeader(frameSize, d.channels, lm, 0, 0)
 		traceEnergy(0, 0, 0, 0)
 		traceLen := len(samples)
@@ -1052,6 +1128,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	// Update energy state for next frame
 	d.updateLogE(energies, end, transient)
 	d.SetPrevEnergyWithPrev(prev1Energy, energies)
+	d.updateBackgroundEnergy(lm)
 	// Mirror libopus: clear energies/logs outside [start,end).
 	for c := 0; c < d.channels; c++ {
 		base := c * MaxBands
@@ -1548,6 +1625,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 			d.prevEnergy[i] = -28.0
 		}
 		d.updateLogE(silenceE, MaxBands, false)
+		d.updateBackgroundEnergy(lm)
 		d.resetPLCCadence(frameSize, origChannels)
 		d.rng = rd.Range()
 		return samples, nil
@@ -1729,6 +1807,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 		d.prevEnergy[i] = stereoEnergies[i]
 		d.prevEnergy[MaxBands+i] = stereoEnergies[MaxBands+i]
 	}
+	d.updateBackgroundEnergy(lm)
 	// Mirror libopus: clear energies/logs outside [start,end).
 	for c := 0; c < origChannels; c++ {
 		base := c * MaxBands
@@ -1811,6 +1890,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 		}
 		d.updateLogE(silenceE, MaxBands, false)
 		d.SetPrevEnergyWithPrev(prev1Energy, silenceE)
+		d.updateBackgroundEnergy(lm)
 		d.rng = rd.Range()
 		d.resetPLCCadence(frameSize, origChannels)
 		return samples, nil
@@ -1970,6 +2050,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	// Update energy state for both channels while decoding as stereo.
 	d.updateLogE(energies, end, transient)
 	d.SetPrevEnergyWithPrev(prev1Energy, energies)
+	d.updateBackgroundEnergy(lm)
 	for c := 0; c < 2; c++ {
 		base := c * MaxBands
 		for band := 0; band < start; band++ {
@@ -2057,6 +2138,7 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 		}
 		d.updateLogE(silenceE, MaxBands, false)
 		d.SetPrevEnergyWithPrev(prev1Energy, silenceE)
+		d.updateBackgroundEnergy(lm)
 		traceHeader(frameSize, d.channels, lm, 0, 0)
 		traceEnergy(0, 0, 0, 0)
 		traceLen := len(samples)
@@ -2249,6 +2331,7 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 	// Update energy state for next frame
 	d.updateLogE(energies, end, transient)
 	d.SetPrevEnergyWithPrev(prev1Energy, energies)
+	d.updateBackgroundEnergy(lm)
 	// Mirror libopus: clear energies/logs outside [start,end).
 	for c := 0; c < d.channels; c++ {
 		base := c * MaxBands
@@ -2338,6 +2421,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 		}
 		d.updateLogE(silenceE, MaxBands, false)
 		d.SetPrevEnergyWithPrev(prev1Energy, silenceE)
+		d.updateBackgroundEnergy(lm)
 		d.rng = rd.Range()
 		return samples, nil
 	}
@@ -2507,6 +2591,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
 	d.updateLogE(energies, end, transient)
 	d.SetPrevEnergyWithPrev(prev1Energy, energies)
+	d.updateBackgroundEnergy(lm)
 	// Mirror libopus: clear energies/logs outside [start,end).
 	for c := 0; c < d.channels; c++ {
 		base := c * MaxBands
@@ -2616,6 +2701,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 		}
 		d.prevEnergy = origPrevEnergy
 		d.updateLogE(silenceE, MaxBands, false)
+		d.updateBackgroundEnergy(lm)
 		d.rng = rd.Range()
 		return samples, nil
 	}
@@ -2781,6 +2867,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 
 	d.updateLogE(stereoEnergies, end, transient)
 	d.SetPrevEnergyWithPrev(prev1Energy, stereoEnergies)
+	d.updateBackgroundEnergy(lm)
 	// Clear bands outside [start,end).
 	for c := 0; c < origChannels; c++ {
 		base := c * MaxBands
@@ -2852,6 +2939,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 		}
 		d.updateLogE(silenceE, MaxBands, false)
 		d.SetPrevEnergyWithPrev(prev1Energy, silenceE)
+		d.updateBackgroundEnergy(lm)
 		d.rng = rd.Range()
 		return samples, nil
 	}
@@ -3008,6 +3096,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	// Update energy state for both channels while decoding as stereo.
 	d.updateLogE(energies, end, transient)
 	d.SetPrevEnergyWithPrev(prev1Energy, energies)
+	d.updateBackgroundEnergy(lm)
 	for c := 0; c < 2; c++ {
 		base := c * MaxBands
 		for band := 0; band < start; band++ {
