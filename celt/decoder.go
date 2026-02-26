@@ -2423,6 +2423,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 		d.SetPrevEnergyWithPrev(prev1Energy, silenceE)
 		d.updateBackgroundEnergy(lm)
 		d.rng = rd.Range()
+		d.resetPLCCadence(frameSize, d.channels)
 		return samples, nil
 	}
 
@@ -2607,6 +2608,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 		}
 	}
 	d.rng = rd.Range()
+	d.resetPLCCadence(frameSize, d.channels)
 
 	return samples, nil
 }
@@ -2703,6 +2705,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 		d.updateLogE(silenceE, MaxBands, false)
 		d.updateBackgroundEnergy(lm)
 		d.rng = rd.Range()
+		d.resetPLCCadence(frameSize, origChannels)
 		return samples, nil
 	}
 
@@ -2884,6 +2887,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	}
 
 	d.rng = rd.Range()
+	d.resetPLCCadence(frameSize, origChannels)
 
 	return samples, nil
 }
@@ -2941,6 +2945,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 		d.SetPrevEnergyWithPrev(prev1Energy, silenceE)
 		d.updateBackgroundEnergy(lm)
 		d.rng = rd.Range()
+		d.resetPLCCadence(frameSize, origChannels)
 		return samples, nil
 	}
 
@@ -3120,6 +3125,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 
 	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
 	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
+	d.resetPLCCadence(frameSize, origChannels)
 
 	return samples, nil
 }
