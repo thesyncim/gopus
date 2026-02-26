@@ -782,6 +782,9 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 
 	// Update decoder state for PLC gluing and outBuf cadence.
 	d.recordPLCLossForState(&d.state[0], concealed)
+	// Match libopus dec_API.c: on FLAG_PACKET_LOST, reset gain index
+	// to avoid gain-bounce on subsequent good frames.
+	d.state[0].lastGainIndex = 10
 
 	// Upsample to 48kHz using the same mono sMid buffering cadence as good frames.
 	duration := FrameDurationFromTOC(frameSizeSamples)
@@ -958,6 +961,9 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 	// Update decoder state for both channels for PLC gluing and outBuf cadence.
 	d.recordPLCLossForState(&d.state[0], left)
 	d.recordPLCLossForState(&d.state[1], right)
+	// Match libopus dec_API.c packet-loss cadence for both channels.
+	d.state[0].lastGainIndex = 10
+	d.state[1].lastGainIndex = 10
 
 	// Upsample to 48kHz using libopus-compatible resampler
 	leftResampler := d.GetResamplerForChannel(bandwidth, 0)
