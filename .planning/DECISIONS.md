@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-26
+topic: SILK CNG cadence parity in decode and PLC-loss paths
+decision: Keep libopus-style SILK comfort-noise generation (`silk_CNG`) active in decoder cadence: run CNG before `silkPLCGlueFrames` on good decoded SILK frames, and on lost SILK frames run CNG after outBuf update and before glue. Preserve decoder-side CNG state (`smth_NLSF`, excitation buffer, synth state, smoothed gain, rand seed, fs) and compute lost-frame CNG gain from per-channel SILK PLC state (`RandScaleQ14`, `PrevGainQ16[1]`), matching libopus `decode_frame.c` + `CNG.c` ordering.
+evidence: Added `silk/cng.go` and wired calls in `silk/decode.go`, `silk/lbrr_decode.go`, and `silk/silk.go`; extended state/constants in `silk/libopus_types.go` and `silk/libopus_consts.go`. Large periodic-loss uplift: stress `hybrid periodic5 Q -36.14 -> 3.93`, `silk periodic5 Q -48.53 -> -28.01`; parity fixture `hybrid periodic9 Q -32.88 -> -14.02`, `silk periodic9 Q -38.94 -> -26.28`, with delay `0` retained. Validation: `go test ./silk -count=1`, `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`, `go test ./... -count=1`, `make verify-production`.
+do_not_repeat_until: SILK decode-frame ordering (`PLC -> CNG -> glue`), decoder state layout for CNG/PLC, or pinned libopus `silk/CNG.c` + `silk/decode_frame.c` semantics are refactored.
+owner: codex
+
+date: 2026-02-26
 topic: SILK PLC concealed LPC-history writeback (`sLPC_Q14_buf`) parity
 decision: Keep SILK PLC concealment persisting LPC synthesis tail (`sLPC_Q14` history) back into decoder state after lost-frame synthesis, matching libopus `silk_PLC_conceal()` state cadence. Do not leave PLC-generated `sLPC_Q14` history local-only.
 evidence: Added optional setter plumbing (`SetSLPCQ14HistoryQ14`) in `plc/silk_plc.go` + `silk/plc_bridge.go`; `ConcealSILKWithLTP` now writes back LPC tail after synthesis. Large decoder-loss uplift: stress `doublet_stride7` improved from `hybrid -55.57 -> -2.17` and `silk -55.49 -> -9.13` with delay `0` and corr near `1.0`. Validation: `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`, `go test ./... -count=1`.

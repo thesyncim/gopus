@@ -828,6 +828,10 @@ func (d *Decoder) recordPLCLossForState(st *decoderState, concealed []float32) {
 	if st == nil {
 		return
 	}
+	channel := 0
+	if st == &d.state[1] {
+		channel = 1
+	}
 
 	st.lossCnt++
 	if len(concealed) == 0 {
@@ -845,13 +849,20 @@ func (d *Decoder) recordPLCLossForState(st *decoderState, concealed []float32) {
 		tmp[i] = float32ToInt16(v)
 	}
 
-	d.updateHistory(concealed)
+	d.updateHistoryInt16(tmp)
 	// Keep decoder outBuf cadence aligned with normal decode path so
 	// subsequent PLC rewhitening uses the most recent concealed output.
 	silkUpdateOutBuf(st, tmp)
 
-	st.plcConcEnergy, st.plcConcEnergyShift = silkSumSqrShift(tmp, len(tmp))
-	st.plcLastFrameLost = true
+	// Match libopus decode_frame.c cadence on lost frames:
+	// CNG is applied after outBuf update, then PLC glue captures concealed energy.
+	d.applyCNG(channel, st, nil, tmp)
+	silkPLCGlueFrames(st, tmp, len(tmp))
+
+	const scale = float32(1.0 / 32768.0)
+	for i := range tmp {
+		concealed[i] = float32(tmp[i]) * scale
+	}
 }
 
 // syncLegacyPLCState aligns legacy PLC helper fields from libopus-style decoder state.
