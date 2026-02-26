@@ -1,6 +1,6 @@
 # Investigation Decisions
 
-Last updated: 2026-02-23
+Last updated: 2026-02-26
 
 Purpose: prevent repeated validation by recording what was tested, what was ruled out, and when re-validation is allowed.
 
@@ -20,6 +20,13 @@ owner: <initials or handle>
 ```
 
 ## Current Decisions
+
+date: 2026-02-26
+topic: SILK mono PLC resampler-input cadence (sMid continuity)
+decision: Keep mono SILK PLC upsampling on the same `BuildMonoResamplerInput(...)` cadence used by normal mono decode (frame-wise `sMid` continuity), and do not feed concealed native samples directly into the resampler.
+evidence: Updated `silk/silk.go` `decodePLC` to route PLC-native frames through `BuildMonoResamplerInput` before `resampler.Process`. Focused parity uplift on previously worst stress lanes: `hybrid-fb-20ms-mono-32k-fec/doublet_stride7 Q -58.67 -> -55.57` and `silk-wb-20ms-mono-24k-fec/doublet_stride7 Q -58.52 -> -55.49` with delay `0` retained and correlation improved (`~0.9963`). Validation: `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run 'TestDecoderLossStressPatternsAgainstOpusDemo/(silk-wb-20ms-mono-24k-fec|hybrid-fb-20ms-mono-32k-fec)/doublet_stride7$' -count=1 -v`, full stress sweep `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`, plus focused decoder/FEC API tests.
+do_not_repeat_until: mono SILK resampler input cadence (`BuildMonoResamplerInput`/`sMid` state handling), PLC decode path structure, or libopus mono decode delay-compensation semantics are refactored.
+owner: codex
 
 date: 2026-02-25
 topic: amd64 SILK WB precision floor recalibration after compliance provenance alignment
