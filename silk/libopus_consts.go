@@ -71,6 +71,12 @@ const (
 	// Delayed decision quantization limits (define.h)
 	maxDelDecStates = 4
 
+	// CNG constants (define.h)
+	cngBufMaskMax           = 255
+	cngGainSmthQ16          = 4634
+	cngGainSmthThresholdQ16 = 46396
+	cngNLSFSMthQ16          = 16348
+
 	// int32 max (SigProc_FIX.h)
 	silk_int32_MAX = int32(0x7fffffff)
 )

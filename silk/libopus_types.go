@@ -29,6 +29,15 @@ type sideInfoIndices struct {
 	Seed             int8
 }
 
+type cngState struct {
+	excBufQ14     [maxFrameLength]int32
+	smthNLSFQ15   [maxLPCOrder]int32
+	synthStateQ14 [maxLPCOrder]int32
+	smthGainQ16   int32
+	randSeed      int32
+	fsKHz         int
+}
+
 type decoderState struct {
 	prevGainQ16          int32
 	excQ14               [maxFrameLength]int32
@@ -63,6 +72,9 @@ type decoderState struct {
 	plcConcEnergy      int32 // Energy of last concealed frame (for gluing)
 	plcConcEnergyShift int   // Shift amount for concealed energy
 	plcLastFrameLost   bool  // True if last frame was lost (concealed)
+
+	// Comfort noise generation state (libopus silk_CNG).
+	cng cngState
 
 	// Scratch buffer references (set by parent Decoder for hot-path optimization).
 	// These are nil if the decoderState is used standalone (e.g., in tests).
