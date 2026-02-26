@@ -20,6 +20,8 @@ var (
 	ErrNilDecoder = errors.New("celt: nil range decoder")
 )
 
+const celtPLCLPCOrder = 24
+
 // Decoder decodes CELT frames from an Opus packet.
 // It maintains state across frames for proper audio continuity via overlap-add
 // synthesis and energy prediction.
@@ -79,6 +81,8 @@ type Decoder struct {
 	// Periodic PLC cadence state (mirrors libopus decode_lost() behavior).
 	plcLastPitchPeriod     int
 	plcPrevLossWasPeriodic bool
+	// Stored LPC coefficients per channel for periodic PLC continuation.
+	plcLPC []float64
 
 	// Band processing state
 	collapseMask uint32 // Tracks which bands received pulses (for anti-collapse)
@@ -116,6 +120,11 @@ type Decoder struct {
 	scratchPLC            []float64 // Scratch buffer for PLC concealment samples
 	scratchPLCPitchLP     []float64
 	scratchPLCPitchSearch encoderScratch
+	scratchPLCFIRTmp      []float64
+	scratchPLCWindowed    []float64
+	scratchPLCIIRMem      []float64
+	scratchPLCChannel     []float64
+	scratchPLCExc         []float64
 }
 
 // NewDecoder creates a new CELT decoder with the given number of channels.
@@ -149,6 +158,7 @@ func NewDecoder(channels int) *Decoder {
 		postfilterMem: make([]float64, combFilterHistory*channels),
 		// PLC decode history sized to libopus DEC_PITCH_BUF_SIZE.
 		plcDecodeMem: make([]float64, plcDecodeBufferSize*channels),
+		plcLPC:       make([]float64, celtPLCLPCOrder*channels),
 
 		// RNG state (libopus initializes to zero)
 		rng: 0,
@@ -185,6 +195,9 @@ func (d *Decoder) Reset() {
 	}
 	for i := range d.plcDecodeMem {
 		d.plcDecodeMem[i] = 0
+	}
+	for i := range d.plcLPC {
+		d.plcLPC[i] = 0
 	}
 
 	// Reset postfilter
@@ -2863,7 +2876,10 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int) bo
 	if len(dst) < totalSamples*d.channels {
 		return false
 	}
-	if len(d.postfilterMem) < combFilterHistory*d.channels {
+	if len(d.plcDecodeMem) < plcDecodeBufferSize*d.channels {
+		return false
+	}
+	if len(d.plcLPC) < celtPLCLPCOrder*d.channels {
 		return false
 	}
 	// Match libopus: prefer periodic PLC only for the early loss window.
@@ -2874,7 +2890,7 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int) bo
 	}
 
 	fade := 1.0
-	period := d.postfilterPeriod
+	period := 0
 	if lossCount > 1 &&
 		d.plcPrevLossWasPeriodic &&
 		d.plcLastPitchPeriod >= combFilterMinPeriod &&
@@ -2882,63 +2898,220 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int) bo
 		period = d.plcLastPitchPeriod
 		fade = 0.8
 	} else {
-		if period < combFilterMinPeriod || period > combFilterMaxPeriod {
-			period = d.postfilterPeriodOld
-		}
-		if period < combFilterMinPeriod || period > combFilterMaxPeriod {
-			period = d.searchPLCPitchPeriod()
-		}
+		period = d.searchPLCPitchPeriod()
 	}
 	if period < combFilterMinPeriod || period > combFilterMaxPeriod || period > combFilterHistory {
 		return false
 	}
 	d.plcLastPitchPeriod = period
 
+	const maxPeriod = combFilterMaxPeriod
+	if frameSize > plcDecodeBufferSize-maxPeriod || totalSamples > plcDecodeBufferSize {
+		return false
+	}
+	excLength := min(2*period, maxPeriod)
+	if excLength <= 0 {
+		return false
+	}
+	extrapolationOffset := maxPeriod - period
+	if extrapolationOffset < 0 || extrapolationOffset+period > maxPeriod {
+		return false
+	}
+
+	d.scratchPLCExc = ensureFloat64Slice(&d.scratchPLCExc, maxPeriod+celtPLCLPCOrder)
+	d.scratchPLCFIRTmp = ensureFloat64Slice(&d.scratchPLCFIRTmp, excLength)
+	d.scratchPLCChannel = ensureFloat64Slice(&d.scratchPLCChannel, totalSamples)
+	d.scratchPLCIIRMem = ensureFloat64Slice(&d.scratchPLCIIRMem, celtPLCLPCOrder)
+
+	window := GetWindowBuffer(Overlap)
+	continuePeriodic := lossCount > 1 && d.plcPrevLossWasPeriodic
 	channels := d.channels
 	for ch := 0; ch < channels; ch++ {
-		hist := d.postfilterMem[ch*combFilterHistory : (ch+1)*combFilterHistory]
-		src := combFilterHistory - period
-		decay := 0.98
-		if lossCount > 1 {
-			// Match libopus float-path decay cadence in celt_decode_lost():
-			// decay = sqrt(min(E1,E2)/E2). (In float builds SHR32() is identity.)
-			excLength := min(2*period, combFilterMaxPeriod)
-			decayLength := excLength >> 1
-			if decayLength > 0 && combFilterHistory >= 2*decayLength {
-				e1 := 1.0
-				e2 := 1.0
-				base1 := combFilterHistory - decayLength
-				base2 := combFilterHistory - 2*decayLength
-				for i := 0; i < decayLength; i++ {
-					v1 := hist[base1+i]
-					v2 := hist[base2+i]
-					e1 += v1 * v1
-					e2 += v2 * v2
-				}
-				if e1 > e2 {
-					e1 = e2
-				}
-				if e2 > 0 {
-					decay = math.Sqrt(e1 / e2)
-				}
+		hist := d.plcDecodeMem[ch*plcDecodeBufferSize : (ch+1)*plcDecodeBufferSize]
+		lpc := d.plcLPC[ch*celtPLCLPCOrder : (ch+1)*celtPLCLPCOrder]
+
+		exc := d.scratchPLCExc[:maxPeriod+celtPLCLPCOrder]
+		copy(exc, hist[plcDecodeBufferSize-maxPeriod-celtPLCLPCOrder:])
+
+		if !continuePeriodic {
+			d.computePLCLPC(exc[celtPLCLPCOrder:], lpc, window)
+		}
+
+		firStart := celtPLCLPCOrder + maxPeriod - excLength
+		firTmp := d.scratchPLCFIRTmp[:excLength]
+		for i := 0; i < excLength; i++ {
+			idx := firStart + i
+			sum := exc[idx]
+			for j := 0; j < celtPLCLPCOrder; j++ {
+				sum += lpc[j] * exc[idx-j-1]
+			}
+			firTmp[i] = sum
+		}
+		copy(exc[firStart:firStart+excLength], firTmp)
+
+		decay := 1.0
+		decayLength := excLength >> 1
+		if decayLength > 0 {
+			e1 := 1.0
+			e2 := 1.0
+			base1 := celtPLCLPCOrder + maxPeriod - decayLength
+			base2 := celtPLCLPCOrder + maxPeriod - 2*decayLength
+			for i := 0; i < decayLength; i++ {
+				v1 := exc[base1+i]
+				v2 := exc[base2+i]
+				e1 += v1 * v1
+				e2 += v2 * v2
+			}
+			if e1 > e2 {
+				e1 = e2
+			}
+			if e2 > 0 {
+				decay = math.Sqrt(e1 / e2)
 			}
 		}
-		attenuation := fade * decay
-		j := 0
 
+		attenuation := fade * decay
+		chOut := d.scratchPLCChannel[:totalSamples]
+		s1 := 0.0
+		s1Base := plcDecodeBufferSize - maxPeriod + extrapolationOffset
+		j := 0
 		for i := 0; i < totalSamples; i++ {
-			dst[i*channels+ch] = hist[src+j] * attenuation
-			j++
 			if j >= period {
 				j = 0
 				attenuation *= decay
 			}
+			chOut[i] = attenuation * exc[celtPLCLPCOrder+extrapolationOffset+j]
+			srcIdx := s1Base + j
+			if srcIdx >= 0 && srcIdx < len(hist) {
+				v := hist[srcIdx]
+				s1 += v * v
+			}
+			j++
+		}
+
+		iirMem := d.scratchPLCIIRMem[:celtPLCLPCOrder]
+		memBase := plcDecodeBufferSize - 1
+		for i := 0; i < celtPLCLPCOrder; i++ {
+			iirMem[i] = hist[memBase-i]
+		}
+		for i := 0; i < totalSamples; i++ {
+			sum := chOut[i]
+			for k := 0; k < celtPLCLPCOrder; k++ {
+				sum -= lpc[k] * iirMem[k]
+			}
+			for k := celtPLCLPCOrder - 1; k >= 1; k-- {
+				iirMem[k] = iirMem[k-1]
+			}
+			iirMem[0] = sum
+			chOut[i] = sum
+		}
+
+		s2 := 0.0
+		for i := 0; i < totalSamples; i++ {
+			v := chOut[i]
+			s2 += v * v
+		}
+		if !(s1 > 0.2*s2) {
+			for i := 0; i < totalSamples; i++ {
+				chOut[i] = 0
+			}
+		} else if s1 < s2 {
+			ratio := math.Sqrt((s1 + 1.0) / (s2 + 1.0))
+			blend := min(Overlap, totalSamples)
+			for i := 0; i < blend; i++ {
+				g := 1.0 - window[i]*(1.0-ratio)
+				chOut[i] *= g
+			}
+			for i := blend; i < totalSamples; i++ {
+				chOut[i] *= ratio
+			}
+		}
+
+		for i := 0; i < totalSamples; i++ {
+			dst[i*channels+ch] = chOut[i]
 		}
 	}
 
 	d.updatePostfilterHistory(dst[:frameSize*channels], frameSize, combFilterHistory)
 	d.updatePLCDecodeHistory(dst[:frameSize*channels], frameSize, plcDecodeBufferSize)
 	return true
+}
+
+func (d *Decoder) computePLCLPC(frame, lpc, window []float64) {
+	n := len(frame)
+	if n <= 0 {
+		for i := range lpc {
+			lpc[i] = 0
+		}
+		return
+	}
+	d.scratchPLCWindowed = ensureFloat64Slice(&d.scratchPLCWindowed, n)
+	x := d.scratchPLCWindowed[:n]
+	copy(x, frame)
+
+	overlap := Overlap
+	if overlap > n>>1 {
+		overlap = n >> 1
+	}
+	for i := 0; i < overlap && i < len(window); i++ {
+		w := window[i]
+		x[i] *= w
+		x[n-1-i] *= w
+	}
+
+	var ac [celtPLCLPCOrder + 1]float64
+	for lag := 0; lag <= celtPLCLPCOrder; lag++ {
+		sum := 0.0
+		limit := n - lag
+		for i := 0; i < limit; i++ {
+			sum += x[i] * x[i+lag]
+		}
+		ac[lag] = sum
+	}
+
+	// Match libopus float path: add a tiny noise floor and lag windowing.
+	ac[0] *= 1.0001
+	for i := 1; i <= celtPLCLPCOrder; i++ {
+		ac[i] -= ac[i] * (0.008 * 0.008) * float64(i*i)
+	}
+	plcLPCFromAutocorr(ac[:], lpc)
+}
+
+func plcLPCFromAutocorr(ac []float64, lpc []float64) {
+	for i := range lpc {
+		lpc[i] = 0
+	}
+	if len(ac) < len(lpc)+1 || ac[0] <= 1e-10 {
+		return
+	}
+
+	errorPower := ac[0]
+	base := ac[0]
+	for i := 0; i < len(lpc); i++ {
+		if errorPower <= 0 {
+			break
+		}
+		rr := 0.0
+		for j := 0; j < i; j++ {
+			rr += lpc[j] * ac[i-j]
+		}
+		rr += ac[i+1]
+		r := -rr / errorPower
+		if math.IsNaN(r) || math.IsInf(r, 0) {
+			break
+		}
+		lpc[i] = r
+		for j := 0; j < (i+1)>>1; j++ {
+			tmp1 := lpc[j]
+			tmp2 := lpc[i-1-j]
+			lpc[j] = tmp1 + r*tmp2
+			lpc[i-1-j] = tmp2 + r*tmp1
+		}
+		errorPower -= (r * r) * errorPower
+		if errorPower <= 0.001*base {
+			break
+		}
+	}
 }
 
 func (d *Decoder) updatePLCOverlapBuffer(plcSamples []float64, frameSize int) {
