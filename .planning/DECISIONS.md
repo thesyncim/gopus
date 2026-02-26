@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-26
+topic: Hybrid successful-decode PLC cadence reset parity
+decision: Keep `resetPLCCadence(...)` on all successful hybrid CELT decode returns (including silence-success branches) in `celt/decoder.go` (`DecodeFrameHybrid`, `decodeMonoPacketToStereoHybrid`, `decodeStereoPacketToMonoHybrid`) so PLC loss-duration cadence is cleared after good hybrid frames and later isolated losses do not inherit stale consecutive-loss state.
+evidence: Updated `celt/decoder.go` only. Focused validations passed: `go test ./celt ./hybrid ./plc -count=1`, `GOPUS_TEST_TIER=parity go test ./testvectors -run 'TestDecoderLossParityLibopusFixture/hybrid-fb-20ms-mono-32k-fec' -count=1 -v`, and `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run 'TestDecoderLossStressPatternsAgainstOpusDemo/hybrid-fb-20ms-mono-32k-fec/(burst3_mid|periodic5|doublet_stride7|edge_then_mid)$' -count=1 -v`. Measured uplifts: stress `periodic5 Q 69.64 -> 71.46`, `doublet_stride7 Q 69.98 -> 71.70`, parity `periodic9 Q 74.80 -> 76.41`; unchanged on `burst3_mid Q 107.06`, `burst2_mid Q 98.06`, `single_mid Q 91.31`, `edge_then_mid Q 39.70`.
+do_not_repeat_until: hybrid decode success-return cadence, PLC loss-duration state management, or hybrid silence/normal decode return paths are refactored, or new fixture evidence shows reset-on-success harms another decoder-loss lane.
+owner: codex
+
+date: 2026-02-26
 topic: Hybrid decode_fec CELT noise-PLC loss-duration decay and decoder-ordering parity
 decision: Keep hybrid decode_fec CELT concealment on a decoder-owned path (`celt.Decoder.DecodeHybridFECPLC`) that applies decoder-side postfilter before deemphasis/scale and uses libopus-style loss-duration decay in log-energy units for hybrid noise PLC (`1.5 dB` on first loss, `0.5 dB` on subsequent losses). Use raw hybrid PLC helpers (`ConcealCELTHybridRawInto`, `ConcealCELTHybridRawIntoWithDBDecay`) for synthesis-only generation; avoid direct decode_fec accumulation of the old one-shot helper output (`plc.ConcealCELTHybrid`) that bypasses decoder ordering and loss-duration cadence.
 evidence: Updated `decoder.go`, `celt/decoder.go`, and `plc/celt_plc.go`; hybrid stress lanes improved with no covered regressions: `periodic5 Q 64.59 -> 68.85`, `doublet_stride7 Q 61.59 -> 64.85`, `edge_then_mid Q 39.45 -> 39.70`, `burst3_mid Q 97.41` unchanged under `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`. Parity slice remained green under `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`; focused units passed via `go test ./celt ./plc -count=1`.
