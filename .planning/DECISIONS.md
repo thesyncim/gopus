@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-26
+topic: CELT periodic PLC repeated-loss decay uses libopus float-path math
+decision: Keep repeated-loss periodic replay attenuation in `celt/decoder.go` `concealPeriodicPLC` using `decay = sqrt(E1/E2)` (`E1=min(E1,E2)`) rather than fixed `0.98`, matching libopus float-path `celt_decode_lost()` semantics where `SHR32` is identity in the decay formula.
+evidence: CELT fixture parity improved across all canonical decoder-loss rows: `burst2_mid Q -20.30 -> -17.19`, `periodic9 Q -37.30 -> -35.64`, `single_mid Q -18.90 -> -14.00` under `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`. Stress remained mixed but within thresholds (`periodic5` improved; others slightly regressed) under `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`. Broad gates passed: `go test ./... -count=1`, `make verify-production`.
+do_not_repeat_until: Full libopus periodic PLC excitation/IIR branch parity is ported end-to-end (making this replay-only decay bridge unnecessary), or fixture/stress evidence shows this decay cadence no longer yields net parity gain.
+owner: codex
+
+date: 2026-02-26
 topic: SILK CNG cadence parity in decode and PLC-loss paths
 decision: Keep libopus-style SILK comfort-noise generation (`silk_CNG`) active in decoder cadence: run CNG before `silkPLCGlueFrames` on good decoded SILK frames, and on lost SILK frames run CNG after outBuf update and before glue. Preserve decoder-side CNG state (`smth_NLSF`, excitation buffer, synth state, smoothed gain, rand seed, fs) and compute lost-frame CNG gain from per-channel SILK PLC state (`RandScaleQ14`, `PrevGainQ16[1]`), matching libopus `decode_frame.c` + `CNG.c` ordering.
 evidence: Added `silk/cng.go` and wired calls in `silk/decode.go`, `silk/lbrr_decode.go`, and `silk/silk.go`; extended state/constants in `silk/libopus_types.go` and `silk/libopus_consts.go`. Large periodic-loss uplift: stress `hybrid periodic5 Q -36.14 -> 3.93`, `silk periodic5 Q -48.53 -> -28.01`; parity fixture `hybrid periodic9 Q -32.88 -> -14.02`, `silk periodic9 Q -38.94 -> -26.28`, with delay `0` retained. Validation: `go test ./silk -count=1`, `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`, `go test ./... -count=1`, `make verify-production`.
