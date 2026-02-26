@@ -121,4 +121,5 @@ Quick commands:
 - claim: id=codex-20260225-112131; agent=codex; status=released; paths=go.mod,.planning/; updated=2026-02-25T11:24:34Z; expires=2026-02-25T11:24:34Z; note=downgrade go version in go.mod and prepare PR
 - claim: id=codex-20260225-213604; agent=codex; status=released; paths=testvectors/,tools/,.planning/; updated=2026-02-25T22:03:27Z; expires=2026-02-25T22:03:27Z; note=recalibrate libopus ref_q summary rows and add fixture honesty guard
 - claim: id=codex-20260225-220350; agent=codex; status=released; paths=encoder/,testvectors/,.planning/; updated=2026-02-26T03:03:02Z; expires=2026-02-26T03:03:02Z; note=next encoder parity slice after compliance provenance alignment
-- claim: id=codex-20260226-030308; agent=codex; status=active; paths=silk/,testvectors/,.planning/; updated=2026-02-26T03:03:08Z; expires=2026-02-26T07:03:08Z; note=next decoder loss parity slice after mono PLC sMid fix
+- claim: id=codex-20260226-030308; agent=codex; status=released; paths=silk/,testvectors/,.planning/; updated=2026-02-26T08:22:24Z; expires=2026-02-26T08:22:24Z; note=next decoder loss parity slice after mono PLC sMid fix
+- claim: id=codex-20260226-082241; agent=codex; status=active; paths=silk/,testvectors/,.planning/; updated=2026-02-26T08:22:41Z; expires=2026-02-26T12:22:41Z; note=next decoder loss parity slice after sLPC history writeback merge
