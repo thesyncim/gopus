@@ -160,6 +160,31 @@ func (d *Decoder) GetSLPCQ14HistoryQ14() []int32 {
 	return st.sLPCQ14Buf[start:maxLPCOrder]
 }
 
+func setSLPCQ14HistoryQ14(st *decoderState, history []int32) {
+	if st == nil || len(history) == 0 {
+		return
+	}
+	order := st.lpcOrder
+	if order <= 0 {
+		return
+	}
+	if order > maxLPCOrder {
+		order = maxLPCOrder
+	}
+	if len(history) < order {
+		order = len(history)
+	}
+	start := maxLPCOrder - order
+	if start < 0 {
+		start = 0
+	}
+	copy(st.sLPCQ14Buf[start:maxLPCOrder], history[len(history)-order:])
+}
+
+func (d *Decoder) SetSLPCQ14HistoryQ14(history []int32) {
+	setSLPCQ14HistoryQ14(&d.state[0], history)
+}
+
 func (d *Decoder) GetOutBufHistoryQ0() []int16 {
 	st := &d.state[0]
 	mem := st.ltpMemLength
@@ -341,6 +366,10 @@ func (v *silkPLCChannelView) GetSLPCQ14HistoryQ14() []int32 {
 		start = 0
 	}
 	return st.sLPCQ14Buf[start:maxLPCOrder]
+}
+
+func (v *silkPLCChannelView) SetSLPCQ14HistoryQ14(history []int32) {
+	setSLPCQ14HistoryQ14(v.state(), history)
 }
 
 func (v *silkPLCChannelView) GetOutBufHistoryQ0() []int16 {

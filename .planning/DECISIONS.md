@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-26
+topic: SILK PLC concealed LPC-history writeback (`sLPC_Q14_buf`) parity
+decision: Keep SILK PLC concealment persisting LPC synthesis tail (`sLPC_Q14` history) back into decoder state after lost-frame synthesis, matching libopus `silk_PLC_conceal()` state cadence. Do not leave PLC-generated `sLPC_Q14` history local-only.
+evidence: Added optional setter plumbing (`SetSLPCQ14HistoryQ14`) in `plc/silk_plc.go` + `silk/plc_bridge.go`; `ConcealSILKWithLTP` now writes back LPC tail after synthesis. Large decoder-loss uplift: stress `doublet_stride7` improved from `hybrid -55.57 -> -2.17` and `silk -55.49 -> -9.13` with delay `0` and corr near `1.0`. Validation: `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`, `go test ./... -count=1`.
+do_not_repeat_until: SILK PLC synthesis state layout (`sLPCQ14Buf`), PLC bridge interfaces, or libopus `silk_PLC_conceal()` post-synthesis state semantics are refactored.
+owner: codex
+
+date: 2026-02-26
 topic: SILK mono PLC resampler-input cadence (sMid continuity)
 decision: Keep mono SILK PLC upsampling on the same `BuildMonoResamplerInput(...)` cadence used by normal mono decode (frame-wise `sMid` continuity), and do not feed concealed native samples directly into the resampler.
 evidence: Updated `silk/silk.go` `decodePLC` to route PLC-native frames through `BuildMonoResamplerInput` before `resampler.Process`. Focused parity uplift on previously worst stress lanes: `hybrid-fb-20ms-mono-32k-fec/doublet_stride7 Q -58.67 -> -55.57` and `silk-wb-20ms-mono-24k-fec/doublet_stride7 Q -58.52 -> -55.49` with delay `0` retained and correlation improved (`~0.9963`). Validation: `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run 'TestDecoderLossStressPatternsAgainstOpusDemo/(silk-wb-20ms-mono-24k-fec|hybrid-fb-20ms-mono-32k-fec)/doublet_stride7$' -count=1 -v`, full stress sweep `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`, plus focused decoder/FEC API tests.
