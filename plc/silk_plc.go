@@ -48,12 +48,12 @@ const (
 	minInvPredGainQ30   = 107374   // SILK_FIX_CONST(1 / 1e4, 30)
 
 	// Attenuation constants (Q15 format)
-	harmAttQ15_0    = 32440 // 0.99 - first lost frame
-	harmAttQ15_1    = 31130 // 0.95 - subsequent frames
-	randAttVQ15_0   = 31130 // 0.95 - voiced first frame
-	randAttVQ15_1   = 26214 // 0.8 - voiced subsequent
-	randAttUVQ15_0  = 32440 // 0.99 - unvoiced first frame
-	randAttUVQ15_1  = 29491 // 0.9 - unvoiced subsequent
+	harmAttQ15_0   = 32440 // 0.99 - first lost frame
+	harmAttQ15_1   = 31130 // 0.95 - subsequent frames
+	randAttVQ15_0  = 31130 // 0.95 - voiced first frame
+	randAttVQ15_1  = 26214 // 0.8 - voiced subsequent
+	randAttUVQ15_0 = 32440 // 0.99 - unvoiced first frame
+	randAttUVQ15_1 = 29491 // 0.9 - unvoiced subsequent
 )
 
 // SILKDecoderState provides access to SILK decoder state needed for PLC.
@@ -87,6 +87,12 @@ type SILKSignalTypeProvider interface {
 // buffer in Q14 (most recent lpcOrder samples).
 type SILKSLPCQ14Provider interface {
 	GetSLPCQ14HistoryQ14() []int32
+}
+
+// SILKSLPCQ14Setter optionally allows PLC concealment to write back the
+// decoder LPC synthesis history (Q14), matching libopus PLC state cadence.
+type SILKSLPCQ14Setter interface {
+	SetSLPCQ14HistoryQ14(history []int32)
 }
 
 // SILKOutBufProvider optionally exposes decoder outBuf history in Q0
@@ -189,17 +195,17 @@ func NewSILKPLCState() *SILKPLCState {
 		// Initialize gains to 1.0 (Q16)
 		PrevGainQ16: [2]int32{1 << 16, 1 << 16},
 
-			// Match libopus silk_PLC_Reset defaults.
-			SubfrLength: 20,
-			NbSubfr:     2,
+		// Match libopus silk_PLC_Reset defaults.
+		SubfrLength: 20,
+		NbSubfr:     2,
 		FsKHz:       16,
 		LPCOrder:    16,
 
 		// Initial random scale (1.0 in Q14)
 		RandScaleQ14: 1 << 14,
 
-			// Match libopus zero-initialized PLC rand_seed cadence.
-			RandSeed: 0,
+		// Match libopus zero-initialized PLC rand_seed cadence.
+		RandSeed: 0,
 	}
 }
 
@@ -635,6 +641,21 @@ func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lo
 	plcState.RandSeed = randSeed
 	plcState.LTPCoefQ14 = B_Q14
 	plcState.LastFrameLost = true
+
+	// Match libopus PLC.c cadence: persist LPC synthesis history after conceal.
+	if setter, ok := dec.(SILKSLPCQ14Setter); ok && lpcOrder > 0 {
+		end := maxLPCOrder + frameSize
+		if end > len(sLPCQ14) {
+			end = len(sLPCQ14)
+		}
+		start := end - lpcOrder
+		if start < 0 {
+			start = 0
+		}
+		if start < end {
+			setter.SetSLPCQ14HistoryQ14(sLPCQ14[start:end])
+		}
+	}
 
 	return output
 }
