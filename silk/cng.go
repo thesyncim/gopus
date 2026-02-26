@@ -75,7 +75,8 @@ func (d *Decoder) applyCNG(channel int, st *decoderState, ctrl *decoderControl, 
 	}
 
 	// Update CNG history during no-voice-activity good frames.
-	if st.lossCnt == 0 && int(st.indices.signalType) == typeNoVoiceActivity && ctrl != nil {
+	// Match libopus: gate on prevSignalType (updated by PLC update cadence).
+	if st.lossCnt == 0 && st.prevSignalType == typeNoVoiceActivity && ctrl != nil {
 		order := st.lpcOrder
 		if order <= 0 || order > maxLPCOrder {
 			order = maxLPCOrder

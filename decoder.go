@@ -453,11 +453,19 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 			if err != nil {
 				return 0, err
 			}
-			// Match libopus opus_packet_has_lbrr gating from opus_demo:
-			// only attempt decode_fec when packet actually carries LBRR.
+			// Match opus_demo decode cadence: decode_fec is only used when the
+			// provided packet actually carries LBRR. Otherwise recover with
+			// standard PLC using prior decoder state (the missing packet state).
 			if !packetHasLBRR(firstFrameData, toc) {
 				d.clearFECState()
-				return d.decodePLCForFECWithState(pcm, frameSize, toc.Mode, toc.Bandwidth, toc.Stereo)
+				plcFrameSize := d.lastPacketDuration
+				if plcFrameSize <= 0 {
+					plcFrameSize = d.lastFrameSize
+				}
+				if plcFrameSize <= 0 {
+					plcFrameSize = frameSize
+				}
+				return d.decodePLCForFEC(pcm, plcFrameSize)
 			}
 			d.storeFECData(firstFrameData, toc, frameCount, frameSize)
 			if n, err := d.decodeFECFrame(pcm); err == nil {
