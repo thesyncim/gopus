@@ -123,3 +123,4 @@ Quick commands:
 - claim: id=codex-20260225-220350; agent=codex; status=released; paths=encoder/,testvectors/,.planning/; updated=2026-02-26T03:03:02Z; expires=2026-02-26T03:03:02Z; note=next encoder parity slice after compliance provenance alignment
 - claim: id=codex-20260226-030308; agent=codex; status=released; paths=silk/,testvectors/,.planning/; updated=2026-02-26T08:22:24Z; expires=2026-02-26T08:22:24Z; note=next decoder loss parity slice after mono PLC sMid fix
 - claim: id=codex-20260226-082241; agent=codex; status=released; paths=silk/,testvectors/,.planning/; updated=2026-02-26T08:54:57Z; expires=2026-02-26T08:54:57Z; note=next decoder loss parity slice after sLPC history writeback merge
+- claim: id=codex-20260226-085514; agent=codex; status=active; paths=celt/,plc/,testvectors/,.planning/; updated=2026-02-26T08:55:14Z; expires=2026-02-26T12:55:14Z; note=next decoder loss parity slice after SILK CNG cadence merge
