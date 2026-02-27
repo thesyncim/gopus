@@ -566,7 +566,7 @@ func fillHybridPLCNoiseCoeffs(coeffs []float64, frameSize, startBand, endBand in
 		}
 		for i := start; i < end; i++ {
 			*seed = *seed*1664525 + 1013904223
-			coeffs[i] = float64(int32(*seed >> 20))
+			coeffs[i] = float64(int32(*seed) >> 20)
 		}
 		renormalizeVector(coeffs[start:end], 1.0)
 	}
