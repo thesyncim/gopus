@@ -742,7 +742,7 @@
     {
       "name": "SILK-WB-20ms-stereo-48k",
       "variant": "impulse_train_v1",
-      "min_gap_db": -0.35,
+      "min_gap_db": -0.25,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.02,
