@@ -688,7 +688,7 @@
     {
       "name": "SILK-WB-20ms-mono-32k",
       "variant": "am_multisine_v1",
-      "min_gap_db": -0.5000371741188587,
+      "min_gap_db": -0.1,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.02,
