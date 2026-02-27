@@ -3322,8 +3322,12 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int) bo
 		for i := 0; i < excLength; i++ {
 			idx := firStart + i
 			sum := float32(exc[idx])
+			// Match libopus celt_fir() accumulation order in float path:
+			// rnum[j]=lpc[ord-1-j], x[i+j-ord].
 			for j := 0; j < celtPLCLPCOrder; j++ {
-				sum += float32(lpc[j]) * float32(exc[idx-j-1])
+				coeff := float32(lpc[celtPLCLPCOrder-1-j])
+				sample := float32(exc[idx-celtPLCLPCOrder+j])
+				sum += coeff * sample
 			}
 			firTmp[i] = float64(sum)
 		}
