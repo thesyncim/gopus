@@ -193,7 +193,7 @@ func (d *Decoder) Reset() {
 		d.prevEnergy2[i] = 0
 		d.prevLogE[i] = -28.0
 		d.prevLogE2[i] = -28.0
-		d.backgroundEnergy[i] = -28.0
+		d.backgroundEnergy[i] = 0
 	}
 
 	// Clear overlap buffer
@@ -711,7 +711,7 @@ func (d *Decoder) ensureEnergyState(channels int) {
 		prev := make([]float64, needed)
 		copy(prev, d.backgroundEnergy)
 		for i := len(d.backgroundEnergy); i < needed; i++ {
-			prev[i] = -28.0
+			prev[i] = 0
 		}
 		d.backgroundEnergy = prev
 	}
@@ -828,7 +828,7 @@ func (d *Decoder) ensureBackgroundEnergyState() {
 		prev := make([]float64, len(d.prevEnergy))
 		copy(prev, d.backgroundEnergy)
 		for i := len(d.backgroundEnergy); i < len(prev); i++ {
-			prev[i] = -28.0
+			prev[i] = 0
 		}
 		d.backgroundEnergy = prev
 		return

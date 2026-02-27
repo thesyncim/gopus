@@ -719,3 +719,10 @@ decision: For native hybrid PLC frame sizes (10/20 ms), source CELT concealment 
 evidence: Directly replacing hybrid PLC with `DecodeHybridFECPLC` without external fade regressed hybrid stress/parity lanes; adding the existing hybrid fade on top of decoder-owned CELT cadence improved covered hybrid slices (`burst3_mid`, `periodic5`, `doublet_stride7`, `burst2_mid`, `periodic9`) while keeping `edge_then_mid` stable and preserving passing parity/stress gates.
 do_not_repeat_until: libopus evidence indicates hybrid PLC should drop external fade shaping or the non-native frame-size fallback path is removed.
 owner: codex
+
+date: 2026-02-27
+topic: Hybrid edge-case reset floor (`backgroundEnergy` init/default)
+decision: Keep CELT `backgroundEnergy` reset/default extension at `0` (not `-28`) to match libopus `backgroundLogE` startup cadence for hybrid decode_fec first-loss noise PLC.
+evidence: Instrumented libopus `celt_decode_lost()` and gopus `DecodeHybridFECPLC` showed first-loss divergence at the background floor state. Updating `celt/decoder.go` (`Reset`, `ensureEnergyState`, `ensureBackgroundEnergyState`) to `0` closed the target lane from `hybrid-fb-20ms-mono-32k-fec/edge_then_mid Q 48.21 -> 180.15` while keeping parity/stress suites green (`TestDecoderLossParityLibopusFixture`, `TestDecoderLossStressPatternsAgainstOpusDemo`) and `make bench-guard` passing.
+do_not_repeat_until: decoder background-floor state layout/cadence is refactored, or fixture-backed evidence shows reset/default `0` regresses other decoder-loss lanes.
+owner: codex
