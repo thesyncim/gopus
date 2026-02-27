@@ -49,7 +49,14 @@ func decoderLossThresholdForCase(c libopusDecoderLossCaseFile, pattern string) d
 	}
 }
 
-func decoderLossStressThresholdForCase(c libopusDecoderLossCaseFile) decoderLossThresholds {
+func decoderLossStressThresholdForCase(c libopusDecoderLossCaseFile, pattern string) decoderLossThresholds {
+	ratchet := map[string]decoderLossThresholds{
+		"celt-fb-20ms-mono-64k-plc|burst6_mid": {minQ: 50.0, minCorr: 0.99, minRMS: 0.95, maxRMS: 1.05},
+	}
+	if thr, ok := ratchet[c.Name+"|"+pattern]; ok {
+		return thr
+	}
+
 	// Stress patterns intentionally apply harsher and denser loss masks than the
 	// baked fixture patterns; use dedicated floors to catch regressions without
 	// forcing unrealistic parity under heavy concealment drift.
@@ -168,6 +175,17 @@ func buildDecoderLossStressPatterns(frames int) []decoderLossPattern {
 	markLoss(burst3, mid)
 	markLoss(burst3, mid+1)
 	if p, ok := finalize("burst3_mid", burst3); ok {
+		patterns = append(patterns, p)
+	}
+
+	burst6 := newBits()
+	markLoss(burst6, mid-2)
+	markLoss(burst6, mid-1)
+	markLoss(burst6, mid)
+	markLoss(burst6, mid+1)
+	markLoss(burst6, mid+2)
+	markLoss(burst6, mid+3)
+	if p, ok := finalize("burst6_mid", burst6); ok {
 		patterns = append(patterns, p)
 	}
 
@@ -376,7 +394,7 @@ func TestDecoderLossStressPatternsAgainstOpusDemo(t *testing.T) {
 					if len(gotDecoded) < compareLen {
 						compareLen = len(gotDecoded)
 					}
-					thr := decoderLossStressThresholdForCase(c)
+					thr := decoderLossStressThresholdForCase(c, p.name)
 					maxDelay := 4 * c.FrameSize
 					if maxDelay < 960 {
 						maxDelay = 960

@@ -3217,6 +3217,7 @@ func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
 	}
 
 	// Keep PLC loss cadence bookkeeping.
+	prevLossDuration := d.plcLossDuration
 	_ = d.plcState.RecordLoss()
 	d.accumulatePLCLossDuration(frameSize)
 	lossCount := d.plcState.LostCount()
@@ -3235,17 +3236,79 @@ func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
 		d.applyDeemphasisAndScale(d.scratchPLC[:outLen], 1.0/32768.0)
 		return d.scratchPLC[:outLen], nil
 	}
+	// Match libopus noise-PLC transition cadence: if periodic PLC left a pending
+	// fold, consume it before switching to noise concealment.
+	d.applyPendingPLCPrefilterAndFold()
 	d.plcPrevLossWasPeriodic = false
 	d.plcPrefilterAndFoldPending = false
 
-	// Generate raw concealment, then run postfilter/de-emphasis in decoder order.
-	// Pass decoder as both state and synthesizer (it implements both interfaces).
-	plc.ConcealCELTRawInto(d.scratchPLC[:outLen], d, d, frameSize, 1.0)
-	mode := GetModeConfig(frameSize)
-	d.applyPostfilter(d.scratchPLC[:outLen], frameSize, mode.LM, d.postfilterPeriod, d.postfilterGain, d.postfilterTapset)
-	d.applyDeemphasisAndScale(d.scratchPLC[:outLen], 1.0/32768.0)
+	d.concealNoisePLC(d.scratchPLC[:outLen], frameSize, prevLossDuration)
 
 	return d.scratchPLC[:outLen], nil
+}
+
+func (d *Decoder) concealNoisePLC(dst []float64, frameSize, prevLossDuration int) {
+	if len(dst) < frameSize*d.channels {
+		return
+	}
+	mode := GetModeConfig(frameSize)
+	d.ensureBackgroundEnergyState()
+	d.scratchPrevEnergy = ensureFloat64Slice(&d.scratchPrevEnergy, len(d.prevEnergy))
+	concealEnergy := d.scratchPrevEnergy[:len(d.prevEnergy)]
+	copy(concealEnergy, d.prevEnergy)
+
+	decayDB := 0.5
+	if prevLossDuration == 0 {
+		decayDB = 1.5
+	}
+	start := 0
+	end := EffectiveBandsForFrameSize(d.bandwidth, frameSize)
+	if end > mode.EffBands {
+		end = mode.EffBands
+	}
+	if end < start {
+		end = start
+	}
+	for c := 0; c < d.channels; c++ {
+		base := c * MaxBands
+		for band := start; band < end; band++ {
+			idx := base + band
+			e := d.prevEnergy[idx] - decayDB
+			if d.backgroundEnergy[idx] > e {
+				e = d.backgroundEnergy[idx]
+			}
+			concealEnergy[idx] = e
+		}
+	}
+
+	seed := d.rng
+	if d.channels == 2 {
+		d.scratchPLCHybridNormL = ensureFloat64Slice(&d.scratchPLCHybridNormL, frameSize)
+		d.scratchPLCHybridNormR = ensureFloat64Slice(&d.scratchPLCHybridNormR, frameSize)
+		coeffsL := d.scratchPLCHybridNormL[:frameSize]
+		coeffsR := d.scratchPLCHybridNormR[:frameSize]
+		clear(coeffsL)
+		clear(coeffsR)
+		fillHybridPLCNoiseCoeffs(coeffsL, frameSize, start, end, &seed)
+		fillHybridPLCNoiseCoeffs(coeffsR, frameSize, start, end, &seed)
+		denormalizeCoeffs(coeffsL, concealEnergy[:MaxBands], end, frameSize)
+		denormalizeCoeffs(coeffsR, concealEnergy[MaxBands:], end, frameSize)
+		samples := d.SynthesizeStereo(coeffsL, coeffsR, false, 1)
+		copy(dst[:frameSize*d.channels], samples[:min(len(samples), frameSize*d.channels)])
+	} else {
+		d.scratchPLCHybridNormL = ensureFloat64Slice(&d.scratchPLCHybridNormL, frameSize)
+		coeffs := d.scratchPLCHybridNormL[:frameSize]
+		clear(coeffs)
+		fillHybridPLCNoiseCoeffs(coeffs, frameSize, start, end, &seed)
+		denormalizeCoeffs(coeffs, concealEnergy[:MaxBands], end, frameSize)
+		samples := d.Synthesize(coeffs, false, 1)
+		copy(dst[:frameSize*d.channels], samples[:min(len(samples), frameSize*d.channels)])
+	}
+	d.SetPrevEnergy(concealEnergy)
+	d.rng = seed
+
+	d.applyPostfilter(dst[:frameSize*d.channels], frameSize, mode.LM, d.postfilterPeriod, d.postfilterGain, d.postfilterTapset)
+	d.applyDeemphasisAndScale(dst[:frameSize*d.channels], 1.0/32768.0)
 }
 
 func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int) bool {
