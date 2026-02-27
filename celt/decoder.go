@@ -480,30 +480,6 @@ func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float64, error) {
 	}
 
 	seed := d.rng
-	// Early-stream hybrid FEC has limited decode history; preserve overlap
-	// warm-up cadence to avoid startup-only drift on the immediate next frame.
-	restoreStartupOverlap := false
-	if len(d.plcDecodeMem) >= plcDecodeBufferSize*d.channels {
-		primed := false
-		for ch := 0; ch < d.channels; ch++ {
-			hist := d.plcDecodeMem[ch*plcDecodeBufferSize : (ch+1)*plcDecodeBufferSize]
-			for i := 0; i < plcDecodeBufferSize-frameSize; i++ {
-				if hist[i] != 0 {
-					primed = true
-					break
-				}
-			}
-			if primed {
-				break
-			}
-		}
-		restoreStartupOverlap = !primed
-	}
-	overlapBackup := d.scratchPLCFoldSrc[:0]
-	if restoreStartupOverlap {
-		overlapBackup = ensureFloat64Slice(&d.scratchPLCFoldSrc, len(d.overlapBuffer))
-		copy(overlapBackup, d.overlapBuffer)
-	}
 	if d.channels == 2 {
 		d.scratchPLCHybridNormL = ensureFloat64Slice(&d.scratchPLCHybridNormL, frameSize)
 		d.scratchPLCHybridNormR = ensureFloat64Slice(&d.scratchPLCHybridNormR, frameSize)
@@ -531,9 +507,6 @@ func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float64, error) {
 
 	d.applyPostfilter(d.scratchPLC[:outLen], frameSize, mode.LM, d.postfilterPeriod, d.postfilterGain, d.postfilterTapset)
 	d.applyDeemphasisAndScale(d.scratchPLC[:outLen], 1.0/32768.0)
-	if restoreStartupOverlap && len(overlapBackup) == len(d.overlapBuffer) {
-		copy(d.overlapBuffer, overlapBackup)
-	}
 
 	return d.scratchPLC[:outLen], nil
 }
