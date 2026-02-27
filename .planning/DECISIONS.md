@@ -21,6 +21,13 @@ owner: <initials or handle>
 
 ## Current Decisions
 
+date: 2026-02-27
+topic: Hybrid decode_fec startup overlap override after signed RNG-shift port
+decision: Remove and keep removed the startup-only overlap restoration override in `celt/decoder.go` `DecodeHybridFECPLC`; keep decoder-native overlap updates active for all hybrid decode_fec PLC frames. After the libopus signed-RNG-shift port, the startup restore branch is no longer net-positive.
+evidence: Updated `celt/decoder.go` only (removed startup overlap backup/restore block). Validation passed: `go test ./celt ./hybrid ./plc ./silk -count=1`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`, `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`, and `make bench-guard`; `make verify-production` remained blocked only by existing `tmp_check` cgo-disabled setup. Measured uplift over post-PR213 baseline: stress `hybrid-fb-20ms-mono-32k-fec/edge_then_mid Q 47.59 -> 48.21`; companion hybrid stress/parity rows remained stable (`burst3_mid 186.67`, `periodic5 178.95`, `doublet_stride7 175.61`, `burst2_mid 179.44`, `periodic9 179.65`, `single_mid 179.81`).
+do_not_repeat_until: hybrid decode_fec overlap state handling or hybrid CELT PLC synthesis cadence is refactored again, or new fixture evidence shows startup-only overlap restoration is beneficial after the signed RNG-shift semantics are in place.
+owner: codex
+
 date: 2026-02-26
 topic: Hybrid CELT noise PLC RNG projection must use libopus signed shift semantics
 decision: Keep `celt/decoder.go` `fillHybridPLCNoiseCoeffs` projecting RNG values with signed arithmetic shift (`int32(seed)>>20`) to match libopus `celt_decode_lost()` noise generation (`(opus_int32)seed>>20`). Do not use unsigned shift-then-cast (`int32(seed>>20)`), which diverges from the pinned libopus float-path coefficient sign cadence.
