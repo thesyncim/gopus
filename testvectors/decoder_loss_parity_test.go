@@ -52,7 +52,7 @@ func decoderLossThresholdForCase(c libopusDecoderLossCaseFile, pattern string) d
 func decoderLossStressThresholdForCase(c libopusDecoderLossCaseFile, pattern string) decoderLossThresholds {
 	ratchet := map[string]decoderLossThresholds{
 		"celt-fb-20ms-mono-64k-plc|burst6_mid":    {minQ: 50.0, minCorr: 0.99, minRMS: 0.95, maxRMS: 1.05},
-		"celt-fb-20ms-mono-64k-plc|periodic5":     {minQ: 80.0, minCorr: 0.999, minRMS: 0.995, maxRMS: 1.005},
+		"celt-fb-20ms-mono-64k-plc|periodic5":     {minQ: 82.0, minCorr: 0.999, minRMS: 0.995, maxRMS: 1.005},
 		"hybrid-fb-20ms-mono-32k-fec|burst8_edge": {minQ: 140.0, minCorr: 0.99, minRMS: 0.95, maxRMS: 1.05},
 	}
 	if thr, ok := ratchet[c.Name+"|"+pattern]; ok {
