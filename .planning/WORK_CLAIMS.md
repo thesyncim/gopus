@@ -132,4 +132,4 @@ Quick commands:
 - claim: id=codex-20260226-222723; agent=codex; status=released; paths=celt/,hybrid/,plc/,testvectors/,.planning/; updated=2026-02-26T22:39:56Z; expires=2026-02-26T22:39:56Z; note=hybrid edge_then_mid parity loop
 - claim: id=codex-20260226-224026; agent=codex; status=released; paths=celt/,hybrid/,plc/,testvectors/,.planning/; updated=2026-02-26T23:14:42Z; expires=2026-02-26T23:14:42Z; note=post-PR209 decoder-loss parity loop
 - claim: id=codex-20260226-231445; agent=codex; status=released; paths=celt/,hybrid/,plc/,testvectors/,.planning/; updated=2026-02-26T23:48:22Z; expires=2026-02-26T23:48:22Z; note=next decoder-loss parity loop after PR210 merge
-- claim: id=codex-20260226-234920; agent=codex; status=active; paths=celt/,hybrid/,plc/,testvectors/,.planning/; updated=2026-02-26T23:49:20Z; expires=2026-02-27T03:49:20Z; note=next decoder-loss parity loop after PR212 merge
+- claim: id=codex-20260226-234920; agent=codex; status=released; paths=celt/,hybrid/,plc/,testvectors/,.planning/; updated=2026-02-27T00:06:58Z; expires=2026-02-27T00:06:58Z; note=next decoder-loss parity loop after PR212 merge
