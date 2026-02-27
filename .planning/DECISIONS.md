@@ -1,6 +1,6 @@
 # Investigation Decisions
 
-Last updated: 2026-02-26
+Last updated: 2026-02-27
 
 Purpose: prevent repeated validation by recording what was tested, what was ruled out, and when re-validation is allowed.
 
@@ -20,6 +20,13 @@ owner: <initials or handle>
 ```
 
 ## Current Decisions
+
+date: 2026-02-27
+topic: CELT periodic PLC LPC autocorrelation accumulation cadence
+decision: Keep `celt/decoder.go` `computePLCLPC` autocorrelation accumulation aligned to libopus `_celt_autocorr` structure (`fastN` cross-correlation accumulation plus lag-specific tail accumulation), rather than a single full-span lag loop. This preserves libopus float-path accumulation cadence feeding `_celt_lpc` in first-loss periodic PLC.
+evidence: Updated `celt/decoder.go` only (`computePLCLPC`). Validation passed: `go test ./celt ./hybrid ./plc ./silk -count=1`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`, `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`, and `make bench-guard`; `make verify-production` remained blocked only by existing `tmp_check` cgo-disabled setup. Measured uplift vs loop-14 baseline: CELT stress `burst3_mid Q 119.16 -> 122.46`, `periodic5 Q 80.04 -> 82.89`, `edge_then_mid Q 136.37 -> 148.92`, `doublet_stride7 Q 88.49 -> 117.21`; CELT parity `burst2_mid Q 134.66 -> 145.72`, `periodic9 Q 98.55 -> 101.93`, `single_mid Q 119.98 -> 123.17`.
+do_not_repeat_until: CELT periodic PLC LPC analysis path (`computePLCLPC`/`plcLPCFromAutocorr`) or libopus `_celt_autocorr` cadence is refactored, or fixture evidence shows this split accumulation order regresses guarded decoder-loss lanes.
+owner: codex
 
 date: 2026-02-27
 topic: Hybrid decode_fec startup overlap override after signed RNG-shift port

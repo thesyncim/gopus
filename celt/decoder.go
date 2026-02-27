@@ -3446,13 +3446,20 @@ func (d *Decoder) computePLCLPC(frame, lpc, window []float64) {
 	}
 
 	var ac [celtPLCLPCOrder + 1]float64
+	fastN := n - celtPLCLPCOrder
+	if fastN < 0 {
+		fastN = 0
+	}
 	for lag := 0; lag <= celtPLCLPCOrder; lag++ {
 		sum := float32(0)
-		limit := n - lag
-		for i := 0; i < limit; i++ {
+		for i := 0; i < fastN; i++ {
 			sum += float32(x[i]) * float32(x[i+lag])
 		}
-		ac[lag] = float64(sum)
+		tail := float32(0)
+		for i := lag + fastN; i < n; i++ {
+			tail += float32(x[i]) * float32(x[i-lag])
+		}
+		ac[lag] = float64(sum + tail)
 	}
 
 	// Match libopus float path: add a tiny noise floor and lag windowing.
