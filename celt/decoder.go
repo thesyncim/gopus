@@ -3380,7 +3380,9 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int) bo
 		}
 		for i := 0; i < totalSamples; i++ {
 			sum := float32(chOut[i])
-			for k := 0; k < celtPLCLPCOrder; k++ {
+			// Match libopus float-path celt_iir summation order (non-smallfootprint):
+			// reversed-den correlation accumulates from the highest LPC tap first.
+			for k := celtPLCLPCOrder - 1; k >= 0; k-- {
 				sum -= float32(lpc[k]) * float32(iirMem[k])
 			}
 			for k := celtPLCLPCOrder - 1; k >= 1; k-- {
