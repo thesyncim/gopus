@@ -726,3 +726,10 @@ decision: Keep CELT `backgroundEnergy` reset/default extension at `0` (not `-28`
 evidence: Instrumented libopus `celt_decode_lost()` and gopus `DecodeHybridFECPLC` showed first-loss divergence at the background floor state. Updating `celt/decoder.go` (`Reset`, `ensureEnergyState`, `ensureBackgroundEnergyState`) to `0` closed the target lane from `hybrid-fb-20ms-mono-32k-fec/edge_then_mid Q 48.21 -> 180.15` while keeping parity/stress suites green (`TestDecoderLossParityLibopusFixture`, `TestDecoderLossStressPatternsAgainstOpusDemo`) and `make bench-guard` passing.
 do_not_repeat_until: decoder background-floor state layout/cadence is refactored, or fixture-backed evidence shows reset/default `0` regresses other decoder-loss lanes.
 owner: codex
+
+date: 2026-02-27
+topic: CELT periodic PLC excitation FIR accumulation order
+decision: Keep periodic PLC excitation FIR accumulation in `concealPeriodicPLC` aligned with libopus `celt_fir()` float-path order (`lpc[ord-1-j] * x[i+j-ord]`), rather than forward tap accumulation.
+evidence: Porting this order in `celt/decoder.go` improved the active target lane `celt-fb-20ms-mono-64k-plc/periodic5` from `Q=79.95` to `Q=80.04` while preserving full parity/stress pass status and benchmark guardrails. Trace validation confirmed periodic pitch-search cadence still matched libopus exactly on the same lane (`265/534/535` sequence), isolating the uplift to synthesis-order parity.
+do_not_repeat_until: periodic PLC excitation synthesis path (`concealPeriodicPLC`) or upstream CELT PLC FIR/LPC cadence is refactored, or fixture evidence shows this accumulation order regresses the guarded stress/parity lanes.
+owner: codex
