@@ -138,4 +138,4 @@ Quick commands:
 - claim: id=codex-20260227-004833; agent=codex; status=released; paths=celt/,testvectors/; updated=2026-02-27T01:02:43Z; expires=2026-02-27T01:02:43Z; note=loss-stress loop 13 target next remaining lane
 - claim: id=codex-20260227-010424; agent=codex; status=released; paths=celt/,testvectors/; updated=2026-02-27T01:12:14Z; expires=2026-02-27T01:12:14Z; note=loss-stress loop 14 target next remaining lane
 - claim: id=codex-20260227-011501; agent=codex; status=released; paths=celt/,testvectors/; updated=2026-02-27T14:49:56Z; expires=2026-02-27T14:49:56Z; note=loss-stress loop 15 target periodic5 follow-up
-- claim: id=codex-20260227-145208; agent=codex; status=active; paths=celt/,testvectors/; updated=2026-02-27T14:52:08Z; expires=2026-02-27T18:52:08Z; note=loss-stress loop 16 target periodic5 follow-up
+- claim: id=codex-20260227-145208; agent=codex; status=released; paths=celt/,testvectors/; updated=2026-02-27T15:17:00Z; expires=2026-02-27T15:17:00Z; note=loss-stress loop 16 target periodic5 follow-up
