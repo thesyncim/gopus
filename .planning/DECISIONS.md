@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-27
+topic: CELT periodic PLC synthesis IIR non-smallfootprint cadence parity
+decision: Keep `celt/decoder.go` periodic PLC synthesis on the libopus float-path non-smallfootprint `celt_iir` cadence (`celt_lpc.c`): reversed-den correlation (`rden`), initialized signed `y` history state from decoder memory, 4-sample unrolled patch-up with explicit `den[0..2]` compensation, then scalar tail update. Do not collapse this path back to a simple tap loop in periodic PLC synthesis.
+evidence: Updated `celt/decoder.go` (`concealPeriodicPLC`) and added decoder scratch buffers for parity-state reuse (`scratchPLCIIRRDen`, `scratchPLCIIRY`). Validation passed: `go test ./celt ./hybrid ./plc ./silk -count=1`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`, `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`, `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestEncoderVariantProfileProvenanceAudit -count=1 -v`, and `make bench-guard`. `make verify-production` remained locally blocked only by existing `tmp_check` cgo-disabled setup while non-`tmp_check` packages passed. CELT stress rows remained stable/high (`periodic5 Q=82.87`, `burst3_mid Q=123.08`, `edge_then_mid Q=148.15`).
+do_not_repeat_until: CELT periodic PLC synthesis path (`concealPeriodicPLC`) or pinned libopus `celt_iir` cadence in `tmp_check/opus-1.6.1/celt/celt_lpc.c` changes, or fixture evidence indicates a regression from this unrolled parity path.
+owner: codex
+
+date: 2026-02-27
 topic: CELT periodic5 stress-lane ratchet floor hardening
 decision: Keep a dedicated decoder-loss stress ratchet for `celt-fb-20ms-mono-64k-plc|periodic5` in `testvectors/decoder_loss_parity_test.go` with `minQ=80.0`, `minCorr=0.999`, and RMS ratio bounds `[0.995, 1.005]` to guard the current weakest CELT stress lane against regressions while retaining realistic concealment tolerance.
 evidence: Added ratchet entry in `decoderLossStressThresholdForCase`. Observed stable lane baseline across repeated runs at `Q=82.89`, `corr=1.000000`, `rms_ratio=1.000006` (`GOPUS_TEST_TIER=exhaustive go test ./testvectors -run 'TestDecoderLossStressPatternsAgainstOpusDemo/celt-fb-20ms-mono-64k-plc/periodic5$' -count=1 -v`, repeated). Full covered validation passed: `go test ./celt ./hybrid ./plc ./silk -count=1`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestDecoderLossParityLibopusFixture -count=1 -v`, and `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestDecoderLossStressPatternsAgainstOpusDemo -count=1 -v`.
