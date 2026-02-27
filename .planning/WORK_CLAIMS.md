@@ -134,4 +134,4 @@ Quick commands:
 - claim: id=codex-20260226-231445; agent=codex; status=released; paths=celt/,hybrid/,plc/,testvectors/,.planning/; updated=2026-02-26T23:48:22Z; expires=2026-02-26T23:48:22Z; note=next decoder-loss parity loop after PR210 merge
 - claim: id=codex-20260226-234920; agent=codex; status=released; paths=celt/,hybrid/,plc/,testvectors/,.planning/; updated=2026-02-27T00:06:58Z; expires=2026-02-27T00:06:58Z; note=next decoder-loss parity loop after PR212 merge
 - claim: id=codex-20260227-000742; agent=codex; status=released; paths=celt/,hybrid/,plc/,testvectors/,.planning/; updated=2026-02-27T00:16:54Z; expires=2026-02-27T00:16:54Z; note=next decoder-loss parity loop after PR214 merge
-- claim: id=codex-20260227-001739; agent=codex; status=active; paths=celt/,hybrid/,testvectors/; updated=2026-02-27T00:17:39Z; expires=2026-02-27T04:17:39Z; note=loss-stress loop 12 target next lowest lane
+- claim: id=codex-20260227-001739; agent=codex; status=released; paths=celt/,hybrid/,testvectors/; updated=2026-02-27T00:46:57Z; expires=2026-02-27T00:46:57Z; note=loss-stress loop 12 target next lowest lane
