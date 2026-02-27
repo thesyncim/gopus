@@ -51,7 +51,8 @@ func decoderLossThresholdForCase(c libopusDecoderLossCaseFile, pattern string) d
 
 func decoderLossStressThresholdForCase(c libopusDecoderLossCaseFile, pattern string) decoderLossThresholds {
 	ratchet := map[string]decoderLossThresholds{
-		"celt-fb-20ms-mono-64k-plc|burst6_mid": {minQ: 50.0, minCorr: 0.99, minRMS: 0.95, maxRMS: 1.05},
+		"celt-fb-20ms-mono-64k-plc|burst6_mid":    {minQ: 50.0, minCorr: 0.99, minRMS: 0.95, maxRMS: 1.05},
+		"hybrid-fb-20ms-mono-32k-fec|burst8_edge": {minQ: 140.0, minCorr: 0.99, minRMS: 0.95, maxRMS: 1.05},
 	}
 	if thr, ok := ratchet[c.Name+"|"+pattern]; ok {
 		return thr
@@ -186,6 +187,14 @@ func buildDecoderLossStressPatterns(frames int) []decoderLossPattern {
 	markLoss(burst6, mid+2)
 	markLoss(burst6, mid+3)
 	if p, ok := finalize("burst6_mid", burst6); ok {
+		patterns = append(patterns, p)
+	}
+
+	burst8Edge := newBits()
+	for i := 1; i <= 8; i++ {
+		markLoss(burst8Edge, i)
+	}
+	if p, ok := finalize("burst8_edge", burst8Edge); ok {
 		patterns = append(patterns, p)
 	}
 

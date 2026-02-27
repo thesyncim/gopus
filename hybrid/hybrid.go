@@ -324,11 +324,6 @@ func (d *Decoder) decodePLC(frameSize int, stereo bool) ([]float64, error) {
 			return nil, err
 		}
 		celtScale = 1.0
-		if fadeFactor < 1.0 {
-			for i := range celtConcealed {
-				celtConcealed[i] *= fadeFactor
-			}
-		}
 	} else {
 		// Fallback for non-hybrid frame sizes used by internal cadence paths.
 		// Pass celtDecoder as both state and synthesizer (implements both interfaces).
