@@ -733,3 +733,10 @@ decision: Keep periodic PLC excitation FIR accumulation in `concealPeriodicPLC` 
 evidence: Porting this order in `celt/decoder.go` improved the active target lane `celt-fb-20ms-mono-64k-plc/periodic5` from `Q=79.95` to `Q=80.04` while preserving full parity/stress pass status and benchmark guardrails. Trace validation confirmed periodic pitch-search cadence still matched libopus exactly on the same lane (`265/534/535` sequence), isolating the uplift to synthesis-order parity.
 do_not_repeat_until: periodic PLC excitation synthesis path (`concealPeriodicPLC`) or upstream CELT PLC FIR/LPC cadence is refactored, or fixture evidence shows this accumulation order regresses the guarded stress/parity lanes.
 owner: codex
+
+date: 2026-02-27
+topic: CELT periodic PLC synthesis IIR accumulation order
+decision: Keep periodic PLC IIR synthesis subtraction order in `concealPeriodicPLC` aligned with libopus float-path `celt_iir` summation cadence by iterating LPC taps from highest index to lowest.
+evidence: Porting this order improved CELT stress companion lanes (`burst3_mid Q 118.99 -> 119.16`, `edge_then_mid Q 135.43 -> 136.37`, `doublet_stride7 Q 88.38 -> 88.49`) and parity rows (`burst2_mid Q 134.45 -> 134.66`, `periodic9 Q 98.52 -> 98.55`) while preserving full parity/stress pass status, benchmark guardrails, and keeping target `periodic5` stable at `Q=80.04`.
+do_not_repeat_until: periodic PLC synthesis path (`concealPeriodicPLC`), CELT PLC IIR/LPC state layout, or libopus `celt_iir` float-path cadence is refactored, or fixture evidence shows this order regresses guarded lanes.
+owner: codex
