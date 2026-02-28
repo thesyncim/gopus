@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-28
+topic: hybrid stereo split unit fixture under fixed-point stereo predictor cadence
+decision: Keep `TestHybridStereoAppliesSilkRateSplit` on a decorrelated stereo fixture (not near-mono) so the test consistently exercises an active mid/side rate split path instead of a valid panned-mono collapse.
+evidence: After porting fixed-point predictor/ratio analysis into `StereoLRToMSWithRates`, the previous near-mono fixture started producing a valid `mid_only` collapse (`mid=29400 side=0`) and failed the test’s own precondition. Updated `makeHybridStereoPCM16k` in `encoder/hybrid_rate_split_test.go` to maintain correlated channels with stronger independent side energy; focused validation then passed with `go test ./encoder -run TestHybridStereoAppliesSilkRateSplit -count=1 -v`.
+do_not_repeat_until: stereo front-end panned-mono thresholds (`frac_Q16`/`smth_width_Q14` gating) or this test’s coverage goal changes away from active split-rate assertion.
+owner: codex
+
+date: 2026-02-28
 topic: compliance summary packet-cadence parity
 decision: Keep compliance summary gopus encode cadence aligned to libopus fixture provenance by flushing trailing silence frames up to `signal_frames+1` packets (bounded attempts) before reference decode/quality scoring.
 evidence: Updated `runEncoderComplianceTest` in `testvectors/encoder_compliance_test.go` to append bounded flush packets. Compliance summary moved from `14 passed, 9 failed` to `21 passed, 2 failed` before any tolerance-policy updates. Focused checks passed: `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderCompliancePrecisionGuard -count=1 -v`.

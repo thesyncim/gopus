@@ -261,6 +261,12 @@ type Encoder struct {
 	scratchStereoSide     []float32 // side channel (frameLength+2)
 	scratchStereoMidOut   []float32 // mid output (frameLength)
 	scratchStereoSideOut  []float32 // side output (frameLength)
+	scratchStereoMidQ0    []int16   // mid channel in Q0 (frameLength+2)
+	scratchStereoSideQ0   []int16   // side channel in Q0 (frameLength+2)
+	scratchStereoLPMidQ0  []int16   // LP filtered mid in Q0
+	scratchStereoHPMidQ0  []int16   // HP filtered mid in Q0
+	scratchStereoLPSideQ0 []int16   // LP filtered side in Q0
+	scratchStereoHPSideQ0 []int16   // HP filtered side in Q0
 	scratchStereoLPMid    []float32 // LP filtered mid
 	scratchStereoHPMid    []float32 // HP filtered mid
 	scratchStereoLPSide   []float32 // LP filtered side

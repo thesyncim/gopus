@@ -24,6 +24,14 @@ func stereoLPFilter(signal []int16, frameLength int) (lp, hp []int16) {
 	lp = make([]int16, frameLength)
 	hp = make([]int16, frameLength)
 
+	stereoLPFilterInto(signal, lp, hp, frameLength)
+
+	return lp, hp
+}
+
+// stereoLPFilterInto applies the [1,2,1]/4 lowpass filter into caller-owned
+// buffers to avoid allocations on the encoder hot path.
+func stereoLPFilterInto(signal, lp, hp []int16, frameLength int) {
 	for n := 0; n < frameLength; n++ {
 		// sum = (signal[n] + 2*signal[n+1] + signal[n+2] + 2) >> 2
 		// Using silk_ADD_LSHIFT32 pattern: (a + b<<shift)
@@ -35,8 +43,6 @@ func stereoLPFilter(signal []int16, frameLength int) (lp, hp []int16) {
 		lp[n] = int16(sum)
 		hp[n] = signal[n+1] - int16(sum)
 	}
-
-	return lp, hp
 }
 
 // stereoLPFilterFloat applies the [1,2,1]/4 lowpass filter to float32 signal.
@@ -222,6 +228,71 @@ func stereoFindPredictorFloatWithRatio(x, y []float32, length int, midResAmp *[2
 	}
 
 	return predQ13, ratio
+}
+
+func stereoInnerProdAlignedScale(x, y []int16, scale, length int) int32 {
+	sum := int32(0)
+	for i := 0; i < length; i++ {
+		sum = silkADD_RSHIFT32(sum, silkSMULBB(int32(x[i]), int32(y[i])), scale)
+	}
+	return sum
+}
+
+// stereoFindPredictorQ13WithRatioQ14 is a fixed-point port of
+// silk_stereo_find_predictor() from libopus.
+func stereoFindPredictorQ13WithRatioQ14(x, y []int16, length int, midResAmpQ0 *[2]int32, smoothCoefQ16 int32) (predQ13, ratioQ14 int32) {
+	if length <= 0 {
+		return 0, 0
+	}
+
+	nrgx, scale1 := silkSumSqrShift(x, length)
+	nrgy, scale2 := silkSumSqrShift(y, length)
+
+	scale := scale1
+	if scale2 > scale {
+		scale = scale2
+	}
+	scale += scale & 1 // Make even.
+
+	nrgy = nrgy >> uint(scale-scale2)
+	nrgx = nrgx >> uint(scale-scale1)
+	if nrgx < 1 {
+		nrgx = 1
+	}
+
+	corr := stereoInnerProdAlignedScale(x, y, scale, length)
+	predQ13 = silkDiv32VarQ(corr, nrgx, 13)
+	predQ13 = silkLimit32(predQ13, -(1 << 14), 1<<14)
+
+	pred2Q10 := silkSMULWB(predQ13, predQ13)
+	if absPred2Q10 := silkAbs32(pred2Q10); absPred2Q10 > smoothCoefQ16 {
+		smoothCoefQ16 = absPred2Q10
+	}
+	if smoothCoefQ16 > 32767 {
+		smoothCoefQ16 = 32767
+	}
+
+	scale >>= 1
+	midAmpQ0 := silkLSHIFT(silkSqrtApproxPLC(nrgx), scale)
+	midResAmpQ0[0] = silkSMLAWB(midResAmpQ0[0], midAmpQ0-midResAmpQ0[0], smoothCoefQ16)
+
+	// Residual energy = nrgy - 2 * pred * corr + pred^2 * nrgx.
+	nrgy = silkSubLShift32(nrgy, silkSMULWB(corr, predQ13), 4)
+	nrgy = silkADD_LSHIFT32(nrgy, silkSMULWB(nrgx, pred2Q10), 6)
+	if nrgy < 0 {
+		nrgy = 0
+	}
+	resAmpQ0 := silkLSHIFT(silkSqrtApproxPLC(nrgy), scale)
+	midResAmpQ0[1] = silkSMLAWB(midResAmpQ0[1], resAmpQ0-midResAmpQ0[1], smoothCoefQ16)
+
+	den := midResAmpQ0[0]
+	if den < 1 {
+		den = 1
+	}
+	ratioQ14 = silkDiv32VarQ(midResAmpQ0[1], den, 14)
+	ratioQ14 = silkLimit32(ratioQ14, 0, 32767)
+
+	return predQ13, ratioQ14
 }
 
 // isqrt32 computes integer square root of a 32-bit unsigned integer.
