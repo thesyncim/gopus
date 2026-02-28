@@ -111,6 +111,13 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, celtPCM []float64, lookahead 
 // encodeHybridFrameWithMaxPacket mirrors opus_encode_native() per-frame caps for
 // multi-frame packet assembly. maxPacketBytes includes TOC and must be >=2 when set.
 func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float64, lookahead []float64, frameSize int, maxPacketBytes int) ([]byte, error) {
+	return e.encodeHybridFrameWithMaxPacketAndTransition(pcm, celtPCM, lookahead, frameSize, maxPacketBytes, true)
+}
+
+// encodeHybridFrameWithMaxPacketAndTransition allows callers assembling long packets
+// to gate CELT->Hybrid redundancy to the first 20ms subframe, matching libopus
+// frame_redundancy cadence in multi-frame mode.
+func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, celtPCM []float64, lookahead []float64, frameSize int, maxPacketBytes int, allowTransitionRedundancy bool) ([]byte, error) {
 	// Validate: only 480 (10ms) or 960 (20ms) for hybrid
 	if frameSize != 480 && frameSize != 960 {
 		return nil, ErrInvalidHybridFrameSize
@@ -164,7 +171,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float6
 	// CELT->Hybrid transition uses CELT redundancy for smooth switching. This is a
 	// true libopus feature (not FEC/LBRR); it reserves bytes and adjusts SILK budget.
 	frameRate := 48000 / frameSize
-	transitionCeltToHybrid := maxPacketBytes == 0 && !e.lowDelay && isConcreteMode(e.prevMode) && e.prevMode == ModeCELT
+	transitionCeltToHybrid := allowTransitionRedundancy && !e.lowDelay && isConcreteMode(e.prevMode) && e.prevMode == ModeCELT
 	redundancyBytes := 0
 	var redundancyData []byte
 	if transitionCeltToHybrid {
