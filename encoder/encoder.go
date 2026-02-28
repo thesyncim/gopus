@@ -660,6 +660,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		e.bandwidth = bw
 	}
 	actualMode, prevModeNext := e.applyCELTTransitionDelay(frameSize, requestedMode)
+	transitionToCELT := requestedMode == ModeCELT && actualMode != ModeCELT
 	if actualMode == ModeSILK || (actualMode == ModeHybrid && frameSize <= 960) {
 		// Keep Opus-level activity/VAD on raw input samples for SILK/hybrid lanes.
 		e.updateOpusVAD(rawPCM, frameSize)
@@ -684,9 +685,9 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		if frameSize > 960 {
 			// Long-frame hybrid packets keep the existing prefill scheduling.
 			e.maybePrefillCELTOnModeTransition(actualMode, celtPCM, frameSize)
-			packet, err = e.encodeHybridMultiFramePacket(framePCM, celtPCM, rawPCM, lookaheadSlice, frameSize)
+			packet, err = e.encodeHybridMultiFramePacket(framePCM, celtPCM, rawPCM, lookaheadSlice, frameSize, transitionToCELT)
 		} else {
-			frameData, err = e.encodeHybridFrame(framePCM, celtPCM, lookaheadSlice, frameSize)
+			frameData, err = e.encodeHybridFrameWithMaxPacketAndTransition(framePCM, celtPCM, lookaheadSlice, frameSize, 0, true, transitionToCELT)
 		}
 	case ModeCELT:
 		celtPCM := e.prepareCELTPCM(framePCM, frameSize)
@@ -2058,7 +2059,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(celtPCM []float64, frameSize int) (
 
 // encodeHybridMultiFramePacket encodes 40/60ms hybrid packets by splitting into
 // 20ms hybrid frames and packing them using code-3 framing.
-func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64, rawPCM []float64, lookahead []float64, frameSize int) ([]byte, error) {
+func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64, rawPCM []float64, lookahead []float64, frameSize int, transitionToCELT bool) ([]byte, error) {
 	if frameSize <= 960 || frameSize%960 != 0 {
 		return nil, ErrInvalidFrameSize
 	}
@@ -2124,7 +2125,9 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 			currMax = 2
 		}
 
-		frameData, err := e.encodeHybridFrameWithMaxPacketAndTransition(subPCM, subCELTPCM, subLookahead, 960, currMax, i == 0)
+		allowTransitionRedundancy := (!transitionToCELT && i == 0) || (transitionToCELT && i == frameCount-1)
+		subframeToCELT := transitionToCELT && i == frameCount-1
+		frameData, err := e.encodeHybridFrameWithMaxPacketAndTransition(subPCM, subCELTPCM, subLookahead, 960, currMax, allowTransitionRedundancy, subframeToCELT)
 		if err != nil {
 			return nil, err
 		}
