@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-02-28
+topic: hybrid held-frame SILK/Hybrid->CELT transition redundancy cadence
+decision: Keep libopus transition redundancy on held SILK/Hybrid frames when switching to CELT (`to_celt`): reserve redundancy bytes in hybrid bit budgeting, signal redundancy with `celt_to_silk=0`, and append a CELT redundant tail frame generated after CELT reset + 2.5ms prefill from frame tail.
+evidence: In `HYBRID-SWB-20ms-mono-48k|am_multisine_v1`, libopus debug traces showed redundancy active on the held transition frame (`red=1`, `red_bytes=28`, reduced `bits_target`) before switching to CELT, while gopus emitted no redundancy and stayed on non-transition hybrid budgeting. Ported this cadence in `encoder/hybrid.go` (`encodeHybridFrameWithMaxPacketAndTransition`, new `encodeCELTSilkToCELTRedundancy`) and threaded `transitionToCELT` through short/long packet paths in `encoder/encoder.go`. Focused parity moved from negative to neutral on the target lane (`gap=0.00 dB`) and full parity/provenance/compliance remained green: `go test ./encoder -run 'TestApplyCELTTransitionDelayPolicy|TestForcedHybridToCELTTransitionHoldsOneFrame|TestHybridStereoAppliesSilkRateSplit' -count=1 -v`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderVariantProfileParityAgainstLibopusFixture -count=1 -v`, `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestEncoderVariantProfileProvenanceAudit -count=1 -v`, `make bench-guard`.
+do_not_repeat_until: hybrid/celt transition-policy semantics (`applyCELTTransitionDelay`, held-frame cadence, or redundancy signaling/placement) change, or new fixture evidence shows this to-CELT redundancy path diverges from pinned libopus 1.6.1 behavior.
+owner: codex
+
+date: 2026-02-28
 topic: hybrid stereo split unit fixture under fixed-point stereo predictor cadence
 decision: Keep `TestHybridStereoAppliesSilkRateSplit` on a decorrelated stereo fixture (not near-mono) so the test consistently exercises an active mid/side rate split path instead of a valid panned-mono collapse.
 evidence: After porting fixed-point predictor/ratio analysis into `StereoLRToMSWithRates`, the previous near-mono fixture started producing a valid `mid_only` collapse (`mid=29400 side=0`) and failed the test’s own precondition. Updated `makeHybridStereoPCM16k` in `encoder/hybrid_rate_split_test.go` to maintain correlated channels with stronger independent side energy; focused validation then passed with `go test ./encoder -run TestHybridStereoAppliesSilkRateSplit -count=1 -v`.
