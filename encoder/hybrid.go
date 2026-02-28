@@ -111,13 +111,13 @@ func (e *Encoder) encodeHybridFrame(pcm []float64, celtPCM []float64, lookahead 
 // encodeHybridFrameWithMaxPacket mirrors opus_encode_native() per-frame caps for
 // multi-frame packet assembly. maxPacketBytes includes TOC and must be >=2 when set.
 func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float64, lookahead []float64, frameSize int, maxPacketBytes int) ([]byte, error) {
-	return e.encodeHybridFrameWithMaxPacketAndTransition(pcm, celtPCM, lookahead, frameSize, maxPacketBytes, true)
+	return e.encodeHybridFrameWithMaxPacketAndTransition(pcm, celtPCM, lookahead, frameSize, maxPacketBytes, true, false)
 }
 
 // encodeHybridFrameWithMaxPacketAndTransition allows callers assembling long packets
 // to gate CELT->Hybrid redundancy to the first 20ms subframe, matching libopus
 // frame_redundancy cadence in multi-frame mode.
-func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, celtPCM []float64, lookahead []float64, frameSize int, maxPacketBytes int, allowTransitionRedundancy bool) ([]byte, error) {
+func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, celtPCM []float64, lookahead []float64, frameSize int, maxPacketBytes int, allowTransitionRedundancy bool, transitionToCELT bool) ([]byte, error) {
 	// Validate: only 480 (10ms) or 960 (20ms) for hybrid
 	if frameSize != 480 && frameSize != 960 {
 		return nil, ErrInvalidHybridFrameSize
@@ -168,15 +168,17 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 		payloadTarget = 1
 	}
 
-	// CELT->Hybrid transition uses CELT redundancy for smooth switching. This is a
-	// true libopus feature (not FEC/LBRR); it reserves bytes and adjusts SILK budget.
+	// Transition redundancy reserves bytes and adjusts SILK/CELT budgeting.
+	// CELT->Hybrid uses celt_to_silk=1; SILK/Hybrid->CELT uses celt_to_silk=0.
 	frameRate := 48000 / frameSize
-	transitionCeltToHybrid := allowTransitionRedundancy && !e.lowDelay && isConcreteMode(e.prevMode) && e.prevMode == ModeCELT
+	transitionCeltToHybrid := allowTransitionRedundancy && !transitionToCELT && !e.lowDelay && isConcreteMode(e.prevMode) && e.prevMode == ModeCELT
+	transitionSilkToCELT := allowTransitionRedundancy && transitionToCELT && !e.lowDelay
+	transitionRedundancy := transitionCeltToHybrid || transitionSilkToCELT
 	redundancyBytes := 0
 	var redundancyData []byte
-	if transitionCeltToHybrid {
+	if transitionRedundancy {
 		redundancyBytes = computeRedundancyBytes(baseTargetBytes, e.bitrate, frameRate, e.channels)
-		if redundancyBytes > 0 {
+		if transitionCeltToHybrid && redundancyBytes > 0 {
 			// Match libopus input shaping for CELT->Hybrid redundancy:
 			// redundancy CELT sees the same HB gain contour as the main CELT path.
 			_, _, celtBitrateHBGainRed := e.computeHybridBitAllocationWithBudget(frameSize, baseTargetBytes, redundancyBytes)
@@ -378,10 +380,14 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 	// Condition matches libopus: ec_tell(&enc)+17+20 <= 8*(max_data_bytes-1)
 	redundancyActive := false
 	if re.Tell()+17+20 <= 8*payloadTarget {
-		if transitionCeltToHybrid && redundancyBytes >= 2 {
+		if transitionRedundancy && redundancyBytes >= 2 {
 			redundancyActive = true
-			re.EncodeBit(1, 12)                              // redundancy = 1
-			re.EncodeBit(1, 1)                               // celt_to_silk = 1
+			re.EncodeBit(1, 12) // redundancy = 1
+			if transitionCeltToHybrid {
+				re.EncodeBit(1, 1) // celt_to_silk = 1
+			} else {
+				re.EncodeBit(0, 1) // celt_to_silk = 0
+			}
 			re.EncodeUniform(uint32(redundancyBytes-2), 256) // redundancy length
 		} else {
 			re.EncodeBit(0, 12)
@@ -402,9 +408,9 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 		}
 		if target < 0 || callTag == target {
 			fmt.Fprintf(os.Stderr,
-				"GOHB frame=%d prev=%.9f hb=%.9f silk=%d celt=%d celt_hb=%d payload=%d base_target=%d red=%d red_active=%v mode=%d prev_mode=%d\n",
+				"GOHB frame=%d prev=%.9f hb=%.9f silk=%d celt=%d celt_hb=%d payload=%d base_target=%d red=%d red_active=%v to_celt=%v mode=%d prev_mode=%d\n",
 				callTag, e.hybridState.prevHBGain, hbGain, silkBitrate, celtBitrate, celtBitrateHBGain,
-				payloadTargetMain, baseTargetBytes, redundancyBytes, transitionCeltToHybrid, e.mode, e.prevMode)
+				payloadTargetMain, baseTargetBytes, redundancyBytes, transitionRedundancy, transitionSilkToCELT, e.mode, e.prevMode)
 		}
 	}
 
@@ -444,10 +450,20 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 	// Update state for next frame
 	e.hybridState.prevHBGain = hbGain
 
-	// Finalize and append optional CELT->SILK transition redundancy payload.
+	// Finalize and append optional transition redundancy payload.
 	mainPayload := re.Done()
-	if !redundancyActive || len(redundancyData) == 0 {
+	if !redundancyActive {
 		return mainPayload, nil
+	}
+	if transitionSilkToCELT {
+		var err error
+		redundancyData, err = e.encodeCELTSilkToCELTRedundancy(celtInput, frameSize, redundancyBytes)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(redundancyData) == 0 {
+		return nil, ErrEncodingFailed
 	}
 	if len(mainPayload)+len(redundancyData) > len(e.hybridState.scratchPacket) {
 		return nil, ErrEncodingFailed
@@ -520,6 +536,66 @@ func (e *Encoder) encodeCELTTransitionRedundancy(celtPCM []float64, frameSize, r
 	e.celtEncoder.SetMaxPayloadBytes(0)
 	// libopus resets CELT after CELT->SILK redundancy generation.
 	e.celtEncoder.Reset()
+	if err != nil {
+		return nil, err
+	}
+	if len(redundancyData) < 2 {
+		return nil, nil
+	}
+	if len(redundancyData) > len(e.hybridState.scratchRedundancy) {
+		return nil, ErrEncodingFailed
+	}
+	out := e.hybridState.scratchRedundancy[:len(redundancyData)]
+	copy(out, redundancyData)
+	return out, nil
+}
+
+// encodeCELTSilkToCELTRedundancy matches libopus SILK/Hybrid->CELT transition
+// redundancy: reset CELT, prefill with 2.5 ms from the frame tail, then encode a
+// 5 ms redundant CELT frame from the end of the current frame.
+func (e *Encoder) encodeCELTSilkToCELTRedundancy(celtPCM []float64, frameSize, redundancyBytes int) ([]byte, error) {
+	if redundancyBytes < 2 || frameSize <= 0 {
+		return nil, nil
+	}
+	n2 := e.sampleRate / 200 // 5 ms at 48 kHz
+	n4 := e.sampleRate / 400 // 2.5 ms at 48 kHz
+	if n2 <= 0 || n4 <= 0 || frameSize < n2+n4 {
+		return nil, nil
+	}
+	frameSamples := frameSize * e.channels
+	if frameSamples <= 0 || len(celtPCM) < frameSamples {
+		return nil, nil
+	}
+	prefillSamples := n4 * e.channels
+	redundancySamples := n2 * e.channels
+	prefillStart := frameSamples - redundancySamples - prefillSamples
+	prefillEnd := prefillStart + prefillSamples
+	redundancyStart := frameSamples - redundancySamples
+	redundancyEnd := redundancyStart + redundancySamples
+	if prefillStart < 0 || prefillEnd > len(celtPCM) || redundancyStart < 0 || redundancyEnd > len(celtPCM) {
+		return nil, nil
+	}
+
+	e.ensureCELTEncoder()
+	e.syncCELTAnalysisToCELT()
+	e.celtEncoder.Reset()
+	e.celtEncoder.SetRangeEncoder(nil)
+	e.celtEncoder.SetHybrid(false)
+	e.celtEncoder.SetPrediction(0)
+	e.celtEncoder.SetVBR(false)
+	e.celtEncoder.SetConstrainedVBR(false)
+	e.celtEncoder.SetBitrate(MaxBitrate)
+	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
+	e.celtEncoder.SetLSBDepth(e.lsbDepth)
+	e.celtEncoder.SetDCRejectEnabled(false)
+
+	// Prefill 2.5 ms so CELT state matches decoder-side startup for the first CELT frame.
+	e.celtEncoder.SetMaxPayloadBytes(2)
+	_, _ = e.celtEncoder.EncodeFrame(celtPCM[prefillStart:prefillEnd], n4)
+
+	e.celtEncoder.SetMaxPayloadBytes(redundancyBytes)
+	redundancyData, err := e.celtEncoder.EncodeFrame(celtPCM[redundancyStart:redundancyEnd], n2)
+	e.celtEncoder.SetMaxPayloadBytes(0)
 	if err != nil {
 		return nil, err
 	}
