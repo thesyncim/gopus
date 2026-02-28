@@ -547,42 +547,56 @@ func (e *Encoder) StereoLRToMSWithRates(
 	e.stereo.sSide[0] = float32ToInt16(side[frameLength])
 	e.stereo.sSide[1] = float32ToInt16(side[frameLength+1])
 
-	// LP/HP filters using scratch buffers.
-	lpMid := ensureFloat32Slice(&e.scratchStereoLPMid, frameLength)
-	hpMid := ensureFloat32Slice(&e.scratchStereoHPMid, frameLength)
-	stereoLPFilterFloatInto(mid, lpMid, hpMid, frameLength)
-	lpSide := ensureFloat32Slice(&e.scratchStereoLPSide, frameLength)
-	hpSide := ensureFloat32Slice(&e.scratchStereoHPSide, frameLength)
-	stereoLPFilterFloatInto(side, lpSide, hpSide, frameLength)
-
-	// Predictor smoothing coefficient.
-	smoothCoef := stereoRatioSmoothCoef
-	if frameLength == 10*fsKHz {
-		smoothCoef *= 0.5
+	// Build fixed-point mid/side views and run predictor analysis in fixed-point
+	// to match libopus silk_stereo_find_predictor cadence.
+	midQ0 := ensureInt16Slice(&e.scratchStereoMidQ0, msLen)
+	sideQ0 := ensureInt16Slice(&e.scratchStereoSideQ0, msLen)
+	for i := 0; i < msLen; i++ {
+		midQ0[i] = float32ToInt16(mid[i])
+		sideQ0[i] = float32ToInt16(side[i])
 	}
-	speech := float64(prevSpeechActQ8) / 256.0
-	smoothCoef *= speech * speech
 
-	// Predictors and ratios.
-	lpMidRes := [2]float64{e.stereo.midSideAmpQ0[0], e.stereo.midSideAmpQ0[1]}
-	hpMidRes := [2]float64{e.stereo.midSideAmpQ0[2], e.stereo.midSideAmpQ0[3]}
+	lpMidQ0 := ensureInt16Slice(&e.scratchStereoLPMidQ0, frameLength)
+	hpMidQ0 := ensureInt16Slice(&e.scratchStereoHPMidQ0, frameLength)
+	stereoLPFilterInto(midQ0, lpMidQ0, hpMidQ0, frameLength)
+	lpSideQ0 := ensureInt16Slice(&e.scratchStereoLPSideQ0, frameLength)
+	hpSideQ0 := ensureInt16Slice(&e.scratchStereoHPSideQ0, frameLength)
+	stereoLPFilterInto(sideQ0, lpSideQ0, hpSideQ0, frameLength)
 
-	predLP, ratioLP := stereoFindPredictorFloatWithRatio(lpMid, lpSide, frameLength, &lpMidRes, smoothCoef)
-	predHP, ratioHP := stereoFindPredictorFloatWithRatio(hpMid, hpSide, frameLength, &hpMidRes, smoothCoef)
+	// Predictor smoothing coefficient (Q16), matching stereo_LR_to_MS.c.
+	smoothCoefQ16 := int32(silkFixConst(stereoRatioSmoothCoef, 16))
+	if frameLength == 10*fsKHz {
+		smoothCoefQ16 = int32(silkFixConst(stereoRatioSmoothCoef/2.0, 16))
+	}
+	smoothCoefQ16 = silkSMULWB(silkSMULBB(int32(prevSpeechActQ8), int32(prevSpeechActQ8)), smoothCoefQ16)
+	smoothCoef := float64(smoothCoefQ16) / 65536.0
 
-	e.stereo.midSideAmpQ0[0], e.stereo.midSideAmpQ0[1] = lpMidRes[0], lpMidRes[1]
-	e.stereo.midSideAmpQ0[2], e.stereo.midSideAmpQ0[3] = hpMidRes[0], hpMidRes[1]
+	lpMidResQ0 := [2]int32{
+		int32(e.stereo.midSideAmpQ0[0]),
+		int32(e.stereo.midSideAmpQ0[1]),
+	}
+	hpMidResQ0 := [2]int32{
+		int32(e.stereo.midSideAmpQ0[2]),
+		int32(e.stereo.midSideAmpQ0[3]),
+	}
+
+	predLP, ratioLPQ14 := stereoFindPredictorQ13WithRatioQ14(lpMidQ0, lpSideQ0, frameLength, &lpMidResQ0, smoothCoefQ16)
+	predHP, ratioHPQ14 := stereoFindPredictorQ13WithRatioQ14(hpMidQ0, hpSideQ0, frameLength, &hpMidResQ0, smoothCoefQ16)
+
+	e.stereo.midSideAmpQ0[0], e.stereo.midSideAmpQ0[1] = float64(lpMidResQ0[0]), float64(lpMidResQ0[1])
+	e.stereo.midSideAmpQ0[2], e.stereo.midSideAmpQ0[3] = float64(hpMidResQ0[0]), float64(hpMidResQ0[1])
 
 	predQ13 := [2]int32{predLP, predHP}
 
-	// frac = min(1, HP_ratio + 3*LP_ratio)
-	frac := ratioHP + 3.0*ratioLP
-	if frac > 1.0 {
-		frac = 1.0
+	// frac = min(1, HP_ratio + 3*LP_ratio), in Q16 for libopus parity.
+	fracQ16 := silkSMLABB(ratioHPQ14, ratioLPQ14, 3)
+	if fracQ16 > (1 << 16) {
+		fracQ16 = 1 << 16
 	}
-	if frac < 0 {
-		frac = 0
+	if fracQ16 < 0 {
+		fracQ16 = 0
 	}
+	frac := float64(fracQ16) / 65536.0
 
 	// Rate split and width decision.
 	total := totalRateBps
