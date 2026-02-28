@@ -490,7 +490,7 @@
     {
       "name": "HYBRID-SWB-40ms-mono-48k",
       "variant": "impulse_train_v1",
-      "min_gap_db": -0.45,
+      "min_gap_db": -0.4,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.08,
