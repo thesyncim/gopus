@@ -2124,7 +2124,7 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 			currMax = 2
 		}
 
-		frameData, err := e.encodeHybridFrameWithMaxPacket(subPCM, subCELTPCM, subLookahead, 960, currMax)
+		frameData, err := e.encodeHybridFrameWithMaxPacketAndTransition(subPCM, subCELTPCM, subLookahead, 960, currMax, i == 0)
 		if err != nil {
 			return nil, err
 		}

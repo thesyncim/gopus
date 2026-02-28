@@ -135,6 +135,9 @@ func EncodeStereoWithEncoderVADFlagsAndStatesWithSide(
 	if basePacketMaxBits <= 0 {
 		basePacketMaxBits = baseSideMaxBits
 	}
+	// libopus uses one packet-level bits-exceeded state for stereo SILK.
+	// Keep the side encoder aligned with the shared packet state.
+	sideEnc.SetBitsExceeded(enc.BitsExceeded())
 
 	// Use the mid channel's speech activity for stereo decision.
 	speechActQ8 := enc.speechActivityQ8
@@ -352,10 +355,24 @@ func EncodeStereoWithEncoderVADFlagsAndStatesWithSide(
 	// Capture final range state.
 	enc.lastRng = re.Range()
 
+	// Capture nBytesOut before ec_enc_done, matching libopus.
+	nBytesOut := (re.Tell() + 7) >> 3
+
 	// Finalize the range encoder.
 	raw := re.Done()
-	result := make([]byte, len(raw))
-	copy(result, raw)
+	if nBytesOut < 0 {
+		nBytesOut = 0
+	}
+	if nBytesOut > len(raw) {
+		nBytesOut = len(raw)
+	}
+	result := make([]byte, nBytesOut)
+	copy(result, raw[:nBytesOut])
+
+	// Match libopus packet-level nBitsExceeded update.
+	payloadSizeMs := (nFrames * frameLength20ms * 1000) / config.SampleRate
+	enc.UpdatePacketBitsExceeded(nBytesOut, payloadSizeMs, totalRate)
+	sideEnc.SetBitsExceeded(enc.BitsExceeded())
 
 	// Clean up shared encoder references.
 	enc.rangeEncoder = nil
