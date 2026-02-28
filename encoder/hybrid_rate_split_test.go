@@ -15,8 +15,9 @@ func makeHybridStereoPCM16k(samples int) []float32 {
 	for i := 0; i < samples; i++ {
 		tm := float64(i) / fs
 		left := 0.36*math.Sin(2*math.Pi*360.0*tm) + 0.14*math.Sin(2*math.Pi*920.0*tm)
-		// Near-mono but not identical, so stereo split remains active.
-		right := 0.82*left + 0.06*math.Sin(2*math.Pi*1350.0*tm+0.35)
+		// Keep channels correlated but with enough decorrelated side energy to
+		// avoid a valid panned-mono collapse in split-rate tests.
+		right := 0.38*left + 0.20*math.Sin(2*math.Pi*1350.0*tm+0.35)
 		pcm[2*i] = float32(left)
 		pcm[2*i+1] = float32(right)
 	}
