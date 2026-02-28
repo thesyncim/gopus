@@ -263,17 +263,38 @@ func writeEncoderComplianceReferenceQFixtureFile(fixture encoderComplianceRefQFi
 	return os.WriteFile(path, data, 0o644)
 }
 
-func computeComplianceQualityFromPacketsWithLiveOpusdec(packets [][]byte, original []float32, channels, frameSize int) (float64, error) {
-	var oggBuf bytes.Buffer
-	if err := writeOggOpusEncoder(&oggBuf, packets, channels, 48000, frameSize); err != nil {
-		return 0, fmt.Errorf("write ogg opus: %w", err)
+func decodeCompliancePacketsWithLibopusReferenceOnly(packets [][]byte, channels, frameSize int) ([]float32, error) {
+	decoded, helperErr := decodeWithLibopusReferencePacketsSingle(channels, frameSize, packets)
+	if helperErr == nil {
+		preSkip := OpusPreSkip * channels
+		if len(decoded) > preSkip {
+			decoded = decoded[preSkip:]
+		}
+		return decoded, nil
 	}
-	decoded, err := decodeWithOpusdec(oggBuf.Bytes())
+
+	if checkOpusdecAvailableEncoder() {
+		var oggBuf bytes.Buffer
+		if err := writeOggOpusEncoder(&oggBuf, packets, channels, 48000, frameSize); err != nil {
+			return nil, fmt.Errorf("write ogg opus: %w", err)
+		}
+		decoded, err := decodeWithOpusdec(oggBuf.Bytes())
+		if err == nil {
+			return decoded, nil
+		}
+		return nil, fmt.Errorf("libopus reference decode failed: direct helper failed (%v); opusdec decode failed: %w", helperErr, err)
+	}
+
+	return nil, fmt.Errorf("libopus reference decode failed: direct helper failed (%v); opusdec not available", helperErr)
+}
+
+func computeComplianceQualityFromPacketsWithLiveOpusdec(packets [][]byte, original []float32, channels, frameSize int) (float64, error) {
+	decoded, err := decodeCompliancePacketsWithLibopusReferenceOnly(packets, channels, frameSize)
 	if err != nil {
 		return 0, err
 	}
 	if len(decoded) == 0 {
-		return 0, fmt.Errorf("live opusdec decoded no samples")
+		return 0, fmt.Errorf("libopus reference decode produced no samples")
 	}
 
 	compareLen := len(original)
