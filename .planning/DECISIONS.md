@@ -1,6 +1,6 @@
 # Investigation Decisions
 
-Last updated: 2026-02-27
+Last updated: 2026-02-28
 
 Purpose: prevent repeated validation by recording what was tested, what was ruled out, and when re-validation is allowed.
 
@@ -20,6 +20,13 @@ owner: <initials or handle>
 ```
 
 ## Current Decisions
+
+date: 2026-02-28
+topic: amd64-only ratchet floor hardening follow-up for SILK-WB-20ms stereo impulse lane
+decision: Keep tightened amd64 variant ratchet floor for `SILK-WB-20ms-stereo-48k|impulse_train_v1` at `min_gap_db=-0.10` in `encoder_compliance_variants_ratchet_baseline_amd64.json`, and keep default baseline floor unchanged at `-0.09` in `encoder_compliance_variants_ratchet_baseline.json`.
+evidence: Focused repeated lane checks were stable on both arches across 3 runs each: arm64 `gap=-0.08 dB` and amd64 (`GOARCH=amd64`) `gap=-0.04 dB`, with `mismatch=0.00%` and `histL1=0.000`, using `GOPUS_TEST_TIER=parity go test ./testvectors -run 'TestEncoderVariantProfileParityAgainstLibopusFixture/cases/SILK-WB-20ms-stereo-48k-impulse_train_v1$' -count=1 -v` (expected parent-level `ratchet baseline coverage mismatch` on single-case invocation). A default-floor tighten attempt to `-0.08` failed full parity with `ratchet gap regression: -0.09 < -0.08`, so default stayed at `-0.09`. Full validation passed after the amd64-only tighten: `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderVariantProfileParityAgainstLibopusFixture -count=1`, `GOARCH=amd64 GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderVariantProfileParityAgainstLibopusFixture -count=1`, `GOPUS_TEST_TIER=exhaustive go test ./testvectors -run TestEncoderVariantProfileProvenanceAudit -count=1 -v`, and `make bench-guard`; `make verify-production` remained blocked only by existing `tmp_check` cgo-disabled setup while non-`tmp_check` packages passed.
+do_not_repeat_until: fixture corpus, quality scoring path (`qualityFromPacketsLibopusReference*` / `ComputeQualityFloat32WithDelay`), SILK WB stereo 20ms packetization/control flow, or cross-OS CI evidence changes and produces a materially different stable gap distribution for this lane.
+owner: codex
 
 date: 2026-02-28
 topic: amd64-only ratchet floor hardening for HYBRID-SWB-40ms impulse provenance lane
