@@ -177,3 +177,4 @@ Quick commands:
 - claim: id=codex-20260301-033044; agent=codex; status=released; paths=testvectors/,encoder/,celt/; updated=2026-03-01T12:23:27Z; expires=2026-03-01T12:23:27Z; note=loop-50: close remaining material compliance override lane (CELT 2.5ms mono)
 - claim: id=codex-20260301-122333; agent=codex; status=released; paths=testvectors/,encoder/,celt/; updated=2026-03-01T12:53:23Z; expires=2026-03-01T12:53:23Z; note=loop-51: close remaining CELT compliance residual to remove final override
 - claim: id=codex-20260301-125328; agent=codex; status=active; paths=testvectors/,encoder/,celt/; updated=2026-03-01T12:53:28Z; expires=2026-03-01T16:53:28Z; note=loop-52: tighten next remaining parity ratchet slack lane
+- claim: id=codex-20260301-142005; agent=codex; status=active; paths=.planning/; updated=2026-03-01T14:20:05Z; expires=2026-03-01T18:20:05Z; note=loop-53 planning docs heavy compaction and archive refresh
