@@ -1080,6 +1080,8 @@ func TestLibopus_AmbisonicsFamily2Matrix(t *testing.T) {
 		{name: "foa-plus-6ch", channels: 6, bitrate: 224000},
 		{name: "soa-9ch", channels: 9, bitrate: 320000},
 		{name: "soa-plus-11ch", channels: 11, bitrate: 384000},
+		{name: "toa-16ch", channels: 16, bitrate: 448000},
+		{name: "toa-plus-18ch", channels: 18, bitrate: 480000},
 	}
 
 	for _, tc := range cases {
@@ -1101,6 +1103,12 @@ func TestLibopus_AmbisonicsFamily3Matrix(t *testing.T) {
 		{name: "foa-plus-6ch", channels: 6, bitrate: 224000},
 		{name: "soa-9ch", channels: 9, bitrate: 320000},
 		{name: "soa-plus-11ch", channels: 11, bitrate: 384000},
+		{name: "toa-16ch", channels: 16, bitrate: 448000},
+		{name: "toa-plus-18ch", channels: 18, bitrate: 480000},
+		{name: "fourthoa-25ch", channels: 25, bitrate: 510000},
+		{name: "fourthoa-plus-27ch", channels: 27, bitrate: 510000},
+		{name: "fifthoa-36ch", channels: 36, bitrate: 510000},
+		{name: "fifthoa-plus-38ch", channels: 38, bitrate: 510000},
 	}
 
 	for _, tc := range cases {
