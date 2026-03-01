@@ -22,6 +22,13 @@ owner: <initials or handle>
 ## Current Decisions
 
 date: 2026-03-01
+topic: SILK-WB-60ms impulse ratchet floor hardening (default + amd64)
+decision: Keep tightened ratchet floors for `SILK-WB-60ms-mono-32k|impulse_train_v1` at `min_gap_db=-0.04` (default baseline) and `min_gap_db=-0.08` (amd64 baseline).
+evidence: Focused repeated probes on this lane were stable: arm64 logged `gap=-0.04 dB` across 3 runs and amd64 (`GOARCH=amd64`) logged `gap=-0.00 dB` across 3 runs (`TestEncoderVariantProfileParityAgainstLibopusFixture/cases/SILK-WB-60ms-mono-32k-impulse_train_v1`; expected parent-level `ratchet baseline coverage mismatch` on subtest-only invocation). After tightening, full parity/provenance/compliance checks remained green on both arches: `TestEncoderVariantProfileParityAgainstLibopusFixture` (arm64 + amd64), `TestEncoderVariantProfileProvenanceAudit`, `TestEncoderComplianceSummary`, and `make bench-guard`.
+do_not_repeat_until: fixture corpus, quality scoring path (`qualityFromPacketsLibopusReference*` / `ComputeQualityFloat32WithDelay`), or SILK WB 60ms packetization/control flow changes and produce a materially different stable gap distribution for this lane.
+owner: codex
+
+date: 2026-03-01
 topic: final CELT compliance residual override floor
 decision: Keep the sole remaining compliance no-negative override for `CELT-FB-2.5ms-mono-64k` at `0.191 dB` (tightened from `0.20 dB`) as the minimal stable floor for the deterministic libopus residual.
 evidence: Focused lane tracing showed deterministic `gap=-0.190105 dB` (`goSNR=21.401273`, `libSNR=21.591378`) with stable packet-shape parity (`meanAbs=0`, `p95=0`, `modeMismatch=0%`, `histL1=0`) and no run-to-run drift across repeated checks. Explored harness-alignment candidates (CELT low-delay toggle in compliance path, CELT-specific delay window narrowing, opus_demo-style f32 quantization before gopus encode) did not improve this residual without collateral behavior changes; exploratory edits were reverted. Post-tighten validations stayed green: `TestEncoderComplianceSummary`, `TestEncoderCompliancePrecisionGuard`, `TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestEncoderVariantProfileProvenanceAudit`, and `make bench-guard` (with unchanged known local `tmp_check` verify blocker).
