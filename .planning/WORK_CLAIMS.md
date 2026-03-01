@@ -19,7 +19,7 @@ Quick commands:
 
 ## Active Claims
 
-- claim: id=codex-20260301-142005; agent=codex; status=active; paths=.planning/; updated=2026-03-01T14:20:05Z; expires=2026-03-01T18:20:05Z; note=loop-53 planning docs heavy compaction and archive refresh
+- claim: id=codex-20260301-142005; agent=codex; status=released; paths=.planning/; updated=2026-03-01T14:23:10Z; expires=2026-03-01T14:23:10Z; note=loop-53 planning docs heavy compaction and archive refresh
 
 ## Recent Released Claims
 
