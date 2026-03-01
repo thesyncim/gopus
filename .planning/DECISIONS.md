@@ -1,6 +1,6 @@
 # Investigation Decisions
 
-Last updated: 2026-02-28
+Last updated: 2026-03-01
 
 Purpose: prevent repeated validation by recording what was tested, what was ruled out, and when re-validation is allowed.
 
@@ -20,6 +20,13 @@ owner: <initials or handle>
 ```
 
 ## Current Decisions
+
+date: 2026-03-01
+topic: SILK-WB-60ms am_multisine ratchet floor hardening (default + amd64)
+decision: Keep tightened ratchet floors for `SILK-WB-60ms-mono-32k|am_multisine_v1` at `min_gap_db=-0.03` (default baseline) and `min_gap_db=-0.05` (amd64 baseline).
+evidence: Focused lane probes were stable at `gap=0.00 dB` on arm64 and amd64 (`GOARCH=amd64`) for `TestEncoderVariantProfileParityAgainstLibopusFixture/cases/SILK-WB-60ms-mono-32k-am_multisine_v1` (subtest-only runs expectedly report parent-level `ratchet baseline coverage mismatch`). After tightening, full checks remained green on both arches: `TestEncoderVariantProfileParityAgainstLibopusFixture` (arm64 + amd64), `TestEncoderVariantProfileProvenanceAudit`, `TestEncoderComplianceSummary`, and `make bench-guard`; `make verify-production` retained only the known local `tmp_check` cgo-disabled blocker while non-`tmp_check` packages passed.
+do_not_repeat_until: fixture corpus, quality scoring path (`qualityFromPacketsLibopusReference*` / `ComputeQualityFloat32WithDelay`), or SILK WB 60ms packetization/control flow changes and produce a materially different stable gap distribution for this lane.
+owner: codex
 
 date: 2026-03-01
 topic: SILK-WB-60ms impulse ratchet floor hardening (default + amd64)
