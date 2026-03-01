@@ -72,8 +72,7 @@ const (
 // libopus/gopus alignment differs by a fixed cadence/measurement offset.
 // Keep these tight and evidence-backed.
 var encoderLibopusNoNegativeGapOverrideDB = map[string]float64{
-	"CELT-FB-2.5ms-mono-64k":   0.20,
-	"Hybrid-SWB-20ms-mono-48k": 0.05,
+	"CELT-FB-2.5ms-mono-64k": 0.20,
 }
 
 var encoderComplianceLogOnce sync.Once
@@ -84,9 +83,8 @@ func logEncoderComplianceStatus(t *testing.T) {
 		t.Logf("TARGET: Gap thresholds (gopus SNR - libopus SNR): GOOD >= %.1f dB, BASE >= %.1f dB", EncoderLibopusGapGoodDB, EncoderLibopusGapBaseDB)
 		t.Logf("TARGET: No-negative gap guard: gopus SNR - libopus SNR >= -%.2f dB", EncoderLibopusNoNegativeGapToleranceDB)
 		if len(encoderLibopusNoNegativeGapOverrideDB) > 0 {
-			t.Logf("TARGET: No-negative overrides: CELT-FB-2.5ms-mono-64k >= -%.2f dB; Hybrid-SWB-20ms-mono-48k >= -%.2f dB",
-				encoderLibopusNoNegativeGapOverrideDB["CELT-FB-2.5ms-mono-64k"],
-				encoderLibopusNoNegativeGapOverrideDB["Hybrid-SWB-20ms-mono-48k"])
+			t.Logf("TARGET: No-negative overrides: CELT-FB-2.5ms-mono-64k >= -%.2f dB",
+				encoderLibopusNoNegativeGapOverrideDB["CELT-FB-2.5ms-mono-64k"])
 		}
 		t.Logf("TARGET: SILK/Hybrid parity guard: |gap| <= %.1f dB", EncoderLibopusSpeechGapTightDB)
 		t.Log("FALLBACK: Absolute Q thresholds (calibrated against libopus round-trip values) apply when fixtures unavailable.")
