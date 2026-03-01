@@ -21,6 +21,13 @@ owner: <initials or handle>
 
 ## Current Decisions
 
+date: 2026-03-01
+topic: final CELT compliance residual override floor
+decision: Keep the sole remaining compliance no-negative override for `CELT-FB-2.5ms-mono-64k` at `0.191 dB` (tightened from `0.20 dB`) as the minimal stable floor for the deterministic libopus residual.
+evidence: Focused lane tracing showed deterministic `gap=-0.190105 dB` (`goSNR=21.401273`, `libSNR=21.591378`) with stable packet-shape parity (`meanAbs=0`, `p95=0`, `modeMismatch=0%`, `histL1=0`) and no run-to-run drift across repeated checks. Explored harness-alignment candidates (CELT low-delay toggle in compliance path, CELT-specific delay window narrowing, opus_demo-style f32 quantization before gopus encode) did not improve this residual without collateral behavior changes; exploratory edits were reverted. Post-tighten validations stayed green: `TestEncoderComplianceSummary`, `TestEncoderCompliancePrecisionGuard`, `TestEncoderVariantProfileParityAgainstLibopusFixture`, `TestEncoderVariantProfileProvenanceAudit`, and `make bench-guard` (with unchanged known local `tmp_check` verify blocker).
+do_not_repeat_until: CELT 2.5ms encode/control-flow parity in `encoder/`+`celt/` changes materially, compliance quality metric semantics or libopus reference fixture cadence changes, or new fixture evidence shows stable residual below `-0.191 dB`.
+owner: codex
+
 date: 2026-02-28
 topic: compliance no-negative override cleanup for hybrid SWB 20ms
 decision: Remove `Hybrid-SWB-20ms-mono-48k` from `encoderLibopusNoNegativeGapOverrideDB` and keep only the material residual override `CELT-FB-2.5ms-mono-64k => -0.20 dB`.
