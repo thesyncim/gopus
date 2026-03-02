@@ -34,3 +34,4 @@ Quick commands:
 - claim: id=codex-20260301-143444; agent=codex; status=released; paths=testvectors/,.planning/; updated=2026-03-01T14:41:52Z; expires=2026-03-01T14:41:52Z; note=loop-55 tighten SILK WB 20ms am amd64 ratchet floor
 - claim: id=codex-20260301-155735; agent=codex; status=released; paths=multistream/,.planning/; updated=2026-03-01T16:04:14Z; expires=2026-03-01T16:04:14Z; note=loop-56: harden libopus ambisonics family3 parity coverage for higher orders
 - claim: id=codex-20260301-160817; agent=codex; status=released; paths=testvectors/,.planning/; updated=2026-03-01T16:11:25Z; expires=2026-03-01T16:11:25Z; note=loop-57: tighten next weakest variant parity ratchet lane
+- claim: id=codex-20260302-191318; agent=codex; status=active; paths=encoder/,.planning/; updated=2026-03-02T19:13:18Z; expires=2026-03-02T23:13:18Z; note=perf loop: hoist tonality scratch from stack
