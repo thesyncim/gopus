@@ -210,6 +210,7 @@ type TonalityAnalysisState struct {
 	PrevTonality     float32
 	PrevBandwidth    int
 	E                [NbFrames][NbTBands]float32
+	SqrtE            [NbFrames][NbTBands]float32
 	LogE             [NbFrames][NbTBands]float32
 	LowE             [NbTBands]float32
 	HighE            [NbTBands]float32
@@ -593,6 +594,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	belowMaxPitch := float32(0)
 	aboveMaxPitch := float32(0)
 	var bandTonality [NbTBands]float32
+	var bandERaw [NbTBands]float32
 	maxPitchRatio := float32(1.0)
 
 	if s.Count == 0 {
@@ -637,18 +639,23 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 
 	// Band energies and tonal metrics using precomputed bin energies.
 	for b := 0; b < NbTBands; b++ {
-		var bandE, tE, nE float32
+		var bandE, tE, nE, rawE float32
 		for i := tbands[b]; i < tbands[b+1]; i++ {
-			binE := binEArr[i-binStart] * analysisBinScale
+			binERaw := binEArr[i-binStart]
+			binE := binERaw * analysisBinScale
+			rawE += binERaw
 			bandE += binE
 			tE += binE * maxf(0, tonality[i])
 			nE += binE * 2.0 * (0.5 - noisiness[i])
 		}
+		bandERaw[b] = rawE
 
 		s.E[s.ECount][b] = bandE
-		logE[b] = float32(math.Log(float64(bandE) + 1e-10))
-		bandLog2[b+1] = log2Scale * float32(math.Log(float64(bandE)+1e-10))
+		logBandE := float32(math.Log(float64(bandE) + 1e-10))
+		logE[b] = logBandE
+		bandLog2[b+1] = log2Scale * logBandE
 		s.LogE[s.ECount][b] = logE[b]
+		s.SqrtE[s.ECount][b] = float32(math.Sqrt(float64(bandE)))
 
 		frameNoisiness += nE / (1e-15 + bandE)
 		frameLoudness += float32(math.Sqrt(float64(bandE + 1e-10)))
@@ -675,7 +682,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 
 		var L1, L2 float32
 		for i := 0; i < NbFrames; i++ {
-			L1 += float32(math.Sqrt(float64(s.E[i][b])))
+			L1 += s.SqrtE[i][b]
 			L2 += s.E[i][b]
 		}
 		stationarity := minf(0.99, L1/float32(math.Sqrt(float64(1e-15+float32(NbFrames)*L2))))
@@ -725,11 +732,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	for b := 0; b < NbTBands; b++ {
 		bandStart := tbands[b]
 		bandEnd := tbands[b+1]
-		Eraw := float32(0)
-		for i := bandStart; i < bandEnd; i++ {
-			Eraw += binEArr[i-binStart]
-		}
-		E := Eraw * analysisBinScale
+		E := bandERaw[b] * analysisBinScale
 		maxE = maxf(maxE, E)
 		if bandStart < 64 {
 			belowMaxPitch += E
