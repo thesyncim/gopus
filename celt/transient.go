@@ -284,13 +284,8 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 	var maxMaskMetric int
 	tfChannel := 0
 
-	// Ensure scratch buffers are large enough
-	var channelSamples []float64
-	if channelBuf != nil && len(channelBuf) >= samplesPerChannel {
-		channelSamples = channelBuf[:samplesPerChannel]
-	} else {
-		channelSamples = make([]float64, samplesPerChannel)
-	}
+	// Channel samples are consumed directly from pcm in the HP filter loop.
+	_ = channelBuf
 
 	var tmp []float64
 	if tmpBuf != nil && len(tmpBuf) >= samplesPerChannel {
@@ -309,30 +304,36 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 
 	// Process each channel
 	for c := 0; c < channels; c++ {
-		// Extract channel samples with optimized mono fast-path
-		if channels == 1 {
-			copy(channelSamples[:samplesPerChannel], pcm[:samplesPerChannel])
-		} else {
-			_ = pcm[(samplesPerChannel-1)*channels+c] // BCE hint
-			_ = channelSamples[samplesPerChannel-1]   // BCE hint
-			for i := 0; i < samplesPerChannel; i++ {
-				channelSamples[i] = pcm[i*channels+c]
-			}
-		}
-
 		// High-pass filter: (1 - 2*z^-1 + z^-2) / (1 - z^-1 + 0.5*z^-2)
 		// This removes DC and low frequencies to focus on transient energy
-		_ = channelSamples[samplesPerChannel-1] // BCE hint
-		_ = tmp[samplesPerChannel-1]            // BCE hint
+		_ = tmp[samplesPerChannel-1] // BCE hint
 		var mem0, mem1 float32
-		for i := 0; i < samplesPerChannel; i++ {
-			x := float32(channelSamples[i])
-			y := mem0 + x
-			// Modified code to shorten dependency chains (matches libopus float)
-			mem00 := mem0
-			mem0 = mem0 - x + 0.5*mem1
-			mem1 = x - mem00
-			tmp[i] = float64(y)
+		if channels == 1 {
+			src := pcm[:samplesPerChannel]
+			_ = src[samplesPerChannel-1] // BCE hint
+			for i := 0; i < samplesPerChannel; i++ {
+				x := float32(src[i])
+				y := mem0 + x
+				// Modified code to shorten dependency chains (matches libopus float)
+				mem00 := mem0
+				mem0 = mem0 - x + 0.5*mem1
+				mem1 = x - mem00
+				tmp[i] = float64(y)
+			}
+		} else {
+			stride := channels
+			idx := c
+			_ = pcm[(samplesPerChannel-1)*stride+c] // BCE hint
+			for i := 0; i < samplesPerChannel; i++ {
+				x := float32(pcm[idx])
+				y := mem0 + x
+				// Modified code to shorten dependency chains (matches libopus float)
+				mem00 := mem0
+				mem0 = mem0 - x + 0.5*mem1
+				mem1 = x - mem00
+				tmp[i] = float64(y)
+				idx += stride
+			}
 		}
 
 		// Clear first few samples (filter warm-up) -- unrolled for the common case

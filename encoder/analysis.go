@@ -237,6 +237,11 @@ type TonalityAnalysisState struct {
 	scratchResample3x  []float32
 	scratchFFTKiss     []celt.KissCpx
 	scratchBinE        []float32 // precomputed bin energies for band loop
+	scratchFFTIn       [480]complex64
+	scratchFFTOut      [480]complex64
+	scratchTonality    [240]float32
+	scratchTonality2   [240]float32
+	scratchNoisiness   [240]float32
 }
 
 func NewTonalityAnalysisState(fs int) *TonalityAnalysisState {
@@ -410,12 +415,12 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	}
 	isSilence := isDigitalSilence32(s.InMem[:AnalysisBufSize])
 
-	var in [480]complex64
+	inBuf := s.scratchFFTIn[:]
 	// Use 480 samples from InMem for FFT
 	for i := 0; i < 240; i++ {
 		w := analysisWindow[i]
-		in[i] = complex(w*s.InMem[i], w*s.InMem[240+i])
-		in[480-i-1] = complex(w*s.InMem[480-i-1], w*s.InMem[480+240-i-1])
+		inBuf[i] = complex(w*s.InMem[i], w*s.InMem[240+i])
+		inBuf[480-i-1] = complex(w*s.InMem[480-i-1], w*s.InMem[480+240-i-1])
 	}
 
 	// Shift buffer and keep the residual input for the next analysis step.
@@ -495,9 +500,9 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	if cap(s.scratchFFTKiss) < 480 {
 		s.scratchFFTKiss = make([]celt.KissCpx, 480)
 	}
-	var out [480]complex64
-	fft480(&out, &in, s.scratchFFTKiss[:480])
-	if math.IsNaN(float64(real(out[0]))) {
+	fft480(&s.scratchFFTOut, &s.scratchFFTIn, s.scratchFFTKiss[:480])
+	outBuf := s.scratchFFTOut[:]
+	if math.IsNaN(float64(real(outBuf[0]))) {
 		s.Info[infoPos].Valid = false
 		s.WritePos = nextWritePos
 		return
@@ -519,14 +524,14 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	)
 	specVariability := float32(0)
 
-	var tonality [240]float32
-	var tonality2 [240]float32
-	var noisiness [240]float32
+	tonality := s.scratchTonality[:]
+	tonality2 := s.scratchTonality2[:]
+	noisiness := s.scratchNoisiness[:]
 	for i := 1; i < 240; i++ {
-		x1r := real(out[i]) + real(out[480-i])
-		x1i := imag(out[i]) - imag(out[480-i])
-		x2r := imag(out[i]) + imag(out[480-i])
-		x2i := real(out[480-i]) - real(out[i])
+		x1r := real(outBuf[i]) + real(outBuf[480-i])
+		x1i := imag(outBuf[i]) - imag(outBuf[480-i])
+		x2r := imag(outBuf[i]) + imag(outBuf[480-i])
+		x2i := real(outBuf[480-i]) - real(outBuf[i])
 
 		angle := analysisAtanScale * analysisFastAtan2f(x1i, x1r)
 		dAngle := angle - s.Angle[i]
@@ -600,12 +605,12 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 
 	// Match libopus special handling for the first band (DC/Nyquist bins).
 	{
-		x1r := 2 * real(out[0])
-		x2r := 2 * imag(out[0])
+		x1r := 2 * real(outBuf[0])
+		x2r := 2 * imag(outBuf[0])
 		E := x1r*x1r + x2r*x2r
 		for i := 1; i < 4; i++ {
-			binE := real(out[i])*real(out[i]) + real(out[480-i])*real(out[480-i]) +
-				imag(out[i])*imag(out[i]) + imag(out[480-i])*imag(out[480-i])
+			binE := real(outBuf[i])*real(outBuf[i]) + real(outBuf[480-i])*real(outBuf[480-i]) +
+				imag(outBuf[i])*imag(outBuf[i]) + imag(outBuf[480-i])*imag(outBuf[480-i])
 			E += binE
 		}
 		E *= (1.0 / (celtSigScale * celtSigScale)) * analysisFFTEnergyScale
@@ -614,27 +619,27 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 
 	// Precompute bin energies for all analysis bins to improve memory access patterns.
 	// Range: tbands[0]=4 to tbands[NbTBands]=240, so bins 4..239 = 236 entries.
-	const binStart = 4  // tbands[0]
-	const binEnd = 240  // tbands[NbTBands]
+	const binStart = 4 // tbands[0]
+	const binEnd = 240 // tbands[NbTBands]
 	const numBins = binEnd - binStart
 	if len(s.scratchBinE) < numBins {
 		s.scratchBinE = make([]float32, numBins)
 	}
 	binEArr := s.scratchBinE[:numBins]
 	{
-		const scale = (1.0 / (celtSigScale * celtSigScale)) * analysisFFTEnergyScale
 		for i := binStart; i < binEnd; i++ {
-			binE := real(out[i])*real(out[i]) + real(out[480-i])*real(out[480-i]) +
-				imag(out[i])*imag(out[i]) + imag(out[480-i])*imag(out[480-i])
-			binEArr[i-binStart] = binE * scale
+			binE := real(outBuf[i])*real(outBuf[i]) + real(outBuf[480-i])*real(outBuf[480-i]) +
+				imag(outBuf[i])*imag(outBuf[i]) + imag(outBuf[480-i])*imag(outBuf[480-i])
+			binEArr[i-binStart] = binE
 		}
 	}
+	const analysisBinScale = (1.0 / (celtSigScale * celtSigScale)) * analysisFFTEnergyScale
 
 	// Band energies and tonal metrics using precomputed bin energies.
 	for b := 0; b < NbTBands; b++ {
 		var bandE, tE, nE float32
 		for i := tbands[b]; i < tbands[b+1]; i++ {
-			binE := binEArr[i-binStart]
+			binE := binEArr[i-binStart] * analysisBinScale
 			bandE += binE
 			tE += binE * maxf(0, tonality[i])
 			nE += binE * 2.0 * (0.5 - noisiness[i])
@@ -720,13 +725,11 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	for b := 0; b < NbTBands; b++ {
 		bandStart := tbands[b]
 		bandEnd := tbands[b+1]
-		E := float32(0)
+		Eraw := float32(0)
 		for i := bandStart; i < bandEnd; i++ {
-			binE := real(out[i])*real(out[i]) + real(out[480-i])*real(out[480-i]) +
-				imag(out[i])*imag(out[i]) + imag(out[480-i])*imag(out[480-i])
-			E += binE
+			Eraw += binEArr[i-binStart]
 		}
-		E *= (1.0 / (celtSigScale * celtSigScale)) * analysisFFTEnergyScale
+		E := Eraw * analysisBinScale
 		maxE = maxf(maxE, E)
 		if bandStart < 64 {
 			belowMaxPitch += E
