@@ -20,6 +20,13 @@ owner: <handle>
 ## Current Decisions
 
 date: 2026-03-02
+topic: Pitch downsample factor-2 specialization and state-rounding skip in prefilter
+decision: Keep `pitchDownsample()` specialized fast path for `factor=2` mono/stereo in `celt/prefilter.go`, and keep conditional skipping of `prefilterMem`/overlap re-rounding in the default float32 prefilter path while retaining explicit rounding in debug/alternate-precision modes (`tmpSkipPrefInputRoundEnabled` or `tmpPrefilterF64Enabled`).
+evidence: A/B microbenchmark (`go test ./celt -run '^$' -bench 'BenchmarkPitchDownsample(Current|Legacy)(Mono|Stereo)$' -benchmem -benchtime=2s -count=5`) shows stereo improvement from legacy `~2471-2519 ns/op` to current `~2252-2316 ns/op` (~8-10% faster); mono remains neutral/slightly improved (`~1931-2010 ns/op` legacy vs `~1920-1994 ns/op` current). Parity/compliance stayed green (`go test ./celt -run 'Test(PrefilterPitchXcorr|RunPrefilterParityAgainstLibopusFixture|TransientAnalysis)' -count=1`; `go test ./celt -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` with `23 passed, 0 failed`), full runnable package sweep passed, and `make bench-guard` passed.
+do_not_repeat_until: prefilter pitch-downsample input layout/factor usage changes, float-precision debug flag semantics change, or libopus prefilter parity fixtures show rounding-behavior drift.
+owner: codex
+
+date: 2026-03-02
 topic: Pitch search fine-stage candidate-window optimization
 decision: Keep the `pitchSearch()` fine-stage rewrite in `celt/prefilter.go` that preserves libopus-equivalent candidate coverage (`±2` around both coarse winners) while replacing the full-range `abs()`-gated scan with explicit window loops and a single `clear(xcorr[:halfPitch])`. Keep the dedicated A/B benchmark fixture (`celt/pitch_search_bench_test.go`) to guard this hotspot against regressions.
 evidence: Direct A/B benchmark on representative prefilter dimensions (`go test ./celt -run '^$' -bench 'BenchmarkPitchSearch(Current|Legacy)$' -benchmem -benchtime=2s -count=5`) showed current `~3764-3828 ns/op` vs legacy `~4088-4159 ns/op` (~8% faster) at `0 allocs/op`. Quality parity remained green (`go test ./celt -run 'Test(PrefilterPitchXcorr|RunPrefilterParityAgainstLibopusFixture|TransientAnalysis)' -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` with `23 passed, 0 failed`). Perf guard stayed green (`make bench-guard` passed, encoder rows around `57.2/56.9 us/op`).

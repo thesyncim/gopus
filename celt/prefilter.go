@@ -95,6 +95,10 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			roundFloat64ToFloat32(pre)
 		}
 	}
+	// In the default float32 prefilter path with rounded inputs, copied state
+	// is already float32-quantized. Keep explicit state rounding only in debug/
+	// alternate-precision modes that can produce wider intermediates.
+	needStateRound := !tmpSkipPrefMemRoundEnabled && (tmpSkipPrefInputRoundEnabled || tmpPrefilterF64Enabled)
 
 	pitchIndex := minPeriod
 	gain1 := 0.0
@@ -310,7 +314,7 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			copy(mem, mem[frameSize:])
 			copy(mem[maxPeriod-frameSize:], preCh[maxPeriod:maxPeriod+frameSize])
 		}
-		if !tmpSkipPrefMemRoundEnabled {
+		if needStateRound {
 			roundFloat64ToFloat32(mem)
 		}
 		outSub2 := outCh[maxPeriod : maxPeriod+frameSize]
@@ -318,7 +322,7 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		if overlap > 0 && len(e.overlapBuffer) >= overlap && frameSize >= overlap {
 			hist := e.overlapBuffer[:overlap]
 			copy(hist, outSub2[frameSize-overlap:])
-			if !tmpSkipPrefMemRoundEnabled {
+			if needStateRound {
 				roundFloat64ToFloat32(hist)
 			}
 		}
@@ -333,7 +337,7 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 				copy(mem, mem[frameSize:])
 				copy(mem[maxPeriod-frameSize:], preCh[maxPeriod:maxPeriod+frameSize])
 			}
-			if !tmpSkipPrefMemRoundEnabled {
+			if needStateRound {
 				roundFloat64ToFloat32(mem)
 			}
 			outSub2 := outCh[maxPeriod : maxPeriod+frameSize]
@@ -343,7 +347,7 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			if overlap > 0 && len(e.overlapBuffer) >= (ch+1)*overlap && frameSize >= overlap {
 				hist := e.overlapBuffer[ch*overlap : (ch+1)*overlap]
 				copy(hist, outSub2[frameSize-overlap:])
-				if !tmpSkipPrefMemRoundEnabled {
+				if needStateRound {
 					roundFloat64ToFloat32(hist)
 				}
 			}
@@ -566,29 +570,61 @@ func pitchDownsample(x []float64, xLP []float64, length, channels, factor int) {
 	if length <= 0 || factor <= 0 || len(xLP) < length {
 		return
 	}
-	offset := factor / 2
-	if offset < 1 {
-		offset = 1
+	const (
+		firQuarter = float32(0.25)
+		firHalf    = float32(0.5)
+	)
+	handled := false
+	if factor == 2 {
+		if channels == 1 {
+			idx := 2
+			for i := 1; i < length; i++ {
+				v := firQuarter*float32(x[idx-1]) + firQuarter*float32(x[idx+1]) + firHalf*float32(x[idx])
+				xLP[i] = float64(v)
+				idx += 2
+			}
+			xLP[0] = float64(firQuarter*float32(x[1]) + firHalf*float32(x[0]))
+		} else if channels == 2 {
+			chStride := len(x) / 2
+			x0 := x[:chStride]
+			x1 := x[chStride:]
+			idx := 2
+			for i := 1; i < length; i++ {
+				v0 := firQuarter*float32(x0[idx-1]) + firQuarter*float32(x0[idx+1]) + firHalf*float32(x0[idx])
+				v1 := firQuarter*float32(x1[idx-1]) + firQuarter*float32(x1[idx+1]) + firHalf*float32(x1[idx])
+				xLP[i] = float64(v0 + v1)
+				idx += 2
+			}
+			xLP[0] = float64(firQuarter*float32(x0[1]) + firHalf*float32(x0[0]) +
+				firQuarter*float32(x1[1]) + firHalf*float32(x1[0]))
+		}
+		handled = true
 	}
-	for i := 1; i < length; i++ {
-		idx := factor * i
-		v := float32(0.25)*float32(x[idx-offset]) +
-			float32(0.25)*float32(x[idx+offset]) +
-			float32(0.5)*float32(x[idx])
-		xLP[i] = float64(v)
-	}
-	xLP[0] = float64(float32(0.25)*float32(x[offset]) + float32(0.5)*float32(x[0]))
-	if channels == 2 {
-		chStride := len(x) / 2
-		x1 := x[chStride:]
+	if !handled {
+		offset := factor / 2
+		if offset < 1 {
+			offset = 1
+		}
 		for i := 1; i < length; i++ {
 			idx := factor * i
-			v := float32(0.25)*float32(x1[idx-offset]) +
-				float32(0.25)*float32(x1[idx+offset]) +
-				float32(0.5)*float32(x1[idx])
-			xLP[i] = float64(float32(xLP[i]) + v)
+			v := firQuarter*float32(x[idx-offset]) +
+				firQuarter*float32(x[idx+offset]) +
+				firHalf*float32(x[idx])
+			xLP[i] = float64(v)
 		}
-		xLP[0] = float64(float32(xLP[0]) + float32(0.25)*float32(x1[offset]) + float32(0.5)*float32(x1[0]))
+		xLP[0] = float64(firQuarter*float32(x[offset]) + firHalf*float32(x[0]))
+		if channels == 2 {
+			chStride := len(x) / 2
+			x1 := x[chStride:]
+			for i := 1; i < length; i++ {
+				idx := factor * i
+				v := firQuarter*float32(x1[idx-offset]) +
+					firQuarter*float32(x1[idx+offset]) +
+					firHalf*float32(x1[idx])
+				xLP[i] = float64(float32(xLP[i]) + v)
+			}
+			xLP[0] = float64(float32(xLP[0]) + firQuarter*float32(x1[offset]) + firHalf*float32(x1[0]))
+		}
 	}
 
 	// Match libopus _celt_autocorr() order for lag=4, overlap=0.
@@ -635,11 +671,11 @@ func pitchSearch(xLP []float64, y []float64, length, maxPitch int, scratch *enco
 	yLP4 := ensureFloat64Slice(&scratch.prefilterYLP4, quarterLag)
 	xcorr := ensureFloat64Slice(&scratch.prefilterXcorr, halfPitch)
 
-	for j := 0; j < quarterLen; j++ {
-		xLP4[j] = xLP[2*j]
+	for j, idx := 0, 0; j < quarterLen; j, idx = j+1, idx+2 {
+		xLP4[j] = xLP[idx]
 	}
-	for j := 0; j < quarterLag; j++ {
-		yLP4[j] = y[2*j]
+	for j, idx := 0, 0; j < quarterLag; j, idx = j+1, idx+2 {
+		yLP4[j] = y[idx]
 	}
 
 	prefilterPitchXcorr(xLP4, yLP4, xcorr, quarterLen, quarterPitch)
