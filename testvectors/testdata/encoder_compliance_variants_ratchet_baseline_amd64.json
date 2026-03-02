@@ -490,7 +490,7 @@
     {
       "name": "HYBRID-SWB-40ms-mono-48k",
       "variant": "impulse_train_v1",
-      "min_gap_db": -0.38,
+      "min_gap_db": -0.12,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.08,
@@ -616,7 +616,7 @@
     {
       "name": "SILK-NB-40ms-mono-16k",
       "variant": "am_multisine_v1",
-      "min_gap_db": -0.5441133171453032,
+      "min_gap_db": -0.08,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.02,
@@ -688,7 +688,7 @@
     {
       "name": "SILK-WB-20ms-mono-32k",
       "variant": "am_multisine_v1",
-      "min_gap_db": -0.05,
+      "min_gap_db": -0.02,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.02,
@@ -760,7 +760,7 @@
     {
       "name": "SILK-WB-40ms-mono-32k",
       "variant": "am_multisine_v1",
-      "min_gap_db": -0.05,
+      "min_gap_db": -0.02,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.02,
@@ -778,7 +778,7 @@
     {
       "name": "SILK-WB-40ms-mono-32k",
       "variant": "impulse_train_v1",
-      "min_gap_db": -0.5995003968055883,
+      "min_gap_db": -0.11,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.02,
@@ -796,7 +796,7 @@
     {
       "name": "SILK-WB-60ms-mono-32k",
       "variant": "am_multisine_v1",
-      "min_gap_db": -0.05,
+      "min_gap_db": -0.03,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.02,
@@ -814,7 +814,7 @@
     {
       "name": "SILK-WB-60ms-mono-32k",
       "variant": "impulse_train_v1",
-      "min_gap_db": -0.05,
+      "min_gap_db": -0.03,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.02,
