@@ -35,4 +35,4 @@ Quick commands:
 - claim: id=codex-20260301-155735; agent=codex; status=released; paths=multistream/,.planning/; updated=2026-03-01T16:04:14Z; expires=2026-03-01T16:04:14Z; note=loop-56: harden libopus ambisonics family3 parity coverage for higher orders
 - claim: id=codex-20260301-160817; agent=codex; status=released; paths=testvectors/,.planning/; updated=2026-03-01T16:11:25Z; expires=2026-03-01T16:11:25Z; note=loop-57: tighten next weakest variant parity ratchet lane
 - claim: id=codex-20260302-191318; agent=codex; status=released; paths=encoder/,.planning/; updated=2026-03-02T19:18:47Z; expires=2026-03-02T19:18:47Z; note=perf loop: hoist tonality scratch from stack
-- claim: id=codex-20260302-193554; agent=codex; status=active; paths=celt/,.planning/; updated=2026-03-02T19:35:54Z; expires=2026-03-02T23:35:54Z; note=perf loop: transient analysis channel-copy removal
+- claim: id=codex-20260302-193554; agent=codex; status=released; paths=celt/,.planning/; updated=2026-03-02T20:54:18Z; expires=2026-03-02T20:54:18Z; note=perf loop: transient analysis channel-copy removal
