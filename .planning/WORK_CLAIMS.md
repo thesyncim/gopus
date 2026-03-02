@@ -36,4 +36,4 @@ Quick commands:
 - claim: id=codex-20260301-160817; agent=codex; status=released; paths=testvectors/,.planning/; updated=2026-03-01T16:11:25Z; expires=2026-03-01T16:11:25Z; note=loop-57: tighten next weakest variant parity ratchet lane
 - claim: id=codex-20260302-191318; agent=codex; status=released; paths=encoder/,.planning/; updated=2026-03-02T19:18:47Z; expires=2026-03-02T19:18:47Z; note=perf loop: hoist tonality scratch from stack
 - claim: id=codex-20260302-193554; agent=codex; status=released; paths=celt/,.planning/; updated=2026-03-02T20:54:18Z; expires=2026-03-02T20:54:18Z; note=perf loop: transient analysis channel-copy removal
-- claim: id=codex-20260302-221033; agent=codex; status=active; paths=celt/; updated=2026-03-02T22:10:33Z; expires=2026-03-03T02:10:33Z; note=next perf loop: prefilter/pitch downsample and rounding-path cleanup
+- claim: id=codex-20260302-221033; agent=codex; status=released; paths=celt/; updated=2026-03-02T22:23:57Z; expires=2026-03-02T22:23:57Z; note=next perf loop: prefilter/pitch downsample and rounding-path cleanup
