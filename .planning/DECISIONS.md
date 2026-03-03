@@ -1,6 +1,6 @@
 # Investigation Decisions
 
-Last updated: 2026-03-02
+Last updated: 2026-03-03
 
 Purpose: record durable keep/skip decisions to avoid re-running solved investigations.
 
@@ -19,9 +19,16 @@ owner: <handle>
 
 ## Current Decisions
 
+date: 2026-03-03
+topic: Transient analysis fused pair-energy and forward-mask pass
+decision: Keep the `celt/transient.go` `transientAnalysisScratch` fused loop that computes pair energy and forward masking in one traversal, and keep removal of the no-longer-needed `transientX2` scratch slice from `celt/encoder.go`.
+evidence: Quality/parity remained green (`go test ./celt -run 'Test(Transient|PrefilterPitchXcorr|RunPrefilterParityAgainstLibopusFixture|Tone)' -count=1`; `go test ./celt -count=1`; `go test ./encoder -run 'Test(Analysis|RunAnalysis|TonalityAnalysis|UpdateOpusVADReusesFreshAnalysis|AnalysisTraceFixtureParityWithLibopus)' -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `23 passed, 0 failed`). Controlled A/B microbench (`GOMAXPROCS=1 go test ./ -bench 'BenchmarkEncoderEncode$|BenchmarkEncoderEncodeInt16$' -benchmem -run '^$' -count=8 -benchtime=2s -cpu=1`) improved current vs baseline from `~52.2-54.0 us/op` to `~51.5-53.5 us/op` (`BenchmarkEncoderEncode`) and from `~53.5-54.0 us/op` to `~51.9-52.8 us/op` (`BenchmarkEncoderEncodeInt16`). `make bench-guard` passed; `make verify-production` showed only the known local `tmp_check` cgo-disabled blocker.
+do_not_repeat_until: transient-analysis forward-masking math order, detector threshold semantics, or scratch layout changes in ways that invalidate this A/B result.
+owner: codex
+
 date: 2026-03-02
 topic: Analysis MLP float32 weight-cache path and transient float32 scratch path
-decision: Keep the analysis MLP fast path that preconverts global int8 dense/GRU weights to float32 once at init (`initAnalysisMLPWeightCaches`) and uses `gemmAccumF32` during `ComputeDense`/`ComputeGRU`. Keep transient analysis scratch in float32 (`transientTmp`, `transientEnergy`, `transientEnergyPairsF32`) to avoid float64<->float32 conversion churn in `celt.(*Encoder).transientAnalysisScratch`.
+decision: Keep the analysis MLP fast path that preconverts global int8 dense/GRU weights to float32 once at init (`initAnalysisMLPWeightCaches`) and uses `gemmAccumF32` during `ComputeDense`/`ComputeGRU`. Keep transient analysis scratch in float32 (`transientTmp`, `transientEnergy`) to avoid float64<->float32 conversion churn in `celt.(*Encoder).transientAnalysisScratch`.
 evidence: Quality/parity stayed green (`go test ./encoder -run 'Test(Analysis|RunAnalysis|TonalityAnalysis|UpdateOpusVADReusesFreshAnalysis|AnalysisTraceFixtureParityWithLibopus)' -count=1`; `go test ./celt -run 'Test(Transient|PrefilterPitchXcorr|RunPrefilterParityAgainstLibopusFixture|Tone)' -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `23 passed, 0 failed`). Perf evidence: root encode microbench (`go test . -run '^$' -bench 'BenchmarkEncoderEncode$|BenchmarkEncoderEncodeInt16$' -benchmem -benchtime=2s -count=5`) improved int16 cluster from ~`55k ns/op` to ~`50-51k ns/op` best samples; `make bench-guard` passed with encoder samples around ~`50.9-54.7k ns/op`, `0 allocs/op`. CPU profile comparison (`-cpuprofile` on `BenchmarkEncoderEncode`) showed `transientAnalysisScratch` flat share dropping from ~`7.3%` to ~`5.2%`.
 do_not_repeat_until: analysis MLP topology/weights change, transient detector math order changes, or parity fixtures indicate regression tied to these fast paths.
 owner: codex

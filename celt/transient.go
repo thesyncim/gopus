@@ -224,8 +224,7 @@ func (e *Encoder) TransientAnalysis(pcm []float64, frameSize int, allowWeakTrans
 	return e.transientAnalysisScratch(pcm, frameSize, allowWeakTransients,
 		e.scratch.transientX,
 		e.scratch.transientTmp,
-		e.scratch.transientEnergy,
-		e.scratch.transientX2)
+		e.scratch.transientEnergy)
 }
 
 // transientInvTable is the inverse table for computing harmonic mean (6*64/x, trained on real data).
@@ -243,7 +242,7 @@ var transientInvTable = [128]int{
 
 // transientAnalysisScratch is the scratch-aware version of TransientAnalysis.
 func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWeakTransients bool,
-	toneBuf []float32, tmpBuf []float32, energyBuf []float32, x2Buf []float32) TransientAnalysisResult {
+	toneBuf []float32, tmpBuf []float32, energyBuf []float32) TransientAnalysisResult {
 	result := TransientAnalysisResult{
 		TfEstimate:  0.0,
 		TfChannel:   0,
@@ -352,24 +351,18 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 			}
 		}
 
-		// Forward pass: compute post-echo threshold with forward masking
-		// Group by two to reduce complexity.
-		// Split into two passes:
-		//   Pass 1 (SIMD): compute x2[i] = float32(tmp[2*i])^2 + float32(tmp[2*i+1])^2
-		//   Pass 2 (scalar): apply sequential forward decay
-		var x2 []float32
-		if x2Buf != nil && len(x2Buf) >= len2 {
-			x2 = x2Buf[:len2]
-		} else {
-			x2 = make([]float32, len2)
-		}
-		mean := transientEnergyPairsF32(tmp[:2*len2], x2, len2)
-
-		// Pass 2: sequential forward decay (data-dependent, cannot vectorize)
+		// Forward pass: compute pair energy and post-echo masking in one traversal.
+		_ = tmp[2*len2-1]  // BCE hint
 		_ = energy[len2-1] // BCE hint
 		mem0 = 0
+		mean := float32(0)
 		for i := 0; i < len2; i++ {
-			mem0 = x2[i] + forwardRetain*mem0
+			j := i << 1
+			t0 := tmp[j]
+			t1 := tmp[j+1]
+			pair := t0*t0 + t1*t1
+			mean += pair
+			mem0 = pair + forwardRetain*mem0
 			energy[i] = forwardDecay * mem0
 		}
 
@@ -470,23 +463,6 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 	}
 
 	return result
-}
-
-func transientEnergyPairsF32(tmp []float32, x2out []float32, len2 int) float32 {
-	var mean float32
-	if len2 <= 0 {
-		return mean
-	}
-	_ = tmp[2*len2-1]
-	_ = x2out[len2-1]
-	for i := 0; i < len2; i++ {
-		t0 := tmp[2*i]
-		t1 := tmp[2*i+1]
-		x2 := t0*t0 + t1*t1
-		x2out[i] = x2
-		mean += x2
-	}
-	return mean
 }
 
 // TransientAnalysisWithState performs enhanced transient analysis using persistent state.
