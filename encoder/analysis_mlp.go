@@ -13,6 +13,8 @@ type AnalysisDenseLayer struct {
 	NbInputs     int
 	NbNeurons    int
 	Sigmoid      bool
+
+	inputWeightsF32 []float32
 }
 
 // AnalysisGRULayer represents a Gated Recurrent Unit layer.
@@ -22,6 +24,9 @@ type AnalysisGRULayer struct {
 	RecurrentWeights []int8
 	NbInputs         int
 	NbNeurons        int
+
+	inputWeightsF32     []float32
+	recurrentWeightsF32 []float32
 }
 
 // tansigApprox is a fast rational approximation of the hyperbolic tangent function.
@@ -36,8 +41,8 @@ func tansigApprox(x float32) float32 {
 		D2 = 11.88600922
 	)
 	x2 := x * x
-	num := ((N2*x2 + N1) * x2 + N0) * x
-	den := (D2*x2 + D1)*x2 + D0
+	num := ((N2*x2+N1)*x2 + N0) * x
+	den := (D2*x2+D1)*x2 + D0
 	res := num / den
 	if res < -1.0 {
 		return -1.0
@@ -73,13 +78,56 @@ func gemmAccum(out []float32, weights []int8, rows, cols, colStride int, x []flo
 	}
 }
 
+// gemmAccumF32 performs matrix-vector multiplication with preconverted weights.
+func gemmAccumF32(out []float32, weights []float32, rows, cols, colStride int, x []float32) {
+	if rows <= 0 || cols <= 0 {
+		return
+	}
+	_ = out[rows-1] // BCE hint
+	_ = x[cols-1]   // BCE hint
+	for j := 0; j < cols; j++ {
+		xj := x[j]
+		wOff := j * colStride
+		w := weights[wOff : wOff+rows]
+		for i := 0; i < rows; i++ {
+			out[i] += w[i] * xj
+		}
+	}
+}
+
+func weightsInt8ToFloat32(src []int8) []float32 {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make([]float32, len(src))
+	for i, v := range src {
+		dst[i] = float32(v)
+	}
+	return dst
+}
+
+func initAnalysisMLPWeightCaches() {
+	layer0.inputWeightsF32 = weightsInt8ToFloat32(layer0.InputWeights)
+	layer1.inputWeightsF32 = weightsInt8ToFloat32(layer1.InputWeights)
+	layer1.recurrentWeightsF32 = weightsInt8ToFloat32(layer1.RecurrentWeights)
+	layer2.inputWeightsF32 = weightsInt8ToFloat32(layer2.InputWeights)
+}
+
+func init() {
+	initAnalysisMLPWeightCaches()
+}
+
 // ComputeDense computes the output of a dense layer.
 func (l *AnalysisDenseLayer) ComputeDense(output []float32, input []float32) {
 	stride := l.NbNeurons
 	for i := 0; i < l.NbNeurons; i++ {
 		output[i] = float32(l.Bias[i])
 	}
-	gemmAccum(output, l.InputWeights, l.NbNeurons, l.NbInputs, stride, input)
+	if len(l.inputWeightsF32) == len(l.InputWeights) {
+		gemmAccumF32(output, l.inputWeightsF32, l.NbNeurons, l.NbInputs, stride, input)
+	} else {
+		gemmAccum(output, l.InputWeights, l.NbNeurons, l.NbInputs, stride, input)
+	}
 	for i := 0; i < l.NbNeurons; i++ {
 		output[i] *= WeightsScale
 		if l.Sigmoid {
@@ -105,8 +153,13 @@ func (l *AnalysisGRULayer) ComputeGRU(state []float32, input []float32) {
 	for i := 0; i < n; i++ {
 		z[i] = float32(l.Bias[i])
 	}
-	gemmAccum(z[:n], l.InputWeights, n, m, stride, input)
-	gemmAccum(z[:n], l.RecurrentWeights, n, n, stride, state)
+	if len(l.inputWeightsF32) == len(l.InputWeights) && len(l.recurrentWeightsF32) == len(l.RecurrentWeights) {
+		gemmAccumF32(z[:n], l.inputWeightsF32, n, m, stride, input)
+		gemmAccumF32(z[:n], l.recurrentWeightsF32, n, n, stride, state)
+	} else {
+		gemmAccum(z[:n], l.InputWeights, n, m, stride, input)
+		gemmAccum(z[:n], l.RecurrentWeights, n, n, stride, state)
+	}
 	for i := 0; i < n; i++ {
 		z[i] = sigmoidApprox(WeightsScale * z[i])
 	}
@@ -115,8 +168,13 @@ func (l *AnalysisGRULayer) ComputeGRU(state []float32, input []float32) {
 	for i := 0; i < n; i++ {
 		r[i] = float32(l.Bias[n+i])
 	}
-	gemmAccum(r[:n], l.InputWeights[n:], n, m, stride, input)
-	gemmAccum(r[:n], l.RecurrentWeights[n:], n, n, stride, state)
+	if len(l.inputWeightsF32) == len(l.InputWeights) && len(l.recurrentWeightsF32) == len(l.RecurrentWeights) {
+		gemmAccumF32(r[:n], l.inputWeightsF32[n:], n, m, stride, input)
+		gemmAccumF32(r[:n], l.recurrentWeightsF32[n:], n, n, stride, state)
+	} else {
+		gemmAccum(r[:n], l.InputWeights[n:], n, m, stride, input)
+		gemmAccum(r[:n], l.RecurrentWeights[n:], n, n, stride, state)
+	}
 	for i := 0; i < n; i++ {
 		r[i] = sigmoidApprox(WeightsScale * r[i])
 	}
@@ -126,8 +184,13 @@ func (l *AnalysisGRULayer) ComputeGRU(state []float32, input []float32) {
 		h[i] = float32(l.Bias[2*n+i])
 		tmp[i] = state[i] * r[i]
 	}
-	gemmAccum(h[:n], l.InputWeights[2*n:], n, m, stride, input)
-	gemmAccum(h[:n], l.RecurrentWeights[2*n:], n, n, stride, tmp[:n])
+	if len(l.inputWeightsF32) == len(l.InputWeights) && len(l.recurrentWeightsF32) == len(l.RecurrentWeights) {
+		gemmAccumF32(h[:n], l.inputWeightsF32[2*n:], n, m, stride, input)
+		gemmAccumF32(h[:n], l.recurrentWeightsF32[2*n:], n, n, stride, tmp[:n])
+	} else {
+		gemmAccum(h[:n], l.InputWeights[2*n:], n, m, stride, input)
+		gemmAccum(h[:n], l.RecurrentWeights[2*n:], n, n, stride, tmp[:n])
+	}
 	for i := 0; i < n; i++ {
 		state[i] = z[i]*state[i] + (1.0-z[i])*tansigApprox(WeightsScale*h[i])
 	}

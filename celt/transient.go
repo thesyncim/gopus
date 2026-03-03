@@ -223,10 +223,8 @@ func toneDetectScratch(in []float64, channels int, sampleRate int, xBuf []float3
 func (e *Encoder) TransientAnalysis(pcm []float64, frameSize int, allowWeakTransients bool) TransientAnalysisResult {
 	return e.transientAnalysisScratch(pcm, frameSize, allowWeakTransients,
 		e.scratch.transientX,
-		e.scratch.transientChannelSamps,
 		e.scratch.transientTmp,
-		e.scratch.transientEnergy,
-		e.scratch.transientX2)
+		e.scratch.transientEnergy)
 }
 
 // transientInvTable is the inverse table for computing harmonic mean (6*64/x, trained on real data).
@@ -244,7 +242,7 @@ var transientInvTable = [128]int{
 
 // transientAnalysisScratch is the scratch-aware version of TransientAnalysis.
 func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWeakTransients bool,
-	toneBuf []float32, channelBuf []float64, tmpBuf []float64, energyBuf []float64, x2Buf []float32) TransientAnalysisResult {
+	toneBuf []float32, tmpBuf []float32, energyBuf []float32) TransientAnalysisResult {
 	result := TransientAnalysisResult{
 		TfEstimate:  0.0,
 		TfChannel:   0,
@@ -284,55 +282,53 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 	var maxMaskMetric int
 	tfChannel := 0
 
-	// Ensure scratch buffers are large enough
-	var channelSamples []float64
-	if channelBuf != nil && len(channelBuf) >= samplesPerChannel {
-		channelSamples = channelBuf[:samplesPerChannel]
-	} else {
-		channelSamples = make([]float64, samplesPerChannel)
-	}
-
-	var tmp []float64
+	var tmp []float32
 	if tmpBuf != nil && len(tmpBuf) >= samplesPerChannel {
 		tmp = tmpBuf[:samplesPerChannel]
 	} else {
-		tmp = make([]float64, samplesPerChannel)
+		tmp = make([]float32, samplesPerChannel)
 	}
 
 	len2 := samplesPerChannel / 2
-	var energy []float64
+	var energy []float32
 	if energyBuf != nil && len(energyBuf) >= len2 {
 		energy = energyBuf[:len2]
 	} else {
-		energy = make([]float64, len2)
+		energy = make([]float32, len2)
 	}
 
 	// Process each channel
 	for c := 0; c < channels; c++ {
-		// Extract channel samples with optimized mono fast-path
-		if channels == 1 {
-			copy(channelSamples[:samplesPerChannel], pcm[:samplesPerChannel])
-		} else {
-			_ = pcm[(samplesPerChannel-1)*channels+c] // BCE hint
-			_ = channelSamples[samplesPerChannel-1]   // BCE hint
-			for i := 0; i < samplesPerChannel; i++ {
-				channelSamples[i] = pcm[i*channels+c]
-			}
-		}
-
 		// High-pass filter: (1 - 2*z^-1 + z^-2) / (1 - z^-1 + 0.5*z^-2)
 		// This removes DC and low frequencies to focus on transient energy
-		_ = channelSamples[samplesPerChannel-1] // BCE hint
-		_ = tmp[samplesPerChannel-1]            // BCE hint
+		_ = tmp[samplesPerChannel-1] // BCE hint
 		var mem0, mem1 float32
-		for i := 0; i < samplesPerChannel; i++ {
-			x := float32(channelSamples[i])
-			y := mem0 + x
-			// Modified code to shorten dependency chains (matches libopus float)
-			mem00 := mem0
-			mem0 = mem0 - x + 0.5*mem1
-			mem1 = x - mem00
-			tmp[i] = float64(y)
+		if channels == 1 {
+			src := pcm[:samplesPerChannel]
+			_ = src[samplesPerChannel-1] // BCE hint
+			for i := 0; i < samplesPerChannel; i++ {
+				x := float32(src[i])
+				y := mem0 + x
+				// Modified code to shorten dependency chains (matches libopus float)
+				mem00 := mem0
+				mem0 = mem0 - x + 0.5*mem1
+				mem1 = x - mem00
+				tmp[i] = y
+			}
+		} else {
+			stride := channels
+			idx := c
+			_ = pcm[(samplesPerChannel-1)*stride+c] // BCE hint
+			for i := 0; i < samplesPerChannel; i++ {
+				x := float32(pcm[idx])
+				y := mem0 + x
+				// Modified code to shorten dependency chains (matches libopus float)
+				mem00 := mem0
+				mem0 = mem0 - x + 0.5*mem1
+				mem1 = x - mem00
+				tmp[i] = y
+				idx += stride
+			}
 		}
 
 		// Clear first few samples (filter warm-up) -- unrolled for the common case
@@ -355,25 +351,19 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 			}
 		}
 
-		// Forward pass: compute post-echo threshold with forward masking
-		// Group by two to reduce complexity.
-		// Split into two passes:
-		//   Pass 1 (SIMD): compute x2[i] = float32(tmp[2*i])^2 + float32(tmp[2*i+1])^2
-		//   Pass 2 (scalar): apply sequential forward decay
-		var x2 []float32
-		if x2Buf != nil && len(x2Buf) >= len2 {
-			x2 = x2Buf[:len2]
-		} else {
-			x2 = make([]float32, len2)
-		}
-		mean := float32(transientEnergyPairs(tmp[:2*len2], x2, len2))
-
-		// Pass 2: sequential forward decay (data-dependent, cannot vectorize)
+		// Forward pass: compute pair energy and post-echo masking in one traversal.
+		_ = tmp[2*len2-1]  // BCE hint
 		_ = energy[len2-1] // BCE hint
 		mem0 = 0
+		mean := float32(0)
 		for i := 0; i < len2; i++ {
-			mem0 = x2[i] + forwardRetain*mem0
-			energy[i] = float64(forwardDecay * mem0)
+			j := i << 1
+			t0 := tmp[j]
+			t1 := tmp[j+1]
+			pair := t0*t0 + t1*t1
+			mean += pair
+			mem0 = pair + forwardRetain*mem0
+			energy[i] = forwardDecay * mem0
 		}
 
 		// Backward pass: compute pre-echo threshold
@@ -381,9 +371,9 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 		var maxE float32
 		mem0 = 0
 		for i := len2 - 1; i >= 0; i-- {
-			mem0 = float32(energy[i]) + 0.875*mem0
+			mem0 = energy[i] + 0.875*mem0
 			ei := float32(0.125) * mem0
-			energy[i] = float64(ei)
+			energy[i] = ei
 			if ei > maxE {
 				maxE = ei
 			}
@@ -406,7 +396,7 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 			// Map energy to table index
 			// For non-negative values, int(x) truncates toward zero which equals floor.
 			// energy[i] + epsilon is always >= 0, so int() is equivalent to math.Floor.
-			id := int(normE * (energy[i] + epsilon))
+			id := int(normE * (float64(energy[i]) + epsilon))
 			if id > 127 {
 				id = 127
 			}
