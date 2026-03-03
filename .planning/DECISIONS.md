@@ -1,6 +1,6 @@
 # Investigation Decisions
 
-Last updated: 2026-03-01
+Last updated: 2026-03-03
 
 Purpose: record durable keep/skip decisions to avoid re-running solved investigations.
 
@@ -18,6 +18,62 @@ owner: <handle>
 ```
 
 ## Current Decisions
+
+date: 2026-03-03
+topic: Transient analysis fused pair-energy and forward-mask pass
+decision: Keep the `celt/transient.go` `transientAnalysisScratch` fused loop that computes pair energy and forward masking in one traversal, and keep removal of the no-longer-needed `transientX2` scratch slice from `celt/encoder.go`.
+evidence: Quality/parity remained green (`go test ./celt -run 'Test(Transient|PrefilterPitchXcorr|RunPrefilterParityAgainstLibopusFixture|Tone)' -count=1`; `go test ./celt -count=1`; `go test ./encoder -run 'Test(Analysis|RunAnalysis|TonalityAnalysis|UpdateOpusVADReusesFreshAnalysis|AnalysisTraceFixtureParityWithLibopus)' -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `23 passed, 0 failed`). Controlled A/B microbench (`GOMAXPROCS=1 go test ./ -bench 'BenchmarkEncoderEncode$|BenchmarkEncoderEncodeInt16$' -benchmem -run '^$' -count=8 -benchtime=2s -cpu=1`) improved current vs baseline from `~52.2-54.0 us/op` to `~51.5-53.5 us/op` (`BenchmarkEncoderEncode`) and from `~53.5-54.0 us/op` to `~51.9-52.8 us/op` (`BenchmarkEncoderEncodeInt16`). `make bench-guard` passed; `make verify-production` showed only the known local `tmp_check` cgo-disabled blocker.
+do_not_repeat_until: transient-analysis forward-masking math order, detector threshold semantics, or scratch layout changes in ways that invalidate this A/B result.
+owner: codex
+
+date: 2026-03-02
+topic: Analysis MLP float32 weight-cache path and transient float32 scratch path
+decision: Keep the analysis MLP fast path that preconverts global int8 dense/GRU weights to float32 once at init (`initAnalysisMLPWeightCaches`) and uses `gemmAccumF32` during `ComputeDense`/`ComputeGRU`. Keep transient analysis scratch in float32 (`transientTmp`, `transientEnergy`) to avoid float64<->float32 conversion churn in `celt.(*Encoder).transientAnalysisScratch`.
+evidence: Quality/parity stayed green (`go test ./encoder -run 'Test(Analysis|RunAnalysis|TonalityAnalysis|UpdateOpusVADReusesFreshAnalysis|AnalysisTraceFixtureParityWithLibopus)' -count=1`; `go test ./celt -run 'Test(Transient|PrefilterPitchXcorr|RunPrefilterParityAgainstLibopusFixture|Tone)' -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `23 passed, 0 failed`). Perf evidence: root encode microbench (`go test . -run '^$' -bench 'BenchmarkEncoderEncode$|BenchmarkEncoderEncodeInt16$' -benchmem -benchtime=2s -count=5`) improved int16 cluster from ~`55k ns/op` to ~`50-51k ns/op` best samples; `make bench-guard` passed with encoder samples around ~`50.9-54.7k ns/op`, `0 allocs/op`. CPU profile comparison (`-cpuprofile` on `BenchmarkEncoderEncode`) showed `transientAnalysisScratch` flat share dropping from ~`7.3%` to ~`5.2%`.
+do_not_repeat_until: analysis MLP topology/weights change, transient detector math order changes, or parity fixtures indicate regression tied to these fast paths.
+owner: codex
+
+date: 2026-03-02
+topic: Tonality analysis redundant-energy scan and sqrt/log reuse
+decision: Keep the tonality-analysis hot-path update in `encoder/analysis.go` that (1) computes `log(bandE)` once per band and reuses it for `logE` and `bandLog2`, (2) persists per-frame `sqrt(E)` into `SqrtE` for stationarity accumulation reuse across history frames, and (3) reuses first-pass `bandERaw` sums in bandwidth-mask evaluation instead of rescanning per-band bins.
+evidence: A/B microbenchmark (`GOMAXPROCS=1 go test ./encoder -run '^$' -bench 'BenchmarkAnalysisBandEnergy(Legacy|Current)$' -benchmem -benchtime=2s -count=6 -cpu=1`) shows legacy `~528.7-539.5 ns/op` vs current `~400.1-402.5 ns/op` (~24-26% faster, `0 allocs/op`) for the optimized section. Quality/parity remained green (`go test ./encoder -run 'Test(Analysis|RunAnalysis|TonalityAnalysis|UpdateOpusVADReusesFreshAnalysis|AnalysisTraceFixtureParityWithLibopus)' -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `23 passed, 0 failed`). End-to-end perf gate stayed green (`make bench-guard`).
+do_not_repeat_until: tonality-analysis band-accumulation math, stationarity definition, or bandwidth-mask sequencing changes in ways that invalidate this section-level A/B benchmark.
+owner: codex
+
+date: 2026-03-02
+topic: Pitch downsample factor-2 specialization and state-rounding skip in prefilter
+decision: Keep `pitchDownsample()` specialized fast path for `factor=2` mono/stereo in `celt/prefilter.go`, and keep conditional skipping of `prefilterMem`/overlap re-rounding in the default float32 prefilter path while retaining explicit rounding in debug/alternate-precision modes (`tmpSkipPrefInputRoundEnabled` or `tmpPrefilterF64Enabled`).
+evidence: A/B microbenchmark (`go test ./celt -run '^$' -bench 'BenchmarkPitchDownsample(Current|Legacy)(Mono|Stereo)$' -benchmem -benchtime=2s -count=5`) shows stereo improvement from legacy `~2471-2519 ns/op` to current `~2252-2316 ns/op` (~8-10% faster); mono remains neutral/slightly improved (`~1931-2010 ns/op` legacy vs `~1920-1994 ns/op` current). Parity/compliance stayed green (`go test ./celt -run 'Test(PrefilterPitchXcorr|RunPrefilterParityAgainstLibopusFixture|TransientAnalysis)' -count=1`; `go test ./celt -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` with `23 passed, 0 failed`), full runnable package sweep passed, and `make bench-guard` passed.
+do_not_repeat_until: prefilter pitch-downsample input layout/factor usage changes, float-precision debug flag semantics change, or libopus prefilter parity fixtures show rounding-behavior drift.
+owner: codex
+
+date: 2026-03-02
+topic: Pitch search fine-stage candidate-window optimization
+decision: Keep the `pitchSearch()` fine-stage rewrite in `celt/prefilter.go` that preserves libopus-equivalent candidate coverage (`±2` around both coarse winners) while replacing the full-range `abs()`-gated scan with explicit window loops and a single `clear(xcorr[:halfPitch])`. Keep the dedicated A/B benchmark fixture (`celt/pitch_search_bench_test.go`) to guard this hotspot against regressions.
+evidence: Direct A/B benchmark on representative prefilter dimensions (`go test ./celt -run '^$' -bench 'BenchmarkPitchSearch(Current|Legacy)$' -benchmem -benchtime=2s -count=5`) showed current `~3764-3828 ns/op` vs legacy `~4088-4159 ns/op` (~8% faster) at `0 allocs/op`. Quality parity remained green (`go test ./celt -run 'Test(PrefilterPitchXcorr|RunPrefilterParityAgainstLibopusFixture|TransientAnalysis)' -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` with `23 passed, 0 failed`). Perf guard stayed green (`make bench-guard` passed, encoder rows around `57.2/56.9 us/op`).
+do_not_repeat_until: libopus pitch-search candidate semantics, prefilter pitch range geometry, or arm64/x86 correlation kernels change in ways that alter this hotspot's cost model.
+owner: codex
+
+date: 2026-03-02
+topic: Prefilter mono fast path and selective input rounding
+decision: Keep `celt/prefilter.go` mono fast-path gather/scatter (`copy`-based) in `runPrefilter`, and keep selective input rounding of only appended frame samples when prefilter history is already float32-quantized (`!tmpSkipPrefMemRoundEnabled`) while preserving full-buffer rounding fallback when debug flags bypass history rounding.
+evidence: Libopus parity fixture remained exact after changes (`go test ./celt -run 'TestRunPrefilterParityAgainstLibopusFixture' -count=1 -v`: `cases=300`, mismatch counters `0`, `maxGainDiff=0.000000`). Additional guards passed: `go test ./celt -run 'Test(TransientAnalysis|PrefilterPitchXcorr)' -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` with `23 passed, 0 failed`; `make bench-guard` passed. Conservative benchmark evidence on arm64 from guard-style runs shows `BenchmarkEncoderEncode` improving from roughly `~55.2 us/op` to `~54.6 us/op` and `BenchmarkEncoderEncodeInt16` from `~55.8 us/op` to `~54.8 us/op` (with expected run-to-run variance in standalone benchmark probes).
+do_not_repeat_until: prefilter input precision policy, `tmpSkipPref*` debug semantics, or libopus prefilter fixture behavior changes.
+owner: codex
+
+date: 2026-03-02
+topic: Transient analysis direct PCM consumption in hot path
+decision: Keep `celt/transient.go` `transientAnalysisScratch` consuming channel samples directly from `pcm` during HP filtering (mono and stereo paths) instead of copying into a per-channel scratch slice first.
+evidence: CELT transient/tone tests and parity remained green (`go test ./celt -run 'Test(Transient|Tone|PatchTransientDecision)' -count=1`; `go test ./celt -run 'TestTransientAnalysis' -count=1 -v`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` with `23 passed, 0 failed`). Performance improved on arm64 (`go test . -run '^$' -bench '^(BenchmarkEncoderEncode$|BenchmarkEncoderEncodeInt16$|BenchmarkEncoderEncode_VoIP$|BenchmarkEncoderEncode_LowDelay$)' -benchmem -count=5 -cpu=1`): `BenchmarkEncoderEncode` ~`55.7-55.9 us/op` -> ~`54.6-55.1 us/op`; `BenchmarkEncoderEncodeInt16` ~`56.4-56.6 us/op` -> ~`55.2-55.7 us/op`; `BenchmarkEncoderEncode_VoIP` ~`51.2-51.6 us/op` -> ~`50.2-50.3 us/op`. `make bench-guard` passed; `make verify-production` remained blocked only by known local `tmp_check` cgo-disabled setup.
+do_not_repeat_until: transient-analysis input layout/control flow changes or libopus parity fixtures indicate a regression in transient decisions.
+owner: codex
+
+date: 2026-03-02
+topic: Tonality analysis hot-path scratch hoist and bin-energy reuse
+decision: Keep `encoder/analysis.go` tonality hot-path temporaries (`FFT in/out`, tonality/noisiness working arrays) as persistent `TonalityAnalysisState` scratch, and keep reuse of precomputed raw FFT bin energies in the later bandwidth pass instead of recomputing from `out[]`.
+evidence: Quality/parity checks remained green (`go test ./encoder -run 'Test(Analysis|RunAnalysis|TonalityAnalysis|UpdateOpusVADReusesFreshAnalysis|AnalysisTraceFixtureParityWithLibopus)' -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` with `23 passed, 0 failed`). Performance improved on arm64 (`go test . -run '^$' -bench '^(BenchmarkEncoderEncode$|BenchmarkEncoderEncodeInt16$|BenchmarkEncoderEncode_VoIP$|BenchmarkEncoderEncode_LowDelay$)' -benchmem -count=5 -cpu=1`): `BenchmarkEncoderEncode` ~`56.6-57.4 us/op` -> ~`55.7-55.9 us/op`; `BenchmarkEncoderEncodeInt16` ~`56.6-57.8 us/op` -> ~`56.4-56.6 us/op`; `make bench-guard` passed. Profile evidence: tonality-analysis cum share `17.43% -> 14.21%`, `runtime.morestack` `3.49% -> 2.19%`.
+do_not_repeat_until: tonality-analysis algorithm/control-flow changes or new libopus parity evidence requires rework of this path.
+owner: codex
 
 date: 2026-03-01
 topic: Cross-arch ratchet hardening (SILK/Hybrid weak lanes)
