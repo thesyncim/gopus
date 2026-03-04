@@ -20,6 +20,13 @@ owner: <handle>
 ## Current Decisions
 
 date: 2026-03-04
+topic: ARM64 prefilter inner-product 8-wide unroll
+decision: Keep ARM64 SIMD loop unroll in `celt/prefilter_innerprod_arm64.s` for `prefilterInnerProd` and `prefilterDualInnerProd` (8 elements/iteration with 4/2/1 tails), preserving float32 accumulation order.
+evidence: Quality/parity remained green (`go test ./celt -count=1`; `go test ./encoder -run 'Test(Analysis|RunAnalysis|TonalityAnalysis|UpdateOpusVADReusesFreshAnalysis|AnalysisTraceFixtureParityWithLibopus)' -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `23 passed, 0 failed`; full runnable-package sweep excluding known local `tmp_check` also passed). `make bench-guard` passed. Bench-binary stash A/B showed wins: `mode=gopus,iters=20,warmup=3` improved from baseline `best 266.359167ms / avg 269.458806ms` to candidate `best 263.696541ms / avg 267.300729ms` (~`1.0%` best, `0.8%` avg); `mode=both,iters=8,warmup=2` candidate gopus also improved vs baseline.
+do_not_repeat_until: prefilter dot-product float32 semantics, ARM64 asm constraints, or pitch-search/remove-doubling call patterns change.
+owner: codex
+
+date: 2026-03-04
 topic: MDCT pre/post twiddle loop specialization
 decision: Keep `celt/mdct_encode.go` split-loop structure in `mdctForwardOverlapF32Scratch` that hoists `mdctUseFMALikeMixEnabled` and direct-`kissCpx`/fallback selection out of inner pre/post twiddle loops.
 evidence: Focused quality/parity stayed green (`go test ./celt -run 'Test(Transient|PrefilterPitchXcorr|RunPrefilterParityAgainstLibopusFixture|Tone|MDCT)' -count=1`; `go test ./encoder -run 'Test(Analysis|RunAnalysis|TonalityAnalysis|UpdateOpusVADReusesFreshAnalysis|AnalysisTraceFixtureParityWithLibopus)' -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `23 passed, 0 failed`). Broad runnable sweep passed (`go list -e -f '{{if not .Error}}{{.ImportPath}}{{end}}' ./... | rg -v '/tmp_check$' | xargs go test -count=1`). `make bench-guard` passed. Bench-binary stash A/B (`go run ./examples/bench-encode -sample speech -iters 20 -warmup 3 -mode gopus -bitrate 64000 -complexity 10`) improved from baseline `best 272.930583ms / avg 275.878118ms` to candidate `best 269.492375ms / avg 273.872166ms` (~`1.26%` best, `0.73%` avg faster); shorter `iters 8 mode both` confirmation also improved.
