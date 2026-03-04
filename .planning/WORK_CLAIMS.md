@@ -39,4 +39,4 @@ Quick commands:
 - claim: id=codex-20260302-221033; agent=codex; status=released; paths=celt/; updated=2026-03-02T22:23:57Z; expires=2026-03-02T22:23:57Z; note=next perf loop: prefilter/pitch downsample and rounding-path cleanup
 - claim: id=codex-20260302-223553; agent=codex; status=released; paths=encoder/,.planning/; updated=2026-03-02T22:43:58Z; expires=2026-03-02T22:43:58Z; note=perf loop: reduce repeated sqrt/log work in tonality analysis
 - claim: id=codex-20260302-225159; agent=codex; status=released; paths=encoder/,celt/,.planning/; updated=2026-03-04T21:31:53Z; expires=2026-03-04T21:31:53Z; note=perf sprint: close remaining gap vs C with parity guardrails
-- claim: id=codex-20260304-213156; agent=codex; status=active; paths=encoder/,celt/,.planning/; updated=2026-03-04T21:31:56Z; expires=2026-03-05T01:31:56Z; note=perf parity loop continue after PR269 merge
+- claim: id=codex-20260304-213156; agent=codex; status=released; paths=encoder/,celt/,.planning/; updated=2026-03-04T21:47:17Z; expires=2026-03-04T21:47:17Z; note=perf parity loop continue after PR269 merge
