@@ -20,6 +20,13 @@ owner: <handle>
 ## Current Decisions
 
 date: 2026-03-04
+topic: transient harmonic-mean loop float32 normalization
+decision: Keep float32 `normE` and float32 table-index math in `celt/transient.go` harmonic-mean loop (`id := int(normE * (energy[i] + epsF32))`) instead of per-iteration float64 conversions.
+evidence: Quality/parity remained green (`go test ./celt -count=1`; `go test ./encoder -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `23 passed, 0 failed`; full runnable-package sweep excluding local `tmp_check` passed). `make bench-guard` passed. Bench-binary stash A/B (`mode=gopus,iters=20,warmup=3`) improved from baseline `best 260.885500ms / avg 263.234895ms` to candidate `best 257.531416ms / avg 262.346818ms` (~`1.29%` best, `0.34%` avg).
+do_not_repeat_until: transient detector threshold/index semantics or energy-domain precision requirements change.
+owner: codex
+
+date: 2026-03-04
 topic: Analysis MLP gemmAccumF32 4-way row unroll
 decision: Keep 4-way row unroll + scalar tail in `encoder/analysis_mlp.go` `gemmAccumF32`.
 evidence: Quality/parity remained green (`go test ./celt -count=1`; `go test ./encoder -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `23 passed, 0 failed`; full runnable-package sweep excluding local `tmp_check` passed). `make bench-guard` passed. Bench-binary stash A/B (`mode=gopus,iters=20,warmup=3`) improved from baseline `best 261.709625ms / avg 263.283785ms` to candidate `best 257.730042ms / avg 260.000585ms` (~`1.52%` best, `1.25%` avg).
