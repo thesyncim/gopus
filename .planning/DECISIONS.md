@@ -20,6 +20,13 @@ owner: <handle>
 ## Current Decisions
 
 date: 2026-03-04
+topic: findBestPitch sparse xcorr conversion skip
+decision: Keep `celt/prefilter.go` `findBestPitch` guard that skips float64->float32 conversion when `xcorr[i] <= 0`, plus BCE hints on `y[length+maxPitch-1]` and `xcorr[maxPitch-1]`.
+evidence: Quality/parity remained green (`go test ./celt -count=1`; `go test ./encoder -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `23 passed, 0 failed`; full runnable-package sweep excluding local `tmp_check` passed). `make bench-guard` passed. Bench-binary stash A/B (`mode=gopus,iters=20,warmup=3`) improved from baseline `best 260.523958ms / avg 263.289118ms` to candidate `best 258.820209ms / avg 261.284043ms` (~`0.65%` best, `0.76%` avg).
+do_not_repeat_until: pitch-search sparse-window behavior or `findBestPitch` scoring semantics change.
+owner: codex
+
+date: 2026-03-04
 topic: transient harmonic-mean loop float32 normalization
 decision: Keep float32 `normE` and float32 table-index math in `celt/transient.go` harmonic-mean loop (`id := int(normE * (energy[i] + epsF32))`) instead of per-iteration float64 conversions.
 evidence: Quality/parity remained green (`go test ./celt -count=1`; `go test ./encoder -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `23 passed, 0 failed`; full runnable-package sweep excluding local `tmp_check` passed). `make bench-guard` passed. Bench-binary stash A/B (`mode=gopus,iters=20,warmup=3`) improved from baseline `best 260.885500ms / avg 263.234895ms` to candidate `best 257.531416ms / avg 262.346818ms` (~`1.29%` best, `0.34%` avg).
