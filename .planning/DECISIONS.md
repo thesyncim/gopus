@@ -20,6 +20,13 @@ owner: <handle>
 ## Current Decisions
 
 date: 2026-03-04
+topic: Analysis MLP gemmAccumF32 4-way row unroll
+decision: Keep 4-way row unroll + scalar tail in `encoder/analysis_mlp.go` `gemmAccumF32`.
+evidence: Quality/parity remained green (`go test ./celt -count=1`; `go test ./encoder -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `23 passed, 0 failed`; full runnable-package sweep excluding local `tmp_check` passed). `make bench-guard` passed. Bench-binary stash A/B (`mode=gopus,iters=20,warmup=3`) improved from baseline `best 261.709625ms / avg 263.283785ms` to candidate `best 257.730042ms / avg 260.000585ms` (~`1.52%` best, `1.25%` avg).
+do_not_repeat_until: analysis MLP weight layout (`colStride`) or accumulation semantics change.
+owner: codex
+
+date: 2026-03-04
 topic: ARM64 toneLPCCorr pointer-walk addressing
 decision: Keep `celt/tone_lpc_corr_arm64.s` pointer-walk addressing for delayed streams (`x+delay`, `x+delay2`) instead of per-iteration delayed-address recomputation.
 evidence: Quality/parity remained green (`go test ./celt -count=1`; `go test ./encoder -run 'Test(Analysis|RunAnalysis|TonalityAnalysis|UpdateOpusVADReusesFreshAnalysis|AnalysisTraceFixtureParityWithLibopus)' -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `23 passed, 0 failed`; full runnable-package sweep excluding local `tmp_check` passed). `make bench-guard` passed. Bench-binary stash A/B (`mode=gopus,iters=20,warmup=3`) improved from baseline `best 277.177375ms / avg 281.044162ms` to candidate `best 273.911625ms / avg 278.773247ms` (~`1.18%` best, `0.81%` avg).

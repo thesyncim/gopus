@@ -89,7 +89,14 @@ func gemmAccumF32(out []float32, weights []float32, rows, cols, colStride int, x
 		xj := x[j]
 		wOff := j * colStride
 		w := weights[wOff : wOff+rows]
-		for i := 0; i < rows; i++ {
+		i := 0
+		for ; i+3 < rows; i += 4 {
+			out[i] += w[i] * xj
+			out[i+1] += w[i+1] * xj
+			out[i+2] += w[i+2] * xj
+			out[i+3] += w[i+3] * xj
+		}
+		for ; i < rows; i++ {
 			out[i] += w[i] * xj
 		}
 	}
