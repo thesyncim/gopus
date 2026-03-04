@@ -20,6 +20,13 @@ owner: <handle>
 ## Current Decisions
 
 date: 2026-03-04
+topic: MDCT pre/post twiddle loop specialization
+decision: Keep `celt/mdct_encode.go` split-loop structure in `mdctForwardOverlapF32Scratch` that hoists `mdctUseFMALikeMixEnabled` and direct-`kissCpx`/fallback selection out of inner pre/post twiddle loops.
+evidence: Focused quality/parity stayed green (`go test ./celt -run 'Test(Transient|PrefilterPitchXcorr|RunPrefilterParityAgainstLibopusFixture|Tone|MDCT)' -count=1`; `go test ./encoder -run 'Test(Analysis|RunAnalysis|TonalityAnalysis|UpdateOpusVADReusesFreshAnalysis|AnalysisTraceFixtureParityWithLibopus)' -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `23 passed, 0 failed`). Broad runnable sweep passed (`go list -e -f '{{if not .Error}}{{.ImportPath}}{{end}}' ./... | rg -v '/tmp_check$' | xargs go test -count=1`). `make bench-guard` passed. Bench-binary stash A/B (`go run ./examples/bench-encode -sample speech -iters 20 -warmup 3 -mode gopus -bitrate 64000 -complexity 10`) improved from baseline `best 272.930583ms / avg 275.878118ms` to candidate `best 269.492375ms / avg 273.872166ms` (~`1.26%` best, `0.73%` avg faster); shorter `iters 8 mode both` confirmation also improved.
+do_not_repeat_until: MDCT twiddle math, `mdctUseFMALikeMixEnabled` semantics, or Kiss FFT staging path changes invalidate this loop structure and require a new A/B.
+owner: codex
+
+date: 2026-03-04
 topic: MDCT direct bit-reversed kissCpx staging path
 decision: Keep `celt/mdct_encode.go` direct MDCT FFT staging path that writes pre-twiddled values directly into bit-reversed `kissCpx` scratch and runs `st.fftImpl()` in-place for supported FFT sizes, while preserving the existing `kissFFT32To` fallback path for unsupported states.
 evidence: Quality/parity remained green (`go test ./celt -run 'Test(Transient|PrefilterPitchXcorr|RunPrefilterParityAgainstLibopusFixture|Tone|MDCT)' -count=1`; `go test ./encoder -run 'Test(Analysis|RunAnalysis|TonalityAnalysis|UpdateOpusVADReusesFreshAnalysis|AnalysisTraceFixtureParityWithLibopus)' -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `23 passed, 0 failed`). Bench evidence from requested examples harness A/B (`go run ./examples/bench-encode -sample speech -iters 8 -warmup 2 -mode gopus -bitrate 64000 -complexity 10`): candidate `best 282.346709ms / avg 284.964474ms` vs baseline `best 285.893458ms / avg 288.955969ms` (about `~1.3-1.4%` faster). `make bench-guard` passed; `make verify-production` showed only known local `tmp_check` cgo-disabled blocker.

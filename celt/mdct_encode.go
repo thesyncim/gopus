@@ -341,20 +341,30 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 		bitrev := st.bitrev
 		_ = bitrev[n4-1]   // BCE hint
 		_ = fftStage[n4-1] // BCE hint
-		for i = 0; i < n4; i++ {
-			re := f[2*i]
-			im := f[2*i+1]
-			t0 := trig[i]
-			t1 := trig[n4+i]
-			yr := mdctMul(re, t0) - mdctMul(im, t1)
-			yi := mdctMul(im, t0) + mdctMul(re, t1)
-			if mdctUseFMALikeMixEnabled {
-				yr = float32(float64(re)*float64(t0) - float64(mdctMul(im, t1)))
-				yi = float32(float64(im)*float64(t0) + float64(mdctMul(re, t1)))
+		if mdctUseFMALikeMixEnabled {
+			for i = 0; i < n4; i++ {
+				re := f[2*i]
+				im := f[2*i+1]
+				t0 := trig[i]
+				t1 := trig[n4+i]
+				yr := float32(float64(re)*float64(t0) - float64(mdctMul(im, t1)))
+				yi := float32(float64(im)*float64(t0) + float64(mdctMul(re, t1)))
+				idx := bitrev[i]
+				fftStage[idx].r = yr * scale
+				fftStage[idx].i = yi * scale
 			}
-			idx := bitrev[i]
-			fftStage[idx].r = yr * scale
-			fftStage[idx].i = yi * scale
+		} else {
+			for i = 0; i < n4; i++ {
+				re := f[2*i]
+				im := f[2*i+1]
+				t0 := trig[i]
+				t1 := trig[n4+i]
+				yr := mdctMul(re, t0) - mdctMul(im, t1)
+				yi := mdctMul(im, t0) + mdctMul(re, t1)
+				idx := bitrev[i]
+				fftStage[idx].r = yr * scale
+				fftStage[idx].i = yi * scale
+			}
 		}
 
 		if doDump {
@@ -371,18 +381,26 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 	} else {
 		// Fallback: keep the existing complex64 path for unsupported sizes.
 		_ = fftIn[n4-1] // BCE hint
-		for i = 0; i < n4; i++ {
-			re := f[2*i]
-			im := f[2*i+1]
-			t0 := trig[i]
-			t1 := trig[n4+i]
-			yr := mdctMul(re, t0) - mdctMul(im, t1)
-			yi := mdctMul(im, t0) + mdctMul(re, t1)
-			if mdctUseFMALikeMixEnabled {
-				yr = float32(float64(re)*float64(t0) - float64(mdctMul(im, t1)))
-				yi = float32(float64(im)*float64(t0) + float64(mdctMul(re, t1)))
+		if mdctUseFMALikeMixEnabled {
+			for i = 0; i < n4; i++ {
+				re := f[2*i]
+				im := f[2*i+1]
+				t0 := trig[i]
+				t1 := trig[n4+i]
+				yr := float32(float64(re)*float64(t0) - float64(mdctMul(im, t1)))
+				yi := float32(float64(im)*float64(t0) + float64(mdctMul(re, t1)))
+				fftIn[i] = complex(yr*scale, yi*scale)
 			}
-			fftIn[i] = complex(yr*scale, yi*scale)
+		} else {
+			for i = 0; i < n4; i++ {
+				re := f[2*i]
+				im := f[2*i+1]
+				t0 := trig[i]
+				t1 := trig[n4+i]
+				yr := mdctMul(re, t0) - mdctMul(im, t1)
+				yi := mdctMul(im, t0) + mdctMul(re, t1)
+				fftIn[i] = complex(yr*scale, yi*scale)
+			}
 		}
 		if doDump && st != nil && len(st.bitrev) >= n4 {
 			pre := make([]float32, 2*n4)
@@ -413,31 +431,57 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 		dumpFloat32Raw(fmt.Sprintf("/tmp/go_actual_stage_fft_ri_call%d.f32", dumpIdx), fftRI)
 	}
 	// BCE hints for post-twiddle loop.
+	_ = coeffs[n2-1] // BCE hint
 	if useDirectKissCpx {
 		_ = fftStage[n4-1] // BCE hint
+		if mdctUseFMALikeMixEnabled {
+			for i = 0; i < n4; i++ {
+				re := fftStage[i].r
+				im := fftStage[i].i
+				t0 := trig[i]
+				t1 := trig[n4+i]
+				yr := float32(float64(im)*float64(t1) - float64(mdctMul(re, t0)))
+				yi := float32(float64(re)*float64(t1) + float64(mdctMul(im, t0)))
+				coeffs[2*i] = float64(yr)
+				coeffs[n2-1-2*i] = float64(yi)
+			}
+		} else {
+			for i = 0; i < n4; i++ {
+				re := fftStage[i].r
+				im := fftStage[i].i
+				t0 := trig[i]
+				t1 := trig[n4+i]
+				yr := mdctMul(im, t1) - mdctMul(re, t0)
+				yi := mdctMul(re, t1) + mdctMul(im, t0)
+				coeffs[2*i] = float64(yr)
+				coeffs[n2-1-2*i] = float64(yi)
+			}
+		}
 	} else {
 		_ = fftOut[n4-1] // BCE hint
-	}
-	_ = coeffs[n2-1] // BCE hint
-	for i = 0; i < n4; i++ {
-		var re, im float32
-		if useDirectKissCpx {
-			re = fftStage[i].r
-			im = fftStage[i].i
-		} else {
-			re = real(fftOut[i])
-			im = imag(fftOut[i])
-		}
-		t0 := trig[i]
-		t1 := trig[n4+i]
-		yr := mdctMul(im, t1) - mdctMul(re, t0)
-		yi := mdctMul(re, t1) + mdctMul(im, t0)
 		if mdctUseFMALikeMixEnabled {
-			yr = float32(float64(im)*float64(t1) - float64(mdctMul(re, t0)))
-			yi = float32(float64(re)*float64(t1) + float64(mdctMul(im, t0)))
+			for i = 0; i < n4; i++ {
+				re := real(fftOut[i])
+				im := imag(fftOut[i])
+				t0 := trig[i]
+				t1 := trig[n4+i]
+				yr := float32(float64(im)*float64(t1) - float64(mdctMul(re, t0)))
+				yi := float32(float64(re)*float64(t1) + float64(mdctMul(im, t0)))
+				coeffs[2*i] = float64(yr)
+				coeffs[n2-1-2*i] = float64(yi)
+			}
+		} else {
+			for i = 0; i < n4; i++ {
+				re := real(fftOut[i])
+				im := imag(fftOut[i])
+				t0 := trig[i]
+				t1 := trig[n4+i]
+				yr := mdctMul(im, t1) - mdctMul(re, t0)
+				yi := mdctMul(re, t1) + mdctMul(im, t0)
+				coeffs[2*i] = float64(yr)
+				coeffs[n2-1-2*i] = float64(yi)
+			}
 		}
-		coeffs[2*i] = float64(yr)
-		coeffs[n2-1-2*i] = float64(yi)
 	}
 
 	if doDump {
