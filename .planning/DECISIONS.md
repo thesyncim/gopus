@@ -1,6 +1,6 @@
 # Investigation Decisions
 
-Last updated: 2026-03-03
+Last updated: 2026-03-04
 
 Purpose: record durable keep/skip decisions to avoid re-running solved investigations.
 
@@ -18,6 +18,13 @@ owner: <handle>
 ```
 
 ## Current Decisions
+
+date: 2026-03-04
+topic: MDCT direct bit-reversed kissCpx staging path
+decision: Keep `celt/mdct_encode.go` direct MDCT FFT staging path that writes pre-twiddled values directly into bit-reversed `kissCpx` scratch and runs `st.fftImpl()` in-place for supported FFT sizes, while preserving the existing `kissFFT32To` fallback path for unsupported states.
+evidence: Quality/parity remained green (`go test ./celt -run 'Test(Transient|PrefilterPitchXcorr|RunPrefilterParityAgainstLibopusFixture|Tone|MDCT)' -count=1`; `go test ./encoder -run 'Test(Analysis|RunAnalysis|TonalityAnalysis|UpdateOpusVADReusesFreshAnalysis|AnalysisTraceFixtureParityWithLibopus)' -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `23 passed, 0 failed`). Bench evidence from requested examples harness A/B (`go run ./examples/bench-encode -sample speech -iters 8 -warmup 2 -mode gopus -bitrate 64000 -complexity 10`): candidate `best 282.346709ms / avg 284.964474ms` vs baseline `best 285.893458ms / avg 288.955969ms` (about `~1.3-1.4%` faster). `make bench-guard` passed; `make verify-production` showed only known local `tmp_check` cgo-disabled blocker.
+do_not_repeat_until: MDCT pre/post-twiddle math order, Kiss FFT state layout/bitrev semantics, or supported CELT frame-size FFT set changes in a way that invalidates this staging path.
+owner: codex
 
 date: 2026-03-03
 topic: Transient analysis fused pair-energy and forward-mask pass

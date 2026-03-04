@@ -327,27 +327,64 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 
 	// Match libopus st->scale initialization in float builds (1.f/nfft).
 	scale := float32(1.0) / float32(n4)
-	// BCE hints for pre-twiddle loop
+	// BCE hints for pre-twiddle loop.
 	_ = f[2*n4-1]     // BCE hint
 	_ = trig[n4+n4-1] // BCE hint: trig needs n2 entries
-	_ = fftIn[n4-1]   // BCE hint
-	for i = 0; i < n4; i++ {
-		re := f[2*i]
-		im := f[2*i+1]
-		t0 := trig[i]
-		t1 := trig[n4+i]
-		yr := mdctMul(re, t0) - mdctMul(im, t1)
-		yi := mdctMul(im, t0) + mdctMul(re, t1)
-		if mdctUseFMALikeMixEnabled {
-			yr = float32(float64(re)*float64(t0) - float64(mdctMul(im, t1)))
-			yi = float32(float64(im)*float64(t0) + float64(mdctMul(re, t1)))
-		}
-		fftIn[i] = complex(yr*scale, yi*scale)
-	}
 
-	if doDump {
-		st := getKissFFTState(n4)
-		if st != nil && len(st.bitrev) >= n4 {
+	st := getKissFFTState(n4)
+	useDirectKissCpx := st != nil && len(st.bitrev) >= n4
+	var fftStage []kissCpx
+	if useDirectKissCpx {
+		// Fast path: write pre-twiddled values directly into bit-reversed kissCpx
+		// scratch and run in-place FFT, avoiding intermediate complex64 materialization.
+		fftStage = fftTmp[:n4]
+		bitrev := st.bitrev
+		_ = bitrev[n4-1]   // BCE hint
+		_ = fftStage[n4-1] // BCE hint
+		for i = 0; i < n4; i++ {
+			re := f[2*i]
+			im := f[2*i+1]
+			t0 := trig[i]
+			t1 := trig[n4+i]
+			yr := mdctMul(re, t0) - mdctMul(im, t1)
+			yi := mdctMul(im, t0) + mdctMul(re, t1)
+			if mdctUseFMALikeMixEnabled {
+				yr = float32(float64(re)*float64(t0) - float64(mdctMul(im, t1)))
+				yi = float32(float64(im)*float64(t0) + float64(mdctMul(re, t1)))
+			}
+			idx := bitrev[i]
+			fftStage[idx].r = yr * scale
+			fftStage[idx].i = yi * scale
+		}
+
+		if doDump {
+			pre := make([]float32, 2*n4)
+			for k := 0; k < n4; k++ {
+				v := fftStage[k]
+				pre[2*k] = v.r
+				pre[2*k+1] = v.i
+			}
+			dumpFloat32Raw(fmt.Sprintf("/tmp/go_actual_stage_prebitrev_ri_call%d.f32", dumpIdx), pre)
+		}
+
+		st.fftImpl(fftStage)
+	} else {
+		// Fallback: keep the existing complex64 path for unsupported sizes.
+		_ = fftIn[n4-1] // BCE hint
+		for i = 0; i < n4; i++ {
+			re := f[2*i]
+			im := f[2*i+1]
+			t0 := trig[i]
+			t1 := trig[n4+i]
+			yr := mdctMul(re, t0) - mdctMul(im, t1)
+			yi := mdctMul(im, t0) + mdctMul(re, t1)
+			if mdctUseFMALikeMixEnabled {
+				yr = float32(float64(re)*float64(t0) - float64(mdctMul(im, t1)))
+				yi = float32(float64(im)*float64(t0) + float64(mdctMul(re, t1)))
+			}
+			fftIn[i] = complex(yr*scale, yi*scale)
+		}
+		if doDump && st != nil && len(st.bitrev) >= n4 {
 			pre := make([]float32, 2*n4)
 			for k := 0; k < n4; k++ {
 				idx := st.bitrev[k]
@@ -357,24 +394,40 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 			}
 			dumpFloat32Raw(fmt.Sprintf("/tmp/go_actual_stage_prebitrev_ri_call%d.f32", dumpIdx), pre)
 		}
+		kissFFT32To(fftOut, fftIn[:n4], fftTmp)
 	}
-
-	kissFFT32To(fftOut, fftIn[:n4], fftTmp)
 
 	if doDump {
 		fftRI := make([]float32, 2*n4)
-		for k := 0; k < n4; k++ {
-			fftRI[2*k] = real(fftOut[k])
-			fftRI[2*k+1] = imag(fftOut[k])
+		if useDirectKissCpx {
+			for k := 0; k < n4; k++ {
+				fftRI[2*k] = fftStage[k].r
+				fftRI[2*k+1] = fftStage[k].i
+			}
+		} else {
+			for k := 0; k < n4; k++ {
+				fftRI[2*k] = real(fftOut[k])
+				fftRI[2*k+1] = imag(fftOut[k])
+			}
 		}
 		dumpFloat32Raw(fmt.Sprintf("/tmp/go_actual_stage_fft_ri_call%d.f32", dumpIdx), fftRI)
 	}
-	// BCE hints for post-twiddle loop
-	_ = fftOut[n4-1] // BCE hint
+	// BCE hints for post-twiddle loop.
+	if useDirectKissCpx {
+		_ = fftStage[n4-1] // BCE hint
+	} else {
+		_ = fftOut[n4-1] // BCE hint
+	}
 	_ = coeffs[n2-1] // BCE hint
 	for i = 0; i < n4; i++ {
-		re := real(fftOut[i])
-		im := imag(fftOut[i])
+		var re, im float32
+		if useDirectKissCpx {
+			re = fftStage[i].r
+			im = fftStage[i].i
+		} else {
+			re = real(fftOut[i])
+			im = imag(fftOut[i])
+		}
 		t0 := trig[i]
 		t1 := trig[n4+i]
 		yr := mdctMul(im, t1) - mdctMul(re, t0)
