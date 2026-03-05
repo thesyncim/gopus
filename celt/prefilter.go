@@ -758,14 +758,17 @@ func findBestPitch(xcorr []float64, y []float64, length, maxPitch int, bestPitch
 	bestDen := [2]float32{0, 0}
 	bestPitch[0] = 0
 	bestPitch[1] = 1
+	_ = y[length+maxPitch-1] // BCE hint
+	_ = xcorr[maxPitch-1]    // BCE hint
 	for j := 0; j < length; j++ {
 		yj := float32(y[j])
 		Syy += yj * yj
 	}
+	const xcorrScale = float32(1e-12)
 	for i := 0; i < maxPitch; i++ {
-		xc := float32(xcorr[i])
-		if xc > 0 {
-			xcorr16 := xc * float32(1e-12)
+		if xv := xcorr[i]; xv > 0 {
+			xc := float32(xv)
+			xcorr16 := xc * xcorrScale
 			num := xcorr16 * xcorr16
 			if num*bestDen[1] > bestNum[1]*Syy {
 				if num*bestDen[0] > bestNum[0]*Syy {

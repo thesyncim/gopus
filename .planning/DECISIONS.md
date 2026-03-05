@@ -1,6 +1,6 @@
 # Investigation Decisions
 
-Last updated: 2026-03-03
+Last updated: 2026-03-04
 
 Purpose: record durable keep/skip decisions to avoid re-running solved investigations.
 
@@ -18,6 +18,62 @@ owner: <handle>
 ```
 
 ## Current Decisions
+
+date: 2026-03-04
+topic: findBestPitch sparse xcorr conversion skip
+decision: Keep `celt/prefilter.go` `findBestPitch` guard that skips float64->float32 conversion when `xcorr[i] <= 0`, plus BCE hints on `y[length+maxPitch-1]` and `xcorr[maxPitch-1]`.
+evidence: Quality/parity remained green (`go test ./celt -count=1`; `go test ./encoder -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `23 passed, 0 failed`; full runnable-package sweep excluding local `tmp_check` passed). `make bench-guard` passed. Bench-binary stash A/B (`mode=gopus,iters=20,warmup=3`) improved from baseline `best 260.523958ms / avg 263.289118ms` to candidate `best 258.820209ms / avg 261.284043ms` (~`0.65%` best, `0.76%` avg).
+do_not_repeat_until: pitch-search sparse-window behavior or `findBestPitch` scoring semantics change.
+owner: codex
+
+date: 2026-03-04
+topic: transient harmonic-mean loop float32 normalization
+decision: Keep float32 `normE` and float32 table-index math in `celt/transient.go` harmonic-mean loop (`id := int(normE * (energy[i] + epsF32))`) instead of per-iteration float64 conversions.
+evidence: Quality/parity remained green (`go test ./celt -count=1`; `go test ./encoder -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `23 passed, 0 failed`; full runnable-package sweep excluding local `tmp_check` passed). `make bench-guard` passed. Bench-binary stash A/B (`mode=gopus,iters=20,warmup=3`) improved from baseline `best 260.885500ms / avg 263.234895ms` to candidate `best 257.531416ms / avg 262.346818ms` (~`1.29%` best, `0.34%` avg).
+do_not_repeat_until: transient detector threshold/index semantics or energy-domain precision requirements change.
+owner: codex
+
+date: 2026-03-04
+topic: Analysis MLP gemmAccumF32 4-way row unroll
+decision: Keep 4-way row unroll + scalar tail in `encoder/analysis_mlp.go` `gemmAccumF32`.
+evidence: Quality/parity remained green (`go test ./celt -count=1`; `go test ./encoder -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `23 passed, 0 failed`; full runnable-package sweep excluding local `tmp_check` passed). `make bench-guard` passed. Bench-binary stash A/B (`mode=gopus,iters=20,warmup=3`) improved from baseline `best 261.709625ms / avg 263.283785ms` to candidate `best 257.730042ms / avg 260.000585ms` (~`1.52%` best, `1.25%` avg).
+do_not_repeat_until: analysis MLP weight layout (`colStride`) or accumulation semantics change.
+owner: codex
+
+date: 2026-03-04
+topic: ARM64 toneLPCCorr pointer-walk addressing
+decision: Keep `celt/tone_lpc_corr_arm64.s` pointer-walk addressing for delayed streams (`x+delay`, `x+delay2`) instead of per-iteration delayed-address recomputation.
+evidence: Quality/parity remained green (`go test ./celt -count=1`; `go test ./encoder -run 'Test(Analysis|RunAnalysis|TonalityAnalysis|UpdateOpusVADReusesFreshAnalysis|AnalysisTraceFixtureParityWithLibopus)' -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `23 passed, 0 failed`; full runnable-package sweep excluding local `tmp_check` passed). `make bench-guard` passed. Bench-binary stash A/B (`mode=gopus,iters=20,warmup=3`) improved from baseline `best 277.177375ms / avg 281.044162ms` to candidate `best 273.911625ms / avg 278.773247ms` (~`1.18%` best, `0.81%` avg).
+do_not_repeat_until: tone-LPC correlation accumulation ordering, delay semantics, or ARM64 asm constraints change.
+owner: codex
+
+date: 2026-03-04
+topic: ARM64 pitchAutocorr5 8-wide unroll
+decision: Keep ARM64 `pitchAutocorr5` inner-loop unroll in `celt/pitch_autocorr_arm64.s` (8 elements/iteration + 4/2/1 tails) and explicit inner-pointer init before tail paths.
+evidence: Quality/parity remained green (`go test ./celt -count=1`; `go test ./encoder -run 'Test(Analysis|RunAnalysis|TonalityAnalysis|UpdateOpusVADReusesFreshAnalysis|AnalysisTraceFixtureParityWithLibopus)' -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `23 passed, 0 failed`; full runnable-package sweep excluding local `tmp_check` passed). `make bench-guard` passed. Bench-binary stash A/B (`mode=gopus,iters=20,warmup=3`) improved from baseline `best 273.530834ms / avg 276.484366ms` to candidate `best 270.693291ms / avg 274.498254ms` (~`1.0%` best, `0.7%` avg).
+do_not_repeat_until: pitch autocorrelation float32 accumulation semantics, lag/correction ordering, or ARM64 asm constraints change.
+owner: codex
+
+date: 2026-03-04
+topic: ARM64 prefilter inner-product 8-wide unroll
+decision: Keep ARM64 SIMD loop unroll in `celt/prefilter_innerprod_arm64.s` for `prefilterInnerProd` and `prefilterDualInnerProd` (8 elements/iteration with 4/2/1 tails), preserving float32 accumulation order.
+evidence: Quality/parity remained green (`go test ./celt -count=1`; `go test ./encoder -run 'Test(Analysis|RunAnalysis|TonalityAnalysis|UpdateOpusVADReusesFreshAnalysis|AnalysisTraceFixtureParityWithLibopus)' -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `23 passed, 0 failed`; full runnable-package sweep excluding known local `tmp_check` also passed). `make bench-guard` passed. Bench-binary stash A/B showed wins: `mode=gopus,iters=20,warmup=3` improved from baseline `best 266.359167ms / avg 269.458806ms` to candidate `best 263.696541ms / avg 267.300729ms` (~`1.0%` best, `0.8%` avg); `mode=both,iters=8,warmup=2` candidate gopus also improved vs baseline.
+do_not_repeat_until: prefilter dot-product float32 semantics, ARM64 asm constraints, or pitch-search/remove-doubling call patterns change.
+owner: codex
+
+date: 2026-03-04
+topic: MDCT pre/post twiddle loop specialization
+decision: Keep `celt/mdct_encode.go` split-loop structure in `mdctForwardOverlapF32Scratch` that hoists `mdctUseFMALikeMixEnabled` and direct-`kissCpx`/fallback selection out of inner pre/post twiddle loops.
+evidence: Focused quality/parity stayed green (`go test ./celt -run 'Test(Transient|PrefilterPitchXcorr|RunPrefilterParityAgainstLibopusFixture|Tone|MDCT)' -count=1`; `go test ./encoder -run 'Test(Analysis|RunAnalysis|TonalityAnalysis|UpdateOpusVADReusesFreshAnalysis|AnalysisTraceFixtureParityWithLibopus)' -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `23 passed, 0 failed`). Broad runnable sweep passed (`go list -e -f '{{if not .Error}}{{.ImportPath}}{{end}}' ./... | rg -v '/tmp_check$' | xargs go test -count=1`). `make bench-guard` passed. Bench-binary stash A/B (`go run ./examples/bench-encode -sample speech -iters 20 -warmup 3 -mode gopus -bitrate 64000 -complexity 10`) improved from baseline `best 272.930583ms / avg 275.878118ms` to candidate `best 269.492375ms / avg 273.872166ms` (~`1.26%` best, `0.73%` avg faster); shorter `iters 8 mode both` confirmation also improved.
+do_not_repeat_until: MDCT twiddle math, `mdctUseFMALikeMixEnabled` semantics, or Kiss FFT staging path changes invalidate this loop structure and require a new A/B.
+owner: codex
+
+date: 2026-03-04
+topic: MDCT direct bit-reversed kissCpx staging path
+decision: Keep `celt/mdct_encode.go` direct MDCT FFT staging path that writes pre-twiddled values directly into bit-reversed `kissCpx` scratch and runs `st.fftImpl()` in-place for supported FFT sizes, while preserving the existing `kissFFT32To` fallback path for unsupported states.
+evidence: Quality/parity remained green (`go test ./celt -run 'Test(Transient|PrefilterPitchXcorr|RunPrefilterParityAgainstLibopusFixture|Tone|MDCT)' -count=1`; `go test ./encoder -run 'Test(Analysis|RunAnalysis|TonalityAnalysis|UpdateOpusVADReusesFreshAnalysis|AnalysisTraceFixtureParityWithLibopus)' -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `23 passed, 0 failed`). Bench evidence from requested examples harness A/B (`go run ./examples/bench-encode -sample speech -iters 8 -warmup 2 -mode gopus -bitrate 64000 -complexity 10`): candidate `best 282.346709ms / avg 284.964474ms` vs baseline `best 285.893458ms / avg 288.955969ms` (about `~1.3-1.4%` faster). `make bench-guard` passed; `make verify-production` showed only known local `tmp_check` cgo-disabled blocker.
+do_not_repeat_until: MDCT pre/post-twiddle math order, Kiss FFT state layout/bitrev semantics, or supported CELT frame-size FFT set changes in a way that invalidates this staging path.
+owner: codex
 
 date: 2026-03-03
 topic: Transient analysis fused pair-energy and forward-mask pass
