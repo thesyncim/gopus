@@ -22,11 +22,11 @@ TEXT ·prefilterInnerProd(SB), NOSPLIT, $0-56
 
 	MOVD $16, R15                     // post-increment stride
 
-	// R3 = length / 4
-	LSR  $2, R2, R3
-	CBZ  R3, pip_tail
+	// R3 = length / 8
+	LSR  $3, R2, R3
+	CBZ  R3, pip_mid4
 
-pip_loop4:
+pip_loop8:
 	// Load 4 float64 from x, narrow to 4 float32
 	VLD1.P (R0)(R15), [V0.D2]
 	VLD1.P (R0)(R15), [V1.D2]
@@ -42,8 +42,38 @@ pip_loop4:
 	// FMA: V16 += V4 * V5
 	VFMLA V4.S4, V5.S4, V16.S4
 
+	// Next 4 elements (unrolled): same accumulation order as two loop4 trips.
+	VLD1.P (R0)(R15), [V0.D2]
+	VLD1.P (R0)(R15), [V1.D2]
+	WORD $0x0E616804                  // FCVTN  V4.2S, V0.D2
+	WORD $0x4E616824                  // FCVTN2 V4.4S, V1.D2
+
+	VLD1.P (R1)(R15), [V0.D2]
+	VLD1.P (R1)(R15), [V1.D2]
+	WORD $0x0E616805                  // FCVTN  V5.2S, V0.D2
+	WORD $0x4E616825                  // FCVTN2 V5.4S, V1.D2
+
+	VFMLA V4.S4, V5.S4, V16.S4
+
 	SUBS $1, R3
-	BNE  pip_loop4
+	BNE  pip_loop8
+
+pip_mid4:
+	// Handle 4-element remainder
+	AND  $4, R2, R3
+	CBZ  R3, pip_tail
+
+	VLD1.P (R0)(R15), [V0.D2]
+	VLD1.P (R0)(R15), [V1.D2]
+	WORD $0x0E616804                  // FCVTN  V4.2S, V0.D2
+	WORD $0x4E616824                  // FCVTN2 V4.4S, V1.D2
+
+	VLD1.P (R1)(R15), [V0.D2]
+	VLD1.P (R1)(R15), [V1.D2]
+	WORD $0x0E616805                  // FCVTN  V5.2S, V0.D2
+	WORD $0x4E616825                  // FCVTN2 V5.4S, V1.D2
+
+	VFMLA V4.S4, V5.S4, V16.S4
 
 pip_tail:
 	// Handle 2-element remainder
@@ -102,11 +132,11 @@ TEXT ·prefilterDualInnerProd(SB), NOSPLIT, $0-96
 
 	MOVD $16, R15
 
-	// R4 = length / 4
-	LSR  $2, R3, R4
-	CBZ  R4, dpip_tail
+	// R4 = length / 8
+	LSR  $3, R3, R4
+	CBZ  R4, dpip_mid4
 
-dpip_loop4:
+dpip_loop8:
 	// Load 4 float64 from x, narrow to 4 float32
 	VLD1.P (R0)(R15), [V0.D2]
 	VLD1.P (R0)(R15), [V1.D2]
@@ -127,8 +157,48 @@ dpip_loop4:
 	WORD $0x4E616825                  // FCVTN2 V5.4S, V1.D2
 	VFMLA V4.S4, V5.S4, V17.S4
 
+	// Next 4 elements (unrolled)
+	VLD1.P (R0)(R15), [V0.D2]
+	VLD1.P (R0)(R15), [V1.D2]
+	WORD $0x0E616804                  // FCVTN  V4.2S, V0.D2
+	WORD $0x4E616824                  // FCVTN2 V4.4S, V1.D2
+
+	VLD1.P (R1)(R15), [V0.D2]
+	VLD1.P (R1)(R15), [V1.D2]
+	WORD $0x0E616805                  // FCVTN  V5.2S, V0.D2
+	WORD $0x4E616825                  // FCVTN2 V5.4S, V1.D2
+	VFMLA V4.S4, V5.S4, V16.S4
+
+	VLD1.P (R2)(R15), [V0.D2]
+	VLD1.P (R2)(R15), [V1.D2]
+	WORD $0x0E616805                  // FCVTN  V5.2S, V0.D2
+	WORD $0x4E616825                  // FCVTN2 V5.4S, V1.D2
+	VFMLA V4.S4, V5.S4, V17.S4
+
 	SUBS $1, R4
-	BNE  dpip_loop4
+	BNE  dpip_loop8
+
+dpip_mid4:
+	// Handle 4-element remainder
+	AND  $4, R3, R4
+	CBZ  R4, dpip_tail
+
+	VLD1.P (R0)(R15), [V0.D2]
+	VLD1.P (R0)(R15), [V1.D2]
+	WORD $0x0E616804                  // FCVTN  V4.2S, V0.D2
+	WORD $0x4E616824                  // FCVTN2 V4.4S, V1.D2
+
+	VLD1.P (R1)(R15), [V0.D2]
+	VLD1.P (R1)(R15), [V1.D2]
+	WORD $0x0E616805                  // FCVTN  V5.2S, V0.D2
+	WORD $0x4E616825                  // FCVTN2 V5.4S, V1.D2
+	VFMLA V4.S4, V5.S4, V16.S4
+
+	VLD1.P (R2)(R15), [V0.D2]
+	VLD1.P (R2)(R15), [V1.D2]
+	WORD $0x0E616805                  // FCVTN  V5.2S, V0.D2
+	WORD $0x4E616825                  // FCVTN2 V5.4S, V1.D2
+	VFMLA V4.S4, V5.S4, V17.S4
 
 dpip_tail:
 	// Handle 2-element remainder

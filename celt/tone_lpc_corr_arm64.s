@@ -12,7 +12,8 @@
 //   R2    = delay (element offset)
 //   R3    = delay2 (element offset)
 //   R4    = loop counter i
-//   R5,R6 = address temporaries
+//   R5    = x+delay pointer
+//   R6    = x+delay2 pointer
 //   F0    = r00 accumulator
 //   F1    = r01 accumulator
 //   F2    = r02 accumulator
@@ -36,6 +37,8 @@ TEXT ·toneLPCCorr(SB), NOSPLIT, $0-56
 	// Byte offsets for delayed pointers
 	LSL   $2, R2, R2              // delay * sizeof(float32)
 	LSL   $2, R3, R3              // delay2 * sizeof(float32)
+	ADD   R0, R2, R5              // x+delay
+	ADD   R0, R3, R6              // x+delay2
 
 	MOVD  ZR, R4                  // i = 0
 
@@ -43,13 +46,11 @@ loop:
 	// Load x[i]
 	FMOVS (R0), F3
 
-	// Load x[i+delay]: R5 = R0 + delay_bytes
-	ADD   R0, R2, R5
+	// Load x[i+delay]
 	FMOVS (R5), F4
 
-	// Load x[i+delay2]: R5 = R0 + delay2_bytes
-	ADD   R0, R3, R5
-	FMOVS (R5), F5
+	// Load x[i+delay2]
+	FMOVS (R6), F5
 
 	// r00 += x[i] * x[i]
 	FMADDS F3, F0, F3, F0
@@ -61,6 +62,8 @@ loop:
 	FMADDS F5, F2, F3, F2
 
 	ADD   $4, R0                  // advance pointer by sizeof(float32)
+	ADD   $4, R5
+	ADD   $4, R6
 	ADD   $1, R4
 	CMP   R1, R4
 	BLT   loop

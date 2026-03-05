@@ -385,18 +385,17 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 
 		// Inverse of mean energy (with epsilon to avoid division by zero)
 		const epsilon = 1e-15
-		norm := float64(len2) / (meanGeom + epsilon)
+		normE := float32(float64(64*len2) / (meanGeom + epsilon))
 
 		// Compute harmonic mean using inverse table
 		// Skip unreliable boundaries, sample every 4th point
-		// Hoist the constant multiplier: normE = 64 * norm
-		normE := 64.0 * norm
+		const epsF32 = float32(1e-15)
 		var unmask int
 		for i := 12; i < len2-5; i += 4 {
 			// Map energy to table index
 			// For non-negative values, int(x) truncates toward zero which equals floor.
 			// energy[i] + epsilon is always >= 0, so int() is equivalent to math.Floor.
-			id := int(normE * (float64(energy[i]) + epsilon))
+			id := int(normE * (energy[i] + epsF32))
 			if id > 127 {
 				id = 127
 			}

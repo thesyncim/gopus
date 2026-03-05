@@ -33,14 +33,27 @@ pa_lag_loop:
 	LSL  $3, R4, R6               // lag * 8 (byte offset)
 	ADD  R0, R6, R6               // lp + lag
 
-	// Inner loop: process fastN elements, 4 at a time
-	LSR  $2, R3, R7               // fastN / 4
-	CBZ  R7, pa_tail2
-
+	// Inner loop pointers
 	MOVD R5, R8                   // x = lp[i] pointer
 	MOVD R6, R9                   // y = lp[i+lag] pointer
 
-pa_inner4:
+	// Inner loop: process fastN elements, 8 at a time
+	LSR  $3, R3, R7               // fastN / 8
+	CBZ  R7, pa_mid4
+
+pa_inner8:
+	VLD1.P (R8)(R15), [V0.D2]
+	VLD1.P (R8)(R15), [V1.D2]
+	WORD $0x0E616804              // FCVTN  V4.2S, V0.D2
+	WORD $0x4E616824              // FCVTN2 V4.4S, V1.D2
+
+	VLD1.P (R9)(R15), [V0.D2]
+	VLD1.P (R9)(R15), [V1.D2]
+	WORD $0x0E616805              // FCVTN  V5.2S, V0.D2
+	WORD $0x4E616825              // FCVTN2 V5.4S, V1.D2
+
+	VFMLA V4.S4, V5.S4, V16.S4
+
 	VLD1.P (R8)(R15), [V0.D2]
 	VLD1.P (R8)(R15), [V1.D2]
 	WORD $0x0E616804              // FCVTN  V4.2S, V0.D2
@@ -54,7 +67,24 @@ pa_inner4:
 	VFMLA V4.S4, V5.S4, V16.S4
 
 	SUBS $1, R7
-	BNE  pa_inner4
+	BNE  pa_inner8
+
+pa_mid4:
+	// Handle 4-element remainder of fastN
+	AND  $4, R3, R7
+	CBZ  R7, pa_tail2
+
+	VLD1.P (R8)(R15), [V0.D2]
+	VLD1.P (R8)(R15), [V1.D2]
+	WORD $0x0E616804              // FCVTN  V4.2S, V0.D2
+	WORD $0x4E616824              // FCVTN2 V4.4S, V1.D2
+
+	VLD1.P (R9)(R15), [V0.D2]
+	VLD1.P (R9)(R15), [V1.D2]
+	WORD $0x0E616805              // FCVTN  V5.2S, V0.D2
+	WORD $0x4E616825              // FCVTN2 V5.4S, V1.D2
+
+	VFMLA V4.S4, V5.S4, V16.S4
 
 pa_tail2:
 	// Handle 2-element remainder of fastN
