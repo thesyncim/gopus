@@ -42,4 +42,4 @@ Quick commands:
 - claim: id=codex-20260304-213156; agent=codex; status=released; paths=encoder/,celt/,.planning/; updated=2026-03-04T21:47:17Z; expires=2026-03-04T21:47:17Z; note=perf parity loop continue after PR269 merge
 - claim: id=codex-20260304-220038; agent=codex; status=released; paths=encoder/,celt/,.planning/; updated=2026-03-05T19:49:00Z; expires=2026-03-05T19:49:00Z; note=perf parity follow-up after mdct staging
 - claim: id=codex-20260305-194917; agent=codex; status=released; paths=celt/,.planning/; updated=2026-03-05T21:46:58Z; expires=2026-03-05T21:46:58Z; note=perf loop: optimize arm64 prefilter xcorr asm
-- claim: id=codex-20260305-223128; agent=codex; status=active; paths=celt/,.planning/; updated=2026-03-05T22:31:28Z; expires=2026-03-06T02:31:28Z; note=perf loop: prototype float32 quarter-rate prefilter scratch path
+- claim: id=codex-20260305-223128; agent=codex; status=released; paths=celt/,.planning/; updated=2026-03-06T09:43:11Z; expires=2026-03-06T09:43:11Z; note=perf loop: prototype float32 quarter-rate prefilter scratch path
