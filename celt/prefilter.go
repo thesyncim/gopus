@@ -678,7 +678,7 @@ func pitchSearch(xLP []float64, y []float64, length, maxPitch int, scratch *enco
 		yLP4[j] = y[idx]
 	}
 
-	prefilterPitchXcorr(xLP4, yLP4, xcorr, quarterLen, quarterPitch)
+	prefilterPitchXcorrFast(xLP4, yLP4, xcorr, quarterLen, quarterPitch)
 	bestPitch := [2]int{0, 0}
 	findBestPitch(xcorr, yLP4, quarterLen, quarterPitch, &bestPitch)
 
@@ -702,7 +702,7 @@ func pitchSearch(xLP []float64, y []float64, length, maxPitch int, scratch *enco
 		h1 = halfPitch - 1
 	}
 	for i := l0; i <= h0; i++ {
-		sum := prefilterInnerProd(xLP, y[i:], halfLen)
+		sum := celtInnerProd(xLP, y[i:], halfLen)
 		if sum < -1 {
 			sum = -1
 		}
@@ -710,7 +710,7 @@ func pitchSearch(xLP []float64, y []float64, length, maxPitch int, scratch *enco
 	}
 	if h0 < l1 || h1 < l0 {
 		for i := l1; i <= h1; i++ {
-			sum := prefilterInnerProd(xLP, y[i:], halfLen)
+			sum := celtInnerProd(xLP, y[i:], halfLen)
 			if sum < -1 {
 				sum = -1
 			}
@@ -719,7 +719,7 @@ func pitchSearch(xLP []float64, y []float64, length, maxPitch int, scratch *enco
 	} else {
 		if l1 < l0 {
 			for i := l1; i < l0; i++ {
-				sum := prefilterInnerProd(xLP, y[i:], halfLen)
+				sum := celtInnerProd(xLP, y[i:], halfLen)
 				if sum < -1 {
 					sum = -1
 				}
@@ -728,7 +728,7 @@ func pitchSearch(xLP []float64, y []float64, length, maxPitch int, scratch *enco
 		}
 		if h1 > h0 {
 			for i := h0 + 1; i <= h1; i++ {
-				sum := prefilterInnerProd(xLP, y[i:], halfLen)
+				sum := celtInnerProd(xLP, y[i:], halfLen)
 				if sum < -1 {
 					sum = -1
 				}
@@ -888,7 +888,7 @@ func removeDoubling(x []float64, maxPeriod, minPeriod, N int, T0 *int, prevPerio
 	var xcorr [3]float32
 	for k := 0; k < 3; k++ {
 		lag := T + k - 1
-		xcorr[k] = float32(prefilterInnerProd(x0, xBase[maxPeriod-lag:maxPeriod-lag+N], N))
+		xcorr[k] = float32(celtInnerProd(x0, xBase[maxPeriod-lag:maxPeriod-lag+N], N))
 	}
 	offset := 0
 	if (xcorr[2] - xcorr[0]) > float32(0.7)*(xcorr[1]-xcorr[0]) {
@@ -928,7 +928,21 @@ func celtFIR5(x []float64, num [5]float64) {
 	mem2 := float32(0)
 	mem3 := float32(0)
 	mem4 := float32(0)
-	for i := 0; i < len(x); i++ {
+	i := 0
+	for ; i+1 < len(x); i += 2 {
+		x0 := float32(x[i])
+		sum0 := x0 + n0*mem0 + n1*mem1 + n2*mem2 + n3*mem3 + n4*mem4
+		x1 := float32(x[i+1])
+		sum1 := x1 + n0*x0 + n1*mem0 + n2*mem1 + n3*mem2 + n4*mem3
+		x[i] = float64(sum0)
+		x[i+1] = float64(sum1)
+		mem4 = mem2
+		mem3 = mem1
+		mem2 = mem0
+		mem1 = x0
+		mem0 = x1
+	}
+	for ; i < len(x); i++ {
 		xi := float32(x[i])
 		sum := xi + n0*mem0 + n1*mem1 + n2*mem2 + n3*mem3 + n4*mem4
 		mem4 = mem3

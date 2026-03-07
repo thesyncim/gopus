@@ -1,6 +1,6 @@
 # Investigation Decisions
 
-Last updated: 2026-03-04
+Last updated: 2026-03-07
 
 Purpose: record durable keep/skip decisions to avoid re-running solved investigations.
 
@@ -18,6 +18,34 @@ owner: <handle>
 ```
 
 ## Current Decisions
+
+date: 2026-03-07
+topic: CWRS encode table-lookup fast path on Apple M4 Max
+decision: Keep the `celt/cwrs.go` `icwrsLookupFast()` path that bypasses dynamic `unext()` row stepping when the static PVQ `U(n,k)` table covers all encode-side row lookups, and route both `EncodePulsesScratch` and `encodePulsesFast` through it before allocating the dynamic `u` buffer.
+evidence: Focused CWRS correctness stayed green (`GOMAXPROCS=1 go test ./celt -run '^(Test.*CWRS.*|Test.*Pulses.*|TestPVQ_V.*|TestNCWRS.*)$' -count=1`) and full `GOMAXPROCS=1 go test ./celt -count=1` plus encoder analysis slice passed. Direct CWRS encode microbench versus a baseline worktree with the same surviving perf stack but without this change improved by about 2x on representative CELT shapes: `BenchmarkCWRS32Encode` `N8_K4 ~24.3-24.6 ns -> ~12.6-13.0 ns`, `N16_K4 ~49.1-50.0 ns -> ~22.1 ns`, `N32_K3 ~91.7-92.0 ns -> ~40.6-41.6 ns`, `N64_K2 ~166-167 ns -> ~81-82 ns`; `BenchmarkCWRS32RoundTrip/N16_K4 ~80.2-81.0 ns -> ~55.0-56.5 ns`. Root encode bench improved to `BenchmarkEncoderEncode ~43.8-44.1 us/op` and `BenchmarkEncoderEncodeInt16 ~44.1-44.4 us/op`. Speech example encode versus clean `HEAD` baseline improved from `best 255.378875ms / avg 257.276052ms` to current `best 228.690125ms / avg 229.578783ms` and repeat `best 229.583250ms / avg 232.349939ms`, clearing the `10%` target. `make bench-guard` passed. `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` passed (`23 passed, 0 failed`). `make verify-production` remained blocked only by the known local `tmp_check` cgo-disabled setup.
+do_not_repeat_until: the PVQ `U(n,k)` table coverage changes, CWRS encode semantics change, or broader perf/correctness gates on target hosts show this table-driven path regressing against the dynamic `unext()` fallback.
+owner: codex
+
+date: 2026-03-06
+topic: transientAnalysisScratch fused HP/pair-energy pass on Apple M4 Max
+decision: Keep the `celt/transient.go` pairwise transient-analysis rewrite that fuses HP filtering and forward pair-energy accumulation, and keep removal of the unused `transientTmp` scratch from `celt/encoder.go`.
+evidence: Fresh `BenchmarkEncoderEncode` CPU profile (`go test . -run '^$' -bench '^(BenchmarkEncoderEncode$|BenchmarkEncoderEncodeInt16$)' -count=1 -benchtime=3s -cpu=1 -cpuprofile`) showed `celt.(*Encoder).transientAnalysisScratch` at `0.52s flat`, `7.10%`. After the rewrite, source profile dropped that routine to `0.39s flat`, `0.55s cum`. Direct hotspot A/B (`go test ./celt -run '^$' -bench '^(BenchmarkTransientAnalysis(Current|Legacy))$' -count=5 -cpu=1`) measured current `~6.21-6.34 us/op` versus legacy `~6.94-7.26 us/op` (~`8-13%` faster). Focused correctness stayed green (`go test ./celt -run '^(TestTransientAnalysisTfEstimate|TestWeakTransientMode|TestTransientAnalysisWithState|TestStereoTransientDetection)$' -count=1`) and `go test ./celt -count=1` passed.
+do_not_repeat_until: transient detector math/order changes, or broader perf gates on target hosts show this fused path losing end-to-end despite the isolated hotspot win.
+owner: codex
+
+date: 2026-03-05
+topic: ARM64 quarter-rate float32 prefilter scratch path on Apple M4 Max
+decision: Do not replace the current quarter-rate `pitchSearch()` coarse path with a direct float32 scratch + dedicated float32 xcorr helper on this host. Keep the restored baseline `celt/prefilter_xcorr_arm64.s` path instead.
+evidence: Focused correctness was green for the prototype (`go test ./celt -run '^(TestRunPrefilterParityAgainstLibopusFixture|TestPrefilterPitchXcorr|TestPrefilterPitchXcorrEdge)$' -count=1`), but perf regressed materially on Apple M4 Max. `go test ./celt -run '^$' -bench '^(BenchmarkPrefilterPitchXcorr|BenchmarkPrefilterPitchXcorrFloat|BenchmarkPitchSearch(Current|Legacy))$' -count=5 -cpu=1` measured baseline `BenchmarkPrefilterPitchXcorr ~3.92-3.96 us/op`, prototype float32 helper `BenchmarkPrefilterPitchXcorrFloat ~7.55-7.75 us/op`, and candidate `BenchmarkPitchSearchCurrent ~5.28-5.36 us/op` versus restored baseline `~3.72-3.76 us/op` (legacy `~4.07-4.08 us/op`). Same-session top-level encoder probe also improved after revert (`go test . -run '^$' -bench '^(BenchmarkEncoderEncode$|BenchmarkEncoderEncodeInt16$)' -count=1 -cpu=1`: candidate `~58.6/59.2 us/op`, restored `~55.7/56.3 us/op`).
+do_not_repeat_until: a materially different float32 xcorr kernel/layout exists (not the current celt-local helper shape), or profiling on a different ARM64 microarchitecture shows the current baseline correlation path is no longer competitive.
+owner: codex
+
+date: 2026-03-05
+topic: ARM64 prefilterPitchXcorr asm shape on Apple M4 Max
+decision: Keep the existing `celt/prefilter_xcorr_arm64.s` 4-stream float32-accumulation kernel. Do not retry the three tested asm reshapes on this host: libopus-style shifted-window `VEXT` windows, dual-accumulator 8-wide splitting, or multi-register `ld1` pair loads.
+evidence: `BenchmarkEncoderEncode` CPU profile showed `celt.prefilterPitchXcorr` as the top asm hotspot (`0.37s flat`, `7.23%`). Focused correctness guard stayed green on baseline restoration (`go test ./celt -run '^(TestPrefilterPitchXcorr|TestPrefilterPitchXcorrEdge)$' -count=1`). Focused microbench evidence on Apple M4 Max (`go test ./celt -run '^$' -bench '^BenchmarkPrefilterPitchXcorr$' -count=5 -cpu=1`): baseline `~3.76-3.81 us/op`; shifted-window rewrite `~6.50-6.76 us/op`; dual-accumulator variant `~4.09-4.14 us/op`; load-pair variant `~3.80-3.83 us/op`.
+do_not_repeat_until: the quarter-rate prefilter input layout changes (for example, a float32 scratch path), or new evidence on a materially different ARM64 microarchitecture shows the current kernel regressing.
+owner: codex
 
 date: 2026-03-04
 topic: findBestPitch sparse xcorr conversion skip
@@ -84,7 +112,7 @@ owner: codex
 
 date: 2026-03-02
 topic: Analysis MLP float32 weight-cache path and transient float32 scratch path
-decision: Keep the analysis MLP fast path that preconverts global int8 dense/GRU weights to float32 once at init (`initAnalysisMLPWeightCaches`) and uses `gemmAccumF32` during `ComputeDense`/`ComputeGRU`. Keep transient analysis scratch in float32 (`transientTmp`, `transientEnergy`) to avoid float64<->float32 conversion churn in `celt.(*Encoder).transientAnalysisScratch`.
+decision: Keep the analysis MLP fast path that preconverts global int8 dense/GRU weights to float32 once at init (`initAnalysisMLPWeightCaches`) and uses `gemmAccumF32` during `ComputeDense`/`ComputeGRU`. Keep transient analysis working buffers in float32 (`transientEnergy`, `transientX`) to avoid float64<->float32 conversion churn in `celt.(*Encoder).transientAnalysisScratch`.
 evidence: Quality/parity stayed green (`go test ./encoder -run 'Test(Analysis|RunAnalysis|TonalityAnalysis|UpdateOpusVADReusesFreshAnalysis|AnalysisTraceFixtureParityWithLibopus)' -count=1`; `go test ./celt -run 'Test(Transient|PrefilterPitchXcorr|RunPrefilterParityAgainstLibopusFixture|Tone)' -count=1`; `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `23 passed, 0 failed`). Perf evidence: root encode microbench (`go test . -run '^$' -bench 'BenchmarkEncoderEncode$|BenchmarkEncoderEncodeInt16$' -benchmem -benchtime=2s -count=5`) improved int16 cluster from ~`55k ns/op` to ~`50-51k ns/op` best samples; `make bench-guard` passed with encoder samples around ~`50.9-54.7k ns/op`, `0 allocs/op`. CPU profile comparison (`-cpuprofile` on `BenchmarkEncoderEncode`) showed `transientAnalysisScratch` flat share dropping from ~`7.3%` to ~`5.2%`.
 do_not_repeat_until: analysis MLP topology/weights change, transient detector math order changes, or parity fixtures indicate regression tied to these fast paths.
 owner: codex

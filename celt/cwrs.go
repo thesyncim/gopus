@@ -656,6 +656,48 @@ func icwrs1(y int) (uint32, int) {
 	return 0, k
 }
 
+func icwrsLookupFast(n, k int, y []int) (uint32, bool) {
+	if n < 2 || k <= 0 || len(y) < n {
+		return 0, false
+	}
+
+	i, k1 := icwrs1(y[n-1])
+	base, ok := pvqUTableLookup(2, k1)
+	if !ok {
+		return 0, false
+	}
+	i += base
+
+	j := n - 2
+	k1 += abs(y[j])
+	if y[j] < 0 {
+		neg, ok := pvqUTableLookup(2, k1+1)
+		if !ok {
+			return 0, false
+		}
+		i += neg
+	}
+
+	for j--; j >= 0; j-- {
+		remDims := n - j
+		base, ok := pvqUTableLookup(remDims, k1)
+		if !ok {
+			return 0, false
+		}
+		i += base
+		k1 += abs(y[j])
+		if y[j] < 0 {
+			neg, ok := pvqUTableLookup(remDims, k1+1)
+			if !ok {
+				return 0, false
+			}
+			i += neg
+		}
+	}
+
+	return i, true
+}
+
 func icwrs(n, k int, y []int, u []uint32) (uint32, uint32) {
 	if n < 2 || k <= 0 || len(y) < n || len(u) < k+2 {
 		return 0, 0
@@ -816,6 +858,9 @@ func EncodePulsesScratch(y []int, n, k int, uBuf *[]uint32) uint32 {
 		}
 		return 0
 	}
+	if index, ok := icwrsLookupFast(n, k, y); ok {
+		return index
+	}
 
 	var u []uint32
 	if uBuf != nil {
@@ -838,6 +883,9 @@ func encodePulsesFast(y []int, n, k int, uBuf *[]uint32) uint32 {
 			return 1
 		}
 		return 0
+	}
+	if index, ok := icwrsLookupFast(n, k, y); ok {
+		return index
 	}
 	var u []uint32
 	if uBuf != nil {

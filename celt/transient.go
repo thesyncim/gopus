@@ -223,7 +223,6 @@ func toneDetectScratch(in []float64, channels int, sampleRate int, xBuf []float3
 func (e *Encoder) TransientAnalysis(pcm []float64, frameSize int, allowWeakTransients bool) TransientAnalysisResult {
 	return e.transientAnalysisScratch(pcm, frameSize, allowWeakTransients,
 		e.scratch.transientX,
-		e.scratch.transientTmp,
 		e.scratch.transientEnergy)
 }
 
@@ -242,7 +241,7 @@ var transientInvTable = [128]int{
 
 // transientAnalysisScratch is the scratch-aware version of TransientAnalysis.
 func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWeakTransients bool,
-	toneBuf []float32, tmpBuf []float32, energyBuf []float32) TransientAnalysisResult {
+	toneBuf []float32, energyBuf []float32) TransientAnalysisResult {
 	result := TransientAnalysisResult{
 		TfEstimate:  0.0,
 		TfChannel:   0,
@@ -282,13 +281,6 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 	var maxMaskMetric int
 	tfChannel := 0
 
-	var tmp []float32
-	if tmpBuf != nil && len(tmpBuf) >= samplesPerChannel {
-		tmp = tmpBuf[:samplesPerChannel]
-	} else {
-		tmp = make([]float32, samplesPerChannel)
-	}
-
 	len2 := samplesPerChannel / 2
 	var energy []float32
 	if energyBuf != nil && len(energyBuf) >= len2 {
@@ -299,80 +291,84 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 
 	// Process each channel
 	for c := 0; c < channels; c++ {
-		// High-pass filter: (1 - 2*z^-1 + z^-2) / (1 - z^-1 + 0.5*z^-2)
-		// This removes DC and low frequencies to focus on transient energy
-		_ = tmp[samplesPerChannel-1] // BCE hint
-		var mem0, mem1 float32
+		// Fuse the HP filter with pair-energy accumulation so we don't round-trip
+		// through a temporary sample buffer before masking.
+		_ = energy[len2-1]
+		const (
+			hpFeedback     = float32(0.5)
+			backwardRetain = float32(0.875)
+			backwardScale  = float32(0.125)
+			warmupPairs    = 6
+		)
+		var hp0, hp1 float32
+		var mask float32
+		mean := float32(0)
 		if channels == 1 {
 			src := pcm[:samplesPerChannel]
-			_ = src[samplesPerChannel-1] // BCE hint
-			for i := 0; i < samplesPerChannel; i++ {
-				x := float32(src[i])
-				y := mem0 + x
-				// Modified code to shorten dependency chains (matches libopus float)
-				mem00 := mem0
-				mem0 = mem0 - x + 0.5*mem1
-				mem1 = x - mem00
-				tmp[i] = y
+			_ = src[2*len2-1]
+			for i := 0; i < len2; i++ {
+				j := i << 1
+
+				x0 := float32(src[j])
+				y0 := hp0 + x0
+				hp00 := hp0
+				hp0 = hp0 - x0 + hpFeedback*hp1
+				hp1 = x0 - hp00
+
+				x1 := float32(src[j+1])
+				y1 := hp0 + x1
+				hp00 = hp0
+				hp0 = hp0 - x1 + hpFeedback*hp1
+				hp1 = x1 - hp00
+
+				if i < warmupPairs {
+					y0 = 0
+					y1 = 0
+				}
+
+				pair := y0*y0 + y1*y1
+				mean += pair
+				mask = pair + forwardRetain*mask
+				energy[i] = forwardDecay * mask
 			}
 		} else {
 			stride := channels
 			idx := c
-			_ = pcm[(samplesPerChannel-1)*stride+c] // BCE hint
-			for i := 0; i < samplesPerChannel; i++ {
-				x := float32(pcm[idx])
-				y := mem0 + x
-				// Modified code to shorten dependency chains (matches libopus float)
-				mem00 := mem0
-				mem0 = mem0 - x + 0.5*mem1
-				mem1 = x - mem00
-				tmp[i] = y
+			_ = pcm[(2*len2-1)*stride+c]
+			for i := 0; i < len2; i++ {
+				x0 := float32(pcm[idx])
 				idx += stride
-			}
-		}
+				y0 := hp0 + x0
+				hp00 := hp0
+				hp0 = hp0 - x0 + hpFeedback*hp1
+				hp1 = x0 - hp00
 
-		// Clear first few samples (filter warm-up) -- unrolled for the common case
-		if samplesPerChannel >= 12 {
-			tmp[0] = 0
-			tmp[1] = 0
-			tmp[2] = 0
-			tmp[3] = 0
-			tmp[4] = 0
-			tmp[5] = 0
-			tmp[6] = 0
-			tmp[7] = 0
-			tmp[8] = 0
-			tmp[9] = 0
-			tmp[10] = 0
-			tmp[11] = 0
-		} else {
-			for i := 0; i < 12 && i < samplesPerChannel; i++ {
-				tmp[i] = 0
-			}
-		}
+				x1 := float32(pcm[idx])
+				idx += stride
+				y1 := hp0 + x1
+				hp00 = hp0
+				hp0 = hp0 - x1 + hpFeedback*hp1
+				hp1 = x1 - hp00
 
-		// Forward pass: compute pair energy and post-echo masking in one traversal.
-		_ = tmp[2*len2-1]  // BCE hint
-		_ = energy[len2-1] // BCE hint
-		mem0 = 0
-		mean := float32(0)
-		for i := 0; i < len2; i++ {
-			j := i << 1
-			t0 := tmp[j]
-			t1 := tmp[j+1]
-			pair := t0*t0 + t1*t1
-			mean += pair
-			mem0 = pair + forwardRetain*mem0
-			energy[i] = forwardDecay * mem0
+				if i < warmupPairs {
+					y0 = 0
+					y1 = 0
+				}
+
+				pair := y0*y0 + y1*y1
+				mean += pair
+				mask = pair + forwardRetain*mask
+				energy[i] = forwardDecay * mask
+			}
 		}
 
 		// Backward pass: compute pre-echo threshold
 		// Backward masking: 13.9 dB/ms (decay = 0.125)
 		var maxE float32
-		mem0 = 0
+		mask = 0
 		for i := len2 - 1; i >= 0; i-- {
-			mem0 = energy[i] + 0.875*mem0
-			ei := float32(0.125) * mem0
+			mask = energy[i] + backwardRetain*mask
+			ei := backwardScale * mask
 			energy[i] = ei
 			if ei > maxE {
 				maxE = ei
