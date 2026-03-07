@@ -267,6 +267,14 @@ func haar1(x []float64, n0, stride int) {
 		haar1Stride1Asm(x, n0)
 		return
 	}
+	if stride == 2 {
+		haar1Stride2(x, n0)
+		return
+	}
+	if stride == 4 {
+		haar1Stride4(x, n0)
+		return
+	}
 	const invSqrt2 = float32(0.7071067811865476)
 
 	step := stride * 2
