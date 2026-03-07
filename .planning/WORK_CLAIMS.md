@@ -43,5 +43,5 @@ Quick commands:
 - claim: id=codex-20260304-220038; agent=codex; status=released; paths=encoder/,celt/,.planning/; updated=2026-03-05T19:49:00Z; expires=2026-03-05T19:49:00Z; note=perf parity follow-up after mdct staging
 - claim: id=codex-20260305-194917; agent=codex; status=released; paths=celt/,.planning/; updated=2026-03-05T21:46:58Z; expires=2026-03-05T21:46:58Z; note=perf loop: optimize arm64 prefilter xcorr asm
 - claim: id=codex-20260305-223128; agent=codex; status=released; paths=celt/,.planning/; updated=2026-03-06T09:43:11Z; expires=2026-03-06T09:43:11Z; note=perf loop: prototype float32 quarter-rate prefilter scratch path
-- claim: id=codex-20260306-185234; agent=codex; status=active; paths=celt/,.planning/; updated=2026-03-06T18:52:34Z; expires=2026-03-06T22:52:34Z; note=perf loop: transientAnalysis pairwise fusion
-- claim: id=codex-20260306-190137; agent=codex; status=active; paths=encoder/; updated=2026-03-06T19:01:37Z; expires=2026-03-06T23:01:37Z; note=perf loop: tonalityAnalysis speedup for example encode
+- claim: id=codex-20260306-185234; agent=codex; status=released; paths=celt/,.planning/; updated=2026-03-07T18:23:57Z; expires=2026-03-07T18:23:57Z; note=perf loop: transientAnalysis pairwise fusion
+- claim: id=codex-20260306-190137; agent=codex; status=released; paths=encoder/; updated=2026-03-07T18:23:57Z; expires=2026-03-07T18:23:57Z; note=perf loop: tonalityAnalysis speedup for example encode
