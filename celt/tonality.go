@@ -267,15 +267,16 @@ func ComputeTonalityWithBandsScratch(mdctCoeffs []float64, nbBands, frameSize in
 		result.Tonality = 1
 	}
 
-	// Compute per-band tonality using scratch
-	computePerBandTonalityScratch(mdctCoeffs, nbBands, frameSize, scratch)
+	// Reuse the precomputed power spectrum for per-band SFM.
+	computePerBandTonalityScratch(powers, nbBands, frameSize, scratch)
 	result.BandTonality = scratch.BandTonality[:nbBands]
 
 	return result
 }
 
-// computePerBandTonalityScratch computes tonality for each CELT band using pre-allocated scratch buffers.
-func computePerBandTonalityScratch(mdctCoeffs []float64, nbBands, frameSize int, scratch *TonalityScratch) {
+// computePerBandTonalityScratch computes tonality for each CELT band using the
+// already-computed power spectrum and pre-allocated scratch buffers.
+func computePerBandTonalityScratch(powers []float64, nbBands, frameSize int, scratch *TonalityScratch) {
 	bandTonality := scratch.BandTonality[:nbBands]
 
 	scale := frameSize / Overlap
@@ -291,12 +292,12 @@ func computePerBandTonalityScratch(mdctCoeffs []float64, nbBands, frameSize int,
 		startBin := EBands[band] * scale
 		endBin := EBands[band+1] * scale
 
-		if startBin >= len(mdctCoeffs) {
+		if startBin >= len(powers) {
 			bandTonality[band] = 0.5
 			continue
 		}
-		if endBin > len(mdctCoeffs) {
-			endBin = len(mdctCoeffs)
+		if endBin > len(powers) {
+			endBin = len(powers)
 		}
 
 		bandWidth := endBin - startBin
@@ -305,17 +306,8 @@ func computePerBandTonalityScratch(mdctCoeffs []float64, nbBands, frameSize int,
 			continue
 		}
 
-		// Use scratch buffer for band powers
-		powers := scratch.BandPowers[:bandWidth]
-		for i := 0; i < bandWidth; i++ {
-			idx := startBin + i
-			if idx < len(mdctCoeffs) {
-				powers[i] = mdctCoeffs[idx] * mdctCoeffs[idx]
-			}
-		}
-
-		// Compute SFM for this band
-		sfm := computeSpectralFlatness(powers)
+		// Compute SFM directly from the corresponding power slice.
+		sfm := computeSpectralFlatness(powers[startBin:endBin])
 
 		// Convert SFM to tonality
 		bt := 1.0 - sfm

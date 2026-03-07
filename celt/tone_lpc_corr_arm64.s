@@ -2,74 +2,76 @@
 
 // func toneLPCCorr(x []float32, cnt, delay, delay2 int) (r00, r01, r02 float32)
 //
-// Computes three float32 correlations for toneLPC using scalar FMADDS
-// in exact sequential accumulation order to match Go compiler output.
-// Eliminates bounds checks for speed.
+// Computes three float32 correlations for toneLPC using a 4-wide NEON FMA loop
+// with scalar cleanup for the tail.
 //
-// Register allocation:
-//   R0    = x base pointer
-//   R1    = cnt
-//   R2    = delay (element offset)
-//   R3    = delay2 (element offset)
-//   R4    = loop counter i
-//   R5    = x+delay pointer
-//   R6    = x+delay2 pointer
-//   F0    = r00 accumulator
-//   F1    = r01 accumulator
-//   F2    = r02 accumulator
-//   F3    = x[i]
-//   F4    = x[i+delay]
-//   F5    = x[i+delay2]
+// WORD-encoded instructions:
+//   FADDP V0.4S, V16.4S, V16.4S = 0x6E30D600
+//   FADDP V0.4S, V17.4S, V17.4S = 0x6E31D620
+//   FADDP V0.4S, V18.4S, V18.4S = 0x6E32D640
+//   FADDP V0.4S, V0.4S, V0.4S   = 0x6E20D400
 TEXT ·toneLPCCorr(SB), NOSPLIT, $0-56
 	MOVD  x_base+0(FP), R0
 	MOVD  cnt+24(FP), R1
 	MOVD  delay+32(FP), R2
 	MOVD  delay2+40(FP), R3
 
-	// Zero accumulators
-	FMOVS ZR, F0                  // r00 = 0
-	FMOVS ZR, F1                  // r01 = 0
-	FMOVS ZR, F2                  // r02 = 0
+	VEOR V16.B16, V16.B16, V16.B16
+	VEOR V17.B16, V17.B16, V17.B16
+	VEOR V18.B16, V18.B16, V18.B16
 
 	CMP   $1, R1
-	BLT   store
+	BLT   reduce
 
-	// Byte offsets for delayed pointers
-	LSL   $2, R2, R2              // delay * sizeof(float32)
-	LSL   $2, R3, R3              // delay2 * sizeof(float32)
-	ADD   R0, R2, R5              // x+delay
-	ADD   R0, R3, R6              // x+delay2
+	LSL   $2, R2, R2
+	LSL   $2, R3, R3
+	ADD   R0, R2, R5
+	ADD   R0, R3, R6
 
-	MOVD  ZR, R4                  // i = 0
+	LSR   $2, R1, R7
+	CBZ   R7, reduce
 
-loop:
-	// Load x[i]
-	FMOVS (R0), F3
+loop4:
+	VLD1.P 16(R0), [V0.S4]
+	VLD1.P 16(R5), [V1.S4]
+	VLD1.P 16(R6), [V2.S4]
+	VFMLA V0.S4, V0.S4, V16.S4
+	VFMLA V0.S4, V1.S4, V17.S4
+	VFMLA V0.S4, V2.S4, V18.S4
+	SUBS  $1, R7, R7
+	BNE   loop4
 
-	// Load x[i+delay]
-	FMOVS (R5), F4
+reduce:
+	WORD  $0x6E30D600
+	WORD  $0x6E20D400
+	FMOVS F0, F3
 
-	// Load x[i+delay2]
-	FMOVS (R6), F5
+	WORD  $0x6E31D620
+	WORD  $0x6E20D400
+	FMOVS F0, F4
 
-	// r00 += x[i] * x[i]
-	FMADDS F3, F0, F3, F0
+	WORD  $0x6E32D640
+	WORD  $0x6E20D400
+	FMOVS F0, F5
 
-	// r01 += x[i] * x[i+delay]
-	FMADDS F4, F1, F3, F1
+	AND   $3, R1, R7
+	CBZ   R7, store
 
-	// r02 += x[i] * x[i+delay2]
-	FMADDS F5, F2, F3, F2
-
-	ADD   $4, R0                  // advance pointer by sizeof(float32)
+tail:
+	FMOVS (R0), F0
+	FMOVS (R5), F1
+	FMOVS (R6), F2
+	FMADDS F0, F3, F0, F3
+	FMADDS F1, F4, F0, F4
+	FMADDS F2, F5, F0, F5
+	ADD   $4, R0
 	ADD   $4, R5
 	ADD   $4, R6
-	ADD   $1, R4
-	CMP   R1, R4
-	BLT   loop
+	SUBS  $1, R7, R7
+	BNE   tail
 
 store:
-	FMOVS F0, ret+48(FP)
-	FMOVS F1, ret1+52(FP)
-	FMOVS F2, ret2+56(FP)
+	FMOVS F3, ret+48(FP)
+	FMOVS F4, ret1+52(FP)
+	FMOVS F5, ret2+56(FP)
 	RET

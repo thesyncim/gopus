@@ -1176,7 +1176,6 @@ type encoderScratch struct {
 	mdctBlockCoeffs []float64 // Per-block coefficients for short MDCT
 
 	// Transient analysis scratch
-	transientTmp    []float32
 	transientEnergy []float32
 	transientX      []float32
 
@@ -1366,7 +1365,6 @@ func (e *Encoder) ensureScratch(frameSize int) {
 
 	// Transient analysis scratch
 	samplesPerChannel := frameSize + overlap
-	s.transientTmp = ensureFloat32Slice(&s.transientTmp, samplesPerChannel)
 	s.transientEnergy = ensureFloat32Slice(&s.transientEnergy, samplesPerChannel/2)
 	s.transientX = ensureFloat32Slice(&s.transientX, samplesPerChannel)
 

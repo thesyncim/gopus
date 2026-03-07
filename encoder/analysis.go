@@ -160,24 +160,27 @@ func analysisFastAtan2f(y, x float32) float32 {
 	if x2+y2 < 1e-18 {
 		return 0
 	}
+	xy := x * y
 	if x2 < y2 {
+		num := -xy * (y2 + cA*x2)
 		den := (y2 + cB*x2) * (y2 + cC*x2)
 		if y < 0 {
-			return -x*y*(y2+cA*x2)/den - cE
+			return num/den - cE
 		}
-		return -x*y*(y2+cA*x2)/den + cE
+		return num/den + cE
 	}
+	num := xy * (x2 + cA*y2)
 	den := (x2 + cB*y2) * (x2 + cC*y2)
 	if y < 0 {
-		if x*y < 0 {
-			return x * y * (x2 + cA*y2) / den
+		if xy < 0 {
+			return num / den
 		}
-		return x*y*(x2+cA*y2)/den - cE - cE
+		return num/den - cE - cE
 	}
-	if x*y < 0 {
-		return x*y*(x2+cA*y2)/den + cE + cE
+	if xy < 0 {
+		return num/den + cE + cE
 	}
-	return x * y * (x2 + cA*y2) / den
+	return num / den
 }
 
 type AnalysisInfo struct {
@@ -290,6 +293,35 @@ func fft480(out, in *[480]complex64, scratch []celt.KissCpx) {
 	celt.KissFFT32ToWithScratch(out[:], in[:], scratch)
 }
 
+func analysisSpecVariability(logE *[NbFrames][NbTBands]float32) float32 {
+	var mindist [NbFrames]float32
+	for i := 0; i < NbFrames; i++ {
+		mindist[i] = 1e15
+	}
+	for i := 0; i < NbFrames-1; i++ {
+		rowI := &logE[i]
+		for j := i + 1; j < NbFrames; j++ {
+			rowJ := &logE[j]
+			dist := float32(0)
+			for k := 0; k < NbTBands; k++ {
+				d := rowI[k] - rowJ[k]
+				dist += d * d
+			}
+			if dist < mindist[i] {
+				mindist[i] = dist
+			}
+			if dist < mindist[j] {
+				mindist[j] = dist
+			}
+		}
+	}
+	specVariability := float32(0)
+	for i := 0; i < NbFrames; i++ {
+		specVariability += mindist[i]
+	}
+	return float32(math.Sqrt(float64(specVariability / (NbFrames * NbTBands))))
+}
+
 func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	if !s.Initialized {
 		s.MemFill = 240
@@ -345,15 +377,11 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 			firstCopy = space
 		}
 		if firstCopy > 0 {
-			if cap(s.scratchDownsampled) < firstCopy {
-				s.scratchDownsampled = make([]float32, firstCopy)
-			}
-			first := s.scratchDownsampled[:firstCopy]
+			first := s.InMem[oldMemFill : oldMemFill+firstCopy]
 			firstSrc := firstCopy * 2
 			hp := silkResamplerDown2HP(s.DownmixState[:], first, mono[:firstSrc])
 			hp *= 1.0 / (celtSigScale * celtSigScale)
 			s.HPEnerAccum += hp
-			copy(s.InMem[oldMemFill:oldMemFill+firstCopy], first)
 		}
 	case 24000:
 		analysisLen = frameSize
@@ -374,13 +402,10 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 			firstInput := (firstCopy * 2) / 3
 			if firstInput > 0 {
 				firstOutput := (firstInput * 3) / 2
-				if cap(s.scratchDownsampled) < firstOutput {
-					s.scratchDownsampled = make([]float32, firstOutput)
-				}
 				if cap(s.scratchResample3x) < firstInput*3 {
 					s.scratchResample3x = make([]float32, firstInput*3)
 				}
-				first := s.scratchDownsampled[:firstOutput]
+				first := s.InMem[oldMemFill : oldMemFill+firstOutput]
 				tmp3x := s.scratchResample3x[:firstInput*3]
 				for i := 0; i < firstInput; i++ {
 					v := mono[i]
@@ -392,7 +417,6 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 				hp := silkResamplerDown2HP(s.DownmixState[:], first, tmp3x)
 				hp *= 1.0 / (celtSigScale * celtSigScale)
 				s.HPEnerAccum += hp
-				copy(s.InMem[oldMemFill:oldMemFill+firstOutput], first)
 				firstCopy = firstOutput
 			} else {
 				firstCopy = 0
@@ -430,16 +454,12 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	switch s.Fs {
 	case 48000:
 		if remaining > 0 {
-			if cap(s.scratchDownsampled) < remaining {
-				s.scratchDownsampled = make([]float32, remaining)
-			}
-			rest := s.scratchDownsampled[:remaining]
+			rest := s.InMem[240 : 240+remaining]
 			restSrcStart := firstCopy * 2
 			restSrcEnd := restSrcStart + remaining*2
 			hp := silkResamplerDown2HP(s.DownmixState[:], rest, mono[restSrcStart:restSrcEnd])
 			hp *= 1.0 / (celtSigScale * celtSigScale)
 			s.HPEnerAccum = hp
-			copy(s.InMem[240:240+remaining], rest)
 		} else {
 			s.HPEnerAccum = 0
 		}
@@ -459,13 +479,10 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 			restInput = restSrcEnd - restSrcStart
 			if restInput > 0 {
 				restOutput := (restInput * 3) / 2
-				if cap(s.scratchDownsampled) < restOutput {
-					s.scratchDownsampled = make([]float32, restOutput)
-				}
 				if cap(s.scratchResample3x) < restInput*3 {
 					s.scratchResample3x = make([]float32, restInput*3)
 				}
-				rest := s.scratchDownsampled[:restOutput]
+				rest := s.InMem[240 : 240+restOutput]
 				tmp3x := s.scratchResample3x[:restInput*3]
 				for i := 0; i < restInput; i++ {
 					v := mono[restSrcStart+i]
@@ -477,7 +494,6 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 				hp := silkResamplerDown2HP(s.DownmixState[:], rest, tmp3x)
 				hp *= 1.0 / (celtSigScale * celtSigScale)
 				s.HPEnerAccum = hp
-				copy(s.InMem[240:240+restOutput], rest)
 				remaining = restOutput
 			} else {
 				remaining = 0
@@ -713,21 +729,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		leakageFrom[b] = minf(leakageFrom[b], leakageFrom[b+1]+leakSlope)
 		leakageTo[b] = maxf(leakageTo[b], leakageTo[b+1]-leakSlope)
 	}
-	for i := 0; i < NbFrames; i++ {
-		mindist := float32(1e15)
-		for j := 0; j < NbFrames; j++ {
-			dist := float32(0)
-			for k := 0; k < NbTBands; k++ {
-				d := s.LogE[i][k] - s.LogE[j][k]
-				dist += d * d
-			}
-			if j != i {
-				mindist = minf(mindist, dist)
-			}
-		}
-		specVariability += mindist
-	}
-	specVariability = float32(math.Sqrt(float64(specVariability / (NbFrames * NbTBands))))
+	specVariability = analysisSpecVariability(&s.LogE)
 
 	for b := 0; b < NbTBands; b++ {
 		bandStart := tbands[b]
@@ -791,18 +793,15 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 
 	// BFCC and mid-energy extraction
 	for i := 0; i < 8; i++ {
-		var sum float32
+		row := dctTable[i*16 : i*16+16]
+		var bfccSum, midESum float32
 		for b := 0; b < 16; b++ {
-			sum += dctTable[i*16+b] * logE[b]
+			coeff := row[b]
+			bfccSum += coeff * logE[b]
+			midESum += coeff * 0.5 * (s.HighE[b] + s.LowE[b])
 		}
-		BFCC[i] = sum
-	}
-	for i := 0; i < 8; i++ {
-		var sum float32
-		for b := 0; b < 16; b++ {
-			sum += dctTable[i*16+b] * 0.5 * (s.HighE[b] + s.LowE[b])
-		}
-		midE[i] = sum
+		BFCC[i] = bfccSum
+		midE[i] = midESum
 	}
 
 	frameStationarity /= NbTBands
