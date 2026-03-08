@@ -149,7 +149,7 @@ type bandEncodeScratch struct {
 	ecSave0 rangecoding.EncoderState
 
 	// PVQ scratch buffers
-	pvqSignx []int
+	pvqSignx []byte
 	pvqY     []float32
 	pvqAbsX  []float32
 	pvqIy    []int

@@ -948,7 +948,8 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []float64, n, k, sprea
 	encodedIndex := uint32(0)
 
 	// Scratch buffer pointers
-	var iyBuf, signxBuf *[]int
+	var iyBuf *[]int
+	var signxBuf *[]byte
 	var yBuf, absXBuf *[]float32
 	var uBuf *[]uint32
 	if scratch != nil {
@@ -1010,19 +1011,21 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []float64, n, k, sprea
 	}
 
 	cm := 0
-	if len(pulses) > 0 {
-		cm = extractCollapseMask(pulses, n, b)
-	}
-
 	if resynth {
 		if len(upPulses) > 0 {
-			// For extended precision, normalize in place
+			if len(pulses) > 0 {
+				cm = extractCollapseMask(pulses, n, b)
+			}
+			// For extended precision, normalize in place.
 			normalizeResidualInto(x, upPulses, gain, 0)
 		} else {
-			// Use the energy computed during PVQ search
-			normalizeResidualInto(x, pulses, gain, yy)
+			// In the common path, collapse-mask extraction and residual
+			// normalization can share the same scan over the pulse vector.
+			cm = normalizeResidualIntoAndCollapse(x, pulses, gain, yy, b)
 		}
 		expRotation(x, n, -1, b, k, spread)
+	} else if len(pulses) > 0 {
+		cm = extractCollapseMask(pulses, n, b)
 	}
 	if dumpThis {
 		fmt.Fprintf(os.Stderr, "PVQDUMP frame=%d id=%d band=%d n=%d k=%d blk=%d spread=%d idx=%d pre=", dumpFrame, dumpID, band, n, k, b, spread, encodedIndex)

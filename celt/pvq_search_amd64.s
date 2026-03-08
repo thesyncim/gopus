@@ -278,7 +278,7 @@ ppl_done:
 	VZEROUPPER
 	RET
 
-// func pvqExtractAbsSign(x []float64, absX []float32, y []float32, signx []int, iy []int, n int)
+// func pvqExtractAbsSignAVX(x []float64, absX []float32, y []float32, signx []byte, iy []int, n int)
 //
 // Converts float64 input to float32 absolute values, extracts sign bits,
 // and zeros y and iy arrays. Scalar loop — savings come from eliminating
@@ -337,7 +337,7 @@ eas_loop:
 	// If x[j] < 0, sign bit is set -> signx = 1
 	VMOVQ  X0, R8
 	SHRQ   $63, R8               // R8 = sign bit (0 or 1)
-	MOVQ   R8, (DX)(R11*8)       // signx[j] = 0 or 1
+	MOVB   R8, (DX)(R11*1)       // signx[j] = 0 or 1
 
 	INCQ   R11
 	CMPQ   R11, R10
