@@ -289,6 +289,119 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 		energy = make([]float32, len2)
 	}
 
+	// Stereo can process both channels in one pass over the interleaved PCM
+	// while preserving each channel's exact arithmetic order.
+	if channels == 2 {
+		var energyR []float32
+		if len(toneBuf) >= len2 {
+			energyR = toneBuf[:len2]
+		} else {
+			energyR = make([]float32, len2)
+		}
+
+		const (
+			hpFeedback     = float32(0.5)
+			backwardRetain = float32(0.875)
+			backwardScale  = float32(0.125)
+			warmupPairs    = 6
+		)
+		var hp0L, hp1L float32
+		var hp0R, hp1R float32
+		var maskL, maskR float32
+		meanL := float32(0)
+		meanR := float32(0)
+		idx := 0
+		_ = pcm[4*len2-1]
+		for i := 0; i < len2; i++ {
+			xL0 := float32(pcm[idx])
+			xR0 := float32(pcm[idx+1])
+			xL1 := float32(pcm[idx+2])
+			xR1 := float32(pcm[idx+3])
+			idx += 4
+
+			yL0 := hp0L + xL0
+			hp00L := hp0L
+			hp0L = hp0L - xL0 + hpFeedback*hp1L
+			hp1L = xL0 - hp00L
+
+			yL1 := hp0L + xL1
+			hp00L = hp0L
+			hp0L = hp0L - xL1 + hpFeedback*hp1L
+			hp1L = xL1 - hp00L
+
+			yR0 := hp0R + xR0
+			hp00R := hp0R
+			hp0R = hp0R - xR0 + hpFeedback*hp1R
+			hp1R = xR0 - hp00R
+
+			yR1 := hp0R + xR1
+			hp00R = hp0R
+			hp0R = hp0R - xR1 + hpFeedback*hp1R
+			hp1R = xR1 - hp00R
+
+			if i < warmupPairs {
+				yL0 = 0
+				yL1 = 0
+				yR0 = 0
+				yR1 = 0
+			}
+
+			pairL := yL0*yL0 + yL1*yL1
+			meanL += pairL
+			maskL = pairL + forwardRetain*maskL
+			energy[i] = forwardDecay * maskL
+
+			pairR := yR0*yR0 + yR1*yR1
+			meanR += pairR
+			maskR = pairR + forwardRetain*maskR
+			energyR[i] = forwardDecay * maskR
+		}
+
+		channelMetric := func(buf []float32, mean float32) int {
+			var maxE float32
+			mask := float32(0)
+			for i := len2 - 1; i >= 0; i-- {
+				mask = buf[i] + backwardRetain*mask
+				ei := backwardScale * mask
+				buf[i] = ei
+				if ei > maxE {
+					maxE = ei
+				}
+			}
+
+			meanGeom := math.Sqrt(float64(mean * maxE * float32(0.5*float64(len2))))
+			const epsilon = 1e-15
+			normE := float32(float64(64*len2) / (meanGeom + epsilon))
+
+			const epsF32 = float32(1e-15)
+			var unmask int
+			for i := 12; i < len2-5; i += 4 {
+				id := int(normE * (buf[i] + epsF32))
+				if id > 127 {
+					id = 127
+				}
+				unmask += transientInvTable[id]
+			}
+
+			if len2 <= 17 {
+				return 0
+			}
+			return 64 * unmask * 4 / (6 * (len2 - 17))
+		}
+
+		maskMetricL := channelMetric(energy, meanL)
+		if maskMetricL > maxMaskMetric {
+			tfChannel = 0
+			maxMaskMetric = maskMetricL
+		}
+		maskMetricR := channelMetric(energyR, meanR)
+		if maskMetricR > maxMaskMetric {
+			tfChannel = 1
+			maxMaskMetric = maskMetricR
+		}
+		goto transientMetricsDone
+	}
+
 	// Process each channel
 	for c := 0; c < channels; c++ {
 		// Fuse the HP filter with pair-energy accumulation so we don't round-trip
@@ -411,6 +524,7 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 		}
 	}
 
+transientMetricsDone:
 	result.TfChannel = tfChannel
 
 	// Transient decision: mask_metric > 200

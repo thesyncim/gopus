@@ -7,6 +7,56 @@ import (
 
 var transientBenchSink TransientAnalysisResult
 
+func TestTransientAnalysisMatchesLegacy(t *testing.T) {
+	testCases := []struct {
+		name       string
+		channels   int
+		frameSize  int
+		allowWeak  bool
+	}{
+		{name: "mono-weak-off", channels: 1, frameSize: 960, allowWeak: false},
+		{name: "mono-weak-on", channels: 1, frameSize: 960, allowWeak: true},
+		{name: "stereo-weak-off", channels: 2, frameSize: 960, allowWeak: false},
+		{name: "stereo-weak-on", channels: 2, frameSize: 960, allowWeak: true},
+		{name: "stereo-short", channels: 2, frameSize: 480, allowWeak: false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			enc := NewEncoder(tc.channels)
+			enc.ensureScratch(tc.frameSize)
+			samplesPerChannel := tc.frameSize + Overlap
+			pcm := make([]float64, samplesPerChannel*tc.channels)
+			for i := 0; i < samplesPerChannel; i++ {
+				t0 := float64(i) / 48000.0
+				left := 0.35*math.Sin(2*math.Pi*440*t0) + 0.12*math.Sin(2*math.Pi*1760*t0)
+				right := 0.28*math.Sin(2*math.Pi*523.25*t0) + 0.08*math.Sin(2*math.Pi*1046.5*t0)
+				if i >= 240 && i < 252 {
+					left += 0.6
+				}
+				if i >= 300 && i < 312 {
+					right += 0.45
+				}
+				if tc.channels == 1 {
+					pcm[i] = left
+				} else {
+					pcm[2*i] = left
+					pcm[2*i+1] = right
+				}
+			}
+
+			tmp := make([]float32, samplesPerChannel)
+			got := enc.TransientAnalysis(pcm, samplesPerChannel, tc.allowWeak)
+			want := transientAnalysisLegacyBench(enc, pcm, samplesPerChannel, tc.allowWeak,
+				enc.scratch.transientX, tmp, enc.scratch.transientEnergy)
+
+			if got != want {
+				t.Fatalf("mismatch:\n got  %+v\n want %+v", got, want)
+			}
+		})
+	}
+}
+
 func transientAnalysisLegacyBench(e *Encoder, pcm []float64, frameSize int, allowWeakTransients bool,
 	toneBuf []float32, tmpBuf []float32, energyBuf []float32) TransientAnalysisResult {
 	result := TransientAnalysisResult{
@@ -155,18 +205,32 @@ func transientAnalysisLegacyBench(e *Encoder, pcm []float64, frameSize int, allo
 }
 
 func benchmarkTransientAnalysis(b *testing.B, legacy bool) {
+	benchmarkTransientAnalysisChannels(b, 1, legacy)
+}
+
+func benchmarkTransientAnalysisChannels(b *testing.B, channels int, legacy bool) {
 	const frameSize = 960
-	enc := NewEncoder(1)
+	enc := NewEncoder(channels)
 	enc.ensureScratch(frameSize)
 	samplesPerChannel := frameSize + Overlap
 
-	pcm := make([]float64, samplesPerChannel)
-	for i := range pcm {
+	pcm := make([]float64, samplesPerChannel*channels)
+	for i := 0; i < samplesPerChannel; i++ {
 		t := float64(i) / 48000.0
-		pcm[i] = 0.35*math.Sin(2*math.Pi*440*t) + 0.12*math.Sin(2*math.Pi*1760*t)
-	}
-	for i := 240; i < 252 && i < len(pcm); i++ {
-		pcm[i] += 0.6
+		left := 0.35*math.Sin(2*math.Pi*440*t) + 0.12*math.Sin(2*math.Pi*1760*t)
+		right := 0.28*math.Sin(2*math.Pi*523.25*t) + 0.08*math.Sin(2*math.Pi*1046.5*t)
+		if i >= 240 && i < 252 {
+			left += 0.6
+		}
+		if i >= 300 && i < 312 {
+			right += 0.45
+		}
+		if channels == 1 {
+			pcm[i] = left
+		} else {
+			pcm[2*i] = left
+			pcm[2*i+1] = right
+		}
 	}
 
 	tmp := make([]float32, samplesPerChannel)
@@ -188,4 +252,12 @@ func BenchmarkTransientAnalysisCurrent(b *testing.B) {
 
 func BenchmarkTransientAnalysisLegacy(b *testing.B) {
 	benchmarkTransientAnalysis(b, true)
+}
+
+func BenchmarkTransientAnalysisCurrentStereo(b *testing.B) {
+	benchmarkTransientAnalysisChannels(b, 2, false)
+}
+
+func BenchmarkTransientAnalysisLegacyStereo(b *testing.B) {
+	benchmarkTransientAnalysisChannels(b, 2, true)
 }

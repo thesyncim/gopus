@@ -187,7 +187,6 @@ type Encoder struct {
 	scratchSideStates [silk.MaxFramesPerPacket]silk.VADFrameState
 	scratchPacket     []byte    // Output packet buffer
 	scratchDelayedPCM []float64 // Delay-compensated CELT input
-	scratchDelayTail  []float64 // Snapshot of delay buffer tail
 	// Snapshot of libopus delay-history CELT transition prefill window (Fs/400).
 	scratchTransitionPrefill []float64
 	scratchSilkPrefill       []float64
@@ -951,13 +950,6 @@ func (e *Encoder) ensureDelayedPCM(size int) []float64 {
 	return e.scratchDelayedPCM[:size]
 }
 
-func (e *Encoder) ensureDelayTail(size int) []float64 {
-	if cap(e.scratchDelayTail) < size {
-		e.scratchDelayTail = make([]float64, size)
-	}
-	return e.scratchDelayTail[:size]
-}
-
 func (e *Encoder) ensureTransitionPrefill(size int) []float64 {
 	if cap(e.scratchTransitionPrefill) < size {
 		e.scratchTransitionPrefill = make([]float64, size)
@@ -1008,8 +1000,6 @@ func (e *Encoder) applyDelayCompensation(pcm []float64, frameSize int) []float64
 	}
 
 	tailStart := encoderBufferSamples - delaySamples
-	tail := e.ensureDelayTail(delaySamples)
-	copy(tail, e.delayBuffer[tailStart:])
 
 	// Preserve the libopus delay-history snapshot window used by CELT transition prefill:
 	// delay_buffer[encoder_buffer-delay_comp-Fs/400 : +Fs/400].
@@ -1025,13 +1015,13 @@ func (e *Encoder) applyDelayCompensation(pcm []float64, frameSize int) []float64
 
 	out := e.ensureDelayedPCM(frameSize * channels)
 	if frameSamples <= delaySamples {
-		copy(out, tail[:frameSamples])
+		copy(out, e.delayBuffer[tailStart:tailStart+frameSamples])
 	} else {
-		copy(out, tail)
+		copy(out, e.delayBuffer[tailStart:])
 		copy(out[delaySamples:], pcm[:frameSamples-delaySamples])
 	}
 
-	e.updateDelayBufferInternal(pcm, frameSamples, delaySamples, encoderBufferSamples, tail)
+	e.updateDelayBufferInternal(pcm, frameSamples, encoderBufferSamples)
 	return out
 }
 
@@ -1372,55 +1362,21 @@ func (e *Encoder) updateDelayBuffer(pcm []float64, frameSize int) {
 	if len(e.delayBuffer) != encoderBufferSamples {
 		e.delayBuffer = make([]float64, encoderBufferSamples)
 	}
-	tailStart := encoderBufferSamples - delaySamples
-	tail := e.ensureDelayTail(delaySamples)
-	copy(tail, e.delayBuffer[tailStart:])
-	e.updateDelayBufferInternal(pcm, frameSamples, delaySamples, encoderBufferSamples, tail)
+	e.updateDelayBufferInternal(pcm, frameSamples, encoderBufferSamples)
 }
 
-func (e *Encoder) updateDelayBufferInternal(pcm []float64, frameSamples, delaySamples, encoderBufferSamples int, tail []float64) {
-	if delaySamples <= 0 || frameSamples <= 0 {
+func (e *Encoder) updateDelayBufferInternal(pcm []float64, frameSamples, encoderBufferSamples int) {
+	if frameSamples <= 0 || encoderBufferSamples <= 0 {
 		return
 	}
-	if encoderBufferSamples < delaySamples {
-		encoderBufferSamples = delaySamples
-	}
-
-	if encoderBufferSamples > frameSamples+delaySamples {
-		keep := encoderBufferSamples - (frameSamples + delaySamples)
-		if keep > 0 {
-			copy(e.delayBuffer[:keep], e.delayBuffer[frameSamples:frameSamples+keep])
-		}
-		copy(e.delayBuffer[keep:keep+delaySamples], tail)
-		copy(e.delayBuffer[keep+delaySamples:], pcm[:frameSamples])
+	if frameSamples >= encoderBufferSamples {
+		copy(e.delayBuffer, pcm[frameSamples-encoderBufferSamples:frameSamples])
 		return
 	}
 
-	start := delaySamples + frameSamples - encoderBufferSamples
-	if start < delaySamples {
-		nTail := delaySamples - start
-		if nTail > encoderBufferSamples {
-			nTail = encoderBufferSamples
-		}
-		copy(e.delayBuffer[:nTail], tail[start:start+nTail])
-		remaining := encoderBufferSamples - nTail
-		if remaining > 0 {
-			copy(e.delayBuffer[nTail:], pcm[:remaining])
-		}
-		return
-	}
-
-	pcmStart := start - delaySamples
-	if pcmStart < 0 {
-		pcmStart = 0
-	}
-	if pcmStart+encoderBufferSamples > len(pcm) {
-		pcmStart = len(pcm) - encoderBufferSamples
-		if pcmStart < 0 {
-			pcmStart = 0
-		}
-	}
-	copy(e.delayBuffer, pcm[pcmStart:pcmStart+encoderBufferSamples])
+	keep := encoderBufferSamples - frameSamples
+	copy(e.delayBuffer[:keep], e.delayBuffer[frameSamples:frameSamples+keep])
+	copy(e.delayBuffer[keep:], pcm[:frameSamples])
 }
 
 // prepareCELTPCM applies CELT delay compensation unless low-delay mode is active.

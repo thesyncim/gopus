@@ -299,6 +299,38 @@ func DeinterleaveStereoInto(interleaved, left, right []float64) {
 	}
 }
 
+// InterleaveStereoInto combines separate L and R arrays into a pre-allocated interleaved slice.
+// interleaved must have capacity >= 2*min(len(left), len(right)).
+func InterleaveStereoInto(left, right, interleaved []float64) {
+	n := len(left)
+	if len(right) < n {
+		n = len(right)
+	}
+	if len(interleaved) < n*2 || n <= 0 {
+		return
+	}
+	_ = left[n-1]
+	_ = right[n-1]
+	_ = interleaved[2*n-1]
+	i := 0
+	for ; i+3 < n; i += 4 {
+		b0 := i << 1
+		interleaved[b0] = left[i]
+		interleaved[b0+1] = right[i]
+		interleaved[b0+2] = left[i+1]
+		interleaved[b0+3] = right[i+1]
+		interleaved[b0+4] = left[i+2]
+		interleaved[b0+5] = right[i+2]
+		interleaved[b0+6] = left[i+3]
+		interleaved[b0+7] = right[i+3]
+	}
+	for ; i < n; i++ {
+		b := i << 1
+		interleaved[b] = left[i]
+		interleaved[b+1] = right[i]
+	}
+}
+
 // InterleaveStereo combines separate L and R arrays into interleaved format.
 // Input: [L0, L1, ...], [R0, R1, ...]
 // Output: [L0, R0, L1, R1, ...]
@@ -312,10 +344,7 @@ func InterleaveStereo(left, right []float64) []float64 {
 	}
 
 	interleaved := make([]float64, n*2)
-	for i := 0; i < n; i++ {
-		interleaved[i*2] = left[i]
-		interleaved[i*2+1] = right[i]
-	}
+	InterleaveStereoInto(left[:n], right[:n], interleaved)
 
 	return interleaved
 }

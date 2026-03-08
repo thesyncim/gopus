@@ -32,7 +32,7 @@ func opPVQSearch(x []float64, k int) ([]int, float64) {
 
 // opPVQSearchScratch is the scratch-aware version of opPVQSearch.
 // It uses pre-allocated buffers to avoid allocations in the hot path.
-func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]int, yBuf *[]float32, absXBuf *[]float32) ([]int, float64) {
+func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]byte, yBuf *[]float32, absXBuf *[]float32) ([]int, float64) {
 	n := len(x)
 	idxBias := float32(0)
 	if tmpPVQIdxBiasEnabled {
@@ -55,14 +55,14 @@ func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]int, yBuf 
 	}
 
 	// Ensure scratch buffers
-	var signx []int
+	var signx []byte
 	var y []float32
 	var absX []float32
 
 	if signxBuf != nil {
-		signx = ensureIntSlice(signxBuf, n)
+		signx = ensureByteSlice(signxBuf, n)
 	} else {
-		signx = make([]int, n)
+		signx = make([]byte, n)
 	}
 
 	if yBuf != nil {
@@ -181,9 +181,8 @@ func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]int, yBuf 
 	// Reference: libopus vq.c lines 364-371
 	// The XOR trick: (iy[j]^-signx[j]) + signx[j] negates iy[j] if signx[j]=1
 	for j := 0; j < n; j++ {
-		if signx[j] != 0 {
-			iy[j] = -iy[j]
-		}
+		mask := -int(signx[j])
+		iy[j] = (iy[j] ^ mask) - mask
 	}
 
 	return iy, float64(yy)

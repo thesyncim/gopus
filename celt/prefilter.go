@@ -73,14 +73,13 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		copy(preCh[:maxPeriod], hist)
 		copy(preCh[maxPeriod:maxPeriod+frameSize], preemph[:frameSize])
 	} else {
-		for ch := 0; ch < channels; ch++ {
-			hist := e.prefilterMem[ch*maxPeriod : (ch+1)*maxPeriod]
-			preCh := pre[ch*perChanLen : (ch+1)*perChanLen]
-			copy(preCh[:maxPeriod], hist)
-			for i := 0; i < frameSize; i++ {
-				preCh[maxPeriod+i] = preemph[i*channels+ch]
-			}
-		}
+		histL := e.prefilterMem[:maxPeriod]
+		histR := e.prefilterMem[maxPeriod : 2*maxPeriod]
+		preL := pre[:perChanLen]
+		preR := pre[perChanLen : 2*perChanLen]
+		copy(preL[:maxPeriod], histL)
+		copy(preR[:maxPeriod], histR)
+		DeinterleaveStereoInto(preemph[:frameSize*2], preL[maxPeriod:maxPeriod+frameSize], preR[maxPeriod:maxPeriod+frameSize])
 	}
 	// Keep prefilter inputs at float32 precision to match libopus celt_sig path.
 	if !tmpSkipPrefInputRoundEnabled {
@@ -327,29 +326,34 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			}
 		}
 	} else {
-		for ch := 0; ch < channels; ch++ {
-			preCh := pre[ch*perChanLen : (ch+1)*perChanLen]
-			outCh := out[ch*perChanLen : (ch+1)*perChanLen]
-			mem := e.prefilterMem[ch*maxPeriod : (ch+1)*maxPeriod]
-			if frameSize > maxPeriod {
-				copy(mem, preCh[frameSize:frameSize+maxPeriod])
-			} else {
-				copy(mem, mem[frameSize:])
-				copy(mem[maxPeriod-frameSize:], preCh[maxPeriod:maxPeriod+frameSize])
-			}
+		preL := pre[:perChanLen]
+		preR := pre[perChanLen : 2*perChanLen]
+		outL := out[maxPeriod : maxPeriod+frameSize]
+		outR := out[perChanLen+maxPeriod : perChanLen+maxPeriod+frameSize]
+		memL := e.prefilterMem[:maxPeriod]
+		memR := e.prefilterMem[maxPeriod : 2*maxPeriod]
+		if frameSize > maxPeriod {
+			copy(memL, preL[frameSize:frameSize+maxPeriod])
+			copy(memR, preR[frameSize:frameSize+maxPeriod])
+		} else {
+			copy(memL, memL[frameSize:])
+			copy(memL[maxPeriod-frameSize:], preL[maxPeriod:maxPeriod+frameSize])
+			copy(memR, memR[frameSize:])
+			copy(memR[maxPeriod-frameSize:], preR[maxPeriod:maxPeriod+frameSize])
+		}
+		if needStateRound {
+			roundFloat64ToFloat32(memL)
+			roundFloat64ToFloat32(memR)
+		}
+		InterleaveStereoInto(outL, outR, preemph[:frameSize*2])
+		if overlap > 0 && len(e.overlapBuffer) >= channels*overlap && frameSize >= overlap {
+			histL := e.overlapBuffer[:overlap]
+			histR := e.overlapBuffer[overlap : 2*overlap]
+			copy(histL, outL[frameSize-overlap:])
+			copy(histR, outR[frameSize-overlap:])
 			if needStateRound {
-				roundFloat64ToFloat32(mem)
-			}
-			outSub2 := outCh[maxPeriod : maxPeriod+frameSize]
-			for i, v := range outSub2 {
-				preemph[i*channels+ch] = v
-			}
-			if overlap > 0 && len(e.overlapBuffer) >= (ch+1)*overlap && frameSize >= overlap {
-				hist := e.overlapBuffer[ch*overlap : (ch+1)*overlap]
-				copy(hist, outSub2[frameSize-overlap:])
-				if needStateRound {
-					roundFloat64ToFloat32(hist)
-				}
+				roundFloat64ToFloat32(histL)
+				roundFloat64ToFloat32(histR)
 			}
 		}
 	}

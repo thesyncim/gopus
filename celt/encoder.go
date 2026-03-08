@@ -1159,7 +1159,7 @@ type encoderScratch struct {
 	tfRes []int
 
 	// PVQ search buffers
-	pvqSignx []int
+	pvqSignx []byte
 	pvqY     []float32
 	pvqAbsX  []float32
 	pvqIy    []int
@@ -1402,7 +1402,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 
 	// PVQ search buffers
 	maxPVQN := maxBandWidth * 2 // Max band width with stereo doubling
-	s.pvqSignx = ensureIntSlice(&s.pvqSignx, maxPVQN)
+	s.pvqSignx = ensureByteSlice(&s.pvqSignx, maxPVQN)
 	s.pvqY = ensureFloat32Slice(&s.pvqY, maxPVQN)
 	s.pvqAbsX = ensureFloat32Slice(&s.pvqAbsX, maxPVQN)
 	s.pvqIy = ensureIntSlice(&s.pvqIy, maxPVQN)
@@ -1419,7 +1419,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.bandEncode.xResult0 = ensureFloat64Slice(&s.bandEncode.xResult0, maxBandWidth)
 	s.bandEncode.yResult0 = ensureFloat64Slice(&s.bandEncode.yResult0, maxBandWidth)
 	s.bandEncode.normResult0 = ensureFloat64Slice(&s.bandEncode.normResult0, maxBandWidth)
-	s.bandEncode.pvqSignx = ensureIntSlice(&s.bandEncode.pvqSignx, maxPVQN)
+	s.bandEncode.pvqSignx = ensureByteSlice(&s.bandEncode.pvqSignx, maxPVQN)
 	s.bandEncode.pvqY = ensureFloat32Slice(&s.bandEncode.pvqY, maxPVQN)
 	s.bandEncode.pvqAbsX = ensureFloat32Slice(&s.bandEncode.pvqAbsX, maxPVQN)
 	s.bandEncode.pvqIy = ensureIntSlice(&s.bandEncode.pvqIy, maxPVQN)

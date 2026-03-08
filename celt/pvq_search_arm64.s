@@ -231,7 +231,7 @@ pl_done:
 	FMOVD  F17, ret1+112(FP)
 	RET
 
-// func pvqExtractAbsSign(x []float64, absX []float32, y []float32, signx []int, iy []int, n int)
+// func pvqExtractAbsSignAsm(x []float64, absX []float32, y []float32, signx []byte, iy []int, n int)
 //
 // Converts float64 input to float32 absolute values, extracts sign bits,
 // and zeros y and iy arrays. Scalar loop — savings come from eliminating
@@ -255,7 +255,7 @@ pl_done:
 //   R6 = j (counter)
 //   F0 = temp float64
 //   F1 = temp float32
-TEXT ·pvqExtractAbsSign(SB), NOSPLIT, $0-128
+TEXT ·pvqExtractAbsSignAsm(SB), NOSPLIT, $0-128
 	MOVD  x_base+0(FP), R0
 	MOVD  absX_base+24(FP), R1
 	MOVD  y_base+48(FP), R2
@@ -283,7 +283,7 @@ eas_loop:
 	// Extract sign bit: FCMPD with zero, set signx
 	FCMPD  $(0.0), F0
 	CSET   MI, R7                 // R7 = 1 if F0 < 0, else 0
-	MOVD   R7, (R3)(R6<<3)       // signx[j] = sign (int64 = 8 bytes)
+	MOVB   R7, (R3)(R6)          // signx[j] = sign (byte)
 
 	ADD    $1, R6
 	CMP    R5, R6
