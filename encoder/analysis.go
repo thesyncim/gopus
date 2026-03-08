@@ -104,15 +104,63 @@ func silkResamplerDown2HP(s []float32, out []float32, in []float32) float32 {
 	)
 
 	var hpEner float64
-	for k := 0; k < len2; k++ {
-		in32 := in[2*k]
+	k := 0
+	for ; k+1 < len2; k += 2 {
+		base := 2 * k
+
+		in32 := in[base]
 		y := in32 - s0
 		xf := coef0 * y
 		out32 := s0 + xf
 		s0 = in32 + xf
 		out32HP := out32
 
-		in32 = in[2*k+1]
+		in32 = in[base+1]
+		y = in32 - s1
+		xf = coef1 * y
+		out32 = out32 + s1 + xf
+		s1 = in32 + xf
+
+		y = -in32 - s2
+		xf = coef1 * y
+		out32HP = out32HP + s2 + xf
+		s2 = -in32 + xf
+
+		hpEner += float64(out32HP * out32HP)
+		out[k] = 0.5 * out32
+
+		in32 = in[base+2]
+		y = in32 - s0
+		xf = coef0 * y
+		out32 = s0 + xf
+		s0 = in32 + xf
+		out32HP = out32
+
+		in32 = in[base+3]
+		y = in32 - s1
+		xf = coef1 * y
+		out32 = out32 + s1 + xf
+		s1 = in32 + xf
+
+		y = -in32 - s2
+		xf = coef1 * y
+		out32HP = out32HP + s2 + xf
+		s2 = -in32 + xf
+
+		hpEner += float64(out32HP * out32HP)
+		out[k+1] = 0.5 * out32
+	}
+	for ; k < len2; k++ {
+		base := 2 * k
+
+		in32 := in[base]
+		y := in32 - s0
+		xf := coef0 * y
+		out32 := s0 + xf
+		s0 = in32 + xf
+		out32HP := out32
+
+		in32 = in[base+1]
 		y = in32 - s1
 		xf = coef1 * y
 		out32 = out32 + s1 + xf
@@ -155,7 +203,61 @@ func silkResamplerDown2HPStereo(s []float32, out []float32, in []float32, scale 
 	)
 
 	var hpEner float64
-	for k := 0; k < len2; k++ {
+	k := 0
+	for ; k+1 < len2; k += 2 {
+		base := 4 * k
+
+		mixed0 := (in[base] + in[base+1]) * scale
+		mixed1 := (in[base+2] + in[base+3]) * scale
+
+		in32 := mixed0
+		y := in32 - s0
+		xf := coef0 * y
+		out32 := s0 + xf
+		s0 = in32 + xf
+		out32HP := out32
+
+		in32 = mixed1
+		y = in32 - s1
+		xf = coef1 * y
+		out32 = out32 + s1 + xf
+		s1 = in32 + xf
+
+		y = -in32 - s2
+		xf = coef1 * y
+		out32HP = out32HP + s2 + xf
+		s2 = -in32 + xf
+
+		hpEner += float64(out32HP * out32HP)
+		out[k] = 0.5 * out32
+
+		base += 4
+
+		mixed0 = (in[base] + in[base+1]) * scale
+		mixed1 = (in[base+2] + in[base+3]) * scale
+
+		in32 = mixed0
+		y = in32 - s0
+		xf = coef0 * y
+		out32 = s0 + xf
+		s0 = in32 + xf
+		out32HP = out32
+
+		in32 = mixed1
+		y = in32 - s1
+		xf = coef1 * y
+		out32 = out32 + s1 + xf
+		s1 = in32 + xf
+
+		y = -in32 - s2
+		xf = coef1 * y
+		out32HP = out32HP + s2 + xf
+		s2 = -in32 + xf
+
+		hpEner += float64(out32HP * out32HP)
+		out[k+1] = 0.5 * out32
+	}
+	for ; k < len2; k++ {
 		base := 4 * k
 
 		mixed0 := (in[base] + in[base+1]) * scale
