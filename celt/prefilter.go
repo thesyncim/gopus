@@ -682,7 +682,6 @@ func pitchSearch(xLP []float64, y []float64, length, maxPitch int, scratch *enco
 	bestPitch := [2]int{0, 0}
 	findBestPitch(xcorr, yLP4, quarterLen, quarterPitch, &bestPitch)
 
-	clear(xcorr[:halfPitch])
 	p0 := 2 * bestPitch[0]
 	p1 := 2 * bestPitch[1]
 	l0 := p0 - 2
@@ -701,42 +700,23 @@ func pitchSearch(xLP []float64, y []float64, length, maxPitch int, scratch *enco
 	if h1 >= halfPitch {
 		h1 = halfPitch - 1
 	}
-	for i := l0; i <= h0; i++ {
-		sum := celtInnerProd(xLP, y[i:], halfLen)
-		if sum < -1 {
-			sum = -1
+	ranges := normalizePitchSearchRanges(
+		pitchSearchRange{lo: l0, hi: h0},
+		pitchSearchRange{lo: l1, hi: h1},
+	)
+	for _, r := range ranges {
+		if r.hi < r.lo {
+			continue
 		}
-		xcorr[i] = sum
-	}
-	if h0 < l1 || h1 < l0 {
-		for i := l1; i <= h1; i++ {
+		for i := r.lo; i <= r.hi; i++ {
 			sum := celtInnerProd(xLP, y[i:], halfLen)
 			if sum < -1 {
 				sum = -1
 			}
 			xcorr[i] = sum
 		}
-	} else {
-		if l1 < l0 {
-			for i := l1; i < l0; i++ {
-				sum := celtInnerProd(xLP, y[i:], halfLen)
-				if sum < -1 {
-					sum = -1
-				}
-				xcorr[i] = sum
-			}
-		}
-		if h1 > h0 {
-			for i := h0 + 1; i <= h1; i++ {
-				sum := celtInnerProd(xLP, y[i:], halfLen)
-				if sum < -1 {
-					sum = -1
-				}
-				xcorr[i] = sum
-			}
-		}
 	}
-	findBestPitch(xcorr, y, halfLen, halfPitch, &bestPitch)
+	findBestPitchInRanges(xcorr, y, halfLen, ranges, &bestPitch)
 
 	offset := 0
 	if bestPitch[0] > 0 && bestPitch[0] < halfPitch-1 {
@@ -790,6 +770,90 @@ func findBestPitch(xcorr []float64, y []float64, length, maxPitch int, bestPitch
 		Syy += yil*yil - yi*yi
 		if Syy < 1 {
 			Syy = 1
+		}
+	}
+}
+
+type pitchSearchRange struct {
+	lo int
+	hi int
+}
+
+func normalizePitchSearchRanges(a, b pitchSearchRange) [2]pitchSearchRange {
+	if a.hi < a.lo {
+		a = pitchSearchRange{lo: 1, hi: 0}
+	}
+	if b.hi < b.lo {
+		b = pitchSearchRange{lo: 1, hi: 0}
+	}
+	if a.hi < a.lo {
+		return [2]pitchSearchRange{b, {lo: 1, hi: 0}}
+	}
+	if b.hi < b.lo {
+		return [2]pitchSearchRange{a, {lo: 1, hi: 0}}
+	}
+	if b.lo < a.lo {
+		a, b = b, a
+	}
+	if b.lo <= a.hi+1 {
+		if b.hi > a.hi {
+			a.hi = b.hi
+		}
+		return [2]pitchSearchRange{a, {lo: 1, hi: 0}}
+	}
+	return [2]pitchSearchRange{a, b}
+}
+
+func findBestPitchInRanges(xcorr []float64, y []float64, length int, ranges [2]pitchSearchRange, bestPitch *[2]int) {
+	Syy := float32(1)
+	bestNum := [2]float32{-1, -1}
+	bestDen := [2]float32{0, 0}
+	bestPitch[0] = 0
+	bestPitch[1] = 1
+	for j := 0; j < length; j++ {
+		yj := float32(y[j])
+		Syy += yj * yj
+	}
+	const xcorrScale = float32(1e-12)
+	i := 0
+	for _, r := range ranges {
+		if r.hi < r.lo {
+			continue
+		}
+		for ; i < r.lo; i++ {
+			yi := float32(y[i])
+			yil := float32(y[i+length])
+			Syy += yil*yil - yi*yi
+			if Syy < 1 {
+				Syy = 1
+			}
+		}
+		for ; i <= r.hi; i++ {
+			if xv := xcorr[i]; xv > 0 {
+				xc := float32(xv)
+				xcorr16 := xc * xcorrScale
+				num := xcorr16 * xcorr16
+				if num*bestDen[1] > bestNum[1]*Syy {
+					if num*bestDen[0] > bestNum[0]*Syy {
+						bestNum[1] = bestNum[0]
+						bestDen[1] = bestDen[0]
+						bestPitch[1] = bestPitch[0]
+						bestNum[0] = num
+						bestDen[0] = Syy
+						bestPitch[0] = i
+					} else {
+						bestNum[1] = num
+						bestDen[1] = Syy
+						bestPitch[1] = i
+					}
+				}
+			}
+			yi := float32(y[i])
+			yil := float32(y[i+length])
+			Syy += yil*yil - yi*yi
+			if Syy < 1 {
+				Syy = 1
+			}
 		}
 	}
 }

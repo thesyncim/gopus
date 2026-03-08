@@ -1,4 +1,4 @@
-// Package main benchmarks Opus decode throughput for gopus vs ffmpeg/libopus.
+// Package main benchmarks Opus decode throughput for gopus vs libopus.
 //
 // Usage:
 //
@@ -19,11 +19,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/container/ogg"
+	"github.com/thesyncim/gopus/internal/benchutil"
 )
 
 const sampleRate = 48000
@@ -39,54 +41,78 @@ func main() {
 	sample := flag.String("sample", "stereo", "Preset sample to download: stereo or speech")
 	iters := flag.Int("iters", 1, "Number of timed iterations per decoder")
 	warmup := flag.Int("warmup", 0, "Warmup iterations per decoder")
-	mode := flag.String("mode", "both", "Benchmark mode: gopus, ffmpeg, or both")
-	ffmpegBin := flag.String("ffmpeg", "ffmpeg", "Path to ffmpeg binary")
+	mode := flag.String("mode", "both", "Benchmark mode: gopus, libopus, or both")
+	opusDemo := flag.String("opus-demo", "", "Path to tmp_check/opus-<version>/opus_demo (default: auto-detect pinned libopus)")
+	batch := flag.Int("batch", 8, "Number of full-stream repeats per timed iteration to amortize startup overhead")
 	flag.Parse()
 
 	modeValue := strings.ToLower(strings.TrimSpace(*mode))
 	switch modeValue {
-	case "gopus", "ffmpeg", "both":
+	case "gopus", "libopus", "both":
+	case "ffmpeg":
+		modeValue = "libopus"
 	default:
-		log.Fatalf("Invalid -mode %q (use gopus, ffmpeg, or both)", *mode)
+		log.Fatalf("Invalid -mode %q (use gopus, libopus, or both)", *mode)
+	}
+	if *batch < 1 {
+		log.Fatal("-batch must be >= 1")
 	}
 
-	data, label, inputPath, cleanup, err := loadInput(*input, *url, *sample)
+	data, label, _, cleanup, err := loadInput(*input, *url, *sample)
 	if err != nil {
 		log.Fatalf("Load input failed: %v", err)
 	}
 	defer cleanup()
 
 	fmt.Printf("Input: %s\n", label)
+	fmt.Printf("Batch: %d full-stream repeats per timed iteration\n", *batch)
 
-	var durationSec float64
+	packets, channels, baseSamples, err := parsePacketStream(data)
+	if err != nil {
+		log.Fatalf("Parse packet stream failed: %v", err)
+	}
+	durationSec := float64(baseSamples*(*batch)) / float64(sampleRate)
+
 	var gopusSamples int
 
 	if modeValue == "gopus" || modeValue == "both" {
-		times, samples, err := benchGopus(data, *iters, *warmup)
+		times, samples, err := benchGopus(packets, channels, *batch, *iters, *warmup)
 		if err != nil {
 			log.Fatalf("Gopus benchmark failed: %v", err)
 		}
 		gopusSamples = samples
-		durationSec = float64(samples) / float64(sampleRate)
 		printResults("gopus", times, durationSec)
 	}
 
-	if modeValue == "ffmpeg" || modeValue == "both" {
-		if inputPath == "" {
-			log.Fatalf("ffmpeg benchmark requires a file path")
+	if modeValue == "libopus" || modeValue == "both" {
+		fmt.Println("Preparing libopus(opus_demo) bitstream input...")
+		opusDemoPath := strings.TrimSpace(*opusDemo)
+		if opusDemoPath == "" {
+			opusDemoPath, err = benchutil.OpusDemoPath()
+			if err != nil {
+				log.Fatalf("Resolve opus_demo failed: %v", err)
+			}
 		}
-		times, err := benchFFmpeg(inputPath, *ffmpegBin, *iters, *warmup)
+		bitstream, err := os.CreateTemp("", "gopus_bench_decode_*.bit")
 		if err != nil {
-			log.Fatalf("ffmpeg benchmark failed: %v", err)
+			log.Fatalf("Create libopus bitstream failed: %v", err)
 		}
-		if durationSec == 0 {
-			durationSec = estimateDurationSeconds(data)
+		bitstreamPath := bitstream.Name()
+		_ = bitstream.Close()
+		defer os.Remove(bitstreamPath)
+		if err := benchutil.WriteRepeatedOpusDemoBitstream(bitstreamPath, packets, *batch); err != nil {
+			log.Fatalf("Prepare libopus bitstream failed: %v", err)
 		}
-		printResults("ffmpeg(libopus)", times, durationSec)
+		fmt.Println("Running libopus(opus_demo) benchmark...")
+		times, err := benchLibopus(bitstreamPath, channels, opusDemoPath, *iters, *warmup)
+		if err != nil {
+			log.Fatalf("libopus benchmark failed: %v", err)
+		}
+		printResults("libopus(opus_demo)", times, durationSec)
 	}
 
 	if gopusSamples > 0 {
-		fmt.Printf("Decoded samples (per channel): %d\n", gopusSamples)
+		fmt.Printf("Decoded samples (per channel, batched): %d\n", gopusSamples)
 	}
 }
 
@@ -161,7 +187,43 @@ func downloadBytes(url string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-func benchGopus(data []byte, iters, warmup int) ([]time.Duration, int, error) {
+func parsePacketStream(data []byte) ([][]byte, int, int, error) {
+	r := bytes.NewReader(data)
+	oggReader, err := ogg.NewReader(r)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+
+	channels := int(oggReader.Channels())
+	if channels < 1 {
+		return nil, 0, 0, errors.New("invalid channel count")
+	}
+
+	var packets [][]byte
+	for {
+		packet, _, err := oggReader.ReadPacket()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return nil, 0, 0, err
+		}
+		dup := make([]byte, len(packet))
+		copy(dup, packet)
+		packets = append(packets, dup)
+	}
+	if len(packets) == 0 {
+		return nil, 0, 0, errors.New("input contains no packets")
+	}
+
+	samples, err := decodeGopusOnce(packets, channels, 1)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	return packets, channels, samples, nil
+}
+
+func benchGopus(packets [][]byte, channels, batch, iters, warmup int) ([]time.Duration, int, error) {
 	if iters < 1 {
 		return nil, 0, errors.New("iters must be >= 1")
 	}
@@ -169,7 +231,7 @@ func benchGopus(data []byte, iters, warmup int) ([]time.Duration, int, error) {
 	var samples int
 	for i := 0; i < iters+warmup; i++ {
 		start := time.Now()
-		count, err := decodeGopusOnce(data)
+		count, err := decodeGopusOnce(packets, channels, batch)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -182,18 +244,7 @@ func benchGopus(data []byte, iters, warmup int) ([]time.Duration, int, error) {
 	return times, samples, nil
 }
 
-func decodeGopusOnce(data []byte) (int, error) {
-	r := bytes.NewReader(data)
-	oggReader, err := ogg.NewReader(r)
-	if err != nil {
-		return 0, err
-	}
-
-	channels := int(oggReader.Channels())
-	if channels < 1 {
-		return 0, errors.New("invalid channel count")
-	}
-
+func decodeGopusOnce(packets [][]byte, channels, batch int) (int, error) {
 	cfg := gopus.DefaultDecoderConfig(sampleRate, channels)
 	dec, err := gopus.NewDecoder(cfg)
 	if err != nil {
@@ -201,73 +252,42 @@ func decodeGopusOnce(data []byte) (int, error) {
 	}
 	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
 
-	remainingSkip := int(oggReader.PreSkip())
 	totalSamples := 0
 
-	for {
-		packet, _, err := oggReader.ReadPacket()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
+	for r := 0; r < batch; r++ {
+		for _, packet := range packets {
+			n, err := dec.Decode(packet, pcmOut)
+			if err != nil {
+				return 0, err
 			}
-			return 0, err
+			totalSamples += n
 		}
-
-		n, err := dec.Decode(packet, pcmOut)
-		if err != nil {
-			return 0, err
-		}
-
-		frameSamples := n
-		if remainingSkip > 0 {
-			if frameSamples <= remainingSkip {
-				remainingSkip -= frameSamples
-				continue
-			}
-			frameSamples -= remainingSkip
-			remainingSkip = 0
-		}
-
-		if frameSamples == 0 {
-			continue
-		}
-
-		totalSamples += frameSamples
 	}
 
 	return totalSamples, nil
 }
 
-func benchFFmpeg(inputPath, ffmpegBin string, iters, warmup int) ([]time.Duration, error) {
+func benchLibopus(bitstreamPath string, channels int, opusDemoPath string, iters, warmup int) ([]time.Duration, error) {
 	if iters < 1 {
 		return nil, errors.New("iters must be >= 1")
 	}
-	if strings.TrimSpace(ffmpegBin) == "" {
-		return nil, errors.New("ffmpeg path is empty")
-	}
-	if _, err := os.Stat(inputPath); err != nil {
-		return nil, err
+	if strings.TrimSpace(opusDemoPath) == "" {
+		return nil, errors.New("opus_demo path is empty")
 	}
 
 	var times []time.Duration
 	for i := 0; i < iters+warmup; i++ {
 		start := time.Now()
-		cmd := exec.Command(ffmpegBin,
-			"-hide_banner",
-			"-loglevel", "error",
-			"-i", inputPath,
-			"-f", "s16le",
-			"-acodec", "pcm_s16le",
-			"-")
-		cmd.Stdout = io.Discard
-		var stderr bytes.Buffer
-		cmd.Stderr = &stderr
-		if err := cmd.Run(); err != nil {
-			errText := strings.TrimSpace(stderr.String())
-			if errText == "" {
-				errText = err.Error()
-			}
-			return nil, fmt.Errorf("ffmpeg failed: %s", errText)
+		cmd := exec.Command(opusDemoPath,
+			"-d",
+			strconv.Itoa(sampleRate),
+			strconv.Itoa(channels),
+			"-f32",
+			bitstreamPath,
+			os.DevNull,
+		)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return nil, fmt.Errorf("opus_demo failed: %v (%s)", err, bytes.TrimSpace(out))
 		}
 		dur := time.Since(start)
 		if i >= warmup {
@@ -275,26 +295,6 @@ func benchFFmpeg(inputPath, ffmpegBin string, iters, warmup int) ([]time.Duratio
 		}
 	}
 	return times, nil
-}
-
-func estimateDurationSeconds(data []byte) float64 {
-	r := bytes.NewReader(data)
-	oggReader, err := ogg.NewReader(r)
-	if err != nil {
-		return 0
-	}
-	var lastGranule uint64
-	for {
-		_, granule, err := oggReader.ReadPacket()
-		if err != nil {
-			break
-		}
-		lastGranule = granule
-	}
-	if lastGranule == 0 {
-		return 0
-	}
-	return float64(lastGranule) / float64(sampleRate)
 }
 
 func printResults(label string, times []time.Duration, durationSec float64) {
@@ -323,7 +323,7 @@ func printResults(label string, times []time.Duration, durationSec float64) {
 }
 
 func init() {
-	if path := os.Getenv("FFMPEG_PATH"); path != "" {
+	if path := os.Getenv("OPUS_DEMO_PATH"); path != "" {
 		if filepath.IsAbs(path) {
 			_ = path
 		}

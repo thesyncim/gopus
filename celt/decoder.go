@@ -16,6 +16,9 @@ var (
 	// ErrInvalidFrameSize indicates an unsupported frame size.
 	ErrInvalidFrameSize = errors.New("celt: invalid frame size")
 
+	// ErrOutputTooSmall indicates the caller-provided PCM buffer is too small.
+	ErrOutputTooSmall = errors.New("celt: output buffer too small")
+
 	// ErrNilDecoder indicates a nil range decoder was passed.
 	ErrNilDecoder = errors.New("celt: nil range decoder")
 )
@@ -98,6 +101,7 @@ type Decoder struct {
 
 	// Channel transition tracking (for mono-to-stereo overlap buffer clearing)
 	prevStreamChannels int // Previous packet's channel count (0 = uninitialized)
+	directOutPCM       []float32
 
 	// Scratch buffers to reduce per-frame allocations (decoder is not thread-safe).
 	scratchPrevEnergy     []float64
@@ -1195,7 +1199,11 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
 
 	// Step 7: Apply de-emphasis filter
-	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
+	if len(d.directOutPCM) >= len(samples) {
+		d.applyDeemphasisAndScaleToFloat32(d.directOutPCM[:len(samples)], samples, 1.0/32768.0)
+	} else {
+		d.applyDeemphasisAndScale(samples, 1.0/32768.0)
+	}
 
 	// Trace final synthesis output
 	traceLen = len(samples)
@@ -1380,7 +1388,11 @@ func (d *Decoder) decodeSilenceFrame(frameSize int, newPeriod int, newGain float
 	}
 
 	d.applyPostfilter(samples, frameSize, mode.LM, newPeriod, newGain, newTapset)
-	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
+	if len(d.directOutPCM) >= len(samples) {
+		d.applyDeemphasisAndScaleToFloat32(d.directOutPCM[:len(samples)], samples, 1.0/32768.0)
+	} else {
+		d.applyDeemphasisAndScale(samples, 1.0/32768.0)
+	}
 
 	return samples
 }
@@ -1577,6 +1589,198 @@ func (d *Decoder) applyDeemphasisAndScale(samples []float64, scale float64) {
 	}
 }
 
+func (d *Decoder) applyDeemphasisAndScaleToFloat32(dst []float32, samples []float64, scale float64) {
+	n := len(samples)
+	if n == 0 {
+		return
+	}
+	dst = dst[:n]
+
+	if d.channels == 1 {
+		if d.preemphState[0] == 0 {
+			allZero := true
+			for i := 0; i < n; i++ {
+				if samples[i] != 0 {
+					allZero = false
+					break
+				}
+			}
+			if allZero {
+				clear(dst)
+				return
+			}
+		}
+	} else if d.preemphState[0] == 0 && d.preemphState[1] == 0 {
+		allZero := true
+		for i := 0; i < n; i++ {
+			if samples[i] != 0 {
+				allZero = false
+				break
+			}
+		}
+		if allZero {
+			clear(dst)
+			return
+		}
+	}
+
+	const verySmall float32 = 1e-30
+	const coef float32 = float32(PreemphCoef)
+	scale32 := float32(scale)
+
+	if d.channels == 1 {
+		state := float32(d.preemphState[0])
+		_ = samples[n-1]
+		_ = dst[n-1]
+		i := 0
+		for ; i+7 < n; i += 8 {
+			tmp0 := float32(samples[i]) + verySmall + state
+			state = coef * tmp0
+			dst[i] = tmp0 * scale32
+
+			tmp1 := float32(samples[i+1]) + verySmall + state
+			state = coef * tmp1
+			dst[i+1] = tmp1 * scale32
+
+			tmp2 := float32(samples[i+2]) + verySmall + state
+			state = coef * tmp2
+			dst[i+2] = tmp2 * scale32
+
+			tmp3 := float32(samples[i+3]) + verySmall + state
+			state = coef * tmp3
+			dst[i+3] = tmp3 * scale32
+
+			tmp4 := float32(samples[i+4]) + verySmall + state
+			state = coef * tmp4
+			dst[i+4] = tmp4 * scale32
+
+			tmp5 := float32(samples[i+5]) + verySmall + state
+			state = coef * tmp5
+			dst[i+5] = tmp5 * scale32
+
+			tmp6 := float32(samples[i+6]) + verySmall + state
+			state = coef * tmp6
+			dst[i+6] = tmp6 * scale32
+
+			tmp7 := float32(samples[i+7]) + verySmall + state
+			state = coef * tmp7
+			dst[i+7] = tmp7 * scale32
+		}
+		for ; i+3 < n; i += 4 {
+			tmp0 := float32(samples[i]) + verySmall + state
+			state = coef * tmp0
+			dst[i] = tmp0 * scale32
+
+			tmp1 := float32(samples[i+1]) + verySmall + state
+			state = coef * tmp1
+			dst[i+1] = tmp1 * scale32
+
+			tmp2 := float32(samples[i+2]) + verySmall + state
+			state = coef * tmp2
+			dst[i+2] = tmp2 * scale32
+
+			tmp3 := float32(samples[i+3]) + verySmall + state
+			state = coef * tmp3
+			dst[i+3] = tmp3 * scale32
+		}
+		for ; i < n; i++ {
+			tmp := float32(samples[i]) + verySmall + state
+			state = coef * tmp
+			dst[i] = tmp * scale32
+		}
+		d.preemphState[0] = float64(state)
+		return
+	}
+
+	stateL := float32(d.preemphState[0])
+	stateR := float32(d.preemphState[1])
+	_ = samples[n-1]
+	_ = dst[n-1]
+	i := 0
+	for ; i+7 < n; i += 8 {
+		tmpL0 := float32(samples[i]) + verySmall + stateL
+		stateL = coef * tmpL0
+		dst[i] = tmpL0 * scale32
+
+		tmpR0 := float32(samples[i+1]) + verySmall + stateR
+		stateR = coef * tmpR0
+		dst[i+1] = tmpR0 * scale32
+
+		tmpL1 := float32(samples[i+2]) + verySmall + stateL
+		stateL = coef * tmpL1
+		dst[i+2] = tmpL1 * scale32
+
+		tmpR1 := float32(samples[i+3]) + verySmall + stateR
+		stateR = coef * tmpR1
+		dst[i+3] = tmpR1 * scale32
+
+		tmpL2 := float32(samples[i+4]) + verySmall + stateL
+		stateL = coef * tmpL2
+		dst[i+4] = tmpL2 * scale32
+
+		tmpR2 := float32(samples[i+5]) + verySmall + stateR
+		stateR = coef * tmpR2
+		dst[i+5] = tmpR2 * scale32
+
+		tmpL3 := float32(samples[i+6]) + verySmall + stateL
+		stateL = coef * tmpL3
+		dst[i+6] = tmpL3 * scale32
+
+		tmpR3 := float32(samples[i+7]) + verySmall + stateR
+		stateR = coef * tmpR3
+		dst[i+7] = tmpR3 * scale32
+	}
+	for ; i+3 < n; i += 4 {
+		tmpL0 := float32(samples[i]) + verySmall + stateL
+		stateL = coef * tmpL0
+		dst[i] = tmpL0 * scale32
+
+		tmpR0 := float32(samples[i+1]) + verySmall + stateR
+		stateR = coef * tmpR0
+		dst[i+1] = tmpR0 * scale32
+
+		tmpL1 := float32(samples[i+2]) + verySmall + stateL
+		stateL = coef * tmpL1
+		dst[i+2] = tmpL1 * scale32
+
+		tmpR1 := float32(samples[i+3]) + verySmall + stateR
+		stateR = coef * tmpR1
+		dst[i+3] = tmpR1 * scale32
+	}
+	for ; i+1 < n; i += 2 {
+		tmpL := float32(samples[i]) + verySmall + stateL
+		stateL = coef * tmpL
+		dst[i] = tmpL * scale32
+
+		tmpR := float32(samples[i+1]) + verySmall + stateR
+		stateR = coef * tmpR
+		dst[i+1] = tmpR * scale32
+	}
+
+	d.preemphState[0] = float64(stateL)
+	d.preemphState[1] = float64(stateR)
+}
+
+func copyFloat64ToFloat32(dst []float32, src []float64) {
+	n := len(dst)
+	if len(src) < n {
+		n = len(src)
+	}
+	i := 0
+	for ; i+3 < n; i += 4 {
+		dst[i] = float32(src[i])
+		dst[i+1] = float32(src[i+1])
+		dst[i+2] = float32(src[i+2])
+		dst[i+3] = float32(src[i+3])
+	}
+	for ; i < n; i++ {
+		dst[i] = float32(src[i])
+	}
+	if n < len(dst) {
+		clear(dst[n:])
+	}
+}
+
 func scaleSamples(samples []float64, scale float64) {
 	if scale == 1.0 {
 		return
@@ -1617,6 +1821,36 @@ func (d *Decoder) DecodeFrameWithPacketStereo(data []byte, frameSize int, packet
 
 	// Stereo packet, mono decoder: decode as stereo, mix to mono
 	return d.decodeStereoPacketToMono(data, frameSize)
+}
+
+// DecodeFrameWithPacketStereoToFloat32 decodes a CELT frame directly into a
+// caller-provided float32 buffer for the common packetChannels==decoder
+// channels path, falling back to the float64-returning path otherwise.
+func (d *Decoder) DecodeFrameWithPacketStereoToFloat32(data []byte, frameSize int, packetStereo bool, out []float32) error {
+	outLen := frameSize * d.channels
+	if len(out) < outLen {
+		return ErrOutputTooSmall
+	}
+
+	packetChannels := 1
+	if packetStereo {
+		packetChannels = 2
+	}
+	if data == nil || len(data) == 0 || packetChannels != d.channels {
+		samples, err := d.DecodeFrameWithPacketStereo(data, frameSize, packetStereo)
+		if err != nil {
+			return err
+		}
+		copyFloat64ToFloat32(out[:outLen], samples)
+		return nil
+	}
+
+	d.directOutPCM = out[:outLen]
+	defer func() {
+		d.directOutPCM = nil
+	}()
+	_, err := d.DecodeFrame(data, frameSize)
+	return err
 }
 
 // decodeMonoPacketToStereo decodes a mono packet and converts output to stereo.
@@ -3704,21 +3938,45 @@ func pitchSearchPLC(xLP []float64, y []float64, length, maxPitch int, scratch *e
 	bestPitch := [2]int{0, 0}
 	findBestPitch(xcorr, yLP4, length>>2, maxPitch>>2, &bestPitch)
 
-	for i := 0; i < maxPitch>>1; i++ {
-		xcorr[i] = 0
-		if absInt(i-2*bestPitch[0]) > 2 && absInt(i-2*bestPitch[1]) > 2 {
+	halfPitch := maxPitch >> 1
+	p0 := 2 * bestPitch[0]
+	p1 := 2 * bestPitch[1]
+	l0 := p0 - 2
+	h0 := p0 + 2
+	l1 := p1 - 2
+	h1 := p1 + 2
+	if l0 < 0 {
+		l0 = 0
+	}
+	if h0 >= halfPitch {
+		h0 = halfPitch - 1
+	}
+	if l1 < 0 {
+		l1 = 0
+	}
+	if h1 >= halfPitch {
+		h1 = halfPitch - 1
+	}
+	ranges := normalizePitchSearchRanges(
+		pitchSearchRange{lo: l0, hi: h0},
+		pitchSearchRange{lo: l1, hi: h1},
+	)
+	for _, r := range ranges {
+		if r.hi < r.lo {
 			continue
 		}
-		sum := innerProdFloat32(xLP, y[i:], length>>1)
-		if sum < -1 {
-			sum = -1
+		for i := r.lo; i <= r.hi; i++ {
+			sum := innerProdFloat32(xLP, y[i:], length>>1)
+			if sum < -1 {
+				sum = -1
+			}
+			xcorr[i] = sum
 		}
-		xcorr[i] = sum
 	}
-	findBestPitch(xcorr, y, length>>1, maxPitch>>1, &bestPitch)
+	findBestPitchInRanges(xcorr, y, length>>1, ranges, &bestPitch)
 
 	offset := 0
-	if bestPitch[0] > 0 && bestPitch[0] < (maxPitch>>1)-1 {
+	if bestPitch[0] > 0 && bestPitch[0] < halfPitch-1 {
 		a := xcorr[bestPitch[0]-1]
 		b := xcorr[bestPitch[0]]
 		c := xcorr[bestPitch[0]+1]

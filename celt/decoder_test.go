@@ -71,6 +71,88 @@ func TestDecodeFrame_SampleCount_Stereo(t *testing.T) {
 	}
 }
 
+func TestDecodeFrameWithPacketStereoToFloat32MatchesDecodeFrame(t *testing.T) {
+	const frameSize = 960
+
+	testCases := []struct {
+		name     string
+		channels int
+		packets  func() [][]byte
+	}{
+		{
+			name:     "mono",
+			channels: 1,
+			packets: func() [][]byte {
+				enc := NewEncoder(1)
+				frames := [][]float64{
+					generateSineWave(440.0, frameSize),
+					generateTransientSignal(660.0, frameSize),
+				}
+				packets := make([][]byte, 0, len(frames)+1)
+				for _, frame := range frames {
+					packet, err := enc.EncodeFrame(frame, frameSize)
+					if err != nil {
+						t.Fatalf("EncodeFrame mono failed: %v", err)
+					}
+					packets = append(packets, append([]byte(nil), packet...))
+				}
+				packets = append(packets, []byte{0xFF, 0xFF})
+				return packets
+			},
+		},
+		{
+			name:     "stereo",
+			channels: 2,
+			packets: func() [][]byte {
+				enc := NewEncoder(2)
+				frames := [][]float64{
+					generateStereoSineWave(440.0, 554.0, frameSize),
+					generateStereoSineWave(330.0, 880.0, frameSize),
+				}
+				packets := make([][]byte, 0, len(frames)+1)
+				for _, frame := range frames {
+					packet, err := enc.EncodeFrame(frame, frameSize)
+					if err != nil {
+						t.Fatalf("EncodeFrame stereo failed: %v", err)
+					}
+					packets = append(packets, append([]byte(nil), packet...))
+				}
+				packets = append(packets, []byte{0xFF, 0xFF})
+				return packets
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			reference := NewDecoder(tc.channels)
+			direct := NewDecoder(tc.channels)
+			packetStereo := tc.channels == 2
+
+			for frameIdx, packet := range tc.packets() {
+				expected, err := reference.DecodeFrameWithPacketStereo(packet, frameSize, packetStereo)
+				if err != nil {
+					t.Fatalf("reference decode frame %d failed: %v", frameIdx, err)
+				}
+
+				got := make([]float32, frameSize*tc.channels)
+				if err := direct.DecodeFrameWithPacketStereoToFloat32(packet, frameSize, packetStereo, got); err != nil {
+					t.Fatalf("direct decode frame %d failed: %v", frameIdx, err)
+				}
+
+				if len(expected) != len(got) {
+					t.Fatalf("frame %d length mismatch: got=%d want=%d", frameIdx, len(got), len(expected))
+				}
+				for i, want := range expected {
+					if math.Float32bits(got[i]) != math.Float32bits(float32(want)) {
+						t.Fatalf("frame %d sample %d mismatch: got=%08x want=%08x", frameIdx, i, math.Float32bits(got[i]), math.Float32bits(float32(want)))
+					}
+				}
+			}
+		})
+	}
+}
+
 // TestDecodeFrame_InvalidFrameSizeRejected verifies invalid frame sizes are rejected.
 func TestDecodeFrame_InvalidFrameSizeRejected(t *testing.T) {
 	d := NewDecoder(1)

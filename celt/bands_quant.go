@@ -629,11 +629,18 @@ func renormalizeVector(x []float64, gain float64) {
 		v := x[i]
 		energy += v * v
 	}
-	if energy <= 0 {
+	renormalizeVectorWithEnergy(x, gain, energy)
+}
+
+func renormalizeVectorWithEnergy(x []float64, gain, energy float64) {
+	if len(x) == 0 || energy <= 0 {
 		return
 	}
+	n := len(x)
+	x = x[:n:n]
+	_ = x[n-1]
 	scale := gain / math.Sqrt(energy)
-	i = 0
+	i := 0
 	for ; i+3 < n; i += 4 {
 		x[i] *= scale
 		x[i+1] *= scale
@@ -643,6 +650,91 @@ func renormalizeVector(x []float64, gain float64) {
 	for ; i < n; i++ {
 		x[i] *= scale
 	}
+}
+
+// seededZeroPulseResynth fuses zero-pulse fill/fold generation with the
+// exact same energy accumulation order used by renormalizeVector.
+func seededZeroPulseResynth(x, lowband []float64, seed *uint32, gain float64) bool {
+	if seed == nil {
+		return false
+	}
+	n := len(x)
+	if n == 0 {
+		return true
+	}
+	x = x[:n:n]
+	_ = x[n-1]
+
+	seedVal := *seed
+	energy := 0.0
+
+	if lowband == nil {
+		i := 0
+		for ; i+3 < n; i += 4 {
+			seedVal = seedVal*1664525 + 1013904223
+			v0 := float64(int32(seedVal) >> 20)
+			x[i] = v0
+
+			seedVal = seedVal*1664525 + 1013904223
+			v1 := float64(int32(seedVal) >> 20)
+			x[i+1] = v1
+
+			seedVal = seedVal*1664525 + 1013904223
+			v2 := float64(int32(seedVal) >> 20)
+			x[i+2] = v2
+
+			seedVal = seedVal*1664525 + 1013904223
+			v3 := float64(int32(seedVal) >> 20)
+			x[i+3] = v3
+
+			energy += v0*v0 + v1*v1 + v2*v2 + v3*v3
+		}
+		for ; i < n; i++ {
+			seedVal = seedVal*1664525 + 1013904223
+			v := float64(int32(seedVal) >> 20)
+			x[i] = v
+			energy += v * v
+		}
+		*seed = seedVal
+		renormalizeVectorWithEnergy(x, gain, energy)
+		return true
+	}
+
+	if len(lowband) < n {
+		return false
+	}
+	_ = lowband[n-1]
+
+	const foldNoise = 1.0 / 256.0
+	i := 0
+	for ; i+3 < n; i += 4 {
+		seedVal = seedVal*1664525 + 1013904223
+		v0 := lowband[i] + foldNoise*float64(int32(((seedVal>>15)&1)<<1)-1)
+		x[i] = v0
+
+		seedVal = seedVal*1664525 + 1013904223
+		v1 := lowband[i+1] + foldNoise*float64(int32(((seedVal>>15)&1)<<1)-1)
+		x[i+1] = v1
+
+		seedVal = seedVal*1664525 + 1013904223
+		v2 := lowband[i+2] + foldNoise*float64(int32(((seedVal>>15)&1)<<1)-1)
+		x[i+2] = v2
+
+		seedVal = seedVal*1664525 + 1013904223
+		v3 := lowband[i+3] + foldNoise*float64(int32(((seedVal>>15)&1)<<1)-1)
+		x[i+3] = v3
+
+		energy += v0*v0 + v1*v1 + v2*v2 + v3*v3
+	}
+	for ; i < n; i++ {
+		seedVal = seedVal*1664525 + 1013904223
+		v := lowband[i] + foldNoise*float64(int32(((seedVal>>15)&1)<<1)-1)
+		x[i] = v
+		energy += v * v
+	}
+	*seed = seedVal
+	renormalizeVectorWithEnergy(x, gain, energy)
+	return true
 }
 
 func stereoMerge(x, y []float64, mid float64) {
@@ -1927,32 +2019,36 @@ func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, l
 			return 0, x
 		}
 		if lowband == nil {
-			if ctx.seed != nil {
-				for i := range x {
-					*ctx.seed = (*ctx.seed)*1664525 + 1013904223
-					// Match libopus: arithmetic shift on signed seed before scaling.
-					x[i] = float64(int32(*ctx.seed) >> 20)
+			if !seededZeroPulseResynth(x, nil, ctx.seed, gain) {
+				if ctx.seed != nil {
+					for i := range x {
+						*ctx.seed = (*ctx.seed)*1664525 + 1013904223
+						// Match libopus: arithmetic shift on signed seed before scaling.
+						x[i] = float64(int32(*ctx.seed) >> 20)
+					}
 				}
+				renormalizeVector(x, gain)
 			}
-			renormalizeVector(x, gain)
 			dumpZeroState("noise")
 			return cmMask, x
 		}
-		if ctx.seed != nil {
-			for i := range x {
-				*ctx.seed = (*ctx.seed)*1664525 + 1013904223
-				tmp := 1.0 / 256.0
-				if (*ctx.seed & 0x8000) == 0 {
-					tmp = -tmp
-				}
-				if i < len(lowband) {
-					x[i] = lowband[i] + tmp
-				} else {
-					x[i] = tmp
+		if !seededZeroPulseResynth(x, lowband, ctx.seed, gain) {
+			if ctx.seed != nil {
+				for i := range x {
+					*ctx.seed = (*ctx.seed)*1664525 + 1013904223
+					tmp := 1.0 / 256.0
+					if (*ctx.seed & 0x8000) == 0 {
+						tmp = -tmp
+					}
+					if i < len(lowband) {
+						x[i] = lowband[i] + tmp
+					} else {
+						x[i] = tmp
+					}
 				}
 			}
+			renormalizeVector(x, gain)
 		}
-		renormalizeVector(x, gain)
 		dumpZeroState("fold")
 		return fill, x
 	}
@@ -2084,30 +2180,34 @@ func quantPartitionDecode(ctx *bandCtx, x []float64, n, b, B int, lowband []floa
 			return 0
 		}
 		if lowband == nil {
+			if !seededZeroPulseResynth(x, nil, ctx.seed, gain) {
+				if ctx.seed != nil {
+					for i := range x {
+						*ctx.seed = (*ctx.seed)*1664525 + 1013904223
+						x[i] = float64(int32(*ctx.seed) >> 20)
+					}
+				}
+				renormalizeVector(x, gain)
+			}
+			return cmMask
+		}
+		if !seededZeroPulseResynth(x, lowband, ctx.seed, gain) {
 			if ctx.seed != nil {
 				for i := range x {
 					*ctx.seed = (*ctx.seed)*1664525 + 1013904223
-					x[i] = float64(int32(*ctx.seed) >> 20)
+					tmp := 1.0 / 256.0
+					if (*ctx.seed & 0x8000) == 0 {
+						tmp = -tmp
+					}
+					if i < len(lowband) {
+						x[i] = lowband[i] + tmp
+					} else {
+						x[i] = tmp
+					}
 				}
 			}
 			renormalizeVector(x, gain)
-			return cmMask
 		}
-		if ctx.seed != nil {
-			for i := range x {
-				*ctx.seed = (*ctx.seed)*1664525 + 1013904223
-				tmp := 1.0 / 256.0
-				if (*ctx.seed & 0x8000) == 0 {
-					tmp = -tmp
-				}
-				if i < len(lowband) {
-					x[i] = lowband[i] + tmp
-				} else {
-					x[i] = tmp
-				}
-			}
-		}
-		renormalizeVector(x, gain)
 		return fill
 	}
 	return fill

@@ -194,6 +194,8 @@ type Encoder struct {
 	scratchCELTPrefill       []float64 // CELT transition prefill source (Fs/400 * channels)
 	hasCELTPrefill           bool
 	scratchQuantPCM          []float64 // LSB-depth quantized input
+	floatInputFrame          []float32 // Current public float32 frame view, if available
+	floatInputExact          bool      // True when pcm originated from float32 samples
 }
 
 // NewEncoder creates a new unified Opus encoder.
@@ -828,6 +830,9 @@ func quantizeFloat64ToLSBDepthInPlace(samples []float64, depth int) {
 }
 
 func (e *Encoder) quantizeInputToLSBDepth(pcm []float64) []float64 {
+	if e.floatInputExact && e.LSBDepth() == 24 {
+		return pcm
+	}
 	out := e.ensureQuantPCM(len(pcm))
 	copy(out, pcm)
 	quantizeFloat64ToLSBDepthInPlace(out, e.LSBDepth())
@@ -862,9 +867,14 @@ func (e *Encoder) refreshFrameAnalysis(pcm []float64, frameSize int) {
 	if e.analyzer == nil || frameSize <= 0 || len(pcm) == 0 {
 		return
 	}
-	pcm32 := e.scratchPCM32[:len(pcm)]
-	for i, v := range pcm {
-		pcm32[i] = float32(v)
+	pcm32 := e.floatInputFrame
+	if len(pcm32) < len(pcm) {
+		pcm32 = e.scratchPCM32[:len(pcm)]
+		for i, v := range pcm {
+			pcm32[i] = float32(v)
+		}
+	} else {
+		pcm32 = pcm32[:len(pcm)]
 	}
 	// Mirror libopus opus_encoder.c: back up analysis read cursor before
 	// run_analysis() so long packets can consume per-subframe info later.
@@ -1628,9 +1638,14 @@ func (e *Encoder) autoSignalFromPCM(pcm []float64, frameSize int) types.Signal {
 		return types.SignalAuto
 	}
 	if !e.lastAnalysisFresh {
-		pcm32 := e.scratchPCM32[:len(pcm)]
-		for i, v := range pcm {
-			pcm32[i] = float32(v)
+		pcm32 := e.floatInputFrame
+		if len(pcm32) < len(pcm) {
+			pcm32 = e.scratchPCM32[:len(pcm)]
+			for i, v := range pcm {
+				pcm32[i] = float32(v)
+			}
+		} else {
+			pcm32 = pcm32[:len(pcm)]
 		}
 		runAnalyzer := frameSize > 960
 		if !runAnalyzer && e.mode == ModeAuto && frameSize == 960 && e.effectiveBandwidth() == types.BandwidthSuperwideband {
@@ -2252,9 +2267,14 @@ func (e *Encoder) updateOpusVAD(pcm []float64, frameSize int) {
 		analysisValid = e.lastAnalysisValid
 		analysisProb = e.lastAnalysisInfo.VADProb
 	} else if e.analyzer != nil {
-		pcm32 := e.scratchPCM32[:len(pcm)]
-		for i, v := range pcm {
-			pcm32[i] = float32(v)
+		pcm32 := e.floatInputFrame
+		if len(pcm32) < len(pcm) {
+			pcm32 = e.scratchPCM32[:len(pcm)]
+			for i, v := range pcm {
+				pcm32[i] = float32(v)
+			}
+		} else {
+			pcm32 = pcm32[:len(pcm)]
 		}
 		info := e.analyzer.RunAnalysis(pcm32, frameSize, e.channels)
 		analysisValid = info.Valid
@@ -2640,6 +2660,20 @@ func (e *Encoder) SetLSBDepth(depth int) {
 // LSBDepth returns the current LSB depth setting.
 func (e *Encoder) LSBDepth() int {
 	return e.lsbDepth
+}
+
+// SetFloatInputFrame exposes the current public float32 frame to the encoder hot
+// path so analysis can consume it directly and 24-bit quantization can skip a
+// no-op round-trip.
+func (e *Encoder) SetFloatInputFrame(pcm []float32) {
+	e.floatInputFrame = pcm
+	e.floatInputExact = pcm != nil
+}
+
+// ClearFloatInputFrame clears the per-call float32 input override.
+func (e *Encoder) ClearFloatInputFrame() {
+	e.floatInputFrame = nil
+	e.floatInputExact = false
 }
 
 // SetPredictionDisabled disables inter-frame prediction.
