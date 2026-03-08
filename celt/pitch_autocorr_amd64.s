@@ -1,3 +1,5 @@
+//go:build amd64.v3
+
 #include "textflag.h"
 
 // func pitchAutocorr5(lp []float64, length int, ac *[5]float64)

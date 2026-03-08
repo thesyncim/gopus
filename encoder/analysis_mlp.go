@@ -83,8 +83,119 @@ func gemmAccumF32(out []float32, weights []float32, rows, cols, colStride int, x
 	if rows <= 0 || cols <= 0 {
 		return
 	}
-	_ = out[rows-1] // BCE hint
-	_ = x[cols-1]   // BCE hint
+	_ = out[rows-1]
+	_ = x[cols-1]
+	_ = weights[(cols-1)*colStride+rows-1]
+	switch rows {
+	case 2:
+		o0 := out[0]
+		o1 := out[1]
+		for j := 0; j < cols; j++ {
+			xj := x[j]
+			w := weights[j*colStride:]
+			o0 += w[0] * xj
+			o1 += w[1] * xj
+		}
+		out[0] = o0
+		out[1] = o1
+		return
+	case 24:
+		o0, o1, o2, o3 := out[0], out[1], out[2], out[3]
+		o4, o5, o6, o7 := out[4], out[5], out[6], out[7]
+		o8, o9, o10, o11 := out[8], out[9], out[10], out[11]
+		o12, o13, o14, o15 := out[12], out[13], out[14], out[15]
+		o16, o17, o18, o19 := out[16], out[17], out[18], out[19]
+		o20, o21, o22, o23 := out[20], out[21], out[22], out[23]
+		for j := 0; j < cols; j++ {
+			xj := x[j]
+			w := weights[j*colStride:]
+			o0 += w[0] * xj
+			o1 += w[1] * xj
+			o2 += w[2] * xj
+			o3 += w[3] * xj
+			o4 += w[4] * xj
+			o5 += w[5] * xj
+			o6 += w[6] * xj
+			o7 += w[7] * xj
+			o8 += w[8] * xj
+			o9 += w[9] * xj
+			o10 += w[10] * xj
+			o11 += w[11] * xj
+			o12 += w[12] * xj
+			o13 += w[13] * xj
+			o14 += w[14] * xj
+			o15 += w[15] * xj
+			o16 += w[16] * xj
+			o17 += w[17] * xj
+			o18 += w[18] * xj
+			o19 += w[19] * xj
+			o20 += w[20] * xj
+			o21 += w[21] * xj
+			o22 += w[22] * xj
+			o23 += w[23] * xj
+		}
+		out[0], out[1], out[2], out[3] = o0, o1, o2, o3
+		out[4], out[5], out[6], out[7] = o4, o5, o6, o7
+		out[8], out[9], out[10], out[11] = o8, o9, o10, o11
+		out[12], out[13], out[14], out[15] = o12, o13, o14, o15
+		out[16], out[17], out[18], out[19] = o16, o17, o18, o19
+		out[20], out[21], out[22], out[23] = o20, o21, o22, o23
+		return
+	case 32:
+		o0, o1, o2, o3 := out[0], out[1], out[2], out[3]
+		o4, o5, o6, o7 := out[4], out[5], out[6], out[7]
+		o8, o9, o10, o11 := out[8], out[9], out[10], out[11]
+		o12, o13, o14, o15 := out[12], out[13], out[14], out[15]
+		o16, o17, o18, o19 := out[16], out[17], out[18], out[19]
+		o20, o21, o22, o23 := out[20], out[21], out[22], out[23]
+		o24, o25, o26, o27 := out[24], out[25], out[26], out[27]
+		o28, o29, o30, o31 := out[28], out[29], out[30], out[31]
+		for j := 0; j < cols; j++ {
+			xj := x[j]
+			w := weights[j*colStride:]
+			o0 += w[0] * xj
+			o1 += w[1] * xj
+			o2 += w[2] * xj
+			o3 += w[3] * xj
+			o4 += w[4] * xj
+			o5 += w[5] * xj
+			o6 += w[6] * xj
+			o7 += w[7] * xj
+			o8 += w[8] * xj
+			o9 += w[9] * xj
+			o10 += w[10] * xj
+			o11 += w[11] * xj
+			o12 += w[12] * xj
+			o13 += w[13] * xj
+			o14 += w[14] * xj
+			o15 += w[15] * xj
+			o16 += w[16] * xj
+			o17 += w[17] * xj
+			o18 += w[18] * xj
+			o19 += w[19] * xj
+			o20 += w[20] * xj
+			o21 += w[21] * xj
+			o22 += w[22] * xj
+			o23 += w[23] * xj
+			o24 += w[24] * xj
+			o25 += w[25] * xj
+			o26 += w[26] * xj
+			o27 += w[27] * xj
+			o28 += w[28] * xj
+			o29 += w[29] * xj
+			o30 += w[30] * xj
+			o31 += w[31] * xj
+		}
+		out[0], out[1], out[2], out[3] = o0, o1, o2, o3
+		out[4], out[5], out[6], out[7] = o4, o5, o6, o7
+		out[8], out[9], out[10], out[11] = o8, o9, o10, o11
+		out[12], out[13], out[14], out[15] = o12, o13, o14, o15
+		out[16], out[17], out[18], out[19] = o16, o17, o18, o19
+		out[20], out[21], out[22], out[23] = o20, o21, o22, o23
+		out[24], out[25], out[26], out[27] = o24, o25, o26, o27
+		out[28], out[29], out[30], out[31] = o28, o29, o30, o31
+		return
+	}
 	for j := 0; j < cols; j++ {
 		xj := x[j]
 		wOff := j * colStride

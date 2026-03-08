@@ -1,3 +1,5 @@
+//go:build amd64.v3
+
 #include "textflag.h"
 
 // func roundFloat64ToFloat32AVX(x []float64)

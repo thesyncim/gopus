@@ -1,3 +1,5 @@
+//go:build amd64.v3
+
 #include "textflag.h"
 
 // func prefilterPitchXcorr(x []float64, y []float64, xcorr []float64, length, maxPitch int)
