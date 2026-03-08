@@ -1,4 +1,4 @@
-//go:build amd64 && gopus_spread_asm
+//go:build arm64 && gopus_spread_asm
 
 package celt
 

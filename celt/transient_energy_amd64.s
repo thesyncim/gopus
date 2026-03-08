@@ -11,7 +11,7 @@
 //   CX  = remaining count
 //   X8  = mean accumulator (float32 scalar)
 //   X0-X5, Y0 = temporaries
-TEXT ·transientEnergyPairs(SB), NOSPLIT, $0-64
+TEXT ·transientEnergyPairsAVX(SB), NOSPLIT, $0-64
 	MOVQ  tmp_base+0(FP), AX
 	MOVQ  x2out_base+24(FP), BX
 	MOVQ  len2+48(FP), CX

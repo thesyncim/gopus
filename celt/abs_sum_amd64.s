@@ -1,6 +1,6 @@
 #include "textflag.h"
 
-// func absSum(x []float64) float64
+// func absSumAVX(x []float64) float64
 //
 // Computes sum of absolute values of a float64 slice using AVX SIMD.
 // Uses VANDPD with sign-mask to compute abs, 2 accumulators (4 float64 lanes).
@@ -12,7 +12,7 @@
 //   X1  = accumulator 1 (2x float64)
 //   X8  = sign mask (all bits except sign bit)
 //   X2, X3 = temporaries
-TEXT ·absSum(SB), NOSPLIT, $0-32
+TEXT ·absSumAVX(SB), NOSPLIT, $0-32
 	MOVQ  x_base+0(FP), AX
 	MOVQ  x_len+8(FP), CX
 

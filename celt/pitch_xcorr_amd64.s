@@ -1,11 +1,11 @@
 #include "textflag.h"
 
-// func celtPitchXcorr(x []float64, y []float64, xcorr []float64, length, maxPitch int)
+// func celtPitchXcorrAVX2FMA(x []float64, y []float64, xcorr []float64, length, maxPitch int)
 //
 // Vectorized 4-way pitch cross-correlation using AVX2+FMA3.
 // Inner loop uses VFMADD231PD (4×float64 FMA in YMM registers).
 // Outer loop processes 4 correlations at a time; tail handles 0-3 remaining.
-TEXT ·celtPitchXcorr(SB), NOSPLIT, $0-88
+TEXT ·celtPitchXcorrAVX2FMA(SB), NOSPLIT, $0-88
 	// Load arguments (ABI0: all on stack)
 	MOVQ x_base+0(FP), DI       // x ptr
 	MOVQ y_base+24(FP), SI      // y ptr
