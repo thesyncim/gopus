@@ -1,6 +1,6 @@
 # Investigation Decisions
 
-Last updated: 2026-03-07
+Last updated: 2026-03-08
 
 Purpose: record durable keep/skip decisions to avoid re-running solved investigations.
 
@@ -18,6 +18,13 @@ owner: <handle>
 ```
 
 ## Current Decisions
+
+date: 2026-03-08
+topic: CELT MDCT direct-stage fast path
+decision: Keep the `celt/mdct_encode.go` fast path that folds/window-prepares samples and writes the pre-twiddled values directly into the bit-reversed `kissCpx` FFT scratch on the normal direct MDCT path. Keep the staged `f[]` materialization only as the fallback/debug path.
+evidence: Added an exact staged-reference guard in `celt/mdct_stage_test.go`; `go test ./celt -run '^(TestMDCTForwardOverlapDirectStageMatchesLegacyStagedPath|TestMDCT.*|TestLibopus.*MDCT.*|TestMDCTForward.*|TestMDCTShort.*)$' -count=1` passed and the direct-stage output matched the legacy staged path bit-for-bit on sizes `120/240/480/960`. Same-host isolated MDCT A/B versus baseline worktree `e50002a` improved from `frameSize=120 ~612.0-616.4 ns/op` to `~434.5-453.0 ns/op`, `240 ~1083-1089 ns/op` to `~790.2-801.0 ns/op`, `480 ~2021-2055 ns/op` to `~1515-1526 ns/op`, and `960 ~3947-4004 ns/op` to `~3045-3075 ns/op`. End-to-end encoder perf remained favorable (`BenchmarkEncoderEncode ~48822-49219 ns/op` baseline vs `~48129-49205 ns/op` current; fair speech encode example `avg 2.034969125s -> 2.025911069s`). Encoder compliance stayed green (`GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `23 passed, 0 failed`).
+do_not_repeat_until: the MDCT folding/pre-twiddle order, direct `kissCpx` FFT state layout, or float-math parity requirements change in a way that invalidates the direct-stage equivalence guard.
+owner: codex
 
 date: 2026-03-08
 topic: CELT zero-pulse resynthesis fused fill/energy path

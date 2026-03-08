@@ -76,6 +76,20 @@ func dumpFloat32Raw(path string, vals []float32) {
 	_ = os.WriteFile(path, buf, 0o644)
 }
 
+func mdctStoreDirectStage(dst []kissCpx, idx int, scale, re, im, t0, t1 float32) {
+	yr := mdctMul(re, t0) - mdctMul(im, t1)
+	yi := mdctMul(im, t0) + mdctMul(re, t1)
+	dst[idx].r = yr * scale
+	dst[idx].i = yi * scale
+}
+
+func mdctStoreDirectStageFMALike(dst []kissCpx, idx int, scale, re, im, t0, t1 float32) {
+	yr := float32(float64(re)*float64(t0) - float64(mdctMul(im, t1)))
+	yi := float32(float64(im)*float64(t0) + float64(mdctMul(re, t1)))
+	dst[idx].r = yr * scale
+	dst[idx].i = yi * scale
+}
+
 // MDCT computes the forward Modified Discrete Cosine Transform.
 // For CELT-typical inputs (frameSize+Overlap), this uses the short-overlap
 // algorithm from libopus. For legacy 2*N inputs, it falls back to the
@@ -259,27 +273,35 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 		window = GetWindowBufferF32(overlap)
 	}
 
+	doDump := false
+	dumpIdx := uint32(0)
+	if mdctStageDumpEnabled && frameSize == 480 && overlap == 120 {
+		doDump = true
+	}
+
+	st := getKissFFTState(n4)
+	useDirectKissCpx := st != nil && len(st.bitrev) >= n4
+	fuseDirectStage := useDirectKissCpx && !doDump
+
 	// Use provided buffers or allocate
-	if f == nil || len(f) < n2 {
-		f = make([]float32, n2)
+	if !fuseDirectStage {
+		if f == nil || len(f) < n2 {
+			f = make([]float32, n2)
+		}
 	}
-	if fftIn == nil || len(fftIn) < n4 {
-		fftIn = make([]complex64, n4)
-	}
-	if fftOut == nil || len(fftOut) < n4 {
-		fftOut = make([]complex64, n4)
+	if !useDirectKissCpx {
+		if fftIn == nil || len(fftIn) < n4 {
+			fftIn = make([]complex64, n4)
+		}
+		if fftOut == nil || len(fftOut) < n4 {
+			fftOut = make([]complex64, n4)
+		}
 	}
 	if fftTmp == nil || len(fftTmp) < n4 {
 		fftTmp = make([]kissCpx, n4)
 	}
 	if coeffs == nil || len(coeffs) < n2 {
 		coeffs = make([]float64, n2)
-	}
-
-	doDump := false
-	dumpIdx := uint32(0)
-	if mdctStageDumpEnabled && frameSize == 480 && overlap == 120 {
-		doDump = true
 	}
 
 	xp1 := overlap / 2
@@ -289,31 +311,120 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 	i := 0
 	limit1 := (overlap + 3) >> 2
 
-	for ; i < limit1; i++ {
-		f[2*i] = mdctMulAddMix(float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
-		f[2*i+1] = mdctMulSubMix(float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
-		xp1 += 2
-		xp2 -= 2
-		wp1 += 2
-		wp2 -= 2
+	// Match libopus st->scale initialization in float builds (1.f/nfft).
+	scale := float32(1.0) / float32(n4)
+	var fftStage []kissCpx
+	if useDirectKissCpx {
+		fftStage = fftTmp[:n4]
 	}
 
-	wp1 = 0
-	wp2 = overlap - 1
-	for ; i < n4-limit1; i++ {
-		f[2*i] = float32(samples[xp2])
-		f[2*i+1] = float32(samples[xp1])
-		xp1 += 2
-		xp2 -= 2
-	}
+	if fuseDirectStage {
+		bitrev := st.bitrev
+		_ = bitrev[n4-1]
+		_ = fftStage[n4-1]
+		if mdctUseFMALikeMixEnabled {
+			for ; i < limit1; i++ {
+				re := mdctMulAddMix(float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
+				im := mdctMulSubMix(float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
+				t0 := trig[i]
+				t1 := trig[n4+i]
+				mdctStoreDirectStageFMALike(fftStage, bitrev[i], scale, re, im, t0, t1)
+				xp1 += 2
+				xp2 -= 2
+				wp1 += 2
+				wp2 -= 2
+			}
 
-	for ; i < n4; i++ {
-		f[2*i] = mdctMulSubMixAlt(float32(samples[xp2]), float32(samples[xp1-n2]), window[wp2], window[wp1])
-		f[2*i+1] = mdctMulAddMix(float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
-		xp1 += 2
-		xp2 -= 2
-		wp1 += 2
-		wp2 -= 2
+			wp1 = 0
+			wp2 = overlap - 1
+			for ; i < n4-limit1; i++ {
+				re := float32(samples[xp2])
+				im := float32(samples[xp1])
+				t0 := trig[i]
+				t1 := trig[n4+i]
+				mdctStoreDirectStageFMALike(fftStage, bitrev[i], scale, re, im, t0, t1)
+				xp1 += 2
+				xp2 -= 2
+			}
+
+			for ; i < n4; i++ {
+				re := mdctMulSubMixAlt(float32(samples[xp2]), float32(samples[xp1-n2]), window[wp2], window[wp1])
+				im := mdctMulAddMix(float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
+				t0 := trig[i]
+				t1 := trig[n4+i]
+				mdctStoreDirectStageFMALike(fftStage, bitrev[i], scale, re, im, t0, t1)
+				xp1 += 2
+				xp2 -= 2
+				wp1 += 2
+				wp2 -= 2
+			}
+		} else {
+			for ; i < limit1; i++ {
+				re := mdctMulAddMix(float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
+				im := mdctMulSubMix(float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
+				t0 := trig[i]
+				t1 := trig[n4+i]
+				mdctStoreDirectStage(fftStage, bitrev[i], scale, re, im, t0, t1)
+				xp1 += 2
+				xp2 -= 2
+				wp1 += 2
+				wp2 -= 2
+			}
+
+			wp1 = 0
+			wp2 = overlap - 1
+			for ; i < n4-limit1; i++ {
+				re := float32(samples[xp2])
+				im := float32(samples[xp1])
+				t0 := trig[i]
+				t1 := trig[n4+i]
+				mdctStoreDirectStage(fftStage, bitrev[i], scale, re, im, t0, t1)
+				xp1 += 2
+				xp2 -= 2
+			}
+
+			for ; i < n4; i++ {
+				re := mdctMulSubMixAlt(float32(samples[xp2]), float32(samples[xp1-n2]), window[wp2], window[wp1])
+				im := mdctMulAddMix(float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
+				t0 := trig[i]
+				t1 := trig[n4+i]
+				mdctStoreDirectStage(fftStage, bitrev[i], scale, re, im, t0, t1)
+				xp1 += 2
+				xp2 -= 2
+				wp1 += 2
+				wp2 -= 2
+			}
+		}
+	} else {
+		// BCE hints for staged-fold path.
+		_ = f[2*n4-1]
+
+		for ; i < limit1; i++ {
+			f[2*i] = mdctMulAddMix(float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
+			f[2*i+1] = mdctMulSubMix(float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
+			xp1 += 2
+			xp2 -= 2
+			wp1 += 2
+			wp2 -= 2
+		}
+
+		wp1 = 0
+		wp2 = overlap - 1
+		for ; i < n4-limit1; i++ {
+			f[2*i] = float32(samples[xp2])
+			f[2*i+1] = float32(samples[xp1])
+			xp1 += 2
+			xp2 -= 2
+		}
+
+		for ; i < n4; i++ {
+			f[2*i] = mdctMulSubMixAlt(float32(samples[xp2]), float32(samples[xp1-n2]), window[wp2], window[wp1])
+			f[2*i+1] = mdctMulAddMix(float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
+			xp1 += 2
+			xp2 -= 2
+			wp1 += 2
+			wp2 -= 2
+		}
 	}
 
 	if doDump {
@@ -325,45 +436,31 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 		dumpFloat32Raw(fmt.Sprintf("/tmp/go_actual_stage_f_call%d.f32", dumpIdx), f[:n2])
 	}
 
-	// Match libopus st->scale initialization in float builds (1.f/nfft).
-	scale := float32(1.0) / float32(n4)
 	// BCE hints for pre-twiddle loop.
-	_ = f[2*n4-1]     // BCE hint
 	_ = trig[n4+n4-1] // BCE hint: trig needs n2 entries
-
-	st := getKissFFTState(n4)
-	useDirectKissCpx := st != nil && len(st.bitrev) >= n4
-	var fftStage []kissCpx
 	if useDirectKissCpx {
 		// Fast path: write pre-twiddled values directly into bit-reversed kissCpx
 		// scratch and run in-place FFT, avoiding intermediate complex64 materialization.
-		fftStage = fftTmp[:n4]
 		bitrev := st.bitrev
-		_ = bitrev[n4-1]   // BCE hint
-		_ = fftStage[n4-1] // BCE hint
-		if mdctUseFMALikeMixEnabled {
-			for i = 0; i < n4; i++ {
-				re := f[2*i]
-				im := f[2*i+1]
-				t0 := trig[i]
-				t1 := trig[n4+i]
-				yr := float32(float64(re)*float64(t0) - float64(mdctMul(im, t1)))
-				yi := float32(float64(im)*float64(t0) + float64(mdctMul(re, t1)))
-				idx := bitrev[i]
-				fftStage[idx].r = yr * scale
-				fftStage[idx].i = yi * scale
-			}
-		} else {
-			for i = 0; i < n4; i++ {
-				re := f[2*i]
-				im := f[2*i+1]
-				t0 := trig[i]
-				t1 := trig[n4+i]
-				yr := mdctMul(re, t0) - mdctMul(im, t1)
-				yi := mdctMul(im, t0) + mdctMul(re, t1)
-				idx := bitrev[i]
-				fftStage[idx].r = yr * scale
-				fftStage[idx].i = yi * scale
+		if !fuseDirectStage {
+			_ = bitrev[n4-1]   // BCE hint
+			_ = fftStage[n4-1] // BCE hint
+			if mdctUseFMALikeMixEnabled {
+				for i = 0; i < n4; i++ {
+					re := f[2*i]
+					im := f[2*i+1]
+					t0 := trig[i]
+					t1 := trig[n4+i]
+					mdctStoreDirectStageFMALike(fftStage, bitrev[i], scale, re, im, t0, t1)
+				}
+			} else {
+				for i = 0; i < n4; i++ {
+					re := f[2*i]
+					im := f[2*i+1]
+					t0 := trig[i]
+					t1 := trig[n4+i]
+					mdctStoreDirectStage(fftStage, bitrev[i], scale, re, im, t0, t1)
+				}
 			}
 		}
 
