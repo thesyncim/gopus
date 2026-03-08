@@ -20,6 +20,13 @@ owner: <handle>
 ## Current Decisions
 
 date: 2026-03-08
+topic: Experimental `sum_sq` and `spread_count` asm kernels
+decision: Do not ship the experimental `sum_sq` or `spread_count` asm paths, and do not keep them hidden behind opt-in build tags. `sum_sq` changes float32 accumulation order and fails exactness; `spread_count` needed a correctness fix just to test and still lost to the generic Go loop on the current host. Keep the generic implementations as the only supported path unless a future asm rewrite is both exact and measurably favorable.
+evidence: Enabling the hidden kernels for audit exposed two failures. First, arm64 `spread_count` had a compare-direction bug; after fixing that locally, direct microbench still favored generic Go (`BenchmarkSpreadCountThresholdsLegacy ~16.09-17.08 ns/op` vs asm `~24.26-24.42 ns/op`). Second, `sum_sq` failed a direct legacy-reference check because its vector lane accumulation changed the float32 sum order (`TestSumOfSquaresF64toF32MatchesLegacy` failed at `n=3`). After removing both asm/tag paths, `go test ./celt -count=1`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` (`23 passed, 0 failed`), and `make bench-guard` all passed.
+do_not_repeat_until: either helper gets a new exact asm implementation and fresh same-base A/B evidence shows a real end-to-end win on target hardware.
+owner: codex
+
+date: 2026-03-08
 topic: 48 kHz mono analysis down2 loop unroll on Apple M4 Max
 decision: Keep the two-output unroll in `encoder/analysis.go` `silkResamplerDown2HP()` and mirror the same loop shape in `silkResamplerDown2HPStereo()`, but only because it preserves the exact scalar arithmetic/state order and stays end-to-end favorable on the current host. Treat this as a loop-structure cleanup, not a math change.
 evidence: Added `encoder/analysis_resampler_bench_test.go` plus `TestSilkResamplerDown2HPMatchesLegacy` in `encoder/analysis_test.go`. Focused exactness passed (`go test ./encoder -run '^(TestSilkResamplerDown2HPMatchesLegacy|TestSilkResamplerDown2HPStereoMatchesDownmixThenResample)$' -count=1`). Same-base arm64 A/B against `origin/master` favored the change: `BenchmarkSilkResamplerDown2HPLegacy ~947.7-978.3 ns/op` vs `BenchmarkSilkResamplerDown2HPCurrent ~874.1-895.4 ns/op`, `BenchmarkTonalityAnalysis48kMono ~7250-7284 ns/op` baseline vs `~7158-7187 ns/op` current, and root `BenchmarkEncoderEncode ~47245-47784 ns/op` baseline vs `~46996-47321 ns/op` current.

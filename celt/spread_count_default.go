@@ -1,5 +1,3 @@
-//go:build !gopus_spread_asm || !amd64
-
 package celt
 
 // spreadCountThresholds counts how many coefficients x[0..n-1] satisfy
