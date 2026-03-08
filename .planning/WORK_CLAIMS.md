@@ -47,3 +47,4 @@ Quick commands:
 - claim: id=codex-20260306-190137; agent=codex; status=released; paths=encoder/; updated=2026-03-07T18:23:57Z; expires=2026-03-07T18:23:57Z; note=perf loop: tonalityAnalysis speedup for example encode
 - claim: id=codex-20260307-183321; agent=codex; status=released; paths=encoder/,celt/,examples/,.planning/; updated=2026-03-08T12:30:41Z; expires=2026-03-08T12:30:41Z; note=perf loop: fair libopus harness + encoder/decoder hot path
 - claim: id=codex-20260308-123056; agent=codex; status=released; paths=celt/,encoder/,.planning/; updated=2026-03-08T12:41:56Z; expires=2026-03-08T12:41:56Z; note=perf loop continue: exact hot-path optimization after fair harness
+- claim: id=codex-20260308-125026; agent=codex; status=active; paths=celt/,encoder/,.planning/; updated=2026-03-08T12:50:26Z; expires=2026-03-08T16:50:26Z; note=perf loop: push toward libopus parity on current tip
