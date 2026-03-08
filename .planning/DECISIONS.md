@@ -20,6 +20,13 @@ owner: <handle>
 ## Current Decisions
 
 date: 2026-03-08
+topic: 48 kHz stereo tonality-analysis fused downmix+down2 path on Apple M4 Max
+decision: Keep the stereo-only fused `encoder/analysis.go` 48 kHz staging path (`silkResamplerDown2HPStereo`) in `tonalityAnalysis`, but do not enable the analogous fused mono path on this host. The stereo helper is worth keeping; the mono fused helper is not.
+evidence: Same-base stash A/B on the merged master showed `BenchmarkTonalityAnalysis48kStereo` improving from baseline `~7649-7697 ns/op` to current `~7353-7362 ns/op` (~`4%` faster), while the mono fused variant regressed enough to justify dropping it; after narrowing the change to stereo only, `BenchmarkTonalityAnalysis48kMono` returned to baseline (`~7344-7371 ns/op` baseline vs `~7354-7384 ns/op` current). Root `BenchmarkEncoderEncode_Stereo` stayed slightly favorable on the same base (`~87530-87876 ns/op` baseline vs `~87201-87722 ns/op` current). Safety checks stayed green: `go test ./encoder -run '^(TestSilkResamplerDown2HPStereoMatchesDownmixThenResample|TestAnalysisTraceFixtureParityWithLibopus)$' -count=1 -v`, `go test ./encoder -count=1`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` (`23 passed, 0 failed`), and `make bench-guard`. `make verify-production` again failed only on the known local `tmp_check` cgo-disabled blocker after all other packages passed.
+do_not_repeat_until: the 48 kHz analysis staging path, downmix/resample helper shape, or host/arch target changes enough that a new same-base A/B shows the mono fused path becoming favorable or the stereo helper losing its edge.
+owner: codex
+
+date: 2026-03-08
 topic: removeDoubling float-width yy_lookup scratch
 decision: Keep `celt/prefilter.go` `removeDoubling()` using `encoderScratch.prefilterYYLookup` as `[]float32`, matching libopus float-width `yy_lookup` semantics instead of storing those running values in `[]float64` scratch and narrowing them on every read.
 evidence: Added `celt/remove_doubling_test.go`; `go test ./celt -run '^TestRemoveDoublingMatchesLegacyYYLookup$' -bench '^(BenchmarkRemoveDoublingCurrent|BenchmarkRemoveDoublingLegacy)$' -count=3 -cpu=1` passed with exact lag/gain agreement against the legacy float64-lookup reference. The microbench improved from legacy `~2496-2601 ns/op` to current `~2265-2300 ns/op`. Same-host A/B versus baseline worktree `2242402` stayed favorable on the encoder root bench (`~47325-47750 ns/op` baseline vs `~47231-47336 ns/op` current) and on the fair speech encode example (`avg 2.00886493s -> 1.991523458s`). `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` remained green (`23 passed, 0 failed`), and `make bench-guard` passed.

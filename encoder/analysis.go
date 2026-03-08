@@ -135,6 +135,58 @@ func silkResamplerDown2HP(s []float32, out []float32, in []float32) float32 {
 	return float32(hpEner)
 }
 
+func silkResamplerDown2HPStereo(s []float32, out []float32, in []float32, scale float32) float32 {
+	len2 := len(in) / 4
+	if len(out) < len2 {
+		len2 = len(out)
+	}
+	if len2 <= 0 {
+		return 0
+	}
+	_ = in[4*len2-1]
+	_ = out[len2-1]
+	_ = s[2]
+
+	s0, s1, s2 := s[0], s[1], s[2]
+
+	const (
+		coef0 = float32(0.6074371)
+		coef1 = float32(0.15063)
+	)
+
+	var hpEner float64
+	for k := 0; k < len2; k++ {
+		base := 4 * k
+
+		mixed0 := (in[base] + in[base+1]) * scale
+		mixed1 := (in[base+2] + in[base+3]) * scale
+
+		in32 := mixed0
+		y := in32 - s0
+		xf := coef0 * y
+		out32 := s0 + xf
+		s0 = in32 + xf
+		out32HP := out32
+
+		in32 = mixed1
+		y = in32 - s1
+		xf = coef1 * y
+		out32 = out32 + s1 + xf
+		s1 = in32 + xf
+
+		y = -in32 - s2
+		xf = coef1 * y
+		out32HP = out32HP + s2 + xf
+		s2 = -in32 + xf
+
+		hpEner += float64(out32HP * out32HP)
+		out[k] = 0.5 * out32
+	}
+
+	s[0], s[1], s[2] = s0, s1, s2
+	return float32(hpEner)
+}
+
 func isDigitalSilence32(pcm []float32) bool {
 	for i := range pcm {
 		if pcm[i] != 0 {
@@ -335,19 +387,21 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	}
 
 	frameSize := len(pcm) / channels
-
-	// 1. Downmix current frame to mono for analysis
-	if cap(s.scratchMono) < frameSize {
-		s.scratchMono = make([]float32, frameSize)
-	}
-	mono := s.scratchMono[:frameSize]
-	if channels == 2 {
-		for i := 0; i < frameSize; i++ {
-			mono[i] = (pcm[2*i] + pcm[2*i+1]) * (0.5 * celtSigScale)
+	stereoScale := float32(0.5 * celtSigScale)
+	var mono []float32
+	if s.Fs != 48000 || channels != 2 {
+		if cap(s.scratchMono) < frameSize {
+			s.scratchMono = make([]float32, frameSize)
 		}
-	} else {
-		for i := 0; i < frameSize; i++ {
-			mono[i] = pcm[i] * celtSigScale
+		mono = s.scratchMono[:frameSize]
+		if channels == 2 {
+			for i := 0; i < frameSize; i++ {
+				mono[i] = (pcm[2*i] + pcm[2*i+1]) * stereoScale
+			}
+		} else {
+			for i := 0; i < frameSize; i++ {
+				mono[i] = pcm[i] * celtSigScale
+			}
 		}
 	}
 
@@ -378,8 +432,13 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		}
 		if firstCopy > 0 {
 			first := s.InMem[oldMemFill : oldMemFill+firstCopy]
-			firstSrc := firstCopy * 2
-			hp := silkResamplerDown2HP(s.DownmixState[:], first, mono[:firstSrc])
+			var hp float32
+			switch channels {
+			case 2:
+				hp = silkResamplerDown2HPStereo(s.DownmixState[:], first, pcm[:firstCopy*4], stereoScale)
+			default:
+				hp = silkResamplerDown2HP(s.DownmixState[:], first, mono[:firstCopy*2])
+			}
 			hp *= 1.0 / (celtSigScale * celtSigScale)
 			s.HPEnerAccum += hp
 		}
@@ -455,9 +514,17 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	case 48000:
 		if remaining > 0 {
 			rest := s.InMem[240 : 240+remaining]
-			restSrcStart := firstCopy * 2
-			restSrcEnd := restSrcStart + remaining*2
-			hp := silkResamplerDown2HP(s.DownmixState[:], rest, mono[restSrcStart:restSrcEnd])
+			var hp float32
+			switch channels {
+			case 2:
+				restSrcStart := firstCopy * 4
+				restSrcEnd := restSrcStart + remaining*4
+				hp = silkResamplerDown2HPStereo(s.DownmixState[:], rest, pcm[restSrcStart:restSrcEnd], stereoScale)
+			default:
+				restSrcStart := firstCopy * 2
+				restSrcEnd := restSrcStart + remaining*2
+				hp = silkResamplerDown2HP(s.DownmixState[:], rest, mono[restSrcStart:restSrcEnd])
+			}
 			hp *= 1.0 / (celtSigScale * celtSigScale)
 			s.HPEnerAccum = hp
 		} else {
