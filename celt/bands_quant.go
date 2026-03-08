@@ -467,11 +467,14 @@ func expRotation(x []float64, length, dir, stride, k, spread int) {
 	if 2*k >= length || spread == spreadNone {
 		return
 	}
-	spreadFactor := []int{15, 10, 5}[spread-1]
-	gain := float32(length) / float32(length+spreadFactor*k)
-	theta := 0.5 * gain * gain
-	c := float64(float32(math.Cos(0.5 * math.Pi * float64(theta))))
-	s := float64(float32(math.Sin(0.5 * math.Pi * float64(theta))))
+	c, s, ok := expRotationCoefficients(length, k, spread)
+	if !ok {
+		spreadFactor := expRotationSpreadFactors[spread-1]
+		gain := float32(length) / float32(length+spreadFactor*k)
+		theta := 0.5 * gain * gain
+		c = float64(float32(math.Cos(0.5 * math.Pi * float64(theta))))
+		s = float64(float32(math.Sin(0.5 * math.Pi * float64(theta))))
+	}
 
 	stride2 := 0
 	if length >= 8*stride {

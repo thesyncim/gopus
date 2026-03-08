@@ -20,6 +20,20 @@ owner: <handle>
 ## Current Decisions
 
 date: 2026-03-08
+topic: Encoder delay-buffer simplification and expRotation coefficient table
+decision: Keep the encoder delay-compensation rewrite in `encoder/encoder.go` that removes the redundant tail snapshot and updates `delayBuffer` as a rolling raw-input history window, and keep the exact precomputed `expRotation()` coefficient table in `celt/exp_rotation_coeffs.go` for the production `(length,k,spread)` ranges. Both changes preserve existing behavior and improve the fair speech encode harness on the current host.
+evidence: Added `encoder/delay_compensation_test.go` legacy-state coverage and direct helper benches; `go test ./encoder -run '^(TestApplyDelayCompensationMatchesLegacyState|TestDelayCompensation_StreamDelay(Mono|Stereo)|TestPrepareCELTPCM_DelayCompensationGatedByLowDelay|TestCELTTransitionPrefillSnapshotsLibopusDelayHistoryWindow)$' -count=1` passed. The helper bench improved versus the legacy shape (`Mono480 ~115 ns vs ~162 ns`, `Mono960 ~151-156 ns vs ~244-252 ns`, `Stereo480 ~218-222 ns vs ~322-333 ns`, `Stereo960 ~332-342 ns vs ~537-549 ns`, `0 allocs/op`). Added `celt/exp_rotation_coeffs_test.go`; `go test ./celt -run '^(TestExpRotationCoefficientsMatchDirectComputation|TestRotationUnitLibopus)$' -count=1` and `go test ./celt -count=1` passed. Quality/perf gates stayed green with `go test ./encoder -count=1`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` (`23 passed, 0 failed`), and same-host `go test -run '^$' -bench '^BenchmarkEncoderEncode_Stereo$' -benchmem -benchtime=4s -count=3 .` landing around `~81582-82852 ns/op`. The fair speech encode harness improved from the recent `gopus avg ~1.987658666s` to `avg 1.954469531s` while libopus stayed around `avg 1.608260869s`.
+do_not_repeat_until: the CELT transition-prefill/delay-buffer semantics change, or `expRotation()` starts seeing materially different `(length,k,spread)` ranges where the current exact table coverage no longer represents the hot path.
+owner: codex
+
+date: 2026-03-08
+topic: ARM64 stride-1 expRotation asm on Apple M4 Max
+decision: Do not ship the arm64 stride-1 `expRotation1()` asm prototype. Keep the Go stride-1 loop as the active path; the asm version was exact but slower on the current host.
+evidence: A temporary exact dispatch guard for the asm version passed, but the existing rotation bench regressed on Apple M4 Max from the prior Go path (`BenchmarkExpRotation1Stride1Len32 ~133.9-136.6 ns/op`, `Len64 ~269.8-274.3 ns/op`) to the asm attempt (`Len32 ~176.3-185.4 ns/op`, `Len64 ~355.3-360.4 ns/op`). The asm files and dispatch scaffolding were reverted immediately rather than kept behind tags.
+do_not_repeat_until: a materially different arm64 microarchitecture is the target, or there is a new exact vectorized stride-1 design rather than this scalar asm shape.
+owner: codex
+
+date: 2026-03-08
 topic: Stereo prefilter helper staging and sum-of-squares unroll rejection
 decision: Keep the stereo prefilter input/output layout cleanup in `celt/prefilter.go` by routing frame staging through `DeinterleaveStereoInto()` / `InterleaveStereoInto()`. Do not keep the exact-order `sumOfSquaresF64toF32()` unroll experiment; on the current host the plain scalar loop is faster.
 evidence: Added `celt/stereo_layout_test.go`; `go test ./celt -run '^(TestStereoLayoutHelpersRoundTrip|TestRunPrefilterParityAgainstLibopusFixture)$' -count=1` passed and the libopus-backed prefilter fixture stayed exact. `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` remained green (`23 passed, 0 failed`). Same-host root `BenchmarkEncoderEncode_Stereo` improved from the prior Hadamard safe point (`~84892-85127 ns/op`) to `~84320-84870 ns/op`, and the fair speech encode example improved from `avg 2.016978903s` to `avg 1.98866625s`. The exact-order `sumOfSquaresF64toF32` unroll was benchmarked and reverted because it regressed materially (`~87.46-87.74 ns/op` current vs legacy `~51.82-53.15 ns/op`) while leaving the root bench flat.
