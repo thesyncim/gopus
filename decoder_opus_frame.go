@@ -527,11 +527,10 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicy(
 				d.celtDecoder.SetBandwidth(celtBW)
 			}
 		}
-		samples, err := d.celtDecoder.DecodeFrameWithPacketStereo(data, min(F20, frameSize), packetStereoLocal)
+		err := d.celtDecoder.DecodeFrameWithPacketStereoToFloat32(data, min(F20, frameSize), packetStereoLocal, out)
 		if err != nil {
 			return 0, err
 		}
-		copyFloat64ToFloat32(out, samples)
 		// Capture the main decode's FinalRange (no redundancy post-processing for CELT-only)
 		d.mainDecodeRng = d.celtDecoder.FinalRange()
 	}
