@@ -1,5 +1,3 @@
-//go:build !gopus_sum_sq_asm || !amd64
-
 package celt
 
 // sumOfSquaresF64toF32 converts float64 elements to float32 and accumulates

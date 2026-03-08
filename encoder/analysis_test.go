@@ -75,6 +75,29 @@ func TestSilkResamplerDown2HPStereoMatchesDownmixThenResample(t *testing.T) {
 	}
 }
 
+func TestSilkResamplerDown2HPMatchesLegacy(t *testing.T) {
+	in := []float32{
+		0.11, -0.03, -0.27, 0.08,
+		0.36, -0.14, -0.48, 0.19,
+		0.59, -0.22, -0.63, 0.27,
+		0.71, -0.31, -0.82, 0.34,
+	}
+
+	stateA := []float32{-0.2, 0.45, -0.6}
+	stateB := append([]float32(nil), stateA...)
+	outA := make([]float32, len(in)/2)
+	outB := make([]float32, len(in)/2)
+
+	hpA := silkResamplerDown2HPLegacy(stateA, outA, in)
+	hpB := silkResamplerDown2HP(stateB, outB, in)
+
+	requireExactFloat32Slice(t, outB, outA)
+	requireExactFloat32Slice(t, stateB, stateA)
+	if math.Float32bits(hpB) != math.Float32bits(hpA) {
+		t.Fatalf("hp energy mismatch: got=%08x want=%08x", math.Float32bits(hpB), math.Float32bits(hpA))
+	}
+}
+
 func TestAnalysisFloat2IntRoundToEven(t *testing.T) {
 	tests := []struct {
 		in   float32
