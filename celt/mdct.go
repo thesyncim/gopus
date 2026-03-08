@@ -363,18 +363,15 @@ func imdctOverlapWithPrevScratchF32(out []float64, spectrum []float64, prevOverl
 	trig := getMDCTTrigF32(n)
 
 	var fftIn []complex64
-	var buf []float32
 	var fftTmp []kissCpx
 	var outF32 []float32
 	if scratch == nil {
 		fftIn = make([]complex64, n4)
 		fftTmp = make([]kissCpx, n4)
-		buf = make([]float32, n2)
 		outF32 = make([]float32, needed)
 	} else {
 		fftIn = ensureComplex64Slice(&scratch.fftIn, n4)
 		fftTmp = ensureKissCpxSlice(&scratch.fftTmp, n4)
-		buf = ensureFloat32Slice(&scratch.buf, n2)
 		outF32 = ensureFloat32Slice(&scratch.out, needed)
 	}
 
@@ -398,16 +395,12 @@ func imdctOverlapWithPrevScratchF32(out []float64, spectrum []float64, prevOverl
 		clear(outF32[:overlap])
 	}
 
+	buf := outF32[start : start+n2]
 	imdctPreRotateF32(fftIn, spectrum, trig, n2, n4)
 
 	kissFFT32ToInterleaved(buf, fftIn, fftTmp)
 
 	imdctPostRotateF32(buf, trig, n2, n4)
-
-	// Copy IMDCT output to outF32, starting at overlap/2
-	if start+n2 <= len(outF32) {
-		copy(outF32[start:start+n2], buf)
-	}
 
 	// TDAC windowing blends outF32[0:overlap] using float32
 	if overlap > 0 {

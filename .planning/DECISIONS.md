@@ -20,6 +20,13 @@ owner: <handle>
 ## Current Decisions
 
 date: 2026-03-08
+topic: CELT long-block IMDCT direct post-rotate target
+decision: Keep the `celt/mdct.go` long-block IMDCT path writing `kissFFT32ToInterleaved` / `imdctPostRotateF32` output directly into the overlap/output scratch window instead of staging through a separate float32 buffer and copying into place before TDAC windowing.
+evidence: Added `celt/imdct_overlap_f32_test.go`; `go test ./celt -run '^(TestIMDCTOverlapWithPrevScratchF32MatchesLegacyBufferCopy|TestDecodeFrameWithPacketStereoToFloat32MatchesDecodeFrame)$' -count=1` passed with bit-exact output against the legacy buffer-copy shape. Same-host decode A/B against safe-point worktree `3b416d0` remained slightly favorable: `BenchmarkDecoderDecode_CELT ~9168-9312 ns/op` baseline vs `~9074-9280 ns/op` current, and the fair speech decode example (`go run ./examples/bench-decode -sample speech -iters 3 -warmup 1 -mode both -batch 8`) improved from `avg 496.15843ms` to `avg 494.475055ms`. `go test ./celt -count=1` and `make bench-guard` passed.
+do_not_repeat_until: the long-block IMDCT output layout, overlap/TDAC staging, or float32 scratch ownership changes in a way that invalidates direct post-rotate writes into the overlap buffer region.
+owner: codex
+
+date: 2026-03-08
 topic: CELT MDCT direct-stage fast path
 decision: Keep the `celt/mdct_encode.go` fast path that folds/window-prepares samples and writes the pre-twiddled values directly into the bit-reversed `kissCpx` FFT scratch on the normal direct MDCT path. Keep the staged `f[]` materialization only as the fallback/debug path.
 evidence: Added an exact staged-reference guard in `celt/mdct_stage_test.go`; `go test ./celt -run '^(TestMDCTForwardOverlapDirectStageMatchesLegacyStagedPath|TestMDCT.*|TestLibopus.*MDCT.*|TestMDCTForward.*|TestMDCTShort.*)$' -count=1` passed and the direct-stage output matched the legacy staged path bit-for-bit on sizes `120/240/480/960`. Same-host isolated MDCT A/B versus baseline worktree `e50002a` improved from `frameSize=120 ~612.0-616.4 ns/op` to `~434.5-453.0 ns/op`, `240 ~1083-1089 ns/op` to `~790.2-801.0 ns/op`, `480 ~2021-2055 ns/op` to `~1515-1526 ns/op`, and `960 ~3947-4004 ns/op` to `~3045-3075 ns/op`. End-to-end encoder perf remained favorable (`BenchmarkEncoderEncode ~48822-49219 ns/op` baseline vs `~48129-49205 ns/op` current; fair speech encode example `avg 2.034969125s -> 2.025911069s`). Encoder compliance stayed green (`GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v`, `23 passed, 0 failed`).
