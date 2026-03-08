@@ -1117,7 +1117,7 @@ type encoderScratch struct {
 	prefilterXLP4     []float64
 	prefilterYLP4     []float64
 	prefilterXcorr    []float64
-	prefilterYYLookup []float64
+	prefilterYYLookup []float32
 
 	// MDCT coefficient buffers
 	mdctCoeffs []float64
@@ -1296,7 +1296,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	if yyLookupLen < 1 {
 		yyLookupLen = 1
 	}
-	s.prefilterYYLookup = ensureFloat64Slice(&s.prefilterYYLookup, yyLookupLen)
+	s.prefilterYYLookup = ensureFloat32Slice(&s.prefilterYYLookup, yyLookupLen)
 
 	// MDCT coefficients
 	s.mdctCoeffs = ensureFloat64Slice(&s.mdctCoeffs, frameSize*2)

@@ -20,6 +20,13 @@ owner: <handle>
 ## Current Decisions
 
 date: 2026-03-08
+topic: removeDoubling float-width yy_lookup scratch
+decision: Keep `celt/prefilter.go` `removeDoubling()` using `encoderScratch.prefilterYYLookup` as `[]float32`, matching libopus float-width `yy_lookup` semantics instead of storing those running values in `[]float64` scratch and narrowing them on every read.
+evidence: Added `celt/remove_doubling_test.go`; `go test ./celt -run '^TestRemoveDoublingMatchesLegacyYYLookup$' -bench '^(BenchmarkRemoveDoublingCurrent|BenchmarkRemoveDoublingLegacy)$' -count=3 -cpu=1` passed with exact lag/gain agreement against the legacy float64-lookup reference. The microbench improved from legacy `~2496-2601 ns/op` to current `~2265-2300 ns/op`. Same-host A/B versus baseline worktree `2242402` stayed favorable on the encoder root bench (`~47325-47750 ns/op` baseline vs `~47231-47336 ns/op` current) and on the fair speech encode example (`avg 2.00886493s -> 1.991523458s`). `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` remained green (`23 passed, 0 failed`), and `make bench-guard` passed.
+do_not_repeat_until: `removeDoubling()` gain/threshold semantics, prefilter scratch ownership, or libopus pitch-doubling control flow changes in a way that invalidates the float-width lookup equivalence guard.
+owner: codex
+
+date: 2026-03-08
 topic: CELT long-block IMDCT direct post-rotate target
 decision: Keep the `celt/mdct.go` long-block IMDCT path writing `kissFFT32ToInterleaved` / `imdctPostRotateF32` output directly into the overlap/output scratch window instead of staging through a separate float32 buffer and copying into place before TDAC windowing.
 evidence: Added `celt/imdct_overlap_f32_test.go`; `go test ./celt -run '^(TestIMDCTOverlapWithPrevScratchF32MatchesLegacyBufferCopy|TestDecodeFrameWithPacketStereoToFloat32MatchesDecodeFrame)$' -count=1` passed with bit-exact output against the legacy buffer-copy shape. Same-host decode A/B against safe-point worktree `3b416d0` remained slightly favorable: `BenchmarkDecoderDecode_CELT ~9168-9312 ns/op` baseline vs `~9074-9280 ns/op` current, and the fair speech decode example (`go run ./examples/bench-decode -sample speech -iters 3 -warmup 1 -mode both -batch 8`) improved from `avg 496.15843ms` to `avg 494.475055ms`. `go test ./celt -count=1` and `make bench-guard` passed.

@@ -879,9 +879,9 @@ func removeDoubling(x []float64, maxPeriod, minPeriod, N int, T0 *int, prevPerio
 	xx := float32(xx64)
 	xy := float32(xy64)
 
-	yyLookup := ensureFloat64Slice(&scratch.prefilterYYLookup, maxPeriod+1)
+	yyLookup := ensureFloat32Slice(&scratch.prefilterYYLookup, maxPeriod+1)
 	yy := xx
-	yyLookup[0] = float64(yy)
+	yyLookup[0] = yy
 	for i := 1; i <= maxPeriod; i++ {
 		v1 := float32(xBase[maxPeriod-i])
 		v2 := float32(xBase[maxPeriod+N-i])
@@ -889,10 +889,10 @@ func removeDoubling(x []float64, maxPeriod, minPeriod, N int, T0 *int, prevPerio
 		if yy < 0 {
 			yy = 0
 		}
-		yyLookup[i] = float64(yy)
+		yyLookup[i] = yy
 	}
 
-	yy = float32(yyLookup[T0val])
+	yy = yyLookup[T0val]
 	bestXY := xy
 	bestYY := yy
 	g := computePitchGain(xy, xx, yy)
@@ -916,7 +916,7 @@ func removeDoubling(x []float64, maxPeriod, minPeriod, N int, T0 *int, prevPerio
 		}
 		xy1, xy2 := prefilterDualInnerProd(x0, xBase[maxPeriod-T1:maxPeriod-T1+N], xBase[maxPeriod-T1b:maxPeriod-T1b+N], N)
 		xy = float32(0.5) * (float32(xy1) + float32(xy2))
-		yy = float32(0.5) * (float32(yyLookup[T1]) + float32(yyLookup[T1b]))
+		yy = float32(0.5) * (yyLookup[T1] + yyLookup[T1b])
 		g1 := computePitchGain(xy, xx, yy)
 		cont := float32(0)
 		if util.Abs(T1-prevPeriod) <= 1 {
