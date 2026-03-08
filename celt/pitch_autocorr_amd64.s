@@ -4,7 +4,7 @@
 //
 // Computes 5 autocorrelation values with float32 accumulation.
 // Uses AVX for f64→f32 conversion and FMA for accumulation.
-TEXT ·pitchAutocorr5(SB), NOSPLIT, $0-40
+TEXT ·pitchAutocorr5AVXFMA(SB), NOSPLIT, $0-40
 	MOVQ lp_base+0(FP), AX
 	MOVQ length+24(FP), CX
 	MOVQ ac+32(FP), DI

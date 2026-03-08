@@ -17,7 +17,7 @@
 //   X3    = x[i]
 //   X4    = x[i+delay]
 //   X5    = x[i+delay2]
-TEXT ·toneLPCCorr(SB), NOSPLIT, $0-56
+TEXT ·toneLPCCorrAVXFMA(SB), NOSPLIT, $0-56
 	MOVQ x_base+0(FP), AX
 	MOVQ cnt+24(FP), CX
 	MOVQ delay+32(FP), DX

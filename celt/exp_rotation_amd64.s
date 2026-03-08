@@ -20,7 +20,7 @@
 //   X1    = {s, s}
 //   X2    = {ms, ms}
 //   X3-X7 = temporaries
-TEXT ·expRotation1Stride2(SB), NOSPLIT, $0-48
+TEXT ·expRotation1Stride2AVXFMA(SB), NOSPLIT, $0-48
 	MOVQ x_base+0(FP), R8
 	MOVQ length+24(FP), CX
 

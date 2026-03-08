@@ -1,10 +1,10 @@
 #include "textflag.h"
 
-// func roundFloat64ToFloat32(x []float64)
+// func roundFloat64ToFloat32AVX(x []float64)
 //
 // Rounds each float64 element to float32 precision and back.
 // Processes 4 elements per iteration using AVX CVTPD2PS/CVTPS2PD round-trip.
-TEXT ·roundFloat64ToFloat32(SB), NOSPLIT, $0-24
+TEXT ·roundFloat64ToFloat32AVX(SB), NOSPLIT, $0-24
 	MOVQ x_base+0(FP), AX
 	MOVQ x_len+8(FP), CX
 

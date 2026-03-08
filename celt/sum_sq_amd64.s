@@ -2,11 +2,11 @@
 
 #include "textflag.h"
 
-// func sumOfSquaresF64toF32(x []float64, n int) float64
+// func sumOfSquaresF64toF32AVX(x []float64, n int) float64
 //
 // Converts float64 elements to float32 and accumulates the sum of squares
 // in float32 precision (matching the Go fallback exactly).
-TEXT ·sumOfSquaresF64toF32(SB), NOSPLIT, $0-40
+TEXT ·sumOfSquaresF64toF32AVX(SB), NOSPLIT, $0-40
 	MOVQ x_base+0(FP), AX
 	MOVQ n+24(FP), CX
 

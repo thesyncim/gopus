@@ -4,7 +4,7 @@
 //
 // Float32-accumulated dot product using AVX.
 // Converts float64 inputs to float32 via VCVTPD2PS, accumulates with VFMADD231PS.
-TEXT ·prefilterInnerProd(SB), NOSPLIT, $0-56
+TEXT ·prefilterInnerProdAVXFMA(SB), NOSPLIT, $0-56
 	MOVQ x_base+0(FP), AX
 	MOVQ y_base+24(FP), BX
 	MOVQ length+48(FP), CX
@@ -73,7 +73,7 @@ pip_zero:
 // func prefilterDualInnerProd(x []float64, y1 []float64, y2 []float64, length int) (float64, float64)
 //
 // Two float32-accumulated dot products sharing x input.
-TEXT ·prefilterDualInnerProd(SB), NOSPLIT, $0-96
+TEXT ·prefilterDualInnerProdAVXFMA(SB), NOSPLIT, $0-96
 	MOVQ x_base+0(FP), AX
 	MOVQ y1_base+24(FP), BX
 	MOVQ y2_base+48(FP), DX
