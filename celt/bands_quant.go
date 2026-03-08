@@ -2383,6 +2383,10 @@ func quantBandN1DecodeStereo(ctx *bandCtx, x, y []float64, b int, lowbandOut []f
 }
 
 func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int, lowbandOut []float64, gain float64, lowbandScratch []float64, fill int) int {
+	return quantBandPreparedLowband(ctx, x, n, b, B, lowband, lm, lowbandOut, gain, lowbandScratch, fill, false)
+}
+
+func quantBandPreparedLowband(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int, lowbandOut []float64, gain float64, lowbandScratch []float64, fill int, lowbandPrepared bool) int {
 	if tmpGainF32Enabled {
 		gain = float64(float32(gain))
 	}
@@ -2404,7 +2408,7 @@ func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int
 		recombine = tfChange
 	}
 
-	if lowbandScratch != nil && lowband != nil && (recombine != 0 || ((N_B&1) == 0 && tfChange < 0) || B > 1) {
+	if !lowbandPrepared && lowbandScratch != nil && lowband != nil && (recombine != 0 || ((N_B&1) == 0 && tfChange < 0) || B > 1) {
 		copy(lowbandScratch, lowband)
 		lowband = lowbandScratch
 	}
@@ -2414,7 +2418,7 @@ func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int
 			if ctx.encode {
 				haar1(x, n>>k, 1<<k)
 			}
-			if lowband != nil {
+			if lowband != nil && !lowbandPrepared {
 				haar1(lowband, n>>k, 1<<k)
 			}
 			fill = bitInterleaveTable[fill&0xF] | (bitInterleaveTable[fill>>4] << 2)
@@ -2428,7 +2432,7 @@ func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int
 		if ctx.encode {
 			haar1(x, N_B, B)
 		}
-		if lowband != nil {
+		if lowband != nil && !lowbandPrepared {
 			haar1(lowband, N_B, B)
 		}
 		fill |= fill << B
@@ -2448,7 +2452,7 @@ func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int
 		} else {
 			deinterleaveHadamardScratchBuf(x, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch, ctx.encScratch)
 		}
-		if lowband != nil {
+		if lowband != nil && !lowbandPrepared {
 			deinterleaveHadamardScratchBuf(lowband, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch, ctx.encScratch)
 		}
 	}
@@ -2456,7 +2460,7 @@ func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int
 		for i := 0; i < n; i++ {
 			x[i] = float64(float32(x[i]))
 		}
-		if lowband != nil {
+		if lowband != nil && !lowbandPrepared {
 			for i := 0; i < n && i < len(lowband); i++ {
 				lowband[i] = float64(float32(lowband[i]))
 			}
@@ -2504,6 +2508,43 @@ func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int
 		cm &= (1 << B) - 1
 	}
 	return cm
+}
+
+func prepareQuantBandLowband(dst, src []float64, n, B, tfChange int, scratch *bandEncodeScratch) []float64 {
+	if src == nil || len(src) < n || len(dst) < n {
+		return nil
+	}
+	dst = dst[:n]
+	copy(dst, src[:n])
+
+	N_B := celtUdiv(n, B)
+	recombine := 0
+	if tfChange > 0 {
+		recombine = tfChange
+	}
+	if recombine != 0 {
+		for k := 0; k < recombine; k++ {
+			haar1(dst, n>>k, 1<<k)
+		}
+	}
+	longBlocks := B == 1
+	B >>= recombine
+	N_B <<= recombine
+	for (N_B&1) == 0 && tfChange < 0 {
+		haar1(dst, N_B, B)
+		B <<= 1
+		N_B >>= 1
+		tfChange++
+	}
+	if B > 1 {
+		deinterleaveHadamardScratchBuf(dst, N_B>>recombine, B<<recombine, longBlocks, nil, scratch)
+	}
+	if tmpQuantBandF32Enabled {
+		for i := 0; i < n; i++ {
+			dst[i] = float64(float32(dst[i]))
+		}
+	}
+	return dst
 }
 
 func quantBandDecode(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int, lowbandOut []float64, gain float64, lowbandScratch []float64, fill int) int {
@@ -2612,6 +2653,10 @@ func quantBandDecode(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, 
 }
 
 func quantBandStereo(ctx *bandCtx, x, y []float64, n, b, B int, lowband []float64, lm int, lowbandOut []float64, lowbandScratch []float64, fill int) int {
+	return quantBandStereoPreparedLowband(ctx, x, y, n, b, B, lowband, lm, lowbandOut, lowbandScratch, fill, false)
+}
+
+func quantBandStereoPreparedLowband(ctx *bandCtx, x, y []float64, n, b, B int, lowband []float64, lm int, lowbandOut []float64, lowbandScratch []float64, fill int, lowbandPrepared bool) int {
 	if n == 1 {
 		return quantBandN1(ctx, x, y, b, lowbandOut)
 	}
@@ -2678,7 +2723,7 @@ func quantBandStereo(ctx *bandCtx, x, y []float64, n, b, B int, lowband []float6
 				}
 			}
 		}
-		cm := quantBand(ctx, x2, n, mbits, B, lowband, lm, lowbandOut, 1.0, lowbandScratch, origFill)
+		cm := quantBandPreparedLowband(ctx, x2, n, mbits, B, lowband, lm, lowbandOut, 1.0, lowbandScratch, origFill, lowbandPrepared)
 		y2[0] = float64(sign) * (-x2[1])
 		y2[1] = float64(sign) * x2[0]
 		if ctx.resynth {
@@ -2709,7 +2754,7 @@ func quantBandStereo(ctx *bandCtx, x, y []float64, n, b, B int, lowband []float6
 	rebalance := ctx.remainingBits
 	cm := 0
 	if mbits >= sbits {
-		cm = quantBand(ctx, x, n, mbits, B, lowband, lm, lowbandOut, 1.0, lowbandScratch, fill)
+		cm = quantBandPreparedLowband(ctx, x, n, mbits, B, lowband, lm, lowbandOut, 1.0, lowbandScratch, fill, lowbandPrepared)
 		rebalance = mbits - (rebalance - ctx.remainingBits)
 		if rebalance > 3<<bitRes && sctx.itheta != 0 {
 			sbits += rebalance - (3 << bitRes)
@@ -2729,7 +2774,7 @@ func quantBandStereo(ctx *bandCtx, x, y []float64, n, b, B int, lowband []float6
 		if rebalance > 3<<bitRes && sctx.itheta != 16384 {
 			mbits += rebalance - (3 << bitRes)
 		}
-		cm |= quantBand(ctx, x, n, mbits, B, lowband, lm, lowbandOut, 1.0, lowbandScratch, fill)
+		cm |= quantBandPreparedLowband(ctx, x, n, mbits, B, lowband, lm, lowbandOut, 1.0, lowbandScratch, fill, lowbandPrepared)
 	}
 
 	if ctx.resynth {
@@ -3347,6 +3392,20 @@ func quantAllBandsEncodeScratch(re *rangecoding.Encoder, channels, frameSize, lm
 						rightE = bandE[ctx.nbBands+i]
 					}
 					w0, w1 := computeChannelWeights(leftE, rightE)
+					preparedLowbandX := lowbandX
+					lowbandPrepared := false
+					if lowbandX != nil {
+						if scratch != nil {
+							preparedLowbandX = scratch.ensureLowbandScratch(nBand)
+						} else {
+							preparedLowbandX = make([]float64, nBand)
+						}
+						if prepareQuantBandLowband(preparedLowbandX, lowbandX, nBand, B, ctx.tfChange, scratch) != nil {
+							lowbandPrepared = true
+						} else {
+							preparedLowbandX = lowbandX
+						}
+					}
 
 					// Save original input data - use scratch if available
 					var xSave, ySave []float64
@@ -3384,7 +3443,7 @@ func quantAllBandsEncodeScratch(re *rangecoding.Encoder, channels, frameSize, lm
 					// Try encoding with theta_round = -1 (bias toward 0/16384)
 					ctx.thetaRound = -1
 					cm := xCM | yCM
-					xCM0 := quantBandStereo(&ctx, xBand, yBand, nBand, b, B, lowbandX, lm, lowbandOutX, lowbandScratch, cm)
+					xCM0 := quantBandStereoPreparedLowband(&ctx, xBand, yBand, nBand, b, B, preparedLowbandX, lm, lowbandOutX, lowbandScratch, cm, lowbandPrepared)
 
 					// Compute distortion for first trial
 					dist0 := w0*innerProduct(xSave, xBand) + w1*innerProduct(ySave, yBand)
@@ -3434,7 +3493,7 @@ func quantAllBandsEncodeScratch(re *rangecoding.Encoder, channels, frameSize, lm
 
 					// Try encoding with theta_round = +1 (bias toward equal split)
 					ctx.thetaRound = 1
-					xCM1 := quantBandStereo(&ctx, xBand, yBand, nBand, b, B, lowbandX, lm, lowbandOutX, lowbandScratch, cm)
+					xCM1 := quantBandStereoPreparedLowband(&ctx, xBand, yBand, nBand, b, B, preparedLowbandX, lm, lowbandOutX, lowbandScratch, cm, lowbandPrepared)
 
 					// Compute distortion for second trial
 					dist1 := w0*innerProduct(xSave, xBand) + w1*innerProduct(ySave, yBand)
