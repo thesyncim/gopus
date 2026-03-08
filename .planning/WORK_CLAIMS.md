@@ -45,4 +45,4 @@ Quick commands:
 - claim: id=codex-20260305-223128; agent=codex; status=released; paths=celt/,.planning/; updated=2026-03-06T09:43:11Z; expires=2026-03-06T09:43:11Z; note=perf loop: prototype float32 quarter-rate prefilter scratch path
 - claim: id=codex-20260306-185234; agent=codex; status=released; paths=celt/,.planning/; updated=2026-03-07T18:23:57Z; expires=2026-03-07T18:23:57Z; note=perf loop: transientAnalysis pairwise fusion
 - claim: id=codex-20260306-190137; agent=codex; status=released; paths=encoder/; updated=2026-03-07T18:23:57Z; expires=2026-03-07T18:23:57Z; note=perf loop: tonalityAnalysis speedup for example encode
-- claim: id=codex-20260307-183321; agent=codex; status=active; paths=encoder/,celt/,examples/,.planning/; updated=2026-03-07T18:33:21Z; expires=2026-03-07T22:33:21Z; note=perf loop: fair libopus harness + encoder/decoder hot path
+- claim: id=codex-20260307-183321; agent=codex; status=released; paths=encoder/,celt/,examples/,.planning/; updated=2026-03-08T12:30:41Z; expires=2026-03-08T12:30:41Z; note=perf loop: fair libopus harness + encoder/decoder hot path
