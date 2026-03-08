@@ -17,7 +17,7 @@
 //   X12 = bestNum
 //   X13 = bestDen
 //   X0-X5 = temporaries
-TEXT ·pvqSearchBestPos(SB), NOSPLIT, $0-80
+TEXT ·pvqSearchBestPosAVX(SB), NOSPLIT, $0-80
 	MOVQ  absX_base+0(FP), AX
 	MOVQ  y_base+24(FP), BX
 	VMOVSD xy+48(FP), X10
@@ -146,7 +146,7 @@ pvq_ret_zero:
 //   X8   = constant 1.0f
 //   X9   = constant 2.0f
 //   X0-X5 = temporaries
-TEXT ·pvqSearchPulseLoop(SB), NOSPLIT, $0-120
+TEXT ·pvqSearchPulseLoopAVX(SB), NOSPLIT, $0-120
 	MOVQ  absX_base+0(FP), AX
 	MOVQ  y_base+24(FP), BX
 	MOVQ  iy_base+48(FP), R9
@@ -299,7 +299,7 @@ ppl_done:
 //   R10 = n
 //   R11 = j (counter)
 //   X0, X1 = temporaries
-TEXT ·pvqExtractAbsSign(SB), NOSPLIT, $0-128
+TEXT ·pvqExtractAbsSignAVX(SB), NOSPLIT, $0-128
 	MOVQ  x_base+0(FP), AX
 	MOVQ  absX_base+24(FP), BX
 	MOVQ  y_base+48(FP), CX

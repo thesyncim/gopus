@@ -1,4 +1,4 @@
-//go:build amd64 && gopus_sum_sq_asm
+//go:build arm64 && gopus_sum_sq_asm
 
 package celt
 

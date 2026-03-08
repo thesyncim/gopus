@@ -2,14 +2,14 @@
 
 #include "textflag.h"
 
-// func spreadCountThresholds(x []float64, n int, nf float64) (t0, t1, t2 int)
+// func spreadCountThresholdsAVX(x []float64, n int, nf float64) (t0, t1, t2 int)
 //
 // Counts coefficients below three thresholds using SSE2/AVX float64 SIMD.
 // Processes 2 float64 values per iteration.
 //
 // Thresholds: 0.25, 0.0625, 0.015625
 // Comparison: x[j]*x[j]*nf < threshold
-TEXT ·spreadCountThresholds(SB), NOSPLIT, $0-64
+TEXT ·spreadCountThresholdsAVX(SB), NOSPLIT, $0-64
 	MOVQ x_base+0(FP), AX
 	MOVQ n+24(FP), CX
 	VMOVSD nf+32(FP), X15

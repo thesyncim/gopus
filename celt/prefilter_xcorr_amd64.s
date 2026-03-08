@@ -4,7 +4,7 @@
 //
 // Float32-accumulated pitch cross-correlation using AVX2+FMA3.
 // Converts float64 inputs to float32 via VCVTPD2PS, accumulates with VFMADD231PS.
-TEXT ·prefilterPitchXcorr(SB), NOSPLIT, $0-88
+TEXT ·prefilterPitchXcorrAVX2FMA(SB), NOSPLIT, $0-88
 	MOVQ x_base+0(FP), AX
 	MOVQ y_base+24(FP), BX
 	MOVQ xcorr_base+48(FP), CX
