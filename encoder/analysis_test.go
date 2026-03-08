@@ -6,6 +6,75 @@ import (
 	"testing"
 )
 
+func requireExactFloat32Slice(t *testing.T, got, want []float32) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("length mismatch: got %d want %d", len(got), len(want))
+	}
+	for i := range got {
+		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+			t.Fatalf("sample[%d] mismatch: got=%08x want=%08x", i, math.Float32bits(got[i]), math.Float32bits(want[i]))
+		}
+	}
+}
+
+func orderedFloat32Bits(v float32) uint32 {
+	bits := math.Float32bits(v)
+	if bits&(1<<31) != 0 {
+		return ^bits
+	}
+	return bits | (1 << 31)
+}
+
+func ulpDiffFloat32(got, want float32) uint32 {
+	gb := orderedFloat32Bits(got)
+	wb := orderedFloat32Bits(want)
+	if gb > wb {
+		return gb - wb
+	}
+	return wb - gb
+}
+
+func requireFloat32SliceWithinULP(t *testing.T, got, want []float32, maxULP uint32) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("length mismatch: got %d want %d", len(got), len(want))
+	}
+	for i := range got {
+		if diff := ulpDiffFloat32(got[i], want[i]); diff > maxULP {
+			t.Fatalf("sample[%d] mismatch: got=%08x want=%08x ulp=%d", i, math.Float32bits(got[i]), math.Float32bits(want[i]), diff)
+		}
+	}
+}
+
+func TestSilkResamplerDown2HPStereoMatchesDownmixThenResample(t *testing.T) {
+	in := []float32{
+		0.11, -0.03, -0.27, 0.08,
+		0.36, -0.14, -0.48, 0.19,
+		0.59, -0.22, -0.63, 0.27,
+		0.71, -0.31, -0.82, 0.34,
+	}
+	scale := float32(0.5 * celtSigScale)
+	staged := make([]float32, len(in)/2)
+	for i := 0; i < len(staged); i++ {
+		staged[i] = (in[2*i] + in[2*i+1]) * scale
+	}
+
+	stateA := []float32{-0.2, 0.45, -0.6}
+	stateB := append([]float32(nil), stateA...)
+	outA := make([]float32, len(in)/4)
+	outB := make([]float32, len(in)/4)
+
+	hpA := silkResamplerDown2HP(stateA, outA, staged)
+	hpB := silkResamplerDown2HPStereo(stateB, outB, in, scale)
+
+	requireFloat32SliceWithinULP(t, outB, outA, 8)
+	requireFloat32SliceWithinULP(t, stateB, stateA, 8)
+	if diff := ulpDiffFloat32(hpB, hpA); diff > 8 {
+		t.Fatalf("hp energy mismatch: got=%08x want=%08x ulp=%d", math.Float32bits(hpB), math.Float32bits(hpA), diff)
+	}
+}
+
 func TestAnalysisFloat2IntRoundToEven(t *testing.T) {
 	tests := []struct {
 		in   float32
