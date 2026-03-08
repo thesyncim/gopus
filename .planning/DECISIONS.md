@@ -19,6 +19,13 @@ owner: <handle>
 
 ## Current Decisions
 
+date: 2026-03-08
+topic: CELT zero-pulse resynthesis fused fill/energy path
+decision: Keep `celt/bands_quant.go` `seededZeroPulseResynth()` for the zero-pulse noise/fold resynthesis path used by `quantPartition()` and `quantPartitionDecode()`. Keep the fused generate+energy accumulation shape, but only on the exact seed-present / lowband-length-safe cases; retain the existing fallback path for nil seed or short lowband slices.
+evidence: Exact legacy-equivalence guards passed (`go test ./celt -run '^(TestSeededZeroPulseResynthMatchesLegacy|TestSeededZeroPulseResynthFallback)$' -count=1`). Direct helper microbench improved from legacy noise `~76.99-77.83 ns/op` to `~19.55-19.78 ns/op` and fold `~152.5-153.8 ns/op` to `~24.30-24.49 ns/op`. Root decoder A/B versus baseline worktree `2bf74af` on the same host improved `BenchmarkDecoderDecode_CELT` from `~10341-10554 ns/op` to `~9086-9173 ns/op` (~`12%` faster) while encoder remained flat (`~48108-48507 ns/op` baseline vs `~47950-48584 ns/op` current). The fair speech decode example improved from `avg 514.151069ms` to `avg 495.682292ms` at `batch 8`. `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` stayed green (`23 passed, 0 failed`), and `make bench-guard` passed.
+do_not_repeat_until: zero-pulse band fill semantics, seed handling, lowband slicing invariants, or renormalization order/precision requirements change in a way that invalidates this fused helper.
+owner: codex
+
 date: 2026-03-07
 topic: libopus perf comparison fairness harness
 decision: Keep end-to-end perf comparisons pinned to `tmp_check/opus-1.6.1/opus_demo` with batched whole-stream runs; do not compare against ffmpeg or a harness that pays per-iteration libopus process startup overhead.
