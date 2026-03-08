@@ -52,4 +52,4 @@ Quick commands:
 - claim: id=codex-20260308-150526; agent=codex; status=released; paths=celt/,.planning/,go.mod,go.sum; updated=2026-03-08T16:52:03Z; expires=2026-03-08T16:52:03Z; note=amd64 asm runtime dispatch correctness and parity-safe perf
 - claim: id=codex-20260308-155121; agent=codex; status=released; paths=encoder/,celt/,.planning/; updated=2026-03-08T16:52:07Z; expires=2026-03-08T16:52:07Z; note=perf parity loop after asm safety merge
 - claim: id=codex-20260308-165212; agent=codex; status=released; paths=celt/,silk/,.planning/; updated=2026-03-08T17:34:49Z; expires=2026-03-08T17:34:49Z; note=replace tag-guarded asm with std-style default dispatch
-- claim: id=codex-20260308-173459; agent=codex; status=active; paths=celt/,encoder/,.planning/; updated=2026-03-08T17:34:59Z; expires=2026-03-08T21:34:59Z; note=runtime ISA dispatch and asm perf parity pass
+- claim: id=codex-20260308-173459; agent=codex; status=released; paths=celt/,encoder/,.planning/; updated=2026-03-08T18:13:15Z; expires=2026-03-08T18:13:15Z; note=runtime ISA dispatch and asm perf parity pass
