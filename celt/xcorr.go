@@ -1,4 +1,4 @@
- package celt
+package celt
 
 func celtInnerProd(x, y []float64, length int) float64 {
 	if length <= 0 {
@@ -48,4 +48,3 @@ func dualInnerProd(x, y1, y2 []float64, length int) (float64, float64) {
 	}
 	return a0 + a1 + a2 + a3, b0 + b1 + b2 + b3
 }
-
