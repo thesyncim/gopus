@@ -20,6 +20,13 @@ owner: <handle>
 ## Current Decisions
 
 date: 2026-03-08
+topic: 48 kHz mono analysis down2 loop unroll on Apple M4 Max
+decision: Keep the two-output unroll in `encoder/analysis.go` `silkResamplerDown2HP()` and mirror the same loop shape in `silkResamplerDown2HPStereo()`, but only because it preserves the exact scalar arithmetic/state order and stays end-to-end favorable on the current host. Treat this as a loop-structure cleanup, not a math change.
+evidence: Added `encoder/analysis_resampler_bench_test.go` plus `TestSilkResamplerDown2HPMatchesLegacy` in `encoder/analysis_test.go`. Focused exactness passed (`go test ./encoder -run '^(TestSilkResamplerDown2HPMatchesLegacy|TestSilkResamplerDown2HPStereoMatchesDownmixThenResample)$' -count=1`). Same-base arm64 A/B against `origin/master` favored the change: `BenchmarkSilkResamplerDown2HPLegacy ~947.7-978.3 ns/op` vs `BenchmarkSilkResamplerDown2HPCurrent ~874.1-895.4 ns/op`, `BenchmarkTonalityAnalysis48kMono ~7250-7284 ns/op` baseline vs `~7158-7187 ns/op` current, and root `BenchmarkEncoderEncode ~47245-47784 ns/op` baseline vs `~46996-47321 ns/op` current.
+do_not_repeat_until: the down2 filter coefficients, state-update order, 48 kHz tonality-analysis call pattern, or target host/arch changes enough that the exactness guard or same-base encoder A/B is no longer representative.
+owner: codex
+
+date: 2026-03-08
 topic: amd64 CELT asm runtime dispatch and old-hardware fallback
 decision: Keep amd64 CELT VEX/FMA kernels behind runtime CPU-feature dispatch instead of exporting them as unconditional default symbols. Gate the existing amd64 asm entry points on `AVX`, `AVX+FMA`, or `AVX2+FMA` as required, and fall back to the existing generic Go implementations on older x86 CPUs. Apply the same rule to the tag-gated amd64 `sum_sq` and `spread_count` kernels.
 evidence: Added `celt/amd64_dispatch.go`, `celt/sum_sq_amd64_dispatch.go`, and `celt/spread_count_amd64_dispatch.go`, plus forced-fallback guards in `celt/amd64_dispatch_test.go`, `celt/amd64_sum_sq_dispatch_test.go`, and `celt/amd64_spread_count_dispatch_test.go`. Validation passed: `go test ./celt -count=1`, `GOARCH=amd64 go test ./celt -run '^TestAMD64DispatchFallbackMatchesGeneric$' -count=1`, `GOARCH=amd64 go test ./celt -tags 'gopus_sum_sq_asm gopus_spread_asm' -run '^TestAMD64(SumSq|SpreadCount)FallbackMatchesGeneric$' -count=1`, `GOARCH=amd64 go test ./celt -count=1`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` (`23 passed, 0 failed`), and `make bench-guard`. `make verify-production` again failed only on the known local `tmp_check` cgo-disabled blocker while the non-`tmp_check` packages passed.
