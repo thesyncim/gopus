@@ -113,6 +113,91 @@ func deinterleaveHadamard(x []float64, n0, stride int, hadamard bool) {
 	deinterleaveHadamardScratchBuf(x, n0, stride, hadamard, nil, nil)
 }
 
+func deinterleaveHadamardInto(dst, src []float64, n0, stride int, hadamard bool) {
+	n := n0 * stride
+	dst = dst[:n]
+	src = src[:n]
+	if hadamard {
+		ordery := orderyForStride(stride)
+		for i := 0; i < stride; i++ {
+			row := ordery[i] * n0
+			for j := 0; j < n0; j++ {
+				dst[row+j] = src[j*stride+i]
+			}
+		}
+		return
+	}
+	switch stride {
+	case 2:
+		for j := 0; j < n0; j++ {
+			base := j << 1
+			dst[j] = src[base]
+			dst[n0+j] = src[base+1]
+		}
+	case 3:
+		n1 := n0
+		n2 := n0 << 1
+		for j := 0; j < n0; j++ {
+			base := j * 3
+			dst[j] = src[base]
+			dst[n1+j] = src[base+1]
+			dst[n2+j] = src[base+2]
+		}
+	case 4:
+		n1 := n0
+		n2 := n0 << 1
+		n3 := n2 + n0
+		for j := 0; j < n0; j++ {
+			base := j << 2
+			dst[j] = src[base]
+			dst[n1+j] = src[base+1]
+			dst[n2+j] = src[base+2]
+			dst[n3+j] = src[base+3]
+		}
+	case 8:
+		n1 := n0
+		n2 := n0 << 1
+		n3 := n2 + n0
+		n4 := n0 << 2
+		n5 := n4 + n0
+		n6 := n4 + n2
+		n7 := n4 + n3
+		for j := 0; j < n0; j++ {
+			base := j << 3
+			dst[j] = src[base]
+			dst[n1+j] = src[base+1]
+			dst[n2+j] = src[base+2]
+			dst[n3+j] = src[base+3]
+			dst[n4+j] = src[base+4]
+			dst[n5+j] = src[base+5]
+			dst[n6+j] = src[base+6]
+			dst[n7+j] = src[base+7]
+		}
+	case 6:
+		n1 := n0
+		n2 := n0 << 1
+		n3 := n2 + n0
+		n4 := n0 << 2
+		n5 := n4 + n0
+		for j := 0; j < n0; j++ {
+			base := j * 6
+			dst[j] = src[base]
+			dst[n1+j] = src[base+1]
+			dst[n2+j] = src[base+2]
+			dst[n3+j] = src[base+3]
+			dst[n4+j] = src[base+4]
+			dst[n5+j] = src[base+5]
+		}
+	default:
+		for i := 0; i < stride; i++ {
+			row := i * n0
+			for j := 0; j < n0; j++ {
+				dst[row+j] = src[j*stride+i]
+			}
+		}
+	}
+}
+
 func deinterleaveHadamardScratchBuf(x []float64, n0, stride int, hadamard bool, decScratch *bandDecodeScratch, encScratch *bandEncodeScratch) {
 	n := n0 * stride
 	var tmp []float64
@@ -123,65 +208,97 @@ func deinterleaveHadamardScratchBuf(x []float64, n0, stride int, hadamard bool, 
 	} else {
 		tmp = make([]float64, n)
 	}
-	if hadamard {
-		ordery := orderyForStride(stride)
-		for i := 0; i < stride; i++ {
-			for j := 0; j < n0; j++ {
-				tmp[ordery[i]*n0+j] = x[j*stride+i]
-			}
-		}
-	} else {
-		switch stride {
-		case 2:
-			for j := 0; j < n0; j++ {
-				base := j << 1
-				tmp[j] = x[base]
-				tmp[n0+j] = x[base+1]
-			}
-		case 4:
-			n1 := n0
-			n2 := n0 << 1
-			n3 := n2 + n0
-			for j := 0; j < n0; j++ {
-				base := j << 2
-				tmp[j] = x[base]
-				tmp[n1+j] = x[base+1]
-				tmp[n2+j] = x[base+2]
-				tmp[n3+j] = x[base+3]
-			}
-		case 8:
-			n1 := n0
-			n2 := n0 << 1
-			n3 := n2 + n0
-			n4 := n0 << 2
-			n5 := n4 + n0
-			n6 := n4 + n2
-			n7 := n4 + n3
-			for j := 0; j < n0; j++ {
-				base := j << 3
-				tmp[j] = x[base]
-				tmp[n1+j] = x[base+1]
-				tmp[n2+j] = x[base+2]
-				tmp[n3+j] = x[base+3]
-				tmp[n4+j] = x[base+4]
-				tmp[n5+j] = x[base+5]
-				tmp[n6+j] = x[base+6]
-				tmp[n7+j] = x[base+7]
-			}
-		default:
-			for i := 0; i < stride; i++ {
-				row := i * n0
-				for j := 0; j < n0; j++ {
-					tmp[row+j] = x[j*stride+i]
-				}
-			}
-		}
-	}
+	deinterleaveHadamardInto(tmp, x, n0, stride, hadamard)
 	copy(x, tmp)
 }
 
 func interleaveHadamard(x []float64, n0, stride int, hadamard bool) {
 	interleaveHadamardScratchBuf(x, n0, stride, hadamard, nil, nil)
+}
+
+func interleaveHadamardInto(dst, src []float64, n0, stride int, hadamard bool) {
+	n := n0 * stride
+	dst = dst[:n]
+	src = src[:n]
+	if hadamard {
+		ordery := orderyForStride(stride)
+		for i := 0; i < stride; i++ {
+			row := ordery[i] * n0
+			for j := 0; j < n0; j++ {
+				dst[j*stride+i] = src[row+j]
+			}
+		}
+		return
+	}
+	switch stride {
+	case 2:
+		for j := 0; j < n0; j++ {
+			base := j << 1
+			dst[base] = src[j]
+			dst[base+1] = src[n0+j]
+		}
+	case 3:
+		n1 := n0
+		n2 := n0 << 1
+		for j := 0; j < n0; j++ {
+			base := j * 3
+			dst[base] = src[j]
+			dst[base+1] = src[n1+j]
+			dst[base+2] = src[n2+j]
+		}
+	case 4:
+		n1 := n0
+		n2 := n0 << 1
+		n3 := n2 + n0
+		for j := 0; j < n0; j++ {
+			base := j << 2
+			dst[base] = src[j]
+			dst[base+1] = src[n1+j]
+			dst[base+2] = src[n2+j]
+			dst[base+3] = src[n3+j]
+		}
+	case 8:
+		n1 := n0
+		n2 := n0 << 1
+		n3 := n2 + n0
+		n4 := n0 << 2
+		n5 := n4 + n0
+		n6 := n4 + n2
+		n7 := n4 + n3
+		for j := 0; j < n0; j++ {
+			base := j << 3
+			dst[base] = src[j]
+			dst[base+1] = src[n1+j]
+			dst[base+2] = src[n2+j]
+			dst[base+3] = src[n3+j]
+			dst[base+4] = src[n4+j]
+			dst[base+5] = src[n5+j]
+			dst[base+6] = src[n6+j]
+			dst[base+7] = src[n7+j]
+		}
+	case 6:
+		n1 := n0
+		n2 := n0 << 1
+		n3 := n2 + n0
+		n4 := n0 << 2
+		n5 := n4 + n0
+		for j := 0; j < n0; j++ {
+			base := j * 6
+			dst[base] = src[j]
+			dst[base+1] = src[n1+j]
+			dst[base+2] = src[n2+j]
+			dst[base+3] = src[n3+j]
+			dst[base+4] = src[n4+j]
+			dst[base+5] = src[n5+j]
+		}
+	default:
+		for i := 0; i < stride; i++ {
+			row := i * n0
+			for j := 0; j < n0; j++ {
+				dst[j*stride+i] = src[row+j]
+			}
+		}
+	}
 }
 
 func interleaveHadamardScratchBuf(x []float64, n0, stride int, hadamard bool, decScratch *bandDecodeScratch, encScratch *bandEncodeScratch) {
@@ -194,60 +311,7 @@ func interleaveHadamardScratchBuf(x []float64, n0, stride int, hadamard bool, de
 	} else {
 		tmp = make([]float64, n)
 	}
-	if hadamard {
-		ordery := orderyForStride(stride)
-		for i := 0; i < stride; i++ {
-			for j := 0; j < n0; j++ {
-				tmp[j*stride+i] = x[ordery[i]*n0+j]
-			}
-		}
-	} else {
-		switch stride {
-		case 2:
-			for j := 0; j < n0; j++ {
-				base := j << 1
-				tmp[base] = x[j]
-				tmp[base+1] = x[n0+j]
-			}
-		case 4:
-			n1 := n0
-			n2 := n0 << 1
-			n3 := n2 + n0
-			for j := 0; j < n0; j++ {
-				base := j << 2
-				tmp[base] = x[j]
-				tmp[base+1] = x[n1+j]
-				tmp[base+2] = x[n2+j]
-				tmp[base+3] = x[n3+j]
-			}
-		case 8:
-			n1 := n0
-			n2 := n0 << 1
-			n3 := n2 + n0
-			n4 := n0 << 2
-			n5 := n4 + n0
-			n6 := n4 + n2
-			n7 := n4 + n3
-			for j := 0; j < n0; j++ {
-				base := j << 3
-				tmp[base] = x[j]
-				tmp[base+1] = x[n1+j]
-				tmp[base+2] = x[n2+j]
-				tmp[base+3] = x[n3+j]
-				tmp[base+4] = x[n4+j]
-				tmp[base+5] = x[n5+j]
-				tmp[base+6] = x[n6+j]
-				tmp[base+7] = x[n7+j]
-			}
-		default:
-			for i := 0; i < stride; i++ {
-				row := i * n0
-				for j := 0; j < n0; j++ {
-					tmp[j*stride+i] = x[row+j]
-				}
-			}
-		}
-	}
+	interleaveHadamardInto(tmp, x, n0, stride, hadamard)
 	copy(x, tmp)
 }
 
@@ -2372,9 +2436,13 @@ func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int
 	}
 	B0 := B
 	N_B0 := N_B
+	xOrig := x
 
 	if B0 > 1 {
-		if ctx.encode {
+		if ctx.encScratch != nil {
+			x = ctx.encScratch.ensureQuantWork(n)
+			deinterleaveHadamardInto(x, xOrig, N_B>>recombine, B0<<recombine, longBlocks)
+		} else {
 			deinterleaveHadamardScratchBuf(x, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch, ctx.encScratch)
 		}
 		if lowband != nil {
@@ -2396,7 +2464,12 @@ func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int
 
 	if ctx.resynth {
 		if B0 > 1 {
-			interleaveHadamardScratchBuf(x, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch, ctx.encScratch)
+			if ctx.encScratch != nil {
+				interleaveHadamardInto(xOrig, x, N_B>>recombine, B0<<recombine, longBlocks)
+				x = xOrig
+			} else {
+				interleaveHadamardScratchBuf(x, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch, ctx.encScratch)
+			}
 		}
 		N_B = N_B0
 		B = B0
@@ -2478,8 +2551,15 @@ func quantBandDecode(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, 
 	}
 	B0 := B
 	N_B0 := N_B
+	xOrig := x
 
 	if B0 > 1 {
+		if ctx.scratch != nil {
+			x = ctx.scratch.ensureQuantWork(n)
+			deinterleaveHadamardInto(x, xOrig, N_B>>recombine, B0<<recombine, longBlocks)
+		} else {
+			deinterleaveHadamardScratchBuf(x, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch, ctx.encScratch)
+		}
 		if lowband != nil {
 			deinterleaveHadamardScratchBuf(lowband, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch, ctx.encScratch)
 		}
@@ -2489,7 +2569,12 @@ func quantBandDecode(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, 
 
 	if ctx.resynth {
 		if B0 > 1 {
-			interleaveHadamardScratchBuf(x, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch, ctx.encScratch)
+			if ctx.scratch != nil {
+				interleaveHadamardInto(xOrig, x, N_B>>recombine, B0<<recombine, longBlocks)
+				x = xOrig
+			} else {
+				interleaveHadamardScratchBuf(x, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch, ctx.encScratch)
+			}
 		}
 		N_B = N_B0
 		B = B0

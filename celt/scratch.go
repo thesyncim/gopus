@@ -125,6 +125,7 @@ type bandDecodeScratch struct {
 
 	// Scratch buffers for Hadamard interleave/deinterleave (eliminates per-call allocations)
 	hadamardTmp []float64 // Temporary buffer for Hadamard transforms
+	quantWork   []float64 // Deinterleaved working buffer for quantBand decode
 
 }
 
@@ -137,12 +138,12 @@ type bandEncodeScratch struct {
 	lowbandScratch []float64
 
 	// Theta RDO buffers (for stereo encoding)
-	xSave         []float64
-	ySave         []float64
-	normSave      []float64
-	xResult0      []float64
-	yResult0      []float64
-	normResult0   []float64
+	xSave       []float64
+	ySave       []float64
+	normSave    []float64
+	xResult0    []float64
+	yResult0    []float64
+	normResult0 []float64
 
 	// Theta RDO encoder state saves (reusable across bands)
 	ecSave  rangecoding.EncoderState
@@ -159,6 +160,7 @@ type bandEncodeScratch struct {
 
 	// Hadamard scratch
 	hadamardTmp []float64
+	quantWork   []float64
 }
 
 // Encoder scratch buffer methods
@@ -211,6 +213,11 @@ func (s *bandEncodeScratch) ensureNormResult0(n int) []float64 {
 // ensureHadamardTmp returns a pre-allocated buffer for Hadamard transforms.
 func (s *bandEncodeScratch) ensureHadamardTmp(n int) []float64 {
 	return ensureFloat64Slice(&s.hadamardTmp, n)
+}
+
+// ensureQuantWork returns a pre-allocated deinterleaved working buffer.
+func (s *bandEncodeScratch) ensureQuantWork(n int) []float64 {
+	return ensureFloat64Slice(&s.quantWork, n)
 }
 
 // maxBandWidth is the maximum width of any single band (band 20 at LM=3 = 176 bins).
@@ -314,6 +321,11 @@ func (s *bandDecodeScratch) ensureCWRSU(n int) []uint32 {
 // ensureHadamardTmp returns a pre-allocated buffer for Hadamard transforms.
 func (s *bandDecodeScratch) ensureHadamardTmp(n int) []float64 {
 	return ensureFloat64Slice(&s.hadamardTmp, n)
+}
+
+// ensureQuantWork returns a pre-allocated deinterleaved working buffer.
+func (s *bandDecodeScratch) ensureQuantWork(n int) []float64 {
+	return ensureFloat64Slice(&s.quantWork, n)
 }
 
 type imdctScratch struct {
