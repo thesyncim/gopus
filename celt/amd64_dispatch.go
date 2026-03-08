@@ -93,10 +93,6 @@ func pvqExtractAbsSign(x []float64, absX []float32, y []float32, signx []int, iy
 func expRotation1Stride2AVXFMA(x []float64, length int, c, s float64)
 
 func expRotation1Stride2(x []float64, length int, c, s float64) {
-	if amd64UseAVX2FMA {
-		expRotation1Stride2AVXFMA(x, length, c, s)
-		return
-	}
 	expRotation1Stride2Generic(x, length, c, s)
 }
 
