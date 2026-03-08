@@ -54,3 +54,4 @@ Quick commands:
 - claim: id=codex-20260308-165212; agent=codex; status=released; paths=celt/,silk/,.planning/; updated=2026-03-08T17:34:49Z; expires=2026-03-08T17:34:49Z; note=replace tag-guarded asm with std-style default dispatch
 - claim: id=codex-20260308-173459; agent=codex; status=released; paths=celt/,encoder/,.planning/; updated=2026-03-08T18:13:15Z; expires=2026-03-08T18:13:15Z; note=runtime ISA dispatch and asm perf parity pass
 - claim: id=codex-20260308-181748; agent=codex; status=released; paths=celt/,.planning/; updated=2026-03-08T18:26:47Z; expires=2026-03-08T18:26:47Z; note=fix linux amd64 parity failure in runtime asm dispatch
+- claim: id=codex-20260308-183014; agent=codex; status=active; paths=encoder/,celt/,.planning/; updated=2026-03-08T18:30:14Z; expires=2026-03-08T22:30:14Z; note=push toward libopus perf parity without quality loss

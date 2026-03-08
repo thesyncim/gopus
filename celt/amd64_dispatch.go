@@ -79,9 +79,9 @@ func pvqSearchPulseLoop(absX, y []float32, iy []int, xy, yy float64, n, pulsesLe
 }
 
 //go:noescape
-func pvqExtractAbsSignAVX(x []float64, absX []float32, y []float32, signx []int, iy []int, n int)
+func pvqExtractAbsSignAVX(x []float64, absX []float32, y []float32, signx []byte, iy []int, n int)
 
-func pvqExtractAbsSign(x []float64, absX []float32, y []float32, signx []int, iy []int, n int) {
+func pvqExtractAbsSign(x []float64, absX []float32, y []float32, signx []byte, iy []int, n int) {
 	if amd64UseAVX2FMA {
 		pvqExtractAbsSignAVX(x, absX, y, signx, iy, n)
 		return

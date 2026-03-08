@@ -142,7 +142,7 @@ func pvqSearchPulseLoopGeneric(absX, y []float32, iy []int, xy, yy float64, n, p
 	return float64(xyf), float64(yyf)
 }
 
-func pvqExtractAbsSignGeneric(x []float64, absX []float32, y []float32, signx []int, iy []int, n int) {
+func pvqExtractAbsSignGeneric(x []float64, absX []float32, y []float32, signx []byte, iy []int, n int) {
 	for j := 0; j < n; j++ {
 		iy[j] = 0
 		signx[j] = 0
