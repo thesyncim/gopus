@@ -1,3 +1,5 @@
+//go:build amd64.v3
+
 #include "textflag.h"
 
 // func prefilterInnerProd(x []float64, y []float64, length int) float64

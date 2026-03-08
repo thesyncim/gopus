@@ -1,3 +1,5 @@
+//go:build amd64.v3
+
 #include "textflag.h"
 
 // func absSumAVX(x []float64) float64
