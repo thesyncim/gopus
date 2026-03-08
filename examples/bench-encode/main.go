@@ -1,4 +1,4 @@
-// Package main benchmarks Opus encode throughput for gopus vs ffmpeg/libopus.
+// Package main benchmarks Opus encode throughput for gopus vs libopus.
 //
 // Usage:
 //
@@ -10,7 +10,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
 	"flag"
 	"fmt"
@@ -20,11 +19,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/container/ogg"
+	"github.com/thesyncim/gopus/internal/benchutil"
 )
 
 const sampleRate = 48000
@@ -40,8 +41,9 @@ func main() {
 	sample := flag.String("sample", "stereo", "Preset sample to download: stereo or speech")
 	iters := flag.Int("iters", 3, "Number of timed iterations per encoder")
 	warmup := flag.Int("warmup", 0, "Warmup iterations per encoder")
-	mode := flag.String("mode", "both", "Benchmark mode: gopus, ffmpeg, or both")
-	ffmpegBin := flag.String("ffmpeg", "ffmpeg", "Path to ffmpeg binary")
+	mode := flag.String("mode", "both", "Benchmark mode: gopus, libopus, or both")
+	opusDemo := flag.String("opus-demo", "", "Path to tmp_check/opus-<version>/opus_demo (default: auto-detect pinned libopus)")
+	batch := flag.Int("batch", 8, "Number of full-stream repeats per timed iteration to amortize startup overhead")
 	bitrate := flag.Int("bitrate", 128000, "Target bitrate in bps")
 	complexity := flag.Int("complexity", 10, "Encoder complexity (0-10)")
 	frameSize := flag.Int("frame-size", 960, "Frame size in samples (default 960 = 20ms)")
@@ -49,9 +51,14 @@ func main() {
 
 	modeValue := strings.ToLower(strings.TrimSpace(*mode))
 	switch modeValue {
-	case "gopus", "ffmpeg", "both":
+	case "gopus", "libopus", "both":
+	case "ffmpeg":
+		modeValue = "libopus"
 	default:
-		log.Fatalf("Invalid -mode %q (use gopus, ffmpeg, or both)", *mode)
+		log.Fatalf("Invalid -mode %q (use gopus, libopus, or both)", *mode)
+	}
+	if *batch < 1 {
+		log.Fatal("-batch must be >= 1")
 	}
 
 	data, label, _, cleanup, err := loadInput(*input, *url, *sample)
@@ -68,22 +75,42 @@ func main() {
 
 	durationSec := float64(len(pcm)) / float64(sampleRate*channels)
 	fmt.Printf("Audio duration: %.2fs (%d channels)\n", durationSec, channels)
-	fmt.Printf("Settings: %d bps, complexity %d, frame size %d\n", *bitrate, *complexity, *frameSize)
+	fmt.Printf("Settings: %d bps, complexity %d, frame size %d, batch %d\n", *bitrate, *complexity, *frameSize, *batch)
 
 	if modeValue == "gopus" || modeValue == "both" {
-		times, err := benchGopus(pcm, channels, *bitrate, *complexity, *frameSize, *iters, *warmup)
+		times, err := benchGopus(pcm, channels, *bitrate, *complexity, *frameSize, *batch, *iters, *warmup)
 		if err != nil {
 			log.Fatalf("Gopus benchmark failed: %v", err)
 		}
-		printResults("gopus", times, durationSec)
+		printResults("gopus", times, durationSec*float64(*batch))
 	}
 
-	if modeValue == "ffmpeg" || modeValue == "both" {
-		times, err := benchFFmpeg(pcm, channels, *ffmpegBin, *bitrate, *complexity, *iters, *warmup)
-		if err != nil {
-			log.Fatalf("ffmpeg benchmark failed: %v", err)
+	if modeValue == "libopus" || modeValue == "both" {
+		fmt.Println("Preparing libopus(opus_demo) PCM input...")
+		opusDemoPath := strings.TrimSpace(*opusDemo)
+		if opusDemoPath == "" {
+			opusDemoPath, err = benchutil.OpusDemoPath()
+			if err != nil {
+				log.Fatalf("Resolve opus_demo failed: %v", err)
+			}
 		}
-		printResults("ffmpeg(libopus)", times, durationSec)
+		repeatedPCM, err := os.CreateTemp("", "gopus_bench_encode_*.f32")
+		if err != nil {
+			log.Fatalf("Create libopus input failed: %v", err)
+		}
+		repeatedPCMPath := repeatedPCM.Name()
+		_ = repeatedPCM.Close()
+		defer os.Remove(repeatedPCMPath)
+		if err := benchutil.WriteRepeatedRawFloat32(repeatedPCMPath, pcm, *batch); err != nil {
+			log.Fatalf("Prepare libopus PCM input failed: %v", err)
+		}
+
+		fmt.Println("Running libopus(opus_demo) benchmark...")
+		times, err := benchLibopus(repeatedPCMPath, channels, opusDemoPath, *bitrate, *complexity, *frameSize, *iters, *warmup)
+		if err != nil {
+			log.Fatalf("libopus benchmark failed: %v", err)
+		}
+		printResults("libopus(opus_demo)", times, durationSec*float64(*batch))
 	}
 }
 
@@ -216,14 +243,14 @@ func decodeToPCM(data []byte) ([]float32, int, error) {
 	return fullPCM, channels, nil
 }
 
-func benchGopus(pcm []float32, channels, bitrate, complexity, frameSize, iters, warmup int) ([]time.Duration, error) {
+func benchGopus(pcm []float32, channels, bitrate, complexity, frameSize, batch, iters, warmup int) ([]time.Duration, error) {
 	if iters < 1 {
 		return nil, errors.New("iters must be >= 1")
 	}
 	var times []time.Duration
 	for i := 0; i < iters+warmup; i++ {
 		start := time.Now()
-		err := encodeGopusOnce(pcm, channels, bitrate, complexity, frameSize)
+		err := encodeGopusOnce(pcm, channels, bitrate, complexity, frameSize, batch)
 		if err != nil {
 			return nil, err
 		}
@@ -235,7 +262,7 @@ func benchGopus(pcm []float32, channels, bitrate, complexity, frameSize, iters, 
 	return times, nil
 }
 
-func encodeGopusOnce(pcm []float32, channels, bitrate, complexity, frameSize int) error {
+func encodeGopusOnce(pcm []float32, channels, bitrate, complexity, frameSize, batch int) error {
 	enc, err := gopus.NewEncoder(sampleRate, channels, gopus.ApplicationAudio)
 	if err != nil {
 		return err
@@ -246,55 +273,47 @@ func encodeGopusOnce(pcm []float32, channels, bitrate, complexity, frameSize int
 
 	packetBuf := make([]byte, 4000)
 	step := frameSize * channels
-	for i := 0; i+step <= len(pcm); i += step {
-		_, err := enc.Encode(pcm[i:i+step], packetBuf)
-		if err != nil {
-			return err
+	for r := 0; r < batch; r++ {
+		for i := 0; i+step <= len(pcm); i += step {
+			_, err := enc.Encode(pcm[i:i+step], packetBuf)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
 	return nil
 }
 
-func benchFFmpeg(pcm []float32, channels int, ffmpegBin string, bitrate, complexity, iters, warmup int) ([]time.Duration, error) {
+func benchLibopus(pcmPath string, channels int, opusDemoPath string, bitrate, complexity, frameSize, iters, warmup int) ([]time.Duration, error) {
 	if iters < 1 {
 		return nil, errors.New("iters must be >= 1")
 	}
-	
-	// Convert PCM to bytes for ffmpeg
-	buf := new(bytes.Buffer)
-	err := binary.Write(buf, binary.LittleEndian, pcm)
+	if strings.TrimSpace(opusDemoPath) == "" {
+		return nil, errors.New("opus_demo path is empty")
+	}
+	frameArg, err := benchutil.FrameSizeArg(frameSize)
 	if err != nil {
 		return nil, err
 	}
-	pcmBytes := buf.Bytes()
 
 	var times []time.Duration
 	for i := 0; i < iters+warmup; i++ {
 		start := time.Now()
-		cmd := exec.Command(ffmpegBin,
-			"-hide_banner",
-			"-loglevel", "error",
-			"-f", "f32le",
-			"-ar", fmt.Sprintf("%d", sampleRate),
-			"-ac", fmt.Sprintf("%d", channels),
-			"-i", "-",
-			"-c:a", "libopus",
-			"-b:a", fmt.Sprintf("%d", bitrate),
-			"-vbr", "on",
-			"-compression_level", fmt.Sprintf("%d", complexity),
-			"-f", "null",
-			"-")
-		cmd.Stdin = bytes.NewReader(pcmBytes)
-		cmd.Stdout = io.Discard
-		var stderr bytes.Buffer
-		cmd.Stderr = &stderr
-		if err := cmd.Run(); err != nil {
-			errText := strings.TrimSpace(stderr.String())
-			if errText == "" {
-				errText = err.Error()
-			}
-			return nil, fmt.Errorf("ffmpeg failed: %s", errText)
+		cmd := exec.Command(opusDemoPath,
+			"-e",
+			"audio",
+			strconv.Itoa(sampleRate),
+			strconv.Itoa(channels),
+			strconv.Itoa(bitrate),
+			"-f32",
+			"-complexity", strconv.Itoa(complexity),
+			"-framesize", frameArg,
+			pcmPath,
+			os.DevNull,
+		)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return nil, fmt.Errorf("opus_demo failed: %v (%s)", err, bytes.TrimSpace(out))
 		}
 		dur := time.Since(start)
 		if i >= warmup {
@@ -330,7 +349,7 @@ func printResults(label string, times []time.Duration, durationSec float64) {
 }
 
 func init() {
-	if path := os.Getenv("FFMPEG_PATH"); path != "" {
+	if path := os.Getenv("OPUS_DEMO_PATH"); path != "" {
 		if filepath.IsAbs(path) {
 			_ = path
 		}

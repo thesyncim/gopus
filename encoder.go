@@ -177,6 +177,8 @@ func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 	if len(pcm) != expected {
 		return 0, ErrInvalidFrameSize
 	}
+	e.enc.SetFloatInputFrame(pcm)
+	defer e.enc.ClearFloatInputFrame()
 
 	// Convert float32 to float64 using pre-allocated scratch buffer (zero allocs)
 	pcm64 := e.scratchPCM64[:len(pcm)]

@@ -20,6 +20,13 @@ owner: <handle>
 ## Current Decisions
 
 date: 2026-03-07
+topic: libopus perf comparison fairness harness
+decision: Keep end-to-end perf comparisons pinned to `tmp_check/opus-1.6.1/opus_demo` with batched whole-stream runs; do not compare against ffmpeg or a harness that pays per-iteration libopus process startup overhead.
+evidence: `examples/bench-encode` and `examples/bench-decode` now use `internal/benchutil/opus_demo.go` to drive repeated raw float32 input / repeated `.bit` streams through the pinned libopus reference. On the speech fixture, `go run ./examples/bench-encode -sample speech -iters 3 -warmup 1 -mode both -bitrate 64000 -complexity 10 -batch 8` and `go run ./examples/bench-decode -sample speech -iters 3 -warmup 1 -mode both -batch 8` produced stable batched gopus-vs-libopus measurements without the earlier startup bias.
+do_not_repeat_until: the reference libopus version, the example harness protocol, or the desired fairness criteria for cross-implementation perf comparisons change materially.
+owner: codex
+
+date: 2026-03-07
 topic: CWRS encode table-lookup fast path on Apple M4 Max
 decision: Keep the `celt/cwrs.go` `icwrsLookupFast()` path that bypasses dynamic `unext()` row stepping when the static PVQ `U(n,k)` table covers all encode-side row lookups, and route both `EncodePulsesScratch` and `encodePulsesFast` through it before allocating the dynamic `u` buffer.
 evidence: Focused CWRS correctness stayed green (`GOMAXPROCS=1 go test ./celt -run '^(Test.*CWRS.*|Test.*Pulses.*|TestPVQ_V.*|TestNCWRS.*)$' -count=1`) and full `GOMAXPROCS=1 go test ./celt -count=1` plus encoder analysis slice passed. Direct CWRS encode microbench versus a baseline worktree with the same surviving perf stack but without this change improved by about 2x on representative CELT shapes: `BenchmarkCWRS32Encode` `N8_K4 ~24.3-24.6 ns -> ~12.6-13.0 ns`, `N16_K4 ~49.1-50.0 ns -> ~22.1 ns`, `N32_K3 ~91.7-92.0 ns -> ~40.6-41.6 ns`, `N64_K2 ~166-167 ns -> ~81-82 ns`; `BenchmarkCWRS32RoundTrip/N16_K4 ~80.2-81.0 ns -> ~55.0-56.5 ns`. Root encode bench improved to `BenchmarkEncoderEncode ~43.8-44.1 us/op` and `BenchmarkEncoderEncodeInt16 ~44.1-44.4 us/op`. Speech example encode versus clean `HEAD` baseline improved from `best 255.378875ms / avg 257.276052ms` to current `best 228.690125ms / avg 229.578783ms` and repeat `best 229.583250ms / avg 232.349939ms`, clearing the `10%` target. `make bench-guard` passed. `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` passed (`23 passed, 0 failed`). `make verify-production` remained blocked only by the known local `tmp_check` cgo-disabled setup.
