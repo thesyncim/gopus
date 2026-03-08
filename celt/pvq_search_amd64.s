@@ -1,3 +1,5 @@
+//go:build amd64.v3
+
 #include "textflag.h"
 
 // func pvqSearchBestPos(absX []float32, y []float32, xy float64, yy float64, n int) int

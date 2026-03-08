@@ -1,3 +1,5 @@
+//go:build amd64.v3
+
 #include "textflag.h"
 
 // func toneLPCCorr(x []float32, cnt, delay, delay2 int) (r00, r01, r02 float32)

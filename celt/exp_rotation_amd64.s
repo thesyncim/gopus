@@ -1,3 +1,5 @@
+//go:build amd64.v3
+
 #include "textflag.h"
 
 // func expRotation1Stride2(x []float64, length int, c, s float64)

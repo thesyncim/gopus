@@ -49,5 +49,6 @@ Quick commands:
 - claim: id=codex-20260308-123056; agent=codex; status=released; paths=celt/,encoder/,.planning/; updated=2026-03-08T12:41:56Z; expires=2026-03-08T12:41:56Z; note=perf loop continue: exact hot-path optimization after fair harness
 - claim: id=codex-20260308-125026; agent=codex; status=released; paths=celt/,encoder/,.planning/; updated=2026-03-08T13:16:13Z; expires=2026-03-08T13:16:13Z; note=perf loop: push toward libopus parity on current tip
 - claim: id=codex-20260308-142838; agent=codex; status=released; paths=celt/,encoder/,.planning/; updated=2026-03-08T15:01:05Z; expires=2026-03-08T15:01:05Z; note=stereo prefilter staging perf loop after remove-doubling landing
-- claim: id=codex-20260308-150526; agent=codex; status=released; paths=celt/,.planning/,go.mod,go.sum; updated=2026-03-08T15:51:14Z; expires=2026-03-08T15:51:14Z; note=amd64 asm runtime dispatch correctness and parity-safe perf
-- claim: id=codex-20260308-155121; agent=codex; status=active; paths=encoder/,celt/,.planning/; updated=2026-03-08T15:51:21Z; expires=2026-03-08T19:51:21Z; note=perf parity loop after asm safety merge
+- claim: id=codex-20260308-150526; agent=codex; status=released; paths=celt/,.planning/,go.mod,go.sum; updated=2026-03-08T16:52:03Z; expires=2026-03-08T16:52:03Z; note=amd64 asm runtime dispatch correctness and parity-safe perf
+- claim: id=codex-20260308-155121; agent=codex; status=released; paths=encoder/,celt/,.planning/; updated=2026-03-08T16:52:07Z; expires=2026-03-08T16:52:07Z; note=perf parity loop after asm safety merge
+- claim: id=codex-20260308-165212; agent=codex; status=active; paths=celt/,silk/,.planning/; updated=2026-03-08T16:52:12Z; expires=2026-03-08T20:52:12Z; note=replace tag-guarded asm with std-style default dispatch

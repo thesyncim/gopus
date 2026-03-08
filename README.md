@@ -257,20 +257,15 @@ make build
 
 ## Assembly Optimizations
 
-`gopus` includes native assembly kernels for `amd64` and `arm64` in CELT and SILK hot paths.
-Other architectures use pure Go fallbacks with matching behavior.
+`gopus` ships default-on assembly where it is exact and worth keeping.
+No user-passed build tag is required to enable assembly.
 
-Implemented assembly surfaces:
+- `arm64`: baseline arm64 kernels are selected automatically in CELT and SILK hot paths.
+- `amd64`: baseline-safe kernels are selected automatically, and additional AVX/FMA CELT kernels are selected automatically when the package is built with `GOAMD64=v3` or higher.
+- Other architectures use pure Go fallbacks with matching behavior.
 
-- CELT:
-  - `celt/haar1_amd64.s`, `celt/haar1_arm64.s` (`haar1Stride1Asm`)
-  - `celt/xcorr_amd64.s`, `celt/xcorr_arm64.s` (`celtInnerProd`, `dualInnerProd`, `celtPitchXcorr`)
-- SILK:
-  - `silk/inner_prod_amd64.s`, `silk/inner_prod_arm64.s` (`innerProductF32Asm`, `energyF32Asm`)
-  - `silk/nsq_pred_amd64.s`, `silk/nsq_pred_arm64.s` (`shortTermPrediction16`, `shortTermPrediction10`)
-  - `silk/nsq_warp_amd64.s`, `silk/nsq_warp_arm64.s` (`warpedARFeedback24`, `warpedARFeedback16`)
-
-For build-tag details and maintenance guidance, see [`ASSEMBLY.md`](ASSEMBLY.md).
+Current production assembly surfaces include CELT FFT/IMDCT/correlation/PVQ helpers and SILK arm64 inner-product/pitch-xcorr helpers.
+For the exact file map and maintenance rules, see [`ASSEMBLY.md`](ASSEMBLY.md).
 
 ## Parity and Compliance Workflow
 

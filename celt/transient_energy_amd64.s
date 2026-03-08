@@ -1,3 +1,5 @@
+//go:build amd64.v3
+
 #include "textflag.h"
 
 // func transientEnergyPairs(tmp []float64, x2out []float32, len2 int) float64

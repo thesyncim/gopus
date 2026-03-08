@@ -2,27 +2,7 @@
 
 package celt
 
-import (
-	"math"
-
-	"golang.org/x/sys/cpu"
-)
-
-var (
-	amd64HasAVX     = cpu.X86.HasAVX
-	amd64HasAVXFMA  = cpu.X86.HasAVX && cpu.X86.HasFMA
-	amd64HasAVX2FMA = cpu.X86.HasAVX2 && cpu.X86.HasFMA
-)
-
-//go:noescape
-func absSumAVX(x []float64) float64
-
-func absSum(x []float64) float64 {
-	if amd64HasAVX {
-		return absSumAVX(x)
-	}
-	return absSumGeneric(x)
-}
+import "math"
 
 func absSumGeneric(x []float64) float64 {
 	var sum float64
@@ -32,32 +12,10 @@ func absSumGeneric(x []float64) float64 {
 	return sum
 }
 
-//go:noescape
-func roundFloat64ToFloat32AVX(x []float64)
-
-func roundFloat64ToFloat32(x []float64) {
-	if amd64HasAVX {
-		roundFloat64ToFloat32AVX(x)
-		return
-	}
-	roundFloat64ToFloat32Generic(x)
-}
-
 func roundFloat64ToFloat32Generic(x []float64) {
 	for i, v := range x {
 		x[i] = float64(float32(v))
 	}
-}
-
-//go:noescape
-func celtPitchXcorrAVX2FMA(x []float64, y []float64, xcorr []float64, length, maxPitch int)
-
-func celtPitchXcorr(x []float64, y []float64, xcorr []float64, length, maxPitch int) {
-	if amd64HasAVX2FMA {
-		celtPitchXcorrAVX2FMA(x, y, xcorr, length, maxPitch)
-		return
-	}
-	celtPitchXcorrGeneric(x, y, xcorr, length, maxPitch)
 }
 
 func celtPitchXcorrGeneric(x []float64, y []float64, xcorr []float64, length, maxPitch int) {
@@ -100,19 +58,6 @@ func celtPitchXcorrGeneric(x []float64, y []float64, xcorr []float64, length, ma
 	}
 }
 
-//go:noescape
-func prefilterInnerProdAVXFMA(x, y []float64, length int) float64
-
-//go:noescape
-func prefilterDualInnerProdAVXFMA(x, y1, y2 []float64, length int) (float64, float64)
-
-func prefilterInnerProd(x, y []float64, length int) float64 {
-	if amd64HasAVXFMA {
-		return prefilterInnerProdAVXFMA(x, y, length)
-	}
-	return prefilterInnerProdGeneric(x, y, length)
-}
-
 func prefilterInnerProdGeneric(x, y []float64, length int) float64 {
 	if length <= 0 {
 		return 0
@@ -124,13 +69,6 @@ func prefilterInnerProdGeneric(x, y []float64, length int) float64 {
 		sum += float32(x[i]) * float32(y[i])
 	}
 	return float64(sum)
-}
-
-func prefilterDualInnerProd(x, y1, y2 []float64, length int) (float64, float64) {
-	if amd64HasAVXFMA {
-		return prefilterDualInnerProdAVXFMA(x, y1, y2, length)
-	}
-	return prefilterDualInnerProdGeneric(x, y1, y2, length)
 }
 
 func prefilterDualInnerProdGeneric(x, y1, y2 []float64, length int) (float64, float64) {
@@ -148,22 +86,6 @@ func prefilterDualInnerProdGeneric(x, y1, y2 []float64, length int) (float64, fl
 		sum2 += xi * float32(y2[i])
 	}
 	return float64(sum1), float64(sum2)
-}
-
-//go:noescape
-func pvqSearchBestPosAVX(absX, y []float32, xy, yy float64, n int) int
-
-//go:noescape
-func pvqSearchPulseLoopAVX(absX, y []float32, iy []int, xy, yy float64, n, pulsesLeft int) (float64, float64)
-
-//go:noescape
-func pvqExtractAbsSignAVX(x []float64, absX []float32, y []float32, signx []int, iy []int, n int)
-
-func pvqSearchBestPos(absX, y []float32, xy, yy float64, n int) int {
-	if amd64HasAVX {
-		return pvqSearchBestPosAVX(absX, y, xy, yy, n)
-	}
-	return pvqSearchBestPosGeneric(absX, y, xy, yy, n)
 }
 
 func pvqSearchBestPosGeneric(absX, y []float32, xy, yy float64, n int) int {
@@ -188,13 +110,6 @@ func pvqSearchBestPosGeneric(absX, y []float32, xy, yy float64, n int) int {
 		}
 	}
 	return bestID
-}
-
-func pvqSearchPulseLoop(absX, y []float32, iy []int, xy, yy float64, n, pulsesLeft int) (float64, float64) {
-	if amd64HasAVX {
-		return pvqSearchPulseLoopAVX(absX, y, iy, xy, yy, n, pulsesLeft)
-	}
-	return pvqSearchPulseLoopGeneric(absX, y, iy, xy, yy, n, pulsesLeft)
 }
 
 func pvqSearchPulseLoopGeneric(absX, y []float32, iy []int, xy, yy float64, n, pulsesLeft int) (float64, float64) {
@@ -227,14 +142,6 @@ func pvqSearchPulseLoopGeneric(absX, y []float32, iy []int, xy, yy float64, n, p
 	return float64(xyf), float64(yyf)
 }
 
-func pvqExtractAbsSign(x []float64, absX []float32, y []float32, signx []int, iy []int, n int) {
-	if amd64HasAVX {
-		pvqExtractAbsSignAVX(x, absX, y, signx, iy, n)
-		return
-	}
-	pvqExtractAbsSignGeneric(x, absX, y, signx, iy, n)
-}
-
 func pvqExtractAbsSignGeneric(x []float64, absX []float32, y []float32, signx []int, iy []int, n int) {
 	for j := 0; j < n; j++ {
 		iy[j] = 0
@@ -248,17 +155,6 @@ func pvqExtractAbsSignGeneric(x []float64, absX []float32, y []float32, signx []
 			absX[j] = float32(xj)
 		}
 	}
-}
-
-//go:noescape
-func expRotation1Stride2AVXFMA(x []float64, length int, c, s float64)
-
-func expRotation1Stride2(x []float64, length int, c, s float64) {
-	if amd64HasAVXFMA {
-		expRotation1Stride2AVXFMA(x, length, c, s)
-		return
-	}
-	expRotation1Stride2Generic(x, length, c, s)
 }
 
 func expRotation1Stride2Generic(x []float64, length int, c, s float64) {
@@ -302,16 +198,6 @@ func expRotation1Stride2Generic(x []float64, length int, c, s float64) {
 	}
 }
 
-//go:noescape
-func transientEnergyPairsAVX(tmp []float64, x2out []float32, len2 int) float64
-
-func transientEnergyPairs(tmp []float64, x2out []float32, len2 int) float64 {
-	if amd64HasAVX {
-		return transientEnergyPairsAVX(tmp, x2out, len2)
-	}
-	return transientEnergyPairsGeneric(tmp, x2out, len2)
-}
-
 func transientEnergyPairsGeneric(tmp []float64, x2out []float32, len2 int) float64 {
 	var mean float32
 	for i := 0; i < len2; i++ {
@@ -322,17 +208,6 @@ func transientEnergyPairsGeneric(tmp []float64, x2out []float32, len2 int) float
 		mean += x2
 	}
 	return float64(mean)
-}
-
-//go:noescape
-func pitchAutocorr5AVXFMA(lp []float64, length int, ac *[5]float64)
-
-func pitchAutocorr5(lp []float64, length int, ac *[5]float64) {
-	if amd64HasAVXFMA {
-		pitchAutocorr5AVXFMA(lp, length, ac)
-		return
-	}
-	pitchAutocorr5Generic(lp, length, ac)
 }
 
 func pitchAutocorr5Generic(lp []float64, length int, ac *[5]float64) {
@@ -352,16 +227,6 @@ func pitchAutocorr5Generic(lp []float64, length int, ac *[5]float64) {
 	}
 }
 
-//go:noescape
-func toneLPCCorrAVXFMA(x []float32, cnt, delay, delay2 int) (r00, r01, r02 float32)
-
-func toneLPCCorr(x []float32, cnt, delay, delay2 int) (r00, r01, r02 float32) {
-	if amd64HasAVXFMA {
-		return toneLPCCorrAVXFMA(x, cnt, delay, delay2)
-	}
-	return toneLPCCorrGeneric(x, cnt, delay, delay2)
-}
-
 func toneLPCCorrGeneric(x []float32, cnt, delay, delay2 int) (r00, r01, r02 float32) {
 	for i := 0; i < cnt; i++ {
 		xi := x[i]
@@ -370,17 +235,6 @@ func toneLPCCorrGeneric(x []float32, cnt, delay, delay2 int) (r00, r01, r02 floa
 		r02 += xi * x[i+delay2]
 	}
 	return
-}
-
-//go:noescape
-func prefilterPitchXcorrAVX2FMA(x, y, xcorr []float64, length, maxPitch int)
-
-func prefilterPitchXcorr(x, y, xcorr []float64, length, maxPitch int) {
-	if amd64HasAVX2FMA {
-		prefilterPitchXcorrAVX2FMA(x, y, xcorr, length, maxPitch)
-		return
-	}
-	prefilterPitchXcorrGeneric(x, y, xcorr, length, maxPitch)
 }
 
 func prefilterPitchXcorrGeneric(x, y, xcorr []float64, length, maxPitch int) {
