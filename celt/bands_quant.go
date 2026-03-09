@@ -173,6 +173,68 @@ func deinterleaveHadamardInto(dst, src []float64, n0, stride int, hadamard bool)
 			dst[n6+j] = src[base+6]
 			dst[n7+j] = src[base+7]
 		}
+	case 12:
+		n1 := n0
+		n2 := n0 << 1
+		n3 := n2 + n0
+		n4 := n0 << 2
+		n5 := n4 + n0
+		n6 := n4 + n2
+		n7 := n4 + n3
+		n8 := n0 << 3
+		n9 := n8 + n0
+		n10 := n8 + n2
+		n11 := n8 + n3
+		for j := 0; j < n0; j++ {
+			base := j * 12
+			dst[j] = src[base]
+			dst[n1+j] = src[base+1]
+			dst[n2+j] = src[base+2]
+			dst[n3+j] = src[base+3]
+			dst[n4+j] = src[base+4]
+			dst[n5+j] = src[base+5]
+			dst[n6+j] = src[base+6]
+			dst[n7+j] = src[base+7]
+			dst[n8+j] = src[base+8]
+			dst[n9+j] = src[base+9]
+			dst[n10+j] = src[base+10]
+			dst[n11+j] = src[base+11]
+		}
+	case 16:
+		n1 := n0
+		n2 := n0 << 1
+		n3 := n2 + n0
+		n4 := n0 << 2
+		n5 := n4 + n0
+		n6 := n4 + n2
+		n7 := n4 + n3
+		n8 := n0 << 3
+		n9 := n8 + n0
+		n10 := n8 + n2
+		n11 := n8 + n3
+		n12 := n0 * 12
+		n13 := n12 + n0
+		n14 := n12 + n2
+		n15 := n12 + n3
+		for j := 0; j < n0; j++ {
+			base := j << 4
+			dst[j] = src[base]
+			dst[n1+j] = src[base+1]
+			dst[n2+j] = src[base+2]
+			dst[n3+j] = src[base+3]
+			dst[n4+j] = src[base+4]
+			dst[n5+j] = src[base+5]
+			dst[n6+j] = src[base+6]
+			dst[n7+j] = src[base+7]
+			dst[n8+j] = src[base+8]
+			dst[n9+j] = src[base+9]
+			dst[n10+j] = src[base+10]
+			dst[n11+j] = src[base+11]
+			dst[n12+j] = src[base+12]
+			dst[n13+j] = src[base+13]
+			dst[n14+j] = src[base+14]
+			dst[n15+j] = src[base+15]
+		}
 	case 6:
 		n1 := n0
 		n2 := n0 << 1
@@ -276,6 +338,68 @@ func interleaveHadamardInto(dst, src []float64, n0, stride int, hadamard bool) {
 			dst[base+6] = src[n6+j]
 			dst[base+7] = src[n7+j]
 		}
+	case 12:
+		n1 := n0
+		n2 := n0 << 1
+		n3 := n2 + n0
+		n4 := n0 << 2
+		n5 := n4 + n0
+		n6 := n4 + n2
+		n7 := n4 + n3
+		n8 := n0 << 3
+		n9 := n8 + n0
+		n10 := n8 + n2
+		n11 := n8 + n3
+		for j := 0; j < n0; j++ {
+			base := j * 12
+			dst[base] = src[j]
+			dst[base+1] = src[n1+j]
+			dst[base+2] = src[n2+j]
+			dst[base+3] = src[n3+j]
+			dst[base+4] = src[n4+j]
+			dst[base+5] = src[n5+j]
+			dst[base+6] = src[n6+j]
+			dst[base+7] = src[n7+j]
+			dst[base+8] = src[n8+j]
+			dst[base+9] = src[n9+j]
+			dst[base+10] = src[n10+j]
+			dst[base+11] = src[n11+j]
+		}
+	case 16:
+		n1 := n0
+		n2 := n0 << 1
+		n3 := n2 + n0
+		n4 := n0 << 2
+		n5 := n4 + n0
+		n6 := n4 + n2
+		n7 := n4 + n3
+		n8 := n0 << 3
+		n9 := n8 + n0
+		n10 := n8 + n2
+		n11 := n8 + n3
+		n12 := n0 * 12
+		n13 := n12 + n0
+		n14 := n12 + n2
+		n15 := n12 + n3
+		for j := 0; j < n0; j++ {
+			base := j << 4
+			dst[base] = src[j]
+			dst[base+1] = src[n1+j]
+			dst[base+2] = src[n2+j]
+			dst[base+3] = src[n3+j]
+			dst[base+4] = src[n4+j]
+			dst[base+5] = src[n5+j]
+			dst[base+6] = src[n6+j]
+			dst[base+7] = src[n7+j]
+			dst[base+8] = src[n8+j]
+			dst[base+9] = src[n9+j]
+			dst[base+10] = src[n10+j]
+			dst[base+11] = src[n11+j]
+			dst[base+12] = src[n12+j]
+			dst[base+13] = src[n13+j]
+			dst[base+14] = src[n14+j]
+			dst[base+15] = src[n15+j]
+		}
 	case 6:
 		n1 := n0
 		n2 := n0 << 1
@@ -335,8 +459,20 @@ func haar1(x []float64, n0, stride int) {
 		haar1Stride2(x, n0)
 		return
 	}
+	if stride == 6 {
+		haar1Stride6(x, n0)
+		return
+	}
 	if stride == 4 {
 		haar1Stride4(x, n0)
+		return
+	}
+	if stride == 8 {
+		haar1Stride8(x, n0)
+		return
+	}
+	if stride == 12 {
+		haar1Stride12(x, n0)
 		return
 	}
 	const invSqrt2 = float32(0.7071067811865476)

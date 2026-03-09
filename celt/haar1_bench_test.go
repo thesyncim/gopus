@@ -32,3 +32,15 @@ func BenchmarkHaar1Stride2(b *testing.B) {
 func BenchmarkHaar1Stride4(b *testing.B) {
 	benchmarkHaar1(b, 4)
 }
+
+func BenchmarkHaar1Stride6(b *testing.B) {
+	benchmarkHaar1(b, 6)
+}
+
+func BenchmarkHaar1Stride8(b *testing.B) {
+	benchmarkHaar1(b, 8)
+}
+
+func BenchmarkHaar1Stride12(b *testing.B) {
+	benchmarkHaar1(b, 12)
+}

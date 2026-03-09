@@ -19,6 +19,20 @@ owner: <handle>
 
 ## Current Decisions
 
+date: 2026-03-09
+topic: Short-block MDCT output interleave index walk
+decision: Keep the `celt/mdct_encode.go` `mdctShortBlocksCore()` output-interleave rewrite that removes the redundant per-store bounds check and uses a running `outIdx += shortBlocks` walk instead of recomputing `b + i*shortBlocks` for each coefficient. This is an exact loop-structure cleanup only; the per-block MDCT math and output order are unchanged.
+evidence: Added `celt/mdct_short_blocks_test.go`; `go test ./celt -run '^TestMDCTShortBlocksCoreMatchesLegacy$' -count=1` passed with exact coefficient equality against the legacy helper. Broader validation remained green with `go test ./celt -count=1`, `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` (`23 passed, 0 failed`), and `make bench-guard`. The direct helper bench on Apple M4 Max improved from legacy `~538.7-554.6 ns/op` to current `~463.1-466.1 ns/op`, and same-base root `BenchmarkEncoderEncode_Stereo` against clean detached `8e90358` improved from `~74164-74706 ns/op` to `~73738-73888 ns/op`.
+do_not_repeat_until: the short-block MDCT output layout, `mdctForwardShortOverlapScratchInto()` sizing guarantees, or per-block interleave order changes enough that the current no-bounds-check running-index proof no longer holds.
+owner: codex
+
+date: 2026-03-09
+topic: Quant-band transform stride specializations
+decision: Keep the missing exact transform specializations in `celt/bands_quant.go` and `celt/haar1.go`: `haar1` specialized for strides `6/8/12`, and plain (non-Hadamard) `deinterleaveHadamardInto` / `interleaveHadamardInto` specialized for strides `12/16`. These cases are on the current encoder hot path and the specialized loops preserve the same per-element float32 arithmetic as the generic implementations.
+evidence: Added `celt/haar1_exact_test.go` plus new coverage in `celt/hadamard_work_test.go` and `celt/haar1_bench_test.go`. Focused validation passed with `go test ./celt -run '^(TestHaar1SpecializedMatchesGeneric|TestHaar1Transform|TestHadamardWorkIntoMatchesLegacy)$' -count=1`, broader `go test ./celt -count=1`, parity `GOPUS_TEST_TIER=parity go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` (`23 passed, 0 failed`), and `make bench-guard`. Direct stride benches on Apple M4 Max improved materially: `BenchmarkHadamardWorkRoundTripCurrentStride12 ~62.41-65.02 ns/op` vs legacy `~108.1-110.0 ns/op`, and `BenchmarkHadamardWorkRoundTripCurrentStride16 ~55.34-58.16 ns/op` vs legacy `~94.16-100.3 ns/op`. Same-base root `BenchmarkEncoderEncode_Stereo` against a clean detached `HEAD` worktree improved from `~76069-76560 ns/op` to `~73436-73772 ns/op`.
+do_not_repeat_until: the CELT quant-band block-count mix or transform staging changes enough that strides `6/8/12/16` are no longer representative, or same-base encoder benchmarks on target hosts stop favoring these specialized paths.
+owner: codex
+
 date: 2026-03-08
 topic: Stereo theta-RDO prepared lowband reuse
 decision: Keep the encoder-side prepared-lowband path in `celt/bands_quant.go` for stereo theta-RDO. When the encoder tries both `theta_round=-1` and `theta_round=+1`, precompute the x-channel lowband fold source once and reuse it across both trials instead of repeating the lowband copy/haar/deinterleave staging twice.
