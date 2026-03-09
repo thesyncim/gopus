@@ -708,28 +708,6 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		e.lastBandLogE2 = e.lastBandLogE2[:0]
 	}
 
-	// Compute linear band amplitudes directly from MDCT coefficients.
-	// This matches libopus compute_band_energies() which returns sqrt(sum of squares).
-	// CRITICAL: We must use ORIGINAL linear amplitudes, not log-domain converted back to linear,
-	// to avoid quantization/roundtrip errors that corrupt PVQ encoding.
-	// Reference: libopus celt_encoder.c line 2096
-	var bandE []float64
-	if e.channels == 1 {
-		// Use scratch buffer for mono band amplitudes
-		bandE = ensureFloat64Slice(&e.scratch.bandE, nbBands)
-		ComputeLinearBandAmplitudesInto(mdctCoeffs, nbBands, frameSize, bandE)
-	} else {
-		// For stereo, compute per-channel using scratch buffers
-		bandEL := ensureFloat64Slice(&e.scratch.bandEL, nbBands)
-		bandER := ensureFloat64Slice(&e.scratch.bandER, nbBands)
-		ComputeLinearBandAmplitudesInto(mdctLeft, nbBands, frameSize, bandEL)
-		ComputeLinearBandAmplitudesInto(mdctRight, nbBands, frameSize, bandER)
-		// Concatenate into combined bandE buffer
-		bandE = ensureFloat64Slice(&e.scratch.bandE, nbBands*2)
-		copy(bandE[:nbBands], bandEL)
-		copy(bandE[nbBands:], bandER)
-	}
-
 	// Step 9: Encode transient and intra flags (silence/postfilter already encoded)
 
 	// Transient flag: only encode if LM>0 and budget allows
@@ -821,18 +799,13 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Step 11.0.5: Normalize bands early for TF analysis
 	// TF analysis needs normalized coefficients to determine optimal time-frequency resolution
 	var normL, normR []float64
+	var bandE []float64
 	var normBandEScratch []float64
 	if e.channels == 1 {
-		normL = ensureFloat64Slice(&e.scratch.normL, frameSize)
-		normBandEScratch = ensureFloat64Slice(&e.scratch.bandE, nbBands)
-		NormalizeBandsToArrayInto(mdctCoeffs, nbBands, frameSize, normL, normBandEScratch)
+		normL, bandE = e.NormalizeBandsToArrayMonoWithBandE(mdctCoeffs, nbBands, frameSize)
+		normBandEScratch = bandE
 	} else {
-		normL = ensureFloat64Slice(&e.scratch.normL, frameSize)
-		normR = ensureFloat64Slice(&e.scratch.normR, frameSize)
-		bandEL := ensureFloat64Slice(&e.scratch.bandEL, nbBands)
-		bandER := ensureFloat64Slice(&e.scratch.bandER, nbBands)
-		NormalizeBandsToArrayInto(mdctLeft, nbBands, frameSize, normL, bandEL)
-		NormalizeBandsToArrayInto(mdctRight, nbBands, frameSize, normR, bandER)
+		normL, normR, bandE = e.NormalizeBandsToArrayStereoWithBandE(mdctLeft, mdctRight, nbBands, frameSize)
 	}
 	if tmpDumpNorm56Enabled && frameSize == 480 && e.channels == 1 && e.frameCount >= 54 && e.frameCount <= 58 && len(normBandEScratch) > 18 {
 		start := 0
