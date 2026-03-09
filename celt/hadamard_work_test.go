@@ -15,6 +15,8 @@ func TestHadamardWorkIntoMatchesLegacy(t *testing.T) {
 		{name: "plain_stride2", n0: 11, stride: 2},
 		{name: "plain_stride4", n0: 9, stride: 4},
 		{name: "plain_stride8", n0: 7, stride: 8},
+		{name: "plain_stride12", n0: 5, stride: 12},
+		{name: "plain_stride16", n0: 4, stride: 16},
 		{name: "hadamard_stride2", n0: 13, stride: 2, hadamard: true},
 		{name: "hadamard_stride4", n0: 10, stride: 4, hadamard: true},
 		{name: "hadamard_stride8", n0: 6, stride: 8, hadamard: true},
@@ -52,12 +54,8 @@ func TestHadamardWorkIntoMatchesLegacy(t *testing.T) {
 	}
 }
 
-func benchmarkHadamardWorkRoundTrip(b *testing.B, direct bool) {
-	const (
-		n0       = 22
-		stride   = 6
-		hadamard = false
-	)
+func benchmarkHadamardWorkRoundTrip(b *testing.B, direct bool, n0, stride int) {
+	const hadamard = false
 	n := n0 * stride
 	src := make([]float64, n)
 	for i := range src {
@@ -98,9 +96,25 @@ func interleaveHadamardIntoLegacyDefault(dst, src []float64, n0, stride int) {
 }
 
 func BenchmarkHadamardWorkRoundTripCurrent(b *testing.B) {
-	benchmarkHadamardWorkRoundTrip(b, true)
+	benchmarkHadamardWorkRoundTrip(b, true, 22, 6)
 }
 
 func BenchmarkHadamardWorkRoundTripLegacy(b *testing.B) {
-	benchmarkHadamardWorkRoundTrip(b, false)
+	benchmarkHadamardWorkRoundTrip(b, false, 22, 6)
+}
+
+func BenchmarkHadamardWorkRoundTripCurrentStride12(b *testing.B) {
+	benchmarkHadamardWorkRoundTrip(b, true, 12, 12)
+}
+
+func BenchmarkHadamardWorkRoundTripLegacyStride12(b *testing.B) {
+	benchmarkHadamardWorkRoundTrip(b, false, 12, 12)
+}
+
+func BenchmarkHadamardWorkRoundTripCurrentStride16(b *testing.B) {
+	benchmarkHadamardWorkRoundTrip(b, true, 8, 16)
+}
+
+func BenchmarkHadamardWorkRoundTripLegacyStride16(b *testing.B) {
+	benchmarkHadamardWorkRoundTrip(b, false, 8, 16)
 }
