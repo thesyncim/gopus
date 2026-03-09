@@ -665,6 +665,17 @@ func mdctShortScratchInto(samples []float64, shortBlocks int, output []float64, 
 // mdctShortBlocksCore is a helper that processes multiple short MDCT blocks.
 // It calls blockMDCT for each short block and interleaves results into output.
 func mdctShortBlocksCore(samples []float64, overlap, shortBlocks, shortSize int, output, blockCoeffs []float64, blockMDCT func(block, coeffs []float64)) {
+	if shortBlocks <= 0 || shortSize <= 0 {
+		return
+	}
+	frameSize := shortBlocks * shortSize
+	if len(output) < frameSize || len(blockCoeffs) < shortSize {
+		return
+	}
+	output = output[:frameSize:frameSize]
+	blockCoeffs = blockCoeffs[:shortSize:shortSize]
+	_ = output[frameSize-1]
+	_ = blockCoeffs[shortSize-1]
 	for b := 0; b < shortBlocks; b++ {
 		start := b * shortSize
 		end := start + shortSize + overlap
@@ -676,11 +687,10 @@ func mdctShortBlocksCore(samples []float64, overlap, shortBlocks, shortSize int,
 		blockMDCT(samples[start:end], blockCoeffs)
 
 		// Interleave coefficients into output
-		for i, v := range blockCoeffs {
-			outIdx := b + i*shortBlocks
-			if outIdx < len(output) {
-				output[outIdx] = v
-			}
+		outIdx := b
+		for i := 0; i < shortSize; i++ {
+			output[outIdx] = blockCoeffs[i]
+			outIdx += shortBlocks
 		}
 	}
 }
