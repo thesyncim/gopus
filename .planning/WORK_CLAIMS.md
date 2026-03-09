@@ -57,3 +57,4 @@ Quick commands:
 - claim: id=codex-20260308-183014; agent=codex; status=released; paths=encoder/,celt/,.planning/; updated=2026-03-08T21:47:36Z; expires=2026-03-08T21:47:36Z; note=push toward libopus perf parity without quality loss
 - claim: id=codex-20260308-214747; agent=codex; status=released; paths=encoder/,celt/,.planning/; updated=2026-03-08T22:15:45Z; expires=2026-03-08T22:15:45Z; note=continue push toward libopus perf parity after PR280 merge
 - claim: id=codex-20260308-221555; agent=codex; status=released; paths=encoder/,celt/,.planning/; updated=2026-03-09T20:28:07Z; expires=2026-03-09T20:28:07Z; note=continue perf parity after PR281 merge
+- claim: id=codex-20260309-202820; agent=codex; status=active; paths=encoder/,celt/,.planning/; updated=2026-03-09T20:28:20Z; expires=2026-03-10T00:28:20Z; note=perf parity loop after PR282 merge
