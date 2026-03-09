@@ -1779,14 +1779,53 @@ func (e *Encoder) computeSilenceFlag(pcm []float64, frameSize, overlap int) bool
 }
 
 func maxAbsSliceF64(x []float64) float64 {
-	maxAbs := 0.0
-	for _, v := range x {
-		a := math.Abs(v)
-		if a > maxAbs {
-			maxAbs = a
+	if len(x) == 0 {
+		return 0
+	}
+
+	const (
+		signBit = uint64(1) << 63
+		infBits = uint64(0x7ff0000000000000)
+	)
+
+	var max0, max1, max2, max3 uint64
+	i := 0
+	for ; i+3 < len(x); i += 4 {
+		b0 := math.Float64bits(x[i]) &^ signBit
+		if b0 <= infBits && b0 > max0 {
+			max0 = b0
+		}
+		b1 := math.Float64bits(x[i+1]) &^ signBit
+		if b1 <= infBits && b1 > max1 {
+			max1 = b1
+		}
+		b2 := math.Float64bits(x[i+2]) &^ signBit
+		if b2 <= infBits && b2 > max2 {
+			max2 = b2
+		}
+		b3 := math.Float64bits(x[i+3]) &^ signBit
+		if b3 <= infBits && b3 > max3 {
+			max3 = b3
 		}
 	}
-	return maxAbs
+
+	maxBits := max0
+	if max1 > maxBits {
+		maxBits = max1
+	}
+	if max2 > maxBits {
+		maxBits = max2
+	}
+	if max3 > maxBits {
+		maxBits = max3
+	}
+	for ; i < len(x); i++ {
+		bits := math.Float64bits(x[i]) &^ signBit
+		if bits <= infBits && bits > maxBits {
+			maxBits = bits
+		}
+	}
+	return math.Float64frombits(maxBits)
 }
 
 // EncodeFrameWithOptions encodes a frame with additional control options.
