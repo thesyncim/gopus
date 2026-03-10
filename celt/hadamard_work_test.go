@@ -103,6 +103,14 @@ func BenchmarkHadamardWorkRoundTripLegacy(b *testing.B) {
 	benchmarkHadamardWorkRoundTrip(b, false, 22, 6)
 }
 
+func BenchmarkHadamardWorkRoundTripCurrentStride2(b *testing.B) {
+	benchmarkHadamardWorkRoundTrip(b, true, 64, 2)
+}
+
+func BenchmarkHadamardWorkRoundTripLegacyStride2(b *testing.B) {
+	benchmarkHadamardWorkRoundTrip(b, false, 64, 2)
+}
+
 func BenchmarkHadamardWorkRoundTripCurrentStride12(b *testing.B) {
 	benchmarkHadamardWorkRoundTrip(b, true, 12, 12)
 }

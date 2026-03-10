@@ -1,10 +1,9 @@
 package celt
 
-// haar1Stride1Asm applies the Haar butterfly to n0 consecutive pairs of float64
-// values. Computation is done in float32 precision (matching libopus) then
-// widened back to float64 for storage. This preserves bit-exact parity with
-// libopus which uses float intermediates.
-func haar1Stride1Asm(x []float64, n0 int) {
+// haar1Stride1Generic applies the Haar butterfly to n0 consecutive pairs of
+// float64 values. Computation is done in float32 precision (matching libopus)
+// then widened back to float64 for storage.
+func haar1Stride1Generic(x []float64, n0 int) {
 	const invSqrt2 = float32(0.7071067811865476)
 	if n0 <= 0 {
 		return
@@ -24,7 +23,7 @@ func haar1Stride1Asm(x []float64, n0 int) {
 	}
 }
 
-func haar1Stride2(x []float64, n0 int) {
+func haar1Stride2Generic(x []float64, n0 int) {
 	const invSqrt2 = float32(0.7071067811865476)
 	if n0 <= 0 {
 		return
