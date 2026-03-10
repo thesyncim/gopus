@@ -7,5 +7,5 @@ func kfBfly5N1(fout []kissCpx, tw []kissCpx, m, fstride int) {
 }
 
 func useKfBfly5N1(fstride int) bool {
-	return true
+	return false
 }
