@@ -213,6 +213,17 @@ var pvqURowLen = [15]int{
 	1,   // N=14: K=14
 }
 
+// pvqUDense matches libopus's row/column access pattern directly:
+// pvqUDense[n][k] == U(n,k) for every table-covered pair.
+var pvqUDense = func() [15][177]uint32 {
+	var dense [15][177]uint32
+	for n, start := range pvqURow {
+		rowLen := pvqURowLen[n]
+		copy(dense[n][n:n+rowLen], pvqUData[start:start+rowLen])
+	}
+	return dense
+}()
+
 // pvqUTableLookup performs a direct table lookup for U(n, k).
 // Returns (value, ok) where ok is true if the lookup succeeded.
 // If the lookup fails (n or k out of range), falls back to computation.
@@ -391,7 +402,7 @@ func pvqUTableLookupFast(n, k int) uint32 {
 	if n > k {
 		n, k = k, n
 	}
-	return pvqUData[pvqURow[n]+(k-n)]
+	return pvqUDense[n][k]
 }
 
 // unext computes the next row/column of any recurrence that obeys the relation
@@ -511,9 +522,9 @@ func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 
 		// Lots of pulses case (k >= n)
 		if k >= n {
-			rowN := pvqURow[n]
+			rowN := &pvqUDense[n]
 			// Are the pulses in this dimension negative?
-			p = pvqUData[rowN+(k+1-n)]
+			p = rowN[k+1]
 			if i >= p {
 				s = -1
 				i -= p
@@ -521,34 +532,32 @@ func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 
 			// Count how many pulses were placed in this dimension
 			k0 = k
-			q = pvqUData[rowN]
+			q = rowN[n]
 
 			if q > i {
 				k = n
-				nk := 0
 				for {
 					k--
-					nk++
-					p = pvqUData[pvqURow[k]+nk]
+					p = pvqUDense[k][n]
 					if p <= i {
 						break
 					}
 				}
 			} else {
-				// pvqUData[rowN + t] is monotonic in t for fixed n, so we can
-				// locate the largest t <= (k-n) with value <= i via binary search.
-				lo := 0
-				hi := k - n
+				// rowN[k] is monotonic in k for fixed n, so we can locate the
+				// largest k <= current k with value <= i via binary search.
+				lo := n
+				hi := k
 				for lo < hi {
 					mid := (lo + hi + 1) >> 1
-					if pvqUData[rowN+mid] <= i {
+					if rowN[mid] <= i {
 						lo = mid
 					} else {
 						hi = mid - 1
 					}
 				}
-				k = n + lo
-				p = pvqUData[rowN+lo]
+				k = lo
+				p = rowN[lo]
 			}
 			i -= p
 			yj = k0 - k
@@ -559,10 +568,11 @@ func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 			yy += uint32(yj * yj)
 		} else {
 			// Lots of dimensions case (k < n)
-			nk := n - k
+			rowK := &pvqUDense[k]
+			rowK1 := &pvqUDense[k+1]
 			// Are there any pulses in this dimension at all?
-			p = pvqUData[pvqURow[k]+nk]
-			q = pvqUData[pvqURow[k+1]+nk-1]
+			p = rowK[n]
+			q = rowK1[n]
 
 			if p <= i && i < q {
 				i -= p
@@ -577,8 +587,7 @@ func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 				k0 = k
 				for {
 					k--
-					nk++
-					p = pvqUData[pvqURow[k]+nk]
+					p = pvqUDense[k][n]
 					if p <= i {
 						break
 					}
