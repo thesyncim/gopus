@@ -60,4 +60,4 @@ Quick commands:
 - claim: id=codex-20260309-202820; agent=codex; status=released; paths=encoder/,celt/,.planning/; updated=2026-03-09T21:20:08Z; expires=2026-03-09T21:20:08Z; note=perf parity loop after PR282 merge
 - claim: id=codex-20260309-212029; agent=codex; status=released; paths=encoder/,celt/,.planning/; updated=2026-03-09T21:41:15Z; expires=2026-03-09T21:41:15Z; note=perf parity loop after PR283 merge
 - claim: id=codex-20260309-214128; agent=codex; status=released; paths=encoder/,celt/,.planning/; updated=2026-03-10T16:39:45Z; expires=2026-03-10T16:39:45Z; note=perf parity loop after PR284 merge
-- claim: id=codex-20260310-164001; agent=codex; status=active; paths=encoder/,celt/,.planning/; updated=2026-03-10T16:40:01Z; expires=2026-03-10T20:40:01Z; note=perf parity loop after PR285 merge
+- claim: id=codex-20260310-164001; agent=codex; status=released; paths=encoder/,celt/,.planning/; updated=2026-03-10T17:11:51Z; expires=2026-03-10T17:11:51Z; note=perf parity loop after PR285 merge
