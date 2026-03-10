@@ -1,8 +1,22 @@
 package celt
 
+import "unsafe"
+
 const (
-	maxPseudo    = 40
-	logMaxPseudo = 6
+	maxPseudo            = 40
+	logMaxPseudo         = 6
+	pulseCacheLookupBits = 256
+)
+
+type pulseCacheLookup50Data struct {
+	lut   [len(cacheBits50)][pulseCacheLookupBits]uint8
+	valid [len(cacheBits50)]bool
+}
+
+var (
+	pulseCacheLookup50 = buildPulseCacheLookup50()
+	cacheBits50Base    = uintptr(unsafe.Pointer(&cacheBits50[0]))
+	cacheBits50End     = cacheBits50Base + uintptr(len(cacheBits50))
 )
 
 func getPulses(i int) int {
@@ -89,7 +103,38 @@ func pulseCacheMaxBits(cache []uint8) int {
 	return int(cache[maxPseudo])
 }
 
-func bitsToPulsesCachedFast(cache []uint8, bitsQ3 int) int {
+func buildPulseCacheLookup50() pulseCacheLookup50Data {
+	var data pulseCacheLookup50Data
+	for _, start16 := range cacheIndex50 {
+		start := int(start16)
+		if start < 0 || start >= len(cacheBits50) || data.valid[start] {
+			continue
+		}
+		data.valid[start] = true
+		cache := cacheBits50[start:]
+		for bitsQ3 := 1; bitsQ3 <= pulseCacheLookupBits; bitsQ3++ {
+			data.lut[start][bitsQ3-1] = uint8(bitsToPulsesCachedBinarySearch(cache, bitsQ3))
+		}
+	}
+	return data
+}
+
+func cacheBits50Offset(cache []uint8) (int, bool) {
+	if len(cache) == 0 {
+		return 0, false
+	}
+	ptr := uintptr(unsafe.Pointer(&cache[0]))
+	if ptr < cacheBits50Base || ptr >= cacheBits50End {
+		return 0, false
+	}
+	offset := int(ptr - cacheBits50Base)
+	if offset < 0 || offset >= len(cacheBits50) || !pulseCacheLookup50.valid[offset] {
+		return 0, false
+	}
+	return offset, true
+}
+
+func bitsToPulsesCachedBinarySearch(cache []uint8, bitsQ3 int) int {
 	bitsQ3--
 	lo := 0
 	hi := int(cache[0])
@@ -110,4 +155,18 @@ func bitsToPulsesCachedFast(cache []uint8, bitsQ3 int) int {
 		return lo
 	}
 	return hi
+}
+
+func bitsToPulsesCachedFast(cache []uint8, bitsQ3 int) int {
+	if offset, ok := cacheBits50Offset(cache); ok {
+		idx := bitsQ3 - 1
+		if idx < 0 {
+			return 0
+		}
+		if idx >= pulseCacheLookupBits {
+			idx = pulseCacheLookupBits - 1
+		}
+		return int(pulseCacheLookup50.lut[offset][idx])
+	}
+	return bitsToPulsesCachedBinarySearch(cache, bitsQ3)
 }

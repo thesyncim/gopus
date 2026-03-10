@@ -20,6 +20,20 @@ owner: <handle>
 ## Current Decisions
 
 date: 2026-03-10
+topic: Static CELT pulse-cache direct lookup
+decision: Keep the `celt/pulse_cache.go` direct lookup path for shipped `cacheBits50` slices. `bitsToPulsesCachedFast()` should use the precomputed `(cache offset, bitsQ3)` lookup table for static pulse caches and fall back to the previous binary search only for custom/non-static cache slices.
+evidence: Added `celt/pulse_cache_test.go`; focused exactness passed with `GOWORK=off go test ./celt -run '^(TestBitsToPulsesCachedFastMatchesBinarySearch|TestBitsToPulsesCachedFastFallbackCustomSlice|TestDecodeFrameWithPacketStereoToFloat32MatchesDecodeFrame)$' -count=1`. Broader validation stayed green with `GOWORK=off go test ./celt -count=1`, `GOPUS_TEST_TIER=parity GOWORK=off go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` (`23 passed, 0 failed`), and `GOWORK=off make bench-guard`. On Apple M4 Max the direct cache lookup measured `BenchmarkBitsToPulsesCachedFast ~1.964-1.979 ns/op` versus legacy `BenchmarkBitsToPulsesCachedBinarySearch ~6.430-6.503 ns/op`. Same-host example benches improved materially on decode: speech `gopus avg 507.533652ms -> 478.241458ms`, stereo `2.547169312s -> 2.447915146s`, and fair `opus_demo` comparisons landed at `479.113055ms vs 415.297639ms` for speech and `2.458207312s vs 2.11335675s` for stereo.
+do_not_repeat_until: the static pulse-cache tables (`cacheIndex50`/`cacheBits50`) change, the decode path stops traversing those shipped cache slices, or same-host A/B on target examples no longer favors the direct lookup over the binary-search fallback.
+owner: codex
+
+date: 2026-03-10
+topic: ARM64 stereo deemphasis asm retry policy
+decision: Do not retry arm64 stereo `applyDeemphasisAndScaleToFloat32` asm helpers until a fresh profile shows the helper-level generic path materially slower on the target host or the implementation strategy changes away from per-frame scalar loops.
+evidence: Two March 10, 2026 prototypes were tested and reverted on Apple M4 Max. The first scalar-state variant in `celt/deemph_stereo_arm64.s` drifted by 1 ULP against the generic helper and benchmarked at `~1563-1585 ns/op` versus generic `~1064-1066 ns/op`. A second exact FMA-form rewrite matched the generic helper bit-for-bit but still lost at `~1127-1139 ns/op` versus generic `~1064-1071 ns/op`. Neither prototype improved the speech decode example enough to justify carrying extra complexity.
+do_not_repeat_until: mono/speech decode profiling identifies a different exact vectorized approach, or arm64 helper benchmarks on the target host show a clear regression in the generic loop worth revisiting.
+owner: codex
+
+date: 2026-03-10
 topic: CELT radix-5 N=1 FFT specialization
 decision: Keep the `kfBfly5()` common-case dispatch in `celt/kissfft32.go` that routes `N=1 && mm=1` radix-5 stages to `kfBfly5N1()`, with the new arm64 rolling-pointer asm kernel in `celt/kf_bfly5n1_arm64.s` and the exact generic fallback in `celt/kf_bfly5n1.go`. Do not fold this into a broader radix-5 rewrite; the keep is specifically for the shipped CELT FFT stage shape where radix-5 is always the final `N=1/mm=1` stage.
 evidence: Added direct exactness and stage microbench coverage in `celt/kf_bfly5_test.go`; `GOWORK=off go test ./celt -run '^(TestKfBfly5N1MatchesReference|TestKissFFT32_Accuracy|TestMDCTForwardOverlapDirectStageMatchesLegacyStagedPath)$' -count=1` passed. Broader validation stayed green with `GOWORK=off go test ./celt -count=1`, `GOPUS_TEST_TIER=parity GOWORK=off go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` (`23 passed, 0 failed`), and `GOWORK=off make bench-guard`. Same-base A/B against detached `aadcc09` favored the keep: baseline `BenchmarkEncoderEncode_Stereo ~79852-80737 ns/op` versus current `~78572-79160 ns/op`, and the speech harness improved from baseline `avg 1.997438347s` to current `avg 1.9721875s`. Direct stage benches on Apple M4 Max showed current-path wins for `nfft60/120/240` and near-neutral regression at `nfft480`, so treat this as a targeted common-case specialization, not a blanket radix-5 asm win.

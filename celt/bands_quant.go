@@ -129,11 +129,7 @@ func deinterleaveHadamardInto(dst, src []float64, n0, stride int, hadamard bool)
 	}
 	switch stride {
 	case 2:
-		for j := 0; j < n0; j++ {
-			base := j << 1
-			dst[j] = src[base]
-			dst[n0+j] = src[base+1]
-		}
+		DeinterleaveStereoInto(src, dst[:n0], dst[n0:n])
 	case 3:
 		n1 := n0
 		n2 := n0 << 1
@@ -294,11 +290,7 @@ func interleaveHadamardInto(dst, src []float64, n0, stride int, hadamard bool) {
 	}
 	switch stride {
 	case 2:
-		for j := 0; j < n0; j++ {
-			base := j << 1
-			dst[base] = src[j]
-			dst[base+1] = src[n0+j]
-		}
+		InterleaveStereoInto(src[:n0], src[n0:n], dst)
 	case 3:
 		n1 := n0
 		n2 := n0 << 1
@@ -456,7 +448,7 @@ func haar1(x []float64, n0, stride int) {
 		return
 	}
 	if stride == 2 {
-		haar1Stride2(x, n0)
+		haar1Stride2Asm(x, n0)
 		return
 	}
 	if stride == 6 {

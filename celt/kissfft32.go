@@ -543,7 +543,7 @@ func kfBfly5(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
 		kfBfly5M1(fout, st.w, fstride, N, mm)
 		return
 	}
-	if N == 1 && mm == 1 {
+	if N == 1 && mm == 1 && useKfBfly5N1(fstride) {
 		kfBfly5N1(fout, st.w, m, fstride)
 		return
 	}
