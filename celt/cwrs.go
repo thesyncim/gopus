@@ -272,6 +272,17 @@ func canUseCWRSFast(n, k int) bool {
 	return offset0 < pvqURowLen[k] && offset1 < pvqURowLen[k+1]
 }
 
+// canUseICWRSLookupFast reports whether the encoder-side CWRS index walk for
+// (n,k) can stay entirely on direct U-table lookups without per-step range
+// checks. This is slightly broader than canUseCWRSFast because encode only
+// needs the table walk, not the decoder's specialized cwrsiFast path.
+func canUseICWRSLookupFast(n, k int) bool {
+	if n < 2 || k <= 0 {
+		return false
+	}
+	return pvqUHasLookup(n, k) && pvqUHasLookup(n, k+1)
+}
+
 // PVQ_V computes V(N,K), the total number of PVQ codewords with N dimensions
 // and K pulses (where the sum of absolute values equals K).
 //
@@ -293,6 +304,10 @@ func PVQ_V(n, k int) uint32 {
 	}
 	if n == 1 {
 		return 2 // Only +K and -K
+	}
+
+	if canUseICWRSLookupFast(n, k) {
+		return pvqUTableLookupFast(n, k) + pvqUTableLookupFast(n, k+1)
 	}
 
 	// Try table lookup: V(n,k) = U(n,k) + U(n,k+1)
@@ -657,41 +672,25 @@ func icwrs1(y int) (uint32, int) {
 }
 
 func icwrsLookupFast(n, k int, y []int) (uint32, bool) {
-	if n < 2 || k <= 0 || len(y) < n {
+	if len(y) < n || !canUseICWRSLookupFast(n, k) {
 		return 0, false
 	}
 
 	i, k1 := icwrs1(y[n-1])
-	base, ok := pvqUTableLookup(2, k1)
-	if !ok {
-		return 0, false
-	}
-	i += base
+	i += pvqUTableLookupFast(2, k1)
 
 	j := n - 2
 	k1 += abs(y[j])
 	if y[j] < 0 {
-		neg, ok := pvqUTableLookup(2, k1+1)
-		if !ok {
-			return 0, false
-		}
-		i += neg
+		i += pvqUTableLookupFast(2, k1+1)
 	}
 
 	for j--; j >= 0; j-- {
 		remDims := n - j
-		base, ok := pvqUTableLookup(remDims, k1)
-		if !ok {
-			return 0, false
-		}
-		i += base
+		i += pvqUTableLookupFast(remDims, k1)
 		k1 += abs(y[j])
 		if y[j] < 0 {
-			neg, ok := pvqUTableLookup(remDims, k1+1)
-			if !ok {
-				return 0, false
-			}
-			i += neg
+			i += pvqUTableLookupFast(remDims, k1+1)
 		}
 	}
 
