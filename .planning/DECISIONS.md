@@ -20,6 +20,13 @@ owner: <handle>
 ## Current Decisions
 
 date: 2026-03-10
+topic: Pitch-search half-rate refinement via range xcorr
+decision: Keep the `celt/prefilter.go` half-rate pitch-search refinement path that runs `prefilterPitchXcorrFast()` across each contiguous candidate range instead of recomputing each lag with separate `celtInnerProd` calls. Preserve the same candidate ranges and clamp semantics; do not fall back to per-lag inner products unless same-host encode A/B stops favoring the range xcorr path.
+evidence: Focused parity stayed green with `GOWORK=off go test ./celt -run '^(TestPitchSearchMatchesLegacy|TestFindBestPitchInRangesMatchesFullSweep)$' -count=1`. Same-host microbench improved `BenchmarkPitchSearchCurrent` to about `~3020-3055 ns/op` versus legacy `~4115-4256 ns/op`. The target speech encode example improved from `gopus avg 2.345480042s` to `avg 2.343180208s` (`libopus avg 1.950905958s` on that rerun), and root `BenchmarkEncoderEncode_Stereo` remained slightly favorable at `~77706-78011 ns/op` on the current rerun.
+do_not_repeat_until: pitch-search refinement stops operating on two small contiguous half-rate windows around the coarse winners, the xcorr kernel dispatch semantics change enough that the contiguous-window call is no longer favorable, or same-host example encode A/B no longer favors this path over per-lag inner products.
+owner: codex
+
+date: 2026-03-10
 topic: Stereo transient-analysis fused backward metric pass
 decision: Keep the `celt/transient.go` stereo transient-analysis path where backward masking and unmask accumulation run in fused left/right loops instead of two separate per-channel metric passes. Preserve the exact per-channel arithmetic order and legacy parity guard; do not split this back into channel-by-channel post-forward passes unless same-host encoder A/B stops favoring the fused version.
 evidence: Focused legacy parity stayed green with `GOWORK=off go test ./celt -run '^TestTransientAnalysisMatchesLegacy$' -count=1`. Same-host microbench improved `BenchmarkTransientAnalysisCurrentStereo` from about `~5752-5840 ns/op` to `~4788-4828 ns/op`, while `BenchmarkTransientAnalysisLegacyStereo` remained around `~8761-9236 ns/op`. The target speech encode example improved from `gopus avg 2.368076875s` to `avg 2.345480042s` against `libopus avg 1.931857999s`, and the root stereo encode bench rerun improved from the recent `~81252 ns/op` sample to `~77895-78407 ns/op`.
