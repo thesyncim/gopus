@@ -62,3 +62,4 @@ Quick commands:
 - claim: id=codex-20260309-214128; agent=codex; status=released; paths=encoder/,celt/,.planning/; updated=2026-03-10T16:39:45Z; expires=2026-03-10T16:39:45Z; note=perf parity loop after PR284 merge
 - claim: id=codex-20260310-164001; agent=codex; status=released; paths=encoder/,celt/,.planning/; updated=2026-03-10T17:11:51Z; expires=2026-03-10T17:11:51Z; note=perf parity loop after PR285 merge
 - claim: id=codex-20260310-171514; agent=codex; status=released; paths=celt/,.planning/; updated=2026-03-10T21:30:13Z; expires=2026-03-10T21:30:13Z; note=radix-5 N=1 specialization perf loop after PR286 tip
+- claim: id=codex-20260310-213020; agent=codex; status=active; paths=celt/,.planning/; updated=2026-03-10T21:30:20Z; expires=2026-03-11T01:30:20Z; note=theta/rotation decode perf loop after PR288 merge
