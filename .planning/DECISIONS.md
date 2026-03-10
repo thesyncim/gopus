@@ -1,6 +1,6 @@
 # Investigation Decisions
 
-Last updated: 2026-03-08
+Last updated: 2026-03-09
 
 Purpose: record durable keep/skip decisions to avoid re-running solved investigations.
 
@@ -18,6 +18,27 @@ owner: <handle>
 ```
 
 ## Current Decisions
+
+date: 2026-03-09
+topic: Encoder-side CWRS/PVQ covered table fast path
+decision: Keep the encoder-side direct `pvqUTableLookupFast()` path in `celt/cwrs.go` for `icwrsLookupFast()` and covered `PVQ_V()` cases whenever `canUseICWRSLookupFast(n, k)` holds. This avoids repeated guarded `U(n,k)` lookups on the exact same static-table-covered `(n,k)` region without changing any CWRS or PVQ arithmetic.
+evidence: Added `celt/cwrs_lookup_test.go`; `GOWORK=off go test ./celt -run '^(TestCanUseICWRSLookupFastMatchesCoverage|TestICWRSLookupFastMatchesChecked)$' -count=1` passed. Covered microbench favored the keep on Apple M4 Max: `BenchmarkICWRSLookupFastCovered ~42.25-42.50 ns/op` versus checked `~43.57-46.13 ns/op`. Broader validation stayed green with `GOWORK=off go test ./celt -count=1`, `GOPUS_TEST_TIER=parity GOWORK=off go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` (`23 passed, 0 failed`), and `GOWORK=off make bench-guard`. Same-base encoder A/B against detached `73a110c` stayed favorable in combination with the companion stereo-layout keep: current `BenchmarkEncoderEncode_Stereo ~68419-68794 ns/op` versus baseline `~69335-70196 ns/op`.
+do_not_repeat_until: the static PVQ `U(n,k)` coverage table changes, encoder pulse indexing stops traversing the same covered region, or same-base encoder A/B on target hosts no longer favors the direct lookup path.
+owner: codex
+
+date: 2026-03-09
+topic: ARM64 stereo interleave/deinterleave raw-move kernels
+decision: Keep the default-on arm64 asm kernels in `celt/stereo_layout_arm64.s` for `DeinterleaveStereoInto()` and `InterleaveStereoInto()`. These helpers only move 64-bit sample lanes and preserve exact bit patterns, including NaNs and signed zero, while materially improving the hot stereo layout microbench on the current host.
+evidence: Added exact bit-pattern coverage in `celt/stereo_layout_arm64_test.go`; `GOWORK=off go test ./celt -run '^(TestStereoLayoutHelpersRoundTrip|TestStereoLayoutArm64MatchesGenericExact)$' -count=1` passed. Microbench on Apple M4 Max improved from generic `BenchmarkInterleaveStereoInto ~387.4-390.6 ns/op` to current `~296.1-298.7 ns/op`, and `BenchmarkDeinterleaveStereoInto ~386.2-390.9 ns/op` to current `~253.4-255.7 ns/op`. Broader validation stayed green with `GOWORK=off go test ./celt -count=1`, `GOPUS_TEST_TIER=parity GOWORK=off go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` (`23 passed, 0 failed`), `GOWORK=off make bench-guard`, and `GOWORK=off make verify-production` failing only on the known local `tmp_check` cgo-disabled blocker after the rest of the tree passed.
+do_not_repeat_until: stereo scratch layout changes away from plain interleaved float64 lanes, the target arm64 cost model changes enough that the compiler-generated Go loop catches up, or same-base encoder A/B on target hosts stops favoring the asm path.
+owner: codex
+
+date: 2026-03-09
+topic: ARM64 celtInnerProd asm versus compiler-generated Go
+decision: Do not keep the attempted default-on arm64 asm replacement for `celtInnerProd`. Even after matching the compiler’s fused multiply-add semantics exactly, the asm version benchmarked slower than the existing Go loop on Apple M4 Max.
+evidence: Exactness guard in the temporary arm64 test failed until the asm was switched from split multiply/add to `FMADDD`, confirming the compiler-generated Go path uses fused multiply-add semantics on this host. After fixing exactness, `GOWORK=off go test ./celt -run '^(TestCeltInnerProd|TestCeltInnerProdEdge|TestCeltInnerProdArm64MatchesGenericExact|TestDualInnerProd|TestCeltPitchXcorr|TestCeltPitchXcorrEdge)$' -count=1` passed, but the microbench regressed: `BenchmarkCeltInnerProd ~117.0-117.8 ns/op` versus generic `~89.6-90.7 ns/op`. The asm path was fully reverted.
+do_not_repeat_until: the Go arm64 compiler stops producing the current faster fused implementation, or there is a materially different asm/vector design that beats the generic benchmark while preserving exact float64 results.
+owner: codex
 
 date: 2026-03-09
 topic: Single-pass normalize plus linear band amplitudes in CELT encode

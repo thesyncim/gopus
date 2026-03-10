@@ -227,6 +227,12 @@ func BenchmarkPVQ_V(b *testing.B) {
 	}
 }
 
+func BenchmarkPVQ_VCovered(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		PVQ_V(48, 5)
+	}
+}
+
 // BenchmarkDecodePulses benchmarks the decoding function.
 func BenchmarkDecodePulses(b *testing.B) {
 	y := make([]int, 16)
