@@ -86,6 +86,20 @@ func (d *Decoder) updatePostfilterHistory(samples []float64, frameSize int, hist
 		copy(hist[history-frameSize:], samples[:frameSize])
 		return
 	}
+	if d.channels == 2 {
+		histL := d.postfilterMem[:history]
+		histR := d.postfilterMem[history : 2*history]
+		if frameSize >= history {
+			src := (frameSize - history) * 2
+			DeinterleaveStereoInto(samples[src:src+history*2], histL, histR)
+			return
+		}
+		copy(histL, histL[frameSize:])
+		copy(histR, histR[frameSize:])
+		dst := history - frameSize
+		DeinterleaveStereoInto(samples[:frameSize*2], histL[dst:], histR[dst:])
+		return
+	}
 
 	channels := d.channels
 	for ch := 0; ch < channels; ch++ {
@@ -123,6 +137,20 @@ func (d *Decoder) updatePLCDecodeHistory(samples []float64, frameSize int, histo
 		}
 		copy(hist, hist[frameSize:])
 		copy(hist[history-frameSize:], samples[:frameSize])
+		return
+	}
+	if d.channels == 2 {
+		histL := d.plcDecodeMem[:history]
+		histR := d.plcDecodeMem[history : 2*history]
+		if frameSize >= history {
+			src := (frameSize - history) * 2
+			DeinterleaveStereoInto(samples[src:src+history*2], histL, histR)
+			return
+		}
+		copy(histL, histL[frameSize:])
+		copy(histR, histR[frameSize:])
+		dst := history - frameSize
+		DeinterleaveStereoInto(samples[:frameSize*2], histL[dst:], histR[dst:])
 		return
 	}
 
