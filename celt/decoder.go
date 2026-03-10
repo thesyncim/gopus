@@ -1177,40 +1177,49 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 
 	// Step 6: Synthesis (IMDCT + window + overlap-add)
 	var samples []float64
+	directStereoFloat32 := d.channels == 2 && len(d.directOutPCM) >= frameSize*2
 
 	if d.channels == 2 {
 		energiesL := energies[:end]
 		energiesR := energies[end:]
 		denormalizeCoeffs(coeffsL, energiesL, end, frameSize)
 		denormalizeCoeffs(coeffsR, energiesR, end, frameSize)
-		samples = d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
+		if directStereoFloat32 {
+			samplesL, samplesR := d.synthesizeStereoPlanar(coeffsL, coeffsR, transient, shortBlocks)
+			d.applyPostfilterStereoPlanar(samplesL, samplesR, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
+			d.applyDeemphasisAndScaleStereoPlanarToFloat32(d.directOutPCM[:frameSize*2], samplesL, samplesR, 1.0/32768.0)
+		} else {
+			samples = d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
+		}
 	} else {
 		denormalizeCoeffs(coeffsL, energies, end, frameSize)
 		samples = d.Synthesize(coeffsL, transient, shortBlocks)
 	}
 
-	// Trace synthesis output before postfilter/de-emphasis for libopus comparison.
-	traceLen := len(samples)
-	if traceLen > 16 {
-		traceLen = 16
-	}
-	traceSynthesis("synth_pre", samples[:traceLen])
+	if !directStereoFloat32 {
+		// Trace synthesis output before postfilter/de-emphasis for libopus comparison.
+		traceLen := len(samples)
+		if traceLen > 16 {
+			traceLen = 16
+		}
+		traceSynthesis("synth_pre", samples[:traceLen])
 
-	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
+		d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
 
-	// Step 7: Apply de-emphasis filter
-	if len(d.directOutPCM) >= len(samples) {
-		d.applyDeemphasisAndScaleToFloat32(d.directOutPCM[:len(samples)], samples, 1.0/32768.0)
-	} else {
-		d.applyDeemphasisAndScale(samples, 1.0/32768.0)
-	}
+		// Step 7: Apply de-emphasis filter
+		if len(d.directOutPCM) >= len(samples) {
+			d.applyDeemphasisAndScaleToFloat32(d.directOutPCM[:len(samples)], samples, 1.0/32768.0)
+		} else {
+			d.applyDeemphasisAndScale(samples, 1.0/32768.0)
+		}
 
-	// Trace final synthesis output
-	traceLen = len(samples)
-	if traceLen > 16 {
-		traceLen = 16
+		// Trace final synthesis output
+		traceLen = len(samples)
+		if traceLen > 16 {
+			traceLen = 16
+		}
+		traceSynthesis("final", samples[:traceLen])
 	}
-	traceSynthesis("final", samples[:traceLen])
 
 	// Update energy state for next frame
 	d.updateLogE(energies, end, transient)
@@ -1587,6 +1596,96 @@ func (d *Decoder) applyDeemphasisAndScale(samples []float64, scale float64) {
 		d.preemphState[0] = float64(stateL)
 		d.preemphState[1] = float64(stateR)
 	}
+}
+
+func (d *Decoder) applyDeemphasisAndScaleStereoPlanarToFloat32(dst []float32, left, right []float64, scale float64) {
+	n := len(left)
+	if len(right) < n {
+		n = len(right)
+	}
+	if n == 0 {
+		return
+	}
+	if len(dst) < n*2 {
+		n = len(dst) >> 1
+	}
+	if n == 0 {
+		return
+	}
+	dst = dst[:n*2]
+	left = left[:n]
+	right = right[:n]
+
+	if d.preemphState[0] == 0 && d.preemphState[1] == 0 {
+		allZero := true
+		for i := 0; i < n; i++ {
+			if left[i] != 0 || right[i] != 0 {
+				allZero = false
+				break
+			}
+		}
+		if allZero {
+			clear(dst)
+			return
+		}
+	}
+
+	const verySmall float32 = 1e-30
+	const coef float32 = float32(PreemphCoef)
+	scale32 := float32(scale)
+
+	stateL := float32(d.preemphState[0])
+	stateR := float32(d.preemphState[1])
+	_ = left[n-1]
+	_ = right[n-1]
+	_ = dst[n*2-1]
+	i := 0
+	j := 0
+	for ; i+3 < n; i, j = i+4, j+8 {
+		tmpL0 := float32(left[i]) + verySmall + stateL
+		stateL = coef * tmpL0
+		dst[j] = tmpL0 * scale32
+
+		tmpR0 := float32(right[i]) + verySmall + stateR
+		stateR = coef * tmpR0
+		dst[j+1] = tmpR0 * scale32
+
+		tmpL1 := float32(left[i+1]) + verySmall + stateL
+		stateL = coef * tmpL1
+		dst[j+2] = tmpL1 * scale32
+
+		tmpR1 := float32(right[i+1]) + verySmall + stateR
+		stateR = coef * tmpR1
+		dst[j+3] = tmpR1 * scale32
+
+		tmpL2 := float32(left[i+2]) + verySmall + stateL
+		stateL = coef * tmpL2
+		dst[j+4] = tmpL2 * scale32
+
+		tmpR2 := float32(right[i+2]) + verySmall + stateR
+		stateR = coef * tmpR2
+		dst[j+5] = tmpR2 * scale32
+
+		tmpL3 := float32(left[i+3]) + verySmall + stateL
+		stateL = coef * tmpL3
+		dst[j+6] = tmpL3 * scale32
+
+		tmpR3 := float32(right[i+3]) + verySmall + stateR
+		stateR = coef * tmpR3
+		dst[j+7] = tmpR3 * scale32
+	}
+	for ; i < n; i, j = i+1, j+2 {
+		tmpL := float32(left[i]) + verySmall + stateL
+		stateL = coef * tmpL
+		dst[j] = tmpL * scale32
+
+		tmpR := float32(right[i]) + verySmall + stateR
+		stateR = coef * tmpR
+		dst[j+1] = tmpR * scale32
+	}
+
+	d.preemphState[0] = float64(stateL)
+	d.preemphState[1] = float64(stateR)
 }
 
 func (d *Decoder) applyDeemphasisAndScaleToFloat32(dst []float32, samples []float64, scale float64) {

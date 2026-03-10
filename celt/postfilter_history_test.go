@@ -93,6 +93,72 @@ func TestStereoHistoryHelpersMatchLegacy(t *testing.T) {
 	}
 }
 
+func TestApplyPostfilterStereoPlanarMatchesInterleaved(t *testing.T) {
+	const frameSize = 960
+	const lm = 1
+
+	left := make([]float64, frameSize)
+	right := make([]float64, frameSize)
+	for i := 0; i < frameSize; i++ {
+		left[i] = math.Sin(2*math.Pi*440*float64(i)/48000) * 0.5
+		right[i] = math.Sin(2*math.Pi*660*float64(i)/48000) * 0.4
+	}
+	interleaved := make([]float64, frameSize*2)
+	InterleaveStereoInto(left, right, interleaved)
+
+	current := NewDecoder(2)
+	legacy := NewDecoder(2)
+	current.postfilterMem = make([]float64, combFilterHistory*2)
+	legacy.postfilterMem = make([]float64, combFilterHistory*2)
+	current.plcDecodeMem = make([]float64, plcDecodeBufferSize*2)
+	legacy.plcDecodeMem = make([]float64, plcDecodeBufferSize*2)
+	current.postfilterScratch = make([]float64, combFilterHistory+frameSize)
+	legacy.postfilterScratch = make([]float64, combFilterHistory+frameSize)
+	for i := range current.postfilterMem {
+		current.postfilterMem[i] = float64((i%23)-11) * 0.125
+	}
+	copy(legacy.postfilterMem, current.postfilterMem)
+	for i := range current.plcDecodeMem {
+		current.plcDecodeMem[i] = float64((i%19)-9) * 0.25
+	}
+	copy(legacy.plcDecodeMem, current.plcDecodeMem)
+
+	current.postfilterPeriodOld = 42
+	current.postfilterPeriod = 44
+	current.postfilterGainOld = 0.18
+	current.postfilterGain = 0.24
+	current.postfilterTapsetOld = 1
+	current.postfilterTapset = 2
+	legacy.postfilterPeriodOld = current.postfilterPeriodOld
+	legacy.postfilterPeriod = current.postfilterPeriod
+	legacy.postfilterGainOld = current.postfilterGainOld
+	legacy.postfilterGain = current.postfilterGain
+	legacy.postfilterTapsetOld = current.postfilterTapsetOld
+	legacy.postfilterTapset = current.postfilterTapset
+
+	gotL := append([]float64(nil), left...)
+	gotR := append([]float64(nil), right...)
+	want := append([]float64(nil), interleaved...)
+
+	current.applyPostfilterStereoPlanar(gotL, gotR, frameSize, lm, 48, 0.31, 0)
+	legacy.applyPostfilter(want, frameSize, lm, 48, 0.31, 0)
+
+	got := make([]float64, frameSize*2)
+	InterleaveStereoInto(gotL, gotR, got)
+	requireFloat64BitsEqual(t, got, want)
+	requireFloat64BitsEqual(t, current.postfilterMem, legacy.postfilterMem)
+	requireFloat64BitsEqual(t, current.plcDecodeMem, legacy.plcDecodeMem)
+
+	if current.postfilterPeriodOld != legacy.postfilterPeriodOld ||
+		current.postfilterPeriod != legacy.postfilterPeriod ||
+		current.postfilterTapsetOld != legacy.postfilterTapsetOld ||
+		current.postfilterTapset != legacy.postfilterTapset ||
+		math.Float64bits(current.postfilterGainOld) != math.Float64bits(legacy.postfilterGainOld) ||
+		math.Float64bits(current.postfilterGain) != math.Float64bits(legacy.postfilterGain) {
+		t.Fatalf("postfilter state mismatch after planar path")
+	}
+}
+
 func BenchmarkUpdatePLCDecodeHistoryStereoCurrent(b *testing.B) {
 	benchmarkUpdateStereoHistory(b, plcDecodeBufferSize, func(d *Decoder, samples []float64, frameSize, history int) {
 		d.updatePLCDecodeHistory(samples, frameSize, history)
