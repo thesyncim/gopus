@@ -3584,26 +3584,6 @@ func quantAllBandsEncodeScratch(re *rangecoding.Encoder, channels, frameSize, lm
 					// Compute distortion for first trial
 					dist0 := w0*innerProduct(xSave, xBand) + w1*innerProduct(ySave, yBand)
 
-					// Save the result of first trial - use scratch if available
-					var xResult0, yResult0 []float64
-					if scratch != nil {
-						xResult0 = scratch.ensureXResult0(nBand)
-						yResult0 = scratch.ensureYResult0(nBand)
-					} else {
-						xResult0 = make([]float64, nBand)
-						yResult0 = make([]float64, nBand)
-					}
-					copy(xResult0, xBand)
-					copy(yResult0, yBand)
-					var normResult0 []float64
-					if lowbandOutX != nil {
-						if scratch != nil {
-							normResult0 = scratch.ensureNormResult0(nBand)
-						} else {
-							normResult0 = make([]float64, nBand)
-						}
-						copy(normResult0, lowbandOutX)
-					}
 					var ecSave0 *rangecoding.EncoderState
 					if scratch != nil {
 						re.SaveStateInto(&scratch.ecSave0)
@@ -3614,25 +3594,38 @@ func quantAllBandsEncodeScratch(re *rangecoding.Encoder, channels, frameSize, lm
 					ctxSave0 := ctx
 					cm0 := xCM0
 
-					// Restore state for second trial
+					// Seed separate buffers for the second trial from the saved original data.
+					var xTrial1, yTrial1 []float64
+					if scratch != nil {
+						xTrial1 = scratch.ensureXResult0(nBand)
+						yTrial1 = scratch.ensureYResult0(nBand)
+					} else {
+						xTrial1 = make([]float64, nBand)
+						yTrial1 = make([]float64, nBand)
+					}
+					copy(xTrial1, xSave)
+					copy(yTrial1, ySave)
+					var normTrial1 []float64
+					if lowbandOutX != nil {
+						if scratch != nil {
+							normTrial1 = scratch.ensureNormResult0(nBand)
+						} else {
+							normTrial1 = make([]float64, nBand)
+						}
+						copy(normTrial1, normSave)
+					}
+
+					// Restore coder state for the second trial while keeping the
+					// first-trial result live in the main output buffers.
 					re.RestoreState(ecSave)
 					ctx = ctxSave
-					copy(xBand, xSave)
-					copy(yBand, ySave)
-					if lowbandOutX != nil && normSave != nil {
-						copy(lowbandOutX, normSave)
-					}
-					// Re-apply special_hybrid_folding if needed
-					if i == start+1 {
-						specialHybridFolding(norm, norm2, start, M, false)
-					}
 
 					// Try encoding with theta_round = +1 (bias toward equal split)
 					ctx.thetaRound = 1
-					xCM1 := quantBandStereoPreparedLowband(&ctx, xBand, yBand, nBand, b, B, preparedLowbandX, lm, lowbandOutX, lowbandScratch, cm, lowbandPrepared)
+					xCM1 := quantBandStereoPreparedLowband(&ctx, xTrial1, yTrial1, nBand, b, B, preparedLowbandX, lm, normTrial1, lowbandScratch, cm, lowbandPrepared)
 
 					// Compute distortion for second trial
-					dist1 := w0*innerProduct(xSave, xBand) + w1*innerProduct(ySave, yBand)
+					dist1 := w0*innerProduct(xSave, xTrial1) + w1*innerProduct(ySave, yTrial1)
 
 					// Pick the trial with lower distortion (higher inner product = lower distortion)
 					if dist0 >= dist1 {
@@ -3640,14 +3633,14 @@ func quantAllBandsEncodeScratch(re *rangecoding.Encoder, channels, frameSize, lm
 						xCM = cm0
 						re.RestoreState(ecSave0)
 						ctx = ctxSave0
-						copy(xBand, xResult0)
-						copy(yBand, yResult0)
-						if lowbandOutX != nil && normResult0 != nil {
-							copy(lowbandOutX, normResult0)
-						}
 					} else {
 						// Second trial (theta_round = +1) was better
 						xCM = xCM1
+						copy(xBand, xTrial1)
+						copy(yBand, yTrial1)
+						if lowbandOutX != nil && normTrial1 != nil {
+							copy(lowbandOutX, normTrial1)
+						}
 					}
 					yCM = xCM
 					ctx.thetaRound = 0 // Reset for subsequent bands

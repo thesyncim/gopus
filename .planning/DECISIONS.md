@@ -1,6 +1,6 @@
 # Investigation Decisions
 
-Last updated: 2026-03-09
+Last updated: 2026-03-10
 
 Purpose: record durable keep/skip decisions to avoid re-running solved investigations.
 
@@ -18,6 +18,13 @@ owner: <handle>
 ```
 
 ## Current Decisions
+
+date: 2026-03-10
+topic: Theta-RDO trial result buffering
+decision: Keep the stereo theta-RDO buffering rewrite in `celt/bands_quant.go` where the `theta_round=-1` trial stays in the main `(x, y, lowbandOut)` buffers and the `theta_round=+1` trial runs in the existing scratch result buffers. Only copy trial-1 results back when that trial wins; do not snapshot and later restore the full first-trial result.
+evidence: Focused validation passed with `GOWORK=off go test ./celt -run '^(TestQuantBandStereoPreparedLowbandMatchesLegacy|TestThetaRDOTrialRestoration|TestComputeThetaPhaseInversionDisable)$' -count=1` and `GOWORK=off go test ./celt -count=1`. Parity stayed green with `GOPUS_TEST_TIER=parity GOWORK=off go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` (`23 passed, 0 failed`). Broad perf guard stayed green with `GOWORK=off make bench-guard`. Same-host A/B against detached `37371aa` favored the keep: current `BenchmarkEncoderEncode_Stereo ~79020-79272 ns/op` versus baseline `~81378-82701 ns/op`, and the fair speech encode harness improved from baseline `avg 1.969171486s` to current `avg 1.954683069s`.
+do_not_repeat_until: theta-RDO trial count/state-restoration semantics change, the current scratch-buffer ownership for `xSave`/`ySave`/`normSave` and `xResult0`/`yResult0`/`normResult0` changes, or same-base encoder A/B on target hosts stops favoring the keep.
+owner: codex
 
 date: 2026-03-09
 topic: Encoder-side CWRS/PVQ covered table fast path
