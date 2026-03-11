@@ -242,6 +242,26 @@ func (d *Decoder) Synthesize(coeffs []float64, transient bool, shortBlocks int) 
 	return output
 }
 
+func (d *Decoder) synthesizeMonoLongToFloat32(coeffs []float64) []float32 {
+	if len(coeffs) == 0 {
+		return nil
+	}
+	if len(d.overlapBuffer) < Overlap {
+		buf := make([]float64, Overlap)
+		copy(buf, d.overlapBuffer)
+		d.overlapBuffer = buf
+	}
+
+	outF32 := imdctOverlapWithPrevScratchF32Output(coeffs, d.overlapBuffer[:Overlap], Overlap, &d.scratchIMDCTF32)
+	if len(outF32) < len(coeffs)+Overlap {
+		return nil
+	}
+	if Overlap > 0 {
+		copyFloat32ToFloat64(d.overlapBuffer[:Overlap], outF32[len(coeffs):len(coeffs)+Overlap])
+	}
+	return outF32[:len(coeffs)]
+}
+
 func (d *Decoder) synthesizeStereoPlanar(coeffsL, coeffsR []float64, transient bool, shortBlocks int) (outL, outR []float64) {
 	if len(coeffsL) == 0 && len(coeffsR) == 0 {
 		return nil, nil

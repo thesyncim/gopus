@@ -174,6 +174,117 @@ func BenchmarkDecodeFrameWithPacketStereoToFloat32(b *testing.B) {
 	}
 }
 
+func TestApplyDeemphasisAndScaleMonoFloat32ToFloat32MatchesFloat64(t *testing.T) {
+	legacy := NewDecoder(1)
+	current := NewDecoder(1)
+	legacy.preemphState[0] = 0.1875
+	current.preemphState[0] = legacy.preemphState[0]
+
+	samplesF32 := make([]float32, 960)
+	for i := range samplesF32 {
+		samplesF32[i] = float32(0.65*math.Sin(float64(i+3)*0.041) + 0.2*math.Cos(float64(i+7)*0.017))
+	}
+	samplesF64 := make([]float64, len(samplesF32))
+	copyFloat32ToFloat64(samplesF64, samplesF32)
+
+	got := make([]float32, len(samplesF32))
+	want := make([]float32, len(samplesF32))
+	current.applyDeemphasisAndScaleMonoFloat32ToFloat32(got, samplesF32, 1.0/32768.0)
+	legacy.applyDeemphasisAndScaleToFloat32(want, samplesF64, 1.0/32768.0)
+
+	for i := range want {
+		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+			t.Fatalf("sample %d mismatch: got=%08x want=%08x", i, math.Float32bits(got[i]), math.Float32bits(want[i]))
+		}
+	}
+	if math.Float64bits(current.preemphState[0]) != math.Float64bits(legacy.preemphState[0]) {
+		t.Fatalf("state mismatch: got=%016x want=%016x", math.Float64bits(current.preemphState[0]), math.Float64bits(legacy.preemphState[0]))
+	}
+}
+
+func TestApplyPostfilterNoGainMonoFromFloat32MatchesFloat64(t *testing.T) {
+	legacy := NewDecoder(1)
+	current := NewDecoder(1)
+	legacy.postfilterPeriod = 45
+	current.postfilterPeriod = 45
+	legacy.postfilterTapset = 1
+	current.postfilterTapset = 1
+	legacy.postfilterPeriodOld = 39
+	current.postfilterPeriodOld = 39
+	legacy.postfilterTapsetOld = 2
+	current.postfilterTapsetOld = 2
+
+	for i := range legacy.postfilterMem {
+		v := 0.35*math.Sin(float64(i+5)*0.013) + float64((i%9)-4)/17.0
+		legacy.postfilterMem[i] = v
+		current.postfilterMem[i] = v
+	}
+	for i := range legacy.plcDecodeMem {
+		v := 0.2*math.Cos(float64(i+9)*0.009) + float64((i%11)-5)/23.0
+		legacy.plcDecodeMem[i] = v
+		current.plcDecodeMem[i] = v
+	}
+
+	frameSize := 960
+	samplesF32 := make([]float32, frameSize)
+	for i := range samplesF32 {
+		samplesF32[i] = float32(0.7*math.Sin(float64(i+11)*0.021) + 0.1*math.Cos(float64(i+13)*0.037))
+	}
+	samplesF64 := make([]float64, frameSize)
+	copyFloat32ToFloat64(samplesF64, samplesF32)
+
+	legacy.applyPostfilter(samplesF64, frameSize, 0, 61, 0, 2)
+	current.applyPostfilterNoGainMonoFromFloat32(samplesF32, frameSize, 0, 61, 0, 2)
+
+	for i := range legacy.postfilterMem {
+		if math.Float64bits(current.postfilterMem[i]) != math.Float64bits(legacy.postfilterMem[i]) {
+			t.Fatalf("postfilterMem[%d] mismatch", i)
+		}
+	}
+	for i := range legacy.plcDecodeMem {
+		if math.Float64bits(current.plcDecodeMem[i]) != math.Float64bits(legacy.plcDecodeMem[i]) {
+			t.Fatalf("plcDecodeMem[%d] mismatch", i)
+		}
+	}
+	if current.postfilterPeriod != legacy.postfilterPeriod ||
+		current.postfilterPeriodOld != legacy.postfilterPeriodOld ||
+		current.postfilterTapset != legacy.postfilterTapset ||
+		current.postfilterTapsetOld != legacy.postfilterTapsetOld ||
+		math.Float64bits(current.postfilterGain) != math.Float64bits(legacy.postfilterGain) ||
+		math.Float64bits(current.postfilterGainOld) != math.Float64bits(legacy.postfilterGainOld) {
+		t.Fatalf("postfilter state mismatch")
+	}
+}
+
+func TestSynthesizeMonoLongToFloat32MatchesSynthesize(t *testing.T) {
+	legacy := NewDecoder(1)
+	current := NewDecoder(1)
+	for i := range legacy.overlapBuffer {
+		v := 0.4*math.Sin(float64(i+1)*0.051) + float64((i%7)-3)/19.0
+		legacy.overlapBuffer[i] = v
+		current.overlapBuffer[i] = v
+	}
+
+	coeffs := make([]float64, 960)
+	for i := range coeffs {
+		coeffs[i] = 0.5*math.Sin(float64(i+7)*0.031) + 0.3*math.Cos(float64(i+17)*0.019)
+	}
+
+	got := current.synthesizeMonoLongToFloat32(coeffs)
+	want := legacy.Synthesize(coeffs, false, 1)
+
+	for i := range want {
+		if math.Float32bits(got[i]) != math.Float32bits(float32(want[i])) {
+			t.Fatalf("sample %d mismatch: got=%08x want=%08x", i, math.Float32bits(got[i]), math.Float32bits(float32(want[i])))
+		}
+	}
+	for i := range legacy.overlapBuffer {
+		if math.Float64bits(current.overlapBuffer[i]) != math.Float64bits(legacy.overlapBuffer[i]) {
+			t.Fatalf("overlap[%d] mismatch", i)
+		}
+	}
+}
+
 // TestDecodeFrame_InvalidFrameSizeRejected verifies invalid frame sizes are rejected.
 func TestDecodeFrame_InvalidFrameSizeRejected(t *testing.T) {
 	d := NewDecoder(1)

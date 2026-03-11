@@ -1178,6 +1178,12 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	// Step 6: Synthesis (IMDCT + window + overlap-add)
 	var samples []float64
 	directStereoFloat32 := d.channels == 2 && len(d.directOutPCM) >= frameSize*2
+	directMonoFloat32 := d.channels == 1 &&
+		len(d.directOutPCM) >= frameSize &&
+		!transient &&
+		d.postfilterGainOld == 0 &&
+		d.postfilterGain == 0 &&
+		postfilterGain == 0
 
 	if d.channels == 2 {
 		energiesL := energies[:end]
@@ -1193,10 +1199,16 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 		}
 	} else {
 		denormalizeCoeffs(coeffsL, energies, end, frameSize)
-		samples = d.Synthesize(coeffsL, transient, shortBlocks)
+		if directMonoFloat32 {
+			samplesF32 := d.synthesizeMonoLongToFloat32(coeffsL)
+			d.applyPostfilterNoGainMonoFromFloat32(samplesF32, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
+			d.applyDeemphasisAndScaleMonoFloat32ToFloat32(d.directOutPCM[:frameSize], samplesF32, 1.0/32768.0)
+		} else {
+			samples = d.Synthesize(coeffsL, transient, shortBlocks)
+		}
 	}
 
-	if !directStereoFloat32 {
+	if !directStereoFloat32 && !directMonoFloat32 {
 		// Trace synthesis output before postfilter/de-emphasis for libopus comparison.
 		traceLen := len(samples)
 		if traceLen > 16 {
@@ -1688,6 +1700,100 @@ func (d *Decoder) applyDeemphasisAndScaleStereoPlanarToFloat32(dst []float32, le
 	d.preemphState[1] = float64(stateR)
 }
 
+func (d *Decoder) applyDeemphasisAndScaleMonoFloat32ToFloat32(dst []float32, samples []float32, scale float64) {
+	n := len(samples)
+	if n == 0 {
+		return
+	}
+	if len(dst) < n {
+		n = len(dst)
+	}
+	if n == 0 {
+		return
+	}
+	dst = dst[:n]
+	samples = samples[:n]
+
+	if d.preemphState[0] == 0 {
+		allZero := true
+		for i := 0; i < n; i++ {
+			if samples[i] != 0 {
+				allZero = false
+				break
+			}
+		}
+		if allZero {
+			clear(dst)
+			return
+		}
+	}
+
+	const verySmall float32 = 1e-30
+	const coef float32 = float32(PreemphCoef)
+	scale32 := float32(scale)
+
+	state := float32(d.preemphState[0])
+	_ = samples[n-1]
+	_ = dst[n-1]
+	i := 0
+	for ; i+7 < n; i += 8 {
+		tmp0 := samples[i] + verySmall + state
+		state = coef * tmp0
+		dst[i] = tmp0 * scale32
+
+		tmp1 := samples[i+1] + verySmall + state
+		state = coef * tmp1
+		dst[i+1] = tmp1 * scale32
+
+		tmp2 := samples[i+2] + verySmall + state
+		state = coef * tmp2
+		dst[i+2] = tmp2 * scale32
+
+		tmp3 := samples[i+3] + verySmall + state
+		state = coef * tmp3
+		dst[i+3] = tmp3 * scale32
+
+		tmp4 := samples[i+4] + verySmall + state
+		state = coef * tmp4
+		dst[i+4] = tmp4 * scale32
+
+		tmp5 := samples[i+5] + verySmall + state
+		state = coef * tmp5
+		dst[i+5] = tmp5 * scale32
+
+		tmp6 := samples[i+6] + verySmall + state
+		state = coef * tmp6
+		dst[i+6] = tmp6 * scale32
+
+		tmp7 := samples[i+7] + verySmall + state
+		state = coef * tmp7
+		dst[i+7] = tmp7 * scale32
+	}
+	for ; i+3 < n; i += 4 {
+		tmp0 := samples[i] + verySmall + state
+		state = coef * tmp0
+		dst[i] = tmp0 * scale32
+
+		tmp1 := samples[i+1] + verySmall + state
+		state = coef * tmp1
+		dst[i+1] = tmp1 * scale32
+
+		tmp2 := samples[i+2] + verySmall + state
+		state = coef * tmp2
+		dst[i+2] = tmp2 * scale32
+
+		tmp3 := samples[i+3] + verySmall + state
+		state = coef * tmp3
+		dst[i+3] = tmp3 * scale32
+	}
+	for ; i < n; i++ {
+		tmp := samples[i] + verySmall + state
+		state = coef * tmp
+		dst[i] = tmp * scale32
+	}
+	d.preemphState[0] = float64(state)
+}
+
 func (d *Decoder) applyDeemphasisAndScaleToFloat32(dst []float32, samples []float64, scale float64) {
 	n := len(samples)
 	if n == 0 {
@@ -1877,6 +1983,23 @@ func copyFloat64ToFloat32(dst []float32, src []float64) {
 	}
 	if n < len(dst) {
 		clear(dst[n:])
+	}
+}
+
+func copyFloat32ToFloat64(dst []float64, src []float32) {
+	n := len(dst)
+	if len(src) < n {
+		n = len(src)
+	}
+	i := 0
+	for ; i+3 < n; i += 4 {
+		dst[i] = float64(src[i])
+		dst[i+1] = float64(src[i+1])
+		dst[i+2] = float64(src[i+2])
+		dst[i+3] = float64(src[i+3])
+	}
+	for ; i < n; i++ {
+		dst[i] = float64(src[i])
 	}
 }
 
