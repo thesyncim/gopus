@@ -1,6 +1,6 @@
 # Investigation Decisions
 
-Last updated: 2026-03-10
+Last updated: 2026-03-11
 
 Purpose: record durable keep/skip decisions to avoid re-running solved investigations.
 
@@ -18,6 +18,13 @@ owner: <handle>
 ```
 
 ## Current Decisions
+
+date: 2026-03-11
+topic: Hadamard transient layout fast paths
+decision: Keep the `celt/bands_quant.go` `hadamard=true` specializations for strides `2/4/8/16` in `deinterleaveHadamardInto()` and `interleaveHadamardInto()`. Preserve the existing generic `orderyTable` fallback for uncommon strides, but do not route the common transient block sizes back through the generic order-loop path unless same-host decode A/B stops favoring the specialized routing.
+evidence: Focused exactness passed with `GOWORK=off go test ./celt -run '^(TestHadamardWorkIntoMatchesLegacy|TestTransientInterleaveDeinterleave|TestDecodeFrameWithPacketStereoToFloat32MatchesDecodeFrame)$' -count=1`, and broader `GOWORK=off go test ./celt -count=1`, `GOPUS_TEST_TIER=parity GOWORK=off go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` (`23 passed, 0 failed`), and `GOWORK=off make bench-guard` stayed green. Same-host microbenches improved materially: `BenchmarkHadamardWorkRoundTripCurrentHadamardStride8 ~46.78-49.02 ns/op` versus legacy `~85.43-89.27 ns/op`, and `BenchmarkHadamardWorkRoundTripCurrentHadamardStride16 ~51.14-52.31 ns/op` versus legacy `~98.19-102.9 ns/op`. Same-host decode A/B versus detached baseline `6ae795e` improved `BenchmarkDecoderDecode_CELT ~8215-8471 ns/op -> ~7874-8089 ns/op`, `BenchmarkDecoderDecode_Stereo ~12450-12624 ns/op -> ~12069-12348 ns/op`, and the fair example decode rows improved from speech `gopus avg 416.165597ms` to `409.555708ms` and stereo `2.146928528s` to `2.144231472s`. Encoder remained flat on the same host (`BenchmarkEncoderEncode_Stereo ~71775-72120 ns/op` baseline vs `~71729-72097 ns/op` current).
+do_not_repeat_until: transient hadamard layout stops using the common `2/4/8/16` block shapes, the row order changes away from the current libopus `orderyTable`, or same-host decode A/B no longer favors the specialized paths over the generic order-loop fallback.
+owner: codex
 
 date: 2026-03-10
 topic: Pitch-search half-rate refinement via range xcorr
