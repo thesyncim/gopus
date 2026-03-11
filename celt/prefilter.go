@@ -712,12 +712,12 @@ func pitchSearch(xLP []float64, y []float64, length, maxPitch int, scratch *enco
 		if r.hi < r.lo {
 			continue
 		}
-		for i := r.lo; i <= r.hi; i++ {
-			sum := celtInnerProd(xLP, y[i:], halfLen)
-			if sum < -1 {
-				sum = -1
+		n := r.hi - r.lo + 1
+		prefilterPitchXcorrFast(xLP, y[r.lo:], xcorr[r.lo:], halfLen, n)
+		for i := 0; i < n; i++ {
+			if xcorr[r.lo+i] < -1 {
+				xcorr[r.lo+i] = -1
 			}
-			xcorr[i] = sum
 		}
 	}
 	findBestPitchInRanges(xcorr, y, halfLen, ranges, &bestPitch)

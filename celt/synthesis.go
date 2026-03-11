@@ -1,6 +1,5 @@
 package celt
 
-
 // Overlap-add synthesis for CELT frame reconstruction.
 // This file implements the final stage of CELT decoding: converting
 // frequency-domain coefficients to time-domain audio samples with
@@ -243,6 +242,32 @@ func (d *Decoder) Synthesize(coeffs []float64, transient bool, shortBlocks int) 
 	return output
 }
 
+func (d *Decoder) synthesizeStereoPlanar(coeffsL, coeffsR []float64, transient bool, shortBlocks int) (outL, outR []float64) {
+	if len(coeffsL) == 0 && len(coeffsR) == 0 {
+		return nil, nil
+	}
+	if len(d.overlapBuffer) < Overlap*2 {
+		d.overlapBuffer = make([]float64, Overlap*2)
+	}
+	overlapL := d.overlapBuffer[:Overlap]
+	overlapR := d.overlapBuffer[Overlap : Overlap*2]
+
+	bufL := ensureFloat64Slice(&d.scratchSynth, len(coeffsL)+Overlap)
+	bufR := ensureFloat64Slice(&d.scratchSynthR, len(coeffsR)+Overlap)
+	shortCoeffs := ensureFloat64Slice(&d.scratchShortCoeffs, max(len(coeffsL), len(coeffsR)))
+	outL = synthesizeChannelWithOverlapScratch(coeffsL, overlapL, Overlap, transient, shortBlocks, bufL, &d.scratchIMDCT, &d.scratchIMDCTF32, shortCoeffs)
+	outR = synthesizeChannelWithOverlapScratch(coeffsR, overlapR, Overlap, transient, shortBlocks, bufR, &d.scratchIMDCT, &d.scratchIMDCTF32, shortCoeffs)
+
+	if Overlap > 0 && len(bufL) >= len(coeffsL)+Overlap {
+		copy(d.overlapBuffer[:Overlap], bufL[len(coeffsL):len(coeffsL)+Overlap])
+	}
+	if Overlap > 0 && len(bufR) >= len(coeffsR)+Overlap {
+		copy(d.overlapBuffer[Overlap:Overlap*2], bufR[len(coeffsR):len(coeffsR)+Overlap])
+	}
+
+	return outL, outR
+}
+
 // SynthesizeStereo performs synthesis for stereo frames.
 // Handles both channels with proper interleaving.
 //
@@ -253,26 +278,9 @@ func (d *Decoder) Synthesize(coeffs []float64, transient bool, shortBlocks int) 
 //
 // Returns: interleaved stereo samples [L0, R0, L1, R1, ...]
 func (d *Decoder) SynthesizeStereo(coeffsL, coeffsR []float64, transient bool, shortBlocks int) []float64 {
-	if len(coeffsL) == 0 && len(coeffsR) == 0 {
+	outputL, outputR := d.synthesizeStereoPlanar(coeffsL, coeffsR, transient, shortBlocks)
+	if len(outputL) == 0 || len(outputR) == 0 {
 		return nil
-	}
-	if len(d.overlapBuffer) < Overlap*2 {
-		d.overlapBuffer = make([]float64, Overlap*2)
-	}
-	overlapL := d.overlapBuffer[:Overlap]
-	overlapR := d.overlapBuffer[Overlap : Overlap*2]
-
-	outL := ensureFloat64Slice(&d.scratchSynth, len(coeffsL)+Overlap)
-	outR := ensureFloat64Slice(&d.scratchSynthR, len(coeffsR)+Overlap)
-	shortCoeffs := ensureFloat64Slice(&d.scratchShortCoeffs, max(len(coeffsL), len(coeffsR)))
-	outputL := synthesizeChannelWithOverlapScratch(coeffsL, overlapL, Overlap, transient, shortBlocks, outL, &d.scratchIMDCT, &d.scratchIMDCTF32, shortCoeffs)
-	outputR := synthesizeChannelWithOverlapScratch(coeffsR, overlapR, Overlap, transient, shortBlocks, outR, &d.scratchIMDCT, &d.scratchIMDCTF32, shortCoeffs)
-
-	if Overlap > 0 && len(outL) >= len(coeffsL)+Overlap {
-		copy(d.overlapBuffer[:Overlap], outL[len(coeffsL):len(coeffsL)+Overlap])
-	}
-	if Overlap > 0 && len(outR) >= len(coeffsR)+Overlap {
-		copy(d.overlapBuffer[Overlap:Overlap*2], outR[len(coeffsR):len(coeffsR)+Overlap])
 	}
 
 	// Interleave stereo output
@@ -282,12 +290,9 @@ func (d *Decoder) SynthesizeStereo(coeffsL, coeffsR []float64, transient bool, s
 	}
 
 	stereo := ensureFloat64Slice(&d.scratchStereo, n*2)
-	for i := 0; i < n; i++ {
-		stereo[2*i] = outputL[i]
-		stereo[2*i+1] = outputR[i]
-	}
+	InterleaveStereoInto(outputL[:n], outputR[:n], stereo[:n*2])
 
-	return stereo
+	return stereo[:n*2]
 }
 
 // WindowAndOverlap applies Vorbis window and performs overlap-add.
