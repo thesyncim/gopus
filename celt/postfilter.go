@@ -184,6 +184,18 @@ func updatePlanarHistory(hist, samples []float64, frameSize, history int) {
 	copy(hist[history-frameSize:], samples[:frameSize])
 }
 
+func updateMonoHistoryFromFloat32(hist []float64, samples []float32, frameSize, history int) {
+	if frameSize <= 0 || history <= 0 {
+		return
+	}
+	if frameSize >= history {
+		copyFloat32ToFloat64(hist[:history], samples[frameSize-history:frameSize])
+		return
+	}
+	copy(hist, hist[frameSize:])
+	copyFloat32ToFloat64(hist[history-frameSize:history], samples[:frameSize])
+}
+
 func (d *Decoder) updatePostfilterHistoryStereoPlanar(left, right []float64, frameSize int, history int) {
 	if frameSize <= 0 || history <= 0 {
 		return
@@ -205,6 +217,50 @@ func (d *Decoder) updatePLCDecodeHistoryStereoPlanar(left, right []float64, fram
 	histR := d.plcDecodeMem[history : 2*history]
 	updatePlanarHistory(histL, left, frameSize, history)
 	updatePlanarHistory(histR, right, frameSize, history)
+}
+
+func (d *Decoder) updatePostfilterHistoryMonoFromFloat32(samples []float32, frameSize int, history int) {
+	if frameSize <= 0 || history <= 0 {
+		return
+	}
+	updateMonoHistoryFromFloat32(d.postfilterMem[:history], samples, frameSize, history)
+}
+
+func (d *Decoder) updatePLCDecodeHistoryMonoFromFloat32(samples []float32, frameSize int, history int) {
+	if frameSize <= 0 || history <= 0 {
+		return
+	}
+	if len(d.plcDecodeMem) != history*d.channels {
+		d.plcDecodeMem = make([]float64, history*d.channels)
+	}
+	updateMonoHistoryFromFloat32(d.plcDecodeMem[:history], samples, frameSize, history)
+}
+
+func (d *Decoder) commitPostfilterStateNoGain(lm int, newPeriod int, newGain float64, newTapset int) {
+	d.postfilterPeriodOld = d.postfilterPeriod
+	d.postfilterGainOld = d.postfilterGain
+	d.postfilterTapsetOld = d.postfilterTapset
+	d.postfilterPeriod = newPeriod
+	d.postfilterGain = newGain
+	d.postfilterTapset = newTapset
+	if lm != 0 {
+		d.postfilterPeriodOld = d.postfilterPeriod
+		d.postfilterGainOld = d.postfilterGain
+		d.postfilterTapsetOld = d.postfilterTapset
+	}
+}
+
+func (d *Decoder) applyPostfilterNoGainMonoFromFloat32(samples []float32, frameSize, lm int, newPeriod int, newGain float64, newTapset int) {
+	if frameSize <= 0 {
+		return
+	}
+	history := combFilterHistory
+	if len(d.postfilterMem) != history*d.channels {
+		d.postfilterMem = make([]float64, history*d.channels)
+	}
+	d.updatePostfilterHistoryMonoFromFloat32(samples, frameSize, history)
+	d.updatePLCDecodeHistoryMonoFromFloat32(samples, frameSize, plcDecodeBufferSize)
+	d.commitPostfilterStateNoGain(lm, newPeriod, newGain, newTapset)
 }
 
 func applyPostfilterChannelInPlace(samples, hist, scratch []float64, frameSize, history, lm int, t0, t1, t1b, t2 int, g0, g1, g2 float64, tap0, tap1, tap1b, tap2 int, window, windowSq []float64) {
@@ -238,17 +294,7 @@ func (d *Decoder) applyPostfilterStereoPlanar(left, right []float64, frameSize, 
 	if d.postfilterGainOld == 0 && d.postfilterGain == 0 && newGain == 0 {
 		d.updatePostfilterHistoryStereoPlanar(left, right, frameSize, history)
 		d.updatePLCDecodeHistoryStereoPlanar(left, right, frameSize, plcDecodeBufferSize)
-		d.postfilterPeriodOld = d.postfilterPeriod
-		d.postfilterGainOld = d.postfilterGain
-		d.postfilterTapsetOld = d.postfilterTapset
-		d.postfilterPeriod = newPeriod
-		d.postfilterGain = newGain
-		d.postfilterTapset = newTapset
-		if lm != 0 {
-			d.postfilterPeriodOld = d.postfilterPeriod
-			d.postfilterGainOld = d.postfilterGain
-			d.postfilterTapsetOld = d.postfilterTapset
-		}
+		d.commitPostfilterStateNoGain(lm, newPeriod, newGain, newTapset)
 		return
 	}
 
@@ -310,17 +356,7 @@ func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPerio
 	if d.postfilterGainOld == 0 && d.postfilterGain == 0 && newGain == 0 {
 		d.updatePostfilterHistory(samples, frameSize, history)
 		d.updatePLCDecodeHistory(samples, frameSize, plcDecodeBufferSize)
-		d.postfilterPeriodOld = d.postfilterPeriod
-		d.postfilterGainOld = d.postfilterGain
-		d.postfilterTapsetOld = d.postfilterTapset
-		d.postfilterPeriod = newPeriod
-		d.postfilterGain = newGain
-		d.postfilterTapset = newTapset
-		if lm != 0 {
-			d.postfilterPeriodOld = d.postfilterPeriod
-			d.postfilterGainOld = d.postfilterGain
-			d.postfilterTapsetOld = d.postfilterTapset
-		}
+		d.commitPostfilterStateNoGain(lm, newPeriod, newGain, newTapset)
 		return
 	}
 	needed := history + frameSize
