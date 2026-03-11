@@ -59,6 +59,9 @@ var (
 	// Coupled streams must be between 0 and total streams.
 	ErrInvalidCoupledStreams = errors.New("gopus: invalid coupled streams (must be 0 to streams)")
 
+	// ErrInvalidStreamIndex indicates a per-stream state lookup used an out-of-range index.
+	ErrInvalidStreamIndex = errors.New("gopus: invalid stream index")
+
 	// ErrInvalidMapping indicates an invalid channel mapping table.
 	// The mapping table length must equal the channel count.
 	ErrInvalidMapping = errors.New("gopus: invalid mapping table")
@@ -90,6 +93,9 @@ var (
 	// ErrInvalidGain indicates an invalid decoder gain value.
 	// Valid range is -32768 to 32767 (Q8 dB).
 	ErrInvalidGain = errors.New("gopus: invalid gain (must be -32768 to 32767)")
+
+	// ErrUnimplemented indicates the requested optional feature is not implemented.
+	ErrUnimplemented = errors.New("gopus: feature not implemented")
 )
 
 // validSampleRate returns true if the sample rate is valid for Opus.

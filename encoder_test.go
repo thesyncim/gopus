@@ -765,7 +765,7 @@ func TestEncoder_FrameSize(t *testing.T) {
 	}
 
 	// Valid frame sizes
-	validSizes := []int{120, 240, 480, 960, 1920, 2880}
+	validSizes := []int{120, 240, 480, 960, 1920, 2880, 3840, 4800, 5760}
 	for _, size := range validSizes {
 		t.Run(fmt.Sprintf("framesize_%d", size), func(t *testing.T) {
 			err := enc.SetFrameSize(size)
@@ -806,6 +806,115 @@ func TestEncoder_EncodeFloat32_Convenience(t *testing.T) {
 
 	if len(packet) == 0 {
 		t.Error("EncodeFloat32 returned empty packet")
+	}
+}
+
+func TestEncoder_ExpertFrameDuration(t *testing.T) {
+	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	if got := enc.ExpertFrameDuration(); got != ExpertFrameDurationArg {
+		t.Fatalf("ExpertFrameDuration()=%v want=%v", got, ExpertFrameDurationArg)
+	}
+	if err := enc.SetExpertFrameDuration(ExpertFrameDuration120Ms); err != nil {
+		t.Fatalf("SetExpertFrameDuration(120ms) error: %v", err)
+	}
+	if got := enc.ExpertFrameDuration(); got != ExpertFrameDuration120Ms {
+		t.Fatalf("ExpertFrameDuration()=%v want=%v", got, ExpertFrameDuration120Ms)
+	}
+	if got := enc.FrameSize(); got != 5760 {
+		t.Fatalf("FrameSize()=%d want=5760 after 120ms duration", got)
+	}
+	if err := enc.SetExpertFrameDuration(ExpertFrameDurationArg); err != nil {
+		t.Fatalf("SetExpertFrameDuration(arg) error: %v", err)
+	}
+	if got := enc.ExpertFrameDuration(); got != ExpertFrameDurationArg {
+		t.Fatalf("ExpertFrameDuration()=%v want=%v after arg reset", got, ExpertFrameDurationArg)
+	}
+	if got := enc.FrameSize(); got != 5760 {
+		t.Fatalf("FrameSize()=%d want=5760 after arg reset", got)
+	}
+	if err := enc.SetExpertFrameDuration(ExpertFrameDuration(0)); err != ErrInvalidArgument {
+		t.Fatalf("SetExpertFrameDuration(invalid) error=%v want=%v", err, ErrInvalidArgument)
+	}
+}
+
+func TestEncoder_OptionalExtensionControls(t *testing.T) {
+	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	if err := enc.SetDREDDuration(2); err != ErrUnimplemented {
+		t.Fatalf("SetDREDDuration error=%v want=%v", err, ErrUnimplemented)
+	}
+	if got, err := enc.DREDDuration(); err != ErrUnimplemented || got != 0 {
+		t.Fatalf("DREDDuration()=(%d,%v) want=(0,%v)", got, err, ErrUnimplemented)
+	}
+	if err := enc.SetDNNBlob([]byte{1, 2, 3}); err != ErrUnimplemented {
+		t.Fatalf("SetDNNBlob error=%v want=%v", err, ErrUnimplemented)
+	}
+	if err := enc.SetQEXT(true); err != ErrUnimplemented {
+		t.Fatalf("SetQEXT error=%v want=%v", err, ErrUnimplemented)
+	}
+	if got, err := enc.QEXT(); err != ErrUnimplemented || got {
+		t.Fatalf("QEXT()=(%v,%v) want=(false,%v)", got, err, ErrUnimplemented)
+	}
+}
+
+func TestEncoder_LongPacketRoundTrip(t *testing.T) {
+	cases := []struct {
+		name        string
+		application Application
+		frameSize   int
+	}{
+		{name: "restricted_silk_80ms", application: ApplicationRestrictedSilk, frameSize: 3840},
+		{name: "restricted_silk_100ms", application: ApplicationRestrictedSilk, frameSize: 4800},
+		{name: "restricted_silk_120ms", application: ApplicationRestrictedSilk, frameSize: 5760},
+		{name: "restricted_celt_80ms", application: ApplicationRestrictedCelt, frameSize: 3840},
+		{name: "restricted_celt_100ms", application: ApplicationRestrictedCelt, frameSize: 4800},
+		{name: "restricted_celt_120ms", application: ApplicationRestrictedCelt, frameSize: 5760},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			enc, err := NewEncoder(48000, 1, tc.application)
+			if err != nil {
+				t.Fatalf("NewEncoder error: %v", err)
+			}
+			if err := enc.SetFrameSize(tc.frameSize); err != nil {
+				t.Fatalf("SetFrameSize(%d) error: %v", tc.frameSize, err)
+			}
+
+			dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+			if err != nil {
+				t.Fatalf("NewDecoder error: %v", err)
+			}
+
+			pcmIn := generateSineWave(48000, 440, tc.frameSize)
+			packet, err := enc.EncodeFloat32(pcmIn)
+			if err != nil {
+				t.Fatalf("EncodeFloat32 error: %v", err)
+			}
+			if len(packet) == 0 {
+				t.Fatal("EncodeFloat32 returned empty packet")
+			}
+
+			pcmOut := make([]float32, tc.frameSize)
+			n, err := dec.Decode(packet, pcmOut)
+			if err != nil {
+				t.Fatalf("Decode error: %v", err)
+			}
+			if n != tc.frameSize {
+				t.Fatalf("Decode samples=%d want=%d", n, tc.frameSize)
+			}
+
+			if energy := computeEnergyFloat32(pcmOut[:n]); energy == 0 {
+				t.Fatal("decoded output has zero energy")
+			}
+		})
 	}
 }
 

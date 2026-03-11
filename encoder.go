@@ -57,6 +57,22 @@ const (
 	BitrateModeCBR = encoder.ModeCBR
 )
 
+// ExpertFrameDuration mirrors libopus OPUS_SET/GET_EXPERT_FRAME_DURATION values.
+type ExpertFrameDuration int
+
+const (
+	ExpertFrameDurationArg   ExpertFrameDuration = 5000
+	ExpertFrameDuration2_5Ms ExpertFrameDuration = 5001
+	ExpertFrameDuration5Ms   ExpertFrameDuration = 5002
+	ExpertFrameDuration10Ms  ExpertFrameDuration = 5003
+	ExpertFrameDuration20Ms  ExpertFrameDuration = 5004
+	ExpertFrameDuration40Ms  ExpertFrameDuration = 5005
+	ExpertFrameDuration60Ms  ExpertFrameDuration = 5006
+	ExpertFrameDuration80Ms  ExpertFrameDuration = 5007
+	ExpertFrameDuration100Ms ExpertFrameDuration = 5008
+	ExpertFrameDuration120Ms ExpertFrameDuration = 5009
+)
+
 // Encoder encodes PCM audio samples into Opus packets.
 //
 // An Encoder instance maintains internal state and is NOT safe for concurrent use.
@@ -73,12 +89,13 @@ const (
 // The Encode and EncodeInt16 methods perform zero heap allocations in the hot path
 // when called with properly sized caller-provided buffers.
 type Encoder struct {
-	enc         *encoder.Encoder
-	sampleRate  int
-	channels    int
-	frameSize   int
-	application Application
-	encodedOnce bool
+	enc                 *encoder.Encoder
+	sampleRate          int
+	channels            int
+	frameSize           int
+	expertFrameDuration ExpertFrameDuration
+	application         Application
+	encodedOnce         bool
 
 	// Scratch buffers for zero-allocation encoding
 	scratchPCM64 []float64 // float32 to float64 conversion buffer
@@ -103,17 +120,18 @@ func NewEncoder(sampleRate, channels int, application Application) (*Encoder, er
 		return nil, ErrInvalidApplication
 	}
 
-	// Max frame size is 2880 samples (60ms at 48kHz) per channel
-	maxSamples := 2880 * channels
+	// Max frame size is 5760 samples (120ms at 48kHz) per channel.
+	maxSamples := 5760 * channels
 
 	enc := &Encoder{
-		enc:          encoder.NewEncoder(sampleRate, channels),
-		sampleRate:   sampleRate,
-		channels:     channels,
-		frameSize:    960, // Default 20ms at 48kHz
-		application:  application,
-		scratchPCM64: make([]float64, maxSamples),
-		scratchPCM32: make([]float32, maxSamples),
+		enc:                 encoder.NewEncoder(sampleRate, channels),
+		sampleRate:          sampleRate,
+		channels:            channels,
+		frameSize:           960, // Default 20ms at 48kHz
+		expertFrameDuration: ExpertFrameDurationArg,
+		application:         application,
+		scratchPCM64:        make([]float64, maxSamples),
+		scratchPCM32:        make([]float32, maxSamples),
 	}
 
 	// Apply application hint
@@ -476,12 +494,102 @@ func (e *Encoder) VADActivity() int {
 	return e.enc.GetVADActivity()
 }
 
+// SetDREDDuration configures encoder-side DRED redundancy depth.
+//
+// This optional libopus extension is not implemented in the current Go codec.
+func (e *Encoder) SetDREDDuration(_ int) error {
+	return ErrUnimplemented
+}
+
+// DREDDuration reports encoder-side DRED redundancy depth.
+func (e *Encoder) DREDDuration() (int, error) {
+	return 0, ErrUnimplemented
+}
+
+// SetDNNBlob loads an optional model blob for extension features.
+func (e *Encoder) SetDNNBlob(_ []byte) error {
+	return ErrUnimplemented
+}
+
+// SetQEXT toggles the optional extended-precision theta path.
+func (e *Encoder) SetQEXT(_ bool) error {
+	return ErrUnimplemented
+}
+
+// QEXT reports whether the optional extended-precision theta path is enabled.
+func (e *Encoder) QEXT() (bool, error) {
+	return false, ErrUnimplemented
+}
+
+func validExpertFrameDuration(duration ExpertFrameDuration) bool {
+	switch duration {
+	case ExpertFrameDurationArg,
+		ExpertFrameDuration2_5Ms,
+		ExpertFrameDuration5Ms,
+		ExpertFrameDuration10Ms,
+		ExpertFrameDuration20Ms,
+		ExpertFrameDuration40Ms,
+		ExpertFrameDuration60Ms,
+		ExpertFrameDuration80Ms,
+		ExpertFrameDuration100Ms,
+		ExpertFrameDuration120Ms:
+		return true
+	default:
+		return false
+	}
+}
+
+func expertFrameDurationFrameSize(duration ExpertFrameDuration) int {
+	switch duration {
+	case ExpertFrameDuration2_5Ms:
+		return 120
+	case ExpertFrameDuration5Ms:
+		return 240
+	case ExpertFrameDuration10Ms:
+		return 480
+	case ExpertFrameDuration20Ms:
+		return 960
+	case ExpertFrameDuration40Ms:
+		return 1920
+	case ExpertFrameDuration60Ms:
+		return 2880
+	case ExpertFrameDuration80Ms:
+		return 3840
+	case ExpertFrameDuration100Ms:
+		return 4800
+	case ExpertFrameDuration120Ms:
+		return 5760
+	default:
+		return 0
+	}
+}
+
+// SetExpertFrameDuration sets the preferred frame duration policy.
+//
+// `ExpertFrameDurationArg` keeps using the current `FrameSize()` value.
+// Any fixed duration also updates `FrameSize()` to the matching 48 kHz sample count.
+func (e *Encoder) SetExpertFrameDuration(duration ExpertFrameDuration) error {
+	if !validExpertFrameDuration(duration) {
+		return ErrInvalidArgument
+	}
+	e.expertFrameDuration = duration
+	if duration == ExpertFrameDurationArg {
+		return nil
+	}
+	return e.SetFrameSize(expertFrameDurationFrameSize(duration))
+}
+
+// ExpertFrameDuration returns the current expert frame duration policy.
+func (e *Encoder) ExpertFrameDuration() ExpertFrameDuration {
+	return e.expertFrameDuration
+}
+
 // SetFrameSize sets the frame size in samples at 48kHz.
 //
 // Valid sizes depend on the encoding mode:
-//   - SILK: 480, 960, 1920, 2880 (10, 20, 40, 60 ms)
-//   - CELT: 120, 240, 480, 960 (2.5, 5, 10, 20 ms)
-//   - Hybrid: 480, 960 (10, 20 ms)
+//   - SILK: 480, 960, 1920, 2880, 3840, 4800, 5760 (10-120 ms)
+//   - CELT: 120, 240, 480, 960, 1920, 2880, 3840, 4800, 5760
+//   - Hybrid: 480, 960, 1920, 2880, 3840, 4800, 5760
 //
 // Default is 960 (20ms).
 func (e *Encoder) SetFrameSize(samples int) error {
@@ -490,8 +598,11 @@ func (e *Encoder) SetFrameSize(samples int) error {
 		240:  true, // 5ms (CELT only)
 		480:  true, // 10ms
 		960:  true, // 20ms
-		1920: true, // 40ms (SILK only)
-		2880: true, // 60ms (SILK only)
+		1920: true, // 40ms
+		2880: true, // 60ms
+		3840: true, // 80ms
+		4800: true, // 100ms
+		5760: true, // 120ms
 	}
 	if !validSizes[samples] {
 		return ErrInvalidFrameSize

@@ -18,12 +18,13 @@ import (
 //
 // Reference: RFC 6716 Appendix B, RFC 7845 Section 5.1.1
 type MultistreamEncoder struct {
-	enc         *multistream.Encoder
-	sampleRate  int
-	channels    int
-	frameSize   int
-	application Application
-	encodedOnce bool
+	enc                 *multistream.Encoder
+	sampleRate          int
+	channels            int
+	frameSize           int
+	expertFrameDuration ExpertFrameDuration
+	application         Application
+	encodedOnce         bool
 }
 
 // NewMultistreamEncoder creates a new multistream encoder with explicit configuration.
@@ -76,11 +77,12 @@ func NewMultistreamEncoder(sampleRate, channels, streams, coupledStreams int, ma
 	}
 
 	mse := &MultistreamEncoder{
-		enc:         enc,
-		sampleRate:  sampleRate,
-		channels:    channels,
-		frameSize:   960, // Default 20ms at 48kHz
-		application: application,
+		enc:                 enc,
+		sampleRate:          sampleRate,
+		channels:            channels,
+		frameSize:           960, // Default 20ms at 48kHz
+		expertFrameDuration: ExpertFrameDurationArg,
+		application:         application,
 	}
 
 	// Apply application hint
@@ -121,11 +123,12 @@ func NewMultistreamEncoderDefault(sampleRate, channels int, application Applicat
 	}
 
 	mse := &MultistreamEncoder{
-		enc:         enc,
-		sampleRate:  sampleRate,
-		channels:    channels,
-		frameSize:   960, // Default 20ms at 48kHz
-		application: application,
+		enc:                 enc,
+		sampleRate:          sampleRate,
+		channels:            channels,
+		frameSize:           960, // Default 20ms at 48kHz
+		expertFrameDuration: ExpertFrameDurationArg,
+		application:         application,
 	}
 
 	// Apply application hints
@@ -339,7 +342,7 @@ func (e *MultistreamEncoder) EncodeInt24Slice(pcm []int32) ([]byte, error) {
 
 // SetFrameSize sets the frame size in samples at 48kHz.
 //
-// Valid sizes are 120, 240, 480, 960, 1920, and 2880.
+// Valid sizes are 120, 240, 480, 960, 1920, 2880, 3840, 4800, and 5760.
 func (e *MultistreamEncoder) SetFrameSize(samples int) error {
 	validSizes := map[int]bool{
 		120:  true,
@@ -348,6 +351,9 @@ func (e *MultistreamEncoder) SetFrameSize(samples int) error {
 		960:  true,
 		1920: true,
 		2880: true,
+		3840: true,
+		4800: true,
+		5760: true,
 	}
 	if !validSizes[samples] {
 		return ErrInvalidFrameSize
@@ -362,6 +368,48 @@ func (e *MultistreamEncoder) SetFrameSize(samples int) error {
 // FrameSize returns the current frame size in samples at 48kHz.
 func (e *MultistreamEncoder) FrameSize() int {
 	return e.frameSize
+}
+
+// SetDREDDuration configures encoder-side DRED redundancy depth.
+func (e *MultistreamEncoder) SetDREDDuration(_ int) error {
+	return ErrUnimplemented
+}
+
+// DREDDuration reports encoder-side DRED redundancy depth.
+func (e *MultistreamEncoder) DREDDuration() (int, error) {
+	return 0, ErrUnimplemented
+}
+
+// SetDNNBlob loads an optional model blob for extension features.
+func (e *MultistreamEncoder) SetDNNBlob(_ []byte) error {
+	return ErrUnimplemented
+}
+
+// SetQEXT toggles the optional extended-precision theta path.
+func (e *MultistreamEncoder) SetQEXT(_ bool) error {
+	return ErrUnimplemented
+}
+
+// QEXT reports whether the optional extended-precision theta path is enabled.
+func (e *MultistreamEncoder) QEXT() (bool, error) {
+	return false, ErrUnimplemented
+}
+
+// SetExpertFrameDuration sets the preferred frame duration policy for multistream encoding.
+func (e *MultistreamEncoder) SetExpertFrameDuration(duration ExpertFrameDuration) error {
+	if !validExpertFrameDuration(duration) {
+		return ErrInvalidArgument
+	}
+	e.expertFrameDuration = duration
+	if duration == ExpertFrameDurationArg {
+		return nil
+	}
+	return e.SetFrameSize(expertFrameDurationFrameSize(duration))
+}
+
+// ExpertFrameDuration returns the current multistream expert frame duration policy.
+func (e *MultistreamEncoder) ExpertFrameDuration() ExpertFrameDuration {
+	return e.expertFrameDuration
 }
 
 // SetBitrate sets the total target bitrate in bits per second.
@@ -565,6 +613,15 @@ func (e *MultistreamEncoder) CoupledStreams() int {
 	return e.enc.CoupledStreams()
 }
 
+// GetEncoderState returns the encoder state for an individual multistream stream.
+// This matches libopus OPUS_MULTISTREAM_GET_ENCODER_STATE semantics.
+func (e *MultistreamEncoder) GetEncoderState(index int) (*encoder.Encoder, error) {
+	if index < 0 || index >= e.enc.Streams() {
+		return nil, ErrInvalidStreamIndex
+	}
+	return e.enc.GetEncoderState(index)
+}
+
 // GetFinalRange returns the final range coder state for all streams.
 // The values from all streams are XOR combined to produce a single verification value.
 // This matches libopus OPUS_GET_FINAL_RANGE for multistream encoders.
@@ -659,10 +716,11 @@ func (e *MultistreamEncoder) LSBDepth() int {
 //
 // Reference: RFC 6716 Appendix B, RFC 7845 Section 5.1.1
 type MultistreamDecoder struct {
-	dec           *multistream.Decoder
-	sampleRate    int
-	channels      int
-	lastFrameSize int
+	dec              *multistream.Decoder
+	sampleRate       int
+	channels         int
+	lastFrameSize    int
+	ignoreExtensions bool
 }
 
 // NewMultistreamDecoder creates a new multistream decoder with explicit configuration.
@@ -839,4 +897,38 @@ func (d *MultistreamDecoder) Streams() int {
 // CoupledStreams returns the number of coupled (stereo) streams.
 func (d *MultistreamDecoder) CoupledStreams() int {
 	return d.dec.CoupledStreams()
+}
+
+// SetIgnoreExtensions toggles whether unknown packet extensions should be ignored.
+func (d *MultistreamDecoder) SetIgnoreExtensions(ignore bool) {
+	d.ignoreExtensions = ignore
+}
+
+// IgnoreExtensions reports whether unknown packet extensions are ignored.
+func (d *MultistreamDecoder) IgnoreExtensions() bool {
+	return d.ignoreExtensions
+}
+
+// SetOSCEBWE toggles the optional OSCE bandwidth extension path.
+func (d *MultistreamDecoder) SetOSCEBWE(_ bool) error {
+	return ErrUnimplemented
+}
+
+// OSCEBWE reports whether the optional OSCE bandwidth extension path is enabled.
+func (d *MultistreamDecoder) OSCEBWE() (bool, error) {
+	return false, ErrUnimplemented
+}
+
+// SetDNNBlob loads an optional model blob for decoder extension features.
+func (d *MultistreamDecoder) SetDNNBlob(_ []byte) error {
+	return ErrUnimplemented
+}
+
+// GetDecoderState returns the decoder state for an individual multistream stream.
+// This matches libopus OPUS_MULTISTREAM_GET_DECODER_STATE semantics.
+func (d *MultistreamDecoder) GetDecoderState(index int) (*multistream.StreamDecoder, error) {
+	if index < 0 || index >= d.dec.Streams() {
+		return nil, ErrInvalidStreamIndex
+	}
+	return d.dec.GetDecoderState(index)
 }
