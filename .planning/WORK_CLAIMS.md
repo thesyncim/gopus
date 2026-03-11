@@ -66,4 +66,4 @@ Quick commands:
 - claim: id=codex-20260311-013016; agent=codex; status=active; paths=celt/,.planning/; updated=2026-03-11T01:30:16Z; expires=2026-03-11T05:30:16Z; note=decode output and cwrs perf loop after PR289 merge
 - claim: id=codex-20260311-214305; agent=codex; status=released; paths=encoder.go,encoder_test.go; updated=2026-03-11T21:45:43Z; expires=2026-03-11T21:45:43Z; note=public ctl parity wrappers: InDTX/VAD activity audit follow-up
 - claim: id=codex-20260311-214843; agent=codex; status=released; paths=encoder.go,encoder_test.go; updated=2026-03-11T21:50:37Z; expires=2026-03-11T21:50:37Z; note=public api parity: add 24-bit int32 encode wrapper
-- claim: id=codex-20260311-215541; agent=codex; status=active; paths=encoder.go,encoder_test.go; updated=2026-03-11T21:55:41Z; expires=2026-03-12T01:55:41Z; note=public api parity: restricted silk/celt applications
+- claim: id=codex-20260311-215541; agent=codex; status=released; paths=encoder.go,encoder_test.go; updated=2026-03-11T21:58:20Z; expires=2026-03-11T21:58:20Z; note=public api parity: restricted silk/celt applications
