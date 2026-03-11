@@ -183,7 +183,7 @@ func silkResamplerDown2HP(s []float32, out []float32, in []float32) float32 {
 	return float32(hpEner)
 }
 
-func silkResamplerDown2HPStereo(s []float32, out []float32, in []float32, scale float32) float32 {
+func silkResamplerDown2HPStereoGeneric(s []float32, out []float32, in []float32, scale float32) float32 {
 	len2 := len(in) / 4
 	if len(out) < len2 {
 		len2 = len(out)

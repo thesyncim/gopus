@@ -532,6 +532,7 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 	if useDirectKissCpx {
 		_ = fftStage[n4-1] // BCE hint
 		if mdctUseFMALikeMixEnabled {
+			lo, hi := 0, n2-1
 			for i = 0; i < n4; i++ {
 				re := fftStage[i].r
 				im := fftStage[i].i
@@ -539,10 +540,13 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 				t1 := trig[n4+i]
 				yr := float32(float64(im)*float64(t1) - float64(mdctMul(re, t0)))
 				yi := float32(float64(re)*float64(t1) + float64(mdctMul(im, t0)))
-				coeffs[2*i] = float64(yr)
-				coeffs[n2-1-2*i] = float64(yi)
+				coeffs[lo] = float64(yr)
+				coeffs[hi] = float64(yi)
+				lo += 2
+				hi -= 2
 			}
 		} else {
+			lo, hi := 0, n2-1
 			for i = 0; i < n4; i++ {
 				re := fftStage[i].r
 				im := fftStage[i].i
@@ -550,13 +554,16 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 				t1 := trig[n4+i]
 				yr := mdctMul(im, t1) - mdctMul(re, t0)
 				yi := mdctMul(re, t1) + mdctMul(im, t0)
-				coeffs[2*i] = float64(yr)
-				coeffs[n2-1-2*i] = float64(yi)
+				coeffs[lo] = float64(yr)
+				coeffs[hi] = float64(yi)
+				lo += 2
+				hi -= 2
 			}
 		}
 	} else {
 		_ = fftOut[n4-1] // BCE hint
 		if mdctUseFMALikeMixEnabled {
+			lo, hi := 0, n2-1
 			for i = 0; i < n4; i++ {
 				re := real(fftOut[i])
 				im := imag(fftOut[i])
@@ -564,10 +571,13 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 				t1 := trig[n4+i]
 				yr := float32(float64(im)*float64(t1) - float64(mdctMul(re, t0)))
 				yi := float32(float64(re)*float64(t1) + float64(mdctMul(im, t0)))
-				coeffs[2*i] = float64(yr)
-				coeffs[n2-1-2*i] = float64(yi)
+				coeffs[lo] = float64(yr)
+				coeffs[hi] = float64(yi)
+				lo += 2
+				hi -= 2
 			}
 		} else {
+			lo, hi := 0, n2-1
 			for i = 0; i < n4; i++ {
 				re := real(fftOut[i])
 				im := imag(fftOut[i])
@@ -575,8 +585,10 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 				t1 := trig[n4+i]
 				yr := mdctMul(im, t1) - mdctMul(re, t0)
 				yi := mdctMul(re, t1) + mdctMul(im, t0)
-				coeffs[2*i] = float64(yr)
-				coeffs[n2-1-2*i] = float64(yi)
+				coeffs[lo] = float64(yr)
+				coeffs[hi] = float64(yi)
+				lo += 2
+				hi -= 2
 			}
 		}
 	}

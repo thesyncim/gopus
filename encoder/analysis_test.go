@@ -3,6 +3,7 @@ package encoder
 import (
 	"math"
 	"reflect"
+	"runtime"
 	"testing"
 )
 
@@ -72,6 +73,36 @@ func TestSilkResamplerDown2HPStereoMatchesDownmixThenResample(t *testing.T) {
 	requireFloat32SliceWithinULP(t, stateB, stateA, 8)
 	if diff := ulpDiffFloat32(hpB, hpA); diff > 8 {
 		t.Fatalf("hp energy mismatch: got=%08x want=%08x ulp=%d", math.Float32bits(hpB), math.Float32bits(hpA), diff)
+	}
+}
+
+func TestSilkResamplerDown2HPStereoCurrentMatchesGenericExact(t *testing.T) {
+	if runtime.GOARCH != "arm64" {
+		t.Skip("arm64-only exact dispatch guard")
+	}
+
+	scale := float32(0.5 * celtSigScale)
+	stateSeed := []float32{-0.2, 0.45, -0.6}
+	for caseIdx := 0; caseIdx < 32; caseIdx++ {
+		in := make([]float32, 4*(8+caseIdx))
+		for i := range in {
+			v := 0.7*math.Sin(float64((caseIdx+3)*(i+1))/17.0) + 0.2*math.Cos(float64((i+5)*(caseIdx+1))/29.0)
+			in[i] = float32(v)
+		}
+
+		stateA := append([]float32(nil), stateSeed...)
+		stateB := append([]float32(nil), stateSeed...)
+		outA := make([]float32, len(in)/4)
+		outB := make([]float32, len(in)/4)
+
+		hpA := silkResamplerDown2HPStereoGeneric(stateA, outA, in, scale)
+		hpB := silkResamplerDown2HPStereo(stateB, outB, in, scale)
+
+		requireExactFloat32Slice(t, outB, outA)
+		requireExactFloat32Slice(t, stateB, stateA)
+		if math.Float32bits(hpB) != math.Float32bits(hpA) {
+			t.Fatalf("case %d hp energy mismatch: got=%08x want=%08x", caseIdx, math.Float32bits(hpB), math.Float32bits(hpA))
+		}
 	}
 }
 

@@ -66,3 +66,23 @@ func BenchmarkSilkResamplerDown2HPLegacy(b *testing.B) {
 func BenchmarkSilkResamplerDown2HPCurrent(b *testing.B) {
 	benchmarkSilkResamplerDown2HP(b, silkResamplerDown2HP)
 }
+
+func benchmarkSilkResamplerDown2HPStereo(b *testing.B, fn func([]float32, []float32, []float32, float32) float32) {
+	in := makeTonalityBenchPCM(960, 2)
+	out := make([]float32, 480)
+	state := []float32{0.11, -0.23, 0.37}
+	scale := float32(0.5 * celtSigScale)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		s := append([]float32(nil), state...)
+		fn(s, out, in, scale)
+	}
+}
+
+func BenchmarkSilkResamplerDown2HPStereoGeneric(b *testing.B) {
+	benchmarkSilkResamplerDown2HPStereo(b, silkResamplerDown2HPStereoGeneric)
+}
+
+func BenchmarkSilkResamplerDown2HPStereoCurrent(b *testing.B) {
+	benchmarkSilkResamplerDown2HPStereo(b, silkResamplerDown2HPStereo)
+}
