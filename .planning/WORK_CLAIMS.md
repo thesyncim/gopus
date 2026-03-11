@@ -68,3 +68,4 @@ Quick commands:
 - claim: id=codex-20260311-214843; agent=codex; status=released; paths=encoder.go,encoder_test.go; updated=2026-03-11T21:50:37Z; expires=2026-03-11T21:50:37Z; note=public api parity: add 24-bit int32 encode wrapper
 - claim: id=codex-20260311-215541; agent=codex; status=released; paths=encoder.go,encoder_test.go; updated=2026-03-11T21:58:20Z; expires=2026-03-11T21:58:20Z; note=public api parity: restricted silk/celt applications
 - claim: id=codex-20260311-215833; agent=codex; status=released; paths=multistream.go,multistream_test.go; updated=2026-03-11T22:01:16Z; expires=2026-03-11T22:01:16Z; note=public multistream parity: restricted applications and int24 encode
+- claim: id=codex-20260311-220206; agent=codex; status=active; paths=multistream/,multistream.go,multistream_test.go; updated=2026-03-11T22:02:06Z; expires=2026-03-12T02:02:06Z; note=multistream parity: per-stream encoder/decoder state access
