@@ -66,6 +66,9 @@ func NewMultistreamEncoder(sampleRate, channels, streams, coupledStreams int, ma
 	if len(mapping) != channels {
 		return nil, ErrInvalidMapping
 	}
+	if !validMultistreamApplication(application) {
+		return nil, ErrInvalidApplication
+	}
 
 	enc, err := multistream.NewEncoder(sampleRate, channels, streams, coupledStreams, mapping)
 	if err != nil {
@@ -107,6 +110,9 @@ func NewMultistreamEncoderDefault(sampleRate, channels int, application Applicat
 	}
 	if channels < 1 || channels > 8 {
 		return nil, ErrInvalidChannels
+	}
+	if !validMultistreamApplication(application) {
+		return nil, ErrInvalidApplication
 	}
 
 	enc, err := multistream.NewEncoderDefault(sampleRate, channels)
@@ -153,6 +159,18 @@ func (e *MultistreamEncoder) applyApplication(app Application) {
 		e.enc.SetMode(encoder.ModeCELT)
 		e.enc.SetBandwidth(types.BandwidthFullband)
 		e.enc.SetSignal(types.SignalAuto)
+	case ApplicationRestrictedSilk:
+		e.enc.SetLowDelay(false)
+		e.enc.SetVoIPApplication(false)
+		e.enc.SetMode(encoder.ModeSILK)
+		e.enc.SetBandwidth(types.BandwidthWideband)
+		e.enc.SetSignal(types.SignalAuto)
+	case ApplicationRestrictedCelt:
+		e.enc.SetLowDelay(true)
+		e.enc.SetVoIPApplication(false)
+		e.enc.SetMode(encoder.ModeCELT)
+		e.enc.SetBandwidth(types.BandwidthFullband)
+		e.enc.SetSignal(types.SignalAuto)
 	}
 }
 
@@ -160,6 +178,9 @@ func (e *MultistreamEncoder) applyApplication(app Application) {
 //
 // Valid values are ApplicationVoIP, ApplicationAudio, and ApplicationLowDelay.
 func (e *MultistreamEncoder) SetApplication(application Application) error {
+	if e.application == ApplicationRestrictedSilk || e.application == ApplicationRestrictedCelt {
+		return ErrInvalidApplication
+	}
 	switch application {
 	case ApplicationVoIP, ApplicationAudio, ApplicationLowDelay:
 		// Match libopus ctl semantics: after first successful encode call,
@@ -233,6 +254,41 @@ func (e *MultistreamEncoder) EncodeInt16(pcm []int16, data []byte) (int, error) 
 	return e.Encode(pcm32, data)
 }
 
+// EncodeInt24 encodes 24-bit PCM samples stored in int32 values into an Opus multistream packet.
+//
+// pcm: Input samples (interleaved). Length must be frameSize * channels.
+// data: Output buffer for the encoded packet.
+//
+// Returns the number of bytes written to data, or an error.
+func (e *MultistreamEncoder) EncodeInt24(pcm []int32, data []byte) (int, error) {
+	expected := e.frameSize * e.channels
+	if len(pcm) != expected {
+		return 0, ErrInvalidFrameSize
+	}
+
+	pcm64 := make([]float64, len(pcm))
+	for i, v := range pcm {
+		pcm64[i] = float64(v) / 8388608.0
+	}
+
+	packet, err := e.enc.Encode(pcm64, e.frameSize)
+	if err != nil {
+		return 0, err
+	}
+	e.encodedOnce = true
+
+	if packet == nil {
+		return 0, nil
+	}
+
+	if len(packet) > len(data) {
+		return 0, ErrBufferTooSmall
+	}
+
+	copy(data, packet)
+	return len(packet), nil
+}
+
 // EncodeFloat32 encodes float32 PCM samples and returns a new byte slice.
 //
 // This is a convenience method that allocates the output buffer.
@@ -267,6 +323,45 @@ func (e *MultistreamEncoder) EncodeInt16Slice(pcm []int16) ([]byte, error) {
 		return nil, err
 	}
 	return data[:n], nil
+}
+
+// EncodeInt24Slice encodes 24-bit PCM samples stored in int32 values and returns a new byte slice.
+//
+// This is a convenience method that allocates the output buffer.
+func (e *MultistreamEncoder) EncodeInt24Slice(pcm []int32) ([]byte, error) {
+	data := make([]byte, 4000*e.enc.Streams())
+	n, err := e.EncodeInt24(pcm, data)
+	if err != nil {
+		return nil, err
+	}
+	return data[:n], nil
+}
+
+// SetFrameSize sets the frame size in samples at 48kHz.
+//
+// Valid sizes are 120, 240, 480, 960, 1920, and 2880.
+func (e *MultistreamEncoder) SetFrameSize(samples int) error {
+	validSizes := map[int]bool{
+		120:  true,
+		240:  true,
+		480:  true,
+		960:  true,
+		1920: true,
+		2880: true,
+	}
+	if !validSizes[samples] {
+		return ErrInvalidFrameSize
+	}
+	if e.application == ApplicationRestrictedSilk && samples < 480 {
+		return ErrInvalidFrameSize
+	}
+	e.frameSize = samples
+	return nil
+}
+
+// FrameSize returns the current frame size in samples at 48kHz.
+func (e *MultistreamEncoder) FrameSize() int {
+	return e.frameSize
 }
 
 // SetBitrate sets the total target bitrate in bits per second.
@@ -491,10 +586,19 @@ func (e *MultistreamEncoder) FinalRange() uint32 {
 //   - Delay compensation is omitted for LowDelay
 func (e *MultistreamEncoder) Lookahead() int {
 	base := e.sampleRate / 400
-	if e.application == ApplicationLowDelay {
+	if e.application == ApplicationLowDelay || e.application == ApplicationRestrictedCelt {
 		return base
 	}
 	return base + e.sampleRate/250
+}
+
+func validMultistreamApplication(application Application) bool {
+	switch application {
+	case ApplicationVoIP, ApplicationAudio, ApplicationLowDelay, ApplicationRestrictedSilk, ApplicationRestrictedCelt:
+		return true
+	default:
+		return false
+	}
 }
 
 // Signal returns the current signal type hint.
