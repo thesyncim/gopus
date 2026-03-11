@@ -153,6 +153,27 @@ func TestDecodeFrameWithPacketStereoToFloat32MatchesDecodeFrame(t *testing.T) {
 	}
 }
 
+func BenchmarkDecodeFrameWithPacketStereoToFloat32(b *testing.B) {
+	const frameSize = 960
+
+	enc := NewEncoder(2)
+	packet, err := enc.EncodeFrame(generateStereoSineWave(440.0, 880.0, frameSize), frameSize)
+	if err != nil {
+		b.Fatalf("EncodeFrame: %v", err)
+	}
+
+	dec := NewDecoder(2)
+	out := make([]float32, frameSize*2)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := dec.DecodeFrameWithPacketStereoToFloat32(packet, frameSize, true, out); err != nil {
+			b.Fatalf("DecodeFrameWithPacketStereoToFloat32: %v", err)
+		}
+	}
+}
+
 // TestDecodeFrame_InvalidFrameSizeRejected verifies invalid frame sizes are rejected.
 func TestDecodeFrame_InvalidFrameSizeRejected(t *testing.T) {
 	d := NewDecoder(1)

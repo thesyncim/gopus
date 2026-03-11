@@ -357,44 +357,57 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 			energyR[i] = forwardDecay * maskR
 		}
 
-		channelMetric := func(buf []float32, mean float32) int {
-			var maxE float32
-			mask := float32(0)
-			for i := len2 - 1; i >= 0; i-- {
-				mask = buf[i] + backwardRetain*mask
-				ei := backwardScale * mask
-				buf[i] = ei
-				if ei > maxE {
-					maxE = ei
-				}
+		var maxEL, maxER float32
+		maskL = 0
+		maskR = 0
+		for i := len2 - 1; i >= 0; i-- {
+			maskL = energy[i] + backwardRetain*maskL
+			eiL := backwardScale * maskL
+			energy[i] = eiL
+			if eiL > maxEL {
+				maxEL = eiL
 			}
 
-			meanGeom := math.Sqrt(float64(mean * maxE * float32(0.5*float64(len2))))
-			const epsilon = 1e-15
-			normE := float32(float64(64*len2) / (meanGeom + epsilon))
-
-			const epsF32 = float32(1e-15)
-			var unmask int
-			for i := 12; i < len2-5; i += 4 {
-				id := int(normE * (buf[i] + epsF32))
-				if id > 127 {
-					id = 127
-				}
-				unmask += transientInvTable[id]
+			maskR = energyR[i] + backwardRetain*maskR
+			eiR := backwardScale * maskR
+			energyR[i] = eiR
+			if eiR > maxER {
+				maxER = eiR
 			}
-
-			if len2 <= 17 {
-				return 0
-			}
-			return 64 * unmask * 4 / (6 * (len2 - 17))
 		}
 
-		maskMetricL := channelMetric(energy, meanL)
+		const epsilon = 1e-15
+		normEL := float32(float64(64*len2) / (math.Sqrt(float64(meanL*maxEL*float32(0.5*float64(len2)))) + epsilon))
+		normER := float32(float64(64*len2) / (math.Sqrt(float64(meanR*maxER*float32(0.5*float64(len2)))) + epsilon))
+
+		const epsF32 = float32(1e-15)
+		var unmaskL, unmaskR int
+		for i := 12; i < len2-5; i += 4 {
+			idL := int(normEL * (energy[i] + epsF32))
+			if idL > 127 {
+				idL = 127
+			}
+			unmaskL += transientInvTable[idL]
+
+			idR := int(normER * (energyR[i] + epsF32))
+			if idR > 127 {
+				idR = 127
+			}
+			unmaskR += transientInvTable[idR]
+		}
+
+		maskMetricL := 0
+		if len2 > 17 {
+			maskMetricL = 64 * unmaskL * 4 / (6 * (len2 - 17))
+		}
 		if maskMetricL > maxMaskMetric {
 			tfChannel = 0
 			maxMaskMetric = maskMetricL
 		}
-		maskMetricR := channelMetric(energyR, meanR)
+		maskMetricR := 0
+		if len2 > 17 {
+			maskMetricR = 64 * unmaskR * 4 / (6 * (len2 - 17))
+		}
 		if maskMetricR > maxMaskMetric {
 			tfChannel = 1
 			maxMaskMetric = maskMetricR

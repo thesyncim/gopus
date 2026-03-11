@@ -175,6 +175,122 @@ func (d *Decoder) updatePLCDecodeHistory(samples []float64, frameSize int, histo
 	}
 }
 
+func updatePlanarHistory(hist, samples []float64, frameSize, history int) {
+	if frameSize >= history {
+		copy(hist, samples[frameSize-history:frameSize])
+		return
+	}
+	copy(hist, hist[frameSize:])
+	copy(hist[history-frameSize:], samples[:frameSize])
+}
+
+func (d *Decoder) updatePostfilterHistoryStereoPlanar(left, right []float64, frameSize int, history int) {
+	if frameSize <= 0 || history <= 0 {
+		return
+	}
+	histL := d.postfilterMem[:history]
+	histR := d.postfilterMem[history : 2*history]
+	updatePlanarHistory(histL, left, frameSize, history)
+	updatePlanarHistory(histR, right, frameSize, history)
+}
+
+func (d *Decoder) updatePLCDecodeHistoryStereoPlanar(left, right []float64, frameSize int, history int) {
+	if frameSize <= 0 || history <= 0 {
+		return
+	}
+	if len(d.plcDecodeMem) != history*d.channels {
+		d.plcDecodeMem = make([]float64, history*d.channels)
+	}
+	histL := d.plcDecodeMem[:history]
+	histR := d.plcDecodeMem[history : 2*history]
+	updatePlanarHistory(histL, left, frameSize, history)
+	updatePlanarHistory(histR, right, frameSize, history)
+}
+
+func applyPostfilterChannelInPlace(samples, hist, scratch []float64, frameSize, history, lm int, t0, t1, t1b, t2 int, g0, g1, g2 float64, tap0, tap1, tap1b, tap2 int, window, windowSq []float64) {
+	buf := scratch[:history+frameSize]
+	copy(buf, hist)
+	copy(buf[history:], samples[:frameSize])
+
+	shortMdctSize := frameSize >> uint(lm)
+	if shortMdctSize <= 0 || shortMdctSize > frameSize {
+		shortMdctSize = frameSize
+	}
+
+	combFilterWithSquare(buf, history, t0, t1, shortMdctSize, g0, g1, tap0, tap1, window, windowSq, Overlap)
+	if lm != 0 && shortMdctSize < frameSize {
+		combFilterWithSquare(buf, history+shortMdctSize, t1b, t2, frameSize-shortMdctSize, g1, g2, tap1b, tap2, window, windowSq, Overlap)
+	}
+
+	copy(samples[:frameSize], buf[history:history+frameSize])
+	copy(hist, buf[frameSize:frameSize+history])
+}
+
+func (d *Decoder) applyPostfilterStereoPlanar(left, right []float64, frameSize, lm int, newPeriod int, newGain float64, newTapset int) {
+	if len(left) < frameSize || len(right) < frameSize || frameSize <= 0 {
+		return
+	}
+
+	history := combFilterHistory
+	if len(d.postfilterMem) != history*2 {
+		d.postfilterMem = make([]float64, history*2)
+	}
+	if d.postfilterGainOld == 0 && d.postfilterGain == 0 && newGain == 0 {
+		d.updatePostfilterHistoryStereoPlanar(left, right, frameSize, history)
+		d.updatePLCDecodeHistoryStereoPlanar(left, right, frameSize, plcDecodeBufferSize)
+		d.postfilterPeriodOld = d.postfilterPeriod
+		d.postfilterGainOld = d.postfilterGain
+		d.postfilterTapsetOld = d.postfilterTapset
+		d.postfilterPeriod = newPeriod
+		d.postfilterGain = newGain
+		d.postfilterTapset = newTapset
+		if lm != 0 {
+			d.postfilterPeriodOld = d.postfilterPeriod
+			d.postfilterGainOld = d.postfilterGain
+			d.postfilterTapsetOld = d.postfilterTapset
+		}
+		return
+	}
+
+	needed := history + frameSize
+	if cap(d.postfilterScratch) < needed {
+		d.postfilterScratch = make([]float64, needed)
+	}
+
+	t0 := d.postfilterPeriodOld
+	t1 := d.postfilterPeriod
+	g0 := d.postfilterGainOld
+	g1 := d.postfilterGain
+	tap0 := d.postfilterTapsetOld
+	tap1 := d.postfilterTapset
+	t2 := newPeriod
+	g2 := newGain
+	tap2 := newTapset
+
+	t0, t1, tap0, tap1 = sanitizePostfilterParams(t0, t1, g0, g1, tap0, tap1)
+	t1b, t2, tap1b, tap2 := sanitizePostfilterParams(t1, t2, g1, g2, tap1, tap2)
+
+	window := GetWindowBuffer(Overlap)
+	windowSq := GetWindowSquareBuffer(Overlap)
+	histL := d.postfilterMem[:history]
+	histR := d.postfilterMem[history : 2*history]
+	applyPostfilterChannelInPlace(left, histL, d.postfilterScratch, frameSize, history, lm, t0, t1, t1b, t2, g0, g1, g2, tap0, tap1, tap1b, tap2, window, windowSq)
+	applyPostfilterChannelInPlace(right, histR, d.postfilterScratch, frameSize, history, lm, t0, t1, t1b, t2, g0, g1, g2, tap0, tap1, tap1b, tap2, window, windowSq)
+
+	d.updatePLCDecodeHistoryStereoPlanar(left, right, frameSize, plcDecodeBufferSize)
+	d.postfilterPeriodOld = d.postfilterPeriod
+	d.postfilterGainOld = d.postfilterGain
+	d.postfilterTapsetOld = d.postfilterTapset
+	d.postfilterPeriod = newPeriod
+	d.postfilterGain = newGain
+	d.postfilterTapset = newTapset
+	if lm != 0 {
+		d.postfilterPeriodOld = d.postfilterPeriod
+		d.postfilterGainOld = d.postfilterGain
+		d.postfilterTapsetOld = d.postfilterTapset
+	}
+}
+
 func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPeriod int, newGain float64, newTapset int) {
 	if len(samples) == 0 || frameSize <= 0 {
 		return

@@ -51,3 +51,27 @@ func TestFindBestPitchInRangesMatchesFullSweep(t *testing.T) {
 		}
 	}
 }
+
+func TestPitchSearchMatchesLegacy(t *testing.T) {
+	rng := rand.New(rand.NewSource(7))
+
+	for iter := 0; iter < 200; iter++ {
+		length := 480
+		maxPitch := combFilterMaxPeriod - 3*combFilterMinPeriod
+		xLP := make([]float64, length)
+		y := make([]float64, length+maxPitch)
+		for i := range xLP {
+			xLP[i] = rng.Float64()*2 - 1
+		}
+		for i := range y {
+			y[i] = rng.Float64()*2 - 1
+		}
+
+		var scratchCurrent, scratchLegacy encoderScratch
+		got := pitchSearch(xLP, y, length, maxPitch, &scratchCurrent)
+		want := pitchSearchLegacy(xLP, y, length, maxPitch, &scratchLegacy)
+		if got != want {
+			t.Fatalf("iter %d mismatch: got=%d want=%d", iter, got, want)
+		}
+	}
+}

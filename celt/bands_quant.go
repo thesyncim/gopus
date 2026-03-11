@@ -109,6 +109,156 @@ func orderyForStride(stride int) []int {
 	}
 }
 
+func deinterleaveHadamardStride2Into(dst, src []float64, n0 int) {
+	DeinterleaveStereoInto(src, dst[n0:n0<<1], dst[:n0])
+}
+
+func interleaveHadamardStride2Into(dst, src []float64, n0 int) {
+	InterleaveStereoInto(src[n0:n0<<1], src[:n0], dst)
+}
+
+func deinterleaveHadamardStride4Into(dst, src []float64, n0 int) {
+	row0 := dst[:n0]
+	row1 := dst[n0 : n0<<1]
+	row2 := dst[n0<<1 : n0*3]
+	row3 := dst[n0*3 : n0<<2]
+	for j, base := 0, 0; j < n0; j, base = j+1, base+4 {
+		row3[j] = src[base]
+		row0[j] = src[base+1]
+		row2[j] = src[base+2]
+		row1[j] = src[base+3]
+	}
+}
+
+func interleaveHadamardStride4Into(dst, src []float64, n0 int) {
+	row0 := src[:n0]
+	row1 := src[n0 : n0<<1]
+	row2 := src[n0<<1 : n0*3]
+	row3 := src[n0*3 : n0<<2]
+	for j, base := 0, 0; j < n0; j, base = j+1, base+4 {
+		dst[base] = row3[j]
+		dst[base+1] = row0[j]
+		dst[base+2] = row2[j]
+		dst[base+3] = row1[j]
+	}
+}
+
+func deinterleaveHadamardStride8Into(dst, src []float64, n0 int) {
+	row0 := dst[:n0]
+	row1 := dst[n0 : n0<<1]
+	row2 := dst[n0<<1 : n0*3]
+	row3 := dst[n0*3 : n0<<2]
+	row4 := dst[n0<<2 : n0*5]
+	row5 := dst[n0*5 : n0*6]
+	row6 := dst[n0*6 : n0*7]
+	row7 := dst[n0*7 : n0<<3]
+	for j, base := 0, 0; j < n0; j, base = j+1, base+8 {
+		row7[j] = src[base]
+		row0[j] = src[base+1]
+		row4[j] = src[base+2]
+		row3[j] = src[base+3]
+		row6[j] = src[base+4]
+		row1[j] = src[base+5]
+		row5[j] = src[base+6]
+		row2[j] = src[base+7]
+	}
+}
+
+func interleaveHadamardStride8Into(dst, src []float64, n0 int) {
+	row0 := src[:n0]
+	row1 := src[n0 : n0<<1]
+	row2 := src[n0<<1 : n0*3]
+	row3 := src[n0*3 : n0<<2]
+	row4 := src[n0<<2 : n0*5]
+	row5 := src[n0*5 : n0*6]
+	row6 := src[n0*6 : n0*7]
+	row7 := src[n0*7 : n0<<3]
+	for j, base := 0, 0; j < n0; j, base = j+1, base+8 {
+		dst[base] = row7[j]
+		dst[base+1] = row0[j]
+		dst[base+2] = row4[j]
+		dst[base+3] = row3[j]
+		dst[base+4] = row6[j]
+		dst[base+5] = row1[j]
+		dst[base+6] = row5[j]
+		dst[base+7] = row2[j]
+	}
+}
+
+func deinterleaveHadamardStride16Into(dst, src []float64, n0 int) {
+	row0 := dst[:n0]
+	row1 := dst[n0 : n0<<1]
+	row2 := dst[n0<<1 : n0*3]
+	row3 := dst[n0*3 : n0<<2]
+	row4 := dst[n0<<2 : n0*5]
+	row5 := dst[n0*5 : n0*6]
+	row6 := dst[n0*6 : n0*7]
+	row7 := dst[n0*7 : n0<<3]
+	row8 := dst[n0<<3 : n0*9]
+	row9 := dst[n0*9 : n0*10]
+	row10 := dst[n0*10 : n0*11]
+	row11 := dst[n0*11 : n0*12]
+	row12 := dst[n0*12 : n0*13]
+	row13 := dst[n0*13 : n0*14]
+	row14 := dst[n0*14 : n0*15]
+	row15 := dst[n0*15 : n0<<4]
+	for j, base := 0, 0; j < n0; j, base = j+1, base+16 {
+		row15[j] = src[base]
+		row0[j] = src[base+1]
+		row8[j] = src[base+2]
+		row7[j] = src[base+3]
+		row12[j] = src[base+4]
+		row3[j] = src[base+5]
+		row11[j] = src[base+6]
+		row4[j] = src[base+7]
+		row14[j] = src[base+8]
+		row1[j] = src[base+9]
+		row9[j] = src[base+10]
+		row6[j] = src[base+11]
+		row13[j] = src[base+12]
+		row2[j] = src[base+13]
+		row10[j] = src[base+14]
+		row5[j] = src[base+15]
+	}
+}
+
+func interleaveHadamardStride16Into(dst, src []float64, n0 int) {
+	row0 := src[:n0]
+	row1 := src[n0 : n0<<1]
+	row2 := src[n0<<1 : n0*3]
+	row3 := src[n0*3 : n0<<2]
+	row4 := src[n0<<2 : n0*5]
+	row5 := src[n0*5 : n0*6]
+	row6 := src[n0*6 : n0*7]
+	row7 := src[n0*7 : n0<<3]
+	row8 := src[n0<<3 : n0*9]
+	row9 := src[n0*9 : n0*10]
+	row10 := src[n0*10 : n0*11]
+	row11 := src[n0*11 : n0*12]
+	row12 := src[n0*12 : n0*13]
+	row13 := src[n0*13 : n0*14]
+	row14 := src[n0*14 : n0*15]
+	row15 := src[n0*15 : n0<<4]
+	for j, base := 0, 0; j < n0; j, base = j+1, base+16 {
+		dst[base] = row15[j]
+		dst[base+1] = row0[j]
+		dst[base+2] = row8[j]
+		dst[base+3] = row7[j]
+		dst[base+4] = row12[j]
+		dst[base+5] = row3[j]
+		dst[base+6] = row11[j]
+		dst[base+7] = row4[j]
+		dst[base+8] = row14[j]
+		dst[base+9] = row1[j]
+		dst[base+10] = row9[j]
+		dst[base+11] = row6[j]
+		dst[base+12] = row13[j]
+		dst[base+13] = row2[j]
+		dst[base+14] = row10[j]
+		dst[base+15] = row5[j]
+	}
+}
+
 func deinterleaveHadamard(x []float64, n0, stride int, hadamard bool) {
 	deinterleaveHadamardScratchBuf(x, n0, stride, hadamard, nil, nil)
 }
@@ -118,11 +268,22 @@ func deinterleaveHadamardInto(dst, src []float64, n0, stride int, hadamard bool)
 	dst = dst[:n]
 	src = src[:n]
 	if hadamard {
-		ordery := orderyForStride(stride)
-		for i := 0; i < stride; i++ {
-			row := ordery[i] * n0
-			for j := 0; j < n0; j++ {
-				dst[row+j] = src[j*stride+i]
+		switch stride {
+		case 2:
+			deinterleaveHadamardStride2Into(dst, src, n0)
+		case 4:
+			deinterleaveHadamardStride4Into(dst, src, n0)
+		case 8:
+			deinterleaveHadamardStride8Into(dst, src, n0)
+		case 16:
+			deinterleaveHadamardStride16Into(dst, src, n0)
+		default:
+			ordery := orderyForStride(stride)
+			for i := 0; i < stride; i++ {
+				row := ordery[i] * n0
+				for j := 0; j < n0; j++ {
+					dst[row+j] = src[j*stride+i]
+				}
 			}
 		}
 		return
@@ -279,11 +440,22 @@ func interleaveHadamardInto(dst, src []float64, n0, stride int, hadamard bool) {
 	dst = dst[:n]
 	src = src[:n]
 	if hadamard {
-		ordery := orderyForStride(stride)
-		for i := 0; i < stride; i++ {
-			row := ordery[i] * n0
-			for j := 0; j < n0; j++ {
-				dst[j*stride+i] = src[row+j]
+		switch stride {
+		case 2:
+			interleaveHadamardStride2Into(dst, src, n0)
+		case 4:
+			interleaveHadamardStride4Into(dst, src, n0)
+		case 8:
+			interleaveHadamardStride8Into(dst, src, n0)
+		case 16:
+			interleaveHadamardStride16Into(dst, src, n0)
+		default:
+			ordery := orderyForStride(stride)
+			for i := 0; i < stride; i++ {
+				row := ordery[i] * n0
+				for j := 0; j < n0; j++ {
+					dst[j*stride+i] = src[row+j]
+				}
 			}
 		}
 		return

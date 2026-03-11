@@ -1,6 +1,6 @@
 # Investigation Decisions
 
-Last updated: 2026-03-10
+Last updated: 2026-03-11
 
 Purpose: record durable keep/skip decisions to avoid re-running solved investigations.
 
@@ -18,6 +18,34 @@ owner: <handle>
 ```
 
 ## Current Decisions
+
+date: 2026-03-11
+topic: Hadamard transient layout fast paths
+decision: Keep the `celt/bands_quant.go` `hadamard=true` specializations for strides `2/4/8/16` in `deinterleaveHadamardInto()` and `interleaveHadamardInto()`. Preserve the existing generic `orderyTable` fallback for uncommon strides, but do not route the common transient block sizes back through the generic order-loop path unless same-host decode A/B stops favoring the specialized routing.
+evidence: Focused exactness passed with `GOWORK=off go test ./celt -run '^(TestHadamardWorkIntoMatchesLegacy|TestTransientInterleaveDeinterleave|TestDecodeFrameWithPacketStereoToFloat32MatchesDecodeFrame)$' -count=1`, and broader `GOWORK=off go test ./celt -count=1`, `GOPUS_TEST_TIER=parity GOWORK=off go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` (`23 passed, 0 failed`), and `GOWORK=off make bench-guard` stayed green. Same-host microbenches improved materially: `BenchmarkHadamardWorkRoundTripCurrentHadamardStride8 ~46.78-49.02 ns/op` versus legacy `~85.43-89.27 ns/op`, and `BenchmarkHadamardWorkRoundTripCurrentHadamardStride16 ~51.14-52.31 ns/op` versus legacy `~98.19-102.9 ns/op`. Same-host decode A/B versus detached baseline `6ae795e` improved `BenchmarkDecoderDecode_CELT ~8215-8471 ns/op -> ~7874-8089 ns/op`, `BenchmarkDecoderDecode_Stereo ~12450-12624 ns/op -> ~12069-12348 ns/op`, and the fair example decode rows improved from speech `gopus avg 416.165597ms` to `409.555708ms` and stereo `2.146928528s` to `2.144231472s`. Encoder remained flat on the same host (`BenchmarkEncoderEncode_Stereo ~71775-72120 ns/op` baseline vs `~71729-72097 ns/op` current).
+do_not_repeat_until: transient hadamard layout stops using the common `2/4/8/16` block shapes, the row order changes away from the current libopus `orderyTable`, or same-host decode A/B no longer favors the specialized paths over the generic order-loop fallback.
+owner: codex
+
+date: 2026-03-10
+topic: Pitch-search half-rate refinement via range xcorr
+decision: Keep the `celt/prefilter.go` half-rate pitch-search refinement path that runs `prefilterPitchXcorrFast()` across each contiguous candidate range instead of recomputing each lag with separate `celtInnerProd` calls. Preserve the same candidate ranges and clamp semantics; do not fall back to per-lag inner products unless same-host encode A/B stops favoring the range xcorr path.
+evidence: Focused parity stayed green with `GOWORK=off go test ./celt -run '^(TestPitchSearchMatchesLegacy|TestFindBestPitchInRangesMatchesFullSweep)$' -count=1`. Same-host microbench improved `BenchmarkPitchSearchCurrent` to about `~3020-3055 ns/op` versus legacy `~4115-4256 ns/op`. The target speech encode example improved from `gopus avg 2.345480042s` to `avg 2.343180208s` (`libopus avg 1.950905958s` on that rerun), and root `BenchmarkEncoderEncode_Stereo` remained slightly favorable at `~77706-78011 ns/op` on the current rerun.
+do_not_repeat_until: pitch-search refinement stops operating on two small contiguous half-rate windows around the coarse winners, the xcorr kernel dispatch semantics change enough that the contiguous-window call is no longer favorable, or same-host example encode A/B no longer favors this path over per-lag inner products.
+owner: codex
+
+date: 2026-03-10
+topic: Stereo transient-analysis fused backward metric pass
+decision: Keep the `celt/transient.go` stereo transient-analysis path where backward masking and unmask accumulation run in fused left/right loops instead of two separate per-channel metric passes. Preserve the exact per-channel arithmetic order and legacy parity guard; do not split this back into channel-by-channel post-forward passes unless same-host encoder A/B stops favoring the fused version.
+evidence: Focused legacy parity stayed green with `GOWORK=off go test ./celt -run '^TestTransientAnalysisMatchesLegacy$' -count=1`. Same-host microbench improved `BenchmarkTransientAnalysisCurrentStereo` from about `~5752-5840 ns/op` to `~4788-4828 ns/op`, while `BenchmarkTransientAnalysisLegacyStereo` remained around `~8761-9236 ns/op`. The target speech encode example improved from `gopus avg 2.368076875s` to `avg 2.345480042s` against `libopus avg 1.931857999s`, and the root stereo encode bench rerun improved from the recent `~81252 ns/op` sample to `~77895-78407 ns/op`.
+do_not_repeat_until: the transient-analysis stereo control flow or masking metric semantics change, the encoder stops using the stereo fused forward path, or same-host example encode A/B no longer favors the fused backward metric pass.
+owner: codex
+
+date: 2026-03-10
+topic: Stereo direct float32 CELT decode path
+decision: Keep the stereo direct-output decode fast path that stays planar through `celt/synthesis.go` and `celt/postfilter.go`, then writes de-emphasized interleaved float32 samples straight into the caller buffer from `celt/decoder.go`. Do not rebuild `scratchStereo` for the common `DecodeFrameWithPacketStereoToFloat32()` path when packet channels match decoder channels.
+evidence: Focused exactness passed with `GOWORK=off go test ./celt -run '^(TestDecodeFrameWithPacketStereoToFloat32MatchesDecodeFrame|TestApplyPostfilterStereoPlanarMatchesInterleaved|TestDecodeSilenceFrameFastPathParityStereo)$' -count=1` after fixing an initial overlap-tail save regression in the planar synth helper. Broader validation stayed green with `GOWORK=off go test ./celt -count=1`, `GOWORK=off GOARCH=amd64 go test ./celt -count=1`, `GOPUS_TEST_TIER=parity GOWORK=off go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v` (`23 passed, 0 failed`), and `GOWORK=off make bench-guard`. Same-host decode A/B improved on the target example rows: speech `gopus avg 467.405986ms -> 458.657028ms` (`libopus avg 417.809347ms`) and stereo `2.442229444s -> 2.356232208s` (`libopus avg 2.14280175s`). Root stereo decode also improved from `BenchmarkDecoderDecode_Stereo ~13655-13659 ns/op` to `~13344-13507 ns/op`, and the direct-path microbench `BenchmarkDecodeFrameWithPacketStereoToFloat32` lands around `~22593-22858 ns/op` on Apple M4 Max.
+do_not_repeat_until: the public direct float32 decode path stops using the packetChannels==decoderChannels stereo fast path, the stereo postfilter/output layout changes away from planar channel buffers plus interleaved caller output, or same-host example decode A/B no longer favors skipping `scratchStereo`.
+owner: codex
 
 date: 2026-03-10
 topic: Dense libopus-style PVQ U-table view for CWRS
