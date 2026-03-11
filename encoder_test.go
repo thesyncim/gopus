@@ -463,6 +463,77 @@ func TestEncoder_DTX_Silence(t *testing.T) {
 	t.Log("DTX did not activate (may need more silence frames for VAD adaptation)")
 }
 
+func TestEncoder_InDTXDelegatesToCoreEncoder(t *testing.T) {
+	enc, err := NewEncoder(48000, 1, ApplicationVoIP)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+	enc.SetDTX(true)
+
+	if got, want := enc.InDTX(), enc.enc.InDTX(); got != want {
+		t.Fatalf("initial InDTX()=%v want core=%v", got, want)
+	}
+
+	silence := make([]float32, enc.FrameSize()*enc.Channels())
+	packet := make([]byte, 4000)
+	activated := false
+	for i := 0; i < 50; i++ {
+		if _, err := enc.Encode(silence, packet); err != nil {
+			t.Fatalf("Encode(silence) frame %d error: %v", i, err)
+		}
+		if got, want := enc.InDTX(), enc.enc.InDTX(); got != want {
+			t.Fatalf("frame %d InDTX()=%v want core=%v", i, got, want)
+		}
+		if enc.InDTX() {
+			activated = true
+			break
+		}
+	}
+	if !activated {
+		t.Fatal("InDTX() never became true after sustained silence")
+	}
+
+	speech := generateSineWave(48000, 440, enc.FrameSize())
+	if _, err := enc.Encode(speech, packet); err != nil {
+		t.Fatalf("Encode(speech) error: %v", err)
+	}
+	if got, want := enc.InDTX(), enc.enc.InDTX(); got != want {
+		t.Fatalf("post-speech InDTX()=%v want core=%v", got, want)
+	}
+}
+
+func TestEncoder_VADActivityDelegatesToCoreEncoder(t *testing.T) {
+	enc, err := NewEncoder(48000, 1, ApplicationVoIP)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+	enc.SetDTX(true)
+
+	if got, want := enc.VADActivity(), enc.enc.GetVADActivity(); got != want {
+		t.Fatalf("initial VADActivity()=%d want core=%d", got, want)
+	}
+
+	packet := make([]byte, 4000)
+	speech := generateSineWave(48000, 440, enc.FrameSize())
+	for i := 0; i < 3; i++ {
+		if _, err := enc.Encode(speech, packet); err != nil {
+			t.Fatalf("Encode(speech) frame %d error: %v", i, err)
+		}
+	}
+
+	if got, want := enc.VADActivity(), enc.enc.GetVADActivity(); got != want {
+		t.Fatalf("post-speech VADActivity()=%d want core=%d", got, want)
+	}
+	if got := enc.VADActivity(); got < 0 || got > 255 {
+		t.Fatalf("VADActivity()=%d out of range", got)
+	}
+
+	enc.Reset()
+	if got, want := enc.VADActivity(), enc.enc.GetVADActivity(); got != want {
+		t.Fatalf("post-reset VADActivity()=%d want core=%d", got, want)
+	}
+}
+
 func TestEncoder_FEC(t *testing.T) {
 	enc, err := NewEncoder(48000, 1, ApplicationVoIP)
 	if err != nil {

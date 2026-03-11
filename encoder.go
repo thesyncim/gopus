@@ -384,6 +384,18 @@ func (e *Encoder) DTXEnabled() bool {
 	return e.enc.DTXEnabled()
 }
 
+// InDTX reports whether the encoder is currently in DTX mode.
+//
+// This matches libopus OPUS_GET_IN_DTX semantics.
+func (e *Encoder) InDTX() bool {
+	return e.enc.InDTX()
+}
+
+// VADActivity returns the current VAD speech activity level in Q8 (0-255).
+func (e *Encoder) VADActivity() int {
+	return e.enc.GetVADActivity()
+}
+
 // SetFrameSize sets the frame size in samples at 48kHz.
 //
 // Valid sizes depend on the encoding mode:
