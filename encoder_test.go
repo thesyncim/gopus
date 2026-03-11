@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"testing"
+
+	encodercore "github.com/thesyncim/gopus/encoder"
 )
 
 func TestNewEncoder_ValidParams(t *testing.T) {
@@ -18,6 +20,8 @@ func TestNewEncoder_ValidParams(t *testing.T) {
 		{"48kHz_mono_audio", 48000, 1, ApplicationAudio},
 		{"48kHz_stereo_audio", 48000, 2, ApplicationAudio},
 		{"48kHz_mono_lowdelay", 48000, 1, ApplicationLowDelay},
+		{"48kHz_mono_restricted_silk", 48000, 1, ApplicationRestrictedSilk},
+		{"48kHz_stereo_restricted_celt", 48000, 2, ApplicationRestrictedCelt},
 		{"24kHz_mono_voip", 24000, 1, ApplicationVoIP},
 		{"16kHz_mono_voip", 16000, 1, ApplicationVoIP},
 		{"12kHz_mono_voip", 12000, 1, ApplicationVoIP},
@@ -68,6 +72,16 @@ func TestNewEncoder_InvalidParams(t *testing.T) {
 				t.Error("NewEncoder returned non-nil encoder on error")
 			}
 		})
+	}
+}
+
+func TestNewEncoder_InvalidApplication(t *testing.T) {
+	enc, err := NewEncoder(48000, 1, Application(99))
+	if err != ErrInvalidApplication {
+		t.Fatalf("NewEncoder(invalid application) error=%v want=%v", err, ErrInvalidApplication)
+	}
+	if enc != nil {
+		t.Fatal("NewEncoder returned non-nil encoder for invalid application")
 	}
 }
 
@@ -456,6 +470,12 @@ func TestEncoder_SetApplication(t *testing.T) {
 	if err := enc.SetApplication(Application(99)); err != ErrInvalidApplication {
 		t.Fatalf("SetApplication(invalid) error=%v want=%v", err, ErrInvalidApplication)
 	}
+	if err := enc.SetApplication(ApplicationRestrictedSilk); err != ErrInvalidApplication {
+		t.Fatalf("SetApplication(restricted silk) error=%v want=%v", err, ErrInvalidApplication)
+	}
+	if err := enc.SetApplication(ApplicationRestrictedCelt); err != ErrInvalidApplication {
+		t.Fatalf("SetApplication(restricted celt) error=%v want=%v", err, ErrInvalidApplication)
+	}
 
 	// Match libopus ctl semantics: after first successful encode, application
 	// changes are rejected unless value is unchanged.
@@ -477,6 +497,74 @@ func TestEncoder_SetApplication(t *testing.T) {
 	}
 	if !enc.enc.LowDelay() {
 		t.Fatalf("enc.LowDelay() should be true after reset+lowdelay application")
+	}
+}
+
+func TestEncoder_RestrictedApplications(t *testing.T) {
+	tests := []struct {
+		name          string
+		application   Application
+		wantMode      encodercore.Mode
+		wantLowDelay  bool
+		wantBandwidth Bandwidth
+		wantLookahead int
+	}{
+		{
+			name:          "restricted_silk",
+			application:   ApplicationRestrictedSilk,
+			wantMode:      encodercore.ModeSILK,
+			wantLowDelay:  false,
+			wantBandwidth: BandwidthWideband,
+			wantLookahead: 48000/400 + 48000/250,
+		},
+		{
+			name:          "restricted_celt",
+			application:   ApplicationRestrictedCelt,
+			wantMode:      encodercore.ModeCELT,
+			wantLowDelay:  true,
+			wantBandwidth: BandwidthFullband,
+			wantLookahead: 48000 / 400,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			enc, err := NewEncoder(48000, 1, tt.application)
+			if err != nil {
+				t.Fatalf("NewEncoder error: %v", err)
+			}
+
+			if got := enc.Application(); got != tt.application {
+				t.Fatalf("Application()=%v want=%v", got, tt.application)
+			}
+			if got := enc.enc.Mode(); got != tt.wantMode {
+				t.Fatalf("enc.Mode()=%v want=%v", got, tt.wantMode)
+			}
+			if got := enc.enc.LowDelay(); got != tt.wantLowDelay {
+				t.Fatalf("enc.LowDelay()=%v want=%v", got, tt.wantLowDelay)
+			}
+			if got := enc.Bandwidth(); got != tt.wantBandwidth {
+				t.Fatalf("Bandwidth()=%v want=%v", got, tt.wantBandwidth)
+			}
+			if got := enc.Lookahead(); got != tt.wantLookahead {
+				t.Fatalf("Lookahead()=%d want=%d", got, tt.wantLookahead)
+			}
+
+			if err := enc.SetApplication(tt.application); err != ErrInvalidApplication {
+				t.Fatalf("SetApplication(same restricted) error=%v want=%v", err, ErrInvalidApplication)
+			}
+			if err := enc.SetApplication(ApplicationAudio); err != ErrInvalidApplication {
+				t.Fatalf("SetApplication(change restricted) error=%v want=%v", err, ErrInvalidApplication)
+			}
+			if tt.application == ApplicationRestrictedSilk {
+				if err := enc.SetFrameSize(240); err != ErrInvalidFrameSize {
+					t.Fatalf("SetFrameSize(240) error=%v want=%v", err, ErrInvalidFrameSize)
+				}
+				if err := enc.SetFrameSize(480); err != nil {
+					t.Fatalf("SetFrameSize(480) error: %v", err)
+				}
+			}
+		})
 	}
 }
 

@@ -22,6 +22,14 @@ const (
 	// ApplicationLowDelay minimizes algorithmic delay.
 	// Uses CELT mode exclusively with small frame sizes.
 	ApplicationLowDelay
+
+	// ApplicationRestrictedSilk forces SILK-only encoding.
+	// This matches libopus OPUS_APPLICATION_RESTRICTED_SILK init-time behavior.
+	ApplicationRestrictedSilk
+
+	// ApplicationRestrictedCelt forces CELT-only encoding with low-delay semantics.
+	// This matches libopus OPUS_APPLICATION_RESTRICTED_CELT init-time behavior.
+	ApplicationRestrictedCelt
 )
 
 // Signal represents a hint about the input signal type.
@@ -91,6 +99,9 @@ func NewEncoder(sampleRate, channels int, application Application) (*Encoder, er
 	if channels < 1 || channels > 2 {
 		return nil, ErrInvalidChannels
 	}
+	if !validEncoderApplication(application) {
+		return nil, ErrInvalidApplication
+	}
 
 	// Max frame size is 2880 samples (60ms at 48kHz) per channel
 	maxSamples := 2880 * channels
@@ -115,6 +126,9 @@ func NewEncoder(sampleRate, channels int, application Application) (*Encoder, er
 //
 // Valid values are ApplicationVoIP, ApplicationAudio, and ApplicationLowDelay.
 func (e *Encoder) SetApplication(application Application) error {
+	if e.application == ApplicationRestrictedSilk || e.application == ApplicationRestrictedCelt {
+		return ErrInvalidApplication
+	}
 	switch application {
 	case ApplicationVoIP, ApplicationAudio, ApplicationLowDelay:
 		// Match libopus ctl semantics: after first successful encode call,
@@ -154,6 +168,20 @@ func (e *Encoder) applyApplication(app Application) {
 		e.enc.SetSignalType(types.SignalAuto)
 	case ApplicationLowDelay:
 		// CELT only with small frames
+		e.enc.SetLowDelay(true)
+		e.enc.SetVoIPApplication(false)
+		e.enc.SetMode(encoder.ModeCELT)
+		e.enc.SetBandwidth(types.BandwidthFullband)
+		e.enc.SetSignalType(types.SignalAuto)
+	case ApplicationRestrictedSilk:
+		// Experts-only SILK-only application.
+		e.enc.SetLowDelay(false)
+		e.enc.SetVoIPApplication(false)
+		e.enc.SetMode(encoder.ModeSILK)
+		e.enc.SetBandwidth(types.BandwidthWideband)
+		e.enc.SetSignalType(types.SignalAuto)
+	case ApplicationRestrictedCelt:
+		// Experts-only CELT-only application with low-delay lookahead semantics.
 		e.enc.SetLowDelay(true)
 		e.enc.SetVoIPApplication(false)
 		e.enc.SetMode(encoder.ModeCELT)
@@ -468,6 +496,9 @@ func (e *Encoder) SetFrameSize(samples int) error {
 	if !validSizes[samples] {
 		return ErrInvalidFrameSize
 	}
+	if e.application == ApplicationRestrictedSilk && samples < 480 {
+		return ErrInvalidFrameSize
+	}
 	e.frameSize = samples
 	e.enc.SetFrameSize(samples)
 	return nil
@@ -599,10 +630,19 @@ func (e *Encoder) ForceChannels() int {
 //   - Delay compensation is omitted for LowDelay
 func (e *Encoder) Lookahead() int {
 	base := e.sampleRate / 400
-	if e.application == ApplicationLowDelay {
+	if e.application == ApplicationLowDelay || e.application == ApplicationRestrictedCelt {
 		return base
 	}
 	return base + e.sampleRate/250
+}
+
+func validEncoderApplication(application Application) bool {
+	switch application {
+	case ApplicationVoIP, ApplicationAudio, ApplicationLowDelay, ApplicationRestrictedSilk, ApplicationRestrictedCelt:
+		return true
+	default:
+		return false
+	}
 }
 
 // SetLSBDepth sets the bit depth of the input signal.
