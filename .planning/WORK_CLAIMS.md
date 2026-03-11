@@ -64,3 +64,4 @@ Quick commands:
 - claim: id=codex-20260310-171514; agent=codex; status=released; paths=celt/,.planning/; updated=2026-03-10T21:30:13Z; expires=2026-03-10T21:30:13Z; note=radix-5 N=1 specialization perf loop after PR286 tip
 - claim: id=codex-20260310-213020; agent=codex; status=released; paths=celt/,.planning/; updated=2026-03-11T01:30:04Z; expires=2026-03-11T01:30:04Z; note=theta/rotation decode perf loop after PR288 merge
 - claim: id=codex-20260311-013016; agent=codex; status=released; paths=celt/,.planning/; updated=2026-03-11T12:48:12Z; expires=2026-03-11T12:48:12Z; note=decode output and cwrs perf loop after PR289 merge
+- claim: id=codex-20260311-124825; agent=codex; status=active; paths=encoder/,celt/,.planning/; updated=2026-03-11T12:48:25Z; expires=2026-03-11T16:48:25Z; note=encode hotspot loop after PR290 merge
