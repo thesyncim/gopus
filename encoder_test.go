@@ -80,6 +80,14 @@ func generateSineWave(sampleRate int, freq float64, samples int) []float32 {
 	return pcm
 }
 
+func generateSineWaveInt24(sampleRate int, freq float64, samples int) []int32 {
+	pcm := make([]int32, samples)
+	for i := range pcm {
+		pcm[i] = int32((1 << 22) * math.Sin(2*math.Pi*freq*float64(i)/float64(sampleRate)))
+	}
+	return pcm
+}
+
 func TestEncoder_Encode_Float32(t *testing.T) {
 	enc, err := NewEncoder(48000, 1, ApplicationAudio)
 	if err != nil {
@@ -129,6 +137,51 @@ func TestEncoder_Encode_Int16(t *testing.T) {
 	}
 
 	t.Logf("Encoded %d int16 samples to %d bytes", frameSize, n)
+}
+
+func TestEncoder_Encode_Int24(t *testing.T) {
+	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	frameSize := 960
+	pcm := generateSineWaveInt24(48000, 440, frameSize)
+
+	data := make([]byte, 4000)
+	n, err := enc.EncodeInt24(pcm, data)
+	if err != nil {
+		t.Fatalf("EncodeInt24 error: %v", err)
+	}
+
+	if n == 0 {
+		t.Fatal("EncodeInt24 returned 0 bytes")
+	}
+
+	packet, err := enc.EncodeInt24Slice(pcm)
+	if err != nil {
+		t.Fatalf("EncodeInt24Slice error: %v", err)
+	}
+	if len(packet) == 0 {
+		t.Fatal("EncodeInt24Slice returned empty packet")
+	}
+
+	t.Logf("Encoded %d int24 samples to %d bytes", frameSize, n)
+}
+
+func TestEncoder_Encode_Int24_InvalidFrameSize(t *testing.T) {
+	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	data := make([]byte, 4000)
+	if _, err := enc.EncodeInt24(make([]int32, enc.FrameSize()-1), data); err != ErrInvalidFrameSize {
+		t.Fatalf("EncodeInt24(short) error=%v want=%v", err, ErrInvalidFrameSize)
+	}
+	if _, err := enc.EncodeInt24Slice(make([]int32, enc.FrameSize()-1)); err != ErrInvalidFrameSize {
+		t.Fatalf("EncodeInt24Slice(short) error=%v want=%v", err, ErrInvalidFrameSize)
+	}
 }
 
 func TestEncoder_Encode_RoundTrip(t *testing.T) {

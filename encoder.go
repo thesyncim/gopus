@@ -223,6 +223,45 @@ func (e *Encoder) EncodeInt16(pcm []int16, data []byte) (int, error) {
 	return e.Encode(pcm32, data)
 }
 
+// EncodeInt24 encodes 24-bit PCM samples stored in int32 values into an Opus packet.
+//
+// pcm: Input samples (interleaved if stereo). Length must be frameSize * channels.
+// data: Output buffer for the encoded packet.
+//
+// Returns the number of bytes written to data, or an error.
+//
+// The input values are interpreted with the same semantics as libopus
+// opus_encode24(): signed 24-bit PCM carried in int32 containers.
+func (e *Encoder) EncodeInt24(pcm []int32, data []byte) (int, error) {
+	expected := e.frameSize * e.channels
+	if len(pcm) != expected {
+		return 0, ErrInvalidFrameSize
+	}
+
+	// Convert 24-bit PCM stored in int32 containers to normalized float64.
+	pcm64 := e.scratchPCM64[:len(pcm)]
+	for i, v := range pcm {
+		pcm64[i] = float64(v) / 8388608.0
+	}
+
+	packet, err := e.enc.Encode(pcm64, e.frameSize)
+	if err != nil {
+		return 0, err
+	}
+	e.encodedOnce = true
+
+	if packet == nil {
+		return 0, nil
+	}
+
+	if len(packet) > len(data) {
+		return 0, ErrBufferTooSmall
+	}
+
+	copy(data, packet)
+	return len(packet), nil
+}
+
 // EncodeFloat32 encodes float32 PCM samples and returns a new byte slice.
 //
 // This is a convenience method that allocates the output buffer.
@@ -253,6 +292,19 @@ func (e *Encoder) EncodeInt16Slice(pcm []int16) ([]byte, error) {
 	// Allocate max packet size
 	data := make([]byte, 4000)
 	n, err := e.EncodeInt16(pcm, data)
+	if err != nil {
+		return nil, err
+	}
+	return data[:n], nil
+}
+
+// EncodeInt24Slice encodes 24-bit PCM samples stored in int32 values and returns a new byte slice.
+//
+// This is a convenience method that allocates the output buffer.
+// For performance-critical code, use EncodeInt24 with a pre-allocated buffer.
+func (e *Encoder) EncodeInt24Slice(pcm []int32) ([]byte, error) {
+	data := make([]byte, 4000)
+	n, err := e.EncodeInt24(pcm, data)
 	if err != nil {
 		return nil, err
 	}
