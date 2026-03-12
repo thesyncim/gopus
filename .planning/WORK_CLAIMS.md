@@ -70,3 +70,5 @@ Quick commands:
 - claim: id=codex-20260311-215833; agent=codex; status=released; paths=multistream.go,multistream_test.go; updated=2026-03-11T22:01:16Z; expires=2026-03-11T22:01:16Z; note=public multistream parity: restricted applications and int24 encode
 - claim: id=codex-20260311-220206; agent=codex; status=released; paths=multistream/,multistream.go,multistream_test.go; updated=2026-03-11T22:24:03Z; expires=2026-03-11T22:24:03Z; note=multistream parity: per-stream encoder/decoder state access
 - claim: id=codex-20260312-100601; agent=codex; status=released; paths=.planning/; updated=2026-03-12T10:07:51Z; expires=2026-03-12T10:07:51Z; note=close post-merge ctl parity planning notes
+- claim: id=codex-20260312-163532; agent=codex; status=active; paths=encoder.go,decoder.go,multistream.go,encoder_test.go,decoder_test.go,multistream_test.go; updated=2026-03-12T16:35:32Z; expires=2026-03-12T20:35:32Z; note=dedupe wrapper ctl validation and extension stubs
+- claim: id=codex-20260312-163947; agent=codex; status=released; paths=.planning/ACTIVE.md; updated=2026-03-12T16:40:48Z; expires=2026-03-12T16:40:48Z; note=log wrapper ctl dedupe evidence
