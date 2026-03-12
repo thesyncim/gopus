@@ -1,5 +1,123 @@
 package gopus
 
+// SetBitrate sets the target bitrate in bits per second.
+//
+// Valid range is 6000 to 510000 (6 kbps to 510 kbps).
+// Returns ErrInvalidBitrate if out of range.
+func (e *Encoder) SetBitrate(bitrate int) error {
+	if err := validateBitrate(bitrate, 510000); err != nil {
+		return err
+	}
+	e.enc.SetBitrate(bitrate)
+	return nil
+}
+
+// Bitrate returns the current target bitrate in bits per second.
+func (e *Encoder) Bitrate() int {
+	return e.enc.Bitrate()
+}
+
+// SetComplexity sets the encoder's computational complexity.
+//
+// complexity must be 0-10, where:
+//   - 0-1: Minimal processing, fastest encoding
+//   - 2-4: Basic analysis, good for real-time with limited CPU
+//   - 5-7: Moderate analysis, balanced quality/speed
+//   - 8-10: Thorough analysis, highest quality
+//
+// Returns ErrInvalidComplexity if out of range.
+func (e *Encoder) SetComplexity(complexity int) error {
+	if err := validateComplexity(complexity); err != nil {
+		return err
+	}
+	e.enc.SetComplexity(complexity)
+	return nil
+}
+
+// Complexity returns the current complexity setting.
+func (e *Encoder) Complexity() int {
+	return e.enc.Complexity()
+}
+
+// SetBitrateMode sets the encoder bitrate control mode.
+func (e *Encoder) SetBitrateMode(mode BitrateMode) error {
+	if err := validateBitrateMode(mode); err != nil {
+		return err
+	}
+	e.enc.SetBitrateMode(mode)
+	return nil
+}
+
+// BitrateMode returns the active encoder bitrate control mode.
+func (e *Encoder) BitrateMode() BitrateMode {
+	return e.enc.GetBitrateMode()
+}
+
+// SetVBR enables or disables VBR mode.
+//
+// Disabling VBR switches to CBR. Enabling VBR restores VBR while preserving
+// the current VBR constraint state.
+func (e *Encoder) SetVBR(enabled bool) {
+	e.enc.SetVBR(enabled)
+}
+
+// VBR returns whether VBR mode is enabled.
+func (e *Encoder) VBR() bool {
+	return e.enc.VBR()
+}
+
+// SetVBRConstraint enables or disables VBR constraint.
+//
+// This setting is remembered even while VBR is disabled.
+func (e *Encoder) SetVBRConstraint(constrained bool) {
+	e.enc.SetVBRConstraint(constrained)
+}
+
+// VBRConstraint returns whether VBR constraint is enabled.
+func (e *Encoder) VBRConstraint() bool {
+	return e.enc.VBRConstraint()
+}
+
+// SetFEC enables or disables in-band Forward Error Correction.
+//
+// When enabled, the encoder includes redundant information for loss recovery.
+// FEC is most effective when the receiver can request retransmission of lost packets.
+func (e *Encoder) SetFEC(enabled bool) {
+	e.enc.SetFEC(enabled)
+}
+
+// FECEnabled returns whether FEC is enabled.
+func (e *Encoder) FECEnabled() bool {
+	return e.enc.FECEnabled()
+}
+
+// SetPacketLoss sets the expected packet loss percentage.
+//
+// lossPercent must be in the range [0, 100].
+func (e *Encoder) SetPacketLoss(lossPercent int) error {
+	if err := validatePacketLoss(lossPercent); err != nil {
+		return err
+	}
+	e.enc.SetPacketLoss(lossPercent)
+	return nil
+}
+
+// PacketLoss returns the configured expected packet loss percentage.
+func (e *Encoder) PacketLoss() int {
+	return e.enc.PacketLoss()
+}
+
+// SetDTX enables or disables Discontinuous Transmission.
+//
+// When enabled, the encoder reduces bitrate during silence by:
+//   - Suppressing packets entirely during silence
+//   - Sending periodic comfort noise frames
+//
+// DTX is useful for VoIP applications to reduce bandwidth.
+func (e *Encoder) SetDTX(enabled bool) {
+	e.enc.SetDTX(enabled)
+}
+
 // DTXEnabled returns whether DTX is enabled.
 func (e *Encoder) DTXEnabled() bool {
 	return e.enc.DTXEnabled()
@@ -112,13 +230,11 @@ func (e *Encoder) FinalRange() uint32 {
 //
 // Returns ErrInvalidSignal if the value is not valid.
 func (e *Encoder) SetSignal(signal Signal) error {
-	switch signal {
-	case SignalAuto, SignalVoice, SignalMusic:
-		e.enc.SetSignalType(signal)
-		return nil
-	default:
-		return ErrInvalidSignal
+	if err := validateSignal(signal); err != nil {
+		return err
 	}
+	e.enc.SetSignalType(signal)
+	return nil
 }
 
 // Signal returns the current signal type hint.
@@ -128,13 +244,11 @@ func (e *Encoder) Signal() Signal {
 
 // SetBandwidth sets the target audio bandwidth.
 func (e *Encoder) SetBandwidth(bandwidth Bandwidth) error {
-	switch bandwidth {
-	case BandwidthNarrowband, BandwidthMediumband, BandwidthWideband, BandwidthSuperwideband, BandwidthFullband:
-		e.enc.SetBandwidth(bandwidth)
-		return nil
-	default:
-		return ErrInvalidBandwidth
+	if err := validateBandwidth(bandwidth); err != nil {
+		return err
 	}
+	e.enc.SetBandwidth(bandwidth)
+	return nil
 }
 
 // Bandwidth returns the currently configured target bandwidth.
@@ -154,13 +268,11 @@ func (e *Encoder) Bandwidth() Bandwidth {
 //   - BandwidthSuperwideband (12kHz)
 //   - BandwidthFullband (20kHz)
 func (e *Encoder) SetMaxBandwidth(bandwidth Bandwidth) error {
-	switch bandwidth {
-	case BandwidthNarrowband, BandwidthMediumband, BandwidthWideband, BandwidthSuperwideband, BandwidthFullband:
-		e.enc.SetMaxBandwidth(bandwidth)
-		return nil
-	default:
-		return ErrInvalidBandwidth
+	if err := validateBandwidth(bandwidth); err != nil {
+		return err
 	}
+	e.enc.SetMaxBandwidth(bandwidth)
+	return nil
 }
 
 // MaxBandwidth returns the current maximum bandwidth limit.
@@ -180,8 +292,8 @@ func (e *Encoder) MaxBandwidth() Bandwidth {
 //
 // Returns ErrInvalidForceChannels if the value is not valid.
 func (e *Encoder) SetForceChannels(channels int) error {
-	if channels != -1 && channels != 1 && channels != 2 {
-		return ErrInvalidForceChannels
+	if err := validateForceChannels(channels); err != nil {
+		return err
 	}
 	e.enc.SetForceChannels(channels)
 	return nil
@@ -211,8 +323,8 @@ func (e *Encoder) Lookahead() int {
 // Default is 24 (full precision).
 // Returns ErrInvalidLSBDepth if out of range.
 func (e *Encoder) SetLSBDepth(depth int) error {
-	if depth < 8 || depth > 24 {
-		return ErrInvalidLSBDepth
+	if err := validateLSBDepth(depth); err != nil {
+		return err
 	}
 	e.enc.SetLSBDepth(depth)
 	return nil
