@@ -116,7 +116,7 @@ func NewEncoder(sampleRate, channels int, application Application) (*Encoder, er
 	if channels < 1 || channels > 2 {
 		return nil, ErrInvalidChannels
 	}
-	if !validEncoderApplication(application) {
+	if !validApplication(application) {
 		return nil, ErrInvalidApplication
 	}
 
@@ -564,19 +564,23 @@ func expertFrameDurationFrameSize(duration ExpertFrameDuration) int {
 	}
 }
 
+func setExpertFrameDuration(duration ExpertFrameDuration, current *ExpertFrameDuration, setFrameSize func(int) error) error {
+	if !validExpertFrameDuration(duration) {
+		return ErrInvalidArgument
+	}
+	*current = duration
+	if duration == ExpertFrameDurationArg {
+		return nil
+	}
+	return setFrameSize(expertFrameDurationFrameSize(duration))
+}
+
 // SetExpertFrameDuration sets the preferred frame duration policy.
 //
 // `ExpertFrameDurationArg` keeps using the current `FrameSize()` value.
 // Any fixed duration also updates `FrameSize()` to the matching 48 kHz sample count.
 func (e *Encoder) SetExpertFrameDuration(duration ExpertFrameDuration) error {
-	if !validExpertFrameDuration(duration) {
-		return ErrInvalidArgument
-	}
-	e.expertFrameDuration = duration
-	if duration == ExpertFrameDurationArg {
-		return nil
-	}
-	return e.SetFrameSize(expertFrameDurationFrameSize(duration))
+	return setExpertFrameDuration(duration, &e.expertFrameDuration, e.SetFrameSize)
 }
 
 // ExpertFrameDuration returns the current expert frame duration policy.
@@ -593,22 +597,8 @@ func (e *Encoder) ExpertFrameDuration() ExpertFrameDuration {
 //
 // Default is 960 (20ms).
 func (e *Encoder) SetFrameSize(samples int) error {
-	validSizes := map[int]bool{
-		120:  true, // 2.5ms (CELT only)
-		240:  true, // 5ms (CELT only)
-		480:  true, // 10ms
-		960:  true, // 20ms
-		1920: true, // 40ms
-		2880: true, // 60ms
-		3840: true, // 80ms
-		4800: true, // 100ms
-		5760: true, // 120ms
-	}
-	if !validSizes[samples] {
-		return ErrInvalidFrameSize
-	}
-	if e.application == ApplicationRestrictedSilk && samples < 480 {
-		return ErrInvalidFrameSize
+	if err := validateFrameSize(samples, e.application); err != nil {
+		return err
 	}
 	e.frameSize = samples
 	e.enc.SetFrameSize(samples)
@@ -740,20 +730,43 @@ func (e *Encoder) ForceChannels() int {
 //   - Delay compensation Fs/250 is included for VoIP/Audio
 //   - Delay compensation is omitted for LowDelay
 func (e *Encoder) Lookahead() int {
-	base := e.sampleRate / 400
-	if e.application == ApplicationLowDelay || e.application == ApplicationRestrictedCelt {
-		return base
-	}
-	return base + e.sampleRate/250
+	return lookaheadSamples(e.sampleRate, e.application)
 }
 
-func validEncoderApplication(application Application) bool {
+func validApplication(application Application) bool {
 	switch application {
 	case ApplicationVoIP, ApplicationAudio, ApplicationLowDelay, ApplicationRestrictedSilk, ApplicationRestrictedCelt:
 		return true
 	default:
 		return false
 	}
+}
+
+func validFrameSize(samples int) bool {
+	switch samples {
+	case 120, 240, 480, 960, 1920, 2880, 3840, 4800, 5760:
+		return true
+	default:
+		return false
+	}
+}
+
+func validateFrameSize(samples int, application Application) error {
+	if !validFrameSize(samples) {
+		return ErrInvalidFrameSize
+	}
+	if application == ApplicationRestrictedSilk && samples < 480 {
+		return ErrInvalidFrameSize
+	}
+	return nil
+}
+
+func lookaheadSamples(sampleRate int, application Application) int {
+	base := sampleRate / 400
+	if application == ApplicationLowDelay || application == ApplicationRestrictedCelt {
+		return base
+	}
+	return base + sampleRate/250
 }
 
 // SetLSBDepth sets the bit depth of the input signal.
