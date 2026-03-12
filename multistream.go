@@ -67,7 +67,7 @@ func NewMultistreamEncoder(sampleRate, channels, streams, coupledStreams int, ma
 	if len(mapping) != channels {
 		return nil, ErrInvalidMapping
 	}
-	if !validMultistreamApplication(application) {
+	if !validApplication(application) {
 		return nil, ErrInvalidApplication
 	}
 
@@ -113,7 +113,7 @@ func NewMultistreamEncoderDefault(sampleRate, channels int, application Applicat
 	if channels < 1 || channels > 8 {
 		return nil, ErrInvalidChannels
 	}
-	if !validMultistreamApplication(application) {
+	if !validApplication(application) {
 		return nil, ErrInvalidApplication
 	}
 
@@ -344,22 +344,8 @@ func (e *MultistreamEncoder) EncodeInt24Slice(pcm []int32) ([]byte, error) {
 //
 // Valid sizes are 120, 240, 480, 960, 1920, 2880, 3840, 4800, and 5760.
 func (e *MultistreamEncoder) SetFrameSize(samples int) error {
-	validSizes := map[int]bool{
-		120:  true,
-		240:  true,
-		480:  true,
-		960:  true,
-		1920: true,
-		2880: true,
-		3840: true,
-		4800: true,
-		5760: true,
-	}
-	if !validSizes[samples] {
-		return ErrInvalidFrameSize
-	}
-	if e.application == ApplicationRestrictedSilk && samples < 480 {
-		return ErrInvalidFrameSize
+	if err := validateFrameSize(samples, e.application); err != nil {
+		return err
 	}
 	e.frameSize = samples
 	return nil
@@ -397,14 +383,7 @@ func (e *MultistreamEncoder) QEXT() (bool, error) {
 
 // SetExpertFrameDuration sets the preferred frame duration policy for multistream encoding.
 func (e *MultistreamEncoder) SetExpertFrameDuration(duration ExpertFrameDuration) error {
-	if !validExpertFrameDuration(duration) {
-		return ErrInvalidArgument
-	}
-	e.expertFrameDuration = duration
-	if duration == ExpertFrameDurationArg {
-		return nil
-	}
-	return e.SetFrameSize(expertFrameDurationFrameSize(duration))
+	return setExpertFrameDuration(duration, &e.expertFrameDuration, e.SetFrameSize)
 }
 
 // ExpertFrameDuration returns the current multistream expert frame duration policy.
@@ -642,20 +621,7 @@ func (e *MultistreamEncoder) FinalRange() uint32 {
 //   - Delay compensation Fs/250 is included for VoIP/Audio
 //   - Delay compensation is omitted for LowDelay
 func (e *MultistreamEncoder) Lookahead() int {
-	base := e.sampleRate / 400
-	if e.application == ApplicationLowDelay || e.application == ApplicationRestrictedCelt {
-		return base
-	}
-	return base + e.sampleRate/250
-}
-
-func validMultistreamApplication(application Application) bool {
-	switch application {
-	case ApplicationVoIP, ApplicationAudio, ApplicationLowDelay, ApplicationRestrictedSilk, ApplicationRestrictedCelt:
-		return true
-	default:
-		return false
-	}
+	return lookaheadSamples(e.sampleRate, e.application)
 }
 
 // Signal returns the current signal type hint.
