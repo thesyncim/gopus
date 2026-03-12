@@ -1,6 +1,10 @@
 package gopus
 
-import "testing"
+import (
+	"testing"
+
+	encodercore "github.com/thesyncim/gopus/encoder"
+)
 
 type optionalEncoderControl interface {
 	SetDREDDuration(int) error
@@ -27,6 +31,15 @@ type lookaheadCase struct {
 	sampleRate  int
 	application Application
 	want        int
+}
+
+type restrictedApplicationCase struct {
+	name          string
+	application   Application
+	wantMode      encodercore.Mode
+	wantLowDelay  bool
+	wantBandwidth Bandwidth
+	wantLookahead int
 }
 
 func assertOptionalEncoderControls(t *testing.T, enc optionalEncoderControl) {
@@ -115,5 +128,76 @@ func lookaheadTestCases() []lookaheadCase {
 			application: ApplicationLowDelay,
 			want:        24000 / 400,
 		},
+	}
+}
+
+func restrictedApplicationTestCases() []restrictedApplicationCase {
+	return []restrictedApplicationCase{
+		{
+			name:          "restricted_silk",
+			application:   ApplicationRestrictedSilk,
+			wantMode:      encodercore.ModeSILK,
+			wantLowDelay:  false,
+			wantBandwidth: BandwidthWideband,
+			wantLookahead: 48000/400 + 48000/250,
+		},
+		{
+			name:          "restricted_celt",
+			application:   ApplicationRestrictedCelt,
+			wantMode:      encodercore.ModeCELT,
+			wantLowDelay:  true,
+			wantBandwidth: BandwidthFullband,
+			wantLookahead: 48000 / 400,
+		},
+	}
+}
+
+func assertApplicationLockAfterEncode(
+	t *testing.T,
+	currentApplication func() Application,
+	setApplication func(Application) error,
+	reset func(),
+	encodeOnce func() error,
+	changeTo Application,
+	resetTo Application,
+) {
+	t.Helper()
+
+	if err := encodeOnce(); err != nil {
+		t.Fatalf("encode before application lock test error: %v", err)
+	}
+	if err := setApplication(changeTo); err != ErrInvalidApplication {
+		t.Fatalf("SetApplication(change after encode) error=%v want=%v", err, ErrInvalidApplication)
+	}
+	if err := setApplication(currentApplication()); err != nil {
+		t.Fatalf("SetApplication(same after encode) error: %v", err)
+	}
+	reset()
+	if err := setApplication(resetTo); err != nil {
+		t.Fatalf("SetApplication(after reset) error: %v", err)
+	}
+}
+
+func assertLookaheadUpdatesBeforeEncode(
+	t *testing.T,
+	lookahead func() int,
+	setApplication func(Application) error,
+) {
+	t.Helper()
+
+	if got, want := lookahead(), 48000/400+48000/250; got != want {
+		t.Fatalf("Lookahead(audio) = %d, want %d", got, want)
+	}
+	if err := setApplication(ApplicationLowDelay); err != nil {
+		t.Fatalf("SetApplication(LowDelay) error: %v", err)
+	}
+	if got, want := lookahead(), 48000/400; got != want {
+		t.Fatalf("Lookahead(lowdelay) = %d, want %d", got, want)
+	}
+	if err := setApplication(ApplicationAudio); err != nil {
+		t.Fatalf("SetApplication(Audio) error: %v", err)
+	}
+	if got, want := lookahead(), 48000/400+48000/250; got != want {
+		t.Fatalf("Lookahead(audio after reset) = %d, want %d", got, want)
 	}
 }

@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"math"
 	"testing"
-
-	encodercore "github.com/thesyncim/gopus/encoder"
 )
 
 func TestNewEncoder_ValidParams(t *testing.T) {
@@ -477,57 +475,27 @@ func TestEncoder_SetApplication(t *testing.T) {
 		t.Fatalf("SetApplication(restricted celt) error=%v want=%v", err, ErrInvalidApplication)
 	}
 
-	// Match libopus ctl semantics: after first successful encode, application
-	// changes are rejected unless value is unchanged.
 	pcm := make([]float32, enc.FrameSize()*enc.Channels())
 	packet := make([]byte, 4000)
-	if _, err := enc.Encode(pcm, packet); err != nil {
-		t.Fatalf("Encode before application lock test error: %v", err)
-	}
-	if err := enc.SetApplication(ApplicationVoIP); err != ErrInvalidApplication {
-		t.Fatalf("SetApplication(change after encode) error=%v want=%v", err, ErrInvalidApplication)
-	}
-	if err := enc.SetApplication(enc.Application()); err != nil {
-		t.Fatalf("SetApplication(same after encode) error: %v", err)
-	}
-
-	enc.Reset()
-	if err := enc.SetApplication(ApplicationLowDelay); err != nil {
-		t.Fatalf("SetApplication(after reset) error: %v", err)
-	}
+	assertApplicationLockAfterEncode(
+		t,
+		enc.Application,
+		enc.SetApplication,
+		enc.Reset,
+		func() error {
+			_, err := enc.Encode(pcm, packet)
+			return err
+		},
+		ApplicationVoIP,
+		ApplicationLowDelay,
+	)
 	if !enc.enc.LowDelay() {
 		t.Fatalf("enc.LowDelay() should be true after reset+lowdelay application")
 	}
 }
 
 func TestEncoder_RestrictedApplications(t *testing.T) {
-	tests := []struct {
-		name          string
-		application   Application
-		wantMode      encodercore.Mode
-		wantLowDelay  bool
-		wantBandwidth Bandwidth
-		wantLookahead int
-	}{
-		{
-			name:          "restricted_silk",
-			application:   ApplicationRestrictedSilk,
-			wantMode:      encodercore.ModeSILK,
-			wantLowDelay:  false,
-			wantBandwidth: BandwidthWideband,
-			wantLookahead: 48000/400 + 48000/250,
-		},
-		{
-			name:          "restricted_celt",
-			application:   ApplicationRestrictedCelt,
-			wantMode:      encodercore.ModeCELT,
-			wantLowDelay:  true,
-			wantBandwidth: BandwidthFullband,
-			wantLookahead: 48000 / 400,
-		},
-	}
-
-	for _, tt := range tests {
+	for _, tt := range restrictedApplicationTestCases() {
 		t.Run(tt.name, func(t *testing.T) {
 			enc, err := NewEncoder(48000, 1, tt.application)
 			if err != nil {
@@ -1064,21 +1032,7 @@ func TestEncoder_Lookahead(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewEncoder error: %v", err)
 		}
-		if got, want := enc.Lookahead(), 48000/400+48000/250; got != want {
-			t.Fatalf("Lookahead(audio) = %d, want %d", got, want)
-		}
-		if err := enc.SetApplication(ApplicationLowDelay); err != nil {
-			t.Fatalf("SetApplication(LowDelay) error: %v", err)
-		}
-		if got, want := enc.Lookahead(), 48000/400; got != want {
-			t.Fatalf("Lookahead(lowdelay) = %d, want %d", got, want)
-		}
-		if err := enc.SetApplication(ApplicationAudio); err != nil {
-			t.Fatalf("SetApplication(Audio) error: %v", err)
-		}
-		if got, want := enc.Lookahead(), 48000/400+48000/250; got != want {
-			t.Fatalf("Lookahead(audio after reset) = %d, want %d", got, want)
-		}
+		assertLookaheadUpdatesBeforeEncode(t, enc.Lookahead, enc.SetApplication)
 	})
 }
 
