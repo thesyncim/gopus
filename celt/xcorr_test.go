@@ -23,6 +23,16 @@ func refDualInnerProd(x, y1, y2 []float64, length int) (float64, float64) {
 	return sum1, sum2
 }
 
+func refTripleInnerProd(x, y1, y2, y3 []float64, length int) (float64, float64, float64) {
+	sum1, sum2, sum3 := 0.0, 0.0, 0.0
+	for i := 0; i < length; i++ {
+		sum1 += x[i] * y1[i]
+		sum2 += x[i] * y2[i]
+		sum3 += x[i] * y3[i]
+	}
+	return sum1, sum2, sum3
+}
+
 func refPitchXcorr(x, y, xcorr []float64, length, maxPitch int) {
 	for i := 0; i < maxPitch; i++ {
 		sum := 0.0
@@ -86,6 +96,64 @@ func TestDualInnerProd(t *testing.T) {
 		}
 		if math.Abs(g2-w2) > 1e-6*math.Abs(w2)+1e-12 {
 			t.Fatalf("trial %d n=%d sum2: got %v want %v", trial, n, g2, w2)
+		}
+	}
+}
+
+func TestTripleInnerProd(t *testing.T) {
+	rng := rand.New(rand.NewSource(4301))
+	for trial := 0; trial < 1000; trial++ {
+		n := rng.Intn(512) + 1
+		x := make([]float64, n)
+		y1 := make([]float64, n)
+		y2 := make([]float64, n)
+		y3 := make([]float64, n)
+		for i := range x {
+			x[i] = rng.Float64()*2 - 1
+			y1[i] = rng.Float64()*2 - 1
+			y2[i] = rng.Float64()*2 - 1
+			y3[i] = rng.Float64()*2 - 1
+		}
+		g1, g2, g3 := tripleInnerProd(x, y1, y2, y3, n)
+		w1, w2, w3 := refTripleInnerProd(x, y1, y2, y3, n)
+		if math.Abs(g1-w1) > 1e-6*math.Abs(w1)+1e-12 {
+			t.Fatalf("trial %d n=%d sum1: got %v want %v", trial, n, g1, w1)
+		}
+		if math.Abs(g2-w2) > 1e-6*math.Abs(w2)+1e-12 {
+			t.Fatalf("trial %d n=%d sum2: got %v want %v", trial, n, g2, w2)
+		}
+		if math.Abs(g3-w3) > 1e-6*math.Abs(w3)+1e-12 {
+			t.Fatalf("trial %d n=%d sum3: got %v want %v", trial, n, g3, w3)
+		}
+	}
+}
+
+func TestTripleInnerProdMatchesSeparateCeltInnerProd(t *testing.T) {
+	rng := rand.New(rand.NewSource(4302))
+	for trial := 0; trial < 500; trial++ {
+		n := rng.Intn(512) + 1
+		x := make([]float64, n)
+		y1 := make([]float64, n)
+		y2 := make([]float64, n)
+		y3 := make([]float64, n)
+		for i := range x {
+			x[i] = rng.Float64()*2 - 1
+			y1[i] = rng.Float64()*2 - 1
+			y2[i] = rng.Float64()*2 - 1
+			y3[i] = rng.Float64()*2 - 1
+		}
+		g1, g2, g3 := tripleInnerProd(x, y1, y2, y3, n)
+		w1 := celtInnerProd(x, y1, n)
+		w2 := celtInnerProd(x, y2, n)
+		w3 := celtInnerProd(x, y3, n)
+		if math.Float64bits(g1) != math.Float64bits(w1) {
+			t.Fatalf("trial %d n=%d sum1 bits mismatch: got %016x want %016x", trial, n, math.Float64bits(g1), math.Float64bits(w1))
+		}
+		if math.Float64bits(g2) != math.Float64bits(w2) {
+			t.Fatalf("trial %d n=%d sum2 bits mismatch: got %016x want %016x", trial, n, math.Float64bits(g2), math.Float64bits(w2))
+		}
+		if math.Float64bits(g3) != math.Float64bits(w3) {
+			t.Fatalf("trial %d n=%d sum3 bits mismatch: got %016x want %016x", trial, n, math.Float64bits(g3), math.Float64bits(w3))
 		}
 	}
 }
@@ -164,6 +232,24 @@ func BenchmarkDualInnerProd(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		dualInnerProd(x, y1, y2, n)
+	}
+}
+
+func BenchmarkTripleInnerProd(b *testing.B) {
+	n := 480
+	x := make([]float64, n)
+	y1 := make([]float64, n)
+	y2 := make([]float64, n)
+	y3 := make([]float64, n)
+	for i := range x {
+		x[i] = float64(i) * 0.001
+		y1[i] = float64(i) * 0.002
+		y2[i] = float64(i) * 0.003
+		y3[i] = float64(i) * 0.004
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		tripleInnerProd(x, y1, y2, y3, n)
 	}
 }
 
