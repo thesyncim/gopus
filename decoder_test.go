@@ -170,22 +170,16 @@ func TestDecoder_Decode_Float32(t *testing.T) {
 }
 
 func TestDecoder_Decode_Int16(t *testing.T) {
-	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
-	if err != nil {
-		t.Fatalf("NewDecoder error: %v", err)
-	}
+	dec := newMonoTestDecoder(t)
 
-	packet := minimalHybridTestPacket20ms()
-	frameSize := 960
-
-	pcmOut := make([]int16, frameSize)
-	n, err := dec.DecodeInt16(packet, pcmOut)
+	pcmOut := make([]int16, 960)
+	n, err := dec.DecodeInt16(minimalHybridTestPacket20ms(), pcmOut)
 	if err != nil {
 		t.Fatalf("DecodeInt16 error: %v", err)
 	}
 
-	if n != frameSize {
-		t.Errorf("DecodeInt16 returned %d samples, want %d", n, frameSize)
+	if n != 960 {
+		t.Errorf("DecodeInt16 returned %d samples, want %d", n, 960)
 	}
 
 	// Verify samples are in valid int16 range (clamping works)
@@ -197,24 +191,18 @@ func TestDecoder_Decode_Int16(t *testing.T) {
 }
 
 func TestDecoder_Decode_BufferTooSmall(t *testing.T) {
-	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
-	if err != nil {
-		t.Fatalf("NewDecoder error: %v", err)
-	}
-
-	packet := minimalHybridTestPacket20ms()
-	frameSize := 960
+	dec := newMonoTestDecoder(t)
 
 	// Buffer too small for float32
-	pcmOut := make([]float32, frameSize/2)
-	_, err = dec.Decode(packet, pcmOut)
+	pcmOut := make([]float32, 480)
+	_, err := dec.Decode(minimalHybridTestPacket20ms(), pcmOut)
 	if err != ErrBufferTooSmall {
 		t.Errorf("Decode with small buffer: got %v, want ErrBufferTooSmall", err)
 	}
 
 	// Buffer too small for int16
-	pcmOut16 := make([]int16, frameSize/2)
-	_, err = dec.DecodeInt16(packet, pcmOut16)
+	pcmOut16 := make([]int16, 480)
+	_, err = dec.DecodeInt16(minimalHybridTestPacket20ms(), pcmOut16)
 	if err != ErrBufferTooSmall {
 		t.Errorf("DecodeInt16 with small buffer: got %v, want ErrBufferTooSmall", err)
 	}
@@ -1179,17 +1167,8 @@ func TestDecodeWithFEC_ResetClearsFEC(t *testing.T) {
 }
 
 func TestDecoder_BandwidthAndLastPacketDuration(t *testing.T) {
-	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
-	if err != nil {
-		t.Fatalf("NewDecoder error: %v", err)
-	}
-
-	packet := minimalHybridTestPacket20ms()
-	pcm := make([]float32, 960)
-	n, err := dec.Decode(packet, pcm)
-	if err != nil {
-		t.Fatalf("Decode error: %v", err)
-	}
+	dec := newMonoTestDecoder(t)
+	n := decodeMinimalHybrid20ms(t, dec)
 	if n != 960 {
 		t.Fatalf("Decode returned %d samples, want 960", n)
 	}
@@ -1203,10 +1182,7 @@ func TestDecoder_BandwidthAndLastPacketDuration(t *testing.T) {
 }
 
 func TestDecoder_InDTX(t *testing.T) {
-	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
-	if err != nil {
-		t.Fatalf("NewDecoder error: %v", err)
-	}
+	dec := newMonoTestDecoder(t)
 
 	if dec.InDTX() {
 		t.Fatal("InDTX()=true before any packet")
@@ -1224,10 +1200,7 @@ func TestDecoder_InDTX(t *testing.T) {
 }
 
 func TestDecoder_SetGainBounds(t *testing.T) {
-	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
-	if err != nil {
-		t.Fatalf("NewDecoder error: %v", err)
-	}
+	dec := newMonoTestDecoder(t)
 
 	if err := dec.SetGain(-32769); err != ErrInvalidGain {
 		t.Fatalf("SetGain(-32769) error=%v want=%v", err, ErrInvalidGain)
@@ -1247,21 +1220,11 @@ func TestDecoder_SetGainBounds(t *testing.T) {
 }
 
 func TestDecoder_IgnoreExtensions(t *testing.T) {
-	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
-	if err != nil {
-		t.Fatalf("NewDecoder error: %v", err)
-	}
-
-	assertIgnoreExtensionsControls(t, dec)
+	assertIgnoreExtensionsControls(t, newMonoTestDecoder(t))
 }
 
 func TestDecoder_OptionalExtensionControls(t *testing.T) {
-	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
-	if err != nil {
-		t.Fatalf("NewDecoder error: %v", err)
-	}
-
-	assertOptionalDecoderControls(t, dec)
+	assertOptionalDecoderControls(t, newMonoTestDecoder(t))
 }
 
 func TestDecoder_GainAppliedToDecodeOutput(t *testing.T) {
