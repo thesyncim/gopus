@@ -1,6 +1,6 @@
 # Investigation Decisions
 
-Last updated: 2026-03-11
+Last updated: 2026-03-12
 
 Purpose: record durable keep/skip decisions to avoid re-running solved investigations.
 
@@ -18,6 +18,13 @@ owner: <handle>
 ```
 
 ## Current Decisions
+
+date: 2026-03-12
+topic: Optional libopus 1.6.1 extension ctl parity
+decision: Treat `DRED`, `DNN_BLOB`, `OSCE_BWE`, and `QEXT` as non-default-build extension features, not open default libopus parity blockers. Keep the public `gopus` methods explicit and returning `ErrUnimplemented` unless the project intentionally decides to support the corresponding libopus feature-flag builds.
+evidence: Post-merge audit after PR #291 checked `tmp_check/opus-1.6.1/config.h` plus the encoder/decoder ctl switches in `tmp_check/opus-1.6.1/src/opus_encoder.c` and `tmp_check/opus-1.6.1/src/opus_decoder.c`. The relevant cases are compiled only under `ENABLE_DRED`, `ENABLE_QEXT`, `ENABLE_OSCE_BWE`, or `USE_WEIGHTS_FILE`; otherwise libopus falls through to the default `OPUS_UNIMPLEMENTED` return path. `gopus` now exposes the same controls explicitly and returns `ErrUnimplemented`, which matches that default-build behavior.
+do_not_repeat_until: the project decides to support non-default libopus extension feature flags, the reference libopus version changes its default-build ctl behavior for these requests, or fixture/API evidence shows a mismatch between `gopus` and default libopus behavior.
+owner: codex
 
 date: 2026-03-11
 topic: Mono long-block direct float32 decode without postfilter

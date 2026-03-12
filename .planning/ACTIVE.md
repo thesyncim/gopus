@@ -1,6 +1,6 @@
 # Active Investigation
 
-Last updated: 2026-03-11
+Last updated: 2026-03-12
 Status: active
 Active objective: close the fair example-bench gopus/libopus throughput gap without regressing fixture-backed parity or quality.
 Current hypothesis: after the stereo direct-output decode keep, the largest remaining example-bench gap is encoder-side on the speech preset; the next high-leverage wins are in transient/front-end analysis and then the shared pitch-search/MDCT stack.
@@ -24,15 +24,15 @@ Older evidence entries were intentionally pruned on 2026-03-01 to keep this file
 
 - No blocking parity/compliance failures in the current guarded fixture set.
 - Core public ctl parity is now closed through the standard libopus 1.6.1 encoder/decoder/multistream surface.
-- Optional libopus 1.6.1 extension controls (`DRED` / `DNN_BLOB` / `OSCE_BWE` / `QEXT`) are now explicit in the public API but still return `ErrUnimplemented` because the underlying extension functionality is not present yet.
-- The `codex/public-ctl-parity-wrappers` branch still needs to be landed/merged; treat [compare view](https://github.com/thesyncim/gopus/compare/codex/public-ctl-parity-wrappers?expand=1) as an explicit merge task.
-- Main remaining work outside ctl parity is keeping the existing parity/quality guards green while closing the remaining encode/decode throughput gap versus libopus.
+- Optional libopus 1.6.1 extension controls (`DRED` / `DNN_BLOB` / `OSCE_BWE` / `QEXT`) are explicit in the public API and intentionally return `ErrUnimplemented`, matching the default libopus 1.6.1 build where those requests fall back to `OPUS_UNIMPLEMENTED` unless the corresponding feature flags are enabled.
+- No remaining public ctl/API feature-surface gaps are currently known against the default libopus 1.6.1 build.
+- Main remaining work is keeping the existing parity/quality guards green while closing the remaining encode/decode throughput gap versus libopus.
 
 ## Next 3 Actions
 
-1. Land or merge `codex/public-ctl-parity-wrappers` after broad gates are green, because the public ctl parity work is now split across that unmerged branch.
-2. Decide whether to implement or intentionally leave unimplemented the optional extension feature blocks behind `DRED` / `DNN_BLOB` / `OSCE_BWE` / `QEXT`; the control surface is now explicit, so the remaining work is behavior, not API shape.
-3. Keep taking exactness-guarded perf slices only after the remaining ctl/API surface is settled, and keep running broad verification (`make verify-production`, `make bench-guard`) before merge-ready changes.
+1. Keep taking exactness-guarded perf slices while the public ctl/API surface is stable, and keep running broad verification (`make verify-production`, `make bench-guard`) before merge-ready changes.
+2. Treat optional extension implementation (`DRED` / `DNN_BLOB` / `OSCE_BWE` / `QEXT`) as a separate non-default-build feature track rather than a default libopus parity blocker unless the project explicitly decides to support those feature flags.
+3. Continue tightening parity/quality coverage only when new fixture evidence exposes a real default-build behavior gap.
 
 ## Explicit Session Skips
 
@@ -42,6 +42,7 @@ Older evidence entries were intentionally pruned on 2026-03-01 to keep this file
 
 ## Evidence Log (Newest First)
 
+- 2026-03-12: PR #291 (`feat(api): close libopus public ctl parity gaps`) merged to `master` as squash commit `6e64e8b`, with full green required CI (`detect-change-scope`, `perf-linux`, `test-linux`, `test-linux-flake`, `test-linux-parity`, `test-linux-provenance`, `test-linux-race`, `test-macos`, `test-windows`). Post-merge audit against `tmp_check/opus-1.6.1` confirmed the remaining extension ctls are behind `ENABLE_DRED`, `ENABLE_QEXT`, `ENABLE_OSCE_BWE`, or `USE_WEIGHTS_FILE`, and the default libopus build falls through to `OPUS_UNIMPLEMENTED` for those requests. That means the current explicit `ErrUnimplemented` wrappers in `gopus` match default-build libopus behavior rather than representing an open public ctl parity gap.
 - 2026-03-11: Closed the last missing public ctl surface from the libopus 1.6.1 audit by making the optional extension controls explicit. `encoder.go`, `decoder.go`, and `multistream.go` now expose `DRED` / `DNN_BLOB` / `OSCE_BWE` / `QEXT` methods that return `ErrUnimplemented`, matching the fact that the underlying optional extension feature blocks are not present in the current Go codec instead of leaving the methods absent entirely. Focused validation passed with `GOWORK=off go test . -run '^(TestEncoder_(OptionalExtensionControls|ExpertFrameDuration|LongPacketRoundTrip)|TestDecoder_(IgnoreExtensions|OptionalExtensionControls)|TestMultistreamEncoder_(OptionalExtensionControls|Controls|RestrictedApplications)|TestMultistreamDecoder_(IgnoreExtensions|OptionalExtensionControls|GetDecoderState|GetDecoderStateSharesGain))$' -count=1`, and the full root package stayed green with `GOWORK=off go test . -count=1`.
 - 2026-03-11: Closed the decoder-side `OPUS_SET/GET_IGNORE_EXTENSIONS` parity gap in the public wrappers. `decoder.go` and `multistream.go` now expose `SetIgnoreExtensions()` / `IgnoreExtensions()` on the root decoder and multistream decoder wrappers, with focused validation passing via `GOWORK=off go test . -run '^(TestDecoder_(IgnoreExtensions|SetGainBounds|BandwidthAndLastPacketDuration)|TestMultistreamDecoder_(IgnoreExtensions|GetDecoderState|GetDecoderStateSharesGain))$' -count=1` and the full root package staying green with `GOWORK=off go test . -count=1`.
 - 2026-03-11: Closed the multistream per-stream state parity gap. `multistream/encoder.go` now exposes `GetEncoderState()`, `multistream/decoder.go` exports a live `StreamDecoder` state with per-stream gain/final-range/duration/bandwidth access plus `GetDecoderState()`, and the public `gopus` wrapper forwards both in `multistream.go`. Focused validation passed with `GOWORK=off go test . -run '^(TestMultistreamEncoder_(GetEncoderState|RestrictedApplications|SetApplicationAfterEncodeRejected|SetApplicationPreservesControls|SetApplicationForwardsModeAndBandwidth|Lookahead)|TestMultistreamDecoder_(GetDecoderState|GetDecoderStateSharesGain))$' -count=1`, and broad package checks stayed green with `GOWORK=off go test . -count=1` and `GOWORK=off go test ./multistream -count=1`.
