@@ -48,3 +48,47 @@ func dualInnerProd(x, y1, y2 []float64, length int) (float64, float64) {
 	}
 	return a0 + a1 + a2 + a3, b0 + b1 + b2 + b3
 }
+
+func tripleInnerProd(x, y1, y2, y3 []float64, length int) (float64, float64, float64) {
+	if length <= 0 {
+		return 0, 0, 0
+	}
+	x = x[:length:length]
+	y1 = y1[:length:length]
+	y2 = y2[:length:length]
+	y3 = y3[:length:length]
+	var a0, a1, a2, a3 float64
+	var b0, b1, b2, b3 float64
+	var c0, c1, c2, c3 float64
+	i := 0
+	n := len(x) - 3
+	for ; i < n; i += 4 {
+		x0 := x[i]
+		x1 := x[i+1]
+		x2 := x[i+2]
+		x3 := x[i+3]
+
+		a0 += x0 * y1[i]
+		b0 += x0 * y2[i]
+		c0 += x0 * y3[i]
+
+		a1 += x1 * y1[i+1]
+		b1 += x1 * y2[i+1]
+		c1 += x1 * y3[i+1]
+
+		a2 += x2 * y1[i+2]
+		b2 += x2 * y2[i+2]
+		c2 += x2 * y3[i+2]
+
+		a3 += x3 * y1[i+3]
+		b3 += x3 * y2[i+3]
+		c3 += x3 * y3[i+3]
+	}
+	for ; i < len(x); i++ {
+		xi := x[i]
+		a0 += xi * y1[i]
+		b0 += xi * y2[i]
+		c0 += xi * y3[i]
+	}
+	return a0 + a1 + a2 + a3, b0 + b1 + b2 + b3, c0 + c1 + c2 + c3
+}

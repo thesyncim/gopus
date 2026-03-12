@@ -686,41 +686,62 @@ func pitchSearch(xLP []float64, y []float64, length, maxPitch int, scratch *enco
 	bestPitch := [2]int{0, 0}
 	findBestPitch(xcorr, yLP4, quarterLen, quarterPitch, &bestPitch)
 
-	p0 := 2 * bestPitch[0]
-	p1 := 2 * bestPitch[1]
-	l0 := p0 - 2
-	h0 := p0 + 2
-	l1 := p1 - 2
-	h1 := p1 + 2
-	if l0 < 0 {
-		l0 = 0
+	ranges := pitchSearchFineRanges(bestPitch, halfPitch)
+	Syy := float32(1)
+	for j := 0; j < halfLen; j++ {
+		yj := float32(y[j])
+		Syy += yj * yj
 	}
-	if h0 >= halfPitch {
-		h0 = halfPitch - 1
-	}
-	if l1 < 0 {
-		l1 = 0
-	}
-	if h1 >= halfPitch {
-		h1 = halfPitch - 1
-	}
-	ranges := normalizePitchSearchRanges(
-		pitchSearchRange{lo: l0, hi: h0},
-		pitchSearchRange{lo: l1, hi: h1},
-	)
+	bestNum := [2]float32{-1, -1}
+	bestDen := [2]float32{0, 0}
+	fineBestPitch := [2]int{0, 1}
+	i := 0
 	for _, r := range ranges {
 		if r.hi < r.lo {
 			continue
 		}
+		for ; i < r.lo; i++ {
+			yi := float32(y[i])
+			yil := float32(y[i+halfLen])
+			Syy += yil*yil - yi*yi
+			if Syy < 1 {
+				Syy = 1
+			}
+		}
 		n := r.hi - r.lo + 1
 		prefilterPitchXcorrFast(xLP, y[r.lo:], xcorr[r.lo:], halfLen, n)
-		for i := 0; i < n; i++ {
-			if xcorr[r.lo+i] < -1 {
-				xcorr[r.lo+i] = -1
+		for ; i <= r.hi; i++ {
+			if xcorr[i] < -1 {
+				xcorr[i] = -1
+			}
+			if xv := xcorr[i]; xv > 0 {
+				xc := float32(xv)
+				xcorr16 := xc * pitchSearchXcorrScale
+				num := xcorr16 * xcorr16
+				if num*bestDen[1] > bestNum[1]*Syy {
+					if num*bestDen[0] > bestNum[0]*Syy {
+						bestNum[1] = bestNum[0]
+						bestDen[1] = bestDen[0]
+						fineBestPitch[1] = fineBestPitch[0]
+						bestNum[0] = num
+						bestDen[0] = Syy
+						fineBestPitch[0] = i
+					} else {
+						bestNum[1] = num
+						bestDen[1] = Syy
+						fineBestPitch[1] = i
+					}
+				}
+			}
+			yi := float32(y[i])
+			yil := float32(y[i+halfLen])
+			Syy += yil*yil - yi*yi
+			if Syy < 1 {
+				Syy = 1
 			}
 		}
 	}
-	findBestPitchInRanges(xcorr, y, halfLen, ranges, &bestPitch)
+	bestPitch = fineBestPitch
 
 	offset := 0
 	if bestPitch[0] > 0 && bestPitch[0] < halfPitch-1 {
@@ -783,6 +804,8 @@ type pitchSearchRange struct {
 	hi int
 }
 
+const pitchSearchXcorrScale = float32(1e-12)
+
 func normalizePitchSearchRanges(a, b pitchSearchRange) [2]pitchSearchRange {
 	if a.hi < a.lo {
 		a = pitchSearchRange{lo: 1, hi: 0}
@@ -808,6 +831,19 @@ func normalizePitchSearchRanges(a, b pitchSearchRange) [2]pitchSearchRange {
 	return [2]pitchSearchRange{a, b}
 }
 
+func pitchSearchFineRanges(bestPitch [2]int, halfPitch int) [2]pitchSearchRange {
+	p0 := 2 * bestPitch[0]
+	p1 := 2 * bestPitch[1]
+	l0 := max(0, p0-2)
+	h0 := min(halfPitch-1, p0+2)
+	l1 := max(0, p1-2)
+	h1 := min(halfPitch-1, p1+2)
+	return normalizePitchSearchRanges(
+		pitchSearchRange{lo: l0, hi: h0},
+		pitchSearchRange{lo: l1, hi: h1},
+	)
+}
+
 func findBestPitchInRanges(xcorr []float64, y []float64, length int, ranges [2]pitchSearchRange, bestPitch *[2]int) {
 	Syy := float32(1)
 	bestNum := [2]float32{-1, -1}
@@ -818,7 +854,6 @@ func findBestPitchInRanges(xcorr []float64, y []float64, length int, ranges [2]p
 		yj := float32(y[j])
 		Syy += yj * yj
 	}
-	const xcorrScale = float32(1e-12)
 	i := 0
 	for _, r := range ranges {
 		if r.hi < r.lo {
@@ -835,7 +870,7 @@ func findBestPitchInRanges(xcorr []float64, y []float64, length int, ranges [2]p
 		for ; i <= r.hi; i++ {
 			if xv := xcorr[i]; xv > 0 {
 				xc := float32(xv)
-				xcorr16 := xc * xcorrScale
+				xcorr16 := xc * pitchSearchXcorrScale
 				num := xcorr16 * xcorr16
 				if num*bestDen[1] > bestNum[1]*Syy {
 					if num*bestDen[0] > bestNum[0]*Syy {
@@ -953,11 +988,14 @@ func removeDoubling(x []float64, maxPeriod, minPeriod, N int, T0 *int, prevPerio
 		}
 	}
 
-	var xcorr [3]float32
-	for k := 0; k < 3; k++ {
-		lag := T + k - 1
-		xcorr[k] = float32(celtInnerProd(x0, xBase[maxPeriod-lag:maxPeriod-lag+N], N))
-	}
+	prev, mid, next := tripleInnerProd(
+		x0,
+		xBase[maxPeriod-(T-1):maxPeriod-(T-1)+N],
+		xBase[maxPeriod-T:maxPeriod-T+N],
+		xBase[maxPeriod-(T+1):maxPeriod-(T+1)+N],
+		N,
+	)
+	xcorr := [3]float32{float32(prev), float32(mid), float32(next)}
 	offset := 0
 	if (xcorr[2] - xcorr[0]) > float32(0.7)*(xcorr[1]-xcorr[0]) {
 		offset = 1
