@@ -22,6 +22,14 @@ const (
 	// ApplicationLowDelay minimizes algorithmic delay.
 	// Uses CELT mode exclusively with small frame sizes.
 	ApplicationLowDelay
+
+	// ApplicationRestrictedSilk forces SILK-only encoding.
+	// This matches libopus OPUS_APPLICATION_RESTRICTED_SILK init-time behavior.
+	ApplicationRestrictedSilk
+
+	// ApplicationRestrictedCelt forces CELT-only encoding with low-delay semantics.
+	// This matches libopus OPUS_APPLICATION_RESTRICTED_CELT init-time behavior.
+	ApplicationRestrictedCelt
 )
 
 // Signal represents a hint about the input signal type.
@@ -49,6 +57,22 @@ const (
 	BitrateModeCBR = encoder.ModeCBR
 )
 
+// ExpertFrameDuration mirrors libopus OPUS_SET/GET_EXPERT_FRAME_DURATION values.
+type ExpertFrameDuration int
+
+const (
+	ExpertFrameDurationArg   ExpertFrameDuration = 5000
+	ExpertFrameDuration2_5Ms ExpertFrameDuration = 5001
+	ExpertFrameDuration5Ms   ExpertFrameDuration = 5002
+	ExpertFrameDuration10Ms  ExpertFrameDuration = 5003
+	ExpertFrameDuration20Ms  ExpertFrameDuration = 5004
+	ExpertFrameDuration40Ms  ExpertFrameDuration = 5005
+	ExpertFrameDuration60Ms  ExpertFrameDuration = 5006
+	ExpertFrameDuration80Ms  ExpertFrameDuration = 5007
+	ExpertFrameDuration100Ms ExpertFrameDuration = 5008
+	ExpertFrameDuration120Ms ExpertFrameDuration = 5009
+)
+
 // Encoder encodes PCM audio samples into Opus packets.
 //
 // An Encoder instance maintains internal state and is NOT safe for concurrent use.
@@ -65,12 +89,13 @@ const (
 // The Encode and EncodeInt16 methods perform zero heap allocations in the hot path
 // when called with properly sized caller-provided buffers.
 type Encoder struct {
-	enc         *encoder.Encoder
-	sampleRate  int
-	channels    int
-	frameSize   int
-	application Application
-	encodedOnce bool
+	enc                 *encoder.Encoder
+	sampleRate          int
+	channels            int
+	frameSize           int
+	expertFrameDuration ExpertFrameDuration
+	application         Application
+	encodedOnce         bool
 
 	// Scratch buffers for zero-allocation encoding
 	scratchPCM64 []float64 // float32 to float64 conversion buffer
@@ -91,18 +116,22 @@ func NewEncoder(sampleRate, channels int, application Application) (*Encoder, er
 	if channels < 1 || channels > 2 {
 		return nil, ErrInvalidChannels
 	}
+	if !validEncoderApplication(application) {
+		return nil, ErrInvalidApplication
+	}
 
-	// Max frame size is 2880 samples (60ms at 48kHz) per channel
-	maxSamples := 2880 * channels
+	// Max frame size is 5760 samples (120ms at 48kHz) per channel.
+	maxSamples := 5760 * channels
 
 	enc := &Encoder{
-		enc:          encoder.NewEncoder(sampleRate, channels),
-		sampleRate:   sampleRate,
-		channels:     channels,
-		frameSize:    960, // Default 20ms at 48kHz
-		application:  application,
-		scratchPCM64: make([]float64, maxSamples),
-		scratchPCM32: make([]float32, maxSamples),
+		enc:                 encoder.NewEncoder(sampleRate, channels),
+		sampleRate:          sampleRate,
+		channels:            channels,
+		frameSize:           960, // Default 20ms at 48kHz
+		expertFrameDuration: ExpertFrameDurationArg,
+		application:         application,
+		scratchPCM64:        make([]float64, maxSamples),
+		scratchPCM32:        make([]float32, maxSamples),
 	}
 
 	// Apply application hint
@@ -115,6 +144,9 @@ func NewEncoder(sampleRate, channels int, application Application) (*Encoder, er
 //
 // Valid values are ApplicationVoIP, ApplicationAudio, and ApplicationLowDelay.
 func (e *Encoder) SetApplication(application Application) error {
+	if e.application == ApplicationRestrictedSilk || e.application == ApplicationRestrictedCelt {
+		return ErrInvalidApplication
+	}
 	switch application {
 	case ApplicationVoIP, ApplicationAudio, ApplicationLowDelay:
 		// Match libopus ctl semantics: after first successful encode call,
@@ -154,6 +186,20 @@ func (e *Encoder) applyApplication(app Application) {
 		e.enc.SetSignalType(types.SignalAuto)
 	case ApplicationLowDelay:
 		// CELT only with small frames
+		e.enc.SetLowDelay(true)
+		e.enc.SetVoIPApplication(false)
+		e.enc.SetMode(encoder.ModeCELT)
+		e.enc.SetBandwidth(types.BandwidthFullband)
+		e.enc.SetSignalType(types.SignalAuto)
+	case ApplicationRestrictedSilk:
+		// Experts-only SILK-only application.
+		e.enc.SetLowDelay(false)
+		e.enc.SetVoIPApplication(false)
+		e.enc.SetMode(encoder.ModeSILK)
+		e.enc.SetBandwidth(types.BandwidthWideband)
+		e.enc.SetSignalType(types.SignalAuto)
+	case ApplicationRestrictedCelt:
+		// Experts-only CELT-only application with low-delay lookahead semantics.
 		e.enc.SetLowDelay(true)
 		e.enc.SetVoIPApplication(false)
 		e.enc.SetMode(encoder.ModeCELT)
@@ -223,6 +269,45 @@ func (e *Encoder) EncodeInt16(pcm []int16, data []byte) (int, error) {
 	return e.Encode(pcm32, data)
 }
 
+// EncodeInt24 encodes 24-bit PCM samples stored in int32 values into an Opus packet.
+//
+// pcm: Input samples (interleaved if stereo). Length must be frameSize * channels.
+// data: Output buffer for the encoded packet.
+//
+// Returns the number of bytes written to data, or an error.
+//
+// The input values are interpreted with the same semantics as libopus
+// opus_encode24(): signed 24-bit PCM carried in int32 containers.
+func (e *Encoder) EncodeInt24(pcm []int32, data []byte) (int, error) {
+	expected := e.frameSize * e.channels
+	if len(pcm) != expected {
+		return 0, ErrInvalidFrameSize
+	}
+
+	// Convert 24-bit PCM stored in int32 containers to normalized float64.
+	pcm64 := e.scratchPCM64[:len(pcm)]
+	for i, v := range pcm {
+		pcm64[i] = float64(v) / 8388608.0
+	}
+
+	packet, err := e.enc.Encode(pcm64, e.frameSize)
+	if err != nil {
+		return 0, err
+	}
+	e.encodedOnce = true
+
+	if packet == nil {
+		return 0, nil
+	}
+
+	if len(packet) > len(data) {
+		return 0, ErrBufferTooSmall
+	}
+
+	copy(data, packet)
+	return len(packet), nil
+}
+
 // EncodeFloat32 encodes float32 PCM samples and returns a new byte slice.
 //
 // This is a convenience method that allocates the output buffer.
@@ -253,6 +338,19 @@ func (e *Encoder) EncodeInt16Slice(pcm []int16) ([]byte, error) {
 	// Allocate max packet size
 	data := make([]byte, 4000)
 	n, err := e.EncodeInt16(pcm, data)
+	if err != nil {
+		return nil, err
+	}
+	return data[:n], nil
+}
+
+// EncodeInt24Slice encodes 24-bit PCM samples stored in int32 values and returns a new byte slice.
+//
+// This is a convenience method that allocates the output buffer.
+// For performance-critical code, use EncodeInt24 with a pre-allocated buffer.
+func (e *Encoder) EncodeInt24Slice(pcm []int32) ([]byte, error) {
+	data := make([]byte, 4000)
+	n, err := e.EncodeInt24(pcm, data)
 	if err != nil {
 		return nil, err
 	}
@@ -384,12 +482,114 @@ func (e *Encoder) DTXEnabled() bool {
 	return e.enc.DTXEnabled()
 }
 
+// InDTX reports whether the encoder is currently in DTX mode.
+//
+// This matches libopus OPUS_GET_IN_DTX semantics.
+func (e *Encoder) InDTX() bool {
+	return e.enc.InDTX()
+}
+
+// VADActivity returns the current VAD speech activity level in Q8 (0-255).
+func (e *Encoder) VADActivity() int {
+	return e.enc.GetVADActivity()
+}
+
+// SetDREDDuration configures encoder-side DRED redundancy depth.
+//
+// This optional libopus extension is not implemented in the current Go codec.
+func (e *Encoder) SetDREDDuration(_ int) error {
+	return ErrUnimplemented
+}
+
+// DREDDuration reports encoder-side DRED redundancy depth.
+func (e *Encoder) DREDDuration() (int, error) {
+	return 0, ErrUnimplemented
+}
+
+// SetDNNBlob loads an optional model blob for extension features.
+func (e *Encoder) SetDNNBlob(_ []byte) error {
+	return ErrUnimplemented
+}
+
+// SetQEXT toggles the optional extended-precision theta path.
+func (e *Encoder) SetQEXT(_ bool) error {
+	return ErrUnimplemented
+}
+
+// QEXT reports whether the optional extended-precision theta path is enabled.
+func (e *Encoder) QEXT() (bool, error) {
+	return false, ErrUnimplemented
+}
+
+func validExpertFrameDuration(duration ExpertFrameDuration) bool {
+	switch duration {
+	case ExpertFrameDurationArg,
+		ExpertFrameDuration2_5Ms,
+		ExpertFrameDuration5Ms,
+		ExpertFrameDuration10Ms,
+		ExpertFrameDuration20Ms,
+		ExpertFrameDuration40Ms,
+		ExpertFrameDuration60Ms,
+		ExpertFrameDuration80Ms,
+		ExpertFrameDuration100Ms,
+		ExpertFrameDuration120Ms:
+		return true
+	default:
+		return false
+	}
+}
+
+func expertFrameDurationFrameSize(duration ExpertFrameDuration) int {
+	switch duration {
+	case ExpertFrameDuration2_5Ms:
+		return 120
+	case ExpertFrameDuration5Ms:
+		return 240
+	case ExpertFrameDuration10Ms:
+		return 480
+	case ExpertFrameDuration20Ms:
+		return 960
+	case ExpertFrameDuration40Ms:
+		return 1920
+	case ExpertFrameDuration60Ms:
+		return 2880
+	case ExpertFrameDuration80Ms:
+		return 3840
+	case ExpertFrameDuration100Ms:
+		return 4800
+	case ExpertFrameDuration120Ms:
+		return 5760
+	default:
+		return 0
+	}
+}
+
+// SetExpertFrameDuration sets the preferred frame duration policy.
+//
+// `ExpertFrameDurationArg` keeps using the current `FrameSize()` value.
+// Any fixed duration also updates `FrameSize()` to the matching 48 kHz sample count.
+func (e *Encoder) SetExpertFrameDuration(duration ExpertFrameDuration) error {
+	if !validExpertFrameDuration(duration) {
+		return ErrInvalidArgument
+	}
+	e.expertFrameDuration = duration
+	if duration == ExpertFrameDurationArg {
+		return nil
+	}
+	return e.SetFrameSize(expertFrameDurationFrameSize(duration))
+}
+
+// ExpertFrameDuration returns the current expert frame duration policy.
+func (e *Encoder) ExpertFrameDuration() ExpertFrameDuration {
+	return e.expertFrameDuration
+}
+
 // SetFrameSize sets the frame size in samples at 48kHz.
 //
 // Valid sizes depend on the encoding mode:
-//   - SILK: 480, 960, 1920, 2880 (10, 20, 40, 60 ms)
-//   - CELT: 120, 240, 480, 960 (2.5, 5, 10, 20 ms)
-//   - Hybrid: 480, 960 (10, 20 ms)
+//   - SILK: 480, 960, 1920, 2880, 3840, 4800, 5760 (10-120 ms)
+//   - CELT: 120, 240, 480, 960, 1920, 2880, 3840, 4800, 5760
+//   - Hybrid: 480, 960, 1920, 2880, 3840, 4800, 5760
 //
 // Default is 960 (20ms).
 func (e *Encoder) SetFrameSize(samples int) error {
@@ -398,10 +598,16 @@ func (e *Encoder) SetFrameSize(samples int) error {
 		240:  true, // 5ms (CELT only)
 		480:  true, // 10ms
 		960:  true, // 20ms
-		1920: true, // 40ms (SILK only)
-		2880: true, // 60ms (SILK only)
+		1920: true, // 40ms
+		2880: true, // 60ms
+		3840: true, // 80ms
+		4800: true, // 100ms
+		5760: true, // 120ms
 	}
 	if !validSizes[samples] {
+		return ErrInvalidFrameSize
+	}
+	if e.application == ApplicationRestrictedSilk && samples < 480 {
 		return ErrInvalidFrameSize
 	}
 	e.frameSize = samples
@@ -535,10 +741,19 @@ func (e *Encoder) ForceChannels() int {
 //   - Delay compensation is omitted for LowDelay
 func (e *Encoder) Lookahead() int {
 	base := e.sampleRate / 400
-	if e.application == ApplicationLowDelay {
+	if e.application == ApplicationLowDelay || e.application == ApplicationRestrictedCelt {
 		return base
 	}
 	return base + e.sampleRate/250
+}
+
+func validEncoderApplication(application Application) bool {
+	switch application {
+	case ApplicationVoIP, ApplicationAudio, ApplicationLowDelay, ApplicationRestrictedSilk, ApplicationRestrictedCelt:
+		return true
+	default:
+		return false
+	}
 }
 
 // SetLSBDepth sets the bit depth of the input signal.

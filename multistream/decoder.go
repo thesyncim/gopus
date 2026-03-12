@@ -3,11 +3,13 @@ package multistream
 import (
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/hybrid"
 	"github.com/thesyncim/gopus/plc"
 	"github.com/thesyncim/gopus/silk"
+	"github.com/thesyncim/gopus/types"
 )
 
 // Errors for multistream decoder creation and operation.
@@ -29,6 +31,12 @@ var (
 
 	// ErrInvalidProjectionMatrix indicates malformed projection demixing metadata.
 	ErrInvalidProjectionMatrix = errors.New("multistream: invalid projection demixing matrix")
+
+	// ErrInvalidStreamIndex indicates an out-of-range per-stream state lookup.
+	ErrInvalidStreamIndex = errors.New("multistream: invalid stream index")
+
+	// ErrInvalidGain indicates an invalid decoder gain value.
+	ErrInvalidGain = errors.New("multistream: invalid gain (must be -32768 to 32767)")
 )
 
 // streamDecoder is an internal interface that wraps the different decoder types.
@@ -89,57 +97,144 @@ func parseStreamTOC(toc byte) streamTOC {
 	}
 }
 
-// opusStreamDecoder wraps per-mode decoders and dispatches by packet TOC.
+// StreamDecoder wraps per-mode decoders and dispatches by packet TOC.
 // This mirrors libopus multistream decode behavior where each stream owns a
 // full Opus decoder state (SILK/CELT/Hybrid), not just hybrid-only state.
-type opusStreamDecoder struct {
-	channels int
+type StreamDecoder struct {
+	sampleRate int
+	channels   int
 
 	hybridDec *hybrid.Decoder
 	celtDec   *celt.Decoder
 	silkDec   *silk.Decoder
 
-	lastMode         int
-	lastBandwidth    int
-	lastPacketStereo bool
-	haveDecoded      bool
+	lastMode           int
+	lastBandwidth      int
+	lastPacketStereo   bool
+	haveDecoded        bool
+	lastFrameSize      int
+	lastPacketDuration int
+	lastDataLen        int
+	decodeGainQ8       int
 }
 
-func newOpusStreamDecoder(channels int) *opusStreamDecoder {
-	return &opusStreamDecoder{
+func newStreamDecoder(sampleRate, channels int) *StreamDecoder {
+	return &StreamDecoder{
+		sampleRate:    sampleRate,
 		channels:      channels,
 		hybridDec:     hybrid.NewDecoder(channels),
 		celtDec:       celt.NewDecoder(channels),
 		silkDec:       silk.NewDecoder(),
 		lastMode:      streamModeHybrid,
-		lastBandwidth: 4,
+		lastBandwidth: int(types.BandwidthFullband),
+		lastFrameSize: 960,
 	}
 }
 
 // Decode decodes a packet for mono streams.
-func (d *opusStreamDecoder) Decode(data []byte, frameSize int) ([]float64, error) {
+func (d *StreamDecoder) Decode(data []byte, frameSize int) ([]float64, error) {
 	return d.decodePacket(data, frameSize)
 }
 
 // DecodeStereo decodes a packet for coupled (stereo) streams.
-func (d *opusStreamDecoder) DecodeStereo(data []byte, frameSize int) ([]float64, error) {
+func (d *StreamDecoder) DecodeStereo(data []byte, frameSize int) ([]float64, error) {
 	return d.decodePacket(data, frameSize)
 }
 
-// Reset resets all mode decoder states.
-func (d *opusStreamDecoder) Reset() {
+// Reset resets decoder state while preserving user-configured gain.
+func (d *StreamDecoder) Reset() {
 	d.hybridDec.Reset()
 	d.celtDec.Reset()
 	d.silkDec.Reset()
 	d.lastMode = streamModeHybrid
-	d.lastBandwidth = 4
+	d.lastBandwidth = int(types.BandwidthFullband)
 	d.lastPacketStereo = false
 	d.haveDecoded = false
+	d.lastFrameSize = 960
+	d.lastPacketDuration = 0
+	d.lastDataLen = 0
 }
 
 // Channels returns the channel count for this decoder.
-func (d *opusStreamDecoder) Channels() int {
+func (d *StreamDecoder) Channels() int {
 	return d.channels
+}
+
+// SampleRate returns the decoder sample rate in Hz.
+func (d *StreamDecoder) SampleRate() int {
+	return d.sampleRate
+}
+
+// SetGain sets output gain in Q8 dB units (libopus OPUS_SET_GAIN semantics).
+func (d *StreamDecoder) SetGain(gainQ8 int) error {
+	if gainQ8 < -32768 || gainQ8 > 32767 {
+		return ErrInvalidGain
+	}
+	d.decodeGainQ8 = gainQ8
+	return nil
+}
+
+// Gain returns the current decoder output gain in Q8 dB units.
+func (d *StreamDecoder) Gain() int {
+	return d.decodeGainQ8
+}
+
+// Pitch returns the most recent CELT postfilter pitch period.
+func (d *StreamDecoder) Pitch() int {
+	return d.celtDec.PostfilterPeriod()
+}
+
+// Bandwidth returns the bandwidth of the last successfully decoded packet.
+func (d *StreamDecoder) Bandwidth() types.Bandwidth {
+	return types.Bandwidth(d.lastBandwidth)
+}
+
+// LastPacketDuration returns the last decoded packet duration in 48 kHz samples.
+func (d *StreamDecoder) LastPacketDuration() int {
+	if d.lastPacketDuration > 0 {
+		return d.lastPacketDuration
+	}
+	return d.lastFrameSize
+}
+
+// InDTX reports whether the most recently decoded packet was DTX.
+func (d *StreamDecoder) InDTX() bool {
+	return d.lastDataLen > 0 && d.lastDataLen <= 2
+}
+
+// FinalRange returns the final range coder state for the last decoded packet.
+func (d *StreamDecoder) FinalRange() uint32 {
+	if d.lastDataLen <= 1 {
+		return 0
+	}
+
+	switch d.lastMode {
+	case streamModeSILK:
+		return d.silkDec.FinalRange()
+	case streamModeHybrid:
+		return d.hybridDec.FinalRange()
+	case streamModeCELT:
+		return d.celtDec.FinalRange()
+	default:
+		return 0
+	}
+}
+
+func streamDecodeGainLinear(gainQ8 int) float64 {
+	if gainQ8 == 0 {
+		return 1
+	}
+	return math.Exp(float64(gainQ8) * math.Ln10 / (20.0 * 256.0))
+}
+
+func (d *StreamDecoder) applyOutputGain(samples []float64) {
+	if d.decodeGainQ8 == 0 {
+		return
+	}
+	gain := streamDecodeGainLinear(d.decodeGainQ8)
+	for i := range samples {
+		samples[i] *= gain
+	}
 }
 
 func float32ToFloat64Slice(in []float32) []float64 {
@@ -150,7 +245,7 @@ func float32ToFloat64Slice(in []float32) []float64 {
 	return out
 }
 
-func (d *opusStreamDecoder) decodeSILK(data []byte, frameSize int, packetStereo bool, opusBandwidth int) ([]float64, error) {
+func (d *StreamDecoder) decodeSILK(data []byte, frameSize int, packetStereo bool, opusBandwidth int) ([]float64, error) {
 	bw, ok := silk.BandwidthFromOpus(opusBandwidth)
 	if !ok {
 		return nil, fmt.Errorf("multistream: invalid SILK bandwidth: %d", opusBandwidth)
@@ -175,7 +270,7 @@ func (d *opusStreamDecoder) decodeSILK(data []byte, frameSize int, packetStereo 
 	return float32ToFloat64Slice(out32), nil
 }
 
-func (d *opusStreamDecoder) decodeFramePayload(frame []byte, frameSize int, toc streamTOC) ([]float64, error) {
+func (d *StreamDecoder) decodeFramePayload(frame []byte, frameSize int, toc streamTOC) ([]float64, error) {
 	var out []float64
 	var err error
 
@@ -204,31 +299,51 @@ func (d *opusStreamDecoder) decodeFramePayload(frame []byte, frameSize int, toc 
 	return out, nil
 }
 
-func (d *opusStreamDecoder) decodePLC(frameSize int) ([]float64, error) {
+func (d *StreamDecoder) decodePLC(frameSize int) ([]float64, error) {
 	if !d.haveDecoded {
 		return make([]float64, frameSize*d.channels), nil
 	}
 
+	d.lastFrameSize = frameSize
+	d.lastPacketDuration = frameSize
+	d.lastDataLen = 0
+
 	switch d.lastMode {
 	case streamModeSILK:
-		return d.decodeSILK(nil, frameSize, d.lastPacketStereo, d.lastBandwidth)
+		out, err := d.decodeSILK(nil, frameSize, d.lastPacketStereo, d.lastBandwidth)
+		if err == nil {
+			d.applyOutputGain(out)
+		}
+		return out, err
 	case streamModeHybrid:
-		return d.hybridDec.DecodeWithPacketStereo(nil, frameSize, d.lastPacketStereo)
+		out, err := d.hybridDec.DecodeWithPacketStereo(nil, frameSize, d.lastPacketStereo)
+		if err == nil {
+			d.applyOutputGain(out)
+		}
+		return out, err
 	case streamModeCELT:
 		d.celtDec.SetBandwidth(celt.BandwidthFromOpusConfig(d.lastBandwidth))
-		return d.celtDec.DecodeFrameWithPacketStereo(nil, frameSize, d.lastPacketStereo)
+		out, err := d.celtDec.DecodeFrameWithPacketStereo(nil, frameSize, d.lastPacketStereo)
+		if err == nil {
+			d.applyOutputGain(out)
+		}
+		return out, err
 	default:
 		return make([]float64, frameSize*d.channels), nil
 	}
 }
 
-func (d *opusStreamDecoder) decodePacket(data []byte, frameSize int) ([]float64, error) {
+func (d *StreamDecoder) decodePacket(data []byte, frameSize int) ([]float64, error) {
 	if data == nil || len(data) == 0 {
 		return d.decodePLC(frameSize)
 	}
 	if len(data) < 1 {
 		return nil, ErrPacketTooShort
 	}
+
+	d.lastFrameSize = frameSize
+	d.lastPacketDuration = frameSize
+	d.lastDataLen = len(data)
 
 	toc := parseStreamTOC(data[0])
 	parsed, err := parseOpusPacket(data, false)
@@ -242,7 +357,11 @@ func (d *opusStreamDecoder) decodePacket(data []byte, frameSize int) ([]float64,
 	}
 
 	if frameCount == 1 {
-		return d.decodeFramePayload(parsed.frames[0], frameSize, toc)
+		out, err := d.decodeFramePayload(parsed.frames[0], frameSize, toc)
+		if err == nil {
+			d.applyOutputGain(out)
+		}
+		return out, err
 	}
 	if frameSize%frameCount != 0 {
 		return nil, fmt.Errorf("multistream: frameSize %d not divisible by packet frame count %d", frameSize, frameCount)
@@ -257,6 +376,7 @@ func (d *opusStreamDecoder) decodePacket(data []byte, frameSize int) ([]float64,
 		}
 		out = append(out, frameDecoded...)
 	}
+	d.applyOutputGain(out)
 
 	return out, nil
 }
@@ -363,7 +483,7 @@ func NewDecoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 		} else {
 			channels = 1 // Uncoupled stream = mono
 		}
-		decoders[i] = newOpusStreamDecoder(channels)
+		decoders[i] = newStreamDecoder(sampleRate, channels)
 	}
 
 	// Copy mapping to avoid external mutation
@@ -456,6 +576,18 @@ func (d *Decoder) Streams() int {
 // CoupledStreams returns the number of coupled (stereo) streams.
 func (d *Decoder) CoupledStreams() int {
 	return d.coupledStreams
+}
+
+// GetDecoderState returns the decoder state for an individual stream.
+func (d *Decoder) GetDecoderState(index int) (*StreamDecoder, error) {
+	if index < 0 || index >= len(d.decoders) {
+		return nil, ErrInvalidStreamIndex
+	}
+	state, ok := d.decoders[index].(*StreamDecoder)
+	if !ok {
+		return nil, errors.New("multistream: unexpected stream decoder type")
+	}
+	return state, nil
 }
 
 // NewDecoderDefault creates a multistream decoder with default Vorbis-style mapping

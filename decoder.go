@@ -70,6 +70,7 @@ type Decoder struct {
 	lastDataLen        int    // Length of last packet data
 	mainDecodeRng      uint32 // Final range from main decode (before any redundancy processing)
 	decodeGainQ8       int    // Output gain in Q8 dB (libopus OPUS_SET_GAIN semantics)
+	ignoreExtensions   bool   // libopus OPUS_SET_IGNORE_EXTENSIONS semantics
 
 	// FEC (Forward Error Correction) state
 	// Stores LBRR data from the current packet for use by the next packet's FEC decode.
@@ -1021,6 +1022,33 @@ func (d *Decoder) SetGain(gainQ8 int) error {
 // Gain returns the current decoder output gain in Q8 dB units.
 func (d *Decoder) Gain() int {
 	return d.decodeGainQ8
+}
+
+// SetIgnoreExtensions toggles whether unknown packet extensions should be ignored.
+//
+// This mirrors libopus OPUS_SET_IGNORE_EXTENSIONS semantics.
+func (d *Decoder) SetIgnoreExtensions(ignore bool) {
+	d.ignoreExtensions = ignore
+}
+
+// IgnoreExtensions reports whether unknown packet extensions are ignored.
+func (d *Decoder) IgnoreExtensions() bool {
+	return d.ignoreExtensions
+}
+
+// SetOSCEBWE toggles the optional OSCE bandwidth extension path.
+func (d *Decoder) SetOSCEBWE(_ bool) error {
+	return ErrUnimplemented
+}
+
+// OSCEBWE reports whether the optional OSCE bandwidth extension path is enabled.
+func (d *Decoder) OSCEBWE() (bool, error) {
+	return false, ErrUnimplemented
+}
+
+// SetDNNBlob loads an optional model blob for decoder extension features.
+func (d *Decoder) SetDNNBlob(_ []byte) error {
+	return ErrUnimplemented
 }
 
 // Pitch returns the most recent CELT postfilter pitch period.

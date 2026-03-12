@@ -117,7 +117,7 @@ func TestEncoderSetBandwidth(t *testing.T) {
 func TestEncoderSetFrameSize(t *testing.T) {
 	enc := encoder.NewEncoder(48000, 1)
 
-	frameSizes := []int{120, 240, 480, 960, 1920, 2880}
+	frameSizes := []int{120, 240, 480, 960, 1920, 2880, 3840, 4800, 5760}
 
 	for _, size := range frameSizes {
 		t.Run(string(rune('0'+size/100)), func(t *testing.T) {
@@ -162,23 +162,33 @@ func TestValidFrameSize(t *testing.T) {
 		{960, encoder.ModeSILK, true},
 		{1920, encoder.ModeSILK, true},
 		{2880, encoder.ModeSILK, true},
+		{3840, encoder.ModeSILK, true},
+		{4800, encoder.ModeSILK, true},
+		{5760, encoder.ModeSILK, true},
 		{120, encoder.ModeSILK, false},
 		{240, encoder.ModeSILK, false},
 
 		// Hybrid valid sizes
 		{480, encoder.ModeHybrid, true},
 		{960, encoder.ModeHybrid, true},
+		{1920, encoder.ModeHybrid, true},
+		{2880, encoder.ModeHybrid, true},
+		{3840, encoder.ModeHybrid, true},
+		{4800, encoder.ModeHybrid, true},
+		{5760, encoder.ModeHybrid, true},
 		{120, encoder.ModeHybrid, false},
 		{240, encoder.ModeHybrid, false},
-		{1920, encoder.ModeHybrid, false},
 
 		// CELT valid sizes
 		{120, encoder.ModeCELT, true},
 		{240, encoder.ModeCELT, true},
 		{480, encoder.ModeCELT, true},
 		{960, encoder.ModeCELT, true},
-		{1920, encoder.ModeCELT, false},
-		{2880, encoder.ModeCELT, false},
+		{1920, encoder.ModeCELT, true},
+		{2880, encoder.ModeCELT, true},
+		{3840, encoder.ModeCELT, true},
+		{4800, encoder.ModeCELT, true},
+		{5760, encoder.ModeCELT, true},
 
 		// Auto accepts all valid sizes
 		{120, encoder.ModeAuto, true},
@@ -187,6 +197,9 @@ func TestValidFrameSize(t *testing.T) {
 		{960, encoder.ModeAuto, true},
 		{1920, encoder.ModeAuto, true},
 		{2880, encoder.ModeAuto, true},
+		{3840, encoder.ModeAuto, true},
+		{4800, encoder.ModeAuto, true},
+		{5760, encoder.ModeAuto, true},
 		{100, encoder.ModeAuto, false},
 	}
 
@@ -369,8 +382,8 @@ func TestHybridRoundTrip(t *testing.T) {
 }
 
 // TestInvalidHybridFrameSize tests that invalid frame sizes return error for hybrid mode.
-// Note: 1920 (40ms) and 2880 (60ms) are NOT invalid - they are encoded as
-// code-3 packets containing 2/3 x 20ms hybrid frames.
+// Note: long hybrid packets from 40ms through 120ms are valid and are encoded
+// as code-3 packets containing repeated 20ms hybrid frames.
 func TestInvalidHybridFrameSize(t *testing.T) {
 	enc := encoder.NewEncoder(48000, 1)
 	enc.SetMode(encoder.ModeHybrid)
@@ -390,8 +403,9 @@ func TestInvalidHybridFrameSize(t *testing.T) {
 }
 
 // TestLargeFrameSizeModeSelectionAndPacketization verifies long-frame behavior:
-// SILK remains single-frame, while Hybrid and CELT use code-3 multi-frame
-// packetization for 40/60ms packets.
+// SILK uses native 10/20/40/60ms frames up to 60ms and repacketized long-frame
+// packetization for 80/100/120ms, while Hybrid and CELT use code-3 multi-frame
+// packetization for all packets above 20ms.
 func TestLargeFrameSizeModeSelectionAndPacketization(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -404,10 +418,15 @@ func TestLargeFrameSizeModeSelectionAndPacketization(t *testing.T) {
 		wantFrameCount int
 	}{
 		{"silk_40ms", encoder.ModeSILK, types.SignalAuto, types.BandwidthFullband, 1920, gopus.ModeSILK, 0, 1},
+		{"silk_80ms", encoder.ModeSILK, types.SignalAuto, types.BandwidthWideband, 3840, gopus.ModeSILK, 3, 2},
+		{"silk_100ms", encoder.ModeSILK, types.SignalAuto, types.BandwidthWideband, 4800, gopus.ModeSILK, 3, 5},
+		{"silk_120ms", encoder.ModeSILK, types.SignalAuto, types.BandwidthWideband, 5760, gopus.ModeSILK, 3, 2},
 		{"hybrid_40ms", encoder.ModeHybrid, types.SignalAuto, types.BandwidthFullband, 1920, gopus.ModeHybrid, 3, 2},
 		{"hybrid_60ms", encoder.ModeHybrid, types.SignalAuto, types.BandwidthFullband, 2880, gopus.ModeHybrid, 3, 3},
+		{"hybrid_120ms", encoder.ModeHybrid, types.SignalAuto, types.BandwidthFullband, 5760, gopus.ModeHybrid, 3, 6},
 		{"celt_40ms", encoder.ModeCELT, types.SignalAuto, types.BandwidthFullband, 1920, gopus.ModeCELT, 3, 2},
 		{"celt_60ms", encoder.ModeCELT, types.SignalAuto, types.BandwidthFullband, 2880, gopus.ModeCELT, 3, 3},
+		{"celt_120ms", encoder.ModeCELT, types.SignalAuto, types.BandwidthFullband, 5760, gopus.ModeCELT, 3, 6},
 		{"auto_music_40ms", encoder.ModeAuto, types.SignalMusic, types.BandwidthFullband, 1920, gopus.ModeCELT, 3, 2},
 		{"auto_voice_40ms", encoder.ModeAuto, types.SignalVoice, types.BandwidthFullband, 1920, gopus.ModeCELT, 3, 2},
 		{"auto_voice_swb_40ms", encoder.ModeAuto, types.SignalVoice, types.BandwidthSuperwideband, 1920, gopus.ModeCELT, 3, 2},
