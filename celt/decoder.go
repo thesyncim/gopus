@@ -4161,41 +4161,63 @@ func pitchSearchPLC(xLP []float64, y []float64, length, maxPitch int, scratch *e
 	findBestPitch(xcorr, yLP4, length>>2, maxPitch>>2, &bestPitch)
 
 	halfPitch := maxPitch >> 1
-	p0 := 2 * bestPitch[0]
-	p1 := 2 * bestPitch[1]
-	l0 := p0 - 2
-	h0 := p0 + 2
-	l1 := p1 - 2
-	h1 := p1 + 2
-	if l0 < 0 {
-		l0 = 0
+	ranges := pitchSearchFineRanges(bestPitch, halfPitch)
+	halfLen := length >> 1
+	Syy := float32(1)
+	for j := 0; j < halfLen; j++ {
+		yj := float32(y[j])
+		Syy += yj * yj
 	}
-	if h0 >= halfPitch {
-		h0 = halfPitch - 1
-	}
-	if l1 < 0 {
-		l1 = 0
-	}
-	if h1 >= halfPitch {
-		h1 = halfPitch - 1
-	}
-	ranges := normalizePitchSearchRanges(
-		pitchSearchRange{lo: l0, hi: h0},
-		pitchSearchRange{lo: l1, hi: h1},
-	)
+	bestNum := [2]float32{-1, -1}
+	bestDen := [2]float32{0, 0}
+	fineBestPitch := [2]int{0, 1}
+	i := 0
 	for _, r := range ranges {
 		if r.hi < r.lo {
 			continue
 		}
-		for i := r.lo; i <= r.hi; i++ {
-			sum := innerProdFloat32(xLP, y[i:], length>>1)
+		for ; i < r.lo; i++ {
+			yi := float32(y[i])
+			yil := float32(y[i+halfLen])
+			Syy += yil*yil - yi*yi
+			if Syy < 1 {
+				Syy = 1
+			}
+		}
+		for ; i <= r.hi; i++ {
+			sum := innerProdFloat32(xLP, y[i:], halfLen)
 			if sum < -1 {
 				sum = -1
 			}
 			xcorr[i] = sum
+			if sum > 0 {
+				xc := float32(sum)
+				xcorr16 := xc * pitchSearchXcorrScale
+				num := xcorr16 * xcorr16
+				if num*bestDen[1] > bestNum[1]*Syy {
+					if num*bestDen[0] > bestNum[0]*Syy {
+						bestNum[1] = bestNum[0]
+						bestDen[1] = bestDen[0]
+						fineBestPitch[1] = fineBestPitch[0]
+						bestNum[0] = num
+						bestDen[0] = Syy
+						fineBestPitch[0] = i
+					} else {
+						bestNum[1] = num
+						bestDen[1] = Syy
+						fineBestPitch[1] = i
+					}
+				}
+			}
+			yi := float32(y[i])
+			yil := float32(y[i+halfLen])
+			Syy += yil*yil - yi*yi
+			if Syy < 1 {
+				Syy = 1
+			}
 		}
 	}
-	findBestPitchInRanges(xcorr, y, length>>1, ranges, &bestPitch)
+	bestPitch = fineBestPitch
 
 	offset := 0
 	if bestPitch[0] > 0 && bestPitch[0] < halfPitch-1 {
