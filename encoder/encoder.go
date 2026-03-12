@@ -209,7 +209,7 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 	if channels > 2 {
 		channels = 2
 	}
-	maxSamples := 2880 * channels
+	maxSamples := 5760 * channels
 
 	return &Encoder{
 		mode:                   ModeAuto,
@@ -239,9 +239,9 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		prevSamples:            make([]float64, 130*channels),
 		analyzer:               NewTonalityAnalysisState(sampleRate),
 		scratchPCM32:           make([]float32, maxSamples),
-		scratchLeft:            make([]float32, 2880),
-		scratchRight:           make([]float32, 2880),
-		scratchMono:            make([]float32, 2880),
+		scratchLeft:            make([]float32, maxSamples),
+		scratchRight:           make([]float32, maxSamples),
+		scratchMono:            make([]float32, maxSamples),
 		scratchPacket:          make([]byte, 1276),
 		prevMode:               ModeAuto,
 		prevAutoMode:           ModeAuto,
@@ -673,11 +673,15 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	switch actualMode {
 	case ModeSILK:
 		e.maybePrefillSILKOnModeTransition(actualMode)
-		frameData, err = e.encodeSILKFrame(framePCM, lookaheadSlice, frameSize)
-		if err == nil {
-			// Match libopus opus_encoder.c SILK-only behavior:
-			// strip trailing zero bytes after range coder finalization.
-			frameData = trimSilkTrailingZeros(frameData)
+		if frameSize > 2880 {
+			packet, err = e.encodeSILKMultiFramePacket(framePCM, frameSize)
+		} else {
+			frameData, err = e.encodeSILKFrame(framePCM, lookaheadSlice, frameSize)
+			if err == nil {
+				// Match libopus opus_encoder.c SILK-only behavior:
+				// strip trailing zero bytes after range coder finalization.
+				frameData = trimSilkTrailingZeros(frameData)
+			}
 		}
 		e.updateDelayBuffer(framePCM, frameSize)
 	case ModeHybrid:
@@ -1937,14 +1941,14 @@ func (e *Encoder) encodeCELTFrameWithBitrateAndMaxPayload(pcm []float64, frameSi
 	return e.celtEncoder.EncodeFrame(pcm, frameSize)
 }
 
-// encodeCELTMultiFramePacket encodes 40/60ms CELT packets by splitting into
+// encodeCELTMultiFramePacket encodes long CELT packets by splitting into
 // 20ms CELT frames and packing them using code-3 framing.
 func (e *Encoder) encodeCELTMultiFramePacket(celtPCM []float64, frameSize int) ([]byte, error) {
 	if frameSize <= 960 || frameSize%960 != 0 {
 		return nil, ErrInvalidFrameSize
 	}
 	frameCount := frameSize / 960
-	if frameCount < 2 || frameCount > 3 {
+	if frameCount < 2 || frameCount > 6 {
 		return nil, ErrInvalidFrameSize
 	}
 	if len(celtPCM) != frameSize*e.channels {
@@ -1978,7 +1982,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(celtPCM []float64, frameSize int) (
 	totSize := 0
 	subframeBitrate := e.bitrate
 	if e.bitrateMode == ModeVBR {
-		// For 40/60ms CELT VBR packets, encode each 20ms subframe with a
+		// For long CELT VBR packets, encode each 20ms subframe with a
 		// reduced bitrate budget to avoid repeatedly hitting the per-frame
 		// CELT VBR boost ceiling across multiple subframes.
 		subframeBitrate = (e.bitrate * 3) / 5
@@ -2028,14 +2032,14 @@ func (e *Encoder) encodeCELTMultiFramePacket(celtPCM []float64, frameSize int) (
 	)
 }
 
-// encodeHybridMultiFramePacket encodes 40/60ms hybrid packets by splitting into
+// encodeHybridMultiFramePacket encodes long hybrid packets by splitting into
 // 20ms hybrid frames and packing them using code-3 framing.
 func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64, rawPCM []float64, lookahead []float64, frameSize int, transitionToCELT bool) ([]byte, error) {
 	if frameSize <= 960 || frameSize%960 != 0 {
 		return nil, ErrInvalidFrameSize
 	}
 	frameCount := frameSize / 960
-	if frameCount < 2 || frameCount > 3 {
+	if frameCount < 2 || frameCount > 6 {
 		return nil, ErrInvalidFrameSize
 	}
 	if len(pcm) != frameSize*e.channels || len(celtPCM) != frameSize*e.channels || len(rawPCM) != frameSize*e.channels {
@@ -2118,6 +2122,60 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 		types.ModeHybrid,
 		e.effectiveBandwidth(),
 		960,
+		e.channels == 2,
+		!sameSize,
+	)
+}
+
+// encodeSILKMultiFramePacket encodes 80/100/120ms SILK packets by splitting
+// them into libopus-compatible 20/40/60ms SILK frames and repacketizing them.
+func (e *Encoder) encodeSILKMultiFramePacket(pcm []float64, frameSize int) ([]byte, error) {
+	if len(pcm) != frameSize*e.channels {
+		return nil, ErrInvalidFrameSize
+	}
+
+	var encFrameSize int
+	switch frameSize {
+	case 3840:
+		encFrameSize = 1920
+	case 4800:
+		encFrameSize = 960
+	case 5760:
+		encFrameSize = 2880
+	default:
+		return nil, ErrInvalidFrameSize
+	}
+
+	frameCount := frameSize / encFrameSize
+	frames := make([][]byte, frameCount)
+	sameSize := true
+	prevSize := -1
+	frameStride := encFrameSize * e.channels
+
+	for i := 0; i < frameCount; i++ {
+		start := i * frameStride
+		end := start + frameStride
+		frameData, err := e.encodeSILKFrame(pcm[start:end], nil, encFrameSize)
+		if err != nil {
+			return nil, err
+		}
+		frameCopy := append([]byte(nil), trimSilkTrailingZeros(frameData)...)
+		frames[i] = frameCopy
+		if prevSize >= 0 && len(frameCopy) != prevSize {
+			sameSize = false
+		}
+		prevSize = len(frameCopy)
+	}
+
+	packetBW := e.effectiveBandwidth()
+	if packetBW > types.BandwidthWideband {
+		packetBW = types.BandwidthWideband
+	}
+	return BuildMultiFramePacket(
+		frames,
+		types.ModeSILK,
+		packetBW,
+		encFrameSize,
 		e.channels == 2,
 		!sameSize,
 	)
@@ -2488,14 +2546,19 @@ func (e *Encoder) silkBandwidth() silk.Bandwidth {
 func ValidFrameSize(frameSize int, mode Mode) bool {
 	switch mode {
 	case ModeSILK:
-		return frameSize == 480 || frameSize == 960 || frameSize == 1920 || frameSize == 2880
+		return frameSize == 480 || frameSize == 960 || frameSize == 1920 ||
+			frameSize == 2880 || frameSize == 3840 || frameSize == 4800 || frameSize == 5760
 	case ModeHybrid:
-		return frameSize == 480 || frameSize == 960
+		return frameSize == 480 || frameSize == 960 || frameSize == 1920 ||
+			frameSize == 2880 || frameSize == 3840 || frameSize == 4800 || frameSize == 5760
 	case ModeCELT:
-		return frameSize == 120 || frameSize == 240 || frameSize == 480 || frameSize == 960
+		return frameSize == 120 || frameSize == 240 || frameSize == 480 ||
+			frameSize == 960 || frameSize == 1920 || frameSize == 2880 ||
+			frameSize == 3840 || frameSize == 4800 || frameSize == 5760
 	default:
 		return frameSize == 120 || frameSize == 240 || frameSize == 480 ||
-			frameSize == 960 || frameSize == 1920 || frameSize == 2880
+			frameSize == 960 || frameSize == 1920 || frameSize == 2880 ||
+			frameSize == 3840 || frameSize == 4800 || frameSize == 5760
 	}
 }
 

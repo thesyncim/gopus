@@ -1246,6 +1246,46 @@ func TestDecoder_SetGainBounds(t *testing.T) {
 	}
 }
 
+func TestDecoder_IgnoreExtensions(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	if dec.IgnoreExtensions() {
+		t.Fatal("IgnoreExtensions()=true want false by default")
+	}
+	dec.SetIgnoreExtensions(true)
+	if !dec.IgnoreExtensions() {
+		t.Fatal("IgnoreExtensions()=false want true after SetIgnoreExtensions(true)")
+	}
+	dec.Reset()
+	if !dec.IgnoreExtensions() {
+		t.Fatal("IgnoreExtensions()=false want true after Reset")
+	}
+	dec.SetIgnoreExtensions(false)
+	if dec.IgnoreExtensions() {
+		t.Fatal("IgnoreExtensions()=true want false after SetIgnoreExtensions(false)")
+	}
+}
+
+func TestDecoder_OptionalExtensionControls(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	if err := dec.SetOSCEBWE(true); err != ErrUnimplemented {
+		t.Fatalf("SetOSCEBWE error=%v want=%v", err, ErrUnimplemented)
+	}
+	if got, err := dec.OSCEBWE(); err != ErrUnimplemented || got {
+		t.Fatalf("OSCEBWE()=(%v,%v) want=(false,%v)", got, err, ErrUnimplemented)
+	}
+	if err := dec.SetDNNBlob([]byte{1, 2, 3}); err != ErrUnimplemented {
+		t.Fatalf("SetDNNBlob error=%v want=%v", err, ErrUnimplemented)
+	}
+}
+
 func TestDecoder_GainAppliedToDecodeOutput(t *testing.T) {
 	packet := minimalHybridTestPacket20ms()
 

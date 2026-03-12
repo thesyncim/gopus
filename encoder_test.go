@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"testing"
+
+	encodercore "github.com/thesyncim/gopus/encoder"
 )
 
 func TestNewEncoder_ValidParams(t *testing.T) {
@@ -18,6 +20,8 @@ func TestNewEncoder_ValidParams(t *testing.T) {
 		{"48kHz_mono_audio", 48000, 1, ApplicationAudio},
 		{"48kHz_stereo_audio", 48000, 2, ApplicationAudio},
 		{"48kHz_mono_lowdelay", 48000, 1, ApplicationLowDelay},
+		{"48kHz_mono_restricted_silk", 48000, 1, ApplicationRestrictedSilk},
+		{"48kHz_stereo_restricted_celt", 48000, 2, ApplicationRestrictedCelt},
 		{"24kHz_mono_voip", 24000, 1, ApplicationVoIP},
 		{"16kHz_mono_voip", 16000, 1, ApplicationVoIP},
 		{"12kHz_mono_voip", 12000, 1, ApplicationVoIP},
@@ -71,11 +75,29 @@ func TestNewEncoder_InvalidParams(t *testing.T) {
 	}
 }
 
+func TestNewEncoder_InvalidApplication(t *testing.T) {
+	enc, err := NewEncoder(48000, 1, Application(99))
+	if err != ErrInvalidApplication {
+		t.Fatalf("NewEncoder(invalid application) error=%v want=%v", err, ErrInvalidApplication)
+	}
+	if enc != nil {
+		t.Fatal("NewEncoder returned non-nil encoder for invalid application")
+	}
+}
+
 // generateSineWave generates a sine wave at the given frequency.
 func generateSineWave(sampleRate int, freq float64, samples int) []float32 {
 	pcm := make([]float32, samples)
 	for i := range pcm {
 		pcm[i] = float32(0.5 * math.Sin(2*math.Pi*freq*float64(i)/float64(sampleRate)))
+	}
+	return pcm
+}
+
+func generateSineWaveInt24(sampleRate int, freq float64, samples int) []int32 {
+	pcm := make([]int32, samples)
+	for i := range pcm {
+		pcm[i] = int32((1 << 22) * math.Sin(2*math.Pi*freq*float64(i)/float64(sampleRate)))
 	}
 	return pcm
 }
@@ -129,6 +151,51 @@ func TestEncoder_Encode_Int16(t *testing.T) {
 	}
 
 	t.Logf("Encoded %d int16 samples to %d bytes", frameSize, n)
+}
+
+func TestEncoder_Encode_Int24(t *testing.T) {
+	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	frameSize := 960
+	pcm := generateSineWaveInt24(48000, 440, frameSize)
+
+	data := make([]byte, 4000)
+	n, err := enc.EncodeInt24(pcm, data)
+	if err != nil {
+		t.Fatalf("EncodeInt24 error: %v", err)
+	}
+
+	if n == 0 {
+		t.Fatal("EncodeInt24 returned 0 bytes")
+	}
+
+	packet, err := enc.EncodeInt24Slice(pcm)
+	if err != nil {
+		t.Fatalf("EncodeInt24Slice error: %v", err)
+	}
+	if len(packet) == 0 {
+		t.Fatal("EncodeInt24Slice returned empty packet")
+	}
+
+	t.Logf("Encoded %d int24 samples to %d bytes", frameSize, n)
+}
+
+func TestEncoder_Encode_Int24_InvalidFrameSize(t *testing.T) {
+	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	data := make([]byte, 4000)
+	if _, err := enc.EncodeInt24(make([]int32, enc.FrameSize()-1), data); err != ErrInvalidFrameSize {
+		t.Fatalf("EncodeInt24(short) error=%v want=%v", err, ErrInvalidFrameSize)
+	}
+	if _, err := enc.EncodeInt24Slice(make([]int32, enc.FrameSize()-1)); err != ErrInvalidFrameSize {
+		t.Fatalf("EncodeInt24Slice(short) error=%v want=%v", err, ErrInvalidFrameSize)
+	}
 }
 
 func TestEncoder_Encode_RoundTrip(t *testing.T) {
@@ -403,6 +470,12 @@ func TestEncoder_SetApplication(t *testing.T) {
 	if err := enc.SetApplication(Application(99)); err != ErrInvalidApplication {
 		t.Fatalf("SetApplication(invalid) error=%v want=%v", err, ErrInvalidApplication)
 	}
+	if err := enc.SetApplication(ApplicationRestrictedSilk); err != ErrInvalidApplication {
+		t.Fatalf("SetApplication(restricted silk) error=%v want=%v", err, ErrInvalidApplication)
+	}
+	if err := enc.SetApplication(ApplicationRestrictedCelt); err != ErrInvalidApplication {
+		t.Fatalf("SetApplication(restricted celt) error=%v want=%v", err, ErrInvalidApplication)
+	}
 
 	// Match libopus ctl semantics: after first successful encode, application
 	// changes are rejected unless value is unchanged.
@@ -424,6 +497,74 @@ func TestEncoder_SetApplication(t *testing.T) {
 	}
 	if !enc.enc.LowDelay() {
 		t.Fatalf("enc.LowDelay() should be true after reset+lowdelay application")
+	}
+}
+
+func TestEncoder_RestrictedApplications(t *testing.T) {
+	tests := []struct {
+		name          string
+		application   Application
+		wantMode      encodercore.Mode
+		wantLowDelay  bool
+		wantBandwidth Bandwidth
+		wantLookahead int
+	}{
+		{
+			name:          "restricted_silk",
+			application:   ApplicationRestrictedSilk,
+			wantMode:      encodercore.ModeSILK,
+			wantLowDelay:  false,
+			wantBandwidth: BandwidthWideband,
+			wantLookahead: 48000/400 + 48000/250,
+		},
+		{
+			name:          "restricted_celt",
+			application:   ApplicationRestrictedCelt,
+			wantMode:      encodercore.ModeCELT,
+			wantLowDelay:  true,
+			wantBandwidth: BandwidthFullband,
+			wantLookahead: 48000 / 400,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			enc, err := NewEncoder(48000, 1, tt.application)
+			if err != nil {
+				t.Fatalf("NewEncoder error: %v", err)
+			}
+
+			if got := enc.Application(); got != tt.application {
+				t.Fatalf("Application()=%v want=%v", got, tt.application)
+			}
+			if got := enc.enc.Mode(); got != tt.wantMode {
+				t.Fatalf("enc.Mode()=%v want=%v", got, tt.wantMode)
+			}
+			if got := enc.enc.LowDelay(); got != tt.wantLowDelay {
+				t.Fatalf("enc.LowDelay()=%v want=%v", got, tt.wantLowDelay)
+			}
+			if got := enc.Bandwidth(); got != tt.wantBandwidth {
+				t.Fatalf("Bandwidth()=%v want=%v", got, tt.wantBandwidth)
+			}
+			if got := enc.Lookahead(); got != tt.wantLookahead {
+				t.Fatalf("Lookahead()=%d want=%d", got, tt.wantLookahead)
+			}
+
+			if err := enc.SetApplication(tt.application); err != ErrInvalidApplication {
+				t.Fatalf("SetApplication(same restricted) error=%v want=%v", err, ErrInvalidApplication)
+			}
+			if err := enc.SetApplication(ApplicationAudio); err != ErrInvalidApplication {
+				t.Fatalf("SetApplication(change restricted) error=%v want=%v", err, ErrInvalidApplication)
+			}
+			if tt.application == ApplicationRestrictedSilk {
+				if err := enc.SetFrameSize(240); err != ErrInvalidFrameSize {
+					t.Fatalf("SetFrameSize(240) error=%v want=%v", err, ErrInvalidFrameSize)
+				}
+				if err := enc.SetFrameSize(480); err != nil {
+					t.Fatalf("SetFrameSize(480) error: %v", err)
+				}
+			}
+		})
 	}
 }
 
@@ -461,6 +602,77 @@ func TestEncoder_DTX_Silence(t *testing.T) {
 
 	// DTX may or may not suppress depending on VAD adaptation
 	t.Log("DTX did not activate (may need more silence frames for VAD adaptation)")
+}
+
+func TestEncoder_InDTXDelegatesToCoreEncoder(t *testing.T) {
+	enc, err := NewEncoder(48000, 1, ApplicationVoIP)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+	enc.SetDTX(true)
+
+	if got, want := enc.InDTX(), enc.enc.InDTX(); got != want {
+		t.Fatalf("initial InDTX()=%v want core=%v", got, want)
+	}
+
+	silence := make([]float32, enc.FrameSize()*enc.Channels())
+	packet := make([]byte, 4000)
+	activated := false
+	for i := 0; i < 50; i++ {
+		if _, err := enc.Encode(silence, packet); err != nil {
+			t.Fatalf("Encode(silence) frame %d error: %v", i, err)
+		}
+		if got, want := enc.InDTX(), enc.enc.InDTX(); got != want {
+			t.Fatalf("frame %d InDTX()=%v want core=%v", i, got, want)
+		}
+		if enc.InDTX() {
+			activated = true
+			break
+		}
+	}
+	if !activated {
+		t.Fatal("InDTX() never became true after sustained silence")
+	}
+
+	speech := generateSineWave(48000, 440, enc.FrameSize())
+	if _, err := enc.Encode(speech, packet); err != nil {
+		t.Fatalf("Encode(speech) error: %v", err)
+	}
+	if got, want := enc.InDTX(), enc.enc.InDTX(); got != want {
+		t.Fatalf("post-speech InDTX()=%v want core=%v", got, want)
+	}
+}
+
+func TestEncoder_VADActivityDelegatesToCoreEncoder(t *testing.T) {
+	enc, err := NewEncoder(48000, 1, ApplicationVoIP)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+	enc.SetDTX(true)
+
+	if got, want := enc.VADActivity(), enc.enc.GetVADActivity(); got != want {
+		t.Fatalf("initial VADActivity()=%d want core=%d", got, want)
+	}
+
+	packet := make([]byte, 4000)
+	speech := generateSineWave(48000, 440, enc.FrameSize())
+	for i := 0; i < 3; i++ {
+		if _, err := enc.Encode(speech, packet); err != nil {
+			t.Fatalf("Encode(speech) frame %d error: %v", i, err)
+		}
+	}
+
+	if got, want := enc.VADActivity(), enc.enc.GetVADActivity(); got != want {
+		t.Fatalf("post-speech VADActivity()=%d want core=%d", got, want)
+	}
+	if got := enc.VADActivity(); got < 0 || got > 255 {
+		t.Fatalf("VADActivity()=%d out of range", got)
+	}
+
+	enc.Reset()
+	if got, want := enc.VADActivity(), enc.enc.GetVADActivity(); got != want {
+		t.Fatalf("post-reset VADActivity()=%d want core=%d", got, want)
+	}
 }
 
 func TestEncoder_FEC(t *testing.T) {
@@ -553,7 +765,7 @@ func TestEncoder_FrameSize(t *testing.T) {
 	}
 
 	// Valid frame sizes
-	validSizes := []int{120, 240, 480, 960, 1920, 2880}
+	validSizes := []int{120, 240, 480, 960, 1920, 2880, 3840, 4800, 5760}
 	for _, size := range validSizes {
 		t.Run(fmt.Sprintf("framesize_%d", size), func(t *testing.T) {
 			err := enc.SetFrameSize(size)
@@ -594,6 +806,115 @@ func TestEncoder_EncodeFloat32_Convenience(t *testing.T) {
 
 	if len(packet) == 0 {
 		t.Error("EncodeFloat32 returned empty packet")
+	}
+}
+
+func TestEncoder_ExpertFrameDuration(t *testing.T) {
+	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	if got := enc.ExpertFrameDuration(); got != ExpertFrameDurationArg {
+		t.Fatalf("ExpertFrameDuration()=%v want=%v", got, ExpertFrameDurationArg)
+	}
+	if err := enc.SetExpertFrameDuration(ExpertFrameDuration120Ms); err != nil {
+		t.Fatalf("SetExpertFrameDuration(120ms) error: %v", err)
+	}
+	if got := enc.ExpertFrameDuration(); got != ExpertFrameDuration120Ms {
+		t.Fatalf("ExpertFrameDuration()=%v want=%v", got, ExpertFrameDuration120Ms)
+	}
+	if got := enc.FrameSize(); got != 5760 {
+		t.Fatalf("FrameSize()=%d want=5760 after 120ms duration", got)
+	}
+	if err := enc.SetExpertFrameDuration(ExpertFrameDurationArg); err != nil {
+		t.Fatalf("SetExpertFrameDuration(arg) error: %v", err)
+	}
+	if got := enc.ExpertFrameDuration(); got != ExpertFrameDurationArg {
+		t.Fatalf("ExpertFrameDuration()=%v want=%v after arg reset", got, ExpertFrameDurationArg)
+	}
+	if got := enc.FrameSize(); got != 5760 {
+		t.Fatalf("FrameSize()=%d want=5760 after arg reset", got)
+	}
+	if err := enc.SetExpertFrameDuration(ExpertFrameDuration(0)); err != ErrInvalidArgument {
+		t.Fatalf("SetExpertFrameDuration(invalid) error=%v want=%v", err, ErrInvalidArgument)
+	}
+}
+
+func TestEncoder_OptionalExtensionControls(t *testing.T) {
+	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	if err := enc.SetDREDDuration(2); err != ErrUnimplemented {
+		t.Fatalf("SetDREDDuration error=%v want=%v", err, ErrUnimplemented)
+	}
+	if got, err := enc.DREDDuration(); err != ErrUnimplemented || got != 0 {
+		t.Fatalf("DREDDuration()=(%d,%v) want=(0,%v)", got, err, ErrUnimplemented)
+	}
+	if err := enc.SetDNNBlob([]byte{1, 2, 3}); err != ErrUnimplemented {
+		t.Fatalf("SetDNNBlob error=%v want=%v", err, ErrUnimplemented)
+	}
+	if err := enc.SetQEXT(true); err != ErrUnimplemented {
+		t.Fatalf("SetQEXT error=%v want=%v", err, ErrUnimplemented)
+	}
+	if got, err := enc.QEXT(); err != ErrUnimplemented || got {
+		t.Fatalf("QEXT()=(%v,%v) want=(false,%v)", got, err, ErrUnimplemented)
+	}
+}
+
+func TestEncoder_LongPacketRoundTrip(t *testing.T) {
+	cases := []struct {
+		name        string
+		application Application
+		frameSize   int
+	}{
+		{name: "restricted_silk_80ms", application: ApplicationRestrictedSilk, frameSize: 3840},
+		{name: "restricted_silk_100ms", application: ApplicationRestrictedSilk, frameSize: 4800},
+		{name: "restricted_silk_120ms", application: ApplicationRestrictedSilk, frameSize: 5760},
+		{name: "restricted_celt_80ms", application: ApplicationRestrictedCelt, frameSize: 3840},
+		{name: "restricted_celt_100ms", application: ApplicationRestrictedCelt, frameSize: 4800},
+		{name: "restricted_celt_120ms", application: ApplicationRestrictedCelt, frameSize: 5760},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			enc, err := NewEncoder(48000, 1, tc.application)
+			if err != nil {
+				t.Fatalf("NewEncoder error: %v", err)
+			}
+			if err := enc.SetFrameSize(tc.frameSize); err != nil {
+				t.Fatalf("SetFrameSize(%d) error: %v", tc.frameSize, err)
+			}
+
+			dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+			if err != nil {
+				t.Fatalf("NewDecoder error: %v", err)
+			}
+
+			pcmIn := generateSineWave(48000, 440, tc.frameSize)
+			packet, err := enc.EncodeFloat32(pcmIn)
+			if err != nil {
+				t.Fatalf("EncodeFloat32 error: %v", err)
+			}
+			if len(packet) == 0 {
+				t.Fatal("EncodeFloat32 returned empty packet")
+			}
+
+			pcmOut := make([]float32, tc.frameSize)
+			n, err := dec.Decode(packet, pcmOut)
+			if err != nil {
+				t.Fatalf("Decode error: %v", err)
+			}
+			if n != tc.frameSize {
+				t.Fatalf("Decode samples=%d want=%d", n, tc.frameSize)
+			}
+
+			if energy := computeEnergyFloat32(pcmOut[:n]); energy == 0 {
+				t.Fatal("decoded output has zero energy")
+			}
+		})
 	}
 }
 

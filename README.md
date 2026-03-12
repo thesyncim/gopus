@@ -26,7 +26,7 @@ No cgo. No C toolchain. Caller-owned buffers in the encode/decode hot path.
 - Encoder: complete feature surface (FEC/LBRR, DTX, controls, multistream, ambisonics).
 - Allocations: zero allocs/op in encoder and decoder core hot paths.
 - `TestSILKParamTraceAgainstLibopus`: `PASS` with exact SILK-WB trace parity on canonical 50-frame fixture.
-- `TestEncoderComplianceSummary`: `PASS` (`19 passed, 0 failed`).
+- `TestEncoderComplianceSummary`: `PASS` (`23 passed, 0 failed`).
 - Remaining focus: keep tightening fixture-backed parity/comparison coverage against libopus in edge profiles.
 
 ## Installation

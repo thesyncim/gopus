@@ -25,6 +25,20 @@ func generateSurroundTestSignal(sampleRate, frameSize, channels int) []float32 {
 	return pcm
 }
 
+func generateSurroundTestSignalInt24(sampleRate, frameSize, channels int) []int32 {
+	pcm := make([]int32, frameSize*channels)
+	baseFreq := 220.0
+
+	for s := 0; s < frameSize; s++ {
+		for ch := 0; ch < channels; ch++ {
+			freq := baseFreq + float64(ch)*110
+			val := int32((1 << 22) * math.Sin(2*math.Pi*freq*float64(s)/float64(sampleRate)))
+			pcm[s*channels+ch] = val
+		}
+	}
+	return pcm
+}
+
 // computeEnergyFloat32 computes the RMS energy of a float32 signal.
 func computeEnergyFloat32(samples []float32) float64 {
 	if len(samples) == 0 {
@@ -99,6 +113,11 @@ func TestMultistreamEncoder_Creation(t *testing.T) {
 	_, err = NewMultistreamEncoderDefault(48000, 9, ApplicationAudio)
 	if err != ErrInvalidChannels {
 		t.Errorf("9 channels: got error %v, want ErrInvalidChannels", err)
+	}
+
+	_, err = NewMultistreamEncoderDefault(48000, 6, Application(99))
+	if err != ErrInvalidApplication {
+		t.Errorf("invalid application: got error %v, want ErrInvalidApplication", err)
 	}
 }
 
@@ -396,6 +415,12 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 	if err := enc.SetApplication(Application(-1)); err != ErrInvalidApplication {
 		t.Fatalf("SetApplication(invalid) error=%v want=%v", err, ErrInvalidApplication)
 	}
+	if err := enc.SetApplication(ApplicationRestrictedSilk); err != ErrInvalidApplication {
+		t.Fatalf("SetApplication(restricted silk) error=%v want=%v", err, ErrInvalidApplication)
+	}
+	if err := enc.SetApplication(ApplicationRestrictedCelt); err != ErrInvalidApplication {
+		t.Fatalf("SetApplication(restricted celt) error=%v want=%v", err, ErrInvalidApplication)
+	}
 
 	// Test SetBitrate
 	err = enc.SetBitrate(256000)
@@ -517,6 +542,44 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 		t.Errorf("SetMaxBandwidth(invalid) error = %v, want %v", err, ErrInvalidBandwidth)
 	}
 
+	// Test frame size control
+	if got := enc.FrameSize(); got != 960 {
+		t.Errorf("FrameSize() = %d, want 960", got)
+	}
+	for _, size := range []int{120, 240, 480, 960, 1920, 2880, 3840, 4800, 5760} {
+		if err := enc.SetFrameSize(size); err != nil {
+			t.Errorf("SetFrameSize(%d) error: %v", size, err)
+		}
+		if got := enc.FrameSize(); got != size {
+			t.Errorf("FrameSize() = %d, want %d", got, size)
+		}
+	}
+	if err := enc.SetFrameSize(111); err != ErrInvalidFrameSize {
+		t.Errorf("SetFrameSize(invalid) error = %v, want %v", err, ErrInvalidFrameSize)
+	}
+	if err := enc.SetFrameSize(960); err != nil {
+		t.Errorf("SetFrameSize(960) error: %v", err)
+	}
+
+	if got := enc.ExpertFrameDuration(); got != ExpertFrameDurationArg {
+		t.Errorf("ExpertFrameDuration() = %v, want %v", got, ExpertFrameDurationArg)
+	}
+	if err := enc.SetExpertFrameDuration(ExpertFrameDuration120Ms); err != nil {
+		t.Errorf("SetExpertFrameDuration(120ms) error: %v", err)
+	}
+	if got := enc.FrameSize(); got != 5760 {
+		t.Errorf("FrameSize() after 120ms = %d, want 5760", got)
+	}
+	if got := enc.ExpertFrameDuration(); got != ExpertFrameDuration120Ms {
+		t.Errorf("ExpertFrameDuration() after 120ms = %v, want %v", got, ExpertFrameDuration120Ms)
+	}
+	if err := enc.SetExpertFrameDuration(ExpertFrameDurationArg); err != nil {
+		t.Errorf("SetExpertFrameDuration(arg) error: %v", err)
+	}
+	if err := enc.SetExpertFrameDuration(ExpertFrameDuration(0)); err != ErrInvalidArgument {
+		t.Errorf("SetExpertFrameDuration(invalid) error = %v, want %v", err, ErrInvalidArgument)
+	}
+
 	// Test force channels control
 	for _, ch := range []int{1, 2, -1} {
 		if err := enc.SetForceChannels(ch); err != nil {
@@ -567,7 +630,7 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 	}
 
 	// Encode a frame after setting controls to verify no errors
-	frameSize := 960
+	frameSize := enc.FrameSize()
 	pcm := generateSurroundTestSignal(48000, frameSize, channels)
 	packet, err := enc.EncodeFloat32(pcm)
 	if err != nil {
@@ -582,6 +645,48 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 
 	t.Logf("Controls verified: app=%v bitrate=%d complexity=%d mode=%v FEC=%v DTX=%v",
 		enc.Application(), enc.Bitrate(), enc.Complexity(), enc.BitrateMode(), enc.FECEnabled(), enc.DTXEnabled())
+}
+
+func TestMultistreamEncoder_EncodeInt24(t *testing.T) {
+	enc, err := NewMultistreamEncoderDefault(48000, 6, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
+	}
+
+	pcm := generateSurroundTestSignalInt24(48000, enc.FrameSize(), enc.Channels())
+	data := make([]byte, 4000*enc.Streams())
+
+	n, err := enc.EncodeInt24(pcm, data)
+	if err != nil {
+		t.Fatalf("EncodeInt24 error: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("EncodeInt24 returned 0 bytes")
+	}
+
+	packet, err := enc.EncodeInt24Slice(pcm)
+	if err != nil {
+		t.Fatalf("EncodeInt24Slice error: %v", err)
+	}
+	if len(packet) == 0 {
+		t.Fatal("EncodeInt24Slice returned empty packet")
+	}
+}
+
+func TestMultistreamEncoder_EncodeInt24InvalidFrameSize(t *testing.T) {
+	enc, err := NewMultistreamEncoderDefault(48000, 6, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
+	}
+
+	short := make([]int32, enc.FrameSize()*enc.Channels()-1)
+	data := make([]byte, 4000*enc.Streams())
+	if _, err := enc.EncodeInt24(short, data); err != ErrInvalidFrameSize {
+		t.Fatalf("EncodeInt24(short) error=%v want=%v", err, ErrInvalidFrameSize)
+	}
+	if _, err := enc.EncodeInt24Slice(short); err != ErrInvalidFrameSize {
+		t.Fatalf("EncodeInt24Slice(short) error=%v want=%v", err, ErrInvalidFrameSize)
+	}
 }
 
 func TestMultistreamEncoder_CVBRPacketEnvelope(t *testing.T) {
@@ -718,6 +823,275 @@ func TestMultistreamEncoder_SetApplicationAfterEncodeRejected(t *testing.T) {
 	enc.Reset()
 	if err := enc.SetApplication(ApplicationVoIP); err != nil {
 		t.Fatalf("SetApplication(after reset) error: %v", err)
+	}
+}
+
+func TestMultistreamEncoder_RestrictedApplications(t *testing.T) {
+	tests := []struct {
+		name          string
+		application   Application
+		wantMode      encodercore.Mode
+		wantLowDelay  bool
+		wantBandwidth Bandwidth
+		wantLookahead int
+	}{
+		{
+			name:          "restricted_silk",
+			application:   ApplicationRestrictedSilk,
+			wantMode:      encodercore.ModeSILK,
+			wantLowDelay:  false,
+			wantBandwidth: BandwidthWideband,
+			wantLookahead: 48000/400 + 48000/250,
+		},
+		{
+			name:          "restricted_celt",
+			application:   ApplicationRestrictedCelt,
+			wantMode:      encodercore.ModeCELT,
+			wantLowDelay:  true,
+			wantBandwidth: BandwidthFullband,
+			wantLookahead: 48000 / 400,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			enc, err := NewMultistreamEncoderDefault(48000, 6, tt.application)
+			if err != nil {
+				t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
+			}
+
+			if got := enc.Application(); got != tt.application {
+				t.Fatalf("Application()=%v want=%v", got, tt.application)
+			}
+			if got := enc.enc.Mode(); got != tt.wantMode {
+				t.Fatalf("Mode()=%v want=%v", got, tt.wantMode)
+			}
+			if got := enc.enc.LowDelay(); got != tt.wantLowDelay {
+				t.Fatalf("LowDelay()=%v want=%v", got, tt.wantLowDelay)
+			}
+			if got := enc.Bandwidth(); got != tt.wantBandwidth {
+				t.Fatalf("Bandwidth()=%v want=%v", got, tt.wantBandwidth)
+			}
+			if got := enc.Lookahead(); got != tt.wantLookahead {
+				t.Fatalf("Lookahead()=%d want=%d", got, tt.wantLookahead)
+			}
+
+			if err := enc.SetApplication(tt.application); err != ErrInvalidApplication {
+				t.Fatalf("SetApplication(same restricted) error=%v want=%v", err, ErrInvalidApplication)
+			}
+			if err := enc.SetApplication(ApplicationAudio); err != ErrInvalidApplication {
+				t.Fatalf("SetApplication(change restricted) error=%v want=%v", err, ErrInvalidApplication)
+			}
+			if tt.application == ApplicationRestrictedSilk {
+				if err := enc.SetFrameSize(240); err != ErrInvalidFrameSize {
+					t.Fatalf("SetFrameSize(240) error=%v want=%v", err, ErrInvalidFrameSize)
+				}
+				if err := enc.SetFrameSize(480); err != nil {
+					t.Fatalf("SetFrameSize(480) error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestMultistreamEncoder_GetEncoderState(t *testing.T) {
+	enc, err := NewMultistreamEncoderDefault(48000, 6, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
+	}
+
+	if _, err := enc.GetEncoderState(-1); err != ErrInvalidStreamIndex {
+		t.Fatalf("GetEncoderState(-1) error=%v want=%v", err, ErrInvalidStreamIndex)
+	}
+	if _, err := enc.GetEncoderState(enc.Streams()); err != ErrInvalidStreamIndex {
+		t.Fatalf("GetEncoderState(out of range) error=%v want=%v", err, ErrInvalidStreamIndex)
+	}
+
+	coupled, err := enc.GetEncoderState(0)
+	if err != nil {
+		t.Fatalf("GetEncoderState(0) error: %v", err)
+	}
+	mono, err := enc.GetEncoderState(2)
+	if err != nil {
+		t.Fatalf("GetEncoderState(2) error: %v", err)
+	}
+
+	if got := coupled.Channels(); got != 2 {
+		t.Fatalf("coupled.Channels()=%d want=2", got)
+	}
+	if got := mono.Channels(); got != 1 {
+		t.Fatalf("mono.Channels()=%d want=1", got)
+	}
+
+	if err := enc.SetComplexity(9); err != nil {
+		t.Fatalf("SetComplexity(9) error: %v", err)
+	}
+	if got := coupled.Complexity(); got != 9 {
+		t.Fatalf("coupled.Complexity()=%d want=9 after parent SetComplexity", got)
+	}
+
+	coupled.SetComplexity(4)
+	if got := enc.Complexity(); got != 4 {
+		t.Fatalf("enc.Complexity()=%d want=4 after per-stream update", got)
+	}
+}
+
+func TestMultistreamDecoder_GetDecoderState(t *testing.T) {
+	dec, err := NewMultistreamDecoderDefault(48000, 6)
+	if err != nil {
+		t.Fatalf("NewMultistreamDecoderDefault error: %v", err)
+	}
+
+	if _, err := dec.GetDecoderState(-1); err != ErrInvalidStreamIndex {
+		t.Fatalf("GetDecoderState(-1) error=%v want=%v", err, ErrInvalidStreamIndex)
+	}
+	if _, err := dec.GetDecoderState(dec.Streams()); err != ErrInvalidStreamIndex {
+		t.Fatalf("GetDecoderState(out of range) error=%v want=%v", err, ErrInvalidStreamIndex)
+	}
+
+	coupled, err := dec.GetDecoderState(0)
+	if err != nil {
+		t.Fatalf("GetDecoderState(0) error: %v", err)
+	}
+	mono, err := dec.GetDecoderState(2)
+	if err != nil {
+		t.Fatalf("GetDecoderState(2) error: %v", err)
+	}
+
+	if got := coupled.Channels(); got != 2 {
+		t.Fatalf("coupled.Channels()=%d want=2", got)
+	}
+	if got := mono.Channels(); got != 1 {
+		t.Fatalf("mono.Channels()=%d want=1", got)
+	}
+	if got := coupled.SampleRate(); got != 48000 {
+		t.Fatalf("coupled.SampleRate()=%d want=48000", got)
+	}
+}
+
+func TestMultistreamDecoder_GetDecoderStateSharesGain(t *testing.T) {
+	enc, err := NewMultistreamEncoderDefault(48000, 2, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
+	}
+	dec, err := NewMultistreamDecoderDefault(48000, 2)
+	if err != nil {
+		t.Fatalf("NewMultistreamDecoderDefault error: %v", err)
+	}
+
+	pcm := generateSurroundTestSignal(48000, enc.FrameSize(), enc.Channels())
+	packet, err := enc.EncodeFloat32(pcm)
+	if err != nil {
+		t.Fatalf("EncodeFloat32 error: %v", err)
+	}
+
+	baseline := make([]float32, enc.FrameSize()*dec.Channels())
+	n, err := dec.Decode(packet, baseline)
+	if err != nil {
+		t.Fatalf("Decode baseline error: %v", err)
+	}
+
+	state, err := dec.GetDecoderState(0)
+	if err != nil {
+		t.Fatalf("GetDecoderState(0) error: %v", err)
+	}
+	if got := state.LastPacketDuration(); got != enc.FrameSize() {
+		t.Fatalf("LastPacketDuration()=%d want=%d", got, enc.FrameSize())
+	}
+	if got := state.Bandwidth(); got != BandwidthFullband {
+		t.Fatalf("Bandwidth()=%v want=%v", got, BandwidthFullband)
+	}
+	if got := state.FinalRange(); got == 0 {
+		t.Fatal("FinalRange()=0 want non-zero after decode")
+	}
+	if state.InDTX() {
+		t.Fatal("InDTX()=true want false for voiced packet")
+	}
+	if got := state.Gain(); got != 0 {
+		t.Fatalf("Gain()=%d want=0", got)
+	}
+	if err := state.SetGain(40000); err == nil {
+		t.Fatal("SetGain(out of range) succeeded")
+	}
+	if err := state.SetGain(256); err != nil {
+		t.Fatalf("SetGain(256) error: %v", err)
+	}
+
+	dec.Reset()
+
+	boosted := make([]float32, enc.FrameSize()*dec.Channels())
+	nBoosted, err := dec.Decode(packet, boosted)
+	if err != nil {
+		t.Fatalf("Decode boosted error: %v", err)
+	}
+
+	baseEnergy := computeEnergyFloat32(baseline[:n*dec.Channels()])
+	boostedEnergy := computeEnergyFloat32(boosted[:nBoosted*dec.Channels()])
+	if boostedEnergy <= baseEnergy {
+		t.Fatalf("boosted energy %.6f <= baseline %.6f", boostedEnergy, baseEnergy)
+	}
+}
+
+func TestMultistreamDecoder_IgnoreExtensions(t *testing.T) {
+	dec, err := NewMultistreamDecoderDefault(48000, 2)
+	if err != nil {
+		t.Fatalf("NewMultistreamDecoderDefault error: %v", err)
+	}
+
+	if dec.IgnoreExtensions() {
+		t.Fatal("IgnoreExtensions()=true want false by default")
+	}
+	dec.SetIgnoreExtensions(true)
+	if !dec.IgnoreExtensions() {
+		t.Fatal("IgnoreExtensions()=false want true after SetIgnoreExtensions(true)")
+	}
+	dec.Reset()
+	if !dec.IgnoreExtensions() {
+		t.Fatal("IgnoreExtensions()=false want true after Reset")
+	}
+	dec.SetIgnoreExtensions(false)
+	if dec.IgnoreExtensions() {
+		t.Fatal("IgnoreExtensions()=true want false after SetIgnoreExtensions(false)")
+	}
+}
+
+func TestMultistreamEncoder_OptionalExtensionControls(t *testing.T) {
+	enc, err := NewMultistreamEncoderDefault(48000, 2, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
+	}
+
+	if err := enc.SetDREDDuration(2); err != ErrUnimplemented {
+		t.Fatalf("SetDREDDuration error=%v want=%v", err, ErrUnimplemented)
+	}
+	if got, err := enc.DREDDuration(); err != ErrUnimplemented || got != 0 {
+		t.Fatalf("DREDDuration()=(%d,%v) want=(0,%v)", got, err, ErrUnimplemented)
+	}
+	if err := enc.SetDNNBlob([]byte{1, 2, 3}); err != ErrUnimplemented {
+		t.Fatalf("SetDNNBlob error=%v want=%v", err, ErrUnimplemented)
+	}
+	if err := enc.SetQEXT(true); err != ErrUnimplemented {
+		t.Fatalf("SetQEXT error=%v want=%v", err, ErrUnimplemented)
+	}
+	if got, err := enc.QEXT(); err != ErrUnimplemented || got {
+		t.Fatalf("QEXT()=(%v,%v) want=(false,%v)", got, err, ErrUnimplemented)
+	}
+}
+
+func TestMultistreamDecoder_OptionalExtensionControls(t *testing.T) {
+	dec, err := NewMultistreamDecoderDefault(48000, 2)
+	if err != nil {
+		t.Fatalf("NewMultistreamDecoderDefault error: %v", err)
+	}
+
+	if err := dec.SetOSCEBWE(true); err != ErrUnimplemented {
+		t.Fatalf("SetOSCEBWE error=%v want=%v", err, ErrUnimplemented)
+	}
+	if got, err := dec.OSCEBWE(); err != ErrUnimplemented || got {
+		t.Fatalf("OSCEBWE()=(%v,%v) want=(false,%v)", got, err, ErrUnimplemented)
+	}
+	if err := dec.SetDNNBlob([]byte{1, 2, 3}); err != ErrUnimplemented {
+		t.Fatalf("SetDNNBlob error=%v want=%v", err, ErrUnimplemented)
 	}
 }
 
