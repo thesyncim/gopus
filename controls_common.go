@@ -25,6 +25,82 @@ func validApplication(application Application) bool {
 	}
 }
 
+func validateBitrate(bitrate, max int) error {
+	if bitrate < 6000 || bitrate > max {
+		return ErrInvalidBitrate
+	}
+	return nil
+}
+
+func validateComplexity(complexity int) error {
+	if complexity < 0 || complexity > 10 {
+		return ErrInvalidComplexity
+	}
+	return nil
+}
+
+func validateBitrateMode(mode BitrateMode) error {
+	switch mode {
+	case BitrateModeVBR, BitrateModeCVBR, BitrateModeCBR:
+		return nil
+	default:
+		return ErrInvalidBitrateMode
+	}
+}
+
+func validSignal(signal Signal) bool {
+	switch signal {
+	case SignalAuto, SignalVoice, SignalMusic:
+		return true
+	default:
+		return false
+	}
+}
+
+func validateSignal(signal Signal) error {
+	if !validSignal(signal) {
+		return ErrInvalidSignal
+	}
+	return nil
+}
+
+func validBandwidth(bandwidth Bandwidth) bool {
+	switch bandwidth {
+	case BandwidthNarrowband, BandwidthMediumband, BandwidthWideband, BandwidthSuperwideband, BandwidthFullband:
+		return true
+	default:
+		return false
+	}
+}
+
+func validateBandwidth(bandwidth Bandwidth) error {
+	if !validBandwidth(bandwidth) {
+		return ErrInvalidBandwidth
+	}
+	return nil
+}
+
+func validateForceChannels(channels int) error {
+	if channels != -1 && channels != 1 && channels != 2 {
+		return ErrInvalidForceChannels
+	}
+	return nil
+}
+
+func validatePacketLoss(lossPercent int) error {
+	if lossPercent < 0 || lossPercent > 100 {
+		return ErrInvalidPacketLoss
+	}
+	return nil
+}
+
+func validateLSBDepth(depth int) error {
+	if depth < 8 || depth > 24 {
+		return ErrInvalidLSBDepth
+	}
+	return nil
+}
+
 func validFrameSize(samples int) bool {
 	switch samples {
 	case 120, 240, 480, 960, 1920, 2880, 3840, 4800, 5760:

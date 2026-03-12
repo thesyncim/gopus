@@ -809,51 +809,22 @@ func TestMultistreamEncoder_SetApplicationAfterEncodeRejected(t *testing.T) {
 
 	pcm := generateSurroundTestSignal(48000, 960, 6)
 	packet := make([]byte, 4000*enc.Streams())
-	if _, err := enc.Encode(pcm, packet); err != nil {
-		t.Fatalf("Encode before application lock test error: %v", err)
-	}
-
-	if err := enc.SetApplication(ApplicationVoIP); err != ErrInvalidApplication {
-		t.Fatalf("SetApplication(change after encode) error=%v want=%v", err, ErrInvalidApplication)
-	}
-	if err := enc.SetApplication(enc.Application()); err != nil {
-		t.Fatalf("SetApplication(same after encode) error: %v", err)
-	}
-
-	enc.Reset()
-	if err := enc.SetApplication(ApplicationVoIP); err != nil {
-		t.Fatalf("SetApplication(after reset) error: %v", err)
-	}
+	assertApplicationLockAfterEncode(
+		t,
+		enc.Application,
+		enc.SetApplication,
+		enc.Reset,
+		func() error {
+			_, err := enc.Encode(pcm, packet)
+			return err
+		},
+		ApplicationVoIP,
+		ApplicationVoIP,
+	)
 }
 
 func TestMultistreamEncoder_RestrictedApplications(t *testing.T) {
-	tests := []struct {
-		name          string
-		application   Application
-		wantMode      encodercore.Mode
-		wantLowDelay  bool
-		wantBandwidth Bandwidth
-		wantLookahead int
-	}{
-		{
-			name:          "restricted_silk",
-			application:   ApplicationRestrictedSilk,
-			wantMode:      encodercore.ModeSILK,
-			wantLowDelay:  false,
-			wantBandwidth: BandwidthWideband,
-			wantLookahead: 48000/400 + 48000/250,
-		},
-		{
-			name:          "restricted_celt",
-			application:   ApplicationRestrictedCelt,
-			wantMode:      encodercore.ModeCELT,
-			wantLowDelay:  true,
-			wantBandwidth: BandwidthFullband,
-			wantLookahead: 48000 / 400,
-		},
-	}
-
-	for _, tt := range tests {
+	for _, tt := range restrictedApplicationTestCases() {
 		t.Run(tt.name, func(t *testing.T) {
 			enc, err := NewMultistreamEncoderDefault(48000, 6, tt.application)
 			if err != nil {
@@ -1367,21 +1338,7 @@ func TestMultistreamEncoder_Lookahead(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
 		}
-		if got, want := enc.Lookahead(), 48000/400+48000/250; got != want {
-			t.Fatalf("Lookahead(audio) = %d, want %d", got, want)
-		}
-		if err := enc.SetApplication(ApplicationLowDelay); err != nil {
-			t.Fatalf("SetApplication(LowDelay) error: %v", err)
-		}
-		if got, want := enc.Lookahead(), 48000/400; got != want {
-			t.Fatalf("Lookahead(lowdelay) = %d, want %d", got, want)
-		}
-		if err := enc.SetApplication(ApplicationAudio); err != nil {
-			t.Fatalf("SetApplication(Audio) error: %v", err)
-		}
-		if got, want := enc.Lookahead(), 48000/400+48000/250; got != want {
-			t.Fatalf("Lookahead(audio after reset) = %d, want %d", got, want)
-		}
+		assertLookaheadUpdatesBeforeEncode(t, enc.Lookahead, enc.SetApplication)
 	})
 }
 
