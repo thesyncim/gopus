@@ -63,8 +63,8 @@ func (e *MultistreamEncoder) ExpertFrameDuration() ExpertFrameDuration {
 //
 // Valid range is 6000 to 510000 per channel.
 func (e *MultistreamEncoder) SetBitrate(bitrate int) error {
-	if bitrate < 6000 || bitrate > 510000*e.channels {
-		return ErrInvalidBitrate
+	if err := validateBitrate(bitrate, 510000*e.channels); err != nil {
+		return err
 	}
 	e.enc.SetBitrate(bitrate)
 	return nil
@@ -85,8 +85,8 @@ func (e *MultistreamEncoder) Bitrate() int {
 //
 // Returns ErrInvalidComplexity if out of range.
 func (e *MultistreamEncoder) SetComplexity(complexity int) error {
-	if complexity < 0 || complexity > 10 {
-		return ErrInvalidComplexity
+	if err := validateComplexity(complexity); err != nil {
+		return err
 	}
 	e.enc.SetComplexity(complexity)
 	return nil
@@ -99,13 +99,11 @@ func (e *MultistreamEncoder) Complexity() int {
 
 // SetBitrateMode sets the multistream encoder bitrate control mode.
 func (e *MultistreamEncoder) SetBitrateMode(mode BitrateMode) error {
-	switch mode {
-	case BitrateModeVBR, BitrateModeCVBR, BitrateModeCBR:
-		e.enc.SetBitrateMode(mode)
-		return nil
-	default:
-		return ErrInvalidBitrateMode
+	if err := validateBitrateMode(mode); err != nil {
+		return err
 	}
+	e.enc.SetBitrateMode(mode)
+	return nil
 }
 
 // BitrateMode returns the active bitrate control mode.
@@ -166,8 +164,8 @@ func (e *MultistreamEncoder) DTXEnabled() bool {
 //
 // lossPercent must be in the range [0, 100].
 func (e *MultistreamEncoder) SetPacketLoss(lossPercent int) error {
-	if lossPercent < 0 || lossPercent > 100 {
-		return ErrInvalidPacketLoss
+	if err := validatePacketLoss(lossPercent); err != nil {
+		return err
 	}
 	e.enc.SetPacketLoss(lossPercent)
 	return nil
@@ -180,13 +178,11 @@ func (e *MultistreamEncoder) PacketLoss() int {
 
 // SetBandwidth sets the target audio bandwidth.
 func (e *MultistreamEncoder) SetBandwidth(bw Bandwidth) error {
-	switch bw {
-	case BandwidthNarrowband, BandwidthMediumband, BandwidthWideband, BandwidthSuperwideband, BandwidthFullband:
-		e.enc.SetBandwidth(types.Bandwidth(bw))
-		return nil
-	default:
-		return ErrInvalidBandwidth
+	if err := validateBandwidth(bw); err != nil {
+		return err
 	}
+	e.enc.SetBandwidth(types.Bandwidth(bw))
+	return nil
 }
 
 // Bandwidth returns the currently configured target bandwidth.
@@ -198,8 +194,8 @@ func (e *MultistreamEncoder) Bandwidth() Bandwidth {
 //
 // channels must be -1 (auto), 1 (mono), or 2 (stereo).
 func (e *MultistreamEncoder) SetForceChannels(channels int) error {
-	if channels != -1 && channels != 1 && channels != 2 {
-		return ErrInvalidForceChannels
+	if err := validateForceChannels(channels); err != nil {
+		return err
 	}
 	e.enc.SetForceChannels(channels)
 	return nil
@@ -299,25 +295,21 @@ func (e *MultistreamEncoder) Signal() Signal {
 // Use SignalVoice for speech content, SignalMusic for music content,
 // or SignalAuto (default) for automatic detection.
 func (e *MultistreamEncoder) SetSignal(signal Signal) error {
-	switch signal {
-	case SignalAuto, SignalVoice, SignalMusic:
-		e.enc.SetSignal(types.Signal(signal))
-		return nil
-	default:
-		return ErrInvalidSignal
+	if err := validateSignal(signal); err != nil {
+		return err
 	}
+	e.enc.SetSignal(types.Signal(signal))
+	return nil
 }
 
 // SetMaxBandwidth sets the maximum bandwidth limit for all stream encoders.
 // The actual bandwidth will be clamped to this limit.
 func (e *MultistreamEncoder) SetMaxBandwidth(bw Bandwidth) error {
-	switch bw {
-	case BandwidthNarrowband, BandwidthMediumband, BandwidthWideband, BandwidthSuperwideband, BandwidthFullband:
-		e.enc.SetMaxBandwidth(types.Bandwidth(bw))
-		return nil
-	default:
-		return ErrInvalidBandwidth
+	if err := validateBandwidth(bw); err != nil {
+		return err
 	}
+	e.enc.SetMaxBandwidth(types.Bandwidth(bw))
+	return nil
 }
 
 // MaxBandwidth returns the maximum bandwidth limit.
@@ -329,6 +321,9 @@ func (e *MultistreamEncoder) MaxBandwidth() Bandwidth {
 // Valid range is 8-24 bits. This affects DTX sensitivity.
 // Returns an error if the depth is out of range.
 func (e *MultistreamEncoder) SetLSBDepth(depth int) error {
+	if err := validateLSBDepth(depth); err != nil {
+		return err
+	}
 	return e.enc.SetLSBDepth(depth)
 }
 
