@@ -213,6 +213,190 @@ func gemmAccumF32(out []float32, weights []float32, rows, cols, colStride int, x
 	}
 }
 
+func gemmAccumF32Rows24Pair(out0, out1 []float32, weights []float32, cols, colStride int, x []float32) {
+	if cols <= 0 {
+		return
+	}
+	_ = out0[23]
+	_ = out1[23]
+	_ = x[cols-1]
+	_ = weights[(cols-1)*colStride+47]
+	a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23 := out0[0], out0[1], out0[2], out0[3], out0[4], out0[5], out0[6], out0[7], out0[8], out0[9], out0[10], out0[11], out0[12], out0[13], out0[14], out0[15], out0[16], out0[17], out0[18], out0[19], out0[20], out0[21], out0[22], out0[23]
+	b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15, b16, b17, b18, b19, b20, b21, b22, b23 := out1[0], out1[1], out1[2], out1[3], out1[4], out1[5], out1[6], out1[7], out1[8], out1[9], out1[10], out1[11], out1[12], out1[13], out1[14], out1[15], out1[16], out1[17], out1[18], out1[19], out1[20], out1[21], out1[22], out1[23]
+	for j := 0; j < cols; j++ {
+		xj := x[j]
+		w := weights[j*colStride:]
+		a0 += w[0] * xj
+		b0 += w[24] * xj
+		a1 += w[1] * xj
+		b1 += w[25] * xj
+		a2 += w[2] * xj
+		b2 += w[26] * xj
+		a3 += w[3] * xj
+		b3 += w[27] * xj
+		a4 += w[4] * xj
+		b4 += w[28] * xj
+		a5 += w[5] * xj
+		b5 += w[29] * xj
+		a6 += w[6] * xj
+		b6 += w[30] * xj
+		a7 += w[7] * xj
+		b7 += w[31] * xj
+		a8 += w[8] * xj
+		b8 += w[32] * xj
+		a9 += w[9] * xj
+		b9 += w[33] * xj
+		a10 += w[10] * xj
+		b10 += w[34] * xj
+		a11 += w[11] * xj
+		b11 += w[35] * xj
+		a12 += w[12] * xj
+		b12 += w[36] * xj
+		a13 += w[13] * xj
+		b13 += w[37] * xj
+		a14 += w[14] * xj
+		b14 += w[38] * xj
+		a15 += w[15] * xj
+		b15 += w[39] * xj
+		a16 += w[16] * xj
+		b16 += w[40] * xj
+		a17 += w[17] * xj
+		b17 += w[41] * xj
+		a18 += w[18] * xj
+		b18 += w[42] * xj
+		a19 += w[19] * xj
+		b19 += w[43] * xj
+		a20 += w[20] * xj
+		b20 += w[44] * xj
+		a21 += w[21] * xj
+		b21 += w[45] * xj
+		a22 += w[22] * xj
+		b22 += w[46] * xj
+		a23 += w[23] * xj
+		b23 += w[47] * xj
+	}
+	out0[0], out0[1], out0[2], out0[3] = a0, a1, a2, a3
+	out0[4], out0[5], out0[6], out0[7] = a4, a5, a6, a7
+	out0[8], out0[9], out0[10], out0[11] = a8, a9, a10, a11
+	out0[12], out0[13], out0[14], out0[15] = a12, a13, a14, a15
+	out0[16], out0[17], out0[18], out0[19] = a16, a17, a18, a19
+	out0[20], out0[21], out0[22], out0[23] = a20, a21, a22, a23
+	out1[0], out1[1], out1[2], out1[3] = b0, b1, b2, b3
+	out1[4], out1[5], out1[6], out1[7] = b4, b5, b6, b7
+	out1[8], out1[9], out1[10], out1[11] = b8, b9, b10, b11
+	out1[12], out1[13], out1[14], out1[15] = b12, b13, b14, b15
+	out1[16], out1[17], out1[18], out1[19] = b16, b17, b18, b19
+	out1[20], out1[21], out1[22], out1[23] = b20, b21, b22, b23
+}
+
+func gemmAccumF32Rows24Triple(out0, out1, out2 []float32, weights []float32, cols, colStride int, x []float32) {
+	if cols <= 0 {
+		return
+	}
+	_ = out0[23]
+	_ = out1[23]
+	_ = out2[23]
+	_ = x[cols-1]
+	_ = weights[(cols-1)*colStride+71]
+	a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23 := out0[0], out0[1], out0[2], out0[3], out0[4], out0[5], out0[6], out0[7], out0[8], out0[9], out0[10], out0[11], out0[12], out0[13], out0[14], out0[15], out0[16], out0[17], out0[18], out0[19], out0[20], out0[21], out0[22], out0[23]
+	b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15, b16, b17, b18, b19, b20, b21, b22, b23 := out1[0], out1[1], out1[2], out1[3], out1[4], out1[5], out1[6], out1[7], out1[8], out1[9], out1[10], out1[11], out1[12], out1[13], out1[14], out1[15], out1[16], out1[17], out1[18], out1[19], out1[20], out1[21], out1[22], out1[23]
+	c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23 := out2[0], out2[1], out2[2], out2[3], out2[4], out2[5], out2[6], out2[7], out2[8], out2[9], out2[10], out2[11], out2[12], out2[13], out2[14], out2[15], out2[16], out2[17], out2[18], out2[19], out2[20], out2[21], out2[22], out2[23]
+	for j := 0; j < cols; j++ {
+		xj := x[j]
+		w := weights[j*colStride:]
+		a0 += w[0] * xj
+		b0 += w[24] * xj
+		c0 += w[48] * xj
+		a1 += w[1] * xj
+		b1 += w[25] * xj
+		c1 += w[49] * xj
+		a2 += w[2] * xj
+		b2 += w[26] * xj
+		c2 += w[50] * xj
+		a3 += w[3] * xj
+		b3 += w[27] * xj
+		c3 += w[51] * xj
+		a4 += w[4] * xj
+		b4 += w[28] * xj
+		c4 += w[52] * xj
+		a5 += w[5] * xj
+		b5 += w[29] * xj
+		c5 += w[53] * xj
+		a6 += w[6] * xj
+		b6 += w[30] * xj
+		c6 += w[54] * xj
+		a7 += w[7] * xj
+		b7 += w[31] * xj
+		c7 += w[55] * xj
+		a8 += w[8] * xj
+		b8 += w[32] * xj
+		c8 += w[56] * xj
+		a9 += w[9] * xj
+		b9 += w[33] * xj
+		c9 += w[57] * xj
+		a10 += w[10] * xj
+		b10 += w[34] * xj
+		c10 += w[58] * xj
+		a11 += w[11] * xj
+		b11 += w[35] * xj
+		c11 += w[59] * xj
+		a12 += w[12] * xj
+		b12 += w[36] * xj
+		c12 += w[60] * xj
+		a13 += w[13] * xj
+		b13 += w[37] * xj
+		c13 += w[61] * xj
+		a14 += w[14] * xj
+		b14 += w[38] * xj
+		c14 += w[62] * xj
+		a15 += w[15] * xj
+		b15 += w[39] * xj
+		c15 += w[63] * xj
+		a16 += w[16] * xj
+		b16 += w[40] * xj
+		c16 += w[64] * xj
+		a17 += w[17] * xj
+		b17 += w[41] * xj
+		c17 += w[65] * xj
+		a18 += w[18] * xj
+		b18 += w[42] * xj
+		c18 += w[66] * xj
+		a19 += w[19] * xj
+		b19 += w[43] * xj
+		c19 += w[67] * xj
+		a20 += w[20] * xj
+		b20 += w[44] * xj
+		c20 += w[68] * xj
+		a21 += w[21] * xj
+		b21 += w[45] * xj
+		c21 += w[69] * xj
+		a22 += w[22] * xj
+		b22 += w[46] * xj
+		c22 += w[70] * xj
+		a23 += w[23] * xj
+		b23 += w[47] * xj
+		c23 += w[71] * xj
+	}
+	out0[0], out0[1], out0[2], out0[3] = a0, a1, a2, a3
+	out0[4], out0[5], out0[6], out0[7] = a4, a5, a6, a7
+	out0[8], out0[9], out0[10], out0[11] = a8, a9, a10, a11
+	out0[12], out0[13], out0[14], out0[15] = a12, a13, a14, a15
+	out0[16], out0[17], out0[18], out0[19] = a16, a17, a18, a19
+	out0[20], out0[21], out0[22], out0[23] = a20, a21, a22, a23
+	out1[0], out1[1], out1[2], out1[3] = b0, b1, b2, b3
+	out1[4], out1[5], out1[6], out1[7] = b4, b5, b6, b7
+	out1[8], out1[9], out1[10], out1[11] = b8, b9, b10, b11
+	out1[12], out1[13], out1[14], out1[15] = b12, b13, b14, b15
+	out1[16], out1[17], out1[18], out1[19] = b16, b17, b18, b19
+	out1[20], out1[21], out1[22], out1[23] = b20, b21, b22, b23
+	out2[0], out2[1], out2[2], out2[3] = c0, c1, c2, c3
+	out2[4], out2[5], out2[6], out2[7] = c4, c5, c6, c7
+	out2[8], out2[9], out2[10], out2[11] = c8, c9, c10, c11
+	out2[12], out2[13], out2[14], out2[15] = c12, c13, c14, c15
+	out2[16], out2[17], out2[18], out2[19] = c16, c17, c18, c19
+	out2[20], out2[21], out2[22], out2[23] = c20, c21, c22, c23
+}
+
 func weightsInt8ToFloat32(src []int8) []float32 {
 	if len(src) == 0 {
 		return nil
@@ -266,6 +450,26 @@ func (l *AnalysisGRULayer) ComputeGRU(state []float32, input []float32) {
 	n := l.NbNeurons
 	m := l.NbInputs
 	stride := 3 * n
+
+	if n == 24 && len(l.inputWeightsF32) == len(l.InputWeights) && len(l.recurrentWeightsF32) == len(l.RecurrentWeights) {
+		for i := 0; i < n; i++ {
+			z[i] = float32(l.Bias[i])
+			r[i] = float32(l.Bias[n+i])
+			h[i] = float32(l.Bias[2*n+i])
+		}
+		gemmAccumF32Rows24Triple(z[:n], r[:n], h[:n], l.inputWeightsF32, m, stride, input)
+		gemmAccumF32Rows24Pair(z[:n], r[:n], l.recurrentWeightsF32, n, stride, state)
+		for i := 0; i < n; i++ {
+			z[i] = sigmoidApprox(WeightsScale * z[i])
+			r[i] = sigmoidApprox(WeightsScale * r[i])
+			tmp[i] = state[i] * r[i]
+		}
+		gemmAccumF32(h[:n], l.recurrentWeightsF32[2*n:], n, n, stride, tmp[:n])
+		for i := 0; i < n; i++ {
+			state[i] = z[i]*state[i] + (1.0-z[i])*tansigApprox(WeightsScale*h[i])
+		}
+		return
+	}
 
 	// Compute update gate z
 	for i := 0; i < n; i++ {
