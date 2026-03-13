@@ -1,3 +1,5 @@
+//go:build arm64 && !race
+
 #include "textflag.h"
 
 // func haar1Stride1Asm(x []float64, n0 int)
