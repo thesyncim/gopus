@@ -127,19 +127,29 @@ func extractFirstFramePayload(data []byte, toc TOC) ([]byte, error) {
 		}
 
 		if vbr {
-			frameLen, bytesRead, err := parseFrameLength(data, offset)
-			if err != nil {
-				return nil, err
+			frameDataEnd := len(data) - padding
+			if frameDataEnd < offset {
+				return nil, ErrInvalidPacket
 			}
-			offset += bytesRead
-			for i := 1; i < m-1; i++ {
-				_, readN, err := parseFrameLength(data, offset)
+
+			frameLen := frameDataEnd - offset
+			if m > 1 {
+				var bytesRead int
+				parsedFrameLen, bytesRead, err := parseFrameLength(data, offset)
 				if err != nil {
 					return nil, err
 				}
-				offset += readN
+				frameLen = parsedFrameLen
+				offset += bytesRead
+				for i := 1; i < m-1; i++ {
+					_, readN, err := parseFrameLength(data, offset)
+					if err != nil {
+						return nil, err
+					}
+					offset += readN
+				}
 			}
-			if frameLen <= 0 || offset+frameLen > len(data)-padding {
+			if frameLen <= 0 || offset+frameLen > frameDataEnd {
 				return nil, ErrInvalidPacket
 			}
 			return data[offset : offset+frameLen], nil

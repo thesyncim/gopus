@@ -1,6 +1,6 @@
 # Investigation Decisions
 
-Last updated: 2026-03-12
+Last updated: 2026-03-13
 
 Purpose: record durable keep/skip decisions to avoid re-running solved investigations.
 
@@ -18,6 +18,34 @@ owner: <handle>
 ```
 
 ## Current Decisions
+
+date: 2026-03-13
+topic: SILK PLC malformed-state bounds hardening
+decision: Keep the `plc/silk_plc.go` concealment guards that bounds-check LTP history reads (`silkPLCBufferAt()`), clamp each PLC subframe synthesis loop to the actual requested `frameSize`, and stop writing `sLTPQ15` once the synthesized history cursor reaches the available buffer. Treat these guards as required robustness behavior for malformed/truncated decode state, not as optional fuzz-only instrumentation.
+evidence: The new `tools/safety_soak` randomized corruption harness found a real panic in `ConcealSILKWithLTP` on a truncated/shape-inconsistent mono decode state after earlier stereo history. Regression coverage passed with `GOWORK=off go test ./plc -run '^(TestConcealSILKWithLTPLongFrameNoPanic|TestConcealSILKWithLTPShortMemoryNoPanic|TestConcealSILKWithLTPInconsistentFrameLayoutNoPanic)$' -count=1`, and the soak/fuzz stack stayed green afterward with `GOPUS_SAFETY_SOAK_DURATION=5s GOPUS_SAFETY_SOAK_REPORT_INTERVAL=2s make test-soak-safety` (`panics=0`, `rss_peak_mib=14`, `goroutines_peak=1`) plus the new malformed decode fuzzers.
+do_not_repeat_until: the SILK PLC history layout changes, concealment no longer reads from `sLTPQ15` with legacy tap indexing, or new fixture/libopus evidence shows these guards masking a real parity mismatch instead of preventing out-of-bounds access.
+owner: codex
+
+date: 2026-03-13
+topic: CELT Haar fast paths under the race detector
+decision: Keep the CELT Haar specialized/asm fast paths for normal builds, but force the legacy generic loop order under `-race` builds. The race detector perturbs the exact float32-to-float64 round-trip bits on those optimized paths enough to trip the exactness assertions even though normal builds stay exact; treat that as instrumentation noise rather than a reason to weaken the normal-path exact guards.
+evidence: `GOWORK=off go test ./celt -run '^(TestHaar1SpecializedMatchesGeneric|TestHaar1StrideFastPathsMatchGenericExact)$' -count=1` passed before and after the keep. Under `-race`, the same tests failed with tiny ULP-scale mismatches until `celt/bands_quant.go` was taught to bypass the optimized paths when `raceEnabled`, while arm64 race builds also route the `haar1Stride{1,2}Asm` symbols to the generic helpers. After that, `GOWORK=off go test -race ./celt -run '^(TestHaar1SpecializedMatchesGeneric|TestHaar1StrideFastPathsMatchGenericExact)$' -count=1` and the full `make test-race` sweep passed.
+do_not_repeat_until: the Haar fast paths change their arithmetic/order enough to become exact under `-race`, Go race instrumentation stops perturbing those results on supported arches, or the exactness tests are intentionally relaxed for another documented reason.
+owner: codex
+
+date: 2026-03-13
+topic: Differential fuzz scope for libopus safety comparisons
+decision: Keep the `FuzzDecodeAgainstLibopus` differential lane scoped to packets that are structurally decodable within libopus's public packet envelope: total duration at most `120 ms` (`5760` samples at 48 kHz), every parsed frame length strictly positive, and every parsed frame at most `1275` bytes. Use the direct libopus decode helper (`decodeWithLibopusReferencePacketsSingle` via `tools/csrc/libopus_refdecode_single.c`) for accept/reject and decoded-duration comparisons, and keep more aggressively malformed mutations in the no-panic robustness fuzzers (`FuzzDecodeNeverPanics`, `FuzzOggReaderNeverPanics`) instead of trying to force parser-return-code parity through a broader malformed differential lane.
+evidence: Longer `10s` fuzz runs initially exposed shapes where the `opus_demo` CLI wrapper was too coarse as an oracle for malformed packets. After scoping the lane to the public envelope and switching it to the direct libopus decode helper, the exact code-3 VBR `M==1` regression packet (`43c1064d66dd53e3b92d85ca64ec672fb6384f7b2dd2cb3164f5e17ae7b97e7a7e69544afe2e8880`) reproduced a real `gopus` bug instead of a CLI mismatch. With the extractor fix in place, `GOWORK=off go test ./testvectors -run '^$' -fuzz 'FuzzDecodeAgainstLibopus' -fuzztime=12s -count=1`, `GOPUS_SAFETY_SOAK_DURATION=5s GOPUS_SAFETY_SOAK_REPORT_INTERVAL=2s make verify-safety`, and `make verify-production` all passed while the no-panic fuzzers continued covering the broader malformed surface.
+do_not_repeat_until: the project adds a direct libopus packet-parse/final-range oracle with precise parser return codes for malformed packets, or explicitly decides to expand the differential lane beyond decode acceptance/duration into that broader parser surface.
+owner: codex
+
+date: 2026-03-13
+topic: Code-3 VBR single-frame FEC payload extraction
+decision: Keep `extractFirstFramePayload()` aligned to libopus packet parsing for code-3 VBR packets with `M==1`: after optional padding-length bytes, the sole frame payload is the full remaining non-padding packet body and does not carry an explicit length byte. Do not reintroduce size parsing for that shape when storing first-frame data for SILK/Hybrid FEC state.
+evidence: `FuzzDecodeAgainstLibopus` reduced to a concrete regression packet (`43c1064d66dd53e3b92d85ca64ec672fb6384f7b2dd2cb3164f5e17ae7b97e7a7e69544afe2e8880`) that libopus accepted while `gopus` returned `opus: invalid packet structure` after successful packet parsing. The root cause was `extractFirstFramePayload()` parsing a phantom size byte for code-3 VBR `M==1`. Regression coverage passed with `GOWORK=off go test . -run 'TestExtractFirstFramePayloadCode3VBROneFrameWithPadding|TestDecodeCode3VBROneFramePaddingRegression' -count=1`, and the full safety/broad gates passed afterward with `GOPUS_SAFETY_SOAK_DURATION=5s GOPUS_SAFETY_SOAK_REPORT_INTERVAL=2s make verify-safety` plus `make verify-production`.
+do_not_repeat_until: FEC storage stops extracting first-frame payload bytes from packet-level framing, libopus changes code-3 VBR `M==1` packet semantics for the pinned reference version, or new fixture evidence shows a different first-frame extraction rule for stored LBRR state.
+owner: codex
 
 date: 2026-03-12
 topic: CELT pitch-search inline fine-range scoring and remove-doubling triple probe

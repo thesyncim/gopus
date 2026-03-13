@@ -1,0 +1,129 @@
+name: Verify Safety
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 9 * * 1"
+
+permissions:
+  contents: read
+
+env:
+  GOWORK: "off"
+  LIBOPUS_VERSION: "1.6.1"
+  GOPUS_DISABLE_OPUSDEC: "0"
+  GOPUS_DISABLE_OPUSENC: "1"
+  GOPUS_SAFETY_FUZZTIME: "10s"
+  GOPUS_SAFETY_SOAK_DURATION: "30s"
+  GOPUS_SAFETY_PLATFORMS: "linux/amd64-v1,linux/amd64-v3,macos/arm64,windows/amd64"
+  GOPUS_SAFETY_GO_VERSIONS: "go1.26.0,go1.25.0"
+
+jobs:
+  verify-safety-linux:
+    name: verify-safety-linux (Go ${{ matrix.go-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version:
+          - "1.26.0"
+          - "1.25.0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+
+      - name: Cache pinned libopus build
+        uses: actions/cache@v4
+        with:
+          path: |
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+          key: safety-libopus-${{ runner.os }}-${{ runner.arch }}-${{ matrix.go-version }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
+
+      - name: Install codec tools (if missing)
+        run: |
+          if command -v ffmpeg >/dev/null 2>&1 && command -v opusdec >/dev/null 2>&1; then
+            echo "ffmpeg and opusdec already present; skipping apt install"
+            exit 0
+          fi
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg opus-tools
+
+      - name: Run safety verification bundle
+        run: |
+          make ensure-libopus
+          make verify-safety
+
+      - name: Upload release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-evidence-linux-go${{ matrix.go-version }}
+          path: reports/release/*.md
+          if-no-files-found: ignore
+
+  assembly-safety-arm64:
+    name: assembly-safety-arm64
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Cache pinned libopus build
+        uses: actions/cache@v4
+        with:
+          path: |
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+          key: safety-libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
+
+      - name: Install codec tools (if missing)
+        run: |
+          if command -v ffmpeg >/dev/null 2>&1 && command -v opusdec >/dev/null 2>&1; then
+            echo "ffmpeg and opusdec already present; skipping brew install"
+            exit 0
+          fi
+          brew install ffmpeg opus-tools
+
+      - name: Run arm64 assembly safety matrix
+        run: |
+          make ensure-libopus
+          make test-assembly-safety
+
+  safety-windows-smoke:
+    name: safety-windows-smoke
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      GOPUS_DISABLE_OPUSDEC: "1"
+      GOPUS_DISABLE_OPUSENC: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.0"
+          cache: true
+
+      - name: Run Windows safety smoke
+        shell: pwsh
+        run: |
+          go test . -run TestAPIAbuseReturnsError -count=1
+          go test . -run '^$' -fuzz FuzzDecodeNeverPanics -fuzztime 10s -count=1
+          go test ./container/ogg -run '^$' -fuzz FuzzOggReaderNeverPanics -fuzztime 10s -count=1

@@ -245,6 +245,104 @@ func TestConcealSILKWithLTPLongFrameNoPanic(t *testing.T) {
 	}
 }
 
+func TestConcealSILKWithLTPShortMemoryNoPanic(t *testing.T) {
+	dec := &mockSILKExtendedDecoder{
+		mockSILKDecoder: mockSILKDecoder{
+			lpcValues: make([]float32, 16),
+			lpcOrder:  16,
+			wasVoiced: true,
+			history:   make([]float32, 40),
+			histIdx:   20,
+		},
+		signalType:   2,
+		pitchLag:     1,
+		lastGainQ16:  65536,
+		ltpScaleQ14:  16384,
+		excitation:   make([]int32, 40),
+		lpcQ12:       make([]int16, 16),
+		slpcQ14:      make([]int32, 16),
+		fsKHz:        16,
+		subfrLength:  80,
+		nbSubfr:      4,
+		ltpMemLength: 40,
+		outBufQ0:     make([]int16, 40),
+	}
+	dec.ltpCoefQ14 = [ltpOrder]int16{0, 2048, 8192, 2048, 0}
+	dec.lpcQ12[0] = 2048
+	dec.lpcQ12[1] = -1024
+
+	state := NewSILKPLCState()
+	pitchL := []int{1, 1, 1, 1}
+	ltpCoefQ14 := make([]int16, ltpOrder*4)
+	for sf := 0; sf < 4; sf++ {
+		copy(ltpCoefQ14[sf*ltpOrder:(sf+1)*ltpOrder], dec.ltpCoefQ14[:])
+	}
+	gainsQ16 := []int32{65536, 65536, 65536, 65536}
+	lpcQ12 := make([]int16, 16)
+	copy(lpcQ12, dec.lpcQ12)
+	state.UpdateFromGoodFrame(2, pitchL, ltpCoefQ14, 16384, gainsQ16, lpcQ12, 16, 4, 80)
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("ConcealSILKWithLTP panicked on short-memory state: %v", r)
+		}
+	}()
+
+	out := ConcealSILKWithLTP(dec, state, 0, 320)
+	if len(out) != 320 {
+		t.Fatalf("concealed length = %d, want 320", len(out))
+	}
+}
+
+func TestConcealSILKWithLTPInconsistentFrameLayoutNoPanic(t *testing.T) {
+	dec := &mockSILKExtendedDecoder{
+		mockSILKDecoder: mockSILKDecoder{
+			lpcValues: make([]float32, 16),
+			lpcOrder:  16,
+			wasVoiced: true,
+			history:   make([]float32, 240),
+			histIdx:   120,
+		},
+		signalType:   2,
+		pitchLag:     1,
+		lastGainQ16:  65536,
+		ltpScaleQ14:  16384,
+		excitation:   make([]int32, 240),
+		lpcQ12:       make([]int16, 16),
+		slpcQ14:      make([]int32, 16),
+		fsKHz:        12,
+		subfrLength:  80,
+		nbSubfr:      4,
+		ltpMemLength: 240,
+		outBufQ0:     make([]int16, 240),
+	}
+	dec.ltpCoefQ14 = [ltpOrder]int16{0, 2048, 8192, 2048, 0}
+	dec.lpcQ12[0] = 2048
+	dec.lpcQ12[1] = -1024
+
+	state := NewSILKPLCState()
+	pitchL := []int{1, 1, 1, 1}
+	ltpCoefQ14 := make([]int16, ltpOrder*4)
+	for sf := 0; sf < 4; sf++ {
+		copy(ltpCoefQ14[sf*ltpOrder:(sf+1)*ltpOrder], dec.ltpCoefQ14[:])
+	}
+	gainsQ16 := []int32{65536, 65536, 65536, 65536}
+	lpcQ12 := make([]int16, 16)
+	copy(lpcQ12, dec.lpcQ12)
+	state.UpdateFromGoodFrame(2, pitchL, ltpCoefQ14, 16384, gainsQ16, lpcQ12, 16, 4, 80)
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("ConcealSILKWithLTP panicked on inconsistent frame layout: %v", r)
+		}
+	}()
+
+	out := ConcealSILKWithLTP(dec, state, 0, 120)
+	if len(out) != 120 {
+		t.Fatalf("concealed length = %d, want 120", len(out))
+	}
+}
+
 func TestConcealSILKWithLTPOutBufPathIgnoresFloatHistory(t *testing.T) {
 	newDec := func(historyPhase float64) *mockSILKExtendedDecoder {
 		dec := &mockSILKExtendedDecoder{
@@ -717,9 +815,9 @@ func TestSILKPLCStateUpdateFromGoodFrame(t *testing.T) {
 		16384, // 1.0 in Q14
 		gainsQ16,
 		lpcQ12,
-		16,  // fsKHz
-		4,   // nbSubfr
-		80,  // subfrLength
+		16, // fsKHz
+		4,  // nbSubfr
+		80, // subfrLength
 	)
 
 	// Check that state was updated
