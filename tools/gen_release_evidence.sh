@@ -43,6 +43,12 @@ run_cmd() {
   echo "- Generated (UTC): $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
   echo "- Host: $(uname -s) $(uname -m)"
   echo "- Go: $(go version)"
+  echo "- Pinned libopus: ${LIBOPUS_VERSION:-1.6.1}"
+  echo "- Safety claim: robust against malformed input, interoperable with libopus on covered fixtures, bounded in memory/allocation behavior, and stable under randomized stress."
+  echo "- Safety fuzz time: ${GOPUS_SAFETY_FUZZTIME:-10s}"
+  echo "- Safety soak duration: ${GOPUS_SAFETY_SOAK_DURATION:-30s}"
+  echo "- Safety platforms: ${GOPUS_SAFETY_PLATFORMS:-$(uname -s)/$(uname -m)}"
+  echo "- Safety Go versions: ${GOPUS_SAFETY_GO_VERSIONS:-$(go env GOVERSION)}"
   echo
 } > "${OUT_FILE}"
 
@@ -51,6 +57,9 @@ cd "${ROOT_DIR}"
 run_cmd "Production Gate" make verify-production
 run_cmd "Exhaustive Gate" make verify-production-exhaustive
 run_cmd "Benchmark Guardrails" make bench-guard
-run_cmd "Hot-Path Benchmarks" go test -run '^$' -bench '^Benchmark(DecoderDecode_CELT|EncoderEncode|DecoderDecodeInt16|EncoderEncodeInt16)$' -benchmem -count=1 .
+run_cmd "Assembly Safety Matrix" make test-assembly-safety
+run_cmd "Fuzz Safety Gate" make test-fuzz-safety
+run_cmd "Soak Safety Gate" make test-soak-safety
+run_cmd "Hot-Path Benchmarks" env GOWORK=off go test -run '^$' -bench '^Benchmark(DecoderDecode_CELT|EncoderEncode|DecoderDecodeInt16|EncoderEncodeInt16)$' -benchmem -count=1 .
 
 echo "wrote ${OUT_FILE}"

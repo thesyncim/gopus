@@ -581,26 +581,35 @@ func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lo
 		}
 	}
 
-	for k := 0; k < nbSubfr; k++ {
+	generated := 0
+	for k := 0; k < nbSubfr && generated < frameSize; k++ {
+		subfrSamples := subfrLength
+		if remaining := frameSize - generated; subfrSamples > remaining {
+			subfrSamples = remaining
+		}
 		// Match libopus PLC.c cadence:
 		// always run LTP_pred + noise synthesis loop; for unvoiced frames,
 		// B_Q14 is zero so prediction naturally collapses to rounding bias only.
 		predLagPtr := sLTPBufIdx - lag + ltpOrder/2
-		for i := 0; i < subfrLength; i++ {
+		for i := 0; i < subfrSamples; i++ {
 			ltpPredQ12 := int32(2) // rounding to avoid negative bias
-			ltpPredQ12 = smlawb(ltpPredQ12, sLTPQ15[predLagPtr+0], int32(B_Q14[0]))
-			ltpPredQ12 = smlawb(ltpPredQ12, sLTPQ15[predLagPtr-1], int32(B_Q14[1]))
-			ltpPredQ12 = smlawb(ltpPredQ12, sLTPQ15[predLagPtr-2], int32(B_Q14[2]))
-			ltpPredQ12 = smlawb(ltpPredQ12, sLTPQ15[predLagPtr-3], int32(B_Q14[3]))
-			ltpPredQ12 = smlawb(ltpPredQ12, sLTPQ15[predLagPtr-4], int32(B_Q14[4]))
+			ltpPredQ12 = smlawb(ltpPredQ12, silkPLCBufferAt(sLTPQ15, predLagPtr+0), int32(B_Q14[0]))
+			ltpPredQ12 = smlawb(ltpPredQ12, silkPLCBufferAt(sLTPQ15, predLagPtr-1), int32(B_Q14[1]))
+			ltpPredQ12 = smlawb(ltpPredQ12, silkPLCBufferAt(sLTPQ15, predLagPtr-2), int32(B_Q14[2]))
+			ltpPredQ12 = smlawb(ltpPredQ12, silkPLCBufferAt(sLTPQ15, predLagPtr-3), int32(B_Q14[3]))
+			ltpPredQ12 = smlawb(ltpPredQ12, silkPLCBufferAt(sLTPQ15, predLagPtr-4), int32(B_Q14[4]))
 			predLagPtr++
 
 			randSeed = silkRand(randSeed)
 			idx := (randSeed >> 25) & randBufMask
 			randExc := randBuf[idx]
+			if sLTPBufIdx >= len(sLTPQ15) {
+				break
+			}
 			sLTPQ15[sLTPBufIdx] = smlawb(ltpPredQ12, randExc, int32(randScaleQ14)) << 2
 			sLTPBufIdx++
 		}
+		generated += subfrSamples
 
 		// Attenuate LTP gain
 		for j := 0; j < ltpOrder; j++ {
@@ -658,6 +667,13 @@ func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lo
 	}
 
 	return output
+}
+
+func silkPLCBufferAt(buf []int32, idx int) int32 {
+	if idx < 0 || idx >= len(buf) {
+		return 0
+	}
+	return buf[idx]
 }
 
 // concealVoicedSILK generates concealment for voiced (pitched) speech.
