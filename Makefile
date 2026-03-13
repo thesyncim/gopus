@@ -1,6 +1,9 @@
-.PHONY: lint lint-fix test test-fast test-race test-race-parity test-fuzz-smoke test-parity test-exhaustive test-provenance bench-guard agent-preflight agent-claims agent-claim agent-release verify-production verify-production-exhaustive release-evidence ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
+.PHONY: lint lint-fix test test-fast test-race test-race-parity test-fuzz-smoke test-fuzz-safety test-parity test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard agent-preflight agent-claims agent-claim agent-release verify-production verify-production-exhaustive verify-safety release-evidence ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
 GO ?= go
+GO_WORK_ENV ?= GOWORK=off
+GO_RUNNABLE_TEST ?= bash ./tools/run_go_test_runnable.sh
+ASSEMBLY_SAFETY_MATRIX ?= bash ./tools/run_assembly_safety_matrix.sh
 PGO_FILE ?= default.pgo
 PGO_BENCH ?= ^Benchmark(DecoderDecode|EncoderEncode)_(CELT|Hybrid|SILK|Stereo|MultiFrame|VoIP|LowDelay)$
 PGO_PKG ?= .
@@ -27,6 +30,12 @@ DOCKER_EXHAUSTIVE_CACHE_SUFFIX := $(subst /,-,$(DOCKER_EXHAUSTIVE_PLATFORM))
 DOCKER_BUILDX_CACHE_DIR := $(DOCKER_CACHE_DIR)/buildx-$(DOCKER_CACHE_SUFFIX)
 DOCKER_EXHAUSTIVE_BUILDX_CACHE_DIR := $(DOCKER_CACHE_DIR)/buildx-$(DOCKER_EXHAUSTIVE_CACHE_SUFFIX)
 RELEASE_EVIDENCE_DIR ?= reports/release
+GOPUS_SAFETY_FUZZTIME ?= 10s
+GOPUS_SAFETY_SOAK_DURATION ?= 30s
+GOPUS_SAFETY_SOAK_REPORT_INTERVAL ?= 10s
+GOPUS_SAFETY_SOAK_MAX_RSS_GROWTH_MIB ?= 256
+GOPUS_SAFETY_SOAK_MAX_GOROUTINE_GROWTH ?= 16
+GOPUS_SAFETY_SOAK_MAX_ALLOCS ?= 0.0
 
 # Run golangci-lint
 lint:
@@ -40,32 +49,48 @@ lint-fix:
 
 # Run tests
 test:
-	$(GO) test ./...
+	$(GO_RUNNABLE_TEST)
 
 # Fast inner-loop tests (skips parity/exhaustive tier checks)
 test-fast:
-	$(GO) test -short ./...
+	$(GO_RUNNABLE_TEST) -short
 
 # Race detector sweep across all packages at fast test tier (keeps runtime bounded).
 test-race:
-	GOPUS_TEST_TIER=fast $(GO) test -race ./... -count=1 -timeout=20m
+	GOPUS_TEST_TIER=fast $(GO_RUNNABLE_TEST) -race -count=1 -timeout=20m
 
 # Deeper race sweep at parity tier.
 test-race-parity:
-	GOPUS_TEST_TIER=parity $(GO) test -race ./... -count=1 -timeout=30m
+	GOPUS_TEST_TIER=parity $(GO_RUNNABLE_TEST) -race -count=1 -timeout=30m
 
 # Fuzz smoke run for packet/fixture parsers.
 test-fuzz-smoke:
-	$(GO) test . -run='^$$' -fuzz='FuzzParsePacket_NoPanic' -fuzztime=10s -count=1
-	$(GO) test ./testvectors -run='^$$' -fuzz='FuzzParseOpusDemoBitstream' -fuzztime=10s -count=1
+	$(GO_WORK_ENV) $(GO) test . -run='^$$' -fuzz='FuzzParsePacket_NoPanic' -fuzztime=10s -count=1
+	$(GO_WORK_ENV) $(GO) test ./testvectors -run='^$$' -fuzz='FuzzParseOpusDemoBitstream' -fuzztime=10s -count=1
+
+# Safety-focused fuzzing for malformed packets, Ogg pages, and libopus differential decode.
+test-fuzz-safety: ensure-libopus
+	$(GO_WORK_ENV) $(GO) test . -run='^$$' -fuzz='FuzzParsePacket_NoPanic' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test . -run='^$$' -fuzz='FuzzDecodeNeverPanics' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='FuzzOggReaderNeverPanics' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./testvectors -run='^$$' -fuzz='FuzzParseOpusDemoBitstream' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./testvectors -run='^$$' -fuzz='FuzzDecodeAgainstLibopus' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
 
 # Parity tier (default for focused quality work)
 test-parity:
-	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO) test ./testvectors -run 'TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard|TestDecoderParityLibopusMatrix|TestDecoderParityMatrixWithFFmpeg|TestEncoderVariantProfileParityAgainstLibopusFixture' -count=1
+	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test ./testvectors -run 'TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard|TestDecoderParityLibopusMatrix|TestDecoderParityMatrixWithFFmpeg|TestEncoderVariantProfileParityAgainstLibopusFixture' -count=1
+
+# Native assembly/fallback validation matrix.
+test-assembly-safety: ensure-libopus
+	$(ASSEMBLY_SAFETY_MATRIX)
+
+# Long-running randomized encode/decode corruption soak.
+test-soak-safety:
+	$(GO_WORK_ENV) $(GO) run ./tools/safety_soak -duration $(GOPUS_SAFETY_SOAK_DURATION) -report-interval $(GOPUS_SAFETY_SOAK_REPORT_INTERVAL) -max-rss-growth-mib $(GOPUS_SAFETY_SOAK_MAX_RSS_GROWTH_MIB) -max-goroutine-growth $(GOPUS_SAFETY_SOAK_MAX_GOROUTINE_GROWTH) -max-hotpath-allocs $(GOPUS_SAFETY_SOAK_MAX_ALLOCS)
 
 # Hot-path performance guardrail checks (median benchmark thresholds + alloc bounds).
 bench-guard:
-	$(GO) run ./tools/benchguard -config tools/bench_guardrails.json
+	$(GO_WORK_ENV) $(GO) run ./tools/benchguard -config tools/bench_guardrails.json
 
 # Session memory + overlap preflight for concurrent agent work.
 agent-preflight:
@@ -88,7 +113,7 @@ agent-release:
 
 # Default production verification gate.
 verify-production: ensure-libopus
-	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO) test ./... -count=1
+	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_RUNNABLE_TEST) -count=1
 	$(MAKE) bench-guard
 	$(MAKE) test-race
 
@@ -97,6 +122,17 @@ verify-production-exhaustive: verify-production
 	$(MAKE) test-fuzz-smoke
 	$(MAKE) test-exhaustive
 	$(MAKE) test-provenance
+
+# Safety verification gate: strong existing checks first, then adversarial stress.
+verify-safety: ensure-libopus
+	$(MAKE) test-race
+	$(MAKE) test-parity
+	$(MAKE) test-exhaustive
+	$(MAKE) bench-guard
+	$(MAKE) test-assembly-safety
+	$(MAKE) test-fuzz-safety
+	$(MAKE) test-soak-safety
+	$(MAKE) release-evidence
 
 # Generate a release evidence bundle (gates + key benchmarks).
 release-evidence: ensure-libopus
@@ -171,26 +207,26 @@ docker-shell: docker-build
 
 # Exhaustive tier includes fixture honesty checks against pinned tmp_check opus_demo/opusdec.
 test-exhaustive: ensure-libopus
-	GOPUS_TEST_TIER=exhaustive $(GO) test ./testvectors -run 'TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureHonestyWithOpusDemo|TestDecoderParityMatrixFixtureHonestyWithOpusDemo|TestDecoderLossFixtureHonestyWithOpusDemo|TestLongFrameReferenceFixtureHonestyWithLiveOpusdec' -count=1
+	GOPUS_TEST_TIER=exhaustive $(GO_WORK_ENV) $(GO) test ./testvectors -run 'TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureHonestyWithOpusDemo|TestDecoderParityMatrixFixtureHonestyWithOpusDemo|TestDecoderLossFixtureHonestyWithOpusDemo|TestLongFrameReferenceFixtureHonestyWithLiveOpusdec' -count=1
 
 # Exhaustive provenance audit for encoder variant parity.
 test-provenance: ensure-libopus
-	GOPUS_TEST_TIER=exhaustive $(GO) test ./testvectors -run 'TestEncoderVariantProfileProvenanceAudit' -count=1
+	GOPUS_TEST_TIER=exhaustive $(GO_WORK_ENV) $(GO) test ./testvectors -run 'TestEncoderVariantProfileProvenanceAudit' -count=1
 
 # Regenerate fixture files from tmp_check/opus-$(LIBOPUS_VERSION)/opus_demo.
 fixtures-gen: ensure-libopus fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants
 
 fixtures-gen-decoder:
-	$(GO) run tools/gen_libopus_decoder_matrix_fixture.go
+	$(GO_WORK_ENV) $(GO) run tools/gen_libopus_decoder_matrix_fixture.go
 
 fixtures-gen-decoder-loss:
-	$(GO) run tools/gen_libopus_decoder_loss_fixture.go
+	$(GO_WORK_ENV) $(GO) run tools/gen_libopus_decoder_loss_fixture.go
 
 fixtures-gen-encoder:
-	$(GO) run tools/gen_libopus_encoder_packet_fixture.go
+	$(GO_WORK_ENV) $(GO) run tools/gen_libopus_encoder_packet_fixture.go
 
 fixtures-gen-variants:
-	$(GO) run tools/gen_libopus_encoder_variants_fixture.go
+	$(GO_WORK_ENV) $(GO) run tools/gen_libopus_encoder_variants_fixture.go
 
 # Regenerate amd64-specific fixture files in a cached linux/amd64 container.
 fixtures-gen-amd64: docker-build-exhaustive
@@ -211,15 +247,15 @@ fixtures-gen-amd64: docker-build-exhaustive
 
 # Build with profile-guided optimization (default.pgo auto-discovered by Go toolchain)
 build:
-	$(GO) build -pgo=auto ./...
+	$(GO_WORK_ENV) $(GO) build -pgo=auto ./...
 
 # Build without profile-guided optimization
 build-nopgo:
-	$(GO) build -pgo=off ./...
+	$(GO_WORK_ENV) $(GO) build -pgo=off ./...
 
 # Regenerate default.pgo from decode hot-path benchmarks
 pgo-generate:
-	$(GO) test -run='^$$' -bench='$(PGO_BENCH)' -benchtime=$(PGO_BENCHTIME) -count=$(PGO_COUNT) -cpuprofile $(PGO_FILE) $(PGO_PKG)
+	$(GO_WORK_ENV) $(GO) test -run='^$$' -bench='$(PGO_BENCH)' -benchtime=$(PGO_BENCHTIME) -count=$(PGO_COUNT) -cpuprofile $(PGO_FILE) $(PGO_PKG)
 
 # Refresh default.pgo then build with PGO enabled
 pgo-build: pgo-generate build
@@ -234,4 +270,4 @@ clean-vectors:
 
 # Run kernel-level benchmarks for CELT and SILK DSP functions.
 bench-kernels:
-	$(GO) test -bench=. -benchmem -count=5 ./celt/ ./silk/
+	$(GO_WORK_ENV) $(GO) test -bench=. -benchmem -count=5 ./celt/ ./silk/
