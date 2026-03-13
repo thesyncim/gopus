@@ -1,20 +1,14 @@
 package testvectors
 
 import (
-	"encoding/binary"
-	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"testing"
 
 	"github.com/thesyncim/gopus"
 )
 
 type decoderFuzzSeed struct {
-	packet     []byte
-	finalRange uint32
-	channels   int
+	packet   []byte
+	channels int
 }
 
 const maxOpusPacketSamples48k = 5760
@@ -46,17 +40,15 @@ func decoderMatrixFuzzSeeds() []decoderFuzzSeed {
 		}
 
 		seeds = append(seeds, decoderFuzzSeed{
-			packet:     append([]byte(nil), packets[0]...),
-			finalRange: c.Packets[0].FinalRange,
-			channels:   c.Channels,
+			packet:   append([]byte(nil), packets[0]...),
+			channels: c.Channels,
 		})
 
 		lastIdx := len(packets) - 1
 		if lastIdx > 0 {
 			seeds = append(seeds, decoderFuzzSeed{
-				packet:     append([]byte(nil), packets[lastIdx]...),
-				finalRange: c.Packets[lastIdx].FinalRange,
-				channels:   c.Channels,
+				packet:   append([]byte(nil), packets[lastIdx]...),
+				channels: c.Channels,
 			})
 		}
 	}
@@ -71,38 +63,8 @@ func normalizeFuzzChannels(channels int) int {
 	return 1
 }
 
-func singlePacketBitstream(packet []byte, finalRange uint32) []byte {
-	out := make([]byte, 8+len(packet))
-	binary.BigEndian.PutUint32(out[:4], uint32(len(packet)))
-	binary.BigEndian.PutUint32(out[4:8], finalRange)
-	copy(out[8:], packet)
-	return out
-}
-
-func decodeSinglePacketWithOpusDemo(opusDemo string, packet []byte, finalRange uint32, channels int) ([]float32, error) {
-	tmpDir, err := os.MkdirTemp("", "gopus-decode-fuzz-*")
-	if err != nil {
-		return nil, err
-	}
-	defer os.RemoveAll(tmpDir)
-
-	bitPath := filepath.Join(tmpDir, "input.bit")
-	outPath := filepath.Join(tmpDir, "output.f32")
-	if err := os.WriteFile(bitPath, singlePacketBitstream(packet, finalRange), 0o644); err != nil {
-		return nil, err
-	}
-
-	cmd := exec.Command(opusDemo, "-d", "48000", fmt.Sprintf("%d", channels), "-f32", bitPath, outPath)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("opus_demo decode failed: %v (%s)", err, out)
-	}
-
-	raw, err := os.ReadFile(outPath)
-	if err != nil {
-		return nil, err
-	}
-	return decodeRawFloat32LE(raw)
+func decodeSinglePacketWithLibopusReference(channels int, packet []byte) ([]float32, error) {
+	return decodeWithLibopusReferencePacketsSingle(channels, maxOpusPacketSamples48k, [][]byte{packet})
 }
 
 func requireFiniteDecodedSamples(t *testing.T, samples []float32) {
@@ -146,9 +108,8 @@ func mutateFixturePacket(seed []byte, mutation []byte) []byte {
 }
 
 func FuzzDecodeAgainstLibopus(f *testing.F) {
-	opusDemo, ok := getFixtureOpusDemoPath()
-	if !ok {
-		f.Skip("tmp_check opus_demo not found; skipping libopus differential fuzz")
+	if _, err := getLibopusRefdecodeSinglePath(); err != nil {
+		f.Skipf("libopus reference decode helper unavailable: %v", err)
 	}
 	seeds := decoderMatrixFuzzSeeds()
 	if len(seeds) == 0 {
@@ -159,6 +120,8 @@ func FuzzDecodeAgainstLibopus(f *testing.F) {
 	f.Add(uint8(1), []byte{0x01})
 	f.Add(uint8(2), []byte{0x02, 0xFF, 0x10})
 	f.Add(uint8(3), []byte{0x04, 0x00, 0x7F, 0x80})
+	f.Add(uint8(0x1A), []byte("Q"))
+	f.Add(uint8(0xFF), []byte{0x30, 0x79, 0xC0, 0x30})
 
 	f.Fuzz(func(t *testing.T, seedIndex uint8, mutation []byte) {
 		seed := seeds[int(seedIndex)%len(seeds)]
@@ -175,9 +138,9 @@ func FuzzDecodeAgainstLibopus(f *testing.F) {
 		}
 		// Keep differential checks on structurally decodable packets inside the
 		// public 120 ms / 1275-byte-per-frame envelope. More aggressively malformed
-		// mutations are still covered by the no-panic fuzzers, but opus_demo does
-		// not reliably surface those parser failures as non-zero exits for
-		// accept/reject comparisons.
+		// mutations are still covered by the no-panic fuzzers; this lane is for
+		// direct libopus API decode comparisons on packets that both sides should
+		// meaningfully classify.
 		if !packetWithinDifferentialScope(info) {
 			return
 		}
@@ -198,7 +161,7 @@ func FuzzDecodeAgainstLibopus(f *testing.F) {
 			requireFiniteDecodedSamples(t, pcm[:gotN*channels])
 		}
 
-		refSamples, refErr := decodeSinglePacketWithOpusDemo(opusDemo, packet, seed.finalRange, channels)
+		refSamples, refErr := decodeSinglePacketWithLibopusReference(channels, packet)
 		gotOK := gotErr == nil
 		refOK := refErr == nil
 

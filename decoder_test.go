@@ -1065,6 +1065,48 @@ func TestDecodeWithFEC_ProvidedPacketWithoutLBRRUsesDirectPLCFallback(t *testing
 	}
 }
 
+func TestExtractFirstFramePayloadCode3VBROneFrameWithPadding(t *testing.T) {
+	packet := append([]byte{0x43, 0xC1, 0x03}, []byte{0x4D, 0x66, 0xDD, 0x53, 0xE3}...)
+	packet = append(packet, 0x00, 0x00, 0x00)
+
+	firstFrameData, err := extractFirstFramePayload(packet, ParseTOC(packet[0]))
+	if err != nil {
+		t.Fatalf("extractFirstFramePayload error: %v", err)
+	}
+
+	want := []byte{0x4D, 0x66, 0xDD, 0x53, 0xE3}
+	if len(firstFrameData) != len(want) {
+		t.Fatalf("payload length=%d want=%d", len(firstFrameData), len(want))
+	}
+	for i := range want {
+		if firstFrameData[i] != want[i] {
+			t.Fatalf("payload[%d]=0x%02x want=0x%02x", i, firstFrameData[i], want[i])
+		}
+	}
+}
+
+func TestDecodeCode3VBROneFramePaddingRegression(t *testing.T) {
+	packet := mustDecodeHex(t, "43c1064d66dd53e3b92d85ca64ec672fb6384f7b2dd2cb3164f5e17ae7b97e7a7e69544afe2e8880")
+
+	cfg := DefaultDecoderConfig(48000, 1)
+	dec, err := NewDecoder(cfg)
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	pcm := make([]float32, cfg.MaxPacketSamples)
+	n, err := dec.Decode(packet, pcm)
+	if err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	if n <= 0 || n > cfg.MaxPacketSamples {
+		t.Fatalf("Decode samples=%d outside (0,%d]", n, cfg.MaxPacketSamples)
+	}
+	if !dec.hasFEC {
+		t.Fatal("Decode did not retain first-frame payload for FEC")
+	}
+}
+
 func TestDecodeWithFEC_PLCWithProvidedStateUsesProvidedMode(t *testing.T) {
 	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
 	if err != nil {
