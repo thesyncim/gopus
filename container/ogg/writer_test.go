@@ -2,8 +2,23 @@ package ogg
 
 import (
 	"bytes"
+	"io"
 	"testing"
 )
+
+type shortWriteWriter struct {
+	writes     int
+	shortAt    int
+	shortBytes int
+}
+
+func (w *shortWriteWriter) Write(p []byte) (int, error) {
+	w.writes++
+	if w.writes == w.shortAt {
+		return w.shortBytes, nil
+	}
+	return len(p), nil
+}
 
 // TestNewWriter_Mono tests creating a mono writer.
 func TestNewWriter_Mono(t *testing.T) {
@@ -175,6 +190,25 @@ func TestWritePacket_Single(t *testing.T) {
 
 	if pageNum != 3 {
 		t.Errorf("parsed %d pages, want 3", pageNum)
+	}
+}
+
+func TestWritePacket_ShortWriteRollsBackGranule(t *testing.T) {
+	sink := &shortWriteWriter{shortAt: 3, shortBytes: 1}
+	w, err := NewWriter(sink, 48000, 1)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	packet := []byte{0xF8, 0x01}
+	if err := w.WritePacket(packet, 960); err != io.ErrShortWrite {
+		t.Fatalf("WritePacket error = %v, want %v", err, io.ErrShortWrite)
+	}
+	if got := w.GranulePos(); got != 0 {
+		t.Fatalf("GranulePos() after failed write = %d, want 0", got)
+	}
+	if got := w.PageCount(); got != 2 {
+		t.Fatalf("PageCount() after failed write = %d, want 2", got)
 	}
 }
 

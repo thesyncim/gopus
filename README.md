@@ -118,9 +118,14 @@ Use them for simplicity, not for the tightest real-time loop.
 | `MultistreamEncoder` | Multichannel Opus encoding |
 | `MultistreamDecoder` | Multichannel Opus decoding |
 | `Reader` | Streaming decode (`io.Reader`) |
-| `Writer` | Streaming encode (`io.Writer`) |
+| `Writer` | Streaming encode (`io.WriteCloser`) |
 | `container/ogg.Reader` | Ogg Opus packet reader |
 | `container/ogg.Writer` | Ogg Opus packet writer |
+
+Most applications should stay on the top-level `gopus` facade plus `container/ogg`.
+Low-level subpackages such as `celt`, `silk`, `hybrid`, `rangecoding`, `plc`,
+and `multistream` expose implementation details and may change freely before the
+first release.
 
 Application hints:
 

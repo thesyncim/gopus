@@ -592,7 +592,8 @@ func (e *Encoder) SetCoarseEnergyAvailableBytes(bytes int) {
 	e.coarseAvailableBytes = bytes
 }
 
-// RoundFloat64ToFloat32 rounds each element to float32 precision and back.
+// RoundFloat64ToFloat32 rounds each element to float32 precision in place,
+// storing the rounded value back into the same []float64 slice.
 func (e *Encoder) RoundFloat64ToFloat32(x []float64) {
 	roundFloat64ToFloat32(x)
 }

@@ -24,6 +24,8 @@ func ec_laplace_get_freq1(fs0 int, decay int) int {
 }
 
 // DecodeLaplaceTest is an exported wrapper for testing.
+//
+// This helper exists for tests and codec-development tooling and may change.
 // It decodes a Laplace-distributed integer using the range coder.
 func (d *Decoder) DecodeLaplaceTest(fs int, decay int) int {
 	return d.decodeLaplace(fs, decay)
