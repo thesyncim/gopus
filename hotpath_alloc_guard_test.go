@@ -5,6 +5,12 @@ import (
 	"testing"
 )
 
+type nopPacketSink struct{}
+
+func (nopPacketSink) WritePacket(packet []byte) (int, error) {
+	return len(packet), nil
+}
+
 func testCELTPacket() []byte {
 	packet := make([]byte, 50)
 	packet[0] = 0xF8 // config=31 (CELT FB 20ms), mono, code 0
@@ -111,5 +117,28 @@ func TestHotPathAllocsDecodeInt16(t *testing.T) {
 	})
 	if allocs != 0 {
 		t.Fatalf("Decode(int16) allocs/op = %.2f, want 0", allocs)
+	}
+}
+
+func TestHotPathAllocsStreamWriterFloat32(t *testing.T) {
+	writer, err := NewWriter(48000, 2, nopPacketSink{}, FormatFloat32LE, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewWriter: %v", err)
+	}
+	pcmBytes := generateFloat32Bytes(48000, 2, 960, 440.0)
+
+	for i := 0; i < 5; i++ {
+		if _, err := writer.Write(pcmBytes); err != nil {
+			t.Fatalf("warmup Write: %v", err)
+		}
+	}
+
+	allocs := testing.AllocsPerRun(200, func() {
+		if _, err := writer.Write(pcmBytes); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("stream Writer.Write allocs/op = %.2f, want 0", allocs)
 	}
 }

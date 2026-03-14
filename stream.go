@@ -287,11 +287,14 @@ type Writer struct {
 	sink   PacketSink
 	format SampleFormat // Input sample format
 
-	sampleBuf  []byte // Buffered input bytes
-	frameBytes int    // Bytes needed for one frame
+	sampleBuf    []byte // Buffered input bytes
+	frameBytes   int    // Bytes needed for one frame
+	frameSamples int    // Samples per frame across all channels
 
-	packetBuf []byte // Buffer for encoded packet (4000 bytes)
-	closed    bool
+	packetBuf  []byte    // Buffer for encoded packet (4000 bytes)
+	pcmScratch []float32 // Reused PCM scratch for byte-to-sample conversion
+	paddedBuf  []byte    // Reused zero-padded frame buffer for Flush
+	closed     bool
 }
 
 // NewWriter creates a streaming encoder.
@@ -312,14 +315,18 @@ func NewWriter(sampleRate, channels int, sink PacketSink, format SampleFormat, a
 	frameSize := enc.FrameSize()
 	bytesPerSample := format.BytesPerSample()
 	frameBytes := frameSize * channels * bytesPerSample
+	frameSamples := frameSize * channels
 
 	return &Writer{
-		enc:        enc,
-		sink:       sink,
-		format:     format,
-		sampleBuf:  make([]byte, 0, frameBytes*2), // Pre-allocate for 2 frames
-		frameBytes: frameBytes,
-		packetBuf:  make([]byte, 4000),
+		enc:          enc,
+		sink:         sink,
+		format:       format,
+		sampleBuf:    make([]byte, 0, frameBytes*2), // Pre-allocate for 2 frames
+		frameBytes:   frameBytes,
+		frameSamples: frameSamples,
+		packetBuf:    make([]byte, 4000),
+		pcmScratch:   make([]float32, frameSamples),
+		paddedBuf:    make([]byte, frameBytes),
 	}, nil
 }
 
@@ -331,66 +338,96 @@ func (w *Writer) Write(p []byte) (int, error) {
 	if w.closed {
 		return 0, io.ErrClosedPipe
 	}
+
+	initialBuffered := len(w.sampleBuf)
+	processedBytes := 0
 	// Append input to buffer
 	w.sampleBuf = append(w.sampleBuf, p...)
 
 	// Process complete frames
-	for len(w.sampleBuf) >= w.frameBytes {
+	for len(w.sampleBuf)-processedBytes >= w.frameBytes {
 		// Extract one frame of bytes
-		frameData := w.sampleBuf[:w.frameBytes]
+		frameData := w.sampleBuf[processedBytes : processedBytes+w.frameBytes]
 
-		// Convert bytes to float32 PCM
-		pcm := w.bytesToPCM(frameData)
+		// Convert bytes to float32 PCM using reusable scratch.
+		pcm := w.pcmScratch[:w.frameSamples]
+		w.decodePCMInto(pcm, frameData)
 
 		// Encode the frame
 		n, err := w.enc.Encode(pcm, w.packetBuf)
 		if err != nil {
-			return 0, err
+			w.discardConsumedPrefix(processedBytes)
+			return consumedInputBytes(initialBuffered, processedBytes, len(p)), err
 		}
 
 		// If n > 0, send packet to sink (n == 0 means DTX suppressed)
 		if n > 0 {
-			_, err = w.sink.WritePacket(w.packetBuf[:n])
-			if err != nil {
-				return 0, err
+			if err := w.writePacketToSink(w.packetBuf[:n]); err != nil {
+				w.closed = true
+				w.discardConsumedPrefix(processedBytes)
+				return consumedInputBytes(initialBuffered, processedBytes, len(p)), err
 			}
 		}
 
-		// Remove consumed bytes from buffer
-		w.sampleBuf = w.sampleBuf[w.frameBytes:]
+		processedBytes += w.frameBytes
 	}
 
+	w.discardConsumedPrefix(processedBytes)
 	return len(p), nil
 }
 
-// bytesToPCM converts bytes to float32 PCM samples based on the format.
-func (w *Writer) bytesToPCM(data []byte) []float32 {
+func consumedInputBytes(initialBuffered, processedBytes, incoming int) int {
+	if processedBytes <= initialBuffered {
+		return 0
+	}
+	consumed := processedBytes - initialBuffered
+	if consumed > incoming {
+		return incoming
+	}
+	return consumed
+}
+
+func (w *Writer) writePacketToSink(packet []byte) error {
+	n, err := w.sink.WritePacket(packet)
+	if err != nil {
+		if n > 0 {
+			return io.ErrShortWrite
+		}
+		return err
+	}
+	if n != len(packet) {
+		return io.ErrShortWrite
+	}
+	return nil
+}
+
+func (w *Writer) discardConsumedPrefix(consumed int) {
+	if consumed == 0 {
+		return
+	}
+	remaining := len(w.sampleBuf) - consumed
+	copy(w.sampleBuf, w.sampleBuf[consumed:])
+	w.sampleBuf = w.sampleBuf[:remaining]
+}
+
+// decodePCMInto converts bytes to float32 PCM samples using caller-provided scratch.
+func (w *Writer) decodePCMInto(dst []float32, data []byte) {
 	switch w.format {
 	case FormatFloat32LE:
-		numSamples := len(data) / 4
-		pcm := make([]float32, numSamples)
-		for i := 0; i < numSamples; i++ {
+		for i := range dst {
 			bits := binary.LittleEndian.Uint32(data[i*4:])
-			pcm[i] = math.Float32frombits(bits)
+			dst[i] = math.Float32frombits(bits)
 		}
-		return pcm
 	case FormatInt16LE:
-		numSamples := len(data) / 2
-		pcm := make([]float32, numSamples)
-		for i := 0; i < numSamples; i++ {
+		for i := range dst {
 			sample := int16(binary.LittleEndian.Uint16(data[i*2:]))
-			pcm[i] = float32(sample) / 32768.0
+			dst[i] = float32(sample) / 32768.0
 		}
-		return pcm
 	default:
-		// Default to float32
-		numSamples := len(data) / 4
-		pcm := make([]float32, numSamples)
-		for i := 0; i < numSamples; i++ {
+		for i := range dst {
 			bits := binary.LittleEndian.Uint32(data[i*4:])
-			pcm[i] = math.Float32frombits(bits)
+			dst[i] = math.Float32frombits(bits)
 		}
-		return pcm
 	}
 }
 
@@ -405,13 +442,11 @@ func (w *Writer) Flush() error {
 		return nil
 	}
 
-	// Zero-pad to complete frame
-	padded := make([]byte, w.frameBytes)
-	copy(padded, w.sampleBuf)
-	// Rest of padded is already zero
-
-	// Convert bytes to float32 PCM
-	pcm := w.bytesToPCM(padded)
+	// Zero-pad to complete frame using reusable scratch.
+	clear(w.paddedBuf)
+	copy(w.paddedBuf, w.sampleBuf)
+	pcm := w.pcmScratch[:w.frameSamples]
+	w.decodePCMInto(pcm, w.paddedBuf)
 
 	// Encode the frame
 	n, err := w.enc.Encode(pcm, w.packetBuf)
@@ -421,8 +456,8 @@ func (w *Writer) Flush() error {
 
 	// If n > 0, send packet to sink
 	if n > 0 {
-		_, err = w.sink.WritePacket(w.packetBuf[:n])
-		if err != nil {
+		if err := w.writePacketToSink(w.packetBuf[:n]); err != nil {
+			w.closed = true
 			return err
 		}
 	}
@@ -473,9 +508,11 @@ func (w *Writer) SetDTX(enabled bool) {
 }
 
 // Reset clears buffers and encoder state for a new stream.
+// It also clears the closed flag so the writer can be reused with a reusable sink.
 func (w *Writer) Reset() {
 	w.enc.Reset()
 	w.sampleBuf = w.sampleBuf[:0]
+	w.closed = false
 }
 
 // SampleRate returns the sample rate in Hz.

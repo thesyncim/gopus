@@ -5,6 +5,7 @@ package gopus
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"io"
 	"math"
 	"testing"
@@ -75,6 +76,28 @@ type closablePacketSink struct {
 func (s *closablePacketSink) Close() error {
 	s.closeCalls++
 	return nil
+}
+
+type scriptedPacketSink struct {
+	packets    [][]byte
+	calls      int
+	failAtCall int
+	shortBytes int
+	err        error
+}
+
+func (s *scriptedPacketSink) WritePacket(packet []byte) (int, error) {
+	s.calls++
+	if s.calls == s.failAtCall {
+		if s.err != nil {
+			return s.shortBytes, s.err
+		}
+		return s.shortBytes, nil
+	}
+	cp := make([]byte, len(packet))
+	copy(cp, packet)
+	s.packets = append(s.packets, cp)
+	return len(packet), nil
 }
 
 // generateTestPacket generates a valid Opus packet by encoding test audio.
@@ -933,6 +956,83 @@ func TestWriter_WriteAfterClose(t *testing.T) {
 	}
 	if err := writer.Flush(); err != io.ErrClosedPipe {
 		t.Fatalf("Flush after Close error = %v, want %v", err, io.ErrClosedPipe)
+	}
+}
+
+func TestWriter_ResetAfterCloseReopensWriter(t *testing.T) {
+	sink := &slicePacketSink{}
+	writer, err := NewWriter(48000, 2, sink, FormatFloat32LE, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	writer.Reset()
+
+	pcmBytes := generateFloat32Bytes(48000, 2, 960, 440.0)
+	if _, err := writer.Write(pcmBytes); err != nil {
+		t.Fatalf("Write after Reset failed: %v", err)
+	}
+	if len(sink.packets) != 1 {
+		t.Fatalf("Write after Reset produced %d packets, want 1", len(sink.packets))
+	}
+}
+
+func TestWriter_SinkShortWriteReturnsPartialProgress(t *testing.T) {
+	const (
+		sampleRate = 48000
+		channels   = 2
+		frameSize  = 960
+	)
+
+	sink := &scriptedPacketSink{failAtCall: 2, shortBytes: 1}
+	writer, err := NewWriter(sampleRate, channels, sink, FormatFloat32LE, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	pcmBytes := generateFloat32Bytes(sampleRate, channels, frameSize*2, 440.0)
+	n, err := writer.Write(pcmBytes)
+	if err != io.ErrShortWrite {
+		t.Fatalf("Write error = %v, want %v", err, io.ErrShortWrite)
+	}
+
+	frameBytes := frameSize * channels * 4
+	if n != frameBytes {
+		t.Fatalf("Write returned %d bytes consumed, want %d", n, frameBytes)
+	}
+	if len(sink.packets) != 1 {
+		t.Fatalf("successful packets = %d, want 1", len(sink.packets))
+	}
+	if _, err := writer.Write(pcmBytes[:frameBytes]); err != io.ErrClosedPipe {
+		t.Fatalf("Write after sink short write error = %v, want %v", err, io.ErrClosedPipe)
+	}
+
+	writer.Reset()
+	sink.failAtCall = 0
+	sink.shortBytes = 0
+	if _, err := writer.Write(pcmBytes[:frameBytes]); err != nil {
+		t.Fatalf("Write after Reset failed: %v", err)
+	}
+}
+
+func TestWriter_SinkErrorAfterPartialWriteReturnsShortWrite(t *testing.T) {
+	sink := &scriptedPacketSink{
+		failAtCall: 1,
+		shortBytes: 1,
+		err:        errors.New("sink failure"),
+	}
+	writer, err := NewWriter(48000, 2, sink, FormatFloat32LE, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	pcmBytes := generateFloat32Bytes(48000, 2, 960, 440.0)
+	if n, err := writer.Write(pcmBytes); err != io.ErrShortWrite || n != 0 {
+		t.Fatalf("Write = (%d, %v), want (0, %v)", n, err, io.ErrShortWrite)
 	}
 }
 
