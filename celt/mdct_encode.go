@@ -529,54 +529,69 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 	}
 	// BCE hints for post-twiddle loop.
 	_ = coeffs[n2-1] // BCE hint
+	trigHi := trig[n4:]
 	if useDirectKissCpx {
 		_ = fftStage[n4-1] // BCE hint
+		_ = trigHi[n4-1]
+		lo := 0
+		hi := n2 - 1
 		if mdctUseFMALikeMixEnabled {
 			for i = 0; i < n4; i++ {
 				re := fftStage[i].r
 				im := fftStage[i].i
 				t0 := trig[i]
-				t1 := trig[n4+i]
+				t1 := trigHi[i]
 				yr := float32(float64(im)*float64(t1) - float64(mdctMul(re, t0)))
 				yi := float32(float64(re)*float64(t1) + float64(mdctMul(im, t0)))
-				coeffs[2*i] = float64(yr)
-				coeffs[n2-1-2*i] = float64(yi)
+				coeffs[lo] = float64(yr)
+				coeffs[hi] = float64(yi)
+				lo += 2
+				hi -= 2
 			}
 		} else {
 			for i = 0; i < n4; i++ {
 				re := fftStage[i].r
 				im := fftStage[i].i
 				t0 := trig[i]
-				t1 := trig[n4+i]
+				t1 := trigHi[i]
 				yr := mdctMul(im, t1) - mdctMul(re, t0)
 				yi := mdctMul(re, t1) + mdctMul(im, t0)
-				coeffs[2*i] = float64(yr)
-				coeffs[n2-1-2*i] = float64(yi)
+				coeffs[lo] = float64(yr)
+				coeffs[hi] = float64(yi)
+				lo += 2
+				hi -= 2
 			}
 		}
 	} else {
 		_ = fftOut[n4-1] // BCE hint
+		_ = trigHi[n4-1]
+		lo := 0
+		hi := n2 - 1
 		if mdctUseFMALikeMixEnabled {
 			for i = 0; i < n4; i++ {
 				re := real(fftOut[i])
 				im := imag(fftOut[i])
 				t0 := trig[i]
-				t1 := trig[n4+i]
+				t1 := trigHi[i]
 				yr := float32(float64(im)*float64(t1) - float64(mdctMul(re, t0)))
 				yi := float32(float64(re)*float64(t1) + float64(mdctMul(im, t0)))
-				coeffs[2*i] = float64(yr)
-				coeffs[n2-1-2*i] = float64(yi)
+				coeffs[lo] = float64(yr)
+				coeffs[hi] = float64(yi)
+				lo += 2
+				hi -= 2
 			}
 		} else {
 			for i = 0; i < n4; i++ {
 				re := real(fftOut[i])
 				im := imag(fftOut[i])
 				t0 := trig[i]
-				t1 := trig[n4+i]
+				t1 := trigHi[i]
 				yr := mdctMul(im, t1) - mdctMul(re, t0)
 				yi := mdctMul(re, t1) + mdctMul(im, t0)
-				coeffs[2*i] = float64(yr)
-				coeffs[n2-1-2*i] = float64(yi)
+				coeffs[lo] = float64(yr)
+				coeffs[hi] = float64(yi)
+				lo += 2
+				hi -= 2
 			}
 		}
 	}
