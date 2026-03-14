@@ -122,7 +122,7 @@ func encodeToOgg(path string, duration float64, bitrate int, channels int, frame
 		encoder:           "gopus",
 	}
 
-	enc, err := gopus.NewEncoder(sampleRate, channels, app)
+	enc, err := gopus.NewEncoder(gopus.DefaultEncoderConfig(sampleRate, channels, app))
 	if err != nil {
 		return stats, fmt.Errorf("create encoder: %w", err)
 	}
@@ -139,7 +139,7 @@ func encodeToOgg(path string, duration float64, bitrate int, channels int, frame
 	}
 	defer f.Close()
 
-	oggWriter, err := ogg.NewWriter(f, sampleRate, uint8(channels))
+	oggWriter, err := ogg.NewWriter(f, uint32(sampleRate), uint8(channels))
 	if err != nil {
 		return stats, fmt.Errorf("create ogg writer: %w", err)
 	}

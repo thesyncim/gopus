@@ -18,7 +18,7 @@ func requireFiniteFloat32(t *testing.T, samples []float32) {
 
 func TestAPIAbuseReturnsError(t *testing.T) {
 	t.Run("EncoderSmallOutputBuffer", func(t *testing.T) {
-		enc, err := NewEncoder(48000, 1, ApplicationAudio)
+		enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationAudio))
 		if err != nil {
 			t.Fatalf("NewEncoder error: %v", err)
 		}
@@ -30,7 +30,7 @@ func TestAPIAbuseReturnsError(t *testing.T) {
 	})
 
 	t.Run("EncoderInvalidFrameSize", func(t *testing.T) {
-		enc, err := NewEncoder(48000, 1, ApplicationAudio)
+		enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationAudio))
 		if err != nil {
 			t.Fatalf("NewEncoder error: %v", err)
 		}

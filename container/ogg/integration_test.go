@@ -263,7 +263,7 @@ func computeEnergy(samples []float32) float64 {
 // TestIntegration_WriterOpusdec_Mono tests that mono Writer output is accepted by opusdec.
 func TestIntegration_WriterOpusdec_Mono(t *testing.T) {
 	// Create encoder.
-	enc, err := gopus.NewEncoder(48000, 1, gopus.ApplicationAudio)
+	enc, err := gopus.NewEncoder(gopus.DefaultEncoderConfig(48000, 1, gopus.ApplicationAudio))
 	if err != nil {
 		t.Fatalf("NewEncoder failed: %v", err)
 	}
@@ -334,7 +334,7 @@ func TestIntegration_WriterOpusdec_Mono(t *testing.T) {
 // TestIntegration_WriterOpusdec_Stereo tests that stereo Writer output is accepted by opusdec.
 func TestIntegration_WriterOpusdec_Stereo(t *testing.T) {
 	// Create encoder.
-	enc, err := gopus.NewEncoder(48000, 2, gopus.ApplicationAudio)
+	enc, err := gopus.NewEncoder(gopus.DefaultEncoderConfig(48000, 2, gopus.ApplicationAudio))
 	if err != nil {
 		t.Fatalf("NewEncoder failed: %v", err)
 	}
@@ -489,7 +489,7 @@ func TestIntegration_WriterOpusdec_Multistream(t *testing.T) {
 // TestIntegration_RoundTrip tests writing and reading back packets.
 func TestIntegration_RoundTrip(t *testing.T) {
 	// Create encoder.
-	enc, err := gopus.NewEncoder(48000, 2, gopus.ApplicationAudio)
+	enc, err := gopus.NewEncoder(gopus.DefaultEncoderConfig(48000, 2, gopus.ApplicationAudio))
 	if err != nil {
 		t.Fatalf("NewEncoder failed: %v", err)
 	}
@@ -802,7 +802,7 @@ func TestIntegration_ContainerStructure(t *testing.T) {
 // TestIntegration_LargeFile tests writing and reading a larger file.
 func TestIntegration_LargeFile(t *testing.T) {
 	// Create encoder.
-	enc, err := gopus.NewEncoder(48000, 2, gopus.ApplicationAudio)
+	enc, err := gopus.NewEncoder(gopus.DefaultEncoderConfig(48000, 2, gopus.ApplicationAudio))
 	if err != nil {
 		t.Fatalf("NewEncoder failed: %v", err)
 	}

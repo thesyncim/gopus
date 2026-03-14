@@ -1016,7 +1016,7 @@ func TestHighLevelSILKStereoLongFramesRoundTripSanity(t *testing.T) {
 
 	for _, frameSize := range []int{1920, 2880} {
 		t.Run(frameSizeName(frameSize), func(t *testing.T) {
-			enc, err := gopus.NewEncoder(sampleRate, channels, gopus.ApplicationAudio)
+			enc, err := gopus.NewEncoder(gopus.DefaultEncoderConfig(sampleRate, channels, gopus.ApplicationAudio))
 			if err != nil {
 				t.Fatalf("NewEncoder: %v", err)
 			}
@@ -1080,7 +1080,7 @@ func TestHighLevelAudioLongFramesUseCELTAndRoundTripMusic(t *testing.T) {
 
 	for _, frameSize := range []int{1920, 2880} {
 		t.Run(frameSizeName(frameSize), func(t *testing.T) {
-			enc, err := gopus.NewEncoder(sampleRate, channels, gopus.ApplicationAudio)
+			enc, err := gopus.NewEncoder(gopus.DefaultEncoderConfig(sampleRate, channels, gopus.ApplicationAudio))
 			if err != nil {
 				t.Fatalf("NewEncoder: %v", err)
 			}
@@ -1170,7 +1170,7 @@ func TestHighLevelAPIRoundTrip(t *testing.T) {
 
 	for _, app := range applications {
 		t.Run(app.name, func(t *testing.T) {
-			enc, err := gopus.NewEncoder(48000, 2, app.app)
+			enc, err := gopus.NewEncoder(gopus.DefaultEncoderConfig(48000, 2, app.app))
 			if err != nil {
 				t.Fatalf("NewEncoder failed: %v", err)
 			}

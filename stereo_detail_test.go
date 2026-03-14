@@ -15,7 +15,7 @@ func TestStereoDetail(t *testing.T) {
 		numFrames  = 20
 	)
 
-	enc, _ := gopus.NewEncoder(sampleRate, channels, gopus.ApplicationAudio)
+	enc, _ := gopus.NewEncoder(gopus.DefaultEncoderConfig(sampleRate, channels, gopus.ApplicationAudio))
 	enc.SetBitrate(128000)
 	dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(sampleRate, channels))
 
@@ -102,7 +102,7 @@ func TestStereoDetail(t *testing.T) {
 
 	// Test with truly distinct signals (different frequencies)
 	t.Log("\n--- Test with distinct L/R frequencies ---")
-	enc2, _ := gopus.NewEncoder(sampleRate, channels, gopus.ApplicationAudio)
+	enc2, _ := gopus.NewEncoder(gopus.DefaultEncoderConfig(sampleRate, channels, gopus.ApplicationAudio))
 	enc2.SetBitrate(128000)
 	dec2, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(sampleRate, channels))
 

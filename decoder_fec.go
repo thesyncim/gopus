@@ -219,7 +219,7 @@ func (d *Decoder) storeFECData(data []byte, toc TOC, frameCount, frameSize int) 
 // This is used to recover a lost frame using forward error correction.
 func (d *Decoder) decodeFECFrame(pcm []float32) (int, error) {
 	if !d.hasFEC || len(d.fecData) == 0 {
-		return 0, ErrNoFECData
+		return 0, errNoFECData
 	}
 
 	frameSize := d.fecFrameSize
@@ -277,7 +277,7 @@ func (d *Decoder) decodeLBRRFrames(pcm []float32, frameSize int) (int, error) {
 	case ModeHybrid:
 		return d.decodeHybridFEC(pcm, frameSize)
 	default:
-		return 0, ErrNoFECData
+		return 0, errNoFECData
 	}
 }
 

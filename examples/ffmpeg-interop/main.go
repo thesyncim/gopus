@@ -64,7 +64,7 @@ func main() {
 // encodeTestSignal generates a 440Hz stereo sine wave and encodes it to Ogg Opus.
 func encodeTestSignal(filename string, duration float64) error {
 	// Create encoder
-	enc, err := gopus.NewEncoder(sampleRate, channels, gopus.ApplicationAudio)
+	enc, err := gopus.NewEncoder(gopus.DefaultEncoderConfig(sampleRate, channels, gopus.ApplicationAudio))
 	if err != nil {
 		return fmt.Errorf("create encoder: %w", err)
 	}
@@ -82,7 +82,7 @@ func encodeTestSignal(filename string, duration float64) error {
 	defer f.Close()
 
 	// Create Ogg writer
-	oggWriter, err := ogg.NewWriter(f, sampleRate, channels)
+	oggWriter, err := ogg.NewWriter(f, uint32(sampleRate), uint8(channels))
 	if err != nil {
 		return fmt.Errorf("create ogg writer: %w", err)
 	}

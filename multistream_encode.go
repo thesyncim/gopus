@@ -47,6 +47,10 @@ func (e *MultistreamEncoder) EncodeInt16(pcm []int16, data []byte) (int, error) 
 // data: Output buffer for the encoded packet.
 //
 // Returns the number of bytes written to data, or an error.
+//
+// The input values are interpreted as right-justified signed 24-bit PCM
+// carried in int32 containers with numeric range [-8388608, 8388607].
+// Left-shifted 24-in-32 input will be mis-scaled.
 func (e *MultistreamEncoder) EncodeInt24(pcm []int32, data []byte) (int, error) {
 	expected := e.frameSize * e.channels
 	if len(pcm) != expected {

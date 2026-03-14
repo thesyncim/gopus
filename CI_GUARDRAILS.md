@@ -40,7 +40,7 @@ Benchmark command is orchestrated by `tools/benchguard`:
 - Benchmarks:
   - `BenchmarkDecoderDecode_CELT`
   - `BenchmarkDecoderDecodeInt16`
-  - `BenchmarkEncoderEncode`
+  - `BenchmarkEncoderEncode_CallerBuffer`
   - `BenchmarkEncoderEncodeInt16`
 
 Guardrail thresholds live in `tools/bench_guardrails.json`.

@@ -1,7 +1,5 @@
 package gopus
 
-import "github.com/thesyncim/gopus/multistream"
-
 // Reset clears the decoder state for a new stream.
 // Call this when starting to decode a new audio stream.
 func (d *MultistreamDecoder) Reset() {
@@ -39,7 +37,10 @@ func (d *MultistreamDecoder) IgnoreExtensions() bool {
 	return d.ignoreExtensions
 }
 
-// SetOSCEBWE toggles the optional OSCE bandwidth extension path.
+// SetOSCEBWE toggles libopus's optional ENABLE_OSCE_BWE decoder extension.
+//
+// The default gopus build does not implement this extension and returns
+// ErrUnimplemented.
 func (d *MultistreamDecoder) SetOSCEBWE(_ bool) error {
 	return ErrUnimplemented
 }
@@ -49,16 +50,10 @@ func (d *MultistreamDecoder) OSCEBWE() (bool, error) {
 	return false, ErrUnimplemented
 }
 
-// SetDNNBlob loads an optional model blob for decoder extension features.
+// SetDNNBlob loads the optional libopus USE_WEIGHTS_FILE decoder model blob.
+//
+// The default gopus build does not implement this extension and returns
+// ErrUnimplemented.
 func (d *MultistreamDecoder) SetDNNBlob(_ []byte) error {
 	return ErrUnimplemented
-}
-
-// GetDecoderState returns the decoder state for an individual multistream stream.
-// This matches libopus OPUS_MULTISTREAM_GET_DECODER_STATE semantics.
-func (d *MultistreamDecoder) GetDecoderState(index int) (*multistream.StreamDecoder, error) {
-	if index < 0 || index >= d.dec.Streams() {
-		return nil, ErrInvalidStreamIndex
-	}
-	return d.dec.GetDecoderState(index)
 }
