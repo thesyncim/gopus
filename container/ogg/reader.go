@@ -94,7 +94,7 @@ func NewReader(r io.Reader) (*Reader, error) {
 }
 
 // ReadPacket reads the next Opus packet from the stream.
-// Returns the packet data, granule position, and any error.
+// Returns the packet data, the packet's Ogg granule position, and any error.
 // Returns io.EOF when the end of stream is reached.
 func (or *Reader) ReadPacket() (packet []byte, granulePos uint64, err error) {
 	// Drain any pending packets first.
@@ -147,8 +147,8 @@ func (or *Reader) ReadPacket() (packet []byte, granulePos uint64, err error) {
 }
 
 // ReadPacketInto reads the next Opus packet into dst.
-// Returns the number of bytes copied and the granule position.
-func (or *Reader) ReadPacketInto(dst []byte) (int, uint64, error) {
+// Returns the number of bytes copied and the packet's Ogg granule position.
+func (or *Reader) ReadPacketInto(dst []byte) (n int, granulePos uint64, err error) {
 	packet, granule, err := or.ReadPacket()
 	if err != nil {
 		return 0, 0, err
@@ -156,7 +156,7 @@ func (or *Reader) ReadPacketInto(dst []byte) (int, uint64, error) {
 	if len(packet) > len(dst) {
 		return 0, 0, ErrPacketTooLarge
 	}
-	n := copy(dst, packet)
+	n = copy(dst, packet)
 	return n, granule, nil
 }
 

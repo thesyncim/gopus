@@ -381,24 +381,32 @@ func NewEncoder(channels int) *Encoder {
 }
 
 // SetPrefilterDebugHook installs a callback that receives per-frame prefilter stats.
+//
+// This hook is primarily for gopus development and parity debugging.
 func (e *Encoder) SetPrefilterDebugHook(fn func(PrefilterDebugStats)) {
 	e.prefilterDebugHook = fn
 }
 
 // SetCoarseDecisionHook installs a callback that receives per-band coarse
 // quantization decisions during EncodeCoarseEnergy.
+//
+// This hook is primarily for gopus development and parity debugging.
 func (e *Encoder) SetCoarseDecisionHook(fn func(CoarseDecisionStats)) {
 	e.coarseDecisionHook = fn
 }
 
 // PreparePVQDebugFrame resets per-call PVQ debug sequencing.
 // This is used by temporary parity probes.
+//
+// This hook is primarily for gopus development and parity debugging.
 func (e *Encoder) PreparePVQDebugFrame(frame int) {
 	e.bandDebug.pvqDumpFrame = frame
 	e.bandDebug.pvqCallSeq = 0
 }
 
 // SetTargetStatsHook installs a callback that receives per-frame CELT VBR targets.
+//
+// This hook is primarily for gopus development and parity debugging.
 func (e *Encoder) SetTargetStatsHook(fn func(CeltTargetStats)) {
 	e.targetStatsHook = fn
 }

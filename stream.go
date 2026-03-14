@@ -1,4 +1,4 @@
-// stream.go implements streaming io.Reader and io.Writer wrappers for Opus encoding/decoding.
+// stream.go implements streaming io.Reader and io.WriteCloser wrappers for Opus encoding/decoding.
 
 package gopus
 
@@ -10,7 +10,7 @@ import (
 
 // Streaming API
 //
-// The Reader and Writer types provide io.Reader and io.Writer interfaces
+// The Reader and Writer types provide io.Reader and io.WriteCloser interfaces
 // for streaming Opus encode/decode operations. They handle frame boundaries
 // internally, allowing integration with Go's standard io patterns.
 //
@@ -54,8 +54,8 @@ import (
 //	    log.Fatal(err)
 //	}
 //
-//	// Flush remaining buffered samples
-//	if err := writer.Flush(); err != nil {
+//	// Flush remaining buffered samples and close the sink when supported.
+//	if err := writer.Close(); err != nil {
 //	    log.Fatal(err)
 //	}
 //
@@ -92,15 +92,23 @@ func (f SampleFormat) BytesPerSample() int {
 // PacketReader provides Opus packets for streaming decode.
 // Implementations should return io.EOF when no more packets are available.
 type PacketReader interface {
-	// ReadPacketInto fills dst with the next Opus packet and returns the byte count.
-	// Returns io.EOF when stream ends. Return 0, nil to trigger PLC.
-	ReadPacketInto(dst []byte) (int, uint64, error)
+	// ReadPacketInto fills dst with the next Opus packet.
+	//
+	// granulePos is the source packet position in decoded-sample units when the
+	// container provides one (for example Ogg Opus granule positions). Sources
+	// that do not track positions should return 0.
+	//
+	// Returns io.EOF when stream ends. Return n=0, err=nil to trigger PLC.
+	ReadPacketInto(dst []byte) (n int, granulePos uint64, err error)
 }
 
 // PacketSink receives encoded Opus packets from streaming encode.
 type PacketSink interface {
 	// WritePacket writes an encoded Opus packet.
 	// Returns number of bytes written and any error.
+	//
+	// If the sink also implements io.Closer, Writer.Close forwards to it after
+	// flushing any buffered audio.
 	WritePacket(packet []byte) (int, error)
 }
 
@@ -119,11 +127,12 @@ type Reader struct {
 	source PacketReader
 	format SampleFormat // Output sample format
 
-	packetBuf []byte
-	pcmFloat  []float32 // Decoded PCM samples
-	pcmInt16  []int16
-	byteBuf   []byte // PCM as bytes
-	offset    int    // Current read position in byteBuf
+	packetBuf      []byte
+	pcmFloat       []float32 // Decoded PCM samples
+	pcmInt16       []int16
+	byteBuf        []byte // PCM as bytes
+	offset         int    // Current read position in byteBuf
+	lastGranulePos uint64 // Most recent packet position reported by the source
 
 	eof bool // Source exhausted
 }
@@ -164,7 +173,7 @@ func (r *Reader) Read(p []byte) (int, error) {
 		}
 
 		// Fetch next packet from source
-		nPacket, _, err := r.source.ReadPacketInto(r.packetBuf)
+		nPacket, granulePos, err := r.source.ReadPacketInto(r.packetBuf)
 		if err == io.EOF {
 			r.eof = true
 			return 0, io.EOF
@@ -172,6 +181,7 @@ func (r *Reader) Read(p []byte) (int, error) {
 		if err != nil {
 			return 0, err
 		}
+		r.lastGranulePos = granulePos
 
 		var packet []byte
 		if nPacket > 0 {
@@ -242,6 +252,14 @@ func (r *Reader) Channels() int {
 	return r.dec.Channels()
 }
 
+// LastGranulePos returns the most recent packet position reported by the source.
+//
+// For Ogg Opus this is the granule position from the underlying page header.
+// Sources that do not track positions may leave this at 0.
+func (r *Reader) LastGranulePos() uint64 {
+	return r.lastGranulePos
+}
+
 // Reset clears buffers and decoder state for a new stream.
 func (r *Reader) Reset() {
 	r.dec.Reset()
@@ -249,10 +267,11 @@ func (r *Reader) Reset() {
 		r.byteBuf = r.byteBuf[:0]
 	}
 	r.offset = 0
+	r.lastGranulePos = 0
 	r.eof = false
 }
 
-// Writer encodes PCM samples to an Opus stream, implementing io.Writer.
+// Writer encodes PCM samples to an Opus stream, implementing io.WriteCloser.
 // Input is PCM samples in the configured format.
 //
 // The Writer buffers input samples until a complete frame is accumulated,
@@ -262,7 +281,7 @@ func (r *Reader) Reset() {
 //
 //	writer, err := gopus.NewWriter(48000, 2, sink, gopus.FormatFloat32LE, gopus.ApplicationAudio)
 //	io.Copy(writer, audioInput)
-//	writer.Flush() // encode any remaining buffered samples
+//	writer.Close() // flush remaining buffered samples
 type Writer struct {
 	enc    *Encoder
 	sink   PacketSink
@@ -272,6 +291,7 @@ type Writer struct {
 	frameBytes int    // Bytes needed for one frame
 
 	packetBuf []byte // Buffer for encoded packet (4000 bytes)
+	closed    bool
 }
 
 // NewWriter creates a streaming encoder.
@@ -308,6 +328,9 @@ func NewWriter(sampleRate, channels int, sink PacketSink, format SampleFormat, a
 // The Writer buffers input samples until a complete frame is accumulated,
 // then encodes and sends the packet to the sink.
 func (w *Writer) Write(p []byte) (int, error) {
+	if w.closed {
+		return 0, io.ErrClosedPipe
+	}
 	// Append input to buffer
 	w.sampleBuf = append(w.sampleBuf, p...)
 
@@ -375,6 +398,9 @@ func (w *Writer) bytesToPCM(data []byte) []float32 {
 // If samples don't fill a complete frame, they are zero-padded.
 // Call Flush before closing the stream to ensure all audio is encoded.
 func (w *Writer) Flush() error {
+	if w.closed {
+		return io.ErrClosedPipe
+	}
 	if len(w.sampleBuf) == 0 {
 		return nil
 	}
@@ -404,6 +430,24 @@ func (w *Writer) Flush() error {
 	// Clear buffer
 	w.sampleBuf = w.sampleBuf[:0]
 
+	return nil
+}
+
+// Close flushes buffered samples and closes the underlying sink when supported.
+//
+// If the sink implements io.Closer, Close forwards to it after a successful
+// flush. Close is idempotent.
+func (w *Writer) Close() error {
+	if w.closed {
+		return nil
+	}
+	if err := w.Flush(); err != nil {
+		return err
+	}
+	w.closed = true
+	if closer, ok := w.sink.(io.Closer); ok {
+		return closer.Close()
+	}
 	return nil
 }
 

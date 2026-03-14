@@ -596,7 +596,9 @@ func imdctInPlaceScratch(spectrum []float64, out []float64, blockStart, overlap 
 	}
 }
 
-// ImdctInPlaceExported exports imdctInPlace for testing
+// ImdctInPlaceExported exports imdctInPlace for testing.
+//
+// This helper exists for tests and codec-development tooling and may change.
 func ImdctInPlaceExported(spectrum []float64, out []float64, blockStart, overlap int) {
 	imdctInPlace(spectrum, out, blockStart, overlap)
 }
