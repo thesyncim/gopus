@@ -150,4 +150,9 @@
 //
 // For custom channel mappings, use NewMultistreamEncoder and NewMultistreamDecoder
 // with explicit stream and mapping parameters.
+//
+// Most applications should use the top-level `gopus` API plus `container/ogg`.
+// Low-level subpackages such as `celt`, `silk`, `hybrid`, `rangecoding`, `plc`,
+// and `multistream` are advanced implementation surfaces and may change before
+// the first tagged release.
 package gopus

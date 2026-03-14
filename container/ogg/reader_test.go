@@ -527,6 +527,89 @@ func TestReader_GranulePos(t *testing.T) {
 	}
 }
 
+func TestReadPacket_MultiPacketPageGranules(t *testing.T) {
+	const serial = 0x12345678
+
+	headPayload := DefaultOpusHead(48000, 1).Encode()
+	tagsPayload := DefaultOpusTags().Encode()
+
+	packet10ms := []byte{0xF0, 0x11} // CELT FB 10ms mono
+	packet20ms := []byte{0xF8, 0x22} // CELT FB 20ms mono
+
+	segments := append([]byte{}, BuildSegmentTable(len(packet10ms))...)
+	segments = append(segments, BuildSegmentTable(len(packet20ms))...)
+	payload := append([]byte{}, packet10ms...)
+	payload = append(payload, packet20ms...)
+
+	pages := [][]byte{
+		(&Page{
+			Version:      0,
+			HeaderType:   PageFlagBOS,
+			GranulePos:   0,
+			SerialNumber: serial,
+			PageSequence: 0,
+			Segments:     BuildSegmentTable(len(headPayload)),
+			Payload:      headPayload,
+		}).Encode(),
+		(&Page{
+			Version:      0,
+			HeaderType:   0,
+			GranulePos:   0,
+			SerialNumber: serial,
+			PageSequence: 1,
+			Segments:     BuildSegmentTable(len(tagsPayload)),
+			Payload:      tagsPayload,
+		}).Encode(),
+		(&Page{
+			Version:      0,
+			HeaderType:   PageFlagEOS,
+			GranulePos:   1440,
+			SerialNumber: serial,
+			PageSequence: 2,
+			Segments:     segments,
+			Payload:      payload,
+		}).Encode(),
+	}
+
+	var buf bytes.Buffer
+	for _, page := range pages {
+		buf.Write(page)
+	}
+
+	r, err := NewReader(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("NewReader failed: %v", err)
+	}
+
+	packet, granule, err := r.ReadPacket()
+	if err != nil {
+		t.Fatalf("ReadPacket 0 failed: %v", err)
+	}
+	if !bytes.Equal(packet, packet10ms) {
+		t.Fatalf("packet 0 mismatch")
+	}
+	if granule != 480 {
+		t.Fatalf("packet 0 granule = %d, want 480", granule)
+	}
+	if r.GranulePos() != 480 {
+		t.Fatalf("GranulePos after packet 0 = %d, want 480", r.GranulePos())
+	}
+
+	packet, granule, err = r.ReadPacket()
+	if err != nil {
+		t.Fatalf("ReadPacket 1 failed: %v", err)
+	}
+	if !bytes.Equal(packet, packet20ms) {
+		t.Fatalf("packet 1 mismatch")
+	}
+	if granule != 1440 {
+		t.Fatalf("packet 1 granule = %d, want 1440", granule)
+	}
+	if r.GranulePos() != 1440 {
+		t.Fatalf("GranulePos after packet 1 = %d, want 1440", r.GranulePos())
+	}
+}
+
 // TestReader_Truncated tests handling of truncated streams.
 func TestReader_Truncated(t *testing.T) {
 	var buf bytes.Buffer
