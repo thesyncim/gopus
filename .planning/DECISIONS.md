@@ -1,6 +1,6 @@
 # Investigation Decisions
 
-Last updated: 2026-03-13
+Last updated: 2026-03-14
 
 Purpose: record durable keep/skip decisions to avoid re-running solved investigations.
 
@@ -18,6 +18,13 @@ owner: <handle>
 ```
 
 ## Current Decisions
+
+date: 2026-03-14
+topic: CELT comb-filter slice-relative input indexing
+decision: Keep the slice-relative frame/delay window setup in `celt/postfilter.go`'s `combFilterWithInputF32()` (`srcFrame`, `dstFrame`, `delay0`, `delay1`) and preserve the current arithmetic/state progression. Treat `celt/postfilter_input_bench_test.go` as the required guard before future comb-filter inner-loop experiments, because this cleanup wins by removing repeated index arithmetic without changing sample order or libopus-backed prefilter parity.
+evidence: `GOWORK=off go test ./celt -run '^(TestCombFilterWithInputF32MatchesLegacy|TestRunPrefilterParityAgainstLibopusFixture)$' -count=1` passed after the rewrite. Same-host focused bench on Apple M4 Max improved `BenchmarkCombFilterWithInputF32Current ~1091 ns/op` versus legacy `~1149 ns/op` via `GOWORK=off go test ./celt -run '^$' -bench '^(BenchmarkCombFilterWithInputF32Current|BenchmarkCombFilterWithInputF32Legacy)$' -count=1 -benchtime=3s -cpu=1`. Broad gates also stayed green with `make verify-production` plus a standalone `make bench-guard`; the explicit perf gate recorded `BenchmarkEncoderEncode ~43931 ns/op`, `BenchmarkEncoderEncodeInt16 ~44098 ns/op`, both `0 allocs/op`, and `test-race` passed inside `verify-production`.
+do_not_repeat_until: `combFilterWithInputF32()` changes its arithmetic/state order, the prefilter stops using the current overlap plus steady-state comb-filter shape, or same-host A/B no longer favors the slice-relative indexing over the direct `start+i` indexing.
+owner: codex
 
 date: 2026-03-13
 topic: Encoder front-end perf loop rejects for transient preemphasis aliasing and tonality local-scratch hoists
