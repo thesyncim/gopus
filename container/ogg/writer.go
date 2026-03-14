@@ -229,8 +229,12 @@ func (ow *Writer) writePage(payload []byte, headerType byte) error {
 	}
 
 	encoded := page.Encode()
-	if _, err := ow.w.Write(encoded); err != nil {
+	n, err := ow.w.Write(encoded)
+	if err != nil {
 		return err
+	}
+	if n != len(encoded) {
+		return io.ErrShortWrite
 	}
 
 	ow.pageSeq++
@@ -255,11 +259,16 @@ func (ow *Writer) WritePacket(packet []byte, samples int) error {
 	// Update granule position BEFORE writing.
 	// RFC 7845: The granule position represents the total number of samples
 	// that could be decoded from all packets completed on this page.
+	prevGranule := ow.granulePos
 	ow.granulePos += uint64(samples)
 
 	// Write audio page.
 	// One packet per page (simple approach per RFC 7845 recommendation).
-	return ow.writePage(packet, 0)
+	if err := ow.writePage(packet, 0); err != nil {
+		ow.granulePos = prevGranule
+		return err
+	}
+	return nil
 }
 
 // Close writes the EOS page and marks the stream as closed.

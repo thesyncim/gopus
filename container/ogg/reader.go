@@ -1,8 +1,6 @@
 package ogg
 
-import (
-	"io"
-)
+import "io"
 
 // Reader reads Opus packets from an Ogg container.
 // It parses the Ogg stream and extracts Opus packets for decoding.
@@ -101,6 +99,7 @@ func (or *Reader) ReadPacket() (packet []byte, granulePos uint64, err error) {
 	if len(or.pending) > 0 {
 		entry := or.pending[0]
 		or.pending = or.pending[1:]
+		or.granulePos = entry.granulePos
 		return entry.data, entry.granulePos, nil
 	}
 
@@ -127,7 +126,6 @@ func (or *Reader) ReadPacket() (packet []byte, granulePos uint64, err error) {
 			or.partialPacket = nil
 		}
 
-		or.granulePos = page.GranulePos
 		or.appendPagePackets(page)
 
 		if page.IsEOS() {
@@ -137,6 +135,7 @@ func (or *Reader) ReadPacket() (packet []byte, granulePos uint64, err error) {
 		if len(or.pending) > 0 {
 			entry := or.pending[0]
 			or.pending = or.pending[1:]
+			or.granulePos = entry.granulePos
 			return entry.data, entry.granulePos, nil
 		}
 
@@ -165,9 +164,79 @@ type packetEntry struct {
 	granulePos uint64
 }
 
+var opusFrameSizes48k = [32]uint16{
+	480, 960, 1920, 2880,
+	480, 960, 1920, 2880,
+	480, 960, 1920, 2880,
+	480, 960,
+	480, 960,
+	120, 240, 480, 960,
+	120, 240, 480, 960,
+	120, 240, 480, 960,
+	120, 240, 480, 960,
+}
+
+func packetDuration48k(packet []byte) (uint64, bool) {
+	if len(packet) < 1 {
+		return 0, false
+	}
+
+	config := packet[0] >> 3
+	if config >= uint8(len(opusFrameSizes48k)) {
+		return 0, false
+	}
+
+	frameSize := opusFrameSizes48k[config]
+	frameCount := 0
+	switch packet[0] & 0x03 {
+	case 0:
+		frameCount = 1
+	case 1, 2:
+		frameCount = 2
+	case 3:
+		if len(packet) < 2 {
+			return 0, false
+		}
+		frameCount = int(packet[1] & 0x3F)
+		if frameCount == 0 || frameCount > 48 {
+			return 0, false
+		}
+	default:
+		return 0, false
+	}
+
+	return uint64(frameSize) * uint64(frameCount), true
+}
+
+func assignPacketGranules(pageGranule uint64, entries []packetEntry) {
+	if len(entries) == 0 {
+		return
+	}
+
+	trailingDuration := uint64(0)
+	for i := len(entries) - 1; i >= 0; i-- {
+		duration, ok := packetDuration48k(entries[i].data)
+		if !ok {
+			for j := range entries {
+				entries[j].granulePos = pageGranule
+			}
+			return
+		}
+
+		if pageGranule >= trailingDuration {
+			entries[i].granulePos = pageGranule - trailingDuration
+		} else {
+			entries[i].granulePos = 0
+		}
+
+		trailingDuration += duration
+	}
+}
+
 // appendPagePackets rebuilds packets across page boundaries using the segment table.
 func (or *Reader) appendPagePackets(page *Page) {
 	offset := 0
+	pendingStart := len(or.pending)
 	for _, seg := range page.Segments {
 		segLen := int(seg)
 		if offset+segLen > len(page.Payload) {
@@ -183,14 +252,12 @@ func (or *Reader) appendPagePackets(page *Page) {
 			if len(or.partialPacket) > 0 {
 				packetCopy := make([]byte, len(or.partialPacket))
 				copy(packetCopy, or.partialPacket)
-				or.pending = append(or.pending, packetEntry{
-					data:       packetCopy,
-					granulePos: page.GranulePos,
-				})
+				or.pending = append(or.pending, packetEntry{data: packetCopy})
 			}
 			or.partialPacket = nil
 		}
 	}
+	assignPacketGranules(page.GranulePos, or.pending[pendingStart:])
 }
 
 // readPage reads the next Ogg page from the stream.
