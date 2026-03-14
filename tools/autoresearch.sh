@@ -153,6 +153,46 @@ run_logged() {
   "$@" >>"$log_file" 2>&1
 }
 
+latest_log_snippet() {
+  local log_file="$1"
+  [[ -f "$log_file" ]] || return 0
+  awk '
+    NF { line=$0 }
+    END {
+      if (line != "") {
+        gsub(/[[:space:]]+/, " ", line)
+        print line
+      }
+    }
+  ' "$log_file"
+}
+
+run_codex_with_heartbeat() {
+  local log_file="$1"
+  shift
+
+  "$@" >"$log_file" 2>&1 &
+  local cmd_pid=$!
+  local elapsed=0
+
+  while kill -0 "$cmd_pid" >/dev/null 2>&1; do
+    sleep 10
+    elapsed=$((elapsed + 10))
+    if ! kill -0 "$cmd_pid" >/dev/null 2>&1; then
+      break
+    fi
+    local snippet
+    snippet="$(latest_log_snippet "$log_file")"
+    if [[ -n "$snippet" ]]; then
+      echo "autoresearch: codex still running (${elapsed}s); latest log: $snippet"
+    else
+      echo "autoresearch: codex still running (${elapsed}s); waiting for first log output"
+    fi
+  done
+
+  wait "$cmd_pid"
+}
+
 extract_avg_rt() {
   local pattern="$1"
   local log_file="$2"
@@ -547,13 +587,13 @@ cmd_loop() {
       if [[ "$verbose" -eq 1 ]]; then
         codex exec --dangerously-bypass-approvals-and-sandbox -C "$ROOT_DIR" -m "$model" -o "$agent_msg" - <"$prompt_file" 2>&1 | tee "$agent_log" || codex_status=${PIPESTATUS[0]}
       else
-        codex exec --dangerously-bypass-approvals-and-sandbox -C "$ROOT_DIR" -m "$model" -o "$agent_msg" - <"$prompt_file" >"$agent_log" 2>&1 || codex_status=$?
+        run_codex_with_heartbeat "$agent_log" codex exec --dangerously-bypass-approvals-and-sandbox -C "$ROOT_DIR" -m "$model" -o "$agent_msg" - <"$prompt_file" || codex_status=$?
       fi
     else
       if [[ "$verbose" -eq 1 ]]; then
         codex exec --dangerously-bypass-approvals-and-sandbox -C "$ROOT_DIR" -o "$agent_msg" - <"$prompt_file" 2>&1 | tee "$agent_log" || codex_status=${PIPESTATUS[0]}
       else
-        codex exec --dangerously-bypass-approvals-and-sandbox -C "$ROOT_DIR" -o "$agent_msg" - <"$prompt_file" >"$agent_log" 2>&1 || codex_status=$?
+        run_codex_with_heartbeat "$agent_log" codex exec --dangerously-bypass-approvals-and-sandbox -C "$ROOT_DIR" -o "$agent_msg" - <"$prompt_file" || codex_status=$?
       fi
     fi
     rm -f "$prompt_file"
