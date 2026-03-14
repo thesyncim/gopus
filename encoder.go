@@ -57,6 +57,25 @@ const (
 	BitrateModeCBR = encoder.ModeCBR
 )
 
+// EncoderConfig configures an Encoder instance.
+type EncoderConfig struct {
+	// SampleRate must be one of: 8000, 12000, 16000, 24000, 48000.
+	SampleRate int
+	// Channels must be 1 (mono) or 2 (stereo).
+	Channels int
+	// Application hints the encoder for optimization.
+	Application Application
+}
+
+// DefaultEncoderConfig returns an encoder config for the given stream format.
+func DefaultEncoderConfig(sampleRate, channels int, application Application) EncoderConfig {
+	return EncoderConfig{
+		SampleRate:  sampleRate,
+		Channels:    channels,
+		Application: application,
+	}
+}
+
 // Encoder encodes PCM audio samples into Opus packets.
 //
 // An Encoder instance maintains internal state and is NOT safe for concurrent use.
@@ -88,38 +107,34 @@ type Encoder struct {
 
 // NewEncoder creates a new Opus encoder.
 //
-// sampleRate must be one of: 8000, 12000, 16000, 24000, 48000.
-// channels must be 1 (mono) or 2 (stereo).
-// application hints the encoder for optimization.
-//
-// Returns an error if the parameters are invalid.
-func NewEncoder(sampleRate, channels int, application Application) (*Encoder, error) {
-	if !validSampleRate(sampleRate) {
+// Returns an error if the config is invalid.
+func NewEncoder(cfg EncoderConfig) (*Encoder, error) {
+	if !validSampleRate(cfg.SampleRate) {
 		return nil, ErrInvalidSampleRate
 	}
-	if channels < 1 || channels > 2 {
+	if cfg.Channels < 1 || cfg.Channels > 2 {
 		return nil, ErrInvalidChannels
 	}
-	if !validApplication(application) {
+	if !validApplication(cfg.Application) {
 		return nil, ErrInvalidApplication
 	}
 
 	// Max frame size is 5760 samples (120ms at 48kHz) per channel.
-	maxSamples := 5760 * channels
+	maxSamples := 5760 * cfg.Channels
 
 	enc := &Encoder{
-		enc:                 encoder.NewEncoder(sampleRate, channels),
-		sampleRate:          sampleRate,
-		channels:            channels,
+		enc:                 encoder.NewEncoder(cfg.SampleRate, cfg.Channels),
+		sampleRate:          cfg.SampleRate,
+		channels:            cfg.Channels,
 		frameSize:           960, // Default 20ms at 48kHz
 		expertFrameDuration: ExpertFrameDurationArg,
-		application:         application,
+		application:         cfg.Application,
 		scratchPCM64:        make([]float64, maxSamples),
 		scratchPCM32:        make([]float32, maxSamples),
 	}
 
 	// Apply application hint
-	enc.applyApplication(application)
+	enc.applyApplication(cfg.Application)
 
 	return enc, nil
 }

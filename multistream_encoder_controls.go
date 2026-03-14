@@ -1,9 +1,6 @@
 package gopus
 
-import (
-	"github.com/thesyncim/gopus/encoder"
-	"github.com/thesyncim/gopus/types"
-)
+import "github.com/thesyncim/gopus/types"
 
 // SetFrameSize sets the frame size in samples at 48kHz.
 //
@@ -21,7 +18,10 @@ func (e *MultistreamEncoder) FrameSize() int {
 	return e.frameSize
 }
 
-// SetDREDDuration configures encoder-side DRED redundancy depth.
+// SetDREDDuration configures the libopus ENABLE_DRED encoder extension depth.
+//
+// The default gopus build does not implement this extension and returns
+// ErrUnimplemented.
 func (e *MultistreamEncoder) SetDREDDuration(_ int) error {
 	return ErrUnimplemented
 }
@@ -31,12 +31,18 @@ func (e *MultistreamEncoder) DREDDuration() (int, error) {
 	return 0, ErrUnimplemented
 }
 
-// SetDNNBlob loads an optional model blob for extension features.
+// SetDNNBlob loads the optional libopus USE_WEIGHTS_FILE encoder model blob.
+//
+// The default gopus build does not implement this extension and returns
+// ErrUnimplemented.
 func (e *MultistreamEncoder) SetDNNBlob(_ []byte) error {
 	return ErrUnimplemented
 }
 
-// SetQEXT toggles the optional extended-precision theta path.
+// SetQEXT toggles the libopus ENABLE_QEXT encoder extension.
+//
+// The default gopus build does not implement this extension and returns
+// ErrUnimplemented.
 func (e *MultistreamEncoder) SetQEXT(_ bool) error {
 	return ErrUnimplemented
 }
@@ -251,15 +257,6 @@ func (e *MultistreamEncoder) Streams() int {
 // CoupledStreams returns the number of coupled (stereo) streams.
 func (e *MultistreamEncoder) CoupledStreams() int {
 	return e.enc.CoupledStreams()
-}
-
-// GetEncoderState returns the encoder state for an individual multistream stream.
-// This matches libopus OPUS_MULTISTREAM_GET_ENCODER_STATE semantics.
-func (e *MultistreamEncoder) GetEncoderState(index int) (*encoder.Encoder, error) {
-	if index < 0 || index >= e.enc.Streams() {
-		return nil, ErrInvalidStreamIndex
-	}
-	return e.enc.GetEncoderState(index)
 }
 
 // GetFinalRange returns the final range coder state for all streams.

@@ -424,14 +424,6 @@ func (e *Encoder) CoupledStreams() int {
 	return e.coupledStreams
 }
 
-// GetEncoderState returns the encoder state for an individual stream.
-func (e *Encoder) GetEncoderState(index int) (*encoder.Encoder, error) {
-	if index < 0 || index >= len(e.encoders) {
-		return nil, ErrInvalidStreamIndex
-	}
-	return e.encoders[index], nil
-}
-
 // MappingFamily returns the channel mapping family used by this encoder.
 //
 // Mapping families:

@@ -53,7 +53,7 @@ import (
 )
 
 func main() {
-	enc, err := gopus.NewEncoder(48000, 2, gopus.ApplicationAudio)
+	enc, err := gopus.NewEncoder(gopus.DefaultEncoderConfig(48000, 2, gopus.ApplicationAudio))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func main() {
 	const channels = 2
 	const frameSize = 960 // 20 ms at 48 kHz
 
-	enc, err := gopus.NewEncoder(sampleRate, channels, gopus.ApplicationAudio)
+	enc, err := gopus.NewEncoder(gopus.DefaultEncoderConfig(sampleRate, channels, gopus.ApplicationAudio))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func main() {
 	}
 	defer outFile.Close()
 
-	ow, err := ogg.NewWriter(outFile, sampleRate, channels)
+	ow, err := ogg.NewWriter(outFile, uint32(sampleRate), uint8(channels))
 	if err != nil {
 		log.Fatal(err)
 	}

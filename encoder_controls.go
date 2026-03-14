@@ -135,9 +135,10 @@ func (e *Encoder) VADActivity() int {
 	return e.enc.GetVADActivity()
 }
 
-// SetDREDDuration configures encoder-side DRED redundancy depth.
+// SetDREDDuration configures the libopus ENABLE_DRED encoder extension depth.
 //
-// This optional libopus extension is not implemented in the current Go codec.
+// The default gopus build does not implement this extension and returns
+// ErrUnimplemented.
 func (e *Encoder) SetDREDDuration(_ int) error {
 	return ErrUnimplemented
 }
@@ -147,12 +148,18 @@ func (e *Encoder) DREDDuration() (int, error) {
 	return 0, ErrUnimplemented
 }
 
-// SetDNNBlob loads an optional model blob for extension features.
+// SetDNNBlob loads the optional libopus USE_WEIGHTS_FILE encoder model blob.
+//
+// The default gopus build does not implement this extension and returns
+// ErrUnimplemented.
 func (e *Encoder) SetDNNBlob(_ []byte) error {
 	return ErrUnimplemented
 }
 
-// SetQEXT toggles the optional extended-precision theta path.
+// SetQEXT toggles the libopus ENABLE_QEXT encoder extension.
+//
+// The default gopus build does not implement this extension and returns
+// ErrUnimplemented.
 func (e *Encoder) SetQEXT(_ bool) error {
 	return ErrUnimplemented
 }

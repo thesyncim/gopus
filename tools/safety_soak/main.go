@@ -58,7 +58,7 @@ func main() {
 }
 
 func run(cfg soakConfig) error {
-	enc, err := gopus.NewEncoder(48000, 1, gopus.ApplicationAudio)
+	enc, err := gopus.NewEncoder(gopus.DefaultEncoderConfig(48000, 1, gopus.ApplicationAudio))
 	if err != nil {
 		return fmt.Errorf("create encoder: %w", err)
 	}
@@ -170,7 +170,7 @@ func run(cfg soakConfig) error {
 }
 
 func measureHotPathAllocs() (float64, float64, error) {
-	enc, err := gopus.NewEncoder(48000, 1, gopus.ApplicationAudio)
+	enc, err := gopus.NewEncoder(gopus.DefaultEncoderConfig(48000, 1, gopus.ApplicationAudio))
 	if err != nil {
 		return 0, 0, fmt.Errorf("create encoder for alloc check: %w", err)
 	}

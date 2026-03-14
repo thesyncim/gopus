@@ -10,7 +10,7 @@ import (
 
 func ExampleNewEncoder() {
 	// Create an encoder for 48kHz stereo audio
-	enc, err := gopus.NewEncoder(48000, 2, gopus.ApplicationAudio)
+	enc, err := gopus.NewEncoder(gopus.DefaultEncoderConfig(48000, 2, gopus.ApplicationAudio))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func ExampleNewDecoder() {
 }
 
 func ExampleEncoder_EncodeFloat32() {
-	enc, err := gopus.NewEncoder(48000, 2, gopus.ApplicationAudio)
+	enc, err := gopus.NewEncoder(gopus.DefaultEncoderConfig(48000, 2, gopus.ApplicationAudio))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func ExampleEncoder_EncodeFloat32() {
 
 func ExampleDecoder_Decode() {
 	// Create encoder and decoder
-	enc, _ := gopus.NewEncoder(48000, 2, gopus.ApplicationAudio)
+	enc, _ := gopus.NewEncoder(gopus.DefaultEncoderConfig(48000, 2, gopus.ApplicationAudio))
 	cfg := gopus.DefaultDecoderConfig(48000, 2)
 	dec, _ := gopus.NewDecoder(cfg)
 	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
@@ -83,7 +83,7 @@ func ExampleDecoder_Decode_packetLoss() {
 	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
 
 	// First, decode a real packet to initialize state
-	enc, _ := gopus.NewEncoder(48000, 2, gopus.ApplicationAudio)
+	enc, _ := gopus.NewEncoder(gopus.DefaultEncoderConfig(48000, 2, gopus.ApplicationAudio))
 	pcm := make([]float32, 960*2)
 	packet, _ := enc.EncodeFloat32(pcm)
 	_, _ = dec.Decode(packet, pcmOut)
@@ -100,7 +100,7 @@ func ExampleDecoder_Decode_packetLoss() {
 
 func Example_roundTrip() {
 	// Complete encode-decode round trip
-	enc, _ := gopus.NewEncoder(48000, 1, gopus.ApplicationVoIP)
+	enc, _ := gopus.NewEncoder(gopus.DefaultEncoderConfig(48000, 1, gopus.ApplicationVoIP))
 	cfg := gopus.DefaultDecoderConfig(48000, 1)
 	dec, _ := gopus.NewDecoder(cfg)
 	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
@@ -122,7 +122,7 @@ func Example_roundTrip() {
 }
 
 func ExampleEncoder_SetBitrate() {
-	enc, _ := gopus.NewEncoder(48000, 2, gopus.ApplicationAudio)
+	enc, _ := gopus.NewEncoder(gopus.DefaultEncoderConfig(48000, 2, gopus.ApplicationAudio))
 
 	// Set bitrate to 128 kbps
 	err := enc.SetBitrate(128000)
@@ -135,7 +135,7 @@ func ExampleEncoder_SetBitrate() {
 }
 
 func ExampleEncoder_SetComplexity() {
-	enc, _ := gopus.NewEncoder(48000, 2, gopus.ApplicationAudio)
+	enc, _ := gopus.NewEncoder(gopus.DefaultEncoderConfig(48000, 2, gopus.ApplicationAudio))
 
 	// Set complexity to maximum quality
 	err := enc.SetComplexity(10)
@@ -148,7 +148,7 @@ func ExampleEncoder_SetComplexity() {
 }
 
 func ExampleEncoder_SetDTX() {
-	enc, _ := gopus.NewEncoder(48000, 1, gopus.ApplicationVoIP)
+	enc, _ := gopus.NewEncoder(gopus.DefaultEncoderConfig(48000, 1, gopus.ApplicationVoIP))
 
 	// Enable DTX for bandwidth savings during silence
 	enc.SetDTX(true)
@@ -158,7 +158,7 @@ func ExampleEncoder_SetDTX() {
 }
 
 func ExampleEncoder_SetFEC() {
-	enc, _ := gopus.NewEncoder(48000, 2, gopus.ApplicationVoIP)
+	enc, _ := gopus.NewEncoder(gopus.DefaultEncoderConfig(48000, 2, gopus.ApplicationVoIP))
 
 	// Enable FEC for packet loss recovery
 	enc.SetFEC(true)
