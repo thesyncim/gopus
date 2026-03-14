@@ -81,4 +81,4 @@ Quick commands:
 - claim: id=codex-20260313-183533; agent=codex; status=released; paths=Makefile,.github/workflows/,testvectors/,container/ogg/,tools/,tmp_check/; updated=2026-03-13T23:16:34Z; expires=2026-03-13T23:16:34Z; note=safety confidence gates, fuzzing, soak, tmp_check proof path
 - claim: id=codex-20260313-232420; agent=codex; status=released; paths=encoder/,celt/,.planning/; updated=2026-03-14T01:05:46Z; expires=2026-03-14T01:05:46Z; note=perf parity loop after safety merge
 - claim: id=codex-20260314-022429; agent=codex; status=released; paths=celt/,.planning/; updated=2026-03-14T09:43:45Z; expires=2026-03-14T09:43:45Z; note=next encoder perf loop after pitchdownsample guard
-- claim: id=codex-20260314-114423; agent=codex; status=active; paths=celt/,.planning/; updated=2026-03-14T11:44:23Z; expires=2026-03-14T15:44:23Z; note=next perf loop after comb-filter keep
+- claim: id=codex-20260314-114423; agent=codex; status=released; paths=celt/,.planning/; updated=2026-03-14T12:38:28Z; expires=2026-03-14T12:38:28Z; note=next perf loop after comb-filter keep
