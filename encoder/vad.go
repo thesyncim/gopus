@@ -223,6 +223,8 @@ func (v *VADState) getSpeechActivity(pcm []float32, frameLength int, fsKHz int, 
 		v.scratchInput = make([]int16, frameLength)
 	}
 	input := v.scratchInput[:frameLength]
+	_ = pcm[frameLength-1]
+	_ = input[frameLength-1]
 	for i := 0; i < frameLength; i++ {
 		// Clamp to int16 range
 		sample := float64(pcm[i]) * 32768.0
@@ -247,7 +249,6 @@ func (v *VADState) getSpeechActivity(pcm []float32, frameLength int, fsKHz int, 
 		v.scratchX = make([]int16, xLen)
 	}
 	X := v.scratchX[:xLen]
-	clear(X)
 
 	// Filter and decimate into 4 bands
 
@@ -275,19 +276,15 @@ func (v *VADState) getSpeechActivity(pcm []float32, frameLength int, fsKHz int, 
 
 	// Calculate energy in each band
 	Xnrg := [VADNBands]int32{}
+	decLenByBand := [VADNBands]int{
+		decimatedFrameLength,
+		decimatedFrameLength,
+		decimatedFrameLength2,
+		decimatedFrameLength1,
+	}
 	for b := 0; b < VADNBands; b++ {
-		// Find decimated frame length for this band
-		var decLen int
-		if b == 0 {
-			decLen = frameLength >> 3 // Band 0: frame/8
-		} else if b == 1 {
-			decLen = frameLength >> 3 // Band 1: frame/8
-		} else if b == 2 {
-			decLen = frameLength >> 2 // Band 2: frame/4
-		} else {
-			decLen = frameLength >> 1 // Band 3: frame/2
-		}
-
+		decLen := decLenByBand[b]
+		band := X[xOffset[b] : xOffset[b]+decLen]
 		// Split into subframes
 		decSubframeLength := decLen >> VADInternalSubframesLog2
 		decSubframeOffset := 0
@@ -298,12 +295,11 @@ func (v *VADState) getSpeechActivity(pcm []float32, frameLength int, fsKHz int, 
 		var sumSquared int32
 		for s := 0; s < VADInternalSubframes; s++ {
 			sumSquared = 0
+			subframe := band[decSubframeOffset : decSubframeOffset+decSubframeLength]
+			_ = subframe[decSubframeLength-1]
 			for i := 0; i < decSubframeLength; i++ {
-				idx := xOffset[b] + i + decSubframeOffset
-				if idx < len(X) {
-					xTmp := int32(X[idx]) >> 3
-					sumSquared += xTmp * xTmp
-				}
+				xTmp := int32(subframe[i]) >> 3
+				sumSquared += xTmp * xTmp
 			}
 			if trace != nil {
 				trace.SubfrEnergy[b][s] = sumSquared
@@ -564,6 +560,9 @@ func anaFiltBank1(in []int16, S *[2]int32, outL, outH []int16, N int) {
 	in = in[:2*N2]
 	outL = outL[:N2]
 	outH = outH[:N2]
+	_ = in[2*N2-1]
+	_ = outL[N2-1]
+	_ = outH[N2-1]
 
 	// Cache allpass coefficients as int64 to avoid repeated conversions.
 	coefEven := int64(int16(aFB1_21))
@@ -572,13 +571,9 @@ func anaFiltBank1(in []int16, S *[2]int32, outL, outH []int16, N int) {
 	s0, s1 := S[0], S[1]
 
 	// Internal variables and state are in Q10 format.
-	// Process pairs from the input slice with stepping index k.
 	for k := 0; k < N2; k++ {
-		// Access pair at [2*k, 2*k+1] using a two-element sub-slice for BCE.
-		pair := in[2*k : 2*k+2 : 2*k+2]
-
 		// Convert to Q10
-		in32 := int32(pair[0]) << 10
+		in32 := int32(in[2*k]) << 10
 
 		// All-pass section for even input sample
 		Y := in32 - s0
@@ -587,7 +582,7 @@ func anaFiltBank1(in []int16, S *[2]int32, outL, outH []int16, N int) {
 		s0 = in32 + X
 
 		// Convert to Q10
-		in32 = int32(pair[1]) << 10
+		in32 = int32(in[2*k+1]) << 10
 
 		// All-pass section for odd input sample
 		Y = in32 - s1
