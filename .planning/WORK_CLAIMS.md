@@ -82,3 +82,4 @@ Quick commands:
 - claim: id=codex-20260313-232420; agent=codex; status=released; paths=encoder/,celt/,.planning/; updated=2026-03-14T01:05:46Z; expires=2026-03-14T01:05:46Z; note=perf parity loop after safety merge
 - claim: id=codex-20260314-022429; agent=codex; status=released; paths=celt/,.planning/; updated=2026-03-14T09:43:45Z; expires=2026-03-14T09:43:45Z; note=next encoder perf loop after pitchdownsample guard
 - claim: id=codex-20260314-114423; agent=codex; status=released; paths=celt/,.planning/; updated=2026-03-14T12:38:28Z; expires=2026-03-14T12:38:28Z; note=next perf loop after comb-filter keep
+- claim: id=codex-20260314-142131; agent=codex; status=active; paths=encoder/,celt/,silk/,testvectors/,.planning/; updated=2026-03-14T14:21:31Z; expires=2026-03-14T18:21:31Z; note=unused-code cleanup batch 1
