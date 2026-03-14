@@ -1282,42 +1282,6 @@ func (d *Decoder) DecodeStereoParams(nbBands int) (intensity, dualStereo int) {
 	return intensity, dualStereo
 }
 
-// decodeSilenceFlag decodes the silence flag from the bitstream.
-// Returns true if this is a silence frame.
-func (d *Decoder) decodeSilenceFlag() bool {
-	if d.rangeDecoder == nil {
-		return false
-	}
-	// Silence is indicated by first bit = 1
-	return d.rangeDecoder.DecodeBit(15) == 1
-}
-
-// decodeTransientFlag decodes the transient flag.
-// Returns true if this frame uses short blocks (transient mode).
-func (d *Decoder) decodeTransientFlag(lm int) bool {
-	if d.rangeDecoder == nil {
-		return false
-	}
-	// Transient flag is only present for frames with LM >= 1
-	if lm < 1 {
-		return false
-	}
-	// Probability depends on frame size
-	logp := uint(3) // P(transient) = 1/8
-	return d.rangeDecoder.DecodeBit(logp) == 1
-}
-
-// decodeIntraFlag decodes the intra flag.
-// Returns true if this is an intra frame (no inter-frame prediction).
-func (d *Decoder) decodeIntraFlag() bool {
-	if d.rangeDecoder == nil {
-		return false
-	}
-	// Intra flag
-	logp := uint(3) // P(intra) = 1/8
-	return d.rangeDecoder.DecodeBit(logp) == 1
-}
-
 func (d *Decoder) synthesizeSilenceMono(frameSize int) []float64 {
 	if frameSize <= 0 {
 		return nil
@@ -2000,15 +1964,6 @@ func copyFloat32ToFloat64(dst []float64, src []float32) {
 	}
 	for ; i < n; i++ {
 		dst[i] = float64(src[i])
-	}
-}
-
-func scaleSamples(samples []float64, scale float64) {
-	if scale == 1.0 {
-		return
-	}
-	for i := range samples {
-		samples[i] *= scale
 	}
 }
 
@@ -4130,13 +4085,6 @@ func innerProdFloat32(x, y []float64, length int) float64 {
 		sum += float32(x[i]) * float32(y[i])
 	}
 	return float64(sum)
-}
-
-func absInt(v int) int {
-	if v < 0 {
-		return -v
-	}
-	return v
 }
 
 func pitchSearchPLC(xLP []float64, y []float64, length, maxPitch int, scratch *encoderScratch) int {

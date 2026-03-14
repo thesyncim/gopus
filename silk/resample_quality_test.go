@@ -111,10 +111,10 @@ func TestDownsamplingResamplerQuality(t *testing.T) {
 func TestDownsamplingResamplerSNR(t *testing.T) {
 	// Test multiple ratios
 	testCases := []struct {
-		name     string
-		inRate   int
-		outRate  int
-		freq     float64 // Test frequency
+		name    string
+		inRate  int
+		outRate int
+		freq    float64 // Test frequency
 	}{
 		{"48kHz->16kHz (1:3)", 48000, 16000, 1000},
 		{"48kHz->12kHz (1:4)", 48000, 12000, 1000},

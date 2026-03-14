@@ -49,40 +49,40 @@ func TestPercussiveAttackDetection(t *testing.T) {
 	frameSize := 960
 
 	testCases := []struct {
-		name            string
-		genFunc         func(int) []float64
+		name             string
+		genFunc          func(int) []float64
 		expectPercussive bool
-		minStrength     float64
+		minStrength      float64
 	}{
 		{
-			name:            "silence",
-			genFunc:         func(n int) []float64 { return make([]float64, n) },
+			name:             "silence",
+			genFunc:          func(n int) []float64 { return make([]float64, n) },
 			expectPercussive: false,
-			minStrength:     0.0,
+			minStrength:      0.0,
 		},
 		{
-			name:            "steady_sine",
-			genFunc:         func(n int) []float64 { return generateSineWave(440.0, n) },
+			name:             "steady_sine",
+			genFunc:          func(n int) []float64 { return generateSineWave(440.0, n) },
 			expectPercussive: false,
-			minStrength:     0.0,
+			minStrength:      0.0,
 		},
 		{
-			name:            "drum_hit",
-			genFunc:         func(n int) []float64 { return generateDrumHit(n, 48000) },
+			name:             "drum_hit",
+			genFunc:          func(n int) []float64 { return generateDrumHit(n, 48000) },
 			expectPercussive: true,
-			minStrength:     0.3,
+			minStrength:      0.3,
 		},
 		{
-			name:            "impulse",
-			genFunc:         generateImpulse,
+			name:             "impulse",
+			genFunc:          generateImpulse,
 			expectPercussive: true,
-			minStrength:     0.5,
+			minStrength:      0.5,
 		},
 		{
-			name:            "attack_silence_to_tone",
-			genFunc:         func(n int) []float64 { return generateAttackFromSilence(n, 48000) },
+			name:             "attack_silence_to_tone",
+			genFunc:          func(n int) []float64 { return generateAttackFromSilence(n, 48000) },
 			expectPercussive: true,
-			minStrength:     0.5,
+			minStrength:      0.5,
 		},
 	}
 

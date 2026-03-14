@@ -43,8 +43,9 @@ func (sm StereoMode) String() string {
 
 // MidSideToLR converts mid-side stereo to left-right.
 // The conversion uses a rotation matrix controlled by theta:
-//   L = cos(theta) * M + sin(theta) * S
-//   R = cos(theta) * M - sin(theta) * S
+//
+//	L = cos(theta) * M + sin(theta) * S
+//	R = cos(theta) * M - sin(theta) * S
 //
 // Parameters:
 //   - mid: mid channel coefficients (M = (L+R)/2)

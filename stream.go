@@ -283,7 +283,7 @@ type Writer struct {
 //   - format: input sample format (FormatFloat32LE or FormatInt16LE)
 //   - application: encoder application hint
 func NewWriter(sampleRate, channels int, sink PacketSink, format SampleFormat, application Application) (*Writer, error) {
-	enc, err := NewEncoder(sampleRate, channels, application)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: sampleRate, Channels: channels, Application: application})
 	if err != nil {
 		return nil, err
 	}

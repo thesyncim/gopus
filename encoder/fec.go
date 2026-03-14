@@ -7,8 +7,6 @@
 
 package encoder
 
-
-
 // FEC Constants
 const (
 	// LBRRBitrateFactor is the bitrate reduction for LBRR encoding.

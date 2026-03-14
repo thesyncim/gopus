@@ -8,9 +8,9 @@ import (
 // TestNormalizeVectorUnit verifies various input vectors normalize to unit L2 norm.
 func TestNormalizeVectorUnit(t *testing.T) {
 	tests := []struct {
-		name   string
-		input  []float64
-		desc   string
+		name  string
+		input []float64
+		desc  string
 	}{
 		{
 			name:  "3-4-5_triangle",
@@ -346,12 +346,12 @@ func TestPVQCodebookSize(t *testing.T) {
 		n, k     int
 		expected uint32
 	}{
-		{2, 1, 4},   // [+1,0], [-1,0], [0,+1], [0,-1]
-		{2, 2, 8},   // 4 sign combinations * 2 distribution patterns
-		{3, 1, 6},   // 3 positions * 2 signs
-		{3, 2, 18},  // Computed from recurrence
-		{4, 1, 8},   // 4 positions * 2 signs
-		{4, 2, 32},  // Computed from recurrence
+		{2, 1, 4},  // [+1,0], [-1,0], [0,+1], [0,-1]
+		{2, 2, 8},  // 4 sign combinations * 2 distribution patterns
+		{3, 1, 6},  // 3 positions * 2 signs
+		{3, 2, 18}, // Computed from recurrence
+		{4, 1, 8},  // 4 positions * 2 signs
+		{4, 2, 32}, // Computed from recurrence
 	}
 
 	for _, tc := range testCases {

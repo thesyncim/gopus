@@ -56,7 +56,9 @@ func (e *Encoder) EncodeInt16(pcm []int16, data []byte) (int, error) {
 // Returns the number of bytes written to data, or an error.
 //
 // The input values are interpreted with the same semantics as libopus
-// opus_encode24(): signed 24-bit PCM carried in int32 containers.
+// opus_encode24(): right-justified signed 24-bit PCM carried in int32
+// containers with numeric range [-8388608, 8388607]. Left-shifted 24-in-32
+// input will be mis-scaled.
 func (e *Encoder) EncodeInt24(pcm []int32, data []byte) (int, error) {
 	expected := e.frameSize * e.channels
 	if len(pcm) != expected {

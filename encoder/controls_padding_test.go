@@ -72,4 +72,3 @@ func TestPadToSize_Code3PaddingUsesTotalPadAmount(t *testing.T) {
 		t.Fatalf("expected trailing zero padding byte")
 	}
 }
-

@@ -10,7 +10,8 @@ package gopus
 // Returns the number of samples per channel decoded, or an error.
 //
 // When data is nil, the decoder performs packet loss concealment using
-// the last successfully decoded frame parameters.
+// the last successfully decoded frame parameters. Before the first packet has
+// been decoded, cold PLC returns zeroed audio and a nil error.
 //
 // Buffer sizing: For 60ms frames at 48kHz stereo, pcm must have at least
 // 2880 * 2 = 5760 elements. For multi-frame packets (code 1/2/3), the buffer
@@ -241,6 +242,10 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 }
 
 // DecodeWithFEC decodes an Opus packet, optionally recovering a lost frame using FEC.
+//
+// This mirrors libopus decode_fec semantics: when fec is true, the decoder
+// uses in-band LBRR data if present and otherwise falls back to packet loss
+// concealment instead of returning a missing-FEC error.
 func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, error) {
 	if !fec {
 		return d.Decode(data, pcm)

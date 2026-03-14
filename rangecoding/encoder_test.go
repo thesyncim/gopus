@@ -256,10 +256,10 @@ func TestEncoderDoneMultipleCalls(t *testing.T) {
 // TestEncoderEncode tests direct Encode method.
 func TestEncoderEncode(t *testing.T) {
 	tests := []struct {
-		name    string
-		fl, fh  uint32 // Cumulative frequencies
-		ft      uint32 // Total
-		minLen  int
+		name   string
+		fl, fh uint32 // Cumulative frequencies
+		ft     uint32 // Total
+		minLen int
 	}{
 		{"first symbol", 0, 64, 256, 1},
 		{"middle symbol", 64, 128, 256, 1},

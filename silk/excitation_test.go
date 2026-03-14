@@ -41,8 +41,8 @@ func TestExcitationOutputLength(t *testing.T) {
 func TestLPCFilterStability(t *testing.T) {
 	// Test that limitLPCFilterGain prevents runaway coefficients
 	tests := []struct {
-		name      string
-		lpc       []int16
+		name       string
+		lpc        []int16
 		wantStable bool
 	}{
 		{

@@ -5,13 +5,31 @@ import (
 	"testing"
 )
 
+func packetHasInBandFEC(t *testing.T, packet []byte) bool {
+	t.Helper()
+
+	toc, _, err := packetFrameCount(packet)
+	if err != nil {
+		t.Fatalf("packetFrameCount error: %v", err)
+	}
+	if toc.Mode != ModeSILK && toc.Mode != ModeHybrid {
+		return false
+	}
+
+	firstFrameData, err := extractFirstFramePayload(packet, toc)
+	if err != nil {
+		t.Fatalf("extractFirstFramePayload error: %v", err)
+	}
+	return packetHasLBRR(firstFrameData, toc)
+}
+
 // TestFEC_EndToEnd tests the complete FEC encode/decode cycle:
 // 1. Encode audio with FEC enabled
 // 2. Verify LBRR data is present in packets
 // 3. Simulate packet loss and verify FEC recovery
 func TestFEC_EndToEnd(t *testing.T) {
 	// Create encoder with FEC enabled
-	enc, err := NewEncoder(48000, 1, ApplicationVoIP)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -111,10 +129,77 @@ func TestFEC_EndToEnd(t *testing.T) {
 	t.Log("\n=== FEC End-to-End test completed ===")
 }
 
+func TestFEC_ProvidedPacketRecoveryPath(t *testing.T) {
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+	enc.SetFEC(true)
+	if err := enc.SetPacketLoss(15); err != nil {
+		t.Fatalf("SetPacketLoss error: %v", err)
+	}
+	if err := enc.SetBitrate(24000); err != nil {
+		t.Fatalf("SetBitrate error: %v", err)
+	}
+
+	frameSize := 960
+	var packets [][]byte
+	for i := 0; i < 12; i++ {
+		pcm := make([]float32, frameSize)
+		for j := range pcm {
+			sampleIdx := i*frameSize + j
+			pcm[j] = float32(0.5*math.Sin(2*math.Pi*220*float64(sampleIdx)/48000) +
+				0.25*math.Sin(2*math.Pi*440*float64(sampleIdx)/48000))
+		}
+		packet, err := enc.EncodeFloat32(pcm)
+		if err != nil {
+			t.Fatalf("Encode frame %d error: %v", i, err)
+		}
+		packets = append(packets, append([]byte(nil), packet...))
+		if len(packets) >= 3 && packetHasInBandFEC(t, packet) {
+			break
+		}
+	}
+
+	if len(packets) < 3 || !packetHasInBandFEC(t, packets[len(packets)-1]) {
+		t.Fatal("failed to generate a packet carrying LBRR for provided-packet recovery")
+	}
+
+	packet0 := packets[len(packets)-3]
+	recoveryPacket := packets[len(packets)-1]
+
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	seed := make([]float32, frameSize)
+	if _, err := dec.Decode(packet0, seed); err != nil {
+		t.Fatalf("Decode seed packet error: %v", err)
+	}
+
+	recovered := make([]float32, frameSize)
+	n, err := dec.DecodeWithFEC(recoveryPacket, recovered, true)
+	if err != nil {
+		t.Fatalf("DecodeWithFEC(recovery packet) error: %v", err)
+	}
+	if n != frameSize {
+		t.Fatalf("DecodeWithFEC(recovery packet) samples=%d want=%d", n, frameSize)
+	}
+	if computeEnergyFloat32(recovered[:n]) == 0 {
+		t.Fatal("DecodeWithFEC(recovery packet) produced silence")
+	}
+
+	packetOut := make([]float32, frameSize)
+	if _, err := dec.Decode(recoveryPacket, packetOut); err != nil {
+		t.Fatalf("Decode recovery packet after FEC error: %v", err)
+	}
+}
+
 // TestFEC_LBRRPresence verifies that LBRR data is encoded in SILK packets
 // by checking the LBRR flag in the packet header.
 func TestFEC_LBRRPresence(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationVoIP)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -173,7 +258,7 @@ func TestFEC_LBRRPresence(t *testing.T) {
 // TestFEC_RecoveryQuality compares FEC recovery quality vs PLC
 func TestFEC_RecoveryQuality(t *testing.T) {
 	// Create encoder with FEC enabled
-	enc, err := NewEncoder(48000, 1, ApplicationVoIP)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -258,7 +343,7 @@ func TestFEC_RecoveryQuality(t *testing.T) {
 
 // TestFEC_MultiplePacketLoss tests FEC behavior with multiple consecutive lost packets
 func TestFEC_MultiplePacketLoss(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationVoIP)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}

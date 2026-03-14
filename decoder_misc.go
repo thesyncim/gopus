@@ -1,11 +1,6 @@
 package gopus
 
-import (
-	"math"
-
-	"github.com/thesyncim/gopus/celt"
-	"github.com/thesyncim/gopus/silk"
-)
+import "math"
 
 func packetFrameCount(data []byte) (TOC, int, error) {
 	if len(data) < 1 {
@@ -43,16 +38,6 @@ func (d *Decoder) applyOutputGain(samples []float32) {
 	for i := range samples {
 		samples[i] *= g
 	}
-}
-
-// GetCELTDecoder returns the internal CELT decoder for debugging purposes.
-func (d *Decoder) GetCELTDecoder() *celt.Decoder {
-	return d.celtDecoder
-}
-
-// GetSILKDecoder returns the internal SILK decoder for debugging purposes.
-func (d *Decoder) GetSILKDecoder() *silk.Decoder {
-	return d.silkDecoder
 }
 
 // DebugPrevMode returns the previous decode mode (SILK/Hybrid/CELT).

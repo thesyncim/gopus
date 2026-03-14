@@ -279,7 +279,7 @@ go build ./examples/...
 
 ```go
 // Create encoder
-enc, err := gopus.NewEncoder(48000, 2, gopus.ApplicationAudio)
+enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 2, Application: gopus.ApplicationAudio})
 
 // Configure
 enc.SetBitrate(128000)        // 128 kbps
@@ -307,7 +307,7 @@ samples := pcmOut[:n*cfg.Channels]
 
 ```go
 // Write Ogg Opus
-w, err := ogg.NewWriter(file, 48000, 2)
+w, err := ogg.NewWriter(file, uint32(48000), uint8(2))
 w.WritePacket(packet, frameSize)
 w.Close()
 

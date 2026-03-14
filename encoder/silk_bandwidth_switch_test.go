@@ -121,4 +121,3 @@ func TestSILKEncoderReconfiguresOnBandwidthChangeStereo(t *testing.T) {
 	}
 	check(silk.BandwidthNarrowband, 8000)
 }
-

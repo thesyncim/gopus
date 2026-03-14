@@ -288,7 +288,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// This matches libopus order: celt_preemphasis() is called before transient_analysis()
 	// Reference: libopus celt_encoder.c lines 2015-2030
 	// Input samples in float range [-1.0, 1.0] are scaled to signal scale (x32768)
-	// This matches libopus CELT_SIG_SCALE. The decoder reverses this with scaleSamples(1/32768).
+	// This matches libopus CELT_SIG_SCALE. The decoder later divides back by the same scale.
 	preemph := e.applyPreemphasisWithScalingScratch(samplesForFrame)
 
 	// Step 4: Detect transient and compute tf_estimate using PRE-EMPHASIZED signal
@@ -1413,45 +1413,6 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	}
 
 	return bytes, nil
-}
-
-// computeMDCTForEncoding computes MDCT for encoding with proper windowing.
-// For transient mode, uses multiple short MDCTs.
-// Note: This is a stateless version that uses zero-padding for the first half.
-// For proper overlap handling, use computeMDCTWithOverlap which uses the encoder's state.
-func computeMDCTForEncoding(samples []float64, frameSize, shortBlocks int) []float64 {
-	if len(samples) == 0 {
-		return nil
-	}
-
-	overlap := Overlap
-	if overlap > len(samples) {
-		overlap = len(samples)
-	}
-
-	input := make([]float64, len(samples)+overlap)
-	copy(input[overlap:], samples)
-
-	if shortBlocks > 1 {
-		return MDCTShort(input, shortBlocks)
-	}
-	return MDCT(input)
-}
-
-// computeMDCTWithOverlap computes MDCT using the encoder's overlap buffer for continuity.
-// This ensures proper MDCT overlap-add analysis across frame boundaries.
-func (e *Encoder) computeMDCTWithOverlap(samples []float64, shortBlocks int) []float64 {
-	overlap := Overlap
-	if overlap > len(samples) {
-		overlap = len(samples)
-	}
-	if len(e.overlapBuffer) < overlap {
-		newBuf := make([]float64, overlap)
-		copy(newBuf, e.overlapBuffer)
-		e.overlapBuffer = newBuf
-	}
-
-	return computeMDCTWithHistoryScratch(samples, e.overlapBuffer[:overlap], shortBlocks, &e.scratch)
 }
 
 // ComputeMDCTWithHistory computes MDCT using a history buffer for overlap.

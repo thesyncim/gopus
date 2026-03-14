@@ -11,7 +11,7 @@
 //
 // Encoding:
 //
-//	enc, err := gopus.NewEncoder(48000, 2, gopus.ApplicationAudio)
+//	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 2, Application: gopus.ApplicationAudio})
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
