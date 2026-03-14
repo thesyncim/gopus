@@ -581,16 +581,6 @@ func (e *Encoder) computeEquivRate(bitrate int, channels int, frameRate int, vbr
 	return equiv
 }
 
-// computePacketSize determines target packet size based on mode.
-func (e *Encoder) computePacketSize(frameSize int, actualMode Mode) int {
-	if actualMode == ModeSILK && e.bitrateMode == ModeVBR {
-		frameRate := 48000 / frameSize
-		equivRate := e.computeEquivRate(e.bitrate, e.channels, frameRate, true, actualMode, e.complexity, e.packetLoss)
-		return equivRate
-	}
-	return e.bitrate
-}
-
 // Encode encodes a frame of PCM audio to an Opus packet.
 func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	expectedLen := frameSize * e.channels
@@ -1911,10 +1901,6 @@ func (e *Encoder) encodeCELTFrame(pcm []float64, frameSize int) ([]byte, error) 
 	return e.encodeCELTFrameWithBitrateAndMaxPayload(pcm, frameSize, e.bitrate, 0)
 }
 
-func (e *Encoder) encodeCELTFrameWithBitrate(pcm []float64, frameSize int, bitrate int) ([]byte, error) {
-	return e.encodeCELTFrameWithBitrateAndMaxPayload(pcm, frameSize, bitrate, 0)
-}
-
 func (e *Encoder) encodeCELTFrameWithBitrateAndMaxPayload(pcm []float64, frameSize int, bitrate int, maxPayloadBytes int) ([]byte, error) {
 	e.ensureCELTEncoder()
 	e.syncCELTAnalysisToCELT()
@@ -2421,11 +2407,6 @@ func computeSilkFrameLayout(pcmLen, fsKHz int) (frameSamples, nFrames int) {
 	return frameSamples, nFrames
 }
 
-func (e *Encoder) computeSilkVADFlags(pcm []float32, fsKHz int) ([]bool, int) {
-	flags, _, nFrames := e.computeSilkVADFlagsAndStates(pcm, fsKHz)
-	return flags, nFrames
-}
-
 func (e *Encoder) computeSilkVADFlagsAndStates(pcm []float32, fsKHz int) ([]bool, []silk.VADFrameState, int) {
 	frameSamples, nFrames := computeSilkFrameLayout(len(pcm), fsKHz)
 	if nFrames == 0 {
@@ -2457,11 +2438,6 @@ func (e *Encoder) computeSilkVADFlagsAndStates(pcm []float32, fsKHz int) ([]bool
 		}
 	}
 	return flags, states, nFrames
-}
-
-func (e *Encoder) computeSilkVADSideFlags(pcm []float32, fsKHz int) ([]bool, int) {
-	flags, _, nFrames := e.computeSilkVADSideFlagsAndStates(pcm, fsKHz)
-	return flags, nFrames
 }
 
 func (e *Encoder) computeSilkVADSideFlagsAndStates(pcm []float32, fsKHz int) ([]bool, []silk.VADFrameState, int) {
