@@ -44,6 +44,7 @@ make autoresearch-init
 make autoresearch-preflight
 make autoresearch-eval DESCRIPTION=baseline
 make autoresearch-best
+make autoresearch-loop MAX_ITERATIONS=5
 ```
 
 The default judge is fixed to:

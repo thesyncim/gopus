@@ -24,6 +24,7 @@ Usage:
   tools/autoresearch.sh preflight [--results path]
   tools/autoresearch.sh best [--results path]
   tools/autoresearch.sh eval [--results path] [--description text] [--sample speech|stereo] [--iters N] [--warmup N] [--bitrate bps] [--complexity N]
+  tools/autoresearch.sh loop [--results path] [--max-iterations N] [--model MODEL] [--dry-run]
 EOF
 }
 
@@ -175,6 +176,61 @@ append_result_row() {
   local description="$9"
   printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
     "$commit" "$parity" "$benchguard" "$gopus" "$libopus" "$ratio" "$status" "$description" >>"$path"
+}
+
+results_row_count() {
+  local path="$1"
+  [[ -f "$path" ]] || {
+    echo 0
+    return 0
+  }
+  awk 'NR > 1 { count++ } END { print count + 0 }' "$path"
+}
+
+latest_result_row() {
+  local path="$1"
+  [[ -f "$path" ]] || return 0
+  awk 'NR > 1 { row = $0 } END { if (row != "") print row }' "$path"
+}
+
+require_clean_worktree() {
+  if ! git -C "$ROOT_DIR" diff --quiet --ignore-submodules --exit-code; then
+    die "tracked worktree changes detected; commit or stash them before starting the loop"
+  fi
+  if ! git -C "$ROOT_DIR" diff --cached --quiet --ignore-submodules --exit-code; then
+    die "staged changes detected; commit or stash them before starting the loop"
+  fi
+}
+
+build_loop_prompt() {
+  local start_commit="$1"
+  local best_summary="$2"
+  cat <<EOF
+You are running exactly one autonomous autoresearch iteration in this repository.
+
+Read and follow these files first:
+- program.md
+- AGENTS.md
+- README.md
+
+Mandatory rules for this one iteration:
+1. Work on exactly one small experiment in one editable surface.
+2. Make the code change.
+3. Commit the experiment before evaluation using a conventional commit message.
+4. Run: make autoresearch-eval DESCRIPTION='<short experiment note>'
+5. Inspect the appended row in results.tsv.
+6. If the result status is discard or crash, reset the repository back to START_COMMIT.
+7. If the result status is keep or baseline, stay on the new commit.
+8. Do not edit results.tsv or reports/autoresearch/ manually.
+9. Finish with exactly one summary line in this format:
+   outcome=<status> commit=<short> description=<description>
+
+Context:
+- START_COMMIT=$start_commit
+- CURRENT_BEST=$best_summary
+
+Do not start a second experiment in this session.
+EOF
 }
 
 cmd_init() {
@@ -396,6 +452,104 @@ cmd_eval() {
   fi
 }
 
+cmd_loop() {
+  local results="$RESULTS_FILE_DEFAULT"
+  local max_iterations=""
+  local model=""
+  local dry_run=0
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+    --results)
+      results="$2"
+      shift 2
+      ;;
+    --max-iterations)
+      max_iterations="$2"
+      shift 2
+      ;;
+    --model)
+      model="$2"
+      shift 2
+      ;;
+    --dry-run)
+      dry_run=1
+      shift
+      ;;
+    *)
+      usage
+      exit 1
+      ;;
+    esac
+  done
+
+  ensure_results_header "$results"
+  require_clean_worktree
+  command -v codex >/dev/null 2>&1 || die "codex CLI not found in PATH"
+
+  local iteration=0
+  while :; do
+    iteration=$((iteration + 1))
+    if [[ -n "$max_iterations" ]] && (( iteration > max_iterations )); then
+      echo "autoresearch: loop finished after $((iteration - 1)) iteration(s)"
+      break
+    fi
+
+    local start_commit start_count best_summary prompt_file agent_log agent_msg codex_status
+    local row end_commit status
+
+    start_commit="$(git -C "$ROOT_DIR" rev-parse HEAD)"
+    start_count="$(results_row_count "$results")"
+    best_summary="$(best_success_row "$results")"
+    if [[ -z "$best_summary" ]]; then
+      best_summary="none"
+    fi
+
+    prompt_file="$(mktemp)"
+    agent_log="$LOG_DIR_DEFAULT/loop-$(date -u +%Y%m%dT%H%M%SZ)-${iteration}.log"
+    agent_msg="$LOG_DIR_DEFAULT/loop-$(date -u +%Y%m%dT%H%M%SZ)-${iteration}-last.txt"
+    mkdir -p "$LOG_DIR_DEFAULT"
+    build_loop_prompt "$start_commit" "$best_summary" >"$prompt_file"
+
+    echo "autoresearch: starting loop iteration $iteration from $(git -C "$ROOT_DIR" rev-parse --short "$start_commit")"
+    if [[ "$dry_run" -eq 1 ]]; then
+      cat "$prompt_file"
+      rm -f "$prompt_file"
+      echo "autoresearch: dry-run only; stopping before codex exec"
+      break
+    fi
+
+    codex_status=0
+    if [[ -n "$model" ]]; then
+      codex exec --dangerously-bypass-approvals-and-sandbox -C "$ROOT_DIR" -m "$model" -o "$agent_msg" - <"$prompt_file" >"$agent_log" 2>&1 || codex_status=$?
+    else
+      codex exec --dangerously-bypass-approvals-and-sandbox -C "$ROOT_DIR" -o "$agent_msg" - <"$prompt_file" >"$agent_log" 2>&1 || codex_status=$?
+    fi
+    rm -f "$prompt_file"
+
+    if (( codex_status != 0 )); then
+      die "codex exec failed in iteration $iteration; see $agent_log"
+    fi
+
+    if [[ "$(results_row_count "$results")" -le "$start_count" ]]; then
+      die "iteration $iteration did not append a results row; see $agent_log"
+    fi
+
+    row="$(latest_result_row "$results")"
+    IFS=$'\t' read -r _ _ _ _ _ _ status _ <<<"$row"
+    end_commit="$(git -C "$ROOT_DIR" rev-parse HEAD)"
+
+    if [[ "$status" == "discard" || "$status" == "crash" ]]; then
+      if [[ "$end_commit" != "$start_commit" ]]; then
+        git -C "$ROOT_DIR" reset --hard "$start_commit" >/dev/null
+        echo "autoresearch: reset to $(git -C "$ROOT_DIR" rev-parse --short "$start_commit") after $status"
+      fi
+    fi
+
+    echo "autoresearch: iteration $iteration finished with status=$status"
+  done
+}
+
 main() {
   local cmd="${1:-}"
   shift || true
@@ -411,6 +565,9 @@ main() {
     ;;
   eval)
     cmd_eval "$@"
+    ;;
+  loop)
+    cmd_loop "$@"
     ;;
   *)
     usage
