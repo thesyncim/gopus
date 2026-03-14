@@ -1,19 +1,11 @@
 # Claude Context
 
-Use `AGENTS.md` as the canonical project context.
-If this file and `AGENTS.md` differ, `AGENTS.md` is authoritative.
-When in doubt, use `tmp_check/opus-1.6.1/` libopus source as the source of truth.
+Use `program.md` for the autonomous research workflow.
+Use `AGENTS.md` for project facts and codec guardrails.
 
-Session quick start:
+Quick start:
 
-1. Read: `AGENTS.md`, `.planning/ACTIVE.md`, `.planning/DECISIONS.md`, `.planning/WORK_CLAIMS.md`.
-2. Run `make agent-preflight`.
-3. If working in parallel, claim surfaces before edits and publish the claim immediately:
-   - `make agent-claim AGENT=claude PATHS='silk/,testvectors/' NOTE='short scope note'`
-   - `git add .planning/WORK_CLAIMS.md`
-   - `git commit --only .planning/WORK_CLAIMS.md -m "chore(claims): claude claim <paths>"`
-   - `git push`
-4. In the first reply, state:
-   - what will not be re-validated,
-   - what focused test slice runs first,
-   - when broad gate `make verify-production` will be run.
+1. Read `program.md`, `AGENTS.md`, and `README.md`.
+2. Run `make autoresearch-init`.
+3. Run `make autoresearch-preflight`.
+4. Establish the baseline with `make autoresearch-eval DESCRIPTION=baseline`.

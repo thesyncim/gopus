@@ -28,11 +28,16 @@ mem.out
 examples/*/bench-*
 examples/*/*.exe
 
-# Planning/debug docs (keep session memory files, ignore deep debug logs)
+# Retired planning directory (keep migration stubs only)
 .planning/*
 !.planning/ACTIVE.md
 !.planning/DECISIONS.md
 !.planning/WORK_CLAIMS.md
+
+# Local autoresearch artifacts
+results.tsv
+run.log
+reports/autoresearch/
 
 # OS files
 .DS_Store

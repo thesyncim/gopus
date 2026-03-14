@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix test test-fast test-race test-race-parity test-fuzz-smoke test-fuzz-safety test-parity test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard agent-preflight agent-claims agent-claim agent-release verify-production verify-production-exhaustive verify-safety release-evidence ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
+.PHONY: lint lint-fix test test-fast test-race test-race-parity test-fuzz-smoke test-fuzz-safety test-parity test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard autoresearch-init autoresearch-preflight autoresearch-eval autoresearch-best verify-production verify-production-exhaustive verify-safety release-evidence ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
@@ -93,24 +93,22 @@ test-soak-safety:
 bench-guard:
 	$(GO_WORK_ENV) $(GO) run ./tools/benchguard -config tools/bench_guardrails.json
 
-# Session memory + overlap preflight for concurrent agent work.
-agent-preflight:
-	bash ./tools/agent_preflight.sh
+# Initialize the local autoresearch ledger.
+autoresearch-init:
+	bash ./tools/autoresearch.sh init
 
-# List current claims.
-agent-claims:
-	bash ./tools/agent_claim.sh list
+# Verify that the fixed judge and local ledger are ready.
+autoresearch-preflight:
+	bash ./tools/autoresearch.sh preflight
 
-# Add a claim (required vars: AGENT, PATHS; optional: NOTE, HOURS, CLAIM_ID).
-agent-claim:
-	@test -n "$(AGENT)" || { echo "AGENT is required"; exit 1; }
-	@test -n "$(PATHS)" || { echo "PATHS is required"; exit 1; }
-	bash ./tools/agent_claim.sh claim "$(AGENT)" "$(PATHS)" "$(NOTE)" "$(HOURS)" "$(CLAIM_ID)"
+# Run one fixed autoresearch evaluation and append a results row.
+# Usage: make autoresearch-eval DESCRIPTION='short experiment note'
+autoresearch-eval:
+	bash ./tools/autoresearch.sh eval --description "$${DESCRIPTION:-experiment}"
 
-# Release a claim (required var: CLAIM_ID).
-agent-release:
-	@test -n "$(CLAIM_ID)" || { echo "CLAIM_ID is required"; exit 1; }
-	bash ./tools/agent_claim.sh release "$(CLAIM_ID)"
+# Print the current best successful autoresearch row.
+autoresearch-best:
+	bash ./tools/autoresearch.sh best
 
 # Default production verification gate.
 verify-production: ensure-libopus
