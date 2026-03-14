@@ -685,7 +685,7 @@ func TestDecodeWithFEC_Recovery(t *testing.T) {
 }
 
 func TestDecodeWithFEC_UsesProvidedPacketAndPreservesNormalDecode(t *testing.T) {
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationVoIP))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -757,7 +757,7 @@ func TestDecodeWithFEC_UsesProvidedPacketAndPreservesNormalDecode(t *testing.T) 
 }
 
 func TestDecodeWithFEC_FrameSizeTransitionUsesProvidedPacketGranularity(t *testing.T) {
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationVoIP))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -893,7 +893,7 @@ func TestDecodeWithFEC_ProvidedCELTPacketClearsStoredFECState(t *testing.T) {
 }
 
 func TestDecodeWithFEC_ProvidedPacketUsesPacketModeForCELTGate(t *testing.T) {
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationVoIP))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -964,7 +964,7 @@ func TestDecodeWithFEC_ProvidedPacketUsesPacketModeForCELTGate(t *testing.T) {
 }
 
 func TestDecodeWithFEC_ProvidedPacketWithoutLBRRUsesDirectPLCFallback(t *testing.T) {
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationVoIP))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}

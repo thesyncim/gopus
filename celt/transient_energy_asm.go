@@ -3,7 +3,9 @@
 package celt
 
 // transientEnergyPairs computes energy of sample pairs from float64 input:
-//   x2out[i] = float32(tmp[2*i])^2 + float32(tmp[2*i+1])^2
+//
+//	x2out[i] = float32(tmp[2*i])^2 + float32(tmp[2*i+1])^2
+//
 // and returns the sum of all x2out values (mean).
 // tmp must have at least 2*len2 elements.
 //

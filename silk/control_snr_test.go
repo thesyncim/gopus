@@ -4,11 +4,11 @@ import "testing"
 
 func TestControlSNRMatchesLibopusTables(t *testing.T) {
 	tests := []struct {
-		name        string
-		bandwidth   Bandwidth
-		targetRate  int
-		nbSubfr     int
-		expectedQ7  int
+		name       string
+		bandwidth  Bandwidth
+		targetRate int
+		nbSubfr    int
+		expectedQ7 int
 	}{
 		{"NB-8k-20ms", BandwidthNarrowband, 8000, 4, 1932},
 		{"NB-12k-20ms", BandwidthNarrowband, 12000, 4, 2562},

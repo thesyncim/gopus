@@ -143,13 +143,13 @@ func TestIsqrt32(t *testing.T) {
 		{196, 14},
 		{224, 14},
 		{225, 15},
-		{227, 15},  // Max ambisonics channel count
+		{227, 15}, // Max ambisonics channel count
 		{256, 16},
 		{1000, 31},
 		{10000, 100},
 		{65536, 256},
-		{-1, 0},    // Negative input
-		{-100, 0},  // Negative input
+		{-1, 0},   // Negative input
+		{-100, 0}, // Negative input
 	}
 
 	for _, tt := range tests {
@@ -180,23 +180,23 @@ func TestValidAmbisonicsChannelCounts(t *testing.T) {
 	// isqrt32(3) = 1, acn = 1*1 = 1, nondiegetic = 3-1 = 2. Valid!
 
 	validCounts := []struct {
-		channels       int
-		wantStreams    int
-		wantCoupled    int
-		wantOrder      int
+		channels        int
+		wantStreams     int
+		wantCoupled     int
+		wantOrder       int
 		wantNondiegetic int
 	}{
 		// Pure ambisonics (no non-diegetic)
-		{1, 1, 0, 0, 0},    // Order 0 (W only)
-		{4, 4, 0, 1, 0},    // Order 1 (FOA)
-		{9, 9, 0, 2, 0},    // Order 2 (SOA)
-		{16, 16, 0, 3, 0},  // Order 3 (TOA)
-		{25, 25, 0, 4, 0},  // Order 4
-		{36, 36, 0, 5, 0},  // Order 5
-		{49, 49, 0, 6, 0},  // Order 6
-		{64, 64, 0, 7, 0},  // Order 7
-		{81, 81, 0, 8, 0},  // Order 8
-		{100, 100, 0, 9, 0}, // Order 9
+		{1, 1, 0, 0, 0},      // Order 0 (W only)
+		{4, 4, 0, 1, 0},      // Order 1 (FOA)
+		{9, 9, 0, 2, 0},      // Order 2 (SOA)
+		{16, 16, 0, 3, 0},    // Order 3 (TOA)
+		{25, 25, 0, 4, 0},    // Order 4
+		{36, 36, 0, 5, 0},    // Order 5
+		{49, 49, 0, 6, 0},    // Order 6
+		{64, 64, 0, 7, 0},    // Order 7
+		{81, 81, 0, 8, 0},    // Order 8
+		{100, 100, 0, 9, 0},  // Order 9
 		{121, 121, 0, 10, 0}, // Order 10
 		{144, 144, 0, 11, 0}, // Order 11
 		{169, 169, 0, 12, 0}, // Order 12
@@ -204,16 +204,16 @@ func TestValidAmbisonicsChannelCounts(t *testing.T) {
 		{225, 225, 0, 14, 0}, // Order 14
 
 		// Ambisonics with non-diegetic stereo pair
-		{3, 2, 1, 0, 2},    // Order 0 + stereo non-diegetic
-		{6, 5, 1, 1, 2},    // Order 1 + stereo non-diegetic
-		{11, 10, 1, 2, 2},  // Order 2 + stereo non-diegetic
-		{18, 17, 1, 3, 2},  // Order 3 + stereo non-diegetic
-		{27, 26, 1, 4, 2},  // Order 4 + stereo non-diegetic
-		{38, 37, 1, 5, 2},  // Order 5 + stereo non-diegetic
-		{51, 50, 1, 6, 2},  // Order 6 + stereo non-diegetic
-		{66, 65, 1, 7, 2},  // Order 7 + stereo non-diegetic
-		{83, 82, 1, 8, 2},  // Order 8 + stereo non-diegetic
-		{102, 101, 1, 9, 2}, // Order 9 + stereo non-diegetic
+		{3, 2, 1, 0, 2},      // Order 0 + stereo non-diegetic
+		{6, 5, 1, 1, 2},      // Order 1 + stereo non-diegetic
+		{11, 10, 1, 2, 2},    // Order 2 + stereo non-diegetic
+		{18, 17, 1, 3, 2},    // Order 3 + stereo non-diegetic
+		{27, 26, 1, 4, 2},    // Order 4 + stereo non-diegetic
+		{38, 37, 1, 5, 2},    // Order 5 + stereo non-diegetic
+		{51, 50, 1, 6, 2},    // Order 6 + stereo non-diegetic
+		{66, 65, 1, 7, 2},    // Order 7 + stereo non-diegetic
+		{83, 82, 1, 8, 2},    // Order 8 + stereo non-diegetic
+		{102, 101, 1, 9, 2},  // Order 9 + stereo non-diegetic
 		{123, 122, 1, 10, 2}, // Order 10 + stereo non-diegetic
 		{146, 145, 1, 11, 2}, // Order 11 + stereo non-diegetic
 		{171, 170, 1, 12, 2}, // Order 12 + stereo non-diegetic
@@ -378,12 +378,12 @@ func TestValidateAmbisonicsFamily3(t *testing.T) {
 	}{
 		// streams = (channels + 1) / 2
 		// coupled = channels / 2
-		{4, 2, 2},   // 2 streams, both coupled
-		{6, 3, 3},   // 3 streams, all coupled
-		{9, 5, 4},   // 5 streams, 4 coupled + 1 mono
-		{11, 6, 5},  // 6 streams, 5 coupled + 1 mono
-		{16, 8, 8},  // 8 streams, all coupled
-		{18, 9, 9},  // 9 streams, all coupled
+		{4, 2, 2},    // 2 streams, both coupled
+		{6, 3, 3},    // 3 streams, all coupled
+		{9, 5, 4},    // 5 streams, 4 coupled + 1 mono
+		{11, 6, 5},   // 6 streams, 5 coupled + 1 mono
+		{16, 8, 8},   // 8 streams, all coupled
+		{18, 9, 9},   // 9 streams, all coupled
 		{25, 13, 12}, // 13 streams, 12 coupled + 1 mono
 		{27, 14, 13}, // 14 streams, 13 coupled + 1 mono
 		{36, 18, 18}, // 18 streams, all coupled
@@ -437,8 +437,8 @@ func TestAmbisonicsChannelCount(t *testing.T) {
 		{4, true, 27},
 		{14, false, 225},
 		{14, true, 227},
-		{-1, false, 0},  // Invalid order
-		{15, false, 0},  // Invalid order (too high)
+		{-1, false, 0}, // Invalid order
+		{15, false, 0}, // Invalid order (too high)
 	}
 
 	for _, tc := range tests {

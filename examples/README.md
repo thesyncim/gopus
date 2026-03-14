@@ -279,7 +279,7 @@ go build ./examples/...
 
 ```go
 // Create encoder
-enc, err := gopus.NewEncoder(gopus.DefaultEncoderConfig(48000, 2, gopus.ApplicationAudio))
+enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 2, Application: gopus.ApplicationAudio})
 
 // Configure
 enc.SetBitrate(128000)        // 128 kbps

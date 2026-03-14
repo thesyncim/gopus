@@ -29,7 +29,7 @@ func packetHasInBandFEC(t *testing.T, packet []byte) bool {
 // 3. Simulate packet loss and verify FEC recovery
 func TestFEC_EndToEnd(t *testing.T) {
 	// Create encoder with FEC enabled
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationVoIP))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestFEC_EndToEnd(t *testing.T) {
 }
 
 func TestFEC_ProvidedPacketRecoveryPath(t *testing.T) {
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationVoIP))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestFEC_ProvidedPacketRecoveryPath(t *testing.T) {
 // TestFEC_LBRRPresence verifies that LBRR data is encoded in SILK packets
 // by checking the LBRR flag in the packet header.
 func TestFEC_LBRRPresence(t *testing.T) {
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationVoIP))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestFEC_LBRRPresence(t *testing.T) {
 // TestFEC_RecoveryQuality compares FEC recovery quality vs PLC
 func TestFEC_RecoveryQuality(t *testing.T) {
 	// Create encoder with FEC enabled
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationVoIP))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -343,7 +343,7 @@ func TestFEC_RecoveryQuality(t *testing.T) {
 
 // TestFEC_MultiplePacketLoss tests FEC behavior with multiple consecutive lost packets
 func TestFEC_MultiplePacketLoss(t *testing.T) {
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationVoIP))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}

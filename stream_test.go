@@ -46,7 +46,7 @@ func (s *slicePacketSink) WritePacket(packet []byte) (int, error) {
 
 // generateTestPacket generates a valid Opus packet by encoding test audio.
 func generateTestPacket(sampleRate, channels, frameSize int) ([]byte, error) {
-	enc, err := NewEncoder(DefaultEncoderConfig(sampleRate, channels, ApplicationAudio))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: sampleRate, Channels: channels, Application: ApplicationAudio})
 	if err != nil {
 		return nil, err
 	}

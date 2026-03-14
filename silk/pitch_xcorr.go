@@ -27,5 +27,5 @@ func celtPitchXcorrFloat(x, y []float32, out []float32, length, maxPitch int) {
 		return
 	}
 
-    celtPitchXcorrFloatImpl(x, y, out, length, maxPitch)
+	celtPitchXcorrFloatImpl(x, y, out, length, maxPitch)
 }

@@ -6,13 +6,13 @@ package celt
 import "math"
 
 type allocTrimDetail struct {
-	base    float64
-	stereo  float64
-	tilt    float64
+	base     float64
+	stereo   float64
+	tilt     float64
 	surround float64
-	tf      float64
-	tonal   float64
-	raw     float64
+	tf       float64
+	tonal    float64
+	raw      float64
 }
 
 // AllocTrimAnalysis computes the optimal allocation trim value for a CELT frame.

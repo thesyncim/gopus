@@ -61,7 +61,7 @@ func main() {
 // createOggFile creates an Ogg Opus file with a test audio signal.
 func createOggFile(filename string, duration float64, bitrate int) error {
 	// Create encoder
-	enc, err := gopus.NewEncoder(gopus.DefaultEncoderConfig(sampleRate, channels, gopus.ApplicationAudio))
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: sampleRate, Channels: channels, Application: gopus.ApplicationAudio})
 	if err != nil {
 		return fmt.Errorf("create encoder: %w", err)
 	}

@@ -9,10 +9,10 @@ var transientBenchSink TransientAnalysisResult
 
 func TestTransientAnalysisMatchesLegacy(t *testing.T) {
 	testCases := []struct {
-		name       string
-		channels   int
-		frameSize  int
-		allowWeak  bool
+		name      string
+		channels  int
+		frameSize int
+		allowWeak bool
 	}{
 		{name: "mono-weak-off", channels: 1, frameSize: 960, allowWeak: false},
 		{name: "mono-weak-on", channels: 1, frameSize: 960, allowWeak: true},

@@ -43,7 +43,7 @@ func computeEnergy(samples []float32) float64 {
 
 // TestRoundTrip_Mono_Float32 tests mono float32 encode/decode round-trip.
 func TestRoundTrip_Mono_Float32(t *testing.T) {
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationAudio))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestRoundTrip_Mono_Float32(t *testing.T) {
 
 // TestRoundTrip_Stereo_Float32 tests stereo float32 encode/decode round-trip.
 func TestRoundTrip_Stereo_Float32(t *testing.T) {
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 2, ApplicationAudio))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 2, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestRoundTrip_Stereo_Float32(t *testing.T) {
 
 // TestRoundTrip_Mono_Int16 tests mono int16 encode/decode round-trip.
 func TestRoundTrip_Mono_Int16(t *testing.T) {
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationAudio))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestRoundTrip_Mono_Int16(t *testing.T) {
 
 // TestRoundTrip_Stereo_Int16 tests stereo int16 encode/decode round-trip.
 func TestRoundTrip_Stereo_Int16(t *testing.T) {
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 2, ApplicationAudio))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 2, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestRoundTrip_Stereo_Int16(t *testing.T) {
 
 // TestRoundTrip_MultipleFrames tests encoding/decoding multiple consecutive frames.
 func TestRoundTrip_MultipleFrames(t *testing.T) {
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationAudio))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestRoundTrip_AllSampleRates(t *testing.T) {
 
 	for _, sampleRate := range sampleRates {
 		t.Run(string(rune('0'+sampleRate/1000)), func(t *testing.T) {
-			enc, err := NewEncoder(DefaultEncoderConfig(sampleRate, 1, ApplicationAudio))
+			enc, err := NewEncoder(EncoderConfig{SampleRate: sampleRate, Channels: 1, Application: ApplicationAudio})
 			if err != nil {
 				t.Fatalf("NewEncoder(%d) error: %v", sampleRate, err)
 			}
@@ -292,7 +292,7 @@ func TestRoundTrip_AllSampleRates(t *testing.T) {
 
 // TestApplication_VoIP tests VoIP application uses appropriate settings.
 func TestApplication_VoIP(t *testing.T) {
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationVoIP))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -315,7 +315,7 @@ func TestApplication_VoIP(t *testing.T) {
 
 // TestApplication_Audio tests Audio application uses appropriate settings.
 func TestApplication_Audio(t *testing.T) {
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationAudio))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -338,7 +338,7 @@ func TestApplication_Audio(t *testing.T) {
 
 // TestPLC_SingleLoss tests packet loss concealment for a single lost packet.
 func TestPLC_SingleLoss(t *testing.T) {
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationAudio))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -374,7 +374,7 @@ func TestPLC_SingleLoss(t *testing.T) {
 
 // TestPLC_MultipleLoss tests PLC fades gracefully on consecutive losses.
 func TestPLC_MultipleLoss(t *testing.T) {
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationAudio))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -413,7 +413,7 @@ func TestPLC_MultipleLoss(t *testing.T) {
 
 // TestPacketParsing tests that encoded packets can be parsed.
 func TestPacketParsing(t *testing.T) {
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationAudio))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -460,16 +460,16 @@ func TestSILK10msOpusRoundTrip(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationVoIP))
+			enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
 			if err != nil {
 				t.Fatalf("NewEncoder error: %v", err)
 			}
-				enc.SetBitrate(tc.bitrate)
-				enc.SetFrameSize(tc.frameSize)
-				enc.SetSignal(SignalVoice)
-				if err := enc.SetMaxBandwidth(BandwidthWideband); err != nil {
-					t.Fatalf("SetMaxBandwidth(BandwidthWideband) error: %v", err)
-				}
+			enc.SetBitrate(tc.bitrate)
+			enc.SetFrameSize(tc.frameSize)
+			enc.SetSignal(SignalVoice)
+			if err := enc.SetMaxBandwidth(BandwidthWideband); err != nil {
+				t.Fatalf("SetMaxBandwidth(BandwidthWideband) error: %v", err)
+			}
 
 			cfg := DefaultDecoderConfig(48000, 1)
 			dec, err := NewDecoder(cfg)

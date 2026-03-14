@@ -16,7 +16,7 @@ func TestStereoRoundTripRegression(t *testing.T) {
 		measureAt  = 10
 	)
 
-	enc, err := gopus.NewEncoder(gopus.DefaultEncoderConfig(sampleRate, channels, gopus.ApplicationAudio))
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: sampleRate, Channels: channels, Application: gopus.ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder: %v", err)
 	}

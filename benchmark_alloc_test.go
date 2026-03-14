@@ -225,7 +225,7 @@ func BenchmarkDecoderDecode_Stereo(b *testing.B) {
 // BenchmarkEncoderEncode_CallerBuffer benchmarks float32 encoding with caller-owned output.
 // Target: 0 allocs/op
 func BenchmarkEncoderEncode_CallerBuffer(b *testing.B) {
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationAudio))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}
@@ -251,7 +251,7 @@ func BenchmarkEncoderEncode_CallerBuffer(b *testing.B) {
 
 // BenchmarkEncoderEncodeFloat32_Allocating benchmarks the allocating convenience path.
 func BenchmarkEncoderEncodeFloat32_Allocating(b *testing.B) {
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationAudio))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}
@@ -277,7 +277,7 @@ func BenchmarkEncoderEncodeFloat32_Allocating(b *testing.B) {
 // BenchmarkEncoderEncodeInt16 benchmarks int16 encoding.
 // Target: 0 allocs/op
 func BenchmarkEncoderEncodeInt16(b *testing.B) {
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationAudio))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}
@@ -308,7 +308,7 @@ func BenchmarkEncoderEncodeInt16(b *testing.B) {
 // BenchmarkEncoderEncode_Stereo benchmarks stereo encoding.
 // Target: 0 allocs/op
 func BenchmarkEncoderEncode_Stereo(b *testing.B) {
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 2, ApplicationAudio))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 2, Application: ApplicationAudio})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}
@@ -340,7 +340,7 @@ func BenchmarkEncoderEncode_Stereo(b *testing.B) {
 // BenchmarkEncoderEncode_VoIP benchmarks VoIP mode encoding (SILK).
 // Target: 0 allocs/op
 func BenchmarkEncoderEncode_VoIP(b *testing.B) {
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationVoIP))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}
@@ -367,7 +367,7 @@ func BenchmarkEncoderEncode_VoIP(b *testing.B) {
 // BenchmarkEncoderEncode_LowDelay benchmarks low-delay mode encoding (CELT).
 // Target: 0 allocs/op
 func BenchmarkEncoderEncode_LowDelay(b *testing.B) {
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationLowDelay))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationLowDelay})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}
@@ -394,7 +394,7 @@ func BenchmarkEncoderEncode_LowDelay(b *testing.B) {
 // BenchmarkRoundTrip benchmarks encode + decode round trip.
 // Target: 0 allocs/op
 func BenchmarkRoundTrip(b *testing.B) {
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationAudio))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}
@@ -428,7 +428,7 @@ func BenchmarkRoundTrip(b *testing.B) {
 // Target: 0 allocs/op
 func BenchmarkDecoderDecode_MultiFrame(b *testing.B) {
 	// First encode two frames, then decode the multi-frame packet
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationLowDelay))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationLowDelay})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}

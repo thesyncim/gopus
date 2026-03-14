@@ -24,7 +24,7 @@ func logFECQualityStatus(t *testing.T) {
 func TestFEC_LBRRActualRecovery(t *testing.T) {
 	logFECQualityStatus(t)
 
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationVoIP))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestFEC_LBRRActualRecovery(t *testing.T) {
 
 // TestFEC_HasLBRRCheck verifies the SILK decoder's HasLBRR function
 func TestFEC_HasLBRRCheck(t *testing.T) {
-	enc, _ := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationVoIP))
+	enc, _ := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
 	enc.SetFEC(true)
 	if err := enc.SetPacketLoss(15); err != nil {
 		t.Fatalf("SetPacketLoss error: %v", err)
@@ -176,7 +176,7 @@ func TestFEC_HasLBRRCheck(t *testing.T) {
 
 // TestFEC_VsSILKDecoder directly tests the SILK decoder's FEC capability
 func TestFEC_SILKEncoderLBRREnabled(t *testing.T) {
-	enc, _ := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationVoIP))
+	enc, _ := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
 
 	// Initially FEC should be disabled
 	if enc.FECEnabled() {
@@ -216,7 +216,7 @@ func TestFEC_SILKEncoderLBRREnabled(t *testing.T) {
 }
 
 func TestFEC_ProvidedPacketWithoutLBRRFallsBackToPLC(t *testing.T) {
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, 1, ApplicationVoIP))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
