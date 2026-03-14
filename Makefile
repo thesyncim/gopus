@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix test test-fast test-race test-race-parity test-fuzz-smoke test-fuzz-safety test-parity test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard autoresearch-init autoresearch-preflight autoresearch-eval autoresearch-best verify-production verify-production-exhaustive verify-safety release-evidence ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
+.PHONY: lint lint-fix test test-fast test-race test-race-parity test-fuzz-smoke test-fuzz-safety test-parity test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard autoresearch-init autoresearch-preflight autoresearch-eval autoresearch-best autoresearch-loop verify-production verify-production-exhaustive verify-safety release-evidence ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
@@ -109,6 +109,11 @@ autoresearch-eval:
 # Print the current best successful autoresearch row.
 autoresearch-best:
 	bash ./tools/autoresearch.sh best
+
+# Run the autonomous codex-driven experiment loop.
+# Usage: make autoresearch-loop MAX_ITERATIONS=5
+autoresearch-loop:
+	bash ./tools/autoresearch.sh loop $(if $(MAX_ITERATIONS),--max-iterations $(MAX_ITERATIONS),) $(if $(MODEL),--model $(MODEL),) $(if $(DRY_RUN),--dry-run,)
 
 # Default production verification gate.
 verify-production: ensure-libopus

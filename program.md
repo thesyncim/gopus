@@ -29,6 +29,14 @@ make autoresearch-eval DESCRIPTION=baseline
 
 The baseline row becomes the first successful row in `results.tsv`.
 
+To let Codex drive repeated iterations automatically, run:
+
+```bash
+make autoresearch-loop MAX_ITERATIONS=5
+```
+
+Omit `MAX_ITERATIONS` to keep looping until interrupted.
+
 ## Editable Surface
 
 Unlike the original `autoresearch` repo, `gopus` is not a single-file project.
@@ -112,6 +120,12 @@ make autoresearch-eval DESCRIPTION='short experiment note'
 6. If the status is `keep`, continue from that commit.
 7. If the status is `discard`, rewind to the prior successful commit and try the next idea.
 8. If the status is `crash`, fix only obvious mechanical mistakes; otherwise abandon the idea and move on.
+
+If you want the repository to drive Codex directly instead of relying on a human-operated agent session, use:
+
+```bash
+make autoresearch-loop
+```
 
 ## Decision Rule
 
