@@ -24,7 +24,7 @@ Usage:
   tools/autoresearch.sh preflight [--results path]
   tools/autoresearch.sh best [--results path]
   tools/autoresearch.sh eval [--results path] [--description text] [--sample speech|stereo] [--iters N] [--warmup N] [--bitrate bps] [--complexity N]
-  tools/autoresearch.sh loop [--results path] [--max-iterations N] [--model MODEL] [--dry-run]
+  tools/autoresearch.sh loop [--results path] [--max-iterations N] [--model MODEL] [--verbose] [--dry-run]
 EOF
 }
 
@@ -176,6 +176,18 @@ append_result_row() {
   local description="$9"
   printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
     "$commit" "$parity" "$benchguard" "$gopus" "$libopus" "$ratio" "$status" "$description" >>"$path"
+}
+
+format_best_summary() {
+  local row="$1"
+  if [[ -z "$row" || "$row" == "none" ]]; then
+    echo "none"
+    return 0
+  fi
+
+  local commit parity benchguard gopus libopus ratio status description
+  IFS=$'\t' read -r commit parity benchguard gopus libopus ratio status description <<<"$row"
+  echo "commit=$commit status=$status rt_ratio=$ratio gopus_avg_rt=$gopus libopus_avg_rt=$libopus desc=$description"
 }
 
 results_row_count() {
@@ -456,6 +468,7 @@ cmd_loop() {
   local results="$RESULTS_FILE_DEFAULT"
   local max_iterations=""
   local model=""
+  local verbose=0
   local dry_run=0
 
   while [[ $# -gt 0 ]]; do
@@ -471,6 +484,10 @@ cmd_loop() {
     --model)
       model="$2"
       shift 2
+      ;;
+    --verbose)
+      verbose=1
+      shift
       ;;
     --dry-run)
       dry_run=1
@@ -504,6 +521,8 @@ cmd_loop() {
     if [[ -z "$best_summary" ]]; then
       best_summary="none"
     fi
+    local best_summary_human
+    best_summary_human="$(format_best_summary "$best_summary")"
 
     prompt_file="$(mktemp)"
     agent_log="$LOG_DIR_DEFAULT/loop-$(date -u +%Y%m%dT%H%M%SZ)-${iteration}.log"
@@ -512,6 +531,9 @@ cmd_loop() {
     build_loop_prompt "$start_commit" "$best_summary" >"$prompt_file"
 
     echo "autoresearch: starting loop iteration $iteration from $(git -C "$ROOT_DIR" rev-parse --short "$start_commit")"
+    echo "autoresearch: best before iteration: $best_summary_human"
+    echo "autoresearch: codex log: $agent_log"
+    echo "autoresearch: codex last message: $agent_msg"
     if [[ "$dry_run" -eq 1 ]]; then
       cat "$prompt_file"
       rm -f "$prompt_file"
@@ -520,16 +542,26 @@ cmd_loop() {
     fi
 
     codex_status=0
+    echo "autoresearch: launching codex exec"
     if [[ -n "$model" ]]; then
-      codex exec --dangerously-bypass-approvals-and-sandbox -C "$ROOT_DIR" -m "$model" -o "$agent_msg" - <"$prompt_file" >"$agent_log" 2>&1 || codex_status=$?
+      if [[ "$verbose" -eq 1 ]]; then
+        codex exec --dangerously-bypass-approvals-and-sandbox -C "$ROOT_DIR" -m "$model" -o "$agent_msg" - <"$prompt_file" 2>&1 | tee "$agent_log" || codex_status=${PIPESTATUS[0]}
+      else
+        codex exec --dangerously-bypass-approvals-and-sandbox -C "$ROOT_DIR" -m "$model" -o "$agent_msg" - <"$prompt_file" >"$agent_log" 2>&1 || codex_status=$?
+      fi
     else
-      codex exec --dangerously-bypass-approvals-and-sandbox -C "$ROOT_DIR" -o "$agent_msg" - <"$prompt_file" >"$agent_log" 2>&1 || codex_status=$?
+      if [[ "$verbose" -eq 1 ]]; then
+        codex exec --dangerously-bypass-approvals-and-sandbox -C "$ROOT_DIR" -o "$agent_msg" - <"$prompt_file" 2>&1 | tee "$agent_log" || codex_status=${PIPESTATUS[0]}
+      else
+        codex exec --dangerously-bypass-approvals-and-sandbox -C "$ROOT_DIR" -o "$agent_msg" - <"$prompt_file" >"$agent_log" 2>&1 || codex_status=$?
+      fi
     fi
     rm -f "$prompt_file"
 
     if (( codex_status != 0 )); then
       die "codex exec failed in iteration $iteration; see $agent_log"
     fi
+    echo "autoresearch: codex exec finished"
 
     if [[ "$(results_row_count "$results")" -le "$start_count" ]]; then
       die "iteration $iteration did not append a results row; see $agent_log"
@@ -538,12 +570,15 @@ cmd_loop() {
     row="$(latest_result_row "$results")"
     IFS=$'\t' read -r _ _ _ _ _ _ status _ <<<"$row"
     end_commit="$(git -C "$ROOT_DIR" rev-parse HEAD)"
+    echo "autoresearch: latest results row: $row"
 
     if [[ "$status" == "discard" || "$status" == "crash" ]]; then
       if [[ "$end_commit" != "$start_commit" ]]; then
         git -C "$ROOT_DIR" reset --hard "$start_commit" >/dev/null
         echo "autoresearch: reset to $(git -C "$ROOT_DIR" rev-parse --short "$start_commit") after $status"
       fi
+    else
+      echo "autoresearch: keeping commit $(git -C "$ROOT_DIR" rev-parse --short "$end_commit")"
     fi
 
     echo "autoresearch: iteration $iteration finished with status=$status"
