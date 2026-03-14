@@ -40,6 +40,7 @@ package gopus
 
 import (
 	"math"
+	"runtime"
 	"testing"
 )
 
@@ -88,6 +89,24 @@ func generateBenchSineWave(samples int) []float32 {
 	return pcm
 }
 
+func warmDecoderFloat32Benchmark(b *testing.B, dec *Decoder, packet []byte, pcm []float32, label string) {
+	b.Helper()
+	if _, err := dec.Decode(packet, pcm); err != nil {
+		b.Fatalf("%s warmup: %v", label, err)
+	}
+	runtime.GC()
+	runtime.Gosched()
+}
+
+func warmDecoderInt16Benchmark(b *testing.B, dec *Decoder, packet []byte, pcm []int16, label string) {
+	b.Helper()
+	if _, err := dec.DecodeInt16(packet, pcm); err != nil {
+		b.Fatalf("%s warmup: %v", label, err)
+	}
+	runtime.GC()
+	runtime.Gosched()
+}
+
 // BenchmarkDecoderDecode_CELT benchmarks CELT-only decoding.
 // Target: 0 allocs/op
 func BenchmarkDecoderDecode_CELT(b *testing.B) {
@@ -99,6 +118,7 @@ func BenchmarkDecoderDecode_CELT(b *testing.B) {
 	pcm := make([]float32, 960) // 20ms at 48kHz mono
 	packet := benchCELTPacket
 
+	warmDecoderFloat32Benchmark(b, dec, packet, pcm, "Decode")
 	b.ResetTimer()
 	b.ReportAllocs()
 
@@ -121,6 +141,7 @@ func BenchmarkDecoderDecode_Hybrid(b *testing.B) {
 	pcm := make([]float32, 960) // 20ms at 48kHz mono
 	packet := benchHybridPacket
 
+	warmDecoderFloat32Benchmark(b, dec, packet, pcm, "Decode")
 	b.ResetTimer()
 	b.ReportAllocs()
 
@@ -143,6 +164,7 @@ func BenchmarkDecoderDecode_SILK(b *testing.B) {
 	pcm := make([]float32, 960) // 20ms at 48kHz mono
 	packet := benchSILKPacket
 
+	warmDecoderFloat32Benchmark(b, dec, packet, pcm, "Decode")
 	b.ResetTimer()
 	b.ReportAllocs()
 
@@ -165,6 +187,7 @@ func BenchmarkDecoderDecodeInt16(b *testing.B) {
 	pcm := make([]int16, 960) // 20ms at 48kHz mono
 	packet := benchCELTPacket
 
+	warmDecoderInt16Benchmark(b, dec, packet, pcm, "DecodeInt16")
 	b.ResetTimer()
 	b.ReportAllocs()
 
@@ -187,6 +210,8 @@ func BenchmarkDecoderDecode_PLC(b *testing.B) {
 	pcm := make([]float32, 960)
 	// Decode one frame first to set up state
 	_, _ = dec.Decode(benchCELTPacket, pcm)
+	runtime.GC()
+	runtime.Gosched()
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -216,6 +241,7 @@ func BenchmarkDecoderDecode_Stereo(b *testing.B) {
 
 	pcm := make([]float32, 960*2) // 20ms at 48kHz stereo
 
+	warmDecoderFloat32Benchmark(b, dec, packet, pcm, "Decode")
 	b.ResetTimer()
 	b.ReportAllocs()
 
