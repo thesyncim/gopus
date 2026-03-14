@@ -701,13 +701,19 @@ func combFilterWithInputF32(dst, src []float64, start int, t0, t1, n int, g0, g1
 	g11 := float32(g1 * combFilterGains[tapset1][1])
 	g12 := float32(g1 * combFilterGains[tapset1][2])
 
-	x1 := float32(src[start-t1+1])
-	x2 := float32(src[start-t1])
-	x3 := float32(src[start-t1-1])
-	x4 := float32(src[start-t1-2])
+	srcFrame := src[start:]
+	dstFrame := dst[start:]
+	delay1 := src[start-t1-2:]
+	x1 := float32(delay1[3])
+	x2 := float32(delay1[2])
+	x3 := float32(delay1[1])
+	x4 := float32(delay1[0])
+	var delay0 []float64
 
 	if g0 == g1 && t0 == t1 && tapset0 == tapset1 {
 		overlap = 0
+	} else if overlap > 0 {
+		delay0 = src[start-t0-2:]
 	}
 
 	i := 0
@@ -717,35 +723,34 @@ func combFilterWithInputF32(dst, src []float64, start int, t0, t1, n int, g0, g1
 		// standalone rounded float32 multiply before (1-f), avoiding fused fmsub.
 		f := noFMA32Mul(w, w)
 		oneMinus := float32(1.0) - f
-		idx := start + i
-		x0 := float32(src[idx-t1+2])
+		x0 := float32(delay1[i+4])
 		var sum float32
 		if tmpCombFilterSeqAccumEnabled {
-			sum = float32(src[idx])
-			sum += (oneMinus * g00) * float32(src[idx-t0])
-			sum += (oneMinus * g01) * (float32(src[idx-t0-1]) + float32(src[idx-t0+1]))
-			sum += (oneMinus * g02) * (float32(src[idx-t0-2]) + float32(src[idx-t0+2]))
+			sum = float32(srcFrame[i])
+			sum += (oneMinus * g00) * float32(delay0[i+2])
+			sum += (oneMinus * g01) * (float32(delay0[i+1]) + float32(delay0[i+3]))
+			sum += (oneMinus * g02) * (float32(delay0[i]) + float32(delay0[i+4]))
 			sum += (f * g10) * x2
 			sum += (f * g11) * (x1 + x3)
 			sum += (f * g12) * (x0 + x4)
 		} else if tmpCombFilterFMAOverlapEnabled {
-			sum = float32(src[idx])
-			sum = fma32(oneMinus*g00, float32(src[idx-t0]), sum)
-			sum = fma32(oneMinus*g01, float32(src[idx-t0+1])+float32(src[idx-t0-1]), sum)
-			sum = fma32(oneMinus*g02, float32(src[idx-t0+2])+float32(src[idx-t0-2]), sum)
+			sum = float32(srcFrame[i])
+			sum = fma32(oneMinus*g00, float32(delay0[i+2]), sum)
+			sum = fma32(oneMinus*g01, float32(delay0[i+3])+float32(delay0[i+1]), sum)
+			sum = fma32(oneMinus*g02, float32(delay0[i+4])+float32(delay0[i]), sum)
 			sum = fma32(f*g10, x2, sum)
 			sum = fma32(f*g11, x1+x3, sum)
 			sum = fma32(f*g12, x0+x4, sum)
 		} else {
-			sum = float32(src[idx]) +
-				(oneMinus*g00)*float32(src[idx-t0]) +
-				(oneMinus*g01)*(float32(src[idx-t0-1])+float32(src[idx-t0+1])) +
-				(oneMinus*g02)*(float32(src[idx-t0-2])+float32(src[idx-t0+2])) +
+			sum = float32(srcFrame[i]) +
+				(oneMinus*g00)*float32(delay0[i+2]) +
+				(oneMinus*g01)*(float32(delay0[i+1])+float32(delay0[i+3])) +
+				(oneMinus*g02)*(float32(delay0[i])+float32(delay0[i+4])) +
 				(f*g10)*x2 +
 				(f*g11)*(x1+x3) +
 				(f*g12)*(x0+x4)
 		}
-		dst[idx] = float64(sum)
+		dstFrame[i] = float64(sum)
 
 		x4 = x3
 		x3 = x2
@@ -755,31 +760,30 @@ func combFilterWithInputF32(dst, src []float64, start int, t0, t1, n int, g0, g1
 
 	if g1 == 0 {
 		if i < n {
-			copy(dst[start+i:start+n], src[start+i:start+n])
+			copy(dstFrame[i:n], srcFrame[i:n])
 		}
 		return
 	}
 
-	x4 = float32(src[start+i-t1-2])
-	x3 = float32(src[start+i-t1-1])
-	x2 = float32(src[start+i-t1])
-	x1 = float32(src[start+i-t1+1])
+	x4 = float32(delay1[i])
+	x3 = float32(delay1[i+1])
+	x2 = float32(delay1[i+2])
+	x1 = float32(delay1[i+3])
 	for ; i < n; i++ {
-		idx := start + i
-		x0 := float32(src[idx-t1+2])
+		x0 := float32(delay1[i+4])
 		var sum float32
 		if tmpCombFilterSeqAccumEnabled {
-			sum = float32(src[idx])
+			sum = float32(srcFrame[i])
 			sum += g10 * x2
 			sum += g11 * (x3 + x1)
 			sum += g12 * (x4 + x0)
 		} else {
-			sum = float32(src[idx]) +
+			sum = float32(srcFrame[i]) +
 				g10*x2 +
 				g11*(x3+x1) +
 				g12*(x4+x0)
 		}
-		dst[idx] = float64(sum)
+		dstFrame[i] = float64(sum)
 
 		x4 = x3
 		x3 = x2
