@@ -29,6 +29,30 @@ No cgo. No C toolchain. Caller-owned buffers in the encode/decode hot path.
 - `TestEncoderComplianceSummary`: `PASS` (`23 passed, 0 failed`).
 - Remaining focus: keep tightening fixture-backed parity/comparison coverage against libopus in edge profiles.
 
+## Autoresearch Workflow
+
+This repo now ships an `autoresearch`-style experiment loop for autonomous codec work.
+
+- `program.md` defines the fixed protocol.
+- `tools/autoresearch.sh` handles setup, preflight, evaluation, and best-row reporting.
+- `results.tsv` is an untracked local ledger of `baseline` / `keep` / `discard` / `crash` runs.
+
+Quick start:
+
+```bash
+make autoresearch-init
+make autoresearch-preflight
+make autoresearch-eval DESCRIPTION=baseline
+make autoresearch-best
+```
+
+The default judge is fixed to:
+
+1. `TestSILKParamTraceAgainstLibopus`
+2. `TestEncoderComplianceSummary`
+3. `make bench-guard`
+4. `examples/bench-encode` speech throughput against `libopus`
+
 ## Installation
 
 ```bash
