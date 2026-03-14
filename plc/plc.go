@@ -4,6 +4,10 @@
 // over unreliable networks.
 //
 // Reference: RFC 6716 Section 4.2.8 (PLC), libopus silk/dec_API.c
+//
+// Most applications should use the top-level gopus decoder APIs instead of
+// importing plc directly. This package exposes low-level implementation
+// details and may change before the first release.
 package plc
 
 // Mode indicates which Opus mode to use for concealment.

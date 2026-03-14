@@ -32,6 +32,29 @@ func (s *slicePacketSource) ReadPacketInto(dst []byte) (int, uint64, error) {
 	return n, 0, nil
 }
 
+type slicePacketSourceWithGranule struct {
+	packets  [][]byte
+	granules []uint64
+	index    int
+}
+
+func (s *slicePacketSourceWithGranule) ReadPacketInto(dst []byte) (int, uint64, error) {
+	if s.index >= len(s.packets) {
+		return 0, 0, io.EOF
+	}
+	packet := s.packets[s.index]
+	granule := s.granules[s.index]
+	s.index++
+	if packet == nil {
+		return 0, granule, nil
+	}
+	if len(packet) > len(dst) {
+		return 0, 0, ErrPacketTooLarge
+	}
+	n := copy(dst, packet)
+	return n, granule, nil
+}
+
 // slicePacketSink implements PacketSink for testing.
 type slicePacketSink struct {
 	packets [][]byte
@@ -42,6 +65,16 @@ func (s *slicePacketSink) WritePacket(packet []byte) (int, error) {
 	copy(cp, packet)
 	s.packets = append(s.packets, cp)
 	return len(packet), nil
+}
+
+type closablePacketSink struct {
+	slicePacketSink
+	closeCalls int
+}
+
+func (s *closablePacketSink) Close() error {
+	s.closeCalls++
+	return nil
 }
 
 // generateTestPacket generates a valid Opus packet by encoding test audio.
@@ -167,6 +200,35 @@ func TestReader_Read_SinglePacket(t *testing.T) {
 	t.Logf("Read %d bytes, expected %d", len(allBytes), expectedBytes)
 	if len(allBytes) < expectedBytes {
 		t.Errorf("Read %d bytes, want at least %d", len(allBytes), expectedBytes)
+	}
+}
+
+func TestReader_LastGranulePos(t *testing.T) {
+	packet, err := generateTestPacket(48000, 2, 960)
+	if err != nil {
+		t.Fatalf("generateTestPacket failed: %v", err)
+	}
+
+	source := &slicePacketSourceWithGranule{
+		packets:  [][]byte{packet},
+		granules: []uint64{960},
+	}
+	reader, err := NewReader(DefaultDecoderConfig(48000, 2), source, FormatFloat32LE)
+	if err != nil {
+		t.Fatalf("NewReader failed: %v", err)
+	}
+
+	buf := make([]byte, 4096)
+	if _, err := reader.Read(buf); err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	if got := reader.LastGranulePos(); got != 960 {
+		t.Fatalf("LastGranulePos() = %d, want 960", got)
+	}
+
+	reader.Reset()
+	if got := reader.LastGranulePos(); got != 0 {
+		t.Fatalf("LastGranulePos() after Reset = %d, want 0", got)
 	}
 }
 
@@ -816,6 +878,64 @@ func TestWriter_Flush_Empty(t *testing.T) {
 	}
 }
 
+func TestWriter_Close_FlushesAndClosesSink(t *testing.T) {
+	sink := &closablePacketSink{}
+	writer, err := NewWriter(48000, 2, sink, FormatFloat32LE, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	pcmBytes := generateFloat32Bytes(48000, 2, 960/2, 440.0)
+	if _, err := writer.Write(pcmBytes); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+	if len(sink.packets) != 1 {
+		t.Fatalf("Close should flush one packet, got %d", len(sink.packets))
+	}
+	if sink.closeCalls != 1 {
+		t.Fatalf("Close should forward to sink once, got %d", sink.closeCalls)
+	}
+}
+
+func TestWriter_Close_Idempotent(t *testing.T) {
+	sink := &closablePacketSink{}
+	writer, err := NewWriter(48000, 2, sink, FormatFloat32LE, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("first Close failed: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("second Close failed: %v", err)
+	}
+	if sink.closeCalls != 1 {
+		t.Fatalf("Close should be idempotent, got %d close calls", sink.closeCalls)
+	}
+}
+
+func TestWriter_WriteAfterClose(t *testing.T) {
+	sink := &slicePacketSink{}
+	writer, err := NewWriter(48000, 2, sink, FormatFloat32LE, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+	if _, err := writer.Write([]byte{0, 1, 2, 3}); err != io.ErrClosedPipe {
+		t.Fatalf("Write after Close error = %v, want %v", err, io.ErrClosedPipe)
+	}
+	if err := writer.Flush(); err != io.ErrClosedPipe {
+		t.Fatalf("Flush after Close error = %v, want %v", err, io.ErrClosedPipe)
+	}
+}
+
 // TestWriter_Format_Float32LE tests float32 input format.
 func TestWriter_Format_Float32LE(t *testing.T) {
 	sampleRate := 48000
@@ -929,7 +1049,7 @@ func TestWriter_Reset(t *testing.T) {
 	}
 }
 
-// TestWriter_io_Writer_Interface verifies Writer implements io.Writer.
+// TestWriter_io_Writer_Interface verifies Writer implements io.Writer/io.Closer.
 func TestWriter_io_Writer_Interface(t *testing.T) {
 	sink := &slicePacketSink{}
 	writer, err := NewWriter(48000, 2, sink, FormatFloat32LE, ApplicationAudio)
@@ -939,6 +1059,7 @@ func TestWriter_io_Writer_Interface(t *testing.T) {
 
 	// Verify interface compliance at compile time
 	var _ io.Writer = writer
+	var _ io.Closer = writer
 
 	// Also test with io.Copy
 	pcmBytes := generateFloat32Bytes(48000, 2, 960*3, 440.0) // 3 frames
