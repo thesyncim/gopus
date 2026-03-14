@@ -98,16 +98,16 @@ func TestNSQExcitationScalingWithUnityGain(t *testing.T) {
 	params := &NSQParams{
 		SignalType:       1, // Unvoiced
 		QuantOffsetType:  0,
-		PredCoefQ12:      make([]int16, 32),     // Zero LPC
-		NLSFInterpCoefQ2: 4,                     // No interpolation
-		LTPCoefQ14:       make([]int16, 20),     // No LTP
-		ARShpQ13:         make([]int16, 96),     // No shaping
-		HarmShapeGainQ14: make([]int, 4),        // No harmonic shaping
-		TiltQ14:          make([]int, 4),        // No tilt
-		LFShpQ14:         make([]int32, 4),      // No LF shaping
-		GainsQ16:         []int32{65536},        // Unity gain (1.0 in Q16) - WRONG!
-		PitchL:           make([]int, 4),        // No pitch
-		LambdaQ10:        1024,                  // R-D tradeoff
+		PredCoefQ12:      make([]int16, 32), // Zero LPC
+		NLSFInterpCoefQ2: 4,                 // No interpolation
+		LTPCoefQ14:       make([]int16, 20), // No LTP
+		ARShpQ13:         make([]int16, 96), // No shaping
+		HarmShapeGainQ14: make([]int, 4),    // No harmonic shaping
+		TiltQ14:          make([]int, 4),    // No tilt
+		LFShpQ14:         make([]int32, 4),  // No LF shaping
+		GainsQ16:         []int32{65536},    // Unity gain (1.0 in Q16) - WRONG!
+		PitchL:           make([]int, 4),    // No pitch
+		LambdaQ10:        1024,              // R-D tradeoff
 		LTPScaleQ14:      int(silk_LTPScales_table_Q14[1]),
 		FrameLength:      subfrLength,
 		SubfrLength:      subfrLength,
@@ -225,16 +225,16 @@ func TestNSQExcitationScalingWithProperGain(t *testing.T) {
 	params := &NSQParams{
 		SignalType:       1, // Unvoiced
 		QuantOffsetType:  0,
-		PredCoefQ12:      make([]int16, 32),     // Zero LPC
-		NLSFInterpCoefQ2: 4,                     // No interpolation
-		LTPCoefQ14:       make([]int16, 20),     // No LTP
-		ARShpQ13:         make([]int16, 96),     // No shaping
-		HarmShapeGainQ14: make([]int, 4),        // No harmonic shaping
-		TiltQ14:          make([]int, 4),        // No tilt
-		LFShpQ14:         make([]int32, 4),      // No LF shaping
-		GainsQ16:         []int32{gainQ16},      // PROPER GAIN
-		PitchL:           make([]int, 4),        // No pitch
-		LambdaQ10:        1024,                  // R-D tradeoff
+		PredCoefQ12:      make([]int16, 32), // Zero LPC
+		NLSFInterpCoefQ2: 4,                 // No interpolation
+		LTPCoefQ14:       make([]int16, 20), // No LTP
+		ARShpQ13:         make([]int16, 96), // No shaping
+		HarmShapeGainQ14: make([]int, 4),    // No harmonic shaping
+		TiltQ14:          make([]int, 4),    // No tilt
+		LFShpQ14:         make([]int32, 4),  // No LF shaping
+		GainsQ16:         []int32{gainQ16},  // PROPER GAIN
+		PitchL:           make([]int, 4),    // No pitch
+		LambdaQ10:        1024,              // R-D tradeoff
 		LTPScaleQ14:      int(silk_LTPScales_table_Q14[1]),
 		FrameLength:      subfrLength,
 		SubfrLength:      subfrLength,
@@ -282,7 +282,7 @@ func TestFullEncoderGainComputation(t *testing.T) {
 
 	// Create test PCM with known amplitude
 	pcmFloat := make([]float32, 160) // 20ms at 8kHz
-	testAmplitude := float32(0.5) // 50% amplitude
+	testAmplitude := float32(0.5)    // 50% amplitude
 	for i := range pcmFloat {
 		pcmFloat[i] = testAmplitude
 	}
@@ -448,7 +448,7 @@ func TestPulseExcitationRoundtrip_WithLPC(t *testing.T) {
 		SignalType:       1, // Unvoiced
 		QuantOffsetType:  0,
 		PredCoefQ12:      lpcQ12,
-		NLSFInterpCoefQ2: 4,                // No interpolation
+		NLSFInterpCoefQ2: 4, // No interpolation
 		LTPCoefQ14:       make([]int16, 20),
 		ARShpQ13:         make([]int16, 96),
 		HarmShapeGainQ14: make([]int, 4),

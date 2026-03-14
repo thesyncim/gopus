@@ -28,9 +28,9 @@ func TestNewEncoder_ValidParams(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			enc, err := NewEncoder(tt.sampleRate, tt.channels, tt.application)
+			enc, err := NewEncoder(EncoderConfig{SampleRate: tt.sampleRate, Channels: tt.channels, Application: tt.application})
 			if err != nil {
-				t.Fatalf("NewEncoder(%d, %d, %d) unexpected error: %v", tt.sampleRate, tt.channels, tt.application, err)
+				t.Fatalf("NewEncoder(EncoderConfig{SampleRate: %d, Channels: %d, Application: %d}) unexpected error: %v", tt.sampleRate, tt.channels, tt.application, err)
 			}
 			if enc == nil {
 				t.Fatal("NewEncoder returned nil encoder")
@@ -62,7 +62,7 @@ func TestNewEncoder_InvalidParams(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			enc, err := NewEncoder(tt.sampleRate, tt.channels, ApplicationAudio)
+			enc, err := NewEncoder(EncoderConfig{SampleRate: tt.sampleRate, Channels: tt.channels, Application: ApplicationAudio})
 			if err != tt.expectedErr {
 				t.Errorf("NewEncoder(%d, %d) error = %v, want %v", tt.sampleRate, tt.channels, err, tt.expectedErr)
 			}
@@ -74,7 +74,7 @@ func TestNewEncoder_InvalidParams(t *testing.T) {
 }
 
 func TestNewEncoder_InvalidApplication(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, Application(99))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: 99})
 	if err != ErrInvalidApplication {
 		t.Fatalf("NewEncoder(invalid application) error=%v want=%v", err, ErrInvalidApplication)
 	}
@@ -101,7 +101,7 @@ func generateSineWaveInt24(sampleRate int, freq float64, samples int) []int32 {
 }
 
 func TestEncoder_Encode_Float32(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestEncoder_Encode_Float32(t *testing.T) {
 }
 
 func TestEncoder_Encode_Int16(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestEncoder_Encode_Int16(t *testing.T) {
 }
 
 func TestEncoder_Encode_Int24(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestEncoder_Encode_Int24(t *testing.T) {
 }
 
 func TestEncoder_Encode_Int24_InvalidFrameSize(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestEncoder_Encode_Int24_InvalidFrameSize(t *testing.T) {
 
 func TestEncoder_Encode_RoundTrip(t *testing.T) {
 	// Create encoder and decoder
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -252,7 +252,7 @@ func TestEncoder_Encode_RoundTrip(t *testing.T) {
 }
 
 func TestEncoder_SetBitrate(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -284,7 +284,7 @@ func TestEncoder_SetBitrate(t *testing.T) {
 }
 
 func TestEncoder_SetComplexity(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -315,7 +315,7 @@ func TestEncoder_SetComplexity(t *testing.T) {
 }
 
 func TestEncoder_SetBitrateMode(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -338,7 +338,7 @@ func TestEncoder_SetBitrateMode(t *testing.T) {
 }
 
 func TestEncoder_SetVBRAndConstraint(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -399,7 +399,7 @@ func TestEncoder_SetVBRAndConstraint(t *testing.T) {
 }
 
 func TestEncoder_SetPacketLoss(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -421,7 +421,7 @@ func TestEncoder_SetPacketLoss(t *testing.T) {
 }
 
 func TestEncoder_SetBandwidth(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -447,7 +447,7 @@ func TestEncoder_SetBandwidth(t *testing.T) {
 }
 
 func TestEncoder_SetApplication(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationVoIP)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -497,7 +497,7 @@ func TestEncoder_SetApplication(t *testing.T) {
 func TestEncoder_RestrictedApplications(t *testing.T) {
 	for _, tt := range restrictedApplicationTestCases() {
 		t.Run(tt.name, func(t *testing.T) {
-			enc, err := NewEncoder(48000, 1, tt.application)
+			enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: tt.application})
 			if err != nil {
 				t.Fatalf("NewEncoder error: %v", err)
 			}
@@ -537,7 +537,7 @@ func TestEncoder_RestrictedApplications(t *testing.T) {
 }
 
 func TestEncoder_DTX_Silence(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationVoIP)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -573,7 +573,7 @@ func TestEncoder_DTX_Silence(t *testing.T) {
 }
 
 func TestEncoder_InDTXDelegatesToCoreEncoder(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationVoIP)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -612,7 +612,7 @@ func TestEncoder_InDTXDelegatesToCoreEncoder(t *testing.T) {
 }
 
 func TestEncoder_VADActivityDelegatesToCoreEncoder(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationVoIP)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -644,7 +644,7 @@ func TestEncoder_VADActivityDelegatesToCoreEncoder(t *testing.T) {
 }
 
 func TestEncoder_FEC(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationVoIP)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -668,7 +668,7 @@ func TestEncoder_FEC(t *testing.T) {
 }
 
 func TestEncoder_Reset(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -693,7 +693,7 @@ func TestEncoder_Reset(t *testing.T) {
 }
 
 func TestEncoder_Stereo(t *testing.T) {
-	enc, err := NewEncoder(48000, 2, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 2, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -722,7 +722,7 @@ func TestEncoder_Stereo(t *testing.T) {
 }
 
 func TestEncoder_FrameSize(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -759,7 +759,7 @@ func TestEncoder_FrameSize(t *testing.T) {
 }
 
 func TestEncoder_EncodeFloat32_Convenience(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -778,7 +778,7 @@ func TestEncoder_EncodeFloat32_Convenience(t *testing.T) {
 }
 
 func TestEncoder_ExpertFrameDuration(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -810,7 +810,7 @@ func TestEncoder_ExpertFrameDuration(t *testing.T) {
 }
 
 func TestEncoder_OptionalExtensionControls(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -834,7 +834,7 @@ func TestEncoder_LongPacketRoundTrip(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			enc, err := NewEncoder(48000, 1, tc.application)
+			enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: tc.application})
 			if err != nil {
 				t.Fatalf("NewEncoder error: %v", err)
 			}
@@ -873,7 +873,7 @@ func TestEncoder_LongPacketRoundTrip(t *testing.T) {
 }
 
 func TestEncoder_EncodeInt16Slice_Convenience(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -895,7 +895,7 @@ func TestEncoder_EncodeInt16Slice_Convenience(t *testing.T) {
 }
 
 func TestEncoder_InvalidFrameSize_Encode(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -911,7 +911,7 @@ func TestEncoder_InvalidFrameSize_Encode(t *testing.T) {
 }
 
 func TestEncoder_SetSignal(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -943,7 +943,7 @@ func TestEncoder_SetSignal(t *testing.T) {
 }
 
 func TestEncoder_SetMaxBandwidth(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -978,7 +978,7 @@ func TestEncoder_SetMaxBandwidth(t *testing.T) {
 }
 
 func TestEncoder_SetForceChannels(t *testing.T) {
-	enc, err := NewEncoder(48000, 2, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 2, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -1017,7 +1017,7 @@ func TestEncoder_SetForceChannels(t *testing.T) {
 func TestEncoder_Lookahead(t *testing.T) {
 	for _, tc := range lookaheadTestCases() {
 		t.Run(tc.name, func(t *testing.T) {
-			enc, err := NewEncoder(tc.sampleRate, 1, tc.application)
+			enc, err := NewEncoder(EncoderConfig{SampleRate: tc.sampleRate, Channels: 1, Application: tc.application})
 			if err != nil {
 				t.Fatalf("NewEncoder error: %v", err)
 			}
@@ -1028,7 +1028,7 @@ func TestEncoder_Lookahead(t *testing.T) {
 	}
 
 	t.Run("set_application_updates_lookahead_before_encode", func(t *testing.T) {
-		enc, err := NewEncoder(48000, 1, ApplicationAudio)
+		enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 		if err != nil {
 			t.Fatalf("NewEncoder error: %v", err)
 		}
@@ -1037,7 +1037,7 @@ func TestEncoder_Lookahead(t *testing.T) {
 }
 
 func TestEncoder_SetLSBDepth(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -1073,7 +1073,7 @@ func TestEncoder_SetLSBDepth(t *testing.T) {
 }
 
 func TestEncoder_SetPredictionDisabled(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -1097,7 +1097,7 @@ func TestEncoder_SetPredictionDisabled(t *testing.T) {
 }
 
 func TestEncoder_SetPhaseInversionDisabled(t *testing.T) {
-	enc, err := NewEncoder(48000, 2, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 2, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -1122,7 +1122,7 @@ func TestEncoder_SetPhaseInversionDisabled(t *testing.T) {
 
 func TestEncoder_SignalVoice_BiasesTowardSILK(t *testing.T) {
 	// Create encoder with voice signal hint at wideband
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -1151,7 +1151,7 @@ func TestEncoder_SignalVoice_BiasesTowardSILK(t *testing.T) {
 
 func TestEncoder_SignalMusic_BiasesTowardCELT(t *testing.T) {
 	// Create encoder with music signal hint
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -1180,7 +1180,7 @@ func TestEncoder_SignalMusic_BiasesTowardCELT(t *testing.T) {
 
 func TestEncoder_MaxBandwidth_ClampsOutput(t *testing.T) {
 	// Test that max bandwidth setting works for wideband limit
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}

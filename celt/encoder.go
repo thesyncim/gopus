@@ -235,13 +235,6 @@ type Encoder struct {
 	prefilterGain   float64
 	prefilterTapset int
 	prefilterMem    []float64
-	// Approximate analysis->max_pitch_ratio state for run_prefilter().
-	maxPitchDownState   [3]float64
-	maxPitchInmem       []float64
-	maxPitchMemFill     int
-	maxPitchHPEnerAccum float64
-	maxPitchRatio       float64
-
 	// Packet loss expectation (0-100) for prefilter gain scaling.
 	packetLoss int
 
@@ -376,12 +369,6 @@ func NewEncoder(channels int) *Encoder {
 		prefilterGain:   0,
 		prefilterTapset: 0,
 		prefilterMem:    make([]float64, combFilterMaxPeriod*channels),
-		// analysis starts with 10 ms history and max_pitch_ratio defaults to 1.
-		maxPitchInmem:   make([]float64, 720),
-		maxPitchMemFill: 240,
-		// Match libopus startup behavior: analysis info starts invalid, so
-		// max_pitch_ratio defaults to 0 until analysis becomes available.
-		maxPitchRatio: 0.0,
 
 		// Default to VBR enabled to mirror libopus behavior.
 		vbr:                      true,
@@ -517,15 +504,6 @@ func (e *Encoder) Reset() {
 	for i := range e.prefilterMem {
 		e.prefilterMem[i] = 0
 	}
-	e.maxPitchDownState = [3]float64{}
-	for i := range e.maxPitchInmem {
-		e.maxPitchInmem[i] = 0
-	}
-	e.maxPitchMemFill = 240
-	e.maxPitchHPEnerAccum = 0
-	// Match libopus reset behavior (analysis invalid -> max_pitch_ratio = 0).
-	e.maxPitchRatio = 0.0
-
 	// Clear pre-emphasis state
 	for i := range e.preemphState {
 		e.preemphState[i] = 0
@@ -1113,7 +1091,6 @@ type encoderScratch struct {
 	prefilterPre      []float64
 	prefilterOut      []float64
 	prefilterPitchBuf []float64
-	pitchHPPrefix     []float64
 	prefilterXLP4     []float64
 	prefilterYLP4     []float64
 	prefilterXcorr    []float64
@@ -1210,12 +1187,6 @@ type encoderScratch struct {
 
 	// MDCT input buffer for ComputeMDCTWithHistory
 	mdctInput []float64
-
-	// Pitch ratio FFT scratch buffers
-	pitchFFTIn  []complex64 // size: fft N (e.g. 480)
-	pitchFFTOut []complex64 // size: fft N
-	pitchFFTTmp []kissCpx   // FFT workspace, size: fft N
-	pitchDown   []float64   // downsampled signal, size: fft N
 
 	// Band encode scratch (for quantAllBandsEncode)
 	bandEncode bandEncodeScratch

@@ -103,17 +103,6 @@ type HybridState struct {
 	scratchDeintRight []float64 // deinterleaved right channel
 }
 
-// encodeHybridFrame encodes a frame using combined SILK and CELT.
-func (e *Encoder) encodeHybridFrame(pcm []float64, celtPCM []float64, lookahead []float64, frameSize int) ([]byte, error) {
-	return e.encodeHybridFrameWithMaxPacket(pcm, celtPCM, lookahead, frameSize, 0)
-}
-
-// encodeHybridFrameWithMaxPacket mirrors opus_encode_native() per-frame caps for
-// multi-frame packet assembly. maxPacketBytes includes TOC and must be >=2 when set.
-func (e *Encoder) encodeHybridFrameWithMaxPacket(pcm []float64, celtPCM []float64, lookahead []float64, frameSize int, maxPacketBytes int) ([]byte, error) {
-	return e.encodeHybridFrameWithMaxPacketAndTransition(pcm, celtPCM, lookahead, frameSize, maxPacketBytes, true, false)
-}
-
 // encodeHybridFrameWithMaxPacketAndTransition allows callers assembling long packets
 // to gate CELT->Hybrid redundancy to the first 20ms subframe, matching libopus
 // frame_redundancy cadence in multi-frame mode.
@@ -1319,49 +1308,6 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, lookahead []float32, sil
 
 	if e.hybridState != nil {
 		e.hybridState.prevDecodeOnlyMiddle = midOnly
-	}
-}
-
-// computeEquivRate computes libopus-style equivalent bitrate for stereo width decisions.
-func computeEquivRate(bitrate, channels, frameRate int, vbr bool, mode Mode, complexity int, loss int) int {
-	equiv := bitrate
-	if frameRate > 50 {
-		equiv -= (40*channels + 20) * (frameRate - 50)
-	}
-	if !vbr {
-		equiv -= equiv / 12
-	}
-	equiv = equiv * (90 + complexity) / 100
-	switch mode {
-	case ModeSILK, ModeHybrid:
-		if complexity < 2 {
-			equiv = equiv * 4 / 5
-		}
-		equiv -= equiv * loss / (6*loss + 10)
-	case ModeCELT:
-		if complexity < 5 {
-			equiv = equiv * 9 / 10
-		}
-	default:
-		equiv -= equiv * loss / (12*loss + 20)
-	}
-	return equiv
-}
-
-// computeStereoWidthQ14 computes target stereo width from equivalent bitrate.
-// Matches libopus logic in opus_encoder.c around stereo width reduction.
-func computeStereoWidthQ14(equivRate int) int {
-	switch {
-	case equivRate > 32000:
-		return 16384
-	case equivRate < 16000:
-		return 0
-	default:
-		den := equivRate - 14000
-		if den <= 0 {
-			return 0
-		}
-		return 16384 - 2048*(32000-equivRate)/den
 	}
 }
 

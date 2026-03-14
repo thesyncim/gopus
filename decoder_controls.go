@@ -59,7 +59,10 @@ func (d *Decoder) IgnoreExtensions() bool {
 	return d.ignoreExtensions
 }
 
-// SetOSCEBWE toggles the optional OSCE bandwidth extension path.
+// SetOSCEBWE toggles libopus's optional ENABLE_OSCE_BWE decoder extension.
+//
+// The default gopus build does not implement this extension and returns
+// ErrUnimplemented.
 func (d *Decoder) SetOSCEBWE(_ bool) error {
 	return ErrUnimplemented
 }
@@ -69,7 +72,10 @@ func (d *Decoder) OSCEBWE() (bool, error) {
 	return false, ErrUnimplemented
 }
 
-// SetDNNBlob loads an optional model blob for decoder extension features.
+// SetDNNBlob loads the optional libopus USE_WEIGHTS_FILE decoder model blob.
+//
+// The default gopus build does not implement this extension and returns
+// ErrUnimplemented.
 func (d *Decoder) SetDNNBlob(_ []byte) error {
 	return ErrUnimplemented
 }

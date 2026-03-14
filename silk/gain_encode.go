@@ -5,7 +5,6 @@ import "math"
 // Gain encoding matching libopus silk/encode_indices.c and silk/gain_quant.c
 // Implements proper delta coding with double step size for large gains.
 
-
 // encodeAbsoluteGainIndex encodes the absolute gain index for first subframe.
 // Uses libopus tables: silk_gain_iCDF[signalType] for MSB, silk_uniform8_iCDF for LSB
 // Matches libopus silk/encode_indices.c lines 77-79

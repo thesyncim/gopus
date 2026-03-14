@@ -7,8 +7,9 @@ package celt
 // stack layout issues; they are converted to float32 inside the assembly.
 //
 // The function computes:
-//   bestID = 0; bestNum = (xy+absX[0])^2; bestDen = yy+y[0]
-//   for j = 1..n-1: if bestDen*(xy+absX[j])^2 > (yy+y[j])*bestNum: update best
+//
+//	bestID = 0; bestNum = (xy+absX[0])^2; bestDen = yy+y[0]
+//	for j = 1..n-1: if bestDen*(xy+absX[j])^2 > (yy+y[j])*bestNum: update best
 //
 //go:noescape
 func pvqSearchBestPos(absX, y []float32, xy, yy float64, n int) int
@@ -19,12 +20,13 @@ func pvqSearchBestPos(absX, y []float32, xy, yy float64, n int) int
 // eliminating per-pulse Go→asm transition overhead.
 //
 // On entry:
-//   absX[0..n-1] = absolute values of input vector (read-only)
-//   y[0..n-1]    = 2*iy[j] pulse counts (modified in-place: y[bestID] += 2 per pulse)
-//   iy[0..n-1]   = integer pulse counts (modified in-place: iy[bestID]++ per pulse)
-//   xy, yy       = running cross-correlation and energy (float32 via float64 args)
-//   n            = vector dimension
-//   pulsesLeft   = number of pulses to place
+//
+//	absX[0..n-1] = absolute values of input vector (read-only)
+//	y[0..n-1]    = 2*iy[j] pulse counts (modified in-place: y[bestID] += 2 per pulse)
+//	iy[0..n-1]   = integer pulse counts (modified in-place: iy[bestID]++ per pulse)
+//	xy, yy       = running cross-correlation and energy (float32 via float64 args)
+//	n            = vector dimension
+//	pulsesLeft   = number of pulses to place
 //
 // Returns updated (xy, yy) as float64 (containing float32 values).
 //

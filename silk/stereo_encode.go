@@ -3,8 +3,8 @@ package silk
 import (
 	"math"
 
-	"github.com/thesyncim/gopus/util"
 	"github.com/thesyncim/gopus/rangecoding"
+	"github.com/thesyncim/gopus/util"
 )
 
 // Constants for stereo prediction weight quantization matching libopus
@@ -854,7 +854,7 @@ func InterpolatePredictorsFloat(prevPred, currPred [2]float32, prevWidth, currWi
 // StereoEncStateInterp holds state for encoder-side 8ms predictor interpolation.
 // This is a simplified float-based state for easier integration.
 type StereoEncStateInterp struct {
-	PrevPredQ13 [2]int32  // Previous frame's predictors in Q13
+	PrevPredQ13  [2]int32 // Previous frame's predictors in Q13
 	PrevWidthQ14 int16    // Previous frame's stereo width in Q14
 	SMid         [2]int16 // Mid signal history buffer
 	SSide        [2]int16 // Side signal history buffer

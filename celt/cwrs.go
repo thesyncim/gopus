@@ -381,22 +381,6 @@ func abs(x int) int {
 	return x
 }
 
-// imax returns the maximum of a and b.
-func imax(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-// imin returns the minimum of a and b.
-func imin(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 //go:nosplit
 func pvqUTableLookupFast(n, k int) uint32 {
 	if n > k {

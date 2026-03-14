@@ -1,40 +1,9 @@
-// benchmark_alloc_test.go - Allocation benchmarks for gopus encode/decode paths.
+// benchmark_alloc_test.go benchmarks the public encode/decode paths with
+// allocation reporting enabled.
 //
-// Current Status:
-// ---------------
-// The public Encode/Decode APIs follow io.Reader/io.Writer patterns where callers
-// provide output buffers. However, internal CELT/SILK encoding/decoding still
-// performs heap allocations for intermediate buffers.
-//
-// Zero-Allocation Patterns Applied:
-// ---------------------------------
-// 1. Public API: Encoder and Decoder structs have pre-allocated scratch buffers
-//    for float32<->float64 and int16<->float32 conversions at the API boundary.
-//
-// 2. Caller-provided buffers: All public Encode/Decode methods accept caller-
-//    provided output buffers rather than allocating and returning new slices.
-//
-// 3. Persistent state: Sub-encoders (SILK, CELT) are created once and reused
-//    across encode calls rather than creating new instances per frame.
-//
-// Future Improvements (for 0 allocs/op):
-// --------------------------------------
-// 1. CELT encoder: Add scratch buffers for MDCT computation, band energy
-//    calculation, and transient analysis working arrays.
-//
-// 2. SILK encoder: Add scratch buffers for LPC analysis, NSQ quantization,
-//    and stereo mid/side conversion.
-//
-// 3. Internal decoders: Add scratch buffers for synthesis, denormalization,
-//    and IMDCT computation.
-//
-// 4. Range encoder/decoder: Pre-allocate output buffers.
-//
-// Run benchmarks with:
-//   go test -bench=Benchmark -benchmem -run=^$ ./...
-//
-// Target: 0 allocs/op for Decode/Encode in hot paths.
-// Current: ~288 allocs/op for Encode, ~59 allocs/op for Decode (CELT mode).
+// The caller-buffer encode/decode APIs are expected to stay at 0 allocs/op in
+// hot paths. Convenience helpers such as EncodeFloat32 allocate by design and
+// are benchmarked separately so the two paths do not get conflated.
 
 package gopus
 
@@ -253,10 +222,10 @@ func BenchmarkDecoderDecode_Stereo(b *testing.B) {
 	}
 }
 
-// BenchmarkEncoderEncode benchmarks float32 encoding.
+// BenchmarkEncoderEncode_CallerBuffer benchmarks float32 encoding with caller-owned output.
 // Target: 0 allocs/op
-func BenchmarkEncoderEncode(b *testing.B) {
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+func BenchmarkEncoderEncode_CallerBuffer(b *testing.B) {
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}
@@ -280,10 +249,35 @@ func BenchmarkEncoderEncode(b *testing.B) {
 	}
 }
 
+// BenchmarkEncoderEncodeFloat32_Allocating benchmarks the allocating convenience path.
+func BenchmarkEncoderEncodeFloat32_Allocating(b *testing.B) {
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
+	if err != nil {
+		b.Fatalf("NewEncoder: %v", err)
+	}
+
+	pcm := generateBenchSineWave(960)
+
+	for i := 0; i < 5; i++ {
+		if _, err := enc.EncodeFloat32(pcm); err != nil {
+			b.Fatalf("EncodeFloat32 warmup: %v", err)
+		}
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		if _, err := enc.EncodeFloat32(pcm); err != nil {
+			b.Fatalf("EncodeFloat32: %v", err)
+		}
+	}
+}
+
 // BenchmarkEncoderEncodeInt16 benchmarks int16 encoding.
 // Target: 0 allocs/op
 func BenchmarkEncoderEncodeInt16(b *testing.B) {
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}
@@ -314,7 +308,7 @@ func BenchmarkEncoderEncodeInt16(b *testing.B) {
 // BenchmarkEncoderEncode_Stereo benchmarks stereo encoding.
 // Target: 0 allocs/op
 func BenchmarkEncoderEncode_Stereo(b *testing.B) {
-	enc, err := NewEncoder(48000, 2, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 2, Application: ApplicationAudio})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}
@@ -346,7 +340,7 @@ func BenchmarkEncoderEncode_Stereo(b *testing.B) {
 // BenchmarkEncoderEncode_VoIP benchmarks VoIP mode encoding (SILK).
 // Target: 0 allocs/op
 func BenchmarkEncoderEncode_VoIP(b *testing.B) {
-	enc, err := NewEncoder(48000, 1, ApplicationVoIP)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}
@@ -373,7 +367,7 @@ func BenchmarkEncoderEncode_VoIP(b *testing.B) {
 // BenchmarkEncoderEncode_LowDelay benchmarks low-delay mode encoding (CELT).
 // Target: 0 allocs/op
 func BenchmarkEncoderEncode_LowDelay(b *testing.B) {
-	enc, err := NewEncoder(48000, 1, ApplicationLowDelay)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationLowDelay})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}
@@ -400,7 +394,7 @@ func BenchmarkEncoderEncode_LowDelay(b *testing.B) {
 // BenchmarkRoundTrip benchmarks encode + decode round trip.
 // Target: 0 allocs/op
 func BenchmarkRoundTrip(b *testing.B) {
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}
@@ -434,7 +428,7 @@ func BenchmarkRoundTrip(b *testing.B) {
 // Target: 0 allocs/op
 func BenchmarkDecoderDecode_MultiFrame(b *testing.B) {
 	// First encode two frames, then decode the multi-frame packet
-	enc, err := NewEncoder(48000, 1, ApplicationLowDelay)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationLowDelay})
 	if err != nil {
 		b.Fatalf("NewEncoder: %v", err)
 	}

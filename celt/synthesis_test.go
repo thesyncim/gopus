@@ -73,14 +73,14 @@ func TestSynthesizeStereo_SampleCount(t *testing.T) {
 func TestOverlapAdd_Properties(t *testing.T) {
 	testCases := []struct {
 		name        string
-		inputLen    int  // IMDCT output: 2*frameSize
+		inputLen    int // IMDCT output: 2*frameSize
 		overlap     int
-		expectedOut int  // frameSize = inputLen/2
+		expectedOut int // frameSize = inputLen/2
 	}{
-		{"standard 960", 1920, 120, 960},  // 20ms: 1920/2 = 960
-		{"standard 480", 960, 120, 480},   // 10ms: 960/2 = 480
-		{"standard 240", 480, 120, 240},   // 5ms: 480/2 = 240
-		{"standard 120", 240, 120, 120},   // 2.5ms: 240/2 = 120
+		{"standard 960", 1920, 120, 960}, // 20ms: 1920/2 = 960
+		{"standard 480", 960, 120, 480},  // 10ms: 960/2 = 480
+		{"standard 240", 480, 120, 240},  // 5ms: 480/2 = 240
+		{"standard 120", 240, 120, 120},  // 2.5ms: 240/2 = 120
 	}
 
 	for _, tc := range testCases {

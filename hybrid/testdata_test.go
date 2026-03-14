@@ -17,8 +17,6 @@
 // not to verify audio quality (which requires real Opus test vectors).
 package hybrid
 
-
-
 // minimalHybridPacket10ms is a carefully constructed byte sequence that forms
 // a minimal valid hybrid packet for 10ms (480 samples at 48kHz).
 //

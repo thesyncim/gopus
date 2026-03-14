@@ -201,7 +201,7 @@ func generateSignal(signalType string, duration float64, channels int) []float32
 // roundtrip encodes and decodes audio.
 func roundtrip(original []float32, config TestConfig) ([]float32, error) {
 	// Create encoder
-	enc, err := gopus.NewEncoder(sampleRate, config.Channels, config.Application)
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: sampleRate, Channels: config.Channels, Application: config.Application})
 	if err != nil {
 		return nil, fmt.Errorf("create encoder: %w", err)
 	}

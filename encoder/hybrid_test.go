@@ -88,8 +88,8 @@ func TestHybridBitAllocation(t *testing.T) {
 // TestHBGainComputation verifies high-band gain attenuation at low bitrates.
 func TestHBGainComputation(t *testing.T) {
 	testCases := []struct {
-		name           string
-		celtBitrate    int
+		name            string
+		celtBitrate     int
 		expectedMinGain float64
 		expectedMaxGain float64
 	}{
@@ -254,7 +254,7 @@ func TestHybridModeQuality(t *testing.T) {
 	frameSize := 960
 	samples := make([]float64, frameSize)
 
-	lowFreq := 1000.0  // 1kHz - handled by SILK
+	lowFreq := 1000.0   // 1kHz - handled by SILK
 	highFreq := 10000.0 // 10kHz - handled by CELT
 
 	for i := 0; i < frameSize; i++ {

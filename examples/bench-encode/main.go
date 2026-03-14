@@ -263,7 +263,7 @@ func benchGopus(pcm []float32, channels, bitrate, complexity, frameSize, batch, 
 }
 
 func encodeGopusOnce(pcm []float32, channels, bitrate, complexity, frameSize, batch int) error {
-	enc, err := gopus.NewEncoder(sampleRate, channels, gopus.ApplicationAudio)
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: sampleRate, Channels: channels, Application: gopus.ApplicationAudio})
 	if err != nil {
 		return err
 	}

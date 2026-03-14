@@ -65,9 +65,9 @@ func TestParseOpusDemoBitstream_SinglePacket(t *testing.T) {
 
 func TestParseOpusDemoBitstream_MultiplePackets(t *testing.T) {
 	packets := [][]byte{
-		{0xFC, 0x01},        // 2 bytes
-		{0xFC, 0x02, 0x03},  // 3 bytes
-		{0xFC},              // 1 byte (minimal)
+		{0xFC, 0x01},                   // 2 bytes
+		{0xFC, 0x02, 0x03},             // 3 bytes
+		{0xFC},                         // 1 byte (minimal)
 		{0xFC, 0x04, 0x05, 0x06, 0x07}, // 5 bytes
 	}
 	ranges := []uint32{0x11111111, 0x22222222, 0x33333333, 0x44444444}

@@ -168,7 +168,7 @@ func (e *Encoder) applyPreemphasisWithScalingCore(pcm, output []float64) {
 // (multiplied by CELTSigScale = 32768), then the pre-emphasis filter is applied.
 //
 // This matches libopus celt_preemphasis() behavior where samples are scaled
-// and filtered together. The decoder's scaleSamples(1/32768) reverses the scaling.
+// and filtered together. The decoder later divides back by the same scale.
 func (e *Encoder) ApplyPreemphasisWithScaling(pcm []float64) []float64 {
 	if len(pcm) == 0 {
 		return nil

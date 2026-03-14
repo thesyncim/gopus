@@ -30,26 +30,12 @@ type nsqSampleState struct {
 type nsqSamplePair [2]nsqSampleState
 
 var (
-	nsqDelDecDebugXQ14        []int32
-	nsqDelDecDebugGainQ10     []int32
 	nsqDelDecDebugSLTPQ15     []int32
 	nsqDelDecDebugSLTP        []int16
 	nsqDelDecDebugXScQ10      []int32
 	nsqDelDecDebugXScSubfrLen int
 	nsqDelDecDebugDelayedGain []int32
-	nsqDelDecDebugScaleSubfr  int
-	nsqDelDecDebugScaleIdx    int
-	nsqDelDecDebugScaleInv    int32
-	nsqDelDecDebugScaleSLTP   int16
-	nsqDelDecDebugScaleOut    int32
-	nsqDelDecDebugScaleGain   int32
-	nsqDelDecDebugScaleHit    bool
 )
-
-func setNSQDelDecDebug(xqQ14, gainQ10 []int32) {
-	nsqDelDecDebugXQ14 = xqQ14
-	nsqDelDecDebugGainQ10 = gainQ10
-}
 
 func setNSQDelDecDebugSLTP(sltpQ15 []int32) {
 	nsqDelDecDebugSLTPQ15 = sltpQ15
@@ -66,16 +52,6 @@ func setNSQDelDecDebugXSc(xsc []int32, subfrLen int) {
 
 func setNSQDelDecDebugDelayedGain(gainQ10 []int32) {
 	nsqDelDecDebugDelayedGain = gainQ10
-}
-
-func setNSQDelDecDebugScale(subfr, idx int) {
-	nsqDelDecDebugScaleSubfr = subfr
-	nsqDelDecDebugScaleIdx = idx
-	nsqDelDecDebugScaleInv = 0
-	nsqDelDecDebugScaleSLTP = 0
-	nsqDelDecDebugScaleOut = 0
-	nsqDelDecDebugScaleGain = 0
-	nsqDelDecDebugScaleHit = false
 }
 
 // NoiseShapeQuantizeDelDec performs delayed-decision noise shaping quantization.
@@ -380,15 +356,6 @@ func nsqDelDecScaleStates(
 		}
 		for i := start; i < nsq.sLTPBufIdx && i < len(sLTPQ15) && i < len(sLTP); i++ {
 			sLTPQ15[i] = silk_SMULWB(invGainQ31, int32(sLTP[i]))
-			if nsqDelDecDebugScaleSubfr == subfr && nsqDelDecDebugScaleIdx == i {
-				nsqDelDecDebugScaleInv = invGainQ31
-				nsqDelDecDebugScaleSLTP = sLTP[i]
-				nsqDelDecDebugScaleOut = sLTPQ15[i]
-				if subfr >= 0 && subfr < len(gainsQ16) {
-					nsqDelDecDebugScaleGain = gainsQ16[subfr]
-				}
-				nsqDelDecDebugScaleHit = true
-			}
 		}
 	}
 

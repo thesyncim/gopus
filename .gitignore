@@ -21,6 +21,8 @@ tmp_check
 *.prof
 *.pprof
 *.trace
+cpu.out
+mem.out
 
 # Example binaries
 examples/*/bench-*

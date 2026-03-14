@@ -40,7 +40,7 @@ func (e *Encoder) classifyFrame(pcm []float32) (signalType, quantOffset int) {
 	stdDev := math.Sqrt(variance)
 
 	// Activity detection thresholds
-	const inactiveEnergyThreshold = 1e-4  // Very low energy = inactive
+	const inactiveEnergyThreshold = 1e-4   // Very low energy = inactive
 	const inactiveVarianceThreshold = 1e-6 // Very low variance = DC-like = inactive
 
 	// Check for inactive signal (silence or DC)

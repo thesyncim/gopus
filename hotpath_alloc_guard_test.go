@@ -23,7 +23,7 @@ func testSineFrame(samples int) []float32 {
 }
 
 func TestHotPathAllocsEncodeFloat32(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestHotPathAllocsEncodeFloat32(t *testing.T) {
 }
 
 func TestHotPathAllocsEncodeInt16(t *testing.T) {
-	enc, err := NewEncoder(48000, 1, ApplicationAudio)
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder: %v", err)
 	}

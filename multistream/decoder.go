@@ -97,10 +97,10 @@ func parseStreamTOC(toc byte) streamTOC {
 	}
 }
 
-// StreamDecoder wraps per-mode decoders and dispatches by packet TOC.
-// This mirrors libopus multistream decode behavior where each stream owns a
-// full Opus decoder state (SILK/CELT/Hybrid), not just hybrid-only state.
-type StreamDecoder struct {
+// streamState wraps per-mode decoders and dispatches by packet TOC.
+// Each stream owns a full Opus decoder state (SILK/CELT/Hybrid), not just
+// hybrid-only state.
+type streamState struct {
 	sampleRate int
 	channels   int
 
@@ -118,8 +118,8 @@ type StreamDecoder struct {
 	decodeGainQ8       int
 }
 
-func newStreamDecoder(sampleRate, channels int) *StreamDecoder {
-	return &StreamDecoder{
+func newStreamDecoder(sampleRate, channels int) *streamState {
+	return &streamState{
 		sampleRate:    sampleRate,
 		channels:      channels,
 		hybridDec:     hybrid.NewDecoder(channels),
@@ -132,17 +132,17 @@ func newStreamDecoder(sampleRate, channels int) *StreamDecoder {
 }
 
 // Decode decodes a packet for mono streams.
-func (d *StreamDecoder) Decode(data []byte, frameSize int) ([]float64, error) {
+func (d *streamState) Decode(data []byte, frameSize int) ([]float64, error) {
 	return d.decodePacket(data, frameSize)
 }
 
 // DecodeStereo decodes a packet for coupled (stereo) streams.
-func (d *StreamDecoder) DecodeStereo(data []byte, frameSize int) ([]float64, error) {
+func (d *streamState) DecodeStereo(data []byte, frameSize int) ([]float64, error) {
 	return d.decodePacket(data, frameSize)
 }
 
 // Reset resets decoder state while preserving user-configured gain.
-func (d *StreamDecoder) Reset() {
+func (d *streamState) Reset() {
 	d.hybridDec.Reset()
 	d.celtDec.Reset()
 	d.silkDec.Reset()
@@ -156,17 +156,17 @@ func (d *StreamDecoder) Reset() {
 }
 
 // Channels returns the channel count for this decoder.
-func (d *StreamDecoder) Channels() int {
+func (d *streamState) Channels() int {
 	return d.channels
 }
 
 // SampleRate returns the decoder sample rate in Hz.
-func (d *StreamDecoder) SampleRate() int {
+func (d *streamState) SampleRate() int {
 	return d.sampleRate
 }
 
 // SetGain sets output gain in Q8 dB units (libopus OPUS_SET_GAIN semantics).
-func (d *StreamDecoder) SetGain(gainQ8 int) error {
+func (d *streamState) SetGain(gainQ8 int) error {
 	if gainQ8 < -32768 || gainQ8 > 32767 {
 		return ErrInvalidGain
 	}
@@ -175,22 +175,22 @@ func (d *StreamDecoder) SetGain(gainQ8 int) error {
 }
 
 // Gain returns the current decoder output gain in Q8 dB units.
-func (d *StreamDecoder) Gain() int {
+func (d *streamState) Gain() int {
 	return d.decodeGainQ8
 }
 
 // Pitch returns the most recent CELT postfilter pitch period.
-func (d *StreamDecoder) Pitch() int {
+func (d *streamState) Pitch() int {
 	return d.celtDec.PostfilterPeriod()
 }
 
 // Bandwidth returns the bandwidth of the last successfully decoded packet.
-func (d *StreamDecoder) Bandwidth() types.Bandwidth {
+func (d *streamState) Bandwidth() types.Bandwidth {
 	return types.Bandwidth(d.lastBandwidth)
 }
 
 // LastPacketDuration returns the last decoded packet duration in 48 kHz samples.
-func (d *StreamDecoder) LastPacketDuration() int {
+func (d *streamState) LastPacketDuration() int {
 	if d.lastPacketDuration > 0 {
 		return d.lastPacketDuration
 	}
@@ -198,12 +198,12 @@ func (d *StreamDecoder) LastPacketDuration() int {
 }
 
 // InDTX reports whether the most recently decoded packet was DTX.
-func (d *StreamDecoder) InDTX() bool {
+func (d *streamState) InDTX() bool {
 	return d.lastDataLen > 0 && d.lastDataLen <= 2
 }
 
 // FinalRange returns the final range coder state for the last decoded packet.
-func (d *StreamDecoder) FinalRange() uint32 {
+func (d *streamState) FinalRange() uint32 {
 	if d.lastDataLen <= 1 {
 		return 0
 	}
@@ -227,7 +227,7 @@ func streamDecodeGainLinear(gainQ8 int) float64 {
 	return math.Exp(float64(gainQ8) * math.Ln10 / (20.0 * 256.0))
 }
 
-func (d *StreamDecoder) applyOutputGain(samples []float64) {
+func (d *streamState) applyOutputGain(samples []float64) {
 	if d.decodeGainQ8 == 0 {
 		return
 	}
@@ -245,7 +245,7 @@ func float32ToFloat64Slice(in []float32) []float64 {
 	return out
 }
 
-func (d *StreamDecoder) decodeSILK(data []byte, frameSize int, packetStereo bool, opusBandwidth int) ([]float64, error) {
+func (d *streamState) decodeSILK(data []byte, frameSize int, packetStereo bool, opusBandwidth int) ([]float64, error) {
 	bw, ok := silk.BandwidthFromOpus(opusBandwidth)
 	if !ok {
 		return nil, fmt.Errorf("multistream: invalid SILK bandwidth: %d", opusBandwidth)
@@ -270,7 +270,7 @@ func (d *StreamDecoder) decodeSILK(data []byte, frameSize int, packetStereo bool
 	return float32ToFloat64Slice(out32), nil
 }
 
-func (d *StreamDecoder) decodeFramePayload(frame []byte, frameSize int, toc streamTOC) ([]float64, error) {
+func (d *streamState) decodeFramePayload(frame []byte, frameSize int, toc streamTOC) ([]float64, error) {
 	var out []float64
 	var err error
 
@@ -299,7 +299,7 @@ func (d *StreamDecoder) decodeFramePayload(frame []byte, frameSize int, toc stre
 	return out, nil
 }
 
-func (d *StreamDecoder) decodePLC(frameSize int) ([]float64, error) {
+func (d *streamState) decodePLC(frameSize int) ([]float64, error) {
 	if !d.haveDecoded {
 		return make([]float64, frameSize*d.channels), nil
 	}
@@ -333,7 +333,7 @@ func (d *StreamDecoder) decodePLC(frameSize int) ([]float64, error) {
 	}
 }
 
-func (d *StreamDecoder) decodePacket(data []byte, frameSize int) ([]float64, error) {
+func (d *streamState) decodePacket(data []byte, frameSize int) ([]float64, error) {
 	if data == nil || len(data) == 0 {
 		return d.decodePLC(frameSize)
 	}
@@ -576,18 +576,6 @@ func (d *Decoder) Streams() int {
 // CoupledStreams returns the number of coupled (stereo) streams.
 func (d *Decoder) CoupledStreams() int {
 	return d.coupledStreams
-}
-
-// GetDecoderState returns the decoder state for an individual stream.
-func (d *Decoder) GetDecoderState(index int) (*StreamDecoder, error) {
-	if index < 0 || index >= len(d.decoders) {
-		return nil, ErrInvalidStreamIndex
-	}
-	state, ok := d.decoders[index].(*StreamDecoder)
-	if !ok {
-		return nil, errors.New("multistream: unexpected stream decoder type")
-	}
-	return state, nil
 }
 
 // NewDecoderDefault creates a multistream decoder with default Vorbis-style mapping
