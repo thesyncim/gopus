@@ -111,9 +111,9 @@ autoresearch-best:
 	bash ./tools/autoresearch.sh best
 
 # Run the autonomous codex-driven experiment loop.
-# Usage: make autoresearch-loop MAX_ITERATIONS=5
+# Usage: make autoresearch-loop MAX_ITERATIONS=5 VERBOSE=1
 autoresearch-loop:
-	bash ./tools/autoresearch.sh loop $(if $(MAX_ITERATIONS),--max-iterations $(MAX_ITERATIONS),) $(if $(MODEL),--model $(MODEL),) $(if $(DRY_RUN),--dry-run,)
+	bash ./tools/autoresearch.sh loop $(if $(MAX_ITERATIONS),--max-iterations $(MAX_ITERATIONS),) $(if $(MODEL),--model $(MODEL),) $(if $(VERBOSE),--verbose,) $(if $(DRY_RUN),--dry-run,)
 
 # Default production verification gate.
 verify-production: ensure-libopus
