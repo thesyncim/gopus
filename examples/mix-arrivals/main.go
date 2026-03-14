@@ -105,7 +105,7 @@ func encodeMixToOgg(path string, pcm []float32, bitrate int) (encodeStats, error
 		return stats, fmt.Errorf("mixed PCM is empty")
 	}
 
-	enc, err := gopus.NewEncoder(gopus.DefaultEncoderConfig(sampleRate, channels, gopus.ApplicationAudio))
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: sampleRate, Channels: channels, Application: gopus.ApplicationAudio})
 	if err != nil {
 		return stats, fmt.Errorf("create encoder: %w", err)
 	}

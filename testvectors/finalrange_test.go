@@ -280,4 +280,3 @@ func TestFinalRangeAllVectors(t *testing.T) {
 	}
 	t.Logf("Total: %d/%d passed (%.1f%%)", totalPassed, totalPackets, totalPct)
 }
-

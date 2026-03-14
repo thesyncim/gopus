@@ -54,24 +54,24 @@ func TestDecodeFrame_OutputSizes(t *testing.T) {
 		wantSamples int
 	}{
 		// 10ms frames
-		{BandwidthNarrowband, Frame10ms, 80},   // 10ms * 8000 / 1000
-		{BandwidthMediumband, Frame10ms, 120},  // 10ms * 12000 / 1000
-		{BandwidthWideband, Frame10ms, 160},    // 10ms * 16000 / 1000
+		{BandwidthNarrowband, Frame10ms, 80},  // 10ms * 8000 / 1000
+		{BandwidthMediumband, Frame10ms, 120}, // 10ms * 12000 / 1000
+		{BandwidthWideband, Frame10ms, 160},   // 10ms * 16000 / 1000
 
 		// 20ms frames
-		{BandwidthNarrowband, Frame20ms, 160},  // 20ms * 8000 / 1000
-		{BandwidthMediumband, Frame20ms, 240},  // 20ms * 12000 / 1000
-		{BandwidthWideband, Frame20ms, 320},    // 20ms * 16000 / 1000
+		{BandwidthNarrowband, Frame20ms, 160}, // 20ms * 8000 / 1000
+		{BandwidthMediumband, Frame20ms, 240}, // 20ms * 12000 / 1000
+		{BandwidthWideband, Frame20ms, 320},   // 20ms * 16000 / 1000
 
 		// 40ms frames (2 x 20ms sub-blocks)
-		{BandwidthNarrowband, Frame40ms, 320},  // 40ms * 8000 / 1000
-		{BandwidthMediumband, Frame40ms, 480},  // 40ms * 12000 / 1000
-		{BandwidthWideband, Frame40ms, 640},    // 40ms * 16000 / 1000
+		{BandwidthNarrowband, Frame40ms, 320}, // 40ms * 8000 / 1000
+		{BandwidthMediumband, Frame40ms, 480}, // 40ms * 12000 / 1000
+		{BandwidthWideband, Frame40ms, 640},   // 40ms * 16000 / 1000
 
 		// 60ms frames (3 x 20ms sub-blocks)
-		{BandwidthNarrowband, Frame60ms, 480},  // 60ms * 8000 / 1000
-		{BandwidthMediumband, Frame60ms, 720},  // 60ms * 12000 / 1000
-		{BandwidthWideband, Frame60ms, 960},    // 60ms * 16000 / 1000
+		{BandwidthNarrowband, Frame60ms, 480}, // 60ms * 8000 / 1000
+		{BandwidthMediumband, Frame60ms, 720}, // 60ms * 12000 / 1000
+		{BandwidthWideband, Frame60ms, 960},   // 60ms * 16000 / 1000
 	}
 
 	for _, tc := range testCases {
@@ -115,9 +115,9 @@ func TestDecodeFrame_40ms(t *testing.T) {
 		bandwidth   Bandwidth
 		wantSamples int // at native SILK rate
 	}{
-		{BandwidthNarrowband, 320},  // 40ms * 8000 / 1000
-		{BandwidthMediumband, 480},  // 40ms * 12000 / 1000
-		{BandwidthWideband, 640},    // 40ms * 16000 / 1000
+		{BandwidthNarrowband, 320}, // 40ms * 8000 / 1000
+		{BandwidthMediumband, 480}, // 40ms * 12000 / 1000
+		{BandwidthWideband, 640},   // 40ms * 16000 / 1000
 	}
 
 	for _, tc := range testCases {
@@ -149,9 +149,9 @@ func TestDecodeFrame_60ms(t *testing.T) {
 		bandwidth   Bandwidth
 		wantSamples int
 	}{
-		{BandwidthNarrowband, 480},  // 60ms * 8000 / 1000
-		{BandwidthMediumband, 720},  // 60ms * 12000 / 1000
-		{BandwidthWideband, 960},    // 60ms * 16000 / 1000
+		{BandwidthNarrowband, 480}, // 60ms * 8000 / 1000
+		{BandwidthMediumband, 720}, // 60ms * 12000 / 1000
+		{BandwidthWideband, 960},   // 60ms * 16000 / 1000
 	}
 
 	for _, tc := range testCases {

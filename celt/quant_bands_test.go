@@ -283,7 +283,7 @@ func TestEncodeLaplaceEnergy(t *testing.T) {
 	re.Init(buf)
 
 	// Test encoding zero (most common)
-	fs := 72 << 7   // From prob_model
+	fs := 72 << 7 // From prob_model
 	decay := 127 << 6
 
 	val0 := encodeLaplaceEnergy(re, 0, fs, decay)

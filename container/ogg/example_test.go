@@ -31,7 +31,7 @@ func ExampleWriter_WritePacket() {
 	defer w.Close()
 
 	// Create an encoder
-	enc, _ := gopus.NewEncoder(gopus.DefaultEncoderConfig(48000, 2, gopus.ApplicationAudio))
+	enc, _ := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 2, Application: gopus.ApplicationAudio})
 
 	// Encode and write a frame
 	pcm := make([]float32, 960*2) // 20ms stereo
@@ -51,7 +51,7 @@ func ExampleNewReader() {
 	var buf bytes.Buffer
 	w, _ := ogg.NewWriter(&buf, uint32(48000), uint8(2))
 
-	enc, _ := gopus.NewEncoder(gopus.DefaultEncoderConfig(48000, 2, gopus.ApplicationAudio))
+	enc, _ := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 2, Application: gopus.ApplicationAudio})
 	pcm := make([]float32, 960*2)
 	packet, _ := enc.EncodeFloat32(pcm)
 	w.WritePacket(packet, 960)
@@ -71,7 +71,7 @@ func ExampleReader_ReadPacket() {
 	// Create Ogg data with multiple packets
 	var buf bytes.Buffer
 	w, _ := ogg.NewWriter(&buf, uint32(48000), uint8(1))
-	enc, _ := gopus.NewEncoder(gopus.DefaultEncoderConfig(48000, 1, gopus.ApplicationAudio))
+	enc, _ := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 1, Application: gopus.ApplicationAudio})
 
 	for i := 0; i < 5; i++ {
 		pcm := make([]float32, 960)
@@ -111,7 +111,7 @@ func Example_writeOggFile() {
 	w, _ := ogg.NewWriter(&buf, uint32(48000), uint8(2))
 
 	// Create encoder
-	enc, _ := gopus.NewEncoder(gopus.DefaultEncoderConfig(48000, 2, gopus.ApplicationAudio))
+	enc, _ := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 2, Application: gopus.ApplicationAudio})
 	enc.SetBitrate(128000)
 
 	// Write 1 second of audio (50 frames of 20ms each)
@@ -137,7 +137,7 @@ func ExampleWriter_Close() {
 	w, _ := ogg.NewWriter(&buf, uint32(48000), uint8(1))
 
 	// Write some audio
-	enc, _ := gopus.NewEncoder(gopus.DefaultEncoderConfig(48000, 1, gopus.ApplicationAudio))
+	enc, _ := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 1, Application: gopus.ApplicationAudio})
 	pcm := make([]float32, 960)
 	packet, _ := enc.EncodeFloat32(pcm)
 	w.WritePacket(packet, 960)
@@ -158,7 +158,7 @@ func Example_roundTripOgg() {
 
 	// Encode to Ogg
 	w, _ := ogg.NewWriter(&buf, uint32(48000), uint8(2))
-	enc, _ := gopus.NewEncoder(gopus.DefaultEncoderConfig(48000, 2, gopus.ApplicationAudio))
+	enc, _ := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 2, Application: gopus.ApplicationAudio})
 
 	// Encode 10 frames
 	for i := 0; i < 10; i++ {

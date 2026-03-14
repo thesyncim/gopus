@@ -107,10 +107,10 @@ func ReadBitstreamFile(filename string) ([]Packet, error) {
 
 // BitstreamInfo contains summary information about a parsed bitstream.
 type BitstreamInfo struct {
-	PacketCount int    // Number of packets in the bitstream
-	TotalBytes  int    // Total bytes of packet data (excluding headers)
-	FirstTOC    byte   // TOC byte of first packet (for mode detection)
-	Duration    int    // Estimated duration in samples at 48kHz
+	PacketCount int  // Number of packets in the bitstream
+	TotalBytes  int  // Total bytes of packet data (excluding headers)
+	FirstTOC    byte // TOC byte of first packet (for mode detection)
+	Duration    int  // Estimated duration in samples at 48kHz
 }
 
 // GetBitstreamInfo returns summary information about a parsed bitstream.

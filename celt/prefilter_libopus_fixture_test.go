@@ -11,7 +11,7 @@ import (
 const prefilterLibopusFixturePath = "testdata/prefilter_libopus_ref_fixture.json"
 
 type prefilterFixtureFile struct {
-	Version int                  `json:"version"`
+	Version int                    `json:"version"`
 	Cases   []prefilterFixtureCase `json:"cases"`
 }
 
@@ -52,10 +52,10 @@ func generatePrefilterFixtureCases(masterSeed int64, iters int) []prefilterFixtu
 			toneFreq = rng.Float64() * math.Pi
 		}
 		cases = append(cases, prefilterFixtureCase{
-			ID:               i,
-			Channels:         channels,
-			FrameSize:        frameSize,
-			Complexity:       rng.Intn(11),
+			ID:         i,
+			Channels:   channels,
+			FrameSize:  frameSize,
+			Complexity: rng.Intn(11),
 			// Keep previous period in the same safe range as libopus run_prefilter state.
 			PrevPeriod:       rng.Intn(combFilterMaxPeriod - 1), // [0, COMBFILTER_MAXPERIOD-2]
 			PrevGain:         rng.Float64() * 0.8,

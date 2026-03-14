@@ -15,7 +15,7 @@ func TestStereoDetail(t *testing.T) {
 		numFrames  = 20
 	)
 
-	enc, _ := gopus.NewEncoder(gopus.DefaultEncoderConfig(sampleRate, channels, gopus.ApplicationAudio))
+	enc, _ := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: sampleRate, Channels: channels, Application: gopus.ApplicationAudio})
 	enc.SetBitrate(128000)
 	dec, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(sampleRate, channels))
 
@@ -54,10 +54,18 @@ func TestStereoDetail(t *testing.T) {
 		inR := math.Abs(float64(pcmIn[start+i*2+1]))
 		outL := math.Abs(float64(pcmOut[i*2]))
 		outR := math.Abs(float64(pcmOut[i*2+1]))
-		if inL > maxInL { maxInL = inL }
-		if inR > maxInR { maxInR = inR }
-		if outL > maxOutL { maxOutL = outL }
-		if outR > maxOutR { maxOutR = outR }
+		if inL > maxInL {
+			maxInL = inL
+		}
+		if inR > maxInR {
+			maxInR = inR
+		}
+		if outL > maxOutL {
+			maxOutL = outL
+		}
+		if outR > maxOutR {
+			maxOutR = outR
+		}
 		rmsInL += inL * inL
 		rmsInR += inR * inR
 		rmsOutL += outL * outL
@@ -76,7 +84,7 @@ func TestStereoDetail(t *testing.T) {
 	// Check that L is approximately 2x louder than R (as encoded)
 	inputRatio := rmsInL / rmsInR
 	outputRatio := rmsOutL / rmsOutR
-	ratioDiff := math.Abs(outputRatio - inputRatio) / inputRatio
+	ratioDiff := math.Abs(outputRatio-inputRatio) / inputRatio
 	t.Logf("Ratio preservation: input=%.2f output=%.2f (%.1f%% error)", inputRatio, outputRatio, ratioDiff*100)
 
 	if ratioDiff > 0.5 {
@@ -102,15 +110,15 @@ func TestStereoDetail(t *testing.T) {
 
 	// Test with truly distinct signals (different frequencies)
 	t.Log("\n--- Test with distinct L/R frequencies ---")
-	enc2, _ := gopus.NewEncoder(gopus.DefaultEncoderConfig(sampleRate, channels, gopus.ApplicationAudio))
+	enc2, _ := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: sampleRate, Channels: channels, Application: gopus.ApplicationAudio})
 	enc2.SetBitrate(128000)
 	dec2, _ := gopus.NewDecoder(gopus.DefaultDecoderConfig(sampleRate, channels))
 
 	pcmIn2 := make([]float32, frameSize*channels*numFrames)
 	for i := 0; i < frameSize*numFrames; i++ {
 		t := float64(i) / float64(sampleRate)
-		pcmIn2[i*2] = float32(0.4 * math.Sin(2*math.Pi*300*t))      // L: 300Hz
-		pcmIn2[i*2+1] = float32(0.4 * math.Sin(2*math.Pi*1000*t))   // R: 1000Hz
+		pcmIn2[i*2] = float32(0.4 * math.Sin(2*math.Pi*300*t))    // L: 300Hz
+		pcmIn2[i*2+1] = float32(0.4 * math.Sin(2*math.Pi*1000*t)) // R: 1000Hz
 	}
 
 	for f := 0; f < numFrames; f++ {
@@ -126,8 +134,12 @@ func TestStereoDetail(t *testing.T) {
 	// Simple: count zero crossings to estimate frequency
 	var zerosL, zerosR int
 	for i := 1; i < frameSize; i++ {
-		if pcmOut[(i-1)*2] * pcmOut[i*2] < 0 { zerosL++ }
-		if pcmOut[(i-1)*2+1] * pcmOut[i*2+1] < 0 { zerosR++ }
+		if pcmOut[(i-1)*2]*pcmOut[i*2] < 0 {
+			zerosL++
+		}
+		if pcmOut[(i-1)*2+1]*pcmOut[i*2+1] < 0 {
+			zerosR++
+		}
 	}
 	estFreqL := float64(zerosL) / 2.0 * float64(sampleRate) / float64(frameSize)
 	estFreqR := float64(zerosR) / 2.0 * float64(sampleRate) / float64(frameSize)

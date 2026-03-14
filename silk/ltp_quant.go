@@ -147,7 +147,7 @@ func findLTPFLP(XX, xX []float64, residual []float64, resStart int, lag []int, s
 		diagLastF32 := float32(XX[xxIdx+ltpOrderConst*ltpOrderConst-1])
 		// Match libopus: temp = 1.0f / silk_max(xx, LTP_CORR_INV_MAX * 0.5f * (XX_ptr[0] + XX_ptr[24]) + 1.0f)
 		// All float32 arithmetic.
-		denomF32 := float32(ltpCorrInvMax) * 0.5 * (diag0F32 + diagLastF32) + 1.0
+		denomF32 := float32(ltpCorrInvMax)*0.5*(diag0F32+diagLastF32) + 1.0
 		if xxF32 > denomF32 {
 			denomF32 = xxF32
 		}

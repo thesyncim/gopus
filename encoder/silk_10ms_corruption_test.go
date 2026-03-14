@@ -93,12 +93,12 @@ func TestSILK10msTOCByteCorrectness(t *testing.T) {
 		frameSize      int // at 48kHz
 		expectedConfig uint8
 	}{
-		{"SILK-WB-10ms-32k", 32000, 480, 8},  // config 8 = SILK WB 10ms
-		{"SILK-WB-10ms-64k", 64000, 480, 8},  // config 8 = SILK WB 10ms
-		{"SILK-WB-20ms-32k", 32000, 960, 9},  // config 9 = SILK WB 20ms
-		{"SILK-WB-20ms-64k", 64000, 960, 9},  // config 9 = SILK WB 20ms
-		{"SILK-NB-10ms-32k", 32000, 480, 0},  // config 0 = SILK NB 10ms
-		{"SILK-NB-20ms-32k", 32000, 960, 1},  // config 1 = SILK NB 20ms
+		{"SILK-WB-10ms-32k", 32000, 480, 8}, // config 8 = SILK WB 10ms
+		{"SILK-WB-10ms-64k", 64000, 480, 8}, // config 8 = SILK WB 10ms
+		{"SILK-WB-20ms-32k", 32000, 960, 9}, // config 9 = SILK WB 20ms
+		{"SILK-WB-20ms-64k", 64000, 960, 9}, // config 9 = SILK WB 20ms
+		{"SILK-NB-10ms-32k", 32000, 480, 0}, // config 0 = SILK NB 10ms
+		{"SILK-NB-20ms-32k", 32000, 960, 1}, // config 1 = SILK NB 20ms
 	}
 
 	for _, tc := range testCases {

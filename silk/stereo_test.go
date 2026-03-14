@@ -4,8 +4,8 @@ import (
 	"math"
 	"testing"
 
-	"github.com/thesyncim/gopus/util"
 	"github.com/thesyncim/gopus/rangecoding"
+	"github.com/thesyncim/gopus/util"
 )
 
 func TestStereoUnmixBasic(t *testing.T) {
@@ -122,9 +122,9 @@ func TestFrameSamplesPerBandwidth(t *testing.T) {
 		bandwidth   Bandwidth
 		wantSamples int
 	}{
-		{BandwidthNarrowband, 160},  // 8kHz * 0.02s
-		{BandwidthMediumband, 240},  // 12kHz * 0.02s
-		{BandwidthWideband, 320},    // 16kHz * 0.02s
+		{BandwidthNarrowband, 160}, // 8kHz * 0.02s
+		{BandwidthMediumband, 240}, // 12kHz * 0.02s
+		{BandwidthWideband, 320},   // 16kHz * 0.02s
 	}
 
 	for _, tt := range tests {
@@ -140,10 +140,10 @@ func TestGet48kHzSamples(t *testing.T) {
 		duration    FrameDuration
 		wantSamples int
 	}{
-		{Frame10ms, 480},   // 10 * 48
-		{Frame20ms, 960},   // 20 * 48
-		{Frame40ms, 1920},  // 40 * 48
-		{Frame60ms, 2880},  // 60 * 48
+		{Frame10ms, 480},  // 10 * 48
+		{Frame20ms, 960},  // 20 * 48
+		{Frame40ms, 1920}, // 40 * 48
+		{Frame60ms, 2880}, // 60 * 48
 	}
 
 	for _, tt := range tests {
@@ -197,9 +197,9 @@ func TestSamplesPerSubframe(t *testing.T) {
 		bandwidth   Bandwidth
 		wantSamples int
 	}{
-		{BandwidthNarrowband, 40},   // 8kHz * 5ms
-		{BandwidthMediumband, 60},   // 12kHz * 5ms
-		{BandwidthWideband, 80},     // 16kHz * 5ms
+		{BandwidthNarrowband, 40}, // 8kHz * 5ms
+		{BandwidthMediumband, 60}, // 12kHz * 5ms
+		{BandwidthWideband, 80},   // 16kHz * 5ms
 	}
 
 	for _, tt := range tests {
@@ -225,10 +225,10 @@ func TestStereoPredWeights(t *testing.T) {
 func TestStereoQuantPred80Levels(t *testing.T) {
 	// Test that stereoQuantPred produces valid indices for various Q13 values
 	testCases := []struct {
-		name     string
-		predQ13  [2]int32
-		wantIx0  [3]int8 // Expected ix[0] ranges: [0][0-2], [1][0-4], [2][0-4]
-		wantIx1  [3]int8 // Expected ix[1] ranges
+		name    string
+		predQ13 [2]int32
+		wantIx0 [3]int8 // Expected ix[0] ranges: [0][0-2], [1][0-4], [2][0-4]
+		wantIx1 [3]int8 // Expected ix[1] ranges
 	}{
 		{
 			name:    "zero predictors",
@@ -355,12 +355,12 @@ func TestSmulwb(t *testing.T) {
 		want int32
 	}{
 		// Using values that fit in int16 for b
-		{65536, 16384, 16384},  // 65536 * 16384 >> 16 = 16384
+		{65536, 16384, 16384},   // 65536 * 16384 >> 16 = 16384
 		{65536, -16384, -16384}, // 65536 * -16384 >> 16 = -16384
-		{131072, 16384, 32768}, // 131072 * 16384 >> 16 = 32768
+		{131072, 16384, 32768},  // 131072 * 16384 >> 16 = 32768
 		{-65536, 16384, -16384}, // -65536 * 16384 >> 16 = -16384
-		{0, 16384, 0},          // 0 * anything = 0
-		{65536, 0, 0},          // anything * 0 = 0
+		{0, 16384, 0},           // 0 * anything = 0
+		{65536, 0, 0},           // anything * 0 = 0
 		// Note: 32768 overflows int16 to -32768
 		{65536, 32768, -32768}, // 65536 * int16(32768)=-32768 >> 16 = -32768
 	}

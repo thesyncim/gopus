@@ -606,7 +606,8 @@ func QuantEnergyFinalise(
 // This matches libopus amp2Log2() in quant_bands.c.
 //
 // The conversion:
-//   bandLogE[i] = celt_log2_db(bandE[i]) - eMeans[i]
+//
+//	bandLogE[i] = celt_log2_db(bandE[i]) - eMeans[i]
 //
 // Parameters:
 //   - bandE: band amplitudes (sqrt energy)

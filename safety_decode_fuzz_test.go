@@ -27,7 +27,7 @@ func addSafetyDecodeFuzzSeeds(f *testing.F) {
 }
 
 func safetyEncodedSeedPacket(channels int) ([]byte, error) {
-	enc, err := NewEncoder(DefaultEncoderConfig(48000, channels, ApplicationAudio))
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: channels, Application: ApplicationAudio})
 	if err != nil {
 		return nil, err
 	}

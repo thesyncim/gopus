@@ -48,7 +48,7 @@ func newPipeline(track *webrtc.TrackLocalStaticSample) (*pipeline, error) {
 	frameSize := 960
 	app := gopus.ApplicationAudio
 
-	enc, err := gopus.NewEncoder(gopus.DefaultEncoderConfig(sampleRate, channels, app))
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: sampleRate, Channels: channels, Application: app})
 	if err != nil {
 		return nil, fmt.Errorf("create encoder: %w", err)
 	}
@@ -425,7 +425,7 @@ func (p *pipeline) handleControlMessage(data []byte) {
 		}
 		// Application can only be changed before first encode in gopus,
 		// so we recreate the encoder.
-		newEnc, err := gopus.NewEncoder(gopus.DefaultEncoderConfig(sampleRate, p.channels, app))
+		newEnc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: sampleRate, Channels: p.channels, Application: app})
 		if err != nil {
 			log.Printf("recreate encoder: %v", err)
 			return

@@ -42,7 +42,7 @@ func imdctOverlapWithPrevScratchF32LegacyBufferCopy(out []float64, spectrum []fl
 	}
 
 	if start+n2 < needed {
-		clear(outF32[start+n2:needed])
+		clear(outF32[start+n2 : needed])
 	}
 
 	if overlap > 0 && len(prevOverlap) > 0 {

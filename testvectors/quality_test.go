@@ -179,7 +179,7 @@ func TestCompareSamples(t *testing.T) {
 	// Known difference
 	b := []int16{110, 210, 310, 410} // +10 each
 	mse = CompareSamples(a, b)
-	expected := float64(10*10) // MSE = 100
+	expected := float64(10 * 10) // MSE = 100
 	if mse != expected {
 		t.Errorf("expected MSE=%.1f, got %.1f", expected, mse)
 	}
@@ -266,10 +266,10 @@ func TestQualityFromSNR(t *testing.T) {
 		snr float64
 		q   float64
 	}{
-		{48.0, 0.0},    // Threshold
-		{96.0, 100.0},  // Double the threshold SNR
-		{24.0, -50.0},  // Half the threshold SNR
-		{72.0, 50.0},   // 1.5x threshold
+		{48.0, 0.0},   // Threshold
+		{96.0, 100.0}, // Double the threshold SNR
+		{24.0, -50.0}, // Half the threshold SNR
+		{72.0, 50.0},  // 1.5x threshold
 	}
 
 	for _, tc := range testCases {

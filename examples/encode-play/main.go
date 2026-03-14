@@ -122,7 +122,7 @@ func encodeToOgg(path string, duration float64, bitrate int, channels int, frame
 		encoder:           "gopus",
 	}
 
-	enc, err := gopus.NewEncoder(gopus.DefaultEncoderConfig(sampleRate, channels, app))
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: sampleRate, Channels: channels, Application: app})
 	if err != nil {
 		return stats, fmt.Errorf("create encoder: %w", err)
 	}

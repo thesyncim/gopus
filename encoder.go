@@ -67,15 +67,6 @@ type EncoderConfig struct {
 	Application Application
 }
 
-// DefaultEncoderConfig returns an encoder config for the given stream format.
-func DefaultEncoderConfig(sampleRate, channels int, application Application) EncoderConfig {
-	return EncoderConfig{
-		SampleRate:  sampleRate,
-		Channels:    channels,
-		Application: application,
-	}
-}
-
 // Encoder encodes PCM audio samples into Opus packets.
 //
 // An Encoder instance maintains internal state and is NOT safe for concurrent use.

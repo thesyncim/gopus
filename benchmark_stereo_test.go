@@ -8,7 +8,7 @@ import (
 )
 
 func BenchmarkStereoEncode(b *testing.B) {
-	enc, err := gopus.NewEncoder(gopus.DefaultEncoderConfig(48000, 2, gopus.ApplicationAudio))
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 2, Application: gopus.ApplicationAudio})
 	if err != nil {
 		b.Fatal(err)
 	}

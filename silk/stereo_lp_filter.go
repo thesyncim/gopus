@@ -134,6 +134,7 @@ func stereoConvertLRToMSFloat(left, right []float32, frameLength int) (mid, side
 // Returns:
 //   - predQ13: predictor coefficient in Q13
 //   - ratioQ14: ratio of residual to mid energies in Q14
+//
 // stereoFindPredictorFloat is the float version for encoder analysis.
 func stereoFindPredictorFloat(x, y []float32, length int) (predQ13 int32) {
 	// Compute energies and correlation

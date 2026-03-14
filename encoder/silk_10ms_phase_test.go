@@ -147,7 +147,7 @@ func TestSILK10msPhaseAnalysis(t *testing.T) {
 						opE += float64(opusSamples[di]) * float64(opusSamples[di])
 					}
 				}
-				gainRatio := math.Sqrt(opE / intE) * 100
+				gainRatio := math.Sqrt(opE/intE) * 100
 
 				t.Logf("  Frame %2d: corr=%.4f delay=%d gain=%.1f%%", frame, bestFrameCorr, bestFrameDelay, gainRatio)
 			}

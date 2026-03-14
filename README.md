@@ -53,7 +53,7 @@ import (
 )
 
 func main() {
-	enc, err := gopus.NewEncoder(gopus.DefaultEncoderConfig(48000, 2, gopus.ApplicationAudio))
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 2, Application: gopus.ApplicationAudio})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func main() {
 	const channels = 2
 	const frameSize = 960 // 20 ms at 48 kHz
 
-	enc, err := gopus.NewEncoder(gopus.DefaultEncoderConfig(sampleRate, channels, gopus.ApplicationAudio))
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: sampleRate, Channels: channels, Application: gopus.ApplicationAudio})
 	if err != nil {
 		log.Fatal(err)
 	}

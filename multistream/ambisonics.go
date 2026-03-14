@@ -110,8 +110,8 @@ func ValidateAmbisonics(channels int) (streams, coupledStreams int, err error) {
 	streams = acnChannels
 	coupledStreams = 0
 	if nondiegeticChannels != 0 {
-		streams++           // Add one stream for the non-diegetic pair
-		coupledStreams = 1  // That stream is coupled (stereo)
+		streams++          // Add one stream for the non-diegetic pair
+		coupledStreams = 1 // That stream is coupled (stereo)
 	}
 
 	return streams, coupledStreams, nil

@@ -15,13 +15,13 @@ const silkWBFloatPacketFixturePath = "testdata/silk_wb_libopus_float_packets_fix
 const silkWBFloatDecodedFixturePath = "testdata/silk_wb_libopus_float_decoded_fixture.json"
 
 type silkWBFloatPacketFixtureFile struct {
-	Version    int                                `json:"version"`
-	SampleRate int                                `json:"sample_rate"`
-	Channels   int                                `json:"channels"`
-	FrameSize  int                                `json:"frame_size"`
-	Bitrate    int                                `json:"bitrate"`
-	Frames     int                                `json:"frames"`
-	Packets    []silkWBFloatPacketFixturePacket   `json:"packets"`
+	Version    int                              `json:"version"`
+	SampleRate int                              `json:"sample_rate"`
+	Channels   int                              `json:"channels"`
+	FrameSize  int                              `json:"frame_size"`
+	Bitrate    int                              `json:"bitrate"`
+	Frames     int                              `json:"frames"`
+	Packets    []silkWBFloatPacketFixturePacket `json:"packets"`
 }
 
 type silkWBFloatPacketFixturePacket struct {
