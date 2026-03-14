@@ -83,3 +83,4 @@ Quick commands:
 - claim: id=codex-20260314-022429; agent=codex; status=released; paths=celt/,.planning/; updated=2026-03-14T09:43:45Z; expires=2026-03-14T09:43:45Z; note=next encoder perf loop after pitchdownsample guard
 - claim: id=codex-20260314-114423; agent=codex; status=released; paths=celt/,.planning/; updated=2026-03-14T12:38:28Z; expires=2026-03-14T12:38:28Z; note=next perf loop after comb-filter keep
 - claim: id=codex-20260314-142131; agent=codex; status=released; paths=encoder/,celt/,silk/,testvectors/,.planning/; updated=2026-03-14T14:34:07Z; expires=2026-03-14T14:34:07Z; note=unused-code cleanup batch 1
+- claim: id=codex-20260314-143701; agent=codex; status=active; paths=encoder/,celt/,silk/,multistream/,container/ogg/,examples/,testvectors/,tools/,go.mod,README.md,.planning/; updated=2026-03-14T14:37:01Z; expires=2026-03-14T18:37:01Z; note=repo-wide gofmt simplify pass
