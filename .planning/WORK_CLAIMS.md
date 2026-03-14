@@ -79,4 +79,4 @@ Quick commands:
 - claim: id=codex-20260312-184441; agent=codex; status=released; paths=encoder/,.planning/; updated=2026-03-12T19:06:23Z; expires=2026-03-12T19:06:23Z; note=perf loop: exact tonality-analysis pack after wrapper cleanups
 - claim: id=codex-20260312-191247; agent=codex; status=released; paths=celt/,.planning/; updated=2026-03-12T19:31:32Z; expires=2026-03-12T19:31:32Z; note=perf loop: shared pitch-search refinement and remove-doubling cleanup
 - claim: id=codex-20260313-183533; agent=codex; status=released; paths=Makefile,.github/workflows/,testvectors/,container/ogg/,tools/,tmp_check/; updated=2026-03-13T23:16:34Z; expires=2026-03-13T23:16:34Z; note=safety confidence gates, fuzzing, soak, tmp_check proof path
-- claim: id=codex-20260313-232420; agent=codex; status=active; paths=encoder/,celt/,.planning/; updated=2026-03-13T23:24:20Z; expires=2026-03-14T03:24:20Z; note=perf parity loop after safety merge
+- claim: id=codex-20260313-232420; agent=codex; status=released; paths=encoder/,celt/,.planning/; updated=2026-03-14T01:05:46Z; expires=2026-03-14T01:05:46Z; note=perf parity loop after safety merge
