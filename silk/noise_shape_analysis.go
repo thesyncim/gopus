@@ -340,35 +340,6 @@ func (e *Encoder) computeShapingARAndGains(
 	return gains, arShpQ13
 }
 
-func warpedAutocorrelationFLP(out, state []float64, in []float64, warping float64, length, order int) {
-	if order&1 != 0 {
-		order--
-	}
-	if order <= 0 {
-		return
-	}
-	for i := 0; i <= order && i < len(state); i++ {
-		state[i] = 0
-	}
-	for i := 0; i <= order && i < len(out); i++ {
-		out[i] = 0
-	}
-
-	for n := 0; n < length; n++ {
-		tmp1 := in[n]
-		for i := 0; i < order; i += 2 {
-			tmp2 := state[i] + warping*state[i+1] - warping*tmp1
-			state[i] = tmp1
-			out[i] += state[0] * tmp1
-			tmp1 = state[i+1] + warping*state[i+2] - warping*tmp2
-			state[i+1] = tmp2
-			out[i+1] += state[0] * tmp2
-		}
-		state[order] = tmp1
-		out[order] += state[0] * tmp1
-	}
-}
-
 // warpedAutocorrelationFLP32 mirrors silk_warped_autocorrelation_FLP using float32 input/output.
 func warpedAutocorrelationFLP32(out, state, in []float32, warping float32, length, order int) {
 	if order&1 != 0 {
@@ -431,18 +402,6 @@ func warpedAutocorrelationFLP32(out, state, in []float32, warping float32, lengt
 	}
 }
 
-func warpedGain(coefs []float64, lambda float64, order int) float64 {
-	lambda = -lambda
-	if order <= 0 {
-		return 1.0
-	}
-	gain := coefs[order-1]
-	for i := order - 2; i >= 0; i-- {
-		gain = lambda*gain + coefs[i]
-	}
-	return 1.0 / (1.0 - lambda*gain)
-}
-
 // warpedGainF32 matches libopus warped_gain() which operates in silk_float (float32).
 func warpedGainF32(coefs []float32, lambda float32, order int) float32 {
 	lambda = -lambda
@@ -454,53 +413,6 @@ func warpedGainF32(coefs []float32, lambda float32, order int) float32 {
 		gain = lambda*gain + coefs[i]
 	}
 	return 1.0 / (1.0 - lambda*gain)
-}
-
-func warpedTrue2MonicCoefs(coefs []float64, lambda, limit float64, order int) {
-	if order <= 0 {
-		return
-	}
-	for i := order - 1; i > 0; i-- {
-		coefs[i-1] -= lambda * coefs[i]
-	}
-	gain := (1.0 - lambda*lambda) / (1.0 + lambda*coefs[0])
-	for i := 0; i < order; i++ {
-		coefs[i] *= gain
-	}
-
-	for iter := 0; iter < 10; iter++ {
-		maxabs := -1.0
-		ind := 0
-		for i := 0; i < order; i++ {
-			tmp := math.Abs(coefs[i])
-			if tmp > maxabs {
-				maxabs = tmp
-				ind = i
-			}
-		}
-		if maxabs <= limit {
-			return
-		}
-
-		for i := 1; i < order; i++ {
-			coefs[i-1] += lambda * coefs[i]
-		}
-		gain = 1.0 / gain
-		for i := 0; i < order; i++ {
-			coefs[i] *= gain
-		}
-
-		chirp := 0.99 - (0.8+0.1*float64(iter))*(maxabs-limit)/(maxabs*float64(ind+1))
-		bwexpanderFLP(coefs, order, chirp)
-
-		for i := order - 1; i > 0; i-- {
-			coefs[i-1] -= lambda * coefs[i]
-		}
-		gain = (1.0 - lambda*lambda) / (1.0 + lambda*coefs[0])
-		for i := 0; i < order; i++ {
-			coefs[i] *= gain
-		}
-	}
 }
 
 // warpedTrue2MonicCoefsF32 matches libopus warped_true2monic_coefs() in silk_float (float32).
@@ -554,28 +466,6 @@ func warpedTrue2MonicCoefsF32(coefs []float32, lambda, limit float32, order int)
 	}
 }
 
-func limitCoefs(coefs []float64, limit float64, order int) {
-	if order <= 0 {
-		return
-	}
-	for iter := 0; iter < 10; iter++ {
-		maxabs := -1.0
-		ind := 0
-		for i := 0; i < order; i++ {
-			tmp := math.Abs(coefs[i])
-			if tmp > maxabs {
-				maxabs = tmp
-				ind = i
-			}
-		}
-		if maxabs <= limit {
-			return
-		}
-		chirp := 0.99 - (0.8+0.1*float64(iter))*(maxabs-limit)/(maxabs*float64(ind+1))
-		bwexpanderFLP(coefs, order, chirp)
-	}
-}
-
 // limitCoefsF32 matches libopus limit_coefs() in silk_float (float32).
 func limitCoefsF32(coefs []float32, limit float32, order int) {
 	if order <= 0 {
@@ -600,8 +490,4 @@ func limitCoefsF32(coefs []float32, limit float32, order int) {
 		chirp := 0.99 - (0.8+0.1*float32(iter))*(maxabs-limit)/(maxabs*float32(ind+1))
 		bwexpanderF32(coefs, order, chirp)
 	}
-}
-
-func floatToInt16(x float64) int16 {
-	return float64ToInt16Round(x)
 }

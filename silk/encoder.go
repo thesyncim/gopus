@@ -141,9 +141,7 @@ type Encoder struct {
 	scratchResampler      []int32   // detectPitch: resampler buffer (int32)
 	scratchPitchC         []float64 // detectPitch: autocorrelation
 	scratchDSrch          []int     // detectPitch: candidate lags
-	scratchDSrchCorr      []float64 // detectPitch: candidate correlations
 	scratchDComp          []int16   // detectPitch: expanded search
-	scratchC8kHz          []float64 // detectPitch: 8kHz correlations (flat array for 4 subframes)
 	scratchPitchLags      []int     // detectPitch: output pitch lags
 	scratchPitchCorrSt3   []float64 // detectPitch: stage3 correlations
 	scratchPitchEnergySt3 []float64 // detectPitch: stage3 energies
@@ -184,8 +182,6 @@ type Encoder struct {
 	// LTP analysis scratch buffers
 	scratchLtpInput     []float64 // LTP analysis: pitch analysis buffer as float64
 	scratchLtpRes       []float64 // LTP analysis: LPC residual
-	scratchLtpResF64    []float64 // Residual energy: float64 scratch
-	scratchLpcResF64    []float64 // Residual energy: LPC residual scratch
 	scratchPitchWsig    []float64 // Pitch analysis: windowed signal
 	scratchPitchAuto    []float64 // Pitch analysis: autocorrelation
 	scratchPitchRefl    []float64 // Pitch analysis: reflection coefficients
@@ -197,21 +193,11 @@ type Encoder struct {
 	scratchPitchRefl32  []float32 // Pitch analysis: reflection coefficients (float32)
 	scratchPitchA32     []float32 // Pitch analysis: LPC coefficients (float32)
 
-	// Noise shaping analysis scratch buffers
-	scratchShapeInput    []float64 // noise shape analysis: input with lookahead
-	scratchShapeWindow   []float64 // noise shape analysis: windowed buffer
-	scratchShapeAutoCorr []float64 // noise shape analysis: autocorrelation
-	scratchShapeRc       []float64 // noise shape analysis: reflection coeffs
-	scratchShapeAr       []float64 // noise shape analysis: AR coeffs
-
-	// LTP residual and residual energy scratch
 	scratchLtpResF32    []float32 // LTP analysis: LTP residual with pre-length
 	scratchLpcResF32    []float32 // Residual energy: LPC residual scratch (float32)
 	scratchResNrg       []float64 // Gain processing: residual energies
 	scratchPredCoefF32A []float32 // Gain processing: LPC coeffs (first half, float32)
 	scratchPredCoefF32B []float32 // Gain processing: LPC coeffs (second half, float32)
-	scratchPredCoefF64A []float64 // Gain processing: LPC coeffs (first half)
-	scratchPredCoefF64B []float64 // Gain processing: LPC coeffs (second half)
 
 	// A2NLSF scratch buffers (used by a2nlsfFLPInto / silkA2NLSFInto)
 	scratchA2nlsfP    [9]int32  // silkA2NLSFInto: P polynomial (dd+1, max dd=8)
