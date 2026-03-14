@@ -198,7 +198,7 @@ func (v *VADState) Reset() {
 //   - activityQ8: Speech activity level (0-255, Q8)
 //   - isActive: True if speech activity detected
 func (v *VADState) GetSpeechActivity(pcm []float32, frameLength int, fsKHz int) (int, bool) {
-	activityQ8, isActive, _ := v.getSpeechActivity(pcm, frameLength, fsKHz, nil)
+	activityQ8, isActive, _ := v.getSpeechActivityFast(pcm, frameLength, fsKHz)
 	return activityQ8, isActive
 }
 
@@ -207,6 +207,206 @@ func (v *VADState) GetSpeechActivityTrace(pcm []float32, frameLength int, fsKHz 
 	var trace VADTrace
 	activityQ8, isActive, _ := v.getSpeechActivity(pcm, frameLength, fsKHz, &trace)
 	return activityQ8, isActive, trace
+}
+
+// getSpeechActivityFast is the hot path used by normal VAD callers.
+// It keeps the fixed-point math identical to getSpeechActivity while
+// avoiding trace bookkeeping branches in the inner loops.
+func (v *VADState) getSpeechActivityFast(pcm []float32, frameLength int, fsKHz int) (int, bool, bool) {
+	// Safety checks
+	if frameLength == 0 || len(pcm) < frameLength {
+		return 0, false, false
+	}
+
+	// Convert float32 samples to int16 for fixed-point processing
+	if cap(v.scratchInput) < frameLength {
+		v.scratchInput = make([]int16, frameLength)
+	}
+	input := v.scratchInput[:frameLength]
+	_ = pcm[frameLength-1]
+	_ = input[frameLength-1]
+	for i := 0; i < frameLength; i++ {
+		// Clamp to int16 range
+		sample := float64(pcm[i]) * 32768.0
+		input[i] = float64ToInt16Round(sample)
+	}
+
+	// Calculate decimated frame lengths
+	decimatedFrameLength1 := frameLength >> 1 // frame_length / 2
+	decimatedFrameLength2 := frameLength >> 2 // frame_length / 4
+	decimatedFrameLength := frameLength >> 3  // frame_length / 8
+
+	// Allocate workspace for decimated signals
+	// Layout: [0-1kHz][temp][1-2kHz][2-4kHz][4-8kHz]
+	xOffset := [VADNBands]int{
+		0,
+		decimatedFrameLength + decimatedFrameLength2,
+		decimatedFrameLength + decimatedFrameLength2 + decimatedFrameLength,
+		decimatedFrameLength + decimatedFrameLength2 + decimatedFrameLength + decimatedFrameLength2,
+	}
+	xLen := xOffset[3] + decimatedFrameLength1
+	if cap(v.scratchX) < xLen {
+		v.scratchX = make([]int16, xLen)
+	}
+	X := v.scratchX[:xLen]
+
+	// Filter and decimate into 4 bands
+
+	// 0-8 kHz to 0-4 kHz and 4-8 kHz
+	anaFiltBank1(input, &v.AnaState, X[:decimatedFrameLength1], X[xOffset[3]:], frameLength)
+
+	// 0-4 kHz to 0-2 kHz and 2-4 kHz
+	anaFiltBank1(X[:decimatedFrameLength1], &v.AnaState1, X[:decimatedFrameLength2], X[xOffset[2]:], decimatedFrameLength1)
+
+	// 0-2 kHz to 0-1 kHz and 1-2 kHz
+	anaFiltBank1(X[:decimatedFrameLength2], &v.AnaState2, X[:decimatedFrameLength], X[xOffset[1]:], decimatedFrameLength2)
+
+	// HP filter on lowest band (differentiator)
+	X[decimatedFrameLength-1] = X[decimatedFrameLength-1] >> 1
+	hpStateTmp := X[decimatedFrameLength-1]
+	for i := decimatedFrameLength - 1; i > 0; i-- {
+		X[i-1] = X[i-1] >> 1
+		X[i] -= X[i-1]
+	}
+	X[0] -= v.HPState
+	v.HPState = hpStateTmp
+
+	// Calculate energy in each band
+	Xnrg := [VADNBands]int32{}
+	decLenByBand := [VADNBands]int{
+		decimatedFrameLength,
+		decimatedFrameLength,
+		decimatedFrameLength2,
+		decimatedFrameLength1,
+	}
+	for b := 0; b < VADNBands; b++ {
+		decLen := decLenByBand[b]
+		band := X[xOffset[b] : xOffset[b]+decLen]
+		// Split into subframes
+		decSubframeLength := decLen >> VADInternalSubframesLog2
+		decSubframeOffset := 0
+
+		// Initialize with energy from previous frame's last subframe
+		Xnrg[b] = v.XnrgSubfr[b]
+
+		var sumSquared int32
+		for s := 0; s < VADInternalSubframes; s++ {
+			sumSquared = 0
+			subframe := band[decSubframeOffset : decSubframeOffset+decSubframeLength]
+			_ = subframe[decSubframeLength-1]
+			for i := 0; i < decSubframeLength; i++ {
+				xTmp := int32(subframe[i]) >> 3
+				sumSquared += xTmp * xTmp
+			}
+
+			// Add/saturate energy
+			if s < VADInternalSubframes-1 {
+				Xnrg[b] = addPosSat32(Xnrg[b], sumSquared)
+			} else {
+				// Look-ahead subframe gets half weight
+				Xnrg[b] = addPosSat32(Xnrg[b], sumSquared>>1)
+			}
+
+			decSubframeOffset += decSubframeLength
+		}
+		v.XnrgSubfr[b] = sumSquared
+	}
+
+	// Noise estimation
+	v.getNoiseLevels(Xnrg[:])
+
+	// Signal-plus-noise to noise ratio estimation
+	var sumSquared int32
+	var inputTilt int32
+	NrgToNoiseRatioQ8 := [VADNBands]int32{}
+
+	for b := 0; b < VADNBands; b++ {
+		speechNrg := Xnrg[b] - v.NL[b]
+		if speechNrg > 0 {
+			// Compute energy to noise ratio
+			if (uint32(Xnrg[b]) & 0xFF800000) == 0 {
+				NrgToNoiseRatioQ8[b] = (Xnrg[b] << 8) / (v.NL[b] + 1)
+			} else {
+				NrgToNoiseRatioQ8[b] = Xnrg[b] / ((v.NL[b] >> 8) + 1)
+			}
+
+			// Convert to log domain
+			snrQ7 := lin2log(NrgToNoiseRatioQ8[b]) - 8*128
+
+			// Sum-of-squares for mean calculation
+			sumSquared = smlabb(sumSquared, snrQ7, snrQ7)
+
+			// Tilt measure
+			snrForTilt := snrQ7
+			if speechNrg < (1 << 20) {
+				// Scale down SNR for small speech energies
+				snrForTilt = smulwb(int32(sqrtApprox(speechNrg)<<6), snrQ7)
+			}
+			inputTilt = smlawb(inputTilt, vadTiltWeights[b], snrForTilt)
+		} else {
+			NrgToNoiseRatioQ8[b] = 256 // 1.0 in Q8
+		}
+	}
+
+	// Mean-of-squares
+	sumSquared /= VADNBands
+
+	// Root-mean-square approximation, scale to dBs
+	pSNRdBQ7 := int32(int16(3 * sqrtApprox(sumSquared)))
+
+	// Speech probability estimation using sigmoid
+	saQ15 := sigmQ15(smulwb(VADSNRFactorQ16, pSNRdBQ7) - VADNegativeOffsetQ5)
+
+	// Frequency tilt measure
+	v.InputTiltQ15 = int((sigmQ15(inputTilt) - 16384) << 1)
+
+	// Scale sigmoid output based on power levels
+	var speechNrg int32
+	for b := 0; b < VADNBands; b++ {
+		// Higher frequency bands have more weight
+		speechNrg += int32(b+1) * ((Xnrg[b] - v.NL[b]) >> 4)
+	}
+
+	// Adjust for frame length (20ms has half the energy of 10ms)
+	if frameLength == 20*fsKHz {
+		speechNrg >>= 1
+	}
+
+	// Power scaling
+	if speechNrg <= 0 {
+		saQ15 >>= 1
+	} else if speechNrg < 16384 {
+		speechNrg <<= 16
+		speechNrg = sqrtApprox(speechNrg)
+		saQ15 = smulwb(32768+speechNrg, saQ15)
+	}
+
+	// Convert to Q8 (0-255) and clamp
+	v.SpeechActivityQ8 = min(int(saQ15>>7), 255)
+
+	// Smoothing coefficient based on activity
+	tmp := smulwb(int32(saQ15), int32(saQ15))
+	smoothCoefQ16 := smulwb(VADSNRSmoothCoefQ18, tmp)
+
+	if frameLength == 10*fsKHz {
+		smoothCoefQ16 >>= 1
+	}
+
+	// Update smoothed energy-to-noise ratios and quality bands
+	for b := 0; b < VADNBands; b++ {
+		// Smooth energy-to-noise ratio
+		v.NrgRatioSmthQ8[b] = smlawb(v.NrgRatioSmthQ8[b], NrgToNoiseRatioQ8[b]-v.NrgRatioSmthQ8[b], smoothCoefQ16)
+
+		// SNR in dB per band
+		snrQ7 := int32(3) * (lin2log(v.NrgRatioSmthQ8[b]) - 8*128)
+		// Quality = sigmoid(0.25 * (SNR_dB - 16))
+		v.InputQualityBandsQ15[b] = int(sigmQ15((snrQ7 - 16*128) >> 4))
+	}
+
+	// Activity decision (matches libopus: compare speech_activity_Q8 to threshold)
+	isActive := v.SpeechActivityQ8 >= speechActivityThresholdQ8
+
+	return v.SpeechActivityQ8, isActive, true
 }
 
 func (v *VADState) getSpeechActivity(pcm []float32, frameLength int, fsKHz int, trace *VADTrace) (int, bool, bool) {
