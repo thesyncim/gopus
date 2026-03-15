@@ -253,13 +253,13 @@ func (v *VADState) getSpeechActivityFast(pcm []float32, frameLength int, fsKHz i
 	// Filter and decimate into 4 bands
 
 	// 0-8 kHz to 0-4 kHz and 4-8 kHz
-	anaFiltBank1(input, &v.AnaState, X[:decimatedFrameLength1], X[xOffset[3]:], frameLength)
+	anaFiltBank1Exact(input, &v.AnaState, X[:decimatedFrameLength1], X[xOffset[3]:xOffset[3]+decimatedFrameLength1])
 
 	// 0-4 kHz to 0-2 kHz and 2-4 kHz
-	anaFiltBank1(X[:decimatedFrameLength1], &v.AnaState1, X[:decimatedFrameLength2], X[xOffset[2]:], decimatedFrameLength1)
+	anaFiltBank1Exact(X[:decimatedFrameLength1], &v.AnaState1, X[:decimatedFrameLength2], X[xOffset[2]:xOffset[2]+decimatedFrameLength2])
 
 	// 0-2 kHz to 0-1 kHz and 1-2 kHz
-	anaFiltBank1(X[:decimatedFrameLength2], &v.AnaState2, X[:decimatedFrameLength], X[xOffset[1]:], decimatedFrameLength2)
+	anaFiltBank1Exact(X[:decimatedFrameLength2], &v.AnaState2, X[:decimatedFrameLength], X[xOffset[1]:xOffset[1]+decimatedFrameLength])
 
 	// HP filter on lowest band (differentiator)
 	X[decimatedFrameLength-1] = X[decimatedFrameLength-1] >> 1
@@ -453,13 +453,13 @@ func (v *VADState) getSpeechActivity(pcm []float32, frameLength int, fsKHz int, 
 	// Filter and decimate into 4 bands
 
 	// 0-8 kHz to 0-4 kHz and 4-8 kHz
-	anaFiltBank1(input, &v.AnaState, X[:decimatedFrameLength1], X[xOffset[3]:], frameLength)
+	anaFiltBank1Exact(input, &v.AnaState, X[:decimatedFrameLength1], X[xOffset[3]:xOffset[3]+decimatedFrameLength1])
 
 	// 0-4 kHz to 0-2 kHz and 2-4 kHz
-	anaFiltBank1(X[:decimatedFrameLength1], &v.AnaState1, X[:decimatedFrameLength2], X[xOffset[2]:], decimatedFrameLength1)
+	anaFiltBank1Exact(X[:decimatedFrameLength1], &v.AnaState1, X[:decimatedFrameLength2], X[xOffset[2]:xOffset[2]+decimatedFrameLength2])
 
 	// 0-2 kHz to 0-1 kHz and 1-2 kHz
-	anaFiltBank1(X[:decimatedFrameLength2], &v.AnaState2, X[:decimatedFrameLength], X[xOffset[1]:], decimatedFrameLength2)
+	anaFiltBank1Exact(X[:decimatedFrameLength2], &v.AnaState2, X[:decimatedFrameLength], X[xOffset[1]:xOffset[1]+decimatedFrameLength])
 
 	// HP filter on lowest band (differentiator)
 	X[decimatedFrameLength-1] = X[decimatedFrameLength-1] >> 1
@@ -757,9 +757,16 @@ func anaFiltBank1(in []int16, S *[2]int32, outL, outH []int16, N int) {
 	}
 
 	// Trim slices to exact required lengths for BCE.
-	in = in[:2*N2]
-	outL = outL[:N2]
-	outH = outH[:N2]
+	anaFiltBank1Exact(in[:2*N2], S, outL[:N2], outH[:N2])
+}
+
+// anaFiltBank1Exact is the VAD hot path version of the libopus analysis filter.
+// Callers provide exact-length slices, so it avoids the wrapper's clamp work.
+func anaFiltBank1Exact(in []int16, S *[2]int32, outL, outH []int16) {
+	N2 := len(outL)
+	if N2 == 0 {
+		return
+	}
 	_ = in[2*N2-1]
 	_ = outL[N2-1]
 	_ = outH[N2-1]
@@ -771,9 +778,10 @@ func anaFiltBank1(in []int16, S *[2]int32, outL, outH []int16, N int) {
 	s0, s1 := S[0], S[1]
 
 	// Internal variables and state are in Q10 format.
-	for k := 0; k < N2; k++ {
+	for k, inIdx := 0, 0; k < N2; k++ {
 		// Convert to Q10
-		in32 := int32(in[2*k]) << 10
+		in32 := int32(in[inIdx]) << 10
+		inIdx++
 
 		// All-pass section for even input sample
 		Y := in32 - s0
@@ -782,7 +790,8 @@ func anaFiltBank1(in []int16, S *[2]int32, outL, outH []int16, N int) {
 		s0 = in32 + X
 
 		// Convert to Q10
-		in32 = int32(in[2*k+1]) << 10
+		in32 = int32(in[inIdx]) << 10
+		inIdx++
 
 		// All-pass section for odd input sample
 		Y = in32 - s1
@@ -916,11 +925,11 @@ func addPosSat32(a, b int32) int32 {
 
 // satInt16 saturates an int32 to int16 range.
 func satInt16(x int32) int16 {
-	if x > 32767 {
+	if uint32(x+32768) <= 65535 {
+		return int16(x)
+	}
+	if x > 0 {
 		return 32767
 	}
-	if x < -32768 {
-		return -32768
-	}
-	return int16(x)
+	return -32768
 }
