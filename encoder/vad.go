@@ -801,8 +801,13 @@ func anaFiltBank1Exact(in []int16, S *[2]int32, outL, outH []int16) {
 
 		// Add/subtract, convert back to int16 and store
 		sum := rshiftRound(out2+out1, 11)
-		outL[k] = satInt16(sum)
 		diff := rshiftRound(out2-out1, 11)
+		if uint32(sum+32768) <= 65535 && uint32(diff+32768) <= 65535 {
+			outL[k] = int16(sum)
+			outH[k] = int16(diff)
+			continue
+		}
+		outL[k] = satInt16(sum)
 		outH[k] = satInt16(diff)
 	}
 
