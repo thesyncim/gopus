@@ -434,11 +434,12 @@ func (d *Decoder) SetBandwidth(bw CELTBandwidth) {
 	d.bandwidth = bw
 }
 
-// DecodeHybridFECPLC generates CELT concealment for hybrid decode_fec cadence.
+// DecodeHybridFECPLC generates CELT concealment for hybrid cadence.
 // This mirrors the decode_fec behavior where CELT PLC is accumulated on top of
-// SILK LBRR, with decoder-side postfilter/de-emphasis ordering.
+// SILK LBRR, and it is also used for the 5 ms hybrid->CELT transition decode.
+// Decoder-side postfilter/de-emphasis ordering matches libopus.
 func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float64, error) {
-	if frameSize != 480 && frameSize != 960 {
+	if frameSize != 240 && frameSize != 480 && frameSize != 960 {
 		return nil, ErrInvalidFrameSize
 	}
 

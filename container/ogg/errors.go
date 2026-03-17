@@ -22,4 +22,7 @@ var (
 
 	// ErrPacketTooLarge indicates the packet does not fit in the provided buffer.
 	ErrPacketTooLarge = errors.New("ogg: packet too large for buffer")
+
+	// ErrNotSeekable indicates the reader does not support seeking.
+	ErrNotSeekable = errors.New("ogg: reader is not seekable")
 )

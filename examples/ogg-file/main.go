@@ -253,10 +253,19 @@ func readOggFile(filename string) error {
 	fmt.Printf("  Average packet size: %d bytes\n", totalPacketBytes/totalPackets)
 	fmt.Printf("  Average bitrate: %.1f kbps\n", float64(totalPacketBytes*8)/duration/1000)
 
-	// Seeking note
 	fmt.Println("\n=== Seeking ===")
-	fmt.Println("  Note: Ogg seeking requires bisection search (not implemented).")
-	fmt.Println("  For seekable playback, use a player like ffplay or VLC.")
+	targetGranule := lastGranule / 2
+	if err := oggReader.SeekGranule(targetGranule); err != nil {
+		fmt.Printf("  Seek failed: %v\n", err)
+	} else {
+		packet, granule, err := oggReader.ReadPacket()
+		if err != nil {
+			fmt.Printf("  Read after seek failed: %v\n", err)
+		} else {
+			fmt.Printf("  Seek target granule: %d\n", targetGranule)
+			fmt.Printf("  First packet after seek: %d bytes at granule %d\n", len(packet), granule)
+		}
+	}
 
 	return nil
 }

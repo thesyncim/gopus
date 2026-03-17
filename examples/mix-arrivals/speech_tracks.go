@@ -126,7 +126,7 @@ func loadSpeechClipStereo(url string, pan float64, cacheDir string) ([]float32, 
 		return nil, err
 	}
 
-	interleaved, srcRate, srcChannels, err := decodePCM16WAV(data)
+	interleaved, srcRate, srcChannels, err := decodeWAV(data)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +183,7 @@ func cacheFileName(url string) string {
 	return fmt.Sprintf("%08x_%s", h.Sum32(), base)
 }
 
-func decodePCM16WAV(data []byte) ([]float32, int, int, error) {
+func decodeWAV(data []byte) ([]float32, int, int, error) {
 	if len(data) < 44 {
 		return nil, 0, 0, fmt.Errorf("wav too short")
 	}
@@ -235,25 +235,35 @@ func decodePCM16WAV(data []byte) ([]float32, int, int, error) {
 	if !gotFmt || !gotData {
 		return nil, 0, 0, fmt.Errorf("wav missing fmt or data chunk")
 	}
-	if audioFormat != 1 {
-		return nil, 0, 0, fmt.Errorf("unsupported wav format %d (only PCM=1)", audioFormat)
-	}
 	if channels == 0 {
 		return nil, 0, 0, fmt.Errorf("invalid channel count 0")
 	}
-	if bitsPerSamp != 16 {
-		return nil, 0, 0, fmt.Errorf("unsupported bits-per-sample %d (only 16)", bitsPerSamp)
-	}
-	if len(pcmData)%2 != 0 {
-		return nil, 0, 0, fmt.Errorf("wav data length is not 16-bit aligned")
-	}
 
-	samples := make([]float32, len(pcmData)/2)
-	for i := 0; i < len(samples); i++ {
-		v := int16(binary.LittleEndian.Uint16(pcmData[i*2 : i*2+2]))
-		samples[i] = float32(v) / 32768
+	switch {
+	case audioFormat == 1 && bitsPerSamp == 16:
+		if len(pcmData)%2 != 0 {
+			return nil, 0, 0, fmt.Errorf("wav data length is not 16-bit aligned")
+		}
+
+		samples := make([]float32, len(pcmData)/2)
+		for i := 0; i < len(samples); i++ {
+			v := int16(binary.LittleEndian.Uint16(pcmData[i*2 : i*2+2]))
+			samples[i] = float32(v) / 32768
+		}
+		return samples, int(sampleRate), int(channels), nil
+	case audioFormat == 3 && bitsPerSamp == 32:
+		if len(pcmData)%4 != 0 {
+			return nil, 0, 0, fmt.Errorf("wav data length is not 32-bit aligned")
+		}
+
+		samples := make([]float32, len(pcmData)/4)
+		for i := 0; i < len(samples); i++ {
+			samples[i] = math.Float32frombits(binary.LittleEndian.Uint32(pcmData[i*4 : i*4+4]))
+		}
+		return samples, int(sampleRate), int(channels), nil
+	default:
+		return nil, 0, 0, fmt.Errorf("unsupported wav format: audioFormat=%d bits=%d", audioFormat, bitsPerSamp)
 	}
-	return samples, int(sampleRate), int(channels), nil
 }
 
 func interleavedToMono(interleaved []float32, channels int) []float32 {

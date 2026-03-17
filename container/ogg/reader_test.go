@@ -527,6 +527,75 @@ func TestReader_GranulePos(t *testing.T) {
 	}
 }
 
+func TestReader_SeekGranule(t *testing.T) {
+	var buf bytes.Buffer
+	w, err := NewWriter(&buf, 48000, 1)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	packets := [][]byte{
+		{0xFC, 0x01},
+		{0xFC, 0x02},
+		{0xFC, 0x03},
+		{0xFC, 0x04},
+	}
+	samples := []int{480, 960, 1920, 480}
+	for i, packet := range packets {
+		if err := w.WritePacket(packet, samples[i]); err != nil {
+			t.Fatalf("WritePacket %d failed: %v", i, err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	r, err := NewReader(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("NewReader failed: %v", err)
+	}
+
+	if err := r.SeekGranule(1441); err != nil {
+		t.Fatalf("SeekGranule failed: %v", err)
+	}
+
+	packet, granule, err := r.ReadPacket()
+	if err != nil {
+		t.Fatalf("ReadPacket after seek failed: %v", err)
+	}
+	if !bytes.Equal(packet, packets[2]) {
+		t.Fatalf("packet after seek = %v, want %v", packet, packets[2])
+	}
+	if granule != 3360 {
+		t.Fatalf("granule after seek = %d, want 3360", granule)
+	}
+}
+
+func TestReader_SeekGranule_NotSeekable(t *testing.T) {
+	var buf bytes.Buffer
+	w, err := NewWriter(&buf, 48000, 1)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+	if err := w.WritePacket([]byte{0xFC, 0x01}, 960); err != nil {
+		t.Fatalf("WritePacket failed: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	type readerOnly struct{ io.Reader }
+
+	r, err := NewReader(readerOnly{Reader: bytes.NewReader(buf.Bytes())})
+	if err != nil {
+		t.Fatalf("NewReader failed: %v", err)
+	}
+
+	if err := r.SeekGranule(0); err != ErrNotSeekable {
+		t.Fatalf("SeekGranule error = %v, want %v", err, ErrNotSeekable)
+	}
+}
+
 func TestReadPacket_MultiPacketPageGranules(t *testing.T) {
 	const serial = 0x12345678
 

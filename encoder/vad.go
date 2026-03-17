@@ -198,7 +198,7 @@ func (v *VADState) Reset() {
 //   - activityQ8: Speech activity level (0-255, Q8)
 //   - isActive: True if speech activity detected
 func (v *VADState) GetSpeechActivity(pcm []float32, frameLength int, fsKHz int) (int, bool) {
-	activityQ8, isActive, _ := v.getSpeechActivity(pcm, frameLength, fsKHz, nil)
+	activityQ8, isActive, _ := v.getSpeechActivityFast(pcm, frameLength, fsKHz)
 	return activityQ8, isActive
 }
 
@@ -209,10 +209,10 @@ func (v *VADState) GetSpeechActivityTrace(pcm []float32, frameLength int, fsKHz 
 	return activityQ8, isActive, trace
 }
 
-func (v *VADState) getSpeechActivity(pcm []float32, frameLength int, fsKHz int, trace *VADTrace) (int, bool, bool) {
-	if trace != nil {
-		*trace = VADTrace{}
-	}
+// getSpeechActivityFast is the hot path used by normal VAD callers.
+// It keeps the fixed-point math identical to getSpeechActivity while
+// avoiding trace bookkeeping branches in the inner loops.
+func (v *VADState) getSpeechActivityFast(pcm []float32, frameLength int, fsKHz int) (int, bool, bool) {
 	// Safety checks
 	if frameLength == 0 || len(pcm) < frameLength {
 		return 0, false, false
@@ -223,6 +223,8 @@ func (v *VADState) getSpeechActivity(pcm []float32, frameLength int, fsKHz int, 
 		v.scratchInput = make([]int16, frameLength)
 	}
 	input := v.scratchInput[:frameLength]
+	_ = pcm[frameLength-1]
+	_ = input[frameLength-1]
 	for i := 0; i < frameLength; i++ {
 		// Clamp to int16 range
 		sample := float64(pcm[i]) * 32768.0
@@ -247,18 +249,217 @@ func (v *VADState) getSpeechActivity(pcm []float32, frameLength int, fsKHz int, 
 		v.scratchX = make([]int16, xLen)
 	}
 	X := v.scratchX[:xLen]
-	clear(X)
 
 	// Filter and decimate into 4 bands
 
 	// 0-8 kHz to 0-4 kHz and 4-8 kHz
-	anaFiltBank1(input, &v.AnaState, X[:decimatedFrameLength1], X[xOffset[3]:], frameLength)
+	anaFiltBank1Exact(input, &v.AnaState, X[:decimatedFrameLength1], X[xOffset[3]:xOffset[3]+decimatedFrameLength1])
 
 	// 0-4 kHz to 0-2 kHz and 2-4 kHz
-	anaFiltBank1(X[:decimatedFrameLength1], &v.AnaState1, X[:decimatedFrameLength2], X[xOffset[2]:], decimatedFrameLength1)
+	anaFiltBank1Exact(X[:decimatedFrameLength1], &v.AnaState1, X[:decimatedFrameLength2], X[xOffset[2]:xOffset[2]+decimatedFrameLength2])
 
 	// 0-2 kHz to 0-1 kHz and 1-2 kHz
-	anaFiltBank1(X[:decimatedFrameLength2], &v.AnaState2, X[:decimatedFrameLength], X[xOffset[1]:], decimatedFrameLength2)
+	anaFiltBank1Exact(X[:decimatedFrameLength2], &v.AnaState2, X[:decimatedFrameLength], X[xOffset[1]:xOffset[1]+decimatedFrameLength])
+
+	// HP filter on lowest band (differentiator)
+	X[decimatedFrameLength-1] = X[decimatedFrameLength-1] >> 1
+	hpStateTmp := X[decimatedFrameLength-1]
+	for i := decimatedFrameLength - 1; i > 0; i-- {
+		X[i-1] = X[i-1] >> 1
+		X[i] -= X[i-1]
+	}
+	X[0] -= v.HPState
+	v.HPState = hpStateTmp
+
+	// Calculate energy in each band
+	Xnrg := [VADNBands]int32{}
+	decLenByBand := [VADNBands]int{
+		decimatedFrameLength,
+		decimatedFrameLength,
+		decimatedFrameLength2,
+		decimatedFrameLength1,
+	}
+	for b := 0; b < VADNBands; b++ {
+		decLen := decLenByBand[b]
+		band := X[xOffset[b] : xOffset[b]+decLen]
+		// Split into subframes
+		decSubframeLength := decLen >> VADInternalSubframesLog2
+		decSubframeOffset := 0
+
+		// Initialize with energy from previous frame's last subframe
+		Xnrg[b] = v.XnrgSubfr[b]
+
+		var sumSquared int32
+		for s := 0; s < VADInternalSubframes; s++ {
+			sumSquared = 0
+			subframe := band[decSubframeOffset : decSubframeOffset+decSubframeLength]
+			_ = subframe[decSubframeLength-1]
+			for i := 0; i < decSubframeLength; i++ {
+				xTmp := int32(subframe[i]) >> 3
+				sumSquared += xTmp * xTmp
+			}
+
+			// Add/saturate energy
+			if s < VADInternalSubframes-1 {
+				Xnrg[b] = addPosSat32(Xnrg[b], sumSquared)
+			} else {
+				// Look-ahead subframe gets half weight
+				Xnrg[b] = addPosSat32(Xnrg[b], sumSquared>>1)
+			}
+
+			decSubframeOffset += decSubframeLength
+		}
+		v.XnrgSubfr[b] = sumSquared
+	}
+
+	// Noise estimation
+	v.getNoiseLevels(Xnrg[:])
+
+	// Signal-plus-noise to noise ratio estimation
+	var sumSquared int32
+	var inputTilt int32
+	NrgToNoiseRatioQ8 := [VADNBands]int32{}
+
+	for b := 0; b < VADNBands; b++ {
+		speechNrg := Xnrg[b] - v.NL[b]
+		if speechNrg > 0 {
+			// Compute energy to noise ratio
+			if (uint32(Xnrg[b]) & 0xFF800000) == 0 {
+				NrgToNoiseRatioQ8[b] = (Xnrg[b] << 8) / (v.NL[b] + 1)
+			} else {
+				NrgToNoiseRatioQ8[b] = Xnrg[b] / ((v.NL[b] >> 8) + 1)
+			}
+
+			// Convert to log domain
+			snrQ7 := lin2log(NrgToNoiseRatioQ8[b]) - 8*128
+
+			// Sum-of-squares for mean calculation
+			sumSquared = smlabb(sumSquared, snrQ7, snrQ7)
+
+			// Tilt measure
+			snrForTilt := snrQ7
+			if speechNrg < (1 << 20) {
+				// Scale down SNR for small speech energies
+				snrForTilt = smulwb(int32(sqrtApprox(speechNrg)<<6), snrQ7)
+			}
+			inputTilt = smlawb(inputTilt, vadTiltWeights[b], snrForTilt)
+		} else {
+			NrgToNoiseRatioQ8[b] = 256 // 1.0 in Q8
+		}
+	}
+
+	// Mean-of-squares
+	sumSquared /= VADNBands
+
+	// Root-mean-square approximation, scale to dBs
+	pSNRdBQ7 := int32(int16(3 * sqrtApprox(sumSquared)))
+
+	// Speech probability estimation using sigmoid
+	saQ15 := sigmQ15(smulwb(VADSNRFactorQ16, pSNRdBQ7) - VADNegativeOffsetQ5)
+
+	// Frequency tilt measure
+	v.InputTiltQ15 = int((sigmQ15(inputTilt) - 16384) << 1)
+
+	// Scale sigmoid output based on power levels
+	var speechNrg int32
+	for b := 0; b < VADNBands; b++ {
+		// Higher frequency bands have more weight
+		speechNrg += int32(b+1) * ((Xnrg[b] - v.NL[b]) >> 4)
+	}
+
+	// Adjust for frame length (20ms has half the energy of 10ms)
+	if frameLength == 20*fsKHz {
+		speechNrg >>= 1
+	}
+
+	// Power scaling
+	if speechNrg <= 0 {
+		saQ15 >>= 1
+	} else if speechNrg < 16384 {
+		speechNrg <<= 16
+		speechNrg = sqrtApprox(speechNrg)
+		saQ15 = smulwb(32768+speechNrg, saQ15)
+	}
+
+	// Convert to Q8 (0-255) and clamp
+	v.SpeechActivityQ8 = min(int(saQ15>>7), 255)
+
+	// Smoothing coefficient based on activity
+	tmp := smulwb(int32(saQ15), int32(saQ15))
+	smoothCoefQ16 := smulwb(VADSNRSmoothCoefQ18, tmp)
+
+	if frameLength == 10*fsKHz {
+		smoothCoefQ16 >>= 1
+	}
+
+	// Update smoothed energy-to-noise ratios and quality bands
+	for b := 0; b < VADNBands; b++ {
+		// Smooth energy-to-noise ratio
+		v.NrgRatioSmthQ8[b] = smlawb(v.NrgRatioSmthQ8[b], NrgToNoiseRatioQ8[b]-v.NrgRatioSmthQ8[b], smoothCoefQ16)
+
+		// SNR in dB per band
+		snrQ7 := int32(3) * (lin2log(v.NrgRatioSmthQ8[b]) - 8*128)
+		// Quality = sigmoid(0.25 * (SNR_dB - 16))
+		v.InputQualityBandsQ15[b] = int(sigmQ15((snrQ7 - 16*128) >> 4))
+	}
+
+	// Activity decision (matches libopus: compare speech_activity_Q8 to threshold)
+	isActive := v.SpeechActivityQ8 >= speechActivityThresholdQ8
+
+	return v.SpeechActivityQ8, isActive, true
+}
+
+func (v *VADState) getSpeechActivity(pcm []float32, frameLength int, fsKHz int, trace *VADTrace) (int, bool, bool) {
+	if trace != nil {
+		*trace = VADTrace{}
+	}
+	// Safety checks
+	if frameLength == 0 || len(pcm) < frameLength {
+		return 0, false, false
+	}
+
+	// Convert float32 samples to int16 for fixed-point processing
+	if cap(v.scratchInput) < frameLength {
+		v.scratchInput = make([]int16, frameLength)
+	}
+	input := v.scratchInput[:frameLength]
+	_ = pcm[frameLength-1]
+	_ = input[frameLength-1]
+	for i := 0; i < frameLength; i++ {
+		// Clamp to int16 range
+		sample := float64(pcm[i]) * 32768.0
+		input[i] = float64ToInt16Round(sample)
+	}
+
+	// Calculate decimated frame lengths
+	decimatedFrameLength1 := frameLength >> 1 // frame_length / 2
+	decimatedFrameLength2 := frameLength >> 2 // frame_length / 4
+	decimatedFrameLength := frameLength >> 3  // frame_length / 8
+
+	// Allocate workspace for decimated signals
+	// Layout: [0-1kHz][temp][1-2kHz][2-4kHz][4-8kHz]
+	xOffset := [VADNBands]int{
+		0,
+		decimatedFrameLength + decimatedFrameLength2,
+		decimatedFrameLength + decimatedFrameLength2 + decimatedFrameLength,
+		decimatedFrameLength + decimatedFrameLength2 + decimatedFrameLength + decimatedFrameLength2,
+	}
+	xLen := xOffset[3] + decimatedFrameLength1
+	if cap(v.scratchX) < xLen {
+		v.scratchX = make([]int16, xLen)
+	}
+	X := v.scratchX[:xLen]
+
+	// Filter and decimate into 4 bands
+
+	// 0-8 kHz to 0-4 kHz and 4-8 kHz
+	anaFiltBank1Exact(input, &v.AnaState, X[:decimatedFrameLength1], X[xOffset[3]:xOffset[3]+decimatedFrameLength1])
+
+	// 0-4 kHz to 0-2 kHz and 2-4 kHz
+	anaFiltBank1Exact(X[:decimatedFrameLength1], &v.AnaState1, X[:decimatedFrameLength2], X[xOffset[2]:xOffset[2]+decimatedFrameLength2])
+
+	// 0-2 kHz to 0-1 kHz and 1-2 kHz
+	anaFiltBank1Exact(X[:decimatedFrameLength2], &v.AnaState2, X[:decimatedFrameLength], X[xOffset[1]:xOffset[1]+decimatedFrameLength])
 
 	// HP filter on lowest band (differentiator)
 	X[decimatedFrameLength-1] = X[decimatedFrameLength-1] >> 1
@@ -275,19 +476,15 @@ func (v *VADState) getSpeechActivity(pcm []float32, frameLength int, fsKHz int, 
 
 	// Calculate energy in each band
 	Xnrg := [VADNBands]int32{}
+	decLenByBand := [VADNBands]int{
+		decimatedFrameLength,
+		decimatedFrameLength,
+		decimatedFrameLength2,
+		decimatedFrameLength1,
+	}
 	for b := 0; b < VADNBands; b++ {
-		// Find decimated frame length for this band
-		var decLen int
-		if b == 0 {
-			decLen = frameLength >> 3 // Band 0: frame/8
-		} else if b == 1 {
-			decLen = frameLength >> 3 // Band 1: frame/8
-		} else if b == 2 {
-			decLen = frameLength >> 2 // Band 2: frame/4
-		} else {
-			decLen = frameLength >> 1 // Band 3: frame/2
-		}
-
+		decLen := decLenByBand[b]
+		band := X[xOffset[b] : xOffset[b]+decLen]
 		// Split into subframes
 		decSubframeLength := decLen >> VADInternalSubframesLog2
 		decSubframeOffset := 0
@@ -298,12 +495,11 @@ func (v *VADState) getSpeechActivity(pcm []float32, frameLength int, fsKHz int, 
 		var sumSquared int32
 		for s := 0; s < VADInternalSubframes; s++ {
 			sumSquared = 0
+			subframe := band[decSubframeOffset : decSubframeOffset+decSubframeLength]
+			_ = subframe[decSubframeLength-1]
 			for i := 0; i < decSubframeLength; i++ {
-				idx := xOffset[b] + i + decSubframeOffset
-				if idx < len(X) {
-					xTmp := int32(X[idx]) >> 3
-					sumSquared += xTmp * xTmp
-				}
+				xTmp := int32(subframe[i]) >> 3
+				sumSquared += xTmp * xTmp
 			}
 			if trace != nil {
 				trace.SubfrEnergy[b][s] = sumSquared
@@ -561,9 +757,19 @@ func anaFiltBank1(in []int16, S *[2]int32, outL, outH []int16, N int) {
 	}
 
 	// Trim slices to exact required lengths for BCE.
-	in = in[:2*N2]
-	outL = outL[:N2]
-	outH = outH[:N2]
+	anaFiltBank1Exact(in[:2*N2], S, outL[:N2], outH[:N2])
+}
+
+// anaFiltBank1Exact is the VAD hot path version of the libopus analysis filter.
+// Callers provide exact-length slices, so it avoids the wrapper's clamp work.
+func anaFiltBank1Exact(in []int16, S *[2]int32, outL, outH []int16) {
+	N2 := len(outL)
+	if N2 == 0 {
+		return
+	}
+	_ = in[2*N2-1]
+	_ = outL[N2-1]
+	_ = outH[N2-1]
 
 	// Cache allpass coefficients as int64 to avoid repeated conversions.
 	coefEven := int64(int16(aFB1_21))
@@ -572,13 +778,10 @@ func anaFiltBank1(in []int16, S *[2]int32, outL, outH []int16, N int) {
 	s0, s1 := S[0], S[1]
 
 	// Internal variables and state are in Q10 format.
-	// Process pairs from the input slice with stepping index k.
-	for k := 0; k < N2; k++ {
-		// Access pair at [2*k, 2*k+1] using a two-element sub-slice for BCE.
-		pair := in[2*k : 2*k+2 : 2*k+2]
-
+	for k, inIdx := 0, 0; k < N2; k++ {
 		// Convert to Q10
-		in32 := int32(pair[0]) << 10
+		in32 := int32(in[inIdx]) << 10
+		inIdx++
 
 		// All-pass section for even input sample
 		Y := in32 - s0
@@ -587,7 +790,8 @@ func anaFiltBank1(in []int16, S *[2]int32, outL, outH []int16, N int) {
 		s0 = in32 + X
 
 		// Convert to Q10
-		in32 = int32(pair[1]) << 10
+		in32 = int32(in[inIdx]) << 10
+		inIdx++
 
 		// All-pass section for odd input sample
 		Y = in32 - s1
@@ -597,8 +801,13 @@ func anaFiltBank1(in []int16, S *[2]int32, outL, outH []int16, N int) {
 
 		// Add/subtract, convert back to int16 and store
 		sum := rshiftRound(out2+out1, 11)
-		outL[k] = satInt16(sum)
 		diff := rshiftRound(out2-out1, 11)
+		if uint32(sum+32768) <= 65535 && uint32(diff+32768) <= 65535 {
+			outL[k] = int16(sum)
+			outH[k] = int16(diff)
+			continue
+		}
+		outL[k] = satInt16(sum)
 		outH[k] = satInt16(diff)
 	}
 
@@ -721,11 +930,11 @@ func addPosSat32(a, b int32) int32 {
 
 // satInt16 saturates an int32 to int16 range.
 func satInt16(x int32) int16 {
-	if x > 32767 {
+	if uint32(x+32768) <= 65535 {
+		return int16(x)
+	}
+	if x > 0 {
 		return 32767
 	}
-	if x < -32768 {
-		return -32768
-	}
-	return int16(x)
+	return -32768
 }
