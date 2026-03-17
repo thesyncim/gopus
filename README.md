@@ -67,9 +67,9 @@ The default mixed/quality judge is:
 3. `go test ./examples/mix-arrivals -count=1` for the allowlisted unimplemented seed (`mix-arrivals-f32wav`)
 
 The `quality` and `mixed` score also incorporates the minimum
-`Hybrid->CELT` 10ms transition SNR reported by
-`TestDecoderHybridToCELT10msTransitionParity`, so decoder transition wins can
-move the loop instead of only acting as gates.
+`Hybrid->CELT` transition SNR reported by the focused decoder transition parity
+tests, so decoder transition wins can move the loop instead of only acting as
+gates.
 
 The performance lane keeps:
 

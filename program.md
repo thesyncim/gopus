@@ -138,8 +138,7 @@ Status values:
 `rt_ratio` is `gopus_avg_rt / libopus_avg_rt` for the performance lane.
 For the quality-like lanes, higher `score` is better.
 The quality-like score combines the encoder compliance gap summary with the
-minimum `TestDecoderHybridToCELT10msTransitionParity` SNR emitted by
-`make test-quality`.
+minimum `Hybrid->CELT` transition SNR emitted by `make test-quality`.
 
 ## Experiment Loop
 

@@ -84,7 +84,7 @@ test-parity:
 
 # Quality-first inner-loop gate with verbose compliance telemetry.
 test-quality:
-	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test ./testvectors -run 'TestSILKParamTraceAgainstLibopus|TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard|TestEncoderVariantProfileParityAgainstLibopusFixture|TestDecoderParityLibopusMatrix|TestDecoderLossParityLibopusFixture|TestDecoderHybridToCELT10msTransitionParity' -count=1 -v
+	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test ./testvectors -run 'TestSILKParamTraceAgainstLibopus|TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard|TestEncoderVariantProfileParityAgainstLibopusFixture|TestDecoderParityLibopusMatrix|TestDecoderLossParityLibopusFixture|TestDecoderHybridToCELT10msTransitionParity|TestDecoderHybridToCELT20msTransitionParity' -count=1 -v
 
 # Optional extended compatibility coverage that may self-skip when ffmpeg is unavailable.
 test-quality-extended:

@@ -926,56 +926,80 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 	config := GetBandwidthConfig(bandwidth)
 	nativeSamples := frameSizeSamples * config.SampleRate / 48000
 
-	// Generate concealment at native rate for both channels.
-	var left, right []float32
-	leftState := d.ensureSILKPLCState(0)
-	rightState := d.ensureSILKPLCState(1)
-	leftView := d.plcDecoderView(0)
-	rightView := d.plcDecoderView(1)
-	if leftState != nil && rightState != nil &&
-		leftView != nil && rightView != nil &&
-		d.state[0].nbSubfr > 0 && d.state[1].nbSubfr > 0 {
-		leftQ0 := plc.ConcealSILKWithLTP(leftView, leftState, lossCnt, nativeSamples)
-		rightQ0 := plc.ConcealSILKWithLTP(rightView, rightState, lossCnt, nativeSamples)
-		left = make([]float32, nativeSamples)
-		right = make([]float32, nativeSamples)
-		// ConcealSILKWithLTP already applies libopus PLC attenuation cadence.
-		// Keep only Q0 -> float scaling here (no extra external fade).
+	// libopus stereo PLC keeps operating in mid/side space and only converts
+	// back to left/right through silk_stereo_MS_to_LR before resampling.
+	// Our decoder states 0/1 track mid/side, not left/right.
+	hasSide := d.prevDecodeOnlyMiddle == 0
+	mid := make([]float32, nativeSamples)
+	side := make([]float32, nativeSamples)
+
+	midState := d.ensureSILKPLCState(0)
+	sideState := d.ensureSILKPLCState(1)
+	midView := d.plcDecoderView(0)
+	sideView := d.plcDecoderView(1)
+	if midState != nil && midView != nil && d.state[0].nbSubfr > 0 {
+		midQ0 := plc.ConcealSILKWithLTP(midView, midState, lossCnt, nativeSamples)
 		scale := float32(1.0 / 32768.0)
-		for i := 0; i < nativeSamples; i++ {
-			if i < len(leftQ0) {
-				left[i] = float32(leftQ0[i]) * scale
-			}
-			if i < len(rightQ0) {
-				right[i] = float32(rightQ0[i]) * scale
-			}
+		for i := 0; i < nativeSamples && i < len(midQ0); i++ {
+			mid[i] = float32(midQ0[i]) * scale
 		}
-		if lag := int((leftState.PitchLQ8 + 128) >> 8); lag > 0 {
+		if lag := int((midState.PitchLQ8 + 128) >> 8); lag > 0 {
 			d.state[0].lagPrev = lag
 		}
-		if lag := int((rightState.PitchLQ8 + 128) >> 8); lag > 0 {
-			d.state[1].lagPrev = lag
+		if hasSide && sideState != nil && sideView != nil && d.state[1].nbSubfr > 0 {
+			sideQ0 := plc.ConcealSILKWithLTP(sideView, sideState, lossCnt, nativeSamples)
+			for i := 0; i < nativeSamples && i < len(sideQ0); i++ {
+				side[i] = float32(sideQ0[i]) * scale
+			}
+			if lag := int((sideState.PitchLQ8 + 128) >> 8); lag > 0 {
+				d.state[1].lagPrev = lag
+			}
 		}
 	} else {
-		left, right = plc.ConcealSILKStereo(d, nativeSamples, fadeFactor)
+		// Legacy fallback when richer PLC state is unavailable.
+		left, right := plc.ConcealSILKStereo(d, nativeSamples, fadeFactor)
+		copy(mid, left)
+		if hasSide {
+			copy(side, right)
+		}
 	}
 
-	// Update decoder state for both channels for PLC gluing and outBuf cadence.
-	d.recordPLCLossForState(&d.state[0], left)
-	d.recordPLCLossForState(&d.state[1], right)
-	// Match libopus dec_API.c packet-loss cadence for both channels.
+	// Update decoder state for the concealed internal channels before MS->LR.
+	d.recordPLCLossForState(&d.state[0], mid)
 	d.state[0].lastGainIndex = 10
-	d.state[1].lastGainIndex = 10
+	if hasSide {
+		d.recordPLCLossForState(&d.state[1], side)
+		d.state[1].lastGainIndex = 10
+	}
 
-	// Upsample to 48kHz using libopus-compatible resampler
+	// Convert concealed mid/side to left/right using the saved stereo predictor.
+	midFrame := make([]int16, nativeSamples+2)
+	sideFrame := make([]int16, nativeSamples+2)
+	for i := 0; i < nativeSamples; i++ {
+		midFrame[i+2] = float32ToInt16(mid[i])
+		if hasSide {
+			sideFrame[i+2] = float32ToInt16(side[i])
+		}
+	}
+	predQ13 := []int32{d.stereo.predPrevQ13[0], d.stereo.predPrevQ13[1]}
+	silkStereoMSToLR(&d.stereo, midFrame, sideFrame, predQ13, config.SampleRate/1000, nativeSamples)
+
+	// Resample left/right channels to API rate.
 	leftResampler := d.GetResamplerForChannel(bandwidth, 0)
 	rightResampler := d.GetResamplerForChannel(bandwidth, 1)
-	leftUp := leftResampler.Process(left)
-	rightUp := rightResampler.Process(right)
+	leftUp := make([]float32, frameSizeSamples)
+	rightUp := make([]float32, frameSizeSamples)
+	nLeft := leftResampler.ProcessInt16Into(midFrame[1:nativeSamples+1], leftUp)
+	nRight := rightResampler.ProcessInt16Into(sideFrame[1:nativeSamples+1], rightUp)
+	if nRight < nLeft {
+		nLeft = nRight
+	}
+	if nLeft < 0 {
+		nLeft = 0
+	}
 
-	// Interleave [L0, R0, L1, R1, ...]
-	output := make([]float32, len(leftUp)*2)
-	for i := range leftUp {
+	output := make([]float32, nLeft*2)
+	for i := 0; i < nLeft; i++ {
 		output[i*2] = leftUp[i]
 		output[i*2+1] = rightUp[i]
 	}

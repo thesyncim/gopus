@@ -118,6 +118,56 @@ func TestDecoderHybridToCELT10msTransitionParity(t *testing.T) {
 	}
 }
 
+func TestDecoderHybridToCELT20msTransitionParity(t *testing.T) {
+	requireTestTier(t, testTierParity)
+
+	fixture, err := loadLibopusDecoderMatrixFixture()
+	if err != nil {
+		t.Fatalf("load decoder matrix fixture: %v", err)
+	}
+
+	c, ok := findDecoderMatrixCaseByName(fixture, "hybrid-fb-20ms-stereo-24k")
+	if !ok {
+		t.Fatal("fixture missing case hybrid-fb-20ms-stereo-24k")
+	}
+
+	packets, err := decodeLibopusDecoderMatrixPackets(c)
+	if err != nil {
+		t.Fatalf("decode fixture packets: %v", err)
+	}
+	refDecoded, err := decodeLibopusDecoderMatrixSamples(c)
+	if err != nil {
+		t.Fatalf("decode fixture samples: %v", err)
+	}
+	gotDecoded := decodeWithInternalDecoder(t, packets, c.Channels)
+
+	transitionIdx, err := firstHybridToCELTFrameIndex(c)
+	if err != nil {
+		t.Fatalf("find transition: %v", err)
+	}
+
+	frameSamples := c.FrameSize * c.Channels
+	snrDB, err := frameSNRAtIndex(refDecoded, gotDecoded, frameSamples, transitionIdx)
+	if err != nil {
+		t.Fatalf("transition frame snr: %v", err)
+	}
+	t.Logf("transition frame=%d snr=%.2f dB", transitionIdx, snrDB)
+	if snrDB < 40.0 {
+		t.Fatalf("20ms transition parity regressed: SNR=%.2f dB < 40 dB", snrDB)
+	}
+
+	if transitionIdx+1 < c.Frames {
+		nextSNR, err := frameSNRAtIndex(refDecoded, gotDecoded, frameSamples, transitionIdx+1)
+		if err != nil {
+			t.Fatalf("next frame snr: %v", err)
+		}
+		t.Logf("next frame=%d snr=%.2f dB", transitionIdx+1, nextSNR)
+		if nextSNR < 80.0 {
+			t.Fatalf("post-transition celt parity regressed: SNR=%.2f dB < 80 dB", nextSNR)
+		}
+	}
+}
+
 func decoderMatrixPacketMode(toc byte) string {
 	mode := gopus.ParseTOC(toc).Mode
 	switch mode {
