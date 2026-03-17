@@ -51,7 +51,7 @@ func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
 func (d *Decoder) DecodeWithPacketStereo(data []byte, frameSize int, packetStereo bool) ([]float64, error) {
 	// Handle PLC for nil/empty data (lost packet)
 	if data == nil || len(data) == 0 {
-		return d.decodePLC(frameSize, d.channels == 2)
+		return d.decodePLC(frameSize, packetStereo)
 	}
 
 	if !ValidHybridFrameSize(frameSize) {
@@ -314,10 +314,11 @@ func (d *Decoder) decodePLC(frameSize int, stereo bool) ([]float64, error) {
 	silkAligned := silkUpsampled
 
 	// Generate CELT PLC (bands 17-21 only for hybrid)
-	// For native hybrid frame sizes, use decoder-owned hybrid PLC cadence.
+	// For native hybrid frame sizes and the 5 ms transition cadence, use the
+	// decoder-owned hybrid PLC path to match libopus transition synthesis.
 	celtScale := 1.0 / 32768.0
 	var celtConcealed []float64
-	if frameSize == 480 || frameSize == 960 {
+	if frameSize == 240 || frameSize == 480 || frameSize == 960 {
 		var err error
 		celtConcealed, err = d.celtDecoder.DecodeHybridFECPLC(frameSize)
 		if err != nil {
