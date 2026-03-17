@@ -457,10 +457,44 @@ func analysisSpecVariability(logE *[NbFrames][NbTBands]float32) float32 {
 		for j := i + 1; j < NbFrames; j++ {
 			rowJ := &logE[j]
 			dist := float32(0)
-			for k := 0; k < NbTBands; k++ {
-				d := rowI[k] - rowJ[k]
-				dist += d * d
-			}
+			// NbTBands is fixed at 18; keep the accumulation order but
+			// remove the fixed-trip loop overhead from this hot helper.
+			d0 := rowI[0] - rowJ[0]
+			dist += d0 * d0
+			d1 := rowI[1] - rowJ[1]
+			dist += d1 * d1
+			d2 := rowI[2] - rowJ[2]
+			dist += d2 * d2
+			d3 := rowI[3] - rowJ[3]
+			dist += d3 * d3
+			d4 := rowI[4] - rowJ[4]
+			dist += d4 * d4
+			d5 := rowI[5] - rowJ[5]
+			dist += d5 * d5
+			d6 := rowI[6] - rowJ[6]
+			dist += d6 * d6
+			d7 := rowI[7] - rowJ[7]
+			dist += d7 * d7
+			d8 := rowI[8] - rowJ[8]
+			dist += d8 * d8
+			d9 := rowI[9] - rowJ[9]
+			dist += d9 * d9
+			d10 := rowI[10] - rowJ[10]
+			dist += d10 * d10
+			d11 := rowI[11] - rowJ[11]
+			dist += d11 * d11
+			d12 := rowI[12] - rowJ[12]
+			dist += d12 * d12
+			d13 := rowI[13] - rowJ[13]
+			dist += d13 * d13
+			d14 := rowI[14] - rowJ[14]
+			dist += d14 * d14
+			d15 := rowI[15] - rowJ[15]
+			dist += d15 * d15
+			d16 := rowI[16] - rowJ[16]
+			dist += d16 * d16
+			d17 := rowI[17] - rowJ[17]
+			dist += d17 * d17
 			if dist < mindist[i] {
 				mindist[i] = dist
 			}

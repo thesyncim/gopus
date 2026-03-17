@@ -27,15 +27,26 @@ No cgo. No C toolchain. Caller-owned buffers in the encode/decode hot path.
 - Allocations: zero allocs/op in encoder and decoder core hot paths.
 - `TestSILKParamTraceAgainstLibopus`: `PASS` with exact SILK-WB trace parity on canonical 50-frame fixture.
 - `TestEncoderComplianceSummary`: `PASS` (`23 passed, 0 failed`).
-- Remaining focus: keep tightening fixture-backed parity/comparison coverage against libopus in edge profiles.
+- Remaining focus: mixed quality+feature work, with quality as the primary score and throughput as an optional secondary lane.
+- Remaining focus also includes closing explicit optional feature gaps where they are valuable and testable.
 
 ## Autoresearch Workflow
 
 This repo now ships an `autoresearch`-style experiment loop for autonomous codec work.
 
+- Mixed quality+feature work is the default loop.
+- Quality/compliance is the primary score.
+- `make bench-guard` is a safety gate.
+- Throughput comparisons are optional and mainly matter for performance-facing changes.
+- It is fine to spin parallel read-only subagents for quality scouting and allowlisted unimplemented-feature scouting.
+
 - `program.md` defines the fixed protocol.
 - `tools/autoresearch.sh` handles setup, preflight, evaluation, and best-row reporting.
-- `results.tsv` is an untracked local ledger of `baseline` / `keep` / `discard` / `crash` runs.
+- The local ledgers are:
+  - `results.tsv` for `performance`
+  - `results.quality.tsv` for `quality`
+  - `results.unimplemented.tsv` for `unimplemented`
+  - `results.mixed.tsv` for `mixed`
 
 Quick start:
 
@@ -45,9 +56,22 @@ make autoresearch-preflight
 make autoresearch-eval DESCRIPTION=baseline
 make autoresearch-best
 make autoresearch-loop MAX_ITERATIONS=5
+make autoresearch-loop-quality
+make autoresearch-loop-unimplemented
 ```
 
-The default judge is fixed to:
+The default mixed/quality judge is:
+
+1. `make test-quality`
+2. `make bench-guard`
+3. `go test ./examples/mix-arrivals -count=1` for the allowlisted unimplemented seed (`mix-arrivals-f32wav`)
+
+The `quality` and `mixed` score also incorporates the minimum
+`Hybrid->CELT` transition SNR reported by the focused decoder transition parity
+tests, so decoder transition wins can move the loop instead of only acting as
+gates.
+
+The performance lane keeps:
 
 1. `TestSILKParamTraceAgainstLibopus`
 2. `TestEncoderComplianceSummary`

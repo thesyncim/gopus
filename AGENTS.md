@@ -14,9 +14,10 @@ If they differ, `program.md` wins for workflow and this file wins for codec cont
 
 ## Current Focus
 
-1. Close the fair `gopus` vs `libopus` throughput gap on the speech encode path.
-2. Preserve fixture-backed libopus parity and quality while optimizing.
-3. Preserve zero-allocation guarantees in encoder and decoder hot paths.
+1. Run mixed quality+feature work by default.
+2. Keep quality as the primary score, using libopus parity and compliance as the reference.
+3. Treat throughput as optional unless the current change is explicitly performance-facing.
+4. Preserve zero-allocation guarantees in encoder and decoder hot paths.
 
 ## Verified Areas
 
@@ -32,6 +33,8 @@ Do not start by re-debugging these without new evidence:
 - Cross-check codec math and bitstream decisions against `tmp_check/opus-1.6.1/` before trying heuristic fixes.
 - If behavior is uncertain, align to libopus 1.6.1 first and only diverge with explicit fixture evidence.
 - Preserve zero allocations in real-time encode/decode hot paths.
+- When a loop benefits from parallel scouting, prefer one read-only quality/compliance scout and one read-only unimplemented-feature scout.
+- Do not turn raw `ErrUnimplemented` stubs into loop targets unless they have a pinned judge; the current safe unimplemented seed is `ogg-seek`.
 - During an experiment loop, treat these as fixed judge surfaces unless you are intentionally changing the workflow itself:
   - `program.md`
   - `tools/autoresearch.sh`

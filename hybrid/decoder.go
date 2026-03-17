@@ -217,7 +217,7 @@ func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, pa
 	silkSamples := frameSize / 3 // 48kHz -> 16kHz = divide by 3
 
 	monoToStereo := packetStereo && !d.prevPacketStereo
-	stereoToMono := !packetStereo && d.prevPacketStereo
+	stereoToMono := d.silkDecoder.ShouldUseStereoToMonoHistory(silk.BandwidthWideband, !packetStereo && d.prevPacketStereo)
 	if monoToStereo {
 		// Reset side-channel state to match libopus mono->stereo transition.
 		d.silkDecoder.ResetSideChannel()
