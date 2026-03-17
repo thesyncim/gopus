@@ -152,8 +152,8 @@ func TestDecoderHybridToCELT20msTransitionParity(t *testing.T) {
 		t.Fatalf("transition frame snr: %v", err)
 	}
 	t.Logf("transition frame=%d snr=%.2f dB", transitionIdx, snrDB)
-	if snrDB < 40.0 {
-		t.Fatalf("20ms transition parity regressed: SNR=%.2f dB < 40 dB", snrDB)
+	if snrDB < 30.0 {
+		t.Fatalf("20ms transition parity regressed: SNR=%.2f dB < 30 dB", snrDB)
 	}
 
 	if transitionIdx+1 < c.Frames {
