@@ -252,6 +252,7 @@ func (d *Decoder) DecodeMonoToStereo(
 	if bandwidth > BandwidthWideband {
 		return nil, ErrInvalidBandwidth
 	}
+	useStereoHistory := d.ShouldUseStereoToMonoHistory(bandwidth, stereoToMono)
 
 	// Handle bandwidth changes - reset sMid state when sample rate changes
 	d.handleBandwidthChange(bandwidth)
@@ -290,7 +291,7 @@ func (d *Decoder) DecodeMonoToStereo(
 
 	leftOut := make([]float32, 0, frameSizeSamples)
 	var rightOut []float32
-	if stereoToMono {
+	if useStereoHistory {
 		rightOut = make([]float32, 0, frameSizeSamples)
 	}
 
@@ -304,7 +305,7 @@ func (d *Decoder) DecodeMonoToStereo(
 		resamplerInput := d.BuildMonoResamplerInput(frame)
 		left := leftResampler.Process(resamplerInput)
 		leftOut = append(leftOut, left...)
-		if stereoToMono {
+		if useStereoHistory {
 			right := rightResampler.Process(resamplerInput)
 			rightOut = append(rightOut, right...)
 		}
@@ -313,7 +314,7 @@ func (d *Decoder) DecodeMonoToStereo(
 	out := make([]float32, len(leftOut)*2)
 	for i := range leftOut {
 		out[i*2] = leftOut[i]
-		if stereoToMono {
+		if useStereoHistory {
 			if i < len(rightOut) {
 				out[i*2+1] = rightOut[i]
 			} else {
@@ -597,6 +598,7 @@ func (d *Decoder) DecodeMonoToStereoWithDecoder(
 	if rd == nil {
 		return nil, ErrDecodeFailed
 	}
+	useStereoHistory := d.ShouldUseStereoToMonoHistory(bandwidth, stereoToMono)
 
 	// Handle bandwidth changes - reset sMid state when sample rate changes
 	d.handleBandwidthChange(bandwidth)
@@ -628,7 +630,7 @@ func (d *Decoder) DecodeMonoToStereoWithDecoder(
 
 	leftOut := make([]float32, 0, frameSizeSamples)
 	var rightOut []float32
-	if stereoToMono {
+	if useStereoHistory {
 		rightOut = make([]float32, 0, frameSizeSamples)
 	}
 
@@ -642,7 +644,7 @@ func (d *Decoder) DecodeMonoToStereoWithDecoder(
 		resamplerInput := d.BuildMonoResamplerInput(frame)
 		left := leftResampler.Process(resamplerInput)
 		leftOut = append(leftOut, left...)
-		if stereoToMono {
+		if useStereoHistory {
 			right := rightResampler.Process(resamplerInput)
 			rightOut = append(rightOut, right...)
 		}
@@ -651,7 +653,7 @@ func (d *Decoder) DecodeMonoToStereoWithDecoder(
 	out := make([]float32, len(leftOut)*2)
 	for i := range leftOut {
 		out[i*2] = leftOut[i]
-		if stereoToMono {
+		if useStereoHistory {
 			if i < len(rightOut) {
 				out[i*2+1] = rightOut[i]
 			} else {

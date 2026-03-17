@@ -207,3 +207,57 @@ func TestDecodeStereoFrame_LongFrames(t *testing.T) {
 		})
 	}
 }
+
+func TestResetSideChannel_MonoToStereoBitstreamResetMatchesLibopus(t *testing.T) {
+	d := NewDecoder()
+
+	d.state[1].lagPrev = 42
+	d.state[1].lastGainIndex = 7
+	d.state[1].prevSignalType = 3
+	d.state[1].firstFrameAfterReset = false
+	d.stereo.predPrevQ13 = [2]int32{123, -456}
+	d.stereo.sMid = [2]int16{11, 22}
+	d.stereo.sSide = [2]int16{33, 44}
+
+	d.ResetSideChannel()
+
+	if got, want := d.state[1].prevGainQ16, int32(1<<16); got != want {
+		t.Fatalf("prevGainQ16 = %d, want %d", got, want)
+	}
+	if !d.state[1].firstFrameAfterReset {
+		t.Fatal("side decoder should be marked firstFrameAfterReset")
+	}
+	if d.state[1].lagPrev != 0 {
+		t.Fatalf("lagPrev = %d, want 0 after side decoder re-init", d.state[1].lagPrev)
+	}
+	if d.state[1].lastGainIndex != 0 {
+		t.Fatalf("lastGainIndex = %d, want 0 after side decoder re-init", d.state[1].lastGainIndex)
+	}
+	if d.stereo.predPrevQ13 != [2]int32{} {
+		t.Fatalf("predPrevQ13 = %v, want cleared", d.stereo.predPrevQ13)
+	}
+	if d.stereo.sSide != [2]int16{} {
+		t.Fatalf("sSide = %v, want cleared", d.stereo.sSide)
+	}
+	if got, want := d.stereo.sMid, [2]int16{11, 22}; got != want {
+		t.Fatalf("sMid = %v, want %v preserved", got, want)
+	}
+}
+
+func TestShouldUseStereoToMonoHistory_MatchesLibopusGate(t *testing.T) {
+	d := NewDecoder()
+
+	if d.ShouldUseStereoToMonoHistory(BandwidthWideband, false) {
+		t.Fatal("history gate should be false without a previous stereo packet")
+	}
+
+	d.state[0].fsKHz = 12
+	if d.ShouldUseStereoToMonoHistory(BandwidthWideband, true) {
+		t.Fatal("history gate should be false when internal sample rate changed")
+	}
+
+	d.state[0].fsKHz = 16
+	if !d.ShouldUseStereoToMonoHistory(BandwidthWideband, true) {
+		t.Fatal("history gate should be true when previous stereo history matches current internal rate")
+	}
+}

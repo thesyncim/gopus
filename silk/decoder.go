@@ -714,10 +714,14 @@ func (d *Decoder) BuildMonoResamplerInputInt16(samples []int16) []int16 {
 	return resamplerInput
 }
 
-// ResetSideChannel resets the side-channel decoder state and its resampler history.
-// This matches libopus behavior when switching from mono to stereo.
+// ResetSideChannel resets the mono->stereo bitstream transition state.
+// This mirrors libopus silk/dec_API.c for nChannelsInternal 1 -> 2:
+// re-init the side decoder, clear the stereo side/predictor history, and
+// reset the right-channel resampler before copying left-channel history over.
 func (d *Decoder) ResetSideChannel() {
 	resetDecoderState(&d.state[1])
+	d.stereo.predPrevQ13 = [2]int32{}
+	d.stereo.sSide = [2]int16{}
 	if d.resamplers == nil {
 		return
 	}
@@ -727,6 +731,17 @@ func (d *Decoder) ResetSideChannel() {
 		}
 		pair.right.Reset()
 	}
+}
+
+// ShouldUseStereoToMonoHistory mirrors libopus silk/dec_API.c stereo_to_mono.
+// The right-channel resampler history is only valid when the previous internal
+// stream was stereo and the internal sample rate did not change.
+func (d *Decoder) ShouldUseStereoToMonoHistory(bandwidth Bandwidth, prevPacketStereo bool) bool {
+	if !prevPacketStereo {
+		return false
+	}
+	config := GetBandwidthConfig(bandwidth)
+	return d.state[0].fsKHz != 0 && config.SampleRate == d.state[0].fsKHz*1000
 }
 
 // handleBandwidthChange detects sample rate changes and resets the appropriate resampler.
