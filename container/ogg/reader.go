@@ -6,6 +6,7 @@ import "io"
 // It parses the Ogg stream and extracts Opus packets for decoding.
 type Reader struct {
 	r             io.Reader
+	rs            io.ReadSeeker
 	Header        *OpusHead // Parsed ID header (set after NewReader)
 	Tags          *OpusTags // Parsed comment header (set after NewReader)
 	granulePos    uint64    // Last granule position seen
@@ -13,6 +14,7 @@ type Reader struct {
 	partialPacket []byte    // For packets spanning pages
 	pending       []packetEntry
 	serial        uint32 // Stream serial number
+	audioOffset   int64  // Stream offset of the first audio page for seekable inputs
 	pageBuffer    []byte // Buffer for reading pages
 	bufferOffset  int    // Current position in buffer
 	bufferLen     int    // Valid data in buffer
@@ -28,6 +30,9 @@ func NewReader(r io.Reader) (*Reader, error) {
 	or := &Reader{
 		r:          r,
 		pageBuffer: make([]byte, readerBufferSize),
+	}
+	if rs, ok := r.(io.ReadSeeker); ok {
+		or.rs = rs
 	}
 
 	// Read BOS page with OpusHead.
@@ -86,6 +91,13 @@ func NewReader(r io.Reader) (*Reader, error) {
 	or.Tags, err = ParseOpusTags(tagsData)
 	if err != nil {
 		return nil, err
+	}
+	if or.rs != nil {
+		offset, offsetErr := or.streamOffset()
+		if offsetErr != nil {
+			return nil, offsetErr
+		}
+		or.audioOffset = offset
 	}
 
 	return or, nil
@@ -159,6 +171,42 @@ func (or *Reader) ReadPacketInto(dst []byte) (n int, granulePos uint64, err erro
 	return n, granule, nil
 }
 
+// SeekGranule rewinds a seekable stream to the first packet at or after target.
+//
+// This is a correctness-first linear scan from the first audio page, which keeps
+// the API small and deterministic for in-memory or file-backed readers. Later
+// optimizations can replace the linear walk with a true bisection search.
+func (or *Reader) SeekGranule(target uint64) error {
+	if or.rs == nil {
+		return ErrNotSeekable
+	}
+	if _, err := or.rs.Seek(or.audioOffset, io.SeekStart); err != nil {
+		return err
+	}
+
+	or.granulePos = 0
+	or.eos = false
+	or.partialPacket = nil
+	or.pending = nil
+	or.bufferOffset = 0
+	or.bufferLen = 0
+
+	for {
+		packet, granule, err := or.ReadPacket()
+		if err != nil {
+			return err
+		}
+		if granule >= target {
+			packetCopy := make([]byte, len(packet))
+			copy(packetCopy, packet)
+			or.pending = append([]packetEntry{{data: packetCopy, granulePos: granule}}, or.pending...)
+			or.granulePos = 0
+			or.eos = false
+			return nil
+		}
+	}
+}
+
 type packetEntry struct {
 	data       []byte
 	granulePos uint64
@@ -206,6 +254,15 @@ func packetDuration48k(packet []byte) (uint64, bool) {
 	}
 
 	return uint64(frameSize) * uint64(frameCount), true
+}
+
+func (or *Reader) streamOffset() (int64, error) {
+	current, err := or.rs.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return 0, err
+	}
+	buffered := int64(or.bufferLen - or.bufferOffset)
+	return current - buffered, nil
 }
 
 func assignPacketGranules(pageGranule uint64, entries []packetEntry) {
