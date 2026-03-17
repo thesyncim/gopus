@@ -97,7 +97,7 @@ make bench-guard
 GOWORK=off go test ./container/ogg -count=1
 ```
 
-The current safe seed is `ogg-seek`.
+The current safe seed is `mix-arrivals-f32wav`.
 
 4. Fair throughput comparison for `performance`:
 

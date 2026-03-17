@@ -64,7 +64,7 @@ The default mixed/quality judge is:
 
 1. `make test-quality`
 2. `make bench-guard`
-3. `go test ./container/ogg -count=1` for the allowlisted unimplemented seed (`ogg-seek`)
+3. `go test ./examples/mix-arrivals -count=1` for the allowlisted unimplemented seed (`mix-arrivals-f32wav`)
 
 The `quality` and `mixed` score also incorporates the minimum
 `Hybrid->CELT` 10ms transition SNR reported by

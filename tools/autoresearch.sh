@@ -8,7 +8,7 @@ PROGRAM_FILE="$ROOT_DIR/program.md"
 BENCH_INPUT_DIR="$LOG_DIR_DEFAULT"
 AUTORESEARCH_FOCUS_DEFAULT="${AUTORESEARCH_FOCUS:-mixed}"
 QUALITY_TEST_TARGET_DEFAULT="${AUTORESEARCH_QUALITY_TARGET:-test-quality}"
-UNIMPLEMENTED_SEED_DEFAULT="${AUTORESEARCH_UNIMPLEMENTED_SEED:-ogg-seek}"
+UNIMPLEMENTED_SEED_DEFAULT="${AUTORESEARCH_UNIMPLEMENTED_SEED:-mix-arrivals-f32wav}"
 BENCH_SAMPLE_DEFAULT="${AUTORESEARCH_SAMPLE:-speech}"
 BENCH_ITERS_DEFAULT="${AUTORESEARCH_ITERS:-2}"
 BENCH_WARMUP_DEFAULT="${AUTORESEARCH_WARMUP:-1}"
@@ -149,8 +149,9 @@ unimplemented_lane_summary() {
 count_allowlisted_unimplemented_items() {
   local count=0
   case "$UNIMPLEMENTED_SEED_DEFAULT" in
-  ogg-seek)
-    if rg -q 'seeking requires bisection search \(not implemented\)' "$ROOT_DIR/examples/ogg-file/main.go"; then
+  mix-arrivals-f32wav)
+    if rg -q 'unsupported wav format %d \(only PCM=1\)' "$ROOT_DIR/examples/mix-arrivals/speech_tracks.go" ||
+      rg -q 'unsupported bits-per-sample %d \(only 16\)' "$ROOT_DIR/examples/mix-arrivals/speech_tracks.go"; then
       count=$((count + 1))
     fi
     ;;
@@ -164,8 +165,8 @@ count_allowlisted_unimplemented_items() {
 run_unimplemented_lane_checks() {
   local log_file="$1"
   case "$UNIMPLEMENTED_SEED_DEFAULT" in
-  ogg-seek)
-    run_logged "$log_file" env GOWORK=off go test ./container/ogg -count=1
+  mix-arrivals-f32wav)
+    run_logged "$log_file" env GOWORK=off go test ./examples/mix-arrivals -count=1
     ;;
   *)
     die "invalid unimplemented seed '$UNIMPLEMENTED_SEED_DEFAULT'"
