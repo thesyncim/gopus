@@ -3,28 +3,31 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-RESULTS_FILE_DEFAULT="$ROOT_DIR/results.tsv"
 LOG_DIR_DEFAULT="$ROOT_DIR/reports/autoresearch"
 PROGRAM_FILE="$ROOT_DIR/program.md"
 BENCH_INPUT_DIR="$LOG_DIR_DEFAULT"
+AUTORESEARCH_FOCUS_DEFAULT="${AUTORESEARCH_FOCUS:-mixed}"
+QUALITY_TEST_TARGET_DEFAULT="${AUTORESEARCH_QUALITY_TARGET:-test-quality}"
+UNIMPLEMENTED_SEED_DEFAULT="${AUTORESEARCH_UNIMPLEMENTED_SEED:-ogg-seek}"
 BENCH_SAMPLE_DEFAULT="${AUTORESEARCH_SAMPLE:-speech}"
 BENCH_ITERS_DEFAULT="${AUTORESEARCH_ITERS:-2}"
 BENCH_WARMUP_DEFAULT="${AUTORESEARCH_WARMUP:-1}"
 BENCH_BITRATE_DEFAULT="${AUTORESEARCH_BITRATE:-64000}"
 BENCH_COMPLEXITY_DEFAULT="${AUTORESEARCH_COMPLEXITY:-10}"
 PARITY_REGEX_DEFAULT="${AUTORESEARCH_PARITY_REGEX:-TestSILKParamTraceAgainstLibopus|TestEncoderComplianceSummary}"
-RESULTS_HEADER=$'commit\tparity\tbenchguard\tgopus_avg_rt\tlibopus_avg_rt\trt_ratio\tstatus\tdescription'
+PERFORMANCE_RESULTS_HEADER=$'commit\tparity\tbenchguard\tgopus_avg_rt\tlibopus_avg_rt\trt_ratio\tstatus\tdescription'
+QUALITY_RESULTS_HEADER=$'commit\tquality\tbenchguard\tquality_mean_gap_db\tquality_min_gap_db\tscore\tstatus\tdescription'
 
 cd "$ROOT_DIR"
 
 usage() {
   cat <<'EOF'
 Usage:
-  tools/autoresearch.sh init [--results path]
-  tools/autoresearch.sh preflight [--results path]
-  tools/autoresearch.sh best [--results path]
-  tools/autoresearch.sh eval [--results path] [--description text] [--sample speech|stereo] [--iters N] [--warmup N] [--bitrate bps] [--complexity N]
-  tools/autoresearch.sh loop [--results path] [--max-iterations N] [--model MODEL] [--verbose] [--dry-run]
+  tools/autoresearch.sh init [--focus performance|quality|unimplemented|mixed] [--results path]
+  tools/autoresearch.sh preflight [--focus performance|quality|unimplemented|mixed] [--results path]
+  tools/autoresearch.sh best [--focus performance|quality|unimplemented|mixed] [--results path]
+  tools/autoresearch.sh eval [--focus performance|quality|unimplemented|mixed] [--results path] [--description text] [--sample speech|stereo] [--iters N] [--warmup N] [--bitrate bps] [--complexity N]
+  tools/autoresearch.sh loop [--focus performance|quality|unimplemented|mixed] [--results path] [--max-iterations N] [--model MODEL] [--verbose] [--dry-run]
 EOF
 }
 
@@ -37,16 +40,33 @@ sanitize_description() {
   tr '\t\r\n' '   ' <<<"${1:-}" | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//'
 }
 
+results_header_for_focus() {
+  case "$1" in
+  performance)
+    printf "%s\n" "$PERFORMANCE_RESULTS_HEADER"
+    ;;
+  quality|unimplemented|mixed)
+    printf "%s\n" "$QUALITY_RESULTS_HEADER"
+    ;;
+  *)
+    die "invalid focus '$1' (valid: performance, quality, unimplemented, mixed)"
+    ;;
+  esac
+}
+
 ensure_results_header() {
   local path="$1"
-  if [[ ! -f "$path" ]]; then
-    printf "%s\n" "$RESULTS_HEADER" >"$path"
+  local focus="$2"
+  local expected_header
+  expected_header="$(results_header_for_focus "$focus")"
+  if [[ ! -f "$path" || ! -s "$path" ]]; then
+    printf "%s\n" "$expected_header" >"$path"
     return 0
   fi
 
   local header
   header="$(head -n 1 "$path" || true)"
-  if [[ "$header" != "$RESULTS_HEADER" ]]; then
+  if [[ "$header" != "$expected_header" ]]; then
     die "unexpected results.tsv header in $path"
   fi
 }
@@ -54,6 +74,103 @@ ensure_results_header() {
 require_file() {
   local path="$1"
   [[ -f "$path" ]] || die "missing required file: $path"
+}
+
+normalize_focus() {
+  local focus="${1:-}"
+  focus="${focus,,}"
+  case "$focus" in
+  performance|quality|unimplemented|mixed)
+    printf "%s\n" "$focus"
+    ;;
+  "")
+    printf "%s\n" "$AUTORESEARCH_FOCUS_DEFAULT"
+    ;;
+  *)
+    die "invalid focus '$focus' (valid: performance, quality, unimplemented, mixed)"
+    ;;
+  esac
+}
+
+default_results_path_for_focus() {
+  case "$1" in
+  performance)
+    echo "$ROOT_DIR/results.tsv"
+    ;;
+  quality)
+    echo "$ROOT_DIR/results.quality.tsv"
+    ;;
+  unimplemented)
+    echo "$ROOT_DIR/results.unimplemented.tsv"
+    ;;
+  mixed)
+    echo "$ROOT_DIR/results.mixed.tsv"
+    ;;
+  *)
+    die "invalid focus '$1' (valid: performance, quality, unimplemented, mixed)"
+    ;;
+  esac
+}
+
+resolve_results_path() {
+  local focus="$1"
+  local results="$2"
+  if [[ -n "$results" ]]; then
+    printf "%s\n" "$results"
+    return 0
+  fi
+  default_results_path_for_focus "$focus"
+}
+
+focus_description() {
+  case "$1" in
+  performance)
+    echo "performance-first"
+    ;;
+  quality)
+    echo "quality-first"
+    ;;
+  unimplemented)
+    echo "unimplemented-first"
+    ;;
+  mixed)
+    echo "quality-first mixed"
+    ;;
+  *)
+    die "invalid focus '$1' (valid: performance, quality, unimplemented, mixed)"
+    ;;
+  esac
+}
+
+unimplemented_lane_summary() {
+  echo "allowlisted seed: $UNIMPLEMENTED_SEED_DEFAULT"
+}
+
+count_allowlisted_unimplemented_items() {
+  local count=0
+  case "$UNIMPLEMENTED_SEED_DEFAULT" in
+  ogg-seek)
+    if rg -q 'seeking requires bisection search \(not implemented\)' "$ROOT_DIR/examples/ogg-file/main.go"; then
+      count=$((count + 1))
+    fi
+    ;;
+  *)
+    die "invalid unimplemented seed '$UNIMPLEMENTED_SEED_DEFAULT'"
+    ;;
+  esac
+  printf "%s\n" "$count"
+}
+
+run_unimplemented_lane_checks() {
+  local log_file="$1"
+  case "$UNIMPLEMENTED_SEED_DEFAULT" in
+  ogg-seek)
+    run_logged "$log_file" env GOWORK=off go test ./container/ogg -count=1
+    ;;
+  *)
+    die "invalid unimplemented seed '$UNIMPLEMENTED_SEED_DEFAULT'"
+    ;;
+  esac
 }
 
 sample_url() {
@@ -98,6 +215,48 @@ ensure_cached_input() {
   printf "%s\n" "$path"
 }
 
+extract_quality_stats() {
+  local log_file="$1"
+  awk '
+    /encoder_compliance_test.go:[0-9]+:/ && $NF ~ /^(GOOD|BASE|PASS)$/ {
+      gap = $(NF-1) + 0
+      sum += gap
+      count += 1
+      if (!seen || gap < min_gap) {
+        min_gap = gap
+        seen = 1
+      }
+    }
+    END {
+      if (seen != 1) {
+        exit 1
+      }
+      printf "%.6f\t%.6f\n", sum / count, min_gap
+    }
+  ' "$log_file"
+}
+
+quality_score_for_focus() {
+  local focus="$1"
+  local quality_mean_gap="$2"
+  local quality_min_gap="$3"
+  local backlog_count="$4"
+  case "$focus" in
+  quality)
+    printf "%s\n" "$quality_mean_gap"
+    ;;
+  unimplemented)
+    awk -v backlog="$backlog_count" -v q="$quality_mean_gap" 'BEGIN { printf "%.6f\n", (0 - backlog) + (q / 100000.0) }'
+    ;;
+  mixed)
+    awk -v q="$quality_mean_gap" -v minq="$quality_min_gap" -v backlog="$backlog_count" 'BEGIN { printf "%.6f\n", q + (minq / 1000.0) - (backlog / 100.0) }'
+    ;;
+  *)
+    die "invalid focus '$focus' (valid: performance, quality, unimplemented, mixed)"
+    ;;
+  esac
+}
+
 best_success_row() {
   local path="$1"
   [[ -f "$path" ]] || return 0
@@ -120,6 +279,7 @@ best_success_row() {
 
 print_best_summary() {
   local path="$1"
+  local focus="$2"
   local row
   row="$(best_success_row "$path")"
   if [[ -z "$row" ]]; then
@@ -127,8 +287,13 @@ print_best_summary() {
     return 0
   fi
 
-  IFS=$'\t' read -r commit parity benchguard gopus libopus ratio status description <<<"$row"
-  echo "best: commit=$commit status=$status rt_ratio=$ratio gopus_avg_rt=$gopus libopus_avg_rt=$libopus desc=$description"
+  local gate metric_a metric_b score status description commit
+  IFS=$'\t' read -r commit gate _ metric_a metric_b score status description <<<"$row"
+  if [[ "$focus" == "performance" ]]; then
+    echo "best: commit=$commit status=$status rt_ratio=$score gopus_avg_rt=$metric_a libopus_avg_rt=$metric_b desc=$description"
+  else
+    echo "best: commit=$commit status=$status score=$score quality_mean_gap_db=$metric_a quality_min_gap_db=$metric_b desc=$description"
+  fi
 }
 
 git_commit_label() {
@@ -220,14 +385,19 @@ append_result_row() {
 
 format_best_summary() {
   local row="$1"
+  local focus="$2"
   if [[ -z "$row" || "$row" == "none" ]]; then
     echo "none"
     return 0
   fi
 
-  local commit parity benchguard gopus libopus ratio status description
-  IFS=$'\t' read -r commit parity benchguard gopus libopus ratio status description <<<"$row"
-  echo "commit=$commit status=$status rt_ratio=$ratio gopus_avg_rt=$gopus libopus_avg_rt=$libopus desc=$description"
+  local commit gate metric_a metric_b score status description
+  IFS=$'\t' read -r commit gate _ metric_a metric_b score status description <<<"$row"
+  if [[ "$focus" == "performance" ]]; then
+    echo "commit=$commit status=$status rt_ratio=$score gopus_avg_rt=$metric_a libopus_avg_rt=$metric_b desc=$description"
+  else
+    echo "commit=$commit status=$status score=$score quality_mean_gap_db=$metric_a quality_min_gap_db=$metric_b desc=$description"
+  fi
 }
 
 results_row_count() {
@@ -257,6 +427,7 @@ require_clean_worktree() {
 build_loop_prompt() {
   local start_commit="$1"
   local best_summary="$2"
+  local focus="$3"
   cat <<EOF
 You are running exactly one autonomous autoresearch iteration in this repository.
 
@@ -269,26 +440,44 @@ Mandatory rules for this one iteration:
 1. Work on exactly one small experiment in one editable surface.
 2. Make the code change.
 3. Commit the experiment before evaluation using a conventional commit message.
-4. Run: make autoresearch-eval DESCRIPTION='<short experiment note>'
-5. Inspect the appended row in results.tsv.
+4. Run: make autoresearch-eval FOCUS=$focus DESCRIPTION='<short experiment note>'
+5. Inspect the appended row in the focus-specific results ledger.
 6. If the result status is discard or crash, reset the repository back to START_COMMIT.
 7. If the result status is keep or baseline, stay on the new commit.
-8. Do not edit results.tsv or reports/autoresearch/ manually.
+8. Do not edit the results ledger or reports/autoresearch/ manually.
 9. Finish with exactly one summary line in this format:
    outcome=<status> commit=<short> description=<description>
 
 Context:
 - START_COMMIT=$start_commit
 - CURRENT_BEST=$best_summary
+- FOCUS=$focus
+- QUALITY_TARGET=$QUALITY_TEST_TARGET_DEFAULT
+- UNIMPLEMENTED_SEED=$UNIMPLEMENTED_SEED_DEFAULT
+
+Focus guidance:
+- performance: improve the fair throughput comparison only.
+- quality: improve the quality metrics from existing tests.
+- unimplemented: work only on the allowlisted unimplemented seed and its test-backed surface.
+- mixed: prefer quality improvements first, but it is valid to close the allowlisted unimplemented seed when the quality score stays flat.
+
+If subagents are available, spawn two read-only scouts in parallel before choosing the edit:
+- one quality/compliance scout
+- one unimplemented-feature scout
 
 Do not start a second experiment in this session.
 EOF
 }
 
 cmd_init() {
-  local results="$RESULTS_FILE_DEFAULT"
+  local focus="$AUTORESEARCH_FOCUS_DEFAULT"
+  local results=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
+    --focus)
+      focus="$(normalize_focus "$2")"
+      shift 2
+      ;;
     --results)
       results="$2"
       shift 2
@@ -300,15 +489,21 @@ cmd_init() {
     esac
   done
 
-  ensure_results_header "$results"
+  results="$(resolve_results_path "$focus" "$results")"
+  ensure_results_header "$results" "$focus"
   mkdir -p "$LOG_DIR_DEFAULT"
-  echo "initialized results ledger: $results"
+  echo "initialized results ledger: $results (focus=$focus)"
 }
 
 cmd_preflight() {
-  local results="$RESULTS_FILE_DEFAULT"
+  local focus="$AUTORESEARCH_FOCUS_DEFAULT"
+  local results=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
+    --focus)
+      focus="$(normalize_focus "$2")"
+      shift 2
+      ;;
     --results)
       results="$2"
       shift 2
@@ -320,6 +515,7 @@ cmd_preflight() {
     esac
   done
 
+  results="$(resolve_results_path "$focus" "$results")"
   require_file "$PROGRAM_FILE"
   require_file "$ROOT_DIR/AGENTS.md"
   require_file "$ROOT_DIR/README.md"
@@ -330,6 +526,7 @@ cmd_preflight() {
   echo "repo: $(basename "$ROOT_DIR")"
   echo "branch: $(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD)"
   echo "head: $(git -C "$ROOT_DIR" rev-parse --short HEAD)"
+  echo "focus: $focus ($(focus_description "$focus"))"
 
   if [[ "$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD)" != autoresearch/* ]]; then
     echo "branch check: WARN (recommended branch prefix is autoresearch/)"
@@ -344,21 +541,28 @@ cmd_preflight() {
   fi
 
   if [[ -f "$results" ]]; then
-    ensure_results_header "$results"
+    ensure_results_header "$results" "$focus"
     echo "results ledger: $results"
   else
-    echo "results ledger: missing (run: make autoresearch-init)"
+    echo "results ledger: missing (run: make autoresearch-init FOCUS=$focus)"
   fi
 
-  echo "fixed parity regex: $PARITY_REGEX_DEFAULT"
+  echo "performance parity regex: $PARITY_REGEX_DEFAULT"
+  echo "quality target: make $QUALITY_TEST_TARGET_DEFAULT"
+  echo "unimplemented lane: $(unimplemented_lane_summary)"
   echo "bench harness sample: $BENCH_SAMPLE_DEFAULT"
-  print_best_summary "$results"
+  print_best_summary "$results" "$focus"
 }
 
 cmd_best() {
-  local results="$RESULTS_FILE_DEFAULT"
+  local focus="$AUTORESEARCH_FOCUS_DEFAULT"
+  local results=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
+    --focus)
+      focus="$(normalize_focus "$2")"
+      shift 2
+      ;;
     --results)
       results="$2"
       shift 2
@@ -370,12 +574,14 @@ cmd_best() {
     esac
   done
 
-  ensure_results_header "$results"
-  print_best_summary "$results"
+  results="$(resolve_results_path "$focus" "$results")"
+  ensure_results_header "$results" "$focus"
+  print_best_summary "$results" "$focus"
 }
 
 cmd_eval() {
-  local results="$RESULTS_FILE_DEFAULT"
+  local focus="$AUTORESEARCH_FOCUS_DEFAULT"
+  local results=""
   local description=""
   local sample="$BENCH_SAMPLE_DEFAULT"
   local iters="$BENCH_ITERS_DEFAULT"
@@ -385,6 +591,10 @@ cmd_eval() {
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
+    --focus)
+      focus="$(normalize_focus "$2")"
+      shift 2
+      ;;
     --results)
       results="$2"
       shift 2
@@ -420,7 +630,8 @@ cmd_eval() {
     esac
   done
 
-  ensure_results_header "$results"
+  results="$(resolve_results_path "$focus" "$results")"
+  ensure_results_header "$results" "$focus"
   mkdir -p "$LOG_DIR_DEFAULT"
 
   if [[ -z "$description" ]]; then
@@ -429,83 +640,143 @@ cmd_eval() {
   description="$(sanitize_description "$description")"
   [[ -n "$description" ]] || description="experiment"
 
-  local commit log_file input_path parity benchguard gopus_avg_rt libopus_avg_rt rt_ratio status
-  local best_row best_commit best_ratio
+  local commit log_file gate_status benchguard metric_a metric_b score status
+  local best_row best_commit best_score
+  local quality_log_file focus_note input_path
+  local quality_mean_gap quality_min_gap backlog_count
 
   commit="$(git_commit_label)"
   log_file="$LOG_DIR_DEFAULT/$(date -u +%Y%m%dT%H%M%SZ)-${commit//+/_}.log"
-  input_path="$(ensure_cached_input "$sample")"
-  parity="FAIL"
+  gate_status="FAIL"
   benchguard="SKIP"
-  gopus_avg_rt="0.000000"
-  libopus_avg_rt="0.000000"
-  rt_ratio="0.000000"
+  metric_a="0.000000"
+  metric_b="0.000000"
+  score="0.000000"
   status="crash"
   best_row="$(best_success_row "$results")"
   best_commit=""
-  best_ratio="0.000000"
+  best_score="0.000000"
+  focus_note="$(focus_description "$focus")"
+  quality_mean_gap="0.000000"
+  quality_min_gap="0.000000"
+  backlog_count="0"
   if [[ -n "$best_row" ]]; then
-    IFS=$'\t' read -r best_commit _ _ _ _ best_ratio _ _ <<<"$best_row"
+    IFS=$'\t' read -r best_commit _ _ _ _ best_score _ _ <<<"$best_row"
   fi
 
   echo "autoresearch: writing log to $log_file"
+  echo "autoresearch: focus=$focus ($focus_note)"
 
   if ! run_logged "$log_file" make ensure-libopus; then
-    append_result_row "$results" "$commit" "$parity" "$benchguard" "$gopus_avg_rt" "$libopus_avg_rt" "$rt_ratio" "$status" "$description"
+    append_result_row "$results" "$commit" "$gate_status" "$benchguard" "$metric_a" "$metric_b" "$score" "$status" "$description"
     die "ensure-libopus failed; see $log_file"
   fi
 
-  if ! run_logged "$log_file" env GOWORK=off GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 go test ./testvectors -run "$PARITY_REGEX_DEFAULT" -count=1; then
-    status="discard"
-    append_result_row "$results" "$commit" "$parity" "$benchguard" "$gopus_avg_rt" "$libopus_avg_rt" "$rt_ratio" "$status" "$description"
-    echo "result: status=$status parity=$parity benchguard=$benchguard log=$log_file"
-    [[ -n "$best_commit" ]] && echo "best_success_before: commit=$best_commit rt_ratio=$best_ratio"
-    return 0
-  fi
-  parity="PASS"
+  case "$focus" in
+  performance)
+    if ! run_logged "$log_file" env GOWORK=off GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 go test ./testvectors -run "$PARITY_REGEX_DEFAULT" -count=1; then
+      status="discard"
+      append_result_row "$results" "$commit" "$gate_status" "$benchguard" "$metric_a" "$metric_b" "$score" "$status" "$description"
+      echo "result: status=$status gate=$gate_status benchguard=$benchguard focus=$focus log=$log_file"
+      [[ -n "$best_commit" ]] && echo "best_success_before: commit=$best_commit score=$best_score"
+      return 0
+    fi
+    gate_status="PASS"
 
-  if ! run_logged "$log_file" make bench-guard; then
-    benchguard="FAIL"
-    status="discard"
-    append_result_row "$results" "$commit" "$parity" "$benchguard" "$gopus_avg_rt" "$libopus_avg_rt" "$rt_ratio" "$status" "$description"
-    echo "result: status=$status parity=$parity benchguard=$benchguard log=$log_file"
-    [[ -n "$best_commit" ]] && echo "best_success_before: commit=$best_commit rt_ratio=$best_ratio"
-    return 0
-  fi
-  benchguard="PASS"
+    if ! run_logged "$log_file" make bench-guard; then
+      benchguard="FAIL"
+      status="discard"
+      append_result_row "$results" "$commit" "$gate_status" "$benchguard" "$metric_a" "$metric_b" "$score" "$status" "$description"
+      echo "result: status=$status gate=$gate_status benchguard=$benchguard focus=$focus log=$log_file"
+      [[ -n "$best_commit" ]] && echo "best_success_before: commit=$best_commit score=$best_score"
+      return 0
+    fi
+    benchguard="PASS"
 
-  if ! run_logged "$log_file" env GOWORK=off go run ./examples/bench-encode -in "$input_path" -iters "$iters" -warmup "$warmup" -mode both -bitrate "$bitrate" -complexity "$complexity"; then
-    append_result_row "$results" "$commit" "$parity" "$benchguard" "$gopus_avg_rt" "$libopus_avg_rt" "$rt_ratio" "$status" "$description"
-    die "bench harness failed; see $log_file"
-  fi
+    input_path="$(ensure_cached_input "$sample")"
+    if ! run_logged "$log_file" env GOWORK=off go run ./examples/bench-encode -in "$input_path" -iters "$iters" -warmup "$warmup" -mode both -bitrate "$bitrate" -complexity "$complexity"; then
+      append_result_row "$results" "$commit" "$gate_status" "$benchguard" "$metric_a" "$metric_b" "$score" "$status" "$description"
+      die "bench harness failed; see $log_file"
+    fi
 
-  gopus_avg_rt="$(extract_avg_rt 'gopus' "$log_file")" || {
-    append_result_row "$results" "$commit" "$parity" "$benchguard" "$gopus_avg_rt" "$libopus_avg_rt" "$rt_ratio" "$status" "$description"
-    die "failed to parse gopus avg realtime from $log_file"
-  }
-  libopus_avg_rt="$(extract_avg_rt 'libopus\(opus_demo\)' "$log_file")" || {
-    append_result_row "$results" "$commit" "$parity" "$benchguard" "$gopus_avg_rt" "$libopus_avg_rt" "$rt_ratio" "$status" "$description"
-    die "failed to parse libopus avg realtime from $log_file"
-  }
-  rt_ratio="$(awk -v g="$gopus_avg_rt" -v l="$libopus_avg_rt" 'BEGIN { if (l <= 0) { print "0.000000"; exit 0 } printf "%.6f\n", g / l }')"
+    metric_a="$(extract_avg_rt 'gopus' "$log_file")" || {
+      append_result_row "$results" "$commit" "$gate_status" "$benchguard" "$metric_a" "$metric_b" "$score" "$status" "$description"
+      die "failed to parse gopus avg realtime from $log_file"
+    }
+    metric_b="$(extract_avg_rt 'libopus\(opus_demo\)' "$log_file")" || {
+      append_result_row "$results" "$commit" "$gate_status" "$benchguard" "$metric_a" "$metric_b" "$score" "$status" "$description"
+      die "failed to parse libopus avg realtime from $log_file"
+    }
+    score="$(awk -v g="$metric_a" -v l="$metric_b" 'BEGIN { if (l <= 0) { print "0.000000"; exit 0 } printf "%.6f\n", g / l }')"
+    ;;
+  quality|unimplemented|mixed)
+    quality_log_file="$log_file.quality"
+    if ! run_logged "$quality_log_file" make "$QUALITY_TEST_TARGET_DEFAULT"; then
+      status="discard"
+      append_result_row "$results" "$commit" "$gate_status" "$benchguard" "$metric_a" "$metric_b" "$score" "$status" "$description"
+      echo "result: status=$status gate=$gate_status benchguard=$benchguard focus=$focus log=$quality_log_file"
+      [[ -n "$best_commit" ]] && echo "best_success_before: commit=$best_commit score=$best_score"
+      return 0
+    fi
+    gate_status="PASS"
+
+    if ! run_logged "$log_file" make bench-guard; then
+      benchguard="FAIL"
+      status="discard"
+      append_result_row "$results" "$commit" "$gate_status" "$benchguard" "$metric_a" "$metric_b" "$score" "$status" "$description"
+      echo "result: status=$status gate=$gate_status benchguard=$benchguard focus=$focus log=$log_file"
+      [[ -n "$best_commit" ]] && echo "best_success_before: commit=$best_commit score=$best_score"
+      return 0
+    fi
+    benchguard="PASS"
+
+    if [[ "$focus" == "unimplemented" || "$focus" == "mixed" ]]; then
+      if ! run_unimplemented_lane_checks "$log_file"; then
+        status="discard"
+        append_result_row "$results" "$commit" "$gate_status" "$benchguard" "$metric_a" "$metric_b" "$score" "$status" "$description"
+        echo "result: status=$status gate=$gate_status benchguard=$benchguard focus=$focus log=$log_file"
+        [[ -n "$best_commit" ]] && echo "best_success_before: commit=$best_commit score=$best_score"
+        return 0
+      fi
+    fi
+
+    IFS=$'\t' read -r quality_mean_gap quality_min_gap < <(extract_quality_stats "$quality_log_file") || {
+      append_result_row "$results" "$commit" "$gate_status" "$benchguard" "$metric_a" "$metric_b" "$score" "$status" "$description"
+      die "failed to parse quality score from $quality_log_file"
+    }
+
+    backlog_count="$(count_allowlisted_unimplemented_items)"
+    metric_a="$quality_mean_gap"
+    metric_b="$quality_min_gap"
+    score="$(quality_score_for_focus "$focus" "$quality_mean_gap" "$quality_min_gap" "$backlog_count")"
+    ;;
+  *)
+    die "invalid focus '$focus' (valid: performance, quality, unimplemented, mixed)"
+    ;;
+  esac
 
   if [[ -z "$best_row" ]]; then
     status="baseline"
-  elif awk -v current="$rt_ratio" -v best="$best_ratio" 'BEGIN { exit !(current > best) }'; then
+  elif awk -v current="$score" -v best="$best_score" 'BEGIN { exit !(current > best) }'; then
     status="keep"
   else
     status="discard"
   fi
 
-  append_result_row "$results" "$commit" "$parity" "$benchguard" "$gopus_avg_rt" "$libopus_avg_rt" "$rt_ratio" "$status" "$description"
-  echo "result: status=$status parity=$parity benchguard=$benchguard gopus_avg_rt=$gopus_avg_rt libopus_avg_rt=$libopus_avg_rt rt_ratio=$rt_ratio log=$log_file"
+  append_result_row "$results" "$commit" "$gate_status" "$benchguard" "$metric_a" "$metric_b" "$score" "$status" "$description"
+  if [[ "$focus" == "performance" ]]; then
+    echo "result: status=$status gate=$gate_status benchguard=$benchguard focus=$focus rt_ratio=$score gopus_avg_rt=$metric_a libopus_avg_rt=$metric_b log=$log_file"
+  else
+    echo "result: status=$status gate=$gate_status benchguard=$benchguard focus=$focus score=$score quality_mean_gap_db=$metric_a quality_min_gap_db=$metric_b feature_backlog=$backlog_count log=$log_file"
+  fi
   if [[ -n "$best_commit" ]]; then
-    echo "best_success_before: commit=$best_commit rt_ratio=$best_ratio"
+    echo "best_success_before: commit=$best_commit score=$best_score"
   fi
 }
 
 cmd_loop() {
-  local results="$RESULTS_FILE_DEFAULT"
+  local focus="$AUTORESEARCH_FOCUS_DEFAULT"
+  local results=""
   local max_iterations=""
   local model=""
   local verbose=0
@@ -513,6 +784,10 @@ cmd_loop() {
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
+    --focus)
+      focus="$(normalize_focus "$2")"
+      shift 2
+      ;;
     --results)
       results="$2"
       shift 2
@@ -540,7 +815,8 @@ cmd_loop() {
     esac
   done
 
-  ensure_results_header "$results"
+  results="$(resolve_results_path "$focus" "$results")"
+  ensure_results_header "$results" "$focus"
   require_clean_worktree
   command -v codex >/dev/null 2>&1 || die "codex CLI not found in PATH"
 
@@ -562,15 +838,16 @@ cmd_loop() {
       best_summary="none"
     fi
     local best_summary_human
-    best_summary_human="$(format_best_summary "$best_summary")"
+    best_summary_human="$(format_best_summary "$best_summary" "$focus")"
 
     prompt_file="$(mktemp)"
     agent_log="$LOG_DIR_DEFAULT/loop-$(date -u +%Y%m%dT%H%M%SZ)-${iteration}.log"
     agent_msg="$LOG_DIR_DEFAULT/loop-$(date -u +%Y%m%dT%H%M%SZ)-${iteration}-last.txt"
     mkdir -p "$LOG_DIR_DEFAULT"
-    build_loop_prompt "$start_commit" "$best_summary" >"$prompt_file"
+    build_loop_prompt "$start_commit" "$best_summary" "$focus" >"$prompt_file"
 
     echo "autoresearch: starting loop iteration $iteration from $(git -C "$ROOT_DIR" rev-parse --short "$start_commit")"
+    echo "autoresearch: focus=$focus ($(focus_description "$focus"))"
     echo "autoresearch: best before iteration: $best_summary_human"
     echo "autoresearch: codex log: $agent_log"
     echo "autoresearch: codex last message: $agent_msg"

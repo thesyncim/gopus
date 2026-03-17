@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix test test-fast test-race test-race-parity test-fuzz-smoke test-fuzz-safety test-parity test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard autoresearch-init autoresearch-preflight autoresearch-eval autoresearch-best autoresearch-loop verify-production verify-production-exhaustive verify-safety release-evidence ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
+.PHONY: lint lint-fix test test-fast test-race test-race-parity test-fuzz-smoke test-fuzz-safety test-parity test-quality test-quality-extended test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard autoresearch-init autoresearch-preflight autoresearch-eval autoresearch-best autoresearch-loop autoresearch-loop-mixed autoresearch-loop-quality autoresearch-loop-unimplemented autoresearch-loop-performance verify-production verify-production-exhaustive verify-safety release-evidence ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
@@ -37,6 +37,7 @@ GOPUS_SAFETY_SOAK_REPORT_INTERVAL ?= 10s
 GOPUS_SAFETY_SOAK_MAX_RSS_GROWTH_MIB ?= 256
 GOPUS_SAFETY_SOAK_MAX_GOROUTINE_GROWTH ?= 16
 GOPUS_SAFETY_SOAK_MAX_ALLOCS ?= 0.0
+FOCUS ?= mixed
 
 # Run golangci-lint
 lint:
@@ -81,6 +82,14 @@ test-fuzz-safety: ensure-libopus
 test-parity:
 	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test ./testvectors -run 'TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard|TestDecoderParityLibopusMatrix|TestDecoderParityMatrixWithFFmpeg|TestEncoderVariantProfileParityAgainstLibopusFixture' -count=1
 
+# Quality-first inner-loop gate with verbose compliance telemetry.
+test-quality:
+	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test ./testvectors -run 'TestSILKParamTraceAgainstLibopus|TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard|TestEncoderVariantProfileParityAgainstLibopusFixture|TestDecoderParityLibopusMatrix|TestDecoderLossParityLibopusFixture' -count=1 -v
+
+# Optional extended compatibility coverage that may self-skip when ffmpeg is unavailable.
+test-quality-extended:
+	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test ./testvectors -run 'TestDecoderParityMatrixWithFFmpeg' -count=1
+
 # Native assembly/fallback validation matrix.
 test-assembly-safety: ensure-libopus
 	$(ASSEMBLY_SAFETY_MATRIX)
@@ -95,25 +104,38 @@ bench-guard:
 
 # Initialize the local autoresearch ledger.
 autoresearch-init:
-	bash ./tools/autoresearch.sh init
+	bash ./tools/autoresearch.sh init --focus $(FOCUS)
 
 # Verify that the fixed judge and local ledger are ready.
 autoresearch-preflight:
-	bash ./tools/autoresearch.sh preflight
+	bash ./tools/autoresearch.sh preflight --focus $(FOCUS)
 
 # Run one fixed autoresearch evaluation and append a results row.
 # Usage: make autoresearch-eval DESCRIPTION='short experiment note'
 autoresearch-eval:
-	bash ./tools/autoresearch.sh eval --description "$${DESCRIPTION:-experiment}"
+	bash ./tools/autoresearch.sh eval --focus $(FOCUS) --description "$${DESCRIPTION:-experiment}"
 
 # Print the current best successful autoresearch row.
 autoresearch-best:
-	bash ./tools/autoresearch.sh best
+	bash ./tools/autoresearch.sh best --focus $(FOCUS)
 
 # Run the autonomous codex-driven experiment loop.
 # Usage: make autoresearch-loop MAX_ITERATIONS=5 VERBOSE=1
 autoresearch-loop:
-	bash ./tools/autoresearch.sh loop $(if $(MAX_ITERATIONS),--max-iterations $(MAX_ITERATIONS),) $(if $(MODEL),--model $(MODEL),) $(if $(VERBOSE),--verbose,) $(if $(DRY_RUN),--dry-run,)
+	bash ./tools/autoresearch.sh loop --focus $(FOCUS) $(if $(MAX_ITERATIONS),--max-iterations $(MAX_ITERATIONS),) $(if $(MODEL),--model $(MODEL),) $(if $(VERBOSE),--verbose,) $(if $(DRY_RUN),--dry-run,)
+
+# Convenience focus aliases.
+autoresearch-loop-mixed:
+	$(MAKE) autoresearch-loop FOCUS=mixed
+
+autoresearch-loop-quality:
+	$(MAKE) autoresearch-loop FOCUS=quality
+
+autoresearch-loop-unimplemented:
+	$(MAKE) autoresearch-loop FOCUS=unimplemented
+
+autoresearch-loop-performance:
+	$(MAKE) autoresearch-loop FOCUS=performance
 
 # Default production verification gate.
 verify-production: ensure-libopus
