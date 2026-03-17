@@ -236,20 +236,44 @@ extract_quality_stats() {
   ' "$log_file"
 }
 
+extract_decoder_transition_min_snr() {
+  local log_file="$1"
+  awk '
+    /decoder_transition_parity_test.go:[0-9]+:/ && /transition frame=/ {
+      match($0, /snr=[-0-9.]+ dB/)
+      if (RSTART > 0) {
+        snr = substr($0, RSTART + 4, RLENGTH - 7) + 0
+        if (!seen || snr < min_snr) {
+          min_snr = snr
+          seen = 1
+        }
+      }
+    }
+    END {
+      if (seen == 1) {
+        printf "%.6f\n", min_snr
+      } else {
+        printf "0.000000\n"
+      }
+    }
+  ' "$log_file"
+}
+
 quality_score_for_focus() {
   local focus="$1"
   local quality_mean_gap="$2"
   local quality_min_gap="$3"
-  local backlog_count="$4"
+  local decoder_transition_min_snr="$4"
+  local backlog_count="$5"
   case "$focus" in
   quality)
-    printf "%s\n" "$quality_mean_gap"
+    awk -v q="$quality_mean_gap" -v transition="$decoder_transition_min_snr" 'BEGIN { printf "%.6f\n", q + (transition / 1000.0) }'
     ;;
   unimplemented)
     awk -v backlog="$backlog_count" -v q="$quality_mean_gap" 'BEGIN { printf "%.6f\n", (0 - backlog) + (q / 100000.0) }'
     ;;
   mixed)
-    awk -v q="$quality_mean_gap" -v minq="$quality_min_gap" -v backlog="$backlog_count" 'BEGIN { printf "%.6f\n", q + (minq / 1000.0) - (backlog / 100.0) }'
+    awk -v q="$quality_mean_gap" -v minq="$quality_min_gap" -v transition="$decoder_transition_min_snr" -v backlog="$backlog_count" 'BEGIN { printf "%.6f\n", q + (minq / 1000.0) + (transition / 1000.0) - (backlog / 100.0) }'
     ;;
   *)
     die "invalid focus '$focus' (valid: performance, quality, unimplemented, mixed)"
@@ -643,7 +667,7 @@ cmd_eval() {
   local commit log_file gate_status benchguard metric_a metric_b score status
   local best_row best_commit best_score
   local quality_log_file focus_note input_path
-  local quality_mean_gap quality_min_gap backlog_count
+  local quality_mean_gap quality_min_gap decoder_transition_min_snr backlog_count
 
   commit="$(git_commit_label)"
   log_file="$LOG_DIR_DEFAULT/$(date -u +%Y%m%dT%H%M%SZ)-${commit//+/_}.log"
@@ -659,6 +683,7 @@ cmd_eval() {
   focus_note="$(focus_description "$focus")"
   quality_mean_gap="0.000000"
   quality_min_gap="0.000000"
+  decoder_transition_min_snr="0.000000"
   backlog_count="0"
   if [[ -n "$best_row" ]]; then
     IFS=$'\t' read -r best_commit _ _ _ _ best_score _ _ <<<"$best_row"
@@ -745,10 +770,11 @@ cmd_eval() {
       die "failed to parse quality score from $quality_log_file"
     }
 
+    decoder_transition_min_snr="$(extract_decoder_transition_min_snr "$quality_log_file")"
     backlog_count="$(count_allowlisted_unimplemented_items)"
     metric_a="$quality_mean_gap"
     metric_b="$quality_min_gap"
-    score="$(quality_score_for_focus "$focus" "$quality_mean_gap" "$quality_min_gap" "$backlog_count")"
+    score="$(quality_score_for_focus "$focus" "$quality_mean_gap" "$quality_min_gap" "$decoder_transition_min_snr" "$backlog_count")"
     ;;
   *)
     die "invalid focus '$focus' (valid: performance, quality, unimplemented, mixed)"
@@ -767,7 +793,7 @@ cmd_eval() {
   if [[ "$focus" == "performance" ]]; then
     echo "result: status=$status gate=$gate_status benchguard=$benchguard focus=$focus rt_ratio=$score gopus_avg_rt=$metric_a libopus_avg_rt=$metric_b log=$log_file"
   else
-    echo "result: status=$status gate=$gate_status benchguard=$benchguard focus=$focus score=$score quality_mean_gap_db=$metric_a quality_min_gap_db=$metric_b feature_backlog=$backlog_count log=$log_file"
+    echo "result: status=$status gate=$gate_status benchguard=$benchguard focus=$focus score=$score quality_mean_gap_db=$metric_a quality_min_gap_db=$metric_b decoder_transition_min_snr_db=$decoder_transition_min_snr feature_backlog=$backlog_count log=$log_file"
   fi
   if [[ -n "$best_commit" ]]; then
     echo "best_success_before: commit=$best_commit score=$best_score"

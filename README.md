@@ -66,6 +66,11 @@ The default mixed/quality judge is:
 2. `make bench-guard`
 3. `go test ./container/ogg -count=1` for the allowlisted unimplemented seed (`ogg-seek`)
 
+The `quality` and `mixed` score also incorporates the minimum
+`Hybrid->CELT` 10ms transition SNR reported by
+`TestDecoderHybridToCELT10msTransitionParity`, so decoder transition wins can
+move the loop instead of only acting as gates.
+
 The performance lane keeps:
 
 1. `TestSILKParamTraceAgainstLibopus`
