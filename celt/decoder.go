@@ -133,9 +133,7 @@ type Decoder struct {
 	scratchPLCFIRTmp      []float64
 	scratchPLCWindowed    []float64
 	scratchPLCIIRMem      []float64
-	scratchPLCIIRRDen     []float64
-	scratchPLCIIRY        []float64
-	scratchPLCChannel     []float64
+	scratchPLCBuf         []float64
 	scratchPLCExc         []float64
 	scratchPLCFoldSrc     []float64
 	scratchPLCFoldDst     []float64
@@ -3777,10 +3775,8 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int) bo
 
 	d.scratchPLCExc = ensureFloat64Slice(&d.scratchPLCExc, maxPeriod+celtPLCLPCOrder)
 	d.scratchPLCFIRTmp = ensureFloat64Slice(&d.scratchPLCFIRTmp, excLength)
-	d.scratchPLCChannel = ensureFloat64Slice(&d.scratchPLCChannel, totalSamples)
+	d.scratchPLCBuf = ensureFloat64Slice(&d.scratchPLCBuf, plcDecodeBufferSize+Overlap)
 	d.scratchPLCIIRMem = ensureFloat64Slice(&d.scratchPLCIIRMem, celtPLCLPCOrder)
-	d.scratchPLCIIRRDen = ensureFloat64Slice(&d.scratchPLCIIRRDen, celtPLCLPCOrder)
-	d.scratchPLCIIRY = ensureFloat64Slice(&d.scratchPLCIIRY, totalSamples+celtPLCLPCOrder)
 
 	window := GetWindowBuffer(Overlap)
 	continuePeriodic := lossCount > 1 && d.plcPrevLossWasPeriodic
@@ -3834,7 +3830,10 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int) bo
 		}
 
 		attenuation := float32(fade) * decay
-		chOut := d.scratchPLCChannel[:totalSamples]
+		buf := d.scratchPLCBuf[:plcDecodeBufferSize+Overlap]
+		copy(buf[:plcDecodeBufferSize], hist)
+		copy(buf[:plcDecodeBufferSize-frameSize], buf[frameSize:plcDecodeBufferSize])
+		chOut := buf[plcDecodeBufferSize-frameSize : plcDecodeBufferSize-frameSize+totalSamples]
 		s1 := float32(0)
 		s1Base := plcDecodeBufferSize - maxPeriod + extrapolationOffset
 		j := 0
@@ -3852,64 +3851,24 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int) bo
 			j++
 		}
 
-		// Match libopus float-path celt_iir() non-smallfootprint cadence used by
-		// celt_decode_lost() periodic PLC synthesis.
+		// Match libopus celt_iir()'s sample-by-sample state updates during
+		// periodic PLC synthesis.
 		ord := celtPLCLPCOrder
 		iirMem := d.scratchPLCIIRMem[:ord]
-		rden := d.scratchPLCIIRRDen[:ord]
-		yState := d.scratchPLCIIRY[:totalSamples+ord]
 		memBase := plcDecodeBufferSize - 1
 		for i := 0; i < ord; i++ {
 			iirMem[i] = hist[memBase-i]
-			rden[i] = lpc[ord-1-i]
-			yState[i] = -iirMem[ord-1-i]
 		}
-		for i := ord; i < len(yState); i++ {
-			yState[i] = 0
-		}
-
-		i := 0
-		for ; i+3 < totalSamples; i += 4 {
-			sum0 := float32(chOut[i])
-			sum1 := float32(chOut[i+1])
-			sum2 := float32(chOut[i+2])
-			sum3 := float32(chOut[i+3])
-			for j := 0; j < ord; j++ {
-				rd := float32(rden[j])
-				sum0 += rd * float32(yState[i+j])
-				sum1 += rd * float32(yState[i+j+1])
-				sum2 += rd * float32(yState[i+j+2])
-				sum3 += rd * float32(yState[i+j+3])
-			}
-
-			yState[i+ord] = float64(-sum0)
-			chOut[i] = float64(sum0)
-
-			sum1 += float32(yState[i+ord]) * float32(lpc[0])
-			yState[i+ord+1] = float64(-sum1)
-			chOut[i+1] = float64(sum1)
-
-			sum2 += float32(yState[i+ord+1])*float32(lpc[0]) +
-				float32(yState[i+ord])*float32(lpc[1])
-			yState[i+ord+2] = float64(-sum2)
-			chOut[i+2] = float64(sum2)
-
-			sum3 += float32(yState[i+ord+2])*float32(lpc[0]) +
-				float32(yState[i+ord+1])*float32(lpc[1]) +
-				float32(yState[i+ord])*float32(lpc[2])
-			yState[i+ord+3] = float64(-sum3)
-			chOut[i+3] = float64(sum3)
-		}
-		for ; i < totalSamples; i++ {
+		for i := 0; i < totalSamples; i++ {
 			sum := float32(chOut[i])
 			for j := 0; j < ord; j++ {
-				sum -= float32(rden[j]) * float32(yState[i+j])
+				sum -= float32(lpc[j]) * float32(iirMem[j])
 			}
-			yState[i+ord] = float64(sum)
+			for j := ord - 1; j >= 1; j-- {
+				iirMem[j] = iirMem[j-1]
+			}
+			iirMem[0] = float64(sum)
 			chOut[i] = float64(sum)
-		}
-		for i := 0; i < ord; i++ {
-			iirMem[i] = chOut[totalSamples-1-i]
 		}
 
 		s2 := float32(0)
