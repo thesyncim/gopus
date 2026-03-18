@@ -842,27 +842,12 @@ func (e *Encoder) SetEnergy(band, channel int, energy float64) {
 	e.prevEnergy[channel*MaxBands+band] = energy
 }
 
-// IsIntraFrame returns true if this frame should use intra mode.
+// IsIntraFrame returns a conservative pre-encode advisory value.
 //
-// This matches libopus two-pass behavior for complexity >= 4:
-// - libopus uses force_intra=0 by default
-// - With two_pass=1 (complexity >= 4), intra starts as force_intra (=0)
-// - Then two-pass encoding compares intra vs inter and picks the better one
-//
-// For simplicity, we match the libopus default: always return false (inter mode)
-// even for frame 0, because libopus's two-pass typically chooses inter mode
-// for the first frame when encoding simple signals (like sine waves).
-//
-// Reference: libopus celt/quant_bands.c line 279:
-//
-//	intra = force_intra || (!two_pass && *delayedIntra>2*C*(end-start) && ...)
-//
-// With two_pass=1 and force_intra=0, this evaluates to intra=0.
+// The actual intra/inter decision is made inside EncodeFrame once band energies
+// are available, so this helper is intentionally not a packet-exact predictor
+// of the libopus-style two-pass coarse-energy search.
 func (e *Encoder) IsIntraFrame() bool {
-	// Match libopus two-pass behavior: never force intra
-	// The two-pass algorithm in libopus dynamically decides, but with
-	// complexity >= 4 and force_intra=0, the initial intra value is 0.
-	// For most signals, the two-pass comparison also chooses inter mode.
 	return false
 }
 
@@ -1126,6 +1111,7 @@ type encoderScratch struct {
 	// Quantized energies
 	quantizedEnergies []float64
 	coarseError       []float64
+	coarseDecisionE   []float64
 	analysisEnergies  []float64
 	prev1LogE         []float64
 
@@ -1304,6 +1290,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	// Quantized energies
 	s.quantizedEnergies = ensureFloat64Slice(&s.quantizedEnergies, bandCount)
 	s.prev1LogE = ensureFloat64Slice(&s.prev1LogE, bandCount)
+	s.coarseDecisionE = ensureFloat64Slice(&s.coarseDecisionE, bandCount)
 
 	// Normalized coefficients
 	s.normL = ensureFloat64Slice(&s.normL, frameSize)

@@ -517,8 +517,12 @@ func (e *Encoder) DecideIntraMode(energies []float64, startBand, nbBands int, lm
 
 	tell := e.rangeEncoder.Tell()
 	if tell+3 > budget {
-		twoPass = false
-		intra = false
+		return false
+	}
+
+	// Match libopus: without two-pass search, the threshold/force decision is final.
+	if !twoPass || intra {
+		return intra
 	}
 
 	maxDecay32 := float32(16.0 * DB6)
@@ -540,31 +544,71 @@ func (e *Encoder) DecideIntraMode(energies []float64, startBand, nbBands int, lm
 	oldStart := ensureFloat64Slice(&e.scratch.coarseOldStart, len(e.prevEnergy))
 	copy(oldStart, e.prevEnergy)
 
-	badnessIntra := 0
-	tellIntra := 0
-	if twoPass || intra {
-		_, badnessIntra = e.encodeCoarseEnergyPass(energies, startBand, nbBands, true, lm, budget, maxDecay32, true)
-		tellIntra = e.rangeEncoder.TellFrac()
-		e.rangeEncoder.RestoreState(startState)
-		copy(e.prevEnergy, oldStart)
+	probIntra := eProbModel[lm][1][:]
+	probInter := eProbModel[lm][0][:]
+	workOldE := ensureFloat64Slice(&e.scratch.quantizedEnergies, len(e.prevEnergy))
+	workErr := ensureFloat64Slice(&e.scratch.coarseError, len(e.prevEnergy))
+	workEnergies := ensureFloat64Slice(&e.scratch.coarseDecisionE, len(e.prevEnergy))
+	for i := range workEnergies {
+		workEnergies[i] = 0
+	}
+	for c := 0; c < channels; c++ {
+		srcBase := c * nbBands
+		dstBase := c * MaxBands
+		for band := 0; band < nbBands; band++ {
+			srcIdx := srcBase + band
+			if srcIdx >= len(energies) {
+				break
+			}
+			workEnergies[dstBase+band] = energies[srcIdx]
+		}
 	}
 
-	if !intra {
-		_, badnessInter := e.encodeCoarseEnergyPass(energies, startBand, nbBands, false, lm, budget, maxDecay32, true)
-		useIntra := badnessIntra < badnessInter
-		if badnessIntra == badnessInter && e.rangeEncoder.TellFrac()+intraBias > tellIntra {
-			useIntra = true
-		}
-		if twoPass && useIntra {
-			intra = true
-		} else {
-			intra = false
-		}
-		e.rangeEncoder.RestoreState(startState)
-		copy(e.prevEnergy, oldStart)
-	}
+	copy(workOldE, oldStart)
+	badnessIntra := quantCoarseEnergyImpl(
+		e.rangeEncoder,
+		startBand,
+		nbBands,
+		workEnergies,
+		workOldE,
+		budget,
+		tell,
+		probIntra,
+		workErr,
+		channels,
+		lm,
+		true,
+		maxDecay32,
+		e.lfe,
+	)
+	tellIntra := e.rangeEncoder.TellFrac()
+	e.rangeEncoder.RestoreState(startState)
+	copy(e.prevEnergy, oldStart)
 
-	return intra
+	copy(workOldE, oldStart)
+	badnessInter := quantCoarseEnergyImpl(
+		e.rangeEncoder,
+		startBand,
+		nbBands,
+		workEnergies,
+		workOldE,
+		budget,
+		tell,
+		probInter,
+		workErr,
+		channels,
+		lm,
+		false,
+		maxDecay32,
+		e.lfe,
+	)
+	useIntra := badnessIntra < badnessInter
+	if badnessIntra == badnessInter && e.rangeEncoder.TellFrac()+intraBias > tellIntra {
+		useIntra = true
+	}
+	e.rangeEncoder.RestoreState(startState)
+	copy(e.prevEnergy, oldStart)
+	return useIntra
 }
 
 // EncodeCoarseEnergy encodes coarse (6dB step) band energies.
@@ -706,6 +750,48 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 	}
 	if e.lfe {
 		maxDecay32 = float32(3.0 * DB6)
+	}
+
+	if nbBands == MaxBands {
+		quantizedEnergies := ensureFloat64Slice(&e.scratch.quantizedEnergies, len(e.prevEnergy))
+		copy(quantizedEnergies, e.prevEnergy)
+		coarseError := ensureFloat64Slice(&e.scratch.coarseError, len(e.prevEnergy))
+		for i := range coarseError {
+			coarseError[i] = 0
+		}
+
+		prob := eProbModel[lm][0][:]
+		if intra {
+			prob = eProbModel[lm][1][:]
+		}
+
+		_ = quantCoarseEnergyImpl(
+			e.rangeEncoder,
+			start,
+			end,
+			energies,
+			quantizedEnergies,
+			budget,
+			e.rangeEncoder.Tell(),
+			prob,
+			coarseError,
+			channels,
+			lm,
+			intra,
+			maxDecay32,
+			e.lfe,
+		)
+
+		copy(e.prevEnergy, quantizedEnergies[:len(e.prevEnergy)])
+
+		alpha := AlphaCoef[lm]
+		if intra {
+			e.delayedIntra = newDistortion
+		} else {
+			e.delayedIntra = alpha*alpha*e.delayedIntra + newDistortion
+		}
+
+		return quantizedEnergies[:nbBands*channels]
 	}
 
 	var prevBandEnergy [2]float32
