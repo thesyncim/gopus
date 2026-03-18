@@ -6,4 +6,4 @@ const mdctUseNativeMulEnabled = false
 
 const mdctUseF64MixEnabled = false
 
-const mdctUseFMALikeMixEnabled = true
+const mdctUseFMALikeMixEnabled = false
