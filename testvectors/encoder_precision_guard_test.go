@@ -57,11 +57,15 @@ var encoderLibopusGapFloorAMD64OverrideDB = map[string]float64{
 const encoderLibopusGapMeasurementToleranceDB = 0.15
 
 func encoderLibopusGapFloorForCase(caseName string) (float64, bool) {
+	return encoderLibopusGapFloorForArch(caseName, runtime.GOARCH)
+}
+
+func encoderLibopusGapFloorForArch(caseName, goarch string) (float64, bool) {
 	floor, ok := encoderLibopusGapFloorDB[caseName]
 	if !ok {
 		return 0, false
 	}
-	if runtime.GOARCH == "amd64" {
+	if goarch == "amd64" {
 		if amd64Floor, has := encoderLibopusGapFloorAMD64OverrideDB[caseName]; has {
 			floor = amd64Floor
 		}
@@ -70,11 +74,30 @@ func encoderLibopusGapFloorForCase(caseName string) (float64, bool) {
 }
 
 func encoderLibopusGapWithinFloor(caseName string, gapDB float64) (bool, float64) {
-	floor, ok := encoderLibopusGapFloorForCase(caseName)
+	return encoderLibopusGapWithinFloorForArch(caseName, gapDB, runtime.GOARCH)
+}
+
+func encoderLibopusGapWithinFloorForArch(caseName string, gapDB float64, goarch string) (bool, float64) {
+	floor, ok := encoderLibopusGapFloorForArch(caseName, goarch)
 	if !ok {
 		return false, 0
 	}
 	return gapDB+encoderLibopusGapMeasurementToleranceDB >= floor, floor
+}
+
+func encoderComplianceReferenceStatusForCase(caseName string, gapDB float64) (string, float64) {
+	return encoderComplianceReferenceStatusForArch(caseName, gapDB, runtime.GOARCH)
+}
+
+func encoderComplianceReferenceStatusForArch(caseName string, gapDB float64, goarch string) (string, float64) {
+	withinFloor, floor := encoderLibopusGapWithinFloorForArch(caseName, gapDB, goarch)
+	if !withinFloor {
+		return "FAIL", floor
+	}
+	if gapDB >= EncoderLibopusGapGoodDB {
+		return "GOOD", floor
+	}
+	return "BASE", floor
 }
 
 func TestEncoderCompliancePrecisionGuard(t *testing.T) {
@@ -137,5 +160,62 @@ func TestEncoderCompliancePrecisionFloorCoverage(t *testing.T) {
 		if floor < -6.0 {
 			t.Fatalf("precision floor for %s is too loose for precision mode: %.2f dB", name, floor)
 		}
+	}
+}
+
+func TestEncoderComplianceReferenceStatusForArch(t *testing.T) {
+	tests := []struct {
+		name      string
+		caseName  string
+		goarch    string
+		gapDB     float64
+		want      string
+		wantFloor float64
+	}{
+		{
+			name:      "amd64 positive speech drift stays good",
+			caseName:  "Hybrid-SWB-20ms-mono-48k",
+			goarch:    "amd64",
+			gapDB:     6.82,
+			want:      "GOOD",
+			wantFloor: -0.45,
+		},
+		{
+			name:      "amd64 negative speech drift within floor stays base",
+			caseName:  "SILK-WB-20ms-mono-32k",
+			goarch:    "amd64",
+			gapDB:     -1.18,
+			want:      "BASE",
+			wantFloor: -1.25,
+		},
+		{
+			name:      "arm64 negative speech drift below floor still fails",
+			caseName:  "SILK-WB-20ms-mono-32k",
+			goarch:    "arm64",
+			gapDB:     -1.18,
+			want:      "FAIL",
+			wantFloor: -0.45,
+		},
+		{
+			name:      "amd64 floor miss still fails",
+			caseName:  "Hybrid-SWB-20ms-mono-48k",
+			goarch:    "amd64",
+			gapDB:     -0.70,
+			want:      "FAIL",
+			wantFloor: -0.45,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			got, floor := encoderComplianceReferenceStatusForArch(tc.caseName, tc.gapDB, tc.goarch)
+			if got != tc.want {
+				t.Fatalf("status mismatch: got %s want %s", got, tc.want)
+			}
+			if floor != tc.wantFloor {
+				t.Fatalf("floor mismatch: got %.2f want %.2f", floor, tc.wantFloor)
+			}
+		})
 	}
 }
