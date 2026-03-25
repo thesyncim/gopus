@@ -56,6 +56,27 @@ var encoderLibopusGapFloorAMD64OverrideDB = map[string]float64{
 // Small tolerance for platform/decoder variance in measured SNR gaps.
 const encoderLibopusGapMeasurementToleranceDB = 0.15
 
+func encoderLibopusGapFloorForCase(caseName string) (float64, bool) {
+	floor, ok := encoderLibopusGapFloorDB[caseName]
+	if !ok {
+		return 0, false
+	}
+	if runtime.GOARCH == "amd64" {
+		if amd64Floor, has := encoderLibopusGapFloorAMD64OverrideDB[caseName]; has {
+			floor = amd64Floor
+		}
+	}
+	return floor, true
+}
+
+func encoderLibopusGapWithinFloor(caseName string, gapDB float64) (bool, float64) {
+	floor, ok := encoderLibopusGapFloorForCase(caseName)
+	if !ok {
+		return false, 0
+	}
+	return gapDB+encoderLibopusGapMeasurementToleranceDB >= floor, floor
+}
+
 func TestEncoderCompliancePrecisionGuard(t *testing.T) {
 	if !libopusComplianceReferenceAvailable() {
 		t.Fatal("libopus reference fixture is required for precision guard")
@@ -64,14 +85,9 @@ func TestEncoderCompliancePrecisionGuard(t *testing.T) {
 	for _, tc := range encoderComplianceSummaryCases() {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			floor, ok := encoderLibopusGapFloorDB[tc.name]
+			floor, ok := encoderLibopusGapFloorForCase(tc.name)
 			if !ok {
 				t.Fatalf("missing precision floor for %q", tc.name)
-			}
-			if runtime.GOARCH == "amd64" {
-				if amd64Floor, has := encoderLibopusGapFloorAMD64OverrideDB[tc.name]; has {
-					floor = amd64Floor
-				}
 			}
 
 			q, _ := runEncoderComplianceTest(t, tc.mode, tc.bandwidth, tc.frameSize, tc.channels, tc.bitrate)
