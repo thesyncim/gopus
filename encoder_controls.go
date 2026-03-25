@@ -137,36 +137,39 @@ func (e *Encoder) VADActivity() int {
 
 // SetDREDDuration configures the libopus ENABLE_DRED encoder extension depth.
 //
-// The default gopus build does not implement this extension and returns
-// ErrUnimplemented.
+// The default gopus build does not enable this extension; check
+// SupportsOptionalExtension(OptionalExtensionDRED) and expect
+// ErrUnsupportedExtension when unavailable.
 func (e *Encoder) SetDREDDuration(_ int) error {
-	return ErrUnimplemented
+	return ErrUnsupportedExtension
 }
 
 // DREDDuration reports encoder-side DRED redundancy depth.
 func (e *Encoder) DREDDuration() (int, error) {
-	return 0, ErrUnimplemented
+	return 0, ErrUnsupportedExtension
 }
 
 // SetDNNBlob loads the optional libopus USE_WEIGHTS_FILE encoder model blob.
 //
-// The default gopus build does not implement this extension and returns
-// ErrUnimplemented.
+// The default gopus build does not enable this extension; check
+// SupportsOptionalExtension(OptionalExtensionDNNBlob) and expect
+// ErrUnsupportedExtension when unavailable.
 func (e *Encoder) SetDNNBlob(_ []byte) error {
-	return ErrUnimplemented
+	return ErrUnsupportedExtension
 }
 
 // SetQEXT toggles the libopus ENABLE_QEXT encoder extension.
 //
-// The default gopus build does not implement this extension and returns
-// ErrUnimplemented.
+// The default gopus build does not enable this extension; check
+// SupportsOptionalExtension(OptionalExtensionQEXT) and expect
+// ErrUnsupportedExtension when unavailable.
 func (e *Encoder) SetQEXT(_ bool) error {
-	return ErrUnimplemented
+	return ErrUnsupportedExtension
 }
 
 // QEXT reports whether the optional extended-precision theta path is enabled.
 func (e *Encoder) QEXT() (bool, error) {
-	return false, ErrUnimplemented
+	return false, ErrUnsupportedExtension
 }
 
 // SetExpertFrameDuration sets the preferred frame duration policy.
