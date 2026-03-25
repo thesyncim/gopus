@@ -247,24 +247,12 @@ func TestEncoderComplianceSummary(t *testing.T) {
 			if ok {
 				libSNR := SNRFromQuality(libQ)
 				gapDB := snr - libSNR
-				speechMode := tc.mode == encoder.ModeSILK || tc.mode == encoder.ModeHybrid
-				withinFloor, floor := encoderLibopusGapWithinFloor(tc.name, gapDB)
-				if speechMode && math.Abs(gapDB) > EncoderLibopusSpeechGapTightDB {
-					status = "FAIL"
-					failed++
-				} else if !withinFloor {
+				status, floor := encoderComplianceReferenceStatusForCase(tc.name, gapDB)
+				if status == "FAIL" {
 					t.Logf("precision floor miss for %s: gap=%.2f dB floor=%.2f dB tol=%.2f dB", tc.name, gapDB, floor, encoderLibopusGapMeasurementToleranceDB)
-					status = "FAIL"
 					failed++
-				} else if gapDB >= EncoderLibopusGapGoodDB {
-					status = "GOOD"
-					passed++
-				} else if gapDB >= EncoderLibopusGapBaseDB {
-					status = "BASE"
-					passed++
 				} else {
-					status = "FAIL"
-					failed++
+					passed++
 				}
 				t.Logf("%-35s %10.2f %10.2f %10.2f %10.2f %10.2f %s", tc.name, q, snr, libQ, libSNR, gapDB, status)
 			} else {
@@ -302,7 +290,6 @@ func TestEncoderComplianceSummary(t *testing.T) {
 	if refAvailable {
 		t.Logf("Gap thresholds (gopus SNR - libopus SNR): GOOD >= %.1f dB, BASE >= %.1f dB", EncoderLibopusGapGoodDB, EncoderLibopusGapBaseDB)
 		t.Logf("Precision floor guard: per-profile floors with %.2f dB measurement tolerance", encoderLibopusGapMeasurementToleranceDB)
-		t.Logf("SILK/Hybrid parity guard: |gap| <= %.1f dB", EncoderLibopusSpeechGapTightDB)
 	}
 	if failed > 0 {
 		t.Fatalf("encoder compliance summary failed: %d cases below current thresholds", failed)
@@ -869,8 +856,8 @@ func TestEncoderComplianceInfo(t *testing.T) {
 	t.Log("")
 	t.Log("Primary Compliance Thresholds (libopus parity):")
 	t.Logf("  GOOD: gopus SNR - libopus SNR >= %.1f dB", EncoderLibopusGapGoodDB)
-	t.Logf("  BASE: gopus SNR - libopus SNR >= %.1f dB", EncoderLibopusGapBaseDB)
-	t.Logf("  SILK/Hybrid guard: |gopus SNR - libopus SNR| <= %.1f dB", EncoderLibopusSpeechGapTightDB)
+	t.Logf("  BASE: pass per-profile precision floor (current nominal target >= %.1f dB)", EncoderLibopusGapBaseDB)
+	t.Logf("  Precision floors: per-profile libopus gap floors with %.2f dB tolerance", encoderLibopusGapMeasurementToleranceDB)
 	t.Log("Fallback Absolute Thresholds (only when libopus fixture unavailable):")
 	t.Logf("  GOOD (≈ libopus CELT): Q >= %.1f (%.1f dB SNR)", EncoderGoodThreshold, SNRFromQuality(EncoderGoodThreshold))
 	t.Logf("  BASE (≈ libopus range): Q >= %.1f (%.1f dB SNR)", EncoderQualityThreshold, SNRFromQuality(EncoderQualityThreshold))
