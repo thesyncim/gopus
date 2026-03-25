@@ -89,7 +89,11 @@ var (
 	// Valid range is -32768 to 32767 (Q8 dB).
 	ErrInvalidGain = errors.New("gopus: invalid gain (must be -32768 to 32767)")
 
-	// ErrUnimplemented indicates the requested optional feature is not implemented.
+	// ErrUnsupportedExtension indicates the requested optional libopus build-time
+	// extension is not enabled in the current gopus build.
+	ErrUnsupportedExtension = errors.New("gopus: optional extension unsupported in this build")
+
+	// ErrUnimplemented indicates the requested functionality is not implemented yet.
 	ErrUnimplemented = errors.New("gopus: feature not implemented")
 )
 

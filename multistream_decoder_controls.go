@@ -39,21 +39,23 @@ func (d *MultistreamDecoder) IgnoreExtensions() bool {
 
 // SetOSCEBWE toggles libopus's optional ENABLE_OSCE_BWE decoder extension.
 //
-// The default gopus build does not implement this extension and returns
-// ErrUnimplemented.
+// The default gopus build does not enable this extension; check
+// SupportsOptionalExtension(OptionalExtensionOSCEBWE) and expect
+// ErrUnsupportedExtension when unavailable.
 func (d *MultistreamDecoder) SetOSCEBWE(_ bool) error {
-	return ErrUnimplemented
+	return ErrUnsupportedExtension
 }
 
 // OSCEBWE reports whether the optional OSCE bandwidth extension path is enabled.
 func (d *MultistreamDecoder) OSCEBWE() (bool, error) {
-	return false, ErrUnimplemented
+	return false, ErrUnsupportedExtension
 }
 
 // SetDNNBlob loads the optional libopus USE_WEIGHTS_FILE decoder model blob.
 //
-// The default gopus build does not implement this extension and returns
-// ErrUnimplemented.
+// The default gopus build does not enable this extension; check
+// SupportsOptionalExtension(OptionalExtensionDNNBlob) and expect
+// ErrUnsupportedExtension when unavailable.
 func (d *MultistreamDecoder) SetDNNBlob(_ []byte) error {
-	return ErrUnimplemented
+	return ErrUnsupportedExtension
 }
