@@ -20,15 +20,16 @@ No cgo. No C toolchain. Caller-owned buffers in the encode/decode hot path.
 - Multistream support (default mappings for 1-8 channels, explicit mappings up to 255 channels).
 - Compliance and parity coverage against libopus 1.6.1 fixtures.
 
-## Status Snapshot (2026-02-10)
+## Status Snapshot (2026-03-25)
 
 - Decoder: complete and stable across SILK/CELT/Hybrid, stereo, and sample rates.
-- Encoder: complete feature surface (FEC/LBRR, DTX, controls, multistream, ambisonics).
+- Encoder: complete core Opus feature surface (FEC/LBRR, DTX, multistream, ambisonics, and standard controls). Optional libopus build-time extensions such as DRED, QEXT, weights-file DNN blobs, and OSCE BWE remain intentionally unimplemented and return `ErrUnimplemented`.
 - Allocations: zero allocs/op in encoder and decoder core hot paths.
 - `TestSILKParamTraceAgainstLibopus`: `PASS` with exact SILK-WB trace parity on canonical 50-frame fixture.
-- `TestEncoderComplianceSummary`: `PASS` (`23 passed, 0 failed`).
+- `TestEncoderComplianceSummary`: `PASS` (`23 passed, 0 failed` at current libopus-relative thresholds).
+- `make verify-production`: `PASS` on the current baseline.
 - Remaining focus: mixed quality+feature work, with quality as the primary score and throughput as an optional secondary lane.
-- Remaining focus also includes closing explicit optional feature gaps where they are valuable and testable.
+- Remaining focus also includes tightening profile-by-profile quality ratchets and closing explicit optional feature gaps where they are valuable and testable.
 
 ## Autoresearch Workflow
 
