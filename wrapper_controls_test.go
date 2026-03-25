@@ -1,6 +1,7 @@
 package gopus
 
 import (
+	"errors"
 	"testing"
 
 	encodercore "github.com/thesyncim/gopus/encoder"
@@ -45,34 +46,56 @@ type restrictedApplicationCase struct {
 func assertOptionalEncoderControls(t *testing.T, enc optionalEncoderControl) {
 	t.Helper()
 
-	if err := enc.SetDREDDuration(2); err != ErrUnimplemented {
-		t.Fatalf("SetDREDDuration error=%v want=%v", err, ErrUnimplemented)
+	if err := enc.SetDREDDuration(2); !errors.Is(err, ErrUnsupportedExtension) {
+		t.Fatalf("SetDREDDuration error=%v want=%v", err, ErrUnsupportedExtension)
 	}
-	if got, err := enc.DREDDuration(); err != ErrUnimplemented || got != 0 {
-		t.Fatalf("DREDDuration()=(%d,%v) want=(0,%v)", got, err, ErrUnimplemented)
+	if got, err := enc.DREDDuration(); !errors.Is(err, ErrUnsupportedExtension) || got != 0 {
+		t.Fatalf("DREDDuration()=(%d,%v) want=(0,%v)", got, err, ErrUnsupportedExtension)
 	}
-	if err := enc.SetDNNBlob([]byte{1, 2, 3}); err != ErrUnimplemented {
-		t.Fatalf("SetDNNBlob error=%v want=%v", err, ErrUnimplemented)
+	if err := enc.SetDNNBlob([]byte{1, 2, 3}); !errors.Is(err, ErrUnsupportedExtension) {
+		t.Fatalf("SetDNNBlob error=%v want=%v", err, ErrUnsupportedExtension)
 	}
-	if err := enc.SetQEXT(true); err != ErrUnimplemented {
-		t.Fatalf("SetQEXT error=%v want=%v", err, ErrUnimplemented)
+	if err := enc.SetQEXT(true); !errors.Is(err, ErrUnsupportedExtension) {
+		t.Fatalf("SetQEXT error=%v want=%v", err, ErrUnsupportedExtension)
 	}
-	if got, err := enc.QEXT(); err != ErrUnimplemented || got {
-		t.Fatalf("QEXT()=(%v,%v) want=(false,%v)", got, err, ErrUnimplemented)
+	if got, err := enc.QEXT(); !errors.Is(err, ErrUnsupportedExtension) || got {
+		t.Fatalf("QEXT()=(%v,%v) want=(false,%v)", got, err, ErrUnsupportedExtension)
 	}
 }
 
 func assertOptionalDecoderControls(t *testing.T, dec optionalDecoderControl) {
 	t.Helper()
 
-	if err := dec.SetOSCEBWE(true); err != ErrUnimplemented {
-		t.Fatalf("SetOSCEBWE error=%v want=%v", err, ErrUnimplemented)
+	if err := dec.SetOSCEBWE(true); !errors.Is(err, ErrUnsupportedExtension) {
+		t.Fatalf("SetOSCEBWE error=%v want=%v", err, ErrUnsupportedExtension)
 	}
-	if got, err := dec.OSCEBWE(); err != ErrUnimplemented || got {
-		t.Fatalf("OSCEBWE()=(%v,%v) want=(false,%v)", got, err, ErrUnimplemented)
+	if got, err := dec.OSCEBWE(); !errors.Is(err, ErrUnsupportedExtension) || got {
+		t.Fatalf("OSCEBWE()=(%v,%v) want=(false,%v)", got, err, ErrUnsupportedExtension)
 	}
-	if err := dec.SetDNNBlob([]byte{1, 2, 3}); err != ErrUnimplemented {
-		t.Fatalf("SetDNNBlob error=%v want=%v", err, ErrUnimplemented)
+	if err := dec.SetDNNBlob([]byte{1, 2, 3}); !errors.Is(err, ErrUnsupportedExtension) {
+		t.Fatalf("SetDNNBlob error=%v want=%v", err, ErrUnsupportedExtension)
+	}
+}
+
+func TestSupportsOptionalExtension(t *testing.T) {
+	tests := []struct {
+		name string
+		ext  OptionalExtension
+	}{
+		{name: "dred", ext: OptionalExtensionDRED},
+		{name: "dnn_blob", ext: OptionalExtensionDNNBlob},
+		{name: "qext", ext: OptionalExtensionQEXT},
+		{name: "osce_bwe", ext: OptionalExtensionOSCEBWE},
+		{name: "unknown", ext: OptionalExtension("future_ext")},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			if SupportsOptionalExtension(tc.ext) {
+				t.Fatalf("SupportsOptionalExtension(%q)=true want false in default build", tc.ext)
+			}
+		})
 	}
 }
 

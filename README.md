@@ -23,7 +23,7 @@ No cgo. No C toolchain. Caller-owned buffers in the encode/decode hot path.
 ## Status Snapshot (2026-03-25)
 
 - Decoder: complete and stable across SILK/CELT/Hybrid, stereo, and sample rates.
-- Encoder: complete core Opus feature surface (FEC/LBRR, DTX, multistream, ambisonics, and standard controls). Optional libopus build-time extensions such as DRED, QEXT, weights-file DNN blobs, and OSCE BWE remain intentionally unimplemented and return `ErrUnimplemented`.
+- Encoder: complete core Opus feature surface (FEC/LBRR, DTX, multistream, ambisonics, and standard controls). Optional libopus build-time extensions such as DRED, QEXT, weights-file DNN blobs, and OSCE BWE remain intentionally unsupported in the default build; gate them with `SupportsOptionalExtension(...)` and expect `ErrUnsupportedExtension` when unavailable.
 - Allocations: zero allocs/op in encoder and decoder core hot paths.
 - `TestSILKParamTraceAgainstLibopus`: `PASS` with exact SILK-WB trace parity on canonical 50-frame fixture.
 - `TestEncoderComplianceSummary`: `PASS` (`23 passed, 0 failed` at current libopus-relative thresholds).
