@@ -20,59 +20,13 @@ import (
 // Hybrid mode combines SILK (0-8kHz) and CELT (8-20kHz) for high-quality
 // wideband speech at medium bitrates. Only 10ms and 20ms frames are supported.
 func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
-	// Handle PLC for nil/empty data (lost packet)
-	if data == nil || len(data) == 0 {
-		return d.decodePLC(frameSize, false)
-	}
-
-	if !ValidHybridFrameSize(frameSize) {
-		return nil, ErrInvalidFrameSize
-	}
-
-	// Initialize range decoder
-	var rd rangecoding.Decoder
-	rd.Init(data)
-
-	// Decode frame using shared range decoder
-	samples, err := d.decodeFrame(&rd, frameSize, false)
-	if err != nil {
-		return nil, err
-	}
-
-	// Reset PLC state after successful decode
-	d.plcState.Reset()
-	d.plcState.SetLastFrameParams(plc.ModeHybrid, frameSize, 1)
-
-	return samples, nil
+	return d.decodePacket(data, frameSize, false, 1)
 }
 
 // DecodeWithPacketStereo decodes a Hybrid frame and honors the packet stereo flag.
 // This is used when the output channels (decoder configuration) differ from the packet channels.
 func (d *Decoder) DecodeWithPacketStereo(data []byte, frameSize int, packetStereo bool) ([]float64, error) {
-	// Handle PLC for nil/empty data (lost packet)
-	if data == nil || len(data) == 0 {
-		return d.decodePLC(frameSize, packetStereo)
-	}
-
-	if !ValidHybridFrameSize(frameSize) {
-		return nil, ErrInvalidFrameSize
-	}
-
-	// Initialize range decoder
-	var rd rangecoding.Decoder
-	rd.Init(data)
-
-	// Decode frame using shared range decoder
-	samples, err := d.decodeFrame(&rd, frameSize, packetStereo)
-	if err != nil {
-		return nil, err
-	}
-
-	// Reset PLC state after successful decode
-	d.plcState.Reset()
-	d.plcState.SetLastFrameParams(plc.ModeHybrid, frameSize, d.channels)
-
-	return samples, nil
+	return d.decodePacket(data, frameSize, packetStereo, d.channels)
 }
 
 // DecodeStereo decodes a Hybrid stereo frame and returns 48kHz PCM samples.
@@ -85,35 +39,12 @@ func (d *Decoder) DecodeWithPacketStereo(data []byte, frameSize int, packetStere
 //
 // Returns interleaved float64 samples at 48kHz.
 func (d *Decoder) DecodeStereo(data []byte, frameSize int) ([]float64, error) {
-	// Handle PLC for nil/empty data (lost packet)
-	if data == nil || len(data) == 0 {
-		return d.decodePLC(frameSize, true)
-	}
-
-	if !ValidHybridFrameSize(frameSize) {
-		return nil, ErrInvalidFrameSize
-	}
-
 	if d.channels != 2 {
 		// Stereo decoding requires a 2-channel decoder
 		return nil, ErrDecodeFailed
 	}
 
-	// Initialize range decoder
-	var rd rangecoding.Decoder
-	rd.Init(data)
-
-	// Decode stereo frame using shared range decoder
-	samples, err := d.decodeFrame(&rd, frameSize, true)
-	if err != nil {
-		return nil, err
-	}
-
-	// Reset PLC state after successful decode
-	d.plcState.Reset()
-	d.plcState.SetLastFrameParams(plc.ModeHybrid, frameSize, 2)
-
-	return samples, nil
+	return d.decodePacket(data, frameSize, true, 2)
 }
 
 // DecodeToInt16 decodes and converts to int16 PCM.
@@ -210,6 +141,28 @@ func (d *Decoder) DecodeWithDecoderHook(rd *rangecoding.Decoder, frameSize int, 
 
 	d.plcState.Reset()
 	d.plcState.SetLastFrameParams(plc.ModeHybrid, frameSize, d.channels)
+
+	return samples, nil
+}
+
+func (d *Decoder) decodePacket(data []byte, frameSize int, packetStereo bool, lastFrameChannels int) ([]float64, error) {
+	if data == nil || len(data) == 0 {
+		return d.decodePLC(frameSize, packetStereo)
+	}
+	if !ValidHybridFrameSize(frameSize) {
+		return nil, ErrInvalidFrameSize
+	}
+
+	var rd rangecoding.Decoder
+	rd.Init(data)
+
+	samples, err := d.decodeFrame(&rd, frameSize, packetStereo)
+	if err != nil {
+		return nil, err
+	}
+
+	d.plcState.Reset()
+	d.plcState.SetLastFrameParams(plc.ModeHybrid, frameSize, lastFrameChannels)
 
 	return samples, nil
 }
