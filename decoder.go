@@ -5,6 +5,7 @@ package gopus
 import (
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/hybrid"
+	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/rangecoding"
 	"github.com/thesyncim/gopus/silk"
 )
@@ -86,6 +87,7 @@ type Decoder struct {
 
 	// Soft clipping memory (float decode uses none; int16 decode uses this)
 	softClipMem [2]float32
+	dnnBlob     *dnnblob.Blob
 }
 
 // NewDecoder creates a new Opus decoder.

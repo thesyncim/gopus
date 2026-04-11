@@ -75,11 +75,15 @@ func (d *Decoder) OSCEBWE() (bool, error) {
 
 // SetDNNBlob loads the optional libopus USE_WEIGHTS_FILE decoder model blob.
 //
-// The default gopus build does not enable this extension; check
-// SupportsOptionalExtension(OptionalExtensionDNNBlob) and expect
-// ErrUnsupportedExtension when unavailable.
-func (d *Decoder) SetDNNBlob(_ []byte) error {
-	return ErrUnsupportedExtension
+// The loaded blob is validated using libopus-style weights-record framing and
+// retained across Reset(), matching libopus USE_WEIGHTS_FILE control lifetime.
+func (d *Decoder) SetDNNBlob(data []byte) error {
+	blob, err := cloneDecoderDNNBlobForControl(data)
+	if err != nil {
+		return err
+	}
+	d.dnnBlob = blob
+	return nil
 }
 
 // Pitch returns the most recent CELT postfilter pitch period.

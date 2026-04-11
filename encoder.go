@@ -4,6 +4,7 @@ package gopus
 
 import (
 	"github.com/thesyncim/gopus/encoder"
+	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/types"
 )
 
@@ -94,6 +95,7 @@ type Encoder struct {
 	// Scratch buffers for zero-allocation encoding
 	scratchPCM64 []float64 // float32 to float64 conversion buffer
 	scratchPCM32 []float32 // int16 to float32 conversion buffer
+	dnnBlob      *dnnblob.Blob
 }
 
 // NewEncoder creates a new Opus encoder.
