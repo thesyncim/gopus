@@ -57,43 +57,13 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 		return d.handleDecodedSilenceFrame(frameSize, lm, prev1Energy, rd), nil
 	}
 
-	postfilterGain := 0.0
-	postfilterPeriod := 0
-	postfilterTapset := 0
-	if start == 0 && tell+16 <= totalBits {
-		if rd.DecodeBit(1) == 1 {
-			octave := int(rd.DecodeUniform(6))
-			postfilterPeriod = (16 << octave) + int(rd.DecodeRawBits(uint(4+octave))) - 1
-			qg := int(rd.DecodeRawBits(3))
-			if rd.Tell()+2 <= totalBits {
-				postfilterTapset = rd.DecodeICDF(tapsetICDF, 2)
-			}
-			postfilterGain = 0.09375 * float64(qg+1)
-		}
-		tell = rd.Tell()
-	}
-	traceRange("postfilter", rd)
-
-	transient := false
-	if lm > 0 && tell+3 <= totalBits {
-		transient = rd.DecodeBit(3) == 1
-		tell = rd.Tell()
-	}
-	intra := false
-	if tell+3 <= totalBits {
-		intra = rd.DecodeBit(3) == 1
-	}
-	traceRange("intra", rd)
-
-	// Trace frame header
-	traceHeader(frameSize, d.channels, lm, boolToInt(intra), boolToInt(transient))
-	d.applyLossEnergySafety(intra, start, end, lm)
-
-	// Determine short blocks for transient mode
-	shortBlocks := 1
-	if transient {
-		shortBlocks = mode.ShortBlocks
-	}
+	header := d.decodeFrameHeader(rd, totalBits, frameSize, start, end, lm, mode.ShortBlocks)
+	postfilterGain := header.postfilterGain
+	postfilterPeriod := header.postfilterPeriod
+	postfilterTapset := header.postfilterTapset
+	transient := header.transient
+	intra := header.intra
+	shortBlocks := header.shortBlocks
 
 	// Step 1: Decode coarse energy
 	energies := d.decodeCoarseEnergyInto(ensureFloat64Slice(&d.scratchEnergies, end*d.channels), end, intra, lm)
