@@ -298,49 +298,9 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 
 	hybridBinStart := ScaledBandStart(HybridCELTStartBand, frameSize)
 	d.applyPendingPLCPrefilterAndFold()
-	var samples []float64
-	if d.channels == 2 {
-		energiesL := energies[:end]
-		energiesR := energies[end:]
-		denormalizeCoeffs(coeffsL, energiesL, end, frameSize)
-		denormalizeCoeffs(coeffsR, energiesR, end, frameSize)
-		for i := 0; i < hybridBinStart && i < len(coeffsL); i++ {
-			coeffsL[i] = 0
-		}
-		for i := 0; i < hybridBinStart && i < len(coeffsR); i++ {
-			coeffsR[i] = 0
-		}
-		samples = d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
-	} else {
-		denormalizeCoeffs(coeffsL, energies, end, frameSize)
-		for i := 0; i < hybridBinStart && i < len(coeffsL); i++ {
-			coeffsL[i] = 0
-		}
-		samples = d.Synthesize(coeffsL, transient, shortBlocks)
+	samples := d.synthesizeHybridDecodedFrame(frameSize, mode.LM, end, hybridBinStart, shortBlocks, transient, postfilterPeriod, postfilterGain, postfilterTapset, energies, coeffsL, coeffsR)
+	if err := d.finalizeDecodedFrameState(frameSize, start, end, lm, transient, energies, prev1Energy, nil, rd); err != nil {
+		return nil, err
 	}
-
-	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
-
-	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
-	d.updateLogE(energies, end, transient)
-	d.SetPrevEnergyWithPrev(prev1Energy, energies)
-	d.updateBackgroundEnergy(lm)
-	// Mirror libopus: clear energies/logs outside [start,end).
-	for c := 0; c < d.channels; c++ {
-		base := c * MaxBands
-		for band := 0; band < start; band++ {
-			d.prevEnergy[base+band] = 0
-			d.prevLogE[base+band] = -28.0
-			d.prevLogE2[base+band] = -28.0
-		}
-		for band := end; band < MaxBands; band++ {
-			d.prevEnergy[base+band] = 0
-			d.prevLogE[base+band] = -28.0
-			d.prevLogE2[base+band] = -28.0
-		}
-	}
-	d.rng = rd.Range()
-	d.resetPLCCadence(frameSize, d.channels)
-
 	return samples, nil
 }
