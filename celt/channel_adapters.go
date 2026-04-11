@@ -273,19 +273,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 		d.prevEnergy[MaxBands+i] = stereoEnergies[MaxBands+i]
 	}
 	d.updateBackgroundEnergy(lm)
-	for c := 0; c < origChannels; c++ {
-		base := c * MaxBands
-		for band := 0; band < start; band++ {
-			d.prevEnergy[base+band] = 0
-			d.prevLogE[base+band] = -28.0
-			d.prevLogE2[base+band] = -28.0
-		}
-		for band := end; band < MaxBands; band++ {
-			d.prevEnergy[base+band] = 0
-			d.prevLogE[base+band] = -28.0
-			d.prevLogE2[base+band] = -28.0
-		}
-	}
+	d.clearFrameHistoryOutsideRange(start, end, origChannels)
 
 	if qext != nil && qext.dec.Tell() > qext.dec.StorageBits() {
 		return nil, ErrInvalidFrame
@@ -499,19 +487,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	d.updateLogE(energies, end, transient)
 	d.SetPrevEnergyWithPrev(prev1Energy, energies)
 	d.updateBackgroundEnergy(lm)
-	for c := 0; c < 2; c++ {
-		base := c * MaxBands
-		for band := 0; band < start; band++ {
-			d.prevEnergy[base+band] = 0
-			d.prevLogE[base+band] = -28.0
-			d.prevLogE2[base+band] = -28.0
-		}
-		for band := end; band < MaxBands; band++ {
-			d.prevEnergy[base+band] = 0
-			d.prevLogE[base+band] = -28.0
-			d.prevLogE2[base+band] = -28.0
-		}
-	}
+	d.clearFrameHistoryOutsideRange(start, end, 2)
 	if qext != nil && qext.dec.Tell() > qext.dec.StorageBits() {
 		return nil, ErrInvalidFrame
 	}
@@ -706,19 +682,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	d.updateLogE(stereoEnergies, end, transient)
 	d.SetPrevEnergyWithPrev(prev1Energy, stereoEnergies)
 	d.updateBackgroundEnergy(lm)
-	for c := 0; c < origChannels; c++ {
-		base := c * MaxBands
-		for band := 0; band < start; band++ {
-			d.prevEnergy[base+band] = 0
-			d.prevLogE[base+band] = -28.0
-			d.prevLogE2[base+band] = -28.0
-		}
-		for band := end; band < MaxBands; band++ {
-			d.prevEnergy[base+band] = 0
-			d.prevLogE[base+band] = -28.0
-			d.prevLogE2[base+band] = -28.0
-		}
-	}
+	d.clearFrameHistoryOutsideRange(start, end, origChannels)
 
 	d.rng = rd.Range()
 	d.resetPLCCadence(frameSize, origChannels)
@@ -863,19 +827,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	d.updateLogE(energies, end, transient)
 	d.SetPrevEnergyWithPrev(prev1Energy, energies)
 	d.updateBackgroundEnergy(lm)
-	for c := 0; c < 2; c++ {
-		base := c * MaxBands
-		for band := 0; band < start; band++ {
-			d.prevEnergy[base+band] = 0
-			d.prevLogE[base+band] = -28.0
-			d.prevLogE2[base+band] = -28.0
-		}
-		for band := end; band < MaxBands; band++ {
-			d.prevEnergy[base+band] = 0
-			d.prevLogE[base+band] = -28.0
-			d.prevLogE2[base+band] = -28.0
-		}
-	}
+	d.clearFrameHistoryOutsideRange(start, end, 2)
 	d.rng = rd.Range()
 
 	d.channels = origChannels
