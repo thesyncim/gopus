@@ -76,26 +76,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 		silence = rd.DecodeBit(15) == 1
 	}
 	if silence {
-		samples := d.decodeSilenceFrame(frameSize, 0, 0, 0)
-		silenceE := ensureFloat64Slice(&d.scratchSilenceE, MaxBands*d.channels)
-		for i := range silenceE {
-			silenceE[i] = -28.0
-		}
-		d.updateLogE(silenceE, MaxBands, false)
-		d.SetPrevEnergyWithPrev(prev1Energy, silenceE)
-		d.updateBackgroundEnergy(lm)
-		traceHeader(frameSize, d.channels, lm, 0, 0)
-		traceEnergy(0, 0, 0, 0)
-		traceLen := len(samples)
-		if traceLen > 16 {
-			traceLen = 16
-		}
-		if traceLen > 0 {
-			traceSynthesis("final", samples[:traceLen])
-		}
-		d.resetPLCCadence(frameSize, d.channels)
-		d.rng = rd.Range()
-		return samples, nil
+		return d.handleDecodedSilenceFrame(frameSize, lm, prev1Energy, rd), nil
 	}
 
 	postfilterGain := 0.0

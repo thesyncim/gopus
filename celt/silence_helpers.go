@@ -1,5 +1,7 @@
 package celt
 
+import "github.com/thesyncim/gopus/rangecoding"
+
 // DecodeStereoParams decodes stereo parameters (intensity and dual stereo).
 // Reference: RFC 6716 Section 4.3.4, libopus celt/celt_decoder.c
 func (d *Decoder) DecodeStereoParams(nbBands int) (intensity, dualStereo int) {
@@ -120,5 +122,28 @@ func (d *Decoder) decodeSilenceFrame(frameSize int, newPeriod int, newGain float
 		d.applyDeemphasisAndScale(samples, 1.0/32768.0)
 	}
 
+	return samples
+}
+
+func (d *Decoder) handleDecodedSilenceFrame(frameSize, lm int, prev1Energy []float64, rd *rangecoding.Decoder) []float64 {
+	samples := d.decodeSilenceFrame(frameSize, 0, 0, 0)
+	silenceE := ensureFloat64Slice(&d.scratchSilenceE, MaxBands*d.channels)
+	for i := range silenceE {
+		silenceE[i] = -28.0
+	}
+	d.updateLogE(silenceE, MaxBands, false)
+	d.SetPrevEnergyWithPrev(prev1Energy, silenceE)
+	d.updateBackgroundEnergy(lm)
+	traceHeader(frameSize, d.channels, lm, 0, 0)
+	traceEnergy(0, 0, 0, 0)
+	traceLen := len(samples)
+	if traceLen > 16 {
+		traceLen = 16
+	}
+	if traceLen > 0 {
+		traceSynthesis("final", samples[:traceLen])
+	}
+	d.resetPLCCadence(frameSize, d.channels)
+	d.rng = rd.Range()
 	return samples
 }
