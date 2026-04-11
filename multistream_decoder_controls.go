@@ -64,5 +64,6 @@ func (d *MultistreamDecoder) SetDNNBlob(data []byte) error {
 		return err
 	}
 	d.dnnBlob = blob
+	d.dec.SetDNNBlob(blob)
 	return nil
 }

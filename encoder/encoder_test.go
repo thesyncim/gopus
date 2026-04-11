@@ -1,6 +1,7 @@
 package encoder_test
 
 import (
+	"encoding/binary"
 	"math"
 	"math/rand"
 	"testing"
@@ -8,9 +9,36 @@ import (
 	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/encoder"
 	"github.com/thesyncim/gopus/hybrid"
+	"github.com/thesyncim/gopus/internal/dnnblob"
+	internaldred "github.com/thesyncim/gopus/internal/dred"
 	"github.com/thesyncim/gopus/rangecoding"
 	"github.com/thesyncim/gopus/types"
 )
+
+func appendTestBlobRecord(dst []byte, name string, typ int32, payloadSize int) []byte {
+	const headerSize = 64
+	blockSize := ((payloadSize + headerSize - 1) / headerSize) * headerSize
+	out := make([]byte, headerSize+blockSize)
+	copy(out[:4], []byte("DNNw"))
+	binary.LittleEndian.PutUint32(out[8:12], uint32(typ))
+	binary.LittleEndian.PutUint32(out[12:16], uint32(payloadSize))
+	binary.LittleEndian.PutUint32(out[16:20], uint32(blockSize))
+	copy(out[20:63], []byte(name))
+	out[63] = 0
+	return append(dst, out...)
+}
+
+func makeDREDEncoderTestBlob(t *testing.T) *dnnblob.Blob {
+	t.Helper()
+	var raw []byte
+	raw = appendTestBlobRecord(raw, "enc_dense1_bias", 0, 64*4)
+	raw = appendTestBlobRecord(raw, "dense_if_upsampler_1_bias", 0, 64*4)
+	blob, err := dnnblob.Clone(raw)
+	if err != nil {
+		t.Fatalf("dnnblob.Clone: %v", err)
+	}
+	return blob
+}
 
 // TestNewEncoder verifies the encoder constructor creates valid encoder.
 func TestNewEncoder(t *testing.T) {
@@ -148,6 +176,73 @@ func TestEncoderReset(t *testing.T) {
 	// prevSamples should be zeroed (delay buffer)
 	// Note: prevSamples is unexported, so we cannot check it directly from external test package
 	// The Reset() method is tested implicitly by other tests
+}
+
+func TestEncoderDREDDuration(t *testing.T) {
+	enc := encoder.NewEncoder(48000, 1)
+
+	for _, duration := range []int{0, 1, internaldred.MaxFrames} {
+		if err := enc.SetDREDDuration(duration); err != nil {
+			t.Fatalf("SetDREDDuration(%d) error: %v", duration, err)
+		}
+		if got := enc.DREDDuration(); got != duration {
+			t.Fatalf("DREDDuration()=%d want %d", got, duration)
+		}
+	}
+
+	for _, duration := range []int{-1, internaldred.MaxFrames + 1} {
+		if err := enc.SetDREDDuration(duration); err != encoder.ErrInvalidDREDDuration {
+			t.Fatalf("SetDREDDuration(%d) error=%v want=%v", duration, err, encoder.ErrInvalidDREDDuration)
+		}
+	}
+}
+
+func TestEncoderResetClearsDREDDuration(t *testing.T) {
+	enc := encoder.NewEncoder(48000, 1)
+	if err := enc.SetDREDDuration(4); err != nil {
+		t.Fatalf("SetDREDDuration error: %v", err)
+	}
+
+	enc.Reset()
+
+	if got := enc.DREDDuration(); got != 0 {
+		t.Fatalf("DREDDuration() after Reset=%d want 0", got)
+	}
+}
+
+func TestEncoderDREDReadyRequiresModelAndDuration(t *testing.T) {
+	enc := encoder.NewEncoder(48000, 1)
+	if enc.DNNBlobLoaded() || enc.DREDModelLoaded() || enc.DREDReady() {
+		t.Fatal("fresh encoder unexpectedly reports DRED readiness")
+	}
+
+	enc.SetDNNBlob(makeDREDEncoderTestBlob(t))
+	if !enc.DNNBlobLoaded() || !enc.DREDModelLoaded() {
+		t.Fatal("encoder did not retain DRED-capable blob")
+	}
+	if enc.DREDReady() {
+		t.Fatal("encoder DREDReady()=true without dred duration")
+	}
+
+	if err := enc.SetDREDDuration(4); err != nil {
+		t.Fatalf("SetDREDDuration(4) error: %v", err)
+	}
+	if !enc.DREDReady() {
+		t.Fatal("encoder DREDReady()=false after model+duration")
+	}
+
+	enc.Reset()
+	if !enc.DREDModelLoaded() {
+		t.Fatal("encoder lost DRED model across Reset")
+	}
+	if enc.DREDReady() {
+		t.Fatal("encoder DREDReady()=true after Reset with duration cleared")
+	}
+
+	enc.SetDNNBlob(nil)
+	if enc.DNNBlobLoaded() || enc.DREDModelLoaded() || enc.DREDReady() {
+		t.Fatal("encoder retained DRED readiness after clearing blob")
+	}
 }
 
 // TestValidFrameSize verifies frame size validation.
