@@ -7,6 +7,7 @@ import (
 
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/hybrid"
+	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/plc"
 	"github.com/thesyncim/gopus/silk"
 	"github.com/thesyncim/gopus/types"
@@ -55,6 +56,9 @@ type streamDecoder interface {
 
 	// Channels returns the number of channels this decoder produces (1 or 2).
 	Channels() int
+
+	// SetIgnoreExtensions toggles libopus-style opaque extension handling.
+	SetIgnoreExtensions(bool)
 }
 
 const (
@@ -116,6 +120,7 @@ type streamState struct {
 	lastPacketDuration int
 	lastDataLen        int
 	decodeGainQ8       int
+	ignoreExtensions   bool
 }
 
 func newStreamDecoder(sampleRate, channels int) *streamState {
@@ -153,6 +158,10 @@ func (d *streamState) Reset() {
 	d.lastFrameSize = 960
 	d.lastPacketDuration = 0
 	d.lastDataLen = 0
+}
+
+func (d *streamState) SetIgnoreExtensions(ignore bool) {
+	d.ignoreExtensions = ignore
 }
 
 // Channels returns the channel count for this decoder.
@@ -270,7 +279,7 @@ func (d *streamState) decodeSILK(data []byte, frameSize int, packetStereo bool, 
 	return float32ToFloat64Slice(out32), nil
 }
 
-func (d *streamState) decodeFramePayload(frame []byte, frameSize int, toc streamTOC) ([]float64, error) {
+func (d *streamState) decodeFramePayload(frame []byte, frameSize int, toc streamTOC, qextPayload []byte) ([]float64, error) {
 	var out []float64
 	var err error
 
@@ -284,6 +293,9 @@ func (d *streamState) decodeFramePayload(frame []byte, frameSize int, toc stream
 		out, err = d.hybridDec.DecodeWithPacketStereo(frame, frameSize, toc.stereo)
 	case streamModeCELT:
 		d.celtDec.SetBandwidth(celt.BandwidthFromOpusConfig(toc.bandwidth))
+		if extsupport.QEXT {
+			d.celtDec.SetQEXTPayload(qextPayload)
+		}
 		out, err = d.celtDec.DecodeFrameWithPacketStereo(frame, frameSize, toc.stereo)
 	default:
 		return nil, ErrInvalidPacket
@@ -356,8 +368,17 @@ func (d *streamState) decodePacket(data []byte, frameSize int) ([]float64, error
 		return nil, ErrInvalidPacket
 	}
 
+	var qextPayloads [maxPacketExtensionFrames][]byte
+	if extsupport.QEXT && toc.mode == streamModeCELT && !d.ignoreExtensions && len(parsed.padding) > 0 {
+		if err := collectPacketExtensionPayloadsByFrame(parsed.padding, parsed.paddingFrameCount, qextPacketExtensionID, &qextPayloads); err != nil {
+			for i := range qextPayloads {
+				qextPayloads[i] = nil
+			}
+		}
+	}
+
 	if frameCount == 1 {
-		out, err := d.decodeFramePayload(parsed.frames[0], frameSize, toc)
+		out, err := d.decodeFramePayload(parsed.frames[0], frameSize, toc, qextPayloads[0])
 		if err == nil {
 			d.applyOutputGain(out)
 		}
@@ -370,7 +391,7 @@ func (d *streamState) decodePacket(data []byte, frameSize int) ([]float64, error
 	subFrameSize := frameSize / frameCount
 	out := make([]float64, 0, frameSize*d.channels)
 	for i := 0; i < frameCount; i++ {
-		frameDecoded, err := d.decodeFramePayload(parsed.frames[i], subFrameSize, toc)
+		frameDecoded, err := d.decodeFramePayload(parsed.frames[i], subFrameSize, toc, qextPayloads[i])
 		if err != nil {
 			return nil, err
 		}
@@ -511,6 +532,14 @@ func (d *Decoder) Reset() {
 		d.plcState = plc.NewState()
 	}
 	d.plcState.Reset()
+}
+
+// SetIgnoreExtensions toggles whether known packet extensions are surfaced to
+// child stream decoders.
+func (d *Decoder) SetIgnoreExtensions(ignore bool) {
+	for _, dec := range d.decoders {
+		dec.SetIgnoreExtensions(ignore)
+	}
 }
 
 // SetProjectionDemixingMatrix sets optional projection demixing coefficients.

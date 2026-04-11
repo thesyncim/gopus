@@ -22,6 +22,7 @@ var tmpPVQIdxBiasValue, tmpPVQIdxBiasEnabled = func() (float32, bool) {
 }()
 
 var tmpEnergyPredMulNativeEnabled = tmpGetenv("GOPUS_TMP_ENERGY_PRED_MUL_NATIVE") == "1"
+var tmpDisablePostfilterEnabled = tmpGetenv("GOPUS_TMP_DISABLE_POSTFILTER") == "1"
 var tmpCoarseDumpEnabled = tmpGetenv("GOPUS_TMP_COARSE_DUMP") == "1"
 var tmpFineDumpEnabled = tmpGetenv("GOPUS_TMP_FINE_DUMP") == "1"
 
@@ -54,3 +55,36 @@ var tmpQDebugDecEnabled = tmpGetenv("GOPUS_TMP_QDBG_DEC") == "1"
 var tmpQuantBandF32Enabled = tmpGetenv("GOPUS_TMP_QUANT_BAND_F32") == "1"
 var tmpLowbandOutF32Enabled = tmpGetenv("GOPUS_TMP_LOWBAND_OUT_F32") == "1"
 var tmpRoundBandStateF32Enabled = tmpGetenv("GOPUS_TMP_ROUND_BAND_STATE_F32") == "1"
+
+var tmpQEXTForceIntensityValue, tmpQEXTForceIntensityEnabled = func() (int, bool) {
+	s := tmpGetenv("GOPUS_TMP_QEXT_FORCE_INTENSITY")
+	if s == "" {
+		return 0, false
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, false
+	}
+	return v, true
+}()
+
+var tmpQEXTForceDualStereoValue, tmpQEXTForceDualStereoEnabled = func() (bool, bool) {
+	s := tmpGetenv("GOPUS_TMP_QEXT_FORCE_DUALSTEREO")
+	switch s {
+	case "":
+		return false, false
+	case "0":
+		return false, true
+	case "1":
+		return true, true
+	default:
+		return false, false
+	}
+}()
+
+var tmpQEXTHeaderDumpEnabled = tmpGetenv("GOPUS_TMP_QEXT_HEADER_DUMP") == "1"
+var tmpQEXTDisableMainExtraEnabled = tmpGetenv("GOPUS_TMP_QEXT_DISABLE_MAIN_EXTRA") == "1"
+var tmpQEXTDisableExtraBandsEnabled = tmpGetenv("GOPUS_TMP_QEXT_DISABLE_EXTRA_BANDS") == "1"
+var tmpQEXTDisableMainExtraQuantEnabled = tmpGetenv("GOPUS_TMP_QEXT_DISABLE_MAIN_EXTRA_QUANT") == "1"
+var tmpQEXTDisableMainExtraPulsesEnabled = tmpGetenv("GOPUS_TMP_QEXT_DISABLE_MAIN_EXTRA_PULSES") == "1"
+var tmpQEXTDisableMainThetaExtEnabled = tmpGetenv("GOPUS_TMP_QEXT_DISABLE_MAIN_THETA_EXT") == "1"

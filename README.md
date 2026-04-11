@@ -20,10 +20,11 @@ No cgo. No C toolchain. Caller-owned buffers in the encode/decode hot path.
 - Multistream support (default mappings for 1-8 channels, explicit mappings up to 255 channels).
 - Compliance and parity coverage against libopus 1.6.1 fixtures.
 
-## Status Snapshot (2026-03-25)
+## Status Snapshot (2026-04-11)
 
 - Decoder: complete and stable across SILK/CELT/Hybrid, stereo, and sample rates.
-- Encoder: complete core Opus feature surface (FEC/LBRR, DTX, multistream, ambisonics, and standard controls). Optional libopus build-time extensions such as DRED, QEXT, weights-file DNN blobs, and OSCE BWE remain intentionally unsupported in the default build; gate them with `SupportsOptionalExtension(...)` and expect `ErrUnsupportedExtension` when unavailable.
+- Encoder: complete core Opus feature surface (FEC/LBRR, DTX, multistream, ambisonics, and standard controls). QEXT is enabled and libopus-validated in the default build. Other optional libopus build-time extensions such as DRED, weights-file DNN blobs, and OSCE BWE remain intentionally unsupported; gate them with `SupportsOptionalExtension(...)` and expect `ErrUnsupportedExtension` when unavailable.
+- QEXT parity: libopus-backed tests cover decoding libopus-generated QEXT packets, decoding gopus-generated QEXT packets in libopus, and the shared packet-extension framing path QEXT depends on.
 - Allocations: zero allocs/op in encoder and decoder core hot paths.
 - `TestSILKParamTraceAgainstLibopus`: `PASS` with exact SILK-WB trace parity on canonical 50-frame fixture.
 - `TestEncoderComplianceSummary`: `PASS` (`23 passed, 0 failed` at current libopus-relative thresholds).

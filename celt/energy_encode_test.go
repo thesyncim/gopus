@@ -343,6 +343,46 @@ func TestFineEnergyEncoderProducesValidOutput(t *testing.T) {
 	})
 }
 
+func TestEncodeFineEnergyFromErrorWithPrevRoundTrip(t *testing.T) {
+	enc := NewEncoder(2)
+	nbBands := 4
+	prevQuant := []int{2, 1, 3, 0}
+	extraQuant := []int{2, 3, 1, 0}
+	quantized := []float64{
+		-3.25, -1.50, 0.75, 1.00,
+		-2.75, -0.50, 1.25, 0.25,
+	}
+	errorVals := []float64{
+		0.09375, 0.1875, -0.125, 0.0,
+		-0.03125, 0.0625, 0.1875, 0.0,
+	}
+
+	wantQuantized := append([]float64(nil), quantized...)
+	wantError := append([]float64(nil), errorVals...)
+
+	buf := make([]byte, 128)
+	re := &rangecoding.Encoder{}
+	re.Init(buf)
+	enc.SetRangeEncoder(re)
+	enc.encodeFineEnergyFromErrorWithPrev(wantQuantized, nbBands, prevQuant, extraQuant, wantError)
+	payload := re.Done()
+	if len(payload) == 0 {
+		t.Fatal("encodeFineEnergyFromErrorWithPrev produced empty payload")
+	}
+
+	dec := NewDecoder(2)
+	rd := &rangecoding.Decoder{}
+	rd.Init(payload)
+	gotQuantized := append([]float64(nil), quantized...)
+	dec.decodeFineEnergyWithDecoderPrev(rd, gotQuantized, nbBands, prevQuant, extraQuant)
+
+	for i := range gotQuantized {
+		if diff := math.Abs(gotQuantized[i] - wantQuantized[i]); diff > 1e-9 {
+			t.Fatalf("quantized[%d]=%.12f want %.12f (diff %.3e)", i, gotQuantized[i], wantQuantized[i], diff)
+		}
+	}
+}
+
 // TestEnergyEncodingAllFrameSizes tests energy encoding works for all frame sizes.
 func TestEnergyEncodingAllFrameSizes(t *testing.T) {
 	frameSizes := []int{120, 240, 480, 960}
