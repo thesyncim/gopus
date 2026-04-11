@@ -25,6 +25,8 @@ import "github.com/thesyncim/gopus/internal/extsupport"
 //   - Code 2: 2 different-sized frames
 //   - Code 3: Arbitrary number of frames (1-48)
 func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
+	d.clearDREDPayloadState()
+
 	if data == nil || len(data) == 0 {
 		frameSize := d.lastFrameSize
 		if frameSize <= 0 {
@@ -254,6 +256,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 	}
 
 	d.applyOutputGain(pcm[:totalSamples*d.channels])
+	d.maybeCacheDREDPayload(data)
 	return totalSamples, nil
 }
 
@@ -263,6 +266,8 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 // uses in-band LBRR data if present and otherwise falls back to packet loss
 // concealment instead of returning a missing-FEC error.
 func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, error) {
+	d.clearDREDPayloadState()
+
 	if !fec {
 		return d.Decode(data, pcm)
 	}
