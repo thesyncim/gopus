@@ -171,6 +171,16 @@ func (d *Decoder) allocationScratch() []int {
 	return ensureIntSlice(&d.scratchAllocWork, MaxBands*4)
 }
 
+func (d *Decoder) snapshotDecodeHistory() ([]float64, []float64, []float64) {
+	prev1Energy := ensureFloat64Slice(&d.scratchPrevEnergy, len(d.prevEnergy))
+	copy(prev1Energy, d.prevEnergy)
+	prev1LogE := ensureFloat64Slice(&d.scratchPrevLogE, len(d.prevLogE))
+	copy(prev1LogE, d.prevLogE)
+	prev2LogE := ensureFloat64Slice(&d.scratchPrevLogE2, len(d.prevLogE2))
+	copy(prev2LogE, d.prevLogE2)
+	return prev1Energy, prev1LogE, prev2LogE
+}
+
 // prepareMonoEnergyFromStereo mirrors libopus behavior for mono streams by
 // using the max of L/R energies for prediction when stereo history exists.
 func (d *Decoder) prepareMonoEnergyFromStereo() {
