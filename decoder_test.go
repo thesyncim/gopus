@@ -1,11 +1,80 @@
 package gopus
 
 import (
+	"bytes"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"testing"
+
+	internalenc "github.com/thesyncim/gopus/encoder"
+	internaldred "github.com/thesyncim/gopus/internal/dred"
+	"github.com/thesyncim/gopus/rangecoding"
+	"github.com/thesyncim/gopus/types"
 )
+
+func makeExperimentalDREDPayloadBodyForTest(t *testing.T, dredFrameOffset, dredOffset int) []byte {
+	t.Helper()
+
+	rawOffset := 16 - dredOffset + dredFrameOffset
+	if rawOffset < 0 || rawOffset >= 32 {
+		t.Fatalf("rawOffset=%d out of range for dredOffset=%d frameOffset=%d", rawOffset, dredOffset, dredFrameOffset)
+	}
+
+	var enc rangecoding.Encoder
+	enc.Init(make([]byte, internaldred.MinBytes))
+	enc.EncodeUniform(6, 16)
+	enc.EncodeUniform(3, 8)
+	enc.EncodeUniform(0, 2)
+	enc.EncodeUniform(uint32(rawOffset), 32)
+	enc.Shrink(internaldred.MinBytes)
+	return enc.Done()
+}
+
+func makeValidDREDDecoderTestDNNBlob() []byte {
+	blob := makeValidDecoderTestDNNBlob()
+	return appendTestBlobRecord(blob, "dec_dense1_bias", 0, 64*4)
+}
+
+func makeValidCELTPacketForDREDTest(t *testing.T) []byte {
+	t.Helper()
+
+	enc := internalenc.NewEncoder(48000, 2)
+	enc.SetMode(internalenc.ModeCELT)
+	enc.SetBandwidth(types.BandwidthFullband)
+	enc.SetBitrate(256000)
+
+	pcm := make([]float64, 960*2)
+	for i := 0; i < 960; i++ {
+		phase := 2 * math.Pi * 997 * float64(i) / 48000.0
+		pcm[2*i] = 0.45 * math.Sin(phase)
+		pcm[2*i+1] = 0.35 * math.Sin(phase+0.37)
+	}
+
+	packet, err := enc.Encode(pcm, 960)
+	if err != nil {
+		t.Fatalf("Encode(CELT): %v", err)
+	}
+	if len(packet) == 0 {
+		t.Fatal("Encode(CELT) returned empty packet")
+	}
+	return packet
+}
+
+func buildSingleFramePacketWithExtensionsForDREDTest(t *testing.T, packet []byte, extensions []packetExtensionData) []byte {
+	t.Helper()
+
+	if len(packet) < 2 {
+		t.Fatal("packet too short for extension test")
+	}
+	dst := make([]byte, len(packet)+16)
+	n, err := buildPacketWithOptions(packet[0]&0xFC, [][]byte{packet[1:]}, dst, 0, false, extensions, false)
+	if err != nil {
+		t.Fatalf("buildPacketWithOptions: %v", err)
+	}
+	return dst[:n]
+}
 
 func TestNewDecoder_ValidParams(t *testing.T) {
 	tests := []struct {
@@ -89,6 +158,229 @@ func TestNewDecoder_DefaultMaxPacketLimits(t *testing.T) {
 	}
 	if dec.maxPacketBytes != defaultMaxPacketBytes {
 		t.Fatalf("maxPacketBytes=%d want %d", dec.maxPacketBytes, defaultMaxPacketBytes)
+	}
+}
+
+func TestDecoderCachesDREDPayloadWhenDREDModelLoaded(t *testing.T) {
+	base := makeValidCELTPacketForDREDTest(t)
+	body := makeExperimentalDREDPayloadBodyForTest(t, 0, 4)
+	extended := buildSingleFramePacketWithExtensionsForDREDTest(t, base, []packetExtensionData{
+		{ID: internaldred.ExtensionID, Frame: 0, Data: append([]byte{'D', internaldred.ExperimentalVersion}, body...)},
+	})
+
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 2))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	if err := dec.SetDNNBlob(makeValidDREDDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+
+	pcm := make([]float32, 960*2)
+	n, err := dec.Decode(extended, pcm)
+	if err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("Decode returned zero samples")
+	}
+	if dec.dredCache.Len != len(body) {
+		t.Fatalf("dredCache.Len=%d want %d", dec.dredCache.Len, len(body))
+	}
+	if dec.dredCache.Parsed.Header.DredOffset != 4 {
+		t.Fatalf("dredCache.Parsed.Header.DredOffset=%d want 4", dec.dredCache.Parsed.Header.DredOffset)
+	}
+	if dec.dredCache.Parsed.Header.DredFrameOffset != 0 || dec.dredCache.Parsed.Header.Q0 != 6 || dec.dredCache.Parsed.Header.DQ != 3 || dec.dredCache.Parsed.Header.QMax != 15 {
+		t.Fatalf("dredCache.Parsed.Header=(frame=%d q0=%d dq=%d qmax=%d) want (0,6,3,15)", dec.dredCache.Parsed.Header.DredFrameOffset, dec.dredCache.Parsed.Header.Q0, dec.dredCache.Parsed.Header.DQ, dec.dredCache.Parsed.Header.QMax)
+	}
+	if !bytes.Equal(dec.dredData[:dec.dredCache.Len], body) {
+		t.Fatalf("cached dred payload=%x want %x", dec.dredData[:dec.dredCache.Len], body)
+	}
+	result := dec.cachedDREDResult(960)
+	if result.Availability.FeatureFrames != 4 || result.Availability.MaxLatents != 1 || result.Availability.OffsetSamples != 480 || result.Availability.EndSamples != 0 || result.Availability.AvailableSamples != 1440 {
+		t.Fatalf("cachedDREDResult=%+v want availability {FeatureFrames:4 MaxLatents:1 OffsetSamples:480 EndSamples:0 AvailableSamples:1440}", result)
+	}
+	if got := dec.cachedDREDMaxAvailableSamples(960); got != 1440 {
+		t.Fatalf("cachedDREDMaxAvailableSamples=%d want 1440", got)
+	}
+	quant := make([]int, 6)
+	if n := dec.cachedDREDResult(10080).FillQuantizerLevels(quant); n != len(quant) {
+		t.Fatalf("cachedDREDResult.FillQuantizerLevels count=%d want %d", n, len(quant))
+	}
+	if want := []int{6, 6, 7, 7, 7, 7}; !slices.Equal(quant, want) {
+		t.Fatalf("cachedDREDResult.FillQuantizerLevels=%v want %v", quant, want)
+	}
+	window := dec.cachedDREDFeatureWindow(960, 960, 960, 0)
+	if window.FeatureOffsetBase != 1 || window.RecoverableFeatureFrames != 2 || window.MissingPositiveFrames != 0 {
+		t.Fatalf("cachedDREDFeatureWindow=%+v want base=1 recoverable=2 missing=0", window)
+	}
+
+	dec.Reset()
+	if dec.dredCache != (internaldred.Cache{}) {
+		t.Fatalf("Reset left DRED cache=%+v want zero state", dec.dredCache)
+	}
+	if got := dec.cachedDREDMaxAvailableSamples(960); got != 0 {
+		t.Fatalf("cachedDREDMaxAvailableSamples after Reset=%d want 0", got)
+	}
+}
+
+func TestDecoderCachesDREDSampleTimingForLaterFrame(t *testing.T) {
+	base := makeValidCELTPacketForDREDTest(t)
+	if len(base) < 2 {
+		t.Fatal("base packet too short")
+	}
+	body := makeExperimentalDREDPayloadBodyForTest(t, 8, -4)
+	packet := make([]byte, len(base)*2+16)
+	n, err := buildPacketWithOptions(base[0]&0xFC, [][]byte{base[1:], base[1:]}, packet, 0, false, []packetExtensionData{
+		{ID: internaldred.ExtensionID, Frame: 1, Data: append([]byte{'D', internaldred.ExperimentalVersion}, body...)},
+	}, false)
+	if err != nil {
+		t.Fatalf("buildPacketWithOptions error: %v", err)
+	}
+
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 2))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	if err := dec.SetDNNBlob(makeValidDREDDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+
+	pcm := make([]float32, 1920*2)
+	got, err := dec.Decode(packet[:n], pcm)
+	if err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	if got != 1920 {
+		t.Fatalf("Decode samples=%d want 1920", got)
+	}
+	if dec.dredCache.Parsed.Header.DredOffset != -4 {
+		t.Fatalf("dredCache.Parsed.Header.DredOffset=%d want -4", dec.dredCache.Parsed.Header.DredOffset)
+	}
+	if dec.dredCache.Parsed.Header.DredFrameOffset != 8 {
+		t.Fatalf("dredCache.Parsed.Header.DredFrameOffset=%d want 8", dec.dredCache.Parsed.Header.DredFrameOffset)
+	}
+	if dec.dredCache.Parsed.Header.QMax != 15 {
+		t.Fatalf("dredCache.Parsed.Header.QMax=%d want 15", dec.dredCache.Parsed.Header.QMax)
+	}
+	result := dec.cachedDREDResult(960)
+	if result.Availability.FeatureFrames != 4 || result.Availability.MaxLatents != 1 || result.Availability.OffsetSamples != -480 || result.Availability.EndSamples != 480 || result.Availability.AvailableSamples != 2400 {
+		t.Fatalf("cachedDREDResult=%+v want availability {FeatureFrames:4 MaxLatents:1 OffsetSamples:-480 EndSamples:480 AvailableSamples:2400}", result)
+	}
+	window := dec.cachedDREDFeatureWindow(960, 3840, 960, 0)
+	if window.FeatureOffsetBase != 5 || window.RecoverableFeatureFrames != 0 || window.MissingPositiveFrames != 2 {
+		t.Fatalf("cachedDREDFeatureWindow=%+v want base=5 recoverable=0 missing=2", window)
+	}
+	if got := dec.cachedDREDMaxAvailableSamples(960); got != 2400 {
+		t.Fatalf("cachedDREDMaxAvailableSamples=%d want 2400", got)
+	}
+}
+
+func TestDecoderLeavesDREDPayloadDormantWithoutDREDModel(t *testing.T) {
+	base := makeValidCELTPacketForDREDTest(t)
+	body := makeExperimentalDREDPayloadBodyForTest(t, 0, 4)
+	extended := buildSingleFramePacketWithExtensionsForDREDTest(t, base, []packetExtensionData{
+		{ID: internaldred.ExtensionID, Frame: 0, Data: append([]byte{'D', internaldred.ExperimentalVersion}, body...)},
+	})
+
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 2))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+
+	pcm := make([]float32, 960*2)
+	n, err := dec.Decode(extended, pcm)
+	if err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("Decode returned zero samples")
+	}
+	if dec.dredCache != (internaldred.Cache{}) {
+		t.Fatalf("decoder cached dormant DRED cache=%+v want zero state", dec.dredCache)
+	}
+	if got := dec.cachedDREDMaxAvailableSamples(960); got != 0 {
+		t.Fatalf("cachedDREDMaxAvailableSamples without model=%d want 0", got)
+	}
+}
+
+func TestDecoderLeavesDREDPayloadDormantWhenIgnoringExtensions(t *testing.T) {
+	base := makeValidCELTPacketForDREDTest(t)
+	body := makeExperimentalDREDPayloadBodyForTest(t, 0, 4)
+	extended := buildSingleFramePacketWithExtensionsForDREDTest(t, base, []packetExtensionData{
+		{ID: internaldred.ExtensionID, Frame: 0, Data: append([]byte{'D', internaldred.ExperimentalVersion}, body...)},
+	})
+
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 2))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	if err := dec.SetDNNBlob(makeValidDREDDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	dec.SetIgnoreExtensions(true)
+
+	pcm := make([]float32, 960*2)
+	n, err := dec.Decode(extended, pcm)
+	if err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("Decode returned zero samples")
+	}
+	if dec.dredCache != (internaldred.Cache{}) {
+		t.Fatalf("decoder cached ignored DRED cache=%+v want zero state", dec.dredCache)
+	}
+	if got := dec.cachedDREDMaxAvailableSamples(960); got != 0 {
+		t.Fatalf("cachedDREDMaxAvailableSamples while ignoring=%d want 0", got)
+	}
+}
+
+func TestDecoderClearsDREDPayloadWhenDowngradingBlobOrIgnoringExtensions(t *testing.T) {
+	base := makeValidCELTPacketForDREDTest(t)
+	body := makeExperimentalDREDPayloadBodyForTest(t, 0, 4)
+	extended := buildSingleFramePacketWithExtensionsForDREDTest(t, base, []packetExtensionData{
+		{ID: internaldred.ExtensionID, Frame: 0, Data: append([]byte{'D', internaldred.ExperimentalVersion}, body...)},
+	})
+
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 2))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	if err := dec.SetDNNBlob(makeValidDREDDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+
+	pcm := make([]float32, 960*2)
+	if _, err := dec.Decode(extended, pcm); err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	if dec.dredCache.Empty() {
+		t.Fatal("expected cached DRED payload before downgrade")
+	}
+
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob(non_dred) error: %v", err)
+	}
+	if dec.dredCache != (internaldred.Cache{}) {
+		t.Fatalf("downgraded blob left DRED cache=%+v want zero state", dec.dredCache)
+	}
+
+	if err := dec.SetDNNBlob(makeValidDREDDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob(redred) error: %v", err)
+	}
+	if _, err := dec.Decode(extended, pcm); err != nil {
+		t.Fatalf("Decode after redred error: %v", err)
+	}
+	if dec.dredCache.Empty() {
+		t.Fatal("expected cached DRED payload before ignore toggle")
+	}
+	dec.SetIgnoreExtensions(true)
+	if dec.dredCache != (internaldred.Cache{}) {
+		t.Fatalf("SetIgnoreExtensions(true) left DRED cache=%+v want zero state", dec.dredCache)
 	}
 }
 

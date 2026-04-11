@@ -104,6 +104,8 @@ func (d *Decoder) applyProjectionDemixing(output []float64, frameSize int) {
 // All elementary streams within the packet must have the same frame duration.
 // If durations differ, ErrDurationMismatch is returned.
 func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
+	d.clearDREDPayloadState()
+
 	// Handle PLC for nil data (lost packet)
 	if data == nil {
 		return d.decodePLC(frameSize)
@@ -140,6 +142,9 @@ func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
 		}
 		decodedStreams[i] = decoded
 	}
+	for i := 0; i < d.streams; i++ {
+		d.maybeCacheDREDPayload(i, packets[i])
+	}
 
 	// Apply channel mapping to produce final output
 	output := applyChannelMapping(decodedStreams, d.mapping, d.coupledStreams, frameSize, d.outputChannels)
@@ -155,6 +160,8 @@ func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
 // decodePLC generates concealment audio for a lost multistream packet.
 // Each stream generates its own PLC output, then channel mapping is applied.
 func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
+	d.clearDREDPayloadState()
+
 	// Record loss and get fade factor
 	fadeFactor := d.plcState.RecordLoss()
 
