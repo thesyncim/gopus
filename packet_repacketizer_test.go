@@ -153,3 +153,76 @@ func TestRepacketizerRejectsDurationOver120ms(t *testing.T) {
 		t.Fatalf("cat(extra frame)=%v want=%v", err, ErrInvalidPacket)
 	}
 }
+
+func TestRepacketizerPreservesPacketExtensions(t *testing.T) {
+	packetAExt := mustDecodeHex(t, "4b41061122330baa50deadbe")
+	packetB := mustDecodeHex(t, "48445566")
+	wantAB := "4b42061122334455660baa50deadbe"
+
+	rp := NewRepacketizer()
+	if err := rp.Cat(packetAExt); err != nil {
+		t.Fatalf("cat(packetAExt): %v", err)
+	}
+	if err := rp.Cat(packetB); err != nil {
+		t.Fatalf("cat(packetB): %v", err)
+	}
+
+	out := make([]byte, 64)
+	n, err := rp.Out(out)
+	if err != nil {
+		t.Fatalf("out(ab with extensions): %v", err)
+	}
+	if got := hex.EncodeToString(out[:n]); got != wantAB {
+		t.Fatalf("out(ab with extensions)=%s want=%s", got, wantAB)
+	}
+}
+
+func TestPacketPadPreservesPacketExtensions(t *testing.T) {
+	packetAExt := mustDecodeHex(t, "4b41061122330baa50deadbe")
+	wantPadded := "4b410a112233010101010baa50deadbe"
+	wantUnpadded := "48112233"
+
+	buf := make([]byte, 16)
+	copy(buf, packetAExt)
+	if err := PacketPad(buf, len(packetAExt), len(buf)); err != nil {
+		t.Fatalf("PacketPad(packet with extensions): %v", err)
+	}
+	if got := hex.EncodeToString(buf); got != wantPadded {
+		t.Fatalf("PacketPad(packet with extensions)=%s want=%s", got, wantPadded)
+	}
+
+	unpaddedLen, err := PacketUnpad(buf, len(buf))
+	if err != nil {
+		t.Fatalf("PacketUnpad(packet with extensions): %v", err)
+	}
+	if got, want := unpaddedLen, 4; got != want {
+		t.Fatalf("PacketUnpad len=%d want=%d", got, want)
+	}
+	if got := hex.EncodeToString(buf[:unpaddedLen]); got != wantUnpadded {
+		t.Fatalf("PacketUnpad(packet with extensions)=%s want=%s", got, wantUnpadded)
+	}
+}
+
+func TestSelfDelimitedPacketPreservesPacketExtensions(t *testing.T) {
+	packetAExt := mustDecodeHex(t, "4b41061122330baa50deadbe")
+	wantSelfDelimited := "4b4106031122330baa50deadbe"
+
+	selfDelimited, err := makeSelfDelimitedPacket(packetAExt)
+	if err != nil {
+		t.Fatalf("makeSelfDelimitedPacket(packet with extensions): %v", err)
+	}
+	if got := hex.EncodeToString(selfDelimited); got != wantSelfDelimited {
+		t.Fatalf("makeSelfDelimitedPacket(packet with extensions)=%s want=%s", got, wantSelfDelimited)
+	}
+
+	decoded, consumed, err := decodeSelfDelimitedPacket(selfDelimited)
+	if err != nil {
+		t.Fatalf("decodeSelfDelimitedPacket(packet with extensions): %v", err)
+	}
+	if consumed != len(selfDelimited) {
+		t.Fatalf("decodeSelfDelimitedPacket consumed=%d want=%d", consumed, len(selfDelimited))
+	}
+	if got := hex.EncodeToString(decoded); got != hex.EncodeToString(packetAExt) {
+		t.Fatalf("decodeSelfDelimitedPacket(packet with extensions)=%s want=%s", got, hex.EncodeToString(packetAExt))
+	}
+}

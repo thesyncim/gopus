@@ -10,6 +10,13 @@ import (
 	"github.com/thesyncim/gopus/types"
 )
 
+const qextExtensionID = 124
+
+type packetExtension struct {
+	ID   int
+	Data []byte
+}
+
 // Packet assembly errors.
 var (
 	ErrInvalidConfig     = errors.New("encoder: invalid config for mode/bandwidth/frameSize")
@@ -113,6 +120,101 @@ func BuildPacketInto(dst, frameData []byte, mode types.Mode, bandwidth types.Ban
 	return needed, nil
 }
 
+func buildPacketWithSingleExtensionInto(dst, frameData []byte, mode types.Mode, bandwidth types.Bandwidth, frameSize int, stereo bool, extID int, extData []byte, targetLen int, withPadding bool) (int, error) {
+	return buildPacketWithExtensionsInto(dst, frameData, mode, bandwidth, frameSize, stereo, []packetExtension{{ID: extID, Data: extData}}, targetLen, withPadding)
+}
+
+func buildPacketWithExtensionsInto(dst, frameData []byte, mode types.Mode, bandwidth types.Bandwidth, frameSize int, stereo bool, extensions []packetExtension, targetLen int, withPadding bool) (int, error) {
+	config := configFromParams(mode, bandwidth, frameSize)
+	if config < 0 {
+		return 0, ErrInvalidConfig
+	}
+
+	for _, ext := range extensions {
+		if ext.ID < 3 || ext.ID > 127 {
+			return 0, ErrInvalidConfig
+		}
+	}
+
+	baseLen := 2 + len(frameData)
+	need := baseLen
+	maxLen := len(dst)
+	if withPadding {
+		if targetLen < baseLen+1 {
+			return 0, ErrInvalidConfig
+		}
+		maxLen = targetLen
+	}
+
+	extLen := 0
+	for i, ext := range extensions {
+		extLen += packetExtensionLength(ext.ID, ext.Data, i == len(extensions)-1)
+	}
+	paddingAmount := 0
+	extBegin := 0
+	onesBegin := 0
+	onesEnd := 0
+
+	if extLen > 0 && !withPadding {
+		paddingAmount = extLen + (extLen+253)/254
+	}
+	if withPadding {
+		paddingAmount = targetLen - baseLen
+	}
+	if paddingAmount != 0 {
+		padFieldBytes := paddingLengthBytes(paddingAmount)
+		if baseLen+extLen+padFieldBytes > maxLen {
+			return 0, ErrInvalidConfig
+		}
+		need = baseLen + paddingAmount
+		extBegin = baseLen + paddingAmount - extLen
+		onesBegin = baseLen + padFieldBytes
+		onesEnd = baseLen + paddingAmount - extLen
+	}
+	if len(dst) < need {
+		return 0, ErrInvalidConfig
+	}
+
+	offset := 0
+	dst[offset] = generateTOC(uint8(config), stereo, 3)
+	offset++
+
+	countByte := byte(0x01)
+	if paddingAmount != 0 {
+		countByte |= 0x40
+	}
+	dst[offset] = countByte
+	offset++
+
+	if paddingAmount != 0 {
+		offset += writePaddingLength(dst[offset:], paddingAmount)
+	}
+
+	copy(dst[offset:], frameData)
+	offset += len(frameData)
+
+	if extLen > 0 {
+		pos := extBegin
+		for i, ext := range extensions {
+			var err error
+			pos, err = writePacketExtension(dst, pos, ext.ID, ext.Data, i == len(extensions)-1)
+			if err != nil {
+				return 0, err
+			}
+		}
+	}
+	for i := onesBegin; i < onesEnd; i++ {
+		dst[i] = 0x01
+	}
+	if withPadding && extLen == 0 {
+		for i := offset; i < need; i++ {
+			dst[i] = 0
+		}
+	}
+
+	return need, nil
+}
+
 // BuildPacket creates a complete Opus packet from encoded frame data.
 // Uses frame code 0 (single frame).
 func BuildPacket(frameData []byte, mode types.Mode, bandwidth types.Bandwidth, frameSize int, stereo bool) ([]byte, error) {
@@ -213,4 +315,89 @@ func writeFrameLength(dst []byte, length int) int {
 	dst[0] = byte(252 + (length % 4))
 	dst[1] = byte((length - 252) / 4)
 	return 2
+}
+
+func packetExtensionLength(id int, data []byte, last bool) int {
+	if id < 3 || id > 127 {
+		return 0
+	}
+	if id < 32 {
+		return 1 + len(data)
+	}
+	if last {
+		return 1 + len(data)
+	}
+	return 2 + len(data)/255 + len(data)
+}
+
+func writePacketExtension(dst []byte, pos int, id int, data []byte, last bool) (int, error) {
+	if id < 3 || id > 127 {
+		return 0, ErrInvalidConfig
+	}
+	if len(dst)-pos < 1 {
+		return 0, ErrInvalidConfig
+	}
+
+	lFlag := 0
+	if id < 32 {
+		lFlag = len(data)
+		if lFlag < 0 || lFlag > 1 {
+			return 0, ErrInvalidConfig
+		}
+	} else if !last {
+		lFlag = 1
+	}
+	dst[pos] = byte((id << 1) | lFlag)
+	pos++
+
+	if id < 32 {
+		if len(dst)-pos < len(data) {
+			return 0, ErrInvalidConfig
+		}
+		copy(dst[pos:], data)
+		return pos + len(data), nil
+	}
+
+	if last {
+		if len(dst)-pos < len(data) {
+			return 0, ErrInvalidConfig
+		}
+		copy(dst[pos:], data)
+		return pos + len(data), nil
+	}
+
+	lengthBytes := 1 + len(data)/255
+	if len(dst)-pos < lengthBytes+len(data) {
+		return 0, ErrInvalidConfig
+	}
+	for j := 0; j < len(data)/255; j++ {
+		dst[pos] = 255
+		pos++
+	}
+	dst[pos] = byte(len(data) % 255)
+	pos++
+	copy(dst[pos:], data)
+	return pos + len(data), nil
+}
+
+func paddingLengthBytes(extra int) int {
+	if extra <= 0 {
+		return 0
+	}
+	return 1 + (extra-1)/255
+}
+
+func writePaddingLength(dst []byte, extra int) int {
+	if extra <= 0 {
+		return 0
+	}
+	n := 0
+	remaining := extra
+	for remaining > 255 {
+		dst[n] = 255
+		n++
+		remaining -= 255
+	}
+	dst[n] = byte(remaining - 1)
+	return n + 1
 }

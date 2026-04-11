@@ -1,9 +1,11 @@
 package multistream
 
 type parsedOpusPacket struct {
-	tocBase  byte
-	frames   [][]byte
-	consumed int
+	tocBase           byte
+	frames            [][]byte
+	padding           []byte
+	paddingFrameCount int
+	consumed          int
 }
 
 // parseOpusPacket parses one Opus packet from data.
@@ -188,10 +190,17 @@ func parseOpusPacket(data []byte, selfDelimited bool) (parsedOpusPacket, error) 
 		frameOffset = next
 	}
 
+	var rawPadding []byte
+	if padding > 0 {
+		rawPadding = data[frameEnd:consumed]
+	}
+
 	return parsedOpusPacket{
-		tocBase:  toc & 0xFC,
-		frames:   frames,
-		consumed: consumed,
+		tocBase:           toc & 0xFC,
+		frames:            frames,
+		padding:           rawPadding,
+		paddingFrameCount: frameCount,
+		consumed:          consumed,
 	}, nil
 }
 
@@ -212,6 +221,26 @@ func writeFrameLength(dst []byte, length int) int {
 	dst[0] = byte(firstByte)
 	dst[1] = byte(secondByte)
 	return 2
+}
+
+func paddingLengthBytes(length int) int {
+	bytes := 1
+	for length > 254 {
+		bytes++
+		length -= 254
+	}
+	return bytes
+}
+
+func writePaddingLength(dst []byte, length int) int {
+	offset := 0
+	for length > 254 {
+		dst[offset] = 255
+		offset++
+		length -= 254
+	}
+	dst[offset] = byte(length)
+	return offset + 1
 }
 
 // buildOpusPacketFromFrames assembles an Opus packet from frames.
@@ -328,6 +357,75 @@ func buildOpusPacketFromFrames(tocBase byte, frames [][]byte, selfDelimited bool
 	return offset, nil
 }
 
+func buildOpusPacketFromFramesAndPadding(tocBase byte, frames [][]byte, padding []byte, selfDelimited bool, dst []byte) (int, error) {
+	if len(padding) == 0 {
+		return buildOpusPacketFromFrames(tocBase, frames, selfDelimited, dst)
+	}
+
+	count := len(frames)
+	if count < 1 || count > 48 {
+		return 0, ErrInvalidPacket
+	}
+
+	lengths := make([]int, count)
+	totalFrameBytes := 0
+	vbr := false
+	for i := 0; i < count; i++ {
+		lengths[i] = len(frames[i])
+		totalFrameBytes += lengths[i]
+		if i > 0 && lengths[i] != lengths[0] {
+			vbr = true
+		}
+	}
+
+	sdBytes := 0
+	if selfDelimited {
+		sdBytes = frameLengthBytes(lengths[count-1])
+	}
+
+	lengthBytes := 0
+	if vbr {
+		for i := 0; i < count-1; i++ {
+			lengthBytes += frameLengthBytes(lengths[i])
+		}
+	}
+
+	padBytes := paddingLengthBytes(len(padding))
+	need := 2 + padBytes + lengthBytes + sdBytes + totalFrameBytes + len(padding)
+	if len(dst) < need {
+		return 0, ErrPacketTooShort
+	}
+
+	offset := 0
+	dst[offset] = tocBase | 0x03
+	offset++
+	countByte := byte(count) | 0x40
+	if vbr {
+		countByte |= 0x80
+	}
+	dst[offset] = countByte
+	offset++
+	offset += writePaddingLength(dst[offset:], len(padding))
+
+	if vbr {
+		for i := 0; i < count-1; i++ {
+			offset += writeFrameLength(dst[offset:], lengths[i])
+		}
+	}
+	if selfDelimited {
+		offset += writeFrameLength(dst[offset:], lengths[count-1])
+	}
+
+	for i := 0; i < count; i++ {
+		copy(dst[offset:], frames[i])
+		offset += lengths[i]
+	}
+	copy(dst[offset:], padding)
+	offset += len(padding)
+
+	return offset, nil
+}
+
 func makeSelfDelimitedPacket(packet []byte) ([]byte, error) {
 	parsed, err := parseOpusPacket(packet, false)
 	if err != nil {
@@ -336,7 +434,7 @@ func makeSelfDelimitedPacket(packet []byte) ([]byte, error) {
 
 	// Self-delimiting framing adds at most 2 bytes.
 	dst := make([]byte, len(packet)+2)
-	n, err := buildOpusPacketFromFrames(parsed.tocBase, parsed.frames, true, dst)
+	n, err := buildOpusPacketFromFramesAndPadding(parsed.tocBase, parsed.frames, parsed.padding, true, dst)
 	if err != nil {
 		return nil, err
 	}
@@ -350,7 +448,7 @@ func decodeSelfDelimitedPacket(data []byte) ([]byte, int, error) {
 	}
 
 	dst := make([]byte, parsed.consumed)
-	n, err := buildOpusPacketFromFrames(parsed.tocBase, parsed.frames, false, dst)
+	n, err := buildOpusPacketFromFramesAndPadding(parsed.tocBase, parsed.frames, parsed.padding, false, dst)
 	if err != nil {
 		return nil, 0, err
 	}
