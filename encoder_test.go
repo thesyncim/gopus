@@ -810,12 +810,18 @@ func TestEncoder_ExpertFrameDuration(t *testing.T) {
 }
 
 func TestEncoder_OptionalExtensionControls(t *testing.T) {
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
-	if err != nil {
-		t.Fatalf("NewEncoder error: %v", err)
-	}
+	for _, channels := range []int{1, 2} {
+		channels := channels
+		t.Run(fmt.Sprintf("%dch", channels), func(t *testing.T) {
+			enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: channels, Application: ApplicationAudio})
+			if err != nil {
+				t.Fatalf("NewEncoder error: %v", err)
+			}
 
-	assertOptionalEncoderControls(t, enc)
+			assertOptionalEncoderControls(t, enc)
+			assertSupportedQEXTControl(t, enc)
+		})
+	}
 }
 
 func TestEncoder_LongPacketRoundTrip(t *testing.T) {

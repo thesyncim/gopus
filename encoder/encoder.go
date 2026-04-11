@@ -13,6 +13,8 @@ import (
 	"os"
 
 	"github.com/thesyncim/gopus/celt"
+	"github.com/thesyncim/gopus/internal/dnnblob"
+	internaldred "github.com/thesyncim/gopus/internal/dred"
 	"github.com/thesyncim/gopus/silk"
 	"github.com/thesyncim/gopus/types"
 )
@@ -47,7 +49,12 @@ var (
 
 	// ErrEncodingFailed indicates a general encoding failure.
 	ErrEncodingFailed = errors.New("encoder: encoding failed")
+
+	// ErrInvalidDREDDuration indicates DRED duration is outside libopus bounds.
+	ErrInvalidDREDDuration = errors.New("encoder: invalid DRED duration")
 )
+
+const maxPacketSizeWithQEXT = 3826
 
 // Encoder is the unified Opus encoder that orchestrates SILK and CELT sub-encoders.
 type Encoder struct {
@@ -126,6 +133,24 @@ type Encoder struct {
 
 	// celtEnergyMask carries per-band surround masking into CELT dynalloc control.
 	celtEnergyMask []float64
+
+	// qextEnabled mirrors libopus OPUS_SET_QEXT and is applied lazily to CELT.
+	qextEnabled bool
+
+	// dnnBlob retains a validated USE_WEIGHTS_FILE blob for future optional
+	// extension paths (DRED/OSCE). Keeping it here mirrors libopus ctl lifetime.
+	dnnBlob *dnnblob.Blob
+	// dredModelLoaded tracks whether the retained blob contains the DRED encoder
+	// model families libopus requires before it can emit DRED payloads.
+	dredModelLoaded bool
+
+	// pendingDREDPayload carries a prebuilt DRED experimental payload that will
+	// be emitted on the next packet, then cleared.
+	pendingDREDPayload []byte
+
+	// dredDuration mirrors libopus OPUS_SET_DRED_DURATION in 2.5 ms units.
+	// Reset() clears it back to zero.
+	dredDuration int
 
 	// DC rejection filter state
 	hpMem [4]float32
@@ -242,7 +267,7 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		scratchLeft:            make([]float32, maxSamples),
 		scratchRight:           make([]float32, maxSamples),
 		scratchMono:            make([]float32, maxSamples),
-		scratchPacket:          make([]byte, 1276),
+		scratchPacket:          make([]byte, maxPacketSizeWithQEXT),
 		prevMode:               ModeAuto,
 		prevAutoMode:           ModeAuto,
 		voiceRatio:             -1,
@@ -301,6 +326,63 @@ func (e *Encoder) Bandwidth() types.Bandwidth {
 	return e.bandwidth
 }
 
+// SetQEXT toggles the internal libopus-style CELT QEXT encoder path.
+func (e *Encoder) SetQEXT(enabled bool) {
+	e.qextEnabled = enabled
+	if e.celtEncoder != nil {
+		e.celtEncoder.SetQEXTEnabled(e.qextEnabled)
+	}
+}
+
+// QEXT reports whether the internal CELT QEXT path is enabled.
+func (e *Encoder) QEXT() bool {
+	return e.qextEnabled
+}
+
+// SetDNNBlob retains a validated USE_WEIGHTS_FILE blob for optional extension
+// paths. A nil blob clears the retained model.
+func (e *Encoder) SetDNNBlob(blob *dnnblob.Blob) {
+	e.dnnBlob = blob
+	e.dredModelLoaded = blob != nil && blob.SupportsDREDEncoder() && blob.SupportsPitchDNN()
+}
+
+// DNNBlobLoaded reports whether a validated model blob is retained.
+func (e *Encoder) DNNBlobLoaded() bool {
+	return e.dnnBlob != nil
+}
+
+// DREDModelLoaded reports whether the retained blob is DRED-encoder capable.
+func (e *Encoder) DREDModelLoaded() bool {
+	return e.dredModelLoaded
+}
+
+// DREDReady reports whether DRED can be emitted on the next packet.
+func (e *Encoder) DREDReady() bool {
+	return e.dredModelLoaded && e.dredDuration > 0
+}
+
+// SetDREDDuration stores libopus-style DRED redundancy depth in 2.5 ms units.
+func (e *Encoder) SetDREDDuration(duration int) error {
+	if duration < 0 || duration > internaldred.MaxFrames {
+		return ErrInvalidDREDDuration
+	}
+	e.dredDuration = duration
+	return nil
+}
+
+// DREDDuration reports the stored DRED redundancy depth in 2.5 ms units.
+func (e *Encoder) DREDDuration() int {
+	return e.dredDuration
+}
+
+// SetPendingDREDPayload queues a DRED payload for the next emitted packet.
+// The queued payload is cleared after one encode and is only emitted when
+// DREDReady() is true and the payload matches libopus's temporary experimental
+// DRED framing.
+func (e *Encoder) SetPendingDREDPayload(payload []byte) {
+	e.pendingDREDPayload = payload
+}
+
 // SetFrameSize sets the frame size in samples at 48kHz.
 func (e *Encoder) SetFrameSize(frameSize int) {
 	e.frameSize = frameSize
@@ -343,6 +425,7 @@ func (e *Encoder) Reset() {
 	if e.celtEncoder != nil {
 		e.celtEncoder.Reset()
 		e.celtEncoder.SetPrediction(e.celtPredictionMode())
+		e.celtEncoder.SetQEXTEnabled(e.qextEnabled)
 	}
 	if len(e.celtEnergyMask) > 0 {
 		clear(e.celtEnergyMask)
@@ -370,6 +453,8 @@ func (e *Encoder) Reset() {
 	e.lbrrCoded = false
 	e.widthMem = StereoWidthMem{}
 	e.toMono = 0
+	e.dredDuration = 0
+	e.pendingDREDPayload = nil
 }
 
 // SetFEC enables or disables in-band Forward Error Correction.
@@ -701,13 +786,50 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	}
 	remaining := copy(e.inputBuffer, e.inputBuffer[frameEnd:])
 	e.inputBuffer = e.inputBuffer[:remaining]
+	qextPayload := []byte(nil)
+	if actualMode == ModeCELT && e.celtEncoder != nil {
+		qextPayload = e.celtEncoder.LastQEXTPayload()
+	}
+	dredPayload := []byte(nil)
+	if e.DREDReady() && internaldred.ValidExperimentalPayload(e.pendingDREDPayload) {
+		dredPayload = e.pendingDREDPayload
+	}
+	e.pendingDREDPayload = nil
 	if packet == nil {
 		stereo := e.channels == 2
 		packetBW := e.effectiveBandwidth()
 		if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
 			packetBW = types.BandwidthWideband
 		}
-		packetLen, pktErr := BuildPacketInto(e.scratchPacket, frameData, modeToTypes(actualMode), packetBW, frameSize, stereo)
+		var (
+			packetLen int
+			pktErr    error
+		)
+		if len(qextPayload) > 0 || len(dredPayload) > 0 {
+			var extensions [2]packetExtension
+			extCount := 0
+			if len(qextPayload) > 0 {
+				extensions[extCount] = packetExtension{ID: qextExtensionID, Data: qextPayload}
+				extCount++
+			}
+			if len(dredPayload) > 0 {
+				extensions[extCount] = packetExtension{ID: internaldred.ExtensionID, Data: dredPayload}
+				extCount++
+			}
+			packetLen, pktErr = buildPacketWithExtensionsInto(
+				e.scratchPacket,
+				frameData,
+				modeToTypes(actualMode),
+				packetBW,
+				frameSize,
+				stereo,
+				extensions[:extCount],
+				0,
+				false,
+			)
+		} else {
+			packetLen, pktErr = BuildPacketInto(e.scratchPacket, frameData, modeToTypes(actualMode), packetBW, frameSize, stereo)
+		}
 		if pktErr != nil {
 			return nil, pktErr
 		}
@@ -721,9 +843,44 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	}
 	switch e.bitrateMode {
 	case ModeCBR:
-		packet = padToSize(packet, targetBytesForBitrate(e.bitrate, frameSize))
+		targetSize := targetBytesForBitrate(e.bitrate, frameSize)
+		if (len(qextPayload) > 0 || len(dredPayload) > 0) && len(packet) < targetSize {
+			stereo := e.channels == 2
+			packetBW := e.effectiveBandwidth()
+			if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
+				packetBW = types.BandwidthWideband
+			}
+			var extensions [2]packetExtension
+			extCount := 0
+			if len(qextPayload) > 0 {
+				extensions[extCount] = packetExtension{ID: qextExtensionID, Data: qextPayload}
+				extCount++
+			}
+			if len(dredPayload) > 0 {
+				extensions[extCount] = packetExtension{ID: internaldred.ExtensionID, Data: dredPayload}
+				extCount++
+			}
+			packetLen, pktErr := buildPacketWithExtensionsInto(
+				e.scratchPacket,
+				frameData,
+				modeToTypes(actualMode),
+				packetBW,
+				frameSize,
+				stereo,
+				extensions[:extCount],
+				targetSize,
+				true,
+			)
+			if pktErr == nil {
+				packet = e.scratchPacket[:packetLen]
+			}
+		} else {
+			packet = padToSize(packet, targetSize)
+		}
 	case ModeCVBR:
-		packet = constrainSize(packet, targetBytesForBitrate(e.bitrate, frameSize), CVBRTolerance)
+		if len(qextPayload) == 0 {
+			packet = constrainSize(packet, targetBytesForBitrate(e.bitrate, frameSize), CVBRTolerance)
+		}
 	}
 	return packet, nil
 }
@@ -1909,6 +2066,7 @@ func (e *Encoder) encodeCELTFrameWithBitrateAndMaxPayload(pcm []float64, frameSi
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 	e.celtEncoder.SetHybrid(false)
 	e.celtEncoder.SetPrediction(e.celtPredictionModeForFrame())
+	e.celtEncoder.SetQEXTEnabled(e.qextEnabled)
 	e.celtEncoder.SetDCRejectEnabled(false)
 	e.celtEncoder.SetPacketLoss(e.packetLoss)
 	e.celtEncoder.SetLSBDepth(e.lsbDepth)
@@ -2495,6 +2653,7 @@ func (e *Encoder) ensureCELTEncoder() {
 		e.celtEncoder.SetDelayCompensationEnabled(false)
 	}
 	e.celtEncoder.SetPrediction(e.celtPredictionMode())
+	e.celtEncoder.SetQEXTEnabled(e.qextEnabled)
 	e.celtEncoder.SetLFE(e.lfe)
 	e.celtEncoder.SetSurroundTrim(e.celtSurroundTrim)
 	e.celtEncoder.SetEnergyMask(e.celtEnergyMask)

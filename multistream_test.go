@@ -1,10 +1,15 @@
 package gopus
 
 import (
+	"bytes"
 	"math"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 
 	encodercore "github.com/thesyncim/gopus/encoder"
+	"github.com/thesyncim/gopus/internal/benchutil"
 )
 
 // generateSurroundTestSignal generates a multi-channel test signal with unique frequency per channel.
@@ -881,6 +886,7 @@ func TestMultistreamEncoder_OptionalExtensionControls(t *testing.T) {
 	}
 
 	assertOptionalEncoderControls(t, enc)
+	assertSupportedQEXTControl(t, enc)
 }
 
 func TestMultistreamDecoder_OptionalExtensionControls(t *testing.T) {
@@ -890,6 +896,221 @@ func TestMultistreamDecoder_OptionalExtensionControls(t *testing.T) {
 	}
 
 	assertOptionalDecoderControls(t, dec)
+}
+
+func TestMultistreamDNNBlobPropagatesToInternalState(t *testing.T) {
+	enc, err := NewMultistreamEncoderDefault(48000, 2, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewMultistreamEncoderDefault encoder error: %v", err)
+	}
+	if err := enc.SetDNNBlob(makeValidEncoderTestDNNBlob()); err != nil {
+		t.Fatalf("encoder SetDNNBlob error: %v", err)
+	}
+	if enc.dnnBlob == nil {
+		t.Fatal("encoder wrapper dnnBlob=nil want non-nil")
+	}
+	if !enc.enc.DNNBlobLoaded() {
+		t.Fatal("internal multistream encoder DNNBlobLoaded()=false want true")
+	}
+	if !enc.enc.DREDModelLoaded() {
+		t.Fatal("internal multistream encoder DREDModelLoaded()=false want true")
+	}
+	if enc.enc.DREDReady() {
+		t.Fatal("internal multistream encoder DREDReady()=true without dred duration")
+	}
+	enc.Reset()
+	if !enc.enc.DNNBlobLoaded() {
+		t.Fatal("internal multistream encoder DNNBlobLoaded()=false after Reset")
+	}
+	if !enc.enc.DREDModelLoaded() {
+		t.Fatal("internal multistream encoder lost DRED model across Reset")
+	}
+
+	dec, err := NewMultistreamDecoderDefault(48000, 2)
+	if err != nil {
+		t.Fatalf("NewMultistreamDecoderDefault decoder error: %v", err)
+	}
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("decoder SetDNNBlob error: %v", err)
+	}
+	if dec.dnnBlob == nil {
+		t.Fatal("decoder wrapper dnnBlob=nil want non-nil")
+	}
+	if !dec.dec.DNNBlobLoaded() {
+		t.Fatal("internal multistream decoder DNNBlobLoaded()=false want true")
+	}
+	if !dec.dec.PitchDNNLoaded() {
+		t.Fatal("internal multistream decoder PitchDNNLoaded()=false want true")
+	}
+	if !dec.dec.PLCModelLoaded() {
+		t.Fatal("internal multistream decoder PLCModelLoaded()=false want true")
+	}
+	if !dec.dec.FARGANModelLoaded() {
+		t.Fatal("internal multistream decoder FARGANModelLoaded()=false want true")
+	}
+	if dec.dec.DREDModelLoaded() {
+		t.Fatal("internal multistream decoder DREDModelLoaded()=true without DRED decoder model")
+	}
+	if !dec.dec.OSCEModelsLoaded() {
+		t.Fatal("internal multistream decoder OSCEModelsLoaded()=false want true")
+	}
+	if dec.dec.OSCEBWEModelLoaded() {
+		t.Fatal("internal multistream decoder OSCEBWEModelLoaded()=true without OSCE_BWE model")
+	}
+	dec.Reset()
+	if !dec.dec.DNNBlobLoaded() {
+		t.Fatal("internal multistream decoder DNNBlobLoaded()=false after Reset")
+	}
+	if !dec.dec.PitchDNNLoaded() || !dec.dec.PLCModelLoaded() || !dec.dec.FARGANModelLoaded() || !dec.dec.OSCEModelsLoaded() {
+		t.Fatal("internal multistream decoder lost core model readiness across Reset")
+	}
+	if dec.dec.DREDModelLoaded() || dec.dec.OSCEBWEModelLoaded() {
+		t.Fatal("internal multistream decoder gained unsupported model readiness across Reset")
+	}
+}
+
+func TestMultistreamDecoderDREDBlobPropagatesCapability(t *testing.T) {
+	dec, err := NewMultistreamDecoderDefault(48000, 2)
+	if err != nil {
+		t.Fatalf("NewMultistreamDecoderDefault decoder error: %v", err)
+	}
+	if err := dec.SetDNNBlob(makeValidDREDDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("decoder SetDNNBlob error: %v", err)
+	}
+	if !dec.dec.DREDModelLoaded() {
+		t.Fatal("internal multistream decoder DREDModelLoaded()=false want true")
+	}
+
+	dec.Reset()
+	if !dec.dec.DREDModelLoaded() {
+		t.Fatal("internal multistream decoder lost DRED model across Reset")
+	}
+}
+
+func TestMultistreamDecoderUnsupportedQEXTExtensionMatchesBasePacket(t *testing.T) {
+	if SupportsOptionalExtension(OptionalExtensionQEXT) {
+		t.Skip("test covers the default unsupported-QEXT build")
+	}
+
+	enc, err := NewMultistreamEncoderDefault(48000, 2, ApplicationLowDelay)
+	if err != nil {
+		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
+	}
+	if err := enc.SetBitrate(256000); err != nil {
+		t.Fatalf("SetBitrate error: %v", err)
+	}
+
+	pcm := generateSurroundTestSignal(48000, enc.FrameSize(), enc.Channels())
+	base, err := enc.EncodeFloat32(pcm)
+	if err != nil {
+		t.Fatalf("EncodeFloat32 error: %v", err)
+	}
+	toc, _, err := packetFrameCount(base)
+	if err != nil {
+		t.Fatalf("packetFrameCount error: %v", err)
+	}
+	if toc.Mode != ModeCELT {
+		t.Fatalf("encoded mode=%v want %v", toc.Mode, ModeCELT)
+	}
+
+	extended := buildSingleFramePacketWithExtensionsForTest(t, base, []packetExtensionData{
+		{ID: qextPacketExtensionID, Frame: 0, Data: []byte{0x51, 0x8C, 0xE0}},
+	})
+
+	for _, ignore := range []bool{false, true} {
+		baseDec, err := NewMultistreamDecoderDefault(48000, 2)
+		if err != nil {
+			t.Fatalf("NewMultistreamDecoderDefault(base) error: %v", err)
+		}
+		baseDec.SetIgnoreExtensions(ignore)
+		basePCM := make([]float32, 960*2)
+		baseN, err := baseDec.Decode(base, basePCM)
+		if err != nil {
+			t.Fatalf("Decode(base, ignore=%v): %v", ignore, err)
+		}
+
+		extDec, err := NewMultistreamDecoderDefault(48000, 2)
+		if err != nil {
+			t.Fatalf("NewMultistreamDecoderDefault(extended) error: %v", err)
+		}
+		extDec.SetIgnoreExtensions(ignore)
+		extPCM := make([]float32, 960*2)
+		extN, err := extDec.Decode(extended, extPCM)
+		if err != nil {
+			t.Fatalf("Decode(extended, ignore=%v): %v", ignore, err)
+		}
+
+		if extN != baseN {
+			t.Fatalf("Decode sample count=%d want %d (ignore=%v)", extN, baseN, ignore)
+		}
+		for i := 0; i < extN*2; i++ {
+			if extPCM[i] != basePCM[i] {
+				t.Fatalf("sample[%d]=%v want %v (ignore=%v)", i, extPCM[i], basePCM[i], ignore)
+			}
+		}
+	}
+}
+
+func TestMultistreamEncoderDefaultQEXTPacketLibopusDecode(t *testing.T) {
+	opusDemo, err := benchutil.QEXTOpusDemoPath()
+	if err != nil {
+		t.Skipf("QEXT-enabled opus_demo unavailable: %v", err)
+	}
+
+	enc, err := NewMultistreamEncoderDefault(48000, 2, ApplicationLowDelay)
+	if err != nil {
+		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
+	}
+	if err := enc.SetBitrate(256000); err != nil {
+		t.Fatalf("SetBitrate error: %v", err)
+	}
+	if err := enc.SetQEXT(true); err != nil {
+		t.Fatalf("SetQEXT(true) error: %v", err)
+	}
+
+	pcm := generateSurroundTestSignal(48000, enc.FrameSize(), enc.Channels())
+	packet, err := enc.EncodeFloat32(pcm)
+	if err != nil {
+		t.Fatalf("EncodeFloat32 error: %v", err)
+	}
+
+	info, frames, padding, nbFrames, err := parsePacketFramesAndPadding(packet)
+	if err != nil {
+		t.Fatalf("parsePacketFramesAndPadding: %v", err)
+	}
+	if len(frames) != 1 {
+		t.Fatalf("frame count=%d want 1", len(frames))
+	}
+	if info.Padding == 0 {
+		t.Fatal("multistream default 2ch packet missing extension padding")
+	}
+	ext, ok, err := findPacketExtension(padding, nbFrames, qextPacketExtensionID)
+	if err != nil {
+		t.Fatalf("findPacketExtension: %v", err)
+	}
+	if !ok || len(ext.Data) == 0 {
+		t.Fatal("multistream default 2ch packet missing QEXT payload")
+	}
+
+	tmpDir := t.TempDir()
+	bitstreamPath := filepath.Join(tmpDir, "qext.bit")
+	outputPath := filepath.Join(tmpDir, "qext.raw")
+	if err := benchutil.WriteRepeatedOpusDemoBitstream(bitstreamPath, [][]byte{packet}, 1); err != nil {
+		t.Fatalf("WriteRepeatedOpusDemoBitstream: %v", err)
+	}
+
+	cmd := exec.Command(opusDemo, "-d", "48000", "2", bitstreamPath, outputPath)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("opus_demo decode failed: %v (%s)", err, bytes.TrimSpace(out))
+	}
+	infoOut, err := os.Stat(outputPath)
+	if err != nil {
+		t.Fatalf("stat decoded output: %v", err)
+	}
+	if infoOut.Size() == 0 {
+		t.Fatal("opus_demo produced empty decoded output")
+	}
 }
 
 // TestMultistreamDecoder_PLC tests packet loss concealment.

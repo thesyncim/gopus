@@ -496,6 +496,7 @@ func (d *Decoder) DecodeEnergyFinaliseRange(start, end int, energies []float64, 
 	if bitsLeft < 0 {
 		bitsLeft = 0
 	}
+	apply := len(energies) >= end*d.channels
 
 	for prio := 0; prio < 2; prio++ {
 		for band := start; band < end && bitsLeft >= d.channels; band++ {
@@ -504,9 +505,9 @@ func (d *Decoder) DecodeEnergyFinaliseRange(start, end int, energies []float64, 
 			}
 			for c := 0; c < d.channels; c++ {
 				q2 := d.rangeDecoder.DecodeRawBits(1)
-				offset := (float64(q2) - 0.5) / float64(uint(1)<<(fineQuant[band]+1))
-				idx := c*end + band
-				if idx < len(energies) {
+				if apply {
+					offset := (float64(q2) - 0.5) / float64(uint(1)<<(fineQuant[band]+1))
+					idx := c*end + band
 					energies[idx] += offset * DB6
 					traceEnergyFinal(band, c, energies[idx])
 				}

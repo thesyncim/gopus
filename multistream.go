@@ -3,6 +3,7 @@
 package gopus
 
 import (
+	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/multistream"
 )
 
@@ -23,6 +24,7 @@ type MultistreamEncoder struct {
 	expertFrameDuration ExpertFrameDuration
 	application         Application
 	encodedOnce         bool
+	dnnBlob             *dnnblob.Blob
 }
 
 // NewMultistreamEncoder creates a new multistream encoder with explicit configuration.
@@ -150,6 +152,7 @@ type MultistreamDecoder struct {
 	channels         int
 	lastFrameSize    int
 	ignoreExtensions bool
+	dnnBlob          *dnnblob.Blob
 }
 
 // NewMultistreamDecoder creates a new multistream decoder with explicit configuration.

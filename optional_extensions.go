@@ -1,5 +1,7 @@
 package gopus
 
+import "github.com/thesyncim/gopus/internal/extsupport"
+
 // OptionalExtension identifies a libopus build-time extension surface.
 type OptionalExtension string
 
@@ -18,17 +20,16 @@ const (
 )
 
 // SupportsOptionalExtension reports whether the current gopus build enables ext.
-//
-// The default pure-Go build intentionally leaves these optional libopus
-// extensions disabled, so this currently returns false for every known value.
-// Unknown values also return false.
 func SupportsOptionalExtension(ext OptionalExtension) bool {
 	switch ext {
-	case OptionalExtensionDRED,
-		OptionalExtensionDNNBlob,
-		OptionalExtensionQEXT,
-		OptionalExtensionOSCEBWE:
-		return false
+	case OptionalExtensionDRED:
+		return extsupport.DRED
+	case OptionalExtensionDNNBlob:
+		return extsupport.DNNBlob
+	case OptionalExtensionQEXT:
+		return extsupport.QEXT
+	case OptionalExtensionOSCEBWE:
+		return extsupport.OSCEBWE
 	default:
 		return false
 	}

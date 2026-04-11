@@ -7,6 +7,9 @@ import (
 
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/hybrid"
+	"github.com/thesyncim/gopus/internal/dnnblob"
+	internaldred "github.com/thesyncim/gopus/internal/dred"
+	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/plc"
 	"github.com/thesyncim/gopus/silk"
 	"github.com/thesyncim/gopus/types"
@@ -55,6 +58,9 @@ type streamDecoder interface {
 
 	// Channels returns the number of channels this decoder produces (1 or 2).
 	Channels() int
+
+	// SetIgnoreExtensions toggles libopus-style opaque extension handling.
+	SetIgnoreExtensions(bool)
 }
 
 const (
@@ -116,6 +122,7 @@ type streamState struct {
 	lastPacketDuration int
 	lastDataLen        int
 	decodeGainQ8       int
+	ignoreExtensions   bool
 }
 
 func newStreamDecoder(sampleRate, channels int) *streamState {
@@ -153,6 +160,10 @@ func (d *streamState) Reset() {
 	d.lastFrameSize = 960
 	d.lastPacketDuration = 0
 	d.lastDataLen = 0
+}
+
+func (d *streamState) SetIgnoreExtensions(ignore bool) {
+	d.ignoreExtensions = ignore
 }
 
 // Channels returns the channel count for this decoder.
@@ -270,7 +281,7 @@ func (d *streamState) decodeSILK(data []byte, frameSize int, packetStereo bool, 
 	return float32ToFloat64Slice(out32), nil
 }
 
-func (d *streamState) decodeFramePayload(frame []byte, frameSize int, toc streamTOC) ([]float64, error) {
+func (d *streamState) decodeFramePayload(frame []byte, frameSize int, toc streamTOC, qextPayload []byte) ([]float64, error) {
 	var out []float64
 	var err error
 
@@ -284,6 +295,9 @@ func (d *streamState) decodeFramePayload(frame []byte, frameSize int, toc stream
 		out, err = d.hybridDec.DecodeWithPacketStereo(frame, frameSize, toc.stereo)
 	case streamModeCELT:
 		d.celtDec.SetBandwidth(celt.BandwidthFromOpusConfig(toc.bandwidth))
+		if extsupport.QEXT {
+			d.celtDec.SetQEXTPayload(qextPayload)
+		}
 		out, err = d.celtDec.DecodeFrameWithPacketStereo(frame, frameSize, toc.stereo)
 	default:
 		return nil, ErrInvalidPacket
@@ -356,8 +370,17 @@ func (d *streamState) decodePacket(data []byte, frameSize int) ([]float64, error
 		return nil, ErrInvalidPacket
 	}
 
+	var qextPayloads [maxPacketExtensionFrames][]byte
+	if extsupport.QEXT && toc.mode == streamModeCELT && !d.ignoreExtensions && len(parsed.padding) > 0 {
+		if err := collectPacketExtensionPayloadsByFrame(parsed.padding, parsed.paddingFrameCount, qextPacketExtensionID, &qextPayloads); err != nil {
+			for i := range qextPayloads {
+				qextPayloads[i] = nil
+			}
+		}
+	}
+
 	if frameCount == 1 {
-		out, err := d.decodeFramePayload(parsed.frames[0], frameSize, toc)
+		out, err := d.decodeFramePayload(parsed.frames[0], frameSize, toc, qextPayloads[0])
 		if err == nil {
 			d.applyOutputGain(out)
 		}
@@ -370,7 +393,7 @@ func (d *streamState) decodePacket(data []byte, frameSize int) ([]float64, error
 	subFrameSize := frameSize / frameCount
 	out := make([]float64, 0, frameSize*d.channels)
 	for i := 0; i < frameCount; i++ {
-		frameDecoded, err := d.decodeFramePayload(parsed.frames[i], subFrameSize, toc)
+		frameDecoded, err := d.decodeFramePayload(parsed.frames[i], subFrameSize, toc, qextPayloads[i])
 		if err != nil {
 			return nil, err
 		}
@@ -422,6 +445,16 @@ type Decoder struct {
 	projectionDemixing []float64
 	projectionCols     int
 	projectionScratch  []float64
+	ignoreExtensions   bool
+	dnnBlob            *dnnblob.Blob
+	pitchDNNLoaded     bool
+	plcModelLoaded     bool
+	farganModelLoaded  bool
+	dredModelLoaded    bool
+	osceModelsLoaded   bool
+	osceBWEModelLoaded bool
+	dredData           [][]byte
+	dredCache          []internaldred.Cache
 }
 
 // NewDecoder creates a new multistream decoder.
@@ -498,6 +531,8 @@ func NewDecoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 		mapping:        mappingCopy,
 		decoders:       decoders,
 		plcState:       plc.NewState(),
+		dredData:       makeDREDBuffers(streams),
+		dredCache:      make([]internaldred.Cache, streams),
 	}, nil
 }
 
@@ -506,11 +541,136 @@ func NewDecoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 func (d *Decoder) Reset() {
 	for _, dec := range d.decoders {
 		dec.Reset()
+		dec.SetIgnoreExtensions(d.ignoreExtensions)
 	}
 	if d.plcState == nil {
 		d.plcState = plc.NewState()
 	}
 	d.plcState.Reset()
+	d.clearDREDPayloadState()
+}
+
+func (d *Decoder) SetIgnoreExtensions(ignore bool) {
+	d.ignoreExtensions = ignore
+	for _, dec := range d.decoders {
+		dec.SetIgnoreExtensions(ignore)
+	}
+	if ignore {
+		d.clearDREDPayloadState()
+	}
+}
+
+func (d *Decoder) IgnoreExtensions() bool {
+	return d.ignoreExtensions
+}
+
+// SetDNNBlob retains a validated USE_WEIGHTS_FILE blob for future optional
+// extension paths. A nil blob clears the retained model.
+func (d *Decoder) SetDNNBlob(blob *dnnblob.Blob) {
+	d.dnnBlob = blob
+	models := blob.DecoderModels()
+	d.pitchDNNLoaded = models.PitchDNN
+	d.plcModelLoaded = models.PLC
+	d.farganModelLoaded = models.FARGAN
+	d.dredModelLoaded = models.DRED
+	d.osceModelsLoaded = models.OSCE
+	d.osceBWEModelLoaded = models.OSCEBWE
+	if !d.dredModelLoaded {
+		d.clearDREDPayloadState()
+	}
+}
+
+// DNNBlobLoaded reports whether a validated model blob is retained.
+func (d *Decoder) DNNBlobLoaded() bool {
+	return d.dnnBlob != nil
+}
+
+// PitchDNNLoaded reports whether the retained blob contains libopus's shared
+// decoder pitch model family.
+func (d *Decoder) PitchDNNLoaded() bool {
+	return d.pitchDNNLoaded
+}
+
+// PLCModelLoaded reports whether the retained blob contains the PLC model family.
+func (d *Decoder) PLCModelLoaded() bool {
+	return d.plcModelLoaded
+}
+
+// FARGANModelLoaded reports whether the retained blob contains the FARGAN model family.
+func (d *Decoder) FARGANModelLoaded() bool {
+	return d.farganModelLoaded
+}
+
+// DREDModelLoaded reports whether the retained blob contains the DRED decoder model family.
+func (d *Decoder) DREDModelLoaded() bool {
+	return d.dredModelLoaded
+}
+
+// OSCEModelsLoaded reports whether the retained blob contains the LACE and
+// NoLACE OSCE model families.
+func (d *Decoder) OSCEModelsLoaded() bool {
+	return d.osceModelsLoaded
+}
+
+// OSCEBWEModelLoaded reports whether the retained blob contains the OSCE_BWE model family.
+func (d *Decoder) OSCEBWEModelLoaded() bool {
+	return d.osceBWEModelLoaded
+}
+
+func makeDREDBuffers(streams int) [][]byte {
+	if streams <= 0 {
+		return nil
+	}
+	bufs := make([][]byte, streams)
+	for i := range bufs {
+		bufs[i] = make([]byte, internaldred.MaxDataSize)
+	}
+	return bufs
+}
+
+func (d *Decoder) clearDREDPayloadState() {
+	for i := range d.dredCache {
+		d.dredCache[i].Clear()
+	}
+}
+
+func (d *Decoder) maybeCacheDREDPayload(stream int, packet []byte) {
+	if !d.dredModelLoaded || d.ignoreExtensions || stream < 0 || stream >= len(d.dredData) || len(packet) == 0 {
+		return
+	}
+	payload, frameOffset, ok, err := findDREDPayload(packet)
+	if err != nil || !ok || len(payload) < internaldred.MinBytes || len(payload) > len(d.dredData[stream]) {
+		return
+	}
+	if err := d.dredCache[stream].Store(d.dredData[stream], payload, frameOffset); err != nil {
+		return
+	}
+}
+
+func (d *Decoder) cachedDREDMaxAvailableSamples(stream, maxDredSamples int) int {
+	return d.cachedDREDResult(stream, maxDredSamples).MaxAvailableSamples()
+}
+
+func (d *Decoder) cachedDREDAvailability(stream, maxDredSamples int) internaldred.Availability {
+	return d.cachedDREDResult(stream, maxDredSamples).Availability
+}
+
+func (d *Decoder) fillCachedDREDQuantizerLevels(stream int, dst []int, maxDredSamples int) int {
+	return d.cachedDREDResult(stream, maxDredSamples).FillQuantizerLevels(dst)
+}
+
+func (d *Decoder) cachedDREDResult(stream, maxDredSamples int) internaldred.Result {
+	if stream < 0 || stream >= len(d.dredCache) || d.dredCache[stream].Empty() || !d.dredModelLoaded || d.ignoreExtensions {
+		return internaldred.Result{}
+	}
+	return d.dredCache[stream].Result(internaldred.Request{
+		MaxDREDSamples: maxDredSamples,
+		SampleRate:     d.sampleRate,
+	})
+}
+
+func (d *Decoder) cachedDREDFeatureWindow(stream, maxDredSamples, decodeOffsetSamples, frameSizeSamples, initFrames int) internaldred.FeatureWindow {
+	return d.cachedDREDResult(stream, maxDredSamples).FeatureWindow(decodeOffsetSamples, frameSizeSamples, initFrames)
 }
 
 // SetProjectionDemixingMatrix sets optional projection demixing coefficients.

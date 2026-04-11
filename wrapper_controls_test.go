@@ -1,7 +1,9 @@
 package gopus
 
 import (
+	"encoding/binary"
 	"errors"
+	"strings"
 	"testing"
 
 	encodercore "github.com/thesyncim/gopus/encoder"
@@ -11,6 +13,9 @@ type optionalEncoderControl interface {
 	SetDREDDuration(int) error
 	DREDDuration() (int, error)
 	SetDNNBlob([]byte) error
+}
+
+type qextEncoderControl interface {
 	SetQEXT(bool) error
 	QEXT() (bool, error)
 }
@@ -52,9 +57,43 @@ func assertOptionalEncoderControls(t *testing.T, enc optionalEncoderControl) {
 	if got, err := enc.DREDDuration(); !errors.Is(err, ErrUnsupportedExtension) || got != 0 {
 		t.Fatalf("DREDDuration()=(%d,%v) want=(0,%v)", got, err, ErrUnsupportedExtension)
 	}
-	if err := enc.SetDNNBlob([]byte{1, 2, 3}); !errors.Is(err, ErrUnsupportedExtension) {
-		t.Fatalf("SetDNNBlob error=%v want=%v", err, ErrUnsupportedExtension)
+	if err := enc.SetDNNBlob(nil); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("SetDNNBlob(nil) error=%v want=%v", err, ErrInvalidArgument)
 	}
+	if err := enc.SetDNNBlob([]byte{1, 2, 3}); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("SetDNNBlob(invalid) error=%v want=%v", err, ErrInvalidArgument)
+	}
+	if err := enc.SetDNNBlob(makeFramedButIncompatibleTestDNNBlob()); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("SetDNNBlob(incompatible) error=%v want=%v", err, ErrInvalidArgument)
+	}
+	if err := enc.SetDNNBlob(makeValidDecoderTestDNNBlob()); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("SetDNNBlob(decoder_blob) error=%v want=%v", err, ErrInvalidArgument)
+	}
+	if err := enc.SetDNNBlob(makeValidEncoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob(encoder_blob) error=%v want=nil", err)
+	}
+}
+
+func assertSupportedQEXTControl(t *testing.T, enc qextEncoderControl) {
+	t.Helper()
+
+	if err := enc.SetQEXT(true); err != nil {
+		t.Fatalf("SetQEXT(true) error: %v", err)
+	}
+	if got, err := enc.QEXT(); err != nil || !got {
+		t.Fatalf("QEXT()=(%v,%v) want=(true,nil)", got, err)
+	}
+	if err := enc.SetQEXT(false); err != nil {
+		t.Fatalf("SetQEXT(false) error: %v", err)
+	}
+	if got, err := enc.QEXT(); err != nil || got {
+		t.Fatalf("QEXT()=(%v,%v) want=(false,nil)", got, err)
+	}
+}
+
+func assertUnsupportedQEXTControl(t *testing.T, enc qextEncoderControl) {
+	t.Helper()
+
 	if err := enc.SetQEXT(true); !errors.Is(err, ErrUnsupportedExtension) {
 		t.Fatalf("SetQEXT error=%v want=%v", err, ErrUnsupportedExtension)
 	}
@@ -72,8 +111,20 @@ func assertOptionalDecoderControls(t *testing.T, dec optionalDecoderControl) {
 	if got, err := dec.OSCEBWE(); !errors.Is(err, ErrUnsupportedExtension) || got {
 		t.Fatalf("OSCEBWE()=(%v,%v) want=(false,%v)", got, err, ErrUnsupportedExtension)
 	}
-	if err := dec.SetDNNBlob([]byte{1, 2, 3}); !errors.Is(err, ErrUnsupportedExtension) {
-		t.Fatalf("SetDNNBlob error=%v want=%v", err, ErrUnsupportedExtension)
+	if err := dec.SetDNNBlob(nil); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("SetDNNBlob(nil) error=%v want=%v", err, ErrInvalidArgument)
+	}
+	if err := dec.SetDNNBlob([]byte{1, 2, 3}); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("SetDNNBlob(invalid) error=%v want=%v", err, ErrInvalidArgument)
+	}
+	if err := dec.SetDNNBlob(makeFramedButIncompatibleTestDNNBlob()); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("SetDNNBlob(incompatible) error=%v want=%v", err, ErrInvalidArgument)
+	}
+	if err := dec.SetDNNBlob(makeValidEncoderTestDNNBlob()); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("SetDNNBlob(encoder_blob) error=%v want=%v", err, ErrInvalidArgument)
+	}
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob(decoder_blob) error=%v want=nil", err)
 	}
 }
 
@@ -81,21 +132,198 @@ func TestSupportsOptionalExtension(t *testing.T) {
 	tests := []struct {
 		name string
 		ext  OptionalExtension
+		want bool
 	}{
-		{name: "dred", ext: OptionalExtensionDRED},
-		{name: "dnn_blob", ext: OptionalExtensionDNNBlob},
-		{name: "qext", ext: OptionalExtensionQEXT},
-		{name: "osce_bwe", ext: OptionalExtensionOSCEBWE},
-		{name: "unknown", ext: OptionalExtension("future_ext")},
+		{name: "dred", ext: OptionalExtensionDRED, want: false},
+		{name: "dnn_blob", ext: OptionalExtensionDNNBlob, want: true},
+		{name: "qext", ext: OptionalExtensionQEXT, want: true},
+		{name: "osce_bwe", ext: OptionalExtensionOSCEBWE, want: false},
+		{name: "unknown", ext: OptionalExtension("future_ext"), want: false},
 	}
 
 	for _, tc := range tests {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			if SupportsOptionalExtension(tc.ext) {
-				t.Fatalf("SupportsOptionalExtension(%q)=true want false in default build", tc.ext)
+			if got := SupportsOptionalExtension(tc.ext); got != tc.want {
+				t.Fatalf("SupportsOptionalExtension(%q)=%v want %v", tc.ext, got, tc.want)
 			}
 		})
+	}
+}
+
+func appendTestBlobRecord(dst []byte, name string, typ int32, payloadSize int) []byte {
+	const headerSize = 64
+	blockSize := ((payloadSize + headerSize - 1) / headerSize) * headerSize
+	out := make([]byte, headerSize+blockSize)
+	copy(out[:4], []byte("DNNw"))
+	binary.LittleEndian.PutUint32(out[8:12], uint32(typ))
+	binary.LittleEndian.PutUint32(out[12:16], uint32(payloadSize))
+	binary.LittleEndian.PutUint32(out[16:20], uint32(blockSize))
+	copy(out[20:63], []byte(name))
+	out[63] = 0
+	return append(dst, out...)
+}
+
+func makeFramedButIncompatibleTestDNNBlob() []byte {
+	return appendTestBlobRecord(nil, "dummy_record", 0, 4)
+}
+
+func makeValidEncoderTestDNNBlob() []byte {
+	var blob []byte
+	blob = appendTestBlobRecord(blob, "enc_dense1_bias", 0, 64*4)
+	blob = appendTestBlobRecord(blob, "dense_if_upsampler_1_bias", 0, 64*4)
+	return blob
+}
+
+func makeValidDecoderTestDNNBlob() []byte {
+	var blob []byte
+	blob = appendTestBlobRecord(blob, "plc_dense_in_bias", 0, 128*4)
+	blob = appendTestBlobRecord(blob, "cond_net_pembed_bias", 0, 12*4)
+	blob = appendTestBlobRecord(blob, "dense_if_upsampler_1_bias", 0, 64*4)
+	blob = appendTestBlobRecord(blob, "lace_pitch_embedding_bias", 0, 64*4)
+	blob = appendTestBlobRecord(blob, "nolace_pitch_embedding_bias", 0, 64*4)
+	return blob
+}
+
+func makeValidDREDDecoderTestDNNBlob() []byte {
+	blob := makeValidDecoderTestDNNBlob()
+	return appendTestBlobRecord(blob, "dec_dense1_bias", 0, 64*4)
+}
+
+func TestValidEncoderTestDNNBlobShape(t *testing.T) {
+	blob := makeValidEncoderTestDNNBlob()
+	const wantLen = (64 + 256) + (64 + 256)
+	if len(blob) != wantLen {
+		t.Fatalf("len(blob)=%d want %d", len(blob), wantLen)
+	}
+	if string(blob[:4]) != "DNNw" {
+		t.Fatalf("magic=%q want DNNw", string(blob[:4]))
+	}
+	for _, name := range []string{
+		"enc_dense1_bias",
+		"dense_if_upsampler_1_bias",
+	} {
+		if !strings.Contains(string(blob), name) {
+			t.Fatalf("missing record name %q", name)
+		}
+	}
+}
+
+func TestValidDecoderTestDNNBlobShape(t *testing.T) {
+	blob := makeValidDecoderTestDNNBlob()
+	const wantLen = (64 + 512) + (64 + 64) + (64 + 256) + (64 + 256) + (64 + 256)
+	if len(blob) != wantLen {
+		t.Fatalf("len(blob)=%d want %d", len(blob), wantLen)
+	}
+	if string(blob[:4]) != "DNNw" {
+		t.Fatalf("magic=%q want DNNw", string(blob[:4]))
+	}
+	for _, name := range []string{
+		"plc_dense_in_bias",
+		"cond_net_pembed_bias",
+		"dense_if_upsampler_1_bias",
+		"lace_pitch_embedding_bias",
+		"nolace_pitch_embedding_bias",
+	} {
+		if !strings.Contains(string(blob), name) {
+			t.Fatalf("missing record name %q", name)
+		}
+	}
+}
+
+func TestEncoderSetDNNBlobPropagatesToInternalEncoder(t *testing.T) {
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 2, Application: ApplicationAudio})
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	if err := enc.SetDNNBlob(makeValidEncoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	if enc.dnnBlob == nil {
+		t.Fatal("wrapper dnnBlob=nil want non-nil")
+	}
+	if !enc.enc.DNNBlobLoaded() {
+		t.Fatal("internal encoder DNNBlobLoaded()=false want true")
+	}
+	if !enc.enc.DREDModelLoaded() {
+		t.Fatal("internal encoder DREDModelLoaded()=false want true")
+	}
+	if enc.enc.DREDReady() {
+		t.Fatal("internal encoder DREDReady()=true without dred duration")
+	}
+
+	enc.Reset()
+	if enc.dnnBlob == nil {
+		t.Fatal("wrapper dnnBlob cleared by Reset")
+	}
+	if !enc.enc.DNNBlobLoaded() {
+		t.Fatal("internal encoder DNNBlobLoaded()=false after Reset")
+	}
+	if !enc.enc.DREDModelLoaded() {
+		t.Fatal("internal encoder lost DRED model across Reset")
+	}
+}
+
+func TestDecoderSetDNNBlobPropagatesToInternalDecoder(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 2))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	if dec.dnnBlob == nil {
+		t.Fatal("wrapper dnnBlob=nil want non-nil")
+	}
+	if !dec.pitchDNNLoaded {
+		t.Fatal("decoder pitchDNNLoaded=false want true")
+	}
+	if !dec.plcModelLoaded {
+		t.Fatal("decoder plcModelLoaded=false want true")
+	}
+	if !dec.farganModelLoaded {
+		t.Fatal("decoder farganModelLoaded=false want true")
+	}
+	if dec.dredModelLoaded {
+		t.Fatal("decoder dredModelLoaded=true without DRED decoder model")
+	}
+	if !dec.osceModelsLoaded {
+		t.Fatal("decoder osceModelsLoaded=false want true")
+	}
+	if dec.osceBWEModelLoaded {
+		t.Fatal("decoder osceBWEModelLoaded=true without OSCE_BWE model")
+	}
+
+	dec.Reset()
+	if dec.dnnBlob == nil {
+		t.Fatal("wrapper dnnBlob cleared by Reset")
+	}
+	if !dec.pitchDNNLoaded || !dec.plcModelLoaded || !dec.farganModelLoaded || !dec.osceModelsLoaded {
+		t.Fatal("decoder lost DNN model readiness across Reset")
+	}
+	if dec.dredModelLoaded || dec.osceBWEModelLoaded {
+		t.Fatal("decoder gained unsupported model readiness across Reset")
+	}
+}
+
+func TestDecoderSetDNNBlobTracksDREDDecoderCapability(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 2))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	if err := dec.SetDNNBlob(makeValidDREDDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	if !dec.dredModelLoaded {
+		t.Fatal("decoder dredModelLoaded=false want true")
+	}
+
+	dec.Reset()
+	if !dec.dredModelLoaded {
+		t.Fatal("decoder lost DRED model readiness across Reset")
 	}
 }
 

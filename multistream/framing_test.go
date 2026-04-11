@@ -2,8 +2,18 @@ package multistream
 
 import (
 	"bytes"
+	"encoding/hex"
 	"testing"
 )
+
+func mustDecodeHex(t *testing.T, s string) []byte {
+	t.Helper()
+	data, err := hex.DecodeString(s)
+	if err != nil {
+		t.Fatalf("DecodeString(%q): %v", s, err)
+	}
+	return data
+}
 
 func buildCode2Packet(tocBase byte, frame0, frame1 []byte) []byte {
 	packet := make([]byte, 1+frameLengthBytes(len(frame0))+len(frame0)+len(frame1))
@@ -130,5 +140,29 @@ func TestParseMultistreamPacketWithSelfDelimitedCode3(t *testing.T) {
 	}
 	if !bytes.Equal(packets[1], stream1) {
 		t.Fatalf("stream1 mismatch: got=%v want=%v", packets[1], stream1)
+	}
+}
+
+func TestSelfDelimitedPacketPreservesPacketExtensions(t *testing.T) {
+	packet := mustDecodeHex(t, "4b41061122330baa50deadbe")
+	wantSelfDelimited := mustDecodeHex(t, "4b4106031122330baa50deadbe")
+
+	selfDelimited, err := makeSelfDelimitedPacket(packet)
+	if err != nil {
+		t.Fatalf("makeSelfDelimitedPacket: %v", err)
+	}
+	if !bytes.Equal(selfDelimited, wantSelfDelimited) {
+		t.Fatalf("selfDelimited=%x want=%x", selfDelimited, wantSelfDelimited)
+	}
+
+	recovered, consumed, err := decodeSelfDelimitedPacket(selfDelimited)
+	if err != nil {
+		t.Fatalf("decodeSelfDelimitedPacket: %v", err)
+	}
+	if consumed != len(selfDelimited) {
+		t.Fatalf("decodeSelfDelimitedPacket consumed=%d want=%d", consumed, len(selfDelimited))
+	}
+	if !bytes.Equal(recovered, packet) {
+		t.Fatalf("recovered=%x want=%x", recovered, packet)
 	}
 }

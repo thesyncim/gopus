@@ -34,25 +34,27 @@ func (e *MultistreamEncoder) DREDDuration() (int, error) {
 
 // SetDNNBlob loads the optional libopus USE_WEIGHTS_FILE encoder model blob.
 //
-// The default gopus build does not enable this extension; check
-// SupportsOptionalExtension(OptionalExtensionDNNBlob) and expect
-// ErrUnsupportedExtension when unavailable.
-func (e *MultistreamEncoder) SetDNNBlob(_ []byte) error {
-	return ErrUnsupportedExtension
+// The loaded blob is validated using libopus-style weights-record framing and
+// retained across Reset(), matching libopus USE_WEIGHTS_FILE control lifetime.
+func (e *MultistreamEncoder) SetDNNBlob(data []byte) error {
+	blob, err := cloneEncoderDNNBlobForControl(data)
+	if err != nil {
+		return err
+	}
+	e.dnnBlob = blob
+	e.enc.SetDNNBlob(blob)
+	return nil
 }
 
 // SetQEXT toggles the libopus ENABLE_QEXT encoder extension.
-//
-// The default gopus build does not enable this extension; check
-// SupportsOptionalExtension(OptionalExtensionQEXT) and expect
-// ErrUnsupportedExtension when unavailable.
-func (e *MultistreamEncoder) SetQEXT(_ bool) error {
-	return ErrUnsupportedExtension
+func (e *MultistreamEncoder) SetQEXT(enabled bool) error {
+	e.enc.SetQEXT(enabled)
+	return nil
 }
 
 // QEXT reports whether the optional extended-precision theta path is enabled.
 func (e *MultistreamEncoder) QEXT() (bool, error) {
-	return false, ErrUnsupportedExtension
+	return e.enc.QEXT(), nil
 }
 
 // SetExpertFrameDuration sets the preferred frame duration policy for multistream encoding.

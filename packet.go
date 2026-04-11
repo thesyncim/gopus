@@ -326,12 +326,16 @@ type Repacketizer struct {
 	toc       byte
 	frameSize int
 	frames    [][]byte
+	paddings  [][]byte
+	padFrames []int
 }
 
 // NewRepacketizer creates a new repacketizer state.
 func NewRepacketizer() *Repacketizer {
 	r := &Repacketizer{
-		frames: make([][]byte, 0, maxRepacketizerFrames),
+		frames:    make([][]byte, 0, maxRepacketizerFrames),
+		paddings:  make([][]byte, 0, maxRepacketizerFrames),
+		padFrames: make([]int, 0, maxRepacketizerFrames),
 	}
 	r.Reset()
 	return r
@@ -342,6 +346,8 @@ func (r *Repacketizer) Reset() {
 	r.toc = 0
 	r.frameSize = 0
 	r.frames = r.frames[:0]
+	r.paddings = r.paddings[:0]
+	r.padFrames = r.padFrames[:0]
 }
 
 // NumFrames returns the number of frames currently accumulated.
@@ -355,7 +361,7 @@ func (r *Repacketizer) Cat(packet []byte) error {
 		return ErrInvalidPacket
 	}
 
-	info, frames, err := parsePacketFrames(packet)
+	info, frames, padding, paddingFrameCount, err := parsePacketFramesAndPadding(packet)
 	if err != nil {
 		return err
 	}
@@ -378,10 +384,19 @@ func (r *Repacketizer) Cat(packet []byte) error {
 		return ErrInvalidPacket
 	}
 
-	for _, frame := range frames {
+	for i, frame := range frames {
 		owned := make([]byte, len(frame))
 		copy(owned, frame)
 		r.frames = append(r.frames, owned)
+		if i == 0 && len(padding) > 0 {
+			ownedPadding := make([]byte, len(padding))
+			copy(ownedPadding, padding)
+			r.paddings = append(r.paddings, ownedPadding)
+			r.padFrames = append(r.padFrames, paddingFrameCount)
+		} else {
+			r.paddings = append(r.paddings, nil)
+			r.padFrames = append(r.padFrames, 0)
+		}
 	}
 
 	return nil
@@ -392,7 +407,11 @@ func (r *Repacketizer) OutRange(begin, end int, data []byte) (int, error) {
 	if begin < 0 || begin >= end || end > len(r.frames) {
 		return 0, ErrInvalidArgument
 	}
-	return buildRepacketizedPacket(r.toc&0xFC, r.frames[begin:end], data)
+	extensions, err := r.collectExtensions(begin, end)
+	if err != nil {
+		return 0, err
+	}
+	return buildRepacketizedPacketWithOptions(r.toc&0xFC, r.frames[begin:end], data, 0, false, extensions)
 }
 
 // Out assembles all accumulated frames into one Opus packet.
@@ -422,12 +441,17 @@ func PacketPad(data []byte, length, newLen int) error {
 	src := make([]byte, length)
 	copy(src, data[:length])
 
-	_, frames, err := parsePacketFrames(src)
+	_, frames, padding, paddingFrameCount, err := parsePacketFramesAndPadding(src)
 	if err != nil {
 		return err
 	}
 
-	_, err = buildCode3Packet(src[0]&0xFC, frames, data, newLen, true)
+	extensions, err := parsePacketExtensionList(padding, paddingFrameCount)
+	if err != nil {
+		return err
+	}
+
+	_, err = buildRepacketizedPacketWithOptions(src[0]&0xFC, frames, data, newLen, true, extensions)
 	return err
 }
 
@@ -449,14 +473,19 @@ func PacketUnpad(data []byte, length int) (int, error) {
 }
 
 func parseSelfDelimitedPacket(data []byte) (tocBase byte, frames [][]byte, consumed int, err error) {
+	tocBase, frames, _, _, consumed, err = parseSelfDelimitedPacketAndPadding(data)
+	return tocBase, frames, consumed, err
+}
+
+func parseSelfDelimitedPacketAndPadding(data []byte) (tocBase byte, frames [][]byte, padding []byte, paddingFrameCount int, consumed int, err error) {
 	if len(data) < 1 {
-		return 0, nil, 0, ErrPacketTooShort
+		return 0, nil, nil, 0, 0, ErrPacketTooShort
 	}
 
 	toc := data[0]
 	code := toc & 0x03
 	offset := 1
-	padding := 0
+	paddingLen := 0
 	frameCount := 1
 	frameSizes := make([]int, 0, 2)
 
@@ -464,7 +493,7 @@ func parseSelfDelimitedPacket(data []byte) (tocBase byte, frames [][]byte, consu
 	case 0:
 		length, bytesRead, err := parseFrameLength(data, offset)
 		if err != nil {
-			return 0, nil, 0, err
+			return 0, nil, nil, 0, 0, err
 		}
 		offset += bytesRead
 		frameSizes = append(frameSizes, length)
@@ -472,7 +501,7 @@ func parseSelfDelimitedPacket(data []byte) (tocBase byte, frames [][]byte, consu
 	case 1:
 		length, bytesRead, err := parseFrameLength(data, offset)
 		if err != nil {
-			return 0, nil, 0, err
+			return 0, nil, nil, 0, 0, err
 		}
 		offset += bytesRead
 		frameCount = 2
@@ -481,13 +510,13 @@ func parseSelfDelimitedPacket(data []byte) (tocBase byte, frames [][]byte, consu
 	case 2:
 		length0, bytesRead, err := parseFrameLength(data, offset)
 		if err != nil {
-			return 0, nil, 0, err
+			return 0, nil, nil, 0, 0, err
 		}
 		offset += bytesRead
 
 		length1, bytesRead, err := parseFrameLength(data, offset)
 		if err != nil {
-			return 0, nil, 0, err
+			return 0, nil, nil, 0, 0, err
 		}
 		offset += bytesRead
 
@@ -496,7 +525,7 @@ func parseSelfDelimitedPacket(data []byte) (tocBase byte, frames [][]byte, consu
 
 	case 3:
 		if offset >= len(data) {
-			return 0, nil, 0, ErrPacketTooShort
+			return 0, nil, nil, 0, 0, ErrPacketTooShort
 		}
 		frameCountByte := data[offset]
 		offset++
@@ -505,21 +534,21 @@ func parseSelfDelimitedPacket(data []byte) (tocBase byte, frames [][]byte, consu
 		hasPadding := (frameCountByte & 0x40) != 0
 		frameCount = int(frameCountByte & 0x3F)
 		if frameCount == 0 || frameCount > maxRepacketizerFrames {
-			return 0, nil, 0, ErrInvalidPacket
+			return 0, nil, nil, 0, 0, ErrInvalidPacket
 		}
 
 		frameSizes = make([]int, frameCount)
 		if hasPadding {
 			for {
 				if offset >= len(data) {
-					return 0, nil, 0, ErrPacketTooShort
+					return 0, nil, nil, 0, 0, ErrPacketTooShort
 				}
 				padByte := int(data[offset])
 				offset++
 				if padByte == 255 {
-					padding += 254
+					paddingLen += 254
 				} else {
-					padding += padByte
+					paddingLen += padByte
 					break
 				}
 			}
@@ -529,7 +558,7 @@ func parseSelfDelimitedPacket(data []byte) (tocBase byte, frames [][]byte, consu
 			for i := 0; i < frameCount-1; i++ {
 				length, bytesRead, err := parseFrameLength(data, offset)
 				if err != nil {
-					return 0, nil, 0, err
+					return 0, nil, nil, 0, 0, err
 				}
 				offset += bytesRead
 				frameSizes[i] = length
@@ -538,7 +567,7 @@ func parseSelfDelimitedPacket(data []byte) (tocBase byte, frames [][]byte, consu
 
 		lastSize, bytesRead, err := parseFrameLength(data, offset)
 		if err != nil {
-			return 0, nil, 0, err
+			return 0, nil, nil, 0, 0, err
 		}
 		offset += bytesRead
 
@@ -551,142 +580,125 @@ func parseSelfDelimitedPacket(data []byte) (tocBase byte, frames [][]byte, consu
 		}
 
 	default:
-		return 0, nil, 0, ErrInvalidPacket
+		return 0, nil, nil, 0, 0, ErrInvalidPacket
 	}
 
 	totalFrameBytes := 0
 	for _, size := range frameSizes {
 		if size < 0 {
-			return 0, nil, 0, ErrInvalidPacket
+			return 0, nil, nil, 0, 0, ErrInvalidPacket
 		}
 		totalFrameBytes += size
 	}
 
-	consumed = offset + totalFrameBytes + padding
+	consumed = offset + totalFrameBytes + paddingLen
 	if consumed > len(data) {
-		return 0, nil, 0, ErrPacketTooShort
+		return 0, nil, nil, 0, 0, ErrPacketTooShort
 	}
 
 	frames = make([][]byte, frameCount)
 	frameOffset := offset
+	paddingStart := offset + totalFrameBytes
 	for i := 0; i < frameCount; i++ {
 		next := frameOffset + frameSizes[i]
 		if next > offset+totalFrameBytes {
-			return 0, nil, 0, ErrInvalidPacket
+			return 0, nil, nil, 0, 0, ErrInvalidPacket
 		}
 		frames[i] = data[frameOffset:next]
 		frameOffset = next
 	}
 
-	return toc & 0xFC, frames, consumed, nil
+	if paddingLen > 0 {
+		padding = data[paddingStart:consumed]
+	}
+	return toc & 0xFC, frames, padding, frameCount, consumed, nil
 }
 
 func buildSelfDelimitedPacketFromFrames(tocBase byte, frames [][]byte, data []byte) (int, error) {
+	return buildPacketWithOptions(tocBase, frames, data, 0, false, nil, true)
+}
+
+func buildSelfDelimitedPacketFromFramesAndOptions(tocBase byte, frames [][]byte, data []byte, targetLen int, withPadding bool, extensions []packetExtensionData) (int, error) {
+	return buildPacketWithOptions(tocBase, frames, data, targetLen, withPadding, extensions, true)
+}
+
+func buildPacketWithOptions(tocBase byte, frames [][]byte, data []byte, targetLen int, withPadding bool, extensions []packetExtensionData, selfDelimited bool) (int, error) {
 	count := len(frames)
 	if count < 1 || count > maxRepacketizerFrames {
 		return 0, ErrInvalidArgument
 	}
-
-	lengths := make([]int, count)
-	totalFrameBytes := 0
-	for i := 0; i < count; i++ {
-		lengths[i] = len(frames[i])
-		totalFrameBytes += lengths[i]
-	}
-
-	sdBytes := frameLengthBytes(lengths[count-1])
-	need := 1 + sdBytes + totalFrameBytes
-
-	offset := 0
-	switch count {
-	case 1:
-		if len(data) < need {
-			return 0, ErrBufferTooSmall
-		}
-		data[offset] = tocBase
-		offset++
-		offset += encodeFrameLength(data[offset:], lengths[0])
-		copy(data[offset:], frames[0])
-		offset += lengths[0]
-		return offset, nil
-
-	case 2:
-		if lengths[0] == lengths[1] {
+	if len(extensions) == 0 && !withPadding {
+		switch count {
+		case 1:
+			need := 1 + len(frames[0])
+			if selfDelimited {
+				need += frameLengthBytes(len(frames[0]))
+			}
 			if len(data) < need {
 				return 0, ErrBufferTooSmall
 			}
-			data[offset] = tocBase | 0x01
-			offset++
-			offset += encodeFrameLength(data[offset:], lengths[1])
+			data[0] = tocBase
+			offset := 1
+			if selfDelimited {
+				offset += encodeFrameLength(data[offset:], len(frames[0]))
+			}
 			copy(data[offset:], frames[0])
-			offset += lengths[0]
+			return need, nil
+		case 2:
+			if len(frames[0]) == len(frames[1]) {
+				need := 1 + len(frames[0]) + len(frames[1])
+				if selfDelimited {
+					need += frameLengthBytes(len(frames[1]))
+				}
+				if len(data) < need {
+					return 0, ErrBufferTooSmall
+				}
+				data[0] = tocBase | 0x01
+				offset := 1
+				if selfDelimited {
+					offset += encodeFrameLength(data[offset:], len(frames[1]))
+				}
+				copy(data[offset:], frames[0])
+				offset += len(frames[0])
+				copy(data[offset:], frames[1])
+				return need, nil
+			}
+
+			need := 1 + frameLengthBytes(len(frames[0])) + len(frames[0]) + len(frames[1])
+			if selfDelimited {
+				need += frameLengthBytes(len(frames[1]))
+			}
+			if len(data) < need {
+				return 0, ErrBufferTooSmall
+			}
+			data[0] = tocBase | 0x02
+			offset := 1
+			offset += encodeFrameLength(data[offset:], len(frames[0]))
+			if selfDelimited {
+				offset += encodeFrameLength(data[offset:], len(frames[1]))
+			}
+			copy(data[offset:], frames[0])
+			offset += len(frames[0])
 			copy(data[offset:], frames[1])
-			offset += lengths[1]
-			return offset, nil
-		}
-
-		need += frameLengthBytes(lengths[0])
-		if len(data) < need {
-			return 0, ErrBufferTooSmall
-		}
-		data[offset] = tocBase | 0x02
-		offset++
-		offset += encodeFrameLength(data[offset:], lengths[0])
-		offset += encodeFrameLength(data[offset:], lengths[1])
-		copy(data[offset:], frames[0])
-		offset += lengths[0]
-		copy(data[offset:], frames[1])
-		offset += lengths[1]
-		return offset, nil
-	}
-
-	vbr := false
-	for i := 1; i < count; i++ {
-		if lengths[i] != lengths[0] {
-			vbr = true
-			break
+			return need, nil
 		}
 	}
-	if vbr {
-		for i := 0; i < count-1; i++ {
-			need += frameLengthBytes(lengths[i])
-		}
-	}
-	if len(data) < need+1 {
-		return 0, ErrBufferTooSmall
-	}
-
-	data[offset] = tocBase | 0x03
-	offset++
-	if vbr {
-		data[offset] = byte(count) | 0x80
-		offset++
-		for i := 0; i < count-1; i++ {
-			offset += encodeFrameLength(data[offset:], lengths[i])
-		}
-	} else {
-		data[offset] = byte(count)
-		offset++
-	}
-
-	offset += encodeFrameLength(data[offset:], lengths[count-1])
-	for i := 0; i < count; i++ {
-		copy(data[offset:], frames[i])
-		offset += lengths[i]
-	}
-
-	return offset, nil
+	return buildCode3Packet(tocBase, frames, data, targetLen, withPadding, extensions, selfDelimited)
 }
 
 func makeSelfDelimitedPacket(packet []byte) ([]byte, error) {
-	_, frames, err := parsePacketFrames(packet)
+	_, frames, padding, paddingFrameCount, err := parsePacketFramesAndPadding(packet)
+	if err != nil {
+		return nil, err
+	}
+	extensions, err := parsePacketExtensionList(padding, paddingFrameCount)
 	if err != nil {
 		return nil, err
 	}
 
 	// Self-delimited adds at most 2 bytes versus standard framing.
 	dst := make([]byte, len(packet)+2)
-	n, err := buildSelfDelimitedPacketFromFrames(packet[0]&0xFC, frames, dst)
+	n, err := buildSelfDelimitedPacketFromFramesAndOptions(packet[0]&0xFC, frames, dst, 0, false, extensions)
 	if err != nil {
 		return nil, err
 	}
@@ -694,13 +706,17 @@ func makeSelfDelimitedPacket(packet []byte) ([]byte, error) {
 }
 
 func decodeSelfDelimitedPacket(data []byte) ([]byte, int, error) {
-	tocBase, frames, consumed, err := parseSelfDelimitedPacket(data)
+	tocBase, frames, padding, paddingFrameCount, consumed, err := parseSelfDelimitedPacketAndPadding(data)
+	if err != nil {
+		return nil, 0, err
+	}
+	extensions, err := parsePacketExtensionList(padding, paddingFrameCount)
 	if err != nil {
 		return nil, 0, err
 	}
 
 	dst := make([]byte, consumed)
-	n, err := buildRepacketizedPacket(tocBase, frames, dst)
+	n, err := buildRepacketizedPacketWithOptions(tocBase, frames, dst, 0, false, extensions)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -899,56 +915,90 @@ func parsePacketFrames(data []byte) (PacketInfo, [][]byte, error) {
 	return info, frames, nil
 }
 
-func buildRepacketizedPacket(tocBase byte, frames [][]byte, data []byte) (int, error) {
-	count := len(frames)
-	if count < 1 || count > maxRepacketizerFrames {
-		return 0, ErrInvalidArgument
+func parsePacketFramesAndPadding(data []byte) (PacketInfo, [][]byte, []byte, int, error) {
+	info, frames, err := parsePacketFrames(data)
+	if err != nil {
+		return PacketInfo{}, nil, nil, 0, err
 	}
-
-	if count == 1 {
-		need := 1 + len(frames[0])
-		if len(data) < need {
-			return 0, ErrBufferTooSmall
-		}
-		data[0] = tocBase
-		copy(data[1:], frames[0])
-		return need, nil
+	if info.Padding == 0 {
+		return info, frames, nil, 0, nil
 	}
-
-	if count == 2 {
-		if len(frames[0]) == len(frames[1]) {
-			need := 1 + len(frames[0]) + len(frames[1])
-			if len(data) < need {
-				return 0, ErrBufferTooSmall
-			}
-			data[0] = tocBase | 0x01
-			offset := 1
-			copy(data[offset:], frames[0])
-			offset += len(frames[0])
-			copy(data[offset:], frames[1])
-			offset += len(frames[1])
-			return offset, nil
-		}
-
-		len0 := len(frames[0])
-		need := 1 + frameLengthBytes(len0) + len(frames[0]) + len(frames[1])
-		if len(data) < need {
-			return 0, ErrBufferTooSmall
-		}
-		data[0] = tocBase | 0x02
-		offset := 1
-		offset += encodeFrameLength(data[offset:], len0)
-		copy(data[offset:], frames[0])
-		offset += len(frames[0])
-		copy(data[offset:], frames[1])
-		offset += len(frames[1])
-		return offset, nil
+	if info.Padding > len(data) {
+		return PacketInfo{}, nil, nil, 0, ErrInvalidPacket
 	}
-
-	return buildCode3Packet(tocBase, frames, data, 0, false)
+	return info, frames, data[len(data)-info.Padding:], info.FrameCount, nil
 }
 
-func buildCode3Packet(tocBase byte, frames [][]byte, data []byte, targetLen int, withPadding bool) (int, error) {
+func parsePacketExtensionList(padding []byte, nbFrames int) ([]packetExtensionData, error) {
+	if len(padding) == 0 || nbFrames <= 0 {
+		return nil, nil
+	}
+	count, err := countPacketExtensions(padding, nbFrames)
+	if err != nil {
+		return nil, err
+	}
+	if count == 0 {
+		return nil, nil
+	}
+	extensions := make([]packetExtensionData, count)
+	parsed, err := parsePacketExtensions(padding, nbFrames, extensions)
+	if err != nil {
+		return nil, err
+	}
+	return extensions[:parsed], nil
+}
+
+func (r *Repacketizer) collectExtensions(begin, end int) ([]packetExtensionData, error) {
+	total := 0
+	for i := begin; i < end; i++ {
+		if len(r.paddings[i]) == 0 || r.padFrames[i] <= 0 {
+			continue
+		}
+		n, err := countPacketExtensions(r.paddings[i], r.padFrames[i])
+		if err != nil {
+			return nil, err
+		}
+		total += n
+	}
+	if total == 0 {
+		return nil, nil
+	}
+
+	extensions := make([]packetExtensionData, 0, total)
+	for i := begin; i < end; i++ {
+		if len(r.paddings[i]) == 0 || r.padFrames[i] <= 0 {
+			continue
+		}
+		n, err := countPacketExtensions(r.paddings[i], r.padFrames[i])
+		if err != nil {
+			return nil, err
+		}
+		if n == 0 {
+			continue
+		}
+		offset := len(extensions)
+		extensions = append(extensions, make([]packetExtensionData, n)...)
+		parsed, err := parsePacketExtensions(r.paddings[i], r.padFrames[i], extensions[offset:])
+		if err != nil {
+			return nil, err
+		}
+		extensions = extensions[:offset+parsed]
+		for j := offset; j < offset+parsed; j++ {
+			extensions[j].Frame += i - begin
+		}
+	}
+	return extensions, nil
+}
+
+func buildRepacketizedPacket(tocBase byte, frames [][]byte, data []byte) (int, error) {
+	return buildRepacketizedPacketWithOptions(tocBase, frames, data, 0, false, nil)
+}
+
+func buildRepacketizedPacketWithOptions(tocBase byte, frames [][]byte, data []byte, targetLen int, withPadding bool, extensions []packetExtensionData) (int, error) {
+	return buildPacketWithOptions(tocBase, frames, data, targetLen, withPadding, extensions, false)
+}
+
+func buildCode3Packet(tocBase byte, frames [][]byte, data []byte, targetLen int, withPadding bool, extensions []packetExtensionData, selfDelimited bool) (int, error) {
 	count := len(frames)
 	if count < 1 || count > maxRepacketizerFrames {
 		return 0, ErrInvalidArgument
@@ -975,21 +1025,52 @@ func buildCode3Packet(tocBase byte, frames [][]byte, data []byte, targetLen int,
 	}
 
 	baseLen := 2 + lengthBytes + frameBytes
+	if selfDelimited {
+		baseLen += frameLengthBytes(len(frames[count-1]))
+	}
 	need := baseLen
-	paddingBytes := 0
+	paddingAmount := 0
+	extLen := 0
+	extBegin := 0
+	onesBegin := 0
+	onesEnd := 0
+	maxLen := len(data)
 	if withPadding {
 		if targetLen < baseLen+1 {
 			return 0, ErrBufferTooSmall
 		}
-		need = targetLen
-		extra := targetLen - baseLen
-		padFieldBytes := paddingLengthBytes(extra)
-		if extra < padFieldBytes {
-			return 0, ErrBufferTooSmall
-		}
-		paddingBytes = extra - padFieldBytes
+		maxLen = targetLen
 	}
 
+	if len(extensions) > 0 {
+		var err error
+		extLen, err = generatePacketExtensions(nil, maxLen-baseLen, extensions, count, false)
+		if err != nil {
+			return 0, err
+		}
+		if !withPadding {
+			paddingAmount = extLen
+			if extLen > 0 {
+				paddingAmount += (extLen + 253) / 254
+			} else {
+				paddingAmount++
+			}
+		}
+	}
+
+	if withPadding {
+		paddingAmount = targetLen - baseLen
+	}
+	if paddingAmount != 0 {
+		padFieldBytes := paddingLengthBytes(paddingAmount)
+		if baseLen+extLen+padFieldBytes > maxLen {
+			return 0, ErrBufferTooSmall
+		}
+		need = baseLen + paddingAmount
+		extBegin = baseLen + paddingAmount - extLen
+		onesBegin = baseLen + padFieldBytes
+		onesEnd = baseLen + paddingAmount - extLen
+	}
 	if len(data) < need {
 		return 0, ErrBufferTooSmall
 	}
@@ -1002,15 +1083,14 @@ func buildCode3Packet(tocBase byte, frames [][]byte, data []byte, targetLen int,
 	if vbr {
 		countByte |= 0x80
 	}
-	if withPadding {
+	if paddingAmount != 0 {
 		countByte |= 0x40
 	}
 	data[offset] = countByte
 	offset++
 
-	if withPadding {
-		extra := need - baseLen
-		offset += writePaddingLength(data[offset:], extra)
+	if paddingAmount != 0 {
+		offset += writePaddingLength(data[offset:], paddingAmount)
 	}
 
 	if vbr {
@@ -1018,18 +1098,30 @@ func buildCode3Packet(tocBase byte, frames [][]byte, data []byte, targetLen int,
 			offset += encodeFrameLength(data[offset:], len(frames[i]))
 		}
 	}
+	if selfDelimited {
+		offset += encodeFrameLength(data[offset:], len(frames[count-1]))
+	}
 
 	for _, frame := range frames {
 		copy(data[offset:], frame)
 		offset += len(frame)
 	}
 
-	for i := 0; i < paddingBytes; i++ {
-		data[offset+i] = 0
+	if extLen > 0 {
+		if _, err := generatePacketExtensions(data[extBegin:extBegin+extLen], extLen, extensions, count, false); err != nil {
+			return 0, err
+		}
 	}
-	offset += paddingBytes
+	for i := onesBegin; i < onesEnd; i++ {
+		data[i] = 0x01
+	}
+	if withPadding && len(extensions) == 0 {
+		for i := offset; i < need; i++ {
+			data[i] = 0
+		}
+	}
 
-	return offset, nil
+	return need, nil
 }
 
 func frameLengthBytes(size int) int {

@@ -13,6 +13,8 @@ import (
 
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/encoder"
+	"github.com/thesyncim/gopus/internal/dnnblob"
+	internaldred "github.com/thesyncim/gopus/internal/dred"
 	"github.com/thesyncim/gopus/types"
 )
 
@@ -59,6 +61,10 @@ type Encoder struct {
 	// First M encoders are stereo (for coupled streams).
 	// Remaining N-M encoders are mono (for uncoupled streams).
 	encoders []*encoder.Encoder
+
+	// dnnBlob retains a validated USE_WEIGHTS_FILE blob and is propagated to all
+	// stream encoders when present.
+	dnnBlob *dnnblob.Blob
 
 	// bitrate is the total bitrate in bits per second, distributed across streams.
 	bitrate int
@@ -461,6 +467,72 @@ func (e *Encoder) SetMode(mode encoder.Mode) {
 	for _, enc := range e.encoders {
 		enc.SetMode(mode)
 	}
+}
+
+// SetQEXT toggles the optional CELT QEXT path for all stream encoders.
+func (e *Encoder) SetQEXT(enabled bool) {
+	for _, enc := range e.encoders {
+		enc.SetQEXT(enabled)
+	}
+}
+
+// QEXT reports whether the optional CELT QEXT path is enabled.
+func (e *Encoder) QEXT() bool {
+	if len(e.encoders) > 0 {
+		return e.encoders[0].QEXT()
+	}
+	return false
+}
+
+// SetDNNBlob retains a validated USE_WEIGHTS_FILE blob and propagates it to all
+// child stream encoders. A nil blob clears the retained model.
+func (e *Encoder) SetDNNBlob(blob *dnnblob.Blob) {
+	e.dnnBlob = blob
+	for _, enc := range e.encoders {
+		enc.SetDNNBlob(blob)
+	}
+}
+
+// DNNBlobLoaded reports whether a validated model blob is retained.
+func (e *Encoder) DNNBlobLoaded() bool {
+	return e.dnnBlob != nil
+}
+
+// DREDModelLoaded reports whether all stream encoders have a DRED-capable blob.
+func (e *Encoder) DREDModelLoaded() bool {
+	if len(e.encoders) == 0 {
+		return false
+	}
+	return e.encoders[0].DREDModelLoaded()
+}
+
+// DREDReady reports whether all stream encoders are ready to emit DRED.
+func (e *Encoder) DREDReady() bool {
+	if len(e.encoders) == 0 {
+		return false
+	}
+	return e.encoders[0].DREDReady()
+}
+
+// SetDREDDuration propagates libopus-style DRED duration to all stream encoders.
+func (e *Encoder) SetDREDDuration(duration int) error {
+	if duration < 0 || duration > internaldred.MaxFrames {
+		return encoder.ErrInvalidDREDDuration
+	}
+	for _, enc := range e.encoders {
+		if err := enc.SetDREDDuration(duration); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DREDDuration reports the DRED duration from the first stream encoder.
+func (e *Encoder) DREDDuration() int {
+	if len(e.encoders) > 0 {
+		return e.encoders[0].DREDDuration()
+	}
+	return 0
 }
 
 // Mode returns the base mode from the first stream encoder.

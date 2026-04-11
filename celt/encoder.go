@@ -138,6 +138,12 @@ type Encoder struct {
 	vbrDrift     int
 	vbrCount     int
 
+	// QEXT state.
+	// This remains internal until the top-level Opus packet builder can carry
+	// the extension payload on the wire.
+	qextEnabled     bool
+	lastQEXTPayload []byte
+
 	// Complexity control (0-10)
 	complexity int
 
@@ -541,6 +547,7 @@ func (e *Encoder) Reset() {
 	e.vbrOffset = 0
 	e.vbrDrift = 0
 	e.vbrCount = 0
+	e.lastQEXTPayload = e.lastQEXTPayload[:0]
 
 	// Reset spread decision state (match libopus init values)
 	// Reference: libopus celt_encoder.c line 3088-3089
@@ -725,6 +732,19 @@ func (e *Encoder) DelayCompensationEnabled() bool {
 	return e.delayCompensationEnabled
 }
 
+// SetQEXTEnabled toggles the internal extended-precision side payload path.
+func (e *Encoder) SetQEXTEnabled(enabled bool) {
+	e.qextEnabled = enabled
+	if !enabled {
+		e.lastQEXTPayload = e.lastQEXTPayload[:0]
+	}
+}
+
+// QEXTEnabled reports whether the internal QEXT side path is enabled.
+func (e *Encoder) QEXTEnabled() bool {
+	return e.qextEnabled
+}
+
 // Complexity returns the current complexity setting.
 func (e *Encoder) Complexity() int {
 	return e.complexity
@@ -812,6 +832,11 @@ func (e *Encoder) RNG() uint32 {
 // Must be called after EncodeFrame() to get a meaningful value.
 func (e *Encoder) FinalRange() uint32 {
 	return e.rng
+}
+
+// LastQEXTPayload returns the retained QEXT side payload from the last frame.
+func (e *Encoder) LastQEXTPayload() []byte {
+	return e.lastQEXTPayload
 }
 
 // SetRNG sets the RNG state.
@@ -1106,7 +1131,8 @@ type encoderScratch struct {
 	rightHist []float64
 
 	// Range encoder buffer
-	reBuf []byte
+	reBuf   []byte
+	qextBuf []byte
 
 	// Quantized energies
 	quantizedEnergies []float64
@@ -1178,6 +1204,15 @@ type encoderScratch struct {
 	allocTrim     []int
 	allocCaps     []int
 	allocResult   AllocationResult // Pre-allocated result struct
+	qextExtraBits []int
+	qextFineBits  []int
+	qextBandE     []float64
+	qextBandLogE  []float64
+	qextQuantized []float64
+	qextError     []float64
+	qextOldBandE  []float64
+	qextNormL     []float64
+	qextNormR     []float64
 
 	// MDCT input buffer for ComputeMDCTWithHistory
 	mdctInput []float64
@@ -1187,6 +1222,7 @@ type encoderScratch struct {
 
 	// Range encoder (reused between frames)
 	rangeEncoder rangecoding.Encoder
+	qextEncoder  rangecoding.Encoder
 
 	// Coarse-energy two-pass scratch
 	coarseStartState rangecoding.EncoderState
@@ -1286,6 +1322,9 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	if len(s.reBuf) < bufSize {
 		s.reBuf = make([]byte, bufSize)
 	}
+	if e.qextEnabled {
+		s.qextBuf = ensureByteSlice(&s.qextBuf, qextPacketSizeCap)
+	}
 
 	// Quantized energies
 	s.quantizedEnergies = ensureFloat64Slice(&s.quantizedEnergies, bandCount)
@@ -1362,6 +1401,17 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.allocFinePrio = ensureIntSlice(&s.allocFinePrio, MaxBands)
 	s.allocThresh = ensureIntSlice(&s.allocThresh, MaxBands)
 	s.allocTrim = ensureIntSlice(&s.allocTrim, MaxBands)
+	if e.qextEnabled {
+		s.qextExtraBits = ensureIntSlice(&s.qextExtraBits, MaxBands+nbQEXTBands)
+		s.qextFineBits = ensureIntSlice(&s.qextFineBits, MaxBands+nbQEXTBands)
+		s.qextBandE = ensureFloat64Slice(&s.qextBandE, nbQEXTBands*channels)
+		s.qextBandLogE = ensureFloat64Slice(&s.qextBandLogE, nbQEXTBands*channels)
+		s.qextQuantized = ensureFloat64Slice(&s.qextQuantized, nbQEXTBands*channels)
+		s.qextError = ensureFloat64Slice(&s.qextError, nbQEXTBands*channels)
+		s.qextOldBandE = ensureFloat64Slice(&s.qextOldBandE, MaxBands*channels)
+		s.qextNormL = ensureFloat64Slice(&s.qextNormL, frameSize)
+		s.qextNormR = ensureFloat64Slice(&s.qextNormR, frameSize)
+	}
 
 	// MDCT input buffer for ComputeMDCTWithHistory
 	s.mdctInput = ensureFloat64Slice(&s.mdctInput, frameSize+overlap)

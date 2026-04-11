@@ -119,6 +119,7 @@ type bandDecodeScratch struct {
 
 	// Scratch buffers for PVQ/folding operations
 	pvqPulses  []int     // Pulse vector from CWRS decode
+	pvqRefine  []int     // QEXT PVQ refinement values
 	pvqNorm    []float64 // Normalized PVQ vector
 	foldResult []float64 // Folded band result
 	cwrsU      []uint32  // CWRS u-row scratch buffer
@@ -146,8 +147,10 @@ type bandEncodeScratch struct {
 	normResult0 []float64
 
 	// Theta RDO encoder state saves (reusable across bands)
-	ecSave  rangecoding.EncoderState
-	ecSave0 rangecoding.EncoderState
+	ecSave     rangecoding.EncoderState
+	ecSave0    rangecoding.EncoderState
+	extEcSave  rangecoding.EncoderState
+	extEcSave0 rangecoding.EncoderState
 
 	// PVQ scratch buffers
 	pvqSignx []byte
@@ -218,6 +221,12 @@ func (s *bandEncodeScratch) ensureHadamardTmp(n int) []float64 {
 // ensureQuantWork returns a pre-allocated deinterleaved working buffer.
 func (s *bandEncodeScratch) ensureQuantWork(n int) []float64 {
 	return ensureFloat64Slice(&s.quantWork, n)
+}
+
+// ensurePVQIy returns a pre-allocated integer pulse buffer for encode-side
+// PVQ and QEXT cubic helpers.
+func (s *bandEncodeScratch) ensurePVQIy(n int) []int {
+	return ensureIntSlice(&s.pvqIy, n)
 }
 
 // maxBandWidth is the maximum width of any single band (band 20 at LM=3 = 176 bins).
@@ -301,6 +310,11 @@ func (s *bandDecodeScratch) getBandStorageR(band, n int) []float64 {
 // ensurePVQPulses returns a pre-allocated buffer for PVQ pulse vector.
 func (s *bandDecodeScratch) ensurePVQPulses(n int) []int {
 	return ensureIntSlice(&s.pvqPulses, n)
+}
+
+// ensurePVQRefine returns a pre-allocated buffer for QEXT PVQ refinement values.
+func (s *bandDecodeScratch) ensurePVQRefine(n int) []int {
+	return ensureIntSlice(&s.pvqRefine, n)
 }
 
 // ensurePVQNorm returns a pre-allocated buffer for normalized vector.
