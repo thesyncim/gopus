@@ -139,7 +139,8 @@ func (d *Decoder) DecodeWithDecoderHook(rd *rangecoding.Decoder, frameSize int, 
 		return nil, err
 	}
 
-	d.finishSuccessfulDecode(frameSize, d.channels)
+	d.plcState.Reset()
+	d.plcState.SetLastFrameParams(plc.ModeHybrid, frameSize, d.channels)
 
 	return samples, nil
 }
@@ -160,14 +161,10 @@ func (d *Decoder) decodePacket(data []byte, frameSize int, packetStereo bool, la
 		return nil, err
 	}
 
-	d.finishSuccessfulDecode(frameSize, lastFrameChannels)
+	d.plcState.Reset()
+	d.plcState.SetLastFrameParams(plc.ModeHybrid, frameSize, lastFrameChannels)
 
 	return samples, nil
-}
-
-func (d *Decoder) finishSuccessfulDecode(frameSize, channels int) {
-	d.plcState.Reset()
-	d.plcState.SetLastFrameParams(plc.ModeHybrid, frameSize, channels)
 }
 
 // DecodeStereoWithDecoder decodes stereo using a pre-initialized range decoder.
