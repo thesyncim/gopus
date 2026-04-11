@@ -214,29 +214,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	balance := allocation.balance
 	codedBands := allocation.codedBands
 
-	d.DecodeFineEnergy(energies, end, fineQuant)
-	traceRange("fine", rd)
-
-	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.channels == 1, &d.rng, &d.scratchBands, &d.bandDebug, nil, nil, 0)
-	traceRange("pvq", rd)
-
-	antiCollapseOn := false
-	if antiCollapseRsv > 0 {
-		antiCollapseOn = rd.DecodeRawBits(1) == 1
-	}
-	traceFlag("anticollapse_on", boolToInt(antiCollapseOn))
-	traceRange("anticollapse", rd)
-
-	bitsLeft := totalBits - rd.Tell()
-	// Use DecodeEnergyFinaliseRange with start=HybridCELTStartBand to match libopus.
-	// libopus unquant_energy_finalise() loops from start to end, not from 0.
-	d.DecodeEnergyFinaliseRange(start, end, energies, fineQuant, finePriority, bitsLeft)
-	traceRange("finalise", rd)
-
-	if antiCollapseOn {
-		antiCollapse(coeffsL, coeffsR, collapse, lm, d.channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
-	}
+	coeffsL, coeffsR := d.decodeHybridSpectrum(rd, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, d.channels, d.channels == 1, energies, prev1LogE, prev2LogE, pulses, fineQuant, finePriority, tfRes, intensity, dualStereo, balance, codedBands)
 
 	hybridBinStart := ScaledBandStart(HybridCELTStartBand, frameSize)
 	d.applyPendingPLCPrefilterAndFold()
