@@ -109,11 +109,6 @@ func makeOpusHeadMultistreamWithFamily(channels, sampleRate int, streams, couple
 	return head.Encode()
 }
 
-// makeOpusHeadMultistream creates OpusHead for mapping family 1 (RFC 7845 Section 5.1.1).
-func makeOpusHeadMultistream(channels, sampleRate int, streams, coupledStreams int, mapping []byte) []byte {
-	return makeOpusHeadMultistreamWithFamily(channels, sampleRate, streams, coupledStreams, 1, mapping)
-}
-
 // makeOpusTags creates minimal OpusTags header.
 func makeOpusTags() []byte {
 	vendor := "gopus"

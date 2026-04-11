@@ -528,49 +528,6 @@ func denormalizeCoeffs(coeffs []float64, energies []float64, nbBands, frameSize 
 	denormalizeCoeffsInto(coeffs, coeffs, energies, nbBands, frameSize)
 }
 
-func denormalizeCoeffsWithModeInto(dst, src []float64, energies []float64, nbBands, lm int, edges []int) {
-	if len(dst) == 0 || len(src) == 0 || len(energies) == 0 || nbBands <= 0 || len(edges) < nbBands+1 {
-		return
-	}
-	if len(dst) > len(src) {
-		dst = dst[:len(src)]
-	} else {
-		src = src[:len(dst)]
-	}
-	if len(dst) == 0 {
-		return
-	}
-	M := 1 << lm
-	for band := 0; band < nbBands; band++ {
-		start := edges[band] * M
-		end := edges[band+1] * M
-		if start < 0 {
-			start = 0
-		}
-		if end > len(dst) {
-			end = len(dst)
-		}
-		if start >= end {
-			continue
-		}
-		e := energies[band]
-		if band < len(eMeans) {
-			e += eMeans[band] * DB6
-		}
-		if e > 32 {
-			e = 32
-		}
-		gain := float64(celtExp2(float32(e / DB6)))
-		for i := start; i < end; i++ {
-			dst[i] = src[i] * gain
-		}
-	}
-}
-
-func denormalizeCoeffsWithMode(coeffs []float64, energies []float64, nbBands, lm int, edges []int) {
-	denormalizeCoeffsWithModeInto(coeffs, coeffs, energies, nbBands, lm, edges)
-}
-
 func denormalizeBandsPackedInto(dst, src []float64, energies []float64, start, end, lm int, edges []int) {
 	if len(dst) == 0 || len(src) == 0 || len(energies) == 0 || end <= start || len(edges) < end+1 {
 		return

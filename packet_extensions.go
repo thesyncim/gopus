@@ -41,30 +41,6 @@ func initPacketExtensionIterator(iter *packetExtensionIterator, data []byte, nbF
 	}
 }
 
-func (iter *packetExtensionIterator) reset() {
-	iter.currPos = 0
-	iter.repeatPos = 0
-	iter.lastLongPos = -1
-	iter.srcPos = 0
-	iter.currLen = len(iter.data)
-	iter.repeatLen = 0
-	iter.srcLen = 0
-	iter.trailingShortLen = 0
-	iter.currFrame = 0
-	iter.repeatFrame = 0
-	iter.repeatL = 0
-}
-
-func (iter *packetExtensionIterator) setFrameMax(frameMax int) {
-	if frameMax < 0 {
-		frameMax = 0
-	}
-	if frameMax > iter.nbFrames {
-		frameMax = iter.nbFrames
-	}
-	iter.frameMax = frameMax
-}
-
 func skipPacketExtensionPayload(data []byte, pos, length int, idByte int, trailingShortLen int) (newPos, newLen, headerSize int, err error) {
 	id := idByte >> 1
 	lFlag := idByte & 1
@@ -278,20 +254,6 @@ func findPacketExtension(data []byte, nbFrames, id int) (packetExtensionData, bo
 		}
 		if ext.ID == id {
 			return ext, true, nil
-		}
-	}
-}
-
-func validatePacketExtensions(data []byte, nbFrames int) error {
-	var iter packetExtensionIterator
-	initPacketExtensionIterator(&iter, data, nbFrames)
-	for {
-		ok, err := iter.next(nil)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return nil
 		}
 	}
 }

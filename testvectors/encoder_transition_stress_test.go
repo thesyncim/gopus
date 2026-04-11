@@ -1,7 +1,6 @@
 package testvectors
 
 import (
-	"fmt"
 	"math"
 	"testing"
 
@@ -10,14 +9,6 @@ import (
 	"github.com/thesyncim/gopus/internal/testsignal"
 	"github.com/thesyncim/gopus/types"
 )
-
-func appendSignalVariant(dst []float32, variant string, sampleRate, samples, channels int) []float32 {
-	seg, err := testsignal.GenerateEncoderSignalVariant(variant, sampleRate, samples*channels, channels)
-	if err != nil {
-		panic(fmt.Sprintf("generate signal variant %q: %v", variant, err))
-	}
-	return append(dst, seg...)
-}
 
 func rmsFloat32(v []float32) float64 {
 	if len(v) == 0 {

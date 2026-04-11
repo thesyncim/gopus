@@ -37,42 +37,6 @@ type prefilterFixtureCase struct {
 	ExpectedGain     float64 `json:"expected_gain"`
 }
 
-func generatePrefilterFixtureCases(masterSeed int64, iters int) []prefilterFixtureCase {
-	rng := rand.New(rand.NewSource(masterSeed))
-	frameSizes := []int{120, 240, 480, 960}
-	cases := make([]prefilterFixtureCase, 0, iters)
-	for i := 0; i < iters; i++ {
-		channels := 1
-		if rng.Intn(2) == 1 {
-			channels = 2
-		}
-		frameSize := frameSizes[rng.Intn(len(frameSizes))]
-		toneFreq := -1.0
-		if rng.Intn(4) != 0 {
-			toneFreq = rng.Float64() * math.Pi
-		}
-		cases = append(cases, prefilterFixtureCase{
-			ID:         i,
-			Channels:   channels,
-			FrameSize:  frameSize,
-			Complexity: rng.Intn(11),
-			// Keep previous period in the same safe range as libopus run_prefilter state.
-			PrevPeriod:       rng.Intn(combFilterMaxPeriod - 1), // [0, COMBFILTER_MAXPERIOD-2]
-			PrevGain:         rng.Float64() * 0.8,
-			PrevTapset:       rng.Intn(3),
-			Tapset:           rng.Intn(3),
-			Enabled:          rng.Intn(2) == 1,
-			TFEstimate:       rng.Float64(),
-			NBAvailableBytes: 5 + rng.Intn(90),
-			ToneFreq:         toneFreq,
-			Toneishness:      rng.Float64(),
-			MaxPitchRatio:    rng.Float64(),
-			SignalSeed:       rng.Int63(),
-		})
-	}
-	return cases
-}
-
 func buildPrefilterFixtureSignal(seed int64, channels, frameSize int) (prefilterMem, preemph, pre []float64) {
 	rng := rand.New(rand.NewSource(seed))
 	prefilterMem = make([]float64, combFilterMaxPeriod*channels)

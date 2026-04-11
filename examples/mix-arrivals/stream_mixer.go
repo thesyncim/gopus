@@ -33,7 +33,6 @@ type TrackConfig struct {
 type RuntimeTrackMixer interface {
 	AddTrack(trackID string, cfg TrackConfig) error
 	RemoveTrack(trackID string) bool
-	SetTrackGain(trackID string, gain float32) error
 	SetTrackMuted(trackID string, muted bool) error
 	PushFrame(trackID string, startSample int64, pcm []float32) error
 	MixNext(out []float32) (int64, error)
@@ -125,17 +124,6 @@ func (m *StreamMixer) AddTrack(trackID string, cfg TrackConfig) error {
 		gain:  gain,
 		muted: cfg.Muted,
 	}
-	return nil
-}
-
-func (m *StreamMixer) SetTrackGain(trackID string, gain float32) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	tr, ok := m.tracks[trackID]
-	if !ok {
-		return ErrUnknownTrack
-	}
-	tr.gain = gain
 	return nil
 }
 

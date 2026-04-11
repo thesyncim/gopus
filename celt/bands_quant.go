@@ -1221,10 +1221,6 @@ func specialHybridFoldingWithEdges(norm, norm2 []float64, edges []int, start, M 
 	}
 }
 
-func specialHybridFolding(norm, norm2 []float64, start, M int, dualStereo bool) {
-	specialHybridFoldingWithEdges(norm, norm2, EBands[:], start, M, dualStereo)
-}
-
 // algUnquantInto decodes PVQ into a pre-allocated shape buffer using scratch buffers.
 func algUnquantInto(shape []float64, rd *rangecoding.Decoder, band, n, k, spread, b int, gain float64, extDec *rangecoding.Decoder, extraBits int, scratch *bandDecodeScratch, dbg *bandDebugState) int {
 	if len(shape) < n {
@@ -1958,127 +1954,6 @@ func computeThetaWithExtBudget(ctx *bandCtx, sctx *splitCtx, x, y []float64, n i
 	computeThetaExt(ctx, sctx, x, y, n, b, extB, B, B0, lm, stereo, fill)
 }
 
-func computeThetaDecode(ctx *bandCtx, sctx *splitCtx, x, y []float64, n int, b *int, B, B0, lm int, stereo bool, fill *int) {
-	bIn := *b
-	pulseCap := ctx.modeLogN(ctx.band) + lm*(1<<bitRes)
-	offset := (pulseCap >> 1) - qthetaOffset
-	if stereo && n == 2 {
-		offset = (pulseCap >> 1) - qthetaOffsetTwoPhase
-	}
-	qn := computeQn(n, *b, offset, pulseCap, stereo)
-	if stereo && ctx.band >= ctx.intensity {
-		qn = 1
-	}
-
-	tell := 0
-	if ctx.rd != nil {
-		tell = ctx.rd.TellFrac()
-	}
-
-	itheta := 0
-	ithetaQ30 := 0
-	inv := 0
-	if qn != 1 {
-		if stereo && n > 2 {
-			p0 := 3
-			x0 := qn / 2
-			ft := p0*(x0+1) + x0
-			if ctx.rd != nil {
-				fm := int(ctx.rd.Decode(uint32(ft)))
-				if fm < (x0+1)*p0 {
-					itheta = fm / p0
-				} else {
-					itheta = x0 + 1 + (fm - (x0+1)*p0)
-				}
-				var fl int
-				if itheta <= x0 {
-					fl = p0 * itheta
-					ctx.rd.Update(uint32(fl), uint32(fl+p0), uint32(ft))
-				} else {
-					fl = (itheta - 1 - x0) + (x0+1)*p0
-					ctx.rd.Update(uint32(fl), uint32(fl+1), uint32(ft))
-				}
-			}
-		} else if B0 > 1 || stereo {
-			if ctx.rd != nil {
-				itheta = int(ctx.rd.DecodeUniform(uint32(qn + 1)))
-			}
-		} else {
-			ft := ((qn >> 1) + 1) * ((qn >> 1) + 1)
-			if ctx.rd != nil {
-				fm := int(ctx.rd.Decode(uint32(ft)))
-				if fm < ((qn >> 1) * ((qn >> 1) + 1) >> 1) {
-					itheta = int((isqrt32(uint32(8*fm+1)) - 1) >> 1)
-					fs := itheta + 1
-					fl := itheta * (itheta + 1) >> 1
-					ctx.rd.Update(uint32(fl), uint32(fl+fs), uint32(ft))
-				} else {
-					itheta = int((2*(qn+1) - int(isqrt32(uint32(8*(ft-fm-1)+1)))) >> 1)
-					fs := qn + 1 - itheta
-					fl := ft - ((qn + 1 - itheta) * (qn + 2 - itheta) >> 1)
-					ctx.rd.Update(uint32(fl), uint32(fl+fs), uint32(ft))
-				}
-			}
-		}
-		itheta = celtUdiv(itheta*16384, qn)
-		ithetaQ30 = itheta << 16
-	} else if stereo {
-		if *b > 2<<bitRes && ctx.remainingBits > 2<<bitRes {
-			if ctx.rd != nil {
-				inv = ctx.rd.DecodeBit(2)
-			}
-		}
-		if ctx.disableInv {
-			inv = 0
-		}
-		itheta = 0
-		ithetaQ30 = 0
-	}
-
-	qalloc := 0
-	if ctx.rd != nil {
-		qalloc = ctx.rd.TellFrac() - tell
-	}
-	if qalloc != 0 {
-		*b -= qalloc
-		sctx.qalloc = qalloc
-	}
-
-	imid := 0
-	iside := 0
-	delta := 0
-	if itheta == 0 {
-		imid = 32767
-		iside = 0
-		*fill &= (1 << B) - 1
-		delta = -16384
-	} else if itheta == 16384 {
-		imid = 0
-		iside = 32767
-		*fill &= ((1 << B) - 1) << B
-		delta = 16384
-	} else {
-		imid = bitexactCos(itheta)
-		iside = bitexactCos(16384 - itheta)
-		delta = fracMul16((n-1)<<7, bitexactLog2tanTheta(itheta))
-	}
-
-	sctx.inv = inv
-	sctx.imid = imid
-	sctx.iside = iside
-	sctx.delta = delta
-	sctx.itheta = itheta
-	sctx.ithetaQ30 = ithetaQ30
-	decodeFrame := 0
-	if ctx.debug != nil {
-		decodeFrame = ctx.debug.qDbgDecodeFrame
-	}
-	if tmpTHDebugEnabled && !stereo && decodeFrame >= 21 && decodeFrame <= 22 {
-		fmt.Fprintf(os.Stderr, "TH_DEC frame=%d band=%d n=%d lm=%d b_in=%d b_out=%d qn=%d itheta=%d delta=%d qalloc=%d fill=%d\n",
-			decodeFrame, ctx.band, n, lm, bIn, *b, qn, itheta, delta, qalloc, *fill)
-	}
-}
-
 // computeThetaExt computes and encodes/decodes the stereo theta angle with optional extended precision.
 // When extended precision is available (ctx.extEnc != nil and extB != nil),
 // it also encodes additional Q30 precision bits to the extension bitstream.
@@ -2421,13 +2296,6 @@ func computeQEXTPVQRefineBits(ctx *bandCtx, extBudget, n int) int {
 	return min(12, extraBits)
 }
 
-func quantPartition(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int, gain float64, fill int) (int, []float64) {
-	if !ctx.encode {
-		return quantPartitionDecodeWithExtBudget(ctx, x, n, b, B, lowband, lm, gain, fill, ctx.extBudget), x
-	}
-	return quantPartitionEncodeWithExtBudget(ctx, x, n, b, B, lowband, lm, gain, fill, ctx.extBudget)
-}
-
 func quantPartitionEncodeWithExtBudget(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int, gain float64, fill int, extBudget int) (int, []float64) {
 	if tmpGainF32Enabled {
 		gain = float64(float32(gain))
@@ -2649,10 +2517,6 @@ func quantPartitionEncodeWithExtBudget(ctx *bandCtx, x []float64, n, b, B int, l
 		return fill, x
 	}
 	return fill, x
-}
-
-func quantPartitionDecode(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int, gain float64, fill int) int {
-	return quantPartitionDecodeWithExtBudget(ctx, x, n, b, B, lowband, lm, gain, fill, ctx.extBudget)
 }
 
 func quantPartitionDecodeWithExtBudget(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int, gain float64, fill int, extBudget int) int {
@@ -2914,16 +2778,8 @@ func quantBandN1DecodeStereo(ctx *bandCtx, x, y []float64, b int, lowbandOut []f
 	return 1
 }
 
-func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int, lowbandOut []float64, gain float64, lowbandScratch []float64, fill int) int {
-	return quantBandWithExtBudget(ctx, x, n, b, B, lowband, lm, lowbandOut, gain, lowbandScratch, fill, ctx.extBudget)
-}
-
 func quantBandWithExtBudget(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int, lowbandOut []float64, gain float64, lowbandScratch []float64, fill int, extBudget int) int {
 	return quantBandPreparedLowbandWithExtBudget(ctx, x, n, b, B, lowband, lm, lowbandOut, gain, lowbandScratch, fill, false, extBudget)
-}
-
-func quantBandPreparedLowband(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int, lowbandOut []float64, gain float64, lowbandScratch []float64, fill int, lowbandPrepared bool) int {
-	return quantBandPreparedLowbandWithExtBudget(ctx, x, n, b, B, lowband, lm, lowbandOut, gain, lowbandScratch, fill, lowbandPrepared, ctx.extBudget)
 }
 
 func quantBandPreparedLowbandWithExtBudget(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int, lowbandOut []float64, gain float64, lowbandScratch []float64, fill int, lowbandPrepared bool, extBudget int) int {

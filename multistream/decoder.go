@@ -651,14 +651,6 @@ func (d *Decoder) cachedDREDMaxAvailableSamples(stream, maxDredSamples int) int 
 	return d.cachedDREDResult(stream, maxDredSamples).MaxAvailableSamples()
 }
 
-func (d *Decoder) cachedDREDAvailability(stream, maxDredSamples int) internaldred.Availability {
-	return d.cachedDREDResult(stream, maxDredSamples).Availability
-}
-
-func (d *Decoder) fillCachedDREDQuantizerLevels(stream int, dst []int, maxDredSamples int) int {
-	return d.cachedDREDResult(stream, maxDredSamples).FillQuantizerLevels(dst)
-}
-
 func (d *Decoder) cachedDREDResult(stream, maxDredSamples int) internaldred.Result {
 	if stream < 0 || stream >= len(d.dredCache) || d.dredCache[stream].Empty() || !d.dredModelLoaded || d.ignoreExtensions {
 		return internaldred.Result{}

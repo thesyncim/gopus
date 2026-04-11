@@ -902,18 +902,6 @@ func silk_ADD_LSHIFT32(a, b int32, shift int) int32 {
 	return a + (b << shift)
 }
 
-func silk_SUB_LSHIFT32(a, b int32, shift int) int32 {
-	return a - (b << shift)
-}
-
-func silk_ADD32_ovflw(a, b int32) int32 {
-	return a + b
-}
-
-func silk_SUB32_ovflw(a, b int32) int32 {
-	return a - b
-}
-
 func silk_LIMIT_32(val, minVal, maxVal int32) int32 {
 	return max(minVal, min(val, maxVal))
 }

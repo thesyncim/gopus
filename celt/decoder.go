@@ -450,21 +450,6 @@ func (d *Decoder) takeQEXTPayload() []byte {
 	return payload
 }
 
-func (d *Decoder) prepareMainBandQEXTDecode(payload []byte, mainRD *rangecoding.Decoder, end, lm int) (*rangecoding.Decoder, []int, []int, int) {
-	if len(payload) == 0 || mainRD == nil || end <= 0 {
-		return nil, nil, nil, 0
-	}
-	extDec := &d.qextRangeDecoderScratch
-	extDec.Init(payload)
-	_ = decodeQEXTHeader(extDec, d.channels, len(payload))
-
-	extraPulses := ensureIntSlice(&d.scratchQEXTPulses, end)
-	extraQuant := ensureIntSlice(&d.scratchQEXTFineQuant, end)
-	totalBitsQ3 := (len(payload) * 8 << bitRes) - mainRD.TellFrac() - 1
-	computeQEXTExtraAllocationDecode(0, end, totalBitsQ3, d.channels, lm, extDec, extraPulses, extraQuant)
-	return extDec, extraPulses, extraQuant, len(payload) * 8 << bitRes
-}
-
 func (d *Decoder) decodeFineEnergyWithDecoderPrev(rd *rangecoding.Decoder, energies []float64, nbBands int, prevQuant, extraQuant []int) {
 	if rd == nil {
 		return

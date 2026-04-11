@@ -1,7 +1,5 @@
 package silk
 
-import "math"
-
 func autocorrelationF32(out, in []float32, length, order int) {
 	if length <= 0 || order <= 0 {
 		return
@@ -185,80 +183,6 @@ func applySineWindowFLP32(pxWin, px []float32, winType, length int) {
 		pxWin[k+2] = px[k+2] * 0.5 * (S1 + S0)
 		pxWin[k+3] = px[k+3] * S0
 		S1 = c*S0 - S1
-	}
-}
-
-func autocorrelationFLP(out, in []float64, length, order int) {
-	for k := 0; k < order; k++ {
-		sum := 0.0
-		for n := 0; n < length-k; n++ {
-			sum += in[n] * in[n+k]
-		}
-		out[k] = sum
-	}
-}
-
-func schurFLP(refl, autoCorr []float64, order int) float64 {
-	if order <= 0 {
-		if len(autoCorr) > 0 {
-			return autoCorr[0]
-		}
-		return 0
-	}
-	if order > maxShapeLpcOrder {
-		order = maxShapeLpcOrder
-	}
-	if order >= len(autoCorr) {
-		order = len(autoCorr) - 1
-	}
-	if order > len(refl) {
-		order = len(refl)
-	}
-	if order <= 0 {
-		if len(autoCorr) > 0 {
-			return autoCorr[0]
-		}
-		return 0
-	}
-	var C [maxShapeLpcOrder + 1][2]float64
-	for k := 0; k <= order; k++ {
-		C[k][0] = autoCorr[k]
-		C[k][1] = autoCorr[k]
-	}
-	for k := 0; k < order; k++ {
-		rc := -C[k+1][0] / math.Max(C[0][1], 1e-9)
-		refl[k] = rc
-		for n := 0; n < order-k; n++ {
-			c1 := C[n+k+1][0]
-			c2 := C[n][1]
-			C[n+k+1][0] = c1 + c2*rc
-			C[n][1] = c2 + c1*rc
-		}
-	}
-	return C[0][1]
-}
-
-func k2aFLP(a, rc []float64, order int) {
-	for k := 0; k < order; k++ {
-		rck := rc[k]
-		for n := 0; n < (k+1)/2; n++ {
-			tmp1 := a[n]
-			tmp2 := a[k-n-1]
-			a[n] = tmp1 + tmp2*rck
-			a[k-n-1] = tmp2 + tmp1*rck
-		}
-		a[k] = -rck
-	}
-}
-
-func bwexpanderFLP(ar []float64, order int, chirp float64) {
-	cfac := chirp
-	for i := 0; i < order-1; i++ {
-		ar[i] *= cfac
-		cfac *= chirp
-	}
-	if order > 0 {
-		ar[order-1] *= cfac
 	}
 }
 

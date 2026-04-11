@@ -581,16 +581,6 @@ func smulww(a, b int32) int32 {
 	return silkSMULWW(a, b)
 }
 
-// smulbb: a[15:0] * b[15:0], both treated as signed 16-bit
-func smulbb(a, b int32) int32 {
-	return silkSMULBB(a, b)
-}
-
-// smlabb: a + smulbb(b, c)
-func smlabb(a, b, c int32) int32 {
-	return silkSMLABB(a, b, c)
-}
-
 // smlawb: a + smulwb(b, c)
 func smlawb(a, b, c int32) int32 {
 	return silkSMLAWB(a, b, c)
