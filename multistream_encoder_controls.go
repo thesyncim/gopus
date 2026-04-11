@@ -46,17 +46,14 @@ func (e *MultistreamEncoder) SetDNNBlob(data []byte) error {
 }
 
 // SetQEXT toggles the libopus ENABLE_QEXT encoder extension.
-//
-// The default gopus build does not enable this extension; check
-// SupportsOptionalExtension(OptionalExtensionQEXT) and expect
-// ErrUnsupportedExtension when unavailable.
-func (e *MultistreamEncoder) SetQEXT(_ bool) error {
-	return ErrUnsupportedExtension
+func (e *MultistreamEncoder) SetQEXT(enabled bool) error {
+	e.enc.SetQEXT(enabled)
+	return nil
 }
 
 // QEXT reports whether the optional extended-precision theta path is enabled.
 func (e *MultistreamEncoder) QEXT() (bool, error) {
-	return false, ErrUnsupportedExtension
+	return e.enc.QEXT(), nil
 }
 
 // SetExpertFrameDuration sets the preferred frame duration policy for multistream encoding.

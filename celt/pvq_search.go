@@ -350,3 +350,23 @@ func ecEncRefine(enc *rangecoding.Encoder, refine int, up int, extraBits int, us
 		enc.EncodeRawBits(uint32(refine+up/2), uint(extraBits))
 	}
 }
+
+func ecDecRefine(dec *rangecoding.Decoder, up int, extraBits int, useEntropy bool) int {
+	if dec == nil || extraBits <= 0 {
+		return 0
+	}
+	logp := uint(1)
+	if useEntropy {
+		logp = 3
+	}
+	large := dec.DecodeBit(logp)
+	if large != 0 {
+		sign := int(dec.DecodeRawBits(1))
+		refine := int(dec.DecodeRawBits(uint(extraBits-1))) + up/2 + 1
+		if sign != 0 {
+			refine = -refine
+		}
+		return refine
+	}
+	return int(dec.DecodeRawBits(uint(extraBits))) - up/2
+}

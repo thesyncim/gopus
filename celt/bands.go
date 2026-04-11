@@ -464,8 +464,8 @@ func DenormalizeBand(shape []float64, energy float64) []float64 {
 	return result
 }
 
-func denormalizeCoeffs(coeffs []float64, energies []float64, nbBands, frameSize int) {
-	if len(coeffs) == 0 || len(energies) == 0 || nbBands <= 0 {
+func denormalizeCoeffsInto(dst, src []float64, energies []float64, nbBands, frameSize int) {
+	if len(dst) == 0 || len(src) == 0 || len(energies) == 0 || nbBands <= 0 {
 		return
 	}
 	if nbBands > MaxBands {
@@ -474,10 +474,19 @@ func denormalizeCoeffs(coeffs []float64, energies []float64, nbBands, frameSize 
 	if len(energies) < nbBands {
 		nbBands = len(energies)
 	}
+	if len(dst) > len(src) {
+		dst = dst[:len(src)]
+	} else {
+		src = src[:len(dst)]
+	}
+	if len(dst) == 0 {
+		return
+	}
 
-	coeffsLen := len(coeffs)
-	coeffs = coeffs[:coeffsLen:coeffsLen]
-	_ = coeffs[coeffsLen-1]
+	coeffsLen := len(dst)
+	dst = dst[:coeffsLen:coeffsLen]
+	src = src[:coeffsLen:coeffsLen]
+	_ = dst[coeffsLen-1]
 	offset := 0
 	for band := 0; band < nbBands; band++ {
 		width := ScaledBandWidth(band, frameSize)
@@ -499,19 +508,124 @@ func denormalizeCoeffs(coeffs []float64, energies []float64, nbBands, frameSize 
 		}
 		i := offset
 		for ; i+3 < end; i += 4 {
-			coeffs[i] *= gain
-			coeffs[i+1] *= gain
-			coeffs[i+2] *= gain
-			coeffs[i+3] *= gain
+			dst[i] = src[i] * gain
+			dst[i+1] = src[i+1] * gain
+			dst[i+2] = src[i+2] * gain
+			dst[i+3] = src[i+3] * gain
 		}
 		for ; i < end; i++ {
-			coeffs[i] *= gain
+			dst[i] = src[i] * gain
 		}
 		traceEnd := end
 		if traceEnd > offset {
-			traceCoeffs(band, coeffs[offset:traceEnd])
+			traceCoeffs(band, dst[offset:traceEnd])
 		}
 		offset += width
+	}
+}
+
+func denormalizeCoeffs(coeffs []float64, energies []float64, nbBands, frameSize int) {
+	denormalizeCoeffsInto(coeffs, coeffs, energies, nbBands, frameSize)
+}
+
+func denormalizeCoeffsWithModeInto(dst, src []float64, energies []float64, nbBands, lm int, edges []int) {
+	if len(dst) == 0 || len(src) == 0 || len(energies) == 0 || nbBands <= 0 || len(edges) < nbBands+1 {
+		return
+	}
+	if len(dst) > len(src) {
+		dst = dst[:len(src)]
+	} else {
+		src = src[:len(dst)]
+	}
+	if len(dst) == 0 {
+		return
+	}
+	M := 1 << lm
+	for band := 0; band < nbBands; band++ {
+		start := edges[band] * M
+		end := edges[band+1] * M
+		if start < 0 {
+			start = 0
+		}
+		if end > len(dst) {
+			end = len(dst)
+		}
+		if start >= end {
+			continue
+		}
+		e := energies[band]
+		if band < len(eMeans) {
+			e += eMeans[band] * DB6
+		}
+		if e > 32 {
+			e = 32
+		}
+		gain := float64(celtExp2(float32(e / DB6)))
+		for i := start; i < end; i++ {
+			dst[i] = src[i] * gain
+		}
+	}
+}
+
+func denormalizeCoeffsWithMode(coeffs []float64, energies []float64, nbBands, lm int, edges []int) {
+	denormalizeCoeffsWithModeInto(coeffs, coeffs, energies, nbBands, lm, edges)
+}
+
+func denormalizeBandsPackedInto(dst, src []float64, energies []float64, start, end, lm int, edges []int) {
+	if len(dst) == 0 || len(src) == 0 || len(energies) == 0 || end <= start || len(edges) < end+1 {
+		return
+	}
+	if start < 0 {
+		start = 0
+	}
+	if end > len(energies) {
+		end = len(energies)
+	}
+	if end <= start {
+		return
+	}
+
+	M := 1 << lm
+	bound := edges[end] * M
+	if bound > len(dst) {
+		bound = len(dst)
+	}
+	if start != 0 {
+		prefix := edges[start] * M
+		if prefix > len(dst) {
+			prefix = len(dst)
+		}
+		clear(dst[:prefix])
+	}
+	f := edges[start] * M
+	if f > len(dst) {
+		f = len(dst)
+	}
+
+	for band := start; band < end; band++ {
+		j := edges[band] * M
+		bandEnd := edges[band+1] * M
+		if j >= len(src) {
+			break
+		}
+		if bandEnd > len(src) {
+			bandEnd = len(src)
+		}
+		e := energies[band]
+		if band < len(eMeans) {
+			e += eMeans[band] * DB6
+		}
+		if e > 32 {
+			e = 32
+		}
+		gain := float64(celtExp2(float32(e / DB6)))
+		for ; j < bandEnd && f < len(dst); j++ {
+			dst[f] = src[j] * gain
+			f++
+		}
+	}
+	if bound < len(dst) {
+		clear(dst[bound:])
 	}
 }
 

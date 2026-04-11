@@ -2,20 +2,60 @@ package benchutil
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"math"
 	"os"
+	"os/exec"
 
 	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 // OpusDemoPath resolves the pinned libopus reference binary used by parity tooling.
 func OpusDemoPath() (string, error) {
+	if p := os.Getenv("OPUS_DEMO_PATH"); p != "" {
+		if info, err := os.Stat(p); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+			return p, nil
+		}
+		return "", fmt.Errorf("OPUS_DEMO_PATH=%q is not an executable file", p)
+	}
 	if p, ok := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots()); ok {
 		return p, nil
 	}
 	return "", fmt.Errorf("opus_demo not found under tmp_check/opus-%s (run: make ensure-libopus)", libopustooling.DefaultVersion)
+}
+
+// OpusDemoSupportsQEXT reports whether the selected opus_demo binary was built
+// with ENABLE_QEXT and exposes the `-qext` CLI flag.
+func OpusDemoSupportsQEXT(path string) (bool, error) {
+	if path == "" {
+		return false, fmt.Errorf("opus_demo path is empty")
+	}
+	cmd := exec.Command(path)
+	out, err := cmd.CombinedOutput()
+	if err != nil && len(out) == 0 {
+		return false, err
+	}
+	return bytes.Contains(out, []byte("-qext")), nil
+}
+
+// QEXTOpusDemoPath resolves an opus_demo binary that actually supports QEXT.
+// The default pinned tmp_check build does not guarantee ENABLE_QEXT, so callers
+// should use this helper for QEXT-specific parity tests.
+func QEXTOpusDemoPath() (string, error) {
+	p, err := OpusDemoPath()
+	if err != nil {
+		return "", err
+	}
+	ok, err := OpusDemoSupportsQEXT(p)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("opus_demo at %q was built without ENABLE_QEXT; set OPUS_DEMO_PATH to a QEXT-enabled build", p)
+	}
+	return p, nil
 }
 
 // FrameSizeArg converts a frame size in samples at 48 kHz to the opus_demo CLI value.
