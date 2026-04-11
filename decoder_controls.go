@@ -16,6 +16,7 @@ func (d *Decoder) Reset() {
 	d.haveDecoded = false
 	d.softClipMem[0] = 0
 	d.softClipMem[1] = 0
+	d.clearDREDPayloadState()
 
 	// Clear FEC state
 	d.clearFECState()
@@ -52,6 +53,9 @@ func (d *Decoder) Gain() int {
 // This mirrors libopus OPUS_SET_IGNORE_EXTENSIONS semantics.
 func (d *Decoder) SetIgnoreExtensions(ignore bool) {
 	d.ignoreExtensions = ignore
+	if ignore {
+		d.clearDREDPayloadState()
+	}
 }
 
 // IgnoreExtensions reports whether unknown packet extensions are ignored.
@@ -82,7 +86,7 @@ func (d *Decoder) SetDNNBlob(data []byte) error {
 	if err != nil {
 		return err
 	}
-	d.dnnBlob = blob
+	d.setDNNBlob(blob)
 	return nil
 }
 

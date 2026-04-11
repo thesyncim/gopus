@@ -13,6 +13,8 @@ import (
 	"os"
 
 	"github.com/thesyncim/gopus/celt"
+	"github.com/thesyncim/gopus/internal/dnnblob"
+	internaldred "github.com/thesyncim/gopus/internal/dred"
 	"github.com/thesyncim/gopus/silk"
 	"github.com/thesyncim/gopus/types"
 )
@@ -47,6 +49,9 @@ var (
 
 	// ErrEncodingFailed indicates a general encoding failure.
 	ErrEncodingFailed = errors.New("encoder: encoding failed")
+
+	// ErrInvalidDREDDuration indicates DRED duration is outside libopus bounds.
+	ErrInvalidDREDDuration = errors.New("encoder: invalid DRED duration")
 )
 
 const maxPacketSizeWithQEXT = 3826
@@ -131,6 +136,17 @@ type Encoder struct {
 
 	// qextEnabled mirrors libopus OPUS_SET_QEXT and is applied lazily to CELT.
 	qextEnabled bool
+
+	// dnnBlob retains a validated USE_WEIGHTS_FILE blob for future optional
+	// extension paths (DRED/OSCE). Keeping it here mirrors libopus ctl lifetime.
+	dnnBlob *dnnblob.Blob
+	// dredModelLoaded tracks whether the retained blob contains the DRED encoder
+	// model families libopus requires before it can emit DRED payloads.
+	dredModelLoaded bool
+
+	// dredDuration mirrors libopus OPUS_SET_DRED_DURATION in 2.5 ms units.
+	// Reset() clears it back to zero.
+	dredDuration int
 
 	// DC rejection filter state
 	hpMem [4]float32
@@ -319,6 +335,42 @@ func (e *Encoder) QEXT() bool {
 	return e.qextEnabled
 }
 
+// SetDNNBlob retains a validated USE_WEIGHTS_FILE blob for optional extension
+// paths. A nil blob clears the retained model.
+func (e *Encoder) SetDNNBlob(blob *dnnblob.Blob) {
+	e.dnnBlob = blob
+	e.dredModelLoaded = blob != nil && blob.SupportsDREDEncoder() && blob.SupportsPitchDNN()
+}
+
+// DNNBlobLoaded reports whether a validated model blob is retained.
+func (e *Encoder) DNNBlobLoaded() bool {
+	return e.dnnBlob != nil
+}
+
+// DREDModelLoaded reports whether the retained blob is DRED-encoder capable.
+func (e *Encoder) DREDModelLoaded() bool {
+	return e.dredModelLoaded
+}
+
+// DREDReady reports whether DRED can be emitted on the next packet.
+func (e *Encoder) DREDReady() bool {
+	return e.dredModelLoaded && e.dredDuration > 0
+}
+
+// SetDREDDuration stores libopus-style DRED redundancy depth in 2.5 ms units.
+func (e *Encoder) SetDREDDuration(duration int) error {
+	if duration < 0 || duration > internaldred.MaxFrames {
+		return ErrInvalidDREDDuration
+	}
+	e.dredDuration = duration
+	return nil
+}
+
+// DREDDuration reports the stored DRED redundancy depth in 2.5 ms units.
+func (e *Encoder) DREDDuration() int {
+	return e.dredDuration
+}
+
 // SetFrameSize sets the frame size in samples at 48kHz.
 func (e *Encoder) SetFrameSize(frameSize int) {
 	e.frameSize = frameSize
@@ -389,6 +441,7 @@ func (e *Encoder) Reset() {
 	e.lbrrCoded = false
 	e.widthMem = StereoWidthMem{}
 	e.toMono = 0
+	e.dredDuration = 0
 }
 
 // SetFEC enables or disables in-band Forward Error Correction.
