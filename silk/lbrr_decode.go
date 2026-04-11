@@ -11,6 +11,26 @@ import (
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
+func preparePacketRangeDecoder(data []byte, frameSizeSamples int) (rangecoding.Decoder, int, int, error) {
+	var rd rangecoding.Decoder
+	rd.Init(data)
+
+	duration := FrameDurationFromTOC(frameSizeSamples)
+	framesPerPacket, nbSubfr, err := frameParams(duration)
+	if err != nil {
+		return rangecoding.Decoder{}, 0, 0, err
+	}
+
+	return rd, framesPerPacket, nbSubfr, nil
+}
+
+func initPacketDecodeState(st *decoderState, framesPerPacket, nbSubfr, fsKHz int) {
+	st.nFramesDecoded = 0
+	st.nFramesPerPacket = framesPerPacket
+	st.nbSubfr = nbSubfr
+	silkDecoderSetFs(st, fsKHz)
+}
+
 // DecodeFEC decodes LBRR (Low Bitrate Redundancy) frames for Forward Error Correction.
 // This function decodes the FEC data from a packet to recover a lost frame.
 //
@@ -38,13 +58,7 @@ func (d *Decoder) DecodeFEC(
 	// Keep SILK bandwidth/resampler transition cadence aligned with normal decode.
 	d.NotifyBandwidthChange(bandwidth)
 
-	// Initialize range decoder
-	var rd rangecoding.Decoder
-	rd.Init(data)
-
-	// Get frame parameters
-	duration := FrameDurationFromTOC(frameSizeSamples)
-	framesPerPacket, nbSubfr, err := frameParams(duration)
+	rd, framesPerPacket, nbSubfr, err := preparePacketRangeDecoder(data, frameSizeSamples)
 	if err != nil {
 		return nil, err
 	}
@@ -54,17 +68,11 @@ func (d *Decoder) DecodeFEC(
 
 	// Set up decoder state for FEC decoding
 	stMid := &d.state[0]
-	stMid.nFramesDecoded = 0
-	stMid.nFramesPerPacket = framesPerPacket
-	stMid.nbSubfr = nbSubfr
-	silkDecoderSetFs(stMid, fsKHz)
+	initPacketDecodeState(stMid, framesPerPacket, nbSubfr, fsKHz)
 
 	if stereo && outputChannels == 2 {
 		stSide := &d.state[1]
-		stSide.nFramesDecoded = 0
-		stSide.nFramesPerPacket = framesPerPacket
-		stSide.nbSubfr = nbSubfr
-		silkDecoderSetFs(stSide, fsKHz)
+		initPacketDecodeState(stSide, framesPerPacket, nbSubfr, fsKHz)
 	}
 
 	// Decode VAD and LBRR flags
@@ -255,13 +263,7 @@ func (d *Decoder) HasLBRR(data []byte, bandwidth Bandwidth, frameSizeSamples int
 		return false
 	}
 
-	// Initialize range decoder
-	var rd rangecoding.Decoder
-	rd.Init(data)
-
-	// Get frame parameters
-	duration := FrameDurationFromTOC(frameSizeSamples)
-	framesPerPacket, _, err := frameParams(duration)
+	rd, framesPerPacket, _, err := preparePacketRangeDecoder(data, frameSizeSamples)
 	if err != nil {
 		return false
 	}
