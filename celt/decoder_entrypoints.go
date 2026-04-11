@@ -28,12 +28,7 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 		end = 1
 	}
 	start := 0
-	prev1Energy := ensureFloat64Slice(&d.scratchPrevEnergy, len(d.prevEnergy))
-	copy(prev1Energy, d.prevEnergy)
-	prev1LogE := ensureFloat64Slice(&d.scratchPrevLogE, len(d.prevLogE))
-	copy(prev1LogE, d.prevLogE)
-	prev2LogE := ensureFloat64Slice(&d.scratchPrevLogE2, len(d.prevLogE2))
-	copy(prev2LogE, d.prevLogE2)
+	prev1Energy, prev1LogE, prev2LogE := d.snapshotDecodeHistory()
 
 	totalBits := rd.StorageBits()
 	tell := rd.Tell()
@@ -129,12 +124,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 		end = 1
 	}
 	start := HybridCELTStartBand
-	prev1Energy := ensureFloat64Slice(&d.scratchPrevEnergy, len(d.prevEnergy))
-	copy(prev1Energy, d.prevEnergy)
-	prev1LogE := ensureFloat64Slice(&d.scratchPrevLogE, len(d.prevLogE))
-	copy(prev1LogE, d.prevLogE)
-	prev2LogE := ensureFloat64Slice(&d.scratchPrevLogE2, len(d.prevLogE2))
-	copy(prev2LogE, d.prevLogE2)
+	prev1Energy, prev1LogE, prev2LogE := d.snapshotDecodeHistory()
 
 	totalBits := rd.StorageBits()
 	tell := rd.Tell()
