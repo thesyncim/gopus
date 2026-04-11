@@ -103,19 +103,7 @@ func (d *Decoder) finalizeDecodedFrameState(frameSize, start, end, lm int, trans
 	d.updateBackgroundEnergy(lm)
 
 	// Mirror libopus: clear energies/logs outside [start,end).
-	for c := 0; c < d.channels; c++ {
-		base := c * MaxBands
-		for band := 0; band < start; band++ {
-			d.prevEnergy[base+band] = 0
-			d.prevLogE[base+band] = -28.0
-			d.prevLogE2[base+band] = -28.0
-		}
-		for band := end; band < MaxBands; band++ {
-			d.prevEnergy[base+band] = 0
-			d.prevLogE[base+band] = -28.0
-			d.prevLogE2[base+band] = -28.0
-		}
-	}
+	d.clearFrameHistoryOutsideRange(start, end, d.channels)
 	if qext != nil && qext.dec.Tell() > qext.dec.StorageBits() {
 		return ErrInvalidFrame
 	}
@@ -129,4 +117,20 @@ func (d *Decoder) finalizeDecodedFrameState(frameSize, start, end, lm int, trans
 	// Reset PLC state after successful decode.
 	d.resetPLCCadence(frameSize, d.channels)
 	return nil
+}
+
+func (d *Decoder) clearFrameHistoryOutsideRange(start, end, channels int) {
+	for c := 0; c < channels; c++ {
+		base := c * MaxBands
+		for band := 0; band < start; band++ {
+			d.prevEnergy[base+band] = 0
+			d.prevLogE[base+band] = -28.0
+			d.prevLogE2[base+band] = -28.0
+		}
+		for band := end; band < MaxBands; band++ {
+			d.prevEnergy[base+band] = 0
+			d.prevLogE[base+band] = -28.0
+			d.prevLogE2[base+band] = -28.0
+		}
+	}
 }
