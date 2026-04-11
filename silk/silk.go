@@ -14,6 +14,11 @@ var (
 	ErrDecodeFailed     = errors.New("silk: frame decode failed")
 )
 
+func (d *Decoder) finalizeSuccessfulDecode(frameSizeSamples, channels int) {
+	d.plcState.Reset()
+	d.plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, channels)
+}
+
 // Decode decodes a SILK mono frame and returns 48kHz PCM samples.
 // If data is nil, performs Packet Loss Concealment (PLC) instead of decoding.
 //
@@ -103,9 +108,7 @@ func (d *Decoder) Decode(
 		output = append(output, resampler.Process(resamplerInput)...)
 	}
 
-	// Reset PLC state after successful decode
-	d.plcState.Reset()
-	d.plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 1)
+	d.finalizeSuccessfulDecode(frameSizeSamples, 1)
 
 	return output, nil
 }
@@ -159,9 +162,7 @@ func (d *Decoder) DecodeStereo(
 		output[i*2+1] = right[i]
 	}
 
-	// Reset PLC state after successful decode
-	d.plcState.Reset()
-	d.plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 2)
+	d.finalizeSuccessfulDecode(frameSizeSamples, 2)
 
 	return output, nil
 }
@@ -231,9 +232,7 @@ func (d *Decoder) DecodeStereoToMono(
 		output = append(output, resampler.Process(resamplerInput)...)
 	}
 
-	// Reset PLC state after successful decode
-	d.plcState.Reset()
-	d.plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 1)
+	d.finalizeSuccessfulDecode(frameSizeSamples, 1)
 
 	return output, nil
 }
@@ -325,8 +324,7 @@ func (d *Decoder) DecodeMonoToStereo(
 		}
 	}
 
-	d.plcState.Reset()
-	d.plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 2)
+	d.finalizeSuccessfulDecode(frameSizeSamples, 2)
 
 	return out, nil
 }
@@ -399,8 +397,7 @@ func (d *Decoder) DecodeWithDecoder(
 		output = append(output, processOutput...)
 	}
 
-	d.plcState.Reset()
-	d.plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 1)
+	d.finalizeSuccessfulDecode(frameSizeSamples, 1)
 
 	return output, nil
 }
@@ -476,8 +473,7 @@ func (d *Decoder) DecodeWithDecoderInto(
 		outputOffset += n
 	}
 
-	d.plcState.Reset()
-	d.plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 1)
+	d.finalizeSuccessfulDecode(frameSizeSamples, 1)
 
 	return outputOffset, nil
 }
@@ -517,8 +513,7 @@ func (d *Decoder) DecodeStereoWithDecoder(
 		output[i*2+1] = right[i]
 	}
 
-	d.plcState.Reset()
-	d.plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 2)
+	d.finalizeSuccessfulDecode(frameSizeSamples, 2)
 
 	return output, nil
 }
@@ -577,8 +572,7 @@ func (d *Decoder) DecodeStereoToMonoWithDecoder(
 		output = append(output, resampler.Process(resamplerInput)...)
 	}
 
-	d.plcState.Reset()
-	d.plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 1)
+	d.finalizeSuccessfulDecode(frameSizeSamples, 1)
 
 	return output, nil
 }
@@ -664,8 +658,7 @@ func (d *Decoder) DecodeMonoToStereoWithDecoder(
 		}
 	}
 
-	d.plcState.Reset()
-	d.plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, 2)
+	d.finalizeSuccessfulDecode(frameSizeSamples, 2)
 
 	return out, nil
 }
