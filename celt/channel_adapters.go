@@ -676,27 +676,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	balance := allocation.balance
 	codedBands := allocation.codedBands
 
-	d.DecodeFineEnergy(monoEnergies, end, fineQuant)
-	traceRange("fine", rd)
-
-	coeffsMono, _, collapse := quantAllBandsDecodeWithScratch(rd, 1, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, false, &d.rng, &d.scratchBands, &d.bandDebug, nil, nil, 0)
-	traceRange("pvq", rd)
-
-	antiCollapseOn := false
-	if antiCollapseRsv > 0 {
-		antiCollapseOn = rd.DecodeRawBits(1) == 1
-	}
-	traceFlag("anticollapse_on", boolToInt(antiCollapseOn))
-	traceRange("anticollapse", rd)
-
-	bitsLeft := totalBits - rd.Tell()
-	d.DecodeEnergyFinaliseRange(start, end, monoEnergies, fineQuant, finePriority, bitsLeft)
-	traceRange("finalise", rd)
-
-	if antiCollapseOn {
-		antiCollapse(coeffsMono, nil, collapse, lm, 1, start, end, monoEnergies, prev1LogE, prev2LogE, pulses, d.rng)
-	}
+	coeffsMono, _ := d.decodeHybridSpectrum(rd, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, 1, false, monoEnergies, prev1LogE, prev2LogE, pulses, fineQuant, finePriority, tfRes, intensity, dualStereo, balance, codedBands)
 
 	denormalizeCoeffs(coeffsMono, monoEnergies, end, frameSize)
 
@@ -861,27 +841,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	balance := allocation.balance
 	codedBands := allocation.codedBands
 
-	d.DecodeFineEnergy(energies, end, fineQuant)
-	traceRange("fine", rd)
-
-	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, origChannels == 1, &d.rng, &d.scratchBands, &d.bandDebug, nil, nil, 0)
-	traceRange("pvq", rd)
-
-	antiCollapseOn := false
-	if antiCollapseRsv > 0 {
-		antiCollapseOn = rd.DecodeRawBits(1) == 1
-	}
-	traceFlag("anticollapse_on", boolToInt(antiCollapseOn))
-	traceRange("anticollapse", rd)
-
-	bitsLeft := totalBits - rd.Tell()
-	d.DecodeEnergyFinaliseRange(start, end, energies, fineQuant, finePriority, bitsLeft)
-	traceRange("finalise", rd)
-
-	if antiCollapseOn {
-		antiCollapse(coeffsL, coeffsR, collapse, lm, d.channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
-	}
+	coeffsL, coeffsR := d.decodeHybridSpectrum(rd, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, d.channels, origChannels == 1, energies, prev1LogE, prev2LogE, pulses, fineQuant, finePriority, tfRes, intensity, dualStereo, balance, codedBands)
 
 	hybridBinStart := ScaledBandStart(HybridCELTStartBand, frameSize)
 	energiesL := energies[:end]
