@@ -20,12 +20,12 @@ const (
 // SupportsOptionalExtension reports whether the current gopus build enables ext.
 //
 // The default pure-Go build intentionally leaves these optional libopus
-// extensions disabled, so this currently returns false for every known value.
-// Unknown values also return false.
+// extensions disabled except for DNN blob loading. Unknown values return false.
 func SupportsOptionalExtension(ext OptionalExtension) bool {
 	switch ext {
+	case OptionalExtensionDNNBlob:
+		return true
 	case OptionalExtensionDRED,
-		OptionalExtensionDNNBlob,
 		OptionalExtensionQEXT,
 		OptionalExtensionOSCEBWE:
 		return false
