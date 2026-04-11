@@ -32,40 +32,18 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 		return d.decodePLC(frameSize)
 	}
 
-	if !ValidFrameSize(frameSize) {
-		return nil, ErrInvalidFrameSize
-	}
-	currentFrame := d.decodeFrameIndex
-	d.decodeFrameIndex++
-	if tmpPVQCallDebugEnabled {
-		d.bandDebug.qDbgDecodeFrame = currentFrame
-		d.bandDebug.pvqCallSeq = 0
-	}
-
-	d.prepareMonoEnergyFromStereo()
-
-	// Initialize range decoder
-	rd := &d.rangeDecoderScratch
-	rd.Init(data)
-	d.SetRangeDecoder(rd)
-
-	// Get mode configuration
-	mode := GetModeConfig(frameSize)
-	lm := mode.LM
-	end := EffectiveBandsForFrameSize(d.bandwidth, frameSize)
-	if end > mode.EffBands {
-		end = mode.EffBands
-	}
-	if end < 1 {
-		end = 1
+	setup, err := d.prepareDecodeFrame(data, frameSize)
+	if err != nil {
+		return nil, err
 	}
 	start := 0
-	prev1Energy := ensureFloat64Slice(&d.scratchPrevEnergy, len(d.prevEnergy))
-	copy(prev1Energy, d.prevEnergy)
-	prev1LogE := ensureFloat64Slice(&d.scratchPrevLogE, len(d.prevLogE))
-	copy(prev1LogE, d.prevLogE)
-	prev2LogE := ensureFloat64Slice(&d.scratchPrevLogE2, len(d.prevLogE2))
-	copy(prev2LogE, d.prevLogE2)
+	rd := setup.rd
+	mode := setup.mode
+	lm := setup.lm
+	end := setup.end
+	prev1Energy := setup.prev1Energy
+	prev1LogE := setup.prev1LogE
+	prev2LogE := setup.prev2LogE
 
 	totalBits := len(data) * 8
 	tell := rd.Tell()
