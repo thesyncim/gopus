@@ -256,6 +256,26 @@ func float32ToFloat64Slice(in []float32) []float64 {
 	return out
 }
 
+func (d *streamState) recordDecodedTOC(toc streamTOC) {
+	d.lastMode = toc.mode
+	d.lastBandwidth = toc.bandwidth
+	d.lastPacketStereo = toc.stereo
+	d.haveDecoded = true
+}
+
+func (d *streamState) recordDecodeCall(frameSize, dataLen int) {
+	d.lastFrameSize = frameSize
+	d.lastPacketDuration = frameSize
+	d.lastDataLen = dataLen
+}
+
+func (d *streamState) finishDecode(out []float64, err error) ([]float64, error) {
+	if err == nil {
+		d.applyOutputGain(out)
+	}
+	return out, err
+}
+
 func (d *streamState) decodeSILK(data []byte, frameSize int, packetStereo bool, opusBandwidth int) ([]float64, error) {
 	bw, ok := silk.BandwidthFromOpus(opusBandwidth)
 	if !ok {
@@ -306,10 +326,7 @@ func (d *streamState) decodeFramePayload(frame []byte, frameSize int, toc stream
 		return nil, err
 	}
 
-	d.lastMode = toc.mode
-	d.lastBandwidth = toc.bandwidth
-	d.lastPacketStereo = toc.stereo
-	d.haveDecoded = true
+	d.recordDecodedTOC(toc)
 	return out, nil
 }
 
@@ -318,30 +335,16 @@ func (d *streamState) decodePLC(frameSize int) ([]float64, error) {
 		return make([]float64, frameSize*d.channels), nil
 	}
 
-	d.lastFrameSize = frameSize
-	d.lastPacketDuration = frameSize
-	d.lastDataLen = 0
+	d.recordDecodeCall(frameSize, 0)
 
 	switch d.lastMode {
 	case streamModeSILK:
-		out, err := d.decodeSILK(nil, frameSize, d.lastPacketStereo, d.lastBandwidth)
-		if err == nil {
-			d.applyOutputGain(out)
-		}
-		return out, err
+		return d.finishDecode(d.decodeSILK(nil, frameSize, d.lastPacketStereo, d.lastBandwidth))
 	case streamModeHybrid:
-		out, err := d.hybridDec.DecodeWithPacketStereo(nil, frameSize, d.lastPacketStereo)
-		if err == nil {
-			d.applyOutputGain(out)
-		}
-		return out, err
+		return d.finishDecode(d.hybridDec.DecodeWithPacketStereo(nil, frameSize, d.lastPacketStereo))
 	case streamModeCELT:
 		d.celtDec.SetBandwidth(celt.BandwidthFromOpusConfig(d.lastBandwidth))
-		out, err := d.celtDec.DecodeFrameWithPacketStereo(nil, frameSize, d.lastPacketStereo)
-		if err == nil {
-			d.applyOutputGain(out)
-		}
-		return out, err
+		return d.finishDecode(d.celtDec.DecodeFrameWithPacketStereo(nil, frameSize, d.lastPacketStereo))
 	default:
 		return make([]float64, frameSize*d.channels), nil
 	}
@@ -355,9 +358,7 @@ func (d *streamState) decodePacket(data []byte, frameSize int) ([]float64, error
 		return nil, ErrPacketTooShort
 	}
 
-	d.lastFrameSize = frameSize
-	d.lastPacketDuration = frameSize
-	d.lastDataLen = len(data)
+	d.recordDecodeCall(frameSize, len(data))
 
 	toc := parseStreamTOC(data[0])
 	parsed, err := parseOpusPacket(data, false)
@@ -380,11 +381,7 @@ func (d *streamState) decodePacket(data []byte, frameSize int) ([]float64, error
 	}
 
 	if frameCount == 1 {
-		out, err := d.decodeFramePayload(parsed.frames[0], frameSize, toc, qextPayloads[0])
-		if err == nil {
-			d.applyOutputGain(out)
-		}
-		return out, err
+		return d.finishDecode(d.decodeFramePayload(parsed.frames[0], frameSize, toc, qextPayloads[0]))
 	}
 	if frameSize%frameCount != 0 {
 		return nil, fmt.Errorf("multistream: frameSize %d not divisible by packet frame count %d", frameSize, frameCount)
@@ -399,9 +396,7 @@ func (d *streamState) decodePacket(data []byte, frameSize int) ([]float64, error
 		}
 		out = append(out, frameDecoded...)
 	}
-	d.applyOutputGain(out)
-
-	return out, nil
+	return d.finishDecode(out, nil)
 }
 
 // Decoder decodes Opus multistream packets containing multiple elementary streams.
