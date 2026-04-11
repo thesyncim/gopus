@@ -5,9 +5,6 @@ import "math"
 // qextPacketSizeCap matches libopus QEXT_PACKET_SIZE_CAP.
 const qextPacketSizeCap = 3825
 
-// qextExtensionID matches libopus QEXT_EXTENSION_ID.
-const qextExtensionID = 124
-
 // nbQEXTBands matches libopus NB_QEXT_BANDS.
 const nbQEXTBands = 14
 

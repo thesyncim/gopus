@@ -278,26 +278,3 @@ func qualityAbsInt(v int) int {
 	}
 	return v
 }
-
-// CompareSamplesFloat32 computes the mean squared error (MSE) between two float32 sample slices.
-// Returns MSE as a float64 value. Lower values indicate better match.
-//
-// If lengths differ, comparison uses the shorter length.
-func CompareSamplesFloat32(a, b []float32) float64 {
-	if len(a) == 0 || len(b) == 0 {
-		return math.Inf(1)
-	}
-
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
-
-	var mse float64
-	for i := 0; i < n; i++ {
-		diff := float64(a[i]) - float64(b[i])
-		mse += diff * diff
-	}
-
-	return mse / float64(n)
-}

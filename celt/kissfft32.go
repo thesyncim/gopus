@@ -8,11 +8,9 @@ import (
 )
 
 // NOTE ON APPARENT CODE DUPLICATION:
-// The butterfly functions (kfBfly2, kfBfly3, kfBfly4, kfBfly5) and complex
-// arithmetic helpers (cAdd, cSub, cMul) may appear similar to linters, but
-// they implement mathematically distinct operations:
+// The butterfly functions (kfBfly2, kfBfly3, kfBfly4, kfBfly5) may appear
+// similar to linters, but they implement mathematically distinct operations:
 // - Each radix butterfly (2,3,4,5) has unique twiddle factor patterns
-// - cAdd/cSub perform different arithmetic (+ vs -) on complex components
 // - These functions are performance-critical FFT hot paths
 // - Abstracting them would hurt performance and obscure the FFT algorithm
 // This structure mirrors libopus kiss_fft.c for bit-exact compatibility.
@@ -40,13 +38,6 @@ var (
 	kissFFTState240 = newKissFFTState(240)
 	kissFFTState480 = newKissFFTState(480)
 )
-
-func kissMul(a, b float32) float32 {
-	if kissFFTNoFMAMulEnabled {
-		return noFMA32Mul(a, b)
-	}
-	return a * b
-}
 
 // kissMulAddSource computes a*b + c*d using source-order semantics.
 // In FMAlike mode this mirrors libopus arm64 codegen (round c*d first).
@@ -280,31 +271,7 @@ func computeBitrevTableRecursive(fout int, bitrev []int, fIdx int, fstride int, 
 	}
 }
 
-func cAdd(a, b kissCpx) kissCpx {
-	return kissCpx{r: a.r + b.r, i: a.i + b.i}
-}
-
-func cSub(a, b kissCpx) kissCpx {
-	return kissCpx{r: a.r - b.r, i: a.i - b.i}
-}
-
-func cMul(a, b kissCpx) kissCpx {
-	return kissCpx{r: a.r*b.r - a.i*b.i, i: a.r*b.i + a.i*b.r}
-}
-
-func cMulByScalar(a kissCpx, s float32) kissCpx {
-	return kissCpx{r: a.r * s, i: a.i * s}
-}
-
 func kfBfly2M1Available() bool { return true }
-
-func kfBfly4M1Available() bool { return true }
-
-func kfBfly4MxAvailable() bool { return false }
-
-func kfBfly3M1Available() bool { return true }
-
-func kfBfly5M1Available() bool { return true }
 
 // kfBfly2M1 handles the radix-2 m==1 hot path with index arithmetic (no reslicing).
 func kfBfly2M1(fout []kissCpx, n int) {

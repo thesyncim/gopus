@@ -644,30 +644,6 @@ func float32ToFloat64OpusDemoF32(in []float32) []float64 {
 	return out
 }
 
-func qualityFromPacketsInternal(packets [][]byte, original []float32, channels, frameSize int) (float64, error) {
-	decoded, err := decodeComplianceWithInternalDecoder(packets, channels)
-	if err != nil {
-		return 0, err
-	}
-	if len(decoded) == 0 {
-		return 0, fmt.Errorf("no decoded samples")
-	}
-	preSkip := OpusPreSkip * channels
-	if len(decoded) > preSkip {
-		decoded = decoded[preSkip:]
-	}
-	compareLen := len(original)
-	if len(decoded) < compareLen {
-		compareLen = len(decoded)
-	}
-	maxDelay := 4 * frameSize
-	if maxDelay < 960 {
-		maxDelay = 960
-	}
-	q, _ := ComputeQualityFloat32WithDelay(decoded[:compareLen], original[:compareLen], 48000, maxDelay)
-	return q, nil
-}
-
 func decodeVariantsWithLibopusReference(packets [][]byte, channels, frameSize int) ([]float32, error) {
 	decoded, helperErr := decodeWithLibopusReferencePacketsSingle(channels, frameSize, packets)
 	if helperErr == nil {

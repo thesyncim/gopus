@@ -73,10 +73,6 @@ func encoderLibopusGapFloorForArch(caseName, goarch string) (float64, bool) {
 	return floor, true
 }
 
-func encoderLibopusGapWithinFloor(caseName string, gapDB float64) (bool, float64) {
-	return encoderLibopusGapWithinFloorForArch(caseName, gapDB, runtime.GOARCH)
-}
-
 func encoderLibopusGapWithinFloorForArch(caseName string, gapDB float64, goarch string) (bool, float64) {
 	floor, ok := encoderLibopusGapFloorForArch(caseName, goarch)
 	if !ok {

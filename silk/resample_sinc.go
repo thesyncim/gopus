@@ -11,10 +11,6 @@ type sincResampler struct {
 	filterTaps int
 	phases     int
 	filter     []float32
-
-	// State buffer for filter history
-	history   []float32
-	historyMu int // history buffer position
 }
 
 // newSincResampler creates a sinc resampler for the given upsampling ratio.
@@ -27,7 +23,6 @@ func newSincResampler(upsampleRatio int) *sincResampler {
 		filterTaps: taps,
 		phases:     phases,
 		filter:     make([]float32, taps*phases),
-		history:    make([]float32, taps),
 	}
 
 	// Generate windowed sinc filter coefficients
@@ -98,14 +93,6 @@ func bessel0(x float64) float64 {
 		}
 	}
 	return sum
-}
-
-// Reset clears the resampler state.
-func (r *sincResampler) Reset() {
-	for i := range r.history {
-		r.history[i] = 0
-	}
-	r.historyMu = 0
 }
 
 // Process resamples the input samples to the output rate.

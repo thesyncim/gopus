@@ -216,11 +216,6 @@ func loadLongFrameFixtureCached() (longFrameFixtureFile, error) {
 	return longFrameFixtureData, longFrameFixtureErr
 }
 
-func longFrameFixtureReferenceAvailable() bool {
-	_, err := loadLongFrameFixtureCached()
-	return err == nil
-}
-
 func TestLongFrameReferenceFixtureHonestyWithLiveOpusDemo(t *testing.T) {
 	requireTestTier(t, testTierExhaustive)
 

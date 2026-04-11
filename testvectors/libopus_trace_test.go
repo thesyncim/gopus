@@ -1372,46 +1372,6 @@ func cloneNSQTrace(src *silk.NSQTrace) silk.NSQTrace {
 	return dst
 }
 
-func hashInt8Slice(vals []int8) uint64 {
-	var h uint64 = 1469598103934665603
-	const prime uint64 = 1099511628211
-	for _, v := range vals {
-		h ^= uint64(uint8(v))
-		h *= prime
-	}
-	return h
-}
-
-func hashInt16Slice(vals []int16) uint64 {
-	var h uint64 = 1469598103934665603
-	const prime uint64 = 1099511628211
-	for _, v := range vals {
-		h ^= uint64(uint16(v))
-		h *= prime
-	}
-	return h
-}
-
-func hashInt32Slice(vals []int32) uint64 {
-	var h uint64 = 1469598103934665603
-	const prime uint64 = 1099511628211
-	for _, v := range vals {
-		h ^= uint64(uint32(v))
-		h *= prime
-	}
-	return h
-}
-
-func hashFloat32SliceForTrace(vals []float32) uint64 {
-	var h uint64 = 1469598103934665603
-	const prime uint64 = 1099511628211
-	for _, v := range vals {
-		h ^= uint64(math.Float32bits(v))
-		h *= prime
-	}
-	return h
-}
-
 func firstFloat32BitsDiff(goVals, libVals []float32) (int, float32, float32, bool) {
 	n := len(goVals)
 	if len(libVals) < n {

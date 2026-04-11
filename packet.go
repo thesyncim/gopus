@@ -614,10 +614,6 @@ func parseSelfDelimitedPacketAndPadding(data []byte) (tocBase byte, frames [][]b
 	return toc & 0xFC, frames, padding, frameCount, consumed, nil
 }
 
-func buildSelfDelimitedPacketFromFrames(tocBase byte, frames [][]byte, data []byte) (int, error) {
-	return buildPacketWithOptions(tocBase, frames, data, 0, false, nil, true)
-}
-
 func buildSelfDelimitedPacketFromFramesAndOptions(tocBase byte, frames [][]byte, data []byte, targetLen int, withPadding bool, extensions []packetExtensionData) (int, error) {
 	return buildPacketWithOptions(tocBase, frames, data, targetLen, withPadding, extensions, true)
 }
