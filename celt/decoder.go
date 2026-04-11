@@ -2,6 +2,7 @@ package celt
 
 import (
 	"errors"
+	"fmt"
 	"math"
 
 	"github.com/thesyncim/gopus/plc"
@@ -102,6 +103,8 @@ type Decoder struct {
 	// Channel transition tracking (for mono-to-stereo overlap buffer clearing)
 	prevStreamChannels int // Previous packet's channel count (0 = uninitialized)
 	directOutPCM       []float32
+	pendingQEXTPayload []byte
+	qextOldBandE       []float64
 
 	// Scratch buffers to reduce per-frame allocations (decoder is not thread-safe).
 	scratchPrevEnergy     []float64
@@ -123,6 +126,9 @@ type Decoder struct {
 	scratchSynth          []float64
 	scratchSynthR         []float64
 	scratchStereo         []float64
+	scratchQEXTEnergies   []float64
+	scratchQEXTSpectrumL  []float64
+	scratchQEXTSpectrumR  []float64
 	scratchShortCoeffs    []float64
 	scratchMonoToStereoR  []float64 // For coeffsR in decodeMonoPacketToStereo (must not alias scratchSynthR used by SynthesizeStereo)
 	scratchMonoMix        []float64 // For coeffsMono in decodeStereoPacketToMono (must not alias scratchShortCoeffs used by Synthesize)
@@ -139,6 +145,10 @@ type Decoder struct {
 	scratchPLCFoldDst     []float64
 	scratchPLCHybridNormL []float64
 	scratchPLCHybridNormR []float64
+	scratchQEXTPulses     []int
+	scratchQEXTFineQuant  []int
+
+	qextRangeDecoderScratch rangecoding.Decoder
 }
 
 // NewDecoder creates a new CELT decoder with the given number of channels.
@@ -162,6 +172,7 @@ func NewDecoder(channels int) *Decoder {
 		prevLogE:         make([]float64, MaxBands*channels),
 		prevLogE2:        make([]float64, MaxBands*channels),
 		backgroundEnergy: make([]float64, MaxBands*channels),
+		qextOldBandE:     make([]float64, MaxBands*channels),
 
 		// Overlap buffer for CELT (full overlap per channel)
 		overlapBuffer: make([]float64, Overlap*channels),
@@ -230,6 +241,10 @@ func (d *Decoder) Reset() {
 
 	// Clear range decoder reference
 	d.rangeDecoder = nil
+	d.pendingQEXTPayload = nil
+	for i := range d.qextOldBandE {
+		d.qextOldBandE[i] = 0
+	}
 
 	// Reset bandwidth to fullband
 	d.bandwidth = CELTFullband
@@ -420,6 +435,55 @@ func (d *Decoder) FinalRange() uint32 {
 		return d.rangeDecoder.Range()
 	}
 	return 0
+}
+
+// SetQEXTPayload configures a one-shot packet-extension payload for the next
+// CELT decode call. It is used by the outer Opus decoder to forward optional
+// packet extensions without allocating.
+func (d *Decoder) SetQEXTPayload(payload []byte) {
+	d.pendingQEXTPayload = payload
+}
+
+func (d *Decoder) takeQEXTPayload() []byte {
+	payload := d.pendingQEXTPayload
+	d.pendingQEXTPayload = nil
+	return payload
+}
+
+func (d *Decoder) prepareMainBandQEXTDecode(payload []byte, mainRD *rangecoding.Decoder, end, lm int) (*rangecoding.Decoder, []int, []int, int) {
+	if len(payload) == 0 || mainRD == nil || end <= 0 {
+		return nil, nil, nil, 0
+	}
+	extDec := &d.qextRangeDecoderScratch
+	extDec.Init(payload)
+	_ = decodeQEXTHeader(extDec, d.channels, len(payload))
+
+	extraPulses := ensureIntSlice(&d.scratchQEXTPulses, end)
+	extraQuant := ensureIntSlice(&d.scratchQEXTFineQuant, end)
+	totalBitsQ3 := (len(payload) * 8 << bitRes) - mainRD.TellFrac() - 1
+	computeQEXTExtraAllocationDecode(0, end, totalBitsQ3, d.channels, lm, extDec, extraPulses, extraQuant)
+	return extDec, extraPulses, extraQuant, len(payload) * 8 << bitRes
+}
+
+func (d *Decoder) decodeFineEnergyWithDecoderPrev(rd *rangecoding.Decoder, energies []float64, nbBands int, prevQuant, extraQuant []int) {
+	if rd == nil {
+		return
+	}
+	oldRD := d.rangeDecoder
+	d.rangeDecoder = rd
+	d.decodeFineEnergy(energies, nbBands, prevQuant, extraQuant)
+	d.rangeDecoder = oldRD
+}
+
+func combineFinalRange(mainRD, extRD *rangecoding.Decoder) uint32 {
+	if mainRD == nil {
+		return 0
+	}
+	rng := mainRD.Range()
+	if extRD != nil {
+		rng ^= extRD.Range()
+	}
+	return rng
 }
 
 // Channels returns the number of audio channels (1 or 2).
@@ -720,6 +784,11 @@ func (d *Decoder) ensureEnergyState(channels int) {
 		}
 		d.backgroundEnergy = prev
 	}
+	if len(d.qextOldBandE) < needed {
+		prev := make([]float64, needed)
+		copy(prev, d.qextOldBandE)
+		d.qextOldBandE = prev
+	}
 }
 
 func (d *Decoder) allocationScratch() []int {
@@ -956,6 +1025,7 @@ func (d *Decoder) SetEnergy(band, channel int, energy float64) {
 func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	// Track channel count for transition detection (normal decode uses decoder's channels)
 	d.handleChannelTransition(d.channels)
+	qextPayload := d.takeQEXTPayload()
 
 	// Handle PLC for nil/empty data (lost packet)
 	if data == nil || len(data) == 0 {
@@ -1152,10 +1222,36 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	}
 
 	d.DecodeFineEnergy(energies, end, fineQuant)
+	qext := d.prepareQEXTDecode(qextPayload, rd, end, lm, frameSize)
+	if qext != nil {
+		d.decodeFineEnergyWithDecoderPrev(qext.dec, energies, end, fineQuant, qext.extraQuant[:end])
+		if tmpQEXTHeaderDumpEnabled {
+			fmt.Printf("QEXT_MAIN_FINE_DEC channels=%d tell=%d\n", d.channels, qext.dec.TellFrac())
+		}
+	}
 	traceRange("fine", rd)
 
 	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.channels == 1, &d.rng, &d.scratchBands, &d.bandDebug)
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.channels == 1, &d.rng, &d.scratchBands, &d.bandDebug,
+		func() *rangecoding.Decoder {
+			if qext == nil {
+				return nil
+			}
+			return qext.dec
+		}(), func() []int {
+			if qext == nil {
+				return nil
+			}
+			return qext.extraPulses[:end]
+		}(), func() int {
+			if qext == nil {
+				return 0
+			}
+			return qext.totalBitsQ3
+		}())
+	if qext != nil {
+		d.decodeQEXTBands(frameSize, lm, shortBlocks, spread, d.channels == 1, qext)
+	}
 	traceRange("pvq", rd)
 
 	antiCollapseOn := false
@@ -1166,7 +1262,11 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	traceRange("anticollapse", rd)
 
 	bitsLeft := totalBits - rd.Tell()
-	d.DecodeEnergyFinalise(energies, end, fineQuant, finePriority, bitsLeft)
+	if len(qextPayload) != 0 {
+		d.DecodeEnergyFinaliseRange(start, end, nil, fineQuant, finePriority, bitsLeft)
+	} else {
+		d.DecodeEnergyFinalise(energies, end, fineQuant, finePriority, bitsLeft)
+	}
 	traceRange("finalise", rd)
 
 	if antiCollapseOn {
@@ -1187,20 +1287,48 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	if d.channels == 2 {
 		energiesL := energies[:end]
 		energiesR := energies[end:]
-		denormalizeCoeffs(coeffsL, energiesL, end, frameSize)
-		denormalizeCoeffs(coeffsR, energiesR, end, frameSize)
+		if qext != nil && qext.end > 0 {
+			specL := ensureFloat64Slice(&d.scratchQEXTSpectrumL, len(coeffsL))
+			specR := ensureFloat64Slice(&d.scratchQEXTSpectrumR, len(coeffsR))
+			denormalizeBandsPackedInto(specL, coeffsL, energiesL, 0, end, lm, EBands[:])
+			denormalizeBandsPackedInto(specR, coeffsR, energiesR, 0, end, lm, EBands[:])
+			if qext.coeffsL != nil {
+				denormalizeBandsPackedInto(specL, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands)
+			}
+			if qext.coeffsR != nil {
+				denormalizeBandsPackedInto(specR, qext.coeffsR, qext.energies[qext.end:], 0, qext.end, lm, qext.cfg.EBands)
+			}
+			coeffsL = specL
+			coeffsR = specR
+		} else {
+			denormalizeCoeffs(coeffsL, energiesL, end, frameSize)
+			denormalizeCoeffs(coeffsR, energiesR, end, frameSize)
+		}
 		if directStereoFloat32 {
 			samplesL, samplesR := d.synthesizeStereoPlanar(coeffsL, coeffsR, transient, shortBlocks)
-			d.applyPostfilterStereoPlanar(samplesL, samplesR, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
+			if !tmpDisablePostfilterEnabled {
+				d.applyPostfilterStereoPlanar(samplesL, samplesR, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
+			}
 			d.applyDeemphasisAndScaleStereoPlanarToFloat32(d.directOutPCM[:frameSize*2], samplesL, samplesR, 1.0/32768.0)
 		} else {
 			samples = d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
 		}
 	} else {
-		denormalizeCoeffs(coeffsL, energies, end, frameSize)
+		if qext != nil && qext.end > 0 {
+			specL := ensureFloat64Slice(&d.scratchQEXTSpectrumL, len(coeffsL))
+			denormalizeBandsPackedInto(specL, coeffsL, energies, 0, end, lm, EBands[:])
+			if qext.coeffsL != nil {
+				denormalizeBandsPackedInto(specL, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands)
+			}
+			coeffsL = specL
+		} else {
+			denormalizeCoeffs(coeffsL, energies, end, frameSize)
+		}
 		if directMonoFloat32 {
 			samplesF32 := d.synthesizeMonoLongToFloat32(coeffsL)
-			d.applyPostfilterNoGainMonoFromFloat32(samplesF32, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
+			if !tmpDisablePostfilterEnabled {
+				d.applyPostfilterNoGainMonoFromFloat32(samplesF32, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
+			}
 			d.applyDeemphasisAndScaleMonoFloat32ToFloat32(d.directOutPCM[:frameSize], samplesF32, 1.0/32768.0)
 		} else {
 			samples = d.Synthesize(coeffsL, transient, shortBlocks)
@@ -1215,7 +1343,9 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 		}
 		traceSynthesis("synth_pre", samples[:traceLen])
 
-		d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
+		if !tmpDisablePostfilterEnabled {
+			d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
+		}
 
 		// Step 7: Apply de-emphasis filter
 		if len(d.directOutPCM) >= len(samples) {
@@ -1250,7 +1380,14 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 			d.prevLogE2[base+band] = -28.0
 		}
 	}
-	d.rng = rd.Range()
+	if qext != nil && qext.dec.Tell() > qext.dec.StorageBits() {
+		return nil, ErrInvalidFrame
+	}
+	var extDec *rangecoding.Decoder
+	if qext != nil {
+		extDec = qext.dec
+	}
+	d.rng = combineFinalRange(rd, extDec)
 
 	// Reset PLC state after successful decode
 	d.resetPLCCadence(frameSize, d.channels)
@@ -2034,6 +2171,7 @@ func (d *Decoder) DecodeFrameWithPacketStereoToFloat32(data []byte, frameSize in
 // The mono signal is duplicated to both L and R channels.
 // State is maintained in stereo format (L and R get same values).
 func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float64, error) {
+	qextPayload := d.takeQEXTPayload()
 	if data == nil || len(data) == 0 {
 		return d.decodePLC(frameSize)
 	}
@@ -2227,11 +2365,34 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 
 	// Decode fine energy for mono
 	d.DecodeFineEnergy(monoEnergies, end, fineQuant)
+	qext := d.prepareQEXTDecode(qextPayload, rd, end, lm, frameSize)
+	if qext != nil {
+		d.decodeFineEnergyWithDecoderPrev(qext.dec, monoEnergies, end, fineQuant, qext.extraQuant[:end])
+	}
 	traceRange("fine", rd)
 
 	// Decode bands for mono
 	coeffsMono, _, collapse := quantAllBandsDecodeWithScratch(rd, 1, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, false, &d.rng, &d.scratchBands, &d.bandDebug)
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, false, &d.rng, &d.scratchBands, &d.bandDebug,
+		func() *rangecoding.Decoder {
+			if qext == nil {
+				return nil
+			}
+			return qext.dec
+		}(), func() []int {
+			if qext == nil {
+				return nil
+			}
+			return qext.extraPulses[:end]
+		}(), func() int {
+			if qext == nil {
+				return 0
+			}
+			return qext.totalBitsQ3
+		}())
+	if qext != nil {
+		d.decodeQEXTBands(frameSize, lm, shortBlocks, spread, false, qext)
+	}
 	traceRange("pvq", rd)
 
 	antiCollapseOn := false
@@ -2242,15 +2403,28 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	traceRange("anticollapse", rd)
 
 	bitsLeft := totalBits - rd.Tell()
-	d.DecodeEnergyFinalise(monoEnergies, end, fineQuant, finePriority, bitsLeft)
+	if len(qextPayload) != 0 {
+		d.DecodeEnergyFinaliseRange(start, end, nil, fineQuant, finePriority, bitsLeft)
+	} else {
+		d.DecodeEnergyFinalise(monoEnergies, end, fineQuant, finePriority, bitsLeft)
+	}
 	traceRange("finalise", rd)
 
 	if antiCollapseOn {
 		antiCollapse(coeffsMono, nil, collapse, lm, 1, start, end, monoEnergies, prev1LogE, prev2LogE, pulses, d.rng)
 	}
 
-	// Denormalize mono coefficients
-	denormalizeCoeffs(coeffsMono, monoEnergies, end, frameSize)
+	// Denormalize mono coefficients.
+	if qext != nil && qext.end > 0 {
+		specMono := ensureFloat64Slice(&d.scratchQEXTSpectrumL, len(coeffsMono))
+		denormalizeBandsPackedInto(specMono, coeffsMono, monoEnergies, 0, end, lm, EBands[:])
+		if qext.coeffsL != nil {
+			denormalizeBandsPackedInto(specMono, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands)
+		}
+		coeffsMono = specMono
+	} else {
+		denormalizeCoeffs(coeffsMono, monoEnergies, end, frameSize)
+	}
 
 	// Duplicate mono coefficients to stereo for synthesis.
 	// NOTE: coeffsR must NOT use scratchSynthR because SynthesizeStereo
@@ -2312,7 +2486,14 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 		}
 	}
 
-	d.rng = rd.Range()
+	if qext != nil && qext.dec.Tell() > qext.dec.StorageBits() {
+		return nil, ErrInvalidFrame
+	}
+	var extDec *rangecoding.Decoder
+	if qext != nil {
+		extDec = qext.dec
+	}
+	d.rng = combineFinalRange(rd, extDec)
 	d.resetPLCCadence(frameSize, origChannels)
 
 	return samples, nil
@@ -2322,6 +2503,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 // This is used when a mono decoder receives a stereo packet.
 // The stereo signal is mixed to mono: out = (L + R) / 2
 func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float64, error) {
+	qextPayload := d.takeQEXTPayload()
 	if data == nil || len(data) == 0 {
 		return d.decodePLC(frameSize)
 	}
@@ -2502,10 +2684,33 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	}
 
 	d.DecodeFineEnergy(energies, end, fineQuant)
+	qext := d.prepareQEXTDecode(qextPayload, rd, end, lm, frameSize)
+	if qext != nil {
+		d.decodeFineEnergyWithDecoderPrev(qext.dec, energies, end, fineQuant, qext.extraQuant[:end])
+	}
 	traceRange("fine", rd)
 
 	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, origChannels == 1, &d.rng, &d.scratchBands, &d.bandDebug)
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, origChannels == 1, &d.rng, &d.scratchBands, &d.bandDebug,
+		func() *rangecoding.Decoder {
+			if qext == nil {
+				return nil
+			}
+			return qext.dec
+		}(), func() []int {
+			if qext == nil {
+				return nil
+			}
+			return qext.extraPulses[:end]
+		}(), func() int {
+			if qext == nil {
+				return 0
+			}
+			return qext.totalBitsQ3
+		}())
+	if qext != nil {
+		d.decodeQEXTBands(frameSize, lm, shortBlocks, spread, origChannels == 1, qext)
+	}
 	traceRange("pvq", rd)
 
 	antiCollapseOn := false
@@ -2516,7 +2721,11 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	traceRange("anticollapse", rd)
 
 	bitsLeft := totalBits - rd.Tell()
-	d.DecodeEnergyFinalise(energies, end, fineQuant, finePriority, bitsLeft)
+	if len(qextPayload) != 0 {
+		d.DecodeEnergyFinaliseRange(start, end, nil, fineQuant, finePriority, bitsLeft)
+	} else {
+		d.DecodeEnergyFinalise(energies, end, fineQuant, finePriority, bitsLeft)
+	}
 	traceRange("finalise", rd)
 
 	if antiCollapseOn {
@@ -2526,8 +2735,23 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	// Denormalize and downmix coefficients to mono (libopus mixes before postfilter).
 	energiesL := energies[:end]
 	energiesR := energies[end:]
-	denormalizeCoeffs(coeffsL, energiesL, end, frameSize)
-	denormalizeCoeffs(coeffsR, energiesR, end, frameSize)
+	if qext != nil && qext.end > 0 {
+		specL := ensureFloat64Slice(&d.scratchQEXTSpectrumL, len(coeffsL))
+		specR := ensureFloat64Slice(&d.scratchQEXTSpectrumR, len(coeffsR))
+		denormalizeBandsPackedInto(specL, coeffsL, energiesL, 0, end, lm, EBands[:])
+		denormalizeBandsPackedInto(specR, coeffsR, energiesR, 0, end, lm, EBands[:])
+		if qext.coeffsL != nil {
+			denormalizeBandsPackedInto(specL, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands)
+		}
+		if qext.coeffsR != nil {
+			denormalizeBandsPackedInto(specR, qext.coeffsR, qext.energies[qext.end:], 0, qext.end, lm, qext.cfg.EBands)
+		}
+		coeffsL = specL
+		coeffsR = specR
+	} else {
+		denormalizeCoeffs(coeffsL, energiesL, end, frameSize)
+		denormalizeCoeffs(coeffsR, energiesR, end, frameSize)
+	}
 	// NOTE: coeffsMono must NOT use scratchShortCoeffs because Synthesize
 	// also uses scratchShortCoeffs internally, which would overwrite
 	// coeffsMono before synthesis completes.
@@ -2553,7 +2777,14 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 			d.prevLogE2[base+band] = -28.0
 		}
 	}
-	d.rng = rd.Range()
+	if qext != nil && qext.dec.Tell() > qext.dec.StorageBits() {
+		return nil, ErrInvalidFrame
+	}
+	var extDec *rangecoding.Decoder
+	if qext != nil {
+		extDec = qext.dec
+	}
+	d.rng = combineFinalRange(rd, extDec)
 
 	// Restore output channel count for synthesis/postfilter.
 	d.channels = origChannels
@@ -2768,7 +2999,7 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 	traceRange("fine", rd)
 
 	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.channels == 1, &d.rng, &d.scratchBands, &d.bandDebug)
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.channels == 1, &d.rng, &d.scratchBands, &d.bandDebug, nil, nil, 0)
 	traceRange("pvq", rd)
 
 	antiCollapseOn := false
@@ -3034,7 +3265,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	traceRange("fine", rd)
 
 	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.channels == 1, &d.rng, &d.scratchBands, &d.bandDebug)
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.channels == 1, &d.rng, &d.scratchBands, &d.bandDebug, nil, nil, 0)
 	traceRange("pvq", rd)
 
 	antiCollapseOn := false
@@ -3311,7 +3542,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	traceRange("fine", rd)
 
 	coeffsMono, _, collapse := quantAllBandsDecodeWithScratch(rd, 1, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, false, &d.rng, &d.scratchBands, &d.bandDebug)
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, false, &d.rng, &d.scratchBands, &d.bandDebug, nil, nil, 0)
 	traceRange("pvq", rd)
 
 	antiCollapseOn := false
@@ -3554,7 +3785,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	traceRange("fine", rd)
 
 	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, origChannels == 1, &d.rng, &d.scratchBands, &d.bandDebug)
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, origChannels == 1, &d.rng, &d.scratchBands, &d.bandDebug, nil, nil, 0)
 	traceRange("pvq", rd)
 
 	antiCollapseOn := false

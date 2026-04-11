@@ -881,6 +881,7 @@ func TestMultistreamEncoder_OptionalExtensionControls(t *testing.T) {
 	}
 
 	assertOptionalEncoderControls(t, enc)
+	assertSupportedQEXTControl(t, enc)
 }
 
 func TestMultistreamDecoder_OptionalExtensionControls(t *testing.T) {

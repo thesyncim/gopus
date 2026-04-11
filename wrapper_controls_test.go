@@ -13,6 +13,9 @@ type optionalEncoderControl interface {
 	SetDREDDuration(int) error
 	DREDDuration() (int, error)
 	SetDNNBlob([]byte) error
+}
+
+type qextEncoderControl interface {
 	SetQEXT(bool) error
 	QEXT() (bool, error)
 }
@@ -69,6 +72,28 @@ func assertOptionalEncoderControls(t *testing.T, enc optionalEncoderControl) {
 	if err := enc.SetDNNBlob(makeValidEncoderTestDNNBlob()); err != nil {
 		t.Fatalf("SetDNNBlob(encoder_blob) error=%v want=nil", err)
 	}
+}
+
+func assertSupportedQEXTControl(t *testing.T, enc qextEncoderControl) {
+	t.Helper()
+
+	if err := enc.SetQEXT(true); err != nil {
+		t.Fatalf("SetQEXT(true) error: %v", err)
+	}
+	if got, err := enc.QEXT(); err != nil || !got {
+		t.Fatalf("QEXT()=(%v,%v) want=(true,nil)", got, err)
+	}
+	if err := enc.SetQEXT(false); err != nil {
+		t.Fatalf("SetQEXT(false) error: %v", err)
+	}
+	if got, err := enc.QEXT(); err != nil || got {
+		t.Fatalf("QEXT()=(%v,%v) want=(false,nil)", got, err)
+	}
+}
+
+func assertUnsupportedQEXTControl(t *testing.T, enc qextEncoderControl) {
+	t.Helper()
+
 	if err := enc.SetQEXT(true); !errors.Is(err, ErrUnsupportedExtension) {
 		t.Fatalf("SetQEXT error=%v want=%v", err, ErrUnsupportedExtension)
 	}
@@ -111,7 +136,7 @@ func TestSupportsOptionalExtension(t *testing.T) {
 	}{
 		{name: "dred", ext: OptionalExtensionDRED, want: false},
 		{name: "dnn_blob", ext: OptionalExtensionDNNBlob, want: true},
-		{name: "qext", ext: OptionalExtensionQEXT, want: false},
+		{name: "qext", ext: OptionalExtensionQEXT, want: true},
 		{name: "osce_bwe", ext: OptionalExtensionOSCEBWE, want: false},
 		{name: "unknown", ext: OptionalExtension("future_ext"), want: false},
 	}
