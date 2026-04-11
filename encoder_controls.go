@@ -163,17 +163,14 @@ func (e *Encoder) SetDNNBlob(data []byte) error {
 }
 
 // SetQEXT toggles the libopus ENABLE_QEXT encoder extension.
-//
-// The default gopus build does not enable this extension; check
-// SupportsOptionalExtension(OptionalExtensionQEXT) and expect
-// ErrUnsupportedExtension when unavailable.
-func (e *Encoder) SetQEXT(_ bool) error {
-	return ErrUnsupportedExtension
+func (e *Encoder) SetQEXT(enabled bool) error {
+	e.enc.SetQEXT(enabled)
+	return nil
 }
 
 // QEXT reports whether the optional extended-precision theta path is enabled.
 func (e *Encoder) QEXT() (bool, error) {
-	return false, ErrUnsupportedExtension
+	return e.enc.QEXT(), nil
 }
 
 // SetExpertFrameDuration sets the preferred frame duration policy.

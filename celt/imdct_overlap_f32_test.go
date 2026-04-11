@@ -3,6 +3,7 @@ package celt
 import (
 	"fmt"
 	"math"
+	"runtime"
 	"testing"
 )
 
@@ -151,4 +152,97 @@ func TestIMDCTOverlapWithPrevScratchF32MatchesLegacyBufferCopy(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestIMDCTOverlapWithPrevScratchF32MatchesLibopusReference(t *testing.T) {
+	testCases := []struct {
+		frameSize int
+		overlap   int
+	}{
+		{frameSize: 120, overlap: 120},
+		{frameSize: 240, overlap: 120},
+		{frameSize: 480, overlap: 120},
+		{frameSize: 960, overlap: 120},
+	}
+
+	for _, tc := range testCases {
+		for seed := 1; seed <= 4; seed++ {
+			t.Run(fmt.Sprintf("frame=%d/seed=%d", tc.frameSize, seed), func(t *testing.T) {
+				spectrum := make([]float64, tc.frameSize)
+				spectrumF32 := make([]float32, tc.frameSize)
+				prevOverlap := make([]float64, tc.overlap)
+				prevOverlapF32 := make([]float32, tc.overlap)
+				for i := range spectrum {
+					sine := math.Sin(float64(i+seed*11) * 0.063)
+					cosine := math.Cos(float64((i+1)*(seed+5)) * 0.017)
+					step := float64((i*13+seed*29)%23-11) / 28.0
+					v := 0.6*sine + 0.25*cosine + step
+					spectrum[i] = v
+					spectrumF32[i] = float32(v)
+				}
+				for i := range prevOverlap {
+					sine := math.Sin(float64(i+seed*3) * 0.041)
+					step := float64((i*7+seed*19)%17-8) / 20.0
+					v := 0.7*sine + step
+					prevOverlap[i] = v
+					prevOverlapF32[i] = float32(v)
+				}
+
+				got := imdctOverlapWithPrevScratchF32Output(spectrum, prevOverlap, tc.overlap, &imdctScratchF32{})
+				want := LibopusIMDCTF32(spectrumF32, prevOverlapF32, tc.overlap)
+				if len(got) != len(want) {
+					t.Fatalf("len(got)=%d want %d", len(got), len(want))
+				}
+				maxDiff := 0.0
+				var errPow float64
+				var sigPow float64
+				for i := range want {
+					diff := math.Abs(float64(got[i] - want[i]))
+					if diff > maxDiff {
+						maxDiff = diff
+					}
+					d := float64(got[i] - want[i])
+					errPow += d * d
+					s := float64(want[i])
+					sigPow += s * s
+				}
+				snr := 200.0
+				if errPow > 1e-30 && sigPow > 1e-30 {
+					snr = 10 * math.Log10(sigPow/errPow)
+				}
+				t.Logf("max abs diff vs libopus-style f32 reference: %.3g, snr=%.2f dB", maxDiff, snr)
+				if maxDiff > imdctLibopusReferenceToleranceF32() {
+					t.Fatalf("max abs diff %.3g exceeds threshold %.3g (snr=%.2f dB)", maxDiff, imdctLibopusReferenceToleranceF32(), snr)
+				}
+				if snr < 70 {
+					t.Fatalf("snr %.2f dB below threshold 70 dB", snr)
+				}
+			})
+		}
+	}
+}
+
+func imdctLibopusReferenceToleranceF32() float64 {
+	if runtime.GOARCH == "arm64" || runtime.GOARCH == "amd64" {
+		// The optimized FFT/IMDCT path stays numerically close to the libopus-style
+		// float32 reference on the mainstream CI architectures, but it is not
+		// sample-bit-exact on every case.
+		return 1e-2
+	}
+	return 3e-6
+}
+
+func ulpDiffFloat32(a, b float32) uint32 {
+	ab := math.Float32bits(a)
+	bb := math.Float32bits(b)
+	if ab == bb {
+		return 0
+	}
+	if (ab>>31) != (bb>>31) {
+		return ^uint32(0)
+	}
+	if ab > bb {
+		return ab - bb
+	}
+	return bb - ab
 }

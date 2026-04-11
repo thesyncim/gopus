@@ -1,5 +1,7 @@
 package gopus
 
+import "github.com/thesyncim/gopus/internal/extsupport"
+
 import (
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/rangecoding"
@@ -96,7 +98,29 @@ func (d *Decoder) decodeOpusFrameInto(
 	packetBandwidth Bandwidth,
 	packetStereo bool,
 ) (int, error) {
-	return d.decodeOpusFrameIntoWithStatePolicy(
+	return d.decodeOpusFrameIntoWithQEXT(
+		out,
+		data,
+		frameSize,
+		packetFrameSize,
+		packetMode,
+		packetBandwidth,
+		packetStereo,
+		nil,
+	)
+}
+
+func (d *Decoder) decodeOpusFrameIntoWithQEXT(
+	out []float32,
+	data []byte,
+	frameSize int,
+	packetFrameSize int,
+	packetMode Mode,
+	packetBandwidth Bandwidth,
+	packetStereo bool,
+	qextPayload []byte,
+) (int, error) {
+	return d.decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		out,
 		data,
 		frameSize,
@@ -105,6 +129,7 @@ func (d *Decoder) decodeOpusFrameInto(
 		packetBandwidth,
 		packetStereo,
 		true,
+		qextPayload,
 	)
 }
 
@@ -121,6 +146,30 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicy(
 	packetBandwidth Bandwidth,
 	packetStereo bool,
 	useDecoderPLCState bool,
+) (int, error) {
+	return d.decodeOpusFrameIntoWithStatePolicyAndQEXT(
+		out,
+		data,
+		frameSize,
+		packetFrameSize,
+		packetMode,
+		packetBandwidth,
+		packetStereo,
+		useDecoderPLCState,
+		nil,
+	)
+}
+
+func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
+	out []float32,
+	data []byte,
+	frameSize int,
+	packetFrameSize int,
+	packetMode Mode,
+	packetBandwidth Bandwidth,
+	packetStereo bool,
+	useDecoderPLCState bool,
+	qextPayload []byte,
 ) (int, error) {
 	fs := 48000
 	F20 := fs / 50
@@ -513,6 +562,9 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicy(
 			if data != nil {
 				d.celtDecoder.SetBandwidth(celtBW)
 			}
+		}
+		if extsupport.QEXT || len(qextPayload) != 0 {
+			d.celtDecoder.SetQEXTPayload(qextPayload)
 		}
 		err := d.celtDecoder.DecodeFrameWithPacketStereoToFloat32(data, min(F20, frameSize), packetStereoLocal, out)
 		if err != nil {

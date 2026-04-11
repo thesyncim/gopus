@@ -1556,6 +1556,92 @@ func (e *Encoder) EncodeFineEnergyWithEncoder(re *rangecoding.Encoder, energies 
 	e.EncodeFineEnergy(energies, quantizedCoarse, nbBands, fineBits)
 }
 
+func (e *Encoder) encodeFineEnergyFromErrorWithEncoder(re *rangecoding.Encoder, quantizedEnergies []float64, nbBands int, fineBits []int, errorVals []float64) {
+	oldRE := e.rangeEncoder
+	e.rangeEncoder = re
+	defer func() { e.rangeEncoder = oldRE }()
+
+	e.encodeFineEnergyFromError(quantizedEnergies, nbBands, fineBits, errorVals)
+}
+
+// encodeFineEnergyFromErrorWithPrev mirrors libopus quant_fine_energy() when
+// prevQuant is non-nil and extraQuant carries the incremental QEXT refinement.
+func (e *Encoder) encodeFineEnergyFromErrorWithPrev(quantizedEnergies []float64, nbBands int, prevQuant, extraQuant []int, errorVals []float64) {
+	if e.rangeEncoder == nil {
+		return
+	}
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+	if nbBands > len(extraQuant) {
+		nbBands = len(extraQuant)
+	}
+
+	channels := e.channels
+	if len(quantizedEnergies) < nbBands*channels || len(errorVals) < nbBands*channels {
+		channels = 1
+	}
+
+	re := e.rangeEncoder
+
+	for band := 0; band < nbBands; band++ {
+		extraBits := extraQuant[band]
+		if extraBits <= 0 {
+			continue
+		}
+		if re.Tell()+channels*extraBits > re.StorageBits() {
+			continue
+		}
+
+		prevBits := 0
+		if prevQuant != nil && band < len(prevQuant) {
+			prevBits = prevQuant[band]
+		}
+		extra := 1 << extraBits
+		scale32 := float32(extra)
+		prevScale32 := float32(uint(1) << prevBits)
+
+		for c := 0; c < channels; c++ {
+			idx := c*nbBands + band
+			if idx >= len(quantizedEnergies) || idx >= len(errorVals) {
+				continue
+			}
+
+			err := float32(errorVals[idx])
+			qExpr := float64((err*prevScale32 + 0.5) * scale32)
+			q2 := int(math.Floor(qExpr))
+			if q2 < 0 {
+				q2 = 0
+			}
+			if q2 > extra-1 {
+				q2 = extra - 1
+			}
+
+			re.EncodeRawBits(uint32(q2), uint(extraBits))
+
+			offset := ((float32(q2)+0.5)/scale32 - 0.5) / prevScale32
+			quantizedEnergies[idx] = float64(float32(quantizedEnergies[idx]) + offset)
+			errorVals[idx] = float64(err - offset)
+		}
+	}
+}
+
+func (e *Encoder) encodeFineEnergyFromErrorWithPrevWithEncoder(re *rangecoding.Encoder, quantizedEnergies []float64, nbBands int, prevQuant, extraQuant []int, errorVals []float64) {
+	oldRE := e.rangeEncoder
+	e.rangeEncoder = re
+	defer func() { e.rangeEncoder = oldRE }()
+
+	e.encodeFineEnergyFromErrorWithPrev(quantizedEnergies, nbBands, prevQuant, extraQuant, errorVals)
+}
+
+func (e *Encoder) encodeFineEnergyRangeFromErrorWithEncoder(re *rangecoding.Encoder, quantizedEnergies []float64, start, end int, fineBits []int) {
+	oldRE := e.rangeEncoder
+	e.rangeEncoder = re
+	defer func() { e.rangeEncoder = oldRE }()
+
+	e.EncodeFineEnergyRangeFromError(quantizedEnergies, start, end, fineBits)
+}
+
 // EncodeEnergyRemainderWithEncoder encodes remainder bits using an explicit range encoder.
 func (e *Encoder) EncodeEnergyRemainderWithEncoder(re *rangecoding.Encoder, energies []float64, quantizedEnergies []float64, nbBands int, remainderBits []int) {
 	oldRE := e.rangeEncoder

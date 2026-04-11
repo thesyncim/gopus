@@ -49,6 +49,8 @@ var (
 	ErrEncodingFailed = errors.New("encoder: encoding failed")
 )
 
+const maxPacketSizeWithQEXT = 3826
+
 // Encoder is the unified Opus encoder that orchestrates SILK and CELT sub-encoders.
 type Encoder struct {
 	// Sub-encoders (created lazily)
@@ -126,6 +128,9 @@ type Encoder struct {
 
 	// celtEnergyMask carries per-band surround masking into CELT dynalloc control.
 	celtEnergyMask []float64
+
+	// qextEnabled mirrors libopus OPUS_SET_QEXT and is applied lazily to CELT.
+	qextEnabled bool
 
 	// DC rejection filter state
 	hpMem [4]float32
@@ -242,7 +247,7 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		scratchLeft:            make([]float32, maxSamples),
 		scratchRight:           make([]float32, maxSamples),
 		scratchMono:            make([]float32, maxSamples),
-		scratchPacket:          make([]byte, 1276),
+		scratchPacket:          make([]byte, maxPacketSizeWithQEXT),
 		prevMode:               ModeAuto,
 		prevAutoMode:           ModeAuto,
 		voiceRatio:             -1,
@@ -301,6 +306,19 @@ func (e *Encoder) Bandwidth() types.Bandwidth {
 	return e.bandwidth
 }
 
+// SetQEXT toggles the internal libopus-style CELT QEXT encoder path.
+func (e *Encoder) SetQEXT(enabled bool) {
+	e.qextEnabled = enabled
+	if e.celtEncoder != nil {
+		e.celtEncoder.SetQEXTEnabled(e.qextEnabled)
+	}
+}
+
+// QEXT reports whether the internal CELT QEXT path is enabled.
+func (e *Encoder) QEXT() bool {
+	return e.qextEnabled
+}
+
 // SetFrameSize sets the frame size in samples at 48kHz.
 func (e *Encoder) SetFrameSize(frameSize int) {
 	e.frameSize = frameSize
@@ -343,6 +361,7 @@ func (e *Encoder) Reset() {
 	if e.celtEncoder != nil {
 		e.celtEncoder.Reset()
 		e.celtEncoder.SetPrediction(e.celtPredictionMode())
+		e.celtEncoder.SetQEXTEnabled(e.qextEnabled)
 	}
 	if len(e.celtEnergyMask) > 0 {
 		clear(e.celtEnergyMask)
@@ -701,13 +720,36 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	}
 	remaining := copy(e.inputBuffer, e.inputBuffer[frameEnd:])
 	e.inputBuffer = e.inputBuffer[:remaining]
+	qextPayload := []byte(nil)
+	if actualMode == ModeCELT && e.celtEncoder != nil {
+		qextPayload = e.celtEncoder.LastQEXTPayload()
+	}
 	if packet == nil {
 		stereo := e.channels == 2
 		packetBW := e.effectiveBandwidth()
 		if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
 			packetBW = types.BandwidthWideband
 		}
-		packetLen, pktErr := BuildPacketInto(e.scratchPacket, frameData, modeToTypes(actualMode), packetBW, frameSize, stereo)
+		var (
+			packetLen int
+			pktErr    error
+		)
+		if len(qextPayload) > 0 {
+			packetLen, pktErr = buildPacketWithSingleExtensionInto(
+				e.scratchPacket,
+				frameData,
+				modeToTypes(actualMode),
+				packetBW,
+				frameSize,
+				stereo,
+				qextExtensionID,
+				qextPayload,
+				0,
+				false,
+			)
+		} else {
+			packetLen, pktErr = BuildPacketInto(e.scratchPacket, frameData, modeToTypes(actualMode), packetBW, frameSize, stereo)
+		}
 		if pktErr != nil {
 			return nil, pktErr
 		}
@@ -721,9 +763,35 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	}
 	switch e.bitrateMode {
 	case ModeCBR:
-		packet = padToSize(packet, targetBytesForBitrate(e.bitrate, frameSize))
+		targetSize := targetBytesForBitrate(e.bitrate, frameSize)
+		if len(qextPayload) > 0 && len(packet) < targetSize {
+			stereo := e.channels == 2
+			packetBW := e.effectiveBandwidth()
+			if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
+				packetBW = types.BandwidthWideband
+			}
+			packetLen, pktErr := buildPacketWithSingleExtensionInto(
+				e.scratchPacket,
+				frameData,
+				modeToTypes(actualMode),
+				packetBW,
+				frameSize,
+				stereo,
+				qextExtensionID,
+				qextPayload,
+				targetSize,
+				true,
+			)
+			if pktErr == nil {
+				packet = e.scratchPacket[:packetLen]
+			}
+		} else {
+			packet = padToSize(packet, targetSize)
+		}
 	case ModeCVBR:
-		packet = constrainSize(packet, targetBytesForBitrate(e.bitrate, frameSize), CVBRTolerance)
+		if len(qextPayload) == 0 {
+			packet = constrainSize(packet, targetBytesForBitrate(e.bitrate, frameSize), CVBRTolerance)
+		}
 	}
 	return packet, nil
 }
@@ -1903,6 +1971,7 @@ func (e *Encoder) encodeCELTFrame(pcm []float64, frameSize int) ([]byte, error) 
 
 func (e *Encoder) encodeCELTFrameWithBitrateAndMaxPayload(pcm []float64, frameSize int, bitrate int, maxPayloadBytes int) ([]byte, error) {
 	e.ensureCELTEncoder()
+	e.celtEncoder.SetQEXTEnabled(e.qextEnabled)
 	e.syncCELTAnalysisToCELT()
 	e.celtEncoder.SetBitrate(bitrate)
 	e.celtEncoder.SetMaxPayloadBytes(maxPayloadBytes)
@@ -2494,6 +2563,7 @@ func (e *Encoder) ensureCELTEncoder() {
 		// Opus encoder already applies CELT delay compensation at the top level.
 		e.celtEncoder.SetDelayCompensationEnabled(false)
 	}
+	e.celtEncoder.SetQEXTEnabled(e.qextEnabled)
 	e.celtEncoder.SetPrediction(e.celtPredictionMode())
 	e.celtEncoder.SetLFE(e.lfe)
 	e.celtEncoder.SetSurroundTrim(e.celtSurroundTrim)

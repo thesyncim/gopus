@@ -30,6 +30,9 @@ func (d *MultistreamDecoder) CoupledStreams() int {
 // SetIgnoreExtensions toggles whether unknown packet extensions should be ignored.
 func (d *MultistreamDecoder) SetIgnoreExtensions(ignore bool) {
 	d.ignoreExtensions = ignore
+	if d.dec != nil {
+		d.dec.SetIgnoreExtensions(ignore)
+	}
 }
 
 // IgnoreExtensions reports whether unknown packet extensions are ignored.

@@ -1,5 +1,7 @@
 package gopus
 
+import "github.com/thesyncim/gopus/internal/extsupport"
+
 // Decode decodes an Opus packet into float32 PCM samples.
 //
 // data: Opus packet data, or nil for Packet Loss Concealment (PLC).
@@ -78,8 +80,13 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 	}
 
 	offsetSamples := 0
-	decodeFrame := func(frameData []byte) error {
-		n, err := d.decodeOpusFrameInto(pcm[offsetSamples*d.channels:], frameData, frameSize, frameSize, toc.Mode, toc.Bandwidth, toc.Stereo)
+	var qextPayloads [maxRepacketizerFrames][]byte
+	decodeFrame := func(frameIndex int, frameData []byte) error {
+		var qextPayload []byte
+		if extsupport.QEXT && toc.Mode == ModeCELT && !d.ignoreExtensions && frameIndex >= 0 && frameIndex < len(qextPayloads) {
+			qextPayload = qextPayloads[frameIndex]
+		}
+		n, err := d.decodeOpusFrameIntoWithQEXT(pcm[offsetSamples*d.channels:], frameData, frameSize, frameSize, toc.Mode, toc.Bandwidth, toc.Stereo, qextPayload)
 		if err != nil {
 			return err
 		}
@@ -90,7 +97,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 
 	switch toc.FrameCode {
 	case 0:
-		if err := decodeFrame(data[1:]); err != nil {
+		if err := decodeFrame(0, data[1:]); err != nil {
 			return 0, err
 		}
 	case 1:
@@ -104,7 +111,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 			if offset+frameLen > len(data) {
 				return 0, ErrInvalidPacket
 			}
-			if err := decodeFrame(data[offset : offset+frameLen]); err != nil {
+			if err := decodeFrame(i, data[offset:offset+frameLen]); err != nil {
 				return 0, err
 			}
 			offset += frameLen
@@ -125,14 +132,14 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		if headerLen+frame1Len > len(data) {
 			return 0, ErrInvalidPacket
 		}
-		if err := decodeFrame(data[headerLen : headerLen+frame1Len]); err != nil {
+		if err := decodeFrame(0, data[headerLen:headerLen+frame1Len]); err != nil {
 			return 0, err
 		}
 		offset := headerLen + frame1Len
 		if offset+frame2Len > len(data) {
 			return 0, ErrInvalidPacket
 		}
-		if err := decodeFrame(data[offset : offset+frame2Len]); err != nil {
+		if err := decodeFrame(1, data[offset:offset+frame2Len]); err != nil {
 			return 0, err
 		}
 	case 3:
@@ -166,6 +173,16 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 					break
 				}
 			}
+			if extsupport.QEXT && !d.ignoreExtensions && toc.Mode == ModeCELT {
+				if padding > len(data) {
+					return 0, ErrInvalidPacket
+				}
+				if err := collectPacketExtensionPayloadsByFrame(data[len(data)-padding:], m, qextPacketExtensionID, &qextPayloads); err != nil {
+					for i := range qextPayloads {
+						qextPayloads[i] = nil
+					}
+				}
+			}
 		}
 
 		if vbr {
@@ -184,7 +201,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 				if frameDataOffset+frameLen > len(data)-padding {
 					return 0, ErrInvalidPacket
 				}
-				if err := decodeFrame(data[frameDataOffset : frameDataOffset+frameLen]); err != nil {
+				if err := decodeFrame(i, data[frameDataOffset:frameDataOffset+frameLen]); err != nil {
 					return 0, err
 				}
 				frameDataOffset += frameLen
@@ -196,7 +213,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 			if frameDataOffset+lastFrameLen > len(data)-padding {
 				return 0, ErrInvalidPacket
 			}
-			if err := decodeFrame(data[frameDataOffset : frameDataOffset+lastFrameLen]); err != nil {
+			if err := decodeFrame(m-1, data[frameDataOffset:frameDataOffset+lastFrameLen]); err != nil {
 				return 0, err
 			}
 		} else {
@@ -212,7 +229,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 				if offset+frameLen > len(data)-padding {
 					return 0, ErrInvalidPacket
 				}
-				if err := decodeFrame(data[offset : offset+frameLen]); err != nil {
+				if err := decodeFrame(i, data[offset:offset+frameLen]); err != nil {
 					return 0, err
 				}
 				offset += frameLen
@@ -237,7 +254,6 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 	}
 
 	d.applyOutputGain(pcm[:totalSamples*d.channels])
-
 	return totalSamples, nil
 }
 
