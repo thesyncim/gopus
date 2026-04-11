@@ -16,10 +16,8 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 	// Keep transition/state behavior aligned with DecodeFrame().
 	d.handleChannelTransition(d.channels)
 	d.prepareMonoEnergyFromStereo()
-
 	d.SetRangeDecoder(rd)
 
-	// Get mode configuration
 	mode := GetModeConfig(frameSize)
 	lm := mode.LM
 	end := EffectiveBandsForFrameSize(d.bandwidth, frameSize)
@@ -46,226 +44,44 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 		silence = rd.DecodeBit(15) == 1
 	}
 	if silence {
-		samples := d.decodeSilenceFrame(frameSize, 0, 0, 0)
-		silenceE := ensureFloat64Slice(&d.scratchSilenceE, MaxBands*d.channels)
-		for i := range silenceE {
-			silenceE[i] = -28.0
-		}
-		d.updateLogE(silenceE, MaxBands, false)
-		d.SetPrevEnergyWithPrev(prev1Energy, silenceE)
-		d.updateBackgroundEnergy(lm)
-		traceHeader(frameSize, d.channels, lm, 0, 0)
-		traceEnergy(0, 0, 0, 0)
-		traceLen := len(samples)
-		if traceLen > 16 {
-			traceLen = 16
-		}
-		if traceLen > 0 {
-			traceSynthesis("final", samples[:traceLen])
-		}
-		d.resetPLCCadence(frameSize, d.channels)
-		d.rng = rd.Range()
-		return samples, nil
+		return d.handleDecodedSilenceFrame(frameSize, lm, prev1Energy, rd), nil
 	}
 
-	postfilterGain := 0.0
-	postfilterPeriod := 0
-	postfilterTapset := 0
-	if start == 0 && tell+16 <= totalBits {
-		if rd.DecodeBit(1) == 1 {
-			octave := int(rd.DecodeUniform(6))
-			postfilterPeriod = (16 << octave) + int(rd.DecodeRawBits(uint(4+octave))) - 1
-			qg := int(rd.DecodeRawBits(3))
-			if rd.Tell()+2 <= totalBits {
-				postfilterTapset = rd.DecodeICDF(tapsetICDF, 2)
-			}
-			postfilterGain = 0.09375 * float64(qg+1)
-		}
-		tell = rd.Tell()
-	}
-	traceRange("postfilter", rd)
-
-	transient := false
-	if lm > 0 && tell+3 <= totalBits {
-		transient = rd.DecodeBit(3) == 1
-		tell = rd.Tell()
-	}
-	intra := false
-	if tell+3 <= totalBits {
-		intra = rd.DecodeBit(3) == 1
-	}
-	traceRange("intra", rd)
-
-	// Trace frame header
-	traceHeader(frameSize, d.channels, lm, boolToInt(intra), boolToInt(transient))
-	d.applyLossEnergySafety(intra, start, end, lm)
-
-	shortBlocks := 1
-	if transient {
-		shortBlocks = mode.ShortBlocks
-	}
+	header := d.decodeFrameHeader(rd, totalBits, frameSize, start, end, lm, mode.ShortBlocks)
+	postfilterGain := header.postfilterGain
+	postfilterPeriod := header.postfilterPeriod
+	postfilterTapset := header.postfilterTapset
+	transient := header.transient
+	intra := header.intra
+	shortBlocks := header.shortBlocks
 
 	// Step 1: Decode coarse energy
 	energies := d.decodeCoarseEnergyInto(ensureFloat64Slice(&d.scratchEnergies, end*d.channels), end, intra, lm)
 	traceRange("coarse", rd)
 
-	tfRes := ensureIntSlice(&d.scratchTFRes, end)
-	tfDecode(start, end, transient, tfRes, lm, rd)
-	traceRange("tf", rd)
+	allocation := d.decodeBandAllocation(rd, totalBits, start, end, lm, transient)
+	tfRes := allocation.tfRes
+	spread := allocation.spread
+	antiCollapseRsv := allocation.antiCollapseRsv
+	pulses := allocation.pulses
+	fineQuant := allocation.fineQuant
+	finePriority := allocation.finePriority
+	intensity := allocation.intensity
+	dualStereo := allocation.dualStereo
+	balance := allocation.balance
+	codedBands := allocation.codedBands
 
-	spread := spreadNormal
-	tell = rd.Tell()
-	if tell+4 <= totalBits {
-		spread = rd.DecodeICDF(spreadICDF, 5)
-	}
-	traceFlag("spread", spread)
-	traceRange("spread", rd)
-
-	cap := ensureIntSlice(&d.scratchCaps, end)
-	initCapsInto(cap, end, lm, d.channels)
-	offsets := ensureIntSlice(&d.scratchOffsets, end)
-	dynallocLogp := 6
-	totalBitsQ3 := totalBits << bitRes
-	tellFrac := rd.TellFrac()
-	for i := start; i < end; i++ {
-		width := d.channels * (EBands[i+1] - EBands[i]) << lm
-		quanta := min(width<<bitRes, max(6<<bitRes, width))
-		dynallocLoopLogp := dynallocLogp
-		boost := 0
-		j := 0
-		for ; tellFrac+(dynallocLoopLogp<<bitRes) < totalBitsQ3 && boost < cap[i]; j++ {
-			flag := rd.DecodeBit(uint(dynallocLoopLogp))
-			tellFrac = rd.TellFrac()
-			if flag == 0 {
-				break
-			}
-			boost += quanta
-			totalBitsQ3 -= quanta
-			dynallocLoopLogp = 1
-		}
-		offsets[i] = boost
-		traceAllocation(i, boost, -1)
-		if j > 0 {
-			dynallocLogp = max(2, dynallocLogp-1)
-		}
-	}
-	traceRange("dynalloc", rd)
-
-	allocTrim := 5
-	encodedTrim := tellFrac+(6<<bitRes) <= totalBitsQ3
-	if encodedTrim {
-		allocTrim = rd.DecodeICDF(trimICDF, 7)
-	}
-	traceFlag("alloc_trim", allocTrim)
-	traceRange("trim", rd)
-
-	bitsQ3 := (totalBits << bitRes) - rd.TellFrac() - 1
-	antiCollapseRsv := 0
-	if transient && lm >= 2 && bitsQ3 >= (lm+2)<<bitRes {
-		antiCollapseRsv = 1 << bitRes
-	}
-	bitsQ3 -= antiCollapseRsv
-
-	pulses := ensureIntSlice(&d.scratchPulses, end)
-	fineQuant := ensureIntSlice(&d.scratchFineQuant, end)
-	finePriority := ensureIntSlice(&d.scratchFinePriority, end)
-	intensity := 0
-	dualStereo := 0
-	balance := 0
-	allocScratch := d.allocationScratch()
-	codedBands := cltComputeAllocationWithScratch(start, end, offsets, cap, allocTrim, &intensity, &dualStereo,
-		bitsQ3, &balance, pulses, fineQuant, finePriority, d.channels, lm, rd, allocScratch)
-	traceRange("alloc", rd)
-
-	for i := start; i < end; i++ {
-		width := 0
-		if i+1 < len(EBands) {
-			width = (EBands[i+1] - EBands[i]) << lm
-		}
-		k := 0
-		if width > 0 {
-			k = bitsToK(pulses[i], width)
-		}
-		traceAllocation(i, pulses[i], k)
-		traceFineBits(i, fineQuant[i])
-	}
-
-	d.DecodeFineEnergy(energies, end, fineQuant)
-	traceRange("fine", rd)
-
-	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.channels == 1, &d.rng, &d.scratchBands, &d.bandDebug, nil, nil, 0)
-	traceRange("pvq", rd)
-
-	antiCollapseOn := false
-	if antiCollapseRsv > 0 {
-		antiCollapseOn = rd.DecodeRawBits(1) == 1
-	}
-	traceFlag("anticollapse_on", boolToInt(antiCollapseOn))
-	traceRange("anticollapse", rd)
-
-	bitsLeft := totalBits - rd.Tell()
-	d.DecodeEnergyFinalise(energies, end, fineQuant, finePriority, bitsLeft)
-	traceRange("finalise", rd)
-
-	if antiCollapseOn {
-		antiCollapse(coeffsL, coeffsR, collapse, lm, d.channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
+	spectrum := d.decodeFrameSpectrum(nil, rd, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, energies, fineQuant, finePriority, pulses, tfRes, intensity, dualStereo, balance, codedBands)
+	coeffsL := spectrum.coeffsL
+	coeffsR := spectrum.coeffsR
+	if spectrum.antiCollapseOn {
+		antiCollapse(coeffsL, coeffsR, spectrum.collapse, lm, d.channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
 	}
 	d.applyPendingPLCPrefilterAndFold()
-
-	// Step 6: Synthesis (IMDCT + window + overlap-add)
-	var samples []float64
-	if d.channels == 2 {
-		energiesL := energies[:end]
-		energiesR := energies[end:]
-		denormalizeCoeffs(coeffsL, energiesL, end, frameSize)
-		denormalizeCoeffs(coeffsR, energiesR, end, frameSize)
-		samples = d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
-	} else {
-		denormalizeCoeffs(coeffsL, energies, end, frameSize)
-		samples = d.Synthesize(coeffsL, transient, shortBlocks)
+	samples := d.synthesizeDecodedFrame(frameSize, mode.LM, end, lm, shortBlocks, transient, postfilterPeriod, postfilterGain, postfilterTapset, energies, coeffsL, coeffsR, nil)
+	if err := d.finalizeDecodedFrameState(frameSize, start, end, lm, transient, energies, prev1Energy, nil, rd); err != nil {
+		return nil, err
 	}
-
-	// Trace synthesis output before postfilter/de-emphasis for libopus comparison.
-	traceLen := len(samples)
-	if traceLen > 16 {
-		traceLen = 16
-	}
-	traceSynthesis("synth_pre", samples[:traceLen])
-
-	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
-	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
-
-	// Trace final synthesis output
-	traceLen = len(samples)
-	if traceLen > 16 {
-		traceLen = 16
-	}
-	traceSynthesis("final", samples[:traceLen])
-
-	// Update energy state for next frame
-	d.updateLogE(energies, end, transient)
-	d.SetPrevEnergyWithPrev(prev1Energy, energies)
-	d.updateBackgroundEnergy(lm)
-	// Mirror libopus: clear energies/logs outside [start,end).
-	for c := 0; c < d.channels; c++ {
-		base := c * MaxBands
-		for band := 0; band < start; band++ {
-			d.prevEnergy[base+band] = 0
-			d.prevLogE[base+band] = -28.0
-			d.prevLogE2[base+band] = -28.0
-		}
-		for band := end; band < MaxBands; band++ {
-			d.prevEnergy[base+band] = 0
-			d.prevLogE[base+band] = -28.0
-			d.prevLogE2[base+band] = -28.0
-		}
-	}
-	d.rng = rd.Range()
-
-	// Reset PLC state after successful decode
-	d.resetPLCCadence(frameSize, d.channels)
-
 	return samples, nil
 }
 
