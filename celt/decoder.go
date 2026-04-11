@@ -1,11 +1,5 @@
 package celt
 
-import (
-	"fmt"
-
-	"github.com/thesyncim/gopus/rangecoding"
-)
-
 // DecodeFrame decodes a complete CELT frame from raw bytes.
 // If data is nil or empty, performs Packet Loss Concealment (PLC) instead of decoding.
 // data: raw CELT frame bytes (without Opus framing), or nil/empty for PLC
@@ -81,56 +75,12 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	balance := allocation.balance
 	codedBands := allocation.codedBands
 
-	d.DecodeFineEnergy(energies, end, fineQuant)
-	qext := d.prepareQEXTDecode(qextPayload, rd, end, lm, frameSize)
-	if qext != nil {
-		d.decodeFineEnergyWithDecoderPrev(qext.dec, energies, end, fineQuant, qext.extraQuant[:end])
-		if tmpQEXTHeaderDumpEnabled {
-			fmt.Printf("QEXT_MAIN_FINE_DEC channels=%d tell=%d\n", d.channels, qext.dec.TellFrac())
-		}
-	}
-	traceRange("fine", rd)
-
-	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.channels == 1, &d.rng, &d.scratchBands, &d.bandDebug,
-		func() *rangecoding.Decoder {
-			if qext == nil {
-				return nil
-			}
-			return qext.dec
-		}(), func() []int {
-			if qext == nil {
-				return nil
-			}
-			return qext.extraPulses[:end]
-		}(), func() int {
-			if qext == nil {
-				return 0
-			}
-			return qext.totalBitsQ3
-		}())
-	if qext != nil {
-		d.decodeQEXTBands(frameSize, lm, shortBlocks, spread, d.channels == 1, qext)
-	}
-	traceRange("pvq", rd)
-
-	antiCollapseOn := false
-	if antiCollapseRsv > 0 {
-		antiCollapseOn = rd.DecodeRawBits(1) == 1
-	}
-	traceFlag("anticollapse_on", boolToInt(antiCollapseOn))
-	traceRange("anticollapse", rd)
-
-	bitsLeft := totalBits - rd.Tell()
-	if len(qextPayload) != 0 {
-		d.DecodeEnergyFinaliseRange(start, end, nil, fineQuant, finePriority, bitsLeft)
-	} else {
-		d.DecodeEnergyFinalise(energies, end, fineQuant, finePriority, bitsLeft)
-	}
-	traceRange("finalise", rd)
-
-	if antiCollapseOn {
-		antiCollapse(coeffsL, coeffsR, collapse, lm, d.channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
+	spectrum := d.decodeFrameSpectrum(qextPayload, rd, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, energies, fineQuant, finePriority, pulses, tfRes, intensity, dualStereo, balance, codedBands)
+	qext := spectrum.qext
+	coeffsL := spectrum.coeffsL
+	coeffsR := spectrum.coeffsR
+	if spectrum.antiCollapseOn {
+		antiCollapse(coeffsL, coeffsR, spectrum.collapse, lm, d.channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
 	}
 	d.applyPendingPLCPrefilterAndFold()
 	samples := d.synthesizeDecodedFrame(frameSize, mode.LM, end, lm, shortBlocks, transient, postfilterPeriod, postfilterGain, postfilterTapset, energies, coeffsL, coeffsR, qext)
