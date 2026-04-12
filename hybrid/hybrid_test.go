@@ -239,6 +239,12 @@ func TestHybridStereo(t *testing.T) {
 	if err != ErrDecodeFailed {
 		t.Errorf("DecodeStereo on mono decoder should return ErrDecodeFailed, got %v", err)
 	}
+
+	rd := &rangecoding.Decoder{}
+	_, err = mono.DecodeStereoWithDecoder(rd, 480)
+	if err != ErrDecodeFailed {
+		t.Errorf("DecodeStereoWithDecoder on mono decoder should return ErrDecodeFailed, got %v", err)
+	}
 }
 
 // TestHybridEmptyInput verifies empty input handling.
@@ -370,6 +376,16 @@ func TestDecodeToFloat32(t *testing.T) {
 	_, err := d.DecodeToFloat32(testData, 120) // Invalid frame size
 	if err != ErrInvalidFrameSize {
 		t.Errorf("DecodeToFloat32 with invalid frame size should return ErrInvalidFrameSize, got %v", err)
+	}
+}
+
+func TestDecodeToInt16(t *testing.T) {
+	d := NewDecoder(1)
+	testData := make([]byte, 64)
+
+	_, err := d.DecodeToInt16(testData, 120)
+	if err != ErrInvalidFrameSize {
+		t.Errorf("DecodeToInt16 with invalid frame size should return ErrInvalidFrameSize, got %v", err)
 	}
 }
 
