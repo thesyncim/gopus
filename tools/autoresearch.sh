@@ -78,7 +78,7 @@ require_file() {
 
 normalize_focus() {
   local focus="${1:-}"
-  focus="${focus,,}"
+  focus="$(printf '%s' "$focus" | tr '[:upper:]' '[:lower:]')"
   case "$focus" in
   performance|quality|unimplemented|mixed)
     printf "%s\n" "$focus"
