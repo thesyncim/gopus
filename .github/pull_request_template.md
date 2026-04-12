@@ -11,13 +11,20 @@ Queue dependency:
 
 - [ ] I checked the active draft PR queue for the same lane and editable surface.
 - [ ] No other editable PR currently owns this pair, or this PR is read-only scout work.
+- [ ] This draft PR was opened before the first editable code change on this branch.
 - [ ] This slice stays within one editable surface plus, if needed, one narrow supporting helper.
+
+## Progress
+
+Current blocker:
+Latest result row or qualitative evidence:
+Attempts, failures, and results:
+Next action:
 
 ## Evidence
 
 Primary judge or target:
 Commands run:
-Latest result row or qualitative evidence:
 Risk and rollback notes:
 
 ## Merge Readiness

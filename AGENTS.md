@@ -50,6 +50,8 @@ Do not start by re-debugging these without new evidence:
 
 - When multiple researchers are active, use an open draft PR as the shared claim surface whenever possible.
 - A claim must name the top-level lane, editable surface, owner, and current hypothesis.
+- Open the draft PR before the first editable code change on the branch; use an empty claim commit if the branch needs visible history first.
+- Keep the PR body current with attempts, failures, results, blockers, and next action so other workers can see progress before the slice is done.
 - Do not start overlapping editable work on the same `(lane, editable surface)` pair when an active claim already exists.
 - If the pair is already occupied, switch to read-only scouting, review, or another pair instead of competing edits.
 - Keep one active editable branch per researcher.
