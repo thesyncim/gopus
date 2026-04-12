@@ -1,11 +1,19 @@
+## Status
+
+- Current state: waiting for the first evaluated attempt
+- Latest attempt: none yet
+- Why it ended that way: no judged result yet
+- Branch state: claim only
+- Next action: run init, preflight, and the first judged attempt
+
 ## Claim
 
-Lane:
-Editable surface:
-Owner:
-Hypothesis:
-Blocked by:
-Queue dependency:
+- Lane:
+- Editable surface:
+- Owner:
+- Hypothesis:
+- Blocked by:
+- Queue dependency:
 
 ## Overlap Check
 
@@ -14,18 +22,18 @@ Queue dependency:
 - [ ] This draft PR was opened before the first editable code change on this branch.
 - [ ] This slice stays within one editable surface plus, if needed, one narrow supporting helper.
 
-## Progress
+## Recent Attempts
 
-Current blocker:
-Latest result row or qualitative evidence:
-Attempts, failures, and results:
-Next action:
+| Outcome | Commit | Tried | Why |
+| --- | --- | --- | --- |
+| pending | - | none yet | waiting for the first judged attempt |
 
 ## Evidence
 
-Primary judge or target:
-Commands run:
-Risk and rollback notes:
+- Primary judge or target:
+- Best current result:
+- Latest result:
+- Risk and rollback notes:
 
 ## Merge Readiness
 
