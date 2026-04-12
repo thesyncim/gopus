@@ -231,30 +231,13 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		}
 
 		if audiosize > F20 {
-			remaining := audiosize
-			offset := 0
-			for remaining > 0 {
-				chunk := min(remaining, F20)
-				n, err := d.decodeOpusFrameIntoWithStatePolicy(
-					out[offset*d.channels:],
-					nil,
-					chunk,
-					packetFrameSize,
-					mode,
-					bandwidth,
-					packetStereoLocal,
-					useDecoderPLCState,
-				)
-				if err != nil {
-					return 0, err
-				}
-				if n == 0 {
-					break
-				}
-				offset += n
-				remaining -= n
-			}
-			return audiosize, nil
+			return d.decodePLCChunksInto(out, audiosize, plcDecodeState{
+				packetFrameSize:    packetFrameSize,
+				mode:               mode,
+				bandwidth:          bandwidth,
+				packetStereo:       packetStereoLocal,
+				useDecoderPLCState: useDecoderPLCState,
+			})
 		} else if audiosize < F20 {
 			if audiosize > F10 {
 				audiosize = F10

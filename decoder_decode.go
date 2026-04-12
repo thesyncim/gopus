@@ -29,31 +29,17 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 
 	if data == nil || len(data) == 0 {
 		frameSize := d.lastFrameSize
-		if frameSize <= 0 {
-			frameSize = 960
+		n, err := d.decodePLCChunksInto(pcm, frameSize, plcDecodeState{
+			packetFrameSize:    d.lastFrameSize,
+			mode:               d.prevMode,
+			bandwidth:          d.lastBandwidth,
+			packetStereo:       d.prevPacketStereo,
+			useDecoderPLCState: true,
+		})
+		if err != nil {
+			return 0, err
 		}
-		if frameSize > d.maxPacketSamples {
-			return 0, ErrPacketTooLarge
-		}
-		needed := frameSize * d.channels
-		if len(pcm) < needed {
-			return 0, ErrBufferTooSmall
-		}
-
-		remaining := frameSize
-		offset := 0
-		for remaining > 0 {
-			chunk := min(remaining, 48000/50)
-			n, err := d.decodeOpusFrameInto(pcm[offset*d.channels:], nil, chunk, d.lastFrameSize, d.prevMode, d.lastBandwidth, d.prevPacketStereo)
-			if err != nil {
-				return 0, err
-			}
-			if n == 0 {
-				break
-			}
-			offset += n
-			remaining -= n
-		}
+		frameSize = n
 		d.applyOutputGain(pcm[:frameSize*d.channels])
 
 		d.lastFrameSize = frameSize
@@ -88,7 +74,16 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		if extsupport.QEXT && toc.Mode == ModeCELT && !d.ignoreExtensions && frameIndex >= 0 && frameIndex < len(qextPayloads) {
 			qextPayload = qextPayloads[frameIndex]
 		}
-		n, err := d.decodeOpusFrameIntoWithQEXT(pcm[offsetSamples*d.channels:], frameData, frameSize, frameSize, toc.Mode, toc.Bandwidth, toc.Stereo, qextPayload)
+		n, err := d.decodeOpusFrameIntoWithQEXT(
+			pcm[offsetSamples*d.channels:],
+			frameData,
+			frameSize,
+			frameSize,
+			toc.Mode,
+			toc.Bandwidth,
+			toc.Stereo,
+			qextPayload,
+		)
 		if err != nil {
 			return err
 		}
