@@ -8,6 +8,11 @@ import (
 	"github.com/thesyncim/gopus/silk"
 )
 
+func (d *Decoder) finishSuccessfulDecode(frameSize, channels int) {
+	d.plcState.Reset()
+	d.plcState.SetLastFrameParams(plc.ModeHybrid, frameSize, channels)
+}
+
 // Decode decodes a Hybrid mono frame and returns 48kHz PCM samples.
 // If data is nil, performs Packet Loss Concealment (PLC) instead of decoding.
 //
@@ -139,8 +144,7 @@ func (d *Decoder) DecodeWithDecoderHook(rd *rangecoding.Decoder, frameSize int, 
 		return nil, err
 	}
 
-	d.plcState.Reset()
-	d.plcState.SetLastFrameParams(plc.ModeHybrid, frameSize, d.channels)
+	d.finishSuccessfulDecode(frameSize, d.channels)
 
 	return samples, nil
 }
@@ -161,8 +165,7 @@ func (d *Decoder) decodePacket(data []byte, frameSize int, packetStereo bool, la
 		return nil, err
 	}
 
-	d.plcState.Reset()
-	d.plcState.SetLastFrameParams(plc.ModeHybrid, frameSize, lastFrameChannels)
+	d.finishSuccessfulDecode(frameSize, lastFrameChannels)
 
 	return samples, nil
 }
