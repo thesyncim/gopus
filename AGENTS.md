@@ -18,6 +18,7 @@ If they differ, `program.md` wins for workflow and this file wins for codec cont
 2. Keep quality as the primary score, using libopus parity and compliance as the reference.
 3. Treat throughput as optional unless the current change is explicitly performance-facing.
 4. Preserve zero-allocation guarantees in encoder and decoder hot paths.
+5. Coordinate active work under three top-level lanes: `performance`, `libgowebrtc parity`, and `code quality`.
 
 ## Verified Areas
 
@@ -44,6 +45,15 @@ Do not start by re-debugging these without new evidence:
   - `tools/bench_guardrails.json`
   - `testvectors/testdata/`
   - `tmp_check/`
+
+## Parallel Coordination
+
+- When multiple researchers are active, use an open draft PR as the shared claim surface whenever possible.
+- A claim must name the top-level lane, editable surface, owner, and current hypothesis.
+- Do not start overlapping editable work on the same `(lane, editable surface)` pair when an active claim already exists.
+- If the pair is already occupied, switch to read-only scouting, review, or another pair instead of competing edits.
+- Keep one active editable branch per researcher.
+- Merge kept slices sequentially, not in batches, and revalidate after rebasing onto the current queue head.
 
 ## Quick Start
 
