@@ -222,12 +222,8 @@ func (d *Decoder) DecodeStereoToMono(
 			for i := 0; i < frameLength-1; i++ {
 				resamplerInput[i+1] = float32(frame[i]) / 32768.0
 			}
-			d.stereo.sMid[0] = frame[frameLength-2]
-			d.stereo.sMid[1] = frame[frameLength-1]
-		} else {
-			d.stereo.sMid[0] = d.stereo.sMid[1]
-			d.stereo.sMid[1] = frame[0]
 		}
+		d.updateMonoHistoryFromInt16(frame)
 
 		output = append(output, resampler.Process(resamplerInput)...)
 	}
@@ -562,12 +558,8 @@ func (d *Decoder) DecodeStereoToMonoWithDecoder(
 			for i := 0; i < frameLength-1; i++ {
 				resamplerInput[i+1] = float32(frame[i]) / 32768.0
 			}
-			d.stereo.sMid[0] = frame[frameLength-2]
-			d.stereo.sMid[1] = frame[frameLength-1]
-		} else {
-			d.stereo.sMid[0] = d.stereo.sMid[1]
-			d.stereo.sMid[1] = frame[0]
 		}
+		d.updateMonoHistoryFromInt16(frame)
 
 		output = append(output, resampler.Process(resamplerInput)...)
 	}
