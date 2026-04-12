@@ -281,8 +281,7 @@ func (d *Decoder) decodeLBRRFrames(pcm []float32, frameSize int) (int, error) {
 	}
 }
 
-// decodeSILKFEC decodes SILK LBRR data for FEC recovery.
-func (d *Decoder) decodeSILKFEC(pcm []float32, frameSize int) (int, error) {
+func (d *Decoder) decodeFECViaSILK(pcm []float32, frameSize int) (int, error) {
 	silkBW, ok := silk.BandwidthFromOpus(int(d.fecBandwidth))
 	if !ok {
 		silkBW = silk.BandwidthWideband
@@ -299,26 +298,23 @@ func (d *Decoder) decodeSILKFEC(pcm []float32, frameSize int) (int, error) {
 	}
 	copy(pcm[:needed], fecSamples)
 
+	return needed, nil
+}
+
+// decodeSILKFEC decodes SILK LBRR data for FEC recovery.
+func (d *Decoder) decodeSILKFEC(pcm []float32, frameSize int) (int, error) {
+	if _, err := d.decodeFECViaSILK(pcm, frameSize); err != nil {
+		return 0, err
+	}
 	return frameSize, nil
 }
 
 // decodeHybridFEC decodes Hybrid mode LBRR data for FEC recovery.
 func (d *Decoder) decodeHybridFEC(pcm []float32, frameSize int) (int, error) {
-	silkBW, ok := silk.BandwidthFromOpus(int(d.fecBandwidth))
-	if !ok {
-		silkBW = silk.BandwidthWideband
-	}
-
-	fecSamples, err := d.silkDecoder.DecodeFEC(d.fecData, silkBW, frameSize, d.fecStereo, d.channels)
+	needed, err := d.decodeFECViaSILK(pcm, frameSize)
 	if err != nil {
 		return 0, err
 	}
-
-	needed := len(fecSamples)
-	if len(pcm) < needed {
-		return 0, ErrBufferTooSmall
-	}
-	copy(pcm[:needed], fecSamples)
 
 	celtBW := celt.BandwidthFromOpusConfig(int(d.fecBandwidth))
 	d.celtDecoder.SetBandwidth(celtBW)
