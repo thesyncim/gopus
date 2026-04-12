@@ -41,9 +41,17 @@ This repo now ships an `autoresearch`-style experiment loop for autonomous codec
 - `make bench-guard` is a safety gate.
 - Throughput comparisons are optional and mainly matter for performance-facing changes.
 - It is fine to spin parallel read-only subagents for quality scouting and allowlisted unimplemented-feature scouting.
+- Coordinate editable work under three top-level lanes:
+  - `performance`
+  - `libgowebrtc parity`
+  - `code quality`
+- For parallel work, use open draft PRs as the claim queue.
+- Only one active editable PR should own a given `(lane, editable surface)` pair at a time.
+- Merge green experimental slices sequentially, rebasing and rerunning their named evidence after earlier merges.
 
 - `program.md` defines the fixed protocol.
 - `tools/autoresearch.sh` handles setup, preflight, evaluation, and best-row reporting.
+- `.github/pull_request_template.md` is the coordination checklist for active claims and merge readiness.
 - The local ledgers are:
   - `results.tsv` for `performance`
   - `results.quality.tsv` for `quality`
