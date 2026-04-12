@@ -4,13 +4,13 @@ This repo now uses an `autoresearch`-style loop for codec work.
 
 ## Goal
 
-Improve `gopus` with a mixed quality+feature loop while keeping the judge fixed.
+Improve `gopus` with a libopus-parity-first mixed quality+feature loop while keeping the judge fixed.
 
 The default target is:
 
 - improve quality first, using libopus 1.6.1 parity as the reference
+- close explicit libopus capability gaps when they are high-value, testable, and backed by a pinned judge
 - close the fair `gopus` vs `libopus` speech encode throughput gap when the change is performance-facing
-- close explicit unimplemented feature gaps when they are high-value and testable
 - preserve zero-allocation hot paths
 
 ## Management Lanes
@@ -18,11 +18,17 @@ The default target is:
 Coordinate all researcher work under three top-level lanes:
 
 - `performance`: measurable throughput, latency, or allocation improvements
-- `libgowebrtc parity`: closer behavioral or API alignment with the target `libgowebrtc` surface
-- `code quality`: simpler structure, stronger tests, lower maintenance risk, and clearer ownership
+- `libopus parity`: closer behavioral, quality, and supported-capability alignment with libopus 1.6.1
+- `code quality / maintainability`: simpler structure, stronger tests, lower maintenance risk, and clearer ownership
 
 The existing `autoresearch.sh` focus flags remain useful judge surfaces, but
 claiming, queueing, and merge coordination should use these three lanes.
+
+For the lane-to-`FOCUS` mapping:
+
+- `performance` lane usually uses `FOCUS=performance`
+- `libopus parity` lane usually uses `FOCUS=quality`; use `FOCUS=mixed` only when the slice closes an explicit libopus capability gap with a pinned judge
+- `code quality / maintainability` lane should stay manual or tightly scoped unless the user provides a measurable target
 
 ## Setup
 
@@ -179,9 +185,9 @@ minimum `Hybrid->CELT` transition SNR emitted by `make test-quality`.
 For the top-level management lanes:
 
 - `performance` should prefer hard metrics and ledger rows
-- `libgowebrtc parity` should prefer explicit target tests, fixtures, or
-  side-by-side behavioral evidence
-- `code quality` may use qualitative evidence, but the PR must still name the
+- `libopus parity` should prefer explicit target tests, fixtures, or
+  side-by-side evidence against libopus
+- `code quality / maintainability` may use qualitative evidence, but the PR must still name the
   concrete simplification, risk reduction, or test improvement being claimed
 
 ## Experiment Loop
@@ -236,8 +242,8 @@ Rules:
 3. Before merge, rebase onto the current queue head and rerun the lane's named
    evidence:
    - `performance`: the relevant benchmark or ledger-backed judge
-   - `libgowebrtc parity`: the targeted parity or compatibility checks
-   - `code quality`: the targeted tests plus the structural evidence named in
+   - `libopus parity`: the targeted parity, capability, or compatibility checks against libopus
+   - `code quality / maintainability`: the targeted tests plus the structural evidence named in
      the PR
 4. Run `make bench-guard` before merge when the change touches a hot path.
 5. After any merge, every open PR touching the same surface or shared helper

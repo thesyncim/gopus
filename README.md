@@ -36,15 +36,15 @@ No cgo. No C toolchain. Caller-owned buffers in the encode/decode hot path.
 
 This repo now ships an `autoresearch`-style experiment loop for autonomous codec work.
 
-- Mixed quality+feature work is the default loop.
+- Libopus-parity-first mixed quality+feature work is the default loop.
 - Quality/compliance is the primary score.
 - `make bench-guard` is a safety gate.
 - Throughput comparisons are optional and mainly matter for performance-facing changes.
 - It is fine to spin parallel read-only subagents for quality scouting and allowlisted unimplemented-feature scouting.
 - Coordinate editable work under three top-level lanes:
   - `performance`
-  - `libgowebrtc parity`
-  - `code quality`
+  - `libopus parity`
+  - `code quality / maintainability`
 - For parallel work, use open draft PRs as the claim queue.
 - Only one active editable PR should own a given `(lane, editable surface)` pair at a time.
 - Merge green experimental slices sequentially, rebasing and rerunning their named evidence after earlier merges.
@@ -57,6 +57,12 @@ This repo now ships an `autoresearch`-style experiment loop for autonomous codec
   - `results.quality.tsv` for `quality`
   - `results.unimplemented.tsv` for `unimplemented`
   - `results.mixed.tsv` for `mixed`
+
+For the management-lane to repo-`FOCUS` mapping:
+
+- `performance` lane usually uses `FOCUS=performance`
+- `libopus parity` lane usually uses `FOCUS=quality`; use `FOCUS=mixed` only when the slice closes an explicit libopus capability gap with a pinned judge
+- `code quality / maintainability` should stay manual or tightly scoped unless there is a measurable target
 
 Quick start:
 
