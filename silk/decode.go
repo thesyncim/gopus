@@ -26,90 +26,20 @@ func (d *Decoder) DecodeFrame(
 	vadFlag bool,
 ) ([]float32, error) {
 	_ = vadFlag
-	if rd == nil {
-		return nil, ErrDecodeFailed
-	}
-	d.SetRangeDecoder(rd)
-	config := GetBandwidthConfig(bandwidth)
-	fsKHz := config.SampleRate / 1000
-	st := &d.state[0]
-
-	framesPerPacket, nbSubfr, err := frameParams(duration)
+	st, framesPerPacket, fsKHz, err := d.prepareMonoFramePacket(rd, bandwidth, duration)
 	if err != nil {
 		return nil, err
 	}
 
-	st.nFramesDecoded = 0
-	st.nFramesPerPacket = framesPerPacket
-	st.nbSubfr = nbSubfr
-	silkDecoderSetFs(st, fsKHz)
-
-	decodeVADAndLBRRFlags(rd, st, framesPerPacket)
-	if st.LBRRFlag != 0 {
-		for i := 0; i < framesPerPacket; i++ {
-			if st.LBRRFlags[i] == 0 {
-				continue
-			}
-			condCoding := codeIndependently
-			if i > 0 && st.LBRRFlags[i-1] != 0 {
-				condCoding = codeConditionally
-			}
-			silkDecodeIndices(st, rd, true, condCoding)
-			// Use pre-allocated pulses buffer if available
-			pulsesLen := roundUpShellFrame(st.frameLength)
-			var pulses []int16
-			if d.scratchPulses != nil && len(d.scratchPulses) >= pulsesLen {
-				pulses = d.scratchPulses[:pulsesLen]
-			} else {
-				pulses = make([]int16, pulsesLen)
-			}
-			silkDecodePulsesWithScratch(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength, st.scratchSumPulses, st.scratchNLshifts)
-		}
-	}
-
 	frameLength := st.frameLength
 	totalLen := framesPerPacket * frameLength
-
-	// Use pre-allocated outInt16 buffer if available
-	var outInt16 []int16
-	if d.scratchOutInt16 != nil && len(d.scratchOutInt16) >= totalLen {
-		outInt16 = d.scratchOutInt16[:totalLen]
-	} else {
-		outInt16 = make([]int16, totalLen)
-	}
+	outInt16 := d.int16OutputBuffer(totalLen)
 
 	for i := 0; i < framesPerPacket; i++ {
-		frameIndex := st.nFramesDecoded
-		condCoding := codeIndependently
-		if frameIndex > 0 {
-			condCoding = codeConditionally
-		}
-		vad := st.VADFlags[frameIndex] != 0
 		frameOut := outInt16[i*frameLength : (i+1)*frameLength]
-		silkDecodeIndices(st, rd, vad, condCoding)
-		// Use pre-allocated pulses buffer if available
-		pulsesLen := roundUpShellFrame(st.frameLength)
-		var pulses []int16
-		if d.scratchPulses != nil && len(d.scratchPulses) >= pulsesLen {
-			pulses = d.scratchPulses[:pulsesLen]
-		} else {
-			pulses = make([]int16, pulsesLen)
-		}
-		silkDecodePulsesWithScratch(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength, st.scratchSumPulses, st.scratchNLshifts)
-		var ctrl decoderControl
-		silkDecodeParameters(st, &ctrl, condCoding)
-		silkDecodeCore(st, &ctrl, frameOut, pulses)
-		silkUpdateOutBuf(st, frameOut)
-		d.updateSILKPLCStateFromCtrl(0, st, &ctrl)
-
-		st.lossCnt = 0
-		st.prevSignalType = int(st.indices.signalType)
-		st.firstFrameAfterReset = false
-		d.applyCNG(0, st, &ctrl, frameOut)
-		// Apply PLC glue frames for smooth transition from concealed to real frames.
-		silkPLCGlueFrames(st, frameOut, frameLength)
-		st.lagPrev = ctrl.pitchL[st.nbSubfr-1]
-		st.nFramesDecoded++
+		frameIndex := st.nFramesDecoded
+		ctrl := d.decodeFrameCoreInto(st, rd, frameOut, frameCondCoding(frameIndex), st.VADFlags[frameIndex] != 0, i, nil)
+		d.finalizeDecodedChannelFrame(0, st, &ctrl, frameOut, false)
 	}
 
 	// Apply libopus-compatible mono delay compensation.
@@ -118,13 +48,7 @@ func (d *Decoder) DecodeFrame(
 	// 2. Resampler input delay from delay_matrix_dec (varies by rate)
 	delayedInt16 := d.applyMonoDelay(outInt16, fsKHz)
 
-	// Use pre-allocated output buffer if available
-	var output []float32
-	if d.scratchOutput != nil && len(d.scratchOutput) >= len(delayedInt16) {
-		output = d.scratchOutput[:len(delayedInt16)]
-	} else {
-		output = make([]float32, len(delayedInt16))
-	}
+	output := d.float32OutputBuffer(len(delayedInt16))
 	for i, v := range delayedInt16 {
 		output[i] = float32(v) / 32768.0
 	}
@@ -194,86 +118,20 @@ func (d *Decoder) decodeFrameRawInt16(
 	vadFlag bool,
 ) ([]int16, error) {
 	_ = vadFlag
-	if rd == nil {
-		return nil, ErrDecodeFailed
-	}
-	d.SetRangeDecoder(rd)
-	config := GetBandwidthConfig(bandwidth)
-	fsKHz := config.SampleRate / 1000
-	st := &d.state[0]
-
-	framesPerPacket, nbSubfr, err := frameParams(duration)
+	st, framesPerPacket, _, err := d.prepareMonoFramePacket(rd, bandwidth, duration)
 	if err != nil {
 		return nil, err
 	}
 
-	st.nFramesDecoded = 0
-	st.nFramesPerPacket = framesPerPacket
-	st.nbSubfr = nbSubfr
-	silkDecoderSetFs(st, fsKHz)
-
-	decodeVADAndLBRRFlags(rd, st, framesPerPacket)
-	if st.LBRRFlag != 0 {
-		for i := 0; i < framesPerPacket; i++ {
-			if st.LBRRFlags[i] == 0 {
-				continue
-			}
-			condCoding := codeIndependently
-			if i > 0 && st.LBRRFlags[i-1] != 0 {
-				condCoding = codeConditionally
-			}
-			silkDecodeIndices(st, rd, true, condCoding)
-			pulsesLen := roundUpShellFrame(st.frameLength)
-			var pulses []int16
-			if d.scratchPulses != nil && len(d.scratchPulses) >= pulsesLen {
-				pulses = d.scratchPulses[:pulsesLen]
-			} else {
-				pulses = make([]int16, pulsesLen)
-			}
-			silkDecodePulsesWithScratch(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength, st.scratchSumPulses, st.scratchNLshifts)
-		}
-	}
-
 	frameLength := st.frameLength
 	totalLen := framesPerPacket * frameLength
-
-	var outInt16 []int16
-	if d.scratchOutInt16 != nil && len(d.scratchOutInt16) >= totalLen {
-		outInt16 = d.scratchOutInt16[:totalLen]
-	} else {
-		outInt16 = make([]int16, totalLen)
-	}
+	outInt16 := d.int16OutputBuffer(totalLen)
 
 	for i := 0; i < framesPerPacket; i++ {
-		frameIndex := st.nFramesDecoded
-		condCoding := codeIndependently
-		if frameIndex > 0 {
-			condCoding = codeConditionally
-		}
-		vad := st.VADFlags[frameIndex] != 0
 		frameOut := outInt16[i*frameLength : (i+1)*frameLength]
-		silkDecodeIndices(st, rd, vad, condCoding)
-		pulsesLen := roundUpShellFrame(st.frameLength)
-		var pulses []int16
-		if d.scratchPulses != nil && len(d.scratchPulses) >= pulsesLen {
-			pulses = d.scratchPulses[:pulsesLen]
-		} else {
-			pulses = make([]int16, pulsesLen)
-		}
-		silkDecodePulsesWithScratch(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength, st.scratchSumPulses, st.scratchNLshifts)
-		var ctrl decoderControl
-		silkDecodeParameters(st, &ctrl, condCoding)
-		silkDecodeCore(st, &ctrl, frameOut, pulses)
-		d.updateHistoryInt16(frameOut)
-		silkUpdateOutBuf(st, frameOut)
-		d.updateSILKPLCStateFromCtrl(0, st, &ctrl)
-		st.lossCnt = 0
-		st.prevSignalType = int(st.indices.signalType)
-		st.firstFrameAfterReset = false
-		d.applyCNG(0, st, &ctrl, frameOut)
-		silkPLCGlueFrames(st, frameOut, frameLength)
-		st.lagPrev = ctrl.pitchL[st.nbSubfr-1]
-		st.nFramesDecoded++
+		frameIndex := st.nFramesDecoded
+		ctrl := d.decodeFrameCoreInto(st, rd, frameOut, frameCondCoding(frameIndex), st.VADFlags[frameIndex] != 0, i, nil)
+		d.finalizeDecodedChannelFrame(0, st, &ctrl, frameOut, true)
 	}
 
 	// Mono decode resets mid-only tracking (libopus sets decode_only_middle=0).
@@ -311,67 +169,18 @@ func (d *Decoder) DecodeFrameWithTrace(
 	trace TraceCallback,
 ) ([]float32, error) {
 	_ = vadFlag
-	if rd == nil {
-		return nil, ErrDecodeFailed
-	}
-	d.SetRangeDecoder(rd)
-	config := GetBandwidthConfig(bandwidth)
-	fsKHz := config.SampleRate / 1000
-	st := &d.state[0]
-
-	framesPerPacket, nbSubfr, err := frameParams(duration)
+	st, framesPerPacket, _, err := d.prepareMonoFramePacket(rd, bandwidth, duration)
 	if err != nil {
 		return nil, err
 	}
 
-	st.nFramesDecoded = 0
-	st.nFramesPerPacket = framesPerPacket
-	st.nbSubfr = nbSubfr
-	silkDecoderSetFs(st, fsKHz)
-
-	decodeVADAndLBRRFlags(rd, st, framesPerPacket)
-	if st.LBRRFlag != 0 {
-		for i := 0; i < framesPerPacket; i++ {
-			if st.LBRRFlags[i] == 0 {
-				continue
-			}
-			condCoding := codeIndependently
-			if i > 0 && st.LBRRFlags[i-1] != 0 {
-				condCoding = codeConditionally
-			}
-			silkDecodeIndices(st, rd, true, condCoding)
-			pulses := make([]int16, roundUpShellFrame(st.frameLength))
-			silkDecodePulses(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength)
-		}
-	}
-
 	frameLength := st.frameLength
-	outInt16 := make([]int16, framesPerPacket*frameLength)
+	outInt16 := d.int16OutputBuffer(framesPerPacket * frameLength)
 	for i := 0; i < framesPerPacket; i++ {
-		frameIndex := st.nFramesDecoded
-		condCoding := codeIndependently
-		if frameIndex > 0 {
-			condCoding = codeConditionally
-		}
-		vad := st.VADFlags[frameIndex] != 0
 		frameOut := outInt16[i*frameLength : (i+1)*frameLength]
-		silkDecodeIndices(st, rd, vad, condCoding)
-		pulses := make([]int16, roundUpShellFrame(st.frameLength))
-		silkDecodePulses(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength)
-		var ctrl decoderControl
-		silkDecodeParameters(st, &ctrl, condCoding)
-		// Use tracing version if callback provided
-		silkDecodeCoreWithTrace(st, &ctrl, frameOut, pulses, i, trace)
-		silkUpdateOutBuf(st, frameOut)
-
-		st.lossCnt = 0
-		st.prevSignalType = int(st.indices.signalType)
-		st.firstFrameAfterReset = false
-		d.applyCNG(0, st, &ctrl, frameOut)
-		// Apply PLC glue frames for smooth transition from concealed to real frames.
-		silkPLCGlueFrames(st, frameOut, frameLength)
-		st.lagPrev = ctrl.pitchL[st.nbSubfr-1]
-		st.nFramesDecoded++
+		frameIndex := st.nFramesDecoded
+		ctrl := d.decodeFrameCoreInto(st, rd, frameOut, frameCondCoding(frameIndex), st.VADFlags[frameIndex] != 0, i, trace)
+		d.finalizeDecodedChannelFrame(0, st, &ctrl, frameOut, false)
 	}
 
 	output := make([]float32, len(outInt16))
@@ -396,77 +205,25 @@ func (d *Decoder) DecodeStereoFrame(
 	vadFlag bool,
 ) (left, right []float32, err error) {
 	_ = vadFlag
-	if rd == nil {
-		return nil, nil, ErrDecodeFailed
-	}
-	d.SetRangeDecoder(rd)
-	config := GetBandwidthConfig(bandwidth)
-	fsKHz := config.SampleRate / 1000
-	stMid := &d.state[0]
-	stSide := &d.state[1]
-
-	framesPerPacket, nbSubfr, err := frameParams(duration)
+	stMid, stSide, framesPerPacket, frameLength, fsKHz, err := d.prepareStereoFramePacket(rd, bandwidth, duration)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	stMid.nFramesDecoded = 0
-	stSide.nFramesDecoded = 0
-	stMid.nFramesPerPacket = framesPerPacket
-	stSide.nFramesPerPacket = framesPerPacket
-	stMid.nbSubfr = nbSubfr
-	stSide.nbSubfr = nbSubfr
-	silkDecoderSetFs(stMid, fsKHz)
-	silkDecoderSetFs(stSide, fsKHz)
-
-	decodeVADAndLBRRFlags(rd, stMid, framesPerPacket)
-	decodeVADAndLBRRFlags(rd, stSide, framesPerPacket)
-	if stMid.LBRRFlag != 0 || stSide.LBRRFlag != 0 {
-		predQ13 := make([]int32, 2)
-		for i := 0; i < framesPerPacket; i++ {
-			for ch := 0; ch < 2; ch++ {
-				st := &d.state[ch]
-				if st.LBRRFlags[i] == 0 {
-					continue
-				}
-				if ch == 0 {
-					silkStereoDecodePred(rd, predQ13)
-					if stSide.LBRRFlags[i] == 0 {
-						_ = silkStereoDecodeMidOnly(rd)
-					}
-				}
-				condCoding := codeIndependently
-				if i > 0 && st.LBRRFlags[i-1] != 0 {
-					condCoding = codeConditionally
-				}
-				silkDecodeIndices(st, rd, true, condCoding)
-				pulses := make([]int16, roundUpShellFrame(st.frameLength))
-				silkDecodePulses(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength)
-			}
-		}
-	}
-
-	frameLength := stMid.frameLength
 	leftNative := make([]int16, framesPerPacket*frameLength)
 	rightNative := make([]int16, framesPerPacket*frameLength)
-	predQ13 := make([]int32, 2)
+	var predQ13 [2]int32
 	decodeOnlyMiddle := 0
 
 	for i := 0; i < framesPerPacket; i++ {
 		frameIndex := stMid.nFramesDecoded
-		silkStereoDecodePred(rd, predQ13)
+		silkStereoDecodePred(rd, predQ13[:])
 		if stSide.VADFlags[frameIndex] == 0 {
 			decodeOnlyMiddle = silkStereoDecodeMidOnly(rd)
 		} else {
 			decodeOnlyMiddle = 0
 		}
-
-		if decodeOnlyMiddle == 0 && d.prevDecodeOnlyMiddle == 1 {
-			// Transition from mono to stereo - reset side channel decoder state only.
-			// Per libopus dec_API.c lines 307-314: only outBuf, sLPC_Q14_buf, etc. are reset.
-			// NOTE: pred_prev_Q13 and sSide are NOT reset here - they keep continuity.
-			resetSideChannelState(stSide)
-		}
+		d.maybeResetStereoSideChannel(decodeOnlyMiddle, stSide)
 
 		hasSide := decodeOnlyMiddle == 0
 		midFrame := make([]int16, frameLength+2)
@@ -474,63 +231,18 @@ func (d *Decoder) DecodeStereoFrame(
 		midOut := midFrame[2:]
 		sideOut := sideFrame[2:]
 
-		condMid := codeIndependently
-		if frameIndex > 0 {
-			condMid = codeConditionally
-		}
-		vadMid := stMid.VADFlags[frameIndex] != 0
-		silkDecodeIndices(stMid, rd, vadMid, condMid)
-		pulsesMid := make([]int16, roundUpShellFrame(stMid.frameLength))
-		silkDecodePulses(rd, pulsesMid, int(stMid.indices.signalType), int(stMid.indices.quantOffsetType), stMid.frameLength)
-		var ctrlMid decoderControl
-		silkDecodeParameters(stMid, &ctrlMid, condMid)
-		silkDecodeCore(stMid, &ctrlMid, midOut, pulsesMid)
-		silkUpdateOutBuf(stMid, midOut)
-		d.updateSILKPLCStateFromCtrl(0, stMid, &ctrlMid)
-
-		stMid.lossCnt = 0
-		stMid.prevSignalType = int(stMid.indices.signalType)
-		stMid.firstFrameAfterReset = false
-		d.applyCNG(0, stMid, &ctrlMid, midOut)
-		// Apply PLC glue frames for smooth transition from concealed to real frames.
-		silkPLCGlueFrames(stMid, midOut, frameLength)
-		stMid.lagPrev = ctrlMid.pitchL[stMid.nbSubfr-1]
-		stMid.nFramesDecoded++
+		ctrlMid := d.decodeFrameCoreInto(stMid, rd, midOut, frameCondCoding(frameIndex), stMid.VADFlags[frameIndex] != 0, i, nil)
+		d.finalizeDecodedChannelFrame(0, stMid, &ctrlMid, midOut, false)
 
 		if hasSide {
-			condSide := codeIndependently
-			if frameIndex > 0 {
-				if d.prevDecodeOnlyMiddle == 1 {
-					condSide = codeIndependentlyNoLtpScaling
-				} else {
-					condSide = codeConditionally
-				}
-			}
-			vadSide := stSide.VADFlags[stSide.nFramesDecoded] != 0
-			silkDecodeIndices(stSide, rd, vadSide, condSide)
-			pulsesSide := make([]int16, roundUpShellFrame(stSide.frameLength))
-			silkDecodePulses(rd, pulsesSide, int(stSide.indices.signalType), int(stSide.indices.quantOffsetType), stSide.frameLength)
-			var ctrlSide decoderControl
-			silkDecodeParameters(stSide, &ctrlSide, condSide)
-			silkDecodeCore(stSide, &ctrlSide, sideOut, pulsesSide)
-			silkUpdateOutBuf(stSide, sideOut)
-			d.updateSILKPLCStateFromCtrl(1, stSide, &ctrlSide)
-
-			stSide.lossCnt = 0
-			stSide.prevSignalType = int(stSide.indices.signalType)
-			stSide.firstFrameAfterReset = false
-			d.applyCNG(1, stSide, &ctrlSide, sideOut)
-			// Apply PLC glue frames for side channel.
-			silkPLCGlueFrames(stSide, sideOut, frameLength)
-			stSide.lagPrev = ctrlSide.pitchL[stSide.nbSubfr-1]
+			ctrlSide := d.decodeFrameCoreInto(stSide, rd, sideOut, sideFrameCondCoding(frameIndex, d.prevDecodeOnlyMiddle), stSide.VADFlags[stSide.nFramesDecoded] != 0, i, nil)
+			d.finalizeDecodedChannelFrame(1, stSide, &ctrlSide, sideOut, false)
 		} else {
-			for j := range sideOut {
-				sideOut[j] = 0
-			}
+			clear(sideOut)
+			stSide.nFramesDecoded++
 		}
-		stSide.nFramesDecoded++
 
-		silkStereoMSToLR(&d.stereo, midFrame, sideFrame, predQ13, fsKHz, frameLength)
+		silkStereoMSToLR(&d.stereo, midFrame, sideFrame, predQ13[:], fsKHz, frameLength)
 		copy(leftNative[i*frameLength:(i+1)*frameLength], midFrame[1:frameLength+1])
 		copy(rightNative[i*frameLength:(i+1)*frameLength], sideFrame[1:frameLength+1])
 
@@ -560,132 +272,37 @@ func (d *Decoder) decodeStereoMidNative(
 	vadFlag bool,
 ) (mid []int16, frameLength int, err error) {
 	_ = vadFlag
-	if rd == nil {
-		return nil, 0, ErrDecodeFailed
-	}
-	d.SetRangeDecoder(rd)
-	config := GetBandwidthConfig(bandwidth)
-	fsKHz := config.SampleRate / 1000
-	stMid := &d.state[0]
-	stSide := &d.state[1]
-
-	framesPerPacket, nbSubfr, err := frameParams(duration)
+	stMid, stSide, framesPerPacket, frameLength, _, err := d.prepareStereoFramePacket(rd, bandwidth, duration)
 	if err != nil {
 		return nil, 0, err
 	}
-
-	stMid.nFramesDecoded = 0
-	stSide.nFramesDecoded = 0
-	stMid.nFramesPerPacket = framesPerPacket
-	stSide.nFramesPerPacket = framesPerPacket
-	stMid.nbSubfr = nbSubfr
-	stSide.nbSubfr = nbSubfr
-	silkDecoderSetFs(stMid, fsKHz)
-	silkDecoderSetFs(stSide, fsKHz)
-
-	decodeVADAndLBRRFlags(rd, stMid, framesPerPacket)
-	decodeVADAndLBRRFlags(rd, stSide, framesPerPacket)
-	if stMid.LBRRFlag != 0 || stSide.LBRRFlag != 0 {
-		predQ13 := make([]int32, 2)
-		for i := 0; i < framesPerPacket; i++ {
-			for ch := 0; ch < 2; ch++ {
-				st := &d.state[ch]
-				if st.LBRRFlags[i] == 0 {
-					continue
-				}
-				if ch == 0 {
-					silkStereoDecodePred(rd, predQ13)
-					if stSide.LBRRFlags[i] == 0 {
-						_ = silkStereoDecodeMidOnly(rd)
-					}
-				}
-				condCoding := codeIndependently
-				if i > 0 && st.LBRRFlags[i-1] != 0 {
-					condCoding = codeConditionally
-				}
-				silkDecodeIndices(st, rd, true, condCoding)
-				pulses := make([]int16, roundUpShellFrame(st.frameLength))
-				silkDecodePulses(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength)
-			}
-		}
-	}
-
-	frameLength = stMid.frameLength
 	midNative := make([]int16, framesPerPacket*frameLength)
-	predQ13 := make([]int32, 2)
+	var predQ13 [2]int32
 	decodeOnlyMiddle := 0
 
 	for i := 0; i < framesPerPacket; i++ {
 		frameIndex := stMid.nFramesDecoded
-		silkStereoDecodePred(rd, predQ13)
+		silkStereoDecodePred(rd, predQ13[:])
 		if stSide.VADFlags[frameIndex] == 0 {
 			decodeOnlyMiddle = silkStereoDecodeMidOnly(rd)
 		} else {
 			decodeOnlyMiddle = 0
 		}
-
-		if decodeOnlyMiddle == 0 && d.prevDecodeOnlyMiddle == 1 {
-			// Transition from mono to stereo - reset side channel decoder state only.
-			// Per libopus dec_API.c lines 307-314: only outBuf, sLPC_Q14_buf, etc. are reset.
-			// NOTE: pred_prev_Q13 and sSide are NOT reset here - they keep continuity.
-			resetSideChannelState(stSide)
-		}
+		d.maybeResetStereoSideChannel(decodeOnlyMiddle, stSide)
 
 		hasSide := decodeOnlyMiddle == 0
 		midOut := midNative[i*frameLength : (i+1)*frameLength]
 
-		condMid := codeIndependently
-		if frameIndex > 0 {
-			condMid = codeConditionally
-		}
-		vadMid := stMid.VADFlags[frameIndex] != 0
-		silkDecodeIndices(stMid, rd, vadMid, condMid)
-		pulsesMid := make([]int16, roundUpShellFrame(stMid.frameLength))
-		silkDecodePulses(rd, pulsesMid, int(stMid.indices.signalType), int(stMid.indices.quantOffsetType), stMid.frameLength)
-		var ctrlMid decoderControl
-		silkDecodeParameters(stMid, &ctrlMid, condMid)
-		silkDecodeCore(stMid, &ctrlMid, midOut, pulsesMid)
-		silkUpdateOutBuf(stMid, midOut)
-		d.updateSILKPLCStateFromCtrl(0, stMid, &ctrlMid)
-
-		stMid.lossCnt = 0
-		stMid.prevSignalType = int(stMid.indices.signalType)
-		stMid.firstFrameAfterReset = false
-		d.applyCNG(0, stMid, &ctrlMid, midOut)
-		// Apply PLC glue frames for smooth transition from concealed to real frames.
-		silkPLCGlueFrames(stMid, midOut, frameLength)
-		stMid.lagPrev = ctrlMid.pitchL[stMid.nbSubfr-1]
-		stMid.nFramesDecoded++
+		ctrlMid := d.decodeFrameCoreInto(stMid, rd, midOut, frameCondCoding(frameIndex), stMid.VADFlags[frameIndex] != 0, i, nil)
+		d.finalizeDecodedChannelFrame(0, stMid, &ctrlMid, midOut, false)
 
 		if hasSide {
-			condSide := codeIndependently
-			if frameIndex > 0 {
-				if d.prevDecodeOnlyMiddle == 1 {
-					condSide = codeIndependentlyNoLtpScaling
-				} else {
-					condSide = codeConditionally
-				}
-			}
-			vadSide := stSide.VADFlags[stSide.nFramesDecoded] != 0
-			silkDecodeIndices(stSide, rd, vadSide, condSide)
-			pulsesSide := make([]int16, roundUpShellFrame(stSide.frameLength))
-			silkDecodePulses(rd, pulsesSide, int(stSide.indices.signalType), int(stSide.indices.quantOffsetType), stSide.frameLength)
-			var ctrlSide decoderControl
-			silkDecodeParameters(stSide, &ctrlSide, condSide)
 			sideOut := make([]int16, frameLength)
-			silkDecodeCore(stSide, &ctrlSide, sideOut, pulsesSide)
-			silkUpdateOutBuf(stSide, sideOut)
-			d.updateSILKPLCStateFromCtrl(1, stSide, &ctrlSide)
-
-			stSide.lossCnt = 0
-			stSide.prevSignalType = int(stSide.indices.signalType)
-			stSide.firstFrameAfterReset = false
-			d.applyCNG(1, stSide, &ctrlSide, sideOut)
-			// Apply PLC glue frames for side channel.
-			silkPLCGlueFrames(stSide, sideOut, frameLength)
-			stSide.lagPrev = ctrlSide.pitchL[stSide.nbSubfr-1]
+			ctrlSide := d.decodeFrameCoreInto(stSide, rd, sideOut, sideFrameCondCoding(frameIndex, d.prevDecodeOnlyMiddle), stSide.VADFlags[stSide.nFramesDecoded] != 0, i, nil)
+			d.finalizeDecodedChannelFrame(1, stSide, &ctrlSide, sideOut, false)
+		} else {
+			stSide.nFramesDecoded++
 		}
-		stSide.nFramesDecoded++
 
 		// Track mid-only flag per frame (used for side-channel conditioning).
 		d.prevDecodeOnlyMiddle = decodeOnlyMiddle
