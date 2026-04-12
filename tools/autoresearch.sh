@@ -536,12 +536,17 @@ Read and follow these files first:
 
 Mandatory rules for this one iteration:
 1. Work on exactly one small experiment in one editable surface.
-2. Refresh the draft PR claim before editing with the current blocker and next action.
+2. Refresh the draft PR claim before editing, and keep it easy to scan:
+   - `## Status` must be 4-5 short bullets covering current state, latest attempt, why it ended that way, branch state, and next action.
+   - `## Recent Attempts` must be a newest-first markdown table with columns `Outcome | Commit | Tried | Why`; keep at most the latest 5 rows.
+   - `## Evidence` must stay to short reader-friendly bullets such as primary judge, best current result, latest result, and rollback note.
+   - Do not dump full command lists into the PR body.
+   - Always update the PR through a body file with `gh pr edit --body-file`; never inline a multiline shell string.
 3. Make the code change.
 4. Commit the experiment before evaluation using a conventional commit message.
 5. Run: make autoresearch-eval FOCUS=$focus DESCRIPTION='<short experiment note>'
 6. Inspect the appended row in the focus-specific results ledger.
-7. Update the draft PR claim with the attempt description, status, latest result row, blocker, and next action.
+7. Update the draft PR claim with the attempt description, status, latest result row, why it was accepted or rejected, and the next action.
 8. If the result status is discard or crash, reset the repository back to START_COMMIT.
 9. If the result status is keep or baseline, stay on the new commit.
 10. Do not edit the results ledger or reports/autoresearch/ manually.
