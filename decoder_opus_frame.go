@@ -77,6 +77,19 @@ func copyFloat64ToFloat32(dst []float32, src []float64) {
 	}
 }
 
+func (d *Decoder) prepareStereoTransition(packetStereo bool, bandwidth silk.Bandwidth) {
+	if !packetStereo || d.channels != 2 || d.prevPacketStereo {
+		return
+	}
+
+	d.silkDecoder.ResetSideChannel()
+	leftResampler := d.silkDecoder.GetResampler(bandwidth)
+	rightResampler := d.silkDecoder.GetResamplerRightChannel(bandwidth)
+	if rightResampler != nil && leftResampler != nil {
+		rightResampler.CopyFrom(leftResampler)
+	}
+}
+
 func addFloat64ToFloat32(dst []float32, src []float64) {
 	n := len(dst)
 	if len(src) < n {
@@ -416,14 +429,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		var silkSamples int
 		var err error
 		if data != nil {
-			if packetStereoLocal && d.channels == 2 && !d.prevPacketStereo {
-				d.silkDecoder.ResetSideChannel()
-				leftResampler := d.silkDecoder.GetResampler(silkBW)
-				rightResampler := d.silkDecoder.GetResamplerRightChannel(silkBW)
-				if rightResampler != nil && leftResampler != nil {
-					rightResampler.CopyFrom(leftResampler)
-				}
-			}
+			d.prepareStereoTransition(packetStereoLocal, silkBW)
 			switch {
 			case packetStereoLocal && d.channels == 2:
 				var silkOut []float32
@@ -463,14 +469,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 				}
 			}
 		} else {
-			if packetStereoLocal && d.channels == 2 && !d.prevPacketStereo {
-				d.silkDecoder.ResetSideChannel()
-				leftResampler := d.silkDecoder.GetResampler(silkBW)
-				rightResampler := d.silkDecoder.GetResamplerRightChannel(silkBW)
-				if rightResampler != nil && leftResampler != nil {
-					rightResampler.CopyFrom(leftResampler)
-				}
-			}
+			d.prepareStereoTransition(packetStereoLocal, silkBW)
 			switch {
 			case packetStereoLocal && d.channels == 2:
 				var silkOut []float32
