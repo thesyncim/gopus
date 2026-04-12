@@ -54,7 +54,7 @@ default_owner() {
 
 default_body_file() {
   local branch="$1"
-  printf ".git/%s-claim-pr.md\n" "${branch//\//-}"
+  printf "%s/%s-claim-pr.md\n" "$(git rev-parse --git-dir)" "${branch//\//-}"
 }
 
 base_ref() {
