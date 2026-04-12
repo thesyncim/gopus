@@ -17,64 +17,73 @@ package silk
 //   - length: number of samples
 func silkPLCGlueFrames(st *decoderState, frame []int16, length int) {
 	if st.lossCnt > 0 {
-		// Currently in loss - calculate energy of concealed frame
-		// This will be used for gluing when we receive a good frame
-		st.plcConcEnergy, st.plcConcEnergyShift = silkSumSqrShift(frame, length)
-		st.plcLastFrameLost = true
-	} else {
-		if st.plcLastFrameLost {
-			// First good frame after loss - apply glue
-			// Calculate energy of recovered frame
-			energy, energyShift := silkSumSqrShift(frame, length)
+		storePLCConcealedEnergy(st, frame, length)
+		return
+	}
 
-			// Normalize energies to same scale
-			concEnergy := st.plcConcEnergy
-			concEnergyShift := st.plcConcEnergyShift
+	applyPLCRecoveryGlue(st, frame, length)
+	st.plcLastFrameLost = false
+}
 
-			if energyShift > concEnergyShift {
-				concEnergy = concEnergy >> (energyShift - concEnergyShift)
-			} else if energyShift < concEnergyShift {
-				energy = energy >> (concEnergyShift - energyShift)
-			}
+func storePLCConcealedEnergy(st *decoderState, frame []int16, length int) {
+	// Retain the concealed frame energy so the next good frame can be ramped
+	// against the same scale without an abrupt jump.
+	st.plcConcEnergy, st.plcConcEnergyShift = silkSumSqrShift(frame, length)
+	st.plcLastFrameLost = true
+}
 
-			// Fade in the energy difference
-			// Only apply if recovered frame has higher energy (would cause a "pop")
-			if energy > concEnergy {
-				// Match libopus silk_PLC_glue_frames() fixed-point cadence.
-				lz := silkCLZ32(concEnergy) - 1
-				concEnergy = concEnergy << lz
-				shiftAmount := int32(24) - lz
-				if shiftAmount < 0 {
-					shiftAmount = 0
-				}
-				energy = energy >> shiftAmount
+func applyPLCRecoveryGlue(st *decoderState, frame []int16, length int) {
+	if !st.plcLastFrameLost {
+		return
+	}
 
-				// frac_Q24 = concEnergy / energy (in Q24)
-				if energy < 1 {
-					energy = 1
-				}
-				fracQ24 := silkDiv32(concEnergy, energy)
+	energy, concEnergy := normalizedPLCGlueEnergies(st, frame, length)
+	if energy <= concEnergy {
+		return
+	}
 
-				// gain_Q16 = sqrt(frac_Q24) << 4 (to get Q16)
-				gainQ16 := silkSqrtApproxPLC(fracQ24) << 4
+	// Match libopus silk_PLC_glue_frames() fixed-point cadence.
+	lz := silkCLZ32(concEnergy) - 1
+	concEnergy = concEnergy << lz
+	shiftAmount := int32(24) - lz
+	if shiftAmount < 0 {
+		shiftAmount = 0
+	}
+	energy = energy >> shiftAmount
 
-				// slope_Q16 = (1.0 - gain) / length
-				slopeQ16 := silkDiv32_16((1<<16)-gainQ16, int32(length))
+	if energy < 1 {
+		energy = 1
+	}
+	fracQ24 := silkDiv32(concEnergy, energy)
+	gainQ16 := silkSqrtApproxPLC(fracQ24) << 4
 
-				// Make slope 4x steeper to avoid missing onsets after DTX
-				slopeQ16 = slopeQ16 << 2
+	slopeQ16 := silkDiv32_16((1<<16)-gainQ16, int32(length))
+	slopeQ16 = slopeQ16 << 2
 
-				// Apply gain ramp
-				for i := 0; i < length; i++ {
-					frame[i] = int16(silkSMULWB(gainQ16, int32(frame[i])))
-					gainQ16 += slopeQ16
-					if gainQ16 > (1 << 16) {
-						break
-					}
-				}
-			}
+	applyPLCGainRamp(frame, length, gainQ16, slopeQ16)
+}
+
+func normalizedPLCGlueEnergies(st *decoderState, frame []int16, length int) (int32, int32) {
+	energy, energyShift := silkSumSqrShift(frame, length)
+	concEnergy := st.plcConcEnergy
+	concEnergyShift := st.plcConcEnergyShift
+
+	if energyShift > concEnergyShift {
+		concEnergy = concEnergy >> (energyShift - concEnergyShift)
+	} else if energyShift < concEnergyShift {
+		energy = energy >> (concEnergyShift - energyShift)
+	}
+
+	return energy, concEnergy
+}
+
+func applyPLCGainRamp(frame []int16, length int, gainQ16, slopeQ16 int32) {
+	for i := 0; i < length; i++ {
+		frame[i] = int16(silkSMULWB(gainQ16, int32(frame[i])))
+		gainQ16 += slopeQ16
+		if gainQ16 > (1 << 16) {
+			break
 		}
-		st.plcLastFrameLost = false
 	}
 }
 
