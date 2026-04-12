@@ -76,9 +76,17 @@ require_file() {
   [[ -f "$path" ]] || die "missing required file: $path"
 }
 
+current_branch_name() {
+  git -C "$ROOT_DIR" symbolic-ref -q --short HEAD || true
+}
+
+lowercase_ascii() {
+  printf "%s\n" "${1:-}" | tr '[:upper:]' '[:lower:]'
+}
+
 normalize_focus() {
   local focus="${1:-}"
-  focus="$(printf '%s' "$focus" | tr '[:upper:]' '[:lower:]')"
+  focus="$(lowercase_ascii "$focus")"
   case "$focus" in
   performance|quality|unimplemented|mixed)
     printf "%s\n" "$focus"
@@ -357,11 +365,75 @@ latest_log_snippet() {
   ' "$log_file"
 }
 
+gh_auth_ready() {
+  command -v gh >/dev/null 2>&1 || return 1
+  gh auth status >/dev/null 2>&1
+}
+
+branch_claim_summary() {
+  local branch="$1"
+  gh_auth_ready || return 0
+  gh pr list --head "$branch" --state open --limit 1 --json number,isDraft,title,url --jq 'if length == 0 then "" else .[0] | "\(.number)\t\(.isDraft)\t\(.url)\t\(.title)" end'
+}
+
+print_claim_status() {
+  local branch="$1"
+  local summary pr_number is_draft url title
+
+  if [[ "${AUTORESEARCH_ALLOW_LOCAL_ONLY:-0}" == "1" ]]; then
+    echo "claim surface: local-only bypass enabled (AUTORESEARCH_ALLOW_LOCAL_ONLY=1)"
+    return 0
+  fi
+
+  if [[ -z "$branch" ]]; then
+    echo "claim surface: missing (detached HEAD has no shared branch claim)"
+    return 0
+  fi
+
+  if ! gh_auth_ready; then
+    echo "claim surface: unknown (gh auth unavailable; use tools/prepare_claim_pr.sh to open a draft PR claim before editable loop work)"
+    return 0
+  fi
+
+  summary="$(branch_claim_summary "$branch")"
+  if [[ -z "$summary" ]]; then
+    echo "claim surface: missing open draft PR for $branch"
+    return 0
+  fi
+
+  IFS=$'\t' read -r pr_number is_draft url title <<<"$summary"
+  if [[ "$is_draft" == "true" ]]; then
+    echo "claim surface: draft PR #$pr_number $url"
+  else
+    echo "claim surface: open PR #$pr_number $url (convert to draft for active editable work)"
+  fi
+}
+
+require_shared_claim() {
+  local branch="$1"
+  local summary pr_number is_draft url title
+
+  if [[ "${AUTORESEARCH_ALLOW_LOCAL_ONLY:-0}" == "1" ]]; then
+    return 0
+  fi
+
+  [[ -n "$branch" ]] || die "editable loop must start from a named branch with a shared claim surface"
+  gh_auth_ready || die "gh auth is required to verify the shared draft PR claim; set AUTORESEARCH_ALLOW_LOCAL_ONLY=1 only for confirmed single-researcher local runs"
+
+  summary="$(branch_claim_summary "$branch")"
+  [[ -n "$summary" ]] || die "no open draft PR claim found for $branch; create one before starting the loop with tools/prepare_claim_pr.sh"
+
+  IFS=$'\t' read -r pr_number is_draft url title <<<"$summary"
+  [[ "$is_draft" == "true" ]] || die "branch $branch has open PR #$pr_number ($url) but it is not draft; use a draft PR as the shared claim surface"
+}
+
 run_codex_with_heartbeat() {
   local log_file="$1"
   shift
 
-  "$@" >"$log_file" 2>&1 &
+  # Preserve the caller's stdin so `codex exec - <prompt_file` still receives
+  # the prompt when we background the process for heartbeat logging.
+  "$@" <&0 >"$log_file" 2>&1 &
   local cmd_pid=$!
   local elapsed=0
 
@@ -453,6 +525,7 @@ build_loop_prompt() {
   local start_commit="$1"
   local best_summary="$2"
   local focus="$3"
+  local start_branch="${4:-}"
   cat <<EOF
 You are running exactly one autonomous autoresearch iteration in this repository.
 
@@ -463,18 +536,21 @@ Read and follow these files first:
 
 Mandatory rules for this one iteration:
 1. Work on exactly one small experiment in one editable surface.
-2. Make the code change.
-3. Commit the experiment before evaluation using a conventional commit message.
-4. Run: make autoresearch-eval FOCUS=$focus DESCRIPTION='<short experiment note>'
-5. Inspect the appended row in the focus-specific results ledger.
-6. If the result status is discard or crash, reset the repository back to START_COMMIT.
-7. If the result status is keep or baseline, stay on the new commit.
-8. Do not edit the results ledger or reports/autoresearch/ manually.
-9. Finish with exactly one summary line in this format:
+2. Refresh the draft PR claim before editing with the current blocker and next action.
+3. Make the code change.
+4. Commit the experiment before evaluation using a conventional commit message.
+5. Run: make autoresearch-eval FOCUS=$focus DESCRIPTION='<short experiment note>'
+6. Inspect the appended row in the focus-specific results ledger.
+7. Update the draft PR claim with the attempt description, status, latest result row, blocker, and next action.
+8. If the result status is discard or crash, reset the repository back to START_COMMIT.
+9. If the result status is keep or baseline, stay on the new commit.
+10. Do not edit the results ledger or reports/autoresearch/ manually.
+11. Finish with exactly one summary line in this format:
    outcome=<status> commit=<short> description=<description>
 
 Context:
 - START_COMMIT=$start_commit
+- START_BRANCH=$start_branch
 - CURRENT_BEST=$best_summary
 - FOCUS=$focus
 - QUALITY_TARGET=$QUALITY_TEST_TARGET_DEFAULT
@@ -576,6 +652,7 @@ cmd_preflight() {
   echo "quality target: make $QUALITY_TEST_TARGET_DEFAULT"
   echo "unimplemented lane: $(unimplemented_lane_summary)"
   echo "bench harness sample: $BENCH_SAMPLE_DEFAULT"
+  print_claim_status "$(current_branch_name)"
   print_best_summary "$results" "$focus"
 }
 
@@ -846,6 +923,7 @@ cmd_loop() {
   ensure_results_header "$results" "$focus"
   require_clean_worktree
   command -v codex >/dev/null 2>&1 || die "codex CLI not found in PATH"
+  require_shared_claim "$(current_branch_name)"
 
   local iteration=0
   while :; do
@@ -855,10 +933,11 @@ cmd_loop() {
       break
     fi
 
-    local start_commit start_count best_summary prompt_file agent_log agent_msg codex_status
-    local row end_commit status
+    local start_commit start_branch start_count best_summary prompt_file agent_log agent_msg codex_status
+    local row end_commit current_branch status
 
     start_commit="$(git -C "$ROOT_DIR" rev-parse HEAD)"
+    start_branch="$(git -C "$ROOT_DIR" symbolic-ref -q --short HEAD || true)"
     start_count="$(results_row_count "$results")"
     best_summary="$(best_success_row "$results")"
     if [[ -z "$best_summary" ]]; then
@@ -871,7 +950,7 @@ cmd_loop() {
     agent_log="$LOG_DIR_DEFAULT/loop-$(date -u +%Y%m%dT%H%M%SZ)-${iteration}.log"
     agent_msg="$LOG_DIR_DEFAULT/loop-$(date -u +%Y%m%dT%H%M%SZ)-${iteration}-last.txt"
     mkdir -p "$LOG_DIR_DEFAULT"
-    build_loop_prompt "$start_commit" "$best_summary" "$focus" >"$prompt_file"
+    build_loop_prompt "$start_commit" "$best_summary" "$focus" "$start_branch" >"$prompt_file"
 
     echo "autoresearch: starting loop iteration $iteration from $(git -C "$ROOT_DIR" rev-parse --short "$start_commit")"
     echo "autoresearch: focus=$focus ($(focus_description "$focus"))"
@@ -914,15 +993,26 @@ cmd_loop() {
     row="$(latest_result_row "$results")"
     IFS=$'\t' read -r _ _ _ _ _ _ status _ <<<"$row"
     end_commit="$(git -C "$ROOT_DIR" rev-parse HEAD)"
+    current_branch="$(git -C "$ROOT_DIR" symbolic-ref -q --short HEAD || true)"
     echo "autoresearch: latest results row: $row"
 
     if [[ "$status" == "discard" || "$status" == "crash" ]]; then
-      if [[ "$end_commit" != "$start_commit" ]]; then
+      if [[ -n "$start_branch" && "$current_branch" != "$start_branch" ]]; then
+        git -C "$ROOT_DIR" branch -f "$start_branch" "$start_commit" >/dev/null
+        git -C "$ROOT_DIR" switch "$start_branch" >/dev/null
+        echo "autoresearch: restored branch $start_branch to $(git -C "$ROOT_DIR" rev-parse --short "$start_commit") after $status"
+      elif [[ "$end_commit" != "$start_commit" ]]; then
         git -C "$ROOT_DIR" reset --hard "$start_commit" >/dev/null
         echo "autoresearch: reset to $(git -C "$ROOT_DIR" rev-parse --short "$start_commit") after $status"
       fi
     else
-      echo "autoresearch: keeping commit $(git -C "$ROOT_DIR" rev-parse --short "$end_commit")"
+      if [[ -n "$start_branch" && "$current_branch" != "$start_branch" ]]; then
+        git -C "$ROOT_DIR" branch -f "$start_branch" "$end_commit" >/dev/null
+        git -C "$ROOT_DIR" switch "$start_branch" >/dev/null
+        echo "autoresearch: reattached branch $start_branch at $(git -C "$ROOT_DIR" rev-parse --short "$end_commit")"
+      else
+        echo "autoresearch: keeping commit $(git -C "$ROOT_DIR" rev-parse --short "$end_commit")"
+      fi
     fi
 
     echo "autoresearch: iteration $iteration finished with status=$status"

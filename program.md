@@ -39,7 +39,15 @@ Then:
 1. Read `program.md`, `AGENTS.md`, and `README.md`.
 2. Run `make autoresearch-init`.
 3. Run `make autoresearch-preflight`.
-4. Run the baseline exactly once:
+4. Open the shared draft PR claim before any editable code change:
+
+```bash
+./tools/prepare_claim_pr.sh --lane performance --surface encoder --tag perf-try-1 --hypothesis "State the current idea here." --push --create-draft
+```
+
+If GitHub requires branch history before opening the draft PR, the helper creates a single empty claim commit so other workers can see the branch before editable work starts.
+
+5. Run the baseline exactly once:
 
 ```bash
 make autoresearch-eval DESCRIPTION=baseline
@@ -82,9 +90,9 @@ Rules:
 
 Use draft PRs as the coordination queue:
 
-- create the draft PR before or immediately after the first code commit
+- create the draft PR before any editable code change; use an empty claim commit if the branch needs visible history first
 - keep the title generic and change-focused
-- record the current blocker and next action in the PR body
+- record the current blocker, next action, and latest attempt/results in the PR body
 - close or retarget stale claims quickly so the queue stays trustworthy
 
 ## Editable Surface
@@ -196,19 +204,20 @@ Loop forever until the human stops you:
 
 1. Inspect active claims and choose an unclaimed `(lane, editable surface)` pair.
 2. Look at the current branch, HEAD commit, and the best successful row with `make autoresearch-best`.
-3. Make one idea-sized change inside the chosen surface.
-4. Commit the experiment before evaluation.
-5. Run:
+3. Refresh the draft PR claim with the current blocker and next action before editing.
+4. Make one idea-sized change inside the chosen surface.
+5. Commit the experiment before evaluation.
+6. Run:
 
 ```bash
 make autoresearch-eval DESCRIPTION='short experiment note'
 ```
 
-6. Read the appended row in the focus-specific results ledger.
-7. Update the claim with the latest result row or qualitative evidence.
-8. If the status is `keep`, continue from that commit.
-9. If the status is `discard`, rewind to the prior successful commit and try the next idea.
-10. If the status is `crash`, fix only obvious mechanical mistakes; otherwise abandon the idea and move on.
+7. Read the appended row in the focus-specific results ledger.
+8. Update the draft PR claim with the attempt description, latest result row, blocker, and next action.
+9. If the status is `keep`, continue from that commit.
+10. If the status is `discard`, rewind to the prior successful commit and try the next idea.
+11. If the status is `crash`, fix only obvious mechanical mistakes; otherwise abandon the idea and move on.
 
 If you want the repository to drive Codex directly instead of relying on a human-operated agent session, use:
 
