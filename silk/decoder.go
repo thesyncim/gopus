@@ -659,6 +659,26 @@ func (d *Decoder) HandleBandwidthChange(bandwidth Bandwidth) bool {
 	return false
 }
 
+func (d *Decoder) updateMonoHistoryFromFloat32(samples []float32) {
+	if len(samples) > 1 {
+		d.stereo.sMid[0] = float32ToInt16(samples[len(samples)-2])
+		d.stereo.sMid[1] = float32ToInt16(samples[len(samples)-1])
+		return
+	}
+	d.stereo.sMid[0] = d.stereo.sMid[1]
+	d.stereo.sMid[1] = float32ToInt16(samples[0])
+}
+
+func (d *Decoder) updateMonoHistoryFromInt16(samples []int16) {
+	if len(samples) > 1 {
+		d.stereo.sMid[0] = samples[len(samples)-2]
+		d.stereo.sMid[1] = samples[len(samples)-1]
+		return
+	}
+	d.stereo.sMid[0] = d.stereo.sMid[1]
+	d.stereo.sMid[1] = samples[0]
+}
+
 // BuildMonoResamplerInput prepares the mono resampler input using libopus-style sMid buffering.
 // It updates the internal sMid state based on the current samples.
 func (d *Decoder) BuildMonoResamplerInput(samples []float32) []float32 {
@@ -677,12 +697,8 @@ func (d *Decoder) BuildMonoResamplerInput(samples []float32) []float32 {
 
 	if len(samples) > 1 {
 		copy(resamplerInput[1:], samples[:len(samples)-1])
-		d.stereo.sMid[0] = float32ToInt16(samples[len(samples)-2])
-		d.stereo.sMid[1] = float32ToInt16(samples[len(samples)-1])
-	} else {
-		d.stereo.sMid[0] = d.stereo.sMid[1]
-		d.stereo.sMid[1] = float32ToInt16(samples[0])
 	}
+	d.updateMonoHistoryFromFloat32(samples)
 
 	return resamplerInput
 }
@@ -704,12 +720,8 @@ func (d *Decoder) BuildMonoResamplerInputInt16(samples []int16) []int16 {
 
 	if len(samples) > 1 {
 		copy(resamplerInput[1:], samples[:len(samples)-1])
-		d.stereo.sMid[0] = samples[len(samples)-2]
-		d.stereo.sMid[1] = samples[len(samples)-1]
-	} else {
-		d.stereo.sMid[0] = d.stereo.sMid[1]
-		d.stereo.sMid[1] = samples[0]
 	}
+	d.updateMonoHistoryFromInt16(samples)
 
 	return resamplerInput
 }
