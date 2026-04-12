@@ -62,112 +62,133 @@ func silkAddSat16(a, b int16) int16 {
 	return silkSAT16(sum)
 }
 
+func cngLPCOrder(st *decoderState) int {
+	order := st.lpcOrder
+	if order <= 0 || order > maxLPCOrder {
+		return maxLPCOrder
+	}
+	return order
+}
+
+func syncCNGSampleRate(st *decoderState) {
+	if st.fsKHz == st.cng.fsKHz {
+		return
+	}
+	silkCNGReset(st)
+	st.cng.fsKHz = st.fsKHz
+}
+
+func shouldUpdateCNGHistory(st *decoderState, ctrl *decoderControl) bool {
+	return st.lossCnt == 0 && st.prevSignalType == typeNoVoiceActivity && ctrl != nil
+}
+
+func updateCNGHistory(st *decoderState, ctrl *decoderControl) {
+	order := cngLPCOrder(st)
+	for i := 0; i < order; i++ {
+		delta := int32(st.prevNLSFQ15[i]) - st.cng.smthNLSFQ15[i]
+		st.cng.smthNLSFQ15[i] += silkSMULWB(delta, cngNLSFSMthQ16)
+	}
+
+	maxGainQ16 := int32(0)
+	subfr := 0
+	for i := 0; i < st.nbSubfr; i++ {
+		if ctrl.GainsQ16[i] > maxGainQ16 {
+			maxGainQ16 = ctrl.GainsQ16[i]
+			subfr = i
+		}
+	}
+
+	if st.subfrLength > 0 && st.nbSubfr > 0 {
+		moveLen := (st.nbSubfr - 1) * st.subfrLength
+		if moveLen > 0 && st.subfrLength+moveLen <= len(st.cng.excBufQ14) {
+			copy(st.cng.excBufQ14[st.subfrLength:st.subfrLength+moveLen], st.cng.excBufQ14[:moveLen])
+		}
+		srcStart := subfr * st.subfrLength
+		srcEnd := srcStart + st.subfrLength
+		if srcStart >= 0 && srcEnd <= len(st.excQ14) && st.subfrLength <= len(st.cng.excBufQ14) {
+			copy(st.cng.excBufQ14[:st.subfrLength], st.excQ14[srcStart:srcEnd])
+		}
+	}
+
+	for i := 0; i < st.nbSubfr; i++ {
+		st.cng.smthGainQ16 += silkSMULWB(ctrl.GainsQ16[i]-st.cng.smthGainQ16, cngGainSmthQ16)
+		if silkSMULWW(st.cng.smthGainQ16, cngGainSmthThresholdQ16) > ctrl.GainsQ16[i] {
+			st.cng.smthGainQ16 = ctrl.GainsQ16[i]
+		}
+	}
+}
+
+func (d *Decoder) applyCNGLostFrame(channel int, st *decoderState, frame []int16) bool {
+	if st.lossCnt == 0 {
+		return false
+	}
+
+	plcState := d.ensureSILKPLCState(channel)
+	if plcState == nil {
+		return true
+	}
+
+	gainQ16 := silkSMULWW(int32(plcState.RandScaleQ14), plcState.PrevGainQ16[1])
+	if gainQ16 >= (1<<21) || st.cng.smthGainQ16 > (1<<23) {
+		gainQ16 = silkSMULTT(gainQ16, gainQ16)
+		gainQ16 = silkSubLShift32(silkSMULTT(st.cng.smthGainQ16, st.cng.smthGainQ16), gainQ16, 5)
+		gainQ16 = silkLSHIFT(silkSqrtApproxPLC(gainQ16), 16)
+	} else {
+		gainQ16 = silkSMULWW(gainQ16, gainQ16)
+		gainQ16 = silkSubLShift32(silkSMULWW(st.cng.smthGainQ16, st.cng.smthGainQ16), gainQ16, 5)
+		gainQ16 = silkLSHIFT(silkSqrtApproxPLC(gainQ16), 8)
+	}
+	gainQ10 := silkRSHIFT(gainQ16, 6)
+
+	order := cngLPCOrder(st)
+
+	var cngSigQ14 [maxFrameLength + maxLPCOrder]int32
+	sig := cngSigQ14[:maxLPCOrder+len(frame)]
+	silkCNGExc(sig[maxLPCOrder:], st.cng.excBufQ14[:], len(frame), &st.cng.randSeed)
+
+	var aQ12 [maxLPCOrder]int16
+	var nlsfQ15 [maxLPCOrder]int16
+	for i := 0; i < order; i++ {
+		nlsfQ15[i] = int16(st.cng.smthNLSFQ15[i])
+	}
+	if !silkNLSF2A(aQ12[:order], nlsfQ15[:order], order) {
+		lpc := lsfToLPCDirect(nlsfQ15[:order])
+		copy(aQ12[:order], lpc[:order])
+	}
+
+	copy(sig[:maxLPCOrder], st.cng.synthStateQ14[:])
+	for i := 0; i < len(frame); i++ {
+		base := maxLPCOrder + i
+		lpcPredQ10 := int32(order >> 1)
+		for j := 0; j < order; j++ {
+			lpcPredQ10 = silkSMLAWB(lpcPredQ10, sig[base-j-1], int32(aQ12[j]))
+		}
+		sig[base] = silkAddSat32(sig[base], lShiftSAT32By4(lpcPredQ10))
+		cngSample := silkSAT16(silkRSHIFT_ROUND(silkSMULWW(sig[base], gainQ10), 8))
+		frame[i] = silkAddSat16(frame[i], cngSample)
+	}
+	copy(st.cng.synthStateQ14[:], sig[len(frame):len(frame)+maxLPCOrder])
+	return true
+}
+
+func clearCNGSynthesisState(st *decoderState) {
+	for i := 0; i < st.lpcOrder && i < maxLPCOrder; i++ {
+		st.cng.synthStateQ14[i] = 0
+	}
+}
+
 // applyCNG mirrors libopus silk_CNG() cadence for a single channel/frame.
 func (d *Decoder) applyCNG(channel int, st *decoderState, ctrl *decoderControl, frame []int16) {
 	if st == nil || len(frame) == 0 {
 		return
 	}
-	length := len(frame)
 
-	if st.fsKHz != st.cng.fsKHz {
-		silkCNGReset(st)
-		st.cng.fsKHz = st.fsKHz
+	syncCNGSampleRate(st)
+	if shouldUpdateCNGHistory(st, ctrl) {
+		updateCNGHistory(st, ctrl)
 	}
-
-	// Update CNG history during no-voice-activity good frames.
-	// Match libopus: gate on prevSignalType (updated by PLC update cadence).
-	if st.lossCnt == 0 && st.prevSignalType == typeNoVoiceActivity && ctrl != nil {
-		order := st.lpcOrder
-		if order <= 0 || order > maxLPCOrder {
-			order = maxLPCOrder
-		}
-		for i := 0; i < order; i++ {
-			delta := int32(st.prevNLSFQ15[i]) - st.cng.smthNLSFQ15[i]
-			st.cng.smthNLSFQ15[i] += silkSMULWB(delta, cngNLSFSMthQ16)
-		}
-
-		maxGainQ16 := int32(0)
-		subfr := 0
-		for i := 0; i < st.nbSubfr; i++ {
-			if ctrl.GainsQ16[i] > maxGainQ16 {
-				maxGainQ16 = ctrl.GainsQ16[i]
-				subfr = i
-			}
-		}
-
-		if st.subfrLength > 0 && st.nbSubfr > 0 {
-			moveLen := (st.nbSubfr - 1) * st.subfrLength
-			if moveLen > 0 && st.subfrLength+moveLen <= len(st.cng.excBufQ14) {
-				copy(st.cng.excBufQ14[st.subfrLength:st.subfrLength+moveLen], st.cng.excBufQ14[:moveLen])
-			}
-			srcStart := subfr * st.subfrLength
-			srcEnd := srcStart + st.subfrLength
-			if srcStart >= 0 && srcEnd <= len(st.excQ14) && st.subfrLength <= len(st.cng.excBufQ14) {
-				copy(st.cng.excBufQ14[:st.subfrLength], st.excQ14[srcStart:srcEnd])
-			}
-		}
-
-		for i := 0; i < st.nbSubfr; i++ {
-			st.cng.smthGainQ16 += silkSMULWB(ctrl.GainsQ16[i]-st.cng.smthGainQ16, cngGainSmthQ16)
-			if silkSMULWW(st.cng.smthGainQ16, cngGainSmthThresholdQ16) > ctrl.GainsQ16[i] {
-				st.cng.smthGainQ16 = ctrl.GainsQ16[i]
-			}
-		}
-	}
-
-	if st.lossCnt != 0 {
-		plcState := d.ensureSILKPLCState(channel)
-		if plcState == nil {
-			return
-		}
-
-		gainQ16 := silkSMULWW(int32(plcState.RandScaleQ14), plcState.PrevGainQ16[1])
-		if gainQ16 >= (1<<21) || st.cng.smthGainQ16 > (1<<23) {
-			gainQ16 = silkSMULTT(gainQ16, gainQ16)
-			gainQ16 = silkSubLShift32(silkSMULTT(st.cng.smthGainQ16, st.cng.smthGainQ16), gainQ16, 5)
-			gainQ16 = silkLSHIFT(silkSqrtApproxPLC(gainQ16), 16)
-		} else {
-			gainQ16 = silkSMULWW(gainQ16, gainQ16)
-			gainQ16 = silkSubLShift32(silkSMULWW(st.cng.smthGainQ16, st.cng.smthGainQ16), gainQ16, 5)
-			gainQ16 = silkLSHIFT(silkSqrtApproxPLC(gainQ16), 8)
-		}
-		gainQ10 := silkRSHIFT(gainQ16, 6)
-
-		order := st.lpcOrder
-		if order <= 0 || order > maxLPCOrder {
-			order = maxLPCOrder
-		}
-
-		var cngSigQ14 [maxFrameLength + maxLPCOrder]int32
-		sig := cngSigQ14[:maxLPCOrder+length]
-		silkCNGExc(sig[maxLPCOrder:], st.cng.excBufQ14[:], length, &st.cng.randSeed)
-
-		var aQ12 [maxLPCOrder]int16
-		var nlsfQ15 [maxLPCOrder]int16
-		for i := 0; i < order; i++ {
-			nlsfQ15[i] = int16(st.cng.smthNLSFQ15[i])
-		}
-		if !silkNLSF2A(aQ12[:order], nlsfQ15[:order], order) {
-			lpc := lsfToLPCDirect(nlsfQ15[:order])
-			copy(aQ12[:order], lpc[:order])
-		}
-
-		copy(sig[:maxLPCOrder], st.cng.synthStateQ14[:])
-		for i := 0; i < length; i++ {
-			base := maxLPCOrder + i
-			lpcPredQ10 := int32(order >> 1)
-			for j := 0; j < order; j++ {
-				lpcPredQ10 = silkSMLAWB(lpcPredQ10, sig[base-j-1], int32(aQ12[j]))
-			}
-			sig[base] = silkAddSat32(sig[base], lShiftSAT32By4(lpcPredQ10))
-			cngSample := silkSAT16(silkRSHIFT_ROUND(silkSMULWW(sig[base], gainQ10), 8))
-			frame[i] = silkAddSat16(frame[i], cngSample)
-		}
-		copy(st.cng.synthStateQ14[:], sig[length:length+maxLPCOrder])
+	if d.applyCNGLostFrame(channel, st, frame) {
 		return
 	}
-
-	for i := 0; i < st.lpcOrder && i < maxLPCOrder; i++ {
-		st.cng.synthStateQ14[i] = 0
-	}
+	clearCNGSynthesisState(st)
 }
