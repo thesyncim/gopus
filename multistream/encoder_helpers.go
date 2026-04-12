@@ -61,20 +61,7 @@ func (e *Encoder) applyProjectionMixing(pcm []float64, frameSize int) []float64 
 	if cap(e.projectionFrame) < cols {
 		e.projectionFrame = make([]float64, cols)
 	}
-	frame := e.projectionFrame[:cols]
-
-	for s := 0; s < frameSize; s++ {
-		in := pcm[s*cols : (s+1)*cols]
-		out := mixed[s*rows : (s+1)*rows]
-		copy(frame, in)
-		for row := 0; row < rows; row++ {
-			sum := 0.0
-			for col := 0; col < cols; col++ {
-				sum += e.projectionMixing[col*rows+row] * frame[col]
-			}
-			out[row] = sum
-		}
-	}
+	applyProjectionMatrix(mixed, pcm, e.projectionMixing, e.projectionFrame[:cols], frameSize, rows, cols)
 	return mixed
 }
 
