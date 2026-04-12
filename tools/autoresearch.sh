@@ -537,11 +537,11 @@ Read and follow these files first:
 Mandatory rules for this one iteration:
 1. Work on exactly one small experiment in one editable surface.
 2. Refresh the draft PR claim before editing, and keep it easy to scan:
-   - `## Status` must be 4-5 short bullets covering current state, latest attempt, why it ended that way, branch state, and next action.
-   - `## Recent Attempts` must be a newest-first markdown table with columns `Outcome | Commit | Tried | Why`; keep at most the latest 5 rows.
-   - `## Evidence` must stay to short reader-friendly bullets such as primary judge, best current result, latest result, and rollback note.
+   - Section Status must be 4-5 short bullets covering current state, latest attempt, why it ended that way, branch state, and next action.
+   - Section Recent Attempts must be a newest-first markdown table with columns Outcome | Commit | Tried | Why; keep at most the latest 5 rows.
+   - Section Evidence must stay to short reader-friendly bullets such as primary judge, best current result, latest result, and rollback note.
    - Do not dump full command lists into the PR body.
-   - Always update the PR through a body file with `gh pr edit --body-file`; never inline a multiline shell string.
+   - Always update the PR through a body file with gh pr edit --body-file; never inline a multiline shell string.
 3. Make the code change.
 4. Commit the experiment before evaluation using a conventional commit message.
 5. Run: make autoresearch-eval FOCUS=$focus DESCRIPTION='<short experiment note>'
