@@ -55,17 +55,5 @@ func (d *Decoder) applyProjectionDemixing(output []float64, frameSize int) {
 	if cap(d.projectionScratch) < cols {
 		d.projectionScratch = make([]float64, cols)
 	}
-	tmp := d.projectionScratch[:cols]
-
-	for s := 0; s < frameSize; s++ {
-		frame := output[s*rows : (s+1)*rows]
-		copy(tmp, frame[:cols])
-		for row := 0; row < rows; row++ {
-			sum := 0.0
-			for col := 0; col < cols; col++ {
-				sum += d.projectionDemixing[col*rows+row] * tmp[col]
-			}
-			frame[row] = sum
-		}
-	}
+	applyProjectionMatrix(output, output, d.projectionDemixing, d.projectionScratch[:cols], frameSize, rows, cols)
 }
