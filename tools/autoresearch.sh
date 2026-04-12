@@ -521,6 +521,16 @@ require_clean_worktree() {
   fi
 }
 
+push_claim_branch() {
+  local branch="$1"
+  [[ -n "$branch" ]] || return 0
+  if [[ "${AUTORESEARCH_ALLOW_LOCAL_ONLY:-0}" == "1" ]]; then
+    return 0
+  fi
+  git -C "$ROOT_DIR" push -u origin "$branch" >/dev/null
+  echo "autoresearch: pushed branch $branch at $(git -C "$ROOT_DIR" rev-parse --short HEAD)"
+}
+
 build_loop_prompt() {
   local start_commit="$1"
   local best_summary="$2"
@@ -1018,6 +1028,7 @@ cmd_loop() {
       else
         echo "autoresearch: keeping commit $(git -C "$ROOT_DIR" rev-parse --short "$end_commit")"
       fi
+      push_claim_branch "$start_branch"
     fi
 
     echo "autoresearch: iteration $iteration finished with status=$status"

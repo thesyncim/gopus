@@ -267,14 +267,11 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Ensure scratch buffers are properly sized for this frame
 	e.ensureScratch(frameSize)
 
-	// Step 3a: Optionally apply DC rejection (high-pass) to match libopus Opus encoder.
-	// libopus float path runs dc_reject() directly on float samples. Do not pre-quantize
-	// here; float32 precision is already matched by the dc_reject/preemphasis stages.
+	// Step 3a: Match the top-level encoder's input contract before local CELT
+	// preprocessing: quantize to the configured LSB depth, then run dc_reject
+	// if this encoder instance owns that stage.
 	// Reference: libopus src/opus_encoder.c line 2008: dc_reject(pcm, 3, ...)
-	samplesForFrame := pcm
-	if tmpQuantInputLSBEnabled {
-		samplesForFrame = e.quantizeInputToLSBDepthScratch(samplesForFrame)
-	}
+	samplesForFrame := e.quantizeInputToLSBDepthScratch(pcm)
 	if e.dcRejectEnabled && !tmpDisableDCRejectEnabled {
 		samplesForFrame = e.applyDCRejectScratch(samplesForFrame)
 	}
