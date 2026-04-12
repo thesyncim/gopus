@@ -67,6 +67,7 @@ For the management-lane to repo-`FOCUS` mapping:
 Quick start:
 
 ```bash
+./tools/prepare_claim_pr.sh --lane performance --surface encoder --tag perf-try-1 --hypothesis "State the current idea here." --push --create-draft
 make autoresearch-init
 make autoresearch-preflight
 make autoresearch-eval DESCRIPTION=baseline
@@ -93,6 +94,17 @@ The performance lane keeps:
 2. `TestEncoderComplianceSummary`
 3. `make bench-guard`
 4. `examples/bench-encode` speech throughput against `libopus`
+
+Before any editable loop run, open the draft PR claim first so other workers can
+see the active lane, surface, owner, blocker, and latest attempts. The
+repo-local helper is:
+
+```bash
+./tools/prepare_claim_pr.sh --lane performance --surface encoder --tag perf-try-1 --hypothesis "State the current idea here." --push --create-draft
+```
+
+Set `AUTORESEARCH_ALLOW_LOCAL_ONLY=1` only for confirmed single-researcher local
+runs where no shared draft PR queue is needed.
 
 ## Installation
 
