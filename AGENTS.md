@@ -14,11 +14,11 @@ If they differ, `program.md` wins for workflow and this file wins for codec cont
 
 ## Current Focus
 
-1. Run mixed quality+feature work by default.
+1. Run libopus-parity-first mixed quality+feature work by default.
 2. Keep quality as the primary score, using libopus parity and compliance as the reference.
 3. Treat throughput as optional unless the current change is explicitly performance-facing.
 4. Preserve zero-allocation guarantees in encoder and decoder hot paths.
-5. Coordinate active work under three top-level lanes: `performance`, `libgowebrtc parity`, and `code quality`.
+5. Coordinate active work under three top-level lanes: `performance`, `libopus parity`, and `code quality / maintainability`.
 
 ## Verified Areas
 
