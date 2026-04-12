@@ -1,6 +1,7 @@
 package celt
 
 import (
+	"bytes"
 	"math"
 	"testing"
 
@@ -117,6 +118,53 @@ func TestEncoderReset(t *testing.T) {
 	}
 	if enc.RNG() != 0 {
 		t.Errorf("RNG after reset = %d, want 0", enc.RNG())
+	}
+}
+
+func TestEncodeFrameQuantizesIngressToLSBDepth(t *testing.T) {
+	const (
+		frameSize = 120
+		lsbDepth  = 8
+	)
+
+	base := make([]float64, frameSize)
+	perturbed := make([]float64, frameSize)
+	for i := range base {
+		phase := 2 * math.Pi * float64(i) / float64(frameSize)
+		v := 0.32*math.Sin(3*phase) + 0.11*math.Cos(11*phase)
+		v = math.Round(v*128.0) / 128.0
+		base[i] = v
+		perturbed[i] = v + 0.001*math.Sin(17*phase+0.3)
+	}
+
+	encA := NewEncoder(1)
+	encA.SetLSBDepth(lsbDepth)
+	quantizedBase := append([]float64(nil), encA.quantizeInputToLSBDepthScratch(base)...)
+	quantizedPerturbed := encA.quantizeInputToLSBDepthScratch(perturbed)
+	for i := range quantizedBase {
+		if quantizedBase[i] != quantizedPerturbed[i] {
+			t.Fatalf("sub-LSB perturbation changed quantized sample %d: base=%f perturbed=%f", i, quantizedBase[i], quantizedPerturbed[i])
+		}
+	}
+
+	newEncoder := func() *Encoder {
+		enc := NewEncoder(1)
+		enc.SetBitrate(64000)
+		enc.SetComplexity(10)
+		enc.SetLSBDepth(lsbDepth)
+		return enc
+	}
+
+	packetBase, err := newEncoder().EncodeFrame(base, frameSize)
+	if err != nil {
+		t.Fatalf("EncodeFrame(base) failed: %v", err)
+	}
+	packetPerturbed, err := newEncoder().EncodeFrame(perturbed, frameSize)
+	if err != nil {
+		t.Fatalf("EncodeFrame(perturbed) failed: %v", err)
+	}
+	if !bytes.Equal(packetBase, packetPerturbed) {
+		t.Fatalf("sub-LSB ingress drift changed packet bytes: base=%v perturbed=%v", packetBase, packetPerturbed)
 	}
 }
 
