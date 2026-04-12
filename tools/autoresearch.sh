@@ -76,9 +76,13 @@ require_file() {
   [[ -f "$path" ]] || die "missing required file: $path"
 }
 
+lowercase_ascii() {
+  printf "%s\n" "${1:-}" | tr '[:upper:]' '[:lower:]'
+}
+
 normalize_focus() {
   local focus="${1:-}"
-  focus="$(printf '%s' "$focus" | tr '[:upper:]' '[:lower:]')"
+  focus="$(lowercase_ascii "$focus")"
   case "$focus" in
   performance|quality|unimplemented|mixed)
     printf "%s\n" "$focus"
@@ -361,7 +365,9 @@ run_codex_with_heartbeat() {
   local log_file="$1"
   shift
 
-  "$@" >"$log_file" 2>&1 &
+  # Preserve the caller's stdin so `codex exec - <prompt_file` still receives
+  # the prompt when we background the process for heartbeat logging.
+  "$@" <&0 >"$log_file" 2>&1 &
   local cmd_pid=$!
   local elapsed=0
 
