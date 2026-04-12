@@ -33,6 +33,7 @@ Do not start by re-debugging these without new evidence:
 - Cross-check codec math and bitstream decisions against `tmp_check/opus-1.6.1/` before trying heuristic fixes.
 - If behavior is uncertain, align to libopus 1.6.1 first and only diverge with explicit fixture evidence.
 - Preserve zero allocations in real-time encode/decode hot paths.
+- Do not mention `codex` in branch names, commit messages, PR titles, or PR descriptions; use generic change-focused wording instead.
 - For branch names and PR titles/descriptions, use generic change-focused wording and do not mention codec-specific subsystems or audio internals unless the user explicitly asks for that wording.
 - When a loop benefits from parallel scouting, prefer one read-only quality/compliance scout and one read-only unimplemented-feature scout.
 - Do not turn raw `ErrUnimplemented` stubs into loop targets unless they have a pinned judge; the current safe unimplemented seed is `ogg-seek`.
