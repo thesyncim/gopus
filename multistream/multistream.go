@@ -56,6 +56,13 @@ func applyChannelMapping(decodedStreams [][]float64, mapping []byte, coupledStre
 	return output
 }
 
+func (d *Decoder) decodeStream(stream int, packet []byte, frameSize int) ([]float64, error) {
+	if stream < d.coupledStreams {
+		return d.decoders[stream].DecodeStereo(packet, frameSize)
+	}
+	return d.decoders[stream].Decode(packet, frameSize)
+}
+
 // Decode decodes a multistream Opus packet and returns PCM samples.
 //
 // If data is nil, performs Packet Loss Concealment (PLC) by generating
@@ -101,17 +108,7 @@ func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
 	// Decode each stream
 	decodedStreams := make([][]float64, d.streams)
 	for i := 0; i < d.streams; i++ {
-		var decoded []float64
-		var decodeErr error
-
-		if i < d.coupledStreams {
-			// Coupled stream: decode as stereo
-			decoded, decodeErr = d.decoders[i].DecodeStereo(packets[i], frameSize)
-		} else {
-			// Uncoupled stream: decode as mono
-			decoded, decodeErr = d.decoders[i].Decode(packets[i], frameSize)
-		}
-
+		decoded, decodeErr := d.decodeStream(i, packets[i], frameSize)
 		if decodeErr != nil {
 			return nil, fmt.Errorf("multistream: stream %d decode error: %w", i, decodeErr)
 		}
@@ -151,17 +148,7 @@ func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
 	// Decode PLC for each stream
 	decodedStreams := make([][]float64, d.streams)
 	for i := 0; i < d.streams; i++ {
-		var decoded []float64
-		var err error
-
-		if i < d.coupledStreams {
-			// Coupled stream: decode stereo PLC
-			decoded, err = d.decoders[i].DecodeStereo(nil, frameSize)
-		} else {
-			// Uncoupled stream: decode mono PLC
-			decoded, err = d.decoders[i].Decode(nil, frameSize)
-		}
-
+		decoded, err := d.decodeStream(i, nil, frameSize)
 		if err != nil {
 			// On PLC error, use silence for this stream
 			channels := streamChannels(i, d.coupledStreams)
