@@ -59,23 +59,31 @@ func (e *Encoder) computeStereoWidthForMode(pcm []float64, frameSize int) float6
 	}
 
 	frameRate := e.sampleRate / frameSize
-	if frameRate <= 0 {
+	if frameRate < 50 {
 		frameRate = 50
 	}
-	shortAlpha := 25.0 / float64(max(50, frameRate))
+	shortAlpha := 25.0 / float64(frameRate)
 
 	// Accumulate per-frame energy and cross-correlation (unrolled by 4).
 	var xx, xy, yy float64
-	limit := frameSize - 3
-	for i := 0; i < limit; i += 4 {
+	for i, j := 0, 0; i < frameSize-3; i, j = i+4, j+8 {
 		var pxx, pxy, pyy float64
-		for k := 0; k < 4; k++ {
-			x := pcm[2*(i+k)]
-			y := pcm[2*(i+k)+1]
-			pxx += x * x
-			pxy += x * y
-			pyy += y * y
-		}
+		x0, y0 := pcm[j], pcm[j+1]
+		x1, y1 := pcm[j+2], pcm[j+3]
+		x2, y2 := pcm[j+4], pcm[j+5]
+		x3, y3 := pcm[j+6], pcm[j+7]
+		pxx += x0 * x0
+		pxy += x0 * y0
+		pyy += y0 * y0
+		pxx += x1 * x1
+		pxy += x1 * y1
+		pyy += y1 * y1
+		pxx += x2 * x2
+		pxy += x2 * y2
+		pyy += y2 * y2
+		pxx += x3 * x3
+		pxy += x3 * y3
+		pyy += y3 * y3
 		xx += pxx
 		xy += pxy
 		yy += pyy
@@ -106,19 +114,24 @@ func (e *Encoder) computeStereoWidthForMode(pcm []float64, frameSize int) float6
 		mem.YY = 0
 	}
 
-	if math.Max(mem.XX, mem.YY) > 8e-4 {
+	maxEnergy := mem.XX
+	if mem.YY > maxEnergy {
+		maxEnergy = mem.YY
+	}
+	if maxEnergy > 8e-4 {
 		sqrtXX := math.Sqrt(mem.XX)
 		sqrtYY := math.Sqrt(mem.YY)
 		qrrtXX := math.Sqrt(sqrtXX) // fourth root
 		qrrtYY := math.Sqrt(sqrtYY)
 
 		const epsilon = 1e-15
+		sqrtProd := sqrtXX * sqrtYY
 		// Clamp cross-correlation.
-		if mem.XY > sqrtXX*sqrtYY {
-			mem.XY = sqrtXX * sqrtYY
+		if mem.XY > sqrtProd {
+			mem.XY = sqrtProd
 		}
 		// Inter-channel correlation.
-		corr := mem.XY / (epsilon + sqrtXX*sqrtYY)
+		corr := mem.XY / (epsilon + sqrtProd)
 		// Approximate loudness difference.
 		ldiff := math.Abs(qrrtXX-qrrtYY) / (epsilon + qrrtXX + qrrtYY)
 		// Width = sqrt(1 - corr^2) * ldiff, clamped to [0, 1].
