@@ -24,13 +24,6 @@ func preparePacketRangeDecoder(data []byte, frameSizeSamples int) (rangecoding.D
 	return rd, framesPerPacket, nbSubfr, nil
 }
 
-func initPacketDecodeState(st *decoderState, framesPerPacket, nbSubfr, fsKHz int) {
-	st.nFramesDecoded = 0
-	st.nFramesPerPacket = framesPerPacket
-	st.nbSubfr = nbSubfr
-	silkDecoderSetFs(st, fsKHz)
-}
-
 // DecodeFEC decodes LBRR (Low Bitrate Redundancy) frames for Forward Error Correction.
 // This function decodes the FEC data from a packet to recover a lost frame.
 //
@@ -68,11 +61,11 @@ func (d *Decoder) DecodeFEC(
 
 	// Set up decoder state for FEC decoding
 	stMid := &d.state[0]
-	initPacketDecodeState(stMid, framesPerPacket, nbSubfr, fsKHz)
+	initFrameDecodeState(stMid, fsKHz, framesPerPacket, nbSubfr)
 
 	if stereo && outputChannels == 2 {
 		stSide := &d.state[1]
-		initPacketDecodeState(stSide, framesPerPacket, nbSubfr, fsKHz)
+		initFrameDecodeState(stSide, fsKHz, framesPerPacket, nbSubfr)
 	}
 
 	// Decode VAD and LBRR flags
@@ -87,16 +80,8 @@ func (d *Decoder) DecodeFEC(
 	frameLength := stMid.frameLength
 	totalLen := framesPerPacket * frameLength
 
-	// Use pre-allocated outInt16 buffer if available
-	var outInt16 []int16
-	if d.scratchOutInt16 != nil && len(d.scratchOutInt16) >= totalLen {
-		outInt16 = d.scratchOutInt16[:totalLen]
-		for j := range outInt16 {
-			outInt16[j] = 0
-		}
-	} else {
-		outInt16 = make([]int16, totalLen)
-	}
+	outInt16 := d.int16OutputBuffer(totalLen)
+	clear(outInt16)
 	lastFrameLost := false
 
 	// Decode each frame using LBRR when present, otherwise run PLC.
@@ -110,57 +95,18 @@ func (d *Decoder) DecodeFEC(
 			continue
 		}
 
-		// Decode LBRR indices and pulses
-		condCoding := codeIndependently
-		if i > 0 && stMid.LBRRFlags[i-1] != 0 {
-			condCoding = codeConditionally
-		}
-
 		// Stereo: decode stereo predictor for LBRR
 		if stereo && outputChannels == 2 {
-			predQ13 := make([]int32, 2)
-			silkStereoDecodePred(&rd, predQ13)
+			var predQ13 [2]int32
+			silkStereoDecodePred(&rd, predQ13[:])
 			if d.state[1].LBRRFlags[i] == 0 {
 				_ = silkStereoDecodeMidOnly(&rd)
 			}
 		}
 
-		// Decode LBRR indices (same as regular indices but with decode_LBRR=true)
-		vadFlag := true // LBRR always uses VAD=true for signal type
-		silkDecodeIndices(stMid, &rd, vadFlag, condCoding)
-
-		// Decode LBRR pulses
-		pulsesLen := roundUpShellFrame(stMid.frameLength)
-		var pulses []int16
-		if d.scratchPulses != nil && len(d.scratchPulses) >= pulsesLen {
-			pulses = d.scratchPulses[:pulsesLen]
-			for j := range pulses {
-				pulses[j] = 0
-			}
-		} else {
-			pulses = make([]int16, pulsesLen)
-		}
-		silkDecodePulsesWithScratch(&rd, pulses, int(stMid.indices.signalType), int(stMid.indices.quantOffsetType), stMid.frameLength, stMid.scratchSumPulses, stMid.scratchNLshifts)
-
-		// Decode frame
-		var ctrl decoderControl
-		silkDecodeParameters(stMid, &ctrl, condCoding)
-
 		frameOut := outInt16[i*frameLength : (i+1)*frameLength]
-		silkDecodeCore(stMid, &ctrl, frameOut, pulses)
-		d.updateHistoryInt16(frameOut)
-		silkUpdateOutBuf(stMid, frameOut)
-		d.updateSILKPLCStateFromCtrl(0, stMid, &ctrl)
-
-		// Apply PLC glue frames for smooth transition
-		stMid.lossCnt = 0
-		stMid.prevSignalType = int(stMid.indices.signalType)
-		stMid.firstFrameAfterReset = false
-		d.applyCNG(0, stMid, &ctrl, frameOut)
-		silkPLCGlueFrames(stMid, frameOut, frameLength)
-		stMid.lagPrev = ctrl.pitchL[stMid.nbSubfr-1]
+		d.decodeLBRRFrameInto(0, stMid, &rd, i, frameOut, true)
 		d.syncLegacyPLCState(stMid, frameOut)
-		stMid.nFramesDecoded++
 		lastFrameLost = false
 	}
 
