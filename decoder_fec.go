@@ -16,43 +16,17 @@ func (d *Decoder) decodePLCForFECWithState(
 	bandwidth Bandwidth,
 	packetStereo bool,
 ) (int, error) {
-	if frameSize <= 0 {
-		frameSize = d.lastFrameSize
+	n, err := d.decodePLCChunksInto(pcm, frameSize, plcDecodeState{
+		packetFrameSize:    frameSize,
+		mode:               mode,
+		bandwidth:          bandwidth,
+		packetStereo:       packetStereo,
+		useDecoderPLCState: false,
+	})
+	if err != nil {
+		return 0, err
 	}
-	if frameSize <= 0 {
-		frameSize = 960
-	}
-	if frameSize > d.maxPacketSamples {
-		return 0, ErrPacketTooLarge
-	}
-	needed := frameSize * d.channels
-	if len(pcm) < needed {
-		return 0, ErrBufferTooSmall
-	}
-
-	remaining := frameSize
-	offset := 0
-	for remaining > 0 {
-		chunk := min(remaining, 48000/50)
-		n, err := d.decodeOpusFrameIntoWithStatePolicy(
-			pcm[offset*d.channels:],
-			nil,
-			chunk,
-			frameSize,
-			mode,
-			bandwidth,
-			packetStereo,
-			false,
-		)
-		if err != nil {
-			return 0, err
-		}
-		if n == 0 {
-			break
-		}
-		offset += n
-		remaining -= n
-	}
+	frameSize = n
 
 	d.applyOutputGain(pcm[:frameSize*d.channels])
 	d.lastFrameSize = frameSize
