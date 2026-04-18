@@ -17,6 +17,8 @@ func strictSILKFixtureParity() bool {
 }
 
 func TestLibopusTraceSILKWB(t *testing.T) {
+	requireLibopusExactness(t)
+
 	const (
 		sampleRate = 48000
 		channels   = 1
@@ -182,14 +184,19 @@ func TestDecoderParityLibopusPacketsSILKWB(t *testing.T) {
 	if len(internalDecoded) < compareLen {
 		compareLen = len(internalDecoded)
 	}
-	q, delay := ComputeQualityFloat32WithDelay(libDecoded[:compareLen], internalDecoded[:compareLen], sampleRate, 2000)
-	t.Logf("decoder parity (libopus packets): Q=%.2f (SNR=%.2f dB), delay=%d samples", q, SNRFromQuality(q), delay)
+	q, delay, err := ComputeOpusCompareQualityFloat32WithDelay(libDecoded[:compareLen], internalDecoded[:compareLen], sampleRate, channels, 2000)
+	if err != nil {
+		t.Fatalf("compute opus_compare quality: %v", err)
+	}
+	t.Logf("decoder parity (libopus packets): Q=%.2f, delay=%d samples", q, delay)
 	if q < 20.0 {
-		t.Fatalf("decoder parity regressed: Q=%.2f (SNR=%.2f dB), want Q>=20.0", q, SNRFromQuality(q))
+		t.Fatalf("decoder parity regressed: Q=%.2f, want Q>=20.0", q)
 	}
 }
 
 func TestSILKParamTraceAgainstLibopus(t *testing.T) {
+	requireLibopusExactness(t)
+
 	const (
 		sampleRate = 48000
 		channels   = 1

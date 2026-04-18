@@ -73,10 +73,7 @@ func TestMultistreamEncoder_Creation(t *testing.T) {
 	// Test NewMultistreamEncoderDefault for channels 1-8
 	for channels := 1; channels <= 8; channels++ {
 		t.Run(string(rune('0'+channels))+"ch", func(t *testing.T) {
-			enc, err := NewMultistreamEncoderDefault(48000, channels, ApplicationAudio)
-			if err != nil {
-				t.Fatalf("NewMultistreamEncoderDefault(%d channels) error: %v", channels, err)
-			}
+			enc := mustNewDefaultMultistreamEncoder(t, 48000, channels, ApplicationAudio)
 
 			if enc.Channels() != channels {
 				t.Errorf("Channels() = %d, want %d", enc.Channels(), channels)
@@ -126,10 +123,7 @@ func TestMultistreamDecoder_Creation(t *testing.T) {
 	// Test NewMultistreamDecoderDefault for channels 1-8
 	for channels := 1; channels <= 8; channels++ {
 		t.Run(string(rune('0'+channels))+"ch", func(t *testing.T) {
-			dec, err := NewMultistreamDecoderDefault(48000, channels)
-			if err != nil {
-				t.Fatalf("NewMultistreamDecoderDefault(%d channels) error: %v", channels, err)
-			}
+			dec := mustNewDefaultMultistreamDecoder(t, 48000, channels)
 
 			if dec.Channels() != channels {
 				t.Errorf("Channels() = %d, want %d", dec.Channels(), channels)
@@ -163,15 +157,8 @@ func TestMultistreamRoundTrip_51(t *testing.T) {
 	sampleRate := 48000
 	frameSize := 960 // 20ms
 
-	enc, err := NewMultistreamEncoderDefault(sampleRate, channels, ApplicationAudio)
-	if err != nil {
-		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
-	}
-
-	dec, err := NewMultistreamDecoderDefault(sampleRate, channels)
-	if err != nil {
-		t.Fatalf("NewMultistreamDecoderDefault error: %v", err)
-	}
+	enc := mustNewDefaultMultistreamEncoder(t, sampleRate, channels, ApplicationAudio)
+	dec := mustNewDefaultMultistreamDecoder(t, sampleRate, channels)
 
 	// Generate 6-channel test signal
 	pcmIn := generateSurroundTestSignal(sampleRate, frameSize, channels)
@@ -230,15 +217,8 @@ func TestMultistreamRoundTrip_71(t *testing.T) {
 	sampleRate := 48000
 	frameSize := 960 // 20ms
 
-	enc, err := NewMultistreamEncoderDefault(sampleRate, channels, ApplicationAudio)
-	if err != nil {
-		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
-	}
-
-	dec, err := NewMultistreamDecoderDefault(sampleRate, channels)
-	if err != nil {
-		t.Fatalf("NewMultistreamDecoderDefault error: %v", err)
-	}
+	enc := mustNewDefaultMultistreamEncoder(t, sampleRate, channels, ApplicationAudio)
+	dec := mustNewDefaultMultistreamDecoder(t, sampleRate, channels)
 
 	// Generate 8-channel test signal
 	pcmIn := generateSurroundTestSignal(sampleRate, frameSize, channels)
@@ -291,15 +271,8 @@ func TestMultistreamRoundTrip_Stereo(t *testing.T) {
 	sampleRate := 48000
 	frameSize := 960 // 20ms
 
-	enc, err := NewMultistreamEncoderDefault(sampleRate, channels, ApplicationAudio)
-	if err != nil {
-		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
-	}
-
-	dec, err := NewMultistreamDecoderDefault(sampleRate, channels)
-	if err != nil {
-		t.Fatalf("NewMultistreamDecoderDefault error: %v", err)
-	}
+	enc := mustNewDefaultMultistreamEncoder(t, sampleRate, channels, ApplicationAudio)
+	dec := mustNewDefaultMultistreamDecoder(t, sampleRate, channels)
 
 	// Generate stereo test signal (L: 440Hz, R: 880Hz)
 	pcmIn := make([]float32, frameSize*channels)
@@ -343,15 +316,8 @@ func TestMultistreamRoundTrip_MultipleFrames(t *testing.T) {
 	frameSize := 960 // 20ms
 	numFrames := 10
 
-	enc, err := NewMultistreamEncoderDefault(sampleRate, channels, ApplicationAudio)
-	if err != nil {
-		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
-	}
-
-	dec, err := NewMultistreamDecoderDefault(sampleRate, channels)
-	if err != nil {
-		t.Fatalf("NewMultistreamDecoderDefault error: %v", err)
-	}
+	enc := mustNewDefaultMultistreamEncoder(t, sampleRate, channels, ApplicationAudio)
+	dec := mustNewDefaultMultistreamDecoder(t, sampleRate, channels)
 
 	var totalPacketBytes int
 	var totalInputEnergy, totalOutputEnergy float64
@@ -397,10 +363,8 @@ func TestMultistreamRoundTrip_MultipleFrames(t *testing.T) {
 // TestMultistreamEncoder_Controls tests encoder control methods.
 func TestMultistreamEncoder_Controls(t *testing.T) {
 	channels := 6
-	enc, err := NewMultistreamEncoderDefault(48000, channels, ApplicationAudio)
-	if err != nil {
-		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
-	}
+	enc := mustNewDefaultMultistreamEncoder(t, 48000, channels, ApplicationAudio)
+	var err error
 
 	// Test application control
 	if got := enc.Application(); got != ApplicationAudio {
@@ -648,10 +612,7 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 }
 
 func TestMultistreamEncoder_EncodeInt24(t *testing.T) {
-	enc, err := NewMultistreamEncoderDefault(48000, 6, ApplicationAudio)
-	if err != nil {
-		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
-	}
+	enc := mustNewDefaultMultistreamEncoder(t, 48000, 6, ApplicationAudio)
 
 	pcm := generateSurroundTestSignalInt24(48000, enc.FrameSize(), enc.Channels())
 	data := make([]byte, 4000*enc.Streams())
@@ -674,10 +635,7 @@ func TestMultistreamEncoder_EncodeInt24(t *testing.T) {
 }
 
 func TestMultistreamEncoder_EncodeInt24InvalidFrameSize(t *testing.T) {
-	enc, err := NewMultistreamEncoderDefault(48000, 6, ApplicationAudio)
-	if err != nil {
-		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
-	}
+	enc := mustNewDefaultMultistreamEncoder(t, 48000, 6, ApplicationAudio)
 
 	short := make([]int32, enc.FrameSize()*enc.Channels()-1)
 	data := make([]byte, 4000*enc.Streams())
@@ -690,10 +648,7 @@ func TestMultistreamEncoder_EncodeInt24InvalidFrameSize(t *testing.T) {
 }
 
 func TestMultistreamEncoder_CVBRPacketEnvelope(t *testing.T) {
-	enc, err := NewMultistreamEncoderDefault(48000, 6, ApplicationAudio)
-	if err != nil {
-		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
-	}
+	enc := mustNewDefaultMultistreamEncoder(t, 48000, 6, ApplicationAudio)
 
 	if got := enc.BitrateMode(); got != BitrateModeCVBR {
 		t.Fatalf("BitrateMode() = %v, want %v", got, BitrateModeCVBR)
@@ -731,10 +686,7 @@ func TestMultistreamEncoder_CVBRPacketEnvelope(t *testing.T) {
 // TestMultistreamEncoder_SetApplicationPreservesControls verifies application
 // updates do not clobber other encoder CTLs.
 func TestMultistreamEncoder_SetApplicationPreservesControls(t *testing.T) {
-	enc, err := NewMultistreamEncoderDefault(48000, 6, ApplicationAudio)
-	if err != nil {
-		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
-	}
+	enc := mustNewDefaultMultistreamEncoder(t, 48000, 6, ApplicationAudio)
 
 	const wantBitrate = 210000
 	const wantComplexity = 3
@@ -759,10 +711,7 @@ func TestMultistreamEncoder_SetApplicationPreservesControls(t *testing.T) {
 }
 
 func TestMultistreamEncoder_SetApplicationForwardsModeAndBandwidth(t *testing.T) {
-	enc, err := NewMultistreamEncoderDefault(48000, 6, ApplicationAudio)
-	if err != nil {
-		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
-	}
+	enc := mustNewDefaultMultistreamEncoder(t, 48000, 6, ApplicationAudio)
 
 	if got := enc.enc.Mode(); got != encodercore.ModeAuto {
 		t.Fatalf("initial Mode() = %v, want %v", got, encodercore.ModeAuto)
@@ -802,10 +751,7 @@ func TestMultistreamEncoder_SetApplicationForwardsModeAndBandwidth(t *testing.T)
 }
 
 func TestMultistreamEncoder_SetApplicationAfterEncodeRejected(t *testing.T) {
-	enc, err := NewMultistreamEncoderDefault(48000, 6, ApplicationAudio)
-	if err != nil {
-		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
-	}
+	enc := mustNewDefaultMultistreamEncoder(t, 48000, 6, ApplicationAudio)
 
 	pcm := generateSurroundTestSignal(48000, 960, 6)
 	packet := make([]byte, 4000*enc.Streams())
@@ -826,10 +772,7 @@ func TestMultistreamEncoder_SetApplicationAfterEncodeRejected(t *testing.T) {
 func TestMultistreamEncoder_RestrictedApplications(t *testing.T) {
 	for _, tt := range restrictedApplicationTestCases() {
 		t.Run(tt.name, func(t *testing.T) {
-			enc, err := NewMultistreamEncoderDefault(48000, 6, tt.application)
-			if err != nil {
-				t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
-			}
+			enc := mustNewDefaultMultistreamEncoder(t, 48000, 6, tt.application)
 
 			if got := enc.Application(); got != tt.application {
 				t.Fatalf("Application()=%v want=%v", got, tt.application)
@@ -866,29 +809,20 @@ func TestMultistreamEncoder_RestrictedApplications(t *testing.T) {
 }
 
 func TestMultistreamDecoder_IgnoreExtensions(t *testing.T) {
-	dec, err := NewMultistreamDecoderDefault(48000, 2)
-	if err != nil {
-		t.Fatalf("NewMultistreamDecoderDefault error: %v", err)
-	}
+	dec := mustNewDefaultMultistreamDecoder(t, 48000, 2)
 
 	assertIgnoreExtensionsControls(t, dec)
 }
 
 func TestMultistreamEncoder_OptionalExtensionControls(t *testing.T) {
-	enc, err := NewMultistreamEncoderDefault(48000, 2, ApplicationAudio)
-	if err != nil {
-		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
-	}
+	enc := mustNewDefaultMultistreamEncoder(t, 48000, 2, ApplicationAudio)
 
 	assertOptionalEncoderControls(t, enc)
 	assertSupportedQEXTControl(t, enc)
 }
 
 func TestMultistreamDecoder_OptionalExtensionControls(t *testing.T) {
-	dec, err := NewMultistreamDecoderDefault(48000, 2)
-	if err != nil {
-		t.Fatalf("NewMultistreamDecoderDefault error: %v", err)
-	}
+	dec := mustNewDefaultMultistreamDecoder(t, 48000, 2)
 
 	assertOptionalDecoderControls(t, dec)
 }
@@ -899,15 +833,8 @@ func TestMultistreamDecoder_PLC(t *testing.T) {
 	sampleRate := 48000
 	frameSize := 960
 
-	enc, err := NewMultistreamEncoderDefault(sampleRate, channels, ApplicationAudio)
-	if err != nil {
-		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
-	}
-
-	dec, err := NewMultistreamDecoderDefault(sampleRate, channels)
-	if err != nil {
-		t.Fatalf("NewMultistreamDecoderDefault error: %v", err)
-	}
+	enc := mustNewDefaultMultistreamEncoder(t, sampleRate, channels, ApplicationAudio)
+	dec := mustNewDefaultMultistreamDecoder(t, sampleRate, channels)
 
 	// Encode and decode first frame (establishes state)
 	pcm1 := generateSurroundTestSignal(sampleRate, frameSize, channels)
@@ -945,15 +872,8 @@ func TestMultistreamRoundTrip_Int16(t *testing.T) {
 	sampleRate := 48000
 	frameSize := 960
 
-	enc, err := NewMultistreamEncoderDefault(sampleRate, channels, ApplicationAudio)
-	if err != nil {
-		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
-	}
-
-	dec, err := NewMultistreamDecoderDefault(sampleRate, channels)
-	if err != nil {
-		t.Fatalf("NewMultistreamDecoderDefault error: %v", err)
-	}
+	enc := mustNewDefaultMultistreamEncoder(t, sampleRate, channels, ApplicationAudio)
+	dec := mustNewDefaultMultistreamDecoder(t, sampleRate, channels)
 
 	// Generate int16 test signal
 	pcmIn := make([]int16, frameSize*channels)
@@ -993,10 +913,7 @@ func TestMultistreamEncoder_Reset(t *testing.T) {
 	sampleRate := 48000
 	frameSize := 960
 
-	enc, err := NewMultistreamEncoderDefault(sampleRate, channels, ApplicationAudio)
-	if err != nil {
-		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
-	}
+	enc := mustNewDefaultMultistreamEncoder(t, sampleRate, channels, ApplicationAudio)
 
 	// Encode a few frames
 	for i := 0; i < 3; i++ {
@@ -1031,15 +948,8 @@ func TestMultistreamDecoder_Reset(t *testing.T) {
 	sampleRate := 48000
 	frameSize := 960
 
-	enc, err := NewMultistreamEncoderDefault(sampleRate, channels, ApplicationAudio)
-	if err != nil {
-		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
-	}
-
-	dec, err := NewMultistreamDecoderDefault(sampleRate, channels)
-	if err != nil {
-		t.Fatalf("NewMultistreamDecoderDefault error: %v", err)
-	}
+	enc := mustNewDefaultMultistreamEncoder(t, sampleRate, channels, ApplicationAudio)
+	dec := mustNewDefaultMultistreamDecoder(t, sampleRate, channels)
 
 	// Decode a few frames
 	pcmOut := make([]float32, frameSize*channels)
@@ -1155,15 +1065,8 @@ func TestMultistreamRoundTrip_AllApplications(t *testing.T) {
 
 	for _, tc := range apps {
 		t.Run(tc.name, func(t *testing.T) {
-			enc, err := NewMultistreamEncoderDefault(sampleRate, channels, tc.app)
-			if err != nil {
-				t.Fatalf("NewMultistreamEncoderDefault(%s) error: %v", tc.name, err)
-			}
-
-			dec, err := NewMultistreamDecoderDefault(sampleRate, channels)
-			if err != nil {
-				t.Fatalf("NewMultistreamDecoderDefault error: %v", err)
-			}
+			enc := mustNewDefaultMultistreamEncoder(t, sampleRate, channels, tc.app)
+			dec := mustNewDefaultMultistreamDecoder(t, sampleRate, channels)
 
 			pcm := generateSurroundTestSignal(sampleRate, frameSize, channels)
 			packet, err := enc.EncodeFloat32(pcm)
@@ -1186,10 +1089,7 @@ func TestMultistreamRoundTrip_AllApplications(t *testing.T) {
 func TestMultistreamEncoder_Lookahead(t *testing.T) {
 	for _, tc := range lookaheadTestCases() {
 		t.Run(tc.name, func(t *testing.T) {
-			enc, err := NewMultistreamEncoderDefault(tc.sampleRate, 6, tc.application)
-			if err != nil {
-				t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
-			}
+			enc := mustNewDefaultMultistreamEncoder(t, tc.sampleRate, 6, tc.application)
 			if got := enc.Lookahead(); got != tc.want {
 				t.Fatalf("Lookahead() = %d, want %d", got, tc.want)
 			}
@@ -1197,10 +1097,7 @@ func TestMultistreamEncoder_Lookahead(t *testing.T) {
 	}
 
 	t.Run("set_application_updates_lookahead_before_encode", func(t *testing.T) {
-		enc, err := NewMultistreamEncoderDefault(48000, 6, ApplicationAudio)
-		if err != nil {
-			t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
-		}
+		enc := mustNewDefaultMultistreamEncoder(t, 48000, 6, ApplicationAudio)
 		assertLookaheadUpdatesBeforeEncode(t, enc.Lookahead, enc.SetApplication)
 	})
 }
@@ -1211,15 +1108,8 @@ func TestMultistreamRoundTrip_Mono(t *testing.T) {
 	sampleRate := 48000
 	frameSize := 960
 
-	enc, err := NewMultistreamEncoderDefault(sampleRate, channels, ApplicationAudio)
-	if err != nil {
-		t.Fatalf("NewMultistreamEncoderDefault error: %v", err)
-	}
-
-	dec, err := NewMultistreamDecoderDefault(sampleRate, channels)
-	if err != nil {
-		t.Fatalf("NewMultistreamDecoderDefault error: %v", err)
-	}
+	enc := mustNewDefaultMultistreamEncoder(t, sampleRate, channels, ApplicationAudio)
+	dec := mustNewDefaultMultistreamDecoder(t, sampleRate, channels)
 
 	// Generate mono test signal
 	pcmIn := make([]float32, frameSize)

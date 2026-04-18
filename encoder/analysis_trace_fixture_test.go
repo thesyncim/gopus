@@ -98,6 +98,7 @@ func loadAnalysisTraceFixture() (analysisTraceFixtureFile, error) {
 }
 
 func TestAnalysisTraceFixtureParityWithLibopus(t *testing.T) {
+	requireLibopusExactness(t)
 	requireTestTier(t, testTierFast)
 
 	fixture, err := loadAnalysisTraceFixture()

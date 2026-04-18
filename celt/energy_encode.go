@@ -4,7 +4,9 @@
 package celt
 
 import (
+	"fmt"
 	"math"
+	"os"
 
 	"github.com/thesyncim/gopus/rangecoding"
 )
@@ -104,6 +106,35 @@ func (e *Encoder) ComputeBandEnergiesInto(mdctCoeffs []float64, nbBands, frameSi
 			}
 
 			energies[c*nbBands+band] = energy
+		}
+	}
+
+	if tmpBandDumpEnabled && (!tmpBandDumpFrameEnabled || e.frameCount == tmpBandDumpFrameValue) {
+		limit := nbBands
+		if limit > 21 {
+			limit = 21
+		}
+		for c := 0; c < channels; c++ {
+			base := c * nbBands
+			channelStart := c * coeffsPerChannel
+			channelEnd := channelStart + coeffsPerChannel
+			if channelEnd > len(mdctCoeffs) {
+				channelEnd = len(mdctCoeffs)
+			}
+			channelCoeffs := mdctCoeffs[channelStart:channelEnd]
+			for band := 0; band < limit; band++ {
+				start := ScaledBandStart(band, frameSize)
+				end := ScaledBandEnd(band, frameSize)
+				if end > len(channelCoeffs) {
+					end = len(channelCoeffs)
+				}
+				raw := 0.5 * math.Log2(1e-27)
+				if start >= 0 && end > start {
+					raw = computeBandRMS(channelCoeffs, start, end)
+				}
+				fmt.Fprintf(os.Stderr, "GOBAND frame=%d ch=%d band=%d start=%d end=%d raw=%.9f logE=%.9f\n",
+					e.frameCount, c, band, start, end, raw, energies[base+band])
+			}
 		}
 	}
 }
@@ -427,7 +458,10 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []float64, startBand, nbBands 
 			coarseError[idx] = float64(f - q)
 			quantizedEnergy := pred + q
 			quantizedEnergies[idx] = float64(quantizedEnergy)
-			if tmpCoarseDumpEnabled && e.frameCount >= 74 && e.frameCount <= 80 && band == 18 && c == 0 {
+			if tmpCoarseDumpEnabled &&
+				c == 0 &&
+				(!tmpCoarseDumpFrameEnabled || e.frameCount == tmpCoarseDumpFrameValue) &&
+				(!tmpCoarseDumpBandEnabled || band == tmpCoarseDumpBandValue) {
 				println("COARSE_DUMP frame", e.frameCount, "band", band, "x", x, "oldE", oldEBand, "pred", pred, "f", f, "qi", qi, "err", float32(coarseError[idx]), "tell", tell, "bitsLeft", bitsLeft)
 			}
 			betaMul := noFMA32Mul(beta32, q)
@@ -1115,7 +1149,10 @@ func (e *Encoder) encodeFineEnergyFromError(quantizedEnergies []float64, nbBands
 			offset := (float32(q2)+0.5)/scale32 - 0.5
 			quantizedEnergies[idx] = float64(float32(quantizedEnergies[idx]) + offset)
 			errorVals[idx] = float64(err - offset)
-			if tmpFineDumpEnabled && e.frameCount >= 74 && e.frameCount <= 80 && band == 18 && c == 0 {
+			if tmpFineDumpEnabled &&
+				c == 0 &&
+				(!tmpFineDumpFrameEnabled || e.frameCount == tmpFineDumpFrameValue) &&
+				(!tmpFineDumpBandEnabled || band == tmpFineDumpBandValue) {
 				println("FINE_DUMP frame", e.frameCount, "band", band, "bits", bits, "err", err, "q2", q2, "offset", offset, "qexpr", qExpr)
 			}
 		}

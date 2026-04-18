@@ -78,7 +78,7 @@ type encoderVariantsBaselineFile struct {
 type encoderVariantsBaselineTC struct {
 	Name             string  `json:"name"`
 	Variant          string  `json:"variant"`
-	MinGapDB         float64 `json:"min_gap_db"`
+	MinGapQ          float64 `json:"min_gap_db"`
 	MaxMeanAbsPacket float64 `json:"max_mean_abs_packet_len"`
 	MaxP95AbsPacket  float64 `json:"max_p95_abs_packet_len"`
 	MaxModeMismatch  float64 `json:"max_mode_mismatch_rate"`
@@ -308,6 +308,14 @@ func TestEncoderVariantsFixtureHonestyWithOpusDemo(t *testing.T) {
 			)
 			if out, err := cmd.CombinedOutput(); err != nil {
 				t.Fatalf("opus_demo encode failed: %v (%s)", err, out)
+			} else if len(out) > 0 && (os.Getenv("GOPUS_TMP_LIB_STAGE_DBG") != "" ||
+				os.Getenv("GOPUS_TMP_LIBDYNDBG") != "" ||
+				os.Getenv("GOPUS_TMP_LIB_PRE_DBG") != "" ||
+				os.Getenv("GOPUS_TMP_LIB_MDCT_DBG") != "" ||
+				os.Getenv("GOPUS_TMP_LIB_AMP_DBG") != "" ||
+				os.Getenv("GOPUS_TMP_LIB_QB_DBG") != "" ||
+				os.Getenv("GOPUS_TMP_LIB_PVQ_DBG") != "") {
+				t.Logf("opus_demo output:\n%s", out)
 			}
 			gotPackets, gotRanges, err := parseOpusDemoEncodeBitstream(bitPath)
 			if err != nil {
@@ -362,8 +370,10 @@ func TestEncoderVariantsFixtureHonestyWithOpusDemo(t *testing.T) {
 }
 
 type encoderVariantParityThreshold struct {
-	minGapDB            float64
-	maxGapDB            float64
+	// Variant quality is tracked as a lower-bound gap against libopus.
+	// Positive deltas are allowed because the quality-first workflow no longer
+	// treats "better than libopus" as a regression.
+	minGapQ             float64
 	maxMeanAbsPacketLen float64
 	maxP95AbsPacketLen  float64
 	maxModeMismatchRate float64
@@ -372,8 +382,7 @@ type encoderVariantParityThreshold struct {
 
 func encoderVariantThreshold(c encoderComplianceVariantsFixtureCase) encoderVariantParityThreshold {
 	out := encoderVariantParityThreshold{
-		minGapDB:            -8.0,
-		maxGapDB:            20.0,
+		minGapQ:             -4.0,
 		maxMeanAbsPacketLen: 150.0,
 		maxP95AbsPacketLen:  320.0,
 		maxModeMismatchRate: 1.0,
@@ -386,17 +395,14 @@ func encoderVariantThreshold(c encoderComplianceVariantsFixtureCase) encoderVari
 		out.maxP95AbsPacketLen = 450.0
 		out.maxModeMismatchRate = 0.0
 		out.maxHistogramL1 = 0.0
-		out.maxGapDB = 2.0
 	case "silk":
-		out.minGapDB = -3.0
-		out.maxGapDB = 30.0
+		out.minGapQ = -2.0
 		out.maxMeanAbsPacketLen = 90.0
 		out.maxP95AbsPacketLen = 180.0
 		out.maxModeMismatchRate = 0.0
 		out.maxHistogramL1 = 0.0
 	case "hybrid":
-		out.minGapDB = -35.0
-		out.maxGapDB = 12.0
+		out.minGapQ = -6.0
 		out.maxMeanAbsPacketLen = 45.0
 		out.maxP95AbsPacketLen = 110.0
 		out.maxModeMismatchRate = 1.0
@@ -454,7 +460,7 @@ func baselineMarginForMode(mode string) (gap, meanMul, p95Mul, modeAdd, histAdd 
 	}
 }
 
-func buildBaselineCase(c encoderComplianceVariantsFixtureCase, gapDB float64, stats encoderPacketProfileStats) encoderVariantsBaselineTC {
+func buildBaselineCase(c encoderComplianceVariantsFixtureCase, gapQ float64, stats encoderPacketProfileStats) encoderVariantsBaselineTC {
 	gapMargin, meanMul, p95Mul, modeAdd, histAdd := baselineMarginForMode(c.Mode)
 	maxModeMismatch := stats.modeMismatchRate + modeAdd
 	if maxModeMismatch > 1.0 {
@@ -467,7 +473,7 @@ func buildBaselineCase(c encoderComplianceVariantsFixtureCase, gapDB float64, st
 	return encoderVariantsBaselineTC{
 		Name:             c.Name,
 		Variant:          c.Variant,
-		MinGapDB:         gapDB - gapMargin,
+		MinGapQ:          gapQ - gapMargin,
 		MaxMeanAbsPacket: stats.meanAbsPacketLen * (1.0 + meanMul),
 		MaxP95AbsPacket:  stats.p95AbsPacketLen * (1.0 + p95Mul),
 		MaxModeMismatch:  maxModeMismatch,
@@ -726,20 +732,16 @@ type packetQualityResult struct {
 }
 
 func qualityFromPacketsLibopusReferenceDetailed(packets [][]byte, original []float32, channels, frameSize int) (packetQualityResult, error) {
-	decoded, err := decodeVariantsWithLibopusReference(packets, channels, frameSize)
+	// Keep delay search tight to avoid periodic-signal aliasing.
+	maxDelay := 32
+	q, delay, decoded, err := computeOpusCompareQualityFromPacketsWithMaxDelay(packets, original, channels, frameSize, maxDelay)
 	if err != nil {
 		return packetQualityResult{}, err
-	}
-	if len(decoded) == 0 {
-		return packetQualityResult{}, fmt.Errorf("no decoded samples")
 	}
 	compareLen := len(original)
 	if len(decoded) < compareLen {
 		compareLen = len(decoded)
 	}
-	// Keep delay search tight to avoid periodic-signal aliasing.
-	maxDelay := 32
-	q, delay := ComputeQualityFloat32WithDelay(decoded[:compareLen], original[:compareLen], 48000, maxDelay)
 	return packetQualityResult{
 		q:          q,
 		delay:      delay,
@@ -808,23 +810,21 @@ func TestEncoderVariantProfileParityAgainstLibopusFixture(t *testing.T) {
 				if err != nil {
 					t.Fatalf("compute libopus quality from fixture with libopus decode: %v", err)
 				}
-				goSNR := SNRFromQuality(goRes.q)
-				libSNR := SNRFromQuality(libRes.q)
-				gapDB := goSNR - libSNR
+				gapQ := goRes.q - libRes.q
 				payloadMismatch, payloadCompared, firstPayloadMismatch := packetPayloadMismatchStats(libPackets, goPackets)
 
 				thr := encoderVariantThreshold(c)
 				t.Logf(
-					"goSNR=%.2fdB(goBestDelay=%d dec=%d cmp=%d) libSNR=%.2fdB(libBestDelay=%d dec=%d cmp=%d) gap=%.2fdB meanAbs=%.2f p95Abs=%.2f mismatch=%.2f%% histL1=%.3f payloadMismatch=%d/%d firstPayloadMismatch=%d",
-					goSNR,
+					"goQ=%.2f(goBestDelay=%d dec=%d cmp=%d) libQ=%.2f(libBestDelay=%d dec=%d cmp=%d) gapQ=%.2f meanAbs=%.2f p95Abs=%.2f mismatch=%.2f%% histL1=%.3f payloadMismatch=%d/%d firstPayloadMismatch=%d",
+					goRes.q,
 					goRes.delay,
 					goRes.decodedLen,
 					goRes.compareLen,
-					libSNR,
+					libRes.q,
 					libRes.delay,
 					libRes.decodedLen,
 					libRes.compareLen,
-					gapDB,
+					gapQ,
 					stats.meanAbsPacketLen,
 					stats.p95AbsPacketLen,
 					100*stats.modeMismatchRate,
@@ -834,11 +834,8 @@ func TestEncoderVariantProfileParityAgainstLibopusFixture(t *testing.T) {
 					firstPayloadMismatch,
 				)
 
-				if gapDB < thr.minGapDB {
-					t.Fatalf("quality gap regression: gap=%.2f dB < floor %.2f dB", gapDB, thr.minGapDB)
-				}
-				if gapDB > thr.maxGapDB {
-					t.Fatalf("quality gap regression: gap=%.2f dB > ceiling %.2f dB", gapDB, thr.maxGapDB)
+				if gapQ < thr.minGapQ {
+					t.Fatalf("quality gap regression: gapQ=%.2f < floor %.2f", gapQ, thr.minGapQ)
 				}
 				if stats.meanAbsPacketLen > thr.maxMeanAbsPacketLen {
 					t.Fatalf("mean abs packet length diff regression: %.2f > %.2f", stats.meanAbsPacketLen, thr.maxMeanAbsPacketLen)
@@ -857,7 +854,7 @@ func TestEncoderVariantProfileParityAgainstLibopusFixture(t *testing.T) {
 				baselineMu.Lock()
 				seenBaseline[key] = struct{}{}
 				if updateBaseline {
-					generatedBaseline[key] = buildBaselineCase(c, gapDB, stats)
+					generatedBaseline[key] = buildBaselineCase(c, gapQ, stats)
 					baselineMu.Unlock()
 					return
 				}
@@ -866,8 +863,8 @@ func TestEncoderVariantProfileParityAgainstLibopusFixture(t *testing.T) {
 				if !ok {
 					t.Fatalf("missing ratchet baseline for %s", key)
 				}
-				if gapDB < b.MinGapDB {
-					t.Fatalf("ratchet gap regression: %.2f < %.2f", gapDB, b.MinGapDB)
+				if gapQ < b.MinGapQ {
+					t.Fatalf("ratchet gap regression: %.2f < %.2f", gapQ, b.MinGapQ)
 				}
 				if stats.meanAbsPacketLen > b.MaxMeanAbsPacket {
 					t.Fatalf("ratchet meanAbs regression: %.2f > %.2f", stats.meanAbsPacketLen, b.MaxMeanAbsPacket)

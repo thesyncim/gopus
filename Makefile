@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix test test-fast test-race test-race-parity test-fuzz-smoke test-fuzz-safety test-parity test-quality test-quality-extended test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard autoresearch-init autoresearch-preflight autoresearch-eval autoresearch-best autoresearch-loop autoresearch-loop-mixed autoresearch-loop-quality autoresearch-loop-unimplemented autoresearch-loop-performance verify-production verify-production-exhaustive verify-safety release-evidence ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
+.PHONY: lint lint-fix test test-fast test-race test-race-parity test-fuzz-smoke test-fuzz-safety test-parity test-compat test-quality test-quality-extended test-exactness quality-report test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard autoresearch-init autoresearch-preflight autoresearch-eval autoresearch-best autoresearch-loop autoresearch-loop-mixed autoresearch-loop-quality autoresearch-loop-unimplemented autoresearch-loop-performance verify-production verify-production-exhaustive verify-safety release-evidence ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
@@ -30,6 +30,7 @@ DOCKER_EXHAUSTIVE_CACHE_SUFFIX := $(subst /,-,$(DOCKER_EXHAUSTIVE_PLATFORM))
 DOCKER_BUILDX_CACHE_DIR := $(DOCKER_CACHE_DIR)/buildx-$(DOCKER_CACHE_SUFFIX)
 DOCKER_EXHAUSTIVE_BUILDX_CACHE_DIR := $(DOCKER_CACHE_DIR)/buildx-$(DOCKER_EXHAUSTIVE_CACHE_SUFFIX)
 RELEASE_EVIDENCE_DIR ?= reports/release
+QUALITY_REPORT_DIR ?= reports/quality
 GOPUS_SAFETY_FUZZTIME ?= 12s
 GOPUS_SAFETY_PARSER_FUZZTIME ?= $(GOPUS_SAFETY_FUZZTIME)
 GOPUS_SAFETY_SOAK_DURATION ?= 30s
@@ -82,13 +83,29 @@ test-fuzz-safety: ensure-libopus
 test-parity:
 	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test ./testvectors -run 'TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard|TestDecoderParityLibopusMatrix|TestDecoderParityMatrixWithFFmpeg|TestEncoderVariantProfileParityAgainstLibopusFixture' -count=1
 
-# Quality-first inner-loop gate with verbose compliance telemetry.
+# Compatibility-focused parity checks that should stay green even when exact
+# libopus-internal math is allowed to drift.
+test-compat:
+	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test ./testvectors -run 'TestDecoderLossParityLibopusFixture|TestDecoderHybridToCELT10msTransitionParity|TestDecoderHybridToCELT20msTransitionParity' -count=1 -v
+
+# Quality-first inner-loop gate with the real opus_compare metric.
 test-quality:
-	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test ./testvectors -run 'TestSILKParamTraceAgainstLibopus|TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard|TestEncoderVariantProfileParityAgainstLibopusFixture|TestDecoderParityLibopusMatrix|TestDecoderLossParityLibopusFixture|TestDecoderHybridToCELT10msTransitionParity|TestDecoderHybridToCELT20msTransitionParity' -count=1 -v
+	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test ./testvectors -run 'TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard|TestEncoderVariantProfileParityAgainstLibopusFixture|TestDecoderParityLibopusMatrix' -count=1 -v
 
 # Optional extended compatibility coverage that may self-skip when ffmpeg is unavailable.
 test-quality-extended:
 	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test ./testvectors -run 'TestDecoderParityMatrixWithFFmpeg' -count=1
+
+# Optional libopus-internal exactness checks. These are intentionally not part
+# of the default production gate so math optimizations can move while quality
+# and interoperability stay enforced.
+test-exactness:
+	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 GOPUS_LIBOPUS_EXACTNESS=1 $(GO_WORK_ENV) $(GO) test ./testvectors -run 'TestLibopusTraceSILKWB|TestSILKParamTraceAgainstLibopus' -count=1
+	GOPUS_TEST_TIER=fast GOPUS_LIBOPUS_EXACTNESS=1 $(GO_WORK_ENV) $(GO) test ./encoder -run 'TestModeTraceFixtureParityWithLibopus|TestAnalysisTraceFixtureParityWithLibopus' -count=1
+
+# Compact markdown summary for the quality + compatibility gates.
+quality-report: ensure-libopus
+	$(GO_WORK_ENV) $(GO) run ./tools/qualityreport -out-dir $(QUALITY_REPORT_DIR)
 
 # Native assembly/fallback validation matrix.
 test-assembly-safety: ensure-libopus

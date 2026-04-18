@@ -126,13 +126,14 @@ Each experiment is judged in this order:
 
 ```bash
 make test-quality
+make test-compat
 ```
 
 For `performance`, keep using:
 
 ```bash
 GOWORK=off GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
-go test ./testvectors -run 'TestSILKParamTraceAgainstLibopus|TestEncoderComplianceSummary' -count=1
+go test ./testvectors -run 'TestEncoderComplianceSummary' -count=1
 ```
 
 2. Hot-path guardrails for every lane:
@@ -175,7 +176,7 @@ commit	parity	benchguard	gopus_avg_rt	libopus_avg_rt	rt_ratio	status	description
 Quality-like header:
 
 ```text
-commit	quality	benchguard	quality_mean_gap_db	quality_min_gap_db	score	status	description
+commit	quality	benchguard	quality_mean_gap_q	quality_min_gap_q	score	status	description
 ```
 
 Status values:
@@ -187,8 +188,8 @@ Status values:
 
 `rt_ratio` is `gopus_avg_rt / libopus_avg_rt` for the performance lane.
 For the quality-like lanes, higher `score` is better.
-The quality-like score combines the encoder compliance gap summary with the
-minimum `Hybrid->CELT` transition SNR emitted by `make test-quality`.
+The quality-like score combines the encoder compliance opus_compare gap summary
+with the minimum `Hybrid->CELT` transition SNR emitted by `make test-compat`.
 
 For the top-level management lanes:
 

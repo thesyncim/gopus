@@ -25,6 +25,67 @@ var tmpEnergyPredMulNativeEnabled = tmpGetenv("GOPUS_TMP_ENERGY_PRED_MUL_NATIVE"
 var tmpDisablePostfilterEnabled = tmpGetenv("GOPUS_TMP_DISABLE_POSTFILTER") == "1"
 var tmpCoarseDumpEnabled = tmpGetenv("GOPUS_TMP_COARSE_DUMP") == "1"
 var tmpFineDumpEnabled = tmpGetenv("GOPUS_TMP_FINE_DUMP") == "1"
+var tmpBandDumpEnabled = tmpGetenv("GOPUS_TMP_BAND_DUMP") == "1"
+
+var tmpCoarseDumpFrameValue, tmpCoarseDumpFrameEnabled = func() (int, bool) {
+	s := tmpGetenv("GOPUS_TMP_COARSE_DUMP_FRAME")
+	if s == "" {
+		return 0, false
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, false
+	}
+	return v, true
+}()
+
+var tmpCoarseDumpBandValue, tmpCoarseDumpBandEnabled = func() (int, bool) {
+	s := tmpGetenv("GOPUS_TMP_COARSE_DUMP_BAND")
+	if s == "" {
+		return 0, false
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, false
+	}
+	return v, true
+}()
+
+var tmpFineDumpFrameValue, tmpFineDumpFrameEnabled = func() (int, bool) {
+	s := tmpGetenv("GOPUS_TMP_FINE_DUMP_FRAME")
+	if s == "" {
+		return 0, false
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, false
+	}
+	return v, true
+}()
+
+var tmpFineDumpBandValue, tmpFineDumpBandEnabled = func() (int, bool) {
+	s := tmpGetenv("GOPUS_TMP_FINE_DUMP_BAND")
+	if s == "" {
+		return 0, false
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, false
+	}
+	return v, true
+}()
+
+var tmpBandDumpFrameValue, tmpBandDumpFrameEnabled = func() (int, bool) {
+	s := tmpGetenv("GOPUS_TMP_BAND_DUMP_FRAME")
+	if s == "" {
+		return 0, false
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, false
+	}
+	return v, true
+}()
 
 var tmpFineQEpsValue, tmpFineQEpsEnabled = func() (float64, bool) {
 	s := tmpGetenv("GOPUS_TMP_FINE_Q_EPS")

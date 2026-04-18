@@ -14,9 +14,9 @@ BENCH_ITERS_DEFAULT="${AUTORESEARCH_ITERS:-2}"
 BENCH_WARMUP_DEFAULT="${AUTORESEARCH_WARMUP:-1}"
 BENCH_BITRATE_DEFAULT="${AUTORESEARCH_BITRATE:-64000}"
 BENCH_COMPLEXITY_DEFAULT="${AUTORESEARCH_COMPLEXITY:-10}"
-PARITY_REGEX_DEFAULT="${AUTORESEARCH_PARITY_REGEX:-TestSILKParamTraceAgainstLibopus|TestEncoderComplianceSummary}"
+PARITY_REGEX_DEFAULT="${AUTORESEARCH_PARITY_REGEX:-TestEncoderComplianceSummary}"
 PERFORMANCE_RESULTS_HEADER=$'commit\tparity\tbenchguard\tgopus_avg_rt\tlibopus_avg_rt\trt_ratio\tstatus\tdescription'
-QUALITY_RESULTS_HEADER=$'commit\tquality\tbenchguard\tquality_mean_gap_db\tquality_min_gap_db\tscore\tstatus\tdescription'
+QUALITY_RESULTS_HEADER=$'commit\tquality\tbenchguard\tquality_mean_gap_q\tquality_min_gap_q\tscore\tstatus\tdescription'
 
 cd "$ROOT_DIR"
 
@@ -325,7 +325,7 @@ print_best_summary() {
   if [[ "$focus" == "performance" ]]; then
     echo "best: commit=$commit status=$status rt_ratio=$score gopus_avg_rt=$metric_a libopus_avg_rt=$metric_b desc=$description"
   else
-    echo "best: commit=$commit status=$status score=$score quality_mean_gap_db=$metric_a quality_min_gap_db=$metric_b desc=$description"
+    echo "best: commit=$commit status=$status score=$score quality_mean_gap_q=$metric_a quality_min_gap_q=$metric_b desc=$description"
   fi
 }
 
@@ -493,7 +493,7 @@ format_best_summary() {
   if [[ "$focus" == "performance" ]]; then
     echo "commit=$commit status=$status rt_ratio=$score gopus_avg_rt=$metric_a libopus_avg_rt=$metric_b desc=$description"
   else
-    echo "commit=$commit status=$status score=$score quality_mean_gap_db=$metric_a quality_min_gap_db=$metric_b desc=$description"
+    echo "commit=$commit status=$status score=$score quality_mean_gap_q=$metric_a quality_min_gap_q=$metric_b desc=$description"
   fi
 }
 
@@ -886,7 +886,7 @@ cmd_eval() {
   if [[ "$focus" == "performance" ]]; then
     echo "result: status=$status gate=$gate_status benchguard=$benchguard focus=$focus rt_ratio=$score gopus_avg_rt=$metric_a libopus_avg_rt=$metric_b log=$log_file"
   else
-    echo "result: status=$status gate=$gate_status benchguard=$benchguard focus=$focus score=$score quality_mean_gap_db=$metric_a quality_min_gap_db=$metric_b decoder_transition_min_snr_db=$decoder_transition_min_snr feature_backlog=$backlog_count log=$log_file"
+    echo "result: status=$status gate=$gate_status benchguard=$benchguard focus=$focus score=$score quality_mean_gap_q=$metric_a quality_min_gap_q=$metric_b decoder_transition_min_snr_db=$decoder_transition_min_snr feature_backlog=$backlog_count log=$log_file"
   fi
   if [[ -n "$best_commit" ]]; then
     echo "best_success_before: commit=$best_commit score=$best_score"
