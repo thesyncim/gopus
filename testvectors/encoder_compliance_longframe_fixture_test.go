@@ -108,11 +108,9 @@ func TestLongFrameLibopusReferenceParityFromFixture(t *testing.T) {
 				t.Fatalf("run fixture reference case: %v", err)
 			}
 
-			snr := SNRFromQuality(q)
-			libSNR := SNRFromQuality(libQ)
-			gapDB := snr - libSNR
-			if gapDB < -EncoderLibopusSpeechGapTightDB {
-				t.Fatalf("long-frame libopus gap regressed: gap=%.2f dB (q=%.2f libQ=%.2f)", gapDB, q, libQ)
+			gapQ := q - libQ
+			if gapQ < -EncoderLibopusSpeechGapTightQ {
+				t.Fatalf("long-frame libopus gap regressed: gapQ=%.2f (q=%.2f libQ=%.2f)", gapQ, q, libQ)
 			}
 		})
 	}

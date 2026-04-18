@@ -66,7 +66,8 @@ type bandCtx struct {
 	remainingBits   int
 	intensity       int
 	band            int
-	seed            *uint32
+	seed            uint32
+	seedActive      bool
 	resynth         bool
 	disableInv      bool
 	avoidSplitNoise bool
@@ -1799,12 +1800,12 @@ func stereoSplit(x, y []float64) {
 	if len(y) < n {
 		n = len(y)
 	}
-	invSqrt2 := 1.0 / math.Sqrt(2.0)
+	const invSqrt2 float32 = 0.7071067811865476
 	for i := 0; i < n; i++ {
-		l := x[i] * invSqrt2
-		r := y[i] * invSqrt2
-		x[i] = l + r
-		y[i] = r - l
+		l := invSqrt2 * float32(x[i])
+		r := invSqrt2 * float32(y[i])
+		x[i] = float64(l + r)
+		y[i] = float64(r - l)
 	}
 }
 
@@ -1822,14 +1823,16 @@ func intensityStereoWeighted(x, y []float64, leftEnergy, rightEnergy float64) {
 	if rightEnergy < 0 {
 		rightEnergy = 0
 	}
-	norm := math.Sqrt(leftEnergy*leftEnergy + rightEnergy*rightEnergy)
-	if norm <= 0 {
+	left := float32(leftEnergy)
+	right := float32(rightEnergy)
+	norm := float32(math.Sqrt(float64(left*left + right*right)))
+	if !(norm > 0) {
 		return
 	}
-	a1 := leftEnergy / norm
-	a2 := rightEnergy / norm
+	a1 := left / norm
+	a2 := right / norm
 	for i := 0; i < n; i++ {
-		x[i] = a1*x[i] + a2*y[i]
+		x[i] = float64(a1*float32(x[i]) + a2*float32(y[i]))
 	}
 }
 
@@ -2561,8 +2564,8 @@ func quantPartitionEncodeWithExtBudget(ctx *bandCtx, x []float64, n, b, B int, l
 	if tmpQDebugEnabled && ctx.encode &&
 		((encodeFrame >= 20 && encodeFrame <= 23) || (encodeFrame <= 1 && ctx.band >= 17)) {
 		seedVal := uint32(0)
-		if ctx.seed != nil {
-			seedVal = *ctx.seed
+		if ctx.seedActive {
+			seedVal = ctx.seed
 		}
 		fmt.Fprintf(os.Stderr, "QDBG frame=%d band=%d n=%d B=%d lm=%d b=%d rem_before=%d q_init=%d q_final=%d k=%d currBits=%d rem_after=%d seed=%d\n",
 			encodeFrame, ctx.band, n, B, lm, b, remBefore, qInit, q, getPulses(q), currBits, ctx.remainingBits, seedVal)
@@ -2595,8 +2598,8 @@ func quantPartitionEncodeWithExtBudget(ctx *bandCtx, x []float64, n, b, B int, l
 			return
 		}
 		seedVal := uint32(0)
-		if ctx.seed != nil {
-			seedVal = *ctx.seed
+		if ctx.seedActive {
+			seedVal = ctx.seed
 		}
 		fmt.Fprintf(os.Stderr, "ZQ75GO frame=%d band=%d n=%d kind=%s fill=%d seed=%d x=",
 			encodeFrame, ctx.band, n, kind, fill, seedVal)
@@ -2615,12 +2618,16 @@ func quantPartitionEncodeWithExtBudget(ctx *bandCtx, x []float64, n, b, B int, l
 			return 0, x
 		}
 		if lowband == nil {
-			if !seededZeroPulseResynth(x, nil, ctx.seed, gain) {
-				if ctx.seed != nil {
+			var seedPtr *uint32
+			if ctx.seedActive {
+				seedPtr = &ctx.seed
+			}
+			if !seededZeroPulseResynth(x, nil, seedPtr, gain) {
+				if ctx.seedActive {
 					for i := range x {
-						*ctx.seed = (*ctx.seed)*1664525 + 1013904223
+						ctx.seed = ctx.seed*1664525 + 1013904223
 						// Match libopus: arithmetic shift on signed seed before scaling.
-						x[i] = float64(int32(*ctx.seed) >> 20)
+						x[i] = float64(int32(ctx.seed) >> 20)
 					}
 				}
 				renormalizeVector(x, gain)
@@ -2628,12 +2635,16 @@ func quantPartitionEncodeWithExtBudget(ctx *bandCtx, x []float64, n, b, B int, l
 			dumpZeroState("noise")
 			return cmMask, x
 		}
-		if !seededZeroPulseResynth(x, lowband, ctx.seed, gain) {
-			if ctx.seed != nil {
+		var seedPtr *uint32
+		if ctx.seedActive {
+			seedPtr = &ctx.seed
+		}
+		if !seededZeroPulseResynth(x, lowband, seedPtr, gain) {
+			if ctx.seedActive {
 				for i := range x {
-					*ctx.seed = (*ctx.seed)*1664525 + 1013904223
+					ctx.seed = ctx.seed*1664525 + 1013904223
 					tmp := 1.0 / 256.0
-					if (*ctx.seed & 0x8000) == 0 {
+					if (ctx.seed & 0x8000) == 0 {
 						tmp = -tmp
 					}
 					if i < len(lowband) {
@@ -2782,23 +2793,31 @@ func quantPartitionDecodeWithExtBudget(ctx *bandCtx, x []float64, n, b, B int, l
 			return 0
 		}
 		if lowband == nil {
-			if !seededZeroPulseResynth(x, nil, ctx.seed, gain) {
-				if ctx.seed != nil {
+			var seedPtr *uint32
+			if ctx.seedActive {
+				seedPtr = &ctx.seed
+			}
+			if !seededZeroPulseResynth(x, nil, seedPtr, gain) {
+				if ctx.seedActive {
 					for i := range x {
-						*ctx.seed = (*ctx.seed)*1664525 + 1013904223
-						x[i] = float64(int32(*ctx.seed) >> 20)
+						ctx.seed = ctx.seed*1664525 + 1013904223
+						x[i] = float64(int32(ctx.seed) >> 20)
 					}
 				}
 				renormalizeVector(x, gain)
 			}
 			return cmMask
 		}
-		if !seededZeroPulseResynth(x, lowband, ctx.seed, gain) {
-			if ctx.seed != nil {
+		var seedPtr *uint32
+		if ctx.seedActive {
+			seedPtr = &ctx.seed
+		}
+		if !seededZeroPulseResynth(x, lowband, seedPtr, gain) {
+			if ctx.seedActive {
 				for i := range x {
-					*ctx.seed = (*ctx.seed)*1664525 + 1013904223
+					ctx.seed = ctx.seed*1664525 + 1013904223
 					tmp := 1.0 / 256.0
-					if (*ctx.seed & 0x8000) == 0 {
+					if (ctx.seed & 0x8000) == 0 {
 						tmp = -tmp
 					}
 					if i < len(lowband) {
@@ -3594,7 +3613,6 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 		spread:          spread,
 		remainingBits:   0,
 		intensity:       intensity,
-		seed:            seed,
 		resynth:         true,
 		disableInv:      disableInv,
 		avoidSplitNoise: B > 1,
@@ -3607,6 +3625,10 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 		cacheIndex:      cacheIndex,
 		cacheBits:       cacheBits,
 		bandCaps:        bandCapsSlice,
+	}
+	if seed != nil {
+		ctx.seed = *seed
+		ctx.seedActive = true
 	}
 	extBalance := 0
 	extTell := 0
@@ -3783,6 +3805,9 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 		updateLowband = b > (nBand << bitRes)
 		ctx.avoidSplitNoise = false
 	}
+	if seed != nil {
+		*seed = ctx.seed
+	}
 
 	return left, right, collapse
 }
@@ -3935,7 +3960,6 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 		cacheIndex:    cacheIndex,
 		cacheBits:     cacheBits,
 		bandCaps:      bandCapsSlice,
-		seed:          seed,
 		// Match libopus encode-side default: resynth only when theta RDO is active.
 		// (decode path remains resynth=true).
 		resynth:         thetaRDOEnabled,
@@ -3944,6 +3968,10 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 		tapset:          tapset,
 		encScratch:      scratch,
 		debug:           debug,
+	}
+	if seed != nil {
+		ctx.seed = *seed
+		ctx.seedActive = true
 	}
 	if ctx.channels > 0 && ctx.bandE != nil {
 		ctx.nbBands = len(ctx.bandE) / ctx.channels
@@ -4278,6 +4306,9 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 
 		updateLowband = b > (nBand << bitRes)
 		ctx.avoidSplitNoise = false
+	}
+	if seed != nil {
+		*seed = ctx.seed
 	}
 
 	return collapse

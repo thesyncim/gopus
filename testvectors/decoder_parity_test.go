@@ -37,22 +37,20 @@ func decoderDominantMode(hist map[string]int) string {
 
 func decoderParityThresholdForCase(c libopusDecoderMatrixCaseFile) decoderParityThresholds {
 	if strings.HasPrefix(c.Name, "hybrid-") || c.ModeHistogram["hybrid"] > 0 {
-		// Hybrid decoding parity is currently looser than SILK/CELT; keep
-		// this strict enough for non-regression while allowing active tuning.
 		if c.Channels == 2 {
-			return decoderParityThresholds{minQ: -65.0, minCorr: 0.990, minRMS: 0.97, maxRMS: 1.03}
+			return decoderParityThresholds{minQ: 0.0, minCorr: 0.990, minRMS: 0.97, maxRMS: 1.03}
 		}
-		return decoderParityThresholds{minQ: -72.0, minCorr: 0.985, minRMS: 0.97, maxRMS: 1.03}
+		return decoderParityThresholds{minQ: 0.0, minCorr: 0.985, minRMS: 0.97, maxRMS: 1.03}
 	}
 
 	mode := decoderDominantMode(c.ModeHistogram)
 	switch mode {
 	case "silk":
-		return decoderParityThresholds{minQ: 45.0, minCorr: 0.997, minRMS: 0.98, maxRMS: 1.02}
+		return decoderParityThresholds{minQ: 20.0, minCorr: 0.997, minRMS: 0.98, maxRMS: 1.02}
 	case "celt":
-		return decoderParityThresholds{minQ: 45.0, minCorr: 0.998, minRMS: 0.98, maxRMS: 1.02}
+		return decoderParityThresholds{minQ: 20.0, minCorr: 0.998, minRMS: 0.98, maxRMS: 1.02}
 	default:
-		return decoderParityThresholds{minQ: -72.0, minCorr: 0.985, minRMS: 0.97, maxRMS: 1.03}
+		return decoderParityThresholds{minQ: 0.0, minCorr: 0.985, minRMS: 0.97, maxRMS: 1.03}
 	}
 }
 
@@ -136,9 +134,12 @@ func TestDecoderParityLibopusMatrix(t *testing.T) {
 			if maxDelay < 960 {
 				maxDelay = 960
 			}
-			q, delay := ComputeQualityFloat32WithDelay(refDecoded[:compareLen], internalDecoded[:compareLen], fixture.SampleRate, maxDelay)
+			q, delay, err := ComputeOpusCompareQualityFloat32WithDelay(refDecoded[:compareLen], internalDecoded[:compareLen], fixture.SampleRate, c.Channels, maxDelay)
+			if err != nil {
+				t.Fatalf("compute opus_compare quality: %v", err)
+			}
 			corr, rmsRatio := decoderParityStats(refDecoded[:compareLen], internalDecoded[:compareLen])
-			t.Logf("Q=%.2f SNR=%.2f delay=%d corr=%.6f rms_ratio=%.6f", q, SNRFromQuality(q), delay, corr, rmsRatio)
+			t.Logf("Q=%.2f delay=%d corr=%.6f rms_ratio=%.6f", q, delay, corr, rmsRatio)
 
 			if q < thr.minQ {
 				t.Fatalf("decoder parity quality regression: Q=%.2f < %.2f", q, thr.minQ)

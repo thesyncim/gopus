@@ -75,25 +75,28 @@ make autoresearch-best
 make autoresearch-loop MAX_ITERATIONS=5
 make autoresearch-loop-quality
 make autoresearch-loop-unimplemented
+make quality-report
 ```
 
 The default mixed/quality judge is:
 
 1. `make test-quality`
-2. `make bench-guard`
-3. `go test ./examples/mix-arrivals -count=1` for the allowlisted unimplemented seed (`mix-arrivals-f32wav`)
+2. `make test-compat`
+3. `make bench-guard`
+4. `go test ./examples/mix-arrivals -count=1` for the allowlisted unimplemented seed (`mix-arrivals-f32wav`)
 
-The `quality` and `mixed` score also incorporates the minimum
-`Hybrid->CELT` transition SNR reported by the focused decoder transition parity
-tests, so decoder transition wins can move the loop instead of only acting as
-gates.
+`make test-quality` now uses the pinned libopus `opus_compare` metric for
+encoder/decoder quality tracking against libopus reference packets. Keep
+`make test-exactness` as an explicit opt-in when you want libopus-internal trace
+and state exactness checks in addition to compatibility and quality tracking.
+`make quality-report` runs the same `test-quality` and `test-compat` gates and
+writes a compact Markdown summary plus structured logs to `reports/quality/`.
 
 The performance lane keeps:
 
-1. `TestSILKParamTraceAgainstLibopus`
-2. `TestEncoderComplianceSummary`
-3. `make bench-guard`
-4. `examples/bench-encode` speech throughput against `libopus`
+1. `TestEncoderComplianceSummary`
+2. `make bench-guard`
+3. `examples/bench-encode` speech throughput against `libopus`
 
 Before any editable loop run, open the draft PR claim first so other workers can
 see the active lane, surface, owner, blocker, and latest attempts. The

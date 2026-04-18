@@ -33,6 +33,9 @@ var (
 )
 
 func libopusComplianceReferenceAvailable() bool {
+	if _, err := loadEncoderCompliancePacketsFixture(); err == nil {
+		return true
+	}
 	_, err := loadEncoderComplianceReferenceQFixture()
 	return err == nil
 }

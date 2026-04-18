@@ -110,8 +110,11 @@ func TestDecoderParityMatrixWithFFmpeg(t *testing.T) {
 			if maxDelay < 960 {
 				maxDelay = 960
 			}
-			q, delay := ComputeQualityFloat32WithDelay(refDecoded[:compareLen], ffmpegDecoded[:compareLen], 48000, maxDelay)
-			t.Logf("ffmpeg parity: Q=%.2f SNR=%.2f delay=%d", q, SNRFromQuality(q), delay)
+			q, delay, err := ComputeOpusCompareQualityFloat32WithDelay(refDecoded[:compareLen], ffmpegDecoded[:compareLen], 48000, c.Channels, maxDelay)
+			if err != nil {
+				t.Fatalf("compute opus_compare quality: %v", err)
+			}
+			t.Logf("ffmpeg parity: Q=%.2f delay=%d", q, delay)
 			if q < minQ {
 				t.Fatalf("ffmpeg parity regression: Q=%.2f < %.2f", q, minQ)
 			}

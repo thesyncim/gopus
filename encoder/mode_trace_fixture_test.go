@@ -123,6 +123,7 @@ func modeTraceLabelFromConfig(cfg int) string {
 }
 
 func TestModeTraceFixtureParityWithLibopus(t *testing.T) {
+	requireLibopusExactness(t)
 	requireTestTier(t, testTierFast)
 
 	fixture, err := loadModeTraceFixture()

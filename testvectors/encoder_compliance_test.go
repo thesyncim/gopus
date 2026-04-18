@@ -1,7 +1,7 @@
 // Package testvectors provides encoder compliance testing.
 // This file validates gopus encoder output by encoding raw PCM audio,
-// decoding with libopus (opusdec CLI), and comparing decoded audio to
-// original input using SNR-based quality metrics.
+// decoding with libopus, and comparing decoded audio to the original input
+// using the pinned libopus opus_compare quality metric.
 package testvectors
 
 import (
@@ -24,55 +24,42 @@ import (
 
 // Quality thresholds for encoder compliance.
 //
-// Primary compliance target: relative parity against libopus reference fixtures.
-// Gap is measured as (gopus SNR - libopus SNR), and parity thresholds are used
-// whenever libopus reference fixtures are available.
+// Primary compliance target: relative parity against libopus reference packets
+// measured with the real opus_compare metric. Gap is reported as
+// (gopus opus_compare Q - libopus opus_compare Q), so larger is better.
 //
-// Absolute Q thresholds are fallback-only and are used when libopus fixtures
-// are unavailable for a given case. These are calibrated against what libopus
-// itself achieves in the same round-trip test (encode → decode → compare):
-//
-//   - CELT best:   Q ≈ -18  (39 dB SNR)
-//   - SILK WB:     Q ≈ -50  (24 dB SNR)
-//   - SILK NB:     Q ≈ -65  (17 dB SNR)
-//   - Hybrid:      Q ≈ -51  (24 dB SNR)
-//
-// Note: Q >= 0 (48 dB SNR) is the RFC 8251 *decoder* compliance threshold.
-// No encoder — including libopus — achieves that in round-trip tests because
-// lossy encoding inherently reduces SNR.
+// Absolute thresholds are fallback-only and apply when no libopus reference
+// packets are available for a given case.
 const (
-	// EncoderQualityThreshold is the absolute regression guard.
-	// Set below the worst libopus case (SILK NB ≈ -65) with margin for
-	// gopus development. Any result below this is a clear regression.
-	EncoderQualityThreshold = -80.0 // 9.6 dB SNR — below worst libopus case
+	// EncoderQualityThreshold is the absolute regression guard when no libopus
+	// packet reference is available.
+	EncoderQualityThreshold = 0.0
 
-	// EncoderGoodThreshold indicates quality comparable to libopus CELT.
-	// libopus CELT best is Q ≈ -18; this threshold is generous.
-	EncoderGoodThreshold = -30.0 // 33.6 dB SNR
+	// EncoderGoodThreshold indicates comfortably positive opus_compare quality.
+	EncoderGoodThreshold = 20.0
 
 	// Pre-skip samples as defined in Ogg Opus header
 	OpusPreSkip = 312
 
 	// Relative quality targets versus libopus reference (when available).
-	// Gap is reported as (gopus SNR - libopus SNR).
-	// Current worst observed gap is -0.42 dB (SILK NB 10ms).
-	EncoderLibopusGapGoodDB = -0.5
-	EncoderLibopusGapBaseDB = -1.0
+	// Gap is reported as (gopus Q - libopus Q).
+	EncoderLibopusGapGoodQ = -0.5
+	EncoderLibopusGapBaseQ = -2.0
 
-	// For SILK/Hybrid, we expect close libopus alignment after parity fixes.
-	// Current worst observed absolute gap is 0.69 dB (SILK NB 40ms).
-	EncoderLibopusSpeechGapTightDB = 1.0
+	// For SILK/Hybrid, we still guard against suspicious overshoot or undershoot
+	// relative to libopus, but with the real perceptual metric rather than dB.
+	EncoderLibopusSpeechGapTightQ = 6.0
 )
 
 var encoderComplianceLogOnce sync.Once
 
 func logEncoderComplianceStatus(t *testing.T) {
 	encoderComplianceLogOnce.Do(func() {
-		t.Log("TARGET: Encoder compliance is parity-first against libopus fixture references.")
-		t.Logf("TARGET: Gap thresholds (gopus SNR - libopus SNR): GOOD >= %.1f dB, BASE >= %.1f dB", EncoderLibopusGapGoodDB, EncoderLibopusGapBaseDB)
-		t.Logf("TARGET: Precision floors: per-profile libopus gap floors with %.2f dB measurement tolerance", encoderLibopusGapMeasurementToleranceDB)
-		t.Logf("TARGET: SILK/Hybrid parity guard: |gap| <= %.1f dB", EncoderLibopusSpeechGapTightDB)
-		t.Log("FALLBACK: Absolute Q thresholds (calibrated against libopus round-trip values) apply when fixtures unavailable.")
+		t.Log("TARGET: Encoder compliance is parity-first against libopus packet references measured with opus_compare.")
+		t.Logf("TARGET: Gap thresholds (gopus Q - libopus Q): GOOD >= %.1f, BASE >= %.1f", EncoderLibopusGapGoodQ, EncoderLibopusGapBaseQ)
+		t.Logf("TARGET: Precision floors: per-profile libopus Q-gap floors with %.2f Q tolerance", encoderLibopusGapMeasurementToleranceQ)
+		t.Logf("TARGET: SILK/Hybrid parity guard: |gap| <= %.1f Q", EncoderLibopusSpeechGapTightQ)
+		t.Log("FALLBACK: Absolute opus_compare Q thresholds apply only when libopus packet references are unavailable.")
 	})
 }
 
@@ -83,6 +70,68 @@ type encoderComplianceSummaryCase struct {
 	frameSize int
 	channels  int
 	bitrate   int
+}
+
+type encoderComplianceCaseKey struct {
+	mode      encoder.Mode
+	bandwidth types.Bandwidth
+	frameSize int
+	channels  int
+	bitrate   int
+}
+
+type encoderComplianceRunResult struct {
+	q                 float64
+	decoded           []float32
+	foundDelay        int
+	decodedLen        int
+	originalLen       int
+	compareLen        int
+	celtTargetSummary string
+}
+
+type encoderComplianceRunEntry struct {
+	once   sync.Once
+	result encoderComplianceRunResult
+	err    error
+}
+
+type libopusComplianceReferenceResult struct {
+	q       float64
+	ok      bool
+	warning string
+}
+
+type libopusComplianceReferenceEntry struct {
+	once   sync.Once
+	result libopusComplianceReferenceResult
+}
+
+var (
+	encoderComplianceRunCache       sync.Map
+	libopusComplianceReferenceCache sync.Map
+)
+
+func encoderComplianceKey(mode encoder.Mode, bandwidth types.Bandwidth, frameSize, channels, bitrate int) encoderComplianceCaseKey {
+	return encoderComplianceCaseKey{
+		mode:      mode,
+		bandwidth: bandwidth,
+		frameSize: frameSize,
+		channels:  channels,
+		bitrate:   bitrate,
+	}
+}
+
+func encoderComplianceRunCacheEntry(key encoderComplianceCaseKey) *encoderComplianceRunEntry {
+	entry := &encoderComplianceRunEntry{}
+	actual, _ := encoderComplianceRunCache.LoadOrStore(key, entry)
+	return actual.(*encoderComplianceRunEntry)
+}
+
+func libopusComplianceReferenceCacheEntry(key encoderComplianceCaseKey) *libopusComplianceReferenceEntry {
+	entry := &libopusComplianceReferenceEntry{}
+	actual, _ := libopusComplianceReferenceCache.LoadOrStore(key, entry)
+	return actual.(*libopusComplianceReferenceEntry)
 }
 
 func encoderComplianceSummaryCases() []encoderComplianceSummaryCase {
@@ -223,13 +272,13 @@ func TestEncoderComplianceSummary(t *testing.T) {
 	if refAvailable {
 		t.Log("Encoder Compliance Summary (Target: libopus reference)")
 		t.Log("======================================================")
-		t.Logf("%-35s %10s %10s %10s %10s %10s %s", "Configuration", "Q", "SNR(dB)", "LibQ", "LibSNR", "Gap(dB)", "Status")
-		t.Logf("%-35s %10s %10s %10s %10s %10s %s", "--------------", "----", "------", "----", "------", "-------", "------")
+		t.Logf("%-35s %10s %10s %10s %s", "Configuration", "Q", "LibQ", "GapQ", "Status")
+		t.Logf("%-35s %10s %10s %10s %s", "--------------", "----", "----", "----", "------")
 	} else {
 		t.Log("Encoder Compliance Summary")
 		t.Log("===========================")
-		t.Logf("%-35s %10s %10s %s", "Configuration", "Q", "SNR(dB)", "Status")
-		t.Logf("%-35s %10s %10s %s", "--------------", "----", "------", "------")
+		t.Logf("%-35s %10s %s", "Configuration", "Q", "Status")
+		t.Logf("%-35s %10s %s", "--------------", "----", "------")
 		t.Log("INFO: libopus reference fixture unavailable; using absolute quality thresholds")
 	}
 
@@ -239,22 +288,20 @@ func TestEncoderComplianceSummary(t *testing.T) {
 	for _, tc := range cases {
 		q, decoded := runEncoderComplianceTest(t, tc.mode, tc.bandwidth, tc.frameSize, tc.channels, tc.bitrate)
 
-		snr := SNRFromQuality(q)
 		var status string
 		if refAvailable {
 			libQ, libDecoded, ok := runLibopusComplianceReferenceTest(t, tc.mode, tc.bandwidth, tc.frameSize, tc.channels, tc.bitrate)
 			_ = libDecoded // decoded samples available for debugging if needed
 			if ok {
-				libSNR := SNRFromQuality(libQ)
-				gapDB := snr - libSNR
-				status, floor := encoderComplianceReferenceStatusForCase(tc.name, gapDB)
+				gapQ := q - libQ
+				status, floor := encoderComplianceReferenceStatusForCase(tc.name, gapQ)
 				if status == "FAIL" {
-					t.Logf("precision floor miss for %s: gap=%.2f dB floor=%.2f dB tol=%.2f dB", tc.name, gapDB, floor, encoderLibopusGapMeasurementToleranceDB)
+					t.Logf("precision floor miss for %s: gap=%.2f Q floor=%.2f Q tol=%.2f Q", tc.name, gapQ, floor, encoderLibopusGapMeasurementToleranceQ)
 					failed++
 				} else {
 					passed++
 				}
-				t.Logf("%-35s %10.2f %10.2f %10.2f %10.2f %10.2f %s", tc.name, q, snr, libQ, libSNR, gapDB, status)
+				t.Logf("%-35s %10.2f %10.2f %10.2f %s", tc.name, q, libQ, gapQ, status)
 			} else {
 				// Fall back to absolute thresholds if reference encode fails for this case.
 				if q >= EncoderGoodThreshold {
@@ -267,29 +314,29 @@ func TestEncoderComplianceSummary(t *testing.T) {
 					status = "FAIL"
 					failed++
 				}
-				t.Logf("%-35s %10.2f %10.2f %10s %10s %10s %s", tc.name, q, snr, "-", "-", "-", status)
+				t.Logf("%-35s %10.2f %10s %10s %s", tc.name, q, "-", "-", status)
 			}
 		} else {
 			if q >= EncoderGoodThreshold {
-				status = "GOOD" // Near libopus CELT quality
+				status = "GOOD"
 				passed++
 			} else if q >= EncoderQualityThreshold {
-				status = "BASE" // Within libopus range
+				status = "BASE"
 				passed++
 			} else {
-				status = "FAIL" // Regression
+				status = "FAIL"
 				failed++
 			}
 			_ = decoded // decoded samples available for debugging if needed
-			t.Logf("%-35s %10.2f %10.2f %s", tc.name, q, snr, status)
+			t.Logf("%-35s %10.2f %s", tc.name, q, status)
 		}
 	}
 
 	t.Logf("---")
 	t.Logf("Total: %d passed, %d failed", passed, failed)
 	if refAvailable {
-		t.Logf("Gap thresholds (gopus SNR - libopus SNR): GOOD >= %.1f dB, BASE >= %.1f dB", EncoderLibopusGapGoodDB, EncoderLibopusGapBaseDB)
-		t.Logf("Precision floor guard: per-profile floors with %.2f dB measurement tolerance", encoderLibopusGapMeasurementToleranceDB)
+		t.Logf("Gap thresholds (gopus Q - libopus Q): GOOD >= %.1f, BASE >= %.1f", EncoderLibopusGapGoodQ, EncoderLibopusGapBaseQ)
+		t.Logf("Precision floor guard: per-profile floors with %.2f Q measurement tolerance", encoderLibopusGapMeasurementToleranceQ)
 	}
 	if failed > 0 {
 		t.Fatalf("encoder compliance summary failed: %d cases below current thresholds", failed)
@@ -300,22 +347,20 @@ func TestEncoderComplianceSummary(t *testing.T) {
 func testEncoderCompliance(t *testing.T, mode encoder.Mode, bandwidth types.Bandwidth, frameSize, channels, bitrate int) {
 	q, _ := runEncoderComplianceTest(t, mode, bandwidth, frameSize, channels, bitrate)
 
-	snr := SNRFromQuality(q)
-	t.Logf("Quality: Q=%.2f, SNR=%.2f dB", q, snr)
+	t.Logf("Quality: Q=%.2f", q)
 
 	if q >= EncoderGoodThreshold {
-		t.Logf("GOOD: Near libopus CELT quality (Q >= %.0f)", EncoderGoodThreshold)
+		t.Logf("GOOD: Strong opus_compare quality (Q >= %.0f)", EncoderGoodThreshold)
 	} else if q >= EncoderQualityThreshold {
-		t.Logf("BASE: Within libopus range (Q >= %.0f)", EncoderQualityThreshold)
+		t.Logf("BASE: Acceptable opus_compare quality (Q >= %.0f)", EncoderQualityThreshold)
 	} else {
-		t.Logf("WARN: Below libopus worst case - possible regression")
+		t.Logf("WARN: Below fallback opus_compare floor - possible regression")
 	}
 }
 
-func logCELTTargetStatsSummary(t *testing.T, frameSize int, stats []celt.CeltTargetStats) {
+func formatCELTTargetStatsSummary(frameSize int, stats []celt.CeltTargetStats) string {
 	if len(stats) == 0 {
-		t.Logf("CELT %.1fms target stats: no frames captured", float64(frameSize)/48.0)
-		return
+		return fmt.Sprintf("CELT %.1fms target stats: no frames captured", float64(frameSize)/48.0)
 	}
 	minBase := stats[0].BaseBits
 	maxBase := stats[0].BaseBits
@@ -376,7 +421,7 @@ func logCELTTargetStatsSummary(t *testing.T, frameSize int, stats []celt.CeltTar
 	}
 
 	n := float64(len(stats))
-	t.Logf(
+	return fmt.Sprintf(
 		"CELT %.1fms target stats: frames=%d base(avg=%d,min=%d,max=%d) target(avg=%d,min=%d,max=%d) floor=%d(%.1f%%) maxDepth(avg=%.2f,min=%.2f,max=%.2f) dynalloc(avg=%.1f,<=0=%d) tf(avg=%.1f) pitch_change=%d(%.1f%%) lowDepth=%d target<base=%d",
 		float64(frameSize)/48.0,
 		len(stats),
@@ -392,8 +437,9 @@ func logCELTTargetStatsSummary(t *testing.T, frameSize int, stats []celt.CeltTar
 	)
 }
 
-// runEncoderComplianceTest runs the full encode→decode→compare pipeline.
-func runEncoderComplianceTest(t *testing.T, mode encoder.Mode, bandwidth types.Bandwidth, frameSize, channels, bitrate int) (q float64, decoded []float32) {
+func computeEncoderComplianceResult(mode encoder.Mode, bandwidth types.Bandwidth, frameSize, channels, bitrate int) (encoderComplianceRunResult, error) {
+	var result encoderComplianceRunResult
+
 	// Generate 1 second of test signal
 	numFrames := 48000 / frameSize
 	totalSamples := numFrames * frameSize * channels
@@ -439,10 +485,10 @@ func runEncoderComplianceTest(t *testing.T, mode encoder.Mode, bandwidth types.B
 
 		packet, err := enc.Encode(pcm, frameSize)
 		if err != nil {
-			t.Fatalf("Encode frame %d failed: %v", i, err)
+			return result, fmt.Errorf("encode frame %d failed: %w", i, err)
 		}
 		if len(packet) == 0 {
-			t.Fatalf("Empty packet at frame %d", i)
+			return result, fmt.Errorf("empty packet at frame %d", i)
 		}
 		// Copy packet since Encode returns a slice backed by scratch memory.
 		packetCopy := make([]byte, len(packet))
@@ -450,7 +496,7 @@ func runEncoderComplianceTest(t *testing.T, mode encoder.Mode, bandwidth types.B
 		packets = append(packets, packetCopy)
 	}
 	if captureCELTTargetStats {
-		logCELTTargetStatsSummary(t, frameSize, celtTargetStats)
+		result.celtTargetSummary = formatCELTTargetStatsSummary(frameSize, celtTargetStats)
 	}
 
 	// Match libopus fixture cadence: one trailing flush packet is typically
@@ -462,7 +508,7 @@ func runEncoderComplianceTest(t *testing.T, mode encoder.Mode, bandwidth types.B
 		for i := 0; i < flushAttempts && len(packets) < flushTargetFrames; i++ {
 			packet, err := enc.Encode(silence, frameSize)
 			if err != nil {
-				t.Fatalf("Flush frame %d failed: %v", len(packets), err)
+				return result, fmt.Errorf("flush frame %d failed: %w", len(packets), err)
 			}
 			if len(packet) == 0 {
 				continue
@@ -475,11 +521,11 @@ func runEncoderComplianceTest(t *testing.T, mode encoder.Mode, bandwidth types.B
 
 	decoded, err := decodeCompliancePackets(packets, channels, frameSize)
 	if err != nil {
-		t.Fatalf("decode reference failed: %v", err)
+		return result, fmt.Errorf("decode reference failed: %w", err)
 	}
 
 	if len(decoded) == 0 {
-		t.Fatal("No samples decoded")
+		return result, fmt.Errorf("no samples decoded")
 	}
 
 	// NOTE: opusdec already handles pre-skip internally (reads it from
@@ -498,28 +544,75 @@ func runEncoderComplianceTest(t *testing.T, mode encoder.Mode, bandwidth types.B
 	// a few samples of zero.  Search +/- 960 samples (one 20ms frame) to
 	// handle any mode-dependent resampling offset without picking up false
 	// correlation peaks from the test signal's quasi-periodicity.
-	var foundDelay int
-	q, foundDelay = ComputeQualityFloat32WithDelay(decoded[:compareLen], original[:compareLen], 48000, 960)
-	t.Logf("Quality: Q=%.2f, foundDelay=%d samples (%.1f ms), decoded=%d original=%d compareLen=%d",
-		q, foundDelay, float64(foundDelay)/48.0, len(decoded), len(original), compareLen)
+	result.q, result.foundDelay, err = ComputeOpusCompareQualityFloat32WithDelay(decoded[:compareLen], original[:compareLen], 48000, channels, 960)
+	if err != nil {
+		return result, fmt.Errorf("compute opus_compare quality: %w", err)
+	}
+	result.decoded = decoded
+	result.decodedLen = len(decoded)
+	result.originalLen = len(original)
+	result.compareLen = compareLen
+	return result, nil
+}
 
-	return q, decoded
+// runEncoderComplianceTest runs the full encode→decode→compare pipeline.
+func runEncoderComplianceTest(t *testing.T, mode encoder.Mode, bandwidth types.Bandwidth, frameSize, channels, bitrate int) (q float64, decoded []float32) {
+	key := encoderComplianceKey(mode, bandwidth, frameSize, channels, bitrate)
+	entry := encoderComplianceRunCacheEntry(key)
+	entry.once.Do(func() {
+		entry.result, entry.err = computeEncoderComplianceResult(mode, bandwidth, frameSize, channels, bitrate)
+	})
+	if entry.err != nil {
+		t.Fatal(entry.err)
+	}
+	if entry.result.celtTargetSummary != "" {
+		t.Log(entry.result.celtTargetSummary)
+	}
+	t.Logf("Quality: Q=%.2f, foundDelay=%d samples (%.1f ms), decoded=%d original=%d compareLen=%d",
+		entry.result.q,
+		entry.result.foundDelay,
+		float64(entry.result.foundDelay)/48.0,
+		entry.result.decodedLen,
+		entry.result.originalLen,
+		entry.result.compareLen,
+	)
+	return entry.result.q, entry.result.decoded
 }
 
 // runLibopusComplianceReferenceTest runs the same compliance pipeline as
 // runEncoderComplianceTest but uses libopus as the encoder reference.
 func runLibopusComplianceReferenceTest(t *testing.T, mode encoder.Mode, bandwidth types.Bandwidth, frameSize, channels, bitrate int) (q float64, decoded []float32, ok bool) {
-	_ = t
-	if libQ, found := lookupEncoderComplianceReferenceQ(mode, bandwidth, frameSize, channels, bitrate); found {
-		return libQ, nil, true
-	}
-	if fixtureCase, found := findLongFrameFixtureCase(mode, bandwidth, frameSize, channels, bitrate); found {
-		fixtureQ, err := runLongFrameFixtureReferenceCase(fixtureCase)
-		if err == nil {
-			return fixtureQ, nil, true
+	key := encoderComplianceKey(mode, bandwidth, frameSize, channels, bitrate)
+	entry := libopusComplianceReferenceCacheEntry(key)
+	entry.once.Do(func() {
+		if fixtureCase, found := findEncoderCompliancePacketsFixtureCase(mode, bandwidth, frameSize, channels, bitrate); found {
+			packets, _, err := decodeEncoderPacketsFixturePackets(fixtureCase)
+			if err == nil {
+				numFrames := 48000 / frameSize
+				totalSamples := numFrames * frameSize * channels
+				original := generateEncoderTestSignal(totalSamples, channels)
+				q, err := computeOpusCompareQualityFromPackets(packets, original, channels, frameSize)
+				if err == nil {
+					entry.result.q = q
+					entry.result.ok = true
+					return
+				}
+				entry.result.warning = fmt.Sprintf(
+					"live libopus packet quality unavailable for %s/%s/%d/%d/%d: %v",
+					fixtureModeName(mode),
+					fixtureBandwidthName(bandwidth),
+					frameSize,
+					channels,
+					bitrate,
+					err,
+				)
+			}
 		}
+	})
+	if entry.result.warning != "" {
+		t.Log(entry.result.warning)
 	}
-	return 0, nil, false
+	return entry.result.q, nil, entry.result.ok
 }
 
 func decodeCompliancePackets(packets [][]byte, channels, frameSize int) ([]float32, error) {
@@ -855,10 +948,10 @@ func TestEncoderComplianceInfo(t *testing.T) {
 	t.Log("| CELT   | FB                      | 2.5ms, 5ms, 10ms, 20ms| mono, stereo|")
 	t.Log("")
 	t.Log("Primary Compliance Thresholds (libopus parity):")
-	t.Logf("  GOOD: gopus SNR - libopus SNR >= %.1f dB", EncoderLibopusGapGoodDB)
-	t.Logf("  BASE: pass per-profile precision floor (current nominal target >= %.1f dB)", EncoderLibopusGapBaseDB)
-	t.Logf("  Precision floors: per-profile libopus gap floors with %.2f dB tolerance", encoderLibopusGapMeasurementToleranceDB)
+	t.Logf("  GOOD: gopus Q - libopus Q >= %.1f", EncoderLibopusGapGoodQ)
+	t.Logf("  BASE: pass per-profile precision floor (current nominal target >= %.1f)", EncoderLibopusGapBaseQ)
+	t.Logf("  Precision floors: per-profile libopus gap floors with %.2f Q tolerance", encoderLibopusGapMeasurementToleranceQ)
 	t.Log("Fallback Absolute Thresholds (only when libopus fixture unavailable):")
-	t.Logf("  GOOD (≈ libopus CELT): Q >= %.1f (%.1f dB SNR)", EncoderGoodThreshold, SNRFromQuality(EncoderGoodThreshold))
-	t.Logf("  BASE (≈ libopus range): Q >= %.1f (%.1f dB SNR)", EncoderQualityThreshold, SNRFromQuality(EncoderQualityThreshold))
+	t.Logf("  GOOD: Q >= %.1f", EncoderGoodThreshold)
+	t.Logf("  BASE: Q >= %.1f", EncoderQualityThreshold)
 }

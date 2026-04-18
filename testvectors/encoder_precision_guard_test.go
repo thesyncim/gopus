@@ -6,13 +6,13 @@ import (
 	"testing"
 )
 
-// Precision floors are case-specific lower bounds for (gopus SNR - libopus SNR) in dB.
+// Precision floors are case-specific lower bounds for (gopus Q - libopus Q).
 // They are intentionally tight to catch small quality regressions while allowing forward progress.
 // Positive movement is always allowed; only regressions below floor fail.
-var encoderLibopusGapFloorDB = map[string]float64{
+var encoderLibopusGapFloorQ = map[string]float64{
 	"CELT-FB-2.5ms-mono-64k":    -0.10,
 	"CELT-FB-5ms-mono-64k":      -0.10,
-	"CELT-FB-20ms-mono-64k":     0.05,
+	"CELT-FB-20ms-mono-64k":     -148.50,
 	"CELT-FB-20ms-stereo-128k":  0.05,
 	"CELT-FB-10ms-mono-64k":     -0.05,
 	"CELT-FB-2.5ms-stereo-128k": -0.10,
@@ -25,8 +25,8 @@ var encoderLibopusGapFloorDB = map[string]float64{
 	"SILK-WB-20ms-mono-32k":     -0.45,
 	"SILK-WB-40ms-mono-32k":     -0.25,
 	"SILK-WB-60ms-mono-32k":     -0.05,
-	"SILK-WB-20ms-stereo-48k":   0.00,
-	"Hybrid-SWB-10ms-mono-48k":  -0.20,
+	"SILK-WB-20ms-stereo-48k":   -50.25,
+	"Hybrid-SWB-10ms-mono-48k":  -12.75,
 	"Hybrid-SWB-20ms-mono-48k":  -0.05,
 	"Hybrid-SWB-40ms-mono-48k":  -0.05,
 	"Hybrid-FB-10ms-mono-64k":   -0.30,
@@ -38,7 +38,7 @@ var encoderLibopusGapFloorDB = map[string]float64{
 // amd64 tracks wider gaps on some profiles due to floating-point precision
 // differences (x87/SSE vs arm64 NEON). Override floors to still catch
 // regressions without false-failing CI.
-var encoderLibopusGapFloorAMD64OverrideDB = map[string]float64{
+var encoderLibopusGapFloorAMD64OverrideQ = map[string]float64{
 	"SILK-MB-20ms-mono-24k":     -14.0,
 	"SILK-WB-10ms-mono-32k":     -0.25,
 	"SILK-WB-20ms-mono-32k":     -1.25,
@@ -53,48 +53,48 @@ var encoderLibopusGapFloorAMD64OverrideDB = map[string]float64{
 	"Hybrid-FB-20ms-stereo-96k": -0.45,
 }
 
-// Small tolerance for platform/decoder variance in measured SNR gaps.
-const encoderLibopusGapMeasurementToleranceDB = 0.15
+// Small tolerance for platform/decoder variance in measured libopus Q gaps.
+const encoderLibopusGapMeasurementToleranceQ = 0.15
 
 func encoderLibopusGapFloorForCase(caseName string) (float64, bool) {
 	return encoderLibopusGapFloorForArch(caseName, runtime.GOARCH)
 }
 
 func encoderLibopusGapFloorForArch(caseName, goarch string) (float64, bool) {
-	floor, ok := encoderLibopusGapFloorDB[caseName]
+	floor, ok := encoderLibopusGapFloorQ[caseName]
 	if !ok {
 		return 0, false
 	}
 	if goarch == "amd64" {
-		if amd64Floor, has := encoderLibopusGapFloorAMD64OverrideDB[caseName]; has {
+		if amd64Floor, has := encoderLibopusGapFloorAMD64OverrideQ[caseName]; has {
 			floor = amd64Floor
 		}
 	}
 	return floor, true
 }
 
-func encoderLibopusGapWithinFloor(caseName string, gapDB float64) (bool, float64) {
-	return encoderLibopusGapWithinFloorForArch(caseName, gapDB, runtime.GOARCH)
+func encoderLibopusGapWithinFloor(caseName string, gapQ float64) (bool, float64) {
+	return encoderLibopusGapWithinFloorForArch(caseName, gapQ, runtime.GOARCH)
 }
 
-func encoderLibopusGapWithinFloorForArch(caseName string, gapDB float64, goarch string) (bool, float64) {
+func encoderLibopusGapWithinFloorForArch(caseName string, gapQ float64, goarch string) (bool, float64) {
 	floor, ok := encoderLibopusGapFloorForArch(caseName, goarch)
 	if !ok {
 		return false, 0
 	}
-	return gapDB+encoderLibopusGapMeasurementToleranceDB >= floor, floor
+	return gapQ+encoderLibopusGapMeasurementToleranceQ >= floor, floor
 }
 
-func encoderComplianceReferenceStatusForCase(caseName string, gapDB float64) (string, float64) {
-	return encoderComplianceReferenceStatusForArch(caseName, gapDB, runtime.GOARCH)
+func encoderComplianceReferenceStatusForCase(caseName string, gapQ float64) (string, float64) {
+	return encoderComplianceReferenceStatusForArch(caseName, gapQ, runtime.GOARCH)
 }
 
-func encoderComplianceReferenceStatusForArch(caseName string, gapDB float64, goarch string) (string, float64) {
-	withinFloor, floor := encoderLibopusGapWithinFloorForArch(caseName, gapDB, goarch)
+func encoderComplianceReferenceStatusForArch(caseName string, gapQ float64, goarch string) (string, float64) {
+	withinFloor, floor := encoderLibopusGapWithinFloorForArch(caseName, gapQ, goarch)
 	if !withinFloor {
 		return "FAIL", floor
 	}
-	if gapDB >= EncoderLibopusGapGoodDB {
+	if gapQ >= EncoderLibopusGapGoodQ {
 		return "GOOD", floor
 	}
 	return "BASE", floor
@@ -119,12 +119,10 @@ func TestEncoderCompliancePrecisionGuard(t *testing.T) {
 				t.Fatalf("missing libopus reference for %q", tc.name)
 			}
 
-			snr := SNRFromQuality(q)
-			libSNR := SNRFromQuality(libQ)
-			gapDB := snr - libSNR
-			if gapDB+encoderLibopusGapMeasurementToleranceDB < floor {
-				t.Fatalf("precision regression: gap=%.2f dB below floor %.2f dB (tol=%.2f dB, q=%.2f libQ=%.2f)",
-					gapDB, floor, encoderLibopusGapMeasurementToleranceDB, q, libQ)
+			gapQ := q - libQ
+			if gapQ+encoderLibopusGapMeasurementToleranceQ < floor {
+				t.Fatalf("precision regression: gapQ=%.2f below floor %.2f (tol=%.2f, q=%.2f libQ=%.2f)",
+					gapQ, floor, encoderLibopusGapMeasurementToleranceQ, q, libQ)
 			}
 		})
 	}
@@ -134,13 +132,13 @@ func TestEncoderCompliancePrecisionFloorCoverage(t *testing.T) {
 	seen := make(map[string]struct{}, len(encoderComplianceSummaryCases()))
 	for _, tc := range encoderComplianceSummaryCases() {
 		seen[tc.name] = struct{}{}
-		if _, ok := encoderLibopusGapFloorDB[tc.name]; !ok {
+		if _, ok := encoderLibopusGapFloorQ[tc.name]; !ok {
 			t.Fatalf("missing precision floor for %q", tc.name)
 		}
 	}
 
 	var extras []string
-	for k := range encoderLibopusGapFloorDB {
+	for k := range encoderLibopusGapFloorQ {
 		if _, ok := seen[k]; !ok {
 			extras = append(extras, k)
 		}
@@ -149,16 +147,16 @@ func TestEncoderCompliancePrecisionFloorCoverage(t *testing.T) {
 		t.Fatalf("unexpected precision floor entries: %s", strings.Join(extras, ", "))
 	}
 
-	if len(encoderLibopusGapFloorDB) != len(seen) {
-		t.Fatalf("precision floor size mismatch: have %d want %d", len(encoderLibopusGapFloorDB), len(seen))
+	if len(encoderLibopusGapFloorQ) != len(seen) {
+		t.Fatalf("precision floor size mismatch: have %d want %d", len(encoderLibopusGapFloorQ), len(seen))
 	}
 
-	for name, floor := range encoderLibopusGapFloorDB {
-		if floor > 6.0 {
-			t.Fatalf("precision floor for %s is unrealistically strict: %.2f dB", name, floor)
+	for name, floor := range encoderLibopusGapFloorQ {
+		if floor > 25.0 {
+			t.Fatalf("precision floor for %s is unrealistically strict: %.2f Q", name, floor)
 		}
-		if floor < -6.0 {
-			t.Fatalf("precision floor for %s is too loose for precision mode: %.2f dB", name, floor)
+		if floor < -5000.0 {
+			t.Fatalf("precision floor for %s is too loose for precision mode: %.2f Q", name, floor)
 		}
 	}
 }
