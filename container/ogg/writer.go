@@ -211,12 +211,19 @@ func (ow *Writer) writeHeaders() error {
 // For header pages, granulePos is always 0.
 // For audio pages, granulePos is the current granule position.
 func (ow *Writer) writePage(payload []byte, headerType byte) error {
+	segments := BuildSegmentTable(len(payload))
+	if headerType&PageFlagEOS != 0 && len(payload) == 0 {
+		// Emit a packetless terminal page. A zero-length lacing entry encodes an
+		// empty packet, which strict demuxers reject for the EOS marker page.
+		segments = nil
+	}
+
 	page := &Page{
 		Version:      0,
 		HeaderType:   headerType,
 		SerialNumber: ow.serial,
 		PageSequence: ow.pageSeq,
-		Segments:     BuildSegmentTable(len(payload)),
+		Segments:     segments,
 		Payload:      payload,
 	}
 
