@@ -33,6 +33,99 @@ func dumpFloat32File(path string, vals []float64) {
 	_ = os.WriteFile(path, buf, 0o644)
 }
 
+func dumpMDCTDebugTrace(frame int, label string, history, current, coeffs []float64, frameSize int) {
+	if frame < 0 || len(coeffs) == 0 {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "GOMDCTIN frame=%d ch=%s hist=", frame, label)
+	for i := 0; i < len(history) && i < 8; i++ {
+		fmt.Fprintf(os.Stderr, " %.9f", float32(history[i]))
+	}
+	fmt.Fprintf(os.Stderr, " cur=")
+	for i := 0; i < len(current) && i < 8; i++ {
+		fmt.Fprintf(os.Stderr, " %.9f", float32(current[i]))
+	}
+	fmt.Fprintf(os.Stderr, " tail=")
+	start := len(current) - 8
+	if start < 0 {
+		start = 0
+	}
+	for i := start; i < len(current); i++ {
+		fmt.Fprintf(os.Stderr, " %.9f", float32(current[i]))
+	}
+	fmt.Fprintln(os.Stderr)
+
+	b17 := ScaledBandStart(17, frameSize)
+	b18 := ScaledBandStart(18, frameSize)
+	b19 := ScaledBandStart(19, frameSize)
+	if b17 < 0 || b18 <= b17 || b18 > len(coeffs) {
+		return
+	}
+	if b19 > len(coeffs) {
+		b19 = len(coeffs)
+	}
+	fmt.Fprintf(os.Stderr, "GOMDCT frame=%d ch=%s b17=", frame, label)
+	for i := b17; i < b18; i++ {
+		fmt.Fprintf(os.Stderr, " %.9f", float32(coeffs[i]))
+	}
+	fmt.Fprintf(os.Stderr, " b18=")
+	for i := b18; i < b19; i++ {
+		fmt.Fprintf(os.Stderr, " %.9f", float32(coeffs[i]))
+	}
+	fmt.Fprintln(os.Stderr)
+}
+
+func dumpMDCTReferenceDiff(frame int, label string, history, current, coeffs []float64, frameSize int) {
+	if frameSize <= 0 || len(current) != frameSize || len(history) < frameSize || len(coeffs) < frameSize {
+		return
+	}
+	input := make([]float64, frameSize*2)
+	copy(input[:frameSize], history[:frameSize])
+	copy(input[frameSize:], current[:frameSize])
+	applyMDCTWindow(input)
+	ref := mdctDirect(input)
+	if len(ref) < frameSize {
+		return
+	}
+
+	maxDiff := 0.0
+	sumSq := 0.0
+	for i := 0; i < frameSize; i++ {
+		d := coeffs[i] - ref[i]
+		if d < 0 {
+			d = -d
+		}
+		if d > maxDiff {
+			maxDiff = d
+		}
+		sumSq += d * d
+	}
+	rms := 0.0
+	if frameSize > 0 {
+		rms = math.Sqrt(sumSq / float64(frameSize))
+	}
+	fmt.Fprintf(os.Stderr, "GOMDCTREF frame=%d ch=%s maxDiff=%.9f rms=%.9f\n", frame, label, maxDiff, rms)
+
+	b17 := ScaledBandStart(17, frameSize)
+	b18 := ScaledBandStart(18, frameSize)
+	b19 := ScaledBandStart(19, frameSize)
+	if b17 < 0 || b18 <= b17 || b18 > len(ref) {
+		return
+	}
+	if b19 > len(ref) {
+		b19 = len(ref)
+	}
+	fmt.Fprintf(os.Stderr, "GOMDCTREFB frame=%d ch=%s b17=", frame, label)
+	for i := b17; i < b18; i++ {
+		fmt.Fprintf(os.Stderr, " %.9f", float32(ref[i]))
+	}
+	fmt.Fprintf(os.Stderr, " b18=")
+	for i := b18; i < b19; i++ {
+		fmt.Fprintf(os.Stderr, " %.9f", float32(ref[i]))
+	}
+	fmt.Fprintln(os.Stderr)
+}
+
 // fillMDCTHistoryFromPrefilter mirrors libopus overlap sourcing for CELT MDCT:
 // in[0:overlap] comes from the previous filtered output tail (st->in_mem).
 func (e *Encoder) fillMDCTHistoryFromPrefilter(channel, overlap int, dst []float64) {
@@ -289,6 +382,22 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Input samples in float range [-1.0, 1.0] are scaled to signal scale (x32768)
 	// This matches libopus CELT_SIG_SCALE. The decoder later divides back by the same scale.
 	preemph := e.applyPreemphasisWithScalingScratch(samplesForFrame)
+	if tmpCELTPCMDebugEnabled && e.frameCount <= 1 {
+		limit := 8
+		if len(samplesForFrame) < limit {
+			limit = len(samplesForFrame)
+		}
+		for i := 0; i < limit; i++ {
+			fmt.Fprintf(os.Stderr, "GOCELTPCM_RAW frame=%d i=%d val=%.6f\n", e.frameCount, i, samplesForFrame[i])
+		}
+		limit = 8
+		if len(preemph) < limit {
+			limit = len(preemph)
+		}
+		for i := 0; i < limit; i++ {
+			fmt.Fprintf(os.Stderr, "GOCELTPCM frame=%d i=%d val=%.6f\n", e.frameCount, i, float32(preemph[i]))
+		}
+	}
 
 	// Step 4: Detect transient and compute tf_estimate using PRE-EMPHASIZED signal
 	// libopus calls transient_analysis(in, N+overlap, ...) where 'in' contains:
@@ -397,7 +506,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			}
 		}
 	}
-	stageDebug := tmpCELTStageDebugEnabled && start > 0
+	stageDebug := tmpCELTStageDebugEnabled
 	logStage := func(stage string, spread int, transient bool, intra bool) {
 		if !stageDebug {
 			return
@@ -416,8 +525,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	prefilterTapset := e.TapsetDecision()
 	// Match libopus run_prefilter enable gating.
-	enabled := lm > 0 &&
-		start == 0 &&
+	enabled := start == 0 &&
 		(targetBytes > 12*e.channels || (e.lfe && targetBytes > 3)) &&
 		!e.IsHybrid() &&
 		!isSilence &&
@@ -581,10 +689,23 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		rightHistory = rightHistory[:overlap]
 		copy(leftHistory, mdctPrevL[:overlap])
 		copy(rightHistory, mdctPrevR[:overlap])
+		var leftHistoryIn, rightHistoryIn []float64
+		if tmpCELTPCMDebugEnabled && e.frameCount <= 1 && shortBlocks == 1 {
+			leftHistoryIn = append([]float64(nil), leftHistory...)
+			rightHistoryIn = append([]float64(nil), rightHistory...)
+		}
 
 		// Use overlap-aware MDCT for both channels with scratch buffers
 		mdctLeft = computeMDCTWithHistoryScratchStereoL(left, leftHistory, shortBlocks, &e.scratch)
 		mdctRight = computeMDCTWithHistoryScratchStereoR(right, rightHistory, shortBlocks, &e.scratch)
+		if tmpCELTPCMDebugEnabled && e.frameCount <= 1 && shortBlocks == 1 {
+			dumpMDCTDebugTrace(e.frameCount, "L", leftHistoryIn, left, mdctLeft, frameSize)
+			dumpMDCTDebugTrace(e.frameCount, "R", rightHistoryIn, right, mdctRight, frameSize)
+			if overlap == frameSize {
+				dumpMDCTReferenceDiff(e.frameCount, "L", leftHistoryIn, left, mdctLeft, frameSize)
+				dumpMDCTReferenceDiff(e.frameCount, "R", rightHistoryIn, right, mdctRight, frameSize)
+			}
+		}
 
 		// Concatenate: [left coeffs][right coeffs] - use scratch buffer
 		coeffsLen := len(mdctLeft) + len(mdctRight)

@@ -17,8 +17,7 @@ func DefaultSearchRoots() []string {
 	return []string{".", "..", "../.."}
 }
 
-// FindOpusDemo returns the first executable opus_demo found under tmp_check.
-func FindOpusDemo(version string, roots []string) (string, bool) {
+func findLibopusTool(version string, roots []string, tool string) (string, bool) {
 	if version == "" {
 		version = DefaultVersion
 	}
@@ -28,7 +27,7 @@ func FindOpusDemo(version string, roots []string) (string, bool) {
 
 	seen := make(map[string]struct{}, len(roots))
 	for _, root := range roots {
-		p := filepath.Clean(filepath.Join(root, "tmp_check", "opus-"+version, "opus_demo"))
+		p := filepath.Clean(filepath.Join(root, "tmp_check", "opus-"+version, tool))
 		if _, ok := seen[p]; ok {
 			continue
 		}
@@ -38,6 +37,16 @@ func FindOpusDemo(version string, roots []string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// FindOpusDemo returns the first executable opus_demo found under tmp_check.
+func FindOpusDemo(version string, roots []string) (string, bool) {
+	return findLibopusTool(version, roots, "opus_demo")
+}
+
+// FindOpusCompare returns the first executable opus_compare found under tmp_check.
+func FindOpusCompare(version string, roots []string) (string, bool) {
+	return findLibopusTool(version, roots, "opus_compare")
 }
 
 // EnsureLibopus invokes tools/ensure_libopus.sh from the first matching root.
@@ -74,4 +83,13 @@ func FindOrEnsureOpusDemo(version string, roots []string) (string, bool) {
 	}
 	EnsureLibopus(version, roots)
 	return FindOpusDemo(version, roots)
+}
+
+// FindOrEnsureOpusCompare tries to locate opus_compare and auto-bootstraps once if missing.
+func FindOrEnsureOpusCompare(version string, roots []string) (string, bool) {
+	if p, ok := FindOpusCompare(version, roots); ok {
+		return p, true
+	}
+	EnsureLibopus(version, roots)
+	return FindOpusCompare(version, roots)
 }

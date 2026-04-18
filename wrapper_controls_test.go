@@ -227,10 +227,7 @@ func TestValidDecoderTestDNNBlobShape(t *testing.T) {
 }
 
 func TestEncoderSetDNNBlobRetainedAcrossReset(t *testing.T) {
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 2, Application: ApplicationAudio})
-	if err != nil {
-		t.Fatalf("NewEncoder error: %v", err)
-	}
+	enc := mustNewTestEncoder(t, 48000, 2, ApplicationAudio)
 
 	if err := enc.SetDNNBlob(makeValidEncoderTestDNNBlob()); err != nil {
 		t.Fatalf("SetDNNBlob error: %v", err)
@@ -246,10 +243,7 @@ func TestEncoderSetDNNBlobRetainedAcrossReset(t *testing.T) {
 }
 
 func TestDecoderSetDNNBlobRetainedAcrossReset(t *testing.T) {
-	dec, err := NewDecoder(DefaultDecoderConfig(48000, 2))
-	if err != nil {
-		t.Fatalf("NewDecoder error: %v", err)
-	}
+	dec := mustNewTestDecoder(t, 48000, 2)
 
 	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
 		t.Fatalf("SetDNNBlob error: %v", err)
@@ -265,10 +259,7 @@ func TestDecoderSetDNNBlobRetainedAcrossReset(t *testing.T) {
 }
 
 func TestMultistreamEncoderSetDNNBlobRetainedAcrossReset(t *testing.T) {
-	enc, err := NewMultistreamEncoderDefault(48000, 2, ApplicationAudio)
-	if err != nil {
-		t.Fatalf("NewMultistreamEncoderDefault encoder error: %v", err)
-	}
+	enc := mustNewDefaultMultistreamEncoder(t, 48000, 2, ApplicationAudio)
 
 	if err := enc.SetDNNBlob(makeValidEncoderTestDNNBlob()); err != nil {
 		t.Fatalf("SetDNNBlob error: %v", err)
@@ -284,10 +275,7 @@ func TestMultistreamEncoderSetDNNBlobRetainedAcrossReset(t *testing.T) {
 }
 
 func TestMultistreamDecoderSetDNNBlobRetainedAcrossReset(t *testing.T) {
-	dec, err := NewMultistreamDecoderDefault(48000, 2)
-	if err != nil {
-		t.Fatalf("NewMultistreamDecoderDefault decoder error: %v", err)
-	}
+	dec := mustNewDefaultMultistreamDecoder(t, 48000, 2)
 
 	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
 		t.Fatalf("SetDNNBlob error: %v", err)

@@ -11,6 +11,17 @@ const tmpEnergyPredMulNativeEnabled = false
 const tmpDisablePostfilterEnabled = false
 const tmpCoarseDumpEnabled = false
 const tmpFineDumpEnabled = false
+const tmpBandDumpEnabled = false
+const tmpCoarseDumpFrameEnabled = false
+const tmpCoarseDumpFrameValue = 0
+const tmpCoarseDumpBandEnabled = false
+const tmpCoarseDumpBandValue = 0
+const tmpFineDumpFrameEnabled = false
+const tmpFineDumpFrameValue = 0
+const tmpFineDumpBandEnabled = false
+const tmpFineDumpBandValue = 0
+const tmpBandDumpFrameEnabled = false
+const tmpBandDumpFrameValue = 0
 const tmpFineQEpsEnabled = false
 const tmpFineQEpsValue float64 = 0
 
