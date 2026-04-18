@@ -378,6 +378,15 @@ func TestClose(t *testing.T) {
 			if page.GranulePos != 960 {
 				t.Errorf("EOS page granule = %d, want 960", page.GranulePos)
 			}
+			if len(page.Segments) != 0 {
+				t.Errorf("EOS page segments = %v, want empty", page.Segments)
+			}
+			if len(page.Payload) != 0 {
+				t.Errorf("EOS page payload len = %d, want 0", len(page.Payload))
+			}
+			if packets := page.Packets(); len(packets) != 0 {
+				t.Errorf("EOS page packets = %d, want 0", len(packets))
+			}
 		}
 		offset += consumed
 	}

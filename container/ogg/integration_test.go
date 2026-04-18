@@ -36,6 +36,11 @@ func checkOpusdec() bool {
 	return false
 }
 
+func checkFFmpeg() bool {
+	_, err := exec.LookPath("ffmpeg")
+	return err == nil
+}
+
 // getOpusdecPath returns the path to opusdec.
 func getOpusdecPath() string {
 	if path, err := exec.LookPath("opusdec"); err == nil {
@@ -55,6 +60,32 @@ func getOpusdecPath() string {
 	}
 
 	return "opusdec"
+}
+
+func requireFFmpegDemux(oggData []byte) error {
+	tmpOpus, err := os.CreateTemp("", "gopus_ffmpeg_*.opus")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmpOpus.Name())
+
+	if _, err := tmpOpus.Write(oggData); err != nil {
+		tmpOpus.Close()
+		return err
+	}
+	if err := tmpOpus.Close(); err != nil {
+		return err
+	}
+
+	cmd := exec.Command("ffmpeg", "-v", "error", "-i", tmpOpus.Name(), "-f", "null", "-")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("ffmpeg demux failed: %v, output: %s", err, bytes.TrimSpace(output))
+	}
+	if trimmed := bytes.TrimSpace(output); len(trimmed) > 0 {
+		return fmt.Errorf("ffmpeg demux reported errors: %s", trimmed)
+	}
+	return nil
 }
 
 // decodeWithOpusdec decodes an Ogg Opus file using libopus opusdec.
@@ -398,6 +429,49 @@ func TestIntegration_WriterOpusdec_Stereo(t *testing.T) {
 		t.Errorf("Energy ratio too low: %.1f%% < 10%%", energyRatio)
 	} else {
 		t.Logf("PASS: Stereo Writer output validated with opusdec")
+	}
+}
+
+func TestIntegration_WriterFFmpegDemux_Stereo(t *testing.T) {
+	if !checkFFmpeg() {
+		t.Skip("ffmpeg not available")
+	}
+
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 2, Application: gopus.ApplicationAudio})
+	if err != nil {
+		t.Fatalf("NewEncoder failed: %v", err)
+	}
+	enc.SetBitrate(128000)
+
+	frameSize := 960
+	numFrames := 20
+
+	var oggBuf bytes.Buffer
+	w, err := NewWriter(&oggBuf, 48000, 2)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	for i := 0; i < numFrames; i++ {
+		pcm := generateStereoSineWave(440.0, 554.0, frameSize)
+		packet, err := enc.EncodeFloat32(pcm)
+		if err != nil {
+			t.Fatalf("Encode failed: %v", err)
+		}
+		if len(packet) == 0 {
+			packet = []byte{0xF8, 0xFF, 0xFE}
+		}
+		if err := w.WritePacket(packet, frameSize); err != nil {
+			t.Fatalf("WritePacket failed: %v", err)
+		}
+	}
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	if err := requireFFmpegDemux(oggBuf.Bytes()); err != nil {
+		t.Fatalf("ffmpeg demux validation failed: %v", err)
 	}
 }
 
