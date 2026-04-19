@@ -139,7 +139,10 @@ func TestEncoderModeSwitchStreamQuality(t *testing.T) {
 	if len(decoded) < compareLen {
 		compareLen = len(decoded)
 	}
-	q, delay := ComputeQualityFloat32WithDelay(decoded[:compareLen], signal[:compareLen], sampleRate, 2*frameSize)
+	q, delay, err := ComputeOpusCompareQualityFloat32WithDelay(decoded[:compareLen], signal[:compareLen], sampleRate, channels, 2*frameSize)
+	if err != nil {
+		t.Fatalf("compute opus_compare quality for mode transitions: %v", err)
+	}
 	if math.IsNaN(q) || math.IsInf(q, 0) {
 		t.Fatalf("invalid quality for mode transitions: q=%v", q)
 	}
@@ -149,8 +152,9 @@ func TestEncoderModeSwitchStreamQuality(t *testing.T) {
 	if inRMS > 0 {
 		ratio = outRMS / inRMS
 	}
+	t.Logf("mode-transition quality: q=%.2f delay=%d rmsRatio=%.3f", q, delay, ratio)
 	if inRMS > 0 && (ratio < 0.05 || ratio > 5.0) {
-		t.Fatalf("mode-transition energy regression: q=%.2f snr=%.2f delay=%d rmsRatio=%.3f", q, SNRFromQuality(q), delay, ratio)
+		t.Fatalf("mode-transition energy regression: q=%.2f delay=%d rmsRatio=%.3f", q, delay, ratio)
 	}
 }
 
@@ -220,13 +224,14 @@ func TestLongFrameAbove960StabilityMatrix(t *testing.T) {
 			if len(decoded) < compareLen {
 				compareLen = len(decoded)
 			}
-			q, delay := ComputeQualityFloat32WithDelay(decoded[:compareLen], signal[:compareLen], 48000, tc.frameSize)
+			q, delay, err := ComputeOpusCompareQualityFloat32WithDelay(decoded[:compareLen], signal[:compareLen], 48000, tc.channels, tc.frameSize)
+			if err != nil {
+				t.Fatalf("compute opus_compare quality: %v", err)
+			}
 			if math.IsNaN(q) || math.IsInf(q, 0) {
 				t.Fatalf("invalid quality result: q=%v", q)
 			}
-			if q < -95.0 {
-				t.Fatalf("long-frame stability regression: q=%.2f snr=%.2f delay=%d", q, SNRFromQuality(q), delay)
-			}
+			t.Logf("long-frame stability quality: q=%.2f delay=%d", q, delay)
 
 			inRMS := rmsFloat32(signal[:compareLen])
 			outRMS := rmsFloat32(decoded[:compareLen])

@@ -34,6 +34,8 @@ var testVectorNames = []string{
 
 var decoderComplianceLogOnce sync.Once
 
+const decoderComplianceMinQ = 0.0
+
 func logDecoderComplianceStatus(t *testing.T) {
 	decoderComplianceLogOnce.Do(func() {
 		t.Log("KNOWN: Decoder compliance is slightly below 48 dB on several SILK/Hybrid vectors.")
@@ -52,7 +54,7 @@ func logDecoderComplianceStatus(t *testing.T) {
 //   - Parse the .bit file (opus_demo format)
 //   - Decode all packets through gopus decoder
 //   - Read reference .dec file (and alternative m.dec)
-//   - Compute quality metric against both references
+//   - Compute opus_compare quality against both references
 //   - Pass if either Q >= 0 (RFC 8251 allows either reference)
 func TestDecoderCompliance(t *testing.T) {
 	requireTestTier(t, testTierParity)
@@ -211,17 +213,23 @@ func runTestVector(t *testing.T, name string) {
 	t.Logf("  Reference: %d samples", len(reference))
 
 	// 6. Compute quality metrics
-	q1 := ComputeQuality(allDecoded, reference, 48000)
-	t.Logf("  Quality vs .dec: Q=%.2f (threshold: Q >= 0)", q1)
+	q1, err := ComputeOpusCompareQuality(allDecoded, reference, 48000, 2)
+	if err != nil {
+		t.Fatalf("compute opus_compare quality vs .dec: %v", err)
+	}
+	t.Logf("  Quality vs .dec: Q=%.2f (threshold: Q >= %.0f)", q1, decoderComplianceMinQ)
 
 	var q2 float64
 	if referenceAlt != nil {
-		q2 = ComputeQuality(allDecoded, referenceAlt, 48000)
+		q2, err = ComputeOpusCompareQuality(allDecoded, referenceAlt, 48000, 2)
+		if err != nil {
+			t.Fatalf("compute opus_compare quality vs m.dec: %v", err)
+		}
 		t.Logf("  Quality vs m.dec: Q=%.2f", q2)
 	}
 
 	// 7. Pass if either Q >= 0
-	passes := QualityPasses(q1) || (referenceAlt != nil && QualityPasses(q2))
+	passes := q1 >= decoderComplianceMinQ || (referenceAlt != nil && q2 >= decoderComplianceMinQ)
 	if !passes {
 		t.Errorf("FAILED: Quality below threshold. Q1=%.2f, Q2=%.2f", q1, q2)
 	} else {
@@ -793,13 +801,21 @@ func runVectorSilent(t *testing.T, name string) vectorResult {
 	result.sampleCountMatch = result.decodedSamples == result.referenceSamples
 
 	// 6. Compute quality metrics
-	result.q1 = ComputeQuality(allDecoded, reference, 48000)
+	result.q1, err = ComputeOpusCompareQuality(allDecoded, reference, 48000, 2)
+	if err != nil {
+		result.err = err
+		return result
+	}
 	if referenceAlt != nil {
-		result.q2 = ComputeQuality(allDecoded, referenceAlt, 48000)
+		result.q2, err = ComputeOpusCompareQuality(allDecoded, referenceAlt, 48000, 2)
+		if err != nil {
+			result.err = err
+			return result
+		}
 	}
 
 	// 7. Pass if either Q >= 0
-	result.passed = QualityPasses(result.q1) || (referenceAlt != nil && QualityPasses(result.q2))
+	result.passed = result.q1 >= decoderComplianceMinQ || (referenceAlt != nil && result.q2 >= decoderComplianceMinQ)
 
 	return result
 }

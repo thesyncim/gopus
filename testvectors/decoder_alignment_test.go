@@ -1,7 +1,6 @@
 package testvectors
 
 import (
-	"math"
 	"path/filepath"
 	"testing"
 
@@ -56,64 +55,33 @@ func TestDecoderAlignmentVectors(t *testing.T) {
 				decoded = append(decoded, pcm...)
 			}
 
-			baseQ := ComputeQuality(decoded, ref, 48000)
-			scale := bestScale(decoded, ref)
-			offset := bestOffset(decoded, ref, scale)
-			scaledQ := qualityWithScale(decoded, ref, scale)
-			affineQ := qualityWithScaleOffset(decoded, ref, scale, offset)
-			bestShift, bestQ := bestShiftQuality(decoded, ref, maxShift)
-			bestSNR := SNRFromQuality(bestQ)
-			baseSNR := SNRFromQuality(baseQ)
-			scaledSNR := SNRFromQuality(scaledQ)
-			affineSNR := SNRFromQuality(affineQ)
+			decodedF32 := pcm16ToFloat32(decoded)
+			refF32 := pcm16ToFloat32(ref)
+			baseStats := computeWaveformStats(decodedF32, refF32)
+			scale := bestScale(decodedF32, refF32)
+			offset := bestOffset(decodedF32, refF32, scale)
+			scaledStats := computeWaveformStats(applyScaleOffset(decodedF32, scale, 0), refF32)
+			affineStats := computeWaveformStats(applyScaleOffset(decodedF32, scale, offset), refF32)
+			bestShift, bestStats := bestWaveformDelayByCorrelation(decodedF32, refF32, maxShift)
 
-			t.Logf("base: Q=%.2f, SNR=%.2f dB", baseQ, baseSNR)
-			t.Logf("scaled: scale=%.6f, Q=%.2f, SNR=%.2f dB", scale, scaledQ, scaledSNR)
-			t.Logf("affine: scale=%.6f offset=%.3f, Q=%.2f, SNR=%.2f dB", scale, offset, affineQ, affineSNR)
-			t.Logf("bestShift=%d samples (interleaved), Q=%.2f, SNR=%.2f dB", bestShift, bestQ, bestSNR)
+			t.Logf("base: corr=%.6f rmsRatio=%.3f meanAbs=%.1f maxAbs=%.1f", baseStats.Correlation, baseStats.RMSRatio, baseStats.MeanAbsErr*32768.0, baseStats.MaxAbsErr*32768.0)
+			t.Logf("scaled: scale=%.6f corr=%.6f meanAbs=%.1f maxAbs=%.1f", scale, scaledStats.Correlation, scaledStats.MeanAbsErr*32768.0, scaledStats.MaxAbsErr*32768.0)
+			t.Logf("affine: scale=%.6f offset=%.6f corr=%.6f meanAbs=%.1f maxAbs=%.1f", scale, offset, affineStats.Correlation, affineStats.MeanAbsErr*32768.0, affineStats.MaxAbsErr*32768.0)
+			t.Logf("bestShift=%d samples (interleaved), corr=%.6f meanAbs=%.1f maxAbs=%.1f", bestShift, bestStats.Correlation, bestStats.MeanAbsErr*32768.0, bestStats.MaxAbsErr*32768.0)
 		})
 	}
 }
 
-func bestShiftQuality(decoded, reference []int16, maxShift int) (bestShift int, bestQ float64) {
-	bestShift = 0
-	bestQ = ComputeQuality(decoded, reference, 48000)
-	for shift := -maxShift; shift <= maxShift; shift++ {
-		d, r := alignForShift(decoded, reference, shift)
-		q := ComputeQuality(d, r, 48000)
-		if q > bestQ {
-			bestQ = q
-			bestShift = shift
-		}
+func applyScaleOffset(samples []float32, scale, offset float64) []float32 {
+	out := make([]float32, len(samples))
+	for i, sample := range samples {
+		out[i] = float32(float64(sample)*scale + offset)
 	}
-	return bestShift, bestQ
-}
-
-// alignForShift aligns decoded and reference slices for a given shift.
-// shift > 0: decoded is delayed vs reference (drop decoded[0:shift])
-// shift < 0: decoded is advanced vs reference (drop reference[0:-shift])
-func alignForShift(decoded, reference []int16, shift int) ([]int16, []int16) {
-	d := decoded
-	r := reference
-	if shift > 0 {
-		if shift < len(d) {
-			d = d[shift:]
-		} else {
-			d = d[:0]
-		}
-	} else if shift < 0 {
-		s := -shift
-		if s < len(r) {
-			r = r[s:]
-		} else {
-			r = r[:0]
-		}
-	}
-	return d, r
+	return out
 }
 
 // bestScale computes least-squares scale factor to align decoded to reference.
-func bestScale(decoded, reference []int16) float64 {
+func bestScale(decoded, reference []float32) float64 {
 	n := len(decoded)
 	if len(reference) < n {
 		n = len(reference)
@@ -134,37 +102,8 @@ func bestScale(decoded, reference []int16) float64 {
 	return num / den
 }
 
-// qualityWithScale computes Q after scaling decoded by scale (diagnostic only).
-func qualityWithScale(decoded, reference []int16, scale float64) float64 {
-	n := len(decoded)
-	if len(reference) < n {
-		n = len(reference)
-	}
-	if n == 0 {
-		return -1e9
-	}
-	var signalPower, noisePower float64
-	for i := 0; i < n; i++ {
-		r := float64(reference[i])
-		d := float64(decoded[i]) * scale
-		signalPower += r * r
-		noise := d - r
-		noisePower += noise * noise
-	}
-	signalPower /= float64(n)
-	noisePower /= float64(n)
-	if signalPower == 0 {
-		return -1e9
-	}
-	if noisePower == 0 {
-		return 100.0
-	}
-	snr := 10.0 * math.Log10(signalPower/noisePower)
-	return QualityFromSNR(snr)
-}
-
 // bestOffset computes mean error after applying scale.
-func bestOffset(decoded, reference []int16, scale float64) float64 {
+func bestOffset(decoded, reference []float32, scale float64) float64 {
 	n := len(decoded)
 	if len(reference) < n {
 		n = len(reference)
@@ -177,33 +116,4 @@ func bestOffset(decoded, reference []int16, scale float64) float64 {
 		sum += float64(reference[i]) - float64(decoded[i])*scale
 	}
 	return sum / float64(n)
-}
-
-// qualityWithScaleOffset computes Q after applying scale and offset to decoded.
-func qualityWithScaleOffset(decoded, reference []int16, scale, offset float64) float64 {
-	n := len(decoded)
-	if len(reference) < n {
-		n = len(reference)
-	}
-	if n == 0 {
-		return -1e9
-	}
-	var signalPower, noisePower float64
-	for i := 0; i < n; i++ {
-		r := float64(reference[i])
-		d := float64(decoded[i])*scale + offset
-		signalPower += r * r
-		noise := d - r
-		noisePower += noise * noise
-	}
-	signalPower /= float64(n)
-	noisePower /= float64(n)
-	if signalPower == 0 {
-		return -1e9
-	}
-	if noisePower == 0 {
-		return 100.0
-	}
-	snr := 10.0 * math.Log10(signalPower/noisePower)
-	return QualityFromSNR(snr)
 }

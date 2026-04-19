@@ -251,16 +251,17 @@ func ComputeOpusCompareQualityFloat32(decoded, reference []float32, sampleRate, 
 	return q, err
 }
 
-func estimateDelayByLegacySNR(decoded, reference []float32, maxDelay int) int {
+func estimateDelayByWaveformCorrelation(decoded, reference []float32, maxDelay int) int {
 	if len(decoded) == 0 || len(reference) == 0 {
 		return 0
 	}
 
-	bestQ := math.Inf(-1)
+	bestCorr := math.Inf(-1)
 	bestDelay := 0
 	for d := -maxDelay; d <= maxDelay; d++ {
-		var signalPower float64
-		var noisePower float64
+		var dot float64
+		var refPower float64
+		var decPower float64
 		count := 0
 
 		const margin = 120
@@ -269,24 +270,20 @@ func estimateDelayByLegacySNR(decoded, reference []float32, maxDelay int) int {
 			if decIdx >= margin && decIdx < len(decoded)-margin {
 				ref := float64(reference[i])
 				dec := float64(decoded[decIdx])
-				signalPower += ref * ref
-				diff := dec - ref
-				noisePower += diff * diff
+				dot += ref * dec
+				refPower += ref * ref
+				decPower += dec * dec
 				count++
 			}
 		}
 
-		if count == 0 || signalPower <= 0 {
+		if count == 0 || refPower <= 0 || decPower <= 0 {
 			continue
 		}
 
-		candidateQ := 100.0
-		if noisePower > 0 {
-			snr := 10.0 * math.Log10(signalPower/noisePower)
-			candidateQ = (snr - TargetSNR) * QualityScale
-		}
-		if candidateQ > bestQ || (candidateQ == bestQ && qualityAbsInt(d) < qualityAbsInt(bestDelay)) {
-			bestQ = candidateQ
+		candidateCorr := dot / math.Sqrt(refPower*decPower)
+		if candidateCorr > bestCorr || (candidateCorr == bestCorr && qualityAbsInt(d) < qualityAbsInt(bestDelay)) {
+			bestCorr = candidateCorr
 			bestDelay = d
 		}
 	}
@@ -302,7 +299,7 @@ func opusCompareDelayCandidates(decoded, reference []float32, maxDelay int) []in
 		return candidates
 	}
 
-	estimatedDelay := estimateDelayByLegacySNR(decoded, reference, maxDelay)
+	estimatedDelay := estimateDelayByWaveformCorrelation(decoded, reference, maxDelay)
 	candidates := make([]int, 0, 18)
 	seen := make(map[int]struct{}, 17)
 

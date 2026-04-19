@@ -176,11 +176,16 @@ func computeComplianceQualityFromPackets(packets [][]byte, original []float32, c
 		return 0, fmt.Errorf("no decoded samples")
 	}
 
-	compareLen := len(original)
-	if len(decoded) < compareLen {
-		compareLen = len(decoded)
+	q, _, err := computeOpusCompareQualityBetweenDecoded(
+		original,
+		decoded,
+		48000,
+		channels,
+		qualityDelaySearchWindow(frameSize),
+	)
+	if err != nil {
+		return 0, err
 	}
-	q, _ := ComputeQualityFloat32WithDelay(decoded[:compareLen], original[:compareLen], 48000, 960)
 	return q, nil
 }
 

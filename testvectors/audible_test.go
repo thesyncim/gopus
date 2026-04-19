@@ -129,19 +129,20 @@ func TestAudioAudibility(t *testing.T) {
 	}
 
 	// Align before scoring to avoid penalizing codec lookahead/pre-skip drift.
-	q, delay := ComputeQualityFloat32WithDelay(decoded[:compareLen], pcm[:compareLen], sampleRate, frameSize)
-	snr := SNRFromQuality(q)
+	q, delay, err := ComputeOpusCompareQualityFloat32WithDelay(decoded[:compareLen], pcm[:compareLen], sampleRate, 1, frameSize)
+	if err != nil {
+		t.Fatalf("compute opus_compare quality: %v", err)
+	}
 	t.Logf("\n=== AUDIO QUALITY RESULTS ===")
 	t.Logf("Quality: Q=%.2f (delay=%d samples)", q, delay)
-	t.Logf("SNR: %.2f dB", snr)
 
-	if snr > 20 {
+	if q > 90 {
 		t.Logf("Status: EXCELLENT - Audio is clearly audible and high quality")
-	} else if snr > 10 {
+	} else if q > 70 {
 		t.Logf("Status: GOOD - Audio is audible with minor artifacts")
-	} else if snr > 5 {
+	} else if q > 40 {
 		t.Logf("Status: FAIR - Audio is recognizable but degraded")
-	} else if snr > 0 {
+	} else if q > 0 {
 		t.Logf("Status: POOR - Audio barely recognizable")
 	} else {
 		t.Logf("Status: BAD - Audio likely corrupted or inaudible")
@@ -154,9 +155,9 @@ func TestAudioAudibility(t *testing.T) {
 		t.Logf("Opus:     opusdec %s - | play -", opusFile)
 	}
 
-	// Fail if SNR is too low
-	if snr < 0 {
-		t.Errorf("Audio quality too low: SNR=%.2f dB (expected > 0 dB)", snr)
+	// Fail if perceptual quality is below the RFC/libopus pass line.
+	if q < 0 {
+		t.Errorf("audio quality too low: Q=%.2f (expected >= 0)", q)
 	}
 }
 
@@ -173,23 +174,6 @@ func audibleTempPath(name string) string {
 		return filepath.Join("/tmp", name)
 	}
 	return filepath.Join(os.TempDir(), name)
-}
-
-func computeTestSNR(original, decoded []float32) float64 {
-	var signalPower, noisePower float64
-
-	for i := 0; i < len(original) && i < len(decoded); i++ {
-		sig := float64(original[i])
-		noise := float64(original[i] - decoded[i])
-		signalPower += sig * sig
-		noisePower += noise * noise
-	}
-
-	if noisePower < 1e-10 {
-		return 100
-	}
-
-	return 10 * math.Log10(signalPower/noisePower)
 }
 
 func saveTestWAV(filename string, samples []float32, sampleRate, channels int) {
