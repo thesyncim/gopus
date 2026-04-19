@@ -455,6 +455,11 @@ func computeEncoderComplianceResult(mode encoder.Mode, bandwidth types.Bandwidth
 	} else {
 		enc.SetMode(mode)
 	}
+	// CELT compliance/reference rows are generated with opus_demo
+	// `-e restricted-celt`, which disables the top-level Opus delay buffer.
+	// Mirror that application profile so packet/quality comparisons stay
+	// aligned with the libopus fixture we are judging against.
+	enc.SetLowDelay(mode == encoder.ModeCELT)
 	enc.SetBandwidth(bandwidth)
 	enc.SetBitrate(bitrate)
 	enc.SetBitrateMode(encoder.ModeCBR)
@@ -481,7 +486,7 @@ func computeEncoderComplianceResult(mode encoder.Mode, bandwidth types.Bandwidth
 	for i := 0; i < numFrames; i++ {
 		start := i * samplesPerFrame
 		end := start + samplesPerFrame
-		pcm := float32ToFloat64(original[start:end])
+		pcm := float32ToFloat64OpusDemoF32(original[start:end])
 
 		packet, err := enc.Encode(pcm, frameSize)
 		if err != nil {
@@ -538,13 +543,16 @@ func computeEncoderComplianceResult(mode encoder.Mode, bandwidth types.Bandwidth
 		compareLen = len(decoded)
 	}
 
-	// Compute quality metric with delay compensation.
-	// opusdec already strips the pre-skip (312 samples), so the residual
-	// delay between decoded and original should be small -- typically within
-	// a few samples of zero.  Search +/- 960 samples (one 20ms frame) to
-	// handle any mode-dependent resampling offset without picking up false
-	// correlation peaks from the test signal's quasi-periodicity.
-	result.q, result.foundDelay, err = ComputeOpusCompareQualityFloat32WithDelay(decoded[:compareLen], original[:compareLen], 48000, channels, 960)
+	// Search up to one packet duration of residual delay after pre-skip
+	// trimming. Short CELT cases can legitimately land beyond +/-32 samples, but
+	// we still keep the window local to avoid distant periodic alias matches.
+	result.q, result.foundDelay, err = ComputeOpusCompareQualityFloat32WithDelay(
+		decoded[:compareLen],
+		original[:compareLen],
+		48000,
+		channels,
+		qualityDelaySearchWindow(frameSize),
+	)
 	if err != nil {
 		return result, fmt.Errorf("compute opus_compare quality: %w", err)
 	}
@@ -585,6 +593,29 @@ func runLibopusComplianceReferenceTest(t *testing.T, mode encoder.Mode, bandwidt
 	key := encoderComplianceKey(mode, bandwidth, frameSize, channels, bitrate)
 	entry := libopusComplianceReferenceCacheEntry(key)
 	entry.once.Do(func() {
+		if fixtureCase, found := findEncoderVariantsFixtureCase(mode, bandwidth, frameSize, channels, bitrate, defaultEncoderSignalVariant); found {
+			packets, _, err := decodeEncoderVariantsFixturePackets(fixtureCase)
+			if err == nil {
+				numFrames := 48000 / frameSize
+				totalSamples := numFrames * frameSize * channels
+				original := generateEncoderTestSignal(totalSamples, channels)
+				q, err := computeOpusCompareQualityFromPackets(packets, original, channels, frameSize)
+				if err == nil {
+					entry.result.q = q
+					entry.result.ok = true
+					return
+				}
+				entry.result.warning = fmt.Sprintf(
+					"live libopus variants quality unavailable for %s/%s/%d/%d/%d: %v",
+					fixtureModeName(mode),
+					fixtureBandwidthName(bandwidth),
+					frameSize,
+					channels,
+					bitrate,
+					err,
+				)
+			}
+		}
 		if fixtureCase, found := findEncoderCompliancePacketsFixtureCase(mode, bandwidth, frameSize, channels, bitrate); found {
 			packets, _, err := decodeEncoderPacketsFixturePackets(fixtureCase)
 			if err == nil {

@@ -41,6 +41,11 @@ func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 //
 // The samples are converted from int16 by dividing by 32768.
 func (e *Encoder) EncodeInt16(pcm []int16, data []byte) (int, error) {
+	expected := e.frameSize * e.channels
+	if len(pcm) != expected {
+		return 0, ErrInvalidFrameSize
+	}
+
 	pcm32 := e.scratchPCM32[:len(pcm)]
 	for i, v := range pcm {
 		pcm32[i] = float32(v) / 32768.0

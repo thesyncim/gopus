@@ -120,6 +120,9 @@ type stereoEncState struct {
 	widthPrevQ14  int16    // Previous frame's stereo width (Q14)
 	smthWidthQ14  int16    // Smoothed stereo width (Q14)
 	silentSideLen int32    // Accumulated silent side length (samples)
+	// Tracks whether the previous coded frame collapsed to mid-only so the
+	// first returning side frame can reset state like libopus enc_API.c.
+	prevDecodeOnlyMiddle int
 	// Smoothed mid/residual amplitudes for LP/HP (float domain).
 	// Matches mid_side_amp_Q0 in libopus but stored as float for simplicity.
 	midSideAmpQ0 [4]float64

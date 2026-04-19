@@ -91,6 +91,36 @@ func EncodeStereoWithEncoderVADFlagsAndStatesWithSide(
 	sideVADFlags []bool,
 	sideVADStates []VADFrameState,
 ) ([]byte, error) {
+	return EncodeStereoWithEncoderVADAnalyzersWithSide(
+		enc,
+		sideEnc,
+		left,
+		right,
+		bandwidth,
+		vadFlags,
+		vadStates,
+		nil,
+		sideVADFlags,
+		sideVADStates,
+		nil,
+	)
+}
+
+// EncodeStereoWithEncoderVADAnalyzersWithSide is like
+// EncodeStereoWithEncoderVADFlagsAndStatesWithSide, but lets callers compute
+// VAD from the transformed mid/side frames after stereo_LR_to_MS, matching
+// libopus enc_API.c packet control cadence.
+func EncodeStereoWithEncoderVADAnalyzersWithSide(
+	enc, sideEnc *Encoder,
+	left, right []float32,
+	bandwidth Bandwidth,
+	vadFlags []bool,
+	vadStates []VADFrameState,
+	midAnalyzer VADFrameAnalyzer,
+	sideVADFlags []bool,
+	sideVADStates []VADFrameState,
+	sideAnalyzer VADFrameAnalyzer,
+) ([]byte, error) {
 	if sideEnc == nil {
 		sideEnc = NewEncoder(bandwidth)
 	}
@@ -131,6 +161,8 @@ func EncodeStereoWithEncoderVADFlagsAndStatesWithSide(
 	baseSideMaxBits := sideEnc.maxBits
 	baseMidUseCBR := enc.useCBR
 	baseSideUseCBR := sideEnc.useCBR
+	baseMidBitrate := enc.targetRateBps
+	baseSideBitrate := sideEnc.targetRateBps
 	basePacketMaxBits := baseMidMaxBits
 	if basePacketMaxBits <= 0 {
 		basePacketMaxBits = baseSideMaxBits
@@ -139,14 +171,19 @@ func EncodeStereoWithEncoderVADFlagsAndStatesWithSide(
 	// Keep the side encoder aligned with the shared packet state.
 	sideEnc.SetBitsExceeded(enc.BitsExceeded())
 
-	// Use the mid channel's speech activity for stereo decision.
+	// Match libopus stereo_LR_to_MS: use the previous frame's speech activity
+	// and leave it at the reset default before the first encoded frame.
 	speechActQ8 := enc.speechActivityQ8
-	if !enc.speechActivitySet {
-		speechActQ8 = 200
-	}
 
 	// Compute total bitrate for stereo rate allocation.
-	totalRate := enc.targetRateBps
+	packetRate := baseMidBitrate
+	if packetRate <= 0 {
+		packetRate = enc.targetRateBps
+	}
+	totalRate := stereoAllocationTargetRate(enc, packetRate, frameLength20ms, 0)
+	if totalRate <= 0 {
+		totalRate = enc.targetRateBps
+	}
 	if totalRate <= 0 {
 		totalRate = 20000
 	}
@@ -224,6 +261,10 @@ func EncodeStereoWithEncoderVADFlagsAndStatesWithSide(
 
 		leftFrame := left[start:end]
 		rightFrame := right[start:end]
+		frameRate := stereoAllocationTargetRate(enc, packetRate, frameLength, re.Tell())
+		if frameRate > 0 {
+			totalRate = frameRate
+		}
 
 		// Convert L/R to M/S with stereo prediction, rate allocation, and width decision.
 		// This matches libopus silk_stereo_LR_to_MS.
@@ -231,6 +272,7 @@ func EncodeStereoWithEncoderVADFlagsAndStatesWithSide(
 			leftFrame, rightFrame, frameLength, fsKHz,
 			totalRate, speechActQ8, false,
 		)
+		prevDecodeOnlyMiddle := enc.stereo.prevDecodeOnlyMiddle
 		EncodeStereoIndices(re, ix)
 
 		// Match libopus stereo control flow: apply the per-channel
@@ -238,12 +280,26 @@ func EncodeStereoWithEncoderVADFlagsAndStatesWithSide(
 		// channel frame so controlSNR runs at the intended target.
 		if midRate > 0 {
 			enc.SetBitrate(midRate)
+			enc.SetPreAdjustedTargetRateBps(midRate)
 		}
 		if sideRate > 0 {
 			sideEnc.SetBitrate(sideRate)
+			sideEnc.SetPreAdjustedTargetRateBps(sideRate)
 		}
 
-		midFrameVAD := stereoVADFlagAt(vadFlags, i)
+			midFrameVAD := stereoVADFlagAt(vadFlags, i)
+			var midState VADFrameState
+			var midFeedbackState VADFrameState
+			midFeedbackVAD := midFrameVAD
+			if midAnalyzer != nil {
+				midFeedbackState, midFeedbackVAD = midAnalyzer(midOut, len(midOut), fsKHz)
+			}
+			if i < len(vadStates) && vadStates[i].Valid {
+				midState = vadStates[i]
+			} else if midAnalyzer != nil {
+				midState = midFeedbackState
+				midFrameVAD = midFeedbackVAD
+			}
 		if midFrameVAD {
 			midVAD[i] = 1
 		}
@@ -252,15 +308,23 @@ func EncodeStereoWithEncoderVADFlagsAndStatesWithSide(
 		// side-frame conditional coding aligned across 20ms subframes.
 		forceSideCoding := nFrames > 1
 		sideFrameVAD := midFrameVAD && !midOnly
-		if len(sideVADFlags) > 0 {
+		var sideState VADFrameState
+		if !midOnly && sideAnalyzer != nil {
+			sideState, sideFrameVAD = sideAnalyzer(sideOut, len(sideOut), fsKHz)
+		} else if len(sideVADFlags) > 0 {
 			sideFrameVAD = stereoVADFlagAt(sideVADFlags, i)
 			if midOnly {
 				sideFrameVAD = false
 			}
+			if i < len(sideVADStates) && sideVADStates[i].Valid {
+				sideState = sideVADStates[i]
+			}
 		}
 		if forceSideCoding {
 			midOnly = false
-			if len(sideVADFlags) == 0 {
+			if sideAnalyzer != nil {
+				sideFrameVAD = true
+			} else if len(sideVADFlags) == 0 {
 				sideFrameVAD = midFrameVAD
 			} else {
 				sideFrameVAD = stereoVADFlagAt(sideVADFlags, i)
@@ -313,9 +377,8 @@ func EncodeStereoWithEncoderVADFlagsAndStatesWithSide(
 		}
 		sideEnc.useCBR = baseSideUseCBR && i == nFrames-1
 
-		if i < len(vadStates) && vadStates[i].Valid {
-			state := vadStates[i]
-			enc.SetVADState(state.SpeechActivityQ8, state.InputTiltQ15, state.InputQualityBandsQ15)
+		if midState.Valid {
+			enc.SetVADState(midState.SpeechActivityQ8, midState.InputTiltQ15, midState.InputQualityBandsQ15)
 		}
 
 		// Set up shared range encoder for mid channel encoding.
@@ -326,18 +389,29 @@ func EncodeStereoWithEncoderVADFlagsAndStatesWithSide(
 		// Use the side-channel VAD decision (not the mid flag) so the
 		// frame type coding stays consistent with patched side VAD header bits.
 		if !midOnly {
-			if i < len(sideVADStates) && sideVADStates[i].Valid {
-				state := sideVADStates[i]
-				sideEnc.SetVADState(state.SpeechActivityQ8, state.InputTiltQ15, state.InputQualityBandsQ15)
+			if prevDecodeOnlyMiddle == 1 {
+				sideEnc.ResetStereoSideAfterMidOnly()
+			}
+			if sideState.Valid {
+				sideEnc.SetVADState(sideState.SpeechActivityQ8, sideState.InputTiltQ15, sideState.InputQualityBandsQ15)
 			}
 			sideEnc.SetRangeEncoder(re)
 			_ = sideEnc.EncodeFrame(sideOut, nil, sideFrameVAD)
+		}
+
+			speechActQ8 = enc.speechActivityQ8
+			if midOnly {
+				enc.stereo.prevDecodeOnlyMiddle = 1
+			} else {
+			enc.stereo.prevDecodeOnlyMiddle = 0
 		}
 	}
 	enc.maxBits = baseMidMaxBits
 	sideEnc.maxBits = baseSideMaxBits
 	enc.useCBR = baseMidUseCBR
 	sideEnc.useCBR = baseSideUseCBR
+	enc.targetRateBps = baseMidBitrate
+	sideEnc.targetRateBps = baseSideBitrate
 
 	// Patch header bits: VAD flags + LBRR flags for both channels.
 	// Format: [mid_VAD[0..N-1] | mid_LBRR | side_VAD[0..N-1] | side_LBRR]
@@ -371,7 +445,11 @@ func EncodeStereoWithEncoderVADFlagsAndStatesWithSide(
 
 	// Match libopus packet-level nBitsExceeded update.
 	payloadSizeMs := (nFrames * frameLength20ms * 1000) / config.SampleRate
-	enc.UpdatePacketBitsExceeded(nBytesOut, payloadSizeMs, totalRate)
+	packetBitrate := baseMidBitrate
+	if packetBitrate <= 0 {
+		packetBitrate = totalRate
+	}
+	enc.UpdatePacketBitsExceeded(nBytesOut, payloadSizeMs, packetBitrate)
 	sideEnc.SetBitsExceeded(enc.BitsExceeded())
 
 	// Clean up shared encoder references.
@@ -379,6 +457,39 @@ func EncodeStereoWithEncoderVADFlagsAndStatesWithSide(
 	sideEnc.rangeEncoder = nil
 
 	return result, nil
+}
+
+func stereoAllocationTargetRate(enc *Encoder, targetRateBps, frameLength, bitsUsedSoFar int) int {
+	if enc == nil || targetRateBps <= 0 || enc.sampleRate <= 0 || frameLength <= 0 {
+		return 0
+	}
+	payloadSizeMs := (frameLength * 1000) / enc.sampleRate
+	if payloadSizeMs <= 0 {
+		return targetRateBps
+	}
+	nBits := (targetRateBps * payloadSizeMs) / 1000
+	nBits -= enc.nBitsUsedLBRR
+	if enc.nFramesPerPacket > 0 {
+		nBits /= enc.nFramesPerPacket
+	}
+	targetRate := 0
+	if payloadSizeMs == 10 {
+		targetRate = nBits * 100
+	} else {
+		targetRate = nBits * 50
+	}
+	targetRate -= (enc.nBitsExceeded * 1000) / 500
+	if enc.nFramesEncoded > 0 {
+		bitsBalance := bitsUsedSoFar - enc.nBitsUsedLBRR - nBits*enc.nFramesEncoded
+		targetRate -= (bitsBalance * 1000) / 500
+	}
+	if targetRate > targetRateBps {
+		targetRate = targetRateBps
+	}
+	if targetRate < 5000 {
+		targetRate = 5000
+	}
+	return targetRate
 }
 
 func stereoVADFlagAt(vadFlags []bool, frame int) bool {
