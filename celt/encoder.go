@@ -732,6 +732,12 @@ func (e *Encoder) DelayCompensationEnabled() bool {
 	return e.delayCompensationEnabled
 }
 
+// SetTopLevelDelayCompensatedInput tells the standalone CELT core whether the
+// Opus wrapper has already supplied delay-compensated input.
+func (e *Encoder) SetTopLevelDelayCompensatedInput(alreadyCompensated bool) {
+	e.delayCompensationEnabled = !alreadyCompensated
+}
+
 // SetQEXTEnabled toggles the internal extended-precision side payload path.
 func (e *Encoder) SetQEXTEnabled(enabled bool) {
 	e.qextEnabled = enabled
