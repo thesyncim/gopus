@@ -13,7 +13,7 @@ func (e *MultistreamEncoder) Encode(pcm []float32, data []byte) (int, error) {
 		return 0, ErrInvalidFrameSize
 	}
 
-	pcm64 := make([]float64, len(pcm))
+	pcm64 := e.scratchPCM64[:len(pcm)]
 	for i, v := range pcm {
 		pcm64[i] = float64(v)
 	}
@@ -34,7 +34,12 @@ func (e *MultistreamEncoder) Encode(pcm []float32, data []byte) (int, error) {
 //
 // Returns the number of bytes written to data, or an error.
 func (e *MultistreamEncoder) EncodeInt16(pcm []int16, data []byte) (int, error) {
-	pcm32 := make([]float32, len(pcm))
+	expected := e.frameSize * e.channels
+	if len(pcm) != expected {
+		return 0, ErrInvalidFrameSize
+	}
+
+	pcm32 := e.scratchPCM32[:len(pcm)]
 	for i, v := range pcm {
 		pcm32[i] = float32(v) / 32768.0
 	}
@@ -57,7 +62,7 @@ func (e *MultistreamEncoder) EncodeInt24(pcm []int32, data []byte) (int, error) 
 		return 0, ErrInvalidFrameSize
 	}
 
-	pcm64 := make([]float64, len(pcm))
+	pcm64 := e.scratchPCM64[:len(pcm)]
 	for i, v := range pcm {
 		pcm64[i] = float64(v) / 8388608.0
 	}

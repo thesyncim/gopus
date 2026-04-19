@@ -732,8 +732,9 @@ type packetQualityResult struct {
 }
 
 func qualityFromPacketsLibopusReferenceDetailed(packets [][]byte, original []float32, channels, frameSize int) (packetQualityResult, error) {
-	// Keep delay search tight to avoid periodic-signal aliasing.
-	maxDelay := 32
+	// Search up to one packet duration so short CELT fixtures do not clip at the
+	// window boundary while still staying local enough to avoid distant aliases.
+	maxDelay := qualityDelaySearchWindow(frameSize)
 	q, delay, decoded, err := computeOpusCompareQualityFromPacketsWithMaxDelay(packets, original, channels, frameSize, maxDelay)
 	if err != nil {
 		return packetQualityResult{}, err

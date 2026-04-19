@@ -165,3 +165,13 @@ func validateStreamDurations(packets [][]byte) (int, error) {
 
 	return duration, nil
 }
+
+// PacketDuration returns the common packet duration for a multistream packet in
+// 48 kHz samples per channel.
+func PacketDuration(data []byte, numStreams int) (int, error) {
+	packets, err := parseMultistreamPacket(data, numStreams)
+	if err != nil {
+		return 0, err
+	}
+	return validateStreamDurations(packets)
+}

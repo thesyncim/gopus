@@ -95,6 +95,7 @@ type Encoder struct {
 	lastOpusVADValid            bool
 	lastOpusVADProb             float32
 	silkVAD                     *VADState
+	silkVADMidFeedback          *VADState
 	silkVADSide                 *VADState
 	fec                         *fecState
 
@@ -1192,6 +1193,7 @@ func (e *Encoder) maybePrefillCELTOnModeTransition(actualMode Mode, celtPCM []fl
 	e.ensureCELTEncoder()
 	e.celtEncoder.Reset()
 	e.celtEncoder.SetHybrid(actualMode == ModeHybrid)
+	e.celtEncoder.SetTopLevelDelayCompensatedInput(actualMode == ModeCELT && !e.lowDelay)
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 	// Match libopus mode-transition cadence: prefill uses normal prediction,
 	// then the next real frame is forced intra.
@@ -1328,6 +1330,8 @@ func (e *Encoder) maybePrefillSILKOnModeTransition(actualMode Mode) {
 	e.ensureSilkVAD()
 	e.silkVAD.Reset()
 	if e.channels == 2 {
+		e.ensureSilkVADMidFeedback()
+		e.silkVADMidFeedback.Reset()
 		e.ensureSilkVADSide()
 		e.silkVADSide.Reset()
 	}
@@ -1915,22 +1919,24 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 			left = leftOut
 			right = rightOut
 		}
-		fsKHz := targetRate / 1000
+		quantizeFloat32ToInt16InPlace(left)
+		quantizeFloat32ToInt16InPlace(right)
 		mono := e.scratchMono[:len(left)]
 		for i := 0; i < len(left); i++ {
 			mono[i] = (left[i] + right[i]) * 0.5
 		}
-		vadFlags, vadStates, _ := e.computeSilkVADFlagsAndStates(mono, fsKHz)
-		var sideVADFlags []bool
-		var sideVADStates []silk.VADFrameState
-		if e.silkSideEncoder != nil {
-			// Side channel has different activity/tilt than mid; keep a separate VAD state.
-			for i := 0; i < len(left); i++ {
-				mono[i] = (left[i] - right[i]) * 0.5
-			}
-			sideVADFlags, sideVADStates, _ = e.computeSilkVADSideFlagsAndStates(mono, fsKHz)
+		vadFlags, vadStates, _ := e.computeSilkVADFlagsAndStates(mono, targetRate/1000)
+		e.ensureSilkVADMidFeedback()
+		midFeedbackAnalyzer := func(frame []float32, frameSamples, fsKHz int) (silk.VADFrameState, bool) {
+			state, active := computeSilkVADFrameState(e.silkVADMidFeedback, frame, frameSamples, fsKHz)
+			return e.applyOpusVADToSilkState(state, active)
 		}
-		return silk.EncodeStereoWithEncoderVADFlagsAndStatesWithSide(
+		e.ensureSilkVADSide()
+		sideAnalyzer := func(frame []float32, frameSamples, fsKHz int) (silk.VADFrameState, bool) {
+			state, active := computeSilkVADFrameState(e.silkVADSide, frame, frameSamples, fsKHz)
+			return e.applyOpusVADToSilkState(state, active)
+		}
+		return silk.EncodeStereoWithEncoderVADAnalyzersWithSide(
 			e.silkEncoder,
 			e.silkSideEncoder,
 			left,
@@ -1938,8 +1944,10 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 			e.silkBandwidth(),
 			vadFlags,
 			vadStates,
-			sideVADFlags,
-			sideVADStates,
+			midFeedbackAnalyzer,
+			nil,
+			nil,
+			sideAnalyzer,
 		)
 	}
 	var lookaheadOut []float32
@@ -1969,6 +1977,7 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 	if e.channels == 1 {
 		pcm32 = e.alignSilkMonoInput(pcm32)
 	}
+	quantizeFloat32ToInt16InPlace(pcm32)
 	if e.bitrate > 0 {
 		perChannelRate := e.silkInputBitrate(frameSize) / e.channels
 		if perChannelRate > 0 {
@@ -2030,6 +2039,7 @@ func (e *Encoder) encodeCELTFrameWithBitrateAndMaxPayload(pcm []float64, frameSi
 	e.celtEncoder.SetMaxPayloadBytes(maxPayloadBytes)
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 	e.celtEncoder.SetHybrid(false)
+	e.celtEncoder.SetTopLevelDelayCompensatedInput(!e.lowDelay)
 	e.celtEncoder.SetPrediction(e.celtPredictionModeForFrame())
 	e.celtEncoder.SetDCRejectEnabled(false)
 	e.celtEncoder.SetPacketLoss(e.packetLoss)
@@ -2344,6 +2354,12 @@ func (e *Encoder) ensureSilkVAD() {
 	}
 }
 
+func (e *Encoder) ensureSilkVADMidFeedback() {
+	if e.silkVADMidFeedback == nil {
+		e.silkVADMidFeedback = NewVADState()
+	}
+}
+
 func (e *Encoder) ensureSilkVADSide() {
 	if e.silkVADSide == nil {
 		e.silkVADSide = NewVADState()
@@ -2378,6 +2394,14 @@ func (e *Encoder) updateOpusVAD(pcm []float64, frameSize int) {
 		e.lastOpusVADValid = false
 		e.lastOpusVADActive = true
 		e.lastOpusVADProb = 1.0
+		return
+	}
+	if isDigitalSilence(pcm, e.lsbDepth) {
+		// Match libopus opus_encoder.c: digital silence forces activity=0
+		// before any tonality/VAD analysis is considered.
+		e.lastOpusVADProb = 0
+		e.lastOpusVADValid = true
+		e.lastOpusVADActive = false
 		return
 	}
 

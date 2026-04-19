@@ -8,6 +8,9 @@ func (d *Decoder) Reset() {
 	d.hybridDecoder.Reset()
 	d.lastFrameSize = 960
 	d.lastPacketDuration = 0
+	d.lastDataLen = 0
+	d.mainDecodeRng = 0
+	d.redundantRng = 0
 	d.prevMode = ModeHybrid
 	d.lastPacketMode = ModeHybrid
 	d.lastBandwidth = BandwidthFullband
