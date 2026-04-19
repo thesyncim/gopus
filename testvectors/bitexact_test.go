@@ -741,6 +741,9 @@ func TestVerifyGopusDecodable(t *testing.T) {
 		compareLen = len(decoded)
 	}
 
-	q := ComputeQualityFloat32(decoded[:compareLen], pcmF32[:compareLen], 48000)
-	t.Logf("Quality: Q=%.2f, SNR=%.2f dB", q, SNRFromQuality(q))
+	q, delay, err := ComputeOpusCompareQualityFloat32WithDelay(decoded[:compareLen], pcmF32[:compareLen], 48000, 1, 960)
+	if err != nil {
+		t.Fatalf("compute opus_compare quality: %v", err)
+	}
+	t.Logf("Quality: Q=%.2f, delay=%d", q, delay)
 }

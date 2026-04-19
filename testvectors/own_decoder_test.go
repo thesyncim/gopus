@@ -89,11 +89,13 @@ func TestOwnEncoderDecoder(t *testing.T) {
 		t.Fatal("no samples to compare")
 	}
 
-	q, delay := ComputeQualityFloat32WithDelay(decF32[:compareLen], origF32[:compareLen], sampleRate, 2000)
-	snr := SNRFromQuality(q)
-	t.Logf("SNR: %.2f dB (Q=%.2f, delay=%d samples)", snr, q, delay)
+	q, delay, err := ComputeOpusCompareQualityFloat32WithDelay(decF32[:compareLen], origF32[:compareLen], sampleRate, 1, 2000)
+	if err != nil {
+		t.Fatalf("compute opus_compare quality: %v", err)
+	}
+	t.Logf("Quality: Q=%.2f (delay=%d samples)", q, delay)
 
-	if snr < 5.0 {
-		t.Errorf("SNR too low: %.2f dB", snr)
+	if q < 0 {
+		t.Errorf("quality too low: Q=%.2f", q)
 	}
 }

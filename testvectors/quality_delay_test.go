@@ -2,31 +2,25 @@ package testvectors
 
 import "testing"
 
-func TestComputeQualityFloat32WithDelayFindsNegativeDelay(t *testing.T) {
+func TestEstimateDelayByWaveformCorrelationFindsNegativeDelay(t *testing.T) {
 	ref := makeAperiodicSignal(4096)
 	const wantDelay = -137
 	decoded := shiftSignal(ref, wantDelay)
 
-	q, gotDelay := ComputeQualityFloat32WithDelay(decoded, ref, 48000, 300)
+	gotDelay := estimateDelayByWaveformCorrelation(decoded, ref, 300)
 	if gotDelay != wantDelay {
-		t.Fatalf("delay mismatch: got %d want %d (q=%.2f)", gotDelay, wantDelay, q)
-	}
-	if q < 90 {
-		t.Fatalf("unexpected low quality at best delay: q=%.2f", q)
+		t.Fatalf("delay mismatch: got %d want %d", gotDelay, wantDelay)
 	}
 }
 
-func TestComputeQualityFloat32WithDelayFindsPositiveDelay(t *testing.T) {
+func TestEstimateDelayByWaveformCorrelationFindsPositiveDelay(t *testing.T) {
 	ref := makeAperiodicSignal(4096)
 	const wantDelay = 173
 	decoded := shiftSignal(ref, wantDelay)
 
-	q, gotDelay := ComputeQualityFloat32WithDelay(decoded, ref, 48000, 300)
+	gotDelay := estimateDelayByWaveformCorrelation(decoded, ref, 300)
 	if gotDelay != wantDelay {
-		t.Fatalf("delay mismatch: got %d want %d (q=%.2f)", gotDelay, wantDelay, q)
-	}
-	if q < 90 {
-		t.Fatalf("unexpected low quality at best delay: q=%.2f", q)
+		t.Fatalf("delay mismatch: got %d want %d", gotDelay, wantDelay)
 	}
 }
 

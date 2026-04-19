@@ -1,6 +1,7 @@
 package testvectors
 
 import (
+	"math"
 	"testing"
 
 	"github.com/thesyncim/gopus"
@@ -65,6 +66,50 @@ func normalizeFuzzChannels(channels int) int {
 
 func decodeSinglePacketWithLibopusReference(channels int, packet []byte) ([]float32, error) {
 	return decodeWithLibopusReferencePacketsSingle(channels, maxOpusPacketSamples48k, [][]byte{packet})
+}
+
+func requireDecodedWaveformParity(t *testing.T, got, ref []float32, channels int) {
+	t.Helper()
+
+	if len(got) == 0 || len(ref) == 0 {
+		t.Fatalf("decoded waveform missing: gopus=%d libopus=%d", len(got), len(ref))
+	}
+
+	frames := len(ref) / channels
+	if len(got) < len(ref) {
+		frames = len(got) / channels
+	}
+	if frames >= 480 {
+		q, delay, err := ComputeOpusCompareQualityFloat32WithDelay(ref[:frames*channels], got[:frames*channels], 48000, channels, differentialFuzzPacketMaxDelay)
+		if err != nil {
+			t.Fatalf("compute fuzz opus_compare parity: %v", err)
+		}
+		if q < differentialFuzzPacketMinQ {
+			t.Fatalf("decoded waveform quality mismatch: Q=%.2f < %.2f delay=%d", q, differentialFuzzPacketMinQ, delay)
+		}
+		return
+	}
+
+	gotPCM := float32ToPCM16(got[:frames*channels])
+	refPCM := float32ToPCM16(ref[:frames*channels])
+	maxAbsDiff := 0
+	sumAbsDiff := 0.0
+	for i := range refPCM {
+		diff := int(math.Abs(float64(int(gotPCM[i]) - int(refPCM[i]))))
+		if diff > maxAbsDiff {
+			maxAbsDiff = diff
+		}
+		sumAbsDiff += float64(diff)
+	}
+	meanAbsDiff := sumAbsDiff / float64(len(refPCM))
+	if maxAbsDiff > differentialFuzzMaxPCM16AbsDiff || meanAbsDiff > differentialFuzzMaxPCM16MeanDiff {
+		t.Fatalf(
+			"decoded waveform mismatch on short packet: max_abs=%d mean_abs=%.2f samples=%d",
+			maxAbsDiff,
+			meanAbsDiff,
+			len(refPCM),
+		)
+	}
 }
 
 func requireFiniteDecodedSamples(t *testing.T, samples []float32) {
@@ -179,5 +224,6 @@ func FuzzDecodeAgainstLibopus(f *testing.F) {
 			t.Fatalf("decoded duration mismatch: gopus=%d samples/ch libopus=%d samples/ch", gotN, len(refSamples)/channels)
 		}
 		requireFiniteDecodedSamples(t, refSamples)
+		requireDecodedWaveformParity(t, pcm[:gotN*channels], refSamples, channels)
 	})
 }

@@ -362,7 +362,22 @@ func TestEncoderVariantsFixtureHonestyWithOpusDemo(t *testing.T) {
 					t.Fatalf("range drift too large on amd64: %d/%d frames (max=%d)", rangeMismatch, len(gotPackets), maxDrift)
 				}
 				if rangeMismatch > 0 || payloadMismatch > 0 {
-					t.Logf("non-bitexact drift on amd64: range=%d/%d payload=%d/%d", rangeMismatch, len(gotPackets), payloadMismatch, len(gotPackets))
+					q, delay, err := comparePacketWaveformsWithLibopusReference(wantPackets, gotPackets, c.Channels, c.FrameSize)
+					if err != nil {
+						t.Fatalf("compare libopus-decoded waveforms on amd64: %v", err)
+					}
+					if q < amd64FixtureWaveformMinQ {
+						t.Fatalf(
+							"non-bitexact drift on amd64 changed decoded waveform too much: Q=%.2f delay=%d range=%d/%d payload=%d/%d",
+							q,
+							delay,
+							rangeMismatch,
+							len(gotPackets),
+							payloadMismatch,
+							len(gotPackets),
+						)
+					}
+					t.Logf("non-bitexact drift on amd64 accepted: Q=%.2f delay=%d range=%d/%d payload=%d/%d", q, delay, rangeMismatch, len(gotPackets), payloadMismatch, len(gotPackets))
 				}
 			}
 		})
@@ -670,7 +685,10 @@ func qualityFromPacketsInternal(packets [][]byte, original []float32, channels, 
 	if maxDelay < 960 {
 		maxDelay = 960
 	}
-	q, _ := ComputeQualityFloat32WithDelay(decoded[:compareLen], original[:compareLen], 48000, maxDelay)
+	q, _, err := ComputeOpusCompareQualityFloat32WithDelay(decoded[:compareLen], original[:compareLen], 48000, channels, maxDelay)
+	if err != nil {
+		return 0, err
+	}
 	return q, nil
 }
 

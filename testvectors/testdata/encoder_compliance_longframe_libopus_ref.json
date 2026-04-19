@@ -8,7 +8,7 @@
       "frame_size": 1920,
       "channels": 1,
       "bitrate": 16000,
-      "lib_q": -63.99,
+      "lib_q": -53.21,
       "packets_base64": [
         "EwHAGJ/MFk1OJTw7CTfolajorL/tI5a8nlAj5ZnA5HL8J0KPtVp9b7Xtt9zuvVV1QDgKM73MNZSGKSbbhlruiA15NAIe6HhQlJOIpM3qd74=",
         "ENM+w6/K8KN3LqguF+L5lKqDifzchTryiGTX4MrExWTmLELXV2yBZMA6mfS6f9IOjz2RtydbXF1iYdAFzSDE8grkuSvA5PN3BfLwwpjoCYA=",
@@ -45,7 +45,7 @@
       "frame_size": 1920,
       "channels": 1,
       "bitrate": 32000,
-      "lib_q": -82.39,
+      "lib_q": -387.17,
       "packets_base64": [
         "UMAFLS6mk+37Nck6heYAACAMDscsWOodXwa4IN0jF7GMwgaRV+6EHkXy5nvFdQLbhMIDAvoOoNUD4pdXqz+IvnwqfwOT8tFYjzF/1XrccoTQmeTES47tqdIt17IoJ1gVUe3l3kIahUspXiNGeCrufnDD1EX1DaoZbasMIPjxFnagsGoby84EZ6GGhxGmG1ZymCNTa2eUS7nPZirnkvw1Hg==",
         "U0EC0q7X+Wh4Unp7SMQdpDtYRw8K4XD+HaC/TGyn4VO+/Qvmp0r40GyXYPudAmSMuTxPeAeq4+9Mo1ex07kuWCAQrlqkmTEAiMOSXJtnbbLj+gaTkWH0DCTXFCudrxruNIzwWJjYYCirDdsAoaOE1DeQYb//viUgytIlXngBSxU6slTuMvg7qPhMNrMCYq2dQNIRp40IGQzX/M1hgtwAAA==",
@@ -82,7 +82,7 @@
       "frame_size": 2880,
       "channels": 1,
       "bitrate": 32000,
-      "lib_q": -79.15,
+      "lib_q": -515.93,
       "packets_base64": [
         "W0EH4AKWl1NJ9v2afD4fsAAAEAY1GG6wTuqAScXR2CW7VhTk4xULSNciDugeoBIiCAOlX69hiKT/H0P8e/kyeVqUI1jpW7ATzi2T8wW3drSCqMwnQzgDXa9hKohX8MvNnZWpxxuM3Act45NtFoKISR/ULomlfjHI4z/SCKYpGRS/R0UiJtXBLxInNGfYYx+BK5gxUiOHbzIQtLPEBiiLJuFhimge8Mzs+qV4rald+Ct9F8OS/pc4O5piSq9QJdwQ2Me+TP3CxJU2gvUYM0GxLKKI3NMj8ccQf2thuy6saaAKBNUxfUZfMN4AAAAAAAAA",
         "W0EF6WnrApQ9TI85SbJEtwCukeLzq27dPAVtoe30IdrasSc2Zx+27Rq5WROovqmZllSEz9uyEWlLrquexT9GoCtwNpIOgcuHbHu+cKpzypZ0FR59vSSXo1SvS/8MfeAZPYfsqr1mU2kmJjHva/1xzHVrKgRbVTR3VHksPQrrr0XWOD5Zxwm4jt23C8HpOhAq4P6tpRvCJMMPWyOnWN/IMFRynoNMKbhvLXrFfMKsJpV4UBPNg/NGEGeb9CxwvIVK/D0zfTgM3ENm0ps++8QI3rDTBzk0g+ypYPtctI5VcesBDCHS9hrLcxO58AAAAAAA",
@@ -110,7 +110,7 @@
       "frame_size": 1920,
       "channels": 1,
       "bitrate": 48000,
-      "lib_q": -24.79,
+      "lib_q": -114.76,
       "packets_base64": [
         "20IBn+Mj9HJayxZX0NWwN9M+N/7XBWG4/ZTo+Os+jNyNCpUiOYD89QVkHmyXFDRyNQypR4mevFl4npPuyMdu3Gm01z0eDPju86EztWM1UI+HDz5tLMfap9Kn+vp6xpOVSg5H7u0BSDW9RkIaJcuyq5Bc9JPaLCzEkZdXppWDQ4YcxH3txodXVmyFzPbt3043434d77WkE/9aJyvk+k03n2uTb6L4bvN66G+ghkCDz8kNHRSLbEtbpKCG+CGtDXMKlEWCKy2OcD7+PSIgXtnUYIOYAGnL0jiY1dxWuD9Mh3l6ORUP/Xgd9XpklMI53LEA",
         "20IBmGN7iQU5KPiQ+JXLZhRyFAbNm6gzwzwwkvh8gM7I1w49dmgc+okWyUZAeg+bDvHZ7qBUbJB5CNrIF8PTmYSU+jjr19cwqihz7pPSJ8Wac1IiM+0+1coGcLKNk9f128u6uZMRP4/6WrsVRiwYDGToDd3Oyodcsau1S/YLNdtmCbgXpmzHI2NGjb5PZPZKw2wLZ0nmbalY08O+0cs53ck1go5UnzFT7G8pZ2+LyUu0j2GW/+ckiKdSAzHmhJ0UOdXptInxZpzUiIz6C/VygZws8GFpvIP7/HTwdjLLbwyrs/RF/tSMkJH+NlEWl2EA",
@@ -147,7 +147,7 @@
       "frame_size": 2880,
       "channels": 1,
       "bitrate": 64000,
-      "lib_q": -18.32,
+      "lib_q": -95.75,
       "packets_base64": [
         "+0MDn+Mj9HJayxZXwZs4K0eaLryOHuHGzWQRwWs89YL5Vbd9x4p2DZ5o8POiime3lB9Hx2A+BVyL4qO/5YcPCrufi38OF+dbhEUe0UdOS4bE/f+GNREWff1HEf4P4hwwTOt1yDHGKjpapB6qvJmVi4Zk/i7aZsVbxZTeFJtLw0rfD7CaDPiHBgUuG9SNDoil2lKrKSgkisqV56JPtFhZxJGXV6aVg0OGHMR97cZUwZmY3/lRo0bo74747OLrsrXtyHxku0nuWydYJ894kVwVFhFu1HAs4GiiSSleffqb/YDoavvbvvpxJTPR3DI/JYsW6jjUjbYkpFcT4dHpFT/jRHedODExUc7sZs7gv0CJwUolOnp2Hpe85eecS9L24UKtA9xTikXH673sdauScsjC+8f9Of126/KfTJFGEWW5sZhje4kFOSj4kPUkncICkVN+/fwZ6Z6Z6KLGR+XP3/7sIyzzJ+9p5o7/zr4Xo+YYYYcgjCF2oVxNc2nWaO1ZWpSFizE59aF67nnuY5a9sSM7uz0lUzqI5Nv4dk0uc2TMV4153fzAimJ2nODZYDINVX0sd2cREwpSAgjIp1nvFS/znwJ4St7xqmlHXPXyYRjs0O42bhrllAbu87kpOXmxAAAA",
         "+0MDq7VL9gs122YJpfe6CYwUdRs2hU/i/i9orpSkc1mNROfR5kqIajvdySMas8jsDJXhX0oZryca1oDjbLHmOEN0LtRHnvRjDsHhlnrWoePAc78ROUD8IwBd6AT3pEXYvXdM+iaMp+qhbqTaM7mt1VqAwtcUrZClL12QsdAIKWQ67rHM47VbvU0u7FBZ/j+tvBEiEp+YinIyRH+myhKyrWGZjqHdl8mZR2ihGuHlyqG1T58/dLJLJK7utUQSPKQmOSStNQCgQnV7yLy7PCtyUc4hkl+GBnTCAv3bHPMziCiBkT5TK2pd0gZExHErZkfCptmbQseoazrxjvmMIuwWHa15t4jz25hp3olZ7uJ0SFIpWpARONnSVb0l1nYIrvrMuM0kzhtX6Gjhj576nHdRls1PrQ2ihx2aAL/t9UsMsZaZUrc83cMU9m4OmrI1dtffv4j0X0X0PKx83qzh7VJzUug0asWlRtT423S53X57sbIUfP7odA1ZaksIKn+QJj2wQ78qExOp8YI7Lp5ziqHL8bNaajVcemEhtJORAfPGCzDyz/WonwGnfzgNu4nRLElkcWcWjZ0lW9JdZ2Csh3TjKc3tO1sOJtYY6SwJ/9a2th+ET0mdvDxDv+isixSxAAAA",

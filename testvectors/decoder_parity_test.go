@@ -283,11 +283,14 @@ func TestDecoderParityMatrixFixtureHonestyWithOpusDemo(t *testing.T) {
 					if err != nil {
 						t.Fatalf("decode fixture decoded payload: %v", err)
 					}
-					q, _ := ComputeQualityFloat32WithDelay(wantSamples, gotSamples, 48000, 960)
-					if q < 35.0 {
-						t.Fatalf("fixture drift vs tmp_check opus_demo %s on amd64: Q=%.2f (got=%d bytes want=%d bytes)", libopustooling.DefaultVersion, q, len(gotRaw), len(wantRaw))
+					q, delay, err := computeOpusCompareQualityBetweenDecoded(wantSamples, gotSamples, 48000, c.Channels, amd64FixtureWaveformMaxDelay)
+					if err != nil {
+						t.Fatalf("compute fixture opus_compare quality on amd64: %v", err)
 					}
-					t.Logf("non-bitexact decoder drift on amd64 accepted: Q=%.2f", q)
+					if q < amd64FixtureWaveformMinQ {
+						t.Fatalf("fixture drift vs tmp_check opus_demo %s on amd64: Q=%.2f delay=%d (got=%d bytes want=%d bytes)", libopustooling.DefaultVersion, q, delay, len(gotRaw), len(wantRaw))
+					}
+					t.Logf("non-bitexact decoder drift on amd64 accepted: Q=%.2f delay=%d", q, delay)
 					return
 				}
 				t.Fatalf("fixture drift vs tmp_check opus_demo %s: got=%d bytes want=%d bytes", libopustooling.DefaultVersion, len(gotRaw), len(wantRaw))

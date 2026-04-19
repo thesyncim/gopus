@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	encoderComplianceRefQDriftToleranceDB = 0.35
-	updateEncoderComplianceRefQEnv        = "GOPUS_UPDATE_ENCODER_REF_Q"
+	encoderComplianceRefQDriftToleranceQ = 0.35
+	updateEncoderComplianceRefQEnv       = "GOPUS_UPDATE_ENCODER_REF_Q"
 )
 
 func TestEncoderComplianceReferenceFixtureCoverage(t *testing.T) {
@@ -132,7 +132,7 @@ func TestLongFrameReferenceFixtureHonestyWithLiveOpusdec(t *testing.T) {
 				}
 				t.Fatalf("compute live opusdec quality: %v", err)
 			}
-			if math.Abs(q-c.LibQ) > encoderComplianceRefQDriftToleranceDB {
+			if math.Abs(q-c.LibQ) > encoderComplianceRefQDriftToleranceQ {
 				t.Fatalf("fixture libQ drift for %s: live=%.2f fixture=%.2f", target.Name, q, c.LibQ)
 			}
 		})
@@ -182,7 +182,7 @@ func TestEncoderComplianceReferenceQFixtureHonestyWithLiveOpusdec(t *testing.T) 
 				i, row.Mode, row.Bandwidth, row.FrameSize, row.Channels, row.Bitrate, liveQRounded, row.LibQ, drift)
 			continue
 		}
-		if drift > encoderComplianceRefQDriftToleranceDB {
+		if drift > encoderComplianceRefQDriftToleranceQ {
 			t.Fatalf("ref-q fixture drift row %d (%s-%s-%d/%d/%d): live=%.2f fixture=%.2f drift=%.2f",
 				i, row.Mode, row.Bandwidth, row.FrameSize, row.Channels, row.Bitrate, liveQRounded, row.LibQ, drift)
 		}
@@ -297,10 +297,15 @@ func computeComplianceQualityFromPacketsWithLiveOpusdec(packets [][]byte, origin
 		return 0, fmt.Errorf("libopus reference decode produced no samples")
 	}
 
-	compareLen := len(original)
-	if len(decoded) < compareLen {
-		compareLen = len(decoded)
+	q, _, err := computeOpusCompareQualityBetweenDecoded(
+		original,
+		decoded,
+		48000,
+		channels,
+		qualityDelaySearchWindow(frameSize),
+	)
+	if err != nil {
+		return 0, err
 	}
-	q, _ := ComputeQualityFloat32WithDelay(decoded[:compareLen], original[:compareLen], 48000, 960)
 	return q, nil
 }
