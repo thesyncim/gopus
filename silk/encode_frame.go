@@ -137,7 +137,18 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 
 	// Update target SNR based on configured bitrate and frame size.
 	// Matches libopus silk/enc_API.c rate control logic (lines 411-443).
-	if e.targetRateBps > 0 {
+	if e.preAdjustedTargetRateBps > 0 {
+		targetRate := e.preAdjustedTargetRateBps
+		if e.targetRateBps > 0 && targetRate > e.targetRateBps {
+			targetRate = e.targetRateBps
+		}
+		if targetRate < 5000 {
+			targetRate = 5000
+		}
+		e.lastControlTargetRateBps = targetRate
+		e.controlSNR(targetRate, numSubframes)
+		e.preAdjustedTargetRateBps = 0
+	} else if e.targetRateBps > 0 {
 		// Total target bits for packet
 		nBits := (e.targetRateBps * packetPayloadSizeMs) / 1000
 

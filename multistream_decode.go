@@ -1,5 +1,17 @@
 package gopus
 
+import "github.com/thesyncim/gopus/multistream"
+
+func (d *MultistreamDecoder) decodeFrameSize(data []byte) (int, error) {
+	if data == nil {
+		return d.lastFrameSize, nil
+	}
+	if len(data) == 0 {
+		return 0, multistream.ErrPacketTooShort
+	}
+	return multistream.PacketDuration(data, d.dec.Streams())
+}
+
 // Decode decodes an Opus multistream packet into float32 PCM samples.
 //
 // data: Opus multistream packet data, or nil for Packet Loss Concealment (PLC).
@@ -11,7 +23,10 @@ package gopus
 // When data is nil, the decoder performs packet loss concealment using
 // the last successfully decoded frame parameters.
 func (d *MultistreamDecoder) Decode(data []byte, pcm []float32) (int, error) {
-	frameSize := d.lastFrameSize
+	frameSize, err := d.decodeFrameSize(data)
+	if err != nil {
+		return 0, err
+	}
 	needed := frameSize * d.channels
 	if len(pcm) < needed {
 		return 0, ErrBufferTooSmall
@@ -28,7 +43,7 @@ func (d *MultistreamDecoder) Decode(data []byte, pcm []float32) (int, error) {
 		d.lastFrameSize = frameSize
 	}
 
-	return frameSize, nil
+	return len(samples) / d.channels, nil
 }
 
 // DecodeInt16 decodes an Opus multistream packet into int16 PCM samples.
@@ -38,7 +53,10 @@ func (d *MultistreamDecoder) Decode(data []byte, pcm []float32) (int, error) {
 //
 // Returns the number of samples per channel decoded, or an error.
 func (d *MultistreamDecoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
-	frameSize := d.lastFrameSize
+	frameSize, err := d.decodeFrameSize(data)
+	if err != nil {
+		return 0, err
+	}
 	needed := frameSize * d.channels
 	if len(pcm) < needed {
 		return 0, ErrBufferTooSmall
@@ -57,5 +75,5 @@ func (d *MultistreamDecoder) DecodeInt16(data []byte, pcm []int16) (int, error) 
 		d.lastFrameSize = frameSize
 	}
 
-	return frameSize, nil
+	return len(samples) / d.channels, nil
 }

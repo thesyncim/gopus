@@ -11,6 +11,11 @@ type VADFrameState struct {
 	Valid                bool
 }
 
+// VADFrameAnalyzer computes libopus-style per-frame VAD state for a SILK block.
+// It is used by the Opus-level stereo packet wrapper to run VAD after
+// mid/side conversion on the actual coded signals.
+type VADFrameAnalyzer func(frame []float32, frameSamples, fsKHz int) (VADFrameState, bool)
+
 // Encoder encodes PCM audio to SILK frames.
 // It maintains state across frames that mirrors the decoder for proper
 // synchronized prediction of gains, LSF, and stereo weights.
@@ -66,6 +71,7 @@ type Encoder struct {
 	snrDBQ7                  int  // Target SNR in dB (Q7 format, e.g., 25 dB = 25 * 128)
 	targetRateBps            int  // Target bitrate (per channel) for SNR control
 	lastControlTargetRateBps int  // Last per-frame target rate used for SNR control
+	preAdjustedTargetRateBps int  // One-shot externally adjusted target for shared stereo packet control
 	useCBR                   bool // Constant Bitrate mode
 	// reducedDependency mirrors libopus encControl->reducedDependency.
 	// When enabled, the first frame of each packet is coded as
@@ -402,7 +408,7 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 		previousGainIndex:        0,
 	}
 	enc.SetComplexity(10)
-	enc.stereo.smthWidthQ14 = 16384
+	resetStereoEncState(&enc.stereo)
 	// Match Opus-level init timing: before first control pass, libopus keeps
 	// sNSQ zero-initialized. control_codec sets prev_gain_Q16 on first frame.
 	if enc.nsqState != nil {
@@ -425,6 +431,7 @@ func (e *Encoder) Reset() {
 	e.ecPrevSignalType = 0
 	e.targetRateBps = 0
 	e.lastControlTargetRateBps = 0
+	e.preAdjustedTargetRateBps = 0
 	e.snrDBQ7 = 0
 	e.sumLogGainQ7 = 0
 	e.forceFirstFrameAfterReset = false
@@ -439,8 +446,11 @@ func (e *Encoder) Reset() {
 		e.inputBuffer[i] = 0
 	}
 	e.prevStereoWeights = [2]int16{0, 0}
-	e.stereo = stereoEncState{} // Reset LP filter state
-	e.stereo.smthWidthQ14 = 16384
+	resetStereoEncState(&e.stereo)
+	e.speechActivityQ8 = 0
+	e.inputTiltQ15 = 0
+	e.inputQualityBandsQ15 = [4]int{}
+	e.speechActivitySet = false
 	// Keep reset parity with libopus: prevLag resets to 0.
 	e.pitchState = PitchAnalysisState{prevLag: 0}
 	for i := range e.pitchAnalysisBuf {
@@ -477,6 +487,39 @@ func (e *Encoder) Reset() {
 			e.lbrrPulses[i][j] = 0
 		}
 	}
+}
+
+func resetStereoEncState(st *stereoEncState) {
+	*st = stereoEncState{}
+	st.midSideAmpQ0 = [4]float64{0, 1, 0, 1}
+	st.smthWidthQ14 = 16384
+}
+
+// ResetStereoSideAfterMidOnly mirrors libopus enc_API.c when stereo side coding
+// resumes after one or more mid-only frames. It preserves the long-lived
+// encoder instance while clearing the side-channel state that libopus resets on
+// re-entry.
+func (e *Encoder) ResetStereoSideAfterMidOnly() {
+	if e == nil {
+		return
+	}
+	if e.noiseShapeState != nil {
+		e.noiseShapeState = NewNoiseShapeState()
+	}
+	if e.nsqState != nil {
+		e.nsqState.Reset()
+	}
+	for i := range e.prevLSFQ15 {
+		e.prevLSFQ15[i] = 0
+	}
+	e.lpState.InLPState = [2]int32{}
+	e.pitchState.prevLag = 100
+	e.previousGainIndex = 10
+	e.previousLogGain = 0
+	e.ecPrevLagIndex = 0
+	e.ecPrevSignalType = typeNoVoiceActivity
+	e.isPreviousFrameVoiced = false
+	e.forceFirstFrameAfterReset = true
 }
 
 // SetComplexity sets the SILK encoder complexity (0-10) and related pitch parameters.
@@ -770,6 +813,14 @@ func GetQuantizationOffset(signalType, quantOffsetType int) int {
 // SetBitrate sets the target bitrate in bps (per channel).
 func (e *Encoder) SetBitrate(bitrate int) {
 	e.targetRateBps = bitrate
+}
+
+// SetPreAdjustedTargetRateBps provides a one-shot frame target that already
+// includes packet-level reservoir/bits-balance adjustments. Shared stereo
+// packet control uses this to avoid applying the same packet correction once
+// per channel.
+func (e *Encoder) SetPreAdjustedTargetRateBps(bitrate int) {
+	e.preAdjustedTargetRateBps = bitrate
 }
 
 // UpdatePacketBitsExceeded applies libopus packet-level nBitsExceeded update.

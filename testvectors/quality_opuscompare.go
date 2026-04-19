@@ -294,6 +294,14 @@ func estimateDelayByLegacySNR(decoded, reference []float32, maxDelay int) int {
 }
 
 func opusCompareDelayCandidates(decoded, reference []float32, maxDelay int) []int {
+	if maxDelay <= 32 {
+		candidates := make([]int, 0, 2*maxDelay+1)
+		for delay := -maxDelay; delay <= maxDelay; delay++ {
+			candidates = append(candidates, delay)
+		}
+		return candidates
+	}
+
 	estimatedDelay := estimateDelayByLegacySNR(decoded, reference, maxDelay)
 	candidates := make([]int, 0, 18)
 	seen := make(map[int]struct{}, 17)

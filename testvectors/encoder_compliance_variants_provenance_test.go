@@ -37,6 +37,7 @@ func encodeGopusForVariantsCaseWithProvenance(c encoderComplianceVariantsFixture
 		encMode = encoder.ModeAuto
 	}
 	enc.SetMode(encMode)
+	enc.SetLowDelay(mode == encoder.ModeCELT)
 	enc.SetBandwidth(bandwidth)
 	enc.SetBitrate(c.Bitrate)
 	enc.SetBitrateMode(encoder.ModeCBR)
