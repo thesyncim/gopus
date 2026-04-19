@@ -64,6 +64,7 @@ type Encoder struct {
 	silkTrace       *silk.EncoderTrace
 	celtEncoder     *celt.Encoder
 	celtStatsHook   func(celt.CeltTargetStats)
+	celtPrefilterHook func(celt.PrefilterDebugStats)
 
 	// Configuration
 	mode       Mode
@@ -1193,7 +1194,7 @@ func (e *Encoder) maybePrefillCELTOnModeTransition(actualMode Mode, celtPCM []fl
 	e.ensureCELTEncoder()
 	e.celtEncoder.Reset()
 	e.celtEncoder.SetHybrid(actualMode == ModeHybrid)
-	e.celtEncoder.SetTopLevelDelayCompensatedInput(actualMode == ModeCELT && !e.lowDelay)
+	e.celtEncoder.SetTopLevelDelayCompensatedInput(true)
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 	// Match libopus mode-transition cadence: prefill uses normal prediction,
 	// then the next real frame is forced intra.
@@ -2039,7 +2040,7 @@ func (e *Encoder) encodeCELTFrameWithBitrateAndMaxPayload(pcm []float64, frameSi
 	e.celtEncoder.SetMaxPayloadBytes(maxPayloadBytes)
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 	e.celtEncoder.SetHybrid(false)
-	e.celtEncoder.SetTopLevelDelayCompensatedInput(!e.lowDelay)
+	e.celtEncoder.SetTopLevelDelayCompensatedInput(true)
 	e.celtEncoder.SetPrediction(e.celtPredictionModeForFrame())
 	e.celtEncoder.SetDCRejectEnabled(false)
 	e.celtEncoder.SetPacketLoss(e.packetLoss)
@@ -2635,6 +2636,7 @@ func (e *Encoder) ensureCELTEncoder() {
 		e.celtEncoder = celt.NewEncoder(e.channels)
 		e.celtEncoder.SetComplexity(e.complexity)
 		e.celtEncoder.SetTargetStatsHook(e.celtStatsHook)
+		e.celtEncoder.SetPrefilterDebugHook(e.celtPrefilterHook)
 		// Opus encoder already applies dc_reject at the top level.
 		e.celtEncoder.SetDCRejectEnabled(false)
 		// Opus encoder already applies CELT delay compensation at the top level.
@@ -2737,6 +2739,15 @@ func (e *Encoder) SetCELTTargetStatsHook(fn func(celt.CeltTargetStats)) {
 	e.celtStatsHook = fn
 	if e.celtEncoder != nil {
 		e.celtEncoder.SetTargetStatsHook(fn)
+	}
+}
+
+// SetCELTPrefilterDebugHook installs a callback for per-frame CELT prefilter diagnostics.
+// Only applies when the CELT encoder is active.
+func (e *Encoder) SetCELTPrefilterDebugHook(fn func(celt.PrefilterDebugStats)) {
+	e.celtPrefilterHook = fn
+	if e.celtEncoder != nil {
+		e.celtEncoder.SetPrefilterDebugHook(fn)
 	}
 }
 
