@@ -40,6 +40,7 @@ func (d *Decoder) DecodeFrame(
 		frameIndex := st.nFramesDecoded
 		ctrl := d.decodeFrameCoreInto(st, rd, frameOut, frameCondCoding(frameIndex), st.VADFlags[frameIndex] != 0, i, nil)
 		d.finalizeDecodedChannelFrame(0, st, &ctrl, frameOut, false)
+		d.fireFrameParamsHook(0, frameIndex)
 	}
 
 	// Apply libopus-compatible mono delay compensation.
@@ -132,6 +133,7 @@ func (d *Decoder) decodeFrameRawInt16(
 		frameIndex := st.nFramesDecoded
 		ctrl := d.decodeFrameCoreInto(st, rd, frameOut, frameCondCoding(frameIndex), st.VADFlags[frameIndex] != 0, i, nil)
 		d.finalizeDecodedChannelFrame(0, st, &ctrl, frameOut, true)
+		d.fireFrameParamsHook(0, frameIndex)
 	}
 
 	// Mono decode resets mid-only tracking (libopus sets decode_only_middle=0).

@@ -12,6 +12,10 @@ type EncoderTrace struct {
 	NSQ      *NSQTrace
 	FramePre *FrameStateTrace
 	Frame    *FrameStateTrace
+	// AfterFrame is invoked after each internal SILK frame when packet
+	// encoding loops over multiple frames. It is intended for parity/debug
+	// capture and is nil in normal operation.
+	AfterFrame func(frameIndex int, tr *EncoderTrace)
 }
 
 // PitchTrace captures pitch residual and search inputs.
@@ -84,6 +88,9 @@ type NLSFTrace struct {
 	Stage1Idx        int
 	Residuals        []int
 	QuantizedNLSFQ15 []int16
+	MuQ20            int32
+	CandidateStage1  []int
+	CandidateRDQ25   []int32
 
 	SignalType           int
 	SpeechQ8             int
@@ -126,13 +133,15 @@ type LTPTrace struct {
 
 // GainLoopTrace captures per-iteration gain search loop state.
 type GainLoopTrace struct {
-	Iterations      []GainLoopIter
-	LockUpdateCount int
+	Iterations         []GainLoopIter
+	LockUpdateCount    int
+	CaptureNoiseShapeX bool
 
 	SeedIn                 int
 	SeedOut                int
 	UsedDelayedDecision    bool
 	WarpingQ16             int
+	ShapingLPCOrder        int
 	NStatesDelayedDecision int
 	MaxBits                int
 	UseCBR                 bool
@@ -143,6 +152,9 @@ type GainLoopTrace struct {
 	SignalType             int
 	SpeechActivityQ8       int
 	InputTiltQ15           int
+	InputQualityBandsQ15   [4]int
+	InputQuality           float32
+	CodingQuality          float32
 	SNRDBQ7                int
 	PredGainQ7             int32
 	SubframeSamples        int
@@ -155,6 +167,9 @@ type GainLoopTrace struct {
 	SNRAdjDB               float32
 	ResNrgBefore           [maxNbSubfr]float32
 	GainsAfter             [maxNbSubfr]float32
+	NoiseShapeXLen         int
+	NoiseShapeXHash        uint64
+	NoiseShapeX            []float32
 }
 
 // GainLoopIter captures one iteration of the gain/bit-budget search loop.

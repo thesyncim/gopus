@@ -10,7 +10,7 @@ func autocorrelationF32(out, in []float32, length, order int) {
 	_ = out[order-1]
 	for k := 0; k < order; k++ {
 		cnt := length - k
-		out[k] = float32(innerProductF32(in[:cnt], in[k:k+cnt], cnt))
+		out[k] = float32(innerProductF32Libopus(in[:cnt], in[k:k+cnt], cnt))
 	}
 }
 

@@ -8,6 +8,10 @@ package silk
 // Reference: libopus silk/float/encode_frame_FLP.c
 func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) []byte {
 	config := GetBandwidthConfig(e.bandwidth)
+	blockUseCBR := e.blockUseCBR
+	if e.nFramesPerPacket <= 1 {
+		blockUseCBR = e.useCBR
+	}
 	subframeSamples := config.SubframeSamples
 	numSubframes := len(pcm) / subframeSamples
 	if numSubframes < 1 {
@@ -419,6 +423,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	if noiseParams != nil {
 		noiseParams.LambdaQ10 = computeLambdaQ10(signalType, speechActivityQ8, quantOffset, e.nStatesDelayedDecision, noiseParams.CodingQuality, noiseParams.InputQuality)
 	}
+	inputQualityBandsQ15 := [4]int{-1, -1, -1, -1}
+	if e.speechActivitySet {
+		inputQualityBandsQ15 = e.inputQualityBandsQ15
+	}
 
 	// Step 7: Prepare indices and gains for bitrate control loop.
 	seed := e.frameCounter & 3
@@ -449,6 +457,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		gainTrace.SeedOut = seed
 		gainTrace.UsedDelayedDecision = e.nStatesDelayedDecision > 1 || e.warpingQ16 > 0
 		gainTrace.WarpingQ16 = e.warpingQ16
+		gainTrace.ShapingLPCOrder = e.shapingLPCOrder
 		gainTrace.NStatesDelayedDecision = e.nStatesDelayedDecision
 		gainTrace.MaxBits = maxBits
 		if firstFrameAfterReset {
@@ -456,13 +465,21 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			// the first Opus control pass populates packet budget.
 			gainTrace.MaxBits = 0
 		}
-		gainTrace.UseCBR = e.useCBR
+		gainTrace.UseCBR = blockUseCBR
 		gainTrace.ConditionalCoding = condCoding == codeConditionally
 		gainTrace.NumSubframes = numSubframes
 		gainTrace.LastGainIndexPrev = int8(e.previousGainIndex)
 		gainTrace.SignalType = signalType
 		gainTrace.SpeechActivityQ8 = speechActivityQ8
 		gainTrace.InputTiltQ15 = e.inputTiltQ15
+		gainTrace.InputQualityBandsQ15 = inputQualityBandsQ15
+		if noiseParams != nil {
+			gainTrace.InputQuality = noiseParams.InputQuality
+			gainTrace.CodingQuality = noiseParams.CodingQuality
+		} else {
+			gainTrace.InputQuality = 0
+			gainTrace.CodingQuality = 0
+		}
 		gainTrace.SNRDBQ7 = e.snrDBQ7
 		gainTrace.PredGainQ7 = predGainQ7
 		gainTrace.SubframeSamples = subframeSamples
@@ -538,7 +555,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 
 	// Bitrate control: multi-pass NSQ + index encoding.
 	bitsMargin := 5
-	if !e.useCBR {
+	if !blockUseCBR {
 		bitsMargin = maxBits / 4
 	}
 
@@ -704,7 +721,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 				bitsAfterPulses = nBits
 			}
 
-			if !e.useCBR && iter == 0 && nBits <= maxBits {
+			if !blockUseCBR && iter == 0 && nBits <= maxBits {
 				if gainTrace != nil {
 					var iterGainIdx [maxNbSubfr]int8
 					var iterGainsQ16 [maxNbSubfr]int32
@@ -1404,6 +1421,7 @@ func (e *Encoder) EncodePacketWithFECWithVADStates(pcm []float32, lookahead []fl
 	e.encodeLBRRData(e.rangeEncoder, 1, true)
 	baseMaxBits := e.maxBits
 	baseUseCBR := e.useCBR
+	baseBlockUseCBR := e.blockUseCBR
 	var vadUsed [maxFramesPerPacket]int
 	for i := 0; i < nFrames; i++ {
 		// Match libopus enc_API.c per-block maxBits/useCBR handling for
@@ -1424,8 +1442,9 @@ func (e *Encoder) EncodePacketWithFECWithVADStates(pcm []float32, lookahead []fl
 		if frameMaxBits > 0 {
 			e.maxBits = frameMaxBits
 		}
+		e.blockUseCBR = baseUseCBR
 		if baseUseCBR && nFrames > 1 {
-			e.useCBR = i == nFrames-1
+			e.blockUseCBR = i == nFrames-1
 		}
 
 		startSample := i * frameSamples
@@ -1455,9 +1474,13 @@ func (e *Encoder) EncodePacketWithFECWithVADStates(pcm []float32, lookahead []fl
 			frameLookahead = lookahead
 		}
 		_ = e.EncodeFrame(framePCM, frameLookahead, vadFlag)
+		if e.trace != nil && e.trace.AfterFrame != nil {
+			e.trace.AfterFrame(i, e.trace)
+		}
 	}
 	e.maxBits = baseMaxBits
 	e.useCBR = baseUseCBR
+	e.blockUseCBR = baseBlockUseCBR
 	// Patch SILK header bits (VAD + LBRR) at start of bitstream.
 	flags := uint32(0)
 	for i := 0; i < nFrames; i++ {

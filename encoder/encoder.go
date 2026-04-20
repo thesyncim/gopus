@@ -59,11 +59,11 @@ const maxPacketSizeWithQEXT = 3826
 // Encoder is the unified Opus encoder that orchestrates SILK and CELT sub-encoders.
 type Encoder struct {
 	// Sub-encoders (created lazily)
-	silkEncoder     *silk.Encoder
-	silkSideEncoder *silk.Encoder // For stereo side channel in hybrid mode
-	silkTrace       *silk.EncoderTrace
-	celtEncoder     *celt.Encoder
-	celtStatsHook   func(celt.CeltTargetStats)
+	silkEncoder       *silk.Encoder
+	silkSideEncoder   *silk.Encoder // For stereo side channel in hybrid mode
+	silkTrace         *silk.EncoderTrace
+	celtEncoder       *celt.Encoder
+	celtStatsHook     func(celt.CeltTargetStats)
 	celtPrefilterHook func(celt.PrefilterDebugStats)
 
 	// Configuration
@@ -946,13 +946,22 @@ func quantizeFloat64ToLSBDepthInPlace(samples []float64, depth int) {
 }
 
 func (e *Encoder) quantizeInputToLSBDepth(pcm []float64) []float64 {
-	if e.floatInputExact && e.LSBDepth() == 24 {
+	if e.LSBDepth() == 24 && (e.floatInputExact || float64SliceIsExactFloat32(pcm)) {
 		return pcm
 	}
 	out := e.ensureQuantPCM(len(pcm))
 	copy(out, pcm)
 	quantizeFloat64ToLSBDepthInPlace(out, e.LSBDepth())
 	return out
+}
+
+func float64SliceIsExactFloat32(samples []float64) bool {
+	for _, v := range samples {
+		if float64(float32(v)) != v {
+			return false
+		}
+	}
+	return true
 }
 
 func (e *Encoder) ensureQuantPCM(size int) []float64 {
