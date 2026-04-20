@@ -128,3 +128,68 @@ func TestCELTTransitionPrefillSnapshotsLibopusDelayHistoryWindow(t *testing.T) {
 		t.Fatal("expected one CELT prefill frame")
 	}
 }
+
+func TestCELTTransitionPrefillResyncsAnalysisAfterReset(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.prevMode = ModeCELT
+	enc.lastAnalysisValid = true
+	enc.lastAnalysisInfo = AnalysisInfo{
+		BandwidthIndex: 13,
+		Activity:       0.75,
+		TonalitySlope:  0.2,
+		MaxPitchRatio:  1.0,
+	}
+
+	frameSize := 480
+	frame := makeTransitionPCM(frameSize, 1)
+	celtPCM := enc.prepareCELTPCM(frame, frameSize)
+
+	enc.maybePrefillCELTOnModeTransition(ModeHybrid, celtPCM, frameSize)
+
+	if enc.celtEncoder == nil {
+		t.Fatal("expected CELT encoder to be initialized for prefill")
+	}
+	if got := enc.celtEncoder.AnalysisBandwidth(); got != 13 {
+		t.Fatalf("AnalysisBandwidth() after prefill = %d, want 13", got)
+	}
+}
+
+func TestSilkTransitionPrefillLongPacketKeepsFirstCELTSnapshot(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.prevMode = ModeCELT
+	enc.prevPacketMode = ModeCELT
+
+	prefillSamples := enc.sampleRate / 100
+	enc.delayBuffer = make([]float64, prefillSamples)
+	for i := range enc.delayBuffer {
+		enc.delayBuffer[i] = float64(i + 1)
+	}
+
+	enc.maybePrefillSILKOnModeTransitionWithOptions(ModeHybrid, false, true)
+
+	if !enc.hasCELTPrefill {
+		t.Fatal("expected first long-packet prefill to capture CELT transition history")
+	}
+	if len(enc.scratchCELTPrefill) == 0 {
+		t.Fatal("expected CELT prefill snapshot")
+	}
+	want := append([]float64(nil), enc.scratchCELTPrefill...)
+
+	for i := range enc.delayBuffer {
+		enc.delayBuffer[i] = float64(1000 + i)
+	}
+
+	enc.maybePrefillSILKOnModeTransitionWithOptions(ModeHybrid, true, false)
+
+	if !enc.hasCELTPrefill {
+		t.Fatal("expected later long-packet prefill to keep prior CELT snapshot")
+	}
+	if len(enc.scratchCELTPrefill) != len(want) {
+		t.Fatalf("scratchCELTPrefill len=%d want=%d", len(enc.scratchCELTPrefill), len(want))
+	}
+	for i := range want {
+		if got := enc.scratchCELTPrefill[i]; got != want[i] {
+			t.Fatalf("scratchCELTPrefill[%d]=%f want %f", i, got, want[i])
+		}
+	}
+}

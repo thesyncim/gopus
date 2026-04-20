@@ -1097,9 +1097,22 @@ func (e *Encoder) PrefillFrame(pcm []float32) {
 		}
 	}
 
-	// Preload x_buf and advance it exactly like frame-end behavior, but do not
-	// run pitch/noise-shape/quantization or entropy coding.
+	// Match the normal frame-end bookkeeping that libopus still executes during
+	// prefill: both the noise-shaping buffer and the pitch-analysis history
+	// advance even though no entropy-coded payload is produced.
 	_ = e.updateShapeBuffer(pcm, frameSamples)
+	pitchBufFrameLen := len(pcm)
+	if pitchBufFrameLen > 0 && len(e.pitchAnalysisBuf) > 0 {
+		if len(e.pitchAnalysisBuf) > pitchBufFrameLen {
+			copy(e.pitchAnalysisBuf, e.pitchAnalysisBuf[pitchBufFrameLen:])
+		}
+		start := len(e.pitchAnalysisBuf) - pitchBufFrameLen
+		if start < 0 {
+			start = 0
+			pitchBufFrameLen = len(e.pitchAnalysisBuf)
+		}
+		copy(e.pitchAnalysisBuf[start:], pcm[:pitchBufFrameLen])
+	}
 	e.shiftInputBuffer(frameSamples)
 	// libopus prefill still advances frameCounter before exiting encode_frame.
 	e.frameCounter++

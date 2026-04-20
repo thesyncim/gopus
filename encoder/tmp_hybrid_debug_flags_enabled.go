@@ -14,7 +14,6 @@ var (
 	tmpHybridMDCTDebugEnabled   = os.Getenv("GOPUS_TMP_HYB_MDCT_DBG") == "1"
 	tmpHybridMDCTCall           = parseTmpHybridDebugInt("GOPUS_TMP_HYB_MDCT_CALL", -1)
 	tmpHybridAMPDebugEnabled    = os.Getenv("GOPUS_TMP_HYB_AMP_DBG") == "1"
-	tmpPrefillRNGDebugEnabled   = os.Getenv("GOPUS_TMP_PREFILL_RNG_DBG") == "1"
 )
 
 func parseTmpHybridDebugInt(name string, fallback int) int {

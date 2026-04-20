@@ -489,6 +489,15 @@
     },
     {
       "name": "HYBRID-SWB-40ms-mono-48k",
+      "variant": "impulse_train_v1",
+      "min_gap_db": -2,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.08,
+      "max_histogram_l1": 0.08
+    },
+    {
+      "name": "HYBRID-SWB-40ms-mono-48k",
       "variant": "speech_like_v1",
       "min_gap_db": -2.0213248921611537,
       "max_mean_abs_packet_len": 0,
@@ -544,6 +553,15 @@
     {
       "name": "SILK-NB-10ms-mono-16k",
       "variant": "chirp_sweep_v1",
+      "min_gap_db": -0.5,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.02,
+      "max_histogram_l1": 0.02
+    },
+    {
+      "name": "SILK-NB-10ms-mono-16k",
+      "variant": "impulse_train_v1",
       "min_gap_db": -0.5,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,

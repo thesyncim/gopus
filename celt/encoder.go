@@ -194,6 +194,12 @@ type Encoder struct {
 	// When true, postfilter flag encoding is skipped per RFC 6716 Section 3.2
 	// Reference: libopus celt_encoder.c line 2047-2048
 	hybrid bool
+	// SILK side information forwarded by the Opus hybrid wrapper.
+	// libopus uses this in hybrid CELT for weak-transient gating and
+	// bitrate targeting. The generic EncodeFrame path only needs the
+	// weak-transient part for transition prefill parity.
+	silkSignalType int
+	silkOffset     int
 
 	// LFE mode flag.
 	// When true, encoder applies low-frequency-effects constraints.
@@ -1040,6 +1046,47 @@ func (e *Encoder) SetHybrid(hybrid bool) {
 // IsHybrid returns true if the encoder is in hybrid mode.
 func (e *Encoder) IsHybrid() bool {
 	return e.hybrid
+}
+
+// SetSilkInfo stores the current SILK signal classification for hybrid CELT.
+// This mirrors libopus CELT_SET_SILK_INFO.
+func (e *Encoder) SetSilkInfo(signalType, offset int) {
+	e.silkSignalType = signalType
+	e.silkOffset = offset
+}
+
+// FillHybridTFResolution applies the libopus hybrid fixed-TF fallback used when
+// variable TF analysis is disabled.
+func FillHybridTFResolution(tfRes []int, end int, transient, weakTransient, allowWeakTransients bool) int {
+	if end > len(tfRes) {
+		end = len(tfRes)
+	}
+	if end < 0 {
+		end = 0
+	}
+	tfSelect := 0
+	switch {
+	case weakTransient:
+		for i := 0; i < end; i++ {
+			tfRes[i] = 1
+		}
+	case allowWeakTransients:
+		for i := 0; i < end; i++ {
+			tfRes[i] = 0
+		}
+		if transient {
+			tfSelect = 1
+		}
+	default:
+		value := 0
+		if transient {
+			value = 1
+		}
+		for i := 0; i < end; i++ {
+			tfRes[i] = value
+		}
+	}
+	return tfSelect
 }
 
 // SetLFE enables or disables LFE mode constraints.

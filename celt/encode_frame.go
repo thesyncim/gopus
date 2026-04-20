@@ -431,9 +431,21 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	e.fillTransientHistoryFromPrefilter(overlap, transientInput[:preemphBufSize])
 	copy(transientInput[preemphBufSize:], preemph)
 
+	allowWeakTransients := false
+	if e.hybrid {
+		effectiveBytes := e.maxPayloadBytes
+		if effectiveBytes <= 0 {
+			bits := e.BitrateToBits(frameSize)
+			effectiveBytes = (bits + 7) / 8
+		}
+		allowWeakTransients = effectiveBytes < 15 && e.silkSignalType != 2
+	}
+
 	// Call transient analysis with the pre-emphasized signal (N+overlap samples)
-	transientResult := e.TransientAnalysis(transientInput, frameSize+overlap, false /* allowWeakTransients */)
+	// and the libopus hybrid weak-transient gate when a SILK handoff is active.
+	transientResult := e.TransientAnalysis(transientInput, frameSize+overlap, allowWeakTransients)
 	transient := transientResult.IsTransient
+	weakTransient := transientResult.WeakTransient
 	tfEstimate := transientResult.TfEstimate
 	tfChannel := transientResult.TfChannel
 	toneFreq := transientResult.ToneFreq
@@ -1104,17 +1116,22 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	} else {
 		// Use default TF settings when analysis is disabled
 		tfRes = ensureIntSlice(&e.scratch.tfRes, nbBands)
-		tfSelect = 0
 		// Zero all entries: ensureIntSlice reuses memory without zeroing,
 		// so stale values (e.g. -1 from TFAnalysis) can survive and cause
 		// an index-out-of-range panic in the tfSelectTable lookup below.
 		for i := range tfRes {
 			tfRes[i] = 0
 		}
-		if transient {
-			// For transients without analysis, use tf_res=1 (favor time resolution)
-			for i := 0; i < nbBands; i++ {
-				tfRes[i] = 1
+		if e.IsHybrid() {
+			// Match libopus hybrid fixed-TF fallback when TF analysis is disabled.
+			tfSelect = FillHybridTFResolution(tfRes, end, transient, weakTransient, allowWeakTransients)
+		} else {
+			tfSelect = 0
+			if transient {
+				// For transients without analysis, use tf_res=1 (favor time resolution)
+				for i := 0; i < nbBands; i++ {
+					tfRes[i] = 1
+				}
 			}
 		}
 		tfEncode(re, start, end, transient, tfRes, lm)
@@ -1376,19 +1393,36 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			signalBandwidth = minBandwidth
 		}
 	}
-	allocResult := e.computeAllocationScratch(
-		re,
-		totalBitsQ3,
-		nbBands,
-		caps,
-		offsets,
-		allocTrim,
-		intensity,
-		dualStereo,
-		lm,
-		e.lastCodedBands,
-		signalBandwidth,
-	)
+	var allocResult *AllocationResult
+	if e.IsHybrid() {
+		allocResult = e.ComputeAllocationHybridScratch(
+			re,
+			totalBitsQ3,
+			nbBands,
+			caps,
+			offsets,
+			allocTrim,
+			intensity,
+			dualStereo,
+			lm,
+			e.lastCodedBands,
+			signalBandwidth,
+		)
+	} else {
+		allocResult = e.computeAllocationScratch(
+			re,
+			totalBitsQ3,
+			nbBands,
+			caps,
+			offsets,
+			allocTrim,
+			intensity,
+			dualStereo,
+			lm,
+			e.lastCodedBands,
+			signalBandwidth,
+		)
+	}
 	if e.lastCodedBands != 0 {
 		e.lastCodedBands = min(e.lastCodedBands+1, max(e.lastCodedBands-1, allocResult.CodedBands))
 	} else {
