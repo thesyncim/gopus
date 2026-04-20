@@ -235,10 +235,12 @@ func (d *Decoder) DecodeStereoFrame(
 
 		ctrlMid := d.decodeFrameCoreInto(stMid, rd, midOut, frameCondCoding(frameIndex), stMid.VADFlags[frameIndex] != 0, i, nil)
 		d.finalizeDecodedChannelFrame(0, stMid, &ctrlMid, midOut, false)
+		d.fireFrameParamsHook(0, frameIndex)
 
 		if hasSide {
 			ctrlSide := d.decodeFrameCoreInto(stSide, rd, sideOut, sideFrameCondCoding(frameIndex, d.prevDecodeOnlyMiddle), stSide.VADFlags[stSide.nFramesDecoded] != 0, i, nil)
 			d.finalizeDecodedChannelFrame(1, stSide, &ctrlSide, sideOut, false)
+			d.fireFrameParamsHook(1, frameIndex)
 		} else {
 			clear(sideOut)
 			stSide.nFramesDecoded++
@@ -297,11 +299,13 @@ func (d *Decoder) decodeStereoMidNative(
 
 		ctrlMid := d.decodeFrameCoreInto(stMid, rd, midOut, frameCondCoding(frameIndex), stMid.VADFlags[frameIndex] != 0, i, nil)
 		d.finalizeDecodedChannelFrame(0, stMid, &ctrlMid, midOut, false)
+		d.fireFrameParamsHook(0, frameIndex)
 
 		if hasSide {
 			sideOut := make([]int16, frameLength)
 			ctrlSide := d.decodeFrameCoreInto(stSide, rd, sideOut, sideFrameCondCoding(frameIndex, d.prevDecodeOnlyMiddle), stSide.VADFlags[stSide.nFramesDecoded] != 0, i, nil)
 			d.finalizeDecodedChannelFrame(1, stSide, &ctrlSide, sideOut, false)
+			d.fireFrameParamsHook(1, frameIndex)
 		} else {
 			stSide.nFramesDecoded++
 		}
