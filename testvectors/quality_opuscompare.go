@@ -251,21 +251,81 @@ func ComputeOpusCompareQualityFloat32(decoded, reference []float32, sampleRate, 
 	return q, err
 }
 
-func estimateDelayByWaveformCorrelation(decoded, reference []float32, maxDelay int) int {
+const (
+	qualityDelayCorrelationMargin      = 120
+	qualityDelayCoarseSampleStride     = 8
+	qualityDelayCoarseRefineRadius     = 16
+	qualityDelayMaxProbeSamplesPerChan = 8192
+)
+
+func delayProbeRange(signalLen, channels int) (start, end int) {
+	if signalLen <= 0 {
+		return 0, 0
+	}
+	if channels <= 0 {
+		channels = 1
+	}
+	margin := qualityDelayCorrelationMargin * channels
+	start = margin
+	end = signalLen - margin
+	if end <= start {
+		return 0, signalLen
+	}
+
+	maxProbe := qualityDelayMaxProbeSamplesPerChan * channels
+	if end-start <= maxProbe {
+		return start, end
+	}
+
+	mid := (start + end) / 2
+	half := maxProbe / 2
+	start = mid - half
+	end = start + maxProbe
+	if start < margin {
+		start = margin
+		end = start + maxProbe
+	}
+	if end > signalLen-margin {
+		end = signalLen - margin
+		start = end - maxProbe
+	}
+	if start < 0 {
+		start = 0
+	}
+	if end > signalLen {
+		end = signalLen
+	}
+	return start, end
+}
+
+func bestDelayByWaveformCorrelation(decoded, reference []float32, channels, startDelay, endDelay, sampleStride int) (int, float64, bool) {
 	if len(decoded) == 0 || len(reference) == 0 {
-		return 0
+		return 0, math.Inf(-1), false
+	}
+	if channels <= 0 {
+		channels = 1
+	}
+	if sampleStride <= 0 {
+		sampleStride = 1
+	}
+
+	probeStart, probeEnd := delayProbeRange(len(reference), channels)
+	if probeEnd <= probeStart {
+		return 0, math.Inf(-1), false
 	}
 
 	bestCorr := math.Inf(-1)
 	bestDelay := 0
-	for d := -maxDelay; d <= maxDelay; d++ {
+	found := false
+	margin := qualityDelayCorrelationMargin * channels
+
+	for d := startDelay; d <= endDelay; d++ {
 		var dot float64
 		var refPower float64
 		var decPower float64
 		count := 0
 
-		const margin = 120
-		for i := margin; i < len(reference)-margin; i++ {
+		for i := probeStart; i < probeEnd; i += sampleStride {
 			decIdx := i + d
 			if decIdx >= margin && decIdx < len(decoded)-margin {
 				ref := float64(reference[i])
@@ -282,15 +342,46 @@ func estimateDelayByWaveformCorrelation(decoded, reference []float32, maxDelay i
 		}
 
 		candidateCorr := dot / math.Sqrt(refPower*decPower)
-		if candidateCorr > bestCorr || (candidateCorr == bestCorr && qualityAbsInt(d) < qualityAbsInt(bestDelay)) {
+		if !found || candidateCorr > bestCorr || (candidateCorr == bestCorr && qualityAbsInt(d) < qualityAbsInt(bestDelay)) {
 			bestCorr = candidateCorr
 			bestDelay = d
+			found = true
 		}
+	}
+
+	return bestDelay, bestCorr, found
+}
+
+func estimateDelayByWaveformCorrelation(decoded, reference []float32, channels, maxDelay int) int {
+	if len(decoded) == 0 || len(reference) == 0 {
+		return 0
+	}
+	if maxDelay <= 0 {
+		return 0
+	}
+
+	bestDelay, _, ok := bestDelayByWaveformCorrelation(decoded, reference, channels, -maxDelay, maxDelay, qualityDelayCoarseSampleStride)
+	if !ok {
+		return 0
+	}
+
+	refineStart := bestDelay - qualityDelayCoarseRefineRadius
+	if refineStart < -maxDelay {
+		refineStart = -maxDelay
+	}
+	refineEnd := bestDelay + qualityDelayCoarseRefineRadius
+	if refineEnd > maxDelay {
+		refineEnd = maxDelay
+	}
+
+	refinedDelay, _, refinedOK := bestDelayByWaveformCorrelation(decoded, reference, channels, refineStart, refineEnd, 1)
+	if refinedOK {
+		return refinedDelay
 	}
 	return bestDelay
 }
 
-func opusCompareDelayCandidates(decoded, reference []float32, maxDelay int) []int {
+func opusCompareDelayCandidates(decoded, reference []float32, channels, maxDelay int) []int {
 	if maxDelay <= 32 {
 		candidates := make([]int, 0, 2*maxDelay+1)
 		for delay := -maxDelay; delay <= maxDelay; delay++ {
@@ -299,7 +390,7 @@ func opusCompareDelayCandidates(decoded, reference []float32, maxDelay int) []in
 		return candidates
 	}
 
-	estimatedDelay := estimateDelayByWaveformCorrelation(decoded, reference, maxDelay)
+	estimatedDelay := estimateDelayByWaveformCorrelation(decoded, reference, channels, maxDelay)
 	candidates := make([]int, 0, 18)
 	seen := make(map[int]struct{}, 17)
 
@@ -339,6 +430,6 @@ func ComputeOpusCompareQualityFloat32WithDelay(decoded, reference []float32, sam
 		float32ToPCM16(decoded),
 		sampleRate,
 		channels,
-		opusCompareDelayCandidates(decoded, reference, maxDelay),
+		opusCompareDelayCandidates(decoded, reference, channels, maxDelay),
 	)
 }

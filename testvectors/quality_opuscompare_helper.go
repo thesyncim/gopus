@@ -32,9 +32,20 @@ var (
 	opusCompareHelperPath     string
 	opusCompareHelperPathErr  error
 
-	opusCompareHelperMu sync.Mutex
-	opusCompareHelper   *opusCompareHelperProcess
+	opusCompareHelperPoolOnce sync.Once
+	opusCompareHelperReqCh    chan opusCompareHelperRequest
 )
+
+type opusCompareHelperRequest struct {
+	payload []byte
+	reply   chan opusCompareHelperResponse
+}
+
+type opusCompareHelperResponse struct {
+	bestQ     float64
+	bestDelay int
+	err       error
+}
 
 func getOpusCompareHelperPath() (string, error) {
 	opusCompareHelperPathOnce.Do(func() {
@@ -81,11 +92,7 @@ func getOpusCompareHelperPath() (string, error) {
 	return opusCompareHelperPath, nil
 }
 
-func startOpusCompareHelperLocked() (*opusCompareHelperProcess, error) {
-	if opusCompareHelper != nil {
-		return opusCompareHelper, nil
-	}
-
+func startOpusCompareHelperProcess() (*opusCompareHelperProcess, error) {
 	binPath, err := getOpusCompareHelperPath()
 	if err != nil {
 		return nil, err
@@ -113,18 +120,13 @@ func startOpusCompareHelperLocked() (*opusCompareHelperProcess, error) {
 		_ = stdout.Close()
 		return nil, fmt.Errorf("start compare helper: %w", err)
 	}
-
-	opusCompareHelper = proc
 	return proc, nil
 }
 
-func closeOpusCompareHelperLocked() {
-	if opusCompareHelper == nil {
+func closeOpusCompareHelperProcess(proc *opusCompareHelperProcess) {
+	if proc == nil {
 		return
 	}
-
-	proc := opusCompareHelper
-	opusCompareHelper = nil
 
 	_ = proc.stdin.Close()
 	_ = proc.stdout.Close()
@@ -142,86 +144,124 @@ func opusCompareHelperError(proc *opusCompareHelperProcess, err error) error {
 	return fmt.Errorf("%w (%s)", err, stderr)
 }
 
-func runOpusCompareHelper(reference, decoded []int16, sampleRate, channels int, delays []int) (float64, int, error) {
-	for attempt := 0; attempt < 2; attempt++ {
-		opusCompareHelperMu.Lock()
-		proc, err := startOpusCompareHelperLocked()
-		if err != nil {
-			opusCompareHelperMu.Unlock()
-			return 0, 0, err
+func encodeOpusCompareHelperPayload(reference, decoded []int16, sampleRate, channels int, delays []int) ([]byte, error) {
+	var payload bytes.Buffer
+	payload.WriteString(opusCompareHelperInputMagic)
+	for _, v := range []uint32{
+		1,
+		uint32(sampleRate),
+		uint32(channels),
+		uint32(len(reference)),
+		uint32(len(decoded)),
+		uint32(len(delays)),
+	} {
+		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
+			return nil, fmt.Errorf("encode compare helper header: %w", err)
 		}
+	}
+	for _, s := range reference {
+		if err := binary.Write(&payload, binary.LittleEndian, s); err != nil {
+			return nil, fmt.Errorf("encode reference pcm: %w", err)
+		}
+	}
+	for _, s := range decoded {
+		if err := binary.Write(&payload, binary.LittleEndian, s); err != nil {
+			return nil, fmt.Errorf("encode decoded pcm: %w", err)
+		}
+	}
+	for _, delay := range delays {
+		if err := binary.Write(&payload, binary.LittleEndian, int32(delay)); err != nil {
+			return nil, fmt.Errorf("encode compare delay: %w", err)
+		}
+	}
+	return payload.Bytes(), nil
+}
 
-		var payload bytes.Buffer
-		payload.WriteString(opusCompareHelperInputMagic)
-		for _, v := range []uint32{
-			1,
-			uint32(sampleRate),
-			uint32(channels),
-			uint32(len(reference)),
-			uint32(len(decoded)),
-			uint32(len(delays)),
-		} {
-			if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-				opusCompareHelperMu.Unlock()
-				return 0, 0, fmt.Errorf("encode compare helper header: %w", err)
-			}
-		}
-		for _, s := range reference {
-			if err := binary.Write(&payload, binary.LittleEndian, s); err != nil {
-				opusCompareHelperMu.Unlock()
-				return 0, 0, fmt.Errorf("encode reference pcm: %w", err)
-			}
-		}
-		for _, s := range decoded {
-			if err := binary.Write(&payload, binary.LittleEndian, s); err != nil {
-				opusCompareHelperMu.Unlock()
-				return 0, 0, fmt.Errorf("encode decoded pcm: %w", err)
-			}
-		}
-		for _, delay := range delays {
-			if err := binary.Write(&payload, binary.LittleEndian, int32(delay)); err != nil {
-				opusCompareHelperMu.Unlock()
-				return 0, 0, fmt.Errorf("encode compare delay: %w", err)
-			}
-		}
-
-		if _, err := proc.stdin.Write(payload.Bytes()); err != nil {
-			err = opusCompareHelperError(proc, fmt.Errorf("write compare helper request: %w", err))
-			closeOpusCompareHelperLocked()
-			opusCompareHelperMu.Unlock()
-			if attempt == 0 {
-				continue
-			}
-			return 0, 0, err
-		}
-
-		var response [16]byte
-		if _, err := io.ReadFull(proc.stdout, response[:]); err != nil {
-			err = opusCompareHelperError(proc, fmt.Errorf("read compare helper response: %w", err))
-			closeOpusCompareHelperLocked()
-			opusCompareHelperMu.Unlock()
-			if attempt == 0 {
-				continue
-			}
-			return 0, 0, err
-		}
-		opusCompareHelperMu.Unlock()
-
-		if string(response[:4]) != opusCompareHelperOutputMagic {
-			opusCompareHelperMu.Lock()
-			err := opusCompareHelperError(proc, fmt.Errorf("compare helper output magic mismatch"))
-			closeOpusCompareHelperLocked()
-			opusCompareHelperMu.Unlock()
-			if attempt == 0 {
-				continue
-			}
-			return 0, 0, err
-		}
-
-		bestDelay := int(int32(binary.LittleEndian.Uint32(response[4:8])))
-		bestQ := math.Float64frombits(binary.LittleEndian.Uint64(response[8:16]))
-		return bestQ, bestDelay, nil
+func runOpusCompareHelperRequest(proc *opusCompareHelperProcess, payload []byte) (float64, int, error) {
+	if _, err := proc.stdin.Write(payload); err != nil {
+		return 0, 0, opusCompareHelperError(proc, fmt.Errorf("write compare helper request: %w", err))
 	}
 
-	return 0, 0, fmt.Errorf("compare helper exhausted retries")
+	var response [16]byte
+	if _, err := io.ReadFull(proc.stdout, response[:]); err != nil {
+		return 0, 0, opusCompareHelperError(proc, fmt.Errorf("read compare helper response: %w", err))
+	}
+	if string(response[:4]) != opusCompareHelperOutputMagic {
+		return 0, 0, opusCompareHelperError(proc, fmt.Errorf("compare helper output magic mismatch"))
+	}
+
+	bestDelay := int(int32(binary.LittleEndian.Uint32(response[4:8])))
+	bestQ := math.Float64frombits(binary.LittleEndian.Uint64(response[8:16]))
+	return bestQ, bestDelay, nil
+}
+
+func opusCompareWorkerCount() int {
+	n := runtime.GOMAXPROCS(0)
+	if n < 1 {
+		return 1
+	}
+	if n > 4 {
+		return 4
+	}
+	return n
+}
+
+func startOpusCompareHelperPool() error {
+	opusCompareHelperPoolOnce.Do(func() {
+		reqCh := make(chan opusCompareHelperRequest)
+		for range opusCompareWorkerCount() {
+			go func() {
+				var proc *opusCompareHelperProcess
+				for req := range reqCh {
+					var res opusCompareHelperResponse
+					for attempt := 0; attempt < 2; attempt++ {
+						if proc == nil {
+							var err error
+							proc, err = startOpusCompareHelperProcess()
+							if err != nil {
+								res.err = err
+								break
+							}
+						}
+
+						bestQ, bestDelay, err := runOpusCompareHelperRequest(proc, req.payload)
+						if err == nil {
+							res.bestQ = bestQ
+							res.bestDelay = bestDelay
+							break
+						}
+
+						closeOpusCompareHelperProcess(proc)
+						proc = nil
+						res.err = err
+					}
+					req.reply <- res
+				}
+				closeOpusCompareHelperProcess(proc)
+			}()
+		}
+		opusCompareHelperReqCh = reqCh
+	})
+	return nil
+}
+
+func runOpusCompareHelper(reference, decoded []int16, sampleRate, channels int, delays []int) (float64, int, error) {
+	payload, err := encodeOpusCompareHelperPayload(reference, decoded, sampleRate, channels, delays)
+	if err != nil {
+		return 0, 0, err
+	}
+	if err := startOpusCompareHelperPool(); err != nil {
+		return 0, 0, err
+	}
+
+	reply := make(chan opusCompareHelperResponse, 1)
+	opusCompareHelperReqCh <- opusCompareHelperRequest{
+		payload: payload,
+		reply:   reply,
+	}
+	res := <-reply
+	if res.err != nil {
+		return 0, 0, res.err
+	}
+	return res.bestQ, res.bestDelay, nil
 }
