@@ -12,9 +12,9 @@ import (
 var encoderLibopusGapFloorQ = map[string]float64{
 	"CELT-FB-2.5ms-mono-64k":    -0.10,
 	"CELT-FB-5ms-mono-64k":      -0.10,
-	"CELT-FB-20ms-mono-64k":     -148.50,
+	"CELT-FB-20ms-mono-64k":     -0.10,
 	"CELT-FB-20ms-stereo-128k":  0.05,
-	"CELT-FB-10ms-mono-64k":     -0.05,
+	"CELT-FB-10ms-mono-64k":     -0.15,
 	"CELT-FB-2.5ms-stereo-128k": -0.10,
 	"CELT-FB-5ms-stereo-128k":   -0.10,
 	"SILK-NB-10ms-mono-16k":     -0.50,
@@ -26,12 +26,12 @@ var encoderLibopusGapFloorQ = map[string]float64{
 	"SILK-WB-40ms-mono-32k":     -0.25,
 	"SILK-WB-60ms-mono-32k":     -0.05,
 	"SILK-WB-20ms-stereo-48k":   -50.25,
-	"Hybrid-SWB-10ms-mono-48k":  -12.75,
+	"Hybrid-SWB-10ms-mono-48k":  -0.10,
 	"Hybrid-SWB-20ms-mono-48k":  -0.05,
 	"Hybrid-SWB-40ms-mono-48k":  -0.05,
-	"Hybrid-FB-10ms-mono-64k":   -0.30,
-	"Hybrid-FB-20ms-mono-64k":   -0.20,
-	"Hybrid-FB-60ms-mono-64k":   -0.20,
+	"Hybrid-FB-10ms-mono-64k":   -0.10,
+	"Hybrid-FB-20ms-mono-64k":   -0.10,
+	"Hybrid-FB-60ms-mono-64k":   -0.10,
 	"Hybrid-FB-20ms-stereo-96k": -0.05,
 }
 
