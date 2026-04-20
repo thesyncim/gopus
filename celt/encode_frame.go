@@ -364,7 +364,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// preprocessing: quantize to the configured LSB depth, then run dc_reject
 	// if this encoder instance owns that stage.
 	// Reference: libopus src/opus_encoder.c line 2008: dc_reject(pcm, 3, ...)
-	samplesForFrame := e.quantizeInputToLSBDepthScratch(pcm)
+	samplesForFrame := pcm
+	if e.lsbQuantizationEnabled {
+		samplesForFrame = e.quantizeInputToLSBDepthScratch(pcm)
+	}
 	if e.dcRejectEnabled && !tmpDisableDCRejectEnabled {
 		samplesForFrame = e.applyDCRejectScratch(samplesForFrame)
 	}

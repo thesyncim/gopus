@@ -224,6 +224,12 @@ type Encoder struct {
 	// so this should be false to avoid double filtering.
 	dcRejectEnabled bool
 
+	// lsbQuantizationEnabled controls whether EncodeFrame rounds input samples
+	// to the configured LSB depth before any CELT-local preprocessing.
+	// Top-level Opus encoding already does this before dc_reject, so CELT must
+	// skip it there to avoid perturbing the filtered samples.
+	lsbQuantizationEnabled bool
+
 	// delayCompensationEnabled controls whether EncodeFrame prepends the
 	// Fs/250 CELT lookahead history. Standalone CELT defaults this to true;
 	// top-level Opus wiring should disable it to avoid double-compensation.
@@ -360,6 +366,9 @@ func NewEncoder(channels int) *Encoder {
 
 		// Apply dc_reject by default for standalone CELT usage
 		dcRejectEnabled: true,
+
+		// Standalone CELT also owns the initial LSB-depth rounding.
+		lsbQuantizationEnabled: true,
 
 		// Standalone CELT defaults to Opus-style delay compensation.
 		// Top-level Opus integration should disable this to avoid double-applying.
@@ -718,6 +727,18 @@ func (e *Encoder) SetDCRejectEnabled(enabled bool) {
 // DCRejectEnabled reports whether dc_reject is applied in EncodeFrame.
 func (e *Encoder) DCRejectEnabled() bool {
 	return e.dcRejectEnabled
+}
+
+// SetLSBQuantizationEnabled controls whether EncodeFrame rounds inputs to the
+// configured LSB depth before CELT-local processing.
+func (e *Encoder) SetLSBQuantizationEnabled(enabled bool) {
+	e.lsbQuantizationEnabled = enabled
+}
+
+// LSBQuantizationEnabled reports whether EncodeFrame applies the CELT-local
+// LSB-depth rounding step.
+func (e *Encoder) LSBQuantizationEnabled() bool {
+	return e.lsbQuantizationEnabled
 }
 
 // SetDelayCompensationEnabled controls whether EncodeFrame prepends Fs/250

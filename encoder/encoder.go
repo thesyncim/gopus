@@ -2646,6 +2646,8 @@ func (e *Encoder) ensureCELTEncoder() {
 		e.celtEncoder.SetComplexity(e.complexity)
 		e.celtEncoder.SetTargetStatsHook(e.celtStatsHook)
 		e.celtEncoder.SetPrefilterDebugHook(e.celtPrefilterHook)
+		// Opus encoder already rounds input to the configured LSB depth.
+		e.celtEncoder.SetLSBQuantizationEnabled(false)
 		// Opus encoder already applies dc_reject at the top level.
 		e.celtEncoder.SetDCRejectEnabled(false)
 		// Opus encoder already applies CELT delay compensation at the top level.
