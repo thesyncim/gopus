@@ -17,6 +17,84 @@ func mdctMul(a, b float32) float32 {
 	return noFMA32Mul(a, b)
 }
 
+func mdctMathFlagsForFrame(frameSize int) (useNativeMul, useF64Mix, useFMALikeMix bool) {
+	useNativeMul = mdctUseNativeMulEnabled
+	useF64Mix = mdctUseF64MixEnabled
+	useFMALikeMix = mdctUseFMALikeMixEnabled
+	if frameSize == 240 {
+		if mdctUseNativeMulShort240Enabled {
+			useNativeMul = true
+		}
+		if mdctUseFMALikeMixShort240Enabled {
+			useFMALikeMix = true
+		}
+	}
+	return useNativeMul, useF64Mix, useFMALikeMix
+}
+
+func mdctMulWith(useNativeMul bool, a, b float32) float32 {
+	if useNativeMul {
+		return a * b
+	}
+	return noFMA32Mul(a, b)
+}
+
+func mdctMulAddMixWith(useNativeMul, useF64Mix, useFMALikeMix bool, a, b, c, d float32) float32 {
+	if useNativeMul {
+		return a*c + b*d
+	}
+	if useFMALikeMix {
+		t := mdctMulWith(useNativeMul, b, d)
+		return float32(float64(a)*float64(c) + float64(t))
+	}
+	if useF64Mix {
+		return float32(float64(a)*float64(c) + float64(b)*float64(d))
+	}
+	return mdctMulWith(useNativeMul, a, c) + mdctMulWith(useNativeMul, b, d)
+}
+
+func mdctMulSubMixWith(useNativeMul, useF64Mix, useFMALikeMix bool, a, b, c, d float32) float32 {
+	if useNativeMul {
+		return a*c - b*d
+	}
+	if useFMALikeMix {
+		t := mdctMulWith(useNativeMul, b, d)
+		return float32(float64(a)*float64(c) - float64(t))
+	}
+	if useF64Mix {
+		return float32(float64(a)*float64(c) - float64(b)*float64(d))
+	}
+	return mdctMulWith(useNativeMul, a, c) - mdctMulWith(useNativeMul, b, d)
+}
+
+func mdctMulSubMixAltWith(useNativeMul, useF64Mix, useFMALikeMix bool, a, b, c, d float32) float32 {
+	if useNativeMul {
+		return a*c - b*d
+	}
+	if useFMALikeMix {
+		t := mdctMulWith(useNativeMul, a, c)
+		return float32(float64(t) - float64(b)*float64(d))
+	}
+	if useF64Mix {
+		return float32(float64(a)*float64(c) - float64(b)*float64(d))
+	}
+	return mdctMulWith(useNativeMul, a, c) - mdctMulWith(useNativeMul, b, d)
+}
+
+func mdctStoreDirectStageWith(useNativeMul bool, dst []kissCpx, idx int, scale, re, im, t0, t1 float32) {
+	yr := mdctMulWith(useNativeMul, re, t0) - mdctMulWith(useNativeMul, im, t1)
+	yi := mdctMulWith(useNativeMul, im, t0) + mdctMulWith(useNativeMul, re, t1)
+	dst[idx].r = yr * scale
+	dst[idx].i = yi * scale
+}
+
+func mdctStoreDirectStageFMALikeWith(useNativeMul bool, dst []kissCpx, idx int, scale, re, im, t0, t1 float32) {
+	yr := float32(float64(re)*float64(t0) - float64(mdctMulWith(useNativeMul, im, t1)))
+	yi := float32(float64(im)*float64(t0) + float64(mdctMulWith(useNativeMul, re, t1)))
+	dst[idx].r = yr * scale
+	dst[idx].i = yi * scale
+}
+
 func mdctMulAddMix(a, b, c, d float32) float32 {
 	if mdctUseNativeMulEnabled {
 		return a*c + b*d
@@ -259,6 +337,7 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 	if frameSize <= 0 {
 		return
 	}
+	useNativeMul, useF64Mix, useFMALikeMix := mdctMathFlagsForFrame(frameSize)
 
 	n2 := frameSize
 	n := n2 * 2
@@ -322,13 +401,13 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 		bitrev := st.bitrev
 		_ = bitrev[n4-1]
 		_ = fftStage[n4-1]
-		if mdctUseFMALikeMixEnabled {
+		if useFMALikeMix {
 			for ; i < limit1; i++ {
-				re := mdctMulAddMix(float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
-				im := mdctMulSubMix(float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
+				re := mdctMulAddMixWith(useNativeMul, useF64Mix, useFMALikeMix, float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
+				im := mdctMulSubMixWith(useNativeMul, useF64Mix, useFMALikeMix, float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
 				t0 := trig[i]
 				t1 := trig[n4+i]
-				mdctStoreDirectStageFMALike(fftStage, bitrev[i], scale, re, im, t0, t1)
+				mdctStoreDirectStageFMALikeWith(useNativeMul, fftStage, bitrev[i], scale, re, im, t0, t1)
 				xp1 += 2
 				xp2 -= 2
 				wp1 += 2
@@ -342,17 +421,17 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 				im := float32(samples[xp1])
 				t0 := trig[i]
 				t1 := trig[n4+i]
-				mdctStoreDirectStageFMALike(fftStage, bitrev[i], scale, re, im, t0, t1)
+				mdctStoreDirectStageFMALikeWith(useNativeMul, fftStage, bitrev[i], scale, re, im, t0, t1)
 				xp1 += 2
 				xp2 -= 2
 			}
 
 			for ; i < n4; i++ {
-				re := mdctMulSubMixAlt(float32(samples[xp2]), float32(samples[xp1-n2]), window[wp2], window[wp1])
-				im := mdctMulAddMix(float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
+				re := mdctMulSubMixAltWith(useNativeMul, useF64Mix, useFMALikeMix, float32(samples[xp2]), float32(samples[xp1-n2]), window[wp2], window[wp1])
+				im := mdctMulAddMixWith(useNativeMul, useF64Mix, useFMALikeMix, float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
 				t0 := trig[i]
 				t1 := trig[n4+i]
-				mdctStoreDirectStageFMALike(fftStage, bitrev[i], scale, re, im, t0, t1)
+				mdctStoreDirectStageFMALikeWith(useNativeMul, fftStage, bitrev[i], scale, re, im, t0, t1)
 				xp1 += 2
 				xp2 -= 2
 				wp1 += 2
@@ -360,11 +439,11 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 			}
 		} else {
 			for ; i < limit1; i++ {
-				re := mdctMulAddMix(float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
-				im := mdctMulSubMix(float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
+				re := mdctMulAddMixWith(useNativeMul, useF64Mix, useFMALikeMix, float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
+				im := mdctMulSubMixWith(useNativeMul, useF64Mix, useFMALikeMix, float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
 				t0 := trig[i]
 				t1 := trig[n4+i]
-				mdctStoreDirectStage(fftStage, bitrev[i], scale, re, im, t0, t1)
+				mdctStoreDirectStageWith(useNativeMul, fftStage, bitrev[i], scale, re, im, t0, t1)
 				xp1 += 2
 				xp2 -= 2
 				wp1 += 2
@@ -378,17 +457,17 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 				im := float32(samples[xp1])
 				t0 := trig[i]
 				t1 := trig[n4+i]
-				mdctStoreDirectStage(fftStage, bitrev[i], scale, re, im, t0, t1)
+				mdctStoreDirectStageWith(useNativeMul, fftStage, bitrev[i], scale, re, im, t0, t1)
 				xp1 += 2
 				xp2 -= 2
 			}
 
 			for ; i < n4; i++ {
-				re := mdctMulSubMixAlt(float32(samples[xp2]), float32(samples[xp1-n2]), window[wp2], window[wp1])
-				im := mdctMulAddMix(float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
+				re := mdctMulSubMixAltWith(useNativeMul, useF64Mix, useFMALikeMix, float32(samples[xp2]), float32(samples[xp1-n2]), window[wp2], window[wp1])
+				im := mdctMulAddMixWith(useNativeMul, useF64Mix, useFMALikeMix, float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
 				t0 := trig[i]
 				t1 := trig[n4+i]
-				mdctStoreDirectStage(fftStage, bitrev[i], scale, re, im, t0, t1)
+				mdctStoreDirectStageWith(useNativeMul, fftStage, bitrev[i], scale, re, im, t0, t1)
 				xp1 += 2
 				xp2 -= 2
 				wp1 += 2
@@ -400,8 +479,8 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 		_ = f[2*n4-1]
 
 		for ; i < limit1; i++ {
-			f[2*i] = mdctMulAddMix(float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
-			f[2*i+1] = mdctMulSubMix(float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
+			f[2*i] = mdctMulAddMixWith(useNativeMul, useF64Mix, useFMALikeMix, float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
+			f[2*i+1] = mdctMulSubMixWith(useNativeMul, useF64Mix, useFMALikeMix, float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
 			xp1 += 2
 			xp2 -= 2
 			wp1 += 2
@@ -418,8 +497,8 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 		}
 
 		for ; i < n4; i++ {
-			f[2*i] = mdctMulSubMixAlt(float32(samples[xp2]), float32(samples[xp1-n2]), window[wp2], window[wp1])
-			f[2*i+1] = mdctMulAddMix(float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
+			f[2*i] = mdctMulSubMixAltWith(useNativeMul, useF64Mix, useFMALikeMix, float32(samples[xp2]), float32(samples[xp1-n2]), window[wp2], window[wp1])
+			f[2*i+1] = mdctMulAddMixWith(useNativeMul, useF64Mix, useFMALikeMix, float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
 			xp1 += 2
 			xp2 -= 2
 			wp1 += 2
@@ -445,13 +524,13 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 		if !fuseDirectStage {
 			_ = bitrev[n4-1]   // BCE hint
 			_ = fftStage[n4-1] // BCE hint
-			if mdctUseFMALikeMixEnabled {
+			if useFMALikeMix {
 				for i = 0; i < n4; i++ {
 					re := f[2*i]
 					im := f[2*i+1]
 					t0 := trig[i]
 					t1 := trig[n4+i]
-					mdctStoreDirectStageFMALike(fftStage, bitrev[i], scale, re, im, t0, t1)
+					mdctStoreDirectStageFMALikeWith(useNativeMul, fftStage, bitrev[i], scale, re, im, t0, t1)
 				}
 			} else {
 				for i = 0; i < n4; i++ {
@@ -459,7 +538,7 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 					im := f[2*i+1]
 					t0 := trig[i]
 					t1 := trig[n4+i]
-					mdctStoreDirectStage(fftStage, bitrev[i], scale, re, im, t0, t1)
+					mdctStoreDirectStageWith(useNativeMul, fftStage, bitrev[i], scale, re, im, t0, t1)
 				}
 			}
 		}
@@ -478,14 +557,14 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 	} else {
 		// Fallback: keep the existing complex64 path for unsupported sizes.
 		_ = fftIn[n4-1] // BCE hint
-		if mdctUseFMALikeMixEnabled {
+		if useFMALikeMix {
 			for i = 0; i < n4; i++ {
 				re := f[2*i]
 				im := f[2*i+1]
 				t0 := trig[i]
 				t1 := trig[n4+i]
-				yr := float32(float64(re)*float64(t0) - float64(mdctMul(im, t1)))
-				yi := float32(float64(im)*float64(t0) + float64(mdctMul(re, t1)))
+				yr := float32(float64(re)*float64(t0) - float64(mdctMulWith(useNativeMul, im, t1)))
+				yi := float32(float64(im)*float64(t0) + float64(mdctMulWith(useNativeMul, re, t1)))
 				fftIn[i] = complex(yr*scale, yi*scale)
 			}
 		} else {
@@ -494,8 +573,8 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 				im := f[2*i+1]
 				t0 := trig[i]
 				t1 := trig[n4+i]
-				yr := mdctMul(re, t0) - mdctMul(im, t1)
-				yi := mdctMul(im, t0) + mdctMul(re, t1)
+				yr := mdctMulWith(useNativeMul, re, t0) - mdctMulWith(useNativeMul, im, t1)
+				yi := mdctMulWith(useNativeMul, im, t0) + mdctMulWith(useNativeMul, re, t1)
 				fftIn[i] = complex(yr*scale, yi*scale)
 			}
 		}
@@ -535,14 +614,14 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 		_ = trigHi[n4-1]
 		lo := 0
 		hi := n2 - 1
-		if mdctUseFMALikeMixEnabled {
+		if useFMALikeMix {
 			for i = 0; i < n4; i++ {
 				re := fftStage[i].r
 				im := fftStage[i].i
 				t0 := trig[i]
 				t1 := trigHi[i]
-				yr := float32(float64(im)*float64(t1) - float64(mdctMul(re, t0)))
-				yi := float32(float64(re)*float64(t1) + float64(mdctMul(im, t0)))
+				yr := float32(float64(im)*float64(t1) - float64(mdctMulWith(useNativeMul, re, t0)))
+				yi := float32(float64(re)*float64(t1) + float64(mdctMulWith(useNativeMul, im, t0)))
 				coeffs[lo] = float64(yr)
 				coeffs[hi] = float64(yi)
 				lo += 2
@@ -554,8 +633,8 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 				im := fftStage[i].i
 				t0 := trig[i]
 				t1 := trigHi[i]
-				yr := mdctMul(im, t1) - mdctMul(re, t0)
-				yi := mdctMul(re, t1) + mdctMul(im, t0)
+				yr := mdctMulWith(useNativeMul, im, t1) - mdctMulWith(useNativeMul, re, t0)
+				yi := mdctMulWith(useNativeMul, re, t1) + mdctMulWith(useNativeMul, im, t0)
 				coeffs[lo] = float64(yr)
 				coeffs[hi] = float64(yi)
 				lo += 2
@@ -567,14 +646,14 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 		_ = trigHi[n4-1]
 		lo := 0
 		hi := n2 - 1
-		if mdctUseFMALikeMixEnabled {
+		if useFMALikeMix {
 			for i = 0; i < n4; i++ {
 				re := real(fftOut[i])
 				im := imag(fftOut[i])
 				t0 := trig[i]
 				t1 := trigHi[i]
-				yr := float32(float64(im)*float64(t1) - float64(mdctMul(re, t0)))
-				yi := float32(float64(re)*float64(t1) + float64(mdctMul(im, t0)))
+				yr := float32(float64(im)*float64(t1) - float64(mdctMulWith(useNativeMul, re, t0)))
+				yi := float32(float64(re)*float64(t1) + float64(mdctMulWith(useNativeMul, im, t0)))
 				coeffs[lo] = float64(yr)
 				coeffs[hi] = float64(yi)
 				lo += 2
@@ -586,8 +665,8 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 				im := imag(fftOut[i])
 				t0 := trig[i]
 				t1 := trigHi[i]
-				yr := mdctMul(im, t1) - mdctMul(re, t0)
-				yi := mdctMul(re, t1) + mdctMul(im, t0)
+				yr := mdctMulWith(useNativeMul, im, t1) - mdctMulWith(useNativeMul, re, t0)
+				yi := mdctMulWith(useNativeMul, re, t1) + mdctMulWith(useNativeMul, im, t0)
 				coeffs[lo] = float64(yr)
 				coeffs[hi] = float64(yi)
 				lo += 2
