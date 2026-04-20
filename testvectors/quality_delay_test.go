@@ -2,6 +2,42 @@ package testvectors
 
 import "testing"
 
+func TestOpusCompareDelayCandidatesIncludeSymmetricNeighborhood(t *testing.T) {
+	ref := makeAperiodicSignal(4096)
+	decoded := shiftSignal(ref, 8)
+
+	got := opusCompareDelayCandidates(decoded, ref, 1, 120)
+	want := map[int]struct{}{
+		0:   {},
+		8:   {},
+		-8:  {},
+		16:  {},
+		-16: {},
+	}
+
+	seen := make(map[int]struct{}, len(got))
+	for _, delay := range got {
+		seen[delay] = struct{}{}
+	}
+	for delay := range want {
+		if _, ok := seen[delay]; !ok {
+			t.Fatalf("missing candidate delay %d in %v", delay, got)
+		}
+	}
+}
+
+func TestQualityDelaySearchWindowKeepsShortFramesWideEnough(t *testing.T) {
+	if got := qualityDelaySearchWindow(120); got != 240 {
+		t.Fatalf("2.5 ms window mismatch: got %d want 240", got)
+	}
+	if got := qualityDelaySearchWindow(240); got != 240 {
+		t.Fatalf("5 ms window mismatch: got %d want 240", got)
+	}
+	if got := qualityDelaySearchWindow(480); got != 480 {
+		t.Fatalf("10 ms window mismatch: got %d want 480", got)
+	}
+}
+
 func TestEstimateDelayByWaveformCorrelationFindsNegativeDelay(t *testing.T) {
 	ref := makeAperiodicSignal(4096)
 	const wantDelay = -137

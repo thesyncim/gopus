@@ -391,7 +391,7 @@ func opusCompareDelayCandidates(decoded, reference []float32, channels, maxDelay
 	}
 
 	estimatedDelay := estimateDelayByWaveformCorrelation(decoded, reference, channels, maxDelay)
-	candidates := make([]int, 0, 18)
+	candidates := make([]int, 0, 35)
 	seen := make(map[int]struct{}, 17)
 
 	addDelay := func(delay int) {
@@ -405,11 +405,14 @@ func opusCompareDelayCandidates(decoded, reference []float32, channels, maxDelay
 		candidates = append(candidates, delay)
 	}
 
-	addDelay(estimatedDelay)
 	addDelay(0)
+	addDelay(estimatedDelay)
+	addDelay(-estimatedDelay)
 	for delta := 1; delta <= 8; delta++ {
 		addDelay(estimatedDelay - delta)
 		addDelay(estimatedDelay + delta)
+		addDelay(-estimatedDelay - delta)
+		addDelay(-estimatedDelay + delta)
 	}
 	if len(candidates) == 0 {
 		candidates = append(candidates, 0)

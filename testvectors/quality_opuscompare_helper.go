@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/thesyncim/gopus/internal/libopustooling"
 )
@@ -18,6 +19,7 @@ import (
 const (
 	opusCompareHelperInputMagic  = "GOCI"
 	opusCompareHelperOutputMagic = "GOCO"
+	opusCompareHelperReqTimeout  = 30 * time.Second
 )
 
 type opusCompareHelperProcess struct {
@@ -195,6 +197,43 @@ func runOpusCompareHelperRequest(proc *opusCompareHelperProcess, payload []byte)
 	return bestQ, bestDelay, nil
 }
 
+func runOpusCompareHelperRequestWithTimeout(proc *opusCompareHelperProcess, payload []byte, timeout time.Duration) (float64, int, error) {
+	if timeout <= 0 {
+		return runOpusCompareHelperRequest(proc, payload)
+	}
+
+	type helperResult struct {
+		bestQ     float64
+		bestDelay int
+		err       error
+	}
+
+	done := make(chan helperResult, 1)
+	go func() {
+		bestQ, bestDelay, err := runOpusCompareHelperRequest(proc, payload)
+		done <- helperResult{
+			bestQ:     bestQ,
+			bestDelay: bestDelay,
+			err:       err,
+		}
+	}()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case res := <-done:
+		return res.bestQ, res.bestDelay, res.err
+	case <-timer.C:
+		closeOpusCompareHelperProcess(proc)
+		res := <-done
+		if res.err != nil {
+			return 0, 0, fmt.Errorf("compare helper timed out after %s: %w", timeout, res.err)
+		}
+		return 0, 0, fmt.Errorf("compare helper timed out after %s", timeout)
+	}
+}
+
 func opusCompareWorkerCount() int {
 	n := runtime.GOMAXPROCS(0)
 	if n < 1 {
@@ -224,7 +263,7 @@ func startOpusCompareHelperPool() error {
 							}
 						}
 
-						bestQ, bestDelay, err := runOpusCompareHelperRequest(proc, req.payload)
+						bestQ, bestDelay, err := runOpusCompareHelperRequestWithTimeout(proc, req.payload, opusCompareHelperReqTimeout)
 						if err == nil {
 							res.bestQ = bestQ
 							res.bestDelay = bestDelay

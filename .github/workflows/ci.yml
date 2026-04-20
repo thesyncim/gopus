@@ -105,7 +105,7 @@ jobs:
       - name: Run full parity-tier test suite
         run: |
           make ensure-libopus
-          GOPUS_TEST_TIER=parity go test ./... -count=1
+          GOPUS_TEST_TIER=parity go test ./... -count=1 -timeout=25m
 
   test-linux-race:
     name: test-linux-race
@@ -320,7 +320,7 @@ jobs:
         run: make ensure-libopus
 
       - name: Run test suite
-        run: go test ./... -count=1
+        run: go test ./... -count=1 -timeout=25m
 
   test-windows:
     name: test-windows
@@ -391,4 +391,4 @@ jobs:
 
       - name: Run test suite
         shell: pwsh
-        run: go test ./... -count=1
+        run: go test ./... -count=1 -timeout=25m
