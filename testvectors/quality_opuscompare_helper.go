@@ -49,7 +49,7 @@ type opusCompareHelperResponse struct {
 
 func getOpusCompareHelperPath() (string, error) {
 	opusCompareHelperPathOnce.Do(func() {
-		ccPath, err := exec.LookPath("cc")
+		ccPath, err := libopustooling.FindCCompiler()
 		if err != nil {
 			opusCompareHelperPathErr = fmt.Errorf("cc not available: %w", err)
 			return
@@ -69,7 +69,7 @@ func getOpusCompareHelperPath() (string, error) {
 			return
 		}
 
-		outPath := filepath.Join(os.TempDir(), fmt.Sprintf("gopus_libopus_compare_single_%s_%s", runtime.GOOS, runtime.GOARCH))
+		outPath := helperBinaryPath("gopus_libopus_compare_single", runtime.GOOS, runtime.GOARCH)
 		args := []string{
 			"-std=c99",
 			"-O2",
