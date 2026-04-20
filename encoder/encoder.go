@@ -1069,6 +1069,20 @@ func quantizeFloat32ToInt16InPlace(samples []float32) {
 	}
 }
 
+func quantizeFloat32ToInt16LibopusInPlace(samples []float32) {
+	const scale = float32(32768.0)
+	const invScale = float32(1.0 / 32768.0)
+	for i, v := range samples {
+		scaled := float64(v * scale)
+		if scaled > 32767.0 {
+			scaled = 32767.0
+		} else if scaled < -32768.0 {
+			scaled = -32768.0
+		}
+		samples[i] = float32(math.Floor(0.5+scaled)) * invScale
+	}
+}
+
 func (e *Encoder) ensureDelayedPCM(size int) []float64 {
 	if cap(e.scratchDelayedPCM) < size {
 		e.scratchDelayedPCM = make([]float64, size)
@@ -1841,10 +1855,13 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 			lookahead32[i] = float32(v)
 		}
 	}
-	// Match libopus enc_API.c float path: quantize to int16 precision
-	// before SILK resampling/input buffering.
-	quantizeFloat32ToInt16InPlace(pcm32)
-	quantizeFloat32ToInt16InPlace(lookahead32)
+	if e.channels != 2 {
+		// Match libopus enc_API.c float path: quantize to int16 precision
+		// before SILK resampling/input buffering. Stereo uses its own
+		// per-channel path below so it can match libopus predictor state.
+		quantizeFloat32ToInt16InPlace(pcm32)
+		quantizeFloat32ToInt16InPlace(lookahead32)
+	}
 
 	cfg := silk.GetBandwidthConfig(e.silkBandwidth())
 	targetRate := cfg.SampleRate
@@ -1914,6 +1931,13 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 			leftLookahead[i] = lookahead32[i*2]
 			rightLookahead[i] = lookahead32[i*2+1]
 		}
+		// Match libopus FLOAT2INT16 quantization on the stereo feed before
+		// SILK resampling; small tie-breaking differences here materially
+		// change packet-0 stereo predictor/range state.
+		quantizeFloat32ToInt16LibopusInPlace(left)
+		quantizeFloat32ToInt16LibopusInPlace(right)
+		quantizeFloat32ToInt16LibopusInPlace(leftLookahead)
+		quantizeFloat32ToInt16LibopusInPlace(rightLookahead)
 		if targetRate != 48000 {
 			leftOut := e.ensureSilkResampled(targetSamples)
 			rightOut := e.ensureSilkResampledR(targetSamples)
@@ -1929,8 +1953,8 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 			left = leftOut
 			right = rightOut
 		}
-		quantizeFloat32ToInt16InPlace(left)
-		quantizeFloat32ToInt16InPlace(right)
+		quantizeFloat32ToInt16LibopusInPlace(left)
+		quantizeFloat32ToInt16LibopusInPlace(right)
 		mono := e.scratchMono[:len(left)]
 		for i := 0; i < len(left); i++ {
 			mono[i] = (left[i] + right[i]) * 0.5

@@ -8,8 +8,9 @@ package silk
 // Reference: libopus silk/float/encode_frame_FLP.c
 func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) []byte {
 	config := GetBandwidthConfig(e.bandwidth)
+	useSharedEncoder := e.rangeEncoder != nil
 	blockUseCBR := e.blockUseCBR
-	if e.nFramesPerPacket <= 1 {
+	if e.nFramesPerPacket <= 1 && !useSharedEncoder {
 		blockUseCBR = e.useCBR
 	}
 	subframeSamples := config.SubframeSamples
@@ -35,7 +36,6 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	// packet/frame counters are reset before target-rate/SNR control for
 	// standalone packets, so bitsBalance only applies to already-encoded
 	// frames within the current packet.
-	useSharedEncoder := e.rangeEncoder != nil
 	// Save nFramesEncoded before the standalone reset.  The libopus "before
 	// frame i" snapshot is taken after opus_encode_float(i-1) returns (where
 	// nFramesEncoded was incremented to 1) but before opus_encode_float(i)
