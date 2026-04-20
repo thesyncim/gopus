@@ -154,6 +154,27 @@ func TestCELTTransitionPrefillResyncsAnalysisAfterReset(t *testing.T) {
 	}
 }
 
+func TestCELTTransitionPrefillSkipsWhenDelayedTransitionAlreadyAdvancedPrevMode(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	// After a long hybrid->CELT transition packet, libopus advances prev_mode to
+	// CELT even though the previous packet TOC still says hybrid.
+	enc.prevMode = ModeCELT
+	enc.prevPacketMode = ModeHybrid
+
+	frameSize := 960
+	frame := makeTransitionPCM(frameSize, 1)
+	celtPCM := enc.prepareCELTPCM(frame, frameSize)
+
+	enc.maybePrefillCELTOnModeTransition(ModeCELT, celtPCM, frameSize)
+
+	if enc.celtForceIntra {
+		t.Fatal("did not expect celtForceIntra after delayed transition already completed")
+	}
+	if enc.celtEncoder != nil && enc.celtEncoder.FrameCount() != 0 {
+		t.Fatal("did not expect CELT prefill when prevMode is already CELT")
+	}
+}
+
 func TestSilkTransitionPrefillLongPacketKeepsFirstCELTSnapshot(t *testing.T) {
 	enc := NewEncoder(48000, 1)
 	enc.prevMode = ModeCELT

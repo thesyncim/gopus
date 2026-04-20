@@ -1092,7 +1092,7 @@ func quantizeFloat32ToInt16LibopusInPlace(samples []float32) {
 		} else if scaled < -32768.0 {
 			scaled = -32768.0
 		}
-		samples[i] = float32(math.Floor(0.5+scaled)) * invScale
+		samples[i] = float32(math.RoundToEven(scaled)) * invScale
 	}
 }
 
@@ -1191,9 +1191,6 @@ func (e *Encoder) maybePrefillCELTOnModeTransition(actualMode Mode, celtPCM []fl
 		return
 	}
 	prev := e.prevMode
-	if isConcreteMode(e.prevPacketMode) {
-		prev = e.prevPacketMode
-	}
 	if !isConcreteMode(prev) || prev == actualMode {
 		return
 	}
@@ -1304,9 +1301,6 @@ func (e *Encoder) shouldPrefillSILKOnModeTransition(actualMode Mode) bool {
 		return false
 	}
 	prev := e.prevMode
-	if isConcreteMode(e.prevPacketMode) {
-		prev = e.prevPacketMode
-	}
 	if !isConcreteMode(prev) || prev != ModeCELT {
 		return false
 	}
@@ -2015,11 +2009,6 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 		}
 		quantizeFloat32ToInt16LibopusInPlace(left)
 		quantizeFloat32ToInt16LibopusInPlace(right)
-		mono := e.scratchMono[:len(left)]
-		for i := 0; i < len(left); i++ {
-			mono[i] = (left[i] + right[i]) * 0.5
-		}
-		vadFlags, vadStates, _ := e.computeSilkVADFlagsAndStates(mono, targetRate/1000)
 		e.ensureSilkVADMidFeedback()
 		midFeedbackAnalyzer := func(frame []float32, frameSamples, fsKHz int) (silk.VADFrameState, bool) {
 			state, active := computeSilkVADFrameState(e.silkVADMidFeedback, frame, frameSamples, fsKHz)
@@ -2036,8 +2025,8 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 			left,
 			right,
 			e.silkBandwidth(),
-			vadFlags,
-			vadStates,
+			nil,
+			nil,
 			midFeedbackAnalyzer,
 			nil,
 			nil,
