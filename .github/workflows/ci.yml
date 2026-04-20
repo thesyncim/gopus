@@ -207,8 +207,10 @@ jobs:
           set -euo pipefail
           make ensure-libopus
           json_out="$(mktemp)"
+          # Keep this lane on the default parity gate surface only. Exactness
+          # tests intentionally self-skip unless explicitly enabled.
           GOPUS_TEST_TIER=parity go test ./testvectors \
-            -run 'TestSILKParamTraceAgainstLibopus|TestDecoderParityLibopusMatrix|TestEncoderComplianceSummary' \
+            -run 'TestDecoderParityLibopusMatrix|TestEncoderComplianceSummary' \
             -shuffle=on \
             -count=3 \
             -json | tee "$json_out"
