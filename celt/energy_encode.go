@@ -211,7 +211,7 @@ func computeBandRMS(coeffs []float64, start, end int) float64 {
 	sumSq := float32(1e-27)
 	for _, cv := range c {
 		v := float32(cv)
-		sumSq += v * v
+		sumSq += noFMA32Mul(v, v)
 	}
 
 	// log2(sqrt(sumSq)) = 0.5 * log2(sumSq).
@@ -227,12 +227,12 @@ func celtAbsInt(v int) int {
 }
 
 // coarseLossDistortion mirrors libopus loss_distortion() for float mode.
-// It estimates how expensive packet loss would be if we keep using inter prediction.
-func coarseLossDistortion(energies, oldEBands []float64, nbBands, channels int) float64 {
+// Keep the accumulator in float32 so delayedIntra matches libopus state carry.
+func coarseLossDistortion(energies, oldEBands []float64, nbBands, channels int) float32 {
 	if nbBands <= 0 || channels <= 0 {
 		return 0
 	}
-	var dist float64
+	var dist float32
 	for c := 0; c < channels; c++ {
 		base := c * nbBands
 		oldBase := c * MaxBands
@@ -242,21 +242,20 @@ func coarseLossDistortion(energies, oldEBands []float64, nbBands, channels int) 
 			if idx >= len(energies) || oldIdx >= len(oldEBands) {
 				continue
 			}
-			d := energies[idx] - oldEBands[oldIdx]
+			d := float32(energies[idx] - oldEBands[oldIdx])
 			dist += d * d
 		}
 	}
-	// Match libopus loss_distortion(): normalize accumulated squared error.
 	dist /= 128.0
-	if dist > 200.0 {
-		return 200.0
+	if dist > 200 {
+		return 200
 	}
 	return dist
 }
 
 // coarseLossDistortionRange mirrors libopus loss_distortion() when coarse
 // quantization operates on a band subset [start,end) (hybrid mode).
-func coarseLossDistortionRange(energies, oldEBands []float64, start, end, nbBands, channels int) float64 {
+func coarseLossDistortionRange(energies, oldEBands []float64, start, end, nbBands, channels int) float32 {
 	if nbBands <= 0 || channels <= 0 {
 		return 0
 	}
@@ -269,7 +268,7 @@ func coarseLossDistortionRange(energies, oldEBands []float64, start, end, nbBand
 	if end <= start {
 		return 0
 	}
-	var dist float64
+	var dist float32
 	for c := 0; c < channels; c++ {
 		base := c * nbBands
 		oldBase := c * MaxBands
@@ -279,13 +278,13 @@ func coarseLossDistortionRange(energies, oldEBands []float64, start, end, nbBand
 			if idx >= len(energies) || oldIdx >= len(oldEBands) {
 				continue
 			}
-			d := energies[idx] - oldEBands[oldIdx]
+			d := float32(energies[idx] - oldEBands[oldIdx])
 			dist += d * d
 		}
 	}
 	dist /= 128.0
-	if dist > 200.0 {
-		return 200.0
+	if dist > 200 {
+		return 200
 	}
 	return dist
 }
@@ -540,13 +539,14 @@ func (e *Encoder) DecideIntraMode(energies []float64, startBand, nbBands int, lm
 		codedBands = 0
 	}
 	twoPass := e.complexity >= 4
+	delayedIntra := float32(e.delayedIntra)
 	intra := e.forceIntra || (!twoPass &&
-		e.delayedIntra > float64(2*channels*codedBands) &&
+		delayedIntra > float32(2*channels*codedBands) &&
 		nbAvailableBytes > codedBands*channels)
 
 	intraBias := 0
 	if channels > 0 {
-		intraBias = int(float64(budget) * e.delayedIntra * float64(e.packetLoss) / float64(channels*512))
+		intraBias = int(float32(budget) * delayedIntra * float32(e.packetLoss) / float32(channels*512))
 	}
 
 	tell := e.rangeEncoder.Tell()
@@ -599,6 +599,9 @@ func (e *Encoder) DecideIntraMode(energies []float64, startBand, nbBands int, lm
 	}
 
 	copy(workOldE, oldStart)
+	if tell+3 <= budget {
+		e.rangeEncoder.EncodeBit(1, 3)
+	}
 	badnessIntra := quantCoarseEnergyImpl(
 		e.rangeEncoder,
 		startBand,
@@ -620,6 +623,9 @@ func (e *Encoder) DecideIntraMode(energies []float64, startBand, nbBands int, lm
 	copy(e.prevEnergy, oldStart)
 
 	copy(workOldE, oldStart)
+	if tell+3 <= budget {
+		e.rangeEncoder.EncodeBit(0, 3)
+	}
 	badnessInter := quantCoarseEnergyImpl(
 		e.rangeEncoder,
 		startBand,
@@ -697,11 +703,11 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 
 	quantizedEnergies, _ := e.encodeCoarseEnergyPass(energies, 0, nbBands, intra, lm, budget, maxDecay32, false)
 
-	alpha := AlphaCoef[lm]
+	alpha32 := float32(AlphaCoef[lm])
 	if intra {
-		e.delayedIntra = newDistortion
+		e.delayedIntra = float64(newDistortion)
 	} else {
-		e.delayedIntra = alpha*alpha*e.delayedIntra + newDistortion
+		e.delayedIntra = float64(alpha32*alpha32*float32(e.delayedIntra) + newDistortion)
 	}
 
 	return quantizedEnergies
@@ -818,11 +824,11 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 
 		copy(e.prevEnergy, quantizedEnergies[:len(e.prevEnergy)])
 
-		alpha := AlphaCoef[lm]
+		alpha32 := float32(AlphaCoef[lm])
 		if intra {
-			e.delayedIntra = newDistortion
+			e.delayedIntra = float64(newDistortion)
 		} else {
-			e.delayedIntra = alpha*alpha*e.delayedIntra + newDistortion
+			e.delayedIntra = float64(alpha32*alpha32*float32(e.delayedIntra) + newDistortion)
 		}
 
 		return quantizedEnergies[:nbBands*channels]
@@ -955,11 +961,11 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 		}
 	}
 
-	alpha := AlphaCoef[lm]
+	alpha32 := float32(AlphaCoef[lm])
 	if intra {
-		e.delayedIntra = newDistortion
+		e.delayedIntra = float64(newDistortion)
 	} else {
-		e.delayedIntra = alpha*alpha*e.delayedIntra + newDistortion
+		e.delayedIntra = float64(alpha32*alpha32*float32(e.delayedIntra) + newDistortion)
 	}
 
 	return quantizedEnergies
@@ -1146,9 +1152,9 @@ func (e *Encoder) encodeFineEnergyFromError(quantizedEnergies []float64, nbBands
 
 			re.EncodeRawBits(uint32(q2), uint(bits))
 
-			offset := (float32(q2)+0.5)/scale32 - 0.5
-			quantizedEnergies[idx] = float64(float32(quantizedEnergies[idx]) + offset)
-			errorVals[idx] = float64(err - offset)
+			offset := (float64(q2)+0.5)/float64(extra) - 0.5
+			quantizedEnergies[idx] += offset
+			errorVals[idx] = float64(err) - offset
 			if tmpFineDumpEnabled &&
 				c == 0 &&
 				(!tmpFineDumpFrameEnabled || e.frameCount == tmpFineDumpFrameValue) &&
@@ -1281,9 +1287,9 @@ func (e *Encoder) EncodeFineEnergyRangeFromError(quantizedEnergies []float64, st
 
 			re.EncodeRawBits(uint32(q2), uint(bits))
 
-			offset := (float32(q2)+0.5)/scale32 - 0.5
-			quantizedEnergies[idx] = float64(float32(quantizedEnergies[idx]) + offset)
-			errorVals[idx] = float64(err - offset)
+			offset := (float64(q2)+0.5)/float64(extra) - 0.5
+			quantizedEnergies[idx] += offset
+			errorVals[idx] = float64(err) - offset
 		}
 	}
 }
@@ -1449,9 +1455,9 @@ func (e *Encoder) encodeEnergyFinaliseFromError(quantizedEnergies []float64, nbB
 				}
 				re.EncodeRawBits(uint32(q2), 1)
 
-				offset := (float32(q2) - 0.5) / float32(uint(1)<<(fineQuant[band]+1))
-				quantizedEnergies[idx] = float64(float32(quantizedEnergies[idx]) + offset)
-				errorVals[idx] = float64(float32(errorVals[idx]) - offset)
+				offset := (float64(q2) - 0.5) / float64(uint(1)<<(fineQuant[band]+1))
+				quantizedEnergies[idx] += offset
+				errorVals[idx] -= offset
 				bitsLeft--
 			}
 		}
@@ -1565,9 +1571,9 @@ func (e *Encoder) EncodeEnergyFinaliseRangeFromError(quantizedEnergies []float64
 				}
 				re.EncodeRawBits(uint32(q2), 1)
 
-				offset := (float32(q2) - 0.5) / float32(uint(1)<<(fineQuant[band]+1))
-				quantizedEnergies[idx] = float64(float32(quantizedEnergies[idx]) + offset)
-				errorVals[idx] = float64(float32(errorVals[idx]) - offset)
+				offset := (float64(q2) - 0.5) / float64(uint(1)<<(fineQuant[band]+1))
+				quantizedEnergies[idx] += offset
+				errorVals[idx] -= offset
 				bitsLeft--
 			}
 		}
@@ -1656,9 +1662,9 @@ func (e *Encoder) encodeFineEnergyFromErrorWithPrev(quantizedEnergies []float64,
 
 			re.EncodeRawBits(uint32(q2), uint(extraBits))
 
-			offset := ((float32(q2)+0.5)/scale32 - 0.5) / prevScale32
-			quantizedEnergies[idx] = float64(float32(quantizedEnergies[idx]) + offset)
-			errorVals[idx] = float64(err - offset)
+			offset := ((float64(q2)+0.5)/float64(extra) - 0.5) / float64(uint(1)<<prevBits)
+			quantizedEnergies[idx] += offset
+			errorVals[idx] = float64(err) - offset
 		}
 	}
 }
