@@ -132,6 +132,7 @@ If you want to evaluate or contribute to the codec, these are the main entry poi
 - [Contributing guide](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
 - [Code of conduct](CODE_OF_CONDUCT.md)
+- [Maintainer docs](docs/maintainers/README.md)
 - [Assembly notes](ASSEMBLY.md)
 
 ## License

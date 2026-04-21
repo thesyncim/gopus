@@ -51,4 +51,4 @@ Run from repository root and keep command output for release evidence.
 - [ ] Release notes link verification evidence.
 - [ ] GitHub release attaches or links the evidence bundle from `reports/release/`.
 - [ ] GitHub `Release` workflow completed successfully for the tag.
-- [ ] Next iteration TODOs captured in `PRODUCTION_TODO.md`.
+- [ ] Next iteration TODOs captured in `docs/maintainers/PRODUCTION_TODO.md`.

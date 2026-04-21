@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-quality test-exactness quality-report test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard verify-production verify-production-exhaustive verify-safety release-evidence ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
+.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-quality test-exactness quality-report test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
@@ -142,6 +142,20 @@ verify-safety: ensure-libopus
 # Generate a release evidence bundle (gates + key benchmarks).
 release-evidence: ensure-libopus
 	./tools/gen_release_evidence.sh $(RELEASE_EVIDENCE_DIR)
+
+# Local release preflight before pushing a public tag.
+release-preflight:
+	@test -n "$(TAG)" || { echo "TAG is required, for example: make release-preflight TAG=v0.1.0"; exit 1; }
+	@case "$(TAG)" in \
+		v[0-9]*.[0-9]*.[0-9]*) ;; \
+		*) echo "TAG must look like v0.1.0"; exit 1 ;; \
+	esac
+	@test -f "docs/releases/$(TAG).md" || { echo "missing release notes: docs/releases/$(TAG).md"; exit 1; }
+	@git diff --quiet --ignore-submodules -- && git diff --cached --quiet --ignore-submodules -- || { echo "working tree must be clean before release-preflight"; exit 1; }
+	@! git rev-parse -q --verify "refs/tags/$(TAG)" >/dev/null || { echo "tag $(TAG) already exists locally"; exit 1; }
+	$(MAKE) lint
+	$(MAKE) verify-production-exhaustive
+	$(MAKE) release-evidence
 
 # Ensure tmp_check/opus-$(LIBOPUS_VERSION)/opus_demo exists (fetch + build if missing).
 ensure-libopus:

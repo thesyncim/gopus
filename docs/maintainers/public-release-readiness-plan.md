@@ -50,7 +50,7 @@ Current external assessment:
 - A new user can understand installation, support level, stable surfaces, and verification flow from the landing docs alone.
 - Security, contribution, conduct, and issue/reporting paths are visible in the repo root and GitHub UI.
 - At least one smoke test proves external-consumer import/build/run behavior.
-- Branch protection and required checks match `CI_GUARDRAILS.md`.
+- Branch protection and required checks match `docs/maintainers/CI_GUARDRAILS.md`.
 
 ## Workstreams
 
@@ -81,7 +81,7 @@ Acceptance signals:
 Deliverables:
 - Expand `.golangci.yml` to meaningful baseline checks.
 - Add a CI lint/static-analysis job.
-- Document the required-check name in `CI_GUARDRAILS.md`.
+- Document the required-check name in `docs/maintainers/CI_GUARDRAILS.md`.
 
 Acceptance signals:
 - `make lint` becomes a useful gate locally.
@@ -154,7 +154,7 @@ Owns:
 - `.golangci.yml`
 - `Makefile` lint targets if needed
 - `.github/workflows/ci.yml`
-- `CI_GUARDRAILS.md`
+- `docs/maintainers/CI_GUARDRAILS.md`
 
 ### Scout C: Docs And Hygiene
 
