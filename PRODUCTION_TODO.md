@@ -26,6 +26,8 @@ Last updated: 2026-04-21
 - [x] Collapse dead coarse-energy hook branches, drop the unused raw band-energy accessor, and simplify VAD helper returns.
 - [x] Remove dead CELT tonality wrappers and unused encoder tonality scratch buffers while keeping the scratch-based production path intact.
 - [x] Collapse CELT prefilter debug-hook bookkeeping to a single final emit so the non-debug path stays cleaner when hooks are unset.
+- [x] Collapse CELT target-stats hook bookkeeping to final edge assignment and remove default spread-weight allocations.
+- [x] Update GitHub Actions cache steps to `actions/cache@v5` so PR and safety workflows are aligned with the Node 24 runtime.
 
 ## In progress now
 

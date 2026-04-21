@@ -30,12 +30,7 @@ import "math"
 //
 // Reference: libopus celt/bands.c spreading_decision()
 func (e *Encoder) SpreadingDecision(normX []float64, nbBands, channels, frameSize int, updateHF bool) int {
-	// Use uniform weights by default (for backward compatibility)
-	spreadWeight := make([]int, nbBands)
-	for i := 0; i < nbBands; i++ {
-		spreadWeight[i] = 1
-	}
-	return e.SpreadingDecisionWithWeights(normX, nbBands, channels, frameSize, updateHF, spreadWeight)
+	return e.SpreadingDecisionWithWeights(normX, nbBands, channels, frameSize, updateHF, nil)
 }
 
 // SpreadingDecisionWithWeights analyzes the normalized MDCT coefficients to decide the
@@ -77,14 +72,6 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []float64, nbBands, channel
 	lastBandWidth := ScaledBandWidth(nbBands-1, frameSize)
 	if lastBandWidth <= 8 {
 		return spreadNone
-	}
-
-	// Ensure spreadWeight is valid
-	if len(spreadWeight) < nbBands {
-		spreadWeight = make([]int, nbBands)
-		for i := 0; i < nbBands; i++ {
-			spreadWeight[i] = 1
-		}
 	}
 
 	sum := 0
@@ -139,8 +126,12 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []float64, nbBands, channel
 				tmp++
 			}
 
-			sum += tmp * spreadWeight[band]
-			nbBandsTotal += spreadWeight[band]
+			weight := 1
+			if band < len(spreadWeight) {
+				weight = spreadWeight[band]
+			}
+			sum += tmp * weight
+			nbBandsTotal += weight
 		}
 	}
 
