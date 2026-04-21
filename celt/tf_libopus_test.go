@@ -449,7 +449,7 @@ func TestTFDecodeAllLMValues(t *testing.T) {
 			rd.Init(data)
 
 			end := effectiveBandsForLM(lm)
-			tfRes := make([]int, end)
+			var tfRes []int
 
 			// Test both transient and non-transient
 			for _, transient := range []bool{false, true} {

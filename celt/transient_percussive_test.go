@@ -132,7 +132,7 @@ func TestTransientHysteresis(t *testing.T) {
 
 	// Attack duration should decay, not jump back to 0
 	if enc.GetAttackDuration() == 0 && result1.IsTransient {
-		// This is OK - attack duration decays after non-transient
+		t.Log("Attack duration decayed to 0 after the follow-up frame")
 	}
 }
 

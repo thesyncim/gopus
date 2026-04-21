@@ -488,13 +488,11 @@ func TestAnalyzeLibopusPacket(t *testing.T) {
 		t.Logf("  FrameCode: %d", frameCode)
 
 		// Decode config
-		mode := "unknown"
+		mode := "CELT"
 		if config <= 11 {
 			mode = "SILK"
 		} else if config <= 15 {
 			mode = "Hybrid"
-		} else {
-			mode = "CELT"
 		}
 		t.Logf("  Mode: %s", mode)
 	}

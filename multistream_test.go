@@ -940,6 +940,9 @@ func TestMultistreamEncoder_OptionalExtensionControls(t *testing.T) {
 	enc := mustNewDefaultMultistreamEncoder(t, 48000, 2, ApplicationAudio)
 
 	assertOptionalEncoderControls(t, enc)
+	if _, ok := any(enc).(unsupportedDREDControl); ok {
+		t.Fatal("default build unexpectedly exposes DRED control")
+	}
 	assertSupportedQEXTControl(t, enc)
 }
 
@@ -947,6 +950,9 @@ func TestMultistreamDecoder_OptionalExtensionControls(t *testing.T) {
 	dec := mustNewDefaultMultistreamDecoder(t, 48000, 2)
 
 	assertOptionalDecoderControls(t, dec)
+	if _, ok := any(dec).(unsupportedOSCEBWEControl); ok {
+		t.Fatal("default build unexpectedly exposes OSCE BWE control")
+	}
 }
 
 // TestMultistreamDecoder_PLC tests packet loss concealment.

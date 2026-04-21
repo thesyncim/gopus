@@ -135,20 +135,6 @@ func (e *Encoder) VADActivity() int {
 	return e.enc.GetVADActivity()
 }
 
-// SetDREDDuration configures the libopus ENABLE_DRED encoder extension depth.
-//
-// The default gopus build does not enable this extension; check
-// SupportsOptionalExtension(OptionalExtensionDRED) and expect
-// ErrUnsupportedExtension when unavailable.
-func (e *Encoder) SetDREDDuration(_ int) error {
-	return ErrUnsupportedExtension
-}
-
-// DREDDuration reports encoder-side DRED redundancy depth.
-func (e *Encoder) DREDDuration() (int, error) {
-	return 0, ErrUnsupportedExtension
-}
-
 // SetDNNBlob loads the optional libopus USE_WEIGHTS_FILE encoder model blob.
 //
 // The loaded blob is validated using libopus-style weights-record framing and

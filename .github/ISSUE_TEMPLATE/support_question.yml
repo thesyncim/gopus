@@ -1,0 +1,52 @@
+name: Support question
+description: Ask for help with installation, usage, or unclear documentation.
+title: "[Question]: "
+labels:
+  - question
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Questions are welcome. Please share enough context for someone else to reproduce the setup and answer precisely.
+  - type: textarea
+    id: goal
+    attributes:
+      label: What are you trying to do?
+      description: Describe the task, workflow, or integration you are working on.
+    validations:
+      required: true
+  - type: textarea
+    id: blocker
+    attributes:
+      label: What is blocking you?
+      description: Include the error, unclear doc section, or unexpected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: code
+    attributes:
+      label: Relevant code or commands
+      description: Paste the smallest useful snippet or command sequence.
+      render: shell
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Go version, OS, architecture, and any external tools involved.
+      placeholder: go1.25.0 on Ubuntu 24.04 amd64
+  - type: textarea
+    id: docs_checked
+    attributes:
+      label: What did you already check?
+      description: Link the README section, package docs, example, or issue you already looked at.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues first.
+          required: true
+        - label: This is not a private security issue.
+          required: true

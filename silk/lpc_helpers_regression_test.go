@@ -52,9 +52,4 @@ func TestSilkLPCFitHighAmplitudeRegression(t *testing.T) {
 
 	silkLPCFit(out, aQin, qOut, qIn, order)
 
-	for i, v := range out {
-		if v > 32767 || v < -32768 {
-			t.Fatalf("out[%d]=%d out of int16 range", i, v)
-		}
-	}
 }

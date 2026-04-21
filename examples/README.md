@@ -2,17 +2,67 @@
 
 Practical examples demonstrating gopus usage patterns for real-world applications.
 
+These examples target the supported default build and intentionally do not demonstrate tag-gated unsupported controls such as DRED or OSCE BWE.
+
 ## Prerequisites
 
 - Go 1.25+
 - ffmpeg/ffprobe (optional, for interoperability verification)
 - ffplay/afplay/aplay/paplay (optional, for decode-play audio playback)
+- A WebRTC-capable browser (optional, for `webrtc-control`)
+
+## Label Guide
+
+- `offline only`: runs without network fetches or third-party CLI tools.
+- `needs external tools`: expects software outside Go itself, such as ffmpeg, a browser, or system audio players.
+- `downloads assets`: fetches sample media or datasets during normal use.
+
+## Quick Index
+
+| Example | Labels | Summary |
+| --- | --- | --- |
+| `external-consumer-smoke` | `offline only` | Nested module that imports `github.com/thesyncim/gopus` and verifies encode/decode plus Ogg read/write. |
+| `ffmpeg-interop` | `offline only`, `needs external tools` | Exercises gopus output against `ffmpeg`, `ffprobe`, and `ffplay`. |
+| `roundtrip` | `offline only` | Measures encode/decode quality with deterministic local signal generation. |
+| `ogg-file` | `offline only` | Writes and inspects Ogg Opus files without any network dependency. |
+| `decode-play` | `downloads assets`, `needs external tools` | Decodes local or downloaded Ogg Opus to WAV or live playback. |
+| `encode-play` | `offline only`, `needs external tools` | Encodes generated audio and optionally plays it or compares with libopus tooling. |
+| `mix-arrivals` | `downloads assets`, `needs external tools` | Builds a jitter/loss mix from downloaded speech clips and can play the result. |
+| `bench-encode` | `downloads assets`, `needs external tools` | Compares encode throughput against `opus_demo` using local or downloaded inputs. |
+| `bench-decode` | `downloads assets`, `needs external tools` | Compares decode throughput against `opus_demo` using local or downloaded inputs. |
+| `webrtc-control` | `offline only`, `needs external tools` | Runs a browser-based WebRTC control surface for encoder parameters. |
 
 ## Examples
+
+### external-consumer-smoke
+
+Proves that a fresh consumer module can import `github.com/thesyncim/gopus`
+and `github.com/thesyncim/gopus/container/ogg`, then complete a minimal
+encode/decode and Ogg round trip.
+
+**Labels:** `offline only`
+
+**What it does:**
+1. Creates an encoder and decoder using caller-owned buffers
+2. Encodes one 20ms Opus frame
+3. Writes and reads that packet through the Ogg container
+4. Decodes the packet back to PCM and verifies the expected sample count
+
+**Usage:**
+```bash
+cd examples/external-consumer-smoke
+go test ./...
+```
+
+**Note:** this module imports `github.com/thesyncim/gopus` directly and uses a
+local `replace` directive so maintainers can verify downstream usage from a
+separate module boundary.
 
 ### ffmpeg-interop
 
 Demonstrates interoperability between gopus and ffmpeg tooling.
+
+**Labels:** `offline only`; `needs external tools` (`ffmpeg`, `ffprobe`, `ffplay`)
 
 **What it does:**
 1. Generates a stereo 440Hz test tone
@@ -54,6 +104,8 @@ Created: output.opus
 ### roundtrip
 
 Validates encode-decode quality with comprehensive metrics.
+
+**Labels:** `offline only`
 
 **What it does:**
 1. Generates test signals (sine, sweep, noise, speech)
@@ -99,6 +151,8 @@ Signal Quality:
 
 Creates and reads Ogg Opus files, suitable for podcast-style content.
 
+**Labels:** `offline only`
+
 **What it does:**
 1. Creates Ogg Opus files with test audio (chord progression)
 2. Reads and analyzes Ogg Opus files
@@ -136,6 +190,8 @@ Creating Ogg Opus file: podcast.opus
 ### decode-play
 
 Decodes an Ogg Opus file to WAV with optional playback, or streams raw PCM to ffplay.
+
+**Labels:** `downloads assets` when `-in` is omitted; `needs external tools` for playback or `-pipe`
 
 **What it does:**
 1. Reads Ogg Opus packets (from a file or URL)
@@ -180,6 +236,8 @@ Encodes a generated test signal with gopus and optionally plays the resulting
 Ogg Opus file. Playback uses `ffplay` if available, otherwise it decodes with
 gopus and plays a WAV via the system's default audio player.
 
+**Labels:** `offline only`; `needs external tools` for `-play` or `-libopus`
+
 **What it does:**
 1. Generates a test signal (sine, sweep, noise, chord, speech)
 1. Encodes to Ogg Opus with gopus
@@ -213,6 +271,8 @@ go build .
 ### mix-arrivals
 
 Mixes WebRTC-like tracks that arrive at different times into one output.
+
+**Labels:** `downloads assets`; `needs external tools` for `-play`
 
 **What it does:**
 1. Downloads real speech clips from the open-source Free Spoken Digit Dataset (CC BY 4.0)
@@ -271,6 +331,10 @@ go build ./examples/mix-arrivals
 
 # Or build all at once
 go build ./examples/...
+
+# Separate modules
+(cd examples/external-consumer-smoke && go test ./...)
+(cd examples/webrtc-control && go build .)
 ```
 
 ## API Overview

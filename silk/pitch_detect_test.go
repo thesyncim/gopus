@@ -233,12 +233,6 @@ func TestQuantizeLTPCoeffs(t *testing.T) {
 		t.Fatalf("expected 5 coefficients, got %d", len(quantized))
 	}
 
-	// Coefficients should be in reasonable range (Q7 format: -128 to 127)
-	for i, c := range quantized {
-		if c < -128 || c > 127 {
-			t.Errorf("quantized[%d] = %d out of Q7 range", i, c)
-		}
-	}
 }
 
 func TestQuantizeLTPCoeffsZeroCoeffs(t *testing.T) {
@@ -251,12 +245,6 @@ func TestQuantizeLTPCoeffsZeroCoeffs(t *testing.T) {
 		t.Fatalf("expected 5 coefficients, got %d", len(quantized))
 	}
 
-	// Should still produce valid quantized values
-	for i, c := range quantized {
-		if c < -128 || c > 127 {
-			t.Errorf("quantized[%d] = %d out of Q7 range", i, c)
-		}
-	}
 }
 
 func TestQuantizeLTPCoeffsLargeCoeffs(t *testing.T) {
@@ -269,12 +257,6 @@ func TestQuantizeLTPCoeffsLargeCoeffs(t *testing.T) {
 		t.Fatalf("expected 5 coefficients, got %d", len(quantized))
 	}
 
-	// Should still produce valid quantized values
-	for i, c := range quantized {
-		if c < -128 || c > 127 {
-			t.Errorf("quantized[%d] = %d out of Q7 range", i, c)
-		}
-	}
 }
 
 func TestAnalyzeLTP(t *testing.T) {
@@ -296,15 +278,16 @@ func TestAnalyzeLTP(t *testing.T) {
 
 	ltpCoeffs := enc.analyzeLTP(pcm, pitchLags, numSubframes, 2)
 
-	// LTPCoeffsArray is [4][5]int8 - fixed size
+	var nonZeroTaps int
 	for sf := 0; sf < numSubframes; sf++ {
-		coeffs := ltpCoeffs[sf]
-		// Verify coefficients are in Q7 range (int8 already constrains this)
-		for tap, c := range coeffs {
-			if c < -128 || c > 127 {
-				t.Errorf("subframe %d tap %d: %d out of Q7 range", sf, tap, c)
+		for _, tap := range ltpCoeffs[sf] {
+			if tap != 0 {
+				nonZeroTaps++
 			}
 		}
+	}
+	if nonZeroTaps == 0 {
+		t.Fatal("analyzeLTP returned only zero taps for a voiced signal")
 	}
 }
 

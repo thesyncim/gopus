@@ -64,6 +64,27 @@
 //
 // Stereo audio uses interleaved samples: L0, R0, L1, R1, ...
 //
+// # Supported Default Build
+//
+// The default build is the supported public surface for gopus before v0.1.
+// Its primary contract is the core encoder/decoder API plus the standard
+// Opus controls documented in this package, such as bitrate, complexity,
+// bandwidth, FEC, DTX, gain, packet parsing, and multistream helpers.
+//
+// Some libopus build-time extension hooks are build dependent. Supported
+// optional controls in the default build currently include SetDNNBlob plus
+// SetQEXT/QEXT. Use SupportsOptionalExtension to probe whether an
+// extension-backed surface is enabled in the current build before relying on
+// it.
+//
+//	if SupportsOptionalExtension(OptionalExtensionQEXT) {
+//	    _ = enc.SetQEXT(true)
+//	}
+//
+// Unsupported extension wrappers such as SetDREDDuration and SetOSCEBWE are
+// intentionally quarantined from the default API surface. They are only
+// exposed when building with `-tags gopus_unsupported_controls`.
+//
 // # Thread Safety
 //
 // Encoder and Decoder instances are NOT safe for concurrent use.

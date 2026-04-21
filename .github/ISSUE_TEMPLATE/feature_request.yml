@@ -1,0 +1,58 @@
+name: Feature request
+description: Propose a new capability, API improvement, or support expansion.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. Requests are easiest to evaluate when they explain the user problem first and the proposed shape second.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the workflow, limitation, or missing behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the API, behavior, or docs change you would like to see.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds or competing designs you already evaluated.
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Requested area
+      options:
+        - Public API
+        - Encoder behavior
+        - Decoder behavior
+        - Multistream support
+        - Ogg container support
+        - Documentation
+        - Tooling or verification
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility notes
+      description: Mention any libopus parity concerns, performance constraints, or migration impact you already know about.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues first.
+          required: true
+        - label: I explained the user problem, not just the desired API.
+          required: true

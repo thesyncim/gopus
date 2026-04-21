@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	encpkg "github.com/thesyncim/gopus/encoder"
-	internaldred "github.com/thesyncim/gopus/internal/dred"
 	"github.com/thesyncim/gopus/types"
 )
 
@@ -222,35 +221,6 @@ func TestNewEncoderDefault(t *testing.T) {
 				t.Errorf("Channels() = %d, want %d", enc.Channels(), tt.wantMappingLen)
 			}
 		})
-	}
-}
-
-func TestEncoderDREDDuration(t *testing.T) {
-	enc, err := NewEncoderDefault(48000, 2)
-	if err != nil {
-		t.Fatalf("NewEncoderDefault error: %v", err)
-	}
-
-	if err := enc.SetDREDDuration(4); err != nil {
-		t.Fatalf("SetDREDDuration(4) error: %v", err)
-	}
-	if got := enc.DREDDuration(); got != 4 {
-		t.Fatalf("DREDDuration()=%d want 4", got)
-	}
-
-	for i, streamEnc := range enc.encoders {
-		if got := streamEnc.DREDDuration(); got != 4 {
-			t.Fatalf("stream %d DREDDuration()=%d want 4", i, got)
-		}
-	}
-
-	if err := enc.SetDREDDuration(internaldred.MaxFrames + 1); err != encpkg.ErrInvalidDREDDuration {
-		t.Fatalf("SetDREDDuration(max+1) error=%v want=%v", err, encpkg.ErrInvalidDREDDuration)
-	}
-
-	enc.Reset()
-	if got := enc.DREDDuration(); got != 0 {
-		t.Fatalf("DREDDuration() after Reset=%d want 0", got)
 	}
 }
 

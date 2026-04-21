@@ -2,24 +2,31 @@ package gopus
 
 import "github.com/thesyncim/gopus/internal/extsupport"
 
-// OptionalExtension identifies a libopus build-time extension surface.
+// OptionalExtension identifies a recognized libopus build-time extension surface.
 type OptionalExtension string
 
 const (
-	// OptionalExtensionDRED gates encoder-side deep redundancy control.
+	// OptionalExtensionDRED identifies encoder-side DRED controls, which remain
+	// unsupported in the default build and are absent unless built with
+	// -tags gopus_unsupported_controls.
 	OptionalExtensionDRED OptionalExtension = "dred"
 
-	// OptionalExtensionDNNBlob gates weights-file model blob loading.
+	// OptionalExtensionDNNBlob identifies supported weights-file model blob loading.
 	OptionalExtensionDNNBlob OptionalExtension = "dnn_blob"
 
-	// OptionalExtensionQEXT gates the optional extended-precision theta path.
+	// OptionalExtensionQEXT identifies the supported optional extended-precision theta path.
 	OptionalExtensionQEXT OptionalExtension = "qext"
 
-	// OptionalExtensionOSCEBWE gates decoder-side OSCE bandwidth extension control.
+	// OptionalExtensionOSCEBWE identifies decoder-side OSCE BWE controls, which
+	// remain unsupported in the default build and are absent unless built with
+	// -tags gopus_unsupported_controls.
 	OptionalExtensionOSCEBWE OptionalExtension = "osce_bwe"
 )
 
-// SupportsOptionalExtension reports whether the current gopus build enables ext.
+// SupportsOptionalExtension reports whether the current build makes ext part of
+// the supported default-build surface. Unsupported controls may be completely
+// absent from the default public API even though the extension name is
+// recognized here.
 func SupportsOptionalExtension(ext OptionalExtension) bool {
 	switch ext {
 	case OptionalExtensionDRED:

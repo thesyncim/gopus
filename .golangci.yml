@@ -5,20 +5,32 @@ run:
 linters:
   disable-all: true
   enable:
-    - unused
+    - govet
+    - staticcheck
+    - errcheck
+    - ineffassign
+    - gosimple
+    - revive
+    - gocritic
 
 linters-settings:
-  gofmt:
-    simplify: true
-  goimports:
-    local-prefixes: github.com/thesyncim/gopus
   gocritic:
     enabled-tags:
       - diagnostic
-      - style
-      - performance
     disabled-checks:
-      - hugeParam
+      - appendAssign
+      - assignOp
+      - badCall
+      - builtinShadowDecl
+      - captLocal
+      - commentedOutCode
+      - elseif
+      - filepathJoin
+      - ifElseChain
+      - truncateCmp
+      - unlambda
+      - unslice
+      - valSwap
   revive:
     rules:
       - name: blank-imports
@@ -28,19 +40,11 @@ linters-settings:
       - name: error-return
       - name: error-strings
       - name: error-naming
-      - name: exported
-      - name: increment-decrement
-      - name: var-naming
-      - name: package-comments
-        disabled: true
       - name: range
       - name: receiver-naming
       - name: time-naming
       - name: unexported-return
-      - name: indent-error-flow
       - name: errorf
-      - name: empty-block
-      - name: superfluous-else
       - name: unreachable-code
 
 issues:
@@ -51,7 +55,55 @@ issues:
     - path: _test\.go
       linters:
         - errcheck
-        - gocritic
     - path: example_test\.go
       linters:
         - revive
+    # Preserve explicit nil checks in decode hot paths until the codec cleanup lane
+    # takes them on; they are deliberate and not worth churn for this baseline.
+    - text: "S1009:"
+      linters:
+        - gosimple
+    - text: "S1021:"
+      linters:
+        - gosimple
+    - text: "S1031:"
+      linters:
+        - gosimple
+    # Existing trace-hook placeholders currently trip SA9003 in CELT internals.
+    - path: ^celt/
+      text: "SA9003:"
+      linters:
+        - staticcheck
+    - path: ^celt/(bands|dynalloc|encode_frame|pvq_search|qext_alloc)\.go$
+      text: "SA4006:"
+      linters:
+        - staticcheck
+    - path: ^encoder/encoder\.go$
+      text: "SA4006:"
+      linters:
+        - staticcheck
+    - path: ^silk/(libopus_decode|pitch_detect)\.go$
+      text: "SA4006:"
+      linters:
+        - staticcheck
+    # Seed the CI/static-analysis lane without crossing into unrelated runtime/tool
+    # refactors owned by other workers.
+    - path: ^internal/benchutil/opus_demo\.go$
+      linters:
+        - errcheck
+    - path: ^tools/gen_opusdec_crossval_fixture\.go$
+      linters:
+        - errcheck
+    - path: ^encoder/encoder\.go$
+      linters:
+        - errcheck
+        - ineffassign
+    - path: ^celt/(bands|bands_quant|channel_adapters|decoder_flow_helpers|dynalloc|encode_frame|pvq_search|qext_alloc)\.go$
+      linters:
+        - ineffassign
+    - path: ^multistream/framing\.go$
+      linters:
+        - ineffassign
+    - path: ^silk/(libopus_decode|pitch_detect)\.go$
+      linters:
+        - ineffassign

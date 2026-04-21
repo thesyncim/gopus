@@ -74,10 +74,6 @@ func TestSilkSumSqrShiftOverflow(t *testing.T) {
 		t.Errorf("Expected non-negative shift, got %d", shift)
 	}
 
-	// Verify the scaled energy fits in int32
-	if nrg > 0x7FFFFFFF {
-		t.Errorf("Energy %d exceeds int32 max", nrg)
-	}
 }
 
 // TestSilkCLZ32 tests the count leading zeros function.

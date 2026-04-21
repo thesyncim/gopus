@@ -11,6 +11,7 @@ func TestNSQStateInitialization(t *testing.T) {
 
 	if state == nil {
 		t.Fatal("NewNSQState returned nil")
+		return
 	}
 
 	if state.prevGainQ16 != 1<<16 {

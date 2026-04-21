@@ -473,13 +473,6 @@ func TestDecoder_Decode_Int16(t *testing.T) {
 	if n != 960 {
 		t.Errorf("DecodeInt16 returned %d samples, want %d", n, 960)
 	}
-
-	// Verify samples are in valid int16 range (clamping works)
-	for i, s := range pcmOut {
-		if s < -32768 || s > 32767 {
-			t.Errorf("Sample %d = %d, out of int16 range", i, s)
-		}
-	}
 }
 
 func TestDecoder_Decode_BufferTooSmall(t *testing.T) {
@@ -1558,7 +1551,12 @@ func TestDecoder_IgnoreExtensions(t *testing.T) {
 }
 
 func TestDecoder_OptionalExtensionControls(t *testing.T) {
-	assertOptionalDecoderControls(t, newMonoTestDecoder(t))
+	dec := newMonoTestDecoder(t)
+
+	assertOptionalDecoderControls(t, dec)
+	if _, ok := any(dec).(unsupportedOSCEBWEControl); ok {
+		t.Fatal("default build unexpectedly exposes OSCE BWE control")
+	}
 }
 
 func TestDecoder_GainAppliedToDecodeOutput(t *testing.T) {

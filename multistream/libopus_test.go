@@ -1215,11 +1215,9 @@ func TestLibopus_BitrateQuality(t *testing.T) {
 			t.Logf("Energy ratio: %.1f%% (threshold: %.1f%%)", energyRatio, tc.minQuality)
 
 			// Quality assessment based on bitrate
-			quality := "UNKNOWN"
+			quality := "NEEDS_TUNING"
 			if energyRatio >= tc.minQuality {
 				quality = "PASS"
-			} else {
-				quality = "NEEDS_TUNING"
 			}
 
 			// Log summary

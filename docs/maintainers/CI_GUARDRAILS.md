@@ -8,27 +8,36 @@ Block correctness and hot-path performance regressions before merge.
 
 ## What CI Enforces
 
-1. Correctness gate (`test-linux`)
+1. Static-analysis gate (`lint-static-analysis`)
+- `make test-doc-contract`
+- `make lint`
+- Runs the pinned `golangci-lint` baseline from `.golangci.yml`.
+- Still validates the optional-extension docs contract on markdown-only PRs before skipping `golangci-lint`.
+- Intended to catch actionable vet/static-analysis issues without forcing broad codec-style churn.
+
+2. Correctness gate (`test-linux`)
 - `test-linux-parity`: `make test-quality`
 - `test-linux-race`: `make ensure-libopus && make test-race`
 - `test-linux-provenance`: fixture honesty in pinned Docker plus `make test-provenance`
 - `test-linux-flake`: critical parity subset under shuffle/repeat with strict libopus reference enforcement and go-test JSON skip enforcement
 - `test-linux-fuzz-smoke`: `make test-fuzz-smoke`
-- Internally split into parallel jobs (`test-linux-parity`, `test-linux-race`, `test-linux-provenance`, `test-linux-flake`, `test-linux-fuzz-smoke`) and aggregated by `test-linux`.
+- `test-linux-consumer-smoke`: `make test-consumer-smoke`
+- `test-linux-unsupported-controls`: `make test-unsupported-controls-tag`
+- Internally split into parallel jobs (`test-linux-parity`, `test-linux-race`, `test-linux-provenance`, `test-linux-flake`, `test-linux-fuzz-smoke`, `test-linux-consumer-smoke`, `test-linux-unsupported-controls`) and aggregated by `test-linux`.
 - This keeps parity/race/provenance/fuzz coverage intact while removing serialized Linux checks from a single job.
 
-2. Performance gate (`perf-linux`)
+3. Performance gate (`perf-linux`)
 - `make bench-guard`
 - Runs deterministic benchmark guardrails from `tools/bench_guardrails.json`.
 - Fails when median benchmark metrics exceed configured limits.
 
-3. Cross-platform sanity
+4. Cross-platform sanity
 - `test-macos`: `go test ./... -count=1`
 - `test-windows`: `go test ./... -count=1`
 
-4. Markdown-only optimization (without blocking merges)
+5. Markdown-only optimization (without blocking merges)
 - Keep the CI workflow trigger active for markdown/docs-only pull requests so required checks still report status.
-- Use in-workflow docs-only detection to skip heavy test/perf jobs for markdown-only changes.
+- Use in-workflow docs-only detection to skip heavy lint/test/perf jobs for markdown-only changes.
 - Do not use top-level workflow filters that suppress all required checks and leave PRs in "Expected" state.
 
 ## Benchmark Guardrails
@@ -61,6 +70,7 @@ Enable branch protection for `master` with:
 - Require pull request before merging.
 - Require status checks to pass before merging.
 - Required checks:
+  - `lint-static-analysis`
   - `test-linux`
   - `perf-linux`
   - `test-macos`

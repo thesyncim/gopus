@@ -51,7 +51,7 @@ Last updated: 2026-02-11
    - `Makefile`
    - `cmd/tmp_analysis/main.go`
    - `mem.out`
-   - `CLEANUP_TODO.md`
+   - `docs/maintainers/CLEANUP_TODO.md`
 
 2. `test(cleanup): remove low-value diagnostic suites`
    - all deleted diagnostic/trace/debug tests in `celt/`, `encoder/`, `silk/`, root, and `testvectors/`

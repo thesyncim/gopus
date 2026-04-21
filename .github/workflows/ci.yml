@@ -19,6 +19,7 @@ env:
   LIBOPUS_VERSION: "1.6.1"
   GOPUS_DISABLE_OPUSDEC: "0"
   GOPUS_DISABLE_OPUSENC: "1"
+  GOLANGCI_LINT_VERSION: "v1.64.8"
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -67,6 +68,40 @@ jobs:
 
           echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
           echo "docs_only=$docs_only"
+
+  lint-static-analysis:
+    name: lint-static-analysis
+    needs:
+      - changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run docs contract
+        run: make test-doc-contract
+
+      - name: Install golangci-lint
+        if: ${{ needs.changes.outputs.docs_only != 'true' }}
+        run: |
+          GOWORK=off go install github.com/golangci/golangci-lint/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Run lint/static analysis
+        if: ${{ needs.changes.outputs.docs_only != 'true' }}
+        run: make lint
+
+      - name: Skip lint/static analysis for markdown-only changes
+        if: ${{ needs.changes.outputs.docs_only == 'true' }}
+        run: |
+          echo "Markdown-only change set: docs contract passed; skipping golangci-lint."
 
   test-linux-parity:
     name: test-linux-parity
@@ -259,6 +294,46 @@ jobs:
       - name: Run fuzz smoke gate
         run: make test-fuzz-smoke
 
+  test-linux-consumer-smoke:
+    name: test-linux-consumer-smoke
+    needs:
+      - changes
+    if: ${{ needs.changes.outputs.docs_only != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run external-consumer smoke gate
+        run: make test-consumer-smoke
+
+  test-linux-unsupported-controls:
+    name: test-linux-unsupported-controls
+    needs:
+      - changes
+    if: ${{ needs.changes.outputs.docs_only != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run unsupported-controls quarantine gate
+        run: make test-unsupported-controls-tag
+
   test-linux:
     name: test-linux
     if: always()
@@ -269,6 +344,8 @@ jobs:
       - test-linux-provenance
       - test-linux-flake
       - test-linux-fuzz-smoke
+      - test-linux-consumer-smoke
+      - test-linux-unsupported-controls
     runs-on: ubuntu-latest
     steps:
       - name: Validate Linux gates
@@ -283,6 +360,8 @@ jobs:
           echo "test-linux-provenance: ${{ needs.test-linux-provenance.result }}"
           echo "test-linux-flake: ${{ needs.test-linux-flake.result }}"
           echo "test-linux-fuzz-smoke: ${{ needs.test-linux-fuzz-smoke.result }}"
+          echo "test-linux-consumer-smoke: ${{ needs.test-linux-consumer-smoke.result }}"
+          echo "test-linux-unsupported-controls: ${{ needs.test-linux-unsupported-controls.result }}"
           if [ "${{ needs.test-linux-parity.result }}" != "success" ]; then
             exit 1
           fi
@@ -296,6 +375,12 @@ jobs:
             exit 1
           fi
           if [ "${{ needs.test-linux-fuzz-smoke.result }}" != "success" ]; then
+            exit 1
+          fi
+          if [ "${{ needs.test-linux-consumer-smoke.result }}" != "success" ]; then
+            exit 1
+          fi
+          if [ "${{ needs.test-linux-unsupported-controls.result }}" != "success" ]; then
             exit 1
           fi
 

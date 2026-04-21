@@ -1,0 +1,129 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to publish, for example v0.1.0
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  LIBOPUS_VERSION: "1.6.1"
+  GOPUS_DISABLE_OPUSDEC: "0"
+  GOPUS_DISABLE_OPUSENC: "1"
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish-release:
+    name: publish-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Resolve tag and release notes
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            tag="${{ github.event.inputs.tag }}"
+            git fetch --force --tags origin "refs/tags/${tag}:refs/tags/${tag}"
+            git checkout "refs/tags/${tag}"
+          else
+            tag="${GITHUB_REF_NAME}"
+          fi
+
+          notes_path="docs/releases/${tag}.md"
+          if [[ ! -f "${notes_path}" ]]; then
+            echo "missing release notes: ${notes_path}" >&2
+            exit 1
+          fi
+
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "notes_path=${notes_path}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Cache pinned libopus build
+        uses: actions/cache@v5
+        with:
+          path: |
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+          key: release-libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
+
+      - name: Install codec tools (if missing)
+        run: |
+          if command -v ffmpeg >/dev/null 2>&1 && command -v opusdec >/dev/null 2>&1; then
+            echo "ffmpeg and opusdec already present; skipping apt install"
+            exit 0
+          fi
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg opus-tools
+
+      - name: Run full release verification
+        run: |
+          make verify-production-exhaustive
+          make release-evidence
+
+      - name: Archive release evidence
+        id: evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="release-evidence-${{ steps.meta.outputs.tag }}.tar.gz"
+          tar -C reports -czf "${archive}" release
+          echo "archive=${archive}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release evidence artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-evidence-${{ steps.meta.outputs.tag }}
+          path: ${{ steps.evidence.outputs.archive }}
+          if-no-files-found: error
+
+      - name: Publish GitHub release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${{ steps.meta.outputs.tag }}"
+          notes_path="${{ steps.meta.outputs.notes_path }}"
+          archive="${{ steps.evidence.outputs.archive }}"
+
+          if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release edit "${tag}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "gopus ${tag}" \
+              --notes-file "${notes_path}"
+            gh release upload "${tag}" "${archive}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --clobber
+          else
+            gh release create "${tag}" "${archive}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "gopus ${tag}" \
+              --notes-file "${notes_path}" \
+              --verify-tag
+          fi

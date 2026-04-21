@@ -13,6 +13,7 @@ func TestDecoderCreation(t *testing.T) {
 	d := NewDecoder()
 	if d == nil {
 		t.Fatal("NewDecoder returned nil")
+		return
 	}
 	if d.haveDecoded {
 		t.Error("New decoder should have haveDecoded=false")
