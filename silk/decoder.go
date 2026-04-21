@@ -832,9 +832,9 @@ func (d *Decoder) handleBandwidthChange(bandwidth Bandwidth) {
 	d.hasPrevBandwidth = true
 }
 
-// TraceInfo contains information about a subframe during decoding.
+// traceInfo contains information about a subframe during decoding.
 // Used for debugging to trace LTP parameters.
-type TraceInfo struct {
+type traceInfo struct {
 	SignalType   int // 0=inactive, 1=unvoiced, 2=voiced
 	PitchLag     int // Pitch lag for this subframe (voiced only)
 	LtpMemLength int // LTP memory length
@@ -860,8 +860,8 @@ type TraceInfo struct {
 	FirstLTPPredQ13 int32    // First ltpPredQ13 value (before shifting to Q14)
 }
 
-// TraceCallback is called for each subframe during tracing.
-type TraceCallback func(frame, k int, info TraceInfo)
+// traceCallback is called for each subframe during tracing.
+type traceCallback func(frame, k int, info traceInfo)
 
 // NotifyBandwidthChange updates bandwidth tracking and resets the resampler if needed.
 // This should be called by the Hybrid decoder before using SILK to ensure proper

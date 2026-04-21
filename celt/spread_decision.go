@@ -30,12 +30,7 @@ import "math"
 //
 // Reference: libopus celt/bands.c spreading_decision()
 func (e *Encoder) SpreadingDecision(normX []float64, nbBands, channels, frameSize int, updateHF bool) int {
-	// Use uniform weights by default (for backward compatibility)
-	spreadWeight := make([]int, nbBands)
-	for i := 0; i < nbBands; i++ {
-		spreadWeight[i] = 1
-	}
-	return e.SpreadingDecisionWithWeights(normX, nbBands, channels, frameSize, updateHF, spreadWeight)
+	return e.SpreadingDecisionWithWeights(normX, nbBands, channels, frameSize, updateHF, nil)
 }
 
 // SpreadingDecisionWithWeights analyzes the normalized MDCT coefficients to decide the
@@ -53,7 +48,7 @@ func (e *Encoder) SpreadingDecision(normX []float64, nbBands, channels, frameSiz
 //   - channels: number of audio channels (1 or 2)
 //   - frameSize: frame size in samples (determines M scaling)
 //   - updateHF: whether to update high-frequency average for tapset decision
-//   - spreadWeight: per-band weights from ComputeSpreadWeights
+//   - spreadWeight: per-band weights from computeSpreadWeights
 //
 // Returns: spread decision (0=SPREAD_NONE, 1=SPREAD_LIGHT, 2=SPREAD_NORMAL, 3=SPREAD_AGGRESSIVE)
 //
@@ -77,14 +72,6 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []float64, nbBands, channel
 	lastBandWidth := ScaledBandWidth(nbBands-1, frameSize)
 	if lastBandWidth <= 8 {
 		return spreadNone
-	}
-
-	// Ensure spreadWeight is valid
-	if len(spreadWeight) < nbBands {
-		spreadWeight = make([]int, nbBands)
-		for i := 0; i < nbBands; i++ {
-			spreadWeight[i] = 1
-		}
 	}
 
 	sum := 0
@@ -139,8 +126,12 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []float64, nbBands, channel
 				tmp++
 			}
 
-			sum += tmp * spreadWeight[band]
-			nbBandsTotal += spreadWeight[band]
+			weight := 1
+			if band < len(spreadWeight) {
+				weight = spreadWeight[band]
+			}
+			sum += tmp * weight
+			nbBandsTotal += weight
 		}
 	}
 
@@ -205,7 +196,7 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []float64, nbBands, channel
 	return decision
 }
 
-// ComputeSpreadWeights computes per-band weights for the spread decision.
+// computeSpreadWeights computes per-band weights for the spread decision.
 // Higher weights for perceptually important bands based on masking analysis.
 //
 // This implements the libopus masking model from dynalloc_analysis():
@@ -224,7 +215,7 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []float64, nbBands, channel
 // Returns: weights per band (higher = more perceptually important)
 //
 // Reference: libopus celt/celt_encoder.c dynalloc_analysis()
-func ComputeSpreadWeights(bandLogE []float64, nbBands, channels, lsbDepth int) []int {
+func computeSpreadWeights(bandLogE []float64, nbBands, channels, lsbDepth int) []int {
 	weights := make([]int, nbBands)
 
 	// Ensure we have enough band energies
@@ -330,7 +321,7 @@ func ComputeSpreadWeights(bandLogE []float64, nbBands, channels, lsbDepth int) [
 	return weights
 }
 
-// ComputeSpreadWeightsSimple computes spread weights with default parameters.
+// computeSpreadWeightsSimple computes spread weights with default parameters.
 // This is a convenience wrapper for the common case of mono audio with 16-bit depth.
 //
 // Parameters:
@@ -338,14 +329,14 @@ func ComputeSpreadWeights(bandLogE []float64, nbBands, channels, lsbDepth int) [
 //   - nbBands: number of bands
 //
 // Returns: weights per band (higher = more important)
-func ComputeSpreadWeightsSimple(bandLogE []float64, nbBands int) []int {
-	return ComputeSpreadWeights(bandLogE, nbBands, 1, 16)
+func computeSpreadWeightsSimple(bandLogE []float64, nbBands int) []int {
+	return computeSpreadWeights(bandLogE, nbBands, 1, 16)
 }
 
-// SpreadDecisionForShortBlocks returns spread decision for transient frames.
+// spreadDecisionForShortBlocks returns the spread decision for transient frames.
 // For short blocks, spreading is typically disabled or minimal.
 //
 // Returns: SPREAD_NONE for transient frames (libopus behavior)
-func SpreadDecisionForShortBlocks() int {
+func spreadDecisionForShortBlocks() int {
 	return spreadNone
 }

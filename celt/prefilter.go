@@ -23,19 +23,11 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 	if channels <= 0 || frameSize <= 0 || len(preemph) == 0 {
 		return result
 	}
-	var stats *PrefilterDebugStats
-	if e.prefilterDebugHook != nil {
-		d := PrefilterDebugStats{
-			Frame:         e.frameCount,
-			Enabled:       enabled,
-			TFEstimate:    tfEstimate,
-			NBBytes:       nbAvailableBytes,
-			ToneFreq:      toneFreq,
-			Toneishness:   toneishness,
-			MaxPitchRatio: maxPitchRatio,
-		}
-		stats = &d
-	}
+	hook := e.prefilterDebugHook
+	usedTonePath := false
+	usedPitchPath := false
+	pitchSearchOut := 0
+	pitchBeforeRD := 0
 
 	if tapset < 0 {
 		tapset = 0
@@ -93,9 +85,7 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 	pfOn := false
 
 	if enabled && toneishness > 0.99 {
-		if stats != nil {
-			stats.UsedTonePath = true
-		}
+		usedTonePath = true
 		freq := toneFreq
 		if freq >= math.Pi {
 			freq = math.Pi - freq
@@ -114,9 +104,7 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		}
 		gain1 = 0.75
 	} else if enabled && e.complexity >= 5 {
-		if stats != nil {
-			stats.UsedPitchPath = true
-		}
+		usedPitchPath = true
 		pitchBufLen := (maxPeriod + frameSize) >> 1
 		if pitchBufLen < 1 {
 			pitchBufLen = 1
@@ -128,18 +116,11 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			maxPitch = 1
 		}
 		searchOut := pitchSearch(pitchBuf[maxPeriod>>1:], pitchBuf, frameSize, maxPitch, &e.scratch)
-		if stats != nil {
-			stats.PitchSearchOut = searchOut
-		}
+		pitchSearchOut = searchOut
 		pitchIndex = searchOut
 		pitchIndex = maxPeriod - pitchIndex
-		if stats != nil {
-			stats.PitchBeforeRD = pitchIndex
-		}
+		pitchBeforeRD = pitchIndex
 		gain1 = removeDoubling(pitchBuf, maxPeriod, minPeriod, frameSize, &pitchIndex, e.prefilterPeriod, e.prefilterGain, &e.scratch)
-		if stats != nil {
-			stats.PitchAfterRD = pitchIndex
-		}
 		if pitchIndex > maxPeriod-2 {
 			pitchIndex = maxPeriod - 2
 		}
@@ -336,12 +317,24 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 	result.qg = qg
 	result.tapset = tapset
 	result.gain = gain1
-	if stats != nil {
-		stats.PitchAfterRD = pitchIndex
-		stats.PFOn = pfOn
-		stats.QG = qg
-		stats.Gain = gain1
-		e.prefilterDebugHook(*stats)
+	if hook != nil {
+		hook(PrefilterDebugStats{
+			Frame:          e.frameCount,
+			Enabled:        enabled,
+			UsedTonePath:   usedTonePath,
+			UsedPitchPath:  usedPitchPath,
+			TFEstimate:     tfEstimate,
+			NBBytes:        nbAvailableBytes,
+			ToneFreq:       toneFreq,
+			Toneishness:    toneishness,
+			MaxPitchRatio:  maxPitchRatio,
+			PitchSearchOut: pitchSearchOut,
+			PitchBeforeRD:  pitchBeforeRD,
+			PitchAfterRD:   pitchIndex,
+			PFOn:           pfOn,
+			QG:             qg,
+			Gain:           gain1,
+		})
 	}
 	return result
 }

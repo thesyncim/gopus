@@ -132,8 +132,6 @@ type Encoder struct {
 	targetStatsHook func(CeltTargetStats)
 	// Optional diagnostics hook for capturing prefilter decisions.
 	prefilterDebugHook func(PrefilterDebugStats)
-	// Optional diagnostics hook for capturing coarse energy quantization decisions.
-	coarseDecisionHook func(CoarseDecisionStats)
 
 	// Hybrid mode flag
 	// When true, postfilter flag encoding is skipped per RFC 6716 Section 3.2
@@ -208,7 +206,7 @@ type Encoder struct {
 	bandEncScratch bandEncodeScratch
 
 	// Scratch buffers for tonality analysis (zero-alloc)
-	tonalityScratch TonalityScratch
+	tonalityScratch tonalityScratch
 
 	// Scratch buffers for TF analysis (zero-alloc)
 	tfScratch TFAnalysisScratch
@@ -1143,11 +1141,6 @@ type encoderScratch struct {
 	transientEnergy []float32
 	transientX      []float32
 
-	// Tonality analysis scratch
-	tonalityPowers       []float64
-	tonalityBandPowers   []float64
-	tonalityBandTonality []float64
-
 	// CWRS encoding scratch
 	cwrsU []uint32
 
@@ -1339,11 +1332,6 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	samplesPerChannel := frameSize + overlap
 	s.transientEnergy = ensureFloat32Slice(&s.transientEnergy, samplesPerChannel/2)
 	s.transientX = ensureFloat32Slice(&s.transientX, samplesPerChannel)
-
-	// Tonality analysis scratch
-	s.tonalityPowers = ensureFloat64Slice(&s.tonalityPowers, frameSize)
-	s.tonalityBandPowers = ensureFloat64Slice(&s.tonalityBandPowers, maxBandWidth)
-	s.tonalityBandTonality = ensureFloat64Slice(&s.tonalityBandTonality, MaxBands)
 
 	// CWRS encoding scratch (k can be up to ~128 for typical encoding)
 	s.cwrsU = ensureUint32Slice(&s.cwrsU, 256)

@@ -18,9 +18,10 @@
 
 ## Rules
 
-- Cross-check codec math and bitstream decisions against libopus 1.6.1 before trying heuristic fixes.
+- Cross-check codec math and bitstream decisions against libopus 1.6.1 before changing behavior; avoid heuristic fixes and prefer matching libopus unless explicit fixture evidence justifies a divergence.
 - If behavior is uncertain, align to libopus first and only diverge with explicit fixture evidence.
 - Preserve zero allocations in real-time encode/decode hot paths.
+- If parity/debug hooks are needed, keep them nil/no-op in normal operation and effectively zero-cost when unused; do not duplicate or pollute the main production code path when a test-only or targeted internal path will do.
 - Treat `testvectors/testdata/` and `tmp_check/` as fixed references unless the change is explicitly about fixtures or the pinned libopus snapshot.
 - Keep branch names, commit messages, and PR titles/descriptions generic and change-focused.
 

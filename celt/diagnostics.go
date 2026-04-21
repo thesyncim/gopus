@@ -32,37 +32,11 @@ type PrefilterDebugStats struct {
 	Gain           float64
 }
 
-// CoarseDecisionStats captures optional per-band coarse energy diagnostics.
-type CoarseDecisionStats struct {
-	Frame     int
-	Band      int
-	Channel   int
-	Intra     bool
-	LM        int
-	ProbFS0   int
-	ProbDecay int
-	X         float64
-	Pred      float64
-	Residual  float64
-	QIInitial int
-	QIFinal   int
-	Tell      int
-	BitsLeft  int
-}
-
 // SetPrefilterDebugHook installs a callback that receives per-frame prefilter stats.
 //
 // This hook is intended for parity investigation and development diagnostics.
 func (e *Encoder) SetPrefilterDebugHook(fn func(PrefilterDebugStats)) {
 	e.prefilterDebugHook = fn
-}
-
-// SetCoarseDecisionHook installs a callback that receives per-band coarse
-// quantization decisions during EncodeCoarseEnergy.
-//
-// This hook is intended for parity investigation and development diagnostics.
-func (e *Encoder) SetCoarseDecisionHook(fn func(CoarseDecisionStats)) {
-	e.coarseDecisionHook = fn
 }
 
 // SetTargetStatsHook installs a callback that receives per-frame CELT VBR targets.
