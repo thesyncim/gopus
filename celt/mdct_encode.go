@@ -3,12 +3,7 @@
 
 package celt
 
-import (
-	"encoding/binary"
-	"fmt"
-	"math"
-	"os"
-)
+import "math"
 
 func mdctMul(a, b float32) float32 {
 	if mdctUseNativeMulEnabled {
@@ -141,17 +136,6 @@ func mdctMulSubMixAlt(a, b, c, d float32) float32 {
 		return float32(float64(a)*float64(c) - float64(b)*float64(d))
 	}
 	return mdctMul(a, c) - mdctMul(b, d)
-}
-
-func dumpFloat32Raw(path string, vals []float32) {
-	if len(vals) == 0 {
-		return
-	}
-	buf := make([]byte, len(vals)*4)
-	for i, v := range vals {
-		binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(v))
-	}
-	_ = os.WriteFile(path, buf, 0o644)
 }
 
 func mdctStoreDirectStage(dst []kissCpx, idx int, scale, re, im, t0, t1 float32) {
@@ -352,15 +336,9 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 		window = GetWindowBufferF32(overlap)
 	}
 
-	doDump := false
-	dumpIdx := uint32(0)
-	if mdctStageDumpEnabled && frameSize == 480 && overlap == 120 {
-		doDump = true
-	}
-
 	st := getKissFFTState(n4)
 	useDirectKissCpx := st != nil && len(st.bitrev) >= n4
-	fuseDirectStage := useDirectKissCpx && !doDump
+	fuseDirectStage := useDirectKissCpx
 
 	// Use provided buffers or allocate
 	if !fuseDirectStage {
@@ -506,15 +484,6 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 		}
 	}
 
-	if doDump {
-		inF32 := make([]float32, len(samples))
-		for k := range samples {
-			inF32[k] = float32(samples[k])
-		}
-		dumpFloat32Raw(fmt.Sprintf("/tmp/go_actual_stage_input_call%d.f32", dumpIdx), inF32)
-		dumpFloat32Raw(fmt.Sprintf("/tmp/go_actual_stage_f_call%d.f32", dumpIdx), f[:n2])
-	}
-
 	// BCE hints for pre-twiddle loop.
 	_ = trig[n4+n4-1] // BCE hint: trig needs n2 entries
 	if useDirectKissCpx {
@@ -543,16 +512,6 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 			}
 		}
 
-		if doDump {
-			pre := make([]float32, 2*n4)
-			for k := 0; k < n4; k++ {
-				v := fftStage[k]
-				pre[2*k] = v.r
-				pre[2*k+1] = v.i
-			}
-			dumpFloat32Raw(fmt.Sprintf("/tmp/go_actual_stage_prebitrev_ri_call%d.f32", dumpIdx), pre)
-		}
-
 		st.fftImpl(fftStage)
 	} else {
 		// Fallback: keep the existing complex64 path for unsupported sizes.
@@ -578,33 +537,7 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 				fftIn[i] = complex(yr*scale, yi*scale)
 			}
 		}
-		if doDump && st != nil && len(st.bitrev) >= n4 {
-			pre := make([]float32, 2*n4)
-			for k := 0; k < n4; k++ {
-				idx := st.bitrev[k]
-				v := fftIn[k]
-				pre[2*idx] = real(v)
-				pre[2*idx+1] = imag(v)
-			}
-			dumpFloat32Raw(fmt.Sprintf("/tmp/go_actual_stage_prebitrev_ri_call%d.f32", dumpIdx), pre)
-		}
 		kissFFT32To(fftOut, fftIn[:n4], fftTmp)
-	}
-
-	if doDump {
-		fftRI := make([]float32, 2*n4)
-		if useDirectKissCpx {
-			for k := 0; k < n4; k++ {
-				fftRI[2*k] = fftStage[k].r
-				fftRI[2*k+1] = fftStage[k].i
-			}
-		} else {
-			for k := 0; k < n4; k++ {
-				fftRI[2*k] = real(fftOut[k])
-				fftRI[2*k+1] = imag(fftOut[k])
-			}
-		}
-		dumpFloat32Raw(fmt.Sprintf("/tmp/go_actual_stage_fft_ri_call%d.f32", dumpIdx), fftRI)
 	}
 	// BCE hints for post-twiddle loop.
 	_ = coeffs[n2-1] // BCE hint
@@ -675,13 +608,6 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 		}
 	}
 
-	if doDump {
-		coeffF32 := make([]float32, n2)
-		for k := 0; k < n2; k++ {
-			coeffF32[k] = float32(coeffs[k])
-		}
-		dumpFloat32Raw(fmt.Sprintf("/tmp/go_actual_stage_coeff_call%d.f32", dumpIdx), coeffF32)
-	}
 }
 
 // mdctScratch computes the MDCT using scratch buffers to avoid allocations.

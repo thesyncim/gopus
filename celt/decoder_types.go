@@ -73,10 +73,6 @@ type Decoder struct {
 
 	// Error recovery / deterministic randomness
 	rng uint32 // RNG state for PLC and folding
-	// Frame counter used by debug instrumentation to correlate per-frame traces.
-	decodeFrameIndex int
-	// Per-decoder debug counters for PVQ/theta diagnostics.
-	bandDebug bandDebugState
 
 	// Per-decoder PLC state (do not share across decoder instances).
 	plcState *plc.State

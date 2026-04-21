@@ -1057,7 +1057,6 @@ func (e *Encoder) syncCELTAnalysisToCELT() {
 		e.celtEncoder.SetAnalysisInfo(0, [19]uint8{}, 0, 0, 0, false)
 		return
 	}
-	maybeLogAnalysisDebug(e.celtEncoder.FrameCount(), e.lastAnalysisInfo)
 	e.celtEncoder.SetAnalysisInfo(
 		e.lastAnalysisInfo.BandwidthIndex,
 		e.lastAnalysisInfo.LeakBoost,

@@ -1,6 +1,7 @@
 package celt
 
 import (
+	"os"
 	"strconv"
 	"testing"
 )
@@ -20,7 +21,7 @@ func TestCWRSUnitLibopus(t *testing.T) {
 
 	maxPseudo := 40
 	sampleDiv := uint32(20000)
-	if env := tmpGetenv("CWRS_UNIT_SAMPLES"); env != "" {
+	if env := os.Getenv("CWRS_UNIT_SAMPLES"); env != "" {
 		if v, err := strconv.Atoi(env); err == nil && v > 0 {
 			sampleDiv = uint32(v)
 		}

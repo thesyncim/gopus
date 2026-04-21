@@ -35,9 +35,7 @@ func TestApplyHybridPrefilterMatchesDisabledRunPrefilter(t *testing.T) {
 	prevPeriod := want.prefilterPeriod
 	prevGain := want.prefilterGain
 	pfResult := want.runPrefilter(wantPreemph, frameSize, want.TapsetDecision(), false, 0.91, 14, 0.22, 0.18, want.analysisMaxPitchRatio)
-	if !tmpSkipPrefOutRoundEnabled {
-		roundFloat64ToFloat32(wantPreemph)
-	}
+	roundFloat64ToFloat32(wantPreemph)
 	want.lastPitchChange = false
 	if prevPeriod > 0 && (pfResult.gain > 0.4 || prevGain > 0.4) {
 		upper := int(1.26 * float64(prevPeriod))

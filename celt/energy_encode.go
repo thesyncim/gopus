@@ -4,9 +4,7 @@
 package celt
 
 import (
-	"fmt"
 	"math"
-	"os"
 
 	"github.com/thesyncim/gopus/rangecoding"
 )
@@ -109,34 +107,6 @@ func (e *Encoder) ComputeBandEnergiesInto(mdctCoeffs []float64, nbBands, frameSi
 		}
 	}
 
-	if tmpBandDumpEnabled && (!tmpBandDumpFrameEnabled || e.frameCount == tmpBandDumpFrameValue) {
-		limit := nbBands
-		if limit > 21 {
-			limit = 21
-		}
-		for c := 0; c < channels; c++ {
-			base := c * nbBands
-			channelStart := c * coeffsPerChannel
-			channelEnd := channelStart + coeffsPerChannel
-			if channelEnd > len(mdctCoeffs) {
-				channelEnd = len(mdctCoeffs)
-			}
-			channelCoeffs := mdctCoeffs[channelStart:channelEnd]
-			for band := 0; band < limit; band++ {
-				start := ScaledBandStart(band, frameSize)
-				end := ScaledBandEnd(band, frameSize)
-				if end > len(channelCoeffs) {
-					end = len(channelCoeffs)
-				}
-				raw := 0.5 * math.Log2(1e-27)
-				if start >= 0 && end > start {
-					raw = computeBandRMS(channelCoeffs, start, end)
-				}
-				fmt.Fprintf(os.Stderr, "GOBAND frame=%d ch=%d band=%d start=%d end=%d raw=%.9f logE=%.9f\n",
-					e.frameCount, c, band, start, end, raw, energies[base+band])
-			}
-		}
-	}
 }
 
 // ComputeBandEnergiesRaw computes energy for each frequency band WITHOUT eMeans subtraction.
@@ -362,9 +332,6 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []float64, startBand, nbBands 
 			}
 
 			predMul := noFMA32Mul(coef32, oldE)
-			if tmpEnergyPredMulNativeEnabled {
-				predMul = coef32 * oldE
-			}
 			pred := predMul + prevBandEnergy[c]
 			f := x - pred
 			qi := int(math.Floor(float64(f/float32(DB6) + 0.5)))
@@ -457,16 +424,7 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []float64, startBand, nbBands 
 			coarseError[idx] = float64(f - q)
 			quantizedEnergy := pred + q
 			quantizedEnergies[idx] = float64(quantizedEnergy)
-			if tmpCoarseDumpEnabled &&
-				c == 0 &&
-				(!tmpCoarseDumpFrameEnabled || e.frameCount == tmpCoarseDumpFrameValue) &&
-				(!tmpCoarseDumpBandEnabled || band == tmpCoarseDumpBandValue) {
-				println("COARSE_DUMP frame", e.frameCount, "band", band, "x", x, "oldE", oldEBand, "pred", pred, "f", f, "qi", qi, "err", float32(coarseError[idx]), "tell", tell, "bitsLeft", bitsLeft)
-			}
 			betaMul := noFMA32Mul(beta32, q)
-			if tmpEnergyPredMulNativeEnabled {
-				betaMul = beta32 * q
-			}
 			prevBandEnergy[c] = prevBandEnergy[c] + q - betaMul
 		}
 	}
@@ -853,9 +811,6 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 
 			// Prediction residual.
 			predMul := noFMA32Mul(coef32, oldE)
-			if tmpEnergyPredMulNativeEnabled {
-				predMul = coef32 * oldE
-			}
 			pred := predMul + prevBandEnergy[c]
 			f := x - pred
 			qi := int(math.Floor(float64(f/float32(DB6) + 0.5)))
@@ -954,9 +909,6 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 			energy := pred + q
 			quantizedEnergies[idx] = float64(energy)
 			betaMul := noFMA32Mul(beta32, q)
-			if tmpEnergyPredMulNativeEnabled {
-				betaMul = beta32 * q
-			}
 			prevBandEnergy[c] = prevBandEnergy[c] + q - betaMul
 		}
 	}
@@ -1139,9 +1091,6 @@ func (e *Encoder) encodeFineEnergyFromError(quantizedEnergies []float64, nbBands
 			// libopus float: q2 = floor((error + 0.5) * extra)
 			err := float32(errorVals[idx])
 			qExpr := float64((err + 0.5) * scale32)
-			if tmpFineQEpsEnabled {
-				qExpr -= tmpFineQEpsValue
-			}
 			q2 := int(math.Floor(qExpr))
 			if q2 < 0 {
 				q2 = 0
@@ -1155,12 +1104,6 @@ func (e *Encoder) encodeFineEnergyFromError(quantizedEnergies []float64, nbBands
 			offset := (float64(q2)+0.5)/float64(extra) - 0.5
 			quantizedEnergies[idx] += offset
 			errorVals[idx] = float64(err) - offset
-			if tmpFineDumpEnabled &&
-				c == 0 &&
-				(!tmpFineDumpFrameEnabled || e.frameCount == tmpFineDumpFrameValue) &&
-				(!tmpFineDumpBandEnabled || band == tmpFineDumpBandValue) {
-				println("FINE_DUMP frame", e.frameCount, "band", band, "bits", bits, "err", err, "q2", q2, "offset", offset, "qexpr", qExpr)
-			}
 		}
 	}
 }

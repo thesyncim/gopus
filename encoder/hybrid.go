@@ -20,9 +20,7 @@
 package encoder
 
 import (
-	"fmt"
 	"math"
-	"os"
 
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/rangecoding"
@@ -392,19 +390,6 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 	if maxPacketBytes == 0 || runCELTTransitionPrefill {
 		// For CELT->Hybrid this is intentionally after transition redundancy encoding.
 		e.maybePrefillCELTOnModeTransition(ModeHybrid, celtPCM, frameSize)
-	}
-	if tmpHybridHBDebugEnabled {
-		target := tmpHybridHBDebugFrame
-		callTag := -1
-		if e.celtEncoder != nil {
-			callTag = e.celtEncoder.FrameCount()
-		}
-		if target < 0 || callTag == target {
-			fmt.Fprintf(os.Stderr,
-				"GOHB frame=%d prev=%.9f hb=%.9f silk=%d celt=%d celt_hb=%d payload=%d base_target=%d red=%d red_active=%v to_celt=%v mode=%d prev_mode=%d\n",
-				callTag, e.hybridState.prevHBGain, hbGain, silkBitrate, celtBitrate, celtBitrateHBGain,
-				payloadTargetMain, baseTargetBytes, redundancyBytes, transitionRedundancy, transitionSilkToCELT, e.mode, prevPacketMode)
-		}
 	}
 
 	// Step 3: Apply HB_gain fade on the delay-compensated CELT input.
@@ -1346,7 +1331,6 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 	e.celtEncoder.SetHybrid(true)
 	e.celtEncoder.SetSilkInfo(silkSignalType, silkOffset)
 	e.celtEncoder.SetPrediction(e.celtPredictionModeForFrame())
-	callFrame := e.celtEncoder.FrameCount()
 
 	// Ensure CELT scratch buffers are properly sized for this frame.
 	// The hybrid path bypasses EncodeFrame, so we must initialize them here.
@@ -1434,7 +1418,6 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 	transient, weakTransient, tfEstimate, toneFreq, toneishness, shortBlocks, bandLogE2 := e.celtEncoder.TransientAnalysisHybrid(
 		preemph, frameSize, nbBands, lm, allowWeakTransients,
 	)
-	maybeLogHybridStageDebug(callFrame, "transient_in", re.Tell(), re.TellFrac(), totalBits, totalBits-re.Tell(), start, end, transient, false, int(celt.SpreadNormal), "")
 
 	// Apply hybrid CELT VBR target adjustment based on SILK signal info.
 	// Per libopus celt_encoder.c line 2463-2475:
@@ -1477,32 +1460,6 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 	e.celtEncoder.ApplyHybridPrefilter(preemph, frameSize, tfEstimate, nbAvailableBytes, toneFreq, toneishness)
 
 	// Compute MDCT with overlap history using the selected block size.
-	if tmpHybridMDCTInDebugEnabled && e.channels == 1 {
-		target := tmpHybridMDCTCall
-		if target < 0 || target == callFrame {
-			histLen := overlap
-			if histLen > len(mdctHistory) {
-				histLen = len(mdctHistory)
-			}
-			fmt.Fprintf(os.Stderr, "GOMDCTIN call=%d hist=", callFrame)
-			for i := 0; i < histLen && i < 32; i++ {
-				fmt.Fprintf(os.Stderr, " %.9f", float32(mdctHistory[i]))
-			}
-			fmt.Fprintf(os.Stderr, " cur=")
-			for i := 0; i < len(preemph) && i < 32; i++ {
-				fmt.Fprintf(os.Stderr, " %.9f", float32(preemph[i]))
-			}
-			fmt.Fprintf(os.Stderr, " tail=")
-			start := len(preemph) - 32
-			if start < 0 {
-				start = 0
-			}
-			for i := start; i < len(preemph); i++ {
-				fmt.Fprintf(os.Stderr, " %.9f", float32(preemph[i]))
-			}
-			fmt.Fprintln(os.Stderr)
-		}
-	}
 
 	mdctCoeffs := computeMDCTForHybridScratch(preemph, frameSize, e.channels, mdctHistory, shortBlocks, e.hybridState, e.celtEncoder)
 	if len(mdctCoeffs) == 0 {
@@ -1510,34 +1467,10 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 	}
 	// Keep float-path cadence aligned with libopus (opus_res/celt_sig are float).
 	e.celtEncoder.RoundFloat64ToFloat32(mdctCoeffs)
-	if tmpHybridMDCTDebugEnabled && e.channels == 1 {
-		target := tmpHybridMDCTCall
-		if target < 0 || target == callFrame {
-			b17 := celt.EBands[17] << lm
-			b18 := celt.EBands[18] << lm
-			b19 := celt.EBands[19] << lm
-			if b17 >= 0 && b19 <= len(mdctCoeffs) {
-				fmt.Fprintf(os.Stderr, "GOMDCT call=%d b17=", callFrame)
-				for i := b17; i < b18; i++ {
-					fmt.Fprintf(os.Stderr, " %.9f", float32(mdctCoeffs[i]))
-				}
-				fmt.Fprintf(os.Stderr, " b18=")
-				for i := b18; i < b19; i++ {
-					fmt.Fprintf(os.Stderr, " %.9f", float32(mdctCoeffs[i]))
-				}
-				fmt.Fprintln(os.Stderr)
-			}
-		}
-	}
 
 	// Compute band energies
 	energies := e.celtEncoder.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
 	e.celtEncoder.RoundFloat64ToFloat32(energies)
-	if tmpHybridAMPDebugEnabled && e.channels == 1 {
-		for band := 14; band <= 18 && band < len(energies); band++ {
-			fmt.Fprintf(os.Stderr, "GOAMP call=%d i=%d logE=%.9f\n", callFrame, band, energies[band])
-		}
-	}
 	if bandLogE2 == nil {
 		if cap(e.hybridState.scratchBandLogE2) < len(energies) {
 			e.hybridState.scratchBandLogE2 = make([]float64, len(energies))
@@ -1593,7 +1526,6 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 		transient = false
 		shortBlocks = 1
 	}
-	maybeLogHybridStageDebug(callFrame, "transient_flag", re.Tell(), re.TellFrac(), totalBits, totalBits-re.Tell(), start, end, transient, false, int(celt.SpreadNormal), "")
 
 	// Snapshot previous frame energies for dynalloc/coarse state decisions.
 	prevEnergyLen := len(e.celtEncoder.PrevEnergy())
@@ -1661,18 +1593,11 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 	} else {
 		intra = false
 	}
-	maybeLogHybridStageDebug(callFrame, "intra_flag", re.Tell(), re.TellFrac(), totalBits, totalBits-re.Tell(), start, end, transient, intra, int(celt.SpreadNormal), "")
 
 	// Encode coarse energy.
 	quantizedEnergies := e.celtEncoder.EncodeCoarseEnergyRange(energies, start, end, intra, lm)
-	coarseExtra := ""
-	if start < len(quantizedEnergies) {
-		coarseExtra = fmt.Sprintf("band17=%.6f", quantizedEnergies[start])
-	}
-	maybeLogHybridStageDebug(callFrame, "coarse", re.Tell(), re.TellFrac(), totalBits, totalBits-re.Tell(), start, end, transient, intra, int(celt.SpreadNormal), coarseExtra)
 
 	celt.TFEncodeWithSelect(re, start, end, transient, tfRes, lm, tfSelect)
-	maybeLogHybridStageDebug(callFrame, "tf", re.Tell(), re.TellFrac(), totalBits, totalBits-re.Tell(), start, end, transient, intra, int(celt.SpreadNormal), "")
 
 	// Encode spread decision (analysis-based) only if budget allows.
 	spread := celt.SpreadNormal
@@ -1688,7 +1613,6 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 		}
 		re.EncodeICDF(spread, celt.SpreadICDF, 5)
 	}
-	maybeLogHybridStageDebug(callFrame, "spread", re.Tell(), re.TellFrac(), totalBits, totalBits-re.Tell(), start, end, transient, intra, int(spread), "")
 
 	// Initialize caps and offsets for allocation (hybrid bands only).
 	caps := e.celtEncoder.CapsScratch(nbBands)
@@ -1745,7 +1669,6 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 		}
 		offsets[i] = boost
 	}
-	maybeLogHybridStageDebug(callFrame, "dynalloc", re.Tell(), re.TellFrac(), totalBits, totalBits-re.Tell(), start, end, transient, intra, int(spread), "")
 
 	allocTrim := 5
 	if tellFracDynalloc+(6<<celt.BitRes) <= totalBitsQ3ForDynalloc-totalBoost {
@@ -1753,7 +1676,6 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 		// does not run alloc_trim_analysis().
 		re.EncodeICDF(allocTrim, celt.TrimICDF, 7)
 	}
-	maybeLogHybridStageDebug(callFrame, "trim", re.Tell(), re.TellFrac(), totalBits, totalBits-re.Tell(), start, end, transient, intra, int(spread), "")
 
 	// Compute bit allocation (hybrid bands only).
 	bitsUsed := re.TellFrac()
@@ -1793,11 +1715,9 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 	} else {
 		e.celtEncoder.SetLastCodedBands(allocResult.CodedBands)
 	}
-	maybeLogHybridStageDebug(callFrame, "alloc", re.Tell(), re.TellFrac(), totalBits, totalBits-re.Tell(), start, end, transient, intra, int(spread), "")
 
 	// Encode fine energy using libopus residual state (error[]).
 	e.celtEncoder.EncodeFineEnergyRangeFromError(quantizedEnergies, start, end, allocResult.FineBits)
-	maybeLogHybridStageDebug(callFrame, "fine", re.Tell(), re.TellFrac(), totalBits, totalBits-re.Tell(), start, end, transient, intra, int(spread), "")
 
 	// Encode bands (PVQ quant_all_bands).
 	totalBitsAllQ3 := (totalBits << celt.BitRes) - antiCollapseRsv
@@ -1807,7 +1727,6 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 	}
 	tapset := e.celtEncoder.TapsetDecision()
 	rng := e.celtEncoder.RNG()
-	e.celtEncoder.PreparePVQDebugFrame(callFrame)
 	e.celtEncoder.QuantAllBandsEncodeScratch(
 		re,
 		e.channels,
@@ -1831,7 +1750,6 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 		e.celtEncoder.Complexity(),
 		bandE,
 	)
-	maybeLogHybridStageDebug(callFrame, "pvq", re.Tell(), re.TellFrac(), totalBits, totalBits-re.Tell(), start, end, transient, intra, int(spread), "")
 
 	// Encode anti-collapse flag if reserved.
 	if antiCollapseRsv > 0 {
@@ -1841,7 +1759,6 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 		}
 		re.EncodeRawBits(uint32(antiCollapseOn), 1)
 	}
-	maybeLogHybridStageDebug(callFrame, "anticollapse", re.Tell(), re.TellFrac(), totalBits, totalBits-re.Tell(), start, end, transient, intra, int(spread), "")
 
 	// Encode energy finalization bits (leftover budget).
 	bitsLeft := totalBits - re.Tell()
@@ -1849,7 +1766,6 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 		bitsLeft = 0
 	}
 	e.celtEncoder.EncodeEnergyFinaliseRangeFromError(quantizedEnergies, start, end, allocResult.FineBits, allocResult.FinePriority, bitsLeft)
-	maybeLogHybridStageDebug(callFrame, "finalise", re.Tell(), re.TellFrac(), totalBits, bitsLeft, start, end, transient, intra, int(spread), "")
 	e.celtEncoder.UpdateEnergyErrorHybridFromError(start, end, nbBands)
 
 	// Update state: prev energy, RNG, frame count, transient history.
@@ -1871,11 +1787,6 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 		}
 	}
 	e.celtEncoder.SetPrevEnergyWithPrev(prevEnergy, nextEnergy)
-	endExtra := ""
-	if start < len(nextEnergy) {
-		endExtra = fmt.Sprintf("next17=%.6f", nextEnergy[start])
-	}
-	maybeLogHybridStageDebug(callFrame, "state", re.Tell(), re.TellFrac(), totalBits, bitsLeft, start, end, transient, intra, int(spread), endExtra)
 	e.celtEncoder.SetRNG(re.Range())
 	e.celtEncoder.IncrementFrameCount()
 	e.celtEncoder.UpdateConsecTransientWithDisabled(transient, transientGotDisabled)

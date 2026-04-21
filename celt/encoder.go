@@ -102,8 +102,6 @@ type Encoder struct {
 
 	// Frame counting for intra mode decisions
 	frameCount int // Number of frames encoded (0 = first frame uses intra mode)
-	// Per-encoder debug counters for PVQ/theta diagnostics.
-	bandDebug bandDebugState
 	// Coarse-energy intra/inter decision state (libopus delayedIntra).
 	delayedIntra float64
 	forceIntra   bool
@@ -416,15 +414,6 @@ func (e *Encoder) SetCoarseDecisionHook(fn func(CoarseDecisionStats)) {
 	e.coarseDecisionHook = fn
 }
 
-// PreparePVQDebugFrame resets per-call PVQ debug sequencing.
-// This is used by temporary parity probes.
-//
-// This hook is primarily for gopus development and parity debugging.
-func (e *Encoder) PreparePVQDebugFrame(frame int) {
-	e.bandDebug.pvqDumpFrame = frame
-	e.bandDebug.pvqCallSeq = 0
-}
-
 // SetTargetStatsHook installs a callback that receives per-frame CELT VBR targets.
 //
 // This hook is primarily for gopus development and parity debugging.
@@ -550,7 +539,6 @@ func (e *Encoder) Reset() {
 
 	// Reset frame counter
 	e.frameCount = 0
-	e.bandDebug = bandDebugState{}
 	e.frameBits = 0
 	e.coarseAvailableBytes = 0
 	e.maxPayloadBytes = 0

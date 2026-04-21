@@ -34,10 +34,7 @@ func opPVQSearch(x []float64, k int) ([]int, float64) {
 // It uses pre-allocated buffers to avoid allocations in the hot path.
 func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]byte, yBuf *[]float32, absXBuf *[]float32) ([]int, float64) {
 	n := len(x)
-	idxBias := float32(0)
-	if tmpPVQIdxBiasEnabled {
-		idxBias = tmpPVQIdxBiasValue
-	}
+	const idxBias = float32(0)
 
 	// Ensure output buffer
 	var iy []int
@@ -78,11 +75,11 @@ func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]byte, yBuf
 	}
 
 	// Initialize buffers: extract abs values and signs from float64 input.
-	if idxBias == 0 && !tmpPVQAbsQ15Enabled {
+	if idxBias == 0 {
 		// Fast path: SIMD-accelerated extraction (assembly on arm64/amd64)
 		pvqExtractAbsSign(x, absX, y, signx, iy, n)
 	} else {
-		// Slow path with optional idx bias and Q15 quantization
+		// Slow path with optional idx bias.
 		_ = iy[n-1]
 		_ = signx[n-1]
 		_ = y[n-1]
@@ -99,15 +96,9 @@ func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]byte, yBuf
 			} else {
 				absX[j] = float32(xj)
 			}
-			if tmpPVQAbsQ15Enabled {
-				q := int(absX[j]*32768.0 + 0.5)
-				absX[j] = float32(q) * (1.0 / 32768.0)
-			}
-			if idxBias != 0 {
-				absX[j] -= float32(j) * idxBias
-				if absX[j] < 0 {
-					absX[j] = 0
-				}
+			absX[j] -= float32(j) * idxBias
+			if absX[j] < 0 {
+				absX[j] = 0
 			}
 		}
 	}

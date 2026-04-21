@@ -7,7 +7,7 @@ func (d *Decoder) decodeHybridSpectrum(rd *rangecoding.Decoder, totalBits, frame
 	traceRange("fine", rd)
 
 	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, disableInv, &d.rng, &d.scratchBands, &d.bandDebug, nil, nil, 0)
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, disableInv, &d.rng, &d.scratchBands, nil, nil, 0)
 	traceRange("pvq", rd)
 
 	antiCollapseOn := false

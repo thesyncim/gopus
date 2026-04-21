@@ -35,9 +35,7 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 		}
 		if directStereoFloat32 {
 			samplesL, samplesR := d.synthesizeStereoPlanar(coeffsL, coeffsR, transient, shortBlocks)
-			if !tmpDisablePostfilterEnabled {
-				d.applyPostfilterStereoPlanar(samplesL, samplesR, frameSize, modeLM, postfilterPeriod, postfilterGain, postfilterTapset)
-			}
+			d.applyPostfilterStereoPlanar(samplesL, samplesR, frameSize, modeLM, postfilterPeriod, postfilterGain, postfilterTapset)
 			d.applyDeemphasisAndScaleStereoPlanarToFloat32(d.directOutPCM[:frameSize*2], samplesL, samplesR, 1.0/32768.0)
 		} else {
 			samples = d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
@@ -55,9 +53,7 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 		}
 		if directMonoFloat32 {
 			samplesF32 := d.synthesizeMonoLongToFloat32(coeffsL)
-			if !tmpDisablePostfilterEnabled {
-				d.applyPostfilterNoGainMonoFromFloat32(samplesF32, frameSize, modeLM, postfilterPeriod, postfilterGain, postfilterTapset)
-			}
+			d.applyPostfilterNoGainMonoFromFloat32(samplesF32, frameSize, modeLM, postfilterPeriod, postfilterGain, postfilterTapset)
 			d.applyDeemphasisAndScaleMonoFloat32ToFloat32(d.directOutPCM[:frameSize], samplesF32, 1.0/32768.0)
 		} else {
 			samples = d.Synthesize(coeffsL, transient, shortBlocks)
@@ -75,9 +71,7 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 	}
 	traceSynthesis("synth_pre", samples[:traceLen])
 
-	if !tmpDisablePostfilterEnabled {
-		d.applyPostfilter(samples, frameSize, modeLM, postfilterPeriod, postfilterGain, postfilterTapset)
-	}
+	d.applyPostfilter(samples, frameSize, modeLM, postfilterPeriod, postfilterGain, postfilterTapset)
 
 	// Step 7: Apply de-emphasis filter
 	if len(d.directOutPCM) >= len(samples) {

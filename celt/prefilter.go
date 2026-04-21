@@ -1,10 +1,7 @@
 package celt
 
 import (
-	"encoding/binary"
-	"fmt"
 	"math"
-	"os"
 
 	"github.com/thesyncim/gopus/util"
 )
@@ -82,22 +79,13 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		DeinterleaveStereoInto(preemph[:frameSize*2], preL[maxPeriod:maxPeriod+frameSize], preR[maxPeriod:maxPeriod+frameSize])
 	}
 	// Keep prefilter inputs at float32 precision to match libopus celt_sig path.
-	if !tmpSkipPrefInputRoundEnabled {
-		// In the normal path, prefilter history is already float32-quantized when
-		// persisted in prefilterMem. Only round the newly appended frame samples.
-		if !tmpSkipPrefMemRoundEnabled {
-			for ch := 0; ch < channels; ch++ {
-				frame := pre[ch*perChanLen+maxPeriod : ch*perChanLen+maxPeriod+frameSize]
-				roundFloat64ToFloat32(frame)
-			}
-		} else {
-			roundFloat64ToFloat32(pre)
-		}
+	// Prefilter history is already float32-quantized when persisted in prefilterMem.
+	// Only round the newly appended frame samples.
+	for ch := 0; ch < channels; ch++ {
+		frame := pre[ch*perChanLen+maxPeriod : ch*perChanLen+maxPeriod+frameSize]
+		roundFloat64ToFloat32(frame)
 	}
-	// In the default float32 prefilter path with rounded inputs, copied state
-	// is already float32-quantized. Keep explicit state rounding only in debug/
-	// alternate-precision modes that can produce wider intermediates.
-	needStateRound := !tmpSkipPrefMemRoundEnabled && (tmpSkipPrefInputRoundEnabled || tmpPrefilterF64Enabled)
+	needStateRound := false
 
 	pitchIndex := minPeriod
 	gain1 := 0.0
@@ -240,24 +228,9 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		preSub := preCh[maxPeriod : maxPeriod+frameSize]
 		before[ch] = absSum(preSub)
 		if offset > 0 {
-			if tmpPrefilterF64Enabled {
-				combFilterWithInput(outCh, preCh, maxPeriod, prevPeriod, prevPeriod, offset, -e.prefilterGain, -e.prefilterGain, prevTapset, prevTapset, nil, 0)
-			} else {
-				combFilterWithInputF32(outCh, preCh, maxPeriod, prevPeriod, prevPeriod, offset, -e.prefilterGain, -e.prefilterGain, prevTapset, prevTapset, nil, 0)
-			}
+			combFilterWithInputF32(outCh, preCh, maxPeriod, prevPeriod, prevPeriod, offset, -e.prefilterGain, -e.prefilterGain, prevTapset, prevTapset, nil, 0)
 		}
-		if tmpPrefilterF64Enabled {
-			combFilterWithInput(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, frameSize-offset, -e.prefilterGain, -gain1, prevTapset, tapset, window, overlap)
-		} else {
-			combFilterWithInputF32(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, frameSize-offset, -e.prefilterGain, -gain1, prevTapset, tapset, window, overlap)
-		}
-		if tmpPrefCombDumpEnabled && channels == 1 && frameSize == 480 && e.frameCount < 32 {
-			dumpFloat64AsF32Raw(fmt.Sprintf("/tmp/go_prefcomb_pre_call%d.f32", e.frameCount), preCh)
-			dumpFloat64AsF32Raw(fmt.Sprintf("/tmp/go_prefcomb_out_call%d.f32", e.frameCount), outCh)
-			metaPath := fmt.Sprintf("/tmp/go_prefcomb_meta_call%d.txt", e.frameCount)
-			_ = os.WriteFile(metaPath, []byte(fmt.Sprintf("start=%d n=%d overlap=%d t0=%d t1=%d g0=%.9g g1=%.9g tap0=%d tap1=%d offset=%d frame=%d\n",
-				maxPeriod+offset, frameSize-offset, overlap, prevPeriod, pitchIndex, -e.prefilterGain, -gain1, prevTapset, tapset, offset, e.frameCount)), 0o644)
-		}
+		combFilterWithInputF32(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, frameSize-offset, -e.prefilterGain, -gain1, prevTapset, tapset, window, overlap)
 		outSub := outCh[maxPeriod : maxPeriod+frameSize]
 		after[ch] = absSum(outSub)
 	}
@@ -283,11 +256,7 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			preCh := pre[ch*perChanLen : (ch+1)*perChanLen]
 			outCh := out[ch*perChanLen : (ch+1)*perChanLen]
 			copy(outCh[maxPeriod:maxPeriod+frameSize], preCh[maxPeriod:maxPeriod+frameSize])
-			if tmpPrefilterF64Enabled {
-				combFilterWithInput(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, overlap, -e.prefilterGain, -0, prevTapset, tapset, window, overlap)
-			} else {
-				combFilterWithInputF32(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, overlap, -e.prefilterGain, -0, prevTapset, tapset, window, overlap)
-			}
+			combFilterWithInputF32(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, overlap, -e.prefilterGain, -0, prevTapset, tapset, window, overlap)
 		}
 		gain1 = 0
 		pfOn = false
@@ -375,17 +344,6 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		e.prefilterDebugHook(*dbg)
 	}
 	return result
-}
-
-func dumpFloat64AsF32Raw(path string, vals []float64) {
-	if len(vals) == 0 {
-		return
-	}
-	buf := make([]byte, len(vals)*4)
-	for i, v := range vals {
-		binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(float32(v)))
-	}
-	_ = os.WriteFile(path, buf, 0o644)
 }
 
 func pitchDownsample(x []float64, xLP []float64, length, channels, factor int) {

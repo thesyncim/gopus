@@ -18,12 +18,13 @@ Last updated: 2026-04-21
 - [x] Document CI guardrail/branch-protection policy (`CI_GUARDRAILS.md`) and the concise project brief (`AGENTS.md`).
 - [x] Close the previously-known large encoder quality regressions and return `make test-quality` to green.
 - [x] Expand zero-allocation hard gates to cover PLC and stereo decode hot paths.
+- [x] Make CELT opusdec crossval fixture coverage fail closed instead of silently rewriting tracked fixtures during normal test runs.
 - [x] Remove deprecated debug/state wrappers from the pre-release public surface.
 - [x] Simplify repo workflow/docs by removing the old experiment scaffolding.
 
 ## In progress now
 
-- [ ] Tighten multistream-facing error/reporting text so ranges stay accurate for high-channel-count use.
+- [x] Tighten multistream-facing error/reporting text so ranges stay accurate for high-channel-count use.
 
 ## Remaining medium-term blockers
 

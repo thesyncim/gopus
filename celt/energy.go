@@ -1,11 +1,7 @@
 // Package celt implements the CELT decoder per RFC 6716 Section 4.3.
 package celt
 
-import (
-	"fmt"
-
-	"github.com/thesyncim/gopus/rangecoding"
-)
+import "github.com/thesyncim/gopus/rangecoding"
 
 // Laplace decoding constants per libopus celt/laplace.c.
 const (
@@ -164,11 +160,6 @@ func (d *Decoder) decodeCoarseEnergyInto(dst []float64, nbBands int, intra bool,
 
 	budget := rd.StorageBits()
 
-	if debugEnergyDecodingEnabled {
-		fmt.Printf("DecodeCoarseEnergy: nbBands=%d, channels=%d, intra=%v, lm=%d, alpha=%.4f, beta=%.4f, budget=%d\n",
-			nbBands, d.channels, intra, lm, alpha, beta, budget)
-	}
-
 	// Decode band-major to match libopus ordering.
 	prevBandEnergy := ensureFloat64Slice(&d.scratchPrevBandEnergy, d.channels)
 	for i := range prevBandEnergy {
@@ -197,14 +188,6 @@ func (d *Decoder) decodeCoarseEnergyInto(dst []float64, nbBands int, intra bool,
 				qi = -1
 			}
 
-			if debugEnergyDecodingEnabled {
-				ch := "L"
-				if c == 1 {
-					ch = "R"
-				}
-				fmt.Printf("  Band %2d %s: tell=%d, qi=%d, remaining=%d\n", band, ch, tell, qi, remaining)
-			}
-
 			// Apply prediction
 			// pred = alpha * prevEnergy[band] + prevBandEnergy
 			prevFrameEnergy := d.prevEnergy[c*MaxBands+band]
@@ -217,15 +200,6 @@ func (d *Decoder) decodeCoarseEnergyInto(dst []float64, nbBands int, intra bool,
 			// Compute energy: pred + qi * DB6 (6 dB per step)
 			q := float64(qi) * DB6
 			energy := pred + q
-
-			if debugEnergyDecodingEnabled {
-				ch := "L"
-				if c == 1 {
-					ch = "R"
-				}
-				fmt.Printf("         %s: prevFrame=%.4f, prevBand=%.4f, pred=%.4f, q=%.4f, energy=%.4f\n",
-					ch, prevFrameEnergy, prevBandEnergy[c], pred, q, energy)
-			}
 
 			// Trace coarse energy (coarse=pred, fine=qi*DB6, total=energy)
 			traceEnergy(band, pred, q, energy)

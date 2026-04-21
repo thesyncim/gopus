@@ -168,7 +168,6 @@ func (e *Encoder) QuantAllBandsEncodeScratch(re *rangecoding.Encoder, channels, 
 		nil,
 		nil,
 		&e.bandEncScratch,
-		&e.bandDebug,
 	)
 }
 
@@ -354,16 +353,11 @@ func (e *Encoder) ApplyHybridPrefilter(preemph []float64, frameSize int, tfEstim
 	if e.analysisValid {
 		maxPitchRatio = e.analysisMaxPitchRatio
 	}
-	if tmpForceMaxPitchRatio1Enabled {
-		maxPitchRatio = 1
-	}
 
 	prevPrefilterPeriod := e.prefilterPeriod
 	prevPrefilterGain := e.prefilterGain
 	pfResult := e.runPrefilter(preemph, frameSize, prefilterTapset, false, tfEstimate, nbAvailableBytes, toneFreq, toneishness, maxPitchRatio)
-	if !tmpSkipPrefOutRoundEnabled {
-		roundFloat64ToFloat32(preemph)
-	}
+	roundFloat64ToFloat32(preemph)
 
 	e.lastPitchChange = false
 	if prevPrefilterPeriod > 0 && (pfResult.gain > 0.4 || prevPrefilterGain > 0.4) {

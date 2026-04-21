@@ -1,11 +1,7 @@
 // Package celt implements the CELT decoder per RFC 6716 Section 4.3.
 package celt
 
-import (
-	"fmt"
-
-	"github.com/thesyncim/gopus/rangecoding"
-)
+import "github.com/thesyncim/gopus/rangecoding"
 
 // AllocationResult holds the output of bit allocation computation.
 type AllocationResult struct {
@@ -106,7 +102,6 @@ func cltComputeAllocation(start, end int, offsets, cap []int, allocTrim int, int
 func cltComputeAllocationWithScratch(start, end int, offsets, cap []int, allocTrim int, intensity, dualStereo *int,
 	totalBitsQ3 int, balance *int, pulses, ebits, finePriority []int, channels, lm int,
 	rd *rangecoding.Decoder, scratch []int) int {
-	origTotalBits := totalBitsQ3
 	lenBands := MaxBands
 	if end > lenBands {
 		end = lenBands
@@ -140,11 +135,6 @@ func cltComputeAllocationWithScratch(start, end int, offsets, cap []int, allocTr
 			}
 		}
 	}
-	if debugDualStereoAllocEnabled {
-		fmt.Printf("cltComputeAllocation: start=%d, end=%d, channels=%d, origTotalBits=%d, intensityRsv=%d, dualStereoRsv=%d\n",
-			start, end, channels, origTotalBits, intensityRsv, dualStereoRsv)
-	}
-
 	if len(scratch) < lenBands*4 {
 		scratch = make([]int, lenBands*4)
 	}
@@ -342,15 +332,9 @@ func interpBits2Pulses(start, end, skipStart int, bits1, bits2, thresh, cap []in
 	if dualStereoRsv > 0 {
 		if rd != nil {
 			*dualStereo = rd.DecodeBit(1)
-			if debugDualStereoAllocEnabled {
-				fmt.Printf("  Decoded dualStereo=%d from bitstream\n", *dualStereo)
-			}
 		}
 	} else {
 		*dualStereo = 0
-		if debugDualStereoAllocEnabled {
-			fmt.Printf("  dualStereoRsv=0, forcing dualStereo=0\n")
-		}
 	}
 
 	left := total - psum
