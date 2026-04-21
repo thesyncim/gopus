@@ -6,16 +6,22 @@ import (
 )
 
 // SetDNNBlob retains a validated USE_WEIGHTS_FILE blob for future optional
-// extension paths. A nil blob clears the retained model.
+// extension paths. A nil blob clears the retained main-decoder model state.
 func (d *Decoder) SetDNNBlob(blob *dnnblob.Blob) {
 	d.dnnBlob = blob
 	models := blob.DecoderModels()
 	d.pitchDNNLoaded = models.PitchDNN
 	d.plcModelLoaded = models.PLC
 	d.farganModelLoaded = models.FARGAN
-	d.dredModelLoaded = models.DRED
 	d.osceModelsLoaded = models.OSCE
 	d.osceBWEModelLoaded = models.OSCEBWE
+}
+
+// setDREDDecoderBlob mirrors the standalone libopus OpusDREDDecoder
+// OPUS_SET_DNN_BLOB path.
+func (d *Decoder) setDREDDecoderBlob(blob *dnnblob.Blob) {
+	d.dredDNNBlob = blob
+	d.dredModelLoaded = blob != nil && blob.SupportsDREDDecoder()
 	if !d.dredModelLoaded {
 		d.clearDREDPayloadState()
 	}

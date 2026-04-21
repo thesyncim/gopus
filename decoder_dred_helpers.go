@@ -5,15 +5,24 @@ import (
 	internaldred "github.com/thesyncim/gopus/internal/dred"
 )
 
+// setDNNBlob mirrors the main libopus decoder OPUS_SET_DNN_BLOB surface. The
+// standalone DRED decoder keeps its own model lifetime and is managed
+// separately through setDREDDecoderBlob.
 func (d *Decoder) setDNNBlob(blob *dnnblob.Blob) {
 	d.dnnBlob = blob
 	models := blob.DecoderModels()
 	d.pitchDNNLoaded = models.PitchDNN
 	d.plcModelLoaded = models.PLC
 	d.farganModelLoaded = models.FARGAN
-	d.dredModelLoaded = models.DRED
 	d.osceModelsLoaded = models.OSCE
 	d.osceBWEModelLoaded = models.OSCEBWE
+}
+
+// setDREDDecoderBlob mirrors the standalone libopus OpusDREDDecoder
+// OPUS_SET_DNN_BLOB path.
+func (d *Decoder) setDREDDecoderBlob(blob *dnnblob.Blob) {
+	d.dredDNNBlob = blob
+	d.dredModelLoaded = blob != nil && blob.SupportsDREDDecoder()
 	if !d.dredModelLoaded {
 		d.clearDREDPayloadState()
 	}

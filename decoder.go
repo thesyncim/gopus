@@ -89,6 +89,7 @@ type Decoder struct {
 	// Soft clipping memory (float decode uses none; int16 decode uses this)
 	softClipMem [2]float32
 	dnnBlob     *dnnblob.Blob
+	dredDNNBlob *dnnblob.Blob
 	dredData    []byte
 	dredCache   internaldred.Cache
 

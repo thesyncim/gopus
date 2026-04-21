@@ -31,8 +31,11 @@ func main() {
 	}
 
 	specs := []manifestSpec{
+		{VarName: "pitchDNNRequiredRecordNames", SourceFile: "tmp_check/opus-1.6.1/dnn/pitchdnn_data.c", ArrayName: "pitchdnn_arrays"},
 		{VarName: "plcRequiredRecordNames", SourceFile: "tmp_check/opus-1.6.1/dnn/plc_data.c", ArrayName: "plcmodel_arrays"},
 		{VarName: "farganRequiredRecordNames", SourceFile: "tmp_check/opus-1.6.1/dnn/fargan_data.c", ArrayName: "fargan_arrays"},
+		{VarName: "dredEncoderRequiredRecordNames", SourceFile: "tmp_check/opus-1.6.1/dnn/dred_rdovae_enc_data.c", ArrayName: "rdovaeenc_arrays"},
+		{VarName: "dredDecoderRequiredRecordNames", SourceFile: "tmp_check/opus-1.6.1/dnn/dred_rdovae_dec_data.c", ArrayName: "rdovaedec_arrays"},
 		{VarName: "osceLACERequiredRecordNames", SourceFile: "tmp_check/opus-1.6.1/dnn/lace_data.c", ArrayName: "lacelayers_arrays"},
 		{VarName: "osceNoLACERequiredRecordNames", SourceFile: "tmp_check/opus-1.6.1/dnn/nolace_data.c", ArrayName: "nolacelayers_arrays"},
 		{VarName: "osceBWERequiredRecordNames", SourceFile: "tmp_check/opus-1.6.1/dnn/bbwenet_data.c", ArrayName: "bbwenetlayers_arrays"},
