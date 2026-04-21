@@ -202,7 +202,6 @@ func (d *Decoder) decodeCoarseEnergyInto(dst []float64, nbBands int, intra bool,
 			energy := pred + q
 
 			// Trace coarse energy (coarse=pred, fine=qi*DB6, total=energy)
-			traceEnergy(band, pred, q, energy)
 
 			// Store result
 			dst[c*nbBands+band] = energy
@@ -307,8 +306,6 @@ func (d *Decoder) decodeCoarseEnergyRange(start, end int, intra bool, lm int, en
 			q := float64(qi) * DB6
 			energy := pred + q
 
-			traceEnergy(band, pred, q, energy)
-
 			energies[c*end+band] = energy
 			prevBandEnergy[c] = prevBandEnergy[c] + q - beta*q
 		}
@@ -384,7 +381,6 @@ func (d *Decoder) decodeFineEnergy(energies []float64, nbBands int, prevQuant, e
 			idx := c*nbBands + band
 			if idx < len(energies) {
 				energies[idx] += offset * DB6
-				traceEnergyFine(band, c, energies[idx])
 			}
 		}
 	}
@@ -483,7 +479,6 @@ func (d *Decoder) DecodeEnergyFinaliseRange(start, end int, energies []float64, 
 					offset := (float64(q2) - 0.5) / float64(uint(1)<<(fineQuant[band]+1))
 					idx := c*end + band
 					energies[idx] += offset * DB6
-					traceEnergyFinal(band, c, energies[idx])
 				}
 				bitsLeft--
 			}

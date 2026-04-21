@@ -69,7 +69,6 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 	if traceLen > 16 {
 		traceLen = 16
 	}
-	traceSynthesis("synth_pre", samples[:traceLen])
 
 	d.applyPostfilter(samples, frameSize, modeLM, postfilterPeriod, postfilterGain, postfilterTapset)
 
@@ -85,7 +84,6 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 	if traceLen > 16 {
 		traceLen = 16
 	}
-	traceSynthesis("final", samples[:traceLen])
 
 	return samples
 }

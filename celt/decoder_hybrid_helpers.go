@@ -4,23 +4,18 @@ import "github.com/thesyncim/gopus/rangecoding"
 
 func (d *Decoder) decodeHybridSpectrum(rd *rangecoding.Decoder, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, channels int, disableInv bool, energies, prev1LogE, prev2LogE []float64, pulses, fineQuant, finePriority, tfRes []int, intensity, dualStereo, balance, codedBands int) (coeffsL, coeffsR []float64) {
 	d.DecodeFineEnergy(energies, end, fineQuant)
-	traceRange("fine", rd)
 
 	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
 		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, disableInv, &d.rng, &d.scratchBands, nil, nil, 0)
-	traceRange("pvq", rd)
 
 	antiCollapseOn := false
 	if antiCollapseRsv > 0 {
 		antiCollapseOn = rd.DecodeRawBits(1) == 1
 	}
-	traceFlag("anticollapse_on", boolToInt(antiCollapseOn))
-	traceRange("anticollapse", rd)
 
 	bitsLeft := totalBits - rd.Tell()
 	// Hybrid finalisation only runs over the decoded CELT tail bands.
 	d.DecodeEnergyFinaliseRange(start, end, energies, fineQuant, finePriority, bitsLeft)
-	traceRange("finalise", rd)
 
 	if antiCollapseOn {
 		antiCollapse(coeffsL, coeffsR, collapse, lm, channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)

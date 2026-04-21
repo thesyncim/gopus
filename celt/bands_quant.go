@@ -1213,7 +1213,6 @@ func algUnquantInto(shape []float64, rd *rangecoding.Decoder, band, n, k, spread
 	}
 	idx := rd.DecodeUniform(vSize)
 	yy := float64(decodePulsesInto(idx, n, k, pulses, scratch))
-	tracePVQ(band, idx, k, n, pulses)
 	if extraBits >= 2 && extDec != nil {
 		up := (1 << extraBits) - 1
 		if n == 2 {
@@ -3455,7 +3454,6 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 			}
 		}
 		if effectiveLowband >= 0 && lowbandX != nil {
-			traceLowband(i, lowbandOffset, effectiveLowband, lowbandX)
 		}
 
 		var lowbandOutX []float64

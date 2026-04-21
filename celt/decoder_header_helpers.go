@@ -29,7 +29,6 @@ func (d *Decoder) decodeFrameHeader(rd *rangecoding.Decoder, totalBits, frameSiz
 		}
 		tell = rd.Tell()
 	}
-	traceRange("postfilter", rd)
 
 	if lm > 0 && tell+3 <= totalBits {
 		header.transient = rd.DecodeBit(3) == 1
@@ -38,9 +37,7 @@ func (d *Decoder) decodeFrameHeader(rd *rangecoding.Decoder, totalBits, frameSiz
 	if tell+3 <= totalBits {
 		header.intra = rd.DecodeBit(3) == 1
 	}
-	traceRange("intra", rd)
 
-	traceHeader(frameSize, d.channels, lm, boolToInt(header.intra), boolToInt(header.transient))
 	d.applyLossEnergySafety(header.intra, start, end, lm)
 
 	if header.transient {

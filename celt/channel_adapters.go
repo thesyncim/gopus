@@ -144,7 +144,6 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 		}
 		tell = rd.Tell()
 	}
-	traceRange("postfilter", rd)
 
 	transient := false
 	if lm > 0 && tell+3 <= totalBits {
@@ -155,7 +154,6 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	if tell+3 <= totalBits {
 		intra = rd.DecodeBit(3) == 1
 	}
-	traceRange("intra", rd)
 	d.applyLossEnergySafety(intra, start, end, lm)
 
 	shortBlocks := 1
@@ -164,7 +162,6 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	}
 
 	monoEnergies := d.decodeCoarseEnergyInto(ensureFloat64Slice(&d.scratchEnergies, end*d.channels), end, intra, lm)
-	traceRange("coarse", rd)
 
 	allocation := d.decodeBandAllocation(rd, totalBits, start, end, lm, transient)
 	tfRes := allocation.tfRes
@@ -183,7 +180,6 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	if qext != nil {
 		d.decodeFineEnergyWithDecoderPrev(qext.dec, monoEnergies, end, fineQuant, qext.extraQuant[:end])
 	}
-	traceRange("fine", rd)
 
 	coeffsMono, _, collapse := quantAllBandsDecodeWithScratch(rd, 1, frameSize, lm, start, end, pulses, shortBlocks, spread,
 		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, false, &d.rng, &d.scratchBands,
@@ -206,14 +202,11 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	if qext != nil {
 		d.decodeQEXTBands(frameSize, lm, shortBlocks, spread, false, qext)
 	}
-	traceRange("pvq", rd)
 
 	antiCollapseOn := false
 	if antiCollapseRsv > 0 {
 		antiCollapseOn = rd.DecodeRawBits(1) == 1
 	}
-	traceFlag("anticollapse_on", boolToInt(antiCollapseOn))
-	traceRange("anticollapse", rd)
 
 	bitsLeft := totalBits - rd.Tell()
 	if len(qextPayload) != 0 {
@@ -221,7 +214,6 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	} else {
 		d.DecodeEnergyFinalise(monoEnergies, end, fineQuant, finePriority, bitsLeft)
 	}
-	traceRange("finalise", rd)
 
 	if antiCollapseOn {
 		antiCollapse(coeffsMono, nil, collapse, lm, 1, start, end, monoEnergies, prev1LogE, prev2LogE, pulses, d.rng)
@@ -251,7 +243,6 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	if traceLen > 16 {
 		traceLen = 16
 	}
-	traceSynthesis("synth_pre", samples[:traceLen])
 
 	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
 	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
@@ -365,7 +356,6 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 		}
 		tell = rd.Tell()
 	}
-	traceRange("postfilter", rd)
 
 	transient := false
 	if lm > 0 && tell+3 <= totalBits {
@@ -376,7 +366,6 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	if tell+3 <= totalBits {
 		intra = rd.DecodeBit(3) == 1
 	}
-	traceRange("intra", rd)
 	d.applyLossEnergySafety(intra, start, end, lm)
 
 	shortBlocks := 1
@@ -385,7 +374,6 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	}
 
 	energies := d.decodeCoarseEnergyInto(ensureFloat64Slice(&d.scratchEnergies, end*d.channels), end, intra, lm)
-	traceRange("coarse", rd)
 
 	allocation := d.decodeBandAllocation(rd, totalBits, start, end, lm, transient)
 	tfRes := allocation.tfRes
@@ -399,24 +387,11 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	balance := allocation.balance
 	codedBands := allocation.codedBands
 
-	for i := start; i < end; i++ {
-		width := 0
-		if i+1 < len(EBands) {
-			width = (EBands[i+1] - EBands[i]) << lm
-		}
-		k := 0
-		if width > 0 {
-			k = bitsToK(pulses[i], width)
-		}
-		traceAllocation(i, pulses[i], k)
-	}
-
 	d.DecodeFineEnergy(energies, end, fineQuant)
 	qext := d.prepareQEXTDecode(qextPayload, rd, end, lm, frameSize)
 	if qext != nil {
 		d.decodeFineEnergyWithDecoderPrev(qext.dec, energies, end, fineQuant, qext.extraQuant[:end])
 	}
-	traceRange("fine", rd)
 
 	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
 		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, origChannels == 1, &d.rng, &d.scratchBands,
@@ -439,14 +414,11 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	if qext != nil {
 		d.decodeQEXTBands(frameSize, lm, shortBlocks, spread, origChannels == 1, qext)
 	}
-	traceRange("pvq", rd)
 
 	antiCollapseOn := false
 	if antiCollapseRsv > 0 {
 		antiCollapseOn = rd.DecodeRawBits(1) == 1
 	}
-	traceFlag("anticollapse_on", boolToInt(antiCollapseOn))
-	traceRange("anticollapse", rd)
 
 	bitsLeft := totalBits - rd.Tell()
 	if len(qextPayload) != 0 {
@@ -454,7 +426,6 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	} else {
 		d.DecodeEnergyFinalise(energies, end, fineQuant, finePriority, bitsLeft)
 	}
-	traceRange("finalise", rd)
 
 	if antiCollapseOn {
 		antiCollapse(coeffsL, coeffsR, collapse, lm, d.channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
@@ -505,7 +476,6 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	if traceLen > 16 {
 		traceLen = 16
 	}
-	traceSynthesis("synth_pre", samples[:traceLen])
 
 	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
 	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
@@ -614,7 +584,6 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 		}
 		tell = rd.Tell()
 	}
-	traceRange("postfilter", rd)
 
 	transient := false
 	if lm > 0 && tell+3 <= totalBits {
@@ -625,7 +594,6 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	if tell+3 <= totalBits {
 		intra = rd.DecodeBit(3) == 1
 	}
-	traceRange("intra", rd)
 	d.applyLossEnergySafety(intra, start, end, lm)
 
 	shortBlocks := 1
@@ -638,7 +606,6 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 		monoEnergies[band] = d.prevEnergy[band]
 	}
 	d.decodeCoarseEnergyRange(start, end, intra, lm, monoEnergies)
-	traceRange("coarse", rd)
 
 	allocation := d.decodeBandAllocation(rd, totalBits, start, end, lm, transient)
 	tfRes := allocation.tfRes
@@ -765,7 +732,6 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 		}
 		tell = rd.Tell()
 	}
-	traceRange("postfilter", rd)
 
 	transient := false
 	if lm > 0 && tell+3 <= totalBits {
@@ -776,7 +742,6 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	if tell+3 <= totalBits {
 		intra = rd.DecodeBit(3) == 1
 	}
-	traceRange("intra", rd)
 	d.applyLossEnergySafety(intra, start, end, lm)
 
 	shortBlocks := 1
@@ -791,7 +756,6 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 		}
 	}
 	d.decodeCoarseEnergyRange(start, end, intra, lm, energies)
-	traceRange("coarse", rd)
 
 	allocation := d.decodeBandAllocation(rd, totalBits, start, end, lm, transient)
 	tfRes := allocation.tfRes
