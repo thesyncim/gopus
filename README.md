@@ -16,7 +16,7 @@ Pure Go Opus codec for Go applications.
 - The main API target is the zero-allocation caller-owned path:
   - `func (d *Decoder) Decode(data []byte, pcm []float32) (int, error)`
   - `func (e *Encoder) Encode(pcm []float32, data []byte) (int, error)`
-- The default build intentionally does not support every optional libopus build-time extension. Supported optional controls are `SetDNNBlob(...)` plus `SetQEXT(...)` / `QEXT()`. `SetDREDDuration(...)` and `SetOSCEBWE(...)` are absent unless you build with `-tags gopus_unsupported_controls`. See [Optional Extensions](docs/optional-extensions.md) for the release-contract matrix.
+- The default build intentionally does not support every optional libopus build-time extension. Supported optional controls are `SetDNNBlob(...)` plus `SetQEXT(...)` / `QEXT()`. Decoder-side `SetDNNBlob(...)` currently provides validated model admission and retained control state; full model-backed PLC/OSCE runtime behavior remains incomplete. `SetDREDDuration(...)` and `SetOSCEBWE(...)` are absent unless you build with `-tags gopus_unsupported_controls`. See [Optional Extensions](docs/optional-extensions.md) for the release-contract matrix.
 - Low-level packages such as `celt`, `silk`, `hybrid`, `rangecoding`, and `plc` are implementation detail, not a stable public contract yet.
 - Validation and parity work is pinned against libopus 1.6.1.
 - No tagged release has been published yet. If you adopt `gopus` before `v0.1.0`, pin the exact version you validate.
@@ -98,7 +98,7 @@ Packet loss concealment uses `dec.Decode(nil, pcmOut)`. If you prefer convenienc
 | Streaming facade | Supported | `Reader` / `Writer` |
 | Allocating convenience helpers | Supported | Simpler to use, but not zero-allocation |
 | Low-level codec packages | Experimental | May change before `v1` |
-| Optional libopus build-time extensions | Mixed | `SetDNNBlob(...)` plus `SetQEXT(...)` / `QEXT()` are supported. `SetDREDDuration(...)` and `SetOSCEBWE(...)` are absent unless built with `-tags gopus_unsupported_controls`. See [Optional Extensions](docs/optional-extensions.md) |
+| Optional libopus build-time extensions | Mixed | `SetDNNBlob(...)` plus `SetQEXT(...)` / `QEXT()` are supported. Decoder-side `SetDNNBlob(...)` validates and retains model blobs, but full model-backed PLC/OSCE runtime behavior remains incomplete. `SetDREDDuration(...)` and `SetOSCEBWE(...)` are absent unless built with `-tags gopus_unsupported_controls`. See [Optional Extensions](docs/optional-extensions.md) |
 
 Environment and codec expectations:
 

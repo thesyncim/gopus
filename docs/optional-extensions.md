@@ -14,7 +14,7 @@ if gopus.SupportsOptionalExtension(gopus.OptionalExtensionQEXT) {
 
 | Extension | Default build | Probe | Notes |
 | --- | --- | --- | --- |
-| DNN blob loading | Supported | `OptionalExtensionDNNBlob` | Available through `SetDNNBlob` on `Encoder`, `Decoder`, `MultistreamEncoder`, and `MultistreamDecoder` |
+| DNN blob loading | Supported | `OptionalExtensionDNNBlob` | Available through `SetDNNBlob` on `Encoder`, `Decoder`, `MultistreamEncoder`, and `MultistreamDecoder`; decoder-side support currently covers loader-derived validation and retained control state, not full model-backed PLC/OSCE runtime behavior |
 | QEXT | Supported | `OptionalExtensionQEXT` | Available through `SetQEXT` / `QEXT` on `Encoder` and `MultistreamEncoder` |
 | DRED | Unsupported and quarantined | `OptionalExtensionDRED` | `SetDREDDuration(...)` / `DREDDuration()` are absent from the default public API surface, including the low-level `encoder` and `multistream` packages |
 | OSCE BWE | Unsupported and quarantined | `OptionalExtensionOSCEBWE` | `SetOSCEBWE(...)` / `OSCEBWE()` are absent from the default public API surface, and low-level OSCE model helpers stay tag-gated |

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	encodercore "github.com/thesyncim/gopus/encoder"
+	"github.com/thesyncim/gopus/internal/dnnblob"
 )
 
 type optionalEncoderControl interface {
@@ -224,11 +225,13 @@ func makeValidEncoderTestDNNBlob() []byte {
 
 func makeValidDecoderTestDNNBlob() []byte {
 	var blob []byte
-	blob = appendTestBlobRecord(blob, "plc_dense_in_bias", 0, 128*4)
-	blob = appendTestBlobRecord(blob, "cond_net_pembed_bias", 0, 12*4)
-	blob = appendTestBlobRecord(blob, "dense_if_upsampler_1_bias", 0, 64*4)
-	blob = appendTestBlobRecord(blob, "lace_pitch_embedding_bias", 0, 64*4)
-	blob = appendTestBlobRecord(blob, "nolace_pitch_embedding_bias", 0, 64*4)
+	for _, name := range dnnblob.RequiredDecoderControlRecordNames(false) {
+		payloadSize := 4
+		if name == "dense_if_upsampler_1_bias" {
+			payloadSize = 64 * 4
+		}
+		blob = appendTestBlobRecord(blob, name, 0, payloadSize)
+	}
 	return blob
 }
 
@@ -253,20 +256,10 @@ func TestValidEncoderTestDNNBlobShape(t *testing.T) {
 
 func TestValidDecoderTestDNNBlobShape(t *testing.T) {
 	blob := makeValidDecoderTestDNNBlob()
-	const wantLen = (64 + 512) + (64 + 64) + (64 + 256) + (64 + 256) + (64 + 256)
-	if len(blob) != wantLen {
-		t.Fatalf("len(blob)=%d want %d", len(blob), wantLen)
-	}
 	if string(blob[:4]) != "DNNw" {
 		t.Fatalf("magic=%q want DNNw", string(blob[:4]))
 	}
-	for _, name := range []string{
-		"plc_dense_in_bias",
-		"cond_net_pembed_bias",
-		"dense_if_upsampler_1_bias",
-		"lace_pitch_embedding_bias",
-		"nolace_pitch_embedding_bias",
-	} {
+	for _, name := range dnnblob.RequiredDecoderControlRecordNames(false) {
 		if !strings.Contains(string(blob), name) {
 			t.Fatalf("missing record name %q", name)
 		}

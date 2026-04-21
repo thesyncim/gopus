@@ -1,6 +1,9 @@
 package dnnblob
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+	"sort"
+)
 
 const (
 	headerSize = 64
@@ -78,17 +81,12 @@ type requiredRecord struct {
 	size int32
 }
 
-// These source-derived sentinels mirror the model families loaded by libopus
-// 1.6.1's OPUS_SET_DNN_BLOB control handlers.
+// These exact source-derived sentinels remain useful for small capability
+// probes, while the generated decoder-side record-name manifests below keep
+// control admission aligned with the full libopus loader surfaces.
 var (
 	pitchDNNRequiredRecords = []requiredRecord{
 		{name: "dense_if_upsampler_1_bias", typ: weightTypeFloat, size: 64 * 4},
-	}
-	plcRequiredRecords = []requiredRecord{
-		{name: "plc_dense_in_bias", typ: weightTypeFloat, size: 128 * 4},
-	}
-	farganRequiredRecords = []requiredRecord{
-		{name: "cond_net_pembed_bias", typ: weightTypeFloat, size: 12 * 4},
 	}
 	dredEncoderRequiredRecords = []requiredRecord{
 		{name: "enc_dense1_bias", typ: weightTypeFloat, size: 64 * 4},
@@ -96,20 +94,20 @@ var (
 	dredDecoderRequiredRecords = []requiredRecord{
 		{name: "dec_dense1_bias", typ: weightTypeFloat, size: 64 * 4},
 	}
-	osceLACERequiredRecords = []requiredRecord{
-		{name: "lace_pitch_embedding_bias", typ: weightTypeFloat, size: 64 * 4},
-	}
-	osceNoLACERequiredRecords = []requiredRecord{
-		{name: "nolace_pitch_embedding_bias", typ: weightTypeFloat, size: 64 * 4},
-	}
-	osceBWERequiredRecords = []requiredRecord{
-		{name: "bbwenet_fnet_conv1_bias", typ: weightTypeFloat, size: 128 * 4},
-	}
 )
 
 func (b *Blob) validateRecords(required []requiredRecord) error {
 	for _, want := range required {
 		if !b.hasRecordExact(want.name, want.typ, want.size) {
+			return errInvalidBlob
+		}
+	}
+	return nil
+}
+
+func (b *Blob) validateRecordNames(required []string) error {
+	for _, want := range required {
+		if !b.HasRecord(want) {
 			return errInvalidBlob
 		}
 	}
@@ -124,12 +122,12 @@ func (b *Blob) SupportsPitchDNN() bool {
 
 // SupportsPLC reports whether the blob contains the PLC model family.
 func (b *Blob) SupportsPLC() bool {
-	return b.validateRecords(plcRequiredRecords) == nil
+	return b.validateRecordNames(plcRequiredRecordNames) == nil
 }
 
 // SupportsFARGAN reports whether the blob contains the FARGAN model family.
 func (b *Blob) SupportsFARGAN() bool {
-	return b.validateRecords(farganRequiredRecords) == nil
+	return b.validateRecordNames(farganRequiredRecordNames) == nil
 }
 
 // SupportsDREDEncoder reports whether the blob contains the DRED encoder model family.
@@ -144,12 +142,12 @@ func (b *Blob) SupportsDREDDecoder() bool {
 
 // SupportsOSCELACE reports whether the blob contains the LACE OSCE model family.
 func (b *Blob) SupportsOSCELACE() bool {
-	return b.validateRecords(osceLACERequiredRecords) == nil
+	return b.validateRecordNames(osceLACERequiredRecordNames) == nil
 }
 
 // SupportsOSCENoLACE reports whether the blob contains the NoLACE OSCE model family.
 func (b *Blob) SupportsOSCENoLACE() bool {
-	return b.validateRecords(osceNoLACERequiredRecords) == nil
+	return b.validateRecordNames(osceNoLACERequiredRecordNames) == nil
 }
 
 // SupportsOSCE reports whether the blob contains the core OSCE model families.
@@ -159,7 +157,7 @@ func (b *Blob) SupportsOSCE() bool {
 
 // SupportsOSCEBWE reports whether the blob contains the OSCE_BWE model family.
 func (b *Blob) SupportsOSCEBWE() bool {
-	return b.validateRecords(osceBWERequiredRecords) == nil
+	return b.validateRecordNames(osceBWERequiredRecordNames) == nil
 }
 
 // DecoderModels reports which decoder-side model families are available from
@@ -195,6 +193,22 @@ func (b *Blob) ValidateDecoderControl(requireOSCEBWE bool) error {
 		return errInvalidBlob
 	}
 	return nil
+}
+
+// RequiredDecoderControlRecordNames returns the loader-derived record names the
+// libopus main decoder path expects from OPUS_SET_DNN_BLOB.
+func RequiredDecoderControlRecordNames(requireOSCEBWE bool) []string {
+	out := make([]string, 0, len(plcRequiredRecordNames)+len(farganRequiredRecordNames)+len(osceLACERequiredRecordNames)+len(osceNoLACERequiredRecordNames)+1+len(osceBWERequiredRecordNames))
+	out = append(out, pitchDNNRequiredRecords[0].name)
+	out = append(out, plcRequiredRecordNames...)
+	out = append(out, farganRequiredRecordNames...)
+	out = append(out, osceLACERequiredRecordNames...)
+	out = append(out, osceNoLACERequiredRecordNames...)
+	if requireOSCEBWE {
+		out = append(out, osceBWERequiredRecordNames...)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func parse(data []byte) ([]Record, error) {

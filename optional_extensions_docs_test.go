@@ -38,6 +38,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 	for _, needle := range []string{
 		"[Optional Extensions](docs/optional-extensions.md)",
 		"`SetDNNBlob(...)` plus `SetQEXT(...)` / `QEXT()` are supported",
+		"Decoder-side `SetDNNBlob(...)` currently provides validated model admission and retained control state; full model-backed PLC/OSCE runtime behavior remains incomplete.",
 		"`SetDREDDuration(...)` and `SetOSCEBWE(...)` are absent unless you build with `-tags gopus_unsupported_controls`",
 	} {
 		if !strings.Contains(readme, needle) {
@@ -49,6 +50,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 	for _, needle := range []string{
 		"## Optional Extension Contract",
 		"`SetDNNBlob(...)` on `Encoder`, `Decoder`, `MultistreamEncoder`, and `MultistreamDecoder`",
+		"Decoder-side `SetDNNBlob(...)` currently covers loader-derived validation and retained control state.",
 		"`SetDREDDuration(...)` / `DREDDuration()` are absent unless built with `-tags gopus_unsupported_controls`",
 		"`SetOSCEBWE(...)` / `OSCEBWE()` are absent unless built with `-tags gopus_unsupported_controls`",
 	} {

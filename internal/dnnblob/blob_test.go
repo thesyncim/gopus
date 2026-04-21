@@ -104,16 +104,20 @@ func TestValidateEncoderControl(t *testing.T) {
 }
 
 func TestValidateDecoderControl(t *testing.T) {
-	blobData := append(
-		makeTestBlobRecord("plc_dense_in_bias", weightTypeFloat, make([]byte, 128*4)),
-		makeTestBlobRecord("dense_if_upsampler_1_bias", weightTypeFloat, make([]byte, 64*4))...,
-	)
-	blobData = append(blobData, makeTestBlobRecord("cond_net_pembed_bias", weightTypeFloat, make([]byte, 12*4))...)
-	blobData = append(blobData, makeTestBlobRecord("lace_pitch_embedding_bias", weightTypeFloat, make([]byte, 64*4))...)
-	blobData = append(blobData, makeTestBlobRecord("nolace_pitch_embedding_bias", weightTypeFloat, make([]byte, 64*4))...)
-	blobData = append(blobData, makeTestBlobRecord("bbwenet_fnet_conv1_bias", weightTypeFloat, make([]byte, 128*4))...)
+	build := func(names []string) []byte {
+		var blob []byte
+		for _, name := range names {
+			payloadSize := 4
+			switch name {
+			case "dense_if_upsampler_1_bias", "dec_dense1_bias":
+				payloadSize = 64 * 4
+			}
+			blob = append(blob, makeTestBlobRecord(name, weightTypeFloat, make([]byte, payloadSize))...)
+		}
+		return blob
+	}
 
-	blob, err := Clone(blobData)
+	blob, err := Clone(build(RequiredDecoderControlRecordNames(true)))
 	if err != nil {
 		t.Fatalf("Clone error: %v", err)
 	}
@@ -130,7 +134,7 @@ func TestValidateDecoderControl(t *testing.T) {
 		t.Fatalf("ValidateDecoderControl(true) error: %v", err)
 	}
 
-	missingBWE, err := Clone(blobData[:len(blobData)-len(makeTestBlobRecord("bbwenet_fnet_conv1_bias", weightTypeFloat, make([]byte, 128*4)))])
+	missingBWE, err := Clone(build(RequiredDecoderControlRecordNames(false)))
 	if err != nil {
 		t.Fatalf("Clone missingBWE error: %v", err)
 	}
@@ -145,16 +149,47 @@ func TestValidateDecoderControl(t *testing.T) {
 	}
 }
 
+func TestValidateDecoderControlWithGeneratedManifestNames(t *testing.T) {
+	build := func(names []string) []byte {
+		var blob []byte
+		for _, name := range names {
+			payloadSize := 4
+			if name == "dense_if_upsampler_1_bias" {
+				payloadSize = 64 * 4
+			}
+			blob = append(blob, makeTestBlobRecord(name, weightTypeFloat, make([]byte, payloadSize))...)
+		}
+		return blob
+	}
+
+	blob, err := Clone(build(RequiredDecoderControlRecordNames(false)))
+	if err != nil {
+		t.Fatalf("Clone error: %v", err)
+	}
+	if err := blob.ValidateDecoderControl(false); err != nil {
+		t.Fatalf("ValidateDecoderControl(false) error: %v", err)
+	}
+
+	names := RequiredDecoderControlRecordNames(false)
+	missingOne, err := Clone(build(names[:len(names)-1]))
+	if err != nil {
+		t.Fatalf("Clone missingOne error: %v", err)
+	}
+	if err := missingOne.ValidateDecoderControl(false); err == nil {
+		t.Fatal("ValidateDecoderControl(false) error=nil want non-nil for incomplete manifest")
+	}
+}
+
 func TestDecoderModels(t *testing.T) {
-	blobData := append(
-		makeTestBlobRecord("plc_dense_in_bias", weightTypeFloat, make([]byte, 128*4)),
-		makeTestBlobRecord("dense_if_upsampler_1_bias", weightTypeFloat, make([]byte, 64*4))...,
-	)
-	blobData = append(blobData, makeTestBlobRecord("cond_net_pembed_bias", weightTypeFloat, make([]byte, 12*4))...)
-	blobData = append(blobData, makeTestBlobRecord("lace_pitch_embedding_bias", weightTypeFloat, make([]byte, 64*4))...)
-	blobData = append(blobData, makeTestBlobRecord("nolace_pitch_embedding_bias", weightTypeFloat, make([]byte, 64*4))...)
-	blobData = append(blobData, makeTestBlobRecord("dec_dense1_bias", weightTypeFloat, make([]byte, 64*4))...)
-	blobData = append(blobData, makeTestBlobRecord("bbwenet_fnet_conv1_bias", weightTypeFloat, make([]byte, 128*4))...)
+	var blobData []byte
+	for _, name := range append(RequiredDecoderControlRecordNames(true), "dec_dense1_bias") {
+		payloadSize := 4
+		switch name {
+		case "dense_if_upsampler_1_bias", "dec_dense1_bias":
+			payloadSize = 64 * 4
+		}
+		blobData = append(blobData, makeTestBlobRecord(name, weightTypeFloat, make([]byte, payloadSize))...)
+	}
 
 	blob, err := Clone(blobData)
 	if err != nil {
