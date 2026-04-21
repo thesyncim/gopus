@@ -763,7 +763,7 @@ func silkRand(seed int32) int32 {
 }
 
 // silkDecodeCoreWithTrace is like silkDecodeCore but with tracing callbacks.
-func silkDecodeCoreWithTrace(st *decoderState, ctrl *decoderControl, out []int16, pulses []int16, frameIdx int, trace TraceCallback) {
+func silkDecodeCoreWithTrace(st *decoderState, ctrl *decoderControl, out []int16, pulses []int16, frameIdx int, trace traceCallback) {
 	offsetQ10 := silk_Quantization_Offsets_Q10[int(st.indices.signalType)>>1][int(st.indices.quantOffsetType)]
 	interpFlag := st.indices.NLSFInterpCoefQ2 < 4
 
@@ -882,7 +882,7 @@ func silkDecodeCoreWithTrace(st *decoderState, ctrl *decoderControl, out []int16
 
 		// Trace callback at end of subframe with all computed values
 		if trace != nil {
-			info := TraceInfo{
+			info := traceInfo{
 				SignalType:      signalType,
 				LtpMemLength:    st.ltpMemLength,
 				LpcOrder:        st.lpcOrder,

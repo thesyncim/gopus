@@ -161,14 +161,14 @@ func (d *Decoder) DecodeStereoFrameToMono(
 	return mid, nil
 }
 
-// DecodeFrameWithTrace decodes a SILK frame with tracing callbacks.
+// decodeFrameWithTrace decodes a SILK frame with tracing callbacks.
 // The callback is called for each subframe with LTP information.
-func (d *Decoder) DecodeFrameWithTrace(
+func (d *Decoder) decodeFrameWithTrace(
 	rd *rangecoding.Decoder,
 	bandwidth Bandwidth,
 	duration FrameDuration,
 	vadFlag bool,
-	trace TraceCallback,
+	trace traceCallback,
 ) ([]float32, error) {
 	_ = vadFlag
 	st, framesPerPacket, _, err := d.prepareMonoFramePacket(rd, bandwidth, duration)

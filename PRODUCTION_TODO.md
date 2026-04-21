@@ -28,6 +28,8 @@ Last updated: 2026-04-21
 - [x] Collapse CELT prefilter debug-hook bookkeeping to a single final emit so the non-debug path stays cleaner when hooks are unset.
 - [x] Collapse CELT target-stats hook bookkeeping to final edge assignment and remove default spread-weight allocations.
 - [x] Update GitHub Actions cache steps to `actions/cache@v5` so PR and safety workflows are aligned with the Node 24 runtime.
+- [x] Make the SILK trace decode entrypoint and callback types package-private now that only in-package tests use them.
+- [x] Remove the duplicate RFC 8251 `TestSingleVector` sweep now that `TestDecoderCompliance` already provides the same parity coverage and subtest targeting.
 
 ## In progress now
 
