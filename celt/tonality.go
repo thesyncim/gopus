@@ -16,93 +16,6 @@ type tonalityAnalysisResult struct {
 	SpectralFlux float64   // Frame-to-frame spectral change (0=stationary, higher=transient)
 }
 
-// computeTonality analyzes MDCT coefficients to estimate signal tonality.
-// Uses the Spectral Flatness Measure (SFM) which compares geometric mean to arithmetic mean.
-// A flat spectrum (noise) has SFM close to 1, while a peaked spectrum (tone) has SFM close to 0.
-// Tonality is computed as 1 - SFM, so tones have high tonality.
-//
-// This helper supports two call patterns:
-// - computeTonality(mdctCoeffs, nbBands, frameSize) - explicit band configuration
-// - computeTonality(mdctCoeffs, prevCoeffs) - with previous frame for flux (legacy)
-//
-// Parameters:
-//   - mdctCoeffs: MDCT coefficients for one channel
-//   - args: either (nbBands int, frameSize int) or (prevCoeffs []float64)
-//
-// Returns: tonalityAnalysisResult with overall and per-band tonality
-//
-// Reference: ITU-R BS.1387 (PEAQ) for SFM definition
-func computeTonality(mdctCoeffs []float64, args ...interface{}) tonalityAnalysisResult {
-	// Handle legacy 3-argument form: (coeffs, nbBands, frameSize)
-	if len(args) == 2 {
-		if nbBands, ok1 := args[0].(int); ok1 {
-			if frameSize, ok2 := args[1].(int); ok2 {
-				return computeTonalityWithBands(mdctCoeffs, nbBands, frameSize)
-			}
-		}
-	}
-
-	// Handle 2-argument form with previous coefficients: (coeffs, prevCoeffs)
-	var prevCoeffs []float64
-	if len(args) >= 1 {
-		if prev, ok := args[0].([]float64); ok {
-			prevCoeffs = prev
-		}
-	}
-
-	return computeTonalityInternal(mdctCoeffs, prevCoeffs)
-}
-
-// computeTonalityInternal is the internal implementation that takes explicit prevCoeffs.
-func computeTonalityInternal(mdctCoeffs, prevCoeffs []float64) tonalityAnalysisResult {
-	result := tonalityAnalysisResult{
-		Tonality:     0.5, // Default to mid-range if computation fails
-		SFM:          0.5, // Default SFM
-		BandTonality: nil,
-		SpectralFlux: 0.0,
-	}
-
-	if len(mdctCoeffs) == 0 {
-		return result
-	}
-
-	// Compute power spectrum
-	powers := make([]float64, len(mdctCoeffs))
-	for i, coeff := range mdctCoeffs {
-		powers[i] = coeff * coeff
-	}
-
-	// Compute overall SFM
-	result.SFM = computeSpectralFlatness(powers)
-
-	// Tonality is inverse of SFM: peaked spectrum -> high tonality
-	result.Tonality = 1.0 - result.SFM
-
-	// Clamp to valid range
-	if result.Tonality < 0 {
-		result.Tonality = 0
-	}
-	if result.Tonality > 1 {
-		result.Tonality = 1
-	}
-
-	// Compute per-band tonality using CELT band structure
-	// Infer frame size from coefficient count (frameSize = len(coeffs))
-	frameSize := len(mdctCoeffs)
-	nbBands := inferBandCount(frameSize)
-
-	if nbBands > 0 {
-		result.BandTonality = computePerBandTonality(mdctCoeffs, nbBands, frameSize)
-	}
-
-	// Compute spectral flux if previous coefficients are available
-	if len(prevCoeffs) > 0 && len(prevCoeffs) == len(mdctCoeffs) {
-		result.SpectralFlux = computeSpectralFluxFromCoeffs(mdctCoeffs, prevCoeffs)
-	}
-
-	return result
-}
-
 // computeTonalityWithBands analyzes MDCT coefficients with explicit band count.
 // This is the more precise version that takes explicit nbBands and frameSize.
 //
@@ -210,7 +123,6 @@ func computePerBandTonality(mdctCoeffs []float64, nbBands, frameSize int) []floa
 type tonalityScratch struct {
 	Powers       []float64 // Power spectrum buffer (size: frameSize)
 	BandTonality []float64 // Per-band tonality output (size: nbBands)
-	BandPowers   []float64 // Temporary buffer for per-band power (size: max band width ~176)
 }
 
 // ensureTonalityScratch ensures the scratch buffers are large enough.
@@ -224,11 +136,6 @@ func (s *tonalityScratch) ensureTonalityScratch(frameSize, nbBands int) {
 		s.BandTonality = make([]float64, nbBands)
 	} else {
 		s.BandTonality = s.BandTonality[:nbBands]
-	}
-	// Max band width is ~176 bins (band 20 at LM=3)
-	const maxBandWidth = 256
-	if cap(s.BandPowers) < maxBandWidth {
-		s.BandPowers = make([]float64, maxBandWidth)
 	}
 }
 
@@ -319,62 +226,6 @@ func computePerBandTonalityScratch(powers []float64, nbBands, frameSize int, scr
 		}
 		bandTonality[band] = bt
 	}
-}
-
-// inferBandCount infers the number of bands from frame size.
-func inferBandCount(frameSize int) int {
-	// Standard CELT band count is 21 for all frame sizes
-	// But effective bands depend on sample rate and frame size
-	switch frameSize {
-	case 120:
-		return 21 // 2.5ms at 48kHz
-	case 240:
-		return 21 // 5ms at 48kHz
-	case 480:
-		return 21 // 10ms at 48kHz
-	case 960:
-		return 21 // 20ms at 48kHz
-	default:
-		// For non-standard sizes, estimate based on typical CELT configuration
-		if frameSize > 0 {
-			return 21
-		}
-		return 0
-	}
-}
-
-// computeSpectralFluxFromCoeffs computes spectral flux from MDCT coefficients.
-func computeSpectralFluxFromCoeffs(current, previous []float64) float64 {
-	if len(current) == 0 || len(previous) == 0 {
-		return 0.0
-	}
-
-	n := len(current)
-	if len(previous) < n {
-		n = len(previous)
-	}
-
-	var flux float64
-	const epsilon = 1e-20
-
-	for i := 0; i < n; i++ {
-		// Compute power for each bin
-		currPow := current[i]*current[i] + epsilon
-		prevPow := previous[i]*previous[i] + epsilon
-
-		// Log-domain difference (perceptually relevant)
-		diff := math.Log(currPow) - math.Log(prevPow)
-		flux += diff * diff
-	}
-
-	// Normalize by number of bins
-	flux = flux / float64(n)
-
-	// Apply soft saturation to map to [0, 1] range
-	const fluxScale = 4.0
-	normalizedFlux := 1.0 - math.Exp(-flux/fluxScale)
-
-	return normalizedFlux
 }
 
 // computeSpectralFlux computes the frame-to-frame spectral change.

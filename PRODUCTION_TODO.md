@@ -24,6 +24,8 @@ Last updated: 2026-04-21
 - [x] Reduce CELT tuning/test surface area by making tonality and spread helpers package-private and deleting unused table accessor exports.
 - [x] Remove unused encoder/CELT diagnostic surface by deleting VAD tracing APIs and hiding the dead coarse-decision hook.
 - [x] Collapse dead coarse-energy hook branches, drop the unused raw band-energy accessor, and simplify VAD helper returns.
+- [x] Remove dead CELT tonality wrappers and unused encoder tonality scratch buffers while keeping the scratch-based production path intact.
+- [x] Collapse CELT prefilter debug-hook bookkeeping to a single final emit so the non-debug path stays cleaner when hooks are unset.
 
 ## In progress now
 

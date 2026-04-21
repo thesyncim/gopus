@@ -1141,11 +1141,6 @@ type encoderScratch struct {
 	transientEnergy []float32
 	transientX      []float32
 
-	// Tonality analysis scratch
-	tonalityPowers       []float64
-	tonalityBandPowers   []float64
-	tonalityBandTonality []float64
-
 	// CWRS encoding scratch
 	cwrsU []uint32
 
@@ -1337,11 +1332,6 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	samplesPerChannel := frameSize + overlap
 	s.transientEnergy = ensureFloat32Slice(&s.transientEnergy, samplesPerChannel/2)
 	s.transientX = ensureFloat32Slice(&s.transientX, samplesPerChannel)
-
-	// Tonality analysis scratch
-	s.tonalityPowers = ensureFloat64Slice(&s.tonalityPowers, frameSize)
-	s.tonalityBandPowers = ensureFloat64Slice(&s.tonalityBandPowers, maxBandWidth)
-	s.tonalityBandTonality = ensureFloat64Slice(&s.tonalityBandTonality, MaxBands)
 
 	// CWRS encoding scratch (k can be up to ~128 for typical encoding)
 	s.cwrsU = ensureUint32Slice(&s.cwrsU, 256)
