@@ -1,7 +1,9 @@
 package gopus
 
 import (
+	"errors"
 	"math"
+	"strings"
 	"testing"
 
 	encodercore "github.com/thesyncim/gopus/encoder"
@@ -102,13 +104,13 @@ func TestMultistreamEncoder_Creation(t *testing.T) {
 
 	// Test invalid channels (0)
 	_, err = NewMultistreamEncoderDefault(48000, 0, ApplicationAudio)
-	if err != ErrInvalidChannels {
+	if !errors.Is(err, ErrInvalidChannels) {
 		t.Errorf("Zero channels: got error %v, want ErrInvalidChannels", err)
 	}
 
 	// Test invalid channels (>8 for default)
 	_, err = NewMultistreamEncoderDefault(48000, 9, ApplicationAudio)
-	if err != ErrInvalidChannels {
+	if !errors.Is(err, ErrInvalidChannels) {
 		t.Errorf("9 channels: got error %v, want ErrInvalidChannels", err)
 	}
 
@@ -146,8 +148,116 @@ func TestMultistreamDecoder_Creation(t *testing.T) {
 
 	// Test invalid channels
 	_, err = NewMultistreamDecoderDefault(48000, 0)
-	if err != ErrInvalidChannels {
+	if !errors.Is(err, ErrInvalidChannels) {
 		t.Errorf("Zero channels: got error %v, want ErrInvalidChannels", err)
+	}
+}
+
+func TestMultistreamConstructorErrorsReportSupportedRanges(t *testing.T) {
+	tests := []struct {
+		name        string
+		run         func() error
+		wantIs      error
+		wantContain []string
+	}{
+		{
+			name: "default encoder low channel count",
+			run: func() error {
+				_, err := NewMultistreamEncoderDefault(48000, 0, ApplicationAudio)
+				return err
+			},
+			wantIs:      ErrInvalidChannels,
+			wantContain: []string{"default multistream encoder supports 1-8 channels", "got 0"},
+		},
+		{
+			name: "default encoder high channel count",
+			run: func() error {
+				_, err := NewMultistreamEncoderDefault(48000, 9, ApplicationAudio)
+				return err
+			},
+			wantIs:      ErrInvalidChannels,
+			wantContain: []string{"default multistream encoder supports 1-8 channels", "got 9", "NewMultistreamEncoder"},
+		},
+		{
+			name: "default decoder high channel count",
+			run: func() error {
+				_, err := NewMultistreamDecoderDefault(48000, 9)
+				return err
+			},
+			wantIs:      ErrInvalidChannels,
+			wantContain: []string{"default multistream decoder supports 1-8 channels", "got 9", "NewMultistreamDecoder"},
+		},
+		{
+			name: "explicit encoder high channel count",
+			run: func() error {
+				_, err := NewMultistreamEncoder(48000, 256, 1, 0, make([]byte, 256), ApplicationAudio)
+				return err
+			},
+			wantIs:      ErrInvalidChannels,
+			wantContain: []string{"multistream encoder supports 1-255 channels", "got 256"},
+		},
+		{
+			name: "explicit decoder high channel count",
+			run: func() error {
+				_, err := NewMultistreamDecoder(48000, 256, 1, 0, make([]byte, 256))
+				return err
+			},
+			wantIs:      ErrInvalidChannels,
+			wantContain: []string{"multistream decoder supports 1-255 channels", "got 256"},
+		},
+		{
+			name: "explicit encoder stream budget",
+			run: func() error {
+				_, err := NewMultistreamEncoder(48000, 2, 200, 56, []byte{0, 1}, ApplicationAudio)
+				return err
+			},
+			wantIs:      ErrInvalidStreams,
+			wantContain: []string{"streams + coupledStreams <= 255", "200 + 56 = 256"},
+		},
+		{
+			name: "explicit decoder stream budget",
+			run: func() error {
+				_, err := NewMultistreamDecoder(48000, 2, 200, 56, []byte{0, 1})
+				return err
+			},
+			wantIs:      ErrInvalidStreams,
+			wantContain: []string{"streams + coupledStreams <= 255", "200 + 56 = 256"},
+		},
+		{
+			name: "explicit encoder mapping length",
+			run: func() error {
+				_, err := NewMultistreamEncoder(48000, 6, 4, 2, []byte{0, 4, 1, 2, 3}, ApplicationAudio)
+				return err
+			},
+			wantIs:      ErrInvalidMapping,
+			wantContain: []string{"expected 6 mapping entries for 6 channels", "got 5"},
+		},
+		{
+			name: "explicit decoder mapping length",
+			run: func() error {
+				_, err := NewMultistreamDecoder(48000, 6, 4, 2, []byte{0, 4, 1, 2, 3})
+				return err
+			},
+			wantIs:      ErrInvalidMapping,
+			wantContain: []string{"expected 6 mapping entries for 6 channels", "got 5"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.run()
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !errors.Is(err, tc.wantIs) {
+				t.Fatalf("errors.Is(%v, %v) = false", err, tc.wantIs)
+			}
+			for _, needle := range tc.wantContain {
+				if !strings.Contains(err.Error(), needle) {
+					t.Fatalf("error %q does not contain %q", err.Error(), needle)
+				}
+			}
+		})
 	}
 }
 

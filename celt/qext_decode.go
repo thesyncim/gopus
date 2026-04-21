@@ -1,7 +1,5 @@
 package celt
 
-import "fmt"
-
 import "github.com/thesyncim/gopus/rangecoding"
 
 type preparedQEXTDecode struct {
@@ -132,9 +130,6 @@ func (d *Decoder) prepareQEXTDecode(payload []byte, mainRD *rangecoding.Decoder,
 	extDec := &d.qextRangeDecoderScratch
 	extDec.Init(payload)
 	hdr := decodeQEXTHeader(extDec, d.channels, len(payload))
-	if tmpQEXTHeaderDumpEnabled {
-		fmt.Printf("QEXT_HDR channels=%d payload=%d endBands=%d intensity=%d dual=%v\n", d.channels, len(payload), hdr.EndBands, hdr.Intensity, hdr.DualStereo)
-	}
 
 	qext := &preparedQEXTDecode{
 		dec:         extDec,
@@ -157,24 +152,8 @@ func (d *Decoder) prepareQEXTDecode(payload []byte, mainRD *rangecoding.Decoder,
 				if qext.intensity > qext.end {
 					qext.intensity = qext.end
 				}
-				if tmpQEXTForceIntensityEnabled {
-					qext.intensity = tmpQEXTForceIntensityValue
-					if qext.intensity < 0 {
-						qext.intensity = 0
-					}
-					if qext.intensity > qext.end {
-						qext.intensity = qext.end
-					}
-				}
 				if d.channels == 2 && hdr.DualStereo && qext.intensity != 0 {
 					qext.dualStereo = 1
-				}
-				if tmpQEXTForceDualStereoEnabled {
-					if tmpQEXTForceDualStereoValue && qext.intensity != 0 {
-						qext.dualStereo = 1
-					} else {
-						qext.dualStereo = 0
-					}
 				}
 
 				qext.energies = ensureFloat64Slice(&d.scratchQEXTEnergies, qext.end*d.channels)
@@ -192,30 +171,7 @@ func (d *Decoder) prepareQEXTDecode(payload []byte, mainRD *rangecoding.Decoder,
 	}
 	tellBeforeAlloc := extDec.TellFrac()
 	computeQEXTExtraAllocationDecodeWithMode(0, end, qext.end, budgetQ3, d.channels, lm, extDec, qext.extraPulses, qext.extraQuant, qextMode)
-	if tmpQEXTDisableMainExtraEnabled {
-		clear(qext.extraPulses[:end])
-		clear(qext.extraQuant[:end])
-	} else {
-		if tmpQEXTDisableMainExtraPulsesEnabled {
-			clear(qext.extraPulses[:end])
-		}
-		if tmpQEXTDisableMainExtraQuantEnabled {
-			clear(qext.extraQuant[:end])
-		}
-	}
-	if tmpQEXTHeaderDumpEnabled {
-		fmt.Printf("QEXT_ALLOC channels=%d end=%d mainExtraQuant=%v mainExtraPulses=%v qextExtraQuant=%v qextExtraPulses=%v budgetQ3=%d tell_before=%d tell_after=%d\n",
-			d.channels,
-			qext.end,
-			append([]int(nil), qext.extraQuant[:end]...),
-			append([]int(nil), qext.extraPulses[:end]...),
-			append([]int(nil), qext.extraQuant[MaxBands:MaxBands+qext.end]...),
-			append([]int(nil), qext.extraPulses[MaxBands:MaxBands+qext.end]...),
-			budgetQ3,
-			tellBeforeAlloc,
-			extDec.TellFrac(),
-		)
-	}
+	_ = tellBeforeAlloc
 	return qext
 }
 
@@ -223,10 +179,6 @@ func (d *Decoder) decodeQEXTBands(frameSize, lm, shortBlocks, spread int, disabl
 	if qext == nil || qext.dec == nil || qext.end <= 0 {
 		return
 	}
-	if tmpQEXTDisableExtraBandsEnabled {
-		return
-	}
-
 	extBalance := qext.totalBitsQ3 - qext.dec.TellFrac()
 	fineQ3 := 0
 	if qext.end > 1 {
@@ -242,9 +194,6 @@ func (d *Decoder) decodeQEXTBands(frameSize, lm, shortBlocks, spread int, disabl
 	}
 
 	d.DecodeFineEnergyWithDecoder(qext.dec, qext.energies, qext.end, qext.extraQuant[MaxBands:MaxBands+qext.end])
-	if tmpQEXTHeaderDumpEnabled {
-		fmt.Printf("QEXT_EXTRA_FINE_DEC channels=%d tell=%d\n", d.channels, qext.dec.TellFrac())
-	}
 	zeros := ensureIntSlice(&d.scratchTFRes, qext.end)
 	for i := 0; i < qext.end; i++ {
 		zeros[i] = 0
@@ -271,7 +220,6 @@ func (d *Decoder) decodeQEXTBands(frameSize, lm, shortBlocks, spread int, disabl
 		disableInv,
 		&d.rng,
 		nil,
-		&d.bandDebug,
 		&dummyDec,
 		zeros[:qext.end],
 		0,

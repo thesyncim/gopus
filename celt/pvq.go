@@ -63,7 +63,6 @@ func (d *Decoder) DecodePVQWithTrace(band, n, k int) []float64 {
 	pulses := DecodePulses(index, n, k)
 
 	// Trace PVQ decode
-	tracePVQ(band, index, k, n, pulses)
 
 	// Normalize to unit L2 energy
 	return NormalizeVector(intToFloat(pulses))
@@ -252,7 +251,6 @@ func (d *Decoder) decodePVQInto(band, n, k int, dst []float64) {
 	decodePulsesInto(index, n, k, pulses, &d.scratchBands)
 
 	// Trace PVQ decode
-	tracePVQ(band, index, k, n, pulses)
 
 	// Convert to float and normalize directly into dst
 	var energy float64

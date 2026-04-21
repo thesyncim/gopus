@@ -263,7 +263,7 @@ func TestAlgUnquantIntoQEXTN2LargeEnergyUsesWideAccumulator(t *testing.T) {
 	extDec.Init(extPayload)
 
 	got := make([]float64, n)
-	collapse := algUnquantInto(got, &mainDec, 0, n, k, spreadNone, 1, gain, &extDec, extraBits, nil, nil)
+	collapse := algUnquantInto(got, &mainDec, 0, n, k, spreadNone, 1, gain, &extDec, extraBits, nil)
 	if collapse != 1 {
 		t.Fatalf("collapse=%d want 1", collapse)
 	}

@@ -878,7 +878,6 @@ func tfDecode(start, end int, isTransient bool, tfRes []int, lm int, rd *rangeco
 	for i := start; i < end; i++ {
 		idx := 4*boolToInt(isTransient) + 2*tfSelect + tfRes[i]
 		tfRes[i] = int(tfSelectTable[lm][idx])
-		traceTF(i, tfRes[i])
 	}
 }
 

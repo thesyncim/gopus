@@ -62,32 +62,13 @@ func combFilterWithInputF32Legacy(dst, src []float64, start int, t0, t1, n int, 
 		oneMinus := float32(1.0) - f
 		idx := start + i
 		x0 := float32(src[idx-t1+2])
-		var sum float32
-		if tmpCombFilterSeqAccumEnabled {
-			sum = float32(src[idx])
-			sum += (oneMinus * g00) * float32(src[idx-t0])
-			sum += (oneMinus * g01) * (float32(src[idx-t0-1]) + float32(src[idx-t0+1]))
-			sum += (oneMinus * g02) * (float32(src[idx-t0-2]) + float32(src[idx-t0+2]))
-			sum += (f * g10) * x2
-			sum += (f * g11) * (x1 + x3)
-			sum += (f * g12) * (x0 + x4)
-		} else if tmpCombFilterFMAOverlapEnabled {
-			sum = float32(src[idx])
-			sum = fma32(oneMinus*g00, float32(src[idx-t0]), sum)
-			sum = fma32(oneMinus*g01, float32(src[idx-t0+1])+float32(src[idx-t0-1]), sum)
-			sum = fma32(oneMinus*g02, float32(src[idx-t0+2])+float32(src[idx-t0-2]), sum)
-			sum = fma32(f*g10, x2, sum)
-			sum = fma32(f*g11, x1+x3, sum)
-			sum = fma32(f*g12, x0+x4, sum)
-		} else {
-			sum = float32(src[idx]) +
-				(oneMinus*g00)*float32(src[idx-t0]) +
-				(oneMinus*g01)*(float32(src[idx-t0-1])+float32(src[idx-t0+1])) +
-				(oneMinus*g02)*(float32(src[idx-t0-2])+float32(src[idx-t0+2])) +
-				(f*g10)*x2 +
-				(f*g11)*(x1+x3) +
-				(f*g12)*(x0+x4)
-		}
+		sum := float32(src[idx]) +
+			(oneMinus*g00)*float32(src[idx-t0]) +
+			(oneMinus*g01)*(float32(src[idx-t0-1])+float32(src[idx-t0+1])) +
+			(oneMinus*g02)*(float32(src[idx-t0-2])+float32(src[idx-t0+2])) +
+			(f*g10)*x2 +
+			(f*g11)*(x1+x3) +
+			(f*g12)*(x0+x4)
 		dst[idx] = float64(sum)
 
 		x4 = x3
@@ -110,18 +91,10 @@ func combFilterWithInputF32Legacy(dst, src []float64, start int, t0, t1, n int, 
 	for ; i < n; i++ {
 		idx := start + i
 		x0 := float32(src[idx-t1+2])
-		var sum float32
-		if tmpCombFilterSeqAccumEnabled {
-			sum = float32(src[idx])
-			sum += g10 * x2
-			sum += g11 * (x3 + x1)
-			sum += g12 * (x4 + x0)
-		} else {
-			sum = float32(src[idx]) +
-				g10*x2 +
-				g11*(x3+x1) +
-				g12*(x4+x0)
-		}
+		sum := float32(src[idx]) +
+			g10*x2 +
+			g11*(x3+x1) +
+			g12*(x4+x0)
 		dst[idx] = float64(sum)
 
 		x4 = x3

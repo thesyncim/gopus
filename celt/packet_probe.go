@@ -72,7 +72,7 @@ func (d *Decoder) ProbeRawPacketDecision(data []byte, frameSize int) (DebugPacke
 
 	spectrum := decodedFrameSpectrum{}
 	spectrum.coeffsL, spectrum.coeffsR, spectrum.collapse = quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, allocation.pulses, header.shortBlocks, allocation.spread,
-		allocation.dualStereo, allocation.intensity, allocation.tfRes, (totalBits<<bitRes)-allocation.antiCollapseRsv, allocation.balance, allocation.codedBands, d.channels == 1, &d.rng, &d.scratchBands, &d.bandDebug, nil, nil, 0)
+		allocation.dualStereo, allocation.intensity, allocation.tfRes, (totalBits<<bitRes)-allocation.antiCollapseRsv, allocation.balance, allocation.codedBands, d.channels == 1, &d.rng, &d.scratchBands, nil, nil, 0)
 	rangeAfterPVQ := rd.Range()
 	if allocation.antiCollapseRsv > 0 {
 		spectrum.antiCollapseOn = rd.DecodeRawBits(1) == 1
@@ -91,7 +91,7 @@ func (d *Decoder) ProbeRawPacketDecision(data []byte, frameSize int) (DebugPacke
 
 	return DebugPacketDecision{
 		PostfilterPeriod: header.postfilterPeriod,
-		PostfilterQG:     debugPacketProbeQG(header.postfilterGain),
+		PostfilterQG:     packetProbeQG(header.postfilterGain),
 		PostfilterTapset: header.postfilterTapset,
 		Transient:        header.transient,
 		Intra:            header.intra,
@@ -102,11 +102,11 @@ func (d *Decoder) ProbeRawPacketDecision(data []byte, frameSize int) (DebugPacke
 		DualStereo:       allocation.dualStereo,
 		CodedBands:       allocation.codedBands,
 		Balance:          allocation.balance,
-		TFRes:            debugPacketProbeSliceString(allocation.tfRes),
-		DynallocOffsets:  debugPacketProbeSliceString(allocation.offsets),
-		Pulses:           debugPacketProbeSliceString(allocation.pulses),
-		FineQuant:        debugPacketProbeSliceString(allocation.fineQuant),
-		FinePriority:     debugPacketProbeSliceString(allocation.finePriority),
+		TFRes:            packetProbeSliceString(allocation.tfRes),
+		DynallocOffsets:  packetProbeSliceString(allocation.offsets),
+		Pulses:           packetProbeSliceString(allocation.pulses),
+		FineQuant:        packetProbeSliceString(allocation.fineQuant),
+		FinePriority:     packetProbeSliceString(allocation.finePriority),
 		RangeAfterHeader: rangeAfterHeader,
 		RangeAfterCoarse: rangeAfterCoarse,
 		RangeAfterAlloc:  rangeAfterAlloc,
@@ -117,14 +117,14 @@ func (d *Decoder) ProbeRawPacketDecision(data []byte, frameSize int) (DebugPacke
 	}, nil
 }
 
-func debugPacketProbeQG(gain float64) int {
+func packetProbeQG(gain float64) int {
 	if gain <= 0 {
 		return 0
 	}
 	return int(gain/0.09375 + 0.5)
 }
 
-func debugPacketProbeSliceString[T any](v []T) string {
+func packetProbeSliceString[T any](v []T) string {
 	if len(v) == 0 {
 		return "[]"
 	}

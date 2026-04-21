@@ -4,9 +4,7 @@
 package celt
 
 import (
-	"fmt"
 	"math"
-	"os"
 
 	"github.com/thesyncim/gopus/rangecoding"
 )
@@ -109,39 +107,11 @@ func (e *Encoder) ComputeBandEnergiesInto(mdctCoeffs []float64, nbBands, frameSi
 		}
 	}
 
-	if tmpBandDumpEnabled && (!tmpBandDumpFrameEnabled || e.frameCount == tmpBandDumpFrameValue) {
-		limit := nbBands
-		if limit > 21 {
-			limit = 21
-		}
-		for c := 0; c < channels; c++ {
-			base := c * nbBands
-			channelStart := c * coeffsPerChannel
-			channelEnd := channelStart + coeffsPerChannel
-			if channelEnd > len(mdctCoeffs) {
-				channelEnd = len(mdctCoeffs)
-			}
-			channelCoeffs := mdctCoeffs[channelStart:channelEnd]
-			for band := 0; band < limit; band++ {
-				start := ScaledBandStart(band, frameSize)
-				end := ScaledBandEnd(band, frameSize)
-				if end > len(channelCoeffs) {
-					end = len(channelCoeffs)
-				}
-				raw := 0.5 * math.Log2(1e-27)
-				if start >= 0 && end > start {
-					raw = computeBandRMS(channelCoeffs, start, end)
-				}
-				fmt.Fprintf(os.Stderr, "GOBAND frame=%d ch=%d band=%d start=%d end=%d raw=%.9f logE=%.9f\n",
-					e.frameCount, c, band, start, end, raw, energies[base+band])
-			}
-		}
-	}
 }
 
 // ComputeBandEnergiesRaw computes energy for each frequency band WITHOUT eMeans subtraction.
 // Returns raw energies in log2 scale (log2 of amplitude).
-// Used for testing/debugging to compare with libopus intermediate values.
+// Used for testing and diagnostics against libopus intermediate values.
 func (e *Encoder) ComputeBandEnergiesRaw(mdctCoeffs []float64, nbBands, frameSize int) []float64 {
 	if nbBands > MaxBands {
 		nbBands = MaxBands
@@ -346,96 +316,93 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []float64, startBand, nbBands 
 	}
 	var prevBandEnergy [2]float32
 	badness := 0
-	for band := startBand; band < nbBands; band++ {
-		for c := 0; c < channels; c++ {
-			idx := c*nbBands + band
-			if idx >= len(energies) {
-				continue
-			}
+	if hook := e.coarseDecisionHook; hook != nil {
+		for band := startBand; band < nbBands; band++ {
+			for c := 0; c < channels; c++ {
+				idx := c*nbBands + band
+				if idx >= len(energies) {
+					continue
+				}
 
-			x := float32(energies[idx])
-			oldEBand := float32(e.prevEnergy[c*MaxBands+band])
-			oldE := oldEBand
-			minEnergy := float32(-9.0 * DB6)
-			if oldE < minEnergy {
-				oldE = minEnergy
-			}
+				x := float32(energies[idx])
+				oldEBand := float32(e.prevEnergy[c*MaxBands+band])
+				oldE := oldEBand
+				minEnergy := float32(-9.0 * DB6)
+				if oldE < minEnergy {
+					oldE = minEnergy
+				}
 
-			predMul := noFMA32Mul(coef32, oldE)
-			if tmpEnergyPredMulNativeEnabled {
-				predMul = coef32 * oldE
-			}
-			pred := predMul + prevBandEnergy[c]
-			f := x - pred
-			qi := int(math.Floor(float64(f/float32(DB6) + 0.5)))
-			qi0 := qi
+				predMul := noFMA32Mul(coef32, oldE)
+				pred := predMul + prevBandEnergy[c]
+				f := x - pred
+				qi := int(math.Floor(float64(f/float32(DB6) + 0.5)))
+				qi0 := qi
 
-			decayBound := oldEBand
-			minDecay := float32(-28.0 * DB6)
-			if decayBound < minDecay {
-				decayBound = minDecay
-			}
-			decayBound -= maxDecay32
-			if qi < 0 && x < decayBound {
-				adjust := int((decayBound - x) / float32(DB6))
-				qi += adjust
-				if qi > 0 {
+				decayBound := oldEBand
+				minDecay := float32(-28.0 * DB6)
+				if decayBound < minDecay {
+					decayBound = minDecay
+				}
+				decayBound -= maxDecay32
+				if qi < 0 && x < decayBound {
+					adjust := int((decayBound - x) / float32(DB6))
+					qi += adjust
+					if qi > 0 {
+						qi = 0
+					}
+				}
+
+				tell := e.rangeEncoder.Tell()
+				bitsLeft := budget - tell - 3*channels*(nbBands-band)
+				if band != 0 && bitsLeft < 30 {
+					if bitsLeft < 24 && qi > 1 {
+						qi = 1
+					}
+					if bitsLeft < 16 && qi < -1 {
+						qi = -1
+					}
+				}
+				if e.lfe && band >= 2 && qi > 0 {
 					qi = 0
 				}
-			}
 
-			tell := e.rangeEncoder.Tell()
-			bitsLeft := budget - tell - 3*channels*(nbBands-band)
-			if band != 0 && bitsLeft < 30 {
-				if bitsLeft < 24 && qi > 1 {
-					qi = 1
-				}
-				if bitsLeft < 16 && qi < -1 {
-					qi = -1
-				}
-			}
-			if e.lfe && band >= 2 && qi > 0 {
-				qi = 0
-			}
-
-			if budget-tell >= 15 {
-				pi := 2 * band
-				if pi > 40 {
-					pi = 40
-				}
-				fs := int(prob[pi]) << 7
-				decay := int(prob[pi+1]) << 6
-				qi = e.encodeLaplace(qi, fs, decay)
-			} else if budget-tell >= 2 {
-				if qi > 1 {
-					qi = 1
-				}
-				if qi < -1 {
-					qi = -1
-				}
-				var s int
-				if qi < 0 {
-					s = -2*qi - 1
+				if budget-tell >= 15 {
+					pi := 2 * band
+					if pi > 40 {
+						pi = 40
+					}
+					fs := int(prob[pi]) << 7
+					decay := int(prob[pi+1]) << 6
+					qi = e.encodeLaplace(qi, fs, decay)
+				} else if budget-tell >= 2 {
+					if qi > 1 {
+						qi = 1
+					}
+					if qi < -1 {
+						qi = -1
+					}
+					var s int
+					if qi < 0 {
+						s = -2*qi - 1
+					} else {
+						s = 2 * qi
+					}
+					e.rangeEncoder.EncodeICDF(s, smallEnergyICDF, 2)
+				} else if budget-tell >= 1 {
+					if qi > 0 {
+						qi = 0
+					}
+					e.rangeEncoder.EncodeBit(-qi, 1)
 				} else {
-					s = 2 * qi
+					qi = -1
 				}
-				e.rangeEncoder.EncodeICDF(s, smallEnergyICDF, 2)
-			} else if budget-tell >= 1 {
-				if qi > 0 {
-					qi = 0
-				}
-				e.rangeEncoder.EncodeBit(-qi, 1)
-			} else {
-				qi = -1
-			}
-			badness += celtAbsInt(qi0 - qi)
+				badness += celtAbsInt(qi0 - qi)
 
-			if e.coarseDecisionHook != nil {
 				pi := 2 * band
 				if pi > 40 {
 					pi = 40
 				}
-				e.coarseDecisionHook(CoarseDecisionStats{
+				hook(CoarseDecisionStats{
 					Frame:     e.frameCount,
 					Band:      band,
 					Channel:   c,
@@ -451,23 +418,104 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []float64, startBand, nbBands 
 					Tell:      tell,
 					BitsLeft:  bitsLeft,
 				})
-			}
 
-			q := float32(qi) * float32(DB6)
-			coarseError[idx] = float64(f - q)
-			quantizedEnergy := pred + q
-			quantizedEnergies[idx] = float64(quantizedEnergy)
-			if tmpCoarseDumpEnabled &&
-				c == 0 &&
-				(!tmpCoarseDumpFrameEnabled || e.frameCount == tmpCoarseDumpFrameValue) &&
-				(!tmpCoarseDumpBandEnabled || band == tmpCoarseDumpBandValue) {
-				println("COARSE_DUMP frame", e.frameCount, "band", band, "x", x, "oldE", oldEBand, "pred", pred, "f", f, "qi", qi, "err", float32(coarseError[idx]), "tell", tell, "bitsLeft", bitsLeft)
+				q := float32(qi) * float32(DB6)
+				coarseError[idx] = float64(f - q)
+				quantizedEnergy := pred + q
+				quantizedEnergies[idx] = float64(quantizedEnergy)
+				betaMul := noFMA32Mul(beta32, q)
+				prevBandEnergy[c] = prevBandEnergy[c] + q - betaMul
 			}
-			betaMul := noFMA32Mul(beta32, q)
-			if tmpEnergyPredMulNativeEnabled {
-				betaMul = beta32 * q
+		}
+	} else {
+		for band := startBand; band < nbBands; band++ {
+			for c := 0; c < channels; c++ {
+				idx := c*nbBands + band
+				if idx >= len(energies) {
+					continue
+				}
+
+				x := float32(energies[idx])
+				oldEBand := float32(e.prevEnergy[c*MaxBands+band])
+				oldE := oldEBand
+				minEnergy := float32(-9.0 * DB6)
+				if oldE < minEnergy {
+					oldE = minEnergy
+				}
+
+				predMul := noFMA32Mul(coef32, oldE)
+				pred := predMul + prevBandEnergy[c]
+				f := x - pred
+				qi := int(math.Floor(float64(f/float32(DB6) + 0.5)))
+				qi0 := qi
+
+				decayBound := oldEBand
+				minDecay := float32(-28.0 * DB6)
+				if decayBound < minDecay {
+					decayBound = minDecay
+				}
+				decayBound -= maxDecay32
+				if qi < 0 && x < decayBound {
+					adjust := int((decayBound - x) / float32(DB6))
+					qi += adjust
+					if qi > 0 {
+						qi = 0
+					}
+				}
+
+				tell := e.rangeEncoder.Tell()
+				bitsLeft := budget - tell - 3*channels*(nbBands-band)
+				if band != 0 && bitsLeft < 30 {
+					if bitsLeft < 24 && qi > 1 {
+						qi = 1
+					}
+					if bitsLeft < 16 && qi < -1 {
+						qi = -1
+					}
+				}
+				if e.lfe && band >= 2 && qi > 0 {
+					qi = 0
+				}
+
+				if budget-tell >= 15 {
+					pi := 2 * band
+					if pi > 40 {
+						pi = 40
+					}
+					fs := int(prob[pi]) << 7
+					decay := int(prob[pi+1]) << 6
+					qi = e.encodeLaplace(qi, fs, decay)
+				} else if budget-tell >= 2 {
+					if qi > 1 {
+						qi = 1
+					}
+					if qi < -1 {
+						qi = -1
+					}
+					var s int
+					if qi < 0 {
+						s = -2*qi - 1
+					} else {
+						s = 2 * qi
+					}
+					e.rangeEncoder.EncodeICDF(s, smallEnergyICDF, 2)
+				} else if budget-tell >= 1 {
+					if qi > 0 {
+						qi = 0
+					}
+					e.rangeEncoder.EncodeBit(-qi, 1)
+				} else {
+					qi = -1
+				}
+				badness += celtAbsInt(qi0 - qi)
+
+				q := float32(qi) * float32(DB6)
+				coarseError[idx] = float64(f - q)
+				quantizedEnergy := pred + q
+				quantizedEnergies[idx] = float64(quantizedEnergy)
+				betaMul := noFMA32Mul(beta32, q)
+				prevBandEnergy[c] = prevBandEnergy[c] + q - betaMul
 			}
-			prevBandEnergy[c] = prevBandEnergy[c] + q - betaMul
 		}
 	}
 
@@ -835,102 +883,92 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 	}
 
 	var prevBandEnergy [2]float32
-	for band := start; band < end; band++ {
-		for c := 0; c < channels; c++ {
-			idx := c*nbBands + band
-			if idx >= len(energies) {
-				continue
-			}
-			x := float32(energies[idx])
+	if hook := e.coarseDecisionHook; hook != nil {
+		for band := start; band < end; band++ {
+			for c := 0; c < channels; c++ {
+				idx := c*nbBands + band
+				if idx >= len(energies) {
+					continue
+				}
+				x := float32(energies[idx])
 
-			// Previous frame energy (for prediction and decay bound).
-			oldEBand := float32(e.prevEnergy[c*MaxBands+band])
-			oldE := oldEBand
-			minEnergy := float32(-9.0 * DB6)
-			if oldE < minEnergy {
-				oldE = minEnergy
-			}
+				oldEBand := float32(e.prevEnergy[c*MaxBands+band])
+				oldE := oldEBand
+				minEnergy := float32(-9.0 * DB6)
+				if oldE < minEnergy {
+					oldE = minEnergy
+				}
 
-			// Prediction residual.
-			predMul := noFMA32Mul(coef32, oldE)
-			if tmpEnergyPredMulNativeEnabled {
-				predMul = coef32 * oldE
-			}
-			pred := predMul + prevBandEnergy[c]
-			f := x - pred
-			qi := int(math.Floor(float64(f/float32(DB6) + 0.5)))
-			qi0 := qi
+				predMul := noFMA32Mul(coef32, oldE)
+				pred := predMul + prevBandEnergy[c]
+				f := x - pred
+				qi := int(math.Floor(float64(f/float32(DB6) + 0.5)))
+				qi0 := qi
 
-			// Prevent energy from decaying too quickly.
-			decayBound := oldEBand
-			minDecay := float32(-28.0 * DB6)
-			if decayBound < minDecay {
-				decayBound = minDecay
-			}
-			decayBound -= maxDecay32
-			if qi < 0 && x < decayBound {
-				adjust := int((decayBound - x) / float32(DB6))
-				qi += adjust
-				if qi > 0 {
+				decayBound := oldEBand
+				minDecay := float32(-28.0 * DB6)
+				if decayBound < minDecay {
+					decayBound = minDecay
+				}
+				decayBound -= maxDecay32
+				if qi < 0 && x < decayBound {
+					adjust := int((decayBound - x) / float32(DB6))
+					qi += adjust
+					if qi > 0 {
+						qi = 0
+					}
+				}
+
+				tell := e.rangeEncoder.Tell()
+				bitsLeft := budget - tell - 3*channels*(end-band)
+				if band != start && bitsLeft < 30 {
+					if bitsLeft < 24 && qi > 1 {
+						qi = 1
+					}
+					if bitsLeft < 16 && qi < -1 {
+						qi = -1
+					}
+				}
+				if e.lfe && band >= 2 && qi > 0 {
 					qi = 0
 				}
-			}
 
-			tell := e.rangeEncoder.Tell()
-			bitsLeft := budget - tell - 3*channels*(end-band)
-			if band != start && bitsLeft < 30 {
-				if bitsLeft < 24 && qi > 1 {
-					qi = 1
-				}
-				if bitsLeft < 16 && qi < -1 {
-					qi = -1
-				}
-			}
-			if e.lfe && band >= 2 && qi > 0 {
-				qi = 0
-			}
-
-			// Encode with Laplace or fallback models.
-			if budget-tell >= 15 {
-				pi := 2 * band
-				if pi > 40 {
-					pi = 40
-				}
-				fs := int(prob[pi]) << 7
-				decay := int(prob[pi+1]) << 6
-				qi = e.encodeLaplace(qi, fs, decay)
-			} else if budget-tell >= 2 {
-				if qi > 1 {
-					qi = 1
-				}
-				if qi < -1 {
-					qi = -1
-				}
-				// Encode using zigzag mapping to match decoder's decoding:
-				// Decoder: qi = (s >> 1) ^ -(s & 1)
-				//   s=0 -> qi=0, s=1 -> qi=-1, s=2 -> qi=1
-				var s int
-				if qi < 0 {
-					s = -2*qi - 1
+				if budget-tell >= 15 {
+					pi := 2 * band
+					if pi > 40 {
+						pi = 40
+					}
+					fs := int(prob[pi]) << 7
+					decay := int(prob[pi+1]) << 6
+					qi = e.encodeLaplace(qi, fs, decay)
+				} else if budget-tell >= 2 {
+					if qi > 1 {
+						qi = 1
+					}
+					if qi < -1 {
+						qi = -1
+					}
+					var s int
+					if qi < 0 {
+						s = -2*qi - 1
+					} else {
+						s = 2 * qi
+					}
+					e.rangeEncoder.EncodeICDF(s, smallEnergyICDF, 2)
+				} else if budget-tell >= 1 {
+					if qi > 0 {
+						qi = 0
+					}
+					e.rangeEncoder.EncodeBit(-qi, 1)
 				} else {
-					s = 2 * qi
+					qi = -1
 				}
-				e.rangeEncoder.EncodeICDF(s, smallEnergyICDF, 2)
-			} else if budget-tell >= 1 {
-				if qi > 0 {
-					qi = 0
-				}
-				e.rangeEncoder.EncodeBit(-qi, 1)
-			} else {
-				qi = -1
-			}
 
-			if e.coarseDecisionHook != nil {
 				pi := 2 * band
 				if pi > 40 {
 					pi = 40
 				}
-				e.coarseDecisionHook(CoarseDecisionStats{
+				hook(CoarseDecisionStats{
 					Frame:     e.frameCount,
 					Band:      band,
 					Channel:   c,
@@ -946,18 +984,102 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 					Tell:      tell,
 					BitsLeft:  bitsLeft,
 				})
-			}
 
-			// Update energy and prediction state.
-			q := float32(qi) * float32(DB6)
-			coarseError[idx] = float64(f - q)
-			energy := pred + q
-			quantizedEnergies[idx] = float64(energy)
-			betaMul := noFMA32Mul(beta32, q)
-			if tmpEnergyPredMulNativeEnabled {
-				betaMul = beta32 * q
+				q := float32(qi) * float32(DB6)
+				coarseError[idx] = float64(f - q)
+				energy := pred + q
+				quantizedEnergies[idx] = float64(energy)
+				betaMul := noFMA32Mul(beta32, q)
+				prevBandEnergy[c] = prevBandEnergy[c] + q - betaMul
 			}
-			prevBandEnergy[c] = prevBandEnergy[c] + q - betaMul
+		}
+	} else {
+		for band := start; band < end; band++ {
+			for c := 0; c < channels; c++ {
+				idx := c*nbBands + band
+				if idx >= len(energies) {
+					continue
+				}
+				x := float32(energies[idx])
+
+				oldEBand := float32(e.prevEnergy[c*MaxBands+band])
+				oldE := oldEBand
+				minEnergy := float32(-9.0 * DB6)
+				if oldE < minEnergy {
+					oldE = minEnergy
+				}
+
+				predMul := noFMA32Mul(coef32, oldE)
+				pred := predMul + prevBandEnergy[c]
+				f := x - pred
+				qi := int(math.Floor(float64(f/float32(DB6) + 0.5)))
+
+				decayBound := oldEBand
+				minDecay := float32(-28.0 * DB6)
+				if decayBound < minDecay {
+					decayBound = minDecay
+				}
+				decayBound -= maxDecay32
+				if qi < 0 && x < decayBound {
+					adjust := int((decayBound - x) / float32(DB6))
+					qi += adjust
+					if qi > 0 {
+						qi = 0
+					}
+				}
+
+				tell := e.rangeEncoder.Tell()
+				bitsLeft := budget - tell - 3*channels*(end-band)
+				if band != start && bitsLeft < 30 {
+					if bitsLeft < 24 && qi > 1 {
+						qi = 1
+					}
+					if bitsLeft < 16 && qi < -1 {
+						qi = -1
+					}
+				}
+				if e.lfe && band >= 2 && qi > 0 {
+					qi = 0
+				}
+
+				if budget-tell >= 15 {
+					pi := 2 * band
+					if pi > 40 {
+						pi = 40
+					}
+					fs := int(prob[pi]) << 7
+					decay := int(prob[pi+1]) << 6
+					qi = e.encodeLaplace(qi, fs, decay)
+				} else if budget-tell >= 2 {
+					if qi > 1 {
+						qi = 1
+					}
+					if qi < -1 {
+						qi = -1
+					}
+					var s int
+					if qi < 0 {
+						s = -2*qi - 1
+					} else {
+						s = 2 * qi
+					}
+					e.rangeEncoder.EncodeICDF(s, smallEnergyICDF, 2)
+				} else if budget-tell >= 1 {
+					if qi > 0 {
+						qi = 0
+					}
+					e.rangeEncoder.EncodeBit(-qi, 1)
+				} else {
+					qi = -1
+				}
+
+				q := float32(qi) * float32(DB6)
+				coarseError[idx] = float64(f - q)
+				energy := pred + q
+				quantizedEnergies[idx] = float64(energy)
+				betaMul := noFMA32Mul(beta32, q)
+				prevBandEnergy[c] = prevBandEnergy[c] + q - betaMul
+			}
 		}
 	}
 
@@ -1139,9 +1261,6 @@ func (e *Encoder) encodeFineEnergyFromError(quantizedEnergies []float64, nbBands
 			// libopus float: q2 = floor((error + 0.5) * extra)
 			err := float32(errorVals[idx])
 			qExpr := float64((err + 0.5) * scale32)
-			if tmpFineQEpsEnabled {
-				qExpr -= tmpFineQEpsValue
-			}
 			q2 := int(math.Floor(qExpr))
 			if q2 < 0 {
 				q2 = 0
@@ -1155,12 +1274,6 @@ func (e *Encoder) encodeFineEnergyFromError(quantizedEnergies []float64, nbBands
 			offset := (float64(q2)+0.5)/float64(extra) - 0.5
 			quantizedEnergies[idx] += offset
 			errorVals[idx] = float64(err) - offset
-			if tmpFineDumpEnabled &&
-				c == 0 &&
-				(!tmpFineDumpFrameEnabled || e.frameCount == tmpFineDumpFrameValue) &&
-				(!tmpFineDumpBandEnabled || band == tmpFineDumpBandValue) {
-				println("FINE_DUMP frame", e.frameCount, "band", band, "bits", bits, "err", err, "q2", q2, "offset", offset, "qexpr", qExpr)
-			}
 		}
 	}
 }

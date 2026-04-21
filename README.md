@@ -17,7 +17,7 @@ No cgo. No C toolchain. Caller-owned buffers in the encode/decode hot path.
 - Architecture-tuned assembly kernels on `amd64`/`arm64` with pure Go fallbacks on other targets.
 - Core hot path is zero-allocation with caller-provided buffers.
 - Ogg Opus container reader/writer (`container/ogg`).
-- Multistream support (default mappings for 1-8 channels, explicit mappings up to 255 channels).
+- Multistream support (default mappings for 1-8 channels, explicit mappings up to 255 channels with `streams + coupledStreams <= 255`).
 - Compliance and parity coverage against libopus 1.6.1 fixtures.
 
 ## Status Snapshot (2026-04-21)
@@ -265,7 +265,7 @@ Channels:
 
 - Core `Encoder` / `Decoder`: 1 or 2 channels
 - Default multistream constructors: 1-8 channels
-- Explicit multistream constructors: up to 255 channels
+- Explicit multistream constructors: up to 255 channels, with `streams + coupledStreams <= 255`
 
 ## Performance and Allocations
 

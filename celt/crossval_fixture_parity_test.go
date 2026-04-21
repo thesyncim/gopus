@@ -8,9 +8,12 @@ import (
 	"math"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 )
+
+const updateOpusdecCrossvalFixtureEnv = "GOPUS_UPDATE_OPUSDEC_CROSSVAL_FIXTURE"
 
 type crossvalFixtureScenario struct {
 	name              string
@@ -432,7 +435,7 @@ func regenCrossvalFixture(t *testing.T, scenarios []crossvalFixtureScenario) {
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
-	t.Logf("Auto-regenerated %s with %d entries", path, len(entries))
+	t.Logf("Regenerated %s with %d entries", path, len(entries))
 
 	// Reset the sync.Once so subsequent tests reload the fresh fixture.
 	opusdecCrossvalFixtureOnce = sync.Once{}
@@ -442,9 +445,10 @@ func regenCrossvalFixture(t *testing.T, scenarios []crossvalFixtureScenario) {
 
 func TestOpusdecCrossvalFixtureCoverage(t *testing.T) {
 	scenarios := buildCrossvalFixtureScenarios(t)
+	updateFixture := strings.TrimSpace(os.Getenv(updateOpusdecCrossvalFixtureEnv)) == "1"
 
-	// Check if any fixture entries are stale and auto-regenerate if opusdec
-	// is available. This handles platform-specific encoder output changes.
+	// Check if any fixture entries are stale. Normal test runs fail closed so
+	// verify-production stays clean; fixture refresh is explicit via env var.
 	entries, err := loadOpusdecCrossvalFixtureMap()
 	needsRegen := err != nil
 	if !needsRegen {
@@ -457,14 +461,18 @@ func TestOpusdecCrossvalFixtureCoverage(t *testing.T) {
 		}
 	}
 	if needsRegen {
+		fixturePath := opusdecCrossvalFixturePath
+		if runtime.GOARCH == "amd64" {
+			fixturePath = opusdecCrossvalFixturePathAMD64
+		}
+		if !updateFixture {
+			t.Fatalf("opusdec crossval fixture %q is stale or missing; set %s=1 to regenerate", fixturePath, updateOpusdecCrossvalFixtureEnv)
+		}
 		if !checkOpusdecAvailable() {
-			t.Skip("crossval fixture is stale and opusdec is not available to regenerate")
+			t.Fatalf("opusdec crossval fixture %q is stale or missing and opusdec is not available to regenerate", fixturePath)
 		}
 		regenCrossvalFixture(t, scenarios)
-		entries, err = loadOpusdecCrossvalFixtureMap()
-		if err != nil {
-			t.Fatalf("load opusdec crossval fixture after regen: %v", err)
-		}
+		t.Fatalf("updated opusdec crossval fixture at %s; rerun without %s", fixturePath, updateOpusdecCrossvalFixtureEnv)
 	}
 
 	if len(entries) < len(scenarios) {

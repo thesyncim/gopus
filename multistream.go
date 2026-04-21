@@ -3,9 +3,31 @@
 package gopus
 
 import (
+	"fmt"
+
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/multistream"
 )
+
+func multistreamExplicitChannelsError(kind string, channels int) error {
+	return fmt.Errorf("%w: %s supports 1-255 channels (got %d)", ErrInvalidChannels, kind, channels)
+}
+
+func multistreamDefaultChannelsError(kind, explicitCtor string, channels int) error {
+	if channels > 8 {
+		return fmt.Errorf("%w: %s supports 1-8 channels (got %d); use %s with an explicit mapping for >8 channels", ErrInvalidChannels, kind, channels, explicitCtor)
+	}
+	return fmt.Errorf("%w: %s supports 1-8 channels (got %d)", ErrInvalidChannels, kind, channels)
+}
+
+func multistreamStreamBudgetError(kind string, streams, coupledStreams int) error {
+	total := streams + coupledStreams
+	return fmt.Errorf("%w: %s requires streams + coupledStreams <= 255 (got %d + %d = %d)", ErrInvalidStreams, kind, streams, coupledStreams, total)
+}
+
+func multistreamMappingLengthError(channels, got int) error {
+	return fmt.Errorf("%w: expected %d mapping entries for %d channels, got %d", ErrInvalidMapping, channels, channels, got)
+}
 
 // MultistreamEncoder encodes multi-channel PCM audio into Opus multistream packets.
 //
@@ -36,6 +58,7 @@ type MultistreamEncoder struct {
 //   - channels: total input channels (1-255)
 //   - streams: total elementary streams (N, 1-255)
 //   - coupledStreams: number of coupled stereo streams (M, 0 to streams)
+//     with streams + coupledStreams <= 255
 //   - mapping: channel mapping table (length must equal channels)
 //   - application: application hint for encoder optimization
 //
@@ -61,7 +84,7 @@ func NewMultistreamEncoder(sampleRate, channels, streams, coupledStreams int, ma
 		return nil, ErrInvalidSampleRate
 	}
 	if channels < 1 || channels > 255 {
-		return nil, ErrInvalidChannels
+		return nil, multistreamExplicitChannelsError("multistream encoder", channels)
 	}
 	if streams < 1 || streams > 255 {
 		return nil, ErrInvalidStreams
@@ -69,8 +92,11 @@ func NewMultistreamEncoder(sampleRate, channels, streams, coupledStreams int, ma
 	if coupledStreams < 0 || coupledStreams > streams {
 		return nil, ErrInvalidCoupledStreams
 	}
+	if streams+coupledStreams > 255 {
+		return nil, multistreamStreamBudgetError("multistream encoder", streams, coupledStreams)
+	}
 	if len(mapping) != channels {
-		return nil, ErrInvalidMapping
+		return nil, multistreamMappingLengthError(channels, len(mapping))
 	}
 	if !validApplication(application) {
 		return nil, ErrInvalidApplication
@@ -106,6 +132,7 @@ func NewMultistreamEncoder(sampleRate, channels, streams, coupledStreams int, ma
 // This is a convenience function that calls the internal DefaultMapping() to get the appropriate
 // streams, coupledStreams, and mapping for the given channel count.
 // Returns ErrInvalidChannels when channels is outside the default-mapping range [1, 8].
+// Use NewMultistreamEncoder with an explicit mapping for layouts above 8 channels.
 //
 // Supported channel counts:
 //   - 1: mono (1 stream, 0 coupled)
@@ -121,7 +148,7 @@ func NewMultistreamEncoderDefault(sampleRate, channels int, application Applicat
 		return nil, ErrInvalidSampleRate
 	}
 	if channels < 1 || channels > 8 {
-		return nil, ErrInvalidChannels
+		return nil, multistreamDefaultChannelsError("default multistream encoder", "NewMultistreamEncoder", channels)
 	}
 	if !validApplication(application) {
 		return nil, ErrInvalidApplication
@@ -176,6 +203,7 @@ type MultistreamDecoder struct {
 //   - channels: total output channels (1-255)
 //   - streams: total elementary streams (N, 1-255)
 //   - coupledStreams: number of coupled stereo streams (M, 0 to streams)
+//     with streams + coupledStreams <= 255
 //   - mapping: channel mapping table (length must equal channels)
 //
 // Returns ErrInvalidChannels when channels is outside the explicit multistream
@@ -190,7 +218,7 @@ func NewMultistreamDecoder(sampleRate, channels, streams, coupledStreams int, ma
 		return nil, ErrInvalidSampleRate
 	}
 	if channels < 1 || channels > 255 {
-		return nil, ErrInvalidChannels
+		return nil, multistreamExplicitChannelsError("multistream decoder", channels)
 	}
 	if streams < 1 || streams > 255 {
 		return nil, ErrInvalidStreams
@@ -198,8 +226,11 @@ func NewMultistreamDecoder(sampleRate, channels, streams, coupledStreams int, ma
 	if coupledStreams < 0 || coupledStreams > streams {
 		return nil, ErrInvalidCoupledStreams
 	}
+	if streams+coupledStreams > 255 {
+		return nil, multistreamStreamBudgetError("multistream decoder", streams, coupledStreams)
+	}
 	if len(mapping) != channels {
-		return nil, ErrInvalidMapping
+		return nil, multistreamMappingLengthError(channels, len(mapping))
 	}
 
 	dec, err := multistream.NewDecoder(sampleRate, channels, streams, coupledStreams, mapping)
@@ -221,6 +252,7 @@ func NewMultistreamDecoder(sampleRate, channels, streams, coupledStreams int, ma
 // This is a convenience function that calls the internal DefaultMapping() to get the appropriate
 // streams, coupledStreams, and mapping for the given channel count.
 // Returns ErrInvalidChannels when channels is outside the default-mapping range [1, 8].
+// Use NewMultistreamDecoder with an explicit mapping for layouts above 8 channels.
 //
 // Supported channel counts:
 //   - 1: mono (1 stream, 0 coupled)
@@ -236,7 +268,7 @@ func NewMultistreamDecoderDefault(sampleRate, channels int) (*MultistreamDecoder
 		return nil, ErrInvalidSampleRate
 	}
 	if channels < 1 || channels > 8 {
-		return nil, ErrInvalidChannels
+		return nil, multistreamDefaultChannelsError("default multistream decoder", "NewMultistreamDecoder", channels)
 	}
 
 	dec, err := multistream.NewDecoderDefault(sampleRate, channels)

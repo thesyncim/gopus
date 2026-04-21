@@ -83,8 +83,6 @@ func (d *Decoder) Reset() {
 
 	// Reset RNG (libopus resets to zero)
 	d.rng = 0
-	d.decodeFrameIndex = 0
-	d.bandDebug = bandDebugState{}
 	d.plcLastPitchPeriod = 0
 	d.plcPrevLossWasPeriodic = false
 	d.plcPrefilterAndFoldPending = false
