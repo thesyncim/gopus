@@ -20,6 +20,15 @@ func testCELTPacket() []byte {
 	return packet
 }
 
+func testStereoCELTPacket() []byte {
+	packet := make([]byte, 50)
+	packet[0] = 0xFC // config=31 (CELT FB 20ms), stereo, code 0
+	for i := 1; i < len(packet); i++ {
+		packet[i] = byte(i * 7)
+	}
+	return packet
+}
+
 func testSineFrame(samples int) []float32 {
 	pcm := make([]float32, samples)
 	for i := range pcm {
@@ -117,6 +126,53 @@ func TestHotPathAllocsDecodeInt16(t *testing.T) {
 	})
 	if allocs != 0 {
 		t.Fatalf("Decode(int16) allocs/op = %.2f, want 0", allocs)
+	}
+}
+
+func TestHotPathAllocsDecodePLC(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder: %v", err)
+	}
+	packet := testCELTPacket()
+	pcm := make([]float32, 960)
+
+	if _, err := dec.Decode(packet, pcm); err != nil {
+		t.Fatalf("warmup Decode: %v", err)
+	}
+	if _, err := dec.Decode(nil, pcm); err != nil {
+		t.Fatalf("warmup Decode PLC: %v", err)
+	}
+
+	allocs := testing.AllocsPerRun(200, func() {
+		if _, err := dec.Decode(nil, pcm); err != nil {
+			t.Fatalf("Decode PLC: %v", err)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("Decode(PLC) allocs/op = %.2f, want 0", allocs)
+	}
+}
+
+func TestHotPathAllocsDecodeStereo(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 2))
+	if err != nil {
+		t.Fatalf("NewDecoder: %v", err)
+	}
+	packet := testStereoCELTPacket()
+	pcm := make([]float32, 960*2)
+
+	if _, err := dec.Decode(packet, pcm); err != nil {
+		t.Fatalf("warmup Decode stereo: %v", err)
+	}
+
+	allocs := testing.AllocsPerRun(200, func() {
+		if _, err := dec.Decode(packet, pcm); err != nil {
+			t.Fatalf("Decode stereo: %v", err)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("Decode(stereo) allocs/op = %.2f, want 0", allocs)
 	}
 }
 

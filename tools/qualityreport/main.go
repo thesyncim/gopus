@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	qualityRunName  = "test-quality"
-	compatRunName   = "test-compat"
+	qualityRunName  = "quality"
+	compatRunName   = "compat"
 	qualityRunRegex = "TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard|TestEncoderVariantProfileParityAgainstLibopusFixture|TestDecoderParityLibopusMatrix"
 	compatRunRegex  = "TestDecoderLossParityLibopusFixture|TestDecoderHybridToCELT10msTransitionParity|TestDecoderHybridToCELT20msTransitionParity"
 )

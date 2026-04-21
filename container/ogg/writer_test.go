@@ -113,6 +113,13 @@ func TestNewWriter_InvalidChannels(t *testing.T) {
 	}
 }
 
+func TestNewWriter_NilWriter(t *testing.T) {
+	_, err := NewWriter(nil, 48000, 2)
+	if err != ErrNilWriter {
+		t.Fatalf("NewWriter(nil) error = %v, want %v", err, ErrNilWriter)
+	}
+}
+
 // TestWritePacket_Single tests writing a single packet.
 func TestWritePacket_Single(t *testing.T) {
 	var buf bytes.Buffer

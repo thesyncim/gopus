@@ -1,8 +1,8 @@
 # Production TODO
 
-Last updated: 2026-02-12
+Last updated: 2026-04-21
 
-## Completed in this change
+## Recently completed
 
 - [x] Eliminate per-frame FFT scratch allocation in encoder analysis path.
 - [x] Add zero-allocation hot-path guard tests for encode/decode float32 and int16 APIs.
@@ -15,15 +15,22 @@ Last updated: 2026-02-12
 - [x] Document production plan and verification workflow.
 - [x] Add deterministic benchmark regression guard tooling (`tools/benchguard` + `tools/bench_guardrails.json`).
 - [x] Add explicit CI performance gate (`perf-linux`) and wire `make bench-guard` into `verify-production`.
-- [x] Document CI guardrail/branch-protection policy (`CI_GUARDRAILS.md`) and agent rules (`AGENTS.md`).
+- [x] Document CI guardrail/branch-protection policy (`CI_GUARDRAILS.md`) and the concise project brief (`AGENTS.md`).
+- [x] Close the previously-known large encoder quality regressions and return `make test-quality` to green.
+- [x] Expand zero-allocation hard gates to cover PLC and stereo decode hot paths.
+- [x] Remove deprecated debug/state wrappers from the pre-release public surface.
+- [x] Simplify repo workflow/docs by removing the old experiment scaffolding.
 
-## Next high-impact items
+## In progress now
 
-- [ ] Close strict quality gap (`Q >= 0`) in remaining SILK/Hybrid/CELT profiles.
-- [ ] Add profile-by-profile quality ratchet baselines and prevent backward movement.
-- [ ] Investigate and reduce parity-tier `-race` runtime in `testvectors` (currently needs elevated timeout).
+- [ ] Tighten multistream-facing error/reporting text so ranges stay accurate for high-channel-count use.
+
+## Remaining medium-term blockers
+
+- [ ] Reduce temporary debug/tuning surface area in non-test packages without disturbing parity coverage.
+- [ ] Trim dead or redundant tests now that the main parity/quality gates are trustworthy.
 
 ## Optional stretch goals
 
-- [ ] Provide integration load test harness (long-running encode/decode soak with packet loss simulation).
+- [ ] Expand long-running safety soak beyond mono root paths into stereo, streaming, multistream, and container surfaces.
 - [ ] Add architecture-specific performance dashboards (arm64 vs amd64).

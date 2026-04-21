@@ -1853,13 +1853,17 @@ func computeChannelWeights(ex, ey float64) (w0, w1 float64) {
 
 // innerProduct computes the inner product of two vectors.
 // Used for distortion measurement in theta RDO.
-// Delegates to celtInnerProd which has assembly implementations on arm64/amd64.
+// Match libopus float-path behavior by accumulating in float32 precision.
 func innerProduct(x, y []float64) float64 {
 	n := len(x)
 	if len(y) < n {
 		n = len(y)
 	}
-	return celtInnerProd(x[:n], y[:n], n)
+	var sum float32
+	for i := 0; i < n; i++ {
+		sum += float32(x[i]) * float32(y[i])
+	}
+	return float64(sum)
 }
 
 func (ctx *bandCtx) bandEnergy(channel int) float64 {
@@ -2125,13 +2129,7 @@ func computeThetaExt(ctx *bandCtx, sctx *splitCtx, x, y []float64, n int, b *int
 			// Reference: libopus bands.c compute_theta(), lines 787-796
 			if !stereo || ctx.thetaRound == 0 {
 				// Standard rounding
-				roundBias := 8192
-				// Match libopus float-path boundary behavior for coarse non-stereo
-				// split resolution: tiny bias avoids systematic downward ties.
-				if !stereo && qn <= 8 {
-					roundBias += 32
-				}
-				itheta = (itheta*qn + roundBias) >> 14
+				itheta = (itheta*qn + 8192) >> 14
 				if !stereo && ctx.avoidSplitNoise && itheta > 0 && itheta < qn {
 					unquantized := celtUdiv(itheta*16384, qn)
 					delta := fracMul16((n-1)<<7, bitexactLog2tanTheta(unquantized))
@@ -4133,20 +4131,6 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 						rightE = bandE[ctx.nbBands+i]
 					}
 					w0, w1 := computeChannelWeights(leftE, rightE)
-					preparedLowbandX := lowbandX
-					lowbandPrepared := false
-					if lowbandX != nil {
-						if scratch != nil {
-							preparedLowbandX = scratch.ensureLowbandScratch(nBand)
-						} else {
-							preparedLowbandX = make([]float64, nBand)
-						}
-						if prepareQuantBandLowband(preparedLowbandX, lowbandX, nBand, B, ctx.tfChange, scratch) != nil {
-							lowbandPrepared = true
-						} else {
-							preparedLowbandX = lowbandX
-						}
-					}
 
 					// Save original input data - use scratch if available
 					var xSave, ySave []float64
@@ -4193,7 +4177,7 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 					// Try encoding with theta_round = -1 (bias toward 0/16384)
 					ctx.thetaRound = -1
 					cm := xCM | yCM
-					xCM0 := quantBandStereoPreparedLowbandWithExtBudget(&ctx, xBand, yBand, nBand, b, B, preparedLowbandX, lm, lowbandOutX, lowbandScratch, cm, lowbandPrepared, ctx.extBudget)
+					xCM0 := quantBandStereoWithExtBudget(&ctx, xBand, yBand, nBand, b, B, lowbandX, lm, lowbandOutX, lowbandScratch, cm, ctx.extBudget)
 
 					// Compute distortion for first trial
 					dist0 := w0*innerProduct(xSave, xBand) + w1*innerProduct(ySave, yBand)
@@ -4217,41 +4201,48 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 					ctxSave0 := ctx
 					cm0 := xCM0
 
-					// Seed separate buffers for the second trial from the saved original data.
-					var xTrial1, yTrial1 []float64
+					// Save first-trial result so we can restore it if it wins.
+					var xSave0, ySave0 []float64
 					if scratch != nil {
-						xTrial1 = scratch.ensureXResult0(nBand)
-						yTrial1 = scratch.ensureYResult0(nBand)
+						xSave0 = scratch.ensureXResult0(nBand)
+						ySave0 = scratch.ensureYResult0(nBand)
 					} else {
-						xTrial1 = make([]float64, nBand)
-						yTrial1 = make([]float64, nBand)
+						xSave0 = make([]float64, nBand)
+						ySave0 = make([]float64, nBand)
 					}
-					copy(xTrial1, xSave)
-					copy(yTrial1, ySave)
-					var normTrial1 []float64
+					copy(xSave0, xBand)
+					copy(ySave0, yBand)
+					var normSave0 []float64
 					if lowbandOutX != nil {
 						if scratch != nil {
-							normTrial1 = scratch.ensureNormResult0(nBand)
+							normSave0 = scratch.ensureNormResult0(nBand)
 						} else {
-							normTrial1 = make([]float64, nBand)
+							normSave0 = make([]float64, nBand)
 						}
-						copy(normTrial1, normSave)
+						copy(normSave0, lowbandOutX)
 					}
 
-					// Restore coder state for the second trial while keeping the
-					// first-trial result live in the main output buffers.
+					// Restore coder and band state for the second trial.
 					re.RestoreState(ecSave)
 					if ctx.extEnc != nil && extECSave != nil {
 						ctx.extEnc.RestoreState(extECSave)
 					}
 					ctx = ctxSave
+					copy(xBand, xSave)
+					copy(yBand, ySave)
+					if i == start+1 {
+						specialHybridFoldingWithEdges(norm, norm2, edges, start, M, dualStereo != 0)
+					}
+					if lowbandOutX != nil && normSave != nil {
+						copy(lowbandOutX, normSave)
+					}
 
 					// Try encoding with theta_round = +1 (bias toward equal split)
 					ctx.thetaRound = 1
-					xCM1 := quantBandStereoPreparedLowbandWithExtBudget(&ctx, xTrial1, yTrial1, nBand, b, B, preparedLowbandX, lm, normTrial1, lowbandScratch, cm, lowbandPrepared, ctx.extBudget)
+					xCM1 := quantBandStereoWithExtBudget(&ctx, xBand, yBand, nBand, b, B, lowbandX, lm, lowbandOutX, lowbandScratch, cm, ctx.extBudget)
 
 					// Compute distortion for second trial
-					dist1 := w0*innerProduct(xSave, xTrial1) + w1*innerProduct(ySave, yTrial1)
+					dist1 := w0*innerProduct(xSave, xBand) + w1*innerProduct(ySave, yBand)
 
 					// Pick the trial with lower distortion (higher inner product = lower distortion)
 					if dist0 >= dist1 {
@@ -4262,14 +4253,14 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 							ctx.extEnc.RestoreState(extECSave0)
 						}
 						ctx = ctxSave0
+						copy(xBand, xSave0)
+						copy(yBand, ySave0)
+						if lowbandOutX != nil && normSave0 != nil {
+							copy(lowbandOutX, normSave0)
+						}
 					} else {
 						// Second trial (theta_round = +1) was better
 						xCM = xCM1
-						copy(xBand, xTrial1)
-						copy(yBand, yTrial1)
-						if lowbandOutX != nil && normTrial1 != nil {
-							copy(lowbandOutX, normTrial1)
-						}
 					}
 					yCM = xCM
 					ctx.thetaRound = 0 // Reset for subsequent bands

@@ -40,23 +40,8 @@ func (d *Decoder) Decode(
 		return nil, ErrInvalidBandwidth
 	}
 
-	// DEBUG: Check resampler state BEFORE handleBandwidthChange
-	var debugPreResetState [6]int32
-	if nbRes := d.GetResampler(BandwidthNarrowband); nbRes != nil && bandwidth == BandwidthNarrowband {
-		debugPreResetState = nbRes.GetSIIR()
-	}
-
 	// Handle bandwidth changes - reset sMid state when sample rate changes
 	d.handleBandwidthChange(bandwidth)
-
-	// DEBUG: Check resampler state AFTER handleBandwidthChange
-	var debugPostResetState [6]int32
-	if nbRes := d.GetResampler(BandwidthNarrowband); nbRes != nil && bandwidth == BandwidthNarrowband {
-		debugPostResetState = nbRes.GetSIIR()
-		// Store debug info for external access
-		d.debugPreResetSIIR = debugPreResetState
-		d.debugPostResetSIIR = debugPostResetState
-	}
 
 	// Handle PLC for nil data (lost packet)
 	if data == nil {
@@ -340,22 +325,8 @@ func (d *Decoder) DecodeWithDecoder(
 		return nil, ErrDecodeFailed
 	}
 
-	// DEBUG: Check resampler state BEFORE handleBandwidthChange
-	if bandwidth == BandwidthNarrowband {
-		if pair, ok := d.resamplers[BandwidthNarrowband]; ok && pair != nil && pair.left != nil {
-			d.debugPreResetSIIR = pair.left.GetSIIR()
-		}
-	}
-
 	// Handle bandwidth changes - reset sMid state when sample rate changes
 	d.handleBandwidthChange(bandwidth)
-
-	// DEBUG: Check resampler state AFTER handleBandwidthChange
-	if bandwidth == BandwidthNarrowband {
-		if pair, ok := d.resamplers[BandwidthNarrowband]; ok && pair != nil && pair.left != nil {
-			d.debugPostResetSIIR = pair.left.GetSIIR()
-		}
-	}
 
 	duration := FrameDurationFromTOC(frameSizeSamples)
 
@@ -415,22 +386,8 @@ func (d *Decoder) DecodeWithDecoderInto(
 		return 0, ErrDecodeFailed
 	}
 
-	// DEBUG: Check resampler state BEFORE handleBandwidthChange
-	if bandwidth == BandwidthNarrowband {
-		if pair, ok := d.resamplers[BandwidthNarrowband]; ok && pair != nil && pair.left != nil {
-			d.debugPreResetSIIR = pair.left.GetSIIR()
-		}
-	}
-
 	// Handle bandwidth changes - reset sMid state when sample rate changes
 	d.handleBandwidthChange(bandwidth)
-
-	// DEBUG: Check resampler state AFTER handleBandwidthChange
-	if bandwidth == BandwidthNarrowband {
-		if pair, ok := d.resamplers[BandwidthNarrowband]; ok && pair != nil && pair.left != nil {
-			d.debugPostResetSIIR = pair.left.GetSIIR()
-		}
-	}
 
 	duration := FrameDurationFromTOC(frameSizeSamples)
 

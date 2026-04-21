@@ -19,18 +19,6 @@ type LibopusResampler struct {
 	// Delay buffer for continuity (size = fsInKHz)
 	delayBuf []int16
 
-	// Debug: capture state at start of Process() call
-	debugEnabled          bool
-	debugProcessCallSIIR  [6]int32
-	debugInputFirst10     [10]float32
-	debugDelayBufFirst8   [8]int16
-	debugProcessCallCount int
-	debugLastProcessID    int // ID captured during Process()
-	debugOutputFirst10    [10]float32
-
-	// Unique ID for tracking
-	debugID int
-
 	// Pre-allocated scratch buffers for zero-allocation resampling
 	scratchBuf    []int16   // Size: 2*batchSize + resamplerOrderFIR12
 	scratchIn     []int16   // Size: max input samples
@@ -184,9 +172,6 @@ func NewLibopusResampler(fsIn, fsOut int) *LibopusResampler {
 	r.scratchOut = make([]int16, maxOutputSamples)
 	r.scratchResult = make([]float32, maxOutputSamples)
 
-	// Deterministic debug identifier derived from configuration.
-	r.debugID = fsIn*1000 + fsOut
-
 	return r
 }
 
@@ -255,45 +240,6 @@ func (r *LibopusResampler) CopyFrom(src *LibopusResampler) {
 		r.delayBuf = make([]int16, len(src.delayBuf))
 	}
 	copy(r.delayBuf, src.delayBuf)
-}
-
-func (r *LibopusResampler) debugCaptureInputFloat32(samples []float32) {
-	if !r.debugEnabled {
-		return
-	}
-	r.debugProcessCallCount++
-	r.debugLastProcessID = r.debugID
-	r.debugProcessCallSIIR = r.sIIR
-	for i := 0; i < 10 && i < len(samples); i++ {
-		r.debugInputFirst10[i] = samples[i]
-	}
-	for i := 0; i < 8 && i < len(r.delayBuf); i++ {
-		r.debugDelayBufFirst8[i] = r.delayBuf[i]
-	}
-}
-
-func (r *LibopusResampler) debugCaptureInputInt16(samples []int16) {
-	if !r.debugEnabled {
-		return
-	}
-	r.debugProcessCallCount++
-	r.debugLastProcessID = r.debugID
-	r.debugProcessCallSIIR = r.sIIR
-	for i := 0; i < 10 && i < len(samples); i++ {
-		r.debugInputFirst10[i] = float32(samples[i]) / 32768.0
-	}
-	for i := 0; i < 8 && i < len(r.delayBuf); i++ {
-		r.debugDelayBufFirst8[i] = r.delayBuf[i]
-	}
-}
-
-func (r *LibopusResampler) debugCaptureOutput(out []float32, written int) {
-	if !r.debugEnabled {
-		return
-	}
-	for i := 0; i < 10 && i < written && i < len(out); i++ {
-		r.debugOutputFirst10[i] = out[i]
-	}
 }
 
 // prepareInputFromFloat32 converts input to int16 and pads to >=1ms if needed.
@@ -400,7 +346,6 @@ func (r *LibopusResampler) Process(samples []float32) []float32 {
 		return nil
 	}
 
-	r.debugCaptureInputFloat32(samples)
 	in, inLen := r.prepareInputFromFloat32(samples)
 	outInt16 := r.processInt16Core(in, inLen)
 
@@ -411,7 +356,6 @@ func (r *LibopusResampler) Process(samples []float32) []float32 {
 		result = make([]float32, len(outInt16))
 	}
 	written := writeInt16AsFloat32(result, outInt16)
-	r.debugCaptureOutput(result, written)
 	return result[:written]
 }
 
@@ -423,11 +367,9 @@ func (r *LibopusResampler) ProcessInto(samples []float32, out []float32) int {
 		return 0
 	}
 
-	r.debugCaptureInputFloat32(samples)
 	in, inLen := r.prepareInputFromFloat32(samples)
 	outInt16 := r.processInt16Core(in, inLen)
 	written := writeInt16AsFloat32(out, outInt16)
-	r.debugCaptureOutput(out, written)
 	return written
 }
 
@@ -438,11 +380,9 @@ func (r *LibopusResampler) ProcessInt16Into(samples []int16, out []float32) int 
 		return 0
 	}
 
-	r.debugCaptureInputInt16(samples)
 	in, inLen := r.prepareInputFromInt16(samples)
 	outInt16 := r.processInt16Core(in, inLen)
 	written := writeInt16AsFloat32(out, outInt16)
-	r.debugCaptureOutput(out, written)
 	return written
 }
 
@@ -613,25 +553,3 @@ func min32(a, b int32) int32 {
 	}
 	return b
 }
-
-// Debug getters for testing
-func (r *LibopusResampler) InputDelay() int        { return int(r.inputDelay) }
-func (r *LibopusResampler) FsInKHz() int           { return int(r.fsInKHz) }
-func (r *LibopusResampler) FsOutKHz() int          { return int(r.fsOutKHz) }
-func (r *LibopusResampler) InvRatioQ16() int       { return int(r.invRatioQ16) }
-func (r *LibopusResampler) BatchSize() int         { return int(r.batchSize) }
-func (r *LibopusResampler) GetSIIR() [6]int32      { return r.sIIR }
-func (r *LibopusResampler) GetSFIR() [8]int16      { return r.sFIR }
-func (r *LibopusResampler) GetDelayBuf() []int16   { return r.delayBuf }
-func (r *LibopusResampler) SetSIIR(state [6]int32) { r.sIIR = state }
-func (r *LibopusResampler) EnableDebug(enable bool) {
-	r.debugEnabled = enable
-	r.debugProcessCallCount = 0
-}
-func (r *LibopusResampler) GetDebugProcessCallSIIR() [6]int32  { return r.debugProcessCallSIIR }
-func (r *LibopusResampler) GetDebugInputFirst10() [10]float32  { return r.debugInputFirst10 }
-func (r *LibopusResampler) GetDebugDelayBufFirst8() [8]int16   { return r.debugDelayBufFirst8 }
-func (r *LibopusResampler) GetDebugProcessCallCount() int      { return r.debugProcessCallCount }
-func (r *LibopusResampler) GetDebugID() int                    { return r.debugID }
-func (r *LibopusResampler) GetDebugLastProcessID() int         { return r.debugLastProcessID }
-func (r *LibopusResampler) GetDebugOutputFirst10() [10]float32 { return r.debugOutputFirst10 }

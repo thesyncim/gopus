@@ -1,8 +1,9 @@
 // Package gopus implements the Opus audio codec in pure Go.
 //
 // Opus is a lossy audio codec designed for interactive speech and music
-// transmission. It supports bitrates from 6 to 510 kbit/s, sampling rates
-// from 8 to 48 kHz, and frame sizes from 2.5 to 60 ms.
+// transmission. This implementation supports bitrates from 6 to 510 kbit/s,
+// sampling rates from 8 to 48 kHz, standard frame sizes from 2.5 to 60 ms,
+// and libopus-compatible expert frame durations up to 120 ms.
 //
 // This implementation follows RFC 6716 and is compatible with the
 // reference libopus implementation. It requires no cgo dependencies.
@@ -19,7 +20,8 @@
 //	pcm := make([]float32, 960*2) // 20ms stereo at 48kHz
 //	// ... fill pcm with audio samples ...
 //
-//	packet, err := enc.EncodeFloat32(pcm)
+//	packetBuf := make([]byte, 4000)
+//	nPacket, err := enc.Encode(pcm, packetBuf)
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
@@ -98,11 +100,11 @@
 //
 // The encoder supports various configuration options:
 //
-//	enc.SetBitrate(64000)     // Target bitrate (6000-510000 bps)
+//	enc.SetBitrate(64000)     // Target bitrate
 //	enc.SetComplexity(10)     // Quality vs CPU (0-10)
 //	enc.SetFEC(true)          // Forward error correction
 //	enc.SetDTX(true)          // Discontinuous transmission
-//	enc.SetFrameSize(480)     // Frame size (120-2880 samples)
+//	enc.SetFrameSize(480)     // Frame size (120-5760 samples)
 //
 // # Multistream (Surround Sound)
 //
@@ -120,7 +122,8 @@
 //	pcm := make([]float32, 960*6) // 20ms of 6-channel audio at 48kHz
 //	// ... fill pcm with interleaved samples: FL, C, FR, RL, RR, LFE ...
 //
-//	packet, err := enc.EncodeFloat32(pcm)
+//	packetBuf := make([]byte, 4000)
+//	nPacket, err := enc.Encode(pcm, packetBuf)
 //	if err != nil {
 //	    log.Fatal(err)
 //	}

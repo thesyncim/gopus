@@ -4,10 +4,12 @@ import "github.com/thesyncim/gopus/rangecoding"
 
 type decodedBandAllocation struct {
 	tfRes           []int
+	offsets         []int
 	pulses          []int
 	fineQuant       []int
 	finePriority    []int
 	spread          int
+	allocTrim       int
 	intensity       int
 	dualStereo      int
 	balance         int
@@ -59,6 +61,7 @@ func (d *Decoder) decodeBandAllocation(rd *rangecoding.Decoder, totalBits, start
 			dynallocLogp = max(2, dynallocLogp-1)
 		}
 	}
+	allocation.offsets = offsets[:end]
 	traceRange("dynalloc", rd)
 
 	allocTrim := 5
@@ -66,6 +69,7 @@ func (d *Decoder) decodeBandAllocation(rd *rangecoding.Decoder, totalBits, start
 	if encodedTrim {
 		allocTrim = rd.DecodeICDF(trimICDF, 7)
 	}
+	allocation.allocTrim = allocTrim
 	traceFlag("alloc_trim", allocTrim)
 	traceRange("trim", rd)
 
