@@ -26,6 +26,7 @@ func TestSILK10msOriginalDelay(t *testing.T) {
 		{"WB-20ms", types.BandwidthWideband, 960},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			enc := NewEncoder(48000, 1)
 			enc.SetMode(ModeSILK)
 			enc.SetBandwidth(tc.bw)

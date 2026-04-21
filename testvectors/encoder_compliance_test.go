@@ -267,8 +267,60 @@ func TestEncoderComplianceSummary(t *testing.T) {
 	logEncoderComplianceStatus(t)
 
 	cases := encoderComplianceSummaryCases()
-
 	refAvailable := libopusComplianceReferenceAvailable()
+
+	type caseResult struct {
+		q      float64
+		libQ   float64
+		gapQ   float64
+		status string
+		refOK  bool
+		passed bool
+	}
+	results := make([]caseResult, len(cases))
+
+	// Run cases as parallel subtests; the parent test blocks on t.Run until
+	// every subtest completes, so the summary below sees final results.
+	t.Run("cases", func(t *testing.T) {
+		for i, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+				q, _ := runEncoderComplianceTest(t, tc.mode, tc.bandwidth, tc.frameSize, tc.channels, tc.bitrate)
+
+				res := caseResult{q: q}
+				if refAvailable {
+					libQ, _, ok := runLibopusComplianceReferenceTest(t, tc.mode, tc.bandwidth, tc.frameSize, tc.channels, tc.bitrate)
+					res.refOK = ok
+					if ok {
+						res.libQ = libQ
+						res.gapQ = q - libQ
+						status, floor := encoderComplianceReferenceStatusForCase(tc.name, res.gapQ)
+						res.status = status
+						if status == "FAIL" {
+							t.Errorf("precision floor miss for %s: gap=%.2f Q floor=%.2f Q tol=%.2f Q", tc.name, res.gapQ, floor, encoderLibopusGapMeasurementToleranceQ)
+						} else {
+							res.passed = true
+						}
+					}
+				}
+				if !res.refOK {
+					switch {
+					case q >= EncoderGoodThreshold:
+						res.status = "GOOD"
+						res.passed = true
+					case q >= EncoderQualityThreshold:
+						res.status = "BASE"
+						res.passed = true
+					default:
+						res.status = "FAIL"
+						t.Errorf("absolute quality floor miss for %s: Q=%.2f", tc.name, q)
+					}
+				}
+				results[i] = res
+			})
+		}
+	})
+
 	if refAvailable {
 		t.Log("Encoder Compliance Summary (Target: libopus reference)")
 		t.Log("======================================================")
@@ -282,53 +334,22 @@ func TestEncoderComplianceSummary(t *testing.T) {
 		t.Log("INFO: libopus reference fixture unavailable; using absolute quality thresholds")
 	}
 
-	passed := 0
-	failed := 0
-
-	for _, tc := range cases {
-		q, decoded := runEncoderComplianceTest(t, tc.mode, tc.bandwidth, tc.frameSize, tc.channels, tc.bitrate)
-
-		var status string
+	passed, failed := 0, 0
+	for i, tc := range cases {
+		res := results[i]
+		if res.passed {
+			passed++
+		} else {
+			failed++
+		}
 		if refAvailable {
-			libQ, libDecoded, ok := runLibopusComplianceReferenceTest(t, tc.mode, tc.bandwidth, tc.frameSize, tc.channels, tc.bitrate)
-			_ = libDecoded // decoded samples available for debugging if needed
-			if ok {
-				gapQ := q - libQ
-				status, floor := encoderComplianceReferenceStatusForCase(tc.name, gapQ)
-				if status == "FAIL" {
-					t.Logf("precision floor miss for %s: gap=%.2f Q floor=%.2f Q tol=%.2f Q", tc.name, gapQ, floor, encoderLibopusGapMeasurementToleranceQ)
-					failed++
-				} else {
-					passed++
-				}
-				t.Logf("%-35s %10.2f %10.2f %10.2f %s", tc.name, q, libQ, gapQ, status)
+			if res.refOK {
+				t.Logf("%-35s %10.2f %10.2f %10.2f %s", tc.name, res.q, res.libQ, res.gapQ, res.status)
 			} else {
-				// Fall back to absolute thresholds if reference encode fails for this case.
-				if q >= EncoderGoodThreshold {
-					status = "GOOD"
-					passed++
-				} else if q >= EncoderQualityThreshold {
-					status = "BASE"
-					passed++
-				} else {
-					status = "FAIL"
-					failed++
-				}
-				t.Logf("%-35s %10.2f %10s %10s %s", tc.name, q, "-", "-", status)
+				t.Logf("%-35s %10.2f %10s %10s %s", tc.name, res.q, "-", "-", res.status)
 			}
 		} else {
-			if q >= EncoderGoodThreshold {
-				status = "GOOD"
-				passed++
-			} else if q >= EncoderQualityThreshold {
-				status = "BASE"
-				passed++
-			} else {
-				status = "FAIL"
-				failed++
-			}
-			_ = decoded // decoded samples available for debugging if needed
-			t.Logf("%-35s %10.2f %s", tc.name, q, status)
+			t.Logf("%-35s %10.2f %s", tc.name, res.q, res.status)
 		}
 	}
 
@@ -337,9 +358,6 @@ func TestEncoderComplianceSummary(t *testing.T) {
 	if refAvailable {
 		t.Logf("Gap thresholds (gopus Q - libopus Q): GOOD >= %.1f, BASE >= %.1f", EncoderLibopusGapGoodQ, EncoderLibopusGapBaseQ)
 		t.Logf("Precision floor guard: per-profile floors with %.2f Q measurement tolerance", encoderLibopusGapMeasurementToleranceQ)
-	}
-	if failed > 0 {
-		t.Fatalf("encoder compliance summary failed: %d cases below current thresholds", failed)
 	}
 }
 

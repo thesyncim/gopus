@@ -24,6 +24,7 @@ func TestSILK10msComplexityEffect(t *testing.T) {
 				fsName = "20ms"
 			}
 			t.Run(fsName+"-c"+fmt.Sprint(complexity), func(t *testing.T) {
+				t.Parallel()
 				enc := NewEncoder(48000, 1)
 				enc.SetMode(ModeSILK)
 				enc.SetBandwidth(types.BandwidthWideband)

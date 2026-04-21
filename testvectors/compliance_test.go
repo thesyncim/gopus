@@ -35,6 +35,7 @@ var testVectorNames = []string{
 
 var decoderComplianceLogOnce sync.Once
 var vectorResultCache sync.Map
+var pcmFileCache sync.Map
 
 const decoderComplianceMinQ = 0.0
 
@@ -69,7 +70,10 @@ func TestDecoderCompliance(t *testing.T) {
 	}
 
 	for _, name := range testVectorNames {
+		name := name
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
 			result := cachedVectorResult(name)
 			if result.err != nil {
 				t.Fatalf("run %s: %v", name, result.err)
@@ -95,6 +99,10 @@ func TestDecoderCompliance(t *testing.T) {
 // readPCMFile reads raw signed 16-bit little-endian PCM samples from a file.
 // This is the format used by opus_demo for .dec reference files.
 func readPCMFile(filename string) ([]int16, error) {
+	if cached, ok := pcmFileCache.Load(filename); ok {
+		return cached.([]int16), nil
+	}
+
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, err
@@ -110,7 +118,8 @@ func readPCMFile(filename string) ([]int16, error) {
 		samples[i] = int16(binary.LittleEndian.Uint16(data[i*2:]))
 	}
 
-	return samples, nil
+	actual, _ := pcmFileCache.LoadOrStore(filename, samples)
+	return actual.([]int16), nil
 }
 
 // ensureTestVectors downloads and extracts test vectors if needed.

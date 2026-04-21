@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -235,12 +237,21 @@ func runOpusCompareHelperRequestWithTimeout(proc *opusCompareHelperProcess, payl
 }
 
 func opusCompareWorkerCount() int {
+	// Honor an explicit override for CI runners that want to tune throughput.
+	if v := strings.TrimSpace(os.Getenv("GOPUS_OPUSCOMPARE_WORKERS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
 	n := runtime.GOMAXPROCS(0)
 	if n < 1 {
 		return 1
 	}
-	if n > 4 {
-		return 4
+	// Helper processes are cheap (one short-lived C binary per worker) and
+	// each request is CPU-bound, so scale with core count. Clamp to a sane
+	// upper bound to avoid thrashing on very large runners.
+	if n > 16 {
+		return 16
 	}
 	return n
 }

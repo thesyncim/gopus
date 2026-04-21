@@ -24,6 +24,7 @@ func TestSILK10msBitrateStudy(t *testing.T) {
 			}
 			name := fsName + "-" + itoa(bitrate/1000) + "k"
 			t.Run(name, func(t *testing.T) {
+				t.Parallel()
 				enc := NewEncoder(48000, 1)
 				enc.SetMode(ModeSILK)
 				enc.SetBandwidth(types.BandwidthWideband)

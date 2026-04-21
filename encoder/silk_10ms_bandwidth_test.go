@@ -29,6 +29,7 @@ func TestSILK10msBandwidthEffect(t *testing.T) {
 				fsName = "20ms"
 			}
 			t.Run(bw.name+"-"+fsName, func(t *testing.T) {
+				t.Parallel()
 				enc := NewEncoder(48000, 1)
 				enc.SetMode(ModeSILK)
 				enc.SetBandwidth(bw.bw)

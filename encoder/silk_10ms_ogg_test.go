@@ -36,6 +36,7 @@ func TestSILK10msOggDebug(t *testing.T) {
 		{"NB-20ms-32k", types.BandwidthNarrowband, silk.BandwidthNarrowband, 960, 32000},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			enc := NewEncoder(48000, 1)
 			enc.SetMode(ModeSILK)
 			enc.SetBandwidth(tc.bw)
@@ -421,6 +422,7 @@ func TestSILK10msCompareOggFileSize(t *testing.T) {
 		{"WB-20ms", types.BandwidthWideband, 960},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			enc := NewEncoder(48000, 1)
 			enc.SetMode(ModeSILK)
 			enc.SetBandwidth(tc.bw)

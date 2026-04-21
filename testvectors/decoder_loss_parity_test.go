@@ -244,8 +244,8 @@ func TestDecoderLossParityLibopusFixture(t *testing.T) {
 	}
 
 	for _, c := range fixture.Cases {
-		c := c
 		t.Run(c.Name, func(t *testing.T) {
+			t.Parallel()
 			packets, err := decodeLibopusDecoderLossPackets(c)
 			if err != nil {
 				t.Fatalf("decode fixture packets: %v", err)
@@ -255,8 +255,8 @@ func TestDecoderLossParityLibopusFixture(t *testing.T) {
 			}
 
 			for _, r := range c.Results {
-				r := r
 				t.Run(r.Pattern, func(t *testing.T) {
+					t.Parallel()
 					refDecoded, err := decodeLibopusDecoderLossSamples(r)
 					if err != nil {
 						t.Fatalf("decode fixture reference samples: %v", err)
@@ -266,7 +266,7 @@ func TestDecoderLossParityLibopusFixture(t *testing.T) {
 						fixture.SampleRate,
 						c.Channels,
 						packets,
-						parseLossBits(r.LossBits),
+						r.parsedLossBits,
 					)
 					if len(refDecoded) == 0 || len(gotDecoded) == 0 {
 						t.Fatalf("decoded streams empty: ref=%d got=%d", len(refDecoded), len(gotDecoded))

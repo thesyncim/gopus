@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 )
 
 // Errors returned by the parser.
@@ -25,6 +26,8 @@ var (
 	// ErrEmptyFile indicates the file contains no packets.
 	ErrEmptyFile = errors.New("testvectors: empty file (no packets)")
 )
+
+var bitstreamFileCache sync.Map
 
 // Packet represents a decoded opus_demo packet with metadata.
 // The opus_demo format stores packets with their range coder final state
@@ -92,6 +95,10 @@ func ParseOpusDemoBitstream(data []byte) ([]Packet, error) {
 // ReadBitstreamFile reads and parses an opus_demo .bit file from disk.
 // This is a convenience function that combines os.ReadFile with ParseOpusDemoBitstream.
 func ReadBitstreamFile(filename string) ([]Packet, error) {
+	if cached, ok := bitstreamFileCache.Load(filename); ok {
+		return clonePacketViews(cached.([]Packet)), nil
+	}
+
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("testvectors: failed to read file: %w", err)
@@ -102,7 +109,15 @@ func ReadBitstreamFile(filename string) ([]Packet, error) {
 		return nil, fmt.Errorf("testvectors: failed to parse %s: %w", filename, err)
 	}
 
-	return packets, nil
+	actual, _ := bitstreamFileCache.LoadOrStore(filename, packets)
+	return clonePacketViews(actual.([]Packet)), nil
+}
+
+func clonePacketViews(src []Packet) []Packet {
+	if src == nil {
+		return nil
+	}
+	return append([]Packet(nil), src...)
 }
 
 // BitstreamInfo contains summary information about a parsed bitstream.

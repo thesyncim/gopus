@@ -63,6 +63,9 @@ type encoderComplianceVariantsFixtureCase struct {
 	Frames        int                                      `json:"frames"`
 	ModeHistogram map[string]int                           `json:"mode_histogram"`
 	Packets       []encoderComplianceVariantsFixturePacket `json:"packets"`
+
+	decodedPackets [][]byte
+	decodedRanges  []uint32
 }
 
 type encoderComplianceVariantsFixturePacket struct {
@@ -125,11 +128,16 @@ func loadEncoderComplianceVariantsFixture() (encoderComplianceVariantsFixtureFil
 				encoderComplianceVariantsFixtureErr = fmt.Errorf("signal hash must be sha256 hex in variants case[%d]", i)
 				return
 			}
+			c.decodedPackets = make([][]byte, len(c.Packets))
+			c.decodedRanges = make([]uint32, len(c.Packets))
 			for j := range c.Packets {
-				if _, err := base64.StdEncoding.DecodeString(c.Packets[j].DataB64); err != nil {
+				payload, err := base64.StdEncoding.DecodeString(c.Packets[j].DataB64)
+				if err != nil {
 					encoderComplianceVariantsFixtureErr = fmt.Errorf("invalid packet[%d] b64 in variants case[%d]: %w", j, i, err)
 					return
 				}
+				c.decodedPackets[j] = payload
+				c.decodedRanges[j] = c.Packets[j].FinalRange
 			}
 		}
 		encoderComplianceVariantsFixtureData = fixture
@@ -138,17 +146,7 @@ func loadEncoderComplianceVariantsFixture() (encoderComplianceVariantsFixtureFil
 }
 
 func decodeEncoderVariantsFixturePackets(c encoderComplianceVariantsFixtureCase) ([][]byte, []uint32, error) {
-	packets := make([][]byte, len(c.Packets))
-	ranges := make([]uint32, len(c.Packets))
-	for i := range c.Packets {
-		payload, err := base64.StdEncoding.DecodeString(c.Packets[i].DataB64)
-		if err != nil {
-			return nil, nil, err
-		}
-		packets[i] = payload
-		ranges[i] = c.Packets[i].FinalRange
-	}
-	return packets, ranges, nil
+	return append([][]byte(nil), c.decodedPackets...), append([]uint32(nil), c.decodedRanges...), nil
 }
 
 func findEncoderVariantsFixtureCase(mode encoder.Mode, bandwidth types.Bandwidth, frameSize, channels, bitrate int, variant string) (encoderComplianceVariantsFixtureCase, bool) {
