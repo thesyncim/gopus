@@ -2,6 +2,7 @@ package gopus
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"math"
 	"slices"
@@ -11,6 +12,7 @@ import (
 	internalenc "github.com/thesyncim/gopus/encoder"
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	internaldred "github.com/thesyncim/gopus/internal/dred"
+	"github.com/thesyncim/gopus/internal/dred/rdovae"
 	"github.com/thesyncim/gopus/rangecoding"
 	"github.com/thesyncim/gopus/types"
 )
@@ -34,11 +36,79 @@ func makeExperimentalDREDPayloadBodyForTest(t *testing.T, dredFrameOffset, dredO
 }
 
 func makeValidDREDDecoderTestDNNBlob() []byte {
-	blob := makeValidDecoderTestDNNBlob()
-	for _, name := range dnnblob.RequiredDREDDecoderRecordNames() {
-		blob = appendTestBlobRecord(blob, name, 0, 4)
+	var blob []byte
+	for _, spec := range rdovae.DecoderLayerSpecs() {
+		blob = appendDREDDecoderLayerTestRecords(blob, spec)
 	}
 	return blob
+}
+
+func makeValidDecoderControlWithDREDDecoderTestDNNBlob() []byte {
+	blob := append([]byte(nil), makeValidDecoderTestDNNBlob()...)
+	for _, spec := range rdovae.DecoderLayerSpecs() {
+		blob = appendDREDDecoderLayerTestRecords(blob, spec)
+	}
+	return blob
+}
+
+func appendDREDDecoderLayerTestRecords(dst []byte, spec rdovae.LinearLayerSpec) []byte {
+	totalBlocks := 0
+	if spec.Bias != "" {
+		dst = appendDREDDecoderRecord(dst, spec.Bias, dnnblob.TypeFloat, encodeTestFloat32Payload(spec.NbOutputs))
+	}
+	if spec.Subias != "" {
+		dst = appendDREDDecoderRecord(dst, spec.Subias, dnnblob.TypeFloat, encodeTestFloat32Payload(spec.NbOutputs))
+	}
+	if spec.WeightsIdx != "" {
+		idx := make([]int32, 0, 2*(spec.NbOutputs/8))
+		for i := 0; i < spec.NbOutputs; i += 8 {
+			idx = append(idx, 1, 0)
+			totalBlocks++
+		}
+		dst = appendDREDDecoderRecord(dst, spec.WeightsIdx, dnnblob.TypeInt, encodeTestInt32Payload(idx))
+	}
+	if spec.Weights != "" {
+		size := spec.NbInputs * spec.NbOutputs
+		if totalBlocks > 0 {
+			size = rdovae.SparseBlockSize * totalBlocks
+		}
+		dst = appendDREDDecoderRecord(dst, spec.Weights, dnnblob.TypeInt8, make([]byte, size))
+		dst = appendDREDDecoderRecord(dst, spec.Scale, dnnblob.TypeFloat, encodeTestFloat32Payload(spec.NbOutputs))
+	}
+	if spec.FloatWeights != "" {
+		size := spec.NbInputs * spec.NbOutputs
+		if totalBlocks > 0 {
+			size = rdovae.SparseBlockSize * totalBlocks
+		}
+		dst = appendDREDDecoderRecord(dst, spec.FloatWeights, dnnblob.TypeFloat, make([]byte, 4*size))
+	}
+	return dst
+}
+
+func appendDREDDecoderRecord(dst []byte, name string, typ int32, payload []byte) []byte {
+	const headerSize = 64
+	blockSize := ((len(payload) + headerSize - 1) / headerSize) * headerSize
+	out := make([]byte, headerSize+blockSize)
+	copy(out[:4], []byte("DNNw"))
+	binary.LittleEndian.PutUint32(out[8:12], uint32(typ))
+	binary.LittleEndian.PutUint32(out[12:16], uint32(len(payload)))
+	binary.LittleEndian.PutUint32(out[16:20], uint32(blockSize))
+	copy(out[20:63], []byte(name))
+	out[63] = 0
+	copy(out[headerSize:], payload)
+	return append(dst, out...)
+}
+
+func encodeTestFloat32Payload(n int) []byte {
+	return make([]byte, 4*n)
+}
+
+func encodeTestInt32Payload(values []int32) []byte {
+	out := make([]byte, 4*len(values))
+	for i, v := range values {
+		binary.LittleEndian.PutUint32(out[i*4:i*4+4], uint32(v))
+	}
+	return out
 }
 
 func setValidDREDDecoderBlobForTest(t *testing.T, dec *Decoder) {
@@ -331,7 +401,7 @@ func TestDecoderPublicSetDNNBlobDoesNotArmStandaloneDREDDecoder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
-	if err := dec.SetDNNBlob(makeValidDREDDecoderTestDNNBlob()); err != nil {
+	if err := dec.SetDNNBlob(makeValidDecoderControlWithDREDDecoderTestDNNBlob()); err != nil {
 		t.Fatalf("SetDNNBlob error: %v", err)
 	}
 	if dec.dredModelLoaded {

@@ -30,11 +30,21 @@ Implemented or in progress:
 - request-bounded availability matches libopus for the current parse-stage matrix
 - standalone tag-gated `DREDDecoder` / `DRED` wrapper exists
 - low-cost header and payload-latent counting exist
-- retained parse-stage `state[]` / `latents[]` parity work is in progress
+- retained parse-stage `state[]` / `latents[]` parity exists and is libopus-backed
+- pure-Go standalone `opus_dred_process()` equivalent exists for retained DRED features
+- the pure-Go RDOVAE decoder runtime now uses a reusable processor/scratch layout to keep the standalone process path explicitly allocation-free
+- standalone DRED payload discovery now uses a narrow non-alloc packet-padding scan instead of the generic frame parser
+- decoder-side recovery scheduling now has a pure-Go LPCNet-style queue/blend state plus a libopus-shaped processed-feature scheduler
+- libopus-backed real-packet parity coverage exists for:
+  - parse-stage state and latents
+  - processed DRED features
+  - recovery-window / feature-offset probing math
+  - recovery queue fill/skip scheduling from processed DRED features
+  - repeated / clone `Process()` lifecycle semantics on real DRED packets
+- encoder-side `DFrameSize` staging / rollover groundwork exists in pure Go
 
 Still missing for full parity:
 
-- model-backed `opus_dred_process()` parity
 - model-backed `opus_decoder_dred_decode*()` parity
 - encoder-side DRED latent generation and bitstream emission
 
@@ -90,6 +100,7 @@ Reference files:
 
 Acceptance:
 - `opus_dred_process()`-level feature generation matches libopus on fixed packets and fixed model weights
+- processor/runtime reuse remains zero-allocation for repeated standalone `Process()` calls
 
 ### 3. Model Weights And Loader Binding
 
@@ -127,8 +138,8 @@ Subtasks:
 - pack the resulting DRED payload into the same Opus extension/padding representation libopus emits
 
 Important note:
-- `DFrameSize = 2 * FrameSize` in Go is currently only a mirrored libopus constant
-- it corresponds to encoder-side staging in libopus, not a live Go decoder/runtime path yet
+- `DFrameSize = 2 * FrameSize` now has a matching pure-Go staging helper for encoder buffering and rollover
+- full encoder-side latent generation and payload emission are still not implemented
 
 Reference files:
 - `tmp_check/opus-1.6.1/dnn/dred_config.h`
@@ -175,6 +186,9 @@ Acceptance:
 
 - helper that compares `opus_dred_process()` outputs, not just parse-stage state
 - fixed-model fixture coverage for generated DRED features
+- real-packet recovery-window comparison against the feature-offset math used by `opus_decode_native()`
+- lifecycle checks for repeated in-place `Process()` and `Process(srcProcessed, dst)` clone behavior
+- zero-allocation coverage for standalone parse/process and processed-feature queue scheduling
 
 ### Required Before Claiming Recovery/Audio Parity
 
@@ -201,6 +215,8 @@ Acceptance:
 
 - `opus_dred_process()` equivalent exists in Go
 - generated feature tensors match libopus
+- recovery-window / feature-offset probing matches libopus on real DRED packets
+- processed-feature recovery queue scheduling matches libopus and remains allocation-free
 
 ### M3. Encoder Staging Parity
 

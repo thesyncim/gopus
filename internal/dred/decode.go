@@ -13,6 +13,7 @@ const (
 type Decoded struct {
 	State     [StateDim]float32
 	Latents   [MaxLatents * LatentStride]float32
+	Features  [MaxFrames * NumFeatures]float32
 	NbLatents int
 }
 
@@ -49,6 +50,20 @@ func (d *Decoded) FillLatents(dst []float32) int {
 		n = len(dst)
 	}
 	copy(dst[:n], d.Latents[:n])
+	return n
+}
+
+// FillFeatures copies the retained DRED feature frames into dst and returns the
+// number of floats written.
+func (d *Decoded) FillFeatures(dst []float32) int {
+	if d == nil {
+		return 0
+	}
+	n := d.NbLatents * 4 * NumFeatures
+	if n > len(dst) {
+		n = len(dst)
+	}
+	copy(dst[:n], d.Features[:n])
 	return n
 }
 
