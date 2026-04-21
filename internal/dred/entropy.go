@@ -2,11 +2,6 @@ package dred
 
 import "github.com/thesyncim/gopus/rangecoding"
 
-const (
-	dredStateDim  = 50
-	dredLatentDim = 25
-)
-
 func maxInt(a, b int) int {
 	if a > b {
 		return a
@@ -50,7 +45,7 @@ func decodeDREDLatents(rd *rangecoding.Decoder, p0Table, rTable []uint8) {
 }
 
 func parseHeaderWithDecoder(payload []byte, dredFrameOffset int, rd *rangecoding.Decoder) (Header, error) {
-	if len(payload) < MinBytes {
+	if len(payload) == 0 {
 		return Header{}, errInvalidHeader
 	}
 
@@ -88,8 +83,8 @@ func parseHeaderWithDecoder(payload []byte, dredFrameOffset int, rd *rangecoding
 }
 
 func payloadLatents(payload []byte, header Header, rd *rangecoding.Decoder) int {
-	stateOffset := header.Q0 * dredStateDim
-	decodeDREDLatents(rd, dredStateP0Q8[stateOffset:stateOffset+dredStateDim], dredStateRQ8[stateOffset:stateOffset+dredStateDim])
+	stateOffset := header.Q0 * StateDim
+	decodeDREDLatents(rd, dredStateP0Q8[stateOffset:stateOffset+StateDim], dredStateRQ8[stateOffset:stateOffset+StateDim])
 
 	latents := 0
 	for i := 0; i < NumRedundancyFrames; i += 2 {
@@ -97,8 +92,8 @@ func payloadLatents(payload []byte, header Header, rd *rangecoding.Decoder) int 
 			break
 		}
 		quant := header.QuantizerLevel(i / 2)
-		offset := quant * dredLatentDim
-		decodeDREDLatents(rd, dredLatentP0Q8[offset:offset+dredLatentDim], dredLatentRQ8[offset:offset+dredLatentDim])
+		offset := quant * LatentDim
+		decodeDREDLatents(rd, dredLatentP0Q8[offset:offset+LatentDim], dredLatentRQ8[offset:offset+LatentDim])
 		latents++
 	}
 	return latents

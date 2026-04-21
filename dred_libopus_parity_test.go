@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,10 +26,24 @@ type libopusDREDParseInfo struct {
 	dredEndSamples   int
 }
 
+type libopusDREDDecodeInfo struct {
+	availableSamples int
+	dredEndSamples   int
+	processStage     int
+	nbLatents        int
+	dredOffset       int
+	state            [internaldred.StateDim]float32
+	latents          []float32
+}
+
 var (
 	libopusDREDParseHelperOnce sync.Once
 	libopusDREDParseHelperPath string
 	libopusDREDParseHelperErr  error
+
+	libopusDREDDecodeHelperOnce sync.Once
+	libopusDREDDecodeHelperPath string
+	libopusDREDDecodeHelperErr  error
 )
 
 func ensureLibopusDREDBuild(repoRoot string) (sourceDir, buildDir string, err error) {
@@ -85,61 +100,74 @@ func ensureLibopusDREDBuild(repoRoot string) (sourceDir, buildDir string, err er
 
 func getLibopusDREDParseHelperPath() (string, error) {
 	libopusDREDParseHelperOnce.Do(func() {
-		ccPath, err := libopustooling.FindCCompiler()
-		if err != nil {
-			libopusDREDParseHelperErr = fmt.Errorf("cc not available: %w", err)
-			return
-		}
-
-		repoRoot, err := os.Getwd()
-		if err != nil {
-			libopusDREDParseHelperErr = fmt.Errorf("getwd: %w", err)
-			return
-		}
-
-		sourceDir, buildDir, err := ensureLibopusDREDBuild(repoRoot)
-		if err != nil {
-			libopusDREDParseHelperErr = err
-			return
-		}
-
-		srcPath := filepath.Join(repoRoot, "tools", "csrc", "libopus_dred_parse_info.c")
-		if _, err := os.Stat(srcPath); err != nil {
-			libopusDREDParseHelperErr = fmt.Errorf("dred helper source not found: %w", err)
-			return
-		}
-
-		libopusStatic := filepath.Join(buildDir, ".libs", "libopus.a")
-		if _, err := os.Stat(libopusStatic); err != nil {
-			libopusDREDParseHelperErr = fmt.Errorf("dred libopus static library not found: %w", err)
-			return
-		}
-
-		outPath := filepath.Join(buildDir, fmt.Sprintf("gopus_libopus_dred_parse_%s_%s", runtime.GOOS, runtime.GOARCH))
-		if runtime.GOOS == "windows" {
-			outPath += ".exe"
-		}
-
-		cmd := exec.Command(ccPath,
-			"-std=c99",
-			"-O2",
-			"-I", filepath.Join(sourceDir, "include"),
-			srcPath,
-			libopusStatic,
-			"-lm",
-			"-o", outPath,
-		)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			libopusDREDParseHelperErr = fmt.Errorf("build dred parse helper: %w (%s)", err, bytes.TrimSpace(output))
-			return
-		}
-
-		libopusDREDParseHelperPath = outPath
+		libopusDREDParseHelperPath, libopusDREDParseHelperErr = buildLibopusDREDHelper("libopus_dred_parse_info.c", "gopus_libopus_dred_parse", false)
 	})
 	if libopusDREDParseHelperErr != nil {
 		return "", libopusDREDParseHelperErr
 	}
 	return libopusDREDParseHelperPath, nil
+}
+
+func getLibopusDREDDecodeHelperPath() (string, error) {
+	libopusDREDDecodeHelperOnce.Do(func() {
+		libopusDREDDecodeHelperPath, libopusDREDDecodeHelperErr = buildLibopusDREDHelper("libopus_dred_decode_info.c", "gopus_libopus_dred_decode", true)
+	})
+	if libopusDREDDecodeHelperErr != nil {
+		return "", libopusDREDDecodeHelperErr
+	}
+	return libopusDREDDecodeHelperPath, nil
+}
+
+func buildLibopusDREDHelper(sourceFile, outputBase string, includeInternal bool) (string, error) {
+	ccPath, err := libopustooling.FindCCompiler()
+	if err != nil {
+		return "", fmt.Errorf("cc not available: %w", err)
+	}
+
+	repoRoot, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("getwd: %w", err)
+	}
+
+	sourceDir, buildDir, err := ensureLibopusDREDBuild(repoRoot)
+	if err != nil {
+		return "", err
+	}
+
+	srcPath := filepath.Join(repoRoot, "tools", "csrc", sourceFile)
+	if _, err := os.Stat(srcPath); err != nil {
+		return "", fmt.Errorf("dred helper source not found: %w", err)
+	}
+
+	libopusStatic := filepath.Join(buildDir, ".libs", "libopus.a")
+	if _, err := os.Stat(libopusStatic); err != nil {
+		return "", fmt.Errorf("dred libopus static library not found: %w", err)
+	}
+
+	outPath := filepath.Join(buildDir, fmt.Sprintf("%s_%s_%s", outputBase, runtime.GOOS, runtime.GOARCH))
+	if runtime.GOOS == "windows" {
+		outPath += ".exe"
+	}
+
+	args := []string{
+		"-std=c99",
+		"-O2",
+		"-I", filepath.Join(sourceDir, "include"),
+	}
+	if includeInternal {
+		args = append(args,
+			"-I", sourceDir,
+			"-I", filepath.Join(sourceDir, "celt"),
+			"-I", filepath.Join(sourceDir, "dnn"),
+		)
+	}
+	args = append(args, srcPath, libopusStatic, "-lm", "-o", outPath)
+
+	cmd := exec.Command(ccPath, args...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("build dred helper %s: %w (%s)", sourceFile, err, bytes.TrimSpace(output))
+	}
+	return outPath, nil
 }
 
 func probeLibopusDREDParse(packet []byte, maxDREDSamples, sampleRate int) (libopusDREDParseInfo, error) {
@@ -182,6 +210,68 @@ func probeLibopusDREDParse(packet []byte, maxDREDSamples, sampleRate int) (libop
 	}, nil
 }
 
+func probeLibopusDREDDecode(packet []byte, maxDREDSamples, sampleRate int) (libopusDREDDecodeInfo, error) {
+	binPath, err := getLibopusDREDDecodeHelperPath()
+	if err != nil {
+		return libopusDREDDecodeInfo{}, err
+	}
+
+	var payload bytes.Buffer
+	payload.WriteString(libopusDREDParseInputMagic)
+	for _, v := range []uint32{1, uint32(sampleRate), uint32(maxDREDSamples), uint32(len(packet))} {
+		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
+			return libopusDREDDecodeInfo{}, fmt.Errorf("encode dred decode helper header: %w", err)
+		}
+	}
+	if _, err := payload.Write(packet); err != nil {
+		return libopusDREDDecodeInfo{}, fmt.Errorf("encode dred decode helper packet: %w", err)
+	}
+
+	cmd := exec.Command(binPath)
+	cmd.Stdin = bytes.NewReader(payload.Bytes())
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return libopusDREDDecodeInfo{}, fmt.Errorf("run dred decode helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	}
+
+	out := stdout.Bytes()
+	headerBytes := 4 + 4 + 4 + 4 + 4 + 4 + 4
+	if len(out) < headerBytes || string(out[:4]) != libopusDREDParseOutputMagic {
+		return libopusDREDDecodeInfo{}, fmt.Errorf("unexpected dred decode helper output")
+	}
+
+	info := libopusDREDDecodeInfo{
+		availableSamples: int(int32(binary.LittleEndian.Uint32(out[8:12]))),
+		dredEndSamples:   int(int32(binary.LittleEndian.Uint32(out[12:16]))),
+		processStage:     int(int32(binary.LittleEndian.Uint32(out[16:20]))),
+		nbLatents:        int(int32(binary.LittleEndian.Uint32(out[20:24]))),
+		dredOffset:       int(int32(binary.LittleEndian.Uint32(out[24:28]))),
+	}
+
+	offset := 28
+	for i := range info.state {
+		if len(out) < offset+4 {
+			return libopusDREDDecodeInfo{}, fmt.Errorf("truncated dred decode helper state")
+		}
+		info.state[i] = math.Float32frombits(binary.LittleEndian.Uint32(out[offset : offset+4]))
+		offset += 4
+	}
+
+	latentValues := info.nbLatents * internaldred.LatentStride
+	info.latents = make([]float32, latentValues)
+	for i := 0; i < latentValues; i++ {
+		if len(out) < offset+4 {
+			return libopusDREDDecodeInfo{}, fmt.Errorf("truncated dred decode helper latents")
+		}
+		info.latents[i] = math.Float32frombits(binary.LittleEndian.Uint32(out[offset : offset+4]))
+		offset += 4
+	}
+	return info, nil
+}
+
 func TestParsedDREDAvailabilityMatchesLibopus(t *testing.T) {
 	base := makeValidCELTPacketForDREDTest(t)
 	if len(base) < 2 {
@@ -217,6 +307,21 @@ func TestParsedDREDAvailabilityMatchesLibopus(t *testing.T) {
 		{
 			name:           "second_frame_negative_offset",
 			packet:         twoFramePacket,
+			maxDREDSamples: 960,
+		},
+		{
+			name: "first_dred_extension_invalid_second_valid",
+			packet: buildSingleFramePacketWithExtensionsForDREDTest(t, base, []packetExtensionData{
+				{ID: internaldred.ExtensionID, Frame: 0, Data: []byte{'X', internaldred.ExperimentalVersion, 0x10}},
+				{ID: internaldred.ExtensionID, Frame: 0, Data: append([]byte{'D', internaldred.ExperimentalVersion}, makeExperimentalDREDPayloadBodyForTest(t, 0, 4)...)},
+			}),
+			maxDREDSamples: 960,
+		},
+		{
+			name: "short_experimental_payload",
+			packet: buildSingleFramePacketWithExtensionsForDREDTest(t, base, []packetExtensionData{
+				{ID: internaldred.ExtensionID, Frame: 0, Data: []byte{'D', internaldred.ExperimentalVersion, 0xaa, 0xbb}},
+			}),
 			maxDREDSamples: 960,
 		},
 	}

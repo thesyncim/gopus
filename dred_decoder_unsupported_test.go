@@ -5,6 +5,7 @@ package gopus
 
 import (
 	"errors"
+	"math"
 	"testing"
 
 	internaldred "github.com/thesyncim/gopus/internal/dred"
@@ -68,6 +69,27 @@ func TestDREDDecoderParseAndProcessRetainsMetadata(t *testing.T) {
 	if got := dred.Parsed().Header.DredFrameOffset; got != 8 {
 		t.Fatalf("Parsed().Header.DredFrameOffset=%d want 8", got)
 	}
+	decodeWant, err := probeLibopusDREDDecode(packet, 960, 48000)
+	if err != nil {
+		t.Skipf("libopus dred decode helper unavailable: %v", err)
+	}
+	if decodeWant.availableSamples < 0 {
+		t.Fatalf("libopus dred decode returned error %d", decodeWant.availableSamples)
+	}
+	if got := dred.LatentCount(); got != decodeWant.nbLatents {
+		t.Fatalf("LatentCount()=%d want %d", got, decodeWant.nbLatents)
+	}
+	state := make([]float32, internaldred.StateDim)
+	if n := dred.FillState(state); n != internaldred.StateDim {
+		t.Fatalf("FillState count=%d want %d", n, internaldred.StateDim)
+	}
+	assertFloat32BitsEqual(t, state, decodeWant.state[:], "state")
+	latents := make([]float32, internaldred.MaxLatents*internaldred.LatentStride)
+	wantLatents := decodeWant.nbLatents * internaldred.LatentStride
+	if n := dred.FillLatents(latents); n != wantLatents {
+		t.Fatalf("FillLatents count=%d want %d", n, wantLatents)
+	}
+	assertFloat32BitsEqual(t, latents[:wantLatents], decodeWant.latents, "latents")
 
 	processed := NewDRED()
 	if err := dec.Process(dred, processed); err != nil {
@@ -100,6 +122,16 @@ func TestDREDDecoderParseAndProcessRetainsMetadata(t *testing.T) {
 	if err := dec.Process(processed, processed); err != nil {
 		t.Fatalf("Process(processed, processed) error: %v", err)
 	}
+	processedState := make([]float32, internaldred.StateDim)
+	if n := processed.FillState(processedState); n != internaldred.StateDim {
+		t.Fatalf("processed FillState count=%d want %d", n, internaldred.StateDim)
+	}
+	assertFloat32BitsEqual(t, processedState, state, "processed state")
+	processedLatents := make([]float32, internaldred.MaxLatents*internaldred.LatentStride)
+	if n := processed.FillLatents(processedLatents); n != wantLatents {
+		t.Fatalf("processed FillLatents count=%d want %d", n, wantLatents)
+	}
+	assertFloat32BitsEqual(t, processedLatents[:wantLatents], latents[:wantLatents], "processed latents")
 }
 
 func TestDREDDecoderParseClearsStateWhenPacketHasNoDRED(t *testing.T) {
@@ -160,5 +192,111 @@ func TestDREDDecoderParseClearsStateOnMalformedPacket(t *testing.T) {
 	}
 	if !dred.Empty() || dred.Len() != 0 || dred.ProcessStage() != DREDProcessStageEmpty || dred.NeedsProcessing() || dred.Processed() {
 		t.Fatalf("Parse(malformed) left stale dred state: len=%d stage=%d needs=%v processed=%v", dred.Len(), dred.ProcessStage(), dred.NeedsProcessing(), dred.Processed())
+	}
+}
+
+func TestStandaloneDREDParseMatchesLibopus(t *testing.T) {
+	dec := NewDREDDecoder()
+	if err := dec.SetDNNBlob(makeValidDREDDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+
+	base := makeValidCELTPacketForDREDTest(t)
+	tests := []struct {
+		name           string
+		packet         []byte
+		maxDREDSamples int
+	}{
+		{
+			name: "valid_payload",
+			packet: buildSingleFramePacketWithExtensionsForDREDTest(t, base, []packetExtensionData{
+				{ID: internaldred.ExtensionID, Frame: 0, Data: append([]byte{'D', internaldred.ExperimentalVersion}, makeExperimentalDREDPayloadBodyForTest(t, 0, 4)...)},
+			}),
+			maxDREDSamples: 960,
+		},
+		{
+			name: "first_extension_invalid_second_valid",
+			packet: buildSingleFramePacketWithExtensionsForDREDTest(t, base, []packetExtensionData{
+				{ID: internaldred.ExtensionID, Frame: 0, Data: []byte{'X', internaldred.ExperimentalVersion, 0x10}},
+				{ID: internaldred.ExtensionID, Frame: 0, Data: append([]byte{'D', internaldred.ExperimentalVersion}, makeExperimentalDREDPayloadBodyForTest(t, 0, 4)...)},
+			}),
+			maxDREDSamples: 960,
+		},
+		{
+			name: "short_experimental_payload",
+			packet: buildSingleFramePacketWithExtensionsForDREDTest(t, base, []packetExtensionData{
+				{ID: internaldred.ExtensionID, Frame: 0, Data: []byte{'D', internaldred.ExperimentalVersion, 0xaa, 0xbb}},
+			}),
+			maxDREDSamples: 960,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dred := NewDRED()
+			available, dredEnd, err := dec.Parse(dred, tc.packet, tc.maxDREDSamples, 48000, true)
+			if err != nil {
+				t.Fatalf("Parse error: %v", err)
+			}
+			if dred.ProcessStage() != DREDProcessStageDeferred || !dred.NeedsProcessing() || dred.Processed() {
+				t.Fatalf("stage after deferred Parse = (%d, needs=%v, processed=%v) want (%d,true,false)", dred.ProcessStage(), dred.NeedsProcessing(), dred.Processed(), DREDProcessStageDeferred)
+			}
+
+			want, err := probeLibopusDREDParse(tc.packet, tc.maxDREDSamples, 48000)
+			if err != nil {
+				t.Skipf("libopus dred helper unavailable: %v", err)
+			}
+			if want.availableSamples < 0 {
+				t.Fatalf("libopus dred parse returned error %d", want.availableSamples)
+			}
+			if available != want.availableSamples {
+				t.Fatalf("available=%d want %d", available, want.availableSamples)
+			}
+			if dredEnd != want.dredEndSamples {
+				t.Fatalf("dredEnd=%d want %d", dredEnd, want.dredEndSamples)
+			}
+
+			decodeWant, err := probeLibopusDREDDecode(tc.packet, tc.maxDREDSamples, 48000)
+			if err != nil {
+				t.Skipf("libopus dred decode helper unavailable: %v", err)
+			}
+			if decodeWant.availableSamples < 0 {
+				t.Fatalf("libopus dred decode returned error %d", decodeWant.availableSamples)
+			}
+			if int(dred.ProcessStage()) != decodeWant.processStage {
+				t.Fatalf("ProcessStage=%d want %d", dred.ProcessStage(), decodeWant.processStage)
+			}
+			if got := dred.Parsed().Header.DredOffset; got != decodeWant.dredOffset {
+				t.Fatalf("Parsed().Header.DredOffset=%d want %d", got, decodeWant.dredOffset)
+			}
+			if got := dred.LatentCount(); got != decodeWant.nbLatents {
+				t.Fatalf("LatentCount()=%d want %d", got, decodeWant.nbLatents)
+			}
+
+			state := make([]float32, internaldred.StateDim)
+			if n := dred.FillState(state); n != internaldred.StateDim {
+				t.Fatalf("FillState count=%d want %d", n, internaldred.StateDim)
+			}
+			assertFloat32BitsEqual(t, state, decodeWant.state[:], "state")
+
+			latents := make([]float32, internaldred.MaxLatents*internaldred.LatentStride)
+			wantLatents := decodeWant.nbLatents * internaldred.LatentStride
+			if n := dred.FillLatents(latents); n != wantLatents {
+				t.Fatalf("FillLatents count=%d want %d", n, wantLatents)
+			}
+			assertFloat32BitsEqual(t, latents[:wantLatents], decodeWant.latents, "latents")
+		})
+	}
+}
+
+func assertFloat32BitsEqual(t *testing.T, got, want []float32, label string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s len=%d want %d", label, len(got), len(want))
+	}
+	for i := range got {
+		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+			t.Fatalf("%s[%d]=%g want %g", label, i, got[i], want[i])
+		}
 	}
 }

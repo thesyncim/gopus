@@ -85,7 +85,7 @@ func buildSingleFramePacketWithExtensionsForDREDTest(t *testing.T, packet []byte
 	if len(packet) < 2 {
 		t.Fatal("packet too short for extension test")
 	}
-	dst := make([]byte, len(packet)+16)
+	dst := make([]byte, len(packet)+64)
 	n, err := buildPacketWithOptions(packet[0]&0xFC, [][]byte{packet[1:]}, dst, 0, false, extensions, false)
 	if err != nil {
 		t.Fatalf("buildPacketWithOptions: %v", err)
