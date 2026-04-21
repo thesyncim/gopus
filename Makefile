@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix test test-fast test-race test-race-parity test-fuzz-smoke test-fuzz-safety test-parity test-compat test-quality test-quality-extended test-exactness quality-report test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard autoresearch-init autoresearch-preflight autoresearch-eval autoresearch-best autoresearch-loop autoresearch-loop-mixed autoresearch-loop-quality autoresearch-loop-unimplemented autoresearch-loop-performance verify-production verify-production-exhaustive verify-safety release-evidence ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
+.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-quality test-exactness quality-report test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard verify-production verify-production-exhaustive verify-safety release-evidence ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
@@ -38,7 +38,12 @@ GOPUS_SAFETY_SOAK_REPORT_INTERVAL ?= 10s
 GOPUS_SAFETY_SOAK_MAX_RSS_GROWTH_MIB ?= 256
 GOPUS_SAFETY_SOAK_MAX_GOROUTINE_GROWTH ?= 16
 GOPUS_SAFETY_SOAK_MAX_ALLOCS ?= 0.0
-FOCUS ?= mixed
+GO_TEST_FAST = GOPUS_TEST_TIER=fast $(GO_WORK_ENV) $(GO) test
+GO_TEST_PARITY = GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test
+GO_TEST_PARITY_EXACT = GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 GOPUS_LIBOPUS_EXACTNESS=1 $(GO_WORK_ENV) $(GO) test
+GO_TEST_EXHAUSTIVE = GOPUS_TEST_TIER=exhaustive $(GO_WORK_ENV) $(GO) test
+RUNNABLE_FAST = GOPUS_TEST_TIER=fast $(GO_RUNNABLE_TEST)
+RUNNABLE_PARITY = GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_RUNNABLE_TEST)
 
 # Run golangci-lint
 lint:
@@ -60,11 +65,7 @@ test-fast:
 
 # Race detector sweep across all packages at fast test tier (keeps runtime bounded).
 test-race:
-	GOPUS_TEST_TIER=fast $(GO_RUNNABLE_TEST) -race -count=1 -timeout=20m
-
-# Deeper race sweep at parity tier.
-test-race-parity:
-	GOPUS_TEST_TIER=parity $(GO_RUNNABLE_TEST) -race -count=1 -timeout=30m
+	$(RUNNABLE_FAST) -race -count=1 -timeout=20m
 
 # Fuzz smoke run for packet/fixture parsers.
 test-fuzz-smoke:
@@ -81,28 +82,15 @@ test-fuzz-safety: ensure-libopus
 	$(GO_WORK_ENV) $(GO) test ./testvectors -run='^$$' -fuzz='FuzzParseOpusDemoBitstream' -fuzztime=$(GOPUS_SAFETY_PARSER_FUZZTIME) -count=1
 	$(GO_WORK_ENV) $(GO) test ./testvectors -run='^$$' -fuzz='FuzzDecodeAgainstLibopus' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
 
-# Parity tier (default for focused quality work)
-test-parity:
-	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test ./testvectors -run 'TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard|TestDecoderParityLibopusMatrix|TestDecoderParityMatrixWithFFmpeg|TestEncoderVariantProfileParityAgainstLibopusFixture' -count=1
-
-# Compatibility-focused parity checks that should stay green even when exact
-# libopus-internal math is allowed to drift.
-test-compat:
-	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test ./testvectors -run 'TestDecoderLossParityLibopusFixture|TestDecoderHybridToCELT10msTransitionParity|TestDecoderHybridToCELT20msTransitionParity' -count=1 -v
-
-# Quality-first inner-loop gate with the real opus_compare metric.
+# Primary libopus-facing focused gate.
 test-quality:
-	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test ./testvectors -run 'TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard|TestEncoderVariantProfileParityAgainstLibopusFixture|TestDecoderParityLibopusMatrix' -count=1 -v
-
-# Optional extended compatibility coverage that may self-skip when ffmpeg is unavailable.
-test-quality-extended:
-	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test ./testvectors -run 'TestDecoderParityMatrixWithFFmpeg' -count=1
+	$(GO_TEST_PARITY) ./testvectors -run 'TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard|TestEncoderVariantProfileParityAgainstLibopusFixture|TestDecoderParityLibopusMatrix|TestDecoderLossParityLibopusFixture|TestDecoderHybridToCELT10msTransitionParity|TestDecoderHybridToCELT20msTransitionParity' -count=1 -v
 
 # Optional libopus-internal exactness checks. These are intentionally not part
 # of the default production gate so math optimizations can move while quality
 # and interoperability stay enforced.
 test-exactness:
-	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 GOPUS_LIBOPUS_EXACTNESS=1 $(GO_WORK_ENV) $(GO) test ./testvectors -run 'TestLibopusTraceSILKWB|TestSILKParamTraceAgainstLibopus' -count=1
+	$(GO_TEST_PARITY_EXACT) ./testvectors -run 'TestLibopusTraceSILKWB|TestSILKParamTraceAgainstLibopus' -count=1
 	GOPUS_TEST_TIER=fast GOPUS_LIBOPUS_EXACTNESS=1 $(GO_WORK_ENV) $(GO) test ./encoder -run 'TestModeTraceFixtureParityWithLibopus|TestAnalysisTraceFixtureParityWithLibopus' -count=1
 
 # Compact markdown summary for the quality + compatibility gates.
@@ -121,44 +109,9 @@ test-soak-safety:
 bench-guard:
 	$(GO_WORK_ENV) $(GO) run ./tools/benchguard -config tools/bench_guardrails.json
 
-# Initialize the local autoresearch ledger.
-autoresearch-init:
-	bash ./tools/autoresearch.sh init --focus $(FOCUS)
-
-# Verify that the fixed judge and local ledger are ready.
-autoresearch-preflight:
-	bash ./tools/autoresearch.sh preflight --focus $(FOCUS)
-
-# Run one fixed autoresearch evaluation and append a results row.
-# Usage: make autoresearch-eval DESCRIPTION='short experiment note'
-autoresearch-eval:
-	bash ./tools/autoresearch.sh eval --focus $(FOCUS) --description "$${DESCRIPTION:-experiment}"
-
-# Print the current best successful autoresearch row.
-autoresearch-best:
-	bash ./tools/autoresearch.sh best --focus $(FOCUS)
-
-# Run the autonomous codex-driven experiment loop.
-# Usage: make autoresearch-loop MAX_ITERATIONS=5 VERBOSE=1
-autoresearch-loop:
-	bash ./tools/autoresearch.sh loop --focus $(FOCUS) $(if $(MAX_ITERATIONS),--max-iterations $(MAX_ITERATIONS),) $(if $(MODEL),--model $(MODEL),) $(if $(VERBOSE),--verbose,) $(if $(DRY_RUN),--dry-run,)
-
-# Convenience focus aliases.
-autoresearch-loop-mixed:
-	$(MAKE) autoresearch-loop FOCUS=mixed
-
-autoresearch-loop-quality:
-	$(MAKE) autoresearch-loop FOCUS=quality
-
-autoresearch-loop-unimplemented:
-	$(MAKE) autoresearch-loop FOCUS=unimplemented
-
-autoresearch-loop-performance:
-	$(MAKE) autoresearch-loop FOCUS=performance
-
 # Default production verification gate.
 verify-production: ensure-libopus
-	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_RUNNABLE_TEST) -count=1 -timeout=25m
+	$(RUNNABLE_PARITY) -count=1 -timeout=25m
 	$(MAKE) bench-guard
 	$(MAKE) test-race
 
@@ -171,7 +124,7 @@ verify-production-exhaustive: verify-production
 # Safety verification gate: strong existing checks first, then adversarial stress.
 verify-safety: ensure-libopus
 	$(MAKE) test-race
-	$(MAKE) test-parity
+	$(MAKE) test-quality
 	$(MAKE) test-exhaustive
 	$(MAKE) bench-guard
 	$(MAKE) test-assembly-safety
@@ -252,11 +205,11 @@ docker-shell: docker-build
 
 # Exhaustive tier includes fixture honesty checks against pinned tmp_check opus_demo/opusdec.
 test-exhaustive: ensure-libopus
-	GOPUS_TEST_TIER=exhaustive $(GO_WORK_ENV) $(GO) test ./testvectors -run 'TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureHonestyWithOpusDemo|TestDecoderParityMatrixFixtureHonestyWithOpusDemo|TestDecoderLossFixtureHonestyWithOpusDemo|TestLongFrameReferenceFixtureHonestyWithLiveOpusdec' -count=1
+	$(GO_TEST_EXHAUSTIVE) ./testvectors -run 'TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureHonestyWithOpusDemo|TestDecoderParityMatrixFixtureHonestyWithOpusDemo|TestDecoderLossFixtureHonestyWithOpusDemo|TestLongFrameReferenceFixtureHonestyWithLiveOpusdec' -count=1
 
 # Exhaustive provenance audit for encoder variant parity.
 test-provenance: ensure-libopus
-	GOPUS_TEST_TIER=exhaustive $(GO_WORK_ENV) $(GO) test ./testvectors -run 'TestEncoderVariantProfileProvenanceAudit' -count=1
+	$(GO_TEST_EXHAUSTIVE) ./testvectors -run 'TestEncoderVariantProfileProvenanceAudit' -count=1
 
 # Regenerate fixture files from tmp_check/opus-$(LIBOPUS_VERSION)/opus_demo.
 fixtures-gen: ensure-libopus fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants

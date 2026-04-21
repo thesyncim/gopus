@@ -68,7 +68,7 @@ Ship `gopus` as a dependable production codec library with:
   - `TestHotPathAllocsDecodeStereo`
 - Existing gate surfaces:
   - `make test-race`
-  - `make test-race-parity`
+  - `make test-quality`
   - `make test-fuzz-smoke`
   - `make verify-production`
   - `make verify-production-exhaustive`

@@ -102,10 +102,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ffmpeg opus-tools
 
-      - name: Run full parity-tier test suite
+      - name: Run focused libopus quality gate
         run: |
           make ensure-libopus
-          GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 go test ./... -count=1 -timeout=25m
+          make test-quality
 
   test-linux-race:
     name: test-linux-race

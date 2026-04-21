@@ -32,82 +32,28 @@ No cgo. No C toolchain. Caller-owned buffers in the encode/decode hot path.
 - `make test-quality`: `PASS` on the current baseline.
 - Remaining focus: public API hardening, CI/release trust, and maintainability cleanup that makes green gates more boring and more believable.
 
-## Autoresearch Workflow
+## Project Priorities
 
-This repo now ships an `autoresearch`-style experiment loop for autonomous codec work.
+Current work is ordered like this:
 
-- Libopus-parity-first mixed quality+feature work is the default loop.
-- Quality/compliance is the primary score.
-- `make bench-guard` is a safety gate.
-- Throughput comparisons are optional and mainly matter for performance-facing changes.
-- It is fine to spin parallel read-only subagents for quality scouting and allowlisted unimplemented-feature scouting.
-- Coordinate editable work under three top-level lanes:
-  - `performance`
-  - `libopus parity`
-  - `code quality / maintainability`
-- For parallel work, use open draft PRs as the claim queue.
-- Only one active editable PR should own a given `(lane, editable surface)` pair at a time.
-- Merge green experimental slices sequentially, rebasing and rerunning their named evidence after earlier merges.
+1. Parity with libopus in quality and features.
+2. Performance.
+3. Maintainability.
+4. Documentation.
+5. Dead-test cleanup.
 
-- `program.md` defines the fixed protocol.
-- `tools/autoresearch.sh` handles setup, preflight, evaluation, and best-row reporting.
-- `.github/pull_request_template.md` is the coordination checklist for active claims and merge readiness.
-- The local ledgers are:
-  - `results.tsv` for `performance`
-  - `results.quality.tsv` for `quality`
-  - `results.unimplemented.tsv` for `unimplemented`
-  - `results.mixed.tsv` for `mixed`
-
-For the management-lane to repo-`FOCUS` mapping:
-
-- `performance` lane usually uses `FOCUS=performance`
-- `libopus parity` lane usually uses `FOCUS=quality`; use `FOCUS=mixed` only when the slice closes an explicit libopus capability gap with a pinned judge
-- `code quality / maintainability` should stay manual or tightly scoped unless there is a measurable target
-
-Quick start:
-
-```bash
-./tools/prepare_claim_pr.sh --lane performance --surface encoder --tag perf-try-1 --hypothesis "State the current idea here." --push --create-draft
-make autoresearch-init
-make autoresearch-preflight
-make autoresearch-eval DESCRIPTION=baseline
-make autoresearch-best
-make autoresearch-loop MAX_ITERATIONS=5
-make autoresearch-loop-quality
-make autoresearch-loop-unimplemented
-make quality-report
-```
-
-The default mixed/quality judge is:
+Default validation flow:
 
 1. `make test-quality`
-2. `make test-compat`
-3. `make bench-guard`
-4. `go test ./examples/mix-arrivals -count=1` for the allowlisted unimplemented seed (`mix-arrivals-f32wav`)
-
-`make test-quality` now uses the pinned libopus `opus_compare` metric for
-encoder/decoder quality tracking against libopus reference packets. Keep
-`make test-exactness` as an explicit opt-in when you want libopus-internal trace
-and state exactness checks in addition to compatibility and quality tracking.
-`make quality-report` runs the same `test-quality` and `test-compat` gates and
-writes a compact Markdown summary plus structured logs to `reports/quality/`.
-
-The performance lane keeps:
-
-1. `TestEncoderComplianceSummary`
 2. `make bench-guard`
-3. `examples/bench-encode` speech throughput against `libopus`
+3. `make verify-production` before merge-ready changes
 
-Before any editable loop run, open the draft PR claim first so other workers can
-see the active lane, surface, owner, blocker, and latest attempts. The
-repo-local helper is:
-
-```bash
-./tools/prepare_claim_pr.sh --lane performance --surface encoder --tag perf-try-1 --hypothesis "State the current idea here." --push --create-draft
-```
-
-Set `AUTORESEARCH_ALLOW_LOCAL_ONLY=1` only for confirmed single-researcher local
-runs where no shared draft PR queue is needed.
+`make test-quality` uses the pinned libopus `opus_compare` metric for
+encoder/decoder quality tracking against libopus reference packets and includes
+the focused Hybrid/CELT transition compatibility checks.
+`make test-exactness` stays opt-in when you specifically want libopus-internal
+trace and state exactness checks. `make quality-report` writes a compact
+Markdown summary plus structured logs to `reports/quality/`.
 
 ## Installation
 
@@ -372,9 +318,8 @@ go test ./testvectors -run TestEncoderComplianceSummary -count=1 -v
 # Project shortcuts
 make test-fast
 make test-race
-make test-race-parity
 make test-fuzz-smoke
-make test-parity
+make test-quality
 make bench-guard
 make verify-production
 make verify-production-exhaustive

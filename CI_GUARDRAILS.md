@@ -9,7 +9,7 @@ Block correctness and hot-path performance regressions before merge.
 ## What CI Enforces
 
 1. Correctness gate (`test-linux`)
-- `test-linux-parity`: `make ensure-libopus && GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 go test ./... -count=1`
+- `test-linux-parity`: `make test-quality`
 - `test-linux-race`: `make ensure-libopus && make test-race`
 - `test-linux-provenance`: fixture honesty in pinned Docker plus `make test-provenance`
 - `test-linux-flake`: critical parity subset under shuffle/repeat with strict libopus reference enforcement and go-test JSON skip enforcement

@@ -277,13 +277,11 @@ func decodeOnce(dec *gopus.Decoder, input []byte, inputKind string, pcmOut []flo
 		if r := recover(); r != nil {
 			stats.panics++
 			err = fmt.Errorf(
-				"decode panic (%s, len=%d, last_duration=%d, bandwidth=%v, prev_mode=%v, prev_stereo=%t): %v\n%s",
+				"decode panic (%s, len=%d, last_duration=%d, bandwidth=%v): %v\n%s",
 				inputKind,
 				len(input),
 				dec.LastPacketDuration(),
 				dec.Bandwidth(),
-				dec.DebugPrevMode(),
-				dec.DebugPrevPacketStereo(),
 				r,
 				debug.Stack(),
 			)

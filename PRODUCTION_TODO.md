@@ -15,9 +15,11 @@ Last updated: 2026-04-21
 - [x] Document production plan and verification workflow.
 - [x] Add deterministic benchmark regression guard tooling (`tools/benchguard` + `tools/bench_guardrails.json`).
 - [x] Add explicit CI performance gate (`perf-linux`) and wire `make bench-guard` into `verify-production`.
-- [x] Document CI guardrail/branch-protection policy (`CI_GUARDRAILS.md`) and agent rules (`AGENTS.md`).
+- [x] Document CI guardrail/branch-protection policy (`CI_GUARDRAILS.md`) and the concise project brief (`AGENTS.md`).
 - [x] Close the previously-known large encoder quality regressions and return `make test-quality` to green.
 - [x] Expand zero-allocation hard gates to cover PLC and stereo decode hot paths.
+- [x] Remove deprecated debug/state wrappers from the pre-release public surface.
+- [x] Simplify repo workflow/docs by removing the old experiment scaffolding.
 
 ## In progress now
 
@@ -25,8 +27,8 @@ Last updated: 2026-04-21
 
 ## Remaining medium-term blockers
 
-- [ ] Decide whether debug-only accessors on public wrapper types should be deprecated or removed before the first stable release.
 - [ ] Reduce temporary debug/tuning surface area in non-test packages without disturbing parity coverage.
+- [ ] Trim dead or redundant tests now that the main parity/quality gates are trustworthy.
 
 ## Optional stretch goals
 
