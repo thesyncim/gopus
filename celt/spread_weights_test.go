@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// TestComputeSpreadWeightsBasic tests the basic functionality of ComputeSpreadWeights.
+// TestComputeSpreadWeightsBasic tests the basic functionality of computeSpreadWeights.
 func TestComputeSpreadWeightsBasic(t *testing.T) {
 	nbBands := 21
 	channels := 1
@@ -21,7 +21,7 @@ func TestComputeSpreadWeightsBasic(t *testing.T) {
 		bandLogE[i] = 5.0 - 0.5*float64(i-10)*float64(i-10)/100.0
 	}
 
-	weights := ComputeSpreadWeights(bandLogE, nbBands, channels, lsbDepth)
+	weights := computeSpreadWeights(bandLogE, nbBands, channels, lsbDepth)
 
 	// Verify basic properties
 	if len(weights) != nbBands {
@@ -53,7 +53,7 @@ func TestComputeSpreadWeightsStereo(t *testing.T) {
 		bandLogE[nbBands+i] = 2.0 + 0.3*float64(i)
 	}
 
-	weights := ComputeSpreadWeights(bandLogE, nbBands, channels, lsbDepth)
+	weights := computeSpreadWeights(bandLogE, nbBands, channels, lsbDepth)
 
 	if len(weights) != nbBands {
 		t.Errorf("Expected %d weights, got %d", nbBands, len(weights))
@@ -65,7 +65,7 @@ func TestComputeSpreadWeightsStereo(t *testing.T) {
 // TestComputeSpreadWeightsEdgeCases tests edge cases in spread weight computation.
 func TestComputeSpreadWeightsEdgeCases(t *testing.T) {
 	t.Run("EmptyBandLogE", func(t *testing.T) {
-		weights := ComputeSpreadWeights(nil, 21, 1, 16)
+		weights := computeSpreadWeights(nil, 21, 1, 16)
 		// Should return uniform weights
 		for i, w := range weights {
 			if w != 1 {
@@ -76,7 +76,7 @@ func TestComputeSpreadWeightsEdgeCases(t *testing.T) {
 
 	t.Run("FewBands", func(t *testing.T) {
 		bandLogE := []float64{5.0, 6.0, 4.0}
-		weights := ComputeSpreadWeights(bandLogE, 3, 1, 16)
+		weights := computeSpreadWeights(bandLogE, 3, 1, 16)
 		if len(weights) != 3 {
 			t.Errorf("Expected 3 weights, got %d", len(weights))
 		}
@@ -88,8 +88,8 @@ func TestComputeSpreadWeightsEdgeCases(t *testing.T) {
 		for i := 0; i < nbBands; i++ {
 			bandLogE[i] = 5.0
 		}
-		weights16 := ComputeSpreadWeights(bandLogE, nbBands, 1, 16)
-		weights24 := ComputeSpreadWeights(bandLogE, nbBands, 1, 24)
+		weights16 := computeSpreadWeights(bandLogE, nbBands, 1, 16)
+		weights24 := computeSpreadWeights(bandLogE, nbBands, 1, 24)
 
 		// Higher bit depth means lower noise floor, so weights may differ
 		t.Logf("16-bit weights: %v", weights16)
@@ -110,7 +110,7 @@ func TestComputeSpreadWeightsMatchesLibopusBehavior(t *testing.T) {
 		for i := 0; i < nbBands; i++ {
 			bandLogE[i] = 10.0 // High energy
 		}
-		weights := ComputeSpreadWeights(bandLogE, nbBands, channels, lsbDepth)
+		weights := computeSpreadWeights(bandLogE, nbBands, channels, lsbDepth)
 
 		// With uniform high energy above noise floor, masking should be similar
 		// across bands, resulting in relatively uniform weights
@@ -130,7 +130,7 @@ func TestComputeSpreadWeightsMatchesLibopusBehavior(t *testing.T) {
 		}
 		bandLogE[10] = 15.0 // One very loud band
 
-		weights := ComputeSpreadWeights(bandLogE, nbBands, channels, lsbDepth)
+		weights := computeSpreadWeights(bandLogE, nbBands, channels, lsbDepth)
 
 		// The loud band should mask nearby bands
 		// Weights for masked bands should be lower
@@ -148,7 +148,7 @@ func TestComputeSpreadWeightsMatchesLibopusBehavior(t *testing.T) {
 		for i := 0; i < nbBands; i++ {
 			bandLogE[i] = -10.0 // Very low energy
 		}
-		weights := ComputeSpreadWeights(bandLogE, nbBands, channels, lsbDepth)
+		weights := computeSpreadWeights(bandLogE, nbBands, channels, lsbDepth)
 
 		// Low energy bands should have lower weights (more masked)
 		sum := 0
@@ -189,13 +189,13 @@ func TestComputeSpreadWeightsSimple(t *testing.T) {
 		bandLogE[i] = 5.0
 	}
 
-	weights := ComputeSpreadWeightsSimple(bandLogE, nbBands)
+	weights := computeSpreadWeightsSimple(bandLogE, nbBands)
 	if len(weights) != nbBands {
 		t.Errorf("Expected %d weights, got %d", nbBands, len(weights))
 	}
 
 	// Compare with explicit call
-	weightsExplicit := ComputeSpreadWeights(bandLogE, nbBands, 1, 16)
+	weightsExplicit := computeSpreadWeights(bandLogE, nbBands, 1, 16)
 	for i := range weights {
 		if weights[i] != weightsExplicit[i] {
 			t.Errorf("Simple wrapper differs at band %d: %d vs %d", i, weights[i], weightsExplicit[i])
@@ -229,7 +229,7 @@ func TestSpreadingDecisionWithWeights(t *testing.T) {
 	}
 
 	// Compute spread weights
-	spreadWeights := ComputeSpreadWeights(bandLogE, nbBands, channels, 16)
+	spreadWeights := computeSpreadWeights(bandLogE, nbBands, channels, 16)
 
 	// Test with computed weights
 	decision := encoder.SpreadingDecisionWithWeights(normX, nbBands, channels, frameSize, false, spreadWeights)

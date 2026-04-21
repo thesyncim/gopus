@@ -155,7 +155,7 @@ func (d *Decoder) decodeFrameCoreInto(
 	condCoding int,
 	vad bool,
 	frameIndex int,
-	trace TraceCallback,
+	trace traceCallback,
 ) decoderControl {
 	silkDecodeIndices(st, rd, vad, condCoding)
 	pulses := d.pulseBuffer(st.frameLength)

@@ -209,12 +209,12 @@ func TestTraceActualDecodeCore(t *testing.T) {
 	var rd rangecoding.Decoder
 	rd.Init(encoded)
 
-	traceCallback := func(frame, k int, info TraceInfo) {
+	traceCallback := func(frame, k int, info traceInfo) {
 		t.Logf("Subframe %d: GainQ10=%d, InvGainQ31=%d, FirstLTPPredQ13=%d",
 			k, info.GainQ10, info.InvGainQ31, info.FirstLTPPredQ13)
 	}
 
-	decoded, err := decoder.DecodeFrameWithTrace(&rd, BandwidthWideband, Frame20ms, true, traceCallback)
+	decoded, err := decoder.decodeFrameWithTrace(&rd, BandwidthWideband, Frame20ms, true, traceCallback)
 	if err != nil {
 		t.Fatalf("Decode failed: %v", err)
 	}

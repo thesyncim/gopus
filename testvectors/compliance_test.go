@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -33,6 +34,7 @@ var testVectorNames = []string{
 }
 
 var decoderComplianceLogOnce sync.Once
+var vectorResultCache sync.Map
 
 const decoderComplianceMinQ = 0.0
 
@@ -68,172 +70,25 @@ func TestDecoderCompliance(t *testing.T) {
 
 	for _, name := range testVectorNames {
 		t.Run(name, func(t *testing.T) {
-			runTestVector(t, name)
+			result := cachedVectorResult(name)
+			if result.err != nil {
+				t.Fatalf("run %s: %v", name, result.err)
+			}
+			t.Logf("Vector %s: packets=%d modes=%s frameSizes=%s decoded=%d ref=%d errors=%d q1=%.2f q2=%.2f",
+				result.name,
+				result.packets,
+				strings.Join(result.modes, ","),
+				formatFrameSizes(result.frameSizes),
+				result.decodedSamples,
+				result.referenceSamples,
+				result.decodeErrors,
+				result.q1,
+				result.q2,
+			)
+			if !result.passed {
+				t.Errorf("FAILED: Quality below threshold. Q1=%.2f, Q2=%.2f", result.q1, result.q2)
+			}
 		})
-	}
-}
-
-// runTestVector runs a single test vector through the decoder and validates output.
-func runTestVector(t *testing.T, name string) {
-	bitFile := filepath.Join(testVectorDir, name+".bit")
-	decFile := filepath.Join(testVectorDir, name+".dec")
-	mdecFile := filepath.Join(testVectorDir, name+"m.dec")
-
-	// 1. Parse .bit file
-	packets, err := ReadBitstreamFile(bitFile)
-	if err != nil {
-		t.Fatalf("Failed to parse %s: %v", bitFile, err)
-	}
-
-	if len(packets) == 0 {
-		t.Fatalf("No packets in %s", bitFile)
-	}
-
-	// Track frame sizes and modes encountered
-	type frameSizeMode struct {
-		frameSize int
-		mode      string // "SILK", "CELT", or "Hybrid"
-	}
-	frameSizeModes := make(map[frameSizeMode]int)
-
-	t.Logf("Test vector %s: %d packets", name, len(packets))
-
-	// Parse each packet's TOC to extract mode and frame size for tracking
-	for i, pkt := range packets {
-		if len(pkt.Data) > 0 {
-			tocByte := pkt.Data[0]
-			cfg := tocByte >> 3
-			fs := getFrameSizeFromConfig(cfg)
-			mode := getModeFromConfig(cfg)
-
-			key := frameSizeMode{frameSize: fs, mode: mode}
-			frameSizeModes[key]++
-
-			if i == 0 {
-				stereo := (tocByte & 0x04) != 0
-				t.Logf("  First packet: Config=%d, Mode=%s, Stereo=%v, FrameSize=%d (%.1fms)",
-					cfg, mode, stereo, fs, float64(fs)/48.0)
-			}
-		}
-	}
-
-	// Report frame size and mode distribution
-	t.Logf("  Frame sizes by mode:")
-	for fsm, count := range frameSizeModes {
-		t.Logf("    %s %d samples (%.1fms): %d packets",
-			fsm.mode, fsm.frameSize, float64(fsm.frameSize)/48.0, count)
-
-		// Flag if extended frame size appears in Hybrid mode (unexpected per RFC)
-		isExtended := fsm.frameSize == 120 || fsm.frameSize == 240 || // 2.5/5ms
-			fsm.frameSize == 1920 || fsm.frameSize == 2880 // 40/60ms
-		if isExtended && fsm.mode == "Hybrid" {
-			t.Logf("    WARNING: Extended frame size %d in Hybrid mode (unexpected per RFC 6716)",
-				fsm.frameSize)
-		}
-	}
-
-	// 2. Determine decoder parameters from first packet TOC
-	toc := packets[0].Data[0]
-	config := toc >> 3
-	stereo := (toc & 0x04) != 0
-	frameSize := getFrameSizeFromConfig(config)
-
-	t.Logf("  Config: %d, Stereo: %v, FrameSize: %d samples", config, stereo, frameSize)
-
-	// 3. Create a single stereo decoder
-	// Test vectors may contain both mono and stereo packets mixed in the stream.
-	// Per RFC 8251, output format is always stereo interleaved.
-	// Use one persistent stereo decoder to preserve state across channel switches.
-	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
-	if err != nil {
-		t.Fatalf("Failed to create stereo decoder: %v", err)
-	}
-
-	// 4. Decode all packets with a single stereo decoder.
-	// Note: Opus packets can contain multiple frames (code 1/2/3 in TOC byte).
-	// The decoder returns all frames combined, so we use buffer-based DecodeInt16.
-	var allDecoded []int16
-	decodeErrors := make(map[string]int) // Track error types
-	for i, pkt := range packets {
-		pcm, err := decodeInt16(dec, pkt.Data)
-		if err != nil {
-			// Log more detail about the failure
-			errKey := err.Error()
-			decodeErrors[errKey]++
-			if decodeErrors[errKey] <= 3 { // Only log first 3 occurrences of each error type
-				tocByte := pkt.Data[0]
-				cfg := tocByte >> 3
-				fs := getFrameSizeFromConfig(cfg)
-				mode := getModeFromConfig(cfg)
-				t.Logf("  Packet %d decode error: %v (config=%d, mode=%s, frameSize=%d)",
-					i, err, cfg, mode, fs)
-			}
-			// Use zeros for failed packets (based on total frames in packet)
-			pktFrameSize := frameSize
-			frameCount := 1
-			if len(pkt.Data) > 0 {
-				pktCfg := pkt.Data[0] >> 3
-				pktFrameSize = getFrameSizeFromConfig(pktCfg)
-				if pktInfo, pktErr := gopus.ParsePacket(pkt.Data); pktErr == nil {
-					frameCount = pktInfo.FrameCount
-				}
-			}
-			zeros := make([]int16, pktFrameSize*frameCount*2)
-			allDecoded = append(allDecoded, zeros...)
-			continue
-		}
-
-		allDecoded = append(allDecoded, pcm...)
-	}
-
-	// Report decode error summary
-	if len(decodeErrors) > 0 {
-		t.Logf("  Decode error summary:")
-		for errType, count := range decodeErrors {
-			t.Logf("    %q: %d packets", errType, count)
-		}
-	}
-
-	// Output is stereo (2 channels)
-	t.Logf("  Decoded: %d samples (%d per channel)", len(allDecoded), len(allDecoded)/2)
-
-	// 5. Read reference files
-	reference, err := readPCMFile(decFile)
-	if err != nil {
-		t.Fatalf("Failed to read reference %s: %v", decFile, err)
-	}
-
-	referenceAlt, err := readPCMFile(mdecFile)
-	if err != nil {
-		// Alternative reference may not exist for all vectors
-		t.Logf("  No alternative reference (m.dec): %v", err)
-		referenceAlt = nil
-	}
-
-	t.Logf("  Reference: %d samples", len(reference))
-
-	// 6. Compute quality metrics
-	q1, err := ComputeOpusCompareQuality(allDecoded, reference, 48000, 2)
-	if err != nil {
-		t.Fatalf("compute opus_compare quality vs .dec: %v", err)
-	}
-	t.Logf("  Quality vs .dec: Q=%.2f (threshold: Q >= %.0f)", q1, decoderComplianceMinQ)
-
-	var q2 float64
-	if referenceAlt != nil {
-		q2, err = ComputeOpusCompareQuality(allDecoded, referenceAlt, 48000, 2)
-		if err != nil {
-			t.Fatalf("compute opus_compare quality vs m.dec: %v", err)
-		}
-		t.Logf("  Quality vs m.dec: Q=%.2f", q2)
-	}
-
-	// 7. Pass if either Q >= 0
-	passes := q1 >= decoderComplianceMinQ || (referenceAlt != nil && q2 >= decoderComplianceMinQ)
-	if !passes {
-		t.Errorf("FAILED: Quality below threshold. Q1=%.2f, Q2=%.2f", q1, q2)
-	} else {
-		t.Logf("  PASS: Quality meets threshold")
 	}
 }
 
@@ -389,24 +244,6 @@ func extractTarGz(r io.Reader) error {
 	return nil
 }
 
-// TestSingleVector allows running a single test vector for debugging.
-// Usage: go test -v -run TestSingleVector/testvector01
-func TestSingleVector(t *testing.T) {
-	requireTestTier(t, testTierParity)
-
-	logDecoderComplianceStatus(t)
-	if err := ensureTestVectors(t); err != nil {
-		t.Skipf("Skipping: %v", err)
-		return
-	}
-
-	for _, name := range testVectorNames {
-		t.Run(name, func(t *testing.T) {
-			runTestVector(t, name)
-		})
-	}
-}
-
 // TestParseTestVectorBitstreams validates that all test vector .bit files can be parsed.
 func TestParseTestVectorBitstreams(t *testing.T) {
 	if err := ensureTestVectors(t); err != nil {
@@ -491,7 +328,7 @@ func TestComplianceSummary(t *testing.T) {
 	var results []vectorResult
 
 	for _, name := range testVectorNames {
-		r := runVectorSilent(t, name)
+		r := cachedVectorResult(name)
 		results = append(results, r)
 	}
 
@@ -693,8 +530,17 @@ func TestMonoCELTReferenceFormat(t *testing.T) {
 	}
 }
 
+func cachedVectorResult(name string) vectorResult {
+	if cached, ok := vectorResultCache.Load(name); ok {
+		return cached.(vectorResult)
+	}
+	result := runVectorSilent(name)
+	actual, _ := vectorResultCache.LoadOrStore(name, result)
+	return actual.(vectorResult)
+}
+
 // runVectorSilent runs a test vector and returns structured results without verbose logging.
-func runVectorSilent(t *testing.T, name string) vectorResult {
+func runVectorSilent(name string) vectorResult {
 	result := vectorResult{name: name}
 
 	bitFile := filepath.Join(testVectorDir, name+".bit")
@@ -744,6 +590,8 @@ func runVectorSilent(t *testing.T, name string) vectorResult {
 	for mode := range modeSet {
 		result.modes = append(result.modes, mode)
 	}
+	sort.Ints(result.frameSizes)
+	sort.Strings(result.modes)
 
 	// 2. Determine decoder parameters from first packet TOC
 	toc := packets[0].Data[0]

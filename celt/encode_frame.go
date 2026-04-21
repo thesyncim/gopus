@@ -947,7 +947,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			spreadWeights := dynallocResult.SpreadWeight
 			if len(spreadWeights) < nbBands {
 				// Defensive fallback for unexpected sizing issues.
-				spreadWeights = ComputeSpreadWeights(analysisEnergies, nbBands, e.channels, lsbDepth)
+				spreadWeights = computeSpreadWeights(analysisEnergies, nbBands, e.channels, lsbDepth)
 			}
 			spread = e.SpreadingDecisionWithWeights(normSpread, nbBands, e.channels, frameSize, updateHF, spreadWeights)
 		}
@@ -1982,13 +1982,11 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 	// For VBR mode, apply boost based on signal characteristics.
 	var targetQ3 int
 	var stats *CeltTargetStats
-	if e.targetStatsHook == nil {
-		targetQ3 = e.computeVBRTarget(baseTargetQ3, frameSize, tfEstimate, pitchChange, nil)
-	} else {
+	if e.targetStatsHook != nil {
 		s := CeltTargetStats{FrameSize: frameSize}
 		stats = &s
-		targetQ3 = e.computeVBRTarget(baseTargetQ3, frameSize, tfEstimate, pitchChange, stats)
 	}
+	targetQ3 = e.computeVBRTarget(baseTargetQ3, frameSize, tfEstimate, pitchChange, stats)
 
 	// libopus adds ec_tell_frac(enc) to the VBR target before converting to
 	// bytes (line 2478). This accounts for side information already written
@@ -2163,11 +2161,8 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float
 		totBoost = 960 << bitRes
 	}
 	calibration := 19 << lm
-	targetQ3 += totBoost - calibration
-	if stats != nil {
-		stats.DynallocBoost = totBoost - calibration
-		stats.PitchChange = pitchChange
-	}
+	dynallocBoost := totBoost - calibration
+	targetQ3 += dynallocBoost
 
 	// Transient boost with average compensation.
 	tfCalibration := 0.044
@@ -2179,9 +2174,6 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float
 	}
 	tfBoost := int(2.0 * (tfEstimate - tfCalibration) * float64(targetQ3))
 	targetQ3 += tfBoost
-	if stats != nil {
-		stats.TFBoost = tfBoost
-	}
 
 	// Tonality boost.
 	tonality := e.lastTonality
@@ -2215,11 +2207,10 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float
 	if floorDepth < (targetQ3 >> 2) {
 		floorDepth = targetQ3 >> 2
 	}
+	floorLimited := false
 	if targetQ3 > floorDepth {
 		targetQ3 = floorDepth
-		if stats != nil {
-			stats.FloorLimited = true
-		}
+		floorLimited = true
 	}
 
 	// Constrained VBR makes target changes less aggressive.
@@ -2253,6 +2244,10 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float
 	}
 
 	if stats != nil {
+		stats.DynallocBoost = dynallocBoost
+		stats.PitchChange = pitchChange
+		stats.TFBoost = tfBoost
+		stats.FloorLimited = floorLimited
 		stats.MaxDepth = maxDepth
 		stats.Tonality = tonality
 	}
@@ -2274,10 +2269,10 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float
 //   - frameSize: frame size in samples (unused but kept for API consistency)
 func (e *Encoder) updateTonalityAnalysis(normCoeffs, energies []float64, nbBands, frameSize int) {
 	// Compute tonality using Spectral Flatness Measure (zero-alloc version)
-	tonalityResult := ComputeTonalityWithBandsScratch(normCoeffs, nbBands, frameSize, &e.tonalityScratch)
+	tonalityResult := computeTonalityWithBandsScratch(normCoeffs, nbBands, frameSize, &e.tonalityScratch)
 
 	// Compute spectral flux (frame-to-frame change) for smoothing decisions
-	spectralFlux := ComputeSpectralFlux(energies, e.prevBandLogEnergy, nbBands)
+	spectralFlux := computeSpectralFlux(energies, e.prevBandLogEnergy, nbBands)
 
 	// Update previous band log-energies for next frame's flux computation
 	copy(e.prevBandLogEnergy, energies)

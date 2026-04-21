@@ -21,6 +21,15 @@ Last updated: 2026-04-21
 - [x] Make CELT opusdec crossval fixture coverage fail closed instead of silently rewriting tracked fixtures during normal test runs.
 - [x] Remove deprecated debug/state wrappers from the pre-release public surface.
 - [x] Simplify repo workflow/docs by removing the old experiment scaffolding.
+- [x] Reduce CELT tuning/test surface area by making tonality and spread helpers package-private and deleting unused table accessor exports.
+- [x] Remove unused encoder/CELT diagnostic surface by deleting VAD tracing APIs and hiding the dead coarse-decision hook.
+- [x] Collapse dead coarse-energy hook branches, drop the unused raw band-energy accessor, and simplify VAD helper returns.
+- [x] Remove dead CELT tonality wrappers and unused encoder tonality scratch buffers while keeping the scratch-based production path intact.
+- [x] Collapse CELT prefilter debug-hook bookkeeping to a single final emit so the non-debug path stays cleaner when hooks are unset.
+- [x] Collapse CELT target-stats hook bookkeeping to final edge assignment and remove default spread-weight allocations.
+- [x] Update GitHub Actions cache steps to `actions/cache@v5` so PR and safety workflows are aligned with the Node 24 runtime.
+- [x] Make the SILK trace decode entrypoint and callback types package-private now that only in-package tests use them.
+- [x] Remove the duplicate RFC 8251 `TestSingleVector` sweep now that `TestDecoderCompliance` already provides the same parity coverage and subtest targeting.
 
 ## In progress now
 
