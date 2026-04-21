@@ -32,15 +32,24 @@ func ProcessedFeatureWindow(result Result, decoded *Decoded, decodeOffsetSamples
 // recovery window from the retained blend state, and enqueues either concrete
 // feature vectors or skipped-positive placeholders.
 func QueueProcessedFeatures(plc *lpcnetplc.State, result Result, decoded *Decoded, decodeOffsetSamples, frameSizeSamples int) FeatureWindow {
-	if plc == nil || decoded == nil {
+	if plc == nil {
 		return FeatureWindow{}
 	}
-	plc.FECClear()
-
 	initFrames := 0
 	if plc.Blend() == 0 {
 		initFrames = 2
 	}
+	return QueueProcessedFeaturesWithInitFrames(plc, result, decoded, decodeOffsetSamples, frameSizeSamples, initFrames)
+}
+
+// QueueProcessedFeaturesWithInitFrames mirrors the DRED prefill loop in
+// opus_decode_native() when the caller already knows which init-frame policy
+// should apply for the packet being scheduled.
+func QueueProcessedFeaturesWithInitFrames(plc *lpcnetplc.State, result Result, decoded *Decoded, decodeOffsetSamples, frameSizeSamples, initFrames int) FeatureWindow {
+	if plc == nil || decoded == nil {
+		return FeatureWindow{}
+	}
+	plc.FECClear()
 	window := ProcessedFeatureWindow(result, decoded, decodeOffsetSamples, frameSizeSamples, initFrames)
 	for i := 0; i < window.NeededFeatureFrames; i++ {
 		featureOffset := window.FeatureOffsetBase - i
