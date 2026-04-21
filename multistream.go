@@ -90,7 +90,9 @@ func NewMultistreamEncoder(sampleRate, channels, streams, coupledStreams int, ma
 	}
 
 	// Apply application hint
-	mse.applyApplication(application)
+	if err := mse.applyApplication(application); err != nil {
+		return nil, err
+	}
 
 	return mse, nil
 }
@@ -138,7 +140,9 @@ func NewMultistreamEncoderDefault(sampleRate, channels int, application Applicat
 	}
 
 	// Apply application hints
-	mse.applyApplication(application)
+	if err := mse.applyApplication(application); err != nil {
+		return nil, err
+	}
 
 	return mse, nil
 }

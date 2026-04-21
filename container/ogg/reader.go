@@ -27,6 +27,10 @@ const readerBufferSize = 64 * 1024 // 64KB
 // It reads the ID header (OpusHead) and comment header (OpusTags) immediately.
 // Returns an error if the stream is not a valid Ogg Opus stream.
 func NewReader(r io.Reader) (*Reader, error) {
+	if r == nil {
+		return nil, ErrNilReader
+	}
+
 	or := &Reader{
 		r:          r,
 		pageBuffer: make([]byte, readerBufferSize),

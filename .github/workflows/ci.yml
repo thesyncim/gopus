@@ -105,7 +105,7 @@ jobs:
       - name: Run full parity-tier test suite
         run: |
           make ensure-libopus
-          GOPUS_TEST_TIER=parity go test ./... -count=1 -timeout=25m
+          GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 go test ./... -count=1 -timeout=25m
 
   test-linux-race:
     name: test-linux-race
@@ -166,7 +166,25 @@ jobs:
             buildx-exhaustive-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Verify libopus fixture provenance (pinned Docker env)
-        run: make docker-test-exhaustive
+        run: |
+          make docker-test-exhaustive
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Cache pinned libopus build
+        uses: actions/cache@v4
+        with:
+          path: |
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+          key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
+
+      - name: Run encoder variant provenance audit
+        run: make test-provenance
 
   test-linux-flake:
     name: test-linux-flake
@@ -209,7 +227,7 @@ jobs:
           json_out="$(mktemp)"
           # Keep this lane on the default parity gate surface only. Exactness
           # tests intentionally self-skip unless explicitly enabled.
-          GOPUS_TEST_TIER=parity go test ./testvectors \
+          GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 go test ./testvectors \
             -run 'TestDecoderParityLibopusMatrix|TestEncoderComplianceSummary' \
             -shuffle=on \
             -count=3 \
@@ -221,6 +239,26 @@ jobs:
             exit 1
           fi
 
+  test-linux-fuzz-smoke:
+    name: test-linux-fuzz-smoke
+    needs:
+      - changes
+    if: ${{ needs.changes.outputs.docs_only != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run fuzz smoke gate
+        run: make test-fuzz-smoke
+
   test-linux:
     name: test-linux
     if: always()
@@ -230,6 +268,7 @@ jobs:
       - test-linux-race
       - test-linux-provenance
       - test-linux-flake
+      - test-linux-fuzz-smoke
     runs-on: ubuntu-latest
     steps:
       - name: Validate Linux gates
@@ -243,6 +282,7 @@ jobs:
           echo "test-linux-race: ${{ needs.test-linux-race.result }}"
           echo "test-linux-provenance: ${{ needs.test-linux-provenance.result }}"
           echo "test-linux-flake: ${{ needs.test-linux-flake.result }}"
+          echo "test-linux-fuzz-smoke: ${{ needs.test-linux-fuzz-smoke.result }}"
           if [ "${{ needs.test-linux-parity.result }}" != "success" ]; then
             exit 1
           fi
@@ -253,6 +293,9 @@ jobs:
             exit 1
           fi
           if [ "${{ needs.test-linux-flake.result }}" != "success" ]; then
+            exit 1
+          fi
+          if [ "${{ needs.test-linux-fuzz-smoke.result }}" != "success" ]; then
             exit 1
           fi
 

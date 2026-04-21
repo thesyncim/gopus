@@ -1,6 +1,6 @@
 # gopus
 
-Pure Go Opus codec for production systems.
+Pure Go Opus codec with production-focused validation.
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/thesyncim/gopus.svg)](https://pkg.go.dev/github.com/thesyncim/gopus)
 [![Go Report Card](https://goreportcard.com/badge/github.com/thesyncim/gopus)](https://goreportcard.com/report/github.com/thesyncim/gopus)
@@ -20,7 +20,7 @@ No cgo. No C toolchain. Caller-owned buffers in the encode/decode hot path.
 - Multistream support (default mappings for 1-8 channels, explicit mappings up to 255 channels).
 - Compliance and parity coverage against libopus 1.6.1 fixtures.
 
-## Status Snapshot (2026-04-11)
+## Status Snapshot (2026-04-21)
 
 - Decoder: complete and stable across SILK/CELT/Hybrid, stereo, and sample rates.
 - Encoder: complete core Opus feature surface (FEC/LBRR, DTX, multistream, ambisonics, and standard controls). QEXT is enabled and libopus-validated in the default build. Other optional libopus build-time extensions such as DRED, weights-file DNN blobs, and OSCE BWE remain intentionally unsupported; gate them with `SupportsOptionalExtension(...)` and expect `ErrUnsupportedExtension` when unavailable.
@@ -29,8 +29,8 @@ No cgo. No C toolchain. Caller-owned buffers in the encode/decode hot path.
 - `TestSILKParamTraceAgainstLibopus`: `PASS` with exact SILK-WB trace parity on canonical 50-frame fixture.
 - `TestEncoderComplianceSummary`: `PASS` (`23 passed, 0 failed` at current libopus-relative thresholds).
 - `make verify-production`: `PASS` on the current baseline.
-- Remaining focus: mixed quality+feature work, with quality as the primary score and throughput as an optional secondary lane.
-- Remaining focus also includes tightening profile-by-profile quality ratchets and closing explicit optional feature gaps where they are valuable and testable.
+- `make test-quality`: `PASS` on the current baseline.
+- Remaining focus: public API hardening, CI/release trust, and maintainability cleanup that makes green gates more boring and more believable.
 
 ## Autoresearch Workflow
 
@@ -212,6 +212,8 @@ Application hints:
 - `ApplicationVoIP`
 - `ApplicationAudio`
 - `ApplicationLowDelay`
+- `ApplicationRestrictedSilk` for libopus-compatible SILK-only init-time behavior
+- `ApplicationRestrictedCelt` for libopus-compatible CELT-only init-time behavior
 
 ## Ogg Opus Example
 
@@ -309,6 +311,9 @@ Frame sizes (samples/channel at 48 kHz):
 - 960 (20 ms, default)
 - 1920 (40 ms, SILK/hybrid)
 - 2880 (60 ms, SILK/hybrid)
+- 3840 (80 ms, expert frame duration)
+- 4800 (100 ms, expert frame duration)
+- 5760 (120 ms, expert frame duration)
 
 Channels:
 

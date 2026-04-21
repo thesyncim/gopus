@@ -4,6 +4,12 @@ import "errors"
 
 // Package-level errors for Ogg parsing and encoding.
 var (
+	// ErrNilReader indicates a nil io.Reader was supplied to NewReader.
+	ErrNilReader = errors.New("ogg: nil reader")
+
+	// ErrNilWriter indicates a nil io.Writer was supplied to NewWriter.
+	ErrNilWriter = errors.New("ogg: nil writer")
+
 	// ErrInvalidPage indicates the page structure is malformed.
 	// This includes missing "OggS" magic, invalid version, or truncated data.
 	ErrInvalidPage = errors.New("ogg: invalid page structure")

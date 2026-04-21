@@ -1,6 +1,6 @@
 # CI Guardrails
 
-Last updated: 2026-02-12
+Last updated: 2026-04-21
 
 ## Goal
 
@@ -9,12 +9,13 @@ Block correctness and hot-path performance regressions before merge.
 ## What CI Enforces
 
 1. Correctness gate (`test-linux`)
-- `test-linux-parity`: `make ensure-libopus && GOPUS_TEST_TIER=parity go test ./... -count=1`
+- `test-linux-parity`: `make ensure-libopus && GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 go test ./... -count=1`
 - `test-linux-race`: `make ensure-libopus && make test-race`
-- `make docker-test-exhaustive` via `test-linux-provenance`
-- `test-linux-flake`: critical parity subset under shuffle/repeat with go-test JSON skip enforcement
-- Internally split into parallel jobs (`test-linux-parity`, `test-linux-race`, `test-linux-provenance`, `test-linux-flake`) and aggregated by `test-linux`.
-- This keeps parity/race/provenance coverage intact while removing serialized Linux checks from a single job.
+- `test-linux-provenance`: fixture honesty in pinned Docker plus `make test-provenance`
+- `test-linux-flake`: critical parity subset under shuffle/repeat with strict libopus reference enforcement and go-test JSON skip enforcement
+- `test-linux-fuzz-smoke`: `make test-fuzz-smoke`
+- Internally split into parallel jobs (`test-linux-parity`, `test-linux-race`, `test-linux-provenance`, `test-linux-flake`, `test-linux-fuzz-smoke`) and aggregated by `test-linux`.
+- This keeps parity/race/provenance/fuzz coverage intact while removing serialized Linux checks from a single job.
 
 2. Performance gate (`perf-linux`)
 - `make bench-guard`

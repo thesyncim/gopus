@@ -165,19 +165,23 @@ func TestNewReader_InvalidParams(t *testing.T) {
 		name       string
 		sampleRate int
 		channels   int
+		source     PacketReader
+		format     SampleFormat
 		wantErr    error
 	}{
-		{"invalid sample rate 44100", 44100, 1, ErrInvalidSampleRate},
-		{"invalid sample rate 0", 0, 1, ErrInvalidSampleRate},
-		{"invalid sample rate negative", -8000, 1, ErrInvalidSampleRate},
-		{"invalid channels 0", 48000, 0, ErrInvalidChannels},
-		{"invalid channels 3", 48000, 3, ErrInvalidChannels},
-		{"invalid channels negative", 48000, -1, ErrInvalidChannels},
+		{"invalid sample rate 44100", 44100, 1, source, FormatFloat32LE, ErrInvalidSampleRate},
+		{"invalid sample rate 0", 0, 1, source, FormatFloat32LE, ErrInvalidSampleRate},
+		{"invalid sample rate negative", -8000, 1, source, FormatFloat32LE, ErrInvalidSampleRate},
+		{"invalid channels 0", 48000, 0, source, FormatFloat32LE, ErrInvalidChannels},
+		{"invalid channels 3", 48000, 3, source, FormatFloat32LE, ErrInvalidChannels},
+		{"invalid channels negative", 48000, -1, source, FormatFloat32LE, ErrInvalidChannels},
+		{"nil source", 48000, 2, nil, FormatFloat32LE, ErrNilPacketReader},
+		{"invalid sample format", 48000, 2, source, SampleFormat(999), ErrInvalidSampleFormat},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := NewReader(DefaultDecoderConfig(tc.sampleRate, tc.channels), source, FormatFloat32LE)
+			_, err := NewReader(DefaultDecoderConfig(tc.sampleRate, tc.channels), tc.source, tc.format)
 			if err != tc.wantErr {
 				t.Errorf("NewReader error = %v, want %v", err, tc.wantErr)
 			}
@@ -565,7 +569,7 @@ func TestSampleFormat_BytesPerSample(t *testing.T) {
 	}{
 		{FormatFloat32LE, 4},
 		{FormatInt16LE, 2},
-		{SampleFormat(999), 4}, // Unknown defaults to 4
+		{SampleFormat(999), 0},
 	}
 
 	for _, tc := range testCases {
@@ -680,17 +684,21 @@ func TestNewWriter_InvalidParams(t *testing.T) {
 		name       string
 		sampleRate int
 		channels   int
+		sink       PacketSink
+		format     SampleFormat
 		wantErr    error
 	}{
-		{"invalid sample rate 44100", 44100, 1, ErrInvalidSampleRate},
-		{"invalid sample rate 0", 0, 1, ErrInvalidSampleRate},
-		{"invalid channels 0", 48000, 0, ErrInvalidChannels},
-		{"invalid channels 3", 48000, 3, ErrInvalidChannels},
+		{"invalid sample rate 44100", 44100, 1, sink, FormatFloat32LE, ErrInvalidSampleRate},
+		{"invalid sample rate 0", 0, 1, sink, FormatFloat32LE, ErrInvalidSampleRate},
+		{"invalid channels 0", 48000, 0, sink, FormatFloat32LE, ErrInvalidChannels},
+		{"invalid channels 3", 48000, 3, sink, FormatFloat32LE, ErrInvalidChannels},
+		{"nil sink", 48000, 2, nil, FormatFloat32LE, ErrNilPacketSink},
+		{"invalid sample format", 48000, 2, sink, SampleFormat(999), ErrInvalidSampleFormat},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := NewWriter(tc.sampleRate, tc.channels, sink, FormatFloat32LE, ApplicationAudio)
+			_, err := NewWriter(tc.sampleRate, tc.channels, tc.sink, tc.format, ApplicationAudio)
 			if err != tc.wantErr {
 				t.Errorf("NewWriter error = %v, want %v", err, tc.wantErr)
 			}

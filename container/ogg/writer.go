@@ -64,6 +64,9 @@ type Writer struct {
 // channels is 1 for mono or 2 for stereo.
 // Returns an error if channels is 0 or greater than 2 (use NewWriterWithConfig for multistream).
 func NewWriter(w io.Writer, sampleRate uint32, channels uint8) (*Writer, error) {
+	if w == nil {
+		return nil, ErrNilWriter
+	}
 	if channels == 0 || channels > 2 {
 		return nil, ErrInvalidHeader
 	}
@@ -88,6 +91,10 @@ func NewWriter(w io.Writer, sampleRate uint32, channels uint8) (*Writer, error) 
 // NewWriterWithConfig creates a new OggWriter with explicit configuration.
 // This supports all multistream mapping families (1/2/3/255).
 func NewWriterWithConfig(w io.Writer, config WriterConfig) (*Writer, error) {
+	if w == nil {
+		return nil, ErrNilWriter
+	}
+
 	// Validate config.
 	if config.Channels == 0 {
 		return nil, ErrInvalidHeader

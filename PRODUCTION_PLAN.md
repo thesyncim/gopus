@@ -1,6 +1,6 @@
 # Gopus Production Plan
 
-Last updated: 2026-02-12
+Last updated: 2026-04-21
 
 ## Objective
 
@@ -12,9 +12,9 @@ Ship `gopus` as a dependable production codec library with:
 ## Current Baseline
 
 - Decoder feature-complete and stable across SILK/CELT/Hybrid.
-- Encoder feature-complete with known quality gap in strict `Q >= 0` profiles.
-- Broad parity and fixture coverage already exists.
-- Core CI is cross-platform and includes fixture provenance checks.
+- Encoder compliance summary and broad libopus-relative quality validation are green.
+- Core parity/fixture coverage exists and the remaining live quality deltas are tiny.
+- Core CI is cross-platform, but production-readiness now depends more on fail-closed gates and public API hardening than on codec-gap hunting.
 
 ## Production Success Criteria
 
@@ -31,37 +31,40 @@ Ship `gopus` as a dependable production codec library with:
 
 3. Operational confidence
 - One-command production gate exists for pre-release verification.
-- CI covers race, parity, and fuzz smoke in addition to existing test suite.
+- CI fails closed on package load/build issues.
+- PR CI matches local production parity semantics closely enough that green means the same thing in both places.
+- CI covers race, parity, provenance, and fuzz smoke in addition to the existing test suite.
 
-4. Quality closure
-- Raise remaining encoder profiles to strict production threshold (`Q >= 0`) without parity regressions.
+4. Public contract clarity
+- Streaming and container constructors fail fast on misuse instead of panicking later.
+- User-facing docs/examples steer callers toward the caller-owned hot path.
+- Public error messages and supported-range docs stay accurate across mono/stereo and multistream APIs.
 
 ## Execution Phases
 
-### Phase 1: Hardening Guardrails (Now)
-- Add zero-allocation regression guards for hot paths.
-- Add explicit production verification make targets.
-- Ensure README documents production verification workflow.
+### Phase 1: Guardrail Integrity
+- Make wrapper test runners fail closed on package load/build errors.
+- Align PR Linux parity lanes with strict libopus reference mode.
+- Keep fixture honesty, provenance, and fuzz smoke visible in normal PR gating.
 
-### Phase 2: Quality Closure (Next)
-- Focus SILK/Hybrid speech-bitrate quality uplift.
-- Tune CELT short-frame transients against libopus references.
-- Introduce ratcheting quality thresholds per profile until all strict gates pass.
+### Phase 2: Public API Hardening
+- Reject nil streaming/container endpoints and invalid streaming sample formats at construction time.
+- Remove avoidable panic paths from public wrapper configuration surfaces.
+- Tighten user-facing error text and examples around multistream and caller-owned buffers.
 
 ### Phase 3: Release Discipline
-- Define release checklist with required gate evidence.
+- Keep release checklist and status docs in sync with the real baseline.
 - Run production gate before every tag/release candidate.
-- Publish benchmark and compliance deltas per release.
+- Publish benchmark, compliance, and provenance evidence per release.
 
 ## What This Change Implements
 
-- Removed per-frame FFT scratch allocation in encoder tonality analysis.
-- Added hot-path allocation guard tests:
+- Existing production-readiness work already delivered:
   - `TestHotPathAllocsEncodeFloat32`
   - `TestHotPathAllocsEncodeInt16`
   - `TestHotPathAllocsDecodeFloat32`
   - `TestHotPathAllocsDecodeInt16`
-- Added make targets:
+- Existing gate surfaces:
   - `make test-race`
   - `make test-race-parity`
   - `make test-fuzz-smoke`

@@ -34,7 +34,7 @@ func ExampleNewDecoder() {
 	// Output: Decoder: 48000Hz, 2 channels
 }
 
-func ExampleEncoder_EncodeFloat32() {
+func ExampleEncoder_Encode() {
 	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 2, Application: gopus.ApplicationAudio})
 	if err != nil {
 		log.Fatal(err)
@@ -42,14 +42,15 @@ func ExampleEncoder_EncodeFloat32() {
 
 	// Generate 20ms of stereo silence (960 samples per channel)
 	pcm := make([]float32, 960*2)
+	packetBuf := make([]byte, 4000)
 
 	// Encode the frame
-	packet, err := enc.EncodeFloat32(pcm)
+	n, err := enc.Encode(pcm, packetBuf)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("Encoded %d samples to %d bytes\n", len(pcm)/2, len(packet))
+	fmt.Printf("Encoded %d samples to %d bytes\n", len(pcm)/2, n)
 	// Output will vary based on encoder state
 }
 
@@ -66,15 +67,16 @@ func ExampleDecoder_Decode() {
 		pcm[i] = float32(math.Sin(float64(i) * 0.01))
 	}
 
-	packet, _ := enc.EncodeFloat32(pcm)
+	packetBuf := make([]byte, 4000)
+	nPacket, _ := enc.Encode(pcm, packetBuf)
 
 	// Decode the packet
-	n, err := dec.Decode(packet, pcmOut)
+	n, err := dec.Decode(packetBuf[:nPacket], pcmOut)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("Decoded %d bytes to %d samples\n", len(packet), n)
+	fmt.Printf("Decoded %d bytes to %d samples\n", nPacket, n)
 }
 
 func ExampleDecoder_Decode_packetLoss() {
@@ -85,8 +87,9 @@ func ExampleDecoder_Decode_packetLoss() {
 	// First, decode a real packet to initialize state
 	enc, _ := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 2, Application: gopus.ApplicationAudio})
 	pcm := make([]float32, 960*2)
-	packet, _ := enc.EncodeFloat32(pcm)
-	_, _ = dec.Decode(packet, pcmOut)
+	packetBuf := make([]byte, 4000)
+	nPacket, _ := enc.Encode(pcm, packetBuf)
+	_, _ = dec.Decode(packetBuf[:nPacket], pcmOut)
 
 	// Simulate packet loss by passing nil
 	// Decoder uses PLC to generate concealment audio
@@ -112,13 +115,14 @@ func Example_roundTrip() {
 	}
 
 	// Encode
-	packet, _ := enc.EncodeFloat32(input)
+	packetBuf := make([]byte, 4000)
+	nPacket, _ := enc.Encode(input, packetBuf)
 
 	// Decode
-	n, _ := dec.Decode(packet, pcmOut)
+	n, _ := dec.Decode(packetBuf[:nPacket], pcmOut)
 
 	fmt.Printf("Round trip: %d samples -> %d bytes -> %d samples\n",
-		len(input), len(packet), n)
+		len(input), nPacket, n)
 }
 
 func ExampleEncoder_SetBitrate() {

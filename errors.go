@@ -11,8 +11,11 @@ var (
 	ErrInvalidSampleRate = errors.New("gopus: invalid sample rate (must be 8000, 12000, 16000, 24000, or 48000)")
 
 	// ErrInvalidChannels indicates an unsupported channel count.
-	// Valid channel counts are 1 (mono) or 2 (stereo).
-	ErrInvalidChannels = errors.New("gopus: invalid channels (must be 1 or 2)")
+	// See the relevant constructor or control for the supported range.
+	ErrInvalidChannels = errors.New("gopus: invalid channels")
+
+	// ErrInvalidSampleFormat indicates an unsupported streaming PCM format.
+	ErrInvalidSampleFormat = errors.New("gopus: invalid sample format")
 
 	// ErrInvalidMaxPacketSamples indicates an invalid max packet sample cap.
 	ErrInvalidMaxPacketSamples = errors.New("gopus: invalid max packet samples (must be > 0)")
@@ -32,8 +35,8 @@ var (
 	ErrInvalidFrameSize = errors.New("gopus: invalid frame size")
 
 	// ErrInvalidBitrate indicates the bitrate is out of valid range.
-	// Valid bitrates are 6000 to 510000 bits per second.
-	ErrInvalidBitrate = errors.New("gopus: invalid bitrate (must be 6000-510000)")
+	// See the relevant constructor or control for the supported range.
+	ErrInvalidBitrate = errors.New("gopus: invalid bitrate")
 
 	// ErrInvalidBitrateMode indicates an invalid bitrate mode.
 	// Valid modes are BitrateModeVBR, BitrateModeCVBR, and BitrateModeCBR.
@@ -44,7 +47,8 @@ var (
 	ErrInvalidComplexity = errors.New("gopus: invalid complexity (must be 0-10)")
 
 	// ErrInvalidApplication indicates an invalid application hint.
-	// Valid values are ApplicationVoIP, ApplicationAudio, or ApplicationLowDelay.
+	// Valid values include the standard application hints plus the restricted
+	// libopus-compatible init-time hints.
 	ErrInvalidApplication = errors.New("gopus: invalid application")
 
 	// ErrInvalidPacketLoss indicates an invalid packet loss percentage.
@@ -84,6 +88,12 @@ var (
 
 	// ErrInvalidArgument indicates one or more function arguments are invalid.
 	ErrInvalidArgument = errors.New("gopus: invalid argument")
+
+	// ErrNilPacketReader indicates a nil PacketReader was supplied to NewReader.
+	ErrNilPacketReader = errors.New("gopus: nil packet reader")
+
+	// ErrNilPacketSink indicates a nil PacketSink was supplied to NewWriter.
+	ErrNilPacketSink = errors.New("gopus: nil packet sink")
 
 	// ErrInvalidGain indicates an invalid decoder gain value.
 	// Valid range is -32768 to 32767 (Q8 dB).

@@ -156,7 +156,7 @@ autoresearch-loop-performance:
 
 # Default production verification gate.
 verify-production: ensure-libopus
-	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_RUNNABLE_TEST) -count=1
+	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_RUNNABLE_TEST) -count=1 -timeout=25m
 	$(MAKE) bench-guard
 	$(MAKE) test-race
 
@@ -231,8 +231,8 @@ docker-test-exhaustive: docker-build-exhaustive
 		-e LIBOPUS_VERSION=$(LIBOPUS_VERSION) \
 		-e GOPUS_DISABLE_OPUSDEC=$(DOCKER_DISABLE_OPUSDEC) \
 		-e GOPUS_DISABLE_OPUSENC=$(DOCKER_DISABLE_OPUSENC) \
-		$(DOCKER_IMAGE) \
-		bash -c "make ensure-libopus && GOPUS_TEST_TIER=exhaustive go test ./testvectors -run 'TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureHonestyWithOpusDemo|TestDecoderParityMatrixFixtureHonestyWithOpusDemo|TestLongFrameReferenceFixtureHonestyWithLiveOpusdec' -count=1"
+	$(DOCKER_IMAGE) \
+		bash -c "make ensure-libopus && GOPUS_TEST_TIER=exhaustive go test ./testvectors -run 'TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureHonestyWithOpusDemo|TestDecoderParityMatrixFixtureHonestyWithOpusDemo|TestDecoderLossFixtureHonestyWithOpusDemo|TestLongFrameReferenceFixtureHonestyWithLiveOpusdec' -count=1"
 
 # Open an interactive shell with the same cached Docker environment.
 docker-shell: docker-build

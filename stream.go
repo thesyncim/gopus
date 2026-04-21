@@ -77,6 +77,15 @@ const (
 	FormatInt16LE
 )
 
+func validSampleFormat(format SampleFormat) bool {
+	switch format {
+	case FormatFloat32LE, FormatInt16LE:
+		return true
+	default:
+		return false
+	}
+}
+
 // BytesPerSample returns the number of bytes per sample for the format.
 func (f SampleFormat) BytesPerSample() int {
 	switch f {
@@ -85,7 +94,7 @@ func (f SampleFormat) BytesPerSample() int {
 	case FormatInt16LE:
 		return 2
 	default:
-		return 4
+		return 0
 	}
 }
 
@@ -144,6 +153,13 @@ type Reader struct {
 //   - source: provides Opus packets for decoding
 //   - format: output sample format (FormatFloat32LE or FormatInt16LE)
 func NewReader(cfg DecoderConfig, source PacketReader, format SampleFormat) (*Reader, error) {
+	if source == nil {
+		return nil, ErrNilPacketReader
+	}
+	if !validSampleFormat(format) {
+		return nil, ErrInvalidSampleFormat
+	}
+
 	dec, err := NewDecoder(cfg)
 	if err != nil {
 		return nil, err
@@ -217,19 +233,7 @@ func (r *Reader) Read(p []byte) (int, error) {
 				binary.LittleEndian.PutUint16(r.byteBuf[i*2:], uint16(r.pcmInt16[i]))
 			}
 		default:
-			nSamples, decErr := r.dec.Decode(packet, r.pcmFloat)
-			if decErr != nil {
-				return 0, decErr
-			}
-			byteLen := nSamples * r.dec.channels * 4
-			if cap(r.byteBuf) < byteLen {
-				r.byteBuf = make([]byte, byteLen)
-			}
-			r.byteBuf = r.byteBuf[:byteLen]
-			for i := 0; i < nSamples*r.dec.channels; i++ {
-				bits := math.Float32bits(r.pcmFloat[i])
-				binary.LittleEndian.PutUint32(r.byteBuf[i*4:], bits)
-			}
+			return 0, ErrInvalidSampleFormat
 		}
 
 		r.offset = 0
@@ -306,6 +310,13 @@ type Writer struct {
 //   - format: input sample format (FormatFloat32LE or FormatInt16LE)
 //   - application: encoder application hint
 func NewWriter(sampleRate, channels int, sink PacketSink, format SampleFormat, application Application) (*Writer, error) {
+	if sink == nil {
+		return nil, ErrNilPacketSink
+	}
+	if !validSampleFormat(format) {
+		return nil, ErrInvalidSampleFormat
+	}
+
 	enc, err := NewEncoder(EncoderConfig{SampleRate: sampleRate, Channels: channels, Application: application})
 	if err != nil {
 		return nil, err
@@ -422,11 +433,6 @@ func (w *Writer) decodePCMInto(dst []float32, data []byte) {
 		for i := range dst {
 			sample := int16(binary.LittleEndian.Uint16(data[i*2:]))
 			dst[i] = float32(sample) / 32768.0
-		}
-	default:
-		for i := range dst {
-			bits := binary.LittleEndian.Uint32(data[i*4:])
-			dst[i] = math.Float32frombits(bits)
 		}
 	}
 }
