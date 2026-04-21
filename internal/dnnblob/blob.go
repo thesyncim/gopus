@@ -8,10 +8,8 @@ import (
 const (
 	headerSize = 64
 
-	weightTypeFloat   = 0
-	weightTypeInt     = 1
-	weightTypeQWeight = 2
-	weightTypeInt8    = 3
+	weightTypeFloat = 0
+	weightTypeInt8  = 3
 )
 
 // Record mirrors one libopus WeightArray entry parsed from a weights blob.

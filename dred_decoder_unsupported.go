@@ -32,6 +32,20 @@ type DREDParsed = internaldred.Parsed
 // DREDResult bundles parsed DRED metadata with request-bounded availability.
 type DREDResult = internaldred.Result
 
+// DREDProcessStage reports how far a retained DRED packet has progressed through
+// the standalone experimental DRED wrapper.
+type DREDProcessStage int
+
+const (
+	// DREDProcessStageEmpty indicates no retained DRED payload.
+	DREDProcessStageEmpty DREDProcessStage = iota
+	// DREDProcessStageDeferred indicates Parse retained metadata with deferred
+	// processing still pending.
+	DREDProcessStageDeferred
+	// DREDProcessStageProcessed indicates Process has finalized the retained state.
+	DREDProcessStageProcessed
+)
+
 // DREDDecoder mirrors libopus's standalone OpusDREDDecoder control lifetime for
 // the tag-gated DRED metadata surface.
 type DREDDecoder struct {
@@ -77,7 +91,7 @@ func (d *DREDDecoder) ModelLoaded() bool {
 type DRED struct {
 	data         [internaldred.MaxDataSize]byte
 	cache        internaldred.Cache
-	processStage int
+	processStage DREDProcessStage
 }
 
 // NewDRED constructs an empty standalone DRED state wrapper.
@@ -115,6 +129,25 @@ func (d *DRED) Parsed() DREDParsed {
 	return d.cache.Parsed
 }
 
+// ProcessStage reports the retained standalone DRED lifecycle stage.
+func (d *DRED) ProcessStage() DREDProcessStage {
+	if d == nil {
+		return DREDProcessStageEmpty
+	}
+	return d.processStage
+}
+
+// NeedsProcessing reports whether Parse deferred standalone DRED processing.
+func (d *DRED) NeedsProcessing() bool {
+	return d != nil && d.processStage == DREDProcessStageDeferred
+}
+
+// Processed reports whether the retained standalone DRED state has been
+// finalized through Process.
+func (d *DRED) Processed() bool {
+	return d != nil && d.processStage == DREDProcessStageProcessed
+}
+
 // Result evaluates the retained DRED payload against an opus_dred_parse()-style
 // request.
 func (d *DRED) Result(maxDredSamples, sampleRate int) DREDResult {
@@ -125,6 +158,29 @@ func (d *DRED) Result(maxDredSamples, sampleRate int) DREDResult {
 		MaxDREDSamples: maxDredSamples,
 		SampleRate:     sampleRate,
 	})
+}
+
+// Availability reports the request-bounded retained DRED coverage.
+func (d *DRED) Availability(maxDredSamples, sampleRate int) DREDAvailability {
+	return d.Result(maxDredSamples, sampleRate).Availability
+}
+
+// MaxAvailableSamples mirrors opus_dred_parse()'s positive sample-count result
+// for the retained DRED state and request.
+func (d *DRED) MaxAvailableSamples(maxDredSamples, sampleRate int) int {
+	return d.Result(maxDredSamples, sampleRate).MaxAvailableSamples()
+}
+
+// FillQuantizerLevels writes the request-bounded retained DRED quantizer
+// schedule into dst and returns the number of entries written.
+func (d *DRED) FillQuantizerLevels(dst []int, maxDredSamples, sampleRate int) int {
+	return d.Result(maxDredSamples, sampleRate).FillQuantizerLevels(dst)
+}
+
+// FeatureWindow reports the retained DRED feature-offset window for a given
+// concealment request.
+func (d *DRED) FeatureWindow(maxDredSamples, sampleRate, decodeOffsetSamples, frameSizeSamples, initFrames int) DREDFeatureWindow {
+	return d.Result(maxDredSamples, sampleRate).FeatureWindow(decodeOffsetSamples, frameSizeSamples, initFrames)
 }
 
 // Parse finds and retains the temporary DRED packet extension from packet and
@@ -140,6 +196,7 @@ func (d *DREDDecoder) Parse(dst *DRED, packet []byte, maxDredSamples, sampleRate
 	if !d.modelLoaded {
 		return 0, 0, ErrDREDModelNotLoaded
 	}
+	dst.Clear()
 	payload, frameOffset, ok, err := findDREDPayload(packet)
 	if err != nil {
 		return 0, 0, err
@@ -151,7 +208,7 @@ func (d *DREDDecoder) Parse(dst *DRED, packet []byte, maxDredSamples, sampleRate
 	if err := dst.cache.Store(dst.data[:], payload, frameOffset); err != nil {
 		return 0, 0, ErrInvalidPacket
 	}
-	dst.processStage = 1
+	dst.processStage = DREDProcessStageDeferred
 	if !deferProcessing {
 		if err := d.Process(dst, dst); err != nil {
 			return 0, 0, err
@@ -171,12 +228,12 @@ func (d *DREDDecoder) Process(src, dst *DRED) error {
 	if !d.modelLoaded {
 		return ErrDREDModelNotLoaded
 	}
-	if src.processStage != 1 && src.processStage != 2 {
+	if src.processStage != DREDProcessStageDeferred && src.processStage != DREDProcessStageProcessed {
 		return ErrInvalidArgument
 	}
 	if src != dst {
 		*dst = *src
 	}
-	dst.processStage = 2
+	dst.processStage = DREDProcessStageProcessed
 	return nil
 }
