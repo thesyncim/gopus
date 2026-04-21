@@ -94,7 +94,7 @@ test-doc-contract:
 
 # Quarantine build smoke for unsupported controls that should never leak into the default surface.
 test-unsupported-controls-tag:
-	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run 'Test(SupportsOptionalExtension|UnsupportedControlsBuildExposesQuarantinedTopLevelControls|UnsupportedControlsBuildPublicAPIContract|DREDDecoderParseRequiresModel|DREDDecoderParseAndProcessRetainsMetadata|DREDDecoderParseClearsStateWhenPacketHasNoDRED)|ExampleSupportsOptionalExtension' -count=1
+	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run 'Test(SupportsOptionalExtension|UnsupportedControlsBuildExposesQuarantinedTopLevelControls|UnsupportedControlsBuildPublicAPIContract|DREDDecoderParseRequiresModel|DREDDecoderParseAndProcessRetainsMetadata|DREDDecoderParseClearsStateWhenPacketHasNoDRED|DREDDecoderParseClearsStateOnMalformedPacket|StandaloneDREDParseMatchesLibopus)|ExampleSupportsOptionalExtension' -count=1
 	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./encoder ./multistream -run 'Test(UnsupportedControlsBuildExposesQuarantinedControls|EncoderDREDDuration|EncoderResetClearsDREDDuration|EncoderDREDReadyRequiresModelAndDuration)' -count=1
 
 # Primary libopus-facing focused gate.

@@ -57,10 +57,12 @@ func TestFindDREDPayloadSkipsWrongExperimentalHeader(t *testing.T) {
 	}
 }
 
-func TestFindDREDPayloadSkipsTooShortExperimentalPayload(t *testing.T) {
+func TestFindDREDPayloadSkipsEarlierInvalidDREDExtension(t *testing.T) {
 	frames := [][]byte{{0x11, 0x22, 0x33}}
+	wantPayload := []byte{0xaa, 0xbb, 0xcc}
 	extensions := []packetExtensionData{
-		{ID: dred.ExtensionID, Frame: 0, Data: []byte{'D', dred.ExperimentalVersion, 0xaa, 0xbb}},
+		{ID: dred.ExtensionID, Frame: 0, Data: []byte{'X', dred.ExperimentalVersion, 0x10}},
+		{ID: dred.ExtensionID, Frame: 0, Data: append([]byte{'D', dred.ExperimentalVersion}, wantPayload...)},
 	}
 	packet := make([]byte, 64)
 	n, err := buildPacketWithOptions(GenerateTOC(31, false, 0)&0xFC, frames, packet, 0, false, extensions, false)
@@ -72,7 +74,28 @@ func TestFindDREDPayloadSkipsTooShortExperimentalPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("findDREDPayload error: %v", err)
 	}
-	if ok || payload != nil || frameOffset != 0 {
-		t.Fatalf("findDREDPayload=(%x,%d,%v) want (nil,0,false)", payload, frameOffset, ok)
+	if !ok || frameOffset != 0 || !bytes.Equal(payload, wantPayload) {
+		t.Fatalf("findDREDPayload=(%x,%d,%v) want (%x,0,true)", payload, frameOffset, ok, wantPayload)
+	}
+}
+
+func TestFindDREDPayloadKeepsShortExperimentalPayload(t *testing.T) {
+	frames := [][]byte{{0x11, 0x22, 0x33}}
+	wantPayload := []byte{0xaa, 0xbb}
+	extensions := []packetExtensionData{
+		{ID: dred.ExtensionID, Frame: 0, Data: append([]byte{'D', dred.ExperimentalVersion}, wantPayload...)},
+	}
+	packet := make([]byte, 64)
+	n, err := buildPacketWithOptions(GenerateTOC(31, false, 0)&0xFC, frames, packet, 0, false, extensions, false)
+	if err != nil {
+		t.Fatalf("buildPacketWithOptions error: %v", err)
+	}
+
+	payload, frameOffset, ok, err := findDREDPayload(packet[:n])
+	if err != nil {
+		t.Fatalf("findDREDPayload error: %v", err)
+	}
+	if !ok || frameOffset != 0 || !bytes.Equal(payload, wantPayload) {
+		t.Fatalf("findDREDPayload=(%x,%d,%v) want (%x,0,true)", payload, frameOffset, ok, wantPayload)
 	}
 }

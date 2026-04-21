@@ -14,12 +14,21 @@ func findDREDPayload(packet []byte) (payload []byte, frameOffset int, ok bool, e
 		return nil, 0, false, nil
 	}
 
-	ext, ok, err := findPacketExtension(padding, paddingFrameCount, internaldred.ExtensionID)
-	if err != nil || !ok {
-		return nil, 0, ok, err
+	var iter packetExtensionIterator
+	initPacketExtensionIterator(&iter, padding, paddingFrameCount)
+
+	for {
+		var ext packetExtensionData
+		ok, err = iter.next(&ext)
+		if err != nil || !ok {
+			return nil, 0, ok, err
+		}
+		if ext.ID != internaldred.ExtensionID {
+			continue
+		}
+		if !internaldred.ValidExperimentalPayload(ext.Data) {
+			continue
+		}
+		return ext.Data[internaldred.ExperimentalHeaderBytes:], ext.Frame * info.TOC.FrameSize / 120, true, nil
 	}
-	if !internaldred.ValidExperimentalPayload(ext.Data) {
-		return nil, 0, false, nil
-	}
-	return ext.Data[internaldred.ExperimentalHeaderBytes:], ext.Frame * info.TOC.FrameSize / 120, true, nil
 }

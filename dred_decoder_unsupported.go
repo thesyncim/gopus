@@ -91,6 +91,7 @@ func (d *DREDDecoder) ModelLoaded() bool {
 type DRED struct {
 	data         [internaldred.MaxDataSize]byte
 	cache        internaldred.Cache
+	decoded      internaldred.Decoded
 	processStage DREDProcessStage
 }
 
@@ -105,6 +106,7 @@ func (d *DRED) Clear() {
 		return
 	}
 	d.cache.Clear()
+	d.decoded.Clear()
 	d.processStage = 0
 }
 
@@ -146,6 +148,33 @@ func (d *DRED) NeedsProcessing() bool {
 // finalized through Process.
 func (d *DRED) Processed() bool {
 	return d != nil && d.processStage == DREDProcessStageProcessed
+}
+
+// LatentCount reports how many request-bounded latent vectors are retained from
+// the last successful Parse call.
+func (d *DRED) LatentCount() int {
+	if d == nil {
+		return 0
+	}
+	return d.decoded.NbLatents
+}
+
+// FillState copies the retained DRED decoder state into dst and returns the
+// number of floats written.
+func (d *DRED) FillState(dst []float32) int {
+	if d == nil || d.Empty() {
+		return 0
+	}
+	return d.decoded.FillState(dst)
+}
+
+// FillLatents copies the retained request-bounded DRED latent vectors into dst
+// and returns the number of floats written.
+func (d *DRED) FillLatents(dst []float32) int {
+	if d == nil || d.Empty() {
+		return 0
+	}
+	return d.decoded.FillLatents(dst)
 }
 
 // Result evaluates the retained DRED payload against an opus_dred_parse()-style
@@ -206,6 +235,11 @@ func (d *DREDDecoder) Parse(dst *DRED, packet []byte, maxDredSamples, sampleRate
 		return 0, 0, nil
 	}
 	if err := dst.cache.Store(dst.data[:], payload, frameOffset); err != nil {
+		return 0, 0, ErrInvalidPacket
+	}
+	minFeatureFrames := internaldred.RequestedFeatureFrames(maxDredSamples, sampleRate)
+	if _, err := dst.decoded.Decode(payload, frameOffset, minFeatureFrames); err != nil {
+		dst.Clear()
 		return 0, 0, ErrInvalidPacket
 	}
 	dst.processStage = DREDProcessStageDeferred

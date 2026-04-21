@@ -70,7 +70,7 @@ func (d *Decoder) maybeCacheDREDPayload(stream int, packet []byte) {
 		return
 	}
 	payload, frameOffset, ok, err := findDREDPayload(packet)
-	if err != nil || !ok || len(payload) < internaldred.MinBytes || len(payload) > len(d.dredData[stream]) {
+	if err != nil || !ok || len(payload) > len(d.dredData[stream]) {
 		return
 	}
 	if err := d.dredCache[stream].Store(d.dredData[stream], payload, frameOffset); err != nil {
