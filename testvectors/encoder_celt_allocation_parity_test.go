@@ -11,6 +11,9 @@ import (
 )
 
 func TestEncoderVariantCELTAllocationParityAgainstFixture(t *testing.T) {
+	requireTestTier(t, testTierParity)
+	requireStrictLibopusReference(t)
+
 	t.Run("CELT-FB-20ms-stereo-128k-speech_like_v1", func(t *testing.T) {
 		assertCELTVariantPacketDecisionParity(
 			t,

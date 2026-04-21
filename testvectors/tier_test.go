@@ -55,3 +55,11 @@ func requireLibopusExactness(t *testing.T) {
 	}
 	t.Skip("requires GOPUS_LIBOPUS_EXACTNESS=1")
 }
+
+func requireStrictLibopusReference(t *testing.T) {
+	t.Helper()
+	if strictLibopusReferenceRequired() {
+		return
+	}
+	t.Skip("requires GOPUS_STRICT_LIBOPUS_REF=1")
+}
