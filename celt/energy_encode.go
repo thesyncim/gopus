@@ -402,7 +402,7 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []float64, startBand, nbBands 
 				if pi > 40 {
 					pi = 40
 				}
-				hook(CoarseDecisionStats{
+				hook(coarseDecisionStats{
 					Frame:     e.frameCount,
 					Band:      band,
 					Channel:   c,
@@ -968,7 +968,7 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 				if pi > 40 {
 					pi = 40
 				}
-				hook(CoarseDecisionStats{
+				hook(coarseDecisionStats{
 					Frame:     e.frameCount,
 					Band:      band,
 					Channel:   c,

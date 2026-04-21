@@ -22,6 +22,7 @@ Last updated: 2026-04-21
 - [x] Remove deprecated debug/state wrappers from the pre-release public surface.
 - [x] Simplify repo workflow/docs by removing the old experiment scaffolding.
 - [x] Reduce CELT tuning/test surface area by making tonality and spread helpers package-private and deleting unused table accessor exports.
+- [x] Remove unused encoder/CELT diagnostic surface by deleting VAD tracing APIs and hiding the dead coarse-decision hook.
 
 ## In progress now
 
