@@ -179,7 +179,9 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 		// Tilt = -HP_NOISE_COEF - (1-HP_NOISE_COEF) * HARM_HP_NOISE_COEF * speech_activity
 		// C: (1 - HP_NOISE_COEF) * HARM_HP_NOISE_COEF computed in float32 arithmetic.
 		oneMinusHP := float32(1.0) - float32(hpNoiseCoef)
-		tilt = -hpNoiseCoef - oneMinusHP*float32(harmHPNoiseCoef)*float32(speechActivityQ8)*(1.0/256.0)
+		harmHP := noFMA32(oneMinusHP, float32(harmHPNoiseCoef))
+		tiltAdj := noFMA32(harmHP, float32(speechActivityQ8)*(1.0/256.0))
+		tilt = -hpNoiseCoef - tiltAdj
 	} else {
 		// For unvoiced: just HP noise shaping
 		tilt = -hpNoiseCoef
@@ -191,12 +193,12 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 		harmShapeGain = harmonicShaping
 
 		// More harmonic shaping for high bitrates or noisy input
-		harmShapeGain += highRateOrLowQualityHarmonicShaping *
-			(1.0 - (1.0-params.CodingQuality)*params.InputQuality)
+		harmShapeAdj := noFMA32(float32(1.0)-params.CodingQuality, params.InputQuality)
+		harmShapeGain += noFMA32(float32(highRateOrLowQualityHarmonicShaping), float32(1.0)-harmShapeAdj)
 
 		// Less for less periodic signals (scale by sqrt of LTP correlation)
 		if ltpCorr > 0 {
-			harmShapeGain *= sqrt32(ltpCorr)
+			harmShapeGain = noFMA32(harmShapeGain, sqrt32(ltpCorr))
 		} else {
 			harmShapeGain = 0
 		}
@@ -211,11 +213,11 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 	// Apply smoothing and compute per-subframe values
 	for k := 0; k < numSubframes; k++ {
 		// Smooth harmonic shaping gain
-		s.HarmShapeGainSmth += subfrSmthCoef * (harmShapeGain - s.HarmShapeGainSmth)
+		s.HarmShapeGainSmth += noFMA32(float32(subfrSmthCoef), harmShapeGain-s.HarmShapeGainSmth)
 		params.HarmShapeGainQ14[k] = int(float64ToInt32Round(float64(s.HarmShapeGainSmth * 16384.0)))
 
 		// Smooth tilt
-		s.TiltSmth += subfrSmthCoef * (tilt - s.TiltSmth)
+		s.TiltSmth += noFMA32(float32(subfrSmthCoef), tilt-s.TiltSmth)
 		params.TiltQ14[k] = int(float64ToInt32Round(float64(s.TiltSmth * 16384.0)))
 
 		// LF shaping depends on pitch lag

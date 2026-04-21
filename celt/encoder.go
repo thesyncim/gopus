@@ -194,6 +194,12 @@ type Encoder struct {
 	// When true, postfilter flag encoding is skipped per RFC 6716 Section 3.2
 	// Reference: libopus celt_encoder.c line 2047-2048
 	hybrid bool
+	// SILK side information forwarded by the Opus hybrid wrapper.
+	// libopus uses this in hybrid CELT for weak-transient gating and
+	// bitrate targeting. The generic EncodeFrame path only needs the
+	// weak-transient part for transition prefill parity.
+	silkSignalType int
+	silkOffset     int
 
 	// LFE mode flag.
 	// When true, encoder applies low-frequency-effects constraints.
@@ -223,6 +229,12 @@ type Encoder struct {
 	// When CELT is driven by the Opus encoder, dc_reject is already applied,
 	// so this should be false to avoid double filtering.
 	dcRejectEnabled bool
+
+	// lsbQuantizationEnabled controls whether EncodeFrame rounds input samples
+	// to the configured LSB depth before any CELT-local preprocessing.
+	// Top-level Opus encoding already does this before dc_reject, so CELT must
+	// skip it there to avoid perturbing the filtered samples.
+	lsbQuantizationEnabled bool
 
 	// delayCompensationEnabled controls whether EncodeFrame prepends the
 	// Fs/250 CELT lookahead history. Standalone CELT defaults this to true;
@@ -360,6 +372,9 @@ func NewEncoder(channels int) *Encoder {
 
 		// Apply dc_reject by default for standalone CELT usage
 		dcRejectEnabled: true,
+
+		// Standalone CELT also owns the initial LSB-depth rounding.
+		lsbQuantizationEnabled: true,
 
 		// Standalone CELT defaults to Opus-style delay compensation.
 		// Top-level Opus integration should disable this to avoid double-applying.
@@ -720,6 +735,18 @@ func (e *Encoder) DCRejectEnabled() bool {
 	return e.dcRejectEnabled
 }
 
+// SetLSBQuantizationEnabled controls whether EncodeFrame rounds inputs to the
+// configured LSB depth before CELT-local processing.
+func (e *Encoder) SetLSBQuantizationEnabled(enabled bool) {
+	e.lsbQuantizationEnabled = enabled
+}
+
+// LSBQuantizationEnabled reports whether EncodeFrame applies the CELT-local
+// LSB-depth rounding step.
+func (e *Encoder) LSBQuantizationEnabled() bool {
+	return e.lsbQuantizationEnabled
+}
+
 // SetDelayCompensationEnabled controls whether EncodeFrame prepends Fs/250
 // lookahead history before CELT analysis/quantization.
 func (e *Encoder) SetDelayCompensationEnabled(enabled bool) {
@@ -1019,6 +1046,47 @@ func (e *Encoder) SetHybrid(hybrid bool) {
 // IsHybrid returns true if the encoder is in hybrid mode.
 func (e *Encoder) IsHybrid() bool {
 	return e.hybrid
+}
+
+// SetSilkInfo stores the current SILK signal classification for hybrid CELT.
+// This mirrors libopus CELT_SET_SILK_INFO.
+func (e *Encoder) SetSilkInfo(signalType, offset int) {
+	e.silkSignalType = signalType
+	e.silkOffset = offset
+}
+
+// FillHybridTFResolution applies the libopus hybrid fixed-TF fallback used when
+// variable TF analysis is disabled.
+func FillHybridTFResolution(tfRes []int, end int, transient, weakTransient, allowWeakTransients bool) int {
+	if end > len(tfRes) {
+		end = len(tfRes)
+	}
+	if end < 0 {
+		end = 0
+	}
+	tfSelect := 0
+	switch {
+	case weakTransient:
+		for i := 0; i < end; i++ {
+			tfRes[i] = 1
+		}
+	case allowWeakTransients:
+		for i := 0; i < end; i++ {
+			tfRes[i] = 0
+		}
+		if transient {
+			tfSelect = 1
+		}
+	default:
+		value := 0
+		if transient {
+			value = 1
+		}
+		for i := 0; i < end; i++ {
+			tfRes[i] = value
+		}
+	}
+	return tfSelect
 }
 
 // SetLFE enables or disables LFE mode constraints.

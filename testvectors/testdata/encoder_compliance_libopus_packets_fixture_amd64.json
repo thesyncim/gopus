@@ -10,7 +10,7 @@
       "frame_size": 120,
       "channels": 1,
       "bitrate": 64000,
-      "lib_q": -55.02,
+      "lib_q": -200.85,
       "signal_frames": 400,
       "frames": 401,
       "mode_histogram": {
@@ -1631,7 +1631,7 @@
       "frame_size": 120,
       "channels": 2,
       "bitrate": 128000,
-      "lib_q": -49.56,
+      "lib_q": -373.43,
       "signal_frames": 400,
       "frames": 401,
       "mode_histogram": {
@@ -3252,7 +3252,7 @@
       "frame_size": 240,
       "channels": 1,
       "bitrate": 64000,
-      "lib_q": -34.24,
+      "lib_q": -106.51,
       "signal_frames": 200,
       "frames": 201,
       "mode_histogram": {
@@ -4073,7 +4073,7 @@
       "frame_size": 240,
       "channels": 2,
       "bitrate": 128000,
-      "lib_q": -33.26,
+      "lib_q": -97.46,
       "signal_frames": 200,
       "frames": 201,
       "mode_histogram": {
@@ -4894,7 +4894,7 @@
       "frame_size": 480,
       "channels": 1,
       "bitrate": 64000,
-      "lib_q": -21.66,
+      "lib_q": -27.68,
       "signal_frames": 100,
       "frames": 101,
       "mode_histogram": {
@@ -5315,7 +5315,7 @@
       "frame_size": 960,
       "channels": 1,
       "bitrate": 64000,
-      "lib_q": -18.66,
+      "lib_q": 52.92,
       "signal_frames": 50,
       "frames": 51,
       "mode_histogram": {
@@ -5536,7 +5536,7 @@
       "frame_size": 960,
       "channels": 2,
       "bitrate": 128000,
-      "lib_q": -19.67,
+      "lib_q": 44.66,
       "signal_frames": 50,
       "frames": 51,
       "mode_histogram": {
@@ -5757,7 +5757,7 @@
       "frame_size": 480,
       "channels": 1,
       "bitrate": 64000,
-      "lib_q": -51.2,
+      "lib_q": 5.54,
       "signal_frames": 100,
       "frames": 101,
       "mode_histogram": {
@@ -6178,7 +6178,7 @@
       "frame_size": 960,
       "channels": 1,
       "bitrate": 64000,
-      "lib_q": -50.76,
+      "lib_q": -95.26,
       "signal_frames": 50,
       "frames": 51,
       "mode_histogram": {
@@ -6399,7 +6399,7 @@
       "frame_size": 960,
       "channels": 2,
       "bitrate": 96000,
-      "lib_q": -51.95,
+      "lib_q": 22.22,
       "signal_frames": 50,
       "frames": 51,
       "mode_histogram": {
@@ -6620,7 +6620,7 @@
       "frame_size": 2880,
       "channels": 1,
       "bitrate": 64000,
-      "lib_q": -50.96,
+      "lib_q": -95.75,
       "signal_frames": 16,
       "frames": 17,
       "mode_histogram": {
@@ -6705,7 +6705,7 @@
       "frame_size": 480,
       "channels": 1,
       "bitrate": 48000,
-      "lib_q": -50.47,
+      "lib_q": -313.48,
       "signal_frames": 100,
       "frames": 101,
       "mode_histogram": {
@@ -7126,7 +7126,7 @@
       "frame_size": 960,
       "channels": 1,
       "bitrate": 48000,
-      "lib_q": -50.61,
+      "lib_q": -748.09,
       "signal_frames": 50,
       "frames": 51,
       "mode_histogram": {
@@ -7347,7 +7347,7 @@
       "frame_size": 1920,
       "channels": 1,
       "bitrate": 48000,
-      "lib_q": -50.61,
+      "lib_q": -114.76,
       "signal_frames": 25,
       "frames": 26,
       "mode_histogram": {
@@ -7468,7 +7468,7 @@
       "frame_size": 960,
       "channels": 1,
       "bitrate": 24000,
-      "lib_q": -41.48,
+      "lib_q": -47.07,
       "signal_frames": 50,
       "frames": 51,
       "mode_histogram": {
@@ -7689,7 +7689,7 @@
       "frame_size": 480,
       "channels": 1,
       "bitrate": 16000,
-      "lib_q": -65.83,
+      "lib_q": -198.54,
       "signal_frames": 100,
       "frames": 101,
       "mode_histogram": {
@@ -8110,7 +8110,7 @@
       "frame_size": 960,
       "channels": 1,
       "bitrate": 16000,
-      "lib_q": -63.46,
+      "lib_q": -2124.71,
       "signal_frames": 50,
       "frames": 51,
       "mode_histogram": {
@@ -8331,7 +8331,7 @@
       "frame_size": 1920,
       "channels": 1,
       "bitrate": 16000,
-      "lib_q": -63.06,
+      "lib_q": -53.21,
       "signal_frames": 25,
       "frames": 26,
       "mode_histogram": {
@@ -8452,7 +8452,7 @@
       "frame_size": 480,
       "channels": 1,
       "bitrate": 32000,
-      "lib_q": -50.45,
+      "lib_q": -745.05,
       "signal_frames": 100,
       "frames": 101,
       "mode_histogram": {
@@ -8873,7 +8873,7 @@
       "frame_size": 960,
       "channels": 1,
       "bitrate": 32000,
-      "lib_q": -50.65,
+      "lib_q": -854.28,
       "signal_frames": 50,
       "frames": 51,
       "mode_histogram": {
@@ -9094,7 +9094,7 @@
       "frame_size": 960,
       "channels": 2,
       "bitrate": 48000,
-      "lib_q": -52.37,
+      "lib_q": -367.96,
       "signal_frames": 50,
       "frames": 51,
       "mode_histogram": {
@@ -9315,7 +9315,7 @@
       "frame_size": 1920,
       "channels": 1,
       "bitrate": 32000,
-      "lib_q": -50.65,
+      "lib_q": -387.17,
       "signal_frames": 25,
       "frames": 26,
       "mode_histogram": {
@@ -9436,7 +9436,7 @@
       "frame_size": 2880,
       "channels": 1,
       "bitrate": 32000,
-      "lib_q": -50.7,
+      "lib_q": -515.93,
       "signal_frames": 16,
       "frames": 17,
       "mode_histogram": {

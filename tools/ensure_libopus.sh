@@ -78,8 +78,20 @@ download_tarball() {
 
 EXPECTED_SHA256="$(sha256_for_version "${LIBOPUS_VERSION}")"
 
-if [[ -x "${SRC_DIR}/opus_demo" ]]; then
-  echo "${SRC_DIR}/opus_demo"
+find_built_tool() {
+  local tool="$1"
+  local candidate
+  for candidate in "${SRC_DIR}/${tool}" "${SRC_DIR}/${tool}.exe"; do
+    if [[ -f "${candidate}" && ( -x "${candidate}" || "${candidate}" == *.exe ) ]]; then
+      echo "${candidate}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+if OPUS_DEMO_PATH="$(find_built_tool opus_demo)" && OPUS_COMPARE_PATH="$(find_built_tool opus_compare)"; then
+  echo "${OPUS_DEMO_PATH}"
   exit 0
 fi
 
@@ -113,9 +125,14 @@ fi
 
 make -j"${JOBS}"
 
-if [[ ! -x "${SRC_DIR}/opus_demo" ]]; then
-  echo "error: expected executable not produced: ${SRC_DIR}/opus_demo" >&2
+if ! OPUS_DEMO_PATH="$(find_built_tool opus_demo)"; then
+  echo "error: expected executable not produced: ${SRC_DIR}/opus_demo(.exe)" >&2
   exit 1
 fi
 
-echo "${SRC_DIR}/opus_demo"
+if ! OPUS_COMPARE_PATH="$(find_built_tool opus_compare)"; then
+  echo "error: expected executable not produced: ${SRC_DIR}/opus_compare(.exe)" >&2
+  exit 1
+fi
+
+echo "${OPUS_DEMO_PATH}"

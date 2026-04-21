@@ -20,6 +20,7 @@ import (
 
 const (
 	longFrameFixturePath      = "testdata/encoder_compliance_longframe_libopus_ref.json"
+	longFrameFixturePathAMD64 = "testdata/encoder_compliance_longframe_libopus_ref_amd64.json"
 	updateLongFrameFixtureEnv = "GOPUS_UPDATE_LONGFRAME_FIXTURE"
 )
 
@@ -62,6 +63,13 @@ func longFrameFixtureTargets() []longFrameFixtureTarget {
 		{Name: "Hybrid-SWB-40ms-mono-48k", Mode: encoder.ModeHybrid, Bandwidth: types.BandwidthSuperwideband, FrameSize: 1920, Channels: 1, Bitrate: 48000},
 		{Name: "Hybrid-FB-60ms-mono-64k", Mode: encoder.ModeHybrid, Bandwidth: types.BandwidthFullband, FrameSize: 2880, Channels: 1, Bitrate: 64000},
 	}
+}
+
+func longFrameFixturePathForArch() string {
+	if runtime.GOARCH == "amd64" {
+		return longFrameFixturePathAMD64
+	}
+	return longFrameFixturePath
 }
 
 // TestLongFrameLibopusReferenceParityFromFixture validates long-frame SILK/Hybrid
@@ -129,15 +137,8 @@ func runLongFrameFixtureReferenceCase(c longFrameFixtureCase) (float64, error) {
 		return 0, err
 	}
 
-	// Keep fixture values honest if opusdec behavior drifts.
-	// arm64 is the strict calibration architecture for this fixture.
-	if runtime.GOARCH == "arm64" {
-		if math.Abs(q-c.LibQ) > 0.35 {
-			return 0, fmt.Errorf("fixture libQ drift for %q: got %.2f want %.2f", c.Name, q, c.LibQ)
-		}
-	} else if math.Abs(q-c.LibQ) > 25.0 {
-		// Non-arm64 can show stable decode-path drift; still guard against corruption.
-		return 0, fmt.Errorf("fixture libQ sanity drift for %q: got %.2f want %.2f", c.Name, q, c.LibQ)
+	if math.Abs(q-c.LibQ) > encoderComplianceRefQDriftToleranceQ {
+		return 0, fmt.Errorf("fixture libQ drift for %q: got %.2f want %.2f", c.Name, q, c.LibQ)
 	}
 	return c.LibQ, nil
 }
@@ -190,7 +191,7 @@ func computeComplianceQualityFromPackets(packets [][]byte, original []float32, c
 }
 
 func loadLongFrameFixture() (longFrameFixtureFile, error) {
-	path := filepath.Join(longFrameFixturePath)
+	path := filepath.Join(longFrameFixturePathForArch())
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return longFrameFixtureFile{}, err
@@ -203,7 +204,7 @@ func loadLongFrameFixture() (longFrameFixtureFile, error) {
 }
 
 func writeLongFrameFixture(fixture longFrameFixtureFile) error {
-	path := filepath.Join(longFrameFixturePath)
+	path := filepath.Join(longFrameFixturePathForArch())
 	data, err := json.MarshalIndent(fixture, "", "  ")
 	if err != nil {
 		return err
@@ -238,7 +239,11 @@ func TestLongFrameReferenceFixtureHonestyWithLiveOpusDemo(t *testing.T) {
 
 	existingFixture, err := loadLongFrameFixture()
 	if err != nil {
-		t.Fatalf("load long-frame fixture: %v", err)
+		if updateFixture && os.IsNotExist(err) {
+			existingFixture = longFrameFixtureFile{Version: 1}
+		} else {
+			t.Fatalf("load long-frame fixture: %v", err)
+		}
 	}
 	existingByName := make(map[string]longFrameFixtureCase, len(existingFixture.Cases))
 	for _, c := range existingFixture.Cases {
@@ -345,7 +350,7 @@ func TestLongFrameReferenceFixtureHonestyWithLiveOpusDemo(t *testing.T) {
 		if err := writeLongFrameFixture(newFixture); err != nil {
 			t.Fatalf("write long-frame fixture: %v", err)
 		}
-		t.Logf("updated %s from live opus_demo encode + opusdec decode", longFrameFixturePath)
+		t.Logf("updated %s from live opus_demo encode + opusdec decode", longFrameFixturePathForArch())
 	}
 }
 

@@ -213,6 +213,8 @@ func NoiseShapeQuantizeDelDec(nsq *NSQState, input []int16, params *NSQParams) (
 						lastSmplIdx--
 						if lastSmplIdx < 0 {
 							lastSmplIdx = decisionDelay - 1
+						} else if lastSmplIdx >= decisionDelay {
+							lastSmplIdx -= decisionDelay
 						}
 						outIdx := frameOffset - decDelay + i
 						if outIdx >= 0 && outIdx < len(pulses) {
@@ -268,6 +270,8 @@ func NoiseShapeQuantizeDelDec(nsq *NSQState, input []int16, params *NSQParams) (
 		lastSmplIdx--
 		if lastSmplIdx < 0 {
 			lastSmplIdx = decisionDelay - 1
+		} else if lastSmplIdx >= decisionDelay {
+			lastSmplIdx -= decisionDelay
 		}
 		outIdx := frameLength - decDelay + i
 		if outIdx >= 0 && outIdx < len(pulses) {
@@ -327,7 +331,7 @@ func nsqDelDecScaleStates(
 	invGainQ31 := silk_INVERSE32_varQ(silk_max(gainsQ16[subfr], 1), 47)
 	invGainQ26 := silk_RSHIFT_ROUND(invGainQ31, 5)
 	for i := 0; i < len(xScQ10) && i < len(x16); i++ {
-		xScQ10[i] = int32((int64(x16[i]) * int64(invGainQ26)) >> 16)
+		xScQ10[i] = silk_SMULWW(int32(x16[i]), invGainQ26)
 	}
 	if nsqDelDecDebugXScQ10 != nil && nsqDelDecDebugXScSubfrLen > 0 {
 		start := subfr * nsqDelDecDebugXScSubfrLen
@@ -361,8 +365,6 @@ func nsqDelDecScaleStates(
 
 	if gainsQ16[subfr] != nsq.prevGainQ16 {
 		gainAdjQ16 := silk_DIV32_varQ(nsq.prevGainQ16, gainsQ16[subfr], 16)
-		// Pre-compute as int64 to avoid repeated cast inside loops.
-		gainAdj64 := int64(gainAdjQ16)
 
 		start := nsq.sLTPShpBufIdx - ltpMemLength
 		if start < 0 {
@@ -375,7 +377,7 @@ func nsqDelDecScaleStates(
 			}
 			shpSlice := nsq.sLTPShpQ14[start:end]
 			for i := range shpSlice {
-				shpSlice[i] = int32((int64(shpSlice[i]) * gainAdj64) >> 16)
+				shpSlice[i] = silk_SMULWW(gainAdjQ16, shpSlice[i])
 			}
 		}
 
@@ -391,31 +393,31 @@ func nsqDelDecScaleStates(
 			if start < end {
 				ltpSlice := sLTPQ15[start:end]
 				for i := range ltpSlice {
-					ltpSlice[i] = int32((int64(ltpSlice[i]) * gainAdj64) >> 16)
+					ltpSlice[i] = silk_SMULWW(gainAdjQ16, ltpSlice[i])
 				}
 			}
 		}
 
 		for k := 0; k < nStatesDelayedDecision; k++ {
 			psDD := &psDelDec[k]
-			psDD.lfARQ14 = int32((int64(psDD.lfARQ14) * gainAdj64) >> 16)
-			psDD.diffQ14 = int32((int64(psDD.diffQ14) * gainAdj64) >> 16)
+			psDD.lfARQ14 = silk_SMULWW(gainAdjQ16, psDD.lfARQ14)
+			psDD.diffQ14 = silk_SMULWW(gainAdjQ16, psDD.diffQ14)
 			// BCE hint: compiler knows len(psDD.sLPCQ14) >= nsqLpcBufLength.
 			lpc := psDD.sLPCQ14[:nsqLpcBufLength]
 			for i := range lpc {
-				lpc[i] = int32((int64(lpc[i]) * gainAdj64) >> 16)
+				lpc[i] = silk_SMULWW(gainAdjQ16, lpc[i])
 			}
 			// BCE hint: compiler knows len(psDD.sAR2Q14) == maxShapeLpcOrder.
 			ar := psDD.sAR2Q14[:]
 			for i := range ar {
-				ar[i] = int32((int64(ar[i]) * gainAdj64) >> 16)
+				ar[i] = silk_SMULWW(gainAdjQ16, ar[i])
 			}
 			// Combined loop for predQ15 and shapeQ14 (same iteration range).
 			pred := psDD.predQ15[:]
 			shp := psDD.shapeQ14[:]
 			for i := range pred {
-				pred[i] = int32((int64(pred[i]) * gainAdj64) >> 16)
-				shp[i] = int32((int64(shp[i]) * gainAdj64) >> 16)
+				pred[i] = silk_SMULWW(gainAdjQ16, pred[i])
+				shp[i] = silk_SMULWW(gainAdjQ16, shp[i])
 			}
 		}
 
@@ -494,10 +496,8 @@ func noiseShapeQuantizerDelDec(
 	// in guard checks rather than caching them in local variables. This lets
 	// the compiler prove bounds and eliminate bounds checks on the guarded accesses.
 
-	// Pre-compute loop-invariant int64 values to avoid repeated casts/shifts.
-	lfShpQ14Lo := int64(int16(lfShpQ14))
-	lfShpQ14Hi := int64(lfShpQ14 >> 16)
-	tiltQ14i64 := int64(int16(tiltQ14))
+	tiltQ14i32 := int32(tiltQ14)
+	lfShpQ14i32 := int32(lfShpQ14)
 
 	// Hoist RDO offset computation (loop-invariant).
 	useRDO := lambdaQ10 > 2048
@@ -561,19 +561,9 @@ func noiseShapeQuantizerDelDec(
 			psDD.seed = psDD.seed*196314165 + 907633515 // silk_RAND inline
 
 			psLPCIdx := nsqLpcBufLength - 1 + i
-			// Call assembly LPC prediction directly, bypassing the
-			// shortTermPrediction dispatcher (which can't be inlined
-			// and adds a stack-check preemption point per call).
-			// predictLPCOrder is constant per subframe.
-			var lpcPredQ14 int32
-			switch predictLPCOrder {
-			case 16:
-				lpcPredQ14 = shortTermPrediction16(psDD.sLPCQ14[:], psLPCIdx, aQ12)
-			case 10:
-				lpcPredQ14 = shortTermPrediction10(psDD.sLPCQ14[:], psLPCIdx, aQ12)
-			default:
-				lpcPredQ14 = shortTermPrediction(psDD.sLPCQ14[:], psLPCIdx, aQ12, predictLPCOrder)
-			}
+			// Use the generic LPC predictor so delayed-decision NSQ shares the
+			// same libopus-aligned path across predictor orders.
+			lpcPredQ14 := shortTermPrediction(psDD.sLPCQ14[:], psLPCIdx, aQ12, predictLPCOrder)
 			lpcPredQ14 <<= 4
 
 			// Warped AR noise shaping filter — dispatched to assembly.
@@ -587,11 +577,11 @@ func noiseShapeQuantizerDelDec(
 				nARQ14 = warpedARFeedbackGeneric(psDD.sAR2Q14[:], psDD.diffQ14, arShpQ13, warpQ16i16, shapingLPCOrder)
 			}
 			nARQ14 <<= 1
-			nARQ14 += int32((int64(psDD.lfARQ14) * tiltQ14i64) >> 16)
+			nARQ14 = silk_SMLAWB(nARQ14, psDD.lfARQ14, tiltQ14i32)
 			nARQ14 <<= 2
 
-			nLFQ14 := int32((int64(psDD.shapeQ14[localSmplBufIdx]) * lfShpQ14Lo) >> 16)
-			nLFQ14 += int32((int64(psDD.lfARQ14) * lfShpQ14Hi) >> 16)
+			nLFQ14 := silk_SMULWB(psDD.shapeQ14[localSmplBufIdx], lfShpQ14i32)
+			nLFQ14 = silk_SMLAWT(nLFQ14, psDD.lfARQ14, lfShpQ14i32)
 			nLFQ14 <<= 2
 
 			tmpA := silk_ADD_SAT32(nARQ14, nLFQ14)
@@ -661,7 +651,7 @@ func noiseShapeQuantizerDelDec(
 			excQ14 := psSS[0].qQ10 << 4
 			excQ14 = (excQ14 ^ seedSign) - seedSign
 			lpcExcQ14 := excQ14 + ltpPredQ14
-			xqQ14 := lpcExcQ14 + lpcPredQ14
+			xqQ14 := silk_ADD32_ovflw(lpcExcQ14, lpcPredQ14)
 			psSS[0].diffQ14 = xqQ14 - xQ10i4
 			sLFAR := psSS[0].diffQ14 - nARQ14
 			psSS[0].sLTPShpQ14 = silk_SUB_SAT32(sLFAR, nLFQ14)
@@ -672,7 +662,7 @@ func noiseShapeQuantizerDelDec(
 			excQ14 = psSS[1].qQ10 << 4
 			excQ14 = (excQ14 ^ seedSign) - seedSign
 			lpcExcQ14 = excQ14 + ltpPredQ14
-			xqQ14 = lpcExcQ14 + lpcPredQ14
+			xqQ14 = silk_ADD32_ovflw(lpcExcQ14, lpcPredQ14)
 			psSS[1].diffQ14 = xqQ14 - xQ10i4
 			sLFAR = psSS[1].diffQ14 - nARQ14
 			psSS[1].sLTPShpQ14 = silk_SUB_SAT32(sLFAR, nLFQ14)
@@ -729,16 +719,13 @@ func noiseShapeQuantizerDelDec(
 		}
 
 		if rdMin2 < rdMax {
-			// Replace worst first-candidate state with best second-candidate.
-			// Partial copy: skip dead sLPCQ14 elements [0..i) that are never
-			// read again by the LPC predictor (it reads [i..nsqLpcBufLength+i-1]).
-			// This saves up to (maxSubFrameLength-1)*4 = 316 bytes per prune.
+			// Match libopus NSQ_del_dec.c: copy the delayed-decision state tail
+			// from sLPCQ14[i] onward. Future samples in the same subframe still
+			// consume the later sLPCQ14 entries, so copying only the current LPC
+			// window can leave stale tail state and change the winning path.
 			src := &psDelDec[rdMinInd]
 			dst := &psDelDec[rdMaxInd]
-			// Copy only the live LPC window: indices [i .. nsqLpcBufLength+i-1].
-			copy(dst.sLPCQ14[i:nsqLpcBufLength+i], src.sLPCQ14[i:nsqLpcBufLength+i])
-			// Use copy() instead of array assignment to get vectorized memmove
-			// instead of duffcopy for these [decisionDelay]int32 (160-byte) arrays.
+			copy(dst.sLPCQ14[i:], src.sLPCQ14[i:])
 			copy(dst.randState[:], src.randState[:])
 			copy(dst.qQ10[:], src.qQ10[:])
 			copy(dst.xqQ14[:], src.xqQ14[:])

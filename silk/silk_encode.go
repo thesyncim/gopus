@@ -161,6 +161,8 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 	baseSideMaxBits := sideEnc.maxBits
 	baseMidUseCBR := enc.useCBR
 	baseSideUseCBR := sideEnc.useCBR
+	baseMidBlockUseCBR := enc.blockUseCBR
+	baseSideBlockUseCBR := sideEnc.blockUseCBR
 	baseMidBitrate := enc.targetRateBps
 	baseSideBitrate := sideEnc.targetRateBps
 	basePacketMaxBits := baseMidMaxBits
@@ -287,19 +289,19 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 			sideEnc.SetPreAdjustedTargetRateBps(sideRate)
 		}
 
-			midFrameVAD := stereoVADFlagAt(vadFlags, i)
-			var midState VADFrameState
-			var midFeedbackState VADFrameState
-			midFeedbackVAD := midFrameVAD
-			if midAnalyzer != nil {
-				midFeedbackState, midFeedbackVAD = midAnalyzer(midOut, len(midOut), fsKHz)
-			}
-			if i < len(vadStates) && vadStates[i].Valid {
-				midState = vadStates[i]
-			} else if midAnalyzer != nil {
-				midState = midFeedbackState
-				midFrameVAD = midFeedbackVAD
-			}
+		midFrameVAD := stereoVADFlagAt(vadFlags, i)
+		var midState VADFrameState
+		var midFeedbackState VADFrameState
+		midFeedbackVAD := midFrameVAD
+		if midAnalyzer != nil {
+			midFeedbackState, midFeedbackVAD = midAnalyzer(midOut, len(midOut), fsKHz)
+		}
+		if i < len(vadStates) && vadStates[i].Valid {
+			midState = vadStates[i]
+		} else if midAnalyzer != nil {
+			midState = midFeedbackState
+			midFrameVAD = midFeedbackVAD
+		}
 		if midFrameVAD {
 			midVAD[i] = 1
 		}
@@ -371,11 +373,11 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 			sideEnc.maxBits = sideMaxBits
 		}
 		frameUseCBR := baseMidUseCBR && i == nFrames-1
-		enc.useCBR = frameUseCBR
+		enc.blockUseCBR = frameUseCBR
 		if !midOnly && sideRate > 0 {
-			enc.useCBR = false
+			enc.blockUseCBR = false
 		}
-		sideEnc.useCBR = baseSideUseCBR && i == nFrames-1
+		sideEnc.blockUseCBR = baseSideUseCBR && i == nFrames-1
 
 		if midState.Valid {
 			enc.SetVADState(midState.SpeechActivityQ8, midState.InputTiltQ15, midState.InputQualityBandsQ15)
@@ -399,10 +401,10 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 			_ = sideEnc.EncodeFrame(sideOut, nil, sideFrameVAD)
 		}
 
-			speechActQ8 = enc.speechActivityQ8
-			if midOnly {
-				enc.stereo.prevDecodeOnlyMiddle = 1
-			} else {
+		speechActQ8 = enc.speechActivityQ8
+		if midOnly {
+			enc.stereo.prevDecodeOnlyMiddle = 1
+		} else {
 			enc.stereo.prevDecodeOnlyMiddle = 0
 		}
 	}
@@ -410,6 +412,8 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 	sideEnc.maxBits = baseSideMaxBits
 	enc.useCBR = baseMidUseCBR
 	sideEnc.useCBR = baseSideUseCBR
+	enc.blockUseCBR = baseMidBlockUseCBR
+	sideEnc.blockUseCBR = baseSideBlockUseCBR
 	enc.targetRateBps = baseMidBitrate
 	sideEnc.targetRateBps = baseSideBitrate
 

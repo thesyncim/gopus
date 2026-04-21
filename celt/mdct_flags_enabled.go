@@ -12,3 +12,12 @@ var mdctUseFMALikeMixEnabled = func() bool {
 	}
 	return false
 }()
+
+var mdctUseNativeMulShort240Enabled = tmpGetenv("GOPUS_TMP_MDCT_NATIVE_MUL_SHORT240") == "1"
+
+var mdctUseFMALikeMixShort240Enabled = func() bool {
+	if v, ok := tmpLookupEnv("GOPUS_TMP_MDCT_FMALIKE_SHORT240"); ok {
+		return v == "1"
+	}
+	return false
+}()

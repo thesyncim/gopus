@@ -105,7 +105,7 @@ jobs:
       - name: Run full parity-tier test suite
         run: |
           make ensure-libopus
-          GOPUS_TEST_TIER=parity go test ./... -count=1
+          GOPUS_TEST_TIER=parity go test ./... -count=1 -timeout=25m
 
   test-linux-race:
     name: test-linux-race
@@ -207,8 +207,10 @@ jobs:
           set -euo pipefail
           make ensure-libopus
           json_out="$(mktemp)"
+          # Keep this lane on the default parity gate surface only. Exactness
+          # tests intentionally self-skip unless explicitly enabled.
           GOPUS_TEST_TIER=parity go test ./testvectors \
-            -run 'TestSILKParamTraceAgainstLibopus|TestDecoderParityLibopusMatrix|TestEncoderComplianceSummary' \
+            -run 'TestDecoderParityLibopusMatrix|TestEncoderComplianceSummary' \
             -shuffle=on \
             -count=3 \
             -json | tee "$json_out"
@@ -318,7 +320,7 @@ jobs:
         run: make ensure-libopus
 
       - name: Run test suite
-        run: go test ./... -count=1
+        run: go test ./... -count=1 -timeout=25m
 
   test-windows:
     name: test-windows
@@ -339,6 +341,23 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Cache pinned libopus build
+        uses: actions/cache@v4
+        with:
+          path: |
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+          key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
+
+      - name: Setup MSYS2 build tools
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          path-type: inherit
+          install: >-
+            make
+            mingw-w64-x86_64-gcc
 
       - name: Install ffmpeg
         shell: pwsh
@@ -366,6 +385,10 @@ jobs:
 
           exit 0
 
+      - name: Bootstrap pinned libopus
+        shell: msys2 {0}
+        run: make ensure-libopus
+
       - name: Run test suite
         shell: pwsh
-        run: go test ./... -count=1
+        run: go test ./... -count=1 -timeout=25m

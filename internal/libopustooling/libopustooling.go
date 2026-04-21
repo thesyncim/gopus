@@ -1,9 +1,12 @@
 package libopustooling
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 )
 
 const (
@@ -18,6 +21,10 @@ func DefaultSearchRoots() []string {
 }
 
 func findLibopusTool(version string, roots []string, tool string) (string, bool) {
+	return findLibopusToolForOS(version, roots, tool, runtime.GOOS)
+}
+
+func findLibopusToolForOS(version string, roots []string, tool, goos string) (string, bool) {
 	if version == "" {
 		version = DefaultVersion
 	}
@@ -25,18 +32,37 @@ func findLibopusTool(version string, roots []string, tool string) (string, bool)
 		roots = DefaultSearchRoots()
 	}
 
-	seen := make(map[string]struct{}, len(roots))
+	seen := make(map[string]struct{}, len(roots)*2)
 	for _, root := range roots {
-		p := filepath.Clean(filepath.Join(root, "tmp_check", "opus-"+version, tool))
-		if _, ok := seen[p]; ok {
-			continue
-		}
-		seen[p] = struct{}{}
-		if st, err := os.Stat(p); err == nil && (st.Mode()&0o111) != 0 {
-			return p, true
+		for _, candidate := range libopusToolCandidates(tool, goos) {
+			p := filepath.Clean(filepath.Join(root, "tmp_check", "opus-"+version, candidate))
+			if _, ok := seen[p]; ok {
+				continue
+			}
+			seen[p] = struct{}{}
+			if st, err := os.Stat(p); err == nil && libopusToolIsRunnable(st, goos) {
+				return p, true
+			}
 		}
 	}
 	return "", false
+}
+
+func libopusToolCandidates(tool, goos string) []string {
+	if goos == "windows" && !strings.HasSuffix(strings.ToLower(tool), ".exe") {
+		return []string{tool + ".exe", tool}
+	}
+	return []string{tool}
+}
+
+func libopusToolIsRunnable(st os.FileInfo, goos string) bool {
+	if st.IsDir() {
+		return false
+	}
+	if goos == "windows" {
+		return true
+	}
+	return (st.Mode() & 0o111) != 0
 }
 
 // FindOpusDemo returns the first executable opus_demo found under tmp_check.
@@ -92,4 +118,14 @@ func FindOrEnsureOpusCompare(version string, roots []string) (string, bool) {
 	}
 	EnsureLibopus(version, roots)
 	return FindOpusCompare(version, roots)
+}
+
+// FindCCompiler returns a GCC/Clang-style C compiler suitable for helper builds.
+func FindCCompiler() (string, error) {
+	for _, candidate := range []string{"cc", "gcc", "clang"} {
+		if path, err := exec.LookPath(candidate); err == nil {
+			return path, nil
+		}
+	}
+	return "", fmt.Errorf("no supported C compiler found in PATH (tried: cc, gcc, clang)")
 }

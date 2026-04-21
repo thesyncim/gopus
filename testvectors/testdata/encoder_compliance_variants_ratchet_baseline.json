@@ -48,6 +48,15 @@
     },
     {
       "name": "CELT-FB-2.5ms-mono-64k",
+      "variant": "chirp_sweep_v1",
+      "min_gap_db": 0,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.03,
+      "max_histogram_l1": 0.03
+    },
+    {
+      "name": "CELT-FB-2.5ms-mono-64k",
       "variant": "impulse_train_v1",
       "min_gap_db": -0.5065226756430548,
       "max_mean_abs_packet_len": 0,
@@ -68,6 +77,15 @@
       "name": "CELT-FB-2.5ms-stereo-128k",
       "variant": "am_multisine_v1",
       "min_gap_db": 106.60206414445332,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.03,
+      "max_histogram_l1": 0.03
+    },
+    {
+      "name": "CELT-FB-2.5ms-stereo-128k",
+      "variant": "chirp_sweep_v1",
+      "min_gap_db": -1.55,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.03,
@@ -157,6 +175,15 @@
     {
       "name": "CELT-FB-20ms-stereo-128k",
       "variant": "speech_like_v1",
+      "min_gap_db": -0.75,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.03,
+      "max_histogram_l1": 0.03
+    },
+    {
+      "name": "CELT-FB-5ms-mono-64k",
+      "variant": "am_multisine_v1",
       "min_gap_db": -0.75,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
@@ -372,6 +399,15 @@
     },
     {
       "name": "HYBRID-SWB-10ms-mono-48k",
+      "variant": "am_multisine_v1",
+      "min_gap_db": -2,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.08,
+      "max_histogram_l1": 0.08
+    },
+    {
+      "name": "HYBRID-SWB-10ms-mono-48k",
       "variant": "chirp_sweep_v1",
       "min_gap_db": -1.9838141772561357,
       "max_mean_abs_packet_len": 0,
@@ -453,6 +489,15 @@
     },
     {
       "name": "HYBRID-SWB-40ms-mono-48k",
+      "variant": "impulse_train_v1",
+      "min_gap_db": -2,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.08,
+      "max_histogram_l1": 0.08
+    },
+    {
+      "name": "HYBRID-SWB-40ms-mono-48k",
       "variant": "speech_like_v1",
       "min_gap_db": -2.0213248921611537,
       "max_mean_abs_packet_len": 0,
@@ -508,6 +553,15 @@
     {
       "name": "SILK-NB-10ms-mono-16k",
       "variant": "chirp_sweep_v1",
+      "min_gap_db": -0.5,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.02,
+      "max_histogram_l1": 0.02
+    },
+    {
+      "name": "SILK-NB-10ms-mono-16k",
+      "variant": "impulse_train_v1",
       "min_gap_db": -0.5,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
@@ -669,8 +723,26 @@
     },
     {
       "name": "SILK-WB-20ms-stereo-48k",
+      "variant": "am_multisine_v1",
+      "min_gap_db": 0,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.02,
+      "max_histogram_l1": 0.02
+    },
+    {
+      "name": "SILK-WB-20ms-stereo-48k",
       "variant": "chirp_sweep_v1",
       "min_gap_db": 282.11073604358216,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.02,
+      "max_histogram_l1": 0.02
+    },
+    {
+      "name": "SILK-WB-20ms-stereo-48k",
+      "variant": "impulse_train_v1",
+      "min_gap_db": 0,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.02,
@@ -689,6 +761,15 @@
       "name": "SILK-WB-40ms-mono-32k",
       "variant": "am_multisine_v1",
       "min_gap_db": -0.49850772109834907,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.02,
+      "max_histogram_l1": 0.02
+    },
+    {
+      "name": "SILK-WB-40ms-mono-32k",
+      "variant": "chirp_sweep_v1",
+      "min_gap_db": -0.5,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,
       "max_mode_mismatch_rate": 0.02,
@@ -715,6 +796,15 @@
     {
       "name": "SILK-WB-60ms-mono-32k",
       "variant": "am_multisine_v1",
+      "min_gap_db": -0.5,
+      "max_mean_abs_packet_len": 0,
+      "max_p95_abs_packet_len": 0,
+      "max_mode_mismatch_rate": 0.02,
+      "max_histogram_l1": 0.02
+    },
+    {
+      "name": "SILK-WB-60ms-mono-32k",
+      "variant": "chirp_sweep_v1",
       "min_gap_db": -0.5,
       "max_mean_abs_packet_len": 0,
       "max_p95_abs_packet_len": 0,

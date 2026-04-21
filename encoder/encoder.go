@@ -8,9 +8,7 @@ package encoder
 
 import (
 	"errors"
-	"fmt"
 	"math"
-	"os"
 
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/internal/dnnblob"
@@ -59,11 +57,12 @@ const maxPacketSizeWithQEXT = 3826
 // Encoder is the unified Opus encoder that orchestrates SILK and CELT sub-encoders.
 type Encoder struct {
 	// Sub-encoders (created lazily)
-	silkEncoder     *silk.Encoder
-	silkSideEncoder *silk.Encoder // For stereo side channel in hybrid mode
-	silkTrace       *silk.EncoderTrace
-	celtEncoder     *celt.Encoder
-	celtStatsHook   func(celt.CeltTargetStats)
+	silkEncoder       *silk.Encoder
+	silkSideEncoder   *silk.Encoder // For stereo side channel in hybrid mode
+	silkTrace         *silk.EncoderTrace
+	celtEncoder       *celt.Encoder
+	celtStatsHook     func(celt.CeltTargetStats)
+	celtPrefilterHook func(celt.PrefilterDebugStats)
 
 	// Configuration
 	mode       Mode
@@ -169,6 +168,7 @@ type Encoder struct {
 	analysisReadBakSet  bool
 	celtForceIntra      bool
 	prevMode            Mode
+	prevPacketMode      Mode
 	prevAutoMode        Mode
 	inputBuffer         []float64
 	delayBuffer         []float64
@@ -209,6 +209,7 @@ type Encoder struct {
 	scratchSideStates [silk.MaxFramesPerPacket]silk.VADFrameState
 	scratchPacket     []byte    // Output packet buffer
 	scratchDelayedPCM []float64 // Delay-compensated CELT input
+	scratchDelayState []float64 // Packet-local delay history for transition-prefill replay
 	// Snapshot of libopus delay-history CELT transition prefill window (Fs/400).
 	scratchTransitionPrefill []float64
 	scratchSilkPrefill       []float64
@@ -266,6 +267,7 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		scratchMono:            make([]float32, maxSamples),
 		scratchPacket:          make([]byte, maxPacketSizeWithQEXT),
 		prevMode:               ModeAuto,
+		prevPacketMode:         ModeAuto,
 		prevAutoMode:           ModeAuto,
 		voiceRatio:             -1,
 		streamChannels:         channels,
@@ -432,6 +434,7 @@ func (e *Encoder) Reset() {
 	e.lastAnalysisFresh = false
 	e.analysisReadBakSet = false
 	e.prevMode = ModeAuto
+	e.prevPacketMode = ModeAuto
 	e.prevAutoMode = ModeAuto
 	e.voiceRatio = -1
 	e.detectedBandwidth = 0
@@ -726,8 +729,15 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	actualMode, prevModeNext := e.applyCELTTransitionDelay(frameSize, requestedMode)
 	transitionToCELT := requestedMode == ModeCELT && actualMode != ModeCELT
 	if actualMode == ModeSILK || (actualMode == ModeHybrid && frameSize <= 960) {
-		// Keep Opus-level activity/VAD on raw input samples for SILK/hybrid lanes.
-		e.updateOpusVAD(rawPCM, frameSize)
+		// Match libopus application semantics:
+		// explicit ModeSILK mirrors restricted-silk, where Opus-level activity
+		// stays VAD_NO_DECISION and must not clamp SILK VAD.
+		if actualMode == ModeSILK && e.mode == ModeSILK {
+			e.clearOpusVADDecision()
+		} else {
+			// Audio/VoIP SILK and short hybrid lanes still use Opus-level activity.
+			e.updateOpusVAD(rawPCM, frameSize)
+		}
 	}
 
 	var frameData []byte
@@ -748,14 +758,15 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		}
 		e.updateDelayBuffer(framePCM, frameSize)
 	case ModeHybrid:
-		e.maybePrefillSILKOnModeTransition(actualMode)
-		celtPCM := e.applyDelayCompensation(framePCM, frameSize)
 		if frameSize > 960 {
-			// Long-frame hybrid packets keep the existing prefill scheduling.
-			e.maybePrefillCELTOnModeTransition(actualMode, celtPCM, frameSize)
-			packet, err = e.encodeHybridMultiFramePacket(framePCM, celtPCM, rawPCM, lookaheadSlice, frameSize, transitionToCELT)
+			delayState := e.ensureDelayState(len(e.delayBuffer))
+			copy(delayState, e.delayBuffer)
+			celtPCM := e.applyDelayCompensation(framePCM, frameSize)
+			packet, err = e.encodeHybridMultiFramePacket(framePCM, celtPCM, rawPCM, lookaheadSlice, delayState, frameSize, transitionToCELT)
 		} else {
-			frameData, err = e.encodeHybridFrameWithMaxPacketAndTransition(framePCM, celtPCM, lookaheadSlice, frameSize, 0, true, transitionToCELT)
+			e.maybePrefillSILKOnModeTransition(actualMode)
+			celtPCM := e.applyDelayCompensation(framePCM, frameSize)
+			frameData, err = e.encodeHybridFrameWithMaxPacketAndTransition(framePCM, celtPCM, lookaheadSlice, frameSize, 0, true, transitionToCELT, false)
 		}
 	case ModeCELT:
 		celtPCM := e.prepareCELTPCM(framePCM, frameSize)
@@ -808,6 +819,9 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 			return nil, pktErr
 		}
 		packet = e.scratchPacket[:packetLen]
+	}
+	if isConcreteMode(actualMode) {
+		e.prevPacketMode = actualMode
 	}
 	if isConcreteMode(prevModeNext) {
 		e.prevMode = prevModeNext
@@ -945,13 +959,22 @@ func quantizeFloat64ToLSBDepthInPlace(samples []float64, depth int) {
 }
 
 func (e *Encoder) quantizeInputToLSBDepth(pcm []float64) []float64 {
-	if e.floatInputExact && e.LSBDepth() == 24 {
+	if e.LSBDepth() == 24 && (e.floatInputExact || float64SliceIsExactFloat32(pcm)) {
 		return pcm
 	}
 	out := e.ensureQuantPCM(len(pcm))
 	copy(out, pcm)
 	quantizeFloat64ToLSBDepthInPlace(out, e.LSBDepth())
 	return out
+}
+
+func float64SliceIsExactFloat32(samples []float64) bool {
+	for _, v := range samples {
+		if float64(float32(v)) != v {
+			return false
+		}
+	}
+	return true
 }
 
 func (e *Encoder) ensureQuantPCM(size int) []float64 {
@@ -1059,11 +1082,32 @@ func quantizeFloat32ToInt16InPlace(samples []float32) {
 	}
 }
 
+func quantizeFloat32ToInt16LibopusInPlace(samples []float32) {
+	const scale = float32(32768.0)
+	const invScale = float32(1.0 / 32768.0)
+	for i, v := range samples {
+		scaled := float64(v * scale)
+		if scaled > 32767.0 {
+			scaled = 32767.0
+		} else if scaled < -32768.0 {
+			scaled = -32768.0
+		}
+		samples[i] = float32(math.RoundToEven(scaled)) * invScale
+	}
+}
+
 func (e *Encoder) ensureDelayedPCM(size int) []float64 {
 	if cap(e.scratchDelayedPCM) < size {
 		e.scratchDelayedPCM = make([]float64, size)
 	}
 	return e.scratchDelayedPCM[:size]
+}
+
+func (e *Encoder) ensureDelayState(size int) []float64 {
+	if cap(e.scratchDelayState) < size {
+		e.scratchDelayState = make([]float64, size)
+	}
+	return e.scratchDelayState[:size]
 }
 
 func (e *Encoder) ensureTransitionPrefill(size int) []float64 {
@@ -1193,8 +1237,11 @@ func (e *Encoder) maybePrefillCELTOnModeTransition(actualMode Mode, celtPCM []fl
 	e.ensureCELTEncoder()
 	e.celtEncoder.Reset()
 	e.celtEncoder.SetHybrid(actualMode == ModeHybrid)
-	e.celtEncoder.SetTopLevelDelayCompensatedInput(actualMode == ModeCELT && !e.lowDelay)
+	e.celtEncoder.SetTopLevelDelayCompensatedInput(true)
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
+	// libopus re-drives CELT from the Opus wrapper after reset, so the
+	// transition prefill still sees the current top-level analysis snapshot.
+	e.syncCELTAnalysisToCELT()
 	// Match libopus mode-transition cadence: prefill uses normal prediction,
 	// then the next real frame is forced intra.
 	e.celtEncoder.SetPrediction(e.celtPredictionMode())
@@ -1232,35 +1279,38 @@ func (e *Encoder) maybePrefillCELTOnModeTransition(actualMode Mode, celtPCM []fl
 	for i := range prefillInput {
 		prefillInput[i] = float64(float32(prefillInput[i]))
 	}
-	prefillPacket, _ := e.celtEncoder.EncodeFrame(prefillInput, prefillFrameSize)
-	if tmpPrefillRNGDebugEnabled {
-		d0, d1 := -1, -1
-		if len(prefillPacket) > 0 {
-			d0 = int(prefillPacket[0])
-		}
-		if len(prefillPacket) > 1 {
-			d1 = int(prefillPacket[1])
-		}
-		fmt.Fprintf(os.Stderr, "GOPREF prefill_rng=%d dummy=%d,%d mode=%d prev=%d frame=%d\n",
-			e.celtEncoder.FinalRange(), d0, d1, actualMode, prev, frameSize)
-	}
+	e.celtEncoder.EncodeFrame(prefillInput, prefillFrameSize)
 	e.celtEncoder.SetMaxPayloadBytes(0)
 	// Match libopus mode-switch behavior: the next real CELT frame is forced intra.
 	e.celtForceIntra = true
 }
 
 func (e *Encoder) maybePrefillSILKOnModeTransition(actualMode Mode) {
-	if actualMode == ModeCELT || e.lowDelay {
+	e.maybePrefillSILKOnModeTransitionWithOptions(actualMode, true, true)
+}
+
+func (e *Encoder) maybePrefillSILKOnModeTransitionWithOptions(actualMode Mode, preserveLP bool, captureCELTPrefill bool) {
+	if !e.shouldPrefillSILKOnModeTransition(actualMode) {
 		return
+	}
+	e.runPendingSilkTransitionPrefill(preserveLP, captureCELTPrefill)
+}
+
+func (e *Encoder) shouldPrefillSILKOnModeTransition(actualMode Mode) bool {
+	if actualMode == ModeCELT || e.lowDelay {
+		return false
 	}
 	prev := e.prevMode
 	if !isConcreteMode(prev) || prev != ModeCELT {
-		return
+		return false
 	}
 	if e.channels < 1 || e.sampleRate <= 0 {
-		return
+		return false
 	}
+	return true
+}
 
+func (e *Encoder) runPendingSilkTransitionPrefill(preserveLP bool, captureCELTPrefill bool) {
 	// libopus prefill uses 10 ms of delay-buffer history on CELT->SILK/HYBRID.
 	prefillFrameSize := e.sampleRate / 100
 	if prefillFrameSize <= 0 {
@@ -1279,42 +1329,70 @@ func (e *Encoder) maybePrefillSILKOnModeTransition(actualMode Mode) {
 	} else if len(e.delayBuffer) > 0 {
 		copy(prefill[prefillSamples-len(e.delayBuffer):], e.delayBuffer)
 	}
+	e.runSilkTransitionPrefill(prefill, preserveLP, captureCELTPrefill)
+}
+
+func (e *Encoder) runSilkTransitionPrefill(prefill []float64, preserveLP bool, captureCELTPrefill bool) {
+	if len(prefill) == 0 || e.channels < 1 || e.sampleRate <= 0 {
+		return
+	}
+	prefillFrameSize := len(prefill) / e.channels
+	if prefillFrameSize <= 0 || prefillFrameSize*e.channels != len(prefill) {
+		return
+	}
+
 	e.applySilkTransitionPrefillRamp(prefill, prefillFrameSize)
 
-	// CELT mode-transition prefill consumes this exact history slice in libopus:
-	// delay_buffer[encoder_buffer-delay_comp-Fs/400 : +Fs/400].
-	prefillLen := e.sampleRate / 400
-	delayComp := e.sampleRate / 250
-	prefillOffset := prefillFrameSize - delayComp - prefillLen
-	celtPrefillSamples := prefillLen * e.channels
-	if prefillLen > 0 && prefillOffset >= 0 && celtPrefillSamples > 0 {
-		start := prefillOffset * e.channels
-		end := start + celtPrefillSamples
-		if start >= 0 && end <= len(prefill) {
-			out := e.ensureCELTPrefill(celtPrefillSamples)
-			copy(out, prefill[start:end])
-			e.hasCELTPrefill = true
+	if captureCELTPrefill {
+		// CELT mode-transition prefill consumes this exact history slice in libopus:
+		// delay_buffer[encoder_buffer-delay_comp-Fs/400 : +Fs/400].
+		prefillLen := e.sampleRate / 400
+		delayComp := e.sampleRate / 250
+		prefillOffset := prefillFrameSize - delayComp - prefillLen
+		celtPrefillSamples := prefillLen * e.channels
+		if prefillLen > 0 && prefillOffset >= 0 && celtPrefillSamples > 0 {
+			start := prefillOffset * e.channels
+			end := start + celtPrefillSamples
+			if start >= 0 && end <= len(prefill) {
+				out := e.ensureCELTPrefill(celtPrefillSamples)
+				copy(out, prefill[start:end])
+				e.hasCELTPrefill = true
+			}
 		}
 	}
 
 	e.ensureSILKEncoder()
-	savedMainLP := e.silkEncoder.GetLPState()
+	var savedMainLP silk.LPState
+	if preserveLP {
+		savedMainLP = e.silkEncoder.GetLPState()
+	}
 	e.silkEncoder.Reset()
-	// Match libopus prefillFlag==2 semantics: keep LP transition state while
-	// resetting other SILK encoder state for CELT->SILK/Hybrid prefill.
-	e.silkEncoder.SetLPState(savedMainLP)
+	e.silkEncoder.ResetTransitionPrefillState()
+	if preserveLP {
+		// Match libopus prefillFlag==2 semantics: keep LP transition state while
+		// resetting other SILK encoder state for CELT->SILK/Hybrid prefill.
+		e.silkEncoder.SetLPState(savedMainLP)
+	}
 	e.silkEncoder.SetComplexity(e.complexity)
 	e.silkEncoder.SetTrace(e.silkTrace)
 	e.silkEncoder.SetReducedDependency(e.predictionDisabled)
 	if e.channels == 2 {
 		e.ensureSILKSideEncoder()
-		savedSideLP := e.silkSideEncoder.GetLPState()
+		var savedSideLP silk.LPState
+		if preserveLP {
+			savedSideLP = e.silkSideEncoder.GetLPState()
+		}
 		e.silkSideEncoder.Reset()
-		e.silkSideEncoder.SetLPState(savedSideLP)
+		e.silkSideEncoder.ResetTransitionPrefillState()
+		if preserveLP {
+			e.silkSideEncoder.SetLPState(savedSideLP)
+		}
 		e.silkSideEncoder.SetComplexity(e.complexity)
 		e.silkSideEncoder.SetReducedDependency(e.predictionDisabled)
 	}
-	e.silkMonoInputHist = [2]float32{}
+	if !preserveLP {
+		e.silkMonoInputHist = [2]float32{}
+	}
 
 	targetRate := silk.GetBandwidthConfig(e.silkBandwidth()).SampleRate
 	if targetRate <= 0 {
@@ -1345,7 +1423,7 @@ func (e *Encoder) maybePrefillSILKOnModeTransition(actualMode Mode) {
 	for i := 0; i < prefillFrameSize; i++ {
 		pcm32[i] = float32(prefill[i])
 	}
-	quantizeFloat32ToInt16InPlace(pcm32)
+	quantizeFloat32ToInt16LibopusInPlace(pcm32)
 
 	silkIn := pcm32
 	if targetRate != 48000 {
@@ -1831,10 +1909,13 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 			lookahead32[i] = float32(v)
 		}
 	}
-	// Match libopus enc_API.c float path: quantize to int16 precision
-	// before SILK resampling/input buffering.
-	quantizeFloat32ToInt16InPlace(pcm32)
-	quantizeFloat32ToInt16InPlace(lookahead32)
+	if e.channels != 2 {
+		// Match libopus enc_API.c float path: quantize to int16 precision
+		// before SILK resampling/input buffering. Stereo uses its own
+		// per-channel path below so it can match libopus predictor state.
+		quantizeFloat32ToInt16LibopusInPlace(pcm32)
+		quantizeFloat32ToInt16LibopusInPlace(lookahead32)
+	}
 
 	cfg := silk.GetBandwidthConfig(e.silkBandwidth())
 	targetRate := cfg.SampleRate
@@ -1904,6 +1985,13 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 			leftLookahead[i] = lookahead32[i*2]
 			rightLookahead[i] = lookahead32[i*2+1]
 		}
+		// Match libopus FLOAT2INT16 quantization on the stereo feed before
+		// SILK resampling; small tie-breaking differences here materially
+		// change packet-0 stereo predictor/range state.
+		quantizeFloat32ToInt16LibopusInPlace(left)
+		quantizeFloat32ToInt16LibopusInPlace(right)
+		quantizeFloat32ToInt16LibopusInPlace(leftLookahead)
+		quantizeFloat32ToInt16LibopusInPlace(rightLookahead)
 		if targetRate != 48000 {
 			leftOut := e.ensureSilkResampled(targetSamples)
 			rightOut := e.ensureSilkResampledR(targetSamples)
@@ -1919,13 +2007,8 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 			left = leftOut
 			right = rightOut
 		}
-		quantizeFloat32ToInt16InPlace(left)
-		quantizeFloat32ToInt16InPlace(right)
-		mono := e.scratchMono[:len(left)]
-		for i := 0; i < len(left); i++ {
-			mono[i] = (left[i] + right[i]) * 0.5
-		}
-		vadFlags, vadStates, _ := e.computeSilkVADFlagsAndStates(mono, targetRate/1000)
+		quantizeFloat32ToInt16LibopusInPlace(left)
+		quantizeFloat32ToInt16LibopusInPlace(right)
 		e.ensureSilkVADMidFeedback()
 		midFeedbackAnalyzer := func(frame []float32, frameSamples, fsKHz int) (silk.VADFrameState, bool) {
 			state, active := computeSilkVADFrameState(e.silkVADMidFeedback, frame, frameSamples, fsKHz)
@@ -1942,8 +2025,8 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 			left,
 			right,
 			e.silkBandwidth(),
-			vadFlags,
-			vadStates,
+			nil,
+			nil,
 			midFeedbackAnalyzer,
 			nil,
 			nil,
@@ -1977,7 +2060,7 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 	if e.channels == 1 {
 		pcm32 = e.alignSilkMonoInput(pcm32)
 	}
-	quantizeFloat32ToInt16InPlace(pcm32)
+	quantizeFloat32ToInt16LibopusInPlace(pcm32)
 	if e.bitrate > 0 {
 		perChannelRate := e.silkInputBitrate(frameSize) / e.channels
 		if perChannelRate > 0 {
@@ -2039,7 +2122,7 @@ func (e *Encoder) encodeCELTFrameWithBitrateAndMaxPayload(pcm []float64, frameSi
 	e.celtEncoder.SetMaxPayloadBytes(maxPayloadBytes)
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 	e.celtEncoder.SetHybrid(false)
-	e.celtEncoder.SetTopLevelDelayCompensatedInput(!e.lowDelay)
+	e.celtEncoder.SetTopLevelDelayCompensatedInput(true)
 	e.celtEncoder.SetPrediction(e.celtPredictionModeForFrame())
 	e.celtEncoder.SetDCRejectEnabled(false)
 	e.celtEncoder.SetPacketLoss(e.packetLoss)
@@ -2152,7 +2235,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(celtPCM []float64, frameSize int) (
 
 // encodeHybridMultiFramePacket encodes long hybrid packets by splitting into
 // 20ms hybrid frames and packing them using code-3 framing.
-func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64, rawPCM []float64, lookahead []float64, frameSize int, transitionToCELT bool) ([]byte, error) {
+func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64, rawPCM []float64, lookahead []float64, delayState []float64, frameSize int, transitionToCELT bool) ([]byte, error) {
 	if frameSize <= 960 || frameSize%960 != 0 {
 		return nil, ErrInvalidFrameSize
 	}
@@ -2166,6 +2249,14 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 	if e.analysisReadBakSet && e.analyzer != nil {
 		e.analyzer.ReadPos = e.analysisReadPosBak
 		e.analyzer.ReadSubframe = e.analysisSubframeBak
+	}
+
+	savedDelayBuffer := e.delayBuffer
+	if len(delayState) == len(savedDelayBuffer) {
+		e.delayBuffer = delayState
+		defer func() {
+			e.delayBuffer = savedDelayBuffer
+		}()
 	}
 
 	frameStride := 960 * e.channels
@@ -2189,6 +2280,7 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 		currMaxByRate = 2
 	}
 	totSize := 0
+	packetPrefillFromCELT := e.shouldPrefillSILKOnModeTransition(ModeHybrid)
 	for i := 0; i < frameCount; i++ {
 		e.primeSubframeAnalysis(960)
 		start := i * frameStride
@@ -2196,6 +2288,14 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 		subPCM := pcm[start:end]
 		subCELTPCM := celtPCM[start:end]
 		subRawPCM := rawPCM[start:end]
+
+		if packetPrefillFromCELT {
+			// libopus keeps the packet-level CELT->SILK/HYBRID prefill active for
+			// each 20 ms internal frame of long packets. The first subframe also
+			// snapshots CELT's transition-prefill window; later ones only re-prime
+			// the SILK state from the rolling delay history.
+			e.maybePrefillSILKOnModeTransitionWithOptions(ModeHybrid, i > 0, i == 0)
+		}
 
 		// Match libopus long-packet cadence: activity for hybrid subframes is
 		// evaluated per 20ms frame with subframe analysis info.
@@ -2219,8 +2319,10 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 		}
 
 		allowTransitionRedundancy := (!transitionToCELT && i == 0) || (transitionToCELT && i == frameCount-1)
+		prevPacketMode := e.prevPacketMode
+		runCELTTransitionPrefill := i == 0 && !e.lowDelay && isConcreteMode(prevPacketMode) && prevPacketMode != ModeHybrid
 		subframeToCELT := transitionToCELT && i == frameCount-1
-		frameData, err := e.encodeHybridFrameWithMaxPacketAndTransition(subPCM, subCELTPCM, subLookahead, 960, currMax, allowTransitionRedundancy, subframeToCELT)
+		frameData, err := e.encodeHybridFrameWithMaxPacketAndTransition(subPCM, subCELTPCM, subLookahead, 960, currMax, allowTransitionRedundancy, subframeToCELT, runCELTTransitionPrefill)
 		if err != nil {
 			return nil, err
 		}
@@ -2228,6 +2330,9 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 		frameCopy := append([]byte(nil), frameData...)
 		frames[i] = frameCopy
 		totSize += len(frameCopy) + 1
+		if len(e.delayBuffer) > 0 {
+			e.updateDelayBufferInternal(subPCM, len(subPCM), len(e.delayBuffer))
+		}
 		if prevSize >= 0 && len(frameCopy) != prevSize {
 			sameSize = false
 		}
@@ -2458,6 +2563,12 @@ func (e *Encoder) updateOpusVAD(pcm []float64, frameSize int) {
 	e.lastOpusVADActive = active
 }
 
+func (e *Encoder) clearOpusVADDecision() {
+	e.lastOpusVADValid = false
+	e.lastOpusVADActive = true
+	e.lastOpusVADProb = 1.0
+}
+
 func computeSilkVADWithState(state *VADState, mono []float32, frameSamples, fsKHz int) (int, bool) {
 	if state == nil || frameSamples <= 0 || fsKHz <= 0 {
 		return 0, false
@@ -2635,6 +2746,9 @@ func (e *Encoder) ensureCELTEncoder() {
 		e.celtEncoder = celt.NewEncoder(e.channels)
 		e.celtEncoder.SetComplexity(e.complexity)
 		e.celtEncoder.SetTargetStatsHook(e.celtStatsHook)
+		e.celtEncoder.SetPrefilterDebugHook(e.celtPrefilterHook)
+		// Opus encoder already rounds input to the configured LSB depth.
+		e.celtEncoder.SetLSBQuantizationEnabled(false)
 		// Opus encoder already applies dc_reject at the top level.
 		e.celtEncoder.SetDCRejectEnabled(false)
 		// Opus encoder already applies CELT delay compensation at the top level.
@@ -2737,6 +2851,15 @@ func (e *Encoder) SetCELTTargetStatsHook(fn func(celt.CeltTargetStats)) {
 	e.celtStatsHook = fn
 	if e.celtEncoder != nil {
 		e.celtEncoder.SetTargetStatsHook(fn)
+	}
+}
+
+// SetCELTPrefilterDebugHook installs a callback for per-frame CELT prefilter diagnostics.
+// Only applies when the CELT encoder is active.
+func (e *Encoder) SetCELTPrefilterDebugHook(fn func(celt.PrefilterDebugStats)) {
+	e.celtPrefilterHook = fn
+	if e.celtEncoder != nil {
+		e.celtEncoder.SetPrefilterDebugHook(fn)
 	}
 }
 

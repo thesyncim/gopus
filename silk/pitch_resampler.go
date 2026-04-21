@@ -24,6 +24,11 @@ func floatToInt16Round(x float32) int16 {
 	return int16(math.RoundToEven(float64(x)))
 }
 
+// FloatToInt16Debug exposes the SILK int16 conversion for temporary parity diagnostics.
+func FloatToInt16Debug(x float32) int16 {
+	return floatToInt16Round(x)
+}
+
 func floatToInt16SliceScaled(out []int16, in []float32, scale float32) {
 	n := len(in)
 	if len(out) < n {

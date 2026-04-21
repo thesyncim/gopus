@@ -827,9 +827,8 @@ func silk_SMULWB(a, b int32) int32 {
 }
 
 func silk_SMULWW(a, b int32) int32 {
-	// (a * b) >> 16
-	// Matches libopus silk_SMULWW
-	return int32((int64(a) * int64(b)) >> 16)
+	// Matches libopus silk_SMULWW: SMULWB(a, b) + a * RSHIFT_ROUND(b, 16).
+	return silk_SMULWB(a, b) + a*silk_RSHIFT_ROUND(b, 16)
 }
 
 func silk_SMULBB(a, b int32) int32 {
@@ -1040,7 +1039,7 @@ func silk_DIV32_16(a int32, b int16) int32 {
 
 // silk_SMLAWW_int32 is multiply-accumulate for inverse computation.
 func silk_SMLAWW_int32(a, b, c int32) int32 {
-	return a + int32((int64(b)*int64(c))>>16)
+	return silk_SMLAWB(a, b, c) + b*silk_RSHIFT_ROUND(c, 16)
 }
 
 // silk_DIV32_varQ computes a/b in Qres format

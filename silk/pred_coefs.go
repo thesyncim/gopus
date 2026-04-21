@@ -250,8 +250,8 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 					// res_nrg_interp = (silk_float)( energy(seg0) + energy(seg1) );
 					// Sum in double precision, cast once to float32.
 					resNrgInterp := float32(
-						energyF32(lpcRes[order:], subframeSamples) +
-							energyF32(lpcRes[order+subfrLen:], subframeSamples),
+						energyF32Libopus(lpcRes[order:], subframeSamples) +
+							energyF32Libopus(lpcRes[order+subfrLen:], subframeSamples),
 					)
 
 					if e.trace != nil && e.trace.NLSF != nil && k >= 0 && k < len(e.trace.NLSF.InterpResNrgQ2) {
@@ -336,7 +336,7 @@ func (e *Encoder) computeResidualEnergies(ltpRes []float32, predCoefQ12 []int16,
 			if end > len(lpcRes) {
 				end = len(lpcRes)
 			}
-			energy := energyF32(lpcRes[start:end], end-start)
+			energy := energyF32Libopus(lpcRes[start:end], end-start)
 			gainSq := float32(1.0)
 			if k < len(gains) {
 				// Match libopus precision: gains[] are silk_float, so gain^2
@@ -365,7 +365,7 @@ func (e *Encoder) computeResidualEnergies(ltpRes []float32, predCoefQ12 []int16,
 				if end > len(lpcRes) {
 					end = len(lpcRes)
 				}
-				energy := energyF32(lpcRes[start:end], end-start)
+				energy := energyF32Libopus(lpcRes[start:end], end-start)
 				idx := k + 2
 				gainSq := float32(1.0)
 				if idx < len(gains) {
