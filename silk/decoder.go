@@ -60,16 +60,6 @@ type Decoder struct {
 	// Per-channel SILK PLC state (libopus-style LTP/LPC concealment inputs).
 	silkPLCState [2]*plc.SILKPLCState
 
-	// Debug flag to track if reset was called (for testing)
-	debugResetCalled bool
-
-	// Debug: capture resampler state before/after reset
-	debugPreResetSIIR  [6]int32
-	debugPostResetSIIR [6]int32
-
-	// Debug: disable resampler reset on bandwidth change
-	disableResamplerReset bool
-
 	// Mono output delay buffer to match libopus behavior.
 	// libopus delays mono SILK output by (1 + inputDelay) samples:
 	// - 1 sample from sMid history prepended before resampler input
@@ -829,15 +819,12 @@ func (d *Decoder) handleBandwidthChange(bandwidth Bandwidth) {
 	if d.hasPrevBandwidth && d.prevBandwidth != bandwidth {
 		// Sample rate changed - reset the resampler for the NEW bandwidth
 		// but keep sMid values to match libopus behavior.
-		if !d.disableResamplerReset {
-			if pair, ok := d.resamplers[bandwidth]; ok && pair != nil {
-				if pair.left != nil {
-					pair.left.Reset()
-					d.debugResetCalled = true
-				}
-				if pair.right != nil {
-					pair.right.Reset()
-				}
+		if pair, ok := d.resamplers[bandwidth]; ok && pair != nil {
+			if pair.left != nil {
+				pair.left.Reset()
+			}
+			if pair.right != nil {
+				pair.right.Reset()
 			}
 		}
 	}
@@ -876,59 +863,6 @@ type TraceInfo struct {
 // TraceCallback is called for each subframe during tracing.
 type TraceCallback func(frame, k int, info TraceInfo)
 
-// DecoderStateSnapshot holds a snapshot of the decoder state for debugging.
-type DecoderStateSnapshot struct {
-	PrevNLSFQ15 []int16 // Previous NLSF values (used for interpolation)
-	LPCOrder    int     // Current LPC order
-	FsKHz       int     // Sample rate in kHz
-	NbSubfr     int     // Number of subframes
-}
-
-// GetDecoderState returns a snapshot of the internal decoder state for debugging.
-func (d *Decoder) GetDecoderState() *DecoderStateSnapshot {
-	st := &d.state[0]
-	snapshot := &DecoderStateSnapshot{
-		PrevNLSFQ15: make([]int16, st.lpcOrder),
-		LPCOrder:    st.lpcOrder,
-		FsKHz:       st.fsKHz,
-		NbSubfr:     st.nbSubfr,
-	}
-	copy(snapshot.PrevNLSFQ15, st.prevNLSFQ15[:st.lpcOrder])
-	return snapshot
-}
-
-// ExportedState holds internal decoder state for debugging/comparison.
-type ExportedState struct {
-	PrevGainQ16 int32
-	SLPCQ14Buf  [16]int32
-	OutBuf      []int16
-	LtpMemLen   int
-	LpcOrder    int
-	FsKHz       int
-}
-
-// ExportState returns internal decoder state for debugging/comparison.
-func (d *Decoder) ExportState() ExportedState {
-	st := &d.state[0]
-	state := ExportedState{
-		PrevGainQ16: st.prevGainQ16,
-		LtpMemLen:   st.ltpMemLength,
-		LpcOrder:    st.lpcOrder,
-		FsKHz:       st.fsKHz,
-	}
-	copy(state.SLPCQ14Buf[:], st.sLPCQ14Buf[:])
-	if st.ltpMemLength > 0 {
-		state.OutBuf = make([]int16, len(st.outBuf))
-		copy(state.OutBuf, st.outBuf[:])
-	}
-	return state
-}
-
-// GetSMid returns the current sMid state for debugging.
-func (d *Decoder) GetSMid() [2]int16 {
-	return d.stereo.sMid
-}
-
 // NotifyBandwidthChange updates bandwidth tracking and resets the resampler if needed.
 // This should be called by the Hybrid decoder before using SILK to ensure proper
 // resampler state when transitioning between SILK-only and Hybrid modes.
@@ -939,21 +873,6 @@ func (d *Decoder) GetSMid() [2]int16 {
 // 3. When later transitioning back to SILK NB/MB, the correct resampler will be reset
 func (d *Decoder) NotifyBandwidthChange(bandwidth Bandwidth) {
 	d.handleBandwidthChange(bandwidth)
-}
-
-// DebugResetCalled returns true if the resampler reset was called since last clear.
-func (d *Decoder) DebugResetCalled() bool {
-	return d.debugResetCalled
-}
-
-// DebugClearResetFlag clears the debug reset flag.
-func (d *Decoder) DebugClearResetFlag() {
-	d.debugResetCalled = false
-}
-
-// DebugGetResetStates returns the pre and post reset sIIR states.
-func (d *Decoder) DebugGetResetStates() (pre, post [6]int32) {
-	return d.debugPreResetSIIR, d.debugPostResetSIIR
 }
 
 // GetResamplerScratch returns a pre-allocated buffer for resampler output (left channel).
@@ -978,12 +897,6 @@ func (d *Decoder) GetResamplerScratchR(frameSize int) []float32 {
 		d.upsampleScratch = d.upsampleScratch[:frameSize]
 	}
 	return d.upsampleScratch
-}
-
-// SetDisableResamplerReset controls whether the resampler is reset on bandwidth change.
-// This is for testing purposes to compare behavior with/without reset.
-func (d *Decoder) SetDisableResamplerReset(disable bool) {
-	d.disableResamplerReset = disable
 }
 
 // FinalRange returns the final range coder state after decoding.

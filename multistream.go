@@ -39,6 +39,9 @@ type MultistreamEncoder struct {
 //   - mapping: channel mapping table (length must equal channels)
 //   - application: application hint for encoder optimization
 //
+// Returns ErrInvalidChannels when channels is outside the explicit multistream
+// range [1, 255].
+//
 // The mapping table determines how input audio is routed to stream encoders:
 //   - Values 0 to 2*M-1: to coupled streams (even=left, odd=right of stereo pair)
 //   - Values 2*M to N+M-1: to uncoupled (mono) streams
@@ -90,7 +93,9 @@ func NewMultistreamEncoder(sampleRate, channels, streams, coupledStreams int, ma
 	}
 
 	// Apply application hint
-	mse.applyApplication(application)
+	if err := mse.applyApplication(application); err != nil {
+		return nil, err
+	}
 
 	return mse, nil
 }
@@ -100,6 +105,7 @@ func NewMultistreamEncoder(sampleRate, channels, streams, coupledStreams int, ma
 //
 // This is a convenience function that calls the internal DefaultMapping() to get the appropriate
 // streams, coupledStreams, and mapping for the given channel count.
+// Returns ErrInvalidChannels when channels is outside the default-mapping range [1, 8].
 //
 // Supported channel counts:
 //   - 1: mono (1 stream, 0 coupled)
@@ -138,7 +144,9 @@ func NewMultistreamEncoderDefault(sampleRate, channels int, application Applicat
 	}
 
 	// Apply application hints
-	mse.applyApplication(application)
+	if err := mse.applyApplication(application); err != nil {
+		return nil, err
+	}
 
 	return mse, nil
 }
@@ -169,6 +177,9 @@ type MultistreamDecoder struct {
 //   - streams: total elementary streams (N, 1-255)
 //   - coupledStreams: number of coupled stereo streams (M, 0 to streams)
 //   - mapping: channel mapping table (length must equal channels)
+//
+// Returns ErrInvalidChannels when channels is outside the explicit multistream
+// range [1, 255].
 //
 // The mapping table determines how decoded audio is routed to output channels:
 //   - Values 0 to 2*M-1: from coupled streams (even=left, odd=right of stereo pair)
@@ -209,6 +220,7 @@ func NewMultistreamDecoder(sampleRate, channels, streams, coupledStreams int, ma
 //
 // This is a convenience function that calls the internal DefaultMapping() to get the appropriate
 // streams, coupledStreams, and mapping for the given channel count.
+// Returns ErrInvalidChannels when channels is outside the default-mapping range [1, 8].
 //
 // Supported channel counts:
 //   - 1: mono (1 stream, 0 coupled)

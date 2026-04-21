@@ -287,7 +287,9 @@ enc.SetComplexity(10)         // Max quality
 enc.SetFrameSize(960)         // 20ms frames
 
 // Encode PCM to Opus
-packet, err := enc.EncodeFloat32(pcmSamples)
+packetBuf := make([]byte, 4000)
+nPacket, err := enc.Encode(pcmSamples, packetBuf)
+packet := packetBuf[:nPacket]
 ```
 
 ### Decoder
@@ -320,8 +322,8 @@ packet, granule, err := r.ReadPacket()
 
 - **Development status:** gopus is in active development; check the repository `README.md` status snapshot for current parity/compliance markers.
 - **Sample rate:** Opus internally operates at 48kHz. Other rates are converted.
-- **Frame sizes:** Standard frame is 960 samples (20ms at 48kHz). Supported: 120, 240, 480, 960, 1920, 2880.
-- **Applications:** Use `ApplicationVoIP` for speech, `ApplicationAudio` for music, `ApplicationLowDelay` for real-time.
+- **Frame sizes:** Standard frame is 960 samples (20ms at 48kHz). Supported: 120, 240, 480, 960, 1920, 2880, 3840, 4800, 5760.
+- **Applications:** Use `ApplicationVoIP` for speech, `ApplicationAudio` for music, `ApplicationLowDelay` for real-time, and the restricted application hints only when you need libopus-compatible mode forcing.
 
 ## Troubleshooting
 

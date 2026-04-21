@@ -127,7 +127,9 @@ func NewEncoder(cfg EncoderConfig) (*Encoder, error) {
 	}
 
 	// Apply application hint
-	enc.applyApplication(cfg.Application)
+	if err := enc.applyApplication(cfg.Application); err != nil {
+		return nil, err
+	}
 
 	return enc, nil
 }

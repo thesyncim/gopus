@@ -16,7 +16,7 @@ while IFS= read -r pkg; do
       ;;
   esac
   packages+=("${pkg}")
-done < <(GOWORK=off go list -e -f '{{if not .Error}}{{.ImportPath}}{{end}}' ./...)
+done < <(GOWORK=off go list ./...)
 
 if [[ ${#packages[@]} -eq 0 ]]; then
   echo "error: no runnable Go packages found under ${ROOT_DIR}" >&2

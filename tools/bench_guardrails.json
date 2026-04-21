@@ -1,6 +1,6 @@
 {
   "package": ".",
-  "bench_regex": "^(BenchmarkDecoderDecode_CELT|BenchmarkDecoderDecodeInt16|BenchmarkEncoderEncode_CallerBuffer$|BenchmarkEncoderEncodeInt16)$",
+  "bench_regex": "^(BenchmarkDecoderDecode_CELT|BenchmarkDecoderDecodeInt16|BenchmarkDecoderDecode_PLC|BenchmarkDecoderDecode_Stereo|BenchmarkEncoderEncode_CallerBuffer$|BenchmarkEncoderEncodeInt16)$",
   "count": 5,
   "benchtime": "200ms",
   "cpu": 1,
@@ -12,6 +12,16 @@
     },
     "BenchmarkDecoderDecodeInt16": {
       "max_ns_op": 80000,
+      "max_b_op": 16,
+      "max_allocs_op": 0
+    },
+    "BenchmarkDecoderDecode_PLC": {
+      "max_ns_op": 90000,
+      "max_b_op": 16,
+      "max_allocs_op": 0
+    },
+    "BenchmarkDecoderDecode_Stereo": {
+      "max_ns_op": 120000,
       "max_b_op": 16,
       "max_allocs_op": 0
     },

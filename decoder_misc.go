@@ -39,18 +39,3 @@ func (d *Decoder) applyOutputGain(samples []float32) {
 		samples[i] *= g
 	}
 }
-
-// DebugPrevMode returns the previous decode mode (SILK/Hybrid/CELT).
-func (d *Decoder) DebugPrevMode() Mode {
-	return d.prevMode
-}
-
-// DebugPrevRedundancy reports whether the previous frame used CELT redundancy.
-func (d *Decoder) DebugPrevRedundancy() bool {
-	return d.prevRedundancy
-}
-
-// DebugPrevPacketStereo returns the last packet's stereo flag.
-func (d *Decoder) DebugPrevPacketStereo() bool {
-	return d.prevPacketStereo
-}

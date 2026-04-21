@@ -25,6 +25,8 @@ Run from repository root and keep command output for release evidence.
   - [ ] `TestHotPathAllocsEncodeInt16`
   - [ ] `TestHotPathAllocsDecodeFloat32`
   - [ ] `TestHotPathAllocsDecodeInt16`
+  - [ ] `TestHotPathAllocsDecodePLC`
+  - [ ] `TestHotPathAllocsDecodeStereo`
 - [ ] Race test output from `make test-race`.
 
 ## Sanity Checks

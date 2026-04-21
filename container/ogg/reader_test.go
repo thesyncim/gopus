@@ -69,6 +69,13 @@ func TestNewReader_NotOgg(t *testing.T) {
 	}
 }
 
+func TestNewReader_NilReader(t *testing.T) {
+	_, err := NewReader(nil)
+	if err != ErrNilReader {
+		t.Fatalf("NewReader(nil) error = %v, want %v", err, ErrNilReader)
+	}
+}
+
 // TestNewReader_BadMagic tests that invalid OpusHead magic returns an error.
 func TestNewReader_BadMagic(t *testing.T) {
 	// Create a valid Ogg page with invalid OpusHead.
