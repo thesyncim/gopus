@@ -25,13 +25,8 @@ func (e *Encoder) quantizeLSF(lsfQ15 []int16, bandwidth Bandwidth, signalType in
 		return 0, residuals, 4
 	}
 
-	// Keep existing stabilized-weight behavior for most lanes; apply the
-	// libopus cadence (weights from pre-stabilized NLSF input) on the
-	// proven divergent NB 10 ms slice.
-	useRawWeights := bandwidth == BandwidthNarrowband && numSubframes == 2
-	if !useRawWeights {
-		silkNLSFStabilize(lsfQ15[:order], cb.deltaMinQ15, order)
-	}
+	// Match libopus process_NLSFs.c: derive Laroia weights from the raw NLSF
+	// vector, then let silk_NLSF_encode handle stabilization internally.
 
 	// Compute interpolation index (blend with previous frame)
 	interpIdx := interpOverride
@@ -102,13 +97,8 @@ func (e *Encoder) quantizeLSFWithInterp(lsfQ15 []int16, bandwidth Bandwidth, sig
 		return 0, residuals, 4
 	}
 
-	// Keep existing stabilized-weight behavior for most lanes; apply the
-	// libopus cadence (weights from pre-stabilized NLSF input) on the
-	// proven divergent NB 10 ms slice.
-	useRawWeights := bandwidth == BandwidthNarrowband && numSubframes == 2
-	if !useRawWeights {
-		silkNLSFStabilize(lsfQ15[:order], cb.deltaMinQ15, order)
-	}
+	// Match libopus process_NLSFs.c: derive Laroia weights from the raw NLSF
+	// vector, then let silk_NLSF_encode handle stabilization internally.
 
 	if e.firstFrameAfterResetActive() {
 		interpIdx = 4

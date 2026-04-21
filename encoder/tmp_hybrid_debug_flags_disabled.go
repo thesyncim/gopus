@@ -9,5 +9,4 @@ const (
 	tmpHybridMDCTDebugEnabled   = false
 	tmpHybridMDCTCall           = -1
 	tmpHybridAMPDebugEnabled    = false
-	tmpPrefillRNGDebugEnabled   = false
 )

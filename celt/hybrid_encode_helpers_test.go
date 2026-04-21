@@ -2,29 +2,75 @@ package celt
 
 import "testing"
 
-func TestUpdateHybridPrefilterHistoryUpdatesStateCadence(t *testing.T) {
+func TestApplyHybridPrefilterMatchesDisabledRunPrefilter(t *testing.T) {
 	enc := NewEncoder(1)
-	enc.tapsetDecision = 2
-	enc.prefilterPeriod = 0
-	enc.prefilterGain = 0.3
-	enc.prefilterTapset = 1
-
+	want := NewEncoder(1)
 	frameSize := 480
-	preemph := make([]float64, frameSize)
-	for i := range preemph {
-		preemph[i] = float64(i+1) / 1000.0
+
+	for _, cur := range []*Encoder{enc, want} {
+		cur.tapsetDecision = 2
+		cur.prefilterPeriod = 140
+		cur.prefilterGain = 0.46875
+		cur.prefilterTapset = 1
+		cur.analysisValid = true
+		cur.analysisMaxPitchRatio = 0.77
+		for i := range cur.prefilterMem {
+			cur.prefilterMem[i] = float64(i-120) / 512.0
+		}
+		for i := range cur.overlapBuffer {
+			cur.overlapBuffer[i] = float64(60-i) / 256.0
+		}
 	}
 
-	enc.UpdateHybridPrefilterHistory(preemph, frameSize)
+	gotPreemph := make([]float64, frameSize)
+	wantPreemph := make([]float64, frameSize)
+	for i := range gotPreemph {
+		v := float64((i%37)-18) / 64.0
+		gotPreemph[i] = v
+		wantPreemph[i] = v
+	}
 
-	if enc.prefilterPeriod != combFilterMinPeriod {
-		t.Fatalf("prefilterPeriod=%d, want %d", enc.prefilterPeriod, combFilterMinPeriod)
+	enc.ApplyHybridPrefilter(gotPreemph, frameSize, 0.91, 14, 0.22, 0.18)
+
+	prevPeriod := want.prefilterPeriod
+	prevGain := want.prefilterGain
+	pfResult := want.runPrefilter(wantPreemph, frameSize, want.TapsetDecision(), false, 0.91, 14, 0.22, 0.18, want.analysisMaxPitchRatio)
+	if !tmpSkipPrefOutRoundEnabled {
+		roundFloat64ToFloat32(wantPreemph)
 	}
-	if enc.prefilterGain != 0 {
-		t.Fatalf("prefilterGain=%f, want 0", enc.prefilterGain)
+	want.lastPitchChange = false
+	if prevPeriod > 0 && (pfResult.gain > 0.4 || prevGain > 0.4) {
+		upper := int(1.26 * float64(prevPeriod))
+		lower := int(0.79 * float64(prevPeriod))
+		want.lastPitchChange = pfResult.pitch > upper || pfResult.pitch < lower
 	}
-	if enc.prefilterTapset != enc.tapsetDecision {
-		t.Fatalf("prefilterTapset=%d, want %d", enc.prefilterTapset, enc.tapsetDecision)
+
+	for i := range gotPreemph {
+		if gotPreemph[i] != wantPreemph[i] {
+			t.Fatalf("preemph[%d]=%v, want %v", i, gotPreemph[i], wantPreemph[i])
+		}
+	}
+	for i := range enc.prefilterMem {
+		if enc.prefilterMem[i] != want.prefilterMem[i] {
+			t.Fatalf("prefilterMem[%d]=%v, want %v", i, enc.prefilterMem[i], want.prefilterMem[i])
+		}
+	}
+	for i := range enc.overlapBuffer {
+		if enc.overlapBuffer[i] != want.overlapBuffer[i] {
+			t.Fatalf("overlapBuffer[%d]=%v, want %v", i, enc.overlapBuffer[i], want.overlapBuffer[i])
+		}
+	}
+	if enc.prefilterPeriod != want.prefilterPeriod {
+		t.Fatalf("prefilterPeriod=%d, want %d", enc.prefilterPeriod, want.prefilterPeriod)
+	}
+	if enc.prefilterGain != want.prefilterGain {
+		t.Fatalf("prefilterGain=%v, want %v", enc.prefilterGain, want.prefilterGain)
+	}
+	if enc.prefilterTapset != want.prefilterTapset {
+		t.Fatalf("prefilterTapset=%d, want %d", enc.prefilterTapset, want.prefilterTapset)
+	}
+	if enc.lastPitchChange != want.lastPitchChange {
+		t.Fatalf("lastPitchChange=%v, want %v", enc.lastPitchChange, want.lastPitchChange)
 	}
 }
 

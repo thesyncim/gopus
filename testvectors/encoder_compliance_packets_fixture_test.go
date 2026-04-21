@@ -326,7 +326,7 @@ func TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo(t *testing.T) {
 					if err != nil {
 						t.Fatalf("compare libopus-decoded waveforms on amd64: %v", err)
 					}
-					if q < amd64FixtureWaveformMinQ {
+					if q < amd64EncoderFixtureWaveformMinQ {
 						t.Fatalf(
 							"non-bitexact drift on amd64 changed decoded waveform too much: Q=%.2f delay=%d range=%d/%d payload=%d/%d",
 							q,

@@ -525,48 +525,32 @@ func (e *Encoder) StereoLRToMSWithRates(
 		right = right[:frameLength]
 	}
 
-	// Convert to mid/side and apply history buffering using scratch buffers.
-	// Match libopus indexing in stereo_LR_to_MS.c:
-	// mid[n] and side[n] correspond to x[n-2], with n=0..1 overwritten by state.
+	// Convert to mid/side directly in int16 arithmetic, matching libopus
+	// stereo_LR_to_MS.c. Building float mid/side first and rounding later can
+	// perturb tiny packet-0 predictor values enough to change the coded indices.
 	msLen := frameLength + 2
-	mid := ensureFloat32Slice(&e.scratchStereoMid, msLen)
-	side := ensureFloat32Slice(&e.scratchStereoSide, msLen)
-	for n := 0; n < frameLength; n++ {
-		m := 0.5 * (left[n] + right[n])
-		s := 0.5 * (left[n] - right[n])
-		mid[n+2] = m
-		side[n+2] = s
-	}
-	mid[0] = float32(e.stereo.sMid[0]) / 32768.0
-	mid[1] = float32(e.stereo.sMid[1]) / 32768.0
-	side[0] = float32(e.stereo.sSide[0]) / 32768.0
-	side[1] = float32(e.stereo.sSide[1]) / 32768.0
-
-	if frameLength >= 2 {
-		l0 := int32(float32ToInt16(left[frameLength-2]))
-		r0 := int32(float32ToInt16(right[frameLength-2]))
-		l1 := int32(float32ToInt16(left[frameLength-1]))
-		r1 := int32(float32ToInt16(right[frameLength-1]))
-		e.stereo.sMid[0] = int16(silkRSHIFT_ROUND(l0+r0, 1))
-		e.stereo.sMid[1] = int16(silkRSHIFT_ROUND(l1+r1, 1))
-		e.stereo.sSide[0] = silkSAT16(silkRSHIFT_ROUND(l0-r0, 1))
-		e.stereo.sSide[1] = silkSAT16(silkRSHIFT_ROUND(l1-r1, 1))
-	} else if frameLength == 1 {
-		l := int32(float32ToInt16(left[0]))
-		r := int32(float32ToInt16(right[0]))
-		e.stereo.sMid[0] = e.stereo.sMid[1]
-		e.stereo.sSide[0] = e.stereo.sSide[1]
-		e.stereo.sMid[1] = int16(silkRSHIFT_ROUND(l+r, 1))
-		e.stereo.sSide[1] = silkSAT16(silkRSHIFT_ROUND(l-r, 1))
-	}
-
-	// Build fixed-point mid/side views and run predictor analysis in fixed-point
-	// to match libopus silk_stereo_find_predictor cadence.
 	midQ0 := ensureInt16Slice(&e.scratchStereoMidQ0, msLen)
 	sideQ0 := ensureInt16Slice(&e.scratchStereoSideQ0, msLen)
-	for i := 0; i < msLen; i++ {
-		midQ0[i] = float32ToInt16(mid[i])
-		sideQ0[i] = float32ToInt16(side[i])
+	midQ0[0] = e.stereo.sMid[0]
+	midQ0[1] = e.stereo.sMid[1]
+	sideQ0[0] = e.stereo.sSide[0]
+	sideQ0[1] = e.stereo.sSide[1]
+	for n := 0; n < frameLength; n++ {
+		l := int32(float32ToInt16(left[n]))
+		r := int32(float32ToInt16(right[n]))
+		midQ0[n+2] = int16(silkRSHIFT_ROUND(l+r, 1))
+		sideQ0[n+2] = silkSAT16(silkRSHIFT_ROUND(l-r, 1))
+	}
+	if frameLength >= 2 {
+		e.stereo.sMid[0] = midQ0[frameLength]
+		e.stereo.sMid[1] = midQ0[frameLength+1]
+		e.stereo.sSide[0] = sideQ0[frameLength]
+		e.stereo.sSide[1] = sideQ0[frameLength+1]
+	} else if frameLength == 1 {
+		e.stereo.sMid[0] = e.stereo.sMid[1]
+		e.stereo.sSide[0] = e.stereo.sSide[1]
+		e.stereo.sMid[1] = midQ0[2]
+		e.stereo.sSide[1] = sideQ0[2]
 	}
 
 	lpMidQ0 := ensureInt16Slice(&e.scratchStereoLPMidQ0, frameLength)

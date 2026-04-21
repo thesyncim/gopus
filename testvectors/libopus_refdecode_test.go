@@ -22,7 +22,7 @@ var (
 
 func getLibopusRefdecodeSinglePath() (string, error) {
 	libopusRefdecodeSingleOnce.Do(func() {
-		ccPath, err := exec.LookPath("cc")
+		ccPath, err := libopustooling.FindCCompiler()
 		if err != nil {
 			libopusRefdecodeSingleErr = fmt.Errorf("cc not available: %w", err)
 			return
@@ -48,7 +48,7 @@ func getLibopusRefdecodeSinglePath() (string, error) {
 			return
 		}
 
-		outPath := filepath.Join(os.TempDir(), fmt.Sprintf("gopus_libopus_refdecode_single_%s_%s", runtime.GOOS, runtime.GOARCH))
+		outPath := helperBinaryPath("gopus_libopus_refdecode_single", runtime.GOOS, runtime.GOARCH)
 		args := []string{
 			"-std=c99",
 			"-O2",

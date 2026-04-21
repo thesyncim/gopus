@@ -32,7 +32,7 @@ func TestEncodeStereoAppliesPerChannelRateSplit(t *testing.T) {
 	leftFrame := stereoFrameWithLookahead(left, 0, frameLen)
 	rightFrame := stereoFrameWithLookahead(right, 0, frameLen)
 	_, _, _, midOnly, expMidRate, expSideRate, _ := calcEnc.StereoLRToMSWithRates(
-		leftFrame, rightFrame, frameLen, sampleRate/1000, totalRate, 200, false,
+		leftFrame, rightFrame, frameLen, sampleRate/1000, totalRate, calcEnc.speechActivityQ8, false,
 	)
 	if midOnly {
 		t.Fatal("expected non-mid-only frame for stereo rate split test")
@@ -67,5 +67,53 @@ func TestEncodeStereoAppliesPerChannelRateSplit(t *testing.T) {
 	}
 	if sideTrace.Frame.InputRateBps == totalRate {
 		t.Fatalf("side bitrate was not split (still total rate %d)", totalRate)
+	}
+}
+
+func TestEncodeStereoAppliesPerChannelRateSplitWithVADCarryover(t *testing.T) {
+	const (
+		bw         = BandwidthWideband
+		sampleRate = 16000
+		frameLen   = 320 // 20 ms at 16 kHz
+		totalRate  = 32000
+	)
+
+	left, right := makeStereoTestFrame(frameLen, sampleRate)
+
+	calcEnc := NewEncoder(bw)
+	calcEnc.SetVADState(200, 0, [4]int{})
+	leftFrame := stereoFrameWithLookahead(left, 0, frameLen)
+	rightFrame := stereoFrameWithLookahead(right, 0, frameLen)
+	_, _, _, midOnly, expMidRate, expSideRate, _ := calcEnc.StereoLRToMSWithRates(
+		leftFrame, rightFrame, frameLen, sampleRate/1000, totalRate, calcEnc.speechActivityQ8, false,
+	)
+	if midOnly {
+		t.Fatal("expected non-mid-only frame for stereo rate split test with VAD carryover")
+	}
+
+	enc := NewEncoder(bw)
+	sideEnc := NewEncoder(bw)
+	enc.SetBitrate(totalRate)
+	sideEnc.SetBitrate(totalRate)
+	enc.SetVADState(200, 0, [4]int{})
+
+	midTrace := &EncoderTrace{Frame: &FrameStateTrace{}}
+	sideTrace := &EncoderTrace{Frame: &FrameStateTrace{}}
+	enc.SetTrace(midTrace)
+	sideEnc.SetTrace(sideTrace)
+
+	pkt, err := EncodeStereoWithEncoderVADFlags(enc, sideEnc, left, right, bw, []bool{true})
+	if err != nil {
+		t.Fatalf("encode stereo failed: %v", err)
+	}
+	if len(pkt) == 0 {
+		t.Fatal("encode stereo returned empty packet")
+	}
+
+	if got := midTrace.Frame.InputRateBps; got != expMidRate {
+		t.Fatalf("mid bitrate mismatch with VAD carryover: got %d want %d", got, expMidRate)
+	}
+	if got := sideTrace.Frame.InputRateBps; got != expSideRate {
+		t.Fatalf("side bitrate mismatch with VAD carryover: got %d want %d", got, expSideRate)
 	}
 }

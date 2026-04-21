@@ -3,6 +3,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
+
 #include "opus.h"
 
 #define GOSI_MAGIC "GOSI"
@@ -32,6 +37,18 @@ static int write_u32(uint32_t v) {
   b[2] = (unsigned char)((v >> 16) & 0xFF);
   b[3] = (unsigned char)((v >> 24) & 0xFF);
   return write_exact(b, 4);
+}
+
+static int set_binary_stdio(void) {
+#ifdef _WIN32
+  if (_setmode(_fileno(stdin), _O_BINARY) == -1) {
+    return 0;
+  }
+  if (_setmode(_fileno(stdout), _O_BINARY) == -1) {
+    return 0;
+  }
+#endif
+  return 1;
 }
 
 static int append_floats(float **out, size_t *out_len, size_t *out_cap, const float *src, size_t n) {
@@ -76,6 +93,11 @@ int main(void) {
   float *decoded = NULL;
   size_t decoded_len = 0;
   size_t decoded_cap = 0;
+
+  if (!set_binary_stdio()) {
+    fprintf(stderr, "failed to set binary stdio mode\n");
+    return 1;
+  }
 
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, GOSI_MAGIC, sizeof(magic)) != 0) {
     fprintf(stderr, "invalid input magic\n");

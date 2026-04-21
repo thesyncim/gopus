@@ -88,6 +88,64 @@ func TestEncoderReset(t *testing.T) {
 	}
 }
 
+func TestResetTransitionPrefillState(t *testing.T) {
+	enc := NewEncoder(BandwidthWideband)
+
+	enc.lastQuantOffsetType = 1
+	enc.frameCounter = 23
+	enc.lpState = LPState{
+		InLPState:         [2]int32{11, 22},
+		TransitionFrameNo: 17,
+		Mode:              -2,
+		SavedFsKHz:        16,
+	}
+	enc.SetPreviousLogGain(77)
+	enc.SetPreviousFrameVoiced(true)
+	enc.pitchState.prevLag = 101
+	enc.targetRateBps = 12345
+	if enc.nsqState == nil {
+		t.Fatal("expected nsqState to be initialized")
+	}
+	enc.nsqState.prevGainQ16 = 54321
+	lsf := make([]int16, len(enc.prevLSFQ15))
+	for i := range lsf {
+		lsf[i] = int16(i + 1)
+	}
+	enc.SetPrevLSFQ15(lsf)
+
+	enc.ResetTransitionPrefillState()
+
+	if enc.lastQuantOffsetType != 0 {
+		t.Fatalf("lastQuantOffsetType = %d, want 0", enc.lastQuantOffsetType)
+	}
+	if enc.frameCounter != 0 {
+		t.Fatalf("frameCounter = %d, want 0", enc.frameCounter)
+	}
+	if enc.lpState != (LPState{}) {
+		t.Fatalf("lpState = %+v, want zero value", enc.lpState)
+	}
+	if enc.PreviousLogGain() != 77 {
+		t.Fatalf("PreviousLogGain() = %d, want 77", enc.PreviousLogGain())
+	}
+	if !enc.IsPreviousFrameVoiced() {
+		t.Fatal("IsPreviousFrameVoiced() should stay true")
+	}
+	if enc.pitchState.prevLag != 101 {
+		t.Fatalf("pitchState.prevLag = %d, want 101", enc.pitchState.prevLag)
+	}
+	if enc.targetRateBps != 12345 {
+		t.Fatalf("targetRateBps = %d, want 12345", enc.targetRateBps)
+	}
+	if enc.nsqState.prevGainQ16 != 54321 {
+		t.Fatalf("nsqState.prevGainQ16 = %d, want 54321", enc.nsqState.prevGainQ16)
+	}
+	for i, want := range lsf {
+		if got := enc.prevLSFQ15[i]; got != want {
+			t.Fatalf("prevLSFQ15[%d] = %d, want %d", i, got, want)
+		}
+	}
+}
+
 func TestEncoderStateAccessors(t *testing.T) {
 	enc := NewEncoder(BandwidthWideband)
 

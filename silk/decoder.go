@@ -117,6 +117,10 @@ type Decoder struct {
 	// Scratch buffer for upsampleTo48k
 	upsampleScratch []float32 // Size: maxFramesPerPacket * maxFrameLength * 6 = 5760
 
+	// Optional hook fired after each internal SILK frame is decoded.
+	// Used by parity diagnostics to capture per-frame indices.
+	frameParamsHook FrameParamsHook
+
 	// Scratch buffers for applyMonoDelay
 	monoResamplerIn []int16 // Size: maxFramesPerPacket * maxFrameLength = 960
 	monoOutput      []int16 // Size: maxFramesPerPacket * maxFrameLength = 960
@@ -559,6 +563,7 @@ func (d *Decoder) GetLagPrev() int {
 
 // DebugFrameParams contains decoded frame parameters for debugging.
 type DebugFrameParams struct {
+	SignalType       int
 	NLSFInterpCoefQ2 int
 	LTPScaleIndex    int
 	LagPrev          int
@@ -569,6 +574,7 @@ type DebugFrameParams struct {
 	LagIndex         int
 	ContourIndex     int
 	Seed             int
+	NLSFIndices      []int
 }
 
 // GetLastFrameParams returns the parameters from the last decoded frame.
@@ -582,7 +588,12 @@ func (d *Decoder) GetLastFrameParams() DebugFrameParams {
 	for i := 0; i < st.nbSubfr; i++ {
 		ltpIdx[i] = int(st.indices.LTPIndex[i])
 	}
+	nlsf := make([]int, st.lpcOrder+1)
+	for i := 0; i <= st.lpcOrder; i++ {
+		nlsf[i] = int(st.indices.NLSFIndices[i])
+	}
 	return DebugFrameParams{
+		SignalType:       int(st.indices.signalType),
 		NLSFInterpCoefQ2: int(st.indices.NLSFInterpCoefQ2),
 		LTPScaleIndex:    int(st.indices.LTPScaleIndex),
 		LagPrev:          st.lagPrev,
@@ -593,7 +604,53 @@ func (d *Decoder) GetLastFrameParams() DebugFrameParams {
 		LagIndex:         int(st.indices.lagIndex),
 		ContourIndex:     int(st.indices.contourIndex),
 		Seed:             int(st.indices.Seed),
+		NLSFIndices:      nlsf,
 	}
+}
+
+// FrameParamsHook fires after each internal SILK frame is decoded.
+// It receives the channel index (0 = mono/mid, 1 = side) and the decoded
+// frame's indices. Useful for capturing per-internal-frame state on
+// 40/60 ms packets (where GetLastFrameParams only sees the last frame).
+type FrameParamsHook func(channel, frame int, params DebugFrameParams)
+
+// SetFrameParamsHook installs a callback fired after each internal frame is
+// decoded. Pass nil to disable.
+func (d *Decoder) SetFrameParamsHook(hook FrameParamsHook) {
+	d.frameParamsHook = hook
+}
+
+func (d *Decoder) fireFrameParamsHook(channel, frame int) {
+	if d.frameParamsHook == nil {
+		return
+	}
+	st := &d.state[channel]
+	gains := make([]int, st.nbSubfr)
+	for i := 0; i < st.nbSubfr; i++ {
+		gains[i] = int(st.indices.GainsIndices[i])
+	}
+	ltpIdx := make([]int, st.nbSubfr)
+	for i := 0; i < st.nbSubfr; i++ {
+		ltpIdx[i] = int(st.indices.LTPIndex[i])
+	}
+	nlsf := make([]int, st.lpcOrder+1)
+	for i := 0; i <= st.lpcOrder; i++ {
+		nlsf[i] = int(st.indices.NLSFIndices[i])
+	}
+	d.frameParamsHook(channel, frame, DebugFrameParams{
+		SignalType:       int(st.indices.signalType),
+		NLSFInterpCoefQ2: int(st.indices.NLSFInterpCoefQ2),
+		LTPScaleIndex:    int(st.indices.LTPScaleIndex),
+		LagPrev:          st.lagPrev,
+		QuantOffset:      int(st.indices.quantOffsetType),
+		GainIndices:      gains,
+		PERIndex:         int(st.indices.PERIndex),
+		LTPIndices:       ltpIdx,
+		LagIndex:         int(st.indices.lagIndex),
+		ContourIndex:     int(st.indices.contourIndex),
+		Seed:             int(st.indices.Seed),
+		NLSFIndices:      nlsf,
+	})
 }
 
 type resamplerPair struct {

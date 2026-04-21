@@ -7,3 +7,7 @@ const mdctUseNativeMulEnabled = false
 const mdctUseF64MixEnabled = false
 
 const mdctUseFMALikeMixEnabled = false
+
+const mdctUseNativeMulShort240Enabled = true
+
+const mdctUseFMALikeMixShort240Enabled = true

@@ -341,66 +341,36 @@ func (e *Encoder) UpdateEnergyErrorHybridFromError(start, end, nbBands int) {
 	}
 }
 
-// UpdateHybridPrefilterHistory mirrors the run_prefilter() state updates used by
-// libopus hybrid mode when prefilter signaling is disabled.
-func (e *Encoder) UpdateHybridPrefilterHistory(preemph []float64, frameSize int) {
+// ApplyHybridPrefilter mirrors libopus hybrid mode: run_prefilter() still runs
+// with enabled=false so previous CELT postfilter state can fade out cleanly even
+// though no prefilter header bits are signaled in hybrid packets.
+func (e *Encoder) ApplyHybridPrefilter(preemph []float64, frameSize int, tfEstimate float64, nbAvailableBytes int, toneFreq, toneishness float64) {
 	if frameSize <= 0 || e.channels <= 0 || len(preemph) < frameSize*e.channels {
 		return
 	}
 
-	maxPeriod := combFilterMaxPeriod
-	needPref := maxPeriod * e.channels
-	if len(e.prefilterMem) < needPref {
-		return
+	prefilterTapset := e.TapsetDecision()
+	maxPitchRatio := 1.0
+	if e.analysisValid {
+		maxPitchRatio = e.analysisMaxPitchRatio
+	}
+	if tmpForceMaxPitchRatio1Enabled {
+		maxPitchRatio = 1
 	}
 
-	overlap := Overlap
-	if overlap > frameSize {
-		overlap = frameSize
-	}
-	needOverlap := overlap * e.channels
-	if overlap > 0 && len(e.overlapBuffer) < needOverlap {
-		newBuf := make([]float64, needOverlap)
-		copy(newBuf, e.overlapBuffer)
-		e.overlapBuffer = newBuf
+	prevPrefilterPeriod := e.prefilterPeriod
+	prevPrefilterGain := e.prefilterGain
+	pfResult := e.runPrefilter(preemph, frameSize, prefilterTapset, false, tfEstimate, nbAvailableBytes, toneFreq, toneishness, maxPitchRatio)
+	if !tmpSkipPrefOutRoundEnabled {
+		roundFloat64ToFloat32(preemph)
 	}
 
-	for ch := 0; ch < e.channels; ch++ {
-		mem := e.prefilterMem[ch*maxPeriod : (ch+1)*maxPeriod]
-		if frameSize > maxPeriod {
-			start := frameSize - maxPeriod
-			for i := 0; i < maxPeriod; i++ {
-				mem[i] = preemph[(start+i)*e.channels+ch]
-			}
-		} else {
-			copy(mem, mem[frameSize:])
-			dst := maxPeriod - frameSize
-			for i := 0; i < frameSize; i++ {
-				mem[dst+i] = preemph[i*e.channels+ch]
-			}
-		}
-		if !tmpSkipPrefMemRoundEnabled {
-			roundFloat64ToFloat32(mem)
-		}
-
-		if overlap > 0 {
-			hist := e.overlapBuffer[ch*overlap : (ch+1)*overlap]
-			start := frameSize - overlap
-			for i := 0; i < overlap; i++ {
-				hist[i] = preemph[(start+i)*e.channels+ch]
-			}
-			if !tmpSkipPrefMemRoundEnabled {
-				roundFloat64ToFloat32(hist)
-			}
-		}
+	e.lastPitchChange = false
+	if prevPrefilterPeriod > 0 && (pfResult.gain > 0.4 || prevPrefilterGain > 0.4) {
+		upper := int(1.26 * float64(prevPrefilterPeriod))
+		lower := int(0.79 * float64(prevPrefilterPeriod))
+		e.lastPitchChange = pfResult.pitch > upper || pfResult.pitch < lower
 	}
-
-	// Match libopus run_prefilter() disabled path state cadence used in hybrid:
-	// pitch_index defaults to COMBFILTER_MINPERIOD, gain1 to 0, and
-	// prefilter_tapset follows the current tapset decision.
-	e.prefilterPeriod = combFilterMinPeriod
-	e.prefilterGain = 0
-	e.prefilterTapset = e.tapsetDecision
 }
 
 // TransientAnalysisHybrid performs transient analysis and updates preemph overlap state.

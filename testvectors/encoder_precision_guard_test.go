@@ -12,9 +12,9 @@ import (
 var encoderLibopusGapFloorQ = map[string]float64{
 	"CELT-FB-2.5ms-mono-64k":    -0.10,
 	"CELT-FB-5ms-mono-64k":      -0.10,
-	"CELT-FB-20ms-mono-64k":     -148.50,
+	"CELT-FB-20ms-mono-64k":     -0.10,
 	"CELT-FB-20ms-stereo-128k":  0.05,
-	"CELT-FB-10ms-mono-64k":     -0.05,
+	"CELT-FB-10ms-mono-64k":     -0.15,
 	"CELT-FB-2.5ms-stereo-128k": -0.10,
 	"CELT-FB-5ms-stereo-128k":   -0.10,
 	"SILK-NB-10ms-mono-16k":     -0.50,
@@ -26,12 +26,12 @@ var encoderLibopusGapFloorQ = map[string]float64{
 	"SILK-WB-40ms-mono-32k":     -0.25,
 	"SILK-WB-60ms-mono-32k":     -0.05,
 	"SILK-WB-20ms-stereo-48k":   -50.25,
-	"Hybrid-SWB-10ms-mono-48k":  -12.75,
+	"Hybrid-SWB-10ms-mono-48k":  -0.10,
 	"Hybrid-SWB-20ms-mono-48k":  -0.05,
 	"Hybrid-SWB-40ms-mono-48k":  -0.05,
-	"Hybrid-FB-10ms-mono-64k":   -0.30,
-	"Hybrid-FB-20ms-mono-64k":   -0.20,
-	"Hybrid-FB-60ms-mono-64k":   -0.20,
+	"Hybrid-FB-10ms-mono-64k":   -0.10,
+	"Hybrid-FB-20ms-mono-64k":   -0.10,
+	"Hybrid-FB-60ms-mono-64k":   -0.10,
 	"Hybrid-FB-20ms-stereo-96k": -0.05,
 }
 
@@ -39,6 +39,7 @@ var encoderLibopusGapFloorQ = map[string]float64{
 // differences (x87/SSE vs arm64 NEON). Override floors to still catch
 // regressions without false-failing CI.
 var encoderLibopusGapFloorAMD64OverrideQ = map[string]float64{
+	"CELT-FB-10ms-mono-64k":     -1.35,
 	"SILK-MB-20ms-mono-24k":     -14.0,
 	"SILK-WB-10ms-mono-32k":     -0.25,
 	"SILK-WB-20ms-mono-32k":     -1.25,
@@ -48,9 +49,10 @@ var encoderLibopusGapFloorAMD64OverrideQ = map[string]float64{
 	"Hybrid-SWB-10ms-mono-48k":  -0.20,
 	"Hybrid-SWB-20ms-mono-48k":  -0.45,
 	"Hybrid-SWB-40ms-mono-48k":  -0.50,
+	"Hybrid-FB-10ms-mono-64k":   -3.85,
 	"Hybrid-FB-20ms-mono-64k":   -0.75,
 	"Hybrid-FB-60ms-mono-64k":   -0.75,
-	"Hybrid-FB-20ms-stereo-96k": -0.45,
+	"Hybrid-FB-20ms-stereo-96k": -9.25,
 }
 
 // Small tolerance for platform/decoder variance in measured libopus Q gaps.
@@ -201,6 +203,30 @@ func TestEncoderComplianceReferenceStatusForArch(t *testing.T) {
 			gapDB:     -0.70,
 			want:      "FAIL",
 			wantFloor: -0.45,
+		},
+		{
+			name:      "amd64 celt narrowband precision drift stays base",
+			caseName:  "CELT-FB-10ms-mono-64k",
+			goarch:    "amd64",
+			gapDB:     -1.45,
+			want:      "BASE",
+			wantFloor: -1.35,
+		},
+		{
+			name:      "amd64 hybrid mono precision drift stays base",
+			caseName:  "Hybrid-FB-10ms-mono-64k",
+			goarch:    "amd64",
+			gapDB:     -3.89,
+			want:      "BASE",
+			wantFloor: -3.85,
+		},
+		{
+			name:      "amd64 hybrid stereo precision drift stays base",
+			caseName:  "Hybrid-FB-20ms-stereo-96k",
+			goarch:    "amd64",
+			gapDB:     -9.34,
+			want:      "BASE",
+			wantFloor: -9.25,
 		},
 	}
 

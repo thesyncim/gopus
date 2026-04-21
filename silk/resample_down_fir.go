@@ -119,9 +119,11 @@ func (r *DownsamplingResampler) State() DownsamplingResamplerState {
 // SetState restores the resampler state from a snapshot.
 func (r *DownsamplingResampler) SetState(s DownsamplingResamplerState) {
 	r.sIIR = s.sIIR
+	clear(r.sFIR)
 	if len(s.sFIR) > 0 && len(r.sFIR) >= len(s.sFIR) {
 		copy(r.sFIR, s.sFIR)
 	}
+	clear(r.delayBuf)
 	if len(s.delayBuf) > 0 && len(r.delayBuf) >= len(s.delayBuf) {
 		copy(r.delayBuf, s.delayBuf)
 	}

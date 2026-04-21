@@ -270,13 +270,55 @@ func silkNLSFDelDecQuant(indices []int8, xQ10 []int16, wQ5 []int16, predQ8 []uin
 	return minQ25
 }
 
+// silkInsertionSortIncreasing matches libopus silk_insertion_sort_increasing().
+// It sorts only the K lowest values in ascending order and records their original indices.
+func silkInsertionSortIncreasing(a []int32, idx []int, L, K int) {
+	if K <= 0 || L <= 0 || L < K {
+		return
+	}
+
+	for i := 0; i < K; i++ {
+		idx[i] = i
+	}
+
+	for i := 1; i < K; i++ {
+		value := a[i]
+		j := i - 1
+		for ; j >= 0 && value < a[j]; j-- {
+			a[j+1] = a[j]
+			idx[j+1] = idx[j]
+		}
+		a[j+1] = value
+		idx[j+1] = i
+	}
+
+	for i := K; i < L; i++ {
+		value := a[i]
+		if value < a[K-1] {
+			j := K - 2
+			for ; j >= 0 && value < a[j]; j-- {
+				a[j+1] = a[j]
+				idx[j+1] = idx[j]
+			}
+			a[j+1] = value
+			idx[j+1] = i
+		}
+	}
+}
+
 // computeNLSFMuQ20 returns the NLSF_mu parameter (Q20) based on speech activity.
 func computeNLSFMuQ20(speechActivityQ8 int, numSubframes int) int32 {
-	base := int32(math.Round(0.003 * (1 << 20)))
-	slope := int32(math.Round(-0.001 * (1 << 28)))
-	mu := base + int32((int64(slope)*int64(speechActivityQ8))>>16)
+	// Match libopus:
+	// SILK_FIX_CONST(0.003, 20)  -> 3146
+	// SILK_FIX_CONST(-0.001, 28) -> -268434
+	// The negative constant is biased toward zero because SILK_FIX_CONST adds
+	// 0.5 before truncating the C cast.
+	const nlsfMuBaseQ20 int32 = 3146
+	const nlsfMuSlopeQ28 int32 = -268434
+
+	mu := silkSMLAWB(nlsfMuBaseQ20, nlsfMuSlopeQ28, int32(speechActivityQ8))
 	if numSubframes == 2 {
-		mu += mu >> 1
+		mu = silkADD_RSHIFT32(mu, mu, 1)
 	}
 	if mu < 1 {
 		mu = 1
@@ -303,37 +345,28 @@ func (e *Encoder) nlsfEncode(nlsfQ15 []int16, cb *nlsfCB, wQ2 []int16, muQ20 int
 	var errQ24 [32]int32
 	silkNLSFVQ(errQ24[:cb.nVectors], nlsfQ15, cb.cb1NLSFQ8, cb.cb1WghtQ9, cb.nVectors, order)
 
-	var indices [32]int
-	for i := 0; i < cb.nVectors; i++ {
-		indices[i] = i
-	}
-
-	// Select nSurvivors smallest errors (partial selection sort).
 	if nSurvivors > cb.nVectors {
 		nSurvivors = cb.nVectors
 	}
-	for i := 0; i < nSurvivors; i++ {
-		best := i
-		for j := i + 1; j < cb.nVectors; j++ {
-			if errQ24[indices[j]] < errQ24[indices[best]] {
-				best = j
-			}
-		}
-		indices[i], indices[best] = indices[best], indices[i]
+	var tempIndices1 [32]int
+	silkInsertionSortIncreasing(errQ24[:cb.nVectors], tempIndices1[:nSurvivors], cb.nVectors, nSurvivors)
+	if e.trace != nil && e.trace.NLSF != nil {
+		tr := e.trace.NLSF
+		tr.MuQ20 = muQ20
+		tr.CandidateStage1 = append(tr.CandidateStage1[:0], tempIndices1[:nSurvivors]...)
+		tr.CandidateRDQ25 = tr.CandidateRDQ25[:0]
 	}
-
-	bestStage1 := indices[0]
-	bestRD := int32(math.MaxInt32)
-	var bestRes [maxLPCOrder]int8
 
 	var resQ10 [maxLPCOrder]int16
 	var wAdjQ5 [maxLPCOrder]int16
 	var ecIx [maxLPCOrder]int16
 	var predQ8 [maxLPCOrder]uint8
 	var tmpIndices [maxLPCOrder]int8
+	var rdQ25 [32]int32
+	var tempIndices2 [32][maxLPCOrder]int8
 
 	for s := 0; s < nSurvivors; s++ {
-		ind1 := indices[s]
+		ind1 := tempIndices1[s]
 		baseIdx := ind1 * order
 
 		for i := 0; i < order; i++ {
@@ -348,7 +381,7 @@ func (e *Encoder) nlsfEncode(nlsfQ15 []int16, cb *nlsfCB, wQ2 []int16, muQ20 int
 		}
 
 		silkNLSFUnpack(ecIx[:order], predQ8[:order], cb, ind1)
-		rdQ25 := silkNLSFDelDecQuant(tmpIndices[:], resQ10[:], wAdjQ5[:], predQ8[:], ecIx[:], cb.ecRatesQ5, cb.quantStepSizeQ16, cb.invQuantStepSizeQ6, muQ20, order)
+		rdValQ25 := silkNLSFDelDecQuant(tmpIndices[:], resQ10[:], wAdjQ5[:], predQ8[:], ecIx[:], cb.ecRatesQ5, cb.quantStepSizeQ16, cb.invQuantStepSizeQ6, muQ20, order)
 
 		// Add rate for first stage
 		icdf := cb.cb1ICDF[(signalType>>1)*cb.nVectors:]
@@ -359,18 +392,21 @@ func (e *Encoder) nlsfEncode(nlsfQ15 []int16, cb *nlsfCB, wQ2 []int16, muQ20 int
 			probQ8 = int32(icdf[ind1-1]) - int32(icdf[ind1])
 		}
 		bitsQ7 := int32((8 << 7)) - silkLin2Log(probQ8)
-		rdQ25 = silkSMLABB(rdQ25, bitsQ7, muQ20>>2)
-
-		if rdQ25 < bestRD {
-			bestRD = rdQ25
-			bestStage1 = ind1
-			copy(bestRes[:order], tmpIndices[:order])
+		rdValQ25 = silkSMLABB(rdValQ25, bitsQ7, muQ20>>2)
+		rdQ25[s] = rdValQ25
+		copy(tempIndices2[s][:order], tmpIndices[:order])
+		if e.trace != nil && e.trace.NLSF != nil {
+			e.trace.NLSF.CandidateRDQ25 = append(e.trace.NLSF.CandidateRDQ25, rdValQ25)
 		}
 	}
 
+	var bestIndex [1]int
+	silkInsertionSortIncreasing(rdQ25[:nSurvivors], bestIndex[:], nSurvivors, 1)
+	bestStage1 := tempIndices1[bestIndex[0]]
+
 	residuals := ensureIntSlice(&e.scratchLsfResiduals, order)
 	for i := 0; i < order; i++ {
-		residuals[i] = int(bestRes[i])
+		residuals[i] = int(tempIndices2[bestIndex[0]][i])
 	}
 
 	return bestStage1, residuals

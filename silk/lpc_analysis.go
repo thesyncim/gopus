@@ -908,11 +908,11 @@ func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32
 		CAb[i] = 0
 	}
 
-	C0 := energyF32(x, totalLen)
+	C0 := energyF32Libopus(x, totalLen)
 	for s := 0; s < nbSubfr; s++ {
 		xPtr := s * subfrLength
 		for n := 1; n <= order; n++ {
-			CFirstRow[n-1] += innerProductF32(x[xPtr:], x[xPtr+n:], subfrLength-n)
+			CFirstRow[n-1] += innerProductF32Libopus(x[xPtr:], x[xPtr+n:], subfrLength-n)
 		}
 	}
 	copy(CLastRow[:silkMaxOrderLPC], CFirstRow[:silkMaxOrderLPC])
@@ -949,18 +949,18 @@ func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32
 			for k := 0; k < n; k++ {
 				xnk := x[xPtr+n-k-1]
 				xbk := x[xPtr+subfrLength-n+k]
-				CFirstRow[k] -= float64(xn * xnk)
-				CLastRow[k] -= float64(xend * xbk)
+				CFirstRow[k] -= float64(noFMA32(xn, xnk))
+				CLastRow[k] -= float64(noFMA32(xend, xbk))
 				Atmp := Af[k]
-				tmp1 += float64(xnk) * Atmp
-				tmp2 += float64(xbk) * Atmp
+				tmp1 += noFMA64(float64(xnk), Atmp)
+				tmp2 += noFMA64(float64(xbk), Atmp)
 			}
 
 			for k := 0; k <= n; k++ {
 				xnk := x[xPtr+n-k]
 				xbk := x[xPtr+subfrLength-n+k-1]
-				CAf[k] -= tmp1 * float64(xnk)
-				CAb[k] -= tmp2 * float64(xbk)
+				CAf[k] -= noFMA64(tmp1, float64(xnk))
+				CAb[k] -= noFMA64(tmp2, float64(xbk))
 			}
 		}
 
@@ -968,8 +968,8 @@ func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32
 		tmp2 := CLastRow[n]
 		for k := 0; k < n; k++ {
 			Atmp := Af[k]
-			tmp1 += CLastRow[n-k-1] * Atmp
-			tmp2 += CFirstRow[n-k-1] * Atmp
+			tmp1 += noFMA64(CLastRow[n-k-1], Atmp)
+			tmp2 += noFMA64(CFirstRow[n-k-1], Atmp)
 		}
 		CAf[n+1] = tmp1
 		CAb[n+1] = tmp2
@@ -979,9 +979,9 @@ func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32
 		nrgF := CAf[0]
 		for k := 0; k < n; k++ {
 			Atmp := Af[k]
-			num += CAb[n-k] * Atmp
-			nrgB += CAb[k+1] * Atmp
-			nrgF += CAf[k+1] * Atmp
+			num += noFMA64(CAb[n-k], Atmp)
+			nrgB += noFMA64(CAb[k+1], Atmp)
+			nrgF += noFMA64(CAf[k+1], Atmp)
 		}
 		if nrgF <= 0 || nrgB <= 0 {
 			break
@@ -1003,8 +1003,8 @@ func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32
 		for k := 0; k < (n+1)>>1; k++ {
 			tmp1 = Af[k]
 			tmp2 = Af[n-k-1]
-			Af[k] = tmp1 + rc*tmp2
-			Af[n-k-1] = tmp2 + rc*tmp1
+			Af[k] = tmp1 + noFMA64(rc, tmp2)
+			Af[n-k-1] = tmp2 + noFMA64(rc, tmp1)
 		}
 		Af[n] = rc
 
@@ -1017,8 +1017,8 @@ func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32
 
 		for k := 0; k <= n+1; k++ {
 			tmp1 = CAf[k]
-			CAf[k] += rc * CAb[n-k+1]
-			CAb[n-k+1] += rc * tmp1
+			CAf[k] += noFMA64(rc, CAb[n-k+1])
+			CAb[n-k+1] += noFMA64(rc, tmp1)
 		}
 	}
 
@@ -1030,7 +1030,7 @@ func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32
 			if start+order > totalLen {
 				break
 			}
-			adjustedC0 -= energyF32(x[start:start+order], order)
+			adjustedC0 -= energyF32Libopus(x[start:start+order], order)
 		}
 		nrgF = adjustedC0 * invGain
 	} else {
@@ -1038,8 +1038,8 @@ func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32
 		tmp1 := 1.0
 		for k := 0; k < order; k++ {
 			Atmp := Af[k]
-			nrgF += CAf[k+1] * Atmp
-			tmp1 += Atmp * Atmp
+			nrgF += noFMA64(CAf[k+1], Atmp)
+			tmp1 += noFMA64(Atmp, Atmp)
 		}
 		nrgF -= condFac * C0 * tmp1
 	}

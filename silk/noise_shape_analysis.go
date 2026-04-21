@@ -242,6 +242,14 @@ func (e *Encoder) computeShapingARAndGains(
 			xBuf[i] = 0
 		}
 	}
+	if e.trace != nil && e.trace.GainLoop != nil {
+		tr := e.trace.GainLoop
+		tr.NoiseShapeXLen = len(xBuf)
+		tr.NoiseShapeXHash = hashFloat32Slice(xBuf)
+		if tr.CaptureNoiseShapeX {
+			tr.NoiseShapeX = append(tr.NoiseShapeX[:0], xBuf...)
+		}
+	}
 
 	// Bandwidth expansion and warping in float32 precision to mirror libopus FLP behavior.
 	strengthF32 := float32(findPitchWhiteNoiseFraction) * float32(lpcPredGain)

@@ -10,6 +10,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
+
 #define main libopus_opus_compare_cli_main
 #include "../../tmp_check/opus-1.6.1/src/opus_compare.c"
 #undef main
@@ -72,6 +77,18 @@ static int write_f64_le(double v) {
   b[6] = (unsigned char)((bits.u >> 48) & 0xFF);
   b[7] = (unsigned char)((bits.u >> 56) & 0xFF);
   return write_exact_bytes(b, sizeof(b));
+}
+
+static int set_binary_stdio(void) {
+#ifdef _WIN32
+  if (_setmode(_fileno(stdin), _O_BINARY) == -1) {
+    return 0;
+  }
+  if (_setmode(_fileno(stdout), _O_BINARY) == -1) {
+    return 0;
+  }
+#endif
+  return 1;
 }
 
 static int read_pcm16_stream(int16_t *dst, size_t n) {
@@ -394,6 +411,10 @@ static int handle_request(void) {
 }
 
 int main(void) {
+  if (!set_binary_stdio()) {
+    fprintf(stderr, "failed to set binary stdio mode\n");
+    return 1;
+  }
   for (;;) {
     int rc = handle_request();
     if (rc == 0) {

@@ -73,6 +73,7 @@ type Encoder struct {
 	lastControlTargetRateBps int  // Last per-frame target rate used for SNR control
 	preAdjustedTargetRateBps int  // One-shot externally adjusted target for shared stereo packet control
 	useCBR                   bool // Constant Bitrate mode
+	blockUseCBR              bool // Per-block CBR flag for 40/60 ms packet budgeting
 	// reducedDependency mirrors libopus encControl->reducedDependency.
 	// When enabled, the first frame of each packet is coded as
 	// first_frame_after_reset without resetting the full encoder state.
@@ -489,6 +490,15 @@ func (e *Encoder) Reset() {
 	}
 }
 
+// ResetTransitionPrefillState clears the low-level fields that libopus
+// reinitializes during the CELT->SILK/HYBRID prefill reset path, while leaving
+// packet-level controls owned by the Opus wrapper intact.
+func (e *Encoder) ResetTransitionPrefillState() {
+	e.lastQuantOffsetType = 0
+	e.frameCounter = 0
+	e.lpState = LPState{}
+}
+
 func resetStereoEncState(st *stereoEncState) {
 	*st = stereoEncState{}
 	st.midSideAmpQ0 = [4]float64{0, 1, 0, 1}
@@ -791,6 +801,31 @@ func (e *Encoder) GetLastNumSamples() int {
 	return e.lastNumSamples
 }
 
+// InputQualityBandsQ15 returns the current VAD-derived input quality bands.
+func (e *Encoder) InputQualityBandsQ15() [4]int {
+	return e.inputQualityBandsQ15
+}
+
+// LaShape returns the current shaping lookahead in samples.
+func (e *Encoder) LaShape() int {
+	return e.laShape
+}
+
+// ShapeWinLength returns the current shaping analysis window length in samples.
+func (e *Encoder) ShapeWinLength() int {
+	return e.shapeWinLength
+}
+
+// ShapingLPCOrder returns the current shaping LPC order.
+func (e *Encoder) ShapingLPCOrder() int {
+	return e.shapingLPCOrder
+}
+
+// WarpingQ16 returns the current shaping warping factor in Q16.
+func (e *Encoder) WarpingQ16() int {
+	return e.warpingQ16
+}
+
 // LastEncodedSignalInfo returns the signal type and quantization offset from
 // the most recently encoded frame. Used by the hybrid encoder to provide
 // silk_info feedback to CELT (libopus celt_encoder.c line 2466-2467).
@@ -862,6 +897,7 @@ func (e *Encoder) SetMaxBits(maxBits int) {
 func (e *Encoder) SetVBR(vbr bool) {
 	e.useVBR = vbr
 	e.useCBR = !vbr
+	e.blockUseCBR = e.useCBR
 }
 
 // SetReducedDependency enables/disables reduced dependency coding.
