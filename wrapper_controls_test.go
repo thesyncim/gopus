@@ -85,6 +85,20 @@ func assertUnsupportedDREDControl(t *testing.T, enc unsupportedDREDControl) {
 	}
 }
 
+func assertWorkingDREDControl(t *testing.T, enc unsupportedDREDControl) {
+	t.Helper()
+
+	if err := enc.SetDREDDuration(4); err != nil {
+		t.Fatalf("SetDREDDuration(4) error: %v", err)
+	}
+	if got, err := enc.DREDDuration(); err != nil || got != 4 {
+		t.Fatalf("DREDDuration()=(%d,%v) want=(4,nil)", got, err)
+	}
+	if err := enc.SetDREDDuration(-1); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("SetDREDDuration(-1) error=%v want=%v", err, ErrInvalidArgument)
+	}
+}
+
 func assertSupportedQEXTControl(t *testing.T, enc qextEncoderControl) {
 	t.Helper()
 
@@ -141,6 +155,23 @@ func assertUnsupportedOSCEBWEControl(t *testing.T, dec unsupportedOSCEBWEControl
 	}
 	if got, err := dec.OSCEBWE(); !errors.Is(err, ErrUnsupportedExtension) || got {
 		t.Fatalf("OSCEBWE()=(%v,%v) want=(false,%v)", got, err, ErrUnsupportedExtension)
+	}
+}
+
+func assertWorkingOSCEBWEControl(t *testing.T, dec unsupportedOSCEBWEControl) {
+	t.Helper()
+
+	if err := dec.SetOSCEBWE(true); err != nil {
+		t.Fatalf("SetOSCEBWE(true) error: %v", err)
+	}
+	if got, err := dec.OSCEBWE(); err != nil || !got {
+		t.Fatalf("OSCEBWE()=(%v,%v) want=(true,nil)", got, err)
+	}
+	if err := dec.SetOSCEBWE(false); err != nil {
+		t.Fatalf("SetOSCEBWE(false) error: %v", err)
+	}
+	if got, err := dec.OSCEBWE(); err != nil || got {
+		t.Fatalf("OSCEBWE()=(%v,%v) want=(false,nil)", got, err)
 	}
 }
 

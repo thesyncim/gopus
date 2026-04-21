@@ -448,6 +448,7 @@ type Decoder struct {
 	dredModelLoaded    bool
 	osceModelsLoaded   bool
 	osceBWEModelLoaded bool
+	osceBWEEnabled     bool
 	dredData           [][]byte
 	dredCache          []internaldred.Cache
 }

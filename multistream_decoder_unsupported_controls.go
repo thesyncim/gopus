@@ -7,13 +7,13 @@ package gopus
 // when built with -tags gopus_unsupported_controls.
 //
 // The default gopus build keeps this quarantined from the public API surface.
-// The current implementation still returns ErrUnsupportedExtension.
-func (d *MultistreamDecoder) SetOSCEBWE(_ bool) error {
-	return ErrUnsupportedExtension
+func (d *MultistreamDecoder) SetOSCEBWE(enabled bool) error {
+	d.dec.SetOSCEBWE(enabled)
+	return nil
 }
 
 // OSCEBWE reports decoder-side OSCE bandwidth-extension state for explicit
 // quarantine builds.
 func (d *MultistreamDecoder) OSCEBWE() (bool, error) {
-	return false, ErrUnsupportedExtension
+	return d.dec.OSCEBWE(), nil
 }

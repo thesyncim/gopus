@@ -28,6 +28,7 @@ func (e *MultistreamEncoder) SetDNNBlob(data []byte) error {
 		return err
 	}
 	e.dnnBlob = blob
+	e.enc.SetDNNBlob(blob)
 	return nil
 }
 

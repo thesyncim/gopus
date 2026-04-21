@@ -70,3 +70,29 @@ func TestEncoderDREDDuration(t *testing.T) {
 		t.Fatalf("DREDDuration() after Reset=%d want 0", got)
 	}
 }
+
+func TestDecoderOSCEBWEState(t *testing.T) {
+	dec, err := NewDecoderDefault(48000, 2)
+	if err != nil {
+		t.Fatalf("NewDecoderDefault error: %v", err)
+	}
+
+	if dec.OSCEBWE() {
+		t.Fatal("fresh decoder unexpectedly reports OSCE_BWE enabled")
+	}
+
+	dec.SetOSCEBWE(true)
+	if !dec.OSCEBWE() {
+		t.Fatal("OSCEBWE()=false after SetOSCEBWE(true)")
+	}
+
+	dec.Reset()
+	if !dec.OSCEBWE() {
+		t.Fatal("Reset unexpectedly cleared OSCE_BWE control state")
+	}
+
+	dec.SetOSCEBWE(false)
+	if dec.OSCEBWE() {
+		t.Fatal("OSCEBWE()=true after SetOSCEBWE(false)")
+	}
+}

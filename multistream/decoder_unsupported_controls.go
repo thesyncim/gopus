@@ -18,3 +18,13 @@ func (d *Decoder) OSCEModelsLoaded() bool {
 func (d *Decoder) OSCEBWEModelLoaded() bool {
 	return d.osceBWEModelLoaded
 }
+
+// SetOSCEBWE stores tag-gated OSCE_BWE enable state for parity work.
+func (d *Decoder) SetOSCEBWE(enabled bool) {
+	d.osceBWEEnabled = enabled
+}
+
+// OSCEBWE reports the stored tag-gated OSCE_BWE enable state.
+func (d *Decoder) OSCEBWE() bool {
+	return d.osceBWEEnabled
+}
