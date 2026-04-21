@@ -17,18 +17,14 @@ Last updated: 2026-04-21
 - [x] Add explicit CI performance gate (`perf-linux`) and wire `make bench-guard` into `verify-production`.
 - [x] Document CI guardrail/branch-protection policy (`CI_GUARDRAILS.md`) and agent rules (`AGENTS.md`).
 - [x] Close the previously-known large encoder quality regressions and return `make test-quality` to green.
+- [x] Expand zero-allocation hard gates to cover PLC and stereo decode hot paths.
 
 ## In progress now
 
-- [ ] Make wrapper/test gates fail closed on package load/build errors.
-- [ ] Align PR Linux parity lanes with strict libopus-reference mode.
-- [ ] Add PR-time fuzz-smoke and provenance coverage where local exhaustive verification already depends on them.
-- [ ] Fail fast on nil streaming/container endpoints and invalid streaming sample formats.
-- [ ] Refresh public docs/examples so the caller-owned `Encode`/`Decode` path is the primary production guidance.
+- [ ] Tighten multistream-facing error/reporting text so ranges stay accurate for high-channel-count use.
 
 ## Remaining medium-term blockers
 
-- [ ] Tighten multistream-facing error/reporting text so ranges stay accurate for high-channel-count use.
 - [ ] Decide whether debug-only accessors on public wrapper types should be deprecated or removed before the first stable release.
 - [ ] Reduce temporary debug/tuning surface area in non-test packages without disturbing parity coverage.
 

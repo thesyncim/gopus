@@ -64,6 +64,8 @@ Ship `gopus` as a dependable production codec library with:
   - `TestHotPathAllocsEncodeInt16`
   - `TestHotPathAllocsDecodeFloat32`
   - `TestHotPathAllocsDecodeInt16`
+  - `TestHotPathAllocsDecodePLC`
+  - `TestHotPathAllocsDecodeStereo`
 - Existing gate surfaces:
   - `make test-race`
   - `make test-race-parity`
