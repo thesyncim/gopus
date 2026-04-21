@@ -13,12 +13,13 @@ const (
 	MaxLatents              = 26
 	NumRedundancyFrames     = 2 * MaxLatents
 	MaxFrames               = 4 * MaxLatents
+	NumFeatures             = 20
 )
 
 // ValidExperimentalPayload reports whether data matches the temporary libopus
 // DRED extension framing and size bounds accepted by dred_find_payload().
 func ValidExperimentalPayload(data []byte) bool {
-	if len(data) <= ExperimentalHeaderBytes || len(data) > ExperimentalHeaderBytes+MaxDataSize {
+	if len(data) <= ExperimentalHeaderBytes {
 		return false
 	}
 	return data[0] == 'D' &&

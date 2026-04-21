@@ -3,13 +3,16 @@ package dnnblob
 import (
 	"encoding/binary"
 	"sort"
+	"strings"
 )
 
 const (
 	headerSize = 64
 
-	weightTypeFloat = 0
-	weightTypeInt8  = 3
+	TypeFloat   int32 = 0
+	TypeInt     int32 = 1
+	TypeQWeight int32 = 2
+	TypeInt8    int32 = 3
 )
 
 // Record mirrors one libopus WeightArray entry parsed from a weights blob.
@@ -84,14 +87,40 @@ func (b *Blob) HasRecord(name string) bool {
 	return false
 }
 
+// Record returns the first record with the given name, mirroring libopus
+// find_array_entry() first-match behavior.
+func (b *Blob) Record(name string) (Record, bool) {
+	if b == nil {
+		return Record{}, false
+	}
+	for _, rec := range b.Records {
+		if rec.Name == name {
+			return rec, true
+		}
+	}
+	return Record{}, false
+}
+
 func sortedRecordNames(groups ...[]string) []string {
 	total := 0
 	for _, group := range groups {
 		total += len(group)
 	}
-	out := make([]string, 0, total)
+	present := make(map[string]struct{}, total)
 	for _, group := range groups {
-		out = append(out, group...)
+		for _, name := range group {
+			present[name] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(present))
+	for name := range present {
+		if strings.HasSuffix(name, "_weights_float") {
+			int8Name := strings.TrimSuffix(name, "_weights_float") + "_weights_int8"
+			if _, ok := present[int8Name]; ok {
+				continue
+			}
+		}
+		out = append(out, name)
 	}
 	sort.Strings(out)
 	return out
@@ -99,11 +128,27 @@ func sortedRecordNames(groups ...[]string) []string {
 
 func (b *Blob) validateRecordNames(required []string) error {
 	for _, want := range required {
+		if optionalFloatMirror(required, want) {
+			continue
+		}
 		if !b.HasRecord(want) {
 			return errInvalidBlob
 		}
 	}
 	return nil
+}
+
+func optionalFloatMirror(required []string, name string) bool {
+	if !strings.HasSuffix(name, "_weights_float") {
+		return false
+	}
+	int8Name := strings.TrimSuffix(name, "_weights_float") + "_weights_int8"
+	for _, other := range required {
+		if other == int8Name {
+			return true
+		}
+	}
+	return false
 }
 
 // SupportsPitchDNN reports whether the blob contains the pitch model family

@@ -8,6 +8,7 @@ import (
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	internaldred "github.com/thesyncim/gopus/internal/dred"
+	"github.com/thesyncim/gopus/internal/dred/rdovae"
 )
 
 // ErrDREDModelNotLoaded reports that the tag-gated standalone DRED decoder
@@ -50,7 +51,9 @@ const (
 // the tag-gated DRED metadata surface.
 type DREDDecoder struct {
 	dnnBlob     *dnnblob.Blob
+	model       *rdovae.Decoder
 	modelLoaded bool
+	processor   rdovae.Processor
 }
 
 // NewDREDDecoder constructs a tag-gated standalone DRED decoder wrapper.
@@ -65,9 +68,7 @@ func (d *DREDDecoder) SetDNNBlob(data []byte) error {
 		return ErrInvalidArgument
 	}
 	if data == nil {
-		d.dnnBlob = nil
-		d.modelLoaded = false
-		return nil
+		return ErrInvalidArgument
 	}
 	blob, err := dnnblob.Clone(data)
 	if err != nil {
@@ -76,8 +77,14 @@ func (d *DREDDecoder) SetDNNBlob(data []byte) error {
 	if err := blob.ValidateDREDDecoderControl(); err != nil {
 		return ErrInvalidArgument
 	}
+	model, err := rdovae.LoadDecoder(blob)
+	if err != nil {
+		return ErrInvalidArgument
+	}
 	d.dnnBlob = blob
+	d.model = model
 	d.modelLoaded = true
+	d.processor = rdovae.Processor{}
 	return nil
 }
 
@@ -139,6 +146,16 @@ func (d *DRED) ProcessStage() DREDProcessStage {
 	return d.processStage
 }
 
+// RawProcessStage reports the underlying libopus-shaped process stage:
+// `-1` before/without a valid parse, `1` after deferred parse, and `2` once
+// processed features have been materialized.
+func (d *DRED) RawProcessStage() int {
+	if d == nil || d.processStage == DREDProcessStageEmpty {
+		return -1
+	}
+	return int(d.processStage)
+}
+
 // NeedsProcessing reports whether Parse deferred standalone DRED processing.
 func (d *DRED) NeedsProcessing() bool {
 	return d != nil && d.processStage == DREDProcessStageDeferred
@@ -177,6 +194,24 @@ func (d *DRED) FillLatents(dst []float32) int {
 	return d.decoded.FillLatents(dst)
 }
 
+// FeatureCount reports how many processed DRED feature values are retained from
+// the last successful Process call.
+func (d *DRED) FeatureCount() int {
+	if d == nil || d.processStage != DREDProcessStageProcessed {
+		return 0
+	}
+	return d.decoded.NbLatents * 4 * internaldred.NumFeatures
+}
+
+// FillFeatures copies the retained processed DRED feature frames into dst and
+// returns the number of floats written.
+func (d *DRED) FillFeatures(dst []float32) int {
+	if d == nil || d.processStage != DREDProcessStageProcessed {
+		return 0
+	}
+	return d.decoded.FillFeatures(dst)
+}
+
 // Result evaluates the retained DRED payload against an opus_dred_parse()-style
 // request.
 func (d *DRED) Result(maxDredSamples, sampleRate int) DREDResult {
@@ -209,7 +244,11 @@ func (d *DRED) FillQuantizerLevels(dst []int, maxDredSamples, sampleRate int) in
 // FeatureWindow reports the retained DRED feature-offset window for a given
 // concealment request.
 func (d *DRED) FeatureWindow(maxDredSamples, sampleRate, decodeOffsetSamples, frameSizeSamples, initFrames int) DREDFeatureWindow {
-	return d.Result(maxDredSamples, sampleRate).FeatureWindow(decodeOffsetSamples, frameSizeSamples, initFrames)
+	result := d.Result(maxDredSamples, sampleRate)
+	if d != nil && d.processStage == DREDProcessStageProcessed {
+		return internaldred.ProcessedFeatureWindow(result, &d.decoded, decodeOffsetSamples, frameSizeSamples, initFrames)
+	}
+	return result.FeatureWindow(decodeOffsetSamples, frameSizeSamples, initFrames)
 }
 
 // Parse finds and retains the temporary DRED packet extension from packet and
@@ -252,9 +291,8 @@ func (d *DREDDecoder) Parse(dst *DRED, packet []byte, maxDredSamples, sampleRate
 	return result.Availability.AvailableSamples, result.Availability.EndSamples, nil
 }
 
-// Process finalizes a deferred standalone DRED metadata state. The current
-// experimental wrapper has no extra model-backed stage yet, so processing
-// primarily preserves the libopus-shaped deferred/processed control flow.
+// Process finalizes a deferred standalone DRED state by running the pure-Go
+// RDOVAE decoder and retaining the derived DRED feature frames.
 func (d *DREDDecoder) Process(src, dst *DRED) error {
 	if d == nil || src == nil || dst == nil {
 		return ErrInvalidArgument
@@ -267,6 +305,9 @@ func (d *DREDDecoder) Process(src, dst *DRED) error {
 	}
 	if src != dst {
 		*dst = *src
+	}
+	if dst.processStage != DREDProcessStageProcessed {
+		d.model.DecodeAllWithProcessor(&d.processor, dst.decoded.Features[:], dst.decoded.State[:], dst.decoded.Latents[:], dst.decoded.NbLatents)
 	}
 	dst.processStage = DREDProcessStageProcessed
 	return nil

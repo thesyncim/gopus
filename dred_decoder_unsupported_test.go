@@ -37,6 +37,9 @@ func TestDREDDecoderParseRequiresModel(t *testing.T) {
 	if _, _, err := dec.Parse(dred, packet, 960, 48000, true); !errors.Is(err, ErrDREDModelNotLoaded) {
 		t.Fatalf("Parse without model error=%v want=%v", err, ErrDREDModelNotLoaded)
 	}
+	if dred.RawProcessStage() != -1 {
+		t.Fatalf("RawProcessStage()=%d want -1", dred.RawProcessStage())
+	}
 	if dred.ProcessStage() != DREDProcessStageEmpty || !dred.Empty() || dred.NeedsProcessing() || dred.Processed() {
 		t.Fatalf("Parse without model mutated dred state: stage=%d empty=%v needs=%v processed=%v", dred.ProcessStage(), dred.Empty(), dred.NeedsProcessing(), dred.Processed())
 	}
@@ -59,6 +62,9 @@ func TestDREDDecoderParseAndProcessRetainsMetadata(t *testing.T) {
 	}
 	if dred.ProcessStage() != DREDProcessStageDeferred || !dred.NeedsProcessing() || dred.Processed() {
 		t.Fatalf("stage after deferred parse = (%d, needs=%v, processed=%v) want (%d,true,false)", dred.ProcessStage(), dred.NeedsProcessing(), dred.Processed(), DREDProcessStageDeferred)
+	}
+	if dred.RawProcessStage() != 1 {
+		t.Fatalf("RawProcessStage()=%d want 1", dred.RawProcessStage())
 	}
 	if dred.Len() == 0 {
 		t.Fatal("deferred parse did not retain DRED payload")
@@ -98,6 +104,9 @@ func TestDREDDecoderParseAndProcessRetainsMetadata(t *testing.T) {
 	if processed.ProcessStage() != DREDProcessStageProcessed || processed.NeedsProcessing() || !processed.Processed() {
 		t.Fatalf("processed stage = (%d, needs=%v, processed=%v) want (%d,false,true)", processed.ProcessStage(), processed.NeedsProcessing(), processed.Processed(), DREDProcessStageProcessed)
 	}
+	if processed.RawProcessStage() != 2 {
+		t.Fatalf("RawProcessStage()=%d want 2", processed.RawProcessStage())
+	}
 	result := processed.Result(960, 48000)
 	if result.Availability.FeatureFrames != 4 || result.Availability.MaxLatents != 0 || result.Availability.OffsetSamples != -480 || result.Availability.EndSamples != 480 || result.Availability.AvailableSamples != 480 {
 		t.Fatalf("Result=%+v want availability {FeatureFrames:4 MaxLatents:0 OffsetSamples:-480 EndSamples:480 AvailableSamples:480}", result)
@@ -132,6 +141,18 @@ func TestDREDDecoderParseAndProcessRetainsMetadata(t *testing.T) {
 		t.Fatalf("processed FillLatents count=%d want %d", n, wantLatents)
 	}
 	assertFloat32BitsEqual(t, processedLatents[:wantLatents], latents[:wantLatents], "processed latents")
+	if got, want := processed.FeatureCount(), decodeWant.nbLatents*4*internaldred.NumFeatures; got != want {
+		t.Fatalf("FeatureCount()=%d want %d", got, want)
+	}
+	features := make([]float32, processed.FeatureCount())
+	if n := processed.FillFeatures(features); n != len(features) {
+		t.Fatalf("FillFeatures count=%d want %d", n, len(features))
+	}
+	for i, v := range features {
+		if v != 0 {
+			t.Fatalf("FillFeatures[%d]=%v want 0 for zeroed synthetic model", i, v)
+		}
+	}
 }
 
 func TestDREDDecoderParseClearsStateWhenPacketHasNoDRED(t *testing.T) {
@@ -169,6 +190,46 @@ func TestDREDDecoderProcessRejectsEmptyState(t *testing.T) {
 	dred := NewDRED()
 	if err := dec.Process(dred, dred); !errors.Is(err, ErrInvalidArgument) {
 		t.Fatalf("Process(empty, empty) error=%v want=%v", err, ErrInvalidArgument)
+	}
+}
+
+func TestDREDDecoderProcessDoesNotAllocate(t *testing.T) {
+	dec := NewDREDDecoder()
+	if err := dec.SetDNNBlob(makeValidDREDDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	src := NewDRED()
+	packet := makeTwoFramePacketWithDREDForStandaloneTest(t, 8, -4)
+	if _, _, err := dec.Parse(src, packet, 960, 48000, true); err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	dst := NewDRED()
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		if err := dec.Process(src, dst); err != nil {
+			t.Fatalf("Process error: %v", err)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("AllocsPerRun=%v want 0", allocs)
+	}
+}
+
+func TestDREDDecoderParseAndProcessDoesNotAllocate(t *testing.T) {
+	dec := NewDREDDecoder()
+	if err := dec.SetDNNBlob(makeValidDREDDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	packet := makeTwoFramePacketWithDREDForStandaloneTest(t, 8, -4)
+	dred := NewDRED()
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		if _, _, err := dec.Parse(dred, packet, 960, 48000, false); err != nil {
+			t.Fatalf("Parse error: %v", err)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("AllocsPerRun=%v want 0", allocs)
 	}
 }
 
@@ -263,8 +324,8 @@ func TestStandaloneDREDParseMatchesLibopus(t *testing.T) {
 			if decodeWant.availableSamples < 0 {
 				t.Fatalf("libopus dred decode returned error %d", decodeWant.availableSamples)
 			}
-			if int(dred.ProcessStage()) != decodeWant.processStage {
-				t.Fatalf("ProcessStage=%d want %d", dred.ProcessStage(), decodeWant.processStage)
+			if dred.RawProcessStage() != decodeWant.processStage {
+				t.Fatalf("RawProcessStage()=%d want %d", dred.RawProcessStage(), decodeWant.processStage)
 			}
 			if got := dred.Parsed().Header.DredOffset; got != decodeWant.dredOffset {
 				t.Fatalf("Parsed().Header.DredOffset=%d want %d", got, decodeWant.dredOffset)
