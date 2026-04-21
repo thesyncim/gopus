@@ -21,6 +21,7 @@ Last updated: 2026-04-21
 - [x] Make CELT opusdec crossval fixture coverage fail closed instead of silently rewriting tracked fixtures during normal test runs.
 - [x] Remove deprecated debug/state wrappers from the pre-release public surface.
 - [x] Simplify repo workflow/docs by removing the old experiment scaffolding.
+- [x] Reduce CELT tuning/test surface area by making tonality and spread helpers package-private and deleting unused table accessor exports.
 
 ## In progress now
 

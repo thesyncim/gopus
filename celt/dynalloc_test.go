@@ -143,9 +143,9 @@ func TestNoiseFloorConsistency(t *testing.T) {
 	nbBands := 21
 	lsbDepth := 16
 
-	// The noise floor used in ComputeSpreadWeights should match our formula
+	// The noise floor used in computeSpreadWeights should match our formula
 	bandLogE := generateFlatBandEnergies(nbBands, 10.0)
-	weights := ComputeSpreadWeights(bandLogE, nbBands, 1, lsbDepth)
+	weights := computeSpreadWeights(bandLogE, nbBands, 1, lsbDepth)
 
 	// With flat energy above noise floor, weights should be relatively uniform
 	t.Logf("Spread weights with flat energy at 10.0:")
@@ -304,7 +304,7 @@ func TestSpreadWeightComputation(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			weights := ComputeSpreadWeights(tc.energies, tc.nbBands, tc.channels, tc.lsbDepth)
+			weights := computeSpreadWeights(tc.energies, tc.nbBands, tc.channels, tc.lsbDepth)
 
 			if len(weights) != tc.nbBands {
 				t.Errorf("Expected %d weights, got %d", tc.nbBands, len(weights))
@@ -335,7 +335,7 @@ func TestSpreadWeightMaskingModel(t *testing.T) {
 	loudBand := 10
 	energies[loudBand] = 20.0 // Much louder than neighbors
 
-	weights := ComputeSpreadWeights(energies, nbBands, channels, lsbDepth)
+	weights := computeSpreadWeights(energies, nbBands, channels, lsbDepth)
 
 	t.Logf("Weights with loud band at %d:", loudBand)
 	for i := 0; i < nbBands; i++ {
@@ -824,7 +824,7 @@ func TestMedianOf5(t *testing.T) {
 func TestDynallocEdgeCases(t *testing.T) {
 	t.Run("EmptyBandEnergies", func(t *testing.T) {
 		// Empty energies should produce default weights
-		weights := ComputeSpreadWeights(nil, 21, 1, 16)
+		weights := computeSpreadWeights(nil, 21, 1, 16)
 		for i, w := range weights {
 			if w != 1 {
 				t.Errorf("Band %d: expected default weight 1, got %d", i, w)
@@ -882,7 +882,7 @@ func TestDynallocEdgeCases(t *testing.T) {
 
 	t.Run("SingleBand", func(t *testing.T) {
 		bandLogE := []float64{10.0}
-		weights := ComputeSpreadWeights(bandLogE, 1, 1, 16)
+		weights := computeSpreadWeights(bandLogE, 1, 1, 16)
 		if len(weights) != 1 {
 			t.Errorf("Expected 1 weight, got %d", len(weights))
 		}
@@ -892,7 +892,7 @@ func TestDynallocEdgeCases(t *testing.T) {
 		// Very negative energies (below noise floor)
 		nbBands := 21
 		bandLogE := generateFlatBandEnergies(nbBands, -20.0)
-		weights := ComputeSpreadWeights(bandLogE, nbBands, 1, 16)
+		weights := computeSpreadWeights(bandLogE, nbBands, 1, 16)
 
 		// All weights should still be valid
 		for i, w := range weights {
@@ -914,7 +914,7 @@ func BenchmarkComputeSpreadWeights(b *testing.B) {
 
 	b.Run("Mono", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			ComputeSpreadWeights(bandLogE, nbBands, 1, 16)
+			computeSpreadWeights(bandLogE, nbBands, 1, 16)
 		}
 	})
 
@@ -924,7 +924,7 @@ func BenchmarkComputeSpreadWeights(b *testing.B) {
 
 	b.Run("Stereo", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			ComputeSpreadWeights(stereoBandLogE, nbBands, 2, 16)
+			computeSpreadWeights(stereoBandLogE, nbBands, 2, 16)
 		}
 	})
 }
@@ -973,7 +973,7 @@ func BenchmarkDynallocAnalysisFull(b *testing.B) {
 	b.Run("Full_Mono_20ms", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			// Compute spread weights
-			ComputeSpreadWeights(bandLogE, nbBands, channels, lsbDepth)
+			computeSpreadWeights(bandLogE, nbBands, channels, lsbDepth)
 			// Compute importance
 			ComputeImportance(bandLogE, oldBandE, nbBands, channels, lm, lsbDepth, effectiveBytes)
 		}
@@ -1011,7 +1011,7 @@ func TestSpreadWeightsIntegration(t *testing.T) {
 
 	// Test with computed weights from high-energy bands
 	bandLogE := generateFlatBandEnergies(nbBands, 15.0)
-	computedWeights := ComputeSpreadWeights(bandLogE, nbBands, channels, 16)
+	computedWeights := computeSpreadWeights(bandLogE, nbBands, channels, 16)
 	encoder = NewEncoder(1) // Reset state
 	decisionComputed := encoder.SpreadingDecisionWithWeights(normX, nbBands, channels, frameSize, false, computedWeights)
 

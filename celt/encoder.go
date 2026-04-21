@@ -208,7 +208,7 @@ type Encoder struct {
 	bandEncScratch bandEncodeScratch
 
 	// Scratch buffers for tonality analysis (zero-alloc)
-	tonalityScratch TonalityScratch
+	tonalityScratch tonalityScratch
 
 	// Scratch buffers for TF analysis (zero-alloc)
 	tfScratch TFAnalysisScratch

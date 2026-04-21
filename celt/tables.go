@@ -86,15 +86,6 @@ var eMeans = [25]float64{
 	3.750000, 3.750000, 3.750000, 3.750000, 3.750000,
 }
 
-// GetEMeansBand returns the mean log-energy for a specific band (log2 units).
-// Returns 0 for out-of-range bands. This is a safe accessor for the eMeans table.
-func GetEMeansBand(band int) float64 {
-	if band < 0 || band >= len(eMeans) {
-		return 0
-	}
-	return eMeans[band]
-}
-
 // eProbModel contains the coarse energy probability model by LM and intra/inter.
 // Values are in Q8: pairs of (probability of zero, decay rate).
 // Source: libopus celt/quant_bands.c e_prob_model table.
@@ -164,27 +155,6 @@ var eProbModel = [4][2][42]uint8{
 // smallEnergyICDF is used for coarse energy fallback when budget is low.
 // Source: libopus celt/quant_bands.c small_energy_icdf table.
 var smallEnergyICDF = []uint8{2, 1, 0}
-
-// GetEProbModel returns the probability model table for testing.
-func GetEProbModel() [4][2][42]uint8 {
-	return eProbModel
-}
-
-// GetEMeans returns the eMeans array for testing.
-func GetEMeans() [25]float64 {
-	return eMeans
-}
-
-// GetEBands returns the scaled eBands boundaries for a given LM.
-// LM: 0=2.5ms, 1=5ms, 2=10ms, 3=20ms
-func GetEBands(lm int) []int {
-	scale := 1 << lm
-	result := make([]int, len(EBands))
-	for i, v := range EBands {
-		result[i] = v * scale
-	}
-	return result
-}
 
 const (
 	bitRes               = 3
@@ -357,9 +327,4 @@ func ScaledBandWidth(band, frameSize int) int {
 	}
 	scale := frameSize / Overlap
 	return (EBands[band+1] - EBands[band]) * scale
-}
-
-// GetCacheCaps returns the cache caps table for testing.
-func GetCacheCaps() [168]uint8 {
-	return cacheCaps
 }

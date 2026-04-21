@@ -947,7 +947,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			spreadWeights := dynallocResult.SpreadWeight
 			if len(spreadWeights) < nbBands {
 				// Defensive fallback for unexpected sizing issues.
-				spreadWeights = ComputeSpreadWeights(analysisEnergies, nbBands, e.channels, lsbDepth)
+				spreadWeights = computeSpreadWeights(analysisEnergies, nbBands, e.channels, lsbDepth)
 			}
 			spread = e.SpreadingDecisionWithWeights(normSpread, nbBands, e.channels, frameSize, updateHF, spreadWeights)
 		}
@@ -2274,10 +2274,10 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float
 //   - frameSize: frame size in samples (unused but kept for API consistency)
 func (e *Encoder) updateTonalityAnalysis(normCoeffs, energies []float64, nbBands, frameSize int) {
 	// Compute tonality using Spectral Flatness Measure (zero-alloc version)
-	tonalityResult := ComputeTonalityWithBandsScratch(normCoeffs, nbBands, frameSize, &e.tonalityScratch)
+	tonalityResult := computeTonalityWithBandsScratch(normCoeffs, nbBands, frameSize, &e.tonalityScratch)
 
 	// Compute spectral flux (frame-to-frame change) for smoothing decisions
-	spectralFlux := ComputeSpectralFlux(energies, e.prevBandLogEnergy, nbBands)
+	spectralFlux := computeSpectralFlux(energies, e.prevBandLogEnergy, nbBands)
 
 	// Update previous band log-energies for next frame's flux computation
 	copy(e.prevBandLogEnergy, energies)
