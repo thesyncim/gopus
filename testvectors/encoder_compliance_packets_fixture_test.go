@@ -41,6 +41,9 @@ type encoderCompliancePacketsFixtureTC struct {
 	Frames        int                                     `json:"frames"`
 	ModeHistogram map[string]int                          `json:"mode_histogram"`
 	Packets       []encoderCompliancePacketsFixturePacket `json:"packets"`
+
+	decodedPackets [][]byte
+	decodedRanges  []uint32
 }
 
 type encoderCompliancePacketsFixturePacket struct {
@@ -67,15 +70,21 @@ func loadEncoderCompliancePacketsFixture() (encoderCompliancePacketsFixtureFile,
 			return
 		}
 		for i := range fixture.Cases {
-			if fixture.Cases[i].Frames != len(fixture.Cases[i].Packets) {
+			c := &fixture.Cases[i]
+			if c.Frames != len(c.Packets) {
 				encoderCompliancePacketsFixtureErr = fmt.Errorf("fixture case[%d] frame count mismatch", i)
 				return
 			}
-			for j := range fixture.Cases[i].Packets {
-				if _, err := base64.StdEncoding.DecodeString(fixture.Cases[i].Packets[j].DataB64); err != nil {
+			c.decodedPackets = make([][]byte, len(c.Packets))
+			c.decodedRanges = make([]uint32, len(c.Packets))
+			for j := range c.Packets {
+				payload, err := base64.StdEncoding.DecodeString(c.Packets[j].DataB64)
+				if err != nil {
 					encoderCompliancePacketsFixtureErr = err
 					return
 				}
+				c.decodedPackets[j] = payload
+				c.decodedRanges[j] = c.Packets[j].FinalRange
 			}
 		}
 		encoderCompliancePacketsFixtureData = fixture
@@ -91,17 +100,7 @@ func encoderCompliancePacketsFixturePathForArch() string {
 }
 
 func decodeEncoderPacketsFixturePackets(c encoderCompliancePacketsFixtureTC) ([][]byte, []uint32, error) {
-	packets := make([][]byte, len(c.Packets))
-	ranges := make([]uint32, len(c.Packets))
-	for i := range c.Packets {
-		payload, err := base64.StdEncoding.DecodeString(c.Packets[i].DataB64)
-		if err != nil {
-			return nil, nil, err
-		}
-		packets[i] = payload
-		ranges[i] = c.Packets[i].FinalRange
-	}
-	return packets, ranges, nil
+	return append([][]byte(nil), c.decodedPackets...), append([]uint32(nil), c.decodedRanges...), nil
 }
 
 func findEncoderCompliancePacketsFixtureCase(mode encoder.Mode, bandwidth types.Bandwidth, frameSize, channels, bitrate int) (encoderCompliancePacketsFixtureTC, bool) {

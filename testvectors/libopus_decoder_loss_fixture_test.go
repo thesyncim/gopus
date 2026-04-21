@@ -34,6 +34,8 @@ type libopusDecoderLossCaseFile struct {
 	Frames      int                            `json:"frames"`
 	Packets     []libopusDecoderLossPacketFile `json:"packets"`
 	Results     []libopusDecoderLossResultFile `json:"results"`
+
+	decodedPackets [][]byte
 }
 
 type libopusDecoderLossPacketFile struct {
@@ -46,6 +48,9 @@ type libopusDecoderLossResultFile struct {
 	LossBits      string `json:"loss_bits"`
 	DecodedLen    int    `json:"decoded_len"`
 	DecodedF32B64 string `json:"decoded_f32_le_b64"`
+
+	parsedLossBits []bool
+	decodedSamples []float32
 }
 
 var (
@@ -79,11 +84,14 @@ func loadLibopusDecoderLossFixture() (libopusDecoderLossFixtureFile, error) {
 				libopusDecoderLossFixtureErr = errors.New("decoder loss fixture frame count mismatch")
 				return
 			}
+			c.decodedPackets = make([][]byte, len(c.Packets))
 			for j := range c.Packets {
-				if _, err := base64.StdEncoding.DecodeString(c.Packets[j].DataB64); err != nil {
+				payload, err := base64.StdEncoding.DecodeString(c.Packets[j].DataB64)
+				if err != nil {
 					libopusDecoderLossFixtureErr = err
 					return
 				}
+				c.decodedPackets[j] = payload
 			}
 			for j := range c.Results {
 				r := &c.Results[j]
@@ -97,6 +105,7 @@ func loadLibopusDecoderLossFixture() (libopusDecoderLossFixtureFile, error) {
 						return
 					}
 				}
+				r.parsedLossBits = parseLossBits(r.LossBits)
 				raw, err := base64.StdEncoding.DecodeString(r.DecodedF32B64)
 				if err != nil {
 					libopusDecoderLossFixtureErr = err
@@ -110,6 +119,11 @@ func loadLibopusDecoderLossFixture() (libopusDecoderLossFixtureFile, error) {
 					libopusDecoderLossFixtureErr = errors.New("decoder loss decoded f32 payload length metadata mismatch")
 					return
 				}
+				r.decodedSamples = make([]float32, len(raw)/4)
+				for k := range r.decodedSamples {
+					bits := binary.LittleEndian.Uint32(raw[k*4 : k*4+4])
+					r.decodedSamples[k] = math.Float32frombits(bits)
+				}
 			}
 		}
 		libopusDecoderLossFixtureData = fixture
@@ -118,28 +132,11 @@ func loadLibopusDecoderLossFixture() (libopusDecoderLossFixtureFile, error) {
 }
 
 func decodeLibopusDecoderLossPackets(c libopusDecoderLossCaseFile) ([][]byte, error) {
-	packets := make([][]byte, len(c.Packets))
-	for i := range c.Packets {
-		payload, err := base64.StdEncoding.DecodeString(c.Packets[i].DataB64)
-		if err != nil {
-			return nil, err
-		}
-		packets[i] = payload
-	}
-	return packets, nil
+	return append([][]byte(nil), c.decodedPackets...), nil
 }
 
 func decodeLibopusDecoderLossSamples(r libopusDecoderLossResultFile) ([]float32, error) {
-	raw, err := base64.StdEncoding.DecodeString(r.DecodedF32B64)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]float32, len(raw)/4)
-	for i := range out {
-		bits := binary.LittleEndian.Uint32(raw[i*4 : i*4+4])
-		out[i] = math.Float32frombits(bits)
-	}
-	return out, nil
+	return r.decodedSamples, nil
 }
 
 func parseLossBits(bits string) []bool {

@@ -72,8 +72,8 @@ func TestDecoderHybridToCELT10msTransitionParity(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			c, ok := findDecoderMatrixCaseByName(fixture, tc.name)
 			if !ok {
 				t.Fatalf("fixture missing case %q", tc.name)

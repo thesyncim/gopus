@@ -45,6 +45,7 @@ func TestSILK10msGopusVsLibopusPackets(t *testing.T) {
 			fsName = "20ms"
 		}
 		t.Run(fsName, func(t *testing.T) {
+			t.Parallel()
 			// Generate chirp WAV file
 			totalSamples := 2 * 48000 // 2 seconds
 			wavData := generateWAV(totalSamples, 48000, 1)
