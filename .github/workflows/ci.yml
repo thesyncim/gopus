@@ -76,21 +76,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Skip lint/static analysis for markdown-only changes
-        if: ${{ needs.changes.outputs.docs_only == 'true' }}
-        run: |
-          echo "Markdown-only change set: skipping lint/static-analysis."
-
       - name: Checkout
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: actions/checkout@v5
 
       - name: Setup Go
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Run docs contract
+        run: make test-doc-contract
 
       - name: Install golangci-lint
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
@@ -101,6 +97,11 @@ jobs:
       - name: Run lint/static analysis
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: make lint
+
+      - name: Skip lint/static analysis for markdown-only changes
+        if: ${{ needs.changes.outputs.docs_only == 'true' }}
+        run: |
+          echo "Markdown-only change set: docs contract passed; skipping golangci-lint."
 
   test-linux-parity:
     name: test-linux-parity
@@ -313,6 +314,26 @@ jobs:
       - name: Run external-consumer smoke gate
         run: make test-consumer-smoke
 
+  test-linux-unsupported-controls:
+    name: test-linux-unsupported-controls
+    needs:
+      - changes
+    if: ${{ needs.changes.outputs.docs_only != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run unsupported-controls quarantine gate
+        run: make test-unsupported-controls-tag
+
   test-linux:
     name: test-linux
     if: always()
@@ -324,6 +345,7 @@ jobs:
       - test-linux-flake
       - test-linux-fuzz-smoke
       - test-linux-consumer-smoke
+      - test-linux-unsupported-controls
     runs-on: ubuntu-latest
     steps:
       - name: Validate Linux gates
@@ -339,6 +361,7 @@ jobs:
           echo "test-linux-flake: ${{ needs.test-linux-flake.result }}"
           echo "test-linux-fuzz-smoke: ${{ needs.test-linux-fuzz-smoke.result }}"
           echo "test-linux-consumer-smoke: ${{ needs.test-linux-consumer-smoke.result }}"
+          echo "test-linux-unsupported-controls: ${{ needs.test-linux-unsupported-controls.result }}"
           if [ "${{ needs.test-linux-parity.result }}" != "success" ]; then
             exit 1
           fi
@@ -355,6 +378,9 @@ jobs:
             exit 1
           fi
           if [ "${{ needs.test-linux-consumer-smoke.result }}" != "success" ]; then
+            exit 1
+          fi
+          if [ "${{ needs.test-linux-unsupported-controls.result }}" != "success" ]; then
             exit 1
           fi
 

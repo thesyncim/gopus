@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-quality test-exactness quality-report test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
+.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-doc-contract test-unsupported-controls-tag test-quality test-exactness quality-report test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
@@ -88,6 +88,15 @@ test-fuzz-safety: ensure-libopus
 test-consumer-smoke:
 	cd examples/external-consumer-smoke && $(GO_WORK_ENV) $(GO) test ./... -count=1
 
+# Lightweight docs contract that keeps release-surface claims aligned.
+test-doc-contract:
+	$(GO_WORK_ENV) $(GO) test . -run 'TestOptionalExtensionDocsContract|TestSupportsOptionalExtension|ExampleSupportsOptionalExtension' -count=1
+
+# Quarantine build smoke for unsupported controls that should never leak into the default surface.
+test-unsupported-controls-tag:
+	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run 'Test(SupportsOptionalExtension|UnsupportedControlsBuildExposesQuarantinedTopLevelControls|UnsupportedControlsBuildPublicAPIContract)|ExampleSupportsOptionalExtension' -count=1
+	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./encoder ./multistream -run 'Test(UnsupportedControlsBuildExposesQuarantinedControls|EncoderDREDDuration|EncoderResetClearsDREDDuration|EncoderDREDReadyRequiresModelAndDuration)' -count=1
+
 # Primary libopus-facing focused gate.
 test-quality:
 	$(GO_TEST_PARITY) ./testvectors -run 'TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard|TestEncoderVariantProfileParityAgainstLibopusFixture|TestDecoderParityLibopusMatrix|TestDecoderLossParityLibopusFixture|TestDecoderHybridToCELT10msTransitionParity|TestDecoderHybridToCELT20msTransitionParity' -count=1 -v
@@ -119,6 +128,7 @@ bench-guard:
 verify-production: ensure-libopus
 	$(RUNNABLE_PARITY) -count=1 -timeout=25m
 	$(MAKE) test-consumer-smoke
+	$(MAKE) test-unsupported-controls-tag
 	$(MAKE) bench-guard
 	$(MAKE) test-race
 

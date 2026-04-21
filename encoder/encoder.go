@@ -12,7 +12,6 @@ import (
 
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/internal/dnnblob"
-	internaldred "github.com/thesyncim/gopus/internal/dred"
 	"github.com/thesyncim/gopus/silk"
 	"github.com/thesyncim/gopus/types"
 )
@@ -348,30 +347,6 @@ func (e *Encoder) SetDNNBlob(blob *dnnblob.Blob) {
 // DNNBlobLoaded reports whether a validated model blob is retained.
 func (e *Encoder) DNNBlobLoaded() bool {
 	return e.dnnBlob != nil
-}
-
-// DREDModelLoaded reports whether the retained blob is DRED-encoder capable.
-func (e *Encoder) DREDModelLoaded() bool {
-	return e.dredModelLoaded
-}
-
-// DREDReady reports whether DRED can be emitted on the next packet.
-func (e *Encoder) DREDReady() bool {
-	return e.dredModelLoaded && e.dredDuration > 0
-}
-
-// SetDREDDuration stores libopus-style DRED redundancy depth in 2.5 ms units.
-func (e *Encoder) SetDREDDuration(duration int) error {
-	if duration < 0 || duration > internaldred.MaxFrames {
-		return ErrInvalidDREDDuration
-	}
-	e.dredDuration = duration
-	return nil
-}
-
-// DREDDuration reports the stored DRED redundancy depth in 2.5 ms units.
-func (e *Encoder) DREDDuration() int {
-	return e.dredDuration
 }
 
 // SetFrameSize sets the frame size in samples at 48kHz.

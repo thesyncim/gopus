@@ -819,8 +819,8 @@ func TestEncoder_OptionalExtensionControls(t *testing.T) {
 			}
 
 			assertOptionalEncoderControls(t, enc)
-			if dred, ok := any(enc).(unsupportedDREDControl); ok {
-				assertUnsupportedDREDControl(t, dred)
+			if _, ok := any(enc).(unsupportedDREDControl); ok {
+				t.Fatal("default build unexpectedly exposes DRED control")
 			}
 			assertSupportedQEXTControl(t, enc)
 		})

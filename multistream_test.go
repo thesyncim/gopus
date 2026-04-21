@@ -940,8 +940,8 @@ func TestMultistreamEncoder_OptionalExtensionControls(t *testing.T) {
 	enc := mustNewDefaultMultistreamEncoder(t, 48000, 2, ApplicationAudio)
 
 	assertOptionalEncoderControls(t, enc)
-	if dred, ok := any(enc).(unsupportedDREDControl); ok {
-		assertUnsupportedDREDControl(t, dred)
+	if _, ok := any(enc).(unsupportedDREDControl); ok {
+		t.Fatal("default build unexpectedly exposes DRED control")
 	}
 	assertSupportedQEXTControl(t, enc)
 }
@@ -950,8 +950,8 @@ func TestMultistreamDecoder_OptionalExtensionControls(t *testing.T) {
 	dec := mustNewDefaultMultistreamDecoder(t, 48000, 2)
 
 	assertOptionalDecoderControls(t, dec)
-	if osce, ok := any(dec).(unsupportedOSCEBWEControl); ok {
-		assertUnsupportedOSCEBWEControl(t, osce)
+	if _, ok := any(dec).(unsupportedOSCEBWEControl); ok {
+		t.Fatal("default build unexpectedly exposes OSCE BWE control")
 	}
 }
 

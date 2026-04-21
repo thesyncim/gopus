@@ -1554,8 +1554,8 @@ func TestDecoder_OptionalExtensionControls(t *testing.T) {
 	dec := newMonoTestDecoder(t)
 
 	assertOptionalDecoderControls(t, dec)
-	if osce, ok := any(dec).(unsupportedOSCEBWEControl); ok {
-		assertUnsupportedOSCEBWEControl(t, osce)
+	if _, ok := any(dec).(unsupportedOSCEBWEControl); ok {
+		t.Fatal("default build unexpectedly exposes OSCE BWE control")
 	}
 }
 

@@ -9,8 +9,10 @@ Block correctness and hot-path performance regressions before merge.
 ## What CI Enforces
 
 1. Static-analysis gate (`lint-static-analysis`)
+- `make test-doc-contract`
 - `make lint`
 - Runs the pinned `golangci-lint` baseline from `.golangci.yml`.
+- Still validates the optional-extension docs contract on markdown-only PRs before skipping `golangci-lint`.
 - Intended to catch actionable vet/static-analysis issues without forcing broad codec-style churn.
 
 2. Correctness gate (`test-linux`)
@@ -20,7 +22,8 @@ Block correctness and hot-path performance regressions before merge.
 - `test-linux-flake`: critical parity subset under shuffle/repeat with strict libopus reference enforcement and go-test JSON skip enforcement
 - `test-linux-fuzz-smoke`: `make test-fuzz-smoke`
 - `test-linux-consumer-smoke`: `make test-consumer-smoke`
-- Internally split into parallel jobs (`test-linux-parity`, `test-linux-race`, `test-linux-provenance`, `test-linux-flake`, `test-linux-fuzz-smoke`, `test-linux-consumer-smoke`) and aggregated by `test-linux`.
+- `test-linux-unsupported-controls`: `make test-unsupported-controls-tag`
+- Internally split into parallel jobs (`test-linux-parity`, `test-linux-race`, `test-linux-provenance`, `test-linux-flake`, `test-linux-fuzz-smoke`, `test-linux-consumer-smoke`, `test-linux-unsupported-controls`) and aggregated by `test-linux`.
 - This keeps parity/race/provenance/fuzz coverage intact while removing serialized Linux checks from a single job.
 
 3. Performance gate (`perf-linux`)

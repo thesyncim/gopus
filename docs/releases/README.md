@@ -10,7 +10,7 @@ The release workflow expects the tag name and the release-note filename to match
 
 Each release note should cover:
 - the intended stable core
-- explicit non-goals or unsupported default-build surfaces
+- the optional extension contract, including supported default-build methods and any tag-gated or absent surfaces
 - support matrix expectations
 - verification evidence that accompanies the release
 

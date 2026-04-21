@@ -2,6 +2,8 @@
 
 Practical examples demonstrating gopus usage patterns for real-world applications.
 
+These examples target the supported default build and intentionally do not demonstrate tag-gated unsupported controls such as DRED or OSCE BWE.
+
 ## Prerequisites
 
 - Go 1.25+
