@@ -328,11 +328,6 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		toneishness = maxToneishness
 	}
 
-	// Allow force transient override for testing (matches libopus first frame behavior)
-	if e.forceTransient {
-		transient = true
-	}
-
 	// For Frame 0, force transient=true to match libopus behavior.
 	// libopus detects transient on first frame due to energy increase from silence.
 	// Reference: libopus patch_transient_decision() and first frame handling.
@@ -642,7 +637,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		}
 	}
 
-	// Store band log-energies for debugging/analysis.
+	// Store band log-energies for dynalloc analysis.
 	// These are the values passed to DynallocAnalysis.
 	e.lastBandLogE = append(e.lastBandLogE[:0], energies...)
 	if bandLogE2 != nil {
@@ -1841,9 +1836,8 @@ func (e *Encoder) EncodeFrameWithOptions(pcm []float64, frameSize int, opts Enco
 
 // EncodeOptions provides encoding control options.
 type EncodeOptions struct {
-	ForceIntra     bool // Force intra mode (no inter-frame prediction)
-	ForceTransient bool // Force transient mode (short blocks)
-	Bitrate        int  // Target bitrate in bits per second (0 = default)
+	ForceIntra bool // Force intra mode (no inter-frame prediction)
+	Bitrate    int  // Target bitrate in bits per second (0 = default)
 }
 
 // EncodeStereoFrame encodes a stereo frame from separate L/R channels.

@@ -4,60 +4,7 @@
 
 package celt
 
-import (
-	"github.com/thesyncim/gopus/rangecoding"
-)
-
-// CeltTargetStats captures per-frame VBR target diagnostics for CELT.
-type CeltTargetStats struct {
-	FrameSize     int
-	BaseBits      int
-	TargetBits    int
-	Tonality      float64
-	DynallocBoost int
-	TFBoost       int
-	PitchChange   bool
-	FloorLimited  bool
-	MaxDepth      float64
-}
-
-// PrefilterDebugStats captures per-frame prefilter diagnostics.
-type PrefilterDebugStats struct {
-	Frame          int
-	Enabled        bool
-	UsedTonePath   bool
-	UsedPitchPath  bool
-	TFEstimate     float64
-	NBBytes        int
-	ToneFreq       float64
-	Toneishness    float64
-	MaxPitchRatio  float64
-	PitchSearchOut int
-	PitchBeforeRD  int
-	PitchAfterRD   int
-	PFOn           bool
-	QG             int
-	Gain           float64
-}
-
-// CoarseDecisionStats captures per-band coarse energy quantization decisions.
-// This is intended for diagnostics and is only emitted when a hook is installed.
-type CoarseDecisionStats struct {
-	Frame     int
-	Band      int
-	Channel   int
-	Intra     bool
-	LM        int
-	ProbFS0   int
-	ProbDecay int
-	X         float64
-	Pred      float64
-	Residual  float64
-	QIInitial int
-	QIFinal   int
-	Tell      int
-	BitsLeft  int
-}
+import "github.com/thesyncim/gopus/rangecoding"
 
 // Encoder encodes audio frames using CELT transform coding.
 // It maintains state across frames for proper audio continuity via energy
@@ -181,11 +128,11 @@ type Encoder struct {
 	// Reference: libopus celt_encoder.c dynalloc_analysis()
 	lastDynalloc DynallocResult
 
-	// Debug hook for capturing per-frame CELT VBR target stats.
+	// Optional diagnostics hook for capturing per-frame CELT VBR target stats.
 	targetStatsHook func(CeltTargetStats)
-	// Debug hook for capturing prefilter decisions.
+	// Optional diagnostics hook for capturing prefilter decisions.
 	prefilterDebugHook func(PrefilterDebugStats)
-	// Debug hook for capturing coarse energy quantization decisions.
+	// Optional diagnostics hook for capturing coarse energy quantization decisions.
 	coarseDecisionHook func(CoarseDecisionStats)
 
 	// Hybrid mode flag
@@ -209,10 +156,6 @@ type Encoder struct {
 	// N+overlap samples of pre-emphasized signal.
 	// Reference: libopus celt_encoder.c line 2030
 	preemphBuffer []float64
-
-	// Force transient mode for testing/debugging
-	// When true, the encoder forces short blocks for the next frame
-	forceTransient bool
 
 	// Phase inversion disabled for stereo encoding
 	// When true, disables stereo phase inversion decorrelation
@@ -254,7 +197,7 @@ type Encoder struct {
 	// Packet loss expectation (0-100) for prefilter gain scaling.
 	packetLoss int
 
-	// Debug: last frame's band energies for dynalloc analysis tracing
+	// Last frame's band energies retained for dynalloc analysis.
 	lastBandLogE  []float64 // bandLogE (primary MDCT energies)
 	lastBandLogE2 []float64 // bandLogE2 (secondary MDCT for transients)
 
@@ -399,28 +342,6 @@ func NewEncoder(channels int) *Encoder {
 	return e
 }
 
-// SetPrefilterDebugHook installs a callback that receives per-frame prefilter stats.
-//
-// This hook is primarily for gopus development and parity debugging.
-func (e *Encoder) SetPrefilterDebugHook(fn func(PrefilterDebugStats)) {
-	e.prefilterDebugHook = fn
-}
-
-// SetCoarseDecisionHook installs a callback that receives per-band coarse
-// quantization decisions during EncodeCoarseEnergy.
-//
-// This hook is primarily for gopus development and parity debugging.
-func (e *Encoder) SetCoarseDecisionHook(fn func(CoarseDecisionStats)) {
-	e.coarseDecisionHook = fn
-}
-
-// SetTargetStatsHook installs a callback that receives per-frame CELT VBR targets.
-//
-// This hook is primarily for gopus development and parity debugging.
-func (e *Encoder) SetTargetStatsHook(fn func(CeltTargetStats)) {
-	e.targetStatsHook = fn
-}
-
 // SetAnalysisBandwidth provides the analysis-derived bandwidth index (1..20)
 // used by allocation gating in clt_compute_allocation().
 func (e *Encoder) SetAnalysisBandwidth(bandwidth int, valid bool) {
@@ -488,15 +409,6 @@ func (e *Encoder) dynallocLeakBoost() []uint8 {
 		return leak
 	}
 	return leak
-}
-
-func (e *Encoder) emitTargetStats(stats CeltTargetStats, baseBits, targetBits int) {
-	if e.targetStatsHook == nil {
-		return
-	}
-	stats.BaseBits = baseBits
-	stats.TargetBits = targetBits
-	e.targetStatsHook(stats)
 }
 
 // Reset clears encoder state for a new stream.
@@ -1085,13 +997,6 @@ func (e *Encoder) SetLFE(enabled bool) {
 // LFE reports whether LFE mode constraints are enabled.
 func (e *Encoder) LFE() bool {
 	return e.lfe
-}
-
-// SetForceTransient forces short blocks for testing/debugging.
-// When true, the encoder uses short blocks (transient mode) for the next frame
-// regardless of transient analysis result.
-func (e *Encoder) SetForceTransient(force bool) {
-	e.forceTransient = force
 }
 
 // LastTonality returns the most recently computed tonality estimate.

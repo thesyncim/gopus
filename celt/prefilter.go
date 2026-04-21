@@ -23,7 +23,7 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 	if channels <= 0 || frameSize <= 0 || len(preemph) == 0 {
 		return result
 	}
-	var dbg *PrefilterDebugStats
+	var stats *PrefilterDebugStats
 	if e.prefilterDebugHook != nil {
 		d := PrefilterDebugStats{
 			Frame:         e.frameCount,
@@ -34,7 +34,7 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			Toneishness:   toneishness,
 			MaxPitchRatio: maxPitchRatio,
 		}
-		dbg = &d
+		stats = &d
 	}
 
 	if tapset < 0 {
@@ -93,8 +93,8 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 	pfOn := false
 
 	if enabled && toneishness > 0.99 {
-		if dbg != nil {
-			dbg.UsedTonePath = true
+		if stats != nil {
+			stats.UsedTonePath = true
 		}
 		freq := toneFreq
 		if freq >= math.Pi {
@@ -114,8 +114,8 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		}
 		gain1 = 0.75
 	} else if enabled && e.complexity >= 5 {
-		if dbg != nil {
-			dbg.UsedPitchPath = true
+		if stats != nil {
+			stats.UsedPitchPath = true
 		}
 		pitchBufLen := (maxPeriod + frameSize) >> 1
 		if pitchBufLen < 1 {
@@ -128,17 +128,17 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			maxPitch = 1
 		}
 		searchOut := pitchSearch(pitchBuf[maxPeriod>>1:], pitchBuf, frameSize, maxPitch, &e.scratch)
-		if dbg != nil {
-			dbg.PitchSearchOut = searchOut
+		if stats != nil {
+			stats.PitchSearchOut = searchOut
 		}
 		pitchIndex = searchOut
 		pitchIndex = maxPeriod - pitchIndex
-		if dbg != nil {
-			dbg.PitchBeforeRD = pitchIndex
+		if stats != nil {
+			stats.PitchBeforeRD = pitchIndex
 		}
 		gain1 = removeDoubling(pitchBuf, maxPeriod, minPeriod, frameSize, &pitchIndex, e.prefilterPeriod, e.prefilterGain, &e.scratch)
-		if dbg != nil {
-			dbg.PitchAfterRD = pitchIndex
+		if stats != nil {
+			stats.PitchAfterRD = pitchIndex
 		}
 		if pitchIndex > maxPeriod-2 {
 			pitchIndex = maxPeriod - 2
@@ -336,12 +336,12 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 	result.qg = qg
 	result.tapset = tapset
 	result.gain = gain1
-	if dbg != nil {
-		dbg.PitchAfterRD = pitchIndex
-		dbg.PFOn = pfOn
-		dbg.QG = qg
-		dbg.Gain = gain1
-		e.prefilterDebugHook(*dbg)
+	if stats != nil {
+		stats.PitchAfterRD = pitchIndex
+		stats.PFOn = pfOn
+		stats.QG = qg
+		stats.Gain = gain1
+		e.prefilterDebugHook(*stats)
 	}
 	return result
 }

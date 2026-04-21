@@ -398,10 +398,6 @@ func (e *Encoder) TransientAnalysisHybrid(preemph []float64, frameSize, nbBands,
 		toneishness = maxToneishness
 	}
 
-	if e.forceTransient {
-		transient = true
-	}
-
 	shortBlocks = 1
 	if transient {
 		mode := GetModeConfig(frameSize)
