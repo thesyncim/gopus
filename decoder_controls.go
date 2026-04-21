@@ -20,6 +20,7 @@ func (d *Decoder) Reset() {
 	d.softClipMem[0] = 0
 	d.softClipMem[1] = 0
 	d.clearDREDPayloadState()
+	d.dredPLC.Reset()
 
 	// Clear FEC state
 	d.clearFECState()

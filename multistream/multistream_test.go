@@ -9,6 +9,7 @@ import (
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	internaldred "github.com/thesyncim/gopus/internal/dred"
+	"github.com/thesyncim/gopus/internal/dred/rdovae"
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
@@ -404,6 +405,21 @@ func appendDNNBlobRecordForTest(dst []byte, name string, typ int32, payloadSize 
 	return append(dst, out...)
 }
 
+func appendDREDDecoderRecord(dst []byte, name string, typ int32, payload []byte) []byte {
+	const headerSize = 64
+	blockSize := ((len(payload) + headerSize - 1) / headerSize) * headerSize
+	out := make([]byte, headerSize+blockSize)
+	copy(out[:4], []byte("DNNw"))
+	binary.LittleEndian.PutUint32(out[4:8], 0)
+	binary.LittleEndian.PutUint32(out[8:12], uint32(typ))
+	binary.LittleEndian.PutUint32(out[12:16], uint32(len(payload)))
+	binary.LittleEndian.PutUint32(out[16:20], uint32(blockSize))
+	copy(out[20:63], []byte(name))
+	out[63] = 0
+	copy(out[headerSize:], payload)
+	return append(dst, out...)
+}
+
 func makeDecoderBlobForDREDTest(t *testing.T, withDRED bool) *dnnblob.Blob {
 	t.Helper()
 
@@ -412,8 +428,8 @@ func makeDecoderBlobForDREDTest(t *testing.T, withDRED bool) *dnnblob.Blob {
 		raw = appendDNNBlobRecordForTest(raw, name, 0, 4)
 	}
 	if withDRED {
-		for _, name := range dnnblob.RequiredDREDDecoderRecordNames() {
-			raw = appendDNNBlobRecordForTest(raw, name, 0, 4)
+		for _, spec := range rdovae.DecoderLayerSpecs() {
+			raw = appendDREDDecoderLayerTestRecords(raw, spec)
 		}
 	}
 
@@ -422,6 +438,48 @@ func makeDecoderBlobForDREDTest(t *testing.T, withDRED bool) *dnnblob.Blob {
 		t.Fatalf("dnnblob.Clone error: %v", err)
 	}
 	return blob
+}
+
+func appendDREDDecoderLayerTestRecords(dst []byte, spec rdovae.LinearLayerSpec) []byte {
+	totalBlocks := 0
+	if spec.Bias != "" {
+		dst = appendDREDDecoderRecord(dst, spec.Bias, dnnblob.TypeFloat, make([]byte, 4*spec.NbOutputs))
+	}
+	if spec.Subias != "" {
+		dst = appendDREDDecoderRecord(dst, spec.Subias, dnnblob.TypeFloat, make([]byte, 4*spec.NbOutputs))
+	}
+	if spec.WeightsIdx != "" {
+		idx := make([]int32, 0, 2*(spec.NbOutputs/8))
+		for i := 0; i < spec.NbOutputs; i += 8 {
+			idx = append(idx, 1, 0)
+			totalBlocks++
+		}
+		dst = appendDREDDecoderRecord(dst, spec.WeightsIdx, dnnblob.TypeInt, encodeTestInt32Payload(idx))
+	}
+	if spec.Weights != "" {
+		size := spec.NbInputs * spec.NbOutputs
+		if totalBlocks > 0 {
+			size = rdovae.SparseBlockSize * totalBlocks
+		}
+		dst = appendDREDDecoderRecord(dst, spec.Weights, dnnblob.TypeInt8, make([]byte, size))
+		dst = appendDREDDecoderRecord(dst, spec.Scale, dnnblob.TypeFloat, make([]byte, 4*spec.NbOutputs))
+	}
+	if spec.FloatWeights != "" {
+		size := spec.NbInputs * spec.NbOutputs
+		if totalBlocks > 0 {
+			size = rdovae.SparseBlockSize * totalBlocks
+		}
+		dst = appendDREDDecoderRecord(dst, spec.FloatWeights, dnnblob.TypeFloat, make([]byte, 4*size))
+	}
+	return dst
+}
+
+func encodeTestInt32Payload(values []int32) []byte {
+	out := make([]byte, 4*len(values))
+	for i, v := range values {
+		binary.LittleEndian.PutUint32(out[i*4:i*4+4], uint32(v))
+	}
+	return out
 }
 
 func setStandaloneDREDDecoderBlobForTest(t *testing.T, dec *Decoder) {
@@ -680,6 +738,80 @@ func TestDecoderCachesDREDSampleTimingForLaterStreamFrame(t *testing.T) {
 	}
 	if got := dec.cachedDREDMaxAvailableSamples(targetStream, 960); got != 480 {
 		t.Fatalf("stream %d cachedDREDMaxAvailableSamples=%d want 480", targetStream, got)
+	}
+}
+
+func TestDecoderDREDRecoveryBlendFollowsLifecycle(t *testing.T) {
+	const channels = 3
+	const targetStream = 1
+	body := makeExperimentalDREDPayloadBodyForTest(t, 0, 4)
+	packet := makeMultistreamPacketWithDREDForTest(t, channels, targetStream, body)
+
+	dec, err := NewDecoderDefault(48000, channels)
+	if err != nil {
+		t.Fatalf("NewDecoderDefault error: %v", err)
+	}
+	setStandaloneDREDDecoderBlobForTest(t, dec)
+
+	samples, err := dec.Decode(packet, 960)
+	if err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	if len(samples) != 960*channels {
+		t.Fatalf("len(samples)=%d want %d", len(samples), 960*channels)
+	}
+	if dec.dredCache[targetStream].Empty() {
+		t.Fatal("expected cached DRED payload after successful multistream decode")
+	}
+	if got := dec.dredPLC[targetStream].Blend(); got != 0 {
+		t.Fatalf("stream %d blend after good decode=%d want 0", targetStream, got)
+	}
+	window := dec.cachedDREDRecoveryWindow(targetStream, 960, 960, 960)
+	if window.FeatureOffsetBase != 3 || window.RecoverableFeatureFrames != 0 || window.MissingPositiveFrames != 4 {
+		t.Fatalf("stream %d cachedDREDRecoveryWindow=%+v want base=3 recoverable=0 missing=4", targetStream, window)
+	}
+	queued := dec.queueCachedDREDRecovery(targetStream, 960, 960, 960)
+	if queued != window {
+		t.Fatalf("stream %d queueCachedDREDRecovery=%+v want %+v", targetStream, queued, window)
+	}
+	if dec.dredPLC[targetStream].FECFillPos() != 0 || dec.dredPLC[targetStream].FECSkip() != 4 {
+		t.Fatalf("stream %d queued plc state=(fill=%d skip=%d) want (0,4)", targetStream, dec.dredPLC[targetStream].FECFillPos(), dec.dredPLC[targetStream].FECSkip())
+	}
+
+	plcSamples, err := dec.Decode(nil, 960)
+	if err != nil {
+		t.Fatalf("Decode(nil) error: %v", err)
+	}
+	if len(plcSamples) != 960*channels {
+		t.Fatalf("len(plcSamples)=%d want %d", len(plcSamples), 960*channels)
+	}
+	if !dec.dredCache[targetStream].Empty() {
+		t.Fatal("Decode(nil) retained cached DRED payload")
+	}
+	if got := dec.dredPLC[targetStream].Blend(); got != 1 {
+		t.Fatalf("stream %d blend after PLC=%d want 1", targetStream, got)
+	}
+
+	samples, err = dec.Decode(packet, 960)
+	if err != nil {
+		t.Fatalf("Decode after PLC error: %v", err)
+	}
+	if len(samples) != 960*channels {
+		t.Fatalf("len(samples) after PLC=%d want %d", len(samples), 960*channels)
+	}
+	if dec.dredCache[targetStream].Empty() {
+		t.Fatal("expected cached DRED payload after re-decoding multistream packet")
+	}
+	window = dec.cachedDREDRecoveryWindow(targetStream, 960, 960, 960)
+	if window.FeatureOffsetBase != 1 || window.RecoverableFeatureFrames != 0 || window.MissingPositiveFrames != 2 {
+		t.Fatalf("stream %d cachedDREDRecoveryWindow after PLC and re-decode=%+v want base=1 recoverable=0 missing=2", targetStream, window)
+	}
+	queued = dec.queueCachedDREDRecovery(targetStream, 960, 960, 960)
+	if queued != window {
+		t.Fatalf("stream %d queueCachedDREDRecovery after PLC and re-decode=%+v want %+v", targetStream, queued, window)
+	}
+	if dec.dredPLC[targetStream].FECFillPos() != 0 || dec.dredPLC[targetStream].FECSkip() != 2 {
+		t.Fatalf("stream %d queued plc state after PLC and re-decode=(fill=%d skip=%d) want (0,2)", targetStream, dec.dredPLC[targetStream].FECFillPos(), dec.dredPLC[targetStream].FECSkip())
 	}
 }
 

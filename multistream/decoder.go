@@ -9,7 +9,9 @@ import (
 	"github.com/thesyncim/gopus/hybrid"
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	internaldred "github.com/thesyncim/gopus/internal/dred"
+	"github.com/thesyncim/gopus/internal/dred/rdovae"
 	"github.com/thesyncim/gopus/internal/extsupport"
+	"github.com/thesyncim/gopus/internal/lpcnetplc"
 	"github.com/thesyncim/gopus/plc"
 	"github.com/thesyncim/gopus/silk"
 	"github.com/thesyncim/gopus/types"
@@ -450,8 +452,13 @@ type Decoder struct {
 	osceModelsLoaded   bool
 	osceBWEModelLoaded bool
 	osceBWEEnabled     bool
+	dredModel          *rdovae.Decoder
 	dredData           [][]byte
 	dredCache          []internaldred.Cache
+	dredDecoded        []internaldred.Decoded
+	dredProcesses      []rdovae.Processor
+	dredPLC            []lpcnetplc.State
+	dredBlend          []int
 }
 
 // NewDecoder creates a new multistream decoder.
@@ -528,6 +535,10 @@ func NewDecoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 		mapping:        mappingCopy,
 		decoders:       decoders,
 		plcState:       plc.NewState(),
+		dredDecoded:    make([]internaldred.Decoded, streams),
+		dredProcesses:  make([]rdovae.Processor, streams),
+		dredPLC:        make([]lpcnetplc.State, streams),
+		dredBlend:      make([]int, streams),
 		dredData:       makeDREDBuffers(streams),
 		dredCache:      make([]internaldred.Cache, streams),
 	}, nil
@@ -545,6 +556,9 @@ func (d *Decoder) Reset() {
 	}
 	d.plcState.Reset()
 	d.clearDREDPayloadState()
+	for i := range d.dredPLC {
+		d.dredPLC[i].Reset()
+	}
 }
 
 func (d *Decoder) SetIgnoreExtensions(ignore bool) {

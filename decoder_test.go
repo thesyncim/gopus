@@ -309,6 +309,71 @@ func TestDecoderCachesDREDPayloadWhenDREDModelLoaded(t *testing.T) {
 	}
 }
 
+func TestDecoderDREDRecoveryBlendFollowsLifecycle(t *testing.T) {
+	base := makeValidCELTPacketForDREDTest(t)
+	body := makeExperimentalDREDPayloadBodyForTest(t, 0, 4)
+	packet := buildSingleFramePacketWithExtensionsForDREDTest(t, base, []packetExtensionData{
+		{ID: internaldred.ExtensionID, Frame: 0, Data: append([]byte{'D', internaldred.ExperimentalVersion}, body...)},
+	})
+
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 2))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	setValidDREDDecoderBlobForTest(t, dec)
+
+	pcm := make([]float32, 960*2)
+	if _, err := dec.Decode(packet, pcm); err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	if dec.dredCache.Empty() {
+		t.Fatal("expected cached DRED payload after successful decode")
+	}
+	if got := dec.dredPLC.Blend(); got != 0 {
+		t.Fatalf("Blend after good decode=%d want 0", got)
+	}
+	window := dec.cachedDREDRecoveryWindow(960, 960, 960)
+	if window.FeatureOffsetBase != 3 || window.RecoverableFeatureFrames != 0 || window.MissingPositiveFrames != 4 {
+		t.Fatalf("cachedDREDRecoveryWindow=%+v want base=3 recoverable=0 missing=4", window)
+	}
+	queued := dec.queueCachedDREDRecovery(960, 960, 960)
+	if queued != window {
+		t.Fatalf("queueCachedDREDRecovery=%+v want %+v", queued, window)
+	}
+	if dec.dredPLC.FECFillPos() != 0 || dec.dredPLC.FECSkip() != 4 {
+		t.Fatalf("queued plc state=(fill=%d skip=%d) want (0,4)", dec.dredPLC.FECFillPos(), dec.dredPLC.FECSkip())
+	}
+
+	plcPCM := make([]float32, 960*2)
+	if _, err := dec.Decode(nil, plcPCM); err != nil {
+		t.Fatalf("Decode(nil) error: %v", err)
+	}
+	if !dec.dredCache.Empty() {
+		t.Fatal("Decode(nil) retained cached DRED payload")
+	}
+	if got := dec.dredPLC.Blend(); got != 1 {
+		t.Fatalf("Blend after PLC=%d want 1", got)
+	}
+
+	if _, err := dec.Decode(packet, pcm); err != nil {
+		t.Fatalf("Decode after PLC error: %v", err)
+	}
+	if dec.dredCache.Empty() {
+		t.Fatal("expected cached DRED payload after re-decoding packet")
+	}
+	window = dec.cachedDREDRecoveryWindow(960, 960, 960)
+	if window.FeatureOffsetBase != 1 || window.RecoverableFeatureFrames != 0 || window.MissingPositiveFrames != 2 {
+		t.Fatalf("cachedDREDRecoveryWindow after PLC and re-decode=%+v want base=1 recoverable=0 missing=2", window)
+	}
+	queued = dec.queueCachedDREDRecovery(960, 960, 960)
+	if queued != window {
+		t.Fatalf("queueCachedDREDRecovery after PLC and re-decode=%+v want %+v", queued, window)
+	}
+	if dec.dredPLC.FECFillPos() != 0 || dec.dredPLC.FECSkip() != 2 {
+		t.Fatalf("queued plc state after PLC and re-decode=(fill=%d skip=%d) want (0,2)", dec.dredPLC.FECFillPos(), dec.dredPLC.FECSkip())
+	}
+}
+
 func TestDecoderCachesDREDSampleTimingForLaterFrame(t *testing.T) {
 	base := makeValidCELTPacketForDREDTest(t)
 	if len(base) < 2 {

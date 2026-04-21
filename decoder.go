@@ -7,6 +7,8 @@ import (
 	"github.com/thesyncim/gopus/hybrid"
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	internaldred "github.com/thesyncim/gopus/internal/dred"
+	"github.com/thesyncim/gopus/internal/dred/rdovae"
+	"github.com/thesyncim/gopus/internal/lpcnetplc"
 	"github.com/thesyncim/gopus/rangecoding"
 	"github.com/thesyncim/gopus/silk"
 )
@@ -92,6 +94,11 @@ type Decoder struct {
 	dredDNNBlob *dnnblob.Blob
 	dredData    []byte
 	dredCache   internaldred.Cache
+	dredDecoded internaldred.Decoded
+	dredModel   *rdovae.Decoder
+	dredProcess rdovae.Processor
+	dredPLC     lpcnetplc.State
+	dredBlend   int
 
 	// Decoder-side DNN readiness mirrors the validated model families retained
 	// by OPUS_SET_DNN_BLOB so optional paths can stay dormant until they are real.

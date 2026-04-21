@@ -45,6 +45,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		d.lastFrameSize = frameSize
 		d.lastPacketDuration = frameSize
 		d.lastDataLen = 0
+		d.dredPLC.MarkConcealed()
 		return frameSize, nil
 	}
 
@@ -252,6 +253,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 
 	d.applyOutputGain(pcm[:totalSamples*d.channels])
 	d.maybeCacheDREDPayload(data)
+	d.dredPLC.MarkUpdated()
 	return totalSamples, nil
 }
 

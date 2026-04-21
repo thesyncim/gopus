@@ -32,6 +32,7 @@ func (d *Decoder) decodePLCForFECWithState(
 	d.lastFrameSize = frameSize
 	d.lastPacketDuration = frameSize
 	d.lastDataLen = 0
+	d.dredPLC.MarkConcealed()
 	return frameSize, nil
 }
 
@@ -227,6 +228,7 @@ func (d *Decoder) decodeFECFrame(pcm []float32) (int, error) {
 	d.lastDataLen = len(d.fecData)
 	d.prevRedundancy = false
 	d.haveDecoded = true
+	d.dredPLC.MarkUpdated()
 
 	d.clearFECState()
 

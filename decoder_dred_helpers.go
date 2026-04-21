@@ -3,6 +3,7 @@ package gopus
 import (
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	internaldred "github.com/thesyncim/gopus/internal/dred"
+	"github.com/thesyncim/gopus/internal/dred/rdovae"
 )
 
 // setDNNBlob mirrors the main libopus decoder OPUS_SET_DNN_BLOB surface. The
@@ -22,20 +23,33 @@ func (d *Decoder) setDNNBlob(blob *dnnblob.Blob) {
 // OPUS_SET_DNN_BLOB path.
 func (d *Decoder) setDREDDecoderBlob(blob *dnnblob.Blob) {
 	d.dredDNNBlob = blob
-	d.dredModelLoaded = blob != nil && blob.SupportsDREDDecoder()
+	d.dredModel = nil
+	d.dredModelLoaded = false
+	if blob != nil && blob.SupportsDREDDecoder() {
+		if model, err := rdovae.LoadDecoder(blob); err == nil {
+			d.dredModel = model
+			d.dredModelLoaded = true
+		}
+	}
 	if !d.dredModelLoaded {
 		d.clearDREDPayloadState()
+		d.dredProcess = rdovae.Processor{}
+		d.dredPLC.Reset()
 	}
 }
 
 func (d *Decoder) clearDREDPayloadState() {
 	d.dredCache.Clear()
+	d.dredDecoded.Clear()
+	d.dredPLC.FECClear()
+	d.dredBlend = d.dredPLC.Blend()
 }
 
 func (d *Decoder) maybeCacheDREDPayload(packet []byte) {
 	if !d.dredModelLoaded || d.ignoreExtensions || len(packet) == 0 {
 		return
 	}
+	d.dredBlend = d.dredPLC.Blend()
 	payload, frameOffset, ok, err := findDREDPayload(packet)
 	if err != nil || !ok || len(payload) > len(d.dredData) {
 		return
@@ -43,6 +57,12 @@ func (d *Decoder) maybeCacheDREDPayload(packet []byte) {
 	if err := d.dredCache.Store(d.dredData, payload, frameOffset); err != nil {
 		return
 	}
+	minFeatureFrames := 2 * internaldred.NumRedundancyFrames
+	if _, err := d.dredDecoded.Decode(payload, frameOffset, minFeatureFrames); err != nil {
+		d.clearDREDPayloadState()
+		return
+	}
+	d.dredModel.DecodeAllWithProcessor(&d.dredProcess, d.dredDecoded.Features[:], d.dredDecoded.State[:], d.dredDecoded.Latents[:], d.dredDecoded.NbLatents)
 }
 
 func (d *Decoder) cachedDREDMaxAvailableSamples(maxDredSamples int) int {
@@ -68,5 +88,22 @@ func (d *Decoder) cachedDREDResult(maxDredSamples int) internaldred.Result {
 }
 
 func (d *Decoder) cachedDREDFeatureWindow(maxDredSamples, decodeOffsetSamples, frameSizeSamples, initFrames int) internaldred.FeatureWindow {
-	return d.cachedDREDResult(maxDredSamples).FeatureWindow(decodeOffsetSamples, frameSizeSamples, initFrames)
+	result := d.cachedDREDResult(maxDredSamples)
+	return internaldred.ProcessedFeatureWindow(result, &d.dredDecoded, decodeOffsetSamples, frameSizeSamples, initFrames)
+}
+
+func (d *Decoder) cachedDREDRecoveryWindow(maxDredSamples, decodeOffsetSamples, frameSizeSamples int) internaldred.FeatureWindow {
+	initFrames := 0
+	if d.dredBlend == 0 {
+		initFrames = 2
+	}
+	return d.cachedDREDFeatureWindow(maxDredSamples, decodeOffsetSamples, frameSizeSamples, initFrames)
+}
+
+func (d *Decoder) queueCachedDREDRecovery(maxDredSamples, decodeOffsetSamples, frameSizeSamples int) internaldred.FeatureWindow {
+	initFrames := 0
+	if d.dredBlend == 0 {
+		initFrames = 2
+	}
+	return internaldred.QueueProcessedFeaturesWithInitFrames(&d.dredPLC, d.cachedDREDResult(maxDredSamples), &d.dredDecoded, decodeOffsetSamples, frameSizeSamples, initFrames)
 }
