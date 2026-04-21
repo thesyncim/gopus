@@ -1,0 +1,85 @@
+name: Bug report
+description: Report a reproducible problem in the codec, container support, docs, or tooling.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. A small reproduction and exact version details make triage much faster.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Commit, branch, pseudo-version, or release tag you tested.
+      placeholder: master at abc1234
+    validations:
+      required: true
+  - type: input
+    id: go_version
+    attributes:
+      label: Go version
+      placeholder: go1.25.0
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Encoder
+        - Decoder
+        - Multistream
+        - Ogg container
+        - Streaming API
+        - Examples
+        - Documentation
+        - Tooling or verification
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: OS, architecture, and any relevant environment detail.
+      placeholder: macOS 15 arm64
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: Share the smallest code snippet, packet, file, or command sequence that reproduces the problem.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Extra context
+      description: Paste logs, panic output, waveforms, ffmpeg output, or anything else that helps.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues first.
+          required: true
+        - label: I included a minimal reproduction or explained why I could not.
+          required: true
+        - label: This is not a private security issue.
+          required: true

@@ -222,7 +222,6 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 	goEnc.SetSilkTrace(&silk.EncoderTrace{Pitch: pitchTrace, GainLoop: gainTrace, NSQ: nsqTrace, FramePre: framePreTrace, Frame: frameTrace})
 
 	gopusPackets := make([][]byte, 0, numFrames)
-	pitchTraces := make([]silk.PitchTrace, 0, numFrames)
 	gainTraces := make([]silk.GainLoopTrace, 0, numFrames)
 	nsqTraces := make([]silk.NSQTrace, 0, numFrames)
 	framePreTraces := make([]silk.FrameStateTrace, 0, numFrames)
@@ -244,25 +243,14 @@ func TestSILKParamTraceAgainstLibopus(t *testing.T) {
 		packetCopy := make([]byte, len(packet))
 		copy(packetCopy, packet)
 		gopusPackets = append(gopusPackets, packetCopy)
-		if pitchTrace != nil {
-			pitchTraces = append(pitchTraces, *pitchTrace)
-		}
-		if gainTrace != nil {
-			snapshot := *gainTrace
-			snapshot.Iterations = append([]silk.GainLoopIter(nil), gainTrace.Iterations...)
-			gainTraces = append(gainTraces, snapshot)
-		}
-		if nsqTrace != nil {
-			nsqTraces = append(nsqTraces, cloneNSQTrace(nsqTrace))
-		}
-		if framePreTrace != nil {
-			snapshot := *framePreTrace
-			snapshot.PitchBuf = append([]float32(nil), framePreTrace.PitchBuf...)
-			framePreTraces = append(framePreTraces, snapshot)
-		}
-		if frameTrace != nil {
-			frameTraces = append(frameTraces, *frameTrace)
-		}
+		snapshot := *gainTrace
+		snapshot.Iterations = append([]silk.GainLoopIter(nil), gainTrace.Iterations...)
+		gainTraces = append(gainTraces, snapshot)
+		nsqTraces = append(nsqTraces, cloneNSQTrace(nsqTrace))
+		snapshotPre := *framePreTrace
+		snapshotPre.PitchBuf = append([]float32(nil), framePreTrace.PitchBuf...)
+		framePreTraces = append(framePreTraces, snapshotPre)
+		frameTraces = append(frameTraces, *frameTrace)
 	}
 
 	fixturePackets, fixtureMeta, err := loadSILKWBFloatPacketFixturePackets()

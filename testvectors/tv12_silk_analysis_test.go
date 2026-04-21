@@ -64,7 +64,7 @@ func TestTV12AnalyzeWorstSILKPackets(t *testing.T) {
 		fs := getFrameSizeFromConfig(cfg)
 		mode := getModeFromConfig(cfg)
 
-		bw := "unknown"
+		bw := "CELT"
 		switch {
 		case cfg <= 3:
 			bw = "NB"
@@ -76,8 +76,6 @@ func TestTV12AnalyzeWorstSILKPackets(t *testing.T) {
 			bw = "SWB"
 		case cfg <= 15:
 			bw = "FB"
-		default:
-			bw = "CELT"
 		}
 
 		t.Logf("Packet %d: TOC=0x%02X, config=%d, mode=%s, bw=%s, stereo=%v, frameCode=%d, fs=%d, len=%d bytes",

@@ -232,10 +232,10 @@ func TestStabilizeLSF(t *testing.T) {
 		}
 	}
 
-	// Values should be in valid Q15 range
+	// Values should remain non-negative Q15 values.
 	for i, v := range lsf {
-		if v < 0 || v > 32767 {
-			t.Errorf("LSF[%d] out of Q15 range: %d", i, v)
+		if v < 0 {
+			t.Errorf("LSF[%d] is negative after stabilize: %d", i, v)
 		}
 	}
 }

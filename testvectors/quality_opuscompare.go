@@ -143,7 +143,9 @@ func runOpusCompareCLI(reference, decoded []int16, sampleRate, channels int) (fl
 	if err != nil {
 		return 0, fmt.Errorf("create temp dir: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		_ = os.RemoveAll(tmpDir)
+	}()
 
 	refPath := filepath.Join(tmpDir, "reference.sw")
 	decPath := filepath.Join(tmpDir, "decoded.sw")

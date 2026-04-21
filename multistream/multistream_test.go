@@ -1019,13 +1019,6 @@ func TestDecodeToInt16(t *testing.T) {
 	if len(samples) != 480 {
 		t.Errorf("output len = %d, want 480", len(samples))
 	}
-
-	// Verify samples are in int16 range (will be near 0 for PLC)
-	for i, s := range samples {
-		if s < -32768 || s > 32767 {
-			t.Errorf("sample[%d] = %d, out of int16 range", i, s)
-		}
-	}
 }
 
 // TestDecodeToFloat32 tests float32 conversion wrapper.

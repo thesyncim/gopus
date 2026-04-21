@@ -24,6 +24,7 @@
 - If parity/debug hooks are needed, keep them nil/no-op in normal operation and effectively zero-cost when unused; do not duplicate or pollute the main production code path when a test-only or targeted internal path will do.
 - Treat `testvectors/testdata/` and `tmp_check/` as fixed references unless the change is explicitly about fixtures or the pinned libopus snapshot.
 - Keep branch names, commit messages, and PR titles/descriptions generic and change-focused.
+- Do not mention `codex` in branch names, commit messages, PR titles, or PR descriptions.
 
 ## Verified Areas
 

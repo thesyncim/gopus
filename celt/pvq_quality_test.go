@@ -311,12 +311,7 @@ func TestPVQSearchN2(t *testing.T) {
 				t.Errorf("L1(upIy) = %d, want %d", l1up, tc.up*tc.k)
 			}
 
-			// Verify refine relationship
-			expectedRefine := upIy[0] - tc.up*iy[0]
-			if tc.x[1] < 0 {
-				expectedRefine = -expectedRefine
-			}
-			// Note: the sign handling in opPVQSearchN2 is complex, just verify bounds
+			// Note: the sign handling in opPVQSearchN2 is complex, so just verify bounds.
 			if util.Abs(refine) > (tc.up-1)/2+1 {
 				t.Errorf("refine=%d out of expected bounds", refine)
 			}

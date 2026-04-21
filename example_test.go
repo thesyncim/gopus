@@ -50,25 +50,30 @@ func ExampleEncoder_Encode() {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("Encoded %d samples to %d bytes\n", len(pcm)/2, n)
-	// Output will vary based on encoder state
+	fmt.Printf("Encoded %d PCM samples into packet: %t\n", len(pcm)/enc.Channels(), n > 0)
+	// Output: Encoded 960 PCM samples into packet: true
 }
 
 func ExampleDecoder_Decode() {
 	// Create encoder and decoder
-	enc, _ := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 2, Application: gopus.ApplicationAudio})
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 2, Application: gopus.ApplicationAudio})
+	if err != nil {
+		log.Fatal(err)
+	}
 	cfg := gopus.DefaultDecoderConfig(48000, 2)
-	dec, _ := gopus.NewDecoder(cfg)
+	dec, err := gopus.NewDecoder(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
 	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
 
-	// Generate and encode a test signal
+	// Encode one 20ms stereo frame.
 	pcm := make([]float32, 960*2)
-	for i := range pcm {
-		pcm[i] = float32(math.Sin(float64(i) * 0.01))
-	}
-
 	packetBuf := make([]byte, 4000)
-	nPacket, _ := enc.Encode(pcm, packetBuf)
+	nPacket, err := enc.Encode(pcm, packetBuf)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Decode the packet
 	n, err := dec.Decode(packetBuf[:nPacket], pcmOut)
@@ -76,20 +81,32 @@ func ExampleDecoder_Decode() {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("Decoded %d bytes to %d samples\n", nPacket, n)
+	fmt.Printf("Decoded %d samples per channel\n", n)
+	// Output: Decoded 960 samples per channel
 }
 
 func ExampleDecoder_Decode_packetLoss() {
 	cfg := gopus.DefaultDecoderConfig(48000, 2)
-	dec, _ := gopus.NewDecoder(cfg)
+	dec, err := gopus.NewDecoder(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
 	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
 
 	// First, decode a real packet to initialize state
-	enc, _ := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 2, Application: gopus.ApplicationAudio})
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 2, Application: gopus.ApplicationAudio})
+	if err != nil {
+		log.Fatal(err)
+	}
 	pcm := make([]float32, 960*2)
 	packetBuf := make([]byte, 4000)
-	nPacket, _ := enc.Encode(pcm, packetBuf)
-	_, _ = dec.Decode(packetBuf[:nPacket], pcmOut)
+	nPacket, err := enc.Encode(pcm, packetBuf)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if _, err := dec.Decode(packetBuf[:nPacket], pcmOut); err != nil {
+		log.Fatal(err)
+	}
 
 	// Simulate packet loss by passing nil
 	// Decoder uses PLC to generate concealment audio
@@ -98,14 +115,21 @@ func ExampleDecoder_Decode_packetLoss() {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("PLC generated %d samples\n", n)
+	fmt.Printf("PLC generated %d samples per channel\n", n)
+	// Output: PLC generated 960 samples per channel
 }
 
 func Example_roundTrip() {
 	// Complete encode-decode round trip
-	enc, _ := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 1, Application: gopus.ApplicationVoIP})
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 1, Application: gopus.ApplicationVoIP})
+	if err != nil {
+		log.Fatal(err)
+	}
 	cfg := gopus.DefaultDecoderConfig(48000, 1)
-	dec, _ := gopus.NewDecoder(cfg)
+	dec, err := gopus.NewDecoder(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
 	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
 
 	// 20ms of mono audio at 48kHz
@@ -116,20 +140,29 @@ func Example_roundTrip() {
 
 	// Encode
 	packetBuf := make([]byte, 4000)
-	nPacket, _ := enc.Encode(input, packetBuf)
+	nPacket, err := enc.Encode(input, packetBuf)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Decode
-	n, _ := dec.Decode(packetBuf[:nPacket], pcmOut)
+	n, err := dec.Decode(packetBuf[:nPacket], pcmOut)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	fmt.Printf("Round trip: %d samples -> %d bytes -> %d samples\n",
-		len(input), nPacket, n)
+	fmt.Printf("Round trip ok: %t\n", nPacket > 0 && n == len(input))
+	// Output: Round trip ok: true
 }
 
 func ExampleEncoder_SetBitrate() {
-	enc, _ := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 2, Application: gopus.ApplicationAudio})
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 2, Application: gopus.ApplicationAudio})
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Set bitrate to 128 kbps
-	err := enc.SetBitrate(128000)
+	err = enc.SetBitrate(128000)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -139,10 +172,13 @@ func ExampleEncoder_SetBitrate() {
 }
 
 func ExampleEncoder_SetComplexity() {
-	enc, _ := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 2, Application: gopus.ApplicationAudio})
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 2, Application: gopus.ApplicationAudio})
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Set complexity to maximum quality
-	err := enc.SetComplexity(10)
+	err = enc.SetComplexity(10)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -152,7 +188,10 @@ func ExampleEncoder_SetComplexity() {
 }
 
 func ExampleEncoder_SetDTX() {
-	enc, _ := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 1, Application: gopus.ApplicationVoIP})
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 1, Application: gopus.ApplicationVoIP})
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Enable DTX for bandwidth savings during silence
 	enc.SetDTX(true)
@@ -162,7 +201,10 @@ func ExampleEncoder_SetDTX() {
 }
 
 func ExampleEncoder_SetFEC() {
-	enc, _ := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 2, Application: gopus.ApplicationVoIP})
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 2, Application: gopus.ApplicationVoIP})
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Enable FEC for packet loss recovery
 	enc.SetFEC(true)

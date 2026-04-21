@@ -10,8 +10,6 @@ import (
 )
 
 type optionalEncoderControl interface {
-	SetDREDDuration(int) error
-	DREDDuration() (int, error)
 	SetDNNBlob([]byte) error
 }
 
@@ -21,9 +19,17 @@ type qextEncoderControl interface {
 }
 
 type optionalDecoderControl interface {
+	SetDNNBlob([]byte) error
+}
+
+type unsupportedDREDControl interface {
+	SetDREDDuration(int) error
+	DREDDuration() (int, error)
+}
+
+type unsupportedOSCEBWEControl interface {
 	SetOSCEBWE(bool) error
 	OSCEBWE() (bool, error)
-	SetDNNBlob([]byte) error
 }
 
 type ignoreExtensionsControl interface {
@@ -51,12 +57,6 @@ type restrictedApplicationCase struct {
 func assertOptionalEncoderControls(t *testing.T, enc optionalEncoderControl) {
 	t.Helper()
 
-	if err := enc.SetDREDDuration(2); !errors.Is(err, ErrUnsupportedExtension) {
-		t.Fatalf("SetDREDDuration error=%v want=%v", err, ErrUnsupportedExtension)
-	}
-	if got, err := enc.DREDDuration(); !errors.Is(err, ErrUnsupportedExtension) || got != 0 {
-		t.Fatalf("DREDDuration()=(%d,%v) want=(0,%v)", got, err, ErrUnsupportedExtension)
-	}
 	if err := enc.SetDNNBlob(nil); !errors.Is(err, ErrInvalidArgument) {
 		t.Fatalf("SetDNNBlob(nil) error=%v want=%v", err, ErrInvalidArgument)
 	}
@@ -71,6 +71,17 @@ func assertOptionalEncoderControls(t *testing.T, enc optionalEncoderControl) {
 	}
 	if err := enc.SetDNNBlob(makeValidEncoderTestDNNBlob()); err != nil {
 		t.Fatalf("SetDNNBlob(encoder_blob) error=%v want=nil", err)
+	}
+}
+
+func assertUnsupportedDREDControl(t *testing.T, enc unsupportedDREDControl) {
+	t.Helper()
+
+	if err := enc.SetDREDDuration(2); !errors.Is(err, ErrUnsupportedExtension) {
+		t.Fatalf("SetDREDDuration error=%v want=%v", err, ErrUnsupportedExtension)
+	}
+	if got, err := enc.DREDDuration(); !errors.Is(err, ErrUnsupportedExtension) || got != 0 {
+		t.Fatalf("DREDDuration()=(%d,%v) want=(0,%v)", got, err, ErrUnsupportedExtension)
 	}
 }
 
@@ -105,12 +116,6 @@ func assertUnsupportedQEXTControl(t *testing.T, enc qextEncoderControl) {
 func assertOptionalDecoderControls(t *testing.T, dec optionalDecoderControl) {
 	t.Helper()
 
-	if err := dec.SetOSCEBWE(true); !errors.Is(err, ErrUnsupportedExtension) {
-		t.Fatalf("SetOSCEBWE error=%v want=%v", err, ErrUnsupportedExtension)
-	}
-	if got, err := dec.OSCEBWE(); !errors.Is(err, ErrUnsupportedExtension) || got {
-		t.Fatalf("OSCEBWE()=(%v,%v) want=(false,%v)", got, err, ErrUnsupportedExtension)
-	}
 	if err := dec.SetDNNBlob(nil); !errors.Is(err, ErrInvalidArgument) {
 		t.Fatalf("SetDNNBlob(nil) error=%v want=%v", err, ErrInvalidArgument)
 	}
@@ -125,6 +130,17 @@ func assertOptionalDecoderControls(t *testing.T, dec optionalDecoderControl) {
 	}
 	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
 		t.Fatalf("SetDNNBlob(decoder_blob) error=%v want=nil", err)
+	}
+}
+
+func assertUnsupportedOSCEBWEControl(t *testing.T, dec unsupportedOSCEBWEControl) {
+	t.Helper()
+
+	if err := dec.SetOSCEBWE(true); !errors.Is(err, ErrUnsupportedExtension) {
+		t.Fatalf("SetOSCEBWE error=%v want=%v", err, ErrUnsupportedExtension)
+	}
+	if got, err := dec.OSCEBWE(); !errors.Is(err, ErrUnsupportedExtension) || got {
+		t.Fatalf("OSCEBWE()=(%v,%v) want=(false,%v)", got, err, ErrUnsupportedExtension)
 	}
 }
 

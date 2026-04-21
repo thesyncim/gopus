@@ -157,10 +157,10 @@ func TestLPCToLSFEncode(t *testing.T) {
 		}
 	}
 
-	// Verify LSF are in valid range [0, 32767]
+	// Verify LSF remain non-negative Q15 values.
 	for i, lsf := range lsfQ15 {
-		if lsf < 0 || lsf > 32767 {
-			t.Errorf("LSF[%d]=%d out of range [0, 32767]", i, lsf)
+		if lsf < 0 {
+			t.Errorf("LSF[%d]=%d is negative", i, lsf)
 		}
 	}
 }
@@ -227,26 +227,23 @@ func TestLPCLSFRoundTrip(t *testing.T) {
 		}
 	}
 
-	// Verify LSF are in valid range
+	// Verify LSF remain non-negative Q15 values.
 	for i, lsf := range lsfQ15 {
-		if lsf < 0 || lsf > 32767 {
-			t.Errorf("LSF[%d]=%d out of range [0, 32767]", i, lsf)
+		if lsf < 0 {
+			t.Errorf("LSF[%d]=%d is negative", i, lsf)
 		}
 	}
 
 	// Convert back to LPC using decoder's function
 	lpcRecovered := lsfToLPC(lsfQ15)
+	if len(lpcRecovered) != len(lpcOriginal) {
+		t.Fatalf("Recovered LPC length = %d, want %d", len(lpcRecovered), len(lpcOriginal))
+	}
 
 	// Log the round-trip results for reference
 	t.Logf("Original LPC: %v", lpcOriginal)
 	t.Logf("Recovered LPC: %v", lpcRecovered)
 
-	// The recovered LPC should be valid (within Q12 range)
-	for i, c := range lpcRecovered {
-		if c > 32767 || c < -32768 {
-			t.Errorf("Recovered LPC[%d]=%d out of int16 range", i, c)
-		}
-	}
 }
 
 func TestLPCLSFRoundTripSmallCoeffs(t *testing.T) {
@@ -464,10 +461,10 @@ func TestA2NLSFConversion(t *testing.T) {
 
 	nlsfQ15 := a2nlsfFLP(aFloat, len(aFloat))
 
-	// Verify NLSF values are in valid range
+	// Verify NLSF values stay non-negative.
 	for i, nlsf := range nlsfQ15 {
-		if nlsf < 0 || nlsf > 32767 {
-			t.Errorf("NLSF[%d]=%d out of valid range [0, 32767]", i, nlsf)
+		if nlsf < 0 {
+			t.Errorf("NLSF[%d]=%d is negative", i, nlsf)
 		}
 	}
 
@@ -760,12 +757,6 @@ func TestLPCStabilityCheck(t *testing.T) {
 				t.Logf("%s: LPC filter stable, invGain=%d", tc.name, invGain)
 			}
 
-			// Coefficients should be valid
-			for i, c := range lpcQ12 {
-				if c > 32767 || c < -32768 {
-					t.Errorf("%s: LPC[%d]=%d out of range", tc.name, i, c)
-				}
-			}
 		})
 	}
 }
