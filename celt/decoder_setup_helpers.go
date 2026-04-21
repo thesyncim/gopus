@@ -17,13 +17,6 @@ func (d *Decoder) prepareDecodeFrame(data []byte, frameSize int) (preparedDecode
 		return preparedDecodeFrame{}, ErrInvalidFrameSize
 	}
 
-	currentFrame := d.decodeFrameIndex
-	d.decodeFrameIndex++
-	if tmpPVQCallDebugEnabled {
-		d.bandDebug.qDbgDecodeFrame = currentFrame
-		d.bandDebug.pvqCallSeq = 0
-	}
-
 	d.prepareMonoEnergyFromStereo()
 
 	rd := &d.rangeDecoderScratch

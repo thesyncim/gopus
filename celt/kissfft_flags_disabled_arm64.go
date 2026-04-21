@@ -1,4 +1,4 @@
-//go:build !gopus_tmp_env && arm64
+//go:build arm64
 
 package celt
 

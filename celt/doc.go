@@ -2,6 +2,6 @@
 //
 // Most applications should use the top-level gopus encoder/decoder APIs.
 //
-// This package exposes advanced implementation details, debugging hooks, and
+// This package exposes advanced implementation details, diagnostic hooks, and
 // scratch-oriented helpers that may change before the first release.
 package celt

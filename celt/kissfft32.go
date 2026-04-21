@@ -1,11 +1,6 @@
 package celt
 
-import (
-	"encoding/binary"
-	"fmt"
-	"math"
-	"os"
-)
+import "math"
 
 // NOTE ON APPARENT CODE DUPLICATION:
 // The butterfly functions (kfBfly2, kfBfly3, kfBfly4, kfBfly5) and complex
@@ -90,18 +85,6 @@ func kissAdd(a, b float32) float32 {
 //go:noinline
 func kissSub(a, b float32) float32 {
 	return a - b
-}
-
-func dumpKissCpxRaw(path string, vals []kissCpx) {
-	if len(vals) == 0 {
-		return
-	}
-	buf := make([]byte, len(vals)*8)
-	for i, v := range vals {
-		binary.LittleEndian.PutUint32(buf[i*8:], math.Float32bits(v.r))
-		binary.LittleEndian.PutUint32(buf[i*8+4:], math.Float32bits(v.i))
-	}
-	_ = os.WriteFile(path, buf, 0o644)
 }
 
 func getKissFFTState(nfft int) *kissFFTState {
@@ -581,11 +564,6 @@ func (st *kissFFTState) fftImpl(fout []kissCpx) {
 	if shift < 0 {
 		shift = 0
 	}
-	doDump := false
-	dumpIdx := uint32(0)
-	if kissFFTStageDumpEnabled && st.nfft == 240 {
-		doDump = true
-	}
 	stageIdx := 0
 	for i := L - 1; i >= 0; i-- {
 		m2 := 1
@@ -593,7 +571,6 @@ func (st *kissFFTState) fftImpl(fout []kissCpx) {
 			m2 = st.factors[2*i-1]
 		}
 		twFstride := fstride[i] << shift
-		radix := st.factors[2*i]
 		N := fstride[i]
 		switch st.factors[2*i] {
 		case 2:
@@ -604,12 +581,6 @@ func (st *kissFFTState) fftImpl(fout []kissCpx) {
 			kfBfly3(fout, twFstride, st, m, N, m2)
 		case 5:
 			kfBfly5(fout, twFstride, st, m, N, m2)
-		}
-		if doDump {
-			dumpKissCpxRaw(
-				fmt.Sprintf("/tmp/go_kiss_stage_call%d_stage%d_rad%d_m%d_N%d_mm%d.f32", dumpIdx, stageIdx, radix, m, N, m2),
-				fout,
-			)
 		}
 		m = m2
 		stageIdx++

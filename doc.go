@@ -109,8 +109,10 @@
 // # Multistream (Surround Sound)
 //
 // For surround sound applications (5.1, 7.1, etc.), use MultistreamEncoder
-// and MultistreamDecoder. These support 1-8 channels with standard Vorbis-style
-// channel mapping per RFC 7845.
+// and MultistreamDecoder. The default constructors support 1-8 channels with
+// standard Vorbis-style channel mapping per RFC 7845. For larger or custom
+// layouts, use the explicit multistream constructors with a caller-supplied
+// mapping table.
 //
 // Multistream encoding example (5.1 surround):
 //

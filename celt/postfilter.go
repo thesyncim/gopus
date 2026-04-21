@@ -724,32 +724,13 @@ func combFilterWithInputF32(dst, src []float64, start int, t0, t1, n int, g0, g1
 		f := noFMA32Mul(w, w)
 		oneMinus := float32(1.0) - f
 		x0 := float32(delay1[i+4])
-		var sum float32
-		if tmpCombFilterSeqAccumEnabled {
-			sum = float32(srcFrame[i])
-			sum += (oneMinus * g00) * float32(delay0[i+2])
-			sum += (oneMinus * g01) * (float32(delay0[i+1]) + float32(delay0[i+3]))
-			sum += (oneMinus * g02) * (float32(delay0[i]) + float32(delay0[i+4]))
-			sum += (f * g10) * x2
-			sum += (f * g11) * (x1 + x3)
-			sum += (f * g12) * (x0 + x4)
-		} else if tmpCombFilterFMAOverlapEnabled {
-			sum = float32(srcFrame[i])
-			sum = fma32(oneMinus*g00, float32(delay0[i+2]), sum)
-			sum = fma32(oneMinus*g01, float32(delay0[i+3])+float32(delay0[i+1]), sum)
-			sum = fma32(oneMinus*g02, float32(delay0[i+4])+float32(delay0[i]), sum)
-			sum = fma32(f*g10, x2, sum)
-			sum = fma32(f*g11, x1+x3, sum)
-			sum = fma32(f*g12, x0+x4, sum)
-		} else {
-			sum = float32(srcFrame[i]) +
-				(oneMinus*g00)*float32(delay0[i+2]) +
-				(oneMinus*g01)*(float32(delay0[i+1])+float32(delay0[i+3])) +
-				(oneMinus*g02)*(float32(delay0[i])+float32(delay0[i+4])) +
-				(f*g10)*x2 +
-				(f*g11)*(x1+x3) +
-				(f*g12)*(x0+x4)
-		}
+		sum := float32(srcFrame[i]) +
+			(oneMinus*g00)*float32(delay0[i+2]) +
+			(oneMinus*g01)*(float32(delay0[i+1])+float32(delay0[i+3])) +
+			(oneMinus*g02)*(float32(delay0[i])+float32(delay0[i+4])) +
+			(f*g10)*x2 +
+			(f*g11)*(x1+x3) +
+			(f*g12)*(x0+x4)
 		dstFrame[i] = float64(sum)
 
 		x4 = x3
@@ -771,18 +752,10 @@ func combFilterWithInputF32(dst, src []float64, start int, t0, t1, n int, g0, g1
 	x1 = float32(delay1[i+3])
 	for ; i < n; i++ {
 		x0 := float32(delay1[i+4])
-		var sum float32
-		if tmpCombFilterSeqAccumEnabled {
-			sum = float32(srcFrame[i])
-			sum += g10 * x2
-			sum += g11 * (x3 + x1)
-			sum += g12 * (x4 + x0)
-		} else {
-			sum = float32(srcFrame[i]) +
-				g10*x2 +
-				g11*(x3+x1) +
-				g12*(x4+x0)
-		}
+		sum := float32(srcFrame[i]) +
+			g10*x2 +
+			g11*(x3+x1) +
+			g12*(x4+x0)
 		dstFrame[i] = float64(sum)
 
 		x4 = x3

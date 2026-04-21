@@ -24,14 +24,11 @@ func (d *Decoder) decodeBandAllocation(rd *rangecoding.Decoder, totalBits, start
 
 	allocation.tfRes = ensureIntSlice(&d.scratchTFRes, end)
 	tfDecode(start, end, transient, allocation.tfRes, lm, rd)
-	traceRange("tf", rd)
 
 	tell := rd.Tell()
 	if tell+4 <= totalBits {
 		allocation.spread = rd.DecodeICDF(spreadICDF, 5)
 	}
-	traceFlag("spread", allocation.spread)
-	traceRange("spread", rd)
 
 	cap := ensureIntSlice(&d.scratchCaps, end)
 	initCapsInto(cap, end, lm, d.channels)
@@ -56,13 +53,11 @@ func (d *Decoder) decodeBandAllocation(rd *rangecoding.Decoder, totalBits, start
 			dynallocLoopLogp = 1
 		}
 		offsets[i] = boost
-		traceAllocation(i, boost, -1)
 		if j > 0 {
 			dynallocLogp = max(2, dynallocLogp-1)
 		}
 	}
 	allocation.offsets = offsets[:end]
-	traceRange("dynalloc", rd)
 
 	allocTrim := 5
 	encodedTrim := tellFrac+(6<<bitRes) <= totalBitsQ3
@@ -70,8 +65,6 @@ func (d *Decoder) decodeBandAllocation(rd *rangecoding.Decoder, totalBits, start
 		allocTrim = rd.DecodeICDF(trimICDF, 7)
 	}
 	allocation.allocTrim = allocTrim
-	traceFlag("alloc_trim", allocTrim)
-	traceRange("trim", rd)
 
 	bitsQ3 := (totalBits << bitRes) - rd.TellFrac() - 1
 	if transient && lm >= 2 && bitsQ3 >= (lm+2)<<bitRes {
@@ -85,20 +78,6 @@ func (d *Decoder) decodeBandAllocation(rd *rangecoding.Decoder, totalBits, start
 	allocScratch := d.allocationScratch()
 	allocation.codedBands = cltComputeAllocationWithScratch(start, end, offsets, cap, allocTrim, &allocation.intensity, &allocation.dualStereo,
 		bitsQ3, &allocation.balance, allocation.pulses, allocation.fineQuant, allocation.finePriority, d.channels, lm, rd, allocScratch)
-	traceRange("alloc", rd)
-
-	for i := start; i < end; i++ {
-		width := 0
-		if i+1 < len(EBands) {
-			width = (EBands[i+1] - EBands[i]) << lm
-		}
-		k := 0
-		if width > 0 {
-			k = bitsToK(allocation.pulses[i], width)
-		}
-		traceAllocation(i, allocation.pulses[i], k)
-		traceFineBits(i, allocation.fineQuant[i])
-	}
 
 	return allocation
 }

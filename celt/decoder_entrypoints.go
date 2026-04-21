@@ -52,7 +52,6 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 
 	// Step 1: Decode coarse energy
 	energies := d.decodeCoarseEnergyInto(ensureFloat64Slice(&d.scratchEnergies, end*d.channels), end, intra, lm)
-	traceRange("coarse", rd)
 
 	allocation := d.decodeBandAllocation(rd, totalBits, start, end, lm, transient)
 	tfRes := allocation.tfRes
@@ -163,7 +162,6 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 		}
 		tell = rd.Tell()
 	}
-	traceRange("postfilter", rd)
 
 	transient := false
 	if lm > 0 && tell+3 <= totalBits {
@@ -174,7 +172,6 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	if tell+3 <= totalBits {
 		intra = rd.DecodeBit(3) == 1
 	}
-	traceRange("intra", rd)
 	d.applyLossEnergySafety(intra, start, end, lm)
 
 	shortBlocks := 1
@@ -190,7 +187,6 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 		}
 	}
 	d.decodeCoarseEnergyRange(start, end, intra, lm, energies)
-	traceRange("coarse", rd)
 
 	allocation := d.decodeBandAllocation(rd, totalBits, start, end, lm, transient)
 	tfRes := allocation.tfRes

@@ -114,7 +114,7 @@ type VADState struct {
 	scratchX     []int16
 }
 
-// VADTrace captures intermediate values for VAD parity debugging.
+// VADTrace captures intermediate values for VAD parity diagnostics.
 // All fields are in the same fixed-point domains as libopus.
 type VADTrace struct {
 	Xnrg               [VADNBands]int32
@@ -202,7 +202,7 @@ func (v *VADState) GetSpeechActivity(pcm []float32, frameLength int, fsKHz int) 
 	return activityQ8, isActive
 }
 
-// GetSpeechActivityTrace runs VAD and returns detailed intermediate values for debugging.
+// GetSpeechActivityTrace runs VAD and returns detailed intermediate values for diagnostics.
 func (v *VADState) GetSpeechActivityTrace(pcm []float32, frameLength int, fsKHz int) (int, bool, VADTrace) {
 	var trace VADTrace
 	activityQ8, isActive, _ := v.getSpeechActivity(pcm, frameLength, fsKHz, &trace)

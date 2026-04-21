@@ -1057,7 +1057,6 @@ func (e *Encoder) syncCELTAnalysisToCELT() {
 		e.celtEncoder.SetAnalysisInfo(0, [19]uint8{}, 0, 0, 0, false)
 		return
 	}
-	maybeLogAnalysisDebug(e.celtEncoder.FrameCount(), e.lastAnalysisInfo)
 	e.celtEncoder.SetAnalysisInfo(
 		e.lastAnalysisInfo.BandwidthIndex,
 		e.lastAnalysisInfo.LeakBoost,
@@ -2835,32 +2834,6 @@ func (e *Encoder) LastSilkLTPCorr() float32 {
 		return 0
 	}
 	return e.silkEncoder.LTPCorr()
-}
-
-// SetSilkTrace enables SILK encoder tracing for parity debugging.
-// Only applies when the SILK encoder is active.
-func (e *Encoder) SetSilkTrace(trace *silk.EncoderTrace) {
-	e.silkTrace = trace
-	e.ensureSILKEncoder()
-	e.silkEncoder.SetTrace(e.silkTrace)
-}
-
-// SetCELTTargetStatsHook installs a callback for per-frame CELT VBR target diagnostics.
-// Only applies when the CELT encoder is active.
-func (e *Encoder) SetCELTTargetStatsHook(fn func(celt.CeltTargetStats)) {
-	e.celtStatsHook = fn
-	if e.celtEncoder != nil {
-		e.celtEncoder.SetTargetStatsHook(fn)
-	}
-}
-
-// SetCELTPrefilterDebugHook installs a callback for per-frame CELT prefilter diagnostics.
-// Only applies when the CELT encoder is active.
-func (e *Encoder) SetCELTPrefilterDebugHook(fn func(celt.PrefilterDebugStats)) {
-	e.celtPrefilterHook = fn
-	if e.celtEncoder != nil {
-		e.celtEncoder.SetPrefilterDebugHook(fn)
-	}
 }
 
 // SetMaxBandwidth sets the maximum bandwidth limit.

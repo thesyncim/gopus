@@ -348,7 +348,7 @@ func decodeWithOpusdec(oggData []byte) ([]float32, error) {
 		return nil, ferr
 	}
 
-	if tmpGetenv("GOPUS_DISABLE_OPUSDEC") == "1" {
+	if os.Getenv("GOPUS_DISABLE_OPUSDEC") == "1" {
 		return decodeFallback()
 	}
 	if checkOpusdecAvailable() {
