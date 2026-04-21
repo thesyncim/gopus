@@ -197,22 +197,22 @@ func TestDecoderCachesDREDPayloadWhenDREDModelLoaded(t *testing.T) {
 		t.Fatalf("cached dred payload=%x want %x", dec.dredData[:dec.dredCache.Len], body)
 	}
 	result := dec.cachedDREDResult(960)
-	if result.Availability.FeatureFrames != 4 || result.Availability.MaxLatents != 1 || result.Availability.OffsetSamples != 480 || result.Availability.EndSamples != 0 || result.Availability.AvailableSamples != 1440 {
-		t.Fatalf("cachedDREDResult=%+v want availability {FeatureFrames:4 MaxLatents:1 OffsetSamples:480 EndSamples:0 AvailableSamples:1440}", result)
+	if result.Availability.FeatureFrames != 4 || result.Availability.MaxLatents != 0 || result.Availability.OffsetSamples != 480 || result.Availability.EndSamples != 0 || result.Availability.AvailableSamples != 0 {
+		t.Fatalf("cachedDREDResult=%+v want availability {FeatureFrames:4 MaxLatents:0 OffsetSamples:480 EndSamples:0 AvailableSamples:0}", result)
 	}
-	if got := dec.cachedDREDMaxAvailableSamples(960); got != 1440 {
-		t.Fatalf("cachedDREDMaxAvailableSamples=%d want 1440", got)
+	if got := dec.cachedDREDMaxAvailableSamples(960); got != 0 {
+		t.Fatalf("cachedDREDMaxAvailableSamples=%d want 0", got)
 	}
 	quant := make([]int, 6)
-	if n := dec.cachedDREDResult(10080).FillQuantizerLevels(quant); n != len(quant) {
-		t.Fatalf("cachedDREDResult.FillQuantizerLevels count=%d want %d", n, len(quant))
+	if n := dec.cachedDREDResult(10080).FillQuantizerLevels(quant); n != 0 {
+		t.Fatalf("cachedDREDResult.FillQuantizerLevels count=%d want 0", n)
 	}
-	if want := []int{6, 6, 7, 7, 7, 7}; !slices.Equal(quant, want) {
+	if want := []int{0, 0, 0, 0, 0, 0}; !slices.Equal(quant, want) {
 		t.Fatalf("cachedDREDResult.FillQuantizerLevels=%v want %v", quant, want)
 	}
 	window := dec.cachedDREDFeatureWindow(960, 960, 960, 0)
-	if window.FeatureOffsetBase != 1 || window.RecoverableFeatureFrames != 2 || window.MissingPositiveFrames != 0 {
-		t.Fatalf("cachedDREDFeatureWindow=%+v want base=1 recoverable=2 missing=0", window)
+	if window.FeatureOffsetBase != 1 || window.RecoverableFeatureFrames != 0 || window.MissingPositiveFrames != 2 {
+		t.Fatalf("cachedDREDFeatureWindow=%+v want base=1 recoverable=0 missing=2", window)
 	}
 
 	dec.Reset()
@@ -264,15 +264,15 @@ func TestDecoderCachesDREDSampleTimingForLaterFrame(t *testing.T) {
 		t.Fatalf("dredCache.Parsed.Header.QMax=%d want 15", dec.dredCache.Parsed.Header.QMax)
 	}
 	result := dec.cachedDREDResult(960)
-	if result.Availability.FeatureFrames != 4 || result.Availability.MaxLatents != 1 || result.Availability.OffsetSamples != -480 || result.Availability.EndSamples != 480 || result.Availability.AvailableSamples != 2400 {
-		t.Fatalf("cachedDREDResult=%+v want availability {FeatureFrames:4 MaxLatents:1 OffsetSamples:-480 EndSamples:480 AvailableSamples:2400}", result)
+	if result.Availability.FeatureFrames != 4 || result.Availability.MaxLatents != 0 || result.Availability.OffsetSamples != -480 || result.Availability.EndSamples != 480 || result.Availability.AvailableSamples != 480 {
+		t.Fatalf("cachedDREDResult=%+v want availability {FeatureFrames:4 MaxLatents:0 OffsetSamples:-480 EndSamples:480 AvailableSamples:480}", result)
 	}
 	window := dec.cachedDREDFeatureWindow(960, 3840, 960, 0)
 	if window.FeatureOffsetBase != 5 || window.RecoverableFeatureFrames != 0 || window.MissingPositiveFrames != 2 {
 		t.Fatalf("cachedDREDFeatureWindow=%+v want base=5 recoverable=0 missing=2", window)
 	}
-	if got := dec.cachedDREDMaxAvailableSamples(960); got != 2400 {
-		t.Fatalf("cachedDREDMaxAvailableSamples=%d want 2400", got)
+	if got := dec.cachedDREDMaxAvailableSamples(960); got != 480 {
+		t.Fatalf("cachedDREDMaxAvailableSamples=%d want 480", got)
 	}
 }
 

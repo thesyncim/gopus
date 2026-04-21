@@ -16,18 +16,18 @@ func TestParsedForRequest(t *testing.T) {
 	if result.Availability.FeatureFrames != 14 {
 		t.Fatalf("FeatureFrames=%d want 14", result.Availability.FeatureFrames)
 	}
-	if result.Availability.MaxLatents != 4 {
-		t.Fatalf("MaxLatents=%d want 4", result.Availability.MaxLatents)
+	if result.Availability.MaxLatents != 0 {
+		t.Fatalf("MaxLatents=%d want 0", result.Availability.MaxLatents)
 	}
-	if result.MaxAvailableSamples() != 8160 {
-		t.Fatalf("MaxAvailableSamples=%d want 8160", result.MaxAvailableSamples())
+	if result.MaxAvailableSamples() != 480 {
+		t.Fatalf("MaxAvailableSamples=%d want 480", result.MaxAvailableSamples())
 	}
 
 	quant := make([]int, 4)
-	if n := result.FillQuantizerLevels(quant); n != len(quant) {
-		t.Fatalf("FillQuantizerLevels count=%d want %d", n, len(quant))
+	if n := result.FillQuantizerLevels(quant); n != 0 {
+		t.Fatalf("FillQuantizerLevels count=%d want 0", n)
 	}
-	want := []int{6, 6, 7, 7}
+	want := []int{0, 0, 0, 0}
 	if !reflect.DeepEqual(quant, want) {
 		t.Fatalf("FillQuantizerLevels=%v want %v", quant, want)
 	}

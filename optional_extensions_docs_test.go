@@ -62,6 +62,15 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		t.Fatal("docs/releases/README.md missing optional-extension contract guidance")
 	}
 
+	for _, needle := range []string{
+		"It does not change `SupportsOptionalExtension(...)`, and it does not turn DRED or OSCE BWE into supported release features.",
+		"Some control state is retained and observable, but full model-backed DRED encode/decode and OSCE BWE runtime behavior remain incomplete.",
+	} {
+		if !strings.Contains(optionalDoc, needle) {
+			t.Fatalf("docs/optional-extensions.md missing %q", needle)
+		}
+	}
+
 	examples := mustReadDocForTest(t, "examples/README.md")
 	if !strings.Contains(examples, "These examples target the supported default build and intentionally do not demonstrate tag-gated unsupported controls such as DRED or OSCE BWE.") {
 		t.Fatal("examples/README.md missing default-build note")

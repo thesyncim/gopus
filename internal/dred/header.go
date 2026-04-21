@@ -42,42 +42,8 @@ func (h Header) EndSamples(sampleRate int) int {
 // with the temporary extension prefix already stripped. dredFrameOffset is in
 // 2.5 ms units, matching libopus dred_find_payload().
 func ParseHeader(payload []byte, dredFrameOffset int) (Header, error) {
-	if len(payload) < MinBytes {
-		return Header{}, errInvalidHeader
-	}
-
 	var rd rangecoding.Decoder
-	rd.Init(payload)
-
-	q0 := int(rd.DecodeUniform(16))
-	dq := int(rd.DecodeUniform(8))
-
-	extraOffset := 0
-	if rd.DecodeUniform(2) != 0 {
-		extraOffset = 32 * int(rd.DecodeUniform(256))
-	}
-
-	dredOffset := 16 - int(rd.DecodeUniform(32)) - extraOffset + dredFrameOffset
-	qmax := 15
-	if q0 < 14 && dq > 0 {
-		nvals := 15 - (q0 + 1)
-		s := int(rd.Decode(uint32(2 * nvals)))
-		if s >= nvals {
-			qmax = q0 + (s - nvals) + 1
-			rd.Update(uint32(s), uint32(s+1), uint32(2*nvals))
-		} else {
-			rd.Update(0, uint32(nvals), uint32(2*nvals))
-		}
-	}
-
-	return Header{
-		Q0:              q0,
-		DQ:              dq,
-		QMax:            qmax,
-		ExtraOffset:     extraOffset,
-		DredOffset:      dredOffset,
-		DredFrameOffset: dredFrameOffset,
-	}, nil
+	return parseHeaderWithDecoder(payload, dredFrameOffset, &rd)
 }
 
 // QuantizerLevel mirrors libopus compute_quantizer() for the parsed DRED

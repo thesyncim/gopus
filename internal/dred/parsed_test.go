@@ -18,16 +18,19 @@ func TestParsePayload(t *testing.T) {
 	if got.Header.DredOffset != -4 || got.Header.DredFrameOffset != 8 {
 		t.Fatalf("ParsePayload header offsets=(%d,%d) want (-4,8)", got.Header.DredOffset, got.Header.DredFrameOffset)
 	}
+	if got.PayloadLatents != 0 {
+		t.Fatalf("ParsePayload PayloadLatents=%d want 0", got.PayloadLatents)
+	}
 	avail := got.Availability(960, 48000)
-	if avail.FeatureFrames != 4 || avail.MaxLatents != 1 || avail.OffsetSamples != -480 || avail.EndSamples != 480 || avail.AvailableSamples != 2400 {
-		t.Fatalf("ParsePayload availability=%+v want {FeatureFrames:4 MaxLatents:1 OffsetSamples:-480 EndSamples:480 AvailableSamples:2400}", avail)
+	if avail.FeatureFrames != 4 || avail.MaxLatents != 0 || avail.OffsetSamples != -480 || avail.EndSamples != 480 || avail.AvailableSamples != 480 {
+		t.Fatalf("ParsePayload availability=%+v want {FeatureFrames:4 MaxLatents:0 OffsetSamples:-480 EndSamples:480 AvailableSamples:480}", avail)
 	}
 	quant := make([]int, 4)
 	n := got.FillQuantizerLevels(quant, 5760, 48000)
-	if n != len(quant) {
-		t.Fatalf("FillQuantizerLevels count=%d want %d", n, len(quant))
+	if n != 0 {
+		t.Fatalf("FillQuantizerLevels count=%d want 0", n)
 	}
-	want := []int{6, 6, 7, 7}
+	want := []int{0, 0, 0, 0}
 	if !reflect.DeepEqual(quant, want) {
 		t.Fatalf("FillQuantizerLevels=%v want %v", quant, want)
 	}

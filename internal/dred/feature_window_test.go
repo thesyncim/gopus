@@ -17,11 +17,11 @@ func TestResultFeatureWindowRecoverable(t *testing.T) {
 	if window.FeaturesPerFrame != 2 || window.NeededFeatureFrames != 2 {
 		t.Fatalf("FeatureWindow frame counts=(%d,%d) want (2,2)", window.FeaturesPerFrame, window.NeededFeatureFrames)
 	}
-	if window.FeatureOffsetBase != 1 || window.MaxFeatureIndex != 3 {
-		t.Fatalf("FeatureWindow offsets=(base=%d max=%d) want (1,3)", window.FeatureOffsetBase, window.MaxFeatureIndex)
+	if window.FeatureOffsetBase != 1 || window.MaxFeatureIndex != -1 {
+		t.Fatalf("FeatureWindow offsets=(base=%d max=%d) want (1,-1)", window.FeatureOffsetBase, window.MaxFeatureIndex)
 	}
-	if window.RecoverableFeatureFrames != 2 || window.MissingPositiveFrames != 0 {
-		t.Fatalf("FeatureWindow recoverable/missing=(%d,%d) want (2,0)", window.RecoverableFeatureFrames, window.MissingPositiveFrames)
+	if window.RecoverableFeatureFrames != 0 || window.MissingPositiveFrames != 2 {
+		t.Fatalf("FeatureWindow recoverable/missing=(%d,%d) want (0,2)", window.RecoverableFeatureFrames, window.MissingPositiveFrames)
 	}
 	got := make([]int, 2)
 	if n := window.FillFeatureOffsets(got); n != len(got) {

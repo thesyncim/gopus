@@ -1,10 +1,9 @@
 package dred
 
-// FeatureWindow is the request-bounded upper-bound DRED feature index window
-// used by libopus's opus_decode_native() concealment path before any model
-// processing. RecoverableFeatureFrames is an upper bound because the cached
-// Result retains request-bounded MaxLatents rather than the exact decoded
-// nb_latents.
+// FeatureWindow is the payload-bounded DRED feature index window used by
+// libopus's opus_decode_native() concealment path before any model
+// processing. RecoverableFeatureFrames reflects the parsed payload latents
+// retained in Result.Availability.
 type FeatureWindow struct {
 	FeaturesPerFrame         int
 	NeededFeatureFrames      int

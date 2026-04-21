@@ -603,22 +603,22 @@ func TestDecoderCachesDREDPayloadPerStreamWhenModelLoaded(t *testing.T) {
 		t.Fatalf("stream %d cached DRED payload=%x want %x", targetStream, dec.dredData[targetStream][:dec.dredCache[targetStream].Len], body)
 	}
 	result := dec.cachedDREDResult(targetStream, 960)
-	if result.Availability.FeatureFrames != 4 || result.Availability.MaxLatents != 1 || result.Availability.OffsetSamples != 480 || result.Availability.EndSamples != 0 || result.Availability.AvailableSamples != 1440 {
-		t.Fatalf("stream %d cachedDREDResult=%+v want availability {FeatureFrames:4 MaxLatents:1 OffsetSamples:480 EndSamples:0 AvailableSamples:1440}", targetStream, result)
+	if result.Availability.FeatureFrames != 4 || result.Availability.MaxLatents != 0 || result.Availability.OffsetSamples != 480 || result.Availability.EndSamples != 0 || result.Availability.AvailableSamples != 0 {
+		t.Fatalf("stream %d cachedDREDResult=%+v want availability {FeatureFrames:4 MaxLatents:0 OffsetSamples:480 EndSamples:0 AvailableSamples:0}", targetStream, result)
 	}
-	if got := dec.cachedDREDMaxAvailableSamples(targetStream, 960); got != 1440 {
-		t.Fatalf("stream %d cachedDREDMaxAvailableSamples=%d want 1440", targetStream, got)
+	if got := dec.cachedDREDMaxAvailableSamples(targetStream, 960); got != 0 {
+		t.Fatalf("stream %d cachedDREDMaxAvailableSamples=%d want 0", targetStream, got)
 	}
 	quant := make([]int, 6)
-	if n := dec.cachedDREDResult(targetStream, 10080).FillQuantizerLevels(quant); n != len(quant) {
-		t.Fatalf("stream %d cachedDREDResult.FillQuantizerLevels count=%d want %d", targetStream, n, len(quant))
+	if n := dec.cachedDREDResult(targetStream, 10080).FillQuantizerLevels(quant); n != 0 {
+		t.Fatalf("stream %d cachedDREDResult.FillQuantizerLevels count=%d want 0", targetStream, n)
 	}
-	if want := []int{6, 6, 7, 7, 7, 7}; !slices.Equal(quant, want) {
+	if want := []int{0, 0, 0, 0, 0, 0}; !slices.Equal(quant, want) {
 		t.Fatalf("stream %d cachedDREDResult.FillQuantizerLevels=%v want %v", targetStream, quant, want)
 	}
 	window := dec.cachedDREDFeatureWindow(targetStream, 960, 960, 960, 0)
-	if window.FeatureOffsetBase != 1 || window.RecoverableFeatureFrames != 2 || window.MissingPositiveFrames != 0 {
-		t.Fatalf("stream %d cachedDREDFeatureWindow=%+v want base=1 recoverable=2 missing=0", targetStream, window)
+	if window.FeatureOffsetBase != 1 || window.RecoverableFeatureFrames != 0 || window.MissingPositiveFrames != 2 {
+		t.Fatalf("stream %d cachedDREDFeatureWindow=%+v want base=1 recoverable=0 missing=2", targetStream, window)
 	}
 
 	dec.Reset()
@@ -661,15 +661,15 @@ func TestDecoderCachesDREDSampleTimingForLaterStreamFrame(t *testing.T) {
 		t.Fatalf("stream %d dredCache.Parsed.Header.QMax=%d want 15", targetStream, dec.dredCache[targetStream].Parsed.Header.QMax)
 	}
 	result := dec.cachedDREDResult(targetStream, 960)
-	if result.Availability.FeatureFrames != 4 || result.Availability.MaxLatents != 1 || result.Availability.OffsetSamples != -480 || result.Availability.EndSamples != 480 || result.Availability.AvailableSamples != 2400 {
-		t.Fatalf("stream %d cachedDREDResult=%+v want availability {FeatureFrames:4 MaxLatents:1 OffsetSamples:-480 EndSamples:480 AvailableSamples:2400}", targetStream, result)
+	if result.Availability.FeatureFrames != 4 || result.Availability.MaxLatents != 0 || result.Availability.OffsetSamples != -480 || result.Availability.EndSamples != 480 || result.Availability.AvailableSamples != 480 {
+		t.Fatalf("stream %d cachedDREDResult=%+v want availability {FeatureFrames:4 MaxLatents:0 OffsetSamples:-480 EndSamples:480 AvailableSamples:480}", targetStream, result)
 	}
 	window := dec.cachedDREDFeatureWindow(targetStream, 960, 3840, 960, 0)
 	if window.FeatureOffsetBase != 5 || window.RecoverableFeatureFrames != 0 || window.MissingPositiveFrames != 2 {
 		t.Fatalf("stream %d cachedDREDFeatureWindow=%+v want base=5 recoverable=0 missing=2", targetStream, window)
 	}
-	if got := dec.cachedDREDMaxAvailableSamples(targetStream, 960); got != 2400 {
-		t.Fatalf("stream %d cachedDREDMaxAvailableSamples=%d want 2400", targetStream, got)
+	if got := dec.cachedDREDMaxAvailableSamples(targetStream, 960); got != 480 {
+		t.Fatalf("stream %d cachedDREDMaxAvailableSamples=%d want 480", targetStream, got)
 	}
 }
 

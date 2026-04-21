@@ -18,8 +18,8 @@ func TestCacheStoreResultAndClear(t *testing.T) {
 	}
 
 	result := cache.Result(Request{MaxDREDSamples: 960, SampleRate: 48000})
-	if result.Availability.AvailableSamples != 2400 {
-		t.Fatalf("Result.Availability.AvailableSamples=%d want 2400", result.Availability.AvailableSamples)
+	if result.Availability.AvailableSamples != 480 {
+		t.Fatalf("Result.Availability.AvailableSamples=%d want 480", result.Availability.AvailableSamples)
 	}
 
 	cache.Clear()

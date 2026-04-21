@@ -27,7 +27,9 @@ The unsupported DRED and OSCE BWE wrappers are only compiled when you build with
 go test -tags gopus_unsupported_controls ./...
 ```
 
-That build tag exists to make the quarantine explicit and testable. It does not enable working support for those controls today. The wrappers still return `ErrUnsupportedExtension`.
+That build tag exists to make the quarantine explicit and testable. It does not change `SupportsOptionalExtension(...)`, and it does not turn DRED or OSCE BWE into supported release features.
+
+In quarantine builds, the tag-gated wrappers and low-level helper methods are available for parity work and explicit experiments. Some control state is retained and observable, but full model-backed DRED encode/decode and OSCE BWE runtime behavior remain incomplete.
 
 ## Release Contract
 

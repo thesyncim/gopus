@@ -29,3 +29,15 @@ func (h Header) Availability(maxDredSamples, sampleRate int) Availability {
 		AvailableSamples: availableSamples,
 	}
 }
+
+func (p Parsed) Availability(maxDredSamples, sampleRate int) Availability {
+	avail := p.Header.Availability(maxDredSamples, sampleRate)
+	if avail.MaxLatents > p.PayloadLatents {
+		avail.MaxLatents = p.PayloadLatents
+		avail.AvailableSamples = avail.MaxLatents*LatentSpanSamples(sampleRate) - avail.OffsetSamples
+		if avail.AvailableSamples < 0 {
+			avail.AvailableSamples = 0
+		}
+	}
+	return avail
+}
