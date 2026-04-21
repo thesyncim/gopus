@@ -29,8 +29,9 @@ func appendTestBlobRecord(dst []byte, name string, typ int32, payloadSize int) [
 func makeDREDEncoderTestBlob(t *testing.T) *dnnblob.Blob {
 	t.Helper()
 	var raw []byte
-	raw = appendTestBlobRecord(raw, "enc_dense1_bias", 0, 64*4)
-	raw = appendTestBlobRecord(raw, "dense_if_upsampler_1_bias", 0, 64*4)
+	for _, name := range dnnblob.RequiredEncoderControlRecordNames() {
+		raw = appendTestBlobRecord(raw, name, 0, 4)
+	}
 	blob, err := dnnblob.Clone(raw)
 	if err != nil {
 		t.Fatalf("dnnblob.Clone: %v", err)

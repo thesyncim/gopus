@@ -40,6 +40,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		"`SetDNNBlob(...)` plus `SetQEXT(...)` / `QEXT()` are supported",
 		"Decoder-side `SetDNNBlob(...)` currently provides validated model admission and retained control state; full model-backed PLC/OSCE runtime behavior remains incomplete.",
 		"`SetDREDDuration(...)` and `SetOSCEBWE(...)` are absent unless you build with `-tags gopus_unsupported_controls`",
+		"experimental standalone `DREDDecoder` / `DRED` metadata wrappers",
 	} {
 		if !strings.Contains(readme, needle) {
 			t.Fatalf("README.md missing %q", needle)
@@ -53,6 +54,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		"Decoder-side `SetDNNBlob(...)` currently covers loader-derived validation and retained control state.",
 		"`SetDREDDuration(...)` / `DREDDuration()` are absent unless built with `-tags gopus_unsupported_controls`",
 		"`SetOSCEBWE(...)` / `OSCEBWE()` are absent unless built with `-tags gopus_unsupported_controls`",
+		"experimental standalone `DREDDecoder` / `DRED` metadata parsing wrappers",
 	} {
 		if !strings.Contains(releaseNotes, needle) {
 			t.Fatalf("docs/releases/v0.1.0.md missing %q", needle)
@@ -67,6 +69,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 	for _, needle := range []string{
 		"It does not change `SupportsOptionalExtension(...)`, and it does not turn DRED or OSCE BWE into supported release features.",
 		"Some control state is retained and observable, but full model-backed DRED encode/decode and OSCE BWE runtime behavior remain incomplete.",
+		"experimental standalone `DREDDecoder` / `DRED` metadata parsing wrappers",
 	} {
 		if !strings.Contains(optionalDoc, needle) {
 			t.Fatalf("docs/optional-extensions.md missing %q", needle)

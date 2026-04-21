@@ -408,13 +408,13 @@ func makeDecoderBlobForDREDTest(t *testing.T, withDRED bool) *dnnblob.Blob {
 	t.Helper()
 
 	var raw []byte
-	raw = appendDNNBlobRecordForTest(raw, "plc_dense_in_bias", 0, 128*4)
-	raw = appendDNNBlobRecordForTest(raw, "cond_net_pembed_bias", 0, 12*4)
-	raw = appendDNNBlobRecordForTest(raw, "dense_if_upsampler_1_bias", 0, 64*4)
-	raw = appendDNNBlobRecordForTest(raw, "lace_pitch_embedding_bias", 0, 64*4)
-	raw = appendDNNBlobRecordForTest(raw, "nolace_pitch_embedding_bias", 0, 64*4)
+	for _, name := range dnnblob.RequiredDecoderControlRecordNames(false) {
+		raw = appendDNNBlobRecordForTest(raw, name, 0, 4)
+	}
 	if withDRED {
-		raw = appendDNNBlobRecordForTest(raw, "dec_dense1_bias", 0, 64*4)
+		for _, name := range dnnblob.RequiredDREDDecoderRecordNames() {
+			raw = appendDNNBlobRecordForTest(raw, name, 0, 4)
+		}
 	}
 
 	blob, err := dnnblob.Clone(raw)
@@ -422,6 +422,16 @@ func makeDecoderBlobForDREDTest(t *testing.T, withDRED bool) *dnnblob.Blob {
 		t.Fatalf("dnnblob.Clone error: %v", err)
 	}
 	return blob
+}
+
+func setStandaloneDREDDecoderBlobForTest(t *testing.T, dec *Decoder) {
+	t.Helper()
+
+	blob := makeDecoderBlobForDREDTest(t, true)
+	if err := blob.ValidateDREDDecoderControl(); err != nil {
+		t.Fatalf("ValidateDREDDecoderControl error: %v", err)
+	}
+	dec.setDREDDecoderBlob(blob)
 }
 
 func addDREDExtensionToOpusPacketForTest(t *testing.T, packet []byte, body []byte) []byte {
@@ -578,7 +588,7 @@ func TestDecoderCachesDREDPayloadPerStreamWhenModelLoaded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDecoderDefault error: %v", err)
 	}
-	dec.SetDNNBlob(makeDecoderBlobForDREDTest(t, true))
+	setStandaloneDREDDecoderBlobForTest(t, dec)
 
 	samples, err := dec.Decode(packet, 960)
 	if err != nil {
@@ -642,7 +652,7 @@ func TestDecoderCachesDREDSampleTimingForLaterStreamFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDecoderDefault error: %v", err)
 	}
-	dec.SetDNNBlob(makeDecoderBlobForDREDTest(t, true))
+	setStandaloneDREDDecoderBlobForTest(t, dec)
 
 	samples, err := dec.Decode(packet, 1920)
 	if err != nil {
@@ -699,7 +709,7 @@ func TestDecoderLeavesDREDPayloadDormantWithoutDREDModel(t *testing.T) {
 	}
 }
 
-func TestDecoderLeavesDREDPayloadDormantWhenIgnoringExtensions(t *testing.T) {
+func TestDecoderPublicSetDNNBlobDoesNotArmStandaloneDREDDecoder(t *testing.T) {
 	packet := makeMultistreamPacketWithDREDForTest(t, 3, 1, makeExperimentalDREDPayloadBodyForTest(t, 0, 4))
 
 	dec, err := NewDecoderDefault(48000, 3)
@@ -707,6 +717,32 @@ func TestDecoderLeavesDREDPayloadDormantWhenIgnoringExtensions(t *testing.T) {
 		t.Fatalf("NewDecoderDefault error: %v", err)
 	}
 	dec.SetDNNBlob(makeDecoderBlobForDREDTest(t, true))
+	if dec.dredModelLoaded {
+		t.Fatal("public decoder SetDNNBlob armed standalone DRED decoder")
+	}
+
+	samples, err := dec.Decode(packet, 960)
+	if err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	if len(samples) != 960*3 {
+		t.Fatalf("len(samples)=%d want %d", len(samples), 960*3)
+	}
+	for i := range dec.dredCache {
+		if dec.dredCache[i] != (internaldred.Cache{}) {
+			t.Fatalf("stream %d public SetDNNBlob cached DRED payload=%+v want zero state", i, dec.dredCache[i])
+		}
+	}
+}
+
+func TestDecoderLeavesDREDPayloadDormantWhenIgnoringExtensions(t *testing.T) {
+	packet := makeMultistreamPacketWithDREDForTest(t, 3, 1, makeExperimentalDREDPayloadBodyForTest(t, 0, 4))
+
+	dec, err := NewDecoderDefault(48000, 3)
+	if err != nil {
+		t.Fatalf("NewDecoderDefault error: %v", err)
+	}
+	setStandaloneDREDDecoderBlobForTest(t, dec)
 	dec.SetIgnoreExtensions(true)
 
 	samples, err := dec.Decode(packet, 960)
@@ -726,32 +762,39 @@ func TestDecoderLeavesDREDPayloadDormantWhenIgnoringExtensions(t *testing.T) {
 	}
 }
 
-func TestDecoderClearsDREDPayloadWhenDowngradingBlobOrIgnoringExtensions(t *testing.T) {
+func TestDecoderDREDCacheFollowsStandaloneModelAndIgnoreExtensions(t *testing.T) {
 	packet := makeMultistreamPacketWithDREDForTest(t, 3, 1, makeExperimentalDREDPayloadBodyForTest(t, 0, 4))
 
 	dec, err := NewDecoderDefault(48000, 3)
 	if err != nil {
 		t.Fatalf("NewDecoderDefault error: %v", err)
 	}
-	dec.SetDNNBlob(makeDecoderBlobForDREDTest(t, true))
+	setStandaloneDREDDecoderBlobForTest(t, dec)
 
 	if _, err := dec.Decode(packet, 960); err != nil {
 		t.Fatalf("Decode error: %v", err)
 	}
 	if dec.dredCache[1].Empty() {
-		t.Fatal("expected cached DRED payload before downgrade")
+		t.Fatal("expected cached DRED payload before main blob change")
 	}
 
 	dec.SetDNNBlob(makeDecoderBlobForDREDTest(t, false))
+	if !dec.dredModelLoaded {
+		t.Fatal("main decoder SetDNNBlob cleared standalone DRED model state")
+	}
+	if dec.dredCache[1].Empty() {
+		t.Fatal("main decoder SetDNNBlob cleared cached DRED payload")
+	}
+	dec.setDREDDecoderBlob(nil)
 	for i := range dec.dredCache {
 		if dec.dredCache[i] != (internaldred.Cache{}) {
-			t.Fatalf("downgraded blob left stream %d DRED cache=%+v want zero state", i, dec.dredCache[i])
+			t.Fatalf("clearing standalone DRED model left stream %d cache=%+v want zero state", i, dec.dredCache[i])
 		}
 	}
 
-	dec.SetDNNBlob(makeDecoderBlobForDREDTest(t, true))
+	setStandaloneDREDDecoderBlobForTest(t, dec)
 	if _, err := dec.Decode(packet, 960); err != nil {
-		t.Fatalf("Decode after reenable error: %v", err)
+		t.Fatalf("Decode after standalone rearm error: %v", err)
 	}
 	if dec.dredCache[1].Empty() {
 		t.Fatal("expected cached DRED payload before ignore toggle")

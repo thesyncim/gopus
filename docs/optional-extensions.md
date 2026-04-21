@@ -29,7 +29,7 @@ go test -tags gopus_unsupported_controls ./...
 
 That build tag exists to make the quarantine explicit and testable. It does not change `SupportsOptionalExtension(...)`, and it does not turn DRED or OSCE BWE into supported release features.
 
-In quarantine builds, the tag-gated wrappers and low-level helper methods are available for parity work and explicit experiments. Some control state is retained and observable, but full model-backed DRED encode/decode and OSCE BWE runtime behavior remain incomplete.
+In quarantine builds, the tag-gated wrappers and low-level helper methods are available for parity work and explicit experiments. That now includes experimental standalone `DREDDecoder` / `DRED` metadata parsing wrappers for packet-level DRED discovery and retained low-cost parse state. Some control state is retained and observable, but full model-backed DRED encode/decode and OSCE BWE runtime behavior remain incomplete.
 
 ## Release Contract
 

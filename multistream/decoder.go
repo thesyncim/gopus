@@ -442,6 +442,7 @@ type Decoder struct {
 	projectionScratch  []float64
 	ignoreExtensions   bool
 	dnnBlob            *dnnblob.Blob
+	dredDNNBlob        *dnnblob.Blob
 	pitchDNNLoaded     bool
 	plcModelLoaded     bool
 	farganModelLoaded  bool

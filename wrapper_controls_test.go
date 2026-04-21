@@ -218,8 +218,10 @@ func makeFramedButIncompatibleTestDNNBlob() []byte {
 
 func makeValidEncoderTestDNNBlob() []byte {
 	var blob []byte
-	blob = appendTestBlobRecord(blob, "enc_dense1_bias", 0, 64*4)
-	blob = appendTestBlobRecord(blob, "dense_if_upsampler_1_bias", 0, 64*4)
+	for _, name := range dnnblob.RequiredEncoderControlRecordNames() {
+		payloadSize := 4
+		blob = appendTestBlobRecord(blob, name, 0, payloadSize)
+	}
 	return blob
 }
 
@@ -237,17 +239,10 @@ func makeValidDecoderTestDNNBlob() []byte {
 
 func TestValidEncoderTestDNNBlobShape(t *testing.T) {
 	blob := makeValidEncoderTestDNNBlob()
-	const wantLen = (64 + 256) + (64 + 256)
-	if len(blob) != wantLen {
-		t.Fatalf("len(blob)=%d want %d", len(blob), wantLen)
-	}
 	if string(blob[:4]) != "DNNw" {
 		t.Fatalf("magic=%q want DNNw", string(blob[:4]))
 	}
-	for _, name := range []string{
-		"enc_dense1_bias",
-		"dense_if_upsampler_1_bias",
-	} {
+	for _, name := range dnnblob.RequiredEncoderControlRecordNames() {
 		if !strings.Contains(string(blob), name) {
 			t.Fatalf("missing record name %q", name)
 		}
