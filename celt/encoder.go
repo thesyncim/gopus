@@ -132,8 +132,6 @@ type Encoder struct {
 	targetStatsHook func(CeltTargetStats)
 	// Optional diagnostics hook for capturing prefilter decisions.
 	prefilterDebugHook func(PrefilterDebugStats)
-	// Optional diagnostics hook for capturing coarse energy quantization decisions.
-	coarseDecisionHook func(coarseDecisionStats)
 
 	// Hybrid mode flag
 	// When true, postfilter flag encoding is skipped per RFC 6716 Section 3.2

@@ -32,24 +32,6 @@ type PrefilterDebugStats struct {
 	Gain           float64
 }
 
-// coarseDecisionStats captures optional per-band coarse energy diagnostics.
-type coarseDecisionStats struct {
-	Frame     int
-	Band      int
-	Channel   int
-	Intra     bool
-	LM        int
-	ProbFS0   int
-	ProbDecay int
-	X         float64
-	Pred      float64
-	Residual  float64
-	QIInitial int
-	QIFinal   int
-	Tell      int
-	BitsLeft  int
-}
-
 // SetPrefilterDebugHook installs a callback that receives per-frame prefilter stats.
 //
 // This hook is intended for parity investigation and development diagnostics.

@@ -173,17 +173,16 @@ func (v *VADState) Reset() {
 //   - activityQ8: Speech activity level (0-255, Q8)
 //   - isActive: True if speech activity detected
 func (v *VADState) GetSpeechActivity(pcm []float32, frameLength int, fsKHz int) (int, bool) {
-	activityQ8, isActive, _ := v.getSpeechActivityFast(pcm, frameLength, fsKHz)
-	return activityQ8, isActive
+	return v.getSpeechActivityFast(pcm, frameLength, fsKHz)
 }
 
 // getSpeechActivityFast is the hot path used by normal VAD callers.
 // It keeps the fixed-point math identical to getSpeechActivity while
 // avoiding trace bookkeeping branches in the inner loops.
-func (v *VADState) getSpeechActivityFast(pcm []float32, frameLength int, fsKHz int) (int, bool, bool) {
+func (v *VADState) getSpeechActivityFast(pcm []float32, frameLength int, fsKHz int) (int, bool) {
 	// Safety checks
 	if frameLength == 0 || len(pcm) < frameLength {
-		return 0, false, false
+		return 0, false
 	}
 
 	// Convert float32 samples to int16 for fixed-point processing
@@ -374,7 +373,7 @@ func (v *VADState) getSpeechActivityFast(pcm []float32, frameLength int, fsKHz i
 	// Activity decision (matches libopus: compare speech_activity_Q8 to threshold)
 	isActive := v.SpeechActivityQ8 >= speechActivityThresholdQ8
 
-	return v.SpeechActivityQ8, isActive, true
+	return v.SpeechActivityQ8, isActive
 }
 
 // getNoiseLevels updates noise level estimates for each band.
