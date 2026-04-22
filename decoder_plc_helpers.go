@@ -1,5 +1,7 @@
 package gopus
 
+import "github.com/thesyncim/gopus/internal/lpcnetplc"
+
 type plcDecodeState struct {
 	packetFrameSize    int
 	mode               Mode
@@ -89,21 +91,32 @@ func (d *Decoder) decodeHybridDRED48kInto(out []float32, frameSize int, state pl
 	if !d.dredNeuralConcealmentAvailable() || n <= 0 || n%3 != 0 {
 		return n, false, nil
 	}
-	if !d.generateDREDNeuralFrames16k(nil, n/3) {
+	r := d.dredRecoveryState()
+	neural := d.dredNeuralState()
+	b := d.dred48kBridgeState()
+	if r == nil || neural == nil || b == nil || d.celtDecoder == nil {
 		return n, false, nil
 	}
-	if d.hybridDecoder != nil {
-		d.hybridDecoder.SyncCELTAfterDREDLoss()
-	}
-	if d.celtDecoder != nil {
-		d.celtDecoder.SyncAfterDREDLoss()
-	}
-	if b := d.dred48kBridgeState(); b != nil {
-		b.dredLastNeural = true
+	if !d.celtDecoder.ConcealDRED48kMonoStateOnly(
+		n,
+		&b.dredLastNeural,
+		b.dredPLCPCM[:],
+		&b.dredPLCFill,
+		&b.dredPLCPreemphMem,
+		func(frame []float32) bool {
+			if len(frame) < lpcnetplc.FrameSize {
+				return false
+			}
+			if r.dredPLC.Blend() == 0 {
+				return r.dredPLC.GenerateConcealedFrameFloatWithAnalysis(&neural.dredAnalysis, &neural.dredPredictor, &neural.dredFARGAN, frame[:lpcnetplc.FrameSize])
+			}
+			return r.dredPLC.GenerateConcealedFrameFloat(&neural.dredPredictor, &neural.dredFARGAN, frame[:lpcnetplc.FrameSize])
+		},
+	) {
+		return n, false, nil
 	}
 	if state.queueCachedDRED {
 		p := d.dredPayloadState()
-		r := d.dredRecoveryState()
 		if p != nil && r != nil && p.dredModelLoaded && !d.ignoreExtensions && !p.dredCache.Empty() {
 			r.dredRecovery += n
 		}
