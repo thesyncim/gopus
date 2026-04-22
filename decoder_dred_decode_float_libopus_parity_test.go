@@ -1162,6 +1162,81 @@ func TestDecoderExplicitSecondLossThenNextPacketFrameSizeMatrixMatchesLibopus(t 
 	}
 }
 
+func TestDecoderExplicitSecondLossThenNextPacketFrameSizeMatrixMatchesCachedPath(t *testing.T) {
+	modelBlob, err := probeLibopusDREDModelBlob()
+	if err != nil {
+		t.Skipf("libopus dred model helper unavailable: %v", err)
+	}
+	decoderBlob := requireLibopusDecoderNeuralModelBlob(t)
+
+	for _, frameSize := range []int{120, 240, 480, 960} {
+		frameSize := frameSize
+		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
+			explicitDec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityStateForFrameSize(t, frameSize)
+			if packetInfo.sampleRate != 48000 || n != frameSize {
+				t.Skipf("48 kHz explicit second-loss follow-up cached parity requires frame=%d packet, got sampleRate=%d frame=%d", frameSize, packetInfo.sampleRate, n)
+			}
+			nextPacket := makeValidMonoCELTPacketForFrameSizeForDREDTest(t, frameSize)
+
+			explicitPCM0 := make([]float32, explicitDec.maxPacketSamples)
+			if _, err := explicitDec.decodeExplicitDREDFloat(dred, n, explicitPCM0, n); err != nil {
+				t.Fatalf("decodeExplicitDREDFloat(first) error: %v", err)
+			}
+			explicitPCM1 := make([]float32, explicitDec.maxPacketSamples)
+			if _, err := explicitDec.decodeExplicitDREDFloat(dred, 2*n, explicitPCM1, n); err != nil {
+				t.Fatalf("decodeExplicitDREDFloat(second) error: %v", err)
+			}
+			explicitNext := make([]float32, explicitDec.maxPacketSamples)
+			gotExplicitNext, err := explicitDec.Decode(nextPacket, explicitNext)
+			if err != nil {
+				t.Fatalf("Decode(explicit next packet) error: %v", err)
+			}
+
+			cachedDec, err := NewDecoder(DefaultDecoderConfig(packetInfo.sampleRate, 1))
+			if err != nil {
+				t.Fatalf("NewDecoder(cached) error: %v", err)
+			}
+			if err := cachedDec.SetDNNBlob(decoderBlob); err != nil {
+				t.Fatalf("SetDNNBlob(cached) error: %v", err)
+			}
+			blob, err := dnnblob.Clone(modelBlob)
+			if err != nil {
+				t.Fatalf("dnnblob.Clone(real model) error: %v", err)
+			}
+			if err := blob.ValidateDREDDecoderControl(); err != nil {
+				t.Fatalf("ValidateDREDDecoderControl(real model) error: %v", err)
+			}
+			cachedDec.setDREDDecoderBlob(blob)
+			cachedSeed := make([]float32, cachedDec.maxPacketSamples)
+			if _, err := cachedDec.Decode(seedPacket, cachedSeed); err != nil {
+				t.Fatalf("Decode(cached seed packet) error: %v", err)
+			}
+			cachedDec.maybeCacheDREDPayload(packetInfo.packet)
+			cachedPCM0 := make([]float32, cachedDec.maxPacketSamples)
+			if _, err := cachedDec.Decode(nil, cachedPCM0); err != nil {
+				t.Fatalf("Decode(nil, first) error: %v", err)
+			}
+			cachedPCM1 := make([]float32, cachedDec.maxPacketSamples)
+			if _, err := cachedDec.Decode(nil, cachedPCM1); err != nil {
+				t.Fatalf("Decode(nil, second) error: %v", err)
+			}
+			cachedNext := make([]float32, cachedDec.maxPacketSamples)
+			gotCachedNext, err := cachedDec.Decode(nextPacket, cachedNext)
+			if err != nil {
+				t.Fatalf("Decode(cached next packet) error: %v", err)
+			}
+
+			if gotExplicitNext != gotCachedNext {
+				t.Fatalf("next packet samples explicit=%d cached=%d", gotExplicitNext, gotCachedNext)
+			}
+			assertFloat32ApproxEqual(t, explicitNext[:gotExplicitNext], cachedNext[:gotCachedNext], "second-loss follow-up frame size matrix cached pcm", 1e-4)
+			assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, explicitDec).dredPLC.Snapshot(), requireDecoderDREDState(t, cachedDec).dredPLC.Snapshot(), "second-loss follow-up frame size matrix cached plc")
+			assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, explicitDec).dredFARGAN.Snapshot(), requireDecoderDREDState(t, cachedDec).dredFARGAN.Snapshot(), "second-loss follow-up frame size matrix cached fargan")
+			assertDecoderDREDCELT48kBridgeApproxEqual(t, explicitDec, snapshotDecoderDREDCELT48kForTest(t, cachedDec), "second-loss follow-up frame size matrix cached celt")
+		})
+	}
+}
+
 func TestDecoderExplicitDREDDecodeSecondLossMatchesCachedPath(t *testing.T) {
 	modelBlob, err := probeLibopusDREDModelBlob()
 	if err != nil {
