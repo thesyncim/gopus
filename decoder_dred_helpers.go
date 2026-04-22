@@ -240,7 +240,6 @@ func (d *Decoder) setDNNBlob(blob *dnnblob.Blob) error {
 		return nil
 	}
 
-	d.ensureDREDRecoveryState()
 	n = d.ensureDREDNeuralState()
 	n.pitchDNNLoaded = models.PitchDNN && analysis.Loaded()
 	n.plcModelLoaded = models.PLC && predictor.Loaded()
@@ -248,9 +247,6 @@ func (d *Decoder) setDNNBlob(blob *dnnblob.Blob) error {
 	n.dredAnalysis = analysis
 	n.dredPredictor = predictor
 	n.dredFARGAN = fargan
-	if d.sampleRate == 48000 {
-		d.ensureDRED48kBridgeState()
-	}
 	d.resetDRED48kNeuralBridge()
 	return nil
 }
@@ -355,20 +351,26 @@ func (d *Decoder) resetDRED48kNeuralBridge() {
 func (d *Decoder) dredSidecarActive() bool {
 	p := d.dredPayloadState()
 	r := d.dredRecoveryState()
-	if p == nil && r == nil {
+	if p == nil && r == nil && !d.dredNeuralModelsLoaded() {
 		return false
 	}
 	return (p != nil && p.dredModelLoaded) || d.dredNeuralModelsLoaded()
 }
 
 func (d *Decoder) dredNeuralConcealmentReady() bool {
-	r := d.dredRecoveryState()
 	n := d.dredNeuralState()
-	if r == nil || n == nil {
+	if n == nil {
 		return false
 	}
 	if !d.dredNeuralConfigEligible() {
 		return false
+	}
+	r := d.ensureDREDRecoveryState()
+	if r == nil {
+		return false
+	}
+	if d.sampleRate == 48000 {
+		d.ensureDRED48kBridgeState()
 	}
 	return n.pitchDNNLoaded && n.plcModelLoaded && n.farganModelLoaded
 }
@@ -480,7 +482,7 @@ func (d *Decoder) queueActiveDREDRecovery(frameSizeSamples int) internaldred.Fea
 }
 
 func (d *Decoder) shouldTrackDREDPCMHistory() bool {
-	return d.dredNeuralConcealmentReady() && d.sampleRate == 16000
+	return d.dredNeuralModelsLoaded() && d.sampleRate == 16000 && d.dredNeuralConfigEligible()
 }
 
 func (d *Decoder) markDREDConcealed() {
@@ -604,8 +606,14 @@ func (d *Decoder) applyDREDNeuralConcealment(pcm []float32, samplesPerChannel in
 }
 
 func (d *Decoder) markDREDUpdatedPCM(pcm []float32, samplesPerChannel int) {
+	if !d.dredSidecarActive() {
+		return
+	}
 	r := d.dredRecoveryState()
-	if r == nil || !d.dredSidecarActive() {
+	if d.shouldTrackDREDPCMHistory() {
+		r = d.ensureDREDRecoveryState()
+	}
+	if r == nil {
 		return
 	}
 	d.resetDRED48kNeuralBridge()

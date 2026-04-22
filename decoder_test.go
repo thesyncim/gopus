@@ -297,7 +297,7 @@ func TestStandaloneDREDArmKeepsRecoveryNeuralAnd48kBridgeDormant(t *testing.T) {
 	}
 }
 
-func TestMainDecoderDNNBlobKeepsPayloadDormant(t *testing.T) {
+func TestMainDecoderDNNBlobKeepsRecoveryAndPayloadDormant(t *testing.T) {
 	dec, err := NewDecoder(DefaultDecoderConfig(16000, 1))
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
@@ -310,14 +310,38 @@ func TestMainDecoderDNNBlobKeepsPayloadDormant(t *testing.T) {
 	if state.decoderDREDPayloadState != nil {
 		t.Fatalf("main decoder DNN blob eagerly allocated payload state: %+v", state.decoderDREDPayloadState)
 	}
-	if state.decoderDREDRecoveryState == nil {
-		t.Fatal("main decoder DNN blob did not allocate neural recovery state")
+	if state.decoderDREDRecoveryState != nil {
+		t.Fatalf("main decoder DNN blob eagerly allocated neural recovery state: %+v", state.decoderDREDRecoveryState)
 	}
 	if state.decoderDREDNeuralState == nil {
 		t.Fatal("main decoder DNN blob did not allocate neural state")
 	}
 	if state.decoderDRED48kBridgeState != nil {
 		t.Fatalf("16 kHz decoder eagerly allocated 48k bridge state: %+v", state.decoderDRED48kBridgeState)
+	}
+}
+
+func TestMainDecoder48kDNNBlobKeepsRecoveryAndBridgeDormant(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+
+	state := requireDecoderDREDState(t, dec)
+	if state.decoderDREDPayloadState != nil {
+		t.Fatalf("48 kHz decoder DNN blob eagerly allocated payload state: %+v", state.decoderDREDPayloadState)
+	}
+	if state.decoderDREDRecoveryState != nil {
+		t.Fatalf("48 kHz decoder DNN blob eagerly allocated neural recovery state: %+v", state.decoderDREDRecoveryState)
+	}
+	if state.decoderDREDNeuralState == nil {
+		t.Fatal("48 kHz decoder DNN blob did not allocate neural state")
+	}
+	if state.decoderDRED48kBridgeState != nil {
+		t.Fatalf("48 kHz decoder DNN blob eagerly allocated bridge state: %+v", state.decoderDRED48kBridgeState)
 	}
 }
 

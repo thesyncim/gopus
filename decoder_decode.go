@@ -260,10 +260,8 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 	}
 
 	d.maybeCacheDREDPayload(data)
-	if d.dredNeuralConcealmentReady() {
-		if r := d.dredRecoveryState(); r != nil {
-			r.dredRecovery = 0
-		}
+	if r := d.dredRecoveryState(); r != nil && d.dredNeuralModelsLoaded() {
+		r.dredRecovery = 0
 	}
 	if d.dredSidecarActive() {
 		d.markDREDUpdatedPCM(pcm[:totalSamples*d.channels], totalSamples)
