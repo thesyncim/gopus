@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"os"
 	"os/exec"
 	"sync"
 
@@ -135,11 +136,18 @@ func probeLibopusDREDModelBlob() ([]byte, error) {
 }
 
 func emitLibopusDREDPacket() (libopusDREDPacket, error) {
+	return emitLibopusDREDPacketWithFrameSize(960)
+}
+
+func emitLibopusDREDPacketWithFrameSize(frameSize int) (libopusDREDPacket, error) {
 	binPath, err := getLibopusDREDEmitPacketHelperPath()
 	if err != nil {
 		return libopusDREDPacket{}, err
 	}
 	cmd := exec.Command(binPath)
+	if frameSize > 0 {
+		cmd.Env = append(os.Environ(), fmt.Sprintf("GOPUS_DRED_FRAME_SIZE=%d", frameSize))
+	}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout

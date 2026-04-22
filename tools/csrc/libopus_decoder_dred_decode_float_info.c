@@ -188,10 +188,12 @@ int main(void) {
   uint32_t frame_size = 0;
   uint32_t seed_packet_len = 0;
   uint32_t packet_len = 0;
+  uint32_t next_packet_len = 0;
   uint32_t decoder_model_blob_len = 0;
   uint32_t dred_model_blob_len = 0;
   unsigned char *seed_packet = NULL;
   unsigned char *packet = NULL;
+  unsigned char *next_packet = NULL;
   unsigned char *decoder_model_blob = NULL;
   unsigned char *dred_model_blob = NULL;
   OpusDecoder *dec = NULL;
@@ -199,13 +201,16 @@ int main(void) {
   OpusDRED *dred = NULL;
   float *seed_pcm = NULL;
   float *out_pcm = NULL;
+  float *next_out_pcm = NULL;
   int err = OPUS_OK;
   int parse_ret = OPUS_OK;
   int dred_end = 0;
   int seed_packet_samples = 0;
+  int next_packet_samples = 0;
   int channels = 0;
   int warmup_ret = 0;
   int ret = 0;
+  int next_ret = 0;
   int blend = 0;
   int loss_count = 0;
   int analysis_gap = 0;
@@ -238,12 +243,12 @@ int main(void) {
     fprintf(stderr, "invalid input magic\n");
     return 1;
   }
-  if (!read_u32(&version) || version != 5 ||
+  if (!read_u32(&version) || version != 6 ||
       !read_u32(&sample_rate) || !read_u32(&max_dred_samples) ||
       !read_exact(&warmup_dred_offset, sizeof(warmup_dred_offset)) ||
       !read_exact(&dred_offset, sizeof(dred_offset)) ||
       !read_u32(&frame_size) || !read_u32(&seed_packet_len) ||
-      !read_u32(&packet_len) ||
+      !read_u32(&packet_len) || !read_u32(&next_packet_len) ||
       !read_u32(&decoder_model_blob_len) ||
       !read_u32(&dred_model_blob_len)) {
     fprintf(stderr, "failed to read helper header\n");
@@ -267,11 +272,22 @@ int main(void) {
       return 1;
     }
   }
+  if (next_packet_len > 0) {
+    next_packet = (unsigned char *)malloc(next_packet_len);
+    if (next_packet == NULL || !read_exact(next_packet, next_packet_len)) {
+      fprintf(stderr, "failed to read next packet payload\n");
+      free(next_packet);
+      free(seed_packet);
+      free(packet);
+      return 1;
+    }
+  }
   if (decoder_model_blob_len > 0) {
     decoder_model_blob = (unsigned char *)malloc(decoder_model_blob_len);
     if (decoder_model_blob == NULL || !read_exact(decoder_model_blob, decoder_model_blob_len)) {
       fprintf(stderr, "failed to read decoder model blob\n");
       free(decoder_model_blob);
+      free(next_packet);
       free(seed_packet);
       free(packet);
       return 1;
@@ -283,6 +299,7 @@ int main(void) {
       fprintf(stderr, "failed to read dred model blob\n");
       free(dred_model_blob);
       free(decoder_model_blob);
+      free(next_packet);
       free(seed_packet);
       free(packet);
       return 1;
@@ -294,6 +311,7 @@ int main(void) {
     fprintf(stderr, "failed to get packet channels\n");
     free(dred_model_blob);
     free(decoder_model_blob);
+    free(next_packet);
     free(seed_packet);
     free(packet);
     return 1;
@@ -326,6 +344,7 @@ int main(void) {
       opus_decoder_destroy(dec);
       free(dred_model_blob);
       free(decoder_model_blob);
+      free(next_packet);
       free(seed_packet);
       free(packet);
       return 1;
@@ -338,6 +357,7 @@ int main(void) {
     opus_decoder_destroy(dec);
     free(dred_model_blob);
     free(decoder_model_blob);
+    free(next_packet);
     free(seed_packet);
     free(packet);
     return 1;
@@ -351,6 +371,7 @@ int main(void) {
       opus_decoder_destroy(dec);
       free(dred_model_blob);
       free(decoder_model_blob);
+      free(next_packet);
       free(seed_packet);
       free(packet);
       return 1;
@@ -364,6 +385,7 @@ int main(void) {
     opus_decoder_destroy(dec);
     free(dred_model_blob);
     free(decoder_model_blob);
+    free(next_packet);
     free(seed_packet);
     free(packet);
     return 1;
@@ -380,6 +402,7 @@ int main(void) {
         opus_decoder_destroy(dec);
         free(dred_model_blob);
         free(decoder_model_blob);
+        free(next_packet);
         free(seed_packet);
         free(packet);
         return 1;
@@ -404,15 +427,16 @@ int main(void) {
   if (parse_ret >= 0) {
     out_pcm = (float *)calloc((size_t)frame_size * channels, sizeof(float));
     if (out_pcm == NULL) {
-      fprintf(stderr, "output buffer alloc failed\n");
-      free(seed_pcm);
-      opus_dred_free(dred);
-      opus_dred_decoder_destroy(dred_dec);
-      opus_decoder_destroy(dec);
-      free(dred_model_blob);
-      free(decoder_model_blob);
-      free(seed_packet);
-      free(packet);
+        fprintf(stderr, "output buffer alloc failed\n");
+        free(seed_pcm);
+        opus_dred_free(dred);
+        opus_dred_decoder_destroy(dred_dec);
+        opus_decoder_destroy(dec);
+        free(dred_model_blob);
+        free(decoder_model_blob);
+        free(next_packet);
+        free(seed_packet);
+        free(packet);
         return 1;
     }
     if (warmup_dred_offset >= 0) {
@@ -426,9 +450,33 @@ int main(void) {
       warmup_ret = 0;
       ret = opus_decoder_dred_decode_float(dec, dred, dred_offset, out_pcm, (opus_int32)frame_size);
     }
+    if (ret >= 0 && next_packet != NULL && next_packet_len > 0) {
+      next_packet_samples = opus_decoder_get_nb_samples(dec, next_packet, (opus_int32)next_packet_len);
+      if (next_packet_samples <= 0) {
+        next_ret = next_packet_samples;
+      } else {
+        next_out_pcm = (float *)calloc((size_t)next_packet_samples * channels, sizeof(float));
+        if (next_out_pcm == NULL) {
+          fprintf(stderr, "next output buffer alloc failed\n");
+          free(out_pcm);
+          free(seed_pcm);
+          opus_dred_free(dred);
+          opus_dred_decoder_destroy(dred_dec);
+          opus_decoder_destroy(dec);
+          free(dred_model_blob);
+          free(decoder_model_blob);
+          free(next_packet);
+          free(seed_packet);
+          free(packet);
+          return 1;
+        }
+        next_ret = opus_decode_float(dec, next_packet, (opus_int32)next_packet_len, next_out_pcm, next_packet_samples, 0);
+      }
+    }
   } else {
     warmup_ret = parse_ret;
     ret = parse_ret;
+    next_ret = parse_ret;
   }
 
   if (dec != NULL) {
@@ -452,11 +500,12 @@ int main(void) {
   }
 
   if (!write_exact(OUTPUT_MAGIC, 4) ||
-      !write_u32(4) ||
+      !write_u32(5) ||
       !write_i32(parse_ret) ||
       !write_i32(dred_end) ||
       !write_i32(warmup_ret) ||
       !write_i32(ret) ||
+      !write_i32(next_ret) ||
       !write_i32(channels) ||
       !write_i32(blend) ||
       !write_i32(loss_count) ||
@@ -491,12 +540,34 @@ int main(void) {
       if (!write_f32(out_pcm[i])) {
         fprintf(stderr, "failed to write pcm\n");
         free(out_pcm);
+        free(next_out_pcm);
         free(seed_pcm);
         opus_dred_free(dred);
         opus_dred_decoder_destroy(dred_dec);
         opus_decoder_destroy(dec);
         free(dred_model_blob);
         free(decoder_model_blob);
+        free(next_packet);
+        free(seed_packet);
+        free(packet);
+        return 1;
+      }
+    }
+  }
+
+  if (next_ret > 0) {
+    for (i = 0; i < next_ret * channels; i++) {
+      if (!write_f32(next_out_pcm[i])) {
+        fprintf(stderr, "failed to write next pcm\n");
+        free(out_pcm);
+        free(next_out_pcm);
+        free(seed_pcm);
+        opus_dred_free(dred);
+        opus_dred_decoder_destroy(dred_dec);
+        opus_decoder_destroy(dec);
+        free(dred_model_blob);
+        free(decoder_model_blob);
+        free(next_packet);
         free(seed_packet);
         free(packet);
         return 1;
@@ -523,12 +594,14 @@ int main(void) {
         !write_f32_array(internal_dec->lpcnet.fargan.gru3_state, SIG_NET_GRU3_STATE_SIZE)) {
       fprintf(stderr, "failed to write decoder DRED state payload\n");
       free(out_pcm);
+      free(next_out_pcm);
       free(seed_pcm);
     opus_dred_free(dred);
     opus_dred_decoder_destroy(dred_dec);
     opus_decoder_destroy(dec);
     free(dred_model_blob);
     free(decoder_model_blob);
+    free(next_packet);
     free(seed_packet);
     free(packet);
     return 1;
@@ -540,12 +613,14 @@ int main(void) {
       if (!write_f32_array(preemph_mem, 2)) {
         fprintf(stderr, "failed to write decoder DRED CELT preemph state\n");
         free(out_pcm);
+        free(next_out_pcm);
         free(seed_pcm);
         opus_dred_free(dred);
         opus_dred_decoder_destroy(dred_dec);
         opus_decoder_destroy(dec);
         free(dred_model_blob);
         free(decoder_model_blob);
+        free(next_packet);
         free(seed_packet);
         free(packet);
         return 1;
@@ -554,12 +629,14 @@ int main(void) {
         if (!write_f32((1.0f / 32768.0f) * celt_dec->plc_pcm[i])) {
           fprintf(stderr, "failed to write decoder DRED CELT plc queue\n");
           free(out_pcm);
+          free(next_out_pcm);
           free(seed_pcm);
           opus_dred_free(dred);
           opus_dred_decoder_destroy(dred_dec);
           opus_decoder_destroy(dec);
           free(dred_model_blob);
           free(decoder_model_blob);
+          free(next_packet);
           free(seed_packet);
           free(packet);
           return 1;
@@ -570,12 +647,14 @@ int main(void) {
           !write_f32_array(warmup_plc_update, GOPUS_PLC_UPDATE_SAMPLES)) {
         fprintf(stderr, "failed to write decoder warmup CELT state\n");
         free(out_pcm);
+        free(next_out_pcm);
         free(seed_pcm);
         opus_dred_free(dred);
         opus_dred_decoder_destroy(dred_dec);
         opus_decoder_destroy(dec);
         free(dred_model_blob);
         free(decoder_model_blob);
+        free(next_packet);
         free(seed_packet);
         free(packet);
         return 1;
@@ -584,12 +663,14 @@ int main(void) {
   }
 
   free(out_pcm);
+  free(next_out_pcm);
   free(seed_pcm);
   opus_dred_free(dred);
   opus_dred_decoder_destroy(dred_dec);
   opus_decoder_destroy(dec);
   free(dred_model_blob);
   free(decoder_model_blob);
+  free(next_packet);
   free(seed_packet);
   free(packet);
   return 0;
