@@ -549,12 +549,10 @@ func (d *Decoder) primeDREDCELTEntryHistory(mode Mode) int {
 	if got := r.dredPLC.ReplaceHistoryFromFramesFloat(neural.dredPLCUpdate[:samples]); got != samples {
 		return got
 	}
+	// Match libopus update_plc_state(): reseed retained PLC history here, but let
+	// the first-loss concealment path replay that history through LPCNet analysis
+	// once inside lpcnet_plc_conceal().
 	neural.dredAnalysis.Reset()
-	if d.sampleRate != 48000 {
-		if got := neural.dredAnalysis.PrimeHistoryFramesFloat(neural.dredPLCUpdate[:samples]); got != samples {
-			return got
-		}
-	}
 	return samples
 }
 
@@ -656,6 +654,11 @@ func (d *Decoder) applyDREDNeuralConcealment(pcm []float32, samplesPerChannel in
 		return true
 	}
 	d.prepareCachedDREDNeuralConcealment(samplesPerChannel)
+	if d.celtDecoder != nil && !d.celtDecoder.LastPLCFrameWasNeural() {
+		if r := d.dredRecoveryState(); r != nil && r.dredPLC.Blend() == 0 {
+			d.primeDREDCELTEntryHistory(d.prevMode)
+		}
+	}
 	if !d.generateDREDNeuralFrames16k(pcm, samplesPerChannel) {
 		return false
 	}
@@ -669,6 +672,9 @@ func (d *Decoder) markDREDUpdatedPCM(pcm []float32, samplesPerChannel int) {
 	if !d.dredSidecarActive() {
 		return
 	}
+	if b := d.dred48kBridgeState(); b != nil {
+		b.dredLastNeural = false
+	}
 	r := d.dredRecoveryState()
 	if d.shouldTrackDREDPCMHistory() {
 		r = d.ensureDREDRecoveryState()
@@ -676,7 +682,6 @@ func (d *Decoder) markDREDUpdatedPCM(pcm []float32, samplesPerChannel int) {
 	if r == nil {
 		return
 	}
-	d.resetDRED48kNeuralBridge()
 	if !d.shouldTrackDREDPCMHistory() {
 		r.dredPLC.MarkUpdated()
 		return

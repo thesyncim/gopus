@@ -673,7 +673,7 @@ func TestDecoderExplicitHybridDREDDecodeThenNextPacketMatchesLibopus(t *testing.
 	}
 }
 
-func TestDecoderCachedHybridDREDDecodeMatrixMatchesLibopus(t *testing.T) {
+func TestDecoderCachedHybridDREDDecodeMatrixMatchesExplicitDREDOracle(t *testing.T) {
 	tests := []struct {
 		name      string
 		bandwidth Bandwidth
@@ -721,15 +721,15 @@ func TestDecoderCachedHybridDREDDecodeMatrixMatchesLibopus(t *testing.T) {
 				t.Fatalf("Decode(nil)=%d want %d", got, n)
 			}
 
-			assertFloat32ApproxEqual(t, pcm[:got], want.pcm[:got], "cached hybrid libopus pcm", 1e-4)
-			assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "cached hybrid libopus plc")
-			assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "cached hybrid libopus fargan")
-			assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.celt48k, "cached hybrid libopus celt")
+			assertFloat32ApproxEqual(t, pcm[:got], want.pcm[:got], "cached hybrid explicit oracle pcm", 1e-4)
+			assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "cached hybrid explicit oracle plc")
+			assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "cached hybrid explicit oracle fargan")
+			assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.celt48k, "cached hybrid explicit oracle celt")
 		})
 	}
 }
 
-func TestDecoderCachedHybridDREDThenNextPacketMatchesLibopus(t *testing.T) {
+func TestDecoderCachedHybridDREDThenNextPacketMatchesExplicitDREDOracle(t *testing.T) {
 	tests := []struct {
 		name      string
 		bandwidth Bandwidth
@@ -790,7 +790,7 @@ func TestDecoderCachedHybridDREDThenNextPacketMatchesLibopus(t *testing.T) {
 	}
 }
 
-func TestDecoderCachedHybridDREDSecondLossMatchesLibopus(t *testing.T) {
+func TestDecoderCachedHybridDREDSecondLossMatchesExplicitDREDOracle(t *testing.T) {
 	tests := []struct {
 		name      string
 		bandwidth Bandwidth
@@ -850,7 +850,7 @@ func TestDecoderCachedHybridDREDSecondLossMatchesLibopus(t *testing.T) {
 	}
 }
 
-func TestDecoderCachedHybridSecondLossThenNextPacketMatchesLibopus(t *testing.T) {
+func TestDecoderCachedHybridSecondLossThenNextPacketMatchesExplicitDREDOracle(t *testing.T) {
 	tests := []struct {
 		name      string
 		bandwidth Bandwidth

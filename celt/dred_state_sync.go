@@ -35,3 +35,17 @@ func (d *Decoder) CommitDRED48kMonoConcealment(frame, overlap []float32) {
 	d.plcState.Reset()
 	d.plcState.SetLastFrameParams(plc.ModeCELT, frameSize, d.channels)
 }
+
+// SyncAfterDREDLoss aligns the retained CELT lost-frame cadence with libopus's
+// FRAME_DRED bookkeeping after a caller has already produced the audible loss
+// frame by another path.
+func (d *Decoder) SyncAfterDREDLoss() {
+	if d == nil {
+		return
+	}
+	d.plcDuration = 0
+	d.plcLastFrameType = frameDRED
+	d.plcSkip = false
+	d.plcPrevLossWasPeriodic = false
+	d.plcPrefilterAndFoldPending = true
+}
