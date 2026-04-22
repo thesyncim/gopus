@@ -155,13 +155,7 @@ func (d *Decoder) queueCachedDREDRecovery(maxDredSamples, decodeOffsetSamples, f
 }
 
 func (d *Decoder) shouldTrackDREDPCMHistory() bool {
-	if !d.dredSidecarActive() {
-		return false
-	}
-	if d.sampleRate != 16000 || d.channels != 1 {
-		return false
-	}
-	return true
+	return d.dredNeuralConcealmentReady()
 }
 
 func (d *Decoder) markDREDConcealed() {
