@@ -361,18 +361,25 @@ func TestMainDecoderDNNBlobKeepsRecoveryAndPayloadDormant(t *testing.T) {
 		t.Fatalf("SetDNNBlob error: %v", err)
 	}
 
-	state := requireDecoderDREDState(t, dec)
-	if state.decoderDREDPayloadState != nil {
-		t.Fatalf("main decoder DNN blob eagerly allocated payload state: %+v", state.decoderDREDPayloadState)
+	if !dec.dredNeuralModelsLoaded() {
+		t.Fatal("main decoder DNN blob did not retain neural model readiness")
 	}
-	if state.decoderDREDRecoveryState != nil {
-		t.Fatalf("main decoder DNN blob eagerly allocated neural recovery state: %+v", state.decoderDREDRecoveryState)
+	if dec.dredNeuralRuntimeLoaded() {
+		t.Fatal("main decoder DNN blob eagerly loaded neural runtime")
 	}
-	if state.decoderDREDNeuralState == nil {
-		t.Fatal("main decoder DNN blob did not allocate neural state")
-	}
-	if state.decoderDRED48kBridgeState != nil {
-		t.Fatalf("16 kHz decoder eagerly allocated 48k bridge state: %+v", state.decoderDRED48kBridgeState)
+	if state := dec.dredState(); state != nil {
+		if state.decoderDREDPayloadState != nil {
+			t.Fatalf("main decoder DNN blob eagerly allocated payload state: %+v", state.decoderDREDPayloadState)
+		}
+		if state.decoderDREDRecoveryState != nil {
+			t.Fatalf("main decoder DNN blob eagerly allocated neural recovery state: %+v", state.decoderDREDRecoveryState)
+		}
+		if state.decoderDREDNeuralState != nil {
+			t.Fatalf("main decoder DNN blob eagerly allocated neural runtime state: %+v", state.decoderDREDNeuralState)
+		}
+		if state.decoderDRED48kBridgeState != nil {
+			t.Fatalf("16 kHz decoder eagerly allocated 48k bridge state: %+v", state.decoderDRED48kBridgeState)
+		}
 	}
 }
 
@@ -385,18 +392,25 @@ func TestMainDecoder48kDNNBlobKeepsRecoveryAndBridgeDormant(t *testing.T) {
 		t.Fatalf("SetDNNBlob error: %v", err)
 	}
 
-	state := requireDecoderDREDState(t, dec)
-	if state.decoderDREDPayloadState != nil {
-		t.Fatalf("48 kHz decoder DNN blob eagerly allocated payload state: %+v", state.decoderDREDPayloadState)
+	if !dec.dredNeuralModelsLoaded() {
+		t.Fatal("48 kHz decoder DNN blob did not retain neural model readiness")
 	}
-	if state.decoderDREDRecoveryState != nil {
-		t.Fatalf("48 kHz decoder DNN blob eagerly allocated neural recovery state: %+v", state.decoderDREDRecoveryState)
+	if dec.dredNeuralRuntimeLoaded() {
+		t.Fatal("48 kHz decoder DNN blob eagerly loaded neural runtime")
 	}
-	if state.decoderDREDNeuralState == nil {
-		t.Fatal("48 kHz decoder DNN blob did not allocate neural state")
-	}
-	if state.decoderDRED48kBridgeState != nil {
-		t.Fatalf("48 kHz decoder DNN blob eagerly allocated bridge state: %+v", state.decoderDRED48kBridgeState)
+	if state := dec.dredState(); state != nil {
+		if state.decoderDREDPayloadState != nil {
+			t.Fatalf("48 kHz decoder DNN blob eagerly allocated payload state: %+v", state.decoderDREDPayloadState)
+		}
+		if state.decoderDREDRecoveryState != nil {
+			t.Fatalf("48 kHz decoder DNN blob eagerly allocated neural recovery state: %+v", state.decoderDREDRecoveryState)
+		}
+		if state.decoderDREDNeuralState != nil {
+			t.Fatalf("48 kHz decoder DNN blob eagerly allocated neural runtime state: %+v", state.decoderDREDNeuralState)
+		}
+		if state.decoderDRED48kBridgeState != nil {
+			t.Fatalf("48 kHz decoder DNN blob eagerly allocated bridge state: %+v", state.decoderDRED48kBridgeState)
+		}
 	}
 }
 
@@ -413,6 +427,7 @@ func TestClearingStandaloneDREDPreservesMainNeuralState(t *testing.T) {
 	for i := range pcm {
 		pcm[i] = float32((i%23)-11) / 23
 	}
+	dec.ensureDREDRecoveryState()
 	dec.markDREDUpdatedPCM(pcm[:], len(pcm))
 	before := requireDecoderDREDState(t, dec).dredPLC.Snapshot()
 
@@ -423,8 +438,11 @@ func TestClearingStandaloneDREDPreservesMainNeuralState(t *testing.T) {
 	if state.decoderDREDPayloadState != nil {
 		t.Fatalf("clearing standalone DRED left payload state behind: %+v", state.decoderDREDPayloadState)
 	}
-	if state.decoderDREDRecoveryState == nil || state.decoderDREDNeuralState == nil {
-		t.Fatalf("clearing standalone DRED dropped main neural state: recovery=%+v neural=%+v", state.decoderDREDRecoveryState, state.decoderDREDNeuralState)
+	if !dec.dredNeuralModelsLoaded() {
+		t.Fatal("clearing standalone DRED dropped main neural model readiness")
+	}
+	if state.decoderDREDRecoveryState == nil {
+		t.Fatalf("clearing standalone DRED dropped retained recovery state: %+v", state)
 	}
 	after := state.dredPLC.Snapshot()
 	if after.AnalysisPos != before.AnalysisPos || after.PredictPos != before.PredictPos || after.Blend != before.Blend {
@@ -625,6 +643,7 @@ func TestDecoderMarkDREDUpdatedPCMTracksMono16kHistory(t *testing.T) {
 	for i := range pcm {
 		pcm[i] = float32((i%19)-9) / 19
 	}
+	dec.ensureDREDRecoveryState()
 	dec.markDREDUpdatedPCM(pcm[:], len(pcm))
 	state := requireDecoderDREDState(t, dec)
 	if got := state.dredPLC.Blend(); got != 0 {
@@ -707,15 +726,21 @@ func TestDecoderPrimeDREDCELTEntryHistoryUsesCELTBridge(t *testing.T) {
 		t.Fatalf("FillPLCUpdate16kMono()=%d want %d", got, len(want))
 	}
 
+	beforeAnalysis := lpcnetplc.PLCBufSize
+	beforePredict := lpcnetplc.PLCBufSize
+	if state := dec.dredState(); state != nil && state.decoderDREDRecoveryState != nil {
+		beforeAnalysis = state.dredPLC.AnalysisPos()
+		beforePredict = state.dredPLC.PredictPos()
+	}
 	if got := dec.primeDREDCELTEntryHistory(ModeCELT); got != len(want) {
 		t.Fatalf("primeDREDCELTEntryHistory()=%d want %d", got, len(want))
 	}
 	state := requireDecoderDREDState(t, dec)
-	if got := state.dredPLC.AnalysisPos(); got != lpcnetplc.PLCBufSize-len(want) {
-		t.Fatalf("AnalysisPos=%d want %d", got, lpcnetplc.PLCBufSize-len(want))
+	if got := state.dredPLC.AnalysisPos(); got != max(0, beforeAnalysis-len(want)) {
+		t.Fatalf("AnalysisPos=%d want %d", got, max(0, beforeAnalysis-len(want)))
 	}
-	if got := state.dredPLC.PredictPos(); got != lpcnetplc.PLCBufSize-len(want) {
-		t.Fatalf("PredictPos=%d want %d", got, lpcnetplc.PLCBufSize-len(want))
+	if got := state.dredPLC.PredictPos(); got != max(0, beforePredict-len(want)) {
+		t.Fatalf("PredictPos=%d want %d", got, max(0, beforePredict-len(want)))
 	}
 
 	var history [lpcnetplc.PLCBufSize]float32
@@ -997,8 +1022,11 @@ func TestDecoderDREDCacheFollowsStandaloneModelAndIgnoreExtensions(t *testing.T)
 		t.Fatal("main decoder SetDNNBlob cleared cached DRED payload")
 	}
 	dec.setDREDDecoderBlob(nil)
-	if dec.dredState() != nil {
-		t.Fatalf("clearing standalone DRED model left sidecar=%+v want nil", dec.dredState())
+	if state := dec.dredState(); state != nil && state.decoderDREDPayloadState != nil {
+		t.Fatalf("clearing standalone DRED model left payload sidecar=%+v", state.decoderDREDPayloadState)
+	}
+	if dec.dredCachedPayloadActive() {
+		t.Fatal("clearing standalone DRED model left cached payload active")
 	}
 
 	setValidDREDDecoderBlobForTest(t, dec)
