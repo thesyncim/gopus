@@ -74,6 +74,23 @@ func (d *Decoder) clearDREDPayloadState() {
 	d.dredBlend = d.dredPLC.Blend()
 }
 
+func (d *Decoder) dredSidecarActive() bool {
+	if d == nil {
+		return false
+	}
+	return d.dredModelLoaded || d.pitchDNNLoaded || d.plcModelLoaded || d.farganModelLoaded
+}
+
+func (d *Decoder) dredNeuralConcealmentReady() bool {
+	if d == nil {
+		return false
+	}
+	if d.sampleRate != 16000 || d.channels != 1 {
+		return false
+	}
+	return d.pitchDNNLoaded && d.plcModelLoaded && d.farganModelLoaded
+}
+
 func (d *Decoder) maybeCacheDREDPayload(packet []byte) {
 	if !d.dredModelLoaded || d.ignoreExtensions || len(packet) == 0 {
 		return
@@ -138,17 +155,44 @@ func (d *Decoder) queueCachedDREDRecovery(maxDredSamples, decodeOffsetSamples, f
 }
 
 func (d *Decoder) shouldTrackDREDPCMHistory() bool {
-	if d == nil {
+	if !d.dredSidecarActive() {
 		return false
 	}
 	if d.sampleRate != 16000 || d.channels != 1 {
 		return false
 	}
-	return d.dredModelLoaded || d.pitchDNNLoaded || d.plcModelLoaded || d.farganModelLoaded
+	return true
+}
+
+func (d *Decoder) markDREDConcealed() {
+	if !d.dredSidecarActive() {
+		return
+	}
+	d.dredPLC.MarkConcealed()
+}
+
+func (d *Decoder) applyDREDNeuralConcealment(pcm []float32, samplesPerChannel int) bool {
+	if !d.dredNeuralConcealmentReady() || d.dredPLC.Blend() != 0 {
+		return false
+	}
+	if samplesPerChannel < lpcnetplc.FrameSize || samplesPerChannel%lpcnetplc.FrameSize != 0 || len(pcm) < samplesPerChannel {
+		return false
+	}
+	if d.dredModelLoaded && !d.ignoreExtensions && !d.dredCache.Empty() {
+		d.queueCachedDREDRecovery(samplesPerChannel, samplesPerChannel, samplesPerChannel)
+	} else {
+		d.dredPLC.FECClear()
+	}
+	for offset := 0; offset+lpcnetplc.FrameSize <= samplesPerChannel; offset += lpcnetplc.FrameSize {
+		if !d.dredPLC.ConcealFrameFloatWithAnalysis(&d.dredAnalysis, &d.dredPredictor, &d.dredFARGAN, pcm[offset:offset+lpcnetplc.FrameSize]) {
+			return false
+		}
+	}
+	return true
 }
 
 func (d *Decoder) markDREDUpdatedPCM(pcm []float32, samplesPerChannel int) {
-	if d == nil {
+	if !d.dredSidecarActive() {
 		return
 	}
 	if !d.shouldTrackDREDPCMHistory() {

@@ -28,11 +28,14 @@ func (d *Decoder) decodePLCForFECWithState(
 	}
 	frameSize = n
 
+	usedNeuralConcealment := d.applyDREDNeuralConcealment(pcm[:frameSize*d.channels], frameSize)
 	d.applyOutputGain(pcm[:frameSize*d.channels])
 	d.lastFrameSize = frameSize
 	d.lastPacketDuration = frameSize
 	d.lastDataLen = 0
-	d.dredPLC.MarkConcealed()
+	if !usedNeuralConcealment {
+		d.markDREDConcealed()
+	}
 	return frameSize, nil
 }
 
