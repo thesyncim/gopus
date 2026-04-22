@@ -107,6 +107,9 @@ func (d *Decoder) decodeExplicitDREDFloat(dred *DRED, dredOffsetSamples int, pcm
 			}
 		}
 	}
+	if d.celtDecoder != nil {
+		d.celtDecoder.SyncAfterDREDLoss()
+	}
 	d.applyOutputGain(pcm[:needed])
 	d.lastFrameSize = frameSizeSamples
 	d.lastPacketDuration = frameSizeSamples

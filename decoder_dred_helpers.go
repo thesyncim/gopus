@@ -718,6 +718,9 @@ func (d *Decoder) applyDREDNeuralConcealment(pcm []float32, samplesPerChannel in
 	if p != nil && p.dredModelLoaded && !d.ignoreExtensions && !p.dredCache.Empty() {
 		r.dredRecovery += samplesPerChannel
 	}
+	if d.celtDecoder != nil {
+		d.celtDecoder.SyncAfterDREDLoss()
+	}
 	return true
 }
 
