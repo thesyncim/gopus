@@ -45,6 +45,7 @@ Implemented or in progress:
 - the single-stream decoder now seeds first-loss neural concealment from that CELT bridge, retains a decoder-owned cached-DRED recovery cursor across consecutive losses, and keeps focused tag-gated live-decoder regression coverage around that path while the currently-green 16 kHz libopus parity lives on the explicit/cached DRED seam
 - the pure-Go full first-loss LPCNet analysis path now has its own libopus-backed oracle, so `GenerateConcealedFrameFloatWithAnalysis(...)` is pinned against libopus for concealed PCM plus retained PLC/FARGAN/analysis state from the same starting queue/history inputs
 - the single-stream decoder also now has an explicit processed-DRED PCM recovery helper for the targeted 48 kHz mono CELT seam, with parity coverage against the cached `Decode(nil)` path across first and second losses, against libopus `opus_decoder_dred_decode_float()` on a real packet, across feature-window offset boundaries, across the first resumed good packet after loss, and across a 48 kHz mono CELT frame-size matrix (`2.5 ms`, `5 ms`, `10 ms`, `20 ms`), including retained PLC/FARGAN runtime state after explicit decode
+- the same 48 kHz mono decoder DRED runtime now also covers Hybrid SWB/FB carriers truthfully: explicit and live cached `Decode(nil)` parity are both green against libopus across `10 ms` and `20 ms`, first loss, second loss, and first resumed good-packet handoff, with retained PLC/FARGAN/CELT bridge state checks included
 - the current 16 kHz mono decoder seam now keeps CELT PLC chunking in the same 48 kHz internal frame-size domain as the rest of the decoder core, so low-rate cached recovery no longer feeds invalid `320`-sample CELT PLC requests into first-loss decode
 - the current 16 kHz mono decoder seam now has libopus-backed explicit DRED parity for first loss, second loss, next-good-packet handoff, and a `10 ms`/`20 ms` carrier matrix, plus cached-vs-explicit first-loss parity and recovery-cursor coverage on the cached path
 - dormant-cost hardening now keeps the single-stream decoder's optional DRED runtime behind a lazy sidecar wrapper with split payload/cache, recovery queue state, neural runtime, and 48 kHz bridge state, so plain decoder DNN blobs no longer allocate standalone DRED payload state on unsupported configs, standalone DRED arming no longer allocates neural/48 kHz bridge state, and clearing standalone DRED no longer wipes main decoder neural history
@@ -65,7 +66,7 @@ Implemented or in progress:
 - explicit decoder-owned processed-DRED float decode parity at the targeted 48 kHz mono CELT seam
 - explicit decoder-owned processed-DRED float decode offset-boundary coverage around the libopus recovery-window transition points for that same seam
 - the libopus-backed explicit decoder helper now seeds real prior decoder state from a good packet, loads separate decoder and standalone DRED model blobs, supports warmup-plus-current explicit decode lifecycles, and captures retained CELT 48 kHz bridge state (`last_frame_type`, `plc_fill`, `plc_duration`, `skip_plc`, `plc_preemphasis_mem`, `preemph_memD`, and queued PLC PCM)
-- the required unsupported-controls gate now includes explicit 48 kHz warmup-state parity, first-loss and second-loss CELT bridge-state parity, first resumed good-packet handoff parity, and the 48 kHz mono CELT frame-size matrix, not just final PCM parity
+- the required unsupported-controls gate now includes Hybrid SWB/FB `10 ms`/`20 ms` decoder parity on both the explicit and live cached paths, alongside explicit 48 kHz warmup-state parity, first-loss and second-loss CELT bridge-state parity, first resumed good-packet handoff parity, and the 48 kHz mono CELT frame-size matrix
 - fallback-loss bookkeeping no longer forces the pure-Go LPCNet blend state forward when neural concealment did not actually run, but cached recovery scheduling still preserves the libopus-shaped post-loss recovery phase across recache boundaries
 - encoder-side `DFrameSize` staging / rollover groundwork exists in pure Go
 
@@ -80,7 +81,7 @@ Recent closed seams to avoid re-debugging:
 
 Still missing for full parity:
 
-- decoder-level parity beyond the current mono seams, especially Hybrid carriers, broader packet coverage, and the final supported-surface decisions for what graduates from quarantine
+- decoder-level parity beyond the current mono seams after CELT + Hybrid 48 kHz mono and the exercised 16 kHz mono seam, especially stereo/multistream coverage, broader packet coverage, and the final supported-surface decisions for what graduates from quarantine
 - encoder-side DRED latent generation and bitstream emission
 
 ## Workstreams
@@ -260,7 +261,7 @@ Acceptance:
 - full first-loss LPCNet analysis concealment now also matches libopus on retained PLC/FARGAN/analysis state when started from the same queue/history inputs
 - CELT neural-entry history preparation now matches libopus-derived `update_plc_state()` math closely enough for the 48 kHz -> 16 kHz bridge to stay deterministic and allocation-free in steady state
 - the current 16 kHz mono explicit/cached DRED seam now matches libopus across the implemented first-loss, second-loss, next-good-packet, and `10 ms`/`20 ms` matrix coverage
-- the 48 kHz mono CELT `FRAME_DRED` bridge is now green through first loss, repeated loss, the first resumed good packet, and the `2.5 ms`/`5 ms`/`10 ms`/`20 ms` frame-size matrix, while the 16 kHz mono seam is now green for explicit first loss, second loss, next-good-packet handoff, the `10 ms`/`20 ms` carrier matrix, cached-vs-explicit first loss, and cached recovery-cursor progression; the next decoder gap is widening libopus-backed lifecycle parity beyond the current mono seams
+- the 48 kHz mono CELT `FRAME_DRED` bridge is now green through first loss, repeated loss, the first resumed good packet, and the `2.5 ms`/`5 ms`/`10 ms`/`20 ms` frame-size matrix, the 48 kHz mono Hybrid SWB/FB seam is now green on both the explicit and cached live paths through first loss, second loss, and first resumed good-packet handoff across `10 ms`/`20 ms`, and the 16 kHz mono seam is green for explicit first loss, second loss, next-good-packet handoff, the `10 ms`/`20 ms` carrier matrix, cached-vs-explicit first loss, and cached recovery-cursor progression; the next decoder gap is widening libopus-backed parity beyond the current mono, single-stream seams
 
 ### M3. Encoder Staging Parity
 

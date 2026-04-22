@@ -99,7 +99,7 @@ func (d *Decoder) decodeDRED48kNeuralPLCInto(out []float32, frameSize int, state
 		n, err := d.decodePLCChunksInto(out, frameSize, state)
 		return n, false, err
 	}
-	if d.sampleRate != 48000 || d.channels != 1 || state.mode != ModeCELT {
+	if d.sampleRate != 48000 || d.channels != 1 || (state.mode != ModeCELT && state.mode != ModeHybrid) {
 		n, err := d.decodePLCChunksInto(out, frameSize, state)
 		return n, false, err
 	}

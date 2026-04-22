@@ -183,6 +183,57 @@ func makeValidMonoCELTPacketForFrameSizeForDREDTest(t *testing.T, frameSize int)
 	return packet
 }
 
+func makeValidMonoHybridPacketForFrameSizeBandwidthForDREDTest(t *testing.T, frameSize int, bandwidth Bandwidth) []byte {
+	t.Helper()
+
+	if frameSize != 480 && frameSize != 960 {
+		t.Fatalf("hybrid DRED test packet requires 10ms/20ms frame size, got %d", frameSize)
+	}
+	if bandwidth != BandwidthSuperwideband && bandwidth != BandwidthFullband {
+		t.Fatalf("hybrid DRED test packet requires SWB/FB bandwidth, got %v", bandwidth)
+	}
+
+	enc := internalenc.NewEncoder(48000, 1)
+	enc.SetMode(internalenc.ModeHybrid)
+	enc.SetBandwidth(types.Bandwidth(bandwidth))
+	enc.SetBitrate(48000)
+
+	pcm := make([]float64, frameSize)
+	for i := range pcm {
+		tm := float64(i) / 48000.0
+		pcm[i] = 0.28*math.Sin(2*math.Pi*173*tm) +
+			0.17*math.Sin(2*math.Pi*347*tm+0.13) +
+			0.09*math.Sin(2*math.Pi*521*tm+0.29)
+	}
+
+	packet, err := enc.Encode(pcm, frameSize)
+	if err != nil {
+		t.Fatalf("Encode(mono Hybrid): %v", err)
+	}
+	if len(packet) == 0 {
+		t.Fatal("Encode(mono Hybrid) returned empty packet")
+	}
+	toc := ParseTOC(packet[0])
+	if toc.Mode != ModeHybrid || toc.Bandwidth != bandwidth || toc.FrameSize != frameSize {
+		t.Fatalf("Encode(mono Hybrid) produced mode=%v bandwidth=%v frame=%d, want mode=%v bandwidth=%v frame=%d", toc.Mode, toc.Bandwidth, toc.FrameSize, ModeHybrid, bandwidth, frameSize)
+	}
+	return packet
+}
+
+func makeValidMonoPacketForModeBandwidthFrameSizeForDREDTest(t *testing.T, mode Mode, bandwidth Bandwidth, frameSize int) []byte {
+	t.Helper()
+
+	switch mode {
+	case ModeCELT:
+		return makeValidMonoCELTPacketForFrameSizeForDREDTest(t, frameSize)
+	case ModeHybrid:
+		return makeValidMonoHybridPacketForFrameSizeBandwidthForDREDTest(t, frameSize, bandwidth)
+	default:
+		t.Fatalf("unsupported DRED test packet mode %v", mode)
+		return nil
+	}
+}
+
 func makeValidMono16kPacketForDREDTest(t *testing.T) []byte {
 	t.Helper()
 

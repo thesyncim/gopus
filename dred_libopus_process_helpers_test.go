@@ -23,6 +23,12 @@ type libopusDREDPacket struct {
 	packet         []byte
 }
 
+type libopusDREDPacketConfig struct {
+	FrameSize int
+	ForceMode Mode
+	Bandwidth Bandwidth
+}
+
 type libopusDREDProcessInfo struct {
 	availableSamples  int
 	dredEndSamples    int
@@ -136,18 +142,43 @@ func probeLibopusDREDModelBlob() ([]byte, error) {
 }
 
 func emitLibopusDREDPacket() (libopusDREDPacket, error) {
-	return emitLibopusDREDPacketWithFrameSize(960)
+	return emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 960,
+		ForceMode: ModeCELT,
+		Bandwidth: BandwidthFullband,
+	})
 }
 
 func emitLibopusDREDPacketWithFrameSize(frameSize int) (libopusDREDPacket, error) {
+	return emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: frameSize,
+		ForceMode: ModeCELT,
+		Bandwidth: BandwidthFullband,
+	})
+}
+
+func emitLibopusDREDPacketWithConfig(cfg libopusDREDPacketConfig) (libopusDREDPacket, error) {
 	binPath, err := getLibopusDREDEmitPacketHelperPath()
 	if err != nil {
 		return libopusDREDPacket{}, err
 	}
-	cmd := exec.Command(binPath)
-	if frameSize > 0 {
-		cmd.Env = append(os.Environ(), fmt.Sprintf("GOPUS_DRED_FRAME_SIZE=%d", frameSize))
+	if cfg.FrameSize <= 0 {
+		cfg.FrameSize = 960
 	}
+	forceModeEnv, err := libopusDREDForceModeEnv(cfg.ForceMode)
+	if err != nil {
+		return libopusDREDPacket{}, err
+	}
+	bandwidthEnv, err := libopusDREDBandwidthEnv(cfg.Bandwidth)
+	if err != nil {
+		return libopusDREDPacket{}, err
+	}
+	cmd := exec.Command(binPath)
+	cmd.Env = append(os.Environ(),
+		fmt.Sprintf("GOPUS_DRED_FRAME_SIZE=%d", cfg.FrameSize),
+		fmt.Sprintf("GOPUS_DRED_FORCE_MODE=%s", forceModeEnv),
+		fmt.Sprintf("GOPUS_DRED_BANDWIDTH=%s", bandwidthEnv),
+	)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -164,11 +195,48 @@ func emitLibopusDREDPacketWithFrameSize(frameSize int) (libopusDREDPacket, error
 	if len(out) != 20+packetLen {
 		return libopusDREDPacket{}, fmt.Errorf("truncated dred packet output")
 	}
-	return libopusDREDPacket{
+	info := libopusDREDPacket{
 		sampleRate:     int(binary.LittleEndian.Uint32(out[8:12])),
 		maxDREDSamples: int(binary.LittleEndian.Uint32(out[12:16])),
 		packet:         append([]byte(nil), out[20:]...),
-	}, nil
+	}
+	toc := ParseTOC(info.packet[0])
+	if toc.Mode != cfg.ForceMode {
+		return libopusDREDPacket{}, fmt.Errorf("dred emit helper mode=%v want %v", toc.Mode, cfg.ForceMode)
+	}
+	if toc.Bandwidth != cfg.Bandwidth {
+		return libopusDREDPacket{}, fmt.Errorf("dred emit helper bandwidth=%v want %v", toc.Bandwidth, cfg.Bandwidth)
+	}
+	if toc.FrameSize != cfg.FrameSize {
+		return libopusDREDPacket{}, fmt.Errorf("dred emit helper frame size=%d want %d", toc.FrameSize, cfg.FrameSize)
+	}
+	return info, nil
+}
+
+func libopusDREDForceModeEnv(mode Mode) (string, error) {
+	switch mode {
+	case ModeCELT:
+		return "celt", nil
+	case ModeHybrid:
+		return "hybrid", nil
+	case ModeSILK:
+		return "silk", nil
+	default:
+		return "", fmt.Errorf("unsupported libopus dred packet force mode %v", mode)
+	}
+}
+
+func libopusDREDBandwidthEnv(bandwidth Bandwidth) (string, error) {
+	switch bandwidth {
+	case BandwidthWideband:
+		return "wb", nil
+	case BandwidthSuperwideband:
+		return "swb", nil
+	case BandwidthFullband:
+		return "fb", nil
+	default:
+		return "", fmt.Errorf("unsupported libopus dred packet bandwidth %v", bandwidth)
+	}
 }
 
 func probeLibopusDREDProcess(packet []byte, maxDREDSamples, sampleRate int) (libopusDREDProcessInfo, error) {
