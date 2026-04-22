@@ -90,6 +90,11 @@ func (d *Decoder) decodeExplicitDREDFloat(dred *DRED, dredOffsetSamples int, pcm
 		return frameSizeSamples, nil
 	}
 	d.queueExplicitDREDRecovery(dred, dredOffsetSamples, frameSizeSamples)
+	if d.celtDecoder != nil && !d.celtDecoder.LastPLCFrameWasNeural() {
+		if r := d.dredRecoveryState(); r != nil && r.dredPLC.Blend() == 0 {
+			d.primeDREDCELTEntryHistory(d.prevMode)
+		}
+	}
 	for offset := 0; offset+lpcnetplc.FrameSize <= frameSizeSamples; offset += lpcnetplc.FrameSize {
 		frame := pcm[offset : offset+lpcnetplc.FrameSize]
 		if r.dredPLC.Blend() == 0 {

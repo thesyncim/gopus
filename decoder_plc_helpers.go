@@ -1,7 +1,5 @@
 package gopus
 
-import "math"
-
 type plcDecodeState struct {
 	packetFrameSize    int
 	mode               Mode
@@ -81,23 +79,28 @@ func (d *Decoder) decodePLCChunksInto(out []float32, frameSize int, state plcDec
 }
 
 func (d *Decoder) decodeHybridDRED48kInto(out []float32, frameSize int, state plcDecodeState) (int, bool, error) {
+	if d.dredNeuralConcealmentAvailable() {
+		d.prepareDRED48kNeuralEntry(frameSize, state.mode)
+	}
 	n, err := d.decodePLCChunksInto(out, frameSize, state)
 	if err != nil {
 		return 0, false, err
 	}
-	for i := 0; i < n*d.channels; i++ {
-		out[i] = float32(math.Round(float64(out[i])*32768.0) * (1.0 / 32768.0))
-	}
 	if !d.dredNeuralConcealmentAvailable() || n <= 0 || n%3 != 0 {
 		return n, false, nil
-	}
-	if state.queueCachedDRED {
-		d.prepareCachedDREDNeuralConcealment(n)
 	}
 	if !d.generateDREDNeuralFrames16k(nil, n/3) {
 		return n, false, nil
 	}
-	d.resetDRED48kNeuralBridge()
+	if d.hybridDecoder != nil {
+		d.hybridDecoder.SyncCELTAfterDREDLoss()
+	}
+	if d.celtDecoder != nil {
+		d.celtDecoder.SyncAfterDREDLoss()
+	}
+	if b := d.dred48kBridgeState(); b != nil {
+		b.dredLastNeural = true
+	}
 	if state.queueCachedDRED {
 		p := d.dredPayloadState()
 		r := d.dredRecoveryState()

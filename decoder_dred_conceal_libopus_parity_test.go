@@ -284,7 +284,7 @@ func setDREDDecoderBlobFromBytesForTest(t *testing.T, dec *Decoder, modelBlob []
 	dec.setDREDDecoderBlob(blob)
 }
 
-func TestDecoderFirstLossNeuralConcealmentMatchesLibopus(t *testing.T) {
+func TestDecoderFirstLossNeuralConcealmentMatchesExplicitDREDOracle(t *testing.T) {
 	dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParity(t)
 
 	want, err := probeLibopusDecoderDREDDecodeFloat(packetInfo.packet, packetInfo.packet, packetInfo.maxDREDSamples, dec.sampleRate, -1, n, n)
@@ -307,12 +307,12 @@ func TestDecoderFirstLossNeuralConcealmentMatchesLibopus(t *testing.T) {
 	}
 
 	assertFloat32ApproxEqual(t, pcm[:n], want.pcm[:n], "concealed pcm", 1e-4)
-	assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "live 16k first-loss plc")
-	assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "live 16k first-loss fargan")
-	assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.celt48k, "live 16k first-loss celt")
+	assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "live 16k first-loss explicit oracle plc")
+	assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "live 16k first-loss explicit oracle fargan")
+	assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.celt48k, "live 16k first-loss explicit oracle celt")
 }
 
-func TestDecoderSecondLossNeuralConcealmentMatchesLibopus(t *testing.T) {
+func TestDecoderSecondLossNeuralConcealmentMatchesExplicitDREDOracle(t *testing.T) {
 	dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParity(t)
 
 	if _, err := dec.Decode(nil, pcm); err != nil {
@@ -342,7 +342,7 @@ func TestDecoderSecondLossNeuralConcealmentMatchesLibopus(t *testing.T) {
 	}
 
 	assertFloat32ApproxEqual(t, pcm[:n], want.pcm[:n], "second concealed pcm", 1e-4)
-	assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "live 16k second-loss plc")
-	assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "live 16k second-loss fargan")
-	assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.celt48k, "live 16k second-loss celt")
+	assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "live 16k second-loss explicit oracle plc")
+	assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "live 16k second-loss explicit oracle fargan")
+	assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.celt48k, "live 16k second-loss explicit oracle celt")
 }

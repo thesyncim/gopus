@@ -75,17 +75,17 @@ func (d *Decoder) ConcealDRED48kMonoToFloat32(
 	for i := 0; i < totalSamples/3; i++ {
 		var sum float32
 		for j := 0; j < 17; j++ {
-			sum += 3 * plcPCM[i+j] * dred48kSincFilter[3*j]
+			sum += 3 * (plcPCM[i+j] * 32768) * dred48kSincFilter[3*j]
 		}
 		neural[3*i] = sum
 		sum = 0
 		for j := 0; j < 16; j++ {
-			sum += 3 * plcPCM[i+j+1] * dred48kSincFilter[3*j+2]
+			sum += 3 * (plcPCM[i+j+1] * 32768) * dred48kSincFilter[3*j+2]
 		}
 		neural[3*i+1] = sum
 		sum = 0
 		for j := 0; j < 16; j++ {
-			sum += 3 * plcPCM[i+j+1] * dred48kSincFilter[3*j+1]
+			sum += 3 * (plcPCM[i+j+1] * 32768) * dred48kSincFilter[3*j+1]
 		}
 		neural[3*i+2] = sum
 	}
@@ -95,16 +95,20 @@ func (d *Decoder) ConcealDRED48kMonoToFloat32(
 	*plcFill -= consumed16k
 
 	preemph := float32(PreemphCoef)
+	preemphMem := *plcPreemphMem * 32768
 	for i := 0; i < frameSize; i++ {
 		tmp := neural[i]
-		d.scratchPLC[i] = float64(32768 * (tmp - preemph**plcPreemphMem))
-		*plcPreemphMem = tmp
+		d.scratchPLC[i] = float64(tmp - preemph*preemphMem)
+		preemphMem = tmp
 	}
-	overlapMem := *plcPreemphMem
+	// Match libopus celt_decode_lost(FRAME_DRED): retain plc_preemphasis_mem at
+	// the frame boundary and keep the overlap tail in a local only.
+	*plcPreemphMem = preemphMem * (1.0 / 32768.0)
+	overlapMem := preemphMem
 	for i := 0; i < Overlap; i++ {
 		idx := frameSize + i
 		tmp := neural[idx]
-		d.scratchPLC[idx] = float64(32768 * (tmp - preemph*overlapMem))
+		d.scratchPLC[idx] = float64(tmp - preemph*overlapMem)
 		overlapMem = tmp
 	}
 

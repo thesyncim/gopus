@@ -45,9 +45,10 @@ Implemented or in progress:
 - the single-stream decoder now seeds first-loss neural concealment from that CELT bridge, retains a decoder-owned cached-DRED recovery cursor across consecutive losses, and keeps focused tag-gated live-decoder regression coverage around that path while the current 16 kHz mono live cached seam remains open
 - the pure-Go full first-loss LPCNet analysis path now has its own libopus-backed oracle, so `GenerateConcealedFrameFloatWithAnalysis(...)` is pinned against libopus for concealed PCM plus retained PLC/FARGAN/analysis state from the same starting queue/history inputs
 - the single-stream decoder also now has an explicit processed-DRED PCM recovery helper for the targeted 48 kHz mono CELT seam, with parity coverage against the cached `Decode(nil)` path across first and second losses, against libopus `opus_decoder_dred_decode_float()` on a real packet, across feature-window offset boundaries, across the first resumed good packet after loss, and across a 48 kHz mono CELT frame-size matrix (`2.5 ms`, `5 ms`, `10 ms`, `20 ms`), including retained PLC/FARGAN runtime state after explicit decode
-- the same 48 kHz mono decoder DRED runtime now also has Hybrid SWB/FB carrier coverage on the explicit and live cached paths, and the current pure-Go Hybrid recovery now follows the libopus-shaped Hybrid PLC base instead of the earlier CELT-only replacement path; the remaining Hybrid delta is down to small libopus-backed PCM/state differences across `10 ms` and `20 ms`, first loss, second loss, and first resumed good-packet handoff
+- the same 48 kHz mono decoder DRED runtime now also has Hybrid SWB/FB carrier coverage on the explicit and live cached paths, and the current pure-Go Hybrid recovery now follows the libopus-shaped Hybrid PLC base instead of the earlier CELT-only replacement path; decoder-side cadence sync after a DRED-tagged Hybrid loss is now closer to libopus too, but the integrated Hybrid audio path is still incomplete, so the remaining Hybrid delta is still real across `10 ms` and `20 ms`, especially on resumed good-packet handoff
 - the current 16 kHz mono decoder seam now keeps CELT PLC chunking in the same 48 kHz internal frame-size domain as the rest of the decoder core, so low-rate cached recovery no longer feeds invalid `320`-sample CELT PLC requests into first-loss decode
-- the current 16 kHz mono decoder seam has libopus-backed live coverage for first loss and second loss plus explicit/cached shared runtime coverage, but the cached live first-loss and repeated-loss PCM parity still remains open
+- the current 16 kHz mono decoder seam has libopus-backed live coverage for first loss and second loss plus explicit/cached shared runtime coverage, and the decoder now explicitly primes the CELT-to-LPCNet entry bridge on first neural/DRED concealment for both cached-live and explicit 16 kHz paths; clean re-verification of that latest entry-state fix is still pending, and the 16 kHz PCM parity claim remains open until those libopus-backed decoder tests are green again
+- the current 16 kHz mono decoder entry bridge now follows libopus `update_plc_state()` more closely by reseeding retained PLC history without pre-replaying LPCNet analysis before first-loss concealment
 - dormant-cost hardening now keeps the single-stream decoder's optional DRED runtime behind a lazy sidecar split into payload/cache, recovery queue state, neural runtime, and 48 kHz bridge state: plain decode keeps the sidecar nil, standalone DRED arming wakes payload state only, and main decoder DNN loading wakes only the neural sub-state on the eligible mono 16 kHz / 48 kHz seams
 - the standalone single-stream DRED payload buffer is now allocated lazily on first cached DRED payload instead of at standalone model arm time
 - multistream optional-state hardening now keeps standalone DRED on a cache/timing-only path and keeps main decoder `SetDNNBlob(...)` capability-only because multistream still has no per-stream neural concealment consumer
@@ -76,14 +77,19 @@ Recent closed seams to avoid re-debugging:
 - standalone single-stream DRED arm is intentionally payload/model-only; recovery state wakes on first cached DRED payload rather than at arm time
 - the 48 kHz cached decoder path must rebuild queued processed DRED features on every loss to match the explicit/libopus second-loss lifecycle; first-loss-only queueing causes small but real drift
 - the seeded 48 kHz warmup boundary now matches libopus for `preemph_memD`, `plc_preemphasis_mem`, and the derived 16 kHz PLC update history
+- the active 48 kHz `FRAME_DRED` bridge must retain `plc_preemphasis_mem` at the frame boundary, not after the overlap tail; libopus keeps the overlap-only preemphasis state local
 - ordinary packet-entry invalidation must drop stale cached DRED payload metadata without clearing live PLC/FARGAN/CELT recovery carry-state; aggressive invalidation causes cached-vs-explicit drift on the first resumed good packet
 - decoder PLC chunking in the main decode path must stay in Opus's 48 kHz internal frame-size domain even on lower-rate decoders; chunking by `d.sampleRate` feeds invalid `CELT` PLC frame sizes into the current 16 kHz mono seam
 - cached non-48 kHz neural concealment must queue the active DRED recovery window before synthesis; otherwise first-loss PCM drifts from explicit/libopus even when the underlying neural runtime is correct
+- 16 kHz decoder recovery must reseed LPCNet history from the retained CELT bridge on first neural/DRED entry; skipping that entry carry makes the cached-live and explicit 16 kHz decoder paths agree with each other while both still drift from libopus
+- Hybrid resumed-packet parity depends on CELT-side `FRAME_DRED` cadence/state retention, not just on advancing the DRED feature queue; treating Hybrid loss as ordinary PLC plus hidden neural-state advancement leaves the next good packet far from libopus
 
 Still missing for full parity:
 
 - decoder-level parity beyond the current mono seams after CELT + Hybrid 48 kHz mono and the exercised 16 kHz mono seam, especially stereo/multistream coverage, broader packet coverage, and the final supported-surface decisions for what graduates from quarantine
 - encoder-side DRED latent generation and bitstream emission
+- a dedicated libopus cached/live decoder oracle for `opus_decode_float(NULL, ...)`; several current cached/live tests still compare against the explicit `opus_decoder_dred_decode_float()` helper and should not be treated as final live-oracle coverage
+- clean runtime re-verification after the current macOS launcher issue: newly linked local Go binaries are intermittently stalling before Go runtime with `com.apple.provenance` present, so compile-only checks may pass while runtime parity remains blocked locally
 
 ## Workstreams
 
@@ -231,6 +237,7 @@ Acceptance:
 ### Required Before Claiming Recovery/Audio Parity
 
 - helper or fixture path that compares the full `opus_decoder_dred_decode*()` output, not just the bounded post-analysis concealment path
+- helper or fixture path that compares the cached/live decoder loss path (`opus_decode_float(..., NULL, ...)`) directly, not just the explicit `opus_decoder_dred_decode*()` entrypoint
 - decoder-level live first-loss and repeated-loss neural concealment tests that start from a good-packet decoder state and compare concealed PCM plus retained cursor/state against libopus at each supported seam
 - explicit decoder-owned DRED decode tests that compare processed-DRED PCM output, retained PLC/FARGAN decoder state, retained CELT 48 kHz bridge state, the first resumed good packet after loss, and the 48 kHz mono CELT frame-size matrix against libopus for at least the current supported seam and selected offset-boundary cases
 - lost-packet recovery cases across at least:
