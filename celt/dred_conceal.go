@@ -36,12 +36,49 @@ func (d *Decoder) ConcealDRED48kMonoToFloat32(
 	if d.chooseLostFrameType(0, true, true) != frameDRED {
 		return false
 	}
+	return d.concealDRED48kMono(out[:frameSize], frameSize, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, true)
+}
 
+// ConcealDRED48kMonoStateOnly updates retained CELT 48 kHz mono DRED state
+// without producing caller-visible PCM or recording another loss event.
+// This is used by the hybrid decoder, which already emitted the audible lost
+// frame via its SILK+CELT PLC base but still needs libopus-shaped DRED CELT
+// waveform state for the next good packet.
+func (d *Decoder) ConcealDRED48kMonoStateOnly(
+	frameSize int,
+	lastNeural *bool,
+	plcPCM []float32,
+	plcFill *int,
+	plcPreemphMem *float32,
+	generate func([]float32) bool,
+) bool {
+	if d == nil || d.channels != 1 || frameSize <= 0 || lastNeural == nil || plcFill == nil || plcPreemphMem == nil || generate == nil {
+		return false
+	}
+	return d.concealDRED48kMono(nil, frameSize, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, false)
+}
+
+func (d *Decoder) concealDRED48kMono(
+	out []float32,
+	frameSize int,
+	lastNeural *bool,
+	plcPCM []float32,
+	plcFill *int,
+	plcPreemphMem *float32,
+	generate func([]float32) bool,
+	recordLoss bool,
+) bool {
+	if d == nil || d.channels != 1 || frameSize <= 0 || lastNeural == nil || plcFill == nil || plcPreemphMem == nil || generate == nil {
+		return false
+	}
 	if d.plcState == nil {
 		d.plcState = plc.NewState()
 	}
-	_ = d.plcState.RecordLoss()
 	lossCount := d.plcState.LostCount()
+	if recordLoss {
+		_ = d.plcState.RecordLoss()
+		lossCount = d.plcState.LostCount()
+	}
 	*lastNeural = d.lastPLCFrameWasNeural()
 
 	totalSamples := frameSize + Overlap
@@ -123,9 +160,21 @@ func (d *Decoder) ConcealDRED48kMonoToFloat32(
 	d.updatePostfilterHistory(d.scratchPLC[:frameSize], frameSize, combFilterHistory)
 	d.updatePLCDecodeHistory(d.scratchPLC[:frameSize], frameSize, plcDecodeBufferSize)
 	d.updatePLCOverlapBuffer(d.scratchPLC[:totalSamples], frameSize)
-	d.applyDeemphasisAndScaleToFloat32(out[:frameSize], d.scratchPLC[:frameSize], 1.0/32768.0)
+	if out != nil {
+		if len(out) < frameSize {
+			return false
+		}
+		d.applyDeemphasisAndScaleToFloat32(out[:frameSize], d.scratchPLC[:frameSize], 1.0/32768.0)
+	}
 
-	d.finishLostFrame(frameDRED, frameSize)
+	if recordLoss {
+		d.finishLostFrame(frameDRED, frameSize)
+	} else {
+		d.plcDuration = 0
+		d.plcSkip = false
+		d.plcLastFrameType = frameDRED
+		d.plcPrevLossWasPeriodic = false
+	}
 	d.plcPrefilterAndFoldPending = true
 	*lastNeural = true
 	return true

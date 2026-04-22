@@ -97,8 +97,71 @@ func (d *Decoder) ensureDRED48kBridgeState() *decoderDRED48kBridgeState {
 }
 
 func (d *Decoder) dredNeuralModelsLoaded() bool {
+	if d == nil {
+		return false
+	}
+	return d.pitchDNNLoaded || d.plcModelLoaded || d.farganModelLoaded
+}
+
+func (d *Decoder) dredNeuralRuntimeLoaded() bool {
 	n := d.dredNeuralState()
-	return n != nil && (n.pitchDNNLoaded || n.plcModelLoaded || n.farganModelLoaded)
+	return n != nil &&
+		(!d.pitchDNNLoaded || (n.pitchDNNLoaded && n.dredAnalysis.Loaded())) &&
+		(!d.plcModelLoaded || (n.plcModelLoaded && n.dredPredictor.Loaded())) &&
+		(!d.farganModelLoaded || (n.farganModelLoaded && n.dredFARGAN.Loaded()))
+}
+
+func (d *Decoder) resetDREDNeuralRuntime() {
+	n := d.dredNeuralState()
+	if n == nil {
+		return
+	}
+	n.pitchDNNLoaded = false
+	n.plcModelLoaded = false
+	n.farganModelLoaded = false
+	n.dredAnalysis.Reset()
+	n.dredPredictor.Reset()
+	n.dredFARGAN.Reset()
+}
+
+func (d *Decoder) ensureDREDNeuralRuntimeLoaded() bool {
+	if d == nil || !d.dredNeuralModelsLoaded() || d.dnnBlob == nil {
+		return false
+	}
+	if d.dredNeuralRuntimeLoaded() {
+		return true
+	}
+	var (
+		analysis  lpcnetplc.Analysis
+		predictor lpcnetplc.Predictor
+		fargan    lpcnetplc.FARGAN
+	)
+	if d.pitchDNNLoaded {
+		if err := analysis.SetModel(d.dnnBlob); err != nil {
+			return false
+		}
+	}
+	if d.plcModelLoaded {
+		if err := predictor.SetModel(d.dnnBlob); err != nil {
+			return false
+		}
+	}
+	if d.farganModelLoaded {
+		if err := fargan.SetModel(d.dnnBlob); err != nil {
+			return false
+		}
+	}
+	n := d.ensureDREDNeuralState()
+	if n == nil {
+		return false
+	}
+	n.pitchDNNLoaded = d.pitchDNNLoaded && analysis.Loaded()
+	n.plcModelLoaded = d.plcModelLoaded && predictor.Loaded()
+	n.farganModelLoaded = d.farganModelLoaded && fargan.Loaded()
+	n.dredAnalysis = analysis
+	n.dredPredictor = predictor
+	n.dredFARGAN = fargan
+	return true
 }
 
 func (d *Decoder) dropDREDPayloadStateIfDormant() {
@@ -208,18 +271,16 @@ func (d *Decoder) setDNNBlob(blob *dnnblob.Blob) error {
 	}
 
 	d.dnnBlob = blob
+	d.pitchDNNLoaded = models.PitchDNN
+	d.plcModelLoaded = models.PLC
+	d.farganModelLoaded = models.FARGAN
 	d.osceModelsLoaded = models.OSCE
 	d.osceBWEModelLoaded = models.OSCEBWE
 
 	n := d.dredNeuralState()
 	if !models.PitchDNN && !models.PLC && !models.FARGAN {
 		if n != nil {
-			n.pitchDNNLoaded = false
-			n.plcModelLoaded = false
-			n.farganModelLoaded = false
-			n.dredAnalysis.Reset()
-			n.dredPredictor.Reset()
-			n.dredFARGAN.Reset()
+			d.resetDREDNeuralRuntime()
 			d.resetDRED48kNeuralBridge()
 			d.dropDREDNeuralStateIfDormant()
 		}
@@ -228,25 +289,21 @@ func (d *Decoder) setDNNBlob(blob *dnnblob.Blob) error {
 
 	if !d.dredNeuralConfigEligible() {
 		if n != nil {
-			n.pitchDNNLoaded = false
-			n.plcModelLoaded = false
-			n.farganModelLoaded = false
-			n.dredAnalysis.Reset()
-			n.dredPredictor.Reset()
-			n.dredFARGAN.Reset()
+			d.resetDREDNeuralRuntime()
 			d.resetDRED48kNeuralBridge()
 			d.dropDREDNeuralStateIfDormant()
 		}
 		return nil
 	}
 
-	n = d.ensureDREDNeuralState()
-	n.pitchDNNLoaded = models.PitchDNN && analysis.Loaded()
-	n.plcModelLoaded = models.PLC && predictor.Loaded()
-	n.farganModelLoaded = models.FARGAN && fargan.Loaded()
-	n.dredAnalysis = analysis
-	n.dredPredictor = predictor
-	n.dredFARGAN = fargan
+	if n != nil {
+		n.pitchDNNLoaded = models.PitchDNN && analysis.Loaded()
+		n.plcModelLoaded = models.PLC && predictor.Loaded()
+		n.farganModelLoaded = models.FARGAN && fargan.Loaded()
+		n.dredAnalysis = analysis
+		n.dredPredictor = predictor
+		n.dredFARGAN = fargan
+	}
 	d.resetDRED48kNeuralBridge()
 	return nil
 }
@@ -379,18 +436,17 @@ func (d *Decoder) dredNeuralConcealmentReady() bool {
 }
 
 func (d *Decoder) dredNeuralConcealmentAvailable() bool {
-	n := d.dredNeuralState()
-	if n == nil {
-		return false
-	}
 	if !d.dredNeuralConfigEligible() {
 		return false
 	}
-	return n.pitchDNNLoaded && n.plcModelLoaded && n.farganModelLoaded
+	return d.pitchDNNLoaded && d.plcModelLoaded && d.farganModelLoaded
 }
 
 func (d *Decoder) ensureDREDNeuralConcealmentRuntime() bool {
 	if !d.dredNeuralConcealmentAvailable() {
+		return false
+	}
+	if !d.ensureDREDNeuralRuntimeLoaded() {
 		return false
 	}
 	r := d.ensureDREDRecoveryState()
@@ -546,14 +602,11 @@ func (d *Decoder) primeDREDCELTEntryHistory(mode Mode) int {
 	if samples == 0 {
 		return 0
 	}
-	if got := r.dredPLC.ReplaceHistoryFromFramesFloat(neural.dredPLCUpdate[:samples]); got != samples {
-		return got
+	total := 0
+	for offset := 0; offset+lpcnetplc.FrameSize <= samples; offset += lpcnetplc.FrameSize {
+		total += r.dredPLC.MarkUpdatedFrameFloat(neural.dredPLCUpdate[offset : offset+lpcnetplc.FrameSize])
 	}
-	// Match libopus update_plc_state(): reseed retained PLC history here, but let
-	// the first-loss concealment path replay that history through LPCNet analysis
-	// once inside lpcnet_plc_conceal().
-	neural.dredAnalysis.Reset()
-	return samples
+	return total
 }
 
 func (d *Decoder) prepareDRED48kNeuralEntry(frameSize int, mode Mode) {

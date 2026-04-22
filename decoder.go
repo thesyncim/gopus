@@ -74,7 +74,6 @@ type decoderDRED48kBridgeState struct {
 	dredPLCFill       int
 	dredPLCPreemphMem float32
 	dredLastNeural    bool
-	dred48kScratch    [960 + celt.Overlap]float32
 }
 
 type decoderDREDState struct {
@@ -137,6 +136,9 @@ type Decoder struct {
 
 	// Decoder-side DNN readiness mirrors the validated model families retained
 	// by OPUS_SET_DNN_BLOB so optional paths can stay dormant until they are real.
+	pitchDNNLoaded     bool
+	plcModelLoaded     bool
+	farganModelLoaded  bool
 	osceModelsLoaded   bool
 	osceBWEModelLoaded bool
 	osceBWEEnabled     bool

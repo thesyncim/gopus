@@ -340,13 +340,28 @@ func TestDecoderSetDNNBlobRetainedAcrossReset(t *testing.T) {
 	if dec.dnnBlob == nil {
 		t.Fatal("wrapper dnnBlob=nil want non-nil")
 	}
+	if !dec.pitchDNNLoaded || !dec.plcModelLoaded || !dec.farganModelLoaded {
+		t.Fatal("decoder retained DNN model flags not armed from validated blob")
+	}
+	if dec.dredState() != nil {
+		t.Fatalf("decoder eagerly allocated DRED sidecar on SetDNNBlob: %+v", dec.dredState())
+	}
+	if !dec.dredNeuralConcealmentReady() {
+		t.Fatal("decoder failed to lazily materialize neural concealment runtime")
+	}
 	if !requireDecoderDREDState(t, dec).dredAnalysis.Loaded() || !requireDecoderDREDState(t, dec).dredPredictor.Loaded() || !requireDecoderDREDState(t, dec).dredFARGAN.Loaded() {
-		t.Fatal("decoder runtime models not loaded from retained DNN blob")
+		t.Fatal("decoder runtime models not loaded after lazy materialization")
 	}
 
 	dec.Reset()
 	if dec.dnnBlob == nil {
 		t.Fatal("wrapper dnnBlob cleared by Reset")
+	}
+	if !dec.pitchDNNLoaded || !dec.plcModelLoaded || !dec.farganModelLoaded {
+		t.Fatal("decoder retained DNN model flags cleared by Reset")
+	}
+	if !dec.dredNeuralConcealmentReady() {
+		t.Fatal("decoder failed to rematerialize neural concealment runtime after Reset")
 	}
 	if !requireDecoderDREDState(t, dec).dredAnalysis.Loaded() || !requireDecoderDREDState(t, dec).dredPredictor.Loaded() || !requireDecoderDREDState(t, dec).dredFARGAN.Loaded() {
 		t.Fatal("decoder runtime models cleared by Reset")
