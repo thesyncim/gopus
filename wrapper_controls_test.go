@@ -3,11 +3,13 @@ package gopus
 import (
 	"encoding/binary"
 	"errors"
+	"sort"
 	"strings"
 	"testing"
 
 	encodercore "github.com/thesyncim/gopus/encoder"
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/lpcnetplc"
 )
 
 type optionalEncoderControl interface {
@@ -212,6 +214,30 @@ func appendTestBlobRecord(dst []byte, name string, typ int32, payloadSize int) [
 	return append(dst, out...)
 }
 
+type testBlobRecordSpec struct {
+	typ  int32
+	size int
+}
+
+func addLinearLayerTestBlobSpec(specs map[string]testBlobRecordSpec, spec lpcnetplc.LinearLayerSpec) {
+	if spec.Bias != "" {
+		specs[spec.Bias] = testBlobRecordSpec{typ: dnnblob.TypeFloat, size: 4 * spec.NbOutputs}
+	}
+	if spec.Subias != "" {
+		specs[spec.Subias] = testBlobRecordSpec{typ: dnnblob.TypeFloat, size: 4 * spec.NbOutputs}
+	}
+	if spec.Scale != "" {
+		specs[spec.Scale] = testBlobRecordSpec{typ: dnnblob.TypeFloat, size: 4 * spec.NbOutputs}
+	}
+	if spec.Weights != "" {
+		specs[spec.Weights] = testBlobRecordSpec{typ: dnnblob.TypeInt8, size: spec.NbInputs * spec.NbOutputs}
+		return
+	}
+	if spec.FloatWeights != "" {
+		specs[spec.FloatWeights] = testBlobRecordSpec{typ: dnnblob.TypeFloat, size: 4 * spec.NbInputs * spec.NbOutputs}
+	}
+}
+
 func makeFramedButIncompatibleTestDNNBlob() []byte {
 	return appendTestBlobRecord(nil, "dummy_record", 0, 4)
 }
@@ -226,13 +252,25 @@ func makeValidEncoderTestDNNBlob() []byte {
 }
 
 func makeValidDecoderTestDNNBlob() []byte {
-	var blob []byte
+	specs := make(map[string]testBlobRecordSpec)
 	for _, name := range dnnblob.RequiredDecoderControlRecordNames(false) {
-		payloadSize := 4
-		if name == "dense_if_upsampler_1_bias" {
-			payloadSize = 64 * 4
-		}
-		blob = appendTestBlobRecord(blob, name, 0, payloadSize)
+		specs[name] = testBlobRecordSpec{typ: dnnblob.TypeFloat, size: 4}
+	}
+	for _, spec := range lpcnetplc.ModelLayerSpecs() {
+		addLinearLayerTestBlobSpec(specs, spec)
+	}
+	for _, spec := range lpcnetplc.FARGANModelLayerSpecs() {
+		addLinearLayerTestBlobSpec(specs, spec)
+	}
+	names := make([]string, 0, len(specs))
+	for name := range specs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	var blob []byte
+	for _, name := range names {
+		spec := specs[name]
+		blob = appendTestBlobRecord(blob, name, spec.typ, spec.size)
 	}
 	return blob
 }
@@ -286,10 +324,16 @@ func TestDecoderSetDNNBlobRetainedAcrossReset(t *testing.T) {
 	if dec.dnnBlob == nil {
 		t.Fatal("wrapper dnnBlob=nil want non-nil")
 	}
+	if !dec.dredPredictor.Loaded() || !dec.dredFARGAN.Loaded() {
+		t.Fatal("decoder runtime models not loaded from retained DNN blob")
+	}
 
 	dec.Reset()
 	if dec.dnnBlob == nil {
 		t.Fatal("wrapper dnnBlob cleared by Reset")
+	}
+	if !dec.dredPredictor.Loaded() || !dec.dredFARGAN.Loaded() {
+		t.Fatal("decoder runtime models cleared by Reset")
 	}
 }
 

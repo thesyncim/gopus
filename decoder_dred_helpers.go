@@ -4,19 +4,41 @@ import (
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	internaldred "github.com/thesyncim/gopus/internal/dred"
 	"github.com/thesyncim/gopus/internal/dred/rdovae"
+	"github.com/thesyncim/gopus/internal/lpcnetplc"
 )
 
 // setDNNBlob mirrors the main libopus decoder OPUS_SET_DNN_BLOB surface. The
 // standalone DRED decoder keeps its own model lifetime and is managed
 // separately through setDREDDecoderBlob.
-func (d *Decoder) setDNNBlob(blob *dnnblob.Blob) {
+func (d *Decoder) setDNNBlob(blob *dnnblob.Blob) error {
+	var (
+		models    dnnblob.DecoderModelState
+		predictor lpcnetplc.Predictor
+		fargan    lpcnetplc.FARGAN
+	)
+	if blob != nil {
+		models = blob.DecoderModels()
+		if models.PLC {
+			if err := predictor.SetModel(blob); err != nil {
+				return err
+			}
+		}
+		if models.FARGAN {
+			if err := fargan.SetModel(blob); err != nil {
+				return err
+			}
+		}
+	}
+
 	d.dnnBlob = blob
-	models := blob.DecoderModels()
 	d.pitchDNNLoaded = models.PitchDNN
-	d.plcModelLoaded = models.PLC
-	d.farganModelLoaded = models.FARGAN
+	d.plcModelLoaded = models.PLC && predictor.Loaded()
+	d.farganModelLoaded = models.FARGAN && fargan.Loaded()
 	d.osceModelsLoaded = models.OSCE
 	d.osceBWEModelLoaded = models.OSCEBWE
+	d.dredPredictor = predictor
+	d.dredFARGAN = fargan
+	return nil
 }
 
 // setDREDDecoderBlob mirrors the standalone libopus OpusDREDDecoder
