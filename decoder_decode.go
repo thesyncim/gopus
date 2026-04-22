@@ -25,7 +25,9 @@ import "github.com/thesyncim/gopus/internal/extsupport"
 //   - Code 2: 2 different-sized frames
 //   - Code 3: Arbitrary number of frames (1-48)
 func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
-	d.clearDREDPayloadState()
+	if data != nil && len(data) > 0 && d.dredModelLoaded {
+		d.clearDREDPayloadState()
+	}
 
 	if data == nil || len(data) == 0 {
 		frameSize := d.lastFrameSize
@@ -40,12 +42,15 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 			return 0, err
 		}
 		frameSize = n
+		usedNeuralConcealment := d.applyDREDNeuralConcealment(pcm[:frameSize*d.channels], frameSize)
 		d.applyOutputGain(pcm[:frameSize*d.channels])
 
 		d.lastFrameSize = frameSize
 		d.lastPacketDuration = frameSize
 		d.lastDataLen = 0
-		d.dredPLC.MarkConcealed()
+		if !usedNeuralConcealment {
+			d.markDREDConcealed()
+		}
 		return frameSize, nil
 	}
 
@@ -263,10 +268,12 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 // uses in-band LBRR data if present and otherwise falls back to packet loss
 // concealment instead of returning a missing-FEC error.
 func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, error) {
-	d.clearDREDPayloadState()
-
 	if !fec {
 		return d.Decode(data, pcm)
+	}
+
+	if data != nil && len(data) > 0 && d.dredModelLoaded {
+		d.clearDREDPayloadState()
 	}
 
 	if data != nil && len(data) > 0 {

@@ -63,8 +63,8 @@ func TestDecoderCachedDREDRecoveryMatchesLibopusLifecycle(t *testing.T) {
 	if _, err := dec.Decode(nil, pcm); err != nil {
 		t.Fatalf("Decode(nil) error: %v", err)
 	}
-	if !dec.dredCache.Empty() {
-		t.Fatal("Decode(nil) retained cached DRED payload")
+	if dec.dredCache.Empty() {
+		t.Fatal("Decode(nil) dropped cached DRED payload before recovery scheduling")
 	}
 	if got := dec.dredPLC.Blend(); got != 1 {
 		t.Fatalf("Blend after PLC=%d want 1", got)

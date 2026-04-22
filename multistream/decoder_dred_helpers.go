@@ -98,6 +98,13 @@ func makeDREDBuffers(streams int) [][]byte {
 	return bufs
 }
 
+func (d *Decoder) dredSidecarActive() bool {
+	if d == nil {
+		return false
+	}
+	return d.dredModelLoaded || d.pitchDNNLoaded || d.plcModelLoaded || d.farganModelLoaded
+}
+
 func (d *Decoder) clearDREDPayloadState() {
 	for i := range d.dredCache {
 		d.dredCache[i].Clear()
@@ -127,6 +134,22 @@ func (d *Decoder) maybeCacheDREDPayload(stream int, packet []byte) {
 		return
 	}
 	d.dredModel.DecodeAllWithProcessor(&d.dredProcesses[stream], d.dredDecoded[stream].Features[:], d.dredDecoded[stream].State[:], d.dredDecoded[stream].Latents[:], d.dredDecoded[stream].NbLatents)
+}
+
+func (d *Decoder) markDREDUpdated(stream int) {
+	if !d.dredSidecarActive() || stream < 0 || stream >= len(d.dredPLC) {
+		return
+	}
+	d.dredPLC[stream].MarkUpdated()
+}
+
+func (d *Decoder) markDREDConcealedAll() {
+	if !d.dredSidecarActive() {
+		return
+	}
+	for i := range d.dredPLC {
+		d.dredPLC[i].MarkConcealed()
+	}
 }
 
 func (d *Decoder) cachedDREDMaxAvailableSamples(stream, maxDredSamples int) int {
