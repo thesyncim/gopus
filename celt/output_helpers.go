@@ -548,6 +548,33 @@ func (d *Decoder) applyDeemphasisAndScaleToFloat32(dst []float32, samples []floa
 	d.preemphState[1] = float64(stateR)
 }
 
+func (d *Decoder) advanceDeemphasisStateMono(samples []float64) {
+	n := len(samples)
+	if d == nil || d.channels != 1 || n == 0 {
+		return
+	}
+	if d.preemphState[0] == 0 {
+		allZero := true
+		for i := 0; i < n; i++ {
+			if samples[i] != 0 {
+				allZero = false
+				break
+			}
+		}
+		if allZero {
+			return
+		}
+	}
+	const verySmall float32 = 1e-30
+	const coef float32 = float32(PreemphCoef)
+	state := float32(d.preemphState[0])
+	for i := 0; i < n; i++ {
+		tmp := float32(samples[i]) + verySmall + state
+		state = coef * tmp
+	}
+	d.preemphState[0] = float64(state)
+}
+
 func copyFloat64ToFloat32(dst []float32, src []float64) {
 	n := len(dst)
 	if len(src) < n {
