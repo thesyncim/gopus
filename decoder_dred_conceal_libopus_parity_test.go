@@ -228,7 +228,7 @@ func probeLibopusDecoderPLCConcealQueue(state lpcnetplc.StateSnapshot, fargan lp
 	return result, nil
 }
 
-func prepareDecoderForNeuralConcealmentParity(t *testing.T) (*Decoder, []float32, int, [lpcnetplc.NumFeatures]float32, [lpcnetplc.NumFeatures]float32) {
+func prepareDecoderForNeuralConcealmentParity(t *testing.T) (*Decoder, []float32, libopusDREDPacket, int) {
 	t.Helper()
 
 	modelBlob, err := probeLibopusDREDModelBlob()
@@ -252,9 +252,28 @@ func prepareDecoderForNeuralConcealmentParity(t *testing.T) (*Decoder, []float32
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
-	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+	if err := dec.SetDNNBlob(requireLibopusDecoderNeuralModelBlob(t)); err != nil {
 		t.Fatalf("SetDNNBlob error: %v", err)
 	}
+	setDREDDecoderBlobFromBytesForTest(t, dec, modelBlob)
+
+	pcm := make([]float32, dec.maxPacketSamples*channels)
+	n, err := dec.Decode(packetInfo.packet, pcm)
+	if err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	if n <= 0 {
+		t.Fatal("Decode returned no audio")
+	}
+	if state := requireDecoderDREDState(t, dec); state.dredCache.Empty() || state.dredDecoded.NbLatents <= 0 {
+		t.Fatal("Decode did not retain processed DRED state")
+	}
+	return dec, pcm, packetInfo, n
+}
+
+func setDREDDecoderBlobFromBytesForTest(t *testing.T, dec *Decoder, modelBlob []byte) {
+	t.Helper()
+
 	blob, err := dnnblob.Clone(modelBlob)
 	if err != nil {
 		t.Fatalf("dnnblob.Clone(real model) error: %v", err)
@@ -263,35 +282,20 @@ func prepareDecoderForNeuralConcealmentParity(t *testing.T) (*Decoder, []float32
 		t.Fatalf("ValidateDREDDecoderControl(real model) error: %v", err)
 	}
 	dec.setDREDDecoderBlob(blob)
-
-	pcm := make([]float32, dec.maxPacketSamples*channels)
-	n, err := dec.Decode(packetInfo.packet, pcm)
-	if err != nil {
-		t.Fatalf("Decode error: %v", err)
-	}
-	if n != lpcnetplc.FrameSize {
-		t.Skipf("conceal parity helper is single-frame only, got frame size %d", n)
-	}
-	if got := dec.primeDREDCELTEntryHistory(dec.prevMode); got != lpcnetplc.FrameSize {
-		t.Fatalf("primeDREDCELTEntryHistory()=%d want %d", got, lpcnetplc.FrameSize)
-	}
-	window := dec.queueActiveDREDRecovery(n)
-	if window.NeededFeatureFrames == 0 {
-		t.Fatal("queueActiveDREDRecovery produced empty window")
-	}
-	var fec0 [lpcnetplc.NumFeatures]float32
-	var fec1 [lpcnetplc.NumFeatures]float32
-	_ = requireDecoderDREDState(t, dec).dredPLC.FillQueuedFeatures(0, fec0[:])
-	_ = requireDecoderDREDState(t, dec).dredPLC.FillQueuedFeatures(1, fec1[:])
-	return dec, pcm, n, fec0, fec1
 }
 
 func TestDecoderFirstLossNeuralConcealmentMatchesLibopus(t *testing.T) {
-	dec, pcm, n, fec0, fec1 := prepareDecoderForNeuralConcealmentParity(t)
+	dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParity(t)
 
-	want, err := probeLibopusDecoderPLCConceal(requireDecoderDREDState(t, dec).dredPLC.Snapshot(), requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), fec0[:], fec1[:])
+	want, err := probeLibopusDecoderDREDDecodeFloat(packetInfo.packet, packetInfo.packet, packetInfo.maxDREDSamples, dec.sampleRate, -1, n, n)
 	if err != nil {
-		t.Skipf("libopus plc conceal helper unavailable: %v", err)
+		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+	}
+	if want.parseRet < 0 {
+		t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
+	}
+	if want.ret != n {
+		t.Fatalf("libopus decoder DRED decode ret=%d want %d", want.ret, n)
 	}
 
 	gotN, err := dec.Decode(nil, pcm)
@@ -302,56 +306,31 @@ func TestDecoderFirstLossNeuralConcealmentMatchesLibopus(t *testing.T) {
 		t.Fatalf("Decode(nil)=%d want %d", gotN, n)
 	}
 
-	assertFloat32ApproxEqual(t, pcm[:n], want.Frame[:], "concealed pcm", 1e-4)
-
-	gotState := requireDecoderDREDState(t, dec).dredPLC.Snapshot()
-	if gotState.Blend != want.State.Blend ||
-		gotState.LossCount != want.State.LossCount ||
-		gotState.AnalysisGap != want.State.AnalysisGap ||
-		gotState.AnalysisPos != want.State.AnalysisPos ||
-		gotState.PredictPos != want.State.PredictPos ||
-		gotState.FECFillPos != want.State.FECFillPos ||
-		gotState.FECReadPos != want.State.FECReadPos ||
-		gotState.FECSkip != want.State.FECSkip {
-		t.Fatalf("state header=%+v want %+v", gotState, want.State)
-	}
-	assertFloat32ApproxEqual(t, gotState.Features[:], want.State.Features[:], "state features", 1e-4)
-	assertFloat32ApproxEqual(t, gotState.Cont[:], want.State.Cont[:], "state continuity", 1e-4)
-	assertFloat32ApproxEqual(t, gotState.PCM[:], want.State.PCM[:], "state pcm", 1e-4)
-	assertFloat32ApproxEqual(t, gotState.PLCNet.GRU1[:], want.State.PLCNet.GRU1[:], "state plc_net gru1", 1e-4)
-	assertFloat32ApproxEqual(t, gotState.PLCNet.GRU2[:], want.State.PLCNet.GRU2[:], "state plc_net gru2", 1e-4)
-	assertFloat32ApproxEqual(t, gotState.PLCBak[0].GRU1[:], want.State.PLCBak[0].GRU1[:], "state plc_bak0 gru1", 1e-4)
-	assertFloat32ApproxEqual(t, gotState.PLCBak[0].GRU2[:], want.State.PLCBak[0].GRU2[:], "state plc_bak0 gru2", 1e-4)
-	assertFloat32ApproxEqual(t, gotState.PLCBak[1].GRU1[:], want.State.PLCBak[1].GRU1[:], "state plc_bak1 gru1", 1e-4)
-	assertFloat32ApproxEqual(t, gotState.PLCBak[1].GRU2[:], want.State.PLCBak[1].GRU2[:], "state plc_bak1 gru2", 1e-4)
-
-	gotFARGAN := requireDecoderDREDState(t, dec).dredFARGAN.Snapshot()
-	if gotFARGAN.ContInitialized != want.FARGAN.ContInitialized || gotFARGAN.LastPeriod != want.FARGAN.LastPeriod {
-		t.Fatalf("fargan header=%+v want %+v", gotFARGAN, want.FARGAN)
-	}
-	assertFloat32ApproxEqual(t, []float32{gotFARGAN.DeemphMem}, []float32{want.FARGAN.DeemphMem}, "fargan deemph", 1e-4)
-	assertFloat32ApproxEqual(t, gotFARGAN.PitchBuf[:], want.FARGAN.PitchBuf[:], "fargan pitch", 1e-4)
-	assertFloat32ApproxEqual(t, gotFARGAN.CondConv1State[:], want.FARGAN.CondConv1State[:], "fargan cond", 1e-4)
-	assertFloat32ApproxEqual(t, gotFARGAN.FWC0Mem[:], want.FARGAN.FWC0Mem[:], "fargan fwc0", 1e-4)
-	assertFloat32ApproxEqual(t, gotFARGAN.GRU1State[:], want.FARGAN.GRU1State[:], "fargan gru1", 1e-4)
-	assertFloat32ApproxEqual(t, gotFARGAN.GRU2State[:], want.FARGAN.GRU2State[:], "fargan gru2", 1e-4)
-	assertFloat32ApproxEqual(t, gotFARGAN.GRU3State[:], want.FARGAN.GRU3State[:], "fargan gru3", 1e-4)
+	assertFloat32ApproxEqual(t, pcm[:n], want.pcm[:n], "concealed pcm", 1e-4)
+	assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "live 16k first-loss plc")
+	assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "live 16k first-loss fargan")
+	assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.celt48k, "live 16k first-loss celt")
 }
 
 func TestDecoderSecondLossNeuralConcealmentMatchesLibopus(t *testing.T) {
-	dec, pcm, n, fec0, fec1 := prepareDecoderForNeuralConcealmentParity(t)
+	dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParity(t)
 
 	if _, err := dec.Decode(nil, pcm); err != nil {
 		t.Fatalf("Decode(nil, first) error: %v", err)
 	}
-	window := dec.queueActiveDREDRecovery(n)
-	if window.NeededFeatureFrames == 0 {
-		t.Fatal("second-loss queueActiveDREDRecovery produced empty window")
-	}
 
-	want, err := probeLibopusDecoderPLCConceal(requireDecoderDREDState(t, dec).dredPLC.Snapshot(), requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), fec0[:], fec1[:])
+	want, err := probeLibopusDecoderDREDDecodeFloat(packetInfo.packet, packetInfo.packet, packetInfo.maxDREDSamples, dec.sampleRate, n, 2*n, n)
 	if err != nil {
-		t.Skipf("libopus plc conceal helper unavailable: %v", err)
+		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+	}
+	if want.parseRet < 0 {
+		t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
+	}
+	if want.warmupRet != n {
+		t.Fatalf("libopus decoder DRED warmup ret=%d want %d", want.warmupRet, n)
+	}
+	if want.ret != n {
+		t.Fatalf("libopus decoder DRED second ret=%d want %d", want.ret, n)
 	}
 
 	gotN, err := dec.Decode(nil, pcm)
@@ -362,38 +341,8 @@ func TestDecoderSecondLossNeuralConcealmentMatchesLibopus(t *testing.T) {
 		t.Fatalf("Decode(nil, second)=%d want %d", gotN, n)
 	}
 
-	assertFloat32ApproxEqual(t, pcm[:n], want.Frame[:], "second concealed pcm", 1e-4)
-
-	gotState := requireDecoderDREDState(t, dec).dredPLC.Snapshot()
-	if gotState.Blend != want.State.Blend ||
-		gotState.LossCount != want.State.LossCount ||
-		gotState.AnalysisGap != want.State.AnalysisGap ||
-		gotState.AnalysisPos != want.State.AnalysisPos ||
-		gotState.PredictPos != want.State.PredictPos ||
-		gotState.FECFillPos != want.State.FECFillPos ||
-		gotState.FECReadPos != want.State.FECReadPos ||
-		gotState.FECSkip != want.State.FECSkip {
-		t.Fatalf("second state header=%+v want %+v", gotState, want.State)
-	}
-	assertFloat32ApproxEqual(t, gotState.Features[:], want.State.Features[:], "second state features", 1e-4)
-	assertFloat32ApproxEqual(t, gotState.Cont[:], want.State.Cont[:], "second state continuity", 1e-4)
-	assertFloat32ApproxEqual(t, gotState.PCM[:], want.State.PCM[:], "second state pcm", 1e-4)
-	assertFloat32ApproxEqual(t, gotState.PLCNet.GRU1[:], want.State.PLCNet.GRU1[:], "second state plc_net gru1", 1e-4)
-	assertFloat32ApproxEqual(t, gotState.PLCNet.GRU2[:], want.State.PLCNet.GRU2[:], "second state plc_net gru2", 1e-4)
-	assertFloat32ApproxEqual(t, gotState.PLCBak[0].GRU1[:], want.State.PLCBak[0].GRU1[:], "second state plc_bak0 gru1", 1e-4)
-	assertFloat32ApproxEqual(t, gotState.PLCBak[0].GRU2[:], want.State.PLCBak[0].GRU2[:], "second state plc_bak0 gru2", 1e-4)
-	assertFloat32ApproxEqual(t, gotState.PLCBak[1].GRU1[:], want.State.PLCBak[1].GRU1[:], "second state plc_bak1 gru1", 1e-4)
-	assertFloat32ApproxEqual(t, gotState.PLCBak[1].GRU2[:], want.State.PLCBak[1].GRU2[:], "second state plc_bak1 gru2", 1e-4)
-
-	gotFARGAN := requireDecoderDREDState(t, dec).dredFARGAN.Snapshot()
-	if gotFARGAN.ContInitialized != want.FARGAN.ContInitialized || gotFARGAN.LastPeriod != want.FARGAN.LastPeriod {
-		t.Fatalf("second fargan header=%+v want %+v", gotFARGAN, want.FARGAN)
-	}
-	assertFloat32ApproxEqual(t, []float32{gotFARGAN.DeemphMem}, []float32{want.FARGAN.DeemphMem}, "second fargan deemph", 1e-4)
-	assertFloat32ApproxEqual(t, gotFARGAN.PitchBuf[:], want.FARGAN.PitchBuf[:], "second fargan pitch", 1e-4)
-	assertFloat32ApproxEqual(t, gotFARGAN.CondConv1State[:], want.FARGAN.CondConv1State[:], "second fargan cond", 1e-4)
-	assertFloat32ApproxEqual(t, gotFARGAN.FWC0Mem[:], want.FARGAN.FWC0Mem[:], "second fargan fwc0", 1e-4)
-	assertFloat32ApproxEqual(t, gotFARGAN.GRU1State[:], want.FARGAN.GRU1State[:], "second fargan gru1", 1e-4)
-	assertFloat32ApproxEqual(t, gotFARGAN.GRU2State[:], want.FARGAN.GRU2State[:], "second fargan gru2", 1e-4)
-	assertFloat32ApproxEqual(t, gotFARGAN.GRU3State[:], want.FARGAN.GRU3State[:], "second fargan gru3", 1e-4)
+	assertFloat32ApproxEqual(t, pcm[:n], want.pcm[:n], "second concealed pcm", 1e-4)
+	assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "live 16k second-loss plc")
+	assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "live 16k second-loss fargan")
+	assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.celt48k, "live 16k second-loss celt")
 }

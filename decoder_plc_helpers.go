@@ -1,11 +1,14 @@
 package gopus
 
+import "math"
+
 type plcDecodeState struct {
 	packetFrameSize    int
 	mode               Mode
 	bandwidth          Bandwidth
 	packetStereo       bool
 	useDecoderPLCState bool
+	queueCachedDRED    bool
 }
 
 func nextPLCChunkSamples(sampleRate int, mode Mode, remaining int) int {
@@ -77,6 +80,34 @@ func (d *Decoder) decodePLCChunksInto(out []float32, frameSize int, state plcDec
 	return frameSize, nil
 }
 
+func (d *Decoder) decodeHybridDRED48kInto(out []float32, frameSize int, state plcDecodeState) (int, bool, error) {
+	n, err := d.decodePLCChunksInto(out, frameSize, state)
+	if err != nil {
+		return 0, false, err
+	}
+	for i := 0; i < n*d.channels; i++ {
+		out[i] = float32(math.Round(float64(out[i])*32768.0) * (1.0 / 32768.0))
+	}
+	if !d.dredNeuralConcealmentAvailable() || n <= 0 || n%3 != 0 {
+		return n, false, nil
+	}
+	if state.queueCachedDRED {
+		d.prepareCachedDREDNeuralConcealment(n)
+	}
+	if !d.generateDREDNeuralFrames16k(nil, n/3) {
+		return n, false, nil
+	}
+	d.resetDRED48kNeuralBridge()
+	if state.queueCachedDRED {
+		p := d.dredPayloadState()
+		r := d.dredRecoveryState()
+		if p != nil && r != nil && p.dredModelLoaded && !d.ignoreExtensions && !p.dredCache.Empty() {
+			r.dredRecovery += n
+		}
+	}
+	return n, true, nil
+}
+
 func (d *Decoder) decodeDRED48kNeuralPLCInto(out []float32, frameSize int, state plcDecodeState) (int, bool, error) {
 	if d == nil {
 		return 0, false, ErrInvalidArgument
@@ -102,6 +133,9 @@ func (d *Decoder) decodeDRED48kNeuralPLCInto(out []float32, frameSize int, state
 	if d.sampleRate != 48000 || d.channels != 1 || (state.mode != ModeCELT && state.mode != ModeHybrid) {
 		n, err := d.decodePLCChunksInto(out, frameSize, state)
 		return n, false, err
+	}
+	if state.mode == ModeHybrid {
+		return d.decodeHybridDRED48kInto(out, frameSize, state)
 	}
 	d.prepareDRED48kNeuralEntry(frameSize, state.mode)
 	if !d.applyDREDNeuralConcealment(out[:needed], frameSize) {

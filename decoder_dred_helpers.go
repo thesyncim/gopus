@@ -355,6 +355,25 @@ func (d *Decoder) dredSidecarActive() bool {
 	return (p != nil && p.dredModelLoaded) || d.dredNeuralModelsLoaded()
 }
 
+func (d *Decoder) dredCachedPayloadActive() bool {
+	p := d.dredPayloadState()
+	return p != nil && p.dredModelLoaded && !d.ignoreExtensions && !p.dredCache.Empty()
+}
+
+func (d *Decoder) dredNeedsCELTFloatPath() bool {
+	if d == nil || d.sampleRate != 48000 || d.channels != 1 {
+		return false
+	}
+	b := d.dred48kBridgeState()
+	if b != nil && (b.dredLastNeural || b.dredPLCFill != 0 || b.dredPLCPreemphMem != 0) {
+		return true
+	}
+	if d.celtDecoder != nil && d.celtDecoder.LastPLCFrameWasNeural() {
+		return true
+	}
+	return d.dredCachedPayloadActive()
+}
+
 func (d *Decoder) dredNeuralConcealmentReady() bool {
 	return d.ensureDREDNeuralConcealmentRuntime()
 }
@@ -576,15 +595,46 @@ func (d *Decoder) prepareCachedDREDNeuralConcealment(frameSizeSamples int) {
 	r.dredPLC.FECClear()
 }
 
+func (d *Decoder) generateDREDNeuralFrames16k(dst []float32, samplesPerChannel int) bool {
+	if !d.ensureDREDNeuralConcealmentRuntime() {
+		return false
+	}
+	r := d.dredRecoveryState()
+	n := d.dredNeuralState()
+	if r == nil || n == nil || samplesPerChannel < lpcnetplc.FrameSize || samplesPerChannel%lpcnetplc.FrameSize != 0 {
+		return false
+	}
+	if dst == nil {
+		if samplesPerChannel > len(n.dredPLCUpdate) {
+			return false
+		}
+		dst = n.dredPLCUpdate[:samplesPerChannel]
+	} else if len(dst) < samplesPerChannel {
+		return false
+	}
+	for offset := 0; offset+lpcnetplc.FrameSize <= samplesPerChannel; offset += lpcnetplc.FrameSize {
+		frame := dst[offset : offset+lpcnetplc.FrameSize]
+		if r.dredPLC.Blend() == 0 {
+			if !r.dredPLC.GenerateConcealedFrameFloatWithAnalysis(&n.dredAnalysis, &n.dredPredictor, &n.dredFARGAN, frame) {
+				return false
+			}
+		} else {
+			if !r.dredPLC.GenerateConcealedFrameFloat(&n.dredPredictor, &n.dredFARGAN, frame) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func (d *Decoder) applyDREDNeuralConcealment(pcm []float32, samplesPerChannel int) bool {
 	if !d.ensureDREDNeuralConcealmentRuntime() {
 		return false
 	}
 	p := d.dredPayloadState()
 	r := d.dredRecoveryState()
-	n := d.dredNeuralState()
 	b := d.dred48kBridgeState()
-	if r == nil || n == nil {
+	if r == nil || d.dredNeuralState() == nil {
 		return false
 	}
 	if len(pcm) < samplesPerChannel {
@@ -606,20 +656,8 @@ func (d *Decoder) applyDREDNeuralConcealment(pcm []float32, samplesPerChannel in
 		return true
 	}
 	d.prepareCachedDREDNeuralConcealment(samplesPerChannel)
-	if samplesPerChannel < lpcnetplc.FrameSize || samplesPerChannel%lpcnetplc.FrameSize != 0 {
+	if !d.generateDREDNeuralFrames16k(pcm, samplesPerChannel) {
 		return false
-	}
-	for offset := 0; offset+lpcnetplc.FrameSize <= samplesPerChannel; offset += lpcnetplc.FrameSize {
-		frame := pcm[offset : offset+lpcnetplc.FrameSize]
-		if r.dredPLC.Blend() == 0 {
-			if !r.dredPLC.GenerateConcealedFrameFloatWithAnalysis(&n.dredAnalysis, &n.dredPredictor, &n.dredFARGAN, frame) {
-				return false
-			}
-		} else {
-			if !r.dredPLC.GenerateConcealedFrameFloat(&n.dredPredictor, &n.dredFARGAN, frame) {
-				return false
-			}
-		}
 	}
 	if p != nil && p.dredModelLoaded && !d.ignoreExtensions && !p.dredCache.Empty() {
 		r.dredRecovery += samplesPerChannel

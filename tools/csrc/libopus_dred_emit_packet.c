@@ -15,6 +15,17 @@
 
 #define GODO_MAGIC "GODP"
 
+static int dred_helper_bitrate_for_frame_size(int frame_size) {
+  int bitrate = 40000;
+  if (frame_size > 0 && frame_size < 960) {
+    bitrate = (40000 * 960) / frame_size;
+  }
+  if (bitrate > 320000) {
+    bitrate = 320000;
+  }
+  return bitrate;
+}
+
 static int packet_mode_from_toc(const unsigned char *packet) {
   int config;
   if (packet == NULL) {
@@ -122,10 +133,12 @@ static float voiced_sample(int frame_idx, int sample_idx, int frame_size, int sa
 int main(void) {
   const int sample_rate = 48000;
   const int channels = 1;
+  const int max_frames_to_try = 640;
   int frame_size = 960;
   int force_mode = MODE_CELT_ONLY;
   int force_mode_enabled = 1;
   int bandwidth = OPUS_BANDWIDTH_FULLBAND;
+  int bitrate = 40000;
   const int max_packet = 1500;
   const int max_dred_samples = 960;
   float pcm[960];
@@ -158,6 +171,8 @@ int main(void) {
     fprintf(stderr, "invalid GOPUS_DRED_BANDWIDTH=%s\n", bandwidth_env);
     return 1;
   }
+
+  bitrate = dred_helper_bitrate_for_frame_size(frame_size);
 
   if (force_mode_enabled && force_mode == MODE_HYBRID) {
     if (frame_size != 480 && frame_size != 960) {
@@ -194,7 +209,7 @@ int main(void) {
     return 1;
   }
 
-  opus_encoder_ctl(enc, OPUS_SET_BITRATE(40000));
+  opus_encoder_ctl(enc, OPUS_SET_BITRATE(bitrate));
   opus_encoder_ctl(enc, OPUS_SET_SIGNAL(OPUS_SIGNAL_MUSIC));
   opus_encoder_ctl(enc, OPUS_SET_BANDWIDTH(bandwidth));
   if (force_mode_enabled) {
@@ -203,7 +218,7 @@ int main(void) {
   opus_encoder_ctl(enc, OPUS_SET_PACKET_LOSS_PERC(20));
   opus_encoder_ctl(enc, OPUS_SET_DRED_DURATION(80));
 
-  for (frame_idx = 0; frame_idx < 160; frame_idx++) {
+  for (frame_idx = 0; frame_idx < max_frames_to_try; frame_idx++) {
     int dred_end = 0;
     int packet_mode;
     int packet_bandwidth;

@@ -34,17 +34,18 @@ func (d *Decoder) FillPLCUpdate16kMonoWithPreemphasisMem(dst []float32) (int, fl
 		return 0, 0
 	}
 
+	const rawDecodeScale = 1.0 / 32768.0
 	buf48k := ensureFloat32Slice(&d.scratchPLCUpdate48k, plcDecodeBufferSize)
 	if d.channels == 1 {
 		hist := d.plcDecodeMem[:plcDecodeBufferSize]
 		for i := 0; i < plcDecodeBufferSize; i++ {
-			buf48k[i] = float32(hist[i])
+			buf48k[i] = float32(hist[i] * rawDecodeScale)
 		}
 	} else {
 		histL := d.plcDecodeMem[:plcDecodeBufferSize]
 		histR := d.plcDecodeMem[plcDecodeBufferSize : 2*plcDecodeBufferSize]
 		for i := 0; i < plcDecodeBufferSize; i++ {
-			buf48k[i] = 0.5 * (float32(histL[i]) + float32(histR[i]))
+			buf48k[i] = float32(0.5 * (histL[i] + histR[i]) * rawDecodeScale)
 		}
 	}
 

@@ -25,20 +25,32 @@ import "github.com/thesyncim/gopus/internal/extsupport"
 //   - Code 2: 2 different-sized frames
 //   - Code 3: Arbitrary number of frames (1-48)
 func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
-	if p := d.dredPayloadState(); data != nil && len(data) > 0 && p != nil && p.dredModelLoaded {
+	if data != nil && len(data) > 0 && d.dredCachedPayloadActive() {
 		d.invalidateDREDPayloadState()
 	}
 
-		if data == nil || len(data) == 0 {
-			frameSize := d.lastFrameSize
-			neuralReady := d.dredNeuralConcealmentAvailable()
-			n, usedNeuralConcealment, err := d.decodeDRED48kNeuralPLCInto(pcm, frameSize, plcDecodeState{
+	if data == nil || len(data) == 0 {
+		frameSize := d.lastFrameSize
+		neuralReady := d.dredNeuralConcealmentAvailable()
+		n := frameSize
+		usedNeuralConcealment := false
+		var err error
+		if neuralReady && d.sampleRate == 16000 && d.channels == 1 {
+			if len(pcm) < frameSize*d.channels {
+				return 0, ErrBufferTooSmall
+			}
+			usedNeuralConcealment = d.applyDREDNeuralConcealment(pcm[:frameSize*d.channels], frameSize)
+		}
+		if !usedNeuralConcealment {
+			n, usedNeuralConcealment, err = d.decodeDRED48kNeuralPLCInto(pcm, frameSize, plcDecodeState{
 				packetFrameSize:    d.lastFrameSize,
 				mode:               d.prevMode,
-			bandwidth:          d.lastBandwidth,
-			packetStereo:       d.prevPacketStereo,
-			useDecoderPLCState: true,
-		})
+				bandwidth:          d.lastBandwidth,
+				packetStereo:       d.prevPacketStereo,
+				useDecoderPLCState: true,
+				queueCachedDRED:    true,
+			})
+		}
 		if err != nil {
 			return 0, err
 		}
@@ -280,7 +292,7 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 		return d.Decode(data, pcm)
 	}
 
-	if p := d.dredPayloadState(); data != nil && len(data) > 0 && p != nil && p.dredModelLoaded {
+	if data != nil && len(data) > 0 && d.dredCachedPayloadActive() {
 		d.invalidateDREDPayloadState()
 	}
 
