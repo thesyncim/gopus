@@ -26,11 +26,15 @@ import "github.com/thesyncim/gopus/internal/extsupport"
 //   - Code 3: Arbitrary number of frames (1-48)
 func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 	if data != nil && len(data) > 0 && d.dredModelLoaded {
-		d.clearDREDPayloadState()
+		d.invalidateDREDPayloadState()
 	}
 
 	if data == nil || len(data) == 0 {
 		frameSize := d.lastFrameSize
+		neuralReady := d.dredNeuralConcealmentReady()
+		if neuralReady {
+			d.primeDREDCELTEntryHistory(d.prevMode)
+		}
 		n, err := d.decodePLCChunksInto(pcm, frameSize, plcDecodeState{
 			packetFrameSize:    d.lastFrameSize,
 			mode:               d.prevMode,
@@ -42,13 +46,16 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 			return 0, err
 		}
 		frameSize = n
-		usedNeuralConcealment := d.applyDREDNeuralConcealment(pcm[:frameSize*d.channels], frameSize)
+		usedNeuralConcealment := false
+		if neuralReady {
+			usedNeuralConcealment = d.applyDREDNeuralConcealment(pcm[:frameSize*d.channels], frameSize)
+		}
 		d.applyOutputGain(pcm[:frameSize*d.channels])
 
 		d.lastFrameSize = frameSize
 		d.lastPacketDuration = frameSize
 		d.lastDataLen = 0
-		if !usedNeuralConcealment {
+		if !usedNeuralConcealment && d.dredSidecarActive() {
 			d.markDREDConcealed()
 		}
 		return frameSize, nil
@@ -257,7 +264,12 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 	}
 
 	d.maybeCacheDREDPayload(data)
-	d.markDREDUpdatedPCM(pcm[:totalSamples*d.channels], totalSamples)
+	if d.dredNeuralConcealmentReady() {
+		d.dredRecovery = 0
+	}
+	if d.dredSidecarActive() {
+		d.markDREDUpdatedPCM(pcm[:totalSamples*d.channels], totalSamples)
+	}
 	d.applyOutputGain(pcm[:totalSamples*d.channels])
 	return totalSamples, nil
 }
@@ -273,7 +285,7 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 	}
 
 	if data != nil && len(data) > 0 && d.dredModelLoaded {
-		d.clearDREDPayloadState()
+		d.invalidateDREDPayloadState()
 	}
 
 	if data != nil && len(data) > 0 {

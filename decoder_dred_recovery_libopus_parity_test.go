@@ -79,6 +79,72 @@ func TestDecoderCachedDREDRecoveryMatchesLibopusLifecycle(t *testing.T) {
 	assertDecoderCachedDREDRecoveryMatchesLibopus(t, dec, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, true)
 }
 
+func TestDecoderCachedDREDRecoveryCursorAdvancesAcrossLosses(t *testing.T) {
+	modelBlob, err := probeLibopusDREDModelBlob()
+	if err != nil {
+		t.Skipf("libopus dred model helper unavailable: %v", err)
+	}
+	packetInfo, err := emitLibopusDREDPacket()
+	if err != nil {
+		t.Skipf("libopus dred packet helper unavailable: %v", err)
+	}
+
+	channels := 1
+	if ParseTOC(packetInfo.packet[0]).Stereo {
+		channels = 2
+	}
+	if packetInfo.sampleRate != 16000 || channels != 1 {
+		t.Skipf("cursor test requires 16 kHz mono packet, got sampleRate=%d channels=%d", packetInfo.sampleRate, channels)
+	}
+
+	dec, err := NewDecoder(DefaultDecoderConfig(packetInfo.sampleRate, channels))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	blob, err := dnnblob.Clone(modelBlob)
+	if err != nil {
+		t.Fatalf("dnnblob.Clone(real model) error: %v", err)
+	}
+	if err := blob.ValidateDREDDecoderControl(); err != nil {
+		t.Fatalf("ValidateDREDDecoderControl(real model) error: %v", err)
+	}
+	dec.setDREDDecoderBlob(blob)
+
+	pcm := make([]float32, dec.maxPacketSamples*channels)
+	if _, err := dec.Decode(packetInfo.packet, pcm); err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	if dec.dredRecovery != 0 {
+		t.Fatalf("dredRecovery after good decode=%d want 0", dec.dredRecovery)
+	}
+
+	n1, err := dec.Decode(nil, pcm)
+	if err != nil {
+		t.Fatalf("Decode(nil, first) error: %v", err)
+	}
+	if dec.dredRecovery != n1 {
+		t.Fatalf("dredRecovery after first loss=%d want %d", dec.dredRecovery, n1)
+	}
+
+	n2, err := dec.Decode(nil, pcm)
+	if err != nil {
+		t.Fatalf("Decode(nil, second) error: %v", err)
+	}
+	if dec.dredRecovery != n1+n2 {
+		t.Fatalf("dredRecovery after second loss=%d want %d", dec.dredRecovery, n1+n2)
+	}
+
+	if _, err := dec.Decode(packetInfo.packet, pcm); err != nil {
+		t.Fatalf("Decode(after losses) error: %v", err)
+	}
+	if dec.dredRecovery != 0 {
+		t.Fatalf("dredRecovery after re-decode=%d want 0", dec.dredRecovery)
+	}
+}
+
 func assertDecoderCachedDREDRecoveryMatchesLibopus(t *testing.T, dec *Decoder, packet []byte, maxDREDSamples, sampleRate int, blend bool) {
 	t.Helper()
 

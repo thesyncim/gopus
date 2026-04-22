@@ -16,6 +16,15 @@ func (c *Cache) Clear() {
 	*c = Cache{}
 }
 
+// Invalidate drops cached payload visibility without zeroing the retained
+// parsed metadata, which keeps packet-entry cache invalidation cheap.
+func (c *Cache) Invalidate() {
+	if c == nil {
+		return
+	}
+	c.Len = 0
+}
+
 // Empty reports whether any DRED payload is cached.
 func (c Cache) Empty() bool {
 	return c.Len == 0

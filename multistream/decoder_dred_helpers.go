@@ -29,20 +29,12 @@ func (d *Decoder) SetDNNBlob(blob *dnnblob.Blob) {
 			_ = fargan.SetModel(blob)
 		}
 	}
-	for i := range d.dredAnalysis {
-		d.dredAnalysis[i] = analysis
-	}
-	for i := range d.dredPredictor {
-		d.dredPredictor[i] = predictor
-	}
-	for i := range d.dredFARGAN {
-		d.dredFARGAN[i] = fargan
-	}
 	d.pitchDNNLoaded = models.PitchDNN && analysis.Loaded()
 	d.plcModelLoaded = models.PLC && predictor.Loaded()
 	d.farganModelLoaded = models.FARGAN && fargan.Loaded()
 	d.osceModelsLoaded = models.OSCE
 	d.osceBWEModelLoaded = models.OSCEBWE
+	d.syncDREDSidecarModels(analysis, predictor, fargan)
 }
 
 // setDREDDecoderBlob mirrors the standalone libopus OpusDREDDecoder
@@ -55,6 +47,8 @@ func (d *Decoder) setDREDDecoderBlob(blob *dnnblob.Blob) {
 		if model, err := rdovae.LoadDecoder(blob); err == nil {
 			d.dredModel = model
 			d.dredModelLoaded = true
+			d.ensureDREDSidecar()
+			d.syncDREDSidecarModelsForBlob()
 		}
 	}
 	if !d.dredModelLoaded {
@@ -63,7 +57,81 @@ func (d *Decoder) setDREDDecoderBlob(blob *dnnblob.Blob) {
 		for i := range d.dredPLC {
 			d.dredPLC[i].Reset()
 		}
+		d.releaseDREDSidecar()
 	}
+}
+
+func (d *Decoder) ensureDREDSidecar() {
+	if d == nil || len(d.dredCache) != 0 {
+		return
+	}
+	streams := len(d.decoders)
+	if streams <= 0 {
+		return
+	}
+	d.dredDecoded = make([]internaldred.Decoded, streams)
+	d.dredProcesses = make([]rdovae.Processor, streams)
+	d.dredPLC = make([]lpcnetplc.State, streams)
+	d.dredAnalysis = make([]lpcnetplc.Analysis, streams)
+	d.dredPredictor = make([]lpcnetplc.Predictor, streams)
+	d.dredFARGAN = make([]lpcnetplc.FARGAN, streams)
+	d.dredBlend = make([]int, streams)
+	d.dredData = makeDREDBuffers(streams)
+	d.dredCache = make([]internaldred.Cache, streams)
+}
+
+func (d *Decoder) releaseDREDSidecar() {
+	if d == nil {
+		return
+	}
+	d.dredDecoded = nil
+	d.dredProcesses = nil
+	d.dredPLC = nil
+	d.dredAnalysis = nil
+	d.dredPredictor = nil
+	d.dredFARGAN = nil
+	d.dredBlend = nil
+	d.dredData = nil
+	d.dredCache = nil
+}
+
+func (d *Decoder) syncDREDSidecarModels(analysis lpcnetplc.Analysis, predictor lpcnetplc.Predictor, fargan lpcnetplc.FARGAN) {
+	if d == nil || len(d.dredAnalysis) == 0 {
+		return
+	}
+	for i := range d.dredAnalysis {
+		d.dredAnalysis[i] = analysis
+	}
+	for i := range d.dredPredictor {
+		d.dredPredictor[i] = predictor
+	}
+	for i := range d.dredFARGAN {
+		d.dredFARGAN[i] = fargan
+	}
+}
+
+func (d *Decoder) syncDREDSidecarModelsForBlob() {
+	if d == nil || len(d.dredAnalysis) == 0 {
+		return
+	}
+	var (
+		analysis  lpcnetplc.Analysis
+		predictor lpcnetplc.Predictor
+		fargan    lpcnetplc.FARGAN
+	)
+	if d.dnnBlob != nil {
+		models := d.dnnBlob.DecoderModels()
+		if models.PitchDNN {
+			_ = analysis.SetModel(d.dnnBlob)
+		}
+		if models.PLC {
+			_ = predictor.SetModel(d.dnnBlob)
+		}
+		if models.FARGAN {
+			_ = fargan.SetModel(d.dnnBlob)
+		}
+	}
+	d.syncDREDSidecarModels(analysis, predictor, fargan)
 }
 
 // DNNBlobLoaded reports whether a validated model blob is retained.
@@ -102,13 +170,24 @@ func (d *Decoder) dredSidecarActive() bool {
 	if d == nil {
 		return false
 	}
-	return d.dredModelLoaded || d.pitchDNNLoaded || d.plcModelLoaded || d.farganModelLoaded
+	// Multistream has standalone DRED caching today, but no per-stream neural
+	// concealment consumer yet, so keep the main-decoder DNN families dormant.
+	return d.dredModelLoaded
 }
 
 func (d *Decoder) clearDREDPayloadState() {
 	for i := range d.dredCache {
 		d.dredCache[i].Clear()
 		d.dredDecoded[i].Clear()
+		d.dredPLC[i].FECClear()
+		d.dredBlend[i] = d.dredPLC[i].Blend()
+	}
+}
+
+func (d *Decoder) invalidateDREDPayloadState() {
+	for i := range d.dredCache {
+		d.dredCache[i].Invalidate()
+		d.dredDecoded[i].Invalidate()
 		d.dredPLC[i].FECClear()
 		d.dredBlend[i] = d.dredPLC[i].Blend()
 	}
@@ -128,8 +207,8 @@ func (d *Decoder) maybeCacheDREDPayload(stream int, packet []byte) {
 	}
 	minFeatureFrames := 2 * internaldred.NumRedundancyFrames
 	if _, err := d.dredDecoded[stream].Decode(payload, frameOffset, minFeatureFrames); err != nil {
-		d.dredCache[stream].Clear()
-		d.dredDecoded[stream].Clear()
+		d.dredCache[stream].Invalidate()
+		d.dredDecoded[stream].Invalidate()
 		d.dredPLC[stream].FECClear()
 		return
 	}

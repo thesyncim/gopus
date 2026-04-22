@@ -40,6 +40,10 @@ Implemented or in progress:
 - the pure-Go PLC first-loss prefill and concealment-feature lifecycle now has a libopus-backed parity oracle covering backup rotation, queued FEC consumption, predicted fallback, continuity-feature updates, and retained GRU state
 - the pure-Go FARGAN signal runtime now mirrors libopus `FARGANState`, `fargan_cont()`, and `fargan_synthesize()` with retained pitch/deemphasis/conv/GRU state and libopus-backed parity checks on both continuity priming and synthesized PCM
 - the pure-Go bounded post-analysis concealment path now composes the retained PLC predictor state with the pure-Go FARGAN runtime to synthesize one concealed frame and update retained history, with libopus-backed parity checks on the concealed PCM frame plus retained PLC/FARGAN state
+- decoder-side DRED payload invalidation now distinguishes metadata visibility from full buffer clears so packet-entry churn stays low when a new packet replaces the previous cached payload
+- a pure-Go CELT neural-entry bridge now mirrors libopus `update_plc_state()` history preparation by deriving 16 kHz PLC seed PCM from retained CELT decode history, with zero-allocation steady-state coverage, a libopus-derived reference helper, and live decoder wiring on nil-packet/FEC PLC entry
+- the single-stream decoder now seeds first-loss neural concealment from that CELT bridge, retains a decoder-owned cached-DRED recovery cursor across consecutive losses, and has tag-gated real-packet live decoder parity oracles for first and second neural losses
+- dormant-cost hardening now keeps single-stream DRED payload buffers and multistream DRED sidecars unallocated until the standalone DRED decoder model is actually armed, while inactive decode/FEC paths stay out of DRED bookkeeping entirely
 - libopus-backed real-packet parity coverage exists for:
   - parse-stage state and latents
   - processed DRED features
@@ -51,12 +55,14 @@ Implemented or in progress:
   - FARGAN conditioning outputs and retained conv-state evolution
   - FARGAN continuity-state priming and synthesized PCM/state evolution
   - bounded post-analysis concealment frame synthesis and retained PLC/FARGAN state evolution
+  - live decoder `Decode(nil)` first-loss and second-loss neural concealment parity at the current supported 16 kHz mono seam
 - encoder-side `DFrameSize` staging / rollover groundwork exists in pure Go
 
 Still missing for full parity:
 
 - model-backed `opus_decoder_dred_decode*()` parity
-- the remaining `LPCNetEncState`-shaped analysis/runtime mirror and decoder-owned integration that `opus_decoder_dred_decode*()` depends on
+- multi-rate decoder-level neural recovery parity beyond the current 16 kHz mono seam
+- the remaining decoder-owned `opus_decoder_dred_decode*()` audio-path integration beyond the current CELT-entry / LPCNet / FARGAN bridge
 - encoder-side DRED latent generation and bitstream emission
 
 ## Workstreams
@@ -179,6 +185,7 @@ Reference files:
 
 Acceptance:
 - fixed-packet DRED recovery output matches libopus closely enough for declared parity goals
+- recovery progress across consecutive losses is retained by the decoder instead of being treated as first-loss-only bookkeeping
 
 ## Parity Test Plan
 
@@ -204,6 +211,7 @@ Acceptance:
 ### Required Before Claiming Recovery/Audio Parity
 
 - helper or fixture path that compares the full `opus_decoder_dred_decode*()` output, not just the bounded post-analysis concealment path
+- decoder-level live first-loss and repeated-loss neural concealment tests that start from a good-packet decoder state and compare concealed PCM plus retained cursor/state against libopus at each supported seam
 - lost-packet recovery cases across at least:
   - 8 kHz
   - 16 kHz
@@ -230,6 +238,8 @@ Acceptance:
 - processed-feature recovery queue scheduling matches libopus and remains allocation-free
 - PLC predictor, first-loss prefill, concealment-feature evolution, and FARGAN conditioning/continuity/synthesis parity all match libopus on bounded state-oracle checks
 - bounded post-analysis concealment frame synthesis matches libopus on retained-state parity checks
+- CELT neural-entry history preparation now matches libopus-derived `update_plc_state()` math closely enough for the 48 kHz -> 16 kHz bridge to stay deterministic and allocation-free in steady state
+- live decoder first-loss and second-loss neural concealment now match libopus on the current 16 kHz mono seam
 
 ### M3. Encoder Staging Parity
 

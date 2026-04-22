@@ -82,6 +82,31 @@ func TestNewDecoder_ValidConfigs(t *testing.T) {
 	}
 }
 
+func TestNewDecoderLeavesDREDSidecarDormant(t *testing.T) {
+	dec, err := NewDecoderDefault(48000, 3)
+	if err != nil {
+		t.Fatalf("NewDecoderDefault error: %v", err)
+	}
+	if len(dec.dredCache) != 0 || len(dec.dredData) != 0 || len(dec.dredPLC) != 0 {
+		t.Fatalf("dormant multistream DRED sidecar unexpectedly allocated: cache=%d data=%d plc=%d", len(dec.dredCache), len(dec.dredData), len(dec.dredPLC))
+	}
+
+	dec.SetDNNBlob(makeDecoderBlobForDREDTest(t, true))
+	if len(dec.dredCache) != 0 || len(dec.dredData) != 0 || len(dec.dredPLC) != 0 {
+		t.Fatalf("main decoder SetDNNBlob eagerly allocated multistream DRED sidecar: cache=%d data=%d plc=%d", len(dec.dredCache), len(dec.dredData), len(dec.dredPLC))
+	}
+
+	setStandaloneDREDDecoderBlobForTest(t, dec)
+	if len(dec.dredCache) != dec.streams || len(dec.dredData) != dec.streams || len(dec.dredPLC) != dec.streams {
+		t.Fatalf("standalone DRED arm did not allocate per-stream sidecar: cache=%d data=%d plc=%d streams=%d", len(dec.dredCache), len(dec.dredData), len(dec.dredPLC), dec.streams)
+	}
+
+	dec.setDREDDecoderBlob(nil)
+	if len(dec.dredCache) != 0 || len(dec.dredData) != 0 || len(dec.dredPLC) != 0 {
+		t.Fatalf("standalone DRED clear left multistream sidecar allocated: cache=%d data=%d plc=%d", len(dec.dredCache), len(dec.dredData), len(dec.dredPLC))
+	}
+}
+
 // TestNewDecoder_InvalidConfigs tests decoder creation with invalid configurations.
 func TestNewDecoder_InvalidConfigs(t *testing.T) {
 	tests := []struct {
@@ -849,6 +874,54 @@ func TestDecoderLeavesDREDStateDormantWithoutAnySidecar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDecoderDefault error: %v", err)
 	}
+
+	samples, err := dec.Decode(packet, 960)
+	if err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	if len(samples) != 960*3 {
+		t.Fatalf("len(samples)=%d want %d", len(samples), 960*3)
+	}
+	for i := range dec.dredCache {
+		if dec.dredCache[i] != (internaldred.Cache{}) {
+			t.Fatalf("stream %d cached dormant DRED cache=%+v want zero state", i, dec.dredCache[i])
+		}
+		if dec.dredDecoded[i] != (internaldred.Decoded{}) {
+			t.Fatalf("stream %d retained dormant DRED decode=%+v want zero state", i, dec.dredDecoded[i])
+		}
+		if dec.dredPLC[i] != (lpcnetplc.State{}) {
+			t.Fatalf("stream %d awakened dormant DRED PLC=%+v want zero state", i, dec.dredPLC[i])
+		}
+	}
+
+	samples, err = dec.Decode(nil, 960)
+	if err != nil {
+		t.Fatalf("Decode(nil) error: %v", err)
+	}
+	if len(samples) != 960*3 {
+		t.Fatalf("len(samples)=%d want %d", len(samples), 960*3)
+	}
+	for i := range dec.dredCache {
+		if dec.dredCache[i] != (internaldred.Cache{}) {
+			t.Fatalf("stream %d cached dormant DRED cache after PLC=%+v want zero state", i, dec.dredCache[i])
+		}
+		if dec.dredDecoded[i] != (internaldred.Decoded{}) {
+			t.Fatalf("stream %d retained dormant DRED decode after PLC=%+v want zero state", i, dec.dredDecoded[i])
+		}
+		if dec.dredPLC[i] != (lpcnetplc.State{}) {
+			t.Fatalf("stream %d awakened dormant DRED PLC after PLC=%+v want zero state", i, dec.dredPLC[i])
+		}
+	}
+}
+
+func TestDecoderLeavesDREDStateDormantWithOnlyMainDNNBlob(t *testing.T) {
+	packet := makeMultistreamPacketWithDREDForTest(t, 3, 1, makeExperimentalDREDPayloadBodyForTest(t, 0, 4))
+
+	dec, err := NewDecoderDefault(48000, 3)
+	if err != nil {
+		t.Fatalf("NewDecoderDefault error: %v", err)
+	}
+	dec.SetDNNBlob(makeDecoderBlobForDREDTest(t, false))
 
 	samples, err := dec.Decode(packet, 960)
 	if err != nil {

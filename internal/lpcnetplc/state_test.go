@@ -165,6 +165,57 @@ func TestMarkUpdatedAndFinishConcealedFrameFloat(t *testing.T) {
 	}
 }
 
+func TestReplaceHistoryFromFramesFloatPreservesQueuedState(t *testing.T) {
+	var st State
+	var queued [NumFeatures]float32
+	for i := range queued {
+		queued[i] = float32(i + 1)
+	}
+	st.FECClear()
+	st.FECAdd(queued[:])
+	st.FECAdd(nil)
+	st.QueueFeatures(queued[:])
+	st.lossCount = 7
+	st.blend = 1
+
+	var frames [2 * FrameSize]float32
+	for i := range frames {
+		frames[i] = float32((i%29)-14) / 29
+	}
+	if n := st.ReplaceHistoryFromFramesFloat(frames[:]); n != len(frames) {
+		t.Fatalf("ReplaceHistoryFromFramesFloat=%d want %d", n, len(frames))
+	}
+	if st.Blend() != 0 || st.LossCount() != 0 {
+		t.Fatalf("post-replace state mismatch: blend=%d loss=%d", st.Blend(), st.LossCount())
+	}
+	if st.AnalysisPos() != PLCBufSize-len(frames) || st.PredictPos() != PLCBufSize-len(frames) {
+		t.Fatalf("post-replace cursors=(analysis=%d predict=%d) want %d", st.AnalysisPos(), st.PredictPos(), PLCBufSize-len(frames))
+	}
+	if st.FECFillPos() != 1 || st.FECSkip() != 1 {
+		t.Fatalf("queued FEC state=(fill=%d skip=%d) want (1,1)", st.FECFillPos(), st.FECSkip())
+	}
+	var gotQueued [NumFeatures]float32
+	if n := st.FillQueuedFeatures(0, gotQueued[:]); n != NumFeatures {
+		t.Fatalf("FillQueuedFeatures=%d want %d", n, NumFeatures)
+	}
+	for i := range queued {
+		if gotQueued[i] != queued[i] {
+			t.Fatalf("queued feature[%d]=%v want %v", i, gotQueued[i], queued[i])
+		}
+	}
+
+	var gotPCM [PLCBufSize]float32
+	if n := st.FillPCMHistory(gotPCM[:]); n != PLCBufSize {
+		t.Fatalf("FillPCMHistory count=%d want %d", n, PLCBufSize)
+	}
+	for i := 0; i < len(frames); i++ {
+		want := quantizePCMInt16Like(frames[i])
+		if gotPCM[PLCBufSize-len(frames)+i] != want {
+			t.Fatalf("pcm tail[%d]=%v want %v", i, gotPCM[PLCBufSize-len(frames)+i], want)
+		}
+	}
+}
+
 func TestPredictorBackedConcealmentStepsDoNotAllocate(t *testing.T) {
 	predictor := newPredictorForTest(t)
 	var st State
