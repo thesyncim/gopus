@@ -89,16 +89,18 @@ type Decoder struct {
 	scratchRangeDecoder rangecoding.Decoder
 
 	// Soft clipping memory (float decode uses none; int16 decode uses this)
-	softClipMem [2]float32
-	dnnBlob     *dnnblob.Blob
-	dredDNNBlob *dnnblob.Blob
-	dredData    []byte
-	dredCache   internaldred.Cache
-	dredDecoded internaldred.Decoded
-	dredModel   *rdovae.Decoder
-	dredProcess rdovae.Processor
-	dredPLC     lpcnetplc.State
-	dredBlend   int
+	softClipMem   [2]float32
+	dnnBlob       *dnnblob.Blob
+	dredDNNBlob   *dnnblob.Blob
+	dredData      []byte
+	dredCache     internaldred.Cache
+	dredDecoded   internaldred.Decoded
+	dredModel     *rdovae.Decoder
+	dredProcess   rdovae.Processor
+	dredPLC       lpcnetplc.State
+	dredPredictor lpcnetplc.Predictor
+	dredFARGAN    lpcnetplc.FARGAN
+	dredBlend     int
 
 	// Decoder-side DNN readiness mirrors the validated model families retained
 	// by OPUS_SET_DNN_BLOB so optional paths can stay dormant until they are real.
