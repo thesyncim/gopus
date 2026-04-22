@@ -414,6 +414,70 @@ func TestMainDecoder48kDNNBlobKeepsRecoveryAndBridgeDormant(t *testing.T) {
 	}
 }
 
+func TestMainDecoder16kDNNBlobGoodDecodeKeepsRecoveryDormantUntilLoss(t *testing.T) {
+	packet := makeValidMonoCELTPacketForDREDTest(t)
+
+	dec, err := NewDecoder(DefaultDecoderConfig(16000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+
+	pcm := make([]float32, dec.maxPacketSamples)
+	if _, err := dec.Decode(packet, pcm); err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+
+	if state := dec.dredState(); state != nil {
+		if state.decoderDREDPayloadState != nil {
+			t.Fatalf("good decode eagerly allocated payload state: %+v", state.decoderDREDPayloadState)
+		}
+		if state.decoderDREDRecoveryState != nil {
+			t.Fatalf("good decode eagerly allocated recovery state: %+v", state.decoderDREDRecoveryState)
+		}
+		if state.decoderDREDNeuralState != nil {
+			t.Fatalf("good decode eagerly allocated neural runtime state: %+v", state.decoderDREDNeuralState)
+		}
+		if state.decoderDRED48kBridgeState != nil {
+			t.Fatalf("good decode eagerly allocated 48k bridge state: %+v", state.decoderDRED48kBridgeState)
+		}
+	}
+}
+
+func TestMainDecoder48kDNNBlobGoodDecodeKeepsRecoveryDormantUntilLoss(t *testing.T) {
+	packet := makeValidMonoCELTPacketForDREDTest(t)
+
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+
+	pcm := make([]float32, dec.maxPacketSamples)
+	if _, err := dec.Decode(packet, pcm); err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+
+	if state := dec.dredState(); state != nil {
+		if state.decoderDREDPayloadState != nil {
+			t.Fatalf("48 kHz good decode eagerly allocated payload state: %+v", state.decoderDREDPayloadState)
+		}
+		if state.decoderDREDRecoveryState != nil {
+			t.Fatalf("48 kHz good decode eagerly allocated recovery state: %+v", state.decoderDREDRecoveryState)
+		}
+		if state.decoderDREDNeuralState != nil {
+			t.Fatalf("48 kHz good decode eagerly allocated neural runtime state: %+v", state.decoderDREDNeuralState)
+		}
+		if state.decoderDRED48kBridgeState != nil {
+			t.Fatalf("48 kHz good decode eagerly allocated bridge state: %+v", state.decoderDRED48kBridgeState)
+		}
+	}
+}
+
 func TestClearingStandaloneDREDPreservesMainNeuralState(t *testing.T) {
 	dec, err := NewDecoder(DefaultDecoderConfig(16000, 1))
 	if err != nil {
@@ -793,9 +857,13 @@ func TestDecoderDecodePLCAppliesNeuralConcealmentWhenReady(t *testing.T) {
 	if n != 960 {
 		t.Fatalf("Decode()=%d want 960", n)
 	}
-	state := requireDecoderDREDState(t, dec)
-	if got := state.dredPLC.PredictPos(); got != lpcnetplc.PLCBufSize-6*lpcnetplc.FrameSize {
-		t.Fatalf("PredictPos after good decode=%d want %d", got, lpcnetplc.PLCBufSize-6*lpcnetplc.FrameSize)
+	if state := dec.dredState(); state != nil {
+		if state.decoderDREDRecoveryState != nil {
+			t.Fatalf("good decode eagerly allocated recovery state: %+v", state.decoderDREDRecoveryState)
+		}
+		if state.decoderDREDNeuralState != nil {
+			t.Fatalf("good decode eagerly allocated neural runtime state: %+v", state.decoderDREDNeuralState)
+		}
 	}
 
 	n, err = dec.Decode(nil, pcm)
@@ -805,7 +873,7 @@ func TestDecoderDecodePLCAppliesNeuralConcealmentWhenReady(t *testing.T) {
 	if n != 960 {
 		t.Fatalf("Decode(nil)=%d want 960", n)
 	}
-	state = requireDecoderDREDState(t, dec)
+	state := requireDecoderDREDState(t, dec)
 	if got := state.dredPLC.Blend(); got != 1 {
 		t.Fatalf("Blend after neural PLC=%d want 1", got)
 	}
