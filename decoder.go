@@ -98,6 +98,7 @@ type Decoder struct {
 	dredModel     *rdovae.Decoder
 	dredProcess   rdovae.Processor
 	dredPLC       lpcnetplc.State
+	dredAnalysis  lpcnetplc.Analysis
 	dredPredictor lpcnetplc.Predictor
 	dredFARGAN    lpcnetplc.FARGAN
 	dredBlend     int

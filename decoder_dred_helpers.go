@@ -13,11 +13,17 @@ import (
 func (d *Decoder) setDNNBlob(blob *dnnblob.Blob) error {
 	var (
 		models    dnnblob.DecoderModelState
+		analysis  lpcnetplc.Analysis
 		predictor lpcnetplc.Predictor
 		fargan    lpcnetplc.FARGAN
 	)
 	if blob != nil {
 		models = blob.DecoderModels()
+		if models.PitchDNN {
+			if err := analysis.SetModel(blob); err != nil {
+				return err
+			}
+		}
 		if models.PLC {
 			if err := predictor.SetModel(blob); err != nil {
 				return err
@@ -31,11 +37,12 @@ func (d *Decoder) setDNNBlob(blob *dnnblob.Blob) error {
 	}
 
 	d.dnnBlob = blob
-	d.pitchDNNLoaded = models.PitchDNN
+	d.pitchDNNLoaded = models.PitchDNN && analysis.Loaded()
 	d.plcModelLoaded = models.PLC && predictor.Loaded()
 	d.farganModelLoaded = models.FARGAN && fargan.Loaded()
 	d.osceModelsLoaded = models.OSCE
 	d.osceBWEModelLoaded = models.OSCEBWE
+	d.dredAnalysis = analysis
 	d.dredPredictor = predictor
 	d.dredFARGAN = fargan
 	return nil
