@@ -356,6 +356,10 @@ func (d *Decoder) dredSidecarActive() bool {
 }
 
 func (d *Decoder) dredNeuralConcealmentReady() bool {
+	return d.ensureDREDNeuralConcealmentRuntime()
+}
+
+func (d *Decoder) dredNeuralConcealmentAvailable() bool {
 	n := d.dredNeuralState()
 	if n == nil {
 		return false
@@ -363,14 +367,21 @@ func (d *Decoder) dredNeuralConcealmentReady() bool {
 	if !d.dredNeuralConfigEligible() {
 		return false
 	}
+	return n.pitchDNNLoaded && n.plcModelLoaded && n.farganModelLoaded
+}
+
+func (d *Decoder) ensureDREDNeuralConcealmentRuntime() bool {
+	if !d.dredNeuralConcealmentAvailable() {
+		return false
+	}
 	r := d.ensureDREDRecoveryState()
 	if r == nil {
 		return false
 	}
-	if d.sampleRate == 48000 {
-		d.ensureDRED48kBridgeState()
+	if d.sampleRate == 48000 && d.ensureDRED48kBridgeState() == nil {
+		return false
 	}
-	return n.pitchDNNLoaded && n.plcModelLoaded && n.farganModelLoaded
+	return true
 }
 
 func (d *Decoder) maybeCacheDREDPayload(packet []byte) {
@@ -493,9 +504,12 @@ func (d *Decoder) markDREDConcealed() {
 }
 
 func (d *Decoder) primeDREDCELTEntryHistory(mode Mode) int {
+	if !d.ensureDREDNeuralConcealmentRuntime() {
+		return 0
+	}
 	r := d.dredRecoveryState()
 	neural := d.dredNeuralState()
-	if r == nil || neural == nil || !d.dredNeuralConcealmentReady() || r.dredPLC.Blend() != 0 || d.celtDecoder == nil {
+	if r == nil || neural == nil || r.dredPLC.Blend() != 0 || d.celtDecoder == nil {
 		return 0
 	}
 	if mode != ModeCELT && mode != ModeHybrid {
@@ -526,6 +540,9 @@ func (d *Decoder) primeDREDCELTEntryHistory(mode Mode) int {
 }
 
 func (d *Decoder) prepareDRED48kNeuralEntry(frameSize int, mode Mode) {
+	if !d.ensureDREDNeuralConcealmentRuntime() {
+		return
+	}
 	p := d.dredPayloadState()
 	r := d.dredRecoveryState()
 	b := d.dred48kBridgeState()
@@ -544,6 +561,9 @@ func (d *Decoder) prepareDRED48kNeuralEntry(frameSize int, mode Mode) {
 }
 
 func (d *Decoder) prepareCachedDREDNeuralConcealment(frameSizeSamples int) {
+	if !d.ensureDREDNeuralConcealmentRuntime() {
+		return
+	}
 	p := d.dredPayloadState()
 	r := d.dredRecoveryState()
 	if r == nil || frameSizeSamples <= 0 {
@@ -557,11 +577,14 @@ func (d *Decoder) prepareCachedDREDNeuralConcealment(frameSizeSamples int) {
 }
 
 func (d *Decoder) applyDREDNeuralConcealment(pcm []float32, samplesPerChannel int) bool {
+	if !d.ensureDREDNeuralConcealmentRuntime() {
+		return false
+	}
 	p := d.dredPayloadState()
 	r := d.dredRecoveryState()
 	n := d.dredNeuralState()
 	b := d.dred48kBridgeState()
-	if r == nil || n == nil || !d.dredNeuralConcealmentReady() {
+	if r == nil || n == nil {
 		return false
 	}
 	if len(pcm) < samplesPerChannel {
@@ -582,6 +605,7 @@ func (d *Decoder) applyDREDNeuralConcealment(pcm []float32, samplesPerChannel in
 		}
 		return true
 	}
+	d.prepareCachedDREDNeuralConcealment(samplesPerChannel)
 	if samplesPerChannel < lpcnetplc.FrameSize || samplesPerChannel%lpcnetplc.FrameSize != 0 {
 		return false
 	}

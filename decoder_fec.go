@@ -16,7 +16,7 @@ func (d *Decoder) decodePLCForFECWithState(
 	bandwidth Bandwidth,
 	packetStereo bool,
 ) (int, error) {
-	neuralReady := d.dredNeuralConcealmentReady()
+	neuralReady := d.dredNeuralConcealmentAvailable()
 	n, usedNeuralConcealment, err := d.decodeDRED48kNeuralPLCInto(pcm, frameSize, plcDecodeState{
 		packetFrameSize:    frameSize,
 		mode:               mode,
