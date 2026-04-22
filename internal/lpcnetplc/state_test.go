@@ -208,3 +208,28 @@ func TestBoundedConcealFrameFloatDoesNotAllocate(t *testing.T) {
 		t.Fatalf("AllocsPerRun=%v want 0", allocs)
 	}
 }
+
+func TestConcealFrameFloatWithAnalysisDoesNotAllocate(t *testing.T) {
+	predictor := newPredictorForTest(t)
+	fargan := newFARGANForTest(t)
+	pitchBlob := makePitchDNNTestBlob(t)
+	var analysis Analysis
+	if err := analysis.SetModel(pitchBlob); err != nil {
+		t.Fatalf("Analysis.SetModel error: %v", err)
+	}
+	var st State
+	seedPredictorBackupsForTest(predictor, &st)
+	seedBoundedConcealStateForTest(&st)
+
+	allocs := testing.AllocsPerRun(100, func() {
+		localState := st
+		localPredictor := *predictor
+		localFARGAN := *fargan
+		localAnalysis := analysis
+		var frame [FrameSize]float32
+		localState.ConcealFrameFloatWithAnalysis(&localAnalysis, &localPredictor, &localFARGAN, frame[:])
+	})
+	if allocs != 0 {
+		t.Fatalf("AllocsPerRun=%v want 0", allocs)
+	}
+}

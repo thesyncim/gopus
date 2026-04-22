@@ -73,6 +73,61 @@ func TestBoundedConcealFrameFloatMatchesLibopus(t *testing.T) {
 	assertBoundedConcealMatchesLibopus(t, state2, farganGo2.state, frame2[:], want2, 1.2e-1, 1.4e-1, "second conceal")
 }
 
+func TestConcealFrameFloatWithAnalysisMatchesLibopusColdStart(t *testing.T) {
+	plcModelBlob, err := probeLibopusPLCModelBlob()
+	if err != nil {
+		t.Skipf("libopus plc model helper unavailable: %v", err)
+	}
+	plcBlob, err := dnnblob.Clone(plcModelBlob)
+	if err != nil {
+		t.Fatalf("dnnblob.Clone(plc) error: %v", err)
+	}
+	farganModelBlob, err := probeLibopusFARGANModelBlob()
+	if err != nil {
+		t.Skipf("libopus fargan model helper unavailable: %v", err)
+	}
+	farganBlob, err := dnnblob.Clone(farganModelBlob)
+	if err != nil {
+		t.Fatalf("dnnblob.Clone(fargan) error: %v", err)
+	}
+	pitchModelBlob, err := probeLibopusPitchDNNModelBlob()
+	if err != nil {
+		t.Skipf("libopus pitchdnn model helper unavailable: %v", err)
+	}
+	pitchBlob, err := dnnblob.Clone(pitchModelBlob)
+	if err != nil {
+		t.Fatalf("dnnblob.Clone(pitchdnn) error: %v", err)
+	}
+	var predictor Predictor
+	if err := predictor.SetModel(plcBlob); err != nil {
+		t.Fatalf("Predictor.SetModel(real model) error: %v", err)
+	}
+	var fargan FARGAN
+	if err := fargan.SetModel(farganBlob); err != nil {
+		t.Fatalf("FARGAN.SetModel(real model) error: %v", err)
+	}
+	var analysis Analysis
+	if err := analysis.SetModel(pitchBlob); err != nil {
+		t.Fatalf("Analysis.SetModel(real model) error: %v", err)
+	}
+
+	var st State
+	seedPredictorBackupsForTest(&predictor, &st)
+	fec0, fec1 := seedBoundedConcealStateForTest(&st)
+
+	want, err := probeLibopusPLCConceal(st, fargan.state, fec0[:], fec1[:])
+	if err != nil {
+		t.Skipf("libopus plc conceal helper unavailable: %v", err)
+	}
+
+	var frame [FrameSize]float32
+	gotFEC := st.ConcealFrameFloatWithAnalysis(&analysis, &predictor, &fargan, frame[:])
+	if gotFEC != want.GotFEC {
+		t.Fatalf("conceal gotFEC=%v want %v", gotFEC, want.GotFEC)
+	}
+	assertBoundedConcealMatchesLibopus(t, st, fargan.state, frame[:], want, 1.2e-1, 1.2e-1, "conceal with analysis")
+}
+
 func stateFromLibopusConcealResult(result libopusPLCConcealResult, fecFillPos int) State {
 	var st State
 	st.runtimeInit = true

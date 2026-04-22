@@ -4,16 +4,43 @@ import (
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	internaldred "github.com/thesyncim/gopus/internal/dred"
 	"github.com/thesyncim/gopus/internal/dred/rdovae"
+	"github.com/thesyncim/gopus/internal/lpcnetplc"
 )
 
 // SetDNNBlob retains a validated USE_WEIGHTS_FILE blob for future optional
 // extension paths. A nil blob clears the retained main-decoder model state.
 func (d *Decoder) SetDNNBlob(blob *dnnblob.Blob) {
 	d.dnnBlob = blob
-	models := blob.DecoderModels()
-	d.pitchDNNLoaded = models.PitchDNN
-	d.plcModelLoaded = models.PLC
-	d.farganModelLoaded = models.FARGAN
+	var (
+		models    dnnblob.DecoderModelState
+		analysis  lpcnetplc.Analysis
+		predictor lpcnetplc.Predictor
+		fargan    lpcnetplc.FARGAN
+	)
+	if blob != nil {
+		models = blob.DecoderModels()
+		if models.PitchDNN {
+			_ = analysis.SetModel(blob)
+		}
+		if models.PLC {
+			_ = predictor.SetModel(blob)
+		}
+		if models.FARGAN {
+			_ = fargan.SetModel(blob)
+		}
+	}
+	for i := range d.dredAnalysis {
+		d.dredAnalysis[i] = analysis
+	}
+	for i := range d.dredPredictor {
+		d.dredPredictor[i] = predictor
+	}
+	for i := range d.dredFARGAN {
+		d.dredFARGAN[i] = fargan
+	}
+	d.pitchDNNLoaded = models.PitchDNN && analysis.Loaded()
+	d.plcModelLoaded = models.PLC && predictor.Loaded()
+	d.farganModelLoaded = models.FARGAN && fargan.Loaded()
 	d.osceModelsLoaded = models.OSCE
 	d.osceBWEModelLoaded = models.OSCEBWE
 }

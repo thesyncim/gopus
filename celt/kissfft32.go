@@ -30,6 +30,7 @@ type kissFFTState struct {
 
 var (
 	// Common CELT FFT sizes are prebuilt once and reused lock-free.
+	kissFFTState320 = newKissFFTState(320)
 	kissFFTState60  = newKissFFTState(60)
 	kissFFTState120 = newKissFFTState(120)
 	kissFFTState240 = newKissFFTState(240)
@@ -89,6 +90,8 @@ func kissSub(a, b float32) float32 {
 
 func getKissFFTState(nfft int) *kissFFTState {
 	switch nfft {
+	case 320:
+		return kissFFTState320
 	case 60:
 		return kissFFTState60
 	case 120:
@@ -112,8 +115,13 @@ func newKissFFTState(nfft int) *kissFFTState {
 	if !ok {
 		return &kissFFTState{nfft: nfft}
 	}
-	bitrev := make([]int, nfft)
-	computeBitrevTableRecursive(0, bitrev, 0, 1, 1, factors)
+	var bitrev []int
+	if nfft == 320 {
+		bitrev = fftBitrevLPCNet320Static[:]
+	} else {
+		bitrev = make([]int, nfft)
+		computeBitrevTableRecursive(0, bitrev, 0, 1, 1, factors)
+	}
 	w := computeTwiddles(nfft)
 
 	// Pre-compute fstride array for fftImpl (eliminates per-call allocation)
@@ -132,6 +140,9 @@ func newStaticKissFFTState(nfft int) *kissFFTState {
 	var factors []int
 	shift := 0
 	switch nfft {
+	case 320:
+		factors = []int{5, 64, 4, 16, 4, 4, 4, 1}
+		shift = -1
 	case 480:
 		factors = []int{5, 96, 3, 32, 4, 8, 2, 4, 4, 1}
 		shift = 0
@@ -164,7 +175,12 @@ func newStaticKissFFTState(nfft int) *kissFFTState {
 		shift:   shift,
 		factors: factors,
 		bitrev:  bitrev,
-		w:       fftTwiddles48000_960Static[:],
+		w: func() []kissCpx {
+			if nfft == 320 {
+				return fftTwiddlesLPCNet320Static[:]
+			}
+			return fftTwiddles48000_960Static[:]
+		}(),
 		fstride: fstride,
 	}
 }

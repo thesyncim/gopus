@@ -238,6 +238,16 @@ func addLinearLayerTestBlobSpec(specs map[string]testBlobRecordSpec, spec lpcnet
 	}
 }
 
+func addConv2DLayerTestBlobSpec(specs map[string]testBlobRecordSpec, spec lpcnetplc.Conv2DLayerSpec) {
+	if spec.Bias != "" {
+		specs[spec.Bias] = testBlobRecordSpec{typ: dnnblob.TypeFloat, size: 4 * spec.OutChannels}
+	}
+	if spec.FloatWeights != "" {
+		size := 4 * spec.InChannels * spec.OutChannels * spec.KTime * spec.KHeight
+		specs[spec.FloatWeights] = testBlobRecordSpec{typ: dnnblob.TypeFloat, size: size}
+	}
+}
+
 func makeFramedButIncompatibleTestDNNBlob() []byte {
 	return appendTestBlobRecord(nil, "dummy_record", 0, 4)
 }
@@ -255,6 +265,12 @@ func makeValidDecoderTestDNNBlob() []byte {
 	specs := make(map[string]testBlobRecordSpec)
 	for _, name := range dnnblob.RequiredDecoderControlRecordNames(false) {
 		specs[name] = testBlobRecordSpec{typ: dnnblob.TypeFloat, size: 4}
+	}
+	for _, spec := range lpcnetplc.PitchDNNLinearLayerSpecs() {
+		addLinearLayerTestBlobSpec(specs, spec)
+	}
+	for _, spec := range lpcnetplc.PitchDNNConv2DLayerSpecs() {
+		addConv2DLayerTestBlobSpec(specs, spec)
 	}
 	for _, spec := range lpcnetplc.ModelLayerSpecs() {
 		addLinearLayerTestBlobSpec(specs, spec)
@@ -324,7 +340,7 @@ func TestDecoderSetDNNBlobRetainedAcrossReset(t *testing.T) {
 	if dec.dnnBlob == nil {
 		t.Fatal("wrapper dnnBlob=nil want non-nil")
 	}
-	if !dec.dredPredictor.Loaded() || !dec.dredFARGAN.Loaded() {
+	if !dec.dredAnalysis.Loaded() || !dec.dredPredictor.Loaded() || !dec.dredFARGAN.Loaded() {
 		t.Fatal("decoder runtime models not loaded from retained DNN blob")
 	}
 
@@ -332,7 +348,7 @@ func TestDecoderSetDNNBlobRetainedAcrossReset(t *testing.T) {
 	if dec.dnnBlob == nil {
 		t.Fatal("wrapper dnnBlob cleared by Reset")
 	}
-	if !dec.dredPredictor.Loaded() || !dec.dredFARGAN.Loaded() {
+	if !dec.dredAnalysis.Loaded() || !dec.dredPredictor.Loaded() || !dec.dredFARGAN.Loaded() {
 		t.Fatal("decoder runtime models cleared by Reset")
 	}
 }
@@ -362,10 +378,16 @@ func TestMultistreamDecoderSetDNNBlobRetainedAcrossReset(t *testing.T) {
 	if dec.dnnBlob == nil {
 		t.Fatal("wrapper dnnBlob=nil want non-nil")
 	}
+	if !dec.dec.PitchDNNLoaded() || !dec.dec.PLCModelLoaded() || !dec.dec.FARGANModelLoaded() {
+		t.Fatal("multistream decoder runtime models not loaded from retained DNN blob")
+	}
 
 	dec.Reset()
 	if dec.dnnBlob == nil {
 		t.Fatal("wrapper dnnBlob cleared by Reset")
+	}
+	if !dec.dec.PitchDNNLoaded() || !dec.dec.PLCModelLoaded() || !dec.dec.FARGANModelLoaded() {
+		t.Fatal("multistream decoder runtime models cleared by Reset")
 	}
 }
 

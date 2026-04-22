@@ -293,6 +293,18 @@ func (s *State) StepFECOrPredict(p *Predictor, out []float32) bool {
 	return gotFEC
 }
 
+func (s *State) primeFirstLossPrefillCurrentPredictor(p *Predictor) int {
+	if s == nil || p == nil || !p.Loaded() {
+		return 0
+	}
+	s.ensureRuntimeInit()
+	for i := 0; i < 2; i++ {
+		s.StepFECOrPredict(p, s.features[:NumFeatures])
+		s.QueueFeatures(s.features[:NumFeatures])
+	}
+	return 2
+}
+
 // PrimeFirstLossPrefill mirrors the post-analysis first-loss predictor prefill
 // that runs before FARGAN continuity priming. It restores plc_bak[0], then
 // generates and queues the two extra causal feature vectors libopus needs.
@@ -302,11 +314,7 @@ func (s *State) PrimeFirstLossPrefill(p *Predictor) int {
 	}
 	s.ensureRuntimeInit()
 	s.RestorePredictorBackup(p, 0)
-	for i := 0; i < 2; i++ {
-		s.StepFECOrPredict(p, s.features[:NumFeatures])
-		s.QueueFeatures(s.features[:NumFeatures])
-	}
-	return 2
+	return s.primeFirstLossPrefillCurrentPredictor(p)
 }
 
 // PrimeFirstLossContinuity mirrors the bounded post-analysis FARGAN continuity
@@ -348,23 +356,62 @@ func (s *State) ConcealmentFeatureStep(p *Predictor) bool {
 	return gotFEC
 }
 
-// ConcealFrameFloat mirrors the bounded post-analysis branch of
-// lpcnet_plc_conceal(). When blend is zero it performs the first-loss
-// predictor prefill and FARGAN continuity priming before synthesizing one
-// concealed frame, then updates the retained PCM history/cursors.
-func (s *State) ConcealFrameFloat(p *Predictor, f *FARGAN, frame []float32) bool {
+// PrimeFirstLossWithAnalysis mirrors the full first-loss history-analysis
+// branch of lpcnet_plc_conceal(). It replays retained PCM history through Burg
+// cepstral analysis and LPCNet feature extraction, advances predictor backup
+// state, generates the two extra causal feature vectors, and primes FARGAN
+// continuity.
+func (s *State) PrimeFirstLossWithAnalysis(a *Analysis, p *Predictor, f *FARGAN) bool {
+	if s == nil || a == nil || p == nil || f == nil || !a.Loaded() || !p.Loaded() || !f.Loaded() || s.blend != 0 {
+		return false
+	}
+	s.ensureRuntimeInit()
+	s.RestorePredictorBackup(p, 0)
+	count := 0
+	var plcFeatures [InputSize]float32
+	for s.analysisPos+FrameSize <= PLCBufSize {
+		if s.analysisPos < 0 {
+			return false
+		}
+		history := s.pcm[s.analysisPos : s.analysisPos+FrameSize]
+		for i := 0; i < FrameSize; i++ {
+			a.scratch.frame[i] = 32768 * history[i]
+		}
+		if n := a.BurgCepstralAnalysis(plcFeatures[:], a.scratch.frame[:]); n != 2*NumBands {
+			return false
+		}
+		if n := a.ComputeSingleFrameFeaturesFloat(s.features[:], a.scratch.frame[:]); n != NumTotalFeatures {
+			return false
+		}
+		if (s.analysisGap == 0 || count > 0) && s.analysisPos >= s.predictPos {
+			s.QueueFeatures(s.features[:NumFeatures])
+			copy(plcFeatures[2*NumBands:], s.features[:NumFeatures])
+			plcFeatures[2*NumBands+NumFeatures] = 1
+			p.copyState(&s.plcNet)
+			s.rotatePredictorBackup()
+			if n := p.Predict(s.features[:NumFeatures], plcFeatures[:]); n != NumFeatures {
+				return false
+			}
+			p.copyState(&s.plcNet)
+		}
+		s.analysisPos += FrameSize
+		count++
+	}
+	if s.primeFirstLossPrefillCurrentPredictor(p) != 2 {
+		return false
+	}
+	if n := f.PrimeContinuity(s.pcm[PLCBufSize-FARGANContSamples:], s.cont[:]); n != FARGANContSamples {
+		return false
+	}
+	s.analysisGap = 0
+	return true
+}
+
+func (s *State) concealFrameFloatAfterPriming(p *Predictor, f *FARGAN, frame []float32) bool {
 	if s == nil || p == nil || f == nil || !p.Loaded() || !f.Loaded() || len(frame) < FrameSize {
 		return false
 	}
 	s.ensureRuntimeInit()
-	if s.blend == 0 {
-		if s.PrimeFirstLossPrefill(p) != 2 {
-			return false
-		}
-		if s.PrimeFirstLossContinuity(f) != FARGANContSamples {
-			return false
-		}
-	}
 	gotFEC := s.StepFECOrPredict(p, s.features[:NumFeatures])
 	if gotFEC {
 		s.lossCount = 0
@@ -383,6 +430,42 @@ func (s *State) ConcealFrameFloat(p *Predictor, f *FARGAN, frame []float32) bool
 	s.QueueFeatures(s.features[:NumFeatures])
 	s.FinishConcealedFrameFloat(frame[:FrameSize])
 	return gotFEC
+}
+
+// ConcealFrameFloat mirrors the bounded post-analysis branch of
+// lpcnet_plc_conceal(). When blend is zero it assumes the caller already has
+// the continuity features and PCM tail the history-analysis branch would have
+// produced, then synthesizes one concealed frame.
+func (s *State) ConcealFrameFloat(p *Predictor, f *FARGAN, frame []float32) bool {
+	if s == nil || p == nil || f == nil || !p.Loaded() || !f.Loaded() || len(frame) < FrameSize {
+		return false
+	}
+	s.ensureRuntimeInit()
+	if s.blend == 0 {
+		if s.PrimeFirstLossPrefill(p) != 2 {
+			return false
+		}
+		if s.PrimeFirstLossContinuity(f) != FARGANContSamples {
+			return false
+		}
+	}
+	return s.concealFrameFloatAfterPriming(p, f, frame)
+}
+
+// ConcealFrameFloatWithAnalysis mirrors the full lpcnet_plc_conceal() float
+// path, including the first-loss history replay through Burg/LPCNet analysis
+// before the final predictor/FARGAN synthesis step.
+func (s *State) ConcealFrameFloatWithAnalysis(a *Analysis, p *Predictor, f *FARGAN, frame []float32) bool {
+	if s == nil || a == nil || p == nil || f == nil || !a.Loaded() || !p.Loaded() || !f.Loaded() || len(frame) < FrameSize {
+		return false
+	}
+	s.ensureRuntimeInit()
+	if s.blend == 0 {
+		if !s.PrimeFirstLossWithAnalysis(a, p, f) {
+			return false
+		}
+	}
+	return s.concealFrameFloatAfterPriming(p, f, frame)
 }
 
 // MarkUpdatedFrameFloat mirrors the PCM-history and cursor maintenance in

@@ -21,6 +21,7 @@ func (d *Decoder) Reset() {
 	d.softClipMem[1] = 0
 	d.clearDREDPayloadState()
 	d.dredPLC.Reset()
+	d.dredAnalysis.Reset()
 	d.dredPredictor.Reset()
 	d.dredFARGAN.Reset()
 

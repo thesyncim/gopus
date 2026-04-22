@@ -7,12 +7,14 @@ import (
 )
 
 const (
-	NumBands         = 18
-	InputSize        = 2*NumBands + NumFeatures + 1
-	DenseInSize      = 128
-	GRU1Size         = 192
-	GRU2Size         = 192
-	maxModelIn       = GRU2Size
+	NumBands    = 18
+	InputSize   = 2*NumBands + NumFeatures + 1
+	DenseInSize = 128
+	GRU1Size    = 192
+	GRU2Size    = 192
+	// Keep the shared quant scratch large enough for the biggest currently
+	// bound libopus DNN layer input, including the PitchDNN downsampler.
+	maxModelIn       = 288
 	activationLinear = iota
 	activationSigmoid
 	activationTanh
