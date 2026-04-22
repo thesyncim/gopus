@@ -407,9 +407,9 @@ func (s *State) PrimeFirstLossWithAnalysis(a *Analysis, p *Predictor, f *FARGAN)
 	return true
 }
 
-func (s *State) concealFrameFloatAfterPriming(p *Predictor, f *FARGAN, frame []float32) bool {
+func (s *State) concealFrameFloatAfterPrimingStatus(p *Predictor, f *FARGAN, frame []float32) (bool, bool) {
 	if s == nil || p == nil || f == nil || !p.Loaded() || !f.Loaded() || len(frame) < FrameSize {
-		return false
+		return false, false
 	}
 	s.ensureRuntimeInit()
 	gotFEC := s.StepFECOrPredict(p, s.features[:NumFeatures])
@@ -424,18 +424,19 @@ func (s *State) concealFrameFloatAfterPriming(p *Predictor, f *FARGAN, frame []f
 		s.features[0] = maxF32(-15, s.features[0]+concealmentAttTable[s.lossCount])
 	}
 	if n := f.Synthesize(frame[:FrameSize], s.features[:NumFeatures]); n != FrameSize {
-		return false
+		return false, gotFEC
 	}
 	quantizePCMInt16LikeInPlace(frame[:FrameSize])
 	s.QueueFeatures(s.features[:NumFeatures])
 	s.FinishConcealedFrameFloat(frame[:FrameSize])
-	return gotFEC
+	return true, gotFEC
 }
 
 // ConcealFrameFloat mirrors the bounded post-analysis branch of
 // lpcnet_plc_conceal(). When blend is zero it assumes the caller already has
 // the continuity features and PCM tail the history-analysis branch would have
-// produced, then synthesizes one concealed frame.
+// produced, then synthesizes one concealed frame. It reports whether the step
+// consumed queued FEC, not whether concealment succeeded.
 func (s *State) ConcealFrameFloat(p *Predictor, f *FARGAN, frame []float32) bool {
 	if s == nil || p == nil || f == nil || !p.Loaded() || !f.Loaded() || len(frame) < FrameSize {
 		return false
@@ -449,12 +450,17 @@ func (s *State) ConcealFrameFloat(p *Predictor, f *FARGAN, frame []float32) bool
 			return false
 		}
 	}
-	return s.concealFrameFloatAfterPriming(p, f, frame)
+	ok, gotFEC := s.concealFrameFloatAfterPrimingStatus(p, f, frame)
+	if !ok {
+		return false
+	}
+	return gotFEC
 }
 
 // ConcealFrameFloatWithAnalysis mirrors the full lpcnet_plc_conceal() float
 // path, including the first-loss history replay through Burg/LPCNet analysis
-// before the final predictor/FARGAN synthesis step.
+// before the final predictor/FARGAN synthesis step. It reports whether the step
+// consumed queued FEC, not whether concealment succeeded.
 func (s *State) ConcealFrameFloatWithAnalysis(a *Analysis, p *Predictor, f *FARGAN, frame []float32) bool {
 	if s == nil || a == nil || p == nil || f == nil || !a.Loaded() || !p.Loaded() || !f.Loaded() || len(frame) < FrameSize {
 		return false
@@ -465,7 +471,46 @@ func (s *State) ConcealFrameFloatWithAnalysis(a *Analysis, p *Predictor, f *FARG
 			return false
 		}
 	}
-	return s.concealFrameFloatAfterPriming(p, f, frame)
+	ok, gotFEC := s.concealFrameFloatAfterPrimingStatus(p, f, frame)
+	if !ok {
+		return false
+	}
+	return gotFEC
+}
+
+// GenerateConcealedFrameFloat mirrors the bounded post-analysis branch of
+// lpcnet_plc_conceal() and reports whether concealment succeeded.
+func (s *State) GenerateConcealedFrameFloat(p *Predictor, f *FARGAN, frame []float32) bool {
+	if s == nil || p == nil || f == nil || !p.Loaded() || !f.Loaded() || len(frame) < FrameSize {
+		return false
+	}
+	s.ensureRuntimeInit()
+	if s.blend == 0 {
+		if s.PrimeFirstLossPrefill(p) != 2 {
+			return false
+		}
+		if s.PrimeFirstLossContinuity(f) != FARGANContSamples {
+			return false
+		}
+	}
+	ok, _ := s.concealFrameFloatAfterPrimingStatus(p, f, frame)
+	return ok
+}
+
+// GenerateConcealedFrameFloatWithAnalysis mirrors the full lpcnet_plc_conceal()
+// float path and reports whether concealment succeeded.
+func (s *State) GenerateConcealedFrameFloatWithAnalysis(a *Analysis, p *Predictor, f *FARGAN, frame []float32) bool {
+	if s == nil || a == nil || p == nil || f == nil || !a.Loaded() || !p.Loaded() || !f.Loaded() || len(frame) < FrameSize {
+		return false
+	}
+	s.ensureRuntimeInit()
+	if s.blend == 0 {
+		if !s.PrimeFirstLossWithAnalysis(a, p, f) {
+			return false
+		}
+	}
+	ok, _ := s.concealFrameFloatAfterPrimingStatus(p, f, frame)
+	return ok
 }
 
 // ReplaceHistoryFromFramesFloat replaces the retained PCM-history window with a

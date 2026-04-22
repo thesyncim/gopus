@@ -24,6 +24,9 @@ func (d *Decoder) CommitDRED48kMonoConcealment(frame, overlap []float32) {
 	last := float32(frame[frameSize-1])
 	d.preemphState[0] = float64(float32(PreemphCoef) * (last * 32768))
 	d.plcLossDuration = 0
+	d.plcDuration = 0
+	d.plcLastFrameType = frameDRED
+	d.plcSkip = false
 	d.plcPrevLossWasPeriodic = false
 	d.plcPrefilterAndFoldPending = false
 	if d.plcState == nil {

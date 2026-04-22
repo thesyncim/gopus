@@ -274,7 +274,7 @@ func TestNewDecoderLeavesDREDPayloadBufferDormant(t *testing.T) {
 	}
 }
 
-func TestStandaloneDREDArmKeepsNeuralAnd48kBridgeDormant(t *testing.T) {
+func TestStandaloneDREDArmKeepsRecoveryNeuralAnd48kBridgeDormant(t *testing.T) {
 	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
@@ -286,8 +286,8 @@ func TestStandaloneDREDArmKeepsNeuralAnd48kBridgeDormant(t *testing.T) {
 	if state.decoderDREDPayloadState == nil {
 		t.Fatal("standalone DRED arm did not retain payload state")
 	}
-	if state.decoderDREDRecoveryState == nil {
-		t.Fatal("standalone DRED arm did not retain recovery state")
+	if state.decoderDREDRecoveryState != nil {
+		t.Fatalf("standalone DRED arm eagerly allocated recovery state: %+v", state.decoderDREDRecoveryState)
 	}
 	if state.decoderDREDNeuralState != nil {
 		t.Fatalf("standalone DRED arm eagerly allocated neural state: %+v", state.decoderDREDNeuralState)
@@ -423,6 +423,9 @@ func TestDecoderCachesDREDPayloadWhenDREDModelLoaded(t *testing.T) {
 		t.Fatal("Decode returned zero samples")
 	}
 	state := requireDecoderDREDState(t, dec)
+	if state.decoderDREDRecoveryState == nil {
+		t.Fatal("Decode with cached DRED payload did not activate recovery state")
+	}
 	if state.dredCache.Len != len(body) {
 		t.Fatalf("dredCache.Len=%d want %d", state.dredCache.Len, len(body))
 	}
@@ -595,23 +598,8 @@ func TestDecoderMarkDREDUpdatedPCMDoesNotTrackHistoryWithoutNeuralConcealment(t 
 	dec.markDREDUpdatedPCM(pcm[:], len(pcm))
 
 	state := requireDecoderDREDState(t, dec)
-	if got := state.dredPLC.Blend(); got != 0 {
-		t.Fatalf("Blend=%d want 0", got)
-	}
-	if got := state.dredPLC.AnalysisPos(); got != lpcnetplc.PLCBufSize {
-		t.Fatalf("AnalysisPos=%d want %d", got, lpcnetplc.PLCBufSize)
-	}
-	if got := state.dredPLC.PredictPos(); got != lpcnetplc.PLCBufSize {
-		t.Fatalf("PredictPos=%d want %d", got, lpcnetplc.PLCBufSize)
-	}
-	var history [lpcnetplc.PLCBufSize]float32
-	if n := state.dredPLC.FillPCMHistory(history[:]); n != lpcnetplc.PLCBufSize {
-		t.Fatalf("FillPCMHistory()=%d want %d", n, lpcnetplc.PLCBufSize)
-	}
-	for i, sample := range history {
-		if sample != 0 {
-			t.Fatalf("history[%d]=%v want 0", i, sample)
-		}
+	if state.decoderDREDRecoveryState != nil {
+		t.Fatalf("standalone DRED arm eagerly allocated recovery state after markDREDUpdatedPCM: %+v", state.decoderDREDRecoveryState)
 	}
 }
 

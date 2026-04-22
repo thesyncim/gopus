@@ -21,15 +21,17 @@ var plcUpdateSincFilter = [...]float32{
 	4.2931e-05,
 }
 
-// FillPLCUpdate16kMono mirrors the 48 kHz -> 16 kHz history downsample libopus
-// uses in update_plc_state() before the first neural PLC frame. The output is
-// quantized to the same int16 grid lpcnet_plc_update() receives.
-func (d *Decoder) FillPLCUpdate16kMono(dst []float32) int {
+// FillPLCUpdate16kMonoWithPreemphasisMem mirrors the 48 kHz -> 16 kHz history
+// downsample libopus uses in update_plc_state() before the first neural PLC
+// frame. The output is quantized to the same int16 grid lpcnet_plc_update()
+// receives, and the returned preemphasis memory matches libopus's retained
+// plc_preemphasis_mem after the history prefilter pass.
+func (d *Decoder) FillPLCUpdate16kMonoWithPreemphasisMem(dst []float32) (int, float32) {
 	if d == nil || len(dst) < plcUpdateSamples || d.channels <= 0 {
-		return 0
+		return 0, 0
 	}
 	if len(d.plcDecodeMem) < plcDecodeBufferSize*d.channels {
-		return 0
+		return 0, 0
 	}
 
 	buf48k := ensureFloat32Slice(&d.scratchPLCUpdate48k, plcDecodeBufferSize)
@@ -50,6 +52,7 @@ func (d *Decoder) FillPLCUpdate16kMono(dst []float32) int {
 	for i := 1; i < plcDecodeBufferSize; i++ {
 		buf48k[i] += preemph * buf48k[i-1]
 	}
+	preemphMem := buf48k[plcDecodeBufferSize-1]
 
 	for i := 0; i < plcUpdateSamples; i++ {
 		sum := float32(0)
@@ -59,7 +62,15 @@ func (d *Decoder) FillPLCUpdate16kMono(dst []float32) int {
 		}
 		dst[i] = quantizedPCM16GridSample(sum)
 	}
-	return plcUpdateSamples
+	return plcUpdateSamples, preemphMem
+}
+
+// FillPLCUpdate16kMono mirrors the 48 kHz -> 16 kHz history downsample libopus
+// uses in update_plc_state() before the first neural PLC frame. The output is
+// quantized to the same int16 grid lpcnet_plc_update() receives.
+func (d *Decoder) FillPLCUpdate16kMono(dst []float32) int {
+	n, _ := d.FillPLCUpdate16kMonoWithPreemphasisMem(dst)
+	return n
 }
 
 func quantizePCM16LikeInt16(sample float32) int16 {

@@ -17,11 +17,7 @@ func (d *Decoder) decodePLCForFECWithState(
 	packetStereo bool,
 ) (int, error) {
 	neuralReady := d.dredNeuralConcealmentReady()
-	if neuralReady {
-		d.primeDREDCELTEntryHistory(mode)
-		d.prepareCachedDREDNeuralConcealment(frameSize)
-	}
-	n, err := d.decodePLCChunksInto(pcm, frameSize, plcDecodeState{
+	n, usedNeuralConcealment, err := d.decodeDRED48kNeuralPLCInto(pcm, frameSize, plcDecodeState{
 		packetFrameSize:    frameSize,
 		mode:               mode,
 		bandwidth:          bandwidth,
@@ -33,8 +29,7 @@ func (d *Decoder) decodePLCForFECWithState(
 	}
 	frameSize = n
 
-	usedNeuralConcealment := false
-	if neuralReady {
+	if neuralReady && !usedNeuralConcealment {
 		usedNeuralConcealment = d.applyDREDNeuralConcealment(pcm[:frameSize*d.channels], frameSize)
 	}
 	d.applyOutputGain(pcm[:frameSize*d.channels])

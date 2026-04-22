@@ -63,6 +63,12 @@ static int write_int16_array(const int16_t *src, int count) {
   return 1;
 }
 
+static int write_f32(float v) {
+  uint32_t bits;
+  memcpy(&bits, &v, sizeof(bits));
+  return write_exact(&bits, sizeof(bits));
+}
+
 static int16_t quantize_pcm16_like(float x) {
   float scaled = x * 32768.f;
   if (scaled < -32767.f) scaled = -32767.f;
@@ -76,6 +82,7 @@ int main(void) {
   int32_t channels;
   float history[2 * DECODE_BUFFER_SIZE];
   float buf48k[DECODE_BUFFER_SIZE];
+  float preemph_mem = 0;
   int16_t out[PLC_UPDATE_SAMPLES];
   int i;
 
@@ -111,6 +118,7 @@ int main(void) {
   for (i = 1; i < DECODE_BUFFER_SIZE; i++) {
     buf48k[i] += PREEMPHASIS * buf48k[i - 1];
   }
+  preemph_mem = buf48k[DECODE_BUFFER_SIZE - 1];
   for (i = 0; i < PLC_UPDATE_SAMPLES; i++) {
     int j;
     float sum = 0;
@@ -123,6 +131,7 @@ int main(void) {
 
   if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) ||
       !write_exact(&version, sizeof(version)) ||
+      !write_f32(preemph_mem) ||
       !write_int16_array(out, PLC_UPDATE_SAMPLES)) {
     fprintf(stderr, "failed to write output\n");
     return 1;

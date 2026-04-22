@@ -60,6 +60,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 		return nil, ErrInvalidFrameSize
 	}
 
+	d.beginDecodedPacketPLCState()
 	origChannels := d.channels
 	d.channels = 1
 
@@ -289,6 +290,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 		return nil, ErrInvalidFrameSize
 	}
 
+	d.beginDecodedPacketPLCState()
 	d.ensureEnergyState(2)
 
 	origChannels := d.channels
@@ -506,6 +508,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 		return nil, ErrInvalidFrameSize
 	}
 
+	d.beginDecodedPacketPLCState()
 	origChannels := d.channels
 	d.channels = 1
 
@@ -666,6 +669,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 		return nil, ErrInvalidFrameSize
 	}
 
+	d.beginDecodedPacketPLCState()
 	d.ensureEnergyState(2)
 
 	origChannels := d.channels

@@ -53,12 +53,8 @@ func (d *Decoder) decodeExplicitDREDFloat(dred *DRED, dredOffsetSamples int, pcm
 	if frameSizeSamples <= 0 || frameSizeSamples > d.maxPacketSamples {
 		return 0, ErrInvalidArgument
 	}
-	if d.sampleRate == 48000 {
-		lossQuantum := d.sampleRate / 400
-		if frameSizeSamples < lossQuantum || frameSizeSamples%lossQuantum != 0 {
-			return 0, ErrInvalidArgument
-		}
-	} else if frameSizeSamples < lpcnetplc.FrameSize || frameSizeSamples%lpcnetplc.FrameSize != 0 {
+	lossQuantum := d.sampleRate / 400
+	if lossQuantum <= 0 || frameSizeSamples < lossQuantum || frameSizeSamples%lossQuantum != 0 {
 		return 0, ErrInvalidArgument
 	}
 	needed := frameSizeSamples * d.channels
@@ -66,12 +62,11 @@ func (d *Decoder) decodeExplicitDREDFloat(dred *DRED, dredOffsetSamples int, pcm
 		return 0, ErrBufferTooSmall
 	}
 
-	d.primeDREDCELTEntryHistory(d.prevMode)
 	if d.sampleRate == 48000 {
 		d.queueExplicitDREDRecovery(dred, dredOffsetSamples, frameSizeSamples)
 	}
 	if d.sampleRate == 48000 {
-		n, err := d.decodePLCChunksInto(pcm[:needed], frameSizeSamples, plcDecodeState{
+		n, usedNeuralConcealment, err := d.decodeDRED48kNeuralPLCInto(pcm[:needed], frameSizeSamples, plcDecodeState{
 			packetFrameSize:    d.lastFrameSize,
 			mode:               d.prevMode,
 			bandwidth:          d.lastBandwidth,
@@ -82,13 +77,13 @@ func (d *Decoder) decodeExplicitDREDFloat(dred *DRED, dredOffsetSamples int, pcm
 			return 0, err
 		}
 		frameSizeSamples = n
-		if !d.applyDREDNeuralConcealment48kMono(pcm[:frameSizeSamples], frameSizeSamples) {
-			return 0, ErrInvalidPacket
-		}
 		d.applyOutputGain(pcm[:frameSizeSamples])
 		d.lastFrameSize = frameSizeSamples
 		d.lastPacketDuration = frameSizeSamples
 		d.lastDataLen = 0
+		if !usedNeuralConcealment && d.dredSidecarActive() {
+			d.markDREDConcealed()
+		}
 		return frameSizeSamples, nil
 	}
 	d.queueExplicitDREDRecovery(dred, dredOffsetSamples, frameSizeSamples)

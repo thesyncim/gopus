@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/lpcnetplc"
 )
@@ -19,26 +20,56 @@ import (
 const (
 	libopusDecoderDREDDecodeFloatInputMagic  = "GDDI"
 	libopusDecoderDREDDecodeFloatOutputMagic = "GDDO"
+	libopusCELTFramePLCNeural                = 4
+	libopusCELTFrameDRED                     = 5
 )
 
 type libopusDecoderDREDDecodeFloatInfo struct {
-	parseRet int
-	dredEnd  int
+	parseRet  int
+	dredEnd   int
 	warmupRet int
-	ret      int
-	channels int
-	pcm      []float32
+	ret       int
+	channels  int
+	state     lpcnetplc.StateSnapshot
+	fargan    lpcnetplc.FARGANSnapshot
+	celt48k   libopusDecoderDREDCELTSnapshot
+	pcm       []float32
+}
+
+type libopusDecoderDREDCELTSnapshot struct {
+	LastFrameType     int
+	PLCFill           int
+	PLCDuration       int
+	SkipPLC           int
+	PLCPreemphasisMem float32
+	PreemphMem        [2]float32
+	PLCPCM            [4 * lpcnetplc.FrameSize]float32
+	WarmupPreemphMem  [2]float32
+	WarmupPLCPreemph  float32
+	WarmupPLCUpdate   [4 * lpcnetplc.FrameSize]float32
 }
 
 var (
 	libopusDecoderDREDDecodeFloatHelperOnce sync.Once
 	libopusDecoderDREDDecodeFloatHelperPath string
 	libopusDecoderDREDDecodeFloatHelperErr  error
+
+	libopusPitchDNNModelBlobHelperOnce sync.Once
+	libopusPitchDNNModelBlobHelperPath string
+	libopusPitchDNNModelBlobHelperErr  error
+
+	libopusPLCModelBlobHelperOnce sync.Once
+	libopusPLCModelBlobHelperPath string
+	libopusPLCModelBlobHelperErr  error
+
+	libopusFARGANModelBlobHelperOnce sync.Once
+	libopusFARGANModelBlobHelperPath string
+	libopusFARGANModelBlobHelperErr  error
 )
 
 func getLibopusDecoderDREDDecodeFloatHelperPath() (string, error) {
 	libopusDecoderDREDDecodeFloatHelperOnce.Do(func() {
-		libopusDecoderDREDDecodeFloatHelperPath, libopusDecoderDREDDecodeFloatHelperErr = buildLibopusDREDHelper("libopus_decoder_dred_decode_float_info.c", "gopus_libopus_decoder_dred_decode_float", false)
+		libopusDecoderDREDDecodeFloatHelperPath, libopusDecoderDREDDecodeFloatHelperErr = buildLibopusDREDHelper("libopus_decoder_dred_decode_float_info.c", "gopus_libopus_decoder_dred_decode_float", true)
 	})
 	if libopusDecoderDREDDecodeFloatHelperErr != nil {
 		return "", libopusDecoderDREDDecodeFloatHelperErr
@@ -46,8 +77,99 @@ func getLibopusDecoderDREDDecodeFloatHelperPath() (string, error) {
 	return libopusDecoderDREDDecodeFloatHelperPath, nil
 }
 
-func probeLibopusDecoderDREDDecodeFloat(packet []byte, maxDREDSamples, sampleRate, warmupDREDOffsetSamples, dredOffsetSamples, frameSizeSamples int) (libopusDecoderDREDDecodeFloatInfo, error) {
+func getLibopusPitchDNNModelBlobHelperPath() (string, error) {
+	libopusPitchDNNModelBlobHelperOnce.Do(func() {
+		libopusPitchDNNModelBlobHelperPath, libopusPitchDNNModelBlobHelperErr = buildLibopusDREDHelper("libopus_pitchdnn_model_blob.c", "gopus_libopus_pitchdnn_model_blob", true)
+	})
+	if libopusPitchDNNModelBlobHelperErr != nil {
+		return "", libopusPitchDNNModelBlobHelperErr
+	}
+	return libopusPitchDNNModelBlobHelperPath, nil
+}
+
+func getLibopusPLCModelBlobHelperPath() (string, error) {
+	libopusPLCModelBlobHelperOnce.Do(func() {
+		libopusPLCModelBlobHelperPath, libopusPLCModelBlobHelperErr = buildLibopusDREDHelper("libopus_plc_model_blob.c", "gopus_libopus_plc_model_blob", true)
+	})
+	if libopusPLCModelBlobHelperErr != nil {
+		return "", libopusPLCModelBlobHelperErr
+	}
+	return libopusPLCModelBlobHelperPath, nil
+}
+
+func getLibopusFARGANModelBlobHelperPath() (string, error) {
+	libopusFARGANModelBlobHelperOnce.Do(func() {
+		libopusFARGANModelBlobHelperPath, libopusFARGANModelBlobHelperErr = buildLibopusDREDHelper("libopus_fargan_model_blob.c", "gopus_libopus_fargan_model_blob", true)
+	})
+	if libopusFARGANModelBlobHelperErr != nil {
+		return "", libopusFARGANModelBlobHelperErr
+	}
+	return libopusFARGANModelBlobHelperPath, nil
+}
+
+func runModelBlobHelper(binPath string) ([]byte, error) {
+	cmd := exec.Command(binPath)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("run model blob helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	}
+	return stdout.Bytes(), nil
+}
+
+func probeLibopusDecoderNeuralModelBlob() ([]byte, error) {
+	pitchPath, err := getLibopusPitchDNNModelBlobHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	plcPath, err := getLibopusPLCModelBlobHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	farganPath, err := getLibopusFARGANModelBlobHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	pitchBlob, err := runModelBlobHelper(pitchPath)
+	if err != nil {
+		return nil, err
+	}
+	plcBlob, err := runModelBlobHelper(plcPath)
+	if err != nil {
+		return nil, err
+	}
+	farganBlob, err := runModelBlobHelper(farganPath)
+	if err != nil {
+		return nil, err
+	}
+	blob := make([]byte, 0, len(pitchBlob)+len(plcBlob)+len(farganBlob))
+	blob = append(blob, pitchBlob...)
+	blob = append(blob, plcBlob...)
+	blob = append(blob, farganBlob...)
+	return blob, nil
+}
+
+func requireLibopusDecoderNeuralModelBlob(t *testing.T) []byte {
+	t.Helper()
+	blob, err := probeLibopusDecoderNeuralModelBlob()
+	if err != nil {
+		t.Skipf("libopus decoder neural model helper unavailable: %v", err)
+	}
+	return blob
+}
+
+func probeLibopusDecoderDREDDecodeFloat(seedPacket, packet []byte, maxDREDSamples, sampleRate, warmupDREDOffsetSamples, dredOffsetSamples, frameSizeSamples int) (libopusDecoderDREDDecodeFloatInfo, error) {
 	binPath, err := getLibopusDecoderDREDDecodeFloatHelperPath()
+	if err != nil {
+		return libopusDecoderDREDDecodeFloatInfo{}, err
+	}
+	decoderModelBlob, err := probeLibopusDecoderNeuralModelBlob()
+	if err != nil {
+		return libopusDecoderDREDDecodeFloatInfo{}, err
+	}
+	dredModelBlob, err := probeLibopusDREDModelBlob()
 	if err != nil {
 		return libopusDecoderDREDDecodeFloatInfo{}, err
 	}
@@ -55,20 +177,32 @@ func probeLibopusDecoderDREDDecodeFloat(packet []byte, maxDREDSamples, sampleRat
 	var payload bytes.Buffer
 	payload.WriteString(libopusDecoderDREDDecodeFloatInputMagic)
 	for _, v := range []uint32{
-		2,
+		5,
 		uint32(sampleRate),
 		uint32(maxDREDSamples),
 		uint32(warmupDREDOffsetSamples),
 		uint32(dredOffsetSamples),
 		uint32(frameSizeSamples),
+		uint32(len(seedPacket)),
 		uint32(len(packet)),
+		uint32(len(decoderModelBlob)),
+		uint32(len(dredModelBlob)),
 	} {
 		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
 			return libopusDecoderDREDDecodeFloatInfo{}, fmt.Errorf("encode decoder dred decode helper header: %w", err)
 		}
 	}
+	if _, err := payload.Write(seedPacket); err != nil {
+		return libopusDecoderDREDDecodeFloatInfo{}, fmt.Errorf("encode decoder dred decode helper seed packet: %w", err)
+	}
 	if _, err := payload.Write(packet); err != nil {
 		return libopusDecoderDREDDecodeFloatInfo{}, fmt.Errorf("encode decoder dred decode helper packet: %w", err)
+	}
+	if _, err := payload.Write(decoderModelBlob); err != nil {
+		return libopusDecoderDREDDecodeFloatInfo{}, fmt.Errorf("encode decoder dred decode helper decoder model blob: %w", err)
+	}
+	if _, err := payload.Write(dredModelBlob); err != nil {
+		return libopusDecoderDREDDecodeFloatInfo{}, fmt.Errorf("encode decoder dred decode helper dred model blob: %w", err)
 	}
 
 	cmd := exec.Command(binPath)
@@ -82,7 +216,8 @@ func probeLibopusDecoderDREDDecodeFloat(packet []byte, maxDREDSamples, sampleRat
 	}
 
 	out := stdout.Bytes()
-	if len(out) < 28 || string(out[:4]) != libopusDecoderDREDDecodeFloatOutputMagic {
+	const headerSize = 88
+	if len(out) < headerSize || string(out[:4]) != libopusDecoderDREDDecodeFloatOutputMagic {
 		return libopusDecoderDREDDecodeFloatInfo{}, fmt.Errorf("unexpected decoder dred decode helper output")
 	}
 	info := libopusDecoderDREDDecodeFloatInfo{
@@ -92,21 +227,160 @@ func probeLibopusDecoderDREDDecodeFloat(packet []byte, maxDREDSamples, sampleRat
 		ret:       int(int32(binary.LittleEndian.Uint32(out[20:24]))),
 		channels:  int(int32(binary.LittleEndian.Uint32(out[24:28]))),
 	}
-	offset := 28
-	if info.ret > 0 && info.channels > 0 {
-		info.pcm = make([]float32, info.ret*info.channels)
-		for i := range info.pcm {
+	info.state.Blend = int(int32(binary.LittleEndian.Uint32(out[28:32])))
+	info.state.LossCount = int(int32(binary.LittleEndian.Uint32(out[32:36])))
+	info.state.AnalysisGap = int(int32(binary.LittleEndian.Uint32(out[36:40])))
+	info.state.AnalysisPos = int(int32(binary.LittleEndian.Uint32(out[40:44])))
+	info.state.PredictPos = int(int32(binary.LittleEndian.Uint32(out[44:48])))
+	info.state.FECReadPos = int(int32(binary.LittleEndian.Uint32(out[48:52])))
+	info.state.FECFillPos = int(int32(binary.LittleEndian.Uint32(out[52:56])))
+	info.state.FECSkip = int(int32(binary.LittleEndian.Uint32(out[56:60])))
+	info.fargan.ContInitialized = int32(binary.LittleEndian.Uint32(out[60:64])) != 0
+	info.fargan.LastPeriod = int(int32(binary.LittleEndian.Uint32(out[64:68])))
+	info.celt48k.LastFrameType = int(int32(binary.LittleEndian.Uint32(out[68:72])))
+	info.celt48k.PLCFill = int(int32(binary.LittleEndian.Uint32(out[72:76])))
+	info.celt48k.PLCDuration = int(int32(binary.LittleEndian.Uint32(out[76:80])))
+	info.celt48k.SkipPLC = int(int32(binary.LittleEndian.Uint32(out[80:84])))
+	info.celt48k.PLCPreemphasisMem = math.Float32frombits(binary.LittleEndian.Uint32(out[84:88]))
+	offset := headerSize
+	readBits := func(dst []float32) error {
+		for i := range dst {
 			if offset+4 > len(out) {
-				return libopusDecoderDREDDecodeFloatInfo{}, fmt.Errorf("truncated decoder dred decode helper pcm")
+				return fmt.Errorf("truncated decoder dred decode helper payload")
 			}
-			info.pcm[i] = math.Float32frombits(binary.LittleEndian.Uint32(out[offset : offset+4]))
+			dst[i] = math.Float32frombits(binary.LittleEndian.Uint32(out[offset : offset+4]))
 			offset += 4
 		}
+		return nil
+	}
+	if info.ret > 0 && info.channels > 0 {
+		info.pcm = make([]float32, info.ret*info.channels)
+		if err := readBits(info.pcm); err != nil {
+			return libopusDecoderDREDDecodeFloatInfo{}, err
+		}
+	}
+	for _, dst := range [][]float32{
+		info.state.Features[:],
+		info.state.Cont[:],
+		info.state.PCM[:],
+		info.state.PLCNet.GRU1[:],
+		info.state.PLCNet.GRU2[:],
+		info.state.PLCBak[0].GRU1[:],
+		info.state.PLCBak[0].GRU2[:],
+		info.state.PLCBak[1].GRU1[:],
+		info.state.PLCBak[1].GRU2[:],
+	} {
+		if err := readBits(dst); err != nil {
+			return libopusDecoderDREDDecodeFloatInfo{}, err
+		}
+	}
+	if offset+4 > len(out) {
+		return libopusDecoderDREDDecodeFloatInfo{}, fmt.Errorf("truncated decoder dred decode helper deemph")
+	}
+	info.fargan.DeemphMem = math.Float32frombits(binary.LittleEndian.Uint32(out[offset : offset+4]))
+	offset += 4
+	for _, dst := range [][]float32{
+		info.fargan.PitchBuf[:],
+		info.fargan.CondConv1State[:],
+		info.fargan.FWC0Mem[:],
+		info.fargan.GRU1State[:],
+		info.fargan.GRU2State[:],
+		info.fargan.GRU3State[:],
+	} {
+		if err := readBits(dst); err != nil {
+			return libopusDecoderDREDDecodeFloatInfo{}, err
+		}
+	}
+	for _, dst := range [][]float32{
+		info.celt48k.PreemphMem[:],
+		info.celt48k.PLCPCM[:],
+	} {
+		if err := readBits(dst); err != nil {
+			return libopusDecoderDREDDecodeFloatInfo{}, err
+		}
+	}
+	if offset+4*(2+1+len(info.celt48k.WarmupPLCUpdate)) <= len(out) {
+		warmupPLCPreemph := []float32{0}
+		for _, dst := range [][]float32{
+			info.celt48k.WarmupPreemphMem[:],
+			warmupPLCPreemph,
+			info.celt48k.WarmupPLCUpdate[:],
+		} {
+			if err := readBits(dst); err != nil {
+				return libopusDecoderDREDDecodeFloatInfo{}, err
+			}
+		}
+		info.celt48k.WarmupPLCPreemph = warmupPLCPreemph[0]
 	}
 	return info, nil
 }
 
-func prepareExplicitDREDDecodeParityState(t *testing.T) (*Decoder, *DRED, libopusDREDPacket, int) {
+func assertDecoderDREDPLCStateApproxEqual(t *testing.T, got, want lpcnetplc.StateSnapshot, label string) {
+	t.Helper()
+	if got.Blend != want.Blend ||
+		got.LossCount != want.LossCount ||
+		got.AnalysisGap != want.AnalysisGap ||
+		got.AnalysisPos != want.AnalysisPos ||
+		got.PredictPos != want.PredictPos ||
+		got.FECReadPos != want.FECReadPos ||
+		got.FECFillPos != want.FECFillPos ||
+		got.FECSkip != want.FECSkip {
+		t.Fatalf("%s header=%+v want %+v", label, got, want)
+	}
+	assertFloat32ApproxEqual(t, got.Features[:], want.Features[:], label+" features", 1e-4)
+	assertFloat32ApproxEqual(t, got.Cont[:], want.Cont[:], label+" continuity", 1e-4)
+	assertFloat32ApproxEqual(t, got.PCM[:], want.PCM[:], label+" pcm history", 1e-4)
+	assertFloat32ApproxEqual(t, got.PLCNet.GRU1[:], want.PLCNet.GRU1[:], label+" plc net gru1", 1e-4)
+	assertFloat32ApproxEqual(t, got.PLCNet.GRU2[:], want.PLCNet.GRU2[:], label+" plc net gru2", 1e-4)
+	assertFloat32ApproxEqual(t, got.PLCBak[0].GRU1[:], want.PLCBak[0].GRU1[:], label+" plc bak0 gru1", 1e-4)
+	assertFloat32ApproxEqual(t, got.PLCBak[0].GRU2[:], want.PLCBak[0].GRU2[:], label+" plc bak0 gru2", 1e-4)
+	assertFloat32ApproxEqual(t, got.PLCBak[1].GRU1[:], want.PLCBak[1].GRU1[:], label+" plc bak1 gru1", 1e-4)
+	assertFloat32ApproxEqual(t, got.PLCBak[1].GRU2[:], want.PLCBak[1].GRU2[:], label+" plc bak1 gru2", 1e-4)
+}
+
+func assertDecoderDREDFARGANStateApproxEqual(t *testing.T, got, want lpcnetplc.FARGANSnapshot, label string) {
+	t.Helper()
+	if got.ContInitialized != want.ContInitialized || got.LastPeriod != want.LastPeriod {
+		t.Fatalf("%s header=%+v want %+v", label, got, want)
+	}
+	if math.Abs(float64(got.DeemphMem-want.DeemphMem)) > 1e-4 {
+		t.Fatalf("%s deemph=%f want %f", label, got.DeemphMem, want.DeemphMem)
+	}
+	assertFloat32ApproxEqual(t, got.PitchBuf[:], want.PitchBuf[:], label+" pitch", 1e-4)
+	assertFloat32ApproxEqual(t, got.CondConv1State[:], want.CondConv1State[:], label+" cond", 1e-4)
+	assertFloat32ApproxEqual(t, got.FWC0Mem[:], want.FWC0Mem[:], label+" fwc0", 1e-4)
+	assertFloat32ApproxEqual(t, got.GRU1State[:], want.GRU1State[:], label+" gru1", 1e-4)
+	assertFloat32ApproxEqual(t, got.GRU2State[:], want.GRU2State[:], label+" gru2", 1e-4)
+	assertFloat32ApproxEqual(t, got.GRU3State[:], want.GRU3State[:], label+" gru3", 1e-4)
+}
+
+func assertDecoderDREDCELT48kBridgeApproxEqual(t *testing.T, dec *Decoder, want libopusDecoderDREDCELTSnapshot, label string) {
+	t.Helper()
+	var plcState celt.PLCStateSnapshot
+	var preemphMem [2]float32
+	if dec.celtDecoder != nil {
+		plcState = dec.celtDecoder.SnapshotPLCState()
+		preemphMem = dec.celtDecoder.SnapshotPreemphasisState()
+	}
+	if plcState.LastFrameType != want.LastFrameType || plcState.PLCDuration != want.PLCDuration || plcState.SkipPLC != (want.SkipPLC != 0) {
+		t.Fatalf("%s celt plc state=%+v want {LastFrameType:%d PLCDuration:%d SkipPLC:%t}", label, plcState, want.LastFrameType, want.PLCDuration, want.SkipPLC != 0)
+	}
+	assertFloat32ApproxEqual(t, preemphMem[:], want.PreemphMem[:], label+" celt preemph_memD", 1e-4)
+	state := requireDecoderDREDState(t, dec)
+	if state.dredPLCFill != want.PLCFill {
+		t.Fatalf("%s fill=%d want %d (lastFrameType=%d plcDuration=%d skipPLC=%d preemph=%f)", label, state.dredPLCFill, want.PLCFill, want.LastFrameType, want.PLCDuration, want.SkipPLC, want.PLCPreemphasisMem)
+	}
+	if math.Abs(float64(state.dredPLCPreemphMem-want.PLCPreemphasisMem)) > 1e-4 {
+		t.Fatalf("%s preemph=%f want %f", label, state.dredPLCPreemphMem, want.PLCPreemphasisMem)
+	}
+	wantNeural := want.LastFrameType == libopusCELTFramePLCNeural || want.LastFrameType == libopusCELTFrameDRED
+	if state.dredLastNeural != wantNeural {
+		t.Fatalf("%s lastNeural=%v want %v (lastFrameType=%d)", label, state.dredLastNeural, wantNeural, want.LastFrameType)
+	}
+	assertFloat32ApproxEqual(t, state.dredPLCPCM[:], want.PLCPCM[:], label+" plc pcm", 1e-4)
+}
+
+func prepareExplicitDREDDecodeParityState(t *testing.T) (*Decoder, *DRED, libopusDREDPacket, []byte, int) {
 	t.Helper()
 
 	packetInfo, err := emitLibopusDREDPacket()
@@ -117,30 +391,39 @@ func prepareExplicitDREDDecodeParityState(t *testing.T) (*Decoder, *DRED, libopu
 	if err != nil {
 		t.Skipf("libopus dred model helper unavailable: %v", err)
 	}
-
 	channels := 1
-	if ParseTOC(packetInfo.packet[0]).Stereo {
+	toc := ParseTOC(packetInfo.packet[0])
+	if toc.Stereo {
 		channels = 2
 	}
-	if packetInfo.sampleRate != 16000 || channels != 1 {
-		t.Skipf("explicit DRED decode parity requires 16 kHz mono packet, got sampleRate=%d channels=%d", packetInfo.sampleRate, channels)
+	if channels != 1 {
+		t.Skipf("explicit DRED decode parity requires mono packet, got sampleRate=%d channels=%d", packetInfo.sampleRate, channels)
 	}
+	if toc.Mode != ModeCELT {
+		t.Skipf("explicit DRED decode parity requires CELT packet, got mode=%v", toc.Mode)
+	}
+	decoderBlob := requireLibopusDecoderNeuralModelBlob(t)
+	seedPacket := makeValidMonoCELTPacketForDREDTest(t)
 
 	dec, err := NewDecoder(DefaultDecoderConfig(packetInfo.sampleRate, channels))
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
-	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+	if err := dec.SetDNNBlob(decoderBlob); err != nil {
 		t.Fatalf("SetDNNBlob error: %v", err)
 	}
 
 	seedPCM := make([]float32, dec.maxPacketSamples*channels)
-	n, err := dec.Decode(packetInfo.packet, seedPCM)
-	if err != nil {
+	if _, err := dec.Decode(seedPacket, seedPCM); err != nil {
 		t.Fatalf("Decode(seed packet) error: %v", err)
 	}
-	if n != lpcnetplc.FrameSize {
-		t.Skipf("explicit DRED decode parity is single-frame only, got frame size %d", n)
+	_, frameCount, err := packetFrameCount(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("packetFrameCount(error): %v", err)
+	}
+	n := toc.FrameSize * frameCount
+	if n <= 0 {
+		t.Skip("carrier packet returned no audio")
 	}
 
 	standalone := NewDREDDecoder()
@@ -157,7 +440,27 @@ func prepareExplicitDREDDecodeParityState(t *testing.T) (*Decoder, *DRED, libopu
 	if !dred.Processed() {
 		t.Fatal("standalone DRED did not reach processed state")
 	}
-	return dec, dred, packetInfo, n
+	return dec, dred, packetInfo, seedPacket, n
+}
+
+func TestDecoderExplicitDREDWarmup48kStateMatchesLibopus(t *testing.T) {
+	dec, _, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState(t)
+	if packetInfo.sampleRate != 48000 || n <= 0 {
+		t.Skipf("48 kHz warmup parity requires 48 kHz packet, got sampleRate=%d frame=%d", packetInfo.sampleRate, n)
+	}
+	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
+	if err != nil {
+		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+	}
+	if dec.celtDecoder == nil {
+		t.Fatal("decoder missing CELT state after seed packet")
+	}
+	gotPreemph := dec.celtDecoder.SnapshotPreemphasisState()
+	assertFloat32ApproxEqual(t, gotPreemph[:], want.celt48k.WarmupPreemphMem[:], "warmup celt preemph_memD", 1e-4)
+	var gotPLCUpdate [4 * lpcnetplc.FrameSize]float32
+	_, gotPLCPreemph := dec.celtDecoder.FillPLCUpdate16kMonoWithPreemphasisMem(gotPLCUpdate[:])
+	assertFloat32ApproxEqual(t, []float32{gotPLCPreemph}, []float32{want.celt48k.WarmupPLCPreemph}, "warmup plc_preemphasis_mem", 1e-4)
+	assertFloat32ApproxEqual(t, gotPLCUpdate[:], want.celt48k.WarmupPLCUpdate[:], "warmup plc_update", 1e-4)
 }
 
 func TestDecoderExplicitDREDDecodeMatchesCachedPath(t *testing.T) {
@@ -165,8 +468,9 @@ func TestDecoderExplicitDREDDecodeMatchesCachedPath(t *testing.T) {
 	if err != nil {
 		t.Skipf("libopus dred model helper unavailable: %v", err)
 	}
+	decoderBlob := requireLibopusDecoderNeuralModelBlob(t)
 
-	explicitDec, dred, packetInfo, n := prepareExplicitDREDDecodeParityState(t)
+	explicitDec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState(t)
 	explicitPCM := make([]float32, explicitDec.maxPacketSamples*explicitDec.channels)
 	gotExplicit, err := explicitDec.decodeExplicitDREDFloat(dred, n, explicitPCM, n)
 	if err != nil {
@@ -180,7 +484,7 @@ func TestDecoderExplicitDREDDecodeMatchesCachedPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDecoder(cached) error: %v", err)
 	}
-	if err := cachedDec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+	if err := cachedDec.SetDNNBlob(decoderBlob); err != nil {
 		t.Fatalf("SetDNNBlob(cached) error: %v", err)
 	}
 	blob, err := dnnblob.Clone(modelBlob)
@@ -192,9 +496,10 @@ func TestDecoderExplicitDREDDecodeMatchesCachedPath(t *testing.T) {
 	}
 	cachedDec.setDREDDecoderBlob(blob)
 	cachedSeed := make([]float32, cachedDec.maxPacketSamples)
-	if _, err := cachedDec.Decode(packetInfo.packet, cachedSeed); err != nil {
+	if _, err := cachedDec.Decode(seedPacket, cachedSeed); err != nil {
 		t.Fatalf("Decode(cached seed packet) error: %v", err)
 	}
+	cachedDec.maybeCacheDREDPayload(packetInfo.packet)
 	cachedPCM := make([]float32, cachedDec.maxPacketSamples)
 	gotCached, err := cachedDec.Decode(nil, cachedPCM)
 	if err != nil {
@@ -205,27 +510,107 @@ func TestDecoderExplicitDREDDecodeMatchesCachedPath(t *testing.T) {
 	}
 
 	assertFloat32ApproxEqual(t, explicitPCM[:n], cachedPCM[:n], "explicit vs cached pcm", 1e-4)
-	gotState := explicitDec.dredPLC.Snapshot()
-	wantState := cachedDec.dredPLC.Snapshot()
-	if gotState.Blend != wantState.Blend ||
-		gotState.LossCount != wantState.LossCount ||
-		gotState.AnalysisGap != wantState.AnalysisGap ||
-		gotState.AnalysisPos != wantState.AnalysisPos ||
-		gotState.PredictPos != wantState.PredictPos ||
-		gotState.FECFillPos != wantState.FECFillPos ||
-		gotState.FECReadPos != wantState.FECReadPos ||
-		gotState.FECSkip != wantState.FECSkip {
-		t.Fatalf("explicit state header=%+v want %+v", gotState, wantState)
+	assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, explicitDec).dredPLC.Snapshot(), requireDecoderDREDState(t, cachedDec).dredPLC.Snapshot(), "explicit vs cached plc")
+	assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, explicitDec).dredFARGAN.Snapshot(), requireDecoderDREDState(t, cachedDec).dredFARGAN.Snapshot(), "explicit vs cached fargan")
+}
+
+func TestDecoderExplicitDREDFirstConcealFrameBootstraps48kRuntime(t *testing.T) {
+	dec, dred, packetInfo, _, n := prepareExplicitDREDDecodeParityState(t)
+	if packetInfo.sampleRate != 48000 || n < lpcnetplc.FrameSize {
+		t.Skipf("48 kHz bootstrap regression requires 48 kHz packet and >=%d samples, got sampleRate=%d frame=%d", lpcnetplc.FrameSize, packetInfo.sampleRate, n)
 	}
-	assertFloat32ApproxEqual(t, gotState.Features[:], wantState.Features[:], "explicit vs cached features", 1e-4)
-	assertFloat32ApproxEqual(t, gotState.Cont[:], wantState.Cont[:], "explicit vs cached continuity", 1e-4)
-	assertFloat32ApproxEqual(t, gotState.PCM[:], wantState.PCM[:], "explicit vs cached pcm history", 1e-4)
+	if got := dec.primeDREDCELTEntryHistory(dec.prevMode); got == 0 {
+		t.Fatal("primeDREDCELTEntryHistory() returned 0")
+	}
+	window := dec.queueExplicitDREDRecovery(dred, n, n)
+	if window.NeededFeatureFrames == 0 {
+		t.Fatal("queueExplicitDREDRecovery produced empty window")
+	}
+	var frame [lpcnetplc.FrameSize]float32
+	if !requireDecoderDREDState(t, dec).dredPLC.ConcealFrameFloatWithAnalysis(&requireDecoderDREDState(t, dec).dredAnalysis, &requireDecoderDREDState(t, dec).dredPredictor, &requireDecoderDREDState(t, dec).dredFARGAN, frame[:]) {
+		t.Fatal("ConcealFrameFloatWithAnalysis returned false after 48 kHz bootstrap")
+	}
+}
+
+func TestDecoderExplicitDREDThreeConcealFramesBootstraps48kRuntime(t *testing.T) {
+	dec, dred, packetInfo, _, n := prepareExplicitDREDDecodeParityState(t)
+	if packetInfo.sampleRate != 48000 || n < 3*lpcnetplc.FrameSize {
+		t.Skipf("48 kHz triple-frame regression requires 48 kHz packet and >=%d samples, got sampleRate=%d frame=%d", 3*lpcnetplc.FrameSize, packetInfo.sampleRate, n)
+	}
+	if got := dec.primeDREDCELTEntryHistory(dec.prevMode); got == 0 {
+		t.Fatal("primeDREDCELTEntryHistory() returned 0")
+	}
+	window := dec.queueExplicitDREDRecovery(dred, n, n)
+	if window.NeededFeatureFrames == 0 {
+		t.Fatal("queueExplicitDREDRecovery produced empty window")
+	}
+	var frame [lpcnetplc.FrameSize]float32
+	for i := 0; i < 3; i++ {
+		if !requireDecoderDREDState(t, dec).dredPLC.ConcealFrameFloatWithAnalysis(&requireDecoderDREDState(t, dec).dredAnalysis, &requireDecoderDREDState(t, dec).dredPredictor, &requireDecoderDREDState(t, dec).dredFARGAN, frame[:]) {
+			t.Fatalf("ConcealFrameFloatWithAnalysis returned false at frame %d (plc=%+v fargan=%+v)", i, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), requireDecoderDREDState(t, dec).dredFARGAN.Snapshot())
+		}
+	}
+}
+
+func TestDecoderExplicitDREDThreeConcealFramesManualStep48kRuntime(t *testing.T) {
+	dec, dred, packetInfo, _, n := prepareExplicitDREDDecodeParityState(t)
+	if packetInfo.sampleRate != 48000 || n < 3*lpcnetplc.FrameSize {
+		t.Skipf("48 kHz manual-step regression requires 48 kHz packet and >=%d samples, got sampleRate=%d frame=%d", 3*lpcnetplc.FrameSize, packetInfo.sampleRate, n)
+	}
+	if got := dec.primeDREDCELTEntryHistory(dec.prevMode); got == 0 {
+		t.Fatal("primeDREDCELTEntryHistory() returned 0")
+	}
+	window := dec.queueExplicitDREDRecovery(dred, n, n)
+	if window.NeededFeatureFrames == 0 {
+		t.Fatal("queueExplicitDREDRecovery produced empty window")
+	}
+	if !requireDecoderDREDState(t, dec).dredPLC.PrimeFirstLossWithAnalysis(&requireDecoderDREDState(t, dec).dredAnalysis, &requireDecoderDREDState(t, dec).dredPredictor, &requireDecoderDREDState(t, dec).dredFARGAN) {
+		t.Fatal("PrimeFirstLossWithAnalysis returned false")
+	}
+	var (
+		frame    [lpcnetplc.FrameSize]float32
+		features [lpcnetplc.NumFeatures]float32
+	)
+	for i := 0; i < 3; i++ {
+		requireDecoderDREDState(t, dec).dredPLC.ConcealmentFeatureStep(&requireDecoderDREDState(t, dec).dredPredictor)
+		if got := requireDecoderDREDState(t, dec).dredPLC.FillCurrentFeatures(features[:]); got != len(features) {
+			t.Fatalf("FillCurrentFeatures()=%d want %d", got, len(features))
+		}
+		if got := requireDecoderDREDState(t, dec).dredFARGAN.Synthesize(frame[:], features[:]); got != lpcnetplc.FrameSize {
+			t.Fatalf("Synthesize()=%d want %d at frame %d (fargan=%+v)", got, lpcnetplc.FrameSize, i, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot())
+		}
+		requireDecoderDREDState(t, dec).dredPLC.QueueFeatures(features[:])
+		requireDecoderDREDState(t, dec).dredPLC.FinishConcealedFrameFloat(frame[:])
+	}
+}
+
+func TestDecoderExplicitDREDThreeConcealFramesMixedHelpers48kRuntime(t *testing.T) {
+	dec, dred, packetInfo, _, n := prepareExplicitDREDDecodeParityState(t)
+	if packetInfo.sampleRate != 48000 || n < 3*lpcnetplc.FrameSize {
+		t.Skipf("48 kHz mixed-helper regression requires 48 kHz packet and >=%d samples, got sampleRate=%d frame=%d", 3*lpcnetplc.FrameSize, packetInfo.sampleRate, n)
+	}
+	if got := dec.primeDREDCELTEntryHistory(dec.prevMode); got == 0 {
+		t.Fatal("primeDREDCELTEntryHistory() returned 0")
+	}
+	window := dec.queueExplicitDREDRecovery(dred, n, n)
+	if window.NeededFeatureFrames == 0 {
+		t.Fatal("queueExplicitDREDRecovery produced empty window")
+	}
+	var frame [lpcnetplc.FrameSize]float32
+	if !requireDecoderDREDState(t, dec).dredPLC.ConcealFrameFloatWithAnalysis(&requireDecoderDREDState(t, dec).dredAnalysis, &requireDecoderDREDState(t, dec).dredPredictor, &requireDecoderDREDState(t, dec).dredFARGAN, frame[:]) {
+		t.Fatal("ConcealFrameFloatWithAnalysis(first) returned false")
+	}
+	for i := 1; i < 3; i++ {
+		if !requireDecoderDREDState(t, dec).dredPLC.ConcealFrameFloat(&requireDecoderDREDState(t, dec).dredPredictor, &requireDecoderDREDState(t, dec).dredFARGAN, frame[:]) {
+			t.Fatalf("ConcealFrameFloat returned false at frame %d (plc=%+v fargan=%+v)", i, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), requireDecoderDREDState(t, dec).dredFARGAN.Snapshot())
+		}
+	}
 }
 
 func TestDecoderExplicitDREDDecodeMatchesLibopus(t *testing.T) {
-	dec, dred, packetInfo, n := prepareExplicitDREDDecodeParityState(t)
+	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState(t)
 
-	want, err := probeLibopusDecoderDREDDecodeFloat(packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
+	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 	if err != nil {
 		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
 	}
@@ -249,17 +634,40 @@ func TestDecoderExplicitDREDDecodeMatchesLibopus(t *testing.T) {
 	}
 
 	assertFloat32ApproxEqual(t, pcm[:n], want.pcm[:n], "explicit libopus pcm", 1e-4)
+	assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "explicit libopus plc")
+	assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "explicit libopus fargan")
+}
+
+func TestDecoderExplicitDREDCELT48kBridgeMatchesLibopusFirstLoss(t *testing.T) {
+	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState(t)
+	if packetInfo.sampleRate != 48000 || n <= 0 {
+		t.Skipf("48 kHz explicit bridge parity requires 48 kHz packet, got sampleRate=%d frame=%d", packetInfo.sampleRate, n)
+	}
+
+	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
+	if err != nil {
+		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+	}
+	if want.parseRet < 0 || want.ret != n {
+		t.Skipf("libopus decoder DRED decode not available: parse=%d ret=%d", want.parseRet, want.ret)
+	}
+
+	pcm := make([]float32, dec.maxPacketSamples)
+	if _, err := dec.decodeExplicitDREDFloat(dred, n, pcm, n); err != nil {
+		t.Fatalf("decodeExplicitDREDFloat error: %v", err)
+	}
+	assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.celt48k, "explicit first libopus celt")
 }
 
 func TestDecoderExplicitDREDDecodeSecondLossMatchesLibopus(t *testing.T) {
-	dec, dred, packetInfo, n := prepareExplicitDREDDecodeParityState(t)
+	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState(t)
 
 	pcm0 := make([]float32, dec.maxPacketSamples)
 	if _, err := dec.decodeExplicitDREDFloat(dred, n, pcm0, n); err != nil {
 		t.Fatalf("decodeExplicitDREDFloat(first) error: %v", err)
 	}
 
-	want, err := probeLibopusDecoderDREDDecodeFloat(packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 2*n, n)
+	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 2*n, n)
 	if err != nil {
 		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
 	}
@@ -286,6 +694,92 @@ func TestDecoderExplicitDREDDecodeSecondLossMatchesLibopus(t *testing.T) {
 	}
 
 	assertFloat32ApproxEqual(t, pcm[:n], want.pcm[:n], "explicit second libopus pcm", 1e-4)
+	assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "explicit second libopus plc")
+	assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "explicit second libopus fargan")
+}
+
+func TestDecoderExplicitDREDCELT48kBridgeMatchesLibopusSecondLoss(t *testing.T) {
+	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState(t)
+	if packetInfo.sampleRate != 48000 || n <= 0 {
+		t.Skipf("48 kHz explicit bridge parity requires 48 kHz packet, got sampleRate=%d frame=%d", packetInfo.sampleRate, n)
+	}
+	pcm0 := make([]float32, dec.maxPacketSamples)
+	if _, err := dec.decodeExplicitDREDFloat(dred, n, pcm0, n); err != nil {
+		t.Fatalf("decodeExplicitDREDFloat(first) error: %v", err)
+	}
+
+	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 2*n, n)
+	if err != nil {
+		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+	}
+	if want.parseRet < 0 || want.ret != n {
+		t.Skipf("libopus decoder DRED second decode not available: parse=%d ret=%d", want.parseRet, want.ret)
+	}
+
+	pcm1 := make([]float32, dec.maxPacketSamples)
+	if _, err := dec.decodeExplicitDREDFloat(dred, 2*n, pcm1, n); err != nil {
+		t.Fatalf("decodeExplicitDREDFloat(second) error: %v", err)
+	}
+	assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.celt48k, "explicit second libopus celt")
+}
+
+func TestDecoderExplicitDREDDecodeOffsetMatrixMatchesLibopus(t *testing.T) {
+	decoderBlob := requireLibopusDecoderNeuralModelBlob(t)
+	_, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState(t)
+	boundary := -dred.Parsed().Header.OffsetSamples(packetInfo.sampleRate)
+
+	tests := []struct {
+		name       string
+		dredOffset int
+	}{
+		{name: "before_first_feature_boundary", dredOffset: boundary - 1},
+		{name: "at_first_feature_boundary", dredOffset: boundary},
+		{name: "end_of_first_feature_frame", dredOffset: boundary + n - 1},
+		{name: "at_second_feature_boundary", dredOffset: boundary + n},
+		{name: "late_offset", dredOffset: boundary + 2*n},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, tc.dredOffset, n)
+			if err != nil {
+				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+			}
+			if want.parseRet < 0 {
+				t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
+			}
+			if want.ret != n {
+				t.Fatalf("libopus decoder DRED decode ret=%d want %d", want.ret, n)
+			}
+
+			localDec, err := NewDecoder(DefaultDecoderConfig(packetInfo.sampleRate, 1))
+			if err != nil {
+				t.Fatalf("NewDecoder error: %v", err)
+			}
+			if err := localDec.SetDNNBlob(decoderBlob); err != nil {
+				t.Fatalf("SetDNNBlob error: %v", err)
+			}
+			seedPCM := make([]float32, localDec.maxPacketSamples)
+			if _, err := localDec.Decode(seedPacket, seedPCM); err != nil {
+				t.Fatalf("Decode(seed packet) error: %v", err)
+			}
+			localDRED := NewDRED()
+			*localDRED = *dred
+			pcm := make([]float32, localDec.maxPacketSamples)
+			got, err := localDec.decodeExplicitDREDFloat(localDRED, tc.dredOffset, pcm, n)
+			if err != nil {
+				t.Fatalf("decodeExplicitDREDFloat error: %v", err)
+			}
+			if got != n {
+				t.Fatalf("decodeExplicitDREDFloat=%d want %d", got, n)
+			}
+
+			assertFloat32ApproxEqual(t, pcm[:n], want.pcm[:n], "offset matrix pcm", 1e-4)
+			assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, localDec).dredPLC.Snapshot(), want.state, "offset matrix plc")
+			assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, localDec).dredFARGAN.Snapshot(), want.fargan, "offset matrix fargan")
+		})
+	}
 }
 
 func TestDecoderExplicitDREDDecodeSecondLossMatchesCachedPath(t *testing.T) {
@@ -293,8 +787,9 @@ func TestDecoderExplicitDREDDecodeSecondLossMatchesCachedPath(t *testing.T) {
 	if err != nil {
 		t.Skipf("libopus dred model helper unavailable: %v", err)
 	}
+	decoderBlob := requireLibopusDecoderNeuralModelBlob(t)
 
-	explicitDec, dred, packetInfo, n := prepareExplicitDREDDecodeParityState(t)
+	explicitDec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState(t)
 	explicitPCM0 := make([]float32, explicitDec.maxPacketSamples)
 	if _, err := explicitDec.decodeExplicitDREDFloat(dred, n, explicitPCM0, n); err != nil {
 		t.Fatalf("decodeExplicitDREDFloat(first) error: %v", err)
@@ -312,7 +807,7 @@ func TestDecoderExplicitDREDDecodeSecondLossMatchesCachedPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDecoder(cached) error: %v", err)
 	}
-	if err := cachedDec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+	if err := cachedDec.SetDNNBlob(decoderBlob); err != nil {
 		t.Fatalf("SetDNNBlob(cached) error: %v", err)
 	}
 	blob, err := dnnblob.Clone(modelBlob)
@@ -324,9 +819,10 @@ func TestDecoderExplicitDREDDecodeSecondLossMatchesCachedPath(t *testing.T) {
 	}
 	cachedDec.setDREDDecoderBlob(blob)
 	cachedSeed := make([]float32, cachedDec.maxPacketSamples)
-	if _, err := cachedDec.Decode(packetInfo.packet, cachedSeed); err != nil {
+	if _, err := cachedDec.Decode(seedPacket, cachedSeed); err != nil {
 		t.Fatalf("Decode(cached seed packet) error: %v", err)
 	}
+	cachedDec.maybeCacheDREDPayload(packetInfo.packet)
 	cachedPCM0 := make([]float32, cachedDec.maxPacketSamples)
 	if _, err := cachedDec.Decode(nil, cachedPCM0); err != nil {
 		t.Fatalf("Decode(nil, first) error: %v", err)
@@ -341,19 +837,6 @@ func TestDecoderExplicitDREDDecodeSecondLossMatchesCachedPath(t *testing.T) {
 	}
 
 	assertFloat32ApproxEqual(t, explicitPCM1[:n], cachedPCM1[:n], "explicit second vs cached second pcm", 1e-4)
-	gotState := explicitDec.dredPLC.Snapshot()
-	wantState := cachedDec.dredPLC.Snapshot()
-	if gotState.Blend != wantState.Blend ||
-		gotState.LossCount != wantState.LossCount ||
-		gotState.AnalysisGap != wantState.AnalysisGap ||
-		gotState.AnalysisPos != wantState.AnalysisPos ||
-		gotState.PredictPos != wantState.PredictPos ||
-		gotState.FECFillPos != wantState.FECFillPos ||
-		gotState.FECReadPos != wantState.FECReadPos ||
-		gotState.FECSkip != wantState.FECSkip {
-		t.Fatalf("explicit second state header=%+v want %+v", gotState, wantState)
-	}
-	assertFloat32ApproxEqual(t, gotState.Features[:], wantState.Features[:], "explicit second vs cached second features", 1e-4)
-	assertFloat32ApproxEqual(t, gotState.Cont[:], wantState.Cont[:], "explicit second vs cached second continuity", 1e-4)
-	assertFloat32ApproxEqual(t, gotState.PCM[:], wantState.PCM[:], "explicit second vs cached second pcm history", 1e-4)
+	assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, explicitDec).dredPLC.Snapshot(), requireDecoderDREDState(t, cachedDec).dredPLC.Snapshot(), "explicit second vs cached second plc")
+	assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, explicitDec).dredFARGAN.Snapshot(), requireDecoderDREDState(t, cachedDec).dredFARGAN.Snapshot(), "explicit second vs cached second fargan")
 }

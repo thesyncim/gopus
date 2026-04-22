@@ -7,6 +7,15 @@ import (
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
+const (
+	frameNone = iota
+	frameNormal
+	framePLCNoise
+	framePLCPeriodic
+	framePLCNeural
+	frameDRED
+)
+
 // Decoding errors
 var (
 	// ErrInvalidFrame indicates the frame data is invalid or corrupted.
@@ -78,6 +87,12 @@ type Decoder struct {
 	plcState *plc.State
 	// CELT loss duration in libopus LM units (saturates at 10000).
 	plcLossDuration int
+	// Mirrors libopus st->plc_duration for periodic/noise/DRED gating.
+	plcDuration int
+	// Mirrors libopus st->last_frame_type.
+	plcLastFrameType int
+	// Mirrors libopus st->skip_plc two-good-packets gate.
+	plcSkip bool
 	// Periodic PLC cadence state (mirrors libopus decode_lost() behavior).
 	plcLastPitchPeriod     int
 	plcPrevLossWasPeriodic bool
@@ -134,6 +149,8 @@ type Decoder struct {
 	scratchPLCBuf         []float64
 	scratchPLCExc         []float64
 	scratchPLCUpdate48k   []float32
+	scratchPLCDREDNeural  []float32
+	scratchPLCDREDBase    []float64
 	scratchPLCFoldSrc     []float64
 	scratchPLCFoldDst     []float64
 	scratchPLCHybridNormL []float64

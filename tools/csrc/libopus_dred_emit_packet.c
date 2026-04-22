@@ -11,6 +11,7 @@
 
 #include "opus.h"
 #include "dred_decoder.h"
+#include "src/opus_private.h"
 
 #define GODO_MAGIC "GODP"
 
@@ -67,7 +68,7 @@ int main(void) {
     return 1;
   }
 
-  enc = opus_encoder_create(sample_rate, channels, OPUS_APPLICATION_VOIP, &err);
+  enc = opus_encoder_create(sample_rate, channels, OPUS_APPLICATION_AUDIO, &err);
   if (enc == NULL || err != OPUS_OK) {
     fprintf(stderr, "opus_encoder_create failed: %d\n", err);
     return 1;
@@ -87,7 +88,9 @@ int main(void) {
   }
 
   opus_encoder_ctl(enc, OPUS_SET_BITRATE(40000));
-  opus_encoder_ctl(enc, OPUS_SET_SIGNAL(OPUS_SIGNAL_VOICE));
+  opus_encoder_ctl(enc, OPUS_SET_SIGNAL(OPUS_SIGNAL_MUSIC));
+  opus_encoder_ctl(enc, OPUS_SET_BANDWIDTH(OPUS_BANDWIDTH_FULLBAND));
+  opus_encoder_ctl(enc, OPUS_SET_FORCE_MODE(MODE_CELT_ONLY));
   opus_encoder_ctl(enc, OPUS_SET_PACKET_LOSS_PERC(20));
   opus_encoder_ctl(enc, OPUS_SET_DRED_DURATION(80));
 

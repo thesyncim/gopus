@@ -126,17 +126,17 @@ func TestValidateDecoderControl(t *testing.T) {
 		t.Fatalf("ValidateDecoderControl(true) error: %v", err)
 	}
 
-	missingBWE, err := Clone(buildManifestTestBlob(RequiredDecoderControlRecordNames(false)))
+	coreOnly, err := Clone(buildManifestTestBlob(RequiredDecoderControlRecordNames(false)))
 	if err != nil {
-		t.Fatalf("Clone missingBWE error: %v", err)
+		t.Fatalf("Clone coreOnly error: %v", err)
 	}
-	if missingBWE.SupportsOSCEBWE() {
-		t.Fatal("missingBWE unexpectedly advertises OSCE_BWE capability")
+	if coreOnly.SupportsOSCE() || coreOnly.SupportsOSCEBWE() {
+		t.Fatal("coreOnly unexpectedly advertises OSCE capability")
 	}
-	if err := missingBWE.ValidateDecoderControl(false); err != nil {
-		t.Fatalf("ValidateDecoderControl(false) with no BWE error: %v", err)
+	if err := coreOnly.ValidateDecoderControl(false); err != nil {
+		t.Fatalf("ValidateDecoderControl(false) with coreOnly error: %v", err)
 	}
-	if err := missingBWE.ValidateDecoderControl(true); err == nil {
+	if err := coreOnly.ValidateDecoderControl(true); err == nil {
 		t.Fatal("ValidateDecoderControl(true) error=nil want non-nil")
 	}
 }
@@ -244,7 +244,7 @@ func TestRecordViewsDoNotAllocate(t *testing.T) {
 }
 
 func TestDecoderModels(t *testing.T) {
-	names := append(RequiredDecoderControlRecordNames(true), RequiredDREDDecoderRecordNames()...)
+	names := append(requiredDecoderControlWithBWERecordNames, RequiredDREDDecoderRecordNames()...)
 	blob, err := Clone(buildManifestTestBlob(names))
 	if err != nil {
 		t.Fatalf("Clone error: %v", err)

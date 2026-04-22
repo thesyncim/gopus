@@ -10,12 +10,75 @@ const celtPLCLPCOrder = 24
 
 func (d *Decoder) resetPLCCadence(frameSize, channels int) {
 	d.plcLossDuration = 0
+	d.plcDuration = 0
+	d.plcLastFrameType = frameNormal
 	d.plcPrefilterAndFoldPending = false
+	d.plcPrevLossWasPeriodic = false
 	if d.plcState == nil {
 		d.plcState = plc.NewState()
 	}
 	d.plcState.Reset()
 	d.plcState.SetLastFrameParams(plc.ModeCELT, frameSize, channels)
+}
+
+func (d *Decoder) beginDecodedPacketPLCState() {
+	if d == nil {
+		return
+	}
+	if d.plcLossDuration == 0 {
+		d.plcSkip = false
+	}
+}
+
+func plcFrameIsNeural(frameType int) bool {
+	return frameType == framePLCNeural || frameType == frameDRED
+}
+
+func (d *Decoder) lastPLCFrameWasNeural() bool {
+	if d == nil {
+		return false
+	}
+	return plcFrameIsNeural(d.plcLastFrameType)
+}
+
+func (d *Decoder) lastPLCFrameWasPeriodic() bool {
+	if d == nil {
+		return false
+	}
+	return d.plcLastFrameType == framePLCPeriodic
+}
+
+func (d *Decoder) chooseLostFrameType(start int, allowNeural, allowDRED bool) int {
+	currFrameType := framePLCPeriodic
+	if d == nil {
+		return currFrameType
+	}
+	if d.plcDuration >= 40 || start != 0 || d.plcSkip {
+		currFrameType = framePLCNoise
+	}
+	if start == 0 && allowNeural && d.plcDuration < 80 && !d.plcSkip {
+		currFrameType = framePLCNeural
+		if allowDRED {
+			currFrameType = frameDRED
+		}
+	}
+	return currFrameType
+}
+
+func (d *Decoder) finishLostFrame(currFrameType, frameSize int) {
+	if d == nil {
+		return
+	}
+	d.accumulatePLCLossDuration(frameSize)
+	switch currFrameType {
+	case framePLCNoise:
+		d.plcSkip = true
+	case frameDRED:
+		d.plcDuration = 0
+		d.plcSkip = false
+	}
+	d.plcLastFrameType = currFrameType
+	d.plcPrevLossWasPeriodic = currFrameType == framePLCPeriodic
 }
 
 func (d *Decoder) applyPendingPLCPrefilterAndFold() {
@@ -87,6 +150,10 @@ func (d *Decoder) accumulatePLCLossDuration(frameSize int) {
 	d.plcLossDuration += 1 << uint(lm)
 	if d.plcLossDuration > 10000 {
 		d.plcLossDuration = 10000
+	}
+	d.plcDuration += 1 << uint(lm)
+	if d.plcDuration > 10000 {
+		d.plcDuration = 10000
 	}
 }
 
@@ -183,6 +250,8 @@ func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float64, error) {
 	d.accumulatePLCLossDuration(frameSize)
 	d.plcPrevLossWasPeriodic = false
 	d.plcPrefilterAndFoldPending = false
+	d.plcLastFrameType = framePLCNoise
+	d.plcSkip = true
 
 	outLen := frameSize * d.channels
 	d.scratchPLC = ensureFloat64Slice(&d.scratchPLC, outLen)
@@ -293,7 +362,6 @@ func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
 	// Keep PLC loss cadence bookkeeping.
 	prevLossDuration := d.plcLossDuration
 	_ = d.plcState.RecordLoss()
-	d.accumulatePLCLossDuration(frameSize)
 	lossCount := d.plcState.LostCount()
 
 	// Ensure scratch buffer is large enough
@@ -301,10 +369,13 @@ func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
 	plcLen := (frameSize + Overlap) * d.channels
 	d.scratchPLC = ensureFloat64Slice(&d.scratchPLC, plcLen)
 
+	currFrameType := d.chooseLostFrameType(0, false, false)
+
 	// Match libopus decode_lost() mode cadence: favor periodic concealment in the
 	// early loss window and fall back to noise-based concealment when unavailable.
-	if d.concealPeriodicPLC(d.scratchPLC[:plcLen], frameSize, lossCount) {
-		d.plcPrevLossWasPeriodic = true
+	if currFrameType == framePLCPeriodic &&
+		d.concealPeriodicPLC(d.scratchPLC[:plcLen], frameSize, lossCount, d.lastPLCFrameWasPeriodic(), true) {
+		d.finishLostFrame(framePLCPeriodic, frameSize)
 		d.plcPrefilterAndFoldPending = true
 		d.updatePLCOverlapBuffer(d.scratchPLC[:plcLen], frameSize)
 		d.applyDeemphasisAndScale(d.scratchPLC[:outLen], 1.0/32768.0)
@@ -313,10 +384,10 @@ func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
 	// Match libopus noise-PLC transition cadence: if periodic PLC left a pending
 	// fold, consume it before switching to noise concealment.
 	d.applyPendingPLCPrefilterAndFold()
-	d.plcPrevLossWasPeriodic = false
 	d.plcPrefilterAndFoldPending = false
 
 	d.concealNoisePLC(d.scratchPLC[:outLen], frameSize, prevLossDuration)
+	d.finishLostFrame(framePLCNoise, frameSize)
 
 	return d.scratchPLC[:outLen], nil
 }
@@ -385,7 +456,7 @@ func (d *Decoder) concealNoisePLC(dst []float64, frameSize, prevLossDuration int
 	d.applyDeemphasisAndScale(dst[:frameSize*d.channels], 1.0/32768.0)
 }
 
-func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int) bool {
+func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int, continuePeriodic bool, commit bool) bool {
 	if frameSize <= 0 || d.channels <= 0 {
 		return false
 	}
@@ -408,8 +479,7 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int) bo
 
 	fade := 1.0
 	period := 0
-	if lossCount > 1 &&
-		d.plcPrevLossWasPeriodic &&
+	if continuePeriodic &&
 		d.plcLastPitchPeriod >= combFilterMinPeriod &&
 		d.plcLastPitchPeriod <= combFilterMaxPeriod {
 		period = d.plcLastPitchPeriod
@@ -441,7 +511,7 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int) bo
 	d.scratchPLCIIRMem = ensureFloat64Slice(&d.scratchPLCIIRMem, celtPLCLPCOrder)
 
 	window := GetWindowBuffer(Overlap)
-	continuePeriodic := lossCount > 1 && d.plcPrevLossWasPeriodic
+	continuePeriodic = lossCount > 1 && continuePeriodic
 	channels := d.channels
 	for ch := 0; ch < channels; ch++ {
 		hist := d.plcDecodeMem[ch*plcDecodeBufferSize : (ch+1)*plcDecodeBufferSize]
@@ -559,8 +629,10 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int) bo
 		}
 	}
 
-	d.updatePostfilterHistory(dst[:frameSize*channels], frameSize, combFilterHistory)
-	d.updatePLCDecodeHistory(dst[:frameSize*channels], frameSize, plcDecodeBufferSize)
+	if commit {
+		d.updatePostfilterHistory(dst[:frameSize*channels], frameSize, combFilterHistory)
+		d.updatePLCDecodeHistory(dst[:frameSize*channels], frameSize, plcDecodeBufferSize)
+	}
 	return true
 }
 
