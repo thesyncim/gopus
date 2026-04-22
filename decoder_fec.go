@@ -223,10 +223,8 @@ func (d *Decoder) decodeFECFrame(pcm []float32) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	if d.dredNeuralConcealmentReady() {
-		if r := d.dredRecoveryState(); r != nil {
-			r.dredRecovery = 0
-		}
+	if r := d.dredRecoveryState(); r != nil && d.dredNeuralModelsLoaded() {
+		r.dredRecovery = 0
 	}
 	if d.dredSidecarActive() {
 		d.markDREDUpdatedPCM(pcm[:n*d.channels], n)

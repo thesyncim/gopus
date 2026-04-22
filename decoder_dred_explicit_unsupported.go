@@ -42,13 +42,16 @@ func (d *Decoder) queueExplicitDREDRecovery(dred *DRED, dredOffsetSamples, frame
 }
 
 func (d *Decoder) decodeExplicitDREDFloat(dred *DRED, dredOffsetSamples int, pcm []float32, frameSizeSamples int) (int, error) {
-	r := d.dredRecoveryState()
-	n := d.dredNeuralState()
-	if d == nil || r == nil || n == nil || dred == nil || !dred.Processed() {
+	if d == nil || dred == nil || !dred.Processed() {
 		return 0, ErrInvalidArgument
 	}
 	if !d.dredNeuralConcealmentReady() {
 		return 0, ErrUnsupportedExtension
+	}
+	r := d.dredRecoveryState()
+	n := d.dredNeuralState()
+	if r == nil || n == nil {
+		return 0, ErrInvalidArgument
 	}
 	if frameSizeSamples <= 0 || frameSizeSamples > d.maxPacketSamples {
 		return 0, ErrInvalidArgument
