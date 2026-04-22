@@ -29,16 +29,12 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		d.invalidateDREDPayloadState()
 	}
 
-	if data == nil || len(data) == 0 {
-		frameSize := d.lastFrameSize
-		neuralReady := d.dredNeuralConcealmentReady()
-		if neuralReady {
-			d.primeDREDCELTEntryHistory(d.prevMode)
-			d.prepareCachedDREDNeuralConcealment(frameSize)
-		}
-		n, err := d.decodePLCChunksInto(pcm, frameSize, plcDecodeState{
-			packetFrameSize:    d.lastFrameSize,
-			mode:               d.prevMode,
+		if data == nil || len(data) == 0 {
+			frameSize := d.lastFrameSize
+			neuralReady := d.dredNeuralConcealmentReady()
+			n, usedNeuralConcealment, err := d.decodeDRED48kNeuralPLCInto(pcm, frameSize, plcDecodeState{
+				packetFrameSize:    d.lastFrameSize,
+				mode:               d.prevMode,
 			bandwidth:          d.lastBandwidth,
 			packetStereo:       d.prevPacketStereo,
 			useDecoderPLCState: true,
@@ -47,8 +43,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 			return 0, err
 		}
 		frameSize = n
-		usedNeuralConcealment := false
-		if neuralReady {
+		if neuralReady && !usedNeuralConcealment {
 			usedNeuralConcealment = d.applyDREDNeuralConcealment(pcm[:frameSize*d.channels], frameSize)
 		}
 		d.applyOutputGain(pcm[:frameSize*d.channels])

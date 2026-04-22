@@ -136,6 +136,28 @@ func (a *Analysis) BurgCepstralAnalysis(dst, pcm []float32) int {
 	return 2 * NumBands
 }
 
+// PrimeHistoryFramesFloat replays a run of normalized 10 ms PCM frames through
+// the retained analysis frontend so first-loss CELT entry can start from the
+// same recent 16 kHz history window used for PLC state priming.
+func (a *Analysis) PrimeHistoryFramesFloat(history []float32) int {
+	if a == nil || !a.Loaded() || len(history) < FrameSize {
+		return 0
+	}
+	var features [NumTotalFeatures]float32
+	total := 0
+	for offset := 0; offset+FrameSize <= len(history); offset += FrameSize {
+		frame := history[offset : offset+FrameSize]
+		for i := 0; i < FrameSize; i++ {
+			a.scratch.frame[i] = 32768 * frame[i]
+		}
+		if n := a.ComputeSingleFrameFeaturesFloat(features[:], a.scratch.frame[:]); n != NumTotalFeatures {
+			return total
+		}
+		total += FrameSize
+	}
+	return total
+}
+
 func (a *Analysis) computeFrameFeatures(in []float32) {
 	copy(a.scratch.alignedIn[:analysisTrainingOff], a.analysisMem[analysisOverlapSize-analysisTrainingOff:])
 	a.frameAnalysis(a.scratch.spectrum[:], a.scratch.bandEnergy[:], in)

@@ -36,7 +36,7 @@ func TestDecoderCachedDREDRecoveryMatchesLibopusLifecycle(t *testing.T) {
 		t.Fatalf("ValidateDREDDecoderControl(real model) error: %v", err)
 	}
 	dec.setDREDDecoderBlob(blob)
-	if !dec.dredModelLoaded {
+	if !requireDecoderDREDState(t, dec).dredModelLoaded {
 		t.Fatal("standalone DRED blob did not arm decoder retention path")
 	}
 
@@ -48,13 +48,13 @@ func TestDecoderCachedDREDRecoveryMatchesLibopusLifecycle(t *testing.T) {
 	if n <= 0 {
 		t.Fatal("Decode returned no audio")
 	}
-	if dec.dredCache.Empty() {
+	if requireDecoderDREDState(t, dec).dredCache.Empty() {
 		t.Fatal("Decode did not retain DRED payload")
 	}
-	if dec.dredDecoded.NbLatents <= 0 {
+	if requireDecoderDREDState(t, dec).dredDecoded.NbLatents <= 0 {
 		t.Fatal("Decode did not retain processed DRED latents")
 	}
-	if got := dec.dredPLC.Blend(); got != 0 {
+	if got := requireDecoderDREDState(t, dec).dredPLC.Blend(); got != 0 {
 		t.Fatalf("Blend after good decode=%d want 0", got)
 	}
 
@@ -63,17 +63,17 @@ func TestDecoderCachedDREDRecoveryMatchesLibopusLifecycle(t *testing.T) {
 	if _, err := dec.Decode(nil, pcm); err != nil {
 		t.Fatalf("Decode(nil) error: %v", err)
 	}
-	if dec.dredCache.Empty() {
+	if requireDecoderDREDState(t, dec).dredCache.Empty() {
 		t.Fatal("Decode(nil) dropped cached DRED payload before recovery scheduling")
 	}
-	if got := dec.dredPLC.Blend(); got != 1 {
-		t.Fatalf("Blend after PLC=%d want 1", got)
+	if got := requireDecoderDREDState(t, dec).dredPLC.Blend(); got != 0 {
+		t.Fatalf("Blend after PLC=%d want 0", got)
 	}
 
 	if _, err := dec.Decode(packetInfo.packet, pcm); err != nil {
 		t.Fatalf("Decode after PLC error: %v", err)
 	}
-	if dec.dredCache.Empty() {
+	if requireDecoderDREDState(t, dec).dredCache.Empty() {
 		t.Fatal("Decode after PLC did not re-retain DRED payload")
 	}
 	assertDecoderCachedDREDRecoveryMatchesLibopus(t, dec, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, true)
@@ -117,31 +117,31 @@ func TestDecoderCachedDREDRecoveryCursorAdvancesAcrossLosses(t *testing.T) {
 	if _, err := dec.Decode(packetInfo.packet, pcm); err != nil {
 		t.Fatalf("Decode error: %v", err)
 	}
-	if dec.dredRecovery != 0 {
-		t.Fatalf("dredRecovery after good decode=%d want 0", dec.dredRecovery)
+	if requireDecoderDREDState(t, dec).dredRecovery != 0 {
+		t.Fatalf("dredRecovery after good decode=%d want 0", requireDecoderDREDState(t, dec).dredRecovery)
 	}
 
 	n1, err := dec.Decode(nil, pcm)
 	if err != nil {
 		t.Fatalf("Decode(nil, first) error: %v", err)
 	}
-	if dec.dredRecovery != n1 {
-		t.Fatalf("dredRecovery after first loss=%d want %d", dec.dredRecovery, n1)
+	if requireDecoderDREDState(t, dec).dredRecovery != n1 {
+		t.Fatalf("dredRecovery after first loss=%d want %d", requireDecoderDREDState(t, dec).dredRecovery, n1)
 	}
 
 	n2, err := dec.Decode(nil, pcm)
 	if err != nil {
 		t.Fatalf("Decode(nil, second) error: %v", err)
 	}
-	if dec.dredRecovery != n1+n2 {
-		t.Fatalf("dredRecovery after second loss=%d want %d", dec.dredRecovery, n1+n2)
+	if requireDecoderDREDState(t, dec).dredRecovery != n1+n2 {
+		t.Fatalf("dredRecovery after second loss=%d want %d", requireDecoderDREDState(t, dec).dredRecovery, n1+n2)
 	}
 
 	if _, err := dec.Decode(packetInfo.packet, pcm); err != nil {
 		t.Fatalf("Decode(after losses) error: %v", err)
 	}
-	if dec.dredRecovery != 0 {
-		t.Fatalf("dredRecovery after re-decode=%d want 0", dec.dredRecovery)
+	if requireDecoderDREDState(t, dec).dredRecovery != 0 {
+		t.Fatalf("dredRecovery after re-decode=%d want 0", requireDecoderDREDState(t, dec).dredRecovery)
 	}
 }
 
@@ -180,11 +180,11 @@ func assertDecoderCachedDREDRecoveryMatchesLibopus(t *testing.T, dec *Decoder, p
 			if queued != got {
 				t.Fatalf("queueCachedDREDRecovery=%+v want %+v", queued, got)
 			}
-			if dec.dredPLC.FECFillPos() != want.recoverableFeatureFrames {
-				t.Fatalf("FECFillPos()=%d want %d", dec.dredPLC.FECFillPos(), want.recoverableFeatureFrames)
+			if requireDecoderDREDState(t, dec).dredPLC.FECFillPos() != want.recoverableFeatureFrames {
+				t.Fatalf("FECFillPos()=%d want %d", requireDecoderDREDState(t, dec).dredPLC.FECFillPos(), want.recoverableFeatureFrames)
 			}
-			if dec.dredPLC.FECSkip() != want.missingPositiveFrames {
-				t.Fatalf("FECSkip()=%d want %d", dec.dredPLC.FECSkip(), want.missingPositiveFrames)
+			if requireDecoderDREDState(t, dec).dredPLC.FECSkip() != want.missingPositiveFrames {
+				t.Fatalf("FECSkip()=%d want %d", requireDecoderDREDState(t, dec).dredPLC.FECSkip(), want.missingPositiveFrames)
 			}
 
 			queuedFeature := 0
@@ -193,11 +193,11 @@ func assertDecoderCachedDREDRecoveryMatchesLibopus(t *testing.T, dec *Decoder, p
 				if featureOffset < 0 || featureOffset > want.maxFeatureIndex {
 					continue
 				}
-				if n := dec.dredPLC.FillQueuedFeatures(queuedFeature, gotFeatures[:]); n != lpcnetplc.NumFeatures {
+				if n := requireDecoderDREDState(t, dec).dredPLC.FillQueuedFeatures(queuedFeature, gotFeatures[:]); n != lpcnetplc.NumFeatures {
 					t.Fatalf("FillQueuedFeatures(%d) count=%d want %d", queuedFeature, n, lpcnetplc.NumFeatures)
 				}
 				start := featureOffset * lpcnetplc.NumFeatures
-				assertFloat32BitsEqual(t, gotFeatures[:], dec.dredDecoded.Features[start:start+lpcnetplc.NumFeatures], "queued features")
+				assertFloat32BitsEqual(t, gotFeatures[:], requireDecoderDREDState(t, dec).dredDecoded.Features[start:start+lpcnetplc.NumFeatures], "queued features")
 				queuedFeature++
 			}
 		})

@@ -45,17 +45,23 @@ func getLibopusPLCConcealHelperPath() (string, error) {
 }
 
 func probeLibopusDecoderPLCConceal(state lpcnetplc.StateSnapshot, fargan lpcnetplc.FARGANSnapshot, fec0, fec1 []float32) (libopusDecoderPLCConcealResult, error) {
+	return probeLibopusDecoderPLCConcealQueue(state, fargan, [][]float32{fec0, fec1})
+}
+
+func probeLibopusDecoderPLCConcealQueue(state lpcnetplc.StateSnapshot, fargan lpcnetplc.FARGANSnapshot, queue [][]float32) (libopusDecoderPLCConcealResult, error) {
 	binPath, err := getLibopusPLCConcealHelperPath()
 	if err != nil {
 		return libopusDecoderPLCConcealResult{}, err
 	}
-	if len(fec0) != lpcnetplc.NumFeatures || len(fec1) != lpcnetplc.NumFeatures {
-		return libopusDecoderPLCConcealResult{}, fmt.Errorf("invalid conceal helper FEC sizes")
+	for _, features := range queue {
+		if len(features) != lpcnetplc.NumFeatures {
+			return libopusDecoderPLCConcealResult{}, fmt.Errorf("invalid conceal helper FEC size")
+		}
 	}
 
 	var payload bytes.Buffer
 	payload.WriteString(libopusPLCConcealInputMagic)
-	if err := binary.Write(&payload, binary.LittleEndian, uint32(1)); err != nil {
+	if err := binary.Write(&payload, binary.LittleEndian, uint32(2)); err != nil {
 		return libopusDecoderPLCConcealResult{}, fmt.Errorf("encode plc conceal version: %w", err)
 	}
 	for _, v := range []int32{
@@ -105,6 +111,9 @@ func probeLibopusDecoderPLCConceal(state lpcnetplc.StateSnapshot, fargan lpcnetp
 	if err := binary.Write(&payload, binary.LittleEndian, int32(fargan.LastPeriod)); err != nil {
 		return libopusDecoderPLCConcealResult{}, fmt.Errorf("encode plc conceal fargan last period: %w", err)
 	}
+	if err := binary.Write(&payload, binary.LittleEndian, int32(len(queue))); err != nil {
+		return libopusDecoderPLCConcealResult{}, fmt.Errorf("encode plc conceal queue count: %w", err)
+	}
 	for _, values := range [][]float32{
 		{fargan.DeemphMem},
 		fargan.PitchBuf[:],
@@ -113,11 +122,14 @@ func probeLibopusDecoderPLCConceal(state lpcnetplc.StateSnapshot, fargan lpcnetp
 		fargan.GRU1State[:],
 		fargan.GRU2State[:],
 		fargan.GRU3State[:],
-		fec0,
-		fec1,
 	} {
 		if err := writeBits(values); err != nil {
 			return libopusDecoderPLCConcealResult{}, fmt.Errorf("encode plc conceal fargan payload: %w", err)
+		}
+	}
+	for _, features := range queue {
+		if err := writeBits(features); err != nil {
+			return libopusDecoderPLCConcealResult{}, fmt.Errorf("encode plc conceal queue payload: %w", err)
 		}
 	}
 
@@ -269,15 +281,15 @@ func prepareDecoderForNeuralConcealmentParity(t *testing.T) (*Decoder, []float32
 	}
 	var fec0 [lpcnetplc.NumFeatures]float32
 	var fec1 [lpcnetplc.NumFeatures]float32
-	_ = dec.dredPLC.FillQueuedFeatures(0, fec0[:])
-	_ = dec.dredPLC.FillQueuedFeatures(1, fec1[:])
+	_ = requireDecoderDREDState(t, dec).dredPLC.FillQueuedFeatures(0, fec0[:])
+	_ = requireDecoderDREDState(t, dec).dredPLC.FillQueuedFeatures(1, fec1[:])
 	return dec, pcm, n, fec0, fec1
 }
 
 func TestDecoderFirstLossNeuralConcealmentMatchesLibopus(t *testing.T) {
 	dec, pcm, n, fec0, fec1 := prepareDecoderForNeuralConcealmentParity(t)
 
-	want, err := probeLibopusDecoderPLCConceal(dec.dredPLC.Snapshot(), dec.dredFARGAN.Snapshot(), fec0[:], fec1[:])
+	want, err := probeLibopusDecoderPLCConceal(requireDecoderDREDState(t, dec).dredPLC.Snapshot(), requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), fec0[:], fec1[:])
 	if err != nil {
 		t.Skipf("libopus plc conceal helper unavailable: %v", err)
 	}
@@ -292,7 +304,7 @@ func TestDecoderFirstLossNeuralConcealmentMatchesLibopus(t *testing.T) {
 
 	assertFloat32ApproxEqual(t, pcm[:n], want.Frame[:], "concealed pcm", 1e-4)
 
-	gotState := dec.dredPLC.Snapshot()
+	gotState := requireDecoderDREDState(t, dec).dredPLC.Snapshot()
 	if gotState.Blend != want.State.Blend ||
 		gotState.LossCount != want.State.LossCount ||
 		gotState.AnalysisGap != want.State.AnalysisGap ||
@@ -313,7 +325,7 @@ func TestDecoderFirstLossNeuralConcealmentMatchesLibopus(t *testing.T) {
 	assertFloat32ApproxEqual(t, gotState.PLCBak[1].GRU1[:], want.State.PLCBak[1].GRU1[:], "state plc_bak1 gru1", 1e-4)
 	assertFloat32ApproxEqual(t, gotState.PLCBak[1].GRU2[:], want.State.PLCBak[1].GRU2[:], "state plc_bak1 gru2", 1e-4)
 
-	gotFARGAN := dec.dredFARGAN.Snapshot()
+	gotFARGAN := requireDecoderDREDState(t, dec).dredFARGAN.Snapshot()
 	if gotFARGAN.ContInitialized != want.FARGAN.ContInitialized || gotFARGAN.LastPeriod != want.FARGAN.LastPeriod {
 		t.Fatalf("fargan header=%+v want %+v", gotFARGAN, want.FARGAN)
 	}
@@ -337,7 +349,7 @@ func TestDecoderSecondLossNeuralConcealmentMatchesLibopus(t *testing.T) {
 		t.Fatal("second-loss queueActiveDREDRecovery produced empty window")
 	}
 
-	want, err := probeLibopusDecoderPLCConceal(dec.dredPLC.Snapshot(), dec.dredFARGAN.Snapshot(), fec0[:], fec1[:])
+	want, err := probeLibopusDecoderPLCConceal(requireDecoderDREDState(t, dec).dredPLC.Snapshot(), requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), fec0[:], fec1[:])
 	if err != nil {
 		t.Skipf("libopus plc conceal helper unavailable: %v", err)
 	}
@@ -352,7 +364,7 @@ func TestDecoderSecondLossNeuralConcealmentMatchesLibopus(t *testing.T) {
 
 	assertFloat32ApproxEqual(t, pcm[:n], want.Frame[:], "second concealed pcm", 1e-4)
 
-	gotState := dec.dredPLC.Snapshot()
+	gotState := requireDecoderDREDState(t, dec).dredPLC.Snapshot()
 	if gotState.Blend != want.State.Blend ||
 		gotState.LossCount != want.State.LossCount ||
 		gotState.AnalysisGap != want.State.AnalysisGap ||
@@ -373,7 +385,7 @@ func TestDecoderSecondLossNeuralConcealmentMatchesLibopus(t *testing.T) {
 	assertFloat32ApproxEqual(t, gotState.PLCBak[1].GRU1[:], want.State.PLCBak[1].GRU1[:], "second state plc_bak1 gru1", 1e-4)
 	assertFloat32ApproxEqual(t, gotState.PLCBak[1].GRU2[:], want.State.PLCBak[1].GRU2[:], "second state plc_bak1 gru2", 1e-4)
 
-	gotFARGAN := dec.dredFARGAN.Snapshot()
+	gotFARGAN := requireDecoderDREDState(t, dec).dredFARGAN.Snapshot()
 	if gotFARGAN.ContInitialized != want.FARGAN.ContInitialized || gotFARGAN.LastPeriod != want.FARGAN.LastPeriod {
 		t.Fatalf("second fargan header=%+v want %+v", gotFARGAN, want.FARGAN)
 	}

@@ -15,7 +15,9 @@ const (
 
 const maxInputs = 2048
 
-var useNearestEvenQuant = runtime.GOARCH == "arm64" || runtime.GOARCH == "arm" || runtime.GOARCH == "amd64" || runtime.GOARCH == "386"
+// Match the pinned local libopus build on arm64, where NEON integer-matrix
+// quantization uses vcvtnq_s32_f32() rather than the generic floor(.5+x) path.
+var useNearestEvenQuant = runtime.GOARCH == "arm64"
 
 type decoderState struct {
 	initialized bool

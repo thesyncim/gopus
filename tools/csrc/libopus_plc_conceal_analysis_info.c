@@ -23,8 +23,8 @@
 #include "plc_data.c"
 #include "fargan_data.c"
 
-#define INPUT_MAGIC "GPCI"
-#define OUTPUT_MAGIC "GPCO"
+#define INPUT_MAGIC "GPAI"
+#define OUTPUT_MAGIC "GPAO"
 
 static const float att_table[10] = {0, 0, -.2f, -.2f, -.4f, -.4f, -.8f, -.8f, -1.6f, -1.6f};
 
@@ -60,6 +60,22 @@ static int write_bits_array(const float *src, int count) {
     uint32_t bits;
     memcpy(&bits, &src[i], sizeof(bits));
     if (!write_exact(&bits, sizeof(bits))) return 0;
+  }
+  return 1;
+}
+
+static int read_complex_array(kiss_fft_cpx *dst, int count) {
+  int i;
+  for (i = 0; i < count; i++) {
+    if (!read_bits_array(&dst[i].r, 1) || !read_bits_array(&dst[i].i, 1)) return 0;
+  }
+  return 1;
+}
+
+static int write_complex_array(const kiss_fft_cpx *src, int count) {
+  int i;
+  for (i = 0; i < count; i++) {
+    if (!write_bits_array(&src[i].r, 1) || !write_bits_array(&src[i].i, 1)) return 0;
   }
   return 1;
 }
@@ -146,8 +162,8 @@ int main(void) {
   int32_t fargan_cont_initialized;
   int32_t queue_count;
   int32_t got_fec;
-  float pcmf[FRAME_SIZE];
-  opus_int16 pcm16[FRAME_SIZE];
+  float framef[FRAME_SIZE];
+  opus_int16 frame16[FRAME_SIZE];
   LPCNetPLCState st;
 
   if (!set_binary_stdio()) {
@@ -158,7 +174,7 @@ int main(void) {
     fprintf(stderr, "invalid input magic\n");
     return 1;
   }
-  if (!read_exact(&version, sizeof(version)) || version != 2) {
+  if (!read_exact(&version, sizeof(version)) || version != 1) {
     fprintf(stderr, "unsupported input version\n");
     return 1;
   }
@@ -170,7 +186,7 @@ int main(void) {
       !read_exact(&fec_read_pos, sizeof(fec_read_pos)) ||
       !read_exact(&fec_fill_pos, sizeof(fec_fill_pos)) ||
       !read_exact(&fec_skip, sizeof(fec_skip))) {
-    fprintf(stderr, "failed to read conceal control header\n");
+    fprintf(stderr, "failed to read conceal-analysis control header\n");
     return 1;
   }
 
@@ -180,6 +196,7 @@ int main(void) {
     return 1;
   }
   fargan_init(&st.fargan);
+  lpcnet_encoder_init(&st.enc);
   st.loaded = 1;
   st.blend = blend;
   st.loss_count = loss_count;
@@ -187,7 +204,7 @@ int main(void) {
   st.analysis_pos = analysis_pos;
   st.predict_pos = predict_pos;
   st.fec_read_pos = fec_read_pos;
-  st.fec_fill_pos = fec_fill_pos < 0 ? 0 : (fec_fill_pos > 2 ? 2 : fec_fill_pos);
+  st.fec_fill_pos = fec_fill_pos < 0 ? 0 : (fec_fill_pos > PLC_MAX_FEC ? PLC_MAX_FEC : fec_fill_pos);
   st.fec_skip = fec_skip < 0 ? 0 : fec_skip;
 
   if (!read_bits_array(st.features, NB_TOTAL_FEATURES) ||
@@ -201,41 +218,76 @@ int main(void) {
       !read_bits_array(st.plc_bak[1].gru2_state, PLC_GRU2_STATE_SIZE) ||
       !read_exact(&fargan_cont_initialized, sizeof(fargan_cont_initialized)) ||
       !read_exact(&st.fargan.last_period, sizeof(st.fargan.last_period)) ||
-      !read_exact(&queue_count, sizeof(queue_count)) ||
       !read_bits_array(&st.fargan.deemph_mem, 1) ||
       !read_bits_array(st.fargan.pitch_buf, PITCH_MAX_PERIOD) ||
       !read_bits_array(st.fargan.cond_conv1_state, COND_NET_FCONV1_STATE_SIZE) ||
       !read_bits_array(st.fargan.fwc0_mem, SIG_NET_FWC0_STATE_SIZE) ||
       !read_bits_array(st.fargan.gru1_state, SIG_NET_GRU1_STATE_SIZE) ||
       !read_bits_array(st.fargan.gru2_state, SIG_NET_GRU2_STATE_SIZE) ||
-      !read_bits_array(st.fargan.gru3_state, SIG_NET_GRU3_STATE_SIZE)) {
-    fprintf(stderr, "failed to read conceal state payload\n");
+      !read_bits_array(st.fargan.gru3_state, SIG_NET_GRU3_STATE_SIZE) ||
+      !read_bits_array(st.enc.analysis_mem, OVERLAP_SIZE) ||
+      !read_bits_array(&st.enc.mem_preemph, 1) ||
+      !read_complex_array(st.enc.prev_if, PITCH_IF_MAX_FREQ) ||
+      !read_bits_array(st.enc.if_features, PITCH_IF_FEATURES) ||
+      !read_bits_array(st.enc.xcorr_features, PITCH_MAX_PERIOD - PITCH_MIN_PERIOD) ||
+      !read_bits_array(&st.enc.dnn_pitch, 1) ||
+      !read_bits_array(st.enc.pitch_mem, LPC_ORDER) ||
+      !read_bits_array(&st.enc.pitch_filt, 1) ||
+      !read_bits_array(st.enc.exc_buf, PITCH_BUF_SIZE) ||
+      !read_bits_array(st.enc.lp_buf, PITCH_BUF_SIZE) ||
+      !read_bits_array(st.enc.lp_mem, 4) ||
+      !read_bits_array(st.enc.lpc, LPC_ORDER) ||
+      !read_bits_array(st.enc.pitchdnn.gru_state, GRU_1_STATE_SIZE) ||
+      !read_bits_array(st.enc.pitchdnn.xcorr_mem1, (NB_XCORR_FEATURES + 2) * 2) ||
+      !read_bits_array(st.enc.pitchdnn.xcorr_mem2, (NB_XCORR_FEATURES + 2) * 2 * 8) ||
+      !read_bits_array(st.enc.pitchdnn.xcorr_mem3, (NB_XCORR_FEATURES + 2) * 2 * 8) ||
+      !read_exact(&queue_count, sizeof(queue_count))) {
+    fprintf(stderr, "failed to read conceal-analysis state payload\n");
     return 1;
   }
   st.fargan.cont_initialized = fargan_cont_initialized;
 
   if (queue_count < 0) {
-    fprintf(stderr, "invalid conceal queue count\n");
+    fprintf(stderr, "invalid conceal-analysis queue count\n");
     return 1;
   }
   if (queue_count > PLC_MAX_FEC) queue_count = PLC_MAX_FEC;
   for (int i = 0; i < queue_count; i++) {
     if (!read_bits_array(st.fec[i], NB_FEATURES)) {
-      fprintf(stderr, "failed to read conceal queue payload\n");
+      fprintf(stderr, "failed to read conceal-analysis queue payload\n");
       return 1;
     }
   }
   if (st.fec_fill_pos > queue_count) st.fec_fill_pos = queue_count;
 
   if (st.blend == 0) {
+    int count = 0;
     st.plc_net = st.plc_bak[0];
+    while (st.analysis_pos + FRAME_SIZE <= PLC_BUF_SIZE) {
+      float x[FRAME_SIZE];
+      float plc_features[2*NB_BANDS + NB_FEATURES + 1];
+      int i;
+      celt_assert(st.analysis_pos >= 0);
+      for (i = 0; i < FRAME_SIZE; i++) x[i] = 32768.f * st.pcm[st.analysis_pos + i];
+      burg_cepstral_analysis(plc_features, x);
+      lpcnet_compute_single_frame_features_float(&st.enc, x, st.features, 0);
+      if ((!st.analysis_gap || count > 0) && st.analysis_pos >= st.predict_pos) {
+        queue_features_info(&st, st.features);
+        memcpy(&plc_features[2*NB_BANDS], st.features, NB_FEATURES * sizeof(float));
+        plc_features[2*NB_BANDS + NB_FEATURES] = 1;
+        rotate_bak_info(&st);
+        compute_plc_pred_info(&st, st.features, plc_features);
+      }
+      st.analysis_pos += FRAME_SIZE;
+      count++;
+    }
     rotate_bak_info(&st);
     get_fec_or_pred_info(&st, st.features);
     queue_features_info(&st, st.features);
     rotate_bak_info(&st);
     get_fec_or_pred_info(&st, st.features);
     queue_features_info(&st, st.features);
-    fargan_cont(&st.fargan, &st.pcm[PLC_BUF_SIZE-FARGAN_CONT_SAMPLES], st.cont_features);
+    fargan_cont(&st.fargan, &st.pcm[PLC_BUF_SIZE - FARGAN_CONT_SAMPLES], st.cont_features);
     st.analysis_gap = 0;
   }
 
@@ -246,33 +298,29 @@ int main(void) {
   if (st.loss_count >= 10) st.features[0] = MAX16(-15, st.features[0] + att_table[9] - 2 * (st.loss_count - 9));
   else st.features[0] = MAX16(-15, st.features[0] + att_table[st.loss_count]);
 
-  fargan_synthesize_int(&st.fargan, pcm16, &st.features[0]);
-  for (int i = 0; i < FRAME_SIZE; i++) pcmf[i] = (1.f / 32768.f) * pcm16[i];
+  fargan_synthesize_int(&st.fargan, frame16, &st.features[0]);
+  for (int i = 0; i < FRAME_SIZE; i++) framef[i] = (1.f / 32768.f) * frame16[i];
   queue_features_info(&st, st.features);
   if (st.analysis_pos - FRAME_SIZE >= 0) st.analysis_pos -= FRAME_SIZE;
   else st.analysis_gap = 1;
   st.predict_pos = PLC_BUF_SIZE;
   memmove(st.pcm, &st.pcm[FRAME_SIZE], (PLC_BUF_SIZE - FRAME_SIZE) * sizeof(float));
-  memcpy(&st.pcm[PLC_BUF_SIZE-FRAME_SIZE], pcmf, FRAME_SIZE * sizeof(float));
+  memcpy(&st.pcm[PLC_BUF_SIZE - FRAME_SIZE], framef, FRAME_SIZE * sizeof(float));
   st.blend = 1;
   fargan_cont_initialized = st.fargan.cont_initialized;
 
   if (!write_exact(OUTPUT_MAGIC, 4) ||
       !write_exact(&version, sizeof(version)) ||
       !write_exact(&got_fec, sizeof(got_fec)) ||
+      !write_bits_array(framef, FRAME_SIZE) ||
       !write_exact(&st.blend, sizeof(st.blend)) ||
       !write_exact(&st.loss_count, sizeof(st.loss_count)) ||
       !write_exact(&st.analysis_gap, sizeof(st.analysis_gap)) ||
       !write_exact(&st.analysis_pos, sizeof(st.analysis_pos)) ||
       !write_exact(&st.predict_pos, sizeof(st.predict_pos)) ||
       !write_exact(&st.fec_read_pos, sizeof(st.fec_read_pos)) ||
+      !write_exact(&st.fec_fill_pos, sizeof(st.fec_fill_pos)) ||
       !write_exact(&st.fec_skip, sizeof(st.fec_skip)) ||
-      !write_exact(&fargan_cont_initialized, sizeof(fargan_cont_initialized)) ||
-      !write_exact(&st.fargan.last_period, sizeof(st.fargan.last_period))) {
-    fprintf(stderr, "failed to write conceal header\n");
-    return 1;
-  }
-  if (!write_bits_array(pcmf, FRAME_SIZE) ||
       !write_bits_array(st.features, NB_TOTAL_FEATURES) ||
       !write_bits_array(st.cont_features, CONT_VECTORS * NB_FEATURES) ||
       !write_bits_array(st.pcm, PLC_BUF_SIZE) ||
@@ -282,15 +330,34 @@ int main(void) {
       !write_bits_array(st.plc_bak[0].gru2_state, PLC_GRU2_STATE_SIZE) ||
       !write_bits_array(st.plc_bak[1].gru1_state, PLC_GRU1_STATE_SIZE) ||
       !write_bits_array(st.plc_bak[1].gru2_state, PLC_GRU2_STATE_SIZE) ||
+      !write_exact(&fargan_cont_initialized, sizeof(fargan_cont_initialized)) ||
+      !write_exact(&st.fargan.last_period, sizeof(st.fargan.last_period)) ||
       !write_bits_array(&st.fargan.deemph_mem, 1) ||
       !write_bits_array(st.fargan.pitch_buf, PITCH_MAX_PERIOD) ||
       !write_bits_array(st.fargan.cond_conv1_state, COND_NET_FCONV1_STATE_SIZE) ||
       !write_bits_array(st.fargan.fwc0_mem, SIG_NET_FWC0_STATE_SIZE) ||
       !write_bits_array(st.fargan.gru1_state, SIG_NET_GRU1_STATE_SIZE) ||
       !write_bits_array(st.fargan.gru2_state, SIG_NET_GRU2_STATE_SIZE) ||
-      !write_bits_array(st.fargan.gru3_state, SIG_NET_GRU3_STATE_SIZE)) {
-    fprintf(stderr, "failed to write conceal payload\n");
+      !write_bits_array(st.fargan.gru3_state, SIG_NET_GRU3_STATE_SIZE) ||
+      !write_bits_array(st.enc.analysis_mem, OVERLAP_SIZE) ||
+      !write_bits_array(&st.enc.mem_preemph, 1) ||
+      !write_complex_array(st.enc.prev_if, PITCH_IF_MAX_FREQ) ||
+      !write_bits_array(st.enc.if_features, PITCH_IF_FEATURES) ||
+      !write_bits_array(st.enc.xcorr_features, PITCH_MAX_PERIOD - PITCH_MIN_PERIOD) ||
+      !write_bits_array(&st.enc.dnn_pitch, 1) ||
+      !write_bits_array(st.enc.pitch_mem, LPC_ORDER) ||
+      !write_bits_array(&st.enc.pitch_filt, 1) ||
+      !write_bits_array(st.enc.exc_buf, PITCH_BUF_SIZE) ||
+      !write_bits_array(st.enc.lp_buf, PITCH_BUF_SIZE) ||
+      !write_bits_array(st.enc.lp_mem, 4) ||
+      !write_bits_array(st.enc.lpc, LPC_ORDER) ||
+      !write_bits_array(st.enc.pitchdnn.gru_state, GRU_1_STATE_SIZE) ||
+      !write_bits_array(st.enc.pitchdnn.xcorr_mem1, (NB_XCORR_FEATURES + 2) * 2) ||
+      !write_bits_array(st.enc.pitchdnn.xcorr_mem2, (NB_XCORR_FEATURES + 2) * 2 * 8) ||
+      !write_bits_array(st.enc.pitchdnn.xcorr_mem3, (NB_XCORR_FEATURES + 2) * 2 * 8)) {
+    fprintf(stderr, "failed to write conceal-analysis output\n");
     return 1;
   }
+
   return 0;
 }
