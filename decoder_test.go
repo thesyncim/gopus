@@ -456,6 +456,39 @@ func TestDecoderMarkDREDUpdatedPCMDormantWithoutSidecar(t *testing.T) {
 	}
 }
 
+func TestDecoderMarkDREDUpdatedPCMDoesNotTrackHistoryWithoutNeuralConcealment(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(16000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	setValidDREDDecoderBlobForTest(t, dec)
+
+	var pcm [2 * lpcnetplc.FrameSize]float32
+	for i := range pcm {
+		pcm[i] = float32((i%17)-8) / 17
+	}
+	dec.markDREDUpdatedPCM(pcm[:], len(pcm))
+
+	if got := dec.dredPLC.Blend(); got != 0 {
+		t.Fatalf("Blend=%d want 0", got)
+	}
+	if got := dec.dredPLC.AnalysisPos(); got != lpcnetplc.PLCBufSize {
+		t.Fatalf("AnalysisPos=%d want %d", got, lpcnetplc.PLCBufSize)
+	}
+	if got := dec.dredPLC.PredictPos(); got != lpcnetplc.PLCBufSize {
+		t.Fatalf("PredictPos=%d want %d", got, lpcnetplc.PLCBufSize)
+	}
+	var history [lpcnetplc.PLCBufSize]float32
+	if n := dec.dredPLC.FillPCMHistory(history[:]); n != lpcnetplc.PLCBufSize {
+		t.Fatalf("FillPCMHistory()=%d want %d", n, lpcnetplc.PLCBufSize)
+	}
+	for i, sample := range history {
+		if sample != 0 {
+			t.Fatalf("history[%d]=%v want 0", i, sample)
+		}
+	}
+}
+
 func TestDecoderDecodePLCAppliesNeuralConcealmentWhenReady(t *testing.T) {
 	packet := makeValidMono16kPacketForDREDTest(t)
 
