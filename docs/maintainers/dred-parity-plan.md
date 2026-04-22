@@ -43,6 +43,7 @@ Implemented or in progress:
 - decoder-side DRED payload invalidation now distinguishes metadata visibility from full buffer clears so packet-entry churn stays low when a new packet replaces the previous cached payload
 - a pure-Go CELT neural-entry bridge now mirrors libopus `update_plc_state()` history preparation by deriving 16 kHz PLC seed PCM from retained CELT decode history, with zero-allocation steady-state coverage, a libopus-derived reference helper, and live decoder wiring on nil-packet/FEC PLC entry
 - the single-stream decoder now seeds first-loss neural concealment from that CELT bridge, retains a decoder-owned cached-DRED recovery cursor across consecutive losses, and has tag-gated real-packet live decoder parity oracles for first and second neural losses
+- the single-stream decoder also now has an explicit processed-DRED PCM recovery helper for the current 16 kHz mono seam, with parity coverage against the cached `Decode(nil)` path across first and second losses and against libopus `opus_decoder_dred_decode_float()` across the same first/second-loss seam on a real packet
 - dormant-cost hardening now keeps single-stream DRED payload buffers and multistream DRED sidecars unallocated until the standalone DRED decoder model is actually armed, while inactive decode/FEC paths stay out of DRED bookkeeping entirely
 - libopus-backed real-packet parity coverage exists for:
   - parse-stage state and latents
@@ -55,14 +56,15 @@ Implemented or in progress:
   - FARGAN conditioning outputs and retained conv-state evolution
   - FARGAN continuity-state priming and synthesized PCM/state evolution
   - bounded post-analysis concealment frame synthesis and retained PLC/FARGAN state evolution
-  - live decoder `Decode(nil)` first-loss and second-loss neural concealment parity at the current supported 16 kHz mono seam
+- live decoder `Decode(nil)` first-loss and second-loss neural concealment parity at the current supported 16 kHz mono seam
+- explicit decoder-owned processed-DRED float decode parity at the same 16 kHz mono seam
 - encoder-side `DFrameSize` staging / rollover groundwork exists in pure Go
 
 Still missing for full parity:
 
 - model-backed `opus_decoder_dred_decode*()` parity
 - multi-rate decoder-level neural recovery parity beyond the current 16 kHz mono seam
-- the remaining decoder-owned `opus_decoder_dred_decode*()` audio-path integration beyond the current CELT-entry / LPCNet / FARGAN bridge
+- the remaining decoder-owned `opus_decoder_dred_decode*()` audio-path integration beyond the current CELT-entry / LPCNet / FARGAN bridge, including broader offsets/rates and full supported-surface decisions
 - encoder-side DRED latent generation and bitstream emission
 
 ## Workstreams
@@ -212,6 +214,7 @@ Acceptance:
 
 - helper or fixture path that compares the full `opus_decoder_dred_decode*()` output, not just the bounded post-analysis concealment path
 - decoder-level live first-loss and repeated-loss neural concealment tests that start from a good-packet decoder state and compare concealed PCM plus retained cursor/state against libopus at each supported seam
+- explicit decoder-owned DRED decode tests that compare processed-DRED PCM output against libopus for at least the current supported seam and selected positive offsets
 - lost-packet recovery cases across at least:
   - 8 kHz
   - 16 kHz
@@ -240,6 +243,7 @@ Acceptance:
 - bounded post-analysis concealment frame synthesis matches libopus on retained-state parity checks
 - CELT neural-entry history preparation now matches libopus-derived `update_plc_state()` math closely enough for the 48 kHz -> 16 kHz bridge to stay deterministic and allocation-free in steady state
 - live decoder first-loss and second-loss neural concealment now match libopus on the current 16 kHz mono seam
+- explicit decoder-owned processed-DRED float decode now matches libopus and the cached loss path on that same seam
 
 ### M3. Encoder Staging Parity
 
