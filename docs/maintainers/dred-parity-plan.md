@@ -1,6 +1,6 @@
 # DRED Parity Plan
 
-Last updated: 2026-04-21
+Last updated: 2026-04-22
 
 ## Goal
 
@@ -35,17 +35,28 @@ Implemented or in progress:
 - the pure-Go RDOVAE decoder runtime now uses a reusable processor/scratch layout to keep the standalone process path explicitly allocation-free
 - standalone DRED payload discovery now uses a narrow non-alloc packet-padding scan instead of the generic frame parser
 - decoder-side recovery scheduling now has a pure-Go LPCNet-style queue/blend state plus a libopus-shaped processed-feature scheduler
+- the pure-Go PLC predictor that sits immediately behind queued DRED/FEC features now loads libopus-style PLC blobs and has zero-allocation runtime coverage plus libopus-backed parity checks on realistic FEC-shaped inputs
+- the pure-Go FARGAN conditioner that sits immediately ahead of synthesis now loads the libopus conditioning subnetwork and matches `compute_fargan_cond()` against libopus with retained conv-state parity
+- the pure-Go PLC first-loss prefill and concealment-feature lifecycle now has a libopus-backed parity oracle covering backup rotation, queued FEC consumption, predicted fallback, continuity-feature updates, and retained GRU state
+- the pure-Go FARGAN signal runtime now mirrors libopus `FARGANState`, `fargan_cont()`, and `fargan_synthesize()` with retained pitch/deemphasis/conv/GRU state and libopus-backed parity checks on both continuity priming and synthesized PCM
+- the pure-Go bounded post-analysis concealment path now composes the retained PLC predictor state with the pure-Go FARGAN runtime to synthesize one concealed frame and update retained history, with libopus-backed parity checks on the concealed PCM frame plus retained PLC/FARGAN state
 - libopus-backed real-packet parity coverage exists for:
   - parse-stage state and latents
   - processed DRED features
   - recovery-window / feature-offset probing math
   - recovery queue fill/skip scheduling from processed DRED features
   - repeated / clone `Process()` lifecycle semantics on real DRED packets
+  - PLC predictor outputs and recurrent-state evolution on realistic post-DRED FEC update shapes
+  - PLC first-loss prefill and one-step concealment feature evolution
+  - FARGAN conditioning outputs and retained conv-state evolution
+  - FARGAN continuity-state priming and synthesized PCM/state evolution
+  - bounded post-analysis concealment frame synthesis and retained PLC/FARGAN state evolution
 - encoder-side `DFrameSize` staging / rollover groundwork exists in pure Go
 
 Still missing for full parity:
 
 - model-backed `opus_decoder_dred_decode*()` parity
+- the remaining `LPCNetEncState`-shaped analysis/runtime mirror and decoder-owned integration that `opus_decoder_dred_decode*()` depends on
 - encoder-side DRED latent generation and bitstream emission
 
 ## Workstreams
@@ -192,7 +203,7 @@ Acceptance:
 
 ### Required Before Claiming Recovery/Audio Parity
 
-- helper or fixture path that compares `opus_decoder_dred_decode*()` output
+- helper or fixture path that compares the full `opus_decoder_dred_decode*()` output, not just the bounded post-analysis concealment path
 - lost-packet recovery cases across at least:
   - 8 kHz
   - 16 kHz
@@ -217,6 +228,8 @@ Acceptance:
 - generated feature tensors match libopus
 - recovery-window / feature-offset probing matches libopus on real DRED packets
 - processed-feature recovery queue scheduling matches libopus and remains allocation-free
+- PLC predictor, first-loss prefill, concealment-feature evolution, and FARGAN conditioning/continuity/synthesis parity all match libopus on bounded state-oracle checks
+- bounded post-analysis concealment frame synthesis matches libopus on retained-state parity checks
 
 ### M3. Encoder Staging Parity
 
