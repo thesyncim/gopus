@@ -547,8 +547,7 @@ int main(void) {
 
   switch (step0_source) {
     case 0:
-      step_dred = NULL;
-      step0_ret = run_step(dec, NULL, 0, (int)frame_size, step0_pcm);
+      step0_ret = 0;
       break;
     case 1:
       if (carrier_parse_ret < 0) {
@@ -574,7 +573,7 @@ int main(void) {
 
   switch (step1_source) {
     case 0:
-      step1_ret = run_step(dec, NULL, 0, (int)frame_size, step1_pcm);
+      step1_ret = 0;
       break;
     case 1:
       if (carrier_parse_ret < 0) {

@@ -54,6 +54,8 @@ Implemented or in progress:
 - multistream optional-state hardening now keeps standalone DRED on a cache/timing-only path and keeps main decoder `SetDNNBlob(...)` capability-only because multistream still has no per-stream neural concealment consumer
 - the current 48 kHz Hybrid DRED path now updates retained CELT waveform/cadence state with a state-only pure-Go DRED concealment pass instead of only relabeling an ordinary Hybrid PLC loss after the fact; this is aimed specifically at the next-good-packet handoff parity that still remained open after the earlier cadence-only sync work
 - a new internal libopus decoder-sequence helper now exists for cached/live DRED decoder parity, covering `carrier good -> first loss -> second loss -> optional next good packet` via `opus_decode_native(..., dred, dred_offset)` instead of only the public explicit `opus_decoder_dred_decode_float()` seam
+- the first decoder tests now use that sequence helper for live/cached handoff parity on the 16 kHz mono seam and the cached Hybrid SWB/FB next-good-packet seam, so those paths are no longer limited to explicit-oracle comparisons only
+- the unsupported-controls gate now also selects those live-sequence handoff tests, so CI should start surfacing real cached/live decoder deltas instead of silently carrying unrun oracle coverage
 - these decoder parity claims are seam-specific and libopus-backed: the currently-closest seams are the targeted 48 kHz mono CELT bridge and the 48 kHz mono Hybrid SWB/FB live paths, while the 16 kHz mono live cached seam and broader stereo/multistream packet coverage still remain separate work unless explicitly covered by green parity tests
 - libopus-backed real-packet parity coverage exists for:
   - parse-stage state and latents
@@ -92,6 +94,7 @@ Still missing for full parity:
 - encoder-side DRED latent generation and bitstream emission
 - a dedicated libopus cached/live decoder oracle for `opus_decode_float(NULL, ...)`; several current cached/live tests still compare against the explicit `opus_decoder_dred_decode_float()` helper and should not be treated as final live-oracle coverage
 - broader adoption of the new decoder-sequence oracle beyond the first-loss and second-loss mono seams; follow-up good-packet handoff, 48 kHz Hybrid, and wider packet matrices still need to be migrated off the explicit-oracle fallback
+- the new live-sequence tests still need runtime signal from CI before we can treat those seams as green; until then they should be treated as stronger oracles in flight, not closed parity claims, and the current Hybrid state-only path specifically still needed a `preemph_memD` carry fix to avoid resumed-good-packet drift
 - clean runtime re-verification after the current macOS launcher issue: newly linked local Go binaries are intermittently stalling before Go runtime with `com.apple.provenance` present, so compile-only checks may pass while runtime parity remains blocked locally
 
 ## Workstreams

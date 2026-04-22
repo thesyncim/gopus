@@ -790,6 +790,72 @@ func TestDecoderCachedHybridDREDThenNextPacketMatchesExplicitDREDOracle(t *testi
 	}
 }
 
+func TestDecoderCachedHybridDREDThenNextPacketMatchesLiveSequenceOracle(t *testing.T) {
+	tests := []struct {
+		name      string
+		bandwidth Bandwidth
+		frameSize int
+	}{
+		{name: "swb_10ms", bandwidth: BandwidthSuperwideband, frameSize: 480},
+		{name: "swb_20ms", bandwidth: BandwidthSuperwideband, frameSize: 960},
+		{name: "fb_10ms", bandwidth: BandwidthFullband, frameSize: 480},
+		{name: "fb_20ms", bandwidth: BandwidthFullband, frameSize: 960},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+				FrameSize: tc.frameSize,
+				ForceMode: ModeHybrid,
+				Bandwidth: tc.bandwidth,
+			})
+			if err != nil {
+				t.Skipf("libopus dred packet helper unavailable: %v", err)
+			}
+			nextPacket := makeValidMonoHybridPacketForFrameSizeBandwidthForDREDTest(t, tc.frameSize, tc.bandwidth)
+
+			dec, n := prepareCachedDREDDecodeParityStateForPacket(t, packetInfo)
+			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 0, 0, true)
+			if err != nil {
+				t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+			}
+			if want.carrierParseRet < 0 {
+				t.Skipf("libopus cached hybrid DRED sequence parse failed: %d", want.carrierParseRet)
+			}
+			if want.step0.ret != n {
+				t.Fatalf("libopus cached hybrid decoder first-loss ret=%d want %d", want.step0.ret, n)
+			}
+			if want.next.ret <= 0 {
+				t.Fatalf("libopus cached hybrid decoder follow-up ret=%d want >0", want.next.ret)
+			}
+
+			pcm := make([]float32, dec.maxPacketSamples)
+			got, err := dec.Decode(nil, pcm)
+			if err != nil {
+				t.Fatalf("Decode(nil) error: %v", err)
+			}
+			if got != n {
+				t.Fatalf("Decode(nil)=%d want %d", got, n)
+			}
+			assertFloat32ApproxEqual(t, pcm[:got], want.step0.pcm[:got], "cached hybrid live-sequence first-loss pcm", 1e-4)
+
+			nextPCM := make([]float32, dec.maxPacketSamples)
+			gotNext, err := dec.Decode(nextPacket, nextPCM)
+			if err != nil {
+				t.Fatalf("Decode(next hybrid packet) error: %v", err)
+			}
+			if gotNext != want.next.ret {
+				t.Fatalf("Decode(next hybrid packet)=%d want %d", gotNext, want.next.ret)
+			}
+
+			assertFloat32ApproxEqual(t, nextPCM[:gotNext], want.next.pcm[:gotNext], "cached hybrid next packet live-sequence pcm", 1e-4)
+			assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "cached hybrid next packet live-sequence plc")
+			assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "cached hybrid next packet live-sequence fargan")
+			assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.next.celt48k, "cached hybrid next packet live-sequence celt")
+		})
+	}
+}
+
 func TestDecoderCachedHybridDREDSecondLossMatchesExplicitDREDOracle(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -914,6 +980,85 @@ func TestDecoderCachedHybridSecondLossThenNextPacketMatchesExplicitDREDOracle(t 
 			assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "cached hybrid second-loss next packet plc")
 			assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "cached hybrid second-loss next packet fargan")
 			assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.celt48k, "cached hybrid second-loss next packet celt")
+		})
+	}
+}
+
+func TestDecoderCachedHybridSecondLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) {
+	tests := []struct {
+		name      string
+		bandwidth Bandwidth
+		frameSize int
+	}{
+		{name: "swb_10ms", bandwidth: BandwidthSuperwideband, frameSize: 480},
+		{name: "swb_20ms", bandwidth: BandwidthSuperwideband, frameSize: 960},
+		{name: "fb_10ms", bandwidth: BandwidthFullband, frameSize: 480},
+		{name: "fb_20ms", bandwidth: BandwidthFullband, frameSize: 960},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+				FrameSize: tc.frameSize,
+				ForceMode: ModeHybrid,
+				Bandwidth: tc.bandwidth,
+			})
+			if err != nil {
+				t.Skipf("libopus dred packet helper unavailable: %v", err)
+			}
+			nextPacket := makeValidMonoHybridPacketForFrameSizeBandwidthForDREDTest(t, tc.frameSize, tc.bandwidth)
+
+			dec, n := prepareCachedDREDDecodeParityStateForPacket(t, packetInfo)
+			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 1, 2*n, true)
+			if err != nil {
+				t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+			}
+			if want.carrierParseRet < 0 {
+				t.Skipf("libopus cached hybrid DRED sequence parse failed: %d", want.carrierParseRet)
+			}
+			if want.step0.ret != n {
+				t.Fatalf("libopus cached hybrid decoder first warmup ret=%d want %d", want.step0.ret, n)
+			}
+			if want.step1.ret != n {
+				t.Fatalf("libopus cached hybrid decoder second-loss ret=%d want %d", want.step1.ret, n)
+			}
+			if want.next.ret <= 0 {
+				t.Fatalf("libopus cached hybrid decoder follow-up ret=%d want >0", want.next.ret)
+			}
+
+			pcm0 := make([]float32, dec.maxPacketSamples)
+			got, err := dec.Decode(nil, pcm0)
+			if err != nil {
+				t.Fatalf("Decode(nil, first) error: %v", err)
+			}
+			if got != n {
+				t.Fatalf("Decode(nil, first)=%d want %d", got, n)
+			}
+			assertFloat32ApproxEqual(t, pcm0[:got], want.step0.pcm[:got], "cached hybrid live-sequence warmup pcm", 1e-4)
+
+			pcm1 := make([]float32, dec.maxPacketSamples)
+			got, err = dec.Decode(nil, pcm1)
+			if err != nil {
+				t.Fatalf("Decode(nil, second) error: %v", err)
+			}
+			if got != n {
+				t.Fatalf("Decode(nil, second)=%d want %d", got, n)
+			}
+			assertFloat32ApproxEqual(t, pcm1[:got], want.step1.pcm[:got], "cached hybrid live-sequence second-loss pcm", 1e-4)
+
+			nextPCM := make([]float32, dec.maxPacketSamples)
+			gotNext, err := dec.Decode(nextPacket, nextPCM)
+			if err != nil {
+				t.Fatalf("Decode(next hybrid packet) error: %v", err)
+			}
+			if gotNext != want.next.ret {
+				t.Fatalf("Decode(next hybrid packet)=%d want %d", gotNext, want.next.ret)
+			}
+
+			assertFloat32ApproxEqual(t, nextPCM[:gotNext], want.next.pcm[:gotNext], "cached hybrid second-loss next packet live-sequence pcm", 1e-4)
+			assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "cached hybrid second-loss next packet live-sequence plc")
+			assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "cached hybrid second-loss next packet live-sequence fargan")
+			assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.next.celt48k, "cached hybrid second-loss next packet live-sequence celt")
 		})
 	}
 }

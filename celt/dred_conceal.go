@@ -165,6 +165,8 @@ func (d *Decoder) concealDRED48kMono(
 			return false
 		}
 		d.applyDeemphasisAndScaleToFloat32(out[:frameSize], d.scratchPLC[:frameSize], 1.0/32768.0)
+	} else {
+		d.advanceDeemphasisStateMono(d.scratchPLC[:frameSize])
 	}
 
 	if recordLoss {
