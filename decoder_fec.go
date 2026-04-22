@@ -217,6 +217,7 @@ func (d *Decoder) decodeFECFrame(pcm []float32) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	d.markDREDUpdatedPCM(pcm[:n*d.channels], n)
 	d.applyOutputGain(pcm[:n*d.channels])
 
 	d.prevMode = d.fecMode
@@ -228,7 +229,6 @@ func (d *Decoder) decodeFECFrame(pcm []float32) (int, error) {
 	d.lastDataLen = len(d.fecData)
 	d.prevRedundancy = false
 	d.haveDecoded = true
-	d.dredPLC.MarkUpdated()
 
 	d.clearFECState()
 

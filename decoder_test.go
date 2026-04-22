@@ -13,9 +13,15 @@ import (
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	internaldred "github.com/thesyncim/gopus/internal/dred"
 	"github.com/thesyncim/gopus/internal/dred/rdovae"
+	"github.com/thesyncim/gopus/internal/lpcnetplc"
 	"github.com/thesyncim/gopus/rangecoding"
 	"github.com/thesyncim/gopus/types"
 )
+
+func lpcnetplcTestQuantizePCMInt16Like(sample float32) float32 {
+	v := math.Floor(0.5 + math.Max(-32767, math.Min(32767, float64(sample)*32768)))
+	return float32(v * (1.0 / 32768.0))
+}
 
 func makeExperimentalDREDPayloadBodyForTest(t *testing.T, dredFrameOffset, dredOffset int) []byte {
 	t.Helper()
@@ -371,6 +377,40 @@ func TestDecoderDREDRecoveryBlendFollowsLifecycle(t *testing.T) {
 	}
 	if dec.dredPLC.FECFillPos() != 0 || dec.dredPLC.FECSkip() != 2 {
 		t.Fatalf("queued plc state after PLC and re-decode=(fill=%d skip=%d) want (0,2)", dec.dredPLC.FECFillPos(), dec.dredPLC.FECSkip())
+	}
+}
+
+func TestDecoderMarkDREDUpdatedPCMTracksMono16kHistory(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(16000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	var pcm [2 * lpcnetplc.FrameSize]float32
+	for i := range pcm {
+		pcm[i] = float32((i%19)-9) / 19
+	}
+	dec.markDREDUpdatedPCM(pcm[:], len(pcm))
+	if got := dec.dredPLC.Blend(); got != 0 {
+		t.Fatalf("Blend=%d want 0", got)
+	}
+	if got := dec.dredPLC.AnalysisPos(); got != lpcnetplc.PLCBufSize-2*lpcnetplc.FrameSize {
+		t.Fatalf("AnalysisPos=%d want %d", got, lpcnetplc.PLCBufSize-2*lpcnetplc.FrameSize)
+	}
+	if got := dec.dredPLC.PredictPos(); got != lpcnetplc.PLCBufSize-2*lpcnetplc.FrameSize {
+		t.Fatalf("PredictPos=%d want %d", got, lpcnetplc.PLCBufSize-2*lpcnetplc.FrameSize)
+	}
+	var history [lpcnetplc.PLCBufSize]float32
+	if n := dec.dredPLC.FillPCMHistory(history[:]); n != lpcnetplc.PLCBufSize {
+		t.Fatalf("FillPCMHistory()=%d want %d", n, lpcnetplc.PLCBufSize)
+	}
+	for i := range pcm {
+		want := lpcnetplcTestQuantizePCMInt16Like(pcm[i])
+		if history[lpcnetplc.PLCBufSize-len(pcm)+i] != want {
+			t.Fatalf("history tail[%d]=%v want %v", i, history[lpcnetplc.PLCBufSize-len(pcm)+i], want)
+		}
 	}
 }
 
