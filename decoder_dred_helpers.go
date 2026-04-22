@@ -729,9 +729,6 @@ func (d *Decoder) markDREDUpdatedPCM(pcm []float32, samplesPerChannel int) {
 		b.dredLastNeural = false
 	}
 	r := d.dredRecoveryState()
-	if d.shouldTrackDREDPCMHistory() {
-		r = d.ensureDREDRecoveryState()
-	}
 	if r == nil {
 		return
 	}
