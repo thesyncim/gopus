@@ -36,3 +36,25 @@ func TestCacheStoreRejectsSmallBuffer(t *testing.T) {
 		t.Fatal("Cache.Store error=nil want non-nil")
 	}
 }
+
+func TestCacheInvalidateDropsVisibilityWithoutFullClear(t *testing.T) {
+	payload := makeHeaderPayloadForTest(t, 6, 3, 9, 0, 8, -4)
+	buf := make([]byte, MaxDataSize)
+	var cache Cache
+
+	if err := cache.Store(buf, payload, 8); err != nil {
+		t.Fatalf("Cache.Store error: %v", err)
+	}
+	parsed := cache.Parsed
+
+	cache.Invalidate()
+	if !cache.Empty() {
+		t.Fatal("Cache.Invalidate() left cache non-empty")
+	}
+	if result := cache.Result(Request{MaxDREDSamples: 960, SampleRate: 48000}); result != (Result{}) {
+		t.Fatalf("Cache.Result after Invalidate=%+v want zero Result", result)
+	}
+	if cache.Parsed != parsed {
+		t.Fatalf("Cache.Parsed changed after Invalidate: got %+v want %+v", cache.Parsed, parsed)
+	}
+}

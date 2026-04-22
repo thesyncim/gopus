@@ -468,6 +468,40 @@ func (s *State) ConcealFrameFloatWithAnalysis(a *Analysis, p *Predictor, f *FARG
 	return s.concealFrameFloatAfterPriming(p, f, frame)
 }
 
+// ReplaceHistoryFromFramesFloat replaces the retained PCM-history window with a
+// fresh run of decoded 10 ms frames without disturbing queued FEC or predictor
+// state. This mirrors libopus update_plc_state() semantics at the lpcnet state
+// level when neural PLC is entered from CELT decode history.
+func (s *State) ReplaceHistoryFromFramesFloat(frames []float32) int {
+	if s == nil || len(frames) < FrameSize {
+		return 0
+	}
+	s.ensureRuntimeInit()
+	frameCount := len(frames) / FrameSize
+	if frameCount <= 0 {
+		return 0
+	}
+	if frameCount*FrameSize > PLCBufSize {
+		frameCount = PLCBufSize / FrameSize
+		frames = frames[len(frames)-frameCount*FrameSize:]
+	} else {
+		frames = frames[:frameCount*FrameSize]
+	}
+
+	clear(s.pcm[:])
+	s.analysisGap = 1
+	s.analysisPos = PLCBufSize
+	s.predictPos = PLCBufSize
+	s.lossCount = 0
+	s.blend = 0
+
+	total := 0
+	for offset := 0; offset+FrameSize <= len(frames); offset += FrameSize {
+		total += s.MarkUpdatedFrameFloat(frames[offset : offset+FrameSize])
+	}
+	return total
+}
+
 // MarkUpdatedFrameFloat mirrors the PCM-history and cursor maintenance in
 // lpcnet_plc_update() for one 10 ms frame on the float path.
 func (s *State) MarkUpdatedFrameFloat(frame []float32) int {

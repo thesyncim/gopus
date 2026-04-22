@@ -155,6 +155,30 @@ func makeValidCELTPacketForDREDTest(t *testing.T) []byte {
 	return packet
 }
 
+func makeValidMonoCELTPacketForDREDTest(t *testing.T) []byte {
+	t.Helper()
+
+	enc := internalenc.NewEncoder(48000, 1)
+	enc.SetMode(internalenc.ModeCELT)
+	enc.SetBandwidth(types.BandwidthFullband)
+	enc.SetBitrate(128000)
+
+	pcm := make([]float64, 960)
+	for i := range pcm {
+		phase := 2 * math.Pi * 823 * float64(i) / 48000.0
+		pcm[i] = 0.41 * math.Sin(phase)
+	}
+
+	packet, err := enc.Encode(pcm, 960)
+	if err != nil {
+		t.Fatalf("Encode(mono CELT): %v", err)
+	}
+	if len(packet) == 0 {
+		t.Fatal("Encode(mono CELT) returned empty packet")
+	}
+	return packet
+}
+
 func makeValidMono16kPacketForDREDTest(t *testing.T) []byte {
 	t.Helper()
 
@@ -227,6 +251,26 @@ func TestNewDecoder_ValidParams(t *testing.T) {
 				t.Errorf("Channels() = %d, want %d", dec.Channels(), tt.channels)
 			}
 		})
+	}
+}
+
+func TestNewDecoderLeavesDREDPayloadBufferDormant(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(16000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	if len(dec.dredData) != 0 {
+		t.Fatalf("len(dredData)=%d want 0 before standalone DRED arm", len(dec.dredData))
+	}
+
+	setValidDREDDecoderBlobForTest(t, dec)
+	if len(dec.dredData) != internaldred.MaxDataSize {
+		t.Fatalf("len(dredData)=%d want %d after standalone DRED arm", len(dec.dredData), internaldred.MaxDataSize)
+	}
+
+	dec.setDREDDecoderBlob(nil)
+	if len(dec.dredData) != 0 {
+		t.Fatalf("len(dredData)=%d want 0 after standalone DRED clear", len(dec.dredData))
 	}
 }
 
@@ -486,6 +530,72 @@ func TestDecoderMarkDREDUpdatedPCMDoesNotTrackHistoryWithoutNeuralConcealment(t 
 		if sample != 0 {
 			t.Fatalf("history[%d]=%v want 0", i, sample)
 		}
+	}
+}
+
+func TestDecoderPrimeDREDCELTEntryHistoryUsesCELTBridge(t *testing.T) {
+	packet := makeValidMonoCELTPacketForDREDTest(t)
+
+	dec, err := NewDecoder(DefaultDecoderConfig(16000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+
+	pcm := make([]float32, dec.maxPacketSamples)
+	n, err := dec.Decode(packet, pcm)
+	if err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	if n <= 0 {
+		t.Fatal("Decode returned no audio")
+	}
+
+	var want [4 * lpcnetplc.FrameSize]float32
+	if got := dec.celtDecoder.FillPLCUpdate16kMono(want[:]); got != len(want) {
+		t.Fatalf("FillPLCUpdate16kMono()=%d want %d", got, len(want))
+	}
+
+	if got := dec.primeDREDCELTEntryHistory(ModeCELT); got != len(want) {
+		t.Fatalf("primeDREDCELTEntryHistory()=%d want %d", got, len(want))
+	}
+	if got := dec.dredPLC.AnalysisPos(); got != lpcnetplc.PLCBufSize-len(want) {
+		t.Fatalf("AnalysisPos=%d want %d", got, lpcnetplc.PLCBufSize-len(want))
+	}
+	if got := dec.dredPLC.PredictPos(); got != lpcnetplc.PLCBufSize-len(want) {
+		t.Fatalf("PredictPos=%d want %d", got, lpcnetplc.PLCBufSize-len(want))
+	}
+
+	var history [lpcnetplc.PLCBufSize]float32
+	if n := dec.dredPLC.FillPCMHistory(history[:]); n != lpcnetplc.PLCBufSize {
+		t.Fatalf("FillPCMHistory()=%d want %d", n, lpcnetplc.PLCBufSize)
+	}
+	for i := range want {
+		if history[lpcnetplc.PLCBufSize-len(want)+i] != want[i] {
+			t.Fatalf("history tail[%d]=%v want %v", i, history[lpcnetplc.PLCBufSize-len(want)+i], want[i])
+		}
+	}
+}
+
+func TestDecoderPrimeDREDCELTEntryHistoryStaysDormantWithoutNeuralConcealment(t *testing.T) {
+	packet := makeValidMonoCELTPacketForDREDTest(t)
+
+	dec, err := NewDecoder(DefaultDecoderConfig(16000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	pcm := make([]float32, dec.maxPacketSamples)
+	if _, err := dec.Decode(packet, pcm); err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	if got := dec.primeDREDCELTEntryHistory(ModeCELT); got != 0 {
+		t.Fatalf("primeDREDCELTEntryHistory()=%d want 0", got)
+	}
+	if dec.dredPLC != (lpcnetplc.State{}) {
+		t.Fatalf("dredPLC awakened without neural concealment readiness: %+v", dec.dredPLC)
 	}
 }
 

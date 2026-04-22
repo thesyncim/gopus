@@ -102,6 +102,8 @@ type Decoder struct {
 	dredPredictor lpcnetplc.Predictor
 	dredFARGAN    lpcnetplc.FARGAN
 	dredBlend     int
+	dredRecovery  int
+	dredPLCUpdate [4 * lpcnetplc.FrameSize]float32
 
 	// Decoder-side DNN readiness mirrors the validated model families retained
 	// by OPUS_SET_DNN_BLOB so optional paths can stay dormant until they are real.
@@ -161,7 +163,6 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 		lastPacketMode:    ModeHybrid,
 		lastBandwidth:     BandwidthFullband,
 		fecData:           make([]byte, maxPacketBytes),
-		dredData:          make([]byte, internaldred.MaxDataSize),
 		scratchFEC:        make([]float32, maxPacketSamples*cfg.Channels),
 	}, nil
 }

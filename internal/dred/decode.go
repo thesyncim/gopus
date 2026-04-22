@@ -25,6 +25,15 @@ func (d *Decoded) Clear() {
 	*d = Decoded{}
 }
 
+// Invalidate drops retained decode visibility without zeroing the backing
+// arrays, which keeps packet-entry invalidation cheap.
+func (d *Decoded) Invalidate() {
+	if d == nil {
+		return
+	}
+	d.NbLatents = 0
+}
+
 // FillState copies the retained DRED state into dst and returns the number of
 // floats written.
 func (d *Decoded) FillState(dst []float32) int {

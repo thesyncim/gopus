@@ -133,6 +133,7 @@ type Decoder struct {
 	scratchPLCIIRMem      []float64
 	scratchPLCBuf         []float64
 	scratchPLCExc         []float64
+	scratchPLCUpdate48k   []float32
 	scratchPLCFoldSrc     []float64
 	scratchPLCFoldDst     []float64
 	scratchPLCHybridNormL []float64

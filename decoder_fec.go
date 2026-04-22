@@ -16,6 +16,10 @@ func (d *Decoder) decodePLCForFECWithState(
 	bandwidth Bandwidth,
 	packetStereo bool,
 ) (int, error) {
+	neuralReady := d.dredNeuralConcealmentReady()
+	if neuralReady {
+		d.primeDREDCELTEntryHistory(mode)
+	}
 	n, err := d.decodePLCChunksInto(pcm, frameSize, plcDecodeState{
 		packetFrameSize:    frameSize,
 		mode:               mode,
@@ -28,12 +32,15 @@ func (d *Decoder) decodePLCForFECWithState(
 	}
 	frameSize = n
 
-	usedNeuralConcealment := d.applyDREDNeuralConcealment(pcm[:frameSize*d.channels], frameSize)
+	usedNeuralConcealment := false
+	if neuralReady {
+		usedNeuralConcealment = d.applyDREDNeuralConcealment(pcm[:frameSize*d.channels], frameSize)
+	}
 	d.applyOutputGain(pcm[:frameSize*d.channels])
 	d.lastFrameSize = frameSize
 	d.lastPacketDuration = frameSize
 	d.lastDataLen = 0
-	if !usedNeuralConcealment {
+	if !usedNeuralConcealment && d.dredSidecarActive() {
 		d.markDREDConcealed()
 	}
 	return frameSize, nil
@@ -220,7 +227,12 @@ func (d *Decoder) decodeFECFrame(pcm []float32) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	d.markDREDUpdatedPCM(pcm[:n*d.channels], n)
+	if d.dredNeuralConcealmentReady() {
+		d.dredRecovery = 0
+	}
+	if d.dredSidecarActive() {
+		d.markDREDUpdatedPCM(pcm[:n*d.channels], n)
+	}
 	d.applyOutputGain(pcm[:n*d.channels])
 
 	d.prevMode = d.fecMode

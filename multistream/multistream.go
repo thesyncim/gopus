@@ -87,7 +87,7 @@ func (d *Decoder) decodeStream(stream int, packet []byte, frameSize int) ([]floa
 // If durations differ, ErrDurationMismatch is returned.
 func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
 	if data != nil && len(data) > 0 && d.dredModelLoaded {
-		d.clearDREDPayloadState()
+		d.invalidateDREDPayloadState()
 	}
 
 	// Handle PLC for nil data (lost packet)

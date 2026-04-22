@@ -58,13 +58,22 @@ func (d *Decoder) setDREDDecoderBlob(blob *dnnblob.Blob) {
 		if model, err := rdovae.LoadDecoder(blob); err == nil {
 			d.dredModel = model
 			d.dredModelLoaded = true
+			d.ensureDREDPayloadBuffer()
 		}
 	}
 	if !d.dredModelLoaded {
 		d.clearDREDPayloadState()
+		d.dredData = nil
 		d.dredProcess = rdovae.Processor{}
 		d.dredPLC.Reset()
 	}
+}
+
+func (d *Decoder) ensureDREDPayloadBuffer() {
+	if d == nil || len(d.dredData) >= internaldred.MaxDataSize {
+		return
+	}
+	d.dredData = make([]byte, internaldred.MaxDataSize)
 }
 
 func (d *Decoder) clearDREDPayloadState() {
@@ -72,6 +81,15 @@ func (d *Decoder) clearDREDPayloadState() {
 	d.dredDecoded.Clear()
 	d.dredPLC.FECClear()
 	d.dredBlend = d.dredPLC.Blend()
+	d.dredRecovery = 0
+}
+
+func (d *Decoder) invalidateDREDPayloadState() {
+	d.dredCache.Invalidate()
+	d.dredDecoded.Invalidate()
+	d.dredPLC.FECClear()
+	d.dredBlend = d.dredPLC.Blend()
+	d.dredRecovery = 0
 }
 
 func (d *Decoder) dredSidecarActive() bool {
@@ -95,6 +113,7 @@ func (d *Decoder) maybeCacheDREDPayload(packet []byte) {
 	if !d.dredModelLoaded || d.ignoreExtensions || len(packet) == 0 {
 		return
 	}
+	d.ensureDREDPayloadBuffer()
 	d.dredBlend = d.dredPLC.Blend()
 	payload, frameOffset, ok, err := findDREDPayload(packet)
 	if err != nil || !ok || len(payload) > len(d.dredData) {
@@ -105,7 +124,7 @@ func (d *Decoder) maybeCacheDREDPayload(packet []byte) {
 	}
 	minFeatureFrames := 2 * internaldred.NumRedundancyFrames
 	if _, err := d.dredDecoded.Decode(payload, frameOffset, minFeatureFrames); err != nil {
-		d.clearDREDPayloadState()
+		d.invalidateDREDPayloadState()
 		return
 	}
 	d.dredModel.DecodeAllWithProcessor(&d.dredProcess, d.dredDecoded.Features[:], d.dredDecoded.State[:], d.dredDecoded.Latents[:], d.dredDecoded.NbLatents)
@@ -154,6 +173,25 @@ func (d *Decoder) queueCachedDREDRecovery(maxDredSamples, decodeOffsetSamples, f
 	return internaldred.QueueProcessedFeaturesWithInitFrames(&d.dredPLC, d.cachedDREDResult(maxDredSamples), &d.dredDecoded, decodeOffsetSamples, frameSizeSamples, initFrames)
 }
 
+func (d *Decoder) queueActiveDREDRecovery(frameSizeSamples int) internaldred.FeatureWindow {
+	if frameSizeSamples <= 0 {
+		return internaldred.FeatureWindow{}
+	}
+	decodeOffsetSamples := frameSizeSamples + d.dredRecovery
+	initFrames := 0
+	if d.dredPLC.Blend() == 0 && d.dredRecovery == 0 {
+		initFrames = 2
+	}
+	return internaldred.QueueProcessedFeaturesWithInitFrames(
+		&d.dredPLC,
+		d.cachedDREDResult(decodeOffsetSamples),
+		&d.dredDecoded,
+		decodeOffsetSamples,
+		frameSizeSamples,
+		initFrames,
+	)
+}
+
 func (d *Decoder) shouldTrackDREDPCMHistory() bool {
 	return d.dredNeuralConcealmentReady()
 }
@@ -165,15 +203,29 @@ func (d *Decoder) markDREDConcealed() {
 	d.dredPLC.MarkConcealed()
 }
 
+func (d *Decoder) primeDREDCELTEntryHistory(mode Mode) int {
+	if !d.dredNeuralConcealmentReady() || d.dredPLC.Blend() != 0 || d.celtDecoder == nil {
+		return 0
+	}
+	if mode != ModeCELT && mode != ModeHybrid {
+		return 0
+	}
+	n := d.celtDecoder.FillPLCUpdate16kMono(d.dredPLCUpdate[:])
+	if n == 0 {
+		return 0
+	}
+	return d.dredPLC.ReplaceHistoryFromFramesFloat(d.dredPLCUpdate[:n])
+}
+
 func (d *Decoder) applyDREDNeuralConcealment(pcm []float32, samplesPerChannel int) bool {
-	if !d.dredNeuralConcealmentReady() || d.dredPLC.Blend() != 0 {
+	if !d.dredNeuralConcealmentReady() {
 		return false
 	}
 	if samplesPerChannel < lpcnetplc.FrameSize || samplesPerChannel%lpcnetplc.FrameSize != 0 || len(pcm) < samplesPerChannel {
 		return false
 	}
 	if d.dredModelLoaded && !d.ignoreExtensions && !d.dredCache.Empty() {
-		d.queueCachedDREDRecovery(samplesPerChannel, samplesPerChannel, samplesPerChannel)
+		d.queueActiveDREDRecovery(samplesPerChannel)
 	} else {
 		d.dredPLC.FECClear()
 	}
@@ -181,6 +233,9 @@ func (d *Decoder) applyDREDNeuralConcealment(pcm []float32, samplesPerChannel in
 		if !d.dredPLC.ConcealFrameFloatWithAnalysis(&d.dredAnalysis, &d.dredPredictor, &d.dredFARGAN, pcm[offset:offset+lpcnetplc.FrameSize]) {
 			return false
 		}
+	}
+	if d.dredModelLoaded && !d.ignoreExtensions && !d.dredCache.Empty() {
+		d.dredRecovery += samplesPerChannel
 	}
 	return true
 }

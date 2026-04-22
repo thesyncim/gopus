@@ -538,15 +538,6 @@ func NewDecoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 		mapping:        mappingCopy,
 		decoders:       decoders,
 		plcState:       plc.NewState(),
-		dredDecoded:    make([]internaldred.Decoded, streams),
-		dredProcesses:  make([]rdovae.Processor, streams),
-		dredPLC:        make([]lpcnetplc.State, streams),
-		dredAnalysis:   make([]lpcnetplc.Analysis, streams),
-		dredPredictor:  make([]lpcnetplc.Predictor, streams),
-		dredFARGAN:     make([]lpcnetplc.FARGAN, streams),
-		dredBlend:      make([]int, streams),
-		dredData:       makeDREDBuffers(streams),
-		dredCache:      make([]internaldred.Cache, streams),
 	}, nil
 }
 
