@@ -1,0 +1,260 @@
+package lpcnetplc
+
+import (
+	"math"
+
+	"github.com/thesyncim/gopus/internal/dnnblob"
+)
+
+var useNearestEvenQuant = false
+var useSUBias = false
+
+type predictorState struct {
+	gru1 [GRU1Size]float32
+	gru2 [GRU2Size]float32
+}
+
+type predictorScratch struct {
+	tmp   [DenseInSize]float32
+	zrh   [3 * GRU1Size]float32
+	recur [3 * GRU1Size]float32
+	quant [maxModelIn]int16
+}
+
+// Predictor owns reusable PLC model state and scratch so callers can keep the
+// post-DRED feature predictor on an explicit zero-allocation path.
+type Predictor struct {
+	model   *Model
+	state   predictorState
+	scratch predictorScratch
+}
+
+// SetModel binds a libopus-style PLC model blob and resets predictor state.
+func (p *Predictor) SetModel(blob *dnnblob.Blob) error {
+	model, err := LoadModel(blob)
+	if err != nil {
+		p.model = nil
+		p.Reset()
+		return err
+	}
+	p.model = model
+	p.Reset()
+	return nil
+}
+
+// Loaded reports whether a PLC model is currently retained.
+func (p *Predictor) Loaded() bool {
+	return p != nil && p.model != nil
+}
+
+// Reset clears the recurrent predictor state but preserves the loaded model.
+func (p *Predictor) Reset() {
+	if p == nil {
+		return
+	}
+	p.state = predictorState{}
+}
+
+func (p *Predictor) copyState(dst *predictorState) {
+	if p == nil || dst == nil {
+		return
+	}
+	*dst = p.state
+}
+
+func (p *Predictor) setState(src *predictorState) {
+	if p == nil {
+		return
+	}
+	if src == nil {
+		p.state = predictorState{}
+		return
+	}
+	p.state = *src
+}
+
+// Predict mirrors libopus compute_plc_pred(). It writes one feature vector into
+// out and returns the number of floats written.
+func (p *Predictor) Predict(out, in []float32) int {
+	if p == nil || p.model == nil || len(out) < NumFeatures || len(in) < InputSize {
+		return 0
+	}
+	computeGenericDense(&p.model.DenseIn, p.scratch.tmp[:], in[:InputSize], activationTanh, &p.scratch)
+	computeGenericGRU(&p.model.GRU1In, &p.model.GRU1Rec, p.state.gru1[:], p.scratch.tmp[:], &p.scratch)
+	computeGenericGRU(&p.model.GRU2In, &p.model.GRU2Rec, p.state.gru2[:], p.state.gru1[:], &p.scratch)
+	computeGenericDense(&p.model.DenseOut, out[:NumFeatures], p.state.gru2[:], activationLinear, &p.scratch)
+	return NumFeatures
+}
+
+// ConsumeFECOrPredict mirrors libopus get_fec_or_pred(). It consumes one queued
+// concrete FEC feature vector when available, otherwise predicts one feature
+// vector from the current recurrent state.
+func (s *State) ConsumeFECOrPredict(p *Predictor, out []float32) bool {
+	if s == nil || p == nil || !p.Loaded() || len(out) < NumFeatures {
+		return false
+	}
+	if s.fecReadPos != s.fecFillPos && s.fecSkip == 0 {
+		var discard [NumFeatures]float32
+		var plcFeatures [InputSize]float32
+		copy(out[:NumFeatures], s.fec[s.fecReadPos][:])
+		s.fecReadPos++
+		copy(plcFeatures[2*NumBands:], out[:NumFeatures])
+		plcFeatures[2*NumBands+NumFeatures] = -1
+		p.Predict(discard[:], plcFeatures[:])
+		return true
+	}
+	var zeros [InputSize]float32
+	p.Predict(out[:NumFeatures], zeros[:])
+	if s.fecSkip > 0 {
+		s.fecSkip--
+	}
+	return false
+}
+
+func computeGenericDense(layer *LinearLayer, output, input []float32, activation int, scratch *predictorScratch) {
+	computeLinear(layer, output, input, scratch)
+	computeActivation(output, output, layer.NbOutputs, activation)
+}
+
+func computeGenericGRU(inputWeights, recurrentWeights *LinearLayer, state, in []float32, scratch *predictorScratch) {
+	n := recurrentWeights.NbInputs
+	zrh := scratch.zrh[:3*n]
+	recur := scratch.recur[:3*n]
+	z := zrh[:n]
+	r := zrh[n : 2*n]
+	h := zrh[2*n : 3*n]
+
+	computeLinear(inputWeights, zrh[:3*n], in[:inputWeights.NbInputs], scratch)
+	computeLinear(recurrentWeights, recur[:3*n], state[:n], scratch)
+	for i := 0; i < 2*n; i++ {
+		zrh[i] += recur[i]
+	}
+	computeActivation(zrh[:2*n], zrh[:2*n], 2*n, activationSigmoid)
+	for i := 0; i < n; i++ {
+		h[i] += recur[2*n+i] * r[i]
+	}
+	computeActivation(h, h, n, activationTanh)
+	for i := 0; i < n; i++ {
+		h[i] = z[i]*state[i] + (1-z[i])*h[i]
+		state[i] = h[i]
+	}
+}
+
+func computeLinear(layer *LinearLayer, out, in []float32, scratch *predictorScratch) {
+	bias := layer.Bias
+	n := layer.NbOutputs
+	m := layer.NbInputs
+
+	if !layer.FloatWeights.Empty() {
+		sgemv(out[:n], layer.FloatWeights, n, m, n, in[:m])
+	} else if !layer.Weights.Empty() {
+		cgemv8x4(out[:n], layer.Weights, layer.Scale, n, m, in[:m], scratch.quant[:m])
+		if useSUBias && !layer.Subias.Empty() {
+			bias = layer.Subias
+		}
+	} else {
+		clear(out[:n])
+	}
+	if !bias.Empty() {
+		for i := 0; i < n; i++ {
+			out[i] += bias.At(i)
+		}
+	}
+}
+
+func sgemv(out []float32, weights dnnblob.Float32View, rows, cols, colStride int, x []float32) {
+	clear(out[:rows])
+	for i := 0; i < rows; i++ {
+		var sum float32
+		for j := 0; j < cols; j++ {
+			sum += weights.At(j*colStride+i) * x[j]
+		}
+		out[i] = sum
+	}
+}
+
+func cgemv8x4(out []float32, weights dnnblob.Int8View, scale dnnblob.Float32View, rows, cols int, x []float32, q []int16) {
+	for i := 0; i < cols; i++ {
+		q[i] = quantizeInput(x[i])
+	}
+	clear(out[:rows])
+	wOffset := 0
+	for row := 0; row < rows; row += 8 {
+		y := out[row : row+8]
+		for col := 0; col < cols; col += 4 {
+			x0 := int(q[col])
+			x1 := int(q[col+1])
+			x2 := int(q[col+2])
+			x3 := int(q[col+3])
+			for k := 0; k < 8; k++ {
+				base := wOffset + k*4
+				y[k] += float32(int(weights.At(base))*x0 +
+					int(weights.At(base+1))*x1 +
+					int(weights.At(base+2))*x2 +
+					int(weights.At(base+3))*x3)
+			}
+			wOffset += 32
+		}
+		for k := 0; k < 8; k++ {
+			y[k] *= scale.At(row + k)
+		}
+	}
+}
+
+func computeActivation(output, input []float32, n, activation int) {
+	switch activation {
+	case activationSigmoid:
+		for i := 0; i < n; i++ {
+			output[i] = sigmoidApprox(input[i])
+		}
+	case activationTanh:
+		for i := 0; i < n; i++ {
+			output[i] = tanhApprox(input[i])
+		}
+	default:
+		if len(output) == 0 || len(input) == 0 || &output[0] == &input[0] {
+			return
+		}
+		copy(output[:n], input[:n])
+	}
+}
+
+func sigmoidApprox(x float32) float32 {
+	return 0.5 + 0.5*tanhApprox(0.5*x)
+}
+
+func tanhApprox(x float32) float32 {
+	const (
+		n0 = 952.52801514
+		n1 = 96.39235687
+		n2 = 0.60863042
+		d0 = 952.72399902
+		d1 = 413.36801147
+		d2 = 11.88600922
+	)
+	x2 := x * x
+	num := ((n2*x2 + n1) * x2) + n0
+	den := ((d2*x2 + d1) * x2) + d0
+	y := num * x / den
+	if y < -1 {
+		return -1
+	}
+	if y > 1 {
+		return 1
+	}
+	return y
+}
+
+func quantizeInput(x float32) int16 {
+	scaled := 127 * float64(x)
+	var q int16
+	if useNearestEvenQuant {
+		q = int16(math.RoundToEven(scaled))
+	} else {
+		q = int16(math.Floor(0.5 + scaled))
+	}
+	if useSUBias {
+		return 127 + q
+	}
+	return q
+}
