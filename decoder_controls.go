@@ -1,5 +1,7 @@
 package gopus
 
+import "github.com/thesyncim/gopus/internal/dred/rdovae"
+
 // Reset clears the decoder state for a new stream.
 // Call this when starting to decode a new audio stream.
 func (d *Decoder) Reset() {
@@ -20,13 +22,21 @@ func (d *Decoder) Reset() {
 	d.softClipMem[0] = 0
 	d.softClipMem[1] = 0
 	d.clearDREDPayloadState()
-	if r := d.dredRecoveryState(); r != nil {
-		r.dredPLC.Reset()
-	}
-	if n := d.dredNeuralState(); n != nil {
-		n.dredAnalysis.Reset()
-		n.dredPredictor.Reset()
-		n.dredFARGAN.Reset()
+	if s := d.dredState(); s != nil {
+		if p := s.decoderDREDPayloadState; p != nil {
+			p.dredData = nil
+			p.dredProcess = rdovae.Processor{}
+		}
+		if s.decoderDREDRecoveryState != nil {
+			s.decoderDREDRecoveryState = nil
+		}
+		if s.decoderDREDNeuralState != nil {
+			s.decoderDREDNeuralState = nil
+		}
+		if s.decoderDRED48kBridgeState != nil {
+			s.decoderDRED48kBridgeState = nil
+		}
+		d.maybeDropDREDState()
 	}
 	d.resetDRED48kNeuralBridge()
 

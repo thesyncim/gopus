@@ -98,6 +98,17 @@ func (s *State) MarkUpdated() {
 	s.blend = 0
 }
 
+// ClearBlend mirrors the libopus good-packet handoff when PLC updates are
+// skipped: a successful packet exits concealment by clearing only the blend
+// flag, leaving queued/history state intact.
+func (s *State) ClearBlend() {
+	if s == nil {
+		return
+	}
+	s.ensureRuntimeInit()
+	s.blend = 0
+}
+
 // MarkConcealed mirrors lpcnet_plc_conceal()'s post-blend state.
 func (s *State) MarkConcealed() {
 	if s == nil {
