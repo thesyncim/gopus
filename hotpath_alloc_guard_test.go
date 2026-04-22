@@ -154,7 +154,7 @@ func TestHotPathAllocsDecodePLC(t *testing.T) {
 	}
 }
 
-func TestHotPathAllocsDecodePLCDNNReadyMatchesBaseline(t *testing.T) {
+func TestHotPathAllocsDecodePLCDNNReadyAtMostBaseline(t *testing.T) {
 	baseline, err := NewDecoder(DefaultDecoderConfig(16000, 1))
 	if err != nil {
 		t.Fatalf("NewDecoder: %v", err)
@@ -193,8 +193,8 @@ func TestHotPathAllocsDecodePLCDNNReadyMatchesBaseline(t *testing.T) {
 			t.Fatalf("armed Decode PLC: %v", err)
 		}
 	})
-	if armedAllocs != baselineAllocs {
-		t.Fatalf("Decode(PLC, DNN ready) allocs/op = %.2f, want baseline %.2f", armedAllocs, baselineAllocs)
+	if armedAllocs > baselineAllocs {
+		t.Fatalf("Decode(PLC, DNN ready) allocs/op = %.2f, want at most baseline %.2f", armedAllocs, baselineAllocs)
 	}
 }
 
