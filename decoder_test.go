@@ -695,7 +695,7 @@ func TestDecoderDREDRecoveryBlendFollowsLifecycle(t *testing.T) {
 	}
 }
 
-func TestDecoderMarkDREDUpdatedPCMTracksMono16kHistory(t *testing.T) {
+func TestDecoderMarkDREDUpdatedPCMClearsBlendWithoutRewritingHistory(t *testing.T) {
 	dec, err := NewDecoder(DefaultDecoderConfig(16000, 1))
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
@@ -708,25 +708,37 @@ func TestDecoderMarkDREDUpdatedPCMTracksMono16kHistory(t *testing.T) {
 		pcm[i] = float32((i%19)-9) / 19
 	}
 	dec.ensureDREDRecoveryState()
-	dec.markDREDUpdatedPCM(pcm[:], len(pcm))
 	state := requireDecoderDREDState(t, dec)
-	if got := state.dredPLC.Blend(); got != 0 {
-		t.Fatalf("Blend=%d want 0", got)
+	if got := state.dredPLC.MarkUpdatedFrameFloat(pcm[:lpcnetplc.FrameSize]); got != lpcnetplc.FrameSize {
+		t.Fatalf("MarkUpdatedFrameFloat()=%d want %d", got, lpcnetplc.FrameSize)
 	}
-	if got := state.dredPLC.AnalysisPos(); got != lpcnetplc.PLCBufSize-2*lpcnetplc.FrameSize {
-		t.Fatalf("AnalysisPos=%d want %d", got, lpcnetplc.PLCBufSize-2*lpcnetplc.FrameSize)
+	state.dredPLC.MarkConcealed()
+	var beforeHistory [lpcnetplc.PLCBufSize]float32
+	if n := state.dredPLC.FillPCMHistory(beforeHistory[:]); n != lpcnetplc.PLCBufSize {
+		t.Fatalf("FillPCMHistory(before)=%d want %d", n, lpcnetplc.PLCBufSize)
 	}
-	if got := state.dredPLC.PredictPos(); got != lpcnetplc.PLCBufSize-2*lpcnetplc.FrameSize {
-		t.Fatalf("PredictPos=%d want %d", got, lpcnetplc.PLCBufSize-2*lpcnetplc.FrameSize)
+	before := state.dredPLC.Snapshot()
+	dec.markDREDUpdatedPCM(pcm[:], len(pcm))
+	after := state.dredPLC.Snapshot()
+	if after.Blend != 0 {
+		t.Fatalf("Blend=%d want 0", after.Blend)
+	}
+	if after.AnalysisPos != before.AnalysisPos {
+		t.Fatalf("AnalysisPos=%d want %d", after.AnalysisPos, before.AnalysisPos)
+	}
+	if after.PredictPos != before.PredictPos {
+		t.Fatalf("PredictPos=%d want %d", after.PredictPos, before.PredictPos)
+	}
+	if after.LossCount != before.LossCount {
+		t.Fatalf("LossCount=%d want %d", after.LossCount, before.LossCount)
 	}
 	var history [lpcnetplc.PLCBufSize]float32
 	if n := state.dredPLC.FillPCMHistory(history[:]); n != lpcnetplc.PLCBufSize {
 		t.Fatalf("FillPCMHistory()=%d want %d", n, lpcnetplc.PLCBufSize)
 	}
-	for i := range pcm {
-		want := lpcnetplcTestQuantizePCMInt16Like(pcm[i])
-		if history[lpcnetplc.PLCBufSize-len(pcm)+i] != want {
-			t.Fatalf("history tail[%d]=%v want %v", i, history[lpcnetplc.PLCBufSize-len(pcm)+i], want)
+	for i := range history {
+		if history[i] != beforeHistory[i] {
+			t.Fatalf("history[%d]=%v want %v", i, history[i], beforeHistory[i])
 		}
 	}
 }
@@ -762,6 +774,46 @@ func TestDecoderMarkDREDUpdatedPCMDoesNotTrackHistoryWithoutNeuralConcealment(t 
 	state := requireDecoderDREDState(t, dec)
 	if state.decoderDREDRecoveryState != nil {
 		t.Fatalf("standalone DRED arm eagerly allocated recovery state after markDREDUpdatedPCM: %+v", state.decoderDREDRecoveryState)
+	}
+}
+
+func TestDecoderResetDropsActivatedDREDRuntimeBackToDormant(t *testing.T) {
+	packet := makeValidMonoCELTPacketForDREDTest(t)
+
+	dec, err := NewDecoder(DefaultDecoderConfig(16000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	if !dec.dredNeuralConcealmentReady() {
+		t.Fatal("decoder failed to materialize neural concealment runtime")
+	}
+	if dec.dredRecoveryState() == nil || dec.dredNeuralState() == nil {
+		t.Fatalf("decoder runtime did not materialize fully: %+v", dec.dredState())
+	}
+
+	dec.Reset()
+	if dec.dnnBlob == nil || !dec.dredNeuralModelsLoaded() {
+		t.Fatal("Reset cleared retained decoder DNN control state")
+	}
+	if dec.dredRecoveryState() != nil {
+		t.Fatalf("Reset left DRED recovery runtime live: %+v", dec.dredState())
+	}
+	if dec.dredNeuralState() != nil {
+		t.Fatalf("Reset left DRED neural runtime live: %+v", dec.dredState())
+	}
+	if dec.dred48kBridgeState() != nil {
+		t.Fatalf("Reset left DRED 48k bridge runtime live: %+v", dec.dredState())
+	}
+
+	pcm := make([]float32, dec.maxPacketSamples)
+	if _, err := dec.Decode(packet, pcm); err != nil {
+		t.Fatalf("Decode(good packet) after Reset error: %v", err)
+	}
+	if dec.dredState() != nil {
+		t.Fatalf("good decode after Reset eagerly reawakened DRED sidecar: %+v", dec.dredState())
 	}
 }
 

@@ -735,21 +735,5 @@ func (d *Decoder) markDREDUpdatedPCM(pcm []float32, samplesPerChannel int) {
 	if r == nil {
 		return
 	}
-	if !d.shouldTrackDREDPCMHistory() {
-		r.dredPLC.MarkUpdated()
-		return
-	}
-	if samplesPerChannel < lpcnetplc.FrameSize || len(pcm) < samplesPerChannel {
-		r.dredPLC.MarkUpdated()
-		return
-	}
-	updated := false
-	for offset := 0; offset+lpcnetplc.FrameSize <= samplesPerChannel; offset += lpcnetplc.FrameSize {
-		if r.dredPLC.MarkUpdatedFrameFloat(pcm[offset:offset+lpcnetplc.FrameSize]) == lpcnetplc.FrameSize {
-			updated = true
-		}
-	}
-	if !updated {
-		r.dredPLC.MarkUpdated()
-	}
+	r.dredPLC.ClearBlend()
 }
