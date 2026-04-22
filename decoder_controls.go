@@ -20,10 +20,15 @@ func (d *Decoder) Reset() {
 	d.softClipMem[0] = 0
 	d.softClipMem[1] = 0
 	d.clearDREDPayloadState()
-	d.dredPLC.Reset()
-	d.dredAnalysis.Reset()
-	d.dredPredictor.Reset()
-	d.dredFARGAN.Reset()
+	if r := d.dredRecoveryState(); r != nil {
+		r.dredPLC.Reset()
+	}
+	if n := d.dredNeuralState(); n != nil {
+		n.dredAnalysis.Reset()
+		n.dredPredictor.Reset()
+		n.dredFARGAN.Reset()
+	}
+	d.resetDRED48kNeuralBridge()
 
 	// Clear FEC state
 	d.clearFECState()

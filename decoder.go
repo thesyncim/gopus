@@ -42,6 +42,48 @@ func DefaultDecoderConfig(sampleRate, channels int) DecoderConfig {
 	}
 }
 
+type decoderDREDPayloadState struct {
+	dredDNNBlob     *dnnblob.Blob
+	dredData        []byte
+	dredCache       internaldred.Cache
+	dredDecoded     internaldred.Decoded
+	dredModel       *rdovae.Decoder
+	dredProcess     rdovae.Processor
+	dredModelLoaded bool
+}
+
+type decoderDREDRecoveryState struct {
+	dredPLC      lpcnetplc.State
+	dredBlend    int
+	dredRecovery int
+}
+
+type decoderDREDNeuralState struct {
+	dredAnalysis  lpcnetplc.Analysis
+	dredPredictor lpcnetplc.Predictor
+	dredFARGAN    lpcnetplc.FARGAN
+	dredPLCUpdate [4 * lpcnetplc.FrameSize]float32
+
+	pitchDNNLoaded    bool
+	plcModelLoaded    bool
+	farganModelLoaded bool
+}
+
+type decoderDRED48kBridgeState struct {
+	dredPLCPCM        [4 * lpcnetplc.FrameSize]float32
+	dredPLCFill       int
+	dredPLCPreemphMem float32
+	dredLastNeural    bool
+	dred48kScratch    [960 + celt.Overlap]float32
+}
+
+type decoderDREDState struct {
+	*decoderDREDPayloadState
+	*decoderDREDRecoveryState
+	*decoderDREDNeuralState
+	*decoderDRED48kBridgeState
+}
+
 // Decoder decodes Opus packets into PCM audio samples.
 //
 // A Decoder instance maintains internal state and is NOT safe for concurrent use.
@@ -89,28 +131,12 @@ type Decoder struct {
 	scratchRangeDecoder rangecoding.Decoder
 
 	// Soft clipping memory (float decode uses none; int16 decode uses this)
-	softClipMem   [2]float32
-	dnnBlob       *dnnblob.Blob
-	dredDNNBlob   *dnnblob.Blob
-	dredData      []byte
-	dredCache     internaldred.Cache
-	dredDecoded   internaldred.Decoded
-	dredModel     *rdovae.Decoder
-	dredProcess   rdovae.Processor
-	dredPLC       lpcnetplc.State
-	dredAnalysis  lpcnetplc.Analysis
-	dredPredictor lpcnetplc.Predictor
-	dredFARGAN    lpcnetplc.FARGAN
-	dredBlend     int
-	dredRecovery  int
-	dredPLCUpdate [4 * lpcnetplc.FrameSize]float32
+	softClipMem [2]float32
+	dnnBlob     *dnnblob.Blob
+	dred        *decoderDREDState
 
 	// Decoder-side DNN readiness mirrors the validated model families retained
 	// by OPUS_SET_DNN_BLOB so optional paths can stay dormant until they are real.
-	pitchDNNLoaded     bool
-	plcModelLoaded     bool
-	farganModelLoaded  bool
-	dredModelLoaded    bool
 	osceModelsLoaded   bool
 	osceBWEModelLoaded bool
 	osceBWEEnabled     bool

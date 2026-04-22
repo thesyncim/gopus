@@ -332,6 +332,28 @@ func TestEncoderSetDNNBlobRetainedAcrossReset(t *testing.T) {
 }
 
 func TestDecoderSetDNNBlobRetainedAcrossReset(t *testing.T) {
+	dec := mustNewTestDecoder(t, 16000, 1)
+
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	if dec.dnnBlob == nil {
+		t.Fatal("wrapper dnnBlob=nil want non-nil")
+	}
+	if !requireDecoderDREDState(t, dec).dredAnalysis.Loaded() || !requireDecoderDREDState(t, dec).dredPredictor.Loaded() || !requireDecoderDREDState(t, dec).dredFARGAN.Loaded() {
+		t.Fatal("decoder runtime models not loaded from retained DNN blob")
+	}
+
+	dec.Reset()
+	if dec.dnnBlob == nil {
+		t.Fatal("wrapper dnnBlob cleared by Reset")
+	}
+	if !requireDecoderDREDState(t, dec).dredAnalysis.Loaded() || !requireDecoderDREDState(t, dec).dredPredictor.Loaded() || !requireDecoderDREDState(t, dec).dredFARGAN.Loaded() {
+		t.Fatal("decoder runtime models cleared by Reset")
+	}
+}
+
+func TestDecoderSetDNNBlobUnsupportedConfigStaysDormant(t *testing.T) {
 	dec := mustNewTestDecoder(t, 48000, 2)
 
 	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
@@ -340,16 +362,16 @@ func TestDecoderSetDNNBlobRetainedAcrossReset(t *testing.T) {
 	if dec.dnnBlob == nil {
 		t.Fatal("wrapper dnnBlob=nil want non-nil")
 	}
-	if !dec.dredAnalysis.Loaded() || !dec.dredPredictor.Loaded() || !dec.dredFARGAN.Loaded() {
-		t.Fatal("decoder runtime models not loaded from retained DNN blob")
+	if dec.dredState() != nil {
+		t.Fatalf("unsupported stereo config eagerly allocated DRED sidecar: %+v", dec.dredState())
 	}
 
 	dec.Reset()
 	if dec.dnnBlob == nil {
 		t.Fatal("wrapper dnnBlob cleared by Reset")
 	}
-	if !dec.dredAnalysis.Loaded() || !dec.dredPredictor.Loaded() || !dec.dredFARGAN.Loaded() {
-		t.Fatal("decoder runtime models cleared by Reset")
+	if dec.dredState() != nil {
+		t.Fatalf("unsupported stereo config awakened DRED sidecar after Reset: %+v", dec.dredState())
 	}
 }
 
