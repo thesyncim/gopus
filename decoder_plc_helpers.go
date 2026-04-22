@@ -46,7 +46,11 @@ func (d *Decoder) decodePLCChunksInto(out []float32, frameSize int, state plcDec
 	remaining := frameSize
 	offset := 0
 	for remaining > 0 {
-		chunk := nextPLCChunkSamples(d.sampleRate, state.mode, remaining)
+		// The packet/frame-size plumbing in the decoder core is still tracked in
+		// Opus's 48 kHz sample domain, even when the public decoder was created
+		// for a lower output rate. Chunk PLC in that same domain so CELT/Hybrid
+		// PLC continues to see valid 120/240/480/960 frame sizes.
+		chunk := nextPLCChunkSamples(48000, state.mode, remaining)
 		if chunk <= 0 {
 			break
 		}
@@ -90,6 +94,10 @@ func (d *Decoder) decodeDRED48kNeuralPLCInto(out []float32, frameSize int, state
 	needed := frameSize * d.channels
 	if len(out) < needed {
 		return 0, false, ErrBufferTooSmall
+	}
+	if !d.dredNeuralConcealmentAvailable() {
+		n, err := d.decodePLCChunksInto(out, frameSize, state)
+		return n, false, err
 	}
 	if d.sampleRate != 48000 || d.channels != 1 || state.mode != ModeCELT {
 		n, err := d.decodePLCChunksInto(out, frameSize, state)

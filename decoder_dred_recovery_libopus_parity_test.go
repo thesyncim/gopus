@@ -15,7 +15,7 @@ func TestDecoderCachedDREDRecoveryMatchesLibopusLifecycle(t *testing.T) {
 	if err != nil {
 		t.Skipf("libopus dred model helper unavailable: %v", err)
 	}
-	packetInfo, err := emitLibopusDREDPacket()
+	packetInfo, err := emitLibopusDREDPacketWithFrameSize(480)
 	if err != nil {
 		t.Skipf("libopus dred packet helper unavailable: %v", err)
 	}
@@ -93,11 +93,11 @@ func TestDecoderCachedDREDRecoveryCursorAdvancesAcrossLosses(t *testing.T) {
 	if ParseTOC(packetInfo.packet[0]).Stereo {
 		channels = 2
 	}
-	if packetInfo.sampleRate != 16000 || channels != 1 {
-		t.Skipf("cursor test requires 16 kHz mono packet, got sampleRate=%d channels=%d", packetInfo.sampleRate, channels)
+	if channels != 1 {
+		t.Skipf("cursor test requires mono packet, got sampleRate=%d channels=%d", packetInfo.sampleRate, channels)
 	}
 
-	dec, err := NewDecoder(DefaultDecoderConfig(packetInfo.sampleRate, channels))
+	dec, err := NewDecoder(DefaultDecoderConfig(16000, channels))
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}

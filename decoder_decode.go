@@ -31,7 +31,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 
 		if data == nil || len(data) == 0 {
 			frameSize := d.lastFrameSize
-			neuralReady := d.dredNeuralConcealmentReady()
+			neuralReady := d.dredNeuralConcealmentAvailable()
 			n, usedNeuralConcealment, err := d.decodeDRED48kNeuralPLCInto(pcm, frameSize, plcDecodeState{
 				packetFrameSize:    d.lastFrameSize,
 				mode:               d.prevMode,
