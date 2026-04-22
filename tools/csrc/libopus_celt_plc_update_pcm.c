@@ -76,6 +76,10 @@ static int16_t quantize_pcm16_like(float x) {
   return (int16_t)lrintf(scaled);
 }
 
+static float raw_decode_sample_to_float(float x) {
+  return x * (1.0f / 32768.0f);
+}
+
 int main(void) {
   char magic[4];
   uint32_t version;
@@ -108,10 +112,12 @@ int main(void) {
   }
 
   if (channels == 1) {
-    memcpy(buf48k, history, sizeof(float) * DECODE_BUFFER_SIZE);
+    for (i = 0; i < DECODE_BUFFER_SIZE; i++) {
+      buf48k[i] = raw_decode_sample_to_float(history[i]);
+    }
   } else {
     for (i = 0; i < DECODE_BUFFER_SIZE; i++) {
-      buf48k[i] = .5f * (history[i] + history[DECODE_BUFFER_SIZE + i]);
+      buf48k[i] = raw_decode_sample_to_float(.5f * (history[i] + history[DECODE_BUFFER_SIZE + i]));
     }
   }
 

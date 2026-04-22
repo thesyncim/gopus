@@ -13,6 +13,8 @@
 #endif
 
 #include "opus.h"
+#include "celt/os_support.h"
+#include "celt/float_cast.h"
 #include "celt/modes.h"
 #include "silk/control.h"
 #include "structs.h"

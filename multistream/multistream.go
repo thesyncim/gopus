@@ -86,7 +86,7 @@ func (d *Decoder) decodeStream(stream int, packet []byte, frameSize int) ([]floa
 // All elementary streams within the packet must have the same frame duration.
 // If durations differ, ErrDurationMismatch is returned.
 func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
-	if data != nil && len(data) > 0 && d.dredModelLoaded {
+	if data != nil && len(data) > 0 && d.dredSidecarActive() {
 		d.invalidateDREDPayloadState()
 	}
 

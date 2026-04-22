@@ -32,7 +32,6 @@ func (d *Decoder) setDREDDecoderBlob(blob *dnnblob.Blob) {
 		if model, err := rdovae.LoadDecoder(blob); err == nil {
 			d.dredModel = model
 			d.dredModelLoaded = true
-			d.ensureDREDSidecar()
 		}
 	}
 	if !d.dredModelLoaded {
@@ -110,11 +109,15 @@ func (d *Decoder) dredSidecarActive() bool {
 		return false
 	}
 	// Multistream has standalone DRED caching today, but no per-stream neural
-	// concealment consumer yet, so keep the main-decoder DNN families dormant.
-	return d.dredModelLoaded
+	// concealment consumer yet, so keep the sidecar dormant until we actually
+	// cache a payload.
+	return len(d.dredCache) != 0
 }
 
 func (d *Decoder) clearDREDPayloadState() {
+	if !d.dredSidecarActive() {
+		return
+	}
 	for i := range d.dredCache {
 		d.dredCache[i].Clear()
 		d.dredDecoded[i].Clear()
@@ -124,6 +127,9 @@ func (d *Decoder) clearDREDPayloadState() {
 }
 
 func (d *Decoder) invalidateDREDPayloadState() {
+	if !d.dredSidecarActive() {
+		return
+	}
 	for i := range d.dredCache {
 		d.dredCache[i].Invalidate()
 		d.dredDecoded[i].Invalidate()
@@ -132,14 +138,18 @@ func (d *Decoder) invalidateDREDPayloadState() {
 }
 
 func (d *Decoder) maybeCacheDREDPayload(stream int, packet []byte) {
-	if !d.dredModelLoaded || d.ignoreExtensions || stream < 0 || stream >= len(d.dredData) || len(packet) == 0 {
+	if !d.dredModelLoaded || d.ignoreExtensions || stream < 0 || len(packet) == 0 {
+		return
+	}
+	payload, frameOffset, ok, err := findDREDPayload(packet)
+	if err != nil || !ok {
+		return
+	}
+	d.ensureDREDSidecar()
+	if stream >= len(d.dredData) || len(payload) > len(d.dredData[stream]) {
 		return
 	}
 	d.dredBlend[stream] = d.dredPLC[stream].Blend()
-	payload, frameOffset, ok, err := findDREDPayload(packet)
-	if err != nil || !ok || len(payload) > len(d.dredData[stream]) {
-		return
-	}
 	if err := d.dredCache[stream].Store(d.dredData[stream], payload, frameOffset); err != nil {
 		return
 	}

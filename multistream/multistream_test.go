@@ -97,8 +97,8 @@ func TestNewDecoderLeavesDREDSidecarDormant(t *testing.T) {
 	}
 
 	setStandaloneDREDDecoderBlobForTest(t, dec)
-	if len(dec.dredCache) != dec.streams || len(dec.dredData) != dec.streams || len(dec.dredPLC) != dec.streams {
-		t.Fatalf("standalone DRED arm did not allocate per-stream sidecar: cache=%d data=%d plc=%d streams=%d", len(dec.dredCache), len(dec.dredData), len(dec.dredPLC), dec.streams)
+	if len(dec.dredCache) != 0 || len(dec.dredData) != 0 || len(dec.dredPLC) != 0 {
+		t.Fatalf("standalone DRED arm eagerly allocated multistream sidecar: cache=%d data=%d plc=%d", len(dec.dredCache), len(dec.dredData), len(dec.dredPLC))
 	}
 
 	dec.setDREDDecoderBlob(nil)

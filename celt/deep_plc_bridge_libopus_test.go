@@ -132,10 +132,10 @@ func TestFillPLCUpdate16kMonoMatchesLibopusDerivedHelper(t *testing.T) {
 			d := NewDecoder(tc.channels)
 			history := make([]float32, tc.channels*plcDecodeBufferSize)
 			for i := 0; i < plcDecodeBufferSize; i++ {
-				left := float32(0.7 * float64((i%37)-18) / 37)
+				left := float32(32768 * (0.7 * float64((i%37)-18) / 37))
 				history[i] = left
 				if tc.channels == 2 {
-					history[plcDecodeBufferSize+i] = float32(0.5 * float64((i%23)-11) / 23)
+					history[plcDecodeBufferSize+i] = float32(32768 * (0.5 * float64((i%23)-11) / 23))
 				}
 			}
 			for i := range history {
@@ -168,7 +168,7 @@ func TestFillPLCUpdate16kMonoWithPreemphasisMemMatchesLibopusDerivedHelper(t *te
 	d := NewDecoder(1)
 	history := make([]float32, plcDecodeBufferSize)
 	for i := 0; i < plcDecodeBufferSize; i++ {
-		history[i] = float32(0.8 * float64((i%41)-20) / 41)
+		history[i] = float32(32768 * (0.8 * float64((i%41)-20) / 41))
 		d.plcDecodeMem[i] = float64(history[i])
 	}
 
