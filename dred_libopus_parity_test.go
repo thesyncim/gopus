@@ -159,6 +159,7 @@ func buildLibopusDREDHelper(sourceFile, outputBase string, includeInternal bool)
 	if includeInternal {
 		args = append(args,
 			"-I", sourceDir,
+			"-I", filepath.Join(sourceDir, "src"),
 			"-I", filepath.Join(sourceDir, "celt"),
 			"-I", filepath.Join(sourceDir, "dnn"),
 			"-I", filepath.Join(sourceDir, "silk"),
