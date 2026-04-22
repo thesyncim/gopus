@@ -136,3 +136,36 @@ func (d *Decoder) queueCachedDREDRecovery(maxDredSamples, decodeOffsetSamples, f
 	}
 	return internaldred.QueueProcessedFeaturesWithInitFrames(&d.dredPLC, d.cachedDREDResult(maxDredSamples), &d.dredDecoded, decodeOffsetSamples, frameSizeSamples, initFrames)
 }
+
+func (d *Decoder) shouldTrackDREDPCMHistory() bool {
+	if d == nil {
+		return false
+	}
+	if d.sampleRate != 16000 || d.channels != 1 {
+		return false
+	}
+	return d.dredModelLoaded || d.pitchDNNLoaded || d.plcModelLoaded || d.farganModelLoaded
+}
+
+func (d *Decoder) markDREDUpdatedPCM(pcm []float32, samplesPerChannel int) {
+	if d == nil {
+		return
+	}
+	if !d.shouldTrackDREDPCMHistory() {
+		d.dredPLC.MarkUpdated()
+		return
+	}
+	if samplesPerChannel < lpcnetplc.FrameSize || len(pcm) < samplesPerChannel {
+		d.dredPLC.MarkUpdated()
+		return
+	}
+	updated := false
+	for offset := 0; offset+lpcnetplc.FrameSize <= samplesPerChannel; offset += lpcnetplc.FrameSize {
+		if d.dredPLC.MarkUpdatedFrameFloat(pcm[offset:offset+lpcnetplc.FrameSize]) == lpcnetplc.FrameSize {
+			updated = true
+		}
+	}
+	if !updated {
+		d.dredPLC.MarkUpdated()
+	}
+}

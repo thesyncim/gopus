@@ -484,7 +484,9 @@ func (s *State) MarkUpdatedFrameFloat(frame []float32) int {
 		s.predictPos -= FrameSize
 	}
 	copy(s.pcm[:PLCBufSize-FrameSize], s.pcm[FrameSize:])
-	copy(s.pcm[PLCBufSize-FrameSize:], frame[:FrameSize])
+	for i := 0; i < FrameSize; i++ {
+		s.pcm[PLCBufSize-FrameSize+i] = quantizePCMInt16Like(frame[i])
+	}
 	s.lossCount = 0
 	s.blend = 0
 	return FrameSize
@@ -518,14 +520,18 @@ func maxF32(a, b float32) float32 {
 
 func quantizePCMInt16LikeInPlace(frame []float32) {
 	for i := range frame {
-		sample := float64(frame[i]) * 32768
-		if sample < -32767 {
-			sample = -32767
-		}
-		if sample > 32767 {
-			sample = 32767
-		}
-		sample = math.Floor(0.5 + sample)
-		frame[i] = float32(sample * (1.0 / 32768.0))
+		frame[i] = quantizePCMInt16Like(frame[i])
 	}
+}
+
+func quantizePCMInt16Like(sample float32) float32 {
+	v := float64(sample) * 32768
+	if v < -32767 {
+		v = -32767
+	}
+	if v > 32767 {
+		v = 32767
+	}
+	v = math.Floor(0.5 + v)
+	return float32(v * (1.0 / 32768.0))
 }

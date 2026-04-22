@@ -20,6 +20,8 @@ import (
 const (
 	libopusPLCPredictInputMagic   = "GPLI"
 	libopusPLCPredictOutputMagic  = "GPLO"
+	libopusPLCUpdateInputMagic    = "GPUI"
+	libopusPLCUpdateOutputMagic   = "GPUO"
 	libopusPLCPrefillInputMagic   = "GPPI"
 	libopusPLCPrefillOutputMagic  = "GPPO"
 	libopusPLCConcealInputMagic   = "GPCI"
@@ -46,6 +48,10 @@ var (
 	libopusPLCPredictHelperOnce sync.Once
 	libopusPLCPredictHelperPath string
 	libopusPLCPredictHelperErr  error
+
+	libopusPLCUpdateHelperOnce sync.Once
+	libopusPLCUpdateHelperPath string
+	libopusPLCUpdateHelperErr  error
 
 	libopusPLCPrefillHelperOnce sync.Once
 	libopusPLCPrefillHelperPath string
@@ -198,6 +204,16 @@ func getLibopusPLCPredictHelperPath() (string, error) {
 		return "", libopusPLCPredictHelperErr
 	}
 	return libopusPLCPredictHelperPath, nil
+}
+
+func getLibopusPLCUpdateHelperPath() (string, error) {
+	libopusPLCUpdateHelperOnce.Do(func() {
+		libopusPLCUpdateHelperPath, libopusPLCUpdateHelperErr = buildLibopusPLCHelper("libopus_plc_update_info.c", "gopus_libopus_plc_update")
+	})
+	if libopusPLCUpdateHelperErr != nil {
+		return "", libopusPLCUpdateHelperErr
+	}
+	return libopusPLCUpdateHelperPath, nil
 }
 
 func getLibopusPLCPrefillHelperPath() (string, error) {
@@ -364,6 +380,88 @@ func probeLibopusPLCPredict(input []float32, gru1State, gru2State []float32) (ou
 		return nil, nil, nil, err
 	}
 	return out, nextGRU1, nextGRU2, nil
+}
+
+type libopusPLCUpdateResult struct {
+	Blend       int
+	LossCount   int
+	AnalysisGap int
+	AnalysisPos int
+	PredictPos  int
+	PCM         []float32
+}
+
+func probeLibopusPLCUpdate(state State, frame []float32) (libopusPLCUpdateResult, error) {
+	binPath, err := getLibopusPLCUpdateHelperPath()
+	if err != nil {
+		return libopusPLCUpdateResult{}, err
+	}
+	if len(frame) != FrameSize {
+		return libopusPLCUpdateResult{}, fmt.Errorf("invalid update helper frame size")
+	}
+	var payload bytes.Buffer
+	payload.WriteString(libopusPLCUpdateInputMagic)
+	if err := binary.Write(&payload, binary.LittleEndian, uint32(1)); err != nil {
+		return libopusPLCUpdateResult{}, fmt.Errorf("encode plc update version: %w", err)
+	}
+	for _, v := range []int32{
+		int32(state.blend),
+		int32(state.lossCount),
+		int32(state.analysisGap),
+		int32(state.analysisPos),
+		int32(state.predictPos),
+	} {
+		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
+			return libopusPLCUpdateResult{}, fmt.Errorf("encode plc update header: %w", err)
+		}
+	}
+	writeBits := func(values []float32) error {
+		for _, v := range values {
+			if err := binary.Write(&payload, binary.LittleEndian, math.Float32bits(v)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := writeBits(state.pcm[:]); err != nil {
+		return libopusPLCUpdateResult{}, fmt.Errorf("encode plc update pcm: %w", err)
+	}
+	if err := writeBits(frame[:FrameSize]); err != nil {
+		return libopusPLCUpdateResult{}, fmt.Errorf("encode plc update frame: %w", err)
+	}
+
+	cmd := exec.Command(binPath)
+	cmd.Stdin = bytes.NewReader(payload.Bytes())
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return libopusPLCUpdateResult{}, fmt.Errorf("run plc update helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	}
+
+	data := stdout.Bytes()
+	const header = 28
+	if len(data) < header || string(data[:4]) != libopusPLCUpdateOutputMagic {
+		return libopusPLCUpdateResult{}, fmt.Errorf("unexpected plc update helper output")
+	}
+	result := libopusPLCUpdateResult{
+		Blend:       int(int32(binary.LittleEndian.Uint32(data[8:12]))),
+		LossCount:   int(int32(binary.LittleEndian.Uint32(data[12:16]))),
+		AnalysisGap: int(int32(binary.LittleEndian.Uint32(data[16:20]))),
+		AnalysisPos: int(int32(binary.LittleEndian.Uint32(data[20:24]))),
+		PredictPos:  int(int32(binary.LittleEndian.Uint32(data[24:28]))),
+	}
+	offset := header
+	result.PCM = make([]float32, PLCBufSize)
+	for i := 0; i < PLCBufSize; i++ {
+		if len(data) < offset+4 {
+			return libopusPLCUpdateResult{}, fmt.Errorf("truncated plc update helper output")
+		}
+		result.PCM[i] = math.Float32frombits(binary.LittleEndian.Uint32(data[offset : offset+4]))
+		offset += 4
+	}
+	return result, nil
 }
 
 type libopusPLCPrefillResult struct {

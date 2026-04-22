@@ -251,9 +251,9 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		d.hasFEC = false
 	}
 
-	d.applyOutputGain(pcm[:totalSamples*d.channels])
 	d.maybeCacheDREDPayload(data)
-	d.dredPLC.MarkUpdated()
+	d.markDREDUpdatedPCM(pcm[:totalSamples*d.channels], totalSamples)
+	d.applyOutputGain(pcm[:totalSamples*d.channels])
 	return totalSamples, nil
 }
 

@@ -151,8 +151,9 @@ func TestMarkUpdatedAndFinishConcealedFrameFloat(t *testing.T) {
 		t.Fatalf("FillPCMHistory count=%d want %d", n, PLCBufSize)
 	}
 	for i := 0; i < FrameSize; i++ {
-		if gotPCM[PLCBufSize-FrameSize+i] != frame[i] {
-			t.Fatalf("pcm tail[%d]=%v want %v", i, gotPCM[PLCBufSize-FrameSize+i], frame[i])
+		want := quantizePCMInt16Like(frame[i])
+		if gotPCM[PLCBufSize-FrameSize+i] != want {
+			t.Fatalf("pcm tail[%d]=%v want %v", i, gotPCM[PLCBufSize-FrameSize+i], want)
 		}
 	}
 
