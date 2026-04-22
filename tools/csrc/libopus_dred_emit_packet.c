@@ -15,6 +15,76 @@
 
 #define GODO_MAGIC "GODP"
 
+static int packet_mode_from_toc(const unsigned char *packet) {
+  int config;
+  if (packet == NULL) {
+    return -1;
+  }
+  config = packet[0] >> 3;
+  if (config < 12) {
+    return MODE_SILK_ONLY;
+  }
+  if (config < 16) {
+    return MODE_HYBRID;
+  }
+  return MODE_CELT_ONLY;
+}
+
+static int parse_force_mode_env(const char *value, int *force_mode, int *force_mode_enabled) {
+  if (force_mode == NULL || force_mode_enabled == NULL) {
+    return 0;
+  }
+  *force_mode = MODE_CELT_ONLY;
+  *force_mode_enabled = 1;
+  if (value == NULL || value[0] == '\0') {
+    return 1;
+  }
+  if (strcmp(value, "auto") == 0) {
+    *force_mode = 0;
+    *force_mode_enabled = 0;
+    return 1;
+  }
+  if (strcmp(value, "celt") == 0) {
+    *force_mode = MODE_CELT_ONLY;
+    *force_mode_enabled = 1;
+    return 1;
+  }
+  if (strcmp(value, "hybrid") == 0) {
+    *force_mode = MODE_HYBRID;
+    *force_mode_enabled = 1;
+    return 1;
+  }
+  if (strcmp(value, "silk") == 0) {
+    *force_mode = MODE_SILK_ONLY;
+    *force_mode_enabled = 1;
+    return 1;
+  }
+  return 0;
+}
+
+static int parse_bandwidth_env(const char *value, int *bandwidth) {
+  if (bandwidth == NULL) {
+    return 0;
+  }
+  *bandwidth = OPUS_BANDWIDTH_FULLBAND;
+  if (value == NULL || value[0] == '\0') {
+    return 1;
+  }
+  if (strcmp(value, "wb") == 0 || strcmp(value, "wideband") == 0) {
+    *bandwidth = OPUS_BANDWIDTH_WIDEBAND;
+    return 1;
+  }
+  if (strcmp(value, "swb") == 0 || strcmp(value, "superwideband") == 0) {
+    *bandwidth = OPUS_BANDWIDTH_SUPERWIDEBAND;
+    return 1;
+  }
+  if (strcmp(value, "fb") == 0 || strcmp(value, "fullband") == 0) {
+    *bandwidth = OPUS_BANDWIDTH_FULLBAND;
+    return 1;
+  }
+  return 0;
+}
+
 static int set_binary_stdio(void) {
 #ifdef _WIN32
   if (_setmode(_fileno(stdout), _O_BINARY) == -1) {
@@ -53,6 +123,9 @@ int main(void) {
   const int sample_rate = 48000;
   const int channels = 1;
   int frame_size = 960;
+  int force_mode = MODE_CELT_ONLY;
+  int force_mode_enabled = 1;
+  int bandwidth = OPUS_BANDWIDTH_FULLBAND;
   const int max_packet = 1500;
   const int max_dred_samples = 960;
   float pcm[960];
@@ -63,6 +136,8 @@ int main(void) {
   int err = OPUS_OK;
   int frame_idx;
   const char *frame_size_env = getenv("GOPUS_DRED_FRAME_SIZE");
+  const char *force_mode_env = getenv("GOPUS_DRED_FORCE_MODE");
+  const char *bandwidth_env = getenv("GOPUS_DRED_BANDWIDTH");
 
   if (frame_size_env != NULL && frame_size_env[0] != '\0') {
     char *end = NULL;
@@ -72,6 +147,27 @@ int main(void) {
       return 1;
     }
     frame_size = (int)parsed;
+  }
+
+  if (!parse_force_mode_env(force_mode_env, &force_mode, &force_mode_enabled)) {
+    fprintf(stderr, "invalid GOPUS_DRED_FORCE_MODE=%s\n", force_mode_env);
+    return 1;
+  }
+
+  if (!parse_bandwidth_env(bandwidth_env, &bandwidth)) {
+    fprintf(stderr, "invalid GOPUS_DRED_BANDWIDTH=%s\n", bandwidth_env);
+    return 1;
+  }
+
+  if (force_mode_enabled && force_mode == MODE_HYBRID) {
+    if (frame_size != 480 && frame_size != 960) {
+      fprintf(stderr, "hybrid DRED packet helper only supports 10ms/20ms frame sizes, got %d\n", frame_size);
+      return 1;
+    }
+    if (bandwidth <= OPUS_BANDWIDTH_WIDEBAND) {
+      fprintf(stderr, "hybrid DRED packet helper requires swb/fb bandwidth, got %d\n", bandwidth);
+      return 1;
+    }
   }
 
   if (!set_binary_stdio()) {
@@ -100,13 +196,17 @@ int main(void) {
 
   opus_encoder_ctl(enc, OPUS_SET_BITRATE(40000));
   opus_encoder_ctl(enc, OPUS_SET_SIGNAL(OPUS_SIGNAL_MUSIC));
-  opus_encoder_ctl(enc, OPUS_SET_BANDWIDTH(OPUS_BANDWIDTH_FULLBAND));
-  opus_encoder_ctl(enc, OPUS_SET_FORCE_MODE(MODE_CELT_ONLY));
+  opus_encoder_ctl(enc, OPUS_SET_BANDWIDTH(bandwidth));
+  if (force_mode_enabled) {
+    opus_encoder_ctl(enc, OPUS_SET_FORCE_MODE(force_mode));
+  }
   opus_encoder_ctl(enc, OPUS_SET_PACKET_LOSS_PERC(20));
   opus_encoder_ctl(enc, OPUS_SET_DRED_DURATION(80));
 
   for (frame_idx = 0; frame_idx < 160; frame_idx++) {
     int dred_end = 0;
+    int packet_mode;
+    int packet_bandwidth;
     int ret;
     int packet_len;
     int i;
@@ -123,6 +223,11 @@ int main(void) {
       return 1;
     }
     if (packet_len == 0) {
+      continue;
+    }
+    packet_mode = packet_mode_from_toc(packet);
+    packet_bandwidth = opus_packet_get_bandwidth(packet);
+    if ((force_mode_enabled && packet_mode != force_mode) || packet_bandwidth != bandwidth) {
       continue;
     }
     ret = opus_dred_parse(dred_dec, dred, packet, packet_len, max_dred_samples, sample_rate, &dred_end, 1);
