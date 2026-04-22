@@ -52,7 +52,7 @@ static float voiced_sample(int frame_idx, int sample_idx, int frame_size, int sa
 int main(void) {
   const int sample_rate = 48000;
   const int channels = 1;
-  const int frame_size = 960;
+  int frame_size = 960;
   const int max_packet = 1500;
   const int max_dred_samples = 960;
   float pcm[960];
@@ -62,6 +62,17 @@ int main(void) {
   OpusDRED *dred = NULL;
   int err = OPUS_OK;
   int frame_idx;
+  const char *frame_size_env = getenv("GOPUS_DRED_FRAME_SIZE");
+
+  if (frame_size_env != NULL && frame_size_env[0] != '\0') {
+    char *end = NULL;
+    long parsed = strtol(frame_size_env, &end, 10);
+    if (end == NULL || *end != '\0' || (parsed != 120 && parsed != 240 && parsed != 480 && parsed != 960)) {
+      fprintf(stderr, "invalid GOPUS_DRED_FRAME_SIZE=%s\n", frame_size_env);
+      return 1;
+    }
+    frame_size = (int)parsed;
+  }
 
   if (!set_binary_stdio()) {
     fprintf(stderr, "failed to set binary stdout mode\n");

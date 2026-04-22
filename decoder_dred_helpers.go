@@ -331,11 +331,9 @@ func (d *Decoder) invalidateDREDPayloadState() {
 		p.dredDecoded.Invalidate()
 	}
 	if r != nil {
-		r.dredPLC.FECClear()
 		r.dredBlend = max(r.dredBlend, r.dredPLC.Blend())
 		r.dredRecovery = 0
 	}
-	d.resetDRED48kNeuralBridge()
 }
 
 func (d *Decoder) resetDRED48kNeuralBridge() {

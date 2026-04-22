@@ -156,6 +156,10 @@ func makeValidCELTPacketForDREDTest(t *testing.T) []byte {
 }
 
 func makeValidMonoCELTPacketForDREDTest(t *testing.T) []byte {
+	return makeValidMonoCELTPacketForFrameSizeForDREDTest(t, 960)
+}
+
+func makeValidMonoCELTPacketForFrameSizeForDREDTest(t *testing.T, frameSize int) []byte {
 	t.Helper()
 
 	enc := internalenc.NewEncoder(48000, 1)
@@ -163,13 +167,13 @@ func makeValidMonoCELTPacketForDREDTest(t *testing.T) []byte {
 	enc.SetBandwidth(types.BandwidthFullband)
 	enc.SetBitrate(128000)
 
-	pcm := make([]float64, 960)
+	pcm := make([]float64, frameSize)
 	for i := range pcm {
 		phase := 2 * math.Pi * 823 * float64(i) / 48000.0
 		pcm[i] = 0.41 * math.Sin(phase)
 	}
 
-	packet, err := enc.Encode(pcm, 960)
+	packet, err := enc.Encode(pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode(mono CELT): %v", err)
 	}

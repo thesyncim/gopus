@@ -127,7 +127,6 @@ func (d *Decoder) invalidateDREDPayloadState() {
 	for i := range d.dredCache {
 		d.dredCache[i].Invalidate()
 		d.dredDecoded[i].Invalidate()
-		d.dredPLC[i].FECClear()
 		d.dredBlend[i] = d.dredPLC[i].Blend()
 	}
 }
