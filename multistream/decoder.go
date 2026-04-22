@@ -458,9 +458,6 @@ type Decoder struct {
 	dredDecoded        []internaldred.Decoded
 	dredProcesses      []rdovae.Processor
 	dredPLC            []lpcnetplc.State
-	dredAnalysis       []lpcnetplc.Analysis
-	dredPredictor      []lpcnetplc.Predictor
-	dredFARGAN         []lpcnetplc.FARGAN
 	dredBlend          []int
 }
 
@@ -555,9 +552,6 @@ func (d *Decoder) Reset() {
 	d.clearDREDPayloadState()
 	for i := range d.dredPLC {
 		d.dredPLC[i].Reset()
-		d.dredAnalysis[i].Reset()
-		d.dredPredictor[i].Reset()
-		d.dredFARGAN[i].Reset()
 	}
 }
 

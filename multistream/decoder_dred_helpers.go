@@ -11,30 +11,15 @@ import (
 // extension paths. A nil blob clears the retained main-decoder model state.
 func (d *Decoder) SetDNNBlob(blob *dnnblob.Blob) {
 	d.dnnBlob = blob
-	var (
-		models    dnnblob.DecoderModelState
-		analysis  lpcnetplc.Analysis
-		predictor lpcnetplc.Predictor
-		fargan    lpcnetplc.FARGAN
-	)
+	var models dnnblob.DecoderModelState
 	if blob != nil {
 		models = blob.DecoderModels()
-		if models.PitchDNN {
-			_ = analysis.SetModel(blob)
-		}
-		if models.PLC {
-			_ = predictor.SetModel(blob)
-		}
-		if models.FARGAN {
-			_ = fargan.SetModel(blob)
-		}
 	}
-	d.pitchDNNLoaded = models.PitchDNN && analysis.Loaded()
-	d.plcModelLoaded = models.PLC && predictor.Loaded()
-	d.farganModelLoaded = models.FARGAN && fargan.Loaded()
+	d.pitchDNNLoaded = models.PitchDNN
+	d.plcModelLoaded = models.PLC
+	d.farganModelLoaded = models.FARGAN
 	d.osceModelsLoaded = models.OSCE
 	d.osceBWEModelLoaded = models.OSCEBWE
-	d.syncDREDSidecarModels(analysis, predictor, fargan)
 }
 
 // setDREDDecoderBlob mirrors the standalone libopus OpusDREDDecoder
@@ -48,7 +33,6 @@ func (d *Decoder) setDREDDecoderBlob(blob *dnnblob.Blob) {
 			d.dredModel = model
 			d.dredModelLoaded = true
 			d.ensureDREDSidecar()
-			d.syncDREDSidecarModelsForBlob()
 		}
 	}
 	if !d.dredModelLoaded {
@@ -72,9 +56,6 @@ func (d *Decoder) ensureDREDSidecar() {
 	d.dredDecoded = make([]internaldred.Decoded, streams)
 	d.dredProcesses = make([]rdovae.Processor, streams)
 	d.dredPLC = make([]lpcnetplc.State, streams)
-	d.dredAnalysis = make([]lpcnetplc.Analysis, streams)
-	d.dredPredictor = make([]lpcnetplc.Predictor, streams)
-	d.dredFARGAN = make([]lpcnetplc.FARGAN, streams)
 	d.dredBlend = make([]int, streams)
 	d.dredData = makeDREDBuffers(streams)
 	d.dredCache = make([]internaldred.Cache, streams)
@@ -87,51 +68,9 @@ func (d *Decoder) releaseDREDSidecar() {
 	d.dredDecoded = nil
 	d.dredProcesses = nil
 	d.dredPLC = nil
-	d.dredAnalysis = nil
-	d.dredPredictor = nil
-	d.dredFARGAN = nil
 	d.dredBlend = nil
 	d.dredData = nil
 	d.dredCache = nil
-}
-
-func (d *Decoder) syncDREDSidecarModels(analysis lpcnetplc.Analysis, predictor lpcnetplc.Predictor, fargan lpcnetplc.FARGAN) {
-	if d == nil || len(d.dredAnalysis) == 0 {
-		return
-	}
-	for i := range d.dredAnalysis {
-		d.dredAnalysis[i] = analysis
-	}
-	for i := range d.dredPredictor {
-		d.dredPredictor[i] = predictor
-	}
-	for i := range d.dredFARGAN {
-		d.dredFARGAN[i] = fargan
-	}
-}
-
-func (d *Decoder) syncDREDSidecarModelsForBlob() {
-	if d == nil || len(d.dredAnalysis) == 0 {
-		return
-	}
-	var (
-		analysis  lpcnetplc.Analysis
-		predictor lpcnetplc.Predictor
-		fargan    lpcnetplc.FARGAN
-	)
-	if d.dnnBlob != nil {
-		models := d.dnnBlob.DecoderModels()
-		if models.PitchDNN {
-			_ = analysis.SetModel(d.dnnBlob)
-		}
-		if models.PLC {
-			_ = predictor.SetModel(d.dnnBlob)
-		}
-		if models.FARGAN {
-			_ = fargan.SetModel(d.dnnBlob)
-		}
-	}
-	d.syncDREDSidecarModels(analysis, predictor, fargan)
 }
 
 // DNNBlobLoaded reports whether a validated model blob is retained.
