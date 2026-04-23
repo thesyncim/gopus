@@ -90,8 +90,8 @@ func TestParseHeaderWithExtraOffsetAndFrameOffset(t *testing.T) {
 	}
 }
 
-func TestParseHeaderRejectsShortPayload(t *testing.T) {
-	if _, err := ParseHeader(make([]byte, MinBytes-1), 0); err == nil {
-		t.Fatal("ParseHeader(short) error=nil want non-nil")
+func TestParseHeaderRejectsEmptyPayload(t *testing.T) {
+	if _, err := ParseHeader(nil, 0); err == nil {
+		t.Fatal("ParseHeader(empty) error=nil want non-nil")
 	}
 }

@@ -6,21 +6,22 @@ const (
 	ExperimentalVersion     = 12
 	ExperimentalHeaderBytes = 2
 	MinBytes                = 8
+	SilkEncoderDelay        = 79 + 12 - 80
 	FrameSize               = 160
 	DFrameSize              = 2 * FrameSize
 	MaxDataSize             = 1000
 	MaxLatents              = 26
 	NumRedundancyFrames     = 2 * MaxLatents
 	MaxFrames               = 4 * MaxLatents
+	NumFeatures             = 20
 )
 
 // ValidExperimentalPayload reports whether data matches the temporary libopus
-// DRED extension framing and size bounds.
+// DRED extension framing and size bounds accepted by dred_find_payload().
 func ValidExperimentalPayload(data []byte) bool {
-	if len(data) < ExperimentalHeaderBytes+MinBytes || len(data) > ExperimentalHeaderBytes+MaxDataSize {
+	if len(data) <= ExperimentalHeaderBytes {
 		return false
 	}
-	return len(data) >= ExperimentalHeaderBytes &&
-		data[0] == 'D' &&
+	return data[0] == 'D' &&
 		int(data[1]) == ExperimentalVersion
 }

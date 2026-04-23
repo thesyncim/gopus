@@ -19,9 +19,17 @@ func makeTestBlobRecord(name string, typ int32, payload []byte) []byte {
 	return out
 }
 
+func buildManifestTestBlob(names []string) []byte {
+	var blob []byte
+	for _, name := range names {
+		blob = append(blob, makeTestBlobRecord(name, TypeFloat, make([]byte, 4))...)
+	}
+	return blob
+}
+
 func TestCloneParsesRecords(t *testing.T) {
-	payload := append(makeTestBlobRecord("alpha", weightTypeFloat, []byte{1, 2, 3, 4}),
-		makeTestBlobRecord("beta", weightTypeInt8, []byte{9, 8, 7})...)
+	payload := append(makeTestBlobRecord("alpha", TypeFloat, []byte{1, 2, 3, 4}),
+		makeTestBlobRecord("beta", TypeInt8, []byte{9, 8, 7})...)
 
 	blob, err := Clone(payload)
 	if err != nil {
@@ -30,13 +38,13 @@ func TestCloneParsesRecords(t *testing.T) {
 	if len(blob.Records) != 2 {
 		t.Fatalf("record count=%d want 2", len(blob.Records))
 	}
-	if blob.Records[0].Name != "alpha" || blob.Records[0].Type != weightTypeFloat || blob.Records[0].Size != 4 {
+	if blob.Records[0].Name != "alpha" || blob.Records[0].Type != TypeFloat || blob.Records[0].Size != 4 {
 		t.Fatalf("record[0]=%+v", blob.Records[0])
 	}
 	if string(blob.Records[0].Data) != string([]byte{1, 2, 3, 4}) {
 		t.Fatalf("record[0].Data=%v", blob.Records[0].Data)
 	}
-	if blob.Records[1].Name != "beta" || blob.Records[1].Type != weightTypeInt8 || blob.Records[1].Size != 3 {
+	if blob.Records[1].Name != "beta" || blob.Records[1].Type != TypeInt8 || blob.Records[1].Size != 3 {
 		t.Fatalf("record[1]=%+v", blob.Records[1])
 	}
 	if !blob.HasRecord("alpha") || !blob.HasRecord("beta") || blob.HasRecord("gamma") {
@@ -51,16 +59,16 @@ func TestCloneRejectsMalformedBlob(t *testing.T) {
 	}{
 		{name: "short", blob: []byte{1, 2, 3}},
 		{name: "block smaller than size", blob: func() []byte {
-			out := makeTestBlobRecord("bad", weightTypeFloat, []byte{1, 2, 3, 4})
+			out := makeTestBlobRecord("bad", TypeFloat, []byte{1, 2, 3, 4})
 			binary.LittleEndian.PutUint32(out[16:20], 2)
 			return out
 		}()},
 		{name: "truncated payload", blob: func() []byte {
-			out := makeTestBlobRecord("bad", weightTypeFloat, []byte{1, 2, 3, 4})
+			out := makeTestBlobRecord("bad", TypeFloat, []byte{1, 2, 3, 4})
 			return out[:len(out)-1]
 		}()},
 		{name: "missing nul terminator", blob: func() []byte {
-			out := makeTestBlobRecord("bad", weightTypeFloat, []byte{1})
+			out := makeTestBlobRecord("bad", TypeFloat, []byte{1})
 			out[63] = 'x'
 			return out
 		}()},
@@ -77,10 +85,7 @@ func TestCloneRejectsMalformedBlob(t *testing.T) {
 }
 
 func TestValidateEncoderControl(t *testing.T) {
-	blob, err := Clone(append(
-		makeTestBlobRecord("enc_dense1_bias", weightTypeFloat, make([]byte, 64*4)),
-		makeTestBlobRecord("dense_if_upsampler_1_bias", weightTypeFloat, make([]byte, 64*4))...,
-	))
+	blob, err := Clone(buildManifestTestBlob(RequiredEncoderControlRecordNames()))
 	if err != nil {
 		t.Fatalf("Clone error: %v", err)
 	}
@@ -94,7 +99,7 @@ func TestValidateEncoderControl(t *testing.T) {
 		t.Fatalf("ValidateEncoderControl error: %v", err)
 	}
 
-	missingPitch, err := Clone(makeTestBlobRecord("enc_dense1_bias", weightTypeFloat, make([]byte, 64*4)))
+	missingPitch, err := Clone(buildManifestTestBlob(dredEncoderRequiredRecordNames))
 	if err != nil {
 		t.Fatalf("Clone missingPitch error: %v", err)
 	}
@@ -104,20 +109,7 @@ func TestValidateEncoderControl(t *testing.T) {
 }
 
 func TestValidateDecoderControl(t *testing.T) {
-	build := func(names []string) []byte {
-		var blob []byte
-		for _, name := range names {
-			payloadSize := 4
-			switch name {
-			case "dense_if_upsampler_1_bias", "dec_dense1_bias":
-				payloadSize = 64 * 4
-			}
-			blob = append(blob, makeTestBlobRecord(name, weightTypeFloat, make([]byte, payloadSize))...)
-		}
-		return blob
-	}
-
-	blob, err := Clone(build(RequiredDecoderControlRecordNames(true)))
+	blob, err := Clone(buildManifestTestBlob(RequiredDecoderControlRecordNames(true)))
 	if err != nil {
 		t.Fatalf("Clone error: %v", err)
 	}
@@ -134,7 +126,7 @@ func TestValidateDecoderControl(t *testing.T) {
 		t.Fatalf("ValidateDecoderControl(true) error: %v", err)
 	}
 
-	missingBWE, err := Clone(build(RequiredDecoderControlRecordNames(false)))
+	missingBWE, err := Clone(buildManifestTestBlob(RequiredDecoderControlRecordNames(false)))
 	if err != nil {
 		t.Fatalf("Clone missingBWE error: %v", err)
 	}
@@ -150,19 +142,7 @@ func TestValidateDecoderControl(t *testing.T) {
 }
 
 func TestValidateDecoderControlWithGeneratedManifestNames(t *testing.T) {
-	build := func(names []string) []byte {
-		var blob []byte
-		for _, name := range names {
-			payloadSize := 4
-			if name == "dense_if_upsampler_1_bias" {
-				payloadSize = 64 * 4
-			}
-			blob = append(blob, makeTestBlobRecord(name, weightTypeFloat, make([]byte, payloadSize))...)
-		}
-		return blob
-	}
-
-	blob, err := Clone(build(RequiredDecoderControlRecordNames(false)))
+	blob, err := Clone(buildManifestTestBlob(RequiredDecoderControlRecordNames(false)))
 	if err != nil {
 		t.Fatalf("Clone error: %v", err)
 	}
@@ -171,7 +151,7 @@ func TestValidateDecoderControlWithGeneratedManifestNames(t *testing.T) {
 	}
 
 	names := RequiredDecoderControlRecordNames(false)
-	missingOne, err := Clone(build(names[:len(names)-1]))
+	missingOne, err := Clone(buildManifestTestBlob(names[:len(names)-1]))
 	if err != nil {
 		t.Fatalf("Clone missingOne error: %v", err)
 	}
@@ -180,18 +160,92 @@ func TestValidateDecoderControlWithGeneratedManifestNames(t *testing.T) {
 	}
 }
 
-func TestDecoderModels(t *testing.T) {
-	var blobData []byte
-	for _, name := range append(RequiredDecoderControlRecordNames(true), "dec_dense1_bias") {
-		payloadSize := 4
-		switch name {
-		case "dense_if_upsampler_1_bias", "dec_dense1_bias":
-			payloadSize = 64 * 4
-		}
-		blobData = append(blobData, makeTestBlobRecord(name, weightTypeFloat, make([]byte, payloadSize))...)
+func TestValidateDREDDecoderControl(t *testing.T) {
+	blob, err := Clone(buildManifestTestBlob(RequiredDREDDecoderRecordNames()))
+	if err != nil {
+		t.Fatalf("Clone error: %v", err)
+	}
+	if err := blob.ValidateDREDDecoderControl(); err != nil {
+		t.Fatalf("ValidateDREDDecoderControl error: %v", err)
 	}
 
-	blob, err := Clone(blobData)
+	names := RequiredDREDDecoderRecordNames()
+	missingOne, err := Clone(buildManifestTestBlob(names[:len(names)-1]))
+	if err != nil {
+		t.Fatalf("Clone missingOne error: %v", err)
+	}
+	if err := missingOne.ValidateDREDDecoderControl(); err == nil {
+		t.Fatal("ValidateDREDDecoderControl error=nil want non-nil for incomplete manifest")
+	}
+}
+
+func TestRequiredRecordNameAccessorsDoNotAllocate(t *testing.T) {
+	allocs := testing.AllocsPerRun(1000, func() {
+		_ = RequiredDecoderControlRecordNames(false)
+		_ = RequiredDecoderControlRecordNames(true)
+		_ = RequiredEncoderControlRecordNames()
+		_ = RequiredDREDDecoderRecordNames()
+	})
+	if allocs != 0 {
+		t.Fatalf("AllocsPerRun=%v want 0", allocs)
+	}
+}
+
+func TestRecordViewsDoNotAllocate(t *testing.T) {
+	payload := append(
+		makeTestBlobRecord("floats", TypeFloat, []byte{
+			0, 0, 0, 0,
+			0, 0, 128, 63,
+		}),
+		append(
+			makeTestBlobRecord("ints", TypeInt, []byte{
+				1, 0, 0, 0,
+				2, 0, 0, 0,
+			}),
+			makeTestBlobRecord("bytes", TypeInt8, []byte{1, 2, 3, 4})...,
+		)...,
+	)
+	blob, err := Clone(payload)
+	if err != nil {
+		t.Fatalf("Clone error: %v", err)
+	}
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		floats, ok := blob.Record("floats")
+		if !ok {
+			t.Fatal("missing float record")
+		}
+		fv, err := floats.Float32View()
+		if err != nil || fv.Len() != 2 || fv.At(1) != 1 {
+			t.Fatalf("Float32View err=%v len=%d at1=%v", err, fv.Len(), fv.At(1))
+		}
+
+		ints, ok := blob.Record("ints")
+		if !ok {
+			t.Fatal("missing int record")
+		}
+		iv, err := ints.Int32View()
+		if err != nil || iv.Len() != 2 || iv.At(1) != 2 {
+			t.Fatalf("Int32View err=%v len=%d at1=%d", err, iv.Len(), iv.At(1))
+		}
+
+		bytesRec, ok := blob.Record("bytes")
+		if !ok {
+			t.Fatal("missing int8 record")
+		}
+		bv, err := bytesRec.Int8View()
+		if err != nil || bv.Len() != 4 || bv.At(3) != 4 {
+			t.Fatalf("Int8View err=%v len=%d at3=%d", err, bv.Len(), bv.At(3))
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("AllocsPerRun=%v want 0", allocs)
+	}
+}
+
+func TestDecoderModels(t *testing.T) {
+	names := append(RequiredDecoderControlRecordNames(true), RequiredDREDDecoderRecordNames()...)
+	blob, err := Clone(buildManifestTestBlob(names))
 	if err != nil {
 		t.Fatalf("Clone error: %v", err)
 	}

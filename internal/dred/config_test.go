@@ -7,13 +7,17 @@ func TestValidExperimentalPayload(t *testing.T) {
 	if !ValidExperimentalPayload(valid) {
 		t.Fatalf("ValidExperimentalPayload(%x)=false want true", valid)
 	}
+	minimal := []byte{'D', ExperimentalVersion, 1}
+	if !ValidExperimentalPayload(minimal) {
+		t.Fatalf("ValidExperimentalPayload(%x)=false want true", minimal)
+	}
 
 	for _, tc := range []struct {
 		name string
 		data []byte
 	}{
 		{name: "nil", data: nil},
-		{name: "short", data: []byte{'D', ExperimentalVersion, 1, 2}},
+		{name: "header_only", data: []byte{'D', ExperimentalVersion}},
 		{name: "wrong_magic", data: []byte{'X', ExperimentalVersion, 1, 2, 3, 4, 5, 6, 7, 8}},
 		{name: "wrong_version", data: []byte{'D', ExperimentalVersion + 1, 1, 2, 3, 4, 5, 6, 7, 8}},
 		{name: "too_large", data: make([]byte, ExperimentalHeaderBytes+MaxDataSize+1)},

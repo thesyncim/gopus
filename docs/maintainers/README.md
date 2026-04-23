@@ -9,6 +9,7 @@ These documents are for release, CI, and repo-maintenance workflows rather than 
 - [PRODUCTION_PLAN.md](PRODUCTION_PLAN.md)
 - [PRODUCTION_TODO.md](PRODUCTION_TODO.md)
 - [public-release-readiness-plan.md](public-release-readiness-plan.md)
+- [dred-parity-plan.md](dred-parity-plan.md)
 
 ## Maintenance
 

@@ -3,15 +3,16 @@ package dnnblob
 import (
 	"encoding/binary"
 	"sort"
+	"strings"
 )
 
 const (
 	headerSize = 64
 
-	weightTypeFloat   = 0
-	weightTypeInt     = 1
-	weightTypeQWeight = 2
-	weightTypeInt8    = 3
+	TypeFloat   int32 = 0
+	TypeInt     int32 = 1
+	TypeQWeight int32 = 2
+	TypeInt8    int32 = 3
 )
 
 // Record mirrors one libopus WeightArray entry parsed from a weights blob.
@@ -39,6 +40,29 @@ type DecoderModelState struct {
 	OSCEBWE  bool
 }
 
+var (
+	requiredDecoderControlRecordNames = sortedRecordNames(
+		pitchDNNRequiredRecordNames,
+		plcRequiredRecordNames,
+		farganRequiredRecordNames,
+		osceLACERequiredRecordNames,
+		osceNoLACERequiredRecordNames,
+	)
+	requiredDecoderControlWithBWERecordNames = sortedRecordNames(
+		pitchDNNRequiredRecordNames,
+		plcRequiredRecordNames,
+		farganRequiredRecordNames,
+		osceLACERequiredRecordNames,
+		osceNoLACERequiredRecordNames,
+		osceBWERequiredRecordNames,
+	)
+	requiredEncoderControlRecordNames = sortedRecordNames(
+		pitchDNNRequiredRecordNames,
+		dredEncoderRequiredRecordNames,
+	)
+	requiredStandaloneDREDDecoderRecordNames = sortedRecordNames(dredDecoderRequiredRecordNames)
+)
+
 // Clone validates data using libopus parse_weights-style framing rules and
 // returns a persistent copy whose record slices point into the copied buffer.
 func Clone(data []byte) (*Blob, error) {
@@ -63,50 +87,50 @@ func (b *Blob) HasRecord(name string) bool {
 	return false
 }
 
-func (b *Blob) hasRecordExact(name string, typ int32, size int32) bool {
+// Record returns the first record with the given name, mirroring libopus
+// find_array_entry() first-match behavior.
+func (b *Blob) Record(name string) (Record, bool) {
 	if b == nil {
-		return false
+		return Record{}, false
 	}
 	for _, rec := range b.Records {
-		if rec.Name == name && rec.Type == typ && rec.Size == size {
-			return true
+		if rec.Name == name {
+			return rec, true
 		}
 	}
-	return false
+	return Record{}, false
 }
 
-type requiredRecord struct {
-	name string
-	typ  int32
-	size int32
-}
-
-// These exact source-derived sentinels remain useful for small capability
-// probes, while the generated decoder-side record-name manifests below keep
-// control admission aligned with the full libopus loader surfaces.
-var (
-	pitchDNNRequiredRecords = []requiredRecord{
-		{name: "dense_if_upsampler_1_bias", typ: weightTypeFloat, size: 64 * 4},
+func sortedRecordNames(groups ...[]string) []string {
+	total := 0
+	for _, group := range groups {
+		total += len(group)
 	}
-	dredEncoderRequiredRecords = []requiredRecord{
-		{name: "enc_dense1_bias", typ: weightTypeFloat, size: 64 * 4},
-	}
-	dredDecoderRequiredRecords = []requiredRecord{
-		{name: "dec_dense1_bias", typ: weightTypeFloat, size: 64 * 4},
-	}
-)
-
-func (b *Blob) validateRecords(required []requiredRecord) error {
-	for _, want := range required {
-		if !b.hasRecordExact(want.name, want.typ, want.size) {
-			return errInvalidBlob
+	present := make(map[string]struct{}, total)
+	for _, group := range groups {
+		for _, name := range group {
+			present[name] = struct{}{}
 		}
 	}
-	return nil
+	out := make([]string, 0, len(present))
+	for name := range present {
+		if strings.HasSuffix(name, "_weights_float") {
+			int8Name := strings.TrimSuffix(name, "_weights_float") + "_weights_int8"
+			if _, ok := present[int8Name]; ok {
+				continue
+			}
+		}
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (b *Blob) validateRecordNames(required []string) error {
 	for _, want := range required {
+		if optionalFloatMirror(required, want) {
+			continue
+		}
 		if !b.HasRecord(want) {
 			return errInvalidBlob
 		}
@@ -114,10 +138,23 @@ func (b *Blob) validateRecordNames(required []string) error {
 	return nil
 }
 
+func optionalFloatMirror(required []string, name string) bool {
+	if !strings.HasSuffix(name, "_weights_float") {
+		return false
+	}
+	int8Name := strings.TrimSuffix(name, "_weights_float") + "_weights_int8"
+	for _, other := range required {
+		if other == int8Name {
+			return true
+		}
+	}
+	return false
+}
+
 // SupportsPitchDNN reports whether the blob contains the pitch model family
 // libopus uses from both DRED and PLC/FARGAN control loaders.
 func (b *Blob) SupportsPitchDNN() bool {
-	return b.validateRecords(pitchDNNRequiredRecords) == nil
+	return b.validateRecordNames(pitchDNNRequiredRecordNames) == nil
 }
 
 // SupportsPLC reports whether the blob contains the PLC model family.
@@ -132,12 +169,12 @@ func (b *Blob) SupportsFARGAN() bool {
 
 // SupportsDREDEncoder reports whether the blob contains the DRED encoder model family.
 func (b *Blob) SupportsDREDEncoder() bool {
-	return b.validateRecords(dredEncoderRequiredRecords) == nil
+	return b.validateRecordNames(dredEncoderRequiredRecordNames) == nil
 }
 
 // SupportsDREDDecoder reports whether the blob contains the DRED decoder model family.
 func (b *Blob) SupportsDREDDecoder() bool {
-	return b.validateRecords(dredDecoderRequiredRecords) == nil
+	return b.validateRecordNames(dredDecoderRequiredRecordNames) == nil
 }
 
 // SupportsOSCELACE reports whether the blob contains the LACE OSCE model family.
@@ -195,20 +232,36 @@ func (b *Blob) ValidateDecoderControl(requireOSCEBWE bool) error {
 	return nil
 }
 
-// RequiredDecoderControlRecordNames returns the loader-derived record names the
-// libopus main decoder path expects from OPUS_SET_DNN_BLOB.
-func RequiredDecoderControlRecordNames(requireOSCEBWE bool) []string {
-	out := make([]string, 0, len(plcRequiredRecordNames)+len(farganRequiredRecordNames)+len(osceLACERequiredRecordNames)+len(osceNoLACERequiredRecordNames)+1+len(osceBWERequiredRecordNames))
-	out = append(out, pitchDNNRequiredRecords[0].name)
-	out = append(out, plcRequiredRecordNames...)
-	out = append(out, farganRequiredRecordNames...)
-	out = append(out, osceLACERequiredRecordNames...)
-	out = append(out, osceNoLACERequiredRecordNames...)
-	if requireOSCEBWE {
-		out = append(out, osceBWERequiredRecordNames...)
+// ValidateDREDDecoderControl mirrors the standalone libopus DRED decoder
+// model-loading path, which only requires the RDOVAE decoder family.
+func (b *Blob) ValidateDREDDecoderControl() error {
+	if !b.SupportsDREDDecoder() {
+		return errInvalidBlob
 	}
-	sort.Strings(out)
-	return out
+	return nil
+}
+
+// RequiredDecoderControlRecordNames returns a read-only view of the
+// loader-derived record names the libopus main decoder path expects from
+// OPUS_SET_DNN_BLOB.
+func RequiredDecoderControlRecordNames(requireOSCEBWE bool) []string {
+	if requireOSCEBWE {
+		return requiredDecoderControlWithBWERecordNames
+	}
+	return requiredDecoderControlRecordNames
+}
+
+// RequiredEncoderControlRecordNames returns a read-only view of the
+// loader-derived record names the libopus encoder path expects from
+// OPUS_SET_DNN_BLOB.
+func RequiredEncoderControlRecordNames() []string {
+	return requiredEncoderControlRecordNames
+}
+
+// RequiredDREDDecoderRecordNames returns a read-only view of the loader-derived
+// record names for the standalone libopus DRED decoder model family.
+func RequiredDREDDecoderRecordNames() []string {
+	return requiredStandaloneDREDDecoderRecordNames
 }
 
 func parse(data []byte) ([]Record, error) {

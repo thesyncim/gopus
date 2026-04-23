@@ -25,6 +25,19 @@ func TestUnsupportedControlsBuildExposesQuarantinedTopLevelControls(t *testing.T
 		t.Fatal("unsupported-controls build does not expose decoder OSCE BWE control")
 	}
 	assertWorkingOSCEBWEControl(t, osce)
+	standaloneDRED := NewDREDDecoder()
+	if standaloneDRED == nil {
+		t.Fatal("NewDREDDecoder returned nil")
+	}
+	if err := standaloneDRED.SetDNNBlob(makeValidDREDDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("standalone DRED SetDNNBlob error: %v", err)
+	}
+	if !standaloneDRED.ModelLoaded() {
+		t.Fatal("standalone DRED decoder did not retain model blob")
+	}
+	if dredState := NewDRED(); dredState == nil {
+		t.Fatal("NewDRED returned nil")
+	}
 
 	msEnc := mustNewDefaultMultistreamEncoder(t, 48000, 2, ApplicationAudio)
 	assertOptionalEncoderControls(t, msEnc)

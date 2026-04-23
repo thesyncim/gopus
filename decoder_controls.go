@@ -20,6 +20,10 @@ func (d *Decoder) Reset() {
 	d.softClipMem[0] = 0
 	d.softClipMem[1] = 0
 	d.clearDREDPayloadState()
+	d.dredPLC.Reset()
+	d.dredAnalysis.Reset()
+	d.dredPredictor.Reset()
+	d.dredFARGAN.Reset()
 
 	// Clear FEC state
 	d.clearFECState()
@@ -75,7 +79,9 @@ func (d *Decoder) SetDNNBlob(data []byte) error {
 	if err != nil {
 		return err
 	}
-	d.setDNNBlob(blob)
+	if err := d.setDNNBlob(blob); err != nil {
+		return ErrInvalidArgument
+	}
 	return nil
 }
 

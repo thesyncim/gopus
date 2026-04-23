@@ -94,8 +94,9 @@ test-doc-contract:
 
 # Quarantine build smoke for unsupported controls that should never leak into the default surface.
 test-unsupported-controls-tag:
-	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run 'Test(SupportsOptionalExtension|UnsupportedControlsBuildExposesQuarantinedTopLevelControls|UnsupportedControlsBuildPublicAPIContract)|ExampleSupportsOptionalExtension' -count=1
+	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run 'Test(SupportsOptionalExtension|UnsupportedControlsBuildExposesQuarantinedTopLevelControls|UnsupportedControlsBuildPublicAPIContract|DREDDecoderParseRequiresModel|DREDDecoderParseAndProcessRetainsMetadata|DREDDecoderParseClearsStateWhenPacketHasNoDRED|DREDDecoderParseClearsStateOnMalformedPacket|StandaloneDREDParseMatchesLibopus|StandaloneDREDProcessMatchesLibopusOnRealPacket|StandaloneDREDProcessLifecycleMatchesLibopusOnRealPacket|StandaloneDREDRecoveryWindowMatchesLibopus|StandaloneDREDRecoveryQueueMatchesLibopus|DecoderCachedDREDRecoveryMatchesLibopusLifecycle)|ExampleSupportsOptionalExtension' -count=1
 	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./encoder ./multistream -run 'Test(UnsupportedControlsBuildExposesQuarantinedControls|EncoderDREDDuration|EncoderResetClearsDREDDuration|EncoderDREDReadyRequiresModelAndDuration)' -count=1
+	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./internal/lpcnetplc -run 'Test(PredictorMatchesLibopusOnRealModel|FARGANConditionerMatchesLibopusOnRealModel|FARGANPrimeContinuityMatchesLibopusOnRealModel|FARGANSynthesizeMatchesLibopusOnRealModel|PrefillAndConcealmentFeatureStepMatchLibopus|BoundedConcealFrameFloatMatchesLibopus)' -count=1
 
 # Primary libopus-facing focused gate.
 test-quality:
