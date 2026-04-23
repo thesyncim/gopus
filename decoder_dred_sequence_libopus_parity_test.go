@@ -316,3 +316,76 @@ func TestDecoderSecondLossNeuralConcealmentMatchesLiveSequenceOracle(t *testing.
 	assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step1.fargan, "live 16k second-loss sequence oracle fargan")
 	assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.step1.celt48k, "live 16k second-loss sequence oracle celt")
 }
+
+func TestDecoderFirstLossNeuralConcealment16kFrameSizeMatrixMatchesLiveSequenceOracle(t *testing.T) {
+	for _, frameSize := range []int{480, 960} {
+		frameSize := frameSize
+		t.Run(fmt.Sprintf("carrier_%d", frameSize), func(t *testing.T) {
+			dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParityForFrameSize(t, frameSize)
+
+			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, packetInfo.maxDREDSamples, dec.sampleRate, n, 1, n, 0, 0, false)
+			if err != nil {
+				t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+			}
+			if want.carrierParseRet < 0 {
+				t.Skipf("libopus decoder DRED sequence carrier parse failed: %d", want.carrierParseRet)
+			}
+			if want.step0.ret != n {
+				t.Fatalf("libopus decoder DRED first-loss ret=%d want %d", want.step0.ret, n)
+			}
+
+			gotN, err := dec.Decode(nil, pcm)
+			if err != nil {
+				t.Fatalf("Decode(nil) error: %v", err)
+			}
+			if gotN != n {
+				t.Fatalf("Decode(nil)=%d want %d", gotN, n)
+			}
+
+			assertFloat32ApproxEqual(t, pcm[:n], want.step0.pcm[:n], "concealed frame-size pcm live-sequence oracle", 1e-4)
+			assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, "live 16k first-loss frame-size sequence oracle plc")
+			assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, "live 16k first-loss frame-size sequence oracle fargan")
+			assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.step0.celt48k, "live 16k first-loss frame-size sequence oracle celt")
+		})
+	}
+}
+
+func TestDecoderSecondLossNeuralConcealment16kFrameSizeMatrixMatchesLiveSequenceOracle(t *testing.T) {
+	for _, frameSize := range []int{480, 960} {
+		frameSize := frameSize
+		t.Run(fmt.Sprintf("carrier_%d", frameSize), func(t *testing.T) {
+			dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParityForFrameSize(t, frameSize)
+
+			if _, err := dec.Decode(nil, pcm); err != nil {
+				t.Fatalf("Decode(nil, first) error: %v", err)
+			}
+
+			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, packetInfo.maxDREDSamples, dec.sampleRate, n, 1, n, 1, 2*n, false)
+			if err != nil {
+				t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+			}
+			if want.carrierParseRet < 0 {
+				t.Skipf("libopus decoder DRED sequence carrier parse failed: %d", want.carrierParseRet)
+			}
+			if want.step0.ret != n {
+				t.Fatalf("libopus decoder DRED first warmup ret=%d want %d", want.step0.ret, n)
+			}
+			if want.step1.ret != n {
+				t.Fatalf("libopus decoder DRED second-loss ret=%d want %d", want.step1.ret, n)
+			}
+
+			gotN, err := dec.Decode(nil, pcm)
+			if err != nil {
+				t.Fatalf("Decode(nil, second) error: %v", err)
+			}
+			if gotN != n {
+				t.Fatalf("Decode(nil, second)=%d want %d", gotN, n)
+			}
+
+			assertFloat32ApproxEqual(t, pcm[:n], want.step1.pcm[:n], "second concealed frame-size pcm live-sequence oracle", 1e-4)
+			assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step1.state, "live 16k second-loss frame-size sequence oracle plc")
+			assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step1.fargan, "live 16k second-loss frame-size sequence oracle fargan")
+			assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.step1.celt48k, "live 16k second-loss frame-size sequence oracle celt")
+		})
+	}
+}

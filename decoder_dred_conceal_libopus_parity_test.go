@@ -230,12 +230,17 @@ func probeLibopusDecoderPLCConcealQueue(state lpcnetplc.StateSnapshot, fargan lp
 
 func prepareDecoderForNeuralConcealmentParity(t *testing.T) (*Decoder, []float32, libopusDREDPacket, int) {
 	t.Helper()
+	return prepareDecoderForNeuralConcealmentParityForFrameSize(t, 480)
+}
+
+func prepareDecoderForNeuralConcealmentParityForFrameSize(t *testing.T, frameSize int) (*Decoder, []float32, libopusDREDPacket, int) {
+	t.Helper()
 
 	modelBlob, err := probeLibopusDREDModelBlob()
 	if err != nil {
 		t.Skipf("libopus dred model helper unavailable: %v", err)
 	}
-	packetInfo, err := emitLibopusDREDPacketWithFrameSize(480)
+	packetInfo, err := emitLibopusDREDPacketWithFrameSize(frameSize)
 	if err != nil {
 		t.Skipf("libopus dred packet helper unavailable: %v", err)
 	}
@@ -441,4 +446,110 @@ func TestDecoderSecondLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) 
 	assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "second-loss next packet live-sequence plc")
 	assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "second-loss next packet live-sequence fargan")
 	assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.next.celt48k, "second-loss next packet live-sequence celt")
+}
+
+func TestDecoderFirstLossThenNextPacket16kFrameSizeMatrixMatchesLiveSequenceOracle(t *testing.T) {
+	for _, frameSize := range []int{480, 960} {
+		frameSize := frameSize
+		t.Run(fmt.Sprintf("carrier_%d", frameSize), func(t *testing.T) {
+			dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParityForFrameSize(t, frameSize)
+			nextPacket := makeValidMonoCELTPacketForFrameSizeForDREDTest(t, frameSize)
+
+			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, dec.sampleRate, n, 1, n, 0, 0, true)
+			if err != nil {
+				t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+			}
+			if want.carrierParseRet < 0 {
+				t.Skipf("libopus decoder DRED sequence carrier parse failed: %d", want.carrierParseRet)
+			}
+			if want.step0.ret != n {
+				t.Fatalf("libopus decoder DRED first-loss ret=%d want %d", want.step0.ret, n)
+			}
+			if want.next.ret <= 0 {
+				t.Fatalf("libopus decoder DRED next ret=%d want >0", want.next.ret)
+			}
+
+			gotN, err := dec.Decode(nil, pcm)
+			if err != nil {
+				t.Fatalf("Decode(nil) error: %v", err)
+			}
+			if gotN != n {
+				t.Fatalf("Decode(nil)=%d want %d", gotN, n)
+			}
+			assertFloat32ApproxEqual(t, pcm[:n], want.step0.pcm[:n], "first-loss frame-size live-sequence pcm", 1e-4)
+
+			nextPCM := make([]float32, dec.maxPacketSamples)
+			gotNext, err := dec.Decode(nextPacket, nextPCM)
+			if err != nil {
+				t.Fatalf("Decode(next packet) error: %v", err)
+			}
+			if gotNext != want.next.ret {
+				t.Fatalf("Decode(next packet)=%d want %d", gotNext, want.next.ret)
+			}
+
+			assertFloat32ApproxEqual(t, nextPCM[:gotNext], want.next.pcm[:gotNext], "first-loss frame-size next packet live-sequence pcm", 1e-4)
+			assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "first-loss frame-size next packet live-sequence plc")
+			assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "first-loss frame-size next packet live-sequence fargan")
+			assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.next.celt48k, "first-loss frame-size next packet live-sequence celt")
+		})
+	}
+}
+
+func TestDecoderSecondLossThenNextPacket16kFrameSizeMatrixMatchesLiveSequenceOracle(t *testing.T) {
+	for _, frameSize := range []int{480, 960} {
+		frameSize := frameSize
+		t.Run(fmt.Sprintf("carrier_%d", frameSize), func(t *testing.T) {
+			dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParityForFrameSize(t, frameSize)
+			nextPacket := makeValidMonoCELTPacketForFrameSizeForDREDTest(t, frameSize)
+
+			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, dec.sampleRate, n, 1, n, 1, 2*n, true)
+			if err != nil {
+				t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+			}
+			if want.carrierParseRet < 0 {
+				t.Skipf("libopus decoder DRED sequence carrier parse failed: %d", want.carrierParseRet)
+			}
+			if want.step0.ret != n {
+				t.Fatalf("libopus decoder DRED first warmup ret=%d want %d", want.step0.ret, n)
+			}
+			if want.step1.ret != n {
+				t.Fatalf("libopus decoder DRED second-loss ret=%d want %d", want.step1.ret, n)
+			}
+			if want.next.ret <= 0 {
+				t.Fatalf("libopus decoder DRED next ret=%d want >0", want.next.ret)
+			}
+
+			gotN, err := dec.Decode(nil, pcm)
+			if err != nil {
+				t.Fatalf("Decode(nil, first) error: %v", err)
+			}
+			if gotN != n {
+				t.Fatalf("Decode(nil, first)=%d want %d", gotN, n)
+			}
+			assertFloat32ApproxEqual(t, pcm[:n], want.step0.pcm[:n], "second-loss frame-size warmup live-sequence pcm", 1e-4)
+
+			gotN, err = dec.Decode(nil, pcm)
+			if err != nil {
+				t.Fatalf("Decode(nil, second) error: %v", err)
+			}
+			if gotN != n {
+				t.Fatalf("Decode(nil, second)=%d want %d", gotN, n)
+			}
+			assertFloat32ApproxEqual(t, pcm[:n], want.step1.pcm[:n], "second-loss frame-size live-sequence pcm", 1e-4)
+
+			nextPCM := make([]float32, dec.maxPacketSamples)
+			gotNext, err := dec.Decode(nextPacket, nextPCM)
+			if err != nil {
+				t.Fatalf("Decode(next packet) error: %v", err)
+			}
+			if gotNext != want.next.ret {
+				t.Fatalf("Decode(next packet)=%d want %d", gotNext, want.next.ret)
+			}
+
+			assertFloat32ApproxEqual(t, nextPCM[:gotNext], want.next.pcm[:gotNext], "second-loss frame-size next packet live-sequence pcm", 1e-4)
+			assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "second-loss frame-size next packet live-sequence plc")
+			assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "second-loss frame-size next packet live-sequence fargan")
+			assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.next.celt48k, "second-loss frame-size next packet live-sequence celt")
+		})
+	}
 }
