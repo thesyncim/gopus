@@ -241,6 +241,19 @@ func (d *Decoder) dredNeuralConfigEligible() bool {
 	return d.sampleRate == 16000 || d.sampleRate == 48000
 }
 
+// DRED decode/recovery bookkeeping follows Opus's internal 48 kHz frame-size
+// domain for the exercised mono decoder path, even when the public decoder was
+// created for 16 kHz output.
+func (d *Decoder) dredRuntimeSampleRate() int {
+	if d == nil {
+		return 0
+	}
+	if d.sampleRate == 16000 && d.dredNeuralConfigEligible() {
+		return 48000
+	}
+	return d.sampleRate
+}
+
 // setDNNBlob mirrors the main libopus decoder OPUS_SET_DNN_BLOB surface. The
 // standalone DRED decoder keeps its own model lifetime and is managed
 // separately through setDREDDecoderBlob.
@@ -504,9 +517,13 @@ func (d *Decoder) cachedDREDResult(maxDredSamples int) internaldred.Result {
 	if p == nil || p.dredCache.Empty() || !p.dredModelLoaded || d.ignoreExtensions {
 		return internaldred.Result{}
 	}
+	sampleRate := d.dredRuntimeSampleRate()
+	if sampleRate <= 0 {
+		return internaldred.Result{}
+	}
 	return p.dredCache.Result(internaldred.Request{
 		MaxDREDSamples: maxDredSamples,
-		SampleRate:     d.sampleRate,
+		SampleRate:     sampleRate,
 	})
 }
 

@@ -1778,7 +1778,7 @@ func TestDecoderExplicitDREDDecodeMatchesLibopus(t *testing.T) {
 func TestDecoderExplicitDREDDecode16kMatchesLibopus(t *testing.T) {
 	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState16k(t)
 
-	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, dec.sampleRate, -1, n, n)
+	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 	if err != nil {
 		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
 	}
@@ -1927,7 +1927,7 @@ func TestDecoderExplicitDREDDecodeSecondLoss16kMatchesLibopus(t *testing.T) {
 		t.Fatalf("decodeExplicitDREDFloat(first) error: %v", err)
 	}
 
-	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, dec.sampleRate, n, 2*n, n)
+	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 2*n, n)
 	if err != nil {
 		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
 	}
@@ -2156,7 +2156,7 @@ func TestDecoderExplicitDREDDecodeThenNextPacket16kMatchesLibopus(t *testing.T) 
 		t.Fatalf("decodeExplicitDREDFloat(first) error: %v", err)
 	}
 
-	want, err := probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, dec.sampleRate, -1, n, n)
+	want, err := probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 	if err != nil {
 		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
 	}
@@ -2249,7 +2249,7 @@ func TestDecoderExplicitDREDDecode16kFrameSizeMatrixMatchesLibopus(t *testing.T)
 		t.Run(fmt.Sprintf("carrier_%d", frameSize), func(t *testing.T) {
 			dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState16kForFrameSize(t, frameSize)
 
-			want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, dec.sampleRate, -1, n, n)
+			want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 			if err != nil {
 				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
 			}
@@ -2354,7 +2354,7 @@ func TestDecoderExplicitSecondLossThenNextPacket16kMatchesLibopus(t *testing.T) 
 		t.Fatalf("decodeExplicitDREDFloat(second) error: %v", err)
 	}
 
-	want, err := probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, dec.sampleRate, n, 2*n, n)
+	want, err := probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 2*n, n)
 	if err != nil {
 		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
 	}

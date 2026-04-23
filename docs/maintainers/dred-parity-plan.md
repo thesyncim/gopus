@@ -1,6 +1,6 @@
 # DRED Parity Plan
 
-Last updated: 2026-04-22
+Last updated: 2026-04-23
 
 ## Goal
 
@@ -50,6 +50,7 @@ Implemented or in progress:
 - the current 16 kHz mono decoder seam has libopus-backed live coverage for first loss and second loss plus explicit/cached shared runtime coverage, and the decoder now explicitly primes the CELT-to-LPCNet entry bridge on first neural/DRED concealment for both cached-live and explicit 16 kHz paths; clean re-verification of that latest entry-state fix is still pending, and the 16 kHz PCM parity claim remains open until those libopus-backed decoder tests are green again
 - the current 16 kHz mono decoder entry bridge now follows libopus `update_plc_state()` more closely by reseeding retained PLC history without pre-replaying LPCNet analysis before first-loss concealment
 - the current 16 kHz mono cached/live sequence seam now also has libopus-backed frame-size matrix coverage for first loss, second loss, and both resumed-good-packet handoffs across the exercised `10 ms` and `20 ms` carrier sizes, instead of relying on a single default carrier size
+- decoder-side DRED request/recovery bookkeeping now explicitly tracks the exercised 16 kHz mono seam in the same internal 48 kHz frame-size domain the main decode/PLC path already uses, and the 16 kHz decoder parity oracles now probe libopus in that same runtime domain instead of mixing the public config rate with 48 kHz-sized concealment requests
 - the 16 kHz explicit decoder matrix now also treats retained CELT `FRAME_DRED` bridge state as first-class parity surface across explicit/libopus, explicit/cached, second-loss, follow-up packet, and frame-size coverage instead of only checking PCM/PLC/FARGAN state
 - the 16 kHz explicit-vs-cached follow-up seam is now exercised both after a single DRED loss and across the 16 kHz follow-up frame-size matrix, so cached/live handoff no longer relies only on libopus explicit-oracle comparisons at those carrier sizes
 - the 48 kHz mono explicit-vs-cached follow-up seam is now exercised after a single DRED loss and across the first-loss follow-up frame-size matrix too, so the mono resumed-good-packet surface is less skewed toward second-loss-only cached coverage
@@ -112,6 +113,7 @@ Recent closed seams to avoid re-debugging:
 - the active 48 kHz `FRAME_DRED` bridge must retain `plc_preemphasis_mem` at the frame boundary, not after the overlap tail; libopus keeps the overlap-only preemphasis state local
 - ordinary packet-entry invalidation must drop stale cached DRED payload metadata without clearing live PLC/FARGAN/CELT recovery carry-state; aggressive invalidation causes cached-vs-explicit drift on the first resumed good packet
 - decoder PLC chunking in the main decode path must stay in Opus's 48 kHz internal frame-size domain even on lower-rate decoders; chunking by `d.sampleRate` feeds invalid `CELT` PLC frame sizes into the current 16 kHz mono seam
+- decoder DRED request/recovery math and the matching libopus parity helpers must use that same exercised 48 kHz runtime frame-size domain on the current 16 kHz mono seam; mixing the public config rate with 48 kHz-sized concealment offsets produces false recovery-window and live-sequence mismatches
 - cached non-48 kHz neural concealment must queue the active DRED recovery window before synthesis; otherwise first-loss PCM drifts from explicit/libopus even when the underlying neural runtime is correct
 - 16 kHz decoder recovery must reseed LPCNet history from the retained CELT bridge on first neural/DRED entry by feeding `lpcnet_plc_update()`-shaped in-place updates, not by replacing the retained history window or pre-replaying analysis; skipping that entry carry or rebuilding the history wholesale makes the cached-live and explicit 16 kHz decoder paths agree with each other while both still drift from libopus
 - good packets after DRED/neural concealment on libopus builds with `PLC_SKIP_UPDATES` clear only `blend`; treating those packets as full PLC history updates makes the cached and explicit paths look internally consistent while both still drift from libopus on the resumed-good-packet handoff

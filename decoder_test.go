@@ -671,8 +671,8 @@ func TestDecoderDREDRecoveryBlendFollowsLifecycle(t *testing.T) {
 	if state.dredCache.Empty() {
 		t.Fatal("Decode(nil) dropped cached DRED payload before recovery scheduling")
 	}
-	if got := state.dredPLC.Blend(); got != 0 {
-		t.Fatalf("Blend after PLC=%d want 0", got)
+	if got := state.dredPLC.Blend(); got != 1 {
+		t.Fatalf("Blend after PLC=%d want 1", got)
 	}
 
 	if _, err := dec.Decode(packet, pcm); err != nil {

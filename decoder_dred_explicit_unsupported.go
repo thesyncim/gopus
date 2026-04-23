@@ -9,16 +9,17 @@ import (
 )
 
 func (d *Decoder) explicitDREDResultForDecode(dred *DRED) internaldred.Result {
-	if d == nil || dred == nil || !dred.Processed() || d.sampleRate <= 0 {
+	sampleRate := d.dredRuntimeSampleRate()
+	if d == nil || dred == nil || !dred.Processed() || sampleRate <= 0 {
 		return internaldred.Result{}
 	}
 	maxDREDSamples := d.maxPacketSamples
 	if maxDREDSamples <= 0 {
-		maxDREDSamples = internaldred.MaxLatents * internaldred.LatentSpanSamples(d.sampleRate)
+		maxDREDSamples = internaldred.MaxLatents * internaldred.LatentSpanSamples(sampleRate)
 	}
 	return dred.cache.Parsed.ForRequest(internaldred.Request{
 		MaxDREDSamples: maxDREDSamples,
-		SampleRate:     d.sampleRate,
+		SampleRate:     sampleRate,
 	})
 }
 
