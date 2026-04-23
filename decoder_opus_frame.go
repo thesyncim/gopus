@@ -548,11 +548,11 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		if extsupport.QEXT || len(qextPayload) != 0 {
 			d.celtDecoder.SetQEXTPayload(qextPayload)
 		}
-			if d.dredNeedsCELTFloatPath() {
-				samples, err := d.celtDecoder.DecodeFrameWithPacketStereo(data, min(F20, frameSize), packetStereoLocal)
-				if err != nil {
-					return 0, err
-				}
+		if d.dredNeedsCELTFloatPath() {
+			samples, err := d.celtDecoder.DecodeFrameWithPacketStereo(data, min(F20, frameSize), packetStereoLocal)
+			if err != nil {
+				return 0, err
+			}
 			copyFloat64ToFloat32(out, samples)
 		} else {
 			err := d.celtDecoder.DecodeFrameWithPacketStereoToFloat32(data, min(F20, frameSize), packetStereoLocal, out)

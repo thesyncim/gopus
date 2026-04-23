@@ -111,6 +111,14 @@ type Decoder struct {
 	// Used by parity diagnostics to capture per-frame indices.
 	frameParamsHook FrameParamsHook
 
+	// Optional hook fired on mono/mid 10 ms raw good-frame chunks at 16 kHz
+	// before CNG/glue mutates the frame buffer.
+	rawMonoFrameHook RawMonoFrameHook
+
+	// Optional hook fired on mono PLC concealment at 16 kHz before SILK records
+	// the lost-frame state. Used by optional deep-PLC/DRED paths.
+	deepPLCLossMonoHook DeepPLCLossMonoHook
+
 	// Scratch buffers for applyMonoDelay
 	monoResamplerIn []int16 // Size: maxFramesPerPacket * maxFrameLength = 960
 	monoOutput      []int16 // Size: maxFramesPerPacket * maxFrameLength = 960
@@ -604,10 +612,33 @@ func (d *Decoder) GetLastFrameParams() DebugFrameParams {
 // 40/60 ms packets (where GetLastFrameParams only sees the last frame).
 type FrameParamsHook func(channel, frame int, params DebugFrameParams)
 
+// RawMonoFrameHook fires on raw mono/mid 10 ms chunks before CNG/glue mutates
+// the decoded frame buffer. The slice aliases decoder scratch memory and must
+// be consumed synchronously.
+type RawMonoFrameHook func(samples []int16)
+
+// DeepPLCLossMonoHook fires during mono 16 kHz PLC before SILK updates its
+// retained loss/output history. The hook fills concealed with one lost lowband
+// frame in normalized float32 units and may optionally return a lagPrev value
+// to retain for the next good packet.
+type DeepPLCLossMonoHook func(concealed []float32) (ok bool, lagPrev int)
+
 // SetFrameParamsHook installs a callback fired after each internal frame is
 // decoded. Pass nil to disable.
 func (d *Decoder) SetFrameParamsHook(hook FrameParamsHook) {
 	d.frameParamsHook = hook
+}
+
+// SetRawMonoFrameHook installs a callback fired on raw mono/mid 10 ms chunks
+// before CNG/glue. Pass nil to disable.
+func (d *Decoder) SetRawMonoFrameHook(hook RawMonoFrameHook) {
+	d.rawMonoFrameHook = hook
+}
+
+// SetDeepPLCLossMonoHook installs a mono 16 kHz PLC concealment hook used by
+// optional deep-PLC/DRED experiments. Pass nil to disable.
+func (d *Decoder) SetDeepPLCLossMonoHook(hook DeepPLCLossMonoHook) {
+	d.deepPLCLossMonoHook = hook
 }
 
 func (d *Decoder) fireFrameParamsHook(channel, frame int) {
@@ -643,9 +674,33 @@ func (d *Decoder) fireFrameParamsHook(channel, frame int) {
 	})
 }
 
+func (d *Decoder) fireRawMonoFrameHook(channel int, st *decoderState, frameOut []int16) {
+	if d == nil || d.rawMonoFrameHook == nil || channel != 0 || st == nil || st.fsKHz != 16 || st.subfrLength <= 0 {
+		return
+	}
+	chunkSamples := 2 * st.subfrLength
+	if chunkSamples <= 0 || len(frameOut) < chunkSamples {
+		return
+	}
+	for offset := 0; offset+chunkSamples <= len(frameOut); offset += chunkSamples {
+		d.rawMonoFrameHook(frameOut[offset : offset+chunkSamples])
+	}
+}
+
 type resamplerPair struct {
 	left  *LibopusResampler
 	right *LibopusResampler
+}
+
+type DeepPLCLowbandSnapshot struct {
+	stereo        stereoDecState
+	state         decoderState
+	silkPLCState  plc.SILKPLCState
+	hasPLCState   bool
+	resampler     libopusResamplerSnapshot
+	outputHistory []float32
+	historyIndex  int
+	prevLPCValues []float32
 }
 
 // GetResampler returns the libopus-compatible resampler for the given bandwidth.
@@ -724,6 +779,94 @@ func (d *Decoder) updateMonoHistoryFromInt16(samples []int16) {
 	}
 	d.stereo.sMid[0] = d.stereo.sMid[1]
 	d.stereo.sMid[1] = samples[0]
+}
+
+func (d *Decoder) SnapshotDeepPLCLowbandMono() *DeepPLCLowbandSnapshot {
+	if d == nil {
+		return nil
+	}
+	resampler := d.GetResampler(BandwidthWideband)
+	if resampler == nil {
+		return nil
+	}
+	snap := &DeepPLCLowbandSnapshot{
+		stereo:        d.stereo,
+		state:         d.state[0],
+		resampler:     resampler.snapshot(),
+		outputHistory: append([]float32(nil), d.outputHistory...),
+		historyIndex:  d.historyIndex,
+		prevLPCValues: append([]float32(nil), d.prevLPCValues...),
+	}
+	if d.silkPLCState[0] != nil {
+		snap.silkPLCState = *d.silkPLCState[0]
+		snap.hasPLCState = true
+	}
+	return snap
+}
+
+func (d *Decoder) RestoreDeepPLCLowbandMono(s *DeepPLCLowbandSnapshot) {
+	if d == nil || s == nil {
+		return
+	}
+	d.stereo = s.stereo
+	if resampler := d.GetResampler(BandwidthWideband); resampler != nil {
+		resampler.restore(s.resampler)
+	}
+	d.state[0] = s.state
+	if s.hasPLCState {
+		if d.silkPLCState[0] == nil {
+			d.silkPLCState[0] = &plc.SILKPLCState{}
+		}
+		*d.silkPLCState[0] = s.silkPLCState
+	} else {
+		d.silkPLCState[0] = nil
+	}
+	if s.outputHistory != nil {
+		if cap(d.outputHistory) < len(s.outputHistory) {
+			d.outputHistory = make([]float32, len(s.outputHistory))
+		} else {
+			d.outputHistory = d.outputHistory[:len(s.outputHistory)]
+		}
+		copy(d.outputHistory, s.outputHistory)
+	}
+	d.historyIndex = s.historyIndex
+	if s.prevLPCValues != nil {
+		if cap(d.prevLPCValues) < len(s.prevLPCValues) {
+			d.prevLPCValues = make([]float32, len(s.prevLPCValues))
+		} else {
+			d.prevLPCValues = d.prevLPCValues[:len(s.prevLPCValues)]
+		}
+		copy(d.prevLPCValues, s.prevLPCValues)
+	}
+}
+
+func (d *Decoder) AdvanceDeepPLCLowbandMono(concealed []float32) bool {
+	if d == nil || len(concealed) == 0 {
+		return false
+	}
+	resampler := d.GetResampler(BandwidthWideband)
+	if resampler == nil {
+		return false
+	}
+	var native []int16
+	if d.scratchOutInt16 != nil && len(d.scratchOutInt16) >= len(concealed) {
+		native = d.scratchOutInt16[:len(concealed)]
+	} else {
+		native = make([]int16, len(concealed))
+	}
+	for i, sample := range concealed {
+		native[i] = float32ToInt16(sample)
+	}
+	in := d.BuildMonoResamplerInputInt16(native)
+	needed := len(concealed) * 3
+	if needed <= 0 {
+		return false
+	}
+	if cap(d.upsampleScratch) < needed {
+		d.upsampleScratch = make([]float32, needed)
+	}
+	resampler.ProcessInt16Into(in, d.upsampleScratch[:needed])
+	return true
 }
 
 // BuildMonoResamplerInput prepares the mono resampler input using libopus-style sMid buffering.

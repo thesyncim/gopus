@@ -26,6 +26,44 @@ type LibopusResampler struct {
 	scratchResult []float32 // Size: max output samples
 }
 
+type libopusResamplerSnapshot struct {
+	sIIR     [6]int32
+	sFIR     [8]int16
+	delayBuf []int16
+}
+
+func (r *LibopusResampler) snapshot() libopusResamplerSnapshot {
+	if r == nil {
+		return libopusResamplerSnapshot{}
+	}
+	s := libopusResamplerSnapshot{
+		sIIR: r.sIIR,
+		sFIR: r.sFIR,
+	}
+	if len(r.delayBuf) != 0 {
+		s.delayBuf = append([]int16(nil), r.delayBuf...)
+	}
+	return s
+}
+
+func (r *LibopusResampler) restore(s libopusResamplerSnapshot) {
+	if r == nil {
+		return
+	}
+	r.sIIR = s.sIIR
+	r.sFIR = s.sFIR
+	if len(s.delayBuf) == 0 {
+		r.delayBuf = nil
+		return
+	}
+	if cap(r.delayBuf) < len(s.delayBuf) {
+		r.delayBuf = make([]int16, len(s.delayBuf))
+	} else {
+		r.delayBuf = r.delayBuf[:len(s.delayBuf)]
+	}
+	copy(r.delayBuf, s.delayBuf)
+}
+
 // resampleIIRFIRSliceWithScratch is like resampleIIRFIRSlice but uses a pre-allocated scratch buffer.
 func (r *LibopusResampler) resampleIIRFIRSliceWithScratch(out []int16, in []int16, scratch []int16) {
 	inLen := int32(len(in))

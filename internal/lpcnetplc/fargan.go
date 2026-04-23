@@ -97,6 +97,16 @@ type FARGAN struct {
 	scratch farganScratch
 }
 
+// LastPeriod reports the most recent pitch period carried by the retained
+// FARGAN runtime. Decoder DRED parity uses this to align SILK lowband carry
+// state after neural concealment without copying the full snapshot.
+func (f *FARGAN) LastPeriod() int {
+	if f == nil {
+		return 0
+	}
+	return f.state.lastPeriod
+}
+
 var farganSignalLayerSpecs = []LinearLayerSpec{
 	{
 		Name:         "sig_net_cond_gain_dense",

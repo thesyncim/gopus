@@ -25,7 +25,22 @@ type libopusDecoderDREDSequenceStepInfo struct {
 	state   lpcnetplc.StateSnapshot
 	fargan  lpcnetplc.FARGANSnapshot
 	celt48k libopusDecoderDREDCELTSnapshot
+	silk    libopusDecoderDREDSILKSnapshot
 	pcm     []float32
+}
+
+type libopusDecoderDREDSILKSnapshot struct {
+	LagPrev        int
+	LastGainIndex  int
+	LossCount      int
+	PrevSignalType int
+	SMid           [2]float32
+	OutBuf         [480]float32
+	SLPCQ14        [16]float32
+	ExcQ14         [320]float32
+	ResamplerIIR   [6]float32
+	ResamplerFIR   [8]float32
+	ResamplerDelay [96]float32
 }
 
 type libopusDecoderDREDSequenceInfo struct {
@@ -229,6 +244,28 @@ func probeLibopusDecoderDREDSequence(seedPacket, carrierPacket, nextPacket []byt
 			step.fargan.GRU3State[:],
 			step.celt48k.PreemphMem[:],
 			step.celt48k.PLCPCM[:],
+		} {
+			if err := readBits(dst); err != nil {
+				return err
+			}
+		}
+		if offset+16 > len(out) {
+			return fmt.Errorf("truncated decoder dred sequence helper silk header")
+		}
+		step.silk.LagPrev = int(int32(binary.LittleEndian.Uint32(out[offset : offset+4])))
+		offset += 4
+		step.silk.LastGainIndex = int(int32(binary.LittleEndian.Uint32(out[offset : offset+4])))
+		offset += 4
+		step.silk.LossCount = int(int32(binary.LittleEndian.Uint32(out[offset : offset+4])))
+		offset += 4
+		step.silk.PrevSignalType = int(int32(binary.LittleEndian.Uint32(out[offset : offset+4])))
+		offset += 4
+		for _, dst := range [][]float32{
+			step.silk.SMid[:],
+			step.silk.OutBuf[:],
+			step.silk.ResamplerIIR[:],
+			step.silk.ResamplerFIR[:],
+			step.silk.ResamplerDelay[:],
 		} {
 			if err := readBits(dst); err != nil {
 				return err
