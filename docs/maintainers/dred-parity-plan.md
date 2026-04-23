@@ -101,7 +101,7 @@ Implemented or in progress:
 - the lazy encoder DRED runtime now also retains the 2.5 ms activity window plus `last_extra_dred_offset` bookkeeping that libopus uses to delay or suppress payloads around silence transitions
 - the pure-Go encoder side now has a byte-for-byte libopus-backed experimental DRED payload builder for the `dred_encode_silk_frame()` seam, including header coding, quantizer signalling, offset bookkeeping, Laplace-coded state/latent chunks, and the same delayed-out-of-silence suppression rules
 - the non-CELT encoder path now has bounded pure-Go DRED extension carriers for both the single-frame seam and the repacketized SILK long-packet seam, and the carry path now follows libopus more closely by only padding those extension packets in CBR instead of padding VBR/CVBR packets unconditionally
-- the unsupported-controls gate now includes real-model libopus packet-parity checks for carried SILK WB 20 ms, Hybrid FB 20 ms, and SILK WB 40 ms DRED extension payloads
+- the unsupported-controls gate now includes real-model libopus packet-parity checks for carried SILK WB 20 ms, Hybrid FB 20 ms, SILK WB 40 ms, Hybrid FB 40 ms, and SILK WB 60 ms DRED extension payloads
 
 Recent closed seams to avoid re-debugging:
 

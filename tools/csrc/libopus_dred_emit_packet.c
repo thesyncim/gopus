@@ -174,15 +174,9 @@ int main(void) {
 
   bitrate = dred_helper_bitrate_for_frame_size(frame_size);
 
-  if (force_mode_enabled && force_mode == MODE_HYBRID) {
-    if (frame_size != 480 && frame_size != 960) {
-      fprintf(stderr, "hybrid DRED packet helper only supports 10ms/20ms frame sizes, got %d\n", frame_size);
-      return 1;
-    }
-    if (bandwidth <= OPUS_BANDWIDTH_WIDEBAND) {
-      fprintf(stderr, "hybrid DRED packet helper requires swb/fb bandwidth, got %d\n", bandwidth);
-      return 1;
-    }
+  if (force_mode_enabled && force_mode == MODE_HYBRID && bandwidth <= OPUS_BANDWIDTH_WIDEBAND) {
+    fprintf(stderr, "hybrid DRED packet helper requires swb/fb bandwidth, got %d\n", bandwidth);
+    return 1;
   }
 
   if (!set_binary_stdio()) {
