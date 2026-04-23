@@ -63,6 +63,9 @@ type decoderDREDNeuralState struct {
 	dredPredictor lpcnetplc.Predictor
 	dredFARGAN    lpcnetplc.FARGAN
 	dredPLCUpdate [4 * lpcnetplc.FrameSize]float32
+	dredPLCRender [4 * lpcnetplc.FrameSize]float32
+
+	dredRawHistoryUpdated bool
 
 	pitchDNNLoaded    bool
 	plcModelLoaded    bool

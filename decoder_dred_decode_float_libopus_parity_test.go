@@ -34,6 +34,7 @@ type libopusDecoderDREDDecodeFloatInfo struct {
 	state     lpcnetplc.StateSnapshot
 	fargan    lpcnetplc.FARGANSnapshot
 	celt48k   libopusDecoderDREDCELTSnapshot
+	silk      libopusDecoderDREDSILKSnapshot
 	pcm       []float32
 	nextPCM   []float32
 }
@@ -226,7 +227,7 @@ func probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packet, nextPacket []
 	}
 
 	out := stdout.Bytes()
-	const headerSize = 92
+	const headerSize = 108
 	if len(out) < headerSize || string(out[:4]) != libopusDecoderDREDDecodeFloatOutputMagic {
 		return libopusDecoderDREDDecodeFloatInfo{}, fmt.Errorf("unexpected decoder dred decode helper output")
 	}
@@ -253,6 +254,10 @@ func probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packet, nextPacket []
 	info.celt48k.PLCDuration = int(int32(binary.LittleEndian.Uint32(out[80:84])))
 	info.celt48k.SkipPLC = int(int32(binary.LittleEndian.Uint32(out[84:88])))
 	info.celt48k.PLCPreemphasisMem = math.Float32frombits(binary.LittleEndian.Uint32(out[88:92]))
+	info.silk.LagPrev = int(int32(binary.LittleEndian.Uint32(out[92:96])))
+	info.silk.LastGainIndex = int(int32(binary.LittleEndian.Uint32(out[96:100])))
+	info.silk.LossCount = int(int32(binary.LittleEndian.Uint32(out[100:104])))
+	info.silk.PrevSignalType = int(int32(binary.LittleEndian.Uint32(out[104:108])))
 	offset := headerSize
 	readBits := func(dst []float32) error {
 		for i := range dst {
@@ -311,6 +316,19 @@ func probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packet, nextPacket []
 	for _, dst := range [][]float32{
 		info.celt48k.PreemphMem[:],
 		info.celt48k.PLCPCM[:],
+	} {
+		if err := readBits(dst); err != nil {
+			return libopusDecoderDREDDecodeFloatInfo{}, err
+		}
+	}
+	for _, dst := range [][]float32{
+		info.silk.SMid[:],
+		info.silk.OutBuf[:],
+		info.silk.SLPCQ14[:],
+		info.silk.ExcQ14[:],
+		info.silk.ResamplerIIR[:],
+		info.silk.ResamplerFIR[:],
+		info.silk.ResamplerDelay[:],
 	} {
 		if err := readBits(dst); err != nil {
 			return libopusDecoderDREDDecodeFloatInfo{}, err

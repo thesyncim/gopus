@@ -5,6 +5,7 @@ package gopus
 
 import (
 	internaldred "github.com/thesyncim/gopus/internal/dred"
+	"github.com/thesyncim/gopus/silk"
 )
 
 func (d *Decoder) explicitDREDResultForDecode(dred *DRED) internaldred.Result {
@@ -65,9 +66,12 @@ func (d *Decoder) decodeExplicitDREDFloat(dred *DRED, dredOffsetSamples int, pcm
 		return 0, ErrBufferTooSmall
 	}
 
-	d.queueExplicitDREDRecovery(dred, dredOffsetSamples, frameSizeSamples)
 	primeAnalysis := d.sampleRate == 16000
 	if d.sampleRate == 48000 {
+		if d.prevMode == ModeHybrid {
+			return d.decodeExplicitHybridDREDFloat(dred, dredOffsetSamples, pcm[:needed], frameSizeSamples)
+		}
+		d.queueExplicitDREDRecovery(dred, dredOffsetSamples, frameSizeSamples)
 		d.prepareDRED48kNeuralEntry(frameSizeSamples, d.prevMode, primeAnalysis)
 		if !d.applyDREDNeuralConcealment48kMono(pcm[:needed], frameSizeSamples) {
 			return 0, ErrInvalidPacket
@@ -87,4 +91,39 @@ func (d *Decoder) decodeExplicitDREDFloat(dred *DRED, dredOffsetSamples int, pcm
 	d.lastPacketDuration = frameSizeSamples
 	d.lastDataLen = 0
 	return frameSizeSamples, nil
+}
+
+func (d *Decoder) decodeExplicitHybridDREDFloat(dred *DRED, dredOffsetSamples int, pcm []float32, frameSizeSamples int) (int, error) {
+	if d == nil {
+		return 0, ErrInvalidArgument
+	}
+	queued := d.queueExplicitDREDRecovery(dred, dredOffsetSamples, frameSizeSamples)
+	var lowbandSnapshot *silk.DeepPLCLowbandSnapshot
+	cleanupHook := func() {}
+	usedHook := func() bool { return false }
+	if d.dredNeuralConcealmentAvailable() && d.silkDecoder != nil {
+		lowbandSnapshot = d.silkDecoder.SnapshotDeepPLCLowbandMono()
+		cleanupHook, usedHook = d.beginHybridDREDLowbandHook()
+	}
+	defer cleanupHook()
+	n, err := d.decodePLCChunksInto(pcm, frameSizeSamples, plcDecodeState{
+		packetFrameSize:    frameSizeSamples,
+		mode:               d.prevMode,
+		bandwidth:          d.lastBandwidth,
+		packetStereo:       d.prevPacketStereo,
+		useDecoderPLCState: true,
+	})
+	if err != nil {
+		return 0, err
+	}
+	if usedHook() {
+		d.finishActiveDREDRecovery(n)
+	} else if queued.NeededFeatureFrames > 0 || d.dredRecoveryState() != nil {
+		d.advanceHybridDREDLowbandState(n, lowbandSnapshot)
+	}
+	d.applyOutputGain(pcm[:n*d.channels])
+	d.lastFrameSize = n
+	d.lastPacketDuration = n
+	d.lastDataLen = 0
+	return n, nil
 }

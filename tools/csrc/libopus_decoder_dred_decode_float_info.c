@@ -17,6 +17,7 @@
 #include "celt/float_cast.h"
 #include "celt/modes.h"
 #include "silk/control.h"
+#include "resampler_rom.h"
 #include "structs.h"
 #include "lpcnet_private.h"
 
@@ -29,6 +30,14 @@
 
 #define GOPUS_PLC_UPDATE_SAMPLES (4 * FRAME_SIZE)
 #define GOPUS_SINC_ORDER 48
+
+typedef struct {
+  silk_decoder_state channel_state[DECODER_NUM_CHANNELS];
+  stereo_dec_state sStereo;
+  opus_int nChannelsAPI;
+  opus_int nChannelsInternal;
+  opus_int prev_decode_only_middle;
+} silk_decoder;
 
 static const float gopus_sinc_filter[GOPUS_SINC_ORDER + 1] = {
   4.2931e-05f, -0.000190293f, -0.000816132f, -0.000637162f, 0.00141662f, 0.00354764f, 0.00184368f, -0.00428274f,
@@ -228,14 +237,33 @@ int main(void) {
   int celt_plc_duration = 0;
   int celt_skip_plc = 0;
   float celt_plc_preemphasis_mem = 0;
+  int silk_lag_prev = 0;
+  int silk_last_gain_index = 0;
+  int silk_loss_cnt = 0;
+  int silk_prev_signal_type = 0;
+  float silk_smid[2] = {0, 0};
+  float silk_outbuf[MAX_FRAME_LENGTH + 2 * MAX_SUB_FRAME_LENGTH];
+  float silk_slpc_q14[MAX_LPC_ORDER];
+  float silk_exc_q14[MAX_FRAME_LENGTH];
+  float silk_resampler_iir[SILK_RESAMPLER_MAX_IIR_ORDER];
+  float silk_resampler_fir[RESAMPLER_ORDER_FIR_12];
+  float silk_resampler_delay[96];
   float warmup_preemph_mem[2] = {0, 0};
   float warmup_plc_preemphasis_mem = 0;
   float warmup_plc_update[GOPUS_PLC_UPDATE_SAMPLES];
   GopusInternalCELTDecoder *celt_dec = NULL;
   GopusInternalOpusDecoder *internal_dec = NULL;
+  silk_decoder *silk_dec = NULL;
+  silk_decoder_state *silk_state = NULL;
   int i;
 
   OPUS_CLEAR(warmup_plc_update, GOPUS_PLC_UPDATE_SAMPLES);
+  OPUS_CLEAR(silk_outbuf, MAX_FRAME_LENGTH + 2 * MAX_SUB_FRAME_LENGTH);
+  OPUS_CLEAR(silk_slpc_q14, MAX_LPC_ORDER);
+  OPUS_CLEAR(silk_exc_q14, MAX_FRAME_LENGTH);
+  OPUS_CLEAR(silk_resampler_iir, SILK_RESAMPLER_MAX_IIR_ORDER);
+  OPUS_CLEAR(silk_resampler_fir, RESAMPLER_ORDER_FIR_12);
+  OPUS_CLEAR(silk_resampler_delay, 96);
 
   if (!set_binary_stdio()) {
     fprintf(stderr, "failed to set binary stdio mode\n");
@@ -494,11 +522,37 @@ int main(void) {
     fargan_cont_initialized = internal_dec->lpcnet.fargan.cont_initialized;
     fargan_last_period = internal_dec->lpcnet.fargan.last_period;
     celt_dec = (GopusInternalCELTDecoder *)((char *)dec + internal_dec->celt_dec_offset);
+    silk_dec = (silk_decoder *)((char *)dec + internal_dec->silk_dec_offset);
+    silk_state = &silk_dec->channel_state[0];
     celt_last_frame_type = celt_dec->last_frame_type;
     celt_plc_fill = celt_dec->plc_fill;
     celt_plc_duration = celt_dec->plc_duration;
     celt_skip_plc = celt_dec->skip_plc;
     celt_plc_preemphasis_mem = (1.0f / 32768.0f) * celt_dec->plc_preemphasis_mem;
+    silk_lag_prev = silk_state->lagPrev;
+    silk_last_gain_index = silk_state->LastGainIndex;
+    silk_loss_cnt = silk_state->lossCnt;
+    silk_prev_signal_type = silk_state->prevSignalType;
+    silk_smid[0] = (1.0f / 32768.0f) * silk_dec->sStereo.sMid[0];
+    silk_smid[1] = (1.0f / 32768.0f) * silk_dec->sStereo.sMid[1];
+    for (i = 0; i < MAX_FRAME_LENGTH + 2 * MAX_SUB_FRAME_LENGTH; i++) {
+      silk_outbuf[i] = (1.0f / 32768.0f) * silk_state->outBuf[i];
+    }
+    for (i = 0; i < MAX_LPC_ORDER; i++) {
+      silk_slpc_q14[i] = (float)silk_state->sLPC_Q14_buf[i];
+    }
+    for (i = 0; i < MAX_FRAME_LENGTH; i++) {
+      silk_exc_q14[i] = (float)silk_state->exc_Q14[i];
+    }
+    for (i = 0; i < SILK_RESAMPLER_MAX_IIR_ORDER; i++) {
+      silk_resampler_iir[i] = (float)silk_state->resampler_state.sIIR[i];
+    }
+    for (i = 0; i < RESAMPLER_ORDER_FIR_12; i++) {
+      silk_resampler_fir[i] = (1.0f / 32768.0f) * silk_state->resampler_state.sFIR.i16[i];
+    }
+    for (i = 0; i < 96; i++) {
+      silk_resampler_delay[i] = (1.0f / 32768.0f) * silk_state->resampler_state.delayBuf[i];
+    }
   }
 
   if (!write_exact(OUTPUT_MAGIC, 4) ||
@@ -523,7 +577,11 @@ int main(void) {
       !write_i32(celt_plc_fill) ||
       !write_i32(celt_plc_duration) ||
       !write_i32(celt_skip_plc) ||
-      !write_f32(celt_plc_preemphasis_mem)) {
+      !write_f32(celt_plc_preemphasis_mem) ||
+      !write_i32(silk_lag_prev) ||
+      !write_i32(silk_last_gain_index) ||
+      !write_i32(silk_loss_cnt) ||
+      !write_i32(silk_prev_signal_type)) {
     fprintf(stderr, "failed to write helper header\n");
     free(out_pcm);
     free(seed_pcm);
@@ -643,6 +701,27 @@ int main(void) {
           free(packet);
           return 1;
         }
+      }
+      if (!write_f32_array(silk_smid, 2) ||
+          !write_f32_array(silk_outbuf, MAX_FRAME_LENGTH + 2 * MAX_SUB_FRAME_LENGTH) ||
+          !write_f32_array(silk_slpc_q14, MAX_LPC_ORDER) ||
+          !write_f32_array(silk_exc_q14, MAX_FRAME_LENGTH) ||
+          !write_f32_array(silk_resampler_iir, SILK_RESAMPLER_MAX_IIR_ORDER) ||
+          !write_f32_array(silk_resampler_fir, RESAMPLER_ORDER_FIR_12) ||
+          !write_f32_array(silk_resampler_delay, 96)) {
+        fprintf(stderr, "failed to write decoder DRED SILK state\n");
+        free(out_pcm);
+        free(next_out_pcm);
+        free(seed_pcm);
+        opus_dred_free(dred);
+        opus_dred_decoder_destroy(dred_dec);
+        opus_decoder_destroy(dec);
+        free(dred_model_blob);
+        free(decoder_model_blob);
+        free(next_packet);
+        free(seed_packet);
+        free(packet);
+        return 1;
       }
       if (!write_f32_array(warmup_preemph_mem, 2) ||
           !write_f32(warmup_plc_preemphasis_mem) ||

@@ -90,6 +90,8 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 
 	offsetSamples := 0
 	var qextPayloads [maxRepacketizerFrames][]byte
+	endRawDREDCapture := d.beginDREDRawMonoGoodFrameCapture(toc.Mode)
+	defer endRawDREDCapture()
 	decodeFrame := func(frameIndex int, frameData []byte) error {
 		var qextPayload []byte
 		if extsupport.QEXT && toc.Mode == ModeCELT && !d.ignoreExtensions && frameIndex >= 0 && frameIndex < len(qextPayloads) {
@@ -276,7 +278,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		r.dredRecovery = 0
 	}
 	if d.dredSidecarActive() {
-		d.markDREDUpdatedPCM(pcm[:totalSamples*d.channels], totalSamples)
+		d.markDREDUpdatedPCM(pcm[:totalSamples*d.channels], totalSamples, toc.Mode)
 	}
 	d.applyOutputGain(pcm[:totalSamples*d.channels])
 	return totalSamples, nil

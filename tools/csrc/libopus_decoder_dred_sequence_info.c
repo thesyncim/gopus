@@ -16,6 +16,7 @@
 #include "celt/os_support.h"
 #include "opus_private.h"
 #include "silk/control.h"
+#include "resampler_rom.h"
 #include "structs.h"
 #include "lpcnet_private.h"
 
@@ -27,6 +28,14 @@
 #endif
 
 #define GOPUS_PLC_UPDATE_SAMPLES (4 * FRAME_SIZE)
+
+typedef struct {
+  silk_decoder_state channel_state[DECODER_NUM_CHANNELS];
+  stereo_dec_state sStereo;
+  opus_int nChannelsAPI;
+  opus_int nChannelsInternal;
+  opus_int prev_decode_only_middle;
+} silk_decoder;
 
 typedef struct {
   int celt_dec_offset;
@@ -111,6 +120,15 @@ typedef struct {
   float fargan_gru3[SIG_NET_GRU3_STATE_SIZE];
   float celt_preemph_mem[2];
   float celt_plc_pcm[GOPUS_PLC_UPDATE_SAMPLES];
+  int silk_lag_prev;
+  int silk_last_gain_index;
+  int silk_loss_cnt;
+  int silk_prev_signal_type;
+  float silk_smid[2];
+  float silk_outbuf[MAX_FRAME_LENGTH + 2 * MAX_SUB_FRAME_LENGTH];
+  float silk_resampler_iir[SILK_RESAMPLER_MAX_IIR_ORDER];
+  float silk_resampler_fir[RESAMPLER_ORDER_FIR_12];
+  float silk_resampler_delay[96];
 } GopusSequenceSnapshot;
 
 static int read_exact(void *dst, size_t n) {
@@ -180,6 +198,8 @@ static void clear_snapshot(GopusSequenceSnapshot *snap) {
 static void capture_snapshot(OpusDecoder *dec, int ret, GopusSequenceSnapshot *snap) {
   GopusInternalOpusDecoder *internal_dec;
   GopusInternalCELTDecoder *celt_dec;
+  silk_decoder *silk_dec;
+  silk_decoder_state *silk_state;
   if (dec == NULL || snap == NULL) {
     return;
   }
@@ -226,6 +246,29 @@ static void capture_snapshot(OpusDecoder *dec, int ret, GopusSequenceSnapshot *s
       snap->celt_plc_pcm[i] = (1.0f / 32768.0f) * celt_dec->plc_pcm[i];
     }
   }
+  silk_dec = (silk_decoder *)((char *)dec + internal_dec->silk_dec_offset);
+  silk_state = &silk_dec->channel_state[0];
+  snap->silk_lag_prev = silk_state->lagPrev;
+  snap->silk_last_gain_index = silk_state->LastGainIndex;
+  snap->silk_loss_cnt = silk_state->lossCnt;
+  snap->silk_prev_signal_type = silk_state->prevSignalType;
+  snap->silk_smid[0] = (1.0f / 32768.0f) * silk_dec->sStereo.sMid[0];
+  snap->silk_smid[1] = (1.0f / 32768.0f) * silk_dec->sStereo.sMid[1];
+  {
+    int i;
+    for (i = 0; i < MAX_FRAME_LENGTH + 2 * MAX_SUB_FRAME_LENGTH; i++) {
+      snap->silk_outbuf[i] = (1.0f / 32768.0f) * silk_state->outBuf[i];
+    }
+    for (i = 0; i < SILK_RESAMPLER_MAX_IIR_ORDER; i++) {
+      snap->silk_resampler_iir[i] = (float)silk_state->resampler_state.sIIR[i];
+    }
+    for (i = 0; i < RESAMPLER_ORDER_FIR_12; i++) {
+      snap->silk_resampler_fir[i] = (1.0f / 32768.0f) * silk_state->resampler_state.sFIR.i16[i];
+    }
+    for (i = 0; i < 96; i++) {
+      snap->silk_resampler_delay[i] = (1.0f / 32768.0f) * silk_state->resampler_state.delayBuf[i];
+    }
+  }
 }
 
 static int write_snapshot(const GopusSequenceSnapshot *snap) {
@@ -264,7 +307,16 @@ static int write_snapshot(const GopusSequenceSnapshot *snap) {
       write_f32_array(snap->fargan_gru2, SIG_NET_GRU2_STATE_SIZE) &&
       write_f32_array(snap->fargan_gru3, SIG_NET_GRU3_STATE_SIZE) &&
       write_f32_array(snap->celt_preemph_mem, 2) &&
-      write_f32_array(snap->celt_plc_pcm, GOPUS_PLC_UPDATE_SAMPLES);
+      write_f32_array(snap->celt_plc_pcm, GOPUS_PLC_UPDATE_SAMPLES) &&
+      write_i32(snap->silk_lag_prev) &&
+      write_i32(snap->silk_last_gain_index) &&
+      write_i32(snap->silk_loss_cnt) &&
+      write_i32(snap->silk_prev_signal_type) &&
+      write_f32_array(snap->silk_smid, 2) &&
+      write_f32_array(snap->silk_outbuf, MAX_FRAME_LENGTH + 2 * MAX_SUB_FRAME_LENGTH) &&
+      write_f32_array(snap->silk_resampler_iir, SILK_RESAMPLER_MAX_IIR_ORDER) &&
+      write_f32_array(snap->silk_resampler_fir, RESAMPLER_ORDER_FIR_12) &&
+      write_f32_array(snap->silk_resampler_delay, 96);
 }
 
 static int run_step(OpusDecoder *dec, const OpusDRED *dred, int dred_offset, int frame_size, float *out_pcm) {

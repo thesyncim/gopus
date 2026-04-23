@@ -177,6 +177,7 @@ func (d *Decoder) finalizeDecodedChannelFrame(channel int, st *decoderState, ctr
 	}
 	silkUpdateOutBuf(st, frameOut)
 	d.updateSILKPLCStateFromCtrl(channel, st, ctrl)
+	d.fireRawMonoFrameHook(channel, st, frameOut)
 
 	st.lossCnt = 0
 	st.prevSignalType = int(st.indices.signalType)

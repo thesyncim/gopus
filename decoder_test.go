@@ -492,7 +492,7 @@ func TestClearingStandaloneDREDPreservesMainNeuralState(t *testing.T) {
 		pcm[i] = float32((i%23)-11) / 23
 	}
 	dec.ensureDREDRecoveryState()
-	dec.markDREDUpdatedPCM(pcm[:], len(pcm))
+	dec.markDREDUpdatedPCM(pcm[:], len(pcm), ModeSILK)
 	before := requireDecoderDREDState(t, dec).dredPLC.Snapshot()
 
 	setValidDREDDecoderBlobForTest(t, dec)
@@ -695,7 +695,7 @@ func TestDecoderDREDRecoveryBlendFollowsLifecycle(t *testing.T) {
 	}
 }
 
-func TestDecoderMarkDREDUpdatedPCMClearsBlendWithoutRewritingHistory(t *testing.T) {
+func TestDecoderMarkDREDUpdatedPCMRefreshesNeuralHistory(t *testing.T) {
 	dec, err := NewDecoder(DefaultDecoderConfig(16000, 1))
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
@@ -718,28 +718,35 @@ func TestDecoderMarkDREDUpdatedPCMClearsBlendWithoutRewritingHistory(t *testing.
 		t.Fatalf("FillPCMHistory(before)=%d want %d", n, lpcnetplc.PLCBufSize)
 	}
 	before := state.dredPLC.Snapshot()
-	dec.markDREDUpdatedPCM(pcm[:], len(pcm))
+	dec.markDREDUpdatedPCM(pcm[:], len(pcm), ModeSILK)
 	after := state.dredPLC.Snapshot()
 	if after.Blend != 0 {
 		t.Fatalf("Blend=%d want 0", after.Blend)
 	}
-	if after.AnalysisPos != before.AnalysisPos {
-		t.Fatalf("AnalysisPos=%d want %d", after.AnalysisPos, before.AnalysisPos)
+	wantAnalysisPos := max(0, before.AnalysisPos-len(pcm))
+	if after.AnalysisPos != wantAnalysisPos {
+		t.Fatalf("AnalysisPos=%d want %d", after.AnalysisPos, wantAnalysisPos)
 	}
-	if after.PredictPos != before.PredictPos {
-		t.Fatalf("PredictPos=%d want %d", after.PredictPos, before.PredictPos)
+	wantPredictPos := max(0, before.PredictPos-len(pcm))
+	if after.PredictPos != wantPredictPos {
+		t.Fatalf("PredictPos=%d want %d", after.PredictPos, wantPredictPos)
 	}
-	if after.LossCount != before.LossCount {
-		t.Fatalf("LossCount=%d want %d", after.LossCount, before.LossCount)
+	if after.LossCount != 0 {
+		t.Fatalf("LossCount=%d want 0", after.LossCount)
 	}
 	var history [lpcnetplc.PLCBufSize]float32
 	if n := state.dredPLC.FillPCMHistory(history[:]); n != lpcnetplc.PLCBufSize {
 		t.Fatalf("FillPCMHistory()=%d want %d", n, lpcnetplc.PLCBufSize)
 	}
-	for i := range history {
-		if history[i] != beforeHistory[i] {
-			t.Fatalf("history[%d]=%v want %v", i, history[i], beforeHistory[i])
+	for i := 0; i < len(pcm); i++ {
+		want := lpcnetplcTestQuantizePCMInt16Like(pcm[i])
+		got := history[len(history)-len(pcm)+i]
+		if got != want {
+			t.Fatalf("history tail[%d]=%v want %v", i, got, want)
 		}
+	}
+	if slices.Equal(history[:], beforeHistory[:]) {
+		t.Fatal("history unexpectedly stayed unchanged after good-frame update")
 	}
 }
 
@@ -752,7 +759,7 @@ func TestDecoderMarkDREDUpdatedPCMDormantWithoutSidecar(t *testing.T) {
 	for i := range pcm {
 		pcm[i] = float32((i%13)-6) / 13
 	}
-	dec.markDREDUpdatedPCM(pcm[:], len(pcm))
+	dec.markDREDUpdatedPCM(pcm[:], len(pcm), ModeSILK)
 	if dec.dredState() != nil {
 		t.Fatalf("dred sidecar awakened without sidecar request: %+v", dec.dredState())
 	}
@@ -769,7 +776,7 @@ func TestDecoderMarkDREDUpdatedPCMDoesNotTrackHistoryWithoutNeuralConcealment(t 
 	for i := range pcm {
 		pcm[i] = float32((i%17)-8) / 17
 	}
-	dec.markDREDUpdatedPCM(pcm[:], len(pcm))
+	dec.markDREDUpdatedPCM(pcm[:], len(pcm), ModeSILK)
 
 	state := requireDecoderDREDState(t, dec)
 	if state.decoderDREDRecoveryState != nil {
