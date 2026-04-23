@@ -43,6 +43,7 @@ func ensureLibopusDREDBuild() (sourceDir, buildDir string, err error) {
 		}
 		repoRoot = filepath.Clean(filepath.Join(repoRoot, "..", ".."))
 		libopusDREDRepoRoot = repoRoot
+		referenceDir := filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion)
 		sourceDir = filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion+"-dredsrc-clean")
 		buildDir = filepath.Join(repoRoot, "tmp_check", "build-opus-dred")
 		libopusStatic := filepath.Join(buildDir, ".libs", "libopus.a")
@@ -53,23 +54,27 @@ func ensureLibopusDREDBuild() (sourceDir, buildDir string, err error) {
 		}
 
 		if _, err := os.Stat(filepath.Join(sourceDir, "configure")); err != nil {
-			tarball := filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion+".tar.gz")
-			if _, err := os.Stat(tarball); err != nil {
-				libopusDREDBuildErr = fmt.Errorf("libopus tarball not found and no prepared dred source tree present: %w", err)
-				return
-			}
-			if err := os.RemoveAll(sourceDir); err != nil {
-				libopusDREDBuildErr = fmt.Errorf("remove stale libopus source dir: %w", err)
-				return
-			}
-			if err := os.MkdirAll(sourceDir, 0o755); err != nil {
-				libopusDREDBuildErr = fmt.Errorf("mkdir libopus source dir: %w", err)
-				return
-			}
-			cmd := exec.Command("tar", "-xzf", tarball, "-C", sourceDir, "--strip-components=1")
-			if output, err := cmd.CombinedOutput(); err != nil {
-				libopusDREDBuildErr = fmt.Errorf("extract libopus source: %w (%s)", err, bytes.TrimSpace(output))
-				return
+			if _, refErr := os.Stat(filepath.Join(referenceDir, "configure")); refErr == nil {
+				sourceDir = referenceDir
+			} else {
+				tarball := filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion+".tar.gz")
+				if _, err := os.Stat(tarball); err != nil {
+					libopusDREDBuildErr = fmt.Errorf("libopus tarball not found and no prepared source tree present: %w", err)
+					return
+				}
+				if err := os.RemoveAll(sourceDir); err != nil {
+					libopusDREDBuildErr = fmt.Errorf("remove stale libopus source dir: %w", err)
+					return
+				}
+				if err := os.MkdirAll(sourceDir, 0o755); err != nil {
+					libopusDREDBuildErr = fmt.Errorf("mkdir libopus source dir: %w", err)
+					return
+				}
+				cmd := exec.Command("tar", "-xzf", tarball, "-C", sourceDir, "--strip-components=1")
+				if output, err := cmd.CombinedOutput(); err != nil {
+					libopusDREDBuildErr = fmt.Errorf("extract libopus source: %w (%s)", err, bytes.TrimSpace(output))
+					return
+				}
 			}
 		}
 		if err := os.MkdirAll(buildDir, 0o755); err != nil {

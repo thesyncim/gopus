@@ -47,6 +47,7 @@ var (
 )
 
 func ensureLibopusDREDBuild(repoRoot string) (sourceDir, buildDir string, err error) {
+	referenceDir := filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion)
 	sourceDir = filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion+"-dredsrc-clean")
 	buildDir = filepath.Join(repoRoot, "tmp_check", "build-opus-dred")
 	libopusStatic := filepath.Join(buildDir, ".libs", "libopus.a")
@@ -55,19 +56,23 @@ func ensureLibopusDREDBuild(repoRoot string) (sourceDir, buildDir string, err er
 	}
 
 	if _, err := os.Stat(filepath.Join(sourceDir, "configure")); err != nil {
-		tarball := filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion+".tar.gz")
-		if _, err := os.Stat(tarball); err != nil {
-			return "", "", fmt.Errorf("libopus tarball not found and no prepared dred source tree present: %w", err)
-		}
-		if err := os.RemoveAll(sourceDir); err != nil {
-			return "", "", fmt.Errorf("remove stale dred source dir: %w", err)
-		}
-		if err := os.MkdirAll(sourceDir, 0o755); err != nil {
-			return "", "", fmt.Errorf("mkdir dred source dir: %w", err)
-		}
-		cmd := exec.Command("tar", "-xzf", tarball, "-C", sourceDir, "--strip-components=1")
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return "", "", fmt.Errorf("extract dred libopus source: %w (%s)", err, bytes.TrimSpace(output))
+		if _, refErr := os.Stat(filepath.Join(referenceDir, "configure")); refErr == nil {
+			sourceDir = referenceDir
+		} else {
+			tarball := filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion+".tar.gz")
+			if _, err := os.Stat(tarball); err != nil {
+				return "", "", fmt.Errorf("libopus tarball not found and no prepared source tree present: %w", err)
+			}
+			if err := os.RemoveAll(sourceDir); err != nil {
+				return "", "", fmt.Errorf("remove stale dred source dir: %w", err)
+			}
+			if err := os.MkdirAll(sourceDir, 0o755); err != nil {
+				return "", "", fmt.Errorf("mkdir dred source dir: %w", err)
+			}
+			cmd := exec.Command("tar", "-xzf", tarball, "-C", sourceDir, "--strip-components=1")
+			if output, err := cmd.CombinedOutput(); err != nil {
+				return "", "", fmt.Errorf("extract dred libopus source: %w (%s)", err, bytes.TrimSpace(output))
+			}
 		}
 	}
 
