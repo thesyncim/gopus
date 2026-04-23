@@ -3,7 +3,7 @@ package gopus
 import "github.com/thesyncim/gopus/internal/lpcnetplc"
 
 func (d *Decoder) applyDREDNeuralConcealment48kMono(pcm []float32, samplesPerChannel int) bool {
-	if d == nil || (d.sampleRate != 48000 && d.sampleRate != 16000) || d.channels != 1 || len(pcm) < samplesPerChannel {
+	if d == nil || d.sampleRate != 48000 || d.channels != 1 || len(pcm) < samplesPerChannel {
 		return false
 	}
 	r := d.dredRecoveryState()

@@ -418,7 +418,7 @@ func (d *Decoder) dredCachedPayloadActive() bool {
 }
 
 func (d *Decoder) dredNeedsCELTFloatPath() bool {
-	if d == nil || d.channels != 1 || !d.dredNeuralConfigEligible() {
+	if d == nil || d.sampleRate != 48000 || d.channels != 1 {
 		return false
 	}
 	b := d.dred48kBridgeState()
@@ -613,10 +613,7 @@ func (d *Decoder) prepareDRED48kNeuralEntry(frameSize int, mode Mode) {
 	p := d.dredPayloadState()
 	r := d.dredRecoveryState()
 	b := d.dred48kBridgeState()
-	if d == nil || r == nil || b == nil || d.channels != 1 || (d.sampleRate != 48000 && d.sampleRate != 16000) || (mode != ModeCELT && mode != ModeHybrid) {
-		return
-	}
-	if d.sampleRate != 48000 && mode != ModeCELT {
+	if d == nil || r == nil || b == nil || d.sampleRate != 48000 || d.channels != 1 || (mode != ModeCELT && mode != ModeHybrid) {
 		return
 	}
 	if p != nil && p.dredModelLoaded && !d.ignoreExtensions && !p.dredCache.Empty() {
@@ -691,22 +688,35 @@ func (d *Decoder) applyDREDNeuralConcealment(pcm []float32, samplesPerChannel in
 	if len(pcm) < samplesPerChannel {
 		return false
 	}
-	if b == nil {
-		return false
+	if d.sampleRate == 48000 {
+		if b == nil {
+			return false
+		}
+		if !b.dredLastNeural && b.dredPLCFill == 0 && r.dredPLC.FECFillPos() == 0 && r.dredPLC.FECSkip() == 0 {
+			d.prepareCachedDREDNeuralConcealment(samplesPerChannel)
+		}
+		if !d.applyDREDNeuralConcealment48kMono(pcm, samplesPerChannel) {
+			return false
+		}
+		if p != nil && p.dredModelLoaded && !d.ignoreExtensions && !p.dredCache.Empty() {
+			r.dredRecovery += samplesPerChannel
+		}
+		return true
 	}
-	if !b.dredLastNeural && b.dredPLCFill == 0 && r.dredPLC.FECFillPos() == 0 && r.dredPLC.FECSkip() == 0 {
-		d.prepareCachedDREDNeuralConcealment(samplesPerChannel)
-	}
+	d.prepareCachedDREDNeuralConcealment(samplesPerChannel)
 	if d.celtDecoder != nil && !d.celtDecoder.LastPLCFrameWasNeural() {
 		if r := d.dredRecoveryState(); r != nil && r.dredPLC.Blend() == 0 {
 			d.primeDREDCELTEntryHistory(d.prevMode)
 		}
 	}
-	if !d.applyDREDNeuralConcealment48kMono(pcm, samplesPerChannel) {
+	if !d.generateDREDNeuralFrames16k(pcm, samplesPerChannel) {
 		return false
 	}
 	if p != nil && p.dredModelLoaded && !d.ignoreExtensions && !p.dredCache.Empty() {
 		r.dredRecovery += samplesPerChannel
+	}
+	if d.celtDecoder != nil {
+		d.celtDecoder.SyncAfterDREDLoss()
 	}
 	return true
 }
