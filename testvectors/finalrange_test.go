@@ -12,6 +12,7 @@ import (
 type finalRangeVector struct {
 	filename  string
 	stereo    bool
+	wantTotal int
 	minPassed int
 }
 
@@ -23,18 +24,18 @@ type finalRangeStats struct {
 }
 
 var finalRangeVectors = []finalRangeVector{
-	{"testvector01.bit", false, 2147}, // SILK NB mono
-	{"testvector02.bit", false, 1185}, // SILK MB mono
-	{"testvector03.bit", false, 998},  // SILK WB mono
-	{"testvector04.bit", true, 1265},  // SILK NB stereo
-	{"testvector05.bit", true, 2037},  // SILK MB stereo
-	{"testvector06.bit", true, 1876},  // SILK WB stereo
-	{"testvector07.bit", false, 4186}, // Hybrid SWB mono
-	{"testvector08.bit", true, 1247},  // Hybrid SWB stereo
-	{"testvector09.bit", false, 1337}, // CELT NB mono
-	{"testvector10.bit", false, 1598}, // CELT WB mono, with hybrid transition drift
-	{"testvector11.bit", true, 553},   // CELT NB stereo
-	{"testvector12.bit", true, 1290},  // CELT WB stereo, with hybrid transition drift
+	{"testvector01.bit", false, 2147, 2147}, // SILK NB mono
+	{"testvector02.bit", false, 1185, 1185}, // SILK MB mono
+	{"testvector03.bit", false, 998, 998},   // SILK WB mono
+	{"testvector04.bit", true, 1265, 1265},  // SILK NB stereo
+	{"testvector05.bit", true, 2037, 2037},  // SILK MB stereo
+	{"testvector06.bit", true, 1876, 1876},  // SILK WB stereo
+	{"testvector07.bit", false, 4186, 4186}, // Hybrid SWB mono
+	{"testvector08.bit", true, 1247, 1247},  // Hybrid SWB stereo
+	{"testvector09.bit", false, 1337, 1337}, // CELT NB mono
+	{"testvector10.bit", false, 1912, 1598}, // CELT WB mono, with hybrid transition drift
+	{"testvector11.bit", true, 553, 553},    // CELT NB stereo
+	{"testvector12.bit", true, 1332, 1290},  // CELT WB stereo, with hybrid transition drift
 }
 
 // TestFinalRangeVerification verifies that the decoder's FinalRange matches
@@ -51,6 +52,9 @@ func TestFinalRangeVerification(t *testing.T) {
 	for _, tv := range finalRangeVectors {
 		t.Run(tv.filename, func(t *testing.T) {
 			stats := verifyFinalRange(t, filepath.Join(testVectorDir, tv.filename), tv.stereo)
+			if stats.total != tv.wantTotal {
+				t.Fatalf("FinalRange fixture packet count changed: got %d want %d", stats.total, tv.wantTotal)
+			}
 			if stats.skipped != 0 {
 				t.Fatalf("FinalRange verification skipped %d packets", stats.skipped)
 			}

@@ -947,11 +947,10 @@ func TestEncoderVariantProfileParityAgainstLibopusFixture(t *testing.T) {
 				baselineMu.Unlock()
 				b, ok := baseline[key]
 				if !ok {
-					t.Logf("ratchet baseline missing for %s (stretch signal only; regenerate after the case is stable)", key)
-					return
+					t.Fatalf("ratchet baseline missing for %s", key)
 				}
 				if misses := encoderVariantRatchetMisses(b, gapQ, measurement.stats); len(misses) > 0 {
-					t.Logf("ratchet stretch regression: %s", strings.Join(misses, "; "))
+					t.Logf("ratchet stretch advisory: %s", strings.Join(misses, "; "))
 				}
 			})
 		}
@@ -993,7 +992,7 @@ func TestEncoderVariantProfileParityAgainstLibopusFixture(t *testing.T) {
 	}
 	sort.Strings(missing)
 	if len(missing) > 0 {
-		t.Logf("ratchet baseline missing %d cases (stretch signal only): %s", len(missing), strings.Join(missing, ", "))
+		t.Fatalf("ratchet baseline missing %d cases: %s", len(missing), strings.Join(missing, ", "))
 	}
 	for key := range baseline {
 		if _, ok := fixtureKeys[key]; !ok {
