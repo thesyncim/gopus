@@ -23,10 +23,30 @@ type libopusDREDPacket struct {
 	packet         []byte
 }
 
+func scaleDREDSampleCount(samples, fromRate, toRate int) int {
+	if samples <= 0 || fromRate <= 0 || toRate <= 0 || fromRate == toRate {
+		return samples
+	}
+	return samples * toRate / fromRate
+}
+
+func libopusDREDRequestForDecoder(packetInfo libopusDREDPacket, decoderSampleRate int) (maxDREDSamples, sampleRate int) {
+	sampleRate = decoderSampleRate
+	if sampleRate <= 0 {
+		sampleRate = packetInfo.sampleRate
+	}
+	maxDREDSamples = packetInfo.maxDREDSamples
+	if packetInfo.sampleRate > 0 && sampleRate > 0 {
+		maxDREDSamples = scaleDREDSampleCount(maxDREDSamples, packetInfo.sampleRate, sampleRate)
+	}
+	return maxDREDSamples, sampleRate
+}
+
 type libopusDREDPacketConfig struct {
 	FrameSize int
 	ForceMode Mode
 	Bandwidth Bandwidth
+	Channels  int
 }
 
 type libopusDREDProcessInfo struct {
@@ -165,6 +185,9 @@ func emitLibopusDREDPacketWithConfig(cfg libopusDREDPacketConfig) (libopusDREDPa
 	if cfg.FrameSize <= 0 {
 		cfg.FrameSize = 960
 	}
+	if cfg.Channels <= 0 {
+		cfg.Channels = 1
+	}
 	forceModeEnv, err := libopusDREDForceModeEnv(cfg.ForceMode)
 	if err != nil {
 		return libopusDREDPacket{}, err
@@ -176,6 +199,7 @@ func emitLibopusDREDPacketWithConfig(cfg libopusDREDPacketConfig) (libopusDREDPa
 	cmd := exec.Command(binPath)
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("GOPUS_DRED_FRAME_SIZE=%d", cfg.FrameSize),
+		fmt.Sprintf("GOPUS_DRED_CHANNELS=%d", cfg.Channels),
 		fmt.Sprintf("GOPUS_DRED_FORCE_MODE=%s", forceModeEnv),
 		fmt.Sprintf("GOPUS_DRED_BANDWIDTH=%s", bandwidthEnv),
 	)

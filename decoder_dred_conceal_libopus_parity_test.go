@@ -292,7 +292,7 @@ func setDREDDecoderBlobFromBytesForTest(t *testing.T, dec *Decoder, modelBlob []
 func TestDecoderFirstLossNeuralConcealmentMatchesExplicitDREDOracle(t *testing.T) {
 	dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParity(t)
 
-	want, err := probeLibopusDecoderDREDDecodeFloat(packetInfo.packet, packetInfo.packet, packetInfo.maxDREDSamples, dec.sampleRate, -1, n, n)
+	want, err := probeLibopusDecoderDREDDecodeFloat(packetInfo.packet, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 	if err != nil {
 		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
 	}
@@ -324,7 +324,7 @@ func TestDecoderSecondLossNeuralConcealmentMatchesExplicitDREDOracle(t *testing.
 		t.Fatalf("Decode(nil, first) error: %v", err)
 	}
 
-	want, err := probeLibopusDecoderDREDDecodeFloat(packetInfo.packet, packetInfo.packet, packetInfo.maxDREDSamples, dec.sampleRate, n, 2*n, n)
+	want, err := probeLibopusDecoderDREDDecodeFloat(packetInfo.packet, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 2*n, n)
 	if err != nil {
 		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
 	}
@@ -356,7 +356,7 @@ func TestDecoderFirstLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) {
 	dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParity(t)
 	nextPacket := makeValidMonoCELTPacketForFrameSizeForDREDTest(t, 480)
 
-	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, dec.sampleRate, n, 1, n, 0, 0, true)
+	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 0, 0, true)
 	if err != nil {
 		t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
 	}
@@ -398,7 +398,7 @@ func TestDecoderSecondLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) 
 	dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParity(t)
 	nextPacket := makeValidMonoCELTPacketForFrameSizeForDREDTest(t, 480)
 
-	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, dec.sampleRate, n, 1, n, 1, 2*n, true)
+	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 1, 2*n, true)
 	if err != nil {
 		t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
 	}
@@ -455,7 +455,7 @@ func TestDecoderFirstLossThenNextPacket16kFrameSizeMatrixMatchesLiveSequenceOrac
 			dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParityForFrameSize(t, frameSize)
 			nextPacket := makeValidMonoCELTPacketForFrameSizeForDREDTest(t, frameSize)
 
-			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, dec.sampleRate, n, 1, n, 0, 0, true)
+			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 0, 0, true)
 			if err != nil {
 				t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
 			}
@@ -502,7 +502,7 @@ func TestDecoderSecondLossThenNextPacket16kFrameSizeMatrixMatchesLiveSequenceOra
 			dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParityForFrameSize(t, frameSize)
 			nextPacket := makeValidMonoCELTPacketForFrameSizeForDREDTest(t, frameSize)
 
-			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, dec.sampleRate, n, 1, n, 1, 2*n, true)
+			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 1, 2*n, true)
 			if err != nil {
 				t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
 			}

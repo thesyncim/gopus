@@ -83,19 +83,19 @@ func probeLibopusDecoderDREDSequence(seedPacket, carrierPacket, nextPacket []byt
 		uint32(len(decoderModelBlob)),
 		uint32(len(dredModelBlob)),
 		uint32(step0Source),
-		uint32(step1Source),
 	} {
 		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
 			return libopusDecoderDREDSequenceInfo{}, fmt.Errorf("encode decoder dred sequence helper header: %w", err)
 		}
 	}
-	for _, v := range []int32{
-		int32(step0OffsetSamples),
-		int32(step1OffsetSamples),
-	} {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			return libopusDecoderDREDSequenceInfo{}, fmt.Errorf("encode decoder dred sequence helper offset: %w", err)
-		}
+	if err := binary.Write(&payload, binary.LittleEndian, int32(step0OffsetSamples)); err != nil {
+		return libopusDecoderDREDSequenceInfo{}, fmt.Errorf("encode decoder dred sequence helper step0 offset: %w", err)
+	}
+	if err := binary.Write(&payload, binary.LittleEndian, uint32(step1Source)); err != nil {
+		return libopusDecoderDREDSequenceInfo{}, fmt.Errorf("encode decoder dred sequence helper step1 source: %w", err)
+	}
+	if err := binary.Write(&payload, binary.LittleEndian, int32(step1OffsetSamples)); err != nil {
+		return libopusDecoderDREDSequenceInfo{}, fmt.Errorf("encode decoder dred sequence helper step1 offset: %w", err)
 	}
 	var nextFlag uint32
 	if decodeNextPacket {
@@ -257,7 +257,7 @@ func probeLibopusDecoderDREDSequence(seedPacket, carrierPacket, nextPacket []byt
 func TestDecoderFirstLossNeuralConcealmentMatchesLiveSequenceOracle(t *testing.T) {
 	dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParity(t)
 
-	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, packetInfo.maxDREDSamples, dec.sampleRate, n, 1, n, 0, 0, false)
+	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 0, 0, false)
 	if err != nil {
 		t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
 	}
@@ -289,7 +289,7 @@ func TestDecoderSecondLossNeuralConcealmentMatchesLiveSequenceOracle(t *testing.
 		t.Fatalf("Decode(nil, first) error: %v", err)
 	}
 
-	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, packetInfo.maxDREDSamples, dec.sampleRate, n, 1, n, 1, 2*n, false)
+	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 1, 2*n, false)
 	if err != nil {
 		t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
 	}
@@ -323,7 +323,7 @@ func TestDecoderFirstLossNeuralConcealment16kFrameSizeMatrixMatchesLiveSequenceO
 		t.Run(fmt.Sprintf("carrier_%d", frameSize), func(t *testing.T) {
 			dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParityForFrameSize(t, frameSize)
 
-			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, packetInfo.maxDREDSamples, dec.sampleRate, n, 1, n, 0, 0, false)
+			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 0, 0, false)
 			if err != nil {
 				t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
 			}
@@ -360,7 +360,7 @@ func TestDecoderSecondLossNeuralConcealment16kFrameSizeMatrixMatchesLiveSequence
 				t.Fatalf("Decode(nil, first) error: %v", err)
 			}
 
-			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, packetInfo.maxDREDSamples, dec.sampleRate, n, 1, n, 1, 2*n, false)
+			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 1, 2*n, false)
 			if err != nil {
 				t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
 			}

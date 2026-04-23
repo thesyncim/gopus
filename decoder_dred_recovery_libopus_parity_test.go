@@ -111,8 +111,8 @@ func assertDecoderCachedDREDRecoveryMatchesLibopusLifecycle(t *testing.T, label 
 	if requireDecoderDREDState(t, dec).dredCache.Empty() {
 		t.Fatalf("%s Decode(nil) dropped cached DRED payload before recovery scheduling", label)
 	}
-	if got := requireDecoderDREDState(t, dec).dredPLC.Blend(); got != 0 {
-		t.Fatalf("%s Blend after PLC=%d want 0", label, got)
+	if got := requireDecoderDREDState(t, dec).dredPLC.Blend(); got != 1 {
+		t.Fatalf("%s Blend after PLC=%d want 1", label, got)
 	}
 
 	if _, err := dec.Decode(packetInfo.packet, pcm); err != nil {

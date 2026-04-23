@@ -95,7 +95,11 @@ func EnsureLibopus(version string, roots []string) {
 			continue
 		}
 
-		cmd := exec.Command("sh", script)
+		shell := "bash"
+		if _, err := exec.LookPath(shell); err != nil {
+			shell = "sh"
+		}
+		cmd := exec.Command(shell, script)
 		cmd.Env = append(os.Environ(), "LIBOPUS_VERSION="+version)
 		_, _ = cmd.CombinedOutput()
 		return
