@@ -91,6 +91,11 @@ Implemented or in progress:
 - the required unsupported-controls gate now includes Hybrid SWB/FB `10 ms`/`20 ms` decoder parity on both the explicit and live cached paths, alongside explicit 48 kHz warmup-state parity, first-loss and second-loss CELT bridge-state parity, first resumed good-packet handoff parity, and the 48 kHz mono CELT frame-size matrix
 - fallback-loss bookkeeping no longer forces the pure-Go LPCNet blend state forward when neural concealment did not actually run, but cached recovery scheduling still preserves the libopus-shaped post-loss recovery phase across recache boundaries
 - encoder-side `DFrameSize` staging / rollover groundwork exists in pure Go
+- encoder-side DNN admission is now stricter than simple manifest booleans: the retained encoder DNN blob must bind both the pure-Go RDOVAE encoder model family and the shared pure-Go PitchDNN analysis model family before `DREDModelLoaded()` reports ready, which gives the encoder path a real model-contract seam before latent generation and bitstream emission land
+- the pure-Go RDOVAE encoder runtime now mirrors libopus `dred_rdovae_encode_dframe()` with reusable caller-owned processor state/scratch and focused zero-allocation coverage
+- the pure-Go encoder-side same-rate 16 kHz latent generator now mirrors libopus `dred_process_frame()` for mono and stereo-downmix input by feeding two retained LPCNet single-frame feature vectors into the RDOVAE encoder runtime, so the encoder path now has real latent/state generation on the exercised seam instead of only model admission
+- encoder optional-extra ownership is now tighter too: DRED controls/runtime sit behind a lazy sidecar, `SetDNNBlob(...)` only binds model families, the runtime materializes only when model+duration+eligible mono 16 kHz use actually arm it, and disabling/resetting DRED drops that sidecar back to a dormant state
+- the internal encoder path now advances the exercised same-rate 16 kHz latent generator before DTX on armed mono and stereo frames, which is closer to libopus `opus_encoder.c` ordering even though resampling breadth and payload emission are still missing
 
 Recent closed seams to avoid re-debugging:
 
@@ -108,11 +113,9 @@ Recent closed seams to avoid re-debugging:
 Still missing for full parity:
 
 - decoder-level parity beyond the current mono seams after CELT + Hybrid 48 kHz mono and the exercised 16 kHz mono seam, especially stereo/multistream coverage, broader packet coverage, and the final supported-surface decisions for what graduates from quarantine
-- encoder-side DRED latent generation and bitstream emission
-- broader live-oracle adoption beyond the covered mono cached seams; some cached/live tests still compare against the explicit `opus_decoder_dred_decode_float()` helper and should not be treated as final live-oracle coverage
-- broader adoption of the new decoder-sequence oracle beyond the covered mono seams; stereo/multistream paths and wider packet matrices still need to be migrated off the explicit-oracle fallback where those surfaces become supported
-- the new live-sequence tests still need runtime signal from CI before we can treat those seams as green; until then they should be treated as stronger oracles in flight, not closed parity claims, and the current Hybrid state-only path specifically still needed a `preemph_memD` carry fix to avoid resumed-good-packet drift
-- the broader runtime gates still need another clean pass after the lazy-sidecar test expectation update; the last red `test-linux-race` run was stale lifecycle coverage, not a confirmed new data race
+- model-backed `opus_decoder_dred_decode*()` parity, including the remaining `LPCNetEncState`-shaped analysis/runtime mirror and decoder-owned integration that explicit decode depends on
+- broader live-oracle adoption beyond the covered mono cached seams; some cached/live tests still compare against the explicit `opus_decoder_dred_decode_float()` helper, and stereo/multistream paths plus wider packet matrices still need migration to live-sequence coverage where those surfaces become supported
+- encoder-side DRED beyond the current exercised same-rate 16 kHz latent-generation seam: broader sample-rate conversion parity, latent/state buffering breadth, and payload emission
 - clean runtime re-verification after the current macOS launcher issue: newly linked local Go binaries are intermittently stalling before Go runtime with `com.apple.provenance` present, so compile-only checks may pass while runtime parity remains blocked locally
 
 ## Workstreams
@@ -206,7 +209,7 @@ Subtasks:
 
 Important note:
 - `DFrameSize = 2 * FrameSize` now has a matching pure-Go staging helper for encoder buffering and rollover
-- full encoder-side latent generation and payload emission are still not implemented
+- the current pure-Go encoder seam now covers retained same-rate 16 kHz mono and stereo-downmix latent/state generation, but broader sample-rate conversion and payload emission are still not implemented
 
 Reference files:
 - `tmp_check/opus-1.6.1/dnn/dred_config.h`
