@@ -9,6 +9,34 @@ import (
 	"github.com/thesyncim/gopus"
 )
 
+type finalRangeVector struct {
+	filename  string
+	stereo    bool
+	minPassed int
+}
+
+type finalRangeStats struct {
+	passed  int
+	failed  int
+	skipped int
+	total   int
+}
+
+var finalRangeVectors = []finalRangeVector{
+	{"testvector01.bit", false, 2147}, // SILK NB mono
+	{"testvector02.bit", false, 1185}, // SILK MB mono
+	{"testvector03.bit", false, 998},  // SILK WB mono
+	{"testvector04.bit", true, 1265},  // SILK NB stereo
+	{"testvector05.bit", true, 2037},  // SILK MB stereo
+	{"testvector06.bit", true, 1876},  // SILK WB stereo
+	{"testvector07.bit", false, 4186}, // Hybrid SWB mono
+	{"testvector08.bit", true, 1247},  // Hybrid SWB stereo
+	{"testvector09.bit", false, 1337}, // CELT NB mono
+	{"testvector10.bit", false, 1598}, // CELT WB mono, with hybrid transition drift
+	{"testvector11.bit", true, 553},   // CELT NB stereo
+	{"testvector12.bit", true, 1290},  // CELT WB stereo, with hybrid transition drift
+}
+
 // TestFinalRangeVerification verifies that the decoder's FinalRange matches
 // the expected FinalRange stored in the test vector packets.
 // This is a critical compliance test per RFC 6716.
@@ -20,33 +48,22 @@ func TestFinalRangeVerification(t *testing.T) {
 		t.Skip("Test vectors not found at", testVectorDir)
 	}
 
-	// Test all 12 test vectors
-	testVectors := []struct {
-		filename string
-		stereo   bool
-	}{
-		{"testvector01.bit", false}, // SILK NB mono
-		{"testvector02.bit", false}, // SILK MB mono
-		{"testvector03.bit", false}, // SILK WB mono
-		{"testvector04.bit", true},  // SILK NB stereo
-		{"testvector05.bit", true},  // SILK MB stereo
-		{"testvector06.bit", true},  // SILK WB stereo
-		{"testvector07.bit", false}, // Hybrid SWB mono
-		{"testvector08.bit", true},  // Hybrid SWB stereo
-		{"testvector09.bit", false}, // CELT NB mono
-		{"testvector10.bit", false}, // CELT WB mono
-		{"testvector11.bit", true},  // CELT NB stereo
-		{"testvector12.bit", true},  // CELT WB stereo
-	}
-
-	for _, tv := range testVectors {
+	for _, tv := range finalRangeVectors {
 		t.Run(tv.filename, func(t *testing.T) {
-			verifyFinalRange(t, filepath.Join(testVectorDir, tv.filename), tv.stereo)
+			stats := verifyFinalRange(t, filepath.Join(testVectorDir, tv.filename), tv.stereo)
+			if stats.skipped != 0 {
+				t.Fatalf("FinalRange verification skipped %d packets", stats.skipped)
+			}
+			if stats.passed < tv.minPassed {
+				t.Fatalf("FinalRange parity regressed: passed %d want at least %d", stats.passed, tv.minPassed)
+			}
 		})
 	}
 }
 
-func verifyFinalRange(t *testing.T, bitFile string, stereo bool) {
+func verifyFinalRange(t *testing.T, bitFile string, stereo bool) finalRangeStats {
+	t.Helper()
+
 	// Parse the bitstream file
 	packets, err := ReadBitstreamFile(bitFile)
 	if err != nil {
@@ -70,8 +87,8 @@ func verifyFinalRange(t *testing.T, bitFile string, stereo bool) {
 		t.Fatalf("Failed to create decoder: %v", err)
 	}
 
-	// Allocate PCM buffer (max 60ms at 48kHz stereo)
-	pcm := make([]float32, 2880*2)
+	// Allocate for the decoder's configured packet cap, including 120 ms packets.
+	pcm := make([]float32, cfg.MaxPacketSamples*channels)
 
 	// Track statistics
 	var passed, failed, skipped int
@@ -80,7 +97,9 @@ func verifyFinalRange(t *testing.T, bitFile string, stereo bool) {
 		// Decode the packet
 		_, err := decoder.Decode(pkt.Data, pcm)
 		if err != nil {
-			t.Logf("Packet %d: decode error: %v (skipping FinalRange check)", i, err)
+			if skipped < 5 {
+				t.Logf("Packet %d: decode error: %v (skipping FinalRange check)", i, err)
+			}
 			skipped++
 			continue
 		}
@@ -105,12 +124,12 @@ func verifyFinalRange(t *testing.T, bitFile string, stereo bool) {
 	t.Logf("FinalRange verification: %d passed, %d failed, %d skipped out of %d packets",
 		passed, failed, skipped, len(packets))
 
-	// For now, just report the results - don't fail the test since
-	// FinalRange matching is a stretch goal for production readiness.
-	// Uncomment the following to make this a hard failure:
-	// if failed > 0 {
-	// 	t.Errorf("FinalRange verification failed for %d packets", failed)
-	// }
+	return finalRangeStats{
+		passed:  passed,
+		failed:  failed,
+		skipped: skipped,
+		total:   len(packets),
+	}
 }
 
 // TestFinalRangeNonZero verifies that FinalRange returns non-zero after decoding.
@@ -236,7 +255,7 @@ func TestFinalRangeAllVectors(t *testing.T) {
 			continue
 		}
 
-		pcm := make([]float32, 2880*2)
+		pcm := make([]float32, cfg.MaxPacketSamples*channels)
 		var passed, failed int
 
 		for _, pkt := range packets {
