@@ -910,8 +910,7 @@ func (d *Decoder) markDREDUpdatedPCM(pcm []float32, samplesPerChannel int, mode 
 		return
 	}
 	r.dredPLC.ClearBlend()
-	switch {
-	case d.sampleRate == 16000 && d.channels == 1 && samplesPerChannel >= lpcnetplc.FrameSize && samplesPerChannel%lpcnetplc.FrameSize == 0 && len(pcm) >= samplesPerChannel:
+	if d.sampleRate == 16000 && d.channels == 1 && samplesPerChannel >= lpcnetplc.FrameSize && samplesPerChannel%lpcnetplc.FrameSize == 0 && len(pcm) >= samplesPerChannel {
 		d.updateDREDPCMHistory(pcm[:samplesPerChannel])
 	}
 }
