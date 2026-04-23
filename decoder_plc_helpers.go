@@ -82,9 +82,6 @@ func (d *Decoder) decodePLCChunksInto(out []float32, frameSize int, state plcDec
 
 func (d *Decoder) decodeHybridDRED48kInto(out []float32, frameSize int, state plcDecodeState) (int, bool, error) {
 	useDRED := d.dredCachedPayloadActive()
-	if useDRED {
-		d.queueActiveDREDRecovery(frameSize)
-	}
 	if d.dredNeuralConcealmentAvailable() {
 		d.prepareDRED48kNeuralEntry(frameSize, state.mode, false)
 	}
@@ -111,30 +108,20 @@ func (d *Decoder) decodeHybridDRED48kInto(out []float32, frameSize int, state pl
 		return r.dredPLC.GenerateConcealedFrameFloat(&neural.dredPredictor, &neural.dredFARGAN, frame[:lpcnetplc.FrameSize])
 	}
 	var ok bool
-	if useDRED {
-		ok = d.celtDecoder.ConcealDRED48kMonoStateOnly(
-			n,
-			&b.dredLastNeural,
-			b.dredPLCPCM[:],
-			&b.dredPLCFill,
-			&b.dredPLCPreemphMem,
-			generate,
-		)
-	} else {
-		ok = d.celtDecoder.ConcealPLCNeural48kMonoStateOnly(
-			n,
-			&b.dredLastNeural,
-			b.dredPLCPCM[:],
-			&b.dredPLCFill,
-			&b.dredPLCPreemphMem,
-			generate,
-		)
-	}
+	ok = d.celtDecoder.ConcealPLCNeural48kMonoStateOnly(
+		n,
+		&b.dredLastNeural,
+		b.dredPLCPCM[:],
+		&b.dredPLCFill,
+		&b.dredPLCPreemphMem,
+		generate,
+	)
 	if !ok {
 		return n, false, nil
 	}
 	if useDRED {
-		d.finishActiveDREDRecovery(n)
+		r.dredBlend = max(r.dredBlend, r.dredPLC.Blend())
+		r.dredRecovery += n
 	}
 	return n, true, nil
 }

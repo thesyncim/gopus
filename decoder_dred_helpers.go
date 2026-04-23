@@ -714,25 +714,16 @@ func (d *Decoder) applyDREDNeuralConcealment(pcm []float32, samplesPerChannel in
 	}
 	if b != nil && (d.sampleRate == 48000 || d.sampleRate == 16000) {
 		useDRED := d.dredCachedPayloadActive()
-		if useDRED {
-			d.queueActiveDREDRecovery(samplesPerChannel)
-		}
 		d.prepareDRED48kNeuralEntry(samplesPerChannel, d.prevMode, false)
-		if b == nil {
-			return false
-		}
 		if !b.dredLastNeural && b.dredPLCFill == 0 && r.dredPLC.FECFillPos() == 0 && r.dredPLC.FECSkip() == 0 {
 			d.prepareCachedDREDNeuralConcealment(samplesPerChannel)
 		}
-		if useDRED {
-			if !d.applyDREDNeuralConcealment48kMono(pcm, samplesPerChannel) {
-				return false
-			}
-			d.finishActiveDREDRecovery(samplesPerChannel)
-			return true
-		}
 		if !d.applyPLCNeuralConcealment48kMono(pcm, samplesPerChannel) {
 			return false
+		}
+		if useDRED {
+			r.dredBlend = max(r.dredBlend, r.dredPLC.Blend())
+			r.dredRecovery += samplesPerChannel
 		}
 		return true
 	}
