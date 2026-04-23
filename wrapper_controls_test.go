@@ -9,6 +9,7 @@ import (
 
 	encodercore "github.com/thesyncim/gopus/encoder"
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/dred/rdovae"
 	"github.com/thesyncim/gopus/internal/lpcnetplc"
 )
 
@@ -214,6 +215,28 @@ func appendTestBlobRecord(dst []byte, name string, typ int32, payloadSize int) [
 	return append(dst, out...)
 }
 
+func appendTestBlobRecordWithPayload(dst []byte, name string, typ int32, payload []byte) []byte {
+	const headerSize = 64
+	blockSize := ((len(payload) + headerSize - 1) / headerSize) * headerSize
+	out := make([]byte, headerSize+blockSize)
+	copy(out[:4], []byte("DNNw"))
+	binary.LittleEndian.PutUint32(out[8:12], uint32(typ))
+	binary.LittleEndian.PutUint32(out[12:16], uint32(len(payload)))
+	binary.LittleEndian.PutUint32(out[16:20], uint32(blockSize))
+	copy(out[20:63], []byte(name))
+	out[63] = 0
+	copy(out[headerSize:], payload)
+	return append(dst, out...)
+}
+
+func encodeInt32s(values []int32) []byte {
+	out := make([]byte, 4*len(values))
+	for i, v := range values {
+		binary.LittleEndian.PutUint32(out[i*4:i*4+4], uint32(v))
+	}
+	return out
+}
+
 type testBlobRecordSpec struct {
 	typ  int32
 	size int
@@ -253,12 +276,61 @@ func makeFramedButIncompatibleTestDNNBlob() []byte {
 }
 
 func makeValidEncoderTestDNNBlob() []byte {
+	specs := make(map[string]testBlobRecordSpec)
+	for _, spec := range lpcnetplc.PitchDNNLinearLayerSpecs() {
+		addLinearLayerTestBlobSpec(specs, spec)
+	}
+	for _, spec := range lpcnetplc.PitchDNNConv2DLayerSpecs() {
+		addConv2DLayerTestBlobSpec(specs, spec)
+	}
+	names := make([]string, 0, len(specs))
+	for name := range specs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
 	var blob []byte
-	for _, name := range dnnblob.RequiredEncoderControlRecordNames() {
-		payloadSize := 4
-		blob = appendTestBlobRecord(blob, name, 0, payloadSize)
+	for _, name := range names {
+		spec := specs[name]
+		blob = appendTestBlobRecord(blob, name, spec.typ, spec.size)
+	}
+	for _, spec := range rdovae.EncoderLayerSpecs() {
+		blob = appendRDOVAEEncoderLayerRecords(blob, spec)
 	}
 	return blob
+}
+
+func appendRDOVAEEncoderLayerRecords(dst []byte, spec rdovae.LinearLayerSpec) []byte {
+	totalBlocks := 0
+	if spec.Bias != "" {
+		dst = appendTestBlobRecord(dst, spec.Bias, dnnblob.TypeFloat, 4*spec.NbOutputs)
+	}
+	if spec.Subias != "" {
+		dst = appendTestBlobRecord(dst, spec.Subias, dnnblob.TypeFloat, 4*spec.NbOutputs)
+	}
+	if spec.WeightsIdx != "" {
+		idx := make([]int32, 0, 2*(spec.NbOutputs/8))
+		for i := 0; i < spec.NbOutputs; i += 8 {
+			idx = append(idx, 1, 0)
+			totalBlocks++
+		}
+		dst = appendTestBlobRecordWithPayload(dst, spec.WeightsIdx, dnnblob.TypeInt, encodeInt32s(idx))
+	}
+	if spec.Weights != "" {
+		size := spec.NbInputs * spec.NbOutputs
+		if totalBlocks > 0 {
+			size = rdovae.SparseBlockSize * totalBlocks
+		}
+		dst = appendTestBlobRecord(dst, spec.Weights, dnnblob.TypeInt8, size)
+		dst = appendTestBlobRecord(dst, spec.Scale, dnnblob.TypeFloat, 4*spec.NbOutputs)
+	}
+	if spec.FloatWeights != "" {
+		size := spec.NbInputs * spec.NbOutputs
+		if totalBlocks > 0 {
+			size = rdovae.SparseBlockSize * totalBlocks
+		}
+		dst = appendTestBlobRecord(dst, spec.FloatWeights, dnnblob.TypeFloat, 4*size)
+	}
+	return dst
 }
 
 func makeValidDecoderTestDNNBlob() []byte {

@@ -1,0 +1,141 @@
+package encoder
+
+import (
+	"github.com/thesyncim/gopus/internal/dnnblob"
+	internaldred "github.com/thesyncim/gopus/internal/dred"
+	"github.com/thesyncim/gopus/internal/dred/rdovae"
+	"github.com/thesyncim/gopus/internal/lpcnetplc"
+)
+
+const maxDREDPCM16k = 1920
+
+type dredEncoderModels struct {
+	encoder *rdovae.EncoderModel
+	pitch   *lpcnetplc.PitchDNNModel
+}
+
+func (m dredEncoderModels) loaded() bool {
+	return m.encoder != nil && m.pitch != nil
+}
+
+type dredEncoderRuntime struct {
+	generator     internaldred.LatentGenerator
+	scaledPCM16k  [maxDREDPCM16k]float32
+	latestLatents [rdovae.LatentDim]float32
+	latestState   [rdovae.StateDim]float32
+	emitted       int
+}
+
+type dredEncoderExtras struct {
+	duration int
+	models   dredEncoderModels
+	runtime  *dredEncoderRuntime
+}
+
+func (e *Encoder) ensureDREDExtras() *dredEncoderExtras {
+	if e.dred == nil {
+		e.dred = &dredEncoderExtras{}
+	}
+	return e.dred
+}
+
+func (e *Encoder) pruneDREDExtrasIfDormant() {
+	if e.dred == nil {
+		return
+	}
+	if e.dred.duration == 0 && !e.dred.models.loaded() {
+		e.dred = nil
+	}
+}
+
+func (e *Encoder) dredModelsLoaded() bool {
+	return e.dred != nil && e.dred.models.loaded()
+}
+
+func (e *Encoder) resetDREDControls() {
+	if e.dred == nil {
+		return
+	}
+	e.dred.duration = 0
+	e.dred.runtime = nil
+	e.pruneDREDExtrasIfDormant()
+}
+
+func (e *Encoder) clearDREDRuntime() {
+	if e.dred != nil {
+		e.dred.runtime = nil
+	}
+}
+
+// SetDNNBlob retains a validated USE_WEIGHTS_FILE blob for optional extension
+// paths. A nil blob clears the retained model.
+func (e *Encoder) SetDNNBlob(blob *dnnblob.Blob) {
+	e.dnnBlob = blob
+	if e.dred != nil {
+		e.dred.models = dredEncoderModels{}
+		e.dred.runtime = nil
+	}
+	if blob == nil {
+		e.pruneDREDExtrasIfDormant()
+		return
+	}
+	encModel, err := rdovae.LoadEncoder(blob)
+	if err != nil {
+		e.pruneDREDExtrasIfDormant()
+		return
+	}
+	pitchModel, err := lpcnetplc.LoadPitchDNNModel(blob)
+	if err != nil {
+		e.pruneDREDExtrasIfDormant()
+		return
+	}
+	extra := e.ensureDREDExtras()
+	extra.models.encoder = encModel
+	extra.models.pitch = pitchModel
+}
+
+func (e *Encoder) ensureActiveDREDRuntime() *dredEncoderRuntime {
+	if e.dnnBlob == nil || e.dred == nil || e.dred.duration <= 0 || !e.dred.models.loaded() {
+		return nil
+	}
+	if e.sampleRate != 16000 || (e.channels != 1 && e.channels != 2) {
+		return nil
+	}
+	if e.dred.runtime != nil {
+		return e.dred.runtime
+	}
+	runtime := &dredEncoderRuntime{}
+	if err := runtime.generator.SetDNNBlob(e.dnnBlob); err != nil {
+		return nil
+	}
+	e.dred.runtime = runtime
+	return runtime
+}
+
+func (e *Encoder) processDREDLatents(framePCM []float64, extraDelay int) int {
+	runtime := e.ensureActiveDREDRuntime()
+	if runtime == nil || len(framePCM) == 0 || len(framePCM)%e.channels != 0 {
+		return 0
+	}
+	samplesPerChannel := len(framePCM) / e.channels
+	if samplesPerChannel > len(runtime.scaledPCM16k) {
+		return 0
+	}
+	switch e.channels {
+	case 1:
+		for i, v := range framePCM {
+			runtime.scaledPCM16k[i] = 32768 * float32(v)
+		}
+	case 2:
+		for i := 0; i < samplesPerChannel; i++ {
+			runtime.scaledPCM16k[i] = 16384 * float32(framePCM[2*i]+framePCM[2*i+1])
+		}
+	default:
+		return 0
+	}
+	return runtime.generator.Process16k(e.dred.models.encoder, runtime.scaledPCM16k[:samplesPerChannel], extraDelay, func(latents, state []float32) {
+		copy(runtime.latestLatents[:], latents[:rdovae.LatentDim])
+		copy(runtime.latestState[:], state[:rdovae.StateDim])
+		runtime.emitted++
+	})
+}

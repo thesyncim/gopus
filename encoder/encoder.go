@@ -139,13 +139,9 @@ type Encoder struct {
 	// dnnBlob retains a validated USE_WEIGHTS_FILE blob for future optional
 	// extension paths (DRED/OSCE). Keeping it here mirrors libopus ctl lifetime.
 	dnnBlob *dnnblob.Blob
-	// dredModelLoaded tracks whether the retained blob contains the DRED encoder
-	// model families libopus requires before it can emit DRED payloads.
-	dredModelLoaded bool
-
-	// dredDuration mirrors libopus OPUS_SET_DRED_DURATION in 2.5 ms units.
-	// Reset() clears it back to zero.
-	dredDuration int
+	// dred owns all optional DRED encoder controls/runtime so the main encoder
+	// stays effectively zero-cost when extras are not armed.
+	dred *dredEncoderExtras
 
 	// DC rejection filter state
 	hpMem [4]float32
@@ -337,13 +333,6 @@ func (e *Encoder) QEXT() bool {
 	return e.qextEnabled
 }
 
-// SetDNNBlob retains a validated USE_WEIGHTS_FILE blob for optional extension
-// paths. A nil blob clears the retained model.
-func (e *Encoder) SetDNNBlob(blob *dnnblob.Blob) {
-	e.dnnBlob = blob
-	e.dredModelLoaded = blob != nil && blob.SupportsDREDEncoder() && blob.SupportsPitchDNN()
-}
-
 // DNNBlobLoaded reports whether a validated model blob is retained.
 func (e *Encoder) DNNBlobLoaded() bool {
 	return e.dnnBlob != nil
@@ -420,7 +409,7 @@ func (e *Encoder) Reset() {
 	e.lbrrCoded = false
 	e.widthMem = StereoWidthMem{}
 	e.toMono = 0
-	e.dredDuration = 0
+	e.resetDREDControls()
 }
 
 // SetFEC enables or disables in-band Forward Error Correction.
@@ -658,6 +647,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	frameEnd := frameSize * e.channels
 	framePCM := e.inputBuffer[:frameEnd]
 	lookaheadSlice := e.inputBuffer[frameEnd : frameEnd+lookaheadSamples]
+	e.processDREDLatents(framePCM, lookaheadSamples)
 
 	suppressFrame, _ := e.shouldUseDTX(framePCM)
 	if suppressFrame {

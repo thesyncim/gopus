@@ -200,6 +200,33 @@ func computeGenericConv1D(layer *LinearLayer, output, mem, input []float32, inpu
 	}
 }
 
+func computeGenericConv1DDilation(layer *LinearLayer, output, mem, input []float32, inputSize, dilation, activation int, scratch *runtimeScratch) {
+	tmp := scratch.convInput[:layer.NbInputs]
+	kernelSize := layer.NbInputs / inputSize
+	if dilation == 1 {
+		if layer.NbInputs != inputSize {
+			copy(tmp[:layer.NbInputs-inputSize], mem[:layer.NbInputs-inputSize])
+		}
+	} else {
+		for i := 0; i < kernelSize-1; i++ {
+			src := i * inputSize * dilation
+			copy(tmp[i*inputSize:(i+1)*inputSize], mem[src:src+inputSize])
+		}
+	}
+	copy(tmp[layer.NbInputs-inputSize:layer.NbInputs], input[:inputSize])
+	computeLinear(layer, output[:layer.NbOutputs], tmp[:layer.NbInputs], scratch)
+	computeActivation(output, output, layer.NbOutputs, activation)
+	if dilation == 1 {
+		if layer.NbInputs != inputSize {
+			copy(mem[:layer.NbInputs-inputSize], tmp[inputSize:layer.NbInputs])
+		}
+		return
+	}
+	shift := inputSize*dilation*(kernelSize-1) - inputSize
+	copy(mem[:shift], mem[inputSize:inputSize+shift])
+	copy(mem[shift:shift+inputSize], input[:inputSize])
+}
+
 func computeLinear(layer *LinearLayer, out, in []float32, scratch *runtimeScratch) {
 	bias := layer.Bias
 	n := layer.NbOutputs
