@@ -98,6 +98,7 @@ func ensureLibopusPLCBuild() (sourceDir, buildDir string, err error) {
 		}
 
 		if _, err := os.Stat(filepath.Join(sourceDir, "configure")); err != nil {
+			libopustooling.EnsureLibopus(libopustooling.DefaultVersion, []string{repoRoot})
 			if _, refErr := os.Stat(filepath.Join(referenceDir, "configure")); refErr == nil {
 				sourceDir = referenceDir
 			} else {
